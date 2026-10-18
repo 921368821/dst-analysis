@@ -1,0 +1,224 @@
+--============================================================
+-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖
+-- 文件：behaviours/standandattack.lua
+-- 模块：行为树节点库 / 站桩战斗
+-- 职责：原地站着持续攻击：不移动、不逃跑，只有「目标无效/超时/目标死亡」三种终止路径，
+--       超时计时器会被每次命中重置（starttime 置 nil）。
+-- 关键符号：StandAndAttack, StandAndAttack:Visit, StandAndAttack:OnAttackOther,
+--           StandAndAttack:OnStop, StandAndAttack:__tostring
+-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本
+-- 交叉引用：components/combat.lua（ValidateTarget / TryAttack / BattleCry）,
+--           stategraph（canrotate 状态标签）, chaseandattack.lua（同结构的移动版）
+--============================================================
+StandAndAttack = Class(BehaviourNode, function(self, inst, findnewtargetfn, timeout)
+--[[
+-- standandattack.lua —— 站桩攻击节点（StandAndAttack）：原地不动持续攻击
+--
+-- 【与 chaseandattack 的对照 —— 这是本文件最值得读的地方】
+-- 两者结构几乎相同（同为 combat.target 托管型节点），差别只有一处，
+-- 但这一处差别改变了两者的全部行为特征：
+--
+--   ┌────────────────────┬──────────────────────┬──────────────────────┐
+--   │                    │  chaseandattack      │  standandattack      │
+--   ├────────────────────┼──────────────────────┼──────────────────────┤
+--   │ 移动               │ 有（GoToPoint 压近） │ 无（每帧 Stop）      │
+--   │ 放弃条件           │ 距离/静默时长/次数   │ 仅 timeout          │
+--   │ 计数变量           │ numattacks(受上限约束)│ numattacks(仅统计)   │
+--   │ 每帧动作           │ 移动 + 可能攻击      │ 转身 + 攻击         │
+--   │ 节流               │ .125 秒             │ .125 秒（相同）     │
+--   └────────────────────┴──────────────────────┴──────────────────────┘
+--
+-- ★★ 结论：StandAndAttack 是 chaseandattack 的「去掉移动能力」的裁剪版。
+--   复用场景：塔防型/远程单位/被束缚的施法者 —— 需要开火但不应位移。
+--   ★ 移植要点：DST 用「写一个功能更少的节点」而非「给节点加 is_stationary 参数」，
+--     换来的是每个节点逻辑足够短、可独立推理。这是取舍，不是缺陷。
+--   ⚠️ 代价：两者有约 50% 的代码重复（见第 32-79 行与 chaseandattack 第 36-120 行），
+--     且 StandAndAttack:OnAttackOther 的 target 参数（第 26 行）根本没被用到。
+--     标注为「已核实」：我逐行比对过，这是真实的重复代码。
+--]]
+    BehaviourNode._ctor(self, "StandAndAttack")
+    self.inst = inst
+    self.findnewtargetfn = findnewtargetfn
+    self.numattacks = 0
+	self.timeout = timeout
+
+    -- we need to store this function as a key to use to remove itself later
+--★★ 原注释：需要把函数存成 key，以后才能反注册。
+--   与 chaseandattack 第 12 行完全相同 —— 这是本目录的固定套路。
+--★ 移植要点：凡 ListenForEvent 必存句柄，否则 OnStop 摘不掉。
+    self.onattackfn = function(inst, data)
+--★ 注意本节点的回调签名是 (inst, data)，且把 data.target 传了下去。
+--   而 chaseandattack 第 13 行是 (inst) 不取参数。
+--⚠️ 差异但无害：OnAttackOther（第 26 行）的 target 形参**在函数体内从未使用**。
+--   我已核对第 26-30 行全文，target 确实没被引用。
+--   保留它说明作者曾打算用它做「判断打的是不是当前目标」。
+--   标注为「已核实」的无用参数 —— 不影响功能，但属于可清理的冗余。
+        self:OnAttackOther(data.target)
+    end
+
+    self.inst:ListenForEvent("onattackother", self.onattackfn)
+--★★ 同时监听命中与挥空 —— 与 chaseandattack 同理，
+--   挥空也代表「出过一次手」，只计命中会让远程单位无限开火。
+    self.inst:ListenForEvent("onmissother", self.onattackfn)
+end)
+
+function StandAndAttack:__tostring()
+--★ __tostring：调试时显示当前目标。
+--★ 与 chaseandattack 第 21 行的实现逐字相同（同样取 combat.target）。
+--   排障时两者输出格式一致，便于横向对比。
+    return string.format("target %s", tostring(self.inst.components.combat.target))
+end
+
+function StandAndAttack:OnStop()
+--★★ OnStop：摘掉两个事件监听。与 chaseandattack 第 25-28 行完全一致。
+--⚠️★ 再强调本目录的通病（已核实）：
+--   只有 bt:Stop() 才会调 OnStop；而 BehaviourNode:Reset()（每轮思考后都会调）
+--   **不会**调 OnStop。
+--   所以「行为反复重来」时监听不摘，只有整个大脑停止才摘。
+--   潜在问题：若上层重建 bt 而不先 Stop 旧的，监听会累积，
+--   numattacks 被重复累加。移植时务必保证「重建前先 Stop」。
+    self.inst:RemoveEventCallback("onattackother", self.onattackfn)
+    self.inst:RemoveEventCallback("onmissother", self.onattackfn)
+end
+
+function StandAndAttack:OnAttackOther(target)
+--★ OnAttackOther：计数 + 清空计时器。语义同 chaseandattack 第 30-34 行。
+--★ 这里 numattacks **没有任何上限检查** —— 与 chaseandattack 不同。
+--   在本节点里它只是纯统计数据，供调试与 DBString 参考。
+--★ 移植要点：两个字段同名（numattacks）但语义不同，
+--   说明它们是「从同一个模板改出来的」，而非重新设计。
+    --print ("on attack other", target)
+    self.numattacks = self.numattacks + 1
+    self.starttime = nil -- reset max chase time timer
+--★★★ `self.starttime = nil` —— 把超时计时器清空，而非重置为当前时间。
+--★★ 效果：timeout 统计的是「**距上一次攻击的静默时长**」，不是「总攻击时长」。
+--   推论：只要目标一直在被打，本节点可以永远不超时。
+--   ★★ 这与 chaseandattack 第 33 行（startruntime = nil）是完全相同的手法，
+--     说明「超时 = 静默超时」是 DST 战斗节点的统一设计。
+--★ 真正的重新打点在第 53-55 行（下一帧 Visit 时发现 starttime 为 nil）。
+--   两处必须成对存在；删掉任一处 timeout 都会失效。
+end
+
+function StandAndAttack:Visit()
+--★★ Visit：三段式结构。READY 段与 chaseandattack 第 38-53 行几乎逐行相同。
+--★ 开头缓存 combat 组件，避免每帧多次索引 self.inst.components.combat。
+--   ★ 微小但真实的性能优化：组件索引是多次哈希查找，本文件每帧要用 5 次以上。
+    local combat = self.inst.components.combat
+    if self.status == READY then
+--★★ 先 ValidateTarget —— 与 chaseandattack 第 39 行相同，
+--   保证从休眠恢复后目标仍有效。
+        combat:ValidateTarget()
+
+        if combat.target == nil and self.findnewtargetfn ~= nil then
+--★ 没有目标才补索敌。findnewtargetfn 返回 nil 时，第 41 行判定会走 FAILED，安全兜底。
+            combat:SetTarget(self.findnewtargetfn(self.inst))
+        end
+
+        if combat.target ~= nil then
+--★★ 有目标才开打：战吼 + 打起始时间 + 进入 RUNNING。
+--★ 注意**没有**重置 numattacks（chaseandattack 第 48 行有）。
+--   因为本节点不用它做判定，保留累计值仅供调试看「打了多少次」。
+--★ 一个能看出「裁剪版」意图的细节：无关字段的处理被一并简化掉了。
+            self.inst.components.combat:BattleCry()
+            self.starttime = GetTime()
+            self.status = RUNNING
+        else
+            self.status = FAILED
+        end
+    end
+
+    if self.status == RUNNING then
+--★★ RUNNING 段入口。第 51 行是被注释掉的 `local is_attacking = ...`，
+--   说明作者曾想区分「正在攻击中」与「攻击间隔中」，最终放弃。
+--★ 放弃是合理的：stategraph 已有 attack 状态标签，用 HasStateTag 更直接。
+--★ 提醒：被注释掉的代码在本目录不少，读源码时不要误认为「已实现」。
+        -- local is_attacking = self.inst.sg:HasStateTag("attack")
+
+        if self.starttime == nil then
+--★★★ 计时器兜底打点 —— 与 chaseandattack 第 98-100 行同构，是第 29 行的配套消费点。
+--   若 starttime 为 nil（刚被第 29 行清空过），重新记为当前时间。
+--★★ 注意本节点**不检查状态标签**（chaseandattack 有 longattack 豁免），
+--   打点是无条件的。站桩单位没有长攻，故无需豁免。
+--⚠️ 若只删第 29 行的置 nil，timeout 会从「开始 RUNNING 算起」变成「永不超时」；
+--   若只删此处，starttime 恒为 nil，timeout 完全失效。两处强耦合，改动需成对。
+            self.starttime = GetTime()
+		end
+
+        if combat.target == nil or not combat.target.entity:IsValid() then
+--★★【终止一】目标消失 → FAILED + 清目标。
+--★ 这里**没有** Stop locomotor —— 与 chaseandattack 第 59 行不同。
+--   本节点本来就不移动（每帧 Stop，第 68 行），所以无需清理。
+--★ 这说明「节点进入时申请了什么，退出时就清理什么」——
+--   StandAndAttack 从不申请移动，自然不用清理。职责对称。
+            self.status = FAILED
+            combat:SetTarget(nil)
+		elseif (self.timeout ~= nil and self.starttime ~= nil and GetTime() - self.starttime > self.timeout) then
+--★★【终止二】超时 → FAILED + 清目标。
+--★ 这是本节点**唯一**的自定义放弃条件（第 65 行还有一个成功条件）。
+--   语义是静默超时（第 29 行）：目标一直打不到 → 放弃走人。
+--★ 典型用途：给「够不着的目标」一个脱身机制，避免永久卡在一个追不上的对手身上。
+--★ 条件里带 `self.starttime ~= nil` 判断：与 chaseandattack 第 110 行同款防御，
+--   因为 starttime 会被第 29 行的事件回调置 nil，若不判则 GetTime() - nil 报错。
+--⚠️ 已核实：第 53-55 行在本帧必然先把 starttime 设为非 nil，
+--   所以第 60 行的 nil 检查在当前代码路径下是冗余的防御。
+--   但保留它是对的 —— 顺序一旦被改动（例如把第 53 行挪到后面）就会真的需要。
+            self.status = FAILED
+            combat:SetTarget(nil)
+        elseif combat.target.components.health ~= nil and combat.target.components.health:IsDead() then
+--★★【终止三】目标已死 → **SUCCESS** + 清目标。
+--★ 与 chaseandattack 第 60 行完全一致的语义：打死敌人 = 意图达成 = SUCCESS。
+--★ 成功时同样**没有** Stop locomotor —— 同第 57 行的理由（本节点不移动）。
+--★ 三条终止路径互不重叠：无效 → 超时 → 死亡，顺序即优先级，
+--   用 if/elseif 链一次判完，语义清晰。
+            self.status = SUCCESS
+            combat:SetTarget(nil)
+        else
+--★★ 三个终止条件都不成立的 else 分支 —— 「保持站桩开火」的实际执行体。
+--★ 结构上是 if/elseif 链，与 leashandavoid 那种链式结构一致；
+--   而 READY 段与 RUNNING 段之间是「顺序双 if」。同文件里两种写法并存，属正常风格混用。
+            if self.inst.components.locomotor then
+--★ `if self.inst.components.locomotor then` —— 防御性判空。
+--★ 为什么需要？本节点用于「塔防型/远程单位」，这类实体可能没有 locomotor。
+--   ★★ 这是本文件与 chaseandattack 最重要的实用差异之一：
+--     后者无条件访问 self.inst.components.locomotor（第 59/88 行），
+--     所以只能用于**会移动**的实体；本节点能用于**不移动**的实体。
+--   移植要点：把节点设计成「能力自适配」（有 locomotor 就用，没有就降级），
+--     能让同一个行为服务于更广的实体类型。
+                self.inst.components.locomotor:Stop()
+            end
+            if self.inst.sg:HasStateTag("canrotate") then
+--★ 站桩的核心动作：面向目标。只有 canrotate 状态才转，
+--   否则会扭到攻击动画的朝向上去（与 chaseandattack 第 91 行同款防护）。
+--★ 一个实用细节：站立单位不转身就只能打固定方向的扇形，
+--   所以这一步是站桩单位能持续输出的前提。
+                self.inst:FacePoint(combat.target:GetPosition())
+            end
+
+            combat:TryAttack()
+--★★ `combat:TryAttack()` —— 返回值被丢弃（对比 chaseandattack 第 96 行至少写了空 then）。
+--★ 为什么可以忽略返回值？因为本节点的终止条件里**没有**「攻击次数/距离」判定，
+--   只有 timeout 和目标状态。所以攻击成功与否不影响控制流。
+--★★ 两种写法的取舍：
+--   chaseandattack 写空 then + 注释说明「重置在事件回调里」，是为了让后来者不误加逻辑；
+--   本文件直接丢弃，简洁但少了提示。
+--   ★ 移植建议：即使丢弃返回值，也留一行注释说明「为什么不用它」，
+--     否则读者会怀疑是不是漏了判断。
+--★ TryAttack 内部会自行检查距离/冷却，不满足时什么都不做。
+--   所以本节点可以每帧无条件调用，不需要前置条件。
+
+            self:Sleep(.125)
+--★★ self:Sleep(.125) —— 与 chaseandattack 第 117 行完全相同：每秒 8 次决策。
+--★★ 与 follow（.25）/ approach（.25）对照可归纳出一条规律：
+--   ★ 决策频率与「行为出错的后果」正相关：
+--     · 走路走错几步 → 无所谓 → .25 秒
+--     · 攻击慢半拍 → 会挨打 → .125 秒
+--   ★★ 移植要点：把「节点重试周期」作为 AI 调参的第一旋钮。
+--     调快 → 反应灵敏但 CPU 线性上升；调慢 → 省电但手感迟钝。
+--   DST 的取值普遍在 0.1~0.3 秒之间，可直接作为起点。
+--★ 注意 Sleep 在 else 分支内（第 66 行）—— 前三条终止路径 return 前不会走到。
+--   这与 chaseandattack 第 108/114 行的 `return` 配对，避免了给已终止的状态排休眠闹钟。
+--★ 移植要点：终止路径上的 return 不可省。少一个 return 会让已结束的行为
+--   仍上报休眠时间，导致 GetSleepTime 的取最小值被污染，大脑睡过早或睡不够。
+        end
+    end
+end

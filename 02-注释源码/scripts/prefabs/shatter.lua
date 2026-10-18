@@ -1,0 +1,101 @@
+--============================================================
+-- 文件：prefabs/shatter.lua
+-- 模块：预制体 / shatter（建筑与容器）
+-- 职责：实体「shatter」的预制体定义。SpawnPrefab("shatter") 会执行本文件中的同名工厂函数：创建原生实体、添加底层组件与标签，再挂载其 Lua 组件。
+--   阅读要点：先看工厂函数里 AddComponent 的调用，可知该实体具备哪些行为。
+-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本
+--============================================================
+
+local assets =
+{
+    Asset("ANIM", "anim/frozen_shatter.zip"),
+}
+
+local shatterlevels =
+{
+    { anim = "tiny" },
+    { anim = "small" },
+    { anim = "medium" },
+    { anim = "large" },
+    { anim = "huge" },
+}
+
+local function PlayShatterAnim(proxy)
+    local inst = CreateEntity()
+
+    inst:AddTag("FX")
+    --[[Non-networked entity]]
+    inst.entity:SetCanSleep(false)
+    inst.persists = false
+
+    inst.entity:AddTransform()
+    inst.entity:AddAnimState()
+    inst.entity:AddSoundEmitter()
+
+    local parent = proxy.entity:GetParent()
+    if parent ~= nil then
+        inst.entity:SetParent(parent.entity)
+    end
+
+    inst.Transform:SetFromProxy(proxy.GUID)
+
+    inst.AnimState:SetBank("frozen_shatter")
+    inst.AnimState:SetBuild("frozen_shatter")
+    inst.AnimState:SetFinalOffset(3)
+
+    inst.SoundEmitter:PlaySound("dontstarve/common/break_iceblock")
+
+    inst:AddComponent("shatterfx")
+    inst.components.shatterfx.levels = shatterlevels
+    inst.components.shatterfx:SetLevel(proxy._level:value())
+
+    inst:ListenForEvent("animover", inst.Remove)
+end
+
+local function OnLevelDirty(inst)
+    if inst._complete or inst._level:value() <= 0 then
+        return
+    end
+
+    --Delay one frame in case we are about to be removed
+    inst:DoTaskInTime(0, PlayShatterAnim)
+    inst._complete = true
+end
+
+local function fn()
+    local inst = CreateEntity()
+
+    inst.entity:AddTransform()
+    inst.entity:AddNetwork()
+
+    inst.Transform:SetTwoFaced()
+
+    inst:AddTag("FX")
+
+    inst._level = net_tinybyte(inst.GUID, "_level", "leveldirty")
+
+    --Dedicated server does not need to spawn the local fx
+    if not TheNet:IsDedicated() then
+        inst._complete = false
+        inst:ListenForEvent("leveldirty", OnLevelDirty)
+    end
+
+    inst.entity:SetPristine()
+
+    if not TheWorld.ismastersim then
+        return inst
+    end
+
+    inst:AddComponent("shatterfx")
+    --Override proxy SetLevel function
+    function inst.components.shatterfx:SetLevel(level)
+        inst._level:set(level)
+    end
+
+    inst.persists = false
+    inst:DoTaskInTime(1, inst.Remove)
+
+    return inst
+end
+
+return Prefab("shatter", fn, assets)

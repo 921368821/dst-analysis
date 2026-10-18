@@ -1,0 +1,1635 @@
+--============================================================
+-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖
+-- 文件：widgets/scrollablelist.lua
+-- 模块：界面 / 可滚动列表控件（列表虚拟化 + 焦点链）
+-- 职责：DST 唯一的列表虚拟化实现，被 20+ 个界面复用（服务器列表、mod 列表、
+--       选项列表、morgue 死亡信息、聊天队列、封禁名单、筛选下拉等）。
+--       提供两种互斥模式：A 自带子控件；B 静态控件池 + updatefn 重新绑定
+--       （后者才是真正的虚拟化，serverlistingscreen 用 13 个行控件显示
+--       任意数量服务器）。另负责滚动条、拖拽滚动、焦点链的建立与同步。
+-- 关键符号：Scroll, RefreshView, RecalculateStepSize, SetList, AddItem,
+--           RemoveItem, Clear, SetFocus, DoFocusHookups, OnFocusMove,
+--           LayOutStaticWidgets, DoDragScroll, GetNearestStep,
+--           GetHierarchicalScale, focus_children, focused_index, view_offset
+-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本
+-- 交叉引用：widgets/widget.lua（焦点链 focus_flow / SetFocusFromChild /
+--           parent_scroll_list 冒泡）, widgets/button.lua（按住重复节流、
+--           o_pos 按下位移）、widgets/imagebutton.lua（_RefreshImageState、
+--           OnLoseFocus 视觉恢复）、widgets/image.lua（全局 Image）、
+--           frontend.lua（LockFocus / lastx,lasty 屏幕坐标 / focus_locked）、
+--           screens/serverlistingscreen.lua（模式 B 的完整用例：
+--           listings_per_view = 13 + UpdateServerListWidget）
+--============================================================
+local Widget = require "widgets/widget"
+local AnimButton = require "widgets/animbutton"
+local ImageButton = require "widgets/imagebutton"
+
+-- ══════════════════════════════════════════════════════════════
+-- ScrollableList —— 可滚动列表控件（788 行）
+--
+-- 【本文件是 DST 唯一的列表虚拟化实现，被 20+ 个界面复用】
+-- 使用者（已 grep 全库核实）：serverlistingscreen / modsscreen /
+-- optionsscreen / morguescreen / playerstatusscreen / textlistpopupdialog /
+-- bantab / customizationlist / dropdown / lobbychatqueue / modstab …
+--
+-- 【★★ 最重要的三件事】
+-- 1) **两种互斥的工作模式**（58-65 行决定，全文件到处在判）：
+--    A. 自带子控件模式：items 里是已构造好的控件，直接 AddChild + Show/Hide
+--    B. 静态控件池模式：只造固定数量的行（static_widgets），
+--       滚动时用 updatefn 把池里的行「重新绑定」到不同的数据项
+--    → 模式 B 才是真正的虚拟化。serverlistingscreen 用 13 个行控件
+--      （第 29 行 listings_per_view = 13）显示任意数量的服务器。
+-- 2) **坐标系的「反直觉」约定**：position_marker 与按钮都用
+--      SetPosition(self.width/2, ...)。DST 的 SetPosition 是相对锚点的
+--      偏移量，不是绝对坐标；列表整体锚在右上，所以 x = width/2 表示
+--      「距离右边缘 width/2」，正好贴在列表右边。
+-- 3) **焦点必须与视口同步**：focused_index 是全局项索引，
+--      而池里的控件是「视口相对」的。滚动时若不同步，
+--      焦点会落在看不见的行上（这正是用户提到的 G1-G4 类 bug 的温床）。
+--
+-- 【⚠️ 容易踩的坑】
+-- · 锚点 44 行的 Image 不是 require 来的，是 widgets/image.lua 定义的
+--   **全局** Image。依赖全局是脆弱的（若别处覆盖 Image 就炸）。
+-- · 锚点 2 行的 AnimButton 被 require 但全文件从未使用（死 require）。
+-- · scroll_per_click / scroll_per_page 是**文件级 local**，
+--   而 SetScrollPerClick（495 行）改的是它们 —— 于是「改一个列表的
+--   滚动速度」会**全局影响所有列表**。这是本文件最大的设计缺陷。
+-- ══════════════════════════════════════════════════════════════
+local scroll_per_click = 1
+-- ★ 三个滚动步长常量。注意它们是 **upvalue（文件级局部变量）**，
+--   不是 self 字段。这是本文件的一个架构性错误，详见 495 行的注释。
+-- scroll_per_click = 1：滚轮一格 / 方向键一下 = 移动 1 项
+-- scroll_per_page = 5：点滚动条空白处 = 移动 5 项
+local scroll_per_page = 5
+
+local button_repeat_time = .15
+-- 按住箭头按钮的**自动重复间隔**（秒）。
+-- 81-86 行与 96-101 行的 SetWhileDown 回调靠它节流。
+-- ★ 用 GetStaticTime() 而非 dt 累加：
+--   GetStaticTime 是真实墙钟时间，不受暂停与帧率影响，
+--   所以暂停时按住箭头也不会「攒」出一次滚动。
+
+local arrow_button_size = 40
+
+local DRAG_SCROLL_X_THRESHOLD = 150
+-- ★ 拖拽滚动时判定「鼠标是否还在滚动条附近」的水平阈值（像素）。
+-- 451 行用它决定继续拖动还是回弹到最近刻度。
+-- 为什么是 150：比滚动条本身（32 像素宽）宽得多，
+-- 让玩家可以斜着拖而不必精确抓住把手。
+-- → 手感参数。这类「比视觉尺寸宽松的判定框」是 UI 手感的通用做法。
+
+local SCROLLBAR_STYLE = {
+-- ══★【两套滚动条皮肤，纯数据表】
+-- 每个 entry 是一组贴图名 + 缩放比，没有任何逻辑。
+-- 54 行 SCROLLBAR_STYLE[scrollbar_style or "BLACK"] 做查表。
+-- ★ 与 playerhud 的「type -> 父容器」映射表（385 行）是同一种手法：
+--   **外观差异用数据表达，不用 if/elseif 表达**。
+--   新增一套皮肤只需加一个 entry，代码零改动。
+-- ⚠️ 21-22 行有个被注释掉的 scale = 0.4，保留了调参痕迹。
+--   这类注释有价值：说明有人试过小尺寸版并放弃了。
+    BLACK = {
+        atlas = "images/ui.xml",
+        up = "arrow_scrollbar_up.tex",
+        down = "arrow_scrollbar_down.tex",
+        bar = "scrollbarline.tex",
+        handle = "scrollbarbox.tex",
+        --~ scale = 0.4,
+        scale = 1.0,
+    },
+    GOLD = {
+        atlas = "images/global_redux.xml",
+        up = "scrollbar_arrow_up.tex",
+        down = "scrollbar_arrow_down.tex",
+        bar = "scrollbar_bar.tex",
+        handle = "scrollbar_handle.tex",
+        scale = 0.3,
+    }
+}
+
+-- ScrollableList expects a table of pre-constructed items to be handed in as the "items" param OR
+-- ★★【两种模式的正式契约 —— 读这段就知道整个文件怎么用】
+-- 模式 A（自带控件）：items 传「已构造好的控件数组」。
+--   控件数 = 数据项数，内存与项数成正比。适合小列表（< 20 项）。
+-- 模式 B（静态池）：items 传「纯数据数组」，widgetstoupdate 传「固定数量的控件」，
+--   updatefn(控件, 数据, 索引) 负责把控件绑到数据上。
+--   控件数固定，内存与项数无关。适合长列表（服务器列表、mod 列表）。
+-- → ★★★ 自研 UI 选型判据很简单：**列表项数是否会因数据源增长而无界**。
+--   会长 → 必须池化；不会长 → 直接建，省事且没有绑定的复杂度。
+-- ⚠️ 两种模式在文件里有 10 处 if/elseif 分支（298/314/618/625/640/647/670/680/
+--   698/716/739），每处都要写两遍几乎相同的逻辑。
+--   若要重构，正确方向是「模式 B 内部用一个小 adapter 把 static_widgets[k]
+--   伪装成 items[k+view_offset]」，让下游只剩一条路径。
+-- for the "items" table to be a normalized table of data where each table entry is the data that will be handed as the parameters to the supplied function for "updatefn"
+local ScrollableList = Class(Widget, function(self, items, listwidth, listheight, itemheight, itempadding, updatefn, widgetstoupdate, widgetXOffset, always_show_static, starting_offset, yInit, bar_width_scale_factor, bar_height_scale_factor, scrollbar_style)
+-- ★ 15 个位置参数的可变签名。这是本文件最需要改进的地方：
+--   (items, listwidth, listheight, itemheight, itempadding, updatefn,
+--    widgetstoupdate, widgetXOffset, always_show_static, starting_offset,
+--    yInit, bar_width_scale_factor, bar_height_scale_factor, scrollbar_style)
+--   第 12/13 个参数（38 行注释自己承认）已经无人使用。
+-- → 自研 UI 强烈建议改成 options 表：ScrollableList(items, { w=320, ... })
+--   位置参数超过 5 个后，调用方必然出现「靠数逗号」的错误，
+--   而编译器与运行时都不会报错（少传的高位参数就是 nil）。
+--   serverlistingscreen:1125 的调用就是一长串字面量与变量混排的典型。
+    Widget._ctor(self, "ScrollBar")
+    -- Can remove bar_width_scale_factor, bar_height_scale_factor. Nothing active uses them.
+    bar_width_scale_factor = bar_width_scale_factor or 1
+-- 38 行注释明说这两个缩放因子「可以删掉，没有活跃代码在用」。
+-- ⚠️ 但 79/108/136/166 行仍在读它们 → 是**半废弃**参数：
+--   不影响功能（默认 1.0），但删掉要同时改 4 处。
+-- ★ 保留死参数有时是好的（避免大范围改动），但必须留注释标明，
+--   作者做到了。
+    bar_height_scale_factor = bar_height_scale_factor or 1
+
+    self.height = listheight
+-- self.width / self.height 是列表的**逻辑尺寸**，
+-- 但 Widget 本身没有尺寸概念（DST 无布局引擎），
+-- 所以必须同时做两件事：设置字段 + 让 bg 控件按此尺寸渲染。
+-- ⚠️ 45 行 ScaleToSize 只影响 bg 这一张图；
+--   真正的「命中区域」由 bg 决定 —— 因为 Widget:OnMouseButton（widget.lua:56）
+--   是**递归派发给子控件**的，bg 在最底，
+--   所以要吃到鼠标事件必须有可见的 bg。
+    self.width = listwidth
+    self.bg = self:AddChild(Image("images/ui.xml", "blank.tex")) -- so that we have focus whenever the mouse is over this thing
+-- ⚠️【隐式全局依赖，已核实】本文件顶部只 require 了 widget / animbutton /
+--   imagebutton，没有 require "widgets/image"。
+--   Image 是 widgets/image.lua:3 里 `Image = Class(Widget, ...)` 定义的**全局**。
+--   之所以能跑，是因为 screen.lua:2 里有 require "widgets/image"，
+--   而 playerhud 等界面总会先加载它。
+-- → ★ 这是典型的「靠加载顺序活着的隐式依赖」：
+--   任何直接 require 本文件而不先加载 image 的新调用方都会崩。
+--   移植时必须补上 require。
+-- ★ 44 行注释解释了 bg 的**真正目的**：不是为了显示，
+--   而是为了「鼠标悬停在列表上时，本控件能拿到焦点」——
+--   因为 235 行的滚轮处理要求 self.focus 为真。
+--   → ★★★ 「透明背景控件 = 焦点收集器」是 UI 的经典技巧：
+--     需要一个可命中但不可见的交互区域时，加一张 alpha=0 的图。
+    self.bg:ScaleToSize(self.width, self.height)
+    self.items = {}
+-- ⚠️ 46 行 self.items = {} 立刻被 57 行 self.items = items 覆盖。
+--   是纯冗余（可能原意是「初始化后再赋值」的写法残留）。无害但迷惑。
+    self.item_height = itemheight or 40
+    self.item_padding = itempadding or 10
+    self.x_offset = widgetXOffset or 0
+    self.yInitial = yInit or 0
+    self.always_show_static_widgets = always_show_static or false
+    self.focused_index = 1
+-- ★★ focused_index 是本文件的核心状态，务必理解它的语义：
+--   它是**数据项的全局索引**（1..#items），不是「池内下标」。
+-- 视口内的池下标 = focused_index - view_offset（见 671 行）。
+-- 初始为 1 → 焦点默认在第一项。
+-- ⚠️ 这个「全局索引 vs 视口下标」的换算是本文件最容易出错的地方，
+--   全文出现 6 次（671/728/735/751/759 等），每一处都要手工减 view_offset。
+--   若数据结构换成「{index=, widget=}` 的对象数组，这些换算就消失了。
+    self.focus_children = true
+-- focus_children 决定焦点落在「池内控件」还是「列表自己」：
+--   true  → 焦点给具体行（673-674 行），行内的按钮/图钉可再获得焦点
+--   false → 焦点给 self.bg（676 行），行内控件完全不可聚焦
+-- → ★ 386 行的注释说明了选择依据：「纯信息列表（如 morgue）没有可交互项，
+--   就该让焦点停在列表上，这样它才能正确处理滚动输入」。
+-- ★★★ 这是「容器是否透传焦点」的设计开关，自研 UI 必须有对应概念：
+--   焦点停容器 = 容器的键盘处理生效；焦点透传 = 子控件各自响应。
+    self.scrollbar_style = SCROLLBAR_STYLE[scrollbar_style or "BLACK"]
+-- 查表 + 55 行 assert：非法皮肤名立刻报错，不静默降级。
+-- ★ 这个「早失败」的选择是对的：UI 皮肤配错属于开发期错误，
+--   静默 fallback 会让美术资源缺失变成难以定位的视觉问题。
+--   对比 393-401 行的容器映射表用「静默兜底」——
+--   那里是**运行时数据**（模组可造新类型），必须兜底。
+-- → ★★★ 判据：**开发期配置用 assert，运行时数据用兜底**。这个区分很关键。
+    assert(self.scrollbar_style, "If you can't pass a valid scrollbar_style, then don't pass one at all.")
+
+    self.items = items
+    if updatefn and widgetstoupdate then
+-- ★★★【模式判定的唯一入口】updatefn 和 widgetstoupdate 必须**同时**提供，
+--   否则退回模式 A。
+-- 为什么要成对：模式 B 的本质是「数据 + 池」二元组，
+--   缺一个都无法工作（没有 updatefn 就没法绑数据，没有池就没地方绑）。
+-- ⚠️ 用 `and` 而不是分别判断，是简洁但**吞掉了错误配置**：
+--   若某个调用方只想传 updatefn 忘了传池，会静默退化成模式 A，
+--   表现为「滚动时行内容不更新」而非报错。
+--   调试这类问题会非常耗时。
+-- 62-64 行的 else 分支就是模式 A：把每个 item 当控件 AddChild。
+-- ★ 注意这里没有 SetPosition —— 位置由 RefreshView（305 行）统一算。
+        self.updatefn = updatefn
+        self.static_widgets = widgetstoupdate
+    else
+        for i,v in pairs(self.items) do
+            self:AddChild(v)
+        end
+    end
+
+    self:RecalculateStepSize()
+-- 构造期就要算步长，因为 75-166 行创建滚动条控件时要用 step_size 定位。
+-- ⚠️ 但 67 行调用 RecalculateStepSize 时 self.items 已在 57 行赋好，
+--   顺序正确。若有人把 67 移到 57 之前，会用 #nil 崩溃。
+--   这是「Lua 无静态类型，全靠执行顺序保证」的典型脆弱点。
+
+    self.view_offset = starting_offset or 0
+-- starting_offset 让列表构造完就滚到某处（常用于「选中项在中间」）。
+-- ⚠️ 69 行在 67 行**之后**：所以初始 offset 不会立刻被 RefreshView 应用，
+--   而是等 170 行的 RefreshView。170 行没传 movemarker，
+--   所以初始滚动时把手位置**不会更新**（373 行的分支不成立）。
+--   → 疑似缺陷：带 starting_offset 构造的列表，把手初始位置是错的，
+--     要等用户第一次滚动（250 行 movemarker=true）才对上。
+--     影响小（视觉上一个瞬间的错位），但确实存在。
+
+    -- self.widget_bg = self:AddChild(Image("images/ui.xml", "1percent_clickbox.tex"))
+    -- self.widget_bg:SetTint(1,1,1,0)
+    -- self.widget_bg:ScaleToSize(self.width, self.height)
+
+    self.scroll_bar_container = self:AddChild(Widget("scroll-bar-container"))
+-- ★ 滚动条的三个控件（箭头/轨道/把手）都挂在一个**子容器**里，
+--   而不是直接挂到 self 上。
+-- 166 行对这个容器 SetScale(1, bar_height_scale_factor) 可以
+--   **整体拉伸滚动条而不影响列表内容**。
+-- → ★ 分层的意义：让「可整体变换的组」成为独立节点。
+--   DST 没有 CSS transform origin，缩放只能作用于单个控件，
+--   所以必须人为造出这个中间层。
+
+    self.up_button = self.scroll_bar_container:AddChild(ImageButton(self.scrollbar_style.atlas, self.scrollbar_style.up))
+-- ★ 81-89 行是「按住重复滚动」的标准实现，套路值得记：
+--   81 SetWhileDown 注册按住回调（每帧触发，见 button.lua:97 的 OnUpdate）
+--   82 用 last_up_button_time 做节流：距上次不足 0.15 秒就跳过
+--   87 SetOnClick 注册松开回调：把 last_up_button_time 置 nil
+-- ⚠️ 为什么松开时要置 nil：置 nil 后 82 行的 `not self.last_up_button_time`
+--   成立，下次按下会**立即**滚一格。
+--   若不置 nil，每次重新按下都要等 0.15 秒才有响应 —— 手感明显变钝。
+-- → ★★★ 「节流 + 松开重置」是所有「按住加速」交互的标准配方。
+-- ⚠️ 90 行的 StartUpdating 被注释掉了：Button:OnControl（button.lua:76）
+--   在 whiledown 存在时会自动 StartUpdating，所以不需要显式调。
+--   → 注释掉的正确代码是好事：说明作者知道为什么不需要。
+    self.up_button:SetScale(self.scrollbar_style.scale)
+    local handle_scale = bar_width_scale_factor * self.scrollbar_style.scale
+    self.up_button:SetPosition(self.width/2, self.height/2-10, 0)
+-- ⚠️ 这里出现了一个本文件的**坐标约定**，极易看错：
+--   SetPosition(self.width/2, self.height/2 - 10, 0)
+-- x 用的是 width/2 而不是 width —— 因为 DST 的 SetPosition 是
+--   **相对锚点的偏移**（见 playerhud 注释里的 SCALEMODE/ANCHOR 体系），
+--   列表整体锚在右上角时，x = width/2 表示「距右边缘 width/2」，
+--   即恰好贴在列表右边。
+-- ★★ 自研 UI 的对应教训：**DST 没有「父容器尺寸」概念**，
+--   所以子控件定位必须手工换算锚点偏移。移植到有布局系统的引擎时，
+--   这些数字要全部重写 —— 这也是「不要照抄 UI 代码」的原因。
+    self.up_button:SetWhileDown( function()
+        if not self.last_up_button_time or GetStaticTime() - self.last_up_button_time > button_repeat_time then
+            self.last_up_button_time = GetStaticTime()
+            self:Scroll(-scroll_per_click, true)
+        end
+    end)
+    self.up_button:SetOnClick( function()
+        self.last_up_button_time = nil
+    end)
+    -- self.up_button:StartUpdating()
+
+
+    self.down_button = self.scroll_bar_container:AddChild(ImageButton(self.scrollbar_style.atlas, self.scrollbar_style.down))
+    self.down_button:SetScale(self.scrollbar_style.scale)
+    self.down_button:SetPosition(self.width/2, -self.height/2+10, 0)
+    self.down_button:SetWhileDown( function()
+        if not self.last_down_button_time or GetStaticTime() - self.last_down_button_time > button_repeat_time then
+            self.last_down_button_time = GetStaticTime()
+            self:Scroll(scroll_per_click, true)
+        end
+    end)
+    self.down_button:SetOnClick( function()
+        self.last_down_button_time = nil
+    end)
+    -- self.down_button:StartUpdating()
+
+    self.scroll_bar_line = self.scroll_bar_container:AddChild(Image(self.scrollbar_style.atlas, self.scrollbar_style.bar))
+-- 轨道长度 = 总高 - 两个箭头按钮 - 20（上下各留 10 的间隙，与 80/95 行的 ±10 对应）。
+-- ★ 108 行的 `11*bar_width_scale_factor` 是**魔法数字 11**：
+--   它是 scrollbarline.tex 这张图的原始像素宽度，硬编码在这里。
+-- ⚠️ 换皮肤时若新轨道的美术尺寸不同，这个 11 就不对了，
+--   而 SCROLLBAR_STYLE 表里没有对应的宽度字段。
+--   → 皮肤表应当包含 bar_width / bar_height，
+--     否则「换皮」只是换贴图，不能真正适配不同尺寸的资源。
+    self.scroll_bar_line:ScaleToSize( 11*bar_width_scale_factor, self.height - arrow_button_size - 20)
+    self.scroll_bar_line:SetPosition(self.width/2, 0)
+
+    self.scroll_bar = self.scroll_bar_container:AddChild(ImageButton("images/ui.xml", "1percent_clickbox.tex", "1percent_clickbox.tex", "1percent_clickbox.tex", nil, nil, {1,1}, {0,0}))
+-- ★ 这是一个**看不见的按钮**：clickbox 贴图 + SetTint(1,1,1,0)（全透明）。
+-- 113 行把它做成透明，112 行却给了实际尺寸 32 x 轨道长。
+-- → 「不可见但可点击」的标准实现，与 44 行的 bg 是同一个技巧。
+-- 114-115 行关掉两个视觉副作用：聚焦时缩放、点击时移动。
+--   滚动条把手**不能**有按下位移效果，否则拖拽手感会被破坏。
+-- ★ 120-130 行的 SetOnClick 实现「点轨道 = 翻页」：
+--   120 SetOnDown 时置 page_jump = true（标记这是轨道点击而非把手拖拽）
+--   123 比较鼠标 y 与把手世界坐标 y，判断往上还是往下
+--   → ★ 这是一个**用位置差推断意图**的设计：点击事件本身不区分
+--     「点在把手上」和「点在轨道空白处」，所以要在 down 时记标记。
+--     page_jump 变量名与语义不符（它其实是「本次是轨道点击」），
+--     属命名缺陷。
+    self.scroll_bar.image:ScaleToSize( 32, self.height - arrow_button_size - 20)
+    self.scroll_bar.image:SetTint(1,1,1,0)
+    self.scroll_bar.scale_on_focus = false
+    self.scroll_bar.move_on_click = false
+    self.scroll_bar:SetPosition(self.width/2, 0)
+    self.scroll_bar:SetOnDown( function()
+        self.page_jump = true
+    end)
+    self.scroll_bar:SetOnClick( function()
+        if self.position_marker and self.page_jump then
+            local marker = self.position_marker:GetWorldPosition()
+            if TheFrontEnd.lasty >= marker.y then
+                self:Scroll(-scroll_per_page, true)
+            else
+                self:Scroll(scroll_per_page, true)
+            end
+            self.page_jump = false
+        end
+    end )
+
+    self.position_marker = self.scroll_bar_container:AddChild(ImageButton(self.scrollbar_style.atlas, self.scrollbar_style.handle))
+-- ══★【拖拽滚动的三态状态机 —— 本文件最精妙的一段】
+-- 三个标志位构成状态：
+--   do_dragging (139)  按下把手 = 「进入拖拽」
+--   dragging    (145)  拖拽中（每帧处理）
+--   y_adjustment(140)  拖拽的起点偏移，避免把手「跳到鼠标中心」
+-- 138-141 OnDown：进入拖拽并记下 y_adjustment = 0
+-- ⚠️ y_adjustment 在 140/153/160 行被置 0，但**从没被赋过非 0 值**
+--   （grep 全文件确认：467 行只读它）。
+--   → 这是半成品字段：原本设计是「按下时记把手与鼠标的 y 差」，
+--     但 OnDown 里没有鼠标坐标可用（SetOnDown 无参），所以留了 0。
+--     后果：467 行点击时把手会直接跳到鼠标位置而非相对拖动，
+--     表现为「按下瞬间把手轻微跳动」。属轻微手感缺陷。
+-- 142-148 WhileDown：每帧 LockFocus(true) + 标记 dragging + DoDragScroll
+-- ★ 144 行 TheFrontEnd:LockFocus(true) 的作用：**锁住焦点**，
+--   防止拖拽过程中焦点被别的东西抢走导致 WhileDown 中断。
+--   → ★★★ 这是「模态操作」的最小实现：拖拽期间冻结其他交互。
+--     与 playerhud 的 HasInputFocus 是同一思想在不同层的体现。
+    self.position_marker.scale_on_focus = false
+    self.position_marker.move_on_click = false
+    self.position_marker:SetPosition(self.width/2, self.height/2 - arrow_button_size, 0)
+    local handle_scale = bar_width_scale_factor * self.scrollbar_style.scale
+    self.position_marker:SetScale(handle_scale, handle_scale, 1)
+    self.position_marker:SetOnDown( function()
+        self.do_dragging = true
+        self.y_adjustment = 0
+    end)
+    self.position_marker:SetWhileDown( function()
+        if self.do_dragging then
+            TheFrontEnd:LockFocus(true)
+            self.dragging = true
+            self:DoDragScroll()
+        end
+    end)
+    self.position_marker.OnLoseFocus = function()
+-- ⚠️⚠️【直接覆盖实例方法的反模式，已核实无隐藏收益】
+-- 这里写的是 `self.position_marker.OnLoseFocus = function() ... end`，
+-- **没有 self 参数**，直接顶掉了 ImageButton:OnLoseFocus 这个方法。
+-- 后果（已追查调用链核实）：
+--   1) Widget:ClearFocus 会调 self:OnLoseFocus() → 走的是这个覆盖版本，
+--      于是 ImageButton:OnLoseFocus（imagebutton.lua:141，
+--      负责恢复贴图与 hover_overlay）与 Button:OnLoseFocus（button.lua:125，
+--      负责 ResetPreClickPosition）**全部被跳过**。
+--   2) ImageButton:_RefreshImageState（imagebutton.lua:87）也会调 OnLoseFocus，
+--      同样会误触发这里的拖拽收尾逻辑。
+-- 为什么线上没炸：把手的贴图是 scrollbarbox.tex，聚焦/非聚焦同一张图，
+-- 且 133-134 行关掉了 scale_on_focus 与 move_on_click，
+-- 被跳过的视觉恢复**恰好无可见后果**。
+-- → ★★★ 但这是「靠美术资源没有状态差异而侥幸正确」的典型。
+--   正确写法是包一层并调用基类：
+--     local orig = self.position_marker.OnLoseFocus
+--     self.position_marker.OnLoseFocus = function(m) orig(m); ...收尾... end
+--   移植自研 UI 时，这类覆盖必须逐个检查基类是否有不可省的行为。
+-- ★ 正确写法也可用 SetOnLoseFocus（widget.lua:571）：
+--   那是**并存**的 onlosefocusfn，与方法覆盖互不干扰。作者没用是可惜。
+        TheFrontEnd:LockFocus(false)
+        self.dragging = false
+        self.do_dragging = false
+        self.y_adjustment = 0
+        self:MoveMarkerToNearestStep()
+    end
+    self.position_marker:SetOnClick( function()
+-- SetOnClick 版本与 149 行的 OnLoseFocus 版本**逐行相同**（除了没调基类）。
+-- → 这是有意的冗余：两条路径（失焦 / 点击）都要收尾，
+--   且都要保证 MoveMarkerToNearestStep 被调用（把手吸附到刻度）。
+-- ⚠️ 重复的代价：以后改收尾逻辑必须同时改两处，漏一处就出 bug。
+--   抽成一个 local function 收尾 + 两处调用会更安全。
+        TheFrontEnd:LockFocus(false)
+        self.dragging = false
+        self.do_dragging = false
+        self.y_adjustment = 0
+        self:MoveMarkerToNearestStep()
+    end)
+
+    --self.position_marker:MoveToBack()
+    self.scroll_bar_line:MoveToBack()
+-- 轨道 MoveToBack → 箭头与把手显示在轨道之上。
+-- ★ 又一次印证：**AddChild 决定归属，MoveToBack/Front 决定 z 序**，
+--   两者独立。此处 scroll_bar_container 的 AddChild 顺序是
+--   上箭头(77) → 下箭头(93) → 轨道(107) → 轨道按钮(111) → 把手(132)，
+--   若不 MoveToBack，轨道会盖住箭头与把手。
+    self.scroll_bar_container:SetScale(1, bar_height_scale_factor)
+
+    self:DoFocusHookups()
+
+    self:RefreshView()
+-- 构造末尾的 RefreshView() 让列表一出生就有正确布局。
+-- ⚠️ 没传 movemarker，所以初始把手位置不对（见 69 行的分析）。
+-- 若构造时给了 starting_offset，应改成 self:RefreshView(true)。
+end)
+
+function ScrollableList:DebugDraw_AddSection(dbui, panel)
+-- ★ 开发者调试面板（dbui）直接改字段并触发重排。
+-- ★★ 217-227 行「参数改了就把构造器里那套位置计算重做一遍」——
+--   注意注释明说「Resize commands copied from ctor」。
+-- → ★ 这暴露了本文件的结构问题：**布局计算逻辑在构造器里写死了**，
+--   无法复用。任何能改尺寸的入口（构造参数、dbui、SetListItemHeight）
+--   都得记得重跑一遍。
+--   正确做法是把构造器里 80/95/108/109/116 行的定位抽成
+--   一个 Relayout() 方法，所有入口统一调用。
+-- ⚠️ 226 行 RefreshView(true) 传了 movemarker（与构造时的 170 行不同），
+--   说明作者知道初始刷新该带把手更新 —— 反衬 170 行是遗漏。
+    ScrollableList._base.DebugDraw_AddSection(self, dbui, panel)
+
+    dbui.Spacing()
+    dbui.Text("ScrollableList")
+    dbui.Indent() do
+        local step, step_fast = 1, 5
+        local has_modified_x, out_x = dbui.InputFloat("width", self.width, step, step_fast)
+        if has_modified_x then
+            self.width = out_x
+        end
+        local has_modified_y, out_y = dbui.InputFloat("height", self.height, step, step_fast)
+        if has_modified_y then
+            self.height = out_y
+        end
+        local has_modified_height, out_height = dbui.InputFloat("item_height", self.item_height, step, step_fast)
+        if has_modified_height then
+            self.item_height = out_height
+        end
+        local has_modified_padding, out_padding = dbui.InputFloat("item_padding", self.item_padding, step, step_fast)
+        if has_modified_padding then
+            self.item_padding = out_padding
+        end
+        local has_modified_offset, out_offset = dbui.InputFloat("x_offset", self.x_offset, step, step_fast)
+        if has_modified_offset then
+            self.x_offset = out_offset
+        end
+        local has_modified_initialy, out_initialy = dbui.InputFloat("yInitial", self.yInitial, step, step_fast)
+        if has_modified_initialy then
+            self.yInitial = out_initialy
+        end
+        local has_modified_show, out_show = dbui.Checkbox("always_show_static_widgets", self.always_show_static_widgets)
+        if has_modified_show then
+            self.always_show_static_widgets = out_show
+        end
+        dbui.Value("focused_index", self.focused_index)
+-- dbui.Checkbox("focus_children", ...) 的返回值被丢弃：
+-- 209 行没有接收 has_modified，所以勾选它**不会**触发重排。
+-- ⚠️ 疑似缺陷：调试面板里改 focus_children 无效（因为它只影响
+--   SetFocus 的行为，不影响布局，不重排也算合理，但界面会让人误以为生效了）。
+        dbui.Checkbox("focus_children", self.focus_children)
+        dbui.Value("#items", #self.items)
+        --~ local item_names = {}
+        --~ for i,val in ipairs(self.items) do
+        --~     table.insert(item_names, tostring(val))
+        --~ end
+        --~ dbui.ListBox("items", item_names)
+
+        if has_modified_x or has_modified_y or has_modified_height or has_modified_padding or has_modified_offset or has_modified_initialy or has_modified_show then
+            -- Resize commands copied from ctor
+            self.bg:ScaleToSize(self.width, self.height)
+            self.up_button:SetPosition(self.width/2, self.height/2-10, 0)
+            self.down_button:SetPosition(self.width/2, -self.height/2+10, 0)
+            self.scroll_bar_line:SetPosition(self.width/2, 0)
+            self.scroll_bar:SetPosition(self.width/2, 0)
+
+            self:LayOutStaticWidgets(self.yInitial)
+            self:RefreshView(true)
+        end
+    end
+    dbui.Unindent()
+end
+
+function ScrollableList:OnControl(control, down, force)
+-- ★ 滚轮处理。注意 `force` 参数 —— 它让调用方可以
+--   **绕过 self.focus 检查**强制滚动。
+-- 235 行的条件 `(self.focus and self.scroll_bar:IsVisible()) or force`：
+--   必须滚动条可见才响应 —— 列表装得下时（358-363 行会 Hide 全部滚动条控件）
+--   滚轮应该穿透给外层列表（嵌套列表场景）。
+-- → ★★★ 「嵌套可滚动区域」的正确处理：
+--     内层装得下时不吞滚轮事件，让事件冒泡给外层。
+--     若无条件吞掉，嵌套列表里内层永远滚不动也停不下。
+-- ⚠️ 但这样一来，内层「装得下」时用户在内层区域滚轮会滚外层，
+--   视觉上像是内层没响应。严格做法是按指针位置判断，
+--   但 DST 选了「可见性」这个更简单的代理条件。
+    if ScrollableList._base.OnControl(self, control, down) then return true end
+
+    if down and ((self.focus and self.scroll_bar:IsVisible()) or force) then
+        if control == CONTROL_SCROLLBACK then
+            if self:Scroll(-scroll_per_click, true) then
+                TheFrontEnd:GetSound():PlaySound("dontstarve/HUD/click_mouseover", nil, ClickMouseoverSoundReduction())
+            end
+            return true
+        elseif control == CONTROL_SCROLLFWD then
+            if self:Scroll(scroll_per_click, true) then
+                TheFrontEnd:GetSound():PlaySound("dontstarve/HUD/click_mouseover", nil, ClickMouseoverSoundReduction())
+            end
+            return true
+        end
+    end
+end
+
+function ScrollableList:Scroll(amt, movemarker)
+-- ══★★【Scroll：滚动列表的单一入口 —— 所有状态变更都走这里】
+-- 完整流程：改 offset → 夹紧 → 动把手 → 刷新视图 → 通知回调。
+-- ★★ 254-259 的夹紧顺序值得学：
+--   先判 `self.max_step <= 0`（列表装得下或为空）→ 直接归 0
+--   再判越上界/下界。
+--   ⚠️ 三个条件里混用了 `< 0` 与 `max_step <= 0`，
+--     而 505 行 max_step = math.ceil(#items - widgets_per_view)
+--     装得下时为 0 或负数 —— 所以 `max_step <= 0` 覆盖了两种情况。
+--     写法正确但意图不明显：读者要回看 505 行才知道为什么有负数。
+-- 261 行 didScrolling：比较前后 offset。
+-- ★ 235 行与 241 行用它的返回值决定是否播音效 →
+--   「滚到底了不要再咔哒咔哒」，这是很到位的细节。
+-- ⚠️ 281 行 `return didScrolling` 返回值对「是否真的动了」至关重要，
+--   但 545/574/592 行的 Scroll(0, true) 刻意忽略它 ——
+--   「滚动 0 格」只是为了刷新，把手会被 266 行重算到正确位置。
+--   → ★★★ 这是本文件的核心惯用法：**Scroll(0) = 纯刷新**。
+--     545/574/592/607 行都在数据变更后用它。非常值得记住。
+    local prev = self.view_offset
+
+    -- Do Scroll on list
+    self.view_offset = self.view_offset + amt
+    if self.view_offset < 0 or self.max_step <= 0 then
+        self.view_offset = 0
+    elseif self.view_offset > self.max_step then
+        self.view_offset = self.max_step
+    end
+
+    local didScrolling = self.view_offset ~= prev
+
+    -- Move the marker
+    if movemarker then
+        local marker = self.position_marker:GetPosition()
+        local newY = (self.height/2 - arrow_button_size) - (self.view_offset * self.step_size)
+-- ★★★ 把手位置公式：(height/2 - arrow_size) - (view_offset * step_size)
+-- 这是**滚动条位置与列表内容的映射**：
+--   view_offset 是「已滚过多少项」，step_size 是「每项对应把手多少像素」。
+--   step_size 的定义见 506 行：
+--     (height - 2*arrow_size) / (#items - widgets_per_view)
+--   即「轨道总长 / 可滚动的项数」→ 保证把手走完全程恰好到底。
+-- 267-271 行把把手夹在两端之内，防止步长算错时飞出轨道。
+-- → ★★ 「把手行程 = 轨道长 / (总项数 - 可视项数)」是正确的比例映射，
+--     而不是常见的错误做法「把手行程 = 轨道长 / 总项数」。
+--     后者会让把手永远走不到底。
+        if newY < -self.height/2 + arrow_button_size then
+            newY = -self.height/2 + arrow_button_size
+        elseif newY > self.height/2 - arrow_button_size then
+            newY = self.height/2 - arrow_button_size
+        end
+        self.position_marker:SetPosition(marker.x, newY)
+    end
+
+    -- Refresh the view
+    self:RefreshView()
+-- 275-282：刷新视图 → 通知 onscrollcb → 返回是否真的滚动了。
+-- ★ 278-280 的 onscrollcb 是**外部挂钩**：serverlistingscreen:1128 用它
+--   调 GuaranteeSelectedServerHighlighted（保证选中项在视口内）。
+-- → ★ 控件不假设调用方需要什么，而是提供回调让调用方自己决定。
+--   这比在控件里写一堆 if 更解耦。
+-- ⚠️ onscrollcb 在 276 行 RefreshView **之后**调用，
+--   所以回调里再改选中项会导致二次 RefreshView（一帧内两次布局）。
+--   性能上可接受，但说明「刷新」不是幂等保护的。
+
+    if self.onscrollcb ~= nil then
+        self.onscrollcb()
+    end
+    return didScrolling
+end
+
+function ScrollableList:RefreshView(movemarker)
+-- ══★★【RefreshView：虚拟化的核心 —— 全文件最该精读的函数】
+-- 它做的事：遍历**全部**数据项，决定每一项「显示在哪个池控件上」或「隐藏」。
+-- 表面上像 O(n) 全量刷新，但这正是虚拟化的本质：
+--   **控件只有 widgets_per_view 个，数据可以有任意多**。
+-- 289 行遍历的是 self.items（数据），不是控件 —— 这一点是命门。
+-- ★★★ 与「非虚拟化」写法的对比：
+--   非虚拟化：为每项 new 一个控件，滚动只改 SetPosition
+--   虚拟化（本文件）：控件池固定，滚动改的是「数据↔控件的绑定关系」
+-- → 移植自研 UI 时这就是「recycling / 复用池」的标准结构。
+-- 285 showing 是一个「滑动窗口开关」：
+--   290 item_offset = (view_offset+1) - i，即「第 i 项在视口中的第几行」
+--   > 0 → 还没进入视口（上方的项）
+--   == 0 → 正好是视口第一行，开始显示
+--   < 0 → 已在视口内
+-- 311-313 一旦显示数量达到 widgets_per_view 就关窗（性能优化：
+--   后面的项不再做任何操作）。
+-- ★ 这就是虚拟化的「提前退出」：每帧只处理 widgets_per_view + 少量项。
+    local showing = false
+    local nextYPos = self.height/2 - (arrow_button_size * .5) + self.yInitial
+
+    local numShown = 0
+    for i,v in ipairs(self.items) do
+        local item_offset = (self.view_offset+1) - i
+-- ★ 核心变量 item_offset = (view_offset + 1) - i
+-- 语义：「第 i 项位于视口第 item_offset 行（从 0 开始）」。
+-- 例子：view_offset = 0（没滚），i = 1 → item_offset = 0（第 0 行 = 第一行）
+--       view_offset = 0，i = 5 → item_offset = -4（往上数 4 行，已滚出）
+--       view_offset = 3，i = 1 → item_offset = 3（已在视口上方 3 行）
+-- → ★★★ 这个「负数表示上方」的设计让 297 行的 showing 判断只需一个布尔：
+--     item_offset > 0 → 还没到；== 0 → 刚到；< 0 → 已在窗内。
+--   比写两三个比较分支简洁得多，是循环视口（carousel）算法的经典写法。
+        if item_offset > 0 then
+            showing = false
+        elseif item_offset == 0 then
+            showing = true
+        end
+
+        if showing then
+            if self.updatefn ~= nil and self.static_widgets ~= nil then
+-- ══【模式 B 分支：静态池 + updatefn】
+-- ★★★ 301 行 `self.updatefn(控件, 数据项, 索引)` —— 这一行就是虚拟化本身：
+--   把「第 k 个池控件」绑定到「第 i 个数据项」。
+--   滚动一格，只需把绑定整体偏移一格，控件本身不重建。
+-- ★ 索引换算：控件下标 = i - view_offset（第 290 行的 item_offset 取负）。
+-- ⚠️ 299 行 `if self.static_widgets[i - self.view_offset] then` ——
+--   i - view_offset 是**视口内下标（0 基）**，而池是 1 基数组。
+--   当 i - view_offset == 0 时取的是 static_widgets[0] == nil → 跳过。
+--   也就是说**视口第一项没有对应控件**（它落在上一个视口的第 0 位）。
+--   结合 286 行 nextYPos 的定义（height/2 - arrow/2 + yInitial），
+--   实际是「每项的 y = nextYPos + (item_height+padding) * item_offset」，
+--   item_offset = 0 的项 y = nextYPos（顶部），
+--   而它用的是 static_widgets[i - view_offset] = static_widgets[0]。
+--   → 疑似缺陷：顶部那一项拿不到控件（或被跳过）。
+--     实际不显错，是因为 297 行 showing 条件在 item_offset==0 时才刚置 true，
+--     而池下标 0 为 nil 会让这一项**不显示**。
+--     实践中 1127 行 LayOutStaticWidgets(3, true) 与调用方的高度设置让
+--     首项由 static_widgets[1] 承担（i - view_offset = 1 时才取 [1]），
+--     说明这是**「池下标 = 行号（1 基）」的约定**，
+--     而 299 行在 i - view_offset == 0 时取 [0] 拿到 nil 并跳过 —
+--     即首行确实靠「滚动后」才正确。属已存在但被调用方掩盖的边界缺陷。
+                if self.static_widgets[i - self.view_offset] then
+                    -- if i - self.view_offset > #self.static_widgets then break end -- just in case we get into a bad spot
+                    self.updatefn(self.static_widgets[i - self.view_offset], v, i)
+                    self.static_widgets[i - self.view_offset]:SetPosition(-self.width/2 + self.x_offset, nextYPos + ((self.item_height + self.item_padding) * item_offset))
+-- ★ SetPosition 与 305 行（模式 A）完全相同的公式：
+--   y = nextYPos + (item_height + item_padding) * item_offset
+--   x = -width/2 + x_offset
+-- ★★ 两种模式共用同一个布局公式 —— 这是本文件少有的漂亮之处：
+--   位置计算只有一份，模式差异被隔离在「谁来被 SetPosition」上。
+--   → 移植时保持这种「共享布局数学、分离绑定逻辑」的分层。
+-- ⚠️ 但 x 用 -width/2 而把手用 +width/2（见 80 行）：
+--   因为 x_offset 通常是负数（serverlistingscreen 传 150 却是正的，
+--   那里配合 table 的缩进另有约定）。这个正负号约定不统一，
+--   是移植时最容易搞错的地方。
+                end
+            else
+                v:SetPosition(-self.width/2 + self.x_offset, nextYPos + ((self.item_height + self.item_padding) * item_offset))
+                v:Show()
+            end
+            numShown = numShown + 1
+
+            -- Make sure we can actually fit another widget below us
+-- ★★ 「显示够了就关窗」—— 虚拟化的性能核心。
+-- 311 numShown >= widgets_per_view 时置 showing = false，
+-- 之后所有后续项都走 314/321 分支（隐藏或修正焦点），不再 SetPosition。
+-- → 复杂度从 O(全部项数) 降到 O(视口项数 + 少量边界项)。
+--   这是「滑动窗口」算法相对「全量重排」的性能优势，
+--   在 1000 项的列表上差距是百倍级。
+-- ⚠️ 代价：314/321 分支里的焦点修正逻辑必须对「关窗后的项」也正确，
+--   否则会漏修焦点（见 316-329 的分析）。
+            if numShown >= self.widgets_per_view then
+                showing = false
+            end
+        elseif self.updatefn ~= nil and self.static_widgets ~= nil then
+-- ⚠️ 315 行注释自承：「#srosen 手柄滚动有点问题：焦点被放到奇怪的东西上
+--   （update 与 constructed）」—— **作者自己标注了这个分支的缺陷**。
+-- 316-320 行的意图：视口移动后，把 focused_index 夹回视口内。
+--   316 若焦点在视口上方 → 拉到视口第一项
+--   318 若焦点在视口下方 → 拉到视口最后一项
+-- ⚠️⚠️【真实缺陷，已逐行核实】这里的 clamp **只修正了数字，
+--   没有把焦点真正给到对应控件**：
+--   317/319 只改 self.focused_index，没有对任何控件调 SetFocus。
+--   → 结果：数字被夹住了，但**实际持有焦点的控件仍是旧的那个**
+--     （可能是已隐藏的行，或池里被重新绑定了别的数据的行）。
+--     对比 322-329 行的模式 A 分支：324/327 明确调了 SetFocus()。
+--   → 这正是「焦点失效」类 bug 的根因：
+--     状态字段（focused_index）与真实焦点（控件的 .focus 标志）
+--     在这里**脱钩**了。后续 OnFocusMove（711 行）依赖 focused_index，
+--     而 OnGainFocus（614 行）又从控件的 .focus 反查 focused_index，
+--     两个数据源不一致 → 手柄导航会跳到错误项。
+-- ★★★ 移植教训：滚动列表必须保证「焦点状态」与「焦点归属」原子更新，
+--   绝不能只更新记录用的索引字段。
+            --#srosen controller scrolling is a little wonky here: focus is getting placed on weird things (update & constructed)
+            if self.focused_index < self.view_offset+1 then
+                self.focused_index = self.view_offset+1
+            elseif self.focused_index > self.view_offset+self.widgets_per_view then
+                self.focused_index = self.view_offset+self.widgets_per_view
+            end
+        else
+-- 模式 A 的对应分支。322 `if v.focus` 先问「这个被隐藏的项当前有焦点吗」。
+-- 323-325 焦点在视口上方 → 把焦点强制给视口第一项，并同步 focused_index。
+-- 326-328 焦点在视口下方 → 同理给最后一项。
+-- ★ 与 314 行分支对比：**这里正确调用了 SetFocus**（324/327）。
+--   这就更确认了 314 行分支的缺陷性质 —— 不是设计差异，是漏写。
+-- ⚠️ 但即便如此，仍有一个隐患：SetFocus 会触发被聚焦控件的 OnGainFocus，
+--   而 331-332 行**紧接着**又对这个 v（即旧的焦点持有者）SetPosition + Hide。
+--   → SetFocus(v2) 之后立刻 Hide(v1) 是安全的（Widget:SetFocus 会清兄弟焦点），
+--     但顺序反了（先 Hide 再 SetFocus）就可能出问题。
+--     当前顺序正确，但依赖了这个隐含保证。
+            if v.focus then
+                if i < self.view_offset+1 then
+                    self.items[self.view_offset+1]:SetFocus()
+                    self.focused_index = self.view_offset+1
+                elseif i > self.view_offset+self.widgets_per_view then
+                    self.items[self.view_offset+self.widgets_per_view]:SetFocus()
+                    self.focused_index = self.view_offset+self.widgets_per_view
+                end
+            end
+            v:SetPosition(-self.width/2 + self.x_offset, nextYPos + ((self.item_height + self.item_padding) * item_offset))
+            v:Hide()
+        end
+    end
+
+    if self.static_widgets and #self.items < #self.static_widgets and not self.always_show_static_widgets then
+-- ══【池大小与数据项数不匹配的三种收尾处理】
+-- 情况 1（336）：项数 < 池大小，且不要求常显 → 多余的控件直接 Hide。
+-- 情况 2（344）：项数 < 池大小，且要求常显 → 用 updatefn(v, nil) 绑定空数据，
+--   让调用方自己把该行清空（调用方需处理 data 为 nil，见 983 行 serverlistingscreen）。
+-- 情况 3（352）：项数 >= 池大小 → 全部 Show（其余由主循环控制位置）。
+-- ★ 三分支的必要性：池是固定的，数据是变动的，
+--   「多出来的控件显示什么」必须由数据方决定（updatefn 传 nil）。
+-- → ★ 「用 nil 表示空数据」是本文件对外的隐式契约：
+--   任何 updatefn 都必须能处理第二个参数为 nil 的情况。
+-- ⚠️ serverlistingscreen 的 UpdateServerListWidget 第一行就是
+--   `if not widget then return end`（保护池控件为 nil），
+--   但**没有**检查 serverdata 为 nil ——
+--   344 行会传 nil 进来。需调用方自行处理。属契约脆弱。
+        for i,v in ipairs(self.static_widgets) do
+            if i <= #self.items then
+                v:Show()
+            else
+                v:Hide()
+            end
+        end
+    elseif self.static_widgets and #self.items < #self.static_widgets and self.always_show_static_widgets then
+        for i,v in ipairs(self.static_widgets) do
+            if i <= #self.items then
+                self.updatefn(v, self.items[i])
+            else
+                self.updatefn(v, nil)
+            end
+        end
+    elseif self.static_widgets and #self.items >= #self.static_widgets then
+        for i,v in ipairs(self.static_widgets) do
+            v:Show()
+        end
+    end
+
+    if #self.items <= self.widgets_per_view then
+-- ★ 装得下时隐藏**全部**滚动条控件（含把手与轨道按钮）。
+-- 这是 232 行 OnControl 里 `self.scroll_bar:IsVisible()` 判断的依据 ——
+-- 滚动条不可见 → 不吞滚轮事件 → 允许冒泡给外层列表。
+-- → ★★★ 同一个状态被两处消费（OnControl 决定是否响应、
+--     视觉上决定是否显示），「用可见性当能力标志」是本文件的一贯手法。
+--   好处是零额外状态；坏处是无法表达「可见但不响应」。
+        self.up_button:Hide()
+        self.down_button:Hide()
+        self.position_marker:Hide()
+        self.scroll_bar:Hide()
+        self.scroll_bar_line:Hide()
+    else
+        self.up_button:Show()
+        self.down_button:Show()
+        self.position_marker:Show()
+        self.scroll_bar:Show()
+        self.scroll_bar_line:Show()
+    end
+
+    -- Move the marker
+-- 373-382 行的代码与 263-273 行（Scroll 内部）**逐行重复**。
+-- ★ RefreshView 加一个 movemarker 参数来支持「只更新把手不重算位置」，
+--   出发点是好的（构造后与 dbui 调整后需要），
+--   但实现方式是复制粘贴而不是抽函数。
+-- ⚠️ 维护风险：改把手定位公式必须同时改两处（266 与 375）。
+--   正确做法是 Scroll 里调 `self:RefreshView(movemarker)`，
+--   由 RefreshView 独占把手定位逻辑。
+-- → 移植时把这类重复当作重构信号：同一公式出现两次就该抽出来。
+    if movemarker then
+        local marker = self.position_marker:GetPosition()
+        local newY = (self.height/2 - arrow_button_size) - (self.view_offset * self.step_size)
+        if newY < -self.height/2 + arrow_button_size then
+            newY = -self.height/2 + arrow_button_size
+        elseif newY > self.height/2 - arrow_button_size then
+            newY = self.height/2 - arrow_button_size
+        end
+        self.position_marker:SetPosition(marker.x, newY)
+    end
+end
+
+-- skip fixup is for when there's a widget that is already adding the scroll list help text and control stuff for the update style (i.e. ListCursor)
+-- ★★【构造函数上方的三行注释 —— 作者自己写下的使用契约】
+-- 「skip fixup」：调用方自己已经给行加了滚动提示与焦点处理（如 ListCursor），
+--   就不让 LayOutStaticWidgets 再包一层。
+-- 「focus children should be false」：纯信息列表（如 morgue 死亡信息）
+--   没有可交互项，焦点应停在列表本身。
+-- 「若设 false，焦点留在滚动列表上，它才能正确处理滚动输入」。
+-- → ★★★ 这三行注释的价值：**把「什么时候不该用默认行为」写清楚**。
+--   UI 组件的文档重点不是「它做什么」而是「何时不该用它」。
+--   自研组件库应强制要求每个可选参数都写清「什么时候传 nil/默认值」。
+-- ⚠️ 作者提到「skip fixup 是给 ListCursor 用的」，
+--   说明这个参数是为了兼容一个具体控件而加的 ——
+--   通用组件被具体需求反向污染的痕迹。
+-- focus children should be false when it's just an information list (i.e. the morgue) and there's nothing interactable in the list
+-- if set to false, then we keep the focus on the scroll list so that it can handle the scroll input properly
+function ScrollableList:LayOutStaticWidgets(yInitial, skipFixUp, focusChildren)
+-- ══【LayOutStaticWidgets：一次性布局 + 三重「猴补丁」】
+-- 这个函数只做两件事：
+--   1) 395-397 给每个池控件排一次初始位置（自上而下累加）
+--   2) 399-420 给每个控件包三层回调/反向引用
+-- ★★ 2) 里的三层包装是本文件最需要警惕的设计：
+--   400-411 包 GetHelpText → 拼接滚动提示
+--   413-417 包 OnGainFocus → 记录 focused_index
+--   419 SetParentScrollList → 让行的 OnFocusMove 能向上冒泡
+-- → ★★★ 这三层都是**运行时猴补丁**（monkey patch），有三大代价：
+--   a) 幂等性：LayOutStaticWidgets 被调两次就会包两层，
+--      GetHelpText 会返回重复拼接的提示，OnGainFocus 会执行两次。
+--      （serverlistingscreen:1127 与 225 行的 dbui 都可能重复调用 → 确实会）
+--   b) 可读性：读一个行控件的代码时，要跳到 ScrollableList 才知道
+--      它的 OnGainFocus 被改过。
+--   c) 无法撤销：没有恢复原函数的路径。
+-- → 自研 UI 的正解：把「滚动提示」与「焦点上报」做进基类，
+--     或让行控件显式持有一个 list 引用并在需要时查询，
+--     而不是往别人的方法上贴胶带。
+    if self.static_widgets then
+        local showing = false
+        self.yInitial = yInitial or 0
+        local nextYPos = self.height/2 - (arrow_button_size * .5) + self.yInitial
+
+        local numShown = 0
+        for i, v in ipairs(self.static_widgets) do
+-- 自上而下累加位置：每行往下移 (item_height + item_padding)。
+-- ⚠️ 这里算的是**初始位置**，滚动后的位置由 RefreshView（302 行）覆盖。
+--   所以 LayOutStaticWidgets 只在建表时调一次（serverlistingscreen:1127）。
+--   若在列表已有数据时被调用，会造成「位置跳回未滚动状态」
+--   —— 但 RefreshView 会在下一帧修正（若调用方接着调它）。
+-- → 隐含契约：LayOutStaticWidgets 之后应紧跟一次 RefreshView。
+            v:SetPosition(-self.width/2 + self.x_offset, nextYPos)
+            nextYPos = nextYPos - self.item_height - self.item_padding
+
+            if not skipFixUp then
+-- 399 行的 not skipFixUp 包住全部三层补丁 —— 逃生舱机制。
+-- ★ 调用方已经有自己的处理时传 skipFixUp = true 完全跳过。
+-- ⚠️ 但跳过之后 419 行的 SetParentScrollList 也不执行，
+--   行控件就无法把方向键冒泡给列表 → 手柄滚动失效。
+--   serverlistingscreen:1127 传了 skipFixUp = true，
+--   但它在 1131-1135 行手动做了等价的事（SetParentList），
+--   说明调用方清楚这个后果。属「知情的重复」。
+                local helptextFn = v.GetHelpText
+-- ★★ 先把原函数存起来再包一层 —— 这是**正确**的猴补丁写法，
+--   与 149 行的错误覆盖形成鲜明对比。
+-- 402-405 拼滚动提示，且只在滚动条可见时才加（404 行）。
+--   → 与 232/358 行的「滚动条可见才响应滚轮」是同一套能力判断，
+--     保证「提示说什么」与「实际能做什么」一致。
+-- ★★ 这段应当作为范本：猴补丁必须 (1) 存原函数 (2) 在包装里调用它
+--   (3) 把「何时跳过」做成显式参数。
+-- ⚠️ 但它仍不解决幂等问题：调两次 LayOutStaticWidgets 会让 helptextFn
+--   指向已被包装的函数，拼接出「滚动提示 滚动提示」。
+                v.GetHelpText = function()
+                    local controller_id = TheInput:GetControllerID()
+                    local t = {}
+                    if self.scroll_bar and self.scroll_bar:IsVisible() then
+                        table.insert(t, TheInput:GetLocalizedControl(controller_id, CONTROL_SCROLLBACK, false, false).."/"..TheInput:GetLocalizedControl(controller_id, CONTROL_SCROLLFWD, false, false).. " " .. STRINGS.UI.HELP.SCROLL)
+                    end
+                    if helptextFn then
+                        table.insert(t, helptextFn())
+                    end
+                    return table.concat(t, "  ")
+                end
+
+                local gainfocusFn = v.OnGainFocus
+-- ★ 413-417 行：包 OnGainFocus 以记录 focused_index。
+-- 416 行 `self.focused_index = self.view_offset + i` 的换算：
+--   i 是**池下标**（1 基），要加 view_offset 才得到全局项索引。
+--   这是 52 行那个「全局索引 vs 视口下标」约定的第三处应用。
+-- ⚠️ 415 行 `gainfocusFn(v)` 传参而非用冒号语法 ——
+--   正确（因为原函数是被当普通函数调用的）。
+--   但如果原 OnGainFocus 内部用了 self，这里就传错了对象。
+--   实际因为 v 就是行控件本身（池下标即对象），恰好正确。
+--   → 又一处「靠巧合正确」的写法。
+-- ★ 这段的价值：焦点落在哪个池控件上，列表立刻知道，
+--   于是 OnFocusMove（711 行）可以从 focused_index 接着往下走。
+--   没有它，列表不知道焦点在池里的哪个位置，手柄导航会断。
+                v.OnGainFocus = function()
+                    gainfocusFn(v)
+                    self.focused_index = self.view_offset + i
+                end
+
+                v:SetParentScrollList(self)
+            end
+        end
+
+        if focusChildren ~= nil then
+-- focusChildren 传 nil 表示「不改」，与 focus 语义区分开。
+-- ★ 385-387 行的注释说明了这个参数：纯信息列表应传 false。
+-- ⚠️ 用 nil 当「保持原值」是 Lua 惯用法，但要注意调用方若想
+--   误传 nil 而期望 false，行为会不符直觉。注释已覆盖此点。
+            self.focus_children = focusChildren
+        end
+    end
+end
+
+function ScrollableList:GetNearestStep()
+-- ★★★ 由把手位置反推「当前在第几项」—— 拖拽的核心换算。
+-- 公式：floor(marker.y / step_size + 0.5)
+--   marker.y 是相对锚点的偏移（顶部为 +height/2）
+--   除以 step_size 得到「距顶部多少项」
+--   +0.5 再 floor = 四舍五入到最近整数
+-- → ★★ 「拖到哪就吸到哪一项」的实现方式：
+--   每帧算出最近项，若与上一帧不同就滚动那一项的差值（469-470 行）。
+--   这样拖拽是**逐项吸附**的，而不是连续自由滚动。
+--   → 手感要点：滚动条把手永远是整数位置，永不悬在半格。
+-- ⚠️ 但这个公式依赖 marker.y 是「距顶部的偏移」，
+--   而 467 行 SetPosition 时传的 click_y 已经减去了列表世界坐标并除过缩放，
+--   量纲是一致的。三个坐标系（世界/缩放/本地）的来回换算是本函数最难读的部分，
+--   448-483 行的 DoDragScroll 里能看出全部细节。
+    local marker = self.position_marker:GetPosition()
+    return math.floor((marker.y / self.step_size) + 0.5)
+end
+
+function ScrollableList:GetHierarchicalScale()
+-- ★★ GetHierarchicalScale：向上累乘所有祖先的缩放，得到「实际显示缩放」。
+-- 为什么需要：鼠标坐标 TheFrontEnd.lasty 是**屏幕像素**，
+-- 而 SetPosition 要的是**本地单位**。中间隔着任意层级的缩放，
+-- 必须自己算出来。
+-- → ★★★ 这是「无布局引擎」的直接代价：
+--   有完整布局系统的引擎（如浏览器）里 CSS 会自动处理坐标转换；
+--   DST 里每个需要做屏幕↔本地换算的控件都得自己写这个循环。
+--   移植到自研引擎时，**这类代码应当整体删除**而不是翻译 ——
+--     换成本地坐标 API。
+-- ⚠️ 435 行直接访问 `self.inst.UITransform:GetScale()`，
+--   跳过 Widget 的封装层去摸底层组件。
+--   → 说明 Widget 没有提供 GetScale 封装。移植时应补到基类。
+-- 注意缩放是**逐层相乘**的（440-442），DST 支持非均匀缩放，
+--   所以返回三个分量而不只是一个数。
+		local scaleX, scaleY, scaleZ = self.inst.UITransform:GetScale()
+
+		local parent = self:GetParent()
+		while parent do
+			local parentScaleX, parentScaleY, parentScaleZ = parent.inst.UITransform:GetScale()
+			scaleX = scaleX * parentScaleX
+			scaleY = scaleY * parentScaleY
+			scaleZ = scaleZ * parentScaleZ
+			parent = parent:GetParent()
+		end
+		return scaleX, scaleY, scaleZ
+end
+
+function ScrollableList:DoDragScroll()
+-- ══★★【DoDragScroll：三个坐标系的换算，最难读也最值得学】
+-- 要做的事：把「鼠标在屏幕上的位置」变成「把手在本地单位的位置」。
+-- 完整换算链（448-471）：
+--   450 marker = 把手的世界坐标（用于 451 行的水平距离判断）
+--   451 用 TheFrontEnd.lastx（屏幕像素）与 marker.x（世界坐标）比较，
+--      差 150 像素以内视为「还在拖」
+--   452 pos = 列表自身的世界坐标
+--   454 取纵向累积缩放
+--   456 click_y = 鼠标屏幕 y
+--   462 click_y -= pos.y → 变成「相对列表顶部的偏移」（仍是屏幕像素）
+--   463 用缩放后的半高与箭头高夹紧 → 保证把手不飞出轨道
+--   465 click_y /= scaleY → 换成本地单位
+--   467 SetPosition(width/2, click_y + y_adjustment)
+-- ★ 463 行夹紧用的是**缩放后**的尺寸（scaledHalflength），
+--   而 465 行才除回本地单位 —— 顺序正确但极易看反。
+-- → ★★★ 移植建议：这段应该整体重写而不是翻译。
+--   有布局引擎的引擎里，事件系统直接给本地坐标，这 30 行全部不需要。
+-- ⚠️ 459 行 half-length 减的是 arrow_button_size（40），
+--   但 266 行的把手行程也用同一个 40 —— 两处一致，正确。
+    -- Near the scroll bar, keep drag-scrolling
+    local marker = self.position_marker:GetWorldPosition()
+    if self.dragging and math.abs(TheFrontEnd.lastx - marker.x) <= DRAG_SCROLL_X_THRESHOLD then
+-- ★ 双重条件：self.dragging（确实在拖）且水平距离在阈值内。
+-- ⚠️ 451 行只判断了**水平**距离，没判断垂直。
+--   结果：玩家在列表正下方很远的地方按住拖，
+--   只要 x 在 150 像素内就会继续拖动把手。
+--   属轻微判定过宽。实践中因为把手 y 被 463 行夹在轨道内，
+--   不会产生可见错误 —— 但仍是判定逻辑不严谨的证据。
+-- ★★ else 分支（472-482）的「回弹」行为是重要的手感细节：
+--   拖出范围后把手**弹回最近刻度**而不是停在半格，
+--   并且（473-480 行）把这一段拖动也**兑现成实际滚动**。
+--   → 用户体验上「拖过头再松手」仍会滚到合理位置，不会丢失滚动。
+--     这种「越界仍收敛」的设计是所有拖拽控件应有的行为。
+        local pos = self:GetWorldPosition()
+
+		local _,scaleY,_ = self:GetHierarchicalScale()
+
+        local click_y = TheFrontEnd.lasty
+        local prev_step = self:GetNearestStep()
+
+		local scaledHalflength = (self.height/2) * scaleY
+		local scaledArrowHeight = arrow_button_size * scaleY
+
+		click_y = click_y - pos.y
+		click_y = math.clamp(click_y, - scaledHalflength + scaledArrowHeight, scaledHalflength - scaledArrowHeight)
+
+		click_y = click_y / scaleY
+
+        self.position_marker:SetPosition(self.width/2, click_y + self.y_adjustment)
+        local curr_step = self:GetNearestStep()
+        if curr_step ~= prev_step then
+-- ★★★ 拖拽的滚动兑现：只在「跨过了整项」时才 Scroll。
+--   469 curr_step ~= prev_step → 移动了 (prev - curr) 项
+--   注意方向：把手向上（y 增大，c 增大）→ prev > curr → Scroll 正数 → 下滚。
+-- → ★ 逐项吸附的实现：不在每帧连续调用 Scroll 累加小数，
+--   而是检测整数跨越。这样即使帧率抖动也不会「滚过头再滚回来」。
+-- ★ 470 行 movemarker 传 false：把手位置已由 467 行直接设过，
+--   不需要 Scroll 再算一遍（否则会与 467 的实时位置打架）。
+-- → 这个参数用得极准：Scroll 的 movemarker 就是「要不要用逻辑位置覆盖把手」。
+            self:Scroll(prev_step - curr_step, false)
+        end
+    else -- Far away from the scroll bar, revert to original pos
+        local prev_step = self:GetNearestStep()
+        if self.position_marker.o_pos then
+            self.position_marker:SetPosition(self.position_marker.o_pos)
+        end
+        local curr_step = self:GetNearestStep()
+        if curr_step ~= prev_step then
+            self:Scroll(prev_step - curr_step, false)
+        end
+        self:MoveMarkerToNearestStep()
+    end
+end
+
+function ScrollableList:MoveMarkerToNearestStep()
+-- MoveMarkerToNearestStep = 「松手后吸附」。
+-- 与 DoDragScroll 的 469 行同款逻辑，但没有坐标换算，
+-- 因为它直接用 view_offset 重算（486 行）。
+-- ★ 三个调用点：149（OnLoseFocus）、156（OnClick）、481（拖出范围回弹）。
+--   都是「拖拽结束」的时刻 —— 语义高度一致。
+-- ⚠️ 但 149/156 两处是**重复代码**（见 156 行注释）。
+    local y = (self.height/2 - arrow_button_size) - (self.view_offset * self.step_size)
+    if y > self.height/2 - arrow_button_size then
+        y = self.height/2 - arrow_button_size
+    elseif y < -self.height/2 + arrow_button_size then
+        y = -self.height/2 + arrow_button_size
+    end
+    self.position_marker:SetPosition(self.width/2, y)
+end
+
+function ScrollableList:SetScrollPerClick(amt)
+-- ⚠️⚠️⚠️【★ 本文件最严重的设计缺陷，已逐行核实】
+-- SetScrollPerClick 改的是 **scroll_per_click 这个文件级 upvalue**
+-- （定义在第 5 行），而不是 self.scroll_per_click。
+-- 后果：
+--   1) 调用 ScrollableList:SetScrollPerClick(3) 会让**全游戏所有**
+--      ScrollableList 的单步滚动量变成 3 —— 包括服务器列表、
+--      mod 列表、选项列表、聊天队列……
+--   2) 因为没有任何字段，List 对象自己也不知道自己被改成了什么。
+--   3) 无法给不同列表配置不同速度（只能全局设，且是「最后一个调用者赢」）。
+-- → ★★★ 这是「用 upvalue 模拟静态配置」的错误：
+--   它在语法上合法、在单列表场景下工作正常，
+--   却在多实例场景下产生**跨实例串扰**——最难查的一类 bug。
+-- 正确写法：赋值给 self.scroll_per_click，
+--   并把所有读取点（84/99/124/126/237/242）改成 self.scroll_per_click，
+--   构造器里加 `self.scroll_per_click = scroll_per_click or 1`。
+-- → ★★★ 移植自研 UI 的硬规则：**任何「看起来像配置」的量都不能放文件级**。
+--   放文件级等于「全进程共享单例」，多实例立刻串扰。
+-- ⚠️ 我 grep 过全库，**没有任何调用方使用 SetScrollPerClick/SetScrollPerPage**，
+--   所以该缺陷当前不可见。属于「雷已埋好未引爆」——
+--   但任何模组调用它都会立刻引爆。
+--   （这一点值得写进注释：告诉后人「你可以安全地修复它」）
+    scroll_per_click = amt
+end
+
+function ScrollableList:SetScrollPerPage(amt)
+    scroll_per_page = amt
+end
+
+function ScrollableList:RecalculateStepSize()
+-- ══★【RecalculateStepSize：三项派生量的计算中心】
+-- 504 widgets_per_view = ceil(height / (item_height + item_padding))
+--   → 「一屏能放几项」。ceil 而非 floor：宁可多算半个，
+--     也不能少算导致最后一项被裁掉。
+--   ⚠️ 但它没减 2*arrow_button_size（滚动条箭头占的高度）。
+--     也就是说 widgets_per_view **高估**了实际可放项数
+--     （除非调用方把箭头空间从 listheight 里预留出去）。
+--     serverlistingscreen 传 height=385、item_height=20、padding=10 →
+--     ceil(385/30) = 13，与 listings_per_view = 13 恰好一致，
+--     说明调用方是靠「手工调参对齐」而非公式正确性。
+--     这类「靠调参掩盖公式缺陷」是 UI 代码的常见状态。
+-- 505 max_step = ceil(#items - widgets_per_view)
+--   → 「最多能滚多少项」。装得下时为 0 或**负数**。
+--   ⚠️ 负数是本文件多处 if 的隐藏前提（250/258 行的 <= 0 判断），
+--     但从没有任何注释说明这一点。
+-- 506 step_size = (height - 2*arrow_size) / (#items - widgets_per_view)
+--   → 「每项对应把手多少像素」。分母**可能为 0**。
+-- ★★ 已实测：Lua 中 100/0 返回 inf（不报错，lupa Lua 5.5 验证）。
+--   所以「项数恰好等于可视项数」时 step_size = inf，
+--   266 行 `view_offset * inf` → 若 view_offset 为 0 则 0*inf = **nan**。
+--   → ★ 真实边界缺陷：项数 == 可视项数时，0 * inf = nan，
+--     SetPosition 会收到 nan 坐标。
+--     实践中此时 358 行会隐藏滚动条（#items <= widgets_per_view），
+--     370 行那个分支不执行，所以把手不会被 SetPosition —— 侥幸不显错。
+--     但一旦有代码读 self.step_size（如 429 行 GetNearestStep），
+--     nan 会传播。属于「靠调用方时序侥幸不出错」。
+-- 507-513 把越界的 view_offset 夹回来 —— 这是「数据变了要重算」的兜底。
+    self.widgets_per_view = math.ceil(self.height / (self.item_height + self.item_padding))
+    self.max_step = math.ceil(#self.items - self.widgets_per_view)
+    self.step_size = (self.height - (2*arrow_button_size)) / (#self.items - self.widgets_per_view)
+    if self.view_offset and self.max_step and self.view_offset > math.abs(self.max_step) then --#srosen we want to do percentage based marker movement
+-- 507 行的 `self.view_offset and ...` 前半段判断其实多余：
+--   view_offset 在 69 行已被赋过（构造期），这里必然非 nil。
+--   真正起作用的是后半段的越界判断。
+-- ⚠️ 508 `if self.max_step > 0` —— 排除了 max_step == 0 的情况，
+--   此时走 511 行置 0。结果相同但多一个分支，
+--   推测是为了同时防住 max_step 为负的情形。
+-- ★ 正确的重构：`self.view_offset = math.max(0, math.min(self.view_offset, math.max(0, self.max_step)))`
+        if self.max_step > 0 then
+            self.view_offset = self.max_step
+        else
+            self.view_offset = 0
+        end
+    end
+end
+
+function ScrollableList:SetListItemPadding(pad)
+-- ══【改尺寸的标准三步：改字段 → 重算派生量 → 刷新视图】
+-- ★★★ 这三步在 SetListItemPadding/SetListItemHeight/SetList/AddItem/
+--   RemoveItem/Clear 里**重复了 6 次**，每次都是同样的顺序。
+-- → 正确重构：抽一个 `self:Invalidate()` 做这三步。
+--   漏掉任何一步都会产生难查的视觉错误
+--   （比如改了 item_height 但没重算 step_size，把手就会错位）。
+-- → ★★★ 移植自研 UI 的判据：**同一组操作序列在 3 处以上出现就该抽**。
+--   UI 里这类重复的代价是「改漏一处」，比代码冗余严重得多。
+    self.item_padding = pad
+    self:RecalculateStepSize()
+    self:RefreshView()
+end
+
+function ScrollableList:SetListItemHeight(ht)
+    self.item_height = ht
+    self:RecalculateStepSize()
+    self:RefreshView()
+end
+
+--keeprelativefocusindex: keep the focus on the same physical
+--slot, even as the items get shifted from updating the list.
+function ScrollableList:SetList(list, keepitems, scrollto, keeprelativefocusindex)
+-- ══★【SetList：换数据的完整事务 —— 焦点保持是重点】
+-- 参数 keepitems：保留现有控件（只换数据），false 则销毁重建（仅模式 A）。
+-- 531 行先算出「焦点相对视口的位置」rel_focus_index ——
+--   必须在改动 view_offset **之前**算，否则基准已变。
+-- ★★★ 这是本函数的精髓：**滚动的目的是换数据，但用户的焦点不该丢**。
+--   典型场景：聊天列表追加一条新消息，列表刷新后焦点仍在同一行。
+-- 549-551 keeprelativefocusindex 为真时把焦点索引还原到新视口。
+-- ★ 528-529 行的函数头注释明确了这个参数的意图：
+--   「保持焦点在同一个物理槽位，即使项被整体替换」。
+-- → ★★ 「列表数据整体替换时如何保持用户焦点」是所有列表控件的必答题，
+--     DST 给了一个简洁解法：**记相对位置，数据换完后还原绝对位置**。
+--     比「重新查找原来那一项」简单得多，代价是不保证指向同一项
+--     （数据变了，原来那一项可能已经不存在）。
+-- ⚠️ 545 行先 Scroll 再 546 行 RecalculateStepSize ——
+--   顺序**反了**：Scroll 内部（276 行）会 RefreshView，
+--   而 RefreshView 依赖 step_size 与 widgets_per_view；
+--   此时它们还是**旧数据算出的旧值**。
+--   → 真实缺陷：SetList 时会先用旧步长刷新一次视图，
+--     再用新步长刷一次（553 行）。
+--     中间那一帧的布局是错的。553 行的 RefreshView(true) 会修正，
+--     所以最终结果正确 —— 但存在一次多余的错误布局计算。
+--   正确顺序应是 RecalculateStepSize → Scroll → RefreshView。
+--   （AddItem/RemoveItem/Clear 也是同样的错误顺序，见 574-577/592-595/606-607）
+    local rel_focus_index = self.focused_index - self.view_offset
+    if not keepitems and self.updatefn == nil and self.static_widgets == nil then
+-- 只在模式 A 且不保留旧控件时才销毁重建。
+-- 模式 B 跳过整个 if：池控件是共用的，不能随数据销毁。
+-- ★ 正确 —— 这正是虚拟化的核心收益：
+--   换数据时**一个控件都不用新建**。
+-- ⚠️ 但 542 行无条件 `self.items = list`，
+--   意味着模式 A 且 keepitems 为真时，旧的 items 控件被**遗弃**
+--   （既没 Kill 也没 AddChild 到新列表）—— 若调用方误用 keepitems=true，
+--   会造成控件泄漏（仍在树上但不再被列表管理）。
+--   属「参数组合未全部验证」的隐患。
+        for i, v in ipairs(self.items) do
+            v:Kill()
+        end
+
+        for i, v in ipairs(list) do
+            self:AddChild(v)
+        end
+    end
+
+    self.items = list
+
+    --scroll by 0 to update the position to match the new list size
+    self:Scroll(scrollto ~= nil and scrollto - self.view_offset or 0, true)
+-- ★ 「滚动 0 格来更新位置」—— 前面 250 行分析过的核心惯用法。
+-- scrollto 传入时按「目标绝对位置」滚动（scrollto - 当前），
+-- 否则纯刷新。movemarker=true 让把也跟着动。
+-- ⚠️ 顺序问题见 530 行的详细分析（应先 RecalculateStepSize）。
+    self:RecalculateStepSize()
+    self:DoFocusHookups()
+
+    if keeprelativefocusindex then
+        self.focused_index = self.view_offset + rel_focus_index
+    end
+
+    self:RefreshView(true)
+end
+
+function ScrollableList:AddItem(item, before_widget)
+-- 557 行 RemoveItem 先跑一次 —— 注释明说「别让同一个 item 被加进两个位置」。
+-- ★ 这是**幂等性防护**的典型写法：
+--   允许「重复添加」这种调用错误存在，但内部先清理，
+--   使行为退化为「移动」而非「重复」。
+-- → 自研 UI 的集合类 API 应当这样设计：宁可容忍错误调用，
+--   也不要因为重复添加而产生重复项。
+-- ⚠️ 但 557 行的 RemoveItem 在 before_widget 非 nil 的路径下有问题：
+--   RemoveItem 内部（592-595 行）会 Scroll + Recalculate + RefreshView，
+--   也就是**还没插入新项就先做了一次全量重排**。
+--   紧接着 567-577 又做一遍。单次 AddItem 触发两次完整重排。
+--   → 性能缺陷（不是正确性缺陷）。正确做法是加一个内部的无刷新版 RemoveItem。
+    self:RemoveItem(item) -- don't let an item be added in two positions!
+
+    if before_widget ~= nil then
+        local index = -1
+        for i,v in ipairs(self.items) do
+            if v == before_widget then
+                index = i
+                break
+            end
+        end
+        table.insert(self.items, index, item)
+-- ⚠️ index 初值为 -1，567 行无条件 table.insert(self.items, index, item)。
+-- Lua 的 table.insert(t, pos, v) 在 pos 越界时会**报错**
+--   （实测报错信息类似 "position out of bounds"）。
+-- 若 before_widget 不在 items 里（index 保持 -1），这里会抛异常。
+-- → 真实缺陷：调用方传了一个不属于本列表的 before_widget，
+--   会得到一个难以理解的越界错误，而不是「静默追加到末尾」。
+-- 正确写法：`if index > 0 then table.insert(self.items, index, item) else table.insert(self.items, item) end`。
+--   → ★★★ 移植教训：**不要用哨兵值 -1 兼作「未找到」与「合法位置」**。
+--     这是所有集合操作 API 的通用陷阱（数组/栈/队列都适用）。
+--   我未在真实调用中触发（所有调用方传的 before_widget 都来自本列表），
+--   故标注为「真实缺陷但当前不可触发」。
+        self:AddChild(item)
+    else
+        table.insert(self.items, item)
+        self:AddChild(item)
+    end
+
+    self:Scroll(0, true) --scroll by 0 to update the position to match the new list size
+    self:RecalculateStepSize()
+    self:DoFocusHookups()
+    self:RefreshView(true)
+end
+
+function ScrollableList:RemoveItem(item)
+-- RemoveItem 与 AddItem 的 RemoveItem 同款哨兵问题（581 行 index = -1），
+-- 但这里用了 589 行的 `if index > -1` 守卫，**正确**。
+-- ★ 对比 567 行的无条件 insert —— 同一文件里两种写法，
+--   AddItem 那个更可能是疏漏。
+-- ★★ 也说明：RemoveItem 的守卫让「传入不在列表里的 item」是安全的空操作。
+--   AddItem 应该照抄这个守卫。
+    local index = -1
+    for i,v in ipairs(self.items) do
+        if v == item then
+            index = i
+            break
+        end
+    end
+
+    if index > -1 then
+        table.remove(self.items, index)
+
+        self:Scroll(0, true) --scroll by 0 to update the position to match the new list size
+        self:RecalculateStepSize()
+        self:DoFocusHookups()
+        self:RefreshView(true)
+    end
+end
+
+function ScrollableList:Clear()
+-- Clear 只在模式 A 销毁控件；模式 B 的池控件必须留着。
+-- ⚠️ 但 605 行 `self.items = {}` 无条件执行 —— 模式 B 也清数据，
+--   正确（池要留着，数据要清）。
+-- ★ 606-607 的 RecalculateStepSize + RefreshView(true) 让空列表也走一遍布局，
+--   结果是 358 行 `#items(0) <= widgets_per_view` 成立 → 隐藏全部滚动条。
+--   「清空后自动隐藏滚动条」是这条路径的自然结果，无需额外代码。
+-- → ★ 状态驱动 UI 的好处：状态清空后，所有「状态相关」的表现
+--   都在同一个刷新函数里自然收敛，不需要逐个地方写清理。
+    if self.updatefn == nil and self.static_widgets == nil then
+        for i, v in ipairs(self.items) do
+            v:Kill()
+        end
+    end
+    self.items = {}
+    self:RecalculateStepSize()
+    self:RefreshView(true)
+end
+
+function ScrollableList:GetNumberOfItems()
+    return #self.items
+end
+
+function ScrollableList:OnGainFocus()
+-- ══★【OnGainFocus 与 OnLoseFocus 是逐行相同的两段代码】
+-- 614-634（OnGainFocus）与 636-656（OnLoseFocus）**除基类调用外完全一致**：
+--   都是「扫描所有项，找到 v.focus 为真的那个，把 focused_index 设成它」。
+-- ⚠️ 这在语义上很奇怪：
+--   「获得焦点」时扫描当前焦点项 —— 合理（焦点刚落到某行）。
+--   「失去焦点」时也扫描 —— 但此刻列表**已经没有焦点了**，
+--   v.focus 全为 false，扫描必然落到 633/655 行的 `self.focused_index = 1`。
+-- → ★★★ 所以 OnLoseFocus 的实际效果是「把焦点索引重置为 1」——
+--     这与 OnGainFocus 的「记录当前焦点项」意图完全相反。
+--     两者写在一起几乎肯定是复制粘贴后忘了区分。
+--   真实影响：失去焦点后再获得焦点，若中间列表滚动了，
+--   焦点索引已被重置为 1（列表顶部），用户会「跳回顶部」。
+--   → 属于「疑似真实缺陷」，我已逐行比对两函数确认完全相同。
+--   正确做法：OnLoseFocus 里应该**保留** focused_index（什么都不做），
+--     让 OnGainFocus 去重新同步。
+-- ⚠️ 但要注意：61x 的注释说「Static table of widgets that we show and hide」，
+--   暗示作者以为自己在处理池控件 —— 说明是**意图与实现不符**，
+--   而非单纯的复制粘贴失误。
+-- ★ 两处都用了 `return` 提前退出（找到即返回），
+--   最后兜底 `self.focused_index = 1`。写法本身没问题。
+    ScrollableList._base.OnGainFocus(self)
+
+    -- Static table of widgets that we show and hide
+    if self.updatefn ~= nil and self.static_widgets ~= nil then
+        for i, v in ipairs(self.static_widgets) do
+            if v.focus then
+                self.focused_index = self.view_offset + i
+                return
+            end
+        end
+    elseif self.items ~= nil then
+        for i, v in ipairs(self.items) do
+            if v.focus then
+                self.focused_index = i
+                return
+            end
+        end
+    end
+    self.focused_index = 1
+end
+
+function ScrollableList:OnLoseFocus()
+    ScrollableList._base.OnLoseFocus(self)
+
+    -- Static table of widgets that we show and hide
+    if self.updatefn ~= nil and self.static_widgets ~= nil then
+        for i, v in ipairs(self.static_widgets) do
+            if v.focus then
+                self.focused_index = self.view_offset + i
+                return
+            end
+        end
+    elseif self.items ~= nil then
+        for i, v in ipairs(self.items) do
+            if v.focus then
+                self.focused_index = i
+                return
+            end
+        end
+    end
+    self.focused_index = 1
+end
+
+function ScrollableList:SetFocus()
+-- ══★★【SetFocus：把「全局焦点索引」落到「视口内的池控件」上】
+-- 这是本文件「全局索引 ↔ 视口下标」换算的第 4 处（也是最关键的一处）。
+-- 660-668 三步夹紧：
+--   660 索引超出数据末尾 → 拉到 #items
+--   664 在视口上方 → 拉到视口第一项
+--   666 在视口下方 → 拉到视口最后一项
+-- ⚠️ 661 行 `index = #self.items` 后若 items 为空则 index = 0，
+--   接着 664 行 `index <= view_offset`（0 <= 0）成立 → index = view_offset + 1 = 1，
+--   然后 671 行 static_widgets[1] 或 680 行 items[1] 为 nil → 被 672/680 的
+--   nil 检查挡住。空列表安全。
+-- ★★ 673-677 的分支即 53 行 focus_children 的消费点：
+--   true → 焦点给具体控件（行内元素可再聚焦）
+--   false → 焦点给 self.bg（列表自己处理方向键）
+-- → ★★★ 这是「容器焦点 vs 子控件焦点」的标准实现，
+--   自研 UI 一定要把这个做成显式概念。
+-- ⚠️ 但注意：这里只调 focused_widget:SetFocus()，
+--   **没有**同时保证该控件当前可见。
+--   若 focused_index 指向的池控件恰好被 336-351 行的池大小逻辑 Hide 了，
+--   SetFocus 一个隐藏控件会让焦点落在看不见的地方。
+--   → 疑似边界缺陷。实践中 316-319 行的 clamp 会把 focused_index 留在视口内，
+--     而视口内的池控件一定是 Show 的，所以侥幸安全。
+    local index = self.focused_index
+    if self.items ~= nil and #self.items < index then
+        index = #self.items
+    end
+
+    if index <= self.view_offset then
+        index = self.view_offset + 1
+    elseif index > self.view_offset + self.widgets_per_view then
+        index = self.view_offset + self.widgets_per_view
+    end
+
+    if self.updatefn ~= nil and self.static_widgets ~= nil then
+        local focused_widget = self.static_widgets[index - self.view_offset]
+        if focused_widget ~= nil and focused_widget.SetFocus ~= nil then
+            if self.focus_children then
+                focused_widget:SetFocus()
+            else
+                self.bg:SetFocus()
+            end
+            self.focused_index = index
+        end
+    elseif self.items ~= nil and self.items[index] ~= nil and self.items[index].SetFocus ~= nil then
+        self.items[index]:SetFocus()
+        self.focused_index = index
+    end
+end
+
+function ScrollableList:DoFocusHookups()
+-- ★★【DoFocusHookups：把池控件串成一条**焦点链**】
+-- 这是手柄/键盘导航能上下移动的根本原因。
+-- 691/695 给每个控件设置 focus_flow[MOVE_UP/DOWN] = 上一项/下一项的控件。
+-- ★★★ 关键理解（widget.lua:80-92）：
+--   Widget:OnFocusMove 先问子控件（76-78 行），
+--   再问自己的 focus_flow（80 行），最终还能冒泡给 parent_scroll_list（94 行）。
+--   所以焦点链是三层：
+--     1) 控件内部子控件（行的内容）
+--     2) 控件之间的 focus_flow（DoFocusHookups 建立的）
+--     3) 列表自身（parent_scroll_list）
+-- → ★★★ 这是用户提到的「焦点链」在 DST 的完整答案：
+--   焦点不是一张全局表，而是**每个控件各存一份「方向 → 目标」**。
+--   好处：分发是 O(1) 的局部查找，无需全局注册表；
+--     代价：数据变更时必须重建（本函数就是为此存在），
+--     且重建期间存在「旧链指向已 Kill 控件」的窗口。
+-- ⚠️ 重建时机见 547/576/594 行 —— SetList/AddItem/RemoveItem 都调。
+--   但**滚动时不重建**（这是对的：池控件身份不变）。
+-- ★ 694/704 行用 `k < #self.items` / `k < #self.static_widgets` 判断边界：
+--   模式 A 的边界由数据数决定，模式 B 由池大小决定。正确。
+-- ⚠️ 但模式 B 里最后一行控件的 MOVE_DOWN 指向池内不存在的一项，
+--   所以「滚到底再往下」必须靠 732 行的 else 分支兜住 —— 见该处。
+    -- Static table of widgets that we show and hide
+    if self.items and not self.updatefn and not self.static_widgets then
+        for k,v in ipairs(self.items) do
+            if k > 1 then
+                self.items[k]:SetFocusChangeDir(MOVE_UP, self.items[k-1])
+            end
+
+            if k < #self.items then
+                self.items[k]:SetFocusChangeDir(MOVE_DOWN, self.items[k+1])
+            end
+        end
+    elseif self.updatefn and self.static_widgets then
+        for k,v in ipairs(self.static_widgets) do
+            if k > 1 then
+                self.static_widgets[k]:SetFocusChangeDir(MOVE_UP, self.static_widgets[k-1])
+            end
+
+            if k < #self.static_widgets then
+                self.static_widgets[k]:SetFocusChangeDir(MOVE_DOWN, self.static_widgets[k+1])
+            end
+        end
+    end
+end
+
+function ScrollableList:OnFocusMove(dir, down)
+-- ══★★【OnFocusMove：焦点链的滚动协调器 —— 手柄纵向导航的核心】
+-- 基类先处理（712 行）：Widget:OnFocusMove 会尝试 focus_flow 与冒泡。
+-- 只有基类返回 false（本控件无路可走）时，才执行下面的「滚动 + 重定位」。
+-- ★★★ 整体思路非常清晰：
+--   「焦点在第一项还想往上」→ 滚动一格 → 把焦点给新进入视口的第一项。
+--   「焦点在最后一项还想往下」→ 滚动一格 → 把焦点给新进入视口的最后一项。
+-- → ★★★ 这就是滚动列表手柄导航的完整算法，
+--     而且它同时处理了 686 行建立的「静态链」的边界：
+--     链只在池内有效，池的边界必须由列表自己接住。
+-- 716-722 先反查「当前哪个池控件有焦点」→ 得到 focused_index。
+-- ★ 用 `v.focus` 作为真值来源，而不是信任 focused_index 字段。
+--   这与 314-320 行的缺陷形成对比 ——
+--   那里只改字段不改控件，这里的读操作是可靠的。
+-- ⚠️ 728/735 行直接访问 static_widgets[1] / static_widgets[#static_widgets]，
+--   没有 nil 检查。若池为空（static_widgets 为空表），
+--   732 行的条件 `view_offset + #static_widgets < #self.items` 会拦下 else 分支，
+--   但 724-731 行的 MOVE_UP 分支**没有**池非空的检查！
+--   → 真实边界缺陷：池为空时若 focused_index <= view_offset + 1，
+--     728 行 static_widgets[1] 为 nil → 调用 nil:SetFocus() 崩溃。
+--   实践中池非空是构造前提（构造器必建），且 focused_index 初值 1 时
+--   条件 1 <= 0 + 1 成立 —— 意味着**空池 + 手柄按上就会崩**。
+--   但空池的 ScrollableList 本身没有意义，实践中不会构造。
+--   标注为「真实缺陷但需要非典型构造才能触发」。
+    if ScrollableList._base.OnFocusMove(self,dir,down) then return true end
+
+    if down then
+        -- Static table of widgets that we show and hide
+        if self.updatefn ~= nil and self.static_widgets ~= nil then
+            for i, v in ipairs(self.static_widgets) do
+                if v.focus then
+                    self.focused_index = i + self.view_offset
+                    break
+                end
+            end
+
+            if dir == MOVE_UP then
+                if self.focused_index <= self.view_offset + 1 then
+                    self:Scroll(-1, true)
+                    TheFrontEnd:GetSound():PlaySound("dontstarve/HUD/click_mouseover", nil, ClickMouseoverSoundReduction())
+                    self.static_widgets[1]:SetFocus()
+-- ★★ 滚动后把焦点给 static_widgets[1]（视口新的第一项），
+--   然后 729 行 focused_index - 1 —— 因为滚动后视口下移一项，
+--   同一个控件对应的全局索引减了 1。
+-- → ★★★ 这是「全局索引随视口平移」的直观体现：
+--   控件没变，但它代表的项变了。
+--   每一处这类运算都必须想清楚「变的是坐标还是对象」。
+-- ★ 727 行播 mouseover 音效：手柄滚动也给音效，
+--   且用 ClickMouseoverSoundReduction() 降音量（与 238/243/750/758 一致）。
+--   → ★ 音效在「每次有效滚动」时播一次，是廉价但极有效的反馈。
+                    self.focused_index = self.focused_index - 1
+                    return true
+                end
+            elseif dir == MOVE_DOWN and self.focused_index >= self.view_offset + #self.static_widgets and self.view_offset + #self.static_widgets < #self.items then
+-- ★★★ 这里有个**双重边界条件**，是全文件最精细的一处：
+-- 条件：`dir == MOVE_DOWN and focused_index >= view_offset + #static_widgets
+--         and view_offset + #static_widgets < #self.items`
+-- 拆解：
+--   1. 焦点在池的最后一项（池内下标已是末位）
+--   2. 且池的末位还不是数据的末项（还有更多数据没显示）
+-- 两个条件缺一不可：
+--   只有条件 1 → 数据已到底时仍会滚动，Scroll 内部会夹紧，
+--     但会把焦点强行给最后一项，造成「焦点乱跳」。
+--   只有条件 2 → 焦点不在池末位时就滚动，会跳过中间项。
+-- ★★ 这是「边界条件的正确写法」范例：
+--   把「控件链的边界」与「数据的边界」**分别判断**再取交集。
+-- → 移植自研 UI 时，任何「控件池 + 无限数据」的导航都要这样写。
+-- ⚠️ 对比模式 A 的 755 行：`dir == MOVE_DOWN and self.focused_index < #self.items`，
+--   用的是**数据**边界而非池边界 —— 因为模式 A 里控件数 == 数据数，
+--   两者等价。抽象成同一套逻辑时要注意这个差异。
+                self:Scroll(1, true)
+                TheFrontEnd:GetSound():PlaySound("dontstarve/HUD/click_mouseover", nil, ClickMouseoverSoundReduction())
+                self.static_widgets[#self.static_widgets]:SetFocus()
+                self.focused_index = self.focused_index + 1
+                return true
+            end
+        elseif self.items ~= nil then
+            for i, v in ipairs(self.items) do
+                if v.focus then
+                    self.focused_index = i
+                    break
+                end
+            end
+
+            if dir == MOVE_UP and self.focused_index > 1 then
+                if self.focused_index <= self.view_offset + 1 then
+                    self:Scroll(-1, true)
+                    TheFrontEnd:GetSound():PlaySound("dontstarve/HUD/click_mouseover", nil, ClickMouseoverSoundReduction())
+                    self.items[self.view_offset + 1]:SetFocus()
+                    self.focused_index = self.focused_index - 1
+                end
+                return true
+            elseif dir == MOVE_DOWN and self.focused_index < #self.items then
+-- 模式 A 的 MOVE_DOWN：755 用数据边界，756 用视口边界，两个都要判。
+--   755 若已在最后一个数据项 → 不处理（返回 true 吃掉键，避免世界响应）
+--   756 若焦点在视口最后一项 → 先滚一格再重定位
+-- ★ 754/762 行无条件 return true：无论是否真的移动，都消费这个键。
+--   → 与 playerhud 的「return true = 我处理了」语义一致（见该文件 1421 行分析）。
+--   这保证手柄按上下**永远不会穿透到世界去移动角色**。
+-- ★★★ 这是「列表吃掉导航键」的正确实现：
+--   焦点在列表里时，方向键属于列表而非角色。
+                if self.focused_index >= self.view_offset + self.widgets_per_view then
+                    self:Scroll(1, true)
+                    TheFrontEnd:GetSound():PlaySound("dontstarve/HUD/click_mouseover", nil, ClickMouseoverSoundReduction())
+                    self.items[self.view_offset + self.widgets_per_view]:SetFocus()
+                    self.focused_index = self.focused_index + 1
+                end
+                return true
+            end
+        end
+    end
+    return false
+end
+
+function ScrollableList:GetHelpText()
+-- 列表自身的帮助文本。769-776 与 LayOutStaticWidgets 里 400-411 注入的
+-- 那份逻辑**完全相同** —— 又是复制粘贴。
+-- ⚠️ 两处必须同步修改，否则「列表自己的提示」与「行内的提示」不一致。
+-- ★ 正确的做法：抽成局部函数，本方法与注入逻辑都调它。
+-- → 本文件的复制粘贴共发现 4 处（149/156、263/372、614/636、400/769），
+--   占 788 行的相当比例。整体呈现出「多次增量打补丁」的演化痕迹。
+    local controller_id = TheInput:GetControllerID()
+    local t = {}
+    if self.scroll_bar and self.scroll_bar:IsVisible() then
+        table.insert(t, TheInput:GetLocalizedControl(controller_id, CONTROL_SCROLLBACK, false, false).."/"..TheInput:GetLocalizedControl(controller_id, CONTROL_SCROLLFWD, false, false).. " " .. STRINGS.UI.HELP.SCROLL)
+    end
+    return table.concat(t, "  ")
+end
+
+function ScrollableList:IsAtEnd()
+-- IsAtEnd 用**严格相等**（==）判断，而非 >=。
+-- ★ 正确：Scroll（250 行）保证 view_offset 始终被夹在 [0, max_step]，
+--   所以相等是可达的。但若外部直接改 view_offset，判定会失效。
+-- ⚠️ 782 行 ScrollToEnd 传的是 `self:GetNumberOfItems()`（**总项数**），
+--   而 Scroll 会把它当「增量」加到 view_offset 上，再夹到 max_step。
+--   结果正确（因为夹紧），但语义混乱：
+--   传总项数当增量，靠夹紧兜底。
+--   正确写法是 `self:Scroll(self.max_step - self.view_offset, true)`。
+-- → ★★★ 「靠下游夹紧掩盖上游语义错误」是 UI 代码里很隐蔽的一类问题：
+--     代码看起来能跑，但一旦有人把 Scroll 的夹紧逻辑改严，行为立刻崩。
+    return self.view_offset == self.max_step
+end
+
+function ScrollableList:ScrollToEnd()
+    if self.scroll_bar and self.scroll_bar:IsVisible() then
+        self:Scroll(self:GetNumberOfItems(), true)
+    end
+end
+
+return ScrollableList

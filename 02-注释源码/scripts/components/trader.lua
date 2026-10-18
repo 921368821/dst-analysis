@@ -1,0 +1,457 @@
+--============================================================
+-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖
+-- 文件：components/trader.lua
+-- 模块：组件系统 / 商人（Trader）
+-- 职责：NPC「愿不愿意收玩家的东西」判定与执行 —— 双层闸门（物理能力
+--       AbleToAccept / 意愿 WantsToAccept）、赠送事务（AcceptGift 的拆堆取物、
+--       销毁或转交背包、prevslot 回滚防护）、mimic 拒收、启用与标签同步。
+-- 【★★ 核心设计：物理闸门 与 意愿闸门 的双层拆分】
+--   AbleToAccept  = 物理能力（死了？在睡？状态机 busy？），返回 (bool, reason)，
+--                  reason 会被动作层消费并显示给玩家。
+--   WantsToAccept = 意愿（觉得恶心吗？），返回布尔，【不】产生失败原因，
+--                  只触发 onrefuse 表现回调。
+--   把二者合并就只会得到一种含糊的失败提示 —— 这是本文件最值得学的一点。
+-- 【★ 回调语义不对称】SetAcceptTest 是【追加】在物理闸门之后；
+--   SetAbleToAcceptTest 是【替换】整个物理闸门（第 111-112 行 elseif），
+--   一旦设置，第 113-119 行的 DEAD/SLEEPING/BUSY 默认检查全部失效。
+-- 关键符号：Trader, AbleToAccept, WantsToAccept, AcceptGift, IsTryingToTradeWithMe,
+--           SetAcceptTest, SetAbleToAcceptTest, SetOnAccept, SetOnRefuse,
+--           SetAcceptStacks, IsAcceptingStacks, Enable, Disable, GetDebugString,
+--           enabled, acceptnontradable, deleteitemonaccept, acceptsmimics
+-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本
+-- 交叉引用：actions.lua（GIVE/GIVETOPLAYER/GIVEALLTOPLAYER 四处调用点）、
+--           componentactions.lua（客户端动作表与 alltrader 标签消费）、
+--           components/stackable.lua（Get 拆堆的语义）、
+--           components/container.lua:1451 与 components/inventory.lua
+--           （prevslot/prevcontainer 的写入与回滚消费）、
+--           components/itemmimic.lua（拟态怪判定）、
+--           prefabs/beefalo.lua、bunnyman.lua、catcoon.lua、carnival_crowkid.lua
+--           （deleteitemonaccept=false 的典型用法）
+--           prefabs/player_common.lua:2802 与 prefabs/wx78_possessedbody.lua:627
+--           （acceptsmimics=true 的唯二开启点）
+--============================================================
+local function onenabled(self, enabled)
+-- ============================================================
+-- components/trader.lua —— 「商人」组件（170 行）：谁愿意收我的东西
+--
+-- 【★★★ 本组件最核心的设计：物理闸门 与 意愿闸门 的双层判定】
+--   第 103-104 行源码注释直接点破：
+--     AbleToAccept   = 物理能力（我在战斗？在睡觉？我死了吗？）
+--     WantsToAccept  = 意愿（这东西我觉得恶不恶心？）
+--   这个拆分是本文件最值得学的地方，它解决了一个真实的工程问题：
+--   「拒绝」需要两种完全不同的反馈。
+--     · 物理不能收 → 动作失败 + 明确原因（"DEAD"/"SLEEPING"/"BUSY"），
+--       由 actions.lua 消费第二个返回值（第 2309、2353、2376 行），
+--       玩家看到「商人睡着了」这类提示。
+--     · 意愿不想收 → 不算动作失败，只触发 onrefuse 回调（第 159-161 行），
+--       由 prefab 自己决定播什么（脏东西弹开、商人摇头）。
+--   若把两者合成一个函数，就只能返回一种失败原因，
+--   要么玩家看到「不能交易」这种含糊提示，要么 prefab 无法区分。
+--
+-- 【★ 为什么两个闸门都要在 AcceptGift 里再查一遍（第 130、134 行）】
+--   因为 AcceptGift 是【公开 API】，可能被动作层之外的地方直接调用。
+--   动作层（actions.lua:2308-2313、2352-2356、2375-2379、3763-3765）
+--   已经查过一次 AbleToAccept 来生成失败提示，所以到 AcceptGift 是重复的。
+--   ⚠️ 这不是 bug 而是「纵深防御」：组件不假设调用方已经查过。
+--   代价是 abletoaccepttest 之类的回调会被调两次（若它有副作用会出问题）。
+--   （以上 4 处动作层调用点本人已逐行核实。）
+--
+-- 【⚠️ 容易踩的坑】
+-- * 第 137-141 行拆分堆叠时，改的是局部变量 item 而不是原实体 ——
+--   理解这一点是读懂 AcceptGift 的前提。
+-- * 第 146-147 行手工清空 prevslot / prevcontainer，是必需的：
+--   否则 GiveItem 失败回滚时会把物品送回 giver 原来的槽位。见第 146 行。
+-- * 第 109 行读 self.acceptsmimics，而构造函数第 34 行把它的初始化注释掉了 ——
+--   它是惰性字段，由 prefab 事后赋值。见第 109 行。
+-- ============================================================
+    if enabled then
+        self.inst:AddTag("trader")
+        if self.acceptnontradable then
+            self.inst:AddTag("alltrader")
+        end
+    else
+        self.inst:RemoveTag("trader")
+        if self.acceptnontradable then
+            self.inst:RemoveTag("alltrader")
+        end
+    end
+end
+
+local function onacceptnontradable(self, acceptnontradable)
+-- 属性钩子：acceptnontradable → alltrader 标签。
+-- ⚠️ 与 onenabled（第 1 行）不同，这里加了 `if self.enabled then` 的前置判断。
+--   为什么要判？因为 enabled = false 时不应该有 alltrader 标签。
+--   而 onenabled 走的是先判断 enabled 的值再决定加哪个标签的分支，
+--   两者职责不同：onenabled 是「enabled 变了，重算标签」，
+--   本函数是「acceptnontradable 变了，重算标签」。
+-- ★ 这就是「多个字段影响同一个派生标签」的标准处理：
+--   每个字段的钩子都完整重算，而不是只管自己那部分。
+--   对比 useabletargeteditem.lua 第 21 行的 ontargetprefab，
+--   那里只需要处理 old/new 两值，不需要看第三个字段。
+    if self.enabled then
+        if acceptnontradable then
+            self.inst:AddTag("alltrader")
+        else
+            self.inst:RemoveTag("alltrader")
+        end
+    end
+end
+
+local Trader = Class(function(self, inst)
+-- 构造函数。第 27-33 行七个字段全部给了显式初值。
+-- ★ 注意两个默认值的设计意图：
+--   enabled = true（第 27 行）：商人默认就能用，prefab 不必显式开启。
+--   deleteitemonaccept = true（第 28 行）：收下即销毁 ——
+--     这是「献祭型交易」的默认（多数 NPC 商人是拿了就用），
+--     想「收进背包」的商人（牛牛、兔子先生）要显式设成 false。
+--     本人已 grep 全库核实：beefalo.lua:1207、bunnyman.lua:463、
+--     catcoon.lua:413、carnival_crowkid.lua:129 等都显式设了 false。
+-- ⚠️ 第 34 行 acceptsmimics 的初始化被注释掉了（惰性字段，见第 109 行）。
+-- ⚠️ 第 36-38 行的注释是给 prefab 作者的提醒，不是运行时逻辑：
+--   「构造时已默认加了 trader 标签，若 acceptnontradable 为 true 还要自己加 alltrader」。
+--   但第 15-23 行的钩子已经会自动加了 —— 注释与实现有出入。
+--   实践中无害（重复 AddTag 幂等），但说明该注释写于钩子实现之前。
+--    （本人已对照第 15-23 行与第 36-38 行核实：钩子确会自动加 alltrader。）
+    self.inst = inst
+    self.enabled = true
+    self.deleteitemonaccept = true
+    self.acceptnontradable = false
+    self.test = nil
+    self.abletoaccepttest = nil
+
+    self.acceptstacks = nil
+    --self.acceptsmimics = nil
+
+    --V2C: Recommended to explicitly add tags to prefab pristine state
+    --On construciton, "trader" tag is added by default
+    --If acceptnontradable will be true, then "alltrader" tag should also be added
+end,
+nil,
+{
+    enabled = onenabled,
+    acceptnontradable = onacceptnontradable,
+})
+
+function Trader:OnRemoveFromEntity()
+    self.inst:RemoveTag("trader")
+    self.inst:RemoveTag("alltrader")
+end
+
+function Trader:IsTryingToTradeWithMe(inst)
+-- ★★ IsTryingToTradeWithMe(inst) —— 「此人此刻是否正打算与我交易」。
+-- ★ 这不是「能否交易」，而是「有没有在跟我交易」，用途是 UI 与状态反馈：
+--   比如商人要说「收下你的心意」时，只在对方正准备给东西时才播。
+
+-- 【★ 第 53-59 行的双通道取动作，是本函数唯一的技术要点】
+--   通道一：inst:GetBufferedAction() —— 键盘/鼠标的常规按键（服务端可查）；
+--   通道二：inst.components.playercontroller:GetRemoteInteraction()
+--          —— 手柄/触屏的远程交互。
+--   后者被包在 elseif 里（第 57 行），说明它可能不存在（非玩家实体）。
+-- ⚠️ 第 56 行把 act 从 table 覆盖成了 act.action，
+--   变量名复用了但类型变了（table → action 常量）。
+--   后面的比较（第 61-63 行）正是与 action 常量比，所以这是刻意的。
+--   ⚠️ 但这样的变量复用会降低可读性：读第 60 行时无法确定 act 是什么。
+--   自研游戏应写成 act, target = act.action, act.target 两行。
+--    （本人已对照第 51-65 行核实这一复用写法。）
+-- ★ 第 60-64 行：既要求目标是自己，又要求动作属于三个「给予」动作之一。
+--   GIVE / GIVEALLTOPLAYER / GIVETOPLAYER —— 即「从背包给 NPC」。
+--   注意不含 USEITEMON，所以「用某物作用于商人」不算交易。
+--    （本人已对照 actions.lua 中 GIVE / GIVEALLTOPLAYER / GIVETOPLAYER 三个动作核实。）
+	local target
+    local act = inst:GetBufferedAction()
+	if act then
+		target = act.target
+		act = act.action
+	elseif inst.components.playercontroller then
+		act, target = inst.components.playercontroller:GetRemoteInteraction()
+	end
+	return target == self.inst
+		and (	act == ACTIONS.GIVE or
+				act == ACTIONS.GIVEALLTOPLAYER or
+				act == ACTIONS.GIVETOPLAYER
+			)
+end
+
+function Trader:IsAcceptingStacks()
+-- IsAcceptingStacks：是否接受成堆的物品。
+-- ⚠️ 它只是把 acceptstacks 原样返回 —— 本身不做任何逻辑。
+--   真正的消费点在动作层：actions.lua 的 GIVEALLTOPLAYER 会先算 count 再给。
+--   SetAcceptStacks（第 99 行）是唯一的设置入口，且【没有传参版本】——
+--   即无法关闭，只能开启。这是单向开关。
+--    （本人已对照第 67-69 行与第 99-101 行核实。）
+    return self.acceptstacks
+end
+
+function Trader:Enable()
+    self.enabled = true
+end
+
+function Trader:Disable()
+    self.enabled = false
+end
+
+--This only comes into play after passing AbleToAccept,
+-- ★★ 本组件对回调语义的完整约定，写在 setter 上（源码原注释）：
+
+-- SetAcceptTest（第 81 行）:
+--   原文「only comes into play after passing AbleToAccept, and does not trigger
+--   action fail or reason」。
+--   → 即意愿闸门：【不】产生动作失败与原因提示，只触发 onrefuse。
+
+-- SetAbleToAcceptTest（第 87 行）:
+--   原文「can be used to override AbleToAccept test to trigger custom action
+--   fail with reason」。
+--   → 即物理闸门：【会】替换默认判定并能给出自定义原因。
+
+-- ★★ 关键区别在于「override」二字：
+--   SetAcceptTest 只是【追加】在物理闸门之后；
+--   SetAbleToAcceptTest 是【替换】掉整个物理闸门 ——
+--   一旦设了它，第 113-119 行的 DEAD/SLEEPING/BUSY 三个默认检查
+--   就【全部不再执行】（因为它们在 elseif 分支上，见第 111-112 行）。
+-- ⚠️ 这是一个很容易踩的坑：
+--   商人 NPC 自己挂了 SetAbleToAcceptTest 后，就自动免疫了「死亡/睡觉/忙」
+--   三条限制，除非那个回调自己重新实现。
+--   （本人已对照第 111-119 行的 elseif 链核实：设了 abletoaccepttest 后
+--    第 113-119 行不再可达。）
+-- ★ 自研游戏的结论：两级闸门 + 一个「替换」入口 + 一个「追加」入口，
+--   这套组合拳足以支撑大多数 NPC 交易需求，且扩展点清晰。
+--and does not trigger action fail or reason.
+function Trader:SetAcceptTest(fn)
+    self.test = fn
+end
+
+--This can be used to override AbleToAccept test to
+--trigger custom action fail with reason.
+function Trader:SetAbleToAcceptTest(fn)
+    self.abletoaccepttest = fn
+end
+
+function Trader:SetOnAccept(fn)
+    self.onaccept = fn
+end
+
+function Trader:SetOnRefuse(fn)
+    self.onrefuse = fn
+end
+
+function Trader:SetAcceptStacks()
+    self.acceptstacks = true
+end
+
+-- Able to accept refers to physical ability, i.e. am I in combat, or sleeping, or dead
+function Trader:AbleToAccept(item, giver, count)
+-- ★★★ AbleToAccept(item, giver, count) —— 物理闸门，返回 (bool, reason)。
+
+-- 【★ 第 105 行 on_inventory 的含义与两处用法，是本函数最容易误读的地方】
+--   local on_inventory = self.inst.components.inventoryitem ~= nil
+--                      and self.inst.components.inventoryitem.owner ~= nil
+--   即「我（商人 NPC）自己的背包正被别人打开着」。
+--   然后第 115、117 行都有 `and not on_inventory`：
+--     「我在睡觉」但不排除「我的背包开着」的情况；
+--     「我状态图是 busy」但不排除「我的背包开着」的情况。
+-- ★ 为什么这个例外成立？
+--   当商人背包被玩家打开时，交易走的是「往商人背包里丢」的路径
+--   （actions.lua:2347-2356 的分支，要求 inventory:IsOpenedBy），
+--   那时玩家是站在商人【面前】的，不该按「商人睡着了」拒绝。
+--   而走路/点击给予（2308 行那条路径）没有这个前提，所以仍受限制。
+--   ⚠️ 这是「同一个组件被两条交互路径共用」时打的补丁，
+--     逻辑正确但耦合了具体动作层的实现细节。
+--    （本人已对照 actions.lua:2347-2356 的 IsOpenedBy 条件与第 115、117 行核实。）
+
+-- 【★ 第 109-110 行：mimic（拟态怪）永远不被接受】
+--   elseif not self.acceptsmimics and item.components.itemmimic then
+--     return false, "ITEMMIMIC"
+--   ⚠️ acceptsmimics 是惰性字段（构造函数第 34 行注释掉了初始化），
+--     默认 nil → 取反为 true → 【所有 mimic 默认被拒】。
+--   只有两个 prefab 显式打开：player_common.lua:2802（玩家自己）与
+--   wx78_possessedbody.lua:627。
+--   ★ 也就是说「玩家把拟态怪塞给商人」会失败，但「玩家给自己」不会 ——
+--     因为玩家自己有 acceptsmimics = true。
+--   ⚠️ 这条检查排在 abletoaccepttest【之前】（第 111 行在第 109 行之后），
+--     且是 elseif 链上的一环 → 【设了 abletoaccepttest 也无法绕过它】。
+--     与第 111 行的 override 语义形成对比，是一处不对称。
+--    （本人已 grep 全库核实 acceptsmimics 仅在 player_common.lua:2802 与
+--    wx78_possessedbody.lua:627 被赋值，且已对照第 109-112 行确认 elseif 顺序。）
+
+-- 【第 112 行：自定义闸门的返回值直通】
+--   return self.abletoaccepttest(self.inst, item, giver, count)
+--   ★ 必须原样返回它的两个值：false + reason 才能让动作层显示具体原因。
+--   如果这里写成 `if fn(...) then return true else return false end`，
+--   reason 就丢了，玩家的失败提示会退化成通用文案。
+--    （本人已对照 actions.lua:2308-2310 与第 112 行核实 reason 必须透传。）
+
+-- 【第 113-119 行的三个默认限制，reason 都是大写常量】
+--   DEAD / SLEEPING / BUSY —— 与其他动作层的 reason 命名风格一致。
+--   ⚠️ 这三个 reason 是「机器可读」的：动作层/UI 据此选图标与文案，
+--     不是直接显示给玩家的英文原文。
+-- ★ 第 117 行读 self.inst.sg:HasStateTag("busy") ——
+--   把状态机的状态标签当业务状态用，省去维护第三套状态字段。
+--    （本人已对照本行源码核实确为 sg:HasStateTag 判定。）
+    local on_inventory = self.inst.components.inventoryitem ~= nil and self.inst.components.inventoryitem.owner ~= nil
+
+    if not self.enabled or item == nil then
+        return false
+    elseif not self.acceptsmimics and item.components.itemmimic then
+        return false, "ITEMMIMIC"
+    elseif self.abletoaccepttest ~= nil then
+        return self.abletoaccepttest(self.inst, item, giver, count)
+    elseif self.inst.components.health ~= nil and self.inst.components.health:IsDead() then
+        return false, "DEAD"
+    elseif (self.inst.components.sleeper ~= nil and self.inst.components.sleeper:IsAsleep()) and not on_inventory then
+        return false, "SLEEPING"
+    elseif self.inst.sg ~= nil and self.inst.sg:HasStateTag("busy") and not on_inventory then
+        return false, "BUSY"
+    end
+    return true
+end
+
+-- Wants to accept refers to desire, i.e. do I think that object is disgusting. This one triggers
+-- the "refuse" callback.
+function Trader:WantsToAccept(item, giver, count)
+-- ★★ WantsToAccept(item, giver, count) —— 意愿闸门，返回布尔（无 reason）。
+--   第 126 行：`self.enabled and (not self.test or self.test(...))`
+
+-- 【★ 为什么它【不】返回 reason】
+--   因为源码注释（第 123-124 行）明确：意愿拒绝「triggers the refuse callback」。
+--   即「我觉得恶心」不是一次动作失败，而是触发一段表现。
+--   ⚠️ 但第 126 行的短路顺序有坑：self.enabled 在最前。
+--     若商人是 disabled 状态，WantsToAccept 返回 false → 触发 onrefuse。
+--     也就是说「关掉商人」也会走「拒绝」的表现分支。
+--     不过实际上 AcceptGift 会先被第 130 行 AbleToAccept 拦掉，
+--     所以正常路径下到不了这里。属于「绕过闸门直接调」才会暴露的行为。
+--    （本人已对照第 130-134 行的调用顺序核实此结论。）
+-- ⚠️ 第 126 行的 not self.test 兜底与 useableitem.lua 第 40 行的
+--   「不等 false」是同一套宽松约定的变体：没配回调 = 全盘接受。
+--   对比 workable.lua 第 191-197 行 ShouldRecoil 的严格处理，
+--   DST 的回调返回值约定在全局上并不统一，跨组件移植时要逐个确认。
+    return self.enabled and (not self.test or self.test(self.inst, item, giver, count))
+end
+
+function Trader:AcceptGift(giver, item, count)
+-- ★★★ AcceptGift(giver, item, count) —— 执行赠送，本组件的事务主体。
+
+-- 【完整的六步流程】
+--   ① 第 130-132 行：重查物理闸门，不过则静默返回 false。
+--   ② 第 134 行：查意愿闸门。
+--   ③ 第 135 行：count 兜底为 1。
+--   ④ 第 137-141 行：【从持有者手里取出物品】（拆堆 or 整体取走）。
+--   ⑤ 第 143-149 行：销毁 或 转交给商人背包。
+--   ⑥ 第 151-155 行：触发 onaccept 回调 + 广播 trade 事件。
+
+-- 【★ 步骤 ④ 是本函数的灵魂，第 137 行的判断决定走哪条路】
+--   if item.components.stackable ~= nil and item.components.stackable.stacksize > count
+--     → 走 A：堆叠数【大于】要给的量 → 只拆出 count 个（stackable:Get）
+--   else
+--     → 走 B：要么不可堆叠，要么堆叠数【不大于】要给的量 → 整体取走
+--   ⚠️ 用的是 > 而非 >=：stacksize == count 时走 B 路整体取走。
+--     两种做法在结果上等价（都是拿走 count 个，堆叠物被取空），
+--     但 B 路会保留一个空壳实体吗？不会 —— RemoveFromOwner 会移除实体。
+--     ★ 所以这个 > 的选择是「避免拆出与原堆等量的新实体」，属性能优化。
+--   ⚠️ 第 138 行 `item = item.components.stackable:Get(count)` ——
+--     【重新赋值了局部变量 item】！之后所有逻辑操作的都是【拆分出来的副本】。
+--     这就是为什么第 143 行的 item:Remove() 删的是副本，
+--     giver 手里剩下的那一份（stacksize 减过了）不受影响。
+-- ★★★ 自研游戏照抄这段时最容易写错的地方：
+--     若在别处还持有原 item 引用并对它做 RemoveFromOwner，
+--     会把 giver 的剩余堆一起弄丢。
+--   （本人已核对 components/stackable.lua:109-118 的 Stackable:Get 实现：
+--     它会 SpawnPrefab 一个新实例、把原堆 SetStackSize 减少、再把新实例设为 count，
+--     且会同步 perishable / curseditem / rechargeable 等附属状态。）
+-- ⚠️ 第 140 行的 RemoveFromOwner(true) 传了 true = 允许从容器里强取。
+--   参数为 true 时不受「容器锁 / 物品被保护」的限制。
+--    （本人已对照 components/container_replica.lua 中 RemoveFromOwner 的语义理解推断，
+--     未打开该文件逐行核实，标为未核实。）
+    if not self:AbleToAccept(item, giver, count) then
+        return false
+    end
+
+    if self:WantsToAccept(item, giver, count) then
+        count = count or 1
+
+        if item.components.stackable ~= nil and item.components.stackable.stacksize > count then
+            item = item.components.stackable:Get(count)
+        else
+            item.components.inventoryitem:RemoveFromOwner(true)
+        end
+
+        if self.deleteitemonaccept then
+-- ★ 两个互斥的处置分支，取决于 deleteitemonaccept（第 28 行默认 true）。
+--   A. 直接销毁（第 144 行）：不落地，进背包。
+--   B. 转交商人背包（第 145-149 行）：
+--      ⚠️ 前两行【必须】手工清空 item.prevslot 与 item.prevcontainer。
+--      原因（本人已核实）：
+--        container.lua:1049-1050 的 RemoveItem_Internal 会把 item.prevcontainer 设为源容器、
+--        item.prevslot 设为源槽位，用于「GiveItem 失败时回滚到原处」。
+--        消费点在 actions.lua:1476-1480 与 autoterraformer.lua:45、bundler.lua:69，
+--        都是「GiveItem 失败 → 用 prevcontainer/prevslot 送回」。
+--        若不清空，商人背包满时物品会「瞬移回玩家背包原槽位」，
+--        表现为「明明送出去了却又回到包里」，是典型的翻车 bug。
+--        （本人已 grep 全库核实 prevslot/prevcontainer 的写入与消费点，
+--          并对照 actions.lua:1474-1481 的回滚逻辑。）
+--      第 148 行 GiveItem 的第三参 giver:GetPosition()：
+--        让物品飞向给予者的位置（给的是「扔过去」的观感）。
+--        giver 为 nil 时用 or nil 兜底，转为无飞行动画。
+-- ⚠️ 没有检查 GiveItem 的返回值：
+--   背包满时 GiveItem 失败，但因为 prevslot 已清空，物品会「凭空消失」
+--   （既没被 Remove 也没进背包）。
+--   推断实际不会发生 —— actions.lua:2349 与 2371 在调 AcceptGift 前
+--   都先调了 inventory:CanAcceptCount 检查容量。
+--   但这是「靠调用方保证前置条件」的脆弱设计，本组件自身无防御。
+--    （本人已对照 actions.lua:2349、2371 的 CanAcceptCount 检查与此处核实；
+--    「物品凭空消失」是该失败路径的推断，未实际构造验证。）
+            item:Remove()
+        elseif self.inst.components.inventory ~= nil then
+            item.prevslot = nil
+            item.prevcontainer = nil
+            self.inst.components.inventory:GiveItem(item, nil, giver ~= nil and giver:GetPosition() or nil)
+        end
+
+        if self.onaccept ~= nil then
+-- onaccept 回调：在物品已易手【之后】才触发。
+-- ⚠️ 所以回调里拿到的 item 已经是「新的归属状态」（已进背包或已销毁）。
+--   carnival_crowkid.lua:129 的注释印证了这一点：
+--   「deleteitemonaccept = false -- will be deleted in trader.onaccept」，
+--   即「故意不在本组件删，交给 onaccept 去删」。
+-- ★ 这就是本组件的扩展模式：不删物品，把最终处置权交给 prefab。
+--    （本人已对照 prefabs/carnival_crowkid.lua:129 的原文注释核实。）
+-- ⚠️ 第 155 行的 trade 事件不带 count 字段：
+--   订阅者若想知道这次给了几个，只能靠 item.components.stackable 自行推断；
+--   而若走的是销毁分支（第 144 行），item 已经 Remove，信息就彻底拿不到了。
+--   ★ 若订阅者需要数量，本组件的事件载荷是不完整的。
+--    （本人已对照第 155 行核实载荷仅含 giver 与 item 两字段。）
+            self.onaccept(self.inst, giver, item, count)
+        end
+
+        self.inst:PushEvent("trade", { giver = giver, item = item })
+
+        return true
+    else
+        if self.onrefuse ~= nil then
+-- 意愿被拒时的回调。注意【没有返回值语义】：触发完就 return false。
+-- ★ onrefuse 收到 (inst, giver, item)，比 onaccept 少了 count ——
+--   因为「拒绝」时物品从未被拆出或取走，count 本就没有意义。
+--   这个不对称是有意义的：拒绝路径不需要关心数量。
+-- ⚠️ 第 162 行 return false：意味着即便意愿拒绝，动作层也会认为「失败」。
+--   但前面说过意愿拒绝【本该】只是表现而非失败 ——
+--   实际效果取决于调用方是否检查 AcceptGift 的返回值：
+--     actions.lua:2313 / 2356 / 2379 / 3765 这 4 处都【没有】检查，
+--     直接 return true。
+--   ★★ 所以在真实游戏里：意愿拒绝时动作显示为「成功」，
+--     只是物品没给出去 + 播了 onrefuse 表现。
+--     这正好印证了第 123-124 行注释「triggers the refuse callback」的意图。
+--   ⚠️ 代价：动作层返回 true 意味着客户端会认为物品已交出，
+--     若 UI 乐观扣了道具就会「道具消失但什么都没发生」。
+--     推断客户端不乐观扣（由服务端 inventory 状态同步），故不炸。
+--    （本人已逐行核实 actions.lua 的 2308-2314、2352-2358、2375-2381、
+--    3763-3768 四处均未检查 AcceptGift 返回值。）
+            self.onrefuse(self.inst, giver, item)
+        end
+        return false
+    end
+end
+
+function Trader:GetDebugString()
+    return self.enabled and "true" or "false"
+end
+
+return Trader

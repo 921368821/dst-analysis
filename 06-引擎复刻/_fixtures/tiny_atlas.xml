@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  判据用的**人造**图集：只有 2 个元素。
+  作用：证明 TheSim:LoadAtlas 走的是「真解析 XML 的 <Element u v w h>」这条路，
+  而不是「只认索引文件名」。这个图集**不在 atlas_index/ 里**，
+  所以「LoadAtlas 之后 AtlasContains 命中」只可能来自真解析。
+-->
+<Atlas>
+  <Texture filename="tiny_atlas.tex" />
+  <Elements>
+    <Element name="red_circle.tex" u="0" v="0" w="64" h="64" />
+    <Element name="blue_square.tex" u="64" v="0" w="32" h="32" />
+  </Elements>
+</Atlas>

@@ -1,0 +1,1044 @@
+5: end
+8:     self.inst.replica.container:SetSkipOpenSnd(skipopensnd)
+9: end
+12:     self.inst.replica.container:SetSkipCloseSnd(skipclosesnd)
+13: end
+16:     local container = inst.components.container
+17:     if container ~= nil then
+19:             local item = container.slots[i]
+20:             if item ~= nil then
+22:             end
+23:         end
+24:     end
+25: end
+32:     self.skipopensnd = false
+33:     self.skipclosesnd = false
+35:     self.acceptsstacks = true
+41:     self.widget = nil
+61: 	self.ignorespoverflow = false
+62: 	self.ignoreclosedspoverflow = false
+63:     self.ignoresound = false
+65: end,
+66: nil,
+68:     canbeopened = oncanbeopened,
+69:     skipopensnd = onskipopensnd,
+70:     skipclosesnd = onskipclosesnd,
+71: })
+74: {
+75:     "numslots",
+76:     "acceptsstacks",
+77:     "usespecificslotsforitems",
+78:     "issidewidget",
+79:     "type",
+80:     "widget",
+81:     "itemtestfn",
+82:     "priorityfn",
+83:     "openlimit"
+84: }
+87:     for i, v in ipairs(widgetprops) do
+89:     end
+94:     for i, v in ipairs(widgetprops) do
+95:         makereadonly(self, v)
+97: end
+100:     return self.widget
+101: end
+104:     return GetTableSize(self.slots)
+105: end
+108:     return GetTableSize(self.slots) >= self.numslots
+109: end
+112:     return next(self.slots) == nil
+113: end
+116:     assert(numslots >= self.numslots)
+117:     self.numslots = numslots
+121: 	local item = slot and self.slots[slot]
+122: 	if item == nil or item.components.inventoryitem == nil then
+123: 		return
+125: 		assert(BRANCH ~= "dev")
+126: 		return
+127: 	end
+130:     if item ~= nil then
+134:         if item.components.inventoryitem ~= nil then
+136:         end
+138:         item.prevslot = nil
+140:     end
+142: end
+145:     local internal_containers = {}
+147:     for i = 1, self.numslots do
+148:         local item = self.slots[i]
+149:         if item ~= nil then
+151: 				self:DropItemBySlot(i, drop_pos, keepoverstacked)
+153:                 table.insert(internal_containers, item)
+154:             end
+155:         end
+156:     end
+158:     for i, v in ipairs(internal_containers) do
+159: 		v.components.container:DropEverythingWithTag(tag, drop_pos, keepoverstacked)
+160:     end
+161: end
+164:     local internal_containers = {}
+166:     for i = 1, self.numslots do
+167:         local item = self.slots[i]
+168:         if item ~= nil then
+171:             elseif item.components.container ~= nil then
+172:                 table.insert(internal_containers, item)
+173:             end
+174:         end
+175:     end
+177:     for i, v in ipairs(internal_containers) do
+178:         v.components.container:DropEverythingByFilter(filterfn)
+179:     end
+180: end
+183: 	local internal_containers
+185:     for i = 1, self.numslots do
+186: 		local item = self.slots[i]
+187: 		if item then
+188: 			if not item.components.inventoryitem.islockedinslot then
+189: 				self:DropItemBySlot(i, drop_pos, keepoverstacked)
+191: 				if internal_containers then
+192: 					table.insert(internal_containers, item)
+193: 				else
+194: 					internal_containers = { item }
+195: 				end
+196: 			end
+197: 		end
+198:     end
+200: 	if internal_containers then
+201: 		for _, v in ipairs(internal_containers) do
+202: 			v.components.container:DropEverything(drop_pos, keepoverstacked)
+203: 		end
+204: 	end
+205: end
+208: 	local stacks = 0
+210: 		for k in pairs(self.slots) do
+211: 			self:DropItemBySlot(k, drop_pos, true)
+212: 			stacks = stacks + 1
+213: 			if stacks >= maxstacks then
+214: 				return
+215: 			end
+216: 		end
+217: 	end
+218: end
+221: function Container:DropItem(itemtodrop)
+224: 	local x, y, z = self.inst.Transform:GetWorldPosition()
+225: 	self:DropItemAt(itemtodrop, x, y, z)
+226: end
+230: 	if maxsize then
+231: 		local num = item.components.stackable:StackSize()
+232: 		if num > maxsize then
+233: 			local x, y, z = self.inst.Transform:GetWorldPosition()
+236: 				excess.Transform:SetPosition(x, y, z)
+237: 				if excess.components.inventoryitem then
+238: 					excess.components.inventoryitem:OnDropped(true)
+239: 				end
+240: 				num = item.components.stackable:StackSize()
+241: 			until num <= maxsize
+242: 		end
+243: 	end
+244: end
+248: 	if itemtodrop == nil or itemtodrop.components.inventoryitem == nil then
+249: 		return
+250: 	elseif itemtodrop.components.inventoryitem.islockedinslot then
+251: 		assert(BRANCH ~= "dev")
+252: 		return
+253: 	elseif Vector3.is_instance(x) then
+254: 		x, y, z = x:Get()
+255: 	end
+257:     if item then
+258: 		item.Transform:SetPosition(x, y, z)
+259:         if item.components.inventoryitem then
+260:             item.components.inventoryitem:OnDropped(true)
+261:         end
+262:         item.prevcontainer = nil
+263:         item.prevslot = nil
+264:         self.inst:PushEvent("dropitem", {item = item})
+265:     end
+266:     return item
+267: end
+271: 			item.components.inventoryitem and
+272: 			item.components.inventoryitem.cangoincontainer and
+273: 			not item.components.inventoryitem.canonlygoinpocket and
+275: 			not self.readonlycontainer)
+276: 	then
+277: 		return false
+279: 		return false
+282: 			return false
+283: 		end
+284: 		local existingitem = self:GetItemInSlot(slot)
+286: 			existingitem.components.inventoryitem.islockedinslot and
+287: 			not (	existingitem.components.stackable and
+288: 					not existingitem.components.stackable:IsFull() and
+289: 					existingitem.components.stackable:CanStackWith(item)
+290: 				)
+291: 		then
+292: 			return false
+293: 		end
+294: 	end
+296: end
+299:     if self.usespecificslotsforitems and not self.readonlycontainer and self.itemtestfn ~= nil then
+300:         for i = 1, self:GetNumSlots() do
+302:                 return i
+303:             end
+304:         end
+305:     end
+306: end
+309:     if not self.priorityfn then
+310:         return false
+311:     end
+313:         and item.components.inventoryitem ~= nil
+314:         and item.components.inventoryitem.cangoincontainer
+315:         and not item.components.inventoryitem.canonlygoinpocket
+316:         and (not item.components.inventoryitem.canonlygoinpocketorpocketcontainers or self.inst.components.inventoryitem and self.inst.components.inventoryitem.canonlygoinpocket)
+317:         and not self.readonlycontainer
+318:         and not (GetGameModeProperty("non_item_equips") and item.components.equippable ~= nil)
+320: end
+323:     return self.acceptsstacks
+324: end
+327:     return self.issidewidget
+328: end
+331:     for k = 1, self.numslots do
+332:         local item = self:RemoveItemBySlot(k)
+333:         if item ~= nil then
+335:                 onpredestroyitemcallbackfn(self.inst, item)
+336:             end
+338:                 item:Remove()
+339:             end
+340:         end
+341:     end
+342: end
+345:     if filterfn == nil then
+347:         self:DestroyContents(onpredestroyitemcallbackfn)
+348:         return
+349:     end
+351:     for k = 1, self.numslots do
+352:         local testitem = self.slots[k]
+354:             local item = self:RemoveItemBySlot(k)
+355:             if item ~= nil then
+356:                 if onpredestroyitemcallbackfn ~= nil then
+357:                     onpredestroyitemcallbackfn(self.inst, item)
+358:                 end
+359:                 if item:IsValid() then
+360:                     item:Remove()
+361:                 end
+362:             end
+363:         end
+364:     end
+365: end
+369: 		return true --should never happen, just return true XD
+371: 		return false
+372: 	end
+373: 	return true
+374: end
+379:         return 0
+380:     end
+384: 		stacksize = math.max(maxcount or math.huge, stacksize - 1)
+385: 	else
+386: 		stacksize = maxcount or stacksize
+387: 	end
+389:         return 0
+390:     end
+392:     local acceptcount = 0
+395:     for k = 1, self.numslots do
+396:         local v = self.slots[k]
+398:         if v ~= nil then
+400:                 acceptcount = acceptcount + v.components.stackable:RoomLeft()
+402:                     return stacksize
+403:                 end
+404:             end
+408:                 return stacksize
+409:             end
+410:             acceptcount = acceptcount + 1
+411:             if acceptcount >= stacksize then
+412:                 return stacksize
+413:             end
+414:         end
+415:     end
+418: 	if specialized then
+419: 		for _, spoverflow in ipairs(specialized) do
+421: 				for k = 1, spoverflow.numslots do
+422: 					local v = spoverflow.slots[k]
+423: 					if v then
+425: 							acceptcount = acceptcount + v.components.stackable:RoomLeft()
+426: 							if acceptcount >= stacksize then
+427: 								return stacksize
+428: 							end
+429: 						end
+431: 						if spoverflow.acceptsstacks or stacksize <= 1 then
+432: 							return stacksize
+433: 						end
+434: 						acceptcount = acceptcount + 1
+435: 						if acceptcount >= stacksize then
+436: 							return stacksize
+437: 						end
+438: 					end
+439: 				end
+440: 			end
+441: 		end
+442: 	end
+449:         return false
+456: 			if specialized then
+458: 					if spoverflow:ShouldPrioritizeContainer(item) and ValidateItemForOverflow(item, spoverflow) then
+463: 							receiveitemonopen.entity:SetParent(self.inst.entity)
+464: 							receiveitemonopen.item:set(spoverflow.inst)
+470: 									spoverflow.inst:PushEvent("container_got_item_while_closed")
+471: 								end
+472: 							end
+473: 						end
+475: 							return true
+476: 						end
+477: 					end
+478: 				end
+479: 			end
+480: 		end
+488:                 local other_item = self.slots[slot]
+491:                         self.inst.components.inventoryitem.owner:PushEvent("gotnewitem", { item = item, slot = slot })
+492:                     end
+495:                     if item == nil then
+496:                         return true
+497:                     end
+500:                 end
+501:             end
+504:                 for k = 1, self.numslots do
+505:                     local other_item = self.slots[k]
+506:                     if other_item and item.components.stackable:CanStackWith(other_item) and not other_item.components.stackable:IsFull() then
+507:                         if self.inst.components.inventoryitem ~= nil and self.inst.components.inventoryitem.owner ~= nil then
+508:                             self.inst.components.inventoryitem.owner:PushEvent("gotnewitem", { item = item, slot = k })
+509:                         end
+512:                         if item == nil then
+513:                             return true
+514:                         end
+515:                     end
+516:                 end
+517:             end
+518:         end
+522:             in_slot = slot
+524:             for i = 1, self.numslots do
+526:                     in_slot = i
+527:                     break
+528:                 end
+529:             end
+530:         end
+535:                 item = item.components.stackable:Get()
+536:                 self.slots[in_slot] = item
+537:                 item.components.inventoryitem:OnPutInInventory(self.inst)
+538:                 self.inst:PushEvent("itemget", { slot = in_slot, item = item, src_pos = src_pos, })
+539:                 return false
+540:             end
+542:             self.slots[in_slot] = item
+544: 				item.components.stackable:SetIgnoreMaxSize(true)
+545: 			end
+550:                 self.inst.components.inventoryitem.owner:PushEvent("gotnewitem", { item = item, slot = in_slot })
+551:             end
+553:             return true
+554:         end
+555:     end
+558:     if drop_on_fail ~= false then
+562:         if item.components.inventoryitem ~= nil then
+563:             item.components.inventoryitem:OnDropped(true)
+564:         end
+565:     end
+567: end
+570: 	local item = slot and self.slots[slot] or nil
+571: 	if item then
+573: 	end
+575:     return nil
+576: end
+579:     local collected_items = {}
+580:     for i = 1, self.numslots do
+581:         local item = self:RemoveItemBySlot(i)
+582:         table.insert(collected_items, item)
+583:     end
+585:     return collected_items
+586: end
+589:     return self.numslots
+590: end
+593:     if slot and self.slots[slot] then
+594:         return self.slots[slot]
+595:     end
+596: end
+599:     for k,v in pairs(self.slots) do
+600:         if item == v then
+601:             return k
+602:         end
+603:     end
+604: end
+607:     local collected_items = {}
+608:     for k,v in pairs(self.slots) do
+609:         if v ~= nil then
+610:             table.insert(collected_items, v)
+611:         end
+612:     end
+614:     return collected_items
+615: end
+620:             self.inst:StartUpdatingComponent(self)
+621:         end
+623:         if inventory ~= nil then
+626:                     k.components.container:Close(doer)
+627:                 end
+628:             end
+631:         end
+632:         self.openlist[doer] = true
+644: 					skinsound and skinsound.open_ui or
+645: 					(self.widget ~= nil and self.widget.opensound) or
+646: 					(self:IsSideWidget() and "dontstarve/wilson/backpack_open") or
+647: 					"dontstarve/HUD/Together_HUD/container_open"
+648: 				)
+649:             end
+651:             and self.widget.buttoninfo ~= nil
+652:             and doer.components.playeractionpicker ~= nil then
+653:             doer.components.playeractionpicker:RegisterContainer(self.inst)
+654:         end
+659:             self.onopenfn(self.inst, {doer = doer})
+660:         end
+663:             self.onanyopenfn(self.inst, {doer = doer})
+664:         end
+665:     end
+666: end
+669:     if item.components.container ~= nil then
+670:         item.components.container:Close(doer)
+671:     end
+672: end
+677:         for opener, _ in pairs(self.openlist) do
+678:             self:Close(opener)
+679:         end
+680:         return
+681:     end
+683:         self.openlist[doer] = nil
+685:         self.inst.replica.container:RemoveOpener(doer)
+688:             self.inst:StopUpdatingComponent(self)
+689:         end
+692:             doer.HUD:CloseContainer(self.inst, self:IsSideWidget())
+693:             doer:PushEvent("refreshcrafting")
+695: 				local skinsound = self.inst.AnimState and SKIN_SOUND_FX[self.inst.AnimState:GetSkinBuild()] or nil
+696: 				TheFocalPoint.SoundEmitter:PlaySound(
+697: 					skinsound and skinsound.close_ui or
+698: 					(self.widget ~= nil and self.widget.closesound) or
+699: 					(self:IsSideWidget() and "dontstarve/wilson/backpack_close") or
+700: 					"dontstarve/HUD/Together_HUD/container_close"
+701: 				)
+702:             end
+704:             doer.components.playeractionpicker:UnregisterContainer(self.inst)
+705:         end
+708:             doer.components.inventory.opencontainers[self.inst] = nil
+709:         end
+712:             self.onclosefn(self.inst, doer)
+713:         end
+716:             self.onanyclosefn(self.inst, {doer = doer})
+717:         end
+720:     end
+724:     return self.opencount > 0
+725: end
+728:     return self.openlist[guy]
+729: end
+732:     return (self.opencount - (self.openlist[guy] and 1 or 0)) > 0
+733: end
+736:     return self.openlimit == nil or self.opencount < self.openlimit
+737: end
+740:     local openers = {}
+741:     for opener in pairs(self.openlist) do
+742:         table.insert(openers, opener)
+743:     end
+744:     return openers
+745: end
+748:     return target ~= nil
+749:         and (item == target
+750:             or (checkcontainer and
+751:                 target.replica.container ~= nil and
+752:                 target.replica.container:IsHolding(item, checkcontainer)))
+753: end
+756:     for k, v in pairs(self.slots) do
+757:         if CheckItem(item, v, checkcontainer) then
+758:             return true
+759:         end
+760:     end
+761: end
+764:     for k,v in pairs(self.slots) do
+765:         if fn(v) then
+766:             return v
+767:         end
+768:     end
+769: end
+772:     local items = {}
+774:     for k,v in pairs(self.slots) do
+775:         if fn(v) then
+776:             table.insert(items, v)
+777:         end
+778:     end
+780:     return items
+781: end
+784:     for k,v in pairs(self.slots) do
+785:         fn(v, ...)
+786:     end
+787: end
+790: 	return container ~= nil
+794: 					container.canbeopened and
+796: 				)
+797: 			)
+798: end
+803: 		return
+804: 	end
+805: 	local ret
+807: 		local v = self.slots[i]
+809: 			ret = ret or {}
+810: 			table.insert(ret, v.components.container)
+811: 		end
+812: 	end
+813: 	return ret
+817: 	for i = 1, self.numslots do
+818: 		local v = self.slots[i]
+819: 		if v and v.components.container == container then
+821: 		end
+822: 	end
+823: 	return false
+824: end
+827:     local num_found = 0
+828:     for k,v in pairs(self.slots) do
+830:             if v.components.stackable ~= nil then
+831:                 num_found = num_found + v.components.stackable:StackSize()
+832:             else
+833:                 num_found = num_found + 1
+834:             end
+835:         end
+836:     end
+838:     return num_found >= amount, num_found
+839: end
+842: 	local num_found = 0
+843: 	for k, v in pairs(self.slots) do
+844: 		if fn(v) then
+845: 			num_found = num_found + (v.components.stackable and v.components.stackable:StackSize() or 1)
+846: 		end
+847: 	end
+848: 	return num_found >= amount, num_found
+849: end
+852:     local num_found = 0
+853:     for k,v in pairs(self.slots) do
+854:         if v and v:HasTag(tag) then
+855:             if v.components.stackable ~= nil then
+856:                 num_found = num_found + v.components.stackable:StackSize()
+857:             else
+858:                 num_found = num_found + 1
+859:             end
+860:         end
+861:     end
+863:     return num_found >= amount, num_found
+864: end
+867:     local items = {}
+868:     for k,v in pairs(self.slots) do
+869:         if v and v:HasTag(tag) then
+870:             table.insert(items, v)
+871:         end
+872:     end
+874:     return items
+875: end
+878:     local total_num_found = 0
+879:     local items = {}
+882:         local num_found = 0
+883:         if v and v.prefab == item then
+884:             local num_left_to_find = amount - total_num_found
+885:             if v.components.stackable then
+887:                     items[v] = num_left_to_find
+888:                     num_found = amount
+889:                 else
+890:                     items[v] = v.components.stackable.stacksize
+892:                 end
+893:             else
+894:                 items[v] = 1
+895:                 num_found = num_found + 1
+896:             end
+897:         end
+898:         return num_found
+899:     end
+902:         local v = self.slots[k]
+903:         total_num_found = total_num_found + tryfind(v)
+905:         if total_num_found >= amount then
+906:             break
+907:         end
+908:     end
+910:     return items
+911: end
+914:     if a.stacksize == b.stacksize then
+915:         return a.slot < b.slot
+916:     end
+918: end
+921:     local items = {}
+922:     for i = 1, self.numslots do
+923:         local v = self.slots[i]
+925:             table.insert(items, {
+926:                 item = v,
+927: 				stacksize = v.components.stackable and v.components.stackable:StackSize() or 1,
+929:             })
+930:         end
+931:     end
+934:     local crafting_items = {}
+935:     local total_num_found = 0
+936:     for i, v in ipairs(items) do
+937:         local stacksize = math.min(v.stacksize, amount - total_num_found)
+938:         crafting_items[v.item] = stacksize
+939:         total_num_found = total_num_found + stacksize
+940:         if total_num_found >= amount then
+941:             break
+942:         end
+943:     end
+945:     return crafting_items
+946: end
+949:     if v.components.stackable == nil then
+951:         return 1
+952:     elseif v.components.stackable.stacksize > amount then
+954:         return amount
+955:     else
+956:         amount = v.components.stackable.stacksize
+958:         return amount
+959:     end
+961:     return 0
+962: end
+966:         return
+967:     end
+969:     for k, v in pairs(self.slots) do
+970:         if v.prefab == item then
+971:             amount = amount - tryconsume(self, v, amount)
+972:             if amount <= 0 then
+973:                 return
+974:             end
+975:         end
+976:     end
+977: end
+980:     local data = {items= {}}
+981:     local references = {}
+982: 	local refs
+983:     for k,v in pairs(self.slots) do
+986:             if refs then
+987:                 for k,v in pairs(refs) do
+988:                     table.insert(references, v)
+989:                 end
+990:             end
+991:         end
+992:     end
+993:     return data, references
+994: end
+997:     if data.items then
+998:         for k,v in pairs(data.items) do
+999:             local inst = SpawnSaveRecord(v, newents)
+1001:                 self:GiveItem(inst, k)
+1002:             end
+1003:         end
+1004:     end
+1005: end
+1010: 	if item then
+1011: 		local slot = self:GetItemSlot(item)
+1012: 		if slot then
+1013: 			return self:RemoveItem_Internal(item, slot, wholestack, keepoverstacked)
+1014: 		end
+1016: 	end
+1017: end
+1022:         return nil
+1023:     end
+1025: 	local stackable = item.components.stackable
+1028: 			(not wholestack and 1) or
+1029: 			(keepoverstacked and stackable:IsOverStacked() and stackable.originalmaxsize) or
+1030: 			nil
+1031: 		if num then
+1035: 			dec.prevcontainer = self
+1036: 			return dec
+1037: 		end
+1038: 	end
+1040: 	self.slots[slot] = nil
+1044: 		end
+1046: 	end
+1048: 	item.components.inventoryitem:OnRemoved()
+1049: 	item.prevslot = slot
+1050: 	item.prevcontainer = self
+1052:     return item
+1060:     if self.opencount == 0 then
+1061:         self.inst:StopUpdatingComponent(self)
+1062:     else
+1068: 			local ismount = mount == self.inst
+1076: 					self:Close(opener)
+1078: 				end
+1080: 				self:Close(opener)
+1081: 			end
+1082:         end
+1083:     end
+1084: end
+1087: Container.OnRemoveFromEntity = Container.Close
+1095:     local inventory = opener ~= nil and opener.components.inventory or nil
+1096:     return inventory, inventory ~= nil and inventory:GetActiveItem() or nil
+1097: end
+1101:         return
+1102:     end
+1103:     local inventory, active_item = QueryActiveItem(self, opener)
+1105:         self:GetItemInSlot(slot) == nil and
+1106:         self:CanTakeItemInSlot(active_item, slot) and
+1107:         active_item.components.stackable ~= nil and
+1108:         active_item.components.stackable:IsStack() then
+1114:         self.ignoresound = false
+1116:         self.currentuser = nil
+1117:     end
+1118: end
+1121:     if self.readonlycontainer then
+1122:         return
+1123:     end
+1124:     local inventory, active_item = QueryActiveItem(self, opener)
+1125:     local item = self:GetItemInSlot(slot)
+1126:     if active_item ~= nil then
+1128:             self:SwapActiveItemWithSlot(slot, opener)
+1130:             (self:AcceptsStacks() or
+1131:             active_item.components.stackable == nil or
+1132:             not active_item.components.stackable:IsStack()) then
+1134:             self.currentuser = opener
+1137:             self.ignoresound = true
+1138:             self:GiveItem(active_item, slot)
+1139:             self.ignoresound = false
+1141:             self.currentuser = nil
+1142:         end
+1143:     end
+1144: end
+1147:     if self.readonlycontainer then
+1148:         return
+1149:     end
+1150:     local inventory, active_item = QueryActiveItem(self, opener)
+1151:     local item = self:GetItemInSlot(slot)
+1153:         active_item == nil and
+1154:         inventory ~= nil and
+1155:         item.components.stackable ~= nil and
+1156:         item.components.stackable:IsStack() then
+1163:         halfstack.prevcontainer = self
+1166:         self.currentuser = nil
+1167:     end
+1168: end
+1171:     if self.readonlycontainer then
+1172:         return
+1173:     end
+1174:     local inventory, active_item = QueryActiveItem(self, opener)
+1175:     local item = self:GetItemInSlot(slot)
+1176:     if item ~= nil and
+1177:         active_item == nil and
+1179:         self.currentuser = opener
+1180:         local stackable = item.components.stackable
+1184:             local countedstack = stackable:Get(count)
+1185:             countedstack.prevslot = slot
+1186:             countedstack.prevcontainer = self
+1187:             inventory:GiveActiveItem(countedstack)
+1189: 			assert(BRANCH ~= "dev")
+1190:         else
+1192:             inventory:GiveActiveItem(item)
+1193:         end
+1195:         self.currentuser = nil
+1196:     end
+1197: end
+1200:     if self.readonlycontainer then
+1201:         return
+1202:     end
+1203:     local inventory, active_item = QueryActiveItem(self, opener)
+1204:     local item = self:GetItemInSlot(slot)
+1205:     if item ~= nil and
+1206:         active_item == nil and
+1207:         inventory ~= nil then
+1210: 			assert(BRANCH ~= "dev")
+1211: 			return
+1212: 		end
+1214:         self.currentuser = opener
+1217: 			local fullstack = item.components.stackable:Get(item.components.stackable.originalmaxsize)
+1218: 			fullstack.prevslot = slot
+1219: 			fullstack.prevcontainer = self
+1220: 			inventory:GiveActiveItem(fullstack)
+1221: 		else
+1223: 			inventory:GiveActiveItem(item)
+1224: 		end
+1226:         self.currentuser = nil
+1227:     end
+1228: end
+1231:     if self.readonlycontainer then
+1232:         return
+1233:     end
+1234:     local inventory, active_item = QueryActiveItem(self, opener)
+1235:     local item = self:GetItemInSlot(slot)
+1237:         item ~= nil and
+1239:         item.components.stackable ~= nil and
+1240:         item.components.stackable:CanStackWith(active_item) and
+1241:         self:AcceptsStacks() and
+1242:         active_item.components.stackable ~= nil and
+1243:         active_item.components.stackable:IsStack() and
+1246:         self.currentuser = opener
+1250:         self.currentuser = nil
+1251:     end
+1252: end
+1255:     if self.readonlycontainer then
+1256:         return
+1257:     end
+1258:     local inventory, active_item = QueryActiveItem(self, opener)
+1259:     local item = self:GetItemInSlot(slot)
+1261:         item ~= nil and
+1262:         self:CanTakeItemInSlot(active_item, slot) and
+1263:         item.components.stackable ~= nil and
+1264:         item.components.stackable:CanStackWith(active_item) and
+1267:         self.currentuser = opener
+1272:         self.currentuser = nil
+1273:     end
+1274: end
+1277:     if self.readonlycontainer then
+1278:         return
+1279:     end
+1280:     local inventory, active_item = QueryActiveItem(self, opener)
+1281:     local item = self:GetItemInSlot(slot)
+1282:     if active_item ~= nil then
+1283:         if item == nil then
+1284:             self:PutAllOfActiveItemInSlot(slot, opener)
+1287:                     item.components.stackable:CanStackWith(active_item) and
+1288: 					self:AcceptsStacks())
+1290: 					active_item.components.stackable:IsStack() and
+1291: 					not self:AcceptsStacks())
+1293: 					item.components.stackable:IsOverStacked())
+1294: 		then
+1295:             self.currentuser = opener
+1298:             self:RemoveItemBySlot(slot)
+1299:             self:GiveItem(active_item, slot)
+1300:             inventory:GiveActiveItem(item)
+1302:             self.currentuser = nil
+1303:         end
+1304:     end
+1305: end
+1308:     if self.readonlycontainer then
+1309:         return
+1310:     end
+1311:     local inventory, active_item = QueryActiveItem(self, opener)
+1312:     local item = self:GetItemInSlot(slot)
+1315:         item ~= nil and
+1316:         self:CanTakeItemInSlot(active_item, slot) and
+1318: 		(active_item.components.stackable and active_item.components.stackable:IsStack()) and
+1319: 		not (item.components.stackable and item.components.stackable:IsOverStacked())
+1320: 	then
+1321:         self.currentuser = opener
+1324:         self:RemoveItemBySlot(slot)
+1325:         self:GiveItem(active_item, slot)
+1328:         self.currentuser = nil
+1329:     end
+1330: end
+1334:         return
+1335:     end
+1337:     if item ~= nil and container ~= nil then
+1339: 			assert(BRANCH ~= "dev")
+1340: 			return
+1341: 		end
+1345:             self.currentuser = opener
+1346:             container.currentuser = opener
+1349:                 opener.components.constructionbuilderuidata ~= nil and
+1350:                 opener.components.constructionbuilderuidata:GetContainer() == container.inst and
+1351:                 opener.components.constructionbuilderuidata:GetSlotForIngredient(item.prefab) or
+1352:                 nil
+1355: 				local shouldignoresound = false
+1357: 					item = self:RemoveItemBySlot(slot)
+1358: 				elseif container.infinitestacksize then
+1360: 					self.ignoreoverstacked = true
+1361: 					item = self:RemoveItemBySlot(slot)
+1362: 					self.ignoreoverstacked = false
+1363: 				else
+1366: 				end
+1367:                 if item ~= nil then
+1368:                     item.prevcontainer = nil
+1369:                     item.prevslot = nil
+1373:                         container.ignoreoverflow = true
+1374:                     end
+1376: 						container.ignorespoverflow = true
+1377: 					elseif container.ignoreclosedspoverflow ~= nil then
+1378: 						container.ignoreclosedspoverflow = true
+1379: 					end
+1380:                     if container.ignorefull ~= nil then
+1381:                         container.ignorefull = true
+1382:                     end
+1386:                         self:GiveItem(item, slot, nil, true)
+1387:                         self.ignoresound = false
+1388:                     end
+1392:                         container.ignoreoverflow = false
+1393:                     end
+1394: 					if container.ignorespoverflow then
+1395: 						container.ignorespoverflow = false
+1396: 					end
+1397: 					if container.ignoreclosedspoverflow then
+1398: 						container.ignoreclosedspoverflow = false
+1399: 					end
+1400:                     if container.ignorefull then
+1401:                         container.ignorefull = false
+1402:                     end
+1403:                 end
+1404:             end
+1407:             container.currentuser = nil
+1408:         end
+1409:     end
+1410: end
+1413:     if self.readonlycontainer then
+1414:         return
+1415:     end
+1416:     local item = self:GetItemInSlot(slot)
+1417:     if item ~= nil and container ~= nil then
+1418:         container = container.components.container or container.components.inventory
+1419:         if container ~= nil and
+1421:             item.components.stackable ~= nil and
+1422:             item.components.stackable:IsStack() then
+1424:             self.currentuser = opener
+1425:             container.currentuser = opener
+1427:             local targetslot =
+1428:                 opener.components.constructionbuilderuidata ~= nil and
+1429:                 opener.components.constructionbuilderuidata:GetContainer() == container.inst and
+1430:                 opener.components.constructionbuilderuidata:GetSlotForIngredient(item.prefab) or
+1431:                 nil
+1433:             if container:CanTakeItemInSlot(item, targetslot) then
+1435: 				local halfstack = item.components.stackable:Get(math.floor(fullstacksize / 2))
+1437:                 halfstack.prevslot = nil
+1440:                 if container.ignoreoverflow ~= nil and container:GetOverflowContainer() == self then
+1441:                     container.ignoreoverflow = true
+1442:                 end
+1443: 				if container.ignorespoverflow ~= nil and container:IsSpecializedContainer(self) then
+1444: 					container.ignorespoverflow = true
+1445: 				elseif container.ignoreclosedspoverflow ~= nil then
+1446: 					container.ignoreclosedspoverflow = true
+1447: 				end
+1448:                 if container.ignorefull ~= nil then
+1449:                     container.ignorefull = true
+1450:                 end
+1453:                     self.ignoresound = true
+1454:                     self:GiveItem(halfstack, slot, nil, true)
+1455:                     self.ignoresound = false
+1456:                 end
+1459:                 if container.ignoreoverflow then
+1460:                     container.ignoreoverflow = false
+1461:                 end
+1462: 				if container.ignorespoverflow then
+1463: 					container.ignorespoverflow = false
+1464: 				end
+1465: 				if container.ignoreclosedspoverflow then
+1466: 					container.ignoreclosedspoverflow = false
+1467: 				end
+1468:                 if container.ignorefull then
+1469:                     container.ignorefull = false
+1470:                 end
+1471:             end
+1473:             self.currentuser = nil
+1474:             container.currentuser = nil
+1475:         end
+1476:     end
+1477: end
+1480:     if self.readonlycontainer then
+1482:     end
+1483:     local item = self:GetItemInSlot(slot)
+1484:     if item ~= nil and container ~= nil then
+1485:         container = container.components.container or container.components.inventory
+1486:         if container ~= nil and container:IsOpenedBy(opener) then
+1488:             self.currentuser = opener
+1489:             container.currentuser = opener
+1491:             local targetslot =
+1492:                 opener.components.constructionbuilderuidata ~= nil and
+1493:                 opener.components.constructionbuilderuidata:GetContainer() == container.inst and
+1494:                 opener.components.constructionbuilderuidata:GetSlotForIngredient(item.prefab) or
+1495:                 nil
+1497:             if container:CanTakeItemInSlot(item, targetslot) then
+1498:                 local stackable = item.components.stackable
+1499:                 local fullstacksize = stackable and (stackable:IsOverStacked() and stackable.originalmaxsize or stackable:StackSize()) or 1
+1500:                 count = math.clamp(count, 1, fullstacksize)
+1501:                 local countedstack
+1503:                     countedstack = stackable:Get(count)
+1505: 					assert(BRANCH ~= "dev")
+1506:                 else
+1507:                     countedstack = self:RemoveItemBySlot(slot)
+1508:                 end
+1511: 					countedstack.prevcontainer = nil
+1512: 					countedstack.prevslot = nil
+1515: 					if container.ignoreoverflow ~= nil and container:GetOverflowContainer() == self then
+1516: 						container.ignoreoverflow = true
+1517: 					end
+1518: 					if container.ignorespoverflow ~= nil and container:IsSpecializedContainer(self) then
+1519: 						container.ignorespoverflow = true
+1520: 					elseif container.ignoreclosedspoverflow ~= nil then
+1521: 						container.ignoreclosedspoverflow = true
+1522: 					end
+1523: 					if container.ignorefull ~= nil then
+1524: 						container.ignorefull = true
+1525: 					end
+1527: 					if not container:GiveItem(countedstack, targetslot) then
+1528: 						self.ignoresound = true
+1529: 						self:GiveItem(countedstack, slot, nil, true)
+1530: 						self.ignoresound = false
+1534: 					if container.ignoreoverflow then
+1535: 						container.ignoreoverflow = false
+1536: 					end
+1537: 					if container.ignorespoverflow then
+1538: 						container.ignorespoverflow = false
+1539: 					end
+1540: 					if container.ignoreclosedspoverflow then
+1541: 						container.ignoreclosedspoverflow = false
+1542: 					end
+1543: 					if container.ignorefull then
+1544: 						container.ignorefull = false
+1545: 					end
+1546: 				end
+1547:             end
+1549:             self.currentuser = nil
+1550:             container.currentuser = nil
+1551:         end
+1552:     end
+1553: end
+1556:     local items = {}
+1557:     for i=1,self.numslots do
+1558:         if self.slots[i] ~= nil then
+1559:             table.insert(items, self.slots[i])
+1560:         end
+1561:     end
+1562:     return items
+1563: end
+1566: 	local _ = rawget(self, "_") --see class.lua for property setters implementation
+1567: 	if enable then
+1568: 		if not _.infinitestacksize[1] then
+1569: 			_.infinitestacksize[1] = true
+1570: 			for i = 1, self.numslots do
+1571: 				local item = self.slots[i]
+1572: 				if item and item.components.stackable then
+1573: 					item.components.stackable:SetIgnoreMaxSize(true)
+1574: 				end
+1575: 			end
+1577: 		end
+1579: 		_.infinitestacksize[1] = nil
+1581: 		for i = 1, self.numslots do
+1582: 			local item = self.slots[i]
+1583: 			if item and item.components.stackable then
+1585: 				item.components.stackable:SetIgnoreMaxSize(false)
+1586: 			end
+1587: 			self.inst.replica.container:EnableInfiniteStackSize(false)
+1588: 		end
+1589: 	end
+1590: end
+1594:     dumptable(data)
+1595:     print("Time to assert, please report this.")
+1597: end
+1600:     print("__ DATA __")
+1601:     dumptable(data)
+1602:     print("Time to assert, please report this.")
+1603:     assert(false, string.format("VERY BAD! Item %s was transferred out of a read only container.", tostring(item)))
+1604: end
+1607:     local _ = rawget(self, "_") --see class.lua for property setters implementation
+1608:     if enable then
+1609:         if not _.readonlycontainer[1] then
+1610:             _.readonlycontainer[1] = true
+1612:                 self.readonlycontainer_addedpreserver = true
+1613:                 self.inst:AddComponent("preserver")
+1616:             end
+1619:             self.inst:ListenForEvent("itemlose", ReadOnlyContainerAssert_out)
+1620:             self.inst.replica.container:EnableReadOnlyContainer(true)
+1621:         end
+1623:         _.readonlycontainer[1] = nil
+1624:         self.inst:RemoveEventCallback("itemget", ReadOnlyContainerAssert_in)
+1625:         self.inst:RemoveEventCallback("itemlose", ReadOnlyContainerAssert_out)
+1626:         self.inst.replica.container:EnableReadOnlyContainer(false)
+1628:             if self.inst.components.preserver then
+1629:                 self.inst:RemoveComponent("preserver")
+1630:             end
+1631:             self.readonlycontainer_addedpreserver = nil
+1632:         end
+1633:     end
+1634: end
+1637:     if not target:HasTag("player") then
+1639:         return false
+1640:     end
+1643:         and self.restrictedtag:len() > 0
+1644:         and not target:HasTag(self.restrictedtag)
+1645: end
+1648:     return self.thiefproof
+1649: end
+1651: return Container

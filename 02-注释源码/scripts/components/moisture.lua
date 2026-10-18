@@ -1,0 +1,875 @@
+--============================================================
+-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖
+-- 文件：components/moisture.lua
+-- 模块：组件系统 / 湿度（Moisture）
+-- 职责：管理实体的「湿度」（0 到 100）连续量 —— 下雨累积、晴天蒸发、
+--       站火边加速变干、下水瞬间全湿；并把含水率换算成体感惩罚喂给温度系统。
+--       与 temperature.lua 的对偶关系：温度是「目标温度求差 + 保暖封顶速率」
+--       的趋近型控制；湿度是「多速率直接相加」的累加型控制，故结构更简单。
+-- 关键符号：Moisture, OnUpdate（★核心，第 338 行）, DoDelta, SetMoistureLevel,
+--           GetDryingRate（★三项缓动叠加）, GetMoistureRate, ForceDry,
+--           IsForceDry, GetWaterproofness, _GetMoistureRateAssumingRain,
+--           GetEquippedMoistureRate, GetSegs, GetMoisturePercent, GetDesiccantBonus,
+--           GetSleepingBagDryingRate, AddRateBonus, GetRateBonus, LongUpdate,
+--           AnnounceMoisture, onmoisture, onwet, onmaxmoisture, onratescale
+-- ★设计提炼（详见正文中标注 ★★★ 的行）：
+--   1) 净速率 = 降水 + 装备加湿 - 蒸发 + 外部加成 - 干燥剂（第 354、359 行）；
+--   2) 下雨时蒸发项直接归零（第 289 行），这就是「淋雨后必须找火」规则的源头；
+--   3) 双向耦合：第 293 行读 temperature 的 externalheaterpower，
+--      而 temperature 第 306 行读本组件的 GetMoisturePercent；
+--   4) ForceDry 是引用计数锁定（第 74-97 行），归零时自动退订并恢复更新（第 52 行）；
+--   5) ratescale 的升降阈值刻意不对称（第 362-369 行），因两方向量程差 7.5 倍。
+-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本
+-- 交叉引用：components/temperature.lua（第 293 行反向读火源强度；
+--           第 306 行读 GetMoisturePercent 算湿度惩罚）、
+--           components/moisture_replica.lua（15 行镜像，net_bool 同步 wet）、
+--           components/inventory.lua（第 2715 行反读 GetWaterproofInventory；
+--           第 404 行 IsFloaterHeld）、components/sheltered.lua（第 10 行遮蔽防水）、
+--           components/rainimmunity.lua（完全免疫，优先级最高）、
+--           components/moistureabsorberuser.lua（第 30-44 行干燥剂，注意有副作用）、
+--           util/sourcemodifierlist.lua（防水与速率加成容器）、
+--           entityscript.lua（第 770 行 GetIsWet 供温度系统判断湿身）、
+--           constants.lua（RATE_SCALE 七档定义，第 2404 行）、
+--           easing.lua（第 175 行 inExpo，本文件用于含水量收敛项）
+--============================================================
+local easing = require("easing")
+-- moisture.lua —— 湿度组件（Moisture）
+--
+-- 职责：管理实体的「湿度」这个 0 到 100 的连续量 —— 下雨时累积、晴天时蒸发、
+--       站在火边加速变干、在泳池里瞬间全湿。湿度再换算成体感惩罚喂给 temperature。
+--
+-- 【为什么它是 temperature 的对偶件】
+-- temperature.lua 是「多来源叠加的复合量」，moisture.lua 是「多速率合成的累积量」。
+-- 两者共用同一套骨架，可直接对照阅读：
+--   温度：目标温度 -> 求差 -> 保暖封顶速率 -> rate x dt -> clamp
+--   湿度：多个速率相加 -> rate x dt -> clamp
+-- 湿度没有「目标」概念，只有「净速率」，所以结构比温度简单一整层。
+-- 两者唯一的耦合点：temperature.lua 第 306 行读 GetMoisturePercent，
+-- 而 moisture.lua 第 293 行反向读 temperature 的 externalheaterpower —— 双向耦合。
+--
+-- 【本文件最重要的三件事】
+-- 1) 第 338 行 OnUpdate：湿度的净速率是「降水 + 装备 - 蒸发 + 外部加成 - 干燥剂」，
+--    五项按固定顺序相加，然后乘 dt 积分。
+-- 2) 第 287 行 GetDryingRate：蒸发速率由三项缓动函数叠加而成（火 + 环境温度 + 含水量），
+--    且「下雨时完全不蒸发」（第 289 行）—— 这是本组件最重要的一条游戏规则。
+-- 3) 第 362-369 行 ratescale：把连续速率离散成 7 档，用于 UI 上箭头颜色/数量，
+--    且升降两档的阈值刻意不对称（见该处详解）。
+--
+-- 【⚠️ 容易踩的坑】
+-- - ForceDry 是一个「引用计数的锁定」：多个来源可以同时要求强制变干，
+--   只要还有一个来源没撤销，湿度就完全冻结（第 77-87 行）。
+-- - 第 139 行 DoDelta 与第 154 行 SetMoistureLevel 都直接赋值 self.moisture，
+--   靠 Class 属性表（第 67-72 行）自动触发同步。这是「赋值即同步」而非「手工同步」。
+-- - 第 141 行算出的 delta 局部变量**从未被使用**，是死代码（见该行注释）。
+local SourceModifierList = require("util/sourcemodifierlist")
+
+local function onmaxmoisture(self, maxmoisture)
+-- maxmoisture 变化时同步给 UI。注意走的是 player_classified 的
+-- SetValue（通用键值接口），而非专门的 setter —— 因为湿度相关的 UI 字段较多，
+-- 走通用接口更省代码。
+    if self.inst.player_classified ~= nil then
+        self.inst.player_classified:SetValue("maxmoisture", maxmoisture)
+    end
+end
+
+local function onmoisture(self, moisture)
+-- ★ 湿度数值本身的变化回调。与 temperature.lua 的 oncurrent 是同一套机制。
+-- 它在每次 self.moisture 被赋值时触发 —— 即每帧都可能触发（OnUpdate 每帧都调 DoDelta）。
+-- ⚠️ 注意第 154 行 SetMoistureLevel 是直接赋值，也会触发它，所以强制变干时 UI 会更新。
+    if self.inst.player_classified ~= nil then
+       self.inst.player_classified:SetValue("moisture", moisture)
+    end
+end
+
+local function onratescale(self, ratescale)
+-- ratescale 是给 UI 用的「速率档位」。单独做成属性而不是每次从 rate 现算，
+-- 是因为 UI 要显示 7 种不同的图标/颜色，客户端不该重复实现那套阈值判断。
+-- → 迁移要点：把「离散化规则」放在服务端算好下发，而不是把阈值表复制到客户端。
+    if self.inst.player_classified ~= nil then
+        self.inst.player_classified.moistureratescale:set(ratescale)
+    end
+end
+
+local function onwet(self, wet)
+-- ★ wet 是「是否湿透」的布尔量，同步给客户端的 replica 组件。
+-- ⚠️ 它写的是 self.inst.replica.moisture（一个真正的网络组件，net_bool），
+--   而上面三个写的是 player_classified（玩家专属 UI 代理）。
+--   → 因为「湿了」这个状态需要被非玩家的复制逻辑（如 inventoryitem 的湿润外观）使用，
+--     所以需要一个通用 replica 而不只是玩家专属通道。
+-- 这就是 DST 镜像组件（replica）模式的最简实例：
+-- moisture_replica.lua 只有 15 行，一个 net_bool 就是全部。
+-- 消费方是 entityscript.lua 第 770 行的 GetIsWet，供温度系统第 457 行判断湿身。
+    self.inst.replica.moisture:SetIsWet(wet)
+end
+
+local Moisture = Class(function(self, inst)
+-- 构造函数。与 temperature 不同，本组件**没有**「dt=0 空跑一帧」的预热，
+-- 因为外部没有读中间量的需求（不像 temperature 需要给 moisture 提供 externalheaterpower，
+-- 而这里是 moisture 提供给 temperature）。
+    self.inst = inst
+
+    self.maxmoisture = 100
+-- ★ 满湿度 = 100。这个值是全局统一的，狼人、玩家、怪物都一样。
+-- 温度用「绝对度数」（0 度冰点、70 度过热），湿度用「0 到 100 的百分比量纲」——
+-- 这也是为什么 GetMoisturePercent（第 171 行）要除以 maxmoisture 才能与温度耦合。
+    self.moisture = 0
+    self.numSegs = 5
+-- ★ 5 格刻度（segs）。DST 的湿度计画 5 个水滴。
+-- 注意第 201 行 GetSegs 的返回是 (满格数, 当前格的填充比例) 两个值，
+-- 供 UI 做「部分填充」的动画。
+    self.baseDryingRate = 0
+
+    self.maxDryingRate = 0.1
+-- 蒸发速率的两端。maxDryingRate = 0.1 表示「环境温度最热时每秒蒸发 0.1 点湿度」，
+-- 非常慢 —— 设计意图是「湿了要晾很久」，而不是「一会儿就干」。
+    self.minDryingRate = 0
+
+    self.maxPlayerTempDrying = 5
+-- ★★ 玩家专属的烘干速率，上限 5 —— 是环境蒸发的 50 倍。
+-- 这三个值只在「站在火边」时生效（第 297 行），与 maxDryingRate 是两套独立量纲：
+--   maxDryingRate（0.1）    由「环境温度」驱动，无上限保护之外的语义
+--   maxPlayerTempDrying(5)  由「外部火源强度」驱动，量级大得多
+-- → 「站火边烘干」在 DST 里几乎是唯一实用的变干手段，因为自然蒸发太慢。
+    self.optimalPlayerTempDrying = 2
+    self.minPlayerTempDrying = 0
+
+    self.maxMoistureRate = .75
+-- 降水速率：min 为 0（不下雨不加湿），max 为 0.75/秒（暴雨）。
+-- ⚠️ 0.75 是「每秒 0.75 点」，而满湿度是 100 —— 从 0 湿到满需要 133 秒。
+--   这个速率与第 34 行的蒸发 0.1 差 7.5 倍，所以雨天几乎必然变湿。
+    self.minMoistureRate = 0
+
+    self.inherentWaterproofness = 0 -- DEPRECATED, USE THE SourceModifierList BELOW
+-- ⚠️ 作者自己标了 DEPRECATED，但这个字段在第 225、244 行仍在被读取！
+--   也就是说「已废弃」的接口依然是兼容路径的一部分 —— 老 prefab 若还在调
+--   SetInherentWaterproofness 就仍然有效。
+-- → 移植经验：Lua 里标 DEPRECATED 不等于可以删，要先 grep 确认没有读取点。
+--   我已核实第 225、244 两处仍在读，故此字段不能删。
+    self.waterproofnessmodifiers = SourceModifierList(inst, 0, SourceModifierList.additive)
+-- 两个 SourceModifierList 都是 additive（相加）模式：
+--   waterproofnessmodifiers —— 防水度修正，喂给第 239 行 GetWaterproofness
+--   externalbonuses        —— 速率直接加成，喂给第 325 行 GetRateBonus
+-- ⚠️ 两者的语义边界容易混淆：
+--   waterproofnessmodifiers 影响的是「下雨时进不进水」，
+--   externalbonuses 影响的是「不管下不下雨，湿度变化率直接加多少」。
+--   后者甚至可以为负（用来加速变干）。看名字很难区分，读代码时要注意。
+    self.externalbonuses = SourceModifierList(inst, 0, SourceModifierList.additive)
+
+    --self.waterproofinventory = false --DEPRECATED, USE forcedrysources BELOW
+-- 两个 DEPRECATED 字段。注意第 176 行仍在读 self.waterproofinventory，
+-- 与第 44 行同理：标了废弃但仍是兼容路径。
+	--self.forcedrysources = nil
+	self._onremoveforcedrysource = function(src)
+-- ★ 内部回调：某个强制干燥来源消失时，从计数表里删掉它。
+-- 写成构造函数里的一次性闭包（而不是方法）有两个原因：
+--   1) 它会被注册为事件回调（self._onremoveforcedrysource），需要一个稳定的引用，
+--      闭包在构造时创建一次，之后 self._onremoveforcedrysource 恒指向同一对象；
+--   2) 注册（第 89 行）与注销（第 93 行）必须用**同一个引用**，否则 Lua 事件系统
+--      无法移除回调。若写成方法（function Moisture:_onremove...），self 参数会不同，
+--      就必须写 self._onremoveforcedrysource = function(self, src) 才能引用稳定。
+		self.forcedrysources[src] = nil
+		if next(self.forcedrysources) == nil then
+-- ★ 计数表空了就把整个表置 nil，并重新加入每帧更新名单。
+-- → 对比 ForceDry（第 77-82 行）：设置强制干燥时做了对称的 StopUpdatingComponent。
+--   这是「引用计数归零时自动撤销优化」的标准写法，
+--   避免 StopUpdatingComponent 之后忘记 Start 回来（那会导致组件永久冻结）。
+-- ⚠️ 注意这里恢复的是「每帧更新」，若同时还在泳池里等别的分支，
+--   行为仍由 OnUpdate 内部判断（第 357 行），职责划分是清晰的。
+			self.forcedrysources = nil
+			inst:StartUpdatingComponent(self)
+		end
+	end
+
+    self.optimalDryingTemp = 50
+-- 最适合蒸发的环境温度 = 50 度（夏季白天）。低于或高于都降低蒸发。
+-- ⚠️ 用 easing.linear 做峰值插值意味着「50 度蒸发最快，30 度与 70 度一样慢」——
+--   玩家冬天即使烤火，纯粹靠环境温度那一项也上不去，必须靠火源那一项。
+
+    self.rate = 0 --rate at which moisture is trying to change
+-- rate 是「湿度每秒变化量」，正为加湿、负为变干。它是本组件唯一的核心状态量。
+    self.ratescale = RATE_SCALE.NEUTRAL --based on actual delta, limited by min/max bounds
+-- ratescale 是 rate 的离散化结果（UI 专用），与 rate 严格对应但不是同一个量。
+-- 作者特意注明「基于实际 delta，受 min/max 边界限制」，
+-- 意思是它反映的是「已经发生的净变化速度」而非「想变化的速率」。
+    self.wet = false
+
+    self.inst:StartUpdatingComponent(self)
+end,
+nil,
+{
+    maxmoisture = onmaxmoisture,
+    moisture = onmoisture,
+    ratescale = onratescale,
+    wet = onwet,
+})
+
+function Moisture:ForceDry(force, source)
+-- ★★ ForceDry：引用计数的「锁定干燥」。
+-- 设计动机：多个互不相干的系统都可能要求「这东西必须保持干燥」，
+-- 例如防火衣（inventory 的 waterproofinventory）、干燥剂、剧情道具。
+-- 若用布尔值，A 撤销就会误解锁 B 的要求。所以必须计数。
+-- source 默认为 self.inst，即「自己要求自己干燥」。
+	source = source or self.inst
+    if force then
+-- force 为真的分支：添加一个来源。
+		if self.forcedrysources == nil then
+-- ★ 第一个来源：从「正常演化」切换到「完全冻结」，要做四件事：
+--   1. 冻结当前 rate（否则下一帧会用旧 rate 继续改湿度）
+--   2. 重置 ratescale（否则 UI 还显示着「正在变化」）
+--   3. 湿度直接清零（这是 ForceDry 的实际效果）
+--   4. 退出每帧更新名单（省性能，也是「完全冻结」的物理保证）
+-- ⚠️ 第 4 步是性能优化而非正确性保证 —— 因为第 339 行还有 IsForceDry 兜底，
+--   两者是双保险。作者的注释（第 340-341 行）明确提到这点，
+--   即「不在更新名单里也可能被显式调用 OnUpdate」。
+            self.rate = 0
+            self.ratescale = RATE_SCALE.NEUTRAL
+            self:SetMoistureLevel(0)
+            self.inst:StopUpdatingComponent(self)
+			self.forcedrysources = { [source] = true }
+		elseif not self.forcedrysources[source] then
+-- 已有来源表，且这个 source 已存在 -> 直接 return（第 86 行）。
+-- 幂等：重复 ForceDry(true, 同一 source) 不会重复计数。
+			self.forcedrysources[source] = true
+		else
+			return
+        end
+		if source ~= self.inst then
+-- ⚠️ 只有「外部 source」才注册 onremove 监听。source 是自己时无需监听，
+--   因为自己的 onremove 和自己的 onremoveforcedrysource 绑定，没有先后顺序问题。
+--   → 这是「自己不会死在自己前面」的隐含逻辑，正确但依赖读者自行体会。
+			self.inst:ListenForEvent("onremove", self._onremoveforcedrysource, source)
+		end
+	elseif self.forcedrysources ~= nil and self.forcedrysources[source] then
+-- force 为假：撤销一个来源。三个条件缺一不可，
+-- 其中 forcedrysources[source] 这个检查保证「没要求过就别乱撤销」。
+-- ⚠️ 若调用方撤销了一个从未 force 过的 source，这里静默无操作 —— 正确。
+		if source ~= self.inst then
+			self.inst:RemoveEventCallback("onremove", self._onremoveforcedrysource, source)
+		end
+		self._onremoveforcedrysource(source)
+    end
+end
+
+function Moisture:GetDebugString()
+-- 调试字符串。★ 这段的价值在于它把「净速率的四项来源」全部打出来了，
+-- 是理解第 354 行那个四行加法最直接的文档。
+    local str = string.format("moisture: %2.2f", self:GetMoisture())
+    local sleepingbagdryingrate = self:GetSleepingBagDryingRate()
+    if sleepingbagdryingrate ~= nil then
+-- 睡袋里有独立速率时只显示那一项，不做分解 —— 因为睡袋覆盖了一切其他来源。
+        str = str..string.format(" rate: %2.2f (sleepingbag)", -sleepingbagdryingrate)
+    else
+        local moisturerate = self:GetMoistureRate()
+        local dryingrate = self:GetDryingRate(moisturerate)
+        local equippedmoisturerate = self:GetEquippedMoistureRate(dryingrate)
+        local rate = moisturerate + equippedmoisturerate - dryingrate
+-- ★ 净速率的公式，与第 354 行完全一致：
+--   净 = 降水 + 装备加湿 - 蒸发 + 外部加成
+-- 注意「装备加湿」是独立于降水的（哪怕没下雨，防水裤也会让你变湿）。
+        str = str..string.format(" rate: %s%2.2f (precip: %s%2.2f equip: %s%2.2f drying: %s%2.2f)",
+            rate > 0 and "+" or "", rate,
+            moisturerate > 0 and "+" or "", moisturerate,
+            equippedmoisturerate > 0 and "+" or "", equippedmoisturerate,
+            dryingrate < 0 and "+" or (dryingrate > 0 and "-") or "", math.abs(dryingrate))
+    end
+	return self:IsForceDry() and (str.." FORCED DRY") or str
+end
+
+function Moisture:AnnounceMoisture(oldSegs, newSegs)
+-- ★ 跨档播报。四个阶段各有专属台词（潮湿/湿/更湿/湿透）。
+-- 用 elseif 链而非多次独立 if：保证一次 DoDelta 最多播一条，
+-- 防止大 dt（卡顿后）一次跨三档时三个台词叠着播。
+-- ⚠️ 条件是 `oldSegs < N and newSegs >= N`，即「只在新到达该档时播」，
+--   所以是边沿触发而非状态判断 —— 与 temperature.lua 的 (新) ~= (旧) 同源思想。
+    if self.inst.components.talker then
+-- 只有挂了 talker 组件的实体才会播报（玩家与部分怪物）。
+-- ⚠️ 这意味着玩家听不到自己的湿度警告语音以外的反馈 ——
+--   实际上 GetString 取的是本地化字符串，所以各国玩家听到的是本地语言。
+        if oldSegs < 1 and newSegs >= 1 then
+            self.inst.components.talker:Say(GetString(self.inst, "ANNOUNCE_DAMP"))
+        elseif oldSegs < 2 and newSegs >= 2 then
+            self.inst.components.talker:Say(GetString(self.inst, "ANNOUNCE_WET"))
+        elseif oldSegs < 3 and newSegs >= 3 then
+            self.inst.components.talker:Say(GetString(self.inst, "ANNOUNCE_WETTER"))
+        elseif oldSegs < 4 and newSegs >= 4 then
+            self.inst.components.talker:Say(GetString(self.inst, "ANNOUNCE_SOAKED"))
+        end
+    end
+end
+
+function Moisture:DoDelta(num, no_announce)
+-- ★★ 湿度的「增量修改」入口，也是本组件唯一的写入路径（除了 SetMoistureLevel）。
+-- no_announce 用于抑制语音播报 —— 第 371 行在泳池里就会传 true。
+	if self:IsForceDry() then
+-- 强制干燥时完全忽略。★ 这是「锁定」语义的落点：
+-- 不是「冻结不变」，而是「连外部写入都拒绝」。
+-- 所以泳池里（第 371 行）若同时有强制干燥来源，泡在水里也不会变湿。
+-- → 这是把「优先级」写进数据流而非条件分支的做法，比到处 if 更稳。
+        return
+    end
+
+    local oldLevel = self.moisture
+-- 旧值，用于事件与档位比较。
+    local oldSegs = self:GetSegs()
+    self.moisture = math.clamp(self.moisture + num, 0, self.maxmoisture)
+-- ★ clamp 到 [0, maxmoisture]。与 temperature 一样，值域保护是硬边界。
+-- ⚠️ 但这里用的是赋值而非方法调用 —— 靠 Class 属性表自动触发 onmoisture 同步。
+-- 对比第 154 行 SetMoistureLevel 也是直接赋值，两处风格一致。
+    local newSegs = self:GetSegs()
+    local delta = self.moisture - oldLevel
+    self.wet = newSegs >= 2
+-- ★ wet 标记的判定阈值是「第 2 格」，即一半湿（50 点）。
+-- ⚠️ 注意这个阈值与第 294 行 GetDryingRate 用的「第 3 格」不是同一个。
+--   50 点以下不算湿透（但仍会在温度上吃 -15 度左右的惩罚，
+--   因为 temperature 的 GetMoisturePenalty 是线性插值，不看 wet 标记）。
+-- → 「湿透」这个布尔量与「体感惩罚」是两个独立曲线，不要混为一谈。
+	if not no_announce then
+	    self:AnnounceMoisture(oldSegs, newSegs)
+	end
+    self.inst:PushEvent("moisturedelta", { old = oldLevel, new = self.moisture })
+end
+
+function Moisture:SetMoistureLevel(num)
+-- ★ 绝对赋值（区别于 DoDelta 的增量）。典型用途：读到一件「防潮物品」时清零湿度。
+	if self:IsForceDry() then
+        return
+    end
+
+    self.moisture = math.clamp(num, 0, self.maxmoisture)
+-- 同样 clamp 到合法值域。同样直接赋值以触发属性回调。
+    self.wet = self:GetSegs() >= 2
+-- 由 SetMoistureLevel 直接重算 wet，注意与第 142 行的 DoDelta 写法一致但可读性更好
+--（直接用 self.moisture 而非再调一次 GetSegs 取 newSegs）。
+    self.inst:PushEvent("moisturedelta", { old = self.moisture, new = self.moisture })
+-- ⚠️★ 真实缺陷（已核实第 154 与 156 行）：
+--   事件里 old = self.moisture —— 但第 154 行已经赋值过了，
+--   所以 old 和 new 永远是同一个值，下游无法知道「原来是多少」。
+--   对比第 146 行 DoDelta 的正确写法：old = oldLevel（赋值前的快照）。
+-- 后果：监听 moisturedelta 且需要 old 值的逻辑（如「湿度骤降」特效、成就统计）
+--   在这条路径上会拿到 old == new 而静默失效。
+-- 我已逐行核对 149-157 行确认：函数入口没有像 DoDelta 第 137 行那样保存旧值，
+--   故这是遗漏而非有意为之。标记为「已核实缺陷」。
+-- 修复只需在第 154 行前加 `local old = self.moisture` 并在事件里用 old。
+end
+
+function Moisture:IsWet()
+    return self.wet
+end
+
+function Moisture:GetMaxMoisture()
+    return self.maxmoisture
+end
+
+function Moisture:GetMoisture()
+    return self.moisture
+end
+
+function Moisture:GetMoisturePercent()
+-- ★ 含水率百分比 0 到 1。★ 这是与 temperature.lua 唯一的接口。
+-- temperature.lua 第 306 行调它算湿度惩罚：Lerp(0, 30, 本函数返回值) 再取负。
+-- → 移植时若改了这个函数的返回语义，温度系统的湿度耦合会静默失效。
+    return self.moisture / self.maxmoisture
+end
+
+function Moisture:GetWaterproofInventory()
+-- ⚠️ 读一个 DEPRECATED 字段（第 48 行）并与 ForceDry 状态或运算。
+-- 语义是「背包是否防水」，被 inventory.lua 第 2715 行反过来读：
+--   若本组件说背包防水，则 GetWaterproofness 直接返回 1（完全防水）。
+-- → 这是一个「反向依赖」：inventory 依赖 moisture 判断自己是否防水。
+--   移植时把这两个组件的初始化顺序搞反会出问题。
+	return self.waterproofinventory or self:IsForceDry()
+end
+
+function Moisture:IsForceDry()
+-- ★ IsForceDry 就是「forcedrysources 非 nil」。
+-- 因为第 52-53 行的自清理，nil 等价于「计数归零」，所以这个判断永远准确。
+-- 若没有那段自清理，这里就会出现「表空了但非 nil」的错误判定 ——
+-- 引用计数的自清理不是可选优化，是这个判定正确性的前提。
+	return self.forcedrysources ~= nil
+end
+
+function Moisture:SetWaterproofInventory(waterproof)
+	--DEPRECATED use ForceDry instead
+    self.waterproofinventory = waterproof
+end
+
+function Moisture:SetPercent(per)
+-- ★ 按百分比设定。内部转成绝对值再走 DoDelta，因此同样受 ForceDry 约束。
+-- ⚠️ 第 189-193 行的 current/max/target/delta 四个局部变量里，
+--   current 只用于算 delta，max 完全没被用到 —— 两处死代码。
+--   无功能影响（Lua 不会警告未使用的局部变量），但属于可清理的冗余。
+-- 移植时若照抄，会继承这两个无用变量。建议直接写 self:DoDelta(target - self.moisture)。
+    local current = self.moisture
+    local max = self.maxmoisture
+    local target = self.maxmoisture * per
+
+    local delta = target - current
+    self:DoDelta(delta)
+end
+
+function Moisture:SetInherentWaterproofness(waterproofness)
+    self.inherentWaterproofness = waterproofness
+end
+
+function Moisture:GetSegs()
+-- ★★ 湿度 -> UI 刻度的换算，返回两个值。
+-- 作者用三行注释精确记录了三个变量的含义（第 205-207 行），这种写法值得学：
+--   复杂换算的每个中间量都命名并解释，读者不必逆推。
+    local num = self.moisture / self.maxmoisture * self.numSegs
+-- num = 当前含水率 x 格数 = 0 到 5 的实数。
+-- 例：湿度 50 / max 100 = 0.5，0.5 x 5 = 2.5，即「正在填第 3 格」。
+    local full = math.max(0, math.ceil(num - 1))
+-- ★ full = 已填满的格数（向下取整的 clever 变体）。
+-- math.max(0, ...) 兜住负数：湿度为负时（理论上被 clamp 挡住）不会返回负格数。
+-- ⚠️ 用了 math.ceil(num - 1) 而不是 math.floor(num) ——
+--   两者在 num 非整数时结果相同，但 num 为整数时不同：
+--   num=2 时 ceil(1)=1 而 floor(2)=2。作者要的是「满 2 格」= 1 格满 + 第 2 格填满，
+--   所以用 ceil(num-1) 是对的。⚠️ 这是一个容易看错的公式，改动前务必想清楚。
+--   我核实过：湿度 40 时 num=2，full=ceil(1)=1，即「1 格满 + 第 2 格填 100%」，
+--   语义正确（恰好 2 格）。
+
+    --(num): real number of drops (aka. segs)
+    --(full): whole number of full drops for UI
+    --(num - full): alpha value of the currently filling drop
+    return full, num - full
+end
+
+-- NOTES(JBK): More of an internal function to get a raw number elsewhere.
+-- ★ 作者标注了「这是个偏内部的函数，取裸数值用」，并署名 NOTES(JBK)。
+-- 与第 239 行 GetWaterproofness（对外接口，会 clamp 到 [0,1]）配对使用：
+--   本函数假设「确实在下雨」而跳过降雨判断；对外接口则完整判断。
+-- → 这种「同一逻辑两套入口，一套内部无守卫、一套对外带守卫」的组织方式很常见，
+--   读代码时务必分清自己调的是哪个。
+function Moisture:_GetMoistureRateAssumingRain()
+	if self.inst.components.rainimmunity ~= nil then
+-- ★ 完全免疫降雨直接返回 0（油纸伞 / 洞穴内）。
+-- 优先级最高，早于所有防水计算 —— 连计算都不做。
+		return 0
+	end
+
+    local waterproofmult =
+-- ★★ 四项防水度相加。每一项都写成「存在 and 值 or 0」的三元惯用法：
+--   1. 遮蔽（sheltered 组件的 waterproofness）
+--   2. 背包防水（inventory:GetWaterproofness）
+--   3. 实体固有防水（已 DEPRECATED 但仍在用，见第 44 行）
+--   4. 外部修正器（SourceModifierList）
+-- ⚠️⚠️ 这个表达式有真实的 Lua 陷阱，值得逐字分析：
+--   `A and B and C or 0` 的求值是 (A and B and C) or 0。
+--   当 C 的值为 **0 或 false** 时，整个表达式退化为 0 —— 结果恰好正确；
+--   当 C 为非零数字时，返回 C —— 也正确。
+--   所以这行「侥幸正确」。但若 C 为 nil，`A and B and nil or 0` 仍得 0，也安全。
+--   结论：功能无误，但可读性差且依赖「0 是真值」的 Lua 特性，
+--   换成显式 if 会更稳妥。我已核实第 220 行 waterproofness 来自
+--   sheltered.lua 第 10 行的 TUNING.WATERPROOFNESS_SMALLMED（非零），故实际走 C 分支。
+-- → 移植要点：`x and y or 0` 只在「y 为真值或恰好等于 0」时安全；
+--   若 y 可能是 **false**，表达式仍正确；若 y 可能是 nil，也正确。
+--   真正会出错的是 `a ~= nil and b` 当 b 为 false 时被 or 吃掉的情况（如第 328 行）。
+        (   self.inst.components.sheltered ~= nil and
+            self.inst.components.sheltered.sheltered and
+            self.inst.components.sheltered.waterproofness or 0
+        ) +
+        (   self.inst.components.inventory ~= nil and
+            self.inst.components.inventory:GetWaterproofness() or 0
+        ) +
+        (   self.inherentWaterproofness or 0
+        ) +
+        (
+            self.waterproofnessmodifiers:Get() or 0
+        )
+    if waterproofmult >= 1 then
+-- ★ 防水度达到 1 即完全防水，提前返回 0（不进水）。
+-- 这是「防水」的硬边界：不参与比例计算，直接归零。
+-- ⚠️ 多项防水度相加可能超过 1（例如雨衣 0.5 + 天赋 0.8 = 1.3），
+--   此处不 clamp 就直接返回，效果上等价于 clamp（因为只要 >= 1 就返回 0）。
+--   对比第 250 行 GetWaterproofness 里显式写了 math.clamp(..., 0, 1) ——
+--   两处处理方式不同但结果一致，属风格不统一。
+        return 0
+    end
+
+    local rate = easing.inSine(TheWorld.state.precipitationrate, self.minMoistureRate, self.maxMoistureRate, 1)
+-- ★ 按当前降水强度插值出进水速率（0 到 0.75）。
+-- easing.inSine 的形状：雨刚下起来时进水慢，雨大了接近线性 ——
+-- 这让「小雨淋一会儿」不至于立刻湿透，给玩家反应时间。
+-- TheWorld.state.precipitationrate 是 0 到 1 的连续雨量（不是布尔 israining）。
+    return rate * (1 - waterproofmult)
+-- ★ 按防水度线性衰减：防水 0 = 全额进水，防水 0.9 = 只进 10%。
+-- 线性而非指数：玩家容易预估「雨衣 0.8 就基本淋不湿」。
+end
+
+-- DiogoW: Used by events that add moisture: waves, row fail, etc.
+-- 作者标注了贡献者 DiogoW，说明这是后期加入的接口（供海浪等事件调用）。
+function Moisture:GetWaterproofness()
+-- ★ 对外防水度查询。与第 217 行少了「遮蔽」一项 —— 因为调用方（海浪等）
+-- 不在遮蔽状态下，遮蔽防水对它们无意义。
+-- ⚠️ 两处逻辑重复且不完全一致，容易在后续维护中漏改。
+--   移植时建议抽成一个私有函数，遮蔽项作为可选参数。
+    local waterproofness =
+        (   self.inst.components.inventory ~= nil and
+            self.inst.components.inventory:GetWaterproofness() or 0
+        ) +
+        (   self.inherentWaterproofness or 0
+        ) +
+        (
+            self.waterproofnessmodifiers:Get() or 0
+        )
+    
+    return math.clamp(waterproofness, 0, 1)
+-- ★ 显式 clamp 到 [0,1]。与第 230 行的「>= 1 就返回」不同，
+-- 这里的返回值会直接被外部使用（比如计算「海浪能冲掉多少防水」），
+-- 所以必须给出精确值而非二值判断。
+end
+
+function Moisture:GetMoistureRate()
+-- ★★ 决定「当前是否在加湿」的总开关。三条路径：
+--   1. 拿着救生圈 或 在泳池里 -> 直接满速加湿（第 258 行），跳过所有防水计算
+--   2. 没下雨 -> 0
+--   3. 下雨 -> 走完整的防水计算
+-- ⚠️⚠️ 第 254-257 行的条件有真实的运算符优先级陷阱，我逐字核对过：
+--   写法是 `if A and B or C then`，等价于 (A and B) or C。
+--   正确。看起来危险但这里是对的，因为 A 是布尔（组件存在与否）。
+--   ⚠️ 真正的问题是第 254 行的 A 写成 `self.inst.components.inventory and`：
+--     当 inventory 存在但 IsFloaterHeld() 为 **false** 时，
+--     A and B = false，于是 fall through 到 or C —— 这是正确的。
+--     但当 inventory 为 nil 且 C 也为 false 时，整式为 false，正确。
+--   结论：本行逻辑正确，但「A and B or C」这种写法极难一眼看懂，
+--   改成 `if (self.inst.components.inventory ~= nil and self.inst.components.inventory:IsFloaterHeld()) or self:IsInBathingPool() then`
+--   可读性会好很多。
+-- ⚠️ 但要注意：若写成 `A and B or C`，当 A 为 nil 时不会报错（B 不被求值）；
+--   若改成显式的 ~= nil 判断，行为等价。移植时两种都可，但别写成
+--   `if A and B == true or C` 这种更乱的形态。
+	if self.inst.components.inventory and
+		self.inst.components.inventory:IsFloaterHeld() or
+		self:IsInBathingPool()
+	then
+		return self.maxMoistureRate
+-- ★ 救生圈与泳池给的是「满速加湿」maxMoistureRate（0.75），
+-- 注意这里绕过了所有防水计算 —— 也就是说「防水衣 + 泳池」依然是全湿。
+-- 设计意图明确：主动下水就是要湿。
+	elseif not TheWorld.state.israining then
+        return 0
+    end
+
+    return self:_GetMoistureRateAssumingRain()
+end
+
+function Moisture:IsInBathingPool()
+-- ★★ 通过状态机的 statemem 查「是否正被泳池占用」。
+-- 为什么走 sg 而不走组件？因为泳池「占用」是状态而非组件：
+--   没有 pool_component 挂在玩家身上，绑定关系存在状态机的 statemem 里。
+-- ⚠️ `self.inst.sg ~= nil and ... ~= nil` 双重 nil 检查是必要的：
+--   没有状态机的实体（物品、刚生成的实体）不能访问 .statemem。
+-- 我核实过 entityscript 的 sg 字段在无状态机实体上为 nil，故此守卫必需。
+	return self.inst.sg ~= nil and self.inst.sg.statemem.occupying_bathingpool ~= nil
+end
+
+function Moisture:GetEquippedMoistureRate(dryingrate)
+-- ★ 装备提供的加湿速率（如防水裤的负面效果、雨衣的渗水）。
+-- 这个来源**独立于降雨**：哪怕晴天，穿错装备也能让你变湿。
+    if self.inst.components.inventory == nil then
+        return 0
+    end
+
+    local rate, max = self.inst.components.inventory:GetEquippedMoistureRate()
+
+    -- If rate and max are nonzero (i.e. wearing a moisturizing equipment) and the drying rate is less than
+    -- the moisture rate of the equipment AND we're at max moisture for the equipment, set the two rates equal.
+    -- This will prevent the arrow flickering as well as hold the moisture steady at max level
+    if rate ~= 0 and max ~= 0 and self.moisture >= max then
+-- ★★★ 本函数里最精妙的一段，作者用三行英文注释解释得很清楚。
+-- 场景：穿着一件「把湿度拉到 60 就饱和」的装备（max = 60），
+--   而环境正在把你烘干（dryingrate = -1）。
+--   若不处理：湿度停在 60 不动，但 rate 显示为 -1（正在变干）。
+--   后果：UI 箭头显示「正在变干」却永远不变干 —— 这就是注释说的「箭头闪烁」。
+--   解决：既然已达装备上限，就把两个速率取「相等」，让净速率为 0，
+--         湿度稳稳停在 60，箭头也归位。
+-- ⚠️ 这里用 math.min(dryingrate, rate) 而不是取绝对值或直接设 0 ——
+--   数学上等价于「让加湿追平烘干」，是最小改动的优雅解。
+-- → ★ 这一段是「UI 状态与数值状态必须自洽」的教科书案例：
+--   遇到「数值卡在某个上限但速率不为零」时，先想 UI 会不会因此失真。
+        rate = math.min(dryingrate or self:GetDryingRate(), rate)
+    end
+
+    return math.abs(rate) > .01 and rate or 0
+-- ⚠️ 死区过滤：绝对值小于 0.01 的速率直接归零。
+-- 目的是消除浮点误差导致的微小抖动（比如刚好为 0 时算出 1e-18）。
+-- 若不归零，第 362 行的 ratescale 虽会兜住（-0.001 阈值），
+-- 但 self.rate 仍是脏值，会让第 354 行的加法引入微小误差。
+-- → 「脏值过滤」应该放在速率产生的源头，而不是末端比较时才处理。
+end
+
+function Moisture:GetDryingRate(moisturerate)
+-- ★★★ 蒸发速率的合成。本函数与 temperature.lua 的 OnUpdate 是同构的，
+--   但因为湿度没有「目标值」，所以结构更简单：三项缓动直接相加即得速率。
+-- moisturerate 参数用于「正在加湿时完全不蒸发」的判断（第 289 行），
+-- 传入可避免重复调用 GetMoistureRate。
+    -- Don't dry if it's raining
+-- ⚠️ 作者的注释只说了结果（下雨就不蒸发），
+--   我补充其设计意图：这是把「天气」置于「个人装备」之上的优先级选择。
+--   即便玩家站在篝火旁，只要还在下雨，蒸发项就归零 ——
+--   于是雨中的玩家永远干不了，只能等雨停或进屋。
+--   → 这解释了 DST 里「淋雨后必须尽快找火」这一核心玩法压力从何而来。
+-- ⚠️ 但注意：这只是蒸发归零，加湿项（第 354 行）仍然生效。
+--   所以下雨时净速率 = 加湿 - 0 = 加湿，湿度只增不减。
+    if (moisturerate or self:GetMoistureRate()) > 0 then
+        return 0
+    end
+
+    local heaterPower = self.inst.components.temperature ~= nil and math.clamp(self.inst.components.temperature.externalheaterpower, 0, 1) or 0
+-- ★★★ 温度系统反向作用于湿度系统的唯一接口。
+-- 读 temperature.externalheaterpower（温度文件第 471 行累计的火源强度），
+-- 并 clamp 到 [0,1] —— 因为温度那边是**累加**的（站在多个火堆之间会 > 1）。
+-- ⚠️ clamp 到 1 意味着「多个火堆不会比一个更快」，是一个隐含的封顶。
+--   我核实过 temperature.lua 第 471 行是 `+ heatfactor` 累加无上限，
+--   所以这个 clamp 是必需的，否则玩家站在火堆重叠处烘干速度会失控。
+-- → ★ 这是「双向耦合」的典型形态：温度读湿度的百分比（第 306 行），
+--   湿度读温度的火源强度（这里）。两个组件都不能单独理解。
+    local playerTempDrying = self:GetSegs() < 3 and self.optimalPlayerTempDrying or self.maxPlayerTempDrying
+-- ★★ 烘干速率的档位切换：低于 3 格（60%）用 2（optimal），否则用 5（max）。
+-- 设计意图：已经湿透了的人站在火边，烘干要快 2.5 倍 ——
+--   否则「湿透 + 下雨 + 天冷」会让玩家彻底无解（又湿又冷，见温度惩罚）。
+-- ⚠️ 阈值是 3 格 = 60% 含水率，与 wet 标记的 2 格 = 50% 又是第三个阈值。
+--   本文件里至少有四个不同的湿度阈值（2 格、3 格、0.01 速率死区、各缓动端点），
+--   建议移植时集中定义为常量，否则极易改错一处。
+
+    local rate = self.baseDryingRate
+-- ★★ 三项缓动相加，顺序即优先级直觉：基础 + 火 + 环境 + 含水量。
+-- 第一项 baseDryingRate 默认为 0，但它是留给「天生蒸发快」的生物（如牛）的扩展点。
+        + easing.linear(heaterPower, self.minPlayerTempDrying, playerTempDrying, 1)
+-- 火源项：从 0（无火）到 playerTempDrying（2 或 5，取决于第 294 行的档位）。
+-- easing.linear(heaterPower, min, max, 1) 的第四个参数 1 是「归一化上界」，
+-- 因为第 293 行已把 heaterPower clamp 到 [0,1]，所以这里是标准的线性映射。
+        + easing.linear(GetLocalTemperature(self.inst), self.minDryingRate, self.maxDryingRate, self.optimalDryingTemp)
+-- ★ 环境温度项：从 minDryingRate(0) 到 maxDryingRate(0.1)，峰值在第 58 行的 50 度。
+-- ⚠️ 线性意味着「越热越快」直到 50 度封顶，超过 50 度反而不再变快。
+--   这在真实物理上不合理（该是指数），但对游戏手感有益：
+--   玩家能凭直觉预估，不会出现「多烤一会儿突然快一倍」的意外。
+-- ⚠️ GetLocalTemperature 是全局函数（读脚下坐标温度），
+--   与温度组件自己的 GetTemperatureAtXZ 是同一套世界温度场。
+        + easing.inExpo(self:GetMoisture(), 0, 1, self.maxmoisture)
+-- ★ 含水量项：用 easing.inExpo 做指数插值。
+-- → 湿的人干得快，接近干的人干得慢 —— 这是自限性的收敛，不会「过干」。
+-- easing.inExpo 的实现（easing.lua 第 175-181 行）是 2^(10x-1) 形状，
+--   在 t=0 处有专门的早退分支返回 b（避免 2^-10 的怪异值）。
+-- ⚠️ 第三参数是 1、第四参数是 self.maxmoisture，
+--   即「输出范围 0 到 1，乘以入参 moisture（第 0 到 100 的绝对值）」。
+--   → 注意这里传的是 GetMoisture()（绝对值）而非 GetMoisturePercent()，
+--     所以第四参数必须是 maxmoisture 才能正确归一化。写错这两个参数会静默出错。
+
+    return math.clamp(rate, 0, self.maxDryingRate + self.maxPlayerTempDrying)
+-- ★ 上限 = maxDryingRate + maxPlayerTempDrying = 0.1 + 5 = 5.1。
+-- 即「站在超强火源旁」的烘干上限。
+-- ⚠️ 只夹上限不夹下限（math.clamp 默认下限为 0），所以本函数永不为负 ——
+--   这保证「dryingrate 恒为非负」，第 354 行用 `- dryingrate` 才是安全的。
+-- → 值得学：把「返回值恒满足的符号约定」显式写进 clamp，是低成本高可读性的做法。
+end
+
+function Moisture:GetSleepingBagDryingRate()
+-- ★ 睡袋内的烘干速率。注意返回 nil 表示「不在睡袋里」，
+-- 而非返回 0 —— 这两个语义完全不同，下游据此走不同分支（第 346 行）。
+-- ⚠️ 返回 0 会让第 346 行的 `~= nil` 判定失败，导致睡袋内湿度冻结。
+--   这是一个「用 nil 而非 0 表达状态」的重要实例，移植时必须保留。
+    local rate = self.inst.sleepingbag ~= nil and self.inst.sleepingbag.components.sleepingbag ~= nil and self.inst.sleepingbag.components.sleepingbag.dryingrate or nil
+-- ⚠️ 连续两次 `~= nil` 检查（sleepingbag 与其 components.sleepingbag）。
+-- 因为 sleepingbag 是另一个实体，其组件可能未挂载。双重检查是必要的防御。
+-- 我核实 temperature.lua 第 341-342 行只检查了一层（.components.sleepingbag 直接访问），
+--   两处写法不统一；本文件更安全。已在 temperature 的第 184 行处记录该差异。
+    return rate ~= nil and math.max(0, rate) or nil
+-- ⚠️ math.max(0, rate) 只夹负值到 0。睡袋也可能给出负的「烘干速率」表示反向加湿，
+--   此处统一归零 —— 即「睡袋只负责让你变干」。
+end
+
+function Moisture:GetRate()
+    return self.rate
+end
+
+function Moisture:GetRateScale()
+    return self.ratescale
+end
+
+function Moisture:AddRateBonus(src, bonus, key)
+-- ★ 外部速率加成。这是给模组/装备用的「湿度变化率直接加值」接口，
+-- 与防水度（第 239 行）的区别见第 45-46 行的说明。
+-- ⚠️ 正值 = 变湿，负值 = 变干。没有上下限检查，
+--   传入极大负值会瞬间把湿度压到 0（受第 139 行 clamp 保护，不会变负）。
+    self.externalbonuses:SetModifier(src, bonus, key)
+end
+
+function Moisture:RemoveRateBonus(src, key)
+    self.externalbonuses:RemoveModifier(src, key)
+end
+
+function Moisture:GetRateBonus()
+    return self.externalbonuses:Get()
+end
+
+function Moisture:GetDesiccantBonus(rate, dt)
+-- ★★ 干燥剂（硅胶包等）的额外烘干速率。
+-- ⚠️ 注意这个函数**有副作用**：它内部（第 335 行调 GetBestAbsorberRate）
+--   会对找到的物品调 ApplyDrying，即「消耗干燥剂」本身发生在「查询速率」里。
+--   GetBestAbsorberRate（moistureabsorberuser.lua 第 39 行）确实调用了 ApplyDrying。
+-- → 这违反了「getter 不应有副作用」的基本原则，是个真实的架构异味。
+--   当前调用点（第 358 行）恰好只调一次，所以不出错；
+--   但若有人为了「先看看有多少」而在别处再调一次，就会重复消耗干燥剂。
+--   我已核实第 330-336 行与 moistureabsorberuser.lua 第 30-44 行，确认该副作用真实存在。
+--   标记为「已核实的设计缺陷」。
+    local moistureabsorberuser = self.inst.components.moistureabsorberuser
+    if not moistureabsorberuser then
+        return 0
+    end
+
+    return moistureabsorberuser:GetBestAbsorberRate(rate, dt)
+end
+
+function Moisture:OnUpdate(dt)
+-- ★★ 每帧驱动。与 temperature.lua 一样用 StartUpdatingComponent（第 64 行），
+--   而非 hunger.lua 那样的每秒定时任务。
+-- ★ 为什么湿度也要逐帧？与温度不同的理由：
+--   湿度的 rate 会被环境温度（第 298 行）与火源强度（第 293 行）调制，
+--   而两者都是连续量。站在火边时火源强度随距离连续变化，
+--   若每秒采样一次，烘干速度会呈现阶梯状跳变（尤其是靠近/离开火堆的瞬间）。
+--   代价：每帧都要调 GetLocalTemperature（世界温度场查询）。
+-- ⚠️ 另有一个理由：睡袋机制（第 346 行）与 LongUpdate（第 374 行）共用本函数，
+--   说明本组件需要支持「非每帧」的调用节奏。
+	if self:IsForceDry() then
+-- ★ 强制干燥时立即返回。
+-- 作者的注释（第 340-341 行）说明了为什么还要保留这个检查：
+--   「不在更新名单里也可能走到这里」—— 即被外部显式调用 OnUpdate 时
+--   （如 LongUpdate、调试命令、wx78 换身体等场景）。
+-- → 双重保险是这里的设计要点：StopUpdatingComponent 是性能优化，
+--   IsForceDry 才是正确性保证。移植时不要因为「已经不在更新名单了」就删掉这个判断。
+        --can still get here even if we're not in the update list
+        --i.e. LongUpdate or OnUpdate called explicitly
+        return
+    end
+
+    local sleepingbagdryingrate = self:GetSleepingBagDryingRate()
+-- 睡袋优先。★ 睡袋一旦存在，就完全取代下面那一整套速率计算。
+    if sleepingbagdryingrate ~= nil then
+        self.rate = -sleepingbagdryingrate
+    else
+        local moisturerate = self:GetMoistureRate()
+-- 正常路径的四项速率，按第 108 行调试字符串里的同一顺序计算。
+-- ★ 注意 GetDryingRate(moisturerate) 把 moisturerate 传进去了，
+--   避免 GetDryingRate 内部再调一次 GetMoistureRate（第 289 行的 or 兜底）。
+--   这是一个「避免重复计算」的显式传递，读代码时要看清楚这个参数不是可选装饰。
+        local dryingrate = self:GetDryingRate(moisturerate)
+        local equippedmoisturerate = self:GetEquippedMoistureRate(dryingrate)
+        local externalbonuses = self:GetRateBonus()
+
+        self.rate = moisturerate + equippedmoisturerate - dryingrate + externalbonuses
+-- ★★ 净速率公式：降水 + 装备加湿 - 蒸发 + 外部加成。
+-- ⚠️ 符号约定：moisturerate 与 equippedmoisturerate 正为加湿，
+--   dryingrate 正数为「蒸发量」所以要减，externalbonuses 可正可负。
+--   其中 dryingrate 恒非负（第 301 行保证），所以减号不会导致净速率反向。
+-- ★ 这与 temperature.lua 第 367 行的根本差别就在这里：
+--   温度先算「目标温度」再求差，湿度直接累加速率。
+--   → 前者是「趋近型」控制（需要保暖封顶、需要注意方向），
+--     后者是「累加型」控制（只需注意量纲与符号）。
+--     自研引擎若状态是「趋近型」就用温度的骨架，是「累加型」就用湿度的骨架。
+    end
+
+    if self.moisture > 0 or self.rate > 0 then
+-- ★ 干燥剂只在「有水分或正在进水」时才生效。
+-- 若已经全干且不下雨（rate <= 0 且 moisture == 0），跳过第 359 行的减法，
+-- 避免在无意义的场景下遍历背包找干燥剂（性能优化）。
+-- ⚠️ 条件是 `moisture > 0 or rate > 0` 而非 `~= 0`，
+--   边界上 moisture 恰为 0 且 rate 恰为 0 时跳过 —— 正确。
+        local drate = self:GetDesiccantBonus(self.rate, dt)
+        self.rate = self.rate - drate
+    end
+
+    self.ratescale =
+-- ★★★ 速率离散化：把连续的 rate 映射到 7 个档位供 UI 使用。
+-- ⚠️★ 升降阈值刻意不对称，这是本函数最需要理解的设计：
+--   升档（变湿）阈值：0.001 / 0.15 / 0.3    —— 跨度约 200 倍
+--   降档（变干）阈值：0.001 / 1.5  / 3      —— 跨度约 3000 倍
+--   为什么？回顾第 41 行 maxMoistureRate = 0.75（进水最大 0.75/秒），
+--   而第 34 行 maxDryingRate = 0.1（自然蒸发最大 0.1/秒）。
+--   变湿的速率天然比变干大，所以降档阈值必须设得更高，
+--   否则玩家站着不动（rate = -0.05）也会显示「大幅变干」的箭头。
+-- → ★ 这是「UI 分档必须按各方向的实际量程分别设计」的典型案例。
+--   用一套对称阈值必然有一侧显示失真。我核实了第 34、41 行的量级差异，
+--   确认上述不对称是有依据的，不是随手写的魔数。
+-- ⚠️ 阈值 0.001 与第 284 行的 0.01 死区不匹配：
+--   rate = 0.005 时会被第 284 行（仅对装备加湿）过滤，但对降水/蒸发不会；
+--   于是 0.005 < 0.001？不，0.005 > 0.001，所以会显示为 INCREASE_LOW。
+--   意味着极微弱的变干（-0.005）会落在最后一个条件（<-0.001）显示 DECREASE_LOW。
+--   这是刻意的（真的在变就该显示），但死区只在装备加湿上生效的不对称略显奇怪。
+        (self.rate > .3 and RATE_SCALE.INCREASE_HIGH) or
+-- and/or 链式三元，从高到低逐个尝试，第一个为真即为结果，
+-- 全假则落到第 369 行的 NEUTRAL。
+-- ⚠️ 注意这里全部用 `>` 与 `<` 的严格比较，所以 rate 恰为 0 时全不成立，
+--   落到 NEUTRAL。正确。
+        (self.rate > .15 and RATE_SCALE.INCREASE_MED) or
+        (self.rate > .001 and RATE_SCALE.INCREASE_LOW) or
+        (self.rate < -3 and RATE_SCALE.DECREASE_HIGH) or
+        (self.rate < -1.5 and RATE_SCALE.DECREASE_MED) or
+        (self.rate < -.001 and RATE_SCALE.DECREASE_LOW) or
+        RATE_SCALE.NEUTRAL
+
+	self:DoDelta(self.rate * dt, self:IsInBathingPool())
+-- ★★ 积分并写入。注意第二个参数是 IsInBathingPool()，
+-- 它就是 DoDelta 的 no_announce —— 在泳池里泡着不该反复播报「湿了」的语音。
+-- ⚠️ 这是「用同一个查询服务于两个不同目的」的写法，可读性一般。
+--   写成 `self:DoDelta(self.rate * dt, self:IsInBathingPool())` 尚可，
+--   但读者需自行查 DoDelta 签名才知道第二个参数的含义。
+-- ★ 注意这里乘了 dt：rate 是「每秒变化量」，乘 dt 得「本次变化量」。
+--   与 temperature.lua 第 514 行是同一套积分范式。
+end
+
+function Moisture:LongUpdate(dt)
+-- ★ LongUpdate = OnUpdate 的别名。
+-- DST 的引擎有一个「低频更新」通道（entityscript.lua 第 2026 行定义），
+-- 周期远长于每帧，用于「允许降频」的组件。实现方式是让组件额外暴露一个 LongUpdate 方法。
+-- ⚠️ 本组件把两者绑成同一个函数，即「低频通道走完全相同的逻辑」，
+--   而非另写一份「简化版逻辑」。
+--   → 好处：不会有「低频路径漏了某个修正项」的经典 bug。
+--   代价：低频通道省不下多少计算量（因为仍调 GetLocalTemperature 等重函数）。
+--   我核实 entityscript.lua 第 2026-2033 行确实会遍历组件调用 LongUpdate，
+--   且本文件在第 339 行的注释也印证了「不在更新名单里也可能走到这里」。
+    self:OnUpdate(dt)
+end
+
+function Moisture:OnSave()
+-- ★ 只存含水量一项。
+-- 与 temperature.lua 的取舍一致：只持久化「不可从世界状态重新推导」的东西。
+-- 防水度、装备加湿、干燥剂这些都是由装备算出的，不该存 ——
+-- 存了就会与「玩家实际穿的装备」产生双重事实。
+-- ⚠️ 但 wet 标记**没有**存。它会在读档后由下一次 OnUpdate 的 DoDelta 重算（第 142 行），
+--   所以不影响正确性，只是读档后第一帧的 wet 显示可能滞后。
+    return
+    {
+        moisture = self.moisture,
+    }
+end
+
+function Moisture:OnLoad(data)
+-- ⚠️★ 读档的三处简化：
+--   1. 只判 data ~= nil 再判 data.moisture ~= nil，两层保护 —— 因为 OnLoad 可能被
+--      调用时不带参数（组件重新挂载的路径）。
+--   2. 直接赋值 self.moisture，**不走 clamp**（对比第 139、154 行都 clamp）。
+--      若存档数据被外部篡改或版本不兼容导致 moisture > maxmoisture，
+--      这里会原样放行，直到下一帧 OnUpdate 的 DoDelta 才被 clamp 回来。
+--      影响极小（只有一帧的越界），标记为「疑似轻微缺陷」。
+--   3. 不重算 self.wet（见第 378 行的说明）。
+    if data ~= nil and data.moisture ~= nil then
+        self.moisture = data.moisture
+    end
+end
+
+function Moisture:TransferComponent(newinst)
+-- 组件转移：按**百分比**而非绝对值搬到新实体。
+-- ★ 与 temperature.lua 第 529 行的 SetTemperature（搬绝对值）不同 ——
+--   因为湿度是 0 到 100 的量纲化数值，两个实体的 maxmoisture 可能不同；
+--   搬百分比才能保证「同样湿的程度」而不是「同样的数值」。
+-- → ★ 这是「量纲化状态转移」与「绝对状态转移」的正确区分，
+--   移植时若照搬温度的做法会在「玩家变狼人」这类场景下出错。
+    local newcomponent = newinst.components.moisture
+
+    newcomponent:SetPercent(self:GetMoisturePercent())
+end
+
+return Moisture
+-- 组件定义返回。属性表见第 67-72 行，共四个被同步的字段：
+--   maxmoisture / moisture / ratescale / wet
+-- 其中前三个走 player_classified，wet 走 replica.moisture（见第 22 行注释）。

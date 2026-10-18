@@ -1,0 +1,1172 @@
+--============================================================
+-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖
+-- 文件：brain.lua
+-- 模块：核心框架 / 决策层调度（Brain Manager Runtime）
+-- 职责：定义全游戏所有生物大脑的「全局调度局」与「大脑基类」。承担：
+--       ① BrainWrangler / BrainManager：把任意多个大脑实例按
+--          「唤醒 / 定时睡 / 冬眠」三态组织，含**双缓冲迭代**
+--          （_safe_updaters）以保证遍历安全；
+--       ② 大脑的注册、注销、休眠、定时睡；
+--       ③ Brain 基类：生命周期（启动/停止/暂停/恢复）、
+--          同步事件派发、思考周期查询、模组注入点；
+--       ④ 与状态图的边界分工（本文件**不**负责动作表现）。
+--       ——它回答「我要去哪、要不要攻击」，然后驱动 stategraph.lua
+--       去回答「我现在看起来该做什么动作」。
+-- 关键符号：BrainWrangler, BrainManager, _safe_updaters,
+--           SendToList, Wake, Hibernate, Sleep, AddInstance,
+--           RemoveInstance, Update,
+--           Brain, ForceUpdate, AddEventHandler, GetSleepTime,
+--           Start, _Start_Internal, OnUpdate, DoUpdate,
+--           Stop, _Stop_Internal, PushEvent, Pause, Resume,
+--           Brain:OnStart, Brain:OnStop, Brain:OnInitializationComplete
+-- ★★ 与 stategraph.lua 的关系（★ 详见文件头 §零）：
+--     两者是**同构孪生**——BrainWrangler 与 StateGraphWrangler 的
+--     字段名完全一致（instances/updaters/tickwaiters/hibernaters），
+--     但**没有做统一抽象**，实现已各自演化出实质差异：
+--       ① 大脑多一张 _safe_updaters（双缓冲数组），状态图用换表法；
+--       ② 状态图多一张 haveEvents（事件缓冲），大脑事件是同步的；
+--       ③ 状态图的 Sleep 无条件 +1 tick，大脑改用 > GetTick() 判断；
+--       ④ 大脑的 SendToList 多一层 old_list ~= list 早退守卫。
+-- ★★ 三种「不更新」状态的区别（★ 本文件最易混淆处）：
+--     stopped —— 被彻底停用（死亡/冻结/睡着），不在调度表里
+--     paused  —— 被玩家暂停（打开背包），不在调度表里但可 Resume
+--     IsAsleep—— 由引擎判定（离屏/地洞/存档切换），
+--                大脑仍在 updaters 里，但被 Update 的过滤条件跳过
+-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本
+-- 交叉引用：stategraph.lua:3 StateGraphWrangler（同构孪生），
+--           stategraph.lua:118-119 换表法（另一种快照方案），
+--           stategraph.lua:100 tickwaiters 清理的疑似缺陷（本文件 93-95 是正确版），
+--           behaviourtree.lua:533 PriorityNode（思考周期 period 与散布）,
+--           behaviourtree.lua:541 GetSleepTime（三态返回值的来源）,
+--           entityscript.lua:1078 RestartBrain / 1091 StopBrain（reason 计数）,
+--           entityscript.lua:1103 SetBrain / 1121 _DisableBrain_Internal /
+--           entityscript.lua:1135 _EnableBrain_Internal（装配与休眠联动）,
+--           entityscript.lua:1465 IsAsleep（not entity:IsAwake()）,
+--           update.lua:292 主循环驱动（紧随 SGManager:Update 之后）,
+--           modutil.lua:630 modpostinitfns 的注册处,
+--           components/freezable.lua:265、components/pinnable.lua:113、
+--           components/sleeper.lua:289、components/centipedebody.lua:69
+--           （StopBrain 的四个真实 reason 调用方）,
+--           brains/*.lua（各生物的 Brain 子类与行为树）,
+--           scheduler.lua（另一种调度实现：协程式，见文件头对照）,
+--           bug-patterns.md H3（事件时序）/ F2 / F4（休眠与思考周期）
+--============================================================
+--
+--【阅读导航】
+--  §零   BrainWrangler 与 BrainManager（1-10）—— 与 stategraph.lua 同构孪生
+--  §一   清理与调试辅助（12-37）
+--  §二   SendToList 集合路由（39-54）—— ★★ 与状态图版的关键差异
+--  §三   唤醒/休眠/定时睡（56-86）
+--  §四   注销与注册（89-104）
+--  §五 ★★ Update 主循环（106-157）—— ★ 双缓冲 _safe_updaters
+--  §六   Brain 基类（159-236）
+--  §七   内部启停与事件（238-267）
+--  §八   暂停/恢复（269-285）
+--
+--【★★ 本文件最重要的八条】
+--  1. BrainManager 与 SGManager 是**同构孪生**：字段名完全一致
+--     （instances / updaters / tickwaiters / hibernaters），
+--     但实现已各自演化，三处出现实质差异（见 §二、§三、§五）。
+--  2. _safe_updaters（5 行、134-144 行）是**双缓冲迭代**：
+--     先把要处理的键收集到数组，再遍历数组，从而允许在遍历中
+--     安全地对 updaters 增删。与 stategraph.lua:118-119 的「换表法」
+--     解决同一个问题，思路不同。参见 entityscript.lua 的 StopUpdatingComponents。
+--  3. BrainManager:Update 的遍历条件比状态图严格得多（137 行）：
+--     既要实体有效，又要求实体**未进入休眠**。
+--     而状态图是把休眠的实例整个移出 updaters（集合法）。
+--  4. Brain 的多态靠**行为树**（behaviourtree.lua）而非类的继承。
+--     Brain 基类只有一个可选钩子 DoUpdate（旧版 FSM 残留）。
+--  5. Brain:PushEvent 是**同步立即**的，而状态图是**延迟缓冲**的。
+--     这是 bug-patterns.md H3「三套事件机制时序不同」的直接来源。
+--  6. Brain 的生命周期受三层控制：stopped（死）、paused（暂停）、
+--     _brainstopped（实体侧按 reason 计数的多重停止）。
+--  7. GetSleepTime 返回 0 时表示「下一帧就醒」（brain.lua:149-152 的空 else），
+--     这是一个容易被误读的空分支。
+--  8. Brain 基类里 currentbehaviour / behaviourqueue / thinkperiod /
+--     lastthinktime 四个字段是**旧版 FSM 时代遗留**，全工程无任何读取点。
+--     （已 grep 核实：只在 brain.lua:161-165 出现一次。）
+--
+--【★ 调度层与 scheduler.lua 的异同】
+--  相同：三态协议（醒 / 定时睡 / 冬眠）、按 tick 分桶、实体销毁时统一注销。
+--  不同一：scheduler 用**协程**（DoPeriodicTask 会 create_cooldown / resume），
+--         BrainManager 用**集合**。协程法的优势是能写 `while true do ... sleep end`
+--         这样的直线流程；集合法完全免疫协程泄漏（bug-patterns.md A5/A7）。
+--  不同二：scheduler 的休眠由 DoPeriodicTask 不被注册体现；
+--         BrainManager 有显式的 hibernaters 集合，且 Update 返回 nil 才进。
+--  不同三：Brain 有额外的 paused 状态（269-285 行），scheduler 没有对应物。
+--         这是因为「暂停」在 DST 里是玩家主动行为（打开背包）而非系统行为。
+--  参见 03-参考架构/02_scheduler.lua。
+--
+--【★ 任务清单中提到但本文件并不存在的符号（已在源码中核实）】
+--  · Brain:CommonOnAttack      —— 不存在。攻击响应在 behaviourtree 节点与
+--                               CommonHandlers（stategraphs/commonstates.lua）里。
+--  · Brain:ThinkPeriodic        —— 不存在。大脑的思考周期由
+--                               behaviourtree.lua:533 PriorityNode 的 period
+--                               参数控制，本文件不参与。
+--  · Brain:ShouldBecomeCerebral —— 不存在。这是 DS 时代「 cerebro 」怪物的遗留。
+--  · brainconf / curiosity / focus / irritability —— 全工程不存在这三个名字。
+--     大脑的「性格参数」是各 brains/*.lua 里的普通局部变量或闭包捕获，
+--     例如 brains/ 目录下的 SetDistSq / shouldretreat 等局部函数。
+--  · Brain:SetFSM / FSM 兼容层    —— 不存在。旧版 FSM 的痕迹只剩 DoUpdate 钩子
+--                               （229 行）与四个未使用的遗留字段。
+--  ★ 以上结论均来自对全仓库的 grep 核实，不是推测。
+
+--★★★【★★ BrainWrangler：全游戏所有大脑的调度局 —— stategraph.lua:3 的孪生】
+--   ★★ 与 StateGraphWrangler 的逐字段对照（四张表名完全一致）：
+--     instances   反查表 { 实例 → 所属集合 }        （两边都有）
+--     updaters    本帧要更新的                       （两边都有）
+--     tickwaiters { [tick] = { 实例 } } 二级桶        （两边都有）
+--     hibernaters 休眠的                             （两边都有）
+--     ★★ 差异一：多一张 _safe_updaters（本文件的迭代缓冲，见 5 行）
+--     ★★ 差异二：**没有 haveEvents**。大脑不需要事件缓冲表，
+--       因为 Brain:PushEvent 是同步立即处理的（261 行）。
+--       这正是「延迟 vs 立即」两种事件模型的物理体现。
+--   ★★ 差异三：BrainManager:Update 里额外过滤了 IsAsleep（137 行），
+--       而状态图是把休眠实例整个移出 updaters。
+--   ★ 同是「决策之外的基础设施」，两文件由同一批人（NOTES(JBK) 署名）写成，
+--     连注释口吻与代码风格都一致 —— 但**没有做统一抽象**。
+--   ⚠ 这是本项目的一个显著架构特征：
+--     调度框架被复制了两份，而不是抽成通用 Scheduler。
+--     好处是各自可独立优化（大脑不背事件缓冲的包袱）；
+--     代价是 bug 修复要改两处，且已出现三处实现分叉。
+BrainWrangler = Class(function(self)
+--【★ 反查表 instances —— 与 stategraph.lua:4 同义】
+--   键是 Brain 实例，值是它当前所在的集合表；nil 表示未注册。
+--   ★ 所有入口方法（Wake/Hibernate/Sleep/OnRemoveEntity）的守卫都读它。
+        self.instances = {}
+--【★ updaters：本帧要更新的 Brain 集合】
+--   ★★ 与状态图的关键区别：状态图的 Update 返回三态（0/正数/nil），
+--     这里用 GetSleepTime() 的返回值 + IsAsleep 过滤决定去留。
+        self.updaters = {}
+--★★★【★ _safe_updaters：「Internal use for safely iterating」的真实含义】
+--   ★★★ 这就是注释里说的 **双缓冲迭代**（snapshot iteration）。
+--   ★★ 问题背景（★ 与 stategraph.lua:118-119 完全同一个问题）：
+--     `for k in pairs(self.updaters)` 遍历期间，Brain:OnUpdate() 内部
+--     极可能调 SendToList（Sleep / Hibernate / Wake），
+--     即**在遍历中修改被遍历的表** —— 这是 Lua 的未定义行为，
+--     可能漏遍历、可能报错、可能死循环。
+--   ★★ 本文件采用的解法（与状态图的「换表」不同）：
+--     第 ① 趟（135-141 行）：遍历 updaters，把**存活的键**
+--       依次追加到 _safe_updaters[1..count]（注意是从 1 开始的数组下标）。
+--     第 ② 趟（142-156 行）：遍历这个数组快照，处理大脑。
+--       此时无论对 updaters 怎么增删都不影响本趟遍历。
+--   ★★ 三处精妙细节：
+--     ① 每个元素处理完立刻置 nil（144 行）——
+--        保证下次调用时数组是干净的，复用同一块内存，零分配。
+--        ★ 若不置 nil，下一帧的 count 更小时会残留旧值 →
+--          处理到已经被清掉的实体 → 崩溃。这是「复用数组」必付的代价。
+--     ② 收集阶段就过滤掉无效实体（137 行）——
+--        把「有效性检查」提前，省得在处理阶段才发现。
+--     ③ 变量名 `_safe_updaters` 里的下划线前缀明确标记「内部使用」，
+--        提示外部不要直接碰。这是 Lua 里常见的私有字段约定。
+--   ★★ 三种解法的横向对比（本项目全都用到了）：
+--     ┌ stategraph.lua:118-119 ┐ 换表法：零分配零拷贝，本帧新增延后到下帧
+--     ┌ brain.lua:136-141      ┘ 双缓冲数组：有一次数组拷贝，语义更直观
+--     └ entityscript.lua:61   ┘ 延迟删除队列：把「要删的」攒起来，末尾统一处理
+--   ★★ 参见 entityscript.lua 的 StopUpdatingComponents ——
+--     同一思想（遍历期增删要安全）的第三次应用。
+        self._safe_updaters = {} -- NOTES(JBK): Internal use for safely iterating over self.updaters.
+--【★ tickwaiters：二级索引桶 —— 与 stategraph.lua:6 同构】
+--   ★ 同样靠 Update 里 130 行的 `self.tickwaiters[current_tick] = nil` 擦桶。
+        self.tickwaiters = {}
+--【★ hibernaters：休眠大脑集合 —— 与状态图同构】
+--   ★ 与状态图的差别：状态图的 Hibernate 有两条进入路径
+--     （Update 返回 nil / 外部显式 Hibernate）；
+--     大脑这边外部几乎不调 Hibernate，主要靠 154 行的 Update 返回 nil。
+        self.hibernaters = {}
+end)
+
+--★★★【BrainManager：进程级唯一的大脑调度单例】
+--   ★★ 与 SGManager（stategraph.lua:11）完全对称的单例。
+--   ★ 调用点：update.lua:292，在同一个 for 循环里紧跟 SGManager:Update(i) 之后。
+--     ★★ 这个调用顺序很重要：**先跑状态图，再跑大脑**。
+--       因为大脑的决策结果常常是给状态图下指令（GoToState），
+--       先跑状态图意味着本帧的决策会在下一帧的状态图里生效，
+--       顺序稳定，不会出现「决策与执行互相穿越」。
+--   ★★ 也正因如此，「大脑思考」与「状态图表现」天然有 1 帧延迟：
+--     大脑决定「追过去」→ 下一帧状态图才开始走过去。
+--     这是 H3 时序问题的又一体现。
+BrainManager = BrainWrangler()
+
+--★★【OnRemoveEntity：实体销毁时摘掉它的大脑】
+--   ★★ 与 StateGraphWrangler:OnRemoveEntity（stategraph.lua:76）对照：
+--     · 那边的参数 inst 是 EntityScript，内部用 inst.sg 取状态图
+--       （且注释吐槽了「本文件其他地方的 inst 都不是它」）；
+--     · 这边同样是 EntityScript，用 inst.brain 取大脑。
+--   ★ 两边的守卫结构一致：`if inst.brain and self.instances[inst.brain] then`。
+--   ★★ 注意「已注销」的检查：只有还在调度表里才需要摘，
+--     否则说明已经被 Pause / _Stop_Internal 摘过了，重复摘是幂等操作。
+function BrainWrangler:OnRemoveEntity(inst)
+    --print ("onremove", inst, debugstack())
+--【★ 双重守卫：大脑存在 且 仍在调度系统里】
+--   ★ 与状态图那边「只查 instances[inst.sg]」的写法略有不同：
+--     状态图版没判 inst.sg 本身（nil 索引在 Lua 里安全）；
+--     大脑版显式判了。可读性更好。
+    if inst.brain and self.instances[inst.brain] then
+		self:RemoveInstance(inst.brain)
+	end
+end
+
+
+--★★【NameList：纯调试辅助 —— 把集合表反向翻译成可读名字】
+--   ★★ 这个函数存在的唯一理由是调试那些被注释掉的 print（42 行）。
+--   ★ 它的实现方式暴露了一个设计细节：
+--     **只有 updaters 和 hibernaters 能 O(1) 反查，tickwaiters 不能** ——
+--     因为 tickwaiters 有 N 个桶，必须线性遍历才能知道某个桶对应哪个 tick。
+--     ★ 这正是二级索引的代价：写入 O(1)、按时间取 O(1)，
+--       但「反查某个集合表是什么」退化成 O(N)。
+function BrainWrangler:NameList(list)
+    if not list then
+        return "nil"
+    elseif list == self.updaters then
+        return "updaters"
+    elseif list == self.hibernaters then
+        return "hibernators"
+    else
+--【★ 线性扫描所有桶找匹配 —— 印证二级索引「反查困难」的代价】
+--   ★ 仅用于调试，不在热路径上，可以接受。
+        for k,v in pairs(self.tickwaiters) do
+            if list == v then
+--【★ tickwaiters 的可读名带上 tick 号，便于定位「它睡到第几帧」】
+                return "tickwaiter "..tostring(k)
+            end
+        end
+    end
+
+    return "Unknown"
+
+end
+
+--★★★【★★ SendToList：集合路由 —— ★★ 与 stategraph.lua:13 的三处实质差异】
+--   ★★★ 差异一：★ 多了一层 `old_list ~= list` 早退守卫
+--     语义：若实例**已经在目标集合里**，什么都不做。
+--   ★ 为什么这对大脑很重要？——大脑在 Update 里会被反复 SendToList 到
+--     同一个集合（137 行的 IsAsleep 过滤会让某些大脑连续多帧命中同一路径）。
+--     无脑补版会每次都做三次哈希写；有守卫版直接跳过。
+--   ★★ 但这个守卫也带来一个**微妙的行为差异**：
+--     ★ 若实例未注册（old_list 为 nil），`if old_list and ...` 为假，
+--       **整段被跳过** —— 即「未注册 → SendToList 无效」。
+--       状态图那边没有这层守卫，未注册时反而会走 21-22 行把自己注册进去。
+--     ★★ 实际影响：本文件的所有调用点都有 `self.instances[inst]` 守卫
+--       （Wake 57 行、Hibernate 63 行），所以未注册的情况根本不会进来。
+--       但这意味着：**这两个文件的 SendToList 语义并不等价**，
+--       混用会导致「注册丢失」类难查 bug。移植时必须注意。
+--   ★★★ 差异二：★ 血量检查冗余
+--     43 行 `if old_list and old_list ~= list then` 之内又有 44 行
+--     `if old_list then` —— 在 old_list 已被判为真的前提下再判一次。
+--     纯冗余（可能是重构残留），无功能影响，但说明代码经过多次改动。
+--   ★★★ 差异三：★ 没有「传 nil 即注销」的分支语义
+--     43 行的守卫使得 `SendToList(inst, nil)` 在 old_list 为 nil 时也无效。
+--     但 90 行的 RemoveInstance 依赖它把 instances 清掉 ——
+--     幸运的是 96 行 `self.instances[inst] = nil` 是无条件补上的，兜住了。
+function BrainWrangler:SendToList(inst, list)
+
+--【★ 反查当前所在集合（与 stategraph.lua:14 同义）】
+    local old_list = self.instances[inst]
+--    print ("HI!", inst.inst, self:NameList(old_list), self:NameList(list))
+--★★★【★ 早退守卫 —— 本文件与状态图版最关键的语义差异】
+--   ★ 「已经在目标集合就什么都不做」是幂等优化的经典写法。
+--   ⚠ 但注意它同时意味着「未注册时也什么都不做」（见 39 行的详细分析）。
+    if old_list and old_list ~= list then
+        if old_list then
+            old_list[inst] = nil
+        end
+
+--【★ 反查表更新 —— 与 stategraph.lua:19 同义】
+        self.instances[inst] = list
+
+--【★ 目标集合非 nil 才写入】
+        if list then
+--【★ 集合语义：键在集合里，值恒为 true（与状态图版同）】
+            list[inst] = true
+        end
+    end
+end
+
+--★【Wake：唤醒休眠中的大脑 —— 与 stategraph.lua:53 同构】
+--   ★★ 注意这里的守卫是 `if self.instances[inst] then`（与状态图完全一样），
+--     结合 43 行的早退，语义是「只有已注册且不在 updaters 里的才搬」。
+function BrainWrangler:Wake(inst)
+    if self.instances[inst] then
+        self:SendToList(inst, self.updaters)
+    end
+end
+
+--★★【Hibernate：让大脑进入零 CPU 状态 —— 与状态图同构】
+--   ★ 谁会显式调它？—— 实体侧代码（如冻结、装晕）停用大脑，
+--     或者行为树自己决定「当前无事可做」。
+--   ★★ 与状态图版的调用频率差异：
+--     状态图几乎只靠 Update 返回 nil 自动进（139 行），外部极少显式调；
+--     大脑这边外部显式调用更常见（因为 Update 的路径更复杂，见 147-155 行）。
+function BrainWrangler:Hibernate(inst)
+    if self.instances[inst] then
+        self:SendToList(inst, self.hibernaters)
+    end
+end
+
+--★★★【★ Sleep：把「睡 N 秒」翻译成「第 T 帧醒来」—— 与 stategraph.lua:59 同构】
+--   ★★ 与状态图版的两处差异（★ 移植时的坑）：
+--     ① 目标 tick 少一个 +1（72 行 vs stategraph.lua:64）
+--        靠 74 行的 `if target_tick > GetTick()` 兜底。
+--        ⚠ 若算出的 tick 不大于当前 tick（比如 sleep 不足一帧），
+--          **这次 Sleep 被静默丢弃**，大脑会保持 awake 到下一帧。
+--        推理依据：target_tick = floor(GetTick() + sleep_ticks)，
+--          若 GetTick() = 100.4 且 sleep_ticks = 0.3，
+--          target_tick = floor(100.7) = 100，不大于 100.4 → 整个 if 被跳过。
+--          大脑既没睡也没被摘出 updaters → 下一帧继续被更新。
+--        ★ 这不是 bug 而是「亚帧睡眠退化为不睡」的合理降级，
+--          但与状态图版的无条件 +1 行为确实不同。
+--     ② 没有 `if self.instances[inst] then` 外层守卫
+--        状态图那边（60 行）有守卫；这边靠 43 行的早退隐式兜住。
+--   ★ 结论：两文件的 Sleep 语义**近似但不等价**，混用需谨慎。
+function BrainWrangler:Sleep(inst, time_to_wait)
+--【秒 → 帧：与 stategraph.lua:61 同义】
+    local sleep_ticks = time_to_wait/GetTickTime()
+--【零帧下限保护：与 stategraph.lua:62 同义】
+--   ★ 注意 0 是真值，所以 `sleep_ticks == 0` 这个比较是安全的。
+    if sleep_ticks == 0 then sleep_ticks = 1 end
+
+--★★【★ 目标 tick 计算 —— ★ 比状态图版少 +1（详见 68 行的对比分析）】
+    local target_tick = math.floor(GetTick() + sleep_ticks)
+
+--★★★【★ 「目标 tick 必须在未来」的守卫 —— 状态图版没有的显式检查】
+--   ★★★ 这就是状态图用无条件 `+1` 达到的效果，两种写法两种风格：
+--     · stategraph.lua:  floor(...) + 1        —— 靠加法保证未来
+--     · brain.lua:       floor(...) 后判断     —— 靠判断保证未来
+--   ★★ 结果差异（推理）：
+--     目标 tick 已到或已过时，两者都不会立即唤醒（状态图会睡到下一 tick，
+--     大脑直接放弃本次睡眠）—— 都是安全降级，但时机差一帧。
+--   ★ 69-73 行的 GetTickTime 除法保证 sleep_ticks >= 1（70 行兜底），
+--     所以 floor(GetTick()+1) 在 GetTick 为整数时必然 > GetTick。
+    if target_tick > GetTick() then
+--【取出（或新建）目标 tick 的桶】
+        local waiters = self.tickwaiters[target_tick]
+
+--【懒建桶 —— 与 stategraph.lua:67 同构】
+        if not waiters then
+            waiters = {}
+--【登记到 tickwaiters[target_tick]】
+            self.tickwaiters[target_tick] = waiters
+        end
+
+        --print ("BRAIN SLEEPS", inst.inst)
+--【★ SendToList 的副作用：把大脑从 updaters 摘出（这就是「睡」的实质）】
+--   ★ 与状态图版（71 行）同构：没有额外标志位，
+--     「不在 updaters 里」自然等价于「不会被更新」。
+        self:SendToList(inst, waiters)
+
+    end
+end
+
+
+--★★★【★★ RemoveInstance：把大脑从调度系统彻底抹掉】
+--   ★★★ 与 StateGraphWrangler:RemoveInstance（stategraph.lua:82）对比，
+--     **本文件的写法是正确的，状态图那边有一处 bug** —— 见 93-95 行注释。
+--   ★ 六行清理覆盖了全部五张表（instances / updaters / hibernaters /
+--     tickwaiters 各桶 / 由 SendToList 负责的反查表）。
+function BrainWrangler:RemoveInstance(inst)
+--【★★ 传 nil 摘出所有集合 —— 依赖 43 行守卫此时 old_list 非 nil】
+--   ★ 若大脑已不在任何集合（重复注销），43 行会早退，
+--     但 91-96 行的无条件清理照样兜住 → 幂等。
+    self:SendToList(inst, nil)
+--【无条件清理：不依赖 SendToList 是否生效】
+    self.updaters[inst] = nil
+--【无条件清理 hibernaters】
+    self.hibernaters[inst] = nil
+--★★★【★ 正确做法：遍历所有 tickwaiters 桶把大脑摘出来 —— 参照样板】
+--   ★★★ 这一段是本文件最有教学价值的地方，因为 stategraph.lua:100
+--     把它写错了（写成了 `self.tickwaiters[inst] = nil`，
+--     而 tickwaiters 是二级表，第一层键是 tick 号，从不是实例）。
+--   ★★ 本文件的写法之所以对：
+--     for k,v in pairs(self.tickwaiters) do  -- k 是 tick 号，v 是桶
+--         v[inst] = nil                      -- 从每个桶里摘掉实例
+--   ★ 代价是 O(桶数) 线性扫描。但注销是低频操作（实体销毁时），
+--     远不如每帧的热路径敏感。
+--   ⚠ 推论：若要修复 stategraph.lua:100，应照抄这里。
+    for k,v in pairs(self.tickwaiters) do
+--【★ 从每个桶里摘掉本大脑 —— 真正生效的那一行】
+        v[inst] = nil
+    end
+--【★ 清反查表 —— 无条件，兜住 SendToList 早退的情况】
+    self.instances[inst] = nil
+
+end
+
+--★★【AddInstance：注册一个大脑 —— ★ 与状态图版的显著差异】
+--   ★★ 对比 stategraph.lua:105 的 AddInstance(inst, hibernate)：
+--     · 状态图版有 hibernate 参数，初始落点可以是 hibernaters
+--     · 本文件**没有参数**，永远直接进 updaters
+--   ★★ 为什么不需要？——★ 因为本文件在 Update 的收集阶段（137 行）
+--     就有 `not k.inst:IsAsleep()` 过滤：睡眠中的大脑**每帧都会被遍历到**
+--     然后被过滤掉。
+--   ★★★ 这里体现两种休眠实现方式的根本差异：
+--     · 状态图：集合分层（集合法）—— 休眠者根本不进遍历集，零遍历成本
+--     · 大脑：集合不分层 + 逐帧过滤 —— 休眠者仍在遍历集里，只是被跳过
+--   ⚠ 性能含义：1000 个沉睡怪物的大脑，大脑侧每帧要遍历 1000 次
+--     做 IsValid + IsAsleep 检查；状态图侧则一次都不遍历。
+--     ★ 这正是 bug-patterns.md F4「休眠机制没生效 / 实体数失控」的
+--       一处结构性来源。
+--   ★ 但大脑侧的实现更简单（无需处理「初始落在哪张表」），
+--     且 43 行的早退守卫让反复注册无副作用。是取舍而非缺陷。
+function BrainWrangler:AddInstance(inst)
+
+--【★ 注意：这里直接赋值，绕过了 SendToList】
+--   ★★ 合理：因为 43 行的早退守卫要求 old_list 存在，
+--     而新注册的大脑本来就不在任何集合里，走 SendToList 会无效。
+--     ★ 这也解释了 AddInstance 为什么必须这么写。
+    self.instances[inst] = self.updaters
+--【★ 同时写正向表与反查表 —— 两处必须同步】
+--   ★ 对比 stategraph.lua:113（唤醒路径）只写 updaters 不写 instances，
+--     那里是不一致，本文件这里是正确的完整写法。
+    self.updaters[inst] = true
+end
+
+--★★★【★★★ Update：驱动所有清醒的大脑 —— 本文件的核心循环】
+--   ★★★ 与 SGManager:Update（stategraph.lua:109）的结构对照：
+--     ┌ stategraph.lua ┬ ① 唤醒到期等待者（同样）
+--     │              ├ ② 换表法快照（旧表让出，零分配）
+--     │              ├ ③ 遍历旧表调 Update，按返回值分流
+--     │              └ ④ UpdateEvents（★ 状态图独有：事件缓冲）
+--     └ brain.lua    ┬ ① 唤醒到期等待者（同样）
+--                    ├ ② _safe_updaters 双缓冲快照（★ 写法不同）
+--                    ├ ③ 遍历快照调 OnUpdate，按 GetSleepTime 分流
+--                    └ （无事件阶段 —— 大脑事件是同步的）
+--   ★★ 三个关键差异：
+--     ① 快照方式：换表 vs 数组双缓冲（见 5 行的详细对比）
+--     ② 有效性过滤：在收集阶段过滤（137 行）vs 在处理阶段过滤
+--        （stategraph.lua:123 行）
+--     ③ 是否更新 instances 反查表（128 行有，113 行有；
+--        状态图那边 113 行缺）
+--   调用点：update.lua:292，紧跟 SGManager:Update(i) 之后。
+function BrainWrangler:Update(current_tick)
+
+--【被注释的调试统计：按 prefab 统计大脑数量与种类分布】
+--   ★ 这是排查「为什么游戏变卡」的有用工具：
+--     直接告诉你有多少个大脑、分别是什么种类。
+--   ★★ 被注释而非删除，说明「性能问题需要这类统计」是真实需求，
+--     但每帧打印的开销太大，只能临时启用。
+	--[[
+	local num = 0;
+	local types = {}
+	for k,v in pairs(self.instances) do
+
+		num = num + 1
+--【★ 注意：类型分布表直接按 prefab 名字聚合 —— 不区分已休眠与清醒的】
+--   ★ 所以这段统计的是「注册了多少大脑」而非「有多少在思考」。
+--     两者差距大 = 休眠机制工作良好。
+		types[k.inst.prefab] = types[k.inst.prefab] and types[k.inst.prefab] + 1 or 1
+	end
+	print ("NUM BRAINS:", num)
+	for k,v in pairs(types) do
+		print ("    ",k,v)
+	end
+	--]]
+
+
+--【★ 取本 tick 该醒的桶 —— 与 stategraph.lua:110 同构】
+    local waiters = self.tickwaiters[current_tick]
+--【桶可能不存在（这帧没人醒），跳过】
+    if waiters then
+        for k,v in pairs(waiters) do
+--【被注释的调试输出「BRAIN COMES ONLINE」—— 调试唤醒时机时可用】
+            --print ("BRAIN COMES ONLINE", k.inst)
+--★★★【★ 唤醒大脑 —— ★★ 与 stategraph.lua:113 的关键差异】
+--   ★ 本文件**同时**写了正向表与反查表两处，是正确完整的写法。
+--   ★ 对比 stategraph.lua:113：那里只写了 `self.updaters[k] = true`，
+--     没有同步 `self.instances[k]`，导致反查表短暂指向过期的桶。
+--     ★★ 推理（为什么本文件必须写两处）：
+--     124 行的桶是从 self.tickwaiters[current_tick] 取出的，
+--     它**不是** self.updaters。SendToList 里 43 行的 `old_list ~= list`
+--     判断需要 old_list 正确，否则会把大脑从错误的集合里摘出。
+--     状态图那边漏了同步，恰好因为它无条件重写（没有 43 行的早退），
+--     错误被掩盖了。两份代码的「正确性依赖对方」互相成对。
+            self.updaters[k] = true
+--★★【★ 同步反查表 —— ★ 这一行是 stategraph.lua:113 缺失的那一行】
+--   ★★★ 缺了它会怎样（推理）：
+--     反查表仍指向 tickwaiters[current_tick] 那个即将被弃的桶。
+--     下次 SendToList 会执行 `old_list[inst] = nil`，
+--     从那个**已经被丢弃的桶**里摘 —— 而大脑实际在 self.updaters 里，
+--     于是大脑会在 updaters 和未来的桶里**同时存在** → 每帧被更新两次。
+--     ★ 本文件写对了，状态图那边侥幸没炸（因为无条件重写）。
+            self.instances[k] = self.updaters
+        end
+--【擦除空桶 —— 与 stategraph.lua:115 同构】
+        self.tickwaiters[current_tick] = nil
+    end
+
+
+--★★★【★★ NOTES(JBK) 注释直接点明了双缓冲的动机 —— 这是全文件最该读的一行】
+--   ★★ 原文："We need to make a copy of the keys to safely iterate over
+--     the table because brains will remove and add onto the self.updaters
+--     table during iteration."
+--   ★★★ 逐句翻译其技术含义：
+--     · 「copy of the keys」→ 复制**键**（不复制值，因为值恒为 true，无信息量）
+--       → 省内存：只存引用，不复制 Brain 对象
+--     · 「safely iterate」→ 让遍历与增删解耦
+--     · 「brains will remove and add onto self.updaters」→
+--       大脑在 OnUpdate 里会调 Sleep（摘出）与 Wake（加入），
+--       正好是「遍历期间修改被遍历表」这一未定义行为的教科书案例。
+--   ★★ 举例：一只大脑 OnUpdate 里决定去攻击 → 行为树调 Sleep(2) →
+--     大脑被从 updaters 移入 tickwaiters[105]；
+--     同一趟循环里另一只大脑唤醒它 → Wake → 加回 updaters。
+--     没有快照的话，pairs 的行为未定义。
+    -- NOTES(JBK): We need to make a copy of the keys to safely iterate over the table because brains will remove and add onto the self.updaters table during iteration.
+--【★ count 从 0 开始，每收集一个就 +1 —— _safe_updaters 是从 1 开始的下标】
+    local count = 0
+--★★【第 ① 趟遍历：只收集，不处理 —— 与 stategraph.lua:122 的「只遍历不处理」对应】
+--   ★★ 这一趟的职责是「筛选 + 快照」，三件事一次做完：
+--     ① 遍历 updaters 现有的键
+--     ② 检查实体有效性（137 行）与清醒状态（137 行右半）
+--     ③ 把通过的键追加到 _safe_updaters
+--   ★★ 为什么要在这里就把无效的踢掉，而不是在第 ② 趟处理时再判？
+--     性能：过滤一次比每个大脑判两次便宜；
+--     更重要的是避免在快照数组里留下空洞（处理时要额外判 nil）。
+    for k, _ in pairs(self.updaters) do
+--★★★【★★ 收集阶段的过滤条件 —— ★★ 与状态图的关键差异所在】
+--   ★★ 两个条件，缺一不可：
+--     · `k.inst.entity:IsValid()` —— C++ 侧实体仍有效（未销毁）
+--     · `not k.inst:IsAsleep()`     —— 实体未进入休眠
+--   ★★ 第二个条件是本文件与状态图的**根本差异**：
+--     状态图把休眠实例整个移出 updaters（集合法，零遍历成本）；
+--     大脑留在 updaters 里靠这一行过滤（每帧都要遍历 + 判两次）。
+--     ⚠ 性能含义已在 100 行的 AddInstance 处分析。
+--   ★★ `k.inst.entity` 这个写法值得注意：
+--     k 是 Brain，k.inst 是 EntityScript（Lua 侧），
+--     k.inst.entity 是 C++ 侧的实体对象。
+--     ★ 判 C++ 有效性（entity:IsValid）而不是 Lua 侧（inst:IsValid）——
+--       前者更底层更权威，实体一旦被引擎回收就立刻为 false；
+--       后者只是 EntityScript 的方法（entityscript.lua 有定义），
+--       在某些中间态下可能与 C++ 状态不一致。
+--     ★ 对比 stategraph.lua:123 用的是 `k.inst:IsValid()`（Lua 侧）——
+--       两文件在这里的「有效性」定义都不同，是容易混淆的点。
+--   ★★ IsAsleep 的实现（entityscript.lua:1465）：`not self.entity:IsAwake()`
+--     —— 即「引擎认为实体处于不可见/不更新状态」。
+--     ★ 与 Brain 的 stopped / paused 是三个不同层次的概念：
+--       · IsAsleep  由**引擎**决定（离屏、地洞、存档切换）
+--       · stopped   由**大脑自身**决定（_Stop_Internal，实体主动停）
+--       · paused    由**玩家行为**决定（打开背包等，见 269 行）
+        if k.inst.entity:IsValid() and not k.inst:IsAsleep() then
+--【★ count 自增 —— 数组下标从 1 开始（Lua 里 table.insert 的习惯）】
+            count = count + 1
+--★★【★ 写入 _safe_updaters[count] —— 只存键（Brain 对象引用），不存值】
+--   ★★★ 为什么只存键？——因为值恒为 true（集合语义），没有信息量。
+--     只存键把快照体积压到最小，★ 这就是 NOTES(JBK) 说的
+--     "copy of the keys" 的字面含义。
+--   ★ 存的是引用而非拷贝：Brain 对象较大，绝不能深拷贝，
+--     引用传递零成本。
+            self._safe_updaters[count] = k
+        end
+--【第 ① 趟结束 —— 此时 updaters 可能已被改动，但快照是安全的】
+    end
+--★★【第 ② 趟遍历：从 1 到 count —— ★★ 遍历的是快照，不是 updaters】
+--   ★★ 这一趟无论对 self.updaters 做任何增删都不会影响自身遍历。
+--     这就是 134 行注释所说的 "safely iterate"。
+    for i = 1, count do
+--★【★ 从快照取出当前要处理的大脑】
+        local k = self._safe_updaters[i]
+--★★★【★ 处理完立刻置 nil —— ★★ 「复用数组」模式的关键一行】
+--   ★★★ 为什么要置 nil？——因为 _safe_updaters 是**复用**的字段，
+--     不是每次新建的局部数组。
+--   ★★ 不置 nil 会怎样（推理）：
+--     下一帧若 count 更小（比如 100 个大脑变 50 个），
+--     下标 51~100 仍残留着上一次的 Brain 对象。
+--     下一帧只遍历 1~50，所以**暂时无害**；
+--     但这些残留引用会让已销毁的 Brain 对象**无法被 GC 回收** ——
+--     ★★ 这是一个真实的内存泄漏。
+--   ★ 为什么选择「置 nil 复用」而不是「每帧新建数组」？
+--     大脑数量可能有数百上千，每帧新建一个这么大的数组会产生
+--     大量 GC 压力（Lua 的 GC 是标记-清除，批量对象会增加停顿）。
+--     ★ 复用 + 置 nil 是「零分配」与「不泄漏」的兼顾解 ——
+--       也正是 stategraph.lua:119 换表法的同源思路（都不分配）。
+        self._safe_updaters[i] = nil
+
+--★★【★ OnUpdate：推进一只大脑 —— 见 228 行 Brain:OnUpdate 的详解】
+--   ★★★ 这是本文件最热的一行：每个清醒的大脑每帧都过这里。
+--     OnUpdate 内部会：
+--       · 调可选的 DoUpdate（旧版 FSM 钩子）
+--       · 调行为树 bt:Update()（真正的大脑）
+--     ★ 行为树里 PriorityNode 的 period 会决定「多久想一次」
+--       （behaviourtree.lua:533-540），
+--       通过 GetSleepTime 返回给这里决定睡多久 ——
+--       ★ 这就是「思考周期」的实现：大脑不是每帧都在想，
+--         而是按 period 睡醒一次。
+        k:OnUpdate()
+--★★★【★ GetSleepTime：问这只大脑「你还想睡多久」】
+--   ★★★ 委托给行为树的 PriorityNode:GetSleepTime（behaviourtree.lua:541）。
+--     那个函数的三种返回值（★ 本文件的分支处理必须与它对齐理解）：
+--       · 状态 RUNNING 且有 period → 「距下次思考还有多久」（秒）
+--       · 状态 RUNNING 无 period     → 0（表示「立即再想」）
+--       · 状态 READY                → 0（★ 语义特殊，见下方 ⚠）
+--       · 其他（SUCCESS/FAILED）     → nil（见 154 行 → Hibernate）
+--   ★★ 「0」与「nil」的区别是本函数最微妙的地方：
+--     · 0   → 真值 → 进入 148 行 → 但 0 > GetTickTime() 为假 →
+--            走 151-152 的**空 else** → 大脑留在 updaters 里，下帧继续
+--     · nil → 走 154 行 Hibernate → 大脑彻底退出更新
+--   ★★ 所以 0 的语义是「还要再跑一次，但不必专门睡一个 tick」。
+        local sleep_amount = k:GetSleepTime()
+--★★【★ sleep_amount 非 nil 才有后续处理（0 也是真值，会进来）】
+--   ★ 与 132 行 stategraph.lua 的 `if sleep_amount then` 结构一致。
+        if sleep_amount then
+--★★★【★ 「睡得够久才值得睡」的判断 —— ⚠ 空 else 的真正含义在这里】
+--   ★★★ 判据是 sleep_amount > GetTickTime()（即睡眠时长超过一帧）。
+--   ★★ 为什么要有这个门槛？因为亚帧睡眠毫无意义：
+--     归桶 → 唤醒 → 摘桶的两次哈希操作，比直接下一帧继续更新更贵。
+--     ★ 降级策略：睡不到一帧就直接留在 updaters 里，下一帧照常处理。
+--   ★★ 这与 74 行的 `target_tick > GetTick()` 是同源设计：
+--     两处都在处理「睡眠时长不足一 tick」的边界情况。
+            if sleep_amount > GetTickTime() then
+--【★ 睡眠时间超过一帧 → 归入 tickwaiters 桶（Sleep 内部会把自己摘出 updaters）】
+                self:Sleep(k, sleep_amount)
+--⚠⚠⚠【★★ 疑似缺陷/陷阱：一个「空 else」—— 极易被误读为漏写】
+--   ★★★ 这个 else 什么都不做，意味着：
+--     大脑**既不 Sleep 也不 Hibernate**，就地留在 self.updaters 里，
+--     下一帧继续被处理。
+--   ★★ 正确理解（★ 这是本行的设计意图，不是遗漏）：
+--     「sleep_amount > 0 但不足一帧」 → 降级为「不睡」，下帧再算。
+--     ★ 语义：这是一个「亚帧睡眠的兜底分支」，
+--       与 74 行的守卫是同一条设计原则在两处的应用。
+--   ⚠ 隐患（推理）：如果行为树返回的 sleep_amount **持续**略大于 0
+--     但又永远不足一帧（period 极小的极端情况），
+--     大脑将**永远每帧被更新**，完全无法休眠 —— 
+--     这正是 bug-patterns.md F2「脑的思考相位未散布」类问题的放大形态。
+--   ⚠ 但正常情况下 period >= 1 秒（behaviourtree.lua:535 默认值），
+--     不可能落进这个分支。所以实践中无害，但代码意图**极难从字面读出**。
+--   ⚠ 建议（仅记录，不改代码）：加一行注释说明「亚帧睡眠降级为不睡」。
+--   ⚠ 本条为代码阅读推断，未在运行时验证。
+            else
+            end
+        else
+--★★【★ sleep_amount 为 nil（无 period / 状态非 RUNNING）→ 彻底休眠】
+--   ★★ 与 stategraph.lua:139 的 Hibernate 完全同构。
+--     含义：行为树认为「无事可做且不该再想」，大脑退出更新循环。
+--   ★ 谁来唤醒它？—— 事件（Brain:PushEvent → 行为树的 EventNode）、
+--     或外部显式 Wake（如 playercontroller 收到网络输入）。
+--   ★★★ 这就是「有需要时再想」的设计：
+--     空闲的大脑完全不占 CPU，与状态图的 Hibernate 目的相同。
+            self:Hibernate(k)
+        end
+    end
+--【Update 结束 —— ★ 本文件没有 UpdateEvents 阶段（大脑事件是同步的）】
+--   ★ 这是与状态图最直观的结构差异，参见 261 行 PushEvent 的说明。
+end
+
+--★★★【★★ Brain 基类 —— 决策层的「载体」而非「决策者」】
+--   ★★ 与 StateGraphInstance（stategraph.lua:332）对称：
+--     状态图实例 = 「我现在看起来该做什么动作」（表现层）
+--     大脑实例   = 「我该去哪、要不要攻击」（决策层）
+--   ★★ 关键认知：★ Brain 基类本身几乎什么决策都不做。
+--     真正的决策在两处：
+--       ① 行为树（behaviourtree.lua）—— 由 self.bt 持有
+--       ② 可选钩子 self.DoUpdate —— 旧版手写 FSM 的遗留入口
+--     基类只负责：生命周期、事件派发、注册调度。
+--   ★★★ 因此「写一个生物的 AI」= 写一个行为树 + 一个 Brain 子类，
+--     而 Brain 子类通常只有构造函数的十几行初始化。
+--     参见 brains/sharkboibrain.lua、brains/batbrain.lua 等。
+--   构造签名：Class(function(self) ... end)，无参数 ——
+--   ★ 宿主实体在实例化后由外部赋值（entityscript.lua:1140 self.brain.inst = self）。
+--   ★ 为什么不在构造函数里传？—— 因为 Brain 类名通常是 local，
+--     实体侧拿到的可能是一个工厂函数（brainfn），调用时机与参数由实体决定。
+Brain = Class(function(self)
+--★★【★ inst：宿主实体 —— 由外部在实例化后赋值（★ 不在构造函数里）】
+--   ★★ 赋值点：entityscript.lua:1140 `self.brain.inst = self`
+--     与 entityscript.lua:1117（SetBrain 内）两处。
+--   ★ 为什么分开？——构造与装配分离：
+--     Brain 构造时可能还不知道自己要挂在谁身上，
+--     或同一个 Brain 类会被多个实体复用（工厂函数模式）。
+--   ⚠ 风险：若外部忘了赋值，Brain 的所有方法都会在 nil 上调用。
+--     137 行的 `k.inst.entity` 会崩。
+    self.inst = nil
+--⚠⚠【★ 遗留字段 currentbehaviour —— 已核实：全工程无任何读取点】
+--   ★★ 这是旧版 FSM（Finite State Machine）时代的残留：
+--     那时大脑直接持有「当前行为」对象，由 Brain:ThinkPeriodic 推进。
+--     迁移到行为树后，行为改由 self.bt（行为树根节点）持有，
+--     于是 currentbehaviour 变成死字段。
+--   ★★ 保留它是为了兼容旧 mod 的历史代码（读它不会报 nil）。
+--   ⚠ 已核实：grep 全仓库，该标识符只在 brain.lua:161 出现一次。
+--     所以「保留给 mod」这个理由在实践中已不成立 —— 
+--     没有任何 mod 或游戏代码读它。
+--   ⚠ 本条为代码阅读 + 全仓库 grep 核实，非推断。
+    self.currentbehaviour = nil
+--⚠【★ 遗留字段 behaviourqueue：同上，已核实全工程无读取点】
+--   ★ 旧 FSM 时代的行为队列（多个待执行行为的排队）。
+--   ★ 行为树不需要它（PriorityNode 自己处理优先级，见 behaviourtree.lua:533）。
+--   ⚠ 保留空表会占内存（每只怪一张空表），
+--     在怪物极多的场景下是可测量的浪费。
+--   ⚠ 本条为代码阅读 + 全仓库 grep 核实，非推断。
+    self.behaviourqueue = {}
+--★【★ events：大脑的事件处理器表 —— ★ 与状态图同名但语义不同】
+--   ★★ 登记方式：Brain:AddEventHandler（186 行），
+--     只有一个处理器**槽位**（不是数组）—— 同名事件会互相覆盖。
+--   ★ 状态图那边是「状态私有表 + 全局表」两级（stategraph.lua:245/296），
+--     这里只有一级。
+--   ★★ 派发时机：PushEvent（261 行）**同步立即**调用，
+--     不同于状态图的延迟缓冲（这是 H3 的根源）。
+--   ★ 典型用途：brains/*.lua 里监听
+--     "attackother"/"msghandler_pickedup" 等外部事件唤醒行为树。
+    self.events = {}
+--⚠【★ 遗留字段 thinkperiod：★ 已核实全工程无读取点，是死字段】
+--   ★★ 这是「大脑思考周期」最直观的实现方式（旧版）：
+--     thinkperiod 存秒数，Brain:ThinkPeriodic 每次比较 GetTime() - lastthinktime。
+--   ★★ 现在思考周期改由行为树的 PriorityNode.period 控制
+--     （behaviourtree.lua:535 `self.period = period or 1`），
+--     并通过 GetSleepTime 反馈给 BrainManager:Update。
+--   ★★ 迁移的收益：思考周期变成**可休眠的**（大脑能睡着），
+--     而旧的 thinkperiod 方案必须每帧跑 ThinkPeriodic 才能计时。
+--     ★ 这正是从「轮询式 AI」到「事件驱动式 AI」的升级。
+--   ⚠ 本条为代码阅读 + 全仓库 grep 核实，非推断。
+    self.thinkperiod = nil
+--⚠【★ 遗留字段 lastthinktime：与 thinkperiod 配对，同为死字段】
+--   ⚠ 两个字段一起构成旧版 FSM 计时机制的全部，
+--     现在整体废弃。保留它们是纯粹的兼容负担。
+    self.lastthinktime = nil
+--★【paused：是否被玩家暂停 —— ★ 第三种「不更新」的状态】
+--   ★★ 三种「不更新」的区别（★ 本文件最容易混淆的地方）：
+--     · stopped=true  —— 大脑被彻底停用（_Stop_Internal）
+--                        不在调度表里，完全不参与
+--     · paused=true   —— 大脑仍在调度表里，但 AddInstance 被跳过
+--                        （213 行），且 Resume 时会重新 AddInstance
+--     · IsAsleep      —— 由引擎决定，BrainManager:Update 里过滤
+--   ★★ paused 与 stopped 可以同时为真（Pause 一个已 stopped 的大脑），
+--     213 行的 `if not self.paused` 就是为这个组合准备的。
+--   ★ 典型触发：玩家打开背包/地图（entityscript 的 pause 机制）。
+    self.paused = false
+--★【★ stopped：初始为 true —— 与状态图的初值相反，这点很重要】
+--   ★★ 对比 stategraph.lua 的 StateGraphInstance 构造函数（332-345 行）：
+--     那里**没有**初始化 stopped（初值为 nil），
+--     因为状态图在 SetStateGraph 时就通过 AddInstance 注册并运行了；
+--     而 Brain 的 stopped 初值为 true，
+--     因为 Brain 实例化后要等实体侧显式调 _Start_Internal 才启动。
+--   ★★ 后果：Brain:Start（199 行）转发到 inst:RestartBrain，
+--     而 _Start_Internal（206 行）第一句就是
+--     `if not self.stopped then return end` ——
+--     ★ 这要求 stopped 初值必须是 true 才可能启动。
+--     ★★ 两个文件在这个标志的初值/语义上完全不同，
+--       移植代码时若照抄会得到「大脑永不启动」。
+	self.stopped = true
+end)
+
+--★★【ForceUpdate：立刻唤醒并强制推进大脑 —— 「有事发生了马上想」】
+--   ★★ 两步动作：
+--     ① 行为树强制推进（bt:ForceUpdate）—— 忽略思考周期，立刻 Visit
+--     ② BrainManager:Wake —— 把大脑从 hibernaters 捞回 updaters
+--   ★★ 典型调用：玩家输入、网络事件、状态图里的关键转移。
+--     例：怪物听到声音要立刻反应，不能等到下一个思考周期。
+--   ★ 与普通的 Wake（56 行）区别：ForceUpdate 还会**跳过周期限制**。
+--   ⚠ 注意 bt:ForceUpdate 之后必须 Wake，否则若大脑在 hibernaters 里，
+--     行为树推进了但大脑不会在下一帧被更新 —— 推进结果被浪费。
+function Brain:ForceUpdate()
+--【★ 有行为树才强制推进 —— 没有 bt 的旧式大脑走不到这里】
+    if self.bt then
+        self.bt:ForceUpdate()
+    end
+
+--★★【Wake：把大脑捞回更新集合 —— 必须的，否则上一步的推进白做】
+--   ★ 与 170 行形成完整的两步：推进 + 唤醒。
+    BrainManager:Wake(self)
+end
+
+--★★【__tostring：调试输出 —— 把「睡多久 + 行为树内容」一起打出】
+--   ★★ 与 stategraph.lua:373（StateGraphInstance:__tostring）对照：
+--     状态图版打「状态名 + 停留时间 + tags」；
+--     大脑版打「睡眠时间 + 整个行为树的 toString」（tostring(self.bt)）。
+--   ★★ 行为树的 DBString（behaviourtree.lua:567）会递归打印整棵树 ——
+--     调试时 print(inst.brain) 就能看到完整的决策结构，
+--     这是调试 AI 行为最有效的手段。
+function Brain:__tostring()
+
+    if self.bt then
+--【★ 把睡眠时间与行为树一起打出，一眼看出「它在睡还是在想」】
+        return string.format("--brain--\nsleep time: %2.2f\n%s", self:GetSleepTime(), tostring(self.bt))
+    end
+    return "--brain--"
+end
+
+--★★★【★ AddEventHandler：登记一个事件处理器 —— 只有一个槽位】
+--   ★★ 与状态图的 EventHandler 机制的根本差异：
+--     · 状态图：EventHandler **对象** + 两级表（状态私有 / 全局）
+--       同一个事件可以被多个处理器响应；
+--     · 大脑：`self.events[event] = fn` 直接存函数，
+--       **同名事件后注册覆盖先注册**。
+--   ★★ 这意味着：一个脑若要监听同一事件做两件事，必须自己在一个 fn 里都做。
+--   ★ 典型写法（brains/*.lua）：
+--     inst.brain:AddEventHandler("onattack", function(data) ... end)
+--   ⚠ 与状态图对照的坑：状态图的事件是**延迟**的（刻末批处理），
+--     大脑的事件是**同步**的 —— 在 PushEvent 里调的行为树代码会立即执行。
+function Brain:AddEventHandler(event, fn)
+--【★ 直接赋值（不是 table.insert）—— 印证「单槽位、后者覆盖前者」】
+    self.events[event] = fn
+end
+
+--★★★【★ GetSleepTime：大脑的「思考周期」对外接口 —— 本文件的核心查询方法】
+--   ★★★ 三种返回值（★ 必须理解清楚，本文件 147-154 行的分支全靠它）：
+--     · 正数 → 距下次思考还有多少秒 → Update 会 Sleep 这么久
+--     · 0    → 「立即再想一次」（思考周期已到，或状态是 READY）
+--     · nil  → 「不必再想了」→ Update 会 Hibernate
+--   ★★★ 为什么没有 bt 时返回 0 而不是 nil？——★ 这是一个关键设计：
+--     0 是真值 → Update 走 148 行 → 0 不大于一帧 → 走空 else →
+--     留在 updaters 里 → **每帧都会被更新**。
+--     ★★ 也就是说：★ 旧式大脑（没有行为树，只有 DoUpdate）会每帧运行。
+--       这是合理的：DoUpdate 是「每帧钩子」语义，本就该每帧跑。
+--     ★ 但也意味着：只写 DoUpdate 的旧大脑**永远不会休眠**，
+--       无论是否有事可做。性能上不如行为树方案。
+--   ★ 委托给行为树时（191-192 行）由 PriorityNode:GetSleepTime 决定。
+function Brain:GetSleepTime()
+--【★ 有行为树才问它 —— 没有就直接返回 0（见 195 行的详细分析）】
+    if self.bt then
+        return self.bt:GetSleepTime()
+    end
+
+--★★【★ 返回 0 而非 nil —— ★★ 这个选择导致「无行为树的大脑每帧更新」】
+--   ★★★ 完整推理链（★ 移植时最容易搞错的一处）：
+--     BrainManager:Update 147 行：sleep_amount = k:GetSleepTime() → 0
+--     148 行：if sleep_amount then → 0 在 Lua 里是真值 → 进入
+--     149 行：if 0 > GetTickTime() then → 0 不大于 0.033 → 为假
+--     151 行：空的 else → 什么都不做
+--     → 大脑仍在 self.updaters 里，下一帧继续被处理。
+--   ★★ 所以返回 nil 会让旧大脑休眠（不再收到 DoUpdate），
+--     返回 0 让它每帧运行。
+--   ★ 作者选了 0 —— 因为 DoUpdate 的语义就是「每帧」。
+--   ⚠ 性能代价：混用旧式大脑与行为树的怪物群，
+--     旧式那部分永远无法休眠（与 bug-patterns.md F3/F4 同族问题）。
+--   ⚠ 本条为代码阅读推断，未在运行时验证。
+    return 0
+end
+
+--★【★ 已废弃：Brain:Start → 转发到 EntityScript:RestartBrain】
+--   ★★ 迁移说明（--V2C: deprecated）：
+--     旧设计：大脑自己管自己的启停。
+--     新设计：**启停权归实体**（EntityScript 持有 _brainstopped 计数表），
+--     因为「为什么要停」只有实体知道（冻结、装晕、被附属、睡着…）。
+--   ★★ 这是一次职责上移的典型重构。
+--   ★ reason 参数被原样透传，是 EntityScript:StopBrain 的键
+--     （entityscript.lua:1091-1102 的 `_brainstopped[reason] = true`）。
+--   ★★ 多 reason 停止的设计（★ 值得学）：
+--     同一个实体可能同时被多个原因要求停止大脑
+--     （如「被冻结」+「被装晕」），
+--     EntityScript 用一张 `_brainstopped[reason] = true` 的表计数，
+--     只有**所有** reason 都被 RestartBrain 清除后才重新启动。
+--     ★ 这避免了「解除一个原因就把大脑放出来」的经典 bug。
+--     参见 entityscript.lua:1078-1102 的成对实现。
+--V2C: deprecated; use EntityScript:RestartBrain
+function Brain:Start(reason)
+--【★ 有宿主实体才转发 —— 大脑可能还没被装配（inst 为 nil）】
+	if self.inst then
+		self.inst:RestartBrain(reason)
+	end
+end
+
+--★★【★ _Start_Internal：真正的大脑启动 —— 「只应从 EntityScript 调用」】
+--   ★★ 与公开的 Brain:Start（199 行）配对：
+--     公开的 Start 转发到实体，实体再回调内部的 _Start_Internal。
+--     ★ 这是「不让外部直接操作内部状态」的封装模式。
+--   ★★ 启动四步（顺序重要）：
+--     ① 守卫：已在运行就返回（207-208 行）
+--     ② OnStart 钩子（209-211 行）
+--     ③ 清 stopped 标记（212 行）
+--     ④ 注册到 BrainManager（213-215 行）
+--     ⑤ OnInitializationComplete 钩子（216-218 行）
+--     ⑥ 模组 postinit（220-225 行）
+--   ★★ 调用点：entityscript.lua:1116（SetBrain）与 entityscript.lua:1142
+--     （_EnableBrain_Internal，即从休眠/limbo 恢复）。
+--   ★★ 「启动」与「注册」是两件事：
+--     212 行清标志是「逻辑上开始运行」，
+--     214 行 AddInstance 是「进入调度表开始被更新」。
+--     ★ 213 行的 `if not self.paused` 是第三种状态的处理：
+--       paused 的大脑被启动但**不注册** —— 
+--       因为它是被玩家暂停的，不该参与思考。
+--V2C: should only be called from EntityScript
+function Brain:_Start_Internal()
+--★★【★ 幂等守卫：只有处于 stopped 才允许启动】
+--   ★★ 依赖 167 行的 `self.stopped = true` 初值 ——
+--     若初值是 nil，这里会永远 return，大脑永不启动。
+--     ★ 这是「Brain 构造初值不可改」的直接原因。
+--   ★ 防止重复启动：重复调 RestartBrain 不会重复跑 OnStart。
+	if not self.stopped then
+		return
+--【★ OnStart 钩子：可选的子类扩展点（如绑定事件处理器）】
+	elseif self.OnStart then
+        self:OnStart()
+    end
+--★★【★ 清 stopped 标记 —— 「逻辑上开始运行」】
+--   ★ 必须在 AddInstance（214 行）之前：
+--     这样 OnStart 钩子里若调 BrainManager:Wake 也能正常工作。
+    self.stopped = false
+--★★★【★ 守卫「未暂停」才注册 —— ★★ 三状态矩阵的关键行】
+--   ★★ 为什么要判 paused？——★ 因为 paused 的语义是「玩家主动暂停」，
+--     实体可以从「被冻结 + 被玩家暂停」的复合状态中恢复，
+--     此时大脑该启动（stopped → false）但不该被调度（仍 paused）。
+--   ★ 完整的状态矩阵（★ 记忆表）：
+--     ┌ stopped ┬ paused ┬ 在调度表? ┬ 谁负责恢复 ┐
+--     ├ true    │ true   │ 否        │ Resume    │
+--     │         │        │           │（278 行） │
+--     ├ true    │ false  │ 否        │ Start     │
+--     │         │        │           │（206 行） │
+--     ├ false   │ true   │ 否        │ Resume    │
+--     │         │        │（Pause 已移除）        │
+--     └ false   │ false  │ 是        │ ——        │
+--   ★ Pause（269 行）会 RemoveInstance，Resume（278 行）会 AddInstance，
+--     成对处理 paused 这一维；Start/Stop 成对处理 stopped 那一维。
+--     ★ 两个维度正交，代码里就是靠这些 if 组合保证不重复注册。
+	if not self.paused then
+--★★【★ AddInstance：注册到 BrainManager —— 「物理上开始被更新」】
+--   ★ 与 212 行合起来才是完整的「启动」：一个清标志，一个入调度表。
+		BrainManager:AddInstance(self)
+	end
+--★★★【★ OnInitializationComplete 钩子 —— 「初始化真正完成」的信号】
+--   ★★ 与 OnStart（209 行）的区别（★ 这是本文件最精妙的设计之一）：
+--     · OnStart 在**注册之前**调用 —— 大脑即将运行，但还没进调度表
+--     · OnInitializationComplete 在**注册之后**调用 —— 大脑已在调度表里
+--   ★★ 于是这两个钩子分别对应两个时机，各有专属用途：
+--     · OnStart：适合做「一次性初始化」
+--       （如创建行为树对象、绑定事件处理器、设定初始参数）
+--     · OnInitializationComplete：适合做「依赖已注册状态」的收尾
+--       （如 NotifyOnGoHome / 网络相关 / 想确认自己在调度表里的操作）
+--   ★★ 真实用例：brains/alterguardian_phase1brain.lua:78
+--     brains/alterguardian_phase2brain.lua:43
+--     brains/alterguardian_phase3brain.lua:73
+--     brains/batbrain.lua:229
+--     —— 四个 Boss 的大脑都实现了这个钩子。
+--   ★ 为什么 Boss 特别需要？——因为它们的初始化涉及多阶段状态，
+--     需要在「真正开始运行后」再做最后的配置。
+--   ⚠ 命名有点误导：名字叫「初始化完成」，但 OnStart 已经跑过了。
+--     它其实是「post-registration」，属于历史命名。
+	if self.OnInitializationComplete then
+--【★ 无条件调用（不像 209 行那样判 self.OnStart 是否存在）】
+--   ★★ 这里判的是 `if self.OnInitializationComplete then`，
+--     与 209 行的 `elseif self.OnStart then` 写法不同但语义一致。
+--   ★ 风格上的小不一致，说明两段代码是分别加上去的。
+		self:OnInitializationComplete()
+	end
+
+--★★★【★ 模组 postinit 钩子 —— ★ 大脑版的「模组注入点」】
+--   ★★ 与状态图的四个注入点（stategraph.lua:289/301/313/321）对照：
+--     · 状态图：在 StateGraph 构造期注入（每个状态图一次）
+--     · 大脑：在 Brain **实例**启动时执行（每个大脑实例一次）
+--   ★★ 差异的原因：状态图是共享定义（注入一次全生效），
+--     大脑是每实体一个实例（所以每个实例都要跑一遍钩子）。
+--   ★ modpostinitfns 的注册在 modutil.lua:630-633：
+--     `if brainclass.modpostinitfns == nil then ... end`
+--     —— 它挂在 **Brain 类**上，由所有子类共享。
+--   ★★ 与状态图 PostInit（321 行）的位置差别值得注意：
+--     状态图的 modfn 收到的是 **StateGraph 定义**（可改 states/events）；
+--     大脑的 modfn 收到的是 **Brain 实例**（可改 bt / events）。
+--     ⚠ 顺序上，大脑的 modinit 在 OnInitializationComplete **之后**，
+--       即模组能看到初始化后的最终状态。
+	-- apply mods
+--【★ 判空才执行 —— 大脑没有构造期注入，所以可能是 nil】
+	if self.modpostinitfns then
+		for i,modfn in ipairs(self.modpostinitfns) do
+--★【★ modfn(self) —— 传入的是**实例**，可以任意改造这个大脑】
+--   ★ 对比状态图的 `modfn(self)`（stategraph.lua:323），
+--     那里的 self 是 StateGraph 定义对象。
+			modfn(self)
+		end
+	end
+end
+
+--★★★【★★ OnUpdate：每帧推进一只大脑 —— BrainManager:Update 的调用目标】
+--   ★★★ 两步（顺序固定）：
+--     ① DoUpdate 钩子（229-231 行）—— 旧式手写 AI 的入口
+--     ② bt:Update()（233-235 行）—— 行为树推进
+--   ★★ 为什么 DoUpdate 在前？——兼容优先：
+--     旧 mod 写的 Brain 子类只实现 DoUpdate，
+--     行为树部分它们没有（self.bt 为 nil，233 行的判空自动跳过）。
+--   ★★ 两者的关系：
+--     · DoUpdate  = 「老式每帧 AI」，通常是 PriorityNode 风格的 if-else 链
+--     · bt:Update = 「现代行为树 AI」，有优先级 / 并行 / 事件抢占
+--   ★★ 两者可共存（少数怪会同时有），但设计意图是迁移而非并存。
+--   ★★ 这是本文件能跑 300 种怪物 AI 而不需要重写全部的代价：
+--     新怪用行为树，老怪保持 DoUpdate，互不干扰。
+function Brain:OnUpdate()
+--★【★ DoUpdate 是可选钩子 —— 判存在才调，这是旧式兼容的关键】
+--   ★ 若子类没定义，Lua 里取 nil，229 行判空跳过。
+    if self.DoUpdate then
+		self:DoUpdate()
+    end
+
+--★★【★ 有行为树才推进 —— 与 DoUpdate 互不依赖】
+--   ★★ 典型现代大脑（如 brains/batbrain.lua）走这一支；
+--     典型旧式大脑走 229 行的 DoUpdate。
+    if self.bt then
+        self.bt:Update()
+    end
+end
+
+--★【★ 已废弃：Brain:Stop → 转发到 EntityScript:StopBrain —— 与 Start 配对】
+--   ★★ 与 Start（198 行）的对照：
+--     Start → RestartBrain → 清除某个 reason 的停止标记
+--     Stop  → StopBrain    → 设置某个 reason 的停止标记
+--   ★★ 注意语义是「按 reason 计数」而非布尔开关，
+--     所以多次 Stop(frozen) 与 Stop(stunned) 互不覆盖。
+--   ★ 真实调用方：components/freezable.lua:265 `inst:StopBrain("frozen")`
+--     components/pinnable.lua:113   `inst:StopBrain("pinned")`
+--     components/sleeper.lua:289    `inst:StopBrain("sleeper")`
+--     components/centipedebody.lua:69 `head:StopBrain("centipedebody_halt")`
+--     ★★ 四个组件都用 reason 机制，验证了 198-202 行的设计说明。
+--V2C: deprecated; use EntityScript:StopBrain
+function Brain:Stop(reason)
+	if self.inst then
+		self.inst:StopBrain(reason)
+	end
+end
+
+--★★【★ _Stop_Internal：真正的大脑停止 —— 与 _Start_Internal 严格配对】
+--   ★★ 停止四步（与启动四步对称）：
+--     ① 守卫：已停止就返回（247-248 行）
+--     ② OnStop 钩子（249-251 行）
+--     ③ bt:Stop()（252-254 行）—— 通知行为树
+--     ④ 清 stopped → false 变 true（255 行）
+--     ⑤ RemoveInstance（256-258 行）
+--   ★★ 与启动的关键差异（★ 值得注意）：
+--     · 启动时 OnStart 在注册**之前**，停止时 OnStop 在注销**之前**
+--     · 启动时有 OnInitializationComplete，停止时没有对应钩子
+--       ★ 不对称：启动有「两个钩子」，停止只有「一个」。
+--       推测是因为「停止后还需收尾」的需求较少。
+--V2C: should only be called from EntityScript
+function Brain:_Stop_Internal()
+--★【★ 幂等守卫：已经在 stopped 就直接返回】
+--   ★ 与 207 行的启动守卫对称。
+	if self.stopped then
+		return
+	elseif self.OnStop then
+        self:OnStop()
+    end
+--★【★ 通知行为树自己停止 —— bt:Stop() 的存在说明行为树有独立的生命周期】
+--   ★ 典型用途：让行为树清理它的子节点状态、停止正在进行的动作。
+--   ★★ 顺序：bt:Stop() 在 255 行清 stopped 标记**之前**，
+--     所以行为树的 Stop 实现里可以访问一个「仍然算运行中」的大脑。
+    if self.bt then
+        self.bt:Stop()
+    end
+--★【★ 打上 stopped 标记 —— 与 212 行严格对称】
+    self.stopped = true
+--★★【★ 守卫「未暂停」才注销 —— ★★ 与 213 行完全对称】
+--   ★★ 注释 "already removed if paused" 点明了原因：
+--     若大脑处于 paused，Pause（269 行）时已经 RemoveInstance 过了，
+--     这里再调一次是多余（虽然幂等，但浪费）。
+--   ★★★ 这两行（213 / 256）构成一组**对称的注册/注销守卫**：
+--     启动时「未暂停才注册」、停止时「未暂停才注销」，
+--     保证「注册与注销」这两个动作在 paused 维度上不会错配。
+--   ★ 若写反（比如 256 行不判 paused），后果是：
+--     一个「已暂停且已停止」的大脑被 Stop 时会调 RemoveInstance，
+--     而此时它已经不在表里 —— 幂等所以不崩，但语义混乱。
+	if not self.paused then --already removed if paused
+		BrainManager:RemoveInstance(self)
+	end
+end
+
+--★★★【★★★ PushEvent：★ 同步立即的事件派发 —— 与状态图的根本差异】
+--   ★★★ 这是本文件与 stategraph.lua 最重要的行为差异（H3 的根源）：
+--     ┌ stategraph.lua ┬ PushEvent → 塞进 bufferedevents（392 行）
+--     │              │ → 刻末由 UpdateEvents 统一派发（148 行）
+--     │              │ → 状态图内部会先推事件、后处理事件，永不重入
+--     └ brain.lua    ┬ PushEvent → ★ 立即调用处理器（264-265 行）
+--                    └ 没有缓冲、没有批处理
+--   ★★★ 差异带来的三个后果：
+--     ① 时序不同：状态图事件在「所有状态更新后」到达；
+--        大脑事件在「PushEvent 的那一行」就到达。
+--     ② 上下文不同：状态图事件处理发生在 BrainManager:Update 之后的
+--        「事件阶段」；大脑事件可能发生在网络的任意时刻。
+--     ③ 可重入性不同：大脑事件处理器里调用的任何东西都可能重入
+--        当前正在执行的逻辑 —— ★ 这是最难查的时序 bug 来源。
+--   ★★ bug-patterns.md 的 H3 条目讲的正是这件事：
+--     「三套事件机制的时序不同」——
+--     事件总线（立即）、状态图（刻末批处理）、行为树（每帧 Visit）。
+--   ★★ 典型踩坑：在一个事件处理器里调 GoToState，
+--     若这个事件来自大脑（立即执行），状态切换就发生在
+--     「某个状态的 onupdate 中途」，
+--     而 662 行的 startstate 快照只能检测「本帧内」的切换，
+--     检测不到来自更早的事件触发的切换。
+--   ⚠ 因此推荐：大脑事件里若要影响状态图，用 inst.sg:GoToState，
+--     且确保当前不在状态的 onupdate 深层调用栈里。
+--   ⚠ 本条为代码阅读推断，未在运行时验证。
+function Brain:PushEvent(event, data)
+--★【★ 直接查表 —— 与状态图的两级派发（状态私有 → 全局）对照】
+--   ★ 大脑只有一级：self.events[eventname]。
+--   ⚠ 查表**不转小写**（对比 stategraph.lua:179 行构造时转小写）：
+--     若某个 PushEvent 传了大写事件名，将匹配不上。
+--     ★ 与 stategraph.lua:179 行注释里指出的疑似不一致同源，
+--       但这里更严重：状态图至少还有两级派发与 IsListeningForEvent
+--       的兜底，大脑这边是「查不到就静默忽略」。
+--     ⚠ 实践上原版所有调用点都用全小写，故未暴露。
+    local handler = self.events[event]
+
+--★★【★ 处理器存在才调 —— ★★ 没有「返回值」语义】
+--   ★★★ 与状态图的差别（stategraph.lua:268 行）：
+--     · 状态图的 handler.fn 返回值有语义（true 表示「我处理了，别往下派」）
+--     · 大脑的处理器返回值**完全忽略**（因为只有一级派发）
+--   ★★ 因此大脑事件的处理器不需要 return 任何东西。
+    if handler then
+--★【★ handler(data) —— ★ 注意只传 data，不传 self（处理器是闭包）】
+--   ★★ 与状态图形成鲜明对比：
+--     · 状态图：handler.fn(sg.inst, data) —— ★ 显式传实体（stategraph.lua:268）
+--     · 大脑：  handler(data)            —— ★ 不传，靠闭包捕获 inst
+--   ★★ 两种风格的取舍：
+--     传实体：处理器可复用（同一函数给多个大脑用）。
+--     闭包捕获：写起来更短，但每个大脑都要生成一个闭包。
+--   ★ 大脑侧选闭包，符合它「一个大脑服务一个实体」的定位。
+        handler(data)
+    end
+end
+
+--★★★【★★ Pause：玩家暂停大脑 —— 第三种「不更新」状态】
+--   ★★ 与 Start/Stop 的区别（★ 本文件最后也是最重要的一组对比）：
+--     · Start/Stop 管的是**永久性**的停用（死亡、冻结、睡着）
+--     · Pause/Resume 管的是**临时性**的暂停（打开背包、地图）
+--   ★★ 三步：
+--     ① 置 paused = true（271 行）
+--     ② 若**未停止**，从调度表摘除（272-274 行）
+--   ★★ 第 ② 步的 `if not self.stopped` 守卫与 256 行同构：
+--     已停止的大脑本来就不在调度表里，不需要再摘。
+--   ★★ 与 Stop 的语义差异：
+--     · Stop  → stopped = true   → 之后 Start 需要外部原因驱动
+--     · Pause → 只置 paused     → Resume 即可恢复，stopped 不变
+--   ★★ 「暂停一个已停止的大脑」是合法的（两个标志独立），
+--     此时 Pause 只置标志不动调度表，Resume 也不重新注册。
+--   ★ 典型触发：玩家打开背包时的世界暂停。
+function Brain:Pause()
+--★【★ 幂等守卫：已经暂停就直接返回 —— 防止重复 RemoveInstance】
+	if not self.paused then
+		self.paused = true
+--★★【★ 只在「运行中」时才需要摘 —— 已停止者本就不在表里】
+--   ★ 与 213 / 256 行构成「注册/暂停/注销」三处守卫的一致风格。
+		if not self.stopped then
+			BrainManager:RemoveInstance(self)
+		end
+	end
+end
+
+--★★★【★★ Resume：取消暂停 —— 与 Pause 严格配对】
+--   ★★★ 三步（与 Pause 三步对称）：
+--     ① 清 paused = false（280 行）
+--     ② 若**未停止**，重新注册到 BrainManager（281-283 行）
+--   ★★★ 与 StopBrain/RestartBrain 的根本区别（★ 关键）：
+--     · StopBrain/RestartBrain 是**带 reason 计数**的：
+--       实体侧维护 `_brainstopped[reason]` 表，
+--       只有全部 reason 清除才重启（entityscript.lua:1078-1102）。
+--     · Pause/Resume 是**单一布尔**的：
+--       没有计数，没有原因，一次 Resume 全部恢复。
+--   ★★★ 这个不对称是合理的：
+--     「为什么暂停」不重要（都是玩家按了暂停键），
+--     「为什么停止」很重要（冻结 vs 睡着，决定何时该恢复）。
+--   ★★ 完整恢复条件（★ 从 paused 回到「在更新」的充要条件）：
+--     paused == false（Resume 调用） 且 stopped == false（未被停止）。
+--     两个条件都在 281 行被检查。
+function Brain:Resume()
+--★【★ 幂等守卫：未暂停就直接返回】
+	if self.paused then
+		self.paused = false
+--★★【★ 「未停止」才重新注册 —— ★★ 与 213 行 AddInstance 的守卫完全一致】
+--   ★★★ 这两行（213 / 281）是本文件「注册」路径的全部，
+--     语义完全对称：
+--       启动大脑时：if not self.paused then AddInstance end
+--       恢复暂停时：if not self.stopped then AddInstance end
+--   ★★ 两种情形的差别：
+--     · 启动时还没 running，唯一可能挡住注册的是 paused
+--     · 恢复暂停时 paused 已清，唯一可能挡住注册的是 stopped
+--   ★ 设计得干净：每个时刻只有一个「该注册」的维度被检查。
+		if not self.stopped then
+			BrainManager:AddInstance(self)
+		end
+	end
+end

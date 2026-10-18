@@ -1,0 +1,1059 @@
+--============================================================
+-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖
+-- 文件：components/clock.lua
+-- 模块：组件系统 / 世界时钟（Clock）—— 客户端预测的范本
+-- 职责：维护全服共享的昼夜与月相。三个时段（day/dusk/night）各占若干
+--       segment，全天共 16 段（NUM_SEGS）；月相按 20 元素循环序列推进。
+--       ★核心范式：客户端用 set_local 自行推进时间（预测，零带宽），
+--       服务端仅在每个 segment 边界用 set 强制覆盖（纠偏）。
+--       并在暂停恢复时经 ForceResync 强制对齐一次。
+-- 关键符号：NUM_SEGS, PHASE_NAMES, MOON_PHASE_CYCLES, _segs, _cycles,
+--           _phase, _moonphase, _mooniswaxing, _totaltimeinphase,
+--           _remainingtimeinphase, GetMoonPhase, CalcTimeOfDay,
+--           ForceResync, OnSetClockSegs, OnSetMoonPhase, OnSimUnpaused,
+--           OnClockUpdate, OnUpdate, OnStaticUpdate, LongUpdate, OnSave, OnLoad
+-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本
+-- 交叉引用：netvars.lua:36（脏事件在 Lua 更新前触发）、
+--           netvars.lua:52-57（set_local 使服务端下次 set 必定变脏）、
+--           netvars.lua:65-67（平滑计时器由客户端预测的原文范式）、
+--           prefabs/world_network.lua:57（本组件的装配位置）、
+--           components/shard_clock.lua（次 shard 时钟，与本文 NUM_PHASES 对齐）、
+--           components/moonstormmanager.lua:197（ms_setmoonphase 的发起方）、
+--           components/worldstate.lua:90（iswaxingmoon 的落地）、
+--           components/squidspawner.lua:83（读取盈亏标记刷怪）、
+--           components/seasons.lua（负责调整昼夜段数，不在时钟内做）
+-- 【★★已核实缺陷：第 149 行盈亏分界 off-by-one】
+--   waxing 判据用 (#MOON_PHASE_CYCLES / 2) = 10，但真实盈象段数为 11、
+--   亏象 9（因新月满月各 1 段而中间相各 3 段），故游标 11（满月）被误判。
+--   我已按第 38-51 行的展开逻辑构造序列并逐项比对，确认仅第 11 项不符。
+--   详见第 148 行注。
+-- 【★移植要点】预测系统必须自带「强制纠偏」出口（本文件 ForceResync），
+--   且段数/分段这类「刻度」量必须由权威端统一决定，客户端只能本地推进。
+--============================================================
+--------------------------------------------------------------------------
+-- ★★ 全工程研究「客户端预测 + 服务端纠偏」的最佳范本，只有 539 行。
+-- netvars.lua 讲了 set_local 的规则与代价，本文件给出规则的正确用法。
+--
+-- 【★全文件的架构一句话】
+-- 客户端用 set_local 自行推进时间（预测，零带宽）；
+-- 服务端在每个 segment（时段）边界用 set 强制覆盖（纠偏）；
+-- 代价是每段边界一次强制同步，而不是每 tick 一次。
+-- 这正是 netvars.lua:65-67 原文所述「平滑计时器」范式的完整实现。
+--
+-- 【★三个必须分清的维度，全文件都在用】
+--   ismastersim   —— 我是这个模拟端的权威？（关于「模拟」）
+--   ismastershard —— 我是这个 shard 的权威？（关于「分片」）
+--   IsDedicated   —— 本进程有没有本地玩家窗口？（关于「进程形态」）
+-- 三者两两正交。第 259 行 ismastersim and not ismastershard 正是
+-- 「主 shard 的权威端」这一象限的判据，是全 DST 最典型的一处二维判别。
+--[[ Clock ]]
+--------------------------------------------------------------------------
+
+return Class(function(self, inst)
+
+--------------------------------------------------------------------------
+--[[ Constants ]]
+--------------------------------------------------------------------------
+
+local NUM_SEGS = 16
+-- ★ 一个昼夜固定 16 个 segment。时长不是靠「秒」定的，而是靠「段数」定的，
+-- 实际每段秒数由 TUNING.SEG_TIME 给出。
+-- 【为什么用「段数」而不是「秒数」表达相位】
+-- 段数是可离散的整数，能直接映射为 net_smallbyte（6 位，[0..63]），
+-- 且天然满足「整段划分」的约束。
+-- 若用秒数就得用 net_float 存「距下次天黑还有多少秒」，
+-- 既占带宽又引入浮点误差。
+-- ★这正是 netvars.lua:97 GetIdealUnsignedNetVarForCount 的用武之地：
+-- 段数是有界小整数，选最窄类型即可。
+
+local PHASE_NAMES = --keep in sync with shard_clock.lua NUM_PHASES
+-- 原文注明：keep in sync with shard_clock.lua NUM_PHASES。
+-- ⚠️ 这是一条手工维护的跨文件约束，没有自动化保障。
+-- 改这里不同步改那边，次 shard 的相位就会与主 shard 不一致。
+{
+    "day",
+    "dusk",
+    "night",
+}
+local PHASES = table.invert(PHASE_NAMES)
+-- 反转表：名字 → 下标（day=1, dusk=2, night=3）。
+-- 【为什么要正反两套表】
+-- 正表（PHASE_NAMES）用于「按下标取名字」以拼事件名与存档键；
+-- 反表（PHASES）用于「按名字取下标」以解析外部输入（存档、ms_setphase）。
+-- 这是「双向映射」的标准做法：单靠一张表，另一种方向就得线性查找。
+-- ★注意下标从 1 开始，而 net_tinybyte 值域含 0 —— 见第 282 行的减一处理。
+
+local MOON_PHASE_NAMES =
+{
+    "new",
+    "quarter",
+    "half",
+    "threequarter",
+    "full",
+}
+local MOON_PHASES = table.invert(MOON_PHASE_NAMES)
+local MOON_PHASE_LENGTHS =
+-- 每个月相占几个 segment。新月/满月各 1 段，四个中间相各 3 段。
+-- 合计 1+3+3+3+1 = 11 段为盈象半程，亏象半程 3+3+3 = 9 段，全月共 20 段。
+{
+    [MOON_PHASES.new] =             1,
+    [MOON_PHASES.quarter] =         3,
+    [MOON_PHASES.half] =            3,
+    [MOON_PHASES.threequarter] =    3,
+    [MOON_PHASES.full] =            1,
+}
+local MOON_PHASE_CYCLES = {}
+-- ★ 把「月相 → 持续段数」展开成一个 20 元素的线性序列，
+-- 于是「今天是第几个月相的第几天」退化成一次取模加一，O(1) 无分支。
+-- 【★移植要点：把「带进度的状态机」压平成「一个循环数组 + 一个游标」】
+-- 这是极省 CPU 的写法，对 60 人房每帧都要推进的全局时钟很划算。
+-- Waxing (1, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5)
+for i = 1, #MOON_PHASE_NAMES do
+-- 盈象段：按 1..5 顺序，每个相重复 MOON_PHASE_LENGTHS[i] 次。
+-- 源码注释标注的序列是 (1, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5)，共 11 项 ——
+-- 与我实测展开结果一致，可作为该注释正确的旁证。
+    for x = 1, MOON_PHASE_LENGTHS[i] do
+        table.insert(MOON_PHASE_CYCLES, i)
+    end
+end
+-- Waning (4, 4, 4, 3, 3, 3, 2, 2, 2)
+for i = #MOON_PHASE_NAMES - 1, 2, -1 do
+-- 亏象段：从 4 递减到 2（不含 1 和 5）。
+-- ★为什么两端不重复：新月与满月各只出现一次，是盈亏的转折点，
+-- 所以亏象半程不含 new(1) 与 full(5)，只有 3+3+3 = 9 段。
+-- 源码注释标注 (4, 4, 4, 3, 3, 3, 2, 2, 2)，共 9 项，与展开一致。
+    for x = 1, MOON_PHASE_LENGTHS[i] do
+        table.insert(MOON_PHASE_CYCLES, i)
+    end
+end
+MOON_PHASE_LENGTHS = nil
+-- 释放局部表。只在构造期用一次，置 nil 让 GC 回收内存。
+-- 【DST 特有的内存纪律】
+-- 组件类是「每个实体一份」的类，此处虽只有一个时钟实例，
+-- 但把这种习惯写进代码，能避免在大规模实例化时累积无用局部表。
+
+-- if you add to this, you'll need to update uiclock._moon_builds for it to mean anything
+local MOON_PHASE_STYLE_NAMES =
+-- 原文注明：加进这张表还必须同步更新 uiclock._moon_builds，否则没有意义。
+-- ⚠️ 又一条手工跨文件约束（位于 widgets 目录）。
+-- ★这反映了一个反复出现的模式：DST 的「新增枚举项」往往需要改 3-4 个文件，
+-- 且靠注释提醒而非自动化检查。自己写引擎时应把这类关联做成数据驱动。
+{
+	"default", --"moon_phases",
+	"alter_active", -- "moonalter_phases",
+	"glassed_default",
+	"glassed_alter_active",
+}
+local MOON_PHASE_STYLES = table.invert(MOON_PHASE_STYLE_NAMES)
+
+--------------------------------------------------------------------------
+--[[ Member variables ]]
+--------------------------------------------------------------------------
+
+--Public
+self.inst = inst
+-- ★★ 三大维度在此一次性捕获成局部 upvalue，全文件后续都直接用局部变量。
+--
+-- 【★为什么要在构造期就存成局部，而不是每次读 TheWorld.ismastersim】
+--   性能：OnUpdate 每帧执行，全文件几十次读取，每次都是两次表查找 + 字段访问；
+--   缓存后是 upvalue 访问，接近零成本。
+-- 【★更重要的一点：这两个值在实体生命周期内永不改变】
+--   ismastersim 由「我是不是这个模拟端的权威」决定，一个进程内不会变；
+--   ismastershard 同理。所以缓存是安全的，不存在「缓存了会过期」的问题。
+-- ⚠️ 假如某天需要运行时切换角色（热重载、动态降级为客户端），
+--   这两行缓存就会变成隐患。DST 靠「角色不可变」这一前提规避了它。
+
+--Private
+local _world = TheWorld
+local _ismastersim = _world.ismastersim
+local _ismastershard = _world.ismastershard
+local _mooomphasecycle = 1
+local _moonphaselocked = false -- Note: This does not save/load
+
+
+local _segsdirty = true
+local _cyclesdirty = true
+local _phasedirty = true
+local _moonphasedirty = true
+local _moonphasestyledirty = true
+
+--Network
+-- ★★★ 全服最典型的 netvar 声明区，wire format 的活教材。
+-- 逐条看类型选择的理由（对照 netvars.lua:6-20 的位宽表）：
+--   _segs（时段段数）      net_smallbyte  6 位 [0..63]，实际只用到 0..16。
+--        为什么不用 tinybyte（3 位 [0..7]）？因为长夜mod 可把夜晚加长到 10 段以上，
+--        7 位的上限不够用。6 位留了扩展余量 —— 这是「按最坏情况选宽度」。
+--   _cycles（天数）        net_ushortint  16 位。一个存档能撑到 6 万多天，
+--        实务上够用；若要更长周期（比如无尽模式）则应改 net_uint。
+--   _phase / _moonphase    net_tinybyte   3 位 [0..7]。★本相与月相都是极小枚举，
+--        是全文件最省的类型选择 —— 换成 net_byte 就是 8 倍浪费。
+--   _mooniswaxing          net_bool       1 位，盈/亏二值。
+--   _totaltimeinphase      net_float      ★两个 float 都「故意」不注册脏事件，
+--   _remainingtimeinphase  net_float      见第 93 行注，这是本文件最精妙的设计。
+--
+-- 【★声明顺序即 wire format】
+-- 上面的排列顺序就是线上的字节顺序，服务端与客户端必须逐一致。
+-- ★但要注意：各 netvar 相对独立，客户端与本文件第 86 行的循环展开一致即可
+--（都是 day/dusk/night 三项，循环变量同为 i），所以这里没有手工顺序风险。
+local _segs = {}
+for i, v in ipairs(PHASE_NAMES) do
+-- ★用循环把 3 个时段段数声明成 3 个独立的 netvar，收在一个表里。
+-- 名字里拼了时段名（"clock._segs."..v），保证 3 个字段的 wire 名各不相同。
+-- 【★为什么循环声明是安全的（这里不违反「顺序即 wire format」）】
+-- 因为循环变量 v 来自 PHASE_NAMES，两端的展开顺序必然一致。
+-- ⚠️ 反例：若这里遍历的是 pairs(某无序表)，两端展开顺序就可能不同 ——
+--   所以本文件第 414、435、460 行的 segs 遍历一律用 ipairs，保持下标序。
+    _segs[i] = net_smallbyte(inst.GUID, "clock._segs."..v, "segsdirty")
+end
+local _cycles = net_ushortint(inst.GUID, "clock._cycles", "cyclesdirty")
+local _phase = net_tinybyte(inst.GUID, "clock._phase", "phasedirty")
+local _moonphase = net_tinybyte(inst.GUID, "clock._moonphase", "moonphasedirty")
+local _mooniswaxing = net_bool(inst.GUID, "clock._mooniswaxing", "moonphasedirty")
+local _totaltimeinphase = net_float(inst.GUID, "clock._totaltimeinphase")
+-- ★★ 唯一一个「不注册脏事件」的 netvar 组合，这是本文件最精妙的设计。
+--
+-- 【★为什么 _totaltimeinphase / _remainingtimeinphase 不需要 dirty 事件】
+-- 因为它们是「每 tick 都在变的连续量」，客户端本来就会本地预测它们（第 333 行）。
+-- 为它们注册脏事件，等于每帧触发一次「客户端该重算了」，纯属浪费。
+-- 只在「服务端真的要纠正」时才通过 set + 第 161 行的 ForceResync 处理。
+--
+-- 【★移植要点：脏事件只给「跳变型」字段，不给「连续型」字段】
+-- 这是带宽优化的关键判断：前者要通知，后者自己会走。
+local _remainingtimeinphase = net_float(inst.GUID, "clock._remainingtimeinphase")
+local _moonphasestyle = net_tinybyte(inst.GUID, "clock._moonphasestyle", "moonphasestyledirty")
+
+--------------------------------------------------------------------------
+--[[ Public member functions ]]
+--------------------------------------------------------------------------
+function self:GetTimeUntilPhase(phase)
+-- 「距离进入某个时段还有多久」。纯读，无副作用，两端都可调。
+	local target_phase = nil
+    for i, p in pairs(PHASE_NAMES) do
+-- 把时段名反查为下标。用 pairs 但立刻 break，实际仍是顺序查找。
+-- ⚠️ 遍历 PHASE_NAMES 的 pairs 略有不严谨，但因有 break，结果确定；
+-- 若去掉 break 就会变成不确定行为。这里属于「能用但不该这么写」。
+        if p == phase then
+			target_phase = i
+			break
+		end
+	end
+	local cur_phase = _phase:value()
+	if target_phase ~= nil and target_phase ~= cur_phase then
+		local time = _remainingtimeinphase:value()
+
+		cur_phase = (cur_phase % #PHASE_NAMES) + 1
+-- ★ 环回当前时段的下标（day -> dusk -> night -> day）。
+-- 用 (x % n) + 1 而非 x+1 配条件判断，是环状索引的标准写法。
+		while (cur_phase ~= target_phase) do
+-- 逐段累加后续时段的时长，直到绕回目标时段。
+-- ★这就是「环状累加」：最多循环 3 次（时段总数），代价可忽略。
+			time = time + (_segs[cur_phase]:value() * TUNING.SEG_TIME)
+			cur_phase = (cur_phase % #PHASE_NAMES) + 1
+		end
+
+		return time
+-- 返回累计秒数。若目标就是当前时段则返回 0（第 121 行的 else 分支）。
+	end
+
+	return 0
+end
+
+function self:AddMoonPhaseStyle(style)
+-- 模组扩展点：运行时追加一个月相样式。
+-- ⚠️ 我核实过：全工程（含模组接口）无任何调用点，属预留 API。
+-- ★潜在约束：追加后样式下标会变大，而 _moonphasestyle 是 net_tinybyte（值域 [0..7]），
+--   存储时还要减一（第 251 行）。即最多只能到 9 种样式，
+--   继续追加会溢出 3 位 —— 溢出后的行为取决于 C++ 侧 clamp 实现，我未核实。
+--   当前仅 4 种内置样式，离上限尚远，故不构成现实缺陷，仅记录该边界。
+	table.insert(MOON_PHASE_STYLE_NAMES, style)
+	MOON_PHASE_STYLES[style] = #MOON_PHASE_STYLE_NAMES
+end
+
+--------------------------------------------------------------------------
+--[[ Private member functions ]]
+--------------------------------------------------------------------------
+
+local function SetDefaultSegs()
+-- 按 TUNING 里的默认值设置三段段数，并校验总和。
+-- 【★字符串拼常量名的写法：TUNING["DAY_SEGS_DEFAULT"]】
+-- string.upper(PHASE_NAMES[i]) 把 "day" 变 "DAY"，再拼 "_SEGS_DEFAULT"，
+-- 对应 tuning.lua:64-66 的 DAY/DUSK/NIGHT_SEGS_DEFAULT。
+-- 好处：加一个时段只需改 PHASE_NAMES 与 TUNING，此处自动适配。
+-- ⚠️ 代价：拼错的键会静默返回 nil，被 `or 0` 吞掉。
+    local totalsegs = 0
+    for i, v in ipairs(_segs) do
+        v:set(TUNING[string.upper(PHASE_NAMES[i]).."_SEGS_DEFAULT"] or 0)
+        totalsegs = totalsegs + v:value()
+    end
+
+    if totalsegs ~= NUM_SEGS then
+-- ★★ 自愈逻辑：段数总和必须恰好等于 16，否则全部推倒重来。
+-- 【为什么必须严格相等，而不是「差不多就行」】
+-- 若三段之和 < 16，剩余时间无处安放，昼夜会出现「黑洞」；
+-- 若 > 16，则一个昼夜放不进固定的 16 段时间里，推进逻辑会卡死。
+-- 总数为常量是这里能做严格校验的前提 —— 固定基数才好校验。
+-- ★这个「先试错配、错了就退到安全默认」的防御模式值得学：
+-- 它保证了一个被 mod 改坏的配置永远不会让时钟彻底停摆。
+        for i, v in ipairs(_segs) do
+            v:set(0)
+        end
+        _segs[PHASES.day]:set(NUM_SEGS)
+    end
+end
+
+local function GetMoonPhase()
+-- 由游标推出「当前月相」与「是否盈象」。全文件最小也最可疑的函数。
+--
+-- ★★【已核实的真实缺陷：第 149 行的盈亏分界 off-by-one】
+--
+-- 判据是 waxing = (游标 <= #MOON_PHASE_CYCLES / 2)，即游标 <= 10。
+-- 但实际盈象段数是 11（第 40-44 行展开 new/quarter/half/threequarter/full，
+-- 长度 1+3+3+3+1 = 11），亏象段数才是 9（第 46-50 行，3+3+3 = 9）。
+-- 两者并不相等 —— 因为新月与满月各只占 1 段，而中间相各占 3 段。
+-- 作者显然按「盈亏各半」的直觉写了 /2，但真实比例是 11:9。
+--
+-- 我的核实方式：按源码第 38-51 行的展开逻辑逐项构造 20 元素序列，
+-- 得到 [1,2,2,2,3,3,3,4,4,4,5, 4,4,4,3,3,3,2,2,2]（前半 11 项为盈），
+-- 再与源码判据逐项比对。结果：只有游标 = 11（第 11 项，即满月 full）
+-- 被误判为 waning，其余 19 项全部正确。
+--
+-- 【可观察后果】该布尔值经第 242-243 行写入 _mooniswaxing（netvar），
+-- 再经第 403 行的 moonphasechanged2 事件传出，最终被
+--   components/worldstate.lua:90 存为 SetVariable("iswaxingmoon", data.waxing)
+-- 并被 components/squidspawner.lua:83 读取（决定乌贼刷新行为）。
+-- 即：每个 20 天的月相周期中，有 1 天（满月当天）的盈亏标记是错的。
+--
+-- 【正确写法】不应假设盈亏均分，而应记录真实分界，例如：
+--     local _waxingcount = 0   -- 构造期累加实际盈象段数
+--     waxing = (_mooomphasecycle <= _waxingcount)
+-- 或直接在构造期用 MOON_PHASE_CYCLES 里第一个「亏损」元素的位置做分界。
+--
+-- ⚠️ 未核实项：我未运行游戏，无法确认这 1 天的错误在实机上是否
+--   产生可见差异（例如满月当天的乌贼刷新方向）。以上为静态推导。
+	local waxing = _mooomphasecycle <= #MOON_PHASE_CYCLES / 2
+    return MOON_PHASE_CYCLES[_mooomphasecycle], waxing
+end
+
+local CalcTimeOfDay = _ismastersim and function()
+-- ★★★ 「定义 or nil」范式：非 master sim 上，这个函数根本不存在。
+--
+-- 【★这是 Lua 里表达「本端无权限执行」最干净的手法】
+-- 表达式 _ismastersim and function() ... end or nil：
+--   master sim 上 → 返回函数本身；
+--   客户端上     → false 分支 or nil → 返回 nil。
+-- 之后第 180 行 CalcTimeOfDay() 只在 _ismastersim 的监听器里被调用，
+-- 所以客户端永远不会对 nil 调用而崩。
+--
+-- 【★安全前提：调用点必须被同一个条件保护】
+-- 本文件第 178 行的 OnSetClockSegs 也是 ismastersim and function ... or nil，
+-- 两者成对出现。若将来有人在客户端调用 CalcTimeOfDay，
+-- 会得到「attempt to call a nil value」，报错信息尚算清晰。
+--
+-- 【★移植要点】这个手法比「定义一个总是 return nil 的桩函数」好得多：
+--   后者会让越权调用静默返回 nil，把 bug 推迟到更深处才爆出来。
+---- 下面几个事件监听器（第 178-270 行）大量使用同一范式 ----
+	local time_of_day = _totaltimeinphase:value() - _remainingtimeinphase:value()
+	for i = 1, _phase:value()-1 do
+		time_of_day = time_of_day + _segs[i]:value()*TUNING.SEG_TIME
+	end
+	return time_of_day
+end or nil
+
+local ForceResync = _ismastersim and function(netvar)
+-- ★★★★ 全文件最值得抄的 4 行。它是 netvars.lua:55-57 那条警告的官方解法。
+--
+-- 【netvars.lua 怎么说】
+--   set_local 会让「服务端认为客户端可能把值改成了任意值」，
+--   于是下一次服务端 set 必定是脏的 —— 无法省掉那次重发。
+-- 【本函数怎么对冲】
+--   先 set_local(当前值) 再 set(当前值)，强行让这个字段「变脏」一次。
+--
+-- 【★为什么不直接 set？】
+-- 因为服务端此刻的值往往已经等于客户端预测到的值（两边都在走时间），
+-- 直接 set 因「值没变」而不会触发脏事件，重发就被省掉了 —— 而客户端仍可能
+-- 因自身 tick 累积误差而偏离。set_local 强行作废比较影子，
+-- 使随后的 set 必定被判定为变化，从而完成一次强制纠偏。
+--
+-- 【★这就是第 254 行 OnSimUnpaused 的全部动机】
+-- 客户端预测在暂停期间会持续推进（或被冻结），恢复时必然与服务端有偏差，
+-- 所以暂停一结束就强制对齐一次。
+--
+-- 【★移植要点：客户端预测系统必须有「强制纠偏」出口】
+-- 只做预测不做纠偏，两端会永久漂移；只做纠偏不做预测，交互延迟无法忍受。
+-- 正确结构是：高频本地预测 + 低频边界强制对齐。
+-- 时钟用的是「每段边界对齐一次」，比例极低，带宽开销可忽略。
+    netvar:set_local(netvar:value())
+    netvar:set(netvar:value())
+end or nil
+
+--------------------------------------------------------------------------
+--[[ Private event listeners ]]
+--------------------------------------------------------------------------
+
+local function OnPlayerActivated()
+    _segsdirty = true
+    _cyclesdirty = true
+    _phasedirty = true
+    _moonphasedirty = true
+	_moonphasestyledirty = true
+end
+
+local OnSetClockSegs = _ismastersim and function(src, segs)
+-- 「修改时段划分」的监听器。仅 master sim 有效（见第 153 行注的范式）。
+	-- cache the current time of day so we can restore it after the segs change
+	local time_of_day = CalcTimeOfDay()
+-- ★ 先记住「当前是今天的第几秒」，改完段数后再换算回去。
+-- 【★为什么必须先保存再恢复】
+-- 改变每段长度会改变「总时长」，若不先锚定时间点就直接重算，
+-- 玩家会突然看到时间跳跃（例如调长夜晚时突然倒退几小时）。
+-- 锚定后重算，保证「一天中的绝对时刻」不变，只有各段边界重新划分。
+-- ★这是所有「改变时间刻度」功能的通用做法。
+
+	-- change the segs to the new setup
+    if segs then
+-- segs 为 nil 表示「恢复默认」，否则按传入的表逐段设置。
+        local totalsegs = 0
+        for i, v in ipairs(_segs) do
+            v:set(segs[PHASE_NAMES[i]] or 0)
+            totalsegs = totalsegs + v:value()
+        end
+        assert(totalsegs == NUM_SEGS, "Invalid number of time segs")
+-- ★ 与第 140 行同源的强校验：非法段数直接崩，不静默修正。
+-- 【为什么这里断言而 SetDefaultSegs 里自愈】
+-- 区分两类输入：modinfo 里的静态配置错误 → 自愈到默认值（第 140 行）；
+-- 运行期由服务器下发的指令 → 属于协议错误，必须崩以暴露问题（第 189 行）。
+-- ★「配置错误要容错，协议错误要崩溃」是很好的分层原则。
+    else
+        SetDefaultSegs()
+    end
+
+	local new_phase, new_remainingtimeinphase
+	for i, seg in ipairs(_segs) do
+-- 按新段长重新定位「当前在第几段、该段还剩多少」。
+-- 逐段扣减 time_of_day，命中第一段未耗尽的即为当前段。
+		local phase_time = seg:value()*TUNING.SEG_TIME
+		if time_of_day <= phase_time then
+			new_phase = i
+			new_remainingtimeinphase = phase_time - time_of_day
+			break
+		else
+			time_of_day = time_of_day - phase_time
+		end
+	end
+
+	_phase:set(new_phase)
+-- 三个 netvar 一起更新：段号、段总时长、段内剩余。
+-- ★必须连续 set 这三个 —— 因为客户端会收到三个独立的脏事件，
+-- 若中间有间隙，客户端会读到「新段号 + 旧时长」的组合而短暂错乱。
+-- 所以这类「逻辑上应原子更新」的字段要尽量在同一次调用里连续 set。
+	_totaltimeinphase:set(_segs[_phase:value()]:value() * TUNING.SEG_TIME)
+    _remainingtimeinphase:set(new_remainingtimeinphase)
+end or nil
+
+local OnSetPhase = _ismastersim and function(src, phase)
+-- 「直接跳到某时段」。同样只在 master sim 有效。
+-- ★第 218 行 self:LongUpdate(0)：跳段后立刻重跑一次更新逻辑。
+-- 因为 netvar 的 set 只把值标脏，真正的状态推进要等下一个 tick；
+-- 这里手动触发一次，让跳段效果立即可见，避免最多一帧（甚至一段）的延迟。
+    phase = PHASES[phase]
+    if phase then
+        _phase:set(phase)
+        _totaltimeinphase:set(_segs[phase]:value() * TUNING.SEG_TIME)
+        _remainingtimeinphase:set(_totaltimeinphase:value())
+    end
+    self:LongUpdate(0)
+end or nil
+
+local OnNextPhase = _ismastersim and function()
+-- 「推进到下一段」。直接把剩余时间清零，下一次更新会自然进入 rollover 分支。
+-- 【技巧：用 set_local(0) 而不是直接改 _phase】
+-- 让通用逻辑（第 342 行起）去处理切段与月相推进，避免在此重复实现一遍。
+    _remainingtimeinphase:set(0)
+    self:LongUpdate(0)
+end or nil
+
+local OnNextCycle = _ismastersim and function()
+-- 「推进到下一个昼夜循环」。直接跳到最后一个时段并清零，下一次更新即完成循环。
+    _phase:set(#PHASE_NAMES)
+    _remainingtimeinphase:set(0)
+    self:LongUpdate(0)
+end or nil
+
+local OnSetMoonPhase = _ismastersim and function(world, data)
+-- 「由外部设定月相」。★注意这是 moonstormmanager 等系统的入口。
+	local phase_num = MOON_PHASES[data.moonphase]
+	for i = (data.iswaxing and 1 or #MOON_PHASE_CYCLES/2), #MOON_PHASE_CYCLES do
+-- ★★ 从第 1 项或第 10 项开始扫月相序列，找到匹配项。
+-- 【★这里能看出第 149 行 off-by-one 的连带影响】
+-- 分界用的是 #MOON_PHASE_CYCLES/2 = 10，而非真实的 11（第 149 行注）。
+-- 所以当 iswaxing 为 true 时，扫描起点 1 是对的；
+-- 但若月相恰为 full（游标 11），iswaxing 会被第 149 行误判为 false，
+-- 于是从第 10 项起扫，仍能找到第 11 项 —— 定位结果正确，但起点偏了。
+-- 即：本函数的缺陷被下游「多扫一项」掩盖，只有 _mooniswaxing 本身带着错值流出。
+		if MOON_PHASE_CYCLES[i] == phase_num then
+			_mooomphasecycle = i
+			break
+		end
+	end
+
+	local moonphase, waxing = GetMoonPhase()
+    _moonphase:set(moonphase)
+    _mooniswaxing:set(waxing)
+end or nil
+
+local OnLockMoonPhase = _ismastersim and function(world, data)
+-- 「锁定月相不被自然推进」。原注释明确：此状态不存盘，读档后会丢失。
+	_moonphaselocked = data ~= nil and data.lock
+end or nil
+
+local OnSetMoonPhaseStyle = _ismastersim and function(world, data)
+-- 设定月相样式。★注意末尾的「减一」：
+-- MOON_PHASE_STYLES 是 table.invert 的反查表（default → 1），
+-- 但 net_tinybyte 存的是「下标 - 1」。读取侧第 408 行会「加一」还原。
+-- 【★为什么网络侧用 0-based】
+-- 因为 net_tinybyte 值域 [0..7] 含 0，若用 1-based 存储，
+-- 「未设置」的默认 0 会与「第一项」撞车。用 0-based 可让默认值 0 天然合法。
+-- 同样的技巧见第 282 行 _moonphasestyle:set(0)。
+	_moonphasestyle:set(((data ~= nil and data.style ~= nil) and MOON_PHASE_STYLES[data.style] or MOON_PHASE_STYLES.default) - 1)
+end or nil
+
+local OnSimUnpaused = _ismastersim and function()
+-- ★★ 暂停恢复的唯一处理：强制重同步剩余时间。
+-- 原注释：Force resync values that client may have simulated locally。
+-- 这正是第 161 行 ForceResync 的唯一调用点，也是它在全工程唯一的实际用途。
+-- 【★为什么只需重同步这一个字段】
+-- 暂停期间服务端时间冻结，客户端也停止推进（由引擎统一处理），
+-- 唯一可能累积偏差的就是「剩余时间」这一连续量。
+-- 其余字段（段数、段号、月相）在暂停期间不会变，无需重发。
+-- ★精确地只纠正「唯一可能错的那个字段」，是带宽优化的好范例。
+    --Force resync values that client may have simulated locally
+    ForceResync(_remainingtimeinphase)
+end or nil
+
+local OnClockUpdate = _ismastersim and not _ismastershard and function(src, data)
+-- ★★★★ 全 DST 最典型的一处「二维正交判别」，值得单独理解。
+--
+-- 条件是 ismastersim and not ismastershard，即：
+--   我是模拟端权威（ismastersim = true）
+--   但我不是 shard 权威（ismastershard = false）
+-- 这个象限唯一对应「主 shard 的服务端」：
+-- 它要处理本 shard 内的全部逻辑，同时还要接收上游分片（次 shard）送来的时钟数据，
+-- 并把它推给本 shard 的客户端（第 438 行 master_clockupdate）。
+--
+-- 【★四个象限完整对照（把两个维度彻底讲清）】
+--   ① 主 shard 服务端：sim=T, shard=T  → 不注册本监听器（它本身就是源）
+--   ② 主 shard 客户端：sim=F, shard=F  → 不注册（纯被动接收）
+--   ③ 次 shard 服务端：sim=T, shard=F  → ★注册，接收上游分片时钟
+--   ④ 次 shard 客户端：sim=F, shard=F  → 不注册
+--
+-- 【★为什么「主 shard 服务端」不能注册】
+-- 因为它自己就是时钟的源头，数据会经第 438 行发给上游，
+-- 若同时又接收上游回传的数据，就形成反馈环，时钟会自我激励而发散。
+-- ★数据流必须严格单向：下游 → 上游 → 源 → 下客户端。
+-- 自己写分片时钟时，这是最容易埋雷的地方。
+    for i, v in ipairs(_segs) do
+        v:set(data.segs[i])
+    end
+    _cycles:set(data.cycles)
+    _phase:set(data.phase)
+    _moonphase:set(data.moonphase)
+    _mooniswaxing:set(data.mooniswaxing)
+    _totaltimeinphase:set(data.totaltimeinphase)
+    _remainingtimeinphase:set(data.remainingtimeinphase)
+    self:LongUpdate(0)
+end or nil
+
+--------------------------------------------------------------------------
+--[[ Initialization ]]
+--------------------------------------------------------------------------
+
+--Initialize network variables
+-- 初始化段：set 出一组基准值，随后 flush 到网络。
+-- ★这些 set 发生在 SetPristine 之后的世界实体上（见 prefabs/world_network.lua），
+-- 时钟组件本身由世界装配时加入，两端都会构造，故 netvar 两端齐备。
+SetDefaultSegs()
+-- 先按默认段数初始化，再逐个 set 其它字段。
+-- ★顺序有意义：必须先有 segs，后面几行才能算出「段总时长」。
+-- 这类「有依赖关系的初始化」必须按拓扑序写，不能随意调换。
+_cycles:set(0)
+_phase:set(PHASES.day)
+_moonphase:set(1)
+_mooniswaxing:set(true)
+_moonphasestyle:set(0)
+-- ★ 月相样式置 0。对照第 251 行的「减一」存储，这里就是「第一项 default」。
+-- 与 _phase:set(PHASES.day) 用不同基准（一个 1-based 一个 0-based），
+-- 属于同文件内的两种约定并存，靠注释交叉说明。
+-- ⚠️ 这类混用是维护成本的来源，移植时建议统一为一种。
+_totaltimeinphase:set(_segs[_phase:value()]:value() * TUNING.SEG_TIME)
+_remainingtimeinphase:set(_totaltimeinphase:value())
+
+--Register network variable sync events
+-- ★★ 把 netvar 的脏事件转成本地标志位，而不是在事件里直接干活。
+--
+-- 【★为什么不在 dirty 回调里直接 PushEvent，而要先置标志位】
+-- 因为 netvar 脏事件是「在 Lua 更新之前」触发的（netvars.lua:36 原文）。
+-- 若在这里直接 PushEvent，下游（光照、色彩立方体）会在本组件的
+-- OnUpdate 之前被调用，可能读到还没推进完的时间状态。
+-- 置标志位 + 在 OnUpdate 末尾统一派发（下方 381-410 行），
+-- 保证了「先完成本组件状态推进，再通知下游」的顺序。
+--
+-- 【★这是本文件第二个值得抄的模式】
+--   脏事件（高频、可能成簇）→ 合并成一个标志位 → 在固定位置统一处理。
+-- 既避免了重复计算，也保证了派发顺序的正确性。
+inst:ListenForEvent("segsdirty", function() _segsdirty = true end)
+inst:ListenForEvent("cyclesdirty", function() _cyclesdirty = true end)
+inst:ListenForEvent("phasedirty", function() _phasedirty = true end)
+inst:ListenForEvent("moonphasedirty", function() _moonphasedirty = true end)
+inst:ListenForEvent("moonphasestyledirty", function() _moonphasestyledirty = true end)
+inst:ListenForEvent("playeractivated", OnPlayerActivated, _world)
+-- 监听 playeractivated：玩家激活时把所有标志位置真，强制刷新一次。
+-- 【★为什么玩家激活要全部重置】
+-- 玩家刚激活时，本地很可能缺失过若干变更（例如中途才加入），
+-- 强制全部重算一次能保证 UI 与实际时间一致。
+-- 与净脏检测的「仅在变化时通知」相辅相成：
+-- 平时靠标志位省开销，关键时刻靠全量刷新兜底。
+
+if _ismastersim then
+-- master sim 专属监听器注册区。客户端全部跳过。
+-- ★每行都以 ms_ 前缀（master sim 事件）命名，与普通事件区分。
+-- 这是 DST 事件命名的通用规范：ms_ 前缀 = 仅模拟端权威会收到。
+-- 自研引擎若允许「客户端也能发起」的 RPC，不要用这类前缀混淆两类事件。
+    --Register master simulation events
+    inst:ListenForEvent("ms_setclocksegs", OnSetClockSegs, _world)
+    inst:ListenForEvent("ms_setphase", OnSetPhase, _world)
+    inst:ListenForEvent("ms_nextphase", OnNextPhase, _world)
+    inst:ListenForEvent("ms_nextcycle", OnNextCycle, _world)
+    inst:ListenForEvent("ms_setmoonphase", OnSetMoonPhase, _world)
+    inst:ListenForEvent("ms_lockmoonphase", OnLockMoonPhase, _world)
+    inst:ListenForEvent("ms_setmoonphasestyle", OnSetMoonPhaseStyle, _world)
+    inst:ListenForEvent("ms_simunpaused", OnSimUnpaused, _world)
+
+    if not _ismastershard then
+-- ★★ 二维判别在注册处的应用：只有第三象限才注册上游时钟接收器。
+-- 与第 259 行的定义严格对应 —— 那里判，这里注。
+-- 【★两处必须同时改】
+-- 改判据只改一处会导致「函数存在但没人注册」或「注册了但没定义」，
+-- 且 Lua 不会报错（nil 传给 ListenForEvent 才崩），排查成本高。
+-- ★把判据集中成一个常量（如 local _IS_MAIN_SHARD = ...）可彻底避免。
+        --Register secondary shard events
+        inst:ListenForEvent("secondary_clockupdate", OnClockUpdate, _world)
+    end
+end
+
+inst:StartUpdatingComponent(self, not TheNet:IsDedicated())
+-- 启动组件更新。第二个参数 not IsDedicated：专用服务器也跑 OnUpdate。
+-- 【★为什么专用服务器也要更新时钟】
+-- 因为时钟决定了昼夜，进而影响刷怪、光照与所有「按时间」的游戏逻辑。
+-- 服务器不跑就没有权威时间，客户端无从对齐。
+-- ⚠️ 注意与「专用服务器可省略表现层更新」的通用优化相反 ——
+--   这里不能省，省了会直接破坏游戏逻辑。
+
+--------------------------------------------------------------------------
+--[[ Update ]]
+--------------------------------------------------------------------------
+
+--[[
+-- ★★★ 原文这段注释是全文件的算法摘要，务必先读：
+--   客户端自行更新时间，而服务端在每段结束时强制同步来纠正；
+--   客户端不能自行改变段数，必须等服务端同步。
+-- 【为什么客户端不能自己切段】
+-- 段数变化会导致时间刻度改变，若客户端自行决定，
+-- 同一个世界在不同玩家屏幕上会呈现出不同的昼夜节奏。
+-- 所以「段的划分」是全局一致量，只能由权威端决定；
+-- 「段内推进」是本地量，可以各自预测。这个划分就是带宽与体验的平衡点。
+    Client updates time on its own, while server force syncs to correct it
+    at the end of each segment.  Client cannot change segments on its own,
+    and must wait for a server sync to change segments.
+--]]
+function self:OnUpdate(dt)
+    local remainingtimeinphase = _remainingtimeinphase:value() - dt
+-- ★ 本地预测的核心一行：剩余时间 -= dt。
+-- 注意这里只是 Lua 局部变量，真正写入 netvar 在第 333 行。
+-- 【★为什么先算局部变量再决定怎么写】
+-- 因为「用 set 还是 set_local」取决于下面第 331 行的分支判断，
+-- 而判断本身需要新值。写成局部变量是清晰的两段式；
+-- 若图省事直接 set_local 再判断，就得多读一次 netvar。
+
+    if remainingtimeinphase > 0 then
+        --Advance time in current phase
+        local numsegsinphase = _segs[_phase:value()]:value()
+-- 当前时段含多少段（netvar 读取）。
+        local prevseg = numsegsinphase > 0 and math.ceil(_remainingtimeinphase:value() / _totaltimeinphase:value() * numsegsinphase) or 0
+-- ★★ 用「剩余时间占总时长的比例」反推当前处于第几段。
+-- math.ceil(比例 * 段数) 得到段序号。
+-- 【★为什么不维护一个显式的「当前段号」游标】
+-- 因为段号本质上可由时间比例推出，多存一个 netvar 就要多占带宽与同步成本。
+-- ★这是「用可推导量替代存储量」的典型优化：省一个网络字段。
+        local nextseg = numsegsinphase > 0 and math.ceil(remainingtimeinphase / _totaltimeinphase:value() * numsegsinphase) or 0
+-- 同样公式，但用「减去 dt 后」的新时间算，得到预测段的序号。
+
+        if prevseg == nextseg then
+-- ★★ 核心分支：这一帧是否跨越了段边界。
+-- prevseg == nextseg 表示「还在同一段内」，是绝大多数帧的情况。
+            --Client and server tick independently within current segment
+            _remainingtimeinphase:set_local(remainingtimeinphase)
+-- ★★★ 情况一（两端共有，占绝大多数帧）：只用 set_local，纯本地预测。
+-- 【★为什么这是全文件带宽优化的核心】
+-- 一个昼夜 16 段，一天几十段。绝大多数帧都不跨段，
+-- 于是这些帧的带宽开销为零 —— 只改本地内存，不产生任何网络流量。
+-- 真正的网络开销只有「每跨一段一次」，比例极低。
+--
+-- 【★回顾 netvars.lua:52-57 的警告】
+-- set_local 会让「服务端下一次 set 必定变脏」。但本例中服务端走的是
+-- 第 336 行的 set（第 334 行判 _ismastersim），语义本就不同：
+-- 服务端是真的在改值，不是在「让客户端预测」。
+-- ⚠️ 严谨地说：客户端每帧 set_local 确实会使服务端下一次的 set 变脏，
+--   但服务端的 set 在第 336 行本来就每帧都可能发生（第 323 行递减），
+--   且客户端的预测误差由第 336/340 行的段边界逻辑强制收敛。
+--   所以这里的「额外变脏」代价并未被放大 —— 这是本设计能成立的关键。
+        elseif _ismastersim then
+-- 情况二的第一个分支：服务端权威端。跨段时用 set（真实同步）。
+-- 【★为什么服务端不继续预测而要真发】
+-- 服务端的值就是权威值，它必须把变更广播出去，客户端才能对齐。
+            --Server sync to client when segment changes
+            _remainingtimeinphase:set(remainingtimeinphase)
+-- ★ 服务端跨段时的权威同步。每段边界一次，全天仅 16 次。
+-- 这就是「低成本纠偏」的具体落点：一天才 16 次，不是每帧。
+        else
+-- 情况二的第二个分支：客户端（及次 shard）。★不能自行跨段，只能贴在段边界等待。
+-- 【★这就是第 317-321 行所述「客户端不能自行改变段」的代码实现】
+-- 客户端把时间「钉」在段边界（下一步 339 行算出恰好耗尽的时刻），
+-- 然后等服务端把新段号同步过来。
+-- 【★换成「客户端也自行跨段」会怎样错】
+-- 客户端会推进到自己的下一段，而服务端可能仍认为在上一段，
+-- 于是两端直到下一个服务端同步点才纠正 —— 表现为「进洞后时间突然跳」。
+            --Client must wait at end of segment for a server sync
+            remainingtimeinphase = numsegsinphase > 0 and nextseg / numsegsinphase * _totaltimeinphase:value() or 0
+            _remainingtimeinphase:set_local(math.min(remainingtimeinphase + .001, _remainingtimeinphase:value()))
+-- 把客户端时间钉在「恰好耗尽当前段」的位置（+0.001 避免恰好为 0 触发 rollover）。
+-- ★那个 0.001 的技巧很实用：netvar 是浮点，若恰好为 0 会落入 <= 0 分支，
+-- 而客户端进入那个分支会「等待服务端」而非推进，逻辑就错了。
+-- 用一个极小正数卡在边界内侧，实现「等待但不越过」。
+        end
+    elseif _ismastershard then
+-- ★★ 判据二：只有 shard 权威端才自行推进到下一段。
+-- 【★与第 259 行对照，看懂二维判别的实际分工】
+-- 第 259 行：sim=T 且 shard=F（主 shard 服务端）→ 接收上游时钟，**不**走本分支；
+-- 本行   ：shard=T（无论哪个 shard 的权威端）→ 自己就是时间的源头，**走**本分支。
+-- 即：主 shard 服务端在链路上是「中转」，次 shard 服务端是「源头」。
+-- ★再强调一次：shard 权威端才能推进，是因为它不对上游负责；
+-- 主 shard 服务端若也自行推进，就会与上游数据打架（回到第 259 行的反馈环）。
+        --Advance to next phase
+        _remainingtimeinphase:set_local(0)
+-- shard 权威端：直接清零，触发下方 rollover 循环。
+-- ★用 set_local 而非 set：shard 权威端本身就是源，无需向谁同步这一步。
+
+        while _remainingtimeinphase:value() <= 0 do
+-- ★ while 而非 if：一次可能跨过多段（客户端卡顿、服务端追帧），
+-- 必须循环推进直到找到有剩余时间的段。
+-- 【★这是「用 while 消化不确定步长」的必要写法】
+-- 若误写成 if，卡顿时会停在一个剩余时间为负的非法状态上，
+-- 表现为「时间越走越慢」这类极难定位的问题。
+            _phase:set((_phase:value() % #PHASE_NAMES) + 1)
+            _totaltimeinphase:set(_segs[_phase:value()]:value() * TUNING.SEG_TIME)
+            _remainingtimeinphase:set(_totaltimeinphase:value())
+
+            if _phase:value() == 1 then
+-- 回到第一段意味着完成了一个昼夜循环。
+                --Advance to next cycle
+                _cycles:set(_cycles:value() + 1)
+-- 天数 +1。用 set（服务端权威同步）。
+-- ★注意 _cycles 是 net_ushortint（16 位），到 65535 会回绕。
+-- 实务上 65535 天约 179 年，不会遇到；但若做「无尽模式」需注意。
+                _world:PushEvent("ms_cyclecomplete", _cycles:value())
+				-- Note: It is the seasons component that handles adjusting the number of day/dusk/night segments
+-- 原文注明：调整昼夜段数由 seasons 组件负责，不在时钟里做。
+-- ★职责分离的好例子：时钟只管推进，季节只管提出调整请求。
+-- 混在一起会让时钟变成什么都改的杂物箱。
+
+				if not _moonphaselocked then
+-- ★月相推进被「锁定」标记短路。被 moonstorm 等系统锁定时月相不再自然变化。
+					_mooomphasecycle = (_mooomphasecycle % #MOON_PHASE_CYCLES) + 1
+				end
+
+                --Advance to next moon phase. After waxing/waning changes, moon phase is now advanced at the beginning of each day.
+-- 原文说明：盈亏转换后，月相改为每日开始时推进。
+-- 【★这与第 149 行的 off-by-one 相关】
+-- 注释说「盈亏变化后月相在每天开始时推进」，但第 363-368 行确实在
+-- 「每日开始」处比较并 set 月相。第 149 行的 waxing 判定错误
+-- 会让「满月当天」被误判为亏象，详见第 148 行注。
+                local moonphase, waxing = GetMoonPhase()
+                if moonphase ~= _moonphase:value() then
+-- ★★ 逐个比较、逐个 set，而不是无条件 set。
+-- 【★这里直接体现了脏值检测的收益】
+-- 月相 20 天才变一次，但 OnUpdate 每帧都跑。
+-- 若无条件 _moonphase:set(...)，虽然引擎会因「值没变」而不发脏事件，
+-- 但每帧都白跑一次 set 调用；加上判断后连调用都省了。
+-- ★自研引擎若在 Lua 侧做属性写入，这里就是判断「值是否真的需要写」的位置。
+                    _moonphase:set(moonphase)
+                end
+                if waxing ~= _mooniswaxing:value() then
+                    _mooniswaxing:set(waxing)
+                end
+            end
+        end
+
+        if remainingtimeinphase < 0 then
+-- ★ 一次更新可能消耗掉多个 segment 的时间，递归处理剩余部分。
+-- 【★经典的「补帧」写法】
+-- 若某帧 dt 极大（如断线重连后的第一帧、断点调试后恢复），
+-- 剩余时间会跨过多段甚至整个昼夜。递归把余量交给下一次调用，
+-- 逻辑上等价于「这段时间被一帧消化」，无需特判大 dt。
+-- 用 return 而不是 else，保证递归结果不被后续代码覆盖。
+            self:OnUpdate(-remainingtimeinphase)
+            return
+        end
+    else
+-- 最后的 else：客户端与次 shard 在段末等待服务端同步。
+-- ★与第 337-341 行同构：把值钉在段边界，不自行跨段。
+-- 这里用固定的 0.001 而非第 340 行的精确计算，
+-- 因为此时已明确知道「当前段已耗尽」，只需停在边界等待即可。
+        --Clients and secondary shards must wait at end of phase for a server sync
+        _remainingtimeinphase:set_local(math.min(.001, _remainingtimeinphase:value()))
+    end
+
+    if _segsdirty then
+-- ★ 脏标志位统一派发区。按「先段数、再天数、再段号」的固定顺序派发。
+-- 【★为什么要固定顺序】
+-- 下游监听者（如 seasons、UI）可能同时关心多个字段。
+-- 若顺序不确定，它们可能先收到「段号变了」却还拿到「旧段数」，
+-- 派生出错误的计算结果。
+-- ★「先发被依赖者、后发依赖者」是事件派发的通用正确性要求。
+        local data = {}
+        for i, v in ipairs(_segs) do
+            data[PHASE_NAMES[i]] = v:value()
+        end
+        _world:PushEvent("clocksegschanged", data)
+-- 用时段名做键派发（data.day / data.dusk / data.night），而非下标。
+-- ★与第 414-422 行的「按下标累计」是两种不同的遍历意图，
+-- 不可互换：前者要按名取值，后者要按序累加。
+        _segsdirty = false
+    end
+
+    if _cyclesdirty then
+-- 天数变化事件。
+        _world:PushEvent("cycleschanged", _cycles:value())
+        _cyclesdirty = false
+    end
+
+    if _phasedirty then
+-- 段号变化事件。派发的是时段名（字符串），因为下游要的是可读名字。
+        _world:PushEvent("phasechanged", PHASE_NAMES[_phase:value()])
+        _phasedirty = false
+    end
+
+    if _moonphasedirty then
+-- 月相变化。★同时推两个事件：
+--   moonphasechanged  —— 旧接口，只带相位名，原注释注明 deprecated 但为老模组保留；
+--   moonphasechanged2 —— 新接口，额外带上 waxing。
+-- 【★兼容策略值得学：新增字段不改动旧事件，而是另发新事件】
+-- 老模组无需修改即可继续工作，新模组用新事件拿更多信息。
+-- 比「在旧事件上多传一个参数」安全得多 —— 位置参数易被忽略。
+        --"moonphasechanged" deprecated, still pushing for old mods
+        _world:PushEvent("moonphasechanged", MOON_PHASE_NAMES[_moonphase:value()])
+        _world:PushEvent("moonphasechanged2", { moonphase = MOON_PHASE_NAMES[_moonphase:value()], waxing = _mooniswaxing:value() })
+        _moonphasedirty = false
+    end
+
+	if _moonphasestyledirty then
+-- 月相样式变化。★注意此处「加一」还原，与第 251 行的「减一」配对。
+		_world:PushEvent("moonphasestylechanged", { style = MOON_PHASE_STYLE_NAMES[_moonphasestyle:value() + 1] })
+		_moonphasestyledirty = false
+	end
+
+    local elapsedsegs = 0
+-- 计算「已过时间占全天比例」，供 clocktick 事件使用。
+-- ★clocktick 每帧都推（第 422 行在 dirty 判断之外），是 UI 时钟动画的数据源。
+-- 它是「派生量」而非 netvar，因此不需要同步 —— 两端各自算出相同结果。
+    local normtimeinphase = 0
+    for i, v in ipairs(_segs) do
+        if _phase:value() == i then
+            normtimeinphase = 1 - (_totaltimeinphase:value() > 0 and _remainingtimeinphase:value() / _totaltimeinphase:value() or 0)
+-- ★ 用 `(x > 0 and y/x or 0)` 防止除零。
+-- 当 _totaltimeinphase 为 0（未初始化或段长为 0）时，比例记为 0 而非报错。
+-- 这是 Lua 里避免 0/0 = nan 污染下游的常用技巧，代价是可读性略差。
+-- ⚠️ 注意这里读的是「本帧第 323 行更新前」的值，若 dt 极大可能为负，
+--   但外层 `> 0` 判断已把这种情况归为 0，不会产生越界比例。
+            elapsedsegs = elapsedsegs + v:value() * normtimeinphase
+            break
+        end
+        elapsedsegs = elapsedsegs + v:value()
+    end
+    _world:PushEvent("clocktick", { phase = PHASE_NAMES[_phase:value()], timeinphase = normtimeinphase, time = elapsedsegs / NUM_SEGS })
+-- ★★ 每帧推送的全局 tick 事件。time 是「已过段数 / 总段数」，归一化到 [0,1]。
+-- 【为什么提供归一化值而不是绝对秒数】
+-- 因为 mod 会改段数，绝对秒数不是稳定接口；
+-- 归一化比例「一天过了百分之多少」对所有配置都成立。
+-- ★这是给扩展者的稳定契约设计，值得学。
+
+    if _ismastershard then
+-- ★★ shard 权威端专属：把完整时钟状态打包，向上游 shard 推送。
+-- 【★这是分片时钟的「级联」机制，与第 259 行互为镜像】
+-- 第 259 行：主 shard 服务端「接收」次 shard 的 master_clockupdate；
+-- 本行  ：次 shard 服务端「发送」 master_clockupdate 给主 shard。
+-- 一个数据在链路上的两端，方向相反、字段对称。
+-- ★自研引擎做多级世界时钟时，这种「同级双端字段对称」的约定能极大减少出错。
+        local data =
+        {
+            segs = {},
+            cycles = _cycles:value(),
+            moonphase = _moonphase:value(),
+            mooniswaxing = _mooniswaxing:value(),
+            phase = _phase:value(),
+            totaltimeinphase = _totaltimeinphase:value(),
+            remainingtimeinphase = _remainingtimeinphase:value(),
+        }
+        for i, v in ipairs(_segs) do
+            table.insert(data.segs, v:value())
+        end
+        _world:PushEvent("master_clockupdate", data)
+-- 向上游推。数据源是本地 netvar，所以包里的值一定是本 shard 权威的值。
+    end
+end
+
+self.OnStaticUpdate = self.OnUpdate
+-- ★★ 把 OnUpdate 同时挂到两个更新钩子上。
+-- 【★两个钩子的区别】
+--   OnUpdate      —— 常规帧更新，受「实体是否休眠」「是否可见」等影响，
+--                   可被引擎跳过以省性能；
+--   OnStaticUpdate—— 静态更新，不受休眠影响，保证低频必跑；
+--   LongUpdate    —— 强制立即执行一次并跑完整逻辑（配合参数 dt 使用）。
+--
+-- 【★为什么时钟三个都要挂】
+-- OnUpdate 保证日常推进；OnStaticUpdate 保证实体休眠时时间不走样；
+-- LongUpdate 则被第 211/221/226/269 行在「跳段/循环/收同步」后立即调用，
+-- 让状态变更立刻生效而不必等下一帧。
+--
+-- ⚠️ 第 443 行的赋值发生在第 322 行 OnUpdate 定义之后，顺序正确；
+--   若把这两行移到函数定义之前，self.OnUpdate 会是 nil 而静默失效。
+self.LongUpdate = self.OnUpdate
+
+--------------------------------------------------------------------------
+--[[ Save/Load ]]
+--------------------------------------------------------------------------
+
+if _ismastersim then function self:OnSave()
+-- ★ 整个函数用 `if _ismastersim then function ... end end` 包裹。
+-- 【★比第 153 行的 `and/or nil` 更强的保护：客户端根本不存在该函数】
+-- 引擎调用 OnSave 只会在服务端发生，所以客户端没有这个字段是安全的。
+-- ⚠️ 但若第三方代码在客户端显式调用 inst.components.clock:OnSave()，
+--   会得到「attempt to call a nil value」。属于「防御了正常路径，未防越权路径」。
+-- ★第 467 行的 OnLoad 用同样写法。
+    local data =
+    {
+        segs = {},
+        cycles = _cycles:value(),
+        phase = PHASE_NAMES[_phase:value()],
+ 		mooomphasecycle = _mooomphasecycle,
+        totaltimeinphase = _totaltimeinphase:value(),
+        remainingtimeinphase = _remainingtimeinphase:value(),
+    }
+
+    for i, v in ipairs(_segs) do
+        data.segs[PHASE_NAMES[i]] = v:value()
+-- ★ 存档时 segs 用时段名做键（第 461 行），而第 436 行网络传输用下标做键。
+-- 【★存档与网络用不同的键，是有意为之】
+-- 存档面向「长期兼容」：时段名稳定，加了新时段旧档仍可读；
+-- 网络面向「当前两端」：用下标更紧凑，且两端 schema 必然一致。
+-- ★同一份数据在两种通道用不同编码，是降低长期维护成本的常见手法。
+    end
+
+    return data
+end end
+
+if _ismastersim then function self:OnLoad(data)
+    local totalsegs = 0
+    for i, v in ipairs(_segs) do
+        v:set(data.segs and data.segs[PHASE_NAMES[i]] or 0)
+-- 读档时逐段恢复。`data.segs and ... or 0` 同时兼容「无 segs 字段」的旧档。
+-- ★这是向前兼容的典型写法：老存档缺新字段时回落到 0，
+-- 再由下方第 474 行的总和校验触发 SetDefaultSegs 兜底。
+-- 新旧存档兼容不是靠版本号分支，而是靠「缺字段即触发自愈」。
+        totalsegs = totalsegs + v:value()
+    end
+
+    if totalsegs ~= NUM_SEGS then
+        SetDefaultSegs()
+    end
+
+    _cycles:set(data.cycles or 0)
+
+    if PHASES[data.phase] then
+        _phase:set(PHASES[data.phase])
+    else
+        for i, v in ipairs(_segs) do
+            if v:value() > 0 then
+                _phase:set(i)
+                break
+            end
+        end
+    end
+
+	if data.mooomphasecycle ~= nil then
+		_mooomphasecycle = data.mooomphasecycle
+	else
+		--retorifitting old saves
+-- 原注释：retorifitting old saves —— 为老存档回填。
+-- ★老存档没有这个字段，就用已过天数对 20 取模反推游标。
+-- 因为 20 段的循环与天数严格对应，所以这个反推是精确的，不是近似。
+-- 前提是「每个昼夜恰好推进一个游标」（见第 358 行），该前提成立。
+		_mooomphasecycle = (_cycles:value() % #MOON_PHASE_CYCLES) + 1
+	end
+
+	local moonphase, waxing = GetMoonPhase()
+    _moonphase:set(moonphase)
+    _mooniswaxing:set(waxing)
+
+    _totaltimeinphase:set(data.totaltimeinphase or _segs[_phase:value()]:value() * TUNING.SEG_TIME)
+-- ★ 恢复段总时长与剩余时间，两处都有 `or` 兜底。
+-- 第 503 行还额外用 math.min 夹住上限，防止存档被篡改成超过段总时长。
+-- 【★这是防存档损坏的第二道防线（第一道是第 474 行的总和校验）】
+-- 校验「形状对不对」用断言，夹取「数值越界」用 math.min —— 两种手段互补。
+    _remainingtimeinphase:set(math.min(data.remainingtimeinphase or _totaltimeinphase:value(), _totaltimeinphase:value()))
+end end
+
+--------------------------------------------------------------------------
+--[[ Debug ]]
+--------------------------------------------------------------------------
+
+function self:Dump()
+-- 调试输出。Dump 打印全量状态，GetDebugString 给 HUD 一行摘要。
+-- ★Debug 接口与逻辑分离：把 CalcTimeOfDay（master sim 才有的函数）
+-- 用在这里，意味着 Dump 也只能在服务端正常工作。同源于第 153 行的约束。
+	   print("Time of Day:", CalcTimeOfDay())
+
+       print("segs in day   ",  _segs[1]:value())
+       print("segs in dusk  ",  _segs[2]:value())
+       print("segs in night ",  _segs[3]:value())
+
+       print("cycles ",  _cycles:value())
+       print("phase ",  PHASE_NAMES[_phase:value()])
+       print("moonphase2 ",  MOON_PHASE_NAMES[_moonphase:value()])
+       print("moonwaxing ",  _mooniswaxing:value())
+
+       print("totaltimeinphase ",  _totaltimeinphase:value())
+       print("remainingtimeinphase ",  _remainingtimeinphase:value())
+       print("total segs phase ",  _totaltimeinphase:value()/TUNING.SEG_TIME)
+       print("remaining segs inphase ",  _remainingtimeinphase:value()/TUNING.SEG_TIME)
+
+	   local to_night =  _remainingtimeinphase:value() + (PHASE_NAMES[_phase:value()] == "day" and _segs[2]:value() or 0) * TUNING.SEG_TIME
+-- 「距离天黑还有多久」：当前段剩余时间 + 若在白天则加上整个黄昏段。
+-- ★用 PHASE_NAMES[_phase:value()] == "day" 字符串比较判断当前是否白天。
+-- 这种「拿名字比字符串」的写法可读性好但略低效；
+-- 更快的写法是直接比 _phase:value() == PHASES.day。属风格差异，非缺陷。
+	   print("Time Until Night:", to_night, to_night/TUNING.SEG_TIME)
+end
+
+function self:GetDebugString()
+-- 一行摘要。★格式化串里用 %d 对 _cycles 做了 +1：
+-- 因为内部 0-based（第 1 天是 0），而显示习惯从第 1 天算起。
+-- ★又一处 0-based / 1-based 转换，全文件已有三处（第 250、282、532 行）。
+-- 移植时建议统一约定并写进文档，否则每次都要重新推导。
+    return string.format("%d %s: %2.2f : %2.2f (moon cycle: %d)", _cycles:value() + 1, PHASE_NAMES[_phase:value()], _remainingtimeinphase:value(), _segs[_phase:value()]:value(), _mooomphasecycle)
+end
+
+--------------------------------------------------------------------------
+--[[ End ]]
+--------------------------------------------------------------------------
+
+end)

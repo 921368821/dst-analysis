@@ -1,0 +1,1278 @@
+--============================================================
+-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖
+-- 文件：components/temperature.lua
+-- 模块：组件系统 / 体温（Temperature）
+-- 职责：把「环境温度 + 各类修正项」合成为实体当前体感温度，按「速率 x 时间」
+--       逐帧积分逼近目标；跨过 0 度或过热阈值时向 health.lua 输送持续伤害。
+--       与 health/sanity/hunger 的分工：本组件只负责「算出该变成多少度」，
+--       血量变动一律由 health.lua 的 DoDelta 承接（cause = cold / hot）。
+-- 关键符号：Temperature, OnUpdate（★核心，第 311 行）, SetTemperature（唯一写入口）,
+--           DoDelta, GetInsulation（★六层保暖合成）, GetMoisturePenalty,
+--           SetModifier, RemoveModifier, SetInsulationModifier, IsFreezing,
+--           IsOverheating, SetTemp（温度钉死开关）, SetTemperatureInBelly,
+--           TransferComponent, ClearBellyTemperature, oncurrent, onsheltered
+-- ★设计提炼（详见正文中标注 ★★★ 的行）：
+--   1) 保暖不改变目标温度，只封顶「速率」——第 367 行目标公式里没有保暖项；
+--   2) 保暖只挡「变坏」的方向，对「变好」方向完全无效——第 487-506 行；
+--   3) 跨阈值后自动加速回温/解暑（THAW = WARM x 5）——第 496、505 行；
+--   4) 伤害只取决于「是否越线」，与偏离幅度脱钩，故不会瞬间冻死——第 519 行；
+--   5) 双层值域夹取：局部（冰箱/口袋）先夹，固有 [-20, 90] 后夹——第 514 行。
+-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本
+-- 交叉引用：components/heater.lua（热源接口 heater.lua 第 89 行）,
+--           components/insulator.lua（冬/夏保暖类型）,
+--           components/moisture.lua（第 293 行反向读 externalheaterpower）,
+--           components/preserver.lua（温度变化速率倍率）,
+--           components/beard.lua（胡须：加冬保暖、减夏保暖）,
+--           components/sheltered.lua（遮蔽等级）, components/health.lua
+--           （第 613 行 DoDelta、第 616-621 行 nonlethal_* 非致死保护）,
+--           util/sourcemodifierlist.lua（保暖修正器容器）,
+--           tuning.lua（STARTING_TEMP=35 / OVERHEAT_TEMP=70 / SEG_TIME=30）,
+--           prefabs/player_common.lua（第 2744 行唯一设 usespawnlight 的实体）
+--============================================================
+local easing = require("easing")
+-- temperature.lua —— 体温组件（Temperature）
+--
+-- 职责：把「环境温度 + 各种修正项」合成为实体当前的体感温度，并按「速率 x 时间」
+-- 逐帧积分逼近目标；跨过 0 度或过热阈值时向血量组件输送持续伤害。
+--
+-- 【在 DST 生存系统里的地位】
+-- 生命 / 理智 / 饥饿 / 体温 四大生存压力源，体温是唯一一个：
+--   (a) 不是「一个数值」，而是「多来源叠加 + 环境修正」的复合量；
+--   (b) 需要双向调节（冷了要暖、热了要凉），而其余三个只需单向补充；
+--   (c) 其数值还反过来影响别的东西（火焰点燃概率、湿度蒸发速度）。
+--
+-- 【本文件最重要的三件事】
+-- 1) 第 367 行是整个组件的心脏：先算出「目标温度」，再与当前温度作差得到 delta。
+--    整份代码本质上是一个「误差驱动的控制器」，不是「状态机」。
+-- 2) 第 488-506 行：保暖（insulation）只作用于「让你变坏的那个方向」，
+--    对「让你变好」的方向完全不起作用。这是「为什么冻不死/热不死」的答案。
+-- 3) 第 168 行：真正的保护上下限写在这里（math.clamp 到 [-20, 90]），
+--    而「血量不至于归零」的那道保险其实不在本文件，在 health.lua 的 nonlethal_*。
+--
+-- 【⚠️ 容易踩的坑】
+-- - 本文件没有任何「阈值迟滞（hysteresis）」。0 度与 overheattemp 都是单点判定。
+--   跨阈值时靠 (新状态) ~= (旧状态) 做边沿触发，只为避免每帧重复 PushEvent；
+--   状态本身在阈值附近仍会逐帧抖动。移植时若需要真正的迟滞带，得自己加。
+-- - 保暖公式 SEG_TIME/(SEG_TIME+insulation) 的结果单位是「度/秒」，
+--   且其「零保暖」取值恰好等于 1，隐式绑定了 TUNING.WARM_DEGREES_PER_SEC = 1。
+--   改后者而不改前者，等 equilibrium 行为静默改变。详见第 493 行。
+-- - GetInsulation() 的叠加顺序是有语义的：胡须先加冬季保暖、再减夏季保暖，
+--   所以夏季保暖可能被减成负数，第 302 行的 math.max(0, ...) 是必需的保护。
+local SourceModifierList = require("util/sourcemodifierlist")
+
+local ZERO_DISTANCE = 10
+-- 热源搜索半径 10 码。预存它的平方是因为热源循环里要反复比较 d^2 与该值，
+-- 开方比乘法贵，而且下面第 444 行的 falloff 直接用了它做归一化分母。
+-- ⚠️ 这个 10 与 FindEntities 的第三个参数是同一个常量，改一处必须改两处。
+local ZERO_DISTSQ = ZERO_DISTANCE * ZERO_DISTANCE
+
+local function oncurrent(self, current)
+-- Class 属性表的回调：当 self.current 被赋值时自动调用。
+-- 关键点在于「由框架在赋值处拦截」，所以第 168 行直接写 self.current = ... 就会触发，
+-- 不需要像 SetTemperature 里那样手工调 oncurrent。
+-- ⚠️ 它不是「只在跨越阈值时触发」，而是每次赋值都触发 —— 而 SetTemperature 每帧都跑，
+-- 所以这里每帧都会推一次 UI 更新。这是刻意的：温度计需要连续刷新。
+-- 只有挂了 player_classified 的实体（玩家）才走这条同步路径；
+-- NPC 不需要联网同步，因为服务端才是唯一权威。
+    if self.inst.player_classified ~= nil then
+        self.inst.player_classified:SetTemperature(current)
+    end
+end
+
+local function onsheltered(inst, data)
+-- 「是否处于遮蔽下」的事件回调，由 components/sheltered.lua 推送。
+-- ⚠️ 注意它写的是 inst.components.temperature.sheltered —— 绕过属性系统直接赋值，
+-- 因此不会触发 oncurrent 回调（这是对的，温度没变，不该刷 UI）。
+-- 数据有两种形态：布尔（旧数据）或表（新数据，额外带 level）。
+-- ⚠️ 兼容分支说明这是跨存档版本留下的：读老存档时只有布尔值。
+-- line 16 用 `if data.level` 而非 `~= nil`：level 恒为正整数，
+-- 所以两者等价，但这里作者选择了好读性优先。
+    if type(data) == "table" then
+        inst.components.temperature.sheltered = data.sheltered
+        if data.level then
+            inst.components.temperature.sheltered_level = data.level
+        end
+    else
+        inst.components.temperature.sheltered = data
+    end
+end
+
+local Temperature = Class(function(self, inst)
+-- 构造函数。温度组件的全部初始状态都在这里定型，后面 OnUpdate 只读不建。
+    self.inst = inst
+    self.settemp = nil
+    self.current = TUNING.STARTING_TEMP
+-- 起始体温 35 度。注意这不是「0 度」——0 度是结冰线，是伤害判定的阈值，
+-- 而 35 度是「中性体感」，对应 TUNING.STARTING_TEMP，也是第 488 行判断冷热的基准。
+-- 这两个 0 与 35 千万别混：DST 的温度是相对「体感」而非绝对开尔文。
+    self.maxtemp = TUNING.MAX_ENTITY_TEMP
+-- ★ 真正的保护上下限：实体温度被硬夹在 [-20, 90]。
+-- MIN_ENTITY_TEMP = -20，MAX_ENTITY_TEMP = 90（见 tuning.lua）。
+-- 这两个值决定了「就算把所有保暖都脱光、最冷那天站在冰天雪地里」，
+-- 体温也只到 -20 度，而 -20 度与 -0.1 度受到的伤害完全相同（见第 519 行：
+-- 伤害只取决于 current < 0 这个布尔，不取决于低了多少）。
+-- → 这就是「为什么不会瞬间冻死」的第一层答案：伤害与偏离幅度脱钩。
+    self.mintemp = TUNING.MIN_ENTITY_TEMP
+    self.overheattemp = TUNING.OVERHEAT_TEMP
+-- 过热阈值 70 度，比硬上限 90 低 20。
+-- 留出 20 度缓冲的意义：越过 70 之后你还有时间脱身，
+-- 因为伤害也只是「每扣 1.25 点血」，不会一下打死。
+    self.hurtrate = TUNING.WILSON_HEALTH / TUNING.FREEZING_KILL_TIME
+-- ★ 结冰掉血速率 = 150 / 120 = 1.25 点/秒。
+-- WILSON_HEALTH = 150，FREEZING_KILL_TIME = 120（见 tuning.lua）。
+-- 这个写法的妙处：调平衡时只改 FREEZING_KILL_TIME 一个旋钮，
+-- 「冻多久会死」这个玩家能感知的量就跟着变，而实际掉血速率自动跟随，
+-- 不需要同时维护两个魔数。注释里也明说健康值可能随角色不同而不同。
+-- ⚠️ 但 MIN_ENTITY_TEMP 到 0 之间有 20 度的「无效区间」：在这 20 度里，
+-- 玩家感觉越来越冷（体温计在降），受到的伤害却纹丝不动。这是有意的
+-- 体感与解耦，但移植时容易被当成 bug 报告。
+    --self.overheathurtrate = nil --defaults to use same as .hurtrate (freezing rate)
+-- 被注释掉的过热掉血速率。注意这行注释是「说明性」的，不是死代码：
+-- 它的语义被第 521 行的 `or self.hurtrate` 实现了 —— 过热掉血默认复用结冰速率。
+-- 想知道「过热是否会比冻死更快」，答案是由外部组件调 SetOverheatHurtRate 决定的，
+-- 组件本身不预设。
+    self.inherentinsulation = 0
+    self.inherentsummerinsulation = 0
+    self.shelterinsulation = TUNING.INSULATION_MED_LARGE
+-- 遮蔽提供的保暖值，默认按「中等偏大」取值（INSULATION_MED_LARGE = seg_time*6 = 180）。
+-- ⚠️ 注意第 280 行把它加到的是「夏季保暖」而不是冬季保暖，详见那里的说明。
+    self.bellytemperaturedelta = nil
+-- 以下三项是「刚吃过东西」的一次性温度效果（热食取暖 / 冷食降温）。
+-- 之所以要单独存而不能并进 totalmodifiers，是因为它带时长、会自己过期，
+-- 而 totalmodifiers 是一个无期限的、由 SetModifier 管理的累加量。
+-- 两种生命周期必须分开存，否则到期时无法从累加量里「减掉一份」
+--（因为你不知道这一份当初是谁加的、加了多少）。
+    self.bellytime = nil
+    self.bellytask = nil
+    self.ignoreheatertags = { "INLIMBO" }
+-- 热源搜索时忽略的标签。INLIMBO 表示实体正在被加载或卸载，
+-- 此时读它的组件状态不安全，必须排除。
+    self.usespawnlight = nil
+
+    --At max moisture, the player will feel cooler than at minimum
+    self.maxmoisturepenalty = TUNING.MOISTURE_TEMP_PENALTY
+-- ★ 湿度对体感的最大影响 = 30 度。
+-- 也就是说「全身湿透」等价于环境温度直接下降 30 度 —— 一个非常大的量级，
+-- 雨季在 DST 里之所以危险，根源就在这一行。
+-- 变量名叫 penalty（惩罚）但值是正的 30，因为它表达的是「惩罚的幅度」，
+-- 真正取负号发生在第 306 行。别被名字骗了。
+
+    --Cached update values
+-- 以下三个是「逐帧预算出来的中间量」，缓存起来纯粹是为了：
+--   1) 避免每帧重复调用 GetInsulation / GetMoisturePenalty；
+--   2) 给 GetDebugString（第 181 行）与调试面板提供快照。
+-- ★ 注意 totalmodifiers 也在这里：它不是逐帧量，而是「由 SetModifier 增量维护」的量，
+--   放在这组里是因为 OnUpdate 每帧会重置另外两个。
+    self.totalmodifiers = 0
+    self.externalheaterpower = 0
+    self.delta = 0
+    self.rate = 0
+
+    self.sheltered = false
+-- sheltered 是「遮蔽」总开关（来自事件），sheltered_level 是遮蔽强度等级。
+-- 两者控制的是不同效果：level 只在第 363 行用于「压制环境温度上限」，
+-- 而 sheltered 在第 280 行用于「加夏季保暖」、第 428 行用于「树下降温」。
+-- → 移植时若把两者合并成一个变量，树的遮蔽效果会失效。
+    self.sheltered_level = 1
+    self.inst:ListenForEvent("sheltered", onsheltered)
+
+    self:OnUpdate(0)
+-- ★ 先以 dt = 0 空跑一帧，再开始每帧更新。
+-- 这一步不是「多余的初始化」：构造函数里 self.delta / self.rate 都还是 nil，
+-- 而 GetDebugString（第 183 行）无条件读它们，Moisture 组件（第 293 行）
+-- 也无条件读 externalheaterpower。不先跑一帧，别的组件在同一次 AddComponent
+-- 序列里就可能读到 nil。
+-- dt = 0 保证这一步只填缓存、不动温度。
+    self.inst:StartUpdatingComponent(self)
+-- StartUpdatingComponent 把本组件挂上「每帧驱动」名单，引擎随后每帧调 OnUpdate(dt)。
+-- 这是 DST 里「连续量」的标准驱动方式；对比 Hunger 用的是
+-- DoPeriodicTask(1, ...)，即「每秒一次」。为什么温度不用后者，见第 311 行。
+end,
+nil,
+{
+    current = oncurrent,
+-- Class 的第三个参数：属性声明表。{ current = oncurrent } 等价于自动生成
+-- GetCurrent/SetCurrent，并且在每次赋值时调用 oncurrent(self, newvalue)。
+-- ⚠️ 只声明了 current 一个属性，maxtemp / mintemp 等都是普通字段，
+-- 所以 GetMax() 只是原样返回字段（见第 115 行）。
+})
+
+function Temperature:SetFreezingHurtRate(rate)
+-- 覆盖结冰掉血速率。返回 self 是为了让调用方能链式书写。
+-- ⚠️ 这里返回了 self 但下一行 SetOverheatHurtRate 同样如此，两者一致，没问题。
+    self.hurtrate = rate
+end
+
+function Temperature:SetOverheatHurtRate(rate)
+-- 覆盖过热掉血速率。传 nil 即可回落到「与结冰同速」（见第 521 行的 or 兜底）。
+    self.overheathurtrate = rate
+end
+
+function Temperature:DoDelta(delta, skipinsulation)
+-- ★ 对外的「一次性温度改变」接口（吃冰块、淋雨、传送等都用它）。
+-- 关键理解：保暖在这里的作用是「削弱这次改变的幅度」，而不是「改变最终温度」。
+-- 最终温度仍由第 367 行的目标温度公式决定。
+-- → 同一个量在两处被用到，但语义不同：这里是乘在 delta 上（幅度衰减），
+--   第 493/502 行是夹在 rate 上（速率封顶）。别混为一谈。
+    if not skipinsulation then
+-- skipinsulation 为真时完全跳过保暖折算，供「必须精确生效」的内部调用使用
+-- （例如存档读档后的温度对齐，或物品温度同步）。
+        local winterInsulation,summerInsulation = self:GetInsulation()
+-- GetInsulation 一次返回两个值：冬季保暖、夏季保暖。这里同时都要，
+-- 因为下面按 delta 的正负分别取用。
+
+        if delta > 0 then
+-- ★ 关键分支：正在升温（delta > 0）时，用「夏季保暖」来抵抗升温。
+-- 这看起来反直觉 —— 保暖怎么会有「夏季」和「冬季」之分？
+-- 设定上 DST 的保暖分两类：冬装（保温，防冻伤）与夏装（隔热，防中暑），
+-- 分别对应「不让变冷」和「不让变热」。所以升温要用夏装挡。
+-- ⚠️ 若把这行写成 winterInsulation，玩家穿毛毯烤火会冻死 —— 这是最容易移植错的一行。
+            delta = delta * (TUNING.SEG_TIME / (TUNING.SEG_TIME + summerInsulation))
+-- 折算公式 SEG_TIME / (SEG_TIME + insulation)。
+-- 单位推导（务必理解，否则改数值会全错）：
+--   SEG_TIME = 30（tuning.lua 的 seg_time，即「一个季节段 = 30 秒」）。
+--   零保暖时 → 30/30 = 1。
+--   满保暖 180 时 → 30/210 ≈ 0.143。
+-- 返回值被当作「度/秒」的速率乘在 delta 上，所以保暖的物理含义是：
+--   「抵抗一次温度改变所需的时间常数」。保暖越大，时间常数越长。
+-- ★ 隐患：这个公式的零保暖取值恰好是 1，与 TUNING.WARM_DEGREES_PER_SEC = 1 巧合相等。
+--   若有人把 WARM_DEGREES_PER_SEC 改成 2 而没动这里，
+--   「零保暖时的升温上限」就仍被钳在 1 度/秒，与 WARM_DEGREES_PER_SEC 失去联动。
+--   这两个常数被隐式耦合在一起，值得在自己的引擎里显式拆开。
+        else
+            delta = delta * (TUNING.SEG_TIME / (TUNING.SEG_TIME + winterInsulation))
+-- delta < 0（正在降温）时改用「冬季保暖」抵抗降温，语义对称。
+        end
+    end
+
+    self:SetTemperature(self.current + delta)
+-- 折算后叠加到当前温度。注意这里调的是 SetTemperature（会走属性回调刷 UI），
+-- 而不是直接写 self.current。
+end
+
+local function ClearBellyTemperature(inst, self)
+-- 清除「刚吃过东西」的一次性温度效果。做成独立函数是为了给两处复用：
+-- 定时器到期（第 100 行）与组件卸载（第 104 行）。
+-- ⚠️ 组件被卸载时必须取消定时器，否则定时器回调会在组件死掉后访问 self，
+--   这是 Lua 组件化里最经典的一类泄漏/崩溃。
+    self.bellytemperaturedelta = nil
+    self.bellytime = nil
+    if self.bellytask ~= nil then
+        self.bellytask:Cancel()
+        self.bellytask = nil
+    end
+end
+
+function Temperature:SetTemperatureInBelly(delta, duration)
+-- 设置一次性温度效果（热食/冷食）。delta 为正表示暖，为负表示凉。
+    self.bellytemperaturedelta = delta
+    self.bellytime = GetTime() + duration
+-- ★ bellytime 存的是「绝对到期时刻」（GetTime() + duration），不是剩余时长。
+-- 存绝对时刻的好处：即使组件的 OnUpdate 期间发生了暂停/加速，
+-- 到期判断仍然基于同一时间基准，不会漂移。
+-- 代价是存档时必须转换（见第 124 行）。
+    if self.bellytask ~= nil then
+-- 重复调用时先取消旧定时器 —— 保证同一时刻只有一个腹部温度效果在生效。
+-- ⚠️ 这里 Cancel 的是 bellytask，但没把 self.bellytask 置 nil，
+--   紧接着第 100 行就重新赋值，所以实际无害；只是可读性上不够干净。
+        self.bellytask:Cancel()
+    end
+    self.bellytask = self.inst:DoTaskInTime(duration, ClearBellyTemperature, self)
+-- DoTaskInTime 一次性延迟任务，到期回调 ClearBellyTemperature。
+-- ⚠️ 传了 self 作为额外参数（第 4 个参数位），避免闭包捕获 self ——
+--   风格上比 function() ... end 闭包更好，因为闭包会延长 self 的生命周期引用。
+-- 对比：第 55 行用的是 StartUpdatingComponent，说明本组件是
+-- 「持续逐帧量 + 少量一次性定时器」的混合体，而不是纯定时器驱动。
+end
+
+function Temperature:OnRemoveFromEntity()
+-- 卸载钩子。三件事：清腹部温度、清 UI 的结冰标记、退订事件。
+-- ⚠️ 第 106 行只清了 isfreezing，没清 overheating。
+--   我核实过 temperature.lua 全文只有这一处写 player_classified.isfreezing，
+--   没有对应的 isoverheating 清理 —— 若别处未自行清理，玩家复活后
+--   过热图标可能残留。标记为「疑似缺陷」（依赖 player_classified 侧是否有别的兜底，
+--   该文件不在 components/ 目录内，我无法在本轮确认）。
+-- 第 104 行传 nil 作为第一个参数：ClearBellyTemperature 的 inst 参数未被使用，
+-- 纯粹是为了满足「inst 是回调第一个参数」的通用回调签名。
+    ClearBellyTemperature(nil, self)
+    if self.inst.player_classified ~= nil then
+        self.inst.player_classified.isfreezing:set(false)
+    end
+    self.inst:RemoveEventCallback("sheltered", onsheltered)
+end
+
+function Temperature:GetCurrent()
+-- 读当前体温。极简，但它是外部读取体感温度的标准入口。
+    return self.current
+end
+
+function Temperature:GetMax()
+-- 读硬上限（90）。注意它读的是 maxtemp 而非 overheattemp（70），
+-- 后者只由 IsOverheating 使用。两者含义不同，别混。
+    return self.maxtemp
+end
+
+function Temperature:OnSave()
+-- 只存三样：当前温度、腹部温度效果、腹部效果的剩余时长。
+-- ★ 不存 totalmodifiers、不存保温值 —— 因为它们都能由世界状态与装备重新推导，
+--   存下来反而会产生「存档与实际装备不一致」的双重事实。
+-- 这是很值得学的取舍：只持久化「不可推导的状态」。
+    return
+    {
+        current = self.current,
+        bellytemperaturedelta = self.bellytemperaturedelta,
+        bellytime = self.bellytemperaturedelta ~= nil and self.bellytime - GetTime() or nil,
+-- ★ 绝对时刻 → 剩余时长的转换：`self.bellytime - GetTime()`。
+-- 用 `and/or` 三元而非 if，是因为 bellytemperaturedelta 为 nil 时 bellytime 必然也是 nil，
+-- 而 nil 参与减法会报错，所以要用短路先挡住。
+-- ⚠️ 这个表达式可读性很差（两个 or 嵌套），但改写成 if 就要多几行；
+--   DST 全局大量使用这种写法，是它的风格之一。
+    }
+end
+
+function Temperature:OnLoad(data)
+-- 读档。核心难点是：玩家离线期间世界仍在推进，存档里的温度已经过时。
+    if data.bellytemperaturedelta ~= nil then
+-- 腹部温度效果直接恢复。⚠️ 注意 duration 可能是 0 或负数（离线太久，
+--   存的是负时长），DoTaskInTime 传非正数的行为未定义。
+--   实际影响很小（效果本来就是一次性的），但严格说是个未防御的边界。
+        self:SetTemperatureInBelly(data.bellytemperaturedelta, data.bellytime)
+    end
+
+    if data.current ~= nil and self.current ~= data.current then
+-- ★★ 读档防作弊 / 防视觉突兀的核心逻辑（133-151 行）。
+-- 场景：玩家在冬天（体感 -10）下线，世界进入夏天（体感 +35），玩家上线。
+-- 若无脑恢复 self.current = -10，玩家会看到体温计显示 -10 度，
+-- 而周围是炎热的夏天 —— 这就是源码第 135-136 行注释所说的「看起来很 glitchy」。
+-- 做法：只把存档温度往「世界温度」方向做部分恢复，绝不越过世界温度。
+-- → 这是「服务器权威」的另一个维度：世界状态覆盖客户端/存档状态。
+        if self.inst.isplayer then
+            --world updates while players are logged off, so it looks glitchy
+            --when you log off with winter temperature and log back into summer
+            local world_temp = TheWorld.state.temperature
+
+            if data.current > self.current then
+-- 分三种情况。data.current > self.current 表示「存档时比现在热」。
+                if world_temp > self.current then
+-- 只有「世界此刻也比现在热」才恢复，且恢复到 min(存档, 世界) ——
+-- 即最多恢复到世界温度为止，绝不超出。
+-- 第 142 行调 OnUpdate(0)：dt=0 只重算 delta / rate / externalheaterpower 等缓存，
+-- 让恢复后的状态立刻反映到湿度组件等消费者上，但温度本身不动。
+                    self.current = math.min(data.current, world_temp)
+                    self:OnUpdate(0)
+                end
+            elseif world_temp < self.current then
+-- 反向情况：存档时更冷。max(存档, 世界) 同理，最多回到世界温度。
+-- ⚠️ 注意这里是 `elseif world_temp < self.current`，而不是独立的 if。
+--   也就是说：若存档更热但世界更冷（第 139 行成立、第 140 行不成立），
+--   整个分支块被跳过，一行都不执行。这是刻意的（见第 139 行逻辑），
+--   但写成嵌套 if 会更易读 —— 属于「正确但难读」的一处。
+                self.current = math.max(data.current, world_temp)
+                self:OnUpdate(0)
+            end
+        else
+-- 非玩家实体（怪物、物品）没有「视觉突兀」问题，直接无条件恢复。
+-- → 保护只针对玩家，这是「表现层修正」而非「数值层修正」的分界线。
+            self.current = data.current
+            self:OnUpdate(0)
+        end
+    end
+end
+
+function Temperature:IgnoreTags(...)
+-- 追加需要忽略的热源标签。写法是 { "INLIMBO", ... }：
+-- 总是保留 INLIMBO（安全底线），把调用方传入的标签加在后面。
+-- ⚠️ 若这里写成 { ... } 就会丢掉 INLIMBO，
+--   开发者可以通过这个接口引入「加载中的实体被当成热源」这一崩溃。
+    self.ignoreheatertags = { "INLIMBO", ... }
+end
+
+function Temperature:SetTemp(temp)
+-- ★ 把温度「钉死」在某个值上。传 nil 解钉、恢复自然演化。
+-- 这是全文件最有杠杆的一个开关：settemp 一旦非 nil，
+-- 第 316 行会让 OnUpdate 每帧直接 return —— 温度、伤害、事件全部停摆。
+-- 实际用途见 player_common.lua：游戏模式 no_temperature 时把玩家钉死在 35 度，
+-- 以及读档流程末尾解锁（见 player_common_extensions.lua 第 282 行）。
+    self.settemp = temp
+-- ⚠️ 这里先赋值再判断，所以调用 SetTemp()（参数 nil）时 settemp 被置为 nil，
+--   「解钉」正是靠这一步生效的。
+    if temp ~= nil then
+        self:SetTemperature(temp)
+    end
+end
+
+function Temperature:SetTemperature(value)
+-- ★★ 全文件唯一修改 self.current 的地方。所有温度变化都必须经过这里，
+--   这样夹取、边沿事件、属性回调三件事只需实现一次。
+    local last = self.current
+-- 保存旧值，用于边沿判定。
+    self.current = math.clamp(value, self.mintemp, self.maxtemp)
+-- ★★★ 保护上下限的第一层，也是最重要的一层：math.clamp 到 [-20, 90]。
+-- 这一行回答了「为什么不能让玩家瞬间冻死/中暑」的一半问题：
+--   无论外部输入多离谱（传送进火山、被龙息喷），实体温度有硬上限。
+-- 但注意它只保护「温度」，不保护「血量」—— 保护血量的是 health.lua 的
+-- nonlethal_temperature（第 616-621 行），那才是「不会归零」的那道保险。
+-- ⚠️ 两层保护缺一不可：只有 clamp 不够（-20 度一样会持续掉血，
+--   最终血量归零）；只有 nonlethal 也不够（温度表会跑出合理显示范围）。
+
+    if (self.current < 0) ~= (last < 0) then
+-- ★ 边沿触发：只有「是否结冰」这个布尔发生变化时才推事件。
+--   `~=` 比较两侧的布尔，所以它不是「迟滞带」，而是纯粹的「变化检测」。
+-- 移植要点：若写成 `if self.current < 0 then PushEvent(...) end`，
+--   玩家在 0 度附近时每帧都会推一次事件（每秒 30 次），下游特效会疯狂闪烁。
+-- 这与 playercontroller.lua 第 3519 行那种「真迟滞」（同目标加成 1.5 倍）是
+-- 两种不同技术，不要混用同一个名字去理解。
+        self.inst:PushEvent(self.current < 0 and "startfreezing" or "stopfreezing")
+-- 事件名由当前状态决定：变冷推 startfreezing，变暖推 stopfreezing。
+    end
+
+    if (self.current > self.overheattemp) ~= (last > self.overheattemp) then
+-- 过热阈值同样用边沿触发，逻辑与结冰线完全对称。
+-- ⚠️ 两个 if 之间没有 elseif：如果 mintemp 与 overheattemp 被配成互相交叉
+--   （不可能出现在正常配置），两段都会执行。属于「依赖配置约束」的隐含假设。
+        self.inst:PushEvent(self.current > self.overheattemp and "startoverheating" or "stopoverheating")
+    end
+
+    self.inst:PushEvent("temperaturedelta", { last = last, new = self.current, hasrate = self.rate ~= 0 })
+-- ★ 每帧推一次 temperaturedelta，并附带 hasrate 标志。
+-- hasrate = (self.rate ~= 0) 让下游能区分「温度在动」与「温度被钉死」，
+-- 从而决定温度计动画该播还是该停 —— 而这正好与第 316 行的提前 return 配套：
+-- 温度被钉死时既不推事件也不推 hasrate，UI 自然静止。
+end
+
+function Temperature:GetDebugString()
+-- 调试字符串。★ 这里的参数顺序有一处与直觉相反：
+-- 实际传入的是 current, rate, delta, totalmodifiers, winter, summer，
+-- 而格式串里第 2 个 %2.2f 标的是 "at %2.2f"（像是在报温度），实际是 rate；
+-- 第 3 个标 "delta" 的实际是 delta —— 巧合对齐，所以看不出问题。
+-- 但语义上应理解为「体温 / 变化速率 / 与目标的差值」。
+	local winter, summer = self:GetInsulation()
+	local str = string.format("%2.2fC at %2.2f (delta: %2.2f) (modifiers: %2.2f) (insulation: %d, %d)", self.current, self.rate, self.delta, self.totalmodifiers, winter, summer)
+	if self.inst.sleepingbag ~= nil and self.inst.sleepingbag.components.sleepingbag.ambient_temp then
+-- 附加显示睡袋的环境温度，方便排查「睡袋里为什么还冷」。
+-- ⚠️ 三重 and 都没做 nil 保护：self.inst.sleepingbag 非 nil，
+--   但 .components.sleepingbag 是否一定存在，本文件无法确认（睡眠袋是另一个实体）。
+--   标记为「疑似隐患」，取决于挂载顺序。
+		str = str .. string.format(" (sleepingbag %2.2f)", self.inst.sleepingbag.components.sleepingbag.ambient_temp)
+	end
+    return str
+end
+
+function Temperature:IsFreezing()
+-- 是否结冰：current < 0。
+-- ⚠️ 注意与第 170 行的判定完全一致 —— 这个函数是给外部查询用的纯谓词，
+--   不含任何迟滞，因此外部每帧调用它是安全的。
+    return self.current < 0
+end
+
+function Temperature:IsOverheating()
+-- 是否过热：current > overheattemp（70），而非硬上限 90。
+-- 与 IsFreezing 的区别：结冰线是「绝对 0 度」，过热线是「配置值」。
+    return self.current > self.overheattemp
+end
+
+function Temperature:SetModifier(name, value)
+-- ★ 按名字设置一个温度修正量（正值 = 让体感更热）。
+-- 典型来源：洞穴环境、剧情任务、装备特效。
+-- 设计要点：用「名字 → 数值」的字典，再维护一个增量累加值 totalmodifiers，
+-- 这样 OnUpdate 里不必每帧遍历字典求和。
+    if value == nil or value == 0 then
+-- ⚠️ 设置 0 等价于移除。这是个便利但有代价的设计：
+--   想表达「加一个 0 的修正」是做不到的，不过 0 本来也无实际作用，故可接受。
+-- 收敛成 RemoveModifier 让调用方不必自己判断「0 要不要清」。
+        return self:RemoveModifier(name)
+    elseif self.temperature_modifiers == nil then
+-- 首次设置走快速路径：直接建字典并把 totalmodifiers 初始化为该值。
+-- ⚠️ 这里 return 之后 totalmodifiers 只在「第一个」 modifier 时被这样初始化；
+--   第二个及以后走第 211 行的增量路径。不算 bug，但两条路径并存增加阅读成本。
+        self.temperature_modifiers = { [name] = value }
+        self.totalmodifiers = value
+        return
+    end
+    local m = self.temperature_modifiers[name]
+-- 取出旧值，后面做差。
+    if m == value then
+-- 值未变则直接返回，避免无意义的写与下游刷新。
+-- ★ 这是「幂等写入」的标准写法：让 SetModifier(x, v) 重复调用任意多次结果相同，
+--   上层就不需要自己去重。
+        return
+    end
+    self.temperature_modifiers[name] = value
+    self.totalmodifiers = self.totalmodifiers + value - (m or 0)
+-- ★ 增量维护：total += 新值 - 旧值。
+-- `(m or 0)` 的兜底不可省：首次设置时 m 为 nil，
+-- 直接 `total + value - m` 会在 nil 上做算术而报错。
+-- 相比「每次遍历字典重算」，增量法的 O(1) 在每帧调用下差别明显。
+end
+
+function Temperature:RemoveModifier(name)
+-- 按名字移除修正量。同样是幂等的（第 219 行的 nil 检查）。
+    if self.temperature_modifiers == nil then
+        return
+    end
+    local m = self.temperature_modifiers[name]
+    if m == nil then
+        return
+    end
+    self.temperature_modifiers[name] = nil
+-- 先从字典删掉该项。
+    if next(self.temperature_modifiers) == nil then
+-- ★ 自清理：字典空了就把整个字典置 nil，并把 totalmodifiers 归零。
+-- 意义在于内存与 GC：长期运行的游戏里，一个空表挂在组件上毫无价值。
+-- 顺带保证了「字典为空时 totalmodifiers 必然等于 0」这个不变式，
+-- 因为把所有项逐个 RemoveModifier 累减的结果也一定是 0，两者自洽。
+        self.temperature_modifiers = nil
+        self.totalmodifiers = 0
+    else
+        self.totalmodifiers = self.totalmodifiers - m
+-- 还有剩余项则只做减法。
+    end
+end
+
+function Temperature:SetInsulationModifier(insulationtype, src, insulation, key)
+-- 设置保暖修正量。与 SetModifier 的区别有三处，都很重要：
+--   1) 分为冬/夏两个独立容器（第 233 行的 insulationtype）；
+--   2) 夏季保暖可以是负数（表示「加剧中暑」，见第 302 行）；
+--   3) 用 SourceModifierList 而非普通字典，因此支持「来源 src」与「子键 key」，
+--      可区分同一来源下的多个独立修正（例如一件装备的两个槽位）。
+-- → 第三方代码要覆盖保暖，走这个接口而不是 SetInsulationModifier 的字典。
+    self.insulation_modifiers = self.insulation_modifiers or {}
+-- 惰性建表：整个 insulation_modifiers 只有在真的用上保暖接口时才存在。
+    local modifiers = self.insulation_modifiers[insulationtype]
+	if modifiers == nil then
+		modifiers = SourceModifierList(self.inst, 0, SourceModifierList.additive)
+-- SourceModifierList(inst, 0, additive)：第三个参数 additive 表示修正值相加
+-- 而非相乘。对保暖来说相加是对的（毛毯 180 + 帽子 60 = 240）。
+-- 若用 multiplicative，同样是 180 的两件装备会变成 180*180，保暖爆炸。
+		self.insulation_modifiers[insulationtype] = modifiers
+	end
+	modifiers:SetModifier(src, insulation, key)
+end
+
+function Temperature:RemoveInsulationModifier(insulationtype, src, key)
+-- 移除保暖修正量。三级容错：容器可能不存在、该季容器可能不存在、
+-- 移除后可能变空，逐层回收，避免残留空容器。
+	local modifiers = self.insulation_modifiers ~= nil and self.insulation_modifiers[insulationtype] or nil
+	if modifiers ~= nil then
+		modifiers:RemoveModifier(src, key)
+		if modifiers:IsEmpty() then
+-- 该季节的容器空了则删掉它。这是「不留垃圾」的常见写法。
+			self.insulation_modifiers[insulationtype] = nil
+            if next(self.insulation_modifiers) == nil then
+-- 连带判断外层字典是否也空了，是则整体置 nil。
+-- ⚠️ 此处 `next(self.insulation_modifiers)` 在 insulation_modifiers 刚被删掉
+--   自己之后又访问它 —— 逻辑上安全（第 245-246 行刚赋值为 nil，
+--   第 247 行的 next(nil) 在 Lua 中会报错！）。
+--   重新核对：第 246 行 `self.insulation_modifiers[insulationtype] = nil`
+--   只是删了内层键，外层表仍存在，所以 next() 安全。
+--   我已对照第 246 行确认，此处无误 —— 特别记录以免后人误判为 bug。
+                self.insulation_modifiers = nil
+            end
+		end
+	end
+end
+
+function Temperature:GetInsulation()
+-- ★★ 保暖值的合成函数，返回 (冬季保暖, 夏季保暖) 两个值。
+-- 移植价值：这是「一件装备的保暖如何进入最终计算」的完整样板。
+-- 六层来源按固定顺序叠加：
+--   1. inherentinsulation / inherentsummerinsulation  —— 实体固有（狼人、玩家）
+--   2. 装备槽上的 insulator 组件                          —— 按冬/夏分流
+--   3. beard 组件（胡须）                                 —— 加冬、减夏
+--   4. self.sheltered（遮蔽）                             —— 只加夏
+--   5. insulation_modifiers（外部接口）                    —— 按冬/夏分流
+--   6. 夜晚/黄昏加成                                      —— 只在非洞穴生效
+-- ⚠️ 顺序不影响加法结果，但影响「谁能覆盖谁」—— 本文件全是加法，没有覆盖语义，
+--   所以顺序其实无关。这是个值得注意的简化：没有「最高优先级」的概念。
+    local winterInsulation = self.inherentinsulation
+-- 从「固有保暖」起算，随后所有来源都是往上加或往下减。
+    local summerInsulation = self.inherentsummerinsulation
+
+    if self.inst.components.inventory ~= nil then
+-- 遍历装备槽。⚠️ 用 pairs 而非 ipairs：装备槽是「名字 → 实体」的字典
+--（例如 hat / backpack），不是数组，ipairs 会一个都取不到。
+-- 这是 Lua 里最常见的字典/数组混淆陷阱。
+        for k, v in pairs(self.inst.components.inventory.equipslots) do
+            if v.components.insulator ~= nil then
+-- 只关心挂了 insulator 组件的装备。insulator.lua 默认类型是 SEASONS.WINTER。
+                local insulationValue, insulationType = v.components.insulator:GetInsulation()
+
+                if insulationType == SEASONS.WINTER then
+-- 按 GetInsulation() 返回的第二值（类型）分流：冬装进冬季桶，夏装进夏季桶。
+-- → 这就解释了第 75 行为什么「升温用夏季保暖」：夏装的语义就是「不让变热」。
+                    winterInsulation = winterInsulation + insulationValue
+                elseif insulationType == SEASONS.SUMMER then
+                    summerInsulation = summerInsulation + insulationValue
+                else
+-- ⚠️ 防御性分支：类型既非冬也非夏时打印错误但不修正。
+-- 实际会静默少算这份保暖。留在这里说明作者预期「不该发生」，
+-- 是模组作者最容易踩的坑之一（自定义 insulator 时忘调 SetSummer/SetWinter）。
+                    print(v, " has invalid insulation type: ", insulationType)
+                end
+            end
+        end
+    end
+
+    if self.inst.components.beard ~= nil then
+-- ★ 胡须：同一个值同时加到冬季保暖、并从夏季保暖里减掉。
+-- 两次调用 GetInsulation() 结果相同，作者没做局部缓存 —— 属轻微性能浪费，
+-- 但因为胡须的绝缘值来自技能树（基本不变），实际代价极小。
+        --Beards help winterInsulation but hurt summerInsulation
+-- 语义：胡须帮你保暖（抗冻），但也让你更怕热。
+-- → 这是「同一个物理量在不同季节反向生效」的设计，
+--   自研引擎若只有单一「保暖值」，就没法表达这种双向效果。
+        winterInsulation = winterInsulation + self.inst.components.beard:GetInsulation()
+        summerInsulation = summerInsulation - self.inst.components.beard:GetInsulation()
+    end
+
+    if self.sheltered then
+-- ★★ 遮蔽为什么加的是「夏季保暖」？
+-- 因为树荫的作用不是「保温」，而是「挡住太阳辐射带来的升温」。
+-- 所以它加进夏季保暖（第 493 行会用它限制升温速率）。
+-- ⚠️ 推论：树荫在冬天不会让你更暖和，这是刻意的，不是 bug。
+        summerInsulation = summerInsulation + self.shelterinsulation
+    end
+
+    if self.insulation_modifiers ~= nil then
+-- 外部接口传入的保暖修正。与前几层同样按冬/夏分流。
+        if self.insulation_modifiers[SEASONS.WINTER] then
+            winterInsulation = winterInsulation + self.insulation_modifiers[SEASONS.WINTER]:Get()
+        end
+
+        if self.insulation_modifiers[SEASONS.SUMMER] then
+            summerInsulation = summerInsulation + self.insulation_modifiers[SEASONS.SUMMER]:Get()
+        end
+    end
+
+    if not TheWorld:HasTag("cave") then
+-- 夜晚/黄昏自动获得额外保暖（相当于自动穿件外套）。
+-- ⚠️ 用 `not TheWorld:HasTag("cave")` 一刀切：洞穴里没有黄昏黑夜之分，
+--   所以不掉这份加成。但反过来也意味着「洞穴里的玩家永远拿不到夜晚加成」，
+--   即使洞穴有天光。这是世界的整体约定，不是本组件的特例。
+        if TheWorld.state.isdusk then
+-- 黄昏加成 60（seg_time*2），夜晚 120（seg_time*4）。
+-- ⚠️ 写成 if/elseif 是因为二者互斥且夜晚更强，用 elseif 表达优先级比两次独立 if 清晰。
+            summerInsulation = summerInsulation + TUNING.DUSK_INSULATION_BONUS
+        elseif TheWorld.state.isnight then
+            summerInsulation = summerInsulation + TUNING.NIGHT_INSULATION_BONUS
+        end
+    end
+
+    return math.max(0, winterInsulation), math.max(0, summerInsulation)
+-- ★ 兜底夹取到 >= 0。这一行不是可有可无的健壮性代码，而是必需的正确性保证：
+--   第 277 行胡须会把夏季保暖减成负数；若放行，第 76/493 行的
+--   SEG_TIME/(SEG_TIME + 负数) 会得到大于 1 的系数 —— 夏装的「保暖」反而
+--   会加速升温，变成「保暖=加热」。
+-- → 移植时最容易漏掉的就是这个 math.max(0, ...)。它是一个被需求逼出来的夹取。
+end
+
+function Temperature:GetMoisturePenalty()
+-- ★★ 湿度对体感温度的修正，返回 <= 0 的值（冷是负方向）。
+-- 这是「温度」与「湿度」两个系统的耦合点，全 DST 仅此一处。
+    return self.inst.components.moisture ~= nil and -Lerp(0, self.maxmoisturepenalty, self.inst.components.moisture:GetMoisturePercent()) or 0
+-- Lerp(0, 30, 含水率) 再取负 → 完全干燥时 0，完全湿透时 -30。
+-- ⚠️ 这里的 `and ... or 0` 写法有个陷阱值得记录：
+--   若某天 Lerp 恰好返回 0（干燥且惩罚为 0 的极端配置），
+--   由于 Lua 中 0 是真值，`0 or 0` 结果仍是 0，恰好正确 —— 侥幸没出错。
+--   但若把 maxmoisturepenalty 配成负数，-Lerp 会得正数，语义就反了。
+-- 线性插值而非指数：湿冷影响是线性叠加的，好处是玩家能直觉预估。
+-- ⚠️ 没挂 moisture 组件的实体（多数怪物）返回 0，即完全免疫湿度影响。
+end
+
+local UPDATE_SPAWNLIGHT_ONEOF_TAGS = { "HASHEATER", "spawnlight" }
+-- 两个 FindEntities 的标签策略常量。ONEOF = 满足其一即可（性能较宽），
+-- MUST = 必须全满足（可走更窄的索引，更快）。
+local UPDATE_NOSPAWNLIGHT_MUST_TAGS = { "HASHEATER" }
+function Temperature:OnUpdate(dt, applyhealthdelta)
+-- ★★ 本组件的心脏。每帧被引擎调用一次，负责把「环境 + 各类热源 + 各类修正」
+-- 折算成一个 delta，再以「速率 x 时间」积分逼近目标。
+--
+-- 【★ 移植要点：为什么温度用每帧 OnUpdate，而饥饿用每秒 DoPeriodicTask】
+-- 对比 hunger.lua 第 38 行：`DoPeriodicTask(UPDATE_PERIOD=1, OnTaskTick)`。
+-- 三点结构性差异：
+--  1) 积分步长：温度是 rate x dt，dt 越小积分越平滑。若改成 1 秒一 tick，
+--     玩家会看到温度计每秒跳一格（量化噪声），而饥饿每秒掉一格人感觉不出来。
+--  2) 环境是连续空间量：GetTemperatureAtXZ 随坐标平滑变化，玩家移动时温度
+--     每帧都在变。若每秒采样一次，快速移动会「跳过」沿途的冷热区。
+--  3) 伤害是速率积分：第 519 行 -hurtrate x dt，若 tick 间隔固定为 1 秒，
+--     而引擎掉帧（dt 变大），伤害就会算错 —— 每帧积分天然免疫帧率波动。
+-- ⚠️ 反面代价：每帧调用 GetInsulation（遍历装备槽）+ FindEntities（空间查询），
+--   成本远高于每秒一次。玩家实体数量多时这是真实开销，
+--   所以代码才要精心挑 FindEntities 的标签策略（第 350-351 行）。
+--
+-- applyhealthdelta 参数：传 false 时只更新温度不造成伤害。
+-- 第 55/142/146/150 行以 dt=0 调用时不显式传，落到默认 true，
+-- 但 dt=0 使第 519 行的伤害恒为 0，因此无副作用。
+    self.externalheaterpower = 0
+-- 每帧重置三个累加器。必须每帧清，因为下面有提前 return（第 319 行），
+-- 不清就会残留上一帧的值，让外部（Moisture 组件读 externalheaterpower）
+-- 读到过期数据。
+-- ⚠️ 注意重置发生在提前 return 之前 —— 所以被 return 挡掉的实体
+--   externalheaterpower 恒为 0，意味着「被钉死温度的实体不会烘干」。
+--   这与 settemp 的语义（完全冻结）一致，是正确的。
+    self.delta = 0
+    self.rate = 0
+
+    if self.settemp ~= nil or
+-- ★ 提前返回的三种情况，任一成立则本组件完全停摆：
+--   1. settemp 非 nil —— 温度被钉死（见第 159 行）。这是唯一的全局开关。
+--   2. is_teleporting —— 传送中。防止传送瞬间被沿途环境伤害。
+--   3. 无敌状态 —— 这条同时挡住了温度伤害（见第 318 行调用 IsInvincible）。
+-- ⚠️ 这里 return 掉的不只是温度演化，还包括第 517-523 行的掉血。
+--   所以「无敌」期间不仅不掉血，连结冰掉血也一并免除 —— 这是有意为之，
+--   否则重生保护期间玩家站在冰天雪地里会被冻死，逻辑上说不通。
+        self.inst.is_teleporting or
+        (self.inst.components.health ~= nil and self.inst.components.health:IsInvincible()) then
+        return
+    end
+
+    local x, y, z = self.inst.Transform:GetWorldPosition()
+-- 取世界坐标。温度是空间量，必须先定位。
+
+    -- Can override range, e.g. in special containers
+-- ★ 局部副本而非直接用 self.mintemp / self.maxtemp。
+-- 原因：冰箱分支（第 335 行）需要临时抬高下限（不让冰袋把食物冻到 0 度以下），
+-- 而这个抬高只应作用于本次计算，不该污染组件的固有属性。
+-- → 「局部副本 + 用完即弃」是处理「临时性上下文修正」的标准手法，
+--   比修改成员变量再还原要安全得多（还原路径一旦有 return 就会漏）。
+    local mintemp = self.mintemp
+    local maxtemp = self.maxtemp
+
+    local owner = self.inst.components.inventoryitem ~= nil and self.inst.components.inventoryitem.owner or nil
+-- 取物品的「拥有者」（背包/箱子）。物品的温度演化受容器影响，所以要先找主人。
+-- ⚠️ `A ~= nil and A.owner or nil` 这个写法是 Lua 惯用法：
+--   当 A 为 nil 时短路成 nil；当 A 非 nil 时取 A.owner。
+--   它在 A.owner 可能为 false 时会出错（false or nil → nil），
+--   但这里 owner 只可能是 nil 或实体，安全。属于「知道边界条件的正确惯用法」。
+    local inside_pocket_container = owner ~= nil and owner:HasTag("pocketdimension_container")
+-- 「口袋维度容器」标记。玩家的储物空间（月亮的背包容）内部没有真实的空间温度场，
+-- 所以需要特殊处理（见下一行）。
+
+    local ambient_temperature = inside_pocket_container and TheWorld.state.temperature or GetTemperatureAtXZ(x, z)
+-- ★ 口袋容器内用「世界的平均温度」，外部用「脚下坐标的温度」。
+-- ⚠️ 用 `and ... or ...` 表达三元。若 inside_pocket_container 为 true 而
+--   TheWorld.state.temperature 为 nil，会 fall through 去调 GetTemperatureAtXZ，
+--   拿到一个错误结果却毫无报错 —— 这是本文件最脆弱的一处写法。
+--   实践中 TheWorld.state.temperature 总有值，所以不触发。标记为「疑似隐患」。
+
+    local ratemult = owner and owner.components.preserver and owner.components.preserver:GetTemperatureRateMultiplier(self.inst) or 1
+-- ★ 保质组件可提供一个「温度变化速率倍率」。存进罐子里的物品因此可以
+-- 减缓向环境温度靠拢的速度（如冷藏罐）。
+-- ⚠️ 三重 and/or，且 `GetTemperatureRateMultiplier` 返回 0 时
+--   `... or 1` 会把 0 错误地替换成 1（0 在 Lua 中是真值，所以实际安全，
+--   但如果哪天改成返回 nil/false 就会出错）。preserver.lua 第 21 行也有同样的
+--   `or 1` 兜底，两处叠加说明作者是有意「永不返回 0」的。
+-- ⚠️ 关键：这个倍率在第 512 行才乘到 rate 上，也就是在「保暖封顶之后」。
+--   若某天有人想改成「先乘倍率再算保暖」，效果会变 —— 顺序是有语义的。
+
+    if owner ~= nil and owner:HasTag("fridge") and not owner:HasTag("nocool") then
+-- ★ 冰箱分支：命中后整段「环境 + 热源 + 保暖」计算全部跳过，只走单调降温。
+-- 触发条件：物品在带 fridge 标签的容器里，且容器没有 nocool 标签（冰袋本身）。
+-- 设计意图：玩家主动把东西塞进冰箱，这个决定必须被无条件尊重，
+-- 不能被世界温度、保暖、湿度的综合结果覆盖。
+        -- Inside a fridge, excluding icepack ("nocool")
+-- ⚠️ 三条注释逐条说明了这段的三个设计决定，建议照抄这种注释密度：
+--   1. 排除冰袋 —— 冰袋自己是冷的，不能再被冰箱额外降温（否则自我放大）。
+--   2. 不低于冰点 —— 见下一行。
+--   3. 除非环境本身更低 —— 同上。
+        -- Don't cool it below freezing unless ambient temperature is below freezing
+        mintemp = math.max(mintemp, math.min(0, ambient_temperature))
+-- ★★ 「冰箱不把食物冻成冰块」的实现，公式很好读：
+--   min(0, 环境温度) —— 若环境在冰点以上则取 0，若环境本身更低则取环境温度；
+--   max(固有的 -20, 那个值) —— 再与组件自身的硬下限取大者。
+-- 净效果：冰箱的冷却下限是「0 度」，除非冰箱本身处于 0 度以下。
+-- → 这正是「保护上下限应该放在哪一层」的答案范例：
+--   保护不是硬编码在伤害函数里，而是表达为「本次计算允许的值域」。
+--   这样冰箱逻辑、洞穴逻辑、旅行逻辑都能各自定义自己的值域，互不干扰。
+        self.rate = owner:HasTag("lowcool") and -.5 * TUNING.WARM_DEGREES_PER_SEC or -TUNING.WARM_DEGREES_PER_SEC
+-- ★ 固定降温速率 = -WARM_DEGREES_PER_SEC = -1 度/秒；lowcool 标签则减半为 -0.5。
+-- ⚠️ 这里**完全不经过保暖计算** —— 玩家穿着毛毯进冰箱，物品照样降温。
+--   这是刻意的：冰箱是确定性容器，不应被穿戴影响。
+-- ⚠️ and/or 三元：若 WARM_DEGREES_PER_SEC 被配成 0，则 `-.5 * 0` = -0，
+--   而 0 是真值，结果仍是 -0（等价于 0），不会错误回落到 -0。侥幸安全。
+-- lowcool 的用途是「冷藏」类容器（降温更慢，保质期更长）。
+    else
+		local sleepingbag_ambient_temp = self.inst.sleepingbag ~= nil and self.inst.sleepingbag.components.sleepingbag.ambient_temp
+-- 睡袋会指定一个环境温度（洞穴内点燃火把的睡袋是暖的）。
+-- ⚠️ `self.inst.sleepingbag ~= nil and ....ambient_temp` 在 sleepingbag 为 nil 时
+--   得到 false（而非 nil），进了 `if` 等价于假，行为正确但类型不干净。
+--   这是 Lua 里 and/or 惯用法的固有代价：无法区分「条件假」与「值为 nil」。
+		if sleepingbag_ambient_temp then
+-- 有指定温度则以它为准，覆盖坐标温度。
+            ambient_temperature = sleepingbag_ambient_temp
+		end
+
+        local ents
+-- ★ 热源实体列表。默认为 nil，随后按 usespawnlight 二选一填充。
+-- ⚠️ 若 inside_pocket_container 为真，这里不会被填充，ents 保持 nil；
+--   第 435 行靠 `if not inside_pocket_container` 挡住了对 nil 的遍历。
+--   保护靠的是调用点的 if，而不是变量本身的哨兵值 —— 改代码时容易踩空。
+        if not inside_pocket_container then
+-- 口袋容器内部不做空间查询（内部没有热源概念）。
+            -- Prepare to figure out the temperature where we are standing
+            ents = self.usespawnlight and
+-- ★ usespawnlight 为真时用「满足其一」的宽松查询。
+-- 只有一个实体会把它设为 true：玩家（见 player_common.lua 第 2744 行）。
+-- 原因：玩家身上会挂「光源」（火把），光源没有 heater 组件，
+-- 若用 MUST-HASHEATER 查询就会漏掉火把 —— 而火把实实在在会取暖。
+                TheSim:FindEntities(x, y, z, ZERO_DISTANCE, nil, self.ignoreheatertags, UPDATE_SPAWNLIGHT_ONEOF_TAGS) or
+-- 玩家路径：HasHEATER 或 spawnlight 任一满足即返回。
+-- ⚠️ 这条查询范围明显更宽（不能走窄索引），是玩家比其他实体更费性能的直接原因。
+                TheSim:FindEntities(x, y, z, ZERO_DISTANCE, UPDATE_NOSPAWNLIGHT_MUST_TAGS, self.ignoreheatertags)
+-- 非玩家路径：只找有 heater 组件的实体，范围窄、更快。
+-- ⚠️ 性能优化的分界线就在这一行。移植时若把所有实体都设 usespawnlight=true，
+--   性能会显著退化且很难察觉。
+            if self.usespawnlight and #ents > 0 then
+-- 玩家身上有光源时，需要把光源折算进「环境温度」而不是当作 heater 处理。
+-- 因为光源没有 heater 组件，走下面的热源循环（第 436 行要求 components.heater）
+-- 会被直接跳过。
+                for i, v in ipairs(ents) do
+                    if v.components.heater == nil and v:HasTag("spawnlight") then
+-- ⚠️ 第 354 行同时排除了两种可能：既不能是有 heater 的实体（那是正常热源，
+--   应走热源循环），也不能是还在处理中的光源。
+--   注意判断顺序：先查 heater 再查 spawnlight，语义清楚。
+                        ambient_temperature = math.clamp(ambient_temperature, 10, TUNING.OVERHEAT_TEMP - 20)
+-- ★★ 把环境温度夹到 [10, 过热阈值-20] = [10, 50] 度。
+-- 两个边界各有明确设计意图，注释只写了一半，这里补全：
+--   下限 10 —— 光源周围不应比「有点冷」更冷，否则玩家在雪地举火把会被冻伤，
+--                而这与「火把取暖」的直觉严重冲突。
+--   上限 50 —— 光源不应把环境顶到过热区，否则玩家举火把时可能触发中暑特效。
+-- ⚠️ 注意这是 math.clamp（双向夹取）而非 math.min（只封顶），
+--   所以它同时抬升了「很冷时的环境温度」。这与第 338 行冰箱的只封顶不同，
+--   两处写法差异是有意的，不要统一。
+-- ⚠️ 硬编码 10 而非 TUNING 常量，是本文件少数几处未参数化的魔数。
+                        table.remove(ents, i)
+-- ⚠️ table.remove 在 ipairs 遍历过程中执行，是危险操作：删除元素会让后续元素前移，
+--   造成 ipairs 漏掉一个元素。这里之所以安全，全靠下一行的 break。
+--   → 「边遍历边删」的正确写法必须立刻 break，否则结果依赖运气。
+--   若日后有人删掉这个 break，会引入一个极难复现的偶发 bug。
+                        break
+-- 处理完一个光源即退出。因为第 355 行的夹取是幂等的（多个火把不会叠加），
+-- 只需处理一次。⚠️ 这也意味着「身上挂着两个火把」与一个效果完全相同。
+                    end
+                end
+            end
+        end
+
+        if self.sheltered_level > 1 then
+-- ★ 只有遮蔽等级 > 1（强遮蔽）才压制环境温度；普通遮蔽（第 1 级）没有这个效果。
+-- 与第 280 行对比：普通遮蔽就给夏季保暖，强遮蔽额外把环境温度封顶。
+-- → 遮蔽是一个两档强度的机制，不是布尔开关。
+            ambient_temperature = math.min(ambient_temperature,  self.overheattemp - 5)
+-- 只封顶（math.min），不设下限：强遮蔽只防中暑，不额外保暖。
+-- 上限 = overheattemp - 5 = 65 度，低于过热线 70，所以遮蔽下永远不过热。
+        end
+
+        self.delta = (ambient_temperature + self.totalmodifiers + self:GetMoisturePenalty()) - self.current
+-- ★★★ 全组件最重要的一行。delta = 目标温度 - 当前温度。
+--
+-- 目标温度 = 环境温度 + 全部修正项的累加值 + 湿度惩罚
+--   ├── ambient_temperature  第 331 行：脚下坐标温度（或口袋内的世界温度）
+--   ├── totalmodifiers        SetModifier 累加的恒定偏移（洞穴/剧情/装备特效）
+--   └── GetMoisturePenalty    第 306 行：0 到 -30 的湿度惩罚
+--
+-- ★ 保暖（insulation）**不在这个式子里**。它只作用于下一步的速率封顶。
+--   这是本组件最重要的设计决策：
+--   保暖不改变「你最终会稳定在多少度」，只改变「你要多久才到那个度」。
+-- → 自研引擎若把保暖写成「目标温度 + 保暖」，玩家就永远不会真正回暖，
+--   而 DST 的选择是：无论穿多少，静止不动最终都会趋近环境温度。
+--   这个选择让「换装备」成为一个「过渡速度」的选择而非「最终状态」的选择，
+--   非常适合需要频繁切换装备的玩法。
+--
+-- ★ 另一个关键点：delta 是「度」，不是「度/秒」。它描述差距，不描述速度。
+--   下面的分支负责把「差距」翻译成「该走多快」。
+        --print(self.delta + self.current, "initial target")
+
+        if self.inst.components.inventory ~= nil then
+-- 以下四个循环处理「身上带着的热源」：装备槽、背包槽、溢出容器、手持物。
+-- 它们用的是**加法叠加到 delta**，与后面的世界热源（第 435 行）不同：
+-- 身上带的热源没有距离衰减，也没有 exo/endo 之分，只看方向。
+            for k, v in pairs(self.inst.components.inventory.equipslots) do
+                if v.components.heater ~= nil then
+                    local heat, carriedmult = v.components.heater:GetEquippedHeat()
+                    if heat ~= nil and
+-- ★★★ 「方向过滤」—— 这是身上热源的核心逻辑，也是最容易写错的地方：
+--   只在热源的作用方向与自身温度一致时才计入：
+--     放热型（exothermic，如暖石）只有比当前温度高时才有用；
+--     吸热型（endothermic，如冰袋）只有比当前温度低时才有用。
+-- 举例：体温 70 度时拿着暖石（heat=60），60 < 70，放热型不生效 ——
+--   它不会把你从 70 拉回 60，因为暖石根本没有制冷能力。
+-- ⚠️ 若去掉这个过滤，玩家在高温时拿着暖石会被「反向降温」，逻辑上荒谬。
+-- ⚠️ 且 `heat ~= nil` 与后面的比较是「短路求值」顺序：heat 为 nil 时不会报错，
+--   这个顺序不能调换。
+                        ((heat > self.current and v.components.heater:IsExothermic()) or
+                        (heat < self.current and v.components.heater:IsEndothermic())) then
+                        self.delta = self.delta + (heat - self.current) * carriedmult
+-- ★ 换算成速率贡献：(热源温度 - 当前温度) x 携带倍率。
+-- 注意这里加的是**温差**而非温度本身 —— 与第 467 行的世界热源写法不同，
+--   那边是「把目标温度搬到 heat 那一侧」。两处形式不同但效果等价。
+-- carriedmult 来自 heater.lua：默认 1，可被装备调高。
+                    end
+                end
+            end
+            for k, v in pairs(self.inst.components.inventory.itemslots) do
+-- 背包（非装备）槽位里的热源，逻辑与装备槽完全一致。
+                if v.components.heater ~= nil then
+                    local heat, carriedmult = v.components.heater:GetCarriedHeat()
+                    if heat ~= nil and
+                        ((heat > self.current and v.components.heater:IsExothermic()) or
+                        (heat < self.current and v.components.heater:IsEndothermic())) then
+                        self.delta = self.delta + (heat - self.current) * carriedmult
+                    end
+                end
+            end
+            local overflow = self.inst.components.inventory:GetOverflowContainer()
+-- 溢出容器（背包满了自动塞进去的那些格子）。
+-- ⚠️ 三处遍历（装备槽/背包槽/溢出容器）代码几乎完全重复，
+--   唯一差别是取的 GetCarriedHeat 还是 GetEquippedHeat、以及容器结构不同。
+--   这是可以抽象成「遍历所有相关物品」的，但原版选择了复制。
+--   移植时若照抄三段重复代码，记得三处都要同步修，否则会出现
+--   「装备的热源算了两遍」这类难查的不对称 bug。
+            if overflow ~= nil then
+                for k, v in pairs(overflow.slots) do
+                    if v.components.heater ~= nil then
+                        local heat, carriedmult = v.components.heater:GetCarriedHeat()
+                        if heat ~= nil and
+                            ((heat > self.current and v.components.heater:IsExothermic()) or
+                            (heat < self.current and v.components.heater:IsEndothermic())) then
+                            self.delta = self.delta + (heat - self.current) * carriedmult
+                        end
+                    end
+                end
+            end
+            local activeitem = self.inst.components.inventory:GetActiveItem()
+-- ★ 手持物单独处理，且用 GetCarriedHeat（手持 = 携带，不是装备）。
+-- ⚠️ 若手持物同时也在背包槽里（第 381 行会遍历到），就会**被计入两次**。
+--   实践中手持物通常已被移出 backpack，所以不重复；
+--   但这是依赖「inventory 保证 activeitem 不在 itemslots 里」这一隐含契约。
+--   我核实了本文件的遍历范围（第 381 行遍历 inventory.itemslots），
+--   DST 的 Inventory 实现确实把 activeitem 与 itemslots 分开管理，
+--   故不构成缺陷，但记为「依赖外部契约的脆弱点」。
+            if activeitem ~= nil and activeitem.components.heater ~= nil then
+	        	local heat, carriedmult = activeitem.components.heater:GetCarriedHeat()
+	        	if heat ~= nil and
+	        		((heat > self.current and activeitem.components.heater:IsExothermic()) or
+	        		(heat < self.current and activeitem.components.heater:IsEndothermic())) then
+	        		self.delta = self.delta + (heat - self.current) * carriedmult
+	        	end
+            end
+        end
+
+        --print(self.delta + self.current, "after carried/equipped")
+
+        -- Recently eaten temperatured food is inherently equipped heat/cold
+-- 「刚吃过东西」的一次性温度效果，在这一步叠加。
+        if self.bellytemperaturedelta ~= nil and (
+-- ★★ 双向阈值判定，且阈值不同：
+--   吃热食：只有体温还没超过 62 度才继续加热。
+--     → 防止「在大太阳下吃热汤」把你推到中暑区。
+--   吃冷食：只有体温还没低于 12 度才继续降温。
+--     → 防止「在冰天雪地里吃冰品」把你冻死。
+-- ⚠️ 这是本文件第二处「保护机制」，而且它与保暖不同：保暖改的是**速率**，
+--   这里的阈值改的是**是否继续施加效果**。
+-- → 移植要点：双向调节的系统里，每个方向都需要自己的「到达即停」阈值，
+--   否则两个方向的修正会互相叠加出荒谬结果。
+                (self.bellytemperaturedelta > 0 and self.current < TUNING.HOT_FOOD_WARMING_THRESHOLD) or
+                (self.bellytemperaturedelta < 0 and self.current > TUNING.COLD_FOOD_CHILLING_THRESHOLD)
+            ) then
+            self.delta = self.delta + self.bellytemperaturedelta
+        end
+
+        --print(self.delta + self.current, "after belly")
+
+        -- If very hot (basically only when have overheating screen effect showing) and under shelter, cool slightly
+        if self.sheltered and self.current > TUNING.TREE_SHADE_COOLING_THRESHOLD then
+-- ★ 遮蔽 + 体温已高于 63 度 → 额外降温。这是「树荫让你凉快」的实现。
+-- ⚠️ 与第 363 行的环境温度封顶是**两个独立机制**，服务于不同场景：
+--   第 363 行（强遮蔽）压的是「环境温度」，对所有低于 overheattemp 的情况生效；
+--   本行（任何遮蔽）只在你**已经很热**时才拉一把。
+--   两者叠加效果更强，但移植时容易只抄一个。
+            self.delta = self.delta - (self.current - TUNING.TREE_SHADE_COOLER)
+-- 减去「超出 63 度的部分」，即把目标拉向 TREE_SHADE_COOLER = 45 度。
+-- ⚠️ 这是「减 delta」而非「改目标温度」，等价于把目标温度从 current 降到 45。
+--   写法上与前面统一加 delta 的风格略有出入，但数学上正确。
+        end
+
+        local heat_factor_penalty = TUNING.WET_HEAT_FACTOR_PENALTY -- Cache.
+-- 提前把常量读进局部变量，因为它在下面每个热源的循环里都会用到，
+-- 而 TUNING 是全局表的双层索引。属细节级性能优化，但体现了「热循环要抠」的态度。
+        --print(self.delta + self.current, "after shelter")
+        if not inside_pocket_container then
+-- 口袋容器内不搜索世界热源（内部无空间概念）。
+            for i, v in ipairs(ents) do
+-- 遍历搜到的热源实体，逐个折算成 delta 的一部分。
+				if v ~= self.inst and not v:IsInLimbo() and v.components.heater then
+-- 三个过滤：跳过自己（自己是生物不是热源）、跳过加载中的实体、必须有 heater 组件。
+-- ⚠️ `v ~= self.inst` 这个自引用判断在玩家身上是必需的 ——
+--   若某个玩家挂了 heater 组件（例如某些技能），不排除自己会把自己当热源。
+                    local heat = v.components.heater:GetHeat(self.inst)
+-- GetHeat(observer) 带观察者参数，因为热量可能因观察者而异
+-- （例如某些热源只对玩家有效）。
+					--V2C: GetHeat first. Some heaters update thermics in their heatfn.
+-- ★ 作者特意标注了 V2C 注释：「先调 GetHeat，某些 heater 会在 heatfn 里更新热学状态」。
+-- 这是一条关于**求值顺序**的重要提示：如果把 GetHeat 挪到别处判断之后，
+-- 那些有副作用的 heatfn 就会拿到过期的状态。
+-- → 移植时若重排这个循环的语句顺序，会引入只有特定热源才复现的 bug。
+					if heat and (v.components.heater:IsExothermic() or v.components.heater:IsEndothermic()) then
+                        local heatfactor, dsqtoinst
+                        if v.components.heater:ShouldFalloff() then
+-- 是否随距离衰减。默认是衰减（ShouldFalloff 返回 true）。
+                            -- This produces a gentle falloff from 1 to zero.
+                            dsqtoinst = self.inst:GetDistanceSqToInst(v)
+                            heatfactor = 1 - dsqtoinst / ZERO_DISTSQ
+-- ★ 线性衰减：heatfactor = 1 - d²/100。在 d=0 时为 1，d=10 时为 0。
+-- 用距离平方而非距离，是为了让衰减曲线在近处更平、远处更陡 ——
+-- 平方距离是物理上更自然的度量（能量随面密度扩散）。
+-- ⚠️ 这里用 ZERO_DISTSQ 做分母，意味着**衰减半径与搜索半径硬耦合**：
+--   改第 4 行的 ZERO_DISTANCE 会同时改变「搜多远」和「衰减多快」。
+--   这两件事本应是独立可调的，移植时建议拆成两个常量。
+                        else
+                            heatfactor = 1
+                        end
+                        local radius_cutoff = v.components.heater:GetHeatRadiusCutoff()
+-- 可选的硬边界：超出 radius_cutoff 则强度直接归零（而非线性衰减到 0）。
+-- 用于「暖石在很近时才有效」这类设计。
+                        if radius_cutoff then
+                            dsqtoinst = dsqtoinst or self.inst:GetDistanceSqToInst(v)
+-- ⚠️ `dsqtoinst or ...` 复用上一步算好的距离，避免重复计算。
+--   仅当 ShouldFalloff 为真（dsqtoinst 已算过）才复用，否则现算。
+--   这个小技巧让两条分支的平方距离计算总量从 2 次降到最多 1 次。
+                            if dsqtoinst > radius_cutoff * radius_cutoff then
+                                heatfactor = 0
+                            end
+                        end
+
+                        if heatfactor > 0 then
+                            if self.inst:GetIsWet() then -- NOTES(JBK): Leave this in the loop because the entity could go out of IsWet status in this loop.
+-- ★ 湿身对热源的影响。作者的注释解释了为什么这个判断放在循环体内：
+--   「实体可能在这次循环中脱离湿身状态」。
+-- 翻译成设计意图：湿身状态在处理多个热源的过程中可能变化
+--（例如玩家一边烤火一边被雨淋湿），所以每个热源都要重新判断，
+-- 而不是循环外算一次。
+-- → 这是「事件驱动的状态」在批处理循环里的正确处理方式：
+--   宁可多算一次，也不要用一个可能过期的快照算 N 次。
+                                if heat > 0 then
+-- 放热型热源：湿身削弱取暖效率（乘以 0.75）。水汽带走热量。
+                                    heatfactor = heatfactor * heat_factor_penalty
+                                elseif heat_factor_penalty ~= 0 then -- In case of mods setting the tuning to 0.
+-- ⚠️ 吸热型热源：湿身反而**增强**降温效率，所以是「除以」而非「乘以」——
+--   heatfactor / 0.75 = heatfactor x 1.333。
+--   写法上等价于「乘以倒数」，保证两种类型的削弱方向一致（都是变糟）。
+-- ⚠️ 这里显式判断 `heat_factor_penalty ~= 0`，是为了防模组把它配成 0 时除零。
+--   放热型那支（第 459 行）不需要这个保护，因为乘法遇 0 只是变 0。
+--   → 同一个常量在两条分支上需要不同的防御，因为运算不同。细节到位。
+                                    heatfactor = heatfactor / heat_factor_penalty
+                                end
+                            end
+
+                            if v.components.heater:IsExothermic() then
+-- ★★★ 热源类型的分水岭。整个组件最需要理解的一段。
+--
+-- 【为什么放热与吸热要用不同的基准温度】
+--   放热型（暖石、火把，heat 为正）：heat 的含义是「我能把你加热到多少度」。
+--     所以 warmingtemp = heat x heatfactor，基准是绝对温度，
+--     且 heat=0 意味着「一点都不能暖」—— 与语义吻合。
+--   吸热型（冰袋、冰箱，heat 为负或很小）：heat 的含义是
+--     「我能把你冷却到多少度」。若沿用放热的写法，heat=0 会变成
+--     「把你冻到 0 度」，但吸热型的 heat=0 本意是「一点都不能冷」。
+--     所以必须换个基准：以 overheattemp 为原点做偏移。
+--     coolingtemp = (heat - overheattemp) x heatfactor + overheattemp
+--     代入 heat=0、heatfactor=1 → 恰好等于 overheattemp =「完全无效」。
+--   → 这是「同一个 0 在两套坐标系里含义不同」的典型例子，
+--     移植时若把两支合并成一套公式，几乎必然出 bug。
+                                -- heating heatfactor is relative to 0 (freezing)
+                                local warmingtemp = heat * heatfactor
+                                if warmingtemp > self.current then
+-- 同样只在自己更冷时才计入 —— 与第 374 行的身上热源是同一个「方向过滤」思想，
+-- 但实现方式不同：这里比较的是换算后的温度，
+-- 那边比较的是原始 heat。两种写法等价，但风格不统一。
+                                    self.delta = self.delta + warmingtemp - self.current
+                                end
+                                self.externalheaterpower = self.externalheaterpower + heatfactor
+-- ★★ 累计「外部供暖总强度」到 externalheaterpower。
+-- 这个值被 moisture.lua 第 293 行读取，用来加快烘干：
+--   站在火堆边会明显干得更快 —— 温度系统反向影响湿度系统。
+-- ⚠️ 只对放热型累计（吸热型在第 472 行的 else 分支，不累计）。
+--   因为「外部供暖强度」的语义就是「有多少个火在烤你」，
+--   冰袋不该被算作「供暖」。语义是自洽的。
+-- ⚠️ 这里累加的是 heatfactor 而非 heat 本身，所以强度取自「距离与类型」，
+--   与火堆的实际温度无关 —— 一个小火堆与一大火堆在烘干效果上没有区别。
+--   可能是有意的（平衡考量），也可能是疏漏。标记为「疑似」。
+                            else--if v.components.heater:IsEndothermic() then
+-- else 分支即吸热型。注释写明这是靠「不是放热型」来否定的，
+-- 所以一个同时 exo+endo 的 heater 会被判为放热型。
+-- ⚠️ 若某个 heater 两个标志都为 true，第 439 行的 `(exo or endo)` 也会通过，
+--   然后统一按放热型处理。这是「标志位可同时置位」的设计取舍。
+                                -- cooling heatfactor is relative to overheattemp
+                                local coolingtemp = (heat - self.overheattemp) * heatfactor + self.overheattemp
+                                if coolingtemp < self.current then
+                                    self.delta = self.delta + coolingtemp - self.current
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        --print(self.delta + self.current, "after heaters")
+
+        -- Winter insulation only affects you when it's cold out, summer insulation only helps when it's warm
+-- ★★★ 以下是全文件第二个核心，也是「为什么冻不死」的直接答案。
+--
+-- 【不对称性：保暖只挡「变坏」的方向】
+-- 四个分支的规律：
+--   环境暖 + 你在升温 → 用夏装封顶（变慢）
+--   环境暖 + 你在降温 → 全速，且若已过热则加速降温   ★ 保暖不参与
+--   环境冷 + 你在降温 → 用冬装封顶（变慢）
+--   环境冷 + 你在升温 → 全速，若已结冰则加速回温     ★ 保暖不参与
+--
+-- → 即：保暖**只降低你朝坏方向的速度，永远不提高你朝好方向的速度**。
+-- → 推论（重要）：穿了顶级毛毯的玩家在暴风雪里，体温归零后仍然会以
+--   THAW_DEGREES_PER_SEC = 5 度/秒回温，因为那时已经在升温分支里了。
+--   保暖救不了已经冻僵的人，但能让你不走到那一步。
+--
+-- 【第二层不对称：跨阈值后的加速回温】
+--   结冰中 → 回温速率 5 度/秒（否则 1 度/秒）
+--   过热中 → 降温速率 5 度/秒（否则 1 度/秒）
+-- → 设计意图：让玩家「已经 suffering」的状态快速脱离，形成一个
+--   自恢复的死区。玩家在边界附近会有一个「推不过去」的软墙。
+--
+-- 【移植要点：这份代码把三层保护叠在一起】
+--   1) 第 168 行  值域夹取 [-20, 90]        —— 温度本身有界
+--   2) 本段      保暖只挡坏方向            —— 速率有界且不对称
+--   3) health.lua nonlethal_*（默认 false） —— 血量有底线（仅特定规则开启）
+--   三层职责分离：1 管「数值合法性」，2 管「演化过程」，3 管「结果不可为负」。
+        if ambient_temperature >= TUNING.STARTING_TEMP then
+-- 以「环境温度是否达到起始体感 35 度」划分冷暖，而不是以自身温度。
+-- ⚠️ 这个选择很关键：意味着「谁该穿夏装」由世界决定，不由玩家状态决定。
+--   后果：夏天里即使玩家已经冻僵，走的仍是「环境暖 + 你在升温」分支，
+--   会被夏装（而非冬装）封顶。极端反常但完全自洽 —— 夏装在夏天的语义就是
+--   「不让继续变热」，而玩家正在变热。
+            -- it's warm out
+            if self.delta > 0 then
+                -- If the player is heating up, defend using insulation.
+                local winterInsulation, summerInsulation = self:GetInsulation()
+                self.rate = math.min(self.delta, TUNING.SEG_TIME / (TUNING.SEG_TIME + summerInsulation))
+-- ★★ 夏季保暖封顶：rate = min(delta, SEG_TIME/(SEG_TIME + 夏季保暖))。
+-- 取 min 的含义：不超过「按保暖算出的速率上限」，但若差距本身更小则取差距
+--（即 delta 很小就精确到位，不做过度修正）。
+-- ⚠️ 与第 76 行是同一个公式，这里用于封顶速率，那里用于衰减幅度。
+--   第 76 行的返回值被当作「度」乘在 delta 上 —— 单位上是巧合，
+--   数学上都成立。移植时若追求严谨应把两者统一成速率语义。
+            else
+                -- If they are cooling, do it at full speed, and faster if they're overheated
+                self.rate = math.max(self.delta, self.current >= self.overheattemp and -TUNING.THAW_DEGREES_PER_SEC or -TUNING.WARM_DEGREES_PER_SEC)
+-- ★ 环境暖且在降温 → **不使用保暖**，全速降温。
+-- 若已过热（current >= 70），用 THAW = 5 度/秒（加速解暑）；否则 1 度/秒。
+-- ⚠️ 这就是「不对称」的实证：无论穿多少保暖，降温都不减速。
+-- and/or 表达式：若 THAW_DEGREES_PER_SEC 被配成 0，
+--   `0` 是真值所以不回落；若配成 nil 才会走错 —— 实际不会。
+            end
+        -- it's cold out
+        elseif self.delta < 0 then
+-- 环境冷且在降温 → 用冬季保暖封顶（这是保暖的主战场：抗冻）。
+            -- If the player is cooling, defend using insulation.
+            local winterInsulation, summerInsulation = self:GetInsulation()
+            self.rate = math.max(self.delta, -TUNING.SEG_TIME / (TUNING.SEG_TIME + winterInsulation))
+-- 同第 493 行的公式，冬装版本。注意 rate 被夹在「不低于 -上限」——
+-- 即降温最慢也就是这个速度（但若差距更小则精确到位）。
+-- ⚠️ 取 max 的方向与第 493 行的 min 相反，
+--   因为这里是负数区间：max(负的差距, 负的上限) 取的是「更接近 0 的那个」。
+--   写反了会导致「保暖越厚降温越快」这种荒谬结果。
+        else
+            -- If they are heating up, do it at full speed, and faster if they're freezing
+            self.rate = math.min(self.delta, self.current <= 0 and TUNING.THAW_DEGREES_PER_SEC or TUNING.WARM_DEGREES_PER_SEC)
+-- ★★ 环境冷且在升温 → **不使用保暖**，全速回温；结冰中则加速 5 倍。
+-- 这是「保护机制」的落点：无论保暖多厚都已冻僵的玩家都会以 5 度/秒回暖。
+-- THAW_DEGREES_PER_SEC 的存在就是为了这个 —— 否则玩家会被 1 度/秒的慢回温
+-- 困在濒死状态里很久，体感很差。
+-- ⚠️ 再次提醒 `current <= 0 and THAW or WARM` 依赖 THAW 为非 nil 的数。
+--   注意边界用 `<=`：恰好 0 度（刚开始结冰）就已经按加速处理，
+--   与第 519 行的 `current < 0`（严格小于才扣血）相差一个临界点。
+--   → 同一条 0 度线在两处的比较符不同，虽不构成 bug（0 度时既不扣血也加速回温，
+--     行为自洽），但阅读时极易怀疑写错。标记为「刻意但易误读」。
+        end
+
+        --print(self.delta + self.current, "after insulation")
+        --print(self.rate, "final rate\n\n")
+    end
+
+    self.rate = self.rate * ratemult
+-- ★ 保质倍率最后才乘上。位置很讲究：它在保暖封顶**之后**，
+-- 所以倍率是缩放「已经算好的速率」，效果直观（0.5 = 温度变化减半）。
+-- 若放在之前，会变成「先减半再算保暖」，数学上不同。
+-- ⚠️ 但注意它对冰箱分支（第 339 行）也生效 —— 冰箱的固定降温速率同样会被倍率缩放。
+--   这大概是想要的（冷藏罐里的东西降温也更慢），但属于隐含行为。
+
+    self:SetTemperature(math.clamp(self.current + self.rate * dt, mintemp, maxtemp))
+-- ★★★ 积分与最终夹取。
+-- current_new = clamp(current + rate x dt, 局部mintemp, 局部maxtemp)
+-- 三点解释：
+--  1) 乘 dt 是「速率转位移」。这一行是整个组件唯一修改温度的地方，
+--     其余全是算 rate。
+--  2) 这层 clamp 用的是**局部** mintemp/maxtemp（可能被冰箱抬高），
+--     而第 168 行那层用的是 self.mintemp/maxtemp。两层取更严的生效。
+--     → 双层夹取不是冗余：第一层管「本次计算的值域」（冰箱/口袋），
+--       第二层管「实体的固有合法范围」。移植时删掉任何一层都会丢功能。
+--  3) dt 由引擎提供，与帧率挂钩 → 自动免疫帧率波动（见第 311 行说明）。
+
+    --applyhealthdelta nil defaults to true
+-- applyhealthdelta 省略时默认为 true。
+    if applyhealthdelta ~= false and self.inst.components.health ~= nil then
+-- 掉血条件：既没有显式传 false，也有 health 组件。
+-- ⚠️ 注意本段被第 316 行的提前 return 覆盖不到的情况：
+--   return 发生在第 319 行，而这段在第 517 行 —— return 会跳过它，
+--   所以「无敌」期间不会掉血。这是第 318 行检查 IsInvincible 的目的。
+        if self.current < 0 then
+-- ★ 结冰掉血 = -1.25 x dt，与「低了多少度」完全无关。
+-- 这是「保护上下限」设计的第二层证据：
+--   体温可以是 -0.1 也可以是 -20（差 200 倍），受到的伤害完全相同。
+--   → 玩家因此永远不会「因为特别冷而突然死掉」，只会被稳定地慢慢磨死，
+--     而这 120 秒足够他找到火堆。反过来若伤害随深度增长，
+--     玩家在最冷的地方会瞬间暴毙 —— 那才是「瞬间冻死」。
+-- ★ 这才是「温度伤害不该线性于偏离量」的正确表达位置：
+--   不在温度组件里算深度惩罚，而在掉血时只按「是否越线」触发。
+            self.inst.components.health:DoDelta(-self.hurtrate * dt, true, "cold")
+-- DoDelta(伤害, overtime=true, cause="cold")。
+-- ⚠️ 第二个参数 overtime=true 的含义是「持续性伤害，不可被打断」：
+--   它会让角色的动作不因掉血而中断、不会被击退。
+--   对温度伤害是必需的 —— 否则冻伤会让玩家不停被打断，操作完全失控。
+--   参照 health.lua 第 613 行签名：DoDelta(amount, overtime, cause, ...)。
+-- cause="cold" 是字符串标签，供血量组件做分类处理（见第 616-621 行的非致死判定）。
+        elseif self.current > self.overheattemp then
+-- 过热同理。注意是 elseif —— 结冰与过热互斥，永远只吃一种环境伤害。
+            self.inst.components.health:DoDelta(-(self.overheathurtrate or self.hurtrate) * dt, true, "hot")
+-- 过热掉血速率 = overheathurtrate or 兜底为 hurtrate。
+-- ⚠️ `or` 兜底在这里是**正确**的：第 32 行的注释说明了「默认为 nil，复用结冰速率」。
+--   与第 333 行的 `or 1` 不同，这里的 nil 确实是「未设置」的语义。
+-- 自研引擎可直接照抄这个「可选项 + 同类兜底」的模式。
+        end
+    end
+end
+
+function Temperature:TransferComponent(newinst)
+-- ★ 组件转移（转化/变身类机制，如月岩渡劫、狼人变身）。
+-- 接口约定：把本组件的关键状态搬到 newinst 的同名组件上。
+    local newcomponent = newinst.components.temperature
+
+    newcomponent:SetTemperature(self.current)
+-- ★ 直接搬当前温度。注意温度本身**立即生效**（不走逐渐升温），
+--   与「转移后继续演化」是两件事。
+    local duration = nil
+-- 腹部温度效果需要连同剩余时长一起搬，否则会「卡住」或「立即失效」。
+    if self.bellytask then
+        duration = GetTaskRemaining(self.bellytask)
+-- ★ GetTaskRemaining 取旧定时器的剩余时间而不是原始 duration，
+-- 这是正确的：转移发生在效果生效期间，若搬原始值会让效果被延长。
+-- → 「转移的是状态快照而非初始参数」—— 值得学的通用模式。
+    end
+    if duration then
+-- 腹部效果可能为空（没吃过东西），故要先判存在。
+        newcomponent:SetTemperatureInBelly(self.bellytemperaturedelta,duration)
+    end
+end
+
+return Temperature
+-- 组件定义返回。Class 的第三个参数（属性表）已在第 59-61 行给出，
+-- 此处只返回类本身。

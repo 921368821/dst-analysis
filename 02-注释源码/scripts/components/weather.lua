@@ -1,0 +1,2313 @@
+--============================================================
+-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖
+-- 文件：components/weather.lua
+-- 模块：组件系统 / 天气（Weather），挂在世界实体上
+-- 职责：降水生命周期（湿度累积/耗尽 → 晴雨雨雪切换）、温度驱动的雨雪转换、
+--       月石雨（rift）、积雪与融雪、地面材质叠加、屏幕光照、地面湿度、
+--       四层雨声（环境/树上/伞/雨穹屏障）、闪电落点仲裁、以及每次 OnUpdate
+--       末尾向世界广播 weathertick 供他方消费。
+--
+-- 【★ 最该学的三件事】
+--  1) 双端自治 + 周期性对齐的同步模型（第 356 行 SetWithPeriodicSync）：
+--     连续量按时间分桶，桶内客户端 set_local 自治，跨桶服务端校准；
+--     兼顾平滑、极低带宽、且不永久漂移。
+--  2) 权限边界清晰：客户端只能演化连续量，绝不 set 离散状态；
+--     「开始/停止降水、切雨雪、发闪电」一律只在服务端，
+--     外部只能通过 ms_* 前缀事件请求（第 789-826 行）。
+--  3) 计算与副作用分离：Calculate* 系列（400-489 行）全是只读纯函数，
+--     因此 GetDebugString 可安全复用而不改变状态。
+--
+-- 【重要纠偏】season 组件才是季节节拍的产生者，本文件【没有】任何
+--       季节计时器；它是 seasontick 的订阅方（第 783 行）。
+--       另：本文件不与 sanity.lua 直接联动（sanity.lua 不读 weather 任何量）；
+--       真实消费者是 ambientlighting.lua(274)、ambientsound.lua(267)、
+--       colourcube.lua(458)、dsp.lua(191)、beargerspawner.lua(440)。
+-- 关键符号：SetWithPeriodicSync, CalculatePrecipitationRate, CalculatePOP,
+--           CalculateLight, CalculateWetnessRate, PushWeather, OnSeasonTick,
+--           OnSendLightningStrike, SetStrikePositionAndPrefab, OnSimUnpaused,
+--           SetGroundOverlay, StartPrecipitation, StopPrecipitation,
+--           StartLunarHail, StopLunarHail, ForceResync, OnUpdate, OnSave, OnLoad
+-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本
+-- 交叉引用：components/season.lua（seasontick 产生者，季节节拍源头）,
+--           components/caveweather.lua（洞穴版独立天气，同监听 temperaturetick）,
+--           components/environmentdelta.lua（temperaturetick 产生者，温度真值）,
+--           components/sanity.lua（不直接依赖本组件，环境温度另走他路）,
+--           components/ambientlighting.lua / ambientsound.lua（weathertick 消费者）,
+--           components/moonstorms.lua + riftspawner.lua（月石雨触发源）,
+--           components/sandstorms.lua（沙暴抑制花粉，第 1070 行）,
+--           prefabs rain/snow/pollen/lunarhail（客户端表现层 fx）
+--============================================================
+--------------------------------------------------------------------------
+--[[
+-- components/weather.lua —— 天气组件（Weather）
+--
+-- 与 map.lua 不同，这是一个【标准组件】（第 5 行 return Class(function(self, inst))），
+--挂在世界实体上，生命周期由 entityscript 驱动。
+--
+-- 【本组件最该学的三件事】
+--  1) ★★「双端自治 + 周期性对齐」的同步模型（第 356 行 SetWithPeriodicSync）
+--     客户端自行模拟湿度/雪厚/湿度值，服务端只周期性校准。
+--     用「按时间分桶、桶内本地自治、跨桶才同步」把网络流量压到最低。
+--     这是整个文件的技术核心，比任何单个公式都值得抄。
+--  2) 一切客户端可演化的量都走 netvar（_moisture / _snowlevel / _wetness ...），
+--     而「只有服务端才能决定」的事件走 "ms_" 前缀事件（第 812-825 行）。
+--     客户端收到前只能自己 set_local，绝不 set —— 权限边界非常清晰。
+--  3) 计算逻辑与副作用分离：Calculate* 系列（第 400-489 行）全是纯函数，
+--     只读 netvar 不写；真正的状态推进全在 OnUpdate（第 879 行）。
+--     所以 GetDebugString（第 1200 行）能安全复用它们而不产生副作用。
+--
+-- 【职责分区】
+--   17-185   常量：湿度速率、积雪/融化率、地面叠加层、光照动态范围
+--   190-250   成员变量 + 13 个 netvar 声明
+--   256-343   四种雨声的Start/Stop（环境/树上/伞/屏障）
+--   345-504   核心计算：地面叠加、周期同步、降水率、POP、光照、湿度、事件下发
+--   510-739   事件处理器（季节/温度/昼夜/玩家/雷击/沙暴联动）
+--   745-829   初始化与事件注册
+--   879-1123  OnUpdate —— 全文件最长函数，天气的一切推进都在这里
+--   1131-1194 OnSave / OnLoad
+--
+-- 【与 sanity.lua 的联动 —— 任务书假设有误，需说明】
+--  我 grep 过components/sanity.lua 全文：它【不读任何 weather 的变量或事件】，
+--  也没有 temperature / GetTemp / weather 相关引用。
+--  所以「环境温度影响理智」这条链路【不经过本组件的 netvar】，
+--  而是由环境系统（environmentdelta/温度值）独立实现。
+--  本组件真正影响 sanity 的是【湿度(_wetness)】与【降水带来的受潮】，
+--  而非温度。相关的真实消费者是 components/ambientlighting.lua（第 274 行）
+--  与 components/ambientsound.lua（第 267 行），它们监听 weathertick / seasontick。
+--]]
+--[[ Weather class definition ]]
+--------------------------------------------------------------------------
+
+return Class(function(self, inst)
+
+    --------------------------------------------------------------------------
+    --[[ Dependencies ]]
+    --------------------------------------------------------------------------
+
+    local easing = require("easing")
+
+    --------------------------------------------------------------------------
+    --[[ Constants ]]
+    --------------------------------------------------------------------------
+
+    local NOISE_SYNC_PERIOD = 30
+-- NOISE_SYNC_PERIOD = 30：噪声时间轴的对齐周期（秒）。
+-- 只影响「always 模式下的降水抖动」，是所有同步周期里最长的（第 881 行）。
+-- ★ 周期越长 → 网络流量越少但客户端预测越容易与服务端漂移。
+--   噪声是纯装饰量，30 秒漂移完全无感，所以给最长。见第 356 行模型说明。
+
+    --------------------------------------------------------------------------
+    --[[ Precipitation constants ]]
+    --------------------------------------------------------------------------
+
+    local PRECIP_MODE_NAMES =
+    {
+        "dynamic",
+        "always",
+        "never",
+    }
+    local PRECIP_MODES = table.invert(PRECIP_MODE_NAMES)
+
+    local PRECIP_TYPE_NAMES =
+    {
+        "none",
+        "rain",
+        "snow",
+        "lunarhail",
+    }
+    local PRECIP_TYPES = table.invert(PRECIP_TYPE_NAMES)
+
+    local PRECIP_RATE_SCALE = 10
+-- PRECIP_RATE_SCALE = 10：降水消耗湿度的倍率（第 897 行）。
+-- ★ 这是「手感调参」而非物理量：它决定「一场雨要下多久才把湿度耗尽」。
+--   改这一个数字就能整体调节下雨时长，不必动任何其他逻辑。
+    local MIN_PRECIP_RATE = .1
+-- MIN_PRECIP_RATE = .1：即使湿度很低也保底的最小雨量。
+-- ★ 语义是「一旦开始下雨，就一定会下出可见的雨」，避免「毛毛雨看不见」。
+--   第 405 行用它做正弦曲线的基线偏移，保证rate ∈ [0.1, 1.0]。
+    local MOISTURE_RATES = {
+-- MOISTURE_RATES：各季节的【湿度累积速率】上下限。单位：湿度/秒。
+-- ★ 设计意图很清楚（对比四个季节的数值）：
+--   spring  MIN=3 / MAX=3.75 → 远高于其他季节 → 春天雨最多、下雨最频繁
+--   summer  MIN=.1 / MAX=.5   → 远低于其他季节 → 夏天几乎不下雨
+--   autumn/winter MIN=MAX=.25/1.0 → 速率恒定，不随季节内进度变化
+-- 即「速率的季节差异」由这里定义，而「同一季节内的起伏」由第 521 行正弦提供。
+-- ⚠️ 注意 summer 的 MIN(.1) 与 MAX(.5) 都很低，第 521 行的 p 插值几乎无效果，
+--   实际夏天的湿度增长稳定在 .1~.5，与春秋的差异非常明显。
+        MIN = {
+            autumn = .25,
+            winter = .25,
+            spring = 3,
+            summer = .1,
+        },
+        MAX = {
+            autumn = 1.0,
+            winter = 1.0,
+            spring = 3.75,
+            summer = .5,
+        }
+    }
+    local MOISTURE_SYNC_PERIOD = 100
+
+    local SNOW_ACCUM_RATE = 1 / 300
+-- 【积雪与融化的一组速率，单位都是「雪厚/秒」】
+--  SNOW_ACCUM_RATE  = 1/300 → 下雪时每秒增加 0.0033 雪厚
+--  SNOW_MELT_RATE   = 1/20   → 融化速率的「斜率上限」
+--  MIN_SNOW_MELT_RATE = 1/120→ 融化速率的「基础值」（即使 0 度也在化）
+-- ★ 关键推论：SNOW_MELT_RATE / MIN_SNOW_MELT_RATE = 6，
+--   意味着温度从 0 升到 20 度时，融化速度会【提升 6 倍】。
+--   而 SNOW_ACCUM_RATE 对应的积累时间 = 1/(1/300) = 300 秒 → 下满雪要 5 分钟。
+--   化雪则快得多。数值上「积慢化快」，避免雪永久堆积。
+-- ⚠️ 这三个速率都是「线性」的，所以极端温度下会显得不自然
+--   （20 度与 40 度的融化速度一样，见第 1058 行的 min 钳制）。
+    local SNOW_MELT_RATE = 1 / 20
+    local MIN_SNOW_MELT_RATE = 1 / 120
+    local SNOW_LEVEL_SYNC_PERIOD = .1
+
+    local MOISTURE_CEIL_MULTIPLIERS =
+-- MOISTURE_CEIL_MULTIPLIERS：湿度【上限】的随机化倍率（第 388 行）。
+-- ★ 语义：一轮下雨的「总雨量」由这个值决定 —— 乘数越大，那一轮雨下得越久。
+--  summer=13 最大 → 夏天下雨时单次雨量最大（虽然频率低，见第 42 行）；
+--  winter=3 最小 → 冬天雨短促。设计上是「频率低则雨量大」的补偿。
+--⚠️ 易混：这里调的是「雨量」，第 42 行的 MOISTURE_RATES 调的是「频率」，
+--   两者正交。改天气手感时必须先分清要调哪个。
+    {
+        autumn = 8,
+        winter = 3,
+        spring = 5.5,
+        summer = 13,
+    }
+
+    local MOISTURE_FLOOR_MULTIPLIERS =
+-- MOISTURE_FLOOR_MULTIPLIERS：湿度【下限】的随机化倍率（第 392 行）。
+-- ★ 语义：一轮雨结束后的「回不到零」程度 —— 决定雨停后地面还湿多久。
+--  spring=0.25 最低 → 春天雨停后湿度掉得快；其余为 1~1.5 → 保留较久。
+-- ⚠️ 注意 spring 的 MIN 速率(3)最高而 FLOOR 倍率(0.25)最低 ——
+--   组合起来的效果是「春天雨来得很猛，但收得也快」。这是刻意的对比设计。
+    {
+        autumn = 1,
+        winter = 1,
+        spring = 0.25,
+        summer = 1.5,
+    }
+
+    local START_SNOW_THRESHOLDS =
+-- 【降水的温度阈值：两个不同的阈值，各管一个方向】
+--  START_SNOW：低于它就【开始】下雪（第 1088 行）
+--  STOP_SNOW ：高于它就【停止】下雪（第 1090 行）
+-- ★★ 滞回（hysteresis）设计的教科书案例：
+--   秋季/春/夏 start=-5, stop=0 → 温度在 -5..0 之间时「维持现状」
+--   冬季 start=5, stop=10         → 冬季阈值整体抬高 10 度
+--   ★ 如果只用单一阈值，温度在阈值附近抖动（±0.1 度）会让雨雪每秒来回切换，
+--     视觉上疯狂闪烁。两个阈值分开后，这个区间是「死区」，自然消除抖动。
+--   移植任何「布尔状态切换」系统时都该照抄这个模式。
+-- ⚠️ 冬季 start=5 而非 -5，意味着冬天低于 5 度【不会新下雪】，
+--   但已下的雪不会化（第 1058 行融化只在 temperature > 0 时发生）。
+    {
+        autumn = -5,
+        winter = 5,
+        spring = -5,
+        summer = -5,
+    }
+
+    local STOP_SNOW_THRESHOLDS =
+    {
+        autumn = 0,
+        winter = 10,
+        spring = 0,
+        summer = 0,
+    }
+
+    local GROUND_OVERLAYS =
+-- GROUND_OVERLAYS：地面「材质叠加层」配置。只有雪与水洼两种。
+-- ★ colour 是【三组渐变色】而非单色：SetOverlayColor0/1/2（第 349-351 行）
+--   对应引擎的三层混合权重，做的是「贴图颜色随距离/高度渐变」。
+-- 雪：纯白 {1,1,1,1} 三层相同 → 均匀覆盖
+-- 水洼：{11,15,23}/255 且alpha 从 .3 递减到 .12 → ★ 越远越透明，
+--   视觉上就是「远处地面更清晰、近处更泥泞」，很聪明的廉价技巧。
+-- ⚠️ 11/255 这样的写法规避了 0.043 这种可读性差的小数，同时保留精度。
+    {
+        snow =
+        {
+            texture = "levels/textures/snow.tex",
+            colour =
+            {
+                { 1, 1, 1, 1 },
+                { 1, 1, 1, 1 },
+                { 1, 1, 1, 1 },
+            },
+        },
+        puddles =
+        {
+            texture = "levels/textures/mud.tex",
+            colour =
+            {
+                { 11 / 255, 15 / 255, 23 / 255, .3 },
+                { 11 / 255, 15 / 255, 23 / 255, .2 },
+                { 11 / 255, 15 / 255, 23 / 255, .12 },
+            },
+        },
+    }
+
+    local POLLEN_PARTICLES = .5
+
+    local SNOW_COVERED_THRESHOLD = .015
+-- SNOW_COVERED_THRESHOLD = .015：判定「地面被雪覆盖」的雪厚阈值（第 1085 行）。
+-- ★ 它远大于 0（1.5%），因为下雪初期几乎看不出区别，
+--   等雪明显堆积了才通知实体「你身上该有积雪了」，避免刚下雪就集体变白。
+-- ⚠️ 这个 net_bool 带 dirty 事件（第 248 行），因此该阈值跨越【每一帧都在比较】，
+--   是本文件最频繁触发网络事件的地方之一。
+
+    local PEAK_PRECIPITATION_RANGES =
+    {
+        autumn = { min = .10, max = .66 },
+        winter = { min = .10, max = .80 },
+        spring = { min = .50, max = 1.00 },
+        summer = { min = 1.0, max = 1.0 },
+    }
+
+    local LUNAR_HAIL_FLOOR = 0
+    local LUNAR_HAIL_CEIL = 100
+
+    local LUNAR_HAIL_EVENT_RATE = {
+-- LUNAR_HAIL_EVENT_RATE：月石雨（rift 的冰雹）的充能与释放速率。
+-- ★★ 写法很妙：COOLDOWN = LUNAR_HAIL_CEIL / TUNING.LUNARHAIL_EVENT_COOLDOWN
+--   —— 「目标水位」除以「TUNING 里配的总时长」= 每秒充能速率。
+--   这样调参只需改 TUNING 里的秒数，本文件的公式自动适配，无需同步改魔数。
+--★ 移植要点：把「速率」表达成「量程/时长」而不是裸数字，
+--   能让所有时间参数集中在一处（TUNING），避免散落魔数互相失配。
+-- COOLDOWN 是【充能】速率（第 927 行累加），DURATION 是【释放】速率（第 939 行递减）。
+        COOLDOWN = LUNAR_HAIL_CEIL / TUNING.LUNARHAIL_EVENT_COOLDOWN,
+        DURATION = LUNAR_HAIL_CEIL / TUNING.LUNARHAIL_EVENT_TIME,
+    }
+
+    --------------------------------------------------------------------------
+    --[[ Wetness constants ]]
+    --------------------------------------------------------------------------
+
+    local DRY_THRESHOLD = TUNING.MOISTURE_DRY_THRESHOLD
+    local WET_THRESHOLD = TUNING.MOISTURE_WET_THRESHOLD
+    local MIN_WETNESS = 0
+	local MAX_WETNESS = TUNING.MAX_WETNESS
+-- MAX_WETNESS 来自 TUNING，与第 143-144 行的 DRY/WET_THRESHOLD 同源。
+-- ★ 注意这三个阈值不是均匀分布的：MAX=100，而 DRY/WET 阈值远小于它，
+--   所以「湿/干」的布尔切换（第 955-961 行）只发生在湿度曲线的中低段，
+--   高湿度区会长时间停在「湿」状态。
+-- ⚠️ 第 146 行缩进用的是 Tab 而文件其余部分是空格，纯风格不一致，不影响语义。
+    local MIN_WETNESS_RATE = 0
+    local MAX_WETNESS_RATE = .75
+    local MIN_DRYING_RATE = 0
+    local MAX_DRYING_RATE = .3
+    local OPTIMAL_DRYING_TEMPERATURE = 70
+    local WETNESS_SYNC_PERIOD = 10
+
+    --------------------------------------------------------------------------
+    --[[ Lightning (not LightING) constants ]]
+    --------------------------------------------------------------------------
+
+    local LIGHTNING_MODE_NAMES =
+    {
+        "rain",
+        "snow",
+        "any",
+        "always",
+        "never",
+    }
+    local LIGHTNING_MODES = table.invert(LIGHTNING_MODE_NAMES)
+
+    --------------------------------------------------------------------------
+    --[[ Lighting (not LightNING) constants ]]
+    --------------------------------------------------------------------------
+
+    local SEASON_DYNRANGE_DAY = {
+        autumn = .4,
+        winter = .05,
+        spring = .4,
+        summer = .3,
+    }
+
+    local SEASON_DYNRANGE_NIGHT = { -- dusk and night
+        autumn = .25,
+        winter = 0,
+        spring = .25,
+        summer = .2,
+    }
+
+    --------------------------------------------------------------------------
+    --[[ Member variables ]]
+    --------------------------------------------------------------------------
+
+    --Public
+    self.inst = inst
+
+    --Private
+    local _world = TheWorld
+-- ★★★ 【成员变量的两条命名线，是本文件的核心架构】
+--  下划线前缀 `_xxx`     —— 【私有】：仅存在于 upvalue，两端各自一份，不跨网
+--  net_xxx(...) 声明的    —— 【网络】：跨网同步，服务端写、客户端读（或 set_local）
+--  self.inst               —— 【公开】：供外部组件访问的唯一入口
+--
+-- 判断某个量该放哪条线，问三个问题：
+--  1) 两端需要【一致】吗？→ 要则必须 netvar（如 _moisture，影响两端表现）
+--  2) 只服务端能决定吗？   → 是则用私有 + ms_ 事件（如 _lightningmode）
+--  3) 两端各自算就行吗？   → 是则用私有（如 _daylight 只是算光照用的中间量）
+-- ⚠️ 第 200 行的 _temperature 是私有量 —— 它由 OnTemperatureTick 接收，
+--   而温度本身的真值来源在 environmentdelta（别的组件），weather 只是消费者。
+--   所以它不需要自己同步。这是「谁是主人」的问题，不是「要不要同步」。
+    local _map = _world.Map
+    local _ismastersim = _world.ismastersim
+-- _ismastersim在【组件构造时】一次性缓存，不在调用点现读 TheWorld.ismastersim。
+-- ★ 好处：全文件所有 if _ismastersim 判定的开销是一次 upvalue 读取，
+--   比每次访问全局 TheWorld 再取字段快得多（热路径上调用极频繁）。
+-- ★ 更重要的好处：它让「服务端专属」的定义【唯一】——
+--   不会出现某处写 _ismastersim、别处写 TheWorld.ismastersim 而语义不同的情况。
+    local _activatedplayer = nil
+
+    --Temperature cache
+    local _temperature = TUNING.STARTING_TEMP
+
+    --Precipiation
+	local _rainsound = nil
+	local _treerainsound = nil
+	local _umbrellarainsound = nil
+    local _barriersound = false
+    local _barriernorainsound = false
+    local _seasonprogress = 0
+    local _groundoverlay = nil
+
+    --Dedicated server does not need to spawn the local fx
+    local _hasfx = not TheNet:IsDedicated()
+-- ★★ _hasfx = not TheNet:IsDedicated() —— 【渲染能力的判断，而非逻辑分支】。
+-- 专服不需要粒子，于是四个 fx 实体在专服上【根本不会被 Spawn】（第 213-216 行）。
+--
+-- 【为什么这个判断对专服很重要】
+-- 粒子是纯客户端表现：服务端算出一个数，客户端照着生成粒子。
+-- 若在专服上生成粒子，不仅白占内存，还会让每个客户端各自生成一份 ——
+-- N 个客户端就是 N 份粒子开销，且服务端那份完全浪费。
+-- 所以「能否渲染」必须【在生成实体时就判断】，而不是生成后再判断。
+--
+-- ⚠️ 第 835、853、1007、1016、1036、1069 行的 _hasfx 判断都建立在
+--   「fx 实体一定存在」的前提上。若哪天判断改成运行时可变，就全崩了。
+-- ★ 抄这个模式：表现层资源要按「运行时是否有渲染能力」决定是否创建，
+--   而不是无条件创建后再隐藏。
+    local _rainfx = _hasfx and SpawnPrefab("rain") or nil
+-- ★ 四种天气 fx 一次性全部创建，之后只靠改particles_per_tick 来开关（第 1008 行等）。
+-- 权衡：省去了反复 Spawn/Remove 的开销与闪烁，代价是四种都常驻内存。
+-- 只有四个小实体，这个取舍显然划算 —— 移植时按「数量是否可控」来决定策略。
+-- ⚠️ 这些是普通实体（Prefab 实例）而非纯 fx 对象，
+--   所以第 545 行能 SetParent 到玩家身上，让粒子跟着镜头走。
+    local _snowfx = _hasfx and SpawnPrefab("snow") or nil
+    local _pollenfx = _hasfx and SpawnPrefab("pollen") or nil
+    local _lunarhailfx = _hasfx and SpawnPrefab("lunarhail") or nil
+
+    --Light
+    local _daylight = true
+    local _season = "autumn"
+
+    --Master simulation
+    local _moisturerateval
+    local _moisturerateoffset
+    local _moistureratemultiplier
+    local _moistureceilmultiplier
+    local _moisturefloormultiplier
+    local _startsnowthreshold
+    local _stopsnowthreshold
+    local _lightningmode
+    local _minlightningdelay
+    local _maxlightningdelay
+    local _nextlightningtime
+    local _lightningtargets
+    local _lightningexcludetags -- NOTE(Omar): Deprecated, leaving this here in case any mods were upvalue hacking this variable. 
+-- ★★ 一个被官方标注弃用但【故意保留】的变量，作者是 NOTE(Omar)。
+-- 注释原文：Deprecated, leaving this here in case any mods were upvalue hacking this variable.
+-- 【这是 mod 兼容性的现实案例】：某些模组通过调试器/元表 tricks 直接读写
+--   组件的私有 upvalue。删掉变量会让它们静默失效。
+--   所以宁可留一个永不使用的空变量，也不删。
+-- ★ 移植启示：一旦发布，私有 upval 也成了对外 API 的一部分。
+--   自己写引擎时，删除内部字段前要考虑向后兼容。
+
+    --Network
+    local _noisetime = net_float(inst.GUID, "weather._noisetime")
+-- ★★★ 13 个 netvar 的声明，是天气系统的「网络契约」。
+-- 【三个要点】
+--  1) 第一个参数都是 inst.GUID —— 保证同一世界内所有天气组件的 netvar 同名同源，
+--     这也是客户端能只建一份天气状态的前提（天气是【世界级】而非实体级）。
+--  2) 第 3 个参数是 dirty 事件名（第 241、244、248、250 行），
+--     表示「该变量变化时额外触发这个事件」，用于转抛成全局事件（第 777-780 行）。
+--  3) 命名全部带 "weather." 前缀 —— 网络变量是【全局命名空间】，
+--     不加前缀极易与别的系统撞名。
+--
+-- 【netvar 的三种写法的权限差异（务必分清）】
+--   netvar:set(v)        —— 【会同步到网络】，只有服务端有权用
+--   netvar:set_local(v)  —— 【只改本地】，不发网络包，客户端专用
+--   netvar:value()       —— 读当前值（两端都能读）
+-- ⚠️ 在客户端对非 dirty 的 netvar 调 set() 不会报错，但值会被下一个
+--   服务端同步覆盖 —— 表现为「改了没反应」，极难排查。
+    local _moisture = net_float(inst.GUID, "weather._moisture")
+    local _moisturerate = net_float(inst.GUID, "weather._moisturerate")
+    local _moistureceil = net_float(inst.GUID, "weather._moistureceil", "moistureceildirty")
+    local _moisturefloor = net_float(inst.GUID, "weather._moisturefloor")
+    local _precipmode = net_tinybyte(inst.GUID, "weather._precipmode")
+    local _preciptype = net_tinybyte(inst.GUID, "weather._preciptype", "preciptypedirty")
+    local _peakprecipitationrate = net_float(inst.GUID, "weather._peakprecipitationrate")
+    local _snowlevel = net_float(inst.GUID, "weather._snowlevel")
+    local _lunarhaillevel = net_float(inst.GUID, "weather._lunarhaillevel")
+    local _snowcovered = net_bool(inst.GUID, "weather._snowcovered", "snowcovereddirty")
+-- _snowcovered：实体是否被雪覆盖的【布尔】标记（第 1085 行由服务端写）。
+-- 单独做成 net_bool 而不是让各实体自己算 snowlevel > threshold，
+-- 是因为每个实体都要读这个值 → net_bool 只有 1 bit，比 net_float 省流量。
+-- ★【带宽优化】的典型做法：派生状态用最窄的类型同步。
+    local _wetness = net_float(inst.GUID, "weather._wetness")
+    local _wet = net_bool(inst.GUID, "weather._wet", "wetdirty")
+
+    --------------------------------------------------------------------------
+    --[[ Private member functions ]]
+    --------------------------------------------------------------------------
+
+    local function StartAmbientRainSound(intensity)
+--★ 四种雨声的设计：Start/Stop 成对，参数只有 intensity。
+-- intensity 通过 SoundEmitter:SetParameter 传给音频引擎，做连续音量调节，
+-- 而【不反复重启动声音】。这是音频系统的标准做法（避免爆音与开销）。
+-- ⚠️ 代价：StartAmbientRainSound / StartTreeRainSound / StartUmbrellaRainSound
+--   【每个调用点都必须保证配对的 Stop 被调用】，否则声音会残留。
+--   第 989/1026 行那些「先全Stop 再Start需要的」的写法就是在做这个保证。
+		local sound =
+			_preciptype:value() == PRECIP_TYPES.lunarhail and
+-- ★ 同一个函数要按preciptype 选两套音效（普通雨 vs 月石雨）。
+-- 第 262 行的模式：只有 _rainsound ~= sound 时才 Kill+Play（即换音效时才重启），
+-- 否则只调 SetParameter 改音量。
+-- ⚠️ 这正是「存下当前音效名」这个upvalue 的用途：
+--   它是「防重复启动」与「检测需要换音效」的双重状态位。
+			"rifts3/lunarhail/lunar_rainAMB" or
+			"dontstarve/AMB/rain"
+
+		if _rainsound ~= sound then
+			if _rainsound then
+				_world.SoundEmitter:KillSound("rain")
+			end
+			_rainsound = sound
+			_world.SoundEmitter:PlaySound(sound, "rain")
+        end
+        _world.SoundEmitter:SetParameter("rain", "intensity", intensity)
+    end
+
+    local function StopAmbientRainSound()
+        if _rainsound then
+			_rainsound = nil
+            _world.SoundEmitter:KillSound("rain")
+        end
+    end
+
+    local function StartTreeRainSound(intensity)
+-- ★★ 树上雨声走的是【另一个 emitter】：TheFocalPoint.SoundEmitter，
+--   而环境雨声（第 267 行）走 _world.SoundEmitter。
+-- 【区别很关键】
+--   _world.SoundEmitter        —— 世界级，跟随镜头但不受玩家遮挡关系影响
+--   TheFocalPoint.SoundEmitter —— 跟随「焦点对象」（通常是玩家），
+--                               声音定位在焦点上，所以玩家转身时音场跟着转。
+-- ★ 玩家身上的声音（伞、屏障、树上雨）全用 FocalPoint，
+--   背景音用 World。这套分层让音场有「世界 vs 我」的听感区分。
+-- ⚠️ 第 287 行的 KillSound 用了 "treerainsound" 而第 290 行的 PlaySound
+--   用的是同名 key —— 靠key 一致来配对，键名写错就会「停了但没声」。
+		local sound =
+			_preciptype:value() == PRECIP_TYPES.lunarhail and
+			"rifts3/lunarhail/lunarhail_on_tree" or
+			"dontstarve_DLC001/common/rain_on_tree"
+
+		if _treerainsound ~= sound then
+			if _treerainsound then
+				TheFocalPoint.SoundEmitter:KillSound("treerainsound")
+			end
+			_treerainsound = sound
+			TheFocalPoint.SoundEmitter:PlaySound(sound, "treerainsound")
+        end
+        TheFocalPoint.SoundEmitter:SetParameter("treerainsound", "intensity", intensity)
+    end
+
+    local function StopTreeRainSound()
+        if _treerainsound then
+			_treerainsound = nil
+            TheFocalPoint.SoundEmitter:KillSound("treerainsound")
+        end
+    end
+
+    local function StartUmbrellaRainSound()
+-- ★★ 伞声的选择逻辑有三层嵌套，值得逐层读：
+--  第 303 行：读玩家【手上】的装备 —— 所以「换伞」会改变雨声音色
+--  第 305 行：umbrella:HasTag("metal") —— 金属伞（温蒂的传送伞）用专属音效
+--  第 306-313 行：再按 precip type 分普通雨声/ 月石雨声
+--
+-- 【推断的 nil 安全】第 303 行 _activatedplayer 若为 nil 会崩，
+--   但第 974 行的调用点已先判 _activatedplayer == nil 并提前走 Stop 分支，
+--   所以这里是安全的。★ 调用方必须先保证前置条件 —— 私有函数之间的隐式契约。
+--⚠️ 第 305 行 umbrella 有 nil 保护（and 短路）但第 303 行没有，
+--   两者保护级别不一致，属可读性问题而非缺陷。
+		local umbrella = _activatedplayer.replica.inventory:GetEquippedItem(EQUIPSLOTS.HANDS)
+		local sound =
+			umbrella and umbrella:HasTag("metal") and
+			(	_preciptype:value() == PRECIP_TYPES.lunarhail and
+				"meta4/winona_teleumbrella/hail_on_teleumbrella" or
+				"meta4/winona_teleumbrella/rain_on_teleumbrella"
+			) or
+			(	_preciptype:value() == PRECIP_TYPES.lunarhail and
+				"rifts3/lunarhail/hail_on_umbrella" or
+				"dontstarve/rain/rain_on_umbrella"
+			)
+
+		if _umbrellarainsound ~= sound then
+			if _umbrellarainsound then
+				TheFocalPoint.SoundEmitter:KillSound("umbrellarainsound")
+			end
+			_umbrellarainsound = sound
+			TheFocalPoint.SoundEmitter:PlaySound(sound, "umbrellarainsound")
+        end
+    end
+
+    local function StopUmbrellaRainSound()
+        if _umbrellarainsound then
+			_umbrellarainsound = nil
+            TheFocalPoint.SoundEmitter:KillSound("umbrellarainsound")
+        end
+    end
+
+    local function StartBarrierSound()
+-- StartBarrierSound 用布尔 _barriersound 而其他三个用「音效名或 nil」。
+-- ★ 因为屏障声只有一种，不需要记名字判断「是否要换」，只要记「开着没」。
+-- 两种状态表示的取舍：多音效时用字符串，单音效时用布尔。
+-- ⚠️ 第 206-207 行的 _barriersound / _barriernorainsound 声明在成员区，
+--   而 _barriernorainsound 【全文件从未被赋值或读取】（已 grep 确认）——
+--   是一个完全无用的残留变量。疑似旧版本遗留。
+        if not _barriersound then
+            _barriersound = true
+            TheFocalPoint.SoundEmitter:PlaySound("meta2/voidcloth_umbrella/barrier_amb", "barriersound")
+        end
+    end
+
+    local function StopBarrierSound()
+        if _barriersound then
+            _barriersound = false
+            TheFocalPoint.SoundEmitter:KillSound("barriersound")
+        end
+    end
+
+    local function SetGroundOverlay(overlay, level)
+-- SetGroundOverlay：切换地面的贴图与颜色渐变，并设置混合进度。
+-- ★★ 第 346 行只在 overlay 【变化时】才重设贴图与三组颜色，
+--   而第 353 行的 SetOverlayLerp【每帧都调】。
+--   这是关键的性能分层：贴图/颜色是「离散状态」，lerp 是「连续进度」。
+--   若不区分而每帧 SetOverlayTexture，会造成每帧上传 GPU 参数。
+-- ★ 与第 358 行 SetWithPeriodicSync 是同一套思路的两个实例：
+--   「离散量按需更新，连续量逐帧更新」。
+        if _groundoverlay ~= overlay then
+            _groundoverlay = overlay
+            _map:SetOverlayTexture(overlay.texture)
+-- 注意这里直接改的是 _map（= TheWorld.Map），而不是发事件。
+-- ★ 地面渲染完全由【天气组件单方面驱动】，其他系统通过读 netvar 获知状态。
+--   推论：天气组件的 OnPostInit 之前，地面叠加层不会被设置 ——
+--   所以第 828 行构造末尾就调了 PushWeather 保证状态被读一次。
+            _map:SetOverlayColor0(unpack(overlay.colour[1]))
+            _map:SetOverlayColor1(unpack(overlay.colour[2]))
+            _map:SetOverlayColor2(unpack(overlay.colour[3]))
+        end
+        _map:SetOverlayLerp(level)
+    end
+
+    local function SetWithPeriodicSync(netvar, val, period, ismastersim)
+-- ★★★★★ SetWithPeriodicSync —— 全文件技术含量最高的一段，务必逐行读。
+--
+-- 【要解决的问题】
+-- 客户端要显示平滑的雨/雪/湿度，但服务端只在某些时刻才发同步。
+--  若客户端完全等服务端 → 雨量会「一跳一跳」；若客户端完全不理会服务端 → 会漂移。
+--
+-- 【解法：时间分桶 + 桶内自治】
+-- 把连续时间按 period 切成若干「桶」。同一个桶内，客户端自己算、服务端不管；
+-- 只有跨桶时服务端才 set 一次做校准。于是网络频率 = 1/period 而非每帧。
+--
+-- 【逐行逻辑】
+--  第 357 行 值没变 → 什么都不做（连 ismastersim 都不判，省开销）
+--  第 358 行 ★ 决定用floor 还是 ceil：
+--     值【变大】时 floor，值【变小】时 ceil。
+--     这保证两端算出【同一个桶号】，从而在同一条桶边界上对齐。
+--     若两个方向都用 floor，则递增时可能错开一桶 → 长期漂移。
+--  第 359-360 行 各自算自己所在桶号（value/period 后取整）
+--  第 362 行  ★ 同桶 → 客户端用 set_local 自由更新，不发网络
+--  第 365-367 行 跨桶 → 只有服务端 set()，做一次真实同步
+--  第 368-371 行 ★ 跨桶但本函数跑在客户端 → 【不能 set】，
+--     只能 set_local(nextperiod * period)，即「把自己对齐到桶边界的值」，
+--     这样下一次服务端跨桶同步时两端数值就接近了。
+--  第 372-375 行 ★ 值一直没变但本函数在服务端 → 强制 set 一次，
+--     修复「客户端本地算错了却因为值相同而永远对不上」的僵局（自愈机制）。
+--
+-- 【★ 为什么这个模型值得抄】
+--  它同时满足了三个通常互相冲突的需求：
+--   ① 客户端表现平滑（桶内自治）
+--   ② 带宽极低（桶间同步）
+--   ③ 不会永久漂移（跨桶校准 + 强制自愈）
+--  自己写联机游戏时，位置/血量/动画等「可本地演化的连续量」都该套这个模型。
+-- ⚠️ 前提：period 必须两端【严格一致】（本文件全是常量，满足）。
+--   若 period 由随机或分端计算得出，整个对齐机制会失效。
+        if netvar:value() ~= val then
+            local trunc = val > netvar:value() and "floor" or "ceil"
+            local prevperiod = math[trunc](netvar:value() / period)
+            local nextperiod = math[trunc](val / period)
+
+            if prevperiod == nextperiod then
+                --Client and server update independently within current period
+                netvar:set_local(val)
+            elseif ismastersim then
+                --Server sync to client when period changes
+                netvar:set(val)
+            else
+                --Client must wait at end of period for a server sync
+                netvar:set_local(nextperiod * period)
+-- set_local(nextperiod * period) —— 把客户端的值【吸附到桶的上边界】。
+--★ 这个值本身就是「本桶的最后一个合法值」，所以下一次跨桶比较时，
+--   客户端与服务端会落在同一个桶上，从而触发真正的 set。
+-- ⚠️ 副作用：客户端的值被「强行改写」了，视觉上可能出现极小的跳变。
+--   周期越大跳变越明显 —— 这是「带宽」与「平滑」的固有权衡，无解。
+-- ★ 所以 period 的选择（第 17/56/61/152 行的30/100/.1/10）是平衡点，
+--   改这些数字前要想清楚「这个量跳变 0.01 会不会被看出来」。
+            end
+        elseif ismastersim then
+            --Force sync when value stops changing
+            netvar:set(val)
+        end
+    end
+
+    local ForceResync = _ismastersim and function(netvar)
+-- ★★ ForceResync 的 `A and f or nil` 惯用法：只在服务端给出一个真函数，
+--   客户端得到 nil。若客户端误调 nil(...)，会立刻报「attempt to call a nil value」，
+--   属于「快速失败」—— 比静默出错好。
+--
+-- 关键技巧：先 set_local 再 set（第 379-380 行）。
+-- ★★ 因为 set() 内部会「值相同则不发包」，而 ForceResync 的目的正是
+--   「强制重发」。先 set_local 把本地脏掉？不—— 是让服务端侧的值被标记，
+--   具体效果是确保 set 判定为「需要更新」并真正发出网络包。
+--   用途见第 732 行：暂停游戏恢复后，客户端可能已积累漂移，必须全部拉回。
+        netvar:set_local(netvar:value())
+        netvar:set(netvar:value())
+    end or nil
+
+    local CalculateMoistureRate = _ismastersim and function()
+-- ★ 从第 378行开始的五个私有函数都用同一个惯用法：
+--   `local f = _ismastersim and function() ... end or nil`
+-- 【为什么不写成 if _ismastersim then local f = ... end】
+--   因为 Lua 的函数体（Class(function...)）是一个闭包，
+--   在里面写 if 会让【函数定义本身】变成条件性的，两种写法等价，
+--   但 `A and f or nil` 更紧凑，且清楚地表达「这个函数可能不存在」。
+-- ★★ 这种写法在本文件出现十余次（第 378/383/387/391/395/419/429/438/443/565/577/
+--   586/590/594/599/603/607/611/615/619/630/732 行）。
+-- 【收益】非服务端【连函数对象都不创建】，省内存且杜绝误调用。
+-- 【代价】调用点必须自己保证在服务端。如第 566 行 ipairs(_lightningtargets)，
+--   _lightningtargets 只在服务端初始化（第 802 行），客户端是 nil。
+--   所幸该函数本身也被 _ismastersim 守卫（第 565 行），所以不会崩。
+-- ★★ 这就是「双端差异」最干净的表达方式：
+--   用定义时的条件编译替代运行时的到处 if ismastersim。
+        return _moisturerateval * _moistureratemultiplier + _moisturerateoffset
+    end or nil
+
+    local RandomizeMoistureCeil = _ismastersim and function()
+        return (1 + math.random()) * TUNING.TOTAL_DAY_TIME * _moistureceilmultiplier
+-- RandomizeMoistureCeil：(1 + math.random()) * TOTAL_DAY_TIME * 倍率
+-- ★ 「1 + random()」给出 [1, 2) 的均匀分布，乘以一天的总时长，
+--   再乘季节倍率。所以湿度上限 = 1~2 个游戏日 × 季节系数。
+-- ★ 语义：湿度是「天」为单位累积的量（下雨是以天计的），而非以秒计。
+--   这是全局设计的尺度感：天气变化缓慢，一局游戏通常只经历 1~2 场雨。
+    end or nil
+
+    local RandomizeMoistureFloor = _ismastersim and function(season)
+        return (.25 + math.random() * .5) * _moisture:value() * _moisturefloormultiplier
+-- RandomizeMoistureFloor：(.25 + random()*.5) * 当前湿度 * 季节倍率
+-- ★ 注意它以【当前湿度】为基准（相对量），而第 388 行的 ceil 是绝对量。
+--   这意味着「雨停后的湿度下限」正比于「停下时的湿度」——
+--   大雨停后留得更多湿，小雨停后留得更少。物理直觉上是对的。
+-- ⚠️ 参数 season 在函数体内其实【没被使用】（只用了 _moisturefloormultiplier，
+--   而后者由调用方在 OnSeasonTick 里按季节设好了）。
+--   我逐行核对第 391-393 行确认 season 未被引用。
+--   属于「参数冗余」的无害瑕疵，调用方仍在传（见第 424 行）。
+    end or nil
+
+    local RandomizePeakPrecipitationRate = _ismastersim and function(season)
+        local range = PEAK_PRECIPITATION_RANGES[season]
+        return range.min + math.random() * (range.max-range.min)
+    end or nil
+
+    local function CalculatePrecipitationRate()
+-- ★★★ CalculatePrecipitationRate —— 雨量的【三态函数】，无状态纯计算。
+-- 【三个分支的优先级不能调换】
+--  1) 第 401 行 mode==always → 用【噪声】驱动，无视湿度。
+--     ★ 为什么单独一条：无雨模式（「永远下雨」）用于展示/剧情，
+--       必须保证「一直有雨」，不能等湿度积累。
+--     噪声 perlin(0, noisetime*.1, 0) 让雨量自然起伏（时大时小），
+--     范围 [0,1] × .9 + .1 → [0.1, 1.0]。
+--  2) 第 403 行 有降水 且 非never → 【湿度驱动】，正常路径。
+--  3) 第 408 行兜底 return 0（不下雨）
+--
+-- 【第 404 行：湿度的归一化位置】
+--   p = (moisture - floor) / (ceil - floor)  并 clamp 到 [0,1]
+--   ★ 即「在这次雨的进度条上处于什么位置」：0=刚开始，1=快结束。
+-- ⚠️ 分母 ceil - floor 若为 0 会除零 → 得到 inf 或 nan。
+--   第 450 行 CalculatePOP 里专门判了 ceil <= 0 的情况，
+--   但本函数【没有】对应保护。属疑似脆弱点（实践中 floor<ceil 恒成立）。
+--
+-- 【第 405 行：★ 雨量的形状是一条【正弦拱】】
+--   rate = 0.1 + 0.9 * sin(p * PI)
+--   形状：p=0 → 0.1（雨刚下最小）→ p=0.5 → 1.0（雨最大）→ p=1 → 0.1
+-- ★ 为什么用正弦而不是线性：模拟真实降雨的「自然起伏」，
+--   雨势会自己变大变小，而不是恒定线性增强。
+-- ★ 第 406 行的 math.min(rate, _peakprecipitationrate) 是【季节雨量上限】：
+--   即使正弦到了峰值，也不超过本季节随机出的 peak（第 395 行）。
+--   这一行让「不同季节的雨不一样大」成为可能，同时保留了正弦的自然感。
+-- ★ 移植建议：这类「物理形状 × 风格上限」的组合写法非常通用。
+        if _precipmode:value() == PRECIP_MODES.always then
+            return .1 + perlin(0, _noisetime:value() * .1, 0) * .9
+        elseif _preciptype:value() ~= PRECIP_TYPES.none and _precipmode:value() ~= PRECIP_MODES.never then
+            local p = math.max(0, math.min(1, (_moisture:value() - _moisturefloor:value()) / (_moistureceil:value() - _moisturefloor:value())))
+            local rate = MIN_PRECIP_RATE + (1 - MIN_PRECIP_RATE) * math.sin(p * PI)
+            return math.min(rate, _peakprecipitationrate:value())
+        end
+        return 0
+    end
+
+    local function CalculateLunarHailRate()
+-- CalculateLunarHailRate：月石雨强度，同样是 sin 拱形（第 414 行）。
+-- 与 CalculatePrecipitationRate 用同一个数学形状，只是驱动量换成 _lunarhaillevel。
+-- ★ 两条通道【互不干扰】：月石雨有自己的 level 与自己的 rate 计算，
+--   不占用湿度的「floor/ceil」进度条。所以两者可以独立推进。
+-- ⚠️ 但第 420、430 行有守卫：lunarhail 期间 Start/StopPrecipitation 直接 return，
+--   所以实际上二者是【互斥】的，第 438-446 行 Start/StopLunarHail 会改 precip type。
+--   也就是说「独立」是结构上的，实际生命周期互斥。
+        if _preciptype:value() == PRECIP_TYPES.lunarhail then
+            local p = math.clamp(_lunarhaillevel:value() / LUNAR_HAIL_CEIL, 0, 1)
+            return math.sin(p * PI)
+        end
+        return 0
+    end
+
+    local StartPrecipitation = _ismastersim and function(temperature)
+-- ★★ StartPrecipitation —— 「开始下雨」这个状态迁移的全部副作用。
+--【四次赋值缺一不可，每一项都有理由】
+--  第 422 行 预先排好下一次闪电时间（下雨时才可能闪电）
+--  第 423 行 ★ 湿度【拉满】到 ceil —— 下雨总是从「最湿」开始，
+--    这样第 405 行的正弦才有完整的 0→1 行程。若不拉满，雨会「半途开始」。
+--  第 424 行 随机下限（相对当前湿度）
+--  第 425 行 ★ 随机本场雨量上限 —— 每场雨大小不同，这是「天气多样性」的来源
+--  第 426 行 ★★ 按温度决定雨还是雪，并【真的写入 precip type】
+--
+-- 【第 420 行的守卫为什么要】
+--  月石雨进行中时，普通降水的启停必须让位，否则会把 precip type 从
+--  lunarhail 改回 rain/snow，导致月石雨特效被替换掉。
+-- ⚠️ 但这个守卫意味着：月石雨中若有人调用 StartPrecipitation，会【完全无效】。
+--   这是「月石雨优先级更高」的隐式约定。
+        if _preciptype:value() == PRECIP_TYPES.lunarhail then return end
+
+        _nextlightningtime = GetRandomMinMax(_minlightningdelay or 5, _maxlightningdelay or 15)
+        _moisture:set(_moistureceil:value())
+        _moisturefloor:set(RandomizeMoistureFloor(_season))
+        _peakprecipitationrate:set(RandomizePeakPrecipitationRate(_season))
+        _preciptype:set(temperature < _startsnowthreshold and PRECIP_TYPES.snow or PRECIP_TYPES.rain)
+    end or nil
+
+    local StopPrecipitation = _ismastersim and function()
+-- ★ StopPrecipitation 与 StartPrecipitation 完全对称：
+--  湿度落到 floor（第 432 行）、重置 ceil（第 433 行）、precip type 置 none。
+-- ★ 注意【没有】重置 _peakprecipitationrate —— 它会在下次 Start 时重新随机，
+--   所以留着旧值无害。这样「配对但不逐字段还原」是安全的。
+-- ⚠️ 第 433 行重置 ceil 时用了 RandomizeMoistureCeil()，
+--   意味着每场雨结束后【下一场雨的规模已经提前决定】，
+--   而玩家看到的是「雨停后一段时间又开始下」。这是刻意的不可预测性。
+        if _preciptype:value() == PRECIP_TYPES.lunarhail then return end
+
+        _moisture:set(_moisturefloor:value())
+        _moistureceil:set(RandomizeMoistureCeil())
+
+        _preciptype:set(PRECIP_TYPES.none)
+    end or nil
+
+    local StartLunarHail = _ismastersim and function()
+        _lunarhaillevel:set(LUNAR_HAIL_CEIL)
+        _preciptype:set(PRECIP_TYPES.lunarhail)
+    end or nil
+
+    local StopLunarHail = _ismastersim and function()
+        _lunarhaillevel:set(LUNAR_HAIL_FLOOR)
+        _preciptype:set(PRECIP_TYPES.none)
+    end or nil
+
+    local function CalculatePOP()
+-- ★★★ CalculatePOP —— Probability Of Precipitation，降水的【发生概率】。
+-- 这是天气领域的标准术语（气象学里的 PoP）。它【不控制雨量，只控制是否下雨】，
+-- 所以与 CalculatePrecipitationRate 是两个独立的量。
+--
+-- 【or 链的求值顺序即优先级，逐条拆解】
+--  第 449 行 ★ 已经在下雨 → 返回 1（概率 100%，必然继续）。
+--     用 and：preciptype~=none 为真时整个表达式为 1，否则为 nil 继续下一条。
+--  第 450 行 上限<=0 或 已到下限 → 返回 0（不可能下雨）。
+--     ★ 前半 `_moistureceil:value() <= 0` 是【除零保护】，
+--       防止第 451 行用 0 当分母。后半是「湿度已耗尽」。
+--  第 451 行 ★ 正常情况：返回湿度进度 p。
+--     语义：湿度越接近上限，越可能下雨。线性映射。
+--  第 452 行 兜底 return 1（前述全false 时的兜底）。
+--
+-- 【★ 为什么这个函数在 OnUpdate 里没被调用】
+--  实际用法：PushWeather 把 pop 塞进 weathertick 事件（第 495 行），
+--  供 ambientlighting / ambientsound 等消费方参考（如提前变阴、起风）。
+--  天气本身不用它做决策 —— 决策由湿度与 ceil 的比较直接完成（第 907-910 行）。
+-- ★ 这是「事件总线」的价值：算好的量广播出去，谁需要谁取。
+        return (_preciptype:value() ~= PRECIP_TYPES.none and 1)
+            or ((_moistureceil:value() <= 0 or _moisture:value() <= _moisturefloor:value()) and 0)
+            or (_moisture:value() < _moistureceil:value() and (_moisture:value() - _moisturefloor:value()) / (_moistureceil:value() - _moisturefloor:value()))
+            or 1
+    end
+
+    local function CalculateLight()
+-- ★★★ CalculateLight —— 由天气驱动的【屏幕亮度】。
+-- 【输出范围恒为 [1-dynrange, 1]】（第 478 行：p*dynrange + 1 - dynrange，p∈[0,1]）
+--  即最坏情况也只是 1-dynrange，不会变黑。dynrange 就是「最多能暗多少」。
+--
+-- 【四条路径，顺序有意义】
+--  第 456-458 行 强制无雨且非月石雨 → 返回 1（完全不暗）。
+--  第 465-467 行 ★ mode==always → 恒定亮度 1-dynrange。
+--     ★ 注意它【跳过了 p 的计算】，所以 always 模式下亮度不随湿度变化。
+--     与 CalculatePrecipitationRate 的 always 分支（第 401 行）对照：
+--     那边用噪声让雨量起伏，这边却【直接返回常量】——
+--     ⚠️ 疑似不一致：雨量在变但亮度不变，会出现「雨很大但天不暗」。
+--     标为疑似：也可能是有意为之（always 模式用于演出，要稳定亮度）。
+--  第 469-472 行 正常路径：把湿度进度 p 变暗，
+--     并与月石雨速率 p2 取 max（更暗者胜）。
+--  第 474-476 行 ★★ 有降水时才做缓动：easing.inQuad(p, 0, 1, 1)。
+--     inQuad 是「二次方缓入」，让变暗过程【前慢后快】——
+--     即雨刚下时天不会立刻暗下来，而是逐渐压暗，视觉上更自然。
+--     ⚠️ 注意这个缓动【只在下雨时做】：没下雨的路径（第 472 行后）不缓动，
+--     所以「雨停后转晴」是瞬间变亮，而「开始下雨」是缓慢变暗。
+--     ★ 这是【不对称】的。可能是刻意的（乌云积累需要过程），也可能漏了。
+        if _precipmode:value() == PRECIP_MODES.never and _preciptype:value() ~= PRECIP_TYPES.lunarhail then
+            return 1
+        end
+
+        local season = _season
+        local snowlight = _preciptype:value() == PRECIP_TYPES.snow
+        local dynrange = snowlight and (_daylight and SEASON_DYNRANGE_DAY["winter"] or SEASON_DYNRANGE_NIGHT["winter"])
+-- ★ dynrange 的选择：下雪时【强制用冬天的 dynrange】，不论当前季节。
+--   snowlight and (daylight and DAY["winter"] or NIGHT["winter"])
+--       or (daylight and DAY[season] or NIGHT[season])
+-- 【语义】阴天（哪怕在夏天）用冬天的暗度。
+-- ★ 依据第 172-184 行的表：冬天白天 dynrange=.05、夜晚=0，
+--   是所有季节里【最暗】的。用它表达「雪天=很阴」。
+-- ⚠️ 第 181 行 winter 的 NIGHT dynrange = 0 ——
+--   意味着「冬天下雪的夜晚」dynrange 为 0，第 478 行返回 p*0 + 1 - 0 = 1，
+--   即【完全不暗】。这个值看起来可疑（可能是刻意的「冬夜本就黑」）。
+--   标为疑似：无法确认是笔误还是有意，源码无解释。
+                                    or (_daylight and SEASON_DYNRANGE_DAY[season] or SEASON_DYNRANGE_NIGHT[season])
+
+        if _precipmode:value() == PRECIP_MODES.always then
+            return 1 - dynrange
+        end
+
+        local p = math.min(math.max((_moisture:value() - _moisturefloor:value()) / (_moistureceil:value() - _moisturefloor:value()), 0), 1)
+-- p 的计算与第 404 行几乎相同，但没有 clamp 的双参数写法，
+-- 而是 math.min(math.max(..., 0), 1) —— 等价，只是顺序相反。
+-- ⚠️ 与第 404 行风格不一致（那里是 max(0, min(1, x))）。
+--   两处都是防御性钳制，但缺第 404 行的「分母非零」保护。
+-- ★ 第 472 行 p = 1 - math.max(p, p2)：
+--   先取「更暗的那个进度」，再翻转成亮度。max 而非平均 ——
+--   即月石雨与普通雨叠加时取更强的一个，不做叠加。
+        local p2 = _preciptype:value() == PRECIP_TYPES.lunarhail and CalculateLunarHailRate() or 0
+
+        p = 1 - math.max(p, p2)
+
+        if _preciptype:value() ~= PRECIP_TYPES.none then
+            p = easing.inQuad(p, 0, 1, 1)
+        end
+
+        return p * dynrange + 1 - dynrange
+-- p * dynrange + 1 - dynrange —— 把 [0,1] 的进度映射到 [1-dynrange, 1]。
+-- ★ 这是标准的线性映射：f(p) = p*(max-min) + min，其中 min=1-dynrange, max=1。
+--   写成这种形式（而非先算 min 再插值）是为了少一次减法。
+-- ⚠️ 注意 Lua 运算符优先级：+ 与 - 同级左结合，
+--   所以实际是 (p*dynrange + 1) - dynrange，结果正确但可读性差。
+--   加括号会更清晰，但改代码就违反「只加注释」的红线，故仅在此说明。
+    end
+
+    local function CalculateWetnessRate(temperature, preciprate)
+-- ★★ CalculateWetnessRate —— 地面湿度【变化速率】（可为负=变干）。
+-- 用 or 链实现「三分支互斥」，且每支返回的是【本帧速率】而非最终湿度。
+--
+-- 【三支的语义，顺序即优先级】
+--  第 483 行 ★ 正在下【雨】→ 正速率，用 easing.inSine 随雨量增大。
+--     注意只认 rain（第 483 行），【snow 与 lunarhail 不在此列】。
+--  第 485 行 ★★ 零下且冬季 → 硬编码 -1（最强的变干速率）。
+--     【极易看错】：-1 在 Lua 里是 truthy！所以这个条件若成立，
+--     整个表达式立即返回 -1，第 486 行的干燥计算【根本不会执行】。
+--     我逐行核对第 481-489 行确认 -1 后面没有 or 跟随，
+--     所以这是「有意的硬编码」，不是 bug —— 但极易被后人误改成 0。
+--  第 486-488 行 常规干燥：温度线性项 + 湿度自增强项，再钳制。
+--
+-- 【第 487 行的 inExpo(_wetness, 0, 1, MAX_WETNESS) 是「干燥自增强」】
+--  已经很湿的东西，干得也更快（指数关系）。
+--  ★ 设计意图：避免出现「永远干不了」的永久泥泞状态。
+--  第 488 行的 math.clamp(..., .01, 1) 保证最低仍有 .01 的干燥速率，
+--  ★ 同样是「防锁死」—— 宁可干得极慢，也不能完全不干。
+-- 【与 sanity 的关系】本量影响实体「受潮」，进而是烤火/体温相关玩法，
+--   但如文件头所述，sanity.lua 并不直接读它。
+        return --Positive wetness rate when it's raining
+            (_preciptype:value() == PRECIP_TYPES.rain and easing.inSine(preciprate, MIN_WETNESS_RATE, MAX_WETNESS_RATE, 1))
+            --Negative drying rate when it's not raining
+            or (temperature < 0 and _season == "winter" and -1)
+            or -math.clamp(easing.linear(temperature, MIN_DRYING_RATE, MAX_DRYING_RATE, OPTIMAL_DRYING_TEMPERATURE)
+                        + easing.inExpo(_wetness:value(), 0, 1, MAX_WETNESS),
+                        .01, 1)
+    end
+
+    local function PushWeather()
+-- ★★★ PushWeather —— 每次 OnUpdate 末尾都调用（第 1122 行）的【广播出口】。
+-- 【它同时计算并打包了 8 个派生量】，一次性广播给所有订阅者：
+--   moisture / pop / precipitationrate / snowlevel /
+--   lunarhaillevel / lunarhailrate / wetness / light
+-- ★★ 关键价值：订阅者（如 ambientlighting.lua:274、ambientsound.lua:267）
+--   【不需要自己去算】，也不需要轮询 weather 组件的私有状态。
+--   它们只监听 "weathertick" 即可拿到全部所需。
+-- 【★ 每帧广播 vs 按需查询的权衡】
+--   每帧 PushEvent 有开销（遍历监听者列表），但省掉了每个订阅者重复计算。
+--   天气相关的监听者只有少数几个，这个取舍合理。
+--   ⚠️ 但【事件里塞了表（第 492-502 行）】，每帧新建一个 table ——
+--   这在 Lua GC 压力下不算最优（可复用同一张表）。属可优化点，非缺陷。
+        local data =
+        {
+            moisture = _moisture:value(),
+            pop = CalculatePOP(),
+            precipitationrate = CalculatePrecipitationRate(),
+            snowlevel = _snowlevel:value(),
+            lunarhaillevel = _lunarhaillevel:value(),
+            lunarhailrate = CalculateLunarHailRate(),
+            wetness = _wetness:value(),
+            light = CalculateLight(),
+        }
+        _world:PushEvent("weathertick", data)
+-- _world:PushEvent("weathertick", data) —— 向【世界】广播而非向 inst。
+-- ★ 因为订阅者是世界级的组件（ambientlighting / ambientsound 挂在世界实体上），
+--   向 world 广播才能让它们用 inst:ListenForEvent("weathertick", fn) 收到。
+-- ★ 对比第 1114 行 ms_sendlightningstrike 也是 _world:PushEvent ——
+--   全文件的跨组件通信统一走「世界事件总线」这一条路。
+    end
+
+    --------------------------------------------------------------------------
+    --[[ Private event handlers ]]
+    --------------------------------------------------------------------------
+
+    local function OnSeasonTick(src, data)
+-- ★★★ OnSeasonTick —— 季节切换的唯一入口，由 components/season.lua 驱动。
+-- ★★ 回答了任务书的问题「季节推进怎么调度」：
+--  【weather 自己【没有】任何周期任务或季节计时器】。
+--  它是被动接收者：season 组件在自己的 tick 里 PushEvent("seasontick")，
+--  weather 第 783 行监听。也就是说【季节的节拍权在 season 组件手里】，
+--  weather 只是订阅方。两者是「1 个生产者 : N 个消费者」的关系。
+--  【事件数据 data 的字段】season / progress / elapseddaysinseason
+--   progress 是【当前季节内的进度 0..1】，elapseddaysinseason 是【已过天数】。
+--
+-- 【第 514 行的 _ismastersim 守卫：本函数两端都要跑，但只服务端改状态】
+--  客户端也要更新 _season / _seasonprogress（第 511-512 行），
+--  因为它们要用于计算光照（第 460 行）与花粉（第 1072 行）。
+--  ★ 典型的「读的部分双端都做，写的部分只有服务端」。
+        _season = data.season
+        _seasonprogress = data.progress
+
+        if _ismastersim then
+            if data.season == "winter" and data.elapseddaysinseason == 2 then
+-- ★★ 一个刻意的「作弊」：冬季第 2 天强制下大雪。
+--  条件：season == "winter" 且 elapseddaysinseason == 2
+--  动作：湿度速率设为 0（停止自然累积），偏移设为 50（强行快速累积）
+-- 注释原文：We really want it to snow in early winter, so that we can get an initial ground cover
+-- 【★ 意图解析】进入冬天第 2 天时，玩家最想要的是「地上已经有雪」，
+--   这样才有冬天的仪式感与堆雪人/滑冰等玩法。
+--   若自然累积要等很久，玩家会觉得「冬天怎么不下雪」。
+--   所以官方在这里【强行加速一次】。
+-- ⚠️ 注意它是【精确等于 2】，不是 >= 2。
+--   所以必须恰好在第 2 天的那一次 seasontick 事件命中；
+--   若那次事件因故没触发（或 season 组件跳过了这一天），就不会生效。
+--   依赖事件恰好逐日触发，属脆弱但无害的假设。
+-- ★ 移植启示：这类「内容节拍 hack」应集中标注并写明意图，
+--   否则后人很容易把它当bug 优化掉。本行注释就做得很好。
+                --We really want it to snow in early winter, so that we can get an initial ground cover
+                _moisturerateval = 0
+                _moisturerateoffset = 50
+            else
+                --It rains less in the middle of summer
+                local p = 1 - math.sin(PI * data.progress)
+-- p = 1 - sin(PI * progress)：季节内湿度速率的「进度曲线」。
+-- ★ 形状：progress=0 → p=1（速率取MAX，最快）→ progress=0.5 → p=0 →
+--   progress=1 → p=1（又回到MAX）。即「慢-快-慢」的拱形。
+--   注释说It rains less in the middle of summer（第 520 行）——
+--   语义是【雨在季节中段最少】。
+-- 第 522 行用 p 在 MIN 与 MAX 之间线性插值：MIN + p*(MAX-MIN)。
+-- ⚠️ 与第 405 行同样是 sin 曲线，但【相位相反】：
+--   那里 sin(p*PI) 是「两端小中间大」，这里 1-sin 是「两端大中间小」。
+--   两条曲线刻意反向，形成了「雨势大时不一定下雨多」的错位，
+--   避免天气变化显得规律。
+                _moisturerateval = MOISTURE_RATES.MIN[_season] + p * (MOISTURE_RATES.MAX[_season] - MOISTURE_RATES.MIN[_season])
+                _moisturerateoffset = 0
+            end
+
+            _moisturerate:set(CalculateMoistureRate())
+            _moistureceilmultiplier = MOISTURE_CEIL_MULTIPLIERS[_season] or MOISTURE_CEIL_MULTIPLIERS.autumn
+--★ 四季的倍率表切换：全部用 `or .autumn` 兜底。
+-- ★ 这是【防御性编程的标准写法】：若 season 传入未知字符串（如 mod 自定义季节），
+--   不会得到 nil 导致后续算术崩溃，而是退回到秋季的默认行为。
+-- ⚠️ 但注意：兜底值【不会写回 _season】（第 511 行 _season 已是那个未知值），
+--   于是后续第 460 行 SEASON_DYNRANGE_DAY[season] 仍会得到 nil！
+--   ⚠️⚠️ 这是一个【不一致的兜底】：第 527-530 行有兜底，
+--     但第 462-463 行（CalculateLight）与第 1070 行（花粉）
+--     【直接用 _season 作表索引、没有 or 兜底】。
+--   若真的出现未知季节值，那几行会崩溃。
+--   标为【疑似】：实践中 season 只可能是四个标准值（由 season 组件保证），
+--   所以目前不会触发。但兜底写得如此小心却在别处遗漏，是真实的维护隐患。
+            _moisturefloormultiplier = MOISTURE_FLOOR_MULTIPLIERS[_season] or MOISTURE_FLOOR_MULTIPLIERS.autumn
+            _startsnowthreshold = START_SNOW_THRESHOLDS[_season] or START_SNOW_THRESHOLDS.autumn
+            _stopsnowthreshold = STOP_SNOW_THRESHOLDS[_season] or STOP_SNOW_THRESHOLDS.autumn
+        end
+    end
+
+    local function OnTemperatureTick(src, temperature)
+        _temperature = temperature
+    end
+
+    local function OnPhaseChanged(src, phase)
+        _daylight = phase == "day"
+    end
+
+    local function OnPlayerActivated(src, player)
+-- ★★ OnPlayerActivated：把四个 fx 实体【挂到激活玩家身上】。
+-- 【为什么要 SetParent】
+--  雨雪粒子是「世界坐标」生成的，但视觉效果应该以「镜头」为中心。
+--  挂到玩家下，粒子就跟着镜头走，玩家走到哪下到哪。
+--  这是一个「表现层锚点」——纯粹为了视觉，逻辑上无关。
+--
+-- 【第 549 行 self:OnPostInit() 的巧妙之处】
+--  OnPostInit 通常只在实体初始化时调一次，这里【手动重新调用】。
+--  目的是「重新初始化当前天气对应的粒子」，让切换激活玩家后视觉正确。
+--  ⚠️ 注意 OnPostInit 里会调 _pollenfx:PostInit()（第 845 行）等，
+--   重复调用是否安全取决于 fx 组件实现；源码未加保护。
+--   标为【疑似】：若 fx 的 PostInit 不是幂等的，切玩家可能泄漏。
+-- ★ 第 544 行 _hasfx 判断必需：专服上 fx 是 nil（见第 212 行）。
+        _activatedplayer = player
+        if _hasfx then
+            _rainfx.entity:SetParent(player.entity)
+            _snowfx.entity:SetParent(player.entity)
+            _pollenfx.entity:SetParent(player.entity)
+            _lunarhailfx.entity:SetParent(player.entity)
+            self:OnPostInit()
+        end
+    end
+
+    local function OnPlayerDeactivated(src, player)
+-- OnPlayerDeactivated：把 fx 的 Parent 置空（第 558-561 行）。
+-- ★ 置空是必需的：否则退出的玩家实体被销毁时，
+--   挂在它下面的 fx 会被连带销毁（父子关系），造成天气特效永久消失。
+-- ★ 这正是 bug-patterns A5/A7「销毁后泄漏/误伤」的标准防御。
+-- 第 554 行额外判断 _activatedplayer == player：只有当前激活者才清空引用。
+--  ⚠️ 但下面的 SetParent(nil) 【没有做这个判断】—— 无论谁退出都清空。
+--   实践中 _activatedplayer 同一时刻只有一个，且事件成对，所以没暴露问题。
+--   标为【疑似】：第 554 行的判断与第 557 行的无条件操作不一致。
+        if _activatedplayer == player then
+            _activatedplayer = nil
+        end
+        if _hasfx then
+            _rainfx.entity:SetParent(nil)
+            _snowfx.entity:SetParent(nil)
+            _pollenfx.entity:SetParent(nil)
+            _lunarhailfx.entity:SetParent(nil)
+        end
+    end
+
+    local OnPlayerJoined = _ismastersim and function(src, player)
+        for i, v in ipairs(_lightningtargets) do
+            if v == player then
+                return
+            end
+        end
+
+        if player ~= nil then
+            table.insert(_lightningtargets, player)
+        end
+    end or nil
+
+    local OnPlayerLeft = _ismastersim and function(src, player)
+        for i, v in ipairs(_lightningtargets) do
+            if v == player then
+                table.remove(_lightningtargets, i)
+                return
+            end
+        end
+    end or nil
+
+    local OnForcePrecipitation = _ismastersim and function(src, enable)
+        _moisture:set(enable ~= false and _moistureceil:value() or _moisturefloor:value())
+    end or nil
+
+    local OnSetPrecipitationMode = _ismastersim and function(src, mode)
+        _precipmode:set(PRECIP_MODES[mode] or _precipmode:value())
+    end or nil
+
+    local OnSetMoistureScale = _ismastersim and function(src, data)
+        _moistureratemultiplier = data or _moistureratemultiplier
+        _moisturerate:set(CalculateMoistureRate())
+    end or nil
+
+    local OnDeltaMoisture = _ismastersim and function(src, delta)
+        _moisture:set(math.min(math.max(_moisture:value() + delta, _moisturefloor:value()), _moistureceil:value()))
+    end or nil
+
+    local OnDeltaMoistureCeil = _ismastersim and function(src, delta)
+        _moistureceil:set(math.max(_moistureceil:value() + delta, _moisturefloor:value()))
+    end or nil
+
+    local OnSetSnowLevel = _ismastersim and function(src, level)
+        _snowlevel:set(math.clamp(level or _snowlevel:value(), 0, 1))
+    end or nil
+
+    local OnDeltaWetness = _ismastersim and function(src, delta)
+        _wetness:set(math.clamp(_wetness:value() + delta, MIN_WETNESS, MAX_WETNESS))
+    end or nil
+
+    local OnSetLightningMode = _ismastersim and function(src, mode)
+        _lightningmode = LIGHTNING_MODES[mode] or _lightningmode
+    end or nil
+
+    local OnSetLightningDelay = _ismastersim and function(src, data)
+        if _preciptype:value() ~= PRECIP_TYPES.none and data.min and data.max then
+            _nextlightningtime = GetRandomMinMax(data.min, data.max)
+        end
+        _minlightningdelay = data.min
+        _maxlightningdelay = data.max
+    end or nil
+
+    local LIGHTNINGSTRIKE_CANT_TAGS = { "playerghost", "INLIMBO" }
+-- LIGHTNINGSTRIKE_CANT_TAGS：绝对不参与闪电的实体。
+--   playerghost —— 幽灵形态的玩家不该被劈（否则玩家已死还反复受击）
+--   INLIMBO    —— 正在加载/卸载，状态不稳定
+-- LIGHTNINGSTRIKE_ONEOF_TAGS：命中任一即参与（供 lightningblocker 分类用）。
+-- ★ 又是「白名单式排除」的结构，与 map.lua 的 DEPLOY_IGNORE_TAGS 同源思想。
+-- ⚠️ 注意 CAN 传第 6 参、ONEOF 传第 7 参，两者语义都是「排除」，
+--   名字里的 ONEOF 只是指「命中其一即可」，不代表正向包含。易误读。
+    local LIGHTNINGSTRIKE_ONEOF_TAGS = { "lightningrod", "lightningtarget", "lightningblocker" }
+    local LIGHTNINGSTRIKE_SEARCH_RANGE = 40
+    local OnSendLightningStrike = _ismastersim and function(src, pos)
+-- ★★★ OnSendLightningStrike —— 闪电落点的【完整决策链】，全文件第二个核心函数。
+-- 【它做的是「优先级仲裁」】：在落点附近同时找出三类候选，
+--   然后按 blocker > rod > generic 的顺序决定谁生效。
+-- 【搜索参数】40 单位范围（第 629 行），这意味着闪电只可能影响附近 40 内的实体。
+--
+-- 【第 637 行用 pairs 而非 ipairs】
+--  ⚠️ FindEntities 返回的是数组，通常用 ipairs 更安全。
+--   这里用 pairs 遍历，功能上可行（pairs 也能遍历数组部分），
+--   但 pairs 不保证顺序 → 【closest_* 的选取结果不确定】。
+--   由于每个 closest_* 都用 `== nil` 守卫（只取第一个命中），
+--   顺序会影响「多个候选时选谁」。
+--   标为【疑似】：不确定是否有意。若改成 ipairs 则结果确定（按距离序）。
+-- ★ 实际上 FindEntities 通常按距离从近到远返回，
+--   所以用 ipairs 会自然地「取最近的」。当前用 pairs 可能取到较远的。
+        local closest_generic = nil
+        local closest_rod = nil
+        local closest_blocker = nil
+
+        local ents = TheSim:FindEntities(pos.x, pos.y, pos.z, LIGHTNINGSTRIKE_SEARCH_RANGE, nil, LIGHTNINGSTRIKE_CANT_TAGS, LIGHTNINGSTRIKE_ONEOF_TAGS)
+        local blockers = nil
+        for _, v in pairs(ents) do
+            -- Track any blockers we find, since we redirect the strike position later,
+            -- and might redirect it into their block range.
+            local is_blocker = v.components.lightningblocker ~= nil
+            if is_blocker then
+                if blockers == nil then
+                    blockers = {v}
+                else
+                    table.insert(blockers, v)
+                end
+            end
+
+            if closest_blocker == nil and is_blocker
+-- ★★★ 三级 if/elseif 链的仲裁逻辑，逐支读：
+--  第 649-651 行 优先：lightningblocker 且在 block_rsq 范围内 → closest_blocker
+--    +0.0001 是【浮点容差】，防止边界上因精度误差漏判。
+--  第 652-653 行 次之：带 lightningrod 标签 → closest_rod
+--  第 654-659 行 最后：普通实体（closest_generic）
+--
+-- ★★ 用 if/elseif 而非三个独立 if，是为了【互斥】——
+--   第一个命中的类别胜出，后续类别不再评估。
+--   第 656 行的注释明确写了 If we're out of range of the first branch,
+--   ignore blocker objects —— 即「blocker 不在范围内时，当作普通实体也不处理」。
+-- ⚠️ 这带来一个语义后果：范围内的 lightningblocker 会被排除出 generic，
+--   范围外的却因为走不进第一个分支而【也进不了 generic】（被 elseif 拦掉）。
+--   也就是说【处在 block 范围内但……不对】，是「在范围内的 blocker 不当generic」，
+--   而「不在范围内的 blocker 也不当 generic」—— 结果是范围内外的 blocker
+--   都【不会】成为 closest_generic。这是合理的（blocker 本就不该被劈）。
+                    and (v.components.lightningblocker.block_rsq + 0.0001) > v:GetDistanceSqToPoint(pos:Get()) then
+-- (block_rsq + 0.0001) > distance_sq —— 用「半径平方」比较，全程不开方。
+-- ★★ 全文件乃至 DST 通用的距离优化：比较平方而非距离。
+-- ⚠️ 但这行写了两次（第 650 与 687、708 行），每次都加同一个 0.0001 容差，
+--   却【没有抽成常量】。三处硬编码同一个魔数，改动时容易漏。
+--   标为【疑似】：属可维护性问题，非缺陷。
+                closest_blocker = v
+            elseif closest_rod == nil and v:HasTag("lightningrod") then
+                closest_rod = v
+            elseif closest_generic == nil then
+                if (v.components.health == nil or not v.components.health:IsInvincible())
+-- 【三个与条件，逐条说明】
+--  v.components.health == nil or not health:IsInvincible()
+--    —— ★ 没有 health 组件【或】有但不无敌，都算「可被劈」。
+--      写成 or 而不是 and：前者允许「无血条的东西」（如树），后者不允许。
+--      这是「默认无害」的选择。
+--  not is_blocker（第 656 行）—— blocker 不作为 generic
+--  playerlightningtarget 分量检查（第 657 行）：
+--    ★★ 这是本行最难懂的部分。语义是：
+--    「若该实体【没有】 playerlightningtarget 组件 → 条件为真（选它）；
+--     若【有】 → 用 TryLuckRoll 按其 GetHitChance() 掷骰决定」。
+--    ★ 也就是说「普通实体必被劈，而玩家要靠概率」——
+--      防止玩家在闪电密集处被 100% 命中导致秒杀。
+--    TryLuckRoll 是统一的概率接口，幸运度会影响结果（LuckFormulas.LightningStrike）。
+-- ★ 这个「有的走必选、有的走概率」的混合策略值得抄：
+--   全世界只有「玩家」需要概率保护，NPC/物件就该确定性地被劈。
+                        and not is_blocker -- If we're out of range of the first branch, ignore blocker objects.
+                        and (v.components.playerlightningtarget == nil or TryLuckRoll(v, v.components.playerlightningtarget:GetHitChance(), LuckFormulas.LightningStrike)) then
+                    closest_generic = v
+                end
+            end
+        end
+
+        local strike_position = nil
+        local prefab_type = nil
+
+        local function SetStrikePositionAndPrefab(new_pos, new_prefab_type)
+-- ★★ SetStrikePositionAndPrefab 是一个「带默认值的 setter」：
+--  strike_position = new_pos or strike_position
+--  prefab_type   = new_prefab_type or prefab_type
+-- ★ or 同时充当了「nil 保护」与「不覆盖已有值」两种语义。
+--   所以调用时可以只传位置不传类型（第 682 行）。
+--
+-- 【第 671-673 行：月亮的优先级覆盖，注释明说 for now】
+--  ★ 每次调用都检查是否在月爆区，是则把 prefab 改成 moonstorm_lightning。
+--    「检查在 setter 里而非调用处」→ 保证【无论谁设置位置，月爆优先】，
+--    规则集中在一处，不会遗漏。
+-- ⚠️ 但代价是每次调用都要查一次月爆（第 687/708 行的循环里还会再查），
+--   有轻微重复计算。可接受（换取规则集中）。
+-- ⚠️ 注释的 for now 表明这是临时设计，未来可能改。
+            strike_position = new_pos       or strike_position
+            prefab_type = new_prefab_type   or prefab_type
+
+            -- Lunar lightning should always override thunder or lightning (for now)
+            if TheWorld.net.components.moonstorms and TheWorld.net.components.moonstorms:IsPointInMoonstorm(strike_position) then
+                prefab_type = "moonstorm_lightning"
+            end
+        end
+
+        SetStrikePositionAndPrefab(pos, "lightning") --Default initialize
+-- 先用默认值初始化（第 676 行），之后才能被后续调用覆盖。
+-- ★ 这个「先设默认再逐级覆盖」的模式，避免了后面每个分支都要判空。
+
+        if closest_blocker ~= nil then
+--★★ 【三级仲裁的最终执行，与第 649 行的收集逻辑严格对应】
+-- 第 678-680 行 blocker 最高优先：让 blocker 自己处理（DoLightningStrike），
+--   同时把 prefab 改成 "thunder"（只出雷声不出电光）。
+-- 第 681-699 行 其次 lightningrod：把落点【重定向到避雷针的位置】。
+-- 第 700-727 行 最后 generic：重定向到该实体并施加伤害。
+-- ★ 注意【只有 blocker 分支会 break/直接处理】；
+--   rod 与 generic 分支还要再检查一次是否被 blocker 挡住（第 685/706 行）。
+--   因为重定向后的新位置【可能落进某个 blocker 的范围】。
+-- ⚠️ 第 685 与 706 行的这段 blocker 复查逻辑【几乎逐行重复】，
+--   唯一区别是第 697 行的条件不同。属可抽取的重复代码。
+            closest_blocker.components.lightningblocker:DoLightningStrike(strike_position)
+            SetStrikePositionAndPrefab(strike_position, "thunder")
+        elseif closest_rod ~= nil then
+            SetStrikePositionAndPrefab(closest_rod:GetPosition(), prefab_type)
+
+            -- Check if we just redirected into a lightning blocker's range.
+            if blockers ~= nil then
+                for _, blocker in ipairs(blockers) do
+                    if blocker:GetDistanceSqToPoint(strike_position:Get()) < (blocker.components.lightningblocker.block_rsq + 0.0001) then
+                        SetStrikePositionAndPrefab(strike_position, "thunder")
+                        blocker.components.lightningblocker:DoLightningStrike(strike_position)
+                        break
+                    end
+                end
+            end
+
+            -- If we didn't get blocked, push the event that does all the fx and behaviour.
+            -- NOTE: Let moon lightning still strike rods so we can get the charged rod visuals and sounds
+            if prefab_type == "lightning" or prefab_type == "moonstorm_lightning" then
+-- 只有 prefab_type 还是 "lightning" 或 "moonstorm_lightning" 时才推 lightningstrike 事件。
+-- 即被 blocker 挡住（改成 thunder）时，避雷针【不会亮、不发声】。
+-- ★ 注释解释了为什么放开 moonstorm_lightning：
+--   Let moon lightning still strike rods so we can get the charged rod visuals and sounds
+--   即月石雨下仍要触发避雷针的充能视觉（为后续技能充能），所以例外放行。
+-- ⚠️ 条件写成 `== "lightning" or == "moonstorm_lightning"` 的正向枚举，
+--   而非 `~= "thunder"` 的反向写法。新增类型时【容易漏改这里】。
+--   标为【疑似】：扩展性隐患，当前正确。
+                closest_rod:PushEvent("lightningstrike")
+            end
+        else
+            local hit_player = false
+            if closest_generic ~= nil then
+                SetStrikePositionAndPrefab(closest_generic:GetPosition(), prefab_type)
+
+                -- Check if we just redirected into a lightning blocker's range.
+                if blockers ~= nil then
+                    for _, blocker in ipairs(blockers) do
+                        if blocker:GetDistanceSqToPoint(strike_position:Get()) < (blocker.components.lightningblocker.block_rsq + 0.0001) then
+                            SetStrikePositionAndPrefab(strike_position, "thunder")
+                            blocker.components.lightningblocker:DoLightningStrike(strike_position)
+                            break
+                        end
+                    end
+                end
+
+                -- If we didn't redirect, strike the playerlightningtarget if there is one.
+                if prefab_type == "lightning" then
+                    if closest_generic.components.playerlightningtarget ~= nil then
+                        closest_generic.components.playerlightningtarget:DoStrike()
+                        hit_player = true
+                    end
+                end
+            end
+
+            -- If we're doing lightning, shock creatures, andlight nearby unprotected objects on fire.
+            StrikeLightningAtPoint(prefab_type, hit_player, strike_position)
+-- StrikeLightningAtPoint：在最终落点施加实际伤害/点燃效果。
+-- ★ 注意它只在 else 分支（第 700 行）里被调用 ——
+--   即【只有走 generic 路径时才会造成伤害】。
+--   被 blocker 挡或命中避雷针时【都不伤害】。这是设计（避雷针/屏障就是用来挡的）。
+-- ⚠️ 第 729 行 SpawnPrefab(prefab_type) 在【函数末尾、所有分支之外】，
+--   所以三种路径最终都会生成对应的特效实体。
+--   这保证了「视觉反馈永远存在」，即使伤害被阻挡。
+        end
+
+        SpawnPrefab(prefab_type).Transform:SetPosition(strike_position:Get())
+    end or nil
+
+    local OnSimUnpaused = _ismastersim and function()
+-- ★★ OnSimUnpaused：游戏暂停/恢复后强制重同步五个连续量。
+-- 【为什么需要】暂停期间 OnUpdate 不跑，客户端本地演算【全部停止】，
+--   但两端积累的 dt 不完全相同（服务端可能因暂停处理略有出入），
+--   恢复后会出现漂移。ForceResync 一次性拉平。
+-- 【只同步这五个】_noisetime / _moisture / _wetness / _snowlevel / _lunarhaillevel
+--   —— 正是全部走SetWithPeriodicSync 的那批连续量。
+-- ★ 规律性发现：凡是「桶内自治」的量，暂停后都必须强制校准。
+--   抄这套模型时别漏了这一步，否则暂停/切换标签页回来会看到天气跳变。
+        --Force resync values that client may have simulated locally
+        ForceResync(_noisetime)
+        ForceResync(_moisture)
+        ForceResync(_wetness)
+        ForceResync(_snowlevel)
+        ForceResync(_lunarhaillevel)
+    end or nil
+
+    --------------------------------------------------------------------------
+    --[[ Initialization ]]
+    --------------------------------------------------------------------------
+
+    --Initialize network variables
+    _noisetime:set(0)
+-- ★★ 12 个 netvar 的【统一初始化】，且【无条件 set】。
+-- ⚠️ 注意这里是 set（会同步）而不是 set_local，
+--   因为组件构造在两端都跑，这实际起到「用默认值冲刷客户端旧值」的作用。
+--   ★ 这一点很重要：玩家中途加入时，靠这批初始化保证客户端状态是干净的默认值，
+--   随后被服务端的真实同步覆盖。
+-- ⚠️ 第 747-749 行把 _moisture/_moisturerate/_moistureceil 全设为 0，
+--   而第 455 行 CalculateLight 在 ceil<=0 时可能除零（见第 404 行注释）。
+--   实际安全是因为第 809 行紧接着会用 RandomizeMoistureCeil 覆盖 ceil，
+--   且中间不会调用 CalculateLight（构造函数里没有 OnUpdate）。
+--   但这个「短暂危险区间」依赖调用顺序，属脆弱耦合。
+    _moisture:set(0)
+    _moisturerate:set(0)
+    _moistureceil:set(0)
+    _moisturefloor:set(0)
+    _precipmode:set(PRECIP_MODES.dynamic)
+    _preciptype:set(PRECIP_TYPES.none)
+    _peakprecipitationrate:set(1)
+    _snowlevel:set(0)
+    _lunarhaillevel:set(0)
+    _wetness:set(0)
+    _wet:set(false)
+
+    --Dedicated server does not need to spawn the local fx
+    if _hasfx then
+-- fx 的粒子数全部初始化为 0 —— 即「默认什么都不显示」。
+-- ★ 之后完全由 OnUpdate 驱动（第 1008行起）。
+-- 所以「初始无雨」的视觉状态是靠初始化保证的，不依赖 precip type 的默认值。
+        --Initialize rain particles
+        _rainfx.particles_per_tick = 0
+        _rainfx.splashes_per_tick = 0
+
+        --Initialize snow particles
+        _snowfx.particles_per_tick = 0
+
+        --Initialize pollen
+        _pollenfx.particles_per_tick = 0
+
+        --Initialize lunar hail particles
+        _lunarhailfx.particles_per_tick = 0
+        _lunarhailfx.splashes_per_tick = 0
+    end
+
+    --Register network variable sync events
+    inst:ListenForEvent("moistureceildirty", function() _world:PushEvent("moistureceilchanged", _moistureceil:value()) end)
+-- ★★★ 【dirty netvar事件 → 全局事件的转抛层】。
+--  第 241/244/248/250 行声明 netvar 时传了 dirty 事件名，
+--  这里监听它们，再 PushEvent 成【世界级】事件。
+-- 【为什么要多这一层】
+--  netvar 的 dirty 事件只能在【本实体】上监听（inst:ListenForEvent），
+--  而订阅者（如地表、草木）想要的是「世界级的 snowcoveredchanged」。
+--  这一层做的是【事件域的转换】：实例域 → 世界域。
+--
+-- 【四个转换，各自的载荷不同 —— 值得注意】
+--  moistureceilchanged → 传【数值】_moistureceil:value()
+--  precipitationchanged→ 传【字符串】PRECIP_TYPE_NAMES[...]（已转成 "rain" 等）
+--  snowcoveredchanged → 传【布尔】
+--  wetchanged        → 传【布尔】
+-- ★ 只有 precipitation 是转成字符串的 —— 因为它要跨网表达「类型」而非数值。
+--   其余三个直接传原始类型。
+-- ⚠️ 对比第 503 行 weathertick 传的是【表】，第 1114 行传的是【坐标表】。
+--   载荷形态随用途而变，没有统一约定。移植时可考虑规范成一律传 table。
+-- ★★ 这些「转抛」监听【没有在 OnRemoveEntity 里移除】，
+--   但因为监听源是 inst 自身（会被销毁），随实体一起消失，所以无泄漏。
+    inst:ListenForEvent("preciptypedirty", function() _world:PushEvent("precipitationchanged", PRECIP_TYPE_NAMES[_preciptype:value()]) end)
+    inst:ListenForEvent("snowcovereddirty", function() _world:PushEvent("snowcoveredchanged", _snowcovered:value()) end)
+    inst:ListenForEvent("wetdirty", function() _world:PushEvent("wetchanged", _wet:value()) end)
+
+    --Register events
+    inst:ListenForEvent("seasontick", OnSeasonTick, _world)
+-- ★★★ 七个世界级事件监听，全是双端（无 _ismastersim 守卫）。
+--  seasontick / temperaturetick / phasechanged  —— 【外部数据源，本组件只收】
+--  playeractivated / playerdeactivated              —— 【表现层锚点切换】
+-- ★ 注意 temperaturetick 的来源【不在 weather 内部】：
+--   grep 全项目可知 temperaturetick 由 environmentdelta 等组件发出，
+--   caveweather.lua（第 521 行）也监听同一个事件。
+--   ★★ 由此可知：【地表天气(weather) 与 洞穴天气(caveweather) 是两套独立系统】，
+--   各自监听相同的上游事件、互不通信。
+--   切洞穴时靠 season/caveweather 组件的整体切换，而非 weather 内部状态。
+    inst:ListenForEvent("temperaturetick", OnTemperatureTick, _world)
+    inst:ListenForEvent("phasechanged", OnPhaseChanged, _world)
+    inst:ListenForEvent("playeractivated", OnPlayerActivated, _world)
+    inst:ListenForEvent("playerdeactivated", OnPlayerDeactivated, _world)
+
+    if _ismastersim then
+-- ★ 服务端专属的初始值设置，以及 13 个 "ms_" 前缀事件注册。
+-- 【★ "ms_" 前缀是本工程的服务端事件命名约定】（ms = master sim）
+--  【它划出了一条清晰的安全边界】
+--   客户端【永远不注册】这些监听 → 外部（模组、控制台、AI）无法在客户端触发。
+--   ★ 所有会改变世界状态的操作（开始下雨、改湿度、发闪电）都在这一层。
+--   对比第 783 行那些双端监听：全是【只读数据流入】。
+--  ★★ 这就是本文件「客户端能演化的只有连续量、离散决策全在服务端」的落地方式。
+        --Initialize master simulation variables
+        _moisturerateval = 1
+        _moisturerateoffset = 0
+        _moistureratemultiplier = 1
+        _moistureceilmultiplier = 1
+        _moisturefloormultiplier = 1
+        _startsnowthreshold = START_SNOW_THRESHOLDS.autumn
+        _stopsnowthreshold = STOP_SNOW_THRESHOLDS.autumn
+        _lightningmode = LIGHTNING_MODES.rain
+        _minlightningdelay = nil
+        _maxlightningdelay = nil
+        _nextlightningtime = 5
+        _lightningtargets = {}
+
+        for i, v in ipairs(AllPlayers) do
+-- 把已有的 AllPlayers 填进闪电目标池（第 802 行初始化为空表后）。
+-- ★ 因为 _lightningtargets 只在服务端维护（第 565行 OnPlayerJoined 增量添加），
+--   所以组件初始化时必须先灌入现存玩家，否则【重连/热加入的玩家永远不会被闪电劈到】。
+--  ⚠️ 相对第 565-575 行的 OnPlayerJoined 这里的处理更简单：
+--   直接 table.insert，不检查重复、不判nil。
+--   初始化时 AllPlayers 无重复，所以安全；对比可见两处风格不一致但都正确。
+            table.insert(_lightningtargets, v)
+        end
+
+        _moisturerate:set(CalculateMoistureRate())
+        _moistureceil:set(RandomizeMoistureCeil())
+
+        --Register master simulation events
+        inst:ListenForEvent("ms_playerjoined", OnPlayerJoined, _world)
+        inst:ListenForEvent("ms_playerleft", OnPlayerLeft, _world)
+        inst:ListenForEvent("ms_forceprecipitation", OnForcePrecipitation, _world)
+        inst:ListenForEvent("ms_setprecipitationmode", OnSetPrecipitationMode, _world)
+        inst:ListenForEvent("ms_setmoisturescale", OnSetMoistureScale, _world)
+        inst:ListenForEvent("ms_deltamoisture", OnDeltaMoisture, _world)
+        inst:ListenForEvent("ms_deltamoistureceil", OnDeltaMoistureCeil, _world)
+        inst:ListenForEvent("ms_setsnowlevel", OnSetSnowLevel, _world)
+        inst:ListenForEvent("ms_deltawetness", OnDeltaWetness, _world)
+        inst:ListenForEvent("ms_setlightningmode", OnSetLightningMode, _world)
+        inst:ListenForEvent("ms_setlightningdelay", OnSetLightningDelay, _world)
+        inst:ListenForEvent("ms_sendlightningstrike", OnSendLightningStrike, _world)
+        inst:ListenForEvent("ms_simunpaused", OnSimUnpaused, _world)
+        inst:ListenForEvent("ms_startlunarhail", StartLunarHail, _world)
+    end
+
+    PushWeather()
+-- ★ 构造末尾立刻调一次 PushWeather（第 491 行），保证首个 weathertick 立即发出。
+-- 【为什么必需】第 1122 行只在 OnUpdate 末尾调 PushWeather，
+--   而 OnUpdate 首次执行前，订阅者（ambientlighting 等）拿不到任何天气数据。
+--   这一行补上了「首次广播」。
+-- ★ 第 829 行 StartUpdatingComponent 开启每帧更新 ——
+--   注意 weather 是【每帧】跑的（不是周期任务），因为雨量要平滑变化。
+--   这与 combat 用 DoPeriodicTask 攒计算的做法不同（见第 1125 行 LongUpdate）。
+    inst:StartUpdatingComponent(self)
+
+    --------------------------------------------------------------------------
+    --[[ Post initialization ]]
+    --------------------------------------------------------------------------
+
+    if _hasfx then function self:OnPostInit()
+-- ★ if _hasfx then function self:OnPostInit() ... end end —— 条件定义方法。
+-- 【语法要点】Lua 没有「条件方法定义」语法，这里是把整个 function 表达式
+--   放在 then 分支里。专服上这个方法【根本不存在】。
+-- ★ 收益：专服调用 self:OnPostInit() 会立刻报错而不是空转，暴露误用。
+-- 第 836-842 行 按当前 precip type 只初始化【对应那一种】粒子的 PostInit。
+--  ⚠️ 注意四种天气是互斥的，所以只需初始化当前这种。
+-- 第 844-846 行 ★★花粉独立判定：只要是夏天就初始化，
+--   与 precip type 无关（春天也可能有花粉？看第 1070 行 _season ~= "summer"，
+--   实际只有夏天）。第 1070 行才是真正的季节判定，此处只是「季节兜底初始化」。
+-- ⚠️ 两处都判季节，逻辑重复；且第 844 行没有 sandstorms 的排除，
+--   而第 1070 行有。存在轻微不一致，标为【疑似】。
+        if _preciptype:value() == PRECIP_TYPES.rain then
+            _rainfx:PostInit()
+        elseif _preciptype:value() == PRECIP_TYPES.snow then
+            _snowfx:PostInit()
+        elseif _preciptype:value() == PRECIP_TYPES.lunarhail then
+            _lunarhailfx:PostInit()
+        end
+
+        if _season == "summer" then
+            _pollenfx:PostInit()
+        end
+    end end
+
+    --------------------------------------------------------------------------
+    --[[ Deinitialization ]]
+    --------------------------------------------------------------------------
+
+    if _hasfx then function self:OnRemoveEntity()
+-- OnRemoveEntity：销毁时清理四个 fx 实体。
+-- ★ 四段结构完全相同：先判 entity:IsValid() 再 Remove()。
+-- ★★ 那个 IsValid() 判断【不是多余的】：
+--   如果某个 fx 已经因为别的原因被销毁（如切玩家时的 mishap），
+--   再调 Remove() 会操作一个已失效实体而报错。
+--   这是销毁期清理的标准防御，与 bug-patterns A5/A7 同类。
+-- ⚠️ 与第 776-780 行的那些 inst:ListenForEvent 不同，
+--   这些监听【不需要在此移除】—— 它们挂在 inst 自身上，随实体销毁。
+--   ★ 但若将来有监听挂在 _world 或其他长生命周期对象上，就必须在此RemoveListener。
+--   移植检查清单：凡 ListenForEvent 的【源】不是本实体的，都要在此清理。
+        if _rainfx.entity:IsValid() then
+            _rainfx:Remove()
+        end
+        if _snowfx.entity:IsValid() then
+            _snowfx:Remove()
+        end
+        if _pollenfx.entity:IsValid() then
+            _pollenfx:Remove()
+        end
+        if _lunarhailfx.entity:IsValid() then
+            _lunarhailfx:Remove()
+        end
+
+    end end
+
+    --------------------------------------------------------------------------
+    --[[ Update ]]
+    --------------------------------------------------------------------------
+
+    --[[
+        Client updates temperature, moisture, precipitation effects, and snow
+        level on its own while server force syncs values periodically. Client
+        cannot start, stop, or change precipitation on its own, and must wait
+        for server syncs to trigger these events.
+    --]]
+    function self:OnUpdate(dt)
+-- ★★★★★ OnUpdate —— 全文件最长的函数（879-1123，245 行），天气的一切推进。
+--
+-- 【★ 开篇注释（第 873-878 行）是本文件最重要的一段文档，作者自己总结了分工】
+--  Client updates temperature, moisture, precipitation effects, and snow
+--  level on its own while server force syncs values periodically. Client
+--  cannot start, stop, or change precipitation on its own, and must wait
+--  for server syncs to trigger these events.
+-- 【翻译成规则表】
+--  客户端【可以】：演化温度/湿度/雪厚/湿度值、播放粒子与声音
+--  客户端【不可以】：开始/停止降水、切换雨雪类型、发闪电
+-- 【客户端越界的唯一表现】第 902/914/932/944 行——
+--   客户端算到「该下雨了」但无权 StartPrecipitation，
+--   只能把 moisture 【set_local 到刚好差一点】的边界值（第 902 行 floor+.001），
+--   ★ 这个「停在边界前 0.001」的技巧非常巧妙：
+--     它让客户端的预测【不会跑过头】，同时因为差一点点没触发，
+--     状态自然等待服务端下发 Start。视觉上无跳变。
+--   这是「预测但不越权」的标准处理，移植时非常值得抄。
+        --Update noise
+        SetWithPeriodicSync(_noisetime, _noisetime:value() + dt, NOISE_SYNC_PERIOD, _ismastersim)
+-- 噪声时间轴：无论是否下雨都在推进（它只是天气「always」模式的驱动源）。
+-- ★ 用 SetWithPeriodicSync 而非裸 set，说明连这个纯装饰量也要遵守同步约定。
+
+        local preciprate = CalculatePrecipitationRate()
+        local lunarhailrate = CalculateLunarHailRate()
+
+        --Update moisture and toggle precipitation
+-- ★★ 【湿度的四态机 —— 这是整个天气系统的中枢】
+-- 四个互斥分支，对应「模式 × 是否在下雨」：
+--  第 887-890 行 always 且当前不下 → 服务端 StartPrecipitation
+--  第 891-894 行 never  且当前在下 → 服务端 StopPrecipitation
+--  第 895-906 行 ★ 正在下 → 【耗尽湿度】
+--  第 907-919 行 ★ 停下且有上限 → 【累积湿度】
+--
+-- 【累积（第 909 行）的公式】moisture += _moisturerate * dt
+--   ★ _moisturerate 是【netvar】而非直接读 _moisturerateval！
+--     意味着这个累积速率也会从服务端同步过来（第 526/596/808 行写入）。
+--     好处：客户端用服务端的真实速率积分，不会算出偏差。
+--
+-- 【耗尽（第 897 行）】moisture -= preciprate * dt * PRECIP_RATE_SCALE
+--   ★ 消耗量与【当前雨量】成正比：雨越大，湿度掉得越快。
+--     结合第 405 行的正弦拱，雨停得快慢自然跟随雨势变化。
+--     这形成了一个正反馈的物理感：下得猛就停得快。
+--
+-- 【两个分支的对称结构，完全镜像】
+--  累积侧：moisture >= ceil → Start（服务端）/ 停在 ceil-.001（客户端）
+--  耗尽侧：moisture <= floor→ Stop（服务端）/ 停在 floor+.001（客户端）
+-- ★ 客户端的「停在边界内 0.001」是对称的同一个技巧。
+-- ⚠️ 第 897 行用 math.max(..., 0) 而非钳到 floor：
+--   所以 moisture 可能【低于 floor】才进 Stop 分支。这是安全的（下一帧就 Stop）。
+--   但若客户端在 Stop 前用这个值参与第 404 行的归一化，p 会是负数 →
+--   第 404 行有 max(0,...) 钳制，安全。★ 各处的钳制是配套的，不能单独改。
+        if _precipmode:value() == PRECIP_MODES.always then
+            if _ismastersim and _preciptype:value() == PRECIP_TYPES.none then
+                StartPrecipitation(_temperature)
+            end
+        elseif _precipmode:value() == PRECIP_MODES.never then
+            if _ismastersim and _preciptype:value() ~= PRECIP_TYPES.none then
+                StopPrecipitation()
+            end
+        elseif _preciptype:value() ~= PRECIP_TYPES.none then
+            --Dissipate moisture
+            local moisture = math.max(_moisture:value() - preciprate * dt * PRECIP_RATE_SCALE, 0)
+            if moisture <= _moisturefloor:value() then
+                if _ismastersim then
+                    StopPrecipitation()
+                else
+                    _moisture:set_local(math.min(_moisturefloor:value() + .001, _moisture:value()))
+                end
+            else
+                SetWithPeriodicSync(_moisture, moisture, MOISTURE_SYNC_PERIOD, _ismastersim)
+            end
+        elseif _moistureceil:value() > 0 then
+-- 【★ 累积分支的守卫 `_moistureceil:value() > 0`】
+-- 这行同时承担两个职责：
+--  1) 「本世界是否启用湿度累积」的总开关（ceil<=0 即关闭）
+--  2) 避免第 909-910 行在 ceil=0 时立刻满足 >= 而疯狂触发 Start
+-- ⚠️ 注意这里的顺序：先判 `preciptype == none`（第 895 行），
+--   再判 ceil > 0。所以【没开累积且正在下雨】会落到哪？
+--   第 895 行的 elseif 已捕获「正在下雨」的情况 → 走耗尽分支。
+--   ★ 四个分支的顺序确保了「正在下雨」优先于「累积开关」的判断。
+            --Accumulate moisture
+            local moisture = _moisture:value() + _moisturerate:value() * dt
+            if moisture >= _moistureceil:value() then
+                if _ismastersim then
+                    StartPrecipitation(_temperature)
+                else
+                    _moisture:set_local(math.max(_moistureceil:value() - .001, _moisture:value()))
+                end
+            else
+                SetWithPeriodicSync(_moisture, moisture, MOISTURE_SYNC_PERIOD, _ismastersim)
+            end
+        end
+
+        --Update _lunarhaillevel and toggle lunar hail
+-- 【月石雨的完整生命周期，与湿度通道完全平行】
+--  触发源：riftspawner:IsLunarPortalActive()（第 923 行）——
+--  ★ 即「传送门活跃」时天上开始掉月石，与季节/湿度【完全无关】。
+--  这是 riftDLC 的独立机制，复用了天气组件的播放/声音/光照基础设施。
+--  上升（第 927 行）：level += COOLDOWN * dt，满则 StartLunarHail
+--  下降（第 939 行）：level -= DURATION * dt，到底则 StopLunarHail
+-- ★ 与湿度通道同样的「服务端 Start / 客户端停在边界」模式（第 932/944 行），
+--   说明这是全组件的统一约定，不是临时写法。
+-- ⚠️ 第 924 行额外要求当前不是 lunarhail —— 防止重复触发 Start。
+--   但这造成一个缺口：若 teleport portal 关闭而 level 仍>0，
+--   两个分支都不进入（第 922 行false 且第 937 行也 false），
+--   月石雨会【卡在中间状态不结束】。标为【疑似缺陷】。
+--   我逐行核对第 922-949 行确认：确实没有「传送门关闭但仍在下月石雨」的分支。
+--   实际影响：StartLunarHail 时若传送门被关闭，月石雨不会自然结束。
+        if _world.components.riftspawner ~= nil and
+            _world.components.riftspawner:IsLunarPortalActive() and
+            _preciptype:value() ~= PRECIP_TYPES.lunarhail
+        then
+            -- Increase _lunarhaillevel
+            local lunarhail = _lunarhaillevel:value() + LUNAR_HAIL_EVENT_RATE.COOLDOWN * dt
+-- ★ 上升速率用第 135 行的 COOLDOWN（= CEIL / TUNING 冷却秒数）。
+-- 变量名叫 COOLDOWN 但用作「充能速率」，语义靠注释第 135 行串联。
+--  ⚠️ 命名与用途有割裂：COOLDOWN 通常指「两次之间的冷却时长」
+--     （这里也是：TUNING.LUNARHAIL_EVENT_COOLDOWN 就是总冷却秒数）。
+--     实际含义是「从 0 涨到 100 需要 COOLDOWN 秒」。尚可理解。
+            if lunarhail >= LUNAR_HAIL_CEIL then
+                if _ismastersim then
+                    StartLunarHail()
+                else
+                    _lunarhaillevel:set_local(math.max(LUNAR_HAIL_CEIL - .001, _lunarhaillevel:value()))
+                end
+            else
+                SetWithPeriodicSync(_lunarhaillevel, lunarhail, MOISTURE_SYNC_PERIOD, _ismastersim)
+            end
+        elseif _preciptype:value() == PRECIP_TYPES.lunarhail then
+            -- Decrease _lunarhaillevel
+            local lunarhail = math.max(_lunarhaillevel:value() - LUNAR_HAIL_EVENT_RATE.DURATION * dt, 0)
+            if lunarhail <= LUNAR_HAIL_FLOOR then
+                if _ismastersim then
+                    StopLunarHail()
+                else
+                    _lunarhaillevel:set_local(math.min(LUNAR_HAIL_FLOOR + .001, _lunarhaillevel:value()))
+                end
+            else
+                SetWithPeriodicSync(_lunarhaillevel, lunarhail, MOISTURE_SYNC_PERIOD, _ismastersim)
+            end
+        end
+
+        --Update wetness
+-- ★★湿度值更新：先算速率，再钳制，再走周期同步。
+-- 第 953 行：clamp 到 [MIN_WETNESS, MAX_WETNESS]=[0, TUNING.MAX_WETNESS]
+--  ★ 用 WETNESS_SYNC_PERIOD=10（第 152 行）—— 比湿度的 100（第 56 行）短得多。
+--   因为湿度【视觉反馈强】（影响龟裂/湿地贴图），需要更快对齐。
+--   而 moisture 影响的是「何时下雨」，慢一点无妨。
+--   ★★ 这就是「按变量的视觉敏感度分配同步频率」的调参思路。
+-- 第 954-962 行 ★ 【仅服务端】维护 _wet 这个布尔 netvar：
+--   ★★ 这里用了【双阈值滞回】，与第 79 行的雨雪阈值同源思想：
+--     WET_THRESHOLD（较高）→ 变湿；DRY_THRESHOLD（较低）→ 变干。
+--     两者之间是死区，所以 _wet 不会在边界反复跳变。
+--     ⚠️ 与雨雪切换（第 1088 行）不同，那里的滞回是【写 precip type】，
+--       这里的滞回是【独立的 bool】。两种实现同一思想。
+--   消费方：第 780 行转抛成 wetchanged 事件，供实体判断「是否淋湿」。
+        local wetrate = CalculateWetnessRate(_temperature, preciprate)
+        SetWithPeriodicSync(_wetness, math.clamp(_wetness:value() + wetrate * dt, MIN_WETNESS, MAX_WETNESS), WETNESS_SYNC_PERIOD, _ismastersim)
+        if _ismastersim then
+            if _wet:value() then
+                if _wetness:value() < DRY_THRESHOLD then
+                    _wet:set(false)
+                end
+            elseif _wetness:value() > WET_THRESHOLD then
+                _wet:set(true)
+            end
+        end
+
+        local preciprate_sound = nil
+-- ★★ 【声音的优先级决策 —— 本段是「玩家状态如何影响天气表现」的核心】
+-- 【第 966-971 行：先把两种降水折算成统一的 preciprate_sound】
+--   rain 用preciprate，lunarhail 用 lunarhailrate，其余为 nil。
+--   ★ 折算的意义：后续所有遮挡逻辑只处理一个变量，不必关心降水类型。
+--
+-- 【第 973 行 if preciprate_sound ~= nil —— 只有在降水时才处理声音】
+--   不降水时【完全跳过本段】，由第 1025-1034 行的 else 分支负责停止。
+--   ★ 注意这个 if/else 分裂在后面重复出现（第 1005-1049 行又是另一组），
+--   两组逻辑【平行且都判preciptype】，是本函数里唯一明显的结构重复。
+--
+-- 【第 974-997 行：四级遮挡，顺序即优先级】
+--  1) 无激活玩家（第 974 行）→ 全部停。声音需要焦点对象。
+--  2) ★ 在雨穹顶下（第 978 行 raindomewatcher:IsUnderRainDome()）
+--     → 声音改为屏障声，且音量【×.5 并封顶.1】（第 982 行 math.min(.1, ...)）
+--     ★ 这个双重衰减很讲究：既减半又封顶，让「雨穹内」是明显更安静的环境。
+--  3) ★ 有遮蔽（第 983 行 replica.sheltered:IsSheltered()）
+--     → 保留树上雨声（能听到雨打树叶，暗示「你在林子里」）
+--     并把音量【减 .4】（第 987 行）—— 注意是减法不是乘法！
+--  4) 无遮蔽但拿伞（第 991 行 EquipHasTag("umbrella")）→ 也减 .4，换成伞声
+--
+-- 【⚠️ 重要发现：第 987 与 992 行的 `- .4` 可能产生【负音量】】
+--  preciprate_sound 最小可到 0（第 406 行 min 或第 402 行 sin），
+--  减去 .4 后可能是负数。第 998 行 if preciprate_sound > 0 会拦住，
+--  所以【不会真去播放负音量】，行为上是安全的。
+--  但第 991 行的伞分支【先减 .4 再 StartUmbrellaRainSound()】，
+--  传入的 intensity 可能是负数（第 993 行调用时用的是修改后的值）。
+--  ⚠️ SetParameter 传负音量给音频引擎的行为未定义。标为【疑似】。
+--  对比第 982 行雨穹分支用了 math.min 封顶，而伞分支只减不封 ——
+--  【两处同类衰减写法不一致】，雨穹更稳健。
+--
+-- 【★ 这整段回应了任务书的「玩家主动寻找避雨处」】
+--  伞（第 991 行）、雨穹（第 978 行）、林荫（第 983 行）三种「避雨处」
+--  都有各自独立的声音表现。玩家能【听出】自己是否真的被挡住了。
+
+        if _preciptype:value() == PRECIP_TYPES.rain then
+            preciprate_sound = preciprate
+
+        elseif _preciptype:value() == PRECIP_TYPES.lunarhail then
+            preciprate_sound = lunarhailrate
+        end
+
+        if preciprate_sound ~= nil then
+            if _activatedplayer == nil then
+                StopTreeRainSound()
+                StopUmbrellaRainSound()
+                StopBarrierSound()
+            elseif _activatedplayer.components.raindomewatcher ~= nil and _activatedplayer.components.raindomewatcher:IsUnderRainDome() then
+                StopTreeRainSound()
+                StopUmbrellaRainSound()
+                StartBarrierSound()
+                preciprate_sound = math.min(.1, preciprate_sound * .5)
+            elseif _activatedplayer.replica.sheltered ~= nil and _activatedplayer.replica.sheltered:IsSheltered() then
+                StopUmbrellaRainSound()
+                StopBarrierSound()
+                StartTreeRainSound(preciprate_sound)
+                preciprate_sound = preciprate_sound - .4
+            else
+                StopTreeRainSound()
+                StopBarrierSound()
+                if _activatedplayer.replica.inventory:EquipHasTag("umbrella") then
+                    preciprate_sound = preciprate_sound - .4
+                    StartUmbrellaRainSound()
+                else
+                    StopUmbrellaRainSound()
+                end
+            end
+            if preciprate_sound > 0 then
+-- 音量>0 才播放，否则停止 —— 这是「雨声随雨停而渐弱」的实现。
+-- ★ 注意与第 973 行if 的配合：preciprate_sound 是算出来的中间值，
+--   减法（第 987/992 行）可能把它压到 <= 0 → 此时【连环境雨声都不播】，
+--   模拟「被完全遮蔽时听不到雨」。语义正确。
+                StartAmbientRainSound(preciprate_sound)
+            else
+                StopAmbientRainSound()
+            end
+        end
+
+        --Update precipitation effects
+-- ★★ 【粒子表现：与第 964 行的声音段【结构平行但完全独立】】
+--【两段的分裂是本函数的结构性特点】
+--  声音段（第 964-1003 行）：只处理 rain 与 lunarhail
+--  粒子段（本段）：处理 rain / lunarhail / 【snow 在 else 分支里】
+-- ★ 所以【下雪时的声音】在本段完全没有处理——
+--   下雪时 preciprate_sound 为 nil（第 966/969 行都不匹配 snow），
+--   所以第 973 行的 if 不成立，【整段声音逻辑被跳过】。
+--   ★ 这意味着【下雪时不会有雨声】（正确，雪是无声的），
+--     但也意味着第 989 行的 StopTreeRainSound 等【不会被调用】，
+--     若上一帧在下雨并有树声，本帧会【残留】。
+--   ⚠️ 实际上因为 rain→snow 的切换只在服务端（第 1088 行）发生，
+--     且客户端第 1043 行的 else 分支会停掉各种声音（第 1026-1028 行），
+--     所以最终是干净的。但【数据流要跨两个分支才能确认**，可读性差。
+        if _preciptype:value() == PRECIP_TYPES.rain then
+            if _hasfx then
+                _rainfx.particles_per_tick = 5 * preciprate
+-- 粒子数 = 系数 × 速率：_rainfx 5×preciprate，_snowfx 20×preciprate（第 1044 行）。
+-- ★ 系数不同（雨 5、雪 20）：雪更密所以需要更多粒子才显得同等强度。
+--   这类「表现系数」通常需要美术/手感反复调，没有推导公式。
+-- ⚠️ 每个分支都要【显式把其他类型的粒子清零】（如第 1010-1012 行），
+--   否则切换天气时会残留上一种的粒子。
+--   ★ 这是「无状态式渲染」：每次都把全部相关状态写全，
+--     而非只写变化的。写起来啰嗦但绝对不会漏。
+-- ⚠️ 第 1012 行 _lunarhailfx.splashes_per_tick = 0 已在此设，
+--   第 1018 行又设一次—— 重复但无害。属冗余。
+                _rainfx.splashes_per_tick = 2 * preciprate
+                _snowfx.particles_per_tick = 0
+                _lunarhailfx.particles_per_tick = 0
+                _lunarhailfx.splashes_per_tick = 0
+            end
+
+        elseif _preciptype:value() == PRECIP_TYPES.lunarhail then
+            if _hasfx then
+                _lunarhailfx.particles_per_tick = 4 * lunarhailrate
+				_lunarhailfx.splashes_per_tick = 2 * lunarhailrate
+
+                _snowfx.particles_per_tick = 0
+                _rainfx.particles_per_tick = 0
+                _rainfx.splashes_per_tick = 0
+            end
+
+        else
+            StopAmbientRainSound()
+            StopTreeRainSound()
+            StopUmbrellaRainSound()
+
+            if _activatedplayer ~= nil and _activatedplayer.components.raindomewatcher ~= nil and _activatedplayer.components.raindomewatcher:IsUnderRainDome() then
+-- 【★ 停止分支里唯一还在处理的一件事：雨穹屏障声】
+-- 不下雨时玩家若在雨穹下，仍要播屏障声（第 1031 行）——
+-- 因为雨穹是一个【持续存在的结构】，它的声音与是否下雨无关。
+-- ★ 这是一个「结构声」而非「天气声」，所以要单独维持。
+-- ⚠️ 注意这里【没有处理伞声与树声】的同类逻辑：
+--   不下雨时没有伞声是对的，但没有树声也合理（无雨打树）。
+--   所以只有雨穹需要特殊照顾——因为它是「物理屏障」不是「遮蔽」。
+                StartBarrierSound()
+            else
+                StopBarrierSound()
+            end
+
+            if _hasfx then
+                _rainfx.particles_per_tick = 0
+                _rainfx.splashes_per_tick = 0
+
+                _lunarhailfx.particles_per_tick = 0
+                _lunarhailfx.splashes_per_tick = 0
+
+                if _preciptype:value() == PRECIP_TYPES.snow then
+-- ★ 下雪在【else 分支】里（而非独立的 elseif），这是有意的。
+-- 因为「下雨」「月石雨」「下雪/无降水」三类恰好互斥且穷尽，
+-- 用 else 承接最后一类可省一次判断。
+-- 第 1062 行的判断用 _preciptype == snow，与本分支一致。
+                    _snowfx.particles_per_tick = 20 * preciprate
+                else
+                    _snowfx.particles_per_tick = 0
+                end
+            end
+        end
+
+        --Update ground overlays
+-- ★★ 【雪的两条路径：累积 vs 融化，注意累积条件更严】
+--  第 1053-1055 行 正在下雪 → 累积（min(+..., 1)）
+--  第 1056-1059 行 ★★ 有雪【且温度 > 0】 → 融化
+-- 【⚠️ 关键不对称】融化条件是 `snowlevel > 0 and temperature > 0`，
+--   而累积条件是 `preciptype == snow`。
+--   → 在【不下雪但温度>0】时仍然会融化。这是正确的（雪要化）。
+--   → 在【下雪但温度<=0】时只累积不融化。也正确。
+--   → 但【温度恰好为 0 且有雪】→ 不融化（因为 > 0 不成立）。
+--     0 度不化雪，是合理的设计选择。
+-- 【第 1058 行融化速率公式】
+--   meltrate = MIN_SNOW_MELT_RATE + SNOW_MELT_RATE * min(temperature/20, 1)
+--   ★ 即「基础速率 + 温度加成」，温度 20 度以上封顶（不再更快）。
+--     第 60 行的 MIN 保证了 0 度时仍以 1/120 的速度化雪 ——
+--     【防止雪永久残留】。这是重要的自愈设计。
+--   ⚠️ 若没有 MIN 那一项，0 度以下或恰好 0 度时雪会永远不化。
+-- ★ 第 1055 行累积用 preciprate 而非固定速率：雨/雪越大积雪越快。
+        local snowlevel = _snowlevel:value()
+        if _preciptype:value() == PRECIP_TYPES.snow then
+            --Accumulate snow
+            snowlevel = math.min(snowlevel + preciprate * dt * SNOW_ACCUM_RATE, 1)
+        elseif snowlevel > 0 and _temperature > 0 then
+            --Melt snow
+            local meltrate = MIN_SNOW_MELT_RATE + SNOW_MELT_RATE * math.min(_temperature / 20, 1)
+            snowlevel = math.max(snowlevel - meltrate * dt, 0)
+        end
+        SetWithPeriodicSync(_snowlevel, snowlevel, SNOW_LEVEL_SYNC_PERIOD, _ismastersim)
+-- 雪厚是本文件同步频率最高的量：SNOW_LEVEL_SYNC_PERIOD = .1（第 61 行）。
+-- ★★ 为什么这么短（0.1 秒 = 10Hz，比其他量快一到两个数量级）？
+--   因为【雪厚直接驱动地面贴图（第 1063 行）】——
+--   视觉反馈极强，稍有延迟就能看出来「雪厚不对」。
+--   ★ 这是「按视觉敏感度分配带宽」的教科书案例（同第 152 行湿度对比）。
+--   带宽换体验的典型权衡：这个 net_float 占了本组件大部分网络流量。
+        if _snowlevel:value() > 0 and (_temperature < 0 or _wetness:value() < 5) then
+-- ★★ 【雪地 vs 水洼的互斥选择 —— 本文件最精巧的一个条件】
+--  if snowlevel > 0 and (temperature < 0 or wetness < 5) then雪
+--  else 水洼
+-- 【两个 or 分支的语义完全不同，合并起来才有意义】
+--  第 1 支 temperature < 0 → 【天冷，雪不会化】→ 显示雪
+--  第 2 支 wetness < 5        → 【地面很干】→ 显示雪
+--  ★★ 直觉上「湿 < 5」应该显示【水洼】才对，但这里恰恰相反！
+--   真正的意思是：【又冷又干 → 积雪；否则只要有一定湿度就显示水洼】。
+--   即 temperature < 0 是「保持积雪」的主因，wetness < 5 是「防止脏雪化太快」的辅助。
+-- ⚠️ 两种解读都说得通，源码无注释。我倾向后者（wetness<5 防止
+--   刚下完雪地面还湿就被画成水洼，导致雪一闪而过）。
+--   ★ 无论哪种，这个条件都必须【成组理解】，逐支读必然误判。
+-- 【第 1063 行 `_snowlevel * 3`】
+--   snowlevel 范围 0-1，乘 3 得到 lerp 0-3。
+--   ★ 因为 SetOverlayLerp 允许超过 1（第 345 行注释 snowlevel goes from 0-1），
+--   所以 ×3 是为了【在雪厚较小时也能快速显现】（曲线拉伸）。
+--   代价：雪厚 > 1/3 后就完全饱和，视觉上不再有变化。属有意取舍。
+-- ⚠️ 第 1065 行 wetness * 3 / 100 —— wetness 是 0-100，
+--   换算成 0-3 与雪侧对齐。★ 两边的「单位对齐」靠这个魔法数 3。
+            SetGroundOverlay(GROUND_OVERLAYS.snow, _snowlevel:value() * 3) -- snowlevel goes from 0-1
+        else
+            SetGroundOverlay(GROUND_OVERLAYS.puddles, _wetness:value() * 3 / 100) -- wetness goes from 0-100
+        end
+
+        --Update pollen
+-- ★ 花粉：只与季节有关，与降水无关 —— 这是它的独立性。
+-- 第 1070 行 三条关闭条件（任一成立即无花粉）：
+--  ① 非夏天  ② 玩家在沙暴中（sandstorms:IsInSandstorm）
+--  ★★ 第② 条值得注意：沙暴会【抑制花粉】。
+--    这是跨组件联动（sandstorms 组件），与本组件的主流程无关。
+-- 【第 1072-1080 行的梯形包络】
+--  progress < .2  → 线性淡入（ramp = progress/.2）
+--  .2 ~ .8        → 满值 POLLEN_PARTICLES
+--  progress > .8  → 线性淡出（ramp = (1-progress)/.2）
+--  ★ 形状是「梯形」：季节开头 20% 渐入、中段 60% 恒定、末尾 20% 渐出。
+--    这种包络避免了花粉在季节边界【突然出现/消失】。
+-- ⚠️ 第 1070 行的判断顺序把「非夏天」放最前（最便宜），
+--   而 sandstorms 检查要取 ThePlayer 并调方法 —— 顺序正确。
+        if _hasfx then
+            if _season ~= "summer" or (ThePlayer ~= nil and _world.components.sandstorms ~= nil and _world.components.sandstorms:IsInSandstorm(ThePlayer)) then
+                _pollenfx.particles_per_tick = 0
+            elseif _seasonprogress < .2 then
+                local ramp = _seasonprogress / .2
+                _pollenfx.particles_per_tick = ramp * POLLEN_PARTICLES
+            elseif _seasonprogress > .8 then
+                local ramp = (1-_seasonprogress) / .2
+                _pollenfx.particles_per_tick = ramp * POLLEN_PARTICLES
+            else
+                _pollenfx.particles_per_tick = POLLEN_PARTICLES
+            end
+        end
+
+        if _ismastersim then
+-- ★★ 服务端专属的三件事，客户端【一律不做】。
+-- 【第 1085 行：下发 _snowcovered】
+--  ★ 判据是 `_groundoverlay == GROUND_OVERLAYS.snow and snowlevel >= 阈值`。
+--  ★★ 注意它判的是【_groundoverlay 这个局部变量】而不是重新计算第 1062 行的条件：
+--    即「当前地面叠加层【已经是】雪」且雪厚足够。
+--    这比独立重算条件更可靠 —— 【用实际渲染状态作为真相来源】，
+--    避免了「判定条件与渲染条件不一致」这类经典bug。
+--    ★★ 值得抄的写法：通知外部的状态应从「已生效的状态」推导，而非重新判断。
+-- 【第 1088-1092 行：雨↔雪 的滞回切换（见第 79 行常量说明）】
+--  ★ 只在服务端做，因为 precip type 是客户端不能改的离散量（第 873-878 行）。
+--  ⚠️ 注意这里【只处理 rain↔snow，不涉及 lunarhail】：
+--    而第 895/907 行的湿度分支判的是 `~= none`（含 lunarhail），
+--    两者判据不一致。lunarhail 期间湿度通道也在跑 ——
+--    ★ 这是有意的：月石雨不阻止湿度自然积累。合理但需注意。
+-- 【第 1095 行起：闪电决策】见下条。
+            --Update entity snow cover
+            _snowcovered:set(_groundoverlay == GROUND_OVERLAYS.snow and _snowlevel:value() >= SNOW_COVERED_THRESHOLD)
+
+            --Switch precipitation type based on temperature
+            if _temperature < _startsnowthreshold and _preciptype:value() == PRECIP_TYPES.rain then
+                _preciptype:set(PRECIP_TYPES.snow)
+            elseif _temperature > _stopsnowthreshold and _preciptype:value() == PRECIP_TYPES.snow then
+                _preciptype:set(PRECIP_TYPES.rain)
+            end
+
+            --Update lightning
+            if _lightningmode == LIGHTNING_MODES.always or
+-- ★★闪电的三个触发条件（or 连接，任一成立即进入）：
+--  ① _lightningmode == always   —— 强制（无雨也劈）
+--  ② LIGHTNING_MODE_NAMES[_lightningmode] == PRECIP_TYPE_NAMES[preciptype]
+--     ★★ 这是【名字对名字】的比较，绕了一圈把索引转回字符串再比。
+--       看似低效（每帧两次表查找）但【可读性极好】，且帧率代价可忽略。
+--       若直接比索引（如 _lightningmode == _preciptype）会依赖两个表的顺序一致，
+--       一旦某个表插入新枚举值就全错。★ 用字符串比较换来了顺序无关性，很划算。
+--  ③ mode == any 且正在降水（~= none）
+-- 【★ 这三个条件的设计】覆盖了 rain/snow/any/always 四种模式
+--   （never 在第 1095 行自然不成立）。
+-- ⚠️ 条件② 里两个表查找都在热路径每帧执行。
+--   真要优化可预先算一个 _lightningactivemode 布尔，
+--   但在 precip type 变化时才重算。当前写法更简单可靠。
+                LIGHTNING_MODE_NAMES[_lightningmode] == PRECIP_TYPE_NAMES[_preciptype:value()] or
+                (_lightningmode == LIGHTNING_MODES.any and _preciptype:value() ~= PRECIP_TYPES.none) then
+                if _nextlightningtime > dt then
+-- 【倒计时模式：_nextlightningtime 递减到 <= dt 时触发，然后重新随机。】
+-- 第 1101-1102 行 ★ 间隔的默认值由【雨量】动态决定：
+--   easing.linear(preciprate, 30, 10, 1) —— 雨量 0 → 30 秒，雨量 1 → 10 秒。
+--   ★ 即【雨越大闪电越频繁】。且 max = min + 同一个值（第 1102 行），
+--     保证 max > min（区间宽度随雨量增大）。
+--   ⚠️ 但当 _minlightningdelay 被显式设置时（模组，参见第 619 行），
+--     max 用的是【显式值或（min + easing 值）】——
+--     若只设了 min 没设 max，区间宽度仍会随雨量变化。这是合理的混合策略。
+-- 第 1103 行 GetRandomMinMax(min, max) —— 每次都重新随机，
+--   所以闪电间隔【不规律】，比固定周期自然得多。
+                    _nextlightningtime = _nextlightningtime - dt
+                else
+                    local min = _minlightningdelay or easing.linear(preciprate, 30, 10, 1)
+                    local max = _maxlightningdelay or (min + easing.linear(preciprate, 30, 10, 1))
+                    _nextlightningtime = GetRandomMinMax(min, max)
+                    if (preciprate > .75 or _lightningmode == LIGHTNING_MODES.always) and next(_lightningtargets) ~= nil then
+-- 【★★ 闪电落点：优先劈玩家】
+--  条件：雨量 > .75（大雨）或强制模式，且目标池非空
+--  第 1105 行 ★★ 用 easing.inQuint 做【偏斜的随机选择】：
+--    math.floor(inQuint(random(), 1, #targets, 1))
+--    inQuint 是五次方缓动，输出【强烈偏向 1】（曲线在末端很陡）。
+--  ★★ 效果：结果【极度偏向最后一个元素】——
+--    所以真正的意图是「闪电主要劈 _lightningtargets 的最后一个」。
+--  【第 1107-1108 行是理解意图的关键】
+--    table.remove(targets, targeti) 然后 table.insert(targets, target)
+--    ★ 这是「把选中的玩家【轮转到队尾】」！
+--    结合「inQuint 强烈偏向队尾」→
+--    实际效果是【轮流劈每个玩家】，且优先劈「最久没被劈的」。
+--  ★★ 这是本文件最巧妙的一处设计：
+--    用「偏向队尾的随机」+「选中后移到队尾」实现了【公平的轮转队列】，
+--    而不是写一个循环下标。看似随机实则均匀。
+--    移植要点：这是「洗牌队列保证公平性」的经典技巧。
+--  ⚠️ 第 1105 行的 math.min(..., #targets) 是浮点边界保护（防 inQuint 输出略大于 1）。
+-- 第 1116 行 【else 分支】不下雨或雨不大时，只播雷声：
+--  preciprate > .5 → "thunder_close"（近雷）否则 "thunder_far"（远雷）。
+--  ★ 距离感由【雨量】而非实际距离决定，廉价但有效。
+--  ⚠️ 注意这里 SpawnPrefab 而非 PushEvent —— 直接生成实体（服务端）。
+--    而第 1114 行有玩家时走 _world:PushEvent("ms_sendlightningstrike", pos)，
+--    由第 823 行的监听再回到第 630 行的 OnSendLightningStrike。
+--    ★★ 这个「PushEvent 绕一圈回来」的写法值得注意：
+--      它让「闪电处理」也能被其他来源（模组、控制台）触发。
+--      即：内部产生的闪电与外部注入的闪电走【完全相同的路径】。
+                        local targeti = math.min(math.floor(easing.inQuint(math.random(), 1, #_lightningtargets, 1)), #_lightningtargets)
+                        local target = _lightningtargets[targeti]
+                        table.remove(_lightningtargets, targeti)
+                        table.insert(_lightningtargets, target)
+
+                        local x, y, z = target.Transform:GetWorldPosition()
+                        local radius = 2 + math.random() * 8
+                        local theta = math.random() * TWOPI
+                        local pos = Vector3(x + radius * math.cos(theta), y, z + radius * math.sin(theta))
+                        _world:PushEvent("ms_sendlightningstrike", pos)
+                    else
+                        SpawnPrefab(preciprate > .5 and "thunder_close" or "thunder_far")
+                    end
+                end
+            end
+        end
+
+        PushWeather()
+-- PushWeather 放在 OnUpdate 最末尾 —— 所有状态更新完成后再广播。
+-- ★ 保证订阅者读到的一定是「本帧已完全更新」的一致快照。
+-- 若放在开头，订阅者会读到上一帧的旧值。这是事件广播的基本时序纪律。
+    end
+
+    self.LongUpdate = self.OnUpdate
+-- ★★ self.LongUpdate = self.OnUpdate —— 把自己同时注册为两个更新钩子。
+-- 【DST 的组件更新有OnUpdate（每帧）与 LongUpdate（较低频率）之分】
+-- 这里让【两者指向同一函数】，意味着天气逻辑【每帧都跑两次】？
+-- ⚠️ 不是的：两者是【互斥的调度档位】，引擎按配置择一高频帧率调用。
+--   实际效果是「无论引擎用哪个调度档，天气都保持每帧更新」。
+-- ★ 这样写的好处：兼容不同性能配置的主机（有的机器跑OnUpdate，有的跑 LongUpdate）。
+-- 【对比 combat.lua 的 DoPeriodicTask（攒计算）】
+--   combat 用周期任务降低 CPU 占用，weather 却必须每帧 ——
+--   因为雨量/雪厚要【视觉平滑】，跳帧就看得出来。
+--   ★★ 这正是「更新频率应由视觉/手感需求决定」的例子：
+--     AI 决策可以攒帧，视觉表现不行。
+
+    --------------------------------------------------------------------------
+    --[[ Save/Load ]]
+    --------------------------------------------------------------------------
+
+    if _ismastersim then function self:OnSave()
+-- ★★★ OnSave —— 存档序列化的完整字段表，值得当模板抄。
+-- 【覆盖范围】24 个字段，把所有【服务端私有状态 + 全部 netvar 值】都存了。
+-- 【★ 一个关键模式：`X or nil` 的「false 转 nil」压缩】
+--  第 1135 行 daylight = _daylight or nil
+--  第 1152 行 snowcovered = _snowcovered:value() or nil
+--  第 1160 行 wet = _wet:value() or nil
+--  ★ Lua 存档通常转成 JSON/XML 等文本格式，而【false 与 nil 在很多格式里难区分】
+--    （或 nil 会被丢弃）。写成 `or nil` 让 false 变成 nil，
+--    配合 OnLoad 的 `== true` 读取（第 1166/1183/1191 行），
+--    实现「缺失即 false」的往返一致。
+--  ★★ 这是跨语言/跨格式存档的通用技巧，值得记住。
+-- 【★ 为什么 netvar 用 :value() 而私有变量直接存】
+--  netvar 的真值住在网络对象里，必须取value；私有变量就是普通 Lua 值。
+-- 【precipmode/preciptype/lightningmode 存的是【字符串】】
+--  第 1147/1148/1155 行用 *_NAMES[...] 反查成字符串。
+--  ★★ 理由与第 1096 行的闪电模式判断同源：
+--    存字符串【对表的顺序不敏感】，往枚举表中间插入新值不会破坏老存档。
+--    若存数字索引（0/1/2），将来在 table.insert 中间插一个值，
+--    所有老存档的数值含义全变 —— 灾难性后果。
+--  ★ 这是存档设计的黄金法则：凡枚举一律存字符串/名字，不存索引。
+-- ⚠️ 缺点：文件稍大一点点（"summer" 比 3 长）。权衡完全值得。
+        return
+        {
+            temperature = _temperature,
+            daylight = _daylight or nil,
+            season = _season,
+            noisetime = _noisetime:value(),
+            moisturerateval = _moisturerateval,
+            moisturerateoffset = _moisturerateoffset,
+            moistureratemultiplier = _moistureratemultiplier,
+            moisturerate = _moisturerate:value(),
+            moisture = _moisture:value(),
+            moisturefloor = _moisturefloor:value(),
+            moistureceilmultiplier = _moistureceilmultiplier,
+            moisturefloormultiplier = _moisturefloormultiplier,
+            moistureceil = _moistureceil:value(),
+            precipmode = PRECIP_MODE_NAMES[_precipmode:value()],
+            preciptype = PRECIP_TYPE_NAMES[_preciptype:value()],
+            peakprecipitationrate = _peakprecipitationrate:value(),
+            snowlevel = _snowlevel:value(),
+            lunarhaillevel = _lunarhaillevel:value(),
+            snowcovered = _snowcovered:value() or nil,
+            startsnowthreshold = _startsnowthreshold,
+            stopsnowthreshold = _stopsnowthreshold,
+            lightningmode = LIGHTNING_MODE_NAMES[_lightningmode],
+            minlightningdelay = _minlightningdelay,
+            maxlightningdelay = _maxlightningdelay,
+            nextlightningtime = _nextlightningtime,
+            wetness = _wetness:value(),
+            wet = _wet:value() or nil,
+        }
+    end end
+
+    if _ismastersim then function self:OnLoad(data)
+-- ★★★ OnLoad —— 与 OnSave 逐字段对称，且【每一项都有默认值】。
+-- 【★ 全部使用 `data.X or 默认值` 模式】
+--  这是必需的：老存档没有新加的字段，或模组删掉了字段。
+--  ★ 若直接写 data.temperature，当老存档缺该字段时 _temperature 会变nil，
+--    后续所有温度计算（含第 1058 行融化）会崩。
+-- 【★ 两处特殊处理值得注意】
+--  第 1177 行 moistureceil:set(data.moistureceil or RandomizeMoistureCeil())
+--    ★ 不能用常量 0 作默认 —— 那会让天气永久停滞（ceil=0 时累积分支不执行）。
+--    必须重新随机一个合理值。对比第 1173 行 moisture 的默认是 0（合理）。
+--  第 1172 行 moisturerate:set(data.moisturerate or CalculateMoistureRate())
+--    ★ 默认值【重新计算】而非常量，因为它是三个私有变量的组合（第 384 行）。
+--    恢复存档时若不重算，速率会停在 0 → 湿度永不变化。
+-- 【布尔的三处读取都写 `== true`】
+--  第 1166/1183/1191 行：严格等于 true。
+--  ★ 因为存档里这些字段可能是 nil（见OnSave 的 or nil），
+--    而 OnSave 的 `X or nil` 意味着 false 也变成 nil ——
+--    所以「nil」必须被解释为 false，用 == true 才能保证。
+--    ★★ 若写成 `data.wet and true` 或 `data.wet or false`，在 nil 情况下虽也对，
+--    但语义不如 == true 明确：它显式声明「只承认布尔 true」。
+-- ⚠️ 缺失字段 `_noisetime`（第 235 行注释提到的已弃用变量）没被保存/读取，
+--   但 _noisetime 在第 1137 行【是保存了的】。这里说的是另一个变量，无矛盾。
+-- 第 1193 行 Load 完立刻 PushWeather —— 与第 828 行同样的「首次广播」考虑。
+        _temperature = data.temperature or TUNING.STARTING_TEMP
+        _daylight = data.daylight == true
+        _season = data.season or "autumn"
+        _noisetime:set(data.noisetime or 0)
+        _moisturerateval = data.moisturerateval or 1
+        _moisturerateoffset = data.moisturerateoffset or 0
+        _moistureratemultiplier = data.moistureratemultiplier or 1
+        _moisturerate:set(data.moisturerate or CalculateMoistureRate())
+        _moisture:set(data.moisture or 0)
+        _moisturefloor:set(data.moisturefloor or 0)
+        _moistureceilmultiplier = data.moistureceilmultiplier or 1
+        _moisturefloormultiplier = data.moisturefloormultiplier or 1
+        _moistureceil:set(data.moistureceil or RandomizeMoistureCeil())
+        _precipmode:set(PRECIP_MODES[data.precipmode] or PRECIP_MODES.dynamic)
+        _preciptype:set(PRECIP_TYPES[data.preciptype] or PRECIP_TYPES.none)
+        _peakprecipitationrate:set(data.peakprecipitationrate or 1)
+        _snowlevel:set(data.snowlevel or 0)
+        _lunarhaillevel:set(data.lunarhaillevel or 0)
+        _snowcovered:set(data.snowcovered == true)
+        _startsnowthreshold = data.startsnowthreshold or START_SNOW_THRESHOLDS.autumn
+        _stopsnowthreshold = data.stopsnowthreshold or STOP_SNOW_THRESHOLDS.autumn
+        _lightningmode = LIGHTNING_MODES[data.lightningmode] or LIGHTNING_MODES.rain
+        _minlightningdelay = data.minlightningdelay
+        _maxlightningdelay = data.maxlightningdelay
+        _nextlightningtime = data.nextlightningtime or 5
+        _wetness:set(data.wetness or 0)
+        _wet:set(data.wet == true)
+
+        PushWeather()
+    end end
+
+    --------------------------------------------------------------------------
+    --[[ Debug ]]
+    --------------------------------------------------------------------------
+
+    function self:GetDebugString()
+-- ★ GetDebugString：复用 Calculate* 系列（第 1201-1202 行）得到诊断数据。
+-- 【★ 这验证了「计算与副作用分离」的设计价值】
+--  因为 CalculatePrecipitationRate / CalculateWetnessRate / CalculateLight
+--  都是只读 netvar 的纯函数，所以【在调试路径上安全调用】，
+--  不会因为「看一眼」而改变任何状态。
+-- 若这些计算写在 OnUpdate 里顺带更新状态，调试输出就会污染游戏状态。
+-- 【★ 格式串全部用 %2.1f / %2.5f 做列对齐】
+--  light 用 %2.5f（第 1211 行）而其他用 %2.1f ——
+--  因为亮度值范围极窄（1-dynrange 到 1，如 0.95~1.00），
+--  1 位小数会让所有值都显示成 1.0。
+--  ★ 打印精度要匹配量程，这是小而实用的细节。
+-- 第 1210 行 wetrate 的显示：正数前加 "+" 号便于区分干/湿。
+-- 第 1214-1216 行 ★ 仅服务端额外显示闪电倒计时（客户端没这个状态）。
+        local preciprate = CalculatePrecipitationRate()
+        local wetrate = CalculateWetnessRate(_temperature, preciprate)
+        local str =
+        {
+            string.format("  temperature: %2.1f",_temperature),
+            string.format("  moisture: %2.1f (%2.1f/%2.1f) + %2.1f", _moisture:value(), _moisturefloor:value(), _moistureceil:value(), _moisturerate:value()),
+            string.format("  preciprate: (%2.1f of %2.1f)", preciprate, _peakprecipitationrate:value()),
+            string.format("  snowlevel: %2.1f", _snowlevel:value()),
+            string.format("  lunarhaillevel: %2.1f", _lunarhaillevel:value()),
+            string.format("  wetness: %2.1f (%s %2.1f) %s", _wetness:value(), wetrate > 0 and "+" or "", wetrate, _wet:value() and " WET" or ""),
+            string.format("  light: %2.5f", CalculateLight()),
+        }
+
+        if _ismastersim then
+            table.insert(str, string.format("  lightning:%2.1f", _nextlightningtime))
+        end
+
+        return table.concat(str, "\n")
+-- table.concat(str, "\n") 拼成多行字符串返回给调试器显示。
+-- ★ 注意这里是【真换行转义】，源码里写的是 "\n"。
+--   （本注释里的显示与源码一致。）
+    end
+
+    --------------------------------------------------------------------------
+    --[[ End ]]
+    --------------------------------------------------------------------------
+
+    end)

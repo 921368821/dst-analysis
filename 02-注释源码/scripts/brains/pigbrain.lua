@@ -1,0 +1,796 @@
+--============================================================
+-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖
+-- 文件：brains/pigbrain.lua
+-- 模块：AI 大脑 / 盐渍猪（玩家随从 AI 的标准范本）
+-- 职责：装配盐渍猪的完整 AI。演示随从 AI 的一切：跟随距离三段式、交易不打断、
+--       觅食与饱腹抑制、战斗/闪避互斥拆分、多种恐慌来源、家园与 Leash、
+--       【白天与夜晚两棵完全独立的 PriorityNode】、活动小游戏（比赛/观战）挂接。
+-- 关键符号：PigBrain, BrainCommon.PanicWhenScared, BrainCommon.NodeAssistLeaderDoAction,
+--           FindFoodAction, GoHomeAction, SafeLightDist, IsHomeOnFire,
+--           RUN_AWAY_FROM_PIG_PARAMS, MIN/TARGET/MAX_FOLLOW_DIST
+-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本
+-- 交叉引用：brain.lua（三段式调度与休眠机制）, brains/braincommon.lua（共享底座）,
+--           behaviours/{wander,follow,faceentity,chaseandattack,runaway,
+--           doaction,findlight,panic,chattynode,leash}.lua,
+--           components/{follower,trader,eater,homeseeker,combat}.lua,
+--           prefabs/pig.lua（组件与标签的挂载方）
+--============================================================
+require "behaviours/wander"
+--[ [
+-- pigbrain.lua —— 盐渍猪（Pig）的大脑，【玩家随从 AI 的标准范本】
+--
+-- 【为什么它是最值得先读的一个】
+--   191 个大脑里，它把随从 AI 需要的一切都演示了一遍，且结构极清晰：
+--     · 跟随（Follow + FaceEntity）与距离三段式
+--     · 交易（Trader）与「正在交易就别跑」
+--     · 觅食（EAT / TAKEITEM，含刚吃完的贪吃抑制）
+--     · 战斗（攻/闪两个 WhileNode 互斥）
+--     · 恐慌（多种来源，BrainCommon.PanicWhenScared）
+--     · 【白天/夜晚两套完全不同的 PriorityNode】
+--     · 家园（Leash + GoHome + 家园着火）
+--   任何自研游戏要做「会跟着玩家的宠物」，照抄这个文件的骨架即可。
+--
+-- 【★ 大脑的三段结构在这里的体现】
+--   brain.lua 的 SCHEDULE / DISTANCE / HEALTH 三个状态集合，对应到本文件：
+--     SCHEDULE —— root PriorityNode（第 382 行）：只做「选择哪棵子树」，不执行动作
+--     DISTANCE —— 各 WhileNode 的条件函数：每帧求值，决定子树是否继续
+--     HEALTH   —— ChattyNode / DoAction / FaceEntity：真正产生位移与动作
+--   ★ 注意：具体大脑几乎不直接写「三段集合」，而是用 WhileNode 把
+--     「条件」和「动作」绑在一起 —— 这是 DST 对三段式的一种语法糖封装。
+--
+-- 【⚠️ 容易踩的坑】
+-- · 第 316 行 Wander 节点的 maxdist 传的是「函数 GetNoLeaderHomePos」，
+--   而第 355 行传的也是同一个函数作锚点 —— 两者语义不同，别抄串。
+-- · 第 93-95 行 minigame_spectator 检查在「吃背包里的食物」之后，
+--   顺序刻意如此：观战中的猪仍可吃掉背包里已捡的食物，但不能新找食物。
+-- · 全文件不含 OnStop / 事件监听；事件的注册与注销全在 braincommon 里
+--   （见 PanicWhenScared 的 OnStop 猴子补丁）。这是分工，不是遗漏。
+--] ]
+require "behaviours/follow"
+require "behaviours/faceentity"
+require "behaviours/chaseandattack"
+require "behaviours/runaway"
+require "behaviours/doaction"
+--require "behaviours/choptree"
+require "behaviours/findlight"
+require "behaviours/panic"
+require "behaviours/chattynode"
+require "behaviours/leash"
+
+local BrainCommon = require "brains/braincommon"
+
+local MIN_FOLLOW_DIST = 2
+-- ★★★ 跟随距离的「三段式」参数，DST 随从 AI 的通用词汇：
+--   MIN_FOLLOW_DIST   —— 比这更近就后退（太挤了）
+--   TARGET_FOLLOW_DIST—— 理想距离，趋近这个值
+--   MAX_FOLLOW_DIST   —— 比这更远就全速追
+-- ★ 三段而非一段的意义：形成「迟滞」，避免在单一边界上反复进退抖动。
+--   移植时若只用一个距离参数，猪会在边界上原地抽搐。
+-- ⚠️ 三个值的关系约束：MIN(2) < TARGET(5) < MAX(9)。写反或相等都会导致行为异常。
+local TARGET_FOLLOW_DIST = 5
+local MAX_FOLLOW_DIST = 9
+local MAX_WANDER_DIST = 20
+-- 游荡最大半径 20 —— 比跟随距离大得多，因为游荡时通常没有主人。
+
+local LEASH_RETURN_DIST = 10
+-- ★ Leash 的两个距离，注意参数顺序是 (最大容忍, 拉回半径)：
+--   LEASH_MAX_DIST=30   —— 超过这个距离才开始往回走
+--   LEASH_RETURN_DIST=10—— 回到这个距离内就算完成
+--   ★ 同样是迟滞：30 与 10 之间的 20 单位是「回家中」的状态。
+--   ★ 与 Follow 的 MIN/TARGET/MAX 同源思想，只是三段变两段。
+local LEASH_MAX_DIST = 30
+
+local START_RUN_DIST = 3
+-- 逃跑的两段距离：3 内开始跑、5 外停下。★ 同样靠 3/5 的间隔形成迟滞。
+local STOP_RUN_DIST = 5
+local MAX_CHASE_TIME = 10
+-- 追击的上限：10 秒 或 30 距离，任一超了就放弃。
+-- ★ 双条件放弃是 DST 的通用写法：光靠时间，遇到地形卡住时会一直追；
+--   光靠距离，遇到绕圈逃跑的猎物时会永远追。两者结合才稳。
+local MAX_CHASE_DIST = 30
+local SEE_LIGHT_DIST = 20
+local TRADE_DIST = 20
+local SEE_TREE_DIST = 15
+local SEE_FOOD_DIST = 10
+
+local SEE_BURNING_HOME_DIST_SQ = 20*20
+-- ★ 平方距离预先算好：20*20。
+--   因为 IsHomeOnFire 只做大小比较，用平方省掉开方。
+--   DST 全程遵循这个约定（distsq 系列函数同理），仿写时务必一致。
+
+local COMFORT_LIGHT_LEVEL = 0.3
+-- 舒适光照阈值 0.3：夜里猪想待在「稍微亮一点」的地方（第 368 行）。
+-- ⚠️ 注释明写 "wants slightly brighter light for this" ——
+--   即 0.3 不是「能看见」的下限，而是「更舒服」的目标，属于手感调参。
+
+local KEEP_CHOPPING_DIST = 10
+
+local RUN_AWAY_DIST = 5
+-- 战斗中的闪避距离：5 内躲、8 外回来。躲得比逃跑（第 38 行）更远。
+-- ★ 因为闪避要保证拉开距离（回到射程外），逃跑只要离开触发半径。
+local STOP_RUN_AWAY_DIST = 8
+
+local function ShouldRunAway(inst, target)
+-- ★ ShouldRunAway：★ 语义是「不跑」——只有在「对方正在与我交易」时才返回 false。
+--   ⚠️ 函数名与返回值的直觉相反，读代码时极易看错：
+--     它是「需要逃跑吗」的判定，被当作 RunAway 节点的自定义 shouldRunFn 使用。
+--   ★ 这是 RunAway 的第 5 个参数（shouldRunFn）的标准用法，见第 364 行。
+--   ★ 设计意图：玩家掏出了交易界面时猪不该跑，否则玩家根本没法交易。
+    return not inst.components.trader:IsTryingToTradeWithMe(target)
+end
+
+local function GetTraderFn(inst)
+-- GetTraderFn：在 20 距离内找出「正在与我交易」的玩家。
+-- ★ 第 47 行 FindPlayersInRange(..., true) 最后一个参数是 doer 参数，
+--   true 表示包含 doer 自身。对比第 191 行 FindClosestPlayerInRange 也是同样用法。
+-- ⚠️ 注意这里返回的是玩家实体，而不是 trader 组件 —— 因为 FaceEntity 要的是实体。
+    local x, y, z = inst.Transform:GetWorldPosition()
+    local players = FindPlayersInRange(x, y, z, TRADE_DIST, true)
+    for _, player in ipairs(players) do
+        if inst.components.trader:IsTryingToTradeWithMe(player) then
+            return player
+        end
+    end
+end
+
+local function KeepTraderFn(inst, target)
+-- KeepTraderFn：FaceEntity 的「维持」判定。
+-- ★ 与 GetTraderFn 的判定完全相同，缺一个就会导致「每帧换目标」的抖动。
+--   这是配对函数的通用要求：getfn 与 keepfn 语义必须一致。
+    return inst.components.trader:IsTryingToTradeWithMe(target)
+end
+
+local FINDFOOD_CANT_TAGS = { "outofreach" }
+-- outofreach —— 玩家够不到的地方（如小岛另一边），猪不该去抢。
+local function IsFoodValid(item, inst)
+-- ★★ IsFoodValid 的六重校验，顺序有讲究（便宜的在前）：
+--  1) GetTimeAlive() >= 8  —— ★ 至少存在 8 秒。原因见第 123 行同类逻辑：
+--     玩家扔下的东西会瞬间被捡走，猪去追只会白跑。
+--  2) prefab ~= "mandrake"  —— 曼达草会召唤小精灵，打死有代价
+--  3) components.edible ~= nil —— 确实是食物
+--  4) brain_noveggie 时只吃荤 —— 见第 102 行的「刚吃完素食」逻辑
+--  5) IsOnPassablePoint()  —— ★ 不是水面上/悬崖边，走不过去
+--  6) eater:CanEat(item)  —— 自己能不能吃（种族/buff 限制）
+-- ★ 第 4 条的 brain_noveggie 是「临时上下文标志」，见第 104/106 行成对设置与清除。
+    return item:GetTimeAlive() >= 8
+        and item.prefab ~= "mandrake"
+        and item.components.edible ~= nil
+        and (not inst.brain_noveggie or item.components.edible.foodtype == FOODTYPE.MEAT)
+        and item:IsOnPassablePoint()
+        and inst.components.eater:CanEat(item)
+end
+
+local FINDSHELF_ONEOF_TAGS = { "takeshelfitem" }
+-- 货架系统：食物放在架子上，需要用 TAKEITEM 拿而不是 EAT。
+-- ★ 这展示了 DST 的「同一意图，多种获取路径」：先搜地上的（第 105 行），
+--   搜不到再搜货架上的（第 113 行）。
+local function IsFoodOnShelfValid(item, inst)
+-- IsFoodOnShelfValid：比 IsFoodValid 多一层「要通过架子拿」的检查。
+-- ⚠️ 第 77 行 item:IsOnPassablePoint() 校验的是【架子】的位置，不是食物的位置。
+--   语义正确（猪要走到架子旁），但变量名容易让人误读成在校验食物。
+    local shelf = item.components.shelf
+    return shelf ~= nil
+        and shelf.itemonshelf ~= nil
+        and shelf.cantakeitem
+        and shelf.itemonshelf.components.edible ~= nil
+        and (not inst.brain_noveggie or shelf.itemonshelf.components.edible.foodtype == FOODTYPE.MEAT)
+        and item:IsOnPassablePoint()
+        and inst.components.eater:CanEat(shelf.itemonshelf)
+end
+
+local function FindFoodAction(inst)
+-- ★★ FindFoodAction 的四段决策（这是整个文件逻辑最密的函数）：
+--  1) 第 82-84 行：状态图正忙就别动。★ 这是最重要的前置门。
+--  2) 第 86-91 行：先吃背包里已有的（不需要走过去，零成本）
+--  3) 第 97-100 行：刚吃完就不找 —— ★ 关键抑制逻辑。
+--     time_since_eat <= PIG_MIN_POOP_PERIOD * 2 则退出。
+--     常量的名字是「两次排泄周期」，被复用成「饱腹感」。★ 这是 DST 常见的
+--     「参数语义外借」：拿一个数值上差不多的常量当节流用，不是语义复用。
+--  4) 第 102-106 行：noveggie 标志 —— 距上次吃 < 4 个周期则只吃荤。
+-- ★ 第 104 行设标志、第 106 行清除，中间夹一次 FindEntity。
+--   这是一种「给纯函数喂上下文」的技巧：因为 FindEntity 的回调是纯函数，
+--   没法直接传参，就用 inst 上的临时字段当通道。
+-- ⚠️ 风险：若 FindEntity 内部 yield 或抛错，标志不会被清除。
+--   ⚠️ 疑似：FindEntity 内部若发生协程切换，此标志会泄漏到其他节点。
+--   未核实 FindEntity 是否会 yield，故标疑似。
+-- ★ 第 112-114 行对货架做同样的「设标志 - 查询 - 清标志」，模式重复出现两次。
+    if inst.sg:HasStateTag("busy") then
+        return
+    end
+
+    if inst.components.inventory ~= nil and inst.components.eater ~= nil then
+        local target = inst.components.inventory:FindItem(function(item) return inst.components.eater:CanEat(item) end)
+        if target ~= nil then
+            return BufferedAction(inst, target, ACTIONS.EAT)
+        end
+    end
+
+	if inst.components.minigame_spectator ~= nil then
+		return
+	end
+
+    local time_since_eat = inst.components.eater:TimeSinceLastEating()
+-- TimeSinceLastEating 返回 nil 表示「从来没吃过」，此时不做任何抑制。
+-- ★ 这解释了第 102 行 time_since_eat ~= nil and ... 的写法：
+--   从没吃过的新猪应该是「最饿」的，不能被抑制。
+    if time_since_eat ~= nil and time_since_eat <= TUNING.PIG_MIN_POOP_PERIOD * 2 then
+        return
+    end
+
+    local noveggie = time_since_eat ~= nil and time_since_eat < TUNING.PIG_MIN_POOP_PERIOD * 4
+
+    inst.brain_noveggie = noveggie
+    local target = FindEntity(inst, SEE_FOOD_DIST, IsFoodValid, nil, FINDFOOD_CANT_TAGS, inst.components.eater:GetEdibleTags())
+    inst.brain_noveggie = nil
+
+    if target ~= nil then
+        return BufferedAction(inst, target, ACTIONS.EAT)
+    end
+
+    inst.brain_noveggie = noveggie
+    target = FindEntity(inst, SEE_FOOD_DIST, IsFoodOnShelfValid, nil, FINDFOOD_CANT_TAGS, FINDSHELF_ONEOF_TAGS)
+    inst.brain_noveggie = nil
+
+    if target ~= nil then
+        return BufferedAction(inst, target, ACTIONS.TAKEITEM)
+    end
+end
+
+local function GetLeader(inst)
+    return inst.components.follower and inst.components.follower:GetLeader()
+end
+
+local function HasValidHome(inst)
+-- ★ HasValidHome 是「家园还能用吗」的四重校验：
+--   存在 / 有效 / 没在烧 / 没烧毁
+-- ★ 后两条（burnable:IsBurning / burnt 标签）是 DST 的标准组合，
+--   本文件在第 205 行 IsHomeOnFire、hermitcrabbrain 第 155 行重复出现同一模式。
+--   为什么不用标签统一解决？因为「正在烧」是动态状态，必须查组件；
+--   「已烧毁」才是静态状态，用标签。两类状态用两种手段表达。
+    local home = inst.components.homeseeker ~= nil and inst.components.homeseeker.home or nil
+    return home ~= nil
+        and home:IsValid()
+        and not (home.components.burnable ~= nil and home.components.burnable:IsBurning())
+        and not home:HasTag("burnt")
+end
+
+local function GoHomeAction(inst)
+-- ★★ GoHomeAction 的三个前置条件，缺一不可：
+--  1) not GetLeader(inst) —— ★★ 有主人的猪不回家！
+--  2) HasValidHome(inst) —— 家还在
+--  3) not inst.components.combat.target —— 没在打架
+-- ★ 第 1 条是本文件的核心设计：盐渍猪一旦被玩家收养（follower），
+--   家就只是「天气不好时的避难所」，不再是无主时的归属。
+--   这个判断与第 145 行 GetNoLeaderHomePos 完全对应 —— 两个函数共用同一语义。
+-- ⚠️ 第 136 行直接访问 inst.components.combat.target 而不判 combat 组件是否存在，
+--   隐式假定所有用 pigbrain 的实体都挂了 combat。已核对第 397/403 行同样假定，
+--   说明这是本大脑的既定契约，不算缺陷，但移植时要确保组件齐全。
+    if not GetLeader(inst) and
+        HasValidHome(inst) and
+        not inst.components.combat.target then
+            return BufferedAction(inst, inst.components.homeseeker.home, ACTIONS.GOHOME)
+    end
+end
+
+local function GetHomePos(inst)
+    return HasValidHome(inst) and inst.components.homeseeker:GetHomePos()
+end
+
+local function GetNoLeaderHomePos(inst)
+-- GetNoLeaderHomePos：有主人时返回 nil。
+-- ★ 返回 nil 的语义是「不设锚点」，于是 Leash/Wander 会退回实体自身位置，
+--   即「有主人时不再被家的位置约束」。第 349、355 行都依赖这个语义。
+-- ⚠️ 但注意第 355 行的 Wander 第二个参数（锚点）传的是这个函数，
+--   返回 nil 时 Wander 用自身位置游荡 —— 这是合理的降级，非缺陷。
+    return (not GetLeader(inst) and GetHomePos(inst))
+        or nil
+end
+
+local LIGHTSOURCE_TAGS = {"lightsource"}
+local function GetNearestLightPos(inst)
+-- ★ GetNearestLightPos 与 GetNearestLightRadius（第 156 行）成对出现，
+--   且都各自重新搜一次光源 —— 同一个查询做了两遍。
+-- ⚠️ 性能瑕疵：每帧两次 GetClosestInstWithTag。但影响可忽略（夜间才走到这）。
+--   ★ 设计上本可以直接用一次搜索缓存结果，作者选择了可读性优先。
+-- ★ 这两个函数被第 369 行 Wander 同时用作「锚点」和「半径」参数，
+--   说明 Wander 支持「动态半径」—— 不是固定数字，而是每帧现算。
+    local light = GetClosestInstWithTag(LIGHTSOURCE_TAGS, inst, SEE_LIGHT_DIST)
+    return (light ~= nil and light:GetPosition()) or nil
+end
+
+local function GetNearestLightRadius(inst)
+    local light = GetClosestInstWithTag(LIGHTSOURCE_TAGS, inst, SEE_LIGHT_DIST)
+    return (light ~= nil and light.Light:GetCalculatedRadius()) or 1
+-- 兜底返回 1 —— 找不到光源时半径取 1，而不是报错。
+-- ★ 防御性默认值，避免 nil 传给 Wander 导致崩溃。
+end
+
+local function RescueLeaderAction(inst)
+-- RescueLeaderAction：解除主人身上的约束（如被蜘蛛网粘住）。
+-- ⚠️ 第 162 行直接用 GetLeader(inst) 作目标，若 GetLeader 返回 nil，
+--   BufferedAction 会拿到 nil 目标。调用处（第 400 行）已用 GetLeader(inst) and 保护，
+--   所以实际不会传 nil。这是「调用方保证前置条件」的模式。
+    return BufferedAction(inst, GetLeader(inst), ACTIONS.UNPIN)
+end
+
+local function WantsToGivePlayerPigTokenAction(inst)
+-- ★ WantsToGivePlayerPigTokenAction：三个条件表示「忠诚满了 + 手里有猪符」。
+--   猪符是玩家解锁猪的道具，满忠诚后猪会主动交还。
+-- ⚠️ 第 412 行源码自带 TODO "check for death and valid" —— 原作者标注的未完成项。
+--   不是我们的判断，是源码原话。
+	return GetLeader(inst) ~= nil
+        and inst.components.follower:GetLoyaltyPercent() >= TUNING.PIG_FULL_LOYALTY_PERCENT
+        and inst.components.inventory:Has(inst._pig_token_prefab, 1)
+end
+
+local function GivePlayerPigTokenAction(inst)
+-- 给猪符：对着主人 DROP。
+-- ★ 又一处 BufferedAction 参数易错点：第 2 参 leader 是「目标/位置参照」，
+--   真正交出去的物品是第 4 参 note。PICKUP 语义靠「丢在谁旁边」传达。
+	local leader = GetLeader(inst)
+	if leader ~= nil then
+		local note = next(inst.components.inventory:GetItemByName(inst._pig_token_prefab, 1))
+		if note ~= nil then
+			return BufferedAction(inst, leader, ACTIONS.DROP, note)
+		end
+	end
+end
+
+local function GetFaceTargetFn(inst)
+-- ★ GetFaceTargetFn 与 KeepFaceTargetFn（第 185 行）成对，判定都是 GetLeader。
+-- ★ 为什么有了 Follow（第 344 行）还要单独 FaceEntity（第 346 行）？
+--   因为 Follow 只保证距离，不保证朝向。猪要「看着主人」而不是「贴着主人」。
+--   这是「跟随」与「注视」两件事分离的典型。
+    return GetLeader(inst)
+end
+
+local function KeepFaceTargetFn(inst, target)
+    return GetLeader(inst) == target
+end
+
+local function GetFaceTargetNearestPlayerFn(inst)
+-- 没主人时看最近的玩家 —— 注意半径用 START_RUN_DIST + 1（第 23 行的 3 + 1），
+-- ★ 复用逃跑的常量来定「注视半径」是巧合而非设计，读代码时容易误解为耦合。
+--   数值上 4 与 START_FACE_DIST 恰好一致，但两个常量互不相干。
+	local x, y, z = inst.Transform:GetWorldPosition()
+	return FindClosestPlayerInRange(x, y, z, START_RUN_DIST + 1, true)
+end
+
+local function KeepFaceTargetNearestPlayerFn(inst, target)
+    return GetFaceTargetNearestPlayerFn(inst) == target
+end
+
+local function SafeLightDist(inst, target)
+-- ★★ SafeLightDist：走向光源时「保持在多远处」的判定。
+--  三种情况算 4：玩家 / 玩家光 / 玩家背包里的灯。
+--  其余情况：光源半径 / 3。
+-- ★ 设计意图：不怕玩家但怕黑。玩家自带光，所以敢靠近；火把半径大，
+--   要站远一点（1/3 半径）才不烤到自己。
+-- ⚠️ 第 202 行假设 target.Light 一定存在。若目标有 playerlight 标签但没有 Light 组件，
+--   会崩。不过三条 player/playerlight/GrandOwner 分支已先返回，不会走到这。
+--   ★ 这里的短路顺序是有意的依赖关系，不是巧合。
+    return (target:HasTag("player") or target:HasTag("playerlight")
+            or (target.inventoryitem and target.inventoryitem:GetGrandOwner() and target.inventoryitem:GetGrandOwner():HasTag("player")))
+        and 4
+        or target.Light:GetCalculatedRadius() / 3
+end
+
+local function IsHomeOnFire(inst)
+-- ★ IsHomeOnFire = 「家着火了」+「我离得够近才管」。
+--   第 210 行加了距离限制（20 平方），意味着远处着火不 panic。
+--   ★ 这是「关心范围」的设计：不在范围内的危机不触发反应，避免全图 panic。
+-- ⚠️ 与第 125 行 HasValidHome 的区别：本函数不检查 burnt，只检查「正在烧」，
+--   因为「正在烧」才需要立刻反应，「已烧毁」已经无能为力。语义分工正确。
+    return inst.components.homeseeker
+        and inst.components.homeseeker.home
+        and inst.components.homeseeker.home.components.burnable
+        and inst.components.homeseeker.home.components.burnable:IsBurning()
+        and inst:GetDistanceSqToInst(inst.components.homeseeker.home) < SEE_BURNING_HOME_DIST_SQ
+end
+
+local function WatchingMinigame(inst)
+-- 以下一组是与「猪王争霸赛」（YOTB）小游戏挂钩的逻辑，属于活动专属。
+-- ★ 移植参考价值：展示了「同一个大脑如何挂接多种互斥的临时玩法模式」。
+	return inst.components.minigame_spectator ~= nil and inst.components.minigame_spectator:GetMinigame()
+end
+
+local function WatchingMinigame_MinDist(inst)
+-- ★ 观看距离不是常量，而是从「小游戏实体」的组件里读的。
+--   minigame.components.minigame.watchdist_min
+--   ★ 设计模式：行为参数由玩法方定义，大脑只负责读取。
+--   ⚠️ 代价：本文件对 minigame 组件形成了硬依赖，第 299 行直接访问
+--     .components.minigame.gametype 而不判空。
+	return inst.components.minigame_spectator:GetMinigame().components.minigame.watchdist_min
+end
+local function WatchingMinigame_TargetDist(inst)
+	return inst.components.minigame_spectator:GetMinigame().components.minigame.watchdist_target
+end
+local function WatchingMinigame_MaxDist(inst)
+	return inst.components.minigame_spectator:GetMinigame().components.minigame.watchdist_max
+end
+
+local function WatchingCheaters(inst)
+-- WatchingCheaters：检测到作弊者就把镜头对准他。
+-- ★ 第 232 行 return minigame（返回的是小游戏实体而非作弊者），
+--   因为调用方（第 315 行）只是要一个「看谁」的目标。
+--   ⚠️ 命名与返回值不一致：函数名像是要返回作弊者，实际返回小游戏。
+--   已核对第 314-315 行 FaceEntity(self.inst, WatchingCheaters, WatchingCheaters)，
+--   确认两端都用它，故行为正确，仅命名易误导。
+    local minigame = WatchingMinigame(inst) or nil
+    if minigame ~= nil and minigame._minigame_elites ~= nil then
+        for k in pairs(minigame._minigame_elites) do
+            if k:WasCheated() then
+                return minigame
+            end
+        end
+    end
+end
+
+local function CurrentContestTarget(inst)
+-- CurrentContestTarget：比赛没有指定目标时，把舞台本身当目标。
+-- ★ 降级兜底的典型写法：宁可对着舞台，也不什么都不看。
+    local stage = inst.npc_stage
+    if stage.current_contest_target then
+        return stage.current_contest_target
+    else
+        return stage
+    end
+end
+
+local function MarkPost(inst)
+    if inst.yotb_post_to_mark ~= nil then
+        return BufferedAction(inst, inst.yotb_post_to_mark, ACTIONS.MARK)
+    end
+end
+
+local function CollctPrize(inst)
+-- ★ CollctPrize（源码拼写如此，缺 e）拾取奖品前校验 y 坐标接近 0。
+--   y 在 -0.1 到 0.1 之间才算数 —— 奖品必须平躺在地面上。
+-- ★ 为什么要判高度？防止把「正在空中下落」或「掉进海里」的道具拾起来。
+--   第 359 行 mermbrain 第 356 行 CollectPrize 是逐字相同的实现。
+    if inst.yotb_prize_to_collect ~= nil then
+        local x,y,z = inst.yotb_prize_to_collect.Transform:GetWorldPosition()
+        if y < 0.1 and y > -0.1 and not inst.yotb_prize_to_collect:HasTag("INLIMBO") then
+            return BufferedAction(inst, inst.yotb_prize_to_collect, ACTIONS.PICKUP)
+        end
+    end
+end
+
+local function IsWatchingMinigameIntro(inst)
+	local minigame = inst.components.minigame_spectator ~= nil and inst.components.minigame_spectator:GetMinigame() or nil
+	return minigame ~= nil and minigame.sg ~= nil and minigame.sg:HasStateTag("intro")
+end
+
+local function GetRunAwayTarget(inst)
+	return inst.components.combat.target
+end
+
+local RUN_AWAY_FROM_PIG_PARAMS =
+-- ★★ RUN_AWAY_FROM_PIG_PARAMS —— 「只躲开正在攻击我的猪」。
+--   tags = { "pig", "_combat" }  同时具备这两个标签
+--   fn   —— 且它的战斗目标正是我
+-- ★ 语义：附近有猪不跑，只有「正盯着我的猪」才跑。
+--   这是「定向逃跑」的标准结构：tag 粗筛 + fn 精筛，与 IsDigValid 同思路。
+-- ⚠️ 命名不对称：其他常量全用大写，这个用了 CamelCase。风格不一致，非缺陷。
+{
+	tags = { "pig", "_combat" },
+	fn = function(guy, inst)
+		return guy.components.combat:TargetIs(inst)
+	end,
+}
+
+local PigBrain = Class(Brain, function(self, inst)
+-- ★ Class(Brain, ...) 的标准形式：继承 Brain，构造时先调父类构造。
+--   真正的「大脑内容」全在下面的 OnStart 里 —— 这个函数体内只有一行。
+-- ★★ 移植要点：★ DST 的大脑不是「继承体系」，而是「一个函数返回一棵行为树」。
+--   Brain 基类只提供三段式调度与休眠机制；具体大脑只负责构造树。
+--   OnStart 在 brain.lua 里被调用一次，产出 self.bt（行为树根节点）。
+    Brain._ctor(self, inst)
+end)
+
+function PigBrain:OnStart()
+-- ★★ OnStart 是本文件的心脏（约 140 行全是行为树声明）。
+--   结构：先定义若干 local 子树变量，最后 root = PriorityNode({...}) 再 self.bt = BT(...)。
+-- ★ 为什么要先拆成 local 变量？因为要用 WhileNode 条件函数去「检查这些子树是否适用」，
+--   而条件函数运行在之后。若直接内联，条件里就够不到节点对象。
+-- ⚠️ 条件函数里绝不引用 self.bt（还没赋值）—— 这是常见错误，本文件未犯。
+    --print(self.inst, "PigBrain:OnStart")
+
+    local in_contest = WhileNode( function() return self.inst:HasTag("NPC_contestant") end, "In contest",
+-- ★ in_contest：比赛模式。条件是实体带 NPC_contestant 标签。
+--   ★ 标签驱动模式的典范：大赛给参赛者打标签，大脑读到标签就切换行为。
+--   比赛行为优先级极高（第 295 行 0.1 秒重评估，比全局的 0.5 更快），
+--   因为比赛中要实时响应。
+--   ⚠️ 这也意味着：只要不打这个标签，这些节点就完全不会被执行，
+--   也就是说本大脑的大部分「活动逻辑」对普通猪是零成本（仅一次条件求值）。
+        PriorityNode({
+                DoAction(self.inst, CollctPrize, "collect prize", true ),
+-- DoAction(..., true) 的最后一个参数是「是否一直重试直到成功」。
+-- ★ 这是 DoAction 的重要参数：false 表示只试一次，失败就交给下一个节点。
+--   比赛奖品必须拿到，所以 true；第 386 行的 EatFoodAction 没传（第 307 行），
+--   走默认值 false。
+                DoAction(self.inst, MarkPost, "mark post", true ),
+            WhileNode( function() return self.inst.components.timer and self.inst.components.timer:TimerExists("contest_panic") end, "Panic Contest",
+                ChattyNode(self.inst, "PIG_TALK_CONTEST_PANIC",
+                    Panic(self.inst))),
+            ChattyNode(self.inst, "PIG_TALK_CONTEST_OOOH",
+-- ChattyNode(inst, "台词", 子树, 冷却, 概率) —— 带台词的节点。
+--   第 4 参 5 = 最短间隔 5 秒，第 5 参 15 = 最长间隔 15 秒，
+--   实际间隔在两者间随机 —— ★ 避免台词以固定节奏重复。
+-- ★ 这是 DST 台词系统的「随机化冷却」，全项目大量使用。
+                FaceEntity(self.inst, CurrentContestTarget, CurrentContestTarget ), 5, 15),
+        }, 0.1))
+
+	local watch_game = WhileNode( function() return WatchingMinigame(self.inst) end, "Watching Game",
+-- ★ watch_game：观战小游戏。同样是 WhileNode + 标签/组件驱动。
+--   第 302 行 Follow 的目标函数直接是 WatchingMinigame ——
+--   ★ 也就是说「观众要跟着比赛场地走」，这是观战行为的核心。
+        PriorityNode({
+			IfNode(function() return WatchingMinigame(self.inst).components.minigame.gametype == "pigking_wrestling" end, "Is Pig King Wrestling",
+-- 同一个大脑支持多种小游戏类型，这里分派「猪王摔跤」。
+-- ⚠️ 第 299 行 .components.minigame.gametype 有两处连续访问且不判空，
+--   依赖第 297 行 WhileNode 条件 WatchingMinigame 已确保小游戏实体存在。
+--   ★ 这是「靠外层 WhileNode 保证前置条件」的写法，可读性好但耦合紧。
+				PriorityNode({
+					ChattyNode(self.inst, "PIG_TALK_GAME_GOTO",
+						Follow(self.inst, WatchingMinigame, WatchingMinigame_MinDist, WatchingMinigame_TargetDist, WatchingMinigame_MaxDist)),
+					WhileNode(function() return IsWatchingMinigameIntro(self.inst) end, "Is Intro",
+						PriorityNode({
+							RunAway(self.inst, "minigame_participator", 5, 7),
+-- RunAway(inst, "标签", 触发距离, 停止距离)：躲比赛参与者。
+-- ★ 观众怕参赛者 —— 第 5 行注释说明这是活动设计。
+							ChattyNode(self.inst, "PIG_TALK_FIND_MEAT",
+								DoAction(self.inst, FindFoodAction )),
+							FaceEntity(self.inst, WatchingMinigame, WatchingMinigame),
+						}, 0.1)),
+					ChattyNode(self.inst, "PIG_TALK_GAME_CHEER",
+						RunAway(self.inst, "minigame_participator", 5, 7)),
+					ChattyNode(self.inst, "PIG_TALK_FIND_MEAT",
+						DoAction(self.inst, FindFoodAction )),
+					ChattyNode(self.inst, "PIG_ELITE_SALTY",
+-- 发现作弊者就盯着看（第 227 行 WatchingCheaters）。
+-- ★ 与第 316 行的「盯着比赛看」并列，靠优先级决定先反应哪个。
+						FaceEntity(self.inst, WatchingCheaters, WatchingCheaters ), 5, 15),
+					ChattyNode(self.inst, "PIG_TALK_GAME_CHEER",
+						FaceEntity(self.inst, WatchingMinigame, WatchingMinigame ), 5, 15),
+				}, 0.1)
+			),
+			PriorityNode({
+				ChattyNode(self.inst, "PIG_TALK_MISC_GAME_GOTO",
+					Follow(self.inst, WatchingMinigame, WatchingMinigame_MinDist, WatchingMinigame_TargetDist, WatchingMinigame_MaxDist)),
+				ChattyNode(self.inst, "PIG_TALK_MISC_GAME_CHEER",
+					RunAway(self.inst, "minigame_participator", 5, 7)),
+				ChattyNode(self.inst, "PIG_TALK_FIND_MEAT",
+					DoAction(self.inst, FindFoodAction )),
+				ChattyNode(self.inst, "PIG_TALK_MISC_GAME_CHEER",
+					FaceEntity(self.inst, WatchingMinigame, WatchingMinigame ), 5, 15),
+			}, 0.1),
+        }, 0.1)
+	)
+
+    local day = WhileNode( function() return TheWorld.state.isday end, "IsDay",
+-- ★★★ 白天行为（第 333-356 行）。整棵子树的根条件是 TheWorld.state.isday。
+--
+-- 【★ 为什么白天夜晚要分成两棵完全独立的子树，而不是一个树里加条件】
+--   因为两套行为的节点几乎没有重叠：
+--     白天 —— 找吃的、帮主人砍树、跟随、看主人、在家附近游荡
+--     夜晚 —— 躲蜘蛛、找吃的、躲玩家、回家、找光睡觉
+--   合成一棵会让 PriorityNode 的条件互相干扰（「是否该回家」在白天恒假、
+--   在夜里恒真，混在一起会浪费大量求值）。分开更清晰、更省。
+--
+-- 【★ 第 356 行的 0.5 秒】
+--   PriorityNode 的重评估间隔 0.5 秒 —— 比夜间的 1 秒快一倍，
+--   因为白天要跟人干活，需要更灵敏的响应。
+        PriorityNode{
+            ChattyNode(self.inst, "PIG_TALK_FIND_MEAT",
+-- 找食物被放在白天最高优先级（第 336 行，紧跟第 335 行的 ChattyNode 包裹）。
+-- ★ 注意它在「帮主人砍树」之前 —— 猪先填饱肚子，再帮主人。
+--   这是很直白的设计取舍，与第 98 行的饱腹抑制配合：
+--   饱腹时这个节点会早退（第 97-100 行），自然让位给砍树。
+                DoAction(self.inst, FindFoodAction )),
+            BrainCommon.NodeAssistLeaderDoAction(self, {
+-- ★ NodeAssistLeaderDoAction：帮主人砍树（第 470 行 braincommon 里的通用实现）。
+--   参数含义：
+--     action              = "CHOP"  必填，见 braincommon 第 413 行的隐式契约
+--     finder_finddist     = 15      「找新目标」的搜索半径
+--     keepgoing_leaderdist= 10      「继续砍」的条件（离主人多近）
+--     chatterstring       = 说给谁听的台词
+-- ★ 这四行就是 braincommon 抽象带来的收益：一行参数复用整套帮工 AI。
+-- ⚠️ 注意 finder_finddist(15) > keepgoing_leaderdist(10) 的不对称，
+--   见 braincommon 第 293 行注释：这是有意的迟滞设计。
+                action = "CHOP", -- Required.
+                finder_finddist = SEE_TREE_DIST,
+                keepgoing_leaderdist = KEEP_CHOPPING_DIST,
+                chatterstring = "PIG_TALK_HELP_CHOP_WOOD",
+            }),
+            ChattyNode(self.inst, "PIG_TALK_FOLLOWWILSON",
+-- Follow 三段距离，与第 15-17 行的常量一一对应（第 344 行传参）。
+                Follow(self.inst, GetLeader, MIN_FOLLOW_DIST, TARGET_FOLLOW_DIST, MAX_FOLLOW_DIST)),
+            IfNode(function() return GetLeader(self.inst) end, "has leader",
+                ChattyNode(self.inst, "PIG_TALK_FOLLOWWILSON",
+                    FaceEntity(self.inst, GetFaceTargetFn, KeepFaceTargetFn ))),
+
+            Leash(self.inst, GetNoLeaderHomePos, LEASH_MAX_DIST, LEASH_RETURN_DIST),
+-- Leash 到家。锚点用 GetNoLeaderHomePos（有主人则返回 nil，即不牵引）。
+-- ★ 优先级在 Follow 之后、RunAway 之前 ——
+--   意味着「跟着主人」比「回家」重要，「回家」比「躲玩家」重要。
+--   这个优先级排序是本文件最需要理解的部分。
+
+            ChattyNode(self.inst, "PIG_TALK_RUNAWAY_WILSON",
+-- ★ 躲玩家。⚠️ 这里没传 shouldRunFn，而第 364 行的夜晚版本传了。
+--   第 352 行：RunAway(self.inst, "player", START_RUN_DIST, STOP_RUN_DIST)
+--   第 364 行：RunAway(self.inst, "player", ..., function(target) return ShouldRunAway(self.inst, target) end )
+-- ★★ 差异的后果：白天无脑躲玩家；夜晚只在「对方没在和我交易」时才躲。
+--   ⚠️ 疑似不一致：同一个「躲玩家」节点，白天缺少「别打断交易」的保护，
+--   玩家白天对猪掏交易界面，猪会跑掉。
+--   已逐字核对第 352 行与第 364 行确认参数个数确实不同。
+--   结论：作者可能有意（白天猪在村里跑，夜里守着窝），但更像是遗漏。
+--   标为疑似 —— 无法从代码确定意图，但差异是客观存在的。
+                RunAway(self.inst, "player", START_RUN_DIST, STOP_RUN_DIST)),
+            ChattyNode(self.inst, "PIG_TALK_LOOKATWILSON",
+                FaceEntity(self.inst, GetFaceTargetNearestPlayerFn, KeepFaceTargetNearestPlayerFn)),
+            Wander(self.inst, GetNoLeaderHomePos, MAX_WANDER_DIST)
+        }, .5)
+
+    local night = WhileNode( function() return not TheWorld.state.isday end, "IsNight",
+-- ★★ 夜晚行为。根条件是 not TheWorld.state.isday —— 与白天严格互补。
+--   ⚠️ 注意用的是 not isday 而非 isnight：黄昏 isday 为假但 isnight 也为假，
+--   所以黄昏时夜晚子树先接管（DST 的黄昏只有一天两次的时刻段）。
+--   实际效果：黄昏用夜晚行为（找光、回家），这是合理的。
+--   但若想让黄昏有自己的行为，必须显式判断 isnight，不能靠取反。
+        PriorityNode{
+            ChattyNode(self.inst, "PIG_TALK_RUN_FROM_SPIDER",
+-- ★ 躲蜘蛛排在夜晚最高优先级（第 361 行），甚至高于觅食。
+--   设计：蜘蛛是猪的天敌，夜里第一件事就是跑。
+--   ⚠️ 用的是硬编码标签 "spider"，若新增蜘蛛类敌人要改这里。
+--   ★ 对比第 271 行用参数表 —— 同文件两种写法并存。
+                RunAway(self.inst, "spider", 4, 8)),
+            ChattyNode(self.inst, "PIG_TALK_FIND_MEAT",
+-- 夜晚觅食 —— 和白天同一个 FindFoodAction（第 81 行）。
+-- ★ 这说明「找吃的」与时间无关，重复声明只是因为两棵子树独立。
+--   微小的代价：多构造一个 DoAction 节点；收益：结构清晰。
+                DoAction(self.inst, FindFoodAction )),
+            RunAway(self.inst, "player", START_RUN_DIST, STOP_RUN_DIST, function(target) return ShouldRunAway(self.inst, target) end ),
+-- ★ 与第 352 行对照：这里传了 ShouldRunAway 作为 shouldRunFn，
+--   即「正在与该玩家交易时不跑」。第 352 行的白天版本没有。
+            ChattyNode(self.inst, "PIG_TALK_GO_HOME",
+-- ★ 夜晚回家的条件是「洞穴夜晚 或 自己不在光里」。
+--   第 366 行 not TheWorld.state.iscaveday or not self.inst:IsInLight()
+--   ⚠️ 用了 or 而不是 and：只要「不是洞穴夜晚」就无条件回家 ——
+--   也就是说普通夜晚（第 366 行左项为真）直接回家，根本不看光照。
+--   源码没写为什么。与 hermitcrabbrain 第 747 行逐字相同的写法，
+--   说明两处一致，不是笔误。推测本意应是「洞穴夜晚 且 不在光里」，
+--   但已核实两处源码都是 or，标为疑似而非确证。
+                WhileNode( function() return not TheWorld.state.iscaveday or not self.inst:IsInLight() end, "Cave nightness",
+                    DoAction(self.inst, GoHomeAction, "go home", true ))),
+            WhileNode(function() return TheWorld.state.isnight and self.inst:IsLightGreaterThan(COMFORT_LIGHT_LEVEL) end, "IsInLight", -- wants slightly brighter light for this
+-- ★★ 夜里在光里晃悠（而不是立刻睡觉）。
+--   条件：isnight 且 光照 > 0.3（比 COMFORT_LIGHT_LEVEL 更亮一点）。
+--   ⚠️ 与第 34 行的常量注释呼应：注释明说猪想「比舒适阈值更亮一点的地方」，
+--   条件里用的是 > 0.3 而非 >=，严格大于。
+-- ★ 传参顺序值得注意（第 369-374 行）：
+--   Wander(inst, 锚点函数, 半径函数, {时机表})
+--   锚点=最近的灯，半径=那盏灯的计算半径，
+--   时机表：走 0.6-0.8 秒 / 停 5-10 秒。
+--   ★ 停 5-10 秒 >> 走 0.6-0.8 秒，说明它是「大部分时间站着晒太阳/守夜」。
+--   这正是注释说的「稍微亮一点就待着」的量化表达。
+                Wander(self.inst, GetNearestLightPos, GetNearestLightRadius, {
+                    minwalktime = 0.6,
+                    randwalktime = 0.2,
+                    minwaittime = 5,
+                    randwaittime = 5
+                })
+            ),
+            ChattyNode(self.inst, "PIG_TALK_FIND_LIGHT",
+-- ★ 找不到近处的光 → 主动去找光源（第 198 行 SafeLightDist 决定站位）。
+--   这一对（第 368 与 376 行）是夜晚的「两级策略」：
+--     有近灯 → 蹲在灯下（省路）
+--     没近灯 → 走 20 距离去找灯
+                FindLight(self.inst, SEE_LIGHT_DIST, SafeLightDist)),
+            ChattyNode(self.inst, "PIG_TALK_PANIC",
+                Panic(self.inst)),
+        }, 1)
+
+    local root =
+-- ★★★ root —— 全局优先级表（这是全文件最需要反复读的部分）。
+--
+-- 【优先级自上而下的完整解读】
+--  第 385 行 PanicWhenScared    被「epicscare」惊吓（可吓掉忠诚）
+--  第 386 行 hauntable.panic    被鬼附身
+--  第 389 行 takingfiredamage   正在烧（Fire 常量语义）
+--  第 392 行 电栅栏            外物打标记
+--  第 395 行 伤药副作用        吃了 ipecacsyrup 呕吐恐慌
+--  第 396-398 行 战斗          有目标且不在冷却 → 追击攻击
+--  第 399-401 行 救主人        主人被粘住 → 去解除
+--  第 402-404 行 闪避          有目标且在冷却 → 拉开距离（与上条互斥）
+--  第 405-407 行 家园着火      家在烧且我在附近 → 恐慌
+--  第 408 行   躲攻击我的猪   定向逃跑
+--  第 409-410 行 交易          有人要交易 → 面对他
+--  第 411-413 行 送猪符        满忠诚且有猪符 → 交还
+--  第 414 行   in_contest      比赛模式
+--  第 415 行   watch_game      观战小游戏
+--  第 416 行   day             白天全套
+--  第 417 行   night           夜晚全套
+--  第 418 行   } 重评估间隔 0.5 秒
+--
+-- 【★ 三个值得学的设计】
+-- 1) 「战斗」拆成两个互斥的 WhileNode（第 397 与 403 行）：
+--    在冷却 → 闪避；不在冷却 → 攻击。
+--    ★ 这样在任何时刻只会有一个成立，避免同一帧既打又跑。
+--    ★ 前提是两者条件严格互补：第 397 行 not HasTarget() or not InCooldown()，
+--      第 403 行 HasTarget() and InCooldown()。
+--      ⚠️ 注意第 397 行的 not HasTarget() —— 无目标时也「该攻击」，
+--        此时 ChaseAndAttack 自己去索敌。这是有意的：无目标就去找目标打。
+--        但也意味着「正在闪避」与「正在攻击」的条件在无目标时可能都满足，
+--        实际靠 PriorityNode 的顺序短路（攻击在前）解决。逻辑正确但绕。
+-- 2) 所有恐慌来源统一排在最前（第 385-395 行），且各自用不同触发源。
+--    ★ 顺序即语义：被吓 > 被附身 > 着火 > 电击 > 呕吐药。
+--    ★ 这解释了 BrainCommon 为什么把恐慌做成独立节点工厂 —— 需要复用 5 次。
+-- 3) 送猪符（第 411 行）排在 in_contest（第 414 行）之前，
+--    意味着比赛中猪不会把猪符扔给玩家。属于细节但值得注意。
+        PriorityNode(
+        {
+            BrainCommon.PanicWhenScared(self.inst, .25, "PIG_TALK_PANICBOSS"),
+            WhileNode( function() return self.inst.components.hauntable and self.inst.components.hauntable.panic end, "PanicHaunted",
+                ChattyNode(self.inst, "PIG_TALK_PANICHAUNT",
+                    Panic(self.inst))),
+            WhileNode(function() return self.inst.components.health.takingfiredamage end, "OnFire",
+                ChattyNode(self.inst, "PIG_TALK_PANICFIRE",
+                    Panic(self.inst))),
+            WhileNode(function() return BrainCommon.ShouldAvoidElectricFence(self.inst) end, "Shocked",
+                ChattyNode(self.inst, "PIG_TALK_PANICELECTRICITY",
+                    AvoidElectricFence(self.inst))),
+            BrainCommon.IpecacsyrupPanicTrigger(self.inst),
+            ChattyNode(self.inst, "PIG_TALK_FIGHT",
+-- ★ 战斗节点的条件：没有目标，或有目标但冷却好了 → 可以攻击。
+-- ChaseAndAttack(inst, 最长追击时间, 最远追击距离)
+-- ★ 用 MAX_CHASE_TIME(10) / MAX_CHASE_DIST(30)（第 25-26 行）。
+				WhileNode(function() return not self.inst.components.combat:HasTarget() or not self.inst.components.combat:InCooldown() end, "AttackMomentarily",
+					ChaseAndAttack(self.inst, MAX_CHASE_TIME, MAX_CHASE_DIST))),
+            ChattyNode(self.inst, "PIG_TALK_RESCUE",
+                WhileNode( function() return GetLeader(self.inst) and GetLeader(self.inst).components.pinnable and GetLeader(self.inst).components.pinnable:IsStuck() end, "Leader Phlegmed",
+                    DoAction(self.inst, RescueLeaderAction, "Rescue Leader", true) )),
+            ChattyNode(self.inst, "PIG_TALK_FIGHT",
+-- ★ 闪避条件：Cool 住了就别打了，拉开距离等 CD。
+--   RunAway 的目标用 { getfn = GetRunAwayTarget } 参数表，
+--   ★ 因为要躲的是「当前战斗目标」，不是某个标签 —— 所以必须用 getfn。
+--   这是 getfn 与标签两种目标指定方式的典型对照（对比第 305 行的 "minigame_participant"）。
+				WhileNode(function() return self.inst.components.combat:HasTarget() and self.inst.components.combat:InCooldown() end, "Dodge",
+					RunAway(self.inst, { getfn = GetRunAwayTarget }, RUN_AWAY_DIST, STOP_RUN_AWAY_DIST))),
+            WhileNode(function() return IsHomeOnFire(self.inst) end, "OnFire",
+                ChattyNode(self.inst, "PIG_TALK_PANICHOUSEFIRE",
+                    Panic(self.inst))),
+			RunAway(self.inst, RUN_AWAY_FROM_PIG_PARAMS, RUN_AWAY_DIST, STOP_RUN_AWAY_DIST),
+            ChattyNode(self.inst, "PIG_TALK_ATTEMPT_TRADE",
+                FaceEntity(self.inst, GetTraderFn, KeepTraderFn)),
+            ChattyNode(self.inst, "PIG_TALK_GIVE_GIFT",
+-- 送猪符的条件即第 165 行那个函数，此处复用。
+                WhileNode( function() return WantsToGivePlayerPigTokenAction(self.inst) end, "Wants To Give Token", -- todo: check for death and valid
+                    DoAction(self.inst, GivePlayerPigTokenAction, "Giving Token", true) )),
+            in_contest,
+			watch_game,
+            day,
+            night,
+        }, .5)
+
+    self.bt = BT(self.inst, root)
+-- ★★ self.bt = BT(self.inst, root) —— 全DST 大脑的固定收尾。
+--
+-- 【★ 至此完成「机制 + 节点」的组装】
+--   brain.lua 提供了 Brain 类与三段式调度；
+--   behaviours/ 提供了 12 个原子节点（见文件头 require 列表）；
+--   braincommon.lua 提供了复合子树工厂；
+--   本文件提供 root —— 「这个生物的完整 AI 配置」。
+--
+-- 【★ BT(inst, root) 的两个参数】
+--   inst —— 实体，大脑用它读写状态、取位置；
+--   root —— 行为树根节点。
+--   ⚠️ 注意 root 是 PriorityNode 而不是 SequenceNode ——
+--     大脑不是「按顺序做完所有事」，而是「每帧挑最该做的一件事」。
+--     ★ 这是理解 DST AI 的最重要一点：它是持续决策系统，不是任务脚本。
+--   ⚠️ 第 11 行 require "behaviours/choptree" 是被注释掉的，
+--     改用 braincommon 的 NodeAssistLeaderDoAction（第 337 行）实现砍树。
+--     ★ 注释掉旧实现、改用新抽象，是 DST 演进留下痕迹的典型位置。
+end
+
+return PigBrain

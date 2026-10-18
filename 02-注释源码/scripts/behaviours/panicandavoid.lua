@@ -1,0 +1,210 @@
+--============================================================
+-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖
+-- 文件：behaviours/panicandavoid.lua
+-- 模块：行为树节点库 / 逃跑
+-- 职责：panic 的避障版本：ResolveDirection 在若干候选方向里挑一个既远离威胁又可落地的，
+--       演示「候选方向打分筛选」的通用套路。
+-- 关键符号：PanicAndAvoid, PanicAndAvoid:Visit, PanicAndAvoid:ResolveDirection,
+--           PanicAndAvoid:PickNewDirection
+-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本
+-- 交叉引用：panic.lua, runaway.lua, avoidelectricfence.lua
+--============================================================
+PanicAndAvoid = Class(BehaviourNode, function(self, inst, findavoidanceobjectfn, avoid_dist)
+--[[
+-- panicandavoid.lua —— 受惊逃跑并避障（PanicAndAvoid）
+--
+-- 【★ 它在「逃跑三档」中的位置（详见 panic.lua 第 20 行的谱系说明）】
+--   ① panic.lua          —— 纯随机方向，可能撞墙
+--   ② panicandavoid.lua  —— 本文件：随机方向 + 绕开一个已知障碍  ← 当前位置
+--   ③ runaway.lua        —— 多级降级选点（避墙/不避墙/拉回地面/随便跑）
+-- ★★ 三个文件共享同一个骨架：
+--   「每隔 0.25~0.5 秒换一个方向」+「方向可被修正」。
+--   差异只在「方向怎么算」这一个函数里 —— 这就是「骨架 + 策略」的分离。
+-- ★★★ 移植要点（本文件最值得学的一点）：
+--   把「行为节奏」与「方向计算」分成两个方法（Visit / ResolveDirection），
+--   就得到一族难度递增、可独立替换的逃跑 AI。
+--   只改 ResolveDirection 一个方法，就能得到 ① 或 ③ 档。
+--   ★ 这是极好的代码组织示范 —— 变化点集中在一个函数里。
+--]]
+--★★ 4 个形参（与 panic 的 0 个相比只多了避障相关的两个）。
+--★ 骨架保持不变，只加了两个字段 —— 印证「变化点在策略函数」的判断。
+    BehaviourNode._ctor(self, "PanicAndAvoid")
+    self.inst = inst
+    self.waittime = 0
+    self.findavoidanceobjectfn = findavoidanceobjectfn
+    self.avoid_dist = avoid_dist
+end)
+
+function PanicAndAvoid:Visit()
+--★★★ Visit —— 与 panic.lua 第 7-17 行结构完全相同（if/else 二分支）。
+--★ 差异只有两处：
+--   ① 第 11-13 行进场时多找一次避障目标
+--   ② 第 19-25 行「未到期」的分支里多了实时避障修正
+-- ★★ 第 ② 点是本文件比 panic 强的地方 —— 它不是每 0.25 秒才躲一次，
+--   而是**每帧**都检查并绕开障碍（见第 20 行的详解）。
+    if self.status == READY then
+--★ READY 段：先找避障目标，再选初始方向。
+--★ 顺序有讲究：必须先有 avoidtarget，PickNewDirection 内部的 ResolveDirection 才能用。
+        if self.findavoidanceobjectfn ~= nil then
+--★ findavoidanceobjectfn 可为 nil —— 不设避障时本节点退化为 panic。
+--★ 与 leashandavoid 第 21 行、chaseandattackandavoid 第 46 行同一模式：
+--   「避障目标只在进场时选一次，之后不重选」。
+-- ★★ 但本文件没有第 19 行的 IsValid 复检… 实际上 ResolveDirection 第 35 行有，
+--   两处配合得比 leashandavoid（第 34 行）更完整。
+            self.avoidtarget = self.findavoidanceobjectfn(self.inst)
+        end
+        self:PickNewDirection()
+--★ 选初始方向（内部走 ResolveDirection）。然后转 RUNNING。
+        self.status = RUNNING
+    else
+        if GetTime() > self.waittime then
+--★ 到期 → 换一个新方向（同样经 ResolveDirection 过滤）。
+            self:PickNewDirection()
+        else
+--★★★★★【本文件与 panic 的关键差异 —— 未到期分支的实时避障】
+--
+-- panic.lua 第 11-16 行的 else 分支里**只有** Sleep，什么都不做。
+-- 本文件的 else 分支（第 19-25 行）还要**每帧检查并修正方向**：
+--   第 20 行取当前朝向
+--   第 21 行让 ResolveDirection 判断「要不要绕开」
+--   第 22 行只在需要时才改变方向
+--
+-- ★★★ 为什么这样更好？因为 panic 每 0.25 秒才换一次方向，
+--   若障碍在两次换向之间出现，就要等最多 0.25 秒才躲 —— 表现为「撞上去才反应」。
+--   而每帧检查能让规避**即时**发生。
+-- ★★ 这是「定时决策」与「连续校正」两种策略的对比：
+--   · panic 用定时决策（简单、省 CPU，但反应有延迟）
+--   · 本文件用定时决策 + 连续校正（多花一点 CPU，反应及时）
+-- ★ ★★ 移植要点：**关键的安全性判定应该连续执行，而非定时执行**。
+--   「撞进水里」比「多算几次距离」严重得多。
+--   这是很值得学的一条 AI 设计原则：**开销可控的前提下，安全性判定应尽量频繁**。
+            local rot = self.inst.Transform:GetRotation()
+--★ 取当前朝向作为「要判断是否需要修正」的基准。
+--★★ 与 attackwall 第 14 行的同一设计（取 rot 做前方判定）同源。
+--   ⚠️ 注意这里的 rot 是**当前帧的朝向**，而 attackwall 取的是**进场时的朝向**。
+--   差异是刻意的：本文件要持续避障，朝向必须每帧更新；
+--   attackwall 只需在进场时选一次目标，固定基准更稳定（避免自我扰动）。
+-- ★★ 同一个「取 rot」的写法，两处时机不同、理由不同 —— 又一个有价值的对照。
+            local newrot = self:ResolveDirection(rot)
+            if rot ~= newrot then
+--★ 只在需要绕开时才真正发出移动指令 —— 「变化时才行动」。
+-- ★★ 这个 `if rot ~= newrot` 判断避免了每帧重复下发同一个方向指令，
+--   既省开销，也避免与 locomotor 的状态机打架。
+-- ★ 移植建议：**外部系统的调用要「幂等 + 最小化」** ——
+--   状态没变就别重复通知，能避免大量隐蔽的状态抖动。
+                self.inst.components.locomotor:RunInDirection(newrot)
+            end
+        end
+    end
+end
+
+function PanicAndAvoid:PickNewDirection()
+--★★ 与 panic.lua 第 19-22 行完全同构，差异只在 ResolveDirection 的接入：
+--   panic 第 20 行：RunInDirection(math.random() * 360)      —— 不做过滤
+--   本文件第 30 行：RunInDirection(self:ResolveDirection(...)) —— 先过滤
+-- ★★★ 即「策略注入」的具体体现：骨架不变，行为改变。
+    self.inst.components.locomotor:RunInDirection(self:ResolveDirection(math.random() * 360))
+--★ 随机角经 ResolveDirection 处理后再跑。
+--★ 注意 ResolveDirection 接收的是「度」，返回的也是「度」（第 49 行原样返回 rot）。
+    self.waittime = GetTime() + .25 + math.random() * .25
+--★ waittime 与 panic 第 21 行完全相同（0.25~0.5 秒）。
+-- ★ 两个文件保持完全一致的节奏参数，是刻意的 ——
+--   保证「受惊逃跑」这个行为的情绪一致，只有避障能力不同。
+-- ★★★ 移植建议：**「行为骨架」与「策略」分离时，连情绪参数都应保持一致**，
+--   否则用户会感觉是两个不同的行为。
+end
+
+function PanicAndAvoid:ResolveDirection(rot)
+--★★★★★ ResolveDirection —— 全部的「策略」都在这 21 行里。
+--   返回值：修正后的方向（度）；不需要修正时原样返回 rot。
+-- ★★ 注意是「返回新角度」而不是「直接执行移动」——
+--   即策略函数是纯计算，与执行解耦。
+-- ★ 这比 leashandavoid 第 41 行（在 Visit 里直接改 hp 坐标）更清晰。
+-- ★ ★ 移植要点：**策略函数返回「值」，由调用方决定怎么用**。
+--   解耦后策略可以单独测试、单独复用。
+    if self.avoidtarget ~= nil and self.avoidtarget:IsValid() then
+--★ 双重守卫：避障目标存在且仍有效。
+--★ 第 35 行是本文件相对 leashandavoid 的改进：那里在 Visit 里检查，
+--   这里在策略函数入口检查 —— 策略函数自包含，不依赖调用方做前置校验。
+        local pt = Point(self.inst.Transform:GetWorldPosition())
+        local ap = Point(self.avoidtarget.Transform:GetWorldPosition())
+        local dist = self.avoid_dist * 2
+--★★ `local dist = self.avoid_dist * 2` —— 判定半径是避障距离的**两倍**。
+-- ★★★ 为什么要乘 2？合理的解读：
+--   当障碍距离小于 2×avoid_dist 时就该开始绕，
+--   这样绕行完成后距离障碍仍有 avoid_dist 的余量。
+-- ★ 这是「提前量」的设计：等到贴近才躲就来不及了。
+-- ★ 移植建议：**避险判定要用「提前触发距离」而非「最小安全距离」**。
+        if distsq(ap, pt) < dist * dist then
+--★ 距离判定（平方比较，不开方）。
+--★ 对照 leashandavoid 第 37 行的判据（障碍比目标更近）——
+--   那里需要判断「谁挡谁」，因为有两个候选点；
+--   本文件只有一个障碍，直接用绝对距离阈值即可。
+-- ★ 同一个「避障」需求，因候选点数量不同而判据不同 —— 这点值得注意。
+            local delta_dir = anglediff(rot, self.inst:GetAngleToPoint(ap))
+--★★ `anglediff(rot, GetAngleToPoint(ap))` —— 当前方向与「指向障碍」方向的夹角。
+-- ★ 与 leashandavoid 第 38 行、chaseandattackandavoid 第 83 行同一模式。
+-- ★★ 但**参数顺序相反**：
+--   leashandavoid：anglediff(角度到家, 角度到障碍)
+--   本文件    ：anglediff(当前朝向,  角度到障碍)
+-- ★ 都用 anglediff（正确处理环绕），值得肯定。
+--   ⚠️ 但结果只取 math.abs（下一行），所以顺序其实不影响结果大小，
+--     只影响 delta_dir 的**符号**（决定绕向哪侧，见第 43 行）。
+-- ★★★ 移植要点：**符号决定「往左绕还是往右绕」，比大小更要紧**，
+--     搞反了会绕进障碍里。这是最容易看错的一类逻辑。
+            if math.abs(delta_dir) < 45 then
+--★★ 第二道守卫：夹角 < 45 度（障碍在正前方锥形内）。
+--★ 与 leashandavoid 第 39 行完全相同的阈值（45 度）。
+-- ★★★ 三个文件（leashandavoid / chaseandattackandavoid / 本文件）
+--   用了同一套「距离更近 + 45 度锥形」的双层判据。
+--   ★ 印证了 DST 的避障判据是标准化的一套，而非各处即兴发挥。
+-- ★ 移植建议：**把避障判据标准化成一个可复用模块**，
+--   本目录的做法是「复制到三个文件」—— 各自微调后已经开始分歧
+--   （本文件用 2×avoid_dist，那两处用「比目标更近」），需要留意维护成本。
+                local angle = rot * DEGREES
+--★ angle = rot * DEGREES —— 把当前朝向转成弧度。
+--★ DEGREES = π/180（constants.lua:14）。
+-- ★★ 本文件是「度→弧度」转换出现在这里的唯一理由：
+--   下一行的 math.sin/cos 需要弧度。
+--   ★ 移植要点：**转换点应紧邻消费点**，
+--     不要在函数开头转、最后又转回（那种写法更易出错）。
+                return delta_dir < 0
+--★★★★ 和/or 三元 + 一对镜像表达式，构成「往左绕 or 往右绕」。
+--
+-- 【几何构造拆解】
+--   ap   = 障碍位置
+--   sin(angle)/cos(angle) = 当前朝向的单位向量（弧度）
+--   两侧分别取 ±：
+--     左绕：ap.x + sin*d,  ap.z + cos*d
+--     右绕：ap.x - sin*d,  ap.z - cos*d
+--   ★ 即在障碍物两侧各取一个距其 avoid_dist 的点，
+--     再 GetAngleToPoint 算出「从自己看向该点」的新方向。
+--
+-- 【★ 与 leashandavoid 第 41-47 行的重要差异】
+--   leashandavoid：在**垂直于目标方向**的轴上偏移（绕开障碍，保住朝向）
+--   本文件    ：在**当前朝向**的轴上偏移（垂直于逃跑方向）
+-- ★★ 效果差异：
+--   leashandavoid 的绕行落点仍大致朝家（回归途中顺势绕行）
+--   本文件的绕行点垂直于逃跑方向 —— 偏重「立刻躲开」而非「继续朝目的地方向」
+-- ★★★ 两种设计服务于不同目标：
+--   「回家」需要保持方向 → leashandavoid 的做法
+--   「乱跑」只需立刻躲开   → 本文件的做法
+-- ★ 移植要点：绕行几何要服务于行为意图，不能照抄。
+--
+-- 【符号】delta_dir < 0 选第一个表达式，否则第二个 —— 决定绕向哪一侧。
+--   ⚠️ 与第 40 行的 anglediff 参数顺序耦合（见该行说明），改顺序会改绕向。
+                    and self.inst:GetAngleToPoint(ap.x + math.sin(angle) * self.avoid_dist, pt.y, ap.z + math.cos(angle) * self.avoid_dist)
+                    or self.inst:GetAngleToPoint(ap.x - math.sin(angle) * self.avoid_dist, pt.y, ap.z - math.cos(angle) * self.avoid_dist)
+            end
+        end
+    end
+    return rot
+--★★ return rot —— 不需要绕开时原样返回。
+--★★★ 「策略函数不改变输入」是最重要的设计约束：
+--   调用方（第 22 行）可以放心地与新值比较（rot ~= newrot），
+--   无需自己判断策略是否生效了。
+-- ★★ 对比「直接执行移动」的写法（leashandavoid），
+--   那里调用方无法知道策略是否做了修改，只能盲目执行。
+-- ★ ★★ 移植建议：**策略层返回「结果」并保持「无操作即不变」的语义**，
+--     是所有决策函数的标准约定。照这个写，调用方代码会干净很多。
+end

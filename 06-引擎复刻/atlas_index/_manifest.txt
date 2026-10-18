@@ -1,0 +1,17 @@
+# atlas	来源	元素数
+images/inventoryimages1.xml	images.zip	1024
+images/inventoryimages2.xml	images.zip	1024
+images/inventoryimages3.xml	images.zip	1024
+images/inventoryimages4.xml	images.zip	228
+images/inventoryimages.xml	images.zip	1007
+images/scrapbook_icons1.xml	images.zip	256
+images/scrapbook_icons2.xml	images.zip	256
+images/scrapbook_icons3.xml	images.zip	174
+images/skilltree2.xml	images.zip	5
+images/skilltree3.xml	images.zip	4
+images/skilltree4.xml	images.zip	5
+images/skilltree5.xml	images.zip	7
+images/skilltree6.xml	images.zip	1
+images/skilltree_icons.xml	images.zip	321
+minimap/minimap_data1.xml	散件	16
+minimap/minimap_data2.xml	散件	531

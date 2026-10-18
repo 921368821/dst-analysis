@@ -1,0 +1,3764 @@
+# -*- coding: utf-8 -*-
+"""test_rt.py —— P1 端到端验证（含反向测试）
+
+跑法：
+    cd 07-通用引擎 && python tests/test_rt.py
+退出码：0 = 全绿
+
+分两部分：
+  A. **进程内**探针：直接驱动 Sim（快、定位准）
+  B. **跨进程**探针：起真服务端，用真 WebSocket 客户端连它（验证传输层）
+每个探针都配**反向判据** —— 沿用本工程纪律：
+「只证明该发生的发生了」不够，还要证明**不该发生的没发生**。
+"""
+import io
+import json
+import os
+import re
+import socket
+import subprocess
+import sys
+import threading
+import time
+import traceback
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(HERE)                  # 07-通用引擎
+RT = os.path.join(ROOT, "rt")
+sys.path.insert(0, RT)
+
+PASS, FAIL = 0, 0
+RESULTS = []
+
+
+def check(name, fn):
+    global PASS, FAIL
+    # ★★ `RT_ONLY=<子串>` 时**只跑名字里含该子串的判据**（2026-10-16 加）。
+    #   为什么需要：服务端侧的「变异测试」（`tests/falsify_server.py`）要对每条篡改
+    #   只跑**它该被抓住的那条判据**；否则 7 条篡改 × 整套端到端（约 3 分钟）＝ 20 分钟，
+    #   没人会愿意跑。顺带也让「只查一条」的排查快很多。
+    #   ⚠️ 跳过的判据**不计数**（既不通过也不失败），所以 `RT_ONLY` 下的汇总行
+    #     说的是「跑了的那几条」，不能拿来当基线数字 —— 工具里已注明。
+    only = os.environ.get("RT_ONLY")
+    # ★ `B0`（起服务端）**永远跑**：它是后面所有跨进程判据的前置。
+    #   第一版没豁免它 ⇒ 过滤到跨进程判据时服务端根本没起 ⇒ 一条**假红**。
+    if only and only not in name and not name.startswith("B0"):
+        return
+    t0 = time.perf_counter()
+    try:
+        ok, info = fn()
+    except Exception as e:                                        # noqa: BLE001
+        ok, info = False, "抛异常: %s: %s" % (type(e).__name__, e)
+        # ★ 2026-10-18：**异常要带栈**。原来只留一行 `抛异常: AttributeError: ...`，
+        #   结果 E10 在「'int' object has no attribute 'get'」上耗了很久 —— 判据里
+        #   有 6 处 `.get()`，光看这一行根本不知道是哪一处。（本合同「失败要吵」：
+        #   吵的内容要够定位，否则只是噪音。）栈打到 stderr，不打乱 ✔/✘ 的对齐。
+        if os.environ.get("RT_TB") != "0":
+            traceback.print_exc(file=sys.stderr)
+    ms = (time.perf_counter() - t0) * 1000
+    if ok:
+        PASS += 1
+        print("  ✔ %-46s %s  (%.0f ms)" % (name, info, ms))
+    else:
+        FAIL += 1
+        print("  ✘ %-46s %s  (%.0f ms)" % (name, info, ms))
+    RESULTS.append((name, ok, info))
+
+
+def hr(t):
+    print("\n" + "═" * 74)
+    print("  " + t)
+    print("═" * 74)
+
+
+# =============================================================================
+# A. 进程内探针
+# =============================================================================
+hr("A. 进程内：Sim 探针（固定步长 / 输入 / 快照 / 可复现 / 反向）")
+
+from server import Sim   # noqa: E402
+
+SIM = {}
+
+
+def a1_boot():
+    sim = Sim(seed=20261015, tick_hz=30, max_ents=400).boot()
+    SIM["s"] = sim
+    st = sim.stats()
+    if not st["player_ok"]:
+        return False, "玩家实体没建起来"
+    return True, "boot %.0f ms / %d 实体 / 玩家 ok" % (sim.boot_ms, st["n_ents"])
+
+
+def a2_time_advances():
+    sim = SIM["s"]
+    s0 = sim.snapshot()
+    for _ in range(60):
+        sim.step()
+    s1 = sim.snapshot()
+    dt = s1["t"] - s0["t"]
+    if not (1.9 < dt < 2.1):
+        return False, "60 tick 应推进约 2.0 s，实际 %.3f" % dt
+    return True, "60 tick → %.3f s（30 Hz 正确）" % dt
+
+
+def a3_dir_input_moves_correctly():
+    """★★ 方向必须**真的**跟着输入走 —— 四个方向**各自**断言，不只测「右」。
+
+       ★★★ 为什么这条要单独写（这是踩出来的真缺陷）：
+       第一版把 `Vector3(x, 0, z)` 传给了 `loco:WalkInDirection`，而那个参数其实是
+       **朝向角（度）**（取证见 `rt/rt_boot.lua` 的 `dir_to_angle` 注释）⇒
+       宿主把非数字收敛成 0 ⇒ **朝向恒为 0** ⇒ 物理沿 0 度积分 ⇒
+       **玩家永远朝 +x 走，四个方向键没有任何区别**。
+
+       而当时那条「按右 ⇒ x 变大」**照样是绿的** —— 因为 +x 恰好就是它要的方向。
+       典型的「**判据通过但什么都没证明**」：只测一个方向，
+       就分不清「按右生效」和「不管按什么都往 +x」。
+
+       判据有三层（缺一层都可能漏）：
+         ① 主方向必须动（在期望的轴上 > 5 格）；
+         ② **不许有侧向位移**（另一个方向 ≤ 0.5 格）—— 这条直接打死「恒定 +x」；
+         ③ 宿主**不得**把非数字喂给 `SetRotation`（跨文件语义守卫，
+            换个写法绕过 ①② 它也会响）。
+    """
+    want = [("right", +1, 0), ("left", -1, 0), ("up", 0, +1), ("down", 0, -1)]
+    rows = []
+    for k, wx, wz in want:
+        sim = Sim(seed=777, tick_hz=30).boot()
+        sim.set_input(k, True)
+        for _ in range(60):
+            sim.step()
+        p = sim.snapshot()["player"]
+        x, z = p["x"], p["z"]
+        main = x * wx + z * wz          # 期望轴上的分量
+        side = x * wz - z * wx          # 垂直轴上的分量（叉积）
+        if main < 5.0:
+            return False, "按 %s：主方向只有 %+.3f（期望朝 %+d,%+d，且 > 5）" % (k, main, wx, wz)
+        if abs(side) > 0.5:
+            return False, "按 %s：出现侧向位移 %+.3f（x=%.3f z=%.3f）—— 方向没生效？" % (k, side, x, z)
+        rows.append("%s(%+.1f,%+.1f)" % (k, x, z))
+
+    # 斜向：两轴都动且对称（对角归一化要对，否则斜着走会快 41%）
+    sim = Sim(seed=777, tick_hz=30).boot()
+    sim.set_input("right", True)
+    sim.set_input("down", True)
+    for _ in range(60):
+        sim.step()
+    p = sim.snapshot()["player"]
+    if p["x"] < 5.0 or p["z"] > -5.0:
+        return False, "斜向（右+下）没有两轴同时动：x=%.3f z=%.3f" % (p["x"], p["z"])
+    if abs(p["x"] + p["z"]) > 0.05:
+        return False, "斜向两轴不对称：x=%.3f z=%.3f" % (p["x"], p["z"])
+
+    # ③ 跨文件语义守卫：朝向必须是**数字**传进 SetRotation
+    # ⚠️ 不能写 `StubCount.get(...)`：lupa 的 `_LuaTable.get` 会**返回 Lua 字段 get**（nil）
+    #    ⇒ 调用它得到 "TypeError: 'NoneType' object is not callable"。
+    #    （又一次「同一个名字在两种语言里含义不同」。）
+    _sc = sim.api._core.StubCount
+    cnt = (_sc["Transform:SetRotation(非数字:table)"] if _sc is not None else 0) or 0
+    if cnt:
+        return False, "有 %d 次把**表**喂给了 SetRotation（朝向会被静默丢弃）—— 见 dir_to_angle 注释" % cnt
+    we, first = sim.api.walk_errors()
+    if we:
+        return False, "WalkInDirection 抛错 %d 次：%s" % (we, first)
+    return True, "四方向各自对位 %s；斜向右下 (%.1f, %.1f) 对称；SetRotation 无非数字、walk 0 错" % (
+        " ".join(rows), p["x"], p["z"])
+
+
+def a3_input_moves_player():
+    """★ 核心探针：输入必须**真的**改变世界状态"""
+    sim = SIM["s"]
+    sim.clear_input()
+    for _ in range(10):
+        sim.step()
+    p0 = sim.snapshot()["player"]
+    # 按「右」走 60 tick
+    sim.set_input("right", True)
+    for _ in range(60):
+        sim.step()
+    p1 = sim.snapshot()["player"]
+    sim.set_input("right", False)
+    dx = p1["x"] - p0["x"]
+    if dx <= 0.2:
+        return False, "按右 60 tick 后 x 只变了 %.3f（应明显 >0）" % dx
+    return True, "按右 60 tick：x %+.3f（%.3f → %.3f）" % (dx, p0["x"], p1["x"])
+
+
+def a3b_no_input_no_move():
+    """★ 反向：不输入时**不得**自己动"""
+    sim = SIM["s"]
+    sim.clear_input()
+    for _ in range(10):
+        sim.step()
+    p0 = sim.snapshot()["player"]
+    for _ in range(60):
+        sim.step()
+    p1 = sim.snapshot()["player"]
+    dx = abs(p1["x"] - p0["x"]) + abs(p1["z"] - p0["z"])
+    if dx > 0.05:
+        return False, "无输入却移动了 %.3f（说明有别的东西在推它）" % dx
+    return True, "无输入 60 tick 位移 %.4f（≈0）" % dx
+
+
+def a4_snapshot_shape():
+    s = SIM["s"].snapshot()
+    if not s["ents"]:
+        return False, "ents 为空"
+    if "player" not in s:
+        return False, "缺 player 字段"
+    need = {"t", "tick", "n", "ents", "iseq", "world"}
+    miss = need - set(s)
+    if miss:
+        return False, "缺字段: %s" % miss
+    e = s["ents"][0]
+    if not ({"id", "x", "z"} <= set(e)):
+        return False, "实体缺 id/x/z: %s" % e
+    w = s["world"]
+    if w is None:
+        return False, "world 为空（世界组件没挂上？）"
+    wneed = {"phase", "season", "isday", "isdusk", "isnight", "temperature"}
+    wmiss = wneed - set(w)
+    if wmiss:
+        return False, "world 缺字段: %s" % wmiss
+    return True, "n=%d，字段齐（含 player + world：%s/%s %.1f°）" % (
+        s["n"], w["phase"], w["season"], w["temperature"])
+
+
+def a5_reproducible():
+    """固定种子 + 相同输入序列 ⇒ 指纹应逐次相同（本工程核心纪律）"""
+    def run():
+        sim = Sim(seed=777, tick_hz=30, max_ents=400).boot()
+        sim.set_input("right", True)
+        for _ in range(45):
+            sim.step()
+        sim.set_input("right", False)
+        sim.set_input("up", True)
+        for _ in range(45):
+            sim.step()
+        return sim.fingerprint()
+    f1 = run()
+    f2 = run()
+    if f1[1] != f2[1]:
+        return False, "两次不一致:\n     %s\n     %s" % (f1[0], f2[0])
+    return True, "两次指纹一致 hash=%d（%s）" % (f1[1], f1[0])
+
+
+def a6_negative_dt():
+    """★ 反向：dt<=0 必须报错，不能静默推进"""
+    sim = SIM["s"]
+    bad = []
+    for dt in (0, -0.5):
+        try:
+            sim.api.step(dt)
+            bad.append(dt)
+        except Exception:                                        # noqa: BLE001
+            pass
+    if bad:
+        return False, "dt=%s 竟然没报错（会静默推进）" % bad
+    return True, "dt=0 / dt=-0.5 都报错 ✔"
+
+
+check("A1 启动：世界 + 玩家实体建起来", a1_boot)
+check("A2 世界时间随步进推进（30 Hz 正确）", a2_time_advances)
+check("A3 **四方向各自对位**（不只测「右」——曾因只测一个方向漏掉「恒定 +x」）", a3_dir_input_moves_correctly)
+check("A3c 输入真的改变世界状态（按右→x 变大）", a3_input_moves_player)
+check("A3b 反向：**无输入不得自己动**", a3b_no_input_no_move)
+check("A4 快照结构完整（ents/player/字段）", a4_snapshot_shape)
+check("A5 可复现：同种子+同输入 ⇒ 指纹相同", a5_reproducible)
+check("A6 反向：dt<=0 必须报错（不得静默推进）", a6_negative_dt)
+
+# ---- P2-2：真实 TheInput + 原版 locomotor 路径 ----
+def a7_theinput_real():
+    """★ 真实 TheInput：不是空壳，未知接口也不静默 nil"""
+    sim = SIM["s"]
+    TI = sim.api.input.TI
+    sim.set_input("right", True)
+    down = TI.IsKeyDown(TI, "right")
+    ctrl = TI.IsControlPressed(TI, "CONTROL_MOVE_RIGHT")
+    ctrl2 = TI.IsControlPressed(TI, "CONTROL_MOVE_LEFT")
+    unk = TI.IsKeyDown(TI, "never_pressed_key")
+    pad = TI.ControllerAttached(TI)
+    sim.clear_input()
+    up = TI.IsKeyDown(TI, "right")
+    if not down or not ctrl or ctrl2 or unk or pad or up:
+        return False, ("down=%s ctrl=%s ctrl2=%s unk=%s pad=%s up=%s"
+                       % (down, ctrl, ctrl2, unk, pad, up))
+    return True, "IsKeyDown/IsControlPressed 真实生效；未知键=false；无手柄=false"
+
+
+def a8_moves_via_locomotor():
+    """★ 移动必须走**原版** locomotor，而不是 Physics 兜底"""
+    sim = SIM["s"]
+    sim.clear_input()
+    st0 = sim.stats()
+    p0 = sim.snapshot()["player"]
+    sim.set_input("right", True)
+    for _ in range(60):
+        sim.step()
+    sim.set_input("right", False)
+    st1 = sim.stats()
+    p1 = sim.snapshot()["player"]
+    dx = p1["x"] - p0["x"]
+    d_loco = st1["used_locomotor"] - st0["used_locomotor"]
+    d_phys = st1["used_physics"] - st0["used_physics"]
+    if dx <= 0.5:
+        return False, "按右 60 tick 后 x 只变了 %.3f" % dx
+    if d_loco < 60:
+        return False, "原版 locomotor 只被调了 %d 次（应 60）" % d_loco
+    if d_phys != 0:
+        return False, "Physics 兜底被用了 %d 次（应为 0）" % d_phys
+    return True, "x %+.2f，locomotor×%d，Physics 兜底×%d" % (dx, d_loco, d_phys)
+
+
+def a9_physics_errors_zero():
+    """★ 反向：物理积分**不得有错误**（宿主曾把 rotation 表传进 cos()，
+       并被 pcall 静默吞掉 —— 现在会计数，所以这条能抓到回归）"""
+    sim = SIM["s"]
+    n = sim.api._sim.PhysicsErrors or 0
+    if n != 0:
+        return False, "物理积分报错 %d 次：%s" % (n, sim.api._sim.PhysicsErrorFirst)
+    return True, "0 次 ✔（若再出现会被计数而非静默）"
+
+
+# ---- 世界环境：昼夜 / 季节 / 温度（真实世界组件，不是宿主硬编码） ----
+def a14_world_cycles():
+    """★★ 修复前的实测缺口：TheWorld 一个世界组件都没挂 ⇒
+       `state.phase` 永远是 day、温度恒 35 ⇒ **世界里永远是大白天**。
+
+       这条测试要证明的不是「字段存在」，而是「**值真的随时间变**」：
+       跑满一个秋天（8/6/2 段 ×30 s = 240/180/60 s，共 480 s）应看到
+       day → dusk → night 三态齐全，`cycles` 从 0 涨到 1，温度不再是常数。
+    """
+    sim = Sim(seed=4242, tick_hz=30).boot()
+    comp = sim.api.world_components()
+    if not comp["ok"]:
+        return False, "世界组件没挂全，缺: %s" % (comp["missing"],)
+    w0 = sim.api.world_state()
+    if w0 is None:
+        return False, "world_state 读不到"
+    phases, temps, cycles0 = set(), set(), w0["cycles"]
+    # 秋天一天 = 8/6/2 段 × 30 s = 480 s ⇒ 跑 500 s（15000 tick）刚好跨过第 2 天开头。
+    # ★ 为什么不是刚好 480 s：TheSim.time 是浮点累加（实测 300 s 存成 300.000000000023），
+    #   卡在边界上会因 1e-13 的误差判成「还没到」——那是**判据太紧**，不是缺陷。
+    #   真实 30 Hz 口径，不放大 dt 走捷径。
+    for i in range(15000):
+        sim.step()
+        if i % 120 == 0:                     # 每 4 s 世界时间采一次
+            w = sim.api.world_state()
+            phases.add(w["phase"])
+            temps.add(round(w["temperature"], 1))
+    w1 = sim.api.world_state()
+    if not ({"day", "dusk", "night"} <= phases):
+        return False, "500 s 内只观察到相位 %s（应有 day/dusk/night）" % sorted(phases)
+    if len(temps) < 10:
+        return False, "温度几乎不变（%d 个不同值）—— worldtemperature 没在跑" % len(temps)
+    if w1["cycles"] < cycles0 + 1:
+        return False, "跑满 500 s 后 cycles 仍是 %d（应有第 2 天）" % w1["cycles"]
+    return True, "500 s：相位 %s，温度 %d 个不同值（%.1f~%.1f），cycles %d→%d" % (
+        "/".join(sorted(phases)), len(temps), min(temps), max(temps), cycles0, w1["cycles"])
+
+
+def a15_world_reverse_not_frozen():
+    """★ 反向：**不挂**世界组件时（= 修复前的旧行为），世界必须退回「恒为大白天」，
+       而且 `world_components().ok` 必须为 False。
+
+       为什么必须做这条：A14 断言「相位会变」。如果实现是「不管挂没挂都返回
+       一组会变的假值」，A14 照样绿 —— 那就成了自满足的空检查。
+       这里用启动开关 `RT_NO_WORLD_COMPONENTS=1` 造出「没挂」的状态，
+       证明 A14 的绿确实来自真组件在跑。
+    """
+    os.environ["RT_NO_WORLD_COMPONENTS"] = "1"
+    try:
+        sim = Sim(seed=4243, tick_hz=30).boot()
+    finally:
+        os.environ.pop("RT_NO_WORLD_COMPONENTS", None)
+    comp = sim.api.world_components()
+    if comp["ok"]:
+        return False, "开关设了却仍报 world_components.ok=True（开关没生效）"
+    before = sim.api.world_state()
+    for _ in range(14400):                    # 同样跑 480 s
+        sim.step()
+    after = sim.api.world_state()
+    if before is None or after is None:
+        # 没挂组件时连 state 都读不到 —— 同样是「旧症状可被检出」的一种形态
+        return True, "不挂组件时 world_state 直接为 nil ⇒ A14 不可能自满足"
+    if before["phase"] != after["phase"] or abs(after["temperature"] - before["temperature"]) > 1e-9:
+        return False, "没挂组件后相位/温度仍在变（%s→%s, %.2f→%.2f）—— 说明值不是来自世界组件" % (
+            before["phase"], after["phase"], before["temperature"], after["temperature"])
+    return True, "不挂组件时相位恒为 %s、温度恒为 %.2f ⇒ A14 确实指向真行为" % (
+        after["phase"], after["temperature"])
+
+
+def a16_stats_json_safe():
+    """★ 反向：`stats()` 必须能**直接 json.dumps** —— /healthz 与 /status 就是把它
+       dumps 出去的。
+
+       踩过的坑：加世界组件那轮，我往 `stats` 里塞了一个 Lua 数组（`world_missing`），
+       `json.dumps` 不认 lupa 的 `_LuaTable` ⇒ **所有** HTTP 请求 500；
+       而当时状态行写的是占位符 "500 x"，客户端只显示出 "HTTP Error 500: x"，
+       完全看不出是 stats 干的。这条测试就是钉住这个形态。
+    """
+    s = SIM["s"].stats()
+    lua_keys = [k for k, v in s.items() if type(v).__name__ == "_LuaTable"]
+    if lua_keys:
+        return False, "stats() 里有 Lua 表字段: %s（json.dumps 会炸）" % lua_keys
+    try:
+        blob = json.dumps(s, ensure_ascii=False)
+    except Exception as e:                                       # noqa: BLE001
+        return False, "stats() 不可序列化: %s: %s" % (type(e).__name__, e)
+    return True, "%d 个字段全部 JSON 安全（%d 字节）" % (len(s), len(blob))
+
+
+check("A16 反向：stats() 必须能直接 json.dumps（/healthz 依赖它）", a16_stats_json_safe)
+check("A14 **昼夜/季节/温度真的随世界时间推进**（480 s 走完一天）", a14_world_cycles)
+check("A15 反向：摘掉世界组件即退回「恒为大白天」——证明 A14 不是空检查", a15_world_reverse_not_frozen)
+check("A7 真实 TheInput（IsKeyDown/IsControlPressed/无手柄）", a7_theinput_real)
+check("A8 移动走**原版 locomotor**（非 Physics 兜底）", a8_moves_via_locomotor)
+check("A9 反向：物理积分错误数必须为 0", a9_physics_errors_zero)
+
+# ---- P3：存档 / 读档 ----
+def _mk_save():
+    """造一份存档：跑 90 tick（有位移）后 collect，再过 JSON 往返"""
+    sim = SIM["s"]
+    sim.clear_input()
+    sim.set_input("right", True)
+    for _ in range(90):
+        sim.step()
+    sim.set_input("right", False)
+    snap = sim.snapshot()
+    rec = sim.save_collect()
+    blob = json.dumps(rec, ensure_ascii=False)
+    return snap, rec, json.loads(blob), blob
+
+
+def a10_save_roundtrip():
+    """★ 存档→JSON→读档：玩家位置与世界时间都必须逐值恢复"""
+    sim = SIM["s"]
+    snap, rec, back, blob = _mk_save()
+    ok, err = sim.save_validate(back)
+    if not ok:
+        return False, "存档校验不过: %s" % err
+    # 改动世界后再读档
+    sim.set_input("right", True)
+    for _ in range(60):
+        sim.step()
+    sim.set_input("right", False)
+    ok2, msg = sim.save_apply(back)
+    if not ok2:
+        return False, "读档失败: %s" % msg
+    after = sim.snapshot()
+    st = sim.stats()
+    dx = abs(after["player"]["x"] - snap["player"]["x"])
+    dt = abs(st["time"] - snap["t"])
+    if dx > 0.01:
+        return False, "玩家位置没恢复：差 %.3f" % dx
+    if dt > 0.01:
+        return False, "世界时间没恢复：差 %.4f" % dt
+    if not st["player_ok"]:
+        return False, "读档后玩家实体没了"
+    return True, "位置/时间逐值恢复（JSON %d 字节）" % len(blob)
+
+
+def a11_load_then_play():
+    """★ 读档之后世界必须**还能玩**（不是一具尸体）"""
+    sim = SIM["s"]
+    snap, rec, back, blob = _mk_save()
+    sim.set_input("right", True)
+    for _ in range(60):
+        sim.step()
+    sim.set_input("right", False)
+    sim.save_apply(back)
+    p0 = sim.snapshot()["player"]
+    st0 = sim.stats()
+    sim.set_input("right", True)
+    for _ in range(60):
+        sim.step()
+    sim.set_input("right", False)
+    p1 = sim.snapshot()["player"]
+    st1 = sim.stats()
+    dx = p1["x"] - p0["x"]
+    d_loco = st1["used_locomotor"] - st0["used_locomotor"]
+    if dx <= 0.5:
+        return False, "读档后按右只动了 %.3f" % dx
+    if d_loco < 60:
+        return False, "读档后 locomotor 只被调 %d 次" % d_loco
+    return True, "读档后仍可操控：x %+.2f（locomotor×%d）" % (dx, d_loco)
+
+
+def a12_bad_save_safe():
+    """★ 反向：坏档案必须**报错且不破坏当前世界**"""
+    sim = SIM["s"]
+    snap, rec, back, blob = _mk_save()
+    st0 = sim.stats()
+    bad = json.loads(blob)
+    bad["ents"][1]["x"] = "这不是数字"
+    ok, err = sim.save_apply(bad)
+    st1 = sim.stats()
+    if ok:
+        return False, "坏档案竟然被接受了"
+    if st1["n_ents"] != st0["n_ents"] or abs(st1["time"] - st0["time"]) > 0.01:
+        return False, "世界被坏档案破坏了（实体 %d→%d，t %.2f→%.2f）" % (
+            st0["n_ents"], st1["n_ents"], st0["time"], st1["time"])
+    return True, "拒绝且世界原样（%s）" % err[:40]
+
+
+def a13_bad_save_variants():
+    """★ 反向：三种结构性坏档案都要被拒（且都要说得出原因）"""
+    sim = SIM["s"]
+    _s, _r, _b, blob = _mk_save()
+    cases = [("空 ents", lambda d: d.update(ents=[])),
+             ("缺 version", lambda d: d.pop("version")),
+             ("ents 非表", lambda d: d.update(ents="oops")),
+             ("缺 time", lambda d: d.pop("time"))]
+    bad = []
+    for name, mut in cases:
+        d = json.loads(blob)
+        mut(d)
+        ok, err = sim.save_validate(d)
+        if ok:
+            bad.append(name + " 竟被接受")
+        elif not err:
+            bad.append(name + " 没给原因")
+    if bad:
+        return False, "；".join(bad)
+    return True, "4 种坏档案全部拒绝且都带原因 ✔"
+
+
+check("A10 存档→JSON→读档：位置与时间逐值恢复", a10_save_roundtrip)
+check("A11 读档后世界**还能玩**（输入仍驱动 locomotor）", a11_load_then_play)
+check("A12 反向：坏档案被拒且**不破坏世界**", a12_bad_save_safe)
+check("A13 反向：4 种结构性坏档案全部拒绝且带原因", a13_bad_save_variants)
+
+# =============================================================================
+# B. 跨进程：真服务端 + 真 WebSocket 客户端
+# =============================================================================
+hr("B. 跨进程：服务端 + WebSocket 传输层")
+
+PORT = int(os.environ.get("RT_TEST_PORT", "8791"))
+PROC = {}
+
+
+def _start_server():
+    proc = subprocess.Popen(
+        [sys.executable, os.path.join(RT, "server.py"),
+         "--port", str(PORT), "--hz", "30", "--seed", "20261015", "--quiet"],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        cwd=RT, text=True)
+    PROC["p"] = proc
+    # 等端口可用
+    for _ in range(200):
+        if proc.poll() is not None:
+            raise RuntimeError("服务端启动即退出：\n" + proc.stdout.read())
+        try:
+            with socket.create_connection(("127.0.0.1", PORT), timeout=0.2):
+                return
+        except OSError:
+            time.sleep(0.1)
+    raise RuntimeError("服务端 20 s 内未监听")
+
+
+def b0_start():
+    _start_server()
+    return True, "服务端已起在 127.0.0.1:%d" % PORT
+
+
+def b1_handshake():
+    import ws
+    sock = socket.create_connection(("127.0.0.1", PORT), timeout=5)
+    resp = ws.client_handshake(sock, "127.0.0.1:%d" % PORT)
+    sock.close()
+    if "101" not in resp.split("\r\n")[0]:
+        return False, "握手未返回 101: %r" % resp.split("\r\n")[0]
+    if "sec-websocket-accept" not in resp.lower():
+        return False, "缺 Sec-WebSocket-Accept"
+    return True, "101 Switching Protocols + Accept 头齐 ✔"
+
+
+def _recv_exact(sock, n, timeout=5.0):
+    """**精确**读 n 个字节（循环直到读满）。
+
+    ★★ 为什么必须这样：`sock.recv(2)` 只保证「至少 1 字节」，TCP 完全可能把 2 字节的
+      WebSocket 帧头拆成两次投递（实测在「一帧快照紧跟一条 you 握手」时被触发，
+      报 `ValueError: not enough values to unpack (expected 2, got 1)`）。
+      ⇒ 读帧必须**循环读到你要的字节数**，不能指望一次 recv 拿全。
+      （真实浏览器自带的 WebSocket 实现替我们做了这件事，所以只有手写的测试客户端会踩。）
+    """
+    sock.settimeout(timeout)
+    buf = b""
+    while len(buf) < n:
+        c = sock.recv(n - len(buf))
+        if not c:
+            raise RuntimeError("连接在读到 %d/%d 字节时关闭" % (len(buf), n))
+        buf += c
+    return buf
+
+
+def _recv_frame(sock, timeout=5.0):
+    """收一帧（复用 ws.read_frame；注意那是服务端视角的函数，
+    客户端收到的帧**没有掩码**，所以这里自己解）"""
+    import struct
+    h = _recv_exact(sock, 2, timeout)
+    b0, b1 = h[0], h[1]
+    ln = b1 & 0x7F
+    if ln == 126:
+        ln = struct.unpack(">H", _recv_exact(sock, 2, timeout))[0]
+    elif ln == 127:
+        ln = struct.unpack(">Q", _recv_exact(sock, 8, timeout))[0]
+    data = _recv_exact(sock, ln, timeout) if ln else b""
+    return b0 & 0x0F, data
+
+
+def ws_encode(obj):
+    """把一个 dict 编成**带掩码**的客户端帧（测试客户端只发，不发大帧）"""
+    import ws as _ws
+    return _ws.encode_frame_masked(json.dumps(obj).encode("utf-8"))
+
+
+class _Reader:
+    """一个连接配一个**持续读线程**：只记「you 握手」与「我那个实体的最新位置」。
+
+    ★★ 为什么必须持续读：这是 30 Hz 的流，「睡一会儿再读」会在内核缓冲里积压几十帧
+      ⇒ 读到的仍是**旧位置**（假红：「A 按右时 B 也动了」「B 按上时 A 也动了」）。
+      想靠「多读几帧」排空也不行 —— 读的是积压队列的**前**几帧，不是后几帧。
+      想靠「短超时循环」排空更糟：`_recv_frame` 不可重启，读一半超时会把流读歪
+      （实测 `ValueError: not enough values to unpack` / `WinError 10054`）。
+      ⇒ 唯一稳的做法就是**一直读**（这也正是真实客户端做的事）。
+    """
+
+    def __init__(self, sock, whoami=True):
+        self.sock = sock
+        self.you = None
+        self.slot = 0
+        self.latest = None
+        self.frames = 0
+        self.last_ids = set()      # 最新一帧里出现的 id 集合（B25 要查「两个角色都在同一帧」）
+        self.busy = False          # P21：同一个会话 key 已在别处连接（服务端拒绝给角色）
+        self.alive = True
+        self.err = None
+        self.th = threading.Thread(target=self._run, daemon=True)
+        self.th.start()
+        # ★★ P20：连上就**拉取**「我是谁」（服务端不再推送）——
+        #   这是唯一可靠的时序：问一次、拿到为止（玩家是模拟线程异步建的）。
+        if whoami:
+            self.ask()
+
+    def _run(self):
+        while self.alive:
+            try:
+                _op, d = _recv_frame(self.sock, 1.0)
+            except (socket.timeout, OSError):
+                continue
+            except Exception as e:                                   # noqa: BLE001
+                self.err = "%s: %s" % (type(e).__name__, e)
+                return
+            try:
+                m = json.loads(d.decode("utf-8"))
+            except Exception:                                        # noqa: BLE001
+                continue
+            if not isinstance(m, dict):
+                continue
+            if "you" in m:
+                if m.get("busy"):
+                    self.busy = True
+                    continue
+                # ★★ 服务端在「玩家还没建出来」时**如实回 null** —— 这时**不能** int(None)：
+                #   第一版就是这么写的，异常直接把读线程**整条打死**（而症状是
+                #   `没收到 you 握手（err=None）`：err 还没赋值线程就没了）。
+                if m["you"] is not None:
+                    self.you = int(m["you"])
+                    self.slot = int(m.get("slot", 0))
+                continue
+            if "ents" in m:
+                self.frames += 1
+                self.last_ids = set(e["id"] for e in m["ents"])
+                for e in m["ents"]:
+                    if e["id"] == self.you:
+                        self.latest = (e["x"], e["z"])
+
+    def wait_you(self, timeout=5.0):
+        end = time.time() + timeout
+        while time.time() < end and self.you is None:
+            time.sleep(0.02)
+        return self.you
+
+    def wait_pos(self, timeout=2.0):
+        end = time.time() + timeout
+        while time.time() < end and self.latest is None:
+            time.sleep(0.02)
+        return self.latest
+
+    def ask(self, tries=30, gap=0.2):
+        """再问一轮「我是谁」（服务端回 null 说明玩家还没建好）"""
+        for _ in range(tries):
+            if self.you is not None:
+                return self.you
+            try:
+                self.sock.sendall(ws_encode({"cmd": "whoami"}))
+            except OSError:
+                return None
+            time.sleep(gap)
+        return self.you
+
+    def stop(self):
+        self.alive = False
+        try:
+            self.th.join(timeout=1.5)
+        except Exception:                                            # noqa: BLE001
+            pass
+
+
+def _recv_snap(sock, timeout=5.0, tries=200):
+    """读到一条**真快照**为止 —— 跳过 `you` 握手 / `pong` 这类**控制消息**。
+
+    ★★ P20 起服务端连上就先发 `{"you":guid,"slot":n}`；pong 也在同一条流里。
+      任何「读下一条消息就当快照」的老写法都会踩到它们（实测：B2 报「帧缺字段 t」、
+      B3 的基线读成了握手、B8 报「opcode=1」）。
+      ⇒ 这里显式跳过控制消息，**而不是把断言放松** —— 放松等于让它们不再检查
+        真正该检查的东西（那是本工程最防的「假绿」）。
+    """
+    for _ in range(tries):
+        op, d = _recv_frame(sock, timeout)
+        try:
+            m = json.loads(d.decode("utf-8"))
+        except Exception:                                        # noqa: BLE001
+            continue                     # 二进制帧在文本路径里解不出来 ⇒ 跳过
+        if isinstance(m, dict) and "ents" in m:
+            return op, m
+    raise RuntimeError("%d 条消息里没有真快照" % tries)
+
+
+def _connect():
+    import ws
+    sock = socket.create_connection(("127.0.0.1", PORT), timeout=5)
+    ws.client_handshake(sock, "127.0.0.1:%d" % PORT)
+    return sock
+
+
+def b2_frames_arrive():
+    import ws
+    sock = _connect()
+    try:
+        op, s = _recv_snap(sock)
+        if op != ws.OP_TEXT:
+            return False, "首帧不是文本帧（opcode=%d）" % op
+        for k in ("t", "tick", "ents"):
+            if k not in s:
+                return False, "帧缺字段 %s" % k
+        if not s["ents"]:
+            return False, "帧里没有实体"
+        # 再收一帧，t 应更大（世界在走）
+        t0 = s["t"]
+        for _ in range(20):
+            _op, s2 = _recv_snap(sock)
+            if s2["t"] > t0:
+                return True, "收到帧（n=%d，t %.2f → %.2f，世界在走）" % (
+                    s2["n"], t0, s2["t"])
+        return False, "连续 20 帧时间里 t 没有增长"
+    finally:
+        sock.close()
+
+
+def b3_input_over_ws():
+    """★ 跨进程的核心：从 WS 发输入 ⇒ **我自己那个角色**的位置变化。
+
+    ★★ P20 之后不能再看帧里的 `player` 字段了：它指的是**槽位 0** 的角色，
+      而「第一个连上的连接」才拿槽位 0（B2 已经用掉了）⇒ 本用例拿的是槽位 1。
+      ⇒ 用 `you` 握手给的 guid 去帧里查**自己**的位置（这也更贴近真实客户端）。
+    ★★ 位置必须由**持续读线程**给：睡 2 s 再读只会读到积压里的旧帧。
+    """
+    import ws
+    sock = _connect()
+    rd = _Reader(sock)
+    try:
+        if rd.wait_you(5.0) is None:
+            return False, "没收到 you 握手（err=%s）" % rd.err
+        p0 = rd.wait_pos(2.0)
+        if p0 is None:
+            return False, "帧里找不到自己的角色 guid=%s（收到 %d 帧）" % (rd.you, rd.frames)
+        x0 = p0[0]
+        sock.sendall(ws.encode_frame_masked(
+            json.dumps({"k": "right", "v": 1}).encode("utf-8")))
+        time.sleep(2.0)
+        sock.sendall(ws.encode_frame_masked(
+            json.dumps({"k": "right", "v": 0}).encode("utf-8")))
+        time.sleep(0.3)
+        x1 = rd.latest[0]
+        dx = x1 - x0
+        if dx <= 0.2:
+            return False, "通过 WS 发输入后 x 只变了 %.3f" % dx
+        return True, "WS 输入生效（槽%d）：自己的 x %+.3f（%.2f → %.2f）" % (
+            rd.slot, dx, x0, x1)
+    finally:
+        rd.stop()
+        sock.close()
+
+
+def b4_bad_json_survives():
+    """★ 反向：坏 JSON 不得让服务端崩"""
+    import ws, urllib.request
+    sock = _connect()
+    try:
+        sock.sendall(ws.encode_frame_masked(b"{ this is not json"))
+        time.sleep(0.4)
+    finally:
+        sock.close()
+    # 服务端还活着吗？
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:%d/healthz" % PORT, timeout=5) as r:
+            h = json.loads(r.read().decode("utf-8"))
+    except Exception as e:                                        # noqa: BLE001
+        return False, "坏帧之后服务端不可用了: %s" % e
+    if h.get("dropped_bad_frames", 0) < 1:
+        return False, "坏帧没被计数（说明被静默吞了）"
+    return True, "服务端存活，坏帧计数=%d ✔" % h["dropped_bad_frames"]
+
+
+def b5_bad_masking_rejected():
+    """★ 反向：不带掩码的客户端帧必须被拒（RFC 6455 §5.1）"""
+    sock = _connect()
+    try:
+        # ★ 先排空连接后**已经在路上**的帧，否则下面 recv 收到的是那些帧，
+        #   会把「服务端拒帧」误判成「帧被接受了」——第一版就是这么错的。
+        # ★★ 必须**限时限次**：服务端 30 Hz 一直在发帧，用「直到超时」当条件
+        #   会永远排不完 —— 第一版就是这么把自己挂死的（跑测试时整体超时被 SIGTERM）。
+        sock.settimeout(0.2)
+        drained, t_end = 0, time.time() + 0.8
+        while time.time() < t_end and drained < 40:
+            try:
+                if not sock.recv(65536):
+                    break
+                drained += 1
+            except OSError:
+                break
+        # 手工构造一个**未掩码**的文本帧（协议违规，RFC 6455 §5.1）
+        payload = b'{"k":"right","v":1}'
+        frame = bytes([0x81, len(payload)]) + payload
+        sock.sendall(frame)
+        # 服务端应当断开连接
+        time.sleep(0.5)
+        sock.settimeout(2.0)
+        try:
+            data = sock.recv(64)
+        except OSError:
+            data = b""
+        if data == b"":
+            return True, "未掩码帧被拒并断连 ✔（排空了 %d 帧后判定的）" % drained
+        return False, "未掩码帧被接受了（协议违规未拦截）"
+    finally:
+        try:
+            sock.close()
+        except OSError:
+            pass
+
+
+def b6_healthz():
+    import urllib.request
+    with urllib.request.urlopen("http://127.0.0.1:%d/healthz" % PORT, timeout=5) as r:
+        h = json.loads(r.read().decode("utf-8"))
+    st = h.get("stats", {})
+    if not h.get("ok") or st.get("tick", 0) <= 0:
+        return False, "healthz 异常: %s" % h
+    # ★★ 模型版本必须**报出来、而且与 rt_boot.lua 里写的那个字面量一致**（2026-10-16 加）。
+    #   为什么值得写进判据：此前 `M.version()` 有定义、**没有任何调用者** ——
+    #   「发布记录里那一版」与「跑着的这一版」只能靠人记；而人对不上时会说「应该一样吧」。
+    #   这里做**跨文件语义核对**（与本工程 B22 的动画名三方一致同一手法）：
+    #   改了一处忘了另一处 ⇒ 立刻红，而不是等发布时才发现记录是假的。
+    boot = st.get("boot")
+    if not boot or not re.match(r"^rt_boot/\d+$", str(boot)):
+        return False, "/healthz 未报出模型版本（got %r）—— M.version() 又变成没人调用了吗" % boot
+    src = io.open(os.path.join(RT, "rt_boot.lua"), encoding="utf-8").read()
+    # ★ **行首锚定**：只认真正那一行 `function M.version() return "..."`。
+    #   不锚行首的话，注释里引用同一句就会被当成真定义 ——
+    #   本工程在「按子串找、不问这段文本是什么身份」上翻过车（一次插坏整个文件）。
+    m = re.search(r'^\s*function\s+M\.version\(\)\s*return\s*"([^"]+)"', src, re.M)
+    if not m:
+        return False, "在 rt_boot.lua 里找不到 M.version() 的字面量（判据锚点失效）"
+    if m.group(1) != boot:
+        return False, "版本不一致：/healthz 报 %s，rt_boot.lua 写 %s（改了一处漏了另一处）" % (boot, m.group(1))
+    # ★ 状态页也必须**真的**显示出来。模板里加一行容易、忘了加替换就会留在 `?` 上 ——
+    #   那是「词在≠行为在」的典型：页面上有「模型版本」四个字，值却永远是问号。
+    with urllib.request.urlopen("http://127.0.0.1:%d/status" % PORT, timeout=5) as r:
+        html = r.read().decode("utf-8")
+    if boot not in html:
+        return False, "/status 页面上看不到模型版本 %s（模板加了行但漏了替换？）" % boot
+    # ★★ 玩家生死必须能看见（2026-10-16 加）。为什么它值得守在 /healthz 上：
+    #   查「树为什么砍不倒」时发现玩家会在世界开始约 12 s 后**掉血致死**，
+    #   死后状态机停在 `death`、**`act` 再也推不动任何动作，但 push 依旧返回成功**
+    #   ⇒ 症状是「世界安静地不动了」，日志里一个字都没有（最坏的失败形态）。
+    #   ⇒ 现在 `player_alive` 必须出现在健康检查里（判据守着它，防止哪天被删掉）。
+    if "player_alive" not in st:
+        return False, "/healthz 没报 player_alive —— 玩家死了却看不出来（失败必须吵）"
+    return True, "tick=%d t=%.1fs 实体=%d · 模型 %s（源文件一致 · /status 也显示 · 玩家存活=%s）" % (
+        st["tick"], st["time"], st["n_ents"], boot, st.get("player_alive"))
+
+
+def b7_http_client():
+    import urllib.request
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:%d/client.html" % PORT, timeout=5) as r:
+            body = r.read()
+        return True, "client.html 可取（%d 字节）" % len(body)
+    except Exception as e:                                        # noqa: BLE001
+        return False, "取不到 client.html: %s（P2 才做，P1 可接受）" % e
+
+
+def _http_get(path, timeout=5):
+    import urllib.request
+    with urllib.request.urlopen("http://127.0.0.1:%d%s" % (PORT, path), timeout=timeout) as r:
+        return r.status, r.read().decode("utf-8")
+
+
+def b16_pause_ws():
+    """★ P3「暂停」：世界时间停住，但**连接与发帧继续**。
+
+       为什么「继续发帧」是必须的：不发的话客户端收不到任何东西，
+       会显示「已断开，重连中…」——那是**误报**，而误报会训练人忽略它。
+    """
+    import ws as wsmod
+    sock = _connect()
+    try:
+        for _ in range(6):
+            _recv_snap(sock)
+        sock.sendall(wsmod.encode_frame_masked(json.dumps({"cmd": "pause", "v": 1}).encode()))
+        # ★ 先让「暂停」生效并冲掉在途的帧，再开始观察 ——
+        #   刚发完指令就取样会把**暂停前**那一两帧算进来，
+        #   于是「t 还在涨」是**采样方式**的问题，不是暂停没生效。
+        #   第一版就是这么写的，然后假红了一次（t 差了一个 tick：13.9000 → 13.9333）。
+        time.sleep(0.5)
+        deadline = time.time() + 2.0
+        ts, n, last = [], 0, None
+        while time.time() < deadline:
+            _, last = _recv_snap(sock)
+            ts.append(last["t"])
+            n += 1
+        if n < 3:
+            return False, "暂停后 2 s 内只收到 %d 帧（客户端会误报断线）" % n
+        # ★ 判据是「**观察窗口内 t 恒定**」，不是「t 等于发指令前那一刻的值」
+        if max(ts) - min(ts) > 1e-9:
+            return False, "暂停后窗口内 t 仍在涨：%.4f → %.4f（%d 帧）" % (min(ts), max(ts), n)
+        if not last.get("paused"):
+            return False, "帧里没有如实报 paused"
+        _, body = _http_get("/healthz")
+        if not json.loads(body).get("paused"):
+            return False, "/healthz 没报 paused"
+        # 恢复
+        sock.sendall(wsmod.encode_frame_masked(json.dumps({"cmd": "pause", "v": 0}).encode()))
+        deadline = time.time() + 2.0
+        t1 = None
+        m_paused = "（没收到帧）"
+        while time.time() < deadline:
+            _, m = _recv_snap(sock)
+            t1 = m["t"]
+            m_paused = m.get("paused")
+        if t1 is None or t1 <= last["t"]:
+            return False, "恢复后 t 没涨（%s）" % t1
+        # ★ 恢复方向也要**明确**报 `paused=false`（2026-10-16 补）：
+        #   原来只验了「暂停时帧里报 true」，没验「恢复后必须报 false」——
+        #   若某天那条赋值被删掉，字段会**消失**，而「字段缺失」与「没暂停」
+        #   在客户端读起来是同一个意思（`typeof f.paused === 'boolean'` 才更新镜像）
+        #   ⇒ 界面会一直显示「⏸ 已暂停」。这类**符号消失**只能靠显式断言抓住。
+        if m_paused is not False:
+            return False, "恢复之后帧里的 paused 不是明确的 false（实得 %r）" % (m_paused,)
+        return True, "暂停 2 s：t 恒为 %.2f 且仍收到 %d 帧（不误报断线）→ 恢复后涨到 %.2f" % (
+            last["t"], n, t1)
+    finally:
+        # ★ 兜底：无论成功失败都把世界解冻 —— 否则后面所有测试都会在「世界停着」上跑，
+        #   而且症状是「时间不涨」这种看起来像引擎坏了的东西。
+        try:
+            import urllib.request
+            urllib.request.urlopen("http://127.0.0.1:%d/pause?on=0" % PORT, timeout=3).read()
+        except Exception:                                        # noqa: BLE001
+            pass
+        sock.close()
+
+
+def b17_pause_http_and_bad_value():
+    """★ `/pause` 的 HTTP 通道 + **反向**：取值不认就必须明确回绝。
+
+       为什么这条重要：如果实现是「不认就当成 true」，一个拼错的 `?on=ture`
+       会把世界**悄悄冻住**（画面静止，但连接正常、帧照发）——
+       这种症状排查起来非常贵（看起来像「引擎卡死」）。
+    """
+    st, body = _http_get("/pause?on=1")
+    if st != 200 or not json.loads(body)["paused"]:
+        return False, "on=1 没生效: %s %s" % (st, body)
+    # 反向：不认的取值必须 400 **且不改状态**
+    ok400 = False
+    try:
+        _http_get("/pause?on=ture")
+    except Exception as e:                                       # noqa: BLE001
+        ok400 = "400" in str(e)
+    if not ok400:
+        return False, "非法取值没有回 400（可能被当成了 true）"
+    st, body = _http_get("/healthz")
+    if not json.loads(body).get("paused"):
+        return False, "非法取值把暂停状态改掉了（应保持暂停）"
+    # 恢复
+    st, body = _http_get("/pause?on=0")
+    if st != 200 or json.loads(body)["paused"]:
+        return False, "on=0 没生效: %s %s" % (st, body)
+    return True, "on=1 → 暂停；on=ture → 400 且状态不变；on=0 → 恢复 ✔"
+
+
+def b18_replay_roundtrip():
+    """★★ M7：录一段 → 回放 ⇒ **逐 tick 指纹全同**。"""
+    rec_sim = Sim(seed=20261016, tick_hz=30).boot()
+    rec_sim.set_input("right", True)
+    for _ in range(90):
+        rec_sim.step()
+    rec_sim.set_input("right", False)
+    rec_sim.set_input("down", True)
+    for _ in range(60):
+        rec_sim.step()
+    rec_sim.set_input("down", False)
+    for _ in range(30):
+        rec_sim.step()
+    rec = rec_sim.dump_recording()
+    p = rec_sim.snapshot()["player"]
+    if rec["ticks"] != 180 or len(rec["events"]) < 3:
+        return False, "录像内容不对：ticks=%s events=%s" % (rec["ticks"], rec["events"])
+    if rec["truncated"]:
+        return False, "180 tick 不该被截断"
+    sim2 = Sim(seed=20261016, tick_hz=30).boot()
+    tick, want, got, near = sim2.replay(rec)
+    if tick is not None:
+        return False, "回放不一致 @tick %d（期望 %s 实得 %s；%s）" % (tick, want, got, near)
+    if sim2.hashes != rec["hashes"]:
+        return False, "指纹列表不同：%d vs %d" % (len(sim2.hashes), len(rec["hashes"]))
+    return True, "180 tick 逐 tick 指纹全同（%d 个输入事件；末帧 x=%.2f z=%.2f）" % (
+        len(rec["events"]), p["x"], p["z"])
+
+
+def b19_replay_tamper_rejected():
+    """★★ 反向：录像被人为改动 ⇒ 回放**必须**报不一致，并且**定位到 tick**。
+
+       三种篡改各证明一件事：
+         ① 改**事件值**（右→不按）⇒ 世界从一开始就不同 ⇒ 必须第 1 tick 就分叉；
+         ② 改**事件时间戳**（60 → 10）⇒ 必须**从挪动处之后**分叉（而不是「整条都对不上」）；
+         ③ 只改**指纹表第 30 项**（世界本身完全一样）⇒ 必须第 31 tick 分叉 ——
+            ★ 这条最关键：它证明比的是**逐 tick**，而不是「只看最后一帧」。
+              只看末帧的实现，在 ①②③ 里 ③ 是发现不了的。
+    """
+    mk = Sim(seed=20261016, tick_hz=30).boot()
+    mk.set_input("right", True)          # 事件 0：第 0 tick 按下
+    for _ in range(40):
+        mk.step()
+    mk.set_input("right", False)         # 事件 1：第 40 tick 松开（**必须有第 2 个事件**，
+    for _ in range(20):                  #   否则下面「挪动事件时间戳」那条无从下手）
+        mk.step()
+    rec = mk.dump_recording()
+    if rec["ticks"] != 60 or len(rec["events"]) != 2:
+        return False, "录像应为 60 tick / 2 个事件，实际 %s tick / %s" % (
+            rec["ticks"], rec["events"])
+
+    bad1 = json.loads(json.dumps(rec))
+    bad1["events"][0][2] = 0                     # 按下 → 不按
+    t1, w1, g1, _ = Sim(seed=20261016, tick_hz=30).boot().replay(bad1)
+    # ★ 为什么不是第 1 tick：locomotor 的 `StartUpdatingInternal()` 让**第一个 tick 不动**
+    #   （原版行为，实测 tick1 位移 0.000、tick2 起每 tick 0.200）。所以「第 1 个输入事件被改」
+    #   最早只能在**第 2 tick** 被观察到。刻舟求剑地要求「第 1 tick」是**判据写错**，不是缺陷。
+    if t1 != 2:
+        return False, "① 事件值被改后应在第 2 tick 分叉（locomotor 首 tick 不动），实际 %s" % t1
+
+    bad2 = json.loads(json.dumps(rec))
+    bad2["events"][1] = [10, "right", 0]         # 松开从第 40 tick 挪到第 10 tick
+    t2, w2, g2, _ = Sim(seed=20261016, tick_hz=30).boot().replay(bad2)
+    # 松开提前 ⇒ 从第 11 tick 起位置就少了 ⇒ **必须**在第 11 tick 分叉（而不是第 1 或第 41）
+    if t2 != 11:
+        return False, "② 事件挪到第 10 tick 后应在第 11 tick 分叉，实际 %s" % t2
+
+    bad3 = json.loads(json.dumps(rec))
+    bad3["hashes"][30] = (bad3["hashes"][30] + 1) % 4294967296
+    t3, w3, g3, _ = Sim(seed=20261016, tick_hz=30).boot().replay(bad3)
+    if t3 != 31:
+        return False, "③ 指纹表第 30 项被改应在第 31 tick 分叉，实际 %s（只看末帧的实现会漏掉这条）" % t3
+
+    return True, "三种篡改全被抓到且**定位准确**：事件值→第 2 tick、事件时间戳→第 11 tick、指纹表→第 31 tick"
+
+
+def b20_replay_cli():
+    """★ 用户真正会走的路径：`--replay` 命令的**退出码**与拒绝逻辑。"""
+    rec_sim = Sim(seed=20261017, tick_hz=30).boot()
+    rec_sim.set_input("left", True)
+    for _ in range(45):
+        rec_sim.step()
+    rec_sim.set_input("left", False)
+    for _ in range(15):
+        rec_sim.step()
+    path = os.path.join(RT, "_replay_test.json")
+    rec_sim.save_recording(path)
+    try:
+        # ① 正确种子 ⇒ 一致，退出码 0
+        r = subprocess.run([sys.executable, os.path.join(RT, "server.py"),
+                            "--replay", path, "--seed", "20261017", "--quiet"],
+                           capture_output=True, text=True, cwd=RT, timeout=180)
+        if r.returncode != 0 or "✔" not in r.stdout:
+            return False, "同种子回放应一致且退出 0，实际 rc=%s\n%s" % (r.returncode, r.stdout[-400:])
+        # ② 种子不符 ⇒ **拒绝**（退出码 2），并且**不能**报「一致」
+        r2 = subprocess.run([sys.executable, os.path.join(RT, "server.py"),
+                             "--replay", path, "--seed", "12345", "--quiet"],
+                            capture_output=True, text=True, cwd=RT, timeout=180)
+        if r2.returncode != 2:
+            return False, "种子不符应拒绝（退出 2），实际 rc=%s" % r2.returncode
+        if "✔" in r2.stdout:
+            return False, "种子不符却报了「一致」"
+        # ③ 文件不存在 ⇒ 明确报错，退出 2
+        r3 = subprocess.run([sys.executable, os.path.join(RT, "server.py"),
+                             "--replay", os.path.join(RT, "_nope.json"), "--seed", "1", "--quiet"],
+                            capture_output=True, text=True, cwd=RT, timeout=120)
+        if r3.returncode != 2:
+            return False, "录像不存在应退出 2，实际 rc=%s" % r3.returncode
+    finally:
+        if os.path.exists(path):
+            os.remove(path)
+        if os.path.exists(path + ".tmp"):
+            os.remove(path + ".tmp")
+    return True, "同种子 → rc=0 且报一致；种子不符 / 文件不存在 → rc=2 且**不**报一致 ✔"
+
+
+def b21_record_survives_hard_kill():
+    """★★ 录像必须**挺过「进程被硬杀」** —— 因为 `deploy/stop.sh` 就是这么停服的。
+
+       ★ 为什么必须单独测这条：落盘有**两条路**（周期落盘 / 收尾落盘）。
+         只测「优雅退出」的话，生产上（Windows `taskkill /F` 硬杀，收不到信号、
+         走不到 `finally`）**一个字节都不会有** —— 而且没人会知道，直到真的要用录像。
+       判据：起服务端 → 发脚本化输入 → **硬杀** → 录像文件必须存在、非空，
+       并且能被 `--replay` **一致地**放出来（只比已记录的那一段，允许尾部缺一点）。
+    """
+    import tempfile
+    import ws as wsmod
+    rec = os.path.join(tempfile.gettempdir(), "rt_b21_rec.json")
+    for p in (rec, rec + ".tmp"):
+        if os.path.exists(p):
+            os.remove(p)
+    port = PORT + 7
+    proc = subprocess.Popen(
+        [sys.executable, os.path.join(RT, "server.py"),
+         "--port", str(port), "--hz", "30", "--seed", "20261020", "--quiet",
+         "--record", rec],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=RT, text=True)
+    try:
+        # 等端口可用
+        started = False
+        for _ in range(120):
+            if proc.poll() is not None:
+                return False, "服务端启动即退出:\n%s" % (proc.stdout.read() or "")[:400]
+            try:
+                with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+                    started = True
+                    break
+            except OSError:
+                time.sleep(0.1)
+        if not started:
+            return False, "服务端 12 s 内未监听"
+        import ws
+        sock = socket.create_connection(("127.0.0.1", port), timeout=5)
+        ws.client_handshake(sock, "127.0.0.1:%d" % port)
+        for k, v, ms in (("right", 1, 700), ("right", 0, 300), ("up", 1, 700), ("up", 0, 300)):
+            sock.sendall(wsmod.encode_frame_masked(
+                json.dumps({"k": k, "v": v}).encode("utf-8")))
+            time.sleep(ms / 1000.0)
+        sock.close()
+        # ★ 再等一个落盘周期（RECORD_FLUSH_SEC=5），确保周期落盘至少跑过一次 ——
+        #   然后**硬杀**（模拟 taskkill /F）
+        time.sleep(6.5)
+    finally:
+        proc.kill()
+        try:
+            proc.wait(timeout=5)
+        except Exception:                                        # noqa: BLE001
+            pass
+    if not os.path.isfile(rec):
+        return False, "硬杀之后**录像文件不存在** —— 收尾写没机会跑，周期写也没跑？"
+    with io.open(rec, encoding="utf-8") as f:
+        data = json.load(f)
+    if not data.get("hashes") or not data.get("events"):
+        return False, "录像内容为空：ticks=%s events=%s" % (
+            len(data.get("hashes") or []), len(data.get("events") or []))
+    # 回放它（只比已记录的部分）—— 必须一致
+    sim = Sim(seed=20261020, tick_hz=30).boot()
+    tick, want, got, near = sim.replay(data)
+    if tick is not None:
+        return False, "硬杀后写出的录像回放不一致 @tick %d（%s vs %s）" % (tick, want, got)
+    return True, "硬杀后录像仍在：%d tick / %d 事件，且回放**逐 tick 一致**（尾部可能缺 ≤5 s）" % (
+        len(data["hashes"]), len(data["events"]))
+
+
+def _connect_ws_slot(timeout=6.0):
+    """连接并读第一条消息。服务端连上就先发 `{"you":guid,"slot":n}`。
+
+    返回 `(sock, guid, slot)`。
+    """
+    import ws as wsmod
+    sock = socket.create_connection(("127.0.0.1", PORT), timeout=timeout)
+    wsmod.client_handshake(sock, "127.0.0.1:%d" % PORT)
+    # ★★ 拉取式握手（见 _Reader 的注释）：主动问，问到为止
+    deadline = time.time() + timeout
+    seen = 0
+    while time.time() < deadline:
+        sock.sendall(ws_encode({"cmd": "whoami"}))
+        for _ in range(20):
+            _op, d = _recv_frame(sock, timeout)
+            try:
+                m = json.loads(d.decode("utf-8"))
+            except Exception:                                    # noqa: BLE001
+                continue
+            if "you" in m and m["you"] is not None:
+                return sock, int(m["you"]), int(m.get("slot", 0))
+            seen += 1
+    raise RuntimeError("没问到 you（期间收到 %d 条其它消息）" % seen)
+
+
+def _frame_ents(sock, fresh=3):
+    """读到一条**带 ents** 的帧（跳过 you/pong 这类控制消息），并**多读几条取最新**。
+
+    ★★ 为什么要 `fresh`：客户端连上时服务端**立刻**发一帧 hello ——
+      而「给这个连接建玩家」是在模拟线程里稍后完成的 ⇒ 那一帧里**还没有我**。
+      第一版只读一条快照就断言「找不到自己的 guid」（实测就是这么假红的）。
+    """
+    last = None
+    for _ in range(200):
+        _op, d = _recv_frame(sock)
+        try:
+            m = json.loads(d.decode("utf-8"))
+        except Exception:                                        # noqa: BLE001
+            continue
+        if isinstance(m, dict) and "ents" in m:
+            last = m
+            fresh -= 1
+            if fresh <= 0:
+                return last
+    if last is None:
+        raise RuntimeError("200 帧里没有真快照")
+    return last
+
+
+def _ent_of(frame, guid):
+    for e in frame["ents"]:
+        if e["id"] == guid:
+            return e
+    return None
+
+
+def _latest_ent(sock, guid, frames=4):
+    """**排空积压**后返回最新一帧里某个实体的 (x, z)。
+
+    ★★ 为什么需要它：测试里常有「发输入 → time.sleep(1.2) → 再读帧」的写法，
+      而 1.2 s 不读会让 socket 里积压 ~36 帧（30 Hz）⇒ 只读一两条拿到的是
+      **1.2 秒前**的位置。第一版就是因此报「B 按上时 A 也动了 2.2」——
+      那 2.2 其实是 A **上一阶段**的残余位移，被当成「B 的输入影响了 A」。
+      ⇒ 判据本身没错，错的是**取样**。取样必须取**最新**的，而不是「下一条」。
+
+    ★ 但**不能**用「短超时循环」去排空：`_recv_frame` 不可重启 ——
+      读完帧头、还没读完帧体时超时，流就被读歪了，之后全乱
+      （实测报 `ValueError: not enough values to unpack`）。
+      ⇒ 固定读 N 帧（30 Hz 下 4 帧 ≈ 0.13 s，足够新），不依赖超时。
+    """
+    newest = None
+    for _ in range(frames):
+        _op, d = _recv_frame(sock, 5.0)
+        try:
+            m = json.loads(d.decode("utf-8"))
+        except Exception:                                        # noqa: BLE001
+            continue
+        if isinstance(m, dict) and "ents" in m:
+            e = _ent_of(m, guid)
+            if e is not None:
+                newest = (e["x"], e["z"])
+    return newest
+
+
+def b25_每个客户端有自己的角色():
+    """★★ P20：每个连接一个**独立角色** —— 在此之前四个客户端共用同一个 wilson。
+
+       判据：① 两个连接拿到的 `you` **不同**；② 两个 guid 在帧里都是存在的实体；
+             ③ 两个槽位不同；④ 断开后那个槽位被回收（下一个连接复用）。
+    """
+    a = b = None
+    try:
+        sa, ga, sla = _connect_ws_slot()
+        a = sa
+        sb, gb, slb = _connect_ws_slot()
+        b = sb
+        if ga == gb:
+            return False, "两个客户端拿到**同一个**实体 guid（%s）—— 还是共用一个角色" % ga
+        if sla == slb:
+            return False, "两个客户端拿到同一个槽位 %d" % sla
+        fa = _frame_ents(a)
+        ea, eb = _ent_of(fa, ga), _ent_of(fa, gb)
+        if ea is None or eb is None:
+            return False, "帧里找不到这两个 guid（%s / %s）" % (ga, gb)
+        if ea.get("p") != "wilson" or eb.get("p") != "wilson":
+            return False, "两个角色不都是 wilson：%s / %s" % (ea.get("p"), eb.get("p"))
+        # ④ 断开 B ⇒ 槽位回收，下一个连接应复用它
+        b.close()
+        b = None
+        time.sleep(0.6)
+        sc, gc, slc = _connect_ws_slot()
+        try:
+            if slc != slb:
+                return False, "断开后槽位没被回收（应复用 %d，实得 %d）" % (slb, slc)
+            if gc == gb:
+                return False, "复用了槽位却没建新角色（guid 仍是 %s）" % gb
+        finally:
+            sc.close()
+        return True, "A(槽%d,guid%d) / B(槽%d,guid%d) 是两个 wi 独立角色；B 断开后槽位被复用" % (
+            sla, ga, slb, gb)
+    finally:
+        for s_ in (a, b):
+            if s_ is not None:
+                try:
+                    s_.close()
+                except Exception:                                # noqa: BLE001
+                    pass
+
+
+def b26_输入互不干扰():
+    """★★★ P20 的**核心判据**：一个客户端的输入只能动**它自己**的角色。
+
+       ★ 判据只测**隔离性**（不依赖地形走不走得动）：
+         ① A 按右、**B 完全不动** ⇒ B 的位置必须一点不变；
+         ② 反过来：B 按上、A 不动 ⇒ A 的位置必须一点不变；
+         ③ 两人同时各按一个方向 ⇒ A 不许出现在 z 轴上、B 不许出现在 x 轴上。
+       ① 之所以能抓到「共用一个角色」：那时两人 guid 相同，A 的输入会让 B 一起动。
+       ★ 位置全部来自**持续读线程** —— 「睡一会儿再读」只会读到积压的旧帧（实测假红）。
+    """
+    import ws as wsmod
+    sa = sb = None
+    ra = rb = None
+    try:
+        sa = _connect()
+        ra = _Reader(sa)
+        sb = _connect()
+        rb = _Reader(sb)
+        if ra.wait_you(5.0) is None or rb.wait_you(5.0) is None:
+            return False, "没收到 you 握手（%s / %s）" % (ra.err, rb.err)
+        if ra.you == rb.you:
+            return False, "两个客户端是同一个角色（guid=%s）" % ra.you
+        if ra.wait_pos(2.0) is None or rb.wait_pos(2.0) is None:
+            return False, "帧里找不到角色（frames=%d/%d）" % (ra.frames, rb.frames)
+
+        def press(sock, k, v):
+            sock.sendall(wsmod.encode_frame_masked(json.dumps({"k": k, "v": v}).encode()))
+
+        def delta(a0, b0, a1, b1):
+            return (max(abs(a1[0] - a0[0]), abs(a1[1] - a0[1])),
+                    max(abs(b1[0] - b0[0]), abs(b1[1] - b0[1])))
+
+        # ① A 按右、B 不动
+        pa0, pb0 = ra.latest, rb.latest
+        press(sa, "right", 1)
+        time.sleep(1.2)
+        press(sa, "right", 0)
+        time.sleep(0.4)
+        dA, dB = delta(pa0, pb0, ra.latest, rb.latest)
+        if dB > 0.05:
+            return False, "A 按右时 **B 也动了 %.3f** —— 输入没归因（还是共用角色）" % dB
+        if dA <= 0.5:
+            return False, "A 按右自己却几乎没动（%.3f）—— 输入没到自己身上" % dA
+
+        # ② 反过来：B 按上、A 不动
+        pa2, pb2 = ra.latest, rb.latest
+        press(sb, "up", 1)
+        time.sleep(1.2)
+        press(sb, "up", 0)
+        time.sleep(0.4)
+        dA2, dB2 = delta(pa2, pb2, ra.latest, rb.latest)
+        if dA2 > 0.05:
+            return False, "B 按上时 **A 也动了 %.3f** —— 输入没归因" % dA2
+        if dB2 <= 0.5:
+            return False, "B 按上自己却几乎没动（%.3f）" % dB2
+
+        # ③ 同时各按一个方向：不许跨轴串
+        qa0, qb0 = ra.latest, rb.latest
+        press(sa, "right", 1)
+        press(sb, "up", 1)
+        time.sleep(1.2)
+        press(sa, "right", 0)
+        press(sb, "up", 0)
+        time.sleep(0.4)
+        dza = abs(ra.latest[1] - qa0[1])
+        dxb = abs(rb.latest[0] - qb0[0])
+        if dza > 1.0:
+            return False, "A 只按了右，却往 z 走了 %.2f（串轴了）" % dza
+        if dxb > 1.0:
+            return False, "B 只按了上，却往 x 走了 %.2f（串轴了）" % dxb
+        return True, ("隔离性成立：A 按右时 B 位移 %.3f、B 按上时 A 位移 %.3f；"
+                      "同时操作时 A 的 dz=%.2f、B 的 dx=%.2f（都 <1.0）") % (
+            dB, dA2, dza, dxb)
+    finally:
+        for r in (ra, rb):
+            if r is not None:
+                r.stop()
+        for s_ in (sa, sb):
+            if s_ is not None:
+                try:
+                    s_.close()
+                except Exception:                                # noqa: BLE001
+                    pass
+
+
+# ---------------------------------------------------------------- P21：会话身份
+_SESS = {}
+
+
+def _start_sess_server(grace=3):
+    """起一个**独立**的服务端，带短的重连宽限期（默认 3 s）。
+
+    ★ 为什么单起一个：宽限期要短到能在测试里观察到「到期被回收」，
+      而 B0 那个服务端用的是默认 60 s（那是给人用的值）。
+    """
+    import tempfile
+    if _SESS.get("p") is not None and _SESS["p"].poll() is None:
+        return _SESS["port"]
+    port = PORT + 3
+    env = dict(os.environ)
+    env["RT_RECONNECT_GRACE"] = str(grace)
+    env.pop("RT_SPAWN", None)
+    # ★★ 日志文件**每次都换名字**（2026-10-18）：原来固定写 `rt_sess_server.log` 且用 "w"，
+    #   于是 D2 红了之后，D3 一起服务端就把**现场覆盖掉了** —— 我手上只剩「最后那台」的日志，
+    #   而红的是**前一台**。查到这一步只能靠猜（「失败要吵」的另一半：**现场要留得下**）。
+    _SESS["n"] = int(_SESS.get("n", 0)) + 1
+    logp = os.path.join(tempfile.gettempdir(), "rt_sess_%02d_p%d.log" % (_SESS["n"], port))
+    lf = open(logp, "w", encoding="utf-8")
+    print("  [sess] 第 %d 台会话服务端，日志：%s" % (_SESS["n"], logp))
+    _SESS["log"] = logp
+    proc = subprocess.Popen([sys.executable, "-u", os.path.join(RT, "server.py"),
+                             "--port", str(port), "--hz", "30"],
+                            stdout=lf, stderr=subprocess.STDOUT, cwd=RT, env=env, text=True)
+    for _ in range(300):
+        if proc.poll() is not None:
+            raise RuntimeError("会话服务器启动即退出（日志：%s）" % logp)
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+                # ★ 探针连上之后**再确认一次进程还活着**：探针本身会开一条
+                #   「连上就关」的空连接，服务端要处理它（读请求 → 空 → 关）。
+                #   万一它在这条路径上崩了，「探针成功」就会变成一条**假绿灯**。
+                time.sleep(0.05)
+                if proc.poll() is not None:
+                    raise RuntimeError("会话服务器在自检后立刻退出（日志：%s）" % logp)
+                _SESS["p"] = proc
+                _SESS["port"] = port
+                return port
+        except OSError:
+            time.sleep(0.1)
+    raise RuntimeError("会话服务器 30 s 内未监听（日志：%s）" % logp)
+
+
+def _stop_sess_server():
+    proc = _SESS.get("p")
+    if proc is not None and proc.poll() is None:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except Exception:                                        # noqa: BLE001
+            proc.kill()
+    _SESS["p"] = None
+    # ★★ 等端口**真的放开**再返回（2026-10-18）。原来 terminate 完就返回，
+    #   下一台服务端紧接着在**同一个端口**上起 —— Windows 上偶尔会出现
+    #   「新进程以为自己绑上了、客户端却被 RST」（实测 D2 报
+    #   `ConnectionResetError: 远程主机强迫关闭了一个现有的连接`，35 ms 就红）。
+    #   判「放开」的办法就是**连一下**：连不上（refused）才算干净。
+    port = _SESS.get("port")
+    if port:
+        for _ in range(50):
+            try:
+                with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+                    pass                      # 还有人在听 ⇒ 端口没放开，继续等
+            except OSError:
+                return
+            time.sleep(0.1)
+
+
+def _sess_diag(e):
+    """把「连不上会话服务器」变成**带现场**的一句话（日志尾部一起给）。"""
+    logp = _SESS.get("log")
+    tail = ""
+    if logp and os.path.exists(logp):
+        try:
+            with io.open(logp, encoding="utf-8", errors="replace") as f:
+                tail = "".join(f.readlines()[-12:])
+        except OSError as e2:                                    # noqa: BLE001
+            tail = "（日志读不出来：%s）" % e2
+    return ("连接失败：%s: %s\n    该台会话服务端日志（%s）尾部：\n%s"
+            % (type(e).__name__, e, logp, tail))
+
+
+def _connect_keyed(port, key):
+    """带**会话 key** 连上去，返回 (sock, reader)。key=None ⇒ 匿名。"""
+    import ws as wsmod
+    path = "/ws" + (("?key=" + key) if key else "")
+    sock = socket.create_connection(("127.0.0.1", port), timeout=5)
+    wsmod.client_handshake(sock, "127.0.0.1:%d" % port, path)
+    return sock, _Reader(sock)
+
+
+def _sess_pos(sock, port, key, guid, press=None, hold=1.0):
+    """连上（可带 key）→ 拿 guid → 可选出位置 → 可选按方向走一会儿 → 断开。"""
+    s_, rd = _connect_keyed(port, key)
+    try:
+        if rd.ask(20, 0.2) is None:
+            return None, None
+        g = rd.you
+        if guid is not None and g != guid:
+            return g, None
+        p0 = rd.wait_pos(2.0)
+        if press:
+            s_.sendall(ws_encode({"k": press, "v": 1}))
+            time.sleep(hold)
+            s_.sendall(ws_encode({"k": press, "v": 0}))
+            time.sleep(0.3)
+        return g, (rd.latest or p0)
+    finally:
+        rd.stop()
+        try:
+            s_.close()
+        except OSError:
+            pass
+
+
+def d1_session_key_reclaims_avatar():
+    """★★ P21：带**会话 key** 的连接，断线后（宽限期内）重连要**拿回同一个角色**。
+
+       ★ 为什么重要：没有它，刷新页面 = 丢掉自己的角色 —— 重连拿到一个新 wilson，
+         而站在原地的是个**没人控制的空壳**（而且每刷新一次多一个）。
+       判据：① 重连后 guid **完全相同**；② 位置**基本没变**（宽限期内玩家没被删、也没人动它）。
+    """
+    try:
+        port = _start_sess_server(grace=3)
+    except Exception as e:                                       # noqa: BLE001
+        return False, "起会话服务器失败: %s" % e
+    key = "k_d1_%d" % (int(time.time() * 1000) % 100000)
+    try:
+        g1, p1 = _sess_pos(None, port, key, None, press="right", hold=1.0)
+        if g1 is None or p1 is None:
+            return False, "第一次连接没拿到角色/位置"
+        time.sleep(0.5)                       # 断开后进入保留期
+        g2, p2 = _sess_pos(None, port, key, g1)
+        if g2 is None:
+            return False, "重连后没拿到角色"
+        if g2 != g1:
+            return False, "重连拿到了**另一个**角色（%s → %s）—— 会话身份没生效" % (g1, g2)
+        if max(abs(p2[0] - p1[0]), abs(p2[1] - p1[1])) > 0.5:
+            return False, "重连后位置变了：%s → %s" % (p1, p2)
+        # ② 反向：换一个 key 必须是**新**角色
+        g3, _ = _sess_pos(None, port, key + "_other", None)
+        if g3 == g1:
+            return False, "换了 key 却还是同一个角色（%s）—— 判据没区分身份" % g1
+        return True, "同 key 重连拿回同一个角色 guid=%s（位置 %s 保持）；换 key 得到新角色 guid=%s" % (
+            g1, p1, g3)
+    finally:
+        _stop_sess_server()
+
+
+def d2_session_grace_expiry():
+    """★ 反向：宽限期过了就必须**真的回收** —— 否则每次刷新都留一个空壳角色（泄漏）。
+
+       做法：连一次（3 s 宽限期的服务器）→ 断开 → 等 5 s → 用**同一个 key** 再连：
+       必须拿到**新**角色（旧的那个已经被回收）。再顺手确认世界里的人数回到 1。
+    """
+    try:
+        port = _start_sess_server(grace=3)
+    except Exception as e:                                       # noqa: BLE001
+        return False, "起会话服务器失败: %s" % e
+    key = "k_d2_%d" % (int(time.time() * 1000) % 100000)
+    try:
+        try:
+            g1, _ = _sess_pos(None, port, key, None)
+        except OSError as e:                                     # noqa: BLE001
+            # ★ 连不上时**带上那台服务端的日志尾部**（2026-10-18）：
+            #   上一次它只报 `ConnectionResetError`，而真正的现场在日志里，
+            #   而且被后一台服务端覆盖了 —— 白查一轮。
+            return False, _sess_diag(e)
+        if g1 is None:
+            return False, "第一次连接没拿到角色"
+        # ★ 记下「第一次连上之后」的威尔逊实体数当**基线**。
+        #   为什么不直接断言「等于 1」：这个世界里本来就可能已经有**槽位 0 的开机默认玩家**
+        #   （客户端可能被分配到别的槽位）⇒ 2 个是正常的，泄漏的标志是**回收之后再连会变多**。
+        #   （第一版直接断言 ==1，于是报「威尔逊实体数 2」，而那两个其实是默认玩家 + 客户端自己。）
+        import urllib.request
+
+        def player_ents():
+            h = json.loads(urllib.request.urlopen(
+                "http://127.0.0.1:%d/healthz" % port, timeout=5).read().decode())
+            return int(h["stats"].get("player_ents", -1))
+
+        base = player_ents()
+        time.sleep(5.0)                       # 超过 3 s 宽限期
+        try:
+            g2, _ = _sess_pos(None, port, key, None)
+        except OSError as e:                                     # noqa: BLE001
+            return False, _sess_diag(e)
+        if g2 is None:
+            return False, "宽限期后重连没拿到角色"
+        if g2 == g1:
+            return False, "宽限期过了旧角色还在（guid 仍是 %s）—— 会泄漏" % g1
+        now = player_ents()
+        if now != base:
+            # ★ 这里原来是 `n_ents > 20` —— 一个**跟世界大小绑死的魔法数**。
+            #   2026-10-16 默认世界加了 14 个植物之后它立刻误报（报「实体数 25」，
+            #   其实空壳早清干净了）。⇒ 改成问**它真正关心的东西**：
+            #   威尔逊实体的个数在「回收 + 重连」之后**有没有变多**。
+            return False, "威尔逊实体数从 %d 变成 %d（回收+重连之后不该变多）—— 空壳没被回收" % (base, now)
+        return True, "宽限期（3 s）后旧角色 guid=%s 被回收，重连拿到新角色 guid=%s" \
+                     "（威尔逊实体数保持 %d，没有累积空壳）" % (g1, g2, now)
+    finally:
+        _stop_sess_server()
+
+
+def d3_same_key_twice_is_refused():
+    """★ 反向：同一个 key **同时**连两个客户端 ⇒ 第二个必须被**明确拒绝**。
+
+       不然两个人会控制同一个身体（互相抢），而且没有任何提示。
+       判据：第二条连接收到 `busy=true`，且 `you=null`（没角色）。
+    """
+    try:
+        port = _start_sess_server(grace=3)
+    except Exception as e:                                       # noqa: BLE001
+        return False, "起会话服务器失败: %s" % e
+    key = "k_d3_%d" % (int(time.time() * 1000) % 100000)
+    sa = sb = None
+    ra = rb = None
+    try:
+        sa, ra = _connect_keyed(port, key)
+        if ra.ask(20, 0.2) is None:
+            return False, "第一个客户端没拿到角色"
+        sb, rb = _connect_keyed(port, key)
+        # 第二个：应该收到 busy
+        t0 = time.time()
+        busy_seen = False
+        while time.time() - t0 < 3.0:
+            if rb.busy:
+                busy_seen = True
+                break
+            time.sleep(0.05)
+        if not busy_seen:
+            return False, "同一个 key 连第二次没被拒（busy 标志没收到）"
+        if rb.you is not None:
+            return False, "被拒的连接竟然也拿到了角色（you=%s）" % rb.you
+        if ra.you is None:
+            return False, "第一个客户端的角色反而没了"
+        return True, "同 key 第二连接被明确拒绝（busy），第一个仍持有角色 guid=%s" % ra.you
+    finally:
+        for r in (ra, rb):
+            if r is not None:
+                r.stop()
+        for s_ in (sa, sb):
+            if s_ is not None:
+                try:
+                    s_.close()
+                except OSError:
+                    pass
+        _stop_sess_server()
+
+
+def e1_interaction_chain():
+    """★★ P22：交互链路（进程内）——「找到目标 → 走过去 → 砍倒」。
+
+       ★ 为什么这条必须存在：在这之前引擎**只能移动**，世界里的一切都碰不到。
+       判据（每一环都要能证伪）：
+         ① 目标列表里**有**那棵树，且动作名是引擎自己声明的（`workable.action.id` = CHOP）；
+         ② 超出作用范围时 `act` **不是失败**，而是「走过去」（pending 被记下）——
+            原版 PushAction 超范围时**不报错也不做事**，属于静默无效，必须自己补这段；
+         ③ 走过去之后 `workleft` 真的下降；
+         ④ 反向：不存在的 guid / 对自己做动作 / 太远 —— **都拒绝且说得出原因**。
+    """
+    s = Sim(seed=20261015, tick_hz=30).boot()
+    L = s.lua
+    L.globals().RT = s.api
+    _pin_player_alive(L)            # ★ 钉住与「动作链跑不跑得通」无关的变量（玩家生死）
+    g = L.eval("""(function()
+      local C = require("host.01_core")
+      local p = RT.player
+      local x, y, z = p.Transform:GetWorldPosition()
+      local ok, tree = pcall(C.SpawnPrefab, "evergreen")
+      if not ok or tree == nil then return -1 end
+      tree.Transform:SetPosition(x + 8, 0, z)     -- 放 8 格外：先走过去
+      RT._tree = tree
+      return tree._guid
+    end)()""")
+    if int(g) < 0:
+        return False, "造不出 evergreen（引擎里没有这个预制体？）"
+
+    def wl():
+        return L.eval("(function() local t = RT._tree "
+                      "if not t:IsValid() then return -1 end "
+                      "return t.components.workable.workleft end)()")
+
+    def pos():
+        return L.eval("(function() local x, y, z = RT.player.Transform:GetWorldPosition() "
+                      "return x, z end)()")
+
+    # ① 目标发现
+    tg = s.api.act_targets(0, 20)
+    if len(tg) < 1:
+        return False, "20 格内没找到任何可交互目标（树没被认出来？）"
+    first = dict(tg[1])
+    if first.get("a") != "CHOP":
+        return False, "最近的目标动作名是 %r，应为 CHOP" % first.get("a")
+
+    w0 = int(wl())
+    x0, z0 = pos()
+    # ② 太远 ⇒ 不是失败，而是「走过去」
+    ok, msg = s.api.act(0, int(g))
+    if not ok:
+        return False, "在 8 格外发 act 被拒了：%s（应记成「走过去」）" % msg
+    pending, pg = s.api.pending_act(0)
+    if not pending:
+        return False, "超范围的 act 没记下「待做动作」"
+    if "走" not in str(msg):
+        return False, "超范围的 act 返回了 %r，没说清是在走过去" % msg
+
+    # ③ 走过去 + 砍：给它 15 s
+    for _ in range(450):
+        s.step()
+    x1, z1 = pos()
+    w1 = int(wl())
+    if max(abs(x1 - x0), abs(z1 - z0)) < 3.0:
+        return False, "玩家没朝目标走过去（位移 %.2f）" % max(abs(x1 - x0), abs(z1 - z0))
+    # ★★ 2026-10-16：`wl()` 返回 -1 表示**树已经不在**（被砍倒并移除了）。
+    #   这**不是失败**，恰恰是「动作真的做了」的最强证据。
+    #   以前这里把它当失败，是因为当时玩家会在砍的过程中死掉（§9y.7）⇒ 从来没走到这一步；
+    #   把生死钉住之后，树会被砍倒并**移除**（而不是原地变树桩），所以必须认这种情况。
+    felled = w1 < 0
+    if not felled and w1 >= w0:
+        return False, "走过去之后 workleft 没下降（%d → %d）—— 动作没真的做" % (w0, w1)
+
+    # ④ 反向
+    ok2, why2 = s.api.act(0, 999999)
+    if ok2:
+        return False, "对不存在的 guid 发 act 竟然成功了"
+    if not why2:
+        return False, "被拒却没说原因（失败要吵）"
+    ok3, why3 = s.api.act(0, int(s.api.player_guid(0)))
+    if ok3:
+        return False, "对自己做动作竟然成功了"
+    # 太远：必须用一棵**还活着**的树 —— 上面那棵在 ③ 里可能已经被砍倒并移除了，
+    # 那样拒绝原因会变成「目标不存在」（也是对的，但**测的不是同一件事**）。
+    # ★ 这条反向要测的是「距离由服务端判」，所以先补一棵站在玩家**原处**的树，再把玩家挪远。
+    g2 = int(L.eval("""(function()
+      local C = require("host.01_core")
+      local ok, t = pcall(C.SpawnPrefab, "evergreen")
+      if not ok or t == nil then return -1 end
+      t.Transform:SetPosition(%f, 0, %f)
+      RT._tree2 = t
+      return t._guid
+    end)()""" % (x0, z0)))
+    if g2 < 0:
+        return False, "补不出第二棵树（无法测「太远」）"
+    L.eval("(function() RT.player.Transform:SetPosition(400, 0, 400) return 1 end)()")
+    ok4, why4 = s.api.act(0, g2)
+    if ok4:
+        return False, "400 格外发 act 竟然成功了（距离应由服务端判）"
+    if "远" not in str(why4):
+        return False, "太远的拒绝原因没说清「远」：%r" % why4
+    ao, ar, _ = s.api.act_stats()
+    return True, "目标 %s·CHOP（20 格内 %d 个）→ 走过去 %.1f 格 → %s；" \
+                 "反向三种（不存在/自己/太远）全拒且带原因（act_ok=%d refused=%d）" % (
+                     first.get("p"), len(tg), max(abs(x1 - x0), abs(z1 - z0)),
+                     ("被砍倒并移除" if felled else "workleft %d→%d" % (w0, w1)), ao, ar)
+
+
+def _pin_player_alive(L):
+    """把与「动作链能不能跑通」**无关的变量钉住**：玩家的生死。
+
+    ★★★ 为什么必须钉住（2026-10-16 查出来的真因，见 §9y.7）：
+      世界一开始玩家的 health 就在**持续掉**（实测逐秒采样：150 → 49.95（6 s）→ 0（12 s）），
+      随后状态机停在 `sg=death`，**之后 `act` 再也推不动任何动作**（但 push 依然「成功」，
+      所以表现是**静默无效**）。
+      §9w.2 当年那句「60 次 act（≈90 s）内没观察到树倒下」**正是这个原因** ——
+      不是引擎砍不动，是**玩家中途死了**。
+      把这条变量钉住之后，三次连跑**稳定在 15~16 s 砍倒 + 掉 3 个 log**（见 §9y.7 的实测）。
+      ⇒ 生死与「动作链」无关，必须从判据里摘出去，而不是让判据去赌「玩家恰好还活着」。
+      （同类先例：§9t.4.1「负载依赖要从判据里摘出去」。）
+
+    ⚠️ 这只是**测试侧的隔离**，不是修引擎：真正的缺陷（持续掉血 + 死后无复活且无提示）
+      另行登记，不许因为这里钉住了就当它不存在。
+    """
+    L.eval("""(function()
+      local p = RT.player
+      local h = p.components.health
+      if h == nil then return false end
+      if h.SetInvincible ~= nil then h:SetInvincible(true) end
+      h:SetPercent(1)
+      return true
+    end)()""")
+
+
+def e4_daylight_is_safe():
+    """★★★ 2026-10-16 新增：**白天不该被「黑暗」打死**（grue / 光照代理）。
+
+    背景（查实的根因，证据见 §9z）：06 宿主里两处桩**互相矛盾** ——
+      · `host/01_core.lua:186`  `LightWatcher:IsInLight = true`
+        （理由写的是「宿主恒为白天」，但自从 `rt_boot/3` 挂上世界组件后宿主**已有昼夜**，
+          这条理由早过期了）；
+      · `host/06_entityscript.lua:189`  `EntityScript:IsInLight = false`。
+    而 `components/grue.lua:120` 的 `CheckForStart()` 读的是 **后者** ⇒ 恒 false
+    ⇒ grue 永远认为「玩家在黑暗里」⇒ 世界开始 5~10 s 就来一发
+      `combat:GetAttacked(nil, TUNING.GRUEDAMAGE, nil, "darkness")`
+    ⇒ **玩家 12 秒必死**（实测逐秒 `150 → 49.95 → 0`，事件里 `damage=100.05`，
+      `TUNING.GRUEDAMAGE` 正是 100.05）。
+    ⇒ 07 侧的修法：用**世界昼夜相位**当光照代理（白天 `grue:AddImmunity("light")`）。
+      ⚠️ 是**代理不是等价**：宿主没有逐点光照，所以「站在营火旁不挨打」做不到（已在 §9z 登记）。
+
+    判据：
+      ① 白天跑 30 s 世界时间：玩家血量**一滴不掉**，且**从没进过 `death`**；
+      ② `stats().grue_immune` 为 true 且 `grue_sync ≥ 1`（补丁真的动过手，不是死代码）；
+      ③ **反向**：手动 `RemoveImmunity("light")`（等价于「入夜」）⇒
+         玩家必须**重新开始掉血** —— 证明 ① 不是「测不到掉血」，而是白天真的安全。
+    """
+    s = Sim(seed=20261015, tick_hz=30).boot()
+    L = s.lua
+    L.globals().RT = s.api
+
+    def snap():
+        return str(L.eval("""(function()
+          local p = RT.player
+          local h = p.components.health
+          local cs = "?"
+          local ok, v = pcall(function() return p.sg.currentstate and p.sg.currentstate.name end)
+          if ok then cs = tostring(v) end
+          return tostring(h and h.currenthealth) .. "|" .. cs
+        end)()"""))
+
+    for _ in range(60):                      # 2 s：先让世界/相位稳定
+        s.step()
+    h0, _ = snap().split("|")
+    h0 = float(h0)
+    died = False
+    for _ in range(900):                     # 30 s
+        s.step()
+        h, cs = snap().split("|")
+        if cs == "death":
+            died = True
+    h1 = float(snap().split("|")[0])
+    # ★ 用 `s.stats()`（Sim 的包装，会把 Lua 表转成 Python 并做整型归一），
+    #   不要直接 `s.api.stats()` —— 后者在 lupa 属性访问下拿到的是 None（实测报
+    #   `TypeError: 'NoneType' object is not callable`）。
+    st = s.stats()
+    if died:
+        return False, "白天 30 s 内玩家进了 `death`（光照代理没生效？）"
+    if h1 < h0 - 0.01:
+        return False, "白天 30 s 玩家掉血了（%.2f → %.2f）—— grue 又把它当成黑暗了" % (h0, h1)
+    if st.get("grue_immune") is not True:
+        return False, "stats().grue_immune 不是 true：%r" % st.get("grue_immune")
+    if int(st.get("grue_sync", 0)) < 1:
+        return False, "光照代理一次都没动手（grue_sync=0）—— 那就成了死代码"
+    # ③ 反向：撤掉光免疫（等价于入夜）⇒ 必须**重新开始掉血**
+    L.eval("(function() RT.player.components.grue:RemoveImmunity('light') return 1 end)()")
+    # ★★ 这里必须看**过程中的最低血量**，不能看终值：
+    #   撤掉免疫之后玩家会挨打（实测 +10 s 掉到 49.95）→ 然后**自动复活**（§9y/§9z 的 P26），
+    #   血量又回到 150 ⇒ 只看终值会误判成「没掉血」。
+    #   （第一版就是这么错的 —— 它把「复活把它治好了」当成了「危险不存在」。）
+    hmin = h1
+    for _ in range(750):                     # 25 s（第一发在 5~10 s）
+        s.step()
+        hmin = min(hmin, float(snap().split("|")[0]))
+    h2 = float(snap().split("|")[0])
+    if hmin >= h1 - 0.01:
+        return False, "撤掉光免疫后 25 s 血量**全程没掉过**（最低仍 %.2f）—— 那条反向证明不了任何事" % hmin
+    return True, "白天 30 s 血量恒为 %.0f 且从未 death；grue_immune=true / grue_sync=%s；" \
+                 "反向：撤掉光免疫后最低掉到 %.2f（终值 %.0f —— 自动复活又把它治回来了）" % (
+                     h0, st.get("grue_sync"), hmin, h2)
+
+
+def e5_death_and_respawn():
+    """★★ 2026-10-16 新增：**死亡 ⇒ 自动复活**（否则世界**永久停摆**）。
+
+    背景（实测，见 §9y.7）：玩家死后状态机停在 `death`，而 `SGwilson` 的 death 状态
+    **出不去** —— 实测 `sg:GoToState("idle")` 直接报
+      `stategraphs/SGwilson.lua:3839: Left death state.`
+    此后 `act` 仍然返回成功但**什么都推不动**（拿一棵树试：workleft 一动不动）
+    ⇒ 表现是「世界安静地不动了」，只能重启服务端。
+    原版这里是**变成 ghost**（本宿主没有 `SGghost`），所以 07 侧用
+    「移除尸体 + 生成新身体」来表达重生，并在 3 秒后自动执行（`rt_boot` 的 `M.respawn`）。
+
+    判据：
+      ① 把血扣光 ⇒ `player_alive=false` 且 **`act` 推不动**（把这个失败形态记录下来）；
+      ② 等自动复活 ⇒ `player_alive=true` 且 `respawns ≥ 1`；
+      ③ **复活后 `act` 必须真的又能推动动作**（workleft 下降）——
+         这才是「恢复」的判据，而不是「血量回到 150」这种弱信号；
+      ④ 反向：**没死**的时候调 `respawn` 必须被拒绝，且**说得出原因**。
+    """
+    s = Sim(seed=20261015, tick_hz=30).boot()
+    L = s.lua
+    L.globals().RT = s.api
+
+    def st():
+        return s.stats()
+
+    def sg_name():
+        return str(L.eval("(function() local ok, v = pcall(function() "
+                          "return RT.player.sg.currentstate and RT.player.sg.currentstate.name end) "
+                          "if ok then return tostring(v) end return '?' end)()"))
+
+    def workleft(ref):
+        return int(L.eval("(function() local t = RT.%s "
+                          "if t == nil or not t:IsValid() then return -1 end "
+                          "return t.components.workable.workleft end)()" % ref))
+
+    def spawn_tree(ref, dx=1.0):
+        return int(L.eval("""(function()
+          local C = require("host.01_core")
+          local p = RT.player
+          local x, y, z = p.Transform:GetWorldPosition()
+          local ok, t = pcall(C.SpawnPrefab, "evergreen")
+          if not ok or t == nil then return -1 end
+          t.Transform:SetPosition(x + %f, 0, z)
+          RT.%s = t
+          return t._guid
+        end)()""" % (dx, ref)))
+
+    # ① 打死
+    L.eval("(function() RT.player.components.health:DoDelta(-9999) return 1 end)()")
+    for _ in range(30):
+        s.step()
+    if st().get("player_alive") is not False:
+        return False, "扣光血之后 player_alive 仍是 %r（没死成？）" % st().get("player_alive")
+    if sg_name() != "death":
+        return False, "死了却没进 death 状态：sg=%s" % sg_name()
+    g = spawn_tree("_t1")
+    if g < 0:
+        return False, "造不出树（测不了「死后推不动」）"
+    w_before = workleft("_t1")
+    s.api.act(0, g)
+    for _ in range(300):                       # 10 s
+        s.step()
+    w_after = workleft("_t1")
+    if w_after >= 0 and w_after < w_before:
+        return False, "死后竟然还能砍动（%d → %d）—— 本判据描述的那个失败形态不成立了" % (w_before, w_after)
+
+    # ② 自动复活
+    for _ in range(600):                       # 20 s 预算（延迟是 3 s）
+        s.step()
+        if st().get("player_alive") is True:
+            break
+    if st().get("player_alive") is not True:
+        return False, "死后 20 s 仍未自动复活（respawns=%r）" % st().get("respawns")
+    if int(st().get("respawns", 0)) < 1:
+        return False, "复活了但 respawns 计数没涨（静默复活？）"
+    if sg_name() == "death":
+        return False, "player_alive 为真但 sg 仍是 death（自相矛盾）"
+
+    # ③ 复活后必须**真的又能动**
+    g2 = spawn_tree("_t2")
+    if g2 < 0:
+        return False, "复活后造不出树"
+    w2 = workleft("_t2")
+    s.api.act(0, g2)
+    for _ in range(600):                       # 20 s
+        s.step()
+    w3 = workleft("_t2")
+    if w3 >= 0 and w3 >= w2:
+        return False, "复活后 act 仍然推不动（workleft %d → %d）—— 那就只是「血回来了」" % (w2, w3)
+
+    # ④ 反向：活着的时候不许复活，而且要说得出原因
+    r = str(L.eval("(function() local ok, why = RT.respawn(0) "
+                   "return tostring(ok) .. '|' .. tostring(why) end)()"))
+    ok_s, why_s = r.split("|", 1)
+    if ok_s == "true":
+        return False, "活着的玩家竟然也能「复活」"
+    if not why_s or why_s == "nil":
+        return False, "被拒却没说原因（失败要吵）"
+    return True, "死后 %s（act 推不动 %d→%d）；自动复活后 respawns=%s、%s；" \
+                 "复活后 act 又能推动（%d→%s）；反向：活着时被拒「%s」" % (
+                     sg_name(), w_before, w_after, st().get("respawns"),
+                     "既能动", w2, (w3 if w3 >= 0 else "树被砍倒"), why_s)
+
+
+def e6_default_world_has_content():
+    """★★★ 2026-10-16 新增：**默认世界必须有东西可交互**（发布演练抓出来的）。
+
+    起因：`tests/test_deploy.py`（走 `deploy/start.sh` 的发布演练）量出 ——
+    默认世界**只有玩家一个实体**，`act_targets(0, 200)` 还是空的：
+    用户打开链接能走能跳，但**周围什么都没有**，砍不了、捡不了。
+    ⇒ 「服务端没问题」≠「用户那条路能玩」。这正是演练该抓的东西。
+
+    修法（07 侧）：`rt_boot` 多了 `populate_world(n)`，默认在**玩家周围**（3.5~9.9 格）
+    撒 14 个可交互植物（树 / 树苗 / 浆果丛）；`RT_WORLD_CONTENT=0` 可关。
+
+    判据：
+      ① 默认世界里，**不额外生成任何东西**，`act_targets(0, 20)` 必须非空，
+         且最近的那个必须是引擎自己声明的动作（CHOP/DIG/PICKUP 之一）；
+      ② 最近的目标必须在 **12 格内**（不然「一进游戏就能砍」这句话是假的）；
+      ③ **反向**：`RT_WORLD_CONTENT=0` 时必须真的是**空**的 ——
+         证明这条判据测的是「内容生成」，而不是「某个别的生成器顺手撒了点东西」。
+    """
+    import os as _os
+    # ① 默认（不设 RT_WORLD_CONTENT，用 rt_boot 的默认值）
+    _os.environ.pop("RT_WORLD_CONTENT", None)
+    s = Sim(seed=20261015, tick_hz=30).boot()
+    L = s.lua
+    L.globals().RT = s.api
+    tg = s.api.act_targets(0, 20)
+    n = len(tg) if tg is not None else 0
+    if n < 1:
+        return False, "默认世界 20 格内**一个可交互目标都没有**（用户打开链接会看到空世界）"
+    first = dict(tg[1])
+    if first.get("a") not in ("CHOP", "DIG", "PICKUP", "HARVEST"):
+        return False, "最近目标的动作名是 %r，不是引擎声明的动作" % first.get("a")
+    px, pz = float(first["x"]), float(first["z"])
+    # 玩家在原点附近（出生环），所以直接量到原点的距离就够
+    d = (px ** 2 + pz ** 2) ** 0.5
+    if d > 12.0:
+        return False, "最近的可交互目标在 %.1f 格外（>12）—— 「一进游戏就能砍」不成立" % d
+    n_kinds = len({dict(t).get("p") for t in (tg[i] for i in range(1, n + 1))})
+    # ③ 反向：关掉世界内容 ⇒ 必须真的是空的
+    # ★ 必须**通过构造参数**关，不能只设环境变量 —— `Sim.__init__` 会拿
+    #   `self.world_content`（默认 14）**覆盖** `RT_WORLD_CONTENT`。
+    #   （第一版就是只设了环境变量，于是反向跑到一半仍然是 12 个目标、判据报红；
+    #     这条反向因此顺带证明了「关内容」这件事**真的**是由构造参数决定的。）
+    s2 = Sim(seed=20261015, tick_hz=30, world_content=0).boot()
+    tg2 = s2.api.act_targets(0, 20)
+    n2 = len(tg2) if tg2 is not None else 0
+    if n2 != 0:
+        return False, "world_content=0 时居然还有 %d 个目标 —— 那这条判据没测到「内容生成」" % n2
+    return True, "默认世界 20 格内 %d 个可交互目标（%d 种，最近 %.1f 格 · %s·%s）；" \
+                 "反向：内容关掉后确实为空" % (n, n_kinds, d, first.get("p"), first.get("a"))
+
+
+def e7_night_is_survivable():
+    """★★★ 2026-10-16 新增：**夜里能活下来**（把 §9z 那条「夜里必死」的限制真正去掉）。
+
+    做法（07 侧，见 §9ae）：光照代理除了昼夜相位，还认「离**点着的营火**足够近」
+    （`M.in_light_at`，半径 `LIGHT_R` 默认 7）；黄昏时若没有点着的火，
+    就在玩家附近点一堆（**本世界的配置**：原版要玩家自己造火）。
+    实测（探针）：**火不会点燃旁边的树**（5 分钟里树的 burning 一直 false）——
+    所以加火是安全的；但它自己会烧完（约 140 s）⇒ 黄昏补一堆。
+
+    判据：
+      ① **纯函数**（把 `isnight` 当参数喂 ⇒ 不用等 430 秒的世界时间）：
+         白天到处都算在光里；夜里**火边算、远处不算**；
+      ② **反向**：把光照半径设成 0 ⇒ 站在火边也**不算**在光里
+         （证明 ③「活下来」靠的是这条规则，而不是「夜里其实不危险」）；
+      ③ **整段集成**：不打任何输入，跑过一整个 `day→dusk→night`（约 460 s 世界时间），
+         玩家必须**活着**（血量从没归零、`respawns` 没有增长），且期间**点过火**。
+    """
+    s = Sim(seed=20261015, tick_hz=30).boot()
+    L = s.lua
+    L.globals().RT = s.api
+
+    def ev(code):
+        """包一层 IIFE：`code` 是**函数体**（自己写 `return …`）"""
+        return L.eval("(function() " + code + " end)()")
+
+    def evx(code):
+        """**直接** eval：`code` 自带 `(function() … end)()`。
+        ★★ 为什么必须分开（今天第三次踩）：把自带的 IIFE 再套进 `ev()` 的 IIFE ⇒
+           外层函数体只剩一个表达式、**没有 return** ⇒ Lua 返回 nil ⇒ Python 收到 None
+           ⇒ 报出来的是 `int(None)` / `not enough values to unpack` 这种**看起来像取值失败**
+           的错，而真相是**包装套了两层**。规矩：**一个文件里只允许一种包装约定**，
+           要混用就必须分成两个名字（`ev` / `evx`）。"""
+        return L.eval(code)
+
+    # 先放一堆火并**登记成光源**（走的是生产代码同一个入口 `add_light_source`）
+    r = str(evx("""(function()
+      local C = require("host.01_core")
+      local p = RT.player
+      local px, py, pz = p.Transform:GetWorldPosition()
+      local ok, f = pcall(C.SpawnPrefab, "campfire")
+      if not ok or f == nil then return "-1" end
+      f.Transform:SetPosition(px + 3.0, 0, pz)
+      RT._fire = f
+      RT.add_light_source(f._guid)
+      local x, y, z = f.Transform:GetWorldPosition()
+      return string.format("%.2f|%.2f|%.2f", px, pz, math.sqrt((x - px) ^ 2 + (z - pz) ^ 2))
+    end)()"""))
+    if r.startswith("-1"):
+        return False, "造不出 campfire（夜里就没法待在光里）"
+    px, pz, fdist = r.split("|")
+    px, pz, fdist = float(px), float(pz), float(fdist)
+    lr = float(s.api.light_radius())
+    # ① 纯函数：白天到处算在光里；夜里火边算、远处不算
+    if not bool(ev("return RT.in_light_at(%.2f, %.2f, false)" % (px + 500, pz + 500))):
+        return False, "白天（isnight=false）远处居然不算在光里"
+    if not bool(ev("return RT.in_light_at(%.2f, %.2f, true)" % (px, pz))):
+        return False, "夜里站在火边（距离 %.2f < 半径 %s）竟然不算在光里" % (fdist, lr)
+    far = lr + 5.0
+    if bool(ev("return RT.in_light_at(%.2f, %.2f, true)" % (px + far, pz))):
+        return False, "夜里离火 %.1f 格（> 半径 %s）竟然还算在光里" % (far, lr)
+    # ② 反向：半径设 0 ⇒ 火边也不算在光里
+    s.api.set_light_radius(0)
+    if bool(ev("return RT.in_light_at(%.2f, %.2f, true)" % (px, pz))):
+        s.api.set_light_radius(lr)
+        return False, "光照半径设成 0 之后，火边竟然还算在光里 —— 那这条反向没测到东西"
+    s.api.set_light_radius(lr)
+    if not bool(ev("return RT.in_light_at(%.2f, %.2f, true)" % (px, pz))):
+        return False, "半径设回 %s 之后火边又不算在光里了" % lr
+
+    # ③ 集成：不打输入，跑过 day→dusk→night，玩家必须活着
+    saw_night = False
+    night_secs = 0
+    min_hp = 9999.0
+    for _ in range(18000):                      # 最多 600 s 世界时间
+        s.step()
+        st = s.stats()
+        ph = str(ev("return tostring(TheWorld.state.phase)"))
+        hp = st.get("player_health")
+        if isinstance(hp, (int, float)):
+            min_hp = min(min_hp, float(hp))
+        if ph == "night":
+            saw_night = True
+            night_secs += 1
+        if saw_night and night_secs > 30 * 20:  # 夜里再过 20 s 就够说明问题了
+            break
+    st = s.stats()
+    if not saw_night:
+        return False, "600 s 世界时间里没走到夜里（没测到要测的东西）"
+    if int(st.get("respawns", 0)) != 0:
+        return False, "夜里死了（respawns=%s）—— 火光保护没生效" % st.get("respawns")
+    if min_hp <= 0:
+        return False, "血量一度归零（最低 %.1f）" % min_hp
+    if int(st.get("fires_lit", 0)) < 1:
+        return False, "整个过程一次火都没点过（fires_lit=%s）—— 那 ③ 是靠什么活下来的？" % st.get("fires_lit")
+    return True, "夜里站在火边不算黑暗（半径 %s）· 白天不判 · 反向（半径 0 则失效）✔ · " \
+                 "集成：走过 %s 的夜晚，最低血量 %.0f、respawns=%s、点过 %s 堆火" % (
+                     lr, "≥20 s", min_hp, st.get("respawns"), st.get("fires_lit"))
+
+
+_DEBUG_SRV = {}
+
+
+def _start_debug_server():
+    """起一个带 `--allow-debug` 的独立服务端（比主服务端端口 +7）。
+
+    ★ 为什么必须 `--allow-debug`：跨进程验「死亡 ⇒ 自动复活 ⇒ 客户端认回自己」
+      需要一个**从外部触发死亡**的手段，而 `/debug/kill` **默认是关的**
+      （它能杀掉玩家的角色，不该出现在公网部署上 —— 发布检查单里专门写了这条）。
+    """
+    import tempfile
+    if _DEBUG_SRV.get("p") is not None and _DEBUG_SRV["p"].poll() is None:
+        return _DEBUG_SRV["port"]
+    port = PORT + 7
+    env = dict(os.environ)
+    env.pop("RT_SPAWN", None)
+    lf = open(os.path.join(tempfile.gettempdir(), "rt_debug_server.log"), "w", encoding="utf-8")
+    proc = subprocess.Popen([sys.executable, "-u", os.path.join(RT, "server.py"),
+                             "--port", str(port), "--hz", "30", "--allow-debug"],
+                            stdout=lf, stderr=subprocess.STDOUT, cwd=RT, env=env, text=True)
+    for _ in range(300):
+        if proc.poll() is not None:
+            raise RuntimeError("调试服务器启动即退出")
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+                _DEBUG_SRV["p"] = proc
+                _DEBUG_SRV["port"] = port
+                return port
+        except OSError:
+            time.sleep(0.1)
+    raise RuntimeError("调试服务器 30 s 内未监听")
+
+
+def _stop_debug_server():
+    p = _DEBUG_SRV.get("p")
+    if p is not None and p.poll() is None:
+        p.terminate()
+        try:
+            p.wait(timeout=5)
+        except Exception:                                        # noqa: BLE001
+            p.kill()
+    _DEBUG_SRV.clear()
+
+
+def e8_death_respawn_cross_process():
+    """★★★ 2026-10-16 新增：**跨进程**的「死亡 ⇒ 自动复活 ⇒ 客户端认回自己」。
+
+    为什么单列（§9aa.5 登记过这个缺口）：`E5` 是**进程内**验的；而「换了身体之后
+    **客户端**能不能认回自己」必须走**真连接**才算 —— 它依赖两件事一起工作：
+      · 服务端每 ~0.27 s 把 `slot_guid` **对账**（实体换了就更新）；
+      · 客户端每 2 s **例行重问 `whoami`**（拿到新 guid 就采纳）。
+    触发死亡需要一个外部手段 ⇒ 服务端加了 `--allow-debug` 下的 `/debug/kill`
+    （默认关闭；与 `/pause` 同族，都是「从外部控制世界」的入口）。
+
+    判据：
+      ① 连接 → `whoami` 拿到 guid1 与槽位；
+      ② `/debug/kill?slot=<槽位>` ⇒ `/healthz` 的 `player_alive` **必须变成 false**；
+      ③ 等 ~6 s（自动复活阈值 3 s）⇒ `player_alive` 回来、`respawns ≥ 1`；
+      ④ **重问 `whoami` 必须拿到 guid2 ≠ guid1**，且**新 guid 必须真的出现在帧里** ——
+         这就是「客户端能认回自己」的判据（只验「服务端换了个号」不够）；
+      ⑤ **反向**：主服务端（**没有** `--allow-debug`）的同一个端口必须回 **404**
+         ⇒ 证明这个「能杀角色」的入口默认是关的。
+    """
+    import urllib.request
+    import ws
+    try:
+        port = _start_debug_server()
+    except Exception as e:                                       # noqa: BLE001
+        return False, "起调试服务器失败: %s" % e
+
+    def health():
+        with urllib.request.urlopen("http://127.0.0.1:%d/healthz" % port, timeout=5) as r:
+            return json.loads(r.read().decode("utf-8"))["stats"]
+
+    def get(path, timeout=5):
+        try:
+            with urllib.request.urlopen("http://127.0.0.1:%d%s" % (port, path), timeout=timeout) as r:
+                return r.status, r.read().decode("utf-8", "replace")
+        except urllib.error.HTTPError as e:                       # noqa: PERF203
+            return e.code, ""
+        except Exception as e:                                    # noqa: BLE001
+            return -1, str(e)
+
+    sock = None
+    try:
+        # ① 连接 + whoami（拉取式，问到为止）
+        sock = socket.create_connection(("127.0.0.1", port), timeout=6)
+        ws.client_handshake(sock, "127.0.0.1:%d" % port)
+        g1 = slot = None
+        deadline = time.time() + 8
+        while time.time() < deadline and g1 is None:
+            sock.sendall(ws_encode({"cmd": "whoami"}))
+            for _ in range(20):
+                _op, d = _recv_frame(sock, 5.0)
+                try:
+                    m = json.loads(d.decode("utf-8"))
+                except Exception:                                # noqa: BLE001
+                    continue
+                if isinstance(m, dict) and m.get("you") is not None:
+                    g1, slot = int(m["you"]), int(m.get("slot", 0))
+                    break
+        if g1 is None:
+            return False, "8 s 没拿到 you 握手"
+        st0 = health()
+        r0 = int(st0.get("respawns", -1))
+        # ② 外部击杀
+        code, _body = get("/debug/kill?slot=%d" % slot)
+        if code != 200:
+            return False, "/debug/kill 返回 %s（开了 --allow-debug 应当 200）" % code
+        # ★★ 用**按槽位**的存活判据：`player_alive` 说的是**槽位 0**，
+        #   而这个客户端拿到的可能是槽位 1/2…（第一版就是因此误判成「击杀没生效」，
+        #   而调试服务器的日志里明明写着「槽位 1 调试击杀」→「实体变成了 guid=24」。）
+        def slot_alive(sl):
+            return (health().get("players") or {}).get(str(sl), {}).get("alive")
+
+        dead = False
+        for _ in range(60):
+            if slot_alive(slot) is False:
+                dead = True
+                break
+            time.sleep(0.1)
+        if not dead:
+            return False, "发了 /debug/kill，但槽位 %d 的 alive 一直是 %r（players=%r）" % (
+                slot, slot_alive(slot), health().get("players"))
+        # ③ 自动复活
+        back = False
+        for _ in range(120):                                     # 最多 12 s（阈值 3 s）
+            st = health()
+            if slot_alive(slot) is True and int(st.get("respawns", 0)) > r0:
+                back = True
+                break
+            time.sleep(0.1)
+        if not back:
+            return False, "死了之后 12 s 内没自动复活（respawns %s → %s）" % (
+                r0, health().get("respawns"))
+        # ④ 重问 whoami ⇒ 新 guid，且它必须真的出现在帧里
+        g2 = None
+        deadline = time.time() + 8
+        while time.time() < deadline and (g2 is None or g2 == g1):
+            sock.sendall(ws_encode({"cmd": "whoami"}))
+            for _ in range(20):
+                _op, d = _recv_frame(sock, 5.0)
+                try:
+                    m = json.loads(d.decode("utf-8"))
+                except Exception:                                # noqa: BLE001
+                    continue
+                if isinstance(m, dict) and m.get("you") is not None:
+                    g2 = int(m["you"])
+                    break
+            if g2 == g1:
+                time.sleep(0.3)
+        if g2 is None:
+            return False, "复活后没问到 you"
+        if g2 == g1:
+            return False, "复活后服务端还报旧 guid（%s）—— 客户端会一直找不到自己" % g1
+        # 新 guid 必须在帧里出现（= 客户端真的能认回自己）
+        seen = False
+        deadline = time.time() + 6
+        while time.time() < deadline and not seen:
+            try:
+                _op, d = _recv_frame(sock, 5.0)
+            except Exception:                                    # noqa: BLE001
+                break
+            try:
+                m = json.loads(d.decode("utf-8"))
+            except Exception:                                    # noqa: BLE001
+                continue
+            if isinstance(m, dict) and "ents" in m:
+                for e in m["ents"]:
+                    if int(e["id"]) == g2:
+                        seen = True
+                        break
+        if not seen:
+            return False, "新 guid（%s）在 6 s 内没出现在帧里 —— 客户端会「找不到自己」" % g2
+        # ④b ★ 复活之后**还能不能玩**：输入必须驱动**新的那具身体**。
+        #     只验「认回自己」不够 —— 认回来了但按键没反应，用户照样玩不了。
+        #     （输入是按**槽位**归因的，所以换身体后应当照常生效；这条就是守这个假设。）
+
+        def drain_until(t_min, want):
+            """读到**帧时间戳 ≥ t_min**，返回最后一次见到的 `want` 的位置与所见时间戳。
+
+            ★★ 必须按**帧里的时间戳**排空，不能「读到就返回」：
+               本工程已经因为「读到积压的旧帧」假红过三次（§9ab.4 就记过一次）。
+               直接返回第一个含该实体的帧 ⇒ 那多半是**按键之前**的帧 ⇒
+               位置当然不动 —— 于是把一个**测法问题**误报成 bug。
+            """
+            last, seen_t = None, 0.0
+            for _ in range(900):                                 # 最多 900 帧（30 s）
+                try:
+                    _op, d = _recv_frame(sock, 5.0)
+                except Exception:                                # noqa: BLE001
+                    break
+                try:
+                    m = json.loads(d.decode("utf-8"))
+                except Exception:                                # noqa: BLE001
+                    continue
+                if not (isinstance(m, dict) and "ents" in m):
+                    continue
+                seen_t = float(m.get("t", 0.0))
+                for e in m["ents"]:
+                    if int(e["id"]) == want:
+                        last = (float(e["x"]), float(e["z"]))
+                if seen_t >= t_min:
+                    break
+            return last, seen_t
+
+        p0, t0 = drain_until(0.0, g2)
+        if p0 is None:
+            return False, "新身体（guid %s）取不到位置" % g2
+        sock.sendall(ws_encode({"k": "right", "v": 1}))
+        time.sleep(1.5)
+        sock.sendall(ws_encode({"k": "right", "v": 0}))
+        p1, t1 = drain_until(t0 + 1.5, g2)                       # 按时间戳排空到「按键之后」
+        if p1 is None:
+            return False, "复活后按右，帧里找不到自己了"
+        if (p1[0] - p0[0]) < 0.5:
+            return False, "复活后按右 1.5 s 只动了 %.2f（帧时间 %.1f→%.1f）—— " \
+                          "换身体之后输入没接到新身体上" % (p1[0] - p0[0], t0, t1)
+        # ⑤ 反向：主服务端没开 --allow-debug ⇒ 同一个端点必须 404
+        import urllib.error
+        # ★★★ 这里**不许**写「连不上就跳过」。
+        #   第一版就是 `except Exception: bad = False   # 连不上就当这条反向不适用`，
+        #   于是**浸泡测试第 3 轮**（负载大、主服务端偶尔慢）这条反向**静默失效**了 ——
+        #   而指出它的正是**变异测试**：「调试端点不再校验 --allow-debug」那条篡改
+        #   突然「没被抓住」⇒ 顺着查才看到这个逃生口。
+        #   ⇒ 连不上只能说明**这条反向没验到**，那就该红（未跑的检查等于没有）。
+        code = None
+        for _ in range(3):
+            try:
+                with urllib.request.urlopen("http://127.0.0.1:%d/debug/kill?slot=0" % PORT,
+                                            timeout=5) as r:
+                    code = r.status
+                break
+            except urllib.error.HTTPError as e:
+                code = e.code
+                break
+            except Exception:                                    # noqa: BLE001
+                time.sleep(0.5)                                  # 重试 3 次再说
+        if code is None:
+            return False, "主服务端（127.0.0.1:%d）的 /debug/kill 连不上（重试 3 次）⇒ " \
+                          "**这条反向没验到**，不许当成通过" % PORT
+        if code != 404:
+            return False, "主服务端（**没有** --allow-debug）的 /debug/kill 返回 %d —— 默认关没生效" % code
+        return True, "跨进程：槽位 %d guid %s → 击杀（该槽位存活=false）→ 自动复活（respawns %d→%s）→ " \
+                     "重问拿到新 guid %s 且它出现在帧里 ✔ → **复活后按右仍能走**（+%.2f）✔；" \
+                     "反向：无 --allow-debug 时该端点 404 ✔" % (
+                         slot, g1, r0, health().get("respawns"), g2, p1[0] - p0[0])
+    finally:
+        if sock is not None:
+            try:
+                sock.close()
+            except Exception:                                    # noqa: BLE001
+                pass
+
+
+def e9_player_light_brings_you_into_light():
+    """★★★ 2026-10-16 P38：**随身光源** —— 补 §9ae 登记的那条代理缺口
+    （「火把/矿灯不算光源 ⇒ 夜里举着火把走，离火堆一远照样被黑暗打死」）。
+
+    ★ 探针先说清**为什么只能继续走代理**（实测）：宿主里
+      `Core.SpawnPrefab("torch")` 的组件是
+      `[burnable, equippable, fueled, lighter, inventoryitem, weapon …]` —— **没有 `light`**；
+      `lantern` 同样没有 ⇒ 「火把发光」在宿主里**没有组件支撑**。
+
+    做法：`M.set_player_light(slot, r)` —— 按**槽位**登记一个「随身光源」。
+    ★★ 为什么按槽位而不是实体 guid（本节的关键）：
+       玩家死亡会**自动换一具身体**（`M.respawn`：移除旧实体 + 重建），guid 会变；
+       按 guid 登记的话，复活一次随身光源就**悄悄失效**了。
+
+    判据：
+      ① 纯函数：开了随身光源 ⇒ 夜里**离任何火都很远**也算在光里；
+      ② **反向**：关掉之后，**同一个坐标、同样夜里** ⇒ 必须**不算**在光里
+         （证明 ① 是随身光源带来的，而不是那个位置本来就有光）；
+      ③ ★★ **复活换了一具身体之后仍然有效**（同一槽位）—— 「按槽位」的全部理由；
+      ④ 可观测：`stats()["players"]["0"]` 的 `in_light` / `light_r` 与 `player_light` 计数对得上。
+    """
+    s = Sim(seed=20261015, tick_hz=30).boot()
+    L = s.lua
+    L.globals().RT = s.api
+
+    def ev(code):
+        return L.eval("(function() " + code + " end)()")
+
+    def st():
+        return s.stats()
+
+    def slot0():
+        return (st().get("players") or {}).get("0") or {}
+
+    r = str(ev("""
+      local p = RT.player
+      local x, y, z = p.Transform:GetWorldPosition()
+      return string.format('%.2f|%.2f', x, z)"""))
+    px, pz = [float(v) for v in r.split("|")]
+    far_x, far_z = px + 300.0, pz + 300.0        # 离任何火都远（半径默认 7）
+
+    def far_lit():
+        # ★ 用 replace 而不是 Python 的 `%`：这段 Lua 里没有 %，但这是本工程反复踩过的坑，
+        #   一律按「不把 Lua 串交给 Python 的 % 格式化」来写。
+        return bool(ev("return RT.in_light_for_slot(0, __X__, __Z__, true)"
+                       .replace("__X__", "%.2f" % far_x).replace("__Z__", "%.2f" % far_z)))
+
+    # 前提：没开光源时，那个点夜里**不在**光里（否则下面测不出东西）
+    if far_lit():
+        return False, "前提不成立：离火 300 格的那个点本来就算在光里 —— 判据测不出东西"
+
+    # ① 开随身光源 ⇒ 远处也算在光里
+    ok, msg = s.api.set_player_light(0, 5)
+    if not ok:
+        return False, "set_player_light 失败：%s" % msg
+    if not far_lit():
+        return False, "开了随身光源，夜里离火 300 格竟然还不算在光里"
+
+    # ★ ④ 的可观测要**先让引擎推进几拍**：`players[slot].in_light` 由 `sync_grue_light`
+    #   在推进时填进 `LIGHT_STATE`，刚 boot 完还没跑过 ⇒ 会是 "?"（第一版就是这么红的）。
+    for _ in range(10):
+        s.step()
+
+    # ④ 可观测
+    if slot0().get("in_light") is not True:
+        return False, "stats().players['0'].in_light 应为 true，实为 %r" % slot0().get("in_light")
+    if int(st().get("player_light", -1)) != 1:
+        return False, "stats().player_light 计数应为 1，实为 %r" % st().get("player_light")
+    if slot0().get("light_r") != 5:
+        return False, "stats().players['0'].light_r 应为 5，实为 %r" % slot0().get("light_r")
+
+    # ② 反向：关掉 ⇒ 同一点、同样夜里 ⇒ 不算在光里
+    s.api.set_player_light(0, 0)
+    if far_lit():
+        return False, "关掉随身光源之后，那个点竟然还算在光里 —— 反向没测到东西"
+    if int(st().get("player_light", -1)) != 0:
+        return False, "关掉后 player_light 计数应为 0，实为 %r" % st().get("player_light")
+
+    # ③ ★★ 复活换身体之后仍然有效（证明挂在**槽位**上，而不是某个实体的 guid 上）
+    s.api.set_player_light(0, 5)
+    g_before = slot0().get("guid")
+    L.eval("(function() RT.player.components.health:DoDelta(-9999) return 1 end)()")
+    for _ in range(60):
+        s.step()
+    # 等自动复活（延迟 3 s）；判据是「guid 变了」＝真的换了身体
+    g_after = g_before
+    for _ in range(900):                          # 30 s 预算
+        s.step()
+        g_after = slot0().get("guid")
+        if g_after is not None and g_after != g_before and slot0().get("alive") is True:
+            break
+    if g_after == g_before:
+        return False, "没换身体（guid 仍是 %r）—— ③ 的前提不成立，测不出「按槽位」" % g_before
+    if not far_lit():
+        return False, "复活换了身体（guid %r → %r）之后随身光源失效了 —— 说明它挂在了 guid 上" % (
+            g_before, g_after)
+    return True, ("随身光源：夜里离火 300 格也算在光里 ✔；反向（关掉即失效）✔；"
+                  "★ 复活换了身体（guid %s → %s）之后仍然有效（= 挂在槽位上，不随实体消失）✔；"
+                  "stats 的 in_light/light_r/player_light 都对得上 ✔" % (g_before, g_after))
+
+
+def e10_player_state():
+    """★★★ 2026-10-18 P39：**自己现在什么状态，要看得见**（血 / 饿 / 理智 / 背包）。
+
+    缺口（在此之前）：
+      玩家身上 health / hunger / sanity / inventory 四个组件**都在**（实测 wilson 共 88 个），
+      但对用户完全不可见 —— 捡起一根木头，屏幕上一个字都没有；饿了不知道；
+      掉血了也说不出为什么。发布出去的东西「能走能砍」却「不知道自己怎么样」，
+      这不是玩法深度问题，是**信息缺失**。
+
+    判据：
+      ① 引擎层：`player_state(0)` 报出 150/150、饥饿在 [0,max]、理智 200/200；
+      ② 背包：空 → 喂 2 个 log + 1 个 twigs ⇒ 聚合为 `log×2 / twigs×1`（按数量降序）；
+      ③ **反向**：饥饿必须**真的在掉**（推进 3 s 后比开始时小）——
+         否则「有数字」可能是个死值（本工程吃过「恒为 35 度」那种亏）；
+      ④ **反向**：不存在的槽位 ⇒ `ok=false` 且**带原因**，不许回一串 0
+         （0 血看起来像「快死了」，而事实是「这个人不存在」）；
+      ⑤ 跨进程：WS 发 `{cmd:'me'}` 必须回 `me`，且 `health` 与 `/healthz` 的
+         `players[槽位].health` **一致**（两个真相源对账，防「各自算各自的」）。
+    """
+    s = Sim(seed=20261015, tick_hz=30).boot()
+    L = s.lua
+    L.globals().RT = s.api
+    # ★★★ 这里**不能**用 `_pin_player_alive`（2026-10-18 踩到的）：
+    #   它调的是 `health:SetInvincible(true)`，而原版 `hunger.lua` 的
+    #   `DoDelta(delta, overtime, ignore_invincible)` 里那句
+    #       `if not ignore_invincible and health and health:IsInvincible() or is_teleporting then return end`
+    #   把**无敌的玩家饿也饿不着**（DoDec 只传了 2 个参数，ignore_invincible 是 nil）。
+    #   于是「钉住生死」这个动作**顺手把被测的那个量也钉死了** ——
+    #   实测：pin 之后 90 拍 hunger 150.000 → 150.000（看着像「饥饿是死值」，
+    #   其实是**我的隔离手段**造成的）。⇒ 改成**逐拍补血**（不加无敌），
+    #   这样玩家死不了，饥饿照常结算。
+
+    def keep_alive(steps):
+        for _ in range(steps):
+            s.step()
+            L.eval("(function() local h = RT.player.components.health "
+                   "if h ~= nil and h.currenthealth < h.maxhealth then h:SetPercent(1) end "
+                   "return 1 end)()")
+
+    def pst(slot=0):
+        return s.player_state(slot)
+
+    # ① 基本值
+    st = pst(0)
+    if st.get("ok") is not True:
+        return False, "player_state(0) 没报 ok：%r" % (st.get("why"),)
+    if st.get("health") != 150 or st.get("maxhealth") != 150:
+        return False, "血量应为 150/150，实为 %r/%r" % (st.get("health"), st.get("maxhealth"))
+    if st.get("sanity") != 200 or st.get("maxsanity") != 200:
+        return False, "理智应为 200/200，实为 %r/%r" % (st.get("sanity"), st.get("maxsanity"))
+    hu, hm = st.get("hunger"), st.get("maxhunger")
+    if not isinstance(hu, (int, float)) or not isinstance(hm, (int, float)):
+        return False, "饥饿应当是数字，实为 %r/%r" % (hu, hm)
+    if not (0 <= hu <= hm):
+        return False, "饥饿 %r 不在 [0,%r] 里" % (hu, hm)
+    if st.get("items") != []:
+        return False, "新角色背包应为空，实为 %r" % (st.get("items"),)
+
+    # ② 背包聚合
+    L.eval("""(function()
+      local C = require("host.01_core")
+      local p = RT.player
+      for _, name in ipairs({"log", "log", "twigs"}) do
+        local it = C.SpawnPrefab(name)
+        p.components.inventory:GiveItem(it)
+      end
+      return 1
+    end)()""")
+    st2 = pst(0)
+    got = {str(r["p"]): int(r["n"]) for r in st2.get("items") or []}
+    if got.get("log") != 2:
+        return False, "背包里 log 应为 2，实为 %r（全部：%r）" % (got.get("log"), got)
+    if got.get("twigs") != 1:
+        return False, "背包里 twigs 应为 1，实为 %r（全部：%r）" % (got.get("twigs"), got)
+    if int(st2.get("total") or -1) != 3:
+        return False, "总数应为 3，实为 %r" % (st2.get("total"),)
+    items_seq = [str(r["p"]) for r in st2.get("items") or []]
+    if items_seq != ["log", "twigs"]:
+        return False, "顺序应按数量降序（log 在前），实为 %r" % (items_seq,)
+
+    # ③ 反向：饥饿**真的在掉**
+    h0 = float(st2.get("hunger"))
+    keep_alive(90)                     # 3 s 世界时间（逐拍补血，不用无敌 —— 理由见上）
+    h1 = float(pst(0).get("hunger"))
+    if not (h1 < h0):
+        return False, "推进 3 s 后饥饿没变（%r → %r）—— 这个数是个死值" % (h0, h1)
+
+    # ④ 反向：不存在的槽位
+    bad = pst(999)
+    if bad.get("ok") is not False:
+        return False, "不存在的槽位竟然报 ok=true：%r" % (bad,)
+    if not bad.get("why"):
+        return False, "不存在的槽位没给原因（用户只会看到一串 0）"
+    if bad.get("health") not in (None,):
+        return False, "不存在的槽位却报了血量 %r（会被读成「快死了」）" % (bad.get("health"),)
+
+    # ⑤ 跨进程：WS 的 me 与 /healthz 对账
+    import urllib.request
+    import ws as wsmod
+    sock = socket.create_connection(("127.0.0.1", PORT), timeout=5)
+    try:
+        wsmod.client_handshake(sock, "127.0.0.1:%d" % PORT)
+        sock.sendall(ws_encode({"cmd": "whoami"}))
+        slot_no, me = None, None
+        next_ask = 0.0
+        deadline = time.time() + 8.0
+        while time.time() < deadline:
+            # ★ 重问而不是「问一次就当真」：服务端是在**模拟线程**里按节拍算这张表的，
+            #   刚连上时会如实回 `ok:false —— 还没算出来（稍后再问）`。
+            #   第一版只看第一条回复 ⇒ 拿到那句「稍后再问」就判红（**我的判据错了**，
+            #   不是服务端没做；它说得很清楚）。
+            if slot_no is not None and time.time() >= next_ask:
+                sock.sendall(ws_encode({"cmd": "me"}))
+                next_ask = time.time() + 0.3
+            op, data = _recv_frame(sock, 0.5)
+            if op != 1 or not data:
+                continue
+            try:
+                m = json.loads(data.decode("utf-8"))
+            except Exception:                                # noqa: BLE001
+                continue
+            if isinstance(m, dict) and "you" in m and not m.get("busy"):
+                slot_no = int(m.get("slot", 0))
+            # ★ `isinstance(..., dict)` 是必须的：`m["me"]` 的形态由**服务端**决定，
+            #   判据这边先假设它一定是 dict，就等于把「服务端发错了」变成一句
+            #   `'int' object has no attribute 'get'`（同一个坑本轮踩过两次）。
+            if isinstance(m, dict) and isinstance(m.get("me"), dict) and m["me"].get("ok") is True:
+                me = m["me"]
+                break
+        if me is None:
+            return False, "WS 反复发了 {cmd:'me'}，但一直没拿到 ok=true 的回复（服务端没算出来？）"
+        if slot_no is None:
+            return False, "拿到了 me，但 whoami 一直没给出槽位号（对不了账）"
+        for k in ("health", "maxhealth", "hunger", "sanity", "items"):
+            if k not in me:
+                return False, "me 回复缺字段 %r：%r" % (k, sorted(me))
+        h = json.loads(urllib.request.urlopen(
+            "http://127.0.0.1:%d/healthz" % PORT, timeout=5).read().decode("utf-8"))
+        # ★★ 按槽位的血量在 **`stats.players`** 下面，不是顶层。
+        #   顶层那个（我原先当成了这张表）是**在线人数**、类型是 int ——
+        #   两个字段以前都叫 `players`，所以「看起来完全对」，炸在 `.get`。
+        #   现在顶层那个已改名 `player_count`（rt/server.py 里记了原因）。
+        #   万一以后再变形，错误信息里要带上**实际结构**，别再让我靠猜：
+        pl = ((h.get("stats") or {}).get("players") or {}).get(str(slot_no)) or {}
+        # ★ 2026-10-18：`stats` 改成**模拟线程每 8 拍刷一次的缓存**（不再跨线程进 Lua），
+        #   所以它最多落后 0.27 s —— 刚连上时槽位可能还没进统计。
+        #   ⇒ 与 `me` 同一个套路：**重问到出现为止**，而不是「第一次没有就判失败」。
+        for _retry in range(20):
+            if pl:
+                break
+            time.sleep(0.3)
+            h = json.loads(urllib.request.urlopen(
+                "http://127.0.0.1:%d/healthz" % PORT, timeout=5).read().decode("utf-8"))
+            pl = ((h.get("stats") or {}).get("players") or {}).get(str(slot_no)) or {}
+        if not pl:
+            return False, ("/healthz 的 stats.players 里没有槽位 %r（现有槽位：%r；顶层的键：%r）"
+                           % (slot_no, sorted((((h.get("stats") or {}).get("players")) or {})),
+                              sorted(h)))
+        if pl.get("health") != me.get("health"):
+            return False, ("两条链路的血量不一致：/healthz=%r vs me=%r"
+                           % (pl.get("health"), me.get("health")))
+    finally:
+        try:
+            sock.close()
+        except OSError:
+            pass
+
+    return True, ("血 150/150 · 饿 %r/%r · 理智 200/200 · 背包 log×2+twigs×1（共 3 件）✔；"
+                  "反向：3 s 后饥饿 %r→%r（真在掉）✔；不存在的槽位带原因、不报 0 ✔；"
+                  "跨进程 me 与 /healthz 血量一致（槽位 %r）✔"
+                  % (hu, hm, h0, h1, slot_no))
+
+
+def d4_session_identity_survives_restart():
+    """★★★ 2026-10-16 新增：**会话身份挺过重启**（P21 登记过的缺口，现在补上）。
+
+    以前 `slot → 会话 key` 只活在服务端**内存**里 ⇒ 重启之后每个客户端都会拿到**新**角色，
+    而旧角色（带着它走过的路）只能当「没人认领」删掉 —— 代码注释里写着
+    「真要保留他们，得先做『客户端身份持久化』」。这一轮做了：
+
+    * 存档里多两张表：`players`（槽位 → **旧 guid**）与 `keys`（槽位 → 会话 key）；
+    * `rt_save.apply` 顺手交出「**旧 guid → 重建出来的新实体**」这张表
+      （重建出来的实体是**新 guid**，老 guid 随清场消失 —— 没有这张表就翻译不过去）；
+    * 读档后按它**重新绑定** `槽位 → 角色`，只把**真正没人认领**的 wilson 删掉。
+
+    判据：
+      ① 两个角色（槽位 0 默认 + 槽位 1）、给槽位 1 记一个 key、把槽位 1 走到别处 ⇒ 存档；
+      ② 新 Sim 读档后：`slot_keys()[1]` **仍是那个 key**；两个槽位**都**有有效实体；
+         **槽位 1 的位置等于存档时的位置**（= 它的角色被保留了，不是新建在出生环上）；
+      ③ **反向**：没有 key 的存档（全新世界）读档后 `slot_keys()` 必须为空，
+         且「没人认领的角色」仍然会被清掉（旧行为不许被这次改动弄丢）。
+    """
+    import tempfile
+    sf = os.path.join(tempfile.gettempdir(), "rt_d4_save.json")
+    if os.path.exists(sf):
+        os.remove(sf)
+
+    s1 = Sim(seed=20261015, tick_hz=30).boot()
+    L = s1.lua
+    L.globals().RT = s1.api
+
+    def ev(code):
+        return L.eval("(function() " + code + " end)()")
+
+    # ① 造第二个角色并让它走开，再记一个 key
+    ok, g1 = s1.api.add_player(1)
+    if not ok:
+        return False, "加不了第二个玩家：%s" % g1
+    # ★ 必须**在 Lua 里**构造这张表：从 Python 直接传 dict，lupa 给过去的是 **userdata**，
+    #   而 Lua 那边 `pairs(map)` 会报 "table expected, got userdata"（第一版就是这么红的）。
+    #   服务端那边同理，用的是它自己的 `_py_to_lua()`。
+    ev('RT.set_slot_keys({[1] = "kA"}) return true')
+    s1.api.set_input_for(1, "right", True)
+    for _ in range(90):
+        s1.step()
+    s1.api.set_input_for(1, "right", False)
+    # ★ 用**字符串替换**而不是 `%` 格式化：这段 Lua 里有 `%.3f`，
+    #   用 Python 的 `%` 会把它当成占位符 ⇒ "not enough arguments"（今天第二次踩同款）。
+    # ★★ 这里**必须**直接 `L.eval`，不能走上面的 `ev()` 包装：
+    #   `ev(code)` 会把 code 包成 `(function() <code> end)()`，而下面这段 code
+    #   **本身就是** `(function() … end)()` ⇒ 外层函数体里只剩一句**表达式语句、
+    #   没有 return** ⇒ 外层返回 nil ⇒ Python 侧拿到 None（2026-10-16 实测踩到：
+    #   D4 报「位置 None → 23.8|0」，其实是**判据自己的包装**吞掉了返回值，
+    #   不是引擎没保住位置。＝「判据错被当成宿主缺口」的同款形态）。
+    def _pos_script(guid):
+        return """(function()
+      local e = RT.snapshot()
+      for _, x in ipairs(e.ents) do
+          if x.id == __G__ then return string.format('%.3f|%.3f', x.x, x.z) end
+      end
+      return "-|-" end)()""".replace("__G__", str(int(guid)))
+
+    def pos_of(L_, guid):
+        return L_.eval(_pos_script(guid))
+
+    p0 = pos_of(L, g1)
+    if str(p0).startswith("-"):
+        return False, "存档前找不到槽位 1 的实体（guid=%s）" % g1
+    n_before = int(s1.stats()["n_ents"])
+    s1.autosave(sf)
+
+    # ② 重启读档
+    s2 = Sim(seed=20261015, tick_hz=30).boot()
+    ok2, msg = s2.try_load(sf)
+    if not ok2:
+        os.remove(sf)
+        return False, "读档失败：%s" % msg
+    L2 = s2.lua
+    L2.globals().RT = s2.api
+    keys = s2.api.slot_keys()
+    keys = {int(k): str(v) for k, v in (dict(keys) if keys is not None else {}).items()}
+    if keys.get(1) != "kA":
+        os.remove(sf)
+        return False, "读档后会话 key 丢了：%r（应 {{1: 'kA'}}）" % keys
+    bound = s2.api.player_slots_bound()
+    bound = {int(k): int(v) for k, v in (dict(bound) if bound is not None else {}).items()}
+    if 0 not in bound or 1 not in bound:
+        os.remove(sf)
+        return False, "读档后槽位没绑回来：%r（应含 0 与 1）" % bound
+    g_new = int(bound[1])
+    p1 = str(pos_of(L2, g_new))
+    os.remove(sf)
+    if p1 != str(p0):
+        return False, "槽位 1 的角色**没有**接着上次：位置 %s → %s（应逐值一致）" % (p0, p1)
+
+    # ③ 反向：没有 key 的存档 ⇒ key 表必须为空（不许凭空冒出身份）
+    sf2 = os.path.join(tempfile.gettempdir(), "rt_d4_save2.json")
+    s3 = Sim(seed=20261015, tick_hz=30).boot()
+    s3.autosave(sf2)
+    s4 = Sim(seed=20261015, tick_hz=30).boot()
+    ok4, _ = s4.try_load(sf2)
+    k4 = s4.api.slot_keys()
+    n4 = len(dict(k4)) if k4 is not None else 0
+    os.remove(sf2)
+    if not ok4 or n4 != 0:
+        return False, "没有身份信息的存档读出来后 slot_keys 不是空的（%d 项）" % n4
+    return True, "存档 %d 实体 ⇒ 读档后 key{1:'kA'} 保住、槽位 0/1 都绑回来了、" \
+                 "槽位 1 位置 %s **逐值一致**（角色被保留而不是新建）；反向：无 key 的存档读出来仍是空" % (
+                     n_before, p0)
+
+
+def e2_chop_down_and_loot():
+    """★★★ 2026-10-16 新增：**砍倒 → 掉木头**（P22 当时没跑通、被登记成「未查」的那条）。
+
+    ★★★ 先说清机制 —— 这一轮我在这里**猜错过一次**，量出来的事实与直觉相反：
+      · **一次 `push_action` = 一次敲击，仅此而已**。
+        实测：树放 1.0 格外、只 push 一次 ⇒ workleft 15 → 14，然后**永远停在 14**；
+      · 「连砍」是**服务端按 `ACT_REPEAT`（30 拍 = 1 s）定时重发**撑起来的。
+        实测：每秒重发 ⇒ 15 → 14 → … → 1 → 倒下（`CHOP`→`DIG`）+ **掉 3 个 log**。
+      （我原先以为「原版动作链自己会循环、重发反而打断它」，据此把重发删了 ——
+        E1/E2 立刻变红，因为一次 push 只敲一下，删掉重发就一次都砍不倒。已还原。）
+
+    判据（**反向就长在同一次运行里**，这样「时间/步数」是同一个变量，控制得最干净）：
+      ① 挑**最高档**的树 A（workleft 最大）放身边、另一个同档树 B 放 6 格外；
+      ② 对 A 发**一次** `act`（客户端真实的做法就是按一次），**不再发第二次**，
+         然后跑足够长的世界时间（50 s 预算；最高档 15 点约 15~19 s 砍完）；
+      ③ A 的 `workable.action` 必须从 `CHOP` 变成 `DIG`
+         （`make_stump` 把同一个实体改成了树桩 —— 这就是「倒下了」的可观测证据）；
+      ④ 世界里必须**出现 `log`**（`lootdropper:DropLoot` 真的掉了东西）；
+      ⑤ 反向：B **一次都没被 act 过** ⇒ 它必须还是 `CHOP`、workleft 一点没少。
+    """
+    s = Sim(seed=20261015, tick_hz=30).boot()
+    L = s.lua
+    L.globals().RT = s.api
+    _pin_player_alive(L)            # ★ 钉住与「能不能砍倒」无关的变量（玩家生死），见该函数说明
+    info = L.eval("""(function()
+      local C = require("host.01_core")
+      local p = RT.player
+      local x, y, z = p.Transform:GetWorldPosition()
+      -- ① 挑 workleft 最大的那一档（evergreen 的 stage 是随机的：5 / 10 / 15）
+      local best, bestwl = nil, -1
+      for _ = 1, 60 do
+          local ok, t = pcall(C.SpawnPrefab, "evergreen")
+          if ok and t ~= nil then
+              local wl = t.components.workable and t.components.workable.workleft or 0
+              if bestwl < 0 or wl > bestwl then
+                  if best ~= nil then best:Remove() end
+                  best, bestwl = t, wl
+              else
+                  t:Remove()
+              end
+          end
+      end
+      if best == nil then return "-1|-1|-1" end
+      best.Transform:SetPosition(x + 1.5, 0, z)
+      RT._a = best
+      -- ⑤ 反向用的那棵：**同一次运行里**、同样长时间、就是不发 act
+      local ok2, b = pcall(C.SpawnPrefab, "evergreen")
+      b.Transform:SetPosition(x + 6.0, 0, z)
+      RT._b = b
+      return tostring(bestwl) .. "|" .. tostring(best._guid) .. "|" ..
+             tostring(b.components.workable and b.components.workable.workleft or -1)
+    end)()""")
+    wl_a, guid_a, wl_b = str(info).split("|")
+    if int(wl_a) < 0:
+        return False, "造不出 evergreen（引擎里没有这个预制体？）"
+    guid_a = int(guid_a)
+
+    def state(ref):
+        return str(L.eval("""(function()
+          local t = RT.%s
+          if t == nil or not t:IsValid() then return "gone" end
+          local w = t.components.workable
+          if w == nil then return "noworkable" end
+          return tostring(w.workleft) .. "|" .. tostring(w.action and w.action.id)
+        end)()""" % ref))
+
+    def logs():
+        return int(L.eval("""(function() local n = 0
+          for _, e in ipairs(RT.snapshot().ents) do
+              if e.p == "log" then n = n + 1 end end
+          return n end)()"""))
+
+    # ② 只发一次
+    ok, msg = s.api.act(0, guid_a)
+    if not ok:
+        return False, "对 1.5 格外的树发 act 被拒：%s" % msg
+    logs0 = logs()
+    for _ in range(1500):                      # 50 s 预算（最高档 15 点约 19 s）
+        s.step()
+
+    a = state("_a")
+    b = state("_b")
+    nlog = logs()
+    # ③ 倒下了 = **树桩**（同一实体的 action 从 CHOP 变 DIG）**或**实体已被移除。
+    #   ★ 宿主上这两条路都出现过（取决于倒下时那一拍有没有后续的清理任务），
+    #     所以判据认「离开了 CHOP 状态」这件事本身 —— 那才是「倒下了」的本质。
+    felled = (a == "gone") or a.endswith("|DIG")
+    if not felled:
+        return False, "50 s 后树 A 仍是 %s（没倒下）" % a
+    # ④ 掉东西了
+    if nlog <= logs0:
+        return False, "树倒了却一个 log 都没掉（末态 %s）" % a
+    # ⑤ 反向：没被 act 过的那棵必须原样
+    if not b.endswith("|CHOP"):
+        return False, "**没被 act 过**的树 B 竟然也变了：%s" % b
+    if b.split("|")[0] != str(wl_b):
+        return False, "没被 act 过的树 B workleft 从 %s 变成 %s" % (wl_b, b.split("|")[0])
+    return True, "树 A（workleft %s）一次 act → %s + 掉 %d 个 log；" \
+                 "反向：树 B 未被 act，仍是 %s（控制住了「时间」这个变量）" % (
+                     wl_a, ("已移除" if a == "gone" else "倒下（CHOP→DIG）"), nlog - logs0, b)
+
+
+def e3_pickup_item():
+    """★★ 2026-10-16 新增：**捡起来**（§9w.2 第 2 条的正解；旧结论是**错诊断**）。
+
+    旧文档写的是「拾取不可用：`inventory:GetItems()` 不存在（宿主那层是桩）」。实测：
+      ① 原版 `Inventory` **根本没有 `GetItems`** —— 真接口是 `GetItemInSlot` / `FindItem` /
+         `GetItemsWithTag` / `Has` / `GetNumSlots` / `GiveItem`，而这些**在宿主里全都能用**
+         （`GetNumSlots()=15`、`GiveItem(log)` ⇒ `Has("log",1)` 真）；
+      ② `ACTIONS.PICKUP.fn` 直接调用**能成**（log / twigs 都进了背包）；
+      ③ `loco:PushAction(PICKUP)` 之后动作**没人消费** —— 顺着源码走：对「带 target 的动作」，
+         `PushAction` 走 `GoToEntity`，**动作是在判定「到达」之后才执行的**。
+         到达距离 = `ARRIVE_STEP + rad(owner) + rad(self)` 再 `max(…, bufferedaction.distance)`；
+         `ACTIONS.CHOP.distance = 1.75` ⇒ 站 1.2 格外也算到达（实测能砍）；
+         而 `ACTIONS.PICKUP` **没有 `distance`**（它用 `extra_arrive_dist`）⇒ 实测
+         **只有站在物品正上方（0.0 格）才算到达**（0.2 格就捡不到）。
+      ⇒ 真正缺的是两处 **07 侧接线**：`action_for()` 认不认地上的物品、
+        以及用原版留的钩子 `bufferedaction.arrivedist` 把到达距离补上。
+
+    判据：
+      ① `log` 放在 1.0 格外 ⇒ 必须出现在 `act_targets` 里、动作名 `PICKUP`；
+      ② 发**一次** `act` ⇒ 物品进背包（`Has("log",1)`）且**离开世界**；
+      ③ 反向：同一次运行里另放一份 `twigs`、**不 act** ⇒ 它必须还在原地、背包里没有；
+      ④ 反向：「补到达距离」这件事**必须有记账**（`act_arrive_patched() ≥ 1`）——
+         否则那就成了一次静默的替原版打补丁（本工程最忌讳的那类）。
+    """
+    s = Sim(seed=20261015, tick_hz=30).boot()
+    L = s.lua
+    L.globals().RT = s.api
+    _pin_player_alive(L)            # ★ 同上（E3 也要，否则玩家会在 4 s 内掉血致死）
+    info = L.eval("""(function()
+      local C = require("host.01_core")
+      local p = RT.player
+      local x, y, z = p.Transform:GetWorldPosition()
+      local ok1, log = pcall(C.SpawnPrefab, "log")
+      if not ok1 or log == nil then return "-1|-1|-1" end
+      log.Transform:SetPosition(x + 1.0, 0, z)
+      RT._log = log
+      local ok2, tw = pcall(C.SpawnPrefab, "twigs")
+      tw.Transform:SetPosition(x, 0, z + 2.0)
+      RT._tw = tw
+      return tostring(log._guid) .. "|" .. tostring(tw._guid) .. "|" .. tostring(log.prefab)
+    end)()""")
+    guid_log, guid_tw, _ = str(info).split("|")
+    if int(guid_log) < 0:
+        return False, "造不出 log 预制体"
+    guid_log = int(guid_log)
+
+    def has(what):
+        # ★★ 判据**不用** `Inventory:Has`，自己数槽位。
+        #   为什么（2026-10-16）：E3 的运行里 `Has("twigs",1)` 报过一次「在背包里」，
+        #   而同一时刻把 `itemslots` 摊开只有 `log`（隔离复现时 `Has` 又是对的 —— 未复现）。
+        #   ⇒ 失败信息指向一个我**解释不了**的谓词，等于把排查成本丢给下一个人。
+        #   这条判据只依赖**我自己能读懂的**事实：槽位里到底放了什么。
+        #   （`Has` 的那次异常另立登记，见 §9y.8。）
+        return int(L.eval("(function() local inv = RT.player.components.inventory "
+                          "if inv == nil then return -1 end "
+                          "local n = 0 "
+                          "for _, v in pairs(inv.itemslots) do "
+                          "  if v ~= nil and v.prefab == %r then n = n + 1 end end "
+                          "return n end)()" % what))
+
+    def in_world(ref):
+        return bool(L.eval("(function() local t = RT.%s "
+                           "return t ~= nil and t:IsValid() and not t:IsInLimbo() end)()" % ref))
+
+    # ① 目标列表里必须出现这个物品，且动作名来自引擎（PICKUP）
+    tg = s.api.act_targets(0, 20)
+    hits = [dict(t) for t in tg.values()] if hasattr(tg, "values") else [dict(tg[i]) for i in range(1, len(tg) + 1)]
+    mine = [h for h in hits if h.get("id") == guid_log]
+    if not mine:
+        return False, "1.0 格外的 log 没出现在 act_targets 里（action_for 不认地上的物品？）"
+    if mine[0].get("a") != "PICKUP":
+        return False, "log 的动作名是 %r，应为 PICKUP" % mine[0].get("a")
+
+    before_has_log = has("log")
+    before_tw = in_world("_tw")
+    # ★ 前置条件必须**真的断言**（不是算出来放在那儿）：
+    #   否则「捡到之后 twigs 还在」这条反向可能因为「它一开始就不在」而白白通过。
+    #   （这一条是 pyflakes 提醒出来的：`before_tw` 赋值了却从没被用 —— 一个**空洞**。）
+    if before_has_log != 0:
+        return False, "捡之前背包里就有 log（%d 个）—— 判据的前提不成立" % before_has_log
+    if not before_tw:
+        return False, "捡之前 twigs 就不在世界里 —— 反向的前提不成立"
+    # ② 只发一次 act
+    ok, msg = s.api.act(0, guid_log)
+    if not ok:
+        return False, "对 1.0 格外的 log 发 act 被拒：%s" % msg
+    for _ in range(120):                       # 4 s
+        s.step()
+    if has("log") < 1:
+        return False, "发过 act 了，背包里仍然没有 log（到达距离没生效？）"
+    if in_world("_log"):
+        return False, "log 进了背包却仍留在世界里（重复）"
+    # ③ 反向：没被 act 过的那份必须原样
+    def invdump():
+        return str(L.eval("""(function()
+          local inv = RT.player.components.inventory
+          local out = {}
+          for i = 1, 15 do
+              local ok, it = pcall(function() return inv:GetItemInSlot(i) end)
+              if ok and it ~= nil then out[#out+1] = i .. ":" .. tostring(it.prefab) end
+          end
+          return table.concat(out, ",") end)()"""))
+    if not in_world("_tw"):
+        return False, "**没被 act 过**的 twigs 竟然离开了世界（背包=[%s] log=%s tw=%s）" % (
+            invdump(), guid_log, guid_tw)
+    if has("twigs") > 0:
+        return False, "**没被 act 过**的 twigs 竟然进了背包（背包=[%s] log=%s tw=%s）" % (
+            invdump(), guid_log, guid_tw)
+    # ④ 反向：补参数必须有记账
+    n_patch = int(s.api.act_arrive_patched())
+    if n_patch < 1:
+        return False, "「补到达距离」没有记账（act_arrive_patched=0）—— 那就成了静默打补丁"
+    return True, "log 在目标列表里（PICKUP）→ 一次 act ⇒ 进背包且离开世界；" \
+                 "反向：没被 act 的 twigs 原地不动、背包里也没有；补到达距离记账 %d 次" % n_patch
+
+
+def b24_ping_pong():
+    """★ 计划 §4 的 2.4 要「延迟」。浏览器 WebSocket **不暴露** ping/pong 帧
+       ⇒ 只能在应用层做：客户端发 `{cmd:"ping",v:序号}`，服务端回 `{pong:序号}`。
+
+       判据：
+         ① 收到 `{pong:N}` 且序号原样回显；
+         ② **不是快照**（没有 `ents`/`tick`）—— 混进的后果是客户端画面空一帧；
+         ③ ping **不得被计入坏帧**（那是「未知指令」的待遇，会污染健康指标）。
+    """
+    import ws as wsmod
+    sock = _connect()
+    try:
+        for _ in range(4):
+            _recv_frame(sock)
+        _, body = _http_get("/healthz")
+        bad0 = json.loads(body)["dropped_bad_frames"]
+        sock.sendall(wsmod.encode_frame_masked(
+            json.dumps({"cmd": "ping", "v": 4242}).encode("utf-8")))
+        deadline = time.time() + 3.0
+        while time.time() < deadline:
+            _, d = _recv_frame(sock)
+            m = json.loads(d.decode("utf-8"))
+            if "pong" in m:
+                if m["pong"] != 4242:
+                    return False, "pong 序号不对：%s" % m.get("pong")
+                if "ents" in m or "tick" in m:
+                    return False, "pong 里混进了快照字段：%s" % sorted(m)
+                _, body = _http_get("/healthz")
+                bad1 = json.loads(body)["dropped_bad_frames"]
+                if bad1 != bad0:
+                    return False, "ping 被计入坏帧（%d → %d）—— 客户端会看到健康指标变差" % (bad0, bad1)
+                return True, "收到 {pong:4242}（非快照、未计入坏帧）"
+        return False, "3 s 内没收到 pong"
+    finally:
+        sock.close()
+
+
+def b23_frame_only_drawable_and_sorted():
+    """★ 帧里只许有**可绘制的**实体，且**顺序稳定**（两条都是踩出来的）。
+
+       ★ 现象一：宿主 `Spawned` 里混着内部登记实体（实测 `guid=1` 是 TheWorld 本体、
+         `guid=2/3` 是只有 `knownlocations` 一个组件的内部表）—— 它们 `prefab == nil`、
+         没有 AnimState、**根本不可绘制**。其中 guid=2 **带位置**（(0,0)），
+         于是它作为「匿名实体」进了帧，客户端按老规矩给它画了个**回退灰点**，
+         正好压在玩家身上 ⇒ 症状是「玩家身上粘了个灰点」。
+       ★ 现象二：`for guid, inst in pairs(ents)` 的顺序**未定义**，而客户端是
+         **按帧序绘制**的 ⇒ 实体增删时前后关系会变 ⇒ 画面**闪**。
+
+       判据（缺一条就有盲区）：
+         ① 每个实体都要有 `prefab`（没有 = 内部实体混进来了）；
+         ② id **递增**（绘制顺序稳定）；
+         ③ 反向：宿主里 `prefab == nil` 的那些实体**必须不在帧里**（直接打死现象一）；
+         ④ 隔一段时间再看，id 序列**完全一致**（打死现象二）；
+         ⑤ `n` 必须等于 `ents` 的长度（帧自洽）。
+    """
+    s = Sim(seed=20261015, tick_hz=30).boot()
+    L = s.lua
+    for _ in range(30):
+        s.step()
+    # 先造一点多样性：生成一批生物（它们的 `*_classified` 镜像正是要防的东西）
+    s.api.spawn_extra(20)
+    for _ in range(20):
+        s.step()
+    f1 = s.snapshot()
+    ents = f1["ents"]
+    anon = [e["id"] for e in ents if not e.get("p")]
+    if anon:
+        return False, "帧里有 %d 个没有 prefab 的实体: %s（客户端会画成灰点）" % (len(anon), anon)
+    nobld = [e["id"] for e in ents if not e.get("bld")]
+    if nobld:
+        return False, "帧里有 %d 个**没有 build** 的实体: %s（客户端画不出来，只能画灰点）" % (
+            len(nobld), nobld)
+    ids = [e["id"] for e in ents]
+    if ids != sorted(ids):
+        return False, "实体 id 不是递增的 ⇒ 绘制顺序不稳定（会闪）: %s" % ids
+    if f1["n"] != len(ents):
+        return False, "n=%d 但 ents 有 %d 个（帧不自洽）" % (f1["n"], len(ents))
+    # ③ 反向：**内部实体 / 客户端镜像**必须不在帧里。
+    #   ★ 探针查的是宿主的**事实**（prefab==nil 或没有 build），
+    #     而不是「名字里带 _classified」那种猜法 —— 换任何名字这条判据照样成立。
+    bad_guids = [x for x in L.eval(
+        '(function() local Core = require("host.01_core") local t = {} '
+        'for guid, inst in pairs(Core.Spawned or {}) do '
+        'local as = inst.AnimState '
+        'if inst.prefab == nil or as == nil or as._build == nil then '
+        't[#t+1] = tostring(guid) end end '
+        'table.sort(t) return table.concat(t, "\\n") end)()').split("\n") if x]
+    if not bad_guids:
+        return False, "探针失效：宿主里所有实体都有 prefab 且有 build ⇒ 这条判据暂时没有意义（如实报出来）"
+    leaked = [g for g in bad_guids if int(g) in ids]
+    if leaked:
+        return False, "不可绘制的实体（内部登记/客户端镜像，共 %d 个）混进了帧: %s" % (
+            len(bad_guids), leaked[:6])
+    # ④ 顺序稳定性
+    for _ in range(10):
+        s.step()
+    f2 = s.snapshot()
+    if [e["id"] for e in f2["ents"]] != ids:
+        return False, "两帧的实体顺序不同：%s vs %s" % (ids, [e["id"] for e in f2["ents"]])
+    return True, "%d 个实体全部**有 prefab 且有 build**、id 递增且跨帧稳定；宿主内 %d 个不可绘制实体未混入" % (
+        len(ents), len(bad_guids))
+
+
+def b22_player_anims_exist_and_advance():
+    """★★★ 跨文件语义守卫：**玩家实际播的动画名**，三方必须对得上。
+
+       三方 = 「状态图实际播的」∩「引擎 build 里真有数据的」∩「自产图集里画得出来的」。
+       2026-10-16 之前这三方**两两不一致**，而程序**一个错都不报**：
+         · rt_boot 每 tick 重播 `idle`/`walk`/`run` ⇒ `_time` 被清零 ⇒ **帧永远停在 2**（精灵是死的）；
+         · 导出的 wilson build 里**根本没有** `walk`/`run`（只有 `run_pre`/`run_loop`/`run_pst`）
+           ⇒ 落到合成兜底（15 帧、无绘制数据）；
+         · 自产图集只画了 `idle_loop`/`walk`/`run` ⇒ **移动时客户端找不到动画、退化成画圆**。
+       三个问题叠在一起，症状只是「画面看起来不太对」，任何只测坐标/字段的判据都发现不了。
+
+       判据（缺一条就有盲区）：
+         ① 观察到的动画名**必须真有数据**（`_data.anims[name] ~= nil`），不是合成兜底；
+         ② `idle_loop` 的**帧号必须会变**（直接打死「每 tick 重播」）；
+         ③ 移动期必须出现 `run*` 动画（否则 ①② 可能因为「压根没动」而空过）；
+         ④ **自产图集**必须覆盖这些名字（发布版用的是自产素材，缺了就是画不出来）。
+    """
+    s = Sim(seed=20261015, tick_hz=30).boot()
+    L = s.lua
+    L.globals().RT = s.api
+    CUR = ('(function() local a = RT.player.AnimState '
+           'return tostring(a._curName), tostring(a._frame) end)()')
+
+    seen = {}
+    for ticks, move in ((30, False), (60, True), (30, False)):
+        s.set_input("right", move)
+        for _ in range(ticks):
+            s.step()
+            nm, fr = L.eval(CUR)
+            seen.setdefault(str(nm), set()).add(int(fr))
+    names = sorted(seen)
+
+    # ③ 三态都观察到（否则后面两条可能空过）
+    if "idle_loop" not in seen:
+        return False, "没观察到 idle_loop，只看到 %s" % names
+    moving = [n for n in names if n.startswith("run")]
+    if not moving:
+        return False, "移动期没出现 run* 动画，只看到 %s" % names
+
+    # ① 引擎 build 里真有数据（`_data.anims[name]` 存在才算，否则是合成兜底）
+    # ★★ 用 `table.concat` 在 Lua 侧拼成一个字符串，**不要**在 Python 侧迭代返回的表：
+    #   lupa 的 `_LuaTable` 迭代给的是**键**（下标 1,2,3…），不是值 ——
+    #   第一版就是 `set(str(x) for x in L.eval(...))` ⇒ 拿到 {'1','10','11',…}
+    #   ⇒ 所有动画名都被判成「不存在」。又一个「同一个操作在两种语言里语义不同」。
+    build_anims = set(L.eval(
+        '(function() local t = {} local d = RT.player.AnimState._data '
+        'for k in pairs((d or {}).anims or {}) do t[#t+1] = tostring(k) end '
+        'table.sort(t) return table.concat(t, "\\n") end)()').split("\n"))
+    fake = [n for n in names if n not in build_anims]
+    if fake:
+        return False, "这些动画名在引擎 build 里**没有数据**（落到合成兜底了）: %s" % fake
+
+    # ② 帧号真的在变
+    frozen = [n for n in names if len(seen[n]) < 2]
+    if frozen:
+        return False, "这些动画的帧号**从头到尾没变过**（动画是死的）: %s（各 %s）" % (
+            frozen, {n: sorted(seen[n]) for n in frozen})
+
+    # ④ 自产图集覆盖（发布版走的就是它）
+    jap = os.path.join(ROOT, "_demo_atlas", "json", "wilson.json")
+    if not os.path.isfile(jap):
+        return False, "自产图集不存在：%s（发布版要靠它）" % jap
+    with io.open(jap, encoding="utf-8") as f:
+        demo = set(json.load(f)["anims"].keys())
+    uncovered = [n for n in names if n not in demo]
+    if uncovered:
+        return False, "自产图集缺这些动画 ⇒ 移动时会退化成画圆: %s（图集里有 %s）" % (
+            uncovered, sorted(demo))
+
+    return True, "观察到 %s（帧号均会变）；引擎 build 与自产图集都覆盖它们" % (
+        " ".join("%s×%d帧" % (n, len(seen[n])) for n in names))
+
+
+def b15_terrain_endpoint():
+    """★ P10：`/terrain` 必须给出**与引擎里同一张**地形表，而不是另编一份。
+
+       反向部分：
+       ① 形状不对（长度 ≠ w×h）必须能被识别 —— 这里用「和进程内那份逐值比」来钉；
+       ② 每个瓦片 id 都必须在 `names` 里有名字（否则客户端只能涂默认色，
+          等于「地形其实没认出来」）；
+       ③ 真实地图上必须**同时存在**可通行与不可通行瓦片（全同色的地图等于没生成）。
+    """
+    import urllib.request
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:%d/terrain" % PORT, timeout=10) as r:
+            t = json.loads(r.read().decode("utf-8"))
+    except Exception as e:                                        # noqa: BLE001
+        return False, "取不到 /terrain: %s" % e
+    if not (t.get("w") and t.get("h") and isinstance(t.get("tiles"), list)):
+        return False, "形状不对: keys=%s" % sorted(t)
+    if len(t["tiles"]) != t["w"] * t["h"]:
+        return False, "瓦片数 %d ≠ w×h = %d" % (len(t["tiles"]), t["w"] * t["h"])
+    names = t.get("names") or {}
+    if len(names) < 4:
+        return False, "names 只有 %d 项（地形名没带过来）" % len(names)
+    unnamed = sorted({v for v in t["tiles"] if str(v) not in names})
+    if unnamed:
+        return False, "有 %d 个瓦片 id 没有名字: %s" % (len(unnamed), unnamed[:5])
+    # 与进程内那份（同一个种子）逐值比 —— 接口不能自己编一份
+    local = SIM["s"].terrain()
+    if (local["w"], local["h"]) != (t["w"], t["h"]) or local["tiles"] != t["tiles"]:
+        return False, "接口给的地形与引擎内的不一致"
+    # 真实地图应有可通行 + 不可通行两类（否则等于没生成地形）
+    kinds = {names[str(v)] for v in t["tiles"]}
+    has_land = bool(kinds & {"GRASS", "FOREST", "SAVANNA"})
+    has_block = "IMPASSABLE" in kinds or bool(kinds & {"OCEAN_COASTAL", "OCEAN_SWELL"})
+    if not (has_land and has_block):
+        return False, "地形种类过少: %s" % sorted(kinds)
+    return True, "%d×%d 瓦片（瓦片=%d 单位）· %d 种地形 · 与引擎内逐值一致（%s）" % (
+        t["w"], t["h"], t["tile"], len(kinds), "含陆地+阻隔")
+
+
+check("B0 起服务端", b0_start)
+check("B1 WebSocket 握手返回 101", b1_handshake)
+check("B2 持续收到帧，且世界时间在走", b2_frames_arrive)
+check("B3 **通过 WS 发输入 ⇒ 玩家位置改变**", b3_input_over_ws)
+check("B4 反向：坏 JSON 不崩且被**计数**", b4_bad_json_survives)
+check("B5 反向：未掩码帧被拒（RFC 6455）", b5_bad_masking_rejected)
+check("B6 /healthz 可用", b6_healthz)
+check("B7 静态服务（client.html）", b7_http_client)
+
+# ---- P5：二进制帧 + 端口守卫 ----
+def b8_binary_frames():
+    """★ `?bin=1` 必须发**二进制帧**（opcode=2）且能解出正确的世界"""
+    import ws, protocol_bin as PB
+    sock = socket.create_connection(("127.0.0.1", PORT), timeout=5)
+    ws.client_handshake(sock, "127.0.0.1:%d" % PORT, "/ws?bin=1")
+    try:
+        # ★★ 二进制模式下**控制消息（you 握手 / pong）仍然是文本**（客户端按 JSON 解），
+        #   只有**快照**是二进制 ⇒ 这里先跳过文本消息，再断言第一帧快照是二进制。
+        #   （"用文本 opcode 发二进制载荷" 是另一回事，下面照样检查。）
+        for _ in range(20):
+            op, data = _recv_frame(sock)
+            if op == 2:
+                break
+        else:
+            return False, "20 条消息里没有二进制帧"
+        if op != 2:
+            return False, "opcode=%d，应为 2（二进制）—— 用文本 opcode 发二进制载荷，" \
+                          "浏览器会当字符串收，arraybuffer 分支永不触发" % op
+        if data[:2] != b"RT":
+            return False, "魔数不对: %s" % data[:2].hex()
+        enc = PB.BinEncoder()
+        snap = PB.decode(data, enc)
+        if snap["n"] <= 0 or not snap["ents"]:
+            return False, "解出的实体数为 0"
+        # 连收 20 帧都要能解（验字典跨帧）
+        # ★ 必须**跳过非二进制消息**：P20 起 `you` 握手是文本帧，而它可能与快照交错到达。
+        #   不跳过的话 `PB.decode(文本)` 会抛 ValueError("魔数不对") ——
+        #   实测就是这么报的，而且看起来像「服务端发了坏帧」，其实只是测试没跳控制消息。
+        got_n = 1
+        tot = len(data)
+        for _ in range(40):
+            if got_n >= 21:
+                break
+            op, data = _recv_frame(sock)
+            if op != 2:
+                continue
+            snap = PB.decode(data, enc)
+            tot += len(data)
+            got_n += 1
+        if got_n < 21:
+            return False, "只收到 %d 帧二进制快照（要 21 帧）" % got_n
+        if snap["n"] <= 0:
+            return False, "后续帧解出实体数为 0"
+        return True, "opcode=2 / 魔数 RT / %d 帧全部解出（平均 %.0f B/帧）" % (got_n, tot / got_n)
+    finally:
+        sock.close()
+
+
+def b9_binary_smaller():
+    """★ 二进制必须**明显小于** JSON（P5 的收益判据）"""
+    import ws
+    def avg_bytes(path, n=20):
+        sock = socket.create_connection(("127.0.0.1", PORT), timeout=5)
+        ws.client_handshake(sock, "127.0.0.1:%d" % PORT, path)
+        tot = 0
+        for _ in range(n):
+            _op, d = _recv_frame(sock)
+            tot += len(d)
+        sock.close()
+        return tot / n
+    b = avg_bytes("/ws?bin=1")
+    j = avg_bytes("/ws")
+    if not (b < j * 0.5):
+        return False, "二进制 %.0f B 未明显小于 JSON %.0f B" % (b, j)
+    return True, "二进制 %.0f B/帧 vs JSON %.0f B/帧（省 %.0f%%）" % (b, j, 100 * (1 - b / j))
+
+
+def b10_port_guard():
+    """★ 反向：端口被占用时必须**拒绝启动**（Windows 的 SO_REUSEADDR 允许双绑 ⇒ 静默脑裂）"""
+    import subprocess as sp
+    r = sp.run([sys.executable, os.path.join(RT, "server.py"),
+                "--port", str(PORT), "--hz", "30", "--quiet"],
+               capture_output=True, text=True, cwd=RT, timeout=60)
+    if r.returncode == 0:
+        return False, "端口被占竟还启动成功（会与已有服务端**抢占同一端口**）"
+    if "已被占用" not in (r.stdout + r.stderr):
+        return False, "退出了但没给出「已被占用」的原因: %s" % (r.stdout + r.stderr)[:120]
+    return True, "拒绝启动且说明原因（退出码 %d）" % r.returncode
+
+
+check("B8 `?bin=1` 发**二进制帧**且能解出正确世界", b8_binary_frames)
+check("B9 二进制明显小于 JSON（省 ≥50%）", b9_binary_smaller)
+check("B10 反向：端口被占必须**拒绝启动**", b10_port_guard)
+
+# ---- P5/P6：自产资产优先 + 打包器 ----
+def b11_self_atlas_priority():
+    """★ 自产素材必须**优先**于原版（这是「发布版不带原版资产」的机制）"""
+    import urllib.request
+    def get(p):
+        return urllib.request.urlopen("http://127.0.0.1:%d%s" % (PORT, p), timeout=10).read()
+    d = json.loads(get("/atlas/json/wilson.json").decode("utf-8"))
+    n = len(d.get("symbols", {}))
+    # 原版 wilson.json 是 1.59 MB / 15 符号；自产是 ~2.8 KB / 4 符号
+    if n != 4:
+        return False, "拿到的 wilson.json 有 %d 个符号（自产应为 4 ⇒ 说明没走优先级）" % n
+    # 原版独有的 build 必须仍能取到（回退不能坏）
+    b = get("/atlas/json/beefalo_build.json")
+    if len(b) < 100000:
+        return False, "原版独有的 build 回退异常（拿到 %d 字节）" % len(b)
+    return True, "自产 wilson（4 符号）优先，原版 beefalo 仍可回退（%d KB）" % (len(b) // 1024)
+
+
+def b12_packer_output():
+    """★ 打包器产物必须能被渲染器接受（否则「换美术」这条路是断的）"""
+    import subprocess as sp
+    packer = os.path.join(ROOT, "tools", "pack_atlas.py")
+    out = os.path.join(ROOT, "_test_atlas")
+    r = sp.run([sys.executable, packer, "--out", out, "--build", "rt_test"],
+               capture_output=True, text=True, cwd=ROOT, timeout=120)
+    if r.returncode != 0:
+        return False, "打包器失败: %s" % (r.stdout + r.stderr)[-200:]
+    jp = os.path.join(out, "json", "rt_test.json")
+    pp = os.path.join(out, "anim_data", "rt_test__atlas-0.png")
+    if not (os.path.isfile(jp) and os.path.isfile(pp)):
+        return False, "产物缺失"
+    d = json.load(io.open(jp, encoding="utf-8"))
+    png = io.open(pp, "rb").read()
+    if png[:8] != b"\x89PNG\r\n\x1a\n":
+        return False, "PNG 头不对"
+    # 用渲染器的同一套判据自检：每个 anim 帧引用的符号都存在
+    missing = []
+    for an, a in d["anims"].items():
+        for fr in a["frames"]:
+            for it in fr:
+                if it["sym"] not in d["symbols"]:
+                    missing.append(an)
+    if missing:
+        return False, "anim 引用了不存在的符号: %s" % set(missing)
+    import shutil
+    shutil.rmtree(out, ignore_errors=True)
+    return True, "产物齐（%d 符号 / %d 动画 / PNG %d 字节）且自检通过" % (
+        len(d["symbols"]), len(d["anims"]), len(png))
+
+
+check("B11 自产资产**优先**原版 + 原版可回退", b11_self_atlas_priority)
+check("B12 打包器产物格式正确（可用于换美术）", b12_packer_output)
+
+# ---- P3 遗留项收口：自动存档 / 启动读档 ----
+def b13_autosave_cycle():
+    """★ 重启后世界必须**接着上次**（位置/时间逐值一致），且重启后仍可操控"""
+    import tempfile
+    sf = os.path.join(tempfile.gettempdir(), "rt_b13_save.json")
+    if os.path.exists(sf):
+        os.remove(sf)
+    s1 = Sim(seed=20261015, tick_hz=30).boot()
+    ok0, msg0 = s1.try_load(sf)
+    if ok0:
+        return False, "没有存档时不该报「已读档」"
+    s1.set_input("right", True)
+    for _ in range(90):
+        s1.step()
+    s1.set_input("right", False)
+    p0 = s1.snapshot()["player"]
+    t0 = s1.stats()["time"]
+    s1.autosave(sf)
+    # 模拟重启
+    s2 = Sim(seed=20261015, tick_hz=30).boot()
+    ok, msg = s2.try_load(sf)
+    if not ok:
+        return False, "重启读档失败: %s" % msg
+    p1 = s2.snapshot()["player"]
+    t1 = s2.stats()["time"]
+    if abs(p1["x"] - p0["x"]) > 0.01 or abs(t1 - t0) > 0.01:
+        return False, "重启后不一致：x %.3f→%.3f，t %.4f→%.4f" % (p0["x"], p1["x"], t0, t1)
+    s2.set_input("right", True)
+    for _ in range(60):
+        s2.step()
+    s2.set_input("right", False)
+    dx = s2.snapshot()["player"]["x"] - p1["x"]
+    os.remove(sf)
+    if dx <= 0.5:
+        return False, "重启后操控失效（只动了 %.3f）" % dx
+    return True, "重启后 x %.2f / t %.4f 逐值一致，且仍可操控（+%.2f）" % (p1["x"], t1, dx)
+
+
+def b14_bad_savefile_falls_back():
+    """★ 反向：存档半截时**必须明确报出来并用新世界**（不静默、也不拒绝启动）"""
+    import tempfile
+    sf = os.path.join(tempfile.gettempdir(), "rt_b14_save.json")
+    with io.open(sf, "w", encoding="utf-8") as f:
+        f.write('{"version":1,"ents":[{"prefab"')      # 故意的半截
+    s = Sim(seed=20261015, tick_hz=30).boot()
+    ok, msg = s.try_load(sf)
+    st = s.stats()
+    os.remove(sf)
+    if ok:
+        return False, "半截存档竟被接受"
+    if not msg or "读不动" not in msg:
+        return False, "没给出读不动的原因: %s" % msg
+    if st["n_ents"] <= 0 or not st["player_ok"]:
+        return False, "退到新世界后世界不可用"
+    return True, "拒绝并说明原因，退到可用的新世界（%d 实体）" % st["n_ents"]
+
+
+check("B13 重启读档：位置/时间逐值一致且仍可操控", b13_autosave_cycle)
+check("B14 反向：半截存档被拒 + 退回可用新世界", b14_bad_savefile_falls_back)
+check("B15 P10：`/terrain` 给出真的地形表（且与引擎内逐值一致）", b15_terrain_endpoint)
+check("B16 P3：暂停 ⇒ 世界时间停住但仍发帧（不误报断线）", b16_pause_ws)
+check("B17 反向：`/pause` 非法取值必须 400 且不改状态", b17_pause_http_and_bad_value)
+check("B18 M7：录制→回放 **逐 tick 指纹全同**", b18_replay_roundtrip)
+check("B19 反向：录像被改动必须**报不一致且定位到 tick**", b19_replay_tamper_rejected)
+check("B20 `--replay` 命令：退出码与拒绝逻辑", b20_replay_cli)
+check("B21 **硬杀进程后录像仍在**（stop.sh 就是这么停服的）", b21_record_survives_hard_kill)
+check("B22 **动画名三方一致 + 帧真的在推进**（跨文件语义守卫）", b22_player_anims_exist_and_advance)
+check("B23 帧里只许有可绘制实体 + 顺序稳定（内部实体不得混入）", b23_frame_only_drawable_and_sorted)
+check("B24 应用层 ping/pong（延迟测量）且 ping 不算坏帧", b24_ping_pong)
+check("E1 P22：交互链路（找目标 → 走过去 → 砍倒）+ 三种拒绝", e1_interaction_chain)
+check("E2 砍倒 ⇒ 倒下 + 掉木头（**只发一次 act**；反向：没被 act 的树不动）", e2_chop_down_and_loot)
+check("E3 捡起地上的物品（PICKUP）；反向：没被 act 的那份不动 + 补参数有记账", e3_pickup_item)
+check("E4 白天不该被「黑暗」打死（grue 光照代理）；反向：撤掉免疫必须重新掉血", e4_daylight_is_safe)
+check("E5 死亡 ⇒ 自动复活（否则世界永久停摆）；反向：活着时复活必须被拒且带原因", e5_death_and_respawn)
+check("E6 默认世界必须有东西可交互（发布演练抓出来的）；反向：内容关掉后确实为空", e6_default_world_has_content)
+check("E7 夜里能活下来（营火光照代理）；反向：半径设 0 则保护失效 + 整段集成", e7_night_is_survivable)
+def e11_debug_channel():
+    """★ P41：调试通道（`/debug/spawn` / `/debug/give` / `/debug/stats`）。
+
+    审计时的缺口：运行时**没有任何**能主动改变世界的调试通道 ——
+    只能靠 `RT_SPAWN` 在启动时撒固定的 13 种生物，想验「某个特定 prefab 能不能
+    生成、生成后行为对不对」就必须重启换参数。原版有 `c_spawn` / `c_give`。
+
+    判据（每条都配反向）：
+      ① `/debug/stats` 能拿到**当场算的** n_ents（不是 /healthz 的 0.27 s 缓存）
+      ② `/debug/spawn?prefab=log` ⇒ ok=True 且 guid>0；**n_ents 必须 +1**
+         （只验「返回了 200」不够 —— 那可能什么都没生成）
+      ③ **反向**：不存在的 prefab ⇒ ok=False 且**带原因**（不能 200 假装成功）
+      ④ `/debug/give?slot=0&prefab=log&n=2` ⇒ given=2，且背包件数**必须变多**
+      ⑤ **反向**：主服务端（**没有** `--allow-debug`）的同名路径必须 **404**
+    """
+    import urllib.request
+    import urllib.error
+
+    def get(port, path, timeout=15):
+        try:
+            with urllib.request.urlopen("http://127.0.0.1:%d%s" % (port, path),
+                                        timeout=timeout) as r:
+                return r.status, json.loads(r.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:                      # noqa: PERF203
+            # ★ 必须把**错误体的 JSON 读出来**：`/debug/spawn` 失败时回 400 + 原因，
+            #   第一版这里直接 `return e.code, {}` ⇒ 判据只看到「400 且空 body」，
+            #   于是「失败的 prefab 有没有给出原因」这一问永远问不出来。
+            try:
+                return e.code, json.loads(e.read().decode("utf-8"))
+            except Exception:                                    # noqa: BLE001
+                return e.code, {}
+        except Exception as e:                                   # noqa: BLE001
+            return -1, {"error": str(e)}
+
+    try:
+        port = _start_debug_server()
+    except Exception as e:                                       # noqa: BLE001
+        return False, "起调试服务器失败: %s" % e
+
+    # ① 当场统计
+    code, st = get(port, "/debug/stats")
+    if code != 200 or not isinstance(st.get("stats"), dict):
+        return False, "/debug/stats 返回 %s：%r" % (code, st)
+    n0 = st["stats"].get("n_ents")
+    if not isinstance(n0, int):
+        return False, "/debug/stats 里没有 n_ents：%r" % (sorted(st["stats"])[:8],)
+
+    # ② spawn 真生成
+    code, sp = get(port, "/debug/spawn?prefab=log")
+    if code != 200 or not sp.get("ok"):
+        return False, "spawn log 失败：%s %r" % (code, sp)
+    if not isinstance(sp.get("guid"), int) or sp["guid"] <= 0:
+        return False, "spawn 回的 guid 不对：%r" % (sp.get("guid"),)
+    # ★★ 主判据不是「实体数 +1」：世界本身会因为鸟/生成器/复活在变，
+    #   实测 n_ents 一次从 20 跳到 22（多了一个与我无关的）。
+    #   ⇒ 真正的证明是**按 guid 再查一次**：它必须真在世界表里、prefab 对、位置对。
+    code, en = get(port, "/debug/entity?guid=%d" % sp["guid"])
+    if code != 200 or not en.get("ok"):
+        return False, "spawn 回了 guid=%s，但按 guid 查不到：%s %r" % (
+            sp.get("guid"), code, en)
+    if en.get("prefab") != "log":
+        return False, "按 guid 查到的是 %r（应 log）" % (en.get("prefab"),)
+    if abs(float(en.get("x", 0)) - float(sp.get("x", 0))) > 0.01:
+        return False, "spawn 说放在 x=%r，查回来是 x=%r" % (sp.get("x"), en.get("x"))
+    # 实体总数只作**辅助信号**（不要求恰好 +1，只要求没变少）
+    _c, st2 = get(port, "/debug/stats")
+    n1 = (st2.get("stats") or {}).get("n_ents")
+    if isinstance(n1, int) and n1 < n0:
+        return False, "spawn 之后实体数反而少了：%d → %d" % (n0, n1)
+
+    # ③ 反向：坏名字必须如实失败并给原因
+    code, bad = get(port, "/debug/spawn?prefab=definitely_not_a_prefab")
+    if code == 200 or bad.get("ok") is not False:
+        return False, "不存在的 prefab 居然返回 %s %r" % (code, bad)
+    if not bad.get("error"):
+        return False, "失败没给原因：%r" % (bad,)
+
+    # ④ give 真进背包
+    code, gv = get(port, "/debug/give?slot=0&prefab=log&n=2")
+    if code != 200 or not gv.get("ok"):
+        return False, "/debug/give 失败：%s %r" % (code, gv)
+    if int(gv.get("given", 0)) != 2:
+        return False, "given=%r（应 2）" % (gv.get("given"),)
+    before, after = gv.get("items_before"), gv.get("items_after")
+    if not isinstance(before, int) or not isinstance(after, int):
+        return False, "背包件数没拿到：%r" % (gv,)
+    if after <= before:
+        return False, "give 说给了 2 个，背包却是 %d → %d" % (before, after)
+
+    # ⑤ 反向：默认关闭（主服务端没有 --allow-debug）
+    for pth in ("/debug/spawn?prefab=log", "/debug/give?slot=0&prefab=log",
+                "/debug/stats"):
+        code, _b = get(PORT, pth, timeout=5)
+        if code != 404:
+            return False, "主服务端（无 --allow-debug）的 %s 返回 %s（应 404）" % (pth, code)
+
+    return True, ("stats 当场算（n_ents=%d）✔ / spawn 真生成（guid=%d 可反查、位置一致）✔ / "
+                  "坏名字带原因 ✔ / give 背包 %d→%d ✔ / 默认关时全 404 ✔"
+                  % (n0, sp["guid"], before, after))
+
+
+def e12_act_index():
+    """★ P41 / T6：交互目标列表的**空间索引**。
+
+    改动前：`act_targets` 每个客户端每 250 ms 拉一次，而它是 `pairs(Ents)` 全表扫。
+    改动后：4 单位一格 + 每 8 拍重建 + 只扫半径包围盒内的格子。
+
+    验什么（每条都配反向/分辨力）：
+      ① `index` 与 `linear` 两个实现的 **guid 序列逐项完全相同**（含顺序与截断）
+         —— 这是「重构不改行为」的硬证据，不是「看起来差不多」
+      ② `count <= 12`（截断规则没变）
+      ③ **索引真的在省工作**：平均每次查询扫描的实体数明显小于实体总数
+         —— 没有这一条，②①也能过，但索引可能根本没生效（每次全扫）
+      ④ 单次查询耗时 ≤ 12.0 ms（计划里的预算）
+      ⑤ **反向**：远处的实体（65~75 格，在索引框 `44×44` 之外）**不该**出现在 20 格的结果里
+      ⑥ **反向**：半径缩到 1 时两个实现仍一致（小半径不能炸）
+    """
+    import urllib.request
+    import urllib.error
+    import tempfile
+    import math          # ★ 本文件顶部没有 import math；局部导入最省事，也不影响别的用例
+
+    def get(port, path, timeout=20):
+        try:
+            with urllib.request.urlopen("http://127.0.0.1:%d%s" % (port, path),
+                                        timeout=timeout) as r:
+                return r.status, json.loads(r.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:                      # noqa: PERF203
+            try:
+                return e.code, json.loads(e.read().decode("utf-8"))
+            except Exception:                                    # noqa: BLE001
+                return e.code, {}
+        except Exception as e:                                   # noqa: BLE001
+            return -1, {"error": str(e)}
+
+    # ★ 为什么自己起一个服务端而不复用 `_start_debug_server`：
+    #   那个刻意 `env.pop("RT_SPAWN")`（E8 要一个干净世界）。
+    #   而 T6 的性能判据必须在一批实体上量 —— 空世界里索引与线性都是 0 项，
+    #   「逐项一致」会两边都空、**判据没有分辨力**。
+    port = PORT + 11
+    env = dict(os.environ)
+    env.pop("RT_SPAWN", None)
+    env["RT_WORLD_CONTENT"] = "40"
+    lf = open(os.path.join(tempfile.gettempdir(), "rt_actindex_server.log"), "w",
+              encoding="utf-8")
+    proc = subprocess.Popen([sys.executable, "-u", os.path.join(RT, "server.py"),
+                             "--port", str(port), "--hz", "30", "--allow-debug"],
+                            stdout=lf, stderr=subprocess.STDOUT, cwd=RT, env=env, text=True)
+    try:
+        up = False
+        for _ in range(300):
+            if proc.poll() is not None:
+                return False, "索引测试服务端启动即退出"
+            try:
+                with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+                    up = True
+                    break
+            except OSError:
+                time.sleep(0.1)
+        if not up:
+            return False, "索引测试服务端 30 s 内未监听"
+
+        # 再撒一批：近处 30 个（2~8 格）+ 远处 90 个（65~75 格），都是可捡的 log
+        #
+        # ★★ 远处的距离为什么是 **65~75** 而不是原来的 40~50（P41 收尾时改）：
+        #   索引的候选格子是**轴对齐包围盒**（`px±radius` 的格子范围），**不是圆**。
+        #   `radius=20`、`ACT_CELL=4` ⇒ 框是 44×44（`|x|≤44 且 |z|≤44`）。
+        #   一个距原点 40~50 格的点，只要角度接近 45°，它的 `|x|` 和 `|z|` 都 ≈ 28~35
+        #   —— **完全落在框内**，索引本来就该把它当候选（随后由距离过滤掉）。
+        #   于是「按 0.7 的比例看扫描量」这条判据在旧几何下**只是碰巧能过**：
+        #   实测有一次扫了 108 / 140（0.77）⇒ 报红，而索引其实一直是生效的。
+        #   ⇒ 要让「远处」真的在框外，距离必须大于 `44 × √2 ≈ 62.2`。取 65~75。
+        #   （这不是放宽判据：改完仍然要求 `avg_scan ≤ n_ents × 0.7`，
+        #     只是把「远」定义成几何上真的远。同类错误见 §9an.7 第 8 条。）
+        near, far = 30, 90      # 远的那批要「多且确实在框外」，差值才够判定力
+        for i in range(near):
+            a = i * 0.7
+            x, z = math.cos(a) * (2 + i % 7), math.sin(a) * (2 + i % 7)
+            code, r = get(port, "/debug/spawn?prefab=log&x=%.2f&z=%.2f" % (x, z))
+            if code != 200 or not r.get("ok"):
+                return False, "撒近处 log 失败：%s %r" % (code, r)
+        for i in range(far):
+            a = i * 0.7
+            x, z = math.cos(a) * (65 + i % 11), math.sin(a) * (65 + i % 11)
+            code, r = get(port, "/debug/spawn?prefab=log&x=%.2f&z=%.2f" % (x, z))
+            if code != 200 or not r.get("ok"):
+                return False, "撒远处 log 失败：%s %r" % (code, r)
+
+        code, st = get(port, "/debug/stats")
+        n_ents = (st.get("stats") or {}).get("n_ents")
+        if not isinstance(n_ents, int) or n_ents < 40:
+            return False, "实体数不够，判据没有分辨力：n_ents=%r" % (n_ents,)
+
+        # ① 基线（拿累计计数的起点）
+        code, base = get(port, "/debug/act?slot=0&radius=20&impl=index&n=1")
+        if code != 200 or not base.get("ok"):
+            return False, "/debug/act(index) 失败：%s %r" % (code, base)
+
+        # ② 索引版
+        code, ix = get(port, "/debug/act?slot=0&radius=20&impl=index&n=1")
+        if code != 200 or not ix.get("ok"):
+            return False, "/debug/act(index) 失败：%s %r" % (code, ix)
+        # ③ 线性版
+        code, ln = get(port, "/debug/act?slot=0&radius=20&impl=linear&n=1")
+        if code != 200 or not ln.get("ok"):
+            return False, "/debug/act(linear) 失败：%s %r" % (code, ln)
+
+        if ix["ids"] != ln["ids"]:
+            return False, ("两个实现的 guid 序列不一致：\n  index =%r\n  linear=%r"
+                           % (ix["ids"][:200], ln["ids"][:200]))
+        if ix["count"] != ln["count"]:
+            return False, "count 不一致：index=%r linear=%r" % (ix["count"], ln["count"])
+        if ix["count"] > 12:
+            return False, "截断规则失效：返回了 %d 条（上限 12）" % ix["count"]
+        if ix["count"] == 0:
+            return False, "20 格内一个目标都没有 —— 判据没有分辨力（撒的 log 呢？）"
+
+        # ④ 索引真的省了工作：累计扫描数的**增量**必须显著小于实体总数
+        #   ★ 注意 `scanned` 只在**索引路径**累加（线性版走的是全表遍历，
+        #     压根不经过 `act_candidates`）。所以这里算的是「索引版那一次查询扫了多少」。
+        #   ★★ 方向必须是「后 - 前」：第一版写成 `base - ix`（反的），
+        #     于是增量恒为负、`avg_scan` 也是负的 —— 而下面的阈值比较
+        #     `avg_scan > n_ents * 0.7` 对负数**永远为假** ⇒ 那条判据**空转**。
+        #     实测输出里明晃晃写着「平均每次只扫 -108.0 个实体」还判 ✔，
+        #     是这次反向测试把它抓出来的。⇒ 除了改方向，再加一条「不许为负」的硬守卫。
+        d_scan = (ix.get("scanned") or 0) - (base.get("scanned") or 0)
+        d_look = (ix.get("lookups") or 0) - (base.get("lookups") or 0)
+        if d_look <= 0:
+            return False, "查询计数没涨：lookups %r → %r" % (base.get("lookups"), ix.get("lookups"))
+        if d_scan < 0:
+            return False, ("扫描计数倒着涨（%r → %r）—— 计数逻辑坏了，判据会空转"
+                           % (base.get("scanned"), ix.get("scanned")))
+        avg_scan = d_scan / d_look
+
+        # ★★★ 判据改法（P41 收尾）：从「扫描量占总数比例」改成「**框外实体确实没被扫**」。
+        #
+        #   为什么原来那条不能用：它假设「总数 - 候选数 ≈ 撒在远处的实体」，于是
+        #   `avg_scan <= 0.7 × n_ents` 就以为证明了索引在省。实测把这个假设打破了：
+        #   宿主**不做父子跟随**，约 140 个 `*_classified` 镜像实体的坐标**全停在 (0,0)**
+        #   （见 `M.snapshot` 那段注释），它们**堆在原点那一格里**。
+        #   于是 radius=1 的框里就已经有 140 个候选，radius=20 是 168 —— 与「远处撒了什么」无关。
+        #   实测同一个案件两次跑，一次 0.77×n_ents 报红、一次刚好过线 ⇒ **判据在抖**，
+        #   而且它抖的原因（原点那坨死重量）根本不是这条判据想测的东西。
+        #
+        #   现在的测法：**同一位置、同一世界，比较 radius=20 与 radius=200（覆盖全图）的候选数。**
+        #   两者之差必须 ≈ 我们撒在 65~75 格的那 90 个 —— 这才是「远处的格子**没被扫**」的
+        #   直接证据，且**对原点那坨死重量免疫**（两边都含它，相减就消掉了）。
+        #   若索引没生效（每次都全表扫），两个半径的候选数会相等 ⇒ 差值为 0 ⇒ 必红。
+        def avg_scan_at(radius, prev):
+            code_, r_ = get(port, "/debug/act?slot=0&radius=%d&impl=index&n=1" % radius)
+            if code_ != 200 or not r_.get("ok"):
+                return None, None, "/debug/act(radius=%d) 失败：%s %r" % (radius, code_, r_)
+            dl = (r_.get("lookups") or 0) - (prev.get("lookups") or 0)
+            ds = (r_.get("scanned") or 0) - (prev.get("scanned") or 0)
+            if dl <= 0:
+                return None, None, "radius=%d 的查询计数没涨（%r → %r）" % (
+                    radius, prev.get("lookups"), r_.get("lookups"))
+            if ds < 0:
+                return None, None, "radius=%d 的扫描计数倒着涨（%r → %r）" % (
+                    radius, prev.get("scanned"), r_.get("scanned"))
+            return ds / dl, r_, None
+
+        c200, r200, err = avg_scan_at(200, ix)
+        if err:
+            return False, err
+        if c200 <= avg_scan:
+            return False, ("半径 200 的候选数（%.1f）不大于半径 20 的（%.1f）—— 索引根本没按格子裁剪"
+                           % (c200, avg_scan))
+        excluded = c200 - avg_scan
+        # 远处撒了 30 个（frac=1.0 时是 90 个）；允许 20% 的余量：包围盒边界格会捞到零星几个。
+        need = far * 0.8
+        if excluded < need:
+            return False, ("半径 20 的候选里还混着远处的实体：框外只排除了 %.1f 个，应 ≥ %.1f"
+                           "（远处撒了 %d 个）" % (excluded, need, far))
+
+        # ⑤ 单次耗时预算（n 用满 200：单次太快，取平均才有意义）
+        code, bench = get(port, "/debug/act?slot=0&radius=20&impl=index&n=200")
+        if code != 200 or not bench.get("ok"):
+            return False, "/debug/act 压测失败：%s %r" % (code, bench)
+        if bench["ms"] is None or bench["ms"] > 12.0:
+            return False, "单次 act_targets 耗时 %r ms（预算 12.0）" % (bench["ms"],)
+        if bench["ids"] != ln["ids"]:
+            return False, "压测轮的 guid 序列与线性版不一致（性能优化改了行为）"
+
+        # ⑥ 反向：远处那些 log 不能出现在 20 格结果里
+        ids = [int(v) for v in ix["ids"].split(",") if v]
+        for guid in ids:
+            code, en = get(port, "/debug/entity?guid=%d" % guid)
+            if code != 200 or not en.get("ok"):
+                return False, "结果里有个 guid=%d 在世界里查不到" % guid
+            d = math.hypot(float(en["x"]), float(en["z"]))
+            if d > 21.0:            # 20 格 + 1 格容差
+                return False, ("结果里混进了 %d 格外的实体 guid=%d（%.1f 格）"
+                               % (21, guid, d))
+
+        # ⑦ 反向：半径缩到 2，两个实现仍要一致（小半径不能炸/不能空转）
+        #   ★ 为什么不是 1：实测 radius=1 时**两边都是 0 条**（撒的 log 最近在 2 格），
+        #     「0 == 0」通过说明不了任何事 —— 那是**空判据**。
+        #     radius=2 能捞到 4 条，比较才有分辨力；同时单独加一条「不许两边都空」。
+        code, i1 = get(port, "/debug/act?slot=0&radius=2&impl=index&n=1")
+        code2, l1 = get(port, "/debug/act?slot=0&radius=2&impl=linear&n=1")
+        if code != 200 or code2 != 200 or not i1.get("ok") or not l1.get("ok"):
+            return False, "半径 2 时查询失败：index=%s linear=%s" % (code, code2)
+        if i1["ids"] != l1["ids"]:
+            return False, "半径 2 时两个实现不一致：%r vs %r" % (i1["ids"], l1["ids"])
+        if i1["count"] == 0:
+            return False, "半径 2 时两边都是 0 条 —— 这条判据是空的（撒的近处 log 呢？）"
+
+        return True, ("guid 序列逐项一致（%d 条，与线性版完全相同）✔ / 截断 12 生效 ✔ / "
+                      "框外那 %d 个没被扫：radius 20 候选 %.1f，radius 200 候选 %.1f（差 %.1f）✔ / "
+                      "单次 %.2f ms（预算 12.0）✔ / 20 格外的没混进来 ✔ / 半径 2 时仍一致（%d 条，非空）✔"
+                      % (ix["count"], far, avg_scan, c200, excluded, bench["ms"], i1["count"]))
+    finally:
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except Exception:                                    # noqa: BLE001
+                proc.kill()
+        try:
+            lf.close()
+        except Exception:                                        # noqa: BLE001
+            pass
+
+
+check("E8 跨进程：死亡 ⇒ 自动复活 ⇒ 客户端认回自己；反向：debug 端点默认 404", e8_death_respawn_cross_process)
+check("D1 P21：带会话 key 重连**拿回同一个角色**（位置也保持）", d1_session_key_reclaims_avatar)
+check("D2 反向：宽限期过了**必须真回收**（否则刷新一次漏一个空壳）", d2_session_grace_expiry)
+check("D3 反向：同一个 key 同时连两个客户端 ⇒ 第二个被**明确拒绝**", d3_same_key_twice_is_refused)
+check("E9 随身光源：开了就在光里（营火之外）；反向关掉即失效 + 复活换身体后仍有效", e9_player_light_brings_you_into_light)
+check("E10 自身状态（血/饿/理智/背包）看得见；反向：饥饿真在掉 · 空槽位不报 0 · 与 /healthz 对账", e10_player_state)
+check("E11 调试通道：spawn/give/stats 有真实副作用；反向：非法 prefab 必失败、默认 404", e11_debug_channel)
+check("E12 交互目标空间索引：与线性实现逐项一致 + 真省扫描 + 单次 ≤12ms；反向：远处实体不混入", e12_act_index)
+check("D4 会话身份挺过重启（槽位/角色/位置都接着上次）；反向：无 key 的存档许不出身份", d4_session_identity_survives_restart)
+check("B25 P20：每个客户端有自己的角色（you 握手 + 槽位回收）", b25_每个客户端有自己的角色)
+check("B26 P20 核心：**A 的输入只能动 A 的角色**", b26_输入互不干扰)
+
+
+# =============================================================================
+# 收尾
+# =============================================================================
+_stop_debug_server()      # ★ E8 自己要起一个带 --allow-debug 的服务端，收尾必须停掉
+if PROC.get("p") and PROC["p"].poll() is None:
+    PROC["p"].terminate()
+    try:
+        PROC["p"].wait(timeout=5)
+    except Exception:                                            # noqa: BLE001
+        PROC["p"].kill()
+
+print("\n" + "─" * 74)
+print("  结果：%d 通过 / %d 失败" % (PASS, FAIL))
+print("─" * 74)
+sys.exit(0 if FAIL == 0 else 1)

@@ -1,0 +1,1240 @@
+<!DOCTYPE html>
+<!--[[=========================================================================
+ client.html —— 浏览器客户端（P1 首版：先证明「能看、能动」）
+
+ 本版故意**不做**图集精灵（那是 P4）：
+   先用色块 + 标签把「世界在实时走、键盘真的在操控角色」这件事**看得见**。
+   一次做太大反而容易既不好看也不正确。
+
+ 与服务器的关系（见 ../开发计划.md §1.1）：
+   服务端权威推进 30 Hz → 每帧发快照 → 本页只负责**画**与**收输入**
+   页面**不跑模拟**，所以不会出现「两端算得不一样」。
+============================================================================]]-->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>实时引擎 · P1 骨架（色块版）</title>
+<style>
+  html,body{margin:0;height:100%;background:#0d1117;color:#c9d1d9;
+            font:13px/1.5 ui-monospace,Consolas,monospace;overflow:hidden;
+            /* ★ P23：手机上必须关掉浏览器的默认手势（滚动/双击缩放/长按菜单），
+               否则「按住摇杆拖动」会被解释成滚动页面并把 pointercancel 打过来。 */
+            touch-action:none;-webkit-user-select:none;user-select:none;
+            -webkit-tap-highlight-color:transparent}
+  #cv{display:block;width:100vw;height:100vh;touch-action:none}
+  #hud{position:fixed;left:10px;top:10px;background:rgba(13,17,23,.82);
+       border:1px solid #30363d;border-radius:6px;padding:8px 11px;white-space:pre}
+  #hud b{color:#58a6ff}
+  .warn{color:#f0883e}
+  .ok{color:#3fb950}
+  #help{position:fixed;left:10px;bottom:10px;background:rgba(13,17,23,.82);
+        border:1px solid #30363d;border-radius:6px;padding:8px 11px}
+  kbd{background:#21262d;border:1px solid #30363d;border-radius:3px;padding:0 4px}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div id="hud">连接中…</div>
+<div id="help"></div>
+<script src="render_atlas.js"></script>
+<script src="render_batch.js"></script>
+<script src="protocol_bin.js"></script>
+<script>
+'use strict';
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+// ★★ P4：真实图集精灵渲染器（rt/render_atlas.js）
+//   画不出来时（图集还没加载 / 缺符号 / 缺帧）会返回 false，
+//   调用方**回退画圆** —— 所以画面永远有东西，不会白屏。
+// ★ 防御：万一 render_atlas.js 没加载上（脚本 404 / 被拦），
+//   也不能让整个客户端崩掉 —— 降级成「只画圆」，功能少一半但页面还活着。
+const Atlas = (typeof RenderAtlas !== 'undefined')
+  ? new RenderAtlas.AtlasRenderer('/atlas', ctx) : null;
+const hud = document.getElementById('hud');
+
+// ---------------------------------------------------------------- 批渲染（C2）
+// ★★ 为什么要有它：Canvas 2D 路径里**每个符号**都要付一次
+//   save → translate → scale → transform → drawImage → restore。
+//   400 个实体 × 3~8 个符号 = 1200~3200 次 drawImage —— 这就是「大场景帧率上限」。
+//   批路径把这些符号摊成四边形，同纹理的合成**一次 drawArrays**。
+//   （实测：185 个符号 → 12 次 draw call，省 93.5%；见 tests/test_render_batch.js）
+//
+// ⚠️ 为什么是「离屏 GL 画布 + 一次 drawImage 贴回」，而不是再叠一层 DOM canvas：
+//   2D 画布上还有地形（在精灵**下面**）、夜色/交互圈/摇杆（在精灵**上面**）。
+//   分两层 DOM canvas 就得把「精灵夹在中间」这件事交给 CSS 层叠顺序表达 ——
+//   而层叠顺序**没有判据**（只能靠看）。用一次 drawImage 贴回，层次仍由
+//   代码顺序决定，与改动前是同一处。
+//
+// 模式（`?render=canvas|batch|auto`）：
+//   auto（默认）—— 有 WebGL 就用批路径；初始化失败自动回落 Canvas 并**说明原因**；
+//   canvas       —— 强制旧路径（对照/排障）；
+//   batch        —— 强制批路径（不可用时照实说，不偷偷回落）。
+const RENDER = (() => {
+  const m = /[?&]render=(auto|canvas|batch)\b/.exec((typeof location !== 'undefined' && location.search) || '');
+  return m ? m[1] : 'auto';
+})();
+
+const SPR = (() => {
+  const st = { on: false, mode: 'canvas', why: '', quads: 0, draws: 0, frames: 0,
+               textures: 0, glErrors: 0, missingTextures: 0, pushes: 0 };
+  let gl = null, glc = null, rd = null;
+  let quads = [], emitStats = {};
+  const tex = new Map();                       // "build|atlas" -> WebGLTexture
+
+  function fail(why) {
+    st.on = false; st.mode = 'canvas';
+    // ★ `?render=batch` 是**明确要求**批路径：这时降级必须说清楚"是你要的没做到"，
+    //   而不是和 auto 模式一样淡淡地说一句"回落了"。两种情形混在一起的话，
+    //   「我明明强制开了」和「浏览器不支持」就永远分不清。
+    st.why = why + (RENDER === 'batch'
+      ? '（?render=batch 强制 batch，但没有降级余地）' : '');
+    st.glErrors++; gl = null; rd = null;
+    // ★ 不许静默降级：页面控制台 + `__rt.render()` 都要能看到**为什么**没开。
+    try { console.log('[render] 批路径不可用，回落 Canvas 2D —— ' + st.why); } catch (e) { /* ignore */ }
+  }
+
+  function init() {
+    if (RENDER === 'canvas') { st.why = '?render=canvas 指定走 Canvas'; return; }
+    if (typeof RenderBatch === 'undefined') { st.why = 'render_batch.js 没加载'; return; }
+    try {
+      glc = document.createElement('canvas');
+      glc.width = cv.width; glc.height = cv.height;
+      // ★ 必须 alpha:true —— 精灵层要透明，否则贴回时会整块盖掉地形。
+      const opt = { alpha: true, premultipliedAlpha: false, antialias: false };
+      gl = glc.getContext('webgl', opt) || glc.getContext('experimental-webgl', opt);
+      if (!gl) { fail('浏览器没给 WebGL 上下文'); return; }
+      rd = new RenderBatch.WebGLAtlasRenderer(gl);   // ★ 编译/链接失败会抛，见下
+      st.on = true; st.mode = 'batch'; st.why = 'ok';
+      try { console.log('[render] 批渲染已启用（' + st.mode + '）'); } catch (e) { /* ignore */ }
+    } catch (e) {
+      fail('WebGL 初始化失败: ' + (e && e.message ? e.message : e));
+    }
+  }
+
+  /** 图集图片 → GL 纹理（同一 key 只上传一次） */
+  function upload(key, img) {
+    if (!gl || !img || !img.complete || !img.naturalWidth) return null;
+    let t = tex.get(key);
+    if (t) return t;
+    t = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+    // ★ 图集是**像素画**：必须 NEAREST。线性过滤会把它糊成一团 ——
+    //   与 Canvas 侧 `imageSmoothingEnabled = false` 是同一个决定。
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    tex.set(key, t); st.textures = tex.size;
+    return t;
+  }
+
+  return {
+    init,
+    get on() { return st.on; },
+    get mode() { return st.mode; },
+    stats: () => Object.assign({}, st),
+    begin() { if (st.on) { quads = []; emitStats = {}; } },
+    /**
+     * 把一个实体摊成四边形（不画）。返回真的摊出的个数：
+     * 0 ⇒ 调用方应当回退画圆（与 Canvas 路径 `drawEntity` 返回 false 同一语义）。
+     */
+    push(ent, sx, sy, scale) {
+      if (!st.on || !Atlas) return 0;
+      Atlas.ensure(ent.bld);                       // 触发加载，不等待（首帧可能全是圆）
+      const rec = Atlas.builds[ent.bld];
+      if (!rec) return 0;
+      const made = RenderBatch.emitEntity(rec, ent, sx, sy, scale,
+                                          Atlas._sym.bind(Atlas), quads, emitStats);
+      if (made) st.pushes++;
+      return made;
+    },
+    /** 一次 flush：打包 → 上传纹理 → 画到离屏 GL → 贴回 2D 画布 */
+    flush(ctx2d) {
+      if (!st.on) return null;
+      try {
+        if (glc.width !== cv.width || glc.height !== cv.height) {
+          glc.width = cv.width; glc.height = cv.height;
+        }
+        const packed = RenderBatch.packBatches(quads, { order: 'strict' });
+        for (const b of packed.batches) {
+          const rec = Atlas && Atlas.builds[b.build];
+          const img = rec && rec.images && rec.images[b.atlas];
+          const t = upload(b.key, img);
+          if (t) rd.setTexture(b.key, t);           // 缺图 ⇒ 不登记 ⇒ 绘制时记账并跳过
+        }
+        gl.viewport(0, 0, glc.width, glc.height);
+        gl.clearColor(0, 0, 0, 0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        const r = rd.draw(packed, glc.width, glc.height);
+        st.quads = r.quads; st.draws = r.drawCalls;
+        st.missingTextures += r.missingTextures;
+        st.frames++;
+        if (r.quads > 0) ctx2d.drawImage(glc, 0, 0);
+        quads = [];
+        return r;
+      } catch (e) {
+        // ★ 运行期出错 ⇒ **关掉批路径**并回到 Canvas，而不是每帧抛一次异常。
+        //   抛异常的那个 catch 在 draw() 外层看不见（会被 requestAnimationFrame 吞掉），
+        //   症状是"画面不动了但日志安静" —— 正是本工程反复踩的那种。
+        fail('绘制期异常: ' + (e && e.message ? e.message : e));
+        quads = [];
+        return null;
+      }
+    },
+  };
+})();
+SPR.init();
+
+// ---------------------------------------------------------------- 相机
+const cam = { x: 0, z: 0, zoom: 8, follow: true };
+
+// ---------------------------------------------------------------- 交互（P22）
+// ★★ 目标由**服务端**给（它才知道「这东西能不能砍/挖/捡」），客户端只做三件事：
+//   ① 每 0.5 s 拉一次目标列表；② 挑最近的那个高亮 + 在 HUD 上写「按空格 砍」；
+//   ③ 按空格 → 发 `{cmd:"act",v:guid}`，松开发 unact。
+//   ⚠️ 为什么不在客户端算距离/可交互：那是**规则复制**，两边迟早不一致
+//     （本工程在「动画名」「地形名」上各栽过一次）。
+//
+// ★★★ 2026-10-16：**「按住时每 0.7 s 重发一次」已删**（这是简化，也顺带更省）。
+//   实测（把玩家钉成不死，各跑 3 遍，量「砍倒一棵 15 点的树」）：
+//     · 客户端每 0.7 s 重发 + 服务端 1 s 节拍 ⇒ **21 s / 共 30 次 push**（每 push 0.5 点）
+//     · 只让服务端按 1 s 节拍（客户端只发一次）⇒ **15 s / 共 15 次 push**（每 push 1 点）
+//   两遍各 3 次连跑结果**完全一致**。
+//   为什么重发会浪费：每次 `{cmd:"act"}` 都会把服务端的「下一拍」**重置为立刻**
+//     （`PENDING.next_t = 0`）⇒ 两个节拍**叠加**，多出来的那些 push 是在上一记还没落地时打的。
+//   ⚠️ 这里原来写的是「重发会打断引擎自己的动作循环」——**那个说法是错的**（见 §9y.3），
+//     连砍本来就是靠服务端的定时重发撑起来的。真正的理由是**节拍只该有一个主人**。
+//   ⇒ 现在：**按下只发一次**，剩下的交给服务端；想再来一次（如挖树桩）就**再按一次**。
+//     `ACT.held` 只用来在 HUD 上显示「进行中」，不再驱动任何重发。
+const ACT = { targets: [], pick: null, pickId: null, lastMsg: '', lastOk: null, lastAt: 0,
+              held: false, nextAt: 0, sent: 0, polling: false };
+// ★★ 选中（2026-10-16 加）：以前**永远只能作用于最近的那个**。
+//   默认世界里玩家周围有十几棵东西 ⇒ 「想砍哪棵就砍哪棵」是最基本的操作，
+//   而在此之前办不到（按空格永远是最近的）。
+//   做法：按下的位置**命中某个目标**（屏幕距离够近）⇒ 选中它；
+//   否则保持原状（并交给相机拖动）。选择按 **guid** 保持 ——
+//   目标列表每 0.5 s 刷一次，按**下标**保持会在列表变化时指到别的东西上。
+function pickTargetAt(sx, sy) {
+  let best = null, bestD = null;
+  const R = Math.max(16, cam.zoom * 1.3);      // 屏幕像素：缩放大 ⇒ 目标也大 ⇒ 命中半径跟着放大
+  for (const t of ACT.targets) {
+    const [tx, ty] = w2s(t.x, t.z);
+    const d = Math.hypot(tx - sx, ty - sy);
+    if (d <= R && (bestD === null || d < bestD)) { best = t; bestD = d; }
+  }
+  return best;
+}
+function actPoll(now) {
+  if (ws && ws.readyState === 1 && !ACT.polling) {
+    ACT.polling = true;
+    sendCmd({ cmd: 'targets' });
+    // ★ P39：同一次节拍顺手要一次「我怎么了」。**不按帧发** —— 血/饿是秒级的量，
+    //   30 Hz 地推等于把带宽花在看不出变化的小数位上（也违背「拉取而非推送」的既定做法）。
+    sendCmd({ cmd: 'me' });
+    ME_ST.asked++;
+    setTimeout(() => { ACT.polling = false; }, 500);      // 0.5 s 一次，别把链路刷满
+  }
+  // ★ 选择按 guid 保持：列表刷新后如果选中的那个还在，就继续选它；
+  //   它不见了（被砍倒/走远了）才退回最近的那个（服务端已按距离升序 ⇒ 第一个最近）。
+  if (ACT.pickId !== null) {
+    ACT.pick = ACT.targets.find((t) => t.id === ACT.pickId) || null;
+    if (!ACT.pick) ACT.pickId = null;                     // 目标没了 ⇒ 明确放弃选择
+  }
+  if (!ACT.pick) ACT.pick = ACT.targets.length ? ACT.targets[0] : null;
+  // ★ 这里**故意**什么都不做：按住 ≠ 重发（见上方实测：节拍只该有一个主人）。
+  //   留着这个函数是因为它还要负责「每 0.5 s 拉一次目标」与「挑最近的那个」。
+}
+function actKeyDown() {
+  if (ACT.held) return;
+  ACT.held = true;
+  if (ACT.pick) { sendCmd({ cmd: 'act', v: ACT.pick.id }); ACT.sent++; }
+}
+function actKeyUp() {
+  if (!ACT.held) return;
+  ACT.held = false;
+  sendCmd({ cmd: 'unact' });
+}
+
+// ---------------------------------------------------------------- 会话身份（P21）
+// ★ 为什么需要：没有它，刷新页面 = 丢掉自己的角色（重连拿一个新 wilson，站在原地的是个空壳）。
+//   做法：本地存一个随机 key（localStorage），随连接带上；服务端记 key→角色，
+//   断线后有**宽限期**保留角色 ⇒ 重连拿回同一个 guid、同一个位置。
+//   ⚠️ localStorage 在 file:// 或隐私模式下可能抛异常 ⇒ 必须 try/catch，
+//      拿不到就退化成「每次都是新角色」（功能少一点，但页面不能因此崩）。
+//   ⚠️ **必须声明在 `connect()` 之前**：`const` 有 TDZ，位置错了直接
+//      "Cannot access 'SKEY' before initialization"（同一个坑在 Lua 的 `local` 上也踩过）。
+const SKEY = (function () {
+  try {
+    let k = localStorage.getItem('rt_key');
+    if (!k) {
+      k = Math.random().toString(36).slice(2) + Date.now().toString(36);
+      localStorage.setItem('rt_key', k);
+    }
+    return k;
+  } catch (e) {
+    return '';
+  }
+})();
+
+// ---------------------------------------------------------------- 连接
+let ws = null, lastFrame = null, prevFrame = null, frameAt = 0, prevAt = 0;
+let connected = false, everConnected = false;
+let fps = 0, frames = 0, fpsAt = performance.now();
+let bytesIn = 0, bytesAt = performance.now(), bps = 0;
+let latency = null, lastPingAt = 0, seq = 0;
+
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  // ★ P5：默认走**二进制帧**（省 76~88% 带宽）；加 ?json=1 可切回 JSON（便于肉眼读帧）
+  const useBin = !location.search.includes('json=1');
+  ws = new WebSocket(`${proto}://${location.host}/ws${useBin ? '?bin=1' : ''}` +
+                     (SKEY ? `${useBin ? '&' : '?'}key=${SKEY}` : ''));
+  ws.binaryType = 'arraybuffer';
+  ws.onopen = () => {
+    connected = true; everConnected = true;
+    BUSY = false; whoTries = 0;      // 新连接 ⇒ 清掉上一次的「被拒」状态
+    // ★★ P20：连上就**问一次「我是谁」**（拉取，见 server.py 的说明）。
+    //   玩家是在模拟线程里异步建的 ⇒ 服务端可能先回 `null`，所以这里**退避重试**。
+    ME.id = undefined;
+    askWhoami(true);
+  };
+  ws.onclose = () => { connected = false; setTimeout(connect, 1000); };
+  ws.onerror = () => { connected = false; };
+  // ★ 把「收到一帧」抽成函数，好让测试钩子复用同一条路径
+  const binDict = new ProtocolBin.Dict();     // ★ 连接级字符串字典（跨帧累积）
+  function ingest(raw) {
+    let f;
+    if (raw instanceof ArrayBuffer) {
+      // 二进制帧：字典要**一直用同一个**（跨帧累积），否则解出来的名字全错
+      bytesIn += raw.byteLength;
+      try { f = ProtocolBin.decode(new Uint8Array(raw), binDict); } catch (e) { return; }
+    } else {
+      bytesIn += (raw && raw.length) || 0;
+      try { f = JSON.parse(raw); } catch (e) { return; }
+    }
+    const oldPrev = prevFrame;
+    // ★ 应用层 pong：**不是快照**，必须提前返回 —— 否则它会被当成一帧
+    //   （`lastFrame` 被替换成 `{pong:3}` ⇒ 实体全没了、画面空一帧）。这是最容易犯的错。
+    if (f && f.pong !== undefined) {
+      onPong(f.pong);
+      return;
+    }
+    // ★★ P20：`you` 握手 —— 服务端告诉我「你是哪一个实体」。同样**不是快照**。
+    //   多人之后「玩家」不再是一个固定字段：每个人都得知道**自己是哪一条**，
+    //   否则四个浏览器都会把「槽位 0」当成自己去跟相机（表现为「我在跟着别人跑」）。
+    // ★ P22：`targets` 也是**控制消息**（不是快照）—— 不提前返回的话
+    //   `lastFrame` 会被换成它，画面直接空一帧。
+    if (f && f.me !== undefined) {
+      // ★ P39：自身状态（血/饿/理智/背包）。与 targets 一样是**控制消息**，
+      //   必须提前 return —— 否则 lastFrame 会被换成它，画面空一帧。
+      applyMe(f.me);
+      return;
+    }
+    if (f && f.targets !== undefined) {
+      ACT.targets = f.targets || [];
+      if (f.last_act) { ACT.lastOk = !!f.last_act.ok; ACT.lastMsg = f.last_act.msg || ''; ACT.lastAt = performance.now(); }
+      return;
+    }
+    if (f && f.you !== undefined) {
+      // ★ P21：同一个会话 key 已经在别处连着 ⇒ 服务端明确拒绝（`busy`）。
+      //   这时**停止重试**并在 HUD 上说清楚 —— 否则会一直问下去，而人看不出为什么没角色。
+      if (f.busy) {
+        BUSY = true;
+        ME.id = undefined;
+        return;
+      }
+      // 服务端可能先回 `null`（它的玩家还在模拟线程里建）⇒ 保持 undefined，等重试
+      if (f.you !== null) {
+        // ★ 只有**换了身体**才重置预测：
+        //   例行重问（whoamiTick）每 2 s 会收到一次**同样的** guid；
+        //   若无条件 `PRED.ok = false`，预测就被反复初始化 —— 表现为每 2 s 顿一下。
+        //   （不是推测：预测一旦被反复重置，本工程的预测判据会立刻红。）
+        const changed = (ME.id !== f.you);
+        ME.id = f.you;
+        ME.slot = f.slot === undefined ? 0 : f.slot;
+        if (changed) PRED.ok = false;
+      }
+      return;
+    }
+    lastFrame = f;
+    prevFrame = prevFrame || f;
+    prevAt = frameAt; frameAt = performance.now();
+    // ★ 暂停状态以**服务端帧**为准（本地那次点击只是「请求」，不是事实）
+    if (typeof f.paused === 'boolean') paused = f.paused;
+    // ★ P5 5.4：先做预测校正（要用**更新前**的 prevFrame 去估计速度）
+    predOnFrame(f, oldPrev);
+    // 相机跟随**预测位置**（跟服务端位置的话，预测出来的那一小段会让画面来回抖）
+    if (PRED.ok && cam.follow) { cam.x = PRED.x; cam.z = PRED.z; }
+    else { const me = myEnt(f); if (me && cam.follow) { cam.x = me.x; cam.z = me.z; } }
+  }
+  ws.onmessage = (ev) => ingest(ev.data);
+
+  // ★★ 测试/调试钩子（P2）：**无浏览器（Node）也能喂帧、读状态、发输入**。
+  //   有了它，「≥55 fps」这类指标就能变成**可复现测量**（rt/perf_client.js），
+  //   而不是只能靠人眼看一眼说「好像不卡」。
+  window.__rt = {
+    feed: (obj) => ingest(JSON.stringify(obj)),
+    frame: () => lastFrame,
+    prev: () => prevFrame,
+    keys: () => Object.assign({}, keys),
+    // ★ 返回**活的** cam 对象（不是副本）—— 测试要能把缩放调小以验证降级行为。
+    //   第一版返回的是 `{x,z,zoom,follow}` 副本，于是 `__rt.cam().zoom = 2` 改的是副本，
+    //   相机毫无变化 ⇒ 测试会「看起来在测降级，其实什么都没改」。
+    cam: () => cam,
+    send: (k, v) => send(k, v),
+    // ★ 与 keydown/keyup **完全相同**的逻辑：现在它**真的**是同一个函数了
+    //   （此前这里是手抄的一份：改一处漏一处，判据只能证明「抄的那份对」）。
+    key: (k, down) => setKey(k, down, 'anon'),
+    // ★ P23：触屏面板。`pad()` 报**当前布局**（摇杆/动作键的圆心与半径，屏幕坐标）
+    //   —— 测试据此算「该往哪儿按」；`pt()` 走的是**与真实 pointer 事件相同的入口**。
+    pad: () => ({ on: PAD.on, active: PAD.active,
+                  stickOn: !!PAD.stick.id, actOn: !!PAD.act.id, zoom: cam.zoom,
+                  sx: PAD.stick.cx, sy: PAD.stick.cy, sr: PAD.stick.r,
+                  ax: PAD.act.cx, ay: PAD.act.cy, ar: PAD.act.r }),
+    setPad: (on) => { PAD.on = !!on; if (on) padLayout(); else releaseAll(); },
+    pt: (id, x, y, type) => {
+      if (PAD.on) padLayout();
+      if (type === 'down') return ptDown(id, x, y);
+      if (type === 'move') return ptMove(id, x, y);
+      return ptUp(id);
+    },
+    padHit: (x, y) => padHit(x, y),
+    fps: () => fps,
+    connected: () => connected,
+    // ★ 世界环境（昼夜/季节/温度）与它派生的暗度：测试要断言
+    //   「帧里带 world」⇒「画面真的暗下来了」，而不是只看字段存在。
+    world: () => (lastFrame && lastFrame.world) || null,
+    dark: () => darkA,
+    // ★ 地形：terrain() 报「就绪了没」，terrainDraws() 报「真的画过几次」。
+    //   两个都要：只查「数据到了」不够 —— 数据到了但没画，画面还是空的。
+    // ★ 暂停：paused() 是「本地镜像」；真相来自帧里的 paused（服务端权威），
+    //   所以测试要同时能读这两者，才能断言「服务端说停 ⇒ 界面就显示停」。
+    paused: () => paused,
+    setPause: (v) => setPause(v),
+    // ★ 绘制预算计数（P4 4.4）：降级/掉帧是**看不见的行为**，只能靠计数断言。
+    //   sprites/dots 记的是**决策**（该画精灵 / 该降级成点），与图集是否加载好无关 ——
+    //   沙箱里图集永远加载不出来，所以必须分开记「决策」与「实际画成什么」。
+    perf: () => Object.assign({}, PERF),
+    resetPerf: () => { for (const k in PERF) PERF[k] = 0; lastDrawAt = 0; },
+    // ★ C2：渲染路径状态。`mode` 是**实际生效**的那条（不是想要的那条），
+    //   `why` 说清为什么；`draws/quads` 是上一帧的真实 draw call 数与四边形数。
+    //   为什么必须能读：批渲染是「看不见的行为」—— 只开没开、省了多少，
+    //   不暴露出来就只能靠"感觉快了"来结案。
+    render: () => SPR.stats(),
+    // ★ P5 5.4：预测状态。测试要能断言三件事：
+    //   有输入 ⇒ 位置领先服务端（真的在预测）；小误差 ⇒ 平滑收敛不吸附；
+    //   大误差 ⇒ **立刻吸附**（不 rubber-band）；没输入 ⇒ **不外推**。
+    pred: () => Object.assign({}, PRED),
+    resetPred: () => { PRED.ok = false; PRED.x = 0; PRED.z = 0; PRED.vx = 0; PRED.vz = 0;
+                       PRED.err = 0; PRED.snapped = 0; PRED.corrected = 0;
+                       PRED.extrapolated = 0; PRED.noSpeed = 0; moveSpeed = 0; },
+    moveSpeed: () => moveSpeed,
+    playerScreen: () => lastPlayerScreen,
+    // ★ 往返延迟（计划 2.4）：rtt() 报**平滑后**的值；rttRaw() 报原始计数，
+    //   测试要能分辨「没测到」与「测到 0」（两者含义完全不同）。
+    rtt: () => RTT.ms,
+    // ★ P20：我是谁（服务端握手）。`me()` 报 id/槽位，`myScreen()` 报「我被画在哪」——
+    //   多人下最容易出的错是「相机跟着别人跑」，而那只在**画面上**看得出来。
+    me: () => ({ id: ME.id, slot: ME.slot, key: SKEY, busy: BUSY }),
+    // ★ 「我在帧里找不到自己」的判据（供测试用受控时钟驱动；draw 里走的是同一个函数）
+    selfMissing: (now) => selfMissingCheck(now === undefined ? performance.now() : now),
+    // ★ P22：交互。测试要能断言「按空格**只发一次**、按住才重复、松开发 unact」——
+    //   以及「目标是服务端给的、客户端不自己猜」。
+    act: () => ({ targets: ACT.targets.length, pick: ACT.pick, pickId: ACT.pickId,
+                  held: ACT.held, sent: ACT.sent, msg: ACT.lastMsg, ok: ACT.lastOk }),
+    setTargets: (list) => { ACT.targets = list || []; },
+    // ★ 选中目标（点击/点按）：走的是与真实 pointerdown **同一个函数**
+    pickAt: (x, y) => { const t = pickTargetAt(x, y); if (t) { ACT.pickId = t.id; ACT.pick = t; } return t; },
+    clearPick: () => { ACT.pickId = null; },
+    actKey: (down) => { if (down) actKeyDown(); else actKeyUp(); },
+    actTick: (now) => actPoll(now === undefined ? performance.now() : now),
+    // ★ P39：自身状态。`state()` 给结构化数据，`stateText()` 走的是**画 HUD 的同一个纯函数**
+    //   —— 判据断言的是「屏幕上会出现什么」，不是另一份手写的期望值。
+    state: () => ({ ok: ME_ST.ok, health: ME_ST.health, maxhealth: ME_ST.maxhealth,
+                    hunger: ME_ST.hunger, maxhunger: ME_ST.maxhunger,
+                    sanity: ME_ST.sanity, maxsanity: ME_ST.maxsanity,
+                    items: ME_ST.items.slice(), used: ME_ST.used, slots: ME_ST.slots,
+                    asked: ME_ST.asked }),
+    stateText: (st) => meLine(st === undefined ? ME_ST : st),
+    myScreen: () => lastPlayerScreen,
+    rttState: () => ({ ms: RTT.ms, pending: Object.keys(RTT.sent).length,
+                       seq: RTT.seq, unmatched: RTT.unmatched }),
+    // ⚠️ 故意**不重置** lastAt：这样测试才能验证「1 秒内不会重复发」这条节流
+    pingNow: (now) => pingTick(now === undefined ? performance.now() : now),
+    // ★ 例行重问「我是谁」的节拍（供测试驱动；与 draw() 里走的是同一个函数）
+    whoTick: (now) => whoamiTick(now === undefined ? performance.now() : now),
+    terrain: () => (TERR.ready ? { w: TERR.w, h: TERR.h, tile: TERR.tile, failed: TERR.failed } : null),
+    terrainDraws: () => terrDraws,
+    setTerrain: (t) => buildTerrain(t),     // 测试注入（走的是与 HTTP 完全相同的构建路径）
+  };
+}
+connect();
+loadTerrain();
+
+// ---------------------------------------------------------------- 我自己还在吗（P29）
+// ★ 为什么需要：§P26 让「死亡 ⇒ 3 秒后自动复活」跑通了，但**复活会换一具身体**
+//   （新的 guid）⇒ 那几百毫秒里，客户端拿着旧 guid 在帧里**找不到自己**：
+//   相机不跟、人物不画，而界面上**一个字都不说** —— 用户看到的是「画面莫名卡了一下」。
+//   这里做一件事：**「找不到自己」超过 1.5 秒就明说**（说得含糊一点也要说，因为
+//   客户端确实不知道服务端那边是死了还是在复活 —— 它只有帧）。
+//   ⚠️ 为什么不用协议：加一个「我死了」的位要升协议版本（帧格式变了），
+//     而**这个信息用现有帧就能推出来**（我这一条在不在帧里）。
+//     能推出来的东西就别改协议 —— 改协议要两边同时升，还会留下版本裂缝。
+let selfSeenAt = 0;
+function selfMissingCheck(now) {
+  // 「还没握手」与「没有帧」都不算找不到自己（那是「还没开始」）
+  if (ME.id === undefined || !lastFrame) return false;
+  if (myEnt(lastFrame)) { selfSeenAt = now; return false; }
+  // 连续 1.5 s 看不到自己才算 —— 单帧看不到可能是视口/AOI 的正常抖动，不该报警
+  return (now - selfSeenAt) > 1500;
+}
+
+// ---------------------------------------------------------------- 暂停
+// ★ 暂停是**世界**的状态，所以由服务端权威决定：本地只发一条控制指令，
+//   随后以服务端回帧里的 `paused` 为准（见 ingest 里那行）。
+//   为什么不本地停：本地停只会让**我自己**看不见动，别人的世界照跑 ——
+//   那叫「我卡了」，不叫「世界暂停了」。
+let paused = false;
+function setPause(on) {
+  paused = !!on;
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ cmd: 'pause', v: paused ? 1 : 0 }));
+}
+
+// ---------------------------------------------------------------- 输入（**唯一入口**）
+// ★★ 这里只有**一个**改写按键状态的地方：`setKey(k, down, src)`。
+//   键盘、触屏面板、测试钩子全部调它 —— 因为此前 `__rt.key` 把 keydown/keyup 的
+//   逻辑**又抄了一份**（「同一个功能两处实现」是本工程栽过多次的老根因：
+//   改了一处、另一处悄悄过期，而判据只证明了「抄的那份是对的」）。
+//   ⇒ 现在判据可以写成「键盘按下的帧、面板按下的帧，除 seq 外**逐字节一致**」。
+const DIRS = ['up', 'down', 'left', 'right'];
+const keys = {};
+const KEYMAP = { ArrowUp:'up', ArrowDown:'down', ArrowLeft:'left', ArrowRight:'right',
+                 KeyW:'up', KeyS:'down', KeyA:'left', KeyD:'right' };
+// ★ 每个方向记「**谁**按着它」（来源集合），而不是一个 0/1。
+//   为什么：键盘的 ArrowRight 与 KeyD 都映射到 right，触屏摇杆是第三个来源 ——
+//   用 0/1 的话「松开其中一个」会把方向整个清掉（另一个还按着，人却停了）。
+//   来源字符串：键盘 `kb:<code>`、摇杆 `stick`、测试钩子 `anon`。
+const held = { up: new Set(), down: new Set(), left: new Set(), right: new Set() };
+function send(k, v) {
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ k, v, seq: ++seq }));
+}
+function setKey(k, down, src) {
+  if (!Object.prototype.hasOwnProperty.call(held, k)) return false;   // 只认四个方向
+  const s = held[k], who = src || 'anon';
+  const was = s.size > 0;
+  if (down) { if (s.has(who)) return false; s.add(who); }
+  else { if (!s.has(who)) return false; s.delete(who); }
+  const now = s.size > 0;
+  if (now === was) return false;      // 有效状态没变 ⇒ 不发帧（比如 ArrowRight 松开但 KeyD 还按着）
+  keys[k] = now ? 1 : 0;
+  send(k, now ? 1 : 0);
+  return true;
+}
+// 松开**一切**（失焦 / 手势被打断 / 切标签页）：清空所有来源，并给残余方向补发一个 0。
+function releaseAll() {
+  for (const k of DIRS) {
+    if (held[k].size || keys[k]) {
+      held[k].clear();
+      if (keys[k]) { keys[k] = 0; send(k, 0); }
+    }
+  }
+  PTRS.clear(); PAD.stick.id = null; PAD.act.id = null; PAD.pinch = null; PAD.active = 0;
+  if (ACT.held) actKeyUp();
+}
+addEventListener('keydown', e => {
+  if (e.code === 'KeyF') { cam.follow = !cam.follow; return; }
+  // ★ P3「暂停」：P 键（服务端权威 —— 暂停是**世界**的状态，不是这一个客户端的状态）
+  if (e.code === 'KeyP') { setPause(!paused); return; }
+  // ★ P22：空格 = 对最近的可交互目标做动作（按住连续做）
+  if (e.code === 'Space') { actKeyDown(); e.preventDefault(); return; }
+  const k = KEYMAP[e.code];
+  if (k) { setKey(k, true, 'kb:' + e.code); e.preventDefault(); }
+});
+addEventListener('keyup', e => {
+  if (e.code === 'Space') { actKeyUp(); e.preventDefault(); return; }
+  const k = KEYMAP[e.code];
+  if (k) { setKey(k, false, 'kb:' + e.code); e.preventDefault(); }
+});
+// 失焦 / 页面隐藏：把按下的键都松开（否则会「一直往前走」）
+addEventListener('blur', () => releaseAll());
+addEventListener('visibilitychange', () => { if (document.hidden) releaseAll(); });
+
+// ---------------------------------------------------------------- 触屏 / 指针（P23）
+// ★ 目标：**手机能玩**（P6「可发布上线」的另一半 —— 能连上却没法操作等于不能玩）。
+// ★ 三条设计决定：
+//   ① 面板**不自己发帧**：它只调 `setKey(k,down,'stick')` 与 `actKeyDown/Up` ——
+//      与键盘完全同一条路 ⇒ 判据能写成「两条路的帧除 seq 外**逐字节一致**」；
+//   ② 面板画在 **canvas 上**（不建 DOM）：命中测试与绘制共用同一套坐标，
+//      与「拖拽平移」的冲突只需在 pointerdown 里分一次岔口；
+//   ③ 只在**粗指针**下开启（`(pointer:coarse)`），另留 `?pad=1/0` 便于桌面调试。
+//      ⚠️ 桌面若被误判成触屏，鼠标点左下角会被当成摇杆 ⇒ 必须能一键关掉。
+const PAD = {
+  on: false,
+  stick: { id: null, cx: 0, cy: 0, r: 60 },   // 摇杆区（屏幕坐标，每帧由 padLayout 算）
+  act:   { id: null, cx: 0, cy: 0, r: 48 },   // 动作键
+  pinch: null,                                // {d0, zoom0}：双指捏合的基准
+  active: 0,                                  // 当前按下的手指数（HUD 用）
+};
+const PTRS = new Map();                       // pointerId → {x,y,px,py,role}
+const STICK_DEAD = 0.28;                      // 死区（占半径比例）：太小会抖，太大会「推不动」
+(function initPad() {
+  const q = String(location.search || '');
+  if (/[?&]pad=0(&|$)/.test(q)) { PAD.on = false; return; }
+  if (/[?&]pad=1(&|$)/.test(q)) { PAD.on = true; return; }
+  try { PAD.on = !!(window.matchMedia && window.matchMedia('(pointer:coarse)').matches); }
+  catch (e) { PAD.on = false; }               // 老浏览器没有 matchMedia ⇒ 当桌面处理
+})();
+function padLayout() {
+  const r = Math.max(28, Math.min(cv.width, cv.height) * 0.13);
+  const m = r * 0.55, ar = r * 0.8;
+  PAD.stick.r = r;  PAD.stick.cx = m + r * 0.6;      PAD.stick.cy = cv.height - m - r * 0.6;
+  PAD.act.r = ar;   PAD.act.cx = cv.width - m - ar;  PAD.act.cy = cv.height - m - ar;
+}
+function padHit(x, y) {                       // → 'stick' | 'act' | null
+  const s = PAD.stick, a = PAD.act;
+  if (Math.hypot(x - s.cx, y - s.cy) <= s.r * 1.6) return 'stick';   // 手指出界一点仍算按住
+  if (Math.hypot(x - a.cx, y - a.cy) <= a.r * 1.5) return 'act';
+  return null;
+}
+// 摇杆向量 → 方向键（死区 + 八向自然合成）。ux 向右为正，uy **向上**为正。
+function stickKeys(ux, uy) {
+  const kx = Math.abs(ux) < STICK_DEAD ? 0 : (ux < 0 ? -1 : 1);
+  const kz = Math.abs(uy) < STICK_DEAD ? 0 : (uy < 0 ? -1 : 1);
+  // ★★★ 2026-10-18 修：这里原来**左右是自己手写的一份**
+  //   `if (kx < 0 && !keys.left) { keys.left = 1; ws.send(JSON.stringify({k:'left',v:1})) }`
+  //   —— 而上下走的是 `setKey(..., 'stick')`。只改了一半的后果（全部实测）：
+  //     ① 那些帧**没有 `seq`**（绕开了 send()）⇒ 判据 F20 立刻红
+  //        （「键盘那条路」与「摇杆那条路」的帧不再逐字节一致）；
+  //     ② **没有来源记账** ⇒ 键盘 D 与摇杆同时保证「右」时，松开 D 会把方向整个清掉（F27）；
+  //     ③ **没有反向清除** ⇒ 摇杆从右推到左时 `keys.right` 一直是 1（F21 报「左 1 右 1」）；
+  //        摇杆回中也不清（F22 / F26 报「松开后 keys.right 仍为 1」）。
+  //   ⇒ 四个方向**一律走 setKey**：序列号、来源记账、反向释放三件事只在一个地方实现。
+  //     （本工程的老母题又一次换了个位置：**同一件事两处实现**，而判据只证明了其中一处。）
+  setKey('left',  kx < 0, 'stick');
+  setKey('right', kx > 0, 'stick');
+  setKey('down',  kz < 0, 'stick');
+  setKey('up',    kz > 0, 'stick');
+  return [kx, kz];
+}
+function stickFromPoint(x, y) {               // 基点取**区域中心**（不是落点）：拇指按哪儿都算
+  const s = PAD.stick, vx = x - s.cx, vy = s.cy - y;
+  const d = Math.hypot(vx, vy) || 1;
+  const cl = Math.min(1, d / s.r);
+  return stickKeys((vx / d) * cl, (vy / d) * cl);
+}
+// —— 指针事件：**鼠标与触摸共用一条路**（pointer events 统一两者）——
+//   role='stick'/'act' 归面板，'cam' 归相机（原来的鼠标拖拽就是它）。
+function ptDown(id, x, y) {
+  if (PAD.on) {
+    const role = padHit(x, y);
+    if (role) {
+      PTRS.set(id, { x, y, px: x, py: y, role });
+      if (role === 'act') { PAD.act.id = id; actKeyDown(); }
+      else { PAD.stick.id = id; stickFromPoint(x, y); }
+      PAD.active = PTRS.size;
+      return true;
+    }
+  }
+  // ★ 选中目标：点在某个目标身上 ⇒ 选它（**不**顺便拖相机 —— 那是两件事，
+  //   同一次按下只做一件，否则「想选那棵树」会变成「画面被拖走了」）。
+  const hit = pickTargetAt(x, y);
+  if (hit) {
+    ACT.pickId = hit.id;
+    ACT.pick = hit;
+    PTRS.set(id, { x, y, px: x, py: y, role: 'pick' });
+    PAD.active = PTRS.size;
+    return true;
+  }
+  PTRS.set(id, { x, y, px: x, py: y, role: 'cam' });
+  cam.follow = false;
+  PAD.active = PTRS.size;
+  // ★ 第二根手指一落下就定基准（d0/zoom0）。等到第一次 move 才定的话，
+  //   基准会是「已经移动过的位置」⇒ 捏合的第一段位移被白白吃掉。
+  const cams = [...PTRS.values()].filter(q => q.role === 'cam');
+  if (cams.length === 2)
+    PAD.pinch = { d0: Math.hypot(cams[0].x - cams[1].x, cams[0].y - cams[1].y), zoom0: cam.zoom };
+  return true;
+}
+function ptMove(id, x, y) {
+  const p = PTRS.get(id);
+  if (!p) return false;
+  const dx = x - p.px, dy = y - p.py;    // 增量必须在更新 p.x/p.y **之前**算
+  p.px = p.x = x; p.py = p.y = y;
+  if (p.role === 'stick') { stickFromPoint(x, y); return true; }
+  if (p.role === 'act') return true;     // 动作键按下后手指滑动不改变状态
+  if (p.role === 'pick') return true;    // 选中目标的那一下：不拖动相机（见 ptDown 的说明）
+  // 相机：双指 ⇒ 捏合缩放（**不平移**，否则两指中点移动会让画面乱窜）；单指 ⇒ 平移
+  const cams = [...PTRS.values()].filter(q => q.role === 'cam');
+  if (cams.length >= 2) { pinchZoom(cams[0], cams[1]); return true; }
+  cam.x -= dx / cam.zoom;
+  cam.z += dy / cam.zoom;
+  return true;
+}
+function pinchZoom(a, b) {
+  const d = Math.hypot(a.x - b.x, a.y - b.y);
+  if (!PAD.pinch) { PAD.pinch = { d0: d, zoom0: cam.zoom }; return; }   // 兜底：没定过基准就现在定
+  if (d > 8 && PAD.pinch.d0 > 8)
+    cam.zoom = Math.max(2, Math.min(48, PAD.pinch.zoom0 * (d / PAD.pinch.d0)));
+}
+function ptUp(id) {
+  const p = PTRS.get(id);
+  if (!p) return false;
+  PTRS.delete(id);
+  PAD.active = PTRS.size;
+  if (p.role === 'act' && PAD.act.id === id) { PAD.act.id = null; actKeyUp(); }
+  if (p.role === 'stick' && PAD.stick.id === id) { PAD.stick.id = null; stickKeys(0, 0); }
+  if (PTRS.size < 2) PAD.pinch = null;
+  return true;
+}
+cv.addEventListener('pointerdown', e => {
+  padLayout();                                    // 命中测试要的是**当前**尺寸
+  if (ptDown(e.pointerId, e.clientX, e.clientY)) e.preventDefault();
+});
+addEventListener('pointermove',  e => { if (ptMove(e.pointerId, e.clientX, e.clientY)) e.preventDefault(); });
+addEventListener('pointerup',    e => { ptUp(e.pointerId); });
+// ★ pointercancel 必须当成 up 处理：浏览器收回手势（切后台/来电/系统手势）时只发它，
+//   不处理的话摇杆会**卡在按下状态** ⇒ 角色一直往前走。
+addEventListener('pointercancel', e => { ptUp(e.pointerId); });
+
+// 滚轮缩放
+cv.addEventListener('wheel', e => {
+  cam.zoom = Math.max(2, Math.min(48, cam.zoom * (e.deltaY < 0 ? 1.15 : 1/1.15)));
+  e.preventDefault();
+}, { passive: false });
+
+// ---------------------------------------------------------------- 绘制
+function resize() { cv.width = innerWidth; cv.height = innerHeight; padLayout(); }
+addEventListener('resize', resize); resize();
+
+function w2s(x, z) {                       // 世界 → 屏幕（DST：x-z 平面）
+  return [ (x - cam.x) * cam.zoom + cv.width/2,
+           (cam.z - z) * cam.zoom + cv.height/2 ];
+}
+
+// ---------------------------------------------------------------- 我是谁（P20）
+// ★ 默认退化：没有 `you` 握手（老服务端 / 单机）时用帧里的 `player` 字段，
+//   这样单人场景的行为与多人之前**逐字节一致**。
+const ME = { id: undefined, slot: 0 };
+
+// ---------------------------------------------------------------- 我怎么了（P39）
+// ★ 缺口：到此为止，玩家身上有血/饿/理智/背包，**屏幕上一个字都没有** ——
+//   捡了木头看不见、饿了不知道、掉血了不知道为什么。
+// ★ 数据来自服务端的 `{cmd:'me'}` 拉取（与 targets 同一节拍，见 actPoll）。
+//   这里只做两件事：**存下来**、**排版**。排版抽成纯函数 `meLine()`：
+//   HUD 与判据走**同一个函数**，不会出现「测试验的那份」与「画的那份」不一样
+//   （这正是本工程记过的「同一个逻辑两处实现」）。
+const ME_ST = { ok: false, health: null, maxhealth: null, hunger: null, maxhunger: null,
+                sanity: null, maxsanity: null, items: [], used: null, slots: null, at: 0, asked: 0 };
+
+function num(v) { return (typeof v === 'number' && isFinite(v)) ? v : null; }
+function fmtPair(cur, max) {
+  const a = num(cur), b = num(max);
+  return (a === null || b === null) ? '—' : (Math.round(a) + '/' + Math.round(b));
+}
+/** 纯函数：状态数据 → 一行文字。**不许抛异常、不许出现 NaN/undefined**。 */
+function meLine(st) {
+  if (!st || st.ok !== true) {
+    // ★ 说「未知」而不是画 0：0 血看起来像「快死了」，而事实是「还没拿到数据」。
+    return '♥ —  🍖 —  🧠 —  背包 —';
+  }
+  let s = '♥ ' + fmtPair(st.health, st.maxhealth)
+        + '  🍖 ' + fmtPair(st.hunger, st.maxhunger)
+        + '  🧠 ' + fmtPair(st.sanity, st.maxsanity);
+  const items = Array.isArray(st.items) ? st.items : [];
+  if (items.length === 0) {
+    s += '  背包 空';
+  } else {
+    const parts = items.slice(0, 6).map((it) => {
+      const n = num(it.n);
+      return String(it.p) + (n !== null && n > 1 ? '×' + n : '');
+    });
+    if (items.length > 6) parts.push('…');
+    const used = num(st.used), cap = num(st.slots);
+    const head = (used !== null && cap !== null) ? ('背包 ' + used + '/' + cap) : '背包';
+    s += '  ' + head + ': ' + parts.join(' ');
+  }
+  return s;
+}
+/** 服务端推来的 me 消息 → 归一化（**只认数值字段，字符串一律拒**） */
+function applyMe(m) {
+  ME_ST.ok = !!(m && m.ok === true);
+  ME_ST.health = num(m && m.health);   ME_ST.maxhealth = num(m && m.maxhealth);
+  ME_ST.hunger = num(m && m.hunger);   ME_ST.maxhunger = num(m && m.maxhunger);
+  ME_ST.sanity = num(m && m.sanity);   ME_ST.maxsanity = num(m && m.maxsanity);
+  ME_ST.items = (m && Array.isArray(m.items)) ? m.items : [];
+  ME_ST.used = num(m && m.used);       ME_ST.slots = num(m && m.slots);
+  ME_ST.at = performance.now();
+}
+function myEnt(f) {
+  if (!f || !f.ents) return null;
+  if (ME.id !== undefined) {
+    for (const e of f.ents) if (e.id === ME.id) return e;
+    return null;                    // 我这一帧不在（正常：视口/AOI 之外的极端情况）
+  }
+  if (!f.player) return null;
+  for (const e of f.ents) if (e.id === f.player.id) return e;
+  return { id: f.player.id, x: f.player.x, z: f.player.z };
+}
+
+// ---------------------------------------------------------------- 往返延迟（计划 2.4）
+// ★ 浏览器 WebSocket **不暴露** ping/pong 帧 ⇒ 只能在应用层做：
+//   每秒发一条 `{cmd:"ping", v:序号}`，服务端同线程回 `{pong:序号}`。
+// ★★ 三个细节，缺一个就出假象：
+//   ① pong **不是快照**（见 ingest 里那行提前 return）—— 混进去会让画面空一帧；
+//   ② 序号不匹配的 pong 一律丢弃（旧回包/伪造）→ 记 `unmatched`，不静默；
+//   ③ 用序号而不是时间戳：时间戳依赖两端时钟同步，序号不依赖。
+const RTT = { ms: 0, sent: {}, seq: 0, unmatched: 0, lastAt: 0 };
+function sendCmd(obj) {
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj));
+}
+// ★ 「我是谁」的拉取 + 退避重试（服务端在玩家还没建好时会回 null）
+let whoTries = 0;
+let BUSY = false;              // 同一个会话 key 已在别处打开（服务端拒绝给角色）
+let lastWhoAt = 0;             // ★ 上一次「例行重问」的时刻（见下）
+function askWhoami(first) {
+  if (ws == null || ws.readyState !== 1) return;
+  if (BUSY) return;            // 被拒就别再问了（问也还是拒）
+  if (!first && ME.id !== undefined) return;
+  if (whoTries >= 40) return;                 // ≈8 s 还没问到就不再刷（HUD 会显示 #?）
+  whoTries++;
+  sendCmd({ cmd: 'whoami' });
+  if (ME.id === undefined) setTimeout(() => askWhoami(false), 200);
+}
+// ★★ 例行重问（2026-10-16 加）：**我的角色可能被换掉**（死亡后自动复活会换一具身体），
+//   换掉之后服务端给的 guid 变了，而我手里的还是旧的 ⇒ 按旧 guid 找自己永远找不到 ⇒
+//   画面里没有我、相机也不跟（表现为「人和镜头都定格」）。
+//   ⇒ 每 2 s 重问一次，**发现 guid 变了就换成新的**。
+//   ⚠️ 为什么靠「问」而不是让服务端「推」：本工程量过，推送在负载下可能十几秒发不出去，
+//     而拉取把时序依赖去掉了（`you` 握手当初就是因此从推送改成拉取的）。
+function whoamiTick(now) {
+  // ★ 判据用 `ws.readyState`（连接本身），不用 `connected` 这个镜像 ——
+  //   镜像在无浏览器测试里永远是 false，那样这个函数就成了**测不到的死代码**。
+  if (ws == null || ws.readyState !== 1 || BUSY) return;
+  if (now - lastWhoAt < 2000) return;
+  lastWhoAt = now;
+  sendCmd({ cmd: 'whoami' });
+}
+function pingTick(now) {
+  if (!ws || ws.readyState !== 1) return;
+  if (now - RTT.lastAt < 1000) return;
+  RTT.lastAt = now;
+  RTT.seq++;
+  RTT.sent[RTT.seq] = now;
+  sendCmd({ cmd: 'ping', v: RTT.seq });
+}
+function onPong(seq) {
+  const t0 = RTT.sent[seq];
+  if (t0 === undefined) { RTT.unmatched++; return; }    // 老回包/伪造：丢弃并计数
+  delete RTT.sent[seq];
+  const ms = performance.now() - t0;
+  RTT.ms = RTT.ms ? (RTT.ms * 0.7 + ms * 0.3) : ms;     // EMA：一次抖动不该让数字乱跳
+}
+
+// ---------------------------------------------------------------- 客户端预测（P5 5.4）
+// ★ 为什么要有它：服务端 30 Hz + 网络往返 ⇒ 玩家按键到画面反应之间会有「一次往返」的延迟。
+//   预测 = **本地立刻按自己的输入推进玩家的位置**，服务端的帧到了再校正。
+//   这是「输入延迟」与「权威一致性」这一对矛盾的标准解法。
+//
+// ★★ 三条必须做对（都是网络游戏里踩烂了的坑）：
+//   ① **误差小 ⇒ 平滑收敛，误差大 ⇒ 立刻吸附**。不分级的话，
+//      要么小误差永远不收敛（画面与真实位置越来越远），
+//      要么大误差（传送/复活）时人物慢慢「飘」过去 —— 那叫 rubber-banding，手感极差。
+//   ② **没有输入就不能外推**。否则网络一卡，人物会自己往前滑。
+//   ③ **速度要测出来，不要硬编码**。引擎的走/跑速度会随地形/倍率变化，
+//      写死一个常数会在某些情况下预测错得离谱。这里从服务端帧的位移反推（自校准）。
+const PRED = { ok: false, x: 0, z: 0, vx: 0, vz: 0,
+               err: 0, snapped: 0, corrected: 0, extrapolated: 0, noSpeed: 0 };
+// 上一次把玩家画在屏幕上的哪个点 —— 供测试断言「预测**真的到了画面**」，
+// 而不是「算了却没用」（那正是预测功能最容易变成的样子：算了一堆、没人用）。
+let lastPlayerScreen = null;
+const SNAP_EPS = 3.0;      // 世界单位：预测与权威位置差超过它 ⇒ 直接吸附（别慢慢飘）
+const CORRECT_RATE = 0.25; // 每帧最多修正 25% 的误差（平滑收敛）
+let moveSpeed = 0;         // 观察到的移动速度（世界单位/秒），由服务端帧自校准
+
+function predReset(sx, sz) {
+  PRED.x = sx; PRED.z = sz; PRED.ok = true;
+}
+
+// 服务端帧到达：更新速度估计 + 分级校正
+function predOnFrame(f, prev) {
+  const p = myEnt(f);
+  if (!p) return;
+  // ① 速度自校准：只在**确实在动**的帧上更新（否则被墙挡住时会把速度学成 0）
+  const pp = prev ? myEnt(prev) : null;
+  if (pp && f.t > prev.t) {
+    const d = Math.hypot(p.x - pp.x, p.z - pp.z);
+    const dt = f.t - prev.t;
+    if (dt > 0 && d > 0.01) moveSpeed = d / dt;
+  }
+  if (!PRED.ok) { predReset(p.x, p.z); return; }
+  const e = Math.hypot(PRED.x - p.x, PRED.z - p.z);
+  PRED.err = e;
+  if (e > SNAP_EPS) {
+    // ② 大误差：**吸附**，不插值 —— 传送/复活/被推走都属于这一类
+    PRED.snapped++;
+    predReset(p.x, p.z);
+  }
+}
+
+// 每次绘制：先按本地输入外推，再向权威位置收敛
+function predStep(dt) {
+  if (!PRED.ok) return;
+  const p = myEnt(lastFrame);
+  if (!p) return;
+  // ③ 没有输入 ⇒ 不外推（否则卡顿时人物自己往前滑）
+  const dx = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
+  const dz = (keys.up ? 1 : 0) - (keys.down ? 1 : 0);
+  if (dx || dz) {
+    if (moveSpeed > 0) {
+      const inv = (dx && dz) ? Math.SQRT1_2 : 1;      // 斜向归一化，与引擎一致
+      PRED.x += dx * inv * moveSpeed * dt;
+      PRED.z += dz * inv * moveSpeed * dt;
+      PRED.extrapolated++;
+    } else {
+      PRED.noSpeed++;                                  // 还没测到速度 ⇒ 这帧不外推（如实记数）
+    }
+  }
+  // 小误差：每帧只收敛一部分（平滑，不抖）
+  const ex = p.x - PRED.x, ez = p.z - PRED.z;
+  const e = Math.hypot(ex, ez);
+  if (e > 1e-6 && e <= SNAP_EPS) {
+    PRED.x += ex * CORRECT_RATE;
+    PRED.z += ez * CORRECT_RATE;
+    PRED.corrected++;
+  }
+}
+
+// ---------------------------------------------------------------- 绘制预算（P4 4.4）
+// ★ 为什么要有计数器：掉帧保护与降级是**看不见的行为**（画面只是「差一点」），
+//   没有计数就等于「改没改都一样」。而且 Node 沙箱里图集永远加载不出来
+//   （XHR 桩不回调）⇒ 只能靠**决策计数**判断，不能靠画面。
+const PERF = { sprites: 0, dots: 0, drew: 0, fallback: 0, labels: 0, behindFrames: 0 };
+let lastDrawAt = 0;
+// 低优先级降级的两个阈值（都是可观测的量，不是玄学评分）
+const NEAR_R = 24;          // 世界单位：这个半径内一律画精灵
+const DEGRADE_ZOOM = 6;     // 缩放低于它 ⇒ 精灵只有几像素高，远景降级成点
+
+// ---------------------------------------------------------------- 地形图层
+// ★ 地形**不变**，所以开局拉一次 `/terrain`，在本地画成一张「1 像素 = 1 瓦片」的小画布，
+//   每帧只 drawImage 一次（缩放），而不是重画 16384 个矩形 —— 那是 30 Hz 撑不住的。
+// ★ 拿不到就**回退网格**（原来的行为），不会白屏。
+const TERR = { ready: false, w: 0, h: 0, tile: 4, canvas: null, ox: 0, oz: 0, failed: 0 };
+let terrDraws = 0;
+const TILE_COLOR = {
+  GRASS: '#3f6b3a', FOREST: '#2d4f2b', SAVANNA: '#6b6a3a', MARSH: '#37504a',
+  ROCKY: '#5a5a5a', IMPASSABLE: '#242424', OCEAN_COASTAL: '#1b3a5a',
+  OCEAN_SWELL: '#12293f', FUNGUS: '#5a3a52', MUD: '#4a3a2c', DIRT: '#57462f',
+  DECIDUOUS: '#345c2e', CHECKER: '#3a3a3a', CAVE: '#26242a', SHELLBEACH: '#6a6152',
+};
+function buildTerrain(t) {
+  // ★ 形状不对就**明确拒绝**：宁可不画地形（回退网格），也不要画出一张错的地图 ——
+  //   错的地图会让人以为「引擎的地形生成坏了」，而其实是解码问题。
+  if (!t || !t.w || !t.h || !Array.isArray(t.tiles) || t.tiles.length !== t.w * t.h) {
+    TERR.failed++; return false;
+  }
+  const cv2 = document.createElement('canvas');
+  cv2.width = t.w; cv2.height = t.h;
+  const c2 = cv2.getContext('2d');
+  const names = t.names || {};
+  for (let cy = 0; cy < t.h; cy++) {
+    for (let cx = 0; cx < t.w; cx++) {
+      const nm = names[String(t.tiles[cy * t.w + cx] | 0)];
+      c2.fillStyle = TILE_COLOR[nm] || '#403a34';
+      c2.fillRect(cx, cy, 1, 1);
+    }
+  }
+  TERR.ready = true; TERR.w = t.w; TERR.h = t.h; TERR.tile = t.tile || 4; TERR.canvas = cv2;
+  // 地图「左上角」的世界坐标：x 最小、z **最大**（DST 的 z 向下递减到屏幕上）
+  TERR.ox = -(t.w / 2) * TERR.tile;
+  TERR.oz = +(t.h / 2) * TERR.tile;
+  return true;
+}
+function drawTerrain() {
+  if (!TERR.ready) return false;
+  const sz = TERR.tile * cam.zoom;
+  const [x0, y0] = w2s(TERR.ox, TERR.oz);
+  const sx = Math.max(0, Math.floor(-x0 / sz)), sy = Math.max(0, Math.floor(-y0 / sz));
+  const ex = Math.min(TERR.w, Math.ceil((cv.width - x0) / sz));
+  const ey = Math.min(TERR.h, Math.ceil((cv.height - y0) / sz));
+  if (ex > sx && ey > sy) {
+    ctx.imageSmoothingEnabled = false;          // ★ 不关掉会糊成一片，瓦片边界全看不出来
+    ctx.drawImage(TERR.canvas, sx, sy, ex - sx, ey - sy,
+                  x0 + sx * sz, y0 + sy * sz, (ex - sx) * sz, (ey - sy) * sz);
+    terrDraws++;
+  }
+  return true;
+}
+function loadTerrain() {
+  const x = new XMLHttpRequest();
+  x.open('GET', '/terrain', true);
+  x.onload = () => { try { buildTerrain(JSON.parse(x.responseText)); } catch (e) { TERR.failed++; } };
+  x.onerror = () => { TERR.failed++; };
+  x.send();
+}
+
+// ---------------------------------------------------------------- 昼夜明暗
+// ★ 帧里只带 phase（day/dusk/night）三档，**不带**连续亮度 —— 因为服务端
+//   TheWorld.state 本身就是按相位切换的（原版环境光由 C++ 侧按分钟插值，
+//   客户端拿不到）。所以这里做**客户端平滑**：暗度朝目标值每帧追一点，
+//   切换时是渐变而不是「啪」一下全黑。
+// 数值是「看起来像」的取舍，不是原版还原 —— 原版真正的环境光曲线在
+//   components/ambientlighting.lua 里；本引擎没有把它送出来（见已知限制）。
+let darkA = 0;
+const DARK_TARGET = { day: 0, dusk: 0.26, night: 0.55 };
+function drawNight() {
+  const w = lastFrame && lastFrame.world;
+  const t = (w && DARK_TARGET[w.phase] != null) ? DARK_TARGET[w.phase] : 0;
+  darkA += (t - darkA) * 0.06;
+  if (darkA < 0.004) return;
+  ctx.fillStyle = `rgba(6,10,26,${darkA.toFixed(3)})`;
+  ctx.fillRect(0, 0, cv.width, cv.height);
+}
+
+// ---------------------------------------------------------------- 触屏面板（P23）
+// ★ 画在**最后**（夜里也要看得见），且只在 PAD.on 时画。
+//   摇杆帽的位置直接由**当前方向键状态**反推 —— 画的就是真的生效的东西，
+//   不是另存一份「摇杆位置」的状态（那样又变成两处实现）。
+function drawPad() {
+  if (!PAD.on) return;
+  padLayout();
+  const s = PAD.stick, a = PAD.act;
+  const on = 'rgba(88,166,255,.75)', off = 'rgba(139,148,158,.42)';
+  // 摇杆底盘
+  ctx.strokeStyle = off; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.arc(s.cx, s.cy, s.r, 0, 6.2832); ctx.stroke();
+  // 摇杆帽：由 keys 反推方向
+  const kx = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
+  const kz = (keys.up ? 1 : 0) - (keys.down ? 1 : 0);
+  const mag = (kx || kz) ? (kx && kz ? Math.SQRT1_2 : 1) : 0;
+  const hx = s.cx + kx * mag * s.r * 0.55, hy = s.cy - kz * mag * s.r * 0.55;
+  ctx.fillStyle = (kx || kz) ? on : 'rgba(139,148,158,.22)';
+  ctx.beginPath(); ctx.arc(hx, hy, s.r * 0.34, 0, 6.2832); ctx.fill();
+  // 动作键
+  ctx.fillStyle = (PAD.act.id || ACT.held) ? 'rgba(88,166,255,.34)' : 'rgba(48,54,61,.42)';
+  ctx.beginPath(); ctx.arc(a.cx, a.cy, a.r, 0, 6.2832); ctx.fill();
+  ctx.strokeStyle = (PAD.act.id || ACT.held) ? on : off; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.arc(a.cx, a.cy, a.r, 0, 6.2832); ctx.stroke();
+  ctx.fillStyle = '#c9d1d9'; ctx.textAlign = 'center';
+  ctx.fillText('动作', a.cx, a.cy + 5);
+  ctx.textAlign = 'start';
+}
+// 帮助文字随输入方式切换（手机上写 WASD 是没用的）
+(function initHelp() {
+  document.getElementById('help').innerHTML = PAD.on
+    ? '左下 <b>摇杆</b>移动 · 右下 <b>动作</b>键 · <b>点目标</b>选中要砍的那棵 · 单指拖拽平移 · 双指捏合缩放'
+    : '<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 或方向键移动 · ' +
+      '<b>点目标</b>选中要砍的那棵 · <kbd>滚轮</kbd>缩放 · <kbd>拖拽</kbd>平移 · ' +
+      '<kbd>空格</kbd>动作 · <kbd>F</kbd> 跟随玩家';
+})();
+
+function draw(now) {
+  // 帧间插值：服务端 30 Hz，屏幕 60 fps ⇒ 不平滑会明显顿（开发计划 §1.3）
+  let a = 0;
+  if (frameAt > prevAt && prevFrame && lastFrame) a = Math.min(1, (now - frameAt) / (frameAt - prevAt));
+
+  // ★【掉帧保护】两次绘制间隔超过 2.5 个 60 Hz 周期 ⇒ 判定落后。
+  //   落后时的取舍：**先丢装饰**（实体标签），把预算留给位置更新。
+  //   为什么不丢实体本身：位置是信息，标签是装饰 —— 只会丢后者。
+  const behind = lastDrawAt > 0 && (now - lastDrawAt) > 40;
+  if (behind) PERF.behindFrames++;
+  pingTick(now);        // 每秒一次延迟探测（计划 2.4 的「延迟」）
+  whoamiTick(now);      // 每 2 s 例行重问「我是谁」（角色被换掉时自愈，见该函数说明）
+  actPoll(now);         // 每 0.5 s 拉一次可交互目标（P22）
+  // ★ P5 5.4：按**本地输入**外推玩家位置（这一步才是「预测」），再向权威位置收敛
+  if (lastDrawAt > 0) predStep(Math.min(0.2, (now - lastDrawAt) / 1000));
+  lastDrawAt = now;
+
+  ctx.fillStyle = '#0d1117';
+  ctx.fillRect(0, 0, cv.width, cv.height);
+
+  // 地形（就绪时画；没就绪就只剩下面的网格 —— 两种都能看出「在动」）
+  drawTerrain();
+
+  // 网格（1 格 = 4 世界单位，帮助判断「真的在动」）
+  const step = 4;
+  const half = { x: cv.width / 2 / cam.zoom, z: cv.height / 2 / cam.zoom };
+  ctx.strokeStyle = '#161b22'; ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let x = Math.floor((cam.x - half.x) / step) * step; x < cam.x + half.x; x += step) {
+    const [sx] = w2s(x, 0); ctx.moveTo(sx, 0); ctx.lineTo(sx, cv.height);
+  }
+  for (let z = Math.floor((cam.z - half.z) / step) * step; z < cam.z + half.z; z += step) {
+    const [, sy] = w2s(0, z); ctx.moveTo(0, sy); ctx.lineTo(cv.width, sy);
+  }
+  ctx.stroke();
+
+  // 实体
+  // ★ C2：批路径下精灵要延到循环外统一画，所以先攒一份"注解清单"
+  //   （圆 / 玩家标记 / 名字标签），见本段末尾的第二遍。
+  const pending = [];
+  if (SPR.on) SPR.begin();
+  if (lastFrame && prevFrame) {
+    const cur = new Map(lastFrame.ents.map(e => [e.id, e]));
+    const old = new Map(prevFrame.ents.map(e => [e.id, e]));
+    const r = Math.max(2, cam.zoom * 0.28);
+    for (const [id, e] of cur) {
+      // ★ P20：「我」= 服务端握手告诉我的那个实体 id（没有握手时退化到帧里的 player）
+      const isPlayer = (ME.id !== undefined)
+        ? (id === ME.id)
+        : !!(lastFrame.player && lastFrame.player.id === id);
+      const o = old.get(id) || e;          // 新实体没有旧位置 ⇒ 不插值
+      // ★★ P5 5.4：**玩家位置用预测值**，别的实体用插值。
+      //   不这么做的话预测就是死代码 —— 算了一堆却没画出来。
+      const x = (isPlayer && PRED.ok) ? PRED.x : o.x + (e.x - o.x) * a;
+      const z = (isPlayer && PRED.ok) ? PRED.z : o.z + (e.z - o.z) * a;
+      const [sx, sy] = w2s(x, z);
+      if (sx < -40 || sy < -40 || sx > cv.width + 40 || sy > cv.height + 40) continue;
+
+      // ★★ P4 4.4【低优先级实体降级】—— 计划里列了、一直没做的那条。
+      //   判据（**只看两个可观测的量**，不做玄学打分）：
+      //     · 不是玩家（玩家永远最高优先级：找不到自己比画质差更糟）；
+      //     · 离相机中心 > NEAR_R 世界单位；
+      //     · 当前缩放 < DEGRADE_ZOOM ⇒ 精灵在屏幕上只有几像素高，
+      //       画它等于白花一次 drawImage（400 实体 × 低缩放时这笔开销很实在）。
+      //   降级后画一个 2×2 的点 —— **位置信息一点都不丢**，丢的只是「看不清的纹理」。
+      const far = Math.abs(x - cam.x) > NEAR_R || Math.abs(z - cam.z) > NEAR_R;
+      const lowPrio = !isPlayer && far && cam.zoom < DEGRADE_ZOOM;
+      if (lowPrio) {
+        PERF.dots++;
+        ctx.fillStyle = '#6e7681';
+        ctx.fillRect(sx - 1, sy - 1, 2, 2);
+        continue;
+      }
+      PERF.sprites++;
+
+      // ★ P4：先试**真图集精灵**；画不出来（图集未就绪/缺符号/缺帧）就回退画圆。
+      //   `ensure` 只是触发加载，不等待 —— 首帧可能全是圆，几帧后就都有精灵了。
+      //
+      // ★★ C2：批路径下这里**只摊四边形，不画**。真正的绘制被延到循环外一次
+      //   `SPR.flush()`（同纹理合成一次 drawArrays）。所以精灵、圆、标记三者
+      //   不能在这里按原顺序混着画了 —— 改成：
+      //     ① 本循环：只决定"该画什么"（精灵暂存 / 圆和注解进 pending）
+      //     ② flush：一次画完所有精灵并贴回 2D 画布
+      //     ③ 第二遍：补画圆（无精灵的实体）、玩家标记、名字标签
+      //   ⚠️ 代价说清楚：第二遍的"圆"会盖在精灵**上面**（原来是按实体顺序交错）。
+      //     实测这个差异只在「图集还没加载完」的瞬间存在 —— 稳定态下 fallback = 0
+      //     （见 tests/test_client_batch.js 的判据），此时不存在任何交错。
+      let drewSprite = false;
+      if (SPR.on && e.bld) {
+        drewSprite = SPR.push(e, sx, sy, cam.zoom) > 0;
+        if (drewSprite) PERF.drew++;
+      } else if (Atlas && e.bld) {
+        Atlas.ensure(e.bld);
+        drewSprite = Atlas.drawEntity(e, sx, sy, cam.zoom);
+        if (drewSprite) PERF.drew++;
+      }
+      if (!drewSprite) PERF.fallback++;
+      pending.push({ sx, sy, isPlayer, drew: drewSprite, ent: e, behind });
+    }
+
+    // ② 精灵：批路径一次画完；Canvas 路径此时已经画完了（上面那个分支）
+    if (SPR.on) SPR.flush(ctx);
+
+    // ③ 注解：圆（无精灵）/ 玩家标记 / 名字标签
+    for (const p of pending) {
+      const { sx, sy, isPlayer } = p;
+      if (!p.drew) {
+        ctx.fillStyle = isPlayer ? '#3fb950' : '#8b949e';
+        ctx.beginPath();
+        ctx.arc(sx, sy, isPlayer ? r * 1.6 : r, 0, 6.2832);
+        ctx.fill();
+      }
+      // 玩家标记：无论精灵还是圆，都要看得见「哪个是我」
+      if (isPlayer) {
+        lastPlayerScreen = [sx, sy];
+        ctx.strokeStyle = '#d2f5c8'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(sx, sy, r * 2.1, 0, 6.2832); ctx.stroke();
+        ctx.fillStyle = '#d2f5c8';
+        ctx.fillText(p.ent.p || 'player', sx + r * 2.6, sy - r * 2.2);
+      } else if (cam.zoom >= 12 && p.ent.p && !p.behind) {
+        // ★【帧合并/掉帧保护】落后时**先丢装饰**（标签是纯装饰，位置才是信息）。
+        PERF.labels++;
+        ctx.fillStyle = '#6e7681';
+        ctx.fillText(p.ent.p, sx + r * 1.6, sy - r * 1.4);
+      }
+    }
+  }
+
+  // 交互目标（P22 + P28）：**所有**目标都画一个淡淡的圈（否则用户不知道哪些能点），
+  //   选中的那个画粗圈 + 名称 + 动作名。
+  //   ★ 不画出来的后果是真实的：目标列表是服务端给的，用户看不见它就等于没有「选择」。
+  const RING = Math.max(10, cam.zoom * 0.9);
+  for (const t of ACT.targets) {
+    if (ACT.pick && t.id === ACT.pick.id) continue;        // 选中的那个下面单独画
+    const [tx, ty] = w2s(t.x, t.z);
+    if (tx < -30 || ty < -30 || tx > cv.width + 30 || ty > cv.height + 30) continue;
+    ctx.strokeStyle = 'rgba(88,166,255,.35)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(tx, ty, RING * 0.8, 0, 6.2832); ctx.stroke();
+  }
+  if (ACT.pick) {
+    const [tx, ty] = w2s(ACT.pick.x, ACT.pick.z);
+    ctx.strokeStyle = ACT.held ? '#ffd866' : '#58a6ff';
+    ctx.lineWidth = ACT.pickId !== null ? 3 : 2;           // 手动选中的更粗
+    ctx.beginPath(); ctx.arc(tx, ty, RING, 0, 6.2832); ctx.stroke();
+    const lab = `${ACT.pick.p} · ${ACT.pick.a}` + (ACT.pickId !== null ? '（已选）' : '');
+    ctx.fillStyle = '#8b949e';
+    ctx.fillText(lab, tx + Math.max(12, cam.zoom), ty - Math.max(12, cam.zoom));
+  }
+
+  // 昼夜明暗（画在实体**之上**、HUD 十字之下）
+  drawNight();
+
+  // 触屏面板（再往上一层：夜里也得看得见、按得到）
+  drawPad();
+
+  // 视野中心十字
+  ctx.strokeStyle = '#30363d';
+  ctx.beginPath();
+  ctx.moveTo(cv.width/2 - 7, cv.height/2); ctx.lineTo(cv.width/2 + 7, cv.height/2);
+  ctx.moveTo(cv.width/2, cv.height/2 - 7); ctx.lineTo(cv.width/2, cv.height/2 + 7);
+  ctx.stroke();
+
+  requestAnimationFrame(loop);
+}
+
+function loop(now) {
+  frames++;
+  if (now - fpsAt >= 500) { fps = frames * 1000 / (now - fpsAt); frames = 0; fpsAt = now; }
+  if (now - bytesAt >= 1000) { bps = bytesIn; bytesIn = 0; bytesAt = now; }
+  draw(now);
+
+  // HUD
+  const f = lastFrame;
+  const missing = selfMissingCheck(now);      // ★ 找不到自己（多半是在复活，见该函数说明）
+  const PHASE_CN = { day: '白天', dusk: '黄昏', night: '夜晚' };
+  const SEASON_CN = { autumn: '秋', winter: '冬', spring: '春', summer: '夏' };
+  const st = !f ? '等待首帧…'
+    : `t=<b>${f.t.toFixed(2)}</b>s  tick=<b>${f.tick}</b>  实体=<b>${f.n}</b>`
+      + (f.world
+          ? `  ${PHASE_CN[f.world.phase] || f.world.phase || '?'}`
+            + `·${SEASON_CN[f.world.season] || f.world.season || '?'}`
+            + `·<b>${f.world.temperature.toFixed(0)}°</b>`
+          : '  <span class="warn">(无世界环境)</span>');
+  hud.innerHTML =
+    (connected ? '<span class="ok">● 已连接</span>'
+               : (everConnected ? '<span class="warn">● 已断开，重连中…</span>'
+                                : '<span class="warn">● 连接中…</span>')) +
+    (paused ? '  <span style="color:#d29922">⏸ 已暂停（P 继续）</span>'
+            : '  <span style="color:#8b949e">P 暂停</span>') +
+    `  fps=<b>${fps.toFixed(0)}</b>  带宽=<b>${(bps/1024).toFixed(1)}</b>KB/s\n` +
+    st + `\n输入序号=<b>${f ? f.iseq : '-'}</b>  缩放=${cam.zoom.toFixed(1)}` +
+    `  跟随=<b>${cam.follow ? '开' : '关'}</b>` +
+    `  地形=<b>${TERR.ready ? TERR.w + '×' + TERR.h : '网格'}</b>` +
+    `  精灵/点=<b>${PERF.sprites}/${PERF.dots}</b>` +
+    `  预测误差=<b>${PRED.err.toFixed(2)}</b>${PRED.snapped ? `  <span class="warn">吸附×${PRED.snapped}</span>` : ''}` +
+    `  延迟=<b>${RTT.ms ? RTT.ms.toFixed(0) + ' ms' : '—'}</b>` +
+    `  我=<b>#${ME.id === undefined ? '?' : ME.id}</b>${ME.slot ? `(槽${ME.slot})` : ''}` +
+    (BUSY ? '  <span class="warn">⚠ 同一个浏览器会话已在别处打开</span>' : '') +
+    (missing ? '  <span class="warn">⚠ 找不到自己（可能正在复活…）</span>' : '') +
+    `\n${meLine(ME_ST)}` +
+    `  目标=<b>${ACT.pick ? ACT.pick.p + '·' + ACT.pick.a : '无'}</b>` +
+    `  <span style="color:#8b949e">空格${ACT.held ? '（进行中）' : ''}</span>` +
+    (PAD.on ? `  触屏=<b>开</b>${PAD.active ? `(${PAD.active}指)` : ''}` : '') +
+    (ACT.lastMsg ? `  <span style="color:${ACT.lastOk ? '#3fb950' : '#f85149'}">${ACT.lastOk ? '' : '✘ '}${ACT.lastMsg}</span>` : '') +
+    (TERR.failed ? `  <span class="warn">地形加载失败 ${TERR.failed} 次</span>` : '');
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

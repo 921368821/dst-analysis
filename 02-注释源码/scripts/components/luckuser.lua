@@ -1,0 +1,63 @@
+--============================================================
+-- 文件：components/luckuser.lua
+-- 模块：组件 / luckuser
+-- 职责：组件「luckuser」的实现。组件是挂在实体上的行为单元，通过 inst.components.luckuser 访问，负责本实体的某一类状态与逻辑。
+-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本
+--============================================================
+
+local SourceModifierList = require("util/sourcemodifierlist")
+
+local LuckUser = Class(function(self, inst)
+    self.inst = inst
+
+    --self.luck = 0
+
+    self.luckmodifiers = SourceModifierList(inst, 0, SourceModifierList.additive)
+end)
+
+function LuckUser:OnRemoveFromEntity()
+    self.luckmodifiers:Reset()
+    self:_UpdateLuck_Internal()
+end
+
+function LuckUser:GetLuck()
+    return self.luckmodifiers:Get()
+end
+
+local MODIFIER_SOURCE = "misfortune"
+function LuckUser:_UpdateLuck_Internal()
+    local luck = self:GetLuck()
+    --
+    if luck < 0 then
+        local unlucky_mult = 1 + math.abs(luck)
+
+        local houndedtarget = self.inst.components.houndedtarget or self.inst:AddComponent("houndedtarget")
+        houndedtarget.target_weight_mult:SetModifier(self.inst, unlucky_mult, MODIFIER_SOURCE)
+        houndedtarget.hound_thief_sources:SetModifier(self.inst, luck <= -1, MODIFIER_SOURCE)
+    else
+        if self.inst.components.houndedtarget then
+            self.inst.components.houndedtarget.target_weight_mult:RemoveModifier(self.inst, MODIFIER_SOURCE)
+            self.inst.components.houndedtarget.hound_thief_sources:RemoveModifier(self.inst, MODIFIER_SOURCE)
+        end
+    end
+end
+
+function LuckUser:SetLuckSource(luck, source)
+    if luck == 0 then
+        self:RemoveLuckSource(source)
+    else
+        self.luckmodifiers:SetModifier(source, luck, source)
+        self:_UpdateLuck_Internal()
+    end
+end
+
+function LuckUser:RemoveLuckSource(source)
+    self.luckmodifiers:RemoveModifier(source, source)
+    self:_UpdateLuck_Internal()
+end
+
+function LuckUser:GetDebugString()
+    return string.format("luck: %2.2f", self:GetLuck())
+end
+
+return LuckUser

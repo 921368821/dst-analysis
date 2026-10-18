@@ -1,0 +1,528 @@
+--============================================================
+-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖
+-- 文件：prefabs/umbrella.lua
+-- 模块：预制体层 / 可装备物品（Equipable Item）
+-- 职责：雨伞与草伞。装备类预制体的最小完整样本（195 行），
+--       补齐前五个文件未覆盖的第六个维度：玩家背包里的东西。
+-- 关键符号：onequip, onunequip, onequiptomodel, onequip_grass,
+--           onunequip_grass, onperish, common_fn, grass, pigskin
+-- 变体清单（return 段仅 2 个预制体，共享同一份 assets 表）：
+--   umbrella         —— 第 168 行 pigskin 函数（★ 函数名与预制体名不同）
+--   grass_umbrella   —— 第 132 行 grass 函数（模型名 parasol，与函数名也不同）
+-- 架构要点：
+--   · 装备回调改的是「持有者」（owner）而非物品本身：换持有者的 swap 符号、
+--     ARM_carry/ARM_normal 动画片段、DynamicShadow 阴影尺寸
+--   · ★ 第 105-106 行 waterproofer 标签「偷渡」进 pristine 状态 ——
+--     组件只在服务端挂，但标签能过 SetPristine，与 deciduoustrees 的 __combat 同一手法
+--   · 两种消耗模式对照：perishable（草伞，按时间）与 fueled（猪皮伞，按使用量）
+--   · 「雨伞耗尽」是跨系统事件（umbrellaranout），玩家 / 三件伞类物品 / 蟹的状态图都监听它
+--   · 6 个组件构成一个完整可装备物品，无类无继承：判定「能做什么」只需查组件
+-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本
+-- 交叉引用：prefabs.lua（Prefab 全局工厂）,
+--           prefabutil.lua（MakeInventoryPhysics / MakeInventoryFloatable 的上游）,
+--           standardcomponents.lua（MakeSmallBurnable / MakeSmallPropagator /
+--           MakeHauntableLaunch）,
+--           components/equippable.lua（dapperness 在第 37、197-204 行）,
+--           components/inventoryitem.lua, components/waterproofer.lua
+--           （第 5 行 V2C 注释与第 7、15 行的标签管理）,
+--           components/perishable.lua, components/fueled.lua, components/fuel.lua,
+--           components/floater.lua（SetBankSwapOnFloat 第 89 行、
+--           swap_data 字段回落第 134、198-199 行）,
+--           components/insulator.lua, components/tradable.lua,
+--           prefabs/player_common.lua:667（umbrellaranout 监听）,
+--           prefabs/hats.lua:1321、prefabs/voidcloth_umbrella.lua:133（同事件发出方）,
+--           stategraphs/SGhermitcrab.lua:435（同事件监听方）
+--============================================================
+local assets =
+-- ============================================================
+-- umbrella.lua —— 雨伞 / 遮阳伞（装备类预制体的最小完整样本，195 行）
+--
+-- 【为什么选这个文件】
+-- 前五个文件分别代表：结构体 / 容器 / 移动平台 / 植被 / Boss。
+-- 本文件补上第六个维度：【可装备物品】—— 它只有 195 行，却演示了装备类预制体的全部要点：
+--   ① 同一份 common_fn 派生 2 个变体（第 88 行，参数只有一个 bank/build 名）
+--   ② ★ 装备/卸下回调如何改「持有者」的动画与阴影（改的是 owner 不是 inst）
+--   ③ ★ 两种「消耗模式」：perishable（按时间腐坏）与 fueled（按使用量消耗）
+--   ④ ★★ 第 105-106 行：waterproofer 标签「偷渡」进 pristine —— 与
+--      deciduoustrees.lua 第 1320 行的 __combat 完全同一手法。
+--
+-- 【★ 跨文件呼应】本文件是理解 deciduoustrees 那段技巧的最好对照：
+-- 两个文件相隔很远却用了同一个技巧，说明它是 DST 的既定约定而非个人风格。
+--
+-- 【上游来源】Klei Entertainment《Don't Starve Together》游戏脚本
+-- ============================================================
+{
+    Asset("ANIM", "anim/umbrella.zip"),
+-- 【★ 资源清单成对出现】umbrella / swap_umbrella 是同一件东西的两种形态：
+--   anim/umbrella.zip      —— 物品在背包/地面时（bank = "umbrella"）
+--   anim/swap_umbrella.zip —— 玩家拿着时（build = "swap_umbrella"）
+-- ★★ 装备类预制体的通用资源结构：本体一套 + swap 一套。
+-- 对比 boat.lua：船没有 swap，因为它不可能被拿在手里。
+    Asset("ANIM", "anim/swap_umbrella.zip"),
+    Asset("ANIM", "anim/parasol.zip"),
+-- parasol / swap_parasol：遮阳伞的同一对资源。★ 两个变体共用同一张 assets 表（第 194-195 行）。
+-- ⇒ 【★ 资源复用】两件物品打包在同一批资源里，即使共用一个 zip 也很常见（省 IO）。
+    Asset("ANIM", "anim/swap_parasol.zip"),
+}
+
+local function onequip(inst, owner)
+-- ★★★ onequip：★ 装备回调。注意它的两个参数是 (inst=伞, owner=玩家)。
+-- 【★ 关键概念：装备回调改的是「持有者」】
+-- 雨伞本身不长在身上，长在 owner 的 AnimState 上。所以：
+--   第 13、15 行 改 owner.AnimState 的 swap_object 符号
+--   第 17、18 行 切 owner 的 ARM_carry / ARM_normal 两个动画片段
+--   第 20 行     改 owner 的动态阴影尺寸
+-- ⇒ ★ 装备是「把物品的视觉接到另一个实体上」，这是所有装备系统的共同做法。
+-- 【移植建议】把「装备时该做什么」完全交给预制体的回调，
+--   而 equippable 组件只管「什么时候调回调」，两者职责分离得很干净。
+    local skin_build = inst:GetSkinBuild()
+-- GetSkinBuild() ~= nil 判断「玩家给这件物品上了皮肤」。
+-- ★ 有皮肤时用 OverrideItemSkinSymbol（多一个 inst.GUID 参数），否则用普通 OverrideSymbol。
+-- ⇒ 【★ 皮肤接口】第 13 行那个调用有 5 个参数（符号名 / build / 兜底名 / GUID / 兜底名），
+--   多出来的 GUID 是为了让引擎知道「替换随这个实体变化」。
+-- 【移植建议】物品皮肤要做对，必须支持「跟着实体走的符号替换」，
+--   不能只按名字替换 —— 否则玩家换皮肤后客户端拿不到新贴图。
+    if skin_build ~= nil then
+        owner:PushEvent("equipskinneditem", inst:GetSkinName())
+        owner.AnimState:OverrideItemSkinSymbol("swap_object", skin_build, "swap_umbrella", inst.GUID, "swap_umbrella")
+    else
+        owner.AnimState:OverrideSymbol("swap_object", "swap_umbrella", "swap_umbrella")
+    end
+    owner.AnimState:Show("ARM_carry")
+-- ★★ Show("ARM_carry") + Hide("ARM_normal")：★ 拿伞时手臂姿势换掉。
+-- ⇒ 【★ 渲染技巧】ARM_carry 与 ARM_normal 是同一套骨骼里的两个符号，
+--   「拿东西的姿势」与「空手姿势」通过显示/隐藏切换，不需要单独的动画。
+-- 【移植建议】这类「姿势切换」用符号显隐而非动画切换，成本低得多。
+    owner.AnimState:Hide("ARM_normal")
+
+    owner.DynamicShadow:SetSize(2.2, 1.4)
+-- ★★ DynamicShadow:SetSize(2.2, 1.4)：★ 拿伞时角色的影子变大（伞遮出更大阴影）。
+-- 第 33 行卸下时恢复 (1.3, 0.6)。
+-- ⇒ 【★ 细节】阴影尺寸也是「装备的表现」之一。这条容易被忽略但很影响手感。
+-- 【移植建议】装备回调里除了换模型，还要检查：阴影、脚步声、粒子特效、角色动画。
+
+    inst.components.fueled:StartConsuming()
+-- ★★ fueled:StartConsuming()：★ 只有拿在手上才消耗耐久。
+-- ⇒ 这是雨伞玩法的核心：放在地上不消耗，举着才消耗。
+-- 【移植要点】★ 「使用时才计时」的物品实现方式：把 StartConsuming 挂在装备回调上，
+--   而不是交给组件自己跑。组件负责计时机制，预制体决定何时开始。
+end
+
+local function onunequip(inst, owner)
+-- onunequip：★ 卸下回调。与 onequip 完全对称，做四件事的反向：
+-- 推 unequipskinneditem 事件 → 切回 ARM_normal → 恢复阴影 → 停止消耗。
+-- ⇒ 【★ 移植要点】★ 装备/卸下必须严格对称：改了 4 处就要改回 4 处。
+--   漏一处的典型症状是「伞收起来了但角色还举着手」。
+    local skin_build = inst:GetSkinBuild()
+    if skin_build ~= nil then
+        owner:PushEvent("unequipskinneditem", inst:GetSkinName())
+    end
+    owner.AnimState:Hide("ARM_carry")
+    owner.AnimState:Show("ARM_normal")
+
+    owner.DynamicShadow:SetSize(1.3, 0.6)
+-- ★ 阴影恢复成 1.3, 0.6 —— 这两个数字与 equipped 的默认值一致（不是 1.3/0.6 之外的值）。
+-- ★ 两个变体（第 55、67 行）都恢复到同一组值，说明这是「空手状态」的标准参数。
+
+    inst.components.fueled:StopConsuming()
+end
+
+local function onequiptomodel(inst, owner, from_ground)
+-- ★★ onequiptomodel：★ 「装备到模型上」回调（SetOnEquipToModel）。
+-- 与前两个回调的区别：它触发于「伞被拿起来摆到手上模型」，而不是「进入装备状态」。
+-- ★ 第 39 行 `if inst.components.fueled then` 判空：pigskin 变体有 fueled 组件（第 175 行），
+--   grass 变体没有（用的是 perishable，第 139 行），所以这个回调对 grass 是空操作。
+-- ⇒ ★ 这说明 onequiptomodel 是「猪皮伞专用」的回调，却挂在两个变体上（第 151、186 行）。
+--   对 grass 而言是一个无害的空函数调用。
+-- ⇒ 【⚠️ 可改进】更干净的做法是 grass 不传这个回调。当前写法无害但容易误导读者。
+    if inst.components.fueled then
+        inst.components.fueled:StopConsuming()
+    end
+end
+
+local function onequip_grass(inst, owner)
+-- ★ onequip_grass：★ 与 onequip（第 9 行）几乎逐行相同，只有三处不同：
+--   第 48、50 行 用 "swap_parasol" 而非 "swap_umbrella"
+--   第 55 行   阴影尺寸 (1.7, 1) 而非 (2.2, 1.4) —— 遮阳伞比雨伞小
+--   ★★ 没有第 22 行的 fueled:StartConsuming() —— 草伞不按使用消耗
+-- ⇒ 【★ 复制粘贴的代价】这三处差异决定了两个物品的手感完全不同（伞更大、遮挡更多）。
+-- 【移植建议】这种「几乎相同但有 2-3 处关键差异」的回调，
+--   更好的写法是抽成一个函数 + 一个参数表，差异集中在表里。
+-- ⚠️ 现状是 30 行代码里有 24 行重复。
+    local skin_build = inst:GetSkinBuild()
+    if skin_build ~= nil then
+        owner:PushEvent("equipskinneditem", inst:GetSkinName())
+        owner.AnimState:OverrideItemSkinSymbol("swap_object", skin_build, "swap_parasol", inst.GUID, "swap_parasol")
+    else
+        owner.AnimState:OverrideSymbol("swap_object", "swap_parasol", "swap_parasol")
+    end
+    owner.AnimState:Show("ARM_carry")
+    owner.AnimState:Hide("ARM_normal")
+
+    owner.DynamicShadow:SetSize(1.7, 1)
+-- 遮阳伞阴影 (1.7, 1)：★ 比雨伞 (2.2, 1.4) 小一圈，与视觉尺寸一致。
+-- ⇒ 阴影尺寸应当跟着美术尺寸走，这两个数字是「美术与逻辑的契约」。
+end
+
+local function onunequip_grass(inst, owner)
+-- ★ onunequip_grass：与第 33 行一样的恢复值，但多了第 61 行的 unequipskinneditem 事件。
+-- ★ 对比 onunequip（第 25 行第 28 行）：两者都推这个事件，代码完全重复。
+    local skin_build = inst:GetSkinBuild()
+    if skin_build ~= nil then
+        owner:PushEvent("unequipskinneditem", inst:GetSkinName())
+    end
+
+    owner.AnimState:Hide("ARM_carry")
+    owner.AnimState:Show("ARM_normal")
+
+    owner.DynamicShadow:SetSize(1.3, 0.6)
+end
+
+local function onperish(inst)
+-- ★★★ onperish：★ 物品「用完」时的处理，两条路径：
+--   路径 A（第 72-83 行）：正被玩家拿着 → 先 Remove 自己，再推事件让玩家收伞
+--   路径 B（第 85 行）：      其它情况       → 直接 Remove
+-- ⇒ ★★ 【★ 为什么路径 A 要先 Remove 再 PushEvent】
+--   如果不 Remove，玩家手上的伞会「凭空消失」而不是自然收起；
+--   先销毁实体，再让 owner 通过 umbrellaranout 事件更新手持模型。
+-- 【移植建议】★ 「装备中的物品被销毁」是个通用难题，本文件给了一个标准解法：
+--   销毁实体 + 给持有者推事件让 UI/模型自己善后。不要试图在销毁前做完整清理。
+    local equippable = inst.components.equippable
+    if equippable ~= nil and equippable:IsEquipped() then
+        local owner = inst.components.inventoryitem ~= nil and inst.components.inventoryitem.owner or nil
+        if owner ~= nil then
+            local data =
+-- data 表只带两个字段：prefab 与 equipslot。
+-- ★ 它是给「事件监听方」还原上下文用的 —— 玩家需要知道「我刚才拿的是什么、装在哪个槽」。
+-- ⇒ 【可移植模式】PushEvent 传一个精简的 data 表而非整个 inst，
+--   避免事件处理方依赖一个即将被销毁的实体。
+            {
+                prefab = inst.prefab,
+                equipslot = equippable.equipslot,
+            }
+            inst:Remove()
+            owner:PushEvent("umbrellaranout", data)
+-- ★★ owner:PushEvent("umbrellaranout", data)：★ 通知持有者「你的伞没了」。
+-- ★ 本人已核实全库 4 个监听方：
+--   prefabs/player_common.lua:667 —— 玩家实体的通用处理
+--   prefabs/hats.lua:1321          —— 另一件伞类物品（雨衣帽）发同名事件
+--   prefabs/voidcloth_umbrella.lua:133 —— 虚空斗篷伞（第三件）
+--   stategraphs/SGhermitcrab.lua:435  —— 寄居蟹被伞失效打断动作
+-- ⇒ 【★ 重要发现】★ 「雨伞耗尽」被建模成了一个跨系统事件，而不是某个物品的私有逻辑：
+--   三件完全不同的伞（普通伞 / 虚空伞 / 雨衣帽）都推同一个事件名，
+--   玩家与 AI 都靠监听它响应。
+-- ⇒ 【★★ 移植核心结论】★ 想让多个物品共享一套「耗尽表现」，
+--   不要抽公共函数，要抽【公共事件】。函数复用只解决代码重复，
+--   事件复用才解决「运行时各系统的响应一致性」。
+-- 【移植建议】★ 自研引擎里，给同类物件预留统一的事件名（如 on_xxx_depleted），
+--   比给它们塞同一套回调函数更灵活 —— 后者要求所有物品挂同一批回调。
+            return
+        end
+    end
+    inst:Remove()
+end
+
+local function common_fn(name)
+-- ============================================================
+-- ★★★ common_fn(name) —— 装备类预制体的最小工厂。
+--
+-- 【★ 与 treasurechest / boat 的工厂对比】
+--   MakeChest 有 9 个参数（treasurechest.lua 第 100 行）
+--   create_common_pre + XXX_BOAT_DATA（boat.lua 第 366 行）
+--   ★ common_fn 只有 1 个参数 —— bank/build 名。
+-- ⇒ 【★ 结论】★ 工厂的参数数量与「变体差异的维度数」成正比，不是越少越好。
+--   本文件两个变体只差外观与「消耗模式」，外观用一个参数解决，
+--   消耗模式放在变体 fn 里直接 AddComponent。
+-- ⇒ 【移植建议】★ 变体少（2-3 个）时，「工厂 + 参数」不如「工厂 + 变体自己加组件」。
+--   强行做成大工厂反而复杂。这就是为什么 DST 里小物品用 common_fn、大结构用大工厂。
+--
+-- 【装配顺序】（与其它预制体一致）
+--   第 91-93 行  entity:Add* 三件套（Transform/AnimState/Network）
+--   第 95 行     MakeInventoryPhysics
+--   第 97-99 行  AnimState 设置
+--   第 101-106 行 AddTag ×4
+--   第 108 行    MakeInventoryFloatable
+--   第 110 行    ★ SetPristine —— 网络快照点
+--   第 112-114 行 客户端提前返回
+--   第 116-129 行 AddComponent ×6（仅服务端）
+-- ============================================================
+    local inst = CreateEntity()
+
+    inst.entity:AddTransform()
+    inst.entity:AddAnimState()
+    inst.entity:AddNetwork()
+
+    MakeInventoryPhysics(inst)
+-- MakeInventoryPhysics：★ 背包物品物理（可丢、可捡、可掉进水里的通用预设）。
+-- 与 boat.lua 第 386 行的裸 AddPhysics 不同 —— 物品用封装、载具用裸调用。
+-- ⇒ 【★ 判据】背包物品 vs 载具/结构体，两套物理预设，不要混用。
+
+    inst.AnimState:SetBank(name)
+    inst.AnimState:SetBuild(name)
+    inst.AnimState:PlayAnimation("idle")
+
+    inst:AddTag("nopunch")
+-- ★ nopunch：★ 「玩家不能用拳头打它」。
+-- ⇒ 【★ 标签即行为】DST 里大量「玩家能做什么」是通过 AddTag 控制的，
+--   而不是预制体里写一堆 if。★ 举伞挡雨这类玩法靠标签与组件协作，不需要专门写代码。
+    inst:AddTag("umbrella")
+
+
+    --waterproofer (from waterproofer component) added to pristine state for optimization
+-- ★★★ ★★★ 本文件最值得学的一行注释：
+-- waterproofer (from waterproofer component) added to pristine state for optimization
+--
+-- 【★ 为什么要手动写这一行】
+-- components/waterproofer.lua 第 7 行的构造函数里确实有 inst:AddTag("waterproofer")，
+-- ★★ 但那是在 AddComponent("waterproofer")（本文件第 118 行）时执行的 ——
+-- ★★ 而 AddComponent 在第 112-114 行之后，属于【仅服务端】。
+-- 所以客户端拿不到这个标签。
+-- ★ components/waterproofer.lua 第 5 行原注释写着：
+--   V2C: Recommended to explicitly add tag to prefab pristine state
+-- ★★ 「V2C」是 Klei 官方补丁的标记 —— 说明这是后来补上的，且官方明确「建议预制体自己写」。
+--
+-- ⇒ 【★ 技巧】★★ 在 AddComponent 之前手动 AddTag，让标签先随 SetPristine（第 110 行）同步过去；
+--   之后客户端与服务端都持有这个标签，但客户端并没有真的这个组件。
+--   ★ 注意：组件构造时会再打一次（第 7 行），RemoveComponent 时会 RemoveTag（第 15 行）——
+--     所以不会残留。手动 AddTag 是「提前」而非「额外」。
+--
+-- 【★★ 与 deciduoustrees.lua 的完全对应】
+-- deciduoustrees.lua 第 1320-1331 行用的是同一手法：
+--   AddTag("__combat") → SetPristine → RemoveTag("__combat") → PrereplicateComponent("combat")
+-- ★ 两个相隔万行的文件用同一手法，且官方注释都留了痕迹，说明是 DST 的既定约定。
+-- ★ 两者的区别：deciduoustrees 连标签也会摘掉（临时协议，用完即弃），
+--   本文件则永久保留（因为组件自身还要用它）。
+--
+-- 【★★ 移植核心结论】
+-- ★ 「Lua 组件不参与网络同步」这条规则，可以通过「手动打对应标签」来部分绕过。
+--   凡是「组件在服务端挂、但客户端也需要知道某属性」的场景，都该这么补一刀。
+--   这是 DST 里「客户端优化」与「服务端权威」之间的一层缓冲设计。
+-- 【移植建议】自研引擎若采用「服务端才挂逻辑组件」的架构，这招同样适用；
+--   更好的做法是让组件自己声明「哪些信息需要跨网」，由引擎统一处理。
+    inst:AddTag("waterproofer")
+
+    MakeInventoryFloatable(inst, "large")
+-- ★ MakeInventoryFloatable(inst, "large")：★ 「large」档位，无偏移与缩放参数。
+-- 对比 boat.lua 第 1476 行的三参数调用与本文件第 155-157 行的细调。
+-- ⇒ 【可移植模式】浮水物理做成「尺寸档位 + 可选偏移缩放」，少数物品再单独调。
+
+    inst.entity:SetPristine()
+-- ★★★ SetPristine：网络快照点。★ 第 106 行那个 waterproofer 标签正是为这一刻准备的。
+-- 对比 pighouse.lua 第 401 行、boat.lua 各变体的 SetPristine —— 全项目统一的分水岭。
+
+    if not TheWorld.ismastersim then
+-- 客户端提前返回。★ 客户端拿到的是「外观 + 物理 + nopunch/umbrella/waterproofer 三个标签」，
+-- 没有 tradable / inventoryitem / equippable / insulator / hauntable。
+-- ⇒ 「能不能装备」是服务端判断的；客户端只知道「长这样、能被打」。
+        return inst
+    end
+
+    inst:AddComponent("tradable")
+-- ★★ 6 个组件构成一个完整的「可装备物品」：
+--   tradable    —— 能跟 NPC 交易（第 194 行的 pigskin 变体尤其相关）
+--   waterproofer—— 防雨（伞的核心能力）
+--   inspectable —— 悬停显示名称
+--   inventoryitem —— ★ 能进背包（与 equippable 配对，缺一不可）
+--   equippable  —— ★ 能装备（提供装备槽与回调）
+--   insulator   —— 隔热（遮阳伞的核心能力，第 125 行 SetSummer）
+-- ⇒ 【★ 组合优于继承】★ 「雨伞」= 这 6 个组件 + 2 个回调。
+--   没有 Umbrella 类。想让别的东西也能挡雨？加 waterproofer 组件即可。
+-- 【★ 移植要点】★ 判定一件物品能做什么，只需查它有哪些组件：
+--   有 equippable → 可装备；有 waterproofer → 挡雨；有 insulator → 隔热。
+--   别的系统（建造、任务、天气）都这样查，不需要知道「这是什么物品」。
+
+    inst:AddComponent("waterproofer")
+    inst:AddComponent("inspectable")
+    inst:AddComponent("inventoryitem")
+
+    inst:AddComponent("equippable")
+
+    inst:AddComponent("insulator")
+-- ★ insulator:SetSummer()：★ 「按夏季模式工作」。
+-- ⇒ 【★ 可移植模式】同一组件用「模式」参数而非「两个组件」表达季节差异。
+--   对比若写成 WinterInsulator + SummerInsulator 两个组件，组合数会爆炸。
+--   第 147 行再单独 SetInsulation 调强度 —— 模式与强度是两个正交维度。
+    inst.components.insulator:SetSummer()
+
+    MakeHauntableLaunch(inst)
+-- ★ MakeHauntableLaunch（与 pighouse.lua 第 442 行的 MakeHauntableWork 同源，
+-- 区别是 Launch 而非 Work，见 boat.lua 第 1495 行的对照）。
+-- ⇒ 「鬼替你使用一次雨伞」= 8 行代码，零额外逻辑。
+
+    return inst
+end
+
+local function grass()
+-- ★★★ grass()：草伞（遮阳伞）变体 fn。
+-- ★ 第 133 行 common_fn("parasol")：注意传的是 parasol 而非 umbrella ——
+-- ★★ 一个参数同时决定了 bank、build 以及后续两个 equippable 回调里的符号名。
+-- ⇒ 【★ 设计巧思】变体名（grass_umbrella）与模型名（parasol）不同，
+--   这不是笔误 —— 「草做的伞」在游戏里叫「遮阳伞」。
+    local inst = common_fn("parasol")
+
+    if not TheWorld.ismastersim then
+-- ★★ 又一次 ismastersim 判断！这已经是本文件第 3 次（另见第 112、171 行）。
+-- ⇒ 【★★ 值得注意的模式】common_fn 内部已经做过 SetPristine + 客户端返回，
+--   所以变体 fn 必须【自己再判一次】is mastersim 才能继续加组件。
+--   ★ 这与 treasurechest.lua 的工厂钩子（common_postinit 塞在 SetPristine 之前）不同，
+--     与 boat.lua 的 ice_crabking_fn（依赖被调函数已处理）也不同。
+-- ⇒ 【★★ 移植核心结论】★ 当「变体复用基函数」时，基函数只能覆盖到 SetPristine，
+--   之后的装配必须由变体自己做，并且变体必须自己知道基函数做到哪一步了。
+--   ★ 这是「函数复用」比「参数化工厂」更脆弱的地方：约定只存在于阅读顺序里。
+--   （对比 boat.lua 第 1408 行 ice_crabking_fn 的注释，那里也标出了同类风险）
+        return inst
+    end
+
+    inst:AddComponent("perishable")
+-- ★★★ perishable 组件：★ 「按时间腐坏」。与 pigskin 变体的 fueled（第 175 行）是两套系统。
+-- 第 140-142 行：三步配置 —— 设定时长 → 开始计时 → 设定回调。
+-- ⇒ 【★★ 两种消耗模式对比 —— 本文件的核心教学内容】
+--   perishable（草伞）：持有即计时，与是否装备无关，扔地上也在烂
+--   fueled  （猪皮伞）：★ 装备时才 StartConsuming（第 22 行），放地上不消耗
+-- ★ 同一个「耐久耗尽 → 物品消失」的玩法，两种截然不同的实现：
+--   perishable 靠外部时钟，fueled 靠使用事件。
+-- ⇒ 【移植要点】★ 选哪种取决于玩法意图：
+--   「放着也会坏」用 perishable；「用了才坏」用 fueled + 装备/使用回调。
+--   后者的手感更好（玩家不会因为忘记收伞而损失道具），设计上也更宽容。
+    inst.components.perishable:SetPerishTime(TUNING.GRASS_UMBRELLA_PERISHTIME)
+    inst.components.perishable:StartPerishing()
+    inst.components.perishable:SetOnPerishFn(onperish)
+    inst:AddTag("show_spoilage")
+-- ★ show_spoilage：★ 让物品显示「腐坏程度」的视觉提示（贴图变旧）。
+-- 猪皮伞没打这个标签（第 168-192 行）—— 因为它的消耗方式是燃料条，不是腐坏。
+
+    inst.components.waterproofer:SetEffectiveness(TUNING.WATERPROOFNESS_MED)
+-- ★ SetEffectiveness(WATERPROOFNESS_MED)：草伞挡雨能力「中等」。
+-- 第 180 行猪皮伞是 WATERPROOFNESS_HUGE（超大）。
+-- ⇒ 同一能力组件，两个强度档 —— 强度是数据，组件不变。
+
+    inst.components.insulator:SetInsulation(TUNING.INSULATION_MED)
+
+    inst.components.equippable:SetOnEquip( onequip_grass )
+-- ★★★ 三个 equippable 回调一次性设好。
+-- ★ 注意第 149、150 行传的是 _grass 版本（第 44、58 行），因为符号名不同。
+-- ⇒ 【★ 可移植模式】★ 变体覆盖基类的回调设置（common_fn 第 122 行只 AddComponent，
+--   不设回调），所以变体在这里自由指定。这是「基类只管装配，变体管接线」的分工。
+    inst.components.equippable:SetOnUnequip( onunequip_grass )
+    inst.components.equippable:SetOnEquipToModel( onequiptomodel )
+    inst.components.equippable.dapperness = TUNING.DAPPERNESS_SMALL
+-- ★ dapperness = DAPPERNESS_SMALL：★「帅气度」。
+-- ★★ 本人已核实：components/equippable.lua 第 37 行有默认值 0，
+--   第 197-204 行会读它并计算（还能取负号，即「反向降低帅气」）。
+-- ⇒ 【★ 不是废字段】它是 equippable 组件的正式字段，能被别的系统读取。
+-- 【移植要点】★ 装备组件可以承载「社交/装饰数值」，不需要专门的子系统；
+--   组件的字段就是游戏系统的扩展点。
+
+    local swap_data = {sym_build = "swap_parasol", bank = "parasol"}
+-- ★★ swap_data 表 + SetBankSwapOnFloat：★ 草伞浮在水面上时显示不同的样子。
+-- 第 155 行参数：true（启用）/ -40（Y 轴偏移）/ swap_data（符号与 bank 信息）。
+-- ⇒ 【★ 可移植模式】★ 物品在背包、拿在手上、浮在水里是三种不同表现，
+--   DST 用「swap 符号 + bank 切换」统一表达，换物品就是换 swap_data。
+    inst.components.floater:SetBankSwapOnFloat(true, -40, swap_data)
+    inst.components.floater:SetVerticalOffset(0.05)
+	inst.components.floater:SetScale({ 0.75, 0.35, 1 })
+
+    inst:AddComponent("fuel")
+-- ★ fuel 组件：★ 草伞可作为燃料烧掉（虽然它是遮阳伞而不是火源）。
+-- 第 160 行 LARGE_FUEL = 90 秒。
+-- ⇒ 与 pigskin 的 fueled（第 175 行）对比：
+--   fueled 是「自己消耗自己」，fuel 是「被别人烧掉时提供的燃料量」。
+-- ★ 两者名字相近但语义完全不同，读源码时极易混淆。
+    inst.components.fuel.fuelvalue = TUNING.LARGE_FUEL
+
+    MakeSmallBurnable(inst, TUNING.SMALL_BURNTIME)
+-- ★ MakeSmallBurnable + MakeSmallPropagator：★ 草伞可燃（草做的）。
+-- ★ 猪皮伞没有这两行（第 168-192 行）—— ★ 猪皮伞不可燃。
+-- ⇒ 【★ 材质决定行为】同一件「伞」，草做的能烧、猪皮做的不能烧。
+--   这就是预制体装配的核心价值：外观相似的东西可以有完全不同的能力集。
+-- 【移植建议】★ 「材料 → 能力」的映射应该集中在一处，不要散落在每个预制体里。
+    MakeSmallPropagator(inst)
+
+    return inst
+end
+
+local function pigskin()
+-- ★ pigskin()：猪皮伞变体 fn。注意函数名叫 pigskin 而预制体名是 umbrella（第 194 行）。
+-- ⇒ 【★ 命名层次】函数名描述「模型来源」，预制体名描述「玩家认知」。
+--   玩家在背包里看到的是 umbrella，而它的贴图是猪皮做的。
+-- ★ 【移植建议】★ 预制体名 = 玩家认知（见 deciduoustrees 第 1310 行的同款结论）。
+    local inst = common_fn("umbrella")
+
+    if not TheWorld.ismastersim then
+        return inst
+    end
+
+    inst:AddComponent("fueled")
+-- ★★★ fueled 组件：与草伞的 perishable（第 139 行）形成对照。
+-- 第 176 行 fueltype = FUELTYPE.USAGE：★ 「按使用消耗」而非「按时间消耗」。
+-- ⇒ 这是 fueltype 枚举存在的意义：同样是燃料组件，两种计时模式。
+-- 【移植要点】★ 枚举参数化的组件（模式/类型）能显著减少组件数量。
+    inst.components.fueled.fueltype = FUELTYPE.USAGE
+    inst.components.fueled:SetDepletedFn(onperish)
+-- ★★★ SetDepletedFn(onperish)：★ 「燃料耗尽时」的回调直接复用第 70 行的 onperish。
+-- ⇒ ★★★ 【★★ 极好的复用示范】
+--   两个变体的「耗尽表现」完全一致（都是消失 + 通知持有者），
+--   所以只写一个回调，两边共用。若是两个独立变体，很可能各写一份。
+-- 【移植建议】★ 遇到「A 变体用时间、B 变体用量，但结果一样」的组合，
+--   把「结果」抽成回调共用，把「触发条件」留给各自的组件配置。
+    inst.components.fueled:InitializeFuelLevel(TUNING.UMBRELLA_PERISHTIME)
+-- InitializeFuelLevel(TUNING.UMBRELLA_PERISHTIME)：★ 初始燃料量。
+-- ★ 注意命名：TUNING 里叫 PERISHTIME（腐坏时长）但用的是 fueled 组件。
+-- ⇒ 【★ 命名陷阱】说明「雨伞耗尽」这个概念最早是用腐坏机制实现的，
+--   后来换成 fueled 组件，但 TUNING 的字段名没改。
+-- 【移植建议】重构时改了概念就要改名字，否则后来者会困惑（就像这里）。
+
+    inst.components.waterproofer:SetEffectiveness(TUNING.WATERPROOFNESS_HUGE)
+-- ★ SetEffectiveness(WATERPROOFNESS_HUGE)：猪皮伞挡雨能力「超大」—— 比草伞强。
+-- ⇒ 【★ 平衡性】猪皮伞贵但更好用，遮阳伞便宜但挡雨弱。可燃性也相反（第 162 行）。
+-- ★ 两件物品形成完整取舍：耐久模式 / 挡雨强度 / 可燃性 / 可烧时长，四维都不一样。
+-- ⇒ 【移植要点】★ 「变体」最有价值的地方不是换皮，而是制造「有取舍的选择」。
+
+    inst.components.insulator:SetInsulation(TUNING.INSULATION_MED)
+
+    inst.components.equippable:SetOnEquip(onequip)
+    inst.components.equippable:SetOnUnequip(onunequip)
+    inst.components.equippable:SetOnEquipToModel( onequiptomodel )
+
+	inst.components.floater:SetScale({ .75, 0.35, 1.0 })
+	inst.components.floater:SetBankSwapOnFloat(true, -35, { sym_name = "swap_umbrella_float", sym_build = "swap_umbrella" })
+-- ★ 与第 155 行的 swap_data 表相比，这里用的是内联表且键名不同：
+--   第 155 行 { sym_build = "swap_parasol", bank = "parasol" }
+--   第 189 行 { sym_name = "swap_umbrella_float", sym_build = "swap_umbrella" }（无 bank）
+-- ★★ 本人已核实 components/floater.lua，两处都正确，不是笔误：
+--   floater.lua:134 `local symbol = self.swap_data.sym_name or self.swap_data.sym_build`
+--     → sym_name 优先；不填则回落到 sym_build。草伞不填是因为它不需要单独的浮动符号。
+--   floater.lua:198-199 `local bank = self.swap_data and self.swap_data.bank or self.inst.prefab`
+--     → bank 不填时回落到预制体名 "umbrella"。猪皮伞不填是对的，填 "parasol" 反而错。
+-- ⇒ 【★ 可移植模式】★ 配置表用「可选字段 + 逐级回落」而不是「每处传全」，
+--   既省调用方的心智负担，又保证缺字段时行为可预测。
+-- ⚠️ 但代价是调用方难以一眼看出「我到底漏填了没有」——
+--   本文件第 155、189 行的差异就是这种隐式契约的体现，移植时值得写注释固化。
+
+    return inst
+end
+
+return Prefab("umbrella", pigskin, assets),
+-- ★★★ return：仅 2 个预制体，却共享同一份 assets 表（第 1-7 行）。
+--   umbrella        —— 第 168 行 pigskin 函数（★ 函数名与预制体名不同）
+--   grass_umbrella  —— 第 132 行 grass 函数
+--
+-- 【★ 与其它预制体文件对照 —— 预制体数量的差异说明了什么】
+--   pighouse.lua      2 个（本体 + placer）
+--   umbrella.lua      2 个（本体 + 1 变体）
+--   treasurechest.lua 8 个（1 工厂派生 6 变体 + 1 独立 fx + 1 placer）
+--   deciduoustrees.lua 6 个（同族，差异仅初始状态）
+--   boat.lua          23 个（★ 每种船行为/物理/资产都不同）
+--   crabking.lua      5 个（1 Boss + 3 附属 + 1 废弃）
+-- ⇒ 【★ 派生数量的判定标准】
+--   「变体行为不同」→ 派生新预制体（boat.lua 23 个）
+--   「变体只是不同外观/初始状态」→ 用参数 + 同一预制体（deciduoustrees 6 个）
+-- ★★ 核心原则：★ 预制体名 = 玩家的身份认知。
+--   玩家认为它们是同一样东西 → 不该是多个预制体（存档、图鉴、配方会分裂）。
+--   玩家认为是不同东西 → 必须是不同预制体（保证配方与图鉴各自独立）。
+    Prefab("grass_umbrella", grass, assets)
+-- ★ grass_umbrella：名字里的 grass 与函数名 grass、模型名 parasol 三者各不相同。
+-- ⇒ 【★ 阅读提示】DST 里「函数名 / 预制体名 / 模型名」三者独立，
+--   读源码时不能假设它们对应。这是本项目最容易产生误解的一点。
+-- ★ 对比 deciduoustrees.lua 的 tree() 辅助函数（第 1449 行）：
+--   那里的函数名、预制体名、build 名三者一致 —— 两种风格并存。

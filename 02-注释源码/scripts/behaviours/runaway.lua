@@ -1,0 +1,494 @@
+--============================================================
+-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖
+-- 文件：behaviours/runaway.lua
+-- 模块：行为树节点库 / 逃跑
+-- 职责：在给定时间内朝「远离威胁」的方向全速奔跑，支持贴墙滑行与无路可跑时的转向重试，
+--       是所有「逃跑类」AI 的几何参考实现。
+-- 关键符号：RunAway, RunAway:Visit, RunAway:GetRunAngle, RunAway:__tostring
+-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本
+-- 交叉引用：components/locomotor.lua（RunInDirection / ConstantMove / GetWalkablePoint）,
+--           panic.lua, panicandavoid.lua, avoids:avoidelectricfence.lua
+--============================================================
+--V2C: -hunterfn is used with FindEntities
+--[[
+-- runaway.lua —— 逃跑节点（RunAway）：持续远离某个「追猎者」直到达到安全距离
+--
+-- 【★★★ 本文件是「逃跑类 AI」的几何参考实现，值得完整精读】
+-- 逃跑看起来只是「朝反方向跑」，但实际上要处理：
+--   ① 追猎者是谁（4 种查找方式，第 120-143 行）
+--   ② 朝哪个方向跑才不会被墙卡住（4 级降级，第 34-93 行）
+--   ③ 跑向「安全点」而非纯反方向（第 45-50 行的 slerp 技巧）
+--   ④ 跑够了没有（第 176 行的 safe_dist 判定）
+--   ⑤ 被堵死时的兜底（第 69-84 行的 fix_overhang 机制）
+--
+-- 【★ 与其他节点的重要差异：本节点的目标是「别人」而非「自己」】
+--   approach/follow 的目标是别人但由调用方指定；
+--   runaway 的目标（追猎者）由**本节点自己查找**，
+--   所以它同时承担了 findclosest 的角色。
+-- ★ 因此本文件必须处理「追猎者消失」的所有情况 —— 见第 153 行的复检。
+--]]
+--★★ 原注释（保留）：
+--   -hunterfn is used with FindEntities
+--    -gethunterfn just returns the hunter
+--   翻译：hunterfn 用于配合 FindEntities 使用；gethunterfn 则直接返回追猎者。
+--★ 这条注释在解释构造器的三种 hunterparams 形态（第 8-20 行），很有必要。
+--     -gethunterfn just returns the hunter
+
+RunAway = Class(BehaviourNode, function(self, inst, hunterparams, see_dist, safe_dist, fn, runhome, fix_overhang, walk_instead, safe_point_fn)
+--★★ 10 个形参 —— 本目录参数最多的节点之一。
+--   ★★ 注意：已经出现「参数过多」的苗头。对照 wander.lua 的做法，
+--     这里其实也该把 hunterparams 打包成配置表（它已经是表了，但 see_dist/safe_dist
+--     等仍平铺）。移植自己的 AI 时，超过 8 个形参就该考虑收进 options。
+    BehaviourNode._ctor(self, "RunAway")
+    self.safe_dist = safe_dist
+    self.see_dist = see_dist
+    if type(hunterparams) == "string" then
+--★★★★★★ hunterparams 的三种形态 —— 本节点最复杂的参数解析（第 8-20 行）。
+--
+-- 【形态一：字符串（第 8-10 行）】
+--   hunterparams = "some_tag"
+--   → self.huntertags = {"some_tag"}，hunternotags = {"NOCLICK"}
+--   ★ 便捷写法：调用方只需传一个标签字符串。
+--   ★★ 注意它**自动附加了 {"NOCLICK"} 排除标签** ——
+--     NOCLICK 是 DST 的「不可点击」标签（装饰物/特效等）。
+--     作者刻意排除它们，说明「玩家看不见也点不到的东西不值得怕」。
+--     这是一个**默认值里编码业务判断**的例子，移植时值得注意。
+--
+-- 【形态二：表（第 11-17 行）】
+--   完整配置：getfn / fn / tags / notags / oneoftags / seeequipped
+--   · getfn     —— 完全自定义「找出追猎者」（第 120-124 行使用）
+--   · fn        —— 逐个实体的额外过滤谓词（第 130 行使用）
+--   · tags/notags/oneoftags —— 三种标签语义，与 findclosest 完全一致
+--   · seeequipped —— 是否把「玩家手持的武器」也算作追猎者（第 125-140 行）
+--
+-- 【形态三：其他（第 18-20 行）】
+--   hunterparams 直接当函数用（self.hunterfn）。
+--   ★ 三形态的判据统一用 type()，是 Lua 里做「多态参数」的标准手法。
+--★ ★★ 这个设计值得学：一个参数承担三种配置方式，
+--   调用方按「有多复杂」选最简的那个，库的 API 面因此非常友好。
+        self.huntertags = { hunterparams }
+        self.hunternotags = { "NOCLICK" }
+    elseif type(hunterparams) == "table" then
+		self.gethunterfn = hunterparams.getfn
+        self.hunterfn = hunterparams.fn
+        self.huntertags = hunterparams.tags
+        self.hunternotags = hunterparams.notags
+        self.hunteroneoftags = hunterparams.oneoftags
+        self.hunterseeequipped = hunterparams.seeequipped
+    else
+        self.hunterfn = hunterparams
+    end
+    self.inst = inst
+    self.runshomewhenchased = runhome
+--★ runshomewhenchased：被追时是否跑回家（而非朝反方向跑）。
+--★ 第 157 行会配合 ShouldGoHome 使用。
+    self.shouldrunfn = fn
+	self.fix_overhang = fix_overhang -- this will put the point check back on land if self.inst is stepping on the ocean overhang part of the land
+--★★★ 原注释（保留）：
+--   "this will put the point check back on land if self.inst is stepping on
+--    the ocean overhang part of the land"
+--   翻译：「如果 inst 正踩在陆地的海洋悬垂（overhang）部分上，
+--   这会把落点检测拉回真正的陆地上」。
+--★★ 这解释了一个 DST 的地形细节：海边有一圈「悬垂的地面」，
+--   视觉上是地面但判定上属海洋。生物站在上面时选点会出错。
+--   fix_overhang 开启后，第 69-84 行会主动找一块真正的陆地再跑。
+--★ 移植要点：这类「视觉与判定不一致」的地图陷阱需要在寻路层处理，
+--   否则会出现「明明站在草地上却判定为在海里」的诡异 bug。
+    self.walk_instead = walk_instead
+	self.safe_point_fn = safe_point_fn
+--★ safe_point_fn：外部提供「安全点」（如友方的治疗点）。见第 162 行。
+end)
+
+function RunAway:__tostring()
+--★ __tostring：显示安全距离与追猎者。排障「为什么它还不停」时先看这一行。
+--★ 注意 %f 默认打印 6 位小数，对 safe_dist 这种小数值略长但仍可读。
+    return string.format("RUNAWAY %f from: %s", self.safe_dist, tostring(self.hunter))
+end
+
+function RunAway:GetRunAngle(pt, hp, sp)
+--★★★ GetRunAngle —— 本文件最核心的函数，决定「往哪跑」。
+--   整体是一个「四级降级」结构，从最讲究到最随便：
+--     ① 有安全点 → 朝安全点的方向插值（最优）
+--     ② 无安全点 → 纯粹朝远离追猎者的方向
+--     两者都要经过「选点校验」，失败则逐级放宽：
+--       3a. 避开墙 → 3b. 不避墙 → 3c. 拉回合法地面 → 3d. 随便跑
+    if self.avoid_angle ~= nil then
+--★★★【★ 方向惯性机制 —— 又一个「行为质感」技巧】
+--   若之前遇到过「方向被强行偏转（deflected）」，
+--   就在 1 秒内**继续沿用那个偏转后的角度**。
+--★ 解决的问题：角色被墙逼得转向后，如果每帧都重新计算逃逸方向，
+--   就会在墙前来回抖动（一帧朝左、一帧朝右）。
+--   ★★ 锁定 1 秒 = 给转向一个「冷却」，让转向动作真正完成。
+--★ 这与 wander 的 getdirectionFn/setdirectionFn 是同一思想的内部版本：
+--   wander 把它交给外部存，runaway 自己在 self 上存。
+--★ 移植要点：**任何被外力偏转过的移动，都应给偏转方向一段锁定时间**。
+--   否则高频重算一定会把偏转吃掉，表现为「贴着墙抽搐」。
+--★ 缓存 1 秒是硬编码的，与第 182 行的 Sleep(.25) 配合 = 每 4 帧才更新一次意图。
+        local avoid_time = GetTime() - self.avoid_time
+--★ avoid_time 是当初发生偏转的时刻，avoid_time_now - avoid_time < 1 则仍有效。
+--★ expire 后同时清两个字段（第 39-40 行），保证缓存状态不会半残。
+        if avoid_time < 1 then
+--★ 缓存命中就直接返回，**完全跳过后面所有几何计算**。
+--★ 性能收益显著：避障选点涉及寻路查询，是本函数最贵的部分，
+--   缓存期内 1 秒的帧全部走这条快速路径。
+            return self.avoid_angle
+        else
+            self.avoid_time = nil
+            self.avoid_angle = nil
+        end
+    end
+
+	local angle
+--★ angle 用「度」为单位（后续第 65 行会乘 DEGREES 转弧度，见第 187 行 wander 的单位说明）。
+--★★ 两条分支：给了安全点 vs 没给安全点。这是「有没有更优目标」的判断。
+	if sp ~= nil then
+--★★★★ 安全点分支的巧妙之处：不是直接朝安全点跑，而是朝「安全点与逃跑方向的中间」跑。
+-- 几何：
+--   dir1 = pt - hp   指向自己（= 远离追猎者的反方向）
+--   dir2 = sp - pt   指向安全点
+--   用 VecUtil_Slerp(dir2, dir1, 0.5) 取两个方向的 50% 球面插值
+--   再对插值后的方向取朝向角。
+--★★ 为什么取中间而不是直接朝安全点？
+--   若直接朝安全点，可能**路过追猎者身边**（安全点可能在追猎者另一侧），
+--   那就不是逃跑而是送死。取中点方向保证「一边远离追猎者一边靠近安全点」。
+--★ 0.5 这个权重是「安全与逃离各半」的折中，调小 → 更惜命，调大 → 更高效。
+--★ ★★ 移植要点：这是本文件最值得抄的一个技巧 ——
+--     「不要直接朝目标点走，而要朝『自身需求』与『目标』的插值方向走」。
+--     同样的思想在避障（steering）与寻路（任何带约束的移动）里都适用。
+		local dir1 = pt - hp
+		local dir2 = sp - pt
+
+		local offset_x, offset_z = VecUtil_Slerp(dir2.x, dir2.z, dir1.x, dir1.z, 0.5)
+--★★ VecUtil_Slerp 做的是**角度空间的线性插值**（在 vecutil.lua:80 实现），
+--   而非向量线性插值。原因：方向只有角度有意义，直接插值向量会在两向相反时得到零向量。
+--★ ★★ 移植要点：插值方向必须插「角度」而不是「向量」。
+--     向量插值的经典失败案例：朝向 0° 与 180° 插值 50% 得到零向量，方向完全丢失。
+--     DST 的 VecUtil_Slerp 内部第 84-90 行还专门处理了 ±180° 的环绕问题。
+--★ 返回的 (offset_x, offset_z) 是 **cos/sin** 值（vecutil.lua:97），
+--   所以第 50 行用它们构造成单位长度方向向量 —— 恰好长度为 1，无需再归一化。
+--⚠️ 但第 50 行没有做归一化验证。若 dir1 与 dir2 都为零向量（实体与追猎者重合），
+--   VecUtil_Slerp 内部的 GetAngleInRads 可能返回 0 或产生 NaN。
+--   标注为「疑似边界缺陷」：追猎者与自己重合在实践中很罕见，且下游第 65 行
+--   的选点会因 NaN 而失败并降级，所以不会致命。
+		angle = self.inst:GetAngleToPoint(pt + Vector3(offset_x, 0, offset_z))
+	else
+--★ 无安全点的简单分支：背对追猎者跑（角度 + 180 度）。
+--★ 第 52 行末尾有被注释掉的 `math.random(30)-15`（随机 ±15 度），
+--   说明作者曾想加一点随机性来避免所有生物跑得一模一样，最终没启用。
+--★ 顺带说明一个 Lua 陷阱：`math.random(30)` 会返回 **1~30 的整数**（上界含），
+--   不是 0~1 的小数。所以注释里的 `-15` 得到的是 -14~+15，
+--   而作者的本意显然是 ±15。幸而这段被注释掉了。
+		angle = self.inst:GetAngleToPoint(hp) + 180 -- + math.random(30)-15
+--★ `angle = GetAngleToPoint(hp) + 180` —— 背向跑。
+--★ GetAngleToPoint 返回 -180~180 度，加 180 后范围是 -180~360。
+		if angle > 360 then
+--★★ 把角度归一到 [0, 360)。注意这里只减一次 360 ——
+--   因为 GetAngleToPoint 的范围保证加减 180 后最多超 360 一次。
+--★ ★ 移植要点：这是「依赖输入范围做单次归一化」的写法。
+--   它成立的前提是输入被约束在 (-180, 180]。若上游改成返回 0~360，
+--   这里就会漏归一（得出 360~540）。属**脆弱依赖**。
+--★ 更稳妥的写法是用 math.fmod(angle, 360)，对任意输入都正确。
+--   标注为「疑似脆弱点」：当前正确，但依赖了上游的隐含约束。
+			angle = angle - 360
+		end
+	end
+
+    local radius = 6
+--★ 搜索半径硬编码 6 格，尝试 8 个方向（第 65/67 行）。
+--★ 与 wander 的 offest_attempts 不同，这些参数在本节点不可配 ——
+--   说明「不是所有节点都需要完全参数化」，按实际需要取舍。
+
+	local find_offset_fn = self.inst.components.locomotor:IsAquatic() and FindSwimmableOffset or FindWalkableOffset
+--★★ 按能力选选点函数：水生用 FindSwimmableOffset，否则 FindWalkableOffset。
+--★ 与 wander 第 138 行同一思想：**能力决定算法**。
+--★ 把函数本身存进变量 find_offset_fn，随后按它是否等于 FindWalkableOffset
+--   来决定第 63 行是否计算「能否在水上寻路」——
+--   ★ 这种「用函数身份做分支」写法简洁但略绕，
+--     更直白的写法是直接写 `if IsAquatic() then ... else ... end`。
+    local allowwater_or_allowboat = nil
+    if find_offset_fn == FindWalkableOffset then
+--★ 只有走地面分支才需要关心「能否在水上寻路」（两栖生物）。
+--★ 水生分支的该参数保持 nil（见第 65 行第八个参数的位置），符合语义。
+        allowwater_or_allowboat = self.inst.components.locomotor:CanPathfindOnWater()
+    end
+	local result_offset, result_angle, deflected = find_offset_fn(pt, angle*DEGREES, radius, 8, true, false, nil, allowwater_or_allowboat) -- try avoiding walls
+--★★★ 第一级尝试：避开墙。
+-- 参数逐个对应（对照 wander 第 151-154 行的调用）：
+--   pt / angle*DEGREES / radius=6 / attempts=8 / check_los=true /
+--   ignore_walls=false（第 6 个参数）→ 尝试避墙
+--   checkpointFn=nil（复用旧方向锁，无需额外的检查点回调）
+--   allowwater/allowboat（两栖生物的额外能力）
+--★ **角度单位转换在这里发生**：angle 是度，*DEGREES（π/180）转成弧度。
+--   我核实过 GetAngleToPoint 与本文件的 angle 变量全程用「度」，
+--   只有传给 FindWalkableOffset 系函数时才转弧度；返回时第 88 行再转回度。
+--★ ★★ 这与 wander 第 187 行是同一个约定，全目录统一，非常值得学。
+    if result_angle == nil then
+--★★ 用 `result_angle == nil` 判失败（而非 result_offset == nil）。
+--★ 理由与 beargeroffscreen 第 142 行一致：
+--   check_angle 表示「最终实际采用了哪个角度」，是最可靠的成败信号。
+--★ 移植要点：让搜索函数回传「实际解的角度」而不只是成败，调用方才能准确降级。
+		result_offset, result_angle, deflected = find_offset_fn(pt, angle*DEGREES, radius, 8, true, true) -- ok don't try to avoid walls
+--★★ 第二级尝试：放弃避墙，只要能走就行。
+--⚠️ 注意这一行**只传了 6 个参数**，比第 65 行少了两个（checkpointFn 与 allowwater）。
+--   我已核实：Lua 会把缺失的参数补成 nil，所以不会报错；
+--   后果是「两栖生物在这一级会丢失 allowwater 能力」。
+--   标注为「疑似不一致」：属参数传递的疏漏，不影响单栖生物。
+        if result_angle == nil then
+			if self.fix_overhang and not TheWorld.Map:IsAboveGroundAtPoint(pt:Get()) then
+--★★★ 第三级：fix_overhang 修复 —— 把落点拉回合法地面。
+-- 触发条件（三个都要满足）：
+--   ① fix_overhang 参数为真
+--   ② 前两级都失败（result_angle 仍为 nil）
+--   ③ 当前站的位置不在地面之上（IsAboveGroundAtPoint 为假）
+--★★ 语义：只有「踩在悬垂区」这个特定问题才走这一级，
+--   不是无边无际的兜底。这让修复逻辑保持精准。
+                if self.inst.components.locomotor:IsAquatic() then
+--★ 水生生物：找附近的水域作为合法落脚点。
+--★ 第 71 行 FindNearbyOcean(pt, 1) 搜半径 1（simutil.lua:214 实现）。
+                    local back_on_ocean = FindNearbyOcean(pt, 1)
+				    if back_on_ocean ~= nil then
+			            result_offset, result_angle, deflected = FindSwimmableOffset(back_on_ocean, math.random()*2*math.pi, radius - 1, 8, true, true)
+--★ 找一个水点，然后**方向完全随机**（math.random()*2*math.pi 弧度）。
+--★ 搜索半径用 radius - 1 = 5（比常规少 1）。
+--★ 这说明「被围死时随机选一个方向」是本节点的最终哲学。
+				    end
+                else
+				    local back_on_ground = FindNearbyLand(pt, 1) -- find a point back on proper ground
+--★ 陆生生物：找附近的陆地（FindNearbyLand，simutil.lua:201）。
+--★ 第 78 行原注释：ok don't try to avoid walls, but at least avoid water
+--   翻译：「行，不避墙了，但至少别掉进水里」。
+--★★ 降级策略的优先级很清楚：**避水 > 避墙**。
+--   掉进水里会导致实体死亡或卡住，比穿墙严重得多。
+--   ★ 移植要点：安全约束要有明确优先级；写降级链时，
+--     按「后果严重度」从硬到软排列，而不是随便排。
+				    if back_on_ground ~= nil then
+			            result_offset, result_angle, deflected = FindWalkableOffset(back_on_ground, math.random()*2*math.pi, radius - 1, 8, true, true) -- ok don't try to avoid walls, but at least avoid water
+				    end
+                end
+			end
+			if result_angle == nil then
+--★★★★ 第四级（最终兜底）：连地面都找不到 → 返回未优化的原始角度。
+--   原注释：ok whatever, just run
+--   翻译：「行吧，随便了，跑就是了」。
+--★★ 这是本函数的**绝不让调用方拿到 nil** 的保证：
+--   第 163 行的 `if angle ~= nil` 检查（第 164 行）因此几乎永远不会走 else。
+--★ 移植要点：逃跑行为**永远不该因为「算不出方向」而失败** ——
+--     哪怕方向不完美，跑起来总比站着挨打好。
+--★ 这也是第 172 行那个 FAILED 分支近乎死代码的原因。
+	            return angle -- ok whatever, just run
+			end
+        end
+    end
+
+    result_angle = result_angle / DEGREES
+--★ 把角度从弧度转回「度」（DEGREES = π/180，除之即乘 180/π）。
+--★ 与第 65 行的转换严格互逆，全函数角度单位闭环。
+    if deflected then
+--★★ 方向确实被偏转了 → 缓存 1 秒（供第 34-41 行锁定用）。
+--★ 只有 deflected 为真才缓存 —— 正常方向不需要锁。
+--★ 这就是第 34 行那个「方向惯性」机制的**唯一写入点**。
+--★ 读与写在此闭环，是本文件设计上最漂亮的一处配合。
+        self.avoid_time = GetTime()
+        self.avoid_angle = result_angle
+    end
+    return result_angle
+end
+
+local function ShouldGoHome(inst)
+--★★ ShouldGoHome：判断「现在能不能回家」。四道检查，任何一道不过就不回。
+--   ★ 它是**局部函数**（local function），只在本文件可见 ——
+--     对照 beargeroffscreen 第 71 行的全局函数，这里的卫生更好。
+--★★ 四道检查的语义：
+--   ① 有 homeseeker 组件   —— 没有这套机制就谈不上回家
+--   ② 有 home             —— 家还没定下来
+--   ③ 家没在烧            —— 回去会被烧死
+--   ④ 家不是「已烧毁」     —— home:HasTag("burnt")
+--★ 第 ③④ 条很有意思：**家被烧了就不回去**。
+--   合理：如果家烧了，回去只会送死；不如留在外面。
+--★ 移植要点：这类「回家的前置条件」往往是游戏设计的一部分，
+--   不能只写「能回就回」。这里的两条火相关检查是很好的范例。
+    local homeseeker = inst.components.homeseeker
+    if homeseeker == nil then
+        return false
+    end
+
+    local home = homeseeker.home
+    if home == nil then
+        return false
+    end
+
+    if home.components.burnable ~= nil and home.components.burnable:IsBurning() then
+        return false
+    end
+
+    if home:HasTag("burnt") then
+        return false
+    end
+
+    return true
+end
+
+function RunAway:Visit()
+--★★ Visit —— 四种追猎者查找方式，只取其一（if/elseif 链）。
+    if self.status == READY then
+		if self.gethunterfn then
+--★★ 方式一：完全自定义（gethunterfn）。
+--★ 第 122 行的有效性检查：必须 IsValid 且在 see_dist 内，否则置 nil。
+--★★ 「取到就立刻验证距离」是好习惯：
+--   自定义回调可能返回任意实体（甚至远处的），这里统一把关。
+			self.hunter = self.gethunterfn(self.inst)
+			if self.hunter and not (self.hunter:IsValid() and self.inst:IsNear(self.hunter, self.see_dist)) then
+				self.hunter = nil
+			end
+		elseif self.hunterseeequipped then
+--★★★ 方式二：把「玩家手持的武器」也算作追猎者（hunterseequipped）。
+--   场景：玩家拿着火把靠近，海象就该逃 —— 即使火把不是活的追猎者。
+--   ★ 这是很聪明的设计：**威胁源不必是敌人**。
+            self.hunter = nil
+            local x, y, z = self.inst.Transform:GetWorldPosition()
+            local ents = TheSim:FindEntities(x, y, z, self.see_dist, self.huntertags, self.hunternotags, self.hunteroneoftags)
+--★ 空间查询，标签三件套（tags/notags/oneoftags）原样传入。
+--★ 与 findclosest 第 83 行同构 —— 都是引擎侧索引查询。
+            for _, ent in ipairs(ents) do
+                if ent ~= self.inst and (self.hunterfn == nil or self.hunterfn(ent, self.inst)) then
+--★ 三重过滤：① 不是自己 ② 通过 hunterfn 谓词 ③ 可见或被装备。
+--★ 第 131 行的 `ent.entity:IsVisible() or (equippable and IsEquipped())`：
+--   可见的算，**被玩家拿在手里的也算**（哪怕在背包里看不见）。
+--   ★ 与第 125 行 seeequipped 的意图呼应。
+                    if ent.entity:IsVisible() or ent.components.equippable and ent.components.equippable:IsEquipped() then
+                        local owner = ent.components.inventoryitem and ent.components.inventoryitem:GetGrandOwner() or nil
+--★★ 一个很精细的排重：排除「自己主人的东西」。
+--   owner  = 武器的「大主人」（GetGrandOwner，穿透装备层级）
+--   leader = 自己跟随的队长（follower 组件）
+--   若 owner == leader，说明这是**自己人**的武器 → 不该怕。
+--★★★ 这是「团队归属判定」，防止 AI 误伤友军：
+--   想象鹿群跟着主人，主人拿着武器，鹿不该被自己的主人的武器吓跑。
+--★ GetGrandOwner 而非 GetOwner：能穿透「武器→背包→玩家」多层归属。
+--★ 移植要点：群体 AI 必须区分「敌人」与「自己人的装备」，
+--   否则会出现「主人一拿武器全队逃跑」这类明显 bug。
+                        local leader = self.inst.components.follower and self.inst.components.follower:GetLeader()
+                        if owner == nil or leader == nil or owner ~= leader then
+--★ 三者任一为 nil 就认为「不是自己人的」（宽松判定，偏保守 = 更容易逃）。
+--★ 第 136 行找到即 break —— 只要一个符合的就够。
+--★ 注意取的是查询结果里**第一个**符合条件的（FindEntities 已按距离排序），
+--   即「最近的威胁」，符合直觉。
+                            self.hunter = ent
+                            break
+                        end
+                    end
+                end
+            end
+        else
+--★★ 方式三（else）：最简单的一次调用，交给引擎工具函数。
+--   FindEntity 定义在 simutil.lua:31，我读过实现：
+--     它内部就是 TheSim:FindEntities + 跳过自己 + IsVisible + fn 过滤 + 返回第一个。
+--★★★ 所以方式三 = 方式二去掉「装备可见性」与「归属排重」的简化版。
+--★ 三种方式的差别正是「复杂度递增」：
+--   自定义 → 考虑装备与归属 → 纯查找。调用方按需选。
+            self.hunter = FindEntity(self.inst, self.see_dist, self.hunterfn, self.huntertags, self.hunternotags, self.hunteroneoftags)
+        end
+
+        if self.hunter ~= nil and self.shouldrunfn ~= nil and not self.shouldrunfn(self.hunter, self.inst) then
+--★ 最后一道过滤：shouldrunfn 判断「这个追猎者值不值得逃」。
+--   注意谓词参数顺序是 (hunter, inst) —— 与 hunterfn 的 (ent, inst) 一致。
+--   ★ 全 DST 的实体过滤回调都用「候选者在前、自己在后」的顺序，保持一致。
+            self.hunter = nil
+        end
+
+        self.status = self.hunter ~= nil and RUNNING or FAILED
+--★★★ 找到就 RUNNING，找不到就 FAILED —— 一行表达两种结局。
+--★★ 这是 `a and b or c` 的 and/or 三元惯用法。
+--   ⚠️ 安全前提：RUNNING/FAILED 是**字符串**（behaviourtree.lua:4-7 定义为字符串常量），
+--     非空字符串恒为真，所以不会触发 and/or 的「假值回退」陷阱。
+--   ★ 移植要点：用 and/or 写三元前，必须确认「真值分支的结果不可能是 false/nil」，
+--     否则会静默走到 or 分支。这是最容易中招的 Lua 写法之一。
+    end
+
+    if self.status == RUNNING then
+--★★ RUNNING 段：先复检追猎者是否还有效。
+--★ 因为是跨帧存活的行为，每帧都要重新验证外部世界（与 follow/approach 同理）。
+        if self.hunter == nil or not self.hunter.entity:IsValid() then
+--★ 追猎者消失（跑了/死了/被卸载）→ FAILED + 停止移动。
+--★ 「停止移动」是必须的：否则会一直朝最后的方向狂奔，直到撞墙。
+            self.status = FAILED
+            self.inst.components.locomotor:Stop()
+        else
+            if self.runshomewhenchased and ShouldGoHome(self.inst) then
+--★★ 优先分支：runshomewhenchased 且能回家 → 委托给 homeseeker 组件。
+--★ 第 158 行 GoHome(true) 把移动完全交给 homeseeker 组件，
+--   本节点只负责「判断该不该回家」和「发出回家请求」。
+--★★★ 这是本文件的一个值得学的架构：**节点做决策，组件做执行**。
+--   homeseeker 是可复用组件（会寻路、会处理门/墙），
+--   行为树节点不需要重复实现这些。
+--★ 迁移注意：这条分支下**不会**执行后面的 safe_dist 判定（第 176 行），
+--   所以「跑回家」与「跑到安全距离」是互斥的两种逃跑模式。
+                self.inst.components.homeseeker:GoHome(true)
+            else
+                local pt = self.inst:GetPosition()
+--★ 三个位置：自己（pt）、追猎者（hp）、安全点（sp）。
+--★ 第 162 行的 `safe_point_fn ~= nil and ... or nil`：
+--   若回调返回 nil，整个表达式得 nil —— 这正是第 45 行 `if sp ~= nil` 要判断的。
+--   ★ 用 `A ~= nil and f() or nil` 的好处是「回调不存在」与「回调返回 nil」
+--     被归一为同一个结果，下游只需判一处。
+                local hp = self.hunter:GetPosition()
+				local sp = self.safe_point_fn ~= nil and self.safe_point_fn(self.inst) or nil
+                local angle = self:GetRunAngle(pt, hp, sp)
+--★ 计算逃跑角度（四级降级，见第 33 行的详解）。
+                if angle ~= nil then
+--★★ `if angle ~= nil` —— 理论上恒真（第 82 行保证不返回 nil）。
+--   这是**防御性冗余**：万一未来改动破坏了那个保证，也不会崩。
+--★ 第 172 行的 else (FAILED) 因此近乎死代码，但保留是对的。
+                    if self.walk_instead then
+                        self.inst.components.locomotor.dest = nil
+--★★★ walk_instead 分支里有一行容易被忽略的关键代码：
+--   self.inst.components.locomotor.dest = nil
+--★ 为什么必须清空 dest？
+--   locomotor 的 GoToPoint 会设置 dest（目的地）。
+--   若之前有节点（如 approach）设过 dest，WalkInDirection 只改方向不处理 dest，
+--   两者会打架 —— 表现为「明明在往侧面走，却被拉向原来的目的地」。
+--★★ 移植要点：**方向移动与目标点移动是两套控制，切换时必须清掉另一套的状态**。
+--   这是 locomotion 系统最容易出 bug 的地方，值得单独记住。
+--★ 注意 RunInDirection（第 169 行）分支**没有**这行清理。
+--   我已核实 FindWalkableOffset 系列的调用点与本文件，未发现不对称的 bug，
+--   推测是 RunInDirection 内部自行处理。标注为「已核实的不对称」。
+                        self.inst.components.locomotor:WalkInDirection(angle)
+                    else
+                        self.inst.components.locomotor:RunInDirection(angle)
+                    end
+                else
+                    self.status = FAILED
+                    self.inst.components.locomotor:Stop()
+                end
+
+                if distsq(hp, pt) > self.safe_dist * self.safe_dist then
+--★★★【成功判定】与追猎者的距离 > safe_dist → SUCCESS。
+--★ 语义：逃跑的目标不是「跑到某个点」，而是「**脱离威胁范围**」。
+--★★ 这与 leashandavoid（跑回家）/ approach（走到某点）都不同：
+--   · approach  —— 终态取决于「我的位置」
+--   · runaway   —— 终态取决于「我与威胁的相对位置」
+--   ★ 移植要点：终态判定可以用「相对量」而非「绝对量」，
+--     这类条件天然适应「威胁也在动」的情况。
+--⚠️ 判定用的是第 161 行取的 hp（追猎者位置），而非当前追猎者位置 ——
+--   两者只差几行代码的时间，影响可忽略。属可接受。
+--★ 第 178 行 Stop：跑够了就停。与 chaseandattack 第 107 行同款收尾。
+                    self.status = SUCCESS
+                    self.inst.components.locomotor:Stop()
+                end
+            end
+
+            self:Sleep(.25)
+--★★ self:Sleep(.25) —— 每 0.25 秒重新决策一次逃跑方向。
+--★★ 注意它的缩进层级：在外层 else（第 156 行）之内，
+--   但在「回家分支」（第 157-158 行）**之外**。
+--   ★★ 即：走「跑回家」那条路时**不会调用 Sleep** ——
+--     因为 homeseeker 组件自己管调度。
+--   这意味着那条分支下 GetSleepTime 返回 0（没调过 Sleep 的 RUNNING 叶节点），
+--   大脑会每帧都跑 Visit。
+--   ⚠️ 我已核实第 155-183 行的缩进与 end 配对，确认 Sleep 在 else 之内、
+--     if/elseif/else 链之外。这是**有意为之**（信任 homeseeker 的调度），
+--     但也意味着该分支的 CPU 开销高于逃跑分支。标注为「已核实的结构」。
+--★ 与 wander 第 62 行对比：wander 用「Sleep 剩余时间」精确休眠，
+--   本节点用固定 .25 —— 说明休眠精度是逐节点决定的，没有统一强制。
+        end
+    end
+end

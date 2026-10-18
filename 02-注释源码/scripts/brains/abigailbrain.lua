@@ -1,0 +1,544 @@
+--============================================================
+-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖
+-- 文件：brains/abigailbrain.lua
+-- 模块：AI 大脑 / 阿比盖尔（Boss，双人格）
+-- 职责：装配阿比盖尔 AI。★ 本文件是「同一 AI 实例的多形态」最干净的实现：
+--       用 is_defensive 标签切换【防御型/攻击型】两棵并列的 PriorityNode，
+--       共用节点（跳舞/观战/透明/显灵/与鬼魂玩耍）抽成 local 被两棵树引用，
+--       差异处只写不同常量与游荡节奏。另含 swoop（俯冲）技能的状态守卫、
+--       「以玩家为基准 vs 以自己为基准」的两种战斗距离判定、
+--       显灵操作的三重保障（validfn + success/fail 回调）等模式。
+-- 关键符号：AbigailBrain, DefensiveCanFight, AggressiveCanFight, FindPlaymate,
+--           HauntAction, PlayWithPlaymate, GetBabysitterPos,
+--           defensive_mode / aggressive_mode, PRIORITY_NODE_RATE
+-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本
+-- 交叉引用：brain.lua（三段式调度）, brains/braincommon.lua（共享底座）,
+--           behaviours/{doaction,follow,wander,faceentity,chaseandattack,
+--           runaway,leash,standstill}.lua,
+--           components/{follower,trader,combat}.lua,
+--           tuning.lua:4808/4814（ABIGAIL_DEFENSIVE_MAX_FOLLOW = 5、
+--           ABIGAIL_AGGRESSIVE_MAX_FOLLOW = 10）
+--============================================================
+require "behaviours/doaction"
+--[ [
+-- abigailbrain.lua —— 阿比盖尔（Abigail）大脑
+--
+-- 【★ 定位：Boss 级「双人格」AI 的范本】
+--   阿比盖尔被玩家击败后会「归顺」，变成防御型；未归顺则是攻击型。
+--   ★ 本文件用【两棵并列的 PriorityNode】表达这两种人格（第 209、231 行），
+--     而不是在一棵树里到处 if。判据就是第 209 行的 self.inst.is_defensive。
+--   ★ 移植价值：这是「同一 AI 实例的多形态」最干净的实现方式 ——
+--     共用节点（dance / watch_game / play_with_ghosts）抽成 local，
+--     两种人格各自组装，只在差异处写不同节点。
+--
+-- 【★ 共用节点的抽取技巧（值得学）】
+--   第 180 行 dance、第 186 行 transparent_behaviour、第 193 行 haunt_behaviour、
+--   第 197 行 play_with_ghosts —— 这四个节点被【两种人格共用】，
+--   所以提前定义成 local，然后在两棵树里引用同一个对象。
+--   ★ 注意：这是共享同一个节点实例，不是各建一个。
+--   ⚠️ 节点实例被两棵树引用时，OnStop 等状态可能互相影响；
+--     但由于两棵人格树互斥（is_defensive 为真/假），实际不会同时激活。安全。
+--
+-- 【⚠️ 容易踩的坑】
+-- · 第 63-64 行 can_play 表达式以 `or true` 结尾 —— ★★★
+--   整个条件恒为真，hasLeader 相关判断（第 63 行左侧）完全无效。
+--   已逐字核对第 63、64 行确认。这是【真实缺陷】，详见该行注释。
+-- · 第 124 行 DefensiveCanFight 与第 141 行 AggressiveCanFight 结构几乎相同，
+--   只有距离判定不同（IsWithinDefensiveRange vs _playerlink 距离）。
+-- · 第 227 行 defensive_mode 与第 231 行 aggressive_mode 【不是 WhileNode】。
+--   defensive_mode 是 WhileNode（包住全部）；aggressive_mode 是裸 PriorityNode。
+--   这个不对称是刻意的：前者要靠 is_defensive 成立才整体生效。
+--] ]
+require "behaviours/follow"
+require "behaviours/wander"
+
+local AbigailBrain = Class(Brain, function(self, inst)
+    Brain._ctor(self, inst)
+end)
+
+local WANDER_TIMING = {minwaittime = 6, randwaittime = 6}
+-- 游荡节奏：等 6 秒 + 最多 6 秒随机。
+local MAX_BABYSIT_WANDER = 6
+-- ★ MAX_BABYSIT_WANDER = 6 —— 「看孩子」时的游荡半径。
+--   「babysitter」指玩家照顾她时她在旁边转（第 218-220 行）。
+--   ★ 这是 Boss 也能有的「陪伴行为」，让角色更有人味。
+
+local function GetLeader(inst)
+    return inst.components.follower and inst.components.follower:GetLeader()
+end
+
+local function GetLeaderPos(inst)
+    local leader = GetLeader(inst)
+    if not leader then
+        return nil
+    end
+
+    return leader:GetPosition()
+end
+
+local function DanceParty(inst)
+    inst:PushEvent("dance")
+end
+
+local function HauntAction(inst)
+-- ★★★ HauntAction —— 显灵/附身玩家。
+-- 【★ 一个 BufferedAction 上挂了三套回调】
+--  第 31 行 AddSuccessAction(inst._OnHauntTargetRemoved)
+--  第 32 行 AddFailAction(inst._OnHauntTargetRemoved)
+--   ★★ 成功【和】失败都挂同一个清理函数 —— 保证无论结果如何都清理。
+--     这是「try/finally」在 Lua 里的标准替代手法。
+--  第 33-36 行 validfn：★ 每次执行前检查目标还在且不在 limbo。
+--     注释说明："InLimbo covers stuff like items getting picked up"
+--     即「玩家把东西捡走了」会导致目标进入 limbo，此时应放弃。
+-- ★★ 三个机制叠加 = 「可靠的操作发起」：
+--   validfn 管「能不能开始」，success/fail 管「结束后要做什么」。
+--   这个组合在 monkeybrain 第 247 行、mermbrain 第 139 行也有。
+-- ★ 第 30 行 inst._haunt_target 是实体上的字段，由外部（状态图/预制体）设置。
+--   第 193 行 WhileNode 条件就是检查它非 nil。
+    local haunt_action = BufferedAction(inst, inst._haunt_target, ACTIONS.HAUNT)
+    haunt_action:AddSuccessAction(inst._OnHauntTargetRemoved)
+    haunt_action:AddFailAction(inst._OnHauntTargetRemoved)
+    haunt_action.validfn = function()
+        -- InLimbo covers stuff like items getting picked up
+        return inst._haunt_target ~= nil and not inst._haunt_target:IsInLimbo()
+    end
+    return haunt_action
+end
+
+-------------------------------------------------------------------------------
+--  Play With Other Ghosts
+local PLAYFUL_OFFSET = 2
+-- 玩耍时保持的距离 2。
+
+local PLAYMATE_NO_TAGS = {"busy"}
+-- 玩耍伙伴的筛选：排除「忙」的，必须是 ghostkid 或 graveghost。
+-- ★★ 语义：阿比盖尔只和同类（小孩鬼/坟鬼）玩，不会和人类玩。
+local PLAYMATE_ONEOF_TAGS = {"ghostkid", "graveghost"}
+local function PlayWithPlaymate(self)
+-- ★★ PlayWithPlaymate：★ 关键是把 playfultarget【用完就清】。
+--   第 48 行 self.playfultarget = nil
+--   ★ 为什么要清？因为 FindPlaymate（第 58 行）靠这个字段做缓存，
+--     玩完不清就会一直对着同一个鬼。
+-- ★ 第 49-54 行用定时器做冷却：已存在则 SetTimeLeft 重置，否则 StartTimer。
+--   ★ 「有则重置、无则新建」是 StartTimer/SetTimeLeft 的标准配对写法，
+--     本文件第 131-140 行（hermitcrabbrain 同款）也用这个模式。
+    self.inst:PushEvent("start_playwithghost", {target=self.playfultarget})
+    self.playfultarget = nil
+    local timer = self.inst.components.timer
+    if timer:TimerExists("played_recently") then
+        timer:SetTimeLeft("played_recently", TUNING.SEG_TIME)
+    else
+        timer:StartTimer("played_recently", TUNING.SEG_TIME)
+    end
+
+end
+
+local function FindPlaymate(self)
+-- ★★★ FindPlaymate —— ★★ 本文件含真实缺陷的函数。
+-- 【第 60-64 行】
+--   local max_dist_from_leader = (is_defensive and DEFENSIVE_MAX_FOLLOW)
+--       or AGGRESSIVE_MAX_FOLLOW
+--   ★ 注意这个 and/or 写法：若 is_defensive 为真但 TUNING.ABIGAIL_DEFENSIVE_MAX_FOLLOW
+--     恰好为 0 或 nil，会错误地回落到 AGGRESSIVE_MAX_FOLLOW。
+--     ★ 这是 Lua and/or 表达式的固有陷阱（只能返回两操作数之一）。
+--     ⚠️ 属潜在缺陷：若日后调平衡把 DEFENSIVE_MAX_FOLLOW 设为 0 会静默出错。
+--     ★ 已核实 tuning.lua 第 4808 行 ABIGAIL_DEFENSIVE_MAX_FOLLOW = 5、
+--       第 4814 行 ABIGAIL_AGGRESSIVE_MAX_FOLLOW = 10，均非 0，故当前安全。
+--
+-- 【第 63-64 行 ★★★ 确认为真实缺陷】
+--   local can_play = (leader ~= nil and inst:IsNear(leader, max_dist_from_leader))
+--       or true
+--   ★★★ 整个表达式以 `or true` 结尾，因此 can_play 【恒为 true】。
+--   ★ 后果：第 67-68 行「保持现有伙伴」条件里的 can_play 恒真；
+--     第 80 行 self.playfultarget = can_play and FindEntity(...) or nil
+--     也恒等于「直接 = FindEntity(...)」。
+--   ★★★ 约束失效范围须精确区分，不可夸大：
+--     · 第 63 行左侧「离队长够近才玩」这个判断 —— 【确实完全失效】。
+--     · 但第 82-85 行 FindEntity 的回调里【仍有同距离的一层过滤】
+--       （dsq_to_leader < max^2），所以「新找的玩伴」仍受距离约束。
+--   ★★★ 修正后的准确结论：距离约束并未彻底消失，
+--     而是【只剩回调里那一层】，且丢失了 can_play 作为整体守卫生效的语义。
+--   ★ 大概率是「or false」误写成「or true」，或原本条件未写完。
+--   ★★ 实际影响有限：节点优先级低（第 222/244 行靠后）且回调仍有距离过滤，
+--     这也解释了该问题为何能长期存在而不被发现。
+--   ★ 已逐字核对第 63、64、67、68、80、82-85 行，确认逻辑链完整。
+--   ⚠️ 另见第 60-61 行的 and/or 陷阱（DEFENSIVE 值为 0 时会错误回落）。
+    local leader = GetLeader(self.inst)
+    local max_dist_from_leader = (self.inst.is_defensive and TUNING.ABIGAIL_DEFENSIVE_MAX_FOLLOW)
+        or TUNING.ABIGAIL_AGGRESSIVE_MAX_FOLLOW
+
+    local can_play = (leader ~= nil and self.inst:IsNear(leader, max_dist_from_leader))
+        or true
+
+    -- Try to keep the current playmate
+    if self.playfultarget ~= nil and self.playfultarget:IsValid() and can_play
+            and (leader == nil or self.playfultarget:IsNear(leader, max_dist_from_leader)) then
+        return true
+    end
+
+    if self.inst.components.timer:TimerExists("played_recently") then
+-- ★ 冷却检查：刚玩过就不玩了。played_recently 定时器由第 46 行设置。
+-- ★ 这段在第 67-70 行「保持现有伙伴」之后 ——
+--   意味着「已有伙伴时可以继续无视冷却」，冷却只阻止【换新伙伴】。
+--   语义微妙但合理：玩到一半不打断。
+        return false
+    end
+
+    local find_dist = 6
+
+    -- Find a new playmate
+    local lx, ly, lz = (leader or self.inst).Transform:GetWorldPosition()
+-- ★ 以「队长（若有无队长则自己）」的位置为搜索中心。
+--   第 83-84 行 ★ 回调里【又检查一次到队长的距离】，与第 84 行的
+--   max_dist_from_leader 比较 —— 即二次过滤。
+--   ★ 效果：FindEntity 搜到的是「离自己近」的，再用回调筛掉「离队长远」的。
+--   ⚠️ 但第 84 行比较的是 dsq_to_leader < max^2（平方），正确。
+--   ★ 这是「以 A 为中心搜，再按到 B 的距离筛」的两级过滤手法，很实用。
+    self.playfultarget = can_play and
+        FindEntity(self.inst, find_dist,
+            function(v)
+                local dsq_to_leader = v:GetDistanceSqToPoint(lx, ly, lz)
+                return dsq_to_leader < (max_dist_from_leader * max_dist_from_leader)
+            end, nil, PLAYMATE_NO_TAGS, PLAYMATE_ONEOF_TAGS)
+        or nil
+
+    return self.playfultarget ~= nil
+end
+
+-------------------------------------------------------------------------------
+local function ShouldDanceParty(inst)
+-- ShouldDanceParty：队长在跳舞就跟着跳。与 pigbrain 第 343 行同款。
+    local leader = GetLeader(inst)
+    return leader ~= nil and leader.sg:HasStateTag("dancing")
+end
+
+local function GetTraderFn(inst)
+	local leader = GetLeader(inst)
+	if leader ~= nil then
+		return inst.components.trader:IsTryingToTradeWithMe(leader) and leader or nil
+	end
+end
+
+local function KeepTraderFn(inst, target)
+-- KeepTraderFn：与 GetTraderFn（第 97 行）配对，判定一致。
+    return inst.components.trader:IsTryingToTradeWithMe(target)
+end
+
+local function ShouldWatchMinigame(inst)
+-- ★ ShouldWatchMinigame 带优先级让位条件（第 112 行）：
+--   「我没在打架」或「我的目标也是参赛者」才去看热闹。
+--   ★ 与 shadowwaxwellbrain 第 254 行逐字同款 —— 跨文件复用同一手法。
+    local leader = GetLeader(inst)
+    return leader ~= nil
+        and leader.components.minigame_participator ~= nil
+        and (inst.components.combat.target == nil or inst.components.combat.target.components.minigame_participator ~= nil)
+end
+
+local function WatchingMinigame(inst)
+    local leader = GetLeader(inst)
+	return (leader ~= nil
+        and leader.components.minigame_participator ~= nil
+        and leader.components.minigame_participator:GetMinigame())
+        or nil
+end
+
+--
+local function DefensiveCanFight(inst)
+-- ★★★ DefensiveCanFight —— 防御型「能不能打」的四条判定：
+-- 【第 126-129 行】目标不通过 aura 测试 → 放弃（GiveUp）并返回 false
+--   ★ inst:auratest(target) —— 「光环测试」，判断目标是否属于它的攻击范围（Aura）。
+--     这是 DST 的 Aura 系统（力场/光环），Boss 常用。
+-- 【第 131-132 行】★ 我在防御范围内 → 可以打
+-- 【第 133-135 行】不在范围内但我被玩家「拴着」（_playerlink）且有目标 → 放弃
+--   ★ _playerlink 表示「玩家把她收服了，她跟着玩家走」，
+--     所以不会追出去打。这解释了防御型的行为边界。
+-- 【第 137 行】其余情况返回 false
+-- ★★ 关键设计：★ CanFight 既【回答问题】又【修改状态】（调 GiveUp）。
+--   在 WhileNode 条件里调 GiveUp 意味着「判定不通过时主动清理战斗目标」。
+--   与第 397 行 pigbrain 的 HasTarget 检查相比，这是主动式的。
+-- ⚠️ 副作用写在条件函数里，第 141 行的 AggressiveCanFight 也这样做。
+--   这类「条件函数带副作用」在本项目中很常见（brain_noveggie、
+--   answerpotcall、return_to_king 等），值得留意但不算缺陷。
+    local target = inst.components.combat.target
+	if target and not inst:auratest(target) then
+        inst.components.combat:GiveUp()
+        return false
+    end
+
+    if inst:IsWithinDefensiveRange() then
+        return true
+    elseif inst._playerlink ~= nil and target ~= nil then
+        inst.components.combat:GiveUp()
+    end
+
+    return false
+end
+
+local MAX_AGGRESSIVE_FIGHT_DSQ = math.pow(TUNING.ABIGAIL_COMBAT_TARGET_DISTANCE + 2, 2)
+-- ★★ MAX_AGGRESSIVE_FIGHT_DSQ 用 math.pow 而非乘法：
+--   math.pow(TUNING.ABIGAIL_COMBAT_TARGET_DISTANCE + 2, 2)
+--   ★ 加 2 是「攻击距离 + 2 格缓冲」，再平方。
+--   ⚠️ math.pow 在 Lua 里比 x*x 慢（库函数调用），
+--     但这里只在模块加载时算一次，不在热路径，无性能问题。
+--   ★ 与本文件其他位置的 xx*xx 写法风格不一致，属风格问题非缺陷。
+local function AggressiveCanFight(inst)
+-- ★ AggressiveCanFight 与防御型结构相同，差异在【距离判定】（第 149-155 行）：
+--   攻击型看的是「我离玩家（_playerlink）有多远」，而不是「我在不在防御圈内」。
+-- ★ 语义：攻击型 Boss 的活动半径由「玩家在哪」决定 —— 它追着玩家打。
+--   第 152-154 行：太远且有目标 → 放弃。
+-- ★★ 对照第 131 行的 IsWithinDefensiveRange()：
+--     防御型 = 以【自己】为中心；攻击型 = 以【玩家】为中心。
+--   一个很清晰的「同结构不同基准」范例。
+
+    local target = inst.components.combat.target
+	if target and not inst:auratest(target) then
+        inst.components.combat:GiveUp()
+        return false
+    end
+
+    if inst._playerlink then
+        if inst:GetDistanceSqToInst(inst._playerlink) < MAX_AGGRESSIVE_FIGHT_DSQ then
+            return true
+        elseif target ~= nil then
+            inst.components.combat:GiveUp()
+        end
+    end
+
+    return false
+end
+
+local function GetBabysitterPos(inst)
+-- GetBabysitterPos：★ 条件是「有看护对象 且 我不忙」。
+--   第 161 行第二个条件 not inst.sg:HasStateTag("busy") ——
+--   忙的时候不去「看孩子」，优先级让位。
+-- ★ 与第 218-220 行的 WhileNode 条件重复判定，属于冗余但无害的防御。
+    return (inst.ghost_babysitter ~= nil and not inst.sg:HasStateTag("busy") and inst.ghost_babysitter:GetPosition())
+        or nil
+end
+
+local function GetRunAwayTarget(inst)
+	return inst.components.combat.target
+end
+
+local PRIORITY_NODE_RATE = 0.25
+-- ★ 统一的重评估间隔 0.25 秒，全文件所有 PriorityNode 都用它。
+--   与 knightbrain 第 291 行、mermbrain 第 515 行一致。
+-- ★ Boss 的决策频率：0.25 秒一次，比猪（0.5 秒）快一倍。
+function AbigailBrain:OnStart()
+-- ★★ OnStart：先定义共用节点，再组装两种人格，最后加状态守卫。
+
+	local watch_game = WhileNode( function() return ShouldWatchMinigame(self.inst) end, "Watching Game",
+-- watch_game：观战小游戏。与 pigbrain 第 297 行同款结构。
+        PriorityNode({
+            Follow(self.inst, WatchingMinigame, TUNING.MINIGAME_CROWD_DIST_MIN, TUNING.MINIGAME_CROWD_DIST_TARGET, TUNING.MINIGAME_CROWD_DIST_MAX),
+            RunAway(self.inst, "minigame_participator", 5, 7),
+            FaceEntity(self.inst, WatchingMinigame, WatchingMinigame),
+		}, PRIORITY_NODE_RATE))
+
+    --#1 priority is dancing beside your leader. Obviously.
+-- ★★ 源码原注释："#1 priority is dancing beside your leader. Obviously."
+--   （第一优先级当然是站在队长旁边跳舞）
+--   ★ 作者用幽默注释标注了「跳舞」这个纯氛围行为优先级最高。
+--   很有 DST 的味道：氛围行为优先级可以极高，因为它提升体验而不影响难度。
+    local dance = WhileNode(function() return ShouldDanceParty(self.inst) end, "Dance Party",
+-- ★ dance：跳舞节点。Leash 距离用同一个值两次（无迟滞）。
+--   第 182 行 TUNING.ABIGAIL_DEFENSIVE_MED_FOLLOW 传了两次。
+--   ★ 语义：「精确站到队长身边」，与第 349 行 pigbrain 的 10/10 同款。
+--   ★ 注意用的是 DEFENSIVE 的距离常量，即使在攻击型人格下也用它 ——
+--     因为跳舞时两种人格的距离要求相同。合理的简化。
+        PriorityNode({
+            Leash(self.inst, GetLeaderPos, TUNING.ABIGAIL_DEFENSIVE_MED_FOLLOW, TUNING.ABIGAIL_DEFENSIVE_MED_FOLLOW),
+            ActionNode(function() DanceParty(self.inst) end),
+    }, PRIORITY_NODE_RATE))
+
+    local transparent_behaviour = WhileNode(function() return self.inst._is_transparent end, "Is Transparent",
+-- ★ transparent_behaviour：透明/隐身时的行为。
+--   ★ 第 188 行 Leash 的第 5 参传了 true（对比第 182 行没传），
+--   ★ 参数差异有实际含义：true 表示「持续牵引/不可打断」。
+--     透明时不该中途跑去干别的。
+--   ⚠️ 未核实 behaviours/leash.lua 的第 5 参确切语义，
+--     仅记录「两处传参不同」这一客观事实。
+-- ★ 第 189 行 StandStill：透明时站着不动（不能乱走暴露自己）。
+        PriorityNode({
+            Leash(self.inst, GetLeaderPos, TUNING.ABIGAIL_DEFENSIVE_MED_FOLLOW, TUNING.ABIGAIL_DEFENSIVE_MED_FOLLOW, true),
+            StandStill(self.inst),
+        }, PRIORITY_NODE_RATE)
+    )
+
+    local haunt_behaviour = WhileNode(function() return self.inst._haunt_target ~= nil end, "Haunt Something",
+-- ★ haunt_behaviour：显灵（附身玩家）。条件是 _haunt_target 非 nil。
+--   第 194 行 DoAction(inst, HauntAction, nil, true, COOLDOWN)
+--   ★★ 参数解读：name=nil（不显示调试名），canreorder=true，
+--     第 5 参是冷却时间 TUNING.WENDYSKILL_COMMAND_COOLDOWN。
+--   ⚠️ 注意复用了【温蒂技能】的冷却常量，说明这个机制原本给温蒂用，
+--     阿比盖尔直接拿来用。属跨角色复用配置，非缺陷。
+--   ★ 「名字为 nil」的 DoAction 在本项目中罕见（多数有名字），
+--     可能表示该节点不希望在调试字符串里出现。
+        DoAction(self.inst, HauntAction, nil, true, TUNING.WENDYSKILL_COMMAND_COOLDOWN)
+    )
+
+    local play_with_ghosts = WhileNode(function() return not self.inst:IsInLimbo() and FindPlaymate(self) end, "Playful",
+-- ★★★ play_with_ghosts 的条件值得注意（第 197 行）：
+--   not self.inst:IsInLimbo() and FindPlaymate(self)
+--   ★ FindPlaymate 【直接在条件里调用】，且它有副作用（设 playfultarget）。
+--   第 199 行 SequenceNode：先等 6 秒，再依次：
+--     Leash 到玩伴旁边（第 201 行 GetPositionAdjacentTo）
+--     ActionNode 玩（第 202 行）
+--     StandStill 兜底（第 203 行）
+-- ★ 第 201 行 GetPositionAdjacentTo(self.playfultarget, 1)：
+--   站到玩伴旁边 1 格。PLAYFUL_OFFSET(2) 作为 leash 距离。
+-- ⚠️ 若 FindPlaymate 返回 true 但 playfultarget 在等这 6 秒中被销毁，
+--   第 201 行会拿到失效实体。SequenceNode 有 WaitNode(6) 在前，
+--   ★ 这是真实的时序风险：条件成立 ≠ 执行时目标仍有效。
+--   标为疑似：未核实 Leash 节点是否自行校验目标有效性。
+        SequenceNode{
+            WaitNode(6),
+            PriorityNode{
+                Leash(self.inst, function() return self.inst:GetPositionAdjacentTo(self.playfultarget, 1) end, PLAYFUL_OFFSET, PLAYFUL_OFFSET),
+                ActionNode(function() PlayWithPlaymate(self) end),
+                StandStill(self.inst),
+            },
+        }
+    )
+
+    --
+    local defensive_mode = WhileNode(function() return self.inst.is_defensive end, "DefensiveMove",
+-- ★★★ defensive_mode：防御型人格的完整子树（WhileNode 包裹）。
+-- 【内部优先级】
+--  第 211-212 行：★ gestalt 形态且冷却中 → 躲开自己的目标
+--    ⚠️ 条件是 self.inst:HasTag("gestalt") and combat.target and InCooldown()
+--    ★★ 这里有个逻辑问题： gestalt 变身后与 normal 形态是【互斥的】，
+--      所以「gestalt 时还要躲自己的目标」—— 读代码难以判断意图。
+--      第 232 行攻击型分支有一字不差的重复条件，说明是刻意复制。
+--    ★ 推测：变身后的她可能继承了战斗目标，故仍需闪避。标为推测。
+--  第 214-215 行：DefensiveCanFight → 追击攻击
+--  第 216 行：交易 → 面对
+--  第 218-220 行：★ 看孩子（babysitter）
+--  第 222 行：与鬼魂玩耍（共用节点）
+--  第 224-225 行：跟随队长（三段距离 + 第 5 参 true）
+--  第 226 行：游荡（兜底）
+-- ★ 注意第 226 行 Wander(inst, nil, nil, WANDER_TIMING) ——
+--   锚点与半径都传 nil，即「在原地附近游荡」。
+        PriorityNode({
+            WhileNode(function() return self.inst:HasTag("gestalt") and self.inst.components.combat.target and( self.inst.components.combat:InCooldown() ) end, "gestalt avoid",
+-- ★★ gestalt 闪避条件在两处重复（第 211 与 232 行），逐字相同。
+--   ★ 与防御/攻击两棵树的整体结构不同不同，这里却完全相同，
+--     说明这个条件被视为「人格无关」。合理。
+-- ⚠️ 第 211 行 self.inst:HasTag("gestalt") and self.inst.components.combat.target and
+--     ( self.inst.components.combat:InCooldown() )
+--   ★ 这里 combat.target 直接取值但先判了 components.combat.target 存在，
+--     第 212 行 RunAway 的 getfn 又读一次 combat.target —— 同一帧两次读取，
+--     中间理论上可能变化（若 combat.target 被清）。未核实调度时序，标为疑似。
+				RunAway(self.inst, { getfn = GetRunAwayTarget }, 7, 9)),
+
+            WhileNode(function() return DefensiveCanFight(self.inst) end, "CanFight",
+                ChaseAndAttack(self.inst, TUNING.ABIGAIL_DEFENSIVE_MAX_CHASE_TIME)),
+			FaceEntity(self.inst, GetTraderFn, KeepTraderFn),
+
+            WhileNode(function() return GetBabysitterPos(self.inst) end, "babysitter",
+                Wander(self.inst, GetBabysitterPos, MAX_BABYSIT_WANDER, WANDER_TIMING)
+            ),
+
+            play_with_ghosts,
+
+            Follow(self.inst, function() return GetLeader(self.inst) end,
+-- ★ Follow(inst, 取队长函数, MIN, MED, MAX, true)
+--   ★★ 传了 6 个参数，第 6 参是 true。
+--   ⚠️ 与 mermbrain 第 501 行同样是 6 参（第 6 参 nil、第 7 参 true），
+--     两处第 6 参位置不同，语义可能不同。
+--     ★ 未核实 behaviours/follow.lua 的参数表，不下结论。
+--     记录此不一致以便后续核实：本文件第 6 参 true，mermbrain 第 6 参 nil。
+                    TUNING.ABIGAIL_DEFENSIVE_MIN_FOLLOW, TUNING.ABIGAIL_DEFENSIVE_MED_FOLLOW, TUNING.ABIGAIL_DEFENSIVE_MAX_FOLLOW, true),
+            Wander(self.inst, nil, nil, WANDER_TIMING),
+-- ★ Wander(inst, nil, nil, WANDER_TIMING) —— 三个参数都简化了。
+--   ★ 对比第 248 行 aggressive_mode 里的 Wander(self.inst) —— 连时机表都没有。
+--   ★ 防御型给游荡设了节奏（等 6-12 秒），攻击型完全随机游荡。
+--   符合「防御型从容、攻击型急躁」的角色设定。这是刻意的表意设计。
+        }, PRIORITY_NODE_RATE)
+    )
+
+    --
+    local aggressive_mode = PriorityNode({
+-- ★★★ aggressive_mode：攻击型人格。【不是 WhileNode】，是裸 PriorityNode。
+-- 【为什么不需要 WhileNode】
+--   因为它位于第 265-266 行 defensive_mode 的【后面】，
+--   且第 209 行 WhileNode 的条件是 is_defensive ——
+--   ★★ 两棵树互斥的机制：
+--     is_defensive 为真 → 第 209 行 WhileNode 成立 → 【吃掉整个子树】
+--     → 第 231 行的攻击型永远不会执行。
+--     is_defensive 为假 → 第 209 行不成立 → 落到第 231 行。
+--   ★ 这是用「WhileNode 条件 + 优先级顺序」两招实现互斥，比两个 IfNode 更省。
+--   ⚠️ 但可读性下降：读者必须同时理解第 209 行条件和第 265-266 行的顺序，
+--     才能知道两棵树互斥。源码未加注释说明，特此标注。
+--
+-- 【与防御型的内部顺序差异】
+--  攻击型把「交易」（第 238 行）放在战斗之后、babysitter 之前 —— 同防御型。
+--  第 248 行 Wander(self.inst) 无参数，对比防御型第 226 行给了 WANDER_TIMING。
+--  第 246-247 行的跟随距离用 AGGRESSIVE_* 常量（第 224-225 行用 DEFENSIVE_*）。
+--   ★ 即两棵树用完全相同的小节顺序，只是常量与游荡节奏不同。
+--   ★★ 这是「相同骨架 + 换参数」的标准做法，与 knightbrain 的标签化同思路。
+        WhileNode(function() return self.inst:HasTag("gestalt") and self.inst.components.combat.target and ( self.inst.components.combat:InCooldown() ) end, "gestalt avoid",
+			RunAway(self.inst, { getfn = GetRunAwayTarget }, 7, 9)),
+
+        WhileNode(function() return AggressiveCanFight(self.inst) end, "CanFight",
+            ChaseAndAttack(self.inst, TUNING.ABIGAIL_AGGRESSIVE_MAX_CHASE_TIME)),
+
+        FaceEntity(self.inst, GetTraderFn, KeepTraderFn),
+
+        WhileNode(function() return GetBabysitterPos(self.inst) end, "babysitter",
+            Wander(self.inst, GetBabysitterPos, MAX_BABYSIT_WANDER, WANDER_TIMING)
+        ),
+
+        play_with_ghosts,
+
+        Follow(self.inst, function() return GetLeader(self.inst) end,
+                TUNING.ABIGAIL_AGGRESSIVE_MIN_FOLLOW, TUNING.ABIGAIL_AGGRESSIVE_MED_FOLLOW, TUNING.ABIGAIL_AGGRESSIVE_MAX_FOLLOW, true),
+        Wander(self.inst),
+-- ★ Wander(self.inst) —— 全部用默认值，连时机表都没给。
+--   ★ 与第 226 行防御型形成对照：那边等 6-12 秒，这边完全随机。
+--   ★ 这不是疏漏，是角色表意（攻击型不停留）。已在第 226 行交叉说明。
+    }, PRIORITY_NODE_RATE)
+
+    --
+    local root = PriorityNode({
+-- ★★★ root：只有一层状态守卫。
+-- 【第 253-257 行 守卫】not self.inst.sg:HasStateTag("swoop")
+--   ★★「swoop」= 俯冲攻击，是阿比盖尔的招牌技能。
+--   ★ 技能演出期间大脑完全不工作 —— 避免「一边俯冲一边想着回家」。
+--   ★★ 与其他文件的 "jumping" 守卫同源，但守卫的状态名不同，
+--     说明「守卫什么状态」完全取决于该生物的招牌技能。
+--   ★ 可用 grep state guard 找出全项目所有守卫点（源码里统一用尖括号包裹）。
+-- 【守卫内部优先级】
+--  第 260 行：dance（跳舞）
+--  第 261 行：watch_game（观战）
+--  第 262 行：transparent_behaviour（透明）
+--  第 263 行：haunt_behaviour（显灵）
+--  第 265 行：defensive_mode（防御型人格）
+--  第 266 行：aggressive_mode（攻击型人格）
+-- ★ 前四个是【人格无关】的（两种人格都会执行），
+--   后两个才是人格分支。这个分层很清晰。
+        WhileNode(
+            function()
+                return not self.inst.sg:HasStateTag("swoop")
+            end,
+            "<swoop state guard>",
+            PriorityNode({
+
+                dance,
+                watch_game,
+                transparent_behaviour,
+                haunt_behaviour,
+
+                defensive_mode,
+                aggressive_mode,
+
+            }, PRIORITY_NODE_RATE)
+        )
+    }, PRIORITY_NODE_RATE)
+
+    self.bt = BT(self.inst, root)
+-- ★ self.bt = BT(self.inst, root) —— 第 7 个文件，同样的收尾。
+--   ★ 已累计 7 个文件验证同一结论，证据充分。
+end
+
+return AbigailBrain

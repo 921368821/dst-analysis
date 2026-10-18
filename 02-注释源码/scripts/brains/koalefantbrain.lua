@@ -1,0 +1,61 @@
+--============================================================
+-- 文件：brains/koalefantbrain.lua
+-- 模块：AI 大脑 / koalefantbrain
+-- 职责：大脑「koalefantbrain」。驱动对应状态图的思考周期与决策，包括目标选择、情绪/好奇心等大脑参数的变化。
+-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本
+--============================================================
+
+require "behaviours/wander"
+require "behaviours/faceentity"
+require "behaviours/chaseandattack"
+require "behaviours/runaway"
+
+local BrainCommon = require("brains/braincommon")
+
+local MAX_CHASE_TIME = 6
+local WANDER_DIST_DAY = 20
+local WANDER_DIST_NIGHT = 5
+
+local RUN_AWAY_DIST = 6
+local STOP_RUN_AWAY_DIST = 12
+local START_FACE_DIST = 14
+local KEEP_FACE_DIST = 20
+
+local HUNTER_PARAMS = { tags = { "character" }, notags = { "notarget" } }
+
+local function GetFaceTargetFn(inst)
+    if not BrainCommon.ShouldSeekSalt(inst) then
+        local target = FindClosestPlayerToInst(inst, START_FACE_DIST, true)
+        return target ~= nil and not target:HasTag("notarget") and target or nil
+    end
+end
+
+local function KeepFaceTargetFn(inst, target)
+    return not BrainCommon.ShouldSeekSalt(inst)
+        and not target:HasTag("notarget")
+        and inst:IsNear(target, KEEP_FACE_DIST)
+end
+
+local KoalefantBrain = Class(Brain, function(self, inst)
+    Brain._ctor(self, inst)
+end)
+
+function KoalefantBrain:OnStart()
+    local root = PriorityNode(
+    {
+		BrainCommon.PanicTrigger(self.inst),
+        BrainCommon.ElectricFencePanicTrigger(self.inst),
+        ChaseAndAttack(self.inst, MAX_CHASE_TIME),
+        SequenceNode{
+            FaceEntity(self.inst, GetFaceTargetFn, KeepFaceTargetFn, 0.5),
+			RunAway(self.inst, HUNTER_PARAMS, RUN_AWAY_DIST, STOP_RUN_AWAY_DIST)
+        },
+        FaceEntity(self.inst, GetFaceTargetFn, KeepFaceTargetFn),
+        BrainCommon.AnchorToSaltlick(self.inst),
+        Wander(self.inst)
+    }, .25)
+
+    self.bt = BT(self.inst, root)
+end
+
+return KoalefantBrain

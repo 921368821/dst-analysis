@@ -1,0 +1,399 @@
+--============================================================
+-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖
+-- 文件：components/weapon.lua
+-- 模块：组件系统 / 武器（Weapon）
+-- 职责：攻击的执行环节 —— 伤害聚合（GetDamage，支持数字与函数两种 damage）、
+--       攻击收尾与耐久损耗（OnAttack + finiteuses）、投射物生成与发射
+--       （LaunchProjectile，含 projectile_offset 出手偏移）、
+--       电击系武器的潮湿加成参数（SetElectric）、可消耗品的 SourceModifierList。
+-- 关键符号：Weapon, GetDamage, OnAttack, LaunchProjectile, SetDamage,
+--           SetRange, SetProjectile, SetProjectileOffset, SetElectric,
+--           SetOverrideStimuliFn, CanRangedAttack, EnableToughFight,
+--           attackwearmultipliers, overridestimulifn, projectiledelay
+-- 与 combat.lua 的分工：combat 负责「谁打得着谁」（目标选择、距离与
+--       扇形弧命中判定、攻击执行调度）；本文件负责「这一击算多少伤害、
+--       掉多少耐久、要不要发射投射物」。真正的扣血在 health.lua。
+-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本
+-- 交叉引用：components/combat.lua（调用 OnAttack / 读 stimuli 与倍率）,
+--           components/health.lua（DoDelta 扣血落点）,
+--           components/finiteuses.lua（耐久扣减对象）,
+--           components/spdamageutil.lua（元素伤害通道）,
+--           components/projectile.lua（Throw/IsBounced）,
+--           components/moisture.lua（潮湿加成的另一端）,
+--           util/sourcemodifierlist.lua（attackwearmultipliers 容器）,
+--           components/inventoryitem_replica.lua（客户端 range 同步）
+--============================================================
+local SourceModifierList = require("util/sourcemodifierlist")
+-- ============================================================
+-- components/weapon.lua —— 「武器」组件：把一次攻击从意图变成数值与投射物
+--
+-- 【最重要的三件事】
+-- 1) 本组件只负责「执行」，不负责「判定谁打得着谁」。
+--    目标选择 / 距离与扇形命中判定 / 血量扣减 全在 combat.lua；
+--    血量变动落在 health.lua。本文件是攻击链的最后一环。
+-- 2) 伤害走「双通道」返回（第 94-103 行 GetDamage）：
+--    普通数值 dmg + 元素/规则伤害表 spdmg（spdamageutil 收集）。
+--    两者各自独立乘以 datagetypebonus，再分别返回。
+-- 3) 耐久（finiteuses）在本文件扣（第 111-120 行），不在 combat 里。
+--    所以「一次攻击」是 combat 调 weapon.OnAttack 的副作用，
+--    耐久这件事与「是否命中」无关，只与「挥了一下」有关。
+--
+-- 【⚠️ 容易踩的坑】
+-- * 本组件在服务端与客户端都会实例化。第 6-8、39-41 行直接摸 inst.replica，
+--   这是安全的 —— entityscript.lua 第 244 行给 inst.replica 装了 metatable，
+--   访问不存在的 replica 字段返回 nil 而不是报错。但反过来，
+--   「写了 SetXxx 却没有 replica 组件可接收」会静默失效，所以第 4 行有
+--   「新增属性要同步改 inventoryitem_replica」的提醒。
+-- * 第 111-120 行整块的缩进用的是 Tab，与文件其余部分的空格不一致。
+--   这不是 bug，但会影响 git blame 与阅读体验，说明这段是后期补丁。
+-- ============================================================
+local SpDamageUtil = require("components/spdamageutil")
+-- ★ spdamage 是一条独立的伤害通道：它收集「按元素/伤害类型结算」的表，
+--   而不是单个数字。GetDamage（第 94 行）会把同一个倍率同时作用到两条通道上。
+
+--Update inventoryitem_replica constructor if any more properties are added
+-- 维护提醒：weapon 上新增任何需要在客户端可见的属性，
+-- 都要同步加到 components/inventoryitem_replica.lua 里，否则客户端拿不到。
+-- 本行的 setter 就是靠这条约定保持两端同步的（见第 33 行注册）。
+local function onattackrange(self, attackrange)
+-- attackrange 的属性 setter。Class 的第三个参数（第 32-34 行）是「属性钩子表」，
+-- 语义是：self.attackrange 被赋值时自动调这个函数。
+-- ★ 这是 DST 组件层的通用手法：把「派生状态的同步」写进 setter，
+--   调用方（prefab）只管 SetRange，不需要知道要通知客户端。
+    if self.inst.replica.inventoryitem ~= nil then
+        self.inst.replica.inventoryitem:SetAttackRange(attackrange)
+    end
+end
+
+local Weapon = Class(function(self, inst)
+-- 组件构造函数。约定第一个参数恒为 self、第二个为 inst，
+-- 因为 Class() 会用 metatable 接管方法查找。
+    self.inst = inst
+    self.damage = 10
+-- 默认伤害 10。几乎所有武器都会用 SetDamage 覆盖掉这个默认值。
+-- ★ 注意它允许是「函数或值」：见第 95 行 FunctionOrValue 的用法。
+--   所以 damage 可以写成 function(inst, attacker, target) return ... end，
+--   实现「同一把刀打不同目标不同伤害」，而不用再派生一个组件。
+    self.attackrange = nil
+    self.hitrange = nil
+-- ★ attackrange 与 hitrange 是两个不同的量，别混：
+--   attackrange = 「我发起攻击的有效距离」；
+--   hitrange    = 「我的攻击判定能覆盖到的距离」。
+--   SetRange(attack, hit) 第 48-51 行：hit 为 nil 时回落成 attack，
+--   也就是「不区分」时两个值相等。这两个值最终喂给 combat.lua 的命中判定。
+    self.onattack = nil
+    self.onprojectilelaunch = nil
+	self.onprojectilelaunched = nil
+    self.projectile = nil
+    self.stimuli = nil
+    --self.overridestimulifn = nil
+-- ★ 下面四行是被注释掉的字段声明（第 21-24 行）：
+--   overridestimulifn / electric_damage_mult / electric_wet_damage_mult / tough。
+--   它们是「按需惰性初始化」的字段 —— 构造函数不设初值，
+--   只有调了对应 Setter 的 prefab 才会有值。
+--   ⚠️ 这样写省内存/省构造开销，代价是读这些字段的地方必须写 nil 判断，
+--     漏一个就是「attempt to compare nil with number」类的运行期错误。
+--   对比第 13-20 行那些给了显式初值的字段。
+    --self.electric_damage_mult = nil
+    --self.electric_wet_damage_mult = nil
+    --self.tough = false
+
+    self.attackwearmultipliers = SourceModifierList(self.inst)
+-- ★★ SourceModifierList：ModifierList 复用模式的典型样本。
+--   用途是「让别的组件给攻击耐久损耗加修正，而不必认识 weapon」。
+--   典型用法：某个组件拿到 weapon.attackwearmultipliers，
+--   调 AddModifier(src, key, mult)，武器耐久就按 mult 扣。
+--   为什么用 SourceModifierList 而不是普通表：
+--   (a) 按「来源 src」分组，一个来源改值不会踩到别人的；
+--   (b) 每个来源可以有多档 key（src+key 唯一）；
+--   (c) 自动求积，且来源消失时能整组撤销。
+--   Get() 无参数 = 取所有修正的乘积（第 114 行就是这么用的）。
+--   ★ 自研游戏照抄这条：凡是「多处可能修改同一个数值」的场景，
+--     都用 Source 类 ModifierList + AddModifier，别用裸字段赋值。
+
+    --V2C: Recommended to explicitly add tag to prefab pristine state
+    self.inst:AddTag("weapon")
+-- ★ 构造时就打 "weapon" 标签。
+-- 原因：这个标签是 replica 侧做客户端预测/UI 的依据，
+-- 而标签同步是异步的 —— 如果等到 SetDamage 时才打，客户端会有一帧不一致。
+-- 第 36-42 行 OnRemoveFromEntity 对称地摘掉，并通知客户端把 range 置 -1。
+-- -1 是「无效/不可攻击」的哨兵值，不是 0。
+end,
+nil,
+{
+    attackrange = onattackrange,
+})
+
+function Weapon:OnRemoveFromEntity()
+-- 组件卸载。必须成对撤销第 29 行做的两件事：
+-- 标签要在实体上摘掉（实体可能复用），replica 的 range 要复位。
+-- ⚠️ 这里没有清 attackwearmultipliers —— SourceModifierList 挂在 inst 上，
+--   实体回收时自然一起销毁，所以不需要手动清。
+    self.inst:RemoveTag("weapon")
+
+    if self.inst.replica.inventoryitem ~= nil then
+        self.inst.replica.inventoryitem:SetAttackRange(-1)
+    end
+end
+
+function Weapon:SetDamage(dmg)
+    self.damage = dmg
+end
+
+function Weapon:SetRange(attack, hit)
+-- SetRange(attack, hit)：设攻击距离与命中距离。
+-- ★ 第 50 行 `hit or self.attackrange`：
+--   若调方只给一个值，两个距离相等；显式传 hit 则可让命中范围大于攻击范围
+--   （例如长柄斧：挥击距离短，但刀刃覆盖远）。
+--   ⚠️ 不能写成 self.hitrange = hit，因为 hit 可能为 nil，
+--     那会让 hitrange 变成 nil 而破坏上面 SetRange 的回落约定。
+    self.attackrange = attack
+    self.hitrange = hit or self.attackrange
+end
+
+function Weapon:SetOnAttack(fn)
+    self.onattack = fn
+end
+
+function Weapon:SetOnProjectileLaunch(fn)
+    self.onprojectilelaunch = fn
+end
+
+function Weapon:SetOnProjectileLaunched(fn)
+    self.onprojectilelaunched = fn
+end
+
+function Weapon:SetProjectile(projectile)
+    self.projectile = projectile
+end
+
+function Weapon:SetProjectileOffset(offset)
+    self.projectile_offset = offset
+end
+
+function Weapon:SetElectric(damage_mult, wet_damage_mult)
+-- SetElectric：把武器标记为「电击系」。
+-- ★ 三件事一起做，别拆：
+--   1) stimuli = "electric" 让 combat 知道走哪条刺激类型分支；
+--   2) electric_damage_mult        干燥时的伤害倍率；
+--   3) electric_wet_damage_mult    潮湿时的伤害倍率。
+-- 「潮湿加成」是 DST 玩法核心：下雨天电武器伤害更高，
+-- 于是「淋雨」从纯粹的负面变成了可利用的正向条件 ——
+-- 这就是潮湿度组件与武器组件的耦合点。
+-- ⚠️ 这两个倍率不在本文件消费，是 combat.lua 读 weapon 上的字段。
+--   也就是说本文件只负责「存」，真正的乘法在 combat 那边。
+    self.stimuli = "electric"
+
+    self.electric_damage_mult = damage_mult
+    self.electric_wet_damage_mult = wet_damage_mult
+end
+
+function Weapon:SetOverrideStimuliFn(fn)
+    self.overridestimulifn = fn
+end
+
+function Weapon:CanRangedAttack()
+-- CanRangedAttack：能否远程。判定依据只是「有没有配投射物」。
+-- ⚠️ 名字有歧义：它不检查射程、不检查弹药、不检查冷却。
+--   真正的远程合法性由 combat 的 CanHitTarget + inventory 的弹药判定负责。
+--   这个函数只回答「这把武器的伤害是近身结算还是飞行物结算」。
+    return self.projectile ~= nil
+end
+
+--V2C: deprecated. why's this even here? it's same as :SetOnAttack(fn)
+-- 原文注释直言 deprecated：「why's this even here? it's same as :SetOnAttack(fn)」。
+-- ★ 这是 KLIE 为了兼容老 mod 保留的别名。
+--   它与 SetOnAttack 完全等价（第 91 行 vs 第 54 行都是写 self.onattack）。
+--   教训：公开 API 一旦发布就很难删，所以要在注释里明确标废弃，
+--   否则新代码会继续用它。
+--     keepin' it around in case modders used it
+function Weapon:SetAttackCallback(fn)
+    self.onattack = fn
+end
+
+function Weapon:GetDamage(attacker, target)
+-- ★★★ GetDamage(attacker, target) —— 伤害聚合，本文件最核心的函数。
+
+-- 【为什么用 FunctionOrValue】
+-- 第 95 行：self.damage 可以是数字也可以是函数。
+--   FunctionOrValue(v, ...) 若 v 是函数就调它并传入后续参数，否则直接返回 v。
+--   这一行让「武器伤害」变成了一个可求值的表达式：
+--   func(inst, attacker, target) 可以读双方状态（装备、天气、buff）。
+--   ⚠️ 若绕过 FunctionOrValue 直接当数字用，遇到「函数型伤害」就会崩。
+
+-- 【为什么返回两个值】
+--   普通数值 dmg 与「spdamage」（元素/伤害类型表，来自 spdamageutil）
+--   是两条正交通道。它们各自乘同一个倍率（第 99-100 行），
+--   但下游的结算方式完全不同，所以必须分别返回。
+--   ⚠️ 只返回第一个值会让元素伤害静默丢失 —— 这是很隐蔽的一类 bug。
+
+-- 【damagetypebonus 的位置】
+-- 第 97-101 行：按「攻击者对目标」的伤害类型取倍率（克制关系）。
+--   注意乘法顺序：dmg * damagetypemult，再 ApplyMult 给 spdmg。
+--   即倍率对两条通道等效，没有做「只克普通伤害」的差异化处理。
+-- ⚠️ 第 98 行 GetBonus 返回值没有 (x or 1) 兜底 —— 它被当作数字直接乘。
+--   若将来有实体的 GetBonus 返回 nil，这里会立刻报错。
+--   （本人已对照源码核实：第 98 行确无兜底。是否已有实体返回 nil 未核实。）
+	local dmg = FunctionOrValue(self.damage, self.inst, attacker, target)
+	local spdmg = SpDamageUtil.CollectSpDamage(self.inst)
+	if self.inst.components.damagetypebonus ~= nil then
+		local damagetypemult = self.inst.components.damagetypebonus:GetBonus(target)
+		dmg = dmg * damagetypemult
+		spdmg = SpDamageUtil.ApplyMult(spdmg, damagetypemult)
+	end
+	return dmg, spdmg
+end
+
+function Weapon:OnAttack(attacker, target, projectile)
+-- ★★ OnAttack：一次攻击的「执行收尾」。combat 命中后调它。
+
+-- 【顺序为什么是这样】
+--   1) 先调 onattack 回调（第 106-108 行）—— prefab 在这里放特效/音效/自定义逻辑；
+--   2) 再 PushEvent("weapononattack")（第 109 行）—— 广播给其他组件；
+--   3) 最后扣耐久（第 111-120 行）。
+--   ⚠️ 回调里若把武器 Remove 了，第 111 行 self.inst.components 仍可访问，
+--     但 Remove 后再 PushEvent 是空操作，事件会丢。
+--   （本人已核实：PushEvent 在实体移除后不抛错，但订阅者收不到。）
+
+-- 【★ 耐久的三重条件（第 111-113 行），缺一不可】
+--   a) 武器有 finiteuses 组件（可消耗品）；
+--   b) finiteuses 没有声明「本次战斗不损耗耐久」；
+--   c) 投射物没有处于「已反弹」状态。
+--   第 c 条很有意思：弹回来的投射物（如被格挡/反弹的投石）不该扣耐久，
+--   因为那一击实际上没造成有效伤害。这是设计，不是疏漏。
+    if self.onattack ~= nil then
+        self.onattack(self.inst, attacker, target)
+    end
+    self.inst:PushEvent("weapononattack", { attacker = attacker, target = target })
+-- 广播式事件。注意载荷是 table，不是位置参数 ——
+-- 事件参数一律用 table，便于以后加字段而不破坏既有订阅者。
+
+	if self.inst.components.finiteuses ~= nil and not self.inst.components.finiteuses:IgnoresCombatDurabilityLoss()
+		and not (projectile ~= nil and projectile.components.projectile ~= nil and projectile.components.projectile:IsBounced())
+		then
+		local uses = (self.attackwear or 1) * self.attackwearmultipliers:Get()
+-- ★ 耐久损耗量 = attackwear × attackwearmultipliers:Get()
+--   attackwear 是 prefab 直接写在 weapon 组件上的裸字段（构造函数未初始化，
+--   见第 21-24 行的同类风格），所以这里用 (x or 1) 兜底成「1 次」。
+--   attackwearmultipliers:Get() 是所有 Modifier 的乘积（第 26 行那个表）。
+-- ⚠️ 这一行是整个文件里唯一使用 Tab 缩进的地方（连同 111-120 整块）。
+--   推断是后期补丁，行数与缩进都和文件整体风格不符。
+		if attacker ~= nil and attacker:IsValid() and attacker.components.efficientuser ~= nil then
+-- efficientuser（如韦斯的科学专业/_opts 效率加成）再乘一层。
+-- ★ 注意三重校验：attacker 非 nil、IsValid()、且有 efficientuser 组件。
+--   ★★ IsValid() 这道校验不能省：攻击协程可能 yield，
+--     回来时攻击者（生物/玩家）可能已经被移除了。
+--     直接访问 attacker.components 会崩。
+--   这是 DST 协程模型的普遍陷阱：任何 yield 之后都要重新验证实体有效性。
+			uses = uses * (attacker.components.efficientuser:GetMultiplier(ACTIONS.ATTACK) or 1)
+		end
+
+		self.inst.components.finiteuses:Use(uses)
+    end
+end
+
+function Weapon:LaunchProjectile(attacker, target)
+-- ★★★ LaunchProjectile：发射投射物。远程武器的伤害在飞行结束后才结算。
+
+-- 【为什么这里只负责「造出来并扔出去」】
+--   真正的命中判定在 projectile 组件里（抛物线运动 + 每帧碰撞），
+--   本函数完全不关心。职责切得很干净：weapon 管「发射」，projectile 管「命中」。
+
+-- 【三个回调的时机差异】
+--   onprojectilelaunch   第 125-127 行：生成之前（可改参数）；
+--   onprojectilelaunched 第 152-154 行：生成之后（可拿到 proj 实例做后处理）。
+--   ⚠️ 第 152 行在 `if proj ~= nil` 块【之外】，
+--     所以 SpawnPrefab 失败时 proj 为 nil，回调仍会被调用且收到 nil。
+--   （本人已核实：第 129-150 的 if proj ~= nil 在第 150 行 end 结束，
+--     第 152 行的回调确实在其外层。订阅方必须处理 proj == nil。）
+    if self.projectile ~= nil then
+        if self.onprojectilelaunch ~= nil then
+            self.onprojectilelaunch(self.inst, attacker, target)
+        end
+
+        local proj = SpawnPrefab(self.projectile)
+        if proj ~= nil then
+            if proj.components.projectile ~= nil then
+				if self.projectile_offset ~= nil then
+-- ★ projectile_offset：出手位置的横向偏移，用于「从手/从弓弦/从炮口发射」。
+--   算法（第 135-138 行）：
+--     1) 取攻击者世界坐标 (x,y,z)；
+--     2) 算 攻击者 → 目标 的单位向量 dir；
+--     3) dir 乘以偏移量；
+--     4) 把投射物放到 (x+dir.x, y, z+dir.z)。
+--   ★★ 第 138 行只加了 dir.x 和 dir.z，y 分量被丢弃（用的是原始 y）。
+--     这是有意的：偏移是「水平面内」的，避免把投射物抬到空中。
+--     ⚠️ 如果传入的 offset 带 y 分量，它会被静默忽略。
+--   （本人已对照第 138 行源码核实：确为 x + dir.x, y, z + dir.z。）
+--   ⚠️ 第 135 行 target:GetPosition() 与第 140 行 attacker.Transform:GetWorldPosition()
+--     混用了两套取值方式。查 entityscript.lua 第 1355-1357 行，
+--     GetPosition() 内部就是 Point(self.Transform:GetWorldPosition())，
+--     所以这里是等价的；但两行写法不一致，容易让人误以为有坐标系差异。
+--   （本人已核实 entityscript.lua:1355。GetWorldPosition 在该文件中的
+--     定义行未由我打开确认，此处只依据 GetPosition 的实现推断等价。）
+					local x, y, z = attacker.Transform:GetWorldPosition()
+
+					local dir = (target:GetPosition() - Vector3(x, y, z)):Normalize()
+					dir = dir * self.projectile_offset
+
+	                proj.Transform:SetPosition(x + dir.x, y, z + dir.z)
+				else
+	                proj.Transform:SetPosition(attacker.Transform:GetWorldPosition())
+				end
+                proj.components.projectile:Throw(self.inst, target, attacker)
+-- ★ 三个参数的位置很容易记错：Throw(owner, target, attacker)。
+--   owner 是「武器实体」（投射物的所有者，决定拾取归属），
+--   attacker 是「攻击者实体」（决定伤害来源与击杀归属）。
+--   两者在这里是同一个 inst（self.inst 就是武器），但 projectile.lua 第 149 行
+--   的签名把它们分成了两个形参，所以击杀归属与掉落归属可以独立处理。
+--   （本人已核实 components/projectile.lua:149 的签名为 Throw(owner, target, attacker)。）
+                if self.inst.projectiledelay ~= nil then
+-- ★ projectiledelay 是又一个「构造函数未初始化」的惰性字段：
+--   prefab 通过 weapon.projectiledelay = 0.1 直接赋值（不走 Setter）。
+--   DelayVisibility 让投射物在空中飞一小段才显形（模拟箭矢离弦）。
+--   ⚠️ 直接写字段而非 Setter，绕过了属性钩子表，客户端不会同步。
+--     推测该效果是纯服务端表现，客户端自行 SpawnPrefab 后立即可见 ——
+--      若客户端需要同样延迟，就得靠 replica 另行同步。
+--   （本人未核实是否有实体在客户端做了同步补偿，标为未核实。）
+                    proj.components.projectile:DelayVisibility(self.inst.projectiledelay)
+                end
+            elseif proj.components.complexprojectile ~= nil then
+-- complexprojectile 分支：AOE 类武器（地雷、陨石）的发射。
+-- ★ 与普通 projectile 的区别：Launch 接收的是「目标点坐标」而非实体，
+--   因为 AOE 武器不一定有具体目标实体，落在哪算哪。
+-- ⚠️ 这个分支【没有】 projectile_offset 支持（第 147 行直接用攻击者位置）。
+--   也就是说 SetProjectileOffset 对 complexprojectile 武器无效。
+--   （本人已对照第 146-149 行核实：该分支内无 offset 处理。）
+                proj.Transform:SetPosition(attacker.Transform:GetWorldPosition())
+                proj.components.complexprojectile:Launch(target:GetPosition(), attacker, self.inst)
+            end
+        end
+
+        if self.onprojectilelaunched ~= nil then
+            self.onprojectilelaunched(self.inst, attacker, target, proj)
+        end
+    end
+end
+
+function Weapon:EnableToughFight(tough)
+-- EnableToughFight：标记这把武器能打「tough fight」（硬仗）。
+-- ⚠️ 与 workable 的 SetRequiresToughWork（第 61 行）名字高度相似，
+--   语义却不同：workable 的 tough 是「需要结实的工具才砍得动」，
+--   weapon 的 tough 是「允许参与硬仗类战斗判定」。
+--   两者不是同一套机制，别在自研实现里合并成一个字段。
+	self.tough = tough ~= false
+end
+
+function Weapon:CanDoToughFight()
+-- CanDoToughFight 用 `== true` 严格比较，而不是直接返回 self.tough。
+-- ★ 为什么要这样写：因为构造函数没给 self.tough 赋初值（第 24 行被注释），
+--   未调用 EnableToughFight 时它是 nil。
+--   直接 return self.tough 会返回 nil（假值但非布尔），
+--   调用方若做 == true 判断就会漏掉；写成 == true 强制归一为布尔。
+--   ⚠️ 代价：调用方若用 not CanDoToughFight() 判断是可以的，
+--     但若指望拿到 nil 来区分「未设置」和「显式 false」就拿不到了。
+--   （本人已对照第 162-164 行源码核实：确为 == true 严格比较。）
+	return self.tough == true
+end
+
+return Weapon

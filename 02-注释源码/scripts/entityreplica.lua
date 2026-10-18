@@ -1,0 +1,370 @@
+--============================================================
+-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖
+-- 文件：entityreplica.lua
+-- 模块：网络同步层 / replica（副本组件）分发链路
+-- 职责：回答「服务端如何决定谁能看到什么」。以实体标签（tag）而非网络消息
+--       驱动 replica 分发：维护 19 个可同步组件的白名单，用 _name / __name
+--       两段式标签协议表达「需要同步 / 显式不要同步」，
+--       并在客户端实体标签反序列化完毕后据此创建副本组件。
+-- ★★ 与 netvars.lua 构成本层仅有的两个「有实义」的 Lua 文件；
+--       其余网络逻辑都建立在 C++ 侧的 TheNet 之上。
+-- 关键符号：REPLICATABLE_COMPONENTS, Replicas,
+--           EntityScript:ValidateReplicaComponent,
+--           EntityScript:ReplicateComponent,
+--           EntityScript:UnreplicateComponent,
+--           EntityScript:PrereplicateComponent,
+--           EntityScript:ReplicateEntity,
+--           EntityScript:TryAttachClassifiedToReplicaComponent,
+--           AddReplicableComponent
+-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本
+-- 交叉引用：entityscript.lua:208-213（replica_mt 惰性代理元表）、
+--           entityscript.lua:631（AddComponent 自动申请同步）、
+--           netvars.lua（类型契约与 wire format 规则）、
+--           class.lua:176（Class 构造器调用约定）、
+--           prefabs/player_classified.lua（classified 机制最大实例）
+-- 【移植要点】两段式标签协议用「__ 否定项」表达删除，是增量属性同步里
+--           「墓碑（tombstone）」思路的轻量实现，避免整表重发。
+--============================================================
+--------------------------------------------------------------------------
+-- ★★ 这是同步层的「另一半」（另一半是 netvars.lua 的类型契约）。
+-- 本文件回答一个问题：服务端如何决定「谁能看到什么」。
+--
+-- 【★核心结论：DST 用「实体标签（tag）」而非网络消息来驱动 replica 分发】
+-- 服务端并不逐个客户端发「请创建 X 组件」的消息。它只做一件事：
+-- 给实体打一个字符串标签（如 _inventory），C++ 侧在实体上线时
+-- 把这个标签集合随实体元数据一起发给客户端，客户端据此自行创建对应组件。
+-- 这是一次性、随实体生命周期走的分发，而不是持续的消息。
+--
+-- 【★两段式标签协议 —— 本文件最值得学的设计】
+--   _inventory   下划线前缀 1 个 =「此实体有 inventory 组件，同步它」
+--   __inventory  下划线前缀 2 个 =「此实体显式声明没有，不要创建」
+-- 用「双下划线的否定项」而不是「从表里删掉」，是因为标签集合在 C++ 侧
+-- 是按实体增量同步的：只发「加了什么」比发「现在全集是什么」便宜得多。
+-- 没有 __xxx 就无法表达「删除」，只能整表重发。
+-- 这是自研引擎做「增量属性同步」时非常值得照抄的编码技巧。
+--
+-- 【白名单而非黑名单】下方 REPLICATABLE_COMPONENTS 只列了 19 个组件，
+-- 821 个组件里其余全部不可同步。理由见 35 行注。
+--Extends EntityScript with network replica functionality
+--------------------------------------------------------------------------
+
+local REPLICATABLE_COMPONENTS =
+-- ★只有这 19 个组件允许被复制到客户端。表值恒为 true，只当集合用。
+--
+-- 【为什么必须是白名单 —— 这是安全边界，不是优化】
+-- 组件在客户端实例化后，其每个 netvar 都会占用带宽，且其事件回调会在客户端跑。
+-- 若默认允许所有组件：
+--   1) 带宽失控 —— 本地专用的组件（如寻路、存档、AI 黑板）会跟着上线；
+--   2) ★信息泄漏 —— 组件里的 netvar 是自动同步的，
+--      一旦把服务端内部状态组件纳入白名单，其字段会无条件发给所有客户端，
+--      相当于把作弊信息（配方解锁表、掉落判定、真实血量）主动送出去。
+-- 所以「默认拒绝、逐个显式放行」是硬安全要求，顺序不能反过来。
+--
+-- 【★命名约定：表里的 key 是「去掉 _replica 后缀的组件基名」】
+-- 下方 51 行直接拼 name.."_replica" 去 require 组件文件，所以这张表
+-- 既是权限白名单，也是「基名 → replica 文件名」的映射，两表合一。
+-- 自己写的话建议拆成两张表（允许集 + 映射），扩展时更不容易搞混。
+{
+    builder = true,
+    combat = true,
+    container = true,
+    constructionsite = true,
+    equippable = true,
+    fishingrod = true,
+    follower = true,
+    health = true,
+    hunger = true,
+    inventory = true,
+    inventoryitem = true,
+    moisture = true,
+    named = true,
+    oceanfishingrod = true,
+    rider = true,
+    sanity = true,
+    sheltered = true,
+    stackable = true,
+    writeable = true,
+}
+
+local Replicas = {}
+-- ★ require 缓存。模块级 local，不是每实体一份。
+-- 19 个 replica 组件无论多少实体，模块只 require 一次。
+--
+-- 【★诚实评价：这是一层「冗余缓存」】
+-- 下方 54 行的 require 本身就走 package.loaded 缓存，
+-- 因此第 52-56 行的手动缓存并不提供额外的性能收益 ——
+-- 每次调用仍要付一次哈希查找，省下的只是一次函数调用。
+-- 我没有找到源码注释说明它为何存在，故不臆测动机，只陈述事实。
+-- 【唯一可确证的收益】第 57 行的 assert 想要「拿到 nil 时给友好报错」，
+-- 但 require 失败会直接抛异常，所以该 assert 只在「require 返回 nil 而非抛错」
+-- 这种边缘情形才真正生效。自己写的话直接 cmp = require(...) 即可。
+
+function EntityScript:ValidateReplicaComponent(name, cmp)
+-- 组件构造前的校验闸门。返回组件实例或 nil。
+--
+-- 【★这是 lazy 代理真正的把关点，不是 AddComponent 里的一步】
+-- 我核实过调用点：全树唯一调用处在 entityscript.lua:211，
+-- 那里定义了一个元表 __index，把「读 inst.replica.某组件」这个动作
+-- 转成本函数。于是 inst.replica.inventory 会先触发 ValidateReplicaComponent，
+-- 无权限就返回 nil，而不是像普通表那样返回 nil —— 表面行为相同，
+-- 但意图是「显式校验」而非「恰好没这个键」。
+--
+-- ★真正的「同步授权」发生在 entityscript.lua:631：
+-- AddComponent 在 new 出组件之前，无条件调用 self:ReplicateComponent(name)。
+-- 也就是说「加组件」自动蕴含「申请同步」，无需业务代码显式声明。
+-- 授权与否由第 35 行白名单 + 第 39 行 ismastersim 共同把关。
+--
+-- 返回值 `self:HasTag(...) and cmp or nil`：
+-- ★这是 Lua 的经典 and/or 陷阱形态。cmp 为假值时整体短路成 nil，
+-- 恰好与「无权限返回 nil」共用一个出口，不必额外写 if。
+-- ⚠️ 代价是这个写法无法区分「无权限」与「组件本身是假值」，
+-- 好在组件实例恒为真值表，实际不出问题。
+--
+-- 【★关键：校验依据是标签而非组件是否已挂载】
+-- 也就是说服务端「打算同步」与「已经同步」是两件事，由标签独立表达。
+-- 这正是 34-45 行那段「打标签 / 清标签」逻辑存在的意义。
+    return self:HasTag("_"..name) and cmp or nil
+-- ★标签名由参数拼出："_"..name，例如 _inventory。
+-- 【★这就是「服务端决定谁能看到什么」的全部实现】
+-- 权限判定最终落在一个字符串标签上。C++ 侧不认识 REPLICATABLE_COMPONENTS，
+-- 它只认标签。所以改这一行就等于改了同步策略 —— 这也是模组
+-- AddReplicableComponent 生效的原理：改表 → 后续实体会打上新标签 → C++ 自动分发。
+end
+
+function EntityScript:ReplicateComponent(name)
+-- ★本文件的主函数。服务端「让一个组件可同步」的正规路径。
+-- 三段结构：白名单闸门 → 服务端打标签 → 本地实例化 replica 组件。
+    if not REPLICATABLE_COMPONENTS[name] then
+-- 闸门一：不在白名单里直接静默返回。
+-- ⚠️ 注意是静默返回而非报错或警告 ——
+-- 打错名字（写成 ReplicateComponent("inventory_replica")）不会立刻暴露，
+-- 而是悄悄什么也不发生。移植时建议改成至少 modprint 一行，否则极难排查。
+-- ★我核实过：确实没有任何告警或日志，是完全静默的失败模式。
+        return
+    end
+
+    if TheWorld.ismastersim then
+-- ★★ 这是全文件最关键的一行：只有服务端能改变「同步策略」。
+--
+-- 【★ismastersim 的正交性 —— 必须和 ismastershard 分开理解】
+-- DST 有一个「世界」，可能有多个「模拟端」：
+--   ismastersim  = 我是不是这个模拟端的权威（唯一为 true 的那一个）
+--   ismastershard = 我是不是这个 shard 的权威（跨存档分片）
+-- 两个维度彼此独立，于是四象限都存在：
+--   主 shard 的 master sim  ：两个都是 true   —— 完整权威，全部同步逻辑在此
+--   主 shard 的客户端      ：两个都是 false  —— 只读同步来的值，可本地预测
+--   次 shard 的 master sim  ：sim=true, shard=false —— 完整权威，但要接收上游
+--     次 shard 的客户端      ：两个都是 false  —— 与主 shard 客户端同构
+-- clock.lua:259 那句 `ismastersim and not ismastershard` 正是第三象限的判据。
+--
+-- 【★为什么这一行必须判 ismastersim】
+-- 标签会被同步到客户端。若客户端也能加标签，它就能给自己凭空加上 _inventory，
+-- 进而让 C++ 为它创建一个 replica —— 这是客户端可自行提权的越权路径。
+-- 同步策略只能由权威端单方面决定，这是安全约束而非性能优化。
+        self:AddTag("_"..name)
+-- 打「正标签」，宣告此实体需要该组件的同步。
+-- ★这一步只改本地状态，标签如何流向客户端由 C++ 负责，本文件不碰。
+        if self:HasTag("__"..name) then
+-- ★检测「否定标签」__name 是否已存在。存在则说明本组件是被显式关掉的。
+-- 【对应的 UnreplicateComponent 会打这个双下划线标签】
+-- 命中时：先撤销正标签，再返回。
+--
+-- 【★★这里有一个值得注意的行为：打上 __ 之后，同名 ReplicateComponent 会变成永久空操作】
+-- 因为每次调用都在这里提前 return，第 59 行的实例化永远走不到。
+-- 也就是说 __inventory 一旦存在，ReplicateComponent("inventory") 就再也无效了，
+-- 且本函数不提供任何「解除否定」的 API（可搜遍全文件，无 RemoveTag("__"..)）。
+-- 所以 PrereplicateComponent（第 69 行）采用的正是「正打一次 + 负打一次」的顺序，
+-- 靠先后顺序而不是靠状态字段来表达「先建后关」，非常微妙但有效。
+            self:RemoveTag("__"..name)
+            return
+        end
+    end
+
+    if rawget(self.replica, "_")[name] ~= nil then
+-- 重复检测。已有同名 replica 时打印警告但不中断。
+-- ★用 rawget 而非直接索引：self.replica 是带元方法的代理表，
+--   直接索引会触发元方法并返回包装值；rawget 才是拿到真实槽位、
+--   避免「读一个不存在的键」被元方法伪装成存在。
+-- 【为什么必须 rawget：见第 89 行同款写法的注释，此处是同一模式】
+        print("replica "..name.." already exists! "..debugstack_oneline(3))
+-- 打印堆栈（debugstack_oneline 第 3 层，跳过本函数自身）。
+-- ⚠️ 这里只 print 不 error，属于「提示级」诊断：程序继续跑，状态可能已经不对。
+    end
+
+    local filename = name.."_replica"
+-- ★拼出模块名：inventory → components/inventory_replica
+-- 【这条约定把「组件基名」与「replica 模块名」绑定死】
+-- 所以想给 inventory 加同步，就必须新建 components/inventory_replica.lua，
+-- 文件名不能随意改。新增一个可同步组件要改三处：这张表、建文件、调用本函数。
+    local cmp = Replicas[filename]
+    if cmp == nil then
+        cmp = require("components/"..filename)
+-- ★require 后写进缓存表。模块级缓存，故只执行一次。
+-- 【对比 require 自身的缓存：语义相同，但显式表让 53 行的 if 判断有意义】
+-- 若完全依赖 package.loaded，这里可以直接 cmp = require(...)，
+-- 少一次哈希查找，差别可忽略。当前写法的好处是「加载过的 replica 集合」可见。
+        Replicas[filename] = cmp
+    end
+    assert(cmp ~= nil, "replica "..name.." does not exist!")
+-- ★失败断言。若白名单里写了一个没有对应 _replica 文件的名字，
+-- 就在这里立刻崩掉，而不是等客户端反序列化时静默出错。
+-- 【★这是本文件最好的一处防御：把配置错误挡在启动期，而非运行期】
+-- 对照第 35 行的静默返回 —— 这里作者选择了严格，白名单是「开发者写死的」，
+-- 不像参数那样可能来自模组，故可以放心 fail-fast。
+
+    rawset(self.replica._, name, cmp(self))
+-- ★★ 真正创建组件实例：cmp(self) —— 把实体自己传进去。
+--
+-- 【★replica 组件是「以实体为参数的普通组件」】
+-- 它不是代理/镜像，而是真真切切在客户端本地 new 出来的一个组件对象，
+-- 挂在 self.replica._ 上。所以客户端确实在跑组件代码，
+-- 只是这些组件只被允许写 netvar 的 set_local（本地预测），不能 set。
+--
+-- 【为什么要放在 self.replica._ 而不是 self.components】
+-- 命名空间隔离：客户端的 replica 组件与本地的「逻辑组件」在物理上分开，
+-- 杜绝了「客户端误调本地组件的 AddComponent 绕过同步策略」。
+-- 同时 rawset 绕过元方法的只读保护，强制走这条唯一路径。
+--
+-- 【★wire format 关联】replica 组件内部声明的 netvar，
+-- 必须与服务端同名实体里对应组件声明的 netvar 顺序一致 ——
+-- 这就是 netvars.lua 那条「两端声明必须一致」约束的落地点。
+end
+
+function EntityScript:UnreplicateComponent(name)
+-- 与 ReplicateComponent 对称的「关闭同步」入口。
+-- ★双重条件：必须已存在 replica（否则无意义）且必须在服务端（否则越权）。
+-- 【为什么要先判存在】
+-- 幂等性保护：重复调用不会叠加 __ 标签，也不会误删别的东西。
+    if rawget(self.replica, "_")[name] ~= nil and TheWorld.ismastersim then
+-- ★注意这里用了 `and` 短路，返回值是布尔而非组件，与 34 行返回实例不对称。
+-- 【这是个刻意的语义差异】
+-- 「能否复制」需要回答「给你哪个实例」，所以返回实例；
+-- 「取消复制」没有实例可给，只需副作用，返回布尔供调用方判断。
+        self:RemoveTag("_"..name)
+-- 撤销正标签 —— 必须先撤，否则 C++ 侧可能仍按旧状态分发。
+        self:AddTag("__"..name)
+-- ★打否定标签。这是「增量同步标签集」里表达「删除」的唯一手段。
+-- 【★为什么不能只是 RemoveTag("_"..name) 就完事】
+-- 因为标签增量同步只发「新增了什么」。若客户端曾经收到过 _inventory，
+-- 而服务端只是不再发它，客户端会永远保留那个副本（幽灵组件）。
+-- 显式发一个 __inventory 才能把「现在应该没有」这个信息传过去。
+-- 这与分布式系统里「删除需要墓碑（tombstone）」是同一条经验。
+    end
+end
+
+function EntityScript:PrereplicateComponent(name)
+-- 「先复制后立刻取消」。两个动作的组合形成一个语义：
+-- ★「我走一遍完整创建流程（执行 cmp(self) 及其构造逻辑），但不保留同步」。
+-- 【★为什么需要这么绕】
+-- 有些实体需要走一遍 replica 组件的初始化副作用（设置字段、注册回调），
+-- 但不希望它的 netvar 被同步 —— 典型如「本地视觉/音效参数」。
+-- 直接不调用会缺失副作用；调用 ReplicateComponent 则会留下同步。
+-- 靠调用顺序（第 70 行先建、第 71 行后关）达成，是本文件最巧的一处。
+--
+-- ⚠️ 隐患：一旦未来有人在 ReplicateComponent 里加上「跳过已存在组件」的早退，
+-- 这个先后依赖就会静默失效。自研实现建议改用显式参数，如
+-- ReplicateComponent(name, {sync=false})，把意图写进签名。
+    self:ReplicateComponent(name)
+    self:UnreplicateComponent(name)
+end
+
+--Triggered on clients immediately after initial deserialization of tags from construction
+-- ★★ 客户端侧的入口。上面的函数都是「服务端决定」，这里是「客户端照做」。
+-- 原注释：客户端在实体构造完成后、标签反序列化完成之后立刻触发。
+--
+-- 【★分发链路完整形态（把整个同步层串起来看）】
+--   1. 服务端 AddComponent("inventory") 时连带 ReplicateComponent("inventory")
+--      → 打 _inventory 标签（entityreplica.lua:40）
+--   2. 实体上线，C++ 把标签集合随实体元数据发给客户端
+--      （这就是「服务端决定谁能看到什么」的全部实现）
+--   3. 客户端构造该实体，实例化 entityscript
+--   4. ★实体构造完成、标签反序列化完毕 → C++ 回调 ReplicateEntity（本行）
+--   5. 遍历标签，对每个存在的标签 require 组件并 new 出副本
+--      （entityreplica.lua:78 → 59）
+--   6. 组件构造期间声明的 netvar 与服务端同序对应，完成 wire format 对齐
+--   7. 可选：调用实体的 OnEntityReplicated 钩子（第 82 行）
+--
+-- 【★为什么必须等「标签反序列化之后」】
+-- 早一步就看不到标签，replica 不会被创建；晚一步则组件已错过构造期。
+-- 这个时机依赖是整个分发链路最脆的一环，移植时务必保留该回调时机。
+function EntityScript:ReplicateEntity()
+    for k, v in pairs(REPLICATABLE_COMPONENTS) do
+-- 遍历整张白名单表。注意是 pairs，遍历顺序不确定。
+-- ★顺序不确定在这里无害，因为每个 replica 组件各自独立声明 netvar，
+--   wire format 对齐靠的是「同一组件内部」的同序，而非「组件之间」的同序。
+-- 【这一点容易误解，值得强调】
+-- netvar 的「声明顺序即 wire format」是按实体粒度的字段序列，
+-- 不同组件的 netvar 分属各自的声明组，组件之间不共享一张顺序表。
+        if v and (self:HasTag("_"..k) or self:HasTag("__"..k)) then
+-- ★判据是「正标签或否定标签任一存在」。
+-- 连 __inventory（否定的）也要处理 —— 因为它同样被同步到了客户端，
+-- 客户端必须也走一遍 ReplicateComponent 才能让第 41 行那套正负判定生效，
+-- 从而真正不创建组件。若这里漏了否定标签，客户端就会多出不该有的组件。
+            self:ReplicateComponent(k)
+-- 复用服务端那同一个创建函数 —— 服务端与客户端走完全相同的代码路径。
+-- 【★这是本文件最值得学的工程决策】
+-- 常见错误写法是客户端另写一套「简化版创建」。那样两份逻辑必然随时间腐化，
+-- 表现为「服务端正常、客户端偶发异常」这类极难定位的问题。
+-- 同一份代码 + 由 ismastersim 自然分岔（第 39 行），是唯一可维护的写法。
+        end
+    end
+
+    if self.OnEntityReplicated ~= nil then
+-- 可选钩子：实体所有 replica 就绪后的回调。
+-- ★用 `if ... ~= nil` 而非直接调用 —— 因为它是可选的，
+--   大量实体（尤其是没有可复制组件的）根本没有这个字段。
+-- 【注意】这里回调的是 self:OnEntityReplicated()，带冒号，
+--   隐含 self 作为第一实参 —— 写钩子时签名要写成 method 而非 function。
+        self:OnEntityReplicated()
+    end
+end
+
+--Attach classified should work for pre/unreplicated components as well
+-- 把 classified（客户端专属实体）挂到 replica 组件上。
+-- 【★classified 是 DST 同步体系里最巧妙的一招，值得单独理解】
+-- 玩家身上有些实体只对其本人可见（自己的背光、自己的 UI 道具、特效）。
+-- 若为每个人在服务端各生成一份，60 人就是 60 份实体 + 60 倍带宽。
+-- DST 的做法：服务端只生成 1 份「classified」，它被所有客户端收到，
+-- 但每个客户端本地只把「属于自己的那一个」显示出来。
+-- 于是实体数与带宽不随人数增长，可见性完全由客户端本地决定。
+-- ⚠️ 注意 classified 与 netvar 是两套机制：
+--   classified 靠客户端本地筛选控制可见性；netvar 则是全员同步。
+--   player_classified.lua 就是这套机制的最大实例（全文 123 处 net_* 声明）。
+function EntityScript:TryAttachClassifiedToReplicaComponent(classified, name)
+-- 原注释说「对 pre/unreplicated 组件同样有效」—— 指 PrereplicateComponent 的结果。
+-- 【★注意这个设计与 69-72 行的隐患冲突】
+-- PrereplicateComponent 的组件确实存在于 replica._ 中，所以本函数能找到它。
+-- 但这依赖「先建后关」的顺序依然成立；一旦该组件被真正删除，本函数就找不到。
+	local cmp = rawget(self.replica, "_")[name]
+-- ★同样是 rawget，理由同第 47 行：绕过代理表元方法，判断真实槽位。
+-- 【★顺带印证第 63 行的写法】
+-- UnreplicateComponent 用 `rawget(...) ~= nil and ismastersim` 判断存在性，
+-- 用的正是同一个 rawget 技巧 —— 同一份文件内前后呼应的写法。
+	if cmp then
+-- 找到目标组件才挂载；找不到则返回 false 让调用方自行处置。
+-- 【★返回布尔而非组件实例，是「查询式」API 的标准形态】
+-- 调用方通常写 `if not inst:TryAttach... then ... 降级 ... end`，
+-- 失败路径是被预期的正常分支，不是异常。
+		cmp:AttachClassified(classified)
+		return true
+	end
+	return false
+end
+
+-- Mod access
+-- ★ 模组专用 API：把新组件加进白名单，从而允许它被同步。
+--
+-- 【★扩展同步能力的正确方式】
+-- 不需要改本文件的 require 逻辑，也不需要动 entityscript；
+-- 只要在模组 modmain 里调用一次本函数，
+-- 之后任意实体调用 ReplicateComponent("你的组件名") 即可全链路生效 ——
+-- 因为第 76 行遍历的是同一张表。
+--
+-- 【⚠️ 安全代价：这是把权限判断交给模组】
+-- 白名单本是安全边界（见第 5 行注）。本函数无任何校验，
+-- 任何模组都能把自己任意组件塞进表里，让其 netvar 无条件同步给所有客户端。
+-- 官方设计上信任模组，但对自己写的引擎要知道：
+-- ★凡是能调用 AddReplicableComponent 的代码，都等同于授予了自己同步权限。
+function AddReplicableComponent(name)
+    REPLICATABLE_COMPONENTS[name] = true
+end

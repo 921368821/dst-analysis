@@ -1,0 +1,659 @@
+--============================================================
+-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖
+-- 文件：brains/monkeybrain.lua
+-- 模块：AI 大脑 / 猴子（捣蛋型随从）
+-- 职责：装配猴子 AI。★ 与其他随从不同，猴子的核心行为是【骚扰主人】：
+--       抢主人 5 秒内刚采集到的东西、抢在主人前面捡起主人正要捡的物品、
+--       偷主人附近的箱子。配套亮点：
+--       · 五级候选阶梯的觅食逻辑（背包→帽子→地上食物→作物→随便捡）
+--       · 「随机闸门」（第 85 行 75% 概率放弃觅食）让行为显得自然
+--       · 「好奇心」与「翻箱子冷却」两处 DoTaskInTime 限频机制
+--       · 资源驱动的战斗闭环（有弹药→远程打玩家 / 没弹药→捡便便）
+--       · deepcopy 处理表别名（第 28 行），避免 NO_LOOTING_TAGS 被污染
+--       · distsq 两距离平方对比判断「我比主人更近」（第 214 行）
+-- 关键符号：MonkeyBrain, AnnoyLeader（骚扰主人三段策略）, EatFoodAction,
+--           GetPoop, ShouldRunFn, OnLootingCooldown, SetCurious,
+--           NO_LOOTING_TAGS / NO_PICKUP_TAGS, TIME_BETWEEN_EATING
+-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本
+-- 交叉引用：brain.lua（三段式调度）, brains/braincommon.lua（共享底座）,
+--           behaviours/{wander,runaway,doaction,chaseandattack,leash,
+--           follow,faceentity}.lua,
+--           util.lua:553-572（★ distsq 的双签名：4 数字=2D / 2 向量=3D）,
+--           components/{combat,eater,inventory,homeseeker,follower,
+--           knownlocations}.lua
+--============================================================
+require "behaviours/wander"
+--[ [
+-- monkeybrain.lua —— 猴子大脑
+--
+-- 【★ 定位：「捣蛋型随从」的范本】
+--   与 pigbrain（陪伴）、mermbrain（生产）、penguinbrain（繁殖）不同，
+--   猴子的核心行为是【骚扰主人】：抢主人刚打到的战利品、翻主人的箱子。
+--   ★ 这种「敌意交互」型随从很特别，是很有参考价值的一类 AI。
+--
+-- 【★ 本文件的三个亮点】
+-- 1) ★ 偷窃行为的优先级分层（第 84-167、177-259 行），共 5 级候选。
+-- 2) ★ 好奇心（curious）冷却机制（第 79、150-163 行）：
+--   「捡一个没用的东西」这种无意义行为，靠一个可重入的定时器限频。
+-- 3) ★ 距离比较的巧妙用法（第 214 行）：
+--   distsq(px,pz,tx,tz) > distsq(mx,mz,tx,tz) —— 「我比主人更近吗」
+--   用两个距离平方比较实现「抢在主人前面」，无需求根号。
+--
+-- 【⚠️ 容易踩的坑】
+-- · 猴子是「敌意交互」，但第 297-344 行的战斗只对【玩家】用远程、
+--   对其他 NPC 用近战（第 342 行 hitter vs 第 306 行 thrower）。
+-- · 第 182 行 AnnoyLeader 直接用 inst.harassplayer（无判空），
+--   但第 348 行的 WhileNode 条件保证了它非 nil。属调用方保护。
+--   ★★ 第 227 行 distsq() 的第一个参数传了 4 个值（px, pz, tx, tz），
+--   这与其签名吻合，已核实 util.lua:553-572 的 distsq 是【双签名】函数：
+--     · 传 4 个数字 → if v3 then 分支（第 561-566 行）→ 只算 dx/dy 两轴平方和
+--     · 传 2 个向量/数组 → 第 568-571 行 → 算 dx/dy/dz 三轴平方和
+--   ★★ 所以第 214 行的 distsq(px,pz,tx,tz) 是合法的「2D 距离平方」调用，
+--     与第 229 行的 GetDistanceSqToPoint(px, 0, pz)（3D）区分开。
+--   ⚠️ 顺带一提：util.lua 第 554 行源码自带一句幽默注释
+--     "PLEASE FORGIVE US! WE NEVER MEANT FOR IT TO END THIS WAY!"
+--     说明这个双签名设计连作者本人都觉得不够优雅。移植时可考虑改用两个函数。
+--] ]
+require "behaviours/runaway"
+require "behaviours/doaction"
+require "behaviours/chaseandattack"
+require "behaviours/leash"
+local BrainCommon = require("brains/braincommon")
+
+local MIN_FOLLOW_DIST = 5
+-- ★ 跟随距离 5/7/10。与 pigbrain 的 2/5/9 相比明显更远。
+--   ★ 语义：猴子想给主人留空间（它随时准备跑路）。
+local TARGET_FOLLOW_DIST = 7
+local MAX_FOLLOW_DIST = 10
+
+local RUN_AWAY_DIST = 7
+-- ★★★ 逃跑距离 7 触发、15 停止 —— 全DST 已看到的最大逃跑距离。
+--   对比 pigbrain 是 3/5，mermbrain 是 5/8。
+--   ★ 差 3 倍！因为猴子跑得快且要远离主人。
+--   ★ STOP_RUN_DIST(15) > MAX_FOLLOW_DIST(10) —— 关键：
+--     逃跑的安全距离比跟随距离还大，意味着猴子逃跑后会【停在更远处】。
+--     ★ 这是「逃跑后不立刻回到身边」的设计，避免一跑一回的抖动。
+local STOP_RUN_AWAY_DIST = 15
+
+local SEE_ITEM_DISTANCE = 10
+
+local MAX_WANDER_DIST = 20
+
+local MAX_CHASE_TIME = 60
+-- ★★ 追击参数 60 秒 / 40 距离 —— ★ 远超其他大脑（pig 10/30, knight 8/20）。
+--   ★ 猴子是「记仇的」：被别的 NPC 打了会追很久。
+--   ⚠️ 但第 338-340 行的攻击 NPC 分支只在 target 非玩家时生效，
+--     而战斗通常在近距离结束。60 秒更多是「不轻易放弃」的态度表达。
+local MAX_CHASE_DIST = 40
+
+local TIME_BETWEEN_EATING = 30
+-- TIME_BETWEEN_EATING = 30 —— 两餐间隔 30 秒，防止一直吃。
+
+local LEASH_RETURN_DIST = 15
+local LEASH_MAX_DIST = 20
+
+local NO_LOOTING_TAGS = { "INLIMBO", "catchable", "fire", "irreplaceable", "heavy", "outofreach", "spider", "mineactive" }
+-- ★★★ NO_LOOTING_TAGS —— 「不抢这些东西」的完整列表，每一项都有理由：
+--   INLIMBO —— 加载中/已被拾取
+--   catchable —— 可捕获生物（不能抢玩家正在抓的东西）
+--   fire —— 火里（会烧掉）
+--   irreplaceable —— 不可替代物品（抢了游戏无法继续）
+--   heavy —— 重物（拿不动）
+--   outofreach —— 玩家够不到（抢了也没用）
+--   spider —— 蜘蛛网（会被困住）
+--   mineactive —— 正在挖的矿洞（会塌）
+-- ★★★ 这个列表是「猴子的道德边界」—— 说明设计者明确限制了捣蛋程度。
+--   ★ 移植价值：给「敌意 AI」设计时，同样需要显式的「不做什么」清单。
+local NO_PICKUP_TAGS = deepcopy(NO_LOOTING_TAGS)
+-- ★★ NO_PICKUP_TAGS = deepcopy(NO_LOOTING_TAGS) + "_container"。
+--   ★★★ 用 deepcopy 而非直接引用 —— 因为要修改副本而不污染原表。
+--   ★ 若直接 NO_PICKUP_TAGS = NO_LOOTING_TAGS 再 table.insert，
+--     会把 "_container" 加进 NO_LOOTING_TAGS，导致「翻箱子」也被禁止，
+--     而第 223-257 行的翻箱子功能就废了。
+--   ★★ 这是「表别名陷阱」的教科书处理，移植时务必注意。
+-- ★ 第 29 行 table.insert(NO_PICKUP_TAGS, "_container")
+--   语义：拾取动作【不】作用于容器本体（要专门用 STEAL 动作偷，见第 246 行）。
+table.insert(NO_PICKUP_TAGS, "_container")
+
+local PICKUP_ONEOF_TAGS = { "_inventoryitem", "pickable", "readyforharvest" }
+
+local MonkeyBrain = Class(Brain, function(self, inst)
+    Brain._ctor(self, inst)
+end)
+
+local function ShouldRunFn(inst, hunter)
+-- ★★ ShouldRunFn：★ 只有「正在和玩家打架」才逃。
+--   第 38-39 行 return (combat.target ~= nil) and hunter.isplayer
+--   ★★ 语义：被玩家打就跑，被怪物打【不跑】（反而会反击，见第 338 行）。
+--   ★ 这是「态度差异化」：对玩家畏惧，对其他生物无所谓。
+--   ★ 对比 pigbrain 第 41 行：那里是「对方在交易就别跑」，这里更简单。
+-- ★ 本函数作为 RunAway 的 shouldRunFn 传入（第 299 行）。
+    return (inst.components.combat.target ~= nil)
+        and hunter.isplayer
+end
+
+local function GetPoop(inst)
+-- ★★★ GetPoop：★ 战斗前先捡弹药，是很聪明的 AI 优先级设计。
+-- 【第 47-56 行的筛选】
+--   prefab == "poop"           —— 只捡便便（猴子的武器）
+--   ★★ 第 51 行 not item:IsNear(inst.components.combat.target, RUN_AWAY_DIST)
+--     ★★ 条件里【直接访问 combat.target】：
+--       若 combat.target 为 nil，item:IsNear(nil, 7) 会崩。
+--   ⚠️ 已逐字核对第 51 行确认未判 target 非 nil。
+--     ★ 第 43-45 行的 WhileNode 条件（第 311-314 行）保证调用时
+--       combat.target 非 nil 且是玩家。
+--     ★ 即「靠调用方保证前置条件」，属既定契约而非缺陷。
+--   item:IsOnValidGround()    —— 不在水面上
+-- ★★ 语义：★ 不捡「离敌人太近的便便」—— 路过时顺便捡，但不是冒死去捡。
+--   ★★★ 这是「在搜索时考虑危险」的好范例，比事后过滤更自然。
+    if inst.sg:HasStateTag("busy") then
+        return
+    end
+
+    local target = FindEntity(inst,
+        SEE_ITEM_DISTANCE,
+        function(item)
+            return item.prefab == "poop"
+                and not item:IsNear(inst.components.combat.target, RUN_AWAY_DIST)
+                and item:IsOnValidGround()
+        end,
+        nil,
+        NO_PICKUP_TAGS
+    )
+
+    return target ~= nil and BufferedAction(inst, target, ACTIONS.PICKUP) or nil
+end
+
+local ValidFoodsToPick =
+-- ★ ValidFoodsToPick：硬编码的 6 种可摘食物（浆果/香蕉/胡萝卜/三种蘑菇）。
+--   ★★ 注意是【数组】而非集合，第 71 行的 ItemIsInList 要遍历比较。
+--   ⚠️ 对比 beargerbrain 第 22 行用的是【字典】（key = true），
+--     查找是 O(1)。★ 同一个项目里两种写法，猴子的稍慢但食物种类少。
+{
+    "berries",
+    "cave_banana",
+    "carrot",
+    "red_cap",
+    "blue_cap",
+    "green_cap",
+}
+
+local function ItemIsInList(item, list)
+-- ItemIsInList：★ 同时支持数组与字典两种数据结构。
+--   第 73 行 if v == item or k == item then
+--   ★★ k == item 这一支就是为「字典」准备的（beargerbrain 那种）。
+--   ★ 兼容两种结构的通用写法，虽然在本文件只用得上数组那一支。
+    for k, v in pairs(list) do
+        if v == item or k == item then
+            return true
+        end
+    end
+end
+
+local function SetCurious(inst)
+-- ★★★ SetCurious：★ 「好奇心冷却」的复位函数。
+--   第 80-81 行：清任务、置 inst.curious = true
+--   ★ 配合第 163 行 inst:DoTaskInTime(10, SetCurious)：
+--     捡完一个无用的东西后，10 秒内不再做「随便捡」的行为。
+--   ★★★ 这就是「无意义行为」的限频机制 —— 非常实用的小技巧：
+--     任何「随机挑一个目标做点没用的事」的行为都该加个冷却，否则很吵。
+    inst._curioustask = nil
+    inst.curious = true
+end
+
+local function EatFoodAction(inst)
+-- ★★★ EatFoodAction 的五级候选阶梯（本文件最值得学的结构）。
+-- 【第 85 行】★ 三种情况直接放弃（用 or 短路，顺序即成本）：
+--   math.random() < .75    —— ★★★ 75% 概率【什么都不做】！
+--   ★★★ 这是本函数最关键的一行：随机数闸门。
+--     意义：觅食这个行为本身有 1/4 的概率被随机跳过，
+--     让猴子的行为显得「不那么刻意、更随机」。
+--     ★ 移植提示：给「重复性行为」加随机闸门是让 AI 显得自然的最便宜手段。
+--   sg:HasStateTag("busy")  —— 忙
+--   距上次吃 < 30 秒        —— 不饿
+--   背包满了                —— 吃不下
+-- 【然后按优先级逐级找（第 86-166 行）】
+--  ① 吃背包里的（第 94-99 行）
+--  ② 戴帽子（第 108-119 行）★★ —— 没戴帽子就找帽子戴！
+--  ③ 捡地上的能吃的（第 121-130 行）
+--  ④ 摘可收获的作物（第 132-140 行）
+--  ⑤ 捡随便一个东西（第 154-166 行）—— 靠「好奇心」限频
+-- ★★ 五级阶梯的意义：优先满足真实需求（吃），
+--   再满足装扮需求（帽子），再满足观察需求（随便捡）。
+-- ★★ 每级都先取一次 FindEntities（第 103 行一次搜索供 4 级复用），
+--   避免重复的空间查询。★ 性能友好的结构。
+    if math.random() < .75 or
+-- ★★ math.random() < .75 → 75% 概率放弃觅食。
+--   ★ 这是「随机闸门」：让同一个行为在不同帧有不同的取舍权重。
+--   ★ 与 pigbrain 第 85 行的 0.75 阈值不同用途（那是猴子独有的）。
+--   ★★ 注意它在【最前面】，即最先短路，效率最高。
+            inst.sg:HasStateTag("busy") or
+            (
+                inst.components.eater:TimeSinceLastEating() ~= nil and
+                inst.components.eater:TimeSinceLastEating() < TIME_BETWEEN_EATING
+            ) or (
+                inst.components.inventory ~= nil and inst.components.inventory:IsFull()
+            ) then
+        return
+    elseif inst.components.inventory ~= nil and inst.components.eater ~= nil then
+        local target = inst.components.inventory:FindItem(function(item) return inst.components.eater:CanEat(item) end)
+        if target ~= nil then
+            return BufferedAction(inst, target, ACTIONS.EAT)
+        end
+    end
+
+    --Get the stuff around you and store it in ents
+    local x, y, z = inst.Transform:GetWorldPosition()
+    local ents = TheSim:FindEntities(x, y, z, SEE_ITEM_DISTANCE,
+        nil,
+        NO_PICKUP_TAGS,
+        PICKUP_ONEOF_TAGS)
+
+    --If you're not wearing a hat, look for a hat to wear!
+-- ★★ 「找帽子戴」—— 非生存需求，但优先级排在找食物【之后】。
+--   第 109 行条件：没有戴帽子
+--   第 111-115 行四重筛选：有 equippable 组件 且 槽位是 HEAD 且
+--     canbepickedup 且 在有效地面
+--   ★ 注意第 111-112 行的 and 换行写法：
+--     item.components.equippable ~= nil and
+--     item.components.equippable.equipslot == EQUIPSLOTS.HEAD and
+--   ★ Lua 允许 and 结尾换行（空语句），语法正确但易被误认为漏分号。
+-- ★ 语义：猴子会捡帽子戴 —— 这是「装饰性 AI」，让生物显得有个性。
+    if inst.components.inventory ~= nil and not inst.components.inventory:GetEquippedItem(EQUIPSLOTS.HEAD) then
+        for _, item in ipairs(ents) do
+            if item.components.equippable ~= nil and
+                    item.components.equippable.equipslot == EQUIPSLOTS.HEAD and
+                    item.components.inventoryitem ~= nil and
+                    item.components.inventoryitem.canbepickedup and
+                    item:IsOnValidGround() then
+                return BufferedAction(inst, item, ACTIONS.PICKUP)
+            end
+        end
+    end
+
+    --Look for food on the ground, pick it up
+    for _, item in ipairs(ents) do
+        if item:GetTimeAlive() > 8 and
+                item.components.inventoryitem ~= nil and
+                item.components.inventoryitem.canbepickedup and
+                inst.components.eater:CanEat(item) and
+                item:IsOnValidGround() then
+            return BufferedAction(inst, item, ACTIONS.PICKUP)
+        end
+    end
+
+    --Look for harvestable items, pick them.
+    for _, item in ipairs(ents) do
+        if item.components.pickable ~= nil and
+            item.components.pickable.caninteractwith and
+            item.components.pickable:CanBePicked() and
+            (item.prefab == "worm" or ItemIsInList(item.components.pickable.product, ValidFoodsToPick)) then
+            return BufferedAction(inst, item, ACTIONS.PICK)
+        end
+    end
+
+    --Look for crops items, harvest them.
+    for _, item in ipairs(ents) do
+        if item.components.crop ~= nil and
+                item.components.crop:IsReadyForHarvest() then
+            return BufferedAction(inst, item, ACTIONS.HARVEST)
+        end
+    end
+
+    if not inst.curious or inst.components.combat:HasTarget() then
+        return
+    end
+
+    ---At the very end, look for a random item to pick up and do that.
+    for _, item in ipairs(ents) do
+        if item.components.inventoryitem ~= nil and
+                item.components.inventoryitem.canbepickedup and
+                item:IsOnValidGround() then
+            inst.curious = false
+            if inst._curioustask ~= nil then
+                inst._curioustask:Cancel()
+            end
+            inst._curioustask = inst:DoTaskInTime(10, SetCurious)
+            return BufferedAction(inst, item, ACTIONS.PICKUP)
+        end
+    end
+end
+
+local function OnLootingCooldown(inst)
+-- ★ OnLootingCooldown：「翻箱子」冷却复位。
+--   ★ 与第 79 行 SetCurious 同一手法：DoTaskInTime 到点后清标志位。
+--   ★★ 本文件有两处这种「定时器限频」，都挂在 inst 上。
+    inst._canlootcheststask = nil
+    inst.canlootchests = true
+end
+
+local ANNOY_ONEOF_TAGS = { "_inventoryitem", "_container" }
+-- ANNOONY_ONE_OF_TAGS 与 ANNOY_ALT_MUST_TAG 是【两套搜索策略】。
+--   第 186 行 lootchests 为真 → 搜 ANY of {物品, 容器}
+--   第 187 行 否则         → 搜必须是物品（排除容器）
+--   ★★ 即「翻箱子功能关掉后，连带也不许碰别人家的东西」。
+--   ★ 用两个标签表 + 三元式（and/or）切换搜索策略，简洁。
+local ANNOY_ALT_MUST_TAG = { "_inventoryitem" }
+local CANT_PICKUP_TAGS = {"heavy", "irreplaceable", "outofreach"}
+-- CANT_PICKUP_TAGS：抢主人战利品时额外排除的三个标签。
+--   ★ 与第 27 行的 NO_LOOTING_TAGS 不同 —— 这是「更严」的第二道过滤。
+--   ★ 因为是抢【主人正在要的】东西，所以更谨慎。
+local function AnnoyLeader(inst)
+-- ★★★ AnnoyLeader —— 本文件最长的函数（83 行），三段骚扰策略。
+-- 【第 182 行】⚠️ inst.harassplayer 无判空。
+--   ★ 但第 348 行 WhileNode 条件 `return self.inst.harassplayer` 保证了它。
+--   第 190-197 行第一段：★「抢你刚打的东西」
+--   第 189 行注释："Can we hassle the player by taking items from stuff he has killed or worked?"
+--   ★★ 筛选条件极精准（第 191-194 行）：
+--     有 inventoryitem 且 canbepickedup 且 不是容器 且 ★ GetTimeAlive() < 5
+--   ★★ 【只抢 5 秒内新出现的】—— 即「你刚打到的」。
+--     ★★★ 这是「抢占动作窗口」的经典实现：不是随机捣蛋，
+--       而是精确地在主人刚完成采集的瞬间插手。非常传神的设计。
+-- 第 200-218 行第二段：★★「抢在主人前面捡起他正要捡的」
+--   第 201 行 ★ 读主人的缓冲动作：local ba = inst.harassplayer:GetBufferedAction()
+--     若 ba.action.id == "PICKUP" → 主人正要捡东西
+--   第 214 行 ★★★ 核心判断：
+--     return distsq(px, pz, tx, tz) > distsq(mx, mz, tx, tz)
+--       and BufferedAction(inst, tar, ACTIONS.PICKUP) or nil
+--   ★★ 「主人到目标的距离平方 > 我到目标的距离平方」= 「我更近」→ 抢。
+--   ★★★ 用两个距离平方比较大小关系，全程不开方。
+--     ★ 这是本文件最巧妙的一行，移植价值很高。
+--   ★ 第 205-211 行的五重校验确保物品可抢（没被拿、不是容器、不在烧、不是陷阱）。
+--   第 221-222 行 ★★ 源码注释解释了容器为什么能放宽筛选：
+--     "stealing throws the item onto the ground" —— 偷出来会掉在地上，
+--     所以「掉地上」的担忧（outofreach 等）不需要考虑。
+--   第 223-258 行第三段：★★「偷主人的箱子」
+--   第 229 行 v:GetDistanceSqToPoint(px, 0, pz) < 225 —— ★ 只翻主人附近 15 内的箱子
+--   第 240-244 行 ★★ 偷之前先设 canlootchests = false 并起一个 15-30 秒的冷却任务：
+--     inst._canlootcheststask = inst:DoTaskInTime(math.random(15, 30), OnLootingCooldown)
+--   ★★ 即「偷一次，冷却 15-30 秒」—— 防止连续偷光主人的存货。
+--   ★ 随机冷却区间让偷窃频率不可预测，进一步提升「调皮」感。
+--   第 246 行 ACTIONS.STEAL —— 与 PICKUP 区分（第 246 vs 195 行）。
+--   第 247-255 行 ★★ validfn：偷之前再确认箱子还开着、物品还没被拿走：
+--     owner 未被持有 且 不在烧 且 容器可开 且 容器未开
+--     ★ 与 HauntAction（abigailbrain 第 29 行）同款三重保障。
+    if inst.sg:HasStateTag("busy") then
+        return
+    end
+    local lootchests = inst.canlootchests ~= false --nil defaults to true
+    local px, py, pz = inst.harassplayer.Transform:GetWorldPosition()
+-- ★★ 直接访问 inst.harassplayer（实体字段，无判空）。
+--   ★ 靠第 348 行 WhileNode 条件保证非 nil。属调用方前置条件保护。
+--   ★ 移植提示：这类「隐式前置条件」最好在函数注释里写明，本文件没写。
+    local mx, my, mz = inst.Transform:GetWorldPosition()
+    local ents =
+        lootchests and
+        TheSim:FindEntities(mx, 0, mz, 30, nil, NO_LOOTING_TAGS, ANNOY_ONEOF_TAGS) or
+        TheSim:FindEntities(mx, 0, mz, 30, ANNOY_ALT_MUST_TAG, NO_PICKUP_TAGS)
+
+    --Can we hassle the player by taking items from stuff he has killed or worked?
+    for _, v in ipairs(ents) do
+-- ★★★ 第一段骚扰：只抢「5 秒内新出现的」物品。
+--   第 194 行 v:GetTimeAlive() < 5
+--   ★★★ 这是「抢占动作窗口」的实现 —— 精确地在主人刚采集完成的瞬间插手，
+--     比「随机捣蛋」高明得多。移植时值得记住这个思路。
+--   ⚠️ 与 monkeybrain 第 123 行的 GetTimeAlive() > 8 形成对照：
+--     那处要「等东西稳定 8 秒后再吃」，这处要「趁东西新鲜立刻抢」。
+--   ★ 同一个 API 在两个需求里用相反的方向，取决于语义。
+        if v.components.inventoryitem ~= nil and
+                v.components.inventoryitem.canbepickedup and
+                not v.components.container and
+                v:GetTimeAlive() < 5 then
+            return BufferedAction(inst, v, ACTIONS.PICKUP)
+        end
+    end
+
+    --Can we hassle our leader by taking the items he wants?
+    local ba = inst.harassplayer:GetBufferedAction()
+    if ba ~= nil and ba.action.id == "PICKUP" then
+        --The player wants to pick something up. Am I closer than the player?
+        local tar = ba.target
+        if tar ~= nil and tar:IsValid() and
+                tar.components.inventoryitem ~= nil and not tar.components.inventoryitem:IsHeld() and
+                not tar.components.container and
+                not tar:HasAnyTag(CANT_PICKUP_TAGS) and
+                not (tar.components.burnable ~= nil and tar.components.burnable:IsBurning()) and
+                not (tar.components.projectile ~= nil and
+                    tar.components.projectile.cancatch and
+                    tar.components.projectile.target ~= nil) then
+            --I'm closer to the item than the player! Lets go get it!
+            local tx, ty, tz = tar.Transform:GetWorldPosition()
+            return distsq(px, pz, tx, tz) > distsq(mx, mz, tx, tz)
+-- ★★★ 本文件最巧妙的一行。
+--   return distsq(px, pz, tx, tz) > distsq(mx, mz, tx, tz)
+--       and BufferedAction(inst, tar, ACTIONS.PICKUP) or nil
+-- 【语义】「主人到目标的距离平方 > 我到目标的距离平方」
+--   → 我比主人更近 → 抢。
+-- ★★★ 为什么用距离平方比较：
+--   · 距离平方是单调递增的，比较大小与比较距离【结果相同】；
+--   · 全程不用开方，零 sqrt 开销；
+--   · DST 全程遵循「能用平方就平方」的约定。
+--   ✓ 已核实 distsq 的 4 数字重载（util.lua:561-566）只算 dx/dy 两轴 ——
+--     这里只关心平面距离，忽略高度，正确。
+-- ★ 第 215 行的 and/or 结构：只有「我更近」才返回动作，否则返回 nil。
+--   ★ 注意 px,pz 是【主人位置】(第 182 行)，mx,mz 是【猴子位置】(第 183 行)。
+                and BufferedAction(inst, tar, ACTIONS.PICKUP)
+                or nil
+        end
+    end
+
+    --Can we hassle our leader by toying with his chests? (or bags?)
+    --NOTE: stealing throws the item onto the ground, so we do not
+    --      need to filter items as strictly as the pickup action.
+    if lootchests then
+        local items = {}
+        for _, v in ipairs(ents) do
+            if v.components.container ~= nil and
+                    v.components.container.canbeopened and
+                    not v.components.container:IsOpen() and
+                    v:GetDistanceSqToPoint(px, 0, pz) < 225--[[15 * 15]] then
+                for k = 1, v.components.container.numslots do
+                    local item = v.components.container.slots[k]
+                    if item ~= nil then
+                        table.insert(items, item)
+                    end
+                end
+            end
+        end
+
+        if #items > 0 then
+            inst.canlootchests = false
+            if inst._canlootcheststask ~= nil then
+                inst._canlootcheststask:Cancel()
+            end
+            inst._canlootcheststask = inst:DoTaskInTime(math.random(15, 30), OnLootingCooldown)
+            local item = items[math.random(#items)]
+            local act = BufferedAction(inst, item, ACTIONS.STEAL)
+            act.validfn = function()
+                local owner = item.components.inventoryitem ~= nil and item.components.inventoryitem.owner or nil
+                return owner ~= nil
+                    and not (owner.components.inventoryitem ~= nil and owner.components.inventoryitem:IsHeld())
+                    and not (owner.components.burnable ~= nil and owner.components.burnable:IsBurning())
+                    and owner.components.container ~= nil
+                    and owner.components.container.canbeopened
+                    and not owner.components.container:IsOpen()
+            end
+            return act
+        end
+    end
+end
+
+local function GetFaceTargetFn(inst)
+-- ★ 战斗时注视【当前战斗目标】。
+--   对比 pigbrain 第 181 行（注视队长）—— 猴子的优先级随情境变化。
+    return inst.components.combat.target
+end
+
+local function KeepFaceTargetFn(inst, target)
+    return target == inst.components.combat.target
+end
+
+local function GoHome(inst)
+-- GoHome：★ 判空比 pigbrain 第 125 行更细致（逐层 and 检查）。
+--   第 272-273 行 not homeseeker.home.components.burnable or not IsBurning()
+--   ⚠️ 这行的结构要注意：用了 or，所以「没有 burnable 组件」也算通过。
+--     正确（没组件就不会烧）。
+--   ★ 与 hermitcrabbrain 第 155 行 HasValidHome 的严格版本不同，
+--     猴子这版允许「没有燃烧组件」，更宽松也更简洁。两种都正确。
+    local homeseeker = inst.components.homeseeker
+    if homeseeker and homeseeker.home and homeseeker.home:IsValid()
+            and (not homeseeker.home.components.burnable or
+                not homeseeker.home.components.burnable:IsBurning()) then
+        return BufferedAction(inst, inst.components.homeseeker.home, ACTIONS.GOHOME)
+    end
+end
+
+local function EquipWeapon(inst, weapon)
+-- EquipWeapon：★ 装备前先检查是否已装备。
+--   第 279 行 if not weapon.components.equippable:IsEquipped() then
+--   ★ 幂等操作 —— 避免重复装备带来的额外开销。
+--   ⚠️ 第 306、342 行传的 weaponitems.thrower / hitter 由 prefab 提供，
+--     若为 nil 则第 279 行会崩。隐式约定，未核实。
+    if not weapon.components.equippable:IsEquipped() then
+        inst.components.inventory:Equip(weapon)
+    end
+end
+
+function MonkeyBrain:OnStart()
+-- ★★ OnStart：★ 本文件的优先级表极长（16 个节点），是「行为种类多」的体现。
+
+    local root = PriorityNode(
+    {
+		BrainCommon.PanicTrigger(self.inst),
+        BrainCommon.ElectricFencePanicTrigger(self.inst),
+
+        --Monkeys go home when quakes start.
+        EventNode(self.inst, "gohome",
+-- ★★ EventNode(inst, "gohome", ...) —— ★ 与 penguinbrain 第 381 行同款。
+--   ★ 两处同款说明「外部触发回家」是全项目统一的接入口。
+--   ★ 源码注释第 291 行："Monkeys go home when quakes start."（地震来时回家）
+--   ★ 即地震事件由外部系统广播，猴子接到就回窝。
+            DoAction(self.inst, GoHome)),
+        WhileNode(function() return TheWorld.state.isacidraining end, "Acid Raining?",
+-- ★ 酸雨时回家。用 WhileNode 而非 EventNode —— 需要持续条件。
+--   ★ 与第 292 行的 EventNode 配对：一个是被动触发，一个是主动观察。
+            DoAction(self.inst, GoHome, "Go Home", false)),
+
+        --In combat (with the player)... Should only ever use poop throwing.
+-- ★★ 战斗：只躲玩家（第 298-300 行），且带 ShouldRunFn（第 37 行）。
+--   第 299 行传函数作为第 5 参 shouldRunFn。
+--   ★ 源码注释第 297 行："In combat (with the player)... Should only ever use poop throwing."
+--   ★ 说明猴子对玩家只用远程粪球。
+        RunAway(self.inst, "character", RUN_AWAY_DIST, STOP_RUN_AWAY_DIST,
+                function(hunter) return ShouldRunFn(self.inst, hunter) end
+            ),
+        WhileNode(function() return self.inst.components.combat.target and
+-- ★★ 攻击玩家：需三个条件（有目标 + 是玩家 + 有弹药）。
+--   第 303 行 self.inst.HasAmmo(self.inst) —— 由 prefab 提供的方法。
+--   ★ SequenceNode：先装备投掷器（第 306 行），再追打（第 307 行）。
+--   ★★ 为什么要 SequenceNode 而不是 Parallel？
+--     因为「换武器」必须先于「攻击」。顺序依赖 → Sequence。
+--   ★ 与第 311 行的「没弹药就去捡便便」配合，形成完整的攻击链。
+--   ★★★ 整体逻辑：有弹药 → 装远程 → 打玩家
+--                  没弹药 → 捡便便（第 311 行）→ 回到上面
+--   ★ 这是一个闭环的资源驱动战斗循环，移植价值高。
+                                self.inst.components.combat.target.isplayer and
+                                self.inst.HasAmmo(self.inst)
+                            end, "Attack Player",
+            SequenceNode({
+                ActionNode(function() EquipWeapon(self.inst, self.inst.weaponitems.thrower) end, "Equip Thrower"),
+                ChaseAndAttack(self.inst, MAX_CHASE_TIME, MAX_CHASE_DIST),
+            })),
+
+        --Pick up poop to throw
+        WhileNode(function() return self.inst.components.combat.target and
+-- ★★★ 「没弹药就去捡便便」—— 与第 301 行严格互补。
+--   条件：有目标 + 是玩家 + ★ 【没弹药】（第 313 行 not HasAmmo）
+--   ★ 与第 301 行的 HasAmmo 构成 if/else 关系，靠优先级顺序切换。
+--   ★★★ 完整链条（第 301→307→311→315 行）：
+--     有弹药 → 战斗（ChaseAndAttack）
+--     没弹药 → 捡便便（第 368 行 GetPoop）→ 有弹药 → 回到战斗
+--   ★ 这是「资源驱动的战斗」，比「无脑追击」更真实。
+--   ⚠️ 第 324 行源码自己写了注释："Priority must be lower than poop pick up
+--     or it will never happen." —— 优先级必须低于捡便便。
+--     ★★★ 作者主动写下了这类「顺序敏感」的警告，极有价值的注释。
+                                self.inst.components.combat.target.isplayer and
+                                not self.inst.HasAmmo(self.inst)
+                            end, "Pick Up Poop",
+            DoAction(self.inst, GetPoop)),
+
+        --Eat/ pick/ harvest foods.
+        WhileNode(function() return (self.inst.components.combat.target and
+                                self.inst.components.combat.target.isplayer) or
+                                not self.inst.components.combat.target
+                            end, "Should Eat",
+            DoAction(self.inst, EatFoodAction)),
+
+        --Priority must be lower than poop pick up or it will never happen.
+-- ★★★ 第 324 行的源码注释直接说明了优先级依赖关系 —— 全DST 少见的坦诚。
+--   原文："Priority must be lower than poop pick up or it will never happen."
+--   （优先级必须低于捡便便，否则永远轮不到它）
+-- ★★★ 这类注释的价值高于任何逐行翻译：它记录的是【设计约束】。
+--   ★ 移植建议：写 AI 时把这类「顺序敏感」处显式标注出来。
+--   第 330-332 行 Leash 到战斗目标的位置（不是队长）——
+--   ★ 没弹药时也保持在主人附近等待，语义合理。
+        WhileNode(function() return self.inst.components.combat.target and
+                                self.inst.components.combat.target.isplayer and
+                                not self.inst.HasAmmo(self.inst)
+                            end, "Leash to Player",
+            PriorityNode{
+                Leash(self.inst, function() if self.inst.components.combat.target then
+                                    return self.inst.components.combat.target:GetPosition()
+                                end end, LEASH_MAX_DIST, LEASH_RETURN_DIST),
+                FaceEntity(self.inst, GetFaceTargetFn, KeepFaceTargetFn)
+            }),
+
+
+        --In combat with everything else
+        WhileNode(function() return self.inst.components.combat.target ~= nil and
+-- ★★ 攻击其他 NPC：用近战（第 342 行 hitter）而非远程。
+--   ★★★ 与第 301 行的「攻击玩家用远程」形成对照：
+--     对玩家：远程（粪球，因为玩家会跑）
+--     对怪物：近战（因为怪物也会近战，远程没意义）
+--   ★ 这是「按对手类型选武器」的简单但正确的策略。
+--   ★ 第 339 行 not isplayer 保证与第 301 行互斥。
+                                not self.inst.components.combat.target.isplayer
+                            end, "Attack NPC", --For everything else
+            SequenceNode({
+                ActionNode(function() EquipWeapon(self.inst, self.inst.weaponitems.hitter) end, "Equip hitter"),
+                ChaseAndAttack(self.inst, MAX_CHASE_TIME, MAX_CHASE_DIST),
+            })),
+
+
+        --Following
+        WhileNode(function() return self.inst.harassplayer end, "Annoy Leader",
+-- ★ 骚扰主人。★ 优先级在所有战斗节点【之后】。
+--   ★ 语义：先打架，打完（或者没敌人）才去捣蛋。
+--   ★★ 第 349 行 DoAction(inst, AnnoyLeader) 不带 run 参数，
+--     默认 false（只试一次）。与第 386 行觅食同款。
+            DoAction(self.inst, AnnoyLeader)),
+        Follow(self.inst, function() return self.inst.harassplayer end, MIN_FOLLOW_DIST, TARGET_FOLLOW_DIST, MAX_FOLLOW_DIST),
+-- 跟随【骚扰对象】而非队长 —— 两者在本文件是同一个字段 harassplayer。
+--   ★ 第 329 行 GetFaceTargetFn 用 combat.target 而这里用 harassplayer，
+--     说明「战斗目标」与「骚扰对象」是两个概念，但常常是同一人。
+
+        --Doing nothing
+-- ★★ 空闲时在主人附近游荡。
+--   ★ 第 356 行 ★ 用了 MAX_FOLLOW_DIST(10) 作为游荡半径，
+--     而第 350 行的跟随距离也是 10 —— 疑似复用常量而非笔误。
+--   ⚠️ 但语义上「游荡范围 = 跟随距离」勉强合理，属可接受。
+--   ★ 值得注意：注释里没有解释为何两者相等。
+        WhileNode(function() return self.inst.harassplayer  end, "Wander Around Leader",
+            Wander(self.inst, function() if self.inst.harassplayer then
+                                return self.inst.harassplayer:GetPosition()
+                            end end, MAX_FOLLOW_DIST)),
+        WhileNode(function() return not self.inst.harassplayer and
+-- ★ 最后的兜底：没主人也没敌人时在家附近游荡。
+--   第 360 行用 knownlocations:GetLocation("home") 作锚点。
+--   ★ 与第 199 行 GetHome 用 homeseeker 组件不同 ——
+--     这里用 knownlocations。两套家系统并存，属历史遗留。
+--   ⚠️ 猴子同时可能有两套家数据（homeseeker 与 knownlocations）。
+--     不算缺陷（prefab 会维护其一），但移植时要注意别混用。
+                                not self.inst.components.combat.target
+                            end, "Wander Around Home",
+            Wander(self.inst, function() return self.inst.components.knownlocations:GetLocation("home") end, MAX_WANDER_DIST))
+    }, .25)
+    self.bt = BT(self.inst, root)
+end
+
+return MonkeyBrain

@@ -1,0 +1,62 @@
+--============================================================
+-- 文件：prefabs/cutlichen.lua
+-- 模块：预制体 / cutlichen（建筑与容器）
+-- 职责：实体「cutlichen」的预制体定义。SpawnPrefab("cutlichen") 会执行本文件中的同名工厂函数：创建原生实体、添加底层组件与标签，再挂载其 Lua 组件。
+--   阅读要点：先看工厂函数里 AddComponent 的调用，可知该实体具备哪些行为。
+-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本
+--============================================================
+
+local assets =
+{
+    Asset("ANIM", "anim/algae.zip"),
+}
+
+local function fn()
+    local inst = CreateEntity()
+
+    inst.entity:AddTransform()
+    inst.entity:AddAnimState()
+    inst.entity:AddNetwork()
+
+    MakeInventoryPhysics(inst)
+
+    inst.AnimState:SetBank("algae")
+    inst.AnimState:SetBuild("algae")
+    inst.AnimState:PlayAnimation("idle")
+
+    inst.pickupsound = "vegetation_grassy"
+
+    MakeInventoryFloatable(inst)
+
+    inst.entity:SetPristine()
+
+    if not TheWorld.ismastersim then
+        return inst
+    end
+
+    inst:AddComponent("stackable")
+    inst.components.stackable.maxsize = TUNING.STACK_SIZE_SMALLITEM
+
+    inst:AddComponent("inspectable")
+
+    inst:AddComponent("inventoryitem")
+
+    inst:AddComponent("tradable")
+
+    inst:AddComponent("edible")
+    inst.components.edible.healthvalue = TUNING.HEALING_SMALL
+    inst.components.edible.hungervalue = TUNING.CALORIES_SMALL
+    inst.components.edible.sanityvalue = -TUNING.SANITY_TINY
+    inst.components.edible.foodtype = FOODTYPE.VEGGIE
+
+    inst:AddComponent("perishable")
+    inst.components.perishable:SetPerishTime(TUNING.PERISH_TWO_DAY)
+    inst.components.perishable:StartPerishing()
+    inst.components.perishable.onperishreplacement = "spoiled_food"
+
+    MakeHauntableLaunchAndPerish(inst)
+
+    return inst
+end
+
+return Prefab("cutlichen", fn, assets)

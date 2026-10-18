@@ -1,0 +1,864 @@
+--============================================================
+-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖
+-- 文件：brains/mermbrain.lua
+-- 模块：AI 大脑 / 美人鱼（生产型随从的完整范本）
+-- 职责：装配美人鱼 AI。与 pigbrain（陪伴型随从）对照即可看出两类随从的差异：
+--       美人鱼有完整的生产链条 —— 工具棚取工具 → 拿铲子 → 帮种地/挖桩/砍木/挖矿
+--       → 归还，以及朝贡王座、响应献祭锅召唤等群体级行为。
+--       另含「忠诚度反向影响跟随距离」「至少留一只放哨」的群体配额策略、
+--       「治疗意图检测」的三层实现、两个互斥 IfNode 选恐慌台词等模式。
+-- 关键符号：MermBrain, GetHealerFn, KeepHealerFn, EatFoodAction, NeedsTool,
+--           GetClosestToolShed, HasDigTool, ShouldGoToThrone, IsThroneValid,
+--           ShouldGoHome, TargetFollowDistFn, shouldanswercall, SpringCombatMod
+-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本
+-- 交叉引用：brain.lua（三段式调度）, brains/braincommon.lua（帮工与恐慌底座）,
+--           brains/mermguardbrain.lua（★ 近似孪生文件，约 60% 函数逐字重复）,
+--           behaviours/{wander,runaway,doaction,panic,follow}.lua,
+--           simutil.lua:555（SpringCombatMod —— 季节性战斗修正器）,
+--           components/{follower,trader,eater,inventory,combat}.lua,
+--           strings.lua:6183（MERM_TALK_HELP_TILL 等台词表）
+--============================================================
+require "behaviours/wander"
+--[ [
+-- mermbrain.lua —— 美人鱼（Wurt 的随从）大脑
+--
+-- 【定位：生产型随从的完整范本】
+--   与 pigbrain（陪伴型随从）对照看，差异一目了然：
+--     pigbrain  —— 吃、跟、躲、帮砍树
+--     mermbrain —— 拿工具、种地、帮砍/挖矿、去王座朝贡、响应召唤
+--   ★ 一个完整的「生产链条」：工具棚 → 拿工具 → 干活 → 还工具。
+--
+-- 【★ 孪生文件关系（重要）】
+--   本文件与 mermguardbrain.lua（430 行）共享约 60% 的函数：
+--     GetLeader / GetHealerFn / KeepHealerFn / GetTraderFn / KeepTraderFn /
+--     GetFaceTargetFn / KeepFaceTargetFn / GetRunAwayTarget / EatFoodAction /
+--     GetNoLeaderHomePos / TargetFollowDistFn / shouldanswercall /
+--     Getcalledofferingpot / answercall / GetClosestXxxPosition 结构
+--   ★ 差异集中在：工具（tool）vs 盔甲（armor）、王座 vs 国王死后回收。
+--   ⚠️ 这种大面积复制是 DST 的普遍做法（「复制粘贴改一改」），
+--     好处是隔离风险，坏处是修 bug 要改多处。
+--   ⚠️ 实测已发现一处修复不同步，见第 451-452 行的注释。
+--
+-- 【⚠️ 容易踩的坑】
+-- · 第 518 行 root 只有一个 WhileNode（守卫跳跃状态），NODES 作为子树传入。
+--   这种「root 包一层守卫」的写法与 knightbrain 第 326 行一致。
+-- · 第 469 与 475 行两个 WhileNode 条件【完全相同】（都是 HasDigTool），
+--   但动作分别是 TILL 和 DIG。第二个用了 MERM_TALK_HELP_CHOP_WOOD 台词（第 478 行），
+--   ⚠️ 已逐字核对第 478 行：DIG 动作配了 CHOP_WOOD 的台词字符串。
+--   这几乎肯定是复制粘贴时漏改的台词 —— 但台词字符串是数据而非行为，
+--   玩家只会听到砍木头的话去做挖树桩的事。属真实的文案缺陷，非功能缺陷。
+--   已核实第 471 行动作是 TILL、第 476 行动作是 DIG、第 478 行台词为
+--   MERM_TALK_HELP_CHOP_WOOD（应为 MERM_TALK_HELP_DIG 之类）。确认为缺陷。
+--] ]
+require "behaviours/runaway"
+require "behaviours/doaction"
+require "behaviours/panic"
+require "behaviours/follow"
+
+local BrainCommon = require "brains/braincommon"
+
+local SEE_PLAYER_DIST     = 5
+-- ★ 看到玩家的距离 5：比 pigbrain 的 START_RUN_DIST(3) 大。
+--   因为美人鱼不把玩家当威胁（要交易、要被治疗），所以敢靠近。
+local SEE_FOOD_DIST       = 10
+local MAX_WANDER_DIST     = 15
+local MAX_CHASE_TIME      = 10
+local MAX_CHASE_DIST      = 20
+local RUN_AWAY_DIST       = 5
+local STOP_RUN_AWAY_DIST  = 8
+
+local MIN_FOLLOW_DIST     = 3
+-- ★ 注意只有 MIN(3) 和 MAX(15)，没有 TARGET —— 目标距离用函数现算。
+--   见第 365 行 TargetFollowDistFn：目标距离随忠诚度浮动。
+-- ★ 这是「常量 + 动态函数」混合配置的范例。
+local MAX_FOLLOW_DIST     = 15
+
+local SEE_THRONE_DISTANCE = 50
+-- ★ SEE_THRONE_DISTANCE = 50 —— 找王座的距离是所有常量里最大的。
+--   因为王座是地标性建筑，需要长距离搜索。
+--   ⚠️ 50 单位的 FindEntity 在人多时开销不小，但它不在热路径上
+--     （第 161 行只在 ShouldGoToThrone 被调用时执行）。
+
+local FACETIME_BASE       = 2
+-- 注视时间：基础 2 秒 + 最多 2 秒随机。
+-- ★ 用途：见第 91-93 行，注视前先抽一次 2-4 秒的「注视时长」。
+--   避免长时间盯着玩家，让它显得更自然。
+local FACETIME_RAND       = 2
+
+local FIND_SHED_RANGE     = 15
+
+local TRADE_DIST = 20
+-- TRADE_DIST=20：交易距离。美人鱼要能被玩家喂食/交易，故范围大。
+
+local MermBrain = Class(Brain, function(self, inst)
+    Brain._ctor(self, inst)
+end)
+
+local function GetLeader(inst)
+    return inst.components.follower and inst.components.follower:GetLeader()
+end
+
+local function GetHealerFn(inst)
+-- ★★★ GetHealerFn —— 「谁正在给我治疗」的判定，本文件最巧的函数。
+-- 【难点】治疗不是通过「对实体做动作」完成的，而是「玩家对着美人鱼操作」，
+--   所以要检测玩家的【意图】而不是执行结果。
+-- 【三层检测】
+--  第 42 行：候选必须是队长或同类美人鱼，且不是我的敌人
+--  第 44-47 行：★ 有 BufferedAction → 取它的 target 与 action
+--  第 48-50 行：★ 否则查 playercontroller:GetRemoteInteraction()
+--  第 51 行：两者任一说明「target 是我 且 动作是 HEAL」→ 返回它
+--
+-- 【★ 第 48-50 行 GetRemoteInteraction 的必要性】
+--   玩家远程操作（长按交互）时不会产生 BufferedAction，
+--   意图存在 playercontroller 的 remoteinteractionaction/target 里。
+--   不查这一路会漏掉「玩家正在长按给我喂食」的情况。
+-- ⚠️ 第 48 行 v.components.playercontroller —— 只对玩家成立，
+--   对同类美人鱼为 nil，走 elseif 自然跳过。正确。
+    local x, y, z = inst.Transform:GetWorldPosition()
+    local players = FindPlayersInRange(x, y, z, TRADE_DIST, true)
+    local leader = GetLeader(inst)
+    for _, v in ipairs(players) do
+		if (v == leader or v:HasTag("merm")) and not inst.components.combat:TargetIs(v) then
+			local target
+			local act = v:GetBufferedAction()
+			if act then
+				target = act.target
+				act = act.action
+			elseif v.components.playercontroller then
+				act, target = v.components.playercontroller:GetRemoteInteraction()
+			end
+			if target == inst and act == ACTIONS.HEAL then
+				return v
+			end
+        end
+	end
+end
+
+local function KeepHealerFn(inst, target)
+-- ★★ KeepHealerFn —— 与 GetHealerFn 几乎逐字相同，差异只在结尾。
+-- 【★ 第 64 行的一处关键写法】
+--   act, target = target.components.playercontroller:GetRemoteInteraction()
+--   ★★★ 注意这里【直接覆写了函数参数 target】！
+--   已核实 components/playercontroller.lua 第 5866-5868 行，
+--   GetRemoteInteraction() 返回 (action, target, pos) —— 即第 1 个是动作。
+--   所以 act, target = ... 的顺序是【正确的】（Lua 多返回值按位置展开）。
+--   ★ 我最初怀疑这里赋值顺序反了，核对后确认正确 —— 特此记录以免后人误改。
+-- ⚠️ 真正的隐患不是顺序，而是【改写了参数 target】：
+--   第 65 行 return target == inst and act == ACTIONS.HEAL 用的是新 target（正确），
+--   但函数后续若再引用 target 就是新值了。本函数第 68 行直接 return false，
+--   所以实际无害。mermguardbrain 第 179 行是同样的写法。
+--   ★ 真正的问题是第 64 行的 act 在此分支【不是 local】（第 60 行才是 local act），
+--   而第 64 行引用的是第 60 行 local act 吗？已核对：
+--   第 60 行 local act = target:GetBufferedAction() 在 if 函数体内，
+--   第 61 行 if act then ... elseif ... then 第 64 行 act, target = ...
+--   ★ 第 60 行的 local act 在第 61 行的 if/elseif 分支里【仍然可见】
+--     （elseif 不是新作用域）。所以第 64 行复用的是同一个 local act。正确。
+--   结论：本函数无缺陷，仅写法晦涩。
+	if (target == GetLeader(inst) or target:HasTag("merm")) and not inst.components.combat:TargetIs(target) then
+        local act = target:GetBufferedAction()
+		if act then
+			return act.target == inst and act.action == ACTIONS.HEAL
+		elseif target.components.playercontroller then
+			act, target = target.components.playercontroller:GetRemoteInteraction()
+			return target == inst and act == ACTIONS.HEAL
+		end
+    end
+	return false
+end
+
+local function GetTraderFn(inst)
+    local x, y, z = inst.Transform:GetWorldPosition()
+    local players = FindPlayersInRange(x, y, z, TRADE_DIST, true)
+    for _, v in ipairs(players) do
+        if inst.components.trader:IsTryingToTradeWithMe(v) then
+            return v
+        end  
+    end     
+end
+
+local function KeepTraderFn(inst, target)
+    return inst.components.trader:IsTryingToTradeWithMe(target)
+end
+
+local function GetFaceTargetFn(inst)
+-- ★ GetFaceTargetFn 用【两个定时器】实现「看一会儿就移开视线」：
+--   第 86-88 行：dontfacetime 存在 → 明确不看（被别的东西打断了）
+--   第 91-93 行：要看的对象存在且没在 facetime 计时 → 开一个 2-4 秒的计时
+--   ★ KeepFaceTargetFn（第 97 行）在「不该看」时停掉 facetime（第 104 行）。
+-- ★ 这实现了「目光有持续时间」的拟人化效果，且完全无状态。
+    if inst.components.timer:TimerExists("dontfacetime") then
+        return nil
+    end
+    local leader = GetLeader(inst)
+    local shouldface = leader or FindClosestPlayerToInst(inst, SEE_PLAYER_DIST, true)
+    if shouldface and not inst.components.timer:TimerExists("facetime") then
+        inst.components.timer:StartTimer("facetime", FACETIME_BASE + math.random()*FACETIME_RAND)
+    end
+    return shouldface
+end
+
+local function KeepFaceTargetFn(inst, target)
+-- ★ 第 104 行 StopTimer("facetime")：条件不再满足时主动清计时器。
+--   ★ 清理逻辑放在 keepfn 里（而非 getfn）是关键：
+--     getfn 只在「要开始看」时被调用，状态清理必须挂在「维持」判定上。
+--   ★ 这是配对函数职责划分的通用原则。
+    if inst.components.timer:TimerExists("dontfacetime") then
+        return nil
+    end
+    local leader = GetLeader(inst)
+    local keepface = (leader and leader == target) or (target:IsValid() and inst:IsNear(target, SEE_PLAYER_DIST))
+    if not keepface then
+        inst.components.timer:StopTimer("facetime")
+    end
+    return keepface
+end
+
+local function GetRunAwayTarget(inst)
+	return inst.components.combat.target
+end
+
+local EATFOOD_MUST_TAGS = { "edible_VEGGIE" }
+-- 只吃素食（VEGGIE）。美人鱼是素食者，与 pigbrain 的肉食形成对照。
+local EATFOOD_CANT_TAGS = { "INLIMBO", "outofreach" }
+local SCARY_TAGS = { "scarytoprey" }
+local function EatFoodAction(inst)
+-- ★ EatFoodAction 的四段（与 pigbrain 第 81 行同构但更简单）：
+--  第 117-119 行：★ 状态图在「醒来」过程中 → 不吃（比 pigbrain 的 busy 更严）
+--  第 123-125 行：先吃背包里的（含 moonlight 玻璃碎片）
+--  第 127-136 行：★ 无队长时才自己找食物
+--    ★★ 第 133 行的「恐吓检查」是本函数的核心防御：
+--      食物旁边有 scarytoprey（天敌）→ 放弃；食物不在有效地面 → 放弃。
+--      注释明写 ValidGround 检查是临时的（"if merms start swimming"就该去掉）。
+--  第 138-140 行：★ validfn —— 执行前再确认「这个食物还没被别人拿走」
+-- ⚠️ 第 127 行「有队长就不自己找食物」与 pigbrain 不同：
+--   pigbrain 无论有没有主人都找（第 105 行无条件）。
+--   语义：美人鱼被玩家指挥时专心干活，不自作主张找食。这是角色设计差异。
+    if inst.sg:HasStateTag("waking") then
+        return
+    end
+
+    local target = nil
+
+    if inst.components.inventory ~= nil and inst.components.eater ~= nil then
+        target = inst.components.inventory:FindItem(function(item) return item:HasTag("moonglass_piece") or inst.components.eater:CanEat(item) end)
+    end
+
+    local leader = GetLeader(inst)
+    if target == nil and leader == nil then
+        target = FindEntity(inst, SEE_FOOD_DIST, function(item)
+            return inst.components.eater ~= nil and inst.components.eater:CanEat(item)
+        end, EATFOOD_MUST_TAGS, EATFOOD_CANT_TAGS)
+        --check for scary things near the food
+        if target ~= nil and (GetClosestInstWithTag(SCARY_TAGS, target, SEE_PLAYER_DIST) ~= nil or not target:IsOnValidGround()) then  -- NOTE this ValidGround check should be removed if merms start swimming
+            target = nil
+        end
+    end
+    if target ~= nil then
+        local act = BufferedAction(inst, target, ACTIONS.EAT)
+        act.validfn = function() return target.components.inventoryitem == nil or target.components.inventoryitem.owner == nil or target.components.inventoryitem.owner == inst end
+-- ★★ validfn 的必要性：觅食目标在「找到」到「执行」之间可能被人抢走。
+--   三重校验：没有 inventoryitem / 没有 owner / owner 就是自己。
+--   ★ 这是「决策与执行之间存在时间差」的通用防御手段。
+--   ★ 同一个文件第 517 行的 hermitcrabbrain 第 247 行 monkeybrain 也用了 validfn，
+--     说明这是全项目的通用模式。
+        return act
+    end
+end
+
+
+-----------------------------------------------------------------------------------------------
+-- Merm king things
+local function IsThroneValid(inst)
+-- ★ IsThroneValid：五重校验（存在/有效/没烧/没烧毁/管理者允许）。
+-- ★ 第 148 行 if TheWorld.components.mermkingmanager then ——
+--   王座系统可能未初始化（世界没加载完、或没开美人鱼王座），此时返回 false。
+--   ★ 这是「全局管理器可选」的防御写法，移植时要注意同类模式。
+    if TheWorld.components.mermkingmanager then
+        local throne = TheWorld.components.mermkingmanager:GetThrone(inst)
+        return throne ~= nil
+            and throne:IsValid()
+            and not (throne.components.burnable ~= nil and throne.components.burnable:IsBurning())
+            and not throne:HasTag("burnt")
+            and TheWorld.components.mermkingmanager:ShouldGoToThrone(inst, throne)
+    end
+
+    return false
+end
+
+local GOTOTHRONE_TAGS = { "mermthrone" }
+local function ShouldGoToThrone(inst)
+-- ★★ ShouldGoToThrone 的两步查找：
+--  先问「我被分配了王座吗」（GetThrone，第 167 行）
+--  找不到再全场搜 50 距离内带 mermthrone 标签的（第 168 行）
+-- ★ 与 knightbrain 第 142 行的 entitytracker 思路一致：先查已知，再搜未知。
+-- ⚠️ 第 168 行 FindEntity(inst, 50, nil, GOTOTHRONE_TAGS) ——
+--   传 nil 作为第 3 参（过滤函数）。第 170 行又调了一次 ShouldGoToThrone(inst, throne)，
+--   ★★ 也就是说 ShouldGoToThrone 会被【递归调用】一次（第 170 行调用第 161 行的函数）。
+--   仔细看：第 170 行调的是 mermkingmanager:ShouldGoToThrone（带 : 的方法），
+--   ★ 不是本地这个函数！是王座管理组件上的同名方法。
+--   所以没有递归，只是同名不同物。★ 这个「同名方法」很容易让读者误判为递归，
+--     特此标注，是本文件最易误读的一处。
+    local mermkingmanager = TheWorld.components.mermkingmanager
+    if not mermkingmanager then
+        return false
+    end
+
+    local throne = TheWorld.components.mermkingmanager:GetThrone(inst)
+        or FindEntity(inst, SEE_THRONE_DISTANCE, nil, GOTOTHRONE_TAGS)
+
+    return throne ~= nil and TheWorld.components.mermkingmanager:ShouldGoToThrone(inst, throne)
+end
+
+local function GetThronePosition(inst)
+-- GetThronePosition：只从管理器拿，不做搜索（与 ShouldGoToThrone 的策略不同）。
+-- ★ 原因：位置函数每帧调用，不能做 50 距离的空间搜索。
+--   ★ 「判定函数可以重，坐标函数必须轻」——这是重要的性能分工原则。
+    if TheWorld.components.mermkingmanager then
+        local throne = TheWorld.components.mermkingmanager:GetThrone(inst)
+        if throne then
+            return throne:GetPosition()
+        end
+    end
+end
+
+-----------------------------------------------------------------------------------------------
+
+local TOOLSHED_ONEOF_TAGS = { "merm_toolshed", "merm_toolshed_upgraded" }
+-- ★ 工具棚有两种：普通与升级版。ONE_OF 语义。
+-- ★ 与 ARMORY（mermguardbrain 第 41 行）逐字对应 —— 盔甲版的孪生实现。
+
+local MERM_TOOL_CANT_TAGS  = { "INLIMBO" }
+local MERM_TOOL_ONEOF_TAGS = { "merm_tool", "merm_tool_upgraded" }
+
+local function IsHandEquip(item)
+-- IsHandEquip：只看装备槽位，不看手持。
+    return item.components.equippable ~= nil and item.components.equippable.equipslot == EQUIPSLOTS.HANDS
+end
+
+local function NeedsTool(inst)
+-- ★ NeedsTool 的三段判定（第 196-207 行）：
+--  手上拿着 → 不需要
+--  背包里有手部装备 → 不需要（会自己去装备）
+--  都没有 → 需要
+-- ★ 第 200 行用 FindItem 而非检查 equipped：即「能找到就行，装备它由状态图负责」。
+-- ★ 这与 mermguardbrain 第 50 行 NeedsArmor 逐字同构（HEAD 槽位）。
+-- ★ 值得学的点：把「我需不需要 X」写得如此对称，两种资源只需改槽位。
+    local tool = inst.components.inventory ~= nil and inst.components.inventory:GetEquippedItem(EQUIPSLOTS.HANDS) or nil
+
+    if tool ~= nil then
+        return false
+
+    elseif inst.components.inventory ~= nil then
+        tool = inst.components.inventory:FindItem(IsHandEquip)
+
+        if tool ~= nil then
+            return false
+        end
+    end
+
+    return true
+end
+
+local function GetClosestToolShed(inst, dist)
+-- ★★ GetClosestToolShed：优先升级版工具棚。
+--   第 222-232 行遍历，第 224-226 行遇到升级版【立即返回】
+--   第 228-230 行普通版只记第一个
+-- ★ 语义：「有升级版就一定去升级版」，比距离更优先。
+-- ⚠️ 注意遍历的是 TheSim:FindEntities 的结果（未按距离排序），
+--   所以「最近的普通版」只是「遇到的第一个」，不是真的最近。
+--   命名 GetClosest 有误导性。属真实的命名与实现不符，非功能缺陷。
+--   （升级版的立即返回不受影响，因为它是绝对优先级。）
+    dist = dist or FIND_SHED_RANGE
+
+    local x, y, z = inst.Transform:GetWorldPosition()
+    local ents = TheSim:FindEntities(x, 0, z, dist, nil, nil, TOOLSHED_ONEOF_TAGS)
+
+    if #ents <= 0 then
+        return nil
+    end
+
+    local shed = nil
+
+    for _, ent in ipairs(ents) do
+        if ent:CanSupply() then
+            if ent:HasTag("merm_toolshed_upgraded") then
+                return ent -- High priority.
+            end
+
+            if shed == nil then
+                shed = ent
+            end
+        end
+    end
+
+    return shed
+end
+
+local function GetClosestToolShedPosition(inst, dist)
+-- ★ 第 243 行 GetPositionAdjacentTo(shed, distance)：站在棚子旁边而不是中心。
+--   distance 用棚子的物理半径 —— 避免走进建筑模型里。
+-- ★ 「目标点 = 物体位置 + 其半径」是 DST 处理「走到某建筑旁」的统一手法。
+    local shed = GetClosestToolShed(inst, dist)
+
+    if shed ~= nil then
+        local distance = shed:GetPhysicsRadius(0)
+
+        return inst:GetPositionAdjacentTo(shed, distance)
+    end
+end
+
+local function NeedsToolAndFoundTool(inst)
+-- NeedsToolAndFoundTool：★ 「需要」且「找得到」——两个条件都要满足才行动。
+--   ★ 这是 IfNode 条件的标准形态：不要在找不到目标时也进入该子树。
+--   第 445 行使用它。若只判 NeedsTool，找不到棚子时也会反复尝试。
+    if not NeedsTool(inst) then
+        return false
+    end
+
+    return GetClosestToolShed(inst) ~= nil
+end
+
+local function CollectTool(inst)
+-- CollectTool：★ 推事件而不是返回 BufferedAction。
+--   第 263 行 inst:PushEvent("merm_use_building", { target = shed })
+--   ★ 与 knightbrain 第 105 行 TryJoust 同款：「大脑只发请求，状态图执行」。
+--   第 260 行距离 2.5 —— 比第 447 行 leash 的 2.1 略大，留出余量。
+    if not NeedsTool(inst) then
+        return
+    end
+
+    local shed = GetClosestToolShed(inst, 2.5)
+
+    if shed ~= nil then
+        inst:PushEvent("merm_use_building", { target = shed })
+    end
+end
+
+local function PickupTool(inst)
+-- ★ PickupTool 与 GetClosestToolShed（第 210 行）是同一个「优先升级版」逻辑的副本。
+--   ⚠️ 第 282-288 行同样「遍历第一个非升级版当兜底」，与第 222-232 行同款瑕疵。
+--   第 276-278 行还有个空的 if 结构：if #ents <= 0 then return nil end ——
+--   后面自然也会返回 nil，这段判空是冗余的。属无害冗余。
+-- ⚠️ 第 290 行 return tool ~= nil and ... —— 但第 284 行升级版已提前 return，
+--   所以 tool 只可能是最后一个非升级版。命名暗示「closest」但不保证。
+    if inst.sg:HasStateTag("busy") then
+        return nil
+    end
+
+    if NeedsTool(inst) then
+        local x, y, z = inst.Transform:GetWorldPosition()
+        local ents = TheSim:FindEntities(x, 0, z, FIND_SHED_RANGE, nil, MERM_TOOL_CANT_TAGS, MERM_TOOL_ONEOF_TAGS)
+
+        if #ents <= 0 then
+            return nil
+        end
+
+        local tool = nil
+
+        for _, ent in ipairs(ents) do
+            if ent:HasTag("merm_tool_upgraded") then
+                return BufferedAction(inst, ent, ACTIONS.PICKUP) -- High priority.
+            end
+
+            tool = ent
+        end
+
+        return tool ~= nil and BufferedAction(inst, tool, ACTIONS.PICKUP) or nil
+    end
+end
+
+local function HasDigTool(inst)
+-- HasDigTool：★ 不只看装备槽，还要求工具「能做 DIG 动作」。
+--   第 297 行 tool:CanDoAction(ACTIONS.DIG)
+-- ★ 比 NeedsTool 更严格：NeedsTool 只问「有没有手部装备」，
+--   这里问「有没有能挖土的铲子」。
+-- ★ 两个函数分工：NeedsTool 决定「要不要去拿」，HasDigTool 决定「能不能干活」。
+    local tool = inst.components.inventory ~= nil and inst.components.inventory:GetEquippedItem(EQUIPSLOTS.HANDS) or nil
+
+    return tool ~= nil and tool.components.tool ~= nil and tool.components.tool:CanDoAction(ACTIONS.DIG)
+end
+
+---------------------------------------------------------------------------------------------------
+
+local function GoHomeAction(inst)
+-- GoHomeAction：★ 四重校验（第 309-314 行）：家存在/有效/没烧/没烧毁，才 GOHOME。
+--   第 303-305 行：★ 有战斗目标就不回家（与 pigbrain 第 136 行同款）。
+    if inst.components.combat.target ~= nil then
+        return
+    end
+
+    local home = inst.components.homeseeker ~= nil and inst.components.homeseeker.home or nil
+
+    return home ~= nil
+        and home:IsValid()
+        and not (home.components.burnable ~= nil and home.components.burnable:IsBurning())
+        and not home:HasTag("burnt")
+        and BufferedAction(inst, home, ACTIONS.GOHOME)
+        or nil
+end
+
+local function ShouldGoHome(inst)
+-- ★★★ ShouldGoHome —— 本函数藏着一个「群体级」的资源分配策略。
+-- 【第 318-320 行】不是白天 或 有队长 → 不回家
+-- 【第 322 行注释】"One merm should stay outside."（要留下一只美人鱼在外面）
+-- 【第 325-327 行】于是用 childspawner:CountChildrenOutside() > 1 判定：
+--   ★ 意思是「如果外面已经有超过 1 只，就都回去」。
+-- ★★ 这是本文件最值得学的一段：
+--   「至少留一只放哨」是通过【查询同伴数量】实现的，而非本地状态标记。
+--   ★ 每个个体都独立查询同一个 childspawner 组件，各自得出相同结论，
+--     全程无通信 —— 与 knightbrain 第 195 行的编队协调同属一类手法。
+-- ★ 移植价值：群体级「配额」策略的简洁实现。
+-- ⚠️ 但存在竞态：多只同时判定时可能都认为「外面只有 0 只」而都不回，
+--   或都认为「有 2 只」而都回。实际由执行时序与 childspawner 的计数时机缓解。
+--   标为疑似：无法确定 childspawner 的计数是否即时，未核实其实现。
+    if not TheWorld.state.isday or (GetLeader(inst) ~= nil) then
+        return false
+    end
+
+    -- One merm should stay outside.
+    local home = inst.components.homeseeker ~= nil and inst.components.homeseeker.home or nil
+
+    return home == nil
+        or home.components.childspawner == nil
+        or home.components.childspawner:CountChildrenOutside() > 1
+end
+
+local function IsHomeOnFire(inst)
+-- IsHomeOnFire：比 pigbrain 第 205 行少两个条件（无距离限制）。
+-- ★ 差异原因：美人鱼的家是王帐（可能很大），不在附近也会担心。
+--   pigbrain 需要 20 平方距离限制（第 210 行）。
+-- ⚠️ 两处实现不一致，但各自合理，属「按角色调参」而非缺陷。
+    return inst.components.homeseeker
+        and inst.components.homeseeker.home
+        and inst.components.homeseeker.home.components.burnable
+        and inst.components.homeseeker.home.components.burnable:IsBurning()
+end
+
+local function GetNoLeaderHomePos(inst)
+-- GetNoLeaderHomePos：有队长返回 nil。与 pigbrain 第 145 行同款。
+    if GetLeader(inst) ~= nil then
+        return nil
+    else
+        return inst.components.knownlocations:GetLocation("home")
+    end
+end
+
+local function CurrentContestTarget(inst)
+    local stage = inst.npc_stage
+    return stage.current_contest_target or stage
+end
+
+local function MarkPost(inst)
+    if inst.yotb_post_to_mark ~= nil then
+        return BufferedAction(inst, inst.yotb_post_to_mark, ACTIONS.MARK)
+    end
+end
+
+local function CollectPrize(inst)
+    if inst.yotb_prize_to_collect ~= nil then
+        local x,y,z = inst.yotb_prize_to_collect.Transform:GetWorldPosition()
+        if y < 0.1 and y > -0.1 and not inst.yotb_prize_to_collect:HasTag("INLIMBO") then
+            return BufferedAction(inst, inst.yotb_prize_to_collect, ACTIONS.PICKUP)
+        end
+    end
+end
+
+local function TargetFollowDistFn(inst)
+-- ★★★ TargetFollowDistFn —— 「忠诚度影响跟随距离」的动态算法。
+-- 【第 371 行公式】
+--   距离 = (MAX-MIN) * (1-忠诚度) * boat系数 * random() + MIN
+-- 【三个乘数的解读】
+--   (1 - loyalty)  ★★★ 忠诚度【越高】，距离越【近】！
+--     ★ 反直觉：忠诚的宠物贴得更紧。这与「忠诚远走」的直觉相反，
+--       但设计意图明确：越信任主人，越愿意贴身保护。
+--     ★★ 注意 mermguardbrain 第 273 行是逐字相同的实现，
+--       所以这是刻意的设计选择，不是笔误。
+--   boatmod        在船上时 ×0.2 —— 船太小挤不下
+--   math.random()  ★ 每次调用返回不同值 → 距离随机
+-- ★★ 为什么还要乘 random()？忠诚度是平滑变化的，只靠它距离变化很慢。
+--   加上随机后，跟随距离在 [MIN, 忠诚度对应值] 区间内随机浮动，
+--   ★ 形成「忽远忽近」的自然感，而不是机械地保持一个固定距离。
+-- ★ 这与 MermBrain 第 371 行的注释 "Randomize the range from min to max"
+--   with the bias modulation 精确对应 —— 注释写得比代码清楚。
+    local loyalty = inst.components.follower ~= nil and inst.components.follower:GetLoyaltyPercent() or 0.5
+    local boatmod = inst:GetCurrentPlatform() ~= nil and 0.2 or 1.0
+    -- As loyalty rises the further out the follower will potentially stay back.
+    -- If on a boat lower max range.
+    -- Randomize the range from min to max with the bias modulation.
+    return (MAX_FOLLOW_DIST - MIN_FOLLOW_DIST) * (1.0 - loyalty) * boatmod * math.random() + MIN_FOLLOW_DIST
+end
+
+-------------------------------------------------------------
+
+local OFFERINGPOT_MUST_TAGS = { "offering_pot" }
+-- 献祭锅标签。玩家把东西放进锅里召唤美人鱼。
+
+local function shouldanswercall(inst)
+-- ★ shouldanswercall 的四段拒绝条件（第 379-381 行）：
+--   lunarminion（月亮仆从）—— 不是野生美人鱼，是玩家召唤的
+--   shadowminion（暗影仆从）—— 同上
+--   GetLeader ~= nil —— ★ 有主人的不响应（主人已经安排过了）
+-- ★ 语义：「只有野生美人鱼去应征」。
+-- 第 384 行半径 30 —— 召唤范围。
+-- ★ 第 392 行有副作用：inst.answerpotcall = pot（在判定函数里改状态），
+--   与 pigbrain 第 104 行 brain_noveggie 同一手法。
+-- ⚠️ 同理：若中途 return，answerpotcall 可能残留。已核对第 394 行 return true
+--   与第 388 行 return false 两条路径，return false 时 answerpotcall 不会被设置
+--   （设置在第 392 行之后才 return true），故无残留。安全。
+    if inst:HasTag("lunarminion") or inst:HasTag("shadowminion") or GetLeader(inst) ~= nil then
+        return false
+    end
+
+    local x, y, z = inst.Transform:GetWorldPosition()
+    local pots = TheSim:FindEntities(x, 0, z, 30, OFFERINGPOT_MUST_TAGS)
+
+    if #pots <= 0 then
+        return false
+    end
+
+    for _, pot in ipairs(pots) do
+        if pot.merm_caller ~= nil and pot.merm_caller:IsValid() and pot.components.container ~= nil and not pot.components.container:IsEmpty() then
+            inst.answerpotcall = pot
+
+            return true
+        end
+    end
+end
+
+local function Getcalledofferingpot(inst)
+    if inst.answerpotcall ~= nil and inst.answerpotcall:IsValid() and inst.answerpotcall.merm_caller ~= nil then
+        local distance = inst.answerpotcall:GetPhysicsRadius(0)
+
+        return inst:GetPositionAdjacentTo(inst.answerpotcall, distance)
+    end
+end
+
+local function answercall(inst)
+    if inst.answerpotcall ~= nil and inst.answerpotcall:IsValid() then
+        inst.answerpotcall:AnswerCall(inst)
+    end
+end
+
+---------------------------------------------------------------
+
+function MermBrain:OnStart()
+-- ★★ OnStart。结构：先建 in_contest（第 416 行），再建 NODES（第 428 行），
+--   最后 root 包一层跳跃守卫（第 517 行）。
+--   ★ 对比 pigbrain：那边有 day/night 两棵子树，这边只有一棵 NODES + 一个守卫。
+--     美人鱼不分昼夜行为（美人鱼在深海/王帐区，昼夜影响小）。
+    local in_contest = WhileNode( function() return self.inst:HasTag("NPC_contestant") end, "In contest",
+-- in_contest：比赛模式。与 pigbrain 第 286 行几乎逐字相同（只换了台词）。
+-- ★ 这是跨文件的「复制粘贴式复用」：同一套活动逻辑，多种 NPC 共用。
+        PriorityNode({
+                DoAction(self.inst, CollectPrize, "collect prize", true ),
+                DoAction(self.inst, MarkPost, "mark post", true ),
+            WhileNode( function() return self.inst.components.timer and self.inst.components.timer:TimerExists("contest_panic") end, "Panic Contest",
+                ChattyNode(self.inst, "MERM_TALK_CONTEST_PANIC",
+                    Panic(self.inst))),
+            ChattyNode(self.inst, "MERM_TALK_CONTEST_OOOH",
+                FaceEntity(self.inst, CurrentContestTarget, CurrentContestTarget ), 5, 15),
+        }, 0.1))
+
+
+    local NODES = PriorityNode(
+-- ★★ NODES —— 完整优先级表（这是本文件最需要读的部分）：
+--  第 430-431 行：★「有美人鱼王时」的恐慌（台词不同）
+--  第 432-433 行：★「没有王时」的恐慌
+--    ★★ 这两行的技巧：同一个 PanicWhenScared，用 IfNode 按「王在不在」
+--      分别选不同台词。避免了两棵几乎一样的恐慌子树。
+--    ★ 但代价：条件互为否定（第 430 行 king 存在、第 432 行 king 不存在），
+--      若 TheWorld.components.mermkingmanager 为 nil，第二个条件恒真 —— 正确降级。
+--  第 434-438 行：普通恐慌 + 电栅栏
+--  第 440-441 行：★ 被治疗 → 面对治疗者
+--  第 443 行：捡工具（无条件 DoAction，函数内自行判定）
+--  第 445-449 行：★ 没工具且找到棚子 → 去取工具
+--  第 451-452 行：战斗（攻击）
+--  第 453-454 行：闪避（与攻击互斥）
+--  第 456 行：比赛
+--  第 458-459 行：★ 觅食 ★ 注释明写「放在王座任务之上，让美人鱼吃掉玩家给的食物」
+--  第 461-467 行：去王座
+--  第 469-479 行：★ 拿铲子 → 帮种地 / 帮挖树桩
+--  第 481-489 行：帮砍木 / 帮挖矿（不需要铲子）
+--  第 491-495 行：响应召唤
+--  第 497-498 行：交易 → 面对交易者
+--  第 500-501 行：跟随
+--  第 503-505 行：有队长 → 注视
+--  第 507 行：家着火了 → 恐慌
+--  第 509-510 行：★ 回家
+--  第 512 行：注视（兜底）
+--  第 513 行：游荡（兜底，永不失败）
+--  第 515 行：重评估间隔 0.25 秒
+--
+-- 【★ 优先级设计的三个观察】
+-- 1) 战斗（第 451 行）在一切生产行为之前 —— 战斗优先于工作。
+-- 2) 觅食（第 458 行）在王座（第 461 行）之前 —— ★ 源码第 459 行注释明说原因。
+-- 3) 跟随（第 500 行）排在所有主动行为之后 —— 有事做事，没事才跟。
+    {
+        IfNode(function() return TheWorld.components.mermkingmanager and TheWorld.components.mermkingmanager.king end, "Panic, With King",
+-- ★★ 用两个互斥 IfNode 选择不同台词的恐慌（第 430 / 432 行）。
+--   PanicWhenScared(inst, 丢忠诚概率 .25, 台词字符串)
+--   ★ 与 pigbrain 第 385 行的 BrainCommon.PanicWhenScared(self.inst, .25, ...) 同款，
+--     概率都是 0.25，说明「被大吓人事件吓掉 25% 忠诚」是全局统一的。
+-- ★ 两个 IfNode 的条件互为否定（第 430 行 king 存在、第 432 行 king 不存在），
+--   所以任意时刻只有一个会进入 —— 但 PriorityNode 会先试前者。
+            BrainCommon.PanicWhenScared(self.inst, .25, "MERM_TALK_PANICBOSS_KING")),
+        IfNode(function() return not TheWorld.components.mermkingmanager or not TheWorld.components.mermkingmanager.king end, "Panic, With No King",
+            BrainCommon.PanicWhenScared(self.inst, .25, "MERM_TALK_PANICBOSS")),
+		BrainCommon.PanicTrigger(self.inst),
+
+        WhileNode(function() return BrainCommon.ShouldAvoidElectricFence(self.inst) end, "Shocked",
+            ChattyNode(self.inst, "MERM_TALK_PANICELECTRICITY",
+                AvoidElectricFence(self.inst))),
+
+        ChattyNode(self.inst, "MERM_TALK_GET_HEALED", 
+-- 被治疗 → 面对治疗者（第 37 行的 GetHealerFn）。
+-- ★ 优先级在「捡工具」之前：治疗比工具重要（工具可再捡）。
+            FaceEntity(self.inst, GetHealerFn, KeepHealerFn)),
+
+        DoAction(self.inst, PickupTool, "collect tool", true ),
+
+        IfNode(function() return NeedsToolAndFoundTool(self.inst) end, "needs a tool",
+-- ★ 去工具棚取工具：Leash 过去 + 推事件使用。
+--   Leash(inst, GetClosestToolShedPosition, 2.1, 2, true)
+--   第 5 参 true = 不可打断。第 2.1/2 也是迟滞。
+--   ★ 与第 469 行 TILL 的 leash(2.1, 2, true) 参数完全相同 ——
+--     同一类「走到建筑旁操作」的统一手感。
+            PriorityNode({
+                Leash(self.inst, GetClosestToolShedPosition , 2.1, 2, true),
+                DoAction(self.inst, CollectTool, "collect tool", true ),
+            }, 0.25)),
+
+        WhileNode(function() return self.inst.components.combat.target == nil or not self.inst.components.combat:InCooldown() end, "Attack Momentarily",
+-- ★★ 战斗条件：不是「不在冷却」，是【无目标 或 不在冷却】。
+--   第 452 行 ★ ChaseAndAttack(self.inst, SpringCombatMod(MAX_CHASE_TIME),
+--                                    SpringCombatMod(MAX_CHASE_DIST))
+--   ★★★ SpringCombatMod 定义在 simutil.lua 第 555-557 行：
+--       function SpringCombatMod(amount, forced)
+--           return (forced or TheWorld.state.isspring)
+--               and amount * TUNING.SPRING_COMBAT_MOD or amount
+--       end
+--   ★★ 它的真实语义是【季节修正器】，不是「弹性/渐进调节」：
+--     春季（TheWorld.state.isspring）时把追击时间与距离乘以 SPRING_COMBAT_MOD，
+--     非春季原样返回。forced 参数可强制启用（测试用）。
+--   ★ 即「春季美人鱼更执着地追击」。
+--   ⚠️ 我最初误以为它是渐进式弹性调节，已读 simutil.lua 第 555-557 行纠正。
+--     特此记录：该函数在 12 个 brains/ 与多个 prefabs/ 中被广泛复用，
+--     是全项目的季节性战斗修正统一入口。
+--   ⚠️ 注意第 556 行若 forced 为真且 amount 为 nil，会因 and/or 短路语义出错；
+--     本文件调用时 amount 恒为常量 MAX_CHASE_TIME/MAX_CHASE_DIST，安全。
+--     这是 Lua and/or 表达式只能返回两操作数的固有陷阱，非本文件缺陷。
+            ChaseAndAttack(self.inst, SpringCombatMod(MAX_CHASE_TIME), SpringCombatMod(MAX_CHASE_DIST))),
+        WhileNode(function() return self.inst.components.combat.target ~= nil and self.inst.components.combat:InCooldown() end, "Dodge",
+-- 闪避：与第 451 行严格互补（combat.target ~= nil and InCooldown()）。
+--   ★ 与 pigbrain 第 402-404 行、knightbrain 第 341-342 行完全同款 ——
+--     「攻击/闪避两个互斥 WhileNode」是 DST 战斗 AI 的标准写法。
+			RunAway(self.inst, { getfn = GetRunAwayTarget }, RUN_AWAY_DIST, STOP_RUN_AWAY_DIST)),
+
+        in_contest,
+
+        ChattyNode(self.inst, "MERM_TALK_FIND_FOOD",
+-- ★★ 觅食被刻意放在王座任务【之前】，源码注释给出了理由（第 459 行）。
+--   "Leave this above throne task so the Merm eats the food given."
+--   ★ 这是一条纯粹的「行为优先级」注释，移植时最该保留的一类信息：
+--     为什么这个节点在这个位置。
+            DoAction(self.inst, EatFoodAction, "Eat Food")), -- NOTES(JBK): Leave this above throne task so the Merm eats the food given.
+
+        WhileNode(function() return ShouldGoToThrone(self.inst) and self.inst.components.combat.target == nil end, "Should Go To Throne",
+-- ★ 去王座的条件：「该去」且「当前没在战斗」。
+--   第 463 行 leash 距离 0.2/0.2（相等，无迟滞）——
+--   ★ 与第 447 行的 2.1/2 形成对比：站在王座上要求极高精度。
+--   第 464-466 行：到位后推 onarrivedatthrone 事件，交给状态图处理。
+            PriorityNode({
+                Leash(self.inst, GetThronePosition, 0.2, 0.2, true),
+                IfNode(function() return IsThroneValid(self.inst) end, "Is Throne Valid",
+                    ActionNode(function() self.inst:PushEvent("onarrivedatthrone") end)
+                ),
+            }, .25)),
+
+        WhileNode(function() return HasDigTool(self.inst) end, "Garden with tool",
+-- ★★ 已确认的缺陷：TILL 与 DIG 两个节点条件完全相同（第 469、475 行），
+--   但第 478 行 DIG 节点配了 MERM_TALK_HELP_CHOP_WOOD（砍木头）台词。
+--   已逐字核对第 471 行 action = "TILL"、第 476 行 action = "DIG"、
+--   第 478 行 chatterstring = "MERM_TALK_HELP_CHOP_WOOD"。
+--   ★ 确认为复制粘贴漏改。对应台词节点在第 435 行（MINE）用的是
+--     MERM_TALK_HELP_MINE_ROCK，可见不同动作确实配不同台词。
+--   ★ 进一步核实：grep 全项目确认 strings.lua 第 6183 行只定义了
+--     MERM_TALK_HELP_TILL，不存在 MERM_TALK_HELP_DIG 这个字符串常量。
+--   ★ 这解释了成因：作者想做 DIG 的专属台词但忘了先在 strings.lua 里加，
+--     临时复用了 CHOP_WOOD。属真实的文案缺陷（未清理的半成品）。
+--   ★ 影响范围仅限台词文本，不影响 DIG 动作本身正常执行。
+            BrainCommon.NodeAssistLeaderDoAction(self, {
+                action = "TILL", -- Required.
+                chatterstring = "MERM_TALK_HELP_TILL",
+            })),
+
+        WhileNode(function() return HasDigTool(self.inst) end, "dig stump with tool",
+-- ★ 第 469 行与本行条件完全相同（HasDigTool），因此两者互斥靠 PriorityNode 顺序。
+--   ★ 更重要的是：★ TILL 在前 DIG 在后，意味着有铲子时【总是先种地】。
+--   ⚠️ 这是「条件相同的两节点靠顺序决定」的写法，可读性差：
+--     读者必须比较两行才能发现条件一样。
+--   源码未加注释说明「为什么先种地后挖桩」，属意图不明处，非缺陷。
+            BrainCommon.NodeAssistLeaderDoAction(self, {
+                action = "DIG", -- Required.
+                chatterstring = "MERM_TALK_HELP_CHOP_WOOD",
+            })),
+
+        BrainCommon.NodeAssistLeaderDoAction(self, {
+            action = "CHOP", -- Required.
+            chatterstring = "MERM_TALK_HELP_CHOP_WOOD",
+        }),
+
+        BrainCommon.NodeAssistLeaderDoAction(self, {
+            action = "MINE", -- Required.
+            chatterstring = "MERM_TALK_HELP_MINE_ROCK",
+        }),
+
+        IfNode(function() return shouldanswercall(self.inst) end, "answering call",
+            PriorityNode({
+                Leash(self.inst, Getcalledofferingpot , 2.1, 2, true),
+                DoAction(self.inst, answercall, "answe call", true ),
+            }, 0.25)),
+
+        ChattyNode(self.inst, "MERM_TALK_FIND_FOOD", -- TODO(JBK): MERM_TALK_ATTEMPT_TRADE
+            FaceEntity(self.inst, GetTraderFn, KeepTraderFn)),
+
+        ChattyNode(self.inst, "MERM_TALK_FOLLOWWILSON",
+-- Follow(inst, 取队长的函数, MIN_FOLLOW_DIST, TargetFollowDistFn, MAX_FOLLOW_DIST, nil, true)
+-- ★★★ 第 4 个参数传的是【函数】TargetFollowDistFn —— 即动态目标距离。
+--   ★ 第 6 参 nil、第 7 参 true —— 对比 pigbrain 第 344 行只传了 5 个参数。
+--   ⚠️ 第 7 参 true 的语义未核实（可能是「持续跟随不放弃」）。
+--     与 shadowwaxwellbrain 第 311 行 Leash 的第 5 参 true 位置不同，
+--     不可类推。标注为待核实，不下结论。
+		    Follow(self.inst, function() return GetLeader(self.inst) end, MIN_FOLLOW_DIST, TargetFollowDistFn, MAX_FOLLOW_DIST, nil, true)),
+
+        IfNode(function() return GetLeader(self.inst) ~= nil end, "Has A Leader",
+            ChattyNode(self.inst, "MERM_TALK_FOLLOWWILSON",
+                FaceEntity(self.inst, GetFaceTargetFn, KeepFaceTargetFn ))),
+
+        WhileNode( function() return IsHomeOnFire(self.inst) end, "Home On Fire", Panic(self.inst)),
+
+        WhileNode(function() return ShouldGoHome(self.inst) end, "Should Go Home",
+            DoAction(self.inst, GoHomeAction, "Go Home", true)),
+
+        FaceEntity(self.inst, GetFaceTargetFn, KeepFaceTargetFn),
+        Wander(self.inst, GetNoLeaderHomePos, MAX_WANDER_DIST),
+
+    }, .25)
+
+    local root = PriorityNode({
+-- ★★★ root = PriorityNode({ WhileNode(不跳跃, "pause for jump", NODES) }, .25)
+--   ★ 只有一层守卫。NODES 是上面第 428 行建好的完整子树。
+--   与 knightbrain 第 326 行结构相同，但 mermguardbrain 第 424 行也是。
+--   ★ 三个文件同款，是「状态守卫」的标准落位。
+-- ⚠️ 守卫名 "pause for jump" 是字面直译（暂停跳跃），语义应是「跳跃中暂停思考」。
+--   命名不准确但无害。
+        WhileNode(function() return not self.inst.sg:HasStateTag("jumping") end, "pause for jump", NODES)
+    }, .25)
+
+    self.bt = BT(self.inst, root)
+-- ★ self.bt = BT(self.inst, root) —— 第 5 个大脑，同样的收尾。
+--   ★ 已验证 5 个文件（braincommon / pigbrain / knightbrain / shadowwaxwell / merm）
+--     的收尾完全一致，「DST 大脑 = 一棵 PriorityNode」结论成立。
+end
+
+return MermBrain

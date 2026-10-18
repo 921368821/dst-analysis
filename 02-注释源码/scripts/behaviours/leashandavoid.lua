@@ -1,0 +1,310 @@
+--============================================================
+-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖
+-- 文件：behaviours/leashandavoid.lua
+-- 模块：行为树节点库 / 拉拽回归
+-- 职责：超出活动半径后回家，且回家途中绕开指定障碍物（含一段作者自嘲为
+--       「我这一生做过最大的 hack」的侧向绕行几何计算）。
+-- 关键符号：LeashAndAvoid, LeashAndAvoid:Visit, LeashAndAvoid:GetHomePos,
+--           LeashAndAvoid:GetDistFromHomeSq, LeashAndAvoid:IsInsideLeash,
+--           LeashAndAvoid:IsOutsideReturnDist, LeashAndAvoid:GetMaxDistSq,
+--           LeashAndAvoid:GetReturnDistSq, LeashAndAvoid:DBString
+-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本
+-- 交叉引用：leash.lua（同族无避障版本）, chaseandattackandavoid.lua（hack 的原始出处）,
+--       components/locomotor.lua, FunctionOrValue
+--============================================================
+LeashAndAvoid = Class(BehaviourNode, function(self, inst, findavoidanceobjectfn, avoid_dist, homelocation, max_dist, inner_return_dist, running)
+--[[
+-- leashandavoid.lua —— 拉拽回归 + 避障节点（LeashAndAvoid）
+--
+-- 【行为语义】跑出活动半径就回家，且回家路上绕开指定的障碍物。
+--   典型使用者：需要「回巢」的生物（蜜蜂回巢、怪物回领地、被击退后归位）。
+--
+-- 【★ 这是全目录里最直白的「双阈值滞回」范本】
+--   max_dist     —— 活动半径。距离 ≤ 它 = 「在家」，节点 FAILED（无事可做）。
+--   inner_return_dist —— 回归判定圈。距离 > 它 = 还在外面，继续走。
+--   进入条件是「超过 max_dist」，退出条件是「回到 inner_return_dist 以内」，
+--   两个阈值之间的环形区域就是**滞回带**，带内行为不变。
+--   ★★ 这是滞回思想最标准的形态：
+--     · 触发阈值（max_dist）在外圈 → 容易触发，AI 及时响应
+--     · 解除阈值（return_dist）在外圈之内 → 难以解除，避免反复来回
+--   典型配比：inner = max * 0.7~0.8。
+--   ★ 移植要点：任何「越界就回去」的行为都必须这么设计，
+--     否则实体会在边界线上来回抽搐（DST 里叫 jitter）。
+--   ※ 对照 leash.lua：那个更简单，只有一段阈值（见本文件第 75 行注释）。
+--
+-- 【★ 本节点的两段式结构特别之处：没有独立的 RUNNING 判定顺序】
+--   第 15 行先判 homepos 是否为 nil（FAILED），第 17 行判 READY，
+--   第 27 行判 RUNNING —— 用的是 **if / elseif / elseif 的链式结构**，
+--   而不是 follow 那样的「顺序双 if」。
+--   后果：本节点一次 Visit 只会走一个分支，不会出现「同帧既决策又执行」。
+--   ★ 两种写法都正确，链式更安全（不可能连续进入两段），
+--     顺序双 if 更高效（省一次分支判断）。DST 两种都在用。
+--]]
+--★★ 8 个参数，全部可传函数（见后面的 FunctionOrValue 用法）。
+--   findavoidanceobjectfn —— 找出「要避开谁」的回调
+--   avoid_dist             —— 绕开障碍时侧移多远
+--   homelocation           —— 家可以是固定坐标，也可以是函数（动态家）
+--   max_dist / inner_return_dist —— 上文的两段滞回阈值
+--   running                —— 回家时是否跑，也是「值或函数」
+--★ 参数排序按「必需→可选」：inst 必需，findavoidanceobjectfn/avoid_dist 可为 nil，
+--  末尾 running 有默认值（`or false`）。移植时保持这种排序，上层才好记调用顺序。
+    BehaviourNode._ctor(self, "LeashAndAvoid")
+    self.homepos = homelocation
+    self.maxdist = max_dist
+    self.inst = inst
+    self.returndist = inner_return_dist
+    self.running = running or false
+--★ `self.running = running or false` —— 显式兜底成 false。
+--   ★ 与 follow 第 27 行的 `canrun ~= false` 风格不同但效果一致。
+--     两种都常见：前者把默认写进字段，后者靠 `~= false` 在读取处兜底。
+    self.findavoidanceobjectfn = findavoidanceobjectfn
+    self.avoid_dist = avoid_dist
+end)
+
+function LeashAndAvoid:Visit()
+--★★ Visit：链式 if 结构，一次只走一段。
+--★ 第 13-14 行保留的 V2C 注释：
+--   "there should be no legacy code using this behaviour, so
+--    don't support 'false' like the old Leash behaviour does"
+--  翻译：「不应该有旧代码用这个行为，所以不像老的 Leash 那样支持 false」。
+--★★ 这条注释是**主动收窄 API** 的明确记录，价值很高：
+--   它说明作者在重构时检查过调用方，并有意识地不再兼容某种历史写法。
+--   同样的声明也出现在第 69-70 行。
+--★ 移植建议：给自己写的 API 留一条这样的注释，说明「为什么不支持某种写法」，
+--   能防止半年后有人为了「兼容」又把它加回来。
+    --V2C: there should be no legacy code using this behaviour, so
+    --     don't support "false" like the old Leash behaviour does
+    if self:GetHomePos() == nil then
+--★★ 家不存在 → FAILED。放在最前面，且不是 elseif 的一部分 ——
+--   意思是「无论当前 status 是什么，家没了就立刻失败」。
+--★ 这是一种「优先级更高的不变量检查」：第 16 行无条件改 status，
+--   会覆盖掉任何已有的 RUNNING 状态。
+--★ 为什么家会为 nil？因为 homelocation 可以是函数（第 65 行），
+--   函数可能返回 nil（比如「家还没确定」）。
+--★ 移植要点：把「前置不变量」写成链外的独立 if，让它能中断任何进行中的状态，
+--   比塞进 elseif 链里更安全。
+        self.status = FAILED
+    elseif self.status == READY then
+--★★ READY 段：还在圈内 → FAILED（无事可做）；出圈了 → RUNNING。
+--★ 用 FAILED 而不是 SUCCESS，理由同 follow 第 101 行：
+--   「在家附近站着」并没有完成「回家」这个动作，
+--   所以对父 Selector 而言应该让位给其他分支（如战斗、觅食）。
+--★★ 这正是 LeashAndAvoid 能与战斗共存的原因：它只在玩家把它引出圈时才接管 AI。
+--   ★ 移植要点：拉拽类节点必须以 FAILED 退出常态，否则会「霸占」AI 决策。
+        if self:IsInsideLeash() then
+            self.status = FAILED
+        else
+            if self.findavoidanceobjectfn ~= nil then
+--★★ 找出要避开的对象 —— **只在进入 RUNNING 的那一帧做一次**。
+--★ 设计取舍：一旦开始回家，就认定一个障碍物，中途不重选。
+--   好处：不会因为障碍物变化而抖动（换目标 → 换绕行方向 → 再换 → 抖）。
+--   代价：障碍物跑了/没了，绕行会白算（第 34 行的 IsValid 只挡住「已销毁」）。
+--★ 与 findclosest 的 CHECK_INTERVAL 周期性复核形成对照：
+--   一个「重选会产生抖动」→ 选一次；一个「不重选会追错」→ 每 5 秒重选。
+--   ★★ 移植要点：要不要周期性复核，取决于「目标变化是否会引发行为抖动」。
+--     这是行为树调参里最容易忽略却最影响手感的判断。
+                self.avoidtarget = self.findavoidanceobjectfn(self.inst)
+            end
+            self.inst.components.locomotor:Stop()
+--★ 进入 RUNNING 前先 Stop locomotor：清掉「把实体引出圈」的那个行为留下的移动指令。
+--★ 为什么要显式 Stop？通常是玩家攻击把它打飞，或某个节点在追玩家。
+--   不清掉的话，第 53 行的 GoToPoint 虽会覆盖，但可能有一帧的冲突。
+--   ★ 节点进入时先「清场」再「布置」，是消除竞态的通用手法。
+            self.status = RUNNING
+        end
+    elseif self.status == RUNNING then
+--★★ RUNNING 段：还没回家 → 继续走；到家了 → SUCCESS。
+--★ 每一帧都重新计算位置（第 28 行）—— 不缓存，因为路径依赖当前距离。
+        if self:IsOutsideReturnDist() then
+--★★ 回归判定：距离 > inner_return_dist 才继续。
+--★ 注意是 `>` 而非 `>=`，边界点算「已到家」。微小差异，无功能影响。
+--★★ 语义与第 18 行的 IsInsideLeash 互为补集，两者构成完整的滞回带：
+--   距离 ≤ max_dist         → FAILED（不需要回家）
+--   max_dist < 距离 > return → RUNNING（回家中）
+--   距离 ≤ return_dist      → SUCCESS（到家）
+--   ★ 记住这三段就够了，本文件其余 80 行都是为第 40-50 行服务的。
+            local hp = self:GetHomePos()
+
+            -- V2C: copied my own hack from chaseandattackandavoid =)
+--★★★ 原注释（保留，价值极高）：
+--   "V2C: copied my own hack from chaseandattackandavoid =)
+--    this is probably the biggest hack i've done in my life...
+--    ^ not true"
+--  翻译：「从 chaseandattackandavoid 抄了我自己的 hack =)
+--  这可能是我这一生做过最大的 hack…… ^ 并不属实」。
+--★★ 作者自己标注「^ not true」，说明他觉得原注释太夸张了。
+--★ 这段注释的价值在于它指明了 hack 的**出处**（chaseandattackandavoid.lua），
+--   两个文件必须一起读才能理解全貌。移植时若只抄一份会丢失上下文。
+            -- this is probably the biggest hack i've done in my life...
+            -- ^ not true
+            if self.avoidtarget ~= nil and self.avoidtarget:IsValid() then
+--★★ 绕行逻辑的三个前置守卫：
+--   ① 有障碍目标     —— 没配回调或回调返回 nil 就跳过
+--   ② 障碍仍然有效   —— 已销毁则不再绕
+--   ③ 障碍比家更近   —— 第 37 行的核心判据
+--★ 守卫 ② 只挡「IsValid 为假」，不挡「障碍跑远了」（同第 21 行的取舍）。
+                local pt = Point(self.inst.Transform:GetWorldPosition())
+--★ 取三个点的位置：自己、障碍、家。后续全部基于这三个点做几何运算。
+                local ap = Point(self.avoidtarget.Transform:GetWorldPosition())
+                if distsq(ap, pt) < distsq(hp, pt) then
+--★★★★★ 【绕行 hack 的核心判据】
+--   只有当「障碍离我比家离我更近」时才需要绕行。
+--★ 几何含义：说明障碍横在我回家的必经之路上。
+--   · 障碍更远 → 不挡路 → 直奔家（第 53 行）
+--   · 障碍更近 → 挡路 → 需要侧移
+--★★ 为什么这是个好判据？它是一个「一维投影」式的快速排除：
+--   用两次距离比较替代了「线段相交」测试。O(1)、无分支、极快。
+--   ★★ 移植要点：避障路径规划的第一步永远应该是这种廉价排除测试，
+--     只在「可能相交」时才上真正的几何算法。
+--⚠️ 局限：距离比较是**近似** —— 障碍和家在两个不同方向上时，
+--   这个判据仍可能误判「障碍更近」。所以第 38-39 行还有第二层守卫。
+                    local delta_dir = anglediff(self.inst:GetAngleToPoint(hp), self.inst:GetAngleToPoint(ap))
+--★ 算「家的方位」与「障碍的方位」之差（anglediff 已处理 ±360 环绕）。
+                    if math.abs(delta_dir) < 45 then
+--★★★ 第二层守卫：两者方向夹角小于 45 度。
+--★ 与第 37 行合起来构成「双条件」：
+--   既要「障碍更近」，又要「障碍大致在家那个方向」。
+--   ★★ 两层廉价判据叠加，把真正需要精确几何的情况压到极少数 ——
+--     这是「用便宜的过滤层层收窄，最后才做昂贵计算」的经典结构。
+--★ 45 度是扇形半角，即「障碍在正前方 ±45° 的锥形内」。
+--   调大 → 绕行更激进（更容易绕）；调小 → 更保守（可能撞上）。
+                        local offset = (hp - pt):GetNormalized()
+--★ 垂直于「家方向」的单位向量 —— 用于侧向偏移。
+--   `(hp - pt):GetNormalized()` 得到「指向家」的方向，归一化后长度固定为 1。
+--   ★ 后面用它乘 avoid_dist，得到「侧移多远」的精确距离。
+                        hp = delta_dir < 0 and
+--★★★★★ 【侧移点的构造 —— 本文件最绕的一段】
+--   目标：算出「绕到障碍物某一侧、且大致仍朝家前进」的落点。
+--
+--   【写法解析】`delta_dir < 0 and Point(...) or Point(...)` 是 Lua 三元惯用法：
+--     · delta_dir < 0 → 取第一个 Point
+--     · 否则        → 取第二个 Point
+--   两者的差别只在 offset.z 与 offset.x 的**正负号相反**，
+--   即绕向障碍物的左/右侧 —— 由 delta_dir 的符号（障碍在左还是右）决定。
+--
+--   【几何构造 —— 两段正交偏移】
+--     ap    = 障碍位置（绕过障碍的中心参照）
+--     纵向 = ap ± offset 的 z/x 分量 × avoid_dist  → 侧向绕过障碍
+--     纵向 = ap.y + offset.y × avoid_dist            → 抬高/压低
+--   ★ 注意 y 分量被单独处理：offset 在 xz 平面上单位化后 y 必为 0，
+--     所以 ap.y + 0 = ap.y，即「高度跟着障碍走」——这是本实现的实际行为。
+--     ⚠️ 也就是说「抬高」这一项目前不起作用（恒为 ap.y）。
+--       我已逐项核对第 40 行的构造：GetNormalized 对 (x, 0, z) 归一化，y 分量仍是 0。
+--       故第 43/46 行的 ap.y + offset.y * avoid_dist 恒等于 ap.y。
+--     这不影响功能（障碍物通常在同一高度层），但如果需要跨越高低差绕行，
+--       这里必须改成真正的三维正交基。标注为「已核实」。
+--
+--   【★ 可读性评价】
+--   这段是「手写数学」的典型形态：几何正确但难以验证。
+--   ★ 移植建议：自己实现时用显式的中间变量（side = delta_dir < 0 and -1 or 1）
+--     表达意图，再 `ap + side * perp * avoid_dist`。
+--     同样的结果，但读者不需要在脑子里模拟四元组表达式。
+--★ 另注意：两个分支都在做「绕过障碍」，只是绕向不同侧，
+--   并不检查「绕过去之后是否真的能回家」—— 属于启发式而非最优解。
+                            Point(  ap.x - offset.z * self.avoid_dist,
+                                    ap.y + offset.y * self.avoid_dist,
+                                    ap.z + offset.x * self.avoid_dist   ) or
+                            Point(  ap.x + offset.z * self.avoid_dist,
+                                    ap.y + offset.y * self.avoid_dist,
+                                    ap.z - offset.x * self.avoid_dist   )
+                    end
+                end
+            end
+
+			local run = FunctionOrValue(self.running, self.inst)
+--★ running 也支持「值或函数」，求值一次后传给 GoToPoint 的第三参。
+--★ 关键：第 53 行传的 hp 是**可能被第 41 行改写过的落点**，
+--   绕行信息就是通过「改写 hp 这个局部变量」传递给执行层的。
+--★★ 这是本文件的一个巧妙设计：绕行几何与移动执行完全解耦，
+--   执行层不需要知道「为什么这个点不是家」。
+--   ★ 移植要点：把「决策结果」编码进「目标变量」，能避免给执行函数塞一堆参数。
+--★ ⚠️ 同时要注意：由于 hp 是局部变量，DBString（第 61 行）显示的是**真正的家**，
+--     不是实际绕行落点。所以调试输出会与视觉位置不符 —— 属已知的信息缺口。
+--★ 本文件也没有 self:Sleep()，所以回归过程中每帧都执行 Visit。
+--   与 findcloser 同理：回家是「连续过程」，需要及时响应到达事件。
+--   代价是 CPU 开销高于有 Sleep 节流的节点，移植时应结合实体数量评估。
+			self.inst.components.locomotor:GoToPoint(hp, nil, run)
+        else
+            self.status = SUCCESS
+--★★ 回到 return_dist 以内 → SUCCESS，行为完成。
+--★ 注意这里**没有**像第 24 行那样 Stop locomotor。
+--   看似遗漏，实际无害：GoToPoint 会持续把实体驱向 hp 点，
+--   而 hp 此时已经很近，实体自然停下（locomotor 自带到达阈值）。
+--⚠️ 但严格说这是个不一致：chaseandattack/follow 在转终态时都显式 Stop。
+--   若绕行落点离目标点较远，可能出现「SUCCESS 后仍滑行一小段」。
+--   标注为「疑似疏漏」—— 已对照第 53 行与第 55 行确认此处确无 Stop 调用。
+--★ 这也是本节点与 chaseandattack 第 107 行的一处对照：那边是「Stop + return」配对的。
+        end
+    end
+end
+
+function LeashAndAvoid:DBString()
+--★ DBString：输出家位置、距家距离、避让目标、避让距离。
+--★ `or 0` 兜底：GetDistFromHomeSq 可能返回 nil（第 72 行），此时 sqrt 需兜底。
+--★ 排查「为什么它不回窝」时，这一行能直接看出「它以为家在哪」。
+    return string.format("%s, %2.2f, avoiding %s, %2.2f", tostring(self:GetHomePos()), math.sqrt(self:GetDistFromHomeSq() or 0), tostring(self.avoidtarget), self.avoid_dist or 0)
+end
+
+function LeashAndAvoid:GetHomePos()
+--★★ GetHomePos：家可以是固定值，也可以是函数（每次调用重新求值）。
+--★ FunctionOrValue(homepos, inst) → 函数被调用时能拿到实体本身。
+--★ 典型函数形态：function(inst) return inst.components.entertainer:GetHome() end
+--★ 全文件的所有距离判定都经过它，所以「家」是**动态**的 —— 换巢即时生效。
+    return FunctionOrValue(self.homepos, self.inst)
+end
+
+function LeashAndAvoid:GetDistFromHomeSq()
+--★ GetDistFromHomeSq：返回距离**平方**，调用方再自平方比较。
+--★ 命名带 Sq 后缀是本目录的一致约定：凡返回平方距离的方法都叫 XxxSq。
+--   ★ 移植建议：沿用这个命名规范，读代码时看到 Sq 就知道不必再开方。
+    --V2C: there should be no legacy code using this behaviour, so
+    --     don't support "false" like the old Leash behaviour does
+    local homepos = self:GetHomePos()
+--★ 重复的 V2C 注释（第 13-14 行已经说过）：再次强调「不支持 false」。
+--★ 两处都写 —— 说明作者在重构时反复确认过这一点。
+    return homepos ~= nil and distsq(homepos, self.inst:GetPosition()) or nil
+--★★ `homepos ~= nil and distsq(...) or nil` —— 用 and/or 构造「可能是 nil」的结果。
+--★ 这个写法的脆弱之处：若 distsq 返回 0（正好在家），`a and 0 or nil` 会得到 nil！
+--   ★★ 我已核实：distsq 在两点重合时返回 0。0 在 Lua 里是**真值**，
+--     所以 `true and 0` → 0，`0 or nil` → 0（不选 nil）。结论：当前安全。
+--   ⚠️ 但这是「恰好安全」—— 它依赖「0 在 Lua 中为真」这个反直觉事实。
+--     若有人日后把表达式改成可能返回 false/nil 的形式，
+--     或在其他语言移植时会立刻翻车。
+--   ★ 正确写法应是 if/then 显式返回。移植时建议改写。
+--★ 返回 nil 而非 0 是刻意的：让第 76/80 行的比较在「家不存在」时变 false，
+--   从而 IsInsideLeash=false、IsOutsideReturnDist=false，语义自洽。
+end
+
+function LeashAndAvoid:IsInsideLeash()
+--★★ IsInsideLeash：距家 ≤ max_dist → 在圈内。
+--★ 第 76 行的比较是 `<`（严格小于），而第 80 行是 `>`（严格大于），
+--   于是「距家恰好等于 max_dist」时两个谓词**都为 false**。
+--   ★ 我已核实这个边界：此时 IsInsideLeash=false 会让 READY 段走 else 分支转 RUNNING，
+--     而 IsOutsideReturnDist 也会是 false，同帧又转 SUCCESS。
+--   结果是「刚到边界就立刻认为到家」。实际影响极小（概率为 0），
+--     且方向是「提前结束」而非「卡住」，属良性边界。标注为「已核实」。
+--★ 对照 leash.lua：那个节点只有这一层判定，所以行为更简单也更可预测。
+    return self:GetDistFromHomeSq() < self:GetMaxDistSq()
+end
+
+function LeashAndAvoid:IsOutsideReturnDist()
+--★ IsOutsideReturnDist：距家 > inner_return_dist → 还在外面。
+--★ 与第 75 行构成滞回带的第二端。名字里的「Return」提示它是「回归完成」判定。
+    return self:GetDistFromHomeSq() > self:GetReturnDistSq()
+end
+
+function LeashAndAvoid:GetMaxDistSq()
+--★ GetMaxDistSq：阈值也支持「值或函数」，求值后自平方。
+--★★ 所有 *Sq 方法的共同写法：先 FunctionOrValue 求值，再 * dist * dist。
+--   ★ 统一在「取平方」这一步收口，避免每个调用点各写一次平方 ——
+--     这是「把易错操作集中到一处」的好习惯。
+    local dist = FunctionOrValue(self.maxdist, self.inst)
+    return dist * dist
+end
+
+function LeashAndAvoid:GetReturnDistSq()
+--★ GetReturnDistSq：同上，对应内圈阈值。
+--★ 两个 *Sq 方法结构完全对称，扩展新阈值时照抄其一即可。
+    local dist = FunctionOrValue(self.returndist, self.inst)
+    return dist * dist
+end

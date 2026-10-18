@@ -1,0 +1,1586 @@
+2: local RiftConfirmScreen = require("screens/redux/riftconfirmscreen")
+7: containers.params = params
+11:     if t ~= nil then
+13:             container[k] = v
+14:         end
+16:     end
+17: end
+25:     widget =
+26:     {
+28:         animbank = "ui_backpack_2x4",
+32:     },
+34:     type = "pack",
+36: }
+39:     table.insert(params.backpack.widget.slotpos, Vector3(-162, -75 * y + 114, 0))
+40:     table.insert(params.backpack.widget.slotpos, Vector3(-162 + 75, -75 * y + 114, 0))
+41: end
+50: {
+51:     widget =
+52:     {
+53:         slotpos = {},
+54:         animbank = "ui_icepack_2x3",
+55:         animbuild = "ui_icepack_2x3",
+56:         pos = Vector3(-5, -70, 0),
+57:     },
+58:     issidewidget = true,
+59:     type = "pack",
+60:     openlimit = 1,
+61: }
+64:     table.insert(params.spicepack.widget.slotpos, Vector3(-162, -75 * y + 75, 0))
+65:     table.insert(params.spicepack.widget.slotpos, Vector3(-162 + 75, -75 * y + 75, 0))
+66: end
+73: {
+74:     widget =
+75:     {
+76:         slotpos = {},
+77:         animbank = "ui_chest_3x3",
+78:         animbuild = "ui_chest_3x3",
+79:         pos = Vector3(0, 200, 0),
+80:         side_align_tip = 160,
+81:     },
+82:     type = "chest",
+83: }
+86:     for x = 0, 2 do
+88:     end
+89: end
+98: {
+99:     widget =
+100:     {
+101:         slotpos = {},
+102:         animbank = "ui_chester_shadow_3x4",
+103:         animbuild = "ui_chester_shadow_3x4",
+104:         pos = Vector3(0, 220, 0),
+105:         side_align_tip = 160,
+106:     },
+107:     type = "chest",
+108: }
+111:     for x = 0, 2 do
+112:         table.insert(params.shadowchester.widget.slotpos, Vector3(75 * x - 75 * 2 + 75, 75 * y - 75 * 2 + 75, 0))
+113:     end
+114: end
+117: params.shadow_container.widget.animbank = "ui_portal_shadow_3x4"
+118: params.shadow_container.widget.animbuild = "ui_portal_shadow_3x4"
+119: params.shadow_container.widget.animloop = true
+122:     return not item:HasTag("irreplaceable")
+123: end
+129: params.rabbitkinghorn_container.widget.animbank = "ui_portal_rabbitkinghorn_3x4"
+130: params.rabbitkinghorn_container.widget.animbuild = "ui_portal_rabbitkinghorn_3x4"
+131: params.rabbitkinghorn_container.widget.animloop = nil
+145: {
+146:     widget =
+147:     {
+148:         slotpos = {},
+149:         animbank = "ui_woby_3x3",
+150:         animbuild = "ui_woby_3x3",
+152:         side_align_tip = 160,
+153:     },
+154:     type = "chest",
+155: }
+161: for y = 2, 0, -1 do
+162:     for x = 0, 2 do
+163: 		table.insert(params.wobysmall.widget.slotpos, Vector3(75 * x - 75 * 2 + 75, 75 * y - 75 * 2 + 75 - yshift, 0))
+164:     end
+165: end
+175: {
+176: 	widget =
+177: 	{
+178: 		slotpos = {},
+180: 		animbank = "ui_meatrack_3x1",
+181: 		animbuild = "ui_meatrack_3x1",
+182: 		pos = Vector3(0, 330, 0),
+183: 		side_align_tip = 160,
+184: 	},
+187: 	openlimit = 1,
+188: }
+191: for x = 0, 2 do
+192: 	table.insert(params.woby_rack_container.widget.slotpos, Vector3(75 * x - 75 * 2 + 75, 0, 0))
+193: 	table.insert(params.woby_rack_container.widget.slotbg, dryer_slotbg)
+194: end
+195: dryer_slotbg = nil
+205: 				)
+206: 			))
+207: end
+214: {
+215: 	widget =
+216: 	{
+217: 		slotpos = {},
+218: 		slotbg = {},
+219: 		animbank = "ui_meatrack_multi_3x1",
+220: 		animbuild = "ui_meatrack_multi_3x1",
+221: 		pos = Vector3(0, 200, 0),
+222: 		side_align_tip = 160,
+223: 	},
+224: 	acceptsstacks = false,
+225: 	type = "chest",
+226: }
+229: for x = 0, 2 do
+230: 	table.insert(params.meatrack.widget.slotpos, Vector3(75 * x - 75 * 2 + 75, 0, 0))
+231: 	table.insert(params.meatrack.widget.slotbg, dryer_slotbg)
+232: end
+235: 	return item:HasTag("dryable")
+236: 		or (TheWorld.ismastersim and (
+237: 				item:GetTimeAlive() == 0 or --items perishing replaced by spoiled_food/fish
+239: 				(	item.dryingrack_lastinfo and --failing to move items; return to slot
+240: 					item.dryingrack_lastinfo.container == container and
+241: 					item.dryingrack_lastinfo.slot == slot
+242: 				)
+243: 			))
+244: end
+247: {
+248: 	widget =
+249: 	{
+251: 		slotbg = { dryer_slotbg },
+252: 		animbank = "ui_hermitcrab_meatrack_1x1",
+253: 		animbuild = "ui_hermitcrab_meatrack_1x1",
+254: 		pos = Vector3(0, 160, 0),
+255: 		side_align_tip = 100,
+256: 	},
+257: 	acceptsstacks = false,
+258: 	type = "chest",
+260: }
+262: params.meatrack_hermit_multi =
+263: {
+264: 	widget =
+265: 	{
+266: 		slotpos = {},
+267: 		slotbg = {},
+268: 		animbank = "ui_hermitcrab_3x3",
+269: 		animbuild = "ui_hermitcrab_3x3",
+270: 		pos = Vector3(0, 200, 0),
+271: 		side_align_tip = 160,
+272: 	},
+273: 	acceptsstacks = false,
+274: 	type = "chest",
+275: 	itemtestfn = params.meatrack.itemtestfn,
+276: }
+279: for y = 2, 0, -1 do
+280: 	for x = 0, 2 do
+281: 		table.insert(params.meatrack_hermit_multi.widget.slotpos, Vector3(80 * x - 80 * 2 + 80, 80 * y - 80 * 2 + 80, 0))
+282: 		table.insert(params.meatrack_hermit_multi.widget.slotbg, dryer_slotbg)
+283: 	end
+284: end
+286: dryer_slotbg = nil
+293: {
+295:     widget =
+296:     {
+297:         slotpos =
+298:         {
+299:             Vector3(-(64 + 12), 0, 0),
+300:             Vector3(0, 0, 0),
+301:             Vector3(64 + 12, 0, 0),
+302:         },
+304:         slotbg =
+305:         {
+306:             { image = "yotb_sewing_slot.tex", atlas = "images/hud2.xml" },
+307:             { image = "yotb_sewing_slot.tex", atlas = "images/hud2.xml" },
+308:             { image = "yotb_sewing_slot.tex", atlas = "images/hud2.xml" },
+309:         },
+311:         animbank = "ui_chest_3x1",
+312:         animbuild = "ui_chest_3x1",
+313:         pos = Vector3(0, 200, 0),
+314:         side_align_tip = 100,
+317:         {
+318:             text = STRINGS.ACTIONS.YOTB_SEW,
+319:             position = Vector3(0, -65, 0),
+320:         }
+321:     },
+323:     type = "cooker",
+324: }
+327:     return item:HasTag("yotb_pattern_fragment")
+328: end
+335:     end
+336: end
+339:     return inst.replica.container ~= nil and inst.replica.container:IsFull()
+340: end
+349: {
+350:     widget =
+351:     {
+352:         slotpos =
+353:         {
+354:             Vector3(0, 64 + 32 + 8 + 4, 0),
+355:             Vector3(0, 32 + 4, 0),
+356:             Vector3(0, -(32 + 4), 0),
+357:             Vector3(0, -(64 + 32 + 8 + 4), 0),
+358:         },
+359:         animbank = "ui_cookpot_1x4",
+360:         animbuild = "ui_cookpot_1x4",
+361:         pos = Vector3(200, 0, 0),
+362:         side_align_tip = 100,
+363:         buttoninfo =
+364:         {
+365:             text = STRINGS.ACTIONS.COOK,
+366:             position = Vector3(0, -165, 0),
+367:         }
+368:     },
+369:     acceptsstacks = false,
+370:     type = "cooker",
+371: }
+373: function params.cookpot.itemtestfn(container, item, slot)
+375: end
+378:     if inst.components.container ~= nil then
+379:         BufferedAction(doer, inst, ACTIONS.COOK):Do()
+381:         SendRPCToServer(RPC.DoWidgetButtonAction, ACTIONS.COOK.code, inst, ACTIONS.COOK.mod_name)
+382:     end
+383: end
+386:     return inst.replica.container ~= nil and inst.replica.container:IsFull()
+387: end
+390: params.portablecookpot = params.cookpot
+397: {
+398:     widget =
+399:     {
+400:         slotpos =
+401:         {
+402:             Vector3(0, 32 + 4, 0),
+403:             Vector3(0, -(32 + 4), 0),
+404:         },
+406:         {
+407:             { image = "cook_slot_food.tex" },
+408:             { image = "cook_slot_spice.tex" },
+409:         },
+410:         animbank = "ui_cookpot_1x2",
+411:         animbuild = "ui_cookpot_1x2",
+412:         pos = Vector3(200, 0, 0),
+413:         side_align_tip = 100,
+414:         buttoninfo =
+415:         {
+416:             text = STRINGS.ACTIONS.SPICE,
+417:             position = Vector3(0, -93, 0),
+418:         },
+419:     },
+420:     acceptsstacks = false,
+422:     type = "cooker",
+423: }
+427:         and (   (slot == 1 and item:HasTag("preparedfood") and not item:HasTag("spicedfood")) or
+428:                 (slot == 2 and item:HasTag("spice")) or
+430:             )
+431:         and not container.inst:HasTag("burnt")
+432: end
+434: function params.portablespicer.widget.buttoninfo.fn(inst, doer)
+435:     if inst.components.container ~= nil then
+436:         BufferedAction(doer, inst, ACTIONS.COOK):Do()
+437:     elseif inst.replica.container ~= nil and not inst.replica.container:IsBusy() then
+438:         SendRPCToServer(RPC.DoWidgetButtonAction, ACTIONS.COOK.code, inst, ACTIONS.COOK.mod_name)
+439:     end
+440: end
+442: function params.portablespicer.widget.buttoninfo.validfn(inst)
+443:     return inst.replica.container ~= nil and inst.replica.container:IsFull()
+444: end
+451: {
+452:     widget =
+453:     {
+454:         slotpos =
+455:         {
+456:             Vector3(-37.5, 32 + 4, 0),
+457:             Vector3(37.5, 32 + 4, 0),
+458:             Vector3(-37.5, -(32 + 4), 0),
+459:             Vector3(37.5, -(32 + 4), 0),
+460:         },
+461:         animbank = "ui_bundle_2x2",
+462:         animbuild = "ui_bundle_2x2",
+463:         pos = Vector3(200, 0, 0),
+464:         side_align_tip = 120,
+465:         buttoninfo =
+466:         {
+467:             text = STRINGS.ACTIONS.WRAPBUNDLE,
+468:             position = Vector3(0, -100, 0),
+469:         }
+470:     },
+471:     type = "cooker",
+472: }
+475:     return not item:HasAnyTag("irreplaceable", "_container", "bundle", "nobundling")
+476: end
+478: function params.bundle_container.widget.buttoninfo.fn(inst, doer)
+479:     if inst.components.container ~= nil then
+480:         BufferedAction(doer, inst, ACTIONS.WRAPBUNDLE):Do()
+481:     elseif inst.replica.container ~= nil and not inst.replica.container:IsBusy() then
+482:         SendRPCToServer(RPC.DoWidgetButtonAction, ACTIONS.WRAPBUNDLE.code, inst, ACTIONS.WRAPBUNDLE.mod_name)
+483:     end
+484: end
+487:     return inst.replica.container ~= nil and not inst.replica.container:IsEmpty() and not inst.replica.container:IsReadOnlyContainer()
+495: {
+496:     widget =
+497:     {
+498:         slotpos = {},
+499:         animbank = "ui_construction_4x1",
+500:         animbuild = "ui_construction_4x1",
+502:         top_align_tip = 50,
+503:         buttoninfo =
+504:         {
+505:             text = STRINGS.ACTIONS.APPLYCONSTRUCTION.GENERIC,
+506:             position = Vector3(0, -94, 0),
+507: 		},
+511: 		opensound = "dontstarve/wilson/chest_open",
+512: 		closesound = "dontstarve/wilson/chest_close",
+514:     },
+516:     type = "cooker",
+517: }
+520:     table.insert(params.construction_container.widget.slotpos, Vector3(x * 110, 8, 0))
+521: end
+527:         and doer.components.constructionbuilderuidata ~= nil
+528:         and doer.components.constructionbuilderuidata:GetIngredientForSlot(slot) == item.prefab
+529: end
+531: function params.construction_container.widget.buttoninfo.fn(inst, doer)
+532:     if inst.components.container ~= nil then
+533:         BufferedAction(doer, inst, ACTIONS.APPLYCONSTRUCTION):Do()
+534:     elseif inst.replica.container ~= nil and not inst.replica.container:IsBusy() then
+535:         SendRPCToServer(RPC.DoWidgetButtonAction, ACTIONS.APPLYCONSTRUCTION.code, inst, ACTIONS.APPLYCONSTRUCTION.mod_name)
+536:     end
+537: end
+540:     return inst.replica.container ~= nil and not inst.replica.container:IsEmpty()
+541: end
+544: params.construction_repair_container.widget.buttoninfo.text = STRINGS.ACTIONS.APPLYCONSTRUCTION.REPAIR
+547: params.construction_rebuild_container.widget.buttoninfo.text = STRINGS.ACTIONS.APPLYCONSTRUCTION.REBUILD
+556: params.enable_shadow_rift_construction_container.widget.side_align_tip = 120
+557: params.enable_shadow_rift_construction_container.widget.animbank = "ui_bundle_2x2"
+558: params.enable_shadow_rift_construction_container.widget.animbuild = "ui_bundle_2x2"
+559: params.enable_shadow_rift_construction_container.widget.buttoninfo.text = STRINGS.ACTIONS.APPLYCONSTRUCTION.OFFER
+565: params.construction_container_1x1 = deepcopy(params.construction_container)
+567: params.construction_container_1x1.widget.slotpos = {Vector3(0, 8, 0)}
+568: params.construction_container_1x1.widget.pos.x = 150
+569: params.construction_container_1x1.widget.side_align_tip = 40
+570: params.construction_container_1x1.widget.animbank = "ui_construction_1x1"
+571: params.construction_container_1x1.widget.animbuild = "ui_construction_1x1"
+576:     local container = inst.replica.container
+581:         if constructionsite ~= nil then
+582:             local ingredients = constructionsite:GetIngredients()
+585:                 for i, v in ipairs(ingredients) do
+587:                     local old_count = constructionsite:GetSlotCount(i)
+589:                         return false
+590:                     end
+591:                 end
+593:                 return false
+594:             end
+596:             return true
+597:         end
+598:     end
+600:     return false
+601: end
+604:     TheFrontEnd:PopScreen()
+605: end
+608: 	if inst.components.container ~= nil then
+609: 		BufferedAction(doer, inst, ACTIONS.APPLYCONSTRUCTION):Do()
+610: 	elseif inst.replica.container ~= nil and not inst.replica.container:IsBusy() then
+611: 		SendRPCToServer(RPC.DoWidgetButtonAction, ACTIONS.APPLYCONSTRUCTION.code, inst, ACTIONS.APPLYCONSTRUCTION.mod_name)
+612: 	end
+613: end
+618: 		EnableRiftsDoAct(inst, doer)
+619: 	end
+620: end
+626: 			EnableRiftsDoAct(inst, doer)
+627: 			TheFrontEnd:PopScreen()
+628: 		end
+630: 		local str = inst.POPUP_STRINGS
+632: 		{
+633: 			{ text = str.OK,     cb = EnableRiftsPopUpConfirm },
+634: 			{ text = str.CANCEL, cb = EnableRiftsPopUpGoBack  },
+635: 		})
+637: 		TheFrontEnd:PushScreen(confirmation)
+638: 		return true
+639: 	end
+640: 	return false
+641: end
+651: {
+652:     widget =
+653:     {
+654:         slotpos =
+655:         {
+656:             Vector3(0, 64 + 32 + 8 + 4, 0),
+657:             Vector3(0, 32 + 4, 0),
+658:             Vector3(0, -(32 + 4), 0),
+659:             Vector3(0, -(64 + 32 + 8 + 4), 0),
+660:         },
+661:         animbank = "ui_lamp_1x4",
+662:         animbuild = "ui_lamp_1x4",
+663:         pos = Vector3(200, 0, 0),
+664:         side_align_tip = 100,
+665:     },
+666:     acceptsstacks = false,
+667:     type = "cooker",
+668: }
+671:     return item:HasAnyTag("lightbattery", "lightcontainer") and not container.inst:HasTag("burnt")
+672: end
+681:     return item:HasAnyTag("lightbattery", "spore", "lightcontainer") and not container.inst:HasTag("burnt")
+682: end
+689: params.yots_lantern_post = {
+690:     widget =
+691:     {
+692:         slotpos = { Vector3(0, 0, 0), },
+693:         animbank = "ui_chest_1x1",
+694:         animbuild = "ui_chest_1x1",
+695:         pos = Vector3(0, 160, 0),
+696:         side_align_tip = 100,
+697:     },
+698:     acceptsstacks = false,
+699:     type = "chest",
+700: }
+703:     return item:HasAnyTag(LIGHT_TAGS) and not container.inst:HasTag("burnt")
+704: end
+710: params.hermitcrab_lightpost = deepcopy(params.yots_lantern_post)
+711: params.hermitcrab_lightpost.widget.animbank = "ui_hermitcrab_1x1"
+712: params.hermitcrab_lightpost.widget.animbuild = "ui_hermitcrab_1x1"
+713: params.hermitcrab_lightpost.itemtestfn = params.yots_lantern_post.itemtestfn
+715: function params.hermitcrab_lightpost.widget.bganim_visualfn(bganim, container, doer)
+716:     local r, g, b, a = container.AnimState:GetSymbolMultColour("coral")
+717:     bganim:GetAnimState():SetSymbolMultColour("coral", r, g, b, a)
+718: end
+725: {
+726: 	widget =
+727: 	{
+728: 		slotpos =
+729: 		{
+730: 			Vector3(-37.5, 32 + 4, 0),
+731: 			Vector3(37.5, 32 + 4, 0),
+732: 			Vector3(-37.5, -(32 + 4), 0),
+733: 			Vector3(37.5, -(32 + 4), 0),
+734: 		},
+735: 		slotbg = {},
+736: 		animbank = "ui_hermitcrab_2x2",
+737: 		animbuild = "ui_hermitcrab_2x2",
+738: 		pos = Vector3(200, 0, 0),
+739: 		side_align_tip = 120,
+740: 	},
+741: 	acceptsstacks = false,
+742: 	type = "cooker",
+743: }
+746: for i = 1, 4 do
+747: 	params.hermithouse2.widget.slotbg[i] = hermithouse2_slotbg
+748: end
+749: hermithouse2_slotbg = nil
+752:     return item:HasTag("hermithouse_ornament")
+753: end
+760: {
+761:     widget =
+762:     {
+763:         slotpos = {},
+764:         animbank = "ui_backpack_2x4",
+765:         animbuild = "ui_backpack_2x4",
+766:         pos = Vector3(275, 0, 0),
+767:         side_align_tip = 100,
+768:     },
+769:     acceptsstacks = false,
+770:     type = "cooker",
+771: }
+773: for y = 0, 3 do
+774:     table.insert(params.winter_tree.widget.slotpos, Vector3(-162, -75 * y + 114, 0))
+775:     table.insert(params.winter_tree.widget.slotpos, Vector3(-162 + 75, -75 * y + 114, 0))
+776: end
+779: 	return item:HasAnyTag("winter_ornament", "hermithouse_ornament") and not container.inst:HasTag("burnt")
+780: end
+783: params.winter_deciduoustree = params.winter_tree
+784: params.winter_palmconetree = params.winter_tree
+791: {
+792:     widget =
+793:     {
+794:         slotpos =
+795:         {
+796:             Vector3(-37.5, 32 + 4, 0),
+797:             Vector3(37.5, 32 + 4, 0),
+798:             Vector3(-37.5, -(32 + 4), 0),
+799:             Vector3(37.5, -(32 + 4), 0),
+800:         },
+801:         slotbg =
+802:         {
+803:             { image = "sisturn_slot_petals.tex" },
+804:             { image = "sisturn_slot_petals.tex" },
+805:             { image = "sisturn_slot_petals.tex" },
+806:             { image = "sisturn_slot_petals.tex" },
+807:         },
+808:         animbank = "ui_chest_2x2",
+809:         animbuild = "ui_chest_2x2",
+810:         pos = Vector3(200, 0, 0),
+811:         side_align_tip = 120,
+812:     },
+813:     acceptsstacks = false,
+814:     type = "cooker",
+815:     openlimit = 1,
+816: }
+820:     if TheWorld.ismastersim then
+822:     elseif ThePlayer and container:IsOpenedBy(ThePlayer) then
+823:         owner = ThePlayer
+824:     end
+828:         return item.prefab == "petals" or item.prefab == "moon_tree_blossom" or item.prefab == "petals_evil"
+829:     end
+832: end
+839: {
+840:     widget =
+841:     {
+842:         slotpos =
+843:         {
+844:             Vector3(-37.5, 32 + 4, 0),
+845:             Vector3(37.5, 32 + 4, 0),
+846:             Vector3(-37.5, -(32 + 4), 0),
+847:             Vector3(37.5, -(32 + 4), 0),
+848:         },
+849:         slotbg =
+850:         {
+851:             { image = "inv_slot_kelp.tex", atlas = "images/hud2.xml" },
+852:             { image = "inv_slot_kelp.tex", atlas = "images/hud2.xml" },
+853:             { image = "inv_slot_kelp.tex", atlas = "images/hud2.xml" },
+854:             { image = "inv_slot_kelp.tex", atlas = "images/hud2.xml" },
+855:         },
+856:         animbank = "ui_chest_2x2",
+857:         animbuild = "ui_chest_2x2",
+858:         pos = Vector3(200, 0, 0),
+859:         side_align_tip = 120,
+860:     },
+861:     acceptsstacks = false,
+862:     type = "cooker",
+863: }
+866:     return not container.inst:HasTag("burnt") and item.prefab == "kelp"
+867: end
+874: {
+875:     widget =
+876:     {
+877:         slotpos =
+878:         {            
+879:             Vector3(-75, 32 + 4, 0),
+880:             Vector3(0, 32 + 4, 0),
+881:             Vector3(75, 32 + 4, 0),
+882:             Vector3(-75, -(32 + 4), 0),
+883:             Vector3(0, -(32 + 4), 0),
+884:             Vector3(75, -(32 + 4), 0),
+885:         },
+886:         slotbg =
+887:         {
+888:             { image = "inv_slot_kelp.tex", atlas = "images/hud2.xml" },
+889:             { image = "inv_slot_kelp.tex", atlas = "images/hud2.xml" },
+890:             { image = "inv_slot_kelp.tex", atlas = "images/hud2.xml" },
+891:             { image = "inv_slot_kelp.tex", atlas = "images/hud2.xml" },
+892:             { image = "inv_slot_kelp.tex", atlas = "images/hud2.xml" },
+893:             { image = "inv_slot_kelp.tex", atlas = "images/hud2.xml" },
+894:         },
+895:         animbank = "ui_chest_3x2",
+896:         animbuild = "ui_chest_3x2",
+897:         pos = Vector3(200, 0, 0),
+898:         side_align_tip = 120,
+899:     },
+900:     acceptsstacks = false,
+901:     type = "cooker",
+902: }
+911: {
+912:     widget =
+913:     {
+914:         slotpos =
+915:         {
+916:             Vector3(0,   32 + 4,  0),
+917:             Vector3(0, -(32 + 4), 0),
+918:         },
+919:         slotbg =
+920:         {
+921:             { image = "inv_slot_twigs.tex", atlas = "images/hud2.xml" },
+922:             { image = "inv_slot_rocks.tex", atlas = "images/hud2.xml" },
+923:         },
+924:         animbank = "ui_chest_1x2",
+925:         animbuild = "ui_chest_1x2",
+926:         pos = Vector3(200, 0, 0),
+927:         side_align_tip = 100,
+929:         closesound = "meta4/mermery/close",
+930:     },
+932:     type = "cooker",
+933: }
+936:     return
+937:         not container.inst:HasTag("burnt") and (
+938:             (slot == 1 and item.prefab == "twigs") or
+939:             (slot == 2 and item.prefab == "rocks") or
+941:         )
+942: end
+953: {
+954:     { image = "inv_slot_log.tex",       atlas = "images/hud2.xml" },
+955:     { image = "inv_slot_cutgrass.tex" , atlas = "images/hud2.xml"},
+956: }
+959:     return
+960:         not container.inst:HasTag("burnt") and (
+961:             (slot == 1 and item.prefab == "log") or
+962:             (slot == 2 and item.prefab == "cutgrass") or
+963:             (slot == nil and (item.prefab == "log" or item.prefab == "cutgrass"))
+964:         )
+965: end
+967: params.merm_armory_upgraded = deepcopy(params.merm_armory)
+974: {
+975:     widget =
+976:     {
+977:         slotpos =
+978:         {
+979:             Vector3(-(64 + 12), 0, 0),
+980:             Vector3(0, 0, 0),
+981:             Vector3(64 + 12, 0, 0),
+982:         },
+983:         animbank = "ui_chest_3x1",
+984:         animbuild = "ui_chest_3x1",
+985:         pos = Vector3(200, 0, 0),
+986:         side_align_tip = 100,
+987:     },
+988:     acceptsstacks = false,
+989:     type = "cooker",
+990: }
+993:     return item:HasTag("halloween_ornament") and not container.inst:HasTag("burnt")
+994: end
+1001: {
+1002:     widget =
+1003:     {
+1004:         slotpos = {},
+1005:         animbank = "ui_chest_3x3",
+1006:         animbuild = "ui_chest_3x3",
+1007:         pos = Vector3(0, 200, 0),
+1008:         side_align_tip = 160,
+1009:     },
+1010:     type = "chest",
+1011: }
+1014:     for x = 0, 2 do
+1015:         table.insert(params.icebox.widget.slotpos, Vector3(80 * x - 80 * 2 + 80, 80 * y - 80 * 2 + 80, 0))
+1016:     end
+1017: end
+1021:         return true
+1022:     end
+1026:         return false
+1027:     end
+1030: 		return false
+1031: 	end
+1034:     for k, v in pairs(FOODTYPE) do
+1035:         if item:HasTag("edible_"..v) then
+1036:             return true
+1037:         end
+1038:     end
+1040:     return false
+1041: end
+1050:     return (item:HasAnyTag("fresh", "stale", "spoiled")
+1051: 		and item:HasTag("cookable")
+1052: 		and not item:HasAnyTag("deployable", "smallcreature")
+1054: 		or item:HasTag("saltbox_valid")
+1055: end
+1062: {
+1063:     widget =
+1064:     {
+1065:         slotpos = {},
+1066:         animbank = "ui_krampusbag_2x8",
+1067:         animbuild = "ui_krampusbag_2x8",
+1069:         pos = Vector3(-5, -130, 0),
+1070:     },
+1071:     issidewidget = true,
+1072:     type = "pack",
+1074: }
+1076: for y = 0, 6 do
+1077:     table.insert(params.krampus_sack.widget.slotpos, Vector3(-162, -75 * y + 240, 0))
+1078:     table.insert(params.krampus_sack.widget.slotpos, Vector3(-162 + 75, -75 * y + 240, 0))
+1079: end
+1086: {
+1087:     widget =
+1088:     {
+1089:         slotpos = {},
+1090:         animbank = "ui_piggyback_2x6",
+1091:         animbuild = "ui_piggyback_2x6",
+1093:         pos = Vector3(-5, -90, 0),
+1094:     },
+1095:     issidewidget = true,
+1096:     type = "pack",
+1097:     openlimit = 1,
+1098: }
+1100: for y = 0, 5 do
+1101:     table.insert(params.piggyback.widget.slotpos, Vector3(-162, -75 * y + 170, 0))
+1102:     table.insert(params.piggyback.widget.slotpos, Vector3(-162 + 75, -75 * y + 170, 0))
+1103: end
+1110: {
+1111:     widget =
+1112:     {
+1113:         slotpos =
+1114:         {
+1115:             Vector3(0, 64 + 32 + 8 + 4, 0),
+1116:             Vector3(0, 32 + 4, 0),
+1117:             Vector3(0, -(32 + 4), 0),
+1118:             Vector3(0, -(64 + 32 + 8 + 4), 0),
+1119:         },
+1120:         animbank = "ui_cookpot_1x4",
+1121:         animbuild = "ui_cookpot_1x4",
+1122:         pos = Vector3(0, 0, 0),
+1123:         side_align_tip = 100,
+1124:         buttoninfo =
+1125:         {
+1127:             position = Vector3(0, -165, 0),
+1128:         },
+1129:     },
+1130:     type = "cooker",
+1131: }
+1134:     return not item:HasTag("nonpotatable")
+1135: end
+1140: end
+1147: {
+1148:     widget =
+1149:     {
+1150:         slotpos =
+1151:         {
+1158:             Vector3(0, 0, 0),
+1159:             Vector3(68, 0, 0),
+1160:             Vector3(68+68, 0, 0),
+1161:             Vector3(68+68+68, 0, 0),
+1162:             Vector3(68+68+68+68, 0, 0),
+1164:         },
+1165:         slotbg =
+1166:         {
+1167:             { image = "sisturn_slot_petals.tex" },
+1168:             { image = "sisturn_slot_petals.tex" },
+1169:             { image = "sisturn_slot_petals.tex" },
+1170:             { image = "sisturn_slot_petals.tex" },
+1171:             { image = "sisturn_slot_petals.tex" },            
+1172:         },        
+1174:         animbuild = "ui_cookpot_1x4",
+1175:         pos = Vector3(100, 0, 0),
+1176:         buttoninfo =
+1177:         {
+1178:             text = STRINGS.ACTIONS.ACTIVATE.GENERIC,
+1179:             position = Vector3(68+68, -68, 0),
+1180:         },        
+1181:     },
+1182:     acceptsstacks = false,
+1183:     type = "cooker",
+1184:     openlimit = 1,
+1185: }
+1188:     return not container.inst:HasTag("burnt") --and item.prefab == "kelp"
+1189: end
+1191: function params.balatro_machine.widget.buttoninfo.fn(inst, doer)
+1192:     if inst.components.container ~= nil then
+1193:         BufferedAction(doer, inst, ACTIONS.ACTIVATE_CONTAINER):Do()
+1194:     elseif inst.replica.container ~= nil and not inst.replica.container:IsBusy() then
+1195:         SendRPCToServer(RPC.DoWidgetButtonAction, ACTIONS.ACTIVATE_CONTAINER.code, inst, ACTIONS.ACTIVATE_CONTAINER.mod_name)
+1196:     end
+1197: end
+1199: function params.balatro_machine.widget.buttoninfo.validfn(inst)
+1200:     return inst.replica.container ~= nil and inst.replica.container:IsFull()
+1201: end
+1202: ]]
+1210: {
+1211:     widget =
+1212:     {
+1213:         slotpos = {},
+1214:         animbank = "ui_chest_3x3",
+1215:         animbuild = "ui_chest_3x3",
+1217:         animbuild_upgraded = "ui_chest_upgraded_3x3",
+1218:         pos = Vector3(0, 200, 0),
+1219:         side_align_tip = 160,
+1220:     },
+1221:     type = "chest",
+1222: }
+1224: for y = 2, 0, -1 do
+1225:     for x = 0, 2 do
+1226:         table.insert(params.treasurechest.widget.slotpos, Vector3(80 * x - 80 * 2 + 80, 80 * y - 80 * 2 + 80, 0))
+1227:     end
+1228: end
+1231: params.chest_mimic = params.pandoraschest
+1232: params.skullchest = params.treasurechest
+1233: params.terrariumchest = params.treasurechest
+1236: params.quagmire_safe.widget.animbank = "quagmire_ui_chest_3x3"
+1237: params.quagmire_safe.widget.animbuild = "quagmire_ui_chest_3x3"
+1240: params.boat_ancient_container.widget.animbank = "ui_boat_ancient_4x4"
+1241: params.boat_ancient_container.widget.animbuild = "ui_boat_ancient_4x4"
+1245:     for x = 0, 3 do
+1247:     end
+1248: end
+1256: params.dragonflychest.widget.animbank_upgraded = "ui_chester_upgraded_3x4"
+1257: params.dragonflychest.widget.animbuild_upgraded = "ui_chester_upgraded_3x4"
+1264: {
+1265:     widget =
+1266:     {
+1267:         slotpos = {
+1268:             Vector3(0, 2, 0),
+1269:         },
+1270:         slotbg =
+1271:         {
+1272:             { image = "turf_slot.tex", atlas = "images/hud2.xml" },
+1273:         },
+1274:         animbank = "ui_antlionhat_1x1",
+1275:         animbuild = "ui_antlionhat_1x1",
+1276:         pos = Vector3(106, 40, 0),
+1277:     },
+1278:     type = "hand_inv",
+1280: }
+1283:     return item:HasTag("groundtile") and item.tile
+1284: end
+1291: {
+1292:     widget =
+1293:     {
+1294:         slotpos = {},
+1295:         animbank = "ui_fish_box_5x4",
+1296:         animbuild = "ui_fish_box_5x4",
+1297:         pos = Vector3(0, 220, 0),
+1298:         side_align_tip = 160,
+1299:     },
+1300:     type = "chest",
+1301: }
+1304:     for x = -1, 3 do
+1305:         table.insert(params.fish_box.widget.slotpos, Vector3(75 * x - 75 * 2 + 75, 75 * y - 75 * 2 + 75, 0))
+1306:     end
+1307: end
+1310:     return item:HasTag("smalloceancreature")
+1311: end
+1319: {
+1320:     widget =
+1321:     {
+1322:         slotpos =
+1323:         {
+1324:             Vector3(0,   32 + 4,  0),
+1325:             Vector3(0, -(32 + 4), 0),
+1326:         },
+1327:         slotbg =
+1328:         {
+1329:             { image = "fishing_slot_bobber.tex" },
+1330:             { image = "fishing_slot_lure.tex" },
+1331:         },
+1332:         animbank = "ui_cookpot_1x2",
+1333:         animbuild = "ui_cookpot_1x2",
+1334:         pos = Vector3(0, 60, 0),
+1335:     },
+1336:     acceptsstacks = false,
+1337:     usespecificslotsforitems = true,
+1338:     type = "hand_inv",
+1339:     excludefromcrafting = true,
+1340: }
+1344: 		or (slot == 1 and item:HasTag("oceanfishing_bobber"))
+1345: 		or (slot == 2 and item:HasTag("oceanfishing_lure"))
+1346: end
+1354: {
+1355:     widget =
+1356:     {
+1357:         slotpos =
+1358:         {
+1359:             Vector3(0, 0, 0),
+1360:         },
+1361:         slotbg =
+1362:         {
+1363:             { image = "inv_slot_morsel.tex" },
+1364:         },
+1365:         animbank = "ui_beard_1x1",
+1366:         animbuild = "ui_beard_1x1",
+1367:         pos = Vector3(-82, 89, 0),
+1368:         bottom_align_tip = -100,
+1369:     },
+1370:     type = "side_inv_behind",
+1374: }
+1378:     for k, v in pairs(FOODGROUP.OMNI.types) do
+1379:         if item:HasTag("edible_"..v) then
+1380:             return true
+1381:         end
+1382:     end
+1384: end
+1387: {
+1388:     widget =
+1389:     {
+1390:         slotpos =
+1391:         {
+1392:             Vector3(-(64 + 12)/2, 0, 0),
+1393:             Vector3( (64 + 12)/2, 0, 0),
+1394:         },
+1395:         slotbg =
+1396:         {
+1397:             { image = "inv_slot_morsel.tex" },
+1398:             { image = "inv_slot_morsel.tex" },
+1399:         },
+1400:         animbank = "ui_beard_2x1",
+1401:         animbuild = "ui_beard_2x1",
+1402:         pos = Vector3(-82, 89, 0),
+1403:         bottom_align_tip = -100,
+1404:     },
+1406:     acceptsstacks = true,
+1407:     lowpriorityselection = true,
+1409: }
+1411: function params.beard_sack_2.itemtestfn(container, item, slot)
+1413:     for k, v in pairs(FOODGROUP.OMNI.types) do
+1414:         if item:HasTag("edible_"..v) then
+1415:             return true
+1416:         end
+1417:     end
+1418: end
+1421: {
+1422:     widget =
+1423:     {
+1424:         slotpos =
+1425:         {
+1426:             Vector3(-(64 + 12), 0, 0),
+1427:             Vector3(0, 0, 0),
+1428:             Vector3(64 + 12, 0, 0),
+1429:         },
+1430:         slotbg =
+1431:         {
+1432:             { image = "inv_slot_morsel.tex" },
+1433:             { image = "inv_slot_morsel.tex" },
+1434:             { image = "inv_slot_morsel.tex" },
+1435:         },
+1436:         animbank = "ui_beard_3x1",
+1437:         animbuild = "ui_beard_3x1",
+1438:         pos = Vector3(-82, 89, 0),
+1439:         bottom_align_tip = -100,
+1440:     },
+1441:     type = "side_inv_behind",
+1442:     acceptsstacks = true,
+1443:     lowpriorityselection = true,
+1445: }
+1447: function params.beard_sack_3.itemtestfn(container, item, slot)
+1449:     for k, v in pairs(FOODGROUP.OMNI.types) do
+1450:         if item:HasTag("edible_"..v) then
+1451:             return true
+1452:         end
+1453:     end
+1454: end
+1464: {
+1465:     widget =
+1466:     {
+1467:         slotpos =
+1468:         {
+1469:             Vector3(0,   32 + 4,  0),
+1470:         },
+1471:         slotbg =
+1472:         {
+1473:             { image = "slingshot_ammo_slot.tex" },
+1474:         },
+1475:         animbank = "ui_cookpot_1x2",
+1476:         animbuild = "ui_cookpot_1x2",
+1477:         pos = Vector3(0, 15, 0),
+1478:     },
+1480:     excludefromcrafting = true,
+1481: }
+1484: params.slingshotex.widget.animbank = "ui_slingshot_wagpunk_0"
+1485: params.slingshotex.widget.animbuild = "ui_slingshot_wagpunk_0"
+1487: params.slingshot999ex = deepcopy(params.slingshotex)
+1488: params.slingshot999ex.widget.animbank = "ui_slingshot_wagpunk"
+1489: params.slingshot999ex.widget.animbuild = "ui_slingshot_wagpunk"
+1492: {
+1493: 	widget =
+1494: 	{
+1495: 		slotpos =
+1496: 		{
+1498: 			Vector3(0, 32 + 4, 0),
+1499: 			Vector3(0, 64 + 32 + 8 + 4, 0),
+1500: 		},
+1501: 		slotbg =
+1502: 		{
+1503: 			{ image = "slingshot_ammo_slot.tex" },
+1504: 			{ image = "slingshot_ammo_slot.tex" },
+1505: 		},
+1506: 		animbank = "ui_slingshot_bone",
+1507: 		animbuild = "ui_slingshot_bone",
+1508: 		pos = Vector3(0, 15, 0),
+1509: 	},
+1510: 	type = "hand_inv",
+1511: 	excludefromcrafting = true,
+1512: }
+1515: params.slingshot2ex.widget.animbank = "ui_slingshot_gems"
+1516: params.slingshot2ex.widget.animbuild = "ui_slingshot_gems"
+1517: params.slingshot2ex.widget.slotpos[2].y = 64 + 32 + 8 + 4 + 32
+1521: 		local owner
+1523: 			owner = container.inst.components.container:GetOpeners()[1]
+1524: 		elseif ThePlayer and container:IsOpenedBy(ThePlayer) then
+1525: 			owner = ThePlayer
+1526: 		end
+1528: 		if owner and not (owner.components.skilltreeupdater and owner.components.skilltreeupdater:IsActivated(item.REQUIRED_SKILL)) then
+1529: 			return false
+1530: 		end
+1531: 	end
+1532: 	return item:HasTag("slingshotammo")
+1533: end
+1536: params.slingshot999ex.itemtestfn = params.slingshot.itemtestfn
+1537: params.slingshot2.itemtestfn = params.slingshot.itemtestfn
+1538: params.slingshot2ex.itemtestfn = params.slingshot.itemtestfn
+1545: {
+1546: 	widget =
+1547: 	{
+1548: 		slotpos =
+1549: 		{
+1551: 			Vector3(20, -60, 0),	--frame
+1552: 			Vector3(220, -150, 0),	--handle
+1553: 		},
+1554: 		slotbg =
+1555: 		{
+1556: 			{ image = "inv_slot_sketchy.tex", atlas = "images/hud2.xml" },
+1557: 			{ image = "inv_slot_sketchy.tex", atlas = "images/hud2.xml" },
+1558: 			{ image = "inv_slot_sketchy.tex", atlas = "images/hud2.xml" },
+1559: 		},
+1560: 		slotscale = 1.6,
+1561: 		slothighlightscale = 1.75,
+1562: 		animbank = "ui_slingshotmods",
+1563: 		animbuild = "ui_slingshotmods",
+1564: 		pos = Vector3(200, 0, 0),
+1565: 		side_align_tip = 100,
+1569: 		opensound = "meta5/walter/slingshot_UI_open_close",
+1570: 		closesound = "meta5/walter/slingshot_UI_open_close",
+1572: 	},
+1574: 	acceptsstacks = false,
+1575: 	type = "cooker",
+1576: 	openlimit = 1,
+1577: }
+1580: 	if item.REQUIRED_SKILL then
+1581: 		local owner
+1582: 		if TheWorld.ismastersim then
+1583: 			owner = container.inst.components.container:GetOpeners()[1]
+1584: 		elseif ThePlayer and container:IsOpenedBy(ThePlayer) then
+1585: 			owner = ThePlayer
+1586: 		end
+1588: 		if owner and not (owner.components.skilltreeupdater and owner.components.skilltreeupdater:IsActivated(item.REQUIRED_SKILL)) then
+1589: 			return false
+1590: 		end
+1591: 	end
+1594: 		return item:HasTag("slingshot_band")
+1595: 	elseif slot == 2 then
+1596: 		return item:HasTag("slingshot_frame")
+1597: 	elseif slot == 3 then
+1598: 		return item:HasTag("slingshot_handle")
+1599: 	elseif slot == nil then
+1600: 		return item:HasAnyTag("slingshot_band", "slingshot_frame", "slingshot_handle")
+1601: 	end
+1602: 	return false
+1603: end
+1610: {
+1611:     widget =
+1612:     {
+1613:         slotpos = {},
+1614:         animbank = "ui_tacklecontainer_3x2",
+1615:         animbuild = "ui_tacklecontainer_3x2",
+1616:         pos = Vector3(0, 200, 0),
+1617:         side_align_tip = 160,
+1618:     },
+1619:     type = "chest",
+1620: }
+1623:     for x = 0, 2 do
+1624:         table.insert(params.tacklecontainer.widget.slotpos, Vector3(80 * x - 80 * 2 + 80, 80 * y - 80 * 2 + 120, 0))
+1625:     end
+1626: end
+1629: 	return item:HasAnyTag("oceanfishing_bobber", "oceanfishing_lure")
+1630: end
+1639: {
+1640:     widget =
+1641:     {
+1642:         slotpos = {},
+1643:         animbank = "ui_tacklecontainer_3x5",
+1644:         animbuild = "ui_tacklecontainer_3x5",
+1645:         pos = Vector3(0, 280, 0),
+1646:         side_align_tip = 160,
+1647:     },
+1648:     type = "chest",
+1649: }
+1652:     for x = 0, 2 do
+1653:         table.insert(params.supertacklecontainer.widget.slotpos, Vector3(80 * x - 80 * 2 + 80, 80 * y - 45, 0))
+1654:     end
+1655: end
+1658: params.supertacklecontainer.priorityfn = params.tacklecontainer.priorityfn
+1667: {
+1668:     widget =
+1669:     {
+1670:         slotpos = {},
+1671:         animbank = "ui_tacklecontainer_3x5",
+1672:         animbuild = "ui_tacklecontainer_3x5",
+1673:         pos = Vector3(0, 280, 0),
+1674:         side_align_tip = 160,
+1675:     },
+1676:     type = "chest",
+1677: }
+1680:     for x = 0, 2 do
+1681:         table.insert(params.sunkenchest.widget.slotpos, Vector3(80 * x - 80 * 2 + 80, 80 * y - 45, 0))
+1682:     end
+1683: end
+1690: {
+1691:     widget =
+1692:     {
+1693:         slotpos = {},
+1694:         animbank = "ui_chest_3x2",
+1695:         animbuild = "ui_chest_3x2",
+1696:         pos = Vector3(0, 200, 0),
+1697:         side_align_tip = 160,
+1698:     },
+1699:     type = "chest",
+1700: }
+1702: for y = 1, 0, -1 do
+1703:     for x = 0, 2 do
+1704:         table.insert(params.sacred_chest.widget.slotpos, Vector3(80 * x - 80 * 2 + 80, 80 * y - 80 * 2 + 120, 0))
+1705:     end
+1706: end
+1713: {
+1714:     widget =
+1715:     {
+1716:         slotpos = {},
+1717:         animbank = "ui_krampusbag_2x8",
+1718:         animbuild = "ui_krampusbag_2x8",
+1719:         pos = Vector3(-5, -130, 0),
+1720:     },
+1721:     issidewidget = true,
+1722:     type = "pack",
+1723:     openlimit = 1,
+1724: }
+1726: for y = 0, 6 do
+1727:     table.insert(params.seedpouch.widget.slotpos, Vector3(-162, -75 * y + 240, 0))
+1728:     table.insert(params.seedpouch.widget.slotpos, Vector3(-162 + 75, -75 * y + 240, 0))
+1729: end
+1732:     return item.prefab == "seeds" or string.match(item.prefab, "_seeds") or item:HasTag("treeseed")
+1733: end
+1742: {
+1743:     widget =
+1744:     {
+1745:         slotpos = {},
+1746:         animbank = "ui_krampusbag_2x8",
+1747:         animbuild = "ui_krampusbag_2x8",
+1748:         pos = Vector3(-5, -130, 0),
+1749:     },
+1750:     issidewidget = true,
+1751:     type = "pack",
+1752:     openlimit = 1,
+1753: }
+1755: for y = 0, 6 do
+1756:     table.insert(params.candybag.widget.slotpos, Vector3(-162, -75 * y + 240, 0))
+1757:     table.insert(params.candybag.widget.slotpos, Vector3(-162 + 75, -75 * y + 240, 0))
+1758: end
+1761:     return item:HasAnyTag("halloweencandy", "halloween_ornament") or string.sub(item.prefab, 1, 8) == "trinket_"
+1762: end
+1764: params.candybag.priorityfn = params.candybag.itemtestfn
+1771: {
+1772:     widget =
+1773:     {
+1774:         slotpos = {
+1775:             Vector3(-2, 18, 0),
+1776:         },
+1777:         slotbg =
+1778:         {
+1779:             { image = "spore_slot.tex", atlas = "images/hud2.xml" },
+1780:         },
+1781:         animbank = "ui_alterguardianhat_1x1",
+1782:         animbuild = "ui_alterguardianhat_1x1",
+1783:         pos = Vector3(0, 160, 0),
+1784:     },
+1785:     acceptsstacks = false,
+1786:     type = "chest",
+1787: }
+1790:     return item:HasTag("spore")
+1791: end
+1798: {
+1799:     widget =
+1800:     {
+1801:         slotpos = {},
+1802:         slotbg = {},
+1803:         animbank = "ui_alterguardianhat_1x6",
+1804:         animbuild = "ui_alterguardianhat_1x6",
+1805: 		pos = Vector3(106, 10, 0),
+1806:     },
+1807:     acceptsstacks = false,
+1808:     type = "hand_inv",
+1809:     excludefromcrafting = true,
+1810: }
+1813: local AGHAT_SLOTDIFF = 72
+1815: for i = 0, 4 do
+1816:     local sp = Vector3(0, AGHAT_SLOTSTART - (i*AGHAT_SLOTDIFF), 0)
+1817:     table.insert(params.alterguardianhat.widget.slotpos, sp)
+1818:     table.insert(params.alterguardianhat.widget.slotbg, SLOT_BG)
+1819: end
+1823:     return item:HasAnyTag(ALTERGUARDIANHAT_ITEMS)
+1824: end
+1831: {
+1832:     widget =
+1833:     {
+1834:         slotpos = {},
+1835:         animbank = "ui_tacklecontainer_3x2",
+1836:         animbuild = "ui_tacklecontainer_3x2",
+1837:         pos = Vector3(-850, 100, 0),
+1838:         side_align_tip = 100,
+1839:     },
+1840:     type = "hand_inv",
+1841:     excludefromcrafting = true,
+1842: }
+1844: for y = 1, 0, -1 do
+1845:     for x = 0, 2 do
+1846:         table.insert(params.pocketwatch.widget.slotpos, Vector3(80 * x - 80 * 2 + 80, 80 * y - 80 * 2 + 120, 0))
+1847:     end
+1848: end
+1850: function params.pocketwatch.itemtestfn(container, item, slot)
+1851: 	return item:HasTag("pocketwatchpart")
+1852: end
+1859: {
+1860:     widget =
+1861:     {
+1862:         slotpos =
+1863:         {
+1864:             Vector3(0, 100, 0),
+1865:             Vector3(0, 20, 0),
+1866:             Vector3(0, -60, 0),
+1867:             Vector3(0, -140, 0),
+1868:         },
+1869:         animbank = "ui_cookpot_1x4",
+1870:         animbuild = "ui_cookpot_1x4",
+1871:         pos = Vector3(200, 0, 0),
+1872:         side_align_tip = 100,
+1873:     },
+1874:     acceptsstacks = false,
+1875:     type = "cooker",
+1876: }
+1879:     return item:HasAnyTag("cookable", "oceanfish")
+1880: end
+1887: {
+1888:     widget =
+1889:     {
+1890:         slotpos = {},
+1891:         animbank = "ui_bookstation_4x5",
+1892:         animbuild = "ui_bookstation_4x5",
+1893:         pos = Vector3(0, 280, 0),
+1894:         side_align_tip = 160,
+1895:     },
+1896:     type = "chest",
+1897: }
+1900:     table.insert(params.bookstation.widget.slotpos, Vector3(-114      , (-77 * y) + 37 - (y * 2), 0))
+1901:     table.insert(params.bookstation.widget.slotpos, Vector3(-114 + 75 , (-77 * y) + 37 - (y * 2), 0))
+1902:     table.insert(params.bookstation.widget.slotpos, Vector3(-114 + 150, (-77 * y) + 37 - (y * 2), 0))
+1903:     table.insert(params.bookstation.widget.slotpos, Vector3(-114 + 225, (-77 * y) + 37 - (y * 2), 0))
+1904: end
+1907:     return item:HasTag("bookcabinet_item")
+1908: end
+1915: {
+1916:     widget =
+1917:     {
+1918:         slotpos = {},
+1919:         slotbg  = {},
+1920:         animbank  = "ui_icepack_2x3",
+1921:         animbuild = "ui_icepack_2x3",
+1922:         pos = Vector3(75, 195, 0),
+1923:         side_align_tip = 160,
+1924:     },
+1925:     type = "chest",
+1926: }
+1929:     for x = 0, 1 do
+1930:         table.insert(params.beargerfur_sack.widget.slotpos, Vector3(-163 + (75 * x),   -75 * y + 73,   0))
+1931:         table.insert(params.beargerfur_sack.widget.slotbg, { image = "preparedfood_slot.tex", atlas = "images/hud2.xml" })
+1932:     end
+1933: end
+1937:     return item:HasAnyTag("beargerfur_sack_valid", "preparedfood")
+1938: end
+1949: 	return item:HasTag("blowpipeammo")
+1950: end
+1957: {
+1958:     widget =
+1959:     {
+1960:         slotpos = {},
+1961:         slotbg  = {},
+1962:         animbank  = "ui_backpack_2x4",
+1963:         animbuild = "ui_backpack_2x4",
+1964:         pos = Vector3(75, 195, 0),
+1965:         side_align_tip = 160,
+1966:     },
+1967:     type = "chest",
+1968: }
+1972: for y = 0, 3 do
+1973:     table.insert(params.battlesong_container.widget.slotpos, Vector3(-162     , -75 * y + 114, 0))
+1974:     table.insert(params.battlesong_container.widget.slotpos, Vector3(-162 + 75, -75 * y + 114, 0))
+1976:     table.insert(params.battlesong_container.widget.slotbg, battlesong_container_bg)
+1977:     table.insert(params.battlesong_container.widget.slotbg, battlesong_container_bg)
+1978: end
+1982:     return item:HasTag("battlesong")
+1983: end
+1992: {
+1994:     {
+1995:         slotpos = {
+1996:             Vector3(-2, 18, 0),
+1997:         },
+1998:         slotbg  = {
+1999:             {image = "soul_slot.tex", atlas = "images/hud2.xml"},
+2000:         },
+2001:         animbank  = "ui_wortox_souljar_1x1",
+2002:         animbuild = "ui_wortox_souljar_1x1",
+2003:         pos = Vector3(0, 195, 0),
+2004:         side_align_tip = 160,
+2006:         closesound = "meta5/wortox/souljar_close_pop",
+2007:     },
+2008:     type = "chest",
+2009: }
+2012:     return item:HasTag("soul") and not item:HasTag("nosouljar")
+2013: end
+2020: {
+2021:     widget =
+2022:     {
+2023:         slotpos = {},
+2024:         slotbg  = {},
+2025:         animbank  = "ui_elixir_container_3x3",
+2026:         animbuild = "ui_elixir_container_3x3",
+2027:         pos = Vector3(0, 200, 0),
+2028:         side_align_tip = 160,
+2029:     },
+2030:     type = "chest",
+2031: }
+2035: for y = 2, 0, -1 do
+2036:     for x = 0, 2 do
+2037:         table.insert(params.elixir_container.widget.slotpos, Vector3(80 * x - 80 * 2 + 80, 80 * y - 80 * 2 + 80, 0))
+2038:         table.insert(params.elixir_container.widget.slotbg, elixir_container_bg)
+2039:     end
+2040: end
+2043: 	return item:HasAnyTag("ghostlyelixir", "ghostflower")
+2044: end
+2053: {
+2054:     widget =
+2055:     {
+2056:         slotpos =
+2057:         {
+2058:             Vector3(-37.5,   32 + 4,  0),
+2059:             Vector3( 37.5,   32 + 4,  0),
+2060:             Vector3(-37.5, -(32 + 4), 0),
+2061:             Vector3( 37.5, -(32 + 4), 0),
+2062:         },
+2063:         slotbg =
+2064:         {
+2065:             { image = "inv_slot_dragonflyfurnace.tex", atlas = "images/hud2.xml" },
+2066:             { image = "inv_slot_dragonflyfurnace.tex", atlas = "images/hud2.xml" },
+2067:             { image = "inv_slot_dragonflyfurnace.tex", atlas = "images/hud2.xml" },
+2068:             { image = "inv_slot_dragonflyfurnace.tex", atlas = "images/hud2.xml" },
+2069:         },
+2070:         animbank = "ui_dragonflyfurnace_2x2",
+2071:         animbuild = "ui_dragonflyfurnace_2x2",
+2072:         pos = Vector3(200, 0, 0),
+2073:         side_align_tip = 120,
+2074:         buttoninfo =
+2075:         {
+2076:             text = STRINGS.ACTIONS.INCINERATE,
+2077:             position = Vector3(0, -100, 0),
+2078:         }
+2079:     },
+2080:     type = "cooker",
+2081: }
+2084:     return not item:HasTag("irreplaceable")
+2085: end
+2088:     if inst.components.container ~= nil then
+2089:         BufferedAction(doer, inst, ACTIONS.INCINERATE):Do()
+2090:     elseif inst.replica.container ~= nil and not inst.replica.container:IsBusy() then
+2091:         SendRPCToServer(RPC.DoWidgetButtonAction, ACTIONS.INCINERATE.code, inst, ACTIONS.INCINERATE.mod_name)
+2092:     end
+2093: end
+2096:     return inst.replica.container ~= nil and not inst.replica.container:IsEmpty()
+2097: end
+2104: {
+2105:     widget =
+2106:     {
+2107:         slotpos = {},
+2108:         slotbg  = {},
+2109:         animbank  = "ui_slingshotammo_container_3x2",
+2110:         animbuild = "ui_slingshotammo_container_3x2",
+2111:         pos = Vector3(0, 200, 0),
+2112:         side_align_tip = 160,
+2113:     },
+2114:     type = "chest",
+2115: }
+2119: for y = 1, 0, -1 do
+2120:     for x = 0, 2 do
+2122:         table.insert(params.slingshotammo_container.widget.slotbg, slingshotammo_container_bg)
+2123:     end
+2124: end
+2127:     return item:HasTag("slingshotammo")
+2128: end
+2139:     widget = {
+2140:         slotpos = {},
+2141:         animbank = "ui_wx78_backupbody_5x3",
+2142:         animbuild = "ui_wx78_backupbody_5x3",
+2143: 		pos = WX78_BACKUPBODY_POS,
+2144:         side_align_tip = 160,
+2146:         closesound = "WX_rework/module_side/close",
+2147:     },
+2148:     type = "chest",
+2149: }
+2152:     return not item:HasTag("irreplaceable")
+2153: end
+2156:     for x = 0, 4, 1 do
+2157:         table.insert(params.wx78_backupbody.widget.slotpos, Vector3(80 * x - 80 * 2, 80 * y - 80 * 2 - 42.5, 0))
+2158:     end
+2159: end
+2166: {
+2167: 	widget =
+2168: 	{
+2169: 		slotpos = {},
+2170: 		animbank = "ui_wx_deliverydrone_3x2",
+2171: 		animbuild = "ui_wx_deliverydrone_3x2",
+2172: 		pos = Vector3(0, 200, 0),
+2173: 		side_align_tip = 160,
+2174: 	},
+2175: 	type = "chest",
+2176: }
+2178: for y = 1, 0, -1 do
+2179: 	for x = 0, 2 do
+2180: 		table.insert(params.wx78_drone_delivery.widget.slotpos, Vector3(80 * x - 80 * 2 + 80, 80 * y - 80 * 2 + 120, 0))
+2181: 	end
+2182: end
+2185: {
+2186: 	widget =
+2187: 	{
+2188: 		slotpos = {},
+2189: 		animbank = "ui_wx_deliverydrone_3x1",
+2190: 		animbuild = "ui_wx_deliverydrone_3x1",
+2191: 		pos = Vector3(0, 200, 0),
+2192: 		side_align_tip = 160,
+2193: 	},
+2194: 	type = "chest",
+2195: }
+2197: for x = 0, 2 do
+2198: 	table.insert(params.wx78_drone_delivery_small.widget.slotpos, Vector3(75 * x - 75 * 2 + 75, 0, 0))
+2199: end
+2208: for x = 0, 4, 1 do
+2209: 	table.insert(WX78_INVENTORY_CONTAINER_SLOTPOS, { Vector3(80 * x - 80 * 2, -340, 0) })
+2210: end
+2213: 	local inventoryitem = container.replica.inventoryitem
+2214: 	return not (inventoryitem and inventoryitem:IsHeldBy(doer))
+2215: end
+2218: 	local parent = container.entity:GetParent()
+2219: 	local _container = parent and parent.replica.container
+2220: 	if _container then
+2221: 		for slot, v in pairs(_container:GetItems()) do
+2222: 			if v == container then
+2223: 				return ((slot - 1) % 5) + 1
+2224: 			end
+2225: 		end
+2227: 	return 5
+2228: end
+2231: {
+2232:     widget =
+2233:     {
+2236: 			return wx78_inventorycontainer_isinbackupbody(container, doer)
+2237: 				and WX78_INVENTORY_CONTAINER_SLOTPOS[wx78_inventorycontainer_getcolumn(container)]
+2238: 				or nil
+2239: 		end,
+2242: 			return wx78_inventorycontainer_isinbackupbody(container, doer) and 0.85 or nil
+2243: 		end,
+2245: 			return wx78_inventorycontainer_isinbackupbody(container, doer) and 1.08 or nil
+2246: 		end,
+2247:         animbank = "ui_wx78_inventorycontainer_1x1",
+2248:         animbuild = "ui_wx78_inventorycontainer_1x1",
+2250: 			return wx78_inventorycontainer_isinbackupbody(container, doer)
+2251: 				and (anim..tostring(wx78_inventorycontainer_getcolumn(container)))
+2252: 				or nil
+2253: 		end,
+2255: 		pos = WX78_INVENTORY_CONTAINER_OFFSET,
+2257: 			if wx78_inventorycontainer_isinbackupbody(container, doer) then
+2258: 				return WX78_BACKUPBODY_POS
+2259: 			end
+2262: 			for k, v in pairs(doer.HUD.controls.inv.inv) do
+2263: 				if v.tile and v.tile.item == container then
+2264: 					return v:GetPosition() + WX78_INVENTORY_CONTAINER_OFFSET
+2265: 				end
+2266: 			end
+2267: 		end,
+2269: 		opensound = "balatro/balatro_cabinet/cards_flip_HUD",
+2270: 		closesound = "balatro/balatro_cabinet/cards_flip_HUD",
+2273: 			return wx78_inventorycontainer_isinbackupbody(container, doer) and -90 or nil
+2274: 		end,
+2275: 		top_align_tip_fn = function(container, doer)
+2276: 			return not wx78_inventorycontainer_isinbackupbody(container, doer) and 70 or nil
+2277: 		end,
+2279:     },
+2282: 		return wx78_inventorycontainer_isinbackupbody(container, doer) and "chest_addon" or nil
+2283: 	end,
+2285: }
+2289: 	local stackable = existingitem and existingitem.replica.stackable
+2291: end
+2300: params.socket_keystone_construction_container.widget.side_align_tip = 120
+2301: params.socket_keystone_construction_container.widget.animbank = "ui_construction_1x1"
+2302: params.socket_keystone_construction_container.widget.animbuild = "ui_construction_1x1"
+2306: 	if inst.components.container ~= nil then
+2307: 		BufferedAction(doer, inst, ACTIONS.APPLYCONSTRUCTION):Do()
+2308: 	elseif inst.replica.container ~= nil and not inst.replica.container:IsBusy() then
+2309: 		SendRPCToServer(RPC.DoWidgetButtonAction, ACTIONS.APPLYCONSTRUCTION.code, inst, ACTIONS.APPLYCONSTRUCTION.mod_name)
+2310: 	end
+2311: end
+2314: 	TheFrontEnd:PopScreen()
+2315: end
+2317: function params.socket_keystone_construction_container.widget.buttoninfo.fn(inst, doer)
+2318: 	if not params.socket_keystone_construction_container.widget.overrideactionfn(inst, doer) then
+2320: 		DoKeyStoneAct(inst, doer)
+2321: 	end
+2322: end
+2325: 	if doer ~= nil and doer.HUD ~= nil and IsConstructionSiteComplete(inst, doer) then
+2327: 		local function GiveKeyStonePopUp()
+2328: 			DoKeyStoneAct(inst, doer)
+2329: 			TheFrontEnd:PopScreen()
+2330: 		end
+2332: 		local str = inst.POPUP_STRINGS
+2333: 		local confirmation = RiftConfirmScreen(str.TITLE, str.BODY,
+2334: 		{
+2335: 			{ text = str.OK,     cb = GiveKeyStonePopUp },
+2337: 		})
+2339: 		TheFrontEnd:PushScreen(confirmation)
+2340: 		return true
+2341: 	end
+2342: 	return false
+2343: end
+2350: {
+2351:     widget =
+2352:     {
+2353:         slotpos =
+2354:         {
+2355:             Vector3(0, 64 + 32 + 8 + 4, 0),
+2356:             Vector3(0, 32 + 4, 0),
+2357:             Vector3(0, -(32 + 4), 0),
+2358:             Vector3(0, -(64 + 32 + 8 + 4), 0),
+2359:         },
+2360:         animbank = "quagmire_ui_pot_1x4",
+2361:         animbuild = "quagmire_ui_pot_1x4",
+2362:         pos = Vector3(200, 0, 0),
+2363:         side_align_tip = 100,
+2364:     },
+2366:     type = "cooker",
+2367: }
+2370:     return item:HasTag("quagmire_stewable")
+2371:         and item.prefab ~= "quagmire_sap"
+2373:             not (item.prefab == "spoiled_food" or item:HasTag("preparedfood") or item:HasTag("overcooked") or container.inst:HasTag("takeonly")))
+2374: end
+2381: {
+2382:     widget =
+2383:     {
+2384:         slotpos =
+2385:         {
+2387:             Vector3(0, 0, 0),
+2388:             Vector3(0, -(64 + 8), 0),
+2389:         },
+2390:         animbank = "quagmire_ui_pot_1x3",
+2391:         animbuild = "quagmire_ui_pot_1x3",
+2392:         pos = Vector3(200, 0, 0),
+2393:         side_align_tip = 100,
+2394:     },
+2395:     acceptsstacks = false,
+2396:     type = "cooker",
+2397: }
+2411: params.quagmire_casseroledish_small = params.quagmire_pot_small
+2417: params.quagmire_grill = params.quagmire_pot
+2423: params.quagmire_grill_small = params.quagmire_pot_small
+2430: {
+2431:     widget =
+2432:     {
+2433:         slotpos =
+2434:         {
+2435:             Vector3(0, 64 + 8, 0),
+2436:             Vector3(0, 0, 0),
+2437:             Vector3(0, -(64 + 8), 0),
+2438:         },
+2439:         animbank = "quagmire_ui_pot_1x3",
+2440:         animbuild = "quagmire_ui_pot_1x3",
+2441:         pos = Vector3(200, 0, 0),
+2442:         side_align_tip = 100,
+2443:     },
+2444:     acceptsstacks = false,
+2445:     type = "cooker",
+2446: }
+2449:     return item:HasTag("quagmire_stewable")
+2450:         and ((item.components.inventoryitem ~= nil and not item.components.inventoryitem:IsHeld()) or
+2451:             (item.prefab == "quagmire_sap" and not container.inst:HasTag("takeonly")))
+2452: end
+2459: {
+2460:     widget =
+2461:     {
+2462:         slotpos = {},
+2463:         animbank = "ui_chest_3x3",
+2464:         animbuild = "ui_chest_3x3",
+2465:         pos = Vector3(-50, -450, 0),
+2466:         side_align_tip = 100,
+2467:     },
+2468:     type = "backpack",
+2469: }
+2472:     table.insert(params.quagmire_backpack_small.widget.slotpos, Vector3(-x * 75 - 75*.5, 120, 0))
+2473: end
+2480: {
+2481:     widget =
+2482:     {
+2483:         slotpos = {},
+2484:         animbank = "ui_chest_3x3",
+2485:         animbuild = "ui_chest_3x3",
+2486:         pos = Vector3(-50, -450, 0),
+2487:         side_align_tip = 100,
+2488:     },
+2489:     type = "backpack",
+2490: }
+2493:     table.insert(params.quagmire_backpack.widget.slotpos, Vector3(-x * 75 - 75*.5, 120, 0))
+2494: end
+2500: end
+2504: return containers

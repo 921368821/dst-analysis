@@ -1,0 +1,123 @@
+--============================================================
+-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖
+-- 文件：behaviours/standstill.lua
+-- 模块：行为树节点库 / 待机
+-- 职责：原地不动并保持一小段时间，是「等待」类行为的最小实现。
+-- 关键符号：StandStill, StandStill:Visit
+-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本
+-- 交叉引用：behaviourtree.lua（WaitNode 是它的框架内建版本）, components/locomotor.lua
+--============================================================
+
+StandStill = Class(BehaviourNode, function(self, inst, startfn, keepfn)
+--[[
+-- standstill.lua —— 原地驻留节点（StandStill）：站着不动，持续到条件不满足
+--
+-- 【★★★ 本文件是全目录最简单的「持续型」节点，且结构极其工整】
+-- 全部逻辑（去掉注释后约 15 行有效代码）：
+--   READY 段：startfn 通过 → RUNNING + Stop
+--   RUNNING 段：keepfn 通过 → 继续 Stop；否则 FAILED；最后 Sleep(.5)
+-- ★★ 它可以看作「chaseandattack 去掉一切战斗逻辑」的骨架 ——
+--   保留的只有「进入回调 / 维持回调 / 每帧重申目标状态 / 节流休眠」。
+-- ★ 移植建议：这是最适合照抄的最小可用节点模板。
+--
+-- 【★ 与 faceentity 的对照（同为「站着不动」）】
+--   faceentity  —— 6 个参数，2 回调 + 超时 + 切状态图 + 转身
+--   standstill   —— 4 个参数，2 回调，无超时、不转身、不碰状态图
+-- ★★ 结构完全同构（READY/RUNNING 双段 + 双回调 + Stop + Sleep），
+--   复杂度差异全在「RUNNING 段做什么」。
+-- ★ 说明「驻留」是最基础的行为原语，其余能力都是叠加上去的。
+--]]
+--★★ 4 个形参：inst / startfn / keepfn。
+--★★ startfn 与 keepfn 的职责（与 faceentity 第 1 行同款设计）：
+--   startfn —— 「能不能开始站」：进场时问一次
+--   keepfn  —— 「还该不该站」：每 0.5 秒问一次
+-- ★★ 两者都可为 nil，且 nil 意味着「无条件通过」：
+--   第 13 行 `not self.startfn or self.startfn(...)`
+--   第 22 行 `not self.keepfn or self.keepfn(...)`
+-- ★★★ 即 `not fn or fn(...)` 是「回调可选」的惯用写法 ——
+--   不传回调则该检查自动通过。
+-- ★ 移植建议：回调参数一律设计成「可选且 nil 即放行」，
+--   让简单场景可以零配置。这是很实用的 API 设计习惯。
+--   ★ 对照 faceentity 第 48 行：那里 keepfn 是**必需**的（无判空），
+--     语义更强（不给就得判目标有效性）。两种设计服务于不同强度。
+    BehaviourNode._ctor(self, "StandStill")
+    self.inst = inst
+    self.startfn = startfn
+    self.keepfn = keepfn
+end)
+
+
+function StandStill:Visit()
+--★★ Visit：顺序双 if，与全目录统一。
+
+    if self.status == READY then
+--★ READY 段：startfn 通过就进入 RUNNING，否则 FAILED。
+--★ 第 13 行 `if not self.startfn or self.startfn(self.inst) then`：
+--   先短路判断回调是否存在，再调用 —— 顺序不能反
+--   （若写 `self.startfn(inst) or true` 就完全错了）。
+        if not self.startfn or self.startfn(self.inst) then
+            self.status = RUNNING
+            self.inst.components.locomotor:Stop()
+--★ 进场先停一次 locomotor。
+-- ★ 但这**只是进场做一次** —— 真正的防漂移靠第 24 行的每 0.5 秒重申。
+-- ★★ 为什么要「重申」？因为别的节点可能在你两次 Visit 之间发出移动指令。
+-- ★ ★★★ 这是「独占型行为」的重要特征：
+--   本节点的行为是「保持不动」，而「不动」不是一个可以设定一次就永久生效的状态，
+--   它需要持续压制其他移动指令。
+--   ★ 移植建议：**任何「保持某种状态」的行为，都必须周期性重申**，
+--     否则会被其他系统（如寻路的残余指令）破坏。
+        else
+            self.status = FAILED
+        end
+    end
+
+    if self.status == RUNNING then
+--★★ RUNNING 段：条件判断 + 重申 + 节流，三件事。
+        if not self.keepfn or self.keepfn(self.inst) then
+--★ keepfn 通过则继续站，否则 FAILED。
+--★ 语义：「没有理由离开了」就一直站下去。
+-- ★★ 对照 faceentity 第 43 行：那边有超时兜底，本文件没有。
+--   意味着本节点可能永久 RUNNING（若 keepfn 恒真）。
+-- ★ 这是「持续型行为」的常见设计：只要条件成立就一直保持。
+--   ★ 若需要保底退出，调用方应该在 keepfn 里自己实现超时。
+            -- yep! standing here is preeeetty great.
+--★ 原注释保留：yep! standing here is preeeetty great.
+--   翻译：「没错！站在这里真是太棒了。」
+--★★ 故意用夸张语气（三个 e）写的玩笑注释，人格化很明显。
+-- ★★ 这类轻松注释的价值：让读者知道「这里是作者故意的，不是待修的地方」，
+--   同时给枯燥的代码带来一点阅读乐趣。
+-- ★ 移植建议：在「行为上看不出意图」的代码旁加一句拟人化说明，
+--     能显著提升可读性（比如这里就该写明「为什么要反复 Stop」）。
+            self.inst.components.locomotor:Stop()
+--★★★ 每 0.5 秒重申 Stop —— 防漂移的关键（详见第 15 行的详解）。
+--★ ★★ 注意这是本节点**唯一**的「执行」动作。
+--   整节点的全部行为就是：不停地喊「别动」。
+-- ★ 移植要点：看似「什么都没做」的节点，其实往往在做一件很朴素但很重要的事 ——
+--   维持一个被动状态。这类节点的价值在于「封住」其他行为，
+--   放在行为树里作为「默认兜底分支」非常有用。
+        else
+            self.status = FAILED
+--★ 条件不满足 → FAILED，交回父节点。
+--★ 不需要 Stop —— 已经停了。
+        end
+        self:Sleep(.5)
+--★★ self:Sleep(.5) —— 与 faceentity 第 54 行完全相同的节拍。
+--★ 每 0.5 秒检查一次条件 + 重申一次 Stop。
+-- ★★★ 0.5 秒是合理的选择：
+--   · Stop 不需要高频（多喊几次不会更强）
+--   · keepfn 通常是轻量判断
+--   · 0.5 秒的响应延迟对「站着」这个行为完全无所谓
+-- ★ 移植建议：**节拍应按「行为对延迟的敏感度」设定**。
+--   「站着不动」最不敏感 → 最慢节拍；
+--   「逃跑/攻击」最敏感 → 最快节拍（0.1~0.125）。
+-- ★★★ 本文件与 faceentity 共用 .5，attackwall 用 1 ——
+--   可见「站着/转身」类行为统一用慢节拍，规律很清楚。
+    end
+
+end
+--★★ 全文件结束：无 OnStop、无 DBString、无 __tostring。
+--★ 意味着本节点不注册任何事件（无需清理），调试输出用基类的默认实现。
+-- ★ 与 chaseandattack 等节点对比：那些注册了事件监听（需 OnStop 反注册），
+--   本文件完全没有事件，是本目录最「干净」的节点。
+-- ★★ 移植建议：**不监听任何事件的节点就不需要 OnStop** ——
+--     别为了「对称」硬加一个空 OnStop，那只会增加噪音。

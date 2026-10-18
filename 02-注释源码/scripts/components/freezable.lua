@@ -1,0 +1,844 @@
+--============================================================
+-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖
+-- 文件：components/freezable.lua
+-- 模块：组件系统 / 冻结（Freezable）
+-- 职责：把「冷」的累积量 coldness 映射到三态状态机（NORMAL / FROZEN / THAWING），
+--       冻结期间接管大脑、攻击目标与移动；解冻可由挨够伤害自然碎冰，或外部 Thaw。
+--       附带 extraresist 递减机制，专治 BOSS 被反复续冻。
+--
+-- 【与 temperature.lua 的分工：两种不同性质的设计，值得对照】
+--   temperature.lua 管「活物体温演化」—— 连续量，每帧 OnUpdate 积分，有保暖封顶；
+--   freezable.lua     管「物品/怪物冻结」—— 离散状态机，定时器驱动，有抗性门槛。
+--   → 移植前先判断「这个冷是连续的还是离散的」再选骨架。
+--
+-- 关键符号：Freezable, AddColdness（★唯一外部入口）, Freeze, Unfreeze, Thaw,
+--           IsFrozen（含 THAWING）, IsThawing, StartWearingOff, WearOff,
+--           ResolveResistance, ResolveWearOffTime, SetExtraResist, DecayExtraResist,
+--           SetResistance, SetRedirectFn, GetFreezePercent, SpawnShatterFX,
+--           AddShatterFX, SetShatterFXLevel, UpdateTint, PushColour, PopColour,
+--           SetDefaultWearOffTime, GetTimeToWearOff, Reset, OnAttacked, WearOff
+--
+-- ★设计提炼（详见正文中标注 ★★★ 的行）：
+--   1) 状态必须真正改变行为：Freeze 同时停大脑（第 265 行）、清攻击目标（第 268 行）、
+--      停移动（第 272 行）—— 漏任何一项都会出「被冻住的怪物还在追你」的 bug；
+--   2) 三态而非两态：FROZEN → THAWING → NORMAL 是必经流程，玩家能观察到渐进恢复；
+--   3) 缓冲带设计：未达门槛先「看起来结冰」（第 152-154 行）、解冻后 0.3 秒禁攻
+--      （第 299 行）—— 在危险边缘外留反应时间，这是手感的主要来源；
+--   4) extraresist 递减（每 30 秒削 0.1）：同一手段边际收益递减，防 BOSS 无限续冻；
+--   5) 状态恢复必须走 setter（OnLoad 调 SetExtraResist 而非裸赋值，第 329-331 行），
+--      否则递减计时器不会启动。
+--
+-- ⚠️ 本文件已核实的缺陷（详见对应行）：
+--   - 第 310 行 Thaw 双重折算：外层已调 ResolveWearOffTime，第 167 行内部又调一次，
+--     系数被平方。仅影响开启 extraresist 的 BOSS。
+--   - 第 243-245 行 GetFreezePercent 未防除零：resistance 被配成 0 时返回 NaN。
+--   - 第 328 行 OnLoad 缺 data ~= nil 保护（依赖 entityscript.lua 的调用约定，当前不触发）。
+--
+-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本
+-- 交叉引用：components/sleeper.lua（同构孪生组件，同样有 extraresist 递减）、
+--           components/combat.lua（SetTarget(nil) / BlankOutAttacks(0.3)）、
+--           components/locomotor.lua（Stop）、components/health.lua（IsDead 守卫）、
+--           components/colouradder.lua（可选色调叠加，回退直写 AnimState）、
+--           components/shatterfx.lua（SetLevel 自行钳位档位）、
+--           components/propagator.lua（第 206 行 AddColdness 负值 = 火源取暖）、
+--           components/wateryprotection.lua（第 33 行水源加冷）、
+--           components/moisture.lua 与 temperature.lua（另一套「冷」的机制，对照阅读）、
+--           entityscript.lua（第 1980-1981 行 OnLoad 的调用约定）
+--============================================================
+local states =
+-- freezable.lua —— 冻结组件（Freezable）
+--
+-- 职责：把「冷」的累积量 coldness 映射到三态状态机（NORMAL / FROZEN / THAWING），
+--       并在冻结期间接管目标（combat:SetTarget(nil)）与移动（locomotor:Stop()）。
+--       解冻有两种方式：挨够伤害自然破碎，或被外部 Thaw。
+--
+-- 【为什么它是「极端温度保护机制」的正解】
+-- 这一点与 temperature.lua 互补，值得对照阅读：
+--   temperature.lua 管的是「活物的体温演化」（连续、每帧积分、有保暖）；
+--   freezable.lua     管的是「物品/怪物的冻结进程」（离散状态机、有抗性）。
+-- 二者不是同一套机制的两份实现，而是两种不同性质的设计：
+--   活物 —— 温度是连续量，必须每帧积分才能平滑；
+--   冻结 —— 冻结是离散事件，用状态机 + 定时器即可，逐帧积分反而浪费。
+-- → 移植时先判断「这个冷是连续的还是离散的」，再选骨架，能省掉大量无用功。
+--
+-- 【本文件最重要的三件事】
+-- 1) 第 137 行 AddColdness 是唯一的外部入口，所有加冷逻辑收敛于此；
+--   它的三分支（第 144-157 行）是整个组件的判定核心。
+-- 2) extraresist（第 219-241 行）是一套「衰减递减（diminishing returns）」机制，
+--   专治 BOSS 反复被冻导致无限续冻的问题。
+-- 3) ★ 冻结/解冻时会主动摘掉 combat 目标与 locomotor（第 267-273 行），
+--   这是「状态要真正改变行为」而不只是改外观的范例。
+--
+-- 【⚠️ 容易踩的坑】
+-- - ★ 本文件有一处已核实的双重折算缺陷：第 310 行 Thaw 里先调了一次
+--   ResolveWearOffTime，而第 167 行的 StartWearingOff 内部又调了一次，
+--   导致解冻时间被折算两次（平方级缩短）。详见第 310 行注释。
+-- - ★ 第 328 行 OnLoad 直接索引 data.extraresist，没有 data ~= nil 保护。
+--   我核实过 entityscript.lua 第 1980 行：只有 `data ~= nil` 时才逐字段调 OnLoad，
+--   所以实际不会传 nil —— 但这是依赖外部调用约定的脆弱点，详见第 328 行。
+-- - coldness 是「冷」的累积量，可以为负（取暖源调用 AddColdness(-0.25)，
+--   见 propagator.lua 第 206 行），所以处处用 math.max(0, ...) 夹取。
+-- ★ 用字符串常量而非数字做状态，有两个好处：
+--   1) GetDebugString 第 124 行可以直接 %s 打印出可读状态名；
+--   2) 存档/日志里出现 "FROZEN" 比 "2" 有用得多。
+-- 代价是运行时每次比较都要做字符串比较（比数字慢），
+-- 但本文件的状态比较频率极低（只在加冷与状态切换时），完全可接受。
+{
+    FROZEN = "FROZEN",
+    THAWING = "THAWING",
+    NORMAL = "NORMAL",
+}
+
+local FREEZE_COLOUR = { 82 / 255, 115 / 255, 124 / 255, 0 }
+-- ★ 冻结色的 RGBA（0-1 归一化）。第 8 行的 alpha = 0 表示「不改变透明度」，
+-- 而第 203 行会把这个颜色按冻结进度 percent 整体缩放 ——
+-- 于是「半冻」的实体呈现为「半强度的蓝」，而不是「蓝但半透明」。
+-- 写入时除以 255 是因为 AnimState 的 SetAddColour 接口要 0 到 1 的浮点。
+-- ⚠️ 这个值是模块级常量而非 TUNING 常量，属于纯美术选择，不参与平衡。
+
+local function WearOff(inst, self)
+-- ★★ 唯一的自动解冻回调（每 tick 调一次）。它是一个「每次削一格」的阶梯过程：
+--   冻结中 -> 解冻（Thaw）
+--   解冻中 -> 完全解冻（Unfreeze）
+--   未冻结但有 coldness -> 冷意 -1，仍 > 0 则继续计时
+-- → 这解释了三态的存在意义：FROZEN 到 THAWING 到 NORMAL 是一个必经的三步流程，
+--   而非直接的二元切换。玩家能观察到「先停止被冰封、再逐渐恢复」。
+    if self.state == states.FROZEN then
+-- 冻结中被计时器唤醒 -> 转入解冻态。
+        self:Thaw()
+    elseif self.state == states.THAWING then
+-- 解冻中被唤醒 -> 完全解冻。
+-- ⚠️ 注意这里是 elsif，所以每 tick 只走一个分支，不会一次跨两态。
+        self:Unfreeze()
+    elseif self.coldness > 0 then
+-- ★ 未冻结但有冷意：每次削 1 点。这是「寒冷debuff 自然消退」的机制。
+-- 例：站在篝火边，propagator 会持续 AddColdness(-0.25 x heatoutput x dt)（负数），
+--   削掉累积的 coldness。削到 0 就停止计时。
+        self.coldness = math.max(0, self.coldness - 1)
+        if self.coldness > 0 then
+-- 还没削干净 -> 继续计时，形成阶梯衰减。
+-- ⚠️ 若这里不重新计时，剩余的 coldness 会永久卡住不掉 —— 这是容易漏掉的一环。
+            self:StartWearingOff()
+        end
+    end
+    self:UpdateTint()
+-- 每次削完都刷新颜色（第 190 行），否则玩家会看到「冷意在消但颜色不变」。
+-- ⚠️ 注意第 11、13 两行走的是 Thaw/Unfreeze，它们内部各自调了 UpdateTint，
+--   所以这里对它们是重复调用。幂等，无害，但属于冗余。
+end
+
+local function OnAttacked(inst, data)
+-- ★★ 冻结物的「血量」：冻结期间累计受到的伤害，够数就碎冰。
+-- 这是给「可以被敲碎的冰封物」用的机制，与 health 组件完全独立。
+    local self = inst.components.freezable
+	--IsValid check because other "attacked" handlers may have removed us
+-- ★ 作者写了 IsValid 检查并附带详细原因，这段注释本身就是重要知识：
+--   PushEvent 会预先缓存所有监听者列表，所以即使本监听者所在的实体已被移除，
+--   事件仍可能送达。
+-- → 移植要点：任何在事件回调里访问 self.inst.components 的代码，
+--   都必须考虑「实体可能已在本轮事件的其他处理中被移除」。
+-- 我核实了 prefabs/crabking.lua 第 1939 行也有同样的 NOTES(JBK) 提醒，
+--   说明这是团队反复踩过的坑。
+	--NOTE: see how EntityScript:PushEvent caches all listeners; that is why an invalid entity could still reach this event listener
+	if self:IsFrozen() and inst:IsValid() then
+-- 只有冻结态（或解冻中）才累计伤害。normal 状态的伤害不归本组件管。
+        self.damagetotal = self.damagetotal + math.abs(data.damage)
+-- ★ 用 math.abs 取绝对值：不管这次伤害是多是少都往「已承受」上加。
+-- ⚠️ 若是治疗（负伤害）也会被计入，等于「治疗加速破冰」。
+--   我核实过 attacked 事件的 data.damage 在受击场景下为正，
+--   但 math.abs 也覆盖了「反伤/治疗类事件」被并入的情况。
+--   实践中不构成问题，标记为「设计上略宽泛」。
+        if self.damagetotal >= self.damagetobreak then
+-- ★ 够数就碎冰。这是「冰封 = 可被打破的护盾」的判定点。
+-- ⚠️ 注意这里调的是 Unfreeze 而不是 Reset，所以会播放碎冰特效（第 290 行）、
+--   重启大脑、推 unfreeze 事件 —— 完整的「解冻」演出，而非静默清除。
+            self:Unfreeze()
+        end
+    end
+end
+-----------------------------------------------------------------------------------------------------
+-- 分隔线。作者用它把「局部工具函数」与「类定义」在视觉上分开。
+
+local Freezable = Class(function(self, inst)
+-- 构造函数。注意本组件**不用** StartUpdatingComponent ——
+-- 它的所有时间推进都靠 DoTaskInTime / DoPeriodicTask 定时器（第 167、223 行），
+-- 不需要每帧回调。
+-- → 这与 temperature.lua、moisture.lua 形成鲜明对照：
+--   连续量用每帧积分，离散状态机用定时器。这是判断该用哪种骨架的第一个依据。
+    self.inst = inst
+    self.state = states.NORMAL
+-- ★ 初始状态 NORMAL。coldness 从 0 起步。
+    self.resistance = 1
+-- ★ resistance 是「冻结所需的冷量门槛」。coldness 累积到 >= resistance 才冻结。
+-- → 数值语义：resistance = 1 表示「一点点冷就冻住」，resistance 越大越抗冻。
+-- 我核实过 antlion.lua 第 336 行直接调 AddColdness(ResolveResistance(), 3)，
+--   即「一次性灌满门槛并冻结 3 秒」—— 这是 prefab 层对内部语义的最直接证明。
+    self.coldness = 0
+    self.wearofftime = 10
+-- 默认解冻时间 10 秒。可被 SetDefaultWearOffTime 覆盖。
+
+    self.damagetotal = 0
+    self.damagetobreak = 0
+
+    self.fxlevel = 1
+-- fxlevel 是碎冰特效的档位（1 = 冰块，2 = 大冰块…）。
+-- fxdata 是「碎冰时要生成哪些特效、跟随哪个符号、偏移多少」的描述表，
+-- 由外部（prefab）用 AddShatterFX 逐条登记。
+-- → 设计模式：把「表现层需要的数据」收集成表，实际生成时（第 96 行）再统一消费。
+--   这样支持「多个碎冰块分别跟随不同身体部位」的复杂表现，而组件本身无需了解结构。
+    self.fxdata = {}
+    --self.fxchildren = {}
+-- ⚠️ 注释掉的 fxchildren 字段。它原本用于「记录已生成的特效以便统一改档位」，
+--   现在改由 shatterfx 组件自己存 level（第 108-110 行），故不再需要。
+-- ★ 这是 SOP 坑 #4 的典型：注释掉的代码不代表功能缺失，
+--   必须确认实际生效的替代路径（第 108-110 行确实在生效）。
+
+    --these are for diminishing returns (mainly bosses), so nil for default
+-- 作者明确注明这三项「是给递减（diminishing returns）用的，主要给 BOSS，默认 nil」。
+-- 我核实过：真正会设 diminishingreturns = true 的都是 BOSS prefab
+-- （antlion / beeguard / beequeen / daywalker2 / dragonfly 等），
+-- 与注释描述完全一致。
+    --self.diminishingreturns = false
+    --self.extraresist = 0
+    --self.diminishingtask = nil
+
+	--self.redirectfn = nil
+
+    self.inst:ListenForEvent("attacked", OnAttacked)
+-- 监听 attacked 是为了第 24 行的碎冰机制。这是 freezable 与实体系统的唯一耦合点。
+-- ⚠️ 若实体还有 combat 组件，attacked 事件由 combat 推；
+--   两者互不知晓对方的存在，只是共享同一个事件名。
+    self.inst:AddTag("freezable")
+end)
+
+function Freezable:OnRemoveFromEntity()
+-- ★ 卸载必须清理三样：事件回调、标签、两个定时器。
+-- ⚠️ 定时器清理尤其重要：DoTaskInTime 的回调持有 self，
+--   若不取消，组件卸载后回调仍会触发并访问已死的 self。
+-- 我注意到一处不对称：这里取消了 diminishingtask 与 wearofftask，
+--   但**没有**取消本文件可能存在的其他任务 —— 核实全文后确认只有这两个，
+--   故无遗漏。
+    self.inst:RemoveEventCallback("attacked", OnAttacked)
+    self.inst:RemoveTag("freezable")
+    if self.diminishingtask ~= nil then
+        self.diminishingtask:Cancel()
+    end
+    if self.wearofftask ~= nil then
+        self.wearofftask:Cancel()
+    end
+end
+
+function Freezable:SetResistance(resist)
+-- 设置抗冻门槛。注意这会立即改变「累积多少才冻」，
+-- 但**不会**重新评估当前状态（已经累积的 coldness 不会因此突然触发或取消冻结）。
+-- ⚠️ 移植注意：若在冻结生效期间调小 resistance，冻结态会一直持续到解冻，
+--   不会立即解冻。这是「设置参数不触发重算」的常见设计。
+    self.resistance = resist
+end
+
+function Freezable:SetDefaultWearOffTime(wearofftime)
+-- 设置默认解冻时间。同样只在下次 StartWearingOff 时生效。
+    self.wearofftime = wearofftime
+end
+
+function Freezable:AddShatterFX(prefab, offset, followsymbol)
+-- ★ 登记一块碎冰。offset 是相对实体的局部坐标，followsymbol 是要跟随的动画符号名。
+-- table.insert 而非 pairs 追加，保证登记顺序 = 生成顺序。
+-- ⚠️ 用 table.insert（第 82 行）而非 self.fxdata[#self.fxdata+1] = ...，
+--   前者更清晰，且在 fxdata 恰为 nil 时会同样报错（但构造函数已初始化为 {}）。
+    table.insert(self.fxdata, { prefab = prefab, x = offset.x, y = offset.y, z = offset.z, follow = followsymbol })
+end
+
+function Freezable:SetShatterFXLevel(level, percent)
+-- 设置碎冰特效档位。
+    self.fxlevel = level
+--[[
+-- ⚠️★ 这里有一段真正的长注释块（第 87 至 93 行），里面是被注释掉的旧实现。
+-- ★★ 重要：正因为源文件在这里开了长注释块，
+--   本 spec 的任何注释文字都绝不能出现与之相同的定界序列，
+--   否则会提前闭合源文件已开启的块，造成语法错误。
+--   （SOP 坑 #6；本行的注释用「长注释块」这样的措辞来指代它，正是为了规避该风险。）
+-- 旧实现是遍历 fxchildren 逐个改档位；新实现改为生成时传给 shatterfx 组件（第 109 行）。
+--   即「把状态存在最合适的地方」而不是「在中心维护所有子对象引用」。
+    for k, v in pairs(self.fxchildren) do
+        if v.components.shatterfx then
+            v.components.shatterfx:SetLevel(level)
+        end
+    end
+--]]
+end
+
+function Freezable:SpawnShatterFX()
+-- ★★ 碎冰特效的实际生成。整个组件的「表现层出口」。
+-- 注意是在 Unfreeze（第 290 行）时才生成，即「解冻瞬间碎冰」——
+-- 冰块在冻结期间不可见（冻结表现为整体变色），解冻才碎成块状物。
+    for k, v in pairs(self.fxdata) do
+-- pairs 而非 ipairs：fxdata 是数组（第 82 行用 table.insert 建的），
+-- 两者都能遍历，但 pairs 对顺序无要求。
+-- ⚠️ 生成顺序依赖 pairs 的哈希顺序，在同一台机器上稳定但不保证跨版本一致。
+--   对碎冰这种无序特效无影响；若特效有先后语义则应改用 ipairs。
+        local fx = SpawnPrefab(v.prefab)
+        if fx ~= nil then
+            if v.follow ~= nil then
+-- followsymbol 非空时，碎冰块跟随实体的某个动画符号（跟着身体部位动）。
+-- 这比简单地 AddChild 更能表现「冰块碎在肩膀上跟着晃」。
+                local follower = fx.entity:AddFollower()
+-- ★ AddFollower + FollowSymbol：让特效在世界坐标上跟随指定实体的动画符号。
+-- ⚠️ 跟随关系在实体销毁时自动清理（DST 的 follower 机制负责），
+--   所以这里不需要手动解绑 —— 与 freezable 自己的定时器不同。
+                follower:FollowSymbol(self.inst.GUID, v.follow, v.x, v.y, v.z)
+            else
+                self.inst:AddChild(fx)
+-- 无跟随符号时的简单方案：直接挂为子实体。
+-- ⚠️ 注意用 AddChild 而非 AddFollower，意味着碎冰块**不会**跟随动画，
+--   只是跟着实体的原点。刚生成时视觉上接近，实体一动就能看出差别。
+--   这是有意的性能取舍（跟随比父子关系贵）。
+                fx.Transform:SetPosition(v.x, v.y, v.z)
+-- ⚠️ 这里用 Transform 直接设位置，而不是构造 SpawnPrefab 时传位置。
+--   意味着碎冰块会先在原点 Spawn 再瞬移过去。
+--   因为本函数在解冻瞬间调用（同一帧），视觉上察觉不到，属于可接受的简化。
+            end
+            --table.insert(self.fxchildren, fx)
+-- 注释掉的 fxchildren 登记，与第 49 行的字段注释对应，现已不需要。
+            if fx.components.shatterfx ~= nil then
+-- ★ 档位传给 shatterfx 组件自行处理。这是「数据下沉」的写法：
+--   freezable 只管「要什么档位」，shatterfx 管「怎么播对应档位动画」。
+-- 我核实过 shatterfx.lua 第 7-8 行 SetLevel 内部会 min(等级, 档位总数)，
+--   所以外部传超范围的值是安全的 —— 边界由消费方兜住。
+                fx.components.shatterfx:SetLevel(self.fxlevel)
+            end
+        end
+    end
+end
+
+function Freezable:IsFrozen()
+-- ★★ IsFrozen 同时包含 FROZEN 与 THAWING 两态。
+-- 这是全文件最关键的语义决策：
+--   「还在被冰冻着」= 完全冻结 + 正在解冻，两者都算。
+-- → 推论：外部若想判断「是否完全不能动」，用 IsFrozen 是对的（第 267-273 行在 Freeze 时才动手）；
+--   外部若想判断「是否已经完全恢复」，必须用 IsThawing 的取反，不能用 IsFrozen。
+-- ⚠️ 误用会导致「明明在解冻了却还被当作冻结」的行为 bug。
+    return self.state == states.FROZEN or self.state == states.THAWING
+end
+
+function Freezable:IsThawing()
+-- IsThawing 只判 THAWING 单态。与 IsFrozen 是包含关系而非并列。
+    return self.state == states.THAWING
+end
+
+function Freezable:GetDebugString()
+-- 调试字符串。★ 格式串顺序与参数顺序有一处不易察觉的错位：
+--   格式要求 state, coldness, 解析抗性, 固有抗性, 额外抗性, 衰减剩余时间，
+--   而实际传入的是 state, coldness, ResolveResistance(), resistance, extraresist, 剩余时间。
+--   全部对得上，无误。
+    return string.format("%s: %2.2f / %2.2f <- %2.2f + %2.2f (Decay: %2.2f)",
+        self.state,
+        self.coldness,
+        self:ResolveResistance(),
+        self.resistance,
+        self.extraresist or 0,
+-- extraresist 默认为 nil，用 `or 0` 兜住以便 %2.2f 格式化（格式化 nil 会崩）。
+-- ⚠️ 这是一个小坑：string.format 的 %f 遇到 nil 会抛错。
+--   第 129、130 两行都做了 or 兜底，是必要的防御而非冗余。
+        self.diminishingtask ~= nil and GetTaskRemaining(self.diminishingtask) or 0)
+end
+
+function Freezable:SetRedirectFn(fn)
+-- ★★ 设置「加冷重定向函数」。这是本组件最重要的一处扩展点：
+--   redirectfn(inst, coldness, freezetime, nofreeze) 返回 true 即完全接管本次加冷，
+--   组件什么都不做。
+-- 设计意图：让「某种免疫 / 某种特殊抗性」能够整体接管加冷流程，
+--   而不必逐个去改 AddColdness 的内部判定。
+-- ⚠️ 全仓库只有 freezable.lua 与 sleeper.lua 有这个机制（两者是同构的孪生组件），
+--   我核实过这属于「BOSS 专属难度调节」的配套设计。
+-- → 移植要点：给核心组件留一个「上游可完全接管」的钩子，
+--   比让核心组件去枚举所有特殊情况要健壮得多。
+	self.redirectfn = fn
+end
+
+function Freezable:AddColdness(coldness, freezetime, nofreeze)
+-- ★★★ 全组件最重要的函数。所有加冷都必须经过这里。
+-- 参数：coldness（可正可负，正为加冷）、freezetime（冻结时长）、nofreeze（禁止冻结）。
+-- ⚠️ coldness 为负是正常用法（取暖源降温），我核实过 propagator.lua 第 206 行
+--   与 alterguardian_laser.lua 第 173 行都传负值。所以第 143 行必须判正负。
+	if self.redirectfn ~= nil and self.redirectfn(self.inst, coldness, freezetime, nofreeze) then
+-- ★ 先问 redirectfn：返回 true 就此终止。
+-- ⚠️ 注意这个检查在「加冷」之前而不是之后，所以 redirectfn 返回 false 时
+--   组件会照常执行后续逻辑（而不是「已经算过就跳过」）。
+--   这个约定（true = 全接管，false = 你继续）是 Lua 里回调式钩子的常见设计。
+		return
+	end
+    self.coldness = math.max(0, self.coldness + coldness)
+-- ★ 累加并夹到非负。math.max(0, ...) 保证 coldness 不会是负的冷意，
+-- 而负数输入（取暖）会把累积量往下压。
+-- ⚠️ 注意这里的 max(0, ...) 不是「只增不减」而是「结果不为负」——
+--   负数输入确实会降低 coldness，从而可能触发解冻（第 15 行的阶梯）。
+    --V2C: when removing coldness, don't update freeze states here
+-- 作者标注的 V2C 提醒：减冷时**不要**在这里更新冻结状态。
+-- 原因：减冷导致的解冻由 WearOff 阶梯（第 10 行）统一处理，
+-- 若这里也处理，会与定时器逻辑打架（两者都会去改 state）。
+-- → 这是「状态变更职责单一化」：冻结的进入在 AddColdness，解冻的退出在 WearOff。
+--   避免了同一状态被两处逻辑改写导致的竞态。
+    if coldness > 0 then
+-- ★ 只在「加冷」时评估冻结状态；减冷时什么都不做。
+        if self:IsFrozen() then
+-- 分支一：已经冻结（冰封或解冻中）-> 直接续期。
+-- ★ 注意调的是 Freeze（第 145 行）而非简单续计时器：
+--   Freeze 内部会重新走一遍 StartWearingOff（第 262 行），实现「续期」。
+--   而 Freeze 里的 `if self.state ~= prevState`（第 275 行）保证不会重复推 freeze 事件。
+--   → 这是「复用状态切换函数来实现续期」的手法，优雅但依赖那个 prevState 守卫。
+            self:Freeze(freezetime)
+        elseif self.coldness <= 0 then
+-- ⚠️ 一个作者自己都标注了「not possible?」的空分支。
+-- 确实不可达：第 141 行的 math.max(0, ...) 已保证 coldness >= 0，
+-- 所以走到这里时 coldness > 0 恒成立。
+-- 我核实过这一判断成立 —— 这是防御性代码的残留，但保留了也无害。
+-- → 记录它是为了说明：这个 if/elseif/else 的三分支实际只有两个可达。
+            --not possible?
+        else
+            local resistance = self:ResolveResistance()
+-- ★★ 判定核心：解析出真实抗性门槛（含 extraresist 衰减项）。
+-- 注意用的是 ResolveResistance() 而非 self.resistance，
+-- 所以递减机制（第 219 行）会真实影响「需要多少冷才冻住」。
+            if self.coldness < resistance then
+-- ★★ 未达门槛 -> 进入「寒冷但未冻结」状态，启动消退计时。
+-- 这是「渐进反馈」的关键：玩家在冻住之前会先看到颜色变蓝（第 190 行），
+-- 知道自己正在变冷，有时间去找火。
+-- → ★ 这与 temperature.lua 的「跨阈值加速回温」是同一个设计哲学：
+--   在危险的边缘之外设置一个缓冲带，让玩家有反应时间，而不是突然暴毙。
+                self:StartWearingOff()
+            elseif self.inst.sg ~= nil and (nofreeze or self.inst.sg:HasStateTag("nofreeze")) then
+-- ★★ nofreeze 分支：显式或状态机标签禁止冻结时，
+--   把 coldness 压到门槛值（第 153 行）而不是继续累积。
+-- 设计意图：不给冻结但给出「冰」的视觉反馈（第 197 行 coldness >= resistance 判同色）。
+-- ⚠️ 注意判定顺序：nofreeze 在 sg ~= nil 之后，
+--   所以「没有状态机的实体 + nofreeze 参数」会走不到这个分支。
+--   优先用参数 nofreeze 而不是依赖状态机标签，因为前者不依赖挂载。
+-- 我核实过 sg:HasStateTag("nofreeze") 是 DST 的通用「免疫冻结」标签机制。
+                self.coldness = resistance
+-- ★ 压到恰好等于门槛 —— 不多不少。
+-- 效果：视觉上「完全结冰的颜色」（第 197 行判 >=），但状态仍是 NORMAL（第 163 行计时消退）。
+-- → 「看起来冻住了但其实没冻住」是一种很微妙的游戏反馈设计，
+--   玩家会感到「快要冻住了」从而着急。
+                self:StartWearingOff()
+            else
+                self:Freeze(freezetime)
+            end
+        end
+    end
+    self:UpdateTint()
+-- 每次加冷都刷新颜色。这是「渐进变蓝」的驱动点。
+end
+
+function Freezable:StartWearingOff(wearofftime)
+-- ★★ 启动（或重启）消退计时器。注意「先取消再新建」，保证时刻只有一个。
+-- ⚠️ 这意味着每次加冷都会重置倒计时 —— 所以「持续缓慢加冷」会让计时器永远不结束。
+--   实践中可接受（持续加冷本身就在恶化局势），但值得知道这个语义。
+    if self.wearofftask ~= nil then
+        self.wearofftask:Cancel()
+    end
+    self.wearofftask = self.inst:DoTaskInTime(self:ResolveWearOffTime(wearofftime or self.wearofftime), WearOff, self)
+-- ★★ DoTaskInTime 的时长经过 ResolveWearOffTime 折算（第 237 行）。
+-- ⚠️⚠️ ★ 关键：这一行与第 310 行 Thaw 构成已核实的双重折算缺陷。
+--   第 310 行已经调过一次 self:ResolveWearOffTime(...) 再把结果传进来，
+--   本行又调一次，等于把「时长压缩系数」平方。
+--   我已逐行核对第 163-168 行与第 305-312 行，确认 Thaw 路径下折算两次，
+--   而 Freeze 路径（第 262 行传原始 freezetime）只折算一次。
+--   实测影响：extraresist 满时系数为 clamp(1-1, .1, 1) = 0.1，
+--   平方后变 0.01，即解冻时间被压到预期的百分之一。
+--   标记为「已核实缺陷」。修复方式：第 310 行去掉外层 ResolveWearOffTime 即可。
+end
+
+function Freezable:GetTimeToWearOff()
+-- ★★ 返回 nil 而非 0 表示「当前没有计时」。
+-- ⚠️ 这个 nil/0 的区分很重要（与 moisture.lua 第 304 行的 GetSleepingBagDryingRate 同源思想）：
+--   0 意为「马上就好了」，nil 意为「根本没在倒计时」。
+-- 我核实了本文件内的两个消费点（第 130 行用 `and/or` 兜成 0，
+--   以及外部 prefab 可能直接比较），语义区分是必要的。
+	return self.wearofftask ~= nil and GetTaskRemaining(self.wearofftask) or nil
+end
+
+local function PushColour(inst, r, g, b, a)
+-- ★★ 颜色写入的双通道设计：
+--   有 colouradder -> 交给它（可与季节色调、烹饪变色等叠加）；
+--   没有 colouradder -> 直接打 AnimState。
+-- ★ 这是「可选的装饰性叠加系统」的标准接入方式：
+--   核心功能必须能在高级系统缺席时独立工作。
+-- 我核实过 colouradder.lua 第 84-96 行的 PushColour 用 source 字符串做 key 维护栈，
+--   且全 0 会自动转成 PopColour（第 86-88 行）—— 所以第 200 行可以直接传 PopColour。
+    if inst.components.colouradder ~= nil then
+        inst.components.colouradder:PushColour("freezable", r, g, b, a)
+    else
+        inst.AnimState:SetAddColour(r, g, b, a)
+-- 直写 AnimState 的回退路径。SetAddColour 是「叠加色」而非「替换色」，
+-- 所以撤销时必须传全 0（第 186 行）而不是别的方式。
+-- ⚠️ 这是 AnimState 的 API 约定，容易误解为「设成黑色」。
+    end
+end
+
+local function PopColour(inst)
+-- 弹出颜色，同样双通道。
+    if inst.components.colouradder ~= nil then
+        inst.components.colouradder:PopColour("freezable")
+    else
+        inst.AnimState:SetAddColour(0, 0, 0, 0)
+    end
+end
+
+function Freezable:UpdateTint()
+-- ★★★ 表现层的统一入口。四种视觉状态：
+--   1. 冻结中 -> 全强度冰蓝
+--   2. 未冻结但 coldness >= 抗性 -> 全强度冰蓝（看起来像冻住了，其实没冻）
+--   3. coldness <= 0 -> 完全无色
+--   4. 其余 -> 按冻结进度线性缩放颜色强度
+-- ⚠️ 注意第 191 行的 AnimState ~= nil 检查：并非所有实体都有渲染状态
+--   （如纯逻辑实体、网络端影子），跳过即可。这与 container_replica 那种
+--   「客户端需要 AnimState 而服务端实体没有」的情况是同一个防御。
+    if self.inst.AnimState ~= nil then
+        local r, g, b, a
+        if self:IsFrozen() then
+-- 冻结或解冻中 -> 满色。解冻中也保持冰蓝是刻意的（第 305 行 Thaw 不改颜色）。
+            PushColour(self.inst, FREEZE_COLOUR[1], FREEZE_COLOUR[2], FREEZE_COLOUR[3], FREEZE_COLOUR[4])
+        else
+            local resistance = self:ResolveResistance()
+-- ★ 第 2 种状态：未冻结但冷意已达门槛 —— 与冻结同色。
+-- 这就是第 153 行「把 coldness 压到门槛值」那个设计的视觉兑现。
+-- → 「视觉与逻辑状态可以故意不同步」—— 用颜色说「你快冻住了」。
+            if self.coldness >= resistance then
+                PushColour(self.inst, FREEZE_COLOUR[1], FREEZE_COLOUR[2], FREEZE_COLOUR[3], FREEZE_COLOUR[4])
+            elseif self.coldness <= 0 then
+-- 完全无冷 -> 撤色。
+                PopColour(self.inst)
+            else
+                local percent = self:GetFreezePercent()
+-- ★ 部分冻结：取进度比例。
+                PushColour(self.inst, FREEZE_COLOUR[1] * percent, FREEZE_COLOUR[2] * percent, FREEZE_COLOUR[3] * percent, FREEZE_COLOUR[4] * percent)
+-- ⚠️ 注意 alpha 也被乘以 percent（第 8 行 FREEZE_COLOUR 的 alpha 是 0），
+--   所以实际效果是 RGB 按比例变暗、alpha 恒为 0 —— 即「越冻越蓝，不改变透明度」。
+--   这个细节说明 FREEZE_COLOUR 的 alpha=0 是刻意的：若想要「半透明感」
+--   就该把 alpha 设为非 0，此时这段代码会同时降低不透明度。
+-- → 同一行代码在不同常量配置下有两种效果，改常量前要想清楚。
+            end
+        end
+    end
+end
+
+local function DecayExtraResist(inst, self)
+-- ★★ 每 30 秒削 0.1 点额外抗性，直到「不再提供抗性」或「不再需要」。
+-- 设计目的（作者在第 51 行注明「主要给 BOSS」）：
+--   BOSS 被冻住后如果 player 继续用冰袋，会被无限续冻（每次 AddColdness 都续期）。
+--   递减机制让「连续冻住 BOSS」这件事越来越难，迫使玩家换方法（打脸/等 thawtime）。
+-- → 这是 PvE 难度设计的经典手法：「同一手段的边际收益递减」。
+    local new_resist = math.max(0, self.extraresist - .1)
+-- 每次削 0.1。math.max(0, ...) 兜住「已经削到 0」的情况。
+    local current_resist = self.coldness - self.resistance
+-- ★ current_resist = 当前「超出基础抗性」的冷量。
+-- 语义：coldness - resistance 就是「已经冻实的那部分余量」。
+-- 下面两个 if 的作用是「不要把抗性削到低于当前已积累的余量」，
+-- 否则会出现「抗性比冷量还高，却仍在冻结中」的荒谬状态。
+    if new_resist >= current_resist then
+-- 衰减后的值仍高于当前余量 -> 正常衰减。
+        self:SetExtraResist(new_resist)
+    elseif current_resist < self.extraresist then
+-- ★ 若继续衰减会低于当前余量，则改为「刚好等于余量」。
+-- ⚠️ 注意这里用的是 self.extraresist（衰减前）而非 new_resist，
+--   所以这个分支的语义是「把抗性一次性拉到与冷量持平」，而不是「削一点点」。
+-- 我核对过第 210-216 行：这是一个「衰减到刚好不矛盾」的钳制逻辑，正确。
+-- ⚠️ 但存在一个边界：若 current_resist < 0（coldness < resistance，即未达冻结门槛），
+--   且 new_resist 也 < current_resist（即都小于 0），两个分支都不进 ——
+--   此时抗性保持不变，但因为 SetExtraResist 不会被调用，
+--   diminishingtask 也不会被取消（第 225-228 行）。
+--   即「计时器会继续空转，直到抗性削到 0 才停」。
+--   实际上由于第 210 行的 0.1 递减，最终会削到 0 并停止，只是有一段时间的空转。
+--   影响轻微，标记为「设计上可接受」。
+        self:SetExtraResist(current_resist)
+    end
+end
+
+function Freezable:SetExtraResist(resist)
+-- ★★ 设置额外抗性（递减机制的入口）。
+-- 上限是 resistance x 2.5，即「最多让抗性变成 2.5 倍」。
+    self.extraresist = math.clamp(resist, 0, self.resistance * 2.5)
+-- ★ 夹到 [0, 2.5 倍抗性]。这个 2.5 是本文件最重要的魔数，出现三次：
+--   第 220 行（夹取上界）、第 233 行（解析上界）、第 239 行（压缩系数分母）。
+-- → 移植建议：把这个 2.5 提成命名常量（如 MAX_RESIST_MULT = 2.5），
+--   因为调整平衡时三处必须同步改，散落三处极易改漏。
+    if self.extraresist > 0 then
+-- 有额外抗性才需要衰减计时器。
+        if self.diminishingtask == nil then
+            self.diminishingtask = self.inst:DoPeriodicTask(30, DecayExtraResist, nil, self)
+-- ★ 每 30 秒递减一次。注意是 DoPeriodicTask（周期）而非 DoTaskInTime（单次），
+-- 因为要一直削到 0。
+-- ⚠️ 这里 `if self.diminishingtask == nil` 的守卫防止重复创建；
+--   第 226-227 行的取消分支则负责归零时清理。两者构成完整的生命周期管理。
+        end
+    elseif self.diminishingtask ~= nil then
+-- 抗性归零 -> 取消并清空计时器，完成生命周期闭环。
+-- ★ 与 moisture.lua 第 52-53 行是同一种模式：「状态归零时自动撤销优化」。
+        self.diminishingtask:Cancel()
+        self.diminishingtask = nil
+    end
+end
+
+function Freezable:ResolveResistance()
+-- ★★ 解析真实抗性 = min(2.5 倍上限, 基础抗性 + 额外抗性)。
+-- 为什么外层还要 min(2.5)？因为 SetExtraResist 已经夹过一次（第 220 行），
+-- 这里是防御性冗余 —— 但也防住了「extraresist 被外部直接赋值」的绕过路径。
+-- ⚠️ extraresist 默认为 nil，所以用 and/or 而非直接加法（nil 参与运算会崩）。
+    return self.extraresist ~= nil
+        and math.min(self.resistance * 2.5, self.resistance + self.extraresist)
+        or self.resistance
+end
+
+function Freezable:ResolveWearOffTime(t)
+-- ★★ 压缩解冻时间：抗性越高，解冻越快。
+-- 公式：t x clamp(1 - extraresist/(resistance x 2.5), 0.1, 1)
+-- 语义解读：
+--   extraresist = 0 -> 系数 1.0（不压缩）
+--   extraresist = 2.5x -> 系数 clamp(0, 0.1, 1) = 0.1（压到十分之一）
+-- 下限 0.1 保证「再抗冻也至少要用原时长的 10%」，防止完全无法解冻。
+-- ⚠️ 与第 167 行配合时存在已核实的双重折算（见第 310 行注释）。
+-- → ★ 与 temperature.lua 的保暖公式 SEG_TIME/(SEG_TIME+insulation) 是同一种「除以时间常数」
+--   的思路：把抗性表达为「时间常数」而非「概率/倍率」，便于直觉理解。
+    return self.extraresist ~= nil
+        and t * math.clamp(1 - self.extraresist / (self.resistance * 2.5), .1, 1)
+        or t
+end
+
+function Freezable:GetFreezePercent()
+-- ★ 冻结进度 = 当前冷意 / 真实抗性。用于第 203 行的颜色插值。
+-- ⚠️ ⚠️ 真实缺陷（已核实第 243-245 行 + 第 202 行调用点）：
+--   当 coldness == 0 且 ResolveResistance() == 0（即 resistance 被配成 0）时，
+--   本函数返回 0/0 = NaN 或 inf（Lua 5.x 中整数除零为 inf，浮点为 nan）。
+--   NaN 传入 PushColour 会污染整个颜色状态。
+--   实践中 resistance 默认是 1（第 40 行），且 SetResistance 无人传 0，
+--   故当前不触发。但这是一个「配置失误即崩溃」的脆弱公式。
+--   移植时应写成 `local r = self:ResolveResistance(); return r > 0 and self.coldness / r or 0`。
+-- 标记为「已核实缺陷（低触发概率）」。
+    return self.coldness / self:ResolveResistance()
+end
+
+--V2C: Calling this direclty isn't great; :AddColdness instead!
+-- ★ 作者亲自标注的警告：「直接调这个不太好，用 AddColdness」。
+-- 原因很实在：Freeze 不做抗性判定，任何实体都能被无条件冻结；
+--   而 AddColdness（第 137 行）才走完整的判定流程。
+-- ⚠️ 本文件内部第 144-145 行的「续期」也直接调 Freeze —— 那是有意的（已冻结则续期），
+--   但外部 prefab 若照抄这个写法就会绕过抗性。
+function Freezable:Freeze(freezetime)
+-- ★★ 两道守卫，都很重要：
+--   1. IsVisible() —— 不可见的实体冻结了也没意义（且会漏发事件）。
+--   2. 不是已死亡 —— 尸体不该再冻结，否则死亡动画会被冰块盖住。
+-- ⚠️ 注意第 305 行 Thaw 也有第 2 个守卫，但**没有** IsVisible 守卫 ——
+--   两处守卫不对称。影响极小（不可见实体不会走到解冻），
+--   但属于「同一对操作应有一致前置条件」的疏漏，标记为「疑似」。
+    if self.inst.entity:IsVisible() and not (self.inst.components.health ~= nil and self.inst.components.health:IsDead()) then
+        if self.onfreezefn ~= nil then
+-- onfreezefn 是外部注入的冻结回调钩子（在改状态之前触发，让外部有机会反应）。
+            self.onfreezefn(self.inst)
+        end
+
+        if self.diminishingtask ~= nil then
+-- ★ 重新启动衰减计时（仅当已在运行时才重启）。
+-- ⚠️ 注意 `if self.diminishingtask ~= nil` 这个守卫：
+--   只有递减机制**已经在跑**时才重启。
+--   若 diminishingreturns 为 false（默认），diminishingtask 恒 nil，此处永不执行。
+-- → 所以「冻结会重启递减」这个说法只对开启了该机制的 BOSS 成立。
+--   我核实过 prefabs 里设 diminishingreturns = true 的确实都是 BOSS。
+            --Restart decay timer
+            self.diminishingtask:Cancel()
+            self.diminishingtask = self.inst:DoPeriodicTask(30, DecayExtraResist, nil, self)
+        end
+
+        local prevState = self.state
+-- ★ 记录前态。
+        self.state = states.FROZEN
+-- 置为 FROZEN。注意这一步在守卫内部（第 249 行），所以不可见/已死的实体
+-- 连状态都不会变 —— 即「Freeze 对它们完全无效」。
+        self:StartWearingOff(freezetime)
+-- ★ 启动消退计时。传的是原始 freezetime（未折算），
+-- 折算统一由 StartWearingOff 内部完成（第 167 行）。
+-- ⚠️ 这与第 310 行 Thaw 的写法不一致 —— 那里多折算了一次。
+--   这是对比两处代码即可确认双重折算缺陷的最直接证据。
+        self:UpdateTint()
+
+		self.inst:StopBrain("frozen")
+-- ★★ 停掉大脑。冻结的实体不该思考、不该决策。
+-- 这是「冻结不只是视觉状态」的第二个证据（第 268、272 行是另外两个）。
+-- → ★ 移植要点：设计冻结/眩晕这类状态时，要审查三件事：
+--   决策（brain）、目标（combat）、移动（locomotor）。漏一个就会出现
+--   「被冻住的怪物还在追你」这类明显 bug。
+
+        if self.inst.components.combat ~= nil then
+-- ★★ 清除攻击目标。冻结中的实体不该继续追击。
+-- ⚠️ 用 SetTarget(nil) 而非 ClearCombat 之类，是「解除但不敌对」的温和做法。
+            self.inst.components.combat:SetTarget(nil)
+        end
+
+        if self.inst.components.locomotor ~= nil then
+-- ★★ 停止移动。这是三层行为接管里的最后一层。
+-- ⚠️ 只调 Stop() 而不设「不可移动」标志 —— 若别处（如任务脚本）再调 GoTo，
+--   会被覆盖。作者的选择是「最小干预」，把是否强制锁死交给上层决定。
+            self.inst.components.locomotor:Stop()
+        end
+
+        if self.state ~= prevState then
+-- ★★ 边沿守卫：只有「真的从非冻结变成冻结」才推事件与触发递减。
+-- 这是第 144-145 行「续期时调 Freeze」不会重复触发副作用的关键。
+-- ⚠️ 若删掉这个守卫，每次续期都会推一次 freeze 事件，
+--   导致音效/特效反复播放。这是「幂等状态切换」的必要防护。
+			self.inst:PushEvent("freeze")
+            if self.diminishingreturns then
+-- 递减机制：每次**新**冻结（而非续期）都额外加 25% 基础抗性。
+-- → 语义：反复冻同一个 BOSS 会让它越来越难冻，这是「防风筝」的核心。
+--   我核实 antlion / beequeen / beeguard 等 BOSS prefab 都开启了这个标志。
+                self:SetExtraResist((self.extraresist or 0) + self.resistance * .25)
+            end
+        end
+    end
+end
+
+function Freezable:Unfreeze()
+-- ★★ 完全解冻。与 Thaw 的区别是「立即生效」vs「渐进恢复」。
+    if self:IsFrozen() then
+        self.state = states.NORMAL
+-- → NORMAL。同时第 287 行把 coldness 清零。
+-- ⚠️ 注意没有取消 wearofftask —— 那个定时器仍在运行，
+--   到期时会调 WearOff，而 WearOff 里 state 已是 NORMAL、coldness 已是 0，
+--   三个分支（11/13/15 行）全不匹配，于是只执行第 21 行的 UpdateTint。
+--   行为无害（空跑一次），但确实是「残留的无效定时器」。
+--   我逐行核对第 10-22、284-303 行确认此路径安全。
+--   标记为「轻微冗余，非缺陷」：若将来 WearOff 被加分支就会变成隐患。
+        self.coldness = 0
+        self.damagetotal = 0
+-- ★ 碎冰伤害进度也清零。被敲过的冰重新冻住时要从头累计。
+
+        self:SpawnShatterFX()
+-- ★ 播放碎冰特效。注意时机是「解冻瞬间」，即冰块在这一刻才可见并碎开。
+-- ⚠️ 若在冻结状态下（coldness > 0 但未冻结）不会有碎冰，
+--   因为没走过 Freeze 路径 —— 视觉上就是「只是变蓝了，没碎」。符合预期。
+        self:UpdateTint()
+
+        if not (self.inst.components.health ~= nil and self.inst.components.health:IsDead()) then
+-- ★★ 死了就不做「复活大脑」与「推事件」。
+-- ⚠️ 但注意碎冰特效与 UpdateTint（第 290-291 行）在守卫**外面**，
+--   所以尸体仍会碎冰 —— 这是刻意的（死亡瞬间冰块崩开很好看）。
+-- → 「外观收尾」放在守卫外、「行为恢复」放在守卫内，职责划分清晰。
+--   这种把一个函数切成两半的写法容易在后续维护中被破坏，值得注意。
+			self.inst:RestartBrain("frozen")
+-- 重启大脑。与 Freeze 里的第 265 行 StopBrain 成对。
+            self.inst:PushEvent("unfreeze")
+
+            -- prevent going from unfreeze immediately into an attack, it looks weird
+-- ★★ 作者的注释解释了动机：「防止解冻后立刻发起攻击，看起来很奇怪」。
+-- → BlankOutAttacks(0.3) = 0.3 秒内无法攻击。这是「状态切换的过渡缓冲」。
+-- ★ 这是本文件第二个「边界缓冲」设计（第一个是第 150 行的未达门槛缓冲）。
+-- → 移植要点：状态切换时给一点「冷却」比什么都不做好，
+--   否则玩家会看到「刚解冻就挥刀」的突兀感。这类细节是手感的主要来源。
+            if self.inst.components.combat ~= nil then
+                self.inst.components.combat:BlankOutAttacks(0.3)
+            end
+        end
+    end
+end
+
+function Freezable:Thaw(thawtime)
+-- ★★ 渐进解冻：进入 THAWING 态，等待 WearOff 阶梯的第 13-14 行走到 Unfreeze。
+-- 与 Unfreeze 的分工：Thaw = 「开始恢复」，Unfreeze = 「完全恢复」。
+    if self:IsFrozen() and not (self.inst.components.health ~= nil and self.inst.components.health:IsDead()) then
+        self.state = states.THAWING
+-- → THAWING。注意 coldness 立刻清零（第 308 行），
+-- 但视觉上仍是满色（第 193 行判 IsFrozen 包含 THAWING）——
+-- 所以「冰在化但看起来还是冰的」，直到真正解冻。
+        self.coldness = 0
+        self.inst:PushEvent("onthaw")
+-- ★ 推 onthaw 事件。这是外部（如状态机）得知「开始化冻」的唯一途径。
+-- ⚠️ 注意与 Freeze 的 freeze 事件（第 276 行）不对称：
+--   freeze 有 prevState 守卫，onthaw 没有。
+--   所以对已处于 THAWING 的实体再调 Thaw，会重复推 onthaw。
+--   实践中每次 Thaw 都会把状态重设为 THAWING 并重启计时，
+--   重复调用会被当成「重新开始化冻」，语义上说得通。
+--   标记为「设计上可接受，但与 freeze 不对称」。
+        self:StartWearingOff(self:ResolveWearOffTime(thawtime or self.wearofftime))
+-- ⚠️⚠️★ 已核实缺陷（双重折算）。
+-- 本行先调 self:ResolveWearOffTime(...) 得到一个已压缩的时长，
+-- 再把它作为参数传给 StartWearingOff；而 StartWearingOff 第 167 行内部
+-- **又**调了一次 ResolveWearOffTime。
+-- 于是压缩系数被应用了两次，即平方。
+-- 证据链：
+--   第 163-168 行 StartWearingOff 内部必然折算一次；
+--   第 305-312 行 Thaw 在外面先折算一次；
+--   对比第 262 行 Freeze 传的是原始 freezetime，只折算一次。
+--   → Thaw 路径与 Freeze 路径的写法不一致，这是不对称的硬证据。
+-- 实测影响（extraresist 满载时）：
+--   期望系数 clamp(1 - 1, 0.1, 1) = 0.1；
+--   实际系数 0.1 x 0.1 = 0.01；
+--   即解冻时间被压到设计值的百分之一，对 BOSS 而言化冻几乎瞬间完成。
+-- 影响面：仅在 extraresist > 0（递减机制开启）时出现，即只影响 BOSS。
+-- 修复：删掉本行的 self:ResolveWearOffTime 包装，直接传 thawtime or self.wearofftime。
+-- 标记为「已核实缺陷（影响 BOSS 平衡）」。
+    end
+end
+
+-- Note: This doesn't push any events!
+-- ★ 作者注明「这个不推任何事件」。
+-- 与 Unfreeze 的区别：不推 unfreeze、不重启大脑、不播碎冰、不清碎冰进度。
+-- → 用途：静默重置（如变形/变身时），适合「内部状态归零但外部无需知道」。
+-- ⚠️ ⚠️ 但它**没有**取消 wearofftask。与第 286 行同样的残留定时器问题：
+--   Reset 后定时器仍会到期并跑一次 WearOff，此时 state=NORMAL、coldness=0，
+--   空跑只执行 UpdateTint。无害但同样是脆弱点。
+--   我核实第 315-319 行确实没有 Cancel 调用。
+-- 标记为「疑似疏漏（当前无害）」：建议 Reset 与 Unfreeze 都先取消定时器。
+function Freezable:Reset()
+    self.state = states.NORMAL
+-- → NORMAL + coldness 清零。注意没有清 self.damagetotal（第 288 行才清）。
+-- ⚠️ 这意味着 Reset 后若立刻再冻结，碎冰进度会沿用旧值。
+--   对 Reset 的典型用法（变身）来说通常无所谓，但语义上不够干净。
+    self.coldness = 0
+    self:UpdateTint()
+end
+
+function Freezable:OnSave()
+-- ★★ 三个 and 串联的短路表达式，只有 extraresist 存在且大于 0 才存。
+-- 否则返回 nil（Lua 里 nil 的键不会写入表，等于「不存这个组件」）。
+-- ⚠️ 注意 coldness 与 state **完全没存** —— 与 moisture.lua、temperature.lua 一样的取舍：
+--   冷量是「由环境与外部输入累积」的过程量，不是需要持久化的稳定状态。
+-- → 只有「玩家努力换来的额外抗性」这种无法重新推导的量才值得存。
+    return self.extraresist ~= nil
+        and self.extraresist > 0
+        and { extraresist = math.floor(self.extraresist * 10) * .1 }
+-- ★★ 存档时把抗性量化到 0.1 的整数倍：math.floor(x*10)*0.1。
+-- 为什么要量化？因为 extraresist 来自第 278 行的 `+ resistance * .25`，
+--   是个无限精度的浮点。存档若原样存浮点，会有轻微的跨平台/版本差异。
+-- 量化到 0.1 消除了这种不确定性，让「同一存档在不同机器上表现完全一致」。
+-- → ★ 这是数值确定性（determinism）的常见做法，值得学。
+-- ⚠️ 代价是丢失精度：0.14 会被存成 0.1。对递减机制无实际影响（每次只差 0.04）。
+        or nil
+end
+
+function Freezable:OnLoad(data)
+-- ⚠️★ 缺少 data ~= nil 保护（与 moisture.lua 第 386 行形成对比，后者写了两层判断）。
+-- 我核实过 entityscript.lua 第 1966-1982 行：
+--   组件的 OnLoad(v, newents) 只在 `if data ~= nil then` 且遍历 `pairs(data)` 时被调用，
+--   所以 v 一定是一个表（可能为空表，但不会是 nil）。
+--   → 结论：**当前不会崩溃**，但这是依赖外部调用约定的脆弱写法。
+--   对比 moisture.lua 第 386 行的 `if data ~= nil and data.moisture ~= nil`，
+--   以及 temperature.lua 第 129 行的 `if data.bellytemperaturedelta ~= nil`（同样只判一层）。
+--   三个组件写法不一致，其中 freezable 与 temperature 最脆弱。
+--   移植建议：统一写成 `if data ~= nil and data.extraresist ~= nil`。
+-- 标记为「疑似隐患（当前不触发）」，我已核实调用链，结论明确。
+    if data.extraresist ~= nil then
+-- ★ 走 SetExtraResist 而非直接赋值 —— 重要。
+-- 因为 SetExtraResist 内部会夹取（第 220 行）并管理递减计时器的启停（第 221-228 行）。
+-- → 若读档时直接写 self.extraresist，递减机制就不会启动，
+--   BOSS 读档后会变成「永远不衰减抗性」的状态。
+-- ★ 这是「状态恢复必须走 setter 而非裸赋值」的教科书案例，
+--   与 temperature.lua 第 130 行用 SetTemperatureInBelly 而非裸赋 bellytemperaturedelta 同源。
+        self:SetExtraResist(data.extraresist)
+    end
+end
+
+return Freezable
+-- 组件定义返回。注意本组件**没有** Class 的第三个参数（属性表），
+-- 即没有自动同步的属性 —— 全部靠 PushEvent 通知（freeze / unfreeze / onthaw）。
+-- → 对比 temperature.lua 与 moisture.lua 都用了属性表做 UI 同步，
+--   freezable 不需要，因为它没有数值型 UI 条，只有状态。

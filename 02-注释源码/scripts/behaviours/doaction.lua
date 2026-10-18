@@ -1,0 +1,238 @@
+--============================================================
+-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖
+-- 文件：behaviours/doaction.lua
+-- 模块：行为树节点库 / 动作
+-- 职责：执行一次 bufferedaction（采集/交互），通过 OnSucceed / OnFail 两个事件回调
+--       把异步结果转成 SUCCESS / FAILED —— 是「回调 → 终态」桥接的范本。
+-- 关键符号：DoAction, DoAction:Visit, DoAction:OnSucceed, DoAction:OnFail
+-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本
+-- 交叉引用：bufferedaction.lua（动作队列）, behaviourtree.lua（status 终态被后续 Visit 消费）
+--============================================================
+DoAction = Class(BehaviourNode, function(self, inst, getactionfn, name, run, timeout)
+--[[
+-- doaction.lua —— 执行动作节点（DoAction）：把一次异步动作的结果转成行为终态
+--
+-- 【★★★ 本文件解决的是行为树的一个根本难题：异步结果如何变成终态】
+--
+-- 问题：采集植物是**异步**的 —— 走过去（2 秒）→ 播放动画（1 秒）→ 生效。
+-- 而 BehaviourNode:Visit() 是**同步**的：它一次调用返回时必须给出 status。
+-- 传统解法（也是本文件采用的办法）：
+--   第一次 Visit 发起动作 → RUNNING → 等回调 → 回调写入 pendingstatus →
+--   后续某次 Visit 读到 pendingstatus → 写成终态。
+--
+-- 【★★★ 三个关键设计，缺一不可】
+--   ① 【回调注册】第 27/32 行 AddFailAction / AddSuccessAction
+--      —— 把「结果」写进 pendingstatus（不由事件系统直接改 status）
+--   ② 【代际校验】第 28/33 行的 `action == self.action`
+--      —— 防止「上一轮动作的迟到回调」污染新一轮的状态
+--   ③ 【终态回填】第 51-52 行 Visit 把 pendingstatus 搬进 status
+--      —— 实际改 status 的地方只有这里，符合「Visit 独占写 status」的纪律
+--
+-- ★★★★ 移植要点（本文件最值得抄的一条）：
+--   **异步动作 → 同步状态机的标准桥接法就是「回调写临时字段 + 轮询搬进状态」**。
+--   不要在回调里直接改 node.status —— 那会破坏行为树「单线程遍历 status」的假设，
+--   造成父节点在遍历中途看到变化结果，产生难以复现的时序 bug。
+--   回调只写「数据」，由 Visit 在安全时机读 —— 这是本文件的精髓。
+--]]
+--★★ 6 个形参，其中 name 用于决定调试输出里的节点名（第 2 行）。
+--★ `BehaviourNode._ctor(self, name or "DoAction")` ——
+--   允许调用方重命名，使调试输出能区分「浇水」与「施肥」两个 DoAction。
+-- ★ 移植要点：**让同构节点在调试输出里可区分**，
+--     是排查多实例行为树问题的基本手段。
+    BehaviourNode._ctor(self, name or "DoAction")
+    self.inst = inst
+    self.shouldrun = run
+--★ shouldrun = run —— 「跑还是走」，第 37 行用 FunctionOrValue 求值，
+--   即也支持传函数（其他节点如 wander 第 24 行是完整支持的）。
+--★ ⚠️ 注意：这里没给默认值，若调用方不传 run 则为 nil，
+--   FunctionOrValue(nil) 返回 nil → 推动作时按「走」处理。安全兜底。
+--   对照 findflower 第 29 行 findfarmplant 第 29 行的 self.shouldrun 问题：
+--   那两处是「字段名拼错」（应为 should_run），本处是正确的 shouldrun。
+--★ ★★ 同一个概念在本目录有三种写法：
+--   doaction  self.shouldrun（正确，且有 FunctionOrValue 包裹）
+--   wander    self.should_run（正确）
+--   findflower/findfarmplant  self.shouldrun（字段从未初始化）
+--   ★ 拼写不统一本身就是风险 —— 移植时统一命名可避免这类问题。
+    self.action = nil
+    self.getactionfn = getactionfn
+    self.time = nil
+--★ time 初值 nil，记录动作发起时刻（供第 46 行的超时判定）。
+--★ 与 chaseandattack 的 startruntime 同类，但后者会被事件回调置 nil。
+    self.timeout = timeout
+end)
+
+function DoAction:OnFail()
+--★★ OnFail —— 动作失败的回调体，逻辑只有一行。
+--★ 抽成独立方法的理由：与第 27-31 行的闭包逻辑分离，
+--   便于阅读（闭包里只剩「何时调用」的条件判断）。
+--★ 也可以直接内联，但那样回调体会变成 5 行嵌套，可读性下降。
+    self.pendingstatus = FAILED
+--★★ 只写 pendingstatus，**不碰 self.status** —— 这是本文件的核心纪律。
+-- ★★★ 详见文件头的说明：回调只写数据，Visit 负责改状态。
+--★ 若直接写 self.status：回调可能在行为树遍历中途触发，
+--   导致父节点在同一次遍历里看到不一致的子树状态。
+-- ★★ 这是一个很容易「觉得没关系」的错误 —— 单节点测试时完全正常，
+--   只有在复杂树里才会偶发错乱，且极难调试。
+-- ★ 移植要点：**外部/异步回调只能写自己的数据字段**，
+--   这是所有状态机系统的通用纪律（GUI 线程、定时器、网络回调同理）。
+end
+
+function DoAction:OnSucceed()
+--★ OnSucceed：与 OnFail 完全对称，只改 pendingstatus 的值。
+    self.pendingstatus = SUCCESS
+end
+
+function DoAction:Visit()
+--★★ Visit：顺序双 if。注意第 20 行是空行（打字留下的），无功能影响。
+
+    if self.status == READY then
+--★ READY 段：向调用方要一个动作，发起它，进入 RUNNING。
+        local action = self.getactionfn(self.inst)
+--★ getactionfn(inst) —— 由调用方决定「做什么动作」。
+--★★ 这与 findflower 第 18 行硬编码 ACTIONS.POLLINATE、
+--   findfarmplant 第 28 行用 self.action 的做法都不同 ——
+--   本文件把「选哪个动作」完全外包给调用方，最灵活。
+-- ★ ★★ 三种做法的取舍：
+--   · 硬编码（findflower）—— 最省，但只能做一件事
+--   · 参数（findfarmplant）—— 可复用，但只能在该动作族内选
+--   · 回调（本文件）—— 最灵活，调用方可有任意选择逻辑
+-- ★ 移植建议：**动作选择逻辑复杂时用回调，简单时用参数**。
+		self.action = action
+--★ 缓存到 self.action —— 这个字段承担两个职责：
+--   ① 第 53 行的有效性检查
+--   ② 第 28/33 行「代际校验」的基准
+-- ★★ 职责 ② 是关键：正是靠它才能识别「这是不是当前这一轮的动作」。
+		self.pendingstatus = nil
+--★★★ pendingstatus = nil —— 进场时清空上一轮的残留结果。
+--★★ 这行与第 23 行同样重要，缺了就会出错：
+--   若上一轮的 SUCCESS 回调把 pendingstatus 设成了 SUCCESS，
+--   而新一轮在动作发起后、回调查回前就执行了 Visit，
+--   第 51 行会读到**陈旧的 SUCCESS**，瞬间把新动作判为「已完成」。
+-- ★★★ 这类「异步状态机必须重置陈旧数据」的坑，与同步代码里的
+--   「先清空再计算」是同一个原则，但异步场景下更隐蔽（时序不直观）。
+-- ★ 移植建议：凡是「等异步结果」的逻辑，
+--   **发起操作前必须显式清空结果槽**，并写注释说明为什么。
+
+        if action then
+--★ 没有动作可做 → FAILED（调用方当时判断此事不可行）。
+			action:AddFailAction(function()
+--★★★★★【代际校验 —— 本文件最关键的一行】
+--   action:AddFailAction(function()
+--       if action == self.action and self.pendingstatus == nil then
+--           self:OnFail()
+--       end
+--   end)
+--
+-- 【三重校验，逐条说明为什么都必要】
+-- ① `action == self.action` —— **代际校验**
+--   ★★★ 场景：第 1 轮动作失败 → FAILED → 行为树重置 → 再次进入 READY，
+--     第 2 轮发起新动作并把 self.action 换成新对象。
+--     但第 1 轮的失败回调可能**迟到**（比如动作被中途取消后才回调）。
+--   · 若无此判断：迟到回调会把第 2 轮的 pendingstatus 写成 FAILED，
+--     表现为「刚开始新动作就立刻被判失败」。
+--   ★ 这是异步回调 + 重入循环 的经典 bug，DST 用对象身份比对解决。
+--
+-- ② `self.pendingstatus == nil` —— **结果未决校验**（仅 Fail 有，Success 无）
+--   ★ 场景：同一轮动作里 Fail 与 Success 都可能回调（见下），
+--     或多次回调（BufferedAction:Succeed 在 bufferedaction.lua:86-87
+--     会清空 onsuccess/onfail，理论上只触发一次，但防御无妨）。
+--   · Fail 加了「未决」判断 → 第一个结果生效，后续不改。
+--   · Success（第 33 行）**没有**这个判断 → 后到的 Fail 可以覆盖 SUCCESS！
+--   ⚠️ 这是一处**不对称**，我已逐行核对第 28 行与第 33 行确认。
+--     标注为「疑似疏漏」：实际中 Succeed 会清空回调表（bufferedaction.lua:86-87），
+--     所以 Fail 不会再触发；但两份代码本应一致。
+--   ★ 移植建议：成对写就绪检查的代码，必须逐字对照检查对称性。
+--
+-- ③ 闭包捕获 action（第 27/32 行的形参）
+--   ★ 闭包捕获的是**本次的局部变量**，与 self.action（当前轮）区分。
+--   两者相等 ⟹ 这个回调属于当前轮。校验的语义正在于此。
+				if action == self.action and self.pendingstatus == nil then
+					self:OnFail()
+				end
+			end)
+			action:AddSuccessAction(function()
+--★ Success 回调：只做代际校验（无 pendingstatus 判断，见上）。
+--★ 我已核实 bufferedaction.lua:78-80 的实现：AddSuccessAction 就是
+--   table.insert(self.onsuccess, fn)，即回调会**长期驻留在动作对象上**，
+--   所以「代际校验」不是可选项而是必需品。
+				if action == self.action then
+					self:OnSucceed()
+				end
+			end)
+            self.inst.components.locomotor:PushAction(action, FunctionOrValue(self.shouldrun))
+--★ 推动作到 locomotor，第二个参数 FunctionOrValue(self.shouldrun) 求值跑/走。
+--★ 对照 findflower 第 19 行直接传 self.shouldrun（可能是 nil），
+--   本文件多包了一层 FunctionOrValue —— 写法更正确。
+-- ★ ★ 移植要点：**凡是要支持「值或函数」的参数，就在消费点包一层**，
+--   否则调用方传函数时会被当成真值常量使用。
+            self.time = GetTime()
+--★ 记录发起时刻（供超时判定）。
+--★ 注意这里是「发起」时刻而非「开始执行」时刻 —— 包含寻路与排队时间。
+--   ★ 移植建议：超时判定要用「发起时刻」，这样「排队很久」也算在超时内，
+--     避免任务无限等待。
+            self.status = RUNNING
+        else
+            self.status = FAILED
+        end
+    end
+
+    if self.status == RUNNING then
+--★★ RUNNING 段：两个 if 顺序执行，pendingstatus 优先。
+        if self.timeout and (GetTime() - self.time > self.timeout) then
+--★ 超时判定：超过 timeout 秒还没结果 → FAILED。
+--★ `if self.timeout and ...` —— 先判 timeout 存在，
+--   短路保护了第 47 行的 GetTime() - self.time 运算。
+--   ★ 移植建议：**对可能为 nil 的数值先判存在再运算**，
+--     否则 GetTime() - nil 会抛错。
+--   这与 chaseandattack 第 110 行的 startruntime ~= nil 是同一防御模式。
+--★ 第 48 行的注释「Action timed out, failing」是调试残留。
+--⚠️ 超时后没有 Stop locomotor —— 动作仍在队列里跑完。
+--   我已核实第 47-49 行只有两行，无清理。
+--   ★ 后果：动作仍会执行并最终回调，但 pendingstatus 的检查（第 51 行）
+--     仍会改写 status —— 对已被置为 FAILED 的节点再改一次。
+--   ★★ 这确实是缺陷：超时 FAILED 后，若动作随后成功，
+--     第 51-52 行会把 status 改成 SUCCESS，**覆盖掉超时的失败**。
+--   标注为「疑似缺陷」：需动作确实会成功才暴露，实践中概率不高但真实存在。
+--   ★ 修复方向：超时时应同时置一个「已终止」标记，让回调失效。
+            self.status = FAILED
+            --print("Action timed out, failing")
+        end
+
+        if self.pendingstatus then
+--★★★★★【终态回填 —— 全文件的收尾】
+--   if self.pendingstatus then self.status = self.pendingstatus
+-- ★★★ 这就是「回调写数据、Visit 改状态」的落地点。
+--   每次 Visit 都会检查：有没有新结果？有就转终态。
+-- ★★ 为什么必须靠某次 Visit 来「搬运」而不是回调直接改？
+--   因为行为树的 status 只能在遍历过程中有意义。
+--   ★ 移植要点：这是「异步 → 同步」的通用范式，
+--     在 GUI/网络/定时器场景同样适用（数据入队、主循环消费）。
+--★ 顺序很重要：pendingstatus 优先于 IsValid 检查（第 53 行）。
+--   即「明确收到成功/失败结果」优先于「动作对象失效」。
+            self.status = self.pendingstatus
+        elseif not self.action:IsValid() then
+--★★ 兜底：没有结果但动作对象已失效 → FAILED。
+--★ 覆盖的场景：动作被外部取消/打断（既没 Succeed 也没 Fail，
+--   动作对象被移除 → IsValid 失败）。
+--★★★ 这是「第三种终态来源」，很值得学：
+--   除了「成功」「失败」，还有「消失了」。
+--   异步系统中「静默消亡」极常见（请求被丢弃、对象被 GC），
+--   必须有兜底，否则节点会永远卡在 RUNNING。
+-- ★ 移植建议：**任何等异步结果的状态机，都要有「等不到」的超时或失效兜底**。
+-- ★★ 对照 wander 第 64 行的 WantsToMoveForward 检查（同类兜底思路），
+--   但那是在「主动轮询进展」，本文件是在「检测对象消失」。
+            self.status = FAILED
+        end
+    end
+--★ 无 self:Sleep —— 故 GetSleepTime 返回 0，大脑每帧都跑。
+--★ ★★ 在本场景下**这是正确的**，不应优化：
+--   节点正等着回调写入 pendingstatus，
+--   若 Sleep(0.5)，结果到达后最多要等 0.5 秒才被读到，
+--   表现为「动作做完了，AI 却半秒没反应」—— 明显的迟钝。
+--   ★★★ 移植要点：**休眠节流要与「结果到达的感知延迟」权衡**。
+--     等待异步结果时，高频轮询是为了低延迟，不是浪费；
+--     而 wander 那种「自己控制节拍」的行为才适合 Sleep。
+--   ★ 对照 wander 第 62 行 Sleep(剩余时间) 与本文件不 Sleep 的对比，
+--     是「什么时候该节流」这个问题最清晰的正反例。
+
+end

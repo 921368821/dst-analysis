@@ -1,0 +1,92 @@
+--============================================================
+-- 文件：map/static_layouts/abandonedwarf.lua
+-- 模块：static_layouts / abandonedwarf
+-- 职责：static_layouts模块中的「abandonedwarf」。具体职责请结合函数实现阅读——本文件属于该模块的组成部分。
+-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本
+--============================================================
+
+return {
+  version = "1.1",
+  luaversion = "5.1",
+  orientation = "orthogonal",
+  width = 12,
+  height = 12,
+  tilewidth = 64,
+  tileheight = 64,
+  properties = {},
+  tilesets = {
+    {
+      name = "ground",
+      firstgid = 1,
+      filename = "../../../../tools/tiled/dont_starve/ground.tsx",
+      tilewidth = 64,
+      tileheight = 64,
+      spacing = 0,
+      margin = 0,
+      image = "../../../../tools/tiled/dont_starve/tiles.png",
+      imagewidth = 512,
+      imageheight = 384,
+      properties = {},
+      tiles = {}
+    }
+  },
+  layers = {
+    {
+      type = "tilelayer",
+      name = "BG_TILES",
+      x = 0,
+      y = 0,
+      width = 12,
+      height = 12,
+      visible = true,
+      opacity = 1,
+      properties = {},
+      encoding = "lua",
+      data = {
+        0, 0, 17, 17, 17, 0, 0, 17, 17, 17, 0, 0,
+        0, 0, 17, 17, 17, 17, 17, 17, 17, 17, 17, 0,
+        0, 17, 17, 9, 9, 17, 17, 9, 9, 17, 17, 0,
+        0, 17, 17, 17, 9, 9, 9, 9, 9, 17, 17, 0,
+        0, 17, 17, 17, 9, 9, 9, 9, 17, 17, 17, 0,
+        17, 17, 17, 9, 9, 9, 9, 9, 17, 17, 0, 0,
+        17, 17, 9, 9, 9, 9, 9, 17, 17, 17, 17, 0,
+        17, 17, 17, 9, 17, 9, 17, 17, 9, 17, 17, 17,
+        0, 17, 17, 17, 17, 9, 9, 9, 9, 17, 17, 17,
+        0, 0, 17, 17, 17, 17, 9, 9, 17, 17, 0, 0,
+        0, 0, 0, 0, 17, 17, 17, 17, 17, 17, 0, 0,
+        0, 0, 0, 0, 0, 17, 17, 17, 17, 0, 0, 0
+      }
+    },
+    {
+      type = "objectgroup",
+      name = "FG_OBJECTS",
+      visible = true,
+      opacity = 1,
+      properties = {},
+      objects = {
+        {
+          name = "",
+          type = "miniflare",
+          shape = "rectangle",
+          x = 321,
+          y = 368,
+          width = 0,
+          height = 0,
+          visible = true,
+          properties = {}
+        },
+        {
+          name = "",
+          type = "miniflare",
+          shape = "rectangle",
+          x = 271,
+          y = 398,
+          width = 0,
+          height = 0,
+          visible = true,
+          properties = {}
+        }
+      }
+    }
+  }
+}

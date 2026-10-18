@@ -1,0 +1,405 @@
+--============================================================
+-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖
+-- 文件：behaviours/chaseandram.lua
+-- 模块：行为树节点库 / 冲撞
+-- 职责：先冲过去把目标撞飞（ram），期间按 maxram_attacks 计数与 max_chase_time 限时，
+--       并含平台差异判定与「停止后短暂停顿」的节奏控制。
+-- 关键符号：ChaseAndRam, ChaseAndRam:Visit, ChaseAndRam:OnAttackOther,
+--           ChaseAndRam:AreDifferentPlatforms, ChaseAndRam:OnStop,
+--           ChaseAndRam:__tostring
+-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本
+-- 交叉引用：chaseandattack.lua（同族节点）, components/locomotor.lua,
+--           components/combat.lua, stategraph
+--============================================================
+ChaseAndRam = Class(BehaviourNode, function(self, inst, max_chase_time, give_up_dist, max_charge_dist, max_attacks)
+--[[
+-- chaseandram.lua —— 冲撞节点（ChaseAndRam）：锁定方向后直线冲锋，撞到就结束
+--
+-- 【★★★ 本文件是 chaseandattack 的「一次性版本」，差异集中在一点：】
+-- chaseandattack 每一帧重新决定「往哪走、要不要转向」；
+-- chaseandram  **在 READY 段锁定一次冲锋方向（ram_angle / ram_vector）**，
+--  之后只在「允许转向」的状态下才更新，否则一路直线冲。
+-- ★★ 这带来截然不同的手感：
+--   chaseandattack = 咬着目标追（会绕、会跟转弯）
+--   chaseandram    = 一次抛物线式的冲锋（撞不到就落空）
+--   ★ 移植要点：「持续追击」与「一次性突进」是两种 AI，
+--     差别不在代码量，而在「方向是每帧重算还是只算一次」。
+--
+-- 【★ 本文件独有的一种机制：实体标签作为「跨系统开关」】
+-- 第 59/61/73/79/105/121/126/135/145 行反复 AddTag / RemoveTag("ChaseAndRam")，
+-- 这个标签供**动画/音效/其他系统**查询「现在是否在冲撞状态」，
+-- 例如让角色播放「蓄力冲锋」动画。
+-- ★★ 这是 DST 里非常典型的模式：**行为树状态用标签广播出去**。
+--   ★ 移植要点：需要让「非 AI 系统」感知 AI 状态时，
+--     标签/标记是最廉价的广播方式（比维护回调表简单得多）。
+--   ★★ 但也带来义务：**每条终止路径都必须 RemoveTag**（否则标签泄漏，
+--     角色会永久保持「冲撞中」的外观）。本文件对此非常自觉，
+--     全部 6 条终止路径都做了清理 —— 值得学。
+--]]
+--★★ 6 个形参，与 chaseandattack 的 8 个对照，命名高度一致：
+--   max_chase_time  同名同义（第 138 行）
+--   give_up_dist    同名同义（第 112 行）
+--   max_attacks     同名同义（第 132 行）
+--★ 独有：max_charge_dist —— 「冲了多远就放弃」（第 137 行）。
+--★ 缺少：findnewtargetfn（不自己找目标）、walk（冲锋必须跑）、
+--  distance_from_ocean_target（不处理海上目标）。
+--★★ 即：参数集正好是「冲锋这个动作真正需要的最小集合」。
+--  ★ 移植要点：对比 chaseandattack 的 8 个参数，本文件只有 6 个，
+--  说明「裁剪节点」不仅能减代码，还能减配置面 —— 反而更好维护。
+    BehaviourNode._ctor(self, "ChaseAndRam")
+    self.inst = inst
+    self.max_chase_time = max_chase_time
+    self.give_up_dist = give_up_dist
+    self.max_charge_dist = max_charge_dist
+    self.max_attacks = max_attacks
+    self.numattacks = 0
+
+    -- we need to store this function as a key to use to remove itself later
+--★ 与 chaseandattack 第 12 行逐字相同的注释与做法：存句柄以便反注册。
+    self.onattackfn = function(inst, data)
+--★ 回调签名 (inst, data) 与 standandattack 相同（chaseandattack 是 (inst)）。
+--★ 三者不统一，属历史遗留的无害差异。
+        self:OnAttackOther(data.target)
+    end
+
+    self.inst:ListenForEvent("onattackother", self.onattackfn)
+    self.inst:ListenForEvent("onmissother", self.onattackfn)
+end)
+
+function ChaseAndRam:__tostring()
+    return string.format("target %s", tostring(self.inst.components.combat.target))
+end
+
+function ChaseAndRam:OnStop()
+    self.inst:RemoveEventCallback("onattackother", self.onattackfn)
+    self.inst:RemoveEventCallback("onmissother", self.onattackfn)
+end
+
+function ChaseAndRam:OnAttackOther(target)
+    self.numattacks = self.numattacks + 1
+    self.startruntime = nil -- reset max chase time timer
+end
+
+function ChaseAndRam:AreDifferentPlatforms(inst, target)
+--★★★ AreDifferentPlatforms —— 与 follow/approach 的同名方法有一处**关键差异**。
+--
+-- 原注释（保留）：
+--   "Check embarker instead because rook changes whether it can platform hop or not"
+--   翻译：「检查 embarker 而不是 locomotor，因为 rook（乌鸦）
+--   会改变自己能否跳上平台」。
+--
+-- ★★★ 这条注释价值极高，它解释了为什么判定条件不能固定在 locomotor 上：
+--   乌鸦（rook）形态会动态切换它的平台跳跃能力，
+--   所以必须查**当前形态对应的组件**（embarker），而不是 locomotor 的静态开关。
+--★ 移植要点：当实体的能力会**随形态变化**时，
+--   任何「能力查询」都必须实时查，不能缓存、不能固定到某个组件。
+--★★ 这也说明本方法是 follow（第 69 行）/ approach（第 46 行）的改进版：
+--   那两处固定检查 allow_platform_hopping，遇到乌鸦就会出错。
+--   ★ 移植建议：抄这一版（查 embarker），不要抄 follow 那一版。
+    if self.inst.components.embarker ~= nil then -- Check embarker instead because rook changes whether it can platform hop or not
+        return inst:GetCurrentPlatform() ~= target:GetCurrentPlatform()
+    end
+    return false
+end
+
+function ChaseAndRam:Visit()
+--★★ Visit：与 chaseandattack 同为「顺序双 if」结构（READY 段可直通 RUNNING 段）。
+    local combat = self.inst.components.combat
+    if self.status == READY then
+--★★ READY 段的进入条件：target 非 nil 且有效。
+--★ 与 chaseandattack 第 41-43 行的差异：本节点**没有 findnewtargetfn**，
+--   也没调 ValidateTarget —— 目标必须由外部设好（通常来自 combat 组件的仇恨）。
+--   ★ 这让职责更纯粹：只负责「怎么冲」，不负责「打谁」。
+        if combat.target ~= nil and combat.target.entity:IsValid() then
+			--V2C: Removed the Stop() here because it causes a stutter for rook when
+--★★★【★ 本文件最重要的一段历史注释，务必读懂】
+-- 原注释（保留）：
+--   --V2C: Removed the Stop() here because it causes a stutter for rook when
+--   --     switching from RunAway to ChaseAndRam while in the running state.
+--   --     BattleCry() doesn't always trigger anything.
+--   --     Also, "taunt" state should be the one doing the Stop().
+
+-- 翻译：
+--   「去掉了这里的 Stop()，因为当乌鸦在 running 状态下
+--    从 RunAway 切换到 ChaseAndRam 时，它会造成卡顿（stutter）。
+--    BattleCry() 不总能触发任何东西。
+--    而且，应该由『taunt』状态来执行 Stop()。」
+--
+--★★★ 这段注释记录了**一次真实的调试-修复过程**，信息量极大：
+--  ① 症状：从 RunAway 切换到 ChaseAndRam 时出现视觉卡顿
+--  ② 原因分析：Stop() 打断了正在进行的跑步状态
+--  ③ 解法：移除 Stop()，并明确「让 taunt 状态负责停止」
+--  ④ 附带发现：BattleCry() 不保证触发状态（所以不能指望它顺带停下）
+--
+-- ★★★★ 移植要点（本文件最强收获）：
+--   **删除一行代码也需要留下注释说明原因**，否则半年后有人会
+--   看到「这里应该有 Stop 却没 Stop」而好心加回来，重新引入 bug。
+--   这与 SOP 提到的「注释掉的代码 ≠ 未实现」互为补充：
+--   · 被注释掉的代码要说明「为什么不用」
+--   · 被删除的代码要在原位说明「为什么删」
+--   ★ 这是代码考古学的标准做法，DST 这段注释是教科书级示范。
+-- ⚠️ 注意第 48 行 Stop() 被注释掉了：因此本节点进场**不清 locomotor**，
+--   实体可能带着上一段的移动惯性起冲。
+--   这是有意的（避免卡顿），但移植时要意识到这个副作用。
+			--     switching from RunAway to ChaseAndRam while in the running state.
+			--     BattleCry() doesn't always trigger anything.
+			--     Also, "taunt" state should be the one doing the Stop().
+			--self.inst.components.locomotor:Stop()
+            self.inst.components.combat:BattleCry()
+--★ BattleCry 播放战吼。注意按第 46 行注释，它不保证触发状态。
+--★ 第 50/51 行与 chaseandattack 第 47/48 行相同：打点 + 重置计数。
+            self.startruntime = GetTime()
+            self.numattacks = 0
+            self.status = RUNNING
+            self.startloc = self.inst:GetPosition()
+--★★★ startloc —— 记录冲锋**起点**，供第 137 行的 max_charge_dist 判定。
+--★ 这是一个与 chaseandattack 完全不同的时间/空间基准：
+--   chaseandattack 的基准是「距上次攻击的静默时长」（时间）
+--   chaseandram   的基准是「离起点的直线距离」（空间）
+-- ★★ 空间基准更适合冲锋：它能防止「一直冲锋但只在原地绕圈」。
+
+            local hp = Point(combat.target.Transform:GetWorldPosition())
+--★★★【冲锋方向在这里被一次性锁定】
+--   ram_angle  —— 朝向角（度）
+--   ram_vector —— 归一化方向向量
+--   ★★ 这是本文件与 chaseandattack 最本质的区别（详见文件头）。
+--   两份数据看似冗余（角度可由向量算出），但用途不同：
+--     · ram_angle  给 RunInDirection 用（第 111 行，需要角度）
+--     · ram_vector 给第 94 行的角度比较、以及外部系统查询用
+--   预先都算好，避免在热路径上反复开方。
+            local pt = Point(self.inst.Transform:GetWorldPosition())
+            self.ram_angle = self.inst:GetAngleToPoint(hp)
+            self.ram_vector = (hp - pt):GetNormalized()
+            self.inst:AddTag("ChaseAndRam")
+        else
+--★ 无目标 → FAILED，并且**移除标签**（进场的反操作）。
+--★ 第 63 行 ram_vector = nil —— 释放数据，供外部系统用 nil 判断「不在冲锋中」。
+--★★★ 注意第 61 行：失败的分支也要 RemoveTag。
+--   严格说此刻还没 AddTag（第 59 行没执行过），所以这里是多余的。
+--   属无害冗余，但体现了「清理要写全」的纪律。
+            self.inst:RemoveTag("ChaseAndRam")
+            self.status = FAILED
+            self.ram_vector = nil
+        end
+    end
+
+    if self.status == RUNNING then
+--★★ RUNNING 段。与 chaseandattack 第 55 行同构的三分支（失效/死亡/继续）。
+        if not combat.target or not combat.target.entity:IsValid() then
+--★ 目标失效 → FAILED + 释放 ram_vector + 清目标 + 停止 + 移除标签 + **return**。
+--★ 第 74 行的 return 很重要：六步清理之后不再执行后续逻辑。
+            self.status = FAILED
+            self.ram_vector = nil
+            combat:SetTarget(nil)
+            self.inst.components.locomotor:Stop()
+            self.inst:RemoveTag("ChaseAndRam")
+            return
+        elseif combat.target.components.health ~= nil and combat.target.components.health:IsDead() then
+--★ 目标已死 → SUCCESS + 同样六步清理（第 76-80 行）。
+--★★ SUCCESS 与「冲撞成功」的语义吻合：撞死了就是达成目标。
+            self.status = SUCCESS
+            combat:SetTarget(nil)
+            self.inst.components.locomotor:Stop()
+            self.inst:RemoveTag("ChaseAndRam")
+            return
+        else
+--★★ 正常分支：算出「当前应该怎么冲」。这是本文件的核心决策区。
+            local hp = combat.target:GetPosition()
+            local pt = self.inst:GetPosition()
+            local dsq = distsq(hp, pt) --Distance to target.
+--★ dsq：到目标的距离平方（全程不开方）。
+            local angle = math.abs(self.inst:GetAngleToPoint(hp)) --Angle to target.
+--★★★ `angle = math.abs(GetAngleToPoint(hp))` —— 对目标朝向取**绝对值**。
+-- ★★★ 这里的 math.abs 不是为了「取正的夹角」这么简单，而是**掩盖了一个坐标歧义**：
+--   GetAngleToPoint 返回的可能是负角（如 -30 表示偏左），
+--   但「偏左 30°」和「偏右 30°」在冲撞判断上应当同等对待
+--   （都算「大致朝着目标」）。取绝对值即抹平了左右之分。
+-- ★★ 于是第 94 行的 offset_angle = |angle - |ram_angle||
+--   比较的是「目标在左还是在右」与「锁定方向在左还是在右」的差，
+--   同侧时差小 → 判定为「还在朝目标冲」。
+--★ ★ 移植要点：这种「用绝对值抹平符号歧义」是常见的工程简化，
+--   但它隐含了「左右对称」的假设。若某个行为天然不对称
+--   （如只能顺时针旋转的炮塔），就不能这么简化。
+
+            if self.inst.sg ~= nil and self.inst.sg:HasStateTag("canrotate") then
+--★★★★ 方向更新的唯一条件：状态图允许转身（canrotate）。
+--★ 原注释：Line up charge here —— 「在这里校准冲锋方向」。
+--★★ 这是「行为树尊重状态图控制权」的关键一处：
+--   正在播放冲锋/攻击动画时状态图不给 canrotate，
+--   此时行为树**不去修改方向**，避免把动画朝向扭歪。
+-- ★ 与 chaseandattack 第 91 行（只在这里 FacePoint）是同一思想，
+--   但本节点更进一步：连「是否更新锁定的冲锋方向」都由它决定。
+--★ ★★ 移植要点：冲锋类 AI 必须让动画系统控制「转向时机」，
+--     否则会出现「冲锋动画朝左、实际位移朝右」的穿模。
+                --Line up charge here.
+                self.ram_angle = self.inst:GetAngleToPoint(hp)
+                self.ram_vector = (hp-pt):GetNormalized()
+            end
+
+            local on_different_platforms = self:AreDifferentPlatforms(self.inst, combat.target)
+--★ 平台差异（第 33 行的 embarker 版本）。
+            local offset_angle = math.abs(angle - math.abs(self.ram_angle))
+--★★★★★【核心判据】offset_angle = |angle - |ram_angle||
+--
+-- 两个数学符号的含义要分清：
+--   · angle      已被第 85 行取了绝对值 → 「目标在左/右的角度大小」
+--   · ram_angle  未取绝对值           → 「锁定方向的实际角度（可正可负）」
+--   · 外层 math.abs → 保证差值非负
+--
+-- ★★★ 这里存在**真实的符号不一致**：若锁定方向是 +40（偏右）而目标在 +20（偏右），
+--   offset_angle = |20 - 40| = 20 → 小 → 判定「冲」→ 正确。
+--   但若锁定方向是 -40（偏左）而目标在 +20（偏右），
+--   offset_angle = |20 - (-40)| = 60 → 大 → 判定「冲过去了」。
+--   ★★ 也就是说：**左右两侧的判断并不对称** —— 偏左的锁定方向会被高估角度差。
+--   ⚠️ 标注为「疑似缺陷 · 已核实公式」：
+--     正确写法应是 math.abs(math.abs(angle) - math.abs(self.ram_angle))，
+--     或直接 math.abs(anglediff(...))。
+--   我已逐字核对第 85/94 行确认公式如此。
+--   实际影响：可能让乌鸦在某些角度上过早判定「冲过头」，
+--   从而执行第 112-122 行的提前停止。属于手感类瑕疵，非致命。
+
+            if on_different_platforms then
+--★★ 跨平台 → 不冲，改用 GoToPoint 追过去（走路，参数 false）。
+--★★ 这一段结构上有瑕疵（下面第 105 行说明）。
+                if self.inst.sg:HasStateTag("running") then
+--★ 跨平台时若正在跑 → 停止并 FAILED。
+--★★ 逻辑：跨平台意味着「原本的冲锋方向失效」，
+--   若此时还在冲锋动画中就立即放弃（逃跑姿态下不要强冲）。
+                    self.inst.components.locomotor:Stop()
+                    self.status = FAILED
+                    self.ram_vector = nil
+                    if self.inst.sg:HasStateTag("canrotate") then
+--★ 失败时若允许转身就面向目标 —— 让视觉上「看着追猎者逃走」，更自然。
+                        self.inst:FacePoint(hp)
+                    end
+                end
+                self.inst:RemoveTag("ChaseAndRam")
+--⚠️【结构瑕疵 · 已核实】第 105-106 行位于第 97-104 行的 if 块**之外**。
+--   意味着无论是否在 running，跨平台时都会执行：
+--     RemoveTag + GoToPoint(hp, nil, false)
+-- ★★ 后果分析：
+--   · 正在 running → 第 98-104 行已 FAILED + Stop，但第 106 行又 GoToPoint，
+--     两行指令在同帧内先后发出 → **Stop 被立即覆盖**，移动没有被真正停下。
+--   · 这与第 44-48 行注释里「Stop 会造成卡顿、所以移除了 Stop」的主题呼应，
+--     但这里是相反方向的问题：本意是 Stop，却因为紧接着的 GoToPoint 而失效。
+--   标注为「疑似缺陷」：功能上表现为「本该放弃冲撞却仍继续走向目标」，
+--     不会崩，属于行为偏差。
+                self.inst.components.locomotor:GoToPoint(hp, nil, false)
+            end
+
+            if offset_angle <= 60 and not on_different_platforms then
+--★★★★【冲锋执行的判定】offset_angle ≤ 60 且 同平台 → 真的冲。
+--   ★★★ 60 度的判据是本节点的核心参数（硬编码，无法配置）。
+--   含义：目标与锁定方向的夹角在 ±60° 内就认为「还朝着目标」，继续冲。
+--   · 调小 → 更保守，容易误判「冲过头」而中断
+--   · 调大 → 更激进，可能撞歪后擦着目标过去
+--   ★ 移植要点：这是「朝向门限」型判断的典型参数，值得单独抽成可配项。
+--★ 原注释：Running action. This is the actual "Ram"
+--   翻译：「跑动动作，这里才是真正的『冲撞』」。
+--★★ 这行注释点明了本文件的主次结构：前面所有计算都是准备，
+--   第 111 行才是本节点真正要做的事。
+                --Running action. This is the actual "Ram"
+                self.inst.components.locomotor:RunInDirection(self.ram_angle)
+--★ RunInDirection(ram_angle) —— 用**锁定的角度**冲，而非当前指向。
+--★ ★★ 这正是「一次性锁定」的本质：冲撞过程中不管目标转到哪，
+--   都沿原定方向直线前进。撞到就算成功，撞不到就落空（第 112 行处理）。
+            elseif (offset_angle > 60 and (dsq >= (self.give_up_dist * self.give_up_dist) or self.inst:GetCurrentPlatform() ~= nil)) then
+--★★★【★ 「冲过头」的判定 —— 本节点与 chaseandattack 最大的行为差异】
+--   条件（三者任一）：
+--     ① offset_angle > 60（已经不在朝目标冲了）
+--     ② 且（距离 >= give_up_dist 或 当前站在某个平台上）
+--
+-- ★★★ 条件 ② 的第二个分支 `GetCurrentPlatform() ~= nil` 是个特殊判据：
+--   「如果我踩在船上/平台上，就说明冲过头飞出去了」。
+--   合理：冲锋前在地面，冲锋后若到了另一块平台，说明已经冲过头了。
+--   ★ 移植要点：这类「用场景隐含状态作为判据」的技巧很实用，
+--     比额外维护一个计数器更省事，但可读性差，需要注释点明。
+--★ 第 114-121 行：停下 + FAILED + 释放向量 + 转身 + **ForceAttack** + 移除标签。
+--★★ 第 120 行的 ForceAttack 很关键：
+--   「冲过头也要挥一下」—— 防止冲锋落空后显得毫无还手之力。
+--   ★ 行为设计要点：AI 的动作要有「收尾姿态」，即使失败了也要看起来完成了动作。
+--   这直接影响玩家对 AI「智能程度」的主观感受。
+                --You have run past your target. Stop!
+                self.inst.components.locomotor:Stop()
+                self.status = FAILED
+                self.ram_vector = nil
+                if self.inst.sg:HasStateTag("canrotate") then
+                    self.inst:FacePoint(hp)
+                end
+                self.inst.components.combat:ForceAttack()
+                self.inst:RemoveTag("ChaseAndRam")
+            end
+
+            if self.inst.sg ~= nil and not self.inst.sg:HasStateTag("atk_pre") and not on_different_platforms and combat:TryAttack() then
+--★★★【攻击尝试 —— 带一个关键的阶段判断】
+--   条件：状态图存在 + 不在 atk_pre（攻击前摇）+ 同平台 + TryAttack 成功。
+--★ atk_pre = 「攻击的前摇/预备阶段」。注释写明：
+--   "If you're not still in the telegraphing stage then try to attack."
+--   翻译：「如果还不处于『预告（telegraphing）』阶段，就尝试攻击。」
+--★★★ 这是全文件最值得学的一条 AI 范式：
+--   **「先预告，再出手」是玩家可读性的核心**。
+--   若在冲锋途中毫无预兆地挥击，玩家会认为这是碰撞判定（挤压攻击），
+--   而有明确前摇则表达为「这是一次主动攻击」，观感与反馈完全不同。
+--   ★★★ 移植要点：任何攻击行为都应有可读的预告阶段，
+--     并让行为树**尊重**这个阶段（不在前摇中插入攻击）。
+--★ 第 126 行：攻击成功就移除标签 —— 因为「已经打中，冲撞行为结束」。
+--   注意此时**没有**设终态、也没有 return：
+--   status 仍是 RUNNING，流程继续走第 132 行的终止判定。
+--★ ⚠️ 这意味着「打中之后」还要走一遍第 132/137 行的检查，
+--   若都没命中条件就走到第 149 行 Sleep(.125) 并继续。
+--   标签已移除所以视觉已恢复，但节点仍在 RUNNING。
+--   标注为「已核实的流程细节」：不算 bug（numattacks 会很快达标），
+--   但严格说「打中即该结束」的意图没有落实为 return。
+                -- If you're not still in the telegraphing stage then try to attack.
+                self.inst:RemoveTag("ChaseAndRam")
+            elseif self.startruntime == nil then
+--★ else 兜底：没打成攻击 → 若计时器为空则打点并战吼。
+--★ 与 chaseandattack 第 98-100 行完全同构（静默超时计时的打点处）。
+--★ ★ 但语义在本文件里略有不同：chaseandram 的计时器度量的是
+--   「距上次攻击的静默时长」，配合第 138 行构成放弃条件。
+                self.startruntime = GetTime()
+                self.inst.components.combat:BattleCry()
+            end
+
+            if self.max_attacks ~= nil and self.numattacks >= self.max_attacks then
+--★★ 终止一：攻击次数用尽 → SUCCESS（与 chaseandattack 第 104 行相同语义）。
+--★ 第 134 行 Stop + 第 135 行 RemoveTag。注意**没有** SetTarget(nil)，
+--   与 chaseandattack 第 106 行不同 —— 本节点不负责清 combat.target。
+--   ★ 合理：它不是 target 的所有者（进场时就没设过目标）。
+                self.status = SUCCESS
+                self.inst.components.locomotor:Stop()
+                self.inst:RemoveTag("ChaseAndRam")
+                return
+            elseif (self.max_charge_dist ~= nil and distsq(self.startloc, self.inst:GetPosition()) >= self.max_charge_dist * self.max_charge_dist)
+--★★★ 终止二：两个放弃条件 or 在一起：
+--   ① max_charge_dist：离**起点**的距离 >= 阈值（第 53 行记录的 startloc）
+--   ② max_chase_time：距上次攻击静默超时
+--★ 条件 ① 是本节点独有的「空间上限」，冲锋类 AI 必备：
+--   没有它，一个永不命中的冲锋会带着实体跑出地图。
+--★ 第 142-144 行：同平台时才 ForceAttack（跨平台时冲过去也没意义）。
+--★★ 第 142 行的 `if not on_different_platforms` 与第 109 行形成对照：
+--   第 109 行冲撞要求「同平台」，这里也要求同平台才挥击。语义一致。
+                    or (self.max_chase_time ~= nil and self.startruntime ~= nil and GetTime() - self.startruntime > self.max_chase_time) then
+                self.status = FAILED
+                self.ram_vector = nil
+                self.inst.components.locomotor:Stop()
+                if not on_different_platforms then
+                    self.inst.components.combat:ForceAttack()
+                end
+                self.inst:RemoveTag("ChaseAndRam")
+                return
+            end
+
+            self:Sleep(.125)
+--★★ self:Sleep(.125) —— 与 chaseandattack/standandattack 完全相同。
+--★ 冲锋是「需要持续对准」的行为，用最快的节拍（每秒 8 次）合理：
+--   目标在闪避，冲锋角度必须每帧校正，否则根本撞不上。
+--★ 至此本文件的注释结构与 chaseandattack 形成完整对照：
+--   两者共用 max_chase_time / give_up_dist / max_attacks / numattacks 四个概念，
+--   差别只在「方向是每帧重算（chaseandattack）还是锁定一次（chaseandram）」。
+--   ★ 移植要点：把这类「同一行为的不同变体」实现成姊妹节点而非子类，
+--     收益是每个都足够短、能独立推理；
+--     代价是约 40% 的代码重复。两种取舍都常见，关键是要有意识。
+        end
+    end
+end

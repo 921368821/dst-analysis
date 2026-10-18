@@ -1,0 +1,249 @@
+--============================================================
+-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖
+-- 文件：behaviours/findfarmplant.lua
+-- 模块：行为树节点库 / 查找
+-- 职责：找最近的农作物（仿 follow/findclosest 家族的 PickTarget 写法），
+--       用于 NPC 农夫照料田地。
+-- 关键符号：FindFarmPlant, FindFarmPlant:Visit, FindFarmPlant:PickTarget, FindFarmPlant:DBString
+-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本
+-- 交叉引用：findclosest.lua（同族节点）, TheSim:FindEntities, components/locomotor.lua
+--============================================================
+local SEE_DIST = 20
+--[[
+-- findfarmplant.lua —— 照料农田节点（FindFarmPlant）：果蝇飞到需要照料的作物上并操作
+--
+-- 【★★★ 本文件是 findflower.lua 的姊妹篇，但目标筛选逻辑复杂得多】
+--   findflower   找「一朵最近的花」          → 2 个筛选条件
+--   findfarmplant 找「一株需要照料的作物」    → 5 个筛选条件 + 两级排除
+--
+-- 【★ 目标筛选的五层条件（第 52-57 行，是本文件的核心）】
+--   ① 距离内且是「跟着某处」才管      —— IsNearFollowPos
+--   ② 通过调用方的额外校验            —— validplantfn（可选）
+--   ③ 可照料（tendable）              —— growable 组件的阶段数据
+--   ④ 标签必须含 farmplantstress      —— musttags（索引层过滤）
+--   ⑤ 标签不含 farm_plant_killjoy     —— canttags（索引层排除）
+--   ⑥ 压力值与期望一致                —— farmplantstress.stressors.happiness
+-- ★★ 注意 ④⑤ 在引擎侧过滤（FindEntity 的 musttags/canttags），
+--   ①②③⑥ 在 Lua 回调里过滤 —— 两层过滤的分工同 findclosest 的思路。
+-- ★ 移植要点：**能下推给空间索引的筛选就下推**，
+--   剩下的才在回调里做，是性能上的正确做法。
+--]]
+--★ SEE_DIST = 20 —— 搜索半径 20 格（比 findflower 的 30 小）。
+
+local genericfollowposfn = function(inst) return inst:GetPosition() end
+--★★ 默认的「跟随位置」函数：直接返回自己的当前位置。
+-- ★★ 这是一个很实用的默认值设计：
+--   「果蝇跟着谁」这个问题，答案往往是「就是自己所在的位置」，
+--   即「就近照顾」。调用方不传 getfollowposfn 时就是这个行为。
+-- ★ 移植建议：**为回调参数提供「最常用」的默认实现**，
+--   让简单场景可以零配置，复杂场景再覆盖。
+--★ 与 wander 的 getdirectionFn 不同：wander 无默认值（nil 则纯随机），
+--   因为「随机方向」本身是合理默认；而这里「跟随自己」才是合理默认。
+
+FindFarmPlant = Class(BehaviourNode, function(self, inst, action, wantsstressed, getfollowposfn, validplantfn)
+--★★ 6 个形参，其中三个都有默认值 —— 参数化程度在本目录属中上。
+--★ action：动作类型（浇水/施肥等），由调用方传入，不同照料方式复用同一节点。
+--★★ 这是本文件最值得学的参数化设计：**动作类型参数化后，
+--   一个节点就能服务「浇水」「施肥」「除虫」等多种行为**，
+--   无需为每种动作各写一个节点。
+--★ 对照 findflower 第 18 行的 ACTIONS.POLLINATE 是硬编码 ——
+--   那是因为蜜蜂只有「授粉」一件事。参数化的必要性取决于行为种类。
+    BehaviourNode._ctor(self, "FindFarmPlant")
+    self.inst = inst
+    self.wantsstressed = wantsstressed or false
+--★ wantsstressed 兜底为 false —— 即「照料不快乐的作物」。
+--★ 布尔参数用 `or false` 兜底（全目录常见写法）。
+    self.action = action
+    self.getfollowposfn = getfollowposfn or genericfollowposfn
+--★ getfollowposfn 兜底为 genericfollowposfn（见第 3 行的说明）。
+--★ 对比第 11 行 validplantfn 用 `or nil` —— 两者写法不同但等价，
+--   属风格不统一，无功能影响。
+    self.validplantfn = validplantfn or nil
+end)
+
+local function IsNearFollowPos(self, plant)
+--★★★ 局部函数：植物是否在「值得照料的范围」内。
+--★ 注意它**用常量 SEE_DIST 作为判断半径**，而不是另设参数。
+-- ★★ 这里有个语义上的含混：`IsNearFollowPos` 顾名思义是「是否靠近跟随位置」，
+--   但实际判的是「离跟随位置是否在 SEE_DIST 内」—— 而 SEE_DIST 同时也是
+--   第 52 行 FindEntity 的搜索半径。
+-- ★★ 两个用途不同的半径共用一个常量，可能是有意（保持一致），
+--   也可能是复用过度。按函数名与用途推断，属「可读性不佳」而非缺陷。
+--★ 标注为「疑似设计含混」：如果要调整搜索半径，会连带改掉「值得照料」的范围。
+    local followpos = self.getfollowposfn(self.inst)
+    local plantpos = plant:GetPosition()
+    return distsq(followpos.x, followpos.z, plantpos.x, plantpos.z) < SEE_DIST * SEE_DIST
+--★★★ `distsq(followpos.x, followpos.z, plantpos.x, plantpos.z)`
+-- ★★ 四参数形式 → 走 util.lua:562 的**二维**分支 → **忽略高度**。
+-- ★ 与 controlminions 第 72 行同款（详见那边的两种调用形式说明）。
+-- ★★ 为什么这里该忽略高度？
+--   「果蝇能不能飞到这株作物上」在 DST 里是 2D 判定（网格平面），
+--   高低差不影响（作物与果蝇都在同一张地面网格上）。
+--   ★ 移植要点：明确「这件事在物理上是否受高度影响」，
+--     再决定用二维还是三维距离。默认用三维是常见错误。
+end
+
+function FindFarmPlant:DBString()
+--★ 显示当前照料的植物（inst.planttarget）。
+-- ★ 与 findflower 第 9 行同款（都存在组件/实体字段而非节点自身字段）。
+--   区别：findflower 存 pollinator 组件的 target，本文件直接存 inst.planttarget。
+--★ ⚠️ 若 planttarget 为 nil，这里会打印 nil，不崩（tostring 兜底）。
+--   但第 9 行访问 self.inst.components.pollinator.target 不判空会崩，
+--   那边靠「DBString 只在 RUNNING 时调用」的框架保证安全（见那边的说明）。
+--   本文件无需该保证 —— 直接读实例字段，nil 安全。
+    return string.format("Go to farmplant %s", tostring(self.inst.planttarget))
+end
+
+function FindFarmPlant:Visit()
+--★★ Visit：顺序双 if。注意第 34-35 行之间**没有空行**，
+--   第 35 行的 `if self.status == RUNNING` 紧接第 34 行的 end。
+--   属排版瑕疵（findflower 第 24/26 行之间有空行）。
+    if self.status == READY then
+--★ READY 段：先选目标，再判有无。
+        self:PickTarget()
+        if self.inst.planttarget then
+			local action = BufferedAction(self.inst, self.inst.planttarget, self.action, nil, nil, nil, 0.1)
+--★★★ BufferedAction(..., self.action, nil, nil, nil, 0.1)
+-- ★ 与 findflower 第 18 行结构完全相同，只把 ACTIONS.POLLINATE 换成 self.action。
+--★ 第 7 个参数 0.1 仍是「必须贴身」的距离要求 —— 照料动作需要接近到很小距离。
+-- ★ 移植要点：动作的 dist 参数是「行为的精度要求」而非「随便给个数」，
+--   抄动作实现时务必连同它一起抄（详见 findflower 第 18 行的详解）。
+			self.inst.components.locomotor:PushAction(action, self.shouldrun)
+--⚠️【已核实 · 与 findflower 相同的疑似缺陷】self.shouldrun 从未初始化。
+--   · 构造器（第 5-12 行）未设该字段
+--   · 我 grep 了本文件，除本行外无任何赋值/读取
+--   · findflower 第 19 行有完全相同的问题
+-- ★ 后果：恒为 nil，推动作时「跑还是走」的意图丢失。
+-- ★ ★★ 两处同时犯同一个错，说明这是**同一段代码被复制**的结果 ——
+--   findflower 是原版，本文件是它的农田版。
+--   ★ 这说明「复制节点」时，作者也复制了未初始化的字段。
+--   对照 wander 第 24 行正确初始化了 should_run，说明它是后来才被加上的。
+--   标注为「已核实 · 疑似缺陷」。
+			self.status = RUNNING
+--★ 有目标才 RUNNING，否则 FAILED。
+		else
+			self.status = FAILED
+        end
+    end
+    if self.status == RUNNING then
+--★★ RUNNING 段：四类失效条件 + 一个成功条件。
+        local plant = self.inst.planttarget
+--★ 缓存 plant = inst.planttarget（第 36 行），后续四个条件都用它。
+--★ 缓存局部变量避免重复索引，减少可读性负担。
+        if not plant or not plant:IsValid() or not IsNearFollowPos(self, plant) or
+--★★★ 失效条件（or 链的四项）：
+--   ① plant 为 nil
+--   ② plant:IsValid() 失败        —— 植物被移除/枯萎消失
+--   ③ 不在照料范围内                —— 跟着果蝇走远了
+--   ④ growable 阶段不再 tendable   —— 作物长过可照料阶段
+-- ★★★ 第 ④ 条最值得注意：作物会「长大」，长大后就不能再照料了。
+--   即目标可能从「可照料」变成「不可照料」而非「消失」，
+--   与 findlight 第 31 行 HasTag 检查同一思想（详见那边的说明）。
+-- ★ 第 ③ 项调用 IsNearFollowPos(self, plant) —— 注意传入的 plant 未判空，
+--   但 Lua 的 or 短路保证 plant 为 nil 时不会执行到它。
+--   ★ 这是「用 or 短路保护后续条件」的标准写法，与显式 if 判空等价但更紧凑。
+--   ★★ 前提：条件顺序敏感。挪动顺序就会崩。移植时应留意。
+        not (self.validplantfn == nil or self.validplantfn(self.inst, plant)) or not (plant.components.growable == nil or plant.components.growable:GetCurrentStageData().tendable) then
+--★★ 第 ④ 项的 growable 检查：`GetCurrentStageData().tendable`。
+-- ★★ 三层解引用：组件 → 阶段数据 → 字段。
+--★ 前半段 `(plant.components.growable == nil or ...)` 做了判空 ——
+--   即「没有 growable 组件的植物不算失效」（默认视为可照料）。
+-- ★ 与第 42 行的 farmplantstress 处理形成鲜明对比（那里没判空），见下文。
+            self.inst.planttarget = nil
+--★ 失效则清目标 + FAILED。
+--★ 清 inst.planttarget 与本文件第 43/44 行同款，是「退出必清理」纪律。
+            self.status = FAILED
+        --we don't need to test for the component, since we won't ever set clostest plant to anything that lacks that component
+--★★★ 原注释（保留）：
+--   "we don't need to test for the component, since we won't ever set
+--    closest plant to anything that lacks that component"
+--   翻译：「我们不需要检查组件，因为我们永远不会把最近植物设成缺少该组件的东西」。
+-- ★★★ 这条注释是一句「不变式声明」，非常有价值。
+-- ★★ 但我要指出这个不变式的强度问题（见下一行）：
+--   它依赖「所有带 farmplantstress 标签的实体都有该组件」这一假设。
+--   标签与组件的对应关系在 DST 里通常成立，但不是被编译器保证的。
+        elseif plant.components.farmplantstress.stressors.happiness ~= self.wantsstressed then
+--★★★⚠️【疑似缺陷 · 已核实代码，标注不确定性】
+--
+-- 代码：`plant.components.farmplantstress.stressors.happiness ~= self.wantsstressed`
+--
+-- 【不变式的来源 —— 我已核实】
+--   planttarget 只由本文件第 52-57 行的 PickTarget 设置
+--   （我 grep 了全仓，别的文件只**读取或置空**它，见 fruitfly.lua:140）。
+--   PickTarget 的第 57 行传了 musttags = {"farmplantstress"}，
+--   而 FindEntity（simutil.lua:31）会把 musttags 过滤**下推给 FindEntities**，
+--   因此返回的实体必然带该标签。
+--   且第 55 行的回调还要求 `plant.components.farmplantstress` **非 nil**，
+--   否则回调返回 nil（falsy），该实体不会被选中。
+--
+-- 【结论】
+--   ★ 通过 PickTarget 选出的 plant **确实**必然有 farmplantstress 组件，
+--     第 41 行的注释是成立的。第 42 行不解引用 nil 在正常路径下是安全的。
+--   ⚠️ 风险在于不变式的强度：它依赖「标签 ⇒ 组件」这一**约定**而非强制。
+--     若将来某个实体被加了 farmplantstress 标签却没有该组件，
+--     第 42 行就会崩，且第 41 行的注释会误导后人以为「已经保证了」。
+--   ★ 标注为「疑似风险」而非「缺陷」：当前路径安全，但脆弱。
+--
+-- ★★★ 移植要点（这条比对缺陷本身更有价值）：
+--   ① 写「不需要检查」的理由注释时，务必写清**理由依赖哪条链条**：
+--      这里是「FindEntity 的 musttags 保证标签」+ 「回调要求组件非 nil」，两层。
+--   ② 若链条有任何一环是「约定」而非「强制」，就应当仍写防御性检查 ——
+--      一行判空的成本，远低于一次线上崩溃。
+--   ③ 对比第 38 行对 growable 的判空：同一段代码里两种态度并存，
+--      恰恰说明判空不是可有可无的洁癖，而是要看具体风险。
+            self.inst.planttarget = nil
+--★★【成功条件】压力值与期望**不一致** → SUCCESS。
+--★★★ 这个反直觉的判定是本文件最值得学的一处：
+--   「照料完成」的标志不是「我做了动作」，而是「目标的状态变了」。
+--   · wantsstressed = false → 要照料不快乐的作物
+--   · 照料后它变快乐了 → happiness(true) ~= false → 达成 → SUCCESS
+-- ★★★ 用「目标状态改变」作为成功判据，比「动作执行完」更可靠：
+--   · 动作可能失败（距离不够、被别的虫抢先），但「状态变了」不会有歧义
+--   · 天然支持「被别人抢先照料 → 状态已变 → 也算成功」的情况
+-- ★ 移植要点：能找到一个「可观测的目标状态」时，
+--   用它判定成功比用「自己是否做完动作」更健壮。
+-- ★★ 与 findflower 第 26-32 行对比：那边只判 FAILED（目标没了/被抢），
+--   没有 SUCCESS 分支 —— 因为「授粉成功」由动作系统判定，节点不看。
+--   本文件则自行判定成功。两种分工都可行，取决于动作系统是否暴露结果。
+            self.status = SUCCESS
+        end
+    end
+end
+
+local FARMPLANT_MUSTTAGS = { "farmplantstress" }
+--★★ FARMPLANT_MUSTTAGS —— 必须是农作物的标签（AND 语义）。
+--★ 与 findflower 第 12 行的 FINDFLOWER_MUST_TAGS 完全同构。
+local FARMPLANT_NOTAGS = { "farm_plant_killjoy" }
+--★★ FARMPLANT_NOTAGS —— 排除「farm_plant_killjoy」。
+-- ★ ★ 值得玩味的名字：killjoy（扫兴的人/破坏气氛者）。
+--   即某种「会带来负面影响的作物」，果蝇不该去照料它。
+-- ★★ 这是 NOT ANY 语义（命中任一即排除），与 findclosest 第 42 行同。
+-- ★★ ★ 三种标签语义（AND musttags / NOT ANY canttags / OR oneoftags）
+--   在 FindEntity 的三个参数里齐聚，是全目录最完整的用法示例。
+--   ★ 移植要点：一次空间查询就能表达复杂筛选，不必分多次查询再手动合并。
+function FindFarmPlant:PickTarget()
+--★★ PickTarget：五层筛选，一行式写法。
+-- ★ 与 findflower 第 36-46 行的 if/else 分支写法不同 ——
+--   本文件直接返回 FindEntity 的结果，无需分支。
+-- ★★★ 这是因为「条件不满足时 FindEntity 返回 nil」正好等于「没有目标」，
+--   不需要额外的 else 分支去置 nil。
+--   ★ 移植要点：**选一个「失败时返回 nil 而非抛错」的查询 API**，
+--     能让调用方省掉大量分支。
+    self.inst.planttarget = FindEntity(self.inst, SEE_DIST, function(plant)
+        if IsNearFollowPos(self, plant) and (self.validplantfn == nil or self.validplantfn(self.inst, plant)) and
+        (plant.components.growable == nil or plant.components.growable:GetCurrentStageData().tendable) then
+            return plant.components.farmplantstress and plant.components.farmplantstress.stressors.happiness == self.wantsstressed
+--★★ 最后一层筛选：压力值与期望一致。
+-- ★ 与第 42 行的成功条件**严格互为取反**：
+--   第 55 行：happiness == wantsstressed  → 选中（还没照料好）
+--   第 42 行：happiness ~= wantsstressed  → SUCCESS（已经照料好）
+-- ★★ 这对「筛选」与「判定」构成的逻辑闭环是本文件设计的骨架，
+--   任何一处改动都必须同步另一处，否则会出现「选中即成功」的死循环。
+-- ★ 移植要点：把「筛选条件」与「完成判定」写成互为取反的一对，
+--   是一种可靠的自我约束 —— 两者必须同时满足设计意图。
+        end
+    end, FARMPLANT_MUSTTAGS, FARMPLANT_NOTAGS)
+--★ 结尾的三个括号依次是 musttags 与 canttags。
+--★ 第 6 个参数 mustoneoftags 未传（nil）—— 三个语义只用了两个。
+-- ★ 回调返回 nil 或 true，语义与 findclosest 第 84 行的用法一致。
+end

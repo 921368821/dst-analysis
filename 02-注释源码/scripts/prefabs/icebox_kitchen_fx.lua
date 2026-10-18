@@ -1,0 +1,56 @@
+--============================================================
+-- 文件：prefabs/icebox_kitchen_fx.lua
+-- 模块：预制体 / icebox_kitchen_fx（建筑与容器）
+-- 职责：实体「icebox_kitchen_fx」的预制体定义。SpawnPrefab("icebox_kitchen_fx") 会执行本文件中的同名工厂函数：创建原生实体、添加底层组件与标签，再挂载其 Lua 组件。
+--   阅读要点：先看工厂函数里 AddComponent 的调用，可知该实体具备哪些行为。
+-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本
+--============================================================
+
+local assets =
+{
+    Asset("ANIM", "anim/ice_box.zip"),
+    Asset("DYNAMIC_ANIM", "anim/dynamic/icebox_kitchen.zip"),
+    Asset("PKGREF", "anim/dynamic/icebox_kitchen.dyn"),
+}
+
+local function OnKillTask(inst)
+    inst.AnimState:PlayAnimation("pst")
+    inst._killtask = inst:DoTaskInTime(inst.AnimState:GetCurrentAnimationLength() + 2 * FRAMES, inst.Remove)
+end
+
+local function Kill(inst)
+    if inst._killtask == nil then
+		inst._killtask = inst:DoTaskInTime(inst.AnimState:GetCurrentAnimationLength() - inst.AnimState:GetCurrentAnimationTime(), OnKillTask)
+    end
+end
+
+local function fn()
+    local inst = CreateEntity()
+
+    inst.entity:AddTransform()
+    inst.entity:AddAnimState()
+    inst.entity:AddNetwork()
+
+    inst.AnimState:SetBank("icebox_kitchen")
+    inst.AnimState:SetBuild("ice_box")
+    inst.AnimState:PlayAnimation("pre")
+    inst.AnimState:SetFinalOffset(1)
+
+    inst:AddTag("FX")
+
+    inst.entity:SetPristine()
+
+    if not TheWorld.ismastersim then
+        return inst
+    end
+
+    inst.AnimState:PushAnimation("loop")
+
+    inst.persists = false
+
+    inst.Kill = Kill
+
+    return inst
+end
+
+return Prefab("icebox_kitchen_fx", fn, assets)

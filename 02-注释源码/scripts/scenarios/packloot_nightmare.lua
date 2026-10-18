@@ -1,0 +1,52 @@
+--============================================================
+-- 文件：scenarios/packloot_nightmare.lua
+-- 模块：剧本 / packloot_nightmare
+-- 职责：冒险剧本「packloot_nightmare」的逻辑脚本：布置场景、配置任务链与胜利/失败条件。
+-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本
+--============================================================
+
+chestfunctions = require("scenarios/chestfunctions")
+
+local function OnCreate(inst, scenariorunner)
+    local loot =
+    {
+        {
+            item = "cutgrass",
+            count = math.random(3, 30),
+        },
+        {
+            item = "log",
+            count = math.random(3, 30),
+        },
+        {
+            item = "minerhat_blueprint",
+        },
+    }
+
+    local chanceloot =
+    {
+        --set1
+        {
+            {
+                item = "gunpowder",
+                count = math.random(3, 5),
+            },
+            {
+                item = "firestaff",
+            },
+        },
+
+        --set2
+        {
+            item = "fishingrod_blueprint",
+        },
+    }
+
+    chestfunctions.AddChestItems(inst, loot)
+    chestfunctions.AddChestItems(inst, chanceloot[math.random(#chanceloot)])
+end
+
+return
+{
+    OnCreate = OnCreate,
+}
