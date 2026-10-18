@@ -1786,80 +1786,155 @@ def _pin_player_alive(L):
 
 
 def e4_daylight_is_safe():
-    """★★★ 2026-10-16 新增：**白天不该被「黑暗」打死**（grue / 光照代理）。
+    """白天不该被「黑暗」打死（grue 光照代理）；反向：造出**真黑暗**必须掉血。
 
-    背景（查实的根因，证据见 §9z）：06 宿主里两处桩**互相矛盾** ——
-      · `host/01_core.lua:186`  `LightWatcher:IsInLight = true`
-        （理由写的是「宿主恒为白天」，但自从 `rt_boot/3` 挂上世界组件后宿主**已有昼夜**，
-          这条理由早过期了）；
-      · `host/06_entityscript.lua:189`  `EntityScript:IsInLight = false`。
-    而 `components/grue.lua:120` 的 `CheckForStart()` 读的是 **后者** ⇒ 恒 false
-    ⇒ grue 永远认为「玩家在黑暗里」⇒ 世界开始 5~10 s 就来一发
-      `combat:GetAttacked(nil, TUNING.GRUEDAMAGE, nil, "darkness")`
-    ⇒ **玩家 12 秒必死**（实测逐秒 `150 → 49.95 → 0`，事件里 `damage=100.05`，
-      `TUNING.GRUEDAMAGE` 正是 100.05）。
-    ⇒ 07 侧的修法：用**世界昼夜相位**当光照代理（白天 `grue:AddImmunity("light")`）。
-      ⚠️ 是**代理不是等价**：宿主没有逐点光照，所以「站在营火旁不挨打」做不到（已在 §9z 登记）。
+    ── 背景（2026-10-16 查实）────────────────────────────────────────────────
+    宿主当时把 `EntityScript:IsInLight` 桩成恒 `false`，而 `components/grue.lua:120`
+    的 `CheckForStart()` 读的正是它 ⇒ grue 永远认为「玩家在黑暗里」⇒ 开局 5~10 s
+    就来一发 `combat:GetAttacked(nil, TUNING.GRUEDAMAGE=100.05, nil, "darkness")`
+    ⇒ **玩家 12 秒必死**（实测逐秒 `150 → 49.95 → 0`）。
+    07 侧的修法：用「昼夜相位 + 离点着的营火足够近」当光照代理
+    （`rt_boot.lua` 的 `sync_grue_light` / `in_light_for_slot`），在光里就
+    `grue:AddImmunity("light")`。⚠️ 是**代理不是等价**（宿主没有逐点光照）。
 
-    判据：
-      ① 白天跑 30 s 世界时间：玩家血量**一滴不掉**，且**从没进过 `death`**；
-      ② `stats().grue_immune` 为 true 且 `grue_sync ≥ 1`（补丁真的动过手，不是死代码）；
-      ③ **反向**：手动 `RemoveImmunity("light")`（等价于「入夜」）⇒
-         玩家必须**重新开始掉血** —— 证明 ① 不是「测不到掉血」，而是白天真的安全。
+    ── ★★★ 2026-10-18（H2）：旧反向是**假判据**，已重写 ────────────────────
+    旧反向做的是 `grue:RemoveImmunity("light")`，然后等 25 s 看血量掉不掉。
+    实测**一滴不掉**（150 → 150，25 s），因为：
+      · 宿主后来补了光照：`06_entityscript.lua:228` 已把 `IsInLight` 委派给
+        `LightWatcher`，而 `01_core.lua:255` 的 `IsInLight` 读 `AmbientLightLevel()`
+        （`01_core.lua:196-206`：**day=1.0 / dusk=0.5 / night=0.0**，阈值 0.2）；
+      · `CheckForStart()` 里还有一条 `self.inst:IsInLight()` —— 白天恒 `true`
+        ⇒ 即使免疫表被清空，grue 也**不会 `Start()`**。
+    ⇒ 「撤掉免疫」在白天**物理上不可能**掉血。那条反向实际证明的是
+      「白天 `IsInLight` 是 true」，**不是**「我们的补丁在起作用」——
+      判据恒真，等于没有判据（这也解释了为什么 `②f` 的「光照代理不生效」那条
+      篡改一直显示「被抓住」：E4 本来就是红的，抓住它不需要任何篡改）。
+    ⇒ 现在改成**造真黑暗**：`TheWorld:PushEvent("ms_setphase", "night")`
+      （`clock.lua:453` 注册的生产事件，存档载入/管理指令走同一入口，不是测试后门），
+      再对比「光照半径默认 vs 0」——**只差一个变量**。
+
+    ── 判据（②③ 是对照组）────────────────────────────────────────────────
+      ① 白天 30 s：血量一滴不掉，且从没进过 `death`；
+      ② 夜里 + 光照半径默认：25 s 血量**不掉**（证明「离火近 = 在光里」真的挡住了 grue）；
+      ③ 夜里 + 光照半径 0：25 s 血量**必须掉**（证明 ② 不是「夜里其实不危险」）。
     """
     s = Sim(seed=20261015, tick_hz=30).boot()
     L = s.lua
     L.globals().RT = s.api
 
+    def ev(code):
+        """包一层 IIFE：`code` 是**函数体**（自己写 `return …`）"""
+        return L.eval("(function() " + code + " end)()")
+
     def snap():
-        return str(L.eval("""(function()
-          local p = RT.player
-          local h = p.components.health
+        """一次取值拿回 `血量|状态机状态`（每拍调用两次会明显拖慢，所以合并）"""
+        return str(ev("""local p = RT.player
+          local h = p.components and p.components.health or nil
           local cs = "?"
           local ok, v = pcall(function() return p.sg.currentstate and p.sg.currentstate.name end)
           if ok then cs = tostring(v) end
-          return tostring(h and h.currenthealth) .. "|" .. cs
-        end)()"""))
+          return tostring(h and h.currenthealth or -1) .. "|" .. cs"""))
 
-    for _ in range(60):                      # 2 s：先让世界/相位稳定
+    def hp():
+        return float(snap().split("|")[0])
+
+    def phase():
+        return str(ev("return tostring(TheWorld.state.phase)"))
+
+    def islight():
+        return bool(ev("return RT.player:IsInLight()"))
+
+    def ambient():
+        return float(ev('return require("host.01_core").AmbientLightLevel()'))
+
+    def immunity():
+        """★ 读**组件里的免疫表本身**，不信 `stats().grue_immune`。
+        后者是代理的**缓存意图**：实测 `RemoveImmunity` 之后它仍报 `true`。"""
+        v = str(ev("""local g = RT.player.components.grue
+          local n, has = 0, false
+          for k in pairs(g.immunity) do n = n + 1; if k == "light" then has = true end end
+          return tostring(n) .. "|" .. tostring(has)"""))
+        n, has = v.split("|")
+        return int(n), has == "true"
+
+    def run(ticks):
+        """跑 N 拍，返回 (最低血量, 是否进过 death)"""
+        lo = hp()
+        died = False
+        for _ in range(ticks):
+            s.step()
+            cur, cs = snap().split("|")
+            cur = float(cur)
+            if cur < lo:
+                lo = cur
+            if cs == "death":
+                died = True
+        return lo, died
+
+    for _ in range(60):                      # 2 s：让世界/相位稳定
         s.step()
-    h0, _ = snap().split("|")
-    h0 = float(h0)
-    died = False
-    for _ in range(900):                     # 30 s
-        s.step()
-        h, cs = snap().split("|")
-        if cs == "death":
-            died = True
-    h1 = float(snap().split("|")[0])
-    # ★ 用 `s.stats()`（Sim 的包装，会把 Lua 表转成 Python 并做整型归一），
-    #   不要直接 `s.api.stats()` —— 后者在 lupa 属性访问下拿到的是 None（实测报
-    #   `TypeError: 'NoneType' object is not callable`）。
-    st = s.stats()
-    if died:
+
+    # ① 白天：血量恒为 h0，且从不 death
+    if phase() != "day":
+        return False, "开局相位是 %s 而不是 day —— ① 的前提不成立（判据没有测到要测的东西）" % phase()
+    h0 = hp()
+    lo_day, died_day = run(900)              # 30 s
+    if died_day:
         return False, "白天 30 s 内玩家进了 `death`（光照代理没生效？）"
-    if h1 < h0 - 0.01:
-        return False, "白天 30 s 玩家掉血了（%.2f → %.2f）—— grue 又把它当成黑暗了" % (h0, h1)
+    if lo_day < h0 - 0.01:
+        return False, "白天 30 s 玩家掉血了（%.2f → %.2f）—— grue 又把它当成黑暗了" % (h0, lo_day)
+    st = s.stats()
     if st.get("grue_immune") is not True:
-        return False, "stats().grue_immune 不是 true：%r" % st.get("grue_immune")
+        return False, "stats().grue_immune 不是 true：%r" % (st.get("grue_immune"),)
     if int(st.get("grue_sync", 0)) < 1:
         return False, "光照代理一次都没动手（grue_sync=0）—— 那就成了死代码"
-    # ③ 反向：撤掉光免疫（等价于入夜）⇒ 必须**重新开始掉血**
-    L.eval("(function() RT.player.components.grue:RemoveImmunity('light') return 1 end)()")
-    # ★★ 这里必须看**过程中的最低血量**，不能看终值：
-    #   撤掉免疫之后玩家会挨打（实测 +10 s 掉到 49.95）→ 然后**自动复活**（§9y/§9z 的 P26），
-    #   血量又回到 150 ⇒ 只看终值会误判成「没掉血」。
-    #   （第一版就是这么错的 —— 它把「复活把它治好了」当成了「危险不存在」。）
-    hmin = h1
-    for _ in range(750):                     # 25 s（第一发在 5~10 s）
+    n_imm, has_light = immunity()
+    if not has_light:
+        return False, "白天 `grue.immunity` 里没有 `light`（实际 %d 项）—— 代理没真的加上免疫" % n_imm
+
+    # ── 造真黑暗（②③ 的共同前提）─────────────────────────────────────────
+    L.eval('(function() TheWorld:PushEvent("ms_setphase", "night") return 1 end)()')
+    for _ in range(10):
         s.step()
-        hmin = min(hmin, float(snap().split("|")[0]))
-    h2 = float(snap().split("|")[0])
-    if hmin >= h1 - 0.01:
-        return False, "撤掉光免疫后 25 s 血量**全程没掉过**（最低仍 %.2f）—— 那条反向证明不了任何事" % hmin
-    return True, "白天 30 s 血量恒为 %.0f 且从未 death；grue_immune=true / grue_sync=%s；" \
-                 "反向：撤掉光免疫后最低掉到 %.2f（终值 %.0f —— 自动复活又把它治回来了）" % (
-                     h0, st.get("grue_sync"), hmin, h2)
+    ph = phase()
+    amb = ambient()
+    lit = islight()
+    if ph != "night":
+        return False, "`ms_setphase(\"night\")` 没生效（phase=%s）—— ②③ 没法测" % ph
+    if amb > 0.01 or lit:
+        return False, ("夜里环境光仍是 %.2f / IsInLight=%s —— 那不是黑暗，"
+                       "②③ 的前提不成立" % (amb, lit))
+
+    # ② 夜里 + 半径默认（火在挡）：血量必须不掉
+    h_night = hp()
+    lo_lit, died_lit = run(750)              # 25 s
+    st2 = s.stats()
+    if int(st2.get("fires_lit", 0)) < 1:
+        return False, ("夜里 25 s 一次火都没点过（fires_lit=%s）—— "
+                       "② 「不掉血」就无从解释" % st2.get("fires_lit"))
+    if died_lit or lo_lit < h_night - 0.01:
+        return False, ("夜里站在火边仍然掉血（%.0f → 最低 %.0f，died=%s）—— "
+                       "火光代理没挡住 grue" % (h_night, lo_lit, died_lit))
+
+    # ③ 夜里 + 半径 0（同样的夜、同样的火，只是「不算光」）：血量必须掉
+    lr = float(s.api.light_radius())
+    s.api.set_light_radius(0)
+    for _ in range(5):                        # 让 sync_grue_light 把免疫撤掉
+        s.step()
+    lo_dark, died_dark = run(750)             # 25 s（第一发在 5~10 s）
+    _, has_light_end = immunity()
+    s.api.set_light_radius(lr)
+    if lo_dark >= h_night - 0.01:
+        return False, ("夜里光照半径设 0 之后 25 s 血量**全程没掉过**（最低仍 %.2f）—— "
+                       "这条反向证明不了任何事（「黑暗」根本没造成伤害）%s" % (
+                           lo_dark,
+                           "；旁证：`grue.immunity` 里仍有 `light`，说明代理压根没被撤掉"
+                           if has_light_end else ""))
+
+    return True, ("白天 30 s 血量恒 %.0f、从未 death ✔ / grue_immune=true · grue_sync=%s · "
+                  "immunity 含 light ✔ / 夜里（amb=%.2f、IsInLight=false）火边 25 s 最低 %.0f 不掉血 ✔ / "
+                  "同一夜把光照半径设 0 ⇒ 最低掉到 %.2f（died=%s）✔" % (
+                      h0, st.get("grue_sync"), amb, lo_lit, lo_dark, died_dark))
 
 
 def e5_death_and_respawn():
@@ -3405,7 +3480,7 @@ check("B24 应用层 ping/pong（延迟测量）且 ping 不算坏帧", b24_ping
 check("E1 P22：交互链路（找目标 → 走过去 → 砍倒）+ 三种拒绝", e1_interaction_chain)
 check("E2 砍倒 ⇒ 倒下 + 掉木头（**只发一次 act**；反向：没被 act 的树不动）", e2_chop_down_and_loot)
 check("E3 捡起地上的物品（PICKUP）；反向：没被 act 的那份不动 + 补参数有记账", e3_pickup_item)
-check("E4 白天不该被「黑暗」打死（grue 光照代理）；反向：撤掉免疫必须重新掉血", e4_daylight_is_safe)
+check("E4 白天不该被「黑暗」打死（grue 光照代理）；反向：夜里离火必掉血（造真黑暗）", e4_daylight_is_safe)
 check("E5 死亡 ⇒ 自动复活（否则世界永久停摆）；反向：活着时复活必须被拒且带原因", e5_death_and_respawn)
 check("E6 默认世界必须有东西可交互（发布演练抓出来的）；反向：内容关掉后确实为空", e6_default_world_has_content)
 check("E7 夜里能活下来（营火光照代理）；反向：半径设 0 则保护失效 + 整段集成", e7_night_is_survivable)

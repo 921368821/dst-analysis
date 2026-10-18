@@ -1,6 +1,14 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""test_stall_watchdog.py —— C1：**停帧看门狗**（§9v.5「模拟循环停住」）
+"""test_stall_watchdog.py —— 停帧看门狗（**任务号 `C1`**；判据编号 `W1~W15`）
+
+★ 编号约定（2026-10-18，H1 修「16 处不一致」时立的）：
+  本文件早期的判据编号是 `A1~A4 / B0~B6 / C0~C3`，与
+  `test_rt.py`（A1~A4、B0~B6）、`test_stress.py`（C0~C3）**15 个编号完全撞号**。
+  而本工程的文档大量写「见 `B19`」「见 `A3`」这种引用 —— 编号一撞，
+  「引用的到底是哪条」就没人能确定（`verify_plan.py` 的重复检测当场报了 15 条）。
+  ⇒ 判据改成 `W1~W15`（W = watchdog）；**任务号仍是 `C1`**（发布检查单/开发计划里
+    的那个「C1 停帧看门狗」），两者是不同的东西：任务号可以一号多判据。
 
 ════════════════════════════════════════════════════════════════════════════
 这件事的来历（决定了判据该长什么样）
@@ -18,29 +26,29 @@
 
 ★ 因此看门狗**不能**写在 `sim_loop` 的循环体里：
   单线程里的看门狗看不见自己卡死 —— 循环停了，看门狗跟着停，一起沉默。
-  这是本判据唯一不可妥协的设计点，也是下面 A1/**B3** 存在的理由。
+  这是本判据唯一不可妥协的设计点，也是下面 W1/**W8** 存在的理由。
 
 ════════════════════════════════════════════════════════════════════════════
 判据分两层（每一条都要能红）
 ════════════════════════════════════════════════════════════════════════════
 A. **部件级**（进程内，不启服务端）—— 判「看门狗的函数本身对不对」：
-   A1 停帧 ⇒ 计数 +1（且 gap 记在案）
-   A2 心跳一直在推进 ⇒ **一次都不许记**（对照：证明判据不是恒绿的橡皮图章）
-   A3 一次停帧只记 **1** 次（0.6 s 内轮询 12 次，不许灌水成 12 次）
-   A4 gap **小于**阈值 ⇒ 不记（证明阈值真的被当阈值用，不是 `gap > 0`）
+   W1 停帧 ⇒ 计数 +1（且 gap 记在案）
+   W2 心跳一直在推进 ⇒ **一次都不许记**（对照：证明判据不是恒绿的橡皮图章）
+   W3 一次停帧只记 **1** 次（0.6 s 内轮询 12 次，不许灌水成 12 次）
+   W4 gap **小于**阈值 ⇒ 不记（证明阈值真的被当阈值用，不是 `gap > 0`）
 
 B. **集成级**（真起服务端 + 真 HTTP）—— 判「用户/运维看到的那个面上对不对」：
-   B1 基线：`/healthz` 里 `stalls = 0`、`stall_threshold` **等于环境变量给的值**、
+   W6 基线：`/healthz` 里 `stalls = 0`、`stall_threshold` **等于环境变量给的值**、
       `stall_age` 很小（⇒ 世界确实在走，心跳在推进）
-   B2 `/debug/stall?ms=4000` 返回 200 且回 "queued"
-   B3 ★★★ **停帧**进行中就能看到 `stalls = 1`，且此刻 `stall_age > 阈值`
+   W7 `/debug/stall?ms=4000` 返回 200 且回 "queued"
+   W8 ★★★ **停帧**进行中就能看到 `stalls = 1`，且此刻 `stall_age > 阈值`
       —— 这是「看门狗在**另一个线程**里」的唯一外部证据：
          如果它写在 `sim_loop` 里，那一拍正在 `sleep`，检查根本没机会执行；
          等循环恢复后 `beat` 立刻就被重写，gap 又变小 ⇒ **永远不会记到这一笔**。
       并且 `last_stall.trace` **必须非空**（取证能力本身就是要交付的东西）
-   B4 恢复：`stall_age` 掉回 < 0.5，且 `stats.tick` 继续增长（世界自愈，不是卡死）
-   B5 不许灌水：恢复后再等 1 s，`stalls` 仍然是 **1**
-   B6 ★ 反向：另起一个**不带** `--allow-debug` 的服务端 ⇒ `/debug/stall` 必须 **404**
+   W9 恢复：`stall_age` 掉回 < 0.5，且 `stats.tick` 继续增长（世界自愈，不是卡死）
+   W10 不许灌水：恢复后再等 1 s，`stalls` 仍然是 **1**
+   W11 ★ 反向：另起一个**不带** `--allow-debug` 的服务端 ⇒ `/debug/stall` 必须 **404**
       （这个端点能让世界停住，不能裸奔在公网上 —— 与 `/debug/kill` 同一开关）
       ★ 顺带把它的 `RT_STALL_SEC` 设成另一个值 ⇒ `stall_threshold` 必须跟着变
         （证明这个阈值**不是**写死的常量）
@@ -75,7 +83,7 @@ PORT_CTRL = int(os.environ.get("RT_STALL_CTRL_PORT", "8802"))
 
 # ★ 阈值与「造的停帧时长」是一对：停 4 s / 阈值 1.5 s ⇒ 中间有 2.5 s 的窗口
 #   能观察到「还在停着，但已经被记下来了」。两者都通过**环境变量**传进去，
-#   这样 B1/B6 同时也就验了「阈值不是写死的」。
+#   这样 W6/W11 同时也就验了「阈值不是写死的」。
 STALL_SEC = 1.5
 STALL_MS = 4000
 CTRL_STALL_SEC = 2.5
@@ -127,7 +135,7 @@ def _run_wd(hub, seconds, check_sec=0.05):
     return t
 
 
-def a1_stall_counts():
+def w1_stall_counts():
     """停帧 ⇒ 计数 +1，并且把 gap 记在案。"""
     hub = Hub()
     hub.stall_threshold = 0.2
@@ -141,11 +149,11 @@ def a1_stall_counts():
     return True, "stalls=1 gap=%.2fs threshold=%.1fs" % (ls["gap"], ls["threshold"])
 
 
-def a2_alive_no_alarm():
+def w2_alive_no_alarm():
     """对照：心跳一直在推进 ⇒ **一次都不许记**。
 
-    ★ 这条不是凑数：A1 只证明「响了」，证明不了「不乱响」。一个
-      `if gap > 0: stalls += 1` 的实现能让 A1 全绿、同时把每个正常世界
+    ★ 这条不是凑数：W1 只证明「响了」，证明不了「不乱响」。一个
+      `if gap > 0: stalls += 1` 的实现能让 W1 全绿、同时把每个正常世界
       都标成停帧 —— 那种判据比没有更糟（它会把真问题淹没在噪声里）。
     """
     hub = Hub()
@@ -170,7 +178,7 @@ def a2_alive_no_alarm():
     return True, "0 次（心跳 20 ms 一拍、看门狗 50 ms 一查）"
 
 
-def a3_dedup():
+def w3_dedup():
     """一次停帧只记 1 次：0.6 s 里轮询 12 次，不许变成 12 次。"""
     hub = Hub()
     hub.stall_threshold = 0.2
@@ -181,7 +189,7 @@ def a3_dedup():
     return True, "12 次检查 → 只记 1 次"
 
 
-def a4_below_threshold():
+def w4_below_threshold():
     """gap **小于**阈值 ⇒ 不记（阈值真的被当阈值用）。"""
     hub = Hub()
     hub.stall_threshold = 0.5
@@ -193,10 +201,10 @@ def a4_below_threshold():
     return True, "gap≈0.35s < 0.5s → 0 次"
 
 
-check("A1 停帧 ⇒ 计数 +1（gap 入档）", a1_stall_counts)
-check("A2 心跳正常 ⇒ 一次都不许记（对照）", a2_alive_no_alarm)
-check("A3 一次停帧只记 1 次（不灌水）", a3_dedup)
-check("A4 gap 小于阈值 ⇒ 不记", a4_below_threshold)
+check("W1 停帧 ⇒ 计数 +1（gap 入档）", w1_stall_counts)
+check("W2 心跳正常 ⇒ 一次都不许记（对照）", w2_alive_no_alarm)
+check("W3 一次停帧只记 1 次（不灌水）", w3_dedup)
+check("W4 gap 小于阈值 ⇒ 不记", w4_below_threshold)
 
 
 # =============================================================================
@@ -282,7 +290,7 @@ srv_dbg = srv_ctrl = None
 STATE = {}
 
 
-def b0_boot():
+def w5_boot():
     global srv_dbg, srv_ctrl
     t0 = time.perf_counter()
     srv_dbg = start_server(PORT_DEBUG, True, STALL_SEC, "_stall_server.log")
@@ -294,7 +302,7 @@ def b0_boot():
 
 
 def judge_baseline(port, expect_threshold):
-    """★ B1 的判据本体（同样抽出来给 C 组用 —— 见 judge_after_trigger 的说明）。"""
+    """★ W6 的判据本体（同样抽出来给 C 组用 —— 见 judge_after_trigger 的说明）。"""
     h = health(port)
     st = h.get("stats") or {}
     if st.get("stalls") != 0:
@@ -311,12 +319,12 @@ def judge_baseline(port, expect_threshold):
         st["stall_threshold"], age)
 
 
-def b1_baseline():
+def w6_baseline():
     """基线：还没停过帧；阈值 == 环境变量给的；心跳在推进。"""
     return judge_baseline(PORT_DEBUG, STALL_SEC)
 
 
-def b2_trigger():
+def w7_trigger():
     """`/debug/stall?ms=N` ⇒ 200 且回 queued。"""
     t0 = time.perf_counter()
     st, body = http_get(PORT_DEBUG, "/debug/stall?ms=%d" % STALL_MS)
@@ -329,10 +337,10 @@ def b2_trigger():
 
 
 def judge_after_trigger(port, t_trig, stall_ms):
-    """★ B3 的判据本体（抽成函数，**C 组变异测试直接调同一份**）。
+    """★ W8 的判据本体（抽成函数，**C 组变异测试直接调同一份**）。
 
     ★ 为什么必须抽出来：如果 C 组另写一遍「差不多」的判断，那么 C 组证明的是
-      「另一份判据会红」，而不是「B3 这条判据会红」—— 本工程已经栽过这种
+      「另一份判据会红」，而不是「W8 这条判据会红」—— 本工程已经栽过这种
       「判据双份、一起过期」的坑（C9 就是两处同源副本）。
     """
     deadline = t_trig + stall_ms / 1000.0 + 3.0
@@ -364,11 +372,11 @@ def judge_after_trigger(port, t_trig, stall_ms):
         dt, age, st["stall_threshold"], len(trace))
 
 
-def b3_detected_while_stalled():
+def w8_detected_while_stalled():
     """★★★ 停帧**进行中**就必须被记下来，且栈要抓住。
 
     ★ 这里所有时间都用 `perf_counter()`，**不能**和 `time.time()` 混用。
-      第一版就是混了：B2 存的是 `perf_counter()`（进程内的短秒数），B3 却拿
+      第一版就是混了：W7 存的是 `perf_counter()`（进程内的短秒数），W8 却拿
       `time.time()`（纪元秒，1.79e9）去比 ⇒ `deadline` 落在过去，轮询循环
       **一次都没进**，然后输出了「1792250211.2 s 内一直是 0」这种荒谬数字。
       ⇒ 教训：判据里的时间基准必须**单一**；混用不会报错，只会给出看起来很
@@ -376,11 +384,11 @@ def b3_detected_while_stalled():
     """
     t_trig = STATE.get("t_trigger")
     if t_trig is None:
-        return False, "B2 没成功，无法判"
+        return False, "W7 没成功，无法判"
     return judge_after_trigger(PORT_DEBUG, t_trig, STALL_MS)
 
 
-def b4_recovered():
+def w9_recovered():
     """恢复：`stall_age` 掉回 < 0.5，且世界继续往前走（没卡死、也没追帧）。"""
     deadline = time.time() + 12.0
     age = None
@@ -400,7 +408,7 @@ def b4_recovered():
     return True, "stall_age=%.3fs，0.6 s 内 tick +%d" % (age, t2 - t1)
 
 
-def b5_no_flood():
+def w10_no_flood():
     """恢复后再等 1 s：`stalls` 必须还是 1（一次停帧 = 一笔账）。"""
     time.sleep(1.0)
     st = (health(PORT_DEBUG).get("stats") or {})
@@ -409,7 +417,7 @@ def b5_no_flood():
     return True, "stalls=1（停帧 4 s + 恢复 1 s 后仍是 1）"
 
 
-def b6_control_404():
+def w11_control_404():
     """★ 反向：不带 `--allow-debug` 的服务端，`/debug/stall` 必须 404；
     且它的 `stall_threshold` 必须等于**它自己**的 RT_STALL_SEC（不同值）。"""
     global srv_ctrl
@@ -494,7 +502,7 @@ MUT_NOWD = None
 MUT_THRESHOLD = None
 
 
-def c0_build_mutants():
+def w12_build_mutants():
     global MUT_NOWD, MUT_THRESHOLD
     # ① 看门狗**不启动**（模拟「写进了 sim_loop 所以跟着一起停」的等价后果）
     MUT_NOWD = make_mutant("nowd", [
@@ -510,8 +518,8 @@ def c0_build_mutants():
     return True, "两个变异体已生成（锚点各命中 1 次）"
 
 
-def c1_no_watchdog_goes_red():
-    """★★★ 摘掉看门狗 ⇒ **B3 的判据必须红**（这就是「有牙」的证据）。"""
+def w13_no_watchdog_goes_red():
+    """★★★ 摘掉看门狗 ⇒ **W8 的判据必须红**（这就是「有牙」的证据）。"""
     proc = start_server(PORT_MUT, True, STALL_SEC, "_stall_mut_nowd.log", script=MUT_NOWD)
     try:
         h = health(PORT_MUT)
@@ -524,7 +532,7 @@ def c1_no_watchdog_goes_red():
             return False, "变异体连 /debug/stall 都不通（%s）" % code
         ok, info = judge_after_trigger(PORT_MUT, t0, STALL_MS)
         if ok:
-            return False, ("★★ 摘掉看门狗之后 B3 仍然通过（%s）—— "
+            return False, ("★★ 摘掉看门狗之后 W8 仍然通过（%s）—— "
                            "说明这条判据是空的，抓不住「没人看」这件事" % info)
         # 「红」必须是**因为没人看**，不能是因为服务端坏了：/healthz 仍要 200
         st2 = health(PORT_MUT).get("stats") or {}
@@ -536,7 +544,7 @@ def c1_no_watchdog_goes_red():
         time.sleep(0.4)
 
 
-def c2_mutant_world_still_alive():
+def w14_mutant_world_still_alive():
     """★ 「红」必须归因于**没人看**，不是世界坏了。
 
     同一个变异体再起一次：停帧结束后世界要照常恢复（stall_age 回正、tick 前进）
@@ -588,13 +596,13 @@ def c2_mutant_world_still_alive():
         time.sleep(0.4)
 
 
-def c3_hardcoded_threshold_goes_red():
-    """★★ 阈值写死 ⇒ **B1 的判据必须红**（证明「阈值接线」不是摆设）。"""
+def w15_hardcoded_threshold_goes_red():
+    """★★ 阈值写死 ⇒ **W6 的判据必须红**（证明「阈值接线」不是摆设）。"""
     proc = start_server(PORT_MUT, True, STALL_SEC, "_stall_mut_thr.log", script=MUT_THRESHOLD)
     try:
         ok, info = judge_baseline(PORT_MUT, STALL_SEC)
         if ok:
-            return False, ("阈值被写死成 3.0，而 B1 拿 RT_STALL_SEC=%s 去对，居然通过了 —— "
+            return False, ("阈值被写死成 3.0，而 W6 拿 RT_STALL_SEC=%s 去对，居然通过了 —— "
                            "说明那条判据没在核对阈值" % STALL_SEC)
         return True, "判据如预期变红：%s" % info
     finally:
@@ -603,24 +611,24 @@ def c3_hardcoded_threshold_goes_red():
 
 
 try:
-    ok_boot = check("B0 起调试服务端（--allow-debug）", b0_boot)
+    ok_boot = check("W5 起调试服务端（--allow-debug）", w5_boot)
     if not ok_boot:
         print("  ✘ 服务端起不来，B 组其余判据无法执行")
         FAIL += 5
     else:
-        check("B1 基线：stalls=0 / 阈值接线 / 心跳在走", b1_baseline)
-        check("B2 /debug/stall?ms=%d 入队" % STALL_MS, b2_trigger)
-        check("B3 ★ 停帧进行中就被记下 + 抓到栈", b3_detected_while_stalled)
-        check("B4 恢复：心跳回正、世界继续前进", b4_recovered)
-        check("B5 一次停帧只记 1 笔（不灌水）", b5_no_flood)
-        check("B6 ★ 反向：无 --allow-debug ⇒ 404 + 阈值各服各值", b6_control_404)
+        check("W6 基线：stalls=0 / 阈值接线 / 心跳在走", w6_baseline)
+        check("W7 /debug/stall?ms=%d 入队" % STALL_MS, w7_trigger)
+        check("W8 ★ 停帧进行中就被记下 + 抓到栈", w8_detected_while_stalled)
+        check("W9 恢复：心跳回正、世界继续前进", w9_recovered)
+        check("W10 一次停帧只记 1 笔（不灌水）", w10_no_flood)
+        check("W11 ★ 反向：无 --allow-debug ⇒ 404 + 阈值各服各值", w11_control_404)
 
-    check("C0 生成两个变异体（锚点唯一）", c0_build_mutants)
+    check("W12 生成两个变异体（锚点唯一）", w12_build_mutants)
     if MUT_NOWD:
-        check("C1 ★ 摘掉看门狗 ⇒ B3 判据变红", c1_no_watchdog_goes_red)
-        check("C2 ★ 变异体的世界照常恢复（红≠崩）", c2_mutant_world_still_alive)
+        check("W13 ★ 摘掉看门狗 ⇒ W8 判据变红", w13_no_watchdog_goes_red)
+        check("W14 ★ 变异体的世界照常恢复（红≠崩）", w14_mutant_world_still_alive)
     if MUT_THRESHOLD:
-        check("C3 ★ 阈值写死 ⇒ B1 判据变红", c3_hardcoded_threshold_goes_red)
+        check("W15 ★ 阈值写死 ⇒ W6 判据变红", w15_hardcoded_threshold_goes_red)
 finally:
     stop_server(srv_dbg)
     stop_server(srv_ctrl)
