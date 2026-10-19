@@ -13,13 +13,13 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { relSrc, relOut, pristineRoot, ANN_SCRIPTS } from "./lib/paths.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const SRC =
-  "C:/Users/35916/.qwenworkcn/workspace/mv38nal4gdn29zna/dst-analysis/scripts/scripts/prefabs/deciduoustrees.lua";
+const SRC = relSrc("prefabs/deciduoustrees.lua");
 const SPEC = join(__dirname, "spec-prefabs-deciduoustrees.mjs");
-const OUT = "E:/DST-Analysis/02-注释源码/scripts/prefabs/deciduoustrees.lua";
+const OUT = relOut("prefabs/deciduoustrees.lua");
 
 const HEADER = [
   "--============================================================",

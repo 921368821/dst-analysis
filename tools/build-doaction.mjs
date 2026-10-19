@@ -12,12 +12,13 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { relSrc, relOut, pristineRoot, ANN_SCRIPTS } from "./lib/paths.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const SRC = "C:/Users/35916/.qwenworkcn/workspace/mv38nal4gdn29zna/dst-analysis/scripts/scripts/behaviours/doaction.lua";
+const SRC = relSrc("behaviours/doaction.lua");
 const SPEC = join(__dirname, "spec-doaction.mjs");
-const OUT = "E:/DST-Analysis/02-注释源码/scripts/behaviours/doaction.lua";
+const OUT = relOut("behaviours/doaction.lua");
 
 const HEADER = "--============================================================\n-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖\n-- 文件：behaviours/doaction.lua\n-- 模块：行为树节点库 / 动作\n-- 职责：执行一次 bufferedaction（采集/交互），通过 OnSucceed / OnFail 两个事件回调\n--       把异步结果转成 SUCCESS / FAILED —— 是「回调 → 终态」桥接的范本。\n-- 关键符号：DoAction, DoAction:Visit, DoAction:OnSucceed, DoAction:OnFail\n-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本\n-- 交叉引用：bufferedaction.lua（动作队列）, behaviourtree.lua（status 终态被后续 Visit 消费）\n--============================================================\n";
 

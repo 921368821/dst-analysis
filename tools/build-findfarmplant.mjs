@@ -12,12 +12,13 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { relSrc, relOut, pristineRoot, ANN_SCRIPTS } from "./lib/paths.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const SRC = "C:/Users/35916/.qwenworkcn/workspace/mv38nal4gdn29zna/dst-analysis/scripts/scripts/behaviours/findfarmplant.lua";
+const SRC = relSrc("behaviours/findfarmplant.lua");
 const SPEC = join(__dirname, "spec-findfarmplant.mjs");
-const OUT = "E:/DST-Analysis/02-注释源码/scripts/behaviours/findfarmplant.lua";
+const OUT = relOut("behaviours/findfarmplant.lua");
 
 const HEADER = "--============================================================\n-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖\n-- 文件：behaviours/findfarmplant.lua\n-- 模块：行为树节点库 / 查找\n-- 职责：找最近的农作物（仿 follow/findclosest 家族的 PickTarget 写法），\n--       用于 NPC 农夫照料田地。\n-- 关键符号：FindFarmPlant, FindFarmPlant:Visit, FindFarmPlant:PickTarget, FindFarmPlant:DBString\n-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本\n-- 交叉引用：findclosest.lua（同族节点）, TheSim:FindEntities, components/locomotor.lua\n--============================================================\n";
 

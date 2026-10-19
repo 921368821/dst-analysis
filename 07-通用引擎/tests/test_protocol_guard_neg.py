@@ -39,7 +39,11 @@ def find_py():
 def run(py, d):
     """在临时副本目录 d 上跑一次 --check，返回 (退出码, stdout+stderr)。"""
     env = dict(os.environ)
-    env["PROTO_SERVER"] = os.path.join(d, "server.py")
+    # ★★ M4 之后命令分派在 ws_api.py（server.py 只剩 handle 分流）⇒ 副本必须是**两份**，
+    #   且用 os.pathsep 连起来喂给守卫（守卫支持多文件，见 check_protocol.py 的 SERVER）。
+    #   只喂 server.py 的话基准就报「缺少 7 条命令」——反向测试前提直接不成立。
+    env["PROTO_SERVER"] = os.pathsep.join(
+        [os.path.join(d, "ws_api.py"), os.path.join(d, "server.py")])
     env["PROTO_CLIENT"] = os.path.join(d, "client.html")
     env["PROTO_DOC"] = os.path.join(d, "protocol.md")
     p = subprocess.run([py, "-u", TOOL], capture_output=True, text=True,
@@ -49,7 +53,7 @@ def run(py, d):
 
 def main():
     py = find_py()
-    for f in ("server.py", "client.html", "protocol.md"):
+    for f in ("ws_api.py", "server.py", "client.html", "protocol.md"):
         if not os.path.isfile(os.path.join(RT, f)):
             print("✘ 缺少 rt/%s，无法做反向测试" % f)
             return 2
@@ -60,7 +64,7 @@ def main():
     def fresh():
         """每次都从原始文件复制一份干净副本，避免篡改叠加。"""
         d = tempfile.mkdtemp(dir=tmp)
-        for f in ("server.py", "client.html", "protocol.md"):
+        for f in ("ws_api.py", "server.py", "client.html", "protocol.md"):
             shutil.copy2(os.path.join(RT, f), os.path.join(d, f))
         return d
 
@@ -152,10 +156,11 @@ def main():
 
         # ---- ⑥ 服务端多一条命令 ----
         d = fresh()
-        ok = patch(d, "server.py", 'str(msg["cmd"]) == "ping"',
+        ok = patch(d, "ws_api.py", 'str(msg["cmd"]) == "ping"',
                    'str(msg["cmd"]) == "ping" or str(msg["cmd"]) == "sneak2"')
         if not ok:
-            bad.append("篡改锚点失效：server.py 里找不到 ping 的分发分支")
+            bad.append("篡改锚点失效：ws_api.py 里找不到 ping 的分发分支"
+                       "（M4 把分派搬到这里了，锚点要跟着走）")
             print("  ✘ 服务端多加命令 → 锚点找不到")
         else:
             rc, out = run(py, d)

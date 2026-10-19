@@ -12,12 +12,13 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { relSrc, relOut, pristineRoot, ANN_SCRIPTS } from "./lib/paths.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const SRC = "C:/Users/35916/.qwenworkcn/workspace/mv38nal4gdn29zna/dst-analysis/scripts/scripts/behaviours/runtodist.lua";
+const SRC = relSrc("behaviours/runtodist.lua");
 const SPEC = join(__dirname, "spec-runtodist.mjs");
-const OUT = "E:/DST-Analysis/02-注释源码/scripts/behaviours/runtodist.lua";
+const OUT = relOut("behaviours/runtodist.lua");
 
 const HEADER = "--============================================================\n-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖\n-- 文件：behaviours/runtodist.lua\n-- 模块：行为树节点库 / 位移\n-- 职责：朝「离当前最远的若干候选点」跑过去（取距离最远的那个），常用于「往地图另一边跑」。\n--       GetRunPosition 封装了候选点的生成与打分。\n-- 关键符号：RunToDist, RunToDist:Visit, RunToDist:GetRunPosition, RunToDist:__tostring\n-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本\n-- 交叉引用：components/locomotor.lua, runaway.lua, behaviorutil.lua（GetFurthestPoint 等）\n--============================================================\n";
 

@@ -242,7 +242,39 @@ def a5_reproducible():
     f2 = run()
     if f1[1] != f2[1]:
         return False, "两次不一致:\n     %s\n     %s" % (f1[0], f2[0])
-    return True, "两次指纹一致 hash=%d（%s）" % (f1[1], f1[0])
+
+    # ★★★ M1 反向：动一个**非玩家**实体 ⇒ 指纹必须变。
+    #   M1 之前指纹只含 px/pz/moved，这一段会**全绿**（NPC 走岔、植被被清都看不见）。
+    #   现在要求指纹里含有「所有 prefab 实体的 (名字, 量化坐标)」的滚动和。
+    sim = Sim(seed=777, tick_hz=30, max_ents=400).boot()
+    L = sim.lua
+    L.globals().RT = sim.api
+    for _ in range(20):
+        sim.step()
+    before, h_before = sim.fingerprint()
+    n_moved = L.eval("""(function()
+        local n = 0
+        for _, inst in pairs(Ents or {}) do
+            if n >= 1 then break end
+            if inst.prefab ~= nil and inst ~= RT.player and inst.Transform ~= nil then
+                local x, y, z = inst.Transform:GetWorldPosition()
+                if x ~= nil then
+                    inst.Transform:SetPosition(x + 1, y or 0, z or 0)
+                    n = n + 1
+                end
+            end
+        end
+        return n
+    end)()""")
+    if not n_moved:
+        return False, "找不到可移动的非玩家实体 —— 这条反向测不到东西"
+    after, h_after = sim.fingerprint()
+    if h_before == h_after:
+        return False, ("把 1 个非玩家实体挪了 1 格，指纹**没变**（hash 仍 %d）—— "
+                       "指纹没覆盖实体，NPC/植被走岔了也发现不了\n     before %s\n     after  %s"
+                       % (h_before, before, after))
+
+    return True, "两次一致 hash=%d；挪 1 个 NPC 后指纹变为 %d（实体已被覆盖）" % (h_before, h_after)
 
 
 def a6_negative_dt():
@@ -3811,6 +3843,62 @@ def e12_act_index():
             pass
 
 
+def b27_replay_join_timing():
+    """★★ 回放必须按**上线时刻**重建玩家 —— 不能在开演前把槽位全建好。
+
+       B21（硬杀后回放）红了整整一轮，根因不在世界，在**回放自己**：
+         · 录制时槽位 1 的玩家是第 10 拍才 `add_player` 的 ⇒ 第 1 拍的指纹里没有他（17 个实体）；
+         · 老回放为了「能喂输入」在**开演前**就把槽位 1 建好 ⇒ 第 1 拍就多一个玩家（18~20 个）；
+         · 于是从第 1 拍起 `ecnt` 不同 ⇒ 报「不一致」，看着像「世界行为悄悄变了」。
+       修法：录像 v3 带 `joins`（`[tick, 槽位, ±1]`），回放按拍重放。
+
+       判据（三条，缺一条都测不出来）：
+         ① `dump_recording()` 必须是 v3 且 `joins` 里记下了加入时刻；
+         ② **同种子新 Sim** 拿整份录像回放 ⇒ 逐 tick 全一致（tick is None）；
+         ③ **反向**：把 `joins` 抹掉再回放 ⇒ 必须**报不一致**，而且是在第 1 拍
+            （证明「提前建槽位」确实会造出另一个世界，不是无关紧要的字段）。
+    """
+    import copy
+    sim_a = Sim(seed=4242, tick_hz=30).boot()
+    for _ in range(10):
+        sim_a.step()
+    ok, guid = sim_a.api.add_player(1)
+    if not ok:
+        return False, "加槽位 1 失败：%s" % (guid,)
+    sim_a.note_join(1, up=True)          # ★ 与 loops.py 同一个顺序（先建、再记账）
+    sim_a.api.set_input_for(1, "right", True)
+    for _ in range(20):
+        sim_a.step()
+    rec = sim_a.dump_recording()
+    if rec.get("v") != 3 or not rec.get("joins"):
+        return False, "录像不是 v3 或没记 joins：v=%s joins=%r" % (rec.get("v"), rec.get("joins"))
+    if [int(x) for x in rec["joins"][0][:2]] != [10, 1]:
+        return False, "加入时刻记错了：%r（期望第 10 拍、槽位 1）" % (rec["joins"][0],)
+
+    # ② 正向：同一份录像（含 joins）⇒ 逐 tick 一致
+    sim_b = Sim(seed=4242, tick_hz=30).boot()
+    tick, want, got, near = sim_b.replay(rec)
+    if tick is not None:
+        return False, "带 joins 回放仍不一致 @tick %d（%s vs %s）\n     %s" % (tick, want, got, near)
+    if sim_b.replay_note:
+        return False, "带 joins 却给出了「老录像」告警：%s" % sim_b.replay_note
+
+    # ③ 反向：抹掉 joins ⇒ 必须红，且红在第 1 拍
+    bad = copy.deepcopy(rec)
+    bad["joins"] = []
+    sim_c = Sim(seed=4242, tick_hz=30).boot()
+    tick, want, got, near = sim_c.replay(bad)
+    if tick is None:
+        return False, ("抹掉 joins 之后回放**仍然全绿** —— 说明「提前建槽位」对这个"
+                       "世界没有影响，③ 不成立，这条判据什么也没证明")
+    if tick != 1:
+        return False, "抹掉 joins 后不一致出现在第 %d 拍（期望第 1 拍）：%s" % (tick, near)
+    if not sim_c.replay_note:
+        return False, "老录像路径**没给出告警**（用户会以为世界变了）"
+    return True, ("v3 joins=%s；带 joins 回放 %d tick 全同；反向抹掉 ⇒ 第 1 拍即不一致且已告警"
+                  % (rec["joins"], len(rec["hashes"])))
+
+
 check("E8 跨进程：死亡 ⇒ 自动复活 ⇒ 客户端认回自己；反向：debug 端点默认 404", e8_death_respawn_cross_process)
 check("D1 P21：带会话 key 重连**拿回同一个角色**（位置也保持）", d1_session_key_reclaims_avatar)
 check("D2 反向：宽限期过了**必须真回收**（否则刷新一次漏一个空壳）", d2_session_grace_expiry)
@@ -3822,6 +3910,7 @@ check("E12 交互目标空间索引：与线性实现逐项一致 + 真省扫描
 check("D4 会话身份挺过重启（槽位/角色/位置都接着上次）；反向：无 key 的存档许不出身份", d4_session_identity_survives_restart)
 check("B25 P20：每个客户端有自己的角色（you 握手 + 槽位回收）", b25_每个客户端有自己的角色)
 check("B26 P20 核心：**A 的输入只能动 A 的角色**", b26_输入互不干扰)
+check("B27 回放按「上线时刻」重建玩家；反向：抹掉 joins ⇒ 第 1 拍就露馅", b27_replay_join_timing)
 
 
 # =============================================================================

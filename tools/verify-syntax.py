@@ -31,21 +31,54 @@ import sys
 
 from lupa import LuaRuntime
 
-import os
-
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-def _dst_src(sub=""):
-    """DST 源码 scripts 根（ASCII 联接 dstsrc 优先 —— Lua/工具链都不吃中文路径）。"""
-    for c in (os.path.join(_ROOT, "dstsrc", "scripts"),
-              os.path.join(_ROOT, "02-注释源码", "scripts")):
-        if os.path.isfile(os.path.join(c, "components", "health.lua")):
-            return os.path.join(c, sub) if sub else c
-    raise RuntimeError("找不到 DST 源码根（components/health.lua 不存在）")
+def _has(p):
+    return os.path.isfile(os.path.join(p, "components", "health.lua"))
 
-SRC = _dst_src()
-ANN = _dst_src()
+
+def _ann_root(sub=""):
+    """注释版根：固定取 02-注释源码/scripts（它就是「我们要体检的那棵树」）。"""
+    c = os.path.join(_ROOT, "02-注释源码", "scripts")
+    if not _has(c):
+        raise RuntimeError("找不到注释版根：02-注释源码/scripts/components/health.lua")
+    return os.path.join(c, sub) if sub else c
+
+
+def _src_root():
+    """原版根：$DST_PRISTINE → _baseline/pristine-scripts → dstsrc/scripts。
+
+    ★★ 关键：**必须排除「和注释版是同一棵树」的候选**。
+       本脚本 v1 直接把 `_dst_src()` 同时赋给 SRC 和 ANN ——
+       而 `dstsrc` 是指向 `02-注释源码` 的联接，于是 `SRC == ANN`：
+       「注释版编不过」在「原版」那里必然也编不过 ⇒ 一律记成**基线**，
+       `★ 真缺陷` 恒为 0。SOP 里说「这是唯一能抓出注释引入语法错误的工具」，
+       而它当时**根本没有判据**（原版副本丢失后一直如此）。
+       ⇒ 现在：拿不到**真正不同**的原版根，就返回 None，由 main() 明确报「未分类」。
+    """
+    cands = [
+        os.environ.get("DST_PRISTINE", ""),
+        os.path.join(_ROOT, "_baseline", "pristine-scripts"),
+        os.path.join(_ROOT, "dstsrc-pristine", "scripts"),
+        os.path.join(_ROOT, "dstsrc", "scripts"),
+    ]
+    ann = _ann_root()
+    for c in cands:
+        if not c or not _has(c):
+            continue
+        try:
+            if os.path.samefile(c, ann):   # 自己比自己 ⇒ 不是基线
+                continue
+        except OSError:
+            continue
+        return c
+    return None
+
+
+ANN = _ann_root()
+SRC = _src_root()
+HAS_BASELINE = SRC is not None
 
 LUA = LuaRuntime(unpack_returned_tuples=True)
 _compile = LUA.eval(
@@ -72,8 +105,9 @@ def read(p):
 
 def main():
     quiet = "--quiet" in sys.argv
-    checked = baseline = real = 0
+    checked = baseline = real = unknown = 0
     problems = []
+    unknowns = []
 
     for dirpath, _dirs, files in os.walk(ANN):
         for name in files:
@@ -81,23 +115,31 @@ def main():
                 continue
             ann_path = os.path.join(dirpath, name)
             rel = os.path.relpath(ann_path, ANN)
-            src_path = os.path.join(SRC, rel)
-
-            if not os.path.exists(src_path):
-                continue
-
-            # 原版是已编译字节码的（\x1bLuaQ），无法用 load() 比对
-            with open(src_path, "rb") as f:
-                if f.read(5) == b"\x1bLuaQ":
-                    continue
-
             checked += 1
             ann_text = read(ann_path)
             if compile_ok(ann_text):
                 continue
 
-            src_ok = compile_ok(read(src_path))
-            if src_ok:
+            if not HAS_BASELINE:
+                # ★ 没有真正不同的原版根 ⇒ **无法分类**。
+                #   记成「基线」就是自我欺骗：那等于宣称「原版也编不过」，
+                #   而我们根本没看过原版。
+                unknown += 1
+                unknowns.append((rel, _msg(ann_text)))
+                continue
+
+            src_path = os.path.join(SRC, rel)
+            if not os.path.exists(src_path):
+                unknown += 1
+                unknowns.append((rel, "原版缺该文件，无法判定是谁的问题"))
+                continue
+            # 原版是已编译字节码的（\x1bLuaQ），无法用 load() 比对
+            with open(src_path, "rb") as f:
+                if f.read(5) == b"\x1bLuaQ":
+                    unknown += 1
+                    unknowns.append((rel, "原版是字节码，无法用 load() 对照"))
+                    continue
+            if compile_ok(read(src_path)):
                 real += 1
                 problems.append((rel, _msg(ann_text)))
             else:
@@ -107,12 +149,31 @@ def main():
 
     print()
     print(f"已检查注释文件 : {checked}")
-    print(f"基线问题       : {baseline}  （原版同样失败，非本次引入）")
-    print(f"★ 真缺陷       : {real}")
+    if HAS_BASELINE:
+        print(f"原版根         : {SRC}")
+        print(f"基线问题       : {baseline}  （原版同样失败，非本次引入）")
+        print(f"★ 真缺陷       : {real}")
+    else:
+        print(f"原版根         : ⊘ 无（找不到与注释版**不同**的原版树）")
+        print(f"★ 真缺陷       : ⊘ 无法判定 —— {unknown} 个文件编不过，但**没有基线可比**")
+        print("                  ⇒ 这些既不能记「基线」（没看过原版），也不能记「真缺陷」（可能本来就有）。")
+        print("                  ⇒ 修法：按 M9 用 `bash tools/archive-pristine.sh <原版 scripts 根>` 归档，")
+        print("                     或用 DST_PRISTINE=<原版根> 指过去，再重跑本脚本。")
     for rel, msg in problems:
         print(f"   ❌ {rel}\n      {msg}")
+    if unknown and not quiet:
+        show = len(unknowns) if HAS_BASELINE else min(len(unknowns), 30)
+        for rel, msg in unknowns[:show]:
+            print(f"   ⚠ {rel}\n      {msg}")
+        if len(unknowns) > show:
+            print(f"   ...另有 {len(unknowns) - show} 个")
 
-    return 1 if real else 0
+    if real:
+        return 1
+    if not HAS_BASELINE:
+        # 3 = 「跑了，但判据不成立」。与 0（真的没问题）严格分开。
+        return 3
+    return 0
 
 
 if __name__ == "__main__":

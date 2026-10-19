@@ -516,7 +516,7 @@ BufferedAction.TestForStart = BufferedAction.IsValid
 --     · action.id     ← actions.lua:748 赋的值（字符串）
 --     · strfn(act)    ← actions.lua 里定义的「修饰词」函数
 --     ★ stringutil.lua:331 GetActionString 负责拼接。
---   ★★ 绝���顺序即优先级：**先问执行者，再问动作，最后用默认**。
+--   ★★ 绝对顺序即优先级：**先问执行者，再问动作，最后用默认**。
 --     ★ 为什么执行者优先？
 --       因为「我在这个语境下要换个说法」是最具体的需求
 --       （如吃撑了时把「吃」改成「太饱了」）。
@@ -603,7 +603,7 @@ function BufferedAction:__tostring()
 end
 
 --★★ AddFailAction —— 登记失败回调（3 行）。
---   ★★ 只有两件���：push 到数组。
+--   ★★ 只有两件事：push 到数组。
 --     ★ **没有去重**：同一个函数可以被登记多次 ⇒ 会跑多次。
 --   ★★ 实际使用者（检索 actions.lua 与 locomotor）：
 --     · locomotor.lua 记录「动作开始/结束」以便打断其它系统逻辑

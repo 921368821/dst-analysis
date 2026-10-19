@@ -1052,7 +1052,7 @@ end
 --  315  self:OnHide(was_visible)       —— ★ 钩子带「之前的状态」
 -- 【★★ OnHide(was_visible) 的设计值得学习】
 --   传入「改变前的状态」而不是「改变后的」，
---   让子类能区分「从可见变不可见」与「本来就不��见再调 Hide」。
+--   让子类能区分「从可见变不可见」与「本来就不可见再调 Hide」。
 --   ⇒ 这类「转换前状态」参数是 UI 框架的通用模式：
 --     widgets/screen.lua 没有用，但 widgets/ 里有大量使用。
 -- ⚠ 幂等性：连调两次 Hide，第二次 was_visible = false。
@@ -1297,7 +1297,7 @@ end
 --   ⇒ 所以 SetScale(2) 等价于 SetScale(2,2,2)，最常用。
 -- ★ 393 的 Vector3 分支逐分量取。
 -- ⚠ 与 SetPosition 不同：这里没有 IsValid 防御。
---   ⇒ 不一致（362 有防御，389 没有）。轻��瑕疵。
+--   ⇒ 不一致（362 有防御，389 没有）。轻微瑕疵。
 function Widget:SetScale(pos, y, z)
     if type(pos) == "number" then
         self.inst.UITransform:SetScale(pos, y or pos, z or pos)
@@ -2436,7 +2436,7 @@ end
 -- 【★ 为什么要「还原」包装过的方法】
 --   822-827 `if self._OnGainFocus then` 才还原。
 --   ⇒ 条件是「有没有备份」⇒ 没走过路径B（772-800）就不用还原 ✓。
---   ⇒ 走��路径A（762-771）时没有备份，也不会还原 ✓ 正确。
+--   ⇒ 走路径A（762-771）时没有备份，也不会还原 ✓ 正确。
 -- 【★ 四种资源的清理】
 --  816-820  hovertext_root（Kill）→ hovertext / hovertext_bg（置 nil）
 --  822-828  还原 _OnGainFocus / _OnLoseFocus → 两个备份置 nil

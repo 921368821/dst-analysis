@@ -14,15 +14,21 @@ DST（饥荒联机版）拆解工程。目标：给 Lua 源码加逐行深度中
 ## 数据流
 
 ```
-原始源码（只读，永不修改）
-C:\Users\35916\.qwenworkcn\workspace\mv38nal4gdn29zna\dst-analysis\scripts\scripts\<相对路径>
+原始源码（只读，永不修改）—— 路径**不再写死**，由 tools/lib/paths.mjs 解析：
+  ① $DST_PRISTINE / $DST_SRC   ② <工程根>/_baseline/pristine-scripts
+  ③ <工程根>/dstsrc-pristine/scripts        （三条都不成立 ⇒ 直接报错，不许退回注释版）
         │
         │ build-<name>.mjs 逐行读出，代码行原样输出
-        │ 注释从 spec-<name>.mjs 按「行号」注入
+        │ 注释从 spec-<name>.mjs 注入：旧写法按「行号」，新写法按「定义名#第 n 次出现」
         ▼
-注释版输出
-E:\DST-Analysis\02-注释源码\scripts\<相对路径>
+注释版输出（= <工程根>/02-注释源码/scripts/<相对路径>，同样不写死）
 ```
+
+> ★ 2026-10-19（M8）之前，源/输出两边都是**写死的绝对路径**，而且分散在 104 个
+> `build-*.mjs` 里各抄一份。工作区搬过一次家，于是 104 个脚本**同时**指向不存在的目录，
+> 报出来的还是 `ENOENT ... 35916 ...`（别人的机器）。
+> 现在统一走 `tools/lib/paths.mjs`，可用
+> `node tools/relocate-paths.mjs --check` 一条命令复查（必须 0 个）。
 
 ## 标准流程（6 步，一步都不能省）
 
@@ -36,10 +42,13 @@ wc -l "<源文件绝对路径>"     # ★ 必须先确认真实行数，后面 s
 用 Read 工具读**最关键的 3–5 个函数**的实现（不是只看签名）。
 注释质量完全取决于这一步有没有真的读懂逻辑。
 
-### 3. 写 spec 文件 `E:\DST-Analysis\tools\spec-<name>.mjs`
+### 3. 写 spec 文件 `<工程根>/tools/spec-<name>.mjs`
 ```js
-// key = 源文件行号（1-based），注释插入到该行「之后」
-// value = 注释数组，每项必须以 -- 开头（空字符串表示空行）
+// 键的两种写法（M8 起推荐锚点）：
+//   134                —— 旧：源文件第 134 行之前（原版一插行就错位，仅存量使用）
+//   "Brain:OnUpdate#1" —— 新：`Brain:OnUpdate` 的**第 1 个定义**那一行之前
+//   "Brain:OnUpdate#1+7" —— 新：定义行往下第 7 行之前（函数体内的具体语句）
+// 值 = 注释数组，每项必须以 -- 开头（空字符串表示空行）
 export default {
   1: [
     '--[[',
@@ -51,7 +60,7 @@ export default {
     '-- ...',
     '--]]',
   ],
-  // ... 继续
+  // ...
 };
 ```
 **规范**：
@@ -59,12 +68,14 @@ export default {
 - 不要逐行翻译代码——那是噪音
 - 用 `★` 标重点、`⚠️` 标陷阱、`【】` 标机制
 - 发现真实缺陷必须**在注释里写清行号依据**，且**你本人已对照源码核实过**
+- 新写 spec **一律用锚点键**；数字键只在「第 1 个定义之前」这类文件头区域才允许
+  （那里没有函数名可用）。锚点找不到会**直接抛错**，不会静默跳过。
 
-### 4. 写 build 文件 `E:\DST-Analysis\tools\build-<name>.mjs`
-直接复制 `E:\DST-Analysis\tools\build-combat.mjs` 并改这四处：
-- `SRC` = 源文件绝对路径
-- `SPEC` = 对应 spec 路径
-- `OUT` = 注释版输出绝对路径
+### 4. 写 build 文件 `<工程根>/tools/build-<name>.mjs`
+直接复制 `<工程根>/tools/build-combat.mjs` 并改这四处：
+- `SRC` = **`relSrc("<相对 scripts 根的路径>")`**（不要写绝对路径；见 tools/lib/paths.mjs）
+- `SPEC` = 对应 spec 路径（`join(__dirname, "spec-<name>.mjs")` 即可）
+- `OUT` = **`relOut("<相对 scripts 根的路径>")`**
 - `HEADER` 数组（第 24–47 行）—— ⚠️ **必须整体重写**，不要留上一个文件的描述
 
 保留文件末尾的两条断言函数 `assertComment`（校验 `--` 前缀 + U+FFFD）。
@@ -78,14 +89,18 @@ node <工程根>/tools/lint-spec.mjs spec-<name>.mjs
 node <工程根>/tools/build-<name>.mjs
 
 # 关卡 3：★ 全局校验器（必须看到「全部通过」）
-"$NODE"（由 tools/env.sh 解析） \
-  "<工程根>/tools/verify-annotated.mjs" \
-  "<工程根>/dstsrc/scripts" \
+node "<工程根>/tools/verify-annotated.mjs" \
+  "$DST_PRISTINE" \                      # 原版根；没归档过就先跑 tools/archive-pristine.sh
   "<工程根>/02-注释源码/scripts"
+# ⚠️ 退出码是三分语义，**不要只看「有没有报错」**：
+#   0 = 逐字节一致 / 1 = 有差异 / 2 = **无法复验**（例如原版缺失、或两边是同一棵树）
+#   ★ 曾经把 `<工程根>/dstsrc/scripts` 当原版传进去 —— 那是注释版的联接，
+#     等于「自己比自己」，永远 0；现在这种情形会直接返回 2 并说明原因。
 
 # 关卡 4：★ 全量语法体检（★ 唯一能抓出「注释引入语法错误」的工具）
-cd "E:/DST-Analysis/tools" && "$PY"（由 tools/env.sh 解析） verify-syntax.py --quiet
-# 必须看到「★ 真缺陷: 0」
+"$PY" "<工程根>/tools/verify-syntax.py" --quiet
+# 必须看到「★ 真缺陷: 0」；若打印「⊘ 无法判定」（退出码 3），
+# 说明没找到原版根 —— 那不是通过，是没测。
 ```
 ⚠️ lupa 是 Lua 5.5，**`loadstring` 已移除**，必须用 `load(src, name)`。
 
@@ -102,13 +117,33 @@ cd "E:/DST-Analysis/tools" && "$PY"（由 tools/env.sh 解析） verify-syntax.p
 Lua 5.5 严格性导致的问题标为「基线」（当前 11 个，不是我们的错），
 只有「仅注释版失败」才报为真缺陷。
 
-### 6. 更新索引 `E:\DST-Analysis\02-注释源码\注释源码总索引.md`
+### 6. 更新索引 `<工程根>/02-注释源码/注释源码总索引.md`
 在深度注释表格里加一行，并更新表头的文件数与总行数。
+
+## 锚点迁移（M8，2026-10-19）
+
+存量 spec 仍是**行号键**，一共 **23486 个**（258 个 spec 文件；`--status` 可随时查）。
+`node tools/spec-keys.mjs --all --status` 就是进度表 —— 数字会自己说话。
+
+迁移命令（**前置：先归档原版源码**，否则算不出锚点，工具会返回 2「无法判定」）：
+
+```bash
+bash tools/archive-pristine.sh <原版 scripts 根>
+node tools/spec-keys.mjs --all            # 演练：只报数，不写回
+node tools/spec-keys.mjs --all --write    # 写回
+node tools/spec-keys.mjs --all --status   # 复查：数字键应为 0
+```
+
+迁移的安全网（`node tools/spec-keys.mjs --selftest` 逐条验，且都能红）：
+- **P1** 同一份源码 ⇒ 迁移前后**注入产物逐字节相同**（不然就是改了内容，直接拒绝）
+- **P2** 上游插入 2 行后：数字键错位、锚点键仍精确落在原函数之前
+- **P3** 找不到定义 / 第 n 次不存在 / 偏移越界 ⇒ **抛错**，不静默跳过
 
 ## 常见坑（都是实际踩过的）
 
 1. **行号错位**：凭印象写行号 → 必翻车。写之前先 `wc -l` 和 `sed -n 'Np'`
-   核对。spec 里若有越界行号，build 会直接报错（这是保护，不要绕过）
+   核对。spec 里若有越界行号，build 会直接报错（这是保护，不要绕过）。
+   新 spec 请直接用锚点键（见 §3），从根上避掉这一类。
 
 2. **注释行漏 `--` 前缀** → 断言会拦下。不要因为"看起来像注释"就跳过
 

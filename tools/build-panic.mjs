@@ -12,12 +12,13 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { relSrc, relOut, pristineRoot, ANN_SCRIPTS } from "./lib/paths.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const SRC = "C:/Users/35916/.qwenworkcn/workspace/mv38nal4gdn29zna/dst-analysis/scripts/scripts/behaviours/panic.lua";
+const SRC = relSrc("behaviours/panic.lua");
 const SPEC = join(__dirname, "spec-panic.mjs");
-const OUT = "E:/DST-Analysis/02-注释源码/scripts/behaviours/panic.lua";
+const OUT = relOut("behaviours/panic.lua");
 
 const HEADER = "--============================================================\n-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖\n-- 文件：behaviours/panic.lua\n-- 模块：行为树节点库 / 逃跑\n-- 职责：最简逃跑节点：一次性朝随机方向跑（PickNewDirection），无参数、无阈值，\n--       适合「受到惊吓时随便跑开一下」的场景。\n-- 关键符号：Panic, Panic:Visit, Panic:PickNewDirection\n-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本\n-- 交叉引用：panicandavoid.lua, runaway.lua, components/locomotor.lua\n--============================================================\n";
 

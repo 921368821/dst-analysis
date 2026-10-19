@@ -12,12 +12,13 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { relSrc, relOut, pristineRoot, ANN_SCRIPTS } from "./lib/paths.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const SRC = "C:/Users/35916/.qwenworkcn/workspace/mv38nal4gdn29zna/dst-analysis/scripts/scripts/behaviours/faceentity.lua";
+const SRC = relSrc("behaviours/faceentity.lua");
 const SPEC = join(__dirname, "spec-faceentity.mjs");
-const OUT = "E:/DST-Analysis/02-注释源码/scripts/behaviours/faceentity.lua";
+const OUT = relOut("behaviours/faceentity.lua");
 
 const HEADER = "--============================================================\n-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖\n-- 文件：behaviours/faceentity.lua\n-- 模块：行为树节点库 / 朝向\n-- 职责：把实体转向某个目标实体（一次性动作，无参数化阈值），用于「说话时看着对方」。\n-- 关键符号：FaceEntity, FaceEntity:Visit, FaceEntity:HasLocomotor\n-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本\n-- 交叉引用：standandattack.lua（同样用 canrotate 状态标签）\n--============================================================\n";
 

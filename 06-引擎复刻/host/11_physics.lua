@@ -218,16 +218,30 @@ function M.Decorate(obj, inst)
         end
         local function passable(px, pz)
             if map == nil then return true end
-            if type(map.IsPassableAtPoint) == "function" then
-                local ok, rr = pcall(map.IsPassableAtPoint, map, px, 0, pz)
-                if ok then return rr and true or false end
-                return true
+            -- ★★★ M2：判定失败一律 **fail-closed**（当作不可通行）。
+            --   改之前是 `if ok then ... end return true` —— 地图一抛错，**全体穿墙**，
+            --   而且一点痕迹都不留：看起来「世界更自由了」，实际是碰撞判定整个失效。
+            --   对「能不能穿过墙」这种安全问题，**不知道**必须当成**不能**。
+            --   注意区分两种情况（不能一刀切）：
+            --     · 地图没有这个接口（桩/未实现） ⇒ 是「没有约束」，返回 true（保持旧行为）；
+            --     · 有接口但**调用失败** ⇒ 是「判定失败」，返回 false 并记账。
+            local fn, tag = map.IsPassableAtPoint, "IsPassableAtPoint"
+            if type(fn) ~= "function" then
+                fn, tag = map.IsAboveGroundAtPoint, "IsAboveGroundAtPoint"
             end
-            if type(map.IsAboveGroundAtPoint) == "function" then
-                local ok, rr = pcall(map.IsAboveGroundAtPoint, map, px, 0, pz)
-                if ok then return rr and true or false end
+            if type(fn) ~= "function" then return true end
+            local ok, rr = pcall(fn, map, px, 0, pz)
+            if ok then return rr and true or false end
+            self._pass_error_blocked = (self._pass_error_blocked or 0) + 1
+            M.PassErrorBlocked = (M.PassErrorBlocked or 0) + 1
+            -- 记账：同一个接口只登记一份上下文，但次数累计（Core.NoteGap 的语义）。
+            -- 用 pcall 包住 require：11_physics 是被 01_core 的实体构造流程间接加载的，
+            -- 直接 require 可能形成环 —— 记不上账也不能反过来把移动链搞崩。
+            local okc, Core = pcall(require, "host.01_core")
+            if okc and Core and Core.NoteGap then
+                Core.NoteGap(tag, "pcall 失败（fail-closed 视为不可通行）：" .. tostring(rr))
             end
-            return true
+            return false
         end
         -- 身体占位：中心点 + 沿运动方向的前缘（+r）与后缘（−r）
         local function body_ok(px, pz)

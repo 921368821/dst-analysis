@@ -12,12 +12,13 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { relSrc, relOut, pristineRoot, ANN_SCRIPTS } from "./lib/paths.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const SRC = "C:/Users/35916/.qwenworkcn/workspace/mv38nal4gdn29zna/dst-analysis/scripts/scripts/behaviours/chaseandattack.lua";
+const SRC = relSrc("behaviours/chaseandattack.lua");
 const SPEC = join(__dirname, "spec-chaseandattack.mjs");
-const OUT = "E:/DST-Analysis/02-注释源码/scripts/behaviours/chaseandattack.lua";
+const OUT = relOut("behaviours/chaseandattack.lua");
 
 const HEADER = "--============================================================\n-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖\n-- 文件：behaviours/chaseandattack.lua\n-- 模块：行为树节点库 / 追击战斗\n-- 职责：接管 combat.target 的所有权：READY 时校验/补索敌并战吼，RUNNING 时边压近边攻击，\n--       并用 max_chase_time / give_up_dist / max_attacks 三个阈值中任一触发即终止，\n--       另特判「目标站在无效地面（如海上）时只靠近到边缘」。\n-- 关键符号：ChaseAndAttack, ChaseAndAttack:Visit, ChaseAndAttack:OnAttackOther,\n--           ChaseAndAttack:OnStop, ChaseAndAttack:__tostring\n-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本\n-- 交叉引用：components/combat.lua（ValidateTarget / SetTarget / TryAttack / BattleCry / GiveUp / CalcAttackRangeSq）,\n--           components/locomotor.lua, stategraph（longattack / canrotate / running 状态标签）,\n--           standandattack.lua（同结构的站桩版）, chaseandram.lua, chaseandattackandavoid.lua\n--============================================================\n";
 

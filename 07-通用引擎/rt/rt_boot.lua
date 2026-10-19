@@ -60,13 +60,11 @@ WorldMap.Generate({ seed = SEED })
 -- ⚠️ 前提（宿主侧与 06 同一份代码，已具备）：
 --   · `perlin` 全局 + `TheWorld.meta.session_identifier`（host/03_globals.lua）
 --   · AddComponent 影子闸门（host/01_core.lua）—— 重复添加返回旧实例而非再造一个
-local WORLD_COMPONENTS = {
-    "clock",            -- 昼夜（TUNING 默认 10/4/2 段 ×30 s；seasons 会按季节改写）
-    "worldtemperature", -- 温度（季节内扰动 + 相位正弦；构造需要 perlin）
-    "seasons",          -- 季节（autumn/winter/spring/summer 循环）
-    "shardstate",       -- 分片状态（构造需要 TheWorld.meta.session_identifier）
-    "worldreset",       -- 世界重置计数
-}
+-- ★★★ M3：清单与挂法**单源**在 `host/30_worldmount.lua`。
+--   这里原来自己存了一份 WORLD_COMPONENTS（注释自陈「照抄 06/world.lua」）——
+--   两份清单各自维护，原版加一个世界组件（或改名）时必然只改一处，
+--   症状是「06 昼夜正常、07 少了季节」，而且没人会想到去看另一份清单。
+local WorldMount = require("host.30_worldmount")
 local WORLD_MOUNT = { mounted = {}, missing = {}, ok = false }
 do
     local W = rawget(_G, "TheWorld") or (G and G.TheWorld)
@@ -77,21 +75,8 @@ do
     --   用在「证明 A14 那条检查确实指向行为」——摘掉之后世界必须退回永恒大白天。
     --   ⚠️ 这不是可选功能，别在日常运行里打开。
     local skip = os.getenv("RT_NO_WORLD_COMPONENTS")
-    if skip ~= nil and skip ~= "" and skip ~= "0" then
-        for _, nm in ipairs(WORLD_COMPONENTS) do
-            WORLD_MOUNT.missing[#WORLD_MOUNT.missing + 1] = nm
-        end
-    else
-        for _, nm in ipairs(WORLD_COMPONENTS) do
-            pcall(W.AddComponent, W, nm)
-            if W.components ~= nil and W.components[nm] ~= nil then
-                WORLD_MOUNT.mounted[#WORLD_MOUNT.mounted + 1] = nm
-            else
-                WORLD_MOUNT.missing[#WORLD_MOUNT.missing + 1] = nm
-            end
-        end
-    end
-    WORLD_MOUNT.ok = (#WORLD_MOUNT.missing == 0)
+    local want_skip = (skip ~= nil and skip ~= "" and skip ~= "0")
+    WORLD_MOUNT = WorldMount.Mount(W, { skip = want_skip })
     -- ★ 失败要吵：缺组件是个**静默失真**（世界永远大白天），不能在日志里悄无声息
     if not WORLD_MOUNT.ok then
         print(string.format("[rt_boot] ⚠ 世界组件缺 %d 个：%s —— 昼夜/季节/温度会是死值",
@@ -1244,9 +1229,13 @@ end
 
 function M.snapshot()
     local ents, ents_out = ent_table(), {}
-    local n = 0
+    -- ★★★ H5：原来这里是 `if n >= MAX_ENTS then break end` 直接跳循环 —— 代价是**丢了多少根本不知道**：
+    --   实测 456 个实体只送 400，返回里却一个标记都没有，读日志的人会以为世界就这么大。
+    --   现在改为「全表扫描一次，超额的只计数不构造」，于是可以如实报 total / dropped / truncated。
+    --   为什么不怕变慢：这个循环本来就要遍历实体表做过滤（见下面「只送画得出来的」），
+    --   早退省下的只是「超额那一小段的构造开销」，而世界规模上限本来就只有几百。
+    local n_total, n_out = 0, 0
     for guid, inst in pairs(ents) do
-        if n >= MAX_ENTS then break end
         local x, z = pos_of(inst)
         -- ★★★ 只送**画得出来**的实体（有 build 的）。
         --   实测（默认世界 + 40 个生成，共 67 个实体）：有 build 的 41 个 = 全部生物；
@@ -1267,24 +1256,27 @@ function M.snapshot()
         --     换成别的内部实体同样成立，不需要再维护一张名单。
         local as0 = inst.AnimState
         if x ~= nil and inst.prefab ~= nil and as0 ~= nil and as0._build ~= nil then
-            n = n + 1
-            local e = { id = guid, x = x, z = z }
-            e.p = inst.prefab
-            e.f = inst.AnimState and inst.AnimState._rotation or nil
-            e.a = inst.AnimState and inst.AnimState._anim or nil
-            -- ★ P4：出**真图集精灵**需要的三个字段
-            --   bld = build 名（对应 _out/json/<bld>.json 与 anim_data/<bld>__atlas-N.png）
-            --   fr  = 当前帧号（anims[anim].frames[fr]）
-            --   ov  = 覆盖 build（换装后会变，决定用哪套图）
-            local as = inst.AnimState
-            if as ~= nil then
-                e.bld = as._build
-                e.fr  = as._frame
-                -- ★ 故意**不送** `_ov_builds`：宿主那张表只增不减（工程报告里记着的已知问题，
-                --   实测 22→23→23），送出去只会误导「换了什么装」还白费带宽。
-                --   要判断换装，看 bld 本身就够了（OverrideSymbol 会改 _build）。
+            n_total = n_total + 1                 -- 画得出来的总数（含超出上限、不送的那些）
+            if n_out < MAX_ENTS then
+                n_out = n_out + 1
+                local e = { id = guid, x = x, z = z }
+                e.p = inst.prefab
+                e.f = inst.AnimState and inst.AnimState._rotation or nil
+                e.a = inst.AnimState and inst.AnimState._anim or nil
+                -- ★ P4：出**真图集精灵**需要的三个字段
+                --   bld = build 名（对应 _out/json/<bld>.json 与 anim_data/<bld>__atlas-N.png）
+                --   fr  = 当前帧号（anims[anim].frames[fr]）
+                --   ov  = 覆盖 build（换装后会变，决定用哪套图）
+                local as = inst.AnimState
+                if as ~= nil then
+                    e.bld = as._build
+                    e.fr  = as._frame
+                    -- ★ 故意**不送** `_ov_builds`：宿主那张表只增不减（工程报告里记着的已知问题，
+                    --   实测 22→23→23），送出去只会误导「换了什么装」还白费带宽。
+                    --   要判断换装，看 bld 本身就够了（OverrideSymbol 会改 _build）。
+                end
+                ents_out[#ents_out + 1] = e
             end
-            ents_out[#ents_out + 1] = e
         end
     end
 
@@ -1299,7 +1291,13 @@ function M.snapshot()
     return {
         t      = Sim.TheSim.time,
         tick   = steps_done,
-        n      = n,
+        -- ★ `n` 保持旧语义 = **实际送出去的个数**（客户端 `实体=N` 读它，避免一改就显示 456 却只画 400）；
+        --   真实总量另给 `total`，超出部分给 `dropped`，并置 `truncated`。
+        --   三者一起看才是「世界有多大 / 你看见了多少 / 少了多少」，缺一个就会误判。
+        n      = n_out,
+        total  = n_total,
+        dropped = n_total - n_out,
+        truncated = (n_total > n_out),
         ents   = ents_out,
         player = (px ~= nil) and { id = M.player._guid, x = px, z = pz } or nil,
         input_seq = Input.seq(),
@@ -1310,11 +1308,73 @@ function M.snapshot()
     }
 end
 
+-- ★ 把 [0, 2^32) 的整数拆成 hi/lo 两段（各 < 65536）。
+--   为什么要拆，见 M.fingerprint 里「%d 是 C int」那段注释 —— 不是风格问题：
+--   不拆的话指纹里有两个字段**恒为常数**，等于没进指纹。
+local function u32_parts(v)
+    v = v % 4294967296
+    return math.floor(v / 65536), v % 65536
+end
+
 function M.fingerprint()
     local px, pz = 0, 0
     if M.player and M.player_ok then px, pz = pos_of(M.player) end
-    local s = string.format("seed=%d tick=%d t=%.4f px=%.4f pz=%.4f moved=%.3f",
-        SEED, steps_done, Sim.TheSim.time, px or 0, pz or 0, moved_total)
+
+    -- ★★★ M1：把**世界**也压进指纹。
+    --   改之前只有 `px/pz/moved` 三个玩家量 ⇒ 指纹相同只说明「玩家没走歪」：
+    --   NPC 走岔了、植被被清了、实体增删了，指纹**一模一样**。
+    --   而回放是本工程唯一能自动发现「行为悄悄变了」的手段，弱指纹等于没有。
+    --
+    --   两个硬要求：
+    --     ① 覆盖所有 **有 prefab** 的实体（NPC / 植被 / 内部登记实体都算）；
+    --     ② **与 pairs 顺序无关** —— `pairs` 的遍历顺序未定义，用「按顺序滚动」必然假红。
+    --        这里用 sum(h) 与 sum(h²) 两个可交换的滚动量，任何交换都不改变结果；
+    --        再配 count，三者一起基本排除了「换了位置但和不变」的巧合。
+    --   量化 0.1：世界坐标本来就在 0.25 网格上，0.1 吃掉浮点尾差，
+    --   又远小于「走一步」（0.25 ⇒ 至少 2~3 个量化单位），不会把真变化抹平。
+    local cnt, hsum, hsq = 0, 0, 0
+    for _, inst in pairs(ent_table()) do
+        local p = inst.prefab
+        if p ~= nil then
+            local x, z = pos_of(inst)
+            if x ~= nil then
+                cnt = cnt + 1
+                local key = string.format("%s|%d|%d", p,
+                    math.floor(x * 10 + 0.5), math.floor((z or 0) * 10 + 0.5))
+                local h = 2166136261                      -- FNV-1a 32 位
+                -- ★ 这里也必须拆：Lua 5.1 的数字是 double（53 位尾数），
+                --   `h * 16777619` 会上到 2^56 量级 ⇒ **低 3 位直接被舍掉**，
+                --   所谓「32 位哈希」实际只剩 ~28 位有效。拆成 hi/lo 之后
+                --   每一步乘积都 < 2^41，逐位精确。
+                for i = 1, #key do
+                    local lo = h % 65536
+                    local hi = (h - lo) / 65536
+                    h = ((hi * 16777619 % 65536) * 65536
+                         + lo * 16777619 + string.byte(key, i)) % 4294967296
+                end
+                hsum = (hsum + h) % 4294967296
+                -- h² mod 2^32：直接 `h * h` 会到 2^64，double 存不下。
+                --   展开 (hi·2^16 + lo)² = lo² + 2·hi·lo·2^16 + hi²·2^32，
+                --   末项 ≡ 0 (mod 2^32)，剩下的最大 ~2^49 ⇒ 精确。
+                local hl = h % 65536
+                local hh = (h - hl) / 65536
+                hsq  = (hsq + hl * hl + 2 * hh * hl * 65536) % 4294967296
+            end
+        end
+    end
+
+    -- ★★★ `%d` 在 Lua 5.1 里是 **C int（32 位有符号）**，不是「随便一个整数」：
+    --   hsum/hsq 都落在 [0, 2^32)，一旦 ≥ 2^31 就被压成 `-2147483648`。
+    --   实测（B21 回放抓到）：`esum=-2147483648 esq=-2147483648` **恒为常数**
+    --   ⇒ M1 好不容易加进来的「实体滚动和」一个 bit 都没进指纹，只剩 ecnt 有用，
+    --   而「实体没增删、只是走岔了 / 被挪走了」这种最该抓的漂移**完全看不见**。
+    --   拆成 `hi.lo` 两段（各 < 65536）后 %d 永远安全，且**信息一位不丢**。
+    local sum_hi, sum_lo = u32_parts(hsum)
+    local sq_hi,  sq_lo  = u32_parts(hsq)
+    local s = string.format(
+        "seed=%d tick=%d t=%.4f px=%.4f pz=%.4f moved=%.3f esum=%d.%d esq=%d.%d ecnt=%d",
+        SEED, steps_done, Sim.TheSim.time, px or 0, pz or 0, moved_total,
+        sum_hi, sum_lo, sq_hi, sq_lo, cnt)
     local h = 0
     for i = 1, #s do
         h = (string.byte(s, i) + h * 65599) % 4294967296

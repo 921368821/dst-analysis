@@ -12,12 +12,13 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { relSrc, relOut, pristineRoot, ANN_SCRIPTS } from "./lib/paths.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const SRC = "C:/Users/35916/.qwenworkcn/workspace/mv38nal4gdn29zna/dst-analysis/scripts/scripts/behaviours/chaseandram.lua";
+const SRC = relSrc("behaviours/chaseandram.lua");
 const SPEC = join(__dirname, "spec-chaseandram.mjs");
-const OUT = "E:/DST-Analysis/02-注释源码/scripts/behaviours/chaseandram.lua";
+const OUT = relOut("behaviours/chaseandram.lua");
 
 const HEADER = "--============================================================\n-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖\n-- 文件：behaviours/chaseandram.lua\n-- 模块：行为树节点库 / 冲撞\n-- 职责：先冲过去把目标撞飞（ram），期间按 maxram_attacks 计数与 max_chase_time 限时，\n--       并含平台差异判定与「停止后短暂停顿」的节奏控制。\n-- 关键符号：ChaseAndRam, ChaseAndRam:Visit, ChaseAndRam:OnAttackOther,\n--           ChaseAndRam:AreDifferentPlatforms, ChaseAndRam:OnStop,\n--           ChaseAndRam:__tostring\n-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本\n-- 交叉引用：chaseandattack.lua（同族节点）, components/locomotor.lua,\n--           components/combat.lua, stategraph\n--============================================================\n";
 

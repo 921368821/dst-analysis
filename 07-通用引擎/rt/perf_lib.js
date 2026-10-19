@@ -242,9 +242,12 @@ function makeClient(opt) {
   // ★ 先加载 render_atlas.js —— 浏览器里它是 <script src="render_atlas.js">，
   //   排在客户端脚本**之前**；沙箱不照这个顺序就会 RenderAtlas is not defined。
   // 顺序必须与 client.html 里的 <script src> 一致：
-  //   render_atlas.js → render_batch.js → protocol_bin.js → 客户端主体
+  //   render_atlas.js → render_batch.js → protocol_schema.js → protocol_bin.js → 客户端主体
   //   （★ C2：render_batch.js 依赖 render_atlas.js 的导出，顺序不能反）
-  for (const f of ['render_atlas.js', 'render_batch.js', 'protocol_bin.js']) {
+  //   （★ L1：protocol_bin.js 的常量来自 protocol_schema.js（schema 生成），
+  //     少了它 protocol_bin.js 会**主动抛错**——这是刻意的：宁可启动即崩，
+  //     也不要悄悄用一份过期的默认值把「服务端发 day、客户端解成 night」发到线上。）
+  for (const f of ['render_atlas.js', 'render_batch.js', 'protocol_schema.js', 'protocol_bin.js']) {
     vm.runInContext(fs.readFileSync(path.join(__dirname, f), 'utf8'), sandbox, { filename: f });
   }
   const html = fs.readFileSync(O.htmlPath || path.join(__dirname, 'client.html'), 'utf8');

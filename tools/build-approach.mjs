@@ -12,12 +12,13 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { relSrc, relOut, pristineRoot, ANN_SCRIPTS } from "./lib/paths.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const SRC = "C:/Users/35916/.qwenworkcn/workspace/mv38nal4gdn29zna/dst-analysis/scripts/scripts/behaviours/approach.lua";
+const SRC = relSrc("behaviours/approach.lua");
 const SPEC = join(__dirname, "spec-approach.mjs");
-const OUT = "E:/DST-Analysis/02-注释源码/scripts/behaviours/approach.lua";
+const OUT = relOut("behaviours/approach.lua");
 
 const HEADER = "--============================================================\n-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖\n-- 文件：behaviours/approach.lua\n-- 模块：行为树节点库 / 接近\n-- 职责：最简的「走到目标附近」节点：单一距离阈值 dist，走到即 SUCCESS。\n--       相比 follow 少了 min/max 双阈值与 BACKOFF 状态，适合「只需靠近、不需维持」的场合。\n-- 关键符号：Approach, Approach:Visit, Approach:GetTarget, Approach:EvaluateDistances,\n--           Approach:AreDifferentPlatforms, Approach:DBString\n-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本\n-- 交叉引用：follow.lua（本文件是它的简化子集，_distsq / AreDifferentPlatforms 为同源复制）,\n--           components/locomotor.lua, behaviourtree.lua（status 协议）\n--============================================================\n";
 

@@ -12,12 +12,13 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { relSrc, relOut, pristineRoot, ANN_SCRIPTS } from "./lib/paths.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const SRC = "C:/Users/35916/.qwenworkcn/workspace/mv38nal4gdn29zna/dst-analysis/scripts/scripts/behaviours/runaway.lua";
+const SRC = relSrc("behaviours/runaway.lua");
 const SPEC = join(__dirname, "spec-runaway.mjs");
-const OUT = "E:/DST-Analysis/02-注释源码/scripts/behaviours/runaway.lua";
+const OUT = relOut("behaviours/runaway.lua");
 
 const HEADER = "--============================================================\n-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖\n-- 文件：behaviours/runaway.lua\n-- 模块：行为树节点库 / 逃跑\n-- 职责：在给定时间内朝「远离威胁」的方向全速奔跑，支持贴墙滑行与无路可跑时的转向重试，\n--       是所有「逃跑类」AI 的几何参考实现。\n-- 关键符号：RunAway, RunAway:Visit, RunAway:GetRunAngle, RunAway:__tostring\n-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本\n-- 交叉引用：components/locomotor.lua（RunInDirection / ConstantMove / GetWalkablePoint）,\n--           panic.lua, panicandavoid.lua, avoids:avoidelectricfence.lua\n--============================================================\n";
 

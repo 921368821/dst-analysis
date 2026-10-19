@@ -12,12 +12,13 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { relSrc, relOut, pristineRoot, ANN_SCRIPTS } from "./lib/paths.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const SRC = "C:/Users/35916/.qwenworkcn/workspace/mv38nal4gdn29zna/dst-analysis/scripts/scripts/behaviours/leash.lua";
+const SRC = relSrc("behaviours/leash.lua");
 const SPEC = join(__dirname, "spec-leash.mjs");
-const OUT = "E:/DST-Analysis/02-注释源码/scripts/behaviours/leash.lua";
+const OUT = relOut("behaviours/leash.lua");
 
 const HEADER = "--============================================================\n-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖\n-- 文件：behaviours/leash.lua\n-- 模块：行为树节点库 / 拉拽回归\n-- 职责：LeashAndAvoid 的无避障版本：超出 max_dist 就走回 home，\n--       进入 return_dist 内即 SUCCESS。两段阈值构成标准滞回。\n-- 关键符号：Leash, Leash:Visit, Leash:GetHomePos, Leash:GetDistFromHomeSq,\n--           Leash:IsInsideLeash, Leash:IsOutsideReturnDist, Leash:GetMaxDistSq,\n--           Leash:GetReturnDistSq, Leash:DBString\n-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本\n-- 交叉引用：leashandavoid.lua（同族带避障版本）, wander.lua, components/locomotor.lua\n--============================================================\n";
 

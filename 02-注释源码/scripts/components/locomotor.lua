@@ -3408,7 +3408,7 @@ function LocoMotor:OnUpdate(dt, arrive_check_only)
 --★★★【CheckDrownable 为真时直接跳过电机设置】
 --   ★★★ 这是「游泳接管移动」的机制：
 --     落水后由 drownable 组件接管位置更新（浮力/游动），
---     locomotor 不能再设 motor 速度 —— 否则两者会打架（物���被拉回）。
+--     locomotor 不能再设 motor 速度 —— 否则两者会打架（物体被拉回）。
 --   ★ CheckDrownable 定义在 components/drownable.lua。
             if not self:CheckDrownable() then
 --★ speed_mult = GetSpeedMultiplier() —— 装备/地面等倍率的合成值。

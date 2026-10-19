@@ -12,12 +12,13 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { relSrc, relOut, pristineRoot, ANN_SCRIPTS } from "./lib/paths.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const SRC = "C:/Users/35916/.qwenworkcn/workspace/mv38nal4gdn29zna/dst-analysis/scripts/scripts/behaviours/wander.lua";
+const SRC = relSrc("behaviours/wander.lua");
 const SPEC = join(__dirname, "spec-wander.mjs");
-const OUT = "E:/DST-Analysis/02-注释源码/scripts/behaviours/wander.lua";
+const OUT = relOut("behaviours/wander.lua");
 
 const HEADER = "--============================================================\n-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖\n-- 文件：behaviours/wander.lua\n-- 模块：行为树节点库 / 漫游\n-- 职责：在活动半径内随机选方向漫游，带「等待-行走-驻足」小状态机与回家的 IsFarFromHome 判定，\n--       是全目录里把「随机行为 + 时间节流」写得最完整的范本。\n-- 关键符号：Wander, Wander:Visit, Wander:PickNewDirection, Wander:Wait,\n--           Wander:HoldPosition, Wander:GetHomePos, Wander:GetDistFromHomeSq,\n--           Wander:GetMaxDistSq, Wander:IsFarFromHome, Wander:DBString\n-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本\n-- 交叉引用：components/locomotor.lua, behaviourtree.lua（status 协议）, leash.lua,\n--           findclosest.lua（同为 FindEntities 系节点）\n--============================================================\n";
 

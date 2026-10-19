@@ -42,7 +42,7 @@
 --       ★ 但 Task 类**没有 self.substitutes**！
 --       ★ 而 storygen.lua:1216 `for k,v in pairs(task.substitutes)` 与
 --         :1285 `task_node.substitutes = task.substitutes` 都在读它。
---         ⇒ 解��：substitutes 是由 map/level.lua:69-73 **运行时挂到
+--         ⇒ 解释：substitutes 是由 map/level.lua:69-73 **运行时挂到
 --         tasklist 里的 deepcopy 上的**（GetOverridesForTasks），
 --         不走 Task 构造函数。★ 正确但极易误读。
 --     · set_pieces / random_set_pieces —— 同样由 level.lua:180-210

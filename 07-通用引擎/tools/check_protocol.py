@@ -30,7 +30,11 @@ PROJECT = os.path.dirname(TOOLS_ROOT)          # 07-通用引擎
 # ★ 三个路径允许用环境变量覆盖 —— 只为**反向测试**服务（tests/test_protocol_guard_neg.py
 #   要把这三份文件复制到临时目录里做定向篡改，证明这条判据**真的会红**）。
 #   默认值与原行为逐字一致，不影响正常使用。
-SERVER = os.environ.get("PROTO_SERVER") or os.path.join(PROJECT, "rt", "server.py")
+# ★★ M4 之后 `server.py` 只剩 `handle()` 分流，**命令分派搬到了 `ws_api.py`**。
+#   这里的守卫原来只读 server.py ⇒ 拆分当天就报「服务端 缺少：act me pause ping …」
+#   （判据本身没错，是它的**扫描范围**过期了）。改成读「所有可能分派 WS 命令的模块」。
+SERVER = os.environ.get("PROTO_SERVER") or os.pathsep.join(
+    os.path.join(PROJECT, "rt", f) for f in ("ws_api.py", "server.py"))
 CLIENT = os.environ.get("PROTO_CLIENT") or os.path.join(PROJECT, "rt", "client.html")
 DOC = os.environ.get("PROTO_DOC") or os.path.join(PROJECT, "rt", "protocol.md")
 
@@ -56,7 +60,9 @@ CMD = r"[A-Za-z_][A-Za-z0-9_]*"
 
 
 def server_cmds():
-    text = read(SERVER)
+    # SERVER 可以是**多个文件**（os.pathsep 分隔）：M4 拆分后分派逻辑分散在
+    # ws_api.py / server.py，只读一份必然漏。空路径直接跳过（不静默失败：真缺命令会被下面的比对抓到）。
+    text = "\n".join(read(p) for p in SERVER.split(os.pathsep) if p and os.path.exists(p))
     found = set(re.findall(r'str\(msg\["cmd"\]\)\s*==\s*"(' + CMD + r')"', text))
     # 控制指令那条分支写成 `cmd = str(msg["cmd"])` 然后 `if cmd == "pause"`
     found |= set(re.findall(r'\bcmd\s*==\s*"(' + CMD + r')"', text))

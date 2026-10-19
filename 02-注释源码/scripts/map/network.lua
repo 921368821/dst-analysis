@@ -681,7 +681,7 @@ function Graph:LockGraph(id, left_exit_node, right_exit_node, lock)
 
 -- ★★ assert(lock) —— lock 表必须存在（但不断言 type/key）。
 --   ★★ 被注释掉的 :264-265 是 `assert(lock.type)` / `assert(lock.key)`。
---   ★★ 注释掉它们说明：**存在不带 type/key 的调用**（★ 例如海��链接）。
+--   ★★ 注释掉它们说明：**存在不带 type/key 的调用**（★ 例如海岛链接）。
 	assert(lock)
 	--assert(lock.type)
 	--assert(lock.key)

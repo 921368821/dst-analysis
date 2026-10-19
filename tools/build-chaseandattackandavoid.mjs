@@ -12,12 +12,13 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { relSrc, relOut, pristineRoot, ANN_SCRIPTS } from "./lib/paths.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const SRC = "C:/Users/35916/.qwenworkcn/workspace/mv38nal4gdn29zna/dst-analysis/scripts/scripts/behaviours/chaseandattackandavoid.lua";
+const SRC = relSrc("behaviours/chaseandattackandavoid.lua");
 const SPEC = join(__dirname, "spec-chaseandattackandavoid.mjs");
-const OUT = "E:/DST-Analysis/02-注释源码/scripts/behaviours/chaseandattackandavoid.lua";
+const OUT = relOut("behaviours/chaseandattackandavoid.lua");
 
 const HEADER = "--============================================================\n-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖\n-- 文件：behaviours/chaseandattackandavoid.lua\n-- 模块：行为树节点库 / 追打避障\n-- 职责：chaseandattack 的变体：在追击途中若发现「想躲的障碍物比目标更近」，\n--       就把目标点偏移到障碍物另一侧 —— leashandavoid 的绕行 hack 的原始出处。\n-- 关键符号：ChaseAndAttackAndAvoid, ChaseAndAttackAndAvoid:Visit,\n--           ChaseAndAttackAndAvoid:OnAttackOther, ChaseAndAttackAndAvoid:OnStop,\n--           ChaseAndAttackAndAvoid:__tostring\n-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本\n-- 交叉引用：chaseandattack.lua（基础版）, leashandavoid.lua（hack 的移植）,\n--           components/combat.lua, components/locomotor.lua\n--============================================================\n";
 

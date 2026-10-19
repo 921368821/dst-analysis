@@ -13,13 +13,13 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { relSrc, relOut, pristineRoot, ANN_SCRIPTS } from "./lib/paths.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const SRC =
-  "C:/Users/35916/.qwenworkcn/workspace/mv38nal4gdn29zna/dst-analysis/scripts/scripts/screens/playerhud.lua";
+const SRC = relSrc("screens/playerhud.lua");
 const SPEC = join(__dirname, "spec-playerhud.mjs");
-const OUT = "E:/DST-Analysis/02-注释源码/scripts/screens/playerhud.lua";
+const OUT = relOut("screens/playerhud.lua");
 
 const HEADER = [
   "--============================================================",

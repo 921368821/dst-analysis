@@ -12,12 +12,13 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { relSrc, relOut, pristineRoot, ANN_SCRIPTS } from "./lib/paths.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const SRC = "C:/Users/35916/.qwenworkcn/workspace/mv38nal4gdn29zna/dst-analysis/scripts/scripts/behaviours/follow.lua";
+const SRC = relSrc("behaviours/follow.lua");
 const SPEC = join(__dirname, "spec-follow.mjs");
-const OUT = "E:/DST-Analysis/02-注释源码/scripts/behaviours/follow.lua";
+const OUT = relOut("behaviours/follow.lua");
 
 const HEADER = "--============================================================\n-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖\n-- 文件：behaviours/follow.lua\n-- 模块：行为树节点库 / 跟随\n-- 职责：把实体维持在目标周围的「三段距离带」内（max_dist 触发追 / target_dist 判定成功 /\n--       min_dist 触发后退），内含 APPROACH / BACKOFF 两态小状态机，\n--       并通过 Sleep(.25) 与大脑休眠机制协作。\n-- 关键符号：Follow, Follow:Visit, Follow:GetTarget, Follow:EvaluateDistances,\n--           Follow:AreDifferentPlatforms, Follow:DBString\n-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本\n-- 交叉引用：behaviourtree.lua（BehaviourNode 基类 / status 协议 / Sleep 休眠）,\n--           components/locomotor.lua（GoToPoint / RunInDirection / WalkInDirection）,\n--           components/combat.lua（跨平台能力 allow_platform_hopping）,\n--           approach.lua（同源的简化跟随节点）\n--============================================================\n";
 

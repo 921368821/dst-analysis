@@ -12,12 +12,13 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { relSrc, relOut, pristineRoot, ANN_SCRIPTS } from "./lib/paths.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const SRC = "C:/Users/35916/.qwenworkcn/workspace/mv38nal4gdn29zna/dst-analysis/scripts/scripts/behaviours/useshield.lua";
+const SRC = relSrc("behaviours/useshield.lua");
 const SPEC = join(__dirname, "spec-useshield.mjs");
-const OUT = "E:/DST-Analysis/02-注释源码/scripts/behaviours/useshield.lua";
+const OUT = relOut("behaviours/useshield.lua");
 
 const HEADER = "--============================================================\n-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖\n-- 文件：behaviours/useshield.lua\n-- 模块：行为树节点库 / 防御\n-- 职责：「举盾」状态机：ShouldShield 判定是否值得举盾 → Visit 驱动举盾/放下 → OnStop 收尾，\n--       附带 OnAttacked 事件回调与 TimeToEmerge（从地里钻出）计时。\n-- 关键符号：UseShield, UseShield:Visit, UseShield:ShouldShield, UseShield:OnAttacked,\n--           UseShield:TimeToEmerge, UseShield:OnStop\n-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本\n-- 交叉引用：components/combat.lua, components/shield.lua（举盾能力源）,\n--           stategraph, behaviourtree.lua（OnStop 与 Reset 的区别）\n--============================================================\n";
 

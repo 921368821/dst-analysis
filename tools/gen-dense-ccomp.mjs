@@ -14,9 +14,13 @@
  *   · 控制流行按「这一步在做什么决策」来写，不是复述语法
  */
 import { readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { relSrc, relOut, pristineRoot, ANN_SCRIPTS } from "./lib/paths.mjs";
 
-const SRC =
-  "C:/Users/35916/.qwenworkcn/workspace/mv38nal4gdn29zna/dst-analysis/scripts/scripts/components/container.lua";
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+const SRC = relSrc("components/container.lua");
 
 /* ── 构造函数字段释义 ── */
 const FIELD_C_DOC = {
@@ -293,5 +297,5 @@ for (const k of sorted) {
 }
 out += "};\n\nexport const AFTER = {};\n";
 
-writeFileSync("E:/DST-Analysis/tools/spec-ccomponent-dense.mjs", out, "utf8");
+writeFileSync(join(__dirname, "spec-ccomponent-dense.mjs"), out, "utf8");
 console.log(`✔ 生成 spec-ccomponent-dense.mjs：${sorted.length} 个锚点`);

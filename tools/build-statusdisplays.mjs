@@ -13,13 +13,13 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { relSrc, relOut, pristineRoot, ANN_SCRIPTS } from "./lib/paths.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const SRC =
-  "C:/Users/35916/.qwenworkcn/workspace/mv38nal4gdn29zna/dst-analysis/scripts/scripts/widgets/statusdisplays.lua";
+const SRC = relSrc("widgets/statusdisplays.lua");
 const SPEC = join(__dirname, "spec-statusdisplays.mjs");
-const OUT = "E:/DST-Analysis/02-注释源码/scripts/widgets/statusdisplays.lua";
+const OUT = relOut("widgets/statusdisplays.lua");
 
 const HEADER = [
   "--============================================================",

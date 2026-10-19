@@ -12,12 +12,13 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { relSrc, relOut, pristineRoot, ANN_SCRIPTS } from "./lib/paths.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const SRC = "C:/Users/35916/.qwenworkcn/workspace/mv38nal4gdn29zna/dst-analysis/scripts/scripts/behaviours/minperiod.lua";
+const SRC = relSrc("behaviours/minperiod.lua");
 const SPEC = join(__dirname, "spec-minperiod.mjs");
-const OUT = "E:/DST-Analysis/02-注释源码/scripts/behaviours/minperiod.lua";
+const OUT = relOut("behaviours/minperiod.lua");
 
 const HEADER = "--============================================================\n-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖\n-- 文件：behaviours/minperiod.lua\n-- 模块：行为树节点库 / 节流\n-- 职责：装饰型节流节点：自身子节点/条件只有累计到指定周期才允许成功一次。\n--       是「用节点做限流」而非「在业务代码里写计时器」的示例。\n-- 关键符号：MinPeriod, MinPeriod:Visit, MinPeriod:DBString\n-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本\n-- 交叉引用：behaviourtree.lua（LatchNode 是同族但机制不同的实现）, brain.lua（period 语义）\n--============================================================\n";
 

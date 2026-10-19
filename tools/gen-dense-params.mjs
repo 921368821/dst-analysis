@@ -12,9 +12,13 @@
  *   · 蓝图声明行写容器身份（来自 CONTAINER_DESC 人工维护表）。
  */
 import { readFileSync, writeFileSync } from "node:fs";
+import { relSrc, relOut, pristineRoot, ANN_SCRIPTS } from "./lib/paths.mjs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const SRC =
-  "C:/Users/35916/.qwenworkcn/workspace/mv38nal4gdn29zna/dst-analysis/scripts/scripts/containers.lua";
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+const SRC = relSrc("containers.lua");
 
 /* ── widget 字段专属释义表（每条一个字符串数组元素，不含换行） ── */
 const FIELD_DOC = {
@@ -559,5 +563,5 @@ for (const k of sorted) {
 }
 out += "};\n\nexport const AFTER = {};\n";
 
-writeFileSync("E:/DST-Analysis/tools/spec-containers-dense.mjs", out, "utf8");
+writeFileSync(join(__dirname, "spec-containers-dense.mjs"), out, "utf8");
 console.log(`✔ 生成 spec-containers-dense.mjs：${sorted.length} 个锚点`);

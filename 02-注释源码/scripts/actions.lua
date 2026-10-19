@@ -1830,7 +1830,7 @@ ACTIONS =
 --   ★★ distance=8 与 170 行 `ExtraDeployDist` 里的 `8 - DEPLOY.distance`
 --     是同一个 8。两处独立字面量，靠注释而非常量关联。
 --   ★ fn（3934 行）是本文件最复杂的投掷实现（47 行），要处理：
---     无手��物时用手持物（须有 special_action_toss 标签）、
+--     无手持物时用手持物（须有 special_action_toss 标签）、
 --     物品有 equippable 时检查限制、伪装检查、投掷偏移量（targetoffset）。
     TOSS = Action({priority=1, rmb=true, distance=8, mount_valid=true }),
 --★ TOSS_MAP：地图投掷。HIGH + ArriveAnywhere + rmb + map_action + closes_map。
@@ -3430,7 +3430,7 @@ ACTIONS.RUMMAGE.strfn = function(act)
     local targ = act.target or act.invobject
     if targ == nil then
         return nil
---★★ 客户端分��：container_proxy 在客户端可读，所以能判断 CLOSE。
+--★★ 客户端分支：container_proxy 在客户端可读，所以能判断 CLOSE。
     elseif targ.components.container_proxy ~= nil then --exists on clients too
         if targ.components.container_proxy:IsOpenedBy(act.doer) then
             return "CLOSE"
@@ -3529,7 +3529,7 @@ ACTIONS.DROP.fn = function(act)
 end
 
 --★★ DROP.strfn —— 12 个变体的巨型 or 链。
---   ★★★ 顺序即优先级，从「确定的类���」到「可扩展的回调」：
+--   ★★★ 顺序即优先级，从「确定的类型」到「可扩展的回调」：
 --     trap/mine/soul/pumpkin_lantern → 具体标签
 --     playerfloater                 → 浮标
 --     GetDropActionString ~= nil    → ★ 自定义回调（最后一个兜底）
@@ -8153,7 +8153,7 @@ ACTIONS.CATPLAYGROUND.fn = function(act)
                 act.doer.components.combat:DoAttack(act.target, nil, nil, nil, 2) --2*25 dmg
 --★★ 3876-3883 行：捡东西分支的四层判断。
 --   ★★★ 3877 行：目标是 bait → 推 onstolen 事件（而不是真的拿走）
---     ★ 推测：诱饵被「偷」时游戏会记一��（成就/统计）。
+--     ★ 推测：诱饵被「偷」时游戏会记一笔（成就/统计）。
 --   ★★ 3879-3883 行的三段：
 --     有 inventory → GiveItem（真的拿走）
 --     无 inventory → target:Remove()（直接删除）

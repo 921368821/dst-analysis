@@ -12,12 +12,13 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { relSrc, relOut, pristineRoot, ANN_SCRIPTS } from "./lib/paths.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const SRC = "C:/Users/35916/.qwenworkcn/workspace/mv38nal4gdn29zna/dst-analysis/scripts/scripts/behaviours/panicandavoid.lua";
+const SRC = relSrc("behaviours/panicandavoid.lua");
 const SPEC = join(__dirname, "spec-panicandavoid.mjs");
-const OUT = "E:/DST-Analysis/02-注释源码/scripts/behaviours/panicandavoid.lua";
+const OUT = relOut("behaviours/panicandavoid.lua");
 
 const HEADER = "--============================================================\n-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖\n-- 文件：behaviours/panicandavoid.lua\n-- 模块：行为树节点库 / 逃跑\n-- 职责：panic 的避障版本：ResolveDirection 在若干候选方向里挑一个既远离威胁又可落地的，\n--       演示「候选方向打分筛选」的通用套路。\n-- 关键符号：PanicAndAvoid, PanicAndAvoid:Visit, PanicAndAvoid:ResolveDirection,\n--           PanicAndAvoid:PickNewDirection\n-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本\n-- 交叉引用：panic.lua, runaway.lua, avoidelectricfence.lua\n--============================================================\n";
 

@@ -1,0 +1,15 @@
+{
+  "_comment": "L1：二进制帧协议的唯一事实来源。protocol_bin.py / protocol_bin.js 的常量都由 tools/gen-protocol-schema.mjs 从这里生成 —— 手改生成文件会在 --check 下报红。改协议只改这里，然后 `node tools/gen-protocol-schema.mjs --write`。",
+  "magic": [82, 84],
+  "version": 3,
+  "fix": 16,
+  "phases": ["day", "dusk", "night"],
+  "seasons": ["autumn", "winter", "spring", "summer"],
+  "notes": {
+    "magic": "帧头两字节 'R''T'",
+    "version": "v3 = v2 + 帧尾世界环境块（昼夜/季节/温度）；改它必须同时改两端的解码分支与 tools/boot_version 指纹",
+    "fix": "定点精度：坐标 1/16 格、朝向 1/16 度；±32767/16 ≈ ±2048 格",
+    "phases": "昼夜相位序数；顺序即线上编号，插一项会改变所有后续索引",
+    "seasons": "季节序数；同上"
+  }
+}

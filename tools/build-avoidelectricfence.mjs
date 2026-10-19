@@ -12,12 +12,13 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { relSrc, relOut, pristineRoot, ANN_SCRIPTS } from "./lib/paths.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const SRC = "C:/Users/35916/.qwenworkcn/workspace/mv38nal4gdn29zna/dst-analysis/scripts/scripts/behaviours/avoidelectricfence.lua";
+const SRC = relSrc("behaviours/avoidelectricfence.lua");
 const SPEC = join(__dirname, "spec-avoidelectricfence.mjs");
-const OUT = "E:/DST-Analysis/02-注释源码/scripts/behaviours/avoidelectricfence.lua";
+const OUT = relOut("behaviours/avoidelectricfence.lua");
 
 const HEADER = "--============================================================\n-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖\n-- 文件：behaviours/avoidelectricfence.lua\n-- 模块：行为树节点库 / 避让\n-- 职责：躲避电栅栏（海象/巨鹿的电网）：检测到处于电栏范围时朝安全方向奔跑，\n--       含 GetRunAngle 的方向逃逸计算与 OnStop 清理。\n-- 关键符号：AvoidElectricFence, AvoidElectricFence:Visit, AvoidElectricFence:GetRunAngle,\n--           AvoidElectricFence:OnStop, AvoidElectricFence:__tostring\n-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本\n-- 交叉引用：runaway.lua, panicandavoid.lua, components/locomotor.lua\n--============================================================\n";
 

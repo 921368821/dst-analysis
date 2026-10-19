@@ -12,12 +12,13 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { relSrc, relOut, pristineRoot, ANN_SCRIPTS } from "./lib/paths.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const SRC = "C:/Users/35916/.qwenworkcn/workspace/mv38nal4gdn29zna/dst-analysis/scripts/scripts/behaviours/beargeroffscreen.lua";
+const SRC = relSrc("behaviours/beargeroffscreen.lua");
 const SPEC = join(__dirname, "spec-beargeroffscreen.mjs");
-const OUT = "E:/DST-Analysis/02-注释源码/scripts/behaviours/beargeroffscreen.lua";
+const OUT = relOut("behaviours/beargeroffscreen.lua");
 
 const HEADER = "--============================================================\n-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖\n-- 文件：behaviours/beargeroffscreen.lua\n-- 模块：行为树节点库 / 复合 AI\n-- 职责：全目录最长的节点（约 313 行）：把「离屏狂暴 AI」拆成 Roam / Rampage 两阶段，\n--       含沿途掉落（DropTrail）、沿路径处理实体（WorkEntitiesAlongLine）与边界内随机取点。\n-- 关键符号：BeargerOffScreen, BeargerOffScreen:Visit, BeargerOffScreen:Roam,\n--           BeargerOffScreen:SetupRoaming, BeargerOffScreen:PickNewDirection,\n--           BeargerOffScreen:PickNewDirection_Rampage,\n--           BeargerOffScreen:GetRandomWanderDestWithinBoundary,\n--           BeargerOffScreen:DropTrail, BeargerOffScreen:DropTrailItem,\n--           BeargerOffScreen:DropGroundPoundTrail,\n--           BeargerOffScreen:WorkEntitiesAlongLine\n-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本\n-- 交叉引用：behaviours/wander.lua（Roam 阶段大量复用）,\n--       components/locomotor.lua, TheWorld（阶段计时）,\n--       DropTrail 依赖 summoning 类实体的 spawn 机制\n--============================================================\n";
 

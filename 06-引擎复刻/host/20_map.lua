@@ -345,8 +345,67 @@ local STATUS_NOPATH      = 2     -- 原版注释掉的常量，值为 2
 local searches   = {}            -- handle -> {status=, steps=, expand=}
 local next_h     = 0
 local PATH_STATS = { submitted = 0, found = 0, nopath = 0,
-                     expanded = 0, last_expand = 0, killed = 0 }
+                     expanded = 0, last_expand = 0, killed = 0,
+                     -- ★ M7 新增三项：这三个数不上报，就等于「预算与泄漏都无迹可查」
+                     evicted = 0,      -- 被 LRU 回收的句柄数（调用方没取走就丢了）
+                     budget_hit = 0,   -- 因为「本拍预算用完」而判无路的次数
+                     budget_ms = 0 }   -- 本拍寻路累计耗时（ms，每拍重置）
 local MAX_EXPAND = 4000          -- 单次搜索展开上限（防病态输入拖垮一拍）
+
+-- ★★★ M7：每拍预算 + 句柄上限。为什么必须有：
+--   ① A* 是**同步**跑的（SubmitSearch 里直接算完），一次病态搜索就能把整拍拖长，
+--      而「拍长」在 30 Hz 循环里的表现是「世界卡一下」，没有任何判据能归因到寻路；
+--   ② 句柄表只增不减：调用方不 KillSearch/不取结果，就一直挂着 ——
+--      实测长跑里 pending 会缓慢上涨（locomotor 某些分支确实不回收）。
+--   两个上限都可用环境变量覆盖，方便压测时放宽；正常值下不该被撞到。
+local MAX_SEARCHES      = tonumber(os.getenv("HOST_MAX_SEARCHES") or "") or 512
+local BUDGET_PER_TICK   = tonumber(os.getenv("HOST_PATH_BUDGET") or "") or 12000
+local BUDGET_MS_PER_TICK = tonumber(os.getenv("HOST_PATH_BUDGET_MS") or "") or 8
+
+-- 本拍已用额度。用**游戏时间**做「拍」的判据：同一拍的多次提交累计，
+-- 时间一跳（下一拍）就重置 —— 不用 os.clock 判拍是因为它跟帧率无关。
+local budget = { tick = nil, used = 0, ms = 0 }
+local function budget_reset_if_new_tick()
+    local T = rawget(_G, "TheSim")
+    local t = (T ~= nil) and T.time or 0
+    if budget.tick ~= t then
+        budget.tick, budget.used, budget.ms = t, 0, 0
+    end
+end
+
+-- ★ 句柄表的 FIFO 回收（M7）。`searches` 原来只增不减：
+--   调用方不 KillSearch 也不取结果时，句柄永久残留 —— 长跑里 pending 会缓慢上涨。
+--   这里按**提交顺序**回收最老的，且只在超过 MAX_SEARCHES 时动手；
+--   被回收的句柄会让晚到的 GetSearchStatus 返回 nil（locomotor 会打 LOST PATH SEARCH，
+--   这是**可见的**、可归因的，比「内存慢慢涨到 OOM」好）。
+local live, search_order, order_head = 0, {}, 1
+local function evict_oldest()
+    while live > MAX_SEARCHES do
+        while order_head <= #search_order and searches[search_order[order_head]] == nil do
+            order_head = order_head + 1
+        end
+        if order_head > #search_order then break end
+        local h = search_order[order_head]
+        order_head = order_head + 1
+        if searches[h] ~= nil then
+            searches[h] = nil
+            live = live - 1
+            PATH_STATS.evicted = PATH_STATS.evicted + 1
+        end
+    end
+    -- 数组压缩：否则 search_order 会随运行时间无限增长（回收了句柄，却没回收数组）。
+    if order_head > 4096 and order_head * 2 > #search_order then
+        local nw = {}
+        for k = order_head, #search_order do nw[#nw + 1] = search_order[k] end
+        search_order, order_head = nw, 1
+    end
+end
+local function remember(h, rec)
+    searches[h] = rec
+    live = live + 1
+    search_order[#search_order + 1] = h
+    evict_oldest()
+end
 
 -- 二叉小顶堆（按 f 排序）
 local function hpush(h, n)
@@ -419,8 +478,15 @@ local function string_pull(pts, allowocean)
     while i < #pts and guard < 1000 do
         guard = guard + 1
         local j = #pts
+        -- ★ M7：步长按跨度自适应。原来一格一格退（j = j - 1），
+        --   最坏情况是「每个拐点都把整段扫一遍」⇒ O(n²) 次 seg_clear，
+        --   128×128 的对角线能扫出几万次射线判定 —— 全发生在**一拍之内**。
+        --   跨度 ≤32 格时 step 仍是 1，**短路径行为逐字节不变**（测试路径都在这个范围）；
+        --   超过 32 格按 1/16 退，最多损失「比最优少 1/16 的那点拉直程度」，
+        --   但选中的 j 仍然经过 seg_clear 验证 ⇒ 不会给出穿墙的直线。
+        local step = math.max(1, math.floor((j - i) / 16))
         while j > i + 1 and not seg_clear(pts[i].x, pts[i].z, pts[j].x, pts[j].z, allowocean) do
-            j = j - 1
+            j = math.max(i + 1, j - step)
         end
         out[#out + 1] = pts[j]
         i = j
@@ -429,7 +495,8 @@ local function string_pull(pts, allowocean)
 end
 local simplify = string_pull      -- 兼容旧名（内部只有一处调用）
 
-local function astar(sx, sy, sz, gx, gy, gz, allowocean)
+local function astar(sx, sy, sz, gx, gy, gz, allowocean, expand_limit)
+    local limit = expand_limit or MAX_EXPAND
     local s_cx, s_cy = Map:GetTileCoordsAtPoint(sx, sy or 0, sz)
     -- ★ 不能写成 snap(Map:GetTileCoordsAtPoint(...), 3, allowocean)：
     --   Lua 里「不在参数列表末位」的函数调用只取**第一个**返回值，
@@ -454,7 +521,7 @@ local function astar(sx, sy, sz, gx, gy, gz, allowocean)
                   f = (hx > hz) and (hx - hz + 1.41421356 * hz) or (hz - hx + 1.41421356 * hx) })
     local expand = 0
 
-    while #open > 0 and expand < MAX_EXPAND do
+    while #open > 0 and expand < limit do
         local cur = hpop(open)
         if closed[cur.i] == nil then
             closed[cur.i] = true
@@ -525,18 +592,43 @@ function Pathfinder:SubmitSearch(x0, y0, z0, x1, y1, z1, pathcaps)
     next_h = next_h + 1
     PATH_STATS.submitted = PATH_STATS.submitted + 1
     local allowocean = type(pathcaps) == "table" and pathcaps.allowocean == true or false
-    local ok, steps, expand = pcall(astar, x0, y0, z0, x1, y1, z1, allowocean)
+
+    -- ★ M7：先扣本拍预算。预算用完 ⇒ **立即判无路**（而不是偷偷慢慢算）。
+    --   为什么宁可判无路：locomotor 对 NOPATH 的处理是「这一拍不动、下一拍再试」，
+    --   而「慢慢算」会把整拍拖长，表现为世界卡顿且无人能归因。
+    budget_reset_if_new_tick()
+    local remain = BUDGET_PER_TICK - budget.used
+    local time_left = BUDGET_MS_PER_TICK - budget.ms
+    if remain <= 0 or time_left <= 0 then
+        PATH_STATS.budget_hit = PATH_STATS.budget_hit + 1
+        remember(next_h, { status = STATUS_NOPATH, steps = nil,
+                           why = string.format("本拍寻路预算已用完（展开 %d / %d，耗时 %.1f ms / %d ms）",
+                                               budget.used, BUDGET_PER_TICK, budget.ms, BUDGET_MS_PER_TICK) })
+        return next_h
+    end
+
+    local limit = math.min(MAX_EXPAND, remain)
+    local t0 = os.clock()
+    local ok, steps, expand = pcall(astar, x0, y0, z0, x1, y1, z1, allowocean, limit)
+    budget.ms = budget.ms + (os.clock() - t0) * 1000
+    budget.used = budget.used + (type(expand) == "number" and expand or 0)
+
     if not ok or steps == nil then
         PATH_STATS.nopath = PATH_STATS.nopath + 1
         PATH_STATS.last_expand = type(expand) == "number" and expand or 0
-        searches[next_h] = { status = STATUS_NOPATH, steps = nil,
-                             why = (not ok) and tostring(steps) or "无可达路径" }
+        -- 展开数撞到本拍上限 ⇒ 这是**预算耗尽**，不是「世界上真的没路」。
+        -- 两者必须分开计数：混在一起会让「地图连通性」的判断被预算噪声污染。
+        local hit_budget = (type(expand) == "number" and expand >= limit)
+        if hit_budget then PATH_STATS.budget_hit = PATH_STATS.budget_hit + 1 end
+        remember(next_h, { status = STATUS_NOPATH, steps = nil,
+                           why = (not ok) and tostring(steps)
+                                 or (hit_budget and "本拍预算/单次上限耗尽" or "无可达路径") })
         return next_h
     end
     PATH_STATS.found = PATH_STATS.found + 1
     PATH_STATS.expanded = PATH_STATS.expanded + expand
     PATH_STATS.last_expand = expand
-    searches[next_h] = { status = STATUS_FOUNDPATH, steps = steps }
+    remember(next_h, { status = STATUS_FOUNDPATH, steps = steps })
     return next_h
 end
 
@@ -555,6 +647,7 @@ end
 function Pathfinder:KillSearch(handle)
     if searches[handle] ~= nil then
         searches[handle] = nil
+        live = live - 1
         PATH_STATS.killed = PATH_STATS.killed + 1
     end
 end
@@ -571,13 +664,22 @@ function M.path_reset_stats()
     PATH_STATS.submitted, PATH_STATS.found = 0, 0
     PATH_STATS.nopath, PATH_STATS.expanded = 0, 0
     PATH_STATS.killed, PATH_STATS.last_expand = 0, 0
+    PATH_STATS.evicted, PATH_STATS.budget_hit = 0, 0
+    budget.tick, budget.used, budget.ms = nil, 0, 0
+end
+--- 最近一次提交被判无路的**原因**（诊断用）。
+--- 为什么需要：`GetSearchStatus` 只给 0/1/2，而 `2` 既可能是「真的没路」，
+--- 也可能是「预算耗尽」或「A* 抛错」—— 三者处置完全不同，必须能看见。
+function M.path_last_why()
+    local s = searches[next_h]
+    return s and s.why or nil
 end
 function M.path_search_status() return STATUS_CALCULATING, STATUS_FOUNDPATH, STATUS_NOPATH end
 function M.path_pending() local n = 0 for _ in pairs(searches) do n = n + 1 end return n end
 function Pathfinder:GetDebugString()
-    return string.format("[host A*] 提交%d 找到%d 无路%d 待回收%d 上次展开%d",
-        PATH_STATS.submitted, PATH_STATS.found, PATH_STATS.nopath,
-        M.path_pending(), PATH_STATS.last_expand)
+    return string.format("[host A*] 提交%d 找到%d 无路%d(预算%d) 待回收%d 回收%d 上次展开%d",
+        PATH_STATS.submitted, PATH_STATS.found, PATH_STATS.nopath, PATH_STATS.budget_hit,
+        M.path_pending(), PATH_STATS.evicted, PATH_STATS.last_expand)
 end
 
 M.Map = Map

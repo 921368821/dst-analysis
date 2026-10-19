@@ -1250,7 +1250,7 @@ end
 --        —— 客户端只能存自己的，服务端可存任何人（防越权写他人存档）；
 --     ② GetSaveRecord()（:306）—— ★ 各组件 OnSave 汇总，改组件即改存档格式；
 --     ③ DataDumper(..., BRANCH ~= "dev")（:307）—— ★ dev 不含引用、发布含引用
---        （对比 :325 的恒 false：广播数据永不���引用）；
+--        （对比 :325 的恒 false：广播数据永不被引用）；
 --     ④ TheNet:SerializeUserSession（:318）—— 五参数含 classified 实体句柄。
 --   ★★ DeleteUserSession(:322) 用完全相同的条件（能写就能删 = 权限一致）。
 --   ★ 世界级存档 SerializeWorldSession(:328)：异步 + callback + ENCODE_SAVES。

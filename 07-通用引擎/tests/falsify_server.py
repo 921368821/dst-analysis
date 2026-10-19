@@ -34,6 +34,12 @@ PY = sys.executable
 
 BOOT = os.path.join(ROOT, "rt", "rt_boot.lua")
 SRV = os.path.join(ROOT, "rt", "server.py")
+# ★ M4（2026-10-19）：server.py 拆成 7 个模块，锚点跟着走。
+#   只改**目标文件**，锚点串与期望判据一个字符都没动 —— 这样「篡改仍然打在
+#   同一行代码上」，变异测试的语义不变。
+HTTPAPI = os.path.join(ROOT, "rt", "http_api.py")
+LOOPS = os.path.join(ROOT, "rt", "loops.py")
+SIMPY = os.path.join(ROOT, "rt", "sim.py")
 
 # ---------------------------------------------------------------- 篡改清单
 # (文件, 说明, from, to, RT_ONLY 过滤词, 期望变红的判据名子串)
@@ -75,7 +81,7 @@ MUTATIONS = [
     #     ① 把锚点写长一点，指定改哪一处 —— 治标，重复本身还在；
     #     ② 把开关收敛成一个方法，锚它 —— 治本。
     #   选了 ②：现在「调试端点能不能开」全工程只有一处判定。
-    (SRV, "调试端点不再校验 --allow-debug（谁都能杀角色）",
+    (HTTPAPI, "调试端点不再校验 --allow-debug（谁都能杀角色）",
      "        return bool(getattr(self, \"allow_debug\", False))",
      "        return True",
      "E8", "E8"),
@@ -88,7 +94,7 @@ MUTATIONS = [
     #   查 B16 的实现才看到它里面就有 `if not last.get("paused")`。
     #   ⇒ 那就把当时跳过的那条篡改补上：**让 B16 自己来证明它在守**。
     #   （教训：登记「缺口」之前，先去**读一遍**那条判据的实现，别凭印象写。）
-    (SRV, "暂停时帧里不再报 paused（客户端会以为断线）",
+    (LOOPS, "暂停时帧里不再报 paused（客户端会以为断线）",
      "                snap[\"paused\"] = True          # ★ 帧里如实报「世界停住了」",
      "                pass  # 故意不报 paused",
      "B16", "B16"),
@@ -109,7 +115,9 @@ MUTATIONS = [
     #   ⇒ ③ 两边一起改（为此给这个脚本加了「一处多改」的能力），这才真的改变了可观测行为。
     #   ★★ 教训：变异测试报「没被抓住」时，**第一件事是检查这条篡改本身是不是 no-op** ——
     #      否则你会去改一条本来就没问题的判据（今天差点就这么干）。
-    (SRV, "两处都不再给 paused（运行中的帧会缺这个字段）",
+    # ★★ M4 之后这两处落在**两个文件**里（sim.py 帧构建器 / loops.py 模拟循环），
+    #   所以 path 给成列表，与 pairs 一一对应。只改一处仍然都是 no-op。
+    ([SIMPY, LOOPS], "两处都不再给 paused（运行中的帧会缺这个字段）",
      ['               "paused": False}', '            snap["paused"] = False'],
      ['               }', '            pass  # 故意也不补'],
      "B16", "B16"),
@@ -160,7 +168,32 @@ def run_one(only, runs):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--runs", type=int, default=2, help="每条篡改连续跑几遍（都要红）")
+    ap.add_argument("--check-anchors", action="store_true",
+                    help="★ 只静态检查「每条篡改的锚点串在目标文件里恰好出现 1 次」，"
+                         "不改文件、不跑测试（重构之后先跑这个，几秒出结果）")
     a = ap.parse_args()
+
+    # ★ M4 教训：拆文件 / 改实现会让锚点**悄悄失效**。
+    #   以前只能在跑完一整轮（每条都要起服务端、跑子集测试，几十分钟）之后
+    #   从「锚点串出现 0 次」里发现 —— 那个反馈太晚，而且和「测试真的红了」
+    #   混在同一屏输出里。这里给一个 3 秒的静态闸门。
+    if a.check_anchors:
+        bad = 0
+        for path, desc, old, new, only, expect in MUTATIONS + [CONTROL]:
+            pairs = list(zip(old, new)) if isinstance(old, list) else [(old, new)]
+            paths = path if isinstance(path, list) else [path] * len(pairs)
+            if not all(os.path.exists(p_) for p_ in paths):
+                print("  ✘ [%s] 目标文件不存在：%s" % (desc, paths)); bad += 1; continue
+            srcs = {p_: io.open(p_, encoding="utf-8").read() for p_ in paths}
+            for (o, _nw), p_ in zip(pairs, paths):
+                cnt = srcs[p_].count(o)
+                if cnt != 1:
+                    print("  ✘ [%s] 锚点出现 %d 次（要求 1）：%s\n     %r"
+                          % (desc, cnt, os.path.basename(p_), o[:70]))
+                    bad += 1
+        n = len(MUTATIONS) + 1
+        print("锚点自检：%d 条篡改，%d 条有问题" % (n, bad))
+        return 0 if bad == 0 else 1
 
     print("═" * 74)
     print("  服务端/引擎判据的**变异测试**（把实现改坏，看判据是否真的变红）")
@@ -196,43 +229,57 @@ def main():
 
     bad = 0
     for path, desc, old, new, only, expect in MUTATIONS + [CONTROL]:
-        original = io.open(path, encoding="utf-8").read()
         # ★ `from`/`to` 也允许是**列表**（一处多改）：有些契约有**多个冗余来源**，
         #   只改一个不改变可观测行为 ⇒ 那种篡改是 no-op，测不出判据的死活。
         pairs = list(zip(old, new)) if isinstance(old, list) else [(old, new)]
-        mutated = original
+        # ★★ M4：`path` 也允许是**列表**（与 pairs 一一对应，可跨文件）。
+        #   起因：拆 server.py 时那条「两处都不再给 paused」的两处锚点
+        #   分别落到了 sim.py（帧构建器的默认值）与 loops.py（模拟循环的显式赋值）。
+        #   如果把它拆成两条单文件篡改，每条又都退化成 no-op（正是它当初要解决的
+        #   问题）—— 所以「一处多改」必须**同时支持跨文件**。
+        paths = path if isinstance(path, list) else [path] * len(pairs)
+        originals = {}          # 路径 -> 改前内容（还原用）
+        mutateds = {}           # 路径 -> 当前内容（改后）
+        for pth in paths:
+            if pth not in originals:
+                originals[pth] = io.open(pth, encoding="utf-8").read()
+                mutateds[pth] = originals[pth]
         anchor_bad = False
-        for o, nw in pairs:
-            cnt = mutated.count(o)
+        for (o, nw), pth in zip(pairs, paths):
+            cnt = mutateds[pth].count(o)
             if cnt != 1:
                 bad += 1
                 anchor_bad = True
                 print("  ✘ [%s] 锚点串出现 %d 次（要求恰好 1 次）—— 代码被重构过，"
-                      "这条篡改已失效，必须更新锚点（**不许静默跳过**）" % (desc, cnt))
+                      "这条篡改已失效，必须更新锚点（**不许静默跳过**）[%s]"
+                      % (desc, cnt, os.path.basename(pth)))
                 break
-            mutated = mutated.replace(o, nw)
+            mutateds[pth] = mutateds[pth].replace(o, nw)
         if anchor_bad:
             continue
+        path = paths[0]          # 单文件路径留给下面的标记文件与打印用
         try:
             # ★ 写标记：**在改文件之前**落盘。被 kill 时它还在 ⇒ 下次开跑会拒绝执行
             #   （见 main 开头的自检）。标记里带足够的信息，让没有 git 的人也能手工还原。
             try:
                 io.open(MARK, "w", encoding="utf-8", newline="").write(
-                    json.dumps({"path": path, "desc": desc, "old": old, "new": new},
+                    json.dumps({"path": paths, "desc": desc, "old": old, "new": new},
                                ensure_ascii=False, indent=1))
             except OSError as e:
                 print("  ⚠ 写不了标记文件（%s）—— 中断保护这次不生效" % e)
-            io.open(path, "w", encoding="utf-8", newline="").write(mutated)
+            for pth, body in mutateds.items():
+                io.open(pth, "w", encoding="utf-8", newline="").write(body)
             reds = run_one(only, a.runs)
         finally:
-            io.open(path, "w", encoding="utf-8", newline="").write(original)
-            # ★ 还原必须**被验证**：写完再读回来比一次。还原不干净的话，
-            #   后面所有结果都建立在脏源码上（这比红更危险，因为它看起来是绿的）。
-            back = io.open(path, encoding="utf-8").read()
-            if back != original:
-                print("  ✘ [%s] **还原失败**：%s 与改前不一致（后续结论全部不可信）"
-                      % (desc, path))
-                bad += 1
+            for pth, body in originals.items():
+                io.open(pth, "w", encoding="utf-8", newline="").write(body)
+                # ★ 还原必须**被验证**：写完再读回来比一次。还原不干净的话，
+                #   后面所有结果都建立在脏源码上（这比红更危险，因为它看起来是绿的）。
+                back = io.open(pth, encoding="utf-8").read()
+                if back != body:
+                    print("  ✘ [%s] **还原失败**：%s 与改前不一致（后续结论全部不可信）"
+                          % (desc, pth))
+                    bad += 1
             try:
                 os.remove(MARK)
             except OSError:

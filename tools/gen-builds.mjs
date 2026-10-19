@@ -11,12 +11,12 @@
 import { writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { pristineRoot, ANN_SCRIPTS } from "./lib/paths.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const SRCROOT =
-  "C:/Users/35916/.qwenworkcn/workspace/mv38nal4gdn29zna/dst-analysis/scripts/scripts/behaviours";
-const OUTROOT = "E:/DST-Analysis/02-注释源码/scripts/behaviours";
+const SRCROOT = join(pristineRoot(), "behaviours");
+const OUTROOT = join(ANN_SCRIPTS, "behaviours");
 
 /**
  * 每项：
@@ -320,6 +320,7 @@ for (const it of ITEMS) {
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { relSrc, relOut, pristineRoot, ANN_SCRIPTS } from "./lib/paths.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 

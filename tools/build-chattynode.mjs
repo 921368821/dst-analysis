@@ -12,12 +12,13 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { relSrc, relOut, pristineRoot, ANN_SCRIPTS } from "./lib/paths.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const SRC = "C:/Users/35916/.qwenworkcn/workspace/mv38nal4gdn29zna/dst-analysis/scripts/scripts/behaviours/chattynode.lua";
+const SRC = relSrc("behaviours/chattynode.lua");
 const SPEC = join(__dirname, "spec-chattynode.mjs");
-const OUT = "E:/DST-Analysis/02-注释源码/scripts/behaviours/chattynode.lua";
+const OUT = relOut("behaviours/chattynode.lua");
 
 const HEADER = "--============================================================\n-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖\n-- 文件：behaviours/chattynode.lua\n-- 模块：行为树节点库 / 表演\n-- 职责：让实体播放一段带时序的说话/表演动作（按 schedule 表推进），\n--       是不影响战斗的「纯表演节点」范例。\n-- 关键符号：ChattyNode, ChattyNode:Visit\n-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本\n-- 交叉引用：stategraph, animstate, behaviourtree.lua（Sleep 节流）\n--============================================================\n";
 

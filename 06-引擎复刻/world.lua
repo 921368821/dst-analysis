@@ -113,16 +113,14 @@ WorldMap.Generate({ seed = SEED })
 -- ⚠️ 关键前提是修好的两处宿主 bug（详见报告第 13 节）：
 --   ① TheWorld:PushEvent 原先只做世界状态广播、**漏了监听器派发**
 --   ② TheWorld.state 原先是静态表，**不镜像 worldstate**
--- ★★ 世界级组件清单照抄 world_network.lua:52-61（原版权威列表）
+-- ★★ 世界级组件的**清单与挂法**见 `host/30_worldmount.lua`（顺序 = 原版权威列表
+--   `world_network.lua:52-61`）。
 --   宿主此前一个都没挂，于是 TheWorld.state 只能靠硬编码值。
 --   实测每个都真的能挂上（前提是补了 perlin / TheWorld.meta，见 03_globals.lua）。
-local WORLD_COMPONENTS = {
-    "clock",            -- 昼夜（一天 480 s = 10/4/2 段 ×30 s）
-    "worldtemperature", -- 温度（季节内扰动 + 相位正弦；构造需要 perlin）
-    "seasons",          -- 季节（autumn/winter/spring/summer 循环）
-    "shardstate",       -- 分片状态（构造需要 TheWorld.meta.session_identifier）
-    "worldreset",       -- 世界重置计数
-}
+-- ★★ M3：单源化。此前这里与 `07-通用引擎/rt/rt_boot.lua` 各存一份 WORLD_COMPONENTS
+--   （07 的注释自陈「照抄」），原版新增世界组件时必然只改一处，
+--   症状是「06 有季节、07 没有」这种极难定位的差异。
+local WorldMount = require("host.30_worldmount")
 -- ★ 实体休眠的活动中心钩子在这里**先声明成 nil 占位**，真正的实现在
 --   「玩家生成之后」再赋值 —— 详见那段注释里的作用域说明。
 local sleep_stats = { slept = 0, woke = 0 }
@@ -134,15 +132,9 @@ local CLOCK_OK = false
 do
     local W = _G.TheWorld
     if W ~= nil then
-        local mounted = {}
-        for _, nm in ipairs(WORLD_COMPONENTS) do
-            pcall(W.AddComponent, W, nm)
-            if W.components ~= nil and W.components[nm] ~= nil then
-                mounted[#mounted + 1] = nm
-            end
-        end
+        local WM = WorldMount.Mount(W)
         print(string.format("  世界组件  %d/%d 挂载成功：%s",
-            #mounted, #WORLD_COMPONENTS, table.concat(mounted, ", ")))
+            #WM.mounted, WM.total, table.concat(WM.mounted, ", ")))
         -- ⚠️ 这里**不能**再 AddComponent("clock") —— 上面循环里已经加过了。
         --   重复添加在真实引擎里会被影子表挡住并返回旧实例，
         --   而宿主原先没有那道闸门，于是会造出两个共享同一组 netvar 的 clock，

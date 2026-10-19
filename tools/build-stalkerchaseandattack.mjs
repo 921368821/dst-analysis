@@ -12,12 +12,13 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { relSrc, relOut, pristineRoot, ANN_SCRIPTS } from "./lib/paths.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const SRC = "C:/Users/35916/.qwenworkcn/workspace/mv38nal4gdn29zna/dst-analysis/scripts/scripts/behaviours/stalkerchaseandattack.lua";
+const SRC = relSrc("behaviours/stalkerchaseandattack.lua");
 const SPEC = join(__dirname, "spec-stalkerchaseandattack.mjs");
-const OUT = "E:/DST-Analysis/02-注释源码/scripts/behaviours/stalkerchaseandattack.lua";
+const OUT = relOut("behaviours/stalkerchaseandattack.lua");
 
 const HEADER = "--============================================================\n-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖\n-- 文件：behaviours/stalkerchaseandattack.lua\n-- 模块：行为树节点库 / 追打\n-- 职责：本目录最短的节点（仅 10 行）：构造器里只存参数，全部逻辑靠 chattynode/参数化组合完成，\n--       是「用已有节点 + 参数拼装出行为」的极致例子。\n-- 关键符号：StalkerChaseAndAttack\n-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本\n-- 交叉引用：chaseandattack.lua（被包装的对象）, stalker 相关 brain\n--============================================================\n";
 

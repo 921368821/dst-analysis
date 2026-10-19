@@ -15,14 +15,14 @@
 """
 import struct
 
-MAGIC0, MAGIC1 = 0x52, 0x54          # 'R''T'
-VERSION = 3
-FIX = 16.0
+# ★★ L1：常量**不再手写**，全部来自 `rt/protocol.schema.json`
+#   （生成器 tools/gen-protocol-schema.mjs，生成物 rt/protocol_schema.py）。
+#   为什么必须这样：VERSION / FIX / PHASES / SEASONS 原来在 .py 与 .js 里**各抄一份**，
+#   「只改一边」的后果是最难查的那类错 —— 顺序写错 ⇒ 服务端发 day、客户端解成 night；
+#   FIX 不一致 ⇒ 位置缓慢漂移（像物理抖动）。parity 测试只能抓「两边不一样」，
+#   抓不到「两边一起写错」；单源生成把后者变成不可能。
+from protocol_schema import (MAGIC0, MAGIC1, VERSION, FIX, PHASES, SEASONS)
 
-# ★ 昼夜相位 / 季节 用**序数**发（1 字节），不用字符串 ——
-#   省字典，且两边枚举顺序写死，比字符串更难写错。
-PHASES = ["day", "dusk", "night"]
-SEASONS = ["autumn", "winter", "spring", "summer"]
 _PHASE_IDX = {s: i for i, s in enumerate(PHASES)}
 _SEASON_IDX = {s: i for i, s in enumerate(SEASONS)}
 

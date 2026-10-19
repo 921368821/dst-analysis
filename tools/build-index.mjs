@@ -5,9 +5,11 @@
  */
 import { readdirSync, statSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
+import { relSrc, relOut, pristineRoot, ANN_SCRIPTS } from "./lib/paths.mjs";
 
-const ROOT = process.argv[2] ?? "E:/DST-Analysis/02-注释源码/scripts";
-const OUT = process.argv[3] ?? "E:/DST-Analysis/02-注释源码/注释源码总索引.md";
+const ROOT = process.argv[2] ?? ANN_SCRIPTS;
+// 索引 md 放在 `02-注释源码/` 下（scripts 的上一级）
+const OUT = process.argv[3] ?? join(ANN_SCRIPTS, "..", "注释源码总索引.md");
 
 const MODULE_CN = {
   "": "根目录核心框架",

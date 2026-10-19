@@ -13,13 +13,13 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { relSrc, relOut, pristineRoot, ANN_SCRIPTS } from "./lib/paths.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const SRC =
-  "C:/Users/35916/.qwenworkcn/workspace/mv38nal4gdn29zna/dst-analysis/scripts/scripts/components/freezable.lua";
+const SRC = relSrc("components/freezable.lua");
 const SPEC = join(__dirname, "spec-freezable.mjs");
-const OUT = "E:/DST-Analysis/02-注释源码/scripts/components/freezable.lua";
+const OUT = relOut("components/freezable.lua");
 
 const HEADER = [
   "--============================================================",

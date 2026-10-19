@@ -6,15 +6,24 @@
 //   · 与 JSON 版**语义必须一致**（同一快照解出来逐字段相同）—— 这条有测试守着
 'use strict';
 
-const MAGIC = 0x5254;            // 'R''T'（小端读作 0x5452，这里按字节序写死）
-const VERSION = 3;               // ★ v3 = v2 + 帧尾「世界环境块」（昼夜/季节/温度）
-const FIX = 16;                  // 1/16 格
-
-// ★ 昼夜相位 / 季节 用**序数**发（1 字节）——与 protocol_bin.py 的 PHASES/SEASONS 逐项对应。
-//   两边顺序写死；顺序不一致就会「服务端发 day、客户端解成 night」这种最难查的错，
-//   所以有 parity 测试逐帧对。
-const PHASES  = ['day', 'dusk', 'night'];
-const SEASONS = ['autumn', 'winter', 'spring', 'summer'];
+// ★★ L1：常量**不再手写**，全部来自 `rt/protocol.schema.json`（生成物 protocol_schema.js）。
+//   原来 MAGIC/VERSION/FIX/PHASES/SEASONS 在 .js 与 .py 里各写一份；两边只改一边的后果是
+//   「服务端发 day、客户端解成 night」或「位置缓慢漂移」，而 parity 测试只能抓到
+//   「两边不一样」，抓不到「两边一起写错」。单源生成把后者变成不可能。
+//   ⚠ 本文件依赖 protocol_schema.js **先加载**（client.html 的 <script> 顺序已保证）；
+//     没加载就抛错，绝不静默用错误的默认值。
+const _S = (typeof module !== 'undefined' && module.exports)
+  ? require('./protocol_schema.js')
+  : (typeof window !== 'undefined' ? window.ProtocolSchema : null);
+if (!_S) {
+  throw new Error('protocol_schema.js 未加载 —— 必须在本文件之前引入（见 client.html）');
+}
+const MAGIC = _S.MAGIC;          // 'R''T'（0x5254）
+const VERSION = _S.VERSION;      // ★ v3 = v2 + 帧尾「世界环境块」（昼夜/季节/温度）
+const FIX = _S.FIX;              // 1/16 格
+// ★ 昼夜相位 / 季节 用**序数**发（1 字节）；顺序由 schema 单源定义
+const PHASES = _S.PHASES;
+const SEASONS = _S.SEASONS;
 
 class Writer {
   constructor() { this.b = []; this.n = 0; }

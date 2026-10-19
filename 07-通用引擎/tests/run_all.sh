@@ -166,10 +166,29 @@ hr "②j Python 侧：模型版本 ↔ 引擎指纹（改了行为却没升版�
 if run_step "$PY" -u tools/boot_version_guard.py --check; then :; else FAIL=1; fi
 
 if [ "$FAST" = "1" ]; then
+    # ★ L6 / M4：模块级单测（2 秒级）。放在最前面 —— 改了纯函数就该几秒知道对不对，
+    #   而不是等 ② 端到端那十分钟。判据见 tests/test_units.py 顶部「判据设计」。
+    hr "②k 模块级单测（net / hub / config / sim 构造期纪律）"
+    if run_step "$PY" -u tests/test_units.py; then :; else FAIL=1; fi
     hr "④ 计划数字核对（--fast：跳过进程内实测）"
     if run_step "$PY" -u tools/verify_plan.py --fast; then :; else FAIL=1; fi
+    # ★ H6：根目录三份基线文档的过期数字（verify_plan 只扫 07 目录，扫不到它们）
+    if run_step "$PY" -u "$ROOT/../tools/audit_root_docs.py"; then :; else FAIL=1; fi
+    # ★ M9：注释版**自身**完整性（U+FFFD / 二进制被当文本重写）。
+    #   这一条**不需要原版副本**就能判红 —— 原版丢失期间它是唯一还在工作的
+    #   「只增注释」守卫（verify-annotated 此时只能报 2＝无法复验）。
+    #   （这一行原来**重复出现两次**，等于同一条判据跑两遍、白等 3 秒；已合并）
+    if run_step "$NODE" "$ROOT/../tools/check-annotated-integrity.mjs"; then :; else FAIL=1; fi
+    # ★ L1：协议常量单源（protocol.schema.json → protocol_schema.py/.js）
+    #   生成物被手改、或改了 schema 没重生成 ⇒ 这里红。
+    if run_step "$NODE" "$ROOT/../tools/gen-protocol-schema.mjs" --check; then :; else FAIL=1; fi
+    # ★ M8：注释流水线里**不许**再出现别人的旧绝对路径（会红归红，不是提示）
+    if run_step "$NODE" "$ROOT/../tools/relocate-paths.mjs" --check; then :; else FAIL=1; fi
     hr "②c 规模与并发 / ③ 宿主回归 / ⑤ 06 三件套 —— 已跳过（--fast）"
 else
+    hr "②k 模块级单测（net / hub / config / sim 构造期纪律）"
+    if run_step "$PY" -u tests/test_units.py; then :; else FAIL=1; fi
+
     hr "②c Python 侧：规模与并发（P7）"
 if run_step "$PY" -u tests/test_stress.py; then :; else FAIL=1; fi
 
@@ -178,6 +197,10 @@ if run_step "$PY" -u tests/test_stress.py; then :; else FAIL=1; fi
 #   **从来没有在统一入口里跑过** —— 工具里有一半功能没人走。
 hr "④ 计划数字核对（含进程内实测 + 规则自检 + 测试编号唯一性）"
 if run_step "$PY" -u tools/verify_plan.py; then :; else FAIL=1; fi
+    if run_step "$PY" -u "$ROOT/../tools/audit_root_docs.py"; then :; else FAIL=1; fi
+    # ★ L1：协议常量单源 / ★ M8：注释流水线旧绝对路径绝迹（与 --fast 分支同一组判据）
+    if run_step "$NODE" "$ROOT/../tools/gen-protocol-schema.mjs" --check; then :; else FAIL=1; fi
+    if run_step "$NODE" "$ROOT/../tools/relocate-paths.mjs" --check; then :; else FAIL=1; fi
 
 hr "③ 宿主回归：06-引擎复刻 14 入口 + tests.lua 断言"
     # ★★ 必须**先 cd 到宿主目录**：入口里的 `require("host.01_core")` 是

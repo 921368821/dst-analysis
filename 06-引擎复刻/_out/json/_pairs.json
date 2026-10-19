@@ -1,0 +1,21 @@
+{
+ "mole_build": {
+  "bundles": [
+   "pillar_archive.zip",
+   "worm_light_lesser.zip",
+   "ruins_vase.zip",
+   "eyeball_turret.zip",
+   "quagmire_hangry_status.zip",
+   "mole_basic.zip"
+  ],
+  "coverage": 1.0,
+  "symbols": 13,
+  "anims": 23
+ },
+ "butterfly": {
+  "bundles": [],
+  "coverage": 1.0,
+  "symbols": 6,
+  "anims": 11
+ }
+}

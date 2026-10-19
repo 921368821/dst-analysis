@@ -18,6 +18,10 @@ local Core = require("host.01_core")
 local Loader = require("host.04_loader")
 local Sim = require("host.02_sim")
 local G = require("host.03_globals")
+-- ★ M6：列目录的唯一实现（$DST_FILELIST 清单 → ls -1 → dir /b 三级降级）
+--   本文件原先直接 `io.popen('dir /b ... 2>nul')`，在 Linux/macOS 上恒空，
+--   表现为「behaviours 只加载 0 个文件」——静默降级而不是报错。
+local FileList = require("host.31_filelist")
 
 local Bootstrap = {}
 
@@ -197,7 +201,7 @@ function Bootstrap.Setup(opts)
     --   记的是「类加载不了」），而**同一份代码在 Setup 结束后**能加载成功。
     --   ⇒ 拆成 mount 函数，早一趟 + 晚一趟（Setup 末尾）各跑一次。
     --     重跑安全：只补 `components[cname] == nil` 的那些。
-    local WORLD_COMPONENTS = {
+    local WORLD_ASSEMBLY_COMPONENTS = {
         "walkableplatformmanager",
         "walkableplatformplayer",
         "nutrients_visual_manager",
@@ -257,7 +261,7 @@ function Bootstrap.Setup(opts)
         local World = rawget(_G, "TheWorld") or (Core.World)
         if World == nil then return end
         World.components = World.components or {}
-        for _, entry in ipairs(WORLD_COMPONENTS) do
+        for _, entry in ipairs(WORLD_ASSEMBLY_COMPONENTS) do
             -- 条目可以是字符串（两趟都试），也可以是 {name=, phase=}（只在指定趟装）
             local cname, want = entry, nil
             if type(entry) == "table" then cname, want = entry.name, entry.phase end
@@ -1082,42 +1086,42 @@ function Bootstrap.Setup(opts)
     do
         local dir = Core.SourceDir .. "/behaviours"
         local n, failed, cls_of = 0, {}, {}
-        local p = io.popen('dir /b "' .. dir:gsub("/", "\\") .. '\\*.lua" 2>nul')
-        if p then
-            for line in p:lines() do
-                local nm = line:match("^(.-)%.lua$")
-                if nm ~= nil then
-                    n = n + 1
-                    Loader.Load("behaviours/" .. nm)
-                    -- ★★ 光「加载过」不算数：这些文件的语义是**设一个全局类**
-                    --   （`behaviours/faceentity.lua:10` 是 `FaceEntity = Class(BehaviourNode, …)`）。
-                    --   所以判据必须是「那个**全局**在不在」，不是「文件读没读」。
-                    --   ⇒ 这样判才与加载顺序无关（见 tests.lua TC26 的反向测试：
-                    --     只断言「spider 能生成」会被前面断言的副作用救活，
-                    --     撤销预加载它照样是绿的 —— 那不是判据，是运气）。
-                    local fh = io.open(dir .. "/" .. nm .. ".lua", "r")
-                    if fh then
-                        local src = fh:read("*a")
-                        fh:close()
-                        local g = src:match("([A-Za-z_][%w_]*)%s*=%s*Class%s*%(%s*BehaviourNode")
-                        if g ~= nil then
-                            cls_of[nm] = g
-                            if rawget(_G, g) == nil then
-                                failed[#failed + 1] = nm .. "(全局缺失:" .. g .. ")"
-                            end
+        -- ★ M6：`dir /b` 换成 FileList.List —— 原来在非 Windows 上恒空，
+        --   而这里的失败方式是「静默少加载」，症状会跑到 brain 里 nil 行为类去。
+        local files, src = FileList.List(dir)
+        for _, line in ipairs(files) do
+            local nm = line:match("^(.-)%.lua$")
+            if nm ~= nil then
+                n = n + 1
+                Loader.Load("behaviours/" .. nm)
+                -- ★★ 光「加载过」不算数：这些文件的语义是**设一个全局类**
+                --   （`behaviours/faceentity.lua:10` 是 `FaceEntity = Class(BehaviourNode, …)`）。
+                --   所以判据必须是「那个**全局**在不在」，不是「文件读没读」。
+                --   ⇒ 这样判才与加载顺序无关（见 tests.lua TC26 的反向测试：
+                --     只断言「spider 能生成」会被前面断言的副作用救活，
+                --     撤销预加载它照样是绿的 —— 那不是判据，是运气）。
+                local fh = io.open(dir .. "/" .. nm .. ".lua", "r")
+                if fh then
+                    local src_txt = fh:read("*a")
+                    fh:close()
+                    local g = src_txt:match("([A-Za-z_][%w_]*)%s*=%s*Class%s*%(%s*BehaviourNode")
+                    if g ~= nil then
+                        cls_of[nm] = g
+                        if rawget(_G, g) == nil then
+                            failed[#failed + 1] = nm .. "(全局缺失:" .. g .. ")"
                         end
                     end
                 end
             end
-            p:close()
         end
         Bootstrap.BehavioursClasses = cls_of
         Bootstrap.BehavioursPreloaded = n
         Bootstrap.BehavioursFailed = #failed
         Bootstrap.BehavioursFailList = failed
+        Bootstrap.BehavioursSource = src
         if n == 0 then
             -- ★ 枚举不出来必须**吵**，不能悄悄退化成「碰运气」
-            Core.NoteGap("behaviours:目录枚举失败（io.popen 受限）"
+            Core.NoteGap("behaviours:目录枚举失败（filelist/ls/dir 三路都没拿到）"
                 .. " —— brain 里未 require 的行为类会是 nil", "bootstrap")
         end
         if #failed > 0 then
@@ -1162,14 +1166,14 @@ function Bootstrap.Setup(opts)
         local W = rawget(_G, "TheWorld") or Core.World
         if W == nil or W.components == nil then return 0 end
         local n = 0
-        for _, entry in ipairs(WORLD_COMPONENTS) do
-            -- 条目可能是字符串，也可能是 {name=, phase=}（见 WORLD_COMPONENTS 的说明）
+        for _, entry in ipairs(WORLD_ASSEMBLY_COMPONENTS) do
+            -- 条目可能是字符串，也可能是 {name=, phase=}（见 WORLD_ASSEMBLY_COMPONENTS 的说明）
             local cname = (type(entry) == "table") and entry.name or entry
             if cname ~= nil and W.components[cname] ~= nil then n = n + 1 end
         end
         return n
     end)()
-    Bootstrap.WorldComponentsTotal = #WORLD_COMPONENTS
+    Bootstrap.WorldComponentsTotal = #WORLD_ASSEMBLY_COMPONENTS
 
     return Bootstrap
 end
@@ -1217,12 +1221,8 @@ local function build_prefab_index()
     PREFAB_INDEX_BUILT = true
     local dir = Core.SourceDir .. "/prefabs"
     local idx = {}
-    local f = io.popen('dir /b "' .. dir .. '\\*.lua" 2>nul')
-    local names = {}
-    if f ~= nil then
-        for line in f:lines() do names[#names + 1] = line end
-        f:close()
-    end
+    -- ★ M6：`dir /b` → FileList.List（同 behaviours 的跨平台理由）
+    local names = FileList.List(dir)
     for _, fn in ipairs(names) do
         local base = fn:gsub("%.lua$", "")
         local h = io.open(dir .. "/" .. fn, "r")

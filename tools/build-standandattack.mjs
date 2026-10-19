@@ -12,12 +12,13 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { relSrc, relOut, pristineRoot, ANN_SCRIPTS } from "./lib/paths.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const SRC = "C:/Users/35916/.qwenworkcn/workspace/mv38nal4gdn29zna/dst-analysis/scripts/scripts/behaviours/standandattack.lua";
+const SRC = relSrc("behaviours/standandattack.lua");
 const SPEC = join(__dirname, "spec-standandattack.mjs");
-const OUT = "E:/DST-Analysis/02-注释源码/scripts/behaviours/standandattack.lua";
+const OUT = relOut("behaviours/standandattack.lua");
 
 const HEADER = "--============================================================\n-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖\n-- 文件：behaviours/standandattack.lua\n-- 模块：行为树节点库 / 站桩战斗\n-- 职责：原地站着持续攻击：不移动、不逃跑，只有「目标无效/超时/目标死亡」三种终止路径，\n--       超时计时器会被每次命中重置（starttime 置 nil）。\n-- 关键符号：StandAndAttack, StandAndAttack:Visit, StandAndAttack:OnAttackOther,\n--           StandAndAttack:OnStop, StandAndAttack:__tostring\n-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本\n-- 交叉引用：components/combat.lua（ValidateTarget / TryAttack / BattleCry）,\n--           stategraph（canrotate 状态标签）, chaseandattack.lua（同结构的移动版）\n--============================================================\n";
 

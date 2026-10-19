@@ -12,12 +12,13 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { relSrc, relOut, pristineRoot, ANN_SCRIPTS } from "./lib/paths.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const SRC = "C:/Users/35916/.qwenworkcn/workspace/mv38nal4gdn29zna/dst-analysis/scripts/scripts/behaviours/findlight.lua";
+const SRC = relSrc("behaviours/findlight.lua");
 const SPEC = join(__dirname, "spec-findlight.mjs");
-const OUT = "E:/DST-Analysis/02-注释源码/scripts/behaviours/findlight.lua";
+const OUT = relOut("behaviours/findlight.lua");
 
 const HEADER = "--============================================================\n-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖\n-- 文件：behaviours/findlight.lua\n-- 模块：行为树节点库 / 查找\n-- 职责：找最近的光源（与 avoidlight 的「躲光」互为镜像），用于扑火类生物。\n-- 关键符号：FindLight, FindLight:Visit, FindLight:PickTarget, FindLight:DBString\n-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本\n-- 交叉引用：avoidlight.lua（反向节点）, findclosest.lua, TheSim:FindEntities\n--============================================================\n";
 

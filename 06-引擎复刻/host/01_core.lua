@@ -191,7 +191,7 @@ end
 --     而且**两个都不随昼夜变**。这不是“宿主没做光照”，是“宿主说了两句相反的话”。
 --
 --   真源选的是已有的世界状态（`TheWorld.state.phase`）——
---   06 的 world.lua 真的挂了 clock 组件（WORLD_COMPONENTS 含 clock），
+--   06 的 world.lua 真的挂了 clock 组件（清单在 `host/30_worldmount.lua`，含 clock），
 --   phase 会在 day/dusk/night 之间推进，所以这不是又一个假值。
 --   没有真光照图的情况下，「环境亮度」就是阶段的单调函数 ——
 --   它不能告诉你“火堆旁边多亮”，但它**能**告诉你“现在是不是晚上”，

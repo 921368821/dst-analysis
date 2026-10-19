@@ -12,12 +12,13 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { relSrc, relOut, pristineRoot, ANN_SCRIPTS } from "./lib/paths.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const SRC = "C:/Users/35916/.qwenworkcn/workspace/mv38nal4gdn29zna/dst-analysis/scripts/scripts/behaviours/findclosest.lua";
+const SRC = relSrc("behaviours/findclosest.lua");
 const SPEC = join(__dirname, "spec-findclosest.mjs");
-const OUT = "E:/DST-Analysis/02-注释源码/scripts/behaviours/findclosest.lua";
+const OUT = relOut("behaviours/findclosest.lua");
 
 const HEADER = "--============================================================\n-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖\n-- 文件：behaviours/findclosest.lua\n-- 模块：行为树节点库 / 查找\n-- 职责：按标签在视野半径内挑选最近的一个实体并走到它身边，同时每 5 秒复查一次目标有效性。\n--       演示三种标签过滤语义的组合：必须全有(tags) / 必须全无(exclude_tags) / 至少一个(one_of_tags)。\n-- 关键符号：FindClosest, FindClosest:Visit, FindClosest:PickTarget, FindClosest:DBString,\n--           CHECK_INTERVAL\n-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本\n-- 交叉引用：TheSim:FindEntities（实际的空间查询）, components/locomotor.lua,\n--           entity:HasTag / IsValid, behaviourtree.lua\n--============================================================\n";
 

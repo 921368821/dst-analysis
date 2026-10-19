@@ -12,12 +12,13 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { relSrc, relOut, pristineRoot, ANN_SCRIPTS } from "./lib/paths.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const SRC = "C:/Users/35916/.qwenworkcn/workspace/mv38nal4gdn29zna/dst-analysis/scripts/scripts/behaviours/attackwall.lua";
+const SRC = relSrc("behaviours/attackwall.lua");
 const SPEC = join(__dirname, "spec-attackwall.mjs");
-const OUT = "E:/DST-Analysis/02-注释源码/scripts/behaviours/attackwall.lua";
+const OUT = relOut("behaviours/attackwall.lua");
 
 const HEADER = "--============================================================\n-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖\n-- 文件：behaviours/attackwall.lua\n-- 模块：行为树节点库 / 战斗\n-- 职责：攻击最近的墙体/障碍物（如海象砸开冰墙），是 chaseandattack 的「无生命目标」简化版。\n-- 关键符号：AttackWall, AttackWall:Visit, AttackWall:__tostring\n-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本\n-- 交叉引用：chaseandattack.lua, components/combat.lua, components/locomotor.lua\n--============================================================\n";
 

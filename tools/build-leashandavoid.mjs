@@ -12,12 +12,13 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { relSrc, relOut, pristineRoot, ANN_SCRIPTS } from "./lib/paths.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const SRC = "C:/Users/35916/.qwenworkcn/workspace/mv38nal4gdn29zna/dst-analysis/scripts/scripts/behaviours/leashandavoid.lua";
+const SRC = relSrc("behaviours/leashandavoid.lua");
 const SPEC = join(__dirname, "spec-leashandavoid.mjs");
-const OUT = "E:/DST-Analysis/02-注释源码/scripts/behaviours/leashandavoid.lua";
+const OUT = relOut("behaviours/leashandavoid.lua");
 
 const HEADER = "--============================================================\n-- 【深度注释版】 本文件为逐行深度注释，勿用批量工具覆盖\n-- 文件：behaviours/leashandavoid.lua\n-- 模块：行为树节点库 / 拉拽回归\n-- 职责：超出活动半径后回家，且回家途中绕开指定障碍物（含一段作者自嘲为\n--       「我这一生做过最大的 hack」的侧向绕行几何计算）。\n-- 关键符号：LeashAndAvoid, LeashAndAvoid:Visit, LeashAndAvoid:GetHomePos,\n--           LeashAndAvoid:GetDistFromHomeSq, LeashAndAvoid:IsInsideLeash,\n--           LeashAndAvoid:IsOutsideReturnDist, LeashAndAvoid:GetMaxDistSq,\n--           LeashAndAvoid:GetReturnDistSq, LeashAndAvoid:DBString\n-- 上游来源：Klei Entertainment《Don't Starve Together》游戏脚本\n-- 交叉引用：leash.lua（同族无避障版本）, chaseandattackandavoid.lua（hack 的原始出处）,\n--       components/locomotor.lua, FunctionOrValue\n--============================================================\n";
 

@@ -2182,6 +2182,88 @@ check("KillSound/KillAllSounds 真改状态并产出 kill 事件；杀不存在�
     return true, "kill 事件 1 条 ✔ / 杀不存在的 id 不产事件 ✔ / killall 带 n=1 ✔"
 end)
 
+
+--=========================================================================
+-- ★ L6（2026-10-19）：**模块级**断言 —— 不经过世界/实体，直接测模块本身的契约
+--
+-- 为什么补这一段
+--   上面 90 多条几乎全是**集成级**：先造世界、再生成实体、再观察行为。
+--   集成级能证明「整条链路通」，但**定位差**：模块自己的契约（比如「列目录在拿不到
+--   任何来源时必须返回空表而不是抛」）被埋在世界的噪音里，坏了只看到
+--   「某个 brain 的行为类是 nil」这种离病因很远的现象。
+--   M6/M3/M7 这三个改动都新增了独立模块或独立计数器，正好先给它们补模块级判据。
+--=========================================================================
+hr("模块级断言（L6：filelist / worldmount / A* 计数）")
+
+check("31_filelist：真列得出 prefabs（全 .lua）且 source 说得清来源", function()
+    local FL = require("host.31_filelist")
+    local names, src = FL.List(Core.SourceDir .. "/prefabs")
+    if type(names) ~= "table" then return false, "返回的不是表" end
+    if #names < 100 then
+        return false, "只列出 " .. #names .. " 个（prefabs 有 1500+ 个 .lua）"
+    end
+    for i = 1, #names do
+        if not names[i]:match("%.lua$") then
+            return false, "第 " .. i .. " 项不是 .lua：" .. tostring(names[i])
+        end
+    end
+    if not (src == "filelist" or src == "ls" or src == "dir") then
+        return false, "source 非法：" .. tostring(src)
+    end
+    return true, #names .. " 个文件名 / 来源=" .. src
+end)
+
+check("31_filelist 反向：目录不存在 ⇒ 空表 + source=none（**不许抛**）", function()
+    local FL = require("host.31_filelist")
+    local ok, names, src = pcall(FL.List, Core.SourceDir .. "/__no_such_dir__")
+    if not ok then return false, "抛了异常：" .. tostring(names) end
+    if type(names) ~= "table" then return false, "没返回表" end
+    if #names ~= 0 then return false, "居然列出了 " .. #names .. " 个" end
+    if src ~= "none" then return false, "source=" .. tostring(src) .. "（应为 none）" end
+    return true, "空表 / source=none（调用方据此 NoteGap，不会被静默骗）"
+end)
+
+check("30_worldmount：组件清单唯一（无重复）且含五个必需项", function()
+    local WM = require("host.30_worldmount")
+    local C = WM.COMPONENTS
+    if type(C) ~= "table" then return false, "COMPONENTS 不是表" end
+    local seen, dup = {}, nil
+    for _, nm in ipairs(C) do
+        if seen[nm] then dup = nm end
+        seen[nm] = true
+    end
+    if dup ~= nil then return false, "重复项：" .. dup end
+    local need = { "clock", "worldtemperature", "seasons", "shardstate", "worldreset" }
+    for _, nm in ipairs(need) do
+        if not seen[nm] then return false, "缺必需组件：" .. nm end
+    end
+    return true, #C .. " 个组件无重复 / 五个必需项齐全"
+end)
+
+check("30_worldmount 反向：W 为 nil ⇒ mounted=0 且 ok=false（不许假装挂上）", function()
+    local WM = require("host.30_worldmount")
+    local ok, out = pcall(WM.Mount, nil)
+    if not ok then return false, "抛了异常：" .. tostring(out) end
+    if out == nil then return false, "没返回结果表" end
+    if #out.mounted ~= 0 then return false, "居然挂上了 " .. #out.mounted .. " 个" end
+    if out.ok ~= false then return false, "ok=" .. tostring(out.ok) .. "（应为 false）" end
+    return true, "mounted=0 / ok=false（与「真挂上」可区分）"
+end)
+
+check("A* 计数：M7 的新计数器接在调试串上（预算 / 回收）", function()
+    local Map = require("host.20_map")
+    if type(Map.path_last_why) ~= "function" then
+        return false, "path_last_why 不是函数（诊断入口缺失）"
+    end
+    local PF = Map.Pathfinder
+    if PF == nil or PF.GetDebugString == nil then return false, "Pathfinder 缺 GetDebugString" end
+    local s = PF:GetDebugString(1)
+    if type(s) ~= "string" then return false, "GetDebugString 没返回字符串" end
+    if not s:find("预算") then return false, "调试串里没有「预算」计数：" .. s end
+    if not s:find("回收") then return false, "调试串里没有「回收」计数：" .. s end
+    return true, "调试串带预算与回收计数（M7 的 evicted/budget_hit 真的接出来了）"
+end)
+
 hr("汇总")
 --=========================================================================
 local nfail, nskip = 0, #skipped

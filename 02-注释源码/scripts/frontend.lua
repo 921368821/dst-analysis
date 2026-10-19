@@ -652,7 +652,7 @@ FrontEnd = Class(function(self, name)
 --   Update 里用 `< 0` 判断「尚未起跳」、用 `> dt` 判断「冷却中」。
 --   若初始化为 0，772行的 `SPINNER_REPEAT_TIME > dt and ... or 0`
 --   首次求值会走 or 分支拿到 0，语义混乱。
---   ⇒ -1 是一个明确��「无状态」哨兵。参见 769-772 的三段式。
+--   ⇒ -1 是一个明确的「无状态」哨兵。参见 769-772 的三段式。
 --────────────────────────────────────────────────────────────────
 	self.repeat_time = -1
 	self.repeat_reps = 0
@@ -1031,7 +1031,7 @@ end
 --   ③ global_error_widget ~= nil —— 错误弹窗已弹出（40 行）
 --
 -- ★★ 为什么 ① 用 `> 0` 而不是 `>= 1`？
---   因为 alpha 是连续变化的过渡量（648GetFadeLevel 返��它），
+--   因为 alpha 是连续变化的过渡量（648GetFadeLevel 返回它），
 --   淡入过程中 alpha 会从 1 降到 0，但**依然 > 0**，
 --   此时输入依然被冻结。→ **淡入完全结束的那一刻才解冻**。
 --   ⇒ 后果：玩家在淡入动画播完前按任何键都无效。
@@ -2486,7 +2486,7 @@ function FrontEnd:PushScreen(screen)
 --   ★ 推理：Screen 构造时默认可见（widget.lua:25 self.shown = true），
 --     所以不需要 Show。而 FadeBack（1075）在 PopScreen 之后
 --     显式调 TheFrontEnd:GetActiveScreen():Show() —— 说明确实存在
---     「屏��被 Hide 过」的状态（比如 FadeToScreen 的 1070 existing_screen:Hide()）。
+--     「屏幕被 Hide 过」的状态（比如 FadeToScreen 的 1070 existing_screen:Hide()）。
     -- screen:Show()
 -- ★★ `if not self.tracking_mouse then screen:SetDefaultFocus() end`
 --   ★ 语义：**只有当鼠标不跟随时**才立即给默认焦点。

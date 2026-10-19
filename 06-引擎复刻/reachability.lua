@@ -48,17 +48,10 @@ local SEED = tonumber(os.getenv("REACH_SEED")) or 20261015
 --=========================================================================
 local PF = Core.SourceDir .. "/prefabs"
 
+-- ★ M6：统一走 host/31_filelist（① Python 清单 → ② ls → ③ dir，三级降级）。
+--   原来这里是 `io.popen('dir /b ...')`，在没有 cmd.exe 的环境里会静默返回空表。
 local function listdir(dir)
-    local out = {}
-    local p = io.popen('dir /b "' .. dir:gsub("/", "\\") .. '" 2>nul')
-    if p then
-        for line in p:lines() do
-            local name = line:match("^%s*(.-)%s*$")
-            if name ~= "" and name:match("%.lua$") then out[#out + 1] = name end
-        end
-        p:close()
-    end
-    return out
+    return (require("host.31_filelist").List(dir))
 end
 
 local files = listdir(PF)

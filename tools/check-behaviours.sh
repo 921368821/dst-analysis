@@ -31,5 +31,13 @@ print(fn(open(r'$OUT/$n.lua',encoding='utf-8').read()))
 done
 "$NODE" "$TOOLS/verify-annotated.mjs" \
   "$DST_SRC" \
-  "$PROJECT_ROOT/dstsrc/scripts" | tail -3
+  "$PROJECT_ROOT/dstsrc/scripts"
+va=$?
+case $va in
+  0) echo "  关卡3 verify-annotated：✔ 通过" ;;
+  1) echo "  关卡3 verify-annotated：✘ 代码被改动（见上）"; fail=1 ;;
+  *) # 2 = 无法复验。★ 不能当通过：原版副本已丢失，$DST_SRC 退化成注释版本身，
+      #   这一关现在**没有判据**。吵出来，由 L4 的 pre-commit 决定是否阻断。
+      echo "  关卡3 verify-annotated：⊘ 无法复验（缺原版副本，见 M9）—— 本关不计通过" ;;
+esac
 exit $fail
