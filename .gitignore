@@ -34,6 +34,8 @@ __pycache__/
 .pytest_cache/
 _ws.json
 _*.tmp
+# preflight 的判定结果（每次自检重写；由 00_paths.lua 引用，不入库）
+/tools/.preflight-state
 
 # ---- ④ 编辑器 / 系统 ----
 .vscode/

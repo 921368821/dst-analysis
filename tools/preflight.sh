@@ -32,6 +32,14 @@ ROOT="$(cd "$HERE/.." && pwd)" || exit 2
 LINK="$ROOT/dstsrc"
 TARGET="$ROOT/02-注释源码"
 
+# ★ 判定结果的**落盘位置**（H3-5）
+#   为什么需要：`rel/host/00_paths.lua` 里那一句 Lua 错误是**最后一道**提示，
+#   但它没有 lfs，**判断不了目录是否存在**；而 `02-注释源码` 是中文路径，
+#   在 Windows 上连 io.open 都打不开 ⇒ 从 Lua 侧观察不出「本体在、只差联接」
+#   还是「本体也没有」。这里判得准（bash 的 -e/-d），就把结论写成两行给它引用。
+#   成功也写（code=ok）——否则上一次的失败原因会一直挂在那里误导人。
+STATE="$HERE/.preflight-state"
+
 QUIET=0
 FIX=0
 for a in "$@"; do
@@ -45,6 +53,12 @@ done
 
 say()  { [ "$QUIET" = "1" ] || echo "$@"; }
 fail() { echo "$@" >&2; }
+
+# --- 把判定结果写给 00_paths.lua 引用 -----------------------------------------
+# 行格式固定（Lua 侧按 `code=` / `why=` 取），why 里的换行压成空格
+record() {  # record <code> <why>
+    printf 'code=%s\nwhy=%s\n' "$1" "$(printf '%s' "${2:-}" | tr '\n' ' ')" > "$STATE" 2>/dev/null || true
+}
 
 # --- 找出「这台机器上能用的 python」（--fix 与路径转换只为 Windows 服务） ------
 _py() {
@@ -76,6 +90,7 @@ fix_hint() {
 # --- 核心判定 ----------------------------------------------------------------
 # 返回 0 = 可用；1 = 缺失（并把原因写进 _WHY）
 _WHY=""
+_CODE=""
 check_src() {
     local src=""
 
@@ -83,6 +98,7 @@ check_src() {
     if [ -n "${DST_SRC:-}" ]; then
         src="$DST_SRC"
         if [ ! -r "$src/components/health.lua" ]; then
+            _CODE="dst_src_bad"
             _WHY="DST_SRC=$src 已设置，但 $src/components/health.lua 不可读"
             return 1
         fi
@@ -94,8 +110,10 @@ check_src() {
     # ② 工程内的 ASCII 联接
     if [ ! -e "$LINK" ]; then
         if [ -e "$TARGET/scripts/components/health.lua" ]; then
+            _CODE="missing_link"
             _WHY="联接缺失：$LINK 不存在（但源码本体在 $TARGET —— 只差这一层联接）"
         else
+            _CODE="no_body"
             _WHY="源码缺失：$LINK 与 $TARGET/scripts 都不存在"
         fi
         return 1
@@ -104,8 +122,10 @@ check_src() {
     src="$LINK/scripts"
     if [ ! -r "$src/components/health.lua" ]; then
         if [ -e "$TARGET/scripts/components/health.lua" ]; then
+            _CODE="broken_link"
             _WHY="$LINK 存在，但它指不到源码（$LINK/scripts/components/health.lua 不可读）—— 联接可能已失效"
         else
+            _CODE="no_body"
             _WHY="$LINK 存在，但源码本体 $TARGET/scripts 也不存在"
         fi
         return 1
@@ -135,17 +155,28 @@ if os.path.exists(probe):
 if not os.path.isdir(target):
     print("preflight --fix：目标目录不存在：%s" % target, file=sys.stderr)
     sys.exit(1)
-# ★ 只清理「自己上一次留下的空壳」：非空目录一律不动（防止误删别人的东西）
-if os.path.isdir(link) and not os.path.islink(link):
-    if os.listdir(link):
-        print("preflight --fix：%s 是非空真实目录，拒绝覆盖" % link, file=sys.stderr)
-        sys.exit(1)
-    os.rmdir(link)
-elif os.path.islink(link) or os.path.exists(link):
+# ★ 只清理「自己上一次留下的空壳 / 失效联接」：非空真实目录一律不动（防误删）
+#   为什么不再用 os.remove 单打一：junction 在 Windows 上是**目录重解析点**，
+#   os.remove 对它抛 OSError 而代码又吞了它 ⇒ 后面 mklink 报「已存在」，
+#   表现得像「修不了」。实测：空壳 dstsrc 目录时 --fix 直接判「不可自愈」，
+#   而它打印的修法恰好就是 --fix 自己 —— 自相矛盾。
+def drop_link_only(p):
     try:
-        os.remove(link)
+        os.remove(p)              # 符号联接：只删这一层
+        return
     except OSError:
         pass
+    try:
+        os.rmdir(p)               # junction / 空目录：只删这层，不碰目标内容
+    except OSError as e:
+        raise RuntimeError("拒绝覆盖：%s 既不是可删的联接也不是空目录（%s）" % (p, e))
+
+if os.path.isdir(link) or os.path.islink(link) or os.path.exists(link):
+    try:
+        drop_link_only(link)
+    except RuntimeError as e:
+        print("preflight --fix：%s" % e, file=sys.stderr)
+        sys.exit(1)
 
 # ★★ 为什么用 junction 而不是 os.symlink（本轮实测踩到）：
 #   `os.symlink(..., target_is_directory=True)` 在这台机器上**返回成功**，
@@ -176,13 +207,24 @@ PYEOF
 # --- 主流程 ------------------------------------------------------------------
 if ! check_src; then
     if [ "$FIX" = "1" ]; then
-        # 只有「联接缺失但源码本体在」这一种能自愈；其余如实报错
-        if [ ! -e "$LINK" ] && [ -e "$TARGET/scripts/components/health.lua" ]; then
-            do_fix || { fail "✘ 环境自检失败：$_WHY"; fix_hint; exit 2; }
+        # 能自愈的两种：① 联接整个没了 ② 联接在但失效（空壳/指错）
+        # 其余（DST_SRC 指错、源码本体缺失、目录不全）如实报错，不猜着修。
+        if [ -e "$TARGET/scripts/components/health.lua" ] \
+           && { [ "$_CODE" = "missing_link" ] || [ "$_CODE" = "broken_link" ]; }; then
+            record "$_CODE" "$_WHY"
+            do_fix || {
+                record "$_CODE" "自愈失败（目标不可安全覆盖）：$_WHY"
+                fail "✘ 自愈失败：$_WHY"
+                fail ""
+                fix_hint
+                exit 2
+            }
             if ! check_src; then
+                record "$_CODE" "$_WHY"
                 fail "✘ 自愈后仍不可用：$_WHY"; fix_hint; exit 2
             fi
         else
+            record "$_CODE" "$_WHY"
             fail "✘ 环境自检失败（不可自愈）：$_WHY"
             fail ""
             fix_hint
@@ -190,6 +232,7 @@ if ! check_src; then
         fi
     else
         # ★ 一条判定，不抛 14 份栈
+        record "$_CODE" "$_WHY"
         fail "✘ 环境自检失败：$_WHY"
         fail "  探测位置：$LINK/scripts/components/health.lua"
         fail ""
@@ -205,10 +248,12 @@ for d in components prefabs brains; do
     [ -d "$_SRC/$d" ] || _missing="$_missing $d"
 done
 if [ -n "$_missing" ]; then
+    record "incomplete" "源码根 $_SRC 缺目录：$_missing"
     fail "✘ 环境自检失败：源码根 $_SRC 缺目录：$_missing"
     fail "  （只通了 health.lua，但 components/prefabs/brains 不全，后半程必然失败）"
     exit 2
 fi
 
+record "ok" "自检通过（$_SRC_KIND：$_SRC）"
 say "✔ 环境自检通过（$_SRC_KIND：$_SRC）"
 exit 0

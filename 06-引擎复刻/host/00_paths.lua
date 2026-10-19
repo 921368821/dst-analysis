@@ -142,6 +142,46 @@ function Paths.Candidates()
     return list
 end
 
+--- preflight 留下的判定（H3-5）：让「联接缺失」与「本体缺失」说两句不同的话
+--   为什么是「读文件」而不是「在这里自己判断」：
+--     纯 Lua 5.1 没有 lfs，**stat 不了一个目录**；而 `02-注释源码` 是中文路径，
+--     Windows 上连 io.open 都打不开 ⇒ 从 Lua 侧分不清「本体在、只差联接」与
+--     「本体也没有」这两件事。bash 的 -e/-d 分得清，所以由 `tools/preflight.sh`
+--     把结论写成两行（code= / why=），这里只负责引用。
+--   为什么读不到就退回「最可能」：失败路径上不能再引入一个新的失败点。
+--     preflight 每次跑都会重写（成功写 code=ok），所以陈旧判定最多影响这一次措辞。
+local function preflight_why()
+    local src = this_source()
+    local engine = src:find("/") and dirname(dirname(src)) or nil
+    local roots = {}
+    if engine then table.insert(roots, engine .. "/..") end
+    table.insert(roots, ".")
+    table.insert(roots, "..")
+    table.insert(roots, "../..")
+    for _, root in ipairs(roots) do
+        local f = io.open(collapse(root .. "/tools/.preflight-state"), "r")
+        if f then
+            local txt = f:read("*a") or ""
+            f:close()
+            local code = txt:match("code=([%w_]+)")
+            local why = txt:match("why=([^\r\n]*)")
+            if code and code ~= "ok" and why and why ~= "" then
+                return code, why
+            end
+            return nil
+        end
+    end
+    return nil
+end
+
+local PREFLIGHT_LABEL = {
+    missing_link = "**dstsrc 联接缺失**（源码本体在，只差这一层 ASCII 联接）",
+    broken_link  = "**dstsrc 联接存在但失效**（目录在，指不到源码）",
+    no_body      = "**源码本体就不可读**（不是联接问题，是文件真缺失/工作区不完整）",
+    dst_src_bad  = "**环境变量 DST_SRC 指错了目录**",
+    incomplete   = "**源码根目录不全**（缺 components/prefabs/brains）",
+}
+
 --- 解析出 DST 源码根目录；**找不到就 error**（列出所有试过的路径）
 function Paths.SourceDir()
     if Paths._src then return Paths._src end
@@ -169,9 +209,24 @@ function Paths.SourceDir()
             .. "\n    New-Item -ItemType Junction -Path \"<工程根>/dstsrc\" -Target \"<工程根>/02-注释源码\""
     end
 
+    -- ★ H3-5：先说**是哪一种**，再给修复命令（原来一律说「最可能缺联接」，
+    --   实测「联接存在但为空」时那句话是错的 —— 会把人引去重建一个本来就在的联接）
+    local diag
+    local code, why = preflight_why()
+    if code then
+        diag = "\n\n★ 环境自检判定（code=" .. code .. "）："
+            .. (PREFLIGHT_LABEL[code] or code)
+            .. "\n    现场： " .. why
+            .. "\n  ⇒ 这一条是 tools/preflight.sh 实测出来的，不是猜的。"
+    else
+        diag = "\n\n★ 最可能的原因：**工程根缺 dstsrc 联接**（它是指向 02-注释源码 的 ASCII 联接）。"
+            .. "\n  （还没跑过 tools/preflight.sh，只能给「最可能」；它能明确区分"
+            .. "\n   「联接缺失/失效」与「源码本体缺失」—— 别只凭这一句猜。）"
+    end
+
     error("找不到 DST 源码根目录（校验文件 components/health.lua 打不开）。\n"
         .. "试过以下路径：\n" .. table.concat(tried, "\n")
-        .. "\n\n★ 最可能的原因：**工程根缺 dstsrc 联接**（它是指向 02-注释源码 的 ASCII 联接）。"
+        .. diag
         .. "\n  先跑一次环境自检（一条判定 + 自动修复，不会启动 14 个入口）："
         .. "\n    bash <工程根>/tools/preflight.sh --fix"
         .. "\n\n处置：设环境变量 DST_SRC 指向「含 components/prefabs/brains 的那个 scripts 目录」，"
