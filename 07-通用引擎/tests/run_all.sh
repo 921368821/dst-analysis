@@ -35,6 +35,33 @@ cd "$ROOT" || exit 1
 #      行为与原来逐字一致、只是顺手写一份到日志。
 LOG="$ROOT/tests/_run_all.log"
 : > "$LOG" 2>/dev/null || true
+
+# ★★★ 运行锁（2026-10-20 实测事故）：两轮**并发**跑过一次，后果是**两轮都不可采信**：
+#   · 后起的一轮 `: > "$LOG"` 把前一轮已经写好的日志**清空**（上面这行本身没有锁保护）；
+#   · 两轮又各自 `tee -a` 追写，于是「⑤ 的组标题」下面跟着「② 的 A1 启动」；
+#   · 端口互撞（8791 两轮都要）⇒ 服务器互相顶掉，跑完留 3 个端口还在 LISTENING。
+#   ⇒ 并发不是「更快」，是**把现场毁掉**。锁用 `mkdir`（**原子**）实现 —— 文件+PID 的写法
+#     在「两轮同时启动」时会两边都以为自己拿到了锁。锁里记 PID + 起始时间，人为可读、可手删。
+LOCKD="$ROOT/tests/_run_all.lock.d"
+if ! mkdir "$LOCKD" 2>/dev/null; then
+    OLD_PID=$(sed -n 1p "$LOCKD/pid" 2>/dev/null)
+    OLD_TS=$(sed -n 2p "$LOCKD/pid" 2>/dev/null)
+    if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
+        printf '✘ 已有一轮全量在跑（PID %s，起始 %s）—— 没有并发跑\n' "$OLD_PID" "$OLD_TS"
+        printf '  并发跑会：清空 tests/_run_all.log / 互撞端口 8765·8791·8793·8799 / 留下服务器\n'
+        printf '  确认那一轮已结束：rm -rf %s\n' "$LOCKD"
+        exit 3
+    fi
+    printf '  （清掉残留锁：PID %s 已不在）\n' "${OLD_PID:-?}"
+    rm -rf "$LOCKD" 2>/dev/null
+    mkdir "$LOCKD" 2>/dev/null || { echo "✘ 抢不到锁 $LOCKD"; exit 3; }
+fi
+printf '%s\n%s\n' "$$" "$(date '+%Y-%m-%d %H:%M:%S')" > "$LOCKD/pid"
+trap 'rm -rf "$LOCKD"' EXIT INT TERM
+T0=$(date +%s)
+printf '══ run_all 开始 %s · PID %s · 参数 %s\n' \
+    "$(date '+%Y-%m-%d %H:%M:%S')" "$$" "${1:-（全量）}" >> "$LOG"
+
 # 跑一条命令：输出同时进 stdout 与日志，**返回命令自己的退出码**（不是 tee 的）
 run_step() {
     "$@" 2>&1 | tee -a "$LOG"
@@ -61,6 +88,29 @@ if [ "$GATE" != "0" ]; then
 fi
 
 . "$ROOT/../tools/env.sh" || exit 2
+# ★★ 源码洁净闸门（2026-10-20 实测事故）：
+#   ②f 的变异测试是「**把源码改坏** → 看判据红不红 → 还原」；还原写在 `finally` 里，
+#   而 `finally` 只在进程还活着时执行。任何硬中断（超时 / Ctrl-C / taskkill /F /
+#   整轮被审计脚本掐掉）都会让源码**停在篡改态**。实测现场：`rt/rt_boot.lua` 的
+#   `in_light_at` 停在 `if true then return true`、`player_state` 的 hunger 读成 max ——
+#   之后每一组都在这份**假源码**上跑，夜间光照 / 饥饿判据**全绿**，日志看着漂亮。
+#   ⇒ 两道：① 先跑 `falsify_server.py --heal`（有标记就按原文写回并大声说明）；
+#          ② 再看 git：`rt/` 与 `06-引擎复刻` 有没有未提交改动，有就要人明确放行。
+"$PY" -u "$ROOT/tests/falsify_server.py" --heal >/dev/null 2>&1 || \
+    printf '  ⚠ 自动还原没成功（可能是旧格式标记），下面按 git 状态判\n'
+DIRTY=$(git -C "$ROOT/.." status --porcelain -- "07-通用引擎/rt" "06-引擎复刻" 2>/dev/null)
+if [ -n "$DIRTY" ]; then
+    if [ "${RT_ALLOW_DIRTY_SRC:-0}" != "1" ]; then
+        printf '✘ 源码不干净（变异测试可能停在篡改态，或你正在改产品代码）：\n'
+        printf '%s\n' "$DIRTY" | sed 's/^/    /'
+        printf '  若确认是残留篡改：git -C "%s" checkout -- "07-通用引擎/rt" "06-引擎复刻"\n' "$ROOT/.."
+        printf '  若这些改动是你自己的：RT_ALLOW_DIRTY_SRC=1 bash tests/run_all.sh\n'
+        exit 4
+    fi
+    printf '  ⚠ RT_ALLOW_DIRTY_SRC=1：带着未提交的源码改动继续（这次结论只对你本地有意义）\n'
+fi
+# ★ 收尾卫生的基线：**跑之前**就已经在听的端口不算本次的账（人工起的开发服不背锅）
+"$PY" -u "$ROOT/tools/check_leftovers.py" --snapshot "$ROOT/tests/_leftovers.json" >/dev/null 2>&1 || true
 FAST=0
 [ "${1:-}" = "--fast" ] && FAST=1
 
@@ -240,12 +290,23 @@ fi
 
 cd "$ROOT" 2>/dev/null || true
 
+# ★ P50⑦：**收尾卫生**。上面 ③ 那组里有 `cd "$ENGINE"`，所以这一组必须放在回到 ROOT 之后。
+#   判据：本次用过的端口（8765 / 8790~8799）跑完必须都关掉；残留 ⇒ 判红并清理。
+#   为什么值得单列一组：残留服务器的输出**会继续追加进 tests/_run_all.log**（它握着 tee 的
+#   写端），日志「现场还在」这句话就被打脸了；而且下一轮会撞端口，红在不相干的地方。
+hr "⑥ 收尾：进程与日志卫生（本次用过的端口必须已关闭）"
+if run_step "$PY" -u "$ROOT/tools/check_leftovers.py" --verify "$ROOT/tests/_leftovers.json"; then :; else FAIL=1; fi
+
+ELAPSED=$(( $(date +%s) - T0 ))
 printf '\n'
 if [ "$FAIL" = "0" ]; then
-    echo "── 总判定：✔ 全部通过 ──"
+    VERDICT="✔ 全部通过"
 else
-    echo "── 总判定：✘ 有失败项 ──"
+    VERDICT="✘ 有失败项"
 fi
+# ★ 总判定**必须也进日志**：原来只用 echo 打到屏幕，于是打开日志看不到结论；
+#   两轮混写时更是分不清哪行才是最后一句。现在它是日志的最后一行。
+printf '── 总判定：%s（实测 %d s）──\n' "$VERDICT" "$ELAPSED" | tee -a "$LOG"
 # ★ 无论红绿都报日志路径：下次出现「某组没输出汇总行」这种偶发时，
 #   现场在文件里，不必靠重跑猜（重跑往往复现不出来）。
 echo "   完整日志：$LOG"

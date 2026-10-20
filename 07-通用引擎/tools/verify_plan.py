@@ -493,7 +493,29 @@ README_ROWS = {
     #   总分行（198→204）被工具抓住了，**行内那个 19 却一直是绿的**。
     #   这与「test_units.py 没进 TEST_FILES」是同一个病的两面：**缺登记**。
     "②k Python 模块级单测": "tests/test_units.py",
+    # ★★ 2026-10-20：这一行**此前也不在表里**，而且比 ②k 更糟 ——
+    #   `tests/test_client_batch.js` 的 8 条**进了「合计 204 项」，却没有任何一行显示它**：
+    #   读者把表里各行的数字加起来，永远对不上总计，而每一行又都是「对的」。
+    #   ⇒ 补行（README）＋ 补登记（这里）＋ 加一条**双表对齐**判据（见 crosscheck_registries）。
+    "①f Node 客户端真的用上批路径": "tests/test_client_batch.js",
 }
+
+
+def crosscheck_registries(test_files=None, rows=None):
+    """两张登记表必须**指向同一批文件**：`TEST_FILES`（算总数用）与 `README_ROWS`（显示用）。
+
+    ★★ 为什么值得一条判据（2026-10-20）：这两张表是同一件事的两份清单，
+      而「缺登记」已经在本工程咬了三次（`test_units` 没进 TEST_FILES、
+      README ②k 行没进 README_ROWS、`test_client_batch` 两边都没人提）。
+      每次的症状都一样：**数字全都是对的，只是有一份东西没人看见**。
+      单看任一张表都发现不了 —— 只有把它们**对起来**才看得见。
+    """
+    tf = set((test_files if test_files is not None else TEST_FILES).keys())
+    rv = {v for v in (rows if rows is not None else README_ROWS).values()
+          if not v.startswith("<")}          # `<mutations>` 不是文件，是条目数
+    bad = [("有测试文件、README 分组表没有对应行", f) for f in sorted(tf - rv)]
+    bad += [("README 分组表有行、但它的条数没进合计", f) for f in sorted(rv - tf)]
+    return bad
 
 
 def _rows_live_n(label):
@@ -537,6 +559,41 @@ def check_readme_rows(readme=None):
             hit("README.md", "分组表的项数不是数字", "%s → %r" % (label, cell), "实测 %d 项" % n)
         elif int(cell) != n:
             hit("README.md", "分组表的项数过期", "%s → %s" % (label, cell), "实测 %d 项" % n)
+
+
+def check_rows_present(readme=None, rows=None):
+    """`README_ROWS` 里登记过的每一行**都必须真的出现在 README 文本里**。
+
+    ★★ 2026-10-20 补：`check_readme_rows` 是「从 README 出发」遍历的 ——
+      于是「**整行不见了**」它看不见。实测 `tests/test_client_batch.js` 的 8 条
+      进了「合计 204 项」却没有任何一行显示它，而那条判据一直报 ✔。
+      ⇒ 必须再有一遍「**从登记表出发**」的遍历；否则「删掉一行」比「写错一行」更安全。
+    """
+    text = readme if readme is not None else read(os.path.join(ROOT, "README.md"))
+    want = rows if rows is not None else README_ROWS
+    labels = set()
+    for line in text.split("\n"):
+        m = re.match(r"\|\s*([①-⑳][a-z]?[^|]*?)\s*\|", line)
+        if m:
+            labels.add(m.group(1).replace("*", "").strip())
+    miss = [k for k in want if k not in labels]
+    for k in miss:
+        hit("README.md", "分组表**缺行**（登记表里有、README 里没有）", k,
+            "有测试文件却没有任何一行显示它")
+    return miss
+
+
+def check_registry_alignment():
+    """两张登记表对不齐 ⇒ 报出来（缺登记 / 多登记各算一条）。"""
+    for kind, f in crosscheck_registries():
+        hit("README.md", kind, f, "两张表必须指向同一批文件")
+
+
+def _selftest_crosscheck(test_files, rows, want):
+    """同 `_selftest_groups`：把「条数不对」变成一条记录，成对使用才有意义。"""
+    got = len(crosscheck_registries(test_files, rows))
+    if got != want:
+        hit("<selftest>", "双表对齐判据条数不对", "期望 %d 条" % want, "实测 %d 条" % got)
 
 
 def check_lua_format_percent(sources=None):
@@ -715,6 +772,22 @@ def selftest():
          dict(text="lua: x.lua:12: attempt to index a nil value", want="lua"), 0),
         ("归因**故意给错期望**时必须报（证明它真的判了）", _selftest_classify,
          dict(text="ModuleNotFoundError: No module named 'lupa'", want="lua"), 1),
+        # ---- 两张登记表必须指向同一批文件（缺登记咬过三次）----
+        ("双表对齐：一致时不得报", _selftest_crosscheck,
+         dict(test_files={"a.js": "A"}, rows={"x": "a.js"}, want=0), 0),
+        ("双表对齐：**有测试文件但 README 没行**必须报", _selftest_crosscheck,
+         dict(test_files={"a.js": "A", "b.js": "B"}, rows={"x": "a.js"}, want=1), 0),
+        ("双表对齐：**README 有行但没进合计**必须报", _selftest_crosscheck,
+         dict(test_files={"a.js": "A"}, rows={"x": "a.js", "y": "b.js"}, want=1), 0),
+        ("双表对齐：`<mutations>` 不是文件，不该误报", _selftest_crosscheck,
+         dict(test_files={"a.js": "A"}, rows={"x": "a.js", "y": "<mutations>"}, want=0), 0),
+        # ---- 「整行不见了」也要有人看得见（check_readme_rows 从 README 出发，看不见这个）----
+        ("分组表缺行：全部都在时不得报", check_rows_present,
+         dict(readme="\n".join("| %s | 1 | x |" % k for k in README_ROWS),
+              rows=README_ROWS), 0),
+        ("分组表缺行：**掉了一行**必须报", check_rows_present,
+         dict(readme="\n".join("| %s | 1 | x |" % k for k in list(README_ROWS)[1:]),
+              rows=README_ROWS), 1),
     ]
     # ★★★ 自检会产生一堆**假的**记录，必须只清掉这些、**绝不能碰真记录**。
     #   第一版写的是 `del HITS[:]` —— 而当时自检是在 `check_test_counts()` **之后**调的，
@@ -769,6 +842,8 @@ def main():
     check_duplicate_defs()
     check_doc_counts()
     check_readme_rows()
+    check_rows_present()
+    check_registry_alignment()
     check_lua_format_percent()
     check_artifacts()
     check_host()

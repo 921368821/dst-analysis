@@ -48,6 +48,13 @@ __pycache__/
 .pytest_cache/
 _ws.json
 _*.tmp
+# 2026-10-20（P50⑦）：全量入口的**运行期**副产物 —— 每轮覆盖，不该入库
+#   _leftovers.json   ：⑥ 组的基线快照（跑之前哪些端口在听）
+#   _run_all.lock.d/  ：运行锁（pid + 起始时间；进程被杀时会残留，靠 kill -0 判死自清）
+#   _falsify_inprogress.json：变异测试的「改坏了哪几个文件 + 原文」，中断后靠它自动还原
+/07-通用引擎/tests/_leftovers.json
+/07-通用引擎/tests/_run_all.lock.d/
+/07-通用引擎/tests/_falsify_inprogress.json
 # preflight 的判定结果（每次自检重写；由 00_paths.lua 引用，不入库）
 /tools/.preflight-state
 

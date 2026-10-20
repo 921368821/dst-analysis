@@ -230,6 +230,9 @@ def main():
     ap.add_argument("--check-anchors", action="store_true",
                     help="★ 只静态检查「每条篡改的锚点串在目标文件里恰好出现 1 次」，"
                          "不改文件、不跑测试（重构之后先跑这个，几秒出结果）")
+    ap.add_argument("--heal", action="store_true",
+                    help="★ 只做一件事：把「上一次被硬中断」留在源码里的篡改按标记还原掉，"
+                         "不跑任何测试。给 run_all 开头用（否则 ①~②e 全在**假源码**上跑）")
     a = ap.parse_args()
 
     # ★★ 开机第一件事：把「上一次被掐掉」留下的篡改还原掉（见 heal_leftover 的注释）。
@@ -238,6 +241,13 @@ def main():
     if not heal_leftover():
         print("    本轮**不执行任何篡改**（在脏源码上跑出来的结论没有意义）。")
         return 2
+    # ★ 2026-10-20：`--heal` 只做到这里就返回 —— 让 `run_all` 能在**开跑前**调用它。
+    #   原来还原只发生在 ②f 这一组，于是被中断过的源码会先被 ①~②e 当成真代码跑一遍
+    #   （实测：`in_light_at` 停在 `if true then return true`，夜间光照的判据**全绿**）。
+    if a.heal:
+        print("  ✔ 源码已确认干净（没有待还原的篡改）")
+        return 0
+
 
     # ★ M4 教训：拆文件 / 改实现会让锚点**悄悄失效**。
     #   以前只能在跑完一整轮（每条都要起服务端、跑子集测试，几十分钟）之后
