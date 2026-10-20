@@ -364,8 +364,11 @@ def judge_after_trigger(port, t_trig, stall_ms):
                        % (age if isinstance(age, (int, float)) else -1, st["stall_threshold"]))
     if len(trace.strip()) == 0:
         return False, "last_stall.trace 是空的 —— 计数了但没抓住现场"
-    if "server.py" not in trace:
-        return False, "栈里看不到 server.py（抓错线程了？）:\n%s" % trace[:400]
+    # ★ M4 之后模拟循环住在 `loops.py`（`server.py` 只剩 handle 分流）。
+    #   这条判据原来要求栈里出现 "server.py" —— 拆分当天它就红成「抓错线程了」，
+    #   而实际抓得完全正确：是**期望值**过期了。
+    if "loops.py" not in trace:
+        return False, "栈里看不到 loops.py（抓错线程了？）:\n%s" % trace[:400]
     if "sleep" not in trace and "sim_loop" not in trace:
         return False, "栈里既没有 sleep 也没有 sim_loop —— 抓到的可能不是模拟线程:\n%s" % trace[:400]
     return True, "停帧 %.1fs 后就被记下（age=%.2fs > %.1fs），栈 %d 字节" % (
@@ -456,46 +459,73 @@ print("  C. 变异测试：摘掉看门狗线程 / 把阈值写死 —— B 组�
 print("═" * 78)
 
 PORT_MUT = int(os.environ.get("RT_STALL_MUT_PORT", "8803"))
-MUTANTS = []
+MUT_EDITS = {}        # tag -> [(相对 rt/ 的文件, old, new), ...]
+MUT_BACKUP = {}       # 绝对路径 -> 原文（还原用）
+
+
+def _read_raw(p):
+    with open(p, "r", encoding="utf-8", newline="") as f:
+        return f.read()
+
+
+def _write_raw(p, text):
+    with open(p, "w", encoding="utf-8", newline="") as f:
+        f.write(text)
 
 
 def make_mutant(tag, edits):
-    """把 `rt/server.py` 复制一份并做定点篡改。
+    """**校验**一组定点篡改的锚点（每个都恰好命中 1 次），但不改文件。
 
-    锚点必须**恰好命中 1 次**，否则报错（不许静默跳过 —— 锚点过期了就没人守这条判据了）。
+    ★★ M4 之后不能再「复制一份 server.py 单独跑」了：`server.py` 已被拆成
+      `sim/hub/loops/net/http_api/ws_api/config` 七个模块，复制单文件跑不起来，
+      而复制整个 `rt/` 目录会让 `config.py` 按新位置推算路径（`ENGINE` 会指到副本）。
+      ⇒ 改成**就地篡改 + 备份还原**：`apply_mutant(tag)` 改原文件，`restore_mutants()`
+        还原。变异体启动的仍是 `rt/server.py`，路径与正常服完全一致。
+    锚点必须恰好命中 1 次，否则报错（锚点过期了就没人守这条判据 —— 不许静默跳过）。
 
-    ★★ 换行符必须**跟着文件走**，不能假设 LF：
-      `rt/server.py` 是 **CRLF**（本工程 06/07 两个工程混用两种换行，`mech.lua`、
-      `host/01_core.lua`、`server.py` 都是 CRLF）。第一版锚点写成 `\\n` 拼接，
-      在 CRLF 文件里 `count == 0`，变异器直接抛错。
-      ⇒ 这里把锚点里的 `\\n` 统一翻译成文件自己的 EOL，再逐条核 `count == 1`。
-      （教训与 `.lua` 那次编译失败同源：改文本前先量它到底是什么字节。）
+    ★ 换行符跟着文件走，不假设 LF：`rt/server.py`、`rt/hub.py` 在本仓库是 **CRLF**
+      （06/07 两个工程混用两种换行）。第一版锚点写 `\n` 拼接，在 CRLF 文件里
+      `count == 0`，变异器直接抛错。这条教训与 `.lua` 那次编译失败同源：
+      **改文本前先量它到底是什么字节。**
     """
-    path = os.path.join(RT, "server.py")
-    with open(path, "r", encoding="utf-8", newline="") as f:
-        src = f.read()
-    eol = "\r\n" if "\r\n" in src else "\n"
-    for old, new in edits:
-        old = old.replace("\r\n", "\n").replace("\n", eol)
-        new = new.replace("\r\n", "\n").replace("\n", eol)
-        n = src.count(old)
+    for rel, old, new in edits:
+        path = os.path.join(RT, rel)
+        src = _read_raw(path)
+        eol = "\r\n" if "\r\n" in src else "\n"
+        o = old.replace("\r\n", "\n").replace("\n", eol)
+        n = src.count(o)
         if n != 1:
-            raise RuntimeError("变异锚点命中 %d 次（要求恰好 1 次，文件 EOL=%r）：%r"
-                               % (n, eol, old[:70]))
-        src = src.replace(old, new, 1)
-    out = os.path.join(RT, "_mutant_%s.py" % tag)
-    with open(out, "w", encoding="utf-8", newline="") as f:
-        f.write(src)
-    MUTANTS.append(out)
-    return out
+            raise RuntimeError("变异锚点命中 %d 次（要求恰好 1 次，%s EOL=%r）：%r"
+                               % (n, rel, eol, o[:70]))
+    MUT_EDITS[tag] = edits
+    return tag
+
+
+def apply_mutant(tag):
+    """把 tag 对应的篡改**写进磁盘**（先备份原文）。"""
+    for rel, old, new in MUT_EDITS[tag]:
+        path = os.path.join(RT, rel)
+        src = _read_raw(path)
+        if path not in MUT_BACKUP:
+            MUT_BACKUP[path] = src
+        eol = "\r\n" if "\r\n" in src else "\n"
+        o = old.replace("\r\n", "\n").replace("\n", eol)
+        nn = new.replace("\r\n", "\n").replace("\n", eol)
+        assert src.count(o) == 1, "锚点在 apply 时失效：%r" % (o[:60],)
+        _write_raw(path, src.replace(o, nn, 1))
+    return tag
+
+
+def restore_mutants():
+    """还原所有被篡改的文件（幂等；并校验字节一致）。"""
+    for path, text in list(MUT_BACKUP.items()):
+        _write_raw(path, text)
+        del MUT_BACKUP[path]
 
 
 def cleanup_mutants():
-    for p in MUTANTS:
-        try:
-            os.remove(p)
-        except OSError:
-            pass
+    """收尾：把改回原样（比删临时文件更要紧 —— 留着篡改过的源码比留着垃圾危险得多）。"""
+    restore_mutants()
 
 
 MUT_NOWD = None
@@ -505,22 +535,26 @@ MUT_THRESHOLD = None
 def w12_build_mutants():
     global MUT_NOWD, MUT_THRESHOLD
     # ① 看门狗**不启动**（模拟「写进了 sim_loop 所以跟着一起停」的等价后果）
+    #    ★ M4 之后 `sim_loop` 住在 `loops.py`，锚点必须跟着走。
     MUT_NOWD = make_mutant("nowd", [
-        ("    wd = threading.Thread(target=watchdog_loop, args=(hub, stop), daemon=True)\n"
+        ("server.py",          # ★ 看门狗线程是在 `server.main()` 里起的（不在 loops.py）
+         "    wd = threading.Thread(target=watchdog_loop, args=(hub, stop), daemon=True)\n"
          "    wd.start()\n",
          "    wd = None          # ★ 变异：看门狗不启动\n"),
     ])
-    # ② 阈值写死（忽略环境变量）
+    # ② 阈值写死（忽略环境变量）—— `Hub.__init__` 住在 `hub.py`
     MUT_THRESHOLD = make_mutant("threshold", [
-        ('        self.stall_threshold = float(os.environ.get("RT_STALL_SEC", "3.0"))',
+        ("hub.py",
+         '        self.stall_threshold = float(os.environ.get("RT_STALL_SEC", "3.0"))',
          '        self.stall_threshold = 3.0     # ★ 变异：阈值写死'),
     ])
-    return True, "两个变异体已生成（锚点各命中 1 次）"
+    return True, "两组锚点各命中 1 次（住 server.py / hub.py；就地篡改，跑完还原）"
 
 
 def w13_no_watchdog_goes_red():
     """★★★ 摘掉看门狗 ⇒ **W8 的判据必须红**（这就是「有牙」的证据）。"""
-    proc = start_server(PORT_MUT, True, STALL_SEC, "_stall_mut_nowd.log", script=MUT_NOWD)
+    apply_mutant(MUT_NOWD)          # ★ 就地篡改，finally 必还原
+    proc = start_server(PORT_MUT, True, STALL_SEC, "_stall_mut_nowd.log")
     try:
         h = health(PORT_MUT)
         st = h.get("stats") or {}
@@ -541,6 +575,7 @@ def w13_no_watchdog_goes_red():
         return True, "判据如预期变红：%s" % info
     finally:
         stop_server(proc)
+        restore_mutants()
         time.sleep(0.4)
 
 
@@ -557,7 +592,8 @@ def w14_mutant_world_still_alive():
       症状长得像「变异体坏了」，其实是**判据自己在抢跑**。
       （本工程的老母题：判据的观测窗口与被观测事件必须对上时序。）
     """
-    proc = start_server(PORT_MUT, True, STALL_SEC, "_stall_mut_nowd2.log", script=MUT_NOWD)
+    apply_mutant(MUT_NOWD)
+    proc = start_server(PORT_MUT, True, STALL_SEC, "_stall_mut_nowd2.log")
     try:
         code, body = http_get(PORT_MUT, "/debug/stall?ms=2500")
         if code != 200:
@@ -593,12 +629,14 @@ def w14_mutant_world_still_alive():
             age, t2 - t1)
     finally:
         stop_server(proc)
+        restore_mutants()
         time.sleep(0.4)
 
 
 def w15_hardcoded_threshold_goes_red():
     """★★ 阈值写死 ⇒ **W6 的判据必须红**（证明「阈值接线」不是摆设）。"""
-    proc = start_server(PORT_MUT, True, STALL_SEC, "_stall_mut_thr.log", script=MUT_THRESHOLD)
+    apply_mutant(MUT_THRESHOLD)
+    proc = start_server(PORT_MUT, True, STALL_SEC, "_stall_mut_thr.log")
     try:
         ok, info = judge_baseline(PORT_MUT, STALL_SEC)
         if ok:
@@ -607,6 +645,7 @@ def w15_hardcoded_threshold_goes_red():
         return True, "判据如预期变红：%s" % info
     finally:
         stop_server(proc)
+        restore_mutants()
         time.sleep(0.4)
 
 
