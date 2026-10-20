@@ -571,16 +571,53 @@ class Sim:
         return d["ticks"], len(d["events"]), os.path.getsize(path)
 
     def try_load(self, path):
-        """启动时读档。**读不了就明确报出来并继续用新世界**（不静默、也不拒绝启动）。"""
+        """启动时读档。**读不了就明确报出来并继续用新世界**（不静默、也不拒绝启动）。
+
+        ★★ 2026-10-20：读不动的时候**先把坏档挪走**（`<path>.bad-<时间戳>`），
+          再继续用新世界。为什么必须挪：
+            自动存档是**覆盖写**，而它在 30 s 后就会发生 ⇒ 如果只是「报一句然后继续」，
+            那份坏档会在**半分钟内被新世界覆盖掉**，症状、时间点、内容全部消失，
+            之后再想问「它到底坏在哪」已经**没有证据**了。
+          这与本工程的纪律一致：**失败要吵，而且吵完现场还得在**。
+          挪不动（只读目录 / 文件被占用）就只报告、不改文件 —— 不许因为清理失败而拒绝启动。
+        """
         if not os.path.isfile(path):
             return False, "没有存档文件（新世界）"
         try:
             with io.open(path, encoding="utf-8") as f:
                 data = json.load(f)
         except Exception as e:                                   # noqa: BLE001
-            return False, "存档读不动（%s: %s）—— 已改用新世界" % (type(e).__name__, e)
+            moved = self._quarantine(path)
+            return False, "存档读不动（%s: %s）—— %s" % (
+                type(e).__name__, e,
+                ("已隔离为 %s，原文件不会再被覆盖；改用新世界" % moved) if moved
+                else "改用新世界（**隔离失败，原文件保持不动**，请手工备份）")
         ok, msg = self.save_apply(data)
-        return ok, ("已读档：" + msg) if ok else ("存档被拒（%s）—— 已改用新世界" % msg)
+        if ok:
+            return True, "已读档：" + msg
+        moved = self._quarantine(path)
+        return False, "存档被拒（%s）—— %s" % (
+            msg, ("已隔离为 %s；改用新世界" % moved) if moved
+            else "改用新世界（**隔离失败，原文件保持不动**，请手工备份）")
+
+    @staticmethod
+    def _quarantine(path):
+        """把读不动的存档改名留证，返回新文件名；失败返回 None。
+
+        名字带**时间戳 + 序号**：同一秒内连续坏两次时不许互相覆盖（`-1`、`-2`…）。
+        """
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        for i in range(100):
+            cand = "%s.bad-%s%s" % (path, stamp, "" if i == 0 else "-%d" % i)
+            if os.path.exists(cand):
+                continue
+            try:
+                os.replace(path, cand)
+                return os.path.basename(cand)
+            except OSError as e:                                 # noqa: BLE001
+                print("  ⚠ 存档隔离失败（%s）：%s" % (cand, e))
+                return None
+        return None
 
     # ---------- 存档（P3 / M5）----------
     def save_collect(self):

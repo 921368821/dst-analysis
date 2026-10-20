@@ -24,7 +24,11 @@
 
 跑法：
     cd 07-通用引擎 && python tests/test_units.py
-退出码：0 = 全绿
+    ★ U6/U7 要 lupa。**随便找个 python 跑会缺包**（实测 `versions/3.13.12/python.exe`
+      没装 lupa、`envs/default` 里有 2.8）⇒ 缺 lupa 的用例报「跳过」而**不是失败**，
+      并把这句提示打出来。想跑全集就用 env.sh 解析出的 PY：
+      bash -c '. ../tools/env.sh >/dev/null; "$PY" -u tests/test_units.py'
+退出码：0 = 全绿（**跳过不算绿，但也不判红**，汇总行会单独报数）；1 = 有失败
 """
 import os
 import sys
@@ -34,14 +38,43 @@ ROOT = os.path.dirname(HERE)                 # 07-通用引擎
 RT = os.path.join(ROOT, "rt")
 sys.path.insert(0, RT)
 
-PASS, FAIL = 0, 0
+PASS, FAIL, SKIP = 0, 0, 0
 RESULTS = []
 
 
+class Skip(Exception):
+    """用例**跑不了**（环境缺依赖 / 平台不支持）—— 与「跑失败了」是两种结论。
+
+    ★★ 为什么要这个类（2026-10-20 实测）：用 `versions/3.13.12/python.exe`
+      （没装 lupa）跑本文件，U6/U7 报 `No module named 'lupa'`，
+      而汇总行写的是「39 通过 / 2 失败」——**环境缺失被打成了代码失败**。
+      与 H3（缺 lupa 那次 `verify_plan` 报「文档数字过期」）是同一个错：
+      把「我这台机器少个包」说成「你的东西是错的」。
+      ⇒ 单独立一类结论：跳过，并**显式计数**（跳过绝不并进「通过」）。
+    """
+
+
+def need_lupa():
+    """缺 lupa 就 Skip，并把**当前解释器**写进原因（换 python 是用户能自己做的事）。
+
+    ★ 用 `find_spec` 而不是 `import lupa`：后者会被 pyflakes 判成
+      「imported but unused」（它不认 `# noqa`），而这里本来也只想问「在不在」。
+    """
+    import importlib.util
+    if importlib.util.find_spec("lupa") is None:
+        raise Skip("缺 lupa（当前解释器 %s 没装；用 tools/env.sh 解析出的 PY 跑）"
+                   % sys.executable)
+
+
 def check(name, fn):
-    global PASS, FAIL
+    global PASS, FAIL, SKIP
     try:
         ok, info = fn()
+    except Skip as e:
+        RESULTS.append((name, None, str(e)))
+        SKIP += 1
+        print("  ⚠ %-58s 跳过：%s" % (name, e))
+        return
     except Exception as e:                                       # noqa: BLE001
         import traceback
         ok, info = False, "抛异常: %s" % e
@@ -123,6 +156,7 @@ def u5_lua_to_py_primitives():
 
 def u6_lua_to_py_table():
     """真 `_LuaTable` 必须转成 list/dict —— 这是 /healthz 与存档能 dumps 的前提。"""
+    need_lupa()
     from lupa import LuaRuntime
     from hub import lua_to_py
     import json
@@ -137,6 +171,7 @@ def u6_lua_to_py_table():
 
 def u7_lua_to_py_depth_guard():
     """反向：自引用表**不许**把递归踩穿（踩穿 = 进程崩，不是异常）。"""
+    need_lupa()
     from lupa import LuaRuntime
     from hub import lua_to_py
     L = LuaRuntime(unpack_returned_tuples=True)
@@ -833,6 +868,73 @@ def u38_slots_html_escapes():
             "仍在——没转义" if raw_tag else "不存在", _esc("<b>&"))
 
 
+def u39_bad_save_is_quarantined():
+    """读不动的存档必须**挪走留证**，不许留在原地等着被自动存档覆盖。
+
+    ★★ 为什么（2026-10-20）：`try_load` 原来只是「报一句然后继续用新世界」，
+      而自动存档 30 s 后就会**覆盖写**同一个路径 ⇒ 坏档在半分钟内消失，
+      症状/时间点/内容全没了。修法是先改名成 `<path>.bad-<时间戳>`。
+      这条判据同时断言「原路径已不存在」——否则等于没挪。
+    """
+    import io as _io
+    import os as _os
+    import tempfile
+    from sim import Sim
+    d = tempfile.mkdtemp(prefix="badsave_")
+    p = _os.path.join(d, "s.json")
+    try:
+        with _io.open(p, "w", encoding="utf-8") as f:
+            f.write("{ 这不是 json")
+        ok, msg = Sim(seed=1, tick_hz=30).try_load(p)
+        left = sorted(_os.listdir(d))
+        moved = [n for n in left if ".bad-" in n]
+        still = _os.path.exists(p)
+        # ★ 每条都要**实测**后再拼文案。第一版把 `good` 写成 and 链、
+        #   info 里写死「原文件已不存在」——变异（不让它挪）时 and 链在 `moved` 处
+        #   就短路了，`not exists(p)` 根本没求值，可打印的却是「已不存在」。
+        #   与「词在≠行为在」同源：**证据文本必须是量出来的，不是写好的**。
+        in_msg = bool(moved) and moved[0] in msg
+        good = bool(ok is False and moved and not still and in_msg)
+        return good, "隔离=%s；原路径=%s；消息带文件名=%s" % (
+            ("已挪成 %s" % moved[0]) if moved else "**没挪**",
+            "仍在" if still else "已不存在",
+            "是" if in_msg else "否")
+    finally:
+        import shutil
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def u40_quarantine_names_do_not_collide():
+    """同一秒内连坏两次，隔离文件名不许互相覆盖（`-1`、`-2`…）。
+
+    ★ 注意这里必须用「每轮快照做差集」拿新文件，不能写 `n not in names`——
+      `names` 是**列表的列表**，拿字符串去 `in` 它永远为 False，
+      于是第二轮会把第一轮的文件也再收一遍，总数变 3、判据假红。
+    """
+    import io as _io
+    import os as _os
+    import tempfile
+    from sim import Sim
+    d = tempfile.mkdtemp(prefix="badsave2_")
+    try:
+        seen = set()
+        fresh = []
+        for _ in range(2):
+            p = _os.path.join(d, "s.json")
+            with _io.open(p, "w", encoding="utf-8") as f:
+                f.write("坏")
+            ok, msg = Sim(seed=1, tick_hz=30).try_load(p)
+            now = {n for n in _os.listdir(d) if ".bad-" in n}
+            fresh.append(sorted(now - seen))
+            seen |= now
+        flat = [n for sub in fresh for n in sub]
+        good = len(flat) == 2 and len(set(flat)) == 2 and all(len(s) == 1 for s in fresh)
+        return good, "两轮各新增 1 个、共 2 个不同文件名：%r" % (flat,)
+    finally:
+        import shutil
+        shutil.rmtree(d, ignore_errors=True)
+
+
 # =============================================================================
 # 汇总
 # =============================================================================
@@ -895,9 +997,17 @@ def main():
 
     print("\n── sim.py：构造期纪律 ──")
     check("U11 反向：Sim() 构造期不建 LuaRuntime", u11_sim_ctor_touches_no_lua)
+    check("U39 反向：坏存档被隔离（原路径不再被覆盖）", u39_bad_save_is_quarantined)
+    check("U40 反向：同秒连坏两次不互相覆盖", u40_quarantine_names_do_not_collide)
 
     print("\n" + "─" * 78)
-    print("  结果：%d 通过 / %d 失败（共 %d 条）" % (PASS, FAIL, PASS + FAIL))
+    total = PASS + FAIL + SKIP
+    if SKIP:
+        print("  结果：%d 通过 / %d 失败 / %d 跳过（共 %d 条）" % (PASS, FAIL, SKIP, total))
+        skipped = [n for (n, ok, _i) in RESULTS if ok is None]
+        print("  ⚠ 跳过**不算通过**：本次结论不覆盖 %s" % "、".join(s.split(" ")[0] for s in skipped))
+    else:
+        print("  结果：%d 通过 / %d 失败（共 %d 条）" % (PASS, FAIL, total))
     print("─" * 78)
     return 0 if FAIL == 0 else 1
 
