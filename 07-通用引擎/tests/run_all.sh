@@ -158,8 +158,31 @@ run_step() {
         printf '  (dry-run) %s\n' "$*"
         return 0
     fi
-    "$@" 2>&1 | tee -a "$LOG"
-    local rc=${PIPESTATUS[0]}
+    # ★★ P50㉔：**一边等、一边打心跳**。原来只在每组开头（hr()）打一次，
+    #   于是「父 shell 死了、这一组的子进程还在跑」的一整段里 beat 是停的 ——
+    #   阈值只能靠「2 × 最长单组」去兜（§9bc），而那是余量不是证明。
+    #   现在子进程活着就每 15 s 打一拍，残活期也有心跳。
+    #   ★ 两个已知坑，都已隔离实验过（见 backlog P23）：
+    #     ① 不能改成 `| tee` + 后台：那样拿不到 PIPESTATUS。改用**进程替换**（> >(tee)），
+    #        rc 由 `wait $pid` 给回来 —— 实测 0/3/7 都正确；
+    #     ② 当年 `exec > >(tee)` 因为时序吞过 stdout。这里实测 3×20000 行，
+    #        wait 返回时日志已写满（尾行不丢）。
+    "$@" > >(tee -a "$LOG") 2>&1 &
+    local _pid=$! _rc=0
+    while kill -0 "$_pid" 2>/dev/null; do
+        date +%s > "$BEAT" 2>/dev/null || true
+        # ★ 15 s 切成 15 个 1 s 段，每段前先看一眼进程还在不在。
+        #   原来直接 `sleep 15`：一个 0.1 s 就结束的步骤也要睡满 15 s（实测 15585 ms）。
+        #   run_step 是**每步**调用的 ⇒ 一轮几十步，白扔几百秒，还会把 groupmax 写虚高。
+        local _w=0
+        while [ "$_w" -lt 15 ]; do
+            kill -0 "$_pid" 2>/dev/null || break
+            sleep 1
+            _w=$(( _w + 1 ))
+        done
+    done
+    wait "$_pid"; _rc=$?
+    local rc=$_rc
     return $rc
 }
 
