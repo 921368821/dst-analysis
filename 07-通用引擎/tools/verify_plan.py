@@ -356,6 +356,20 @@ def collect_ids():
     return ids
 
 
+# ★ P50㉓：**这条判据的假阳性面**。规则认「反引号 + 纯编号」= 引用测试编号，
+#   而文档里也会用反引号写 **shell 变量名**。已实测撞过一次：
+#   开发计划 §9bc 里写 `T0`（组计时起点）⇒ 判据报「引用了不存在的测试编号 T0」，
+#   提交闸门直接拦下。
+#   为什么不靠「收紧正则」：真实编号里 `A1` / `C2` / `M8` / `U44` 都是一位数字，
+#   把 `\d{1,3}` 改成 `\d{2,3}` 会把一大批真编号的引用**漏报**（判据变松 = 更坏）。
+#   所以用**白名单**：只登记「确实是变量名、且长得像编号」的极少数几个。
+#   ★ 加白名单条目的门槛：必须能说清「它在哪份文档里、是什么东西」，
+#     且必须是**变量/字段名**，不许用来豁免写错的测试编号。
+NON_ID_TOKENS = {
+    "T0",   # run_all.sh 的组计时起点（脚本变量）；见 开发计划 §9bc.3
+}
+
+
 def check_test_ids(plan_text=None, idmap=None):
     """★ 测试编号纪律（2026-10-16 加）——两条，都是**零假阳性**的硬判据：
 
@@ -363,6 +377,8 @@ def check_test_ids(plan_text=None, idmap=None):
           一旦两个测试共用一个编号，「引用的到底是哪条」就没人能确定了。
           —— 与「数字会被机械核对、形容词不会」是同一类：**能被引用的东西必须唯一**。
        ② **文档里**反引号包起来的单编号（形如 `` `A17` ``）**必须真的存在**。
+          例外：`NON_ID_TOKENS` 里登记过的（那是**变量名**，不是编号）；
+          这条例外是实测撞出来的假阳性，不是预防性设计（见该常量的注释）。
           只认「反引号 + 纯编号」这种无歧义写法，避免正文里的 `A3` 之类误报。
 
     ★ 两个参数只为**规则自检**（`--selftest`）留的注入点：给合成输入就能证明规则真的会响。
@@ -378,7 +394,7 @@ def check_test_ids(plan_text=None, idmap=None):
     live = "\n".join(l for l in src.split("\n") if "当时值" not in l)
     cited = set(re.findall(r"`([A-Z]{1,2}\d{1,3}[a-z]?)`", live)) | \
             set(re.findall(r"`(TC\d{1,3})`", live))
-    missing = sorted(c for c in cited if c not in ids)
+    missing = sorted(c for c in cited if c not in ids and c not in NON_ID_TOKENS)
     for c in missing:
         hit("开发计划.md", "引用了不存在的测试编号", c, "已存在的编号共 %d 个" % len(ids))
     return ids
@@ -923,6 +939,13 @@ def selftest():
          dict(plan_text="A3 那条测过", idmap={"A1": ["x.js"]}), 0),
         ("TC 组号也算在册（06 那边）", check_test_ids,
          dict(plan_text="见 `TC25`", idmap={"TC25": ["06/tests.lua"]}), 0),
+        # ★ P50㉓ 实测撞出来的假阳性：文档里用反引号写 shell 变量 `T0`（组计时起点）
+        #   ⇒ 判据报「引用了不存在的测试编号 T0」，提交闸门直接拦下。
+        ("反引号里的 shell 变量名不该误报", check_test_ids,
+         dict(plan_text="组计时起点 `T0`，与编号无关", idmap={"A1": ["x.js"]}), 0),
+        # ★ 白名单只豁免登记过的那个词，不能顺手把「长得像编号的真缺号」也放过
+        ("白名单不得掩盖真的缺号", check_test_ids,
+         dict(plan_text="见 `T12`", idmap={"A1": ["x.js"]}), 1),
         # ---- 重复定义（静默死代码）----
         ("Python 同名函数定义两次必须报", check_duplicate_defs,
          dict(sources={"x.py": "def f():\n    pass\n\n\ndef f():\n    return 1\n"}), 1),
