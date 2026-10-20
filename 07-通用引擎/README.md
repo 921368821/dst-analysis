@@ -48,7 +48,7 @@ python rt/server.py --replay deploy/logs/run.json --seed 20261015
 |---|---|
 | `开发计划.md` | **总文档**：架构 / 模块 / 阶段 P0~P8 / 每阶段实测结果 / 决策与踩坑（含「不做」的理由） |
 | `rt/rt_boot.lua` | **常驻** Lua 入口：复用 `06-引擎复刻/host/*`，暴露 `step/set_input/snapshot/save_*/terrain/world_state` |
-| `rt/server.py` | **入口与路由**（M4 拆分后 341 行）：`Handler` 按 `Upgrade` 头分流 HTTP / WS + `require_sources` + `main`。⚠️ 所有 HTTP 端点都是**只读**语义：非 `GET` 一律 `405 + Allow: GET`（**方法校验早于路径匹配**，所以 `POST /debug/kill` 也是 405，不是 404） |
+| `rt/server.py` | **入口与路由**（M4 拆分后 **313 行**）：`Handler` 按 `Upgrade` 头分流 HTTP / WS + `main`（`require_sources` 已随 M4 移到 `config.py`，这里只转出）。⚠️ 所有 HTTP 端点都是**只读**语义：非 `GET` 一律 `405 + Allow: GET`（**方法校验早于路径匹配**，所以 `POST /debug/kill` 也是 405，不是 404） |
 | `rt/sim.py` | `Sim`：**唯一** LuaRuntime + 固定步长；快照编码 / 指纹 / 存档收集（**只有模拟线程能碰**） |
 | `rt/hub.py` | `Hub`：跨线程**唯一**交汇点（一把锁 + 最新帧 + 心跳 + 限流计数）+ `/status` 模板 + `lua_to_py` |
 | `rt/loops.py` | `sim_loop`（固定步长推进 + 录像落盘）与 `watchdog_loop`（C1 停帧看门狗；两者共用 `hub.beat`，必须对着读） |
