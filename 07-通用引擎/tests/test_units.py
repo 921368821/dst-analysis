@@ -935,6 +935,52 @@ def u40_quarantine_names_do_not_collide():
         shutil.rmtree(d, ignore_errors=True)
 
 
+def u42_not_booted_blames_the_caller_not_the_save():
+    """反向：没 boot 就存档，**必须明说是调用方的问题**，且**不许动存档文件**。
+
+    ★★ 为什么这条值得单独立（2026-10-20 实测）：
+      未 boot 时 `try_load` 原来的报错是
+      `'NoneType' object has no attribute 'save_apply'` —— 指不出原因。
+      更糟的是：`try_load` 把「`save_apply` 返回 False」一律当「存档读不动」
+      ⇒ **改名隔离**。若真实原因是程序忘了 boot，那就是
+      **程序缺陷把用户数据当垃圾扔掉**。
+      ⇒ 所以这里三条一起断言：① 抛 SimNotBooted（不是 NoneType 的锅）
+        ② 消息里说得出「引擎未启动」 ③ 存档文件**原地不动、没有 .bad-**
+    """
+    import io as _io
+    import os as _os
+    import tempfile
+    from sim import Sim, SimNotBooted
+    s = Sim(seed=1, tick_hz=30)                     # ★ 故意不 boot
+    d = tempfile.mkdtemp(prefix="noboot_")
+    p = _os.path.join(d, "s.json")
+    try:
+        with _io.open(p, "w", encoding="utf-8") as f:
+            f.write('{"version": 4, "ents": []}')   # 内容本身没问题
+        raised, why = None, ""
+        try:
+            s.save_apply({"version": 4, "ents": []})
+        except SimNotBooted as e:
+            raised, why = "save_apply", str(e)
+        except Exception as e:                       # noqa: BLE001
+            raised, why = type(e).__name__, str(e)
+        raised2, why2 = None, ""
+        try:
+            s.try_load(p)
+        except SimNotBooted as e:
+            raised2, why2 = "try_load", str(e)
+        except Exception as e:                       # noqa: BLE001
+            raised2, why2 = type(e).__name__, str(e)
+        left = sorted(_os.listdir(d))
+        good = (raised == "save_apply" and raised2 == "try_load"
+                and "引擎未启动" in why and "引擎未启动" in why2
+                and left == ["s.json"])              # ★ 原文件还在、且只有一个
+        return good, "两个入口都抛 SimNotBooted 且带原因；存档原地未动（目录 %r）" % (left,)
+    finally:
+        import shutil
+        shutil.rmtree(d, ignore_errors=True)
+
+
 # =============================================================================
 # 汇总
 # =============================================================================
@@ -999,6 +1045,7 @@ def main():
     check("U11 反向：Sim() 构造期不建 LuaRuntime", u11_sim_ctor_touches_no_lua)
     check("U39 反向：坏存档被隔离（原路径不再被覆盖）", u39_bad_save_is_quarantined)
     check("U40 反向：同秒连坏两次不互相覆盖", u40_quarantine_names_do_not_collide)
+    check("U42 反向：没 boot 就存档 ⇒ 怪调用方，不许隔离存档", u42_not_booted_blames_the_caller_not_the_save)
 
     print("\n" + "─" * 78)
     total = PASS + FAIL + SKIP

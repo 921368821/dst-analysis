@@ -611,6 +611,67 @@ def _selftest_crosscheck(test_files, rows, want):
         hit("<selftest>", "双表对齐判据条数不对", "期望 %d 条" % want, "实测 %d 条" % got)
 
 
+# ------------------------------------------------- 2b. 文档里的命令能不能真跑
+def doc_md_files(root=None):
+    """`07-通用引擎` 下所有 Markdown（跳过版本库 / 依赖 / 缓存目录）。"""
+    base = root or ROOT
+    out = []
+    for dirpath, dirnames, filenames in os.walk(base):
+        dirnames[:] = [d for d in dirnames
+                       if d not in (".git", "node_modules", "__pycache__", ".pytest_cache")]
+        for fn in filenames:
+            if fn.lower().endswith(".md"):
+                out.append(os.path.join(dirpath, fn))
+    return sorted(out)
+
+
+def scan_doc_cd_paths(texts=None, exists=None):
+    """扫 Markdown **代码块里**的 `cd <盘符绝对路径>`，返回指向不存在目录的那些。
+
+    ★★ 为什么要有这条（2026-10-20 实测）：`deploy/发布检查单.md` 的第一条命令写着
+      `cd E:/xnb/DST-Analysis/07-通用引擎` —— 工作区早就搬到 `E:/game_make/25d` 了。
+      照抄**必失败**。而它的位置（「发布检查单」第 1 节）+ 形式（还带注释）
+      让它长得**像已经验证过的命令**，正是最容易被无条件信任的那类文字。
+      「文档里的命令没跑过」和「代码没测过」是同一种病，只是更难发现 ——
+      读者以为错的是自己。
+
+    ★ 只认**代码块内**的行：正文里叙述历史路径（「以前是 E:/xnb/...」）不算。
+    ★ 只认**盘符开头**的绝对路径：`cd "$(git rev-parse --show-toplevel)/..."`
+      这类自解析写法不该被判。示例占位（`cd /path/to/x`）也不匹配。
+    """
+    if exists is None:
+        exists = os.path.isdir
+    if texts is None:
+        items = []
+        for p in doc_md_files():
+            try:
+                items.append((p, read(p)))
+            except OSError:
+                continue
+    else:
+        items = list(texts.items())
+    bad = []
+    for p, text in items:
+        fence = False
+        for i, line in enumerate(text.split("\n"), 1):
+            s = line.strip()
+            if s.startswith("```"):
+                fence = not fence
+                continue
+            if not fence:
+                continue
+            m = re.match(r'cd\s+["\']?([A-Za-z]:[/\\][^\s"\'`#]*)', s)
+            if m and not exists(m.group(1)):
+                bad.append((p, i, m.group(1)))
+    return bad
+
+
+def check_doc_cd_paths(texts=None, exists=None):
+    for p, n, path in scan_doc_cd_paths(texts, exists):
+        hit("%s:%d" % (os.path.basename(p), n),
+            "文档里的 cd 指向这台机器上**不存在**的目录", path, "os.path.isdir → False")
+
+
 def check_lua_format_percent(sources=None):
     """★ Lua 里 `%` 是**取模**，不是字符串格式化 ⇒ `("… %d …") % n` 一定会抛错。
 
@@ -808,6 +869,17 @@ def selftest():
          dict(n=195, plan_text="| 测试编号 | **195 个** | x |"), 0),
         ("编号总数：过期必须报", check_ids_claim,
          dict(n=195, plan_text="| 测试编号 | **188 个** | x |"), 1),
+        # ---- 文档里的命令能不能真跑（`cd E:/...` 这类硬编码路径）----
+        ("代码块里 cd 到不存在的盘符路径必须报", check_doc_cd_paths,
+         dict(texts={"x.md": "```bash\ncd E:/nope/eng\nbash tests/run_all.sh\n```\n"},
+              exists=lambda p: False), 1),
+        ("代码块里 cd 到存在的目录不得报", check_doc_cd_paths,
+         dict(texts={"x.md": "```bash\ncd E:/real/eng\n```\n"}, exists=lambda p: True), 0),
+        ("正文（代码块外）提历史路径不该误报", check_doc_cd_paths,
+         dict(texts={"x.md": "以前写的是 cd E:/xnb/DST-Analysis\n"}, exists=lambda p: False), 0),
+        ("自解析写法 `cd \"$(git rev-parse …)\"` 不该误报", check_doc_cd_paths,
+         dict(texts={"x.md": "```bash\ncd \"$(git rev-parse --show-toplevel)/07-通用引擎\"\n```\n"},
+              exists=lambda p: False), 0),
     ]
     # ★★★ 自检会产生一堆**假的**记录，必须只清掉这些、**绝不能碰真记录**。
     #   第一版写的是 `del HITS[:]` —— 而当时自检是在 `check_test_counts()` **之后**调的，
@@ -865,6 +937,7 @@ def main():
     check_readme_rows()
     check_rows_present()
     check_registry_alignment()
+    check_doc_cd_paths()
     check_lua_format_percent()
     check_artifacts()
     check_host()

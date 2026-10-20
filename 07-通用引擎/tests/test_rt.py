@@ -558,10 +558,70 @@ def a13_bad_save_variants():
     return True, "4 种坏档案全部拒绝且都带原因 ✔"
 
 
+def a13b_bad_savefile_any_shape_is_rejected():
+    """★ 反向：**任何形态的坏存档文件**都必须「拒绝 + 隔离 + 说得出原因」，不许抛
+
+    ★★ 为什么单独立（2026-10-20 实测）：A13 测的是「**字典**里某个字段坏了」，
+      而真正把服务端搞崩的是**顶层不是字典**的那几种：
+        存档文件内容为 `42` 或 `null` —— 都是**合法 JSON**，`json.load` 照样成功，
+        于是 `M.save_apply` 拿到一个**标量**；`SaveMod.validate` 已经正确拒了，
+        但 `M.save_apply` 少了 `if not ok then return`，控制流继续走到
+        `pairs(t.players or {})` ⇒ `attempt to index local 't' (a number value)`
+        ⇒ **LuaError 冒出 Python** ⇒ ① server 启动读档没有 try ⇒ 起不来
+        ② `try_load` 的 except 只包住 `json.load` ⇒ 坏档**连隔离都做不到**。
+      ⚠ 11 种里只崩 2 种：字符串 `"abc"` 在 Lua 里索引是**合法**的（返回 nil），
+        所以「大部分坏档都没事」—— 这正是这类缺口能活下来的原因。
+    """
+    import tempfile as _tf
+    sim = SIM["s"]
+    cases = {
+        "顶层是数字": 42,
+        "顶层是 null": None,
+        "顶层是字符串": "abc",
+        "顶层是布尔": True,
+        "顶层空数组": [],
+        "顶层空对象": {},
+        "ents 是字符串": {"ents": "x"},
+        "ents 是 null": {"ents": None},
+        "ents 里是数字": {"ents": [1, 2]},
+        "seed 是字符串": {"seed": "abc", "ents": []},
+        "ents 里缺字段": {"ents": [{"id": 1}]},
+    }
+    bad = []
+    for name, val in cases.items():
+        d = _tf.mkdtemp(prefix="a14_")
+        p = os.path.join(d, "s.json")
+        try:
+            with io.open(p, "w", encoding="utf-8") as f:
+                f.write(json.dumps(val))
+            try:
+                ok, msg = sim.try_load(p)
+            except Exception as e:                       # noqa: BLE001
+                bad.append("%s ⇒ 抛了 %s（坏档也没被隔离）" % (name, type(e).__name__))
+                continue
+            left = sorted(os.listdir(d))
+            moved = [n for n in left if ".bad-" in n]
+            if ok:
+                bad.append(name + " 竟被接受")
+            elif not msg:
+                bad.append(name + " 没给原因")
+            elif not moved:
+                bad.append("%s 被拒但**没留证**（%r）" % (name, left))
+            elif os.path.exists(p):
+                bad.append(name + " 原路径还在（隔离没生效）")
+        finally:
+            import shutil
+            shutil.rmtree(d, ignore_errors=True)
+    if bad:
+        return False, "；".join(bad)
+    return True, "%d 种形态的坏存档：全部拒绝 + 隔离 + 带原因（无一条抛）" % len(cases)
+
+
 check("A10 存档→JSON→读档：位置与时间逐值恢复", a10_save_roundtrip)
 check("A11 读档后世界**还能玩**（输入仍驱动 locomotor）", a11_load_then_play)
 check("A12 反向：坏档案被拒且**不破坏世界**", a12_bad_save_safe)
 check("A13 反向：4 种结构性坏档案全部拒绝且带原因", a13_bad_save_variants)
+check("A13b 反向：11 种形态的坏存档都只「拒绝+隔离」，一条都不抛", a13b_bad_savefile_any_shape_is_rejected)
 
 # =============================================================================
 # B. 跨进程：真服务端 + 真 WebSocket 客户端
@@ -3696,22 +3756,41 @@ def b13_autosave_cycle():
 
 
 def b14_bad_savefile_falls_back():
-    """★ 反向：存档半截时**必须明确报出来并用新世界**（不静默、也不拒绝启动）"""
+    """★ 反向：存档半截时**必须明确报出来、用新世界、并把坏档留证**
+
+    ★ 2026-10-20 修（P50⑬ 的连带）：这条用例收尾原来是 `os.remove(sf)`，
+      而 `try_load` 从 P50⑬ 起会把读不动的档**改名**成 `<path>.bad-<时间戳>` ⇒
+      `os.remove` 抛 `FileNotFoundError`，整条用例红。
+      **判据本身没变**，过时的是「清理时假设文件还躺在原路径」这个前提。
+      ⇒ 顺手把「坏档留证」变成这条用例的一部分：原路径必须**已不存在**、
+      且目录里必须**多出一个** `.bad-*` —— 否则「隔离」只是嘴上说说。
+    """
     import tempfile
-    sf = os.path.join(tempfile.gettempdir(), "rt_b14_save.json")
-    with io.open(sf, "w", encoding="utf-8") as f:
-        f.write('{"version":1,"ents":[{"prefab"')      # 故意的半截
-    s = Sim(seed=20261015, tick_hz=30).boot()
-    ok, msg = s.try_load(sf)
-    st = s.stats()
-    os.remove(sf)
-    if ok:
-        return False, "半截存档竟被接受"
-    if not msg or "读不动" not in msg:
-        return False, "没给出读不动的原因: %s" % msg
-    if st["n_ents"] <= 0 or not st["player_ok"]:
-        return False, "退到新世界后世界不可用"
-    return True, "拒绝并说明原因，退到可用的新世界（%d 实体）" % st["n_ents"]
+    d = tempfile.mkdtemp(prefix="rt_b14_")
+    sf = os.path.join(d, "save.json")
+    try:
+        with io.open(sf, "w", encoding="utf-8") as f:
+            f.write('{"version":1,"ents":[{"prefab"')      # 故意的半截
+        s = Sim(seed=20261015, tick_hz=30).boot()
+        ok, msg = s.try_load(sf)
+        st = s.stats()
+        left = sorted(os.listdir(d))
+        moved = [n for n in left if ".bad-" in n]
+        if ok:
+            return False, "半截存档竟被接受"
+        if not msg or "读不动" not in msg:
+            return False, "没给出读不动的原因: %s" % msg
+        if not moved:
+            return False, "坏档**没留证**（目录里只有 %r）" % (left,)
+        if os.path.exists(sf):
+            return False, "原路径还在 —— 隔离没生效（30 s 后就会被自动存档盖掉）"
+        if st["n_ents"] <= 0 or not st["player_ok"]:
+            return False, "退到新世界后世界不可用"
+        return True, "拒绝且说明原因，坏档留证 %s，退到可用的新世界（%d 实体）" % (
+            moved[0], st["n_ents"])
+    finally:
+        import shutil
+        shutil.rmtree(d, ignore_errors=True)
 
 
 check("B13 重启读档：位置/时间逐值一致且仍可操控", b13_autosave_cycle)

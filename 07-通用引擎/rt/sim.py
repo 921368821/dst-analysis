@@ -28,6 +28,20 @@ from hub import lua_to_py
 # =============================================================================
 # M1 权威模拟
 # =============================================================================
+class SimNotBooted(RuntimeError):
+    """在 `boot()` 之前调用了需要 Lua 的接口。
+
+    ★★ 为什么单独一个异常类型（2026-10-20）：
+      原来这种情况的报错是 `'NoneType' object has no attribute 'save_apply'` ——
+      一条**指不出原因**的错误（读者会怀疑存档、怀疑 lupa、怀疑 Python 版本，
+      就是不会想到「忘 boot 了」）。
+      更要紧的是**它和「存档坏了」必须分开**：`try_load` 会把失败当成
+      「读不动」⇒ 把存档改名隔离。若原因其实是程序忘了 boot，
+      那就是**程序缺陷连坐用户数据** —— 病历被当垃圾扔掉。
+      ⇒ 用一个**独立类型**，让 try_load 能把它重新抛出去、不碰文件。
+    """
+
+
 class Sim:
     """持有唯一 LuaRuntime；**只允许模拟线程调用**。"""
 
@@ -592,7 +606,23 @@ class Sim:
                 type(e).__name__, e,
                 ("已隔离为 %s，原文件不会再被覆盖；改用新世界" % moved) if moved
                 else "改用新世界（**隔离失败，原文件保持不动**，请手工备份）")
-        ok, msg = self.save_apply(data)
+        # ★★★ P50⑭：`save_apply` 也必须在这个 try 里（2026-10-20 实测）。
+        #   原来它写在 try **外面**，于是「JSON 语法合法、但内容让 Lua 侧炸」的存档
+        #   （实测：文件内容就是 `42` 或 `null`）会把 LuaError **直接抛给调用方**：
+        #     · `server.py` 的启动读档没有 try ⇒ 服务端**起不来**；
+        #     · 更糟的是坏档**没被隔离**，留在原地等下一次自动存档覆盖。
+        #   ⇒ 口径统一成：**只要读档这一步出任何问题，都是「拒绝 + 隔离 + 说清原因」**。
+        try:
+            ok, msg = self.save_apply(data)
+        except SimNotBooted:
+            # ★★ 这一支**必须重新抛出、且绝不隔离**：原因是程序忘了 boot，
+            #   不是存档坏了。把用户存档改名当垃圾，等于用程序缺陷毁数据。
+            raise
+        except Exception as e:                                   # noqa: BLE001            moved = self._quarantine(path)
+            return False, "存档应用失败（%s: %s）—— %s" % (
+                type(e).__name__, e,
+                ("已隔离为 %s；改用新世界" % moved) if moved
+                else "改用新世界（**隔离失败，原文件保持不动**，请手工备份）")
         if ok:
             return True, "已读档：" + msg
         moved = self._quarantine(path)
@@ -634,7 +664,15 @@ class Sim:
         return bool(ok), str(err or "")
 
     def save_apply(self, data):
-        """把纯 Python 存档喂回 Lua（逐个字段塞进一张新 Lua 表）"""
+        """把纯 Python 存档喂回 Lua（逐个字段塞进一张新 Lua 表）
+
+        ★ P50⑭：没 boot 就抛 `SimNotBooted`（**不是**返回 False）。
+          返回 False 会被 `try_load` 当成「存档坏了」⇒ 把用户存档隔离掉。
+          程序缺陷连坐数据是最不能接受的一种失败。
+        """
+        if self.api is None:
+            raise SimNotBooted("存档引擎未启动（Sim.boot() 还没调用）—— "
+                               "这是调用方的问题，存档文件没有被改动")
         ok, err = self.api.save_apply(self._py_to_lua(data))
         return bool(ok), str(err or "")
 

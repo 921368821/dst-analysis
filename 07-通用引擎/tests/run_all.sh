@@ -64,6 +64,17 @@ printf '══ run_all 开始 %s · PID %s · 参数 %s\n' \
 
 # 跑一条命令：输出同时进 stdout 与日志，**返回命令自己的退出码**（不是 tee 的）
 run_step() {
+    # ★★ `--dry-run`（2026-10-20 加）：**只数组、不跑**。
+    #   为什么需要：组数核对是「运行时」判据，而验它一次要 11 分钟（--fast）——
+    #   等于「这条判据自己没法被便宜地验证」，于是我把声明值写错（17 vs 真实的 18）
+    #   也只能在跑完之后才知道。dry-run 把这条路压到 3 秒：改完 run_all 先 dry 一遍。
+    #   ★ 它的结论**不作数**（所有组都算通过），所以末尾会大声说明。
+    # ★ 用 `${DRY:-0}`：`set -u` 下未定义会直接退出，而 run_step 第一次被调用
+    #   （preflight 那一行）比参数解析还早 ⇒ 第一版在这里报 DRY: unbound variable。
+    if [ "${DRY:-0}" = "1" ]; then
+        printf '  (dry-run) %s\n' "$*"
+        return 0
+    fi
     "$@" 2>&1 | tee -a "$LOG"
     local rc=${PIPESTATUS[0]}
     return $rc
@@ -112,10 +123,39 @@ fi
 # ★ 收尾卫生的基线：**跑之前**就已经在听的端口不算本次的账（人工起的开发服不背锅）
 "$PY" -u "$ROOT/tools/check_leftovers.py" --snapshot "$ROOT/tests/_leftovers.json" >/dev/null 2>&1 || true
 FAST=0
-[ "${1:-}" = "--fast" ] && FAST=1
+DRY=0
+case "${1:-}" in
+    --fast) FAST=1 ;;
+    --dry-run) DRY=1 ;;      # 只数组不跑（见 run_step 的注释）
+    --fast-dry) FAST=1; DRY=1 ;;
+esac
+if [ "$DRY" = "1" ]; then
+    printf '\033[1m★ --dry-run：只走组标题、不执行任何判据（结论不作数）\033[0m\n'
+fi
 
 FAIL=0
-hr() { printf '\n\033[1m══ %s\033[0m\n' "$1"; printf '\n══ %s\n' "$1" >> "$LOG" 2>/dev/null || true; }
+# ★★ 组数**运行时**自校验（2026-10-20）。为什么需要第二套口径：
+#   文档里的「20 组」一直由 `verify_plan.py:count_groups()` 从**源码文本**数标签得到，
+#   它管得住「文档数字写错」，管不住「某组被 `if false` 包住 / 被整段删掉」——
+#   标签还在文本里，静态数照样 20，而那一组一次都没跑。
+#   现在由 hr() **在真的打印标题时** +1 ⇒ 这个数只有「真跑过」才会涨。
+#   ★ 两处声明是**故意**的：加组的人必须同时改这里和文档，两边对不上就红。
+#     （本工程栽过的坑几乎都是「一处声明、零处校验」；这里要的是两个真相源对撞。）
+DECLARED_GROUPS=20          # 全量
+# --fast 的 18 是**量出来的**（2026-10-20 实测，见 tests/_run_all.log 的「组数核对」行）：
+#   全量 20 减掉 ②c / ③ / ⑤ 三组（fast 跳过），再加上 fast 分支自己的
+#   「②c / ③ / ⑤ 已跳过」那一行提示（它也走 hr，算 1 次）⇒ 20 - 3 + 1 = 18。
+#   ★ 第一版我按「17」写，跑完才发现是 18 —— 靠人算这种差额一定会错，
+#     所以才加了 `--dry-run`（秒级，见下）把「数错」的发现成本从 11 分钟降到 3 秒。
+DECLARED_GROUPS_FAST=18     # --fast
+GROUP_N=0
+GROUP_LIST=""
+hr() {
+    GROUP_N=$((GROUP_N + 1))
+    GROUP_LIST="$GROUP_LIST|$1"
+    printf '\n\033[1m══ %s\033[0m\n' "$1"
+    printf '\n══ %s\n' "$1" >> "$LOG" 2>/dev/null || true
+}
 
 hr "① Node 侧：客户端验证"
 if run_step "$NODE" tests/test_client.js; then :; else FAIL=1; fi
@@ -299,6 +339,19 @@ if run_step "$PY" -u "$ROOT/tools/check_leftovers.py" --verify "$ROOT/tests/_lef
 
 ELAPSED=$(( $(date +%s) - T0 ))
 printf '\n'
+# ★ 组数核对（见顶部 DECLARED_GROUPS 的注释）。**只在真跑完时**才有意义，
+#   所以放在 ⑥ 之后；判定进 FAIL ⇒ 会体现在总判定里，不会被「个别组全绿」掩盖。
+if [ "$FAST" = "1" ]; then WANT_G=$DECLARED_GROUPS_FAST; else WANT_G=$DECLARED_GROUPS; fi
+if [ "$GROUP_N" = "$WANT_G" ]; then
+    printf '  组数核对：本次执行 %d 组 / 声明 %d 组 ✔\n' "$GROUP_N" "$WANT_G" | tee -a "$LOG"
+else
+    printf '\n\033[1m✘ 组数核对：本次执行 %d 组，但脚本声明 %d 组\033[0m\n' "$GROUP_N" "$WANT_G"
+    printf '\n✘ 组数核对：执行 %d / 声明 %d（有组被删或被条件包住 ⇒ 根本没跑）\n' \
+        "$GROUP_N" "$WANT_G" >> "$LOG"
+    printf '  本次的组：%s\n' "${GROUP_LIST#|}" | tee -a "$LOG"
+    FAIL=1
+fi
+printf '  本次的组：%s\n' "${GROUP_LIST#|}" | tee -a "$LOG"
 if [ "$FAIL" = "0" ]; then
     VERDICT="✔ 全部通过"
 else
@@ -307,6 +360,10 @@ fi
 # ★ 总判定**必须也进日志**：原来只用 echo 打到屏幕，于是打开日志看不到结论；
 #   两轮混写时更是分不清哪行才是最后一句。现在它是日志的最后一行。
 printf '── 总判定：%s（实测 %d s）──\n' "$VERDICT" "$ELAPSED" | tee -a "$LOG"
+if [ "$DRY" = "1" ]; then
+    printf '\033[1m★ 注意：本次是 --dry-run，一个判据都没跑 ⇒ 上面的「%s」只表示组数对得上，\033[0m\n' "$VERDICT"
+    printf '\033[1m  不代表代码是好的。真正的结论要跑 bash tests/run_all.sh。\033[0m\n'
+fi
 # ★ 无论红绿都报日志路径：下次出现「某组没输出汇总行」这种偶发时，
 #   现场在文件里，不必靠重跑猜（重跑往往复现不出来）。
 echo "   完整日志：$LOG"

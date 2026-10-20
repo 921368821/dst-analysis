@@ -1928,6 +1928,18 @@ end
 function M.save_validate(t) return SaveMod.validate(t) end
 function M.save_apply(t)
     local ok, msg = SaveMod.apply(Core, Sim, meta, t)
+    -- ★★★ P50⑭：apply **失败就必须立刻返回**（2026-10-20 实测缺这一句的后果）。
+    --   缺了它的表现：存档内容是一个**标量**（`42` / `null`，都是**合法 JSON**）时，
+    --   `SaveMod.validate` 已经正确地拒了（「存档不是表（类型 number）」），
+    --   但控制流照样往下走到 `pairs(t.players or {})` ⇒
+    --     `attempt to index local 't' (a number value)` ⇒ **LuaError 冒出 Python**。
+    --   后果两连：① `server.py` 的启动读档没有 try ⇒ 服务端起不来；
+    --            ② `try_load` 的 except 只包住 `json.load` ⇒ 坏档**连隔离都做不到**，
+    --              留在原地等着被下一次自动存档覆盖（就是 P50⑬ 刚堵掉的那个洞）。
+    --   ⚠ 为什么只崩 2 种：字符串 `"abc"` 在 Lua 里索引是**合法**的（返回 nil），
+    --     所以 11 种语义坏档里偏偏只有 number / nil 这两种炸 ——
+    --     「大部分坏档都没事」正是这类缺口能活下来的原因。
+    if not ok then return ok, msg end
     -- ★ T6：读档把世界**整个换了一遍**（实体全新 guid）⇒ 索引必须作废。
     --   忘了这一句的后果很隐蔽：读档后交互目标列表会指着**上一局**的 guid，
     --   客户端点了没反应，而服务端一切正常 —— 又一个「静默失效」。
