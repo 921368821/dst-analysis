@@ -43,6 +43,17 @@ LOG="$ROOT/tests/_run_all.log"
 #   ⇒ 并发不是「更快」，是**把现场毁掉**。锁用 `mkdir`（**原子**）实现 —— 文件+PID 的写法
 #     在「两轮同时启动」时会两边都以为自己拿到了锁。锁里记 PID + 起始时间，人为可读、可手删。
 LOCKD="$ROOT/tests/_run_all.lock.d"
+BEAT="$LOCKD/beat"
+# ★★ P50㉑：锁的存活判据原来只看**父 shell**（`kill -0 $OLD_PID`）—— 这个洞能被孤儿子进程骗过去。
+#   实测证据（当天 16:32 的看护日志，不是假想）：
+#     「锁 PID=1249 已不存在，而 tests/_run_all.log 至 16:32 仍在增长」
+#   —— 主 shell 走了，但 `tee` / `python rt/server.py` / 各组子进程还活着：还在写日志、还占着端口。
+#   下一次 `run_all.sh` 会判「残留」⇒ 清锁 ⇒ `: > tests/_run_all.log` ⇒ 与孤儿抢 8791，
+#   正是当初加锁要防的那件事。
+#   ⇒ 加一个 `beat` 文件：每组开头（`hr()`）写一次时间戳。判定改成三段：
+#     ① PID 活着                     ⇒ 拒绝（并说明起始时间）
+#     ② PID 不在但 beat 10 min 内动过 ⇒ **拒绝**（子进程多半还活着，别毁现场）
+#     ③ PID 不在且 beat 陈旧/缺失     ⇒ 才算残留，清掉继续
 if ! mkdir "$LOCKD" 2>/dev/null; then
     OLD_PID=$(sed -n 1p "$LOCKD/pid" 2>/dev/null)
     OLD_TS=$(sed -n 2p "$LOCKD/pid" 2>/dev/null)
@@ -52,11 +63,24 @@ if ! mkdir "$LOCKD" 2>/dev/null; then
         printf '  确认那一轮已结束：rm -rf %s\n' "$LOCKD"
         exit 3
     fi
-    printf '  （清掉残留锁：PID %s 已不在）\n' "${OLD_PID:-?}"
+    BEAT_AGE=999999
+    if [ -f "$BEAT" ]; then
+        BEAT_MTIME=$(stat -c %Y "$BEAT" 2>/dev/null || echo 0)
+        BEAT_AGE=$(( $(date +%s) - BEAT_MTIME ))
+    fi
+    if [ "$BEAT_AGE" -lt 600 ]; then
+        printf '✘ 锁里的 PID %s 已不在，但 beat 文件 %s 秒前还在动 —— 那一轮的**子进程多半还活着**\n' "${OLD_PID:-?}" "$BEAT_AGE"
+        printf '  这不是残留锁，而是「父 shell 走了、子进程还在」：清锁会清空 tests/_run_all.log 并与孤儿抢端口。\n'
+        printf '  先确认现场：netstat -ano | grep -E ":(8765|879[0-9]) .*LISTENING"\n'
+        printf '  确认真没人了再手删：rm -rf %s\n' "$LOCKD"
+        exit 3
+    fi
+    printf '  （清掉残留锁：PID %s 已不在，beat 已静默 %s 秒）\n' "${OLD_PID:-?}" "$BEAT_AGE"
     rm -rf "$LOCKD" 2>/dev/null
     mkdir "$LOCKD" 2>/dev/null || { echo "✘ 抢不到锁 $LOCKD"; exit 3; }
 fi
 printf '%s\n%s\n' "$$" "$(date '+%Y-%m-%d %H:%M:%S')" > "$LOCKD/pid"
+date +%s > "$BEAT" 2>/dev/null || true      # ★ 第一拍：拿到锁就算活着
 trap 'rm -rf "$LOCKD"' EXIT INT TERM
 T0=$(date +%s)
 printf '══ run_all 开始 %s · PID %s · 参数 %s\n' \
@@ -155,6 +179,8 @@ hr() {
     GROUP_LIST="$GROUP_LIST|$1"
     printf '\n\033[1m══ %s\033[0m\n' "$1"
     printf '\n══ %s\n' "$1" >> "$LOG" 2>/dev/null || true
+    # ★ P50㉑：每组开头打一次心跳 —— 锁那边靠它区分「残留」与「父 shell 走了、子进程还活着」。
+    date +%s > "$BEAT" 2>/dev/null || true
 }
 
 hr "① Node 侧：客户端验证"
