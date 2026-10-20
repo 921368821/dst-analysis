@@ -759,6 +759,84 @@ def check_urllib_needs_no_proxy(sources=None):
         hit(rel, why, detail, "在第一个 urllib 调用之前设 os.environ['no_proxy']")
 
 
+def counters_from_hub(text=None):
+    """从 `rt/hub.py` 的 `_COUNTERS = (...)` 解析出统计项名单（**单一真值**）。"""
+    if text is None:
+        p = os.path.join(ROOT, "rt", "hub.py")
+        if not os.path.isfile(p):
+            return ()
+        text = read(p)
+    m = re.search(r"_COUNTERS\s*=\s*\(([^)]*)\)", text, re.S)
+    if not m:
+        return ()
+    return tuple(re.findall(r'"([A-Za-z_][A-Za-z0-9_]*)"', m.group(1)))
+
+
+def scan_counter_direct_access(sources=None, counters=None):
+    """找对统计项的**直接读写**（绕开 `bump()` / `stats_snapshot()` 的那些）。
+
+    ★★ 起因（P50⑳）：上一批我在 `hub.bump()` 的 docstring 里写了
+      「★ 读也走 `stats_snapshot()`」—— 然后**一个读取方都没改**：
+      `rt/http_api.py:194/488` 与 `rt/hub.py:473` 三处仍然逐字段读。
+      用 AST 把 `Hub` 的公开方法列了一遍、再看 `rt/*.py` 有没有调用点，
+      `stats_snapshot` 是**唯一一个外部零调用**的公开方法 ——
+      「唯一没人用的那个，恰好就是我刚写的那句承诺」。
+
+    为什么要静态盯着：这类承诺**没有任何东西逼代码兑现**。
+    留着它比不写更坏 —— 后来的人会以为读取一致性已经有人管了。
+
+    允许的三种写法（否则判红）：
+      · `hub.bump("name", n)`（唯一写入入口）
+      · `hub.stats_snapshot()`（一次读全）
+      · `hub.py` 里 `__init__` / `bump` / `stats_snapshot` **内部**自己的读写
+    """
+    import ast
+    if counters is None:
+        counters = counters_from_hub()
+    if sources is None:
+        items = []
+        d = os.path.join(ROOT, "rt")
+        if os.path.isdir(d):
+            for f in sorted(os.listdir(d)):
+                if f.endswith(".py"):
+                    items.append((os.path.join("rt", f), read(os.path.join(d, f))))
+    else:
+        items = list(sources.items())
+    allowed = {"__init__", "bump", "stats_snapshot"}
+    bad = []
+    for rel, text in items:
+        try:
+            tree = ast.parse(text)
+        except SyntaxError as e:
+            bad.append((rel, getattr(e, "lineno", 0) or 0, "解析失败：%s" % e.msg))
+            continue
+        spans = []
+        if os.path.basename(rel).replace("\\", "/").endswith("hub.py"):
+            for node in ast.walk(tree):
+                if isinstance(node, ast.FunctionDef) and node.name in allowed:
+                    spans.append((node.lineno, getattr(node, "end_lineno", node.lineno)))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Attribute) or node.attr not in counters:
+                continue
+            if any(a <= node.lineno <= b for a, b in spans):
+                continue
+            kind = "读" if isinstance(node.ctx, ast.Load) else "写"
+            bad.append((rel, node.lineno, "%s `hub.%s`" % (kind, node.attr)))
+    return bad
+
+
+def check_counter_direct_access(sources=None, counters=None):
+    if counters is None:
+        counters = counters_from_hub()
+        if not counters:
+            # ★ 规则**空转**必须自己报红：找不到白名单 = 这条判据什么都盯不住
+            hit("rt/hub.py", "找不到 `_COUNTERS` 白名单 —— 这条判据会空转",
+                "应有一行 `_COUNTERS = (\"...\", ...)`", "re.search → 空")
+            return
+    for rel, line, what in scan_counter_direct_access(sources, counters):
+        hit(rel, "统计项被直接读写（绕开 bump / stats_snapshot）", what, "第 %d 行" % line)
+
+
 def check_doc_counts(total=None, docs=None, groups=None, ctxt=None):
     """README / 发布检查单里的 `合计 N 项` 与 `N 项 / M 组` 必须与实测一致。
 
@@ -954,6 +1032,26 @@ def selftest():
         ("只在注释里提到 no_proxy 不算（文案骗不过判据）", check_urllib_needs_no_proxy,
          dict(sources={"tests/z.py":
                        "# 这里本该设 no_proxy，但忘了\nimport urllib.request\n"}), 1),
+        # ---- 统计项只许走 bump / stats_snapshot（一句没被兑现的承诺）----
+        ("直接读统计项必须报", check_counter_direct_access,
+         dict(sources={"rt/http_api.py": "x = self.hub.frames_sent\n"},
+              counters=("frames_sent",)), 1),
+        ("直接 `+=` 写统计项也必须报", check_counter_direct_access,
+         dict(sources={"rt/ws_api.py": "self.hub.frames_sent += 1\n"},
+              counters=("frames_sent",)), 1),
+        ("走 bump / stats_snapshot 不得报", check_counter_direct_access,
+         dict(sources={"rt/ws_api.py":
+                       "self.hub.bump('frames_sent')\n"
+                       "n = self.hub.stats_snapshot()['frames_sent']\n"},
+              counters=("frames_sent",)), 0),
+        ("hub.py 的 __init__ 里初始化不算（不然规则没法用）", check_counter_direct_access,
+         dict(sources={"rt/hub.py": "class Hub:\n    def __init__(self):\n"
+                                     "        self.frames_sent = 0\n"},
+              counters=("frames_sent",)), 0),
+        ("hub.py 其它方法里直接读**要报**（豁免只限三个函数）", check_counter_direct_access,
+         dict(sources={"rt/hub.py": "class Hub:\n    def other(self):\n"
+                                     "        return self.frames_sent\n"},
+              counters=("frames_sent",)), 1),
     ]
     # ★★★ 自检会产生一堆**假的**记录，必须只清掉这些、**绝不能碰真记录**。
     #   第一版写的是 `del HITS[:]` —— 而当时自检是在 `check_test_counts()` **之后**调的，
@@ -1013,6 +1111,7 @@ def main():
     check_registry_alignment()
     check_doc_cd_paths()
     check_urllib_needs_no_proxy()
+    check_counter_direct_access()
     check_lua_format_percent()
     check_artifacts()
     check_host()

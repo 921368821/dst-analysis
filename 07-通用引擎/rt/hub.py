@@ -460,6 +460,7 @@ def _stats_from_cache(self):
     ⇒ 缓存由 `sim_loop` 每 8 拍（≈0.27 s）刷新一次（见 Hub.stats_cache）。
     """
     with self.hub.lock:
+        snap = self.hub.stats_snapshot()      # ★ 一次取全（同一个响应里不许出现两套数）
         st = self.hub.stats_cache
         out = dict(st) if isinstance(st, dict) else {}
         # ★★ C1：把看门狗状态并进 stats —— `/healthz` 与 `/status` 都会带上。
@@ -470,5 +471,11 @@ def _stats_from_cache(self):
         out["stall_age"] = (round(time.perf_counter() - self.hub.beat, 3)
                            if self.hub.beat else None)
         out["last_stall"] = self.hub.last_stall
-        out["rate_limited"] = self.hub.rate_limited      # ★ M5：限流次数
+        # ★★ P50⑳：**读**统计项也必须走 `stats_snapshot()`。
+        #   上一批我在 `bump()` 的 docstring 里写了「读也走 stats_snapshot()」，
+        #   然后**一个读取方都没改** —— 三个地方仍然逐字段读（这里是其中之一）。
+        #   一句没有任何代码兑现的承诺，比不写更坏：后来的人会以为一致性已经有人管了。
+        #   现在由 `tools/verify_plan.py` 的 `check_counter_direct_reads()` **静态**盯着：
+        #   `rt/*.py` 里任何一处 `hub.<统计项>` 的**读取**都会判红。
+        out["rate_limited"] = snap["rate_limited"]       # ★ M5：限流次数
     return out

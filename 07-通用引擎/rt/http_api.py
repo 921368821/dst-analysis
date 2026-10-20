@@ -185,14 +185,18 @@ class HttpMixin:
                 w = dict((self.hub.snap or {}).get("world") or {})
             PH_CN = {"day": "白天", "dusk": "黄昏", "night": "夜晚"}
             SE_CN = {"autumn": "秋", "winter": "冬", "spring": "春", "summer": "夏"}
+            # ★ P50⑳：统计项**一次取全**（同一个页面里不许出现两套数）。
+            #   原来这里逐个字段读，读一半被改就会出现「发帧 1200 / 字节 0」那种
+            #   自相矛盾的一页 —— 不一致的统计比没有更误导。
+            hs = self.hub.stats_snapshot()
             body = STATUS_HTML.replace("{{TICK}}", str(st.get("tick", "?"))) \
                               .replace("{{TIME}}", "%.1f" % st.get("time", 0)) \
                               .replace("{{ENTS}}", str(st.get("n_ents", "?"))) \
                               .replace("{{CLIENTS}}", str(self.hub.clients)) \
                               .replace("{{PLAYERS}}", str(self.hub.player_count)) \
                               .replace("{{PLAYER}}", "在" if st.get("player_ok") else "缺") \
-                              .replace("{{BADFRAMES}}", str(self.hub.dropped_bad_frames)) \
-                              .replace("{{SENT}}", str(self.hub.frames_sent)) \
+                              .replace("{{BADFRAMES}}", str(hs["dropped_bad_frames"])) \
+                              .replace("{{SENT}}", str(hs["frames_sent"])) \
                               .replace("{{PHASE}}", PH_CN.get(w.get("phase"), w.get("phase") or "?")) \
                               .replace("{{SEASON}}", SE_CN.get(w.get("season"), w.get("season") or "?")) \
                               .replace("{{TEMP}}", "%.1f" % w.get("temperature", 0.0)) \
@@ -480,13 +484,16 @@ class HttpMixin:
             #   `'int' object has no attribute 'get'`，白查一轮。
             #   ⇒ 起个说得清自己的名字（与 `Hub.player_count` 一致），也是本工程的老规矩：
             #     同名不同物是**陷阱**，不是简洁。
+            # ★ P50⑳：统计项走 `stats_snapshot()`（一次取全），不再逐字段读 ——
+            #   否则「发帧 1200 / 字节 0」这种自相矛盾的一帧会被客户端当真。
+            hs = self.hub.stats_snapshot()
             body = json.dumps({"ok": True, "stats": self.sim_stats(),
                                "world": w,
                                "paused": self.hub.is_paused(),
                                "clients": self.hub.clients,
                                "player_count": self.hub.player_count,
-                               "dropped_bad_frames": self.hub.dropped_bad_frames,
-                               "frames_sent": self.hub.frames_sent},
+                               "dropped_bad_frames": hs["dropped_bad_frames"],
+                               "frames_sent": hs["frames_sent"]},
                               ensure_ascii=False).encode("utf-8")
             self._reply(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
                              b"Content-Length: " + str(len(body)).encode() + b"\r\n"
