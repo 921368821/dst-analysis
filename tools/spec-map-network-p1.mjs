@@ -374,7 +374,7 @@ export const BEFORE = {
   263: [
     "-- ★★ assert(lock) —— lock 表必须存在（但不断言 type/key）。",
     "--   ★★ 被注释掉的 :264-265 是 `assert(lock.type)` / `assert(lock.key)`。",
-    "--   ★★ 注释掉它们说明：**存在不带 type/key 的调用**（★ 例如海��链接）。",
+    "--   ★★ 注释掉它们说明：**存在不带 type/key 的调用**（★ 例如海岛链接）。",
   ],
   267: [
     "-- ★ id 为 nil 时自动命名：\"Exit\" .. 当前 exit 边数。",

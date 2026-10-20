@@ -553,7 +553,7 @@ export const BEFORE = {
     "-- 【★ 为什么要「还原」包装过的方法】",
     "--   822-827 `if self._OnGainFocus then` 才还原。",
     "--   ⇒ 条件是「有没有备份」⇒ 没走过路径B（772-800）就不用还原 ✓。",
-    "--   ⇒ 走��路径A（762-771）时没有备份，也不会还原 ✓ 正确。",
+    "--   ⇒ 走路径A（762-771）时没有备份，也不会还原 ✓ 正确。",
     "-- 【★ 四种资源的清理】",
     "--  816-820  hovertext_root（Kill）→ hovertext / hovertext_bg（置 nil）",
     "--  822-828  还原 _OnGainFocus / _OnLoseFocus → 两个备份置 nil",

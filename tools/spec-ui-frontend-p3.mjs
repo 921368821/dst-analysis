@@ -5,8 +5,6 @@ export const BEFORE = {
     "-- ════════════════════════════════════════════════════════════════",
     "-- 段 11/8：★★ 屏幕栈管理（914-1174）—— 缺陷 G4 的现场",
     "-- ════════════════════════════════════════════════════════════════",
-  ],
-  914.1: [
     "-- ★ PushShowHelpTextForEverything —— 「强制显示所有提示」计数器。",
     "-- 同样用**引用计数**而非布尔（915 行 +1、919 行 -1、921 行归零），",
     "-- ⇒ 多个子系统可独立申请释放，不会互相踩。",
@@ -247,7 +245,7 @@ export const BEFORE = {
     "--   ★ 推理：Screen 构造时默认可见（widget.lua:25 self.shown = true），",
     "--     所以不需要 Show。而 FadeBack（1075）在 PopScreen 之后",
     "--     显式调 TheFrontEnd:GetActiveScreen():Show() —— 说明确实存在",
-    "--     「屏��被 Hide 过」的状态（比如 FadeToScreen 的 1070 existing_screen:Hide()）。",
+    "--     「屏幕被 Hide 过」的状态（比如 FadeToScreen 的 1070 existing_screen:Hide()）。",
   ],
   992: [
     "-- ★★ `if not self.tracking_mouse then screen:SetDefaultFocus() end`",

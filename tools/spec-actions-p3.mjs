@@ -488,7 +488,7 @@ export const BEFORE = {
     "--     是少数「客户端也有」的组件。",
   ],
   1137: [
-    "--★★ 客户端分��：container_proxy 在客户端可读，所以能判断 CLOSE。",
+    "--★★ 客户端分支：container_proxy 在客户端可读，所以能判断 CLOSE。",
   ],
   1142: [
     "--★ 非代理路径：用 replica.container（客户端副本）。",
@@ -552,7 +552,7 @@ export const BEFORE = {
   ],
   1186: [
     "--★★ DROP.strfn —— 12 个变体的巨型 or 链。",
-    "--   ★★★ 顺序即优先级，从「确定的类���」到「可扩展的回调」：",
+    "--   ★★★ 顺序即优先级，从「确定的类型」到「可扩展的回调」：",
     "--     trap/mine/soul/pumpkin_lantern → 具体标签",
     "--     playerfloater                 → 浮标",
     "--     GetDropActionString ~= nil    → ★ 自定义回调（最后一个兜底）",

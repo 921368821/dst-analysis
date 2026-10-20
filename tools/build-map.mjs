@@ -1002,7 +1002,7 @@ const HEADER_TASK = `--=========================================================
 --       ★ 但 Task 类**没有 self.substitutes**！
 --       ★ 而 storygen.lua:1216 \`for k,v in pairs(task.substitutes)\` 与
 --         :1285 \`task_node.substitutes = task.substitutes\` 都在读它。
---         ⇒ 解��：substitutes 是由 map/level.lua:69-73 **运行时挂到
+--         ⇒ 解释：substitutes 是由 map/level.lua:69-73 **运行时挂到
 --         tasklist 里的 deepcopy 上的**（GetOverridesForTasks），
 --         不走 Task 构造函数。★ 正确但极易误读。
 --     · set_pieces / random_set_pieces —— 同样由 level.lua:180-210
@@ -1440,10 +1440,11 @@ const S = (n) => join(__dirname, n);
 
 async function main() {
   const which = process.argv[2] || "all";
-  const R = OUT_ROOT;
+  const R = join(OUT_ROOT, "map"); // ★ 2026-10-20：这两个目录（scripts/ 与 scripts/map/）才是实际布局，
+  //   原先写 OUT_ROOT 会让 9 个地图文件生成到 scripts/ 根、与 map/ 下的真副本分家。
 
   if (which === "all" || which === "storygen") {
-    await build("storygen.lua", join(R, "storygen.lua"), HEADER_STORYGEN, [
+    await build("map/storygen.lua", join(R, "storygen.lua"), HEADER_STORYGEN, [
       S("spec-map-storygen-p1.mjs"),
       S("spec-map-storygen-p2.mjs"),
       S("spec-map-storygen-p3.mjs"),
@@ -1451,7 +1452,7 @@ async function main() {
     ]);
   }
   if (which === "all" || which === "forest") {
-    await build("forest_map.lua", join(R, "forest_map.lua"), HEADER_FOREST, [
+    await build("map/forest_map.lua", join(R, "forest_map.lua"), HEADER_FOREST, [
       S("spec-map-forest-p1.mjs"),
       S("spec-map-forest-p2.mjs"),
       S("spec-map-forest-p3.mjs"),
@@ -1459,40 +1460,40 @@ async function main() {
     ]);
   }
   if (which === "all" || which === "network") {
-    await build("network.lua", join(R, "network.lua"), HEADER_NETWORK, [
+    await build("map/network.lua", join(R, "network.lua"), HEADER_NETWORK, [
       S("spec-map-network-p1.mjs"),
       S("spec-map-network-p2.mjs"),
       S("spec-map-network-p3.mjs"),
     ]);
   }
   if (which === "all" || which === "graphnode") {
-    await build("graphnode.lua", join(R, "graphnode.lua"), HEADER_GRAPHNODE, [
+    await build("map/graphnode.lua", join(R, "graphnode.lua"), HEADER_GRAPHNODE, [
       S("spec-map-graphnode-p1.mjs"),
       S("spec-map-graphnode-p2.mjs"),
     ]);
   }
   if (which === "all" || which === "lockandkey") {
-    await build("lockandkey.lua", join(R, "lockandkey.lua"), HEADER_LOCKANDKEY, [
+    await build("map/lockandkey.lua", join(R, "lockandkey.lua"), HEADER_LOCKANDKEY, [
       S("spec-map-lockandkey-p1.mjs"),
       S("spec-map-lockandkey-p2.mjs"),
     ]);
   }
   if (which === "all" || which === "tasks") {
-    await build("tasks.lua", join(R, "tasks.lua"), HEADER_TASKS, [
+    await build("map/tasks.lua", join(R, "tasks.lua"), HEADER_TASKS, [
       S("spec-map-tasks-p1.mjs"),
     ]);
   }
   if (which === "all" || which === "task") {
-    await build("task.lua", join(R, "task.lua"), HEADER_TASK, [S("spec-map-task-p1.mjs")]);
+    await build("map/task.lua", join(R, "task.lua"), HEADER_TASK, [S("spec-map-task-p1.mjs")]);
   }
   if (which === "all" || which === "level") {
-    await build("level.lua", join(R, "level.lua"), HEADER_LEVEL, [
+    await build("map/level.lua", join(R, "level.lua"), HEADER_LEVEL, [
       S("spec-map-level-p1.mjs"),
       S("spec-map-level-p2.mjs"),
     ]);
   }
   if (which === "all" || which === "terrain") {
-    await build("terrain.lua", join(R, "terrain.lua"), HEADER_TERRAIN, [
+    await build("map/terrain.lua", join(R, "terrain.lua"), HEADER_TERRAIN, [
       S("spec-map-terrain-p1.mjs"),
     ]);
   }

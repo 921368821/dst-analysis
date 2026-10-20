@@ -392,7 +392,7 @@ export const BEFORE = {
     "--     前一秒末尾 120 + 后一秒开头 120。属于有意为之的宽松设计。",
   ],
   225: [
-    "--★★【每���伤害截断】amount 被压到「本秒剩余配额」。",
+    "--★★【每秒伤害截断】amount 被压到「本秒剩余配额」。",
     "--   如果本秒配额已用尽，amount 会变成 0 甚至负数：",
     "--   若 firedamageinlastsecond 恰好等于 120，则 amount = 0；",
     "--   ⚠ 若因浮点误差导致 firedamageinlastsecond > 120，amount 变负数，",

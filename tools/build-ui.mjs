@@ -325,7 +325,7 @@ const HEADER_INPUT = [
   "--      ★ 由CanMouseThrough（526-557）决定能否「穿透」到下一个实体。",
   "--   ② 屏幕栈事件：179-184 OnMouseButton → frontend.lua:1282 →",
   "--      screen:OnMouseButton → widget.lua:56。",
-  "--   ⇒ 一��鼠标点击会**同时**触发这两条路径。UI 控件必须",
+  "--   ⇒ 一次鼠标点击会**同时**触发这两条路径。UI 控件必须",
   "--     SetClickable(false)（widget.lua:526）才能从路径①里摘掉自己。",
   "--     ★ 这解释了 frontend.lua 里所有浮层都显式 SetClickable(false)",
   "--     （84、94、106、118、128、132、142、146 行）——否则它们会吃点击。",

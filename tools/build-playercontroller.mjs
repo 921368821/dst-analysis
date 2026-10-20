@@ -68,7 +68,7 @@ const HEADER = [
   "--        6 = 跳跃（hopping，见 3884 行）",
   "--      ⇒ y>=3 时 GetRemotePredictPosition 会把 y 当作**真实高度**返回（3743 行），",
   "--        此时 y 只是恰好等于 3/4/5/6 而已，绝不是海拔。这是 B8 缺陷的根源。",
-  "--      ⇒ 客户端只发 x/z 两��（3905 行 DirectWalking 注释明确说明），",
+  "--      ⇒ 客户端只发 x/z 两个（3905 行 DirectWalking 注释明确说明），",
   "--        y 完全由服务端按 isdirectwalking/isstop 推导，压缩了带宽。",
   "--   ② remote_controls（table）—— 按键按下态。键 → 剩余冷却秒数。",
   "--      ★ 双重身份：①本地查询（IsControlPressed 515 行）②RPC 幂等去重",

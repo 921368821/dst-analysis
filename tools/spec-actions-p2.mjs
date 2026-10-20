@@ -917,7 +917,7 @@ export const BEFORE = {
     "--   ★★ distance=8 与 170 行 `ExtraDeployDist` 里的 `8 - DEPLOY.distance`",
     "--     是同一个 8。两处独立字面量，靠注释而非常量关联。",
     "--   ★ fn（3934 行）是本文件最复杂的投掷实现（47 行），要处理：",
-    "--     无手��物时用手持物（须有 special_action_toss 标签）、",
+    "--     无手持物时用手持物（须有 special_action_toss 标签）、",
     "--     物品有 equippable 时检查限制、伪装检查、投掷偏移量（targetoffset）。",
   ],
   502: [

@@ -617,7 +617,7 @@ hr("TC12  TheFocalPoint（应是「玩家实体」，不是假表）")
 check("默认是 nil（与原版 main.lua:330 一致，不是造一张假表）", function()
     local fp = rawget(_G, "TheFocalPoint")
     if fp ~= nil then
-        return false, "初始应为 nil，实���是 " .. type(fp) ..
+        return false, "初始应为 nil，实际是 " .. type(fp) ..
             "（造了假表就会让 lightning.lua 的 nil 判断永远不成立）"
     end
     return true, "TheFocalPoint = nil ✔"
