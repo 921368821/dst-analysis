@@ -1603,7 +1603,7 @@ end
 --     ③ `rt/server.py` 拆成 7 个模块（M4）——**这一条本身不改行为**，但它改了
 --        `tools/boot_version_guard.py` 的指纹输入面，而「把拆分当成免升版的理由」
 --        正是 C8 那类事故的温床：宁可多进一版，也不要让「记录里的 /7」对应两份实现。
-function M.version() return "rt_boot/8" end
+function M.version() return "rt_boot/9" end
 
 if not M.player_ok then
     error("rt_boot: 玩家实体创建失败（SpawnPrefab('wilson') 失败）")

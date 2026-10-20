@@ -1,6 +1,6 @@
 {
-  "version": "rt_boot/8",
-  "fingerprint": "0c41bfc3ba0972ec",
-  "detail": "rt_boot.lua=1203 行 · render_atlas.js=128 行 · render_batch.js=260 行",
+  "version": "rt_boot/9",
+  "fingerprint": "28f4238c48477279",
+  "detail": "rt_boot.lua=1204 行 · render_atlas.js=128 行 · render_batch.js=260 行",
   "note": "由 tools/boot_version_guard.py --bump 生成；不要手改 fingerprint"
 }
