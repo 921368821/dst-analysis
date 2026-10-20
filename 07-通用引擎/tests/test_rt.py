@@ -666,6 +666,7 @@ class _Reader:
         self.latest = None
         self.frames = 0
         self.last_ids = set()      # 最新一帧里出现的 id 集合（B25 要查「两个角色都在同一帧」）
+        self.last_p = {}           # id → prefab（B25 要判「两个角色都是 wilson」）
         self.busy = False          # P21：同一个会话 key 已在别处连接（服务端拒绝给角色）
         self.alive = True
         self.err = None
@@ -705,6 +706,7 @@ class _Reader:
             if "ents" in m:
                 self.frames += 1
                 self.last_ids = set(e["id"] for e in m["ents"])
+                self.last_p = dict((e["id"], e.get("p")) for e in m["ents"])
                 for e in m["ents"]:
                     if e["id"] == self.you:
                         self.latest = (e["x"], e["z"])
@@ -1249,6 +1251,12 @@ def _frame_ents(sock, fresh=3):
     ★★ 为什么要 `fresh`：客户端连上时服务端**立刻**发一帧 hello ——
       而「给这个连接建玩家」是在模拟线程里稍后完成的 ⇒ 那一帧里**还没有我**。
       第一版只读一条快照就断言「找不到自己的 guid」（实测就是这么假红的）。
+
+    ⚠️ 它只适合「**刚连上**就要一帧」的场景。对**闲置过**的 socket 用它会读到
+      积压队列的**前**几帧：B25 曾用它（fresh=3）去查「两个角色在同一帧」，
+      而 A 的 socket 在 B 握手期间没人读、积压几十帧 ⇒ 偶发假红
+      「帧里找不到这两个 guid（57 / 60）」。要「最新一帧」必须用 `_Reader`
+      （持续读线程，`last_ids` 永远是队尾）。
     """
     last = None
     for _ in range(200):
@@ -1305,41 +1313,80 @@ def _latest_ent(sock, guid, frames=4):
 def b25_每个客户端有自己的角色():
     """★★ P20：每个连接一个**独立角色** —— 在此之前四个客户端共用同一个 wilson。
 
-       判据：① 两个连接拿到的 `you` **不同**；② 两个 guid 在帧里都是存在的实体；
+       判据：① 两个连接拿到的 `you` **不同**；② 两个 guid 在**同一帧**里都是实体；
              ③ 两个槽位不同；④ 断开后那个槽位被回收（下一个连接复用）。
+
+       ★★ P45d（2026-10-20）：这一条曾在全量里**偶发假红** —— 报
+          「帧里找不到这两个 guid（57 / 60）」。根因不是产品，是**取帧方式**：
+          旧写法 `_frame_ents(a, fresh=3)` 是「再读 3 帧」，可 A 这个 socket 在
+          B 握手期间**没人读**，内核缓冲里积压了十几帧 ⇒ 读 3 帧还停在 B 出生**之前**。
+          积压多少取决于 B 握手花了多久（6 s 超时内浮动）⇒ 典型的时间依赖假红。
+          现在与 B26 同用一套：**每个连接一个持续读线程**（`_Reader`），
+          判据改成「等到 A 的**最新**一帧里同时出现两个 guid」（5 s 上限）。
+          比「多读几帧」强的地方：它读的是**队尾**，不是队头。
     """
-    a = b = None
+    ra = rb = rc = None
+    sa = sb = sc = None
     try:
-        sa, ga, sla = _connect_ws_slot()
-        a = sa
-        sb, gb, slb = _connect_ws_slot()
-        b = sb
-        if ga == gb:
-            return False, "两个客户端拿到**同一个**实体 guid（%s）—— 还是共用一个角色" % ga
-        if sla == slb:
-            return False, "两个客户端拿到同一个槽位 %d" % sla
-        fa = _frame_ents(a)
-        ea, eb = _ent_of(fa, ga), _ent_of(fa, gb)
-        if ea is None or eb is None:
-            return False, "帧里找不到这两个 guid（%s / %s）" % (ga, gb)
-        if ea.get("p") != "wilson" or eb.get("p") != "wilson":
-            return False, "两个角色不都是 wilson：%s / %s" % (ea.get("p"), eb.get("p"))
-        # ④ 断开 B ⇒ 槽位回收，下一个连接应复用它
-        b.close()
-        b = None
+        sa = _connect()
+        ra = _Reader(sa)
+        if ra.wait_you(5.0) is None:
+            return False, "A 没收到 you 握手（err=%s）" % ra.err
+        you_a, slot_a = ra.you, ra.slot
+
+        sb = _connect()
+        rb = _Reader(sb)
+        if rb.wait_you(5.0) is None:
+            return False, "B 没收到 you 握手（err=%s）" % rb.err
+        you_b, slot_b = rb.you, rb.slot
+
+        if you_a == you_b:
+            return False, "两个客户端拿到**同一个**实体 guid（%s）—— 还是共用一个角色" % you_a
+        if slot_a == slot_b:
+            return False, "两个客户端拿到同一个槽位 %d" % slot_a
+
+        # ② 两个 guid 必须在**同一帧**里 —— 等 A 的读线程把积压排到队尾
+        end = time.time() + 5.0
+        while time.time() < end:
+            if ra.err or rb.err:
+                return False, "读线程挂了：%s / %s" % (ra.err, rb.err)
+            if you_a in ra.last_ids and you_b in ra.last_ids:
+                break
+            time.sleep(0.02)
+        else:
+            return False, ("5 s 内 A 的帧里没同时出现两个 guid（%s / %s）——"
+                           "frames=%d，最近一帧 %d 个实体"
+                           % (you_a, you_b, ra.frames, len(ra.last_ids)))
+
+        pa, pb = ra.last_p.get(you_a), ra.last_p.get(you_b)
+        if pa != "wilson" or pb != "wilson":
+            return False, "两个角色不都是 wilson：%s / %s" % (pa, pb)
+
+        # ④ 断开 B ⇒ 槽位回收，下一个连接应复用它（且是**新角色**）
+        rb.stop()
+        rb = None
+        sb.close()
+        sb = None
         time.sleep(0.6)
-        sc, gc, slc = _connect_ws_slot()
-        try:
-            if slc != slb:
-                return False, "断开后槽位没被回收（应复用 %d，实得 %d）" % (slb, slc)
-            if gc == gb:
-                return False, "复用了槽位却没建新角色（guid 仍是 %s）" % gb
-        finally:
-            sc.close()
-        return True, "A(槽%d,guid%d) / B(槽%d,guid%d) 是两个 wi 独立角色；B 断开后槽位被复用" % (
-            sla, ga, slb, gb)
+        sc = _connect()
+        rc = _Reader(sc)
+        if rc.wait_you(5.0) is None:
+            return False, "断开 B 后的新连接没收到 you 握手（err=%s）" % rc.err
+        if rc.slot != slot_b:
+            return False, "断开后槽位没被回收（应复用 %d，实得 %d）" % (slot_b, rc.slot)
+        if rc.you == you_b:
+            return False, "复用了槽位却没建新角色（guid 仍是 %s）" % you_b
+        return True, ("A(槽%d,guid%d) / B(槽%d,guid%d) 是两个独立角色（同一帧里都在）；"
+                      "B 断开后槽位被复用（C=槽%d,guid%d）"
+                      % (slot_a, you_a, slot_b, you_b, rc.slot, rc.you))
     finally:
-        for s_ in (a, b):
+        for r in (ra, rb, rc):
+            if r is not None:
+                try:
+                    r.stop()
+                except Exception:                                # noqa: BLE001
+                    pass
+        for s_ in (sa, sb, sc):
             if s_ is not None:
                 try:
                     s_.close()

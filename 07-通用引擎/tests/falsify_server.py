@@ -165,6 +165,65 @@ def run_one(only, runs):
     return reds_all
 
 
+# ★ 中断保护用的标记文件（内容：这一轮改了哪些文件、原文是什么）
+MARK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_falsify_inprogress.json")
+
+
+def heal_leftover():
+    """上一次被强行中断留下的篡改 → **自动还原**；还原不了就返回 False（要人工）。
+
+    ★★ 为什么要有这个函数（2026-10-20 实测踩到）：
+      原来的保护是「发现标记就**中止**」——安全，但把烂摊子留给人工：
+      实测把整轮 `run_all` 掐掉之后，`rt/http_api.py` 就停在
+      `_debug_allowed()` 直接 `return True` 的状态（**谁都杀得了角色**），
+      而屏幕上只是一句「上一次没跑完，请手工还原」。这种「知道坏了但不动手」的
+      保护，在人手忙的时候等于没有 —— 而脏源码继续被别的测试跑，结论全是假的。
+      ⇒ 标记里**多存一份原文**，下次开跑先按原文写回去、逐字节校验、删标记，
+        并**大声说明**「刚刚自动还原了什么」。旧格式标记（没有 originals）仍走
+        「中止 + 打印」那条路 —— 读不到原文就不敢乱写。
+    返回 True = 现在是干净源码，可以继续；False = 仍然是脏的。
+    """
+    if not os.path.exists(MARK):
+        return True
+    print("  ⚠ 发现上一次变异测试留下的标记（当时被强行中断，`finally` 没执行）。")
+    try:
+        info = json.load(io.open(MARK, encoding="utf-8"))
+    except Exception as e:                                       # noqa: BLE001
+        print("  ✘ 标记文件读不出来：%s" % e)
+        info = {}
+    orig = info.get("originals") or {}
+    if not orig:
+        print("  ✘ 标记里**没有原文**（旧格式或写入时失败），不敢自动改写源码。")
+        print("     当时正在改：%s" % info.get("path"))
+        print("     篡改说明：%s" % info.get("desc"))
+        print("     改前片段：\n%s" % info.get("old"))
+        print("     改成片段：\n%s" % info.get("new"))
+        print("  ⇒ 手工还原后删掉 %s 再跑。" % MARK)
+        return False
+    ok = True
+    for pth, body in orig.items():
+        try:
+            io.open(pth, "w", encoding="utf-8", newline="").write(body)
+            back = io.open(pth, encoding="utf-8").read()
+            if back != body:
+                ok = False
+                print("  ✘ 自动还原后校验不一致：%s" % pth)
+            else:
+                print("     ✔ 已还原 %s（%d 字节）" % (os.path.basename(pth), len(body)))
+        except OSError as e:
+            ok = False
+            print("  ✘ 还原失败 %s：%s" % (pth, e))
+    if not ok:
+        print("  ⇒ 仍有文件停在篡改态，**本轮不跑**（保持 %s 以便下次重试）。" % MARK)
+        return False
+    try:
+        os.remove(MARK)
+    except OSError:
+        pass
+    print("  ✔ 已自动还原到干净源码（标记已删除）。**上一次的结论作废**，本轮重跑。")
+    return True
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--runs", type=int, default=2, help="每条篡改连续跑几遍（都要红）")
@@ -172,6 +231,13 @@ def main():
                     help="★ 只静态检查「每条篡改的锚点串在目标文件里恰好出现 1 次」，"
                          "不改文件、不跑测试（重构之后先跑这个，几秒出结果）")
     a = ap.parse_args()
+
+    # ★★ 开机第一件事：把「上一次被掐掉」留下的篡改还原掉（见 heal_leftover 的注释）。
+    #   放在 `--check-anchors` 之前 —— 那个闸门本身就是「几秒内确认源码可用」，
+    #   它更应该是**修好**源码的那一步，而不是在脏源码上报「锚点 0 次」。
+    if not heal_leftover():
+        print("    本轮**不执行任何篡改**（在脏源码上跑出来的结论没有意义）。")
+        return 2
 
     # ★ M4 教训：拆文件 / 改实现会让锚点**悄悄失效**。
     #   以前只能在跑完一整轮（每条都要起服务端、跑子集测试，几十分钟）之后
@@ -212,21 +278,6 @@ def main():
     #   ⚠️ 第一版做的是「扫所有篡改的目标串在不在源码里」——**假警报**：
     #     `if x ~= nil then` 这种短串本来就合法地存在于别处。
     #     判据必须是「上次真的写到一半」这个**事件**，而不是「源码里有没有某个串」。
-    MARK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_falsify_inprogress.json")
-    if os.path.exists(MARK):
-        print("  ✘ 上一次变异测试**没有跑完**（被强行中断，`finally` 没执行）。")
-        try:
-            info = json.load(io.open(MARK, encoding="utf-8"))
-            print("     当时正在改：%s" % info.get("path"))
-            print("     篡改说明：%s" % info.get("desc"))
-            print("     改前片段（用于对照还原）：\n%s" % info.get("old"))
-            print("     改成片段：\n%s" % info.get("new"))
-        except Exception as e:                                   # noqa: BLE001
-            print("     （标记文件读不出来：%s）" % e)
-        print("  ⇒ 手工还原被改的文件后，删掉 %s 再跑。" % MARK)
-        print("    本轮**不执行任何篡改**（在脏源码上跑出来的结论没有意义）。")
-        return 2
-
     bad = 0
     for path, desc, old, new, only, expect in MUTATIONS + [CONTROL]:
         # ★ `from`/`to` 也允许是**列表**（一处多改）：有些契约有**多个冗余来源**，
@@ -263,7 +314,9 @@ def main():
             #   （见 main 开头的自检）。标记里带足够的信息，让没有 git 的人也能手工还原。
             try:
                 io.open(MARK, "w", encoding="utf-8", newline="").write(
-                    json.dumps({"path": paths, "desc": desc, "old": old, "new": new},
+                    json.dumps({"path": paths, "desc": desc, "old": old, "new": new,
+                                # ★ 原文一起存：被 kill 时下次能**自动还原**（见 heal_leftover）
+                                "originals": originals},
                                ensure_ascii=False, indent=1))
             except OSError as e:
                 print("  ⚠ 写不了标记文件（%s）—— 中断保护这次不生效" % e)
