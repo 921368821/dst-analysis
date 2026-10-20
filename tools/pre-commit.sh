@@ -92,6 +92,24 @@ if out=$("$NODE" tools/relocate-paths.mjs --check 2>&1); then
 else
     echo "   ✘ 仍有写死的旧绝对路径"; echo "$out" | head -6 | sed 's/^/     /'; FAIL=1
 fi
+# ★ P46/P48：spec 里不许有 U+FFFD —— 产物是好的、源却是坏的，构建时看不出来，
+#   等真原版到位重建一次就会把坏字写进注释版。这条**会红**。
+if out=$("$NODE" tools/fix-spec-fffd.mjs --check 2>&1); then
+    echo "   ✔ spec 乱码：$(echo "$out" | tail -1)"
+else
+    echo "   ✘ spec 里有 U+FFFD"; echo "$out" | head -6 | sed 's/^/     /'; FAIL=1
+fi
+# ★ P46：派生原版树必须与当前 spec 对得上（spec 改了忘重跑 derive ⇒ 红）。
+#   派生树在 .gitignore 里（可再生）；没生成过就只提示、不算失败。
+if [ -f "_baseline/derived-scripts/MANIFEST.json" ]; then
+    if out=$("$NODE" tools/derive-pristine.mjs --check 2>&1); then
+        echo "   ✔ 派生原版：$(echo "$out" | tail -1)"
+    else
+        echo "   ✘ 派生原版与 spec 不一致"; echo "$out" | tail -6 | sed 's/^/     /'; FAIL=1
+    fi
+else
+    echo "   ⊘ 派生原版未生成（node tools/derive-pristine.mjs --write 后生效）"
+fi
 
 echo ""
 if [ $FAIL = 0 ]; then

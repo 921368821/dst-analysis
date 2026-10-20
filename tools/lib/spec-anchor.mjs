@@ -116,7 +116,12 @@ export function applySpec({ lines, header = [], headerExtra = [], before = {}, a
     if (!map.has(lineno)) map.set(lineno, []);
     for (const c of arr) {
       const t = String(c).trim();
-      if (!t.startsWith("--")) {
+      // ★ 空行放行（2026-10-20，P49）。build 脚本里的 assertComment 一直是
+      //   `if (t !== "" && !t.startsWith("--")) throw` —— 空行是合法注入（分隔用），
+      //   而这里原来写成「必须 startsWith("--")」，于是同一份 spec 在 build 里能过、
+      //   在 applySpec 里就抛「插入内容不是注释 → ""」。
+      //   同一份规则两处实现不一样，谁对谁错没人核 —— 以 build 为准对齐（产物是它生成的）。
+      if (t !== "" && !t.startsWith("--")) {
         throw new Error(`规格错误 @${String(key)}：插入内容不是注释 → ${JSON.stringify(c)}`);
       }
       map.get(lineno).push(c);

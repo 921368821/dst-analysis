@@ -29,10 +29,11 @@ class WsMixin:
         bin_mode = "bin=1" in path
         enc = PB.BinEncoder() if bin_mode else None
         self.request.settimeout(0.05)
-        with self.hub.lock:
-            self.hub.clients += 1
-            cid = self.hub.clients
-            self.hub.client_ids[cid] = path
+        # ★★★ P49：连接号**必须单调只增**（见 `Hub.open_client`）。以前这里是
+        #   `self.hub.clients += 1; cid = self.hub.clients` —— 用「在线人数」当身份，
+        #   中间那条连接一走，下一新连接就会拿到**还活着的那条**的号码 ⇒
+        #   `slot_of[cid]` 被覆盖 ⇒ 槽位互相顶掉 ⇒ 两个人共用一个身体（B26）。
+        cid = self.hub.open_client(path)
         # ★★ 把连接号挂到 self 上（2026-10-16 加，修一个**真 bug**）：
         #   `_on_frame` 里的 `targets` 出错分支打印的是 `cid`，而 `cid` 只是**本方法的局部变量**
         #   ⇒ 那里抛 `NameError: name 'cid' is not defined` ⇒ **错误处理路径自己崩了**，
@@ -53,6 +54,7 @@ class WsMixin:
         self.key = key or None
         slot = self.hub.alloc_slot(cid, self.key)
         self.slot = slot
+        self._slot_at = time.time()   # ★ whoami 自愈用：从**分配这一刻**起算「等多久没身体」
         if slot < 0:
             # 同一个 key 已经在别处连着 ⇒ **明确拒绝**（不给角色），而不是让两个人抢一个身体
             print("[player] ⚠ 同一个会话 key 已在别处连接，拒绝第二个（累计 %d 次）"
@@ -100,6 +102,16 @@ class WsMixin:
                     # ★ 坏帧**显式计数**，不静默（本工程纪律）
                     self.hub.dropped_bad_frames += 1
                     print("[ws] 客户端 %d 坏帧: %s" % (cid, e))
+                    # ★★ 2026-10-20（P49）：退出前**必须把 socket 真正关掉**。
+                    #   只 `return` 会留下一条「半开」连接：本线程走了（于是 `finally`
+                    #   把槽位还给空闲表），而客户端那边 socket 还开着、还在收快照
+                    #   ⇒ 下一个连接拿到同一个槽位 ⇒ **两个人共用一个身体**
+                    #   （实测 B26：A 与 B 都拿到 slot=1，`whoami` 回同一个 guid）。
+                    #   「关掉」必须让对方知道 —— 否则客户端会以为一切正常。
+                    try:
+                        self.request.shutdown(socket.SHUT_RDWR)
+                    except OSError:
+                        pass
                     return
                 except Exception as e:                          # noqa: BLE001
                     # ★★ 除 WSError 之外的异常，原来会被外层 `except (ConnectionError, OSError)`
@@ -130,9 +142,7 @@ class WsMixin:
             # ★ 断开就把这个槽位的玩家删掉（**槽位 0 除外** —— 它是默认玩家，删了世界就空了）
             # ★ 入队已经在 release_slot 里做了（与回收同锁，避免 add/remove 顺序翻转）
             self.hub.release_slot(cid)
-            with self.hub.lock:
-                self.hub.clients -= 1
-                self.hub.client_ids.pop(cid, None)
+            self.hub.close_client(cid)
 
     def _send(self, data: bytes, binary: bool = False):
         """下发一帧。★ binary=True 时必须用 **opcode=2（二进制帧）**：
@@ -169,6 +179,28 @@ class WsMixin:
             if not busy:
                 with self.hub.lock:
                     guid = self.hub.slot_guid.get(slot_no)
+                    # ★★ 2026-10-20（P49）：**本槽位没有身体 ⇒ 当场重排一次 add_player**。
+                    #   实测 B26 偶发红的现场：客户端帧一直在流（frames≈200）、
+                    #   `whoami` 连问 30 次全是 null，而这个槽位**已经被分配出去了**
+                    #   （`slot_of` 里有它），只是 `slot_guid` 里没有身体。
+                    #   换句话说：`add_player` 那次排队的结果丢了（或它的角色被一次
+                    #   迟到的 `remove_player` 清掉）—— 而**没有任何人会再补一次**，
+                    #   于是客户端永久没有身体，症状是「帧在流、却不知道自己是谁」。
+                    #   自愈比追这个竞态更值：这里每秒最多补一次，补上了 whoami 就回复真值。
+                    #   ⚠ 只有在「槽位已分配但没身体」时才补，不会凭空造人。
+                    if guid is None and slot_no is not None:
+                        now = time.time()
+                        # ★ 只补「**等了一会儿**还没身体」的：刚连上那一两百毫秒里
+                        #   `add_player` 还在队列里，这时补一次纯属添乱 ——
+                        #   而且会给每次正常连接都打一行 ⚠，把真正的信号淹掉。
+                        #   （实测：修好之后日志里每连一次三条 ⚠，看着像还没修。）
+                        if now - self._slot_at >= 1.0 and now - getattr(self, "_add_retry_at", 0.0) >= 1.0:
+                            self._add_retry_at = now
+                            n = getattr(self, "_add_retry", 0) + 1
+                            self._add_retry = n
+                            self.hub.cmds.put(("add_player", slot_no))
+                            print("[player] ⚠ 槽位 %s 还没有身体，重新排队 add_player（第 %d 次）"
+                                  % (slot_no, n))
             self._send(json.dumps({"you": (int(guid) if guid is not None else None),
                                    "slot": (slot_no if slot_no is not None else -1),
                                    "busy": bool(busy)},

@@ -82,6 +82,16 @@ class Hub:
         self.inputs = queue.Queue()   # 输入事件
         self.clients = 0
         self.client_ids = {}
+        # ★★★ 2026-10-20（P49）：「在线人数」与「连接号」**是两个东西**，以前被合成一个。
+        #   `clients` 是**活着**的连接数（加一/减一），拿它当 cid 会**复用号码**：
+        #   A(1) B(2) C(3) 里 B 走了 ⇒ clients=2 ⇒ 新连接 D 也叫 3 —— 而 C 还活着。
+        #   后果链：`slot_of[3]` 被 D 覆盖 ⇒ C 的槽位映射**丢了** ⇒ C 断开时
+        #   `release_slot(3)` 释放的是 **D 的**槽位 ⇒ D 还连着却被塞回空闲表 ⇒
+        #   下一个连接拿走同一个槽位 ⇒ **两个人共用一个身体**（`whoami` 回同一个 guid =
+        #   B26 的现场）。更阴的是「槽位被重复分配」那条警报**不会响**：
+        #   旧主人的 `slot_of` 早被覆盖掉了，`slot in slot_of.values()` 查不出来。
+        #   ⇒ cid 必须**单调只增**，永不复用。
+        self.cid_seq = 0
         self.dropped_bad_frames = 0   # 坏帧计数（**不静默**：会出现在 stats 里）
         self.rate_limited = 0         # ★ M5：被限流丢弃的消息数（同上，必须可见）
         self.frames_sent = 0
@@ -151,6 +161,29 @@ class Hub:
         #   ⇒ 改成**拉取**：客户端连上发 `{"cmd":"whoami"}`，处理线程**就地应答**。
         #   没有跨线程投递、没有等待、没有超时：**时序依赖被彻底去掉**。
 
+    # ---------- 连接的登记与注销（cid 的唯一来源）----------
+    def open_client(self, path):
+        """登记一条新连接，返回**永不复用**的连接号 `cid`。
+
+        ★★★ 为什么单独一个方法：`cid` 是 `slot_of` 的键。号码一旦复用，
+          「谁的槽位」这件事就没有答案了（见 `__init__` 里 `cid_seq` 的注释）。
+          **在线人数**（`clients`，给 /stats 与日志看）与**连接身份**（`cid`）必须分开：
+          前者会减，减了就会撞上还活着的那个。这两个量长得像、用途不同，
+          合成一个字段是「看起来更简单」的典型—— B26 的偶发红正是它造成的。
+        """
+        with self.lock:
+            self.clients += 1
+            self.cid_seq += 1
+            cid = self.cid_seq
+            self.client_ids[cid] = path
+        return cid
+
+    def close_client(self, cid):
+        """注销连接（在线人数减一 + 摘掉路径记录）。**不回收槽位**（那是 release_slot）。"""
+        with self.lock:
+            self.clients -= 1
+            self.client_ids.pop(cid, None)
+
     # ---------- 玩家槽位（P20/P21）----------
     def alloc_slot(self, cid, key=None):
         """给一个连接分配槽位。
@@ -161,6 +194,12 @@ class Hub:
         返回 `slot`；若同一个 key **已经在别处连着**则返回 `-1`（busy，新连接不给角色）。
         """
         with self.lock:
+            # ★ P49 守卫：cid **刚由 `open_client` 发出来**，如果它已经在 `slot_of` 里，
+            #   说明号码被复用了（历史 bug），此时**说什么都是错的** —— 必须吵。
+            if cid in self.slot_of:
+                print("[player] ✘✘ 新连接的 cid=%s 已经在 slot_of 里（占用槽位 %s）"
+                      "—— 连接号被复用了，两个人的槽位会互相顶掉"
+                      % (cid, self.slot_of[cid]))
             if key:
                 slot = self.by_key.get(key)
                 if slot is not None:
@@ -214,6 +253,17 @@ class Hub:
                 self.me_by_slot.pop(slot, None)
                 self.targets_by_slot.pop(slot, None)
                 self.act_result.pop(slot, None)
+            # ★★ 2026-10-20（P49）：「同一个槽位发给两个**还活着**的连接」必须**吵出来**。
+            #   以前这里静默通过 —— 后果是两个人共用一个身体：`whoami` 回同一个 guid、
+            #   我的输入动了别人的角色。更隐蔽的一种：槽位被回收进 `free_slots` 又被发出去，
+            #   而一个迟到的 `remove_player` 把新主人的身体删掉 ⇒ `slot_guid` 里没有身体
+            #   ⇒ `whoami` 永远回 null，而帧照常在流（B26 偶发红的现场就是
+            #   `A: you=None slot=1 null×30 frames=206`，且 B 也拿到 slot=1）。
+            #   「静默通过」在这类问题上是致命的：没有任何一条日志能把人指到这里。
+            if slot in self.slot_of.values():
+                others = [k for k, v in self.slot_of.items() if v == slot and k != cid]
+                print("[player] ✘✘ 槽位 %d **被重复分配**（仍由连接 %s 占用）—— %d 个人共用一个身体"
+                      % (slot, others, len(others) + 1))
             self.slot_of[cid] = slot
             if key:
                 self.by_key[key] = slot

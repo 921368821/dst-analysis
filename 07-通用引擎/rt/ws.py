@@ -87,7 +87,14 @@ def _read_exact(sock, n: int) -> bytes:
     while len(buf) < n:
         chunk = sock.recv(n - len(buf))
         if not chunk:
-            raise WSError("connection closed mid-frame (wanted %d, got %d)" % (n, len(buf)))
+            # ★★ 2026-10-20（P49）：**对端关掉连接 ≠ 坏帧**。
+            #   原来这里抛 `WSError`，于是 `ws_api` 把它计入 `dropped_bad_frames` 并打
+            #   `[ws] 客户端 N 坏帧: connection closed mid-frame` —— 结果是：**每个正常
+            #   退出的客户端都会留下一条「坏帧」**。日志和 stats 都被这条噪音占满，
+            #   真正违反协议的帧（比如掩码位为 0）反而看不出特别。
+            #   「连接结束」该走 `ConnectionError` 那条路（调用方本来就分开了）；
+            #   `dropped_bad_frames` 只该数**活着**的客户端发来的非法帧。
+            raise ConnectionError("客户端关闭连接（帧未读完：%d/%d 字节）" % (len(buf), n))
         buf += chunk
     return bytes(buf)
 

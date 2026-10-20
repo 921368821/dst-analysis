@@ -184,6 +184,11 @@ if [ "$FAST" = "1" ]; then
     if run_step "$NODE" "$ROOT/../tools/gen-protocol-schema.mjs" --check; then :; else FAIL=1; fi
     # ★ M8：注释流水线里**不许**再出现别人的旧绝对路径（会红归红，不是提示）
     if run_step "$NODE" "$ROOT/../tools/relocate-paths.mjs" --check; then :; else FAIL=1; fi
+    # ★ P46/P48：spec 里不许有 U+FFFD（产物好、源坏，构建时看不出来）+ 派生原版必须与 spec 对得上
+    if run_step "$NODE" "$ROOT/../tools/fix-spec-fffd.mjs" --check; then :; else FAIL=1; fi
+    if [ -f "$ROOT/../_baseline/derived-scripts/MANIFEST.json" ]; then
+        if run_step "$NODE" "$ROOT/../tools/derive-pristine.mjs" --check; then :; else FAIL=1; fi
+    fi
     hr "②c 规模与并发 / ③ 宿主回归 / ⑤ 06 三件套 —— 已跳过（--fast）"
 else
     hr "②k 模块级单测（net / hub / config / sim 构造期纪律）"
@@ -201,6 +206,11 @@ if run_step "$PY" -u tools/verify_plan.py; then :; else FAIL=1; fi
     # ★ L1：协议常量单源 / ★ M8：注释流水线旧绝对路径绝迹（与 --fast 分支同一组判据）
     if run_step "$NODE" "$ROOT/../tools/gen-protocol-schema.mjs" --check; then :; else FAIL=1; fi
     if run_step "$NODE" "$ROOT/../tools/relocate-paths.mjs" --check; then :; else FAIL=1; fi
+    # ★ P46/P48：spec 无乱码 + 派生原版与 spec 一致（与 --fast 分支同一组判据）
+    if run_step "$NODE" "$ROOT/../tools/fix-spec-fffd.mjs" --check; then :; else FAIL=1; fi
+    if [ -f "$ROOT/../_baseline/derived-scripts/MANIFEST.json" ]; then
+        if run_step "$NODE" "$ROOT/../tools/derive-pristine.mjs" --check; then :; else FAIL=1; fi
+    fi
 
 hr "③ 宿主回归：06-引擎复刻 14 入口 + tests.lua 断言"
     # ★★ 必须**先 cd 到宿主目录**：入口里的 `require("host.01_core")` 是

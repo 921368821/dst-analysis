@@ -25,6 +25,7 @@ import { dirname, join } from "node:path";
 import { createHash } from "node:crypto";
 import { repoRoot, ANN_SCRIPTS } from "./lib/paths.mjs";
 import { scanBuilds, collectSpec, reconstruct } from "./lib/unannotate.mjs";
+import { applySpec } from "./lib/spec-anchor.mjs";
 
 const TOOLS = join(repoRoot, "tools");
 const OUT_ROOT = join(repoRoot, "_baseline", "derived-scripts");
@@ -74,6 +75,7 @@ for (const [out, its] of [...byOut.entries()].sort((a, b) => a[0].localeCompare(
   }
   const g = good[0];
   okList.push({
+    ambiguous: g.r.ambiguous,
     src: g.it.src,      // 派生树里按**原版文件名**落盘（build 读的是 SRC_ROOT/src）
     out,                // 注释版里的相对路径（可能带子目录）
     build: g.it.build,
@@ -136,6 +138,7 @@ for (const sp of leftovers) {
   }
   const g = good[0];
   okList.push({
+    ambiguous: g.r.ambiguous,
     src: cands[0],
     out: cands[0],
     build: `（无 build 脚本，按 ${sp} 名字推导）`,
@@ -152,6 +155,11 @@ for (const sp of leftovers) {
 console.log(`build 脚本声明的注释版文件：${byOut.size} 个（${items.length} 条声明）`);
 console.log(`  可重建 ✔ ${okList.length}`);
 console.log(`  不可重建 ✘ ${badList.length}`);
+const amb = okList.filter((o) => o.ambiguous > 1);
+if (amb.length) {
+  console.log(`  ⚠ H 多解取最大：${amb.length} 个（取「头部之外没有注释被当成原版行」的那个解）`);
+  if (verbose) for (const o of amb) console.log(`     ${o.out}：${o.ambiguous} 个候选 → H=${o.H}`);
+}
 if (dup.length) {
   console.log(`\n⚠ 同一源文件被多个 build 脚本构建（${dup.length} 个）：`);
   for (const [src, v] of dup) console.log(`    ${src} ← ${v.map((x) => x.build).join(", ")}`);
@@ -187,29 +195,103 @@ if (check) {
   }
   const old = JSON.parse(readFileSync(MANIFEST, "utf8"));
   const problems = [];
-  for (const [src, o] of Object.entries(manifest.files)) {
-    const p = join(OUT_ROOT, src);
-    if (!existsSync(p)) { problems.push(`${src}：文件缺失`); continue; }
-    const disk = readFileSync(p, "utf8");
-    if (sha256(disk) !== o.sha256) problems.push(`${src}：内容与当前 spec 重算不一致`);
-    const prev = old.files?.[src];
-    if (!prev) problems.push(`${src}：旧清单里没有（spec 覆盖变多了？）`);
-    else if (prev.sha256 !== o.sha256) problems.push(`${src}：与旧清单记录的指纹不同（spec 改过但没重跑 --write）`);
+  const rows = [];
+
+  // ★★ 2026-10-20（P49）：--check 改成**正向校验**（派生树 + spec → 注入 → 与注释版逐行相等）。
+  //
+  //   为什么不再用「反向重算再比 sha」：反向分解在**末尾空行**上有多解。
+  //   实测 behaviours/avoidlight.lua 在同一条 spec 下能解出 80/81/82 行三种派生，
+  //   都逐块对得上（尾部连续空行可以算作原版行，也可以算作注入行）。
+  //   于是每跑一次「重建派生树 → 重跑构建」，末尾就少一个空行 —— 一轮轮往下掉，
+  //   永远收敛不了，--check 也就不可能稳定变绿。**多解的判据不能当闸门。**
+  //
+  //   正向没有这个问题：派生树是输入，注入是确定性的，输出必须与注释版**逐行相等**。
+  //   它抓的仍然是最要紧的两件事：
+  //     · spec 改了没重建 → 注入内容和注释版对不上；
+  //     · 派生树过期/被手改 → 同上，或者锚点在派生树里找不到定义（直接抛错）。
+  //   末尾空行按「不算内容」归一（注释版与派生树都各自在 EOF 有/没有换行，
+  //   这属于文本工具的约定，不该被当成差异，但**只归一末尾**，中间一个空行都不放过）。
+  const normTail = (arr) => {
+    let i = arr.length;
+    while (i > 0 && arr[i - 1] === "") i--;
+    return arr.slice(0, i);
+  };
+
+  for (const [src, o] of Object.entries(old.files || {})) {
+    const dp = join(OUT_ROOT, src);
+    const ap = join(ANN_SCRIPTS, o.out);
+    if (!existsSync(dp)) { problems.push(`${src}：派生树里没有这个文件`); continue; }
+    if (!existsSync(ap)) { problems.push(`${src}：注释版不存在（${o.out}）`); continue; }
+    const derLines = readFileSync(dp, "utf8").split("\n");
+    const annLines = readFileSync(ap, "utf8").split("\n");
+
+    let res = null;
+    let why = "";
+    // 孤儿 spec 没有 build 脚本可读，default 的语义未知 ⇒ 两种都试（只有一种能对上）
+    for (const role of ["after", "before"]) {
+      const spec = await collectSpec({ specs: o.specs, defaultRole: role }, TOOLS);
+      try {
+        res = applySpec({ lines: derLines, before: spec.before, after: spec.after });
+        break;
+      } catch (e) {
+        why = e.message.split("\n")[0];
+      }
+    }
+    if (!res) {
+      problems.push(`${src}：注入失败 —— ${why || "未知原因"}`);
+      continue;
+    }
+    const a = normTail(res.lines);
+    // 注释版 = 头部(H 行) + 正文，而 applySpec 只产正文 ⇒ 跳过头部按正文比
+    const b = normTail(annLines.slice(o.H));
+    if (a.length !== b.length) {
+      problems.push(`${src}：注入后 ${a.length} 行 ≠ 注释版 ${b.length} 行`);
+      continue;
+    }
+    let diffAt = -1;
+    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) { diffAt = i; break; }
+    if (diffAt >= 0) {
+      problems.push(
+        `${src}：第 ${diffAt + 1} 行对不上（注入 ${JSON.stringify(a[diffAt].slice(0, 50))} / ` +
+        `注释版 ${JSON.stringify(b[diffAt].slice(0, 50))}）`);
+      continue;
+    }
+    rows.push({ src, H: o.H, injected: res.injected });
   }
-  for (const src of Object.keys(old.files || {})) {
-    if (!manifest.files[src]) problems.push(`${src}：旧清单有、现在算不出来`);
-  }
+
   if (problems.length) {
-    console.log(`\n✘ 派生树与 spec 不一致（${problems.length} 处）：`);
+    console.log(`\n✘ 派生树 + spec 注入后与注释版不一致（${problems.length} 处）：`);
     for (const p of problems.slice(0, 20)) console.log("    " + p);
-    console.log("   修复：node tools/derive-pristine.mjs --write");
+    console.log("   修复：node tools/derive-pristine.mjs --write  （spec 改过就一直重建到一致）");
     process.exit(1);
   }
-  console.log(`\n✔ 派生树与当前 spec 一致（${Object.keys(manifest.files).length} 个文件）`);
-  process.exit(badList.length ? 1 : 0);
+  console.log(`\n✔ 派生树 + spec 注入后与注释版逐行相等（${rows.length} 个文件）`);
+  // 反向重算只作**参考**：多解不判红（见上面的说明），但要把「解出来和磁盘不一样」说出来
+  const drift = okList.filter((o) => old.files?.[o.src] && o.text !== readFileSync(join(OUT_ROOT, o.src), "utf8"));
+  if (drift.length) {
+    console.log(`  ⓘ 反向重算与磁盘派生树有 ${drift.length} 个文件不同（末尾空行多解，不影响上面的判定）：` +
+      drift.slice(0, 6).map((o) => o.src).join(", ") + (drift.length > 6 ? " …" : ""));
+  }
+  // ★ 覆盖面：spec 能推出、但清单里没有的文件必须报出来（否则加了 spec 也没人发现）
+  const missing = okList.filter((o) => !old.files?.[o.src]).map((o) => o.src);
+  if (missing.length) {
+    console.log(`\n✘ 有 ${missing.length} 个文件能按 spec 重建，但清单（派生树）里没有：`);
+    for (const m of missing.slice(0, 20)) console.log("    " + m);
+    console.log("   修复：node tools/derive-pristine.mjs --write --force");
+    process.exit(1);
+  }
+  process.exit(0);
 }
 
 if (write) {
+  // ★ 防「越写越漂」：反向分解在末尾空行上有多解，无条件重写会让派生树每轮少一行，
+  //   连带产物也每轮少一行（实测 behaviours/avoidlight.lua 连续三轮 82→81→80）。
+  //   ⇒ 已经有派生树、且**正向校验通过**时，拒绝重写。要重建就显式 --force。
+  if (existsSync(MANIFEST) && !argv.includes("--force")) {
+    console.log(`\n⊘ 派生树已存在且 --check 未报错时**不重写**（反向分解末尾空行多解，重写会越来越短）。`);
+    console.log(`  确实要按当前注释版重建：node tools/derive-pristine.mjs --write --force`);
+    process.exit(0);
+  }
   mkdirSync(OUT_ROOT, { recursive: true });
   for (const o of okList) {
     const p = join(OUT_ROOT, o.src);

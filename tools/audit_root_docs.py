@@ -39,7 +39,34 @@ BASELINE_DOCS = ["引擎审计报告.md", "后续计划单.md", "引擎作用单
 
 STALE = ["13 组", "133 项", "130 项", "138 编号", "92 条断言"]
 HIST = ["当时值", "历史", "快照", "§9ap", "已过期", "那一轮"]
-CURRENT = "07-通用引擎/开发计划.md §9aq.1（当前：19 组 / 178 项 / 162 编号）"
+
+
+def _current_baseline():
+    """「当前基线」这句话里的三个数字 —— **现算，不抄**。
+
+    ★★ 2026-10-20（P49）：这里原来是一行硬编码常量
+      `… §9aq.1（当前：19 组 / 178 项 / 162 编号）`。加了一条判据（B26b）之后
+      总数从 178 变 179、编号 162 变 163，而这一行**还在说 178** ——
+      它只是「打印给人看的」，没有判据盯着，于是成了同一数字的**第二份副本**。
+      （本工程 P45c 抓的正是这类：一个数字抄两处，改一处必漏另一处。）
+      ⇒ 改成从 `verify_plan.py` 的**同一套测量函数**里现算：
+        `TEST_FILES`/`file_items`（项数）、`count_groups`（组数）、`collect_ids`（编号数）。
+      算不出来（比如 07 目录被移走）就只说路径、不编数字 —— 说不准比说错强。
+    """
+    try:
+        sys.path.insert(0, os.path.join(ROOT, "07-通用引擎", "tools"))
+        import verify_plan as vp
+        total = 0
+        for f in vp.TEST_FILES:
+            p = os.path.join(vp.ROOT, f)
+            if os.path.isfile(p):
+                total += vp.file_items(p)
+        groups = vp.count_groups(vp.read(os.path.join(vp.ROOT, "tests/run_all.sh")))
+        ids = len(vp.collect_ids())
+        return "07-通用引擎/开发计划.md §9aq.1（当前：%d 组 / %d 项 / %d 编号）" % (
+            groups, total, ids)
+    except Exception:                                            # noqa: BLE001
+        return "07-通用引擎/开发计划.md §9aq.1（数字现算失败，不显示值）"
 
 
 def scan_text(text):
@@ -81,7 +108,7 @@ def main():
 
     files = [f for f in BASELINE_DOCS if os.path.isfile(os.path.join(ROOT, f))]
     total = 0
-    print("扫描 %d 份基线文档（当前基线唯一出处：%s）" % (len(files), CURRENT))
+    print("扫描 %d 份基线文档（当前基线唯一出处：%s）" % (len(files), _current_baseline()))
     for f in files:
         p = os.path.join(ROOT, f)
         text = io.open(p, encoding="utf-8", errors="replace").read()

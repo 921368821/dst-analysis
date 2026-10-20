@@ -573,22 +573,54 @@ PROC = {}
 
 
 def _start_server():
+    """起跨进程测试用的服务端。
+
+    ★★ 2026-10-20（P49）：stdout 从 `subprocess.PIPE` 改成**日志文件**。
+      原来写的是 `stdout=subprocess.PIPE, stderr=subprocess.STDOUT`，而整个文件里
+      没有任何一处读它（只有启动失败分支会 `proc.stdout.read()`）。两个后果：
+      ① **现场留不下**：服务端所有「失败必须无条件打印」的话（`[player] ✘ 槽位 N 加入失败`
+         `[handler] 异常`）全进了没人读的管道 —— 正是本工程明令禁止的那类事故
+         （「判据可以吵，但前提是现场还在」）。B26 偶发红时，日志里一个字的原因都没有。
+      ② **可能把服务端卡死**：管道缓冲区写满后，写 stdout 的线程会阻塞
+         （Windows 匿名管道默认只有几 KB）。服务端一旦卡在 print 上，模拟线程就停，
+         `add_player` 排队也永远不执行 ⇒ 客户端看到的是「帧在流 / you 一直是 null」。
+      改成文件后：现场能翻，也不会因为没人读而反压。
+      ★ 但还有一层：**必须 `-u`（不缓冲）**。第一次改成文件后日志是 0 字节 ——
+        因为 stdout 不是 tty 时 Python 是块缓冲（8 KB），而这个进程最后是被 terminate
+        掉的，缓冲区直接丢了。**「有日志文件」不等于「有日志」**，与「有判据不等于判据会红」
+        是同一类错觉。
+    """
+    import tempfile
+    _PROC_N = PROC.get("n", 0) + 1
+    PROC["n"] = _PROC_N
+    logp = os.path.join(tempfile.gettempdir(), "rt_main_%02d_p%d.log" % (_PROC_N, PORT))
+    lf = open(logp, "w", encoding="utf-8")
+    PROC["log"] = logp
+    print("  [main] 服务端日志：%s" % logp)
+    env = dict(os.environ)
+    env["PYTHONUNBUFFERED"] = "1"
     proc = subprocess.Popen(
-        [sys.executable, os.path.join(RT, "server.py"),
+        [sys.executable, "-u", os.path.join(RT, "server.py"),
          "--port", str(PORT), "--hz", "30", "--seed", "20261015", "--quiet"],
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        stdout=lf, stderr=subprocess.STDOUT, env=env,
         cwd=RT, text=True)
     PROC["p"] = proc
+    PROC["lf"] = lf
     # 等端口可用
     for _ in range(200):
         if proc.poll() is not None:
-            raise RuntimeError("服务端启动即退出：\n" + proc.stdout.read())
+            try:
+                lf.close()
+            except Exception:                                    # noqa: BLE001
+                pass
+            with open(logp, "r", encoding="utf-8", errors="replace") as f:
+                raise RuntimeError("服务端启动即退出：\n" + f.read())
         try:
             with socket.create_connection(("127.0.0.1", PORT), timeout=0.2):
                 return
         except OSError:
             time.sleep(0.1)
-    raise RuntimeError("服务端 20 s 内未监听")
+    raise RuntimeError("服务端 20 s 内未监听（日志：%s）" % logp)
 
 
 def b0_start():
@@ -616,8 +648,18 @@ def _recv_exact(sock, n, timeout=5.0):
       报 `ValueError: not enough values to unpack (expected 2, got 1)`）。
       ⇒ 读帧必须**循环读到你要的字节数**，不能指望一次 recv 拿全。
       （真实浏览器自带的 WebSocket 实现替我们做了这件事，所以只有手写的测试客户端会踩。）
-    """
-    sock.settimeout(timeout)
+    ★★ P49：**只在超时值真的不同时才 settimeout**。
+    原来每次 `recv` 都调一次。读线程用 1.0 s、主线程同时在同一个 socket 上 `sendall`
+    （`_Reader.ask()` 每 0.2 s 发一次 whoami），而 `settimeout()` 在 CPython 里会动
+    socket 的阻塞模式（ioctl FIONBIO）—— 与并发的 `sendall` 抢同一个 fd。
+    现场：服务端日志里出现 `[ws] 客户端 1 坏帧: client frame must be masked`，
+    而客户端发的帧**都是** `encode_frame_masked` 的 —— 那只可能是**半帧**：
+    `sendall` 被超时切换打断，服务端把后半截当成新帧头，掩码位自然是 0。
+    半帧再往下就是「whoami 丢了、you 一直是 null」，而客户端这边**看不出任何异常**。
+    ⇒ 值不变就一次都不碰它（读线程固定 1.0 s，实际只在第一帧设一次）。
+  """
+    if sock.gettimeout() != timeout:
+        sock.settimeout(timeout)
     buf = b""
     while len(buf) < n:
         c = sock.recv(n - len(buf))
@@ -668,6 +710,7 @@ class _Reader:
         self.last_ids = set()      # 最新一帧里出现的 id 集合（B25 要查「两个角色都在同一帧」）
         self.last_p = {}           # id → prefab（B25 要判「两个角色都是 wilson」）
         self.busy = False          # P21：同一个会话 key 已在别处连接（服务端拒绝给角色）
+        self.you_null = 0           # P49：服务端回了多少次 `you: null`（= 角色还没建出来）
         self.alive = True
         self.err = None
         self.th = threading.Thread(target=self._run, daemon=True)
@@ -681,8 +724,20 @@ class _Reader:
         while self.alive:
             try:
                 _op, d = _recv_frame(self.sock, 1.0)
-            except (socket.timeout, OSError):
+            except socket.timeout:
                 continue
+            except OSError as e:
+                # ★★ 连接断了**必须记下来**（2026-10-20，P49）。
+                #   原来这里是 `except (socket.timeout, OSError): continue` —— 两者一起吞。
+                #   后果：socket 已经被对端关掉时，recv 循环会立刻抛 OSError、立刻 continue，
+                #   空转 30 Hz × N 秒，而 `err` 一直是 None。于是判据报出来的是
+                #   「没收到 you 握手（None / None）」——「连接断了」和「服务端还没回」
+                #   长得**一模一样**，查的人只能猜。实测 B26 偶发红时就是这个文本，
+                #   单跑 3 轮又全过，靠的就是这条假象把人绕进去。
+                #   ⇒ 断线要吵：记 err 并退出线程（timeout 仍然 continue，那是正常的）。
+                if self.alive:
+                    self.err = "%s: %s" % (type(e).__name__, e)
+                return
             except Exception as e:                                   # noqa: BLE001
                 self.err = "%s: %s" % (type(e).__name__, e)
                 return
@@ -695,13 +750,19 @@ class _Reader:
             if "you" in m:
                 if m.get("busy"):
                     self.busy = True
+                    self.you_null += 1
                     continue
                 # ★★ 服务端在「玩家还没建出来」时**如实回 null** —— 这时**不能** int(None)：
                 #   第一版就是这么写的，异常直接把读线程**整条打死**（而症状是
                 #   `没收到 you 握手（err=None）`：err 还没赋值线程就没了）。
+                # ★ P49：null 也要**记数并记下服务端给的 slot** —— B26 的偶发红就是
+                #   「帧一直在流（frames=193）、you 永远是 None」，光看 you 分不清
+                #   「服务端没建出角色」和「服务端根本没看到我这条连接」。slot 一摆出来就清楚了。
+                self.slot = int(m.get("slot", self.slot))
                 if m["you"] is not None:
                     self.you = int(m["you"])
-                    self.slot = int(m.get("slot", 0))
+                else:
+                    self.you_null += 1
                 continue
             if "ents" in m:
                 self.frames += 1
@@ -1413,7 +1474,12 @@ def b26_输入互不干扰():
         sb = _connect()
         rb = _Reader(sb)
         if ra.wait_you(5.0) is None or rb.wait_you(5.0) is None:
-            return False, "没收到 you 握手（%s / %s）" % (ra.err, rb.err)
+            # 报错要把「为什么」带上：err 现在是可信的（断线会置 err），
+            # 再加上帧数与 you，才能区分「服务端没回」和「连接断了」
+            return False, ("没收到 you 握手（A: you=%s slot=%s null×%d frames=%d err=%s / "
+                           "B: you=%s slot=%s null×%d frames=%d err=%s）"
+                           % (ra.you, ra.slot, ra.you_null, ra.frames, ra.err,
+                              rb.you, rb.slot, rb.you_null, rb.frames, rb.err))
         if ra.you == rb.you:
             return False, "两个客户端是同一个角色（guid=%s）" % ra.you
         if ra.wait_pos(2.0) is None or rb.wait_pos(2.0) is None:
@@ -1472,6 +1538,108 @@ def b26_输入互不干扰():
             if r is not None:
                 r.stop()
         for s_ in (sa, sb):
+            if s_ is not None:
+                try:
+                    s_.close()
+                except Exception:                                # noqa: BLE001
+                    pass
+
+
+def b26b_连接号不复用():
+    """★★★ P49：**连接号（`cid`）不许复用** —— 它是 `slot_of` 的键。
+
+    现场（B26 偶发红的**真根源**）：`cid` 以前是「在线人数」加一得来的
+    （`hub.clients += 1; cid = hub.clients`），而 `clients` 在断开时会**减**。
+    于是 A(1) B(2) C(3) 里 **B 走了** ⇒ 人数回到 2 ⇒ 新连接 D 也叫 **3**，而 C 还活着。
+    后果链（每一步都静默）：
+
+      D 的 `slot_of[3]` **覆盖**了 C 的 ⇒ C 的槽位映射丢了
+      ⇒ C 断开时 `release_slot(3)` 释放的是 **D 的**槽位（D 还连着！）
+      ⇒ D 被塞回空闲表 ⇒ 下一个连接 E 拿走同一个槽位
+      ⇒ **E 与 D 共用一个身体**（`whoami` 回同一个 guid）—— 正是 B26 报的那句
+        「两个客户端是同一个角色（guid=66）」，也正是 B26 里
+        `A: you=None slot=1 null×30`（角色被迟到的 remove_player 删掉了）。
+
+    ★ 为什么「槽位被重复分配」那条警报**没响**：旧主人的 `slot_of` 条目已经被覆盖，
+      `alloc_slot` 里查 `slot in slot_of.values()` 当然查不到 —— **警报能查的只是症状，
+      而真正的病在更上游（号码被复用）**。所以这条判据只能盯**行为**：
+      中途有人进出之后，D 与 E 必须**不是同一个角色**。
+
+    ★ 判据不需要看 `cid`（客户端根本看不到），只看「谁顶掉了谁」。
+    """
+    ra = rb = rc = rd = re_ = None
+    sa = sb = sc = sd = se = None
+    try:
+        sa = _connect(); ra = _Reader(sa)
+        sb = _connect(); rb = _Reader(sb)
+        sc = _connect(); rc = _Reader(sc)
+        for nm, r in (("A", ra), ("B", rb), ("C", rc)):
+            if r.wait_you(6.0) is None:
+                return False, ("%s 没收到 you 握手（you=%s null×%d frames=%d err=%s）"
+                               % (nm, r.you, r.you_null, r.frames, r.err))
+        ga, gb, gc = ra.you, rb.you, rc.you
+        slot_a, rb_slot, slot_c = ra.slot, rb.slot, rc.slot
+        if len({ga, gb, gc}) != 3:
+            return False, "前提不成立：三条连接就撞了角色（%s / %s / %s）" % (ga, gb, gc)
+        if len({slot_a, rb_slot, slot_c}) != 3:
+            return False, ("前提不成立：三条并存连接占了同一批槽位（%s / %s / %s）"
+                           % (slot_a, rb_slot, slot_c))
+
+        # ① 中间那条断开 —— 「在线人数」减一，于是**空出一个号码**（这就是传染的入口）
+        rb.stop(); rb = None
+        sb.close(); sb = None
+        time.sleep(0.6)
+
+        # ② 新连接 D：修之前它叫 C 的号码
+        sd = _connect(); rd = _Reader(sd)
+        if rd.wait_you(6.0) is None:
+            return False, ("D 没收到 you 握手（you=%s null×%d frames=%d err=%s）"
+                           % (rd.you, rd.you_null, rd.frames, rd.err))
+        gd = rd.you
+
+        # ③ C 断开 —— 修之前这一下释放的是 **D 的**槽位（D 还连着）
+        rc.stop(); rc = None
+        sc.close(); sc = None
+        time.sleep(0.6)
+
+        # ④ 再连 E：修之前它拿到 D 的槽位 ⇒ 同一个角色
+        se = _connect(); re_ = _Reader(se)
+        if re_.wait_you(6.0) is None:
+            return False, ("E 没收到 you 握手（you=%s null×%d frames=%d err=%s）"
+                           % (re_.you, re_.you_null, re_.frames, re_.err))
+        ge = re_.you
+
+        # ★ 两个并存连接**不可能**共用一个槽位（每个连接一个人物）——
+        #   这条比 guid 更早、更确定地炸：实测旧代码里 E 会拿到 D 的槽位，
+        #   而 guid 反而不一定相同（`alloc_slot` 会清掉旧 guid、再建一个新角色，
+        #   于是「槽位撞了、角色却不同」，D 变成了没有身体的孤儿）。
+        if re_.slot == rd.slot:
+            return False, ("E 拿到了 D 的槽位 %s（D 还连着，guid=%s / E 的 guid=%s）——"
+                           "连接号被复用了：C 断开时释放的是 D 的槽位"
+                           % (re_.slot, gd, ge))
+        if ge == gd:
+            return False, ("E **顶掉了** D：两个客户端是同一个角色（guid=%s）——"
+                           "连接号被复用了，槽位互相顶掉（C=%s D=%s E=%s）"
+                           % (gd, gc, gd, ge))
+        if rd.err:
+            return False, "C 断开后 D 掉线了：%s（连接被别人的 release 收走了）" % rd.err
+        if rd.you != gd:
+            return False, "D 的角色被换了（%s → %s）" % (gd, rd.you)
+        if gd in (ga, gb, gc) or ge in (ga, gb, gd):
+            return False, "出现了复用角色（A/B/C=%s/%s/%s D=%s E=%s）" % (
+                ga, gb, gc, gd, ge)
+        return True, ("连接号不复用：A/B/C=%s/%s/%s（槽 %s/%s/%s）→ B 走后 D=%s（槽%s）"
+                      "→ C 走后再连 E=%s（槽%s），D 仍是 %s、槽位没被顶掉"
+                      % (ga, gb, gc, slot_a, rb_slot, slot_c, gd, rd.slot,
+                         ge, re_.slot, rd.you))
+    finally:
+        for r in (ra, rb, rc, rd, re_):
+            if r is not None:
+                try:
+                    r.stop()
+                except Exception:                                # noqa: BLE001
+                    pass
+        for s_ in (sa, sb, sc, sd, se):
             if s_ is not None:
                 try:
                     s_.close()
@@ -3957,6 +4125,7 @@ check("E12 交互目标空间索引：与线性实现逐项一致 + 真省扫描
 check("D4 会话身份挺过重启（槽位/角色/位置都接着上次）；反向：无 key 的存档许不出身份", d4_session_identity_survives_restart)
 check("B25 P20：每个客户端有自己的角色（you 握手 + 槽位回收）", b25_每个客户端有自己的角色)
 check("B26 P20 核心：**A 的输入只能动 A 的角色**", b26_输入互不干扰)
+check("B26b 连接号不复用：中途有人进出，D 与 E 不许顶成同一个角色", b26b_连接号不复用)
 check("B27 回放按「上线时刻」重建玩家；反向：抹掉 joins ⇒ 第 1 拍就露馅", b27_replay_join_timing)
 
 
@@ -3970,6 +4139,13 @@ if PROC.get("p") and PROC["p"].poll() is None:
         PROC["p"].wait(timeout=5)
     except Exception:                                            # noqa: BLE001
         PROC["p"].kill()
+if PROC.get("lf"):
+    try:
+        PROC["lf"].close()
+    except Exception:                                            # noqa: BLE001
+        pass
+if FAIL and PROC.get("log"):
+    print("  （服务端日志留档：%s）" % PROC["log"])
 
 print("\n" + "─" * 74)
 print("  结果：%d 通过 / %d 失败" % (PASS, FAIL))
