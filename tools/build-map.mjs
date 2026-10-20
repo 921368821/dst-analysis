@@ -15,6 +15,7 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { relSrc, relOut, pristineRoot, ANN_SCRIPTS } from "./lib/paths.mjs";
+import { expandKeysInPlace } from "./lib/spec-anchor.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -1367,6 +1368,8 @@ async function build(srcFile, outFile, header, specFiles) {
 
   const raw = readFileSync(join(SRC_ROOT, srcFile), "utf8");
   const srcLines = raw.split("\n");
+  expandKeysInPlace(BEFORE, srcLines, "BEFORE");   // 锚点键 → 行号键（M8）
+  expandKeysInPlace(AFTER, srcLines, "AFTER");
 
   const out = [header.replace(/\n$/, "")];
   for (const h of headerExtra) out.push(h);

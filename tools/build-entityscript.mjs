@@ -14,6 +14,7 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { relSrc, relOut, pristineRoot, ANN_SCRIPTS } from "./lib/paths.mjs";
+import { expandKeysInPlace } from "./lib/spec-anchor.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -66,6 +67,8 @@ async function main() {
   const lines = raw.split("\n");
   // 若文件以换行结尾，split 会产生末尾空串；保留它以便原样还原文件。
   const srcLines = lines;
+  expandKeysInPlace(BEFORE, srcLines, "BEFORE");   // 锚点键 → 行号键（M8）
+  expandKeysInPlace(AFTER, srcLines, "AFTER");
 
   const out = [HEADER.replace(/\n$/, "")];
   // 追加规格里的额外头注（如果有）

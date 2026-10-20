@@ -160,6 +160,66 @@ export function keyStats(maps) {
   return s;
 }
 
+/**
+ * 把「锚点键」就地展开成「数字键」—— 给 104 个 build 脚本用的一行式接入。
+ *
+ * 为什么需要
+ *   build 脚本都长这样：`for (...) { const pre = BEFORE[lineno]; }` —— 用**整数**取。
+ *   spec 迁成锚点键以后，`BEFORE["Brain:OnUpdate#1+7"]` 取不到 ⇒ **注释静默消失**，
+ *   而构建照样打印「✔ 已生成」。这是本工程最忌讳的那类失败：看着成功。
+ *   所以每个 build 脚本在读完源文件后立刻调一次本函数，把锚点键解析成数字键，
+ *   后面的循环一个字都不用改（改动面越小，越不会引入新行为）。
+ *
+ * 纪律
+ *   · 数字键原样保留（文件头区域没有定义名，迁移器本来就不动它们）。
+ *   · 同一行既有数字键又有锚点键 ⇒ **拼接**（数字键内容在前），不覆盖、不丢。
+ *   · 解析不了就抛错（resolveKey 负责），绝不跳过。
+ *
+ * @returns {{expanded:number, merged:number}} 展开个数 / 发生拼接的行数
+ */
+export function expandKeysInPlace(map, lines, label = "spec") {
+  if (!map) return { expanded: 0, merged: 0 };
+  const idx = definitionIndex(lines);
+  const anchorKeys = Object.keys(map).filter((k) => !/^\s*\d+\s*$/.test(k));
+  if (!anchorKeys.length) return { expanded: 0, merged: 0 };
+
+  const add = new Map();
+  for (const k of anchorKeys) {
+    let n;
+    try {
+      n = resolveKey(k, idx, lines.length);   // 坏锚点在这里抛错
+    } catch (e) {
+      // 空数组的非法键（`452.1: []`）是历史残留：它不产生任何注入，但键本身不合法。
+      // 这种键在老 build 里被**静默忽略**（BEFORE[lineno] 永远取不到），所以一直没人发现。
+      if (Array.isArray(map[k]) && map[k].length === 0) {
+        throw new Error(
+          `${label} 里的键 ${JSON.stringify(k)} 是**空数组**（不产生任何注入），但键本身不合法。\n` +
+            `  ⇒ 直接删掉这一项即可（删除后产物逐字节不变）。\n` +
+            `  原始错误：${e.message.split("\n")[0]}`
+        );
+      }
+      throw e;
+    }
+    if (!add.has(n)) add.set(n, []);
+    add.get(n).push(...map[k]);
+  }
+  for (const k of anchorKeys) delete map[k];
+
+  let merged = 0;
+  for (const [n, arr] of add) {
+    if (map[n] !== undefined) {
+      map[n] = [...map[n], ...arr];
+      merged++;
+    } else {
+      map[n] = arr;
+    }
+  }
+  if (label && anchorKeys.length && process.env.DST_SPEC_VERBOSE) {
+    console.log(`[spec] ${label}: ${anchorKeys.length} 个锚点键已展开（${merged} 行与数字键拼接）`);
+  }
+  return { expanded: anchorKeys.length, merged };
+}
+
 // ───────────────────────────── 自检 ─────────────────────────────
 const SELFTEST_SRC = [
   "-- fake source",
@@ -245,6 +305,28 @@ if (import.meta.url === `file://${process.argv[1]?.replace(/\\/g, "/")}` ||
   console.log("── S6 反向：插入非注释内容必须拒绝 ──");
   mustThrow(() => applySpec({ lines: base, before: { 4: ["print('x')"] } }),
             "spec 里混入代码行");
+
+  console.log("── S7 展开：锚点键就地变成数字键，注入结果逐字节不变 ──");
+  {
+    const src = ["-- h", "function A()", "  return 1", "end", "", "function B()", "  return 2", "end"];
+    const anchored = { "A#1": ["-- a 之前"], "B#1+0": ["-- b 之前"] };
+    const direct = applySpec({ lines: src, before: anchored });
+    const copy = JSON.parse(JSON.stringify(anchored));
+    const st = expandKeysInPlace(copy, src, "selftest");
+    const expanded = applySpec({ lines: src, before: copy });
+    ok(st.expanded === 2, `展开 ${st.expanded} 个锚点键`);
+    ok(Object.keys(copy).every((k) => /^\d+$/.test(k)), "展开后不再有字符串键");
+    ok(direct.text === expanded.text, "展开前后注入产物**逐字节相同**");
+
+    // 与数字键同行 ⇒ 拼接，不能覆盖
+    const mix = { 2: ["-- 数字键内容"], "A#1": ["-- 锚点内容"] };
+    expandKeysInPlace(mix, src, "selftest-mix");
+    ok(mix[2].length === 2 && mix[2][0] === "-- 数字键内容" && mix[2][1] === "-- 锚点内容",
+       "同行时数字键在前、锚点追加在后（不覆盖）");
+
+    // 反向：坏锚点必须抛错，且**不能**留下半个展开的状态
+    mustThrow(() => expandKeysInPlace({ "Nope#1": ["-- x"] }, src, "selftest"), "展开时坏锚点必须抛错");
+  }
 
   console.log(bad ? `\n结果：${bad} 条失败` : "\n结果：全绿（锚点机制可用，且坏输入不会被吞）");
   process.exit(bad ? 1 : 0);

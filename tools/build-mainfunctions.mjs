@@ -15,6 +15,7 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { relSrc, relOut, pristineRoot, ANN_SCRIPTS } from "./lib/paths.mjs";
+import { expandKeysInPlace } from "./lib/spec-anchor.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -160,6 +161,8 @@ async function build() {
 
   const raw = readFileSync(join(SRC_ROOT, "mainfunctions.lua"), "utf8");
   const srcLines = raw.split("\n");
+  expandKeysInPlace(BEFORE, srcLines, "BEFORE");   // 锚点键 → 行号键（M8）
+  expandKeysInPlace(AFTER, srcLines, "AFTER");
   // 去掉文件末尾因换行产生的空元素，保证行号与 wc -l 一致
   if (srcLines.length > 1 && srcLines[srcLines.length - 1] === "") srcLines.pop();
 

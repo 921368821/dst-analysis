@@ -158,7 +158,6 @@ export const BEFORE = {
     "--     **输入的解释不是纯函数，它依赖玩家状态与当前 UI 状态**。",
     "--   ⇒⚠ 这也是它难以测试的原因（同输入不同结果）。",
   ],
-  325.1: [],
   335: [
     "-- ★★ IsStrafing(player) —— 「横向移动中」。",
     "--   return player.components.strafer and player.components.strafer:IsAiming()",

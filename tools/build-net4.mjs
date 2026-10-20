@@ -18,6 +18,7 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { relSrc, relOut, pristineRoot, ANN_SCRIPTS } from "./lib/paths.mjs";
+import { expandKeysInPlace } from "./lib/spec-anchor.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -157,6 +158,8 @@ async function buildOne(key) {
   const out = join(DST_ROOT, t.rel); // ← 镜像相对路径，绝不平铺
 
   const srcLines = readFileSync(src, "utf8").split("\n");
+  expandKeysInPlace(BEFORE, srcLines, "BEFORE");   // 锚点键 → 行号键（M8）
+  expandKeysInPlace(AFTER, srcLines, "AFTER");
 
   const outLines = [t.header.join("\n")];
   if (HEADER_EXTRA && HEADER_EXTRA.length) {

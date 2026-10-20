@@ -13,6 +13,7 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { relSrc, relOut, pristineRoot, ANN_SCRIPTS } from "./lib/paths.mjs";
+import { expandKeysInPlace } from "./lib/spec-anchor.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -66,6 +67,7 @@ async function main() {
   const raw = readFileSync(SRC, "utf8");
   const srcLines = raw.split(/\r?\n/);
   if (srcLines.length && srcLines[srcLines.length - 1] === "") srcLines.pop();
+  expandKeysInPlace(AFTER, srcLines, "AFTER");
 
   const out = [HEADER.replace(/\n$/, "")];
 

@@ -15,6 +15,7 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { relSrc, relOut, pristineRoot, ANN_SCRIPTS } from "./lib/paths.mjs";
+import { expandKeysInPlace } from "./lib/spec-anchor.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -33,7 +34,7 @@ function assertComment(line, where) {
 
 const TARGETS = [
   {
-    name: "sanity.lua",
+    name: "components/sanity.lua",
     spec: join(__dirname, "spec-sanity.mjs"),
     header: [
       "--============================================================",
@@ -66,7 +67,7 @@ const TARGETS = [
     ].join("\n"),
   },
   {
-    name: "hunger.lua",
+    name: "components/hunger.lua",
     spec: join(__dirname, "spec-hunger.mjs"),
     header: [
       "--============================================================",
@@ -100,6 +101,8 @@ async function buildOne(t) {
 
   const src = join(SRC_ROOT, t.name);
   const srcLines = readFileSync(src, "utf8").split("\n");
+  expandKeysInPlace(BEFORE, srcLines, "BEFORE");   // 锚点键 → 行号键（M8）
+  expandKeysInPlace(AFTER, srcLines, "AFTER");
 
   const out = [t.header.replace(/\n$/, "")];
   const used = new Set();

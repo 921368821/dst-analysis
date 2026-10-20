@@ -26,12 +26,13 @@
  *
  * 退出码：0 通过 / 1 有差异或失败 / 2 无法判定（缺原版树等前置）
  */
-import { readFileSync, writeFileSync, readdirSync, existsSync, mkdtempSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, readdirSync, existsSync, mkdtempSync, mkdirSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { applySpec, definitionIndex, resolveKey, findDefinitions } from "./lib/spec-anchor.mjs";
-import { repoRoot, pristineCandidates, relSrc } from "./lib/paths.mjs";
+import { repoRoot, pristineCandidates, relSrc, ANN_SCRIPTS } from "./lib/paths.mjs";
+import { scanBuilds } from "./lib/unannotate.mjs";
 
 const TOOLS = join(repoRoot, "tools");
 
@@ -154,26 +155,22 @@ async function migrate(file, src, { write = false } = {}) {
     if (ka.length !== kb.length) {
       return { ok: false, info: `${a.name}：键数变了 ${ka.length} → ${kb.length}` };
     }
-    // 逐条比：数字键先排序（JS 对整数键会排序），锚点键按文件顺序
-    const nums = ka.filter(isNumericKey).map(Number).sort((x, y) => x - y).map(String);
-    const others = ka.filter((k) => !isNumericKey(k));
-    const ordered = [...nums, ...others];
-    for (let j = 0; j < ordered.length; j++) {
-      const oldKey = ordered[j];
-      const newKey = kb[j];
-      const oldVal = JSON.stringify(a.map[oldKey]);
-      const newVal = JSON.stringify(b.map[newKey]);
-      if (oldVal !== newVal) {
-        return {
-          ok: false,
-          info: `${a.name}：第 ${j + 1} 个键的内容变了（${oldKey} vs ${newKey}）—— 迁移会改内容，拒绝`,
-        };
+    // ★ 2026-10-20 修正：原先按「位置」逐条比（nums 升序 + others 文本序）。
+    //   但 JS 对象枚举的整数键是**数值升序**，而迁移后这些键变成字符串键、按**文本顺序**排列。
+    //   原文里若键不是升序写的（如先 900 后 100），两边位置就错开 ⇒ 误报「内容变了」。
+    //   改为按**行号**对齐：旧键 → 它该变成的新键 → 比内容，与顺序无关。
+    for (const oldKey of ka) {
+      const target = isNumericKey(oldKey) ? mapping.get(oldKey) ?? oldKey : oldKey;
+      if (!(target in b.map)) {
+        return { ok: false, info: `${a.name}：迁移后找不到键 ${target}（原 ${oldKey}）` };
       }
-      const wantLine = isNumericKey(oldKey) ? Number(oldKey) : null;
-      if (wantLine !== null) {
-        const got = resolveKey(newKey, idx, lines.length);
-        if (got !== wantLine) {
-          return { ok: false, info: `${a.name}[${oldKey}] → ${newKey} 解析到第 ${got} 行（期望 ${wantLine}）` };
+      if (JSON.stringify(a.map[oldKey]) !== JSON.stringify(b.map[target])) {
+        return { ok: false, info: `${a.name}：键 ${oldKey} → ${target} 的内容变了 —— 迁移会改内容，拒绝` };
+      }
+      if (isNumericKey(oldKey) && mapping.has(oldKey)) {
+        const got = resolveKey(target, idx, lines.length);
+        if (got !== Number(oldKey)) {
+          return { ok: false, info: `${a.name}[${oldKey}] → ${target} 解析到第 ${got} 行（期望 ${oldKey}）` };
         }
       }
     }
@@ -196,24 +193,57 @@ async function migrate(file, src, { write = false } = {}) {
   };
 }
 
-// ─────────────────────── 从 build 脚本反推 spec ↔ 源文件 ───────────────────────
+// ─────────────────────── spec ↔ 源文件：统一用 lib/unannotate 的清单 ───────────────────────
+/**
+ * ★ 2026-10-20：原先这里自带一份 `discoverPairs()`，只认 `const SRC = "..."` 一种写法，
+ *   于是 108 个源文件里只认出 89 个（漏了 SRC_REL / build() 实参 / Array.from 动态分片）。
+ *   「同一份事实抄两份 ⇒ 改一处、另一处悄悄过期」—— 这是本工程反复踩的坑，
+ *   现在把清单交给 `tools/lib/unannotate.mjs`，与 `derive-pristine` 共用同一份。
+ *
+ * 孤儿 spec（没有任何 build 脚本声明，但注释版里有同名文件）也纳入：
+ * 它们的注释确实被注入过（derive-pristine 能逐行重建），只是构建脚本已不在仓库里。
+ */
 function discoverPairs() {
+  const { items } = scanBuilds(TOOLS);
+  const bySpec = new Map();               // spec 文件名 → 原版相对路径
+  for (const it of items) for (const s of it.specs) if (!bySpec.has(s)) bySpec.set(s, it.src);
+
+  const ann = [];
+  (function walk(d) {
+    for (const f of readdirSync(d)) {
+      const p = join(d, f);
+      if (isDir(p)) walk(p);
+      else if (f.endsWith(".lua")) ann.push(p.slice(ANN_SCRIPTS.length + 1).replace(/\\/g, "/"));
+    }
+  })(ANN_SCRIPTS);
+
+  // ★ 逐个 **spec 文件**给 tail，而不是逐个「manifest 项」：
+  //   分片式 spec（spec-health-p1..p3）的键在**分片**里，聚合器本身只有 import，
+  //   对聚合器迁移等于什么也没做（第一版就是这样，报了一堆「无数字键可迁」）。
+  const specs = readdirSync(TOOLS).filter((f) => /^spec-.*\.mjs$/.test(f) && f !== "spec-keys.mjs");
   const pairs = [];
-  for (const f of readdirSync(TOOLS)) {
-    if (!/^build-.*\.mjs$/.test(f)) continue;
-    const raw = readFileSync(join(TOOLS, f), "utf8");
-    // 两种形态都要认：
-    //   ① 迁移前：const SRC = "C:/.../scripts/brain.lua";
-    //   ② M8 之后：const SRC = relSrc("brain.lua");
-    const srcM = /const\s+SRC\s*=\s*(?:relSrc\(\s*)?\n?\s*"([^"]+\.lua)"/.exec(raw);
-    if (!srcM) continue;                             // SRC_ROOT 型的多文件构建，单独报
-    const src = srcM[1].replace(/\\/g, "/");
-    const i = src.lastIndexOf("/scripts/scripts/");
-    const tail = i >= 0 ? src.slice(i + "/scripts/scripts/".length) : src;
-    const specs = [...new Set([...raw.matchAll(/spec-([\w-]+)\.mjs/g)].map((m) => `spec-${m[1]}.mjs`))];
-    for (const s of specs) pairs.push({ spec: join(TOOLS, s), tail, build: f });
+  for (const f of specs) {
+    let src = bySpec.get(f);
+    if (!src) {
+      const mm = /^(spec-.+)-p\d+\.mjs$/.exec(f);     // 分片 ⇒ 继承聚合器的源文件
+      if (mm) src = bySpec.get(`${mm[1]}.mjs`);
+    }
+    if (!src) {
+      // 孤儿 spec：按名字推导（注释版里必须**唯一**同名）
+      const base = f.replace(/^spec-/, "").replace(/-p\d+\.mjs$/, "").replace(/\.mjs$/, "");
+      const cands = ann.filter((p) => p.split("/").pop() === base + ".lua");
+      if (cands.length === 1) src = cands[0];
+    }
+    if (src) pairs.push({ spec: join(TOOLS, f), tail: src });
   }
   return pairs;
+}
+function isDir(p) {
+  try {
+    return statSync(p).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 // ─────────────────────── 自检 ───────────────────────

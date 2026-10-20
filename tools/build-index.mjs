@@ -1,15 +1,23 @@
 #!/usr/bin/env node
 /**
- * build-index.mjs —— 生成注释源码总索引
- * 扫描注释版目录，按模块统计文件数与行数，输出 Markdown 索引。
+ * build-index.mjs —— 生成注释源码的**统计表**（`02-注释源码/注释源码统计.md`）
+ *
+ * ★ 2026-10-20 修正（真缺陷）：本脚本原先默认写 `注释源码总索引.md`，而那份文件是
+ *   **手工撰写的导读**（节点协议、可复用范式、已核实缺陷……约 1600 行）。
+ *   跑一次就把导读压成 62 行汇总 —— 内容不可再生，属于「自动工具覆盖手工真源」。
+ *   现在分家：
+ *     · 手工导读  → `注释源码总索引.md`（本脚本永不写）
+ *     · 自动统计  → `注释源码统计.md`（本脚本的产物，首行带「自动生成」标记）
+ *   并且写盘前有一道守卫：目标文件存在但**没有**该标记 ⇒ 拒绝覆盖（退出 2）。
  */
-import { readdirSync, statSync, readFileSync, writeFileSync } from "node:fs";
+import { readdirSync, statSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join, relative } from "node:path";
 import { relSrc, relOut, pristineRoot, ANN_SCRIPTS } from "./lib/paths.mjs";
 
 const ROOT = process.argv[2] ?? ANN_SCRIPTS;
-// 索引 md 放在 `02-注释源码/` 下（scripts 的上一级）
-const OUT = process.argv[3] ?? join(ANN_SCRIPTS, "..", "注释源码总索引.md");
+// 统计表放在 `02-注释源码/` 下（scripts 的上一级）
+const OUT = process.argv[3] ?? join(ANN_SCRIPTS, "..", "注释源码统计.md");
+const GEN_MARK = "<!-- 由 tools/build-index.mjs 自动生成，请勿手工编辑 -->";
 
 const MODULE_CN = {
   "": "根目录核心框架",
@@ -67,9 +75,10 @@ const rows = [...byModule.entries()]
     return `| \`${mod || "(根)"}\` | ${name} | ${s.files} | ${s.lines.toLocaleString()} | ${s.comment.toLocaleString()} | ${pct}% |`;
   });
 
-const md = `# 《饥荒联机版》中文注释源码 · 总索引
+const md = `${GEN_MARK}
+# 《饥荒联机版》中文注释源码 · 统计表
 
-> 全部 Lua 源码均已添加中文注释。本索引用于快速定位文件。
+> 自动统计：文件数 / 行数 / 注释占比。**手工导读**见 \`注释源码总索引.md\`（本文件不替代它）。
 > 注释规范见 \`../00-注释规范与术语表.md\`。
 
 ## 总览
@@ -116,6 +125,16 @@ ${rows.join("\n")}
 
 其余文件均含中文文件头（模块归属 + 职责 + 关键机制），按需深入时再逐函数阅读。
 `;
+
+// 守卫：目标若存在但没有「自动生成」标记 ⇒ 那是手工文件，拒绝覆盖
+if (existsSync(OUT)) {
+  const head = readFileSync(OUT, "utf8").slice(0, 200);
+  if (!head.includes(GEN_MARK)) {
+    console.error(`✘ 拒绝覆盖 ${OUT}：它不是本脚本的产物（没有「自动生成」标记）。`);
+    console.error(`  手工文件请改 -o 指定别的输出路径，或先确认它确实该被替换。`);
+    process.exit(2);
+  }
+}
 
 writeFileSync(OUT, md, "utf8");
 console.log(md.split("\n").slice(0, 8).join("\n"));
