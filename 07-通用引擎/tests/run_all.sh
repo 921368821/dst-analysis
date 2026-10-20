@@ -335,6 +335,11 @@ cd "$ROOT" 2>/dev/null || true
 #   为什么值得单列一组：残留服务器的输出**会继续追加进 tests/_run_all.log**（它握着 tee 的
 #   写端），日志「现场还在」这句话就被打脸了；而且下一轮会撞端口，红在不相干的地方。
 hr "⑥ 收尾：进程与日志卫生（本次用过的端口必须已关闭）"
+# ★ 先验**判据自己**（P50⑯）：`--selftest` 会临时起两个监听、验三段
+#   （有残留必报 / 杀得掉 / 基线里的不背锅也不误杀），6 秒。
+#   为什么放进每轮：这条判据此前**从没被反向验证过** —— 它只在「本来就没残留」
+#   的情况下跑过，那时它输出 ✔，与「它根本不工作」长得一模一样。
+if run_step "$PY" -u "$ROOT/tools/check_leftovers.py" --selftest; then :; else FAIL=1; fi
 if run_step "$PY" -u "$ROOT/tools/check_leftovers.py" --verify "$ROOT/tests/_leftovers.json"; then :; else FAIL=1; fi
 
 ELAPSED=$(( $(date +%s) - T0 ))

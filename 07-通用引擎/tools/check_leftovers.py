@@ -30,6 +30,7 @@
 用法
     python tools/check_leftovers.py --snapshot tests/_leftovers.json
     python tools/check_leftovers.py --verify   tests/_leftovers.json [--no-kill]
+    python tools/check_leftovers.py --selftest     # ★ 自己证明自己有牙（改完这个文件必跑）
 """
 import argparse
 import json
@@ -117,14 +118,122 @@ def _kill(pid):
         return False
 
 
+def leaked_ports(now, base):
+    """跑之前就在听、且 **PID 没变**的端口不算本次的账（人工起的开发服不背锅）。
+
+    抽成函数是为了能被 `--selftest` 直接调用：判据的判据不能靠再抄一遍逻辑。
+    """
+    return {p: pid for p, pid in (now or {}).items() if base.get(p) != pid}
+
+
+def _free_probe_port(taken):
+    """从 8790~8799 里挑一个**当前没在听**的端口（selftest 用，不碰 8765）。"""
+    for p in range(8790, 8800):
+        if p not in taken:
+            return p
+    return None
+
+
+def _hold_port(port):
+    """起一个只监听、不退出的进程，用来模拟「残留服务」。"""
+    code = ("import socket,time\n"
+            "s=socket.socket();s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)\n"
+            "s.bind(('127.0.0.1',%d));s.listen(4)\n"
+            "time.sleep(120)\n" % port)
+    return subprocess.Popen([sys.executable, "-c", code])
+
+
+def selftest():
+    """★ 自己证明自己有牙（2026-10-20 加）。
+
+    ★★ 为什么必须做：这条判据此前**从没被反向验证过** —— 它只在「本来就没有残留」
+      的情况下跑过，而那时它输出 `✔ 都关掉了`，与「它根本不工作」**长得一模一样**。
+      本工程已经栽过一次这个形状（`check` 死代码在干净状态下也输出 ✔）。
+      三段，全部实测：
+        ① 空基线 + 有残留  ⇒ 必须报 1 条，且那个进程真被杀掉
+        ② 杀完再验        ⇒ 必须 0 条
+        ③ 基线里本来就有（别人的开发服）⇒ 必须 0 条，且那个进程**还活着**（不许误杀）
+    ★ 先看环境：若本工程端口本来就有服务在听，直接报「跳过」而不是硬跑 ——
+      否则 selftest 会去杀别人正在用的服。
+    """
+    now = scan()
+    if now is None:
+        print("  ✘ 扫不出端口表 —— 无法判定（不当作通过）")
+        return 2
+    mine = leaked_ports(now, {})
+    if mine:
+        print("  ⊘ 跳过：本工程端口上已经有服务在听（%s）—— "
+              "现在跑 selftest 会去杀它" % ", ".join(str(p) for p in sorted(mine)))
+        return 0
+
+    p1 = _free_probe_port(set())
+    if p1 is None:
+        print("  ⊘ 跳过：8790~8799 全被占，腾不出一个探测端口")
+        return 0
+    bad = []
+    h1 = _hold_port(p1)
+    try:
+        time.sleep(2.0)
+        now = scan() or {}
+        n1 = leaked_ports(now, {})
+        print("  ① 空基线 + 残留 %d：报 %d 条（期望 1）" % (p1, len(n1)))
+        if len(n1) != 1 or p1 not in n1:
+            bad.append("① 没报到残留 %d（实测 %r）" % (p1, sorted(n1)))
+        if not _kill(n1.get(p1) or h1.pid):
+            bad.append("① 杀不掉残留进程")
+        time.sleep(1.0)
+        now = scan() or {}
+        n2 = leaked_ports(now, {})
+        print("  ② 杀掉后再验：报 %d 条（期望 0）" % len(n2))
+        if n2:
+            bad.append("② 杀完还报 %r" % sorted(n2))
+    finally:
+        try:
+            h1.terminate()
+        except Exception:                                        # noqa: BLE001
+            pass
+
+    # ③ 「别人先占着」不算本次的账，且**不许误杀**
+    p2 = _free_probe_port({p1})
+    if p2 is None:
+        print("  ③ 跳过：腾不出第二个探测端口")
+    else:
+        h2 = _hold_port(p2)
+        try:
+            time.sleep(2.0)
+            base = scan() or {}
+            n3 = leaked_ports(base, base)                         # 自己跟自己比 ⇒ 必须空
+            print("  ③ 基线里本来就有的 %d：报 %d 条（期望 0）" % (p2, len(n3)))
+            if n3:
+                bad.append("③ 把基线里的 %d 当成残留了" % p2)
+            if h2.poll() is not None:
+                bad.append("③ 基线里的进程被杀掉了（误杀别人的开发服）")
+            else:
+                print("      基线里那个进程还活着 ✔（没被误杀）")
+        finally:
+            try:
+                h2.terminate()
+            except Exception:                                    # noqa: BLE001
+                pass
+
+    if bad:
+        print("  ✘ selftest 不过：%s" % "；".join(bad))
+        return 1
+    print("  ✔ selftest 三段全过（有残留必报 + 杀得掉 + 基线里的不背锅也不误杀）")
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--snapshot", metavar="FILE")
     ap.add_argument("--verify", metavar="FILE")
     ap.add_argument("--no-kill", action="store_true", help="只报，不终止")
+    ap.add_argument("--selftest", action="store_true", help="自己证明自己有牙（会临时起/杀进程）")
     a = ap.parse_args()
+    if a.selftest:
+        return selftest()
     if not a.snapshot and not a.verify:
-        ap.error("要么 --snapshot，要么 --verify")
+        ap.error("要么 --snapshot，要么 --verify，要么 --selftest")
 
     now = scan()
     if now is None:
@@ -148,8 +257,9 @@ def main():
         base = {int(k): v for k, v in (json.load(f).get("ports") or {}).items()}
     # 同端口同 PID ⇒ 跑之前就在的那个（别人的开发服），不动；
     # 端口原来没在听、或者换了个 PID ⇒ 都是本次留下的。
-    leaked = {p: pid for p, pid in now.items()
-              if base.get(p) != pid}
+    # ★ 口径抽成 `leaked_ports`：`--selftest` 必须撞**同一份**逻辑，
+    #   否则「判据的判据」验的是另一段代码（等于没验）。
+    leaked = leaked_ports(now, base)
     if not leaked:
         print("  ✔ 本次用过的端口都关掉了（基线里的 %d 个与本次无关）" % len(base))
         return 0
