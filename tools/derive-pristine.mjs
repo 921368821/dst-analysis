@@ -38,6 +38,54 @@ const verbose = argv.includes("--verbose");
 
 const sha256 = (t) => createHash("sha256").update(t, "utf8").digest("hex");
 
+/**
+ * 派生树的**规范文本**（`--write` 落盘的字节由它决定）
+ *
+ * ★★ 为什么不能简单「多留一个空串」（P50 实测，两次都撞了）：
+ *   每个 build 脚本读源文件后会做一次
+ *     `if (srcLines[srcLines.length-1] === "") srcLines.pop();`
+ *   —— 它把「文件以换行结尾」这个事实当成噪音摘掉；而派生树**就是喂给 build 的源文件**。
+ *   于是「派生树末尾该留几个空行」取决于这个文件尾部到底有几个空行、注入块有没有落在最后：
+ *   一律 +1 会让 32 个文件多一行，一律 +0 会让另外 8 个文件少一行（两次都实测过，
+ *   `git status 02-注释源码/` 分别报 32 与 8 个文件）。
+ *   ⇒ 不猜。**逐文件用往返自证**：试 0~3 个尾部空行，谁能「模拟 build 后与注释版逐行相等」
+ *   就用谁；一个都不成立就记进不可重建清单（宁可红，也不悄悄写出一棵重建不出原样的树）。
+ */
+function canonicalText(derived, annLines, H, spec, pops) {
+  // pops = 该 build 脚本会不会 pop 掉末尾空串；null = 不知道（孤儿 spec，没有 build 可读）
+  const models = pops === null || pops === undefined ? [true, false] : [pops];
+  const hits = new Map();
+  for (const usePop of models) {
+    for (let extra = 0; extra <= 3; extra++) {
+      const lines = derived.concat(Array(extra).fill(""));
+      // 照抄 build 的读法。★ 只在这里与 build 耦合，所以必须**按脚本**判（见 manifestOf 的注释）
+      const src = lines.slice();
+      if (usePop && src.length && src[src.length - 1] === "") src.pop();
+      let res;
+      try {
+        res = applySpec({ lines: src, before: spec.before, after: spec.after });
+      } catch {
+        continue;
+      }
+      // ★ 判等用**文本**，不用数组：`[x,y]` 与 `[x,y,""]` 是两个数组、却是同一个文件。
+      //   按数组比会被「末尾换行产生的空串」骗 —— 第一版就这么误判了 31 个文件。
+      if (res.lines.join("\n") === annLines.slice(H).join("\n")) {
+        hits.set(lines.join("\n"), { extra, usePop });
+      }
+    }
+  }
+  if (hits.size === 0) {
+    return { ok: false, why: "尾部空行对不齐（试了 0~3 个尾部空行，模拟 build 后都对不上注释版）" };
+  }
+  // ★ 多解时取 **extra 最小**的那个 —— 这不是「随便挑一个」，而是唯一有意义的规范：
+  //   对「会 pop」的脚本，多加的末尾空行**会被 pop 吃掉**，所以 extra=0 与 extra=1
+  //   产生逐字节相同的注释版 ⇒ 两者同样「对」。取最小 = **不往派生树里塞注释版本来没有的行**，
+  //   也就是让派生树尽量保持「注释版 − 注入行」这个定义本身。（第一版把多解判成「无法判定」，
+  //   88 个文件立刻红 —— 判据是对的，只是我没想到 extra 对 pop 来说是隐形的。）
+  const best = [...hits.entries()].sort((x, y) => x[1].extra - y[1].extra)[0];
+  return { ok: true, text: best[0], extra: best[1].extra, usePop: best[1].usePop, ambiguous: hits.size };
+}
+
 if (!existsSync(ANN_SCRIPTS)) {
   console.error(`✘ 找不到注释版：${ANN_SCRIPTS}`);
   process.exit(2);
@@ -74,18 +122,25 @@ for (const [out, its] of [...byOut.entries()].sort((a, b) => a[0].localeCompare(
     continue;
   }
   const g = good[0];
+  const canon = canonicalText(g.r.derived, annLines, g.r.H, g.spec, g.it.pops);
+  if (!canon.ok) {
+    badList.push({ src: out, why: canon.why });
+    continue;
+  }
   okList.push({
+    canon: { extra: canon.extra, pop: canon.usePop },
     ambiguous: g.r.ambiguous,
     src: g.it.src,      // 派生树里按**原版文件名**落盘（build 读的是 SRC_ROOT/src）
     out,                // 注释版里的相对路径（可能带子目录）
     build: g.it.build,
     specs: g.it.specs,
+    pops: g.it.pops,
     H: g.r.H,
     origLines: g.r.derived.length,
     annLines: annLines.length,
     injected: g.r.injected,
     maxKey: g.r.maxKey,
-    text: g.r.derived.join("\n"),
+    text: canon.text,
   });
 }
 
@@ -125,7 +180,7 @@ for (const sp of leftovers) {
   const tries = [];
   for (const role of ["after", "before"]) {
     const spec = await collectSpec({ specs: [sp], defaultRole: role }, TOOLS);
-    tries.push({ role, r: reconstruct(annLines, spec) });
+    tries.push({ role, spec, r: reconstruct(annLines, spec) });
   }
   const good = tries.filter((t) => t.r.ok);
   if (!good.length) {
@@ -137,7 +192,13 @@ for (const sp of leftovers) {
     continue;
   }
   const g = good[0];
+  const canon = canonicalText(g.r.derived, annLines, g.r.H, g.spec, null);
+  if (!canon.ok) {
+    badList.push({ src: `${sp}（孤儿 spec）`, why: canon.why });
+    continue;
+  }
   okList.push({
+    canon: { extra: canon.extra, pop: canon.usePop },
     ambiguous: g.r.ambiguous,
     src: cands[0],
     out: cands[0],
@@ -148,7 +209,7 @@ for (const sp of leftovers) {
     annLines: annLines.length,
     injected: g.r.injected,
     maxKey: g.r.maxKey,
-    text: g.r.derived.join("\n"),
+    text: canon.text,
   });
 }
 
@@ -184,7 +245,7 @@ const manifest = {
     "它不是 Klei 原版，不能用于证明「注释版 = 原版 + 注释」。",
   totals: { ok: okList.length, bad: badList.length, annLines: okList.reduce((a, x) => a + x.annLines, 0) },
   files: Object.fromEntries(
-    okList.map((o) => [o.src, { out: o.out, H: o.H, lines: o.origLines, ann: o.annLines, injected: o.injected, maxKey: o.maxKey, sha256: sha256(o.text), build: o.build, specs: o.specs }])
+    okList.map((o) => [o.src, { out: o.out, H: o.H, lines: o.origLines, ann: o.annLines, injected: o.injected, maxKey: o.maxKey, sha256: sha256(o.text), build: o.build, specs: o.specs, pops: o.pops, canonical: o.canon }])
   ),
 };
 
@@ -211,10 +272,10 @@ if (check) {
   //     · 派生树过期/被手改 → 同上，或者锚点在派生树里找不到定义（直接抛错）。
   //   末尾空行按「不算内容」归一（注释版与派生树都各自在 EOF 有/没有换行，
   //   这属于文本工具的约定，不该被当成差异，但**只归一末尾**，中间一个空行都不放过）。
-  const normTail = (arr) => {
+  const tailCount = (arr) => {
     let i = arr.length;
     while (i > 0 && arr[i - 1] === "") i--;
-    return arr.slice(0, i);
+    return arr.length - i;
   };
 
   for (const [src, o] of Object.entries(old.files || {})) {
@@ -224,6 +285,15 @@ if (check) {
     if (!existsSync(ap)) { problems.push(`${src}：注释版不存在（${o.out}）`); continue; }
     const derLines = readFileSync(dp, "utf8").split("\n");
     const annLines = readFileSync(ap, "utf8").split("\n");
+    // ★★ 校验必须**照抄 build 的读法**，否则「校验的」和「跑的」不是一回事。
+    //    build 读源文件后固定 pop 一次末尾空串；派生树按 canonicalText 为此多留了一个，
+    //    所以这里也要 pop —— 漏了它，派生树一重建就会几十个文件同时报「尾部空行对不上」
+    //    （实测：按「不 pop」实现时连红 32 处）。
+    const srcLines = derLines.slice();
+    // ★ 用**重建时选中的那个模型**（清单里记着），不要在这里重新猜：
+    //   孤儿 spec 没有 build 脚本可读，猜错了就是这 6 个文件「尾部空行对不上」。
+    const usePop = o.canonical ? !!o.canonical.pop : o.pops !== false;
+    if (usePop && srcLines.length && srcLines[srcLines.length - 1] === "") srcLines.pop();
 
     let res = null;
     let why = "";
@@ -231,7 +301,7 @@ if (check) {
     for (const role of ["after", "before"]) {
       const spec = await collectSpec({ specs: o.specs, defaultRole: role }, TOOLS);
       try {
-        res = applySpec({ lines: derLines, before: spec.before, after: spec.after });
+        res = applySpec({ lines: srcLines, before: spec.before, after: spec.after });
         break;
       } catch (e) {
         why = e.message.split("\n")[0];
@@ -241,19 +311,23 @@ if (check) {
       problems.push(`${src}：注入失败 —— ${why || "未知原因"}`);
       continue;
     }
-    const a = normTail(res.lines);
+    const a = res.lines;
     // 注释版 = 头部(H 行) + 正文，而 applySpec 只产正文 ⇒ 跳过头部按正文比
-    const b = normTail(annLines.slice(o.H));
-    if (a.length !== b.length) {
-      problems.push(`${src}：注入后 ${a.length} 行 ≠ 注释版 ${b.length} 行`);
-      continue;
-    }
-    let diffAt = -1;
-    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) { diffAt = i; break; }
-    if (diffAt >= 0) {
-      problems.push(
-        `${src}：第 ${diffAt + 1} 行对不上（注入 ${JSON.stringify(a[diffAt].slice(0, 50))} / ` +
-        `注释版 ${JSON.stringify(b[diffAt].slice(0, 50))}）`);
+    const b = annLines.slice(o.H);
+    if (a.join("\n") !== b.join("\n")) {
+      // 报错尽量给行号；但「只差尾部空行」要单独说 ——
+      // 否则「第 279 行对不上」看不出是尾部的锅（这轮就吃过这个苦）
+      let diffAt = -1;
+      for (let i = 0; i < Math.min(a.length, b.length); i++) {
+        if (a[i] !== b[i]) { diffAt = i; break; }
+      }
+      if (diffAt < 0) {
+        problems.push(`${src}：**尾部空行**对不上（派生树注入后 ${tailCount(a)} 个 / 注释版 ${tailCount(b)} 个）`);
+      } else {
+        problems.push(
+          `${src}：第 ${diffAt + 1} 行对不上（注入 ${JSON.stringify(a[diffAt].slice(0, 50))} / ` +
+          `注释版 ${JSON.stringify(b[diffAt].slice(0, 50))}）`);
+      }
       continue;
     }
     rows.push({ src, H: o.H, injected: res.injected });

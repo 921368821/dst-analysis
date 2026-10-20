@@ -8,12 +8,14 @@
  *
  * 用法：node gen-builds.mjs
  */
-import { writeFileSync } from "node:fs";
+import { writeFileSync, readFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { pristineRoot, ANN_SCRIPTS } from "./lib/paths.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const FORCE = process.argv.includes("--force");
+const skipped = [];
 
 const SRCROOT = join(pristineRoot(), "behaviours");
 const OUTROOT = join(ANN_SCRIPTS, "behaviours");
@@ -321,12 +323,13 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { relSrc, relOut, pristineRoot, ANN_SCRIPTS } from "./lib/paths.mjs";
+import { expandKeysInPlace } from "./lib/spec-anchor.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const SRC = "${SRCROOT}/${it.name}.lua";
+const SRC = relSrc("behaviours/${it.name}.lua");
 const SPEC = join(__dirname, "spec-${it.name}.mjs");
-const OUT = "${OUTROOT}/${it.name}.lua";
+const OUT = relOut("behaviours/${it.name}.lua");
 
 const HEADER = ${JSON.stringify(header(it))};
 
@@ -350,6 +353,11 @@ async function main() {
   const raw = readFileSync(SRC, "utf8");
   const srcLines = raw.split(/\\r?\\n/);
   if (srcLines.length && srcLines[srcLines.length - 1] === "") srcLines.pop();
+  // ★★ 2026-10-20（P50）：spec 的键现在是**锚点**（"Name#1+7"），必须就地展开成行号，
+  //   否则下面的 AFTER[lineno] 永远取不到 —— 注释会**静默消失**，构建却照样打印
+  //   「✔ 已生成」。这是本工程最忌讳的失败形态（看着成功）。
+  //   老模板没有这一句：重跑生成器就把 100 个脚本的锚点接入全抹了（实测 32 个被改回）。
+  expandKeysInPlace(AFTER, srcLines, "AFTER");
 
   const out = [HEADER.replace(/\\n$/, "")];
 
@@ -411,7 +419,24 @@ main().catch((e) => {
   process.exit(1);
 });
 `.trimStart();
-  writeFileSync(join(__dirname, `build-${it.name}.mjs`), src, "utf8");
+  const dest = join(__dirname, `build-${it.name}.mjs`);
+  // ★★★ 2026-10-20（P50）：这个生成器**会覆盖**已存在的 build 脚本，而它们早不是生成物了 ——
+  //   P47/P48 给全部 build 脚本手工接了锚点展开，P49 又补了注释。重跑生成器 =
+  //   **静默回退这些改动**：实测误跑一次，32 个脚本被改回「硬编码绝对路径 + 丢掉锚点展开」，
+  //   而 `node build-xxx.mjs` 仍然打印「✔ 已生成」，只是注释少了一片 —— 没有任何报错。
+  //   ⇒ 已存在就不覆盖；真要覆盖得显式 --force，并且先留 .bak。
+  if (existsSync(dest)) {
+    if (!FORCE) {
+      skipped.push(it.name);
+      continue;
+    }
+    writeFileSync(dest + ".bak", readFileSync(dest, "utf8"), "utf8");
+  }
+  writeFileSync(dest, src, "utf8");
   n++;
+}
+if (skipped.length) {
+  console.log(`\n⊘ 跳过已存在的 ${skipped.length} 个（生成器会覆盖手工改动）：${skipped.slice(0, 8).join(", ")}${skipped.length > 8 ? " …" : ""}`);
+  console.log(`  确实要重新生成：node tools/gen-builds.mjs --force（会先写 .bak 备份）`);
 }
 console.log(`✔ 已生成 ${n} 个 build-*.mjs`);

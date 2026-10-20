@@ -64,6 +64,11 @@ const isNumericKey = (k) => /^\s*\d+\s*$/.test(k);
  */
 export function manifestOf(buildFile, raw, toolsDir) {
   const out = [];
+  // ★★ 2026-10-20（P50）：build 脚本对「源文件末尾空行」的处理**不一致** ——
+  //   83 个会 `srcLines.pop()` 摘掉「文件以换行结尾」这个事实，18 个不会（如 build-brain）。
+  //   这直接决定派生树末尾该留几个空行：差一个，重建出的注释版就**全局多/少一行**。
+  //   ⇒ 按脚本记账，不一刀切。（实测：一刀切会让 32 个文件多一行、8 个少一行。）
+  const pops = /\.pop\(\)/.test(raw);
   const defaultRole =
     /const\s+BEFORE\s*=\s*\w+\.default/.test(raw) ? "before"
     : /const\s+AFTER\s*=\s*\w+\.default/.test(raw) ? "after"
@@ -92,6 +97,7 @@ export function manifestOf(buildFile, raw, toolsDir) {
       out: outM ? outM[1] : srcM[1],
       specs: [...specs].filter((s) => !s.includes("${")),
       defaultRole,
+      pops,
     });
     return out;
   }
@@ -110,7 +116,7 @@ export function manifestOf(buildFile, raw, toolsDir) {
     const om = /join\(\s*[A-Za-z_$][\w$]*\s*,\s*"([^"]+\.lua)"\s*\)/.exec(blk);
     const specs = [...new Set([...blk.matchAll(/spec-([\w-]+)\.mjs/g)].map((m) => `spec-${m[1]}.mjs`))];
     if (!specs.length) continue;
-    out.push({ build: buildFile, src: fm[1], out: prefix + (om ? om[1] : fm[1]), specs, defaultRole });
+    out.push({ build: buildFile, src: fm[1], out: prefix + (om ? om[1] : fm[1]), specs, defaultRole, pops });
   }
   return out;
 }
