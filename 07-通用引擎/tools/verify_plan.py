@@ -36,6 +36,8 @@ sys.path.insert(0, os.path.join(ROOT, "tools"))
 from _rt_env import PY, NODE, ENGINE, RUNNER   # noqa: E402
 
 HITS = []
+# ★★ 环境缺失**不是**文档过期，必须分开记（见 `_can_import_lupa` 处的长注释）
+ENV_MISSING = []
 
 
 def hit(where, kind, found, real, ctx=""):
@@ -178,6 +180,42 @@ def check_artifacts():
 
 
 # ---------------------------------------------------------------- 3. 入口数 / 断言数
+def classify_lua_failure(text):
+    """Lua 跑不出结果时，分清「**环境缺 lupa**」与「**脚本真的报错**」。
+
+    ★★ 为什么要分（2026-10-20 实测）：用 PATH 上那个没装 lupa 的 python 跑本工具，
+       输出是 **2 处「文档数字过期」**（`tests.lua` / `mech.lua` 的实测值变成了
+       `ModuleNotFoundError: No module named 'lupa'`）—— 而计划与 README **一个字都没错**。
+       这与 H3 是同一类毛病：**一条环境故障被打印成 N 份「看起来像代码坏了」的证据**。
+       （H3 现场：`dstsrc` 联接丢了，14 个入口各抛一次 Lua 栈，看起来像 14 个 bug。）
+
+    返回 `"env"` / `"lua"`（其余一律按「脚本报错」处理，宁可吵也不静默）。
+    """
+    if re.search(r"No module named ['\"]?lupa", text or ""):
+        return "env"
+    if "ModuleNotFoundError" in (text or "") and "lupa" in (text or ""):
+        return "env"
+    return "lua"
+
+
+def _can_import_lupa():
+    """本进程用的解释器能不能 `import lupa`。
+
+    ★ `PY` 就是 `sys.executable`（`_rt_env.py`）⇒ **用哪个 python 跑本工具，
+      就用哪个 python 去跑 06 的 Lua 入口**。所以这一步必须先试，不能等跑崩了再猜。
+    """
+    try:
+        r = subprocess.run([PY, "-c", "import lupa"], capture_output=True, timeout=60)
+        out = (r.stdout + r.stderr).decode("utf-8", "replace")
+        return r.returncode == 0, out.strip().splitlines()[-1] if out.strip() else ""
+    except Exception as e:                                       # noqa: BLE001
+        return False, "%s: %s" % (type(e).__name__, e)
+
+
+def _env_hit(what, why, detail=""):
+    ENV_MISSING.append((what, why, detail))
+
+
 def check_host():
     # ★ 用 _rt_env 里的同一份定义（原来这里自己又拼了一遍路径 —— 两处实现的老毛病）
     engine, runner = ENGINE, RUNNER
@@ -186,6 +224,14 @@ def check_host():
     missing = [e for e in entries if not os.path.isfile(os.path.join(engine, e + ".lua"))]
     if missing:
         hit("06-引擎复刻", "入口缺失", "14 个", "缺 " + ",".join(missing))
+    # ★★ 下面两段**要跑 Lua**。先判环境：缺 lupa 时它们一条都跑不了，
+    #   而原来的表现是报「文档数字过期」——把环境问题说成了文档问题。
+    ok, why = _can_import_lupa()
+    if not ok:
+        _env_hit("宿主断言数 / 机制横扫（06-引擎复刻）",
+                 "PY 跑不了 Lua：%s" % PY, why)
+        return
+
     # 断言数：跑一次 tests.lua（约 1 秒）
     try:
         r = subprocess.run([PY, runner, "5.1", os.path.join(engine, "tests.lua")],
@@ -200,6 +246,8 @@ def check_host():
                 hit("开发计划.md", "宿主断言数", mm.group(1), str(n))
             if bad:
                 hit("06-引擎复刻/tests.lua", "断言有失败", "0", str(bad))
+        elif classify_lua_failure(t) == "env":
+            _env_hit("宿主断言数（tests.lua）", "跑起来但缺 lupa：%s" % PY, t[-200:])
         else:
             hit("06-引擎复刻/tests.lua", "跑不出断言数", "—", t[-120:])
     except Exception as e:                                       # noqa: BLE001
@@ -222,7 +270,10 @@ def run_mech_check(engine, runner):
         t = (r.stdout + r.stderr).decode("utf-8", "replace")
         m = re.search(r'通过 (\d+) · 宿主边界 (\d+) · 失败 (\d+)', t)
         if not m:
-            hit("06-引擎复刻/mech.lua", "跑不出机制横扫汇总", "—", t[-120:])
+            if classify_lua_failure(t) == "env":
+                _env_hit("机制横扫（mech.lua）", "跑起来但缺 lupa：%s" % PY, t[-200:])
+            else:
+                hit("06-引擎复刻/mech.lua", "跑不出机制横扫汇总", "—", t[-120:])
             return
         n, bad = int(m.group(1)), int(m.group(3))
         if bad:
@@ -437,6 +488,11 @@ README_ROWS = {
     # ★ 2026-10-18（C1/C2）：本轮新增的两组
     "①e Node 同一图集批渲染": "tests/test_render_batch.js",
     "②i Python 停帧看门狗": "tests/test_stall_watchdog.py",
+    # ★★ 2026-10-20：这一行**此前不在表里** —— 于是它就是唯一一个「数字可以随便过期、
+    #   没有任何判据会红」的行。实测证据：test_units 从 19 条长到 25 条，
+    #   总分行（198→204）被工具抓住了，**行内那个 19 却一直是绿的**。
+    #   这与「test_units.py 没进 TEST_FILES」是同一个病的两面：**缺登记**。
+    "②k Python 模块级单测": "tests/test_units.py",
 }
 
 
@@ -563,6 +619,15 @@ def check_doc_counts(total=None, docs=None, groups=None, ctxt=None):
                     "run_all.sh 里有 %d 组" % groups)
 
 
+def _selftest_classify(text, want):
+    """★ 同 `_selftest_groups` 的套路：`classify_lua_failure` 返回字符串，
+    而自检的契约是「报了几条」⇒ 把「与期望不符」变成一条记录。
+    成对使用才有意义：判对时 0 条、**故意给错期望时 1 条**（后者证明它真的判了）。"""
+    got = classify_lua_failure(text)
+    if got != want:
+        hit("<selftest>", "Lua 失败归因不对", "期望 %s" % want, "实测 %s" % got)
+
+
 def selftest():
     """★ 拿**已知答案**去撞这几条新规则：每条都必须「该响时响、不该响时不响」。
 
@@ -642,6 +707,14 @@ def selftest():
          dict(run_all_text=G3, want=4), 1),
         ("数分组：同名标签去重（两条① 只算一组）", _selftest_groups,
          dict(run_all_text='hr "① 甲"\n    hr "① 甲（--fast）"\n', want=1), 0),
+        # ---- 环境缺失 vs 脚本报错（2026-10-20：缺 lupa 曾被报成「文档过期」）----
+        ("缺 lupa 必须归因为**环境**（不是文档过期）", _selftest_classify,
+         dict(text="Traceback (most recent call last):\n"
+                   "ModuleNotFoundError: No module named 'lupa'", want="env"), 0),
+        ("Lua 脚本真报错不得归因为环境", _selftest_classify,
+         dict(text="lua: x.lua:12: attempt to index a nil value", want="lua"), 0),
+        ("归因**故意给错期望**时必须报（证明它真的判了）", _selftest_classify,
+         dict(text="ModuleNotFoundError: No module named 'lupa'", want="lua"), 1),
     ]
     # ★★★ 自检会产生一堆**假的**记录，必须只清掉这些、**绝不能碰真记录**。
     #   第一版写的是 `del HITS[:]` —— 而当时自检是在 `check_test_counts()` **之后**调的，
@@ -706,6 +779,19 @@ def main():
         print("  进程内实测：**已跳过**（--fast）")
 
     print("  " + "─" * 68)
+    # ★★ 环境缺失**先判**，而且单独一个退出码：它不是「文档写错了」。
+    #   原来缺 lupa 时的输出是 2 处「文档数字过期，实测 ModuleNotFoundError…」——
+    #   读者只会去改文档，越改越错。现在它变成 1 条判定 + 1 条修复命令 + 退出码 2。
+    if ENV_MISSING:
+        for what, why, detail in ENV_MISSING:
+            print("  ✘ 环境缺失（**不是**文档过期）：%s —— %s" % (what, why))
+            if detail:
+                print("       %s" % detail[:150])
+        print("\n  修复：在 07-通用引擎 下执行")
+        print("        bash -c '. ../tools/env.sh && \"$PY\" -u tools/verify_plan.py'")
+        print("        （env.sh 会挑**能 import lupa** 的解释器；本进程的 PY=%s）" % PY)
+        print("\n  共 %d 处**未核对**（这些数字本轮没有真相，别当成「对得上」）" % len(ENV_MISSING))
+        return 2
     if not HITS:
         print("  ✔ 计划里的可机器验证数字与实测一致")
         return 0
