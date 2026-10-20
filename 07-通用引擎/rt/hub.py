@@ -13,6 +13,7 @@ import os
 import queue
 import threading
 import time
+from html import escape
 
 
 
@@ -26,11 +27,27 @@ def _slots_html(players):
     ★ 为什么要有：`player_alive`/`player_health` 只描述**槽位 0**；
       多客户端时运维需要一眼看到**每个槽位**是死是活 ——
       否则「杀了客户端却报玩家还活着」这种误判会消耗排查时间（E8 就踩过）。
+
+    ★★ 2026-10-20：这个函数是 `/status` 的一半，而 `/status` 正是**出故障时**才打开的页面。
+      原来它对输入有三处硬假设，任何一条不成立就把整页打成 500（诊断面自己先死）：
+        · 键一定是数字字符串（`sorted(..., key=int)`）⇒ 键是 `"a"` 就 ValueError
+        · 值一定是 dict（`v.get`）⇒ 值是字符串/None 就 AttributeError
+        · 键直接拼进 HTML ⇒ 键里带 `<` 就变成注入点（今天键是槽位号，但这是**免费的防御**）
+      ⇒ 键：数字优先、非数字按字符串排在后面；值：不是 dict 就当空；键一律 HTML 转义。
     """
     if not isinstance(players, dict) or not players:
         return "（无）"
+
+    def _order(k):
+        try:
+            return (0, int(k), "")
+        except (TypeError, ValueError):
+            return (1, 0, str(k))
+
     def one(k):
-        v = players.get(k) or {}
+        v = players.get(k)
+        if not isinstance(v, dict):
+            v = {}
         # ★ P38：把「在不在光里」也写出来 —— 夜里挨打的**直接原因**就是它，
         #   以前只能靠推断（`LIGHT_STATE` 是引擎内部的局部表）。
         lit = v.get("in_light")
@@ -42,11 +59,16 @@ def _slots_html(players):
         if v.get("alive") is True:
             hp = v.get("health")
             return "<b style='color:#3fb950'>槽%s 活着</b>(%s)%s" % (
-                k, ("%.0f" % hp) if isinstance(hp, (int, float)) else "?", tag)
+                _esc(k), ("%.0f" % hp) if isinstance(hp, (int, float)) else "?", tag)
         if v.get("alive") is False:
-            return "<b style='color:#f85149'>槽%s 已死亡</b>%s" % (k, tag)
-        return "槽%s ?" % k
-    return " · ".join(one(k) for k in sorted(players, key=lambda x: int(x)))
+            return "<b style='color:#f85149'>槽%s 已死亡</b>%s" % (_esc(k), tag)
+        return "槽%s ?" % _esc(k)
+    return " · ".join(one(k) for k in sorted(players, key=_order))
+
+
+def _esc(v):
+    """HTML 转义（`/status` 是给人看的页面，键值都当**文本**对待）。"""
+    return escape(str(v), quote=False)
 
 
 def lua_to_py(v, depth=0):

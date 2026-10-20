@@ -787,6 +787,52 @@ def u36_path_inside_cross_drive():
     return ok, "跨盘/根目录一律拒（%r），base 自身算在里（%r）" % (cases[:-1], cases[-1])
 
 
+def u37_slots_html_never_raises():
+    """`/status` 是**出故障时**才打开的页面 ⇒ 它自己不许被打成 500。
+
+    ★★ 实测（2026-10-20，修之前）：
+        `{"a": {...}}`  ⇒ ValueError: invalid literal for int() with base 10: 'a'
+        `{"0": "notadict"}` ⇒ AttributeError: 'str' object has no attribute 'get'
+      也就是说：只要引擎返回的 players 形状稍有不同（键不是槽位号、值是 None），
+      你正要看的那一页就 500 了 —— **诊断面自己先死**。
+    """
+    from hub import _slots_html
+    cases = {
+        "空": {},
+        "非数字键": {"a": {"alive": True, "health": 1}},
+        "值不是 dict": {"0": "notadict"},
+        "值是 None": {"0": None},
+        "血量不是数字": {"0": {"alive": True, "health": "abc"}},
+        "混合": {"0": {}, "x": {"alive": False}, "2": {"alive": True, "health": 5}},
+    }
+    bad = []
+    for name, c in cases.items():
+        try:
+            out = _slots_html(c)
+            if not isinstance(out, str) or not out:
+                bad.append(name + "(空输出)")
+        except Exception as e:                                   # noqa: BLE001
+            bad.append("%s(%s)" % (name, type(e).__name__))
+    return (not bad), ("六类畸形输入都返回可读文本" if not bad else "抛了: %r" % (bad,))
+
+
+def u38_slots_html_escapes():
+    """键当**文本**：`<script>` 必须变成 `&lt;script&gt;`（注入点不留给未来）。
+
+    ★ 为什么还要直接测 `_esc`：组合断言（`_slots_html` 的输出）在「排序退回 int()」时
+      会先抛 ValueError —— 那样这条判据虽然红，但红的是**排序**不是**转义**，
+      两件事混在一个红灯里。分开断言才能各自定位。
+    """
+    from hub import _slots_html, _esc
+    out = _slots_html({"<script>alert(1)</script>": {"alive": False}})
+    raw_tag = "<script>" in out
+    escaped = "&lt;script&gt;" in out
+    direct = (_esc("<b>&") == "&lt;b&gt;&amp;")
+    return (escaped and not raw_tag and direct), \
+        "输出里是 &lt;script&gt;（原样 %s）；_esc(\"<b>&\")=%r" % (
+            "仍在——没转义" if raw_tag else "不存在", _esc("<b>&"))
+
+
 # =============================================================================
 # 汇总
 # =============================================================================
@@ -816,6 +862,8 @@ def main():
     check("U16 同 key 第二连接被拒 + 计数可见", u16_busy_key_rejected)
     check("U17 回收与 remove 入队原子（含带 key 反向）", u17_release_is_atomic_with_remove)
     check("U18 槽位换主人时按槽位缓存作废", u18_slot_change_invalidates_cache)
+    check("U37 反向：/status 的槽位摘要对畸形输入不抛", u37_slots_html_never_raises)
+    check("U38 反向：槽位键当文本（HTML 转义）", u38_slots_html_escapes)
 
     print("\n── config.py：路径自洽 ──")
     check("U9 ROOT/ENGINE/图集目录彼此自洽", u9_config_paths)
