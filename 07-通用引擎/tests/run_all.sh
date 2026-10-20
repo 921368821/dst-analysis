@@ -64,7 +64,20 @@ if ! mkdir "$LOCKD" 2>/dev/null; then
         exit 3
     fi
     BEAT_AGE=999999
-    if [ -f "$BEAT" ]; then
+#   ★★ P50㉒：**先看 `done`**。上一批的 beat 判据有个反噬：正常结束的运行若收尾没删干净
+#      （实测就发生了：`trap` 里的 `rm -rf` 被环境的批量删除拦截），锁会留在原地，
+#      而「PID 已退出 + beat 仍新鲜」恰好落进「子进程可能还活着」那一支 ⇒ 10 分钟内再起一轮
+#      会被 rc=3 挡住 —— **一次正常结束的运行，被自己的锁判成了「还在跑」。**
+#      `done` 是收尾时写的结束标记：它在 ⇒ 这一轮**已经正常结束**，不必再猜 beat。
+#      （它与「父 shell 走了、子进程还在」并不冲突：那种情况根本没机会写 done。）
+    DONE_SAW=0
+    if [ -f "$LOCKD/done" ]; then
+        DONE_SAW=1
+        # ★ 把 epoch 转成人能读的时间；转不了就原样打（不猜）
+        DONE_TS=$(date -d "@$(cat "$LOCKD/done" 2>/dev/null)" '+%Y-%m-%d %H:%M:%S' 2>/dev/null \
+                 || cat "$LOCKD/done" 2>/dev/null || echo "?")
+        printf '  （锁里有 done 标记：那一轮已于 %s 正常结束，PID %s 已不在）\n' "$DONE_TS" "${OLD_PID:-?}"
+    elif [ -f "$BEAT" ]; then
         BEAT_MTIME=$(stat -c %Y "$BEAT" 2>/dev/null || echo 0)
         BEAT_AGE=$(( $(date +%s) - BEAT_MTIME ))
     fi
@@ -75,13 +88,22 @@ if ! mkdir "$LOCKD" 2>/dev/null; then
         printf '  确认真没人了再手删：rm -rf %s\n' "$LOCKD"
         exit 3
     fi
-    printf '  （清掉残留锁：PID %s 已不在，beat 已静默 %s 秒）\n' "${OLD_PID:-?}" "$BEAT_AGE"
+    # ★★ 两种残留要分开说：从 done 分支下来时 BEAT_AGE 根本没读（还是 999999），
+    #   沿用下面那句会打印「beat 已静默 999999 秒」—— 一句**和数据不符**的话。
+    #   文案与判据必须指同一件事，否则下一个看日志的人会被它带偏。
+    if [ "$DONE_SAW" = "1" ]; then
+        printf '  （清掉已正常结束的锁：那一轮写了 done，没有子进程在外面跑）\n'
+    else
+        printf '  （清掉残留锁：PID %s 已不在，beat 已静默 %s 秒）\n' "${OLD_PID:-?}" "$BEAT_AGE"
+    fi
+
     rm -rf "$LOCKD" 2>/dev/null
     mkdir "$LOCKD" 2>/dev/null || { echo "✘ 抢不到锁 $LOCKD"; exit 3; }
 fi
 printf '%s\n%s\n' "$$" "$(date '+%Y-%m-%d %H:%M:%S')" > "$LOCKD/pid"
 date +%s > "$BEAT" 2>/dev/null || true      # ★ 第一拍：拿到锁就算活着
-trap 'rm -rf "$LOCKD"' EXIT INT TERM
+# ★ P50㉒：**先写 done、再删目录**。顺序不能反：删成功就什么都不需要，删失败（被拦/权限）时 done 必须已经在。
+trap 'date +%s > "$LOCKD/done" 2>/dev/null; rm -rf "$LOCKD"' EXIT INT TERM
 T0=$(date +%s)
 printf '══ run_all 开始 %s · PID %s · 参数 %s\n' \
     "$(date '+%Y-%m-%d %H:%M:%S')" "$$" "${1:-（全量）}" >> "$LOG"
