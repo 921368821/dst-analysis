@@ -15,7 +15,7 @@ import threading
 
 from config import ATLAS_JSON_DIR, ATLAS_PNG_DIR, SELF_ATLAS_DIR
 from hub import _slots_html
-from net import CONTROL_PATHS, _query_get
+from net import CONTROL_PATHS, _query_get, path_inside
 
 __all__ = ["HttpMixin", "STATUS_HTML"]
 
@@ -82,7 +82,8 @@ class HttpMixin:
         full = None
         for base in dirs:
             cand = os.path.normpath(os.path.join(base, sub))
-            if cand.startswith(os.path.abspath(base)) and os.path.isfile(cand):
+            # ★ 用 path_inside 而不是 startswith：同前缀的兄弟目录（…/json_x）不是「在里」
+            if path_inside(base, cand) and os.path.isfile(cand):
                 full = cand
                 break
         if full is None:
@@ -492,8 +493,9 @@ class HttpMixin:
                              b"\r\n" + body)
             return
         name = path.split("?")[0].lstrip("/") or "client.html"
-        full = os.path.normpath(os.path.join(self.static_dir, name))
-        if not full.startswith(os.path.abspath(self.static_dir)) or not os.path.isfile(full):
+        full = os.path.normpath(os.path.join(os.path.abspath(self.static_dir), name))
+        # ★ 同前缀兄弟目录（rt2/…）与跨盘符都算「不在里面」；原来只比字符串前缀。
+        if not path_inside(self.static_dir, full) or not os.path.isfile(full):
             self._reply(b"HTTP/1.1 404 Not Found\r\nContent-Length: 9\r\n\r\nnot found")
             return
         ctype = "text/html; charset=utf-8" if full.endswith(".html") else "application/octet-stream"

@@ -721,6 +721,72 @@ def u33_protocol_bad_utf8():
         return False, "抛的是 %s（应为 ValueError）" % type(e).__name__
 
 
+def u34_path_inside_sibling_prefix():
+    """目录白名单必须按**路径分量**判，不能按字符串前缀。
+
+    ★★ 这是 `startswith` 的经典坑：`.../rt2/x` 以 `.../rt` 开头 ⇒ 被当成「在 rt 里」。
+      真实后果：`http_api` 的静态文件路由允许 `GET /../rt2/secret` 读走兄弟目录的文件。
+      本判据同时断言 **旧写法会误判**（否则这条测试就是恒真的摆设）。
+    """
+    import os as _os
+    from net import path_inside
+    base = _os.path.join(_os.getcwd(), "rt")
+    cases = {
+        "在里面": _os.path.join(base, "client.html"),
+        "在里面(..绕回)": _os.path.join(base, "sub", "..", "client.html"),
+        "逃出去": _os.path.join(base, "..", "secret.txt"),
+        "同前缀兄弟": base + "2" + _os.sep + "secret.txt",
+    }
+    got = {k: path_inside(base, v) for k, v in cases.items()}
+    old_style = {k: _os.path.abspath(v).startswith(_os.path.abspath(base))
+                 for k, v in cases.items()}
+    ok = (got["在里面"] and got["在里面(..绕回)"]
+          and not got["逃出去"] and not got["同前缀兄弟"]
+          and old_style["同前缀兄弟"])          # ← 旧写法在这里是 True（错的）
+    return ok, "4 种路径判定正确，且旧 startswith 在同前缀兄弟上确实误判（%s）" % \
+        ("已复现" if old_style["同前缀兄弟"] else "未复现——这条测试失去意义")
+
+
+def u35_path_inside_real_dirs():
+    """用**真目录**再验一次：`a/` 与 `a2/` 并存时只认 `a/` 里的文件。"""
+    import os as _os
+    import tempfile
+    from net import path_inside
+    root = tempfile.mkdtemp(prefix="pinside_")
+    try:
+        base = _os.path.join(root, "a")
+        sib = _os.path.join(root, "a2")
+        _os.makedirs(base); _os.makedirs(sib)
+        inside = _os.path.join(base, "ok.txt")
+        outside = _os.path.join(sib, "secret.txt")
+        for p in (inside, outside):
+            with open(p, "w", encoding="utf-8") as f:
+                f.write("x")
+        # 从 base 出发能否走到 outside：`../a2/secret.txt`
+        rel = _os.path.join("..", "a2", "secret.txt")
+        walked = _os.path.normpath(_os.path.join(base, rel))
+        ok = (path_inside(base, inside) and not path_inside(base, outside)
+              and walked == outside)
+        return ok, "a/ 内的文件放行；`../a2/secret.txt` 走到 %s 仍被拒" % _os.path.basename(walked)
+    finally:
+        import shutil
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def u36_path_inside_cross_drive():
+    """跨盘符/异构路径 ⇒ 一律 False（fail-closed：拿不准就拒）。"""
+    import os as _os
+    from net import path_inside
+    base = _os.path.join(_os.getcwd(), "rt")
+    cases = []
+    if _os.name == "nt":
+        cases.append(path_inside(base, "C:\\Windows\\win.ini"))     # 另一个盘
+    cases.append(path_inside(base, _os.path.abspath(_os.sep)))      # 根目录
+    cases.append(path_inside(base, base))                           # 自己算不算「里面」
+    ok = (not any(cases[:-1]) and cases[-1] is True)
+    return ok, "跨盘/根目录一律拒（%r），base 自身算在里（%r）" % (cases[:-1], cases[-1])
+
+
 # =============================================================================
 # 汇总
 # =============================================================================
@@ -773,6 +839,11 @@ def main():
     check("U31 id 用 delta（跳号不多花字节）", u31_protocol_id_delta)
     check("U32 反向：每个截断长度都只抛 ValueError", u32_protocol_truncation_is_valueerror)
     check("U33 反向：字典非法 utf-8 ⇒ ValueError", u33_protocol_bad_utf8)
+
+    print("\n── net.py：目录白名单（静态文件 / 图集）──")
+    check("U34 反向：同前缀兄弟目录不算「在里面」", u34_path_inside_sibling_prefix)
+    check("U35 真目录回归：a/ 与 a2/ 并存时只认 a/", u35_path_inside_real_dirs)
+    check("U36 反向：跨盘/根目录一律拒", u36_path_inside_cross_drive)
 
     print("\n── sim.py：构造期纪律 ──")
     check("U11 反向：Sim() 构造期不建 LuaRuntime", u11_sim_ctor_touches_no_lua)

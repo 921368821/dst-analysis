@@ -8,6 +8,7 @@
 
 ★ 拆分只搬代码，不改逻辑。
 """
+import os
 import socketserver
 
 
@@ -88,3 +89,25 @@ def port_in_use(host, port):
         return False
     finally:
         probe.close()
+
+def path_inside(base, path):
+    """`path` 是否真的在 `base` **里面**（而不是「以 base 的字符串开头」）。
+
+    ★★ 为什么单独一个函数（2026-10-20）：`rt/http_api.py` 里有两处「目录白名单」，
+      一处（`_serve_atlas`）先拒 `..` 再比前缀，另一处（静态文件）只比前缀。
+      而「比前缀」有经典的坑：
+
+          base = .../07-通用引擎/rt
+          path = .../07-通用引擎/rt2/secret      ← 同前缀的**兄弟目录**
+          "…/rt2/secret".startswith("…/rt")  == True   ⇒ 被当成「在 rt 里面」
+
+      现在两处都走这里：`commonpath` 按**路径分量**比，`/a/bc` 不在 `/a/b` 里。
+      跨盘符（`C:` vs `D:`）时 `commonpath` 抛 `ValueError` ⇒ 一律按「不在里面」处理
+      （fail-closed：拿不准就拒）。
+    """
+    b = os.path.abspath(base)
+    p_ = os.path.abspath(path)
+    try:
+        return os.path.commonpath([b, p_]) == b
+    except ValueError:                 # 不同盘符 / 一个是相对一个是绝对
+        return False
