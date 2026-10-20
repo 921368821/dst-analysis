@@ -391,6 +391,21 @@ DEF_FILES = ["tests/test_rt.py", "tests/test_stress.py", "tests/test_protocol_pa
              "rt/client.html", "rt/perf_lib.js", "rt/render_atlas.js", "rt/protocol_bin.js"]
 
 
+def check_ids_claim(n=None, plan_text=None):
+    """`§9aq.1` 表里的「测试编号 | N 个」必须与实测一致。
+
+    ★★ 2026-10-20：这条原来**没有任何判据**。实测证据：test_units 从 25 条长到 32 条，
+      编号 188 → 195，**总数（204→211）当场被抓住，编号总数却一路绿**。
+      同一张表里两个数字，一个有人守、一个没有 —— 读者分不出哪个可信。
+      （同一类毛病在本轮已经咬了三次：缺登记的条目不受任何判据约束。）
+    """
+    total = n if n is not None else len(collect_ids())
+    text = plan_text if plan_text is not None else read(PLAN)
+    for m in re.finditer(r"测试编号\s*\|\s*\**(\d+)\s*个\**", text):
+        if int(m.group(1)) != total:
+            hit("开发计划.md", "测试编号总数过期", "%s 个" % m.group(1), "%d 个" % total)
+
+
 def check_duplicate_defs(sources=None):
     """★★ 同名函数定义两次 = **静默死代码**（2026-10-16 加）。
 
@@ -788,6 +803,11 @@ def selftest():
         ("分组表缺行：**掉了一行**必须报", check_rows_present,
          dict(readme="\n".join("| %s | 1 | x |" % k for k in list(README_ROWS)[1:]),
               rows=README_ROWS), 1),
+        # ---- §9aq.1 表里的编号总数（这个数字此前没人守）----
+        ("编号总数：对得上不得报", check_ids_claim,
+         dict(n=195, plan_text="| 测试编号 | **195 个** | x |"), 0),
+        ("编号总数：过期必须报", check_ids_claim,
+         dict(n=195, plan_text="| 测试编号 | **188 个** | x |"), 1),
     ]
     # ★★★ 自检会产生一堆**假的**记录，必须只清掉这些、**绝不能碰真记录**。
     #   第一版写的是 `del HITS[:]` —— 而当时自检是在 `check_test_counts()` **之后**调的，
@@ -839,6 +859,7 @@ def main():
     print("  测试项数（各文件自报条数；无声明者数 `check(` 调用行）：%d 项" % total)
     ids = check_test_ids()
     print("  测试编号：%d 个（无重复、文档引用的都存在）" % len(ids))
+    check_ids_claim(len(ids))
     check_duplicate_defs()
     check_doc_counts()
     check_readme_rows()

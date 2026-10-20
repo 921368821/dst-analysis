@@ -526,6 +526,160 @@ def u24_roundtrip_both_length_scales():
 
 
 # =============================================================================
+# protocol_bin.py：二进制帧（P50）
+# =============================================================================
+#   ★★ 为什么补这一段：`protocol_bin.py` 是**服务端权威端**的编码器，
+#     原来只有集成级覆盖（② 端到端 63 条、②b 跨实现 6 条）——
+#     它们每跑一次都要起服务端（秒级），所以「改一个定点函数」要等很久才知道。
+#     更关键的是：集成测试**只走正常数据**，边界（钳位 / 字典越界 / 坏帧）
+#     要么不出现，要么以「客户端画面怪怪的」形式出现 —— 那种症状没人归因到编码器。
+def _snap_bin(n_ent=2, **kw):
+    s = {
+        "tick": 120, "t": 4.0, "iseq": 7,
+        "player": {"id": 9001, "x": 12.5, "z": -3.25},
+        "ents": [
+            {"id": 100, "x": 1.0, "z": 2.0, "p": "wilson", "a": "idle_loop",
+             "bld": None, "fr": 3, "f": 0.5},
+            {"id": 101, "x": -2.0, "z": 0.0, "p": "tree", "a": "sway_loop",
+             "bld": "tree_1", "fr": 0, "f": 1.25},
+        ][:n_ent],
+        "world": {"phase": "day", "season": "autumn", "isday": True,
+                  "isdusk": False, "isnight": False, "temperature": 18.5},
+        "paused": False,
+    }
+    s.update(kw)
+    return s
+
+
+def u25_protocol_roundtrip():
+    """编码 → 解码逐字段一致（定点 1/16 的误差要**算得出来**，不是「差不多」）。"""
+    from protocol_bin import BinEncoder, decode
+    snap = _snap_bin()
+    enc = BinEncoder()
+    back = decode(enc.encode(snap), enc)
+    tol = 1.0 / 16 + 1e-9
+    bad = []
+    if back["tick"] != snap["tick"] or back["iseq"] != snap["iseq"]:
+        bad.append("tick/iseq")
+    if abs(back["t"] - snap["t"]) > 1e-6:
+        bad.append("t")
+    if back["player"]["id"] != 9001 or abs(back["player"]["x"] - 12.5) > tol:
+        bad.append("player")
+    if [e["id"] for e in back["ents"]] != [100, 101]:
+        bad.append("ids")
+    if back["ents"][1]["p"] != "tree" or back["ents"][1]["bld"] != "tree_1":
+        bad.append("字典")
+    w = back["world"]
+    if (w["phase"], w["season"], w["isday"], w["isdusk"], w["isnight"]) != \
+            ("day", "autumn", True, False, False):
+        bad.append("world")
+    if abs(w["temperature"] - 18.5) > tol:
+        bad.append("温度")
+    return (not bad), ("player+2 ents+world 全字段一致" if not bad else "不符: %r" % (bad,))
+
+
+def u26_protocol_i16_clamp():
+    """定点**必须钳位**，不许回绕 —— 回绕的表现是「实体出现在世界另一边」。"""
+    from protocol_bin import BinEncoder, decode
+    hi, lo = 5000.0, -5000.0
+    enc = BinEncoder()
+    s = _snap_bin(n_ent=0, player=None,
+                  ents=[{"id": 1, "x": hi, "z": lo, "p": None, "a": None,
+                         "bld": None, "fr": 0, "f": 0.0}])
+    e = decode(enc.encode(s), enc)["ents"][0]
+    cap = 32767.0 / 16
+    ok = e["x"] > 0 and abs(e["x"] - cap) < 0.1 and e["z"] < 0 and abs(e["z"] + cap) < 0.1
+    return ok, "±5000 钳到 ±%.3f（未回绕成反号）" % (e["x"],)
+
+
+def u27_protocol_dict_reuse():
+    """字典是**连接级**的：同一批字符串的第二帧只带索引 ⇒ 字节数明显下降。"""
+    from protocol_bin import BinEncoder, decode
+    enc = BinEncoder()
+    s = _snap_bin()
+    b1 = enc.encode(s)
+    b2 = enc.encode(s)
+    back = decode(b2, enc)
+    ok = (len(b2) < len(b1) * 0.8
+          and back["ents"][0]["p"] == "wilson" and back["ents"][1]["a"] == "sway_loop")
+    return ok, "第 1 帧 %d B → 第 2 帧 %d B（省 %.0f%%），解码仍对" % (
+        len(b1), len(b2), 100.0 * (1 - len(b2) / float(len(b1))))
+
+
+def u28_protocol_dict_miss_is_visible():
+    """字典缺历史 ⇒ 返回 None 并**计数**，不许抛 IndexError（实测事故）。"""
+    from protocol_bin import BinEncoder, decode
+    enc = BinEncoder()
+    enc.encode(_snap_bin())                     # 第 1 帧：带全字典
+    enc.encode(_snap_bin())                     # 第 2 帧没有新字符串 ⇒ 全靠索引
+    fresh = BinEncoder()                        # 模拟「客户端漏掉首帧就接上」
+    try:
+        out = decode(enc.encode(_snap_bin()), fresh)
+        miss = getattr(fresh, "misses", 0)
+        got_none = out["ents"][0]["p"] is None
+        return (got_none and miss >= 1), "缺字典 ⇒ p=None 且 misses=%d（没抛异常）" % miss
+    except IndexError:
+        return False, "抛了 IndexError —— 正是注释里写的那个事故"
+
+
+def u29_protocol_bad_frames_raise():
+    """坏帧必须**明确拒绝**（ValueError + 说清哪一步），不是崩在随机下标上。"""
+    from protocol_bin import decode, MAGIC0, MAGIC1, VERSION
+    cases = {
+        "太短": b"\x00\x01",
+        "魔数": bytes([MAGIC0 ^ 0xFF, MAGIC1, VERSION, 0]),
+        "版本": bytes([MAGIC0, MAGIC1, (VERSION + 1) & 0xFF, 0]),
+        "过长varint": bytes([MAGIC0, MAGIC1, VERSION, 0]) + b"\x80" * 6,
+    }
+    got = {}
+    for k, buf in cases.items():
+        try:
+            decode(buf)
+            got[k] = "没抛"
+        except ValueError:
+            got[k] = "ValueError"
+        except Exception as e:                                   # noqa: BLE001
+            got[k] = type(e).__name__
+    ok = all(v == "ValueError" for v in got.values())
+    return ok, ("四类坏帧都 ValueError（%s）" % "、".join("%s=%s" % kv for kv in got.items())
+                if ok else "不符: %r" % (got,))
+
+
+def u30_protocol_paused_bit():
+    """`paused` 走 flags 的 bit3：**零字节成本**，但客户端必须能读出来。
+
+    ★ 为什么值得一条：世界停住时，「t 不涨」和「网络卡了」长得一模一样；
+      靠猜的客户端会把「暂停」显示成「断线」。
+    """
+    from protocol_bin import BinEncoder, decode
+    enc = BinEncoder()
+    buf = enc.encode(_snap_bin(paused=True))
+    bit = bool(buf[3] & 8)
+    back = decode(buf, enc)["paused"]
+    plain = decode(BinEncoder().encode(_snap_bin(paused=False)))["paused"]
+    return (bit and back is True and plain is False), \
+        "bit3=%s 且解码 paused=%r（对照：未暂停 ⇒ %r）" % (bit, back, plain)
+
+
+def u31_protocol_id_delta():
+    """id 用 **delta**：第二个 id 跳到 5000 也只多 1 个字节，且解码精确还原。"""
+    from protocol_bin import BinEncoder, decode
+
+    def enc_with(second_id):
+        e = BinEncoder()
+        s = _snap_bin(n_ent=2, player=None)
+        s["ents"][1]["id"] = second_id
+        return e, e.encode(s)
+
+    e1, a = enc_with(101)
+    e2, b = enc_with(5000)
+    got = [x["id"] for x in decode(b, e2)["ents"]]
+    d = len(b) - len(a)
+    return (got == [100, 5000] and 0 <= d <= 2), \
+        "id 101→5000 只多 %d 字节，解码得 %r" % (d, got)
+
+
+# =============================================================================
 # 汇总
 # =============================================================================
 def main():
@@ -566,6 +720,15 @@ def main():
     check("U22 反协议帧明确拒绝（分片/超长）", u22_read_frame_rejects_bad_shape)
     check("U23 握手 accept 值与 RFC 6455 向量一致", u23_accept_key_rfc_vector)
     check("U24 编解码往返（含 126 档）", u24_roundtrip_both_length_scales)
+
+    print("\n── protocol_bin.py：二进制帧（服务端权威端）──")
+    check("U25 编码→解码逐字段一致（含 world 块）", u25_protocol_roundtrip)
+    check("U26 反向：定点越界**钳位**，不回绕", u26_protocol_i16_clamp)
+    check("U27 字典连接级复用：第二帧只带索引", u27_protocol_dict_reuse)
+    check("U28 反向：字典缺历史 ⇒ None + 计数，不抛 IndexError", u28_protocol_dict_miss_is_visible)
+    check("U29 反向：四类坏帧都明确 ValueError", u29_protocol_bad_frames_raise)
+    check("U30 paused 走 flags bit3（零字节成本）", u30_protocol_paused_bit)
+    check("U31 id 用 delta（跳号不多花字节）", u31_protocol_id_delta)
 
     print("\n── sim.py：构造期纪律 ──")
     check("U11 反向：Sim() 构造期不建 LuaRuntime", u11_sim_ctor_touches_no_lua)
