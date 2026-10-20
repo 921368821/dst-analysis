@@ -333,6 +333,23 @@ if (check) {
     rows.push({ src, H: o.H, injected: res.injected });
   }
 
+  // ★★ 2026-10-20（P50）：反向重算 != 磁盘 ⇒ **红**（原来只是一行 ⓘ 提示）。
+  //   为什么现在敢判红：`--write` 已经是幂等的（尾部空行按脚本建模 + 往返自证，
+  //   连跑两次 MANIFEST 同 hash），所以「重算出来和磁盘不一样」只可能是一件事：
+  //   派生树过期了（spec 改了没重跑，或有人手改了 _baseline）。
+  //   上一轮这里只提示不判红，理由是「多解不可靠」—— 那个理由已经不成立了，
+  //   而「只提示」的结果是：派生树可以一直和 spec 不同步，闸门却全绿。
+  const drift = okList
+    .filter((o) => old.files?.[o.src])
+    .filter((o) => o.text !== readFileSync(join(OUT_ROOT, o.src), "utf8"))
+    .map((o) => o.src);
+  if (drift.length) {
+    console.log(`\n✘ 磁盘上的派生树与「按当前 spec 重算」不一致（${drift.length} 个）：`);
+    for (const d of drift.slice(0, 20)) console.log(`    ${d}`);
+    console.log("   修复：node tools/derive-pristine.mjs --write --force");
+    process.exit(1);
+  }
+
   if (problems.length) {
     console.log(`\n✘ 派生树 + spec 注入后与注释版不一致（${problems.length} 处）：`);
     for (const p of problems.slice(0, 20)) console.log("    " + p);
@@ -340,12 +357,6 @@ if (check) {
     process.exit(1);
   }
   console.log(`\n✔ 派生树 + spec 注入后与注释版逐行相等（${rows.length} 个文件）`);
-  // 反向重算只作**参考**：多解不判红（见上面的说明），但要把「解出来和磁盘不一样」说出来
-  const drift = okList.filter((o) => old.files?.[o.src] && o.text !== readFileSync(join(OUT_ROOT, o.src), "utf8"));
-  if (drift.length) {
-    console.log(`  ⓘ 反向重算与磁盘派生树有 ${drift.length} 个文件不同（末尾空行多解，不影响上面的判定）：` +
-      drift.slice(0, 6).map((o) => o.src).join(", ") + (drift.length > 6 ? " …" : ""));
-  }
   // ★ 覆盖面：spec 能推出、但清单里没有的文件必须报出来（否则加了 spec 也没人发现）
   const missing = okList.filter((o) => !old.files?.[o.src]).map((o) => o.src);
   if (missing.length) {

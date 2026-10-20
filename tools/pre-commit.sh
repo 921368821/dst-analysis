@@ -110,6 +110,24 @@ if [ -f "_baseline/derived-scripts/MANIFEST.json" ]; then
 else
     echo "   ⊘ 派生原版未生成（node tools/derive-pristine.mjs --write 后生效）"
 fi
+# ★★★ 2026-10-20（P50）：**生成器模板回归**。
+#   `tools/gen-builds.mjs` 会覆盖 29 个 build 脚本。它的老模板把路径写成绝对路径、
+#   而且**没有** `expandKeysInPlace` —— 重跑一次就把 P47/P48 手工接的锚点展开全抹掉，
+#   而 `node build-xxx.mjs` 照样打印「✔ 已生成」，只是注释少了一片。**没有任何报错。**
+#   本轮真踩了一次（32 个脚本被改回），所以把「模板里必须有那两样」变成判据：
+#   这不是风格检查，是「一跑就静默降级」的那类命令的保险丝。
+gen_ok=1
+if ! grep -q 'expandKeysInPlace(AFTER' tools/gen-builds.mjs; then
+    echo "   ✘ gen-builds 模板丢了 expandKeysInPlace —— 重跑它会让锚点键静默失效"; gen_ok=0
+fi
+if ! grep -q 'const SRC = relSrc(' tools/gen-builds.mjs; then
+    echo "   ✘ gen-builds 模板写的是绝对路径（应为 relSrc/relOut）"; gen_ok=0
+fi
+if [ "$gen_ok" = 1 ]; then
+    echo "   ✔ 生成器模板：保留锚点展开 + 路径走 relSrc/relOut"
+else
+    FAIL=1
+fi
 
 echo ""
 if [ $FAIL = 0 ]; then
