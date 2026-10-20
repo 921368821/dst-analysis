@@ -102,6 +102,33 @@ def _alive(pid):
         return False
 
 
+def pid_set():
+    """**一次**拿到当前所有 pid 的集合。
+
+    ★★ 为什么不逐个 `_alive()`（2026-10-20 实测）：`%TEMP%` 里有 1251 个
+      `rt_filelist_<pid>`，逐个调 `tasklist /FI` 就是 1251 次子进程 ——
+      第一条命令直接被超时杀掉（SIGTERM），连「有多少个」都没打印出来。
+      ⇒ 批量接口不是优化，是**能不能跑完**的区别。
+    """
+    out = set()
+    try:
+        if os.name == "nt":
+            r = subprocess.run(["tasklist", "/FO", "CSV", "/NH"],
+                               capture_output=True, timeout=40)
+            txt = r.stdout.decode("utf-8", "replace")
+            for line in txt.splitlines():
+                parts = [p.strip('"') for p in line.split('","')]
+                if len(parts) >= 2 and parts[1].isdigit():
+                    out.add(int(parts[1]))
+            return out
+        for name in os.listdir("/proc"):
+            if name.isdigit():
+                out.add(int(name))
+    except Exception:                                            # noqa: BLE001
+        return None
+    return out
+
+
 def _kill(pid):
     try:
         if os.name == "nt":
@@ -124,6 +151,94 @@ def leaked_ports(now, base):
     抽成函数是为了能被 `--selftest` 直接调用：判据的判据不能靠再抄一遍逻辑。
     """
     return {p: pid for p, pid in (now or {}).items() if base.get(p) != pid}
+
+
+# ---------------------------------------------------------------- %TEMP% 收尾
+FILELIST_PREFIX = "rt_filelist_"
+
+
+def _dirsize(path):
+    total = 0
+    for dirpath, _dirnames, filenames in os.walk(path):
+        for fn in filenames:
+            try:
+                total += os.path.getsize(os.path.join(dirpath, fn))
+            except OSError:
+                pass
+    return total
+
+
+def temp_filelist_dirs():
+    """`%TEMP%` 下 `rt_filelist_<pid>` 目录清单（boot 时生成的那些）。"""
+    import glob
+    import tempfile
+    return sorted(glob.glob(os.path.join(tempfile.gettempdir(), FILELIST_PREFIX + "*")))
+
+
+def _pid_of(path):
+    m = re.search(r"(\d+)[/\\]?$", path.rstrip("/\\"))
+    return int(m.group(1)) if m else -1
+
+
+def classify_filelist(dirs=None, alive=None):
+    """把目录清单分成「在用」与「可收」两堆（`(路径, pid)`）。
+
+    ★ 判据是 **pid 是否还活着**，不按时间、也不按修改时间：
+      pid 还在 ⇒ 可能是别的进程正在读它，一个都不碰；
+      pid 已不在 ⇒ 那个进程早没了（正常退出会自己删，剩下的都是硬中断留下的）。
+    ★ 拿不到进程表 ⇒ **全算在用**（一个都不删）：删错的代价远大于多留一份垃圾。
+    ★ pid 复用是已知代价：目录的 pid 恰好等于现在某个无关进程 ⇒ 归到「在用」，
+      保守方向。
+    """
+    ds = list(dirs) if dirs is not None else temp_filelist_dirs()
+    items = [(d, _pid_of(d)) for d in ds]
+
+    if alive is not None:                       # 自检注入：判定函数由调用方给
+        is_live = alive
+    else:
+        pids = pid_set()
+        if pids is None:
+            print("  ⚠ 拿不到进程表 —— 一个都不删（无法判定 pid 还在不在）")
+            return items, []
+
+        def is_live(pid):
+            return pid in pids
+
+    live = [(d, p) for d, p in items if p > 0 and is_live(p)]
+    stale = [(d, p) for d, p in items if not (p > 0 and is_live(p))]
+    return live, stale
+
+def clean_temp(dry_run=False, dirs=None, alive=None):
+    """收走 boot 留下的目录清单目录，返回退出码。
+
+    ★★ 为什么需要（P50⑰ 实测）：`Sim.boot()` 每次都建 `%TEMP%\\rt_filelist_<pid>`，
+      而它**从不删** —— 2026-10-20 实测堆了 **1251 个 / 45 MB**。
+      每跑一轮全量要 boot 几十次，泄漏是线性的。
+      `atexit` 只覆盖「正常退出」；`taskkill /F` / 超时被杀留下的必须靠这里。
+    """
+    import shutil
+    live, stale = classify_filelist(dirs, alive)
+    size = sum(_dirsize(d) for d, _ in stale)
+    print("  %%TEMP%%\\%s*：共 %d 个（在用 %d / 可收 %d，约 %d KB）"
+          % (FILELIST_PREFIX, len(live) + len(stale), len(live), len(stale),
+             size // 1024))
+    if not stale:
+        return 0
+    if dry_run:
+        print("  (dry-run) 一个都没删。前 5 个：%s"
+              % ", ".join(os.path.basename(d) for d, _ in stale[:5]))
+        return 0
+    removed = 0
+    for d, _pid in stale:
+        try:
+            shutil.rmtree(d)
+            removed += 1
+        except FileNotFoundError:
+            removed += 1                       # 别人先删了，一样算收走
+        except OSError as e:                                     # noqa: BLE001
+            print("  ⚠ 删不掉 %s：%s" % (d, e))
+    print("  已收走 %d / %d 个（约 %d KB）" % (removed, len(stale), size // 1024))
+    return 0 if removed == len(stale) else 1
 
 
 def _free_probe_port(taken):
@@ -229,11 +344,16 @@ def main():
     ap.add_argument("--verify", metavar="FILE")
     ap.add_argument("--no-kill", action="store_true", help="只报，不终止")
     ap.add_argument("--selftest", action="store_true", help="自己证明自己有牙（会临时起/杀进程）")
+    ap.add_argument("--clean-temp", action="store_true",
+                    help="收走 boot 留下的 %%TEMP%%\\rt_filelist_*（只删 pid 已不存在的）")
+    ap.add_argument("--dry-run", action="store_true", help="配合 --clean-temp：只报不删")
     a = ap.parse_args()
+    if a.clean_temp:
+        return clean_temp(a.dry_run)
     if a.selftest:
         return selftest()
     if not a.snapshot and not a.verify:
-        ap.error("要么 --snapshot，要么 --verify，要么 --selftest")
+        ap.error("要么 --snapshot，要么 --verify，要么 --selftest / --clean-temp")
 
     now = scan()
     if now is None:

@@ -42,6 +42,24 @@ class SimNotBooted(RuntimeError):
     """
 
 
+def _cleanup_filelist(path):
+    """删掉 boot 时生成的目录清单目录。
+
+    ★ 幂等：已经不在就当成功（`atexit` 与 `--clean-temp` 可能都删到同一个）；
+    ★ 删不掉**必须打印**，而且要说清谁来收 —— 不许静默。
+    """
+    import shutil
+    try:
+        shutil.rmtree(path)
+        return True
+    except FileNotFoundError:
+        return True
+    except OSError as e:                                         # noqa: BLE001
+        print("  ⚠ 目录清单没删掉（%s）：%s —— "
+              "硬中断留下的会由 tools/check_leftovers.py --clean-temp 收走" % (path, e))
+        return False
+
+
 class Sim:
     """持有唯一 LuaRuntime；**只允许模拟线程调用**。"""
 
@@ -97,9 +115,18 @@ class Sim:
         #   Python 的 os.listdir 在哪都能用，于是由这里生成，Lua 侧优先读它；
         #   读不到才退回 `ls -1` / `dir /b`（见 host/05_bootstrap.lua 的 list_lua_files）。
         try:
+            import atexit
             import tempfile
             fl = os.path.join(tempfile.gettempdir(), "rt_filelist_%d" % os.getpid())
             os.makedirs(fl, exist_ok=True)
+            # ★★★ P50⑰：这个目录**以前从不删**。
+            #   实测 2026-10-20：一天下来 `%TEMP%\rt_filelist_*` 堆了 **1251 个（45 MB）** ——
+            #   每 boot 一次一个新 pid 目录，而 boot 在 `test_rt.py` 里要跑几十次。
+            #   于是注册退出钩子删自己的目录。
+            #   ⚠ 诚实说明它的边界：`atexit` 在**硬中断**（`taskkill /F` / 超时被杀）时
+            #     **不会执行**，所以它只能防「正常退出」；硬中断留下的由
+            #     `tools/check_leftovers.py --clean-temp` 兜底（按「pid 已不存在」判）。
+            atexit.register(_cleanup_filelist, fl)
             src = os.environ.get("DST_SRC") or os.path.join(os.path.dirname(ROOT), "dstsrc", "scripts")
             if not os.path.isdir(src):
                 # 联接可能被换成原名目录（`02-注释源码`）；两条都试，别猜一个。

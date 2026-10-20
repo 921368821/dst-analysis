@@ -981,6 +981,38 @@ def u42_not_booted_blames_the_caller_not_the_save():
         shutil.rmtree(d, ignore_errors=True)
 
 
+def u43_filelist_cleanup_really_deletes_and_is_idempotent():
+    """反向：目录清单的清理必须**真删掉**，且**删两次不抛**（幂等）。
+
+    ★★ 为什么（2026-10-20 实测）：`Sim.boot()` 每次都建
+      `%TEMP%\\rt_filelist_<pid>` 用来给 Lua 侧提供目录清单（M6 绕开 cmd.exe），
+      而它**从来没人删**。实测一天下来堆了 **1251 个 / 45 MB** ——
+      每跑一轮全量要 boot 几十次，泄漏是线性的。
+      修法两道：① `atexit` 删自己的（只覆盖正常退出）；
+                ② `check_leftovers.py --clean-temp` 按「pid 已不存在」收别人的。
+      这里锁住①的函数本身：真的删掉、删两次不抛、父目录不许被误删。
+    """
+    import os as _os
+    import tempfile
+    from sim import _cleanup_filelist
+    d = tempfile.mkdtemp(prefix="fl_")
+    sub = _os.path.join(d, "rt_filelist_999")
+    try:
+        _os.makedirs(sub)
+        with open(_os.path.join(sub, "behaviours.txt"), "w", encoding="utf-8") as f:
+            f.write("a.lua\n")
+        ok1 = _cleanup_filelist(sub)
+        gone = not _os.path.exists(sub)
+        ok2 = _cleanup_filelist(sub)                     # 幂等：已经不在了也不抛
+        parent_kept = _os.path.isdir(d)                  # ★ 只删自己，不许往上删
+        good = bool(ok1 and gone and ok2 and parent_kept)
+        return good, "首次删=%s/目录已消失=%s；再删一次=%s（幂等）；父目录还在=%s" % (
+            ok1, gone, ok2, parent_kept)
+    finally:
+        import shutil
+        shutil.rmtree(d, ignore_errors=True)
+
+
 # =============================================================================
 # 汇总
 # =============================================================================
@@ -1046,6 +1078,7 @@ def main():
     check("U39 反向：坏存档被隔离（原路径不再被覆盖）", u39_bad_save_is_quarantined)
     check("U40 反向：同秒连坏两次不互相覆盖", u40_quarantine_names_do_not_collide)
     check("U42 反向：没 boot 就存档 ⇒ 怪调用方，不许隔离存档", u42_not_booted_blames_the_caller_not_the_save)
+    check("U43 反向：目录清单清理真删 + 幂等，且不往上删", u43_filelist_cleanup_really_deletes_and_is_idempotent)
 
     print("\n" + "─" * 78)
     total = PASS + FAIL + SKIP

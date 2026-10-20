@@ -341,6 +341,11 @@ hr "⑥ 收尾：进程与日志卫生（本次用过的端口必须已关闭）
 #   的情况下跑过，那时它输出 ✔，与「它根本不工作」长得一模一样。
 if run_step "$PY" -u "$ROOT/tools/check_leftovers.py" --selftest; then :; else FAIL=1; fi
 if run_step "$PY" -u "$ROOT/tools/check_leftovers.py" --verify "$ROOT/tests/_leftovers.json"; then :; else FAIL=1; fi
+# ★ P50⑰：顺手收走 boot 留下的 `%TEMP%\rt_filelist_<pid>`。
+#   实测 2026-10-20：一天下来堆了 **1251 个 / 45 MB** —— `Sim.boot()` 每次都建，
+#   而它以前从不删（atexit 只覆盖正常退出，`taskkill /F` 留下的只能靠这里）。
+#   只删「pid 已不存在」的：pid 还在就可能是别的进程正在读，一个都不碰。
+if run_step "$PY" -u "$ROOT/tools/check_leftovers.py" --clean-temp; then :; else FAIL=1; fi
 
 ELAPSED=$(( $(date +%s) - T0 ))
 printf '\n'
