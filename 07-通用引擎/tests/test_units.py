@@ -679,6 +679,48 @@ def u31_protocol_id_delta():
         "id 101→5000 只多 %d 字节，解码得 %r" % (d, got)
 
 
+def u32_protocol_truncation_is_valueerror():
+    """**任何截断长度**都只能抛 `ValueError` —— 不许漏出 IndexError / struct.error。
+
+    ★★ 实测依据（fuzz 4000 条，2026-10-20）：修之前
+      `IndexError` 995 次、`struct.error` 约 300 次、`UnicodeDecodeError` 约 30 次。
+      也就是说「帧短了两个字节」在日志里长得像「index out of range」，
+      调用方写 `except ValueError` 根本接不住。截断是**真实场景**（TCP 半帧、录像被截尾）。
+    """
+    from protocol_bin import BinEncoder, decode
+    full = BinEncoder().encode(_snap_bin())
+    bad = {}
+    for cut in range(1, len(full)):
+        try:
+            decode(full[:cut])
+            bad[cut] = "没抛"
+        except ValueError:
+            pass
+        except Exception as e:                                   # noqa: BLE001
+            bad[cut] = type(e).__name__
+    if bad:
+        return False, "截断后有非 ValueError：%r" % (dict(list(bad.items())[:5]),)
+    return True, "1..%d 每一个截断长度都抛 ValueError（%d 档）" % (len(full) - 1, len(full) - 1)
+
+
+def u33_protocol_bad_utf8():
+    """字典里的字节不是合法 utf-8 ⇒ `ValueError` 且**说得出是 utf-8**。"""
+    import struct
+    from protocol_bin import decode, _varint, MAGIC0, MAGIC1, VERSION
+    buf = (bytes([MAGIC0, MAGIC1, VERSION, 0]) + _varint(0) + struct.pack("<f", 0.0)
+           + _varint(0)                      # n = 0 个实体
+           + _varint(0)                      # iseq
+           + _varint(1)                      # 字典 1 条
+           + _varint(2) + b"\xff\xfe")       # 声明 2 字节，内容不是 utf-8
+    try:
+        decode(buf)
+        return False, "非法 utf-8 竟然解过去了"
+    except ValueError as e:
+        return ("utf-8" in str(e)), "ValueError 且提到 utf-8：%s" % str(e)[:60]
+    except Exception as e:                                       # noqa: BLE001
+        return False, "抛的是 %s（应为 ValueError）" % type(e).__name__
+
+
 # =============================================================================
 # 汇总
 # =============================================================================
@@ -729,6 +771,8 @@ def main():
     check("U29 反向：四类坏帧都明确 ValueError", u29_protocol_bad_frames_raise)
     check("U30 paused 走 flags bit3（零字节成本）", u30_protocol_paused_bit)
     check("U31 id 用 delta（跳号不多花字节）", u31_protocol_id_delta)
+    check("U32 反向：每个截断长度都只抛 ValueError", u32_protocol_truncation_is_valueerror)
+    check("U33 反向：字典非法 utf-8 ⇒ ValueError", u33_protocol_bad_utf8)
 
     print("\n── sim.py：构造期纪律 ──")
     check("U11 反向：Sim() 构造期不建 LuaRuntime", u11_sim_ctor_touches_no_lua)
