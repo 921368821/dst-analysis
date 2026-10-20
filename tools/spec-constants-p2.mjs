@@ -9,7 +9,7 @@ export const BEFORE = {
     "--    改名会导致旧存档的事件状态丢失。",
   ],
 
-  837: [
+  "GetWorldTileMap#1+45": [
     "--★★★ 【SPECIAL_EVENTS —— 特殊世界事件】837-853 行",
     "--  这是一张「事件名 → 数值 ID」的映射表。",
     "--  ★★ 为什么用字符串键 + 数字值？",
@@ -24,7 +24,7 @@ export const BEFORE = {
     "--    两处强耦合。改名会同时破坏存档兼容与资源加载。",
   ],
 
-  854: [
+  "GetWorldTileMap#1+62": [
     "--  WORLD_SPECIAL_EVENT = SPECIAL_EVENTS.CARNIVAL（第 854 行）：",
     "--    ★★ 当前生效的特殊事件 = 嘉年华。注意这是**指向某个成员的引用**，",
     "--      而不是写裸字符串。",
@@ -33,7 +33,7 @@ export const BEFORE = {
     "--  WORLD_EXTRA_EVENTS = {}（第 855 行）：额外事件列表（空表 = 扩展点）。",
   ],
 
-  857: [
+  "GetWorldTileMap#1+65": [
     "--★ 【FESTIVAL_EVENTS 节庆事件】857-862 行。",
     "--  ★ 节庆事件与特殊事件是**两套独立机制**：",
     "--    SPECIAL_EVENTS  → 影响世界生成/玩法（如嘉年华）",
@@ -41,7 +41,7 @@ export const BEFORE = {
     "--  WORLD_FESTIVAL_EVENT = FESTIVAL_EVENTS.NONE（第 863 行）。",
   ],
 
-  864: [
+  "GetWorldTileMap#1+72": [
     "--★★★ 【PREVIOUS_FESTIVAL_EVENTS —— 「历届节庆顺序」记录】864-871 行",
     "--  PREVIOUS_FESTIVAL_EVENTS = { LAVAARENA, QUAGMIRE } --deprecated, use PREVIOUS_FESTIVAL_EVENTS_ORDER",
     "--    ★★ 行尾英文原注释明确标注 'deprecated'，并指明替代者。",
@@ -64,12 +64,12 @@ export const BEFORE = {
     "--    _ORDER 后缀 = 带顺序语义（与无序集合 PREVIOUS_FESTIVAL_EVENTS 区分）。",
   ],
 
-  872: [
+  "GetWorldTileMap#1+80": [
     "--★ IS_YEAR_OF_THE_SPECIAL_EVENTS（第 872-888 行）：",
     "--  ★「是否为特定年份」的特殊处理表。用于节庆主题逐年轮换。",
   ],
 
-  889: [
+  "GetWorldTileMap#1+97": [
     "--★★ 【★ 事件 prefab 名派生规则】889-895 行 —— 命名约定驱动的加载",
     "--  SPECIAL_EVENT_GLOBAL_PREFABS = { WORLD_SPECIAL_EVENT..\"_event_global\" }",
     "--  SPECIAL_EVENT_BACKEND_PREFABS = { ..\"_event_backend\" }",
@@ -80,7 +80,7 @@ export const BEFORE = {
     "--  ★ 这解释了为什么 SPECIAL_EVENTS 每个事件都要准备三套资源。",
   ],
 
-  903: [
+  "GetWorldTileMap#1+111": [
     "--【SPECIAL_EVENT_MUSIC 事件音乐】903-1212 行（★本区最大表）",
     "--  ★★ 约 300 行全是「事件 → 曲名」映射，每行一个曲名。",
     "--  ★ 这是纯数据区，逐行无信息量，跳读即可。",
@@ -88,16 +88,16 @@ export const BEFORE = {
     "--    与事件名同理，改名会导致音乐加载失败。",
   ],
 
-  1051: [
+  "GetWorldTileMap#1+259": [
     "--  FE_MUSIC = (第 1051 行)：前端菜单音乐（一个长表达式）。",
     "--    ★ 前端音乐与事件音乐是分开的 —— 前端不该播放活动曲。",
   ],
 
-  1213: [
+  "Client_IsTournamentActive#1+6": [
     "--★ 【PICKUPSOUNDS 拾取音效】1213-1228 行：物品 → 拾取音。",
   ],
 
-  1229: [
+  "Client_IsTournamentActive#1+22": [
     "--【★ 类别 I · 万圣节计数与 ★理智模式★】1229-1236 行",
     "--★★ 【SANITY_MODE —— 理智状态枚举】1235 行",
     "--  SANITY_MODE_INSANITY = 0（发疯）",
@@ -114,7 +114,7 @@ export const BEFORE = {
     "--★ 参见 components/sanity.lua（本项目已深度注释）。",
   ],
 
-  1230: [
+  "Client_IsTournamentActive#1+23": [
     "--  NUM_HALLOWEENCANDY = 14 / NUM_HALLOWEEN_ORNAMENTS = 6",
     "--  NUM_HALLOWEEN_PUMPKINCARVERS = 3 / NUM_WINTERFOOD = 9",
     "--  ★★ 这类 NUM_* 数量常量是「节日道具的收集上限」。",
@@ -124,28 +124,28 @@ export const BEFORE = {
     "--  ★ 与 tuning.lua:1603 NUM_TRINKETS = 46 属同一类约定。",
   ],
 
-  1237: [
+  "Client_IsTournamentActive#1+30": [
     "--【★ 类别 J · ★世界生成技术图（TECH）★】1237-1341 行",
     "--  ★★ TECH 表是「科技树」的定义源：决定研究点如何解锁配方。",
     "--  ★★ 这是整个游戏的进度骨架 —— 所有可研究项的依赖关系都在这里。",
     "--★ 消费方：components/techtree.lua、playercontroller.lua（研究点）。",
   ],
 
-  1342: [
+  "Client_IsTournamentActive#1+135": [
     "--★ 【NODE_TYPE / NODE_INTERNAL_CONNECTION_TYPE】1342-1364 行：",
     "--  ★ 技术图的节点类型（建筑/材料/工具…）与内部连接方式。",
     "--★ MAZE_TYPE / MAZE_CELL_EXITS（1374-1434 行）：迷宫类型与出口方向。",
     "--  ★ 迷宫用于洞穴与特殊世界生成，出口方向决定刷怪与掉落布局。",
   ],
 
-  1435: [
+  "Client_IsTournamentActive#1+228": [
     "--【★ LAYOUT / LAYOUT_POSITION / LAYOUT_ROTATION】1435-1458 行：",
     "--  ★ 世界布局（手写布局关卡）的方位与旋转枚举。",
     "--  PLACE_MASK（1459 行）：放置遮罩，限制哪些格子能放建筑。",
     "--★ 关联 tuning.lua:3858 附近的 DEPLOYSPACING 枚举（本文件另有 DEPLOYMODE）。",
   ],
 
-  1479: [
+  "Client_IsTournamentActive#1+272": [
     "--★ 【LUABIT / COLLISION】1479-1504 行：",
     "--  LUABIT（1479 行）：Lua 侧的位标记（bitmask）。",
     "--    ★ 与 YOTB_COSTUMES 同属「位掩码」用法：多个标志可组合在一个整数里。",
@@ -161,7 +161,7 @@ export const BEFORE = {
     "--        它隐含假设「没有比船更大的东西」。",
   ],
 
-  1506: [
+  "Client_IsTournamentActive#1+299": [
     "--【★ BLENDMODE 混合模式 / ANIM_ORIENTATION 动画朝向】1506-1524 行",
     "--  BLENDMODE：贴图叠加方式（正常/相加/相乘…），纯表现层。",
     "--  ANIM_ORIENTATION：动画帧朝向处理。",
@@ -170,7 +170,7 @@ export const BEFORE = {
     "--    ★ 这是给美术/策划的默认兜底，避免每个动画都单独指定。",
   ],
 
-  1525: [
+  "Client_IsTournamentActive#1+318": [
     "--【★ 类别 K · 配方分类（RECIPETABS）】1525-1587 行",
     "--  RECIPETABS（第 1525 行）：合成配方的分类标签（工具/战斗/食物…）。",
     "--  CUSTOM_RECIPETABS（1563 行）：模组自定义分类的扩展点。",
@@ -179,7 +179,7 @@ export const BEFORE = {
     "--  ★ 配方本身不在本文件，而在 prefabs/recipes/ 与 cooking.lua。",
   ],
 
-1588: [
+"Client_IsTournamentActive#1+381": [
     "--【★ VERBOSITY / RENDERPASS】1588-1602 行",
     "--  VERBOSITY（1588 行）：日志详细级别（开发期用）。",
     "--    ★ 只影响 print 输出的冗长度，与玩法无关。",
@@ -187,7 +187,7 @@ export const BEFORE = {
     "--    ★ 与第 56 行的 LAYER_* 配合：LAYER 定批次，RENDERPASS 定批内顺序。",
   ],
 
-1603: [
+"Client_IsTournamentActive#1+396": [
     "--★★ 【NUM_TRINKETS 与万圣节区间】1603-1605 行",
     "--  NUM_TRINKETS = 46 / HALLOWEDNIGHTS_TINKET_START = 32 / _END = 46",
     "--    ★★★ 「分段编号」的清晰范例：",
@@ -200,7 +200,7 @@ export const BEFORE = {
     "--      调小上限会吞掉玩家已收集的道具。",
   ],
 
-  1607: [
+  "Client_IsTournamentActive#1+400": [
     "--★★★ 【★ 类别 L · ★★★ 季节定义 —— 本任务重点区域 ★★★】1607-1615 行",
     "--  SEASONS =",
     "--  {",
@@ -240,7 +240,7 @@ export const BEFORE = {
     "--    2226-2235 SEASON_LENGTH_* 预设（FRIENDLY/HARSH 世界难度）",
   ],
 
-  1616: [
+  "Client_IsTournamentActive#1+409": [
     "--★ LEVELCATEGORY（第 1616 行）：世界设置的分类标签。",
     "--  RENDER_QUALITY（1623 行）LOW=0 / DEFAULT=1 / HIGH=2：",
     "--    ★★ 三档画质。注意 LOW=0 —— 0 通常是「无/关闭」的值，",
@@ -251,7 +251,7 @@ export const BEFORE = {
     "--    ANIM_SORT_ORDER = 批次内的排序顺序",
   ],
 
-  1648: [
+  "Client_IsTournamentActive#1+441": [
     "--★ ROAD_PARAMETERS（1648 行）：路面移动参数（移速加成、脚步声等）。",
     "--  ★ 消费方见 worldstate.lua 或 locomotor 的地面检测。",
   ],

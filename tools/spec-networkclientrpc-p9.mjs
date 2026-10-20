@@ -3,7 +3,7 @@
 // PredictWalking 校验、MoveInvItem/MoveItem 两组镜像、MakeRecipeAtPoint、UnplugModule
 
 export const BEFORE = {
-  114: [
+  "RightClick#1+1": [
     "--★★★【二元校验的「两分支」结构 —— 与 :62 的 LeftClick 逐字对照】",
     "--   第一个分支（全 nil）：11 个参数全部为 nil（第 114-125 行）；",
     "--   第二个分支（全部合法）：checknumber/optentity/... （第 128-138 行）。",
@@ -11,7 +11,7 @@ export const BEFORE = {
     "--     所以「全 nil」分支的条件项也少一个。",
     "--   ★ 这两个 handler 的校验结构完全对称 —— 维护时须同改。",
   ],
-  127: [
+  "RightClick#1+14": [
     "--★ 「--or all validated」—— 第二个分支开始。",
     "--   ★★ RightClick 的参数校验逐项（与 :76 的 LeftClick 对照）：",
     "--     checknumber(action), checknumber(x), checknumber(z),",
@@ -21,15 +21,15 @@ export const BEFORE = {
     "--   ★★ 与 LeftClick 唯一的多出项是 **optnumber(rotation)**",
     "--     （右键可以指定放置朝向），其余完全一致。",
   ],
-  141: [
+  "RightClick#1+28": [
     "--★ 校验失败的统一出口（与 :91 的 LeftClick 结构相同）。",
     "--   ★ printinvalid(\"RightClick\", player) —— 打上 RPC 名，便于日志聚合。",
   ],
-  145: [
+  "RightClick#1+32": [
     "--★ playercontroller 取得（RightClick 版，与 :95 的 LeftClick 同）。",
     "--   ★★ 所有「点击类」RPC 的统一落点。",
   ],
-  224: [
+  "ControllerActionButton#1+1": [
     "--★★★【ControllerActionButton 校验区 —— 三分支嵌套的「格式怪」但语义清晰】",
     "--   ★★★ 第 224-238 行的括号层次：",
     "--     if not (",
@@ -42,7 +42,7 @@ export const BEFORE = {
     "--     ★ 这不是笔误 —— 是为了在「分支内含多个 and」时保持可读性。",
     "--   ★★★ 与 :62 的 LeftClick 几乎同构（同样的二元校验形态）。",
   ],
-  231: [
+  "ControllerActionButton#1+8": [
     "--★ 「--or all validated」—— 第二分支。",
     "--   ★★ ControllerActionButton 的参数校验（注意比鼠标版少几个）：",
     "--     checknumber(action) —— 必需",
@@ -53,7 +53,7 @@ export const BEFORE = {
     "--     ★ 但鼠标版 ActionButton（:165）用的是 optentity。",
     "--     → 手柄版的「操作对象」是必须明确的，鼠标版可以点空。",
   ],
-  249: [
+  "ControllerActionButtonPoint#1": [
     "--★★★【ControllerActionButtonPoint 校验区 —— 「全参数 opt」的宽松形态】",
     "--   ★★★ 第 250-260 行：**没有**二元校验，只有一串 opt*/check* 的 and。",
     "--     checknumber(action), checknumber(x), checknumber(z),",
@@ -65,13 +65,13 @@ export const BEFORE = {
     "--     ★ 因为「点位点击」总是有目标点的，不需要「空包唤起 handler」。",
     "--   ★★ isspecial 是 optbool（可选）—— 手柄的「特殊键」标志。",
   ],
-  266: [
+  "ControllerActionButtonPoint#1+17": [
     "--★★[ControllerActionButtonPoint 的坐标处理 —— 与 :101-105 结构一致]",
     "--   ★ printinvalidplatform → Convert（:267）→ if x ~= nil（:268）→ IsPointInRange（:269）",
     "--   ★★ 与 LeftClick（:101-104）的四步流程逐字对应。",
     "--   ★ 这一组「转换→检查→转发」的序列在文件里出现 10 次，是本文件最重复的模式。",
   ],
-  303: [
+  "ControllerAltActionButton#1": [
     "--★★★【ControllerAltActionButton —— 与 :223 逐字平行的「Alt 键」版】",
     "--   ★★★ 校验代码与 ControllerActionButton（:224-242）完全相同。",
     "--   ★★★ ★★ 这是本文件最需要警惕的一对平行实现：",
@@ -82,21 +82,21 @@ export const BEFORE = {
     "--     修正一个忘了另一个，就会出现「特定输入设备的功能缺失」。",
     "--   ★ 参见 locomotor.lua:782/882 的 PreviewAction/PushAction 平行实现注记。",
   ],
-  311: [
+  "ControllerAltActionButton#1+8": [
     "--★ 「--or all validated」—— 第二分支（与 :231 的第二分支逐字相同）。",
     "--   ★★ 第 312-316 行与 ControllerActionButton 的 :232-236 一字不差。",
     "--     ★ 这就是「平行实现」的直接证据 —— 加新参数时必须记得两处同改。",
   ],
-  319: [
+  "ControllerAltActionButton#1+16": [
     "--★ 校验失败出口（与 :240 相同）：printinvalid(\"ControllerAltActionButton\", player)。",
   ],
-  323: [
+  "ControllerAltActionButton#1+20": [
     "--★ playercontroller 取得（与 :243 同）：local playercontroller = player.components.playercontroller",
   ],
-  327: [
+  "ControllerAltActionButton#1+24": [
     "--★ OnRemoteControllerAltActionButton 转发（与 :245 平行）。",
   ],
-  330: [
+  "ControllerAltActionButtonPoint#1+1": [
     "--★★★[ControllerAltActionButtonPoint 校验区 —— 「Alt 键 + 点位」的组合形态]",
     "--   ★★ 参数校验（:330-338）：",
     "--     checknumber(action), checknumber(x), checknumber(z),",
@@ -109,7 +109,7 @@ export const BEFORE = {
     "--     两者起始相同（复制粘贴），后续各自增删参数。",
     "--     ★ 后果：读代码时容易以为它们「应该一样」而误判。",
   ],
-  426: [
+  "PredictWalking#1+1": [
     "--★★★【PredictWalking 的三元校验 —— ★★★ 本文件最复杂的校验表达式】",
     "--   ★★★ 第 426-447 行的结构拆解（三层）：",
     "--   ── 外层：not ( 载荷形态合法  and  公共字段合法 ) ──",
@@ -127,14 +127,14 @@ export const BEFORE = {
     "--     · 有坐标模式：说「去哪里 + 是方向还是位置 + 是否平台相对 + 何时开始/停止」。",
     "--   ★★ 这就是「一个 RPC 承载多种语义」的设计 —— 用参数的组合表达不同的子命令。",
   ],
-  427: [
+  "PredictWalking#1+2": [
     "--★★★[校验的最外层起点 —— ★ 括号层次的第一个「not (」]",
     "--   ★★ 第 427 行的 `if not (` 开启了整个校验表达式，",
     "--     ★ 对应第 447 行的 `)` 收尾（完整三层结构见 :426 的拆解）。",
     "--   ★★ 读法：not ( (分支① or 分支②) and 公共部分 )",
     "--     → 只有「形态合法」**且**「公共字段合法」才算通过。",
   ],
-  434: [
+  "PredictWalking#1+9": [
     "--★ 「--or all validated」—— ★ 第二个分支：坐标齐备且类型严格。",
     "--   ★★★ 第 435-439 行逐项：",
     "--     checknumber(x) 且 checknumber(z) —— 坐标必需且为数字",
@@ -146,7 +146,7 @@ export const BEFORE = {
     "--     · ★ 分支②（有坐标）里它们必须是 bool —— 「有坐标就要说清坐标的含义」。",
     "--   ★★ 这体现了「参数之间的语义约束」比「单个参数的类型」更值得校验。",
   ],
-  442: [
+  "PredictWalking#1+17": [
     "--★ 「--common for both cases」—— ★ 公共部分：不分分支，两种模式都要满足。",
     "--   ★★★ 第 443-445 行：",
     "--     checkbool(isstart)         —— isstart 是**必需 bool**（两种模式都要说明）",
@@ -155,10 +155,10 @@ export const BEFORE = {
     "--   ★★ 理解：无论「无坐标」还是「有坐标」，都必须表明「这是开始还是继续/停止」",
     "--     —— 预测协议需要知道状态机的转换方向。",
   ],
-  446: [
+  "PredictWalking#1+21": [
     "--★ 公共部分结束，第 447 行的 `)` 闭合最外层 not。",
   ],
-  861: [
+  "MoveInvItemFromAllOfSlot#1+1": [
     "--★★★[MoveInvItemFromAllOfSlot —— 「从背包挪到某容器」系列（3 个 handler）]",
     "--   ★★★ 第 861-864 行校验：",
     "--     checkuint(slot) 且 checkentity(destcontainer)",
@@ -174,12 +174,12 @@ export const BEFORE = {
     "--     · MoveInvItemFromCountOfSlot(:884) 指定数量（多 count 参数，checkuint）",
     "--   ★★ 三者结构完全平行，只改方法名与是否有 count。",
   ],
-  899: [
+  "MoveItemFromAllOfSlot#1+2": [
     "--★★「--or all validated」—— 本组校验（三关键点见 :898）。",
     "--   ★★ checkuint(slot) 且 checkentity(srccontainer) 且 optentity(destcontainer)",
     "--   ★★ 源必需、目标可选 —— 与 MoveInvItem 系列（:899 对照组）恰好相反。",
   ],
-  904: [
+  "MoveItemFromAllOfSlot#1+7": [
     "--★★★[第 904-907 行：容器组件取得 + IsOpenedBy 授权 + 默认目标]",
     "--   ★★★ 三步逐一读解：",
     "--     ① srccontainer.components.container —— 取容器组件（可能为 nil）；",
@@ -194,10 +194,10 @@ export const BEFORE = {
     "--   ★★ 与 MoveInvItem 系列（:861 等）对照：那里**没有** IsOpenedBy",
     "--     —— 因为「往容器放」是允许的功能（给队友送物资）。",
   ],
-  910: [
+  "MoveItemFromHalfOfSlot#1": [
     "--★ MoveItemFromHalfOfSlot —— 本组第 2 个（半格移动），结构与 :898 完全平行。",
   ],
-  923: [
+  "MoveItemFromCountOfSlot#1": [
     "--★★[MoveItemFromCountOfSlot —— 本组第 3 个（带数量），多一个 checkuint(count)]",
     "--   ★★ 校验（:924-927）：",
     "--     checkuint(slot) 且 checkentity(srccontainer) 且 optentity(destcontainer) 且 checkuint(count)",
@@ -206,17 +206,17 @@ export const BEFORE = {
     "--     （slot, destcontainer, count, player）**顺序一致**。",
     "--     ★ 这是两组之间的少数「对齐点」，移植时值得核对。",
   ],
-  935: [
+  "MoveItemFromCountOfSlot#1+12": [
     "--★★ MoveItemFromCountOfSlot 结束。★★ 两组镜像 handler 到此全部完成。",
   ],
-  884: [
+  "MoveInvItemFromCountOfSlot#1": [
     "--★★[MoveInvItemFromCountOfSlot —— 带数量参数的第三个成员]",
     "--   ★★ 校验（:885-887）：checkuint(slot) 且 checkentity(destcontainer) 且 checkuint(count)",
     "--   ★★ 注意 count 也用 checkuint —— 数量不能为负（:6 的说明：槽位/数量类必用 uint）。",
     "--   ★ 容器版调用：container:MoveItemFromCountOfSlot(slot, destcontainer, count, player)",
     "--   ★★ 参数顺序：slot, 目标, count, player —— player 追加在末尾（同 :610 注记）。",
   ],
-  898: [
+  "MoveItemFromAllOfSlot#1+1": [
     "--★★★★★[MoveItemFromAllOfSlot —— 「从某容器挪走」系列（★ 与 :897 镜像）]",
     "--   ★★★ 第 898-900 行校验：",
     "--     checkuint(slot) 且 checkentity(srccontainer) 且 optentity(destcontainer)",
@@ -239,7 +239,7 @@ export const BEFORE = {
     "--   ★★★ ★★★ 移植警示：★ 这两组极易混淆（名字只差 Inv 的位置）。",
     "--     建议移植时改为更明确的名字（如 TakeFromContainerTo / MoveFromInventoryTo）。",
   ],
-  966: [
+  "MakeRecipeAtPoint#1+1": [
     "--★★★[MakeRecipeAtPoint 校验区 —— 「配方+坐标+朝向」的三重校验叠加]",
     "--   ★★★ 第 966-972 行：",
     "--     checknumber(recipe), checknumber(x), checknumber(z), checknumber(rot),",
@@ -256,21 +256,21 @@ export const BEFORE = {
     "--   ★ ★ 移植注记：:984 用 v.name 取 PREFAB_SKINS，与 :947 的 v.product 不一致",
     "--     （见 :947 的注记，属潜伏的潜在缺陷）。",
   ],
-  978: [
+  "MakeRecipeAtPoint#1+13": [
     "--★ printinvalidplatform —— 制作场景坐标的竞态诊断（与 :101/:151 等同构）。",
   ],
-  979: [
+  "MakeRecipeAtPoint#1+14": [
     "--★ ConvertPlatformRelativePositionToAbsolutePosition —— 坐标还原（第三步之前）。",
     "--   ★★ 与 :102（LeftClick）逐字相同的三步流程：",
     "--     还原 → if x ~= nil → 距离+旋转检查。",
   ],
-  981: [
+  "MakeRecipeAtPoint#1+16": [
     "--★ IsPointInRange 且 IsRotationValid —— 距离与旋转的双重检查。",
     "--   ★★ 与 :154（RightClick）同构：坐标合法 + 旋转合法，才执行制作。",
     "--   ★ 注意这里的失败提示也是 \"out of range\"（:989）——",
     "--     ⚠ 与 :1082/:1233 同类的「日志文案不精确」问题。仅标注。",
   ],
-  1326: [
+  "UnplugModule#1+1": [
     "--★★★★★[UnplugModule 校验区 —— ★「能力门槛 + 参数精度」的双重设计]",
     "--   ★★★ 第 1326-1327 行：checknumber(modulebartype_or_socketposition) 且 optnumber(moduleindex)",
     "--   ★★★ 参数的二元语义（★ 这是本 handler 的精髓）：",
@@ -286,14 +286,14 @@ export const BEFORE = {
     "--     ★★ 完全不信任客户端上报的「我有这个技能」。",
     "--   ★ 这是「客户端可请求、服务端定夺」的权限模型典范。",
   ],
-  1333: [
+  "UnplugModule#1+8": [
     "--★★[第 1333 行：skilltreeupdater 取得 —— 两条路径共用的权威技能状态]",
     "--   ★★★ 与 :1338 的 `skilltreeupdater and skilltreeupdater:IsActivated(...)`：",
     "--     · skilltreeupdater 为 nil（组件缺失）→ 视为「无技能」；",
     "--     · IsActivated 返回布尔。",
     "--   ★★ 这是「能力校验的标准写法」：用服务端权威状态而非客户端请求。",
   ],
-  1336: [
+  "UnplugModule#1+11": [
     "--★★★[第 1336-1344 行：★「没有技能时的降级规则」—— 本 handler 最精妙之处]",
     "--   ★★★ 逻辑：如果玩家**没有** wx78_circuitry_betterunplug 技能，",
     "--     则**只允许拔掉最后一个模块**（moduleindex == nummodules）。",
@@ -313,7 +313,7 @@ export const BEFORE = {
     "--   ★ 对比 :1356（拔插口）的技能门槛是「硬性」的（无降级），",
     "--     —— 因为拔插口不存在「空洞」问题。",
   ],
-  1353: [
+  "UnplugModule#1+28": [
     "--★★★[第 1353-1365 行：拔「暗影插口」路径 —— 硬性技能门槛]",
     "--   ★★★ 与拔模块路径的对比：",
     "--     · 拔模块：无技能时有降级（只能拔最后一个）；",
@@ -324,7 +324,7 @@ export const BEFORE = {
     "--     ★★ 先验证「这个位置确实是暗影插口名」—— 防止玩家传一个普通插口位置",
     "--       混过技能检查（因为一旦拿到 wx78_allegiance_shadow 技能，"
   ],
-  1360: [
+  "UnplugModule#1+35": [
     "--★★[IsSocketNameForPosition —— ★★ 「名字验证」防止技能门槛被绕过]",
     "--   ★★★ 关键安全推理：",
     "--     · 只要玩家有 wx78_allegiance_shadow 技能，:1356 的检查就通过；",
@@ -336,17 +336,17 @@ export const BEFORE = {
 };
 
 export const AFTER = {
-  161: [
+  "RightClick#1+48": [
     "--★ RightClick 结束。★★ 与 LeftClick 的对照小结（★ 两个最重要的 handler）：",
     "--   · 共同点：二元校验 + 平台相对转换 + 范围检查 + 组件判空；",
     "--   · 差异点：RightClick 多一个 rotation 校验（IsRotationValid）。",
     "--   ★★ 理解这两处 = 理解本文件 60% 的 handler 结构。",
   ],
-  301: [
+  "ControllerActionButtonDeploy#1+23": [
     "--★★ ControllerActionButton / ControllerActionButtonPoint 结束。",
     "--   ★★ 手柄版与鼠标版是**平行实现**（同样的三层校验 + 坐标处理）。",
   ],
-  354: [
+  "ControllerAltActionButtonPoint#1+25": [
     "--★★ ControllerAltActionButton / ControllerAltActionButtonPoint 结束。",
     "--   ★★ 「Alt 键版」与「普通手柄版」又是平行实现。",
     "--   ★★ ★ 至此手柄系共 6 个 handler，全部是鼠标版的平行实现：",
@@ -358,7 +358,7 @@ export const AFTER = {
     "--     · ControllerAttackButton        ↔ AttackButton",
     "--   ★→ 移植时新增动作必须成对添加，★ 否则手柄玩家功能缺失。",
   ],
-  467: [
+  "PredictWalking#1+42": [
     "--★★ PredictWalking 结束。★★★ 它是「客户端预测」的数据入口，",
     "--   ★★ 完整的预测协议链路（跨三个文件）：",
     "--     · networking/networkclientrpc: SetMovementPredictionEnabled(:954) 下发开关；",
@@ -366,25 +366,25 @@ export const AFTER = {
     "--     · components/playercontroller.lua: OnRemotePredictWalking 执行与校正。",
     "--   ★ 参见 locomotor.lua 的客户端预测章节。",
   ],
-  896: [
+  "MoveInvItemFromCountOfSlot#1+12": [
     "--★★ MoveInvItemFrom* 系列结束（3 个 handler，源=背包）。",
     "--   ★★ 与接下来的 MoveItemFrom* 系列（源=容器）构成镜像，",
     "--     ★★ 差异全在「是否检查 IsOpenedBy」——这是安全与功能的分界。",
   ],
-  936: [
+  "MoveItemFromCountOfSlot#1+13": [
     "--★★ MoveItemFrom* 系列结束（3 个 handler，源=容器）。",
     "--   ★★ ★★★ 移植警示回顾：这两组名字极其相似，语义相反。",
     "--     · MoveInvItemFrom*Slot: 背包 → 容器（destcontainer 检查类型，不检查打开）",
     "--     · MoveItemFrom*Slot:    容器 → 背包/他处（srccontainer 检查打开，destcontainer 可选）",
     "--   ★★ 若移植时混淆，会导致「玩家能远程偷别人箱子」或「无法正常送东西」。",
   ],
-  994: [
+  "MakeRecipeAtPoint#1+29": [
     "--★ MakeRecipeAtPoint 结束。★★ 与 MakeRecipeFromMenu(:937) 是一对：",
     "--   · 菜单版：只在 UI 里点，无坐标；",
     "--   · ★ 场景版：带坐标（需距离+旋转检查）。",
     "--   ★★ 二者共享「rpc_id → recipe」的 O(n) 反查（建议改为哈希表，见 :945 注记）。",
   ],
-  1368: [
+  "UnplugModule#1+43": [
     "--★★ UnplugModule 结束。★★★ 它是本文件「权限设计」最复杂的 handler：",
     "--   · 双路径（拔模块 / 拔插口）由可选参数区分；",
     "--   · ★ 拔模块路径有「数据布局约束」驱动的降级规则（:1336-1344）；",

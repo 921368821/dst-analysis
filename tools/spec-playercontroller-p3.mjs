@@ -4,13 +4,13 @@
 //       拾取动作优先级链（GetPickupAction）
 
 export const BEFORE = {
-  1300: [
+  "PlayerController:DoControllerAttackButton#1+19": [
     "--============================================================",
     "-- 【第三段】1300-2100 行：攻击 / 库存格子 / 相机 / 放置 / AOE / 攻击目标筛选",
     "--============================================================",
   ],
 
-  1281: [
+  "PlayerController:DoControllerAttackButton#1": [
     "--★★★ 【DoControllerAttackButton(target)】手柄扳机/X 攻击。target 通常为 nil。",
     "--   结构：",
     "--   ① 1282-1294 target==nil 且处于特殊状态时的三条早退路径",
@@ -19,16 +19,16 @@ export const BEFORE = {
     "--   ④ 1356-1380 构造 ATTACK 动作并走标准三分支发送",
   ],
 
-  1282: [
+  "PlayerController:DoControllerAttackButton#1+1": [
     "--   ★ 参数 target 由 3151 行传入（连击攻击时非 nil），其余调用点传 nil。",
   ],
 
-  1283: [
+  "PlayerController:DoControllerAttackButton#1+2": [
     "--   ★ 1283 行的两个早退：AOE 瞄准中 / 坐在椅子上时攻击无效。",
     "--     理由：AOE 瞄准时按扳机会误放法术；椅子上（笼子/椅子的拟态攻击）攻击无效。",
   ],
 
-  1285: [
+  "PlayerController:DoControllerAttackButton#1+4": [
     "--   ★★ IsOverrideAttack 的第三返回值体系（1981 行）：",
     "--     「攻击键被重定义为别的功能」——如温蒂的「 Abigail 出来」、",
     "--     猎犬的「扑咬」等。这里改为 PushEvent(\"attackbutton\") 让对应 prefab 接管。",
@@ -36,24 +36,24 @@ export const BEFORE = {
     "--     攻击手感要求零延迟，这与普通 PushEvent 的排队语义不同。",
   ],
 
-  1287: [
+  "PlayerController:DoControllerAttackButton#1+6": [
     "--   --Need to let server know NOW, wheter we have prediciton or not.",
     "--   → K 的原注释有拼写错误（wheter / prediciton），照录。",
     "--   ★「不管有没有预测能力都要立刻通知」——因为 overrideattack 可能改变玩家位置",
     "--     （如韦布斯特的口哨召唤），服务器必须马上知道。",
   ],
 
-  1296: [
+  "PlayerController:DoControllerAttackButton#1+15": [
     "--   ★ 1297 行的注释点明了防刷机制：连击重定向时若 remote_controls 还在冷却，",
     "--     直接 return —— 避免「持续按住扳机」在每次重定向时都发一次 RPC。",
   ],
 
-  1302: [
+  "PlayerController:DoControllerAttackButton#1+21": [
     "--   ★ 双端判定的 attack 状态：客户端有 sg 看状态标签，否则看 inst:HasTag。",
     "--     与 IsBusy:769-777 同样的双端不对称设计。",
   ],
 
-  1310: [
+  "PlayerController:DoControllerAttackButton#1+29": [
     "--   ★★ 攻击前的三重合法性校验（客户端提前拦，服务端还会再查一遍）：",
     "--     ① LocomotorCanAttack(nil, target)：locomotor 能否边移动边攻击这个目标",
     "--        参见 locomotor.lua 的 LocomotorCanAttack（如正在挖矿时不能攻击）",
@@ -62,28 +62,28 @@ export const BEFORE = {
     "--   ⇒ 即便如此，服务端 OnRemoteControllerAttackButton:1400 仍会重查 CanTarget。",
   ],
 
-  1316: [
+  "PlayerController:DoControllerAttackButton#1+35": [
     "--   无显式 target → 取手柄当前选中的攻击目标 controller_attack_target。",
   ],
 
-  1318: [
+  "PlayerController:DoControllerAttackButton#1+37": [
     "--   ★ 1318-1326：目标已经是当前战斗目标 → 只发「按钮按下」通知，不重复攻击。",
     "--     这是「按住扳机不重复攻击同一目标」的实现，靠 1322 行的 nil 检查去重 RPC。",
   ],
 
-  1327: [
+  "PlayerController:DoControllerAttackButton#1+46": [
     "--   CanTarget 为假 → 目标作废（掉到 nil）。",
     "--     参见 combat_replica.lua:311 —— 判据是目标是否已死/是否已归属别人。",
   ],
 
-  1331: [
+  "PlayerController:DoControllerAttackButton#1+50": [
     "--   --V2C: controller attacks still happen even with no valid target",
     "--   ★ 1332 行的 target==nil 块：即使没有目标也允许「挥空」。",
     "--     为什么要挥空：攻击是「播放动画 + 判定命中」，玩家按了就得有反应，",
     "--     否则远程客户端的本地动画不会播，且服务端状态与客户端不一致。",
   ],
 
-  1334: [
+  "PlayerController:DoControllerAttackButton#1+53": [
     "--★ no_air_attack 的五种例外（这个表就是「什么时候不能空挥」的完整清单）：",
     "--     ① directwalking：正在用摇杆直接行走（手会忙）",
     "--     ② HasAnyTag(\"playerghost\",\"weregoose\")：幽灵/沃古斯形态",
@@ -93,12 +93,12 @@ export const BEFORE = {
     "--   ⇒ 注意前三项是「状态」，后两项是「装备」——它们都会用不同的 tag/字段表达。",
   ],
 
-  1356: [
+  "PlayerController:DoControllerAttackButton#1+75": [
     "--   ★ 构造 ATTACK 的 BufferedAction。1357 行没有传 distance，",
     "--     说明攻击距离由 actions.lua 的 ATTACK.rangecheckfn 决定（默认 3）。",
   ],
 
-  1361: [
+  "act.non_preview_cb#6": [
     "--   ★ 1362 行 `self.remote_controls[CONTROL_CONTROLLER_ATTACK] = BUTTON_REPEAT_COOLDOWN`",
     "--     与 1368 行的差异：non_preview_cb 路径设 0（立即可再发），",
     "--     preview 路径设 0.5。",
@@ -109,26 +109,26 @@ export const BEFORE = {
     "--       统一用 0（本文件没有对应的 BUTTON_REPEAT_COOLDOWN 用法）。",
   ],
 
-  1371: [
+  "act.non_preview_cb#6+10": [
     "--   ★★ preview_cb 的 1374 行与 1362 行对比：",
     "--     1374 行 `not isreleased and BUTTON_REPEAT_COOLDOWN or nil` —— 抬起时置 nil。",
     "--   ⇒ 所以 BUTTON_REPEAT_COOLDOWN 实际上是「攻击按钮被视作按下的时长」，",
     "--     不是「重发间隔」。它在 1965 行（键盘路径）也是同样用法。",
   ],
 
-  1383: [
+  "PlayerController:OnRemoteControllerAttackButton#1": [
     "--【OnRemoteControllerAttackButton(target, isreleased, noforce)】服务端对端。",
     "--   ★ 与 944 行的 ControllerActionButton 不同，本函数**不重算动作**，",
     "--     而是把攻击塞进 self.attack_buffer 交给 OnUpdate 执行。",
     "--   为什么：攻击需要 sg 的 attack 状态配合，OnControl 时刻状态可能还没切。",
   ],
 
-  1388: [
+  "PlayerController:OnRemoteControllerAttackButton#1+5": [
     "--   target == true：客户端只发了「按钮按下」。",
     "--   1390 行注释掉的重复赋值：1387 行已经设过了。",
   ],
 
-  1394: [
+  "PlayerController:OnRemoteControllerAttackButton#1+11": [
     "--   ★ not noforce 分支：客户端没按强制攻击键 → 允许重新选目标。",
     "--   noforce 分支（1405-1415）：客户端已按强制 → 目标不可重选（1400 行跳过）。",
     "--   ★ noforce=true 时若 CanTarget 为假，构造一个 target=nil 的 ATTACK 并",
@@ -136,7 +136,7 @@ export const BEFORE = {
     "--     这是「强制攻击时打空气」的动作，动作执行体据此决定特效落点。",
   ],
 
-  1395: [
+  "PlayerController:OnRemoteControllerAttackButton#1+12": [
     "--   ★★ \"abouttoattack\" vs \"attack\" 的双标签判定：",
     "--     1817/1940/3114 行有完全相同的三元表达式。",
     "--     → remote_authority 且正在预测时查 \"abouttoattack\"（发起攻击的过渡态），",
@@ -148,7 +148,7 @@ export const BEFORE = {
     "--     推理依据：1816-1822 行的 if/elseif 结构。",
   ],
 
-  1396: [
+  "self.inst.sg.statemem.chainattack_cb#1": [
     "--   ★★ chainattack_cb = function() ... end —— **连击攻击的延迟回调**。",
     "--   场景：玩家在攻击动画（attack 状态）中再次按下扳机，",
     "--     此时不能立即开始新攻击（会打断当前动画），",
@@ -164,11 +164,11 @@ export const BEFORE = {
     "--       所以最终状态仍会被清理，但中间会有一帧的「按住」状态。",
   ],
 
-  1400: [
+  "self.inst.sg.statemem.chainattack_cb#1+4": [
     "--   ★ CanTarget 失败则 target=nil → 「打空气」，不是丢弃请求。",
   ],
 
-  1422: [
+  "PlayerController:DoControllerDropItemFromInvTile#1": [
     "--【DoControllerDropItemFromInvTile】手柄在库存格上「丢弃」。",
     "--   1424-1426 行的双条件：",
     "--     未锁定在格子里（IsLockedInSlot）→ 可丢",
@@ -176,7 +176,7 @@ export const BEFORE = {
     "--   ★ 单（single）= 移出 1 个；全 = 移出整堆。",
   ],
 
-  1436: [
+  "PlayerController:DoControllerUseItemOnSelfFromInvTile#1": [
     "--【DoControllerUseItemOnSelfFromInvTile】在库存格上「对自己用」。",
     "--   1438-1440 行：设置了**长按重复的三件套**：",
     "--     actionholdtime / lastheldaction / actionrepeatfunction",
@@ -186,13 +186,13 @@ export const BEFORE = {
     "--     长按重发时 item 参数为 nil（104 行没有参数），必须自己取光标物品。",
   ],
 
-  1445: [
+  "PlayerController:DoControllerUseItemOnSelfFromInvTile#1+9": [
     "--   ★ 可部署物品在鼠标模式下进入放置模式（而不是直接使用）。",
     "--     这是「手持火把右键出现放置预览」的实现。",
     "--   1447 行的 IsGrandOwner 校验：只能部署自己的东西。",
   ],
 
-  1454: [
+  "PlayerController:DoControllerUseItemOnSceneFromInvTile#1": [
     "--【DoControllerUseItemOnSceneFromInvTile】在库存格上「对世界用」。",
     "--   ★ 1464-1468 行是个特例：不是自己背里的、且未锁定 → 从容器里**取出**。",
     "--     这是手柄操作的「一键拿取」：从马厩/冰箱里直接把物品拿到手上，",
@@ -201,7 +201,7 @@ export const BEFORE = {
     "--     这是 controller-only 的 API（788 行，鼠标模式下返回 nil）。",
   ],
 
-  1474: [
+  "PlayerController:RotLeft#1": [
     "--【RotLeft / RotRight】相机 45° 步进旋转。",
     "--   1479 行 `local rotamount = 45 ---90-- ...`：",
     "--     英文原注释留下了曾经的方案：洞穴里 22.5°，后来改回统一 45°。",
@@ -209,29 +209,29 @@ export const BEFORE = {
     "--     与鼠标的自由旋转共存靠的就是这个 45° 网格。",
   ],
 
-  1475: [
+  "PlayerController:RotLeft#1+1": [
     "--   --V2C: exception for drone cam: zoom disabled, but rotate allowed",
     "--   → 使用无人机（韦德沃克斯的 Drone）时相机不可控，但允许旋转。",
     "--     这个例外同时出现在 4441 行 DoCameraControl。",
   ],
 
-  1481: [
+  "PlayerController:RotLeft#1+7": [
     "--   ★ 带速度的旋转（手柄摇杆）：SetContinuousHeadingTarget(target, -speed)。",
     "--   1482 行的取整公式 `(math.ceil((heading - speed)/rotamount) - 1) * rotamount`：",
     "--     向下取到 45° 网格，减去一个格——这是「转一整格」而非「转到最近格」的手感。",
   ],
 
-  1487: [
+  "PlayerController:RotLeft#1+13": [
     "--   ★ 暂停 + 地图打开时用 Snap()：地图内旋转要立刻生效（不能有插值）。",
   ],
 
-  1512: [
+  "PlayerController:GetHoverTextOverride#1": [
     "--【GetHoverTextOverride】建造模式下鼠标悬停的提示文字。",
     "--   1515 行的优先级：recipe 自定义函数 > 按 product/name 查字符串 > 「这里」。",
     "--   ★ 1535 行的 `canmouse.data_item` 不存在时返回 nil（不覆盖原提示）。",
   ],
 
-  1522: [
+  "PlayerController:CancelPlacement#1": [
     "--【CancelPlacement(cache)】★ cache 参数是「保留蓝图以便重建」。",
     "--   ★ 为什么需要 cache：HUD 打开/关闭会触发 2709 行的 CancelPlacement(true)，",
     "--     若清掉 recipe，玩家关一下合成菜单就得重新选蓝图。",
@@ -242,14 +242,14 @@ export const BEFORE = {
     "--     这就是「菜单打开时蓝图仍显示」的机制。",
   ],
 
-  1539: [
+  "PlayerController:CancelDeployPlacement#1": [
     "--【CancelDeployPlacement】取消部署放置。",
     "--   1540 行 `self.deploy_mode = not TheInput:ControllerAttached()`：",
     "--     ★ 取消时重置为「鼠标模式默认有 deploy_mode」，所以鼠标玩家每次取消后",
     "--       仍可用右键进入放置。手柄玩家则通过 TOGGLE_DEPLOY_MODE 切换（5552 行）。",
   ],
 
-  1547: [
+  "PlayerController:StartBuildPlacementMode#1": [
     "--【StartBuildPlacementMode(recipe, skin)】进入建造模式。",
     "--   ★ 1561 行 testfn：把「能不能在这建」的判定从 placer 组件改为",
     "--     replica.builder:CanBuildAtPoint —— 因为建造合法性（含材料）只有 builder 知道。",
@@ -257,26 +257,26 @@ export const BEFORE = {
     "--     它让 placer 无需认识 builder。",
   ],
 
-  1567: [
+  "PlayerController:IsTwinStickAiming#1": [
     "--【IsTwinStickAiming】双摇杆瞄准（用手柄右摇杆瞄准射击）。",
   ],
 
-  1571: [
+  "PlayerController:GetAOETargetingPos#1": [
     "--【GetAOETargetingPos】当前 AOE 瞄准点的世界坐标（来自准星）。",
   ],
 
-  1575: [
+  "PlayerController:IsAOETargeting#1": [
     "--【IsAOETargeting】★ 注意它**只看准星**，不看手持物。",
     "--   对比 1579 行的 HasAOETargeting：后者查「当前手持物是否支持 AOE 瞄准」。",
     "--   ⇒ 两个函数名的区别是「**正在瞄**」与「**能瞄**」。",
   ],
 
-  1579: [
+  "PlayerController:HasAOETargeting#1": [
     "--【HasAOETargeting】手持物是否具备 AOE 瞄准能力。",
     "--   ★ 1584/1594 行的 allowriding：允许骑乘时使用的道具（如韦德的自行车加速器）。",
   ],
 
-  1597: [
+  "PlayerController:HasAOETargeting#1+18": [
     "--   ⚠ 疑似缺陷（缓存变量语义不一致）：",
     "--     1597 行 `if isriding == nil then` 试图「若之前没算过 riding 就补算」，",
     "--     但 1588/1599 行都把 isriding 赋成了 **布尔值**（isriding ~= nil and ...），",
@@ -291,20 +291,20 @@ export const BEFORE = {
     "--     重构建议：改用 `local isriding_cached = false` 之类的显式标志。",
   ],
 
-  1609: [
+  "PlayerController:TryAOETargeting#1": [
     "--【TryAOETargeting】开始 AOE 瞄准（魔杖类）。返回是否成功。",
     "--   1612-1617 行：不允许骑乘时，若在骑乘则拒绝。",
     "--   ★ 返回 boolean 的意义：1109 行用它做短路（Try 或 Try 的语义互斥）。",
   ],
 
-  1624: [
+  "PlayerController:StartAOETargetingUsing#1": [
     "--【StartAOETargetingUsing(item)】★ 由 prefab 直接调用（不走 OnControl）。",
     "--   4 个外部调用点：ghostcommand_defs / waxwelljournal / willow_ember / winona_remote。",
     "--   ★ 1626-1630 行的四连清理：这是「按一个外部事件进入瞄准态」的标准收尾，",
     "--     与 1075-1081 行（Y 键的取消链）对称。",
   ],
 
-  1635: [
+  "PlayerController:GetActiveSpellBook#1": [
     "--【GetActiveSpellBook】当前准星是否属于一本法术书。",
     "--   ⚠ 1636 行没有 nil 检查 self.reticule：若 reticule 为 nil 会崩。",
     "--   推理依据：`self.reticule.inst.components.spellbook ~= nil` 首字段即索引。",
@@ -313,7 +313,7 @@ export const BEFORE = {
     "--     隐式契约：调用前必须 reticule ~= nil。",
   ],
 
-  1645: [
+  "_CalcAOEChargingStartingRotation#1": [
     "--★ _CalcAOEChargingStartingRotation：算蓄力起始朝向。",
     "--   1646-1647 行的英文注释说明了返回 nil 的两种情况：",
     "--     \"handler should always exist when we get here\"（正常路径）",
@@ -321,14 +321,14 @@ export const BEFORE = {
     "--      possible normally\"（鼠标位置拿不到，理论上不可能）",
   ],
 
-  1653: [
+  "_CalcAOEChargingStartingRotation#1+8": [
     "--   ★ 手柄分支：把方向向量转成角度。",
     "--     math.atan2(-dir.z, dir.x) * RADIANS —— 注意 **-dir.z**。",
     "--     参见文件头 480 行的说明：Transform 的 Z 轴与数学 Z 轴相反。",
     "--     这行与 4360 行的 -math.atan2(dir.z, dir.x) / DEGREES 是同一约定的两个写法。",
   ],
 
-  1659: [
+  "PlayerController:TryAOECharging#1": [
     "--★★ 【TryAOECharging(force_rotation, iscontroller)】蓄力类道具（弹弓/ pneumatic）。",
     "--   ★★ 三个调用点传入的 force_rotation 语义完全不同：",
     "--     · 1109 行 TryAOECharging(nil, true) —— force_rotation=nil（客户端首次）",
@@ -337,19 +337,19 @@ export const BEFORE = {
     "--   ⇒ 1669 行 `if force_rotation then` 区分的就是「服务端已告知角度」还是「自己算」。",
   ],
 
-  1671: [
+  "PlayerController:TryAOECharging#1+12": [
     "--   --server received remote rpc",
     "--   ★ 客户端已经在 1686-1688 行把 rotation 发了过来，服务端直接复用。",
     "--     服务端**不重算**角度 —— 因为蓄力方向是玩家当时看的方向，重算会漂。",
   ],
 
-  1674: [
+  "PlayerController:TryAOECharging#1+15": [
     "--   --server or prediction client",
     "--   ★ 预测客户端在**本地**就 SetRotation + GoToState 先行表演（1677-1678 行），",
     "--     动画立即播，服务器随后跟上。这是「动画预测」而非「位置预测」。",
   ],
 
-  1680: [
+  "PlayerController:TryAOECharging#1+21": [
     "--   --non-prediction client",
     "--   --We still need to know our desired starting angle for the RPC, /",
     "--   --but we can't set transform rotation on non-prediction clients",
@@ -357,32 +357,32 @@ export const BEFORE = {
     "--     但仍要算出角度发 RPC。所以 1686 行的条件不含 sg 判断。",
   ],
 
-  1686: [
+  "PlayerController:TryAOECharging#1+27": [
     "--   ★ startflag：1 = 鼠标右键，2 = 手柄 Y 键。",
     "--     客户端用它反推「服务器该把哪个 remote_controls 置 0」。",
   ],
 
-  1695: [
+  "PlayerController:OnRemoteAOECharging#1": [
     "--【OnRemoteAOECharging(rotation, startflag)】蓄力的服务端对端。",
     "--   1697 行的 if startflag：非零 = 开始蓄力；nil/0 = **持续更新角度**。",
     "--   ★ 这是一个「start + 后续 update」共用一条 RPC 的省流设计：",
     "--     1707 行 RemoteAOEChargingDir 每帧/每次转方向都发一次（只带 rotation）。",
   ],
 
-  1711: [
+  "PlayerController:EchoReticuleAt#1": [
     "--【EchoReticuleAt(x,y,z)】在指定位置生成一个一次性准星涟漪实体。",
     "--   1718 行的 `reticule:DoTaskInTime(1, reticule.Remove)`：",
     "--     没有 Flash 方法的预制体，1 秒后自行移除。这是「特效实体的生命周期管理」。",
   ],
 
-  1723: [
+  "PlayerController:RefreshReticule#1": [
     "--【RefreshReticule(item)】重建准星。 Activate(326) / OnEquip(232) /",
     "--   ToggleController(399) / 8 处外部调用。",
     "--   ★ 与 OnEquip 的 reticule 逻辑重复（232-244 与 1725-1734 几乎一样），",
     "--     但 RefreshReticule 是通用入口，接受可选 item 参数。",
   ],
 
-  1737: [
+  "TargetIsHostile#1": [
     "--★★ 【TargetIsHostile】敌对判定三级回退：",
     "--     ① 实体自己有 HostileTest（生物侧优先）",
     "--     ② 目标有 HostileToPlayerTest（如猪人村民对村民）",
@@ -391,7 +391,7 @@ export const BEFORE = {
     "--     ③是纯标签的最终兜底。第三方模组只需实现 ① 或 ② 之一即可。",
   ],
 
-  1747: [
+  "ValidateAttackTarget#1": [
     "--★★★ 【ValidateAttackTarget】★ 攻击目标合法性四道闸（本文件最重要的过滤器）。",
     "--   签名 (combat, target, force_attack, x, z, has_weapon, reach)",
     "--   ⚠ 注意 has_weapon 参数在函数体里**完全没被使用**（grep 确认）。",
@@ -402,17 +402,17 @@ export const BEFORE = {
     "--     推理依据：1747-1786 行内 has_weapon 出现 0 次（仅在形参里）。",
   ],
 
-  1748: [
+  "ValidateAttackTarget#1+1": [
     "--   闸①：combat:CanTarget（未死、未被别人锁定）+ 非 stealth 潜行。",
   ],
 
-  1753: [
+  "ValidateAttackTarget#1+6": [
     "--   ★★ targetcombat 为 nil 的实体（光/扑灭器）**跳过敌对判定**，直接进距离检查。",
     "--     注释：\"no combat if light/extinguish target\"",
     "--     设计取舍：火把/扑灭器能点任何东西，包括玩家自己（这是某些角色的技能）。",
   ],
 
-  1755: [
+  "ValidateAttackTarget#1+8": [
     "--   闸②：友军永不误伤（除非 force_attack 也过不了这一关？实际是直接 return false）。",
     "--   ⚠ 注意：IsAlly 为真时**无条件** return false，force_attack 也不能强制攻击友军。",
     "--     这与「强制攻击可以打队友的随从」（1769-1777）的处理不一致——",
@@ -420,7 +420,7 @@ export const BEFORE = {
     "--     「强制攻击玩家队友」不允许。",
   ],
 
-  1757: [
+  "ValidateAttackTarget#1+10": [
     "--   ★★ 闸③（非 force 且非最近目标时）：必须「对方也把我当敌人」或「对方是敌对生物」。",
     "--   1759 行 shadowsubmissive（暗影驯服者）：",
     "--     \"shadowsubmissive needs to ignore GetTarget() test, since they have you",
@@ -429,13 +429,13 @@ export const BEFORE = {
     "--     这是为了避免「驯服后被误杀」。",
   ],
 
-  1763: [
+  "ValidateAttackTarget#1+16": [
     "--   ★ targetcombat:GetTarget() ~= inst：目标正在被别人打 → 允许玩家插队。",
     "--     注释：\"must use force attack non-hostile creatures\"",
     "--     逻辑：非敌对生物（如猪）只要在跟你打架，就可以打；站着不动的猪不行。",
   ],
 
-  1768: [
+  "ValidateAttackTarget#1+21": [
     "--   ★ 1769-1777 行：目标若是「某个玩家的随从」，且它主人正在跟你打，",
     "--     那你也打它；否则不能打（防止误伤主人的宠物）。",
     "--     ⚠ 1763 行的 `targetcombat:GetTarget() ~= inst` 与这里形成**双重条件**：",
@@ -443,7 +443,7 @@ export const BEFORE = {
     "--     推理依据：1774 行 leader.replica.combat:GetTarget() ~= inst 直接 return false。",
   ],
 
-  1784: [
+  "ValidateAttackTarget#1+37": [
     "--   ★★ 距离判定：`reach + target:GetPhysicsRadius(0)` ——",
     "--     ★ 这是「点边缘即可命中」的实现：攻击范围是**边缘到边缘**，不是中心距。",
     "--     所以大体型目标（牛 2.5 格）在同样 attackrange 下更容易被打中。",
@@ -451,7 +451,7 @@ export const BEFORE = {
     "--       没有物理实体的目标半径为 0，退化为中心距判定。",
   ],
 
-  1788: [
+  "ValidateAttackTarget#1+41": [
     "--★★ TheSim:RegisterFindTags —— ★ 向引擎注册一个**空间查询索引**。",
     "--   { \"_combat\" }：只匹配带 _combat 标签的实体（entityreplica.lua 里自动加）。",
     "--   { \"INLIMBO\" }：排除在「limbo 暂停」中的实体（存档中暂存的实体）。",
@@ -465,7 +465,7 @@ export const BEFORE = {
     "--     可能的调和：灯光分支只在 force_target 路径（1846 行）生效。",
   ],
 
-  1790: [
+  "PlayerController:GetAttackTarget#1": [
     "--★★ 【GetAttackTarget(force_attack, force_target, isretarget, use_remote_predict)】",
     "--   ★ 本函数被**双端**调用：",
     "--     客户端：1895 行 DoAttackButton 算目标 → 决定发哪个 code",
@@ -473,29 +473,29 @@ export const BEFORE = {
     "--   ⇒ 这就是「意图编号校验」在攻击路径上的落点。",
   ],
 
-  1791: [
+  "PlayerController:GetAttackTarget#1+1": [
     "--   ★ 1791-1795 行：幽灵/沃古斯形态/无限练力场里**不能自动索敌**。",
     "--     幽灵要主动 HAUNT，沃古斯攻击是技能，练力场里攻击无意义。",
   ],
 
-  1798: [
+  "PlayerController:GetAttackTarget#1+8": [
     "--   ★ 举重物 / 举漂浮物 → 不能攻击（双手被占用）。",
     "--     与 1341-1343 行的 no_air_attack 判据一致。",
   ],
 
-  1807: [
+  "PlayerController:GetAttackTarget#1+17": [
     "--   --Don't want to spam the attack button before the server actually starts",
     "--   the buffered action",
     "--   ★ 这是「按键去重」的第二道闸（第一道是 BUTTON_REPEAT_COOLDOWN 的 remote_controls）。",
     "--     1808 行 `(self.remote_controls[CONTROL_ATTACK] or 0) > 0` 在客户端才生效。",
   ],
 
-  1812: [
+  "PlayerController:GetAttackTarget#1+22": [
     "--   ★ isretarget && force_target 且可见 → 直接返回，不做任何重新搜索。",
     "--     连击攻击的目标保持（避免「打着打着换了目标」）。",
   ],
 
-  1824: [
+  "PlayerController:GetAttackTarget#1+34": [
     "--★★ 【1826 行的 attackrange 扩张】`local rad = self.directwalking and attackrange",
     "--   or attackrange + 6` —— ★ 手柄/鼠标「直接行走」时缩到恰好 attackrange，",
     "--   「点地面走过去」（自动行走）时**放大 6 格**。",
@@ -507,27 +507,27 @@ export const BEFORE = {
     "--     描述的是 else 分支（+6）。注释本身没错但紧贴在小半径那一行，容易误读。",
   ],
 
-  1829: [
+  "PlayerController:GetAttackTarget#1+39": [
     "--   --Beaver teeth counts as having a weapon",
     "--   ★ 海狸（Beaver）默认带武器。1830 行用 inst:HasTag 而非查装备。",
   ],
 
-  1836: [
+  "PlayerController:GetAttackTarget#1+46": [
     "--   propweapon（长矛等投掷武器）：自动视为 force_attack。",
     "--   \"don't require pressing force_attack when using prop weapons\"",
     "--     ⇒ 长矛可以插地/点燃而不会误伤友军，因为自动 force。",
   ],
 
-  1843: [
+  "PlayerController:GetAttackTarget#1+53": [
     "--   ★ reach = 自己半径 + 搜索半径 + 0.1。0.1 是浮点保护。",
   ],
 
-  1849: [
+  "PlayerController:GetAttackTarget#1+59": [
     "--   --To deal with entity collision boxes we need to pad the radius.",
     "--   ★ 因为目标有体积，「中心距 ≤ R」会把「体型 2.5 的牛在 3.2 处」判为不可达。",
   ],
 
-  1855: [
+  "PlayerController:GetAttackTarget#1+65": [
     "--   ★★ 1855-1856 行**变量复用**做「状态机式」处理：",
     "--     isretarget 原是入参（是否强制重定向），此处被复用为「是否找到最近目标」标志；",
     "--     force_target 原是入参（强制目标），此处被复用为「最近目标」。",
@@ -536,7 +536,7 @@ export const BEFORE = {
     "--     推理依据：1856 行 force_target = nil 显式清空入参值；1876 行 return force_target。",
   ],
 
-  1857: [
+  "PlayerController:GetAttackTarget#1+67": [
     "--   ★★★ 1857-1875 行是「最近目标优先，但最近目标有额外特权」的完整逻辑：",
     "--     ① ValidateAttackTarget 通过 + 可见 → 算「边缘距」（减物理半径）",
     "--     ② 若是 combat:IsRecentTarget（战斗系统认为的当前目标）",
@@ -547,13 +547,13 @@ export const BEFORE = {
     "--     哪怕旁边有个更近的路人。",
   ],
 
-  1872: [
+  "PlayerController:GetAttackTarget#1+82": [
     "--   elseif 分支：目标不合法但它是「最近目标」→ 只标记 isretarget，不更新最近目标。",
     "--   ★ 与 1862 行的区别：这里目标已经不可打了，只是为了防止 1862 的立即返回逻辑",
     "--     在目标离开后仍然生效。",
   ],
 
-  1879: [
+  "PlayerController:DoAttackButton#1": [
     "--★★ 【DoAttackButton(retarget, isleftmouse)】★ 攻击按钮的统一入口。",
     "--   三个调用点：638 行（OnControl 直接调）、2778 行（attack_buffer）、3149 行（连击）。",
     "--   ★ isleftmouse：区分「用鼠标左键打」和「用攻击键打」。",
@@ -561,18 +561,18 @@ export const BEFORE = {
     "--     鼠标左键**不**触发 overrideattack，只有专用攻击键才触发。",
   ],
 
-  1893: [
+  "PlayerController:DoAttackButton#1+14": [
     "--   ★ control 的选择：isleftmouse ? CONTROL_PRIMARY : CONTROL_ATTACK。",
     "--     决定了 1899/1918 行往 remote_controls 里写哪个键。",
   ],
 
-  1894: [
+  "PlayerController:DoAttackButton#1+15": [
     "--   force_attack = TheInput:IsControlPressed(CONTROL_FORCE_ATTACK) ——",
     "--   ★ 注意读的是 TheInput 而非 IsControlPressed(511 行)：",
     "--     这是纯客户端路径，服务端从不读这一行（服务端走 OnRemoteAttackButton）。",
   ],
 
-  1895: [
+  "PlayerController:DoAttackButton#1+16": [
     "--   ★★ `retarget ~= self:GetCombatTarget()` 三个参数复用同一表达式：",
     "--     force_target = retarget（可能重定向的目标）",
     "--     isretarget  = 「目标是否和当前战斗目标不同」",
@@ -580,11 +580,11 @@ export const BEFORE = {
     "--       而 4603 行 DoAction 才写它 —— 存在一帧延迟。",
   ],
 
-  1897: [
+  "PlayerController:DoAttackButton#1+18": [
     "--   没有目标 → 只发「按钮按下」RPC（1898 行的注释解释了这个范式）。",
   ],
 
-  1910: [
+  "PlayerController:DoAttackButton#1+31": [
     "--   -- NOTES(JBK): Does not call locomotor component functions needed for",
     "--   pre_action_cb, manual call here.",
     "--   ★★ 这个 --V2C 注释在全文件出现 12 次，是无 locomotor 客户端的适配手法：",
@@ -593,36 +593,36 @@ export const BEFORE = {
     "--   ⇒ 副作用：这两个分支的客户端**没有**客户端状态图，所以不能预测动作。",
   ],
 
-  1917: [
+  "PlayerController:DoAttackButton#1+38": [
     "--   ★ 1918 行的写法与 1899 行对称：先确保「按钮按下」已通知，再装 preview_cb。",
   ],
 
-  1921: [
+  "PlayerController:DoAttackButton#1+42": [
     "--   ★ 只有 CanLocomote 才能 PreviewAction —— 移动预测能力是动作预测的前提。",
     "--     为什么：PreviewAction 会让 locomotor 立刻开始移动到目标点，",
     "--       若此时状态图说「你在攻击中」，移动就是错的。",
   ],
 
-  1932: [
+  "buffaction.preview_cb#1+9": [
     "--   --V2C: isreleased at the end because added a lot later",
     "--   ★★ 一条极有价值的注释：isreleased 排在最后是因为它是**后加的参数**。",
     "--   ⇒ 这暴露了 RPC 的兼容性约定：**只能在末尾追加可选参数**，",
     "--     否则老客户端的实参会错位。这是本文件多处参数顺序怪异的根因。",
   ],
 
-  1933: [
+  "PlayerController:OnRemoteAttackButton#1": [
     "--【OnRemoteAttackButton(target, force_attack, noforce, isleftmouse, isreleased)】",
     "--   ★★ 与 944 行的 ControllerActionButton 相比，本函数**不重算动作**，",
     "--     因为 ATTACK 是固定动作（不需要 picker），只需要重算「打谁」。",
     "--   ⇒ 重算逻辑在 1945/1950 行的 GetAttackTarget 调用里。",
   ],
 
-  1939: [
+  "PlayerController:OnRemoteAttackButton#1+6": [
     "--   ★ 1945 行 use_remote_predict = true：服务端重算时启用 abouttoattack 标签检查。",
     "--     （与 1817 行同一表达式，此处传 true。）",
   ],
 
-  1941: [
+  "self.inst.sg.statemem.chainattack_cb#2": [
     "--   ★ 与 1396 行同款的 chainattack_cb，★ 同样丢参：",
     "--     `self:OnRemoteAttackButton(target, force_attack)` 丢了 isleftmouse 与 isreleased。",
     "--   ⚠ 后果比 1397 行更严重：isleftmouse 丢失后，1937 行会把 control 算成",
@@ -632,7 +632,7 @@ export const BEFORE = {
     "--     缓解：ControlC 抬起走独立的 StopControl RPC（546 行）。",
   ],
 
-  1964: [
+  "PlayerController:RemoteAttackButton#1": [
     "--【RemoteAttackButton】发 RPC 的薄封装。",
     "--   ★ 1965 行是本文件按键计时的**标准范式**：",
     "--     `self.remote_controls[键] = not isreleased and (target and COOLDOWN or 0) or nil`",
@@ -641,12 +641,12 @@ export const BEFORE = {
     "--   ⇒ 1374/2302/2355 等处的变体都是这个式子的裁剪。",
   ],
 
-  1968: [
+  "PlayerController:RemoteAttackButton#1+4": [
     "--   ★ 1966-1972 三分支：noforce 只在「无 locomotor」且「有目标」时才置真。",
     "--     因为有 locomotor 的客户端走 preview，服务器重定向时不需要 noforce。",
   ],
 
-  1975: [
+  "PlayerController:SetIsOverrideAttack#1": [
     "--【SetIsOverrideAttack / IsOverrideAttack】★ 攻击键重映射的读写。",
     "--   ★★ 1981-1986 行的双端不对称值得注意：",
     "--     有 sg → 查状态标签 \"overrideattack\"（权威）",
@@ -658,37 +658,37 @@ export const BEFORE = {
     "--       1982 行 `if self.inst.sg then` 只检查本地是否有状态图。",
   ],
 
-  1988: [
+  "ValidateHaunt#1": [
     "--★★ 四个 Validate* 谓词（1988-2003）：给 FindEntity 用的候选过滤器。",
     "--   ⚠ ValidateHaunt:1989 的 HasActionComponent(\"hauntable\") 是**组件检查**，",
     "--     而后面 ValidateBugNet/ValidateUnsaddler 只查死亡。",
     "--     三者风格不统一，说明是随需求逐步添加的。",
   ],
 
-  2000: [
+  "ValidateCorpseReviver#1": [
     "--   --V2C: revivablecorpse is on clients as well",
     "--   ★ 注释解释了为什么这个 Validate 可以双端跑：revivablecorpse 组件客户端也有。",
     "--     大多数组件只在服务端有（客户端会 nil 索引），这个是少数例外。",
   ],
 
-  2005: [
+  "GetPickupAction#1": [
     "--★★★ 【GetPickupAction(self, target, tool)】★★ **动作优先级链，全文件最长的 if-else 链**。",
     "--   2080 行之前的 65 行里排了 18 个分支。★ 顺序即优先级，不可随意调整。",
     "--   每一条都是「标签 → 动作」的映射，模组加标签即可扩展。",
     "--   两个调用点：2267 行（空间搜索后逐个试）与 2274 行（force_target 直试）。",
   ],
 
-  2006: [
+  "GetPickupAction#1+1": [
     "--   ① smolder（余烬）→ 扑灭。★ 放在最前是因为「正在烧」必须最先处理，",
     "--     否则后面任何分支都可能先匹配上「这是可采集物」。",
   ],
 
-  2009: [
+  "GetPickupAction#1+4": [
     "--   ★ LunarBuildup（月光堆积）需要 MINE 工具才能清除。",
     "--     这是 2024 新增的内容，插在 TOOLACTIONS 循环之前。",
   ],
 
-  2012: [
+  "GetPickupAction#1+7": [
     "--★ 【TOOLACTIONS 循环】14-17 行是与「工具 vs 可作业物」匹配的通用机制。",
     "--   标签约定：目标有 `CHOP_workable` + 工具刀有 `CHOP_tool` → ACTIONS.CHOP。",
     "--   参见 constants.lua:2183 TOOLACTIONS = { CHOP, DIG, HAMMER, MINE, NET, PLAY,",
@@ -701,19 +701,19 @@ export const BEFORE = {
     "--     现实中双标签目标极少，故未暴露。",
   ],
 
-  2022: [
+  "GetPickupAction#1+17": [
     "--   ★★ 注意每个分支都带 `not target:HasTag(\"fire\")` 之类的否定条件：",
     "--     「着火的东西不能这么处理」。这是 DST 火灾机制的统一约定，",
     "--     也是为什么 2006 行的扑灭必须放最前面。",
   ],
 
-  2028: [
+  "GetPickupAction#1+23": [
     "--   ★ 2029 行：inactive（未激活的机器）需靠近 2.5 格才能激活 ——",
     "--     但只对 wall 生效（`(not target:HasTag(\"wall\") or IsNear(target, 2.5))`）。",
     "--   ⚠ 这个 2.5 是**独立的距离常量**，与 actions.lua 的 rangecheckfn 无关。",
   ],
 
-  2032: [
+  "GetPickupAction#1+27": [
     "--   ★★ 2032-2039 行的 PICKUP 分支有五重守卫：",
     "--     ① 是 inventoryitem",
     "--     ② CanBePickedUp(self.inst)（能否被**这个人**捡：所有者/堆叠上限）",
@@ -724,36 +724,36 @@ export const BEFORE = {
     "--     着火的东西**可以**被 lighter 标签的物品处理（如火把本身带 fire+lighter）。",
   ],
 
-  2036: [
+  "GetPickupAction#1+31": [
     "--   ★★ HasItemSlots() 的两个用途之一：幽灵/无背包实体捡不了东西。",
     "--     这是 31-39 行猴补模式的实际消费点。",
   ],
 
-  2040: [
+  "GetPickupAction#1+35": [
     "--   ★ pickable（可采摘，如草）→ PICK。",
   ],
 
-  2044: [
+  "GetPickupAction#1+39": [
     "--   ★ 2045 行的 withered（枯萎）特例：已枯萎的也算「准备好采摘」。",
   ],
 
-  2049: [
+  "GetPickupAction#1+44": [
     "--   ★ 2049 行 `not self.inst:HasTag(\"mime\")`：哑谜演员不能照料作物",
     "--     （mime 的机制是「模仿 NPC」，照料作物会破坏伪装）。",
   ],
 
-  2055: [
+  "GetPickupAction#1+50": [
     "--   ★ inventoryitemholder_take → TAKEITEM（从盒子里拿东西）。",
     "--   ⚠ 这个标签是「容器专门给 TAKEITEM 动作用」的，不是通用容器标记。",
   ],
 
-  2061: [
+  "GetPickupAction#1+56": [
     "--   ★ 2061 行的守卫是 `self.inst.components.revivablecorpse ~= nil`：",
     "--     「只有本身可被复活的玩家才能复活别人」——对应 2213 行的注释",
     "--     \"only need to do this if i am also revivable\"。",
   ],
 
-  2067: [
+  "PlayerController:IsDoingOrWorking#1": [
     "--【IsDoingOrWorking】★ 双端判据的第三种形态（除 IsBusy 外的第二个 busy）。",
     "--   sg 标签：doing / working；实体标签：doing / working。",
     "--   2071 行的 autopredict 分支：非预测客户端且带 autopredict 标签时只用 sg 标签。",
@@ -765,7 +765,7 @@ export const BEFORE = {
     "--     推理依据：2071 行含 not self.ismastersim，2075 行无此限制。",
   ],
 
-  2081: [
+  "PlayerController:IsDoingOrWorking#1+14": [
     "--★ TARGET_EXCLUDE_TAGS：目标查询的通用排除表。",
     "--   FX（特效）/ NOCLICK（不可点）/ DECOR（装饰）/ INLIMBO（存档暂存）/ stealth。",
     "--   ⚠ 2081 行有 5 个标签但 3375 行的注释只说 \"FX\" 和 \"DECOR\"：",
@@ -774,18 +774,18 @@ export const BEFORE = {
     "--     但 stealth 没被这样对待（1748 行单独检查），说明 stealth 会变。",
   ],
 
-  2082: [
+  "PlayerController:IsDoingOrWorking#1+15": [
     "--   ★ 攻击索敌用**独立注册**（1788 行），因为排除表不同（这里排除了 stealth）。",
   ],
 
-  2084: [
+  "PlayerController:IsDoingOrWorking#1+17": [
     "--   PICKUP / HAUNT 的排除表由 TARGET_EXCLUDE_TAGS 扩展而来（2086-2089 行）。",
     "--   ★ 注意 2087 行的 table.insert 是在**循环里直接改被遍历的表**的副本 ——",
     "--     PICKUP_TARGET_EXCLUDE_TAGS 是本地表，安全；但若有人复用 TARGET_EXCLUDE_TAGS",
     "--     本身就会死循环。当前是安全的（2084 行是新表）。",
   ],
 
-  2091: [
+  "PlayerController:IsDoingOrWorking#1+24": [
     "--   六个 CATCHABLE_TAGS 常量表：catchable / pinned / corpse /",
     "--   gestaltcapturable / moonstormstaticcapturable。",
     "--   ★ 都是「FindEntity 的 musttags 参数」——FindEntity（simutil.lua:31）",

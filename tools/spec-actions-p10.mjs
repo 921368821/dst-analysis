@@ -3,18 +3,18 @@
 // 此处只补最关键的中间锚点（尤其是条件链与事务中段）。
 
 export const BEFORE = {
-  171: [
+  "ExtraDeployDist#1+5": [
     "--★ 171 行回到 DefaultRangeCheck 的定义之后 ——",
     "--   ★★ 第零节到此结束。§一（Action 基类）从 294 行开始。",
     "--   ★ 记住本节的 14 个函数在 ACTIONS 表里被引用了 30+ 次。",
   ],
-  1235: [
+  "ACTIONS.LOOKAT.fn#1+15": [
     "--★★ LOOKAT.fn 内部：1220-1259 是「凑近看」的实体版与坐标版两段。",
     "--   ★★ 1235-1240 行是「实体版结束、坐标版开始」的分界。",
     "--   ★ 两段的差异只在 `if act.target then` / `else`，",
     "--     以及 CloseInspectTarget vs CloseInspectPoint。",
   ],
-  1270: [
+  "ACTIONS.LOOKAT.fn#1+50": [
     "--★★ 1270 行 —— LOOKAT.fn 结尾。",
     "--   ★★ 1261-1273 的「普通查看」路径与 1222-1259 的「凑近看」路径",
     "--     是两个互斥的功能分支：",
@@ -23,7 +23,7 @@ export const BEFORE = {
     "--   ★★ 返回值有两种可能：1220 段的 success/reason 或 1271 的 true。",
     "--   ★ 落在 1274 行之后的「无描述」情况返回 nil（静默失败）。",
   ],
-  1280: [
+  "ACTIONS.LOOKAT.fn#1+60": [
     "--★★★ ACTIONS_MAP_REMAP[ACTIONS.ACTIVATE.code] —— 地图重映射的第 1 例（44 行）",
     "--   ★★ 它把「在地图上点某个图标」翻译成「在世界里对某个目标做 ACTIVATE」。",
     "--     ★ 翻译的产物是一个**新的 BufferedAction**（1310 行）：",
@@ -38,13 +38,13 @@ export const BEFORE = {
     "--     1304-1314 若上下文是「虫洞」，在附近找另一个虫洞作为出口",
     "--   ★★★ 这就是 §0 T9「地图动作重映射」的最小完整实例。",
   ],
-  1295: [
+  "ACTIONS.LOOKAT.fn#1+75": [
     "--★★ 客户端/服务端两套来源的写法（1290 vs 1295）：",
     "--   客户端：`act.maptarget.prefab == \"charlieresidue\"`（地图上的对象）",
     "--   服务端：`doer.components.roseinspectableuser.residue`（组件记录）",
     "--   ★★★ 同构的双端处理，与 actions.lua:1402 那套 replica/components 对照。",
   ],
-  2310: [
+  "ACTIONS.GIVE.fn#1+33": [
     "--★★ GIVE.fn 的分支③（商人）内部：2290-2315。",
     "--   ★★ 2308 行是本分支的关键一行：`AbleToAccept(invobject, doer, count)`。",
     "--   ★★★ 注意它传了**三个**参数（含 count），而 GIVETOPLAYER（2352）",
@@ -52,7 +52,7 @@ export const BEFORE = {
     "--       ★ 「支持堆叠的商人」需要知道打算给多少。",
     "--       ★⇒ AbleToAccept 的第三参是可选的，缺省时视为 1。",
   ],
-  2639: [
+  "ACTIONS.HARVEST.fn#1+1": [
     "--★★ HARVEST.fn 的七分支在 2639-2665；此处是分支⑤（2648）的说明。",
     "--   ★★ 分支⑤的独特之处：「取出指定物品」而非「产出全部」。",
     "--     ★★ 2649 行 `RemoveItem(act.invobject)` —— ",
@@ -60,7 +60,7 @@ export const BEFORE = {
     "--     ★ 语义：晾晒架上有一堆肉，玩家手上有肉 ⇒ 取一份下来。",
     "--       ★ 若手上没有对应的肉，RemoveItem 返回 nil ⇒ 整个分支失败。",
   ],
-  2700: [
+  "ACTIONS.HITCHUP.fn#1+1": [
     "--★★ HITCHUP.fn（2699-2735）的四道判定已在 2700 行起逐条注释。",
     "--   ★★ 需要特别记住的是 2718 行的距离魔数 400（= 20 格²）：",
     "--     ★ 它与 DefaultRangeCheck(4 格) 无关，是「牛铃到桩子」的距离。",
@@ -68,13 +68,13 @@ export const BEFORE = {
     "--       ⇒ 两个距离约束叠加，任一不满足就失败。",
     "--     ★ 这是「双重距离检查」的范例：一个管人，一个管畜。",
   ],
-  2910: [
+  "ACTIONS.COMMENT.fn#1+2": [
     "--★★ COMMENT.fn 的两套 talker 分支在 2915-2939。",
     "--   ★★ 注意 2927 行的 DoNextLine() 只在 npc_talker 分支里。",
     "--     ★ 「NPC 说完了继续说下一句」——玩家说话不需要这个机制。",
     "--   ★★ 2940 行的清空在 if/elseif 之外（两分支共用）。",
   ],
-  2990: [
+  "DoCharlieResidueMapAction#1+1": [
     "--★★ DoCharlieResidueMapAction 内部（2989-3027）的两个对称分支。",
     "--   ★★ 2993 的 wormhole 分支与 3006 的 tentacle_pillar 分支",
     "--     结构几乎逐行对应，差别仅在：",
@@ -84,7 +84,7 @@ export const BEFORE = {
     "--     「默认回到自己，因为终点没有被正确选中。」",
     "--     ★★★ 即「找不到出口就原地传送」—— graceful degradation。",
   ],
-  3435: [
+  "ACTIONS.CASTSPELL.fn#1+3": [
     "--★★ CASTSPELL.fn 的三道守卫在 3437-3455。",
     "--   ★★ 守卫①（3437-3439）ITEMMIMIC、",
     "--     守卫②（3440-3447）crushitemcast 的两条限制、",
@@ -93,7 +93,7 @@ export const BEFORE = {
     "--     ★ 与 CAST_AOE.fn（4516）相比，那里 ITEMMIMIC 在 CanCast 之后 ——",
     "--       顺序不一致但无正确性问题。",
   ],
-  3820: [
+  "ACTIONS.FEED.fn#1+71": [
     "--★★ FEED.fn 内部的「处决流程」在 3779-3821（已逐行注释）。",
     "--   ★★ 3825-3854 是**被整段注释掉的旧实现**（30 行）。",
     "--     ★★ 保留它的价值：新版（3779-3821）更复杂（要处理 owner、",
@@ -101,7 +101,7 @@ export const BEFORE = {
     "--     ★ 旧版里也有 grandowner 这个未定义变量（3831 行），",
     "--       说明这段代码**从未真正跑过**，只是被留下的草稿。",
   ],
-  4004: [
+  "ACTIONS.TOSS_MAP.fn#1+9": [
     "--★★ ACTIONS_MAP_REMAP[ACTIONS.TOSS.code] 内部（4003-4035）。",
     "--   ★★ 核心是 4008-4024 的「距离夹取」：",
     "--     物品可自带 map_remap_min_dist / map_remap_max_dist，",
@@ -111,7 +111,7 @@ export const BEFORE = {
     "--   ★★ 4013-4015 行的除零保护：`if dx == 0 and dz == 0 then dx = 1 end`。",
     "--     ★ 玩家与光标完全重合时的经典保护。",
   ],
-  4125: [
+  "ACTIONS.MOUNT.fn#1+3": [
     "--★★ MOUNT.fn 的 7 条判定在 4123-4142。",
     "--   ★★ 特别注意 4123-4127 的「战斗坐骑例外」：",
     "--     战斗中不可骑，但**鞍上有 combatmount 标签**时例外。",
@@ -121,27 +121,27 @@ export const BEFORE = {
     "--     ⇒ 三者全假（有 rideable、有 saddle、saddle 是战斗坐骑）才允许骑。",
     "--   ★★ 4128-4137 的六条 or 全部静默 return false（无 reason）。",
   ],
-  4440: [
+  "ACTIONS.CONSTRUCT.fn#1+33": [
     "--★★ CONSTRUCT.fn 的「顺手放材料」在 4436-4462。",
     "--   ★★ 流程：找工地容器 → 若已打开 → 按 prefab 查槽位 → 放入。",
     "--   ★★★ 4442-4447 行的槽位查找是 O(n) 线性扫描 CONSTRUCTION_PLANS。",
     "--     ★ 表不大（每种建材几个槽），可接受。",
     "--   ★★ 4450-4457 的失败还回与 §p5 2559 行同款（手柄分支）。",
   ],
-  4553: [
+  "ACTIONS.DISMANTLE.fn#1+3": [
     "--★★ DISMANTLE.fn 的前置检查在 4552-4569。",
     "--   ★★ 三种失败原因（INUSE / NOTEMPTY / COOKING）已在 4557/4559/4561 注释。",
     "--   ★★★ 「NOTEMPTY」与「COOKING」的区分很聪明：",
     "--     「里面有东西」与「正在用但里面空着」是两种不同的拒绝理由。",
     "--   ★★ 4567 行的 candismantle 回调 —— prefab 级的额外许可检查。",
   ],
-  4605: [
+  "ACTIONS.APPLYPRESERVATIVE.fn#1+4": [
     "--★★ APPLYPRESERVATIVE.fn 的除法技巧在 4608-4614。",
     "--   ★★ 语义：一整叠盐岩的效果 = 单个的效果（除以叠数）。",
     "--   ★★★ 这意味着玩家用一叠盐岩比用一个**更划算** —— 一个设计权衡。",
     "--   ★★ 4616-4622 的「先给效果后扣材料」顺序有极小风险（见该处注释）。",
   ],
-  5255: [
+  "ACTIONS.REPLATE.fn#1+2": [
     "--★★ REPLATE.fn 的四种场景在 5254-5321。",
     "--   ★★ 核心难点：「换盘子」要保持**物品在玩家背包里的位置不变**。",
     "--     ★ 解决办法（5280-5292）：记下 slot/perish/salted，",
@@ -150,7 +150,7 @@ export const BEFORE = {
     "--   ★★ 5276 行的注释「spawn new entity so UI animates on clients」",
     "--     说明了重建的**真正目的**：客户端需要播放物品变化的动画。",
   ],
-  5325: [
+  "ACTIONS.SALT.fn#1+3": [
     "--★★ SALT.fn 与 REPLATE.fn 的「重建」技巧在 5324-5352。",
     "--   ★★ 关键对照：",
     "--     · 盘子在背包里 → 重建 + 还原属性 + 放回同槽位",
@@ -158,7 +158,7 @@ export const BEFORE = {
     "--   ★★★ 差异根源：「实体能否热替换组件」——",
     "--     有 UI 需要同步的地方才必须重建。",
   ],
-  5360: [
+  "ACTIONS.UNPATCH.fn#1+3": [
     "--★★ UNPATCH.fn 的核心在 5362-5392。",
     "--   ★★ 5362-5364：没有 lootdropper（不掉战利品）就报成功 ⇒ 免费拆。",
     "--   ★★ 5368 行的「NOTES(DiogoW): Temporary boat patch.」",
@@ -166,21 +166,21 @@ export const BEFORE = {
     "--   ★★ 5379-5388：补丁带 repairer 组件则**顺手修船 25 血**。",
     "--     ★ 用小道具解决大问题的「贪婪设计」。",
   ],
-  5445: [
+  "ACTIONS.PLANTREGISTRY_RESEARCH.fn#1+4": [
     "--★★ PLANTREGISTRY_RESEARCH.fn 的三分支在 5444-5468。",
     "--   ★★ 5452/5458/5465 三处都有 `targ.components.inspectable.noanim` ——",
     "--     ★★★ **隐式依赖 inspectable 组件**（未声明的组件依赖）。",
     "--     ★ 实践中不崩（「可研究」的东西都有 inspectable）。",
     "--   ★★ 5468 行的 return true 无条件（研究失败也是成功）。",
   ],
-  5900: [
+  "ACTIONS.USESPELLBOOK.pre_action_cb#1+2": [
     "--★★ USESPELLBOOK.pre_action_cb（5898-5932）的五步流程。",
     "--   ★★ ②5909-5912：若手上拿的不是它，ReturnActiveItem（腾出手）。",
     "--   ★★ ④5922-5924：ShouldOpen 允许**静默阻止**开书。",
     "--   ★★ ⑤5925-5927：若 SG 在 overridelocomote 态，手推 locomote 事件。",
     "--   ★★ 这是本文件里最长的 pre_action_cb，也是「清界面」模式的集大成者。",
   ],
-  6045: [
+  "ACTIONS.CARVEPUMPKIN.fn#1+4": [
     "--★★ CARVEPUMPKIN.fn 的「先放下再雕」流程在 6053-6070。",
     "--   ★★ 6055-6068 的四层：",
     "--     ① 6058 grandowner 不是自己 → 拒绝（有人拿着）",
@@ -188,7 +188,7 @@ export const BEFORE = {
     "--     ③ 6065-6067 放下来失败 → return false（「?!?」注释）",
     "--   ★★★ 「雕刻前必须把手腾空」是这类长动作的通用前置。",
   ],
-  6090: [
+  "ACTIONS.DECORATESNOWMAN.fn#1+3": [
     "--★★ DECORATESNOWMAN.fn 的三种模式在 6089-6164。",
     "--   ★★ 模式判定（6089 行）：「手上物品是否也是 snowmandecoratable」",
     "--     ★★★ 这是「组件既表示能力又表示用途」带来的歧义的巧妙消解。",
@@ -196,21 +196,21 @@ export const BEFORE = {
     "--     唯一差别是「大雪球从 BODY 槽取」vs「小雪球从手上取」。",
     "--     ★ 与 REPLATE.fn（5253）的 ④⑤ 同款「未抽象的重复」。",
   ],
-  6295: [
+  "ACTIONS.WOBY_PICK.fn#1+6": [
     "--★★ WOBY_PICKUP.fn 是 PICKUP.fn 的裁剪版（6245-6282）。",
     "--   ★★ 判定链与 PICKUP 几乎一致，但少了三个特殊分支",
     "--     （canbepickedupalive / curseditem / drop_inventory_onpickup），",
     "--     且 6272 的 heavy 检查改为**无条件拒绝**。",
     "--   ★★★ 原因：狗没有 noheavylifting 概念，天生搬不了重物。",
   ],
-  6355: [
+  "ACTIONS.CONTAINER_INSTALL_ITEM.fn#1+3": [
     "--★★ CONTAINER_INSTALL_ITEM.fn 的三条路径在 6352-6397。",
     "--   ★★ ①6356-6371 卸载路径含 12 行的「静音操作」（见该处注释）：",
     "--     clientpickupsoundsuppressor + inventory.ignoresound + silentfull。",
     "--   ★★ ②6372-6388 特定槽位换位；③6389-6392 普通放入。",
     "--   ★★★ 「临时覆盖行为标志 → 操作 → 还原」的模式在 6364-6368 出现。",
   ],
-  6450: [
+  "ACTIONS.DRAW_FROM_DECK.fn#1+2": [
     "--★★ DRAW_FROM_DECK.fn 的三级降级在 6465-6473。",
     "--   ★★ ① 先试 GiveItem；②失败且手上有东西→丢手上的、给 activeitem；",
     "--     ③失败且手上没东西→直接掉物理。",
@@ -218,7 +218,7 @@ export const BEFORE = {
     "--   ★★ 6456-6462 行的组件缺失兜底与 6459-6461 的 V2C 注释",
     "--     是本文件里少见的「当场写下重构建议」的例子。",
   ],
-  6495: [
+  "ACTIONS.ADD_CARD_TO_DECK.fn#1+2": [
     "--★★ ADD_CARD_TO_DECK.fn 的四种组合在 6494-6557。",
     "--   ★★ ②6505-6529「两张牌合并成牌堆」最有趣：",
     "--     6516-6520 解释了为什么要先翻牌堆 ——",
@@ -227,7 +227,7 @@ export const BEFORE = {
     "--     6538-6539 的注释说明「把手上的牌堆换成合并后的，方便连续操作」。",
     "--   ★★ ④6549-6551 的 AddCard(cardid, 1) 第二参是**位置**不是数量。",
   ],
-  6730: [
+  "ACTIONS.MAPSCOUTSELECT_MAP.maponly_checkvalidpos_fn#1+3": [
     "--★★ MAPSCOUTSELECT_MAP.maponly_checkvalidpos_fn 的三道权限检查在 6728-6732。",
     "--   ★★ 每层都判 nil（与 p6 3461 行的错误写法形成对比）。",
     "--   ★★ 6744-6749 有一整段**被注释掉的距离检查**（含浮点误差补偿说明）。",
@@ -235,7 +235,7 @@ export const BEFORE = {
     "--     ★★★ 这段注释的价值：它解释了「为什么加 1 格余量」，",
     "--       并揭示了重构方向（从自己算距离改为复用统一查询）。",
   ],
-  6770: [
+  "ACTIONS.MAPSCOUT_MAP.maponly_checkvalidpos_fn#1+2": [
     "--★★ MAPSCOUT_MAP.maponly_checkvalidpos_fn 的距离钳制在 6782-6792。",
     "--   ★★★ 核心是 6787 行的 `r = math.min(dist, validdist)` ——",
     "--     「点得太远就在射程边缘的那个方向上飞」。",
@@ -243,7 +243,7 @@ export const BEFORE = {
     "--     但实现方式不同（一个改 targetpos，一个重算落点）。",
     "--   ★★ 6788-6790 的零距离保护：`if dist > 0 then 归一化 end`。",
   ],
-  6845: [
+  "ACTIONS.MAPDELIVER_MAP.maponly_checkvalidpos_fn#1+3": [
     "--★★ MAPDELIVER_MAP 的五元返回在 6842-6860。",
     "--   ★★ 6855 行的 IsFlyingPermittedFromPointToPoint（**双点**版本）：",
     "--     ★ 对比 6835 行的单点版本（STARTMAPDELIVER）。",
@@ -251,7 +251,7 @@ export const BEFORE = {
     "--   ★★ 6862-6872 的 fn **重复了同样的检查**（6866 行）——",
     "--     手动重复而非调用同一函数，属 L 类不一致（但两处都正确）。",
   ],
-  6877: [
+  "ACTIONS.SWAPBODIES_MAP.maponly_checkvalidpos_fn#1+3": [
     "--★★ SWAPBODIES_MAP 的地图层屏障检查在 6893-6900。",
     "--   ★★ 6893 行的保留注释解释了一个叙事驱动的技术限制：",
     "--     「WX-78 同时存在于两处，所以『换身』不是传送，",
@@ -259,7 +259,7 @@ export const BEFORE = {
     "--   ★★ 6896-6899 的实现：若屏障竖起且两点分处屏障两侧则拒绝。",
     "--     ★ 这个检查必须在**地图层**做（玩家看不见屏障边界）。",
   ],
-  6992: [
+  "ACTIONS.VAULTORBTELEPORT_MAP.maponly_checkvalidpos_fn#1+3": [
     "--★★ VAULTORBTELEPORT_MAP.maponly_checkvalidpos_fn 在 6989-7014。",
     "--   ★★ 7001 行 `FindEntities(...)[1]` —— **不做距离比较**！",
     "--     ★★★ 对比 6740/6888 行的 FindClosestMapIconInRange（找最近的）。",

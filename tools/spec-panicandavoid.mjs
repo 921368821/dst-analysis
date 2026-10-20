@@ -26,7 +26,7 @@ export default {
   ],
 
   // ══════════════ Visit ══════════════
-  9: [
+  "PanicAndAvoid:Visit#1": [
     '--★★★ Visit —— 与 panic.lua 第 7-17 行结构完全相同（if/else 二分支）。',
     '--★ 差异只有两处：',
     '--   ① 第 11-13 行进场时多找一次避障目标',
@@ -34,24 +34,24 @@ export default {
     '-- ★★ 第 ② 点是本文件比 panic 强的地方 —— 它不是每 0.25 秒才躲一次，',
     '--   而是**每帧**都检查并绕开障碍（见第 20 行的详解）。',
   ],
-  10: [
+  "PanicAndAvoid:Visit#1+1": [
     '--★ READY 段：先找避障目标，再选初始方向。',
     '--★ 顺序有讲究：必须先有 avoidtarget，PickNewDirection 内部的 ResolveDirection 才能用。',
   ],
-  11: [
+  "PanicAndAvoid:Visit#1+2": [
     '--★ findavoidanceobjectfn 可为 nil —— 不设避障时本节点退化为 panic。',
     '--★ 与 leashandavoid 第 21 行、chaseandattackandavoid 第 46 行同一模式：',
     '--   「避障目标只在进场时选一次，之后不重选」。',
     '-- ★★ 但本文件没有第 19 行的 IsValid 复检… 实际上 ResolveDirection 第 35 行有，',
     '--   两处配合得比 leashandavoid（第 34 行）更完整。',
   ],
-  14: [
+  "PanicAndAvoid:Visit#1+5": [
     '--★ 选初始方向（内部走 ResolveDirection）。然后转 RUNNING。',
   ],
-  17: [
+  "PanicAndAvoid:Visit#1+8": [
     '--★ 到期 → 换一个新方向（同样经 ResolveDirection 过滤）。',
   ],
-  19: [
+  "PanicAndAvoid:Visit#1+10": [
     '--★★★★★【本文件与 panic 的关键差异 —— 未到期分支的实时避障】',
     '--',
     '-- panic.lua 第 11-16 行的 else 分支里**只有** Sleep，什么都不做。',
@@ -70,7 +70,7 @@ export default {
     '--   「撞进水里」比「多算几次距离」严重得多。',
     '--   这是很值得学的一条 AI 设计原则：**开销可控的前提下，安全性判定应尽量频繁**。',
   ],
-  20: [
+  "PanicAndAvoid:Visit#1+11": [
     '--★ 取当前朝向作为「要判断是否需要修正」的基准。',
     '--★★ 与 attackwall 第 14 行的同一设计（取 rot 做前方判定）同源。',
     '--   ⚠️ 注意这里的 rot 是**当前帧的朝向**，而 attackwall 取的是**进场时的朝向**。',
@@ -78,7 +78,7 @@ export default {
     '--   attackwall 只需在进场时选一次目标，固定基准更稳定（避免自我扰动）。',
     '-- ★★ 同一个「取 rot」的写法，两处时机不同、理由不同 —— 又一个有价值的对照。',
   ],
-  22: [
+  "PanicAndAvoid:Visit#1+13": [
     '--★ 只在需要绕开时才真正发出移动指令 —— 「变化时才行动」。',
     '-- ★★ 这个 `if rot ~= newrot` 判断避免了每帧重复下发同一个方向指令，',
     '--   既省开销，也避免与 locomotor 的状态机打架。',
@@ -87,17 +87,17 @@ export default {
   ],
 
   // ══════════════ PickNewDirection ══════════════
-  29: [
+  "PanicAndAvoid:PickNewDirection#1": [
     '--★★ 与 panic.lua 第 19-22 行完全同构，差异只在 ResolveDirection 的接入：',
     '--   panic 第 20 行：RunInDirection(math.random() * 360)      —— 不做过滤',
     '--   本文件第 30 行：RunInDirection(self:ResolveDirection(...)) —— 先过滤',
     '-- ★★★ 即「策略注入」的具体体现：骨架不变，行为改变。',
   ],
-  30: [
+  "PanicAndAvoid:PickNewDirection#1+1": [
     '--★ 随机角经 ResolveDirection 处理后再跑。',
     '--★ 注意 ResolveDirection 接收的是「度」，返回的也是「度」（第 49 行原样返回 rot）。',
   ],
-  31: [
+  "PanicAndAvoid:PickNewDirection#1+2": [
     '--★ waittime 与 panic 第 21 行完全相同（0.25~0.5 秒）。',
     '-- ★ 两个文件保持完全一致的节奏参数，是刻意的 ——',
     '--   保证「受惊逃跑」这个行为的情绪一致，只有避障能力不同。',
@@ -106,7 +106,7 @@ export default {
   ],
 
   // ══════════════ ResolveDirection ══════════════
-  34: [
+  "PanicAndAvoid:ResolveDirection#1": [
     '--★★★★★ ResolveDirection —— 全部的「策略」都在这 21 行里。',
     '--   返回值：修正后的方向（度）；不需要修正时原样返回 rot。',
     '-- ★★ 注意是「返回新角度」而不是「直接执行移动」——',
@@ -115,12 +115,12 @@ export default {
     '-- ★ ★ 移植要点：**策略函数返回「值」，由调用方决定怎么用**。',
     '--   解耦后策略可以单独测试、单独复用。',
   ],
-  35: [
+  "PanicAndAvoid:ResolveDirection#1+1": [
     '--★ 双重守卫：避障目标存在且仍有效。',
     '--★ 第 35 行是本文件相对 leashandavoid 的改进：那里在 Visit 里检查，',
     '--   这里在策略函数入口检查 —— 策略函数自包含，不依赖调用方做前置校验。',
   ],
-  38: [
+  "PanicAndAvoid:ResolveDirection#1+4": [
     '--★★ `local dist = self.avoid_dist * 2` —— 判定半径是避障距离的**两倍**。',
     '-- ★★★ 为什么要乘 2？合理的解读：',
     '--   当障碍距离小于 2×avoid_dist 时就该开始绕，',
@@ -128,14 +128,14 @@ export default {
     '-- ★ 这是「提前量」的设计：等到贴近才躲就来不及了。',
     '-- ★ 移植建议：**避险判定要用「提前触发距离」而非「最小安全距离」**。',
   ],
-  39: [
+  "PanicAndAvoid:ResolveDirection#1+5": [
     '--★ 距离判定（平方比较，不开方）。',
     '--★ 对照 leashandavoid 第 37 行的判据（障碍比目标更近）——',
     '--   那里需要判断「谁挡谁」，因为有两个候选点；',
     '--   本文件只有一个障碍，直接用绝对距离阈值即可。',
     '-- ★ 同一个「避障」需求，因候选点数量不同而判据不同 —— 这点值得注意。',
   ],
-  40: [
+  "PanicAndAvoid:ResolveDirection#1+6": [
     '--★★ `anglediff(rot, GetAngleToPoint(ap))` —— 当前方向与「指向障碍」方向的夹角。',
     '-- ★ 与 leashandavoid 第 38 行、chaseandattackandavoid 第 83 行同一模式。',
     '-- ★★ 但**参数顺序相反**：',
@@ -147,7 +147,7 @@ export default {
     '-- ★★★ 移植要点：**符号决定「往左绕还是往右绕」，比大小更要紧**，',
     '--     搞反了会绕进障碍里。这是最容易看错的一类逻辑。',
   ],
-  41: [
+  "PanicAndAvoid:ResolveDirection#1+7": [
     '--★★ 第二道守卫：夹角 < 45 度（障碍在正前方锥形内）。',
     '--★ 与 leashandavoid 第 39 行完全相同的阈值（45 度）。',
     '-- ★★★ 三个文件（leashandavoid / chaseandattackandavoid / 本文件）',
@@ -157,7 +157,7 @@ export default {
     '--   本目录的做法是「复制到三个文件」—— 各自微调后已经开始分歧',
     '--   （本文件用 2×avoid_dist，那两处用「比目标更近」），需要留意维护成本。',
   ],
-  42: [
+  "PanicAndAvoid:ResolveDirection#1+8": [
     '--★ angle = rot * DEGREES —— 把当前朝向转成弧度。',
     '--★ DEGREES = π/180（constants.lua:14）。',
     '-- ★★ 本文件是「度→弧度」转换出现在这里的唯一理由：',
@@ -165,7 +165,7 @@ export default {
     '--   ★ 移植要点：**转换点应紧邻消费点**，',
     '--     不要在函数开头转、最后又转回（那种写法更易出错）。',
   ],
-  43: [
+  "PanicAndAvoid:ResolveDirection#1+9": [
     '--★★★★ 和/or 三元 + 一对镜像表达式，构成「往左绕 or 往右绕」。',
     '--',
     '-- 【几何构造拆解】',
@@ -191,7 +191,7 @@ export default {
     '-- 【符号】delta_dir < 0 选第一个表达式，否则第二个 —— 决定绕向哪一侧。',
     '--   ⚠️ 与第 40 行的 anglediff 参数顺序耦合（见该行说明），改顺序会改绕向。',
   ],
-  49: [
+  "PanicAndAvoid:ResolveDirection#1+15": [
     '--★★ return rot —— 不需要绕开时原样返回。',
     '--★★★ 「策略函数不改变输入」是最重要的设计约束：',
     '--   调用方（第 22 行）可以放心地与新值比较（rot ~= newrot），',

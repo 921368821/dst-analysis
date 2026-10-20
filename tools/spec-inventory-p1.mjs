@@ -256,7 +256,7 @@ export const BEFORE = {
     "--     （如防火帽的 fireproof tag）而非护甲值，且不同元素的",
     "--     防御效果**不能互相叠加**——所以需要一套独立的分配算法。",
   ],
-  4: [
+  "OnDeath#1": [
     "-- ★★ OnDeath —— 玩家死亡回调。",
     "-- ★ 关键：`DropEverything(true)` 的 true 是 ondeath 参数。",
     "--   ★ ondeath=true 会让 DropEverything 遵守 keepondeath 标签（1878 行）：",
@@ -264,7 +264,7 @@ export const BEFORE = {
     "--   ⇒ 这是「死亡掉落」与「主动丢弃」的语义分叉点。",
     "--   交叉引用：components/health.lua 在玩家死亡时 PushEvent(\"death\")。",
   ],
-  10: [
+  "OnOwnerDespawned#1": [
     "-- ★★ OnOwnerDespawned —— 玩家**消失**（非死亡）时的回调。",
     "-- ★★ 与 OnDeath 的本质区别：不丢弃物品，只**通知每个物品**。",
     "--   「消失」指：进传送门、坐船、被幽灵拖走、玩家离线等。",
@@ -276,22 +276,22 @@ export const BEFORE = {
     "--   交叉引用：playercontroller.lua 在 respawn/despawn 时派发",
     "--     PushEvent(\"player_despawn\")。",
   ],
-  12: [
+  "OnOwnerDespawned#1+2": [
     "-- ★ itemslots 遍历：只发 player_despawn 事件，不做任何状态改变。",
     "-- ★ 用 pairs 而非 1..maxslots：性能（可能有大量 nil 槽）。",
   ],
-  15: [
+  "OnOwnerDespawned#1+5": [
     "-- ★★ equipslots 遍历：同样只发事件。",
     "-- ★★ 装备槽里的物品同样需要知道「主人消失了」——",
     "--   例如韦斯的胡子在主人消失时应该停下跟随。",
   ],
-  18: [
+  "OnOwnerDespawned#1+8": [
     "-- ★★★ activeitem 单独处理 —— 它不在前两个循环里。",
     "-- ★ 这是三张表结构的必然要求：activeitem 是**单个引用**不是数组。",
     "-- ⇒ 任何「遍历玩家所有物品」的逻辑都必须写三段。",
     "--   本文件里这种三段式出现了 4 次（10 行、192 行、1849 行、1944 行）。",
   ],
-  24: [
+  "onheavylifting#1": [
     "-- ★★ onheavylifting —— 「负重影响动作」的 setter。",
     "--   这是 Class 的第三个参数（属性 setter 表）之一，见 78-81 行。",
     "-- ★★ 机制：heavylifting 变了 → replica 那边收到 netvar 变化 →",
@@ -303,14 +303,14 @@ export const BEFORE = {
     "--     服务端仍有兜底检查（actions.lua 的 MakeRangeCheckFn 等）。",
     "--   ★ 这解释了为什么 heavylifting 必须同步：客户端要靠它隐藏按钮。",
   ],
-  25: [
+  "onheavylifting#1+1": [
     "-- ★ 直接调 replica 接口同步。inventory_replica.lua:179 SetHeavyLifting。",
     "-- ★ 这里没有判空 replica —— 因为 Inventory 组件的存在本身就保证了",
     "--   replica 存在（DST 的组件镜像机制：每个组件都有对应 replica）。",
     "--   ★ 对比 equippable.lua:8 的 onwalkspeedmult 就有判空。",
     "--     同一份代码库里两种风格并存（见 L10）。",
   ],
-  28: [
+  "onfloaterheld#1": [
     "-- ★ onfloaterheld —— 「手持漂浮物」的 setter。",
     "-- ★★★ floaterheld 的效果比 heavylifting 复杂得多：",
     "--   inventory_replica.lua:92 _OnFloaterHeldDirty 做两件事：",
@@ -321,13 +321,13 @@ export const BEFORE = {
     "--   ★ 1374 行 `item.components.playerfloater and true` 说明：",
     "--     只有带 playerfloater 组件的物品才能触发。",
   ],
-  32: [
+  "onfloaterheld#1+4": [
     "-- 【§零】Class 构造函数的开始。Class 是 Klei 的继承框架（class.lua）。",
     "-- ★ 三个参数：(ctor, super_ctor, attr_init_table)。",
     "--   76 行 nil = super_ctor（Object 无父类构造），",
     "--   78-81 行是属性 setter 表。",
   ],
-  35: [
+  "onfloaterheld#1+7": [
     "-- ★★ isopen —— 物品栏是否「打开」（逻辑状态）。",
     "-- ★★ isvisible —— 物品栏 UI 是否「可见」（表现状态）。",
     "-- ★★ 两者不是一回事！见 §十五 的详细说明：",
@@ -337,7 +337,7 @@ export const BEFORE = {
     "--   尸体（tag:corpse）打开后立刻 Hide，保留逻辑打开但不显示 UI。",
     "--   ⇒ ★ 这是「逻辑与表现分离」的一个漂亮实例。",
   ],
-  38: [
+  "onfloaterheld#1+10": [
     "-- ★★ 原英文注释保留：\"Hacky flags for altering behaviour when",
     "--   moving items between containers\"",
     "-- ★★ 作者自己承认这是 hack。这是本文件**最重要的技术债声明**。",
@@ -348,23 +348,23 @@ export const BEFORE = {
     "--     ② 忘记复位会**永久**影响该物品栏（见 L9）。",
     "--   ★ 若设计得当，这些应该是参数或栈上的局部状态。",
   ],
-  39: [
+  "onfloaterheld#1+11": [
     "-- ★ ignoreoverflow —— 忽略「溢出到背包」的行为。",
     "--   典型用途：1150-1164 行，把物品从一个栏「挤」到另一个栏时，",
     "--   不想让背包（overflow）抢先把物品收走。",
     "--   ★ 复位点在 1160 附近和 2537-2556 行。",
   ],
-  40: [
+  "onfloaterheld#1+12": [
     "-- ★ ignorespoverflow —— 忽略「专用容器溢出」（sp = specialized）。",
     "--   ★ 专用容器 = 弹药袋、金币袋这类**只收特定物品**的口袋（1481 行）。",
     "--   区别于普通 overflow（= 背包本体，1459 行）。",
   ],
-  41: [
+  "onfloaterheld#1+13": [
     "-- ★ ignoreclosedspoverflow —— 忽略「专用容器必须打开才能放」的限制。",
     "--   1488 行传入 ValidateSpecializedContainer 的第三个参数。",
     "--   ★ 场景：把物品从**背包**拖到**未打开的弹药袋**（某些快捷操作）。",
   ],
-  42: [
+  "onfloaterheld#1+14": [
     "-- ★★ ignorefull —— 「假装没满」。",
     "--   ★★ 1171 行的作用：`if self.ignorefull then return false end` ——",
     "--     背包满时**直接返回失败**，而不是像 1178 行那样塞进 activeitem、",
@@ -372,7 +372,7 @@ export const BEFORE = {
     "--   ★ 这是搬运场景的正确行为：宁可失败也不要把物品丢地上。",
     "--   ★ 使用点：337-361 ReturnActiveActionItem 里临时置 true。",
   ],
-  43: [
+  "onfloaterheld#1+15": [
     "-- ★ silentfull —— 静默的「满」。",
     "--   ★ 1213 行：`if shouldwisecrack and not (isloading or silentfull) ...`",
     "--     抑制「inventoryfull」事件（玩家看到的「背包已满」提示）。",
@@ -381,13 +381,13 @@ export const BEFORE = {
     "--   ★ 使用场景：装备替换时旧物品自动回背包（1344 行），",
     "--     这时不该弹「背包已满」因为那只是内部重排。",
   ],
-  44: [
+  "onfloaterheld#1+16": [
     "-- ★ ignoresound —— 忽略「获得物品的声音/特效」。",
     "--   ★ 1099 行：`if new_item and not self.ignoresound then PushEvent(\"gotnewitem\")`。",
     "--   ★ 用于「物品实际没进背包、只是路过」的场合（如 2544-2547 行：",
     "--     往容器塞失败又塞回来，不该播两次音）。",
   ],
-  46: [
+  "onfloaterheld#1+18": [
     "-- ★★ itemslots —— 普通背包格。**数组**，键为 1..maxslots。",
     "-- ★★ 它是稀疏的：中间的槽可以为空（nil）。",
     "--   ★ 为什么不用紧凑数组？因为增删频繁，稀疏数组的增删是 O(1)，",
@@ -397,7 +397,7 @@ export const BEFORE = {
     "--   ★★ 稀疏性导致 GetItemInSlot 与 GetNextAvailableSlot 的语义不同：",
     "--     前者是 O(1) 直接索引，后者要 O(maxslots) 扫描找空位。",
   ],
-  47: [
+  "onfloaterheld#1+19": [
     "-- ★★ maxslots —— 背包格子数。由 GetMaxItemSlots 决定（游戏模式相关）。",
     "-- ★ 常量定义在 constants.lua 的 MAXITEMSLOTS = 15（4 人份）/ 20 等。",
     "-- ★★ 注意：这里是 `TheNet:GetServerGameMode()` —— **服务端模式**。",
@@ -409,7 +409,7 @@ export const BEFORE = {
     "--     71-75 行被 makereadonly 保护（maxslots/acceptsstacks/ignorescangoincontainer）。",
     "--   交叉引用：class.lua 的 makereadonly。",
   ],
-  49: [
+  "onfloaterheld#1+21": [
     "-- ★★ equipslots —— 装备槽。**哈希表**，键是字符串槽位名。",
     "-- ★★ 与 itemslots 的四个根本差异：",
     "--   ① 键类型：整数下标 vs 字符串槽名（EQUIPSLOTS.HANDS = \"hands\"）",
@@ -420,7 +420,7 @@ export const BEFORE = {
     "--   EquipSlot.Count() 做**有序**遍历（419 行的 resistance 检查依赖顺序）。",
     "--   ★ 这就是文件头 require EquipSlot 的根本原因。",
   ],
-  50: [
+  "onfloaterheld#1+22": [
     "-- ★ heavylifting —— 「正在负重」标志（身上 BODY 槽有 heavy 标签物品）。",
     "-- ★ 1372 行装备时 set，1234 行卸下时清。",
     "-- ★ 24 行的 setter 把它同步到客户端 → 客户端据此过滤动作。",
@@ -428,7 +428,7 @@ export const BEFORE = {
     "--   不是所有 heavy 物品。这与 1305-1310 行的「手持 heavy 会挤掉身上 heavy」",
     "--   逻辑配套。",
   ],
-  53: [
+  "onfloaterheld#1+25": [
     "-- ★★ activeitem —— 「当前拿在手上的物品」。**最多一个**。",
     "-- ★★ 它是一个**特殊槽位**：",
     "--   · 不占用 itemslots 的任何一格（1178 行证明：背包满了也能塞手上）；",
@@ -439,21 +439,21 @@ export const BEFORE = {
     "-- ★ 它是**唯一**能被 SetActiveItem 设为 nil 而不影响背包内容的地方，",
     "--   所以它是「取出到手上」这个操作的目的地。",
   ],
-  54: [
+  "onfloaterheld#1+26": [
     "-- ★ acceptsstacks —— 是否接受「整摞」物品。",
     "-- ★ 某些容器（如特定 mod 容器）设为 false，则只能进单件。",
     "-- ★ 与 equipstack（equippable.lua:34）不同：",
     "--   acceptsstacks 是**接收方**的限制，equipstack 是**物品方**的限制。",
     "-- ★ 两者都影响 936/959 行的判断：`if self.acceptsstacks or stacksize <= 1`。",
   ],
-  55: [
+  "onfloaterheld#1+27": [
     "-- ★ ignorescangoincontainer —— 「忽略 can_goin_container 检查」。",
     "--   232 行：`if not (item and item.components.inventoryitem and",
     "--   (cangoincontainer or self.ignorescangoincontainer))`",
     "--   ★ 即：本栏宣称「我什么都收」，无视物品的 cangoincontainer 标记。",
     "--   用途：某些特殊容器（如展示柜）不遵守常规限制。",
   ],
-  56: [
+  "onfloaterheld#1+28": [
     "-- ★★ opencontainers —— 当前打开的**外部容器**列表。",
     "-- ★★★ 这是合成系统能「从旁边的箱子里取材料」的机制基础。",
     "--   关键：Has/RemoveItem/GetCraftingIngredient 都有 checkallcontainers 参数，",
@@ -464,7 +464,7 @@ export const BEFORE = {
     "--   `container_inst.components.container or ...inventory` 来取组件。",
     "-- ★★ 这也是 L2 的根源：不同位置的解包写法不一致。",
   ],
-  57: [
+  "onfloaterheld#1+29": [
     "-- ★ opencontainerproxies —— 「容器代理」列表。",
     "-- ★ 用于 2747 行 GetOpenContainerProxyFor(master)：",
     "--   按 master 反查 proxy。这是给「一个容器对应多个 UI 代理」的场景。",
@@ -472,18 +472,18 @@ export const BEFORE = {
     "-- ★ 与 opencontainers 的区别：proxies 是**客户端 UI 侧的影子**，",
     "--   master 是真实容器。所以是「多对一」的映射。",
   ],
-  59: [
+  "onfloaterheld#1+31": [
     "-- ★ dropondeath —— 死亡时是否掉落全部物品。默认 true。",
     "-- ★ 59-60 行注册 OnDeath；83-95 行的 Enable/Disable 可以在运行时切换。",
     "--   ★ 切换场景：某些形态（如「幽灵状态」）下物品不掉落。",
     "-- ★★ 97 行：组件被移除时**自动禁用**（等价于解绑事件）。",
     "--   ⇒ 这是防止「实体已销毁但回调还在」的常见模式。",
   ],
-  60: [
+  "onfloaterheld#1+32": [
     "-- ★ ListenForEvent(\"death\") —— 监听死亡事件。",
     "-- ★ 只在服务端有效（本文件不判 ismastersim，因为组件本身只在服务端跑）。",
   ],
-  62: [
+  "onfloaterheld#1+34": [
     "-- ★★ isexternallyinsulated = SourceModifierList(inst, false, boolean)",
     "-- ★★★ 这是本文件唯一用到 SourceModifierList 的地方，语义值得展开：",
     "--   SourceModifierList 是一个「**带来源的布尔聚合器**」。",
@@ -498,12 +498,12 @@ export const BEFORE = {
     "--   SourceModifierList 来管理 buff 效果的所有权。",
     "--   这是 DST 处理「多方影响同一布尔属性」的标准方案。",
   ],
-  69: [
+  "onfloaterheld#1+41": [
     "-- ★ ListenForEvent(\"player_despawn\") —— 监听玩家消失。",
     "-- ★★ 与 death 的区别：player_despawn **不丢弃物品**，只通知。",
     "--   「消失」= 传送、离线、进洞穴等。这是 OnOwnerDespawned 的触发点。",
   ],
-  71: [
+  "onfloaterheld#1+43": [
     "-- ★★★ makereadonly 三连 —— 本文件**最重要的反作弊/防不一致机制**。",
     "-- ★★★ 判据 `inst.replica.inventory.classified ~= nil` 极其精确：",
     "--   replica.inventory 存在（任何客户端都存在这个 replica 组件），",
@@ -526,24 +526,24 @@ export const BEFORE = {
     "-- ★★ 对比：receive side 的 GetNumSlots（197 行）直接转发给服务端组件。",
     "--   两个层次职责分明：客户端算 UI，服务端算规则。",
   ],
-  83: [
+  "Inventory:EnableDropOnDeath#1": [
     "-- ★ EnableDropOnDeath —— 幂等地开启死亡掉落。",
     "-- ★ 84 行的守卫 `if not self.dropondeath` 保证不会重复注册事件监听。",
     "-- ★ 这类「幂等 setter」在 Klei 代码里很常见，值得学习。",
   ],
-  90: [
+  "Inventory:DisableDropOnDeath#1": [
     "-- ★ DisableDropOnDeath —— 幂等地关闭。93 行对称地移除监听。",
     "-- ★★ 97 行把这个函数直接赋给 OnRemoveFromEntity，",
     "--   意味着「组件被移除时自动解绑 death 事件」。",
     "--   ★ 这是防止内存泄漏/悬挂回调的重要模式。",
   ],
-  97: [
+  "Inventory:DisableDropOnDeath#1+7": [
     "-- ★★ `Inventory.OnRemoveFromEntity = Inventory.DisableDropOnDeath`",
     "-- ★★ 函数别名赋值，零成本地把「禁用掉落」复用为「清理钩子」。",
     "-- ★ 妙处：DisableDropOnDeath 的语义（移除 death 监听）与清理需求完全一致。",
     "-- ★★ 这种「正交职责的函数复用」是 Lua 缺少多态时的常见技巧。",
   ],
-  99: [
+  "Inventory:NumItems#1": [
     "-- 【§一】NumItems —— 「占了几个格子」。",
     "-- ★★ 与 NumStackedItems（108 行）对比：",
     "--   · NumItems()      —— 数**格子数**（一个 stack 占 1 格）；",
@@ -552,7 +552,7 @@ export const BEFORE = {
     "--   而「我有多少个草」用 NumStackedItems。",
     "-- ★ O(n) 遍历（pairs 整个表）。maxslots 很小（≤20），可接受。",
   ],
-  108: [
+  "Inventory:NumStackedItems#1": [
     "-- ★★ NumStackedItems —— 「一共有多少个物品（展开堆叠）」。",
     "-- ★★ 111 行的三元表达式是 Lua 惯用法：",
     "--   `(cond and A) or B` —— 若 A 为真/非 nil 取 A，否则取 B。",
@@ -563,7 +563,7 @@ export const BEFORE = {
     "--     ★ 真正的陷阱是：若 stacksize 为 0，`0` 是真值 → 取 0。正确。",
     "--     ⇒ 这行虽然绕但正确。注释里提一下是因为可读性差。",
   ],
-  117: [
+  "Inventory:NumStackedItems#1+9": [
     "-- ★★ 原英文注释保留：\"GuaranteeItems deprecated.",
     "--   Rethink logic for multiplayer if you want to resurrect it.\"",
     "-- ★★★ 这是一个**已废弃 API 的墓碑**。GuaranteeItems 曾用于",
@@ -572,7 +572,7 @@ export const BEFORE = {
     "-- ★★ 对读者的价值：它标记了一个「看起来该有但被刻意放弃」的能力。",
     "--   移植/重构时若想「补上」这个功能，先读这条注释。",
   ],
-  120: [
+  "Inventory:TransferInventory#1": [
     "-- 【§一】TransferInventory —— 「把整个背包（含装备与手上）转给另一个实体」。",
     "-- ★★★ 核心用途：**变形换装**（韦斯的胡子/假人变角色）与",
     "--   麦克斯韦的「灵魂转移」、沃尔的「借壳」等。",
@@ -584,7 +584,7 @@ export const BEFORE = {
     "--   （restrictedtag，equippable.lua:147）。给错角色时必须走 GiveItem",
     "--   而不是 Equip，否则会破坏 restricted 约束。",
   ],
-  125: [
+  "Inventory:TransferInventory#1+5": [
     "-- ★★★ 原英文注释保留（JBK 署名）：解释 TransferInventory 的过滤规则。",
     "--   \"Weapons that are given to specific entities to use have the",
     "--    \\\"nosteal\\\" tag but also do not persist.\"",
@@ -600,7 +600,7 @@ export const BEFORE = {
     "-- ★★ 「nosteal 标签不能用 + persists 可以用」的推理链，",
     "--   是理解 TransferInventory 语义的**必要背景**。",
   ],
-  128: [
+  "Inventory:TransferInventory#1+8": [
     "-- ★★ 遍历 itemslots 并逐个 RemoveItemBySlot + GiveItem。",
     "-- ★★ 注意 129 行的 RemoveItemBySlot 会**修改 self.itemslots**（1407 行置 nil），",
     "--   而我们正在 pairs 遍历它 —— 这是允许的（Lua 允许删除当前键），",
@@ -611,7 +611,7 @@ export const BEFORE = {
     "-- ★★★ 若 item 存在但不 persists，**物品就被丢弃了**（既不在旧背包，",
     "--   也不在新的）。这是有意的（见 125 行注释：专属武器本就是临时的）。",
   ],
-  135: [
+  "Inventory:TransferInventory#1+15": [
     "-- ★★ 遍历 equipslots：先 Unequip 再决定给新主人 Equip 还是 GiveItem。",
     "-- ★★ 139 行的判断：`equip.components.equippable and IsRestricted(receiver)`",
     "--   ★ 若新主人不能穿（受限装备），就丢进背包而不是硬塞。",
@@ -622,7 +622,7 @@ export const BEFORE = {
     "--     ⇒ 这里补上了缺失的结构检查。",
     "--   ★ 这是「防御性编程」的典型：上层检查太宽松，下层补一刀。",
   ],
-  156: [
+  "Inventory:SwapEquipment#1": [
     "-- 【§一】SwapEquipment —— 「两个实体的装备互换」。",
     "-- ★★ 与 TransferInventory 的区别：",
     "--   · TransferInventory 是「A 全部给 B」（单向）；",
@@ -633,7 +633,7 @@ export const BEFORE = {
     "--   对每个槽做「两边都卸下 → 交叉装备」。",
     "-- ★ 这保证了「A 的帽子 ↔ B 的帽子」的对称交换。",
   ],
-  166: [
+  "Inventory:SwapEquipment#1+10": [
     "-- ★★ `for _, equipslot in pairs(EQUIPSLOTS)` —— 遍历全局装备槽常量表。",
     "-- ★★ 注意用的是 pairs(EQUIPSLOTS) 而非 1..EquipSlot.Count()：",
     "--   EQUIPSLOTS 是 constants.lua:652 的哈希表 {HANDS,HEAD,BODY,BEARD}。",
@@ -641,7 +641,7 @@ export const BEFORE = {
     "-- ★★ equipslot_to_swap 参数（第三参数）支持只换**指定槽**。",
     "--   nil = 全部换。这是「换头不换手」这类细粒度操作的实现。",
   ],
-  168: [
+  "Inventory:SwapEquipment#1+12": [
     "-- ★★ `self:Unequip(equipslot, nil, force)` —— 第三个参数 force=true。",
     "-- ★★ force=true 的语义（1224 行）：**忽略 preventunequipping**。",
     "-- ★ 为什么强制？因为「防止卸下」的装备（如被施了「粘住」debuff 的装备）",
@@ -651,7 +651,7 @@ export const BEFORE = {
     "--   但 preventunequipping 标志仍为 true。等物品被重新装备时，",
     "--   它依然是「粘住」状态。这是**符合预期**的（debuff 应该持续）。",
   ],
-  192: [
+  "Inventory:OnSave#1": [
     "-- 【§三】OnSave —— 序列化整个背包。",
     "-- ★★ 存档结构：{ items = { [槽号] = 记录 }, equip = { [槽名] = 记录 } }",
     "-- ★★★ 三个关键设计：",
@@ -665,7 +665,7 @@ export const BEFORE = {
     "-- ★★★ 与 219 行的 activeitem 排除逻辑配合：",
     "--   若某物品既是装备又在手上，只存一次（存装备那份）。",
   ],
-  195: [
+  "Inventory:OnSave#1+3": [
     "-- ★★ references —— 跨实体引用列表。",
     "-- ★ GetSaveRecord 的第二个返回值就是「本实体引用了哪些其他实体」。",
     "-- ★ 这些引用必须在存档里保持 ID 稳定，否则读档后引用会指向别的实体。",
@@ -673,12 +673,12 @@ export const BEFORE = {
     "--   的引用（如「背包里的容器指向它的 owner」），存读时必须能重建。",
     "-- ★ 累加到总的 references 里返回 → 由上层（entitysave2）统一处理。",
   ],
-  197: [
+  "Inventory:OnSave#1+5": [
     "-- ★ 遍历 itemslots 时**跳过不 persist 的物品**（198 行 `if v.persists`）。",
     "-- ★★ 与 130 行的 TransferInventory 一致：**不 persist 就不存**。",
     "--   语义：临时发放的物品（专属武器、特效道具）不写存档。",
   ],
-  199: [
+  "Inventory:OnSave#1+7": [
     "-- ★★ `data.items[k], refs = v:GetSaveRecord()` —— 双重赋值。",
     "-- ★★ 这行同时做了两件事：",
     "--   ① `data.items[k] = ...` 把记录写进 items 表；",
@@ -688,14 +688,14 @@ export const BEFORE = {
     "--   如果 refs 提到循环外累加，就会**丢失**前面几轮的数据。",
     "-- ★ 这是「循环内多返回值」的标准处理模式。",
   ],
-  208: [
+  "Inventory:OnSave#1+16": [
     "-- ★ equipslots 存档：逻辑与 itemslots 完全对称。",
     "-- ★★ 但键是**槽位名字符串**（数据.k，211 行 `data.equip[k]`），",
     "--   与 itemslots 的整数键不同。读档时 311 行 `self:Equip(item)`",
     "--   **不传槽位**，让 Equip 从 item 的 equippable.equipslot 自行决定。",
     "--   ⇒ ★ 存档里的槽名其实只用于「校验/顺序」，不用于决定装备位置。",
   ],
-  219: [
+  "Inventory:OnSave#1+27": [
     "-- ★★★ activeitem 的存档条件 —— 这行有**四个**与/或条件，逐个拆解：",
     "--   ① self.activeitem 存在；",
     "--   ② self.activeitem.persists（要存档）；",
@@ -712,7 +712,7 @@ export const BEFORE = {
     "--   这在实践中要求：任何能同时进 activeitem 和 equipslots 的物品，",
     "--   其 persists 状态必须自洽（要么都存要么都不存）。",
   ],
-  231: [
+  "Inventory:CanTakeItemInSlot#1": [
     "-- 【§三】CanTakeItemInSlot —— 「能否把 item 放进指定槽」。",
     "-- ★★★ 本文件被调用最多的函数之一，是所有物品移动的**前置闸门**。",
     "-- ★★ 四层校验（231-250 行）：",
@@ -727,7 +727,7 @@ export const BEFORE = {
     "--   用 `self:CanTakeItemInSlot(item, k)` 传具体槽的；",
     "--   而其他外部代码（如 UI 拖拽预检）可能只想问「这东西能放进来吗」。",
   ],
-  232: [
+  "Inventory:CanTakeItemInSlot#1+1": [
     "-- ★★ 第一层校验：`if not (item and item.components.inventoryitem and",
     "--   (cangoincontainer or ignorescangoincontainer))`",
     "-- ★★★ 这是「反向判断」写法：条件不满足就 return false。",
@@ -740,7 +740,7 @@ export const BEFORE = {
     "-- ★ 第三个条件用了 or：**栏的设置可以覆盖物品的设置**。",
     "--   ⇒ 某些栏（如展示用容器）无视 cangoincontainer 限制。",
   ],
-  234: [
+  "Inventory:CanTakeItemInSlot#1+3": [
     "-- ★★ 第二层：`GetGameModeProperty(\"non_item_equips\") and item.components.equippable`",
     "-- ★★★ 这是一个**游戏模式级**的特殊规则。",
     "--   non_item_equips 直译「非物品装备」——某些模式（如剧情关卡）",
@@ -750,12 +750,12 @@ export const BEFORE = {
     "-- ★★ GetGameModeProperty 是模式查询函数，联机下两端结果必须一致",
     "--   （都读同一个服务端模式）。",
   ],
-  236: [
+  "Inventory:CanTakeItemInSlot#1+5": [
     "-- ★ `elseif slot then` —— **slot 非 nil 才继续**（第二层的分支）。",
     "-- ★★ 这就是「slot 可以为 nil」的落地点：nil 时直接跳到 251 行 return true。",
     "-- ★ 注意 slot=0 与 slot=nil 不同：0 会进入本分支并在 237 行被拦下。",
   ],
-  237: [
+  "Inventory:CanTakeItemInSlot#1+6": [
     "-- ★★ `if slot < 1 or slot > self.maxslots` —— 槽位越界检查。",
     "-- ★★★ 注意是 `< 1` 不是 `<= 0`：槽位从 1 开始（不是 0）。",
     "-- ★ 这与 47 行的 maxslots 语义一致：有效槽号是 1..maxslots。",
@@ -764,10 +764,10 @@ export const BEFORE = {
     "--   GetFirstItemInAnySlot 找不到，可能卡在存档里）。",
     "--   ⇒ 这个检查是**数据完整性**的守卫，不只是「性能优化」。",
   ],
-  240: [
+  "Inventory:CanTakeItemInSlot#1+9": [
     "-- ★ `local existingitem = self:GetItemInSlot(slot)` —— 目标槽的现有物品。",
   ],
-  241: [
+  "Inventory:CanTakeItemInSlot#1+10": [
     "-- ★★★ 第四层的判定：`if existingitem and islockedinslot and not (可堆叠例外)`",
     "-- ★★ 语义：**锁定的槽位不能被替换**，除非新物品能和它合并堆叠。",
     "-- ★★★ 「可堆叠例外」的三重条件（243-246 行）：",
@@ -781,14 +781,14 @@ export const BEFORE = {
     "-- ★★ ★ 注意 4-6 行有多余的括号和 tab 缩进不一致，说明这段是后期",
     "--   快速加的，没有走正常的格式化。Klei 源码里很常见。",
   ],
-  254: [
+  "Inventory:AcceptsStacks#1": [
     "-- ★ AcceptsStacks —— 查询是否接受整摞。直接返回字段，无逻辑。",
     "-- ★ 客户端同款在 inventory_replica.lua:232（带 nil 兜底）。",
   ],
-  258: [
+  "Inventory:IgnoresCanGoInContainer#1": [
     "-- ★ IgnoresCanGoInContainer —— 查询是否忽略 cangoincontainer。",
   ],
-  262: [
+  "Inventory:IsThiefProof#1": [
     "-- ★ IsThiefProof —— 「防偷」。",
     "-- ★⚠ 疑似缺陷 L10b：构造函数（64-67 行）里 self.thiefproof 是**注释掉的**！",
     "--   即字段未初始化，IsThiefProof() 返回 nil 而非 false。",
@@ -797,7 +797,7 @@ export const BEFORE = {
     "--   ⇒ 这是「未初始化字段返回 nil」的经典隐患。作者注释掉它说明",
     "--     可能是「暂时不用但保留接口」。",
   ],
-  266: [
+  "CheckMigrationPets#1": [
     "-- ★★ CheckMigrationPets —— **存档迁移兼容**（局部函数）。",
     "-- ★★★ 这个函数的存在是为了处理「存档格式变更」：",
     "--   某些老存档里，宠物（petleash）存法与新版本不同，",
@@ -811,7 +811,7 @@ export const BEFORE = {
     "-- ★★ ⚠ 这个函数名里的「Migration」指的是**存档迁移**，",
     "--   与「玩家变形态（morph）」不是一回事。初读极易混淆。",
   ],
-  293: [
+  "Inventory:OnLoad#1": [
     "-- 【§三】OnLoad —— 反序列化。",
     "-- ★★ isloading 标志在整个读档期间为 true（294/324 行）。",
     "-- ★★ ★ isloading 的三个用途（全文搜索）：",
@@ -821,18 +821,18 @@ export const BEFORE = {
     "--   ③ 1178-1186 行：读档时也会塞 activeitem（无特殊处理）。",
     "-- ★★ 机制上是「全局加载锁」的局部版本。",
   ],
-  296: [
+  "Inventory:OnLoad#1+3": [
     "-- ★ 读 items —— 用 pairs 遍历存档的 items 表。",
     "-- ★★ 注意是 pairs 而非顺序遍历（存档表本身是哈希）。",
   ],
-  298: [
+  "Inventory:OnLoad#1+5": [
     "-- ★★ SpawnSaveRecord(v, newents) —— 从存档记录**重建实体**。",
     "-- ★ 返回 nil 表示「这个 prefab 现在不存在」（mod 被卸载了）。",
     "--   ⇒ 300 行的 `if item ~= nil` 检查是必要的防御。",
     "-- ★ 300 行的 CheckMigrationPets 在 GiveItem **之前**调用 ——",
     "--   因为迁移可能会改变 petleash 的内容，需要在进背包前完成。",
   ],
-  301: [
+  "Inventory:OnLoad#1+8": [
     "-- ★★ `self:GiveItem(item, k)` —— **指定原始槽号 k** 放回。",
     "-- ★★★ ★ 这就是「槽位保持」的实现：存档记了槽号，读档按原槽放回。",
     "--   玩家不会发现读档后背包顺序变了。这是重要的体验细节。",
@@ -840,10 +840,10 @@ export const BEFORE = {
     "--   （1094-1096 行）会回退到 GetNextAvailableSlot 找空位。",
     "--   ⇒ 极端情况下顺序可能变，但只在槽位冲突时。",
   ],
-  306: [
+  "Inventory:OnLoad#1+13": [
     "-- ★ 读 equip —— 同样用 pairs。",
   ],
-  311: [
+  "Inventory:OnLoad#1+18": [
     "-- ★★ `self:Equip(item)` —— **不传槽位**。",
     "-- ★★★ 为什么？因为装备槽是 item 自己的属性（equippable.equipslot）。",
     "--   存档里的 equip[k] 的 k 只是用来遍历的 key，实际装备位置由",
@@ -854,7 +854,7 @@ export const BEFORE = {
     "-- ★ 小心：若某个 mod 的装备在读档后 equipslot 变了，",
     "--   会装备到新槽位而非存档槽位 —— 这是「装备槽由物品定义」的设计后果。",
   ],
-  316: [
+  "Inventory:OnLoad#1+23": [
     "-- ★ activeitem 的存档 → 读档时走 GiveItem 而非专门的「设为手上」。",
     "-- ★★ 320 行的 `self:GiveItem(item)` 不指定槽位。",
     "-- ★★ ★ 为什么不直接 SetActiveItem？因为 GiveItem 会走完整的检查链",
@@ -862,7 +862,7 @@ export const BEFORE = {
     "--   而不是 activeitem。这是合理的：**读档后物品位置可以微调**。",
     "-- ★ 与 301 行同理（普通槽也允许微调）。",
   ],
-  327: [
+  "Inventory:DropActiveItem#1": [
     "-- 【§四】DropActiveItem —— 丢下手持物品。",
     "-- ★★★ 330-331 行的顺序是**关键**：先 DropItem 再 SetActiveItem(nil)。",
     "-- ★★ 若反过来（先清空 activeitem 再 DropItem(activeitem)），",
@@ -870,7 +870,7 @@ export const BEFORE = {
     "--   ⇒ 「先操作，后清状态」是处理「物品同时在两处」的标准顺序。",
     "-- ★ 返回值是掉落的实体（可能为 nil，如果 RemoveFromOwner 返回 nil）。",
   ],
-  336: [
+  "Inventory:ReturnActiveActionItem#1": [
     "-- ★★ ReturnActiveActionItem —— 「动作完成后把手上的东西放回去」。",
     "-- ★★★ 337 行的条件极其绕，解开：",
     "--   `item ~= nil and item == self.activeitem and",
@@ -890,7 +890,7 @@ export const BEFORE = {
     "-- ★★ 「Hacks for altering normal inventory:GiveItem() behaviour」",
     "--   作者再次自认 hack。",
   ],
-  348: [
+  "Inventory:ReturnActiveActionItem#1+12": [
     "-- ★★ 「Super hacks...」（原注释保留）。",
     "-- ★★★ 349-352 行在 GiveItem 成功后**修正 bufferedaction**：",
     "--   349 行：`doerownsobject = item.components.inventoryitem:IsHeldBy(self.inst)`",
@@ -905,26 +905,26 @@ export const BEFORE = {
     "-- ★★ 这就是「跨系统状态同步」的经典案例：",
     "--   物品状态变了 → bufferedaction 的快照必须跟着更新。",
   ],
-  364: [
+  "Inventory:HasAnyEquipment#1": [
     "-- ★ HasAnyEquipment —— 是否有任何装备。next(表) ~= nil 是判非空惯用法。",
     "-- ★★ next() 在 Lua 里遍历哈希表；空表返回 nil，非空返回第一个 key。",
     "--   这是 O(1) 的判空（不需要遍历所有元素）。",
   ],
-  368: [
+  "Inventory:IsWearingArmor#1": [
     "-- ★ IsWearingArmor —— 是否穿了护甲（遍历查 armor 组件）。",
     "-- ★ 注意用 pairs（不需要顺序）—— 找到就 return。",
   ],
-  376: [
+  "Inventory:ArmorHasTag#1": [
     "-- ★ ArmorHasTag —— 带**指定标签**的护甲检查（368 行的加强版）。",
     "-- ★ 与 IsWearingArmor 的区别：368 只问「有没有护甲」，",
     "--   这里问「有没有**带某标签**的护甲」。",
   ],
-  384: [
+  "Inventory:EquipHasTag#1": [
     "-- ★ EquipHasTag —— 任何装备带指定标签（不限 armor 组件）。",
     "-- ★ 与 ArmorHasTag（376）的区别：不限组件类型。",
     "-- ★ 用于「身上有没有带 xxx 标签的东西」类判定（如 debuff 检查）。",
   ],
-  392: [
+  "Inventory:EquipHasSpDefenseForType#1": [
     "-- ★ EquipHasSpDefenseForType —— 是否有**特殊伤害防御**（元素伤害）。",
     "-- ★★ 用 SpDamageUtil.GetSpDefenseForType(v, sptype) > 0 逐件查询。",
     "-- ★ 与 ApplyDamage（456 行）不同：这里只问「有没有」，",
@@ -932,17 +932,17 @@ export const BEFORE = {
     "-- ★★ 这是「防御查询」的统一入口，也说明 SpDamageUtil 封装了",
     "--   「查 prefab 的 fireproof/frostproof 等标签」逻辑。",
   ],
-  400: [
+  "Inventory:IsHeavyLifting#1": [
     "-- 【§五】IsHeavyLifting —— 查询是否负重过高。",
     "-- ★ 直接返回字段。heavy 标签的物品在 1305-1310 行有特殊处理：",
     "--   装备 heavy 到 BODY 槽时会踢掉手上的东西，反之亦然。",
     "-- ★★ 这是「一个槽位排斥另一个槽位」的唯一实例。",
   ],
-  404: [
+  "Inventory:IsFloaterHeld#1": [
     "-- ★ IsFloaterHeld —— 查询是否手持漂浮物（钓鱼竿等）。",
     "-- ★ `or false` 确保返回布尔而非 nil（因为 floaterheld 未初始化，50 行注释）。",
   ],
-  408: [
+  "Inventory:ApplyDamage#1": [
     "-- 【§五】★★ ApplyDamage —— **护甲减伤计算**。本文件最复杂的函数。",
     "-- ★★★ 职责：把「原始伤害」转换成「实际扣血量 + 剩余特殊伤害」。",
     "-- ★★ 输入：damage（数值）、attacker、weapon、spdamage（特殊伤害表）。",
@@ -966,7 +966,7 @@ export const BEFORE = {
     "--   ⇒ 多个抵抗源时，**槽位顺序决定谁生效**。",
     "--   ★ 这是有意设计：优先身上靠前的槽（如 BODY > HANDS）。",
   ],
-  409: [
+  "Inventory:ApplyDamage#1+1": [
     "-- ★★ absorbers 表：`{ [armor组件] = 吸收量 }` —— 用**组件**做 key。",
     "-- ★★★ 为什么用组件而非实体？因为一个实体可能挂多个 armor 组件，",
     "--   且下面要调 armor 组件的方法（GetAbsorption/TakeDamage）。",
@@ -976,7 +976,7 @@ export const BEFORE = {
     "--   ⇒ 穿两件各抗 10% 的装备 = 0.9 × 0.9 = 0.81（不是 0.8）。",
     "--   ★ 这是「独立乘算」的常见简化（真实防具通常不叠加）。",
   ],
-  411: [
+  "Inventory:ApplyDamage#1+3": [
     "-- ★★★ `for slotid = 1, EquipSlot.Count()` —— 用** EquipSlot 的 API**",
     "--   遍历所有装备槽（而不是 pairs(self.equipslots)）。",
     "-- ★★★ 为什么？两个原因：",
@@ -989,20 +989,20 @@ export const BEFORE = {
     "-- ★★ CompareSlot.Count() ≤ 63 的限制在这里生效：",
     "--   遍历次数 = 装备槽总数，mod 加太多槽会显著影响每次伤害计算的性能。",
   ],
-  412: [
+  "Inventory:ApplyDamage#1+4": [
     "-- ★ EquipSlot.FromID(slotid) —— ID → 槽名。",
     "-- ★ 这是 equipslotutil 的核心功能：网络传的是 ID（数字），",
     "--   本地表的 key 是字符串，必须转换。",
     "-- ★★ 初始化保证确定性（equipslotutil.lua:20 的 table.reverse_inplace）。",
   ],
-  413: [
+  "Inventory:ApplyDamage#1+5": [
     "-- ★ local v = self.equipslots[slotname] —— 取出该槽的物品。",
     "-- ★ 如果该槽空，v 为 nil，414 行 `if v then` 跳过。",
   ],
-  414: [
+  "Inventory:ApplyDamage#1+6": [
     "-- ★ `if v then` —— 跳过空槽（装备槽是稀疏的，不是所有槽都有东西）。",
   ],
-  416: [
+  "Inventory:ApplyDamage#1+8": [
     "-- ★★ 抵抗（resistance）优先级最高：优先于护甲。",
     "-- ★ 三个 and 条件：",
     "--   · 有 resistance 组件；",
@@ -1016,27 +1016,27 @@ export const BEFORE = {
     "--   ★★ 排序依赖：416 行在 421 行（护甲）**之前**检查，",
     "--     说明 resistance 是设计上的「绝对优先」。",
   ],
-  419: [
+  "Inventory:ApplyDamage#1+11": [
     "-- ★ ResistDamage —— 消耗抵抗（如护盾用掉一次）。",
     "-- ★ ★★ 然后 return 0, nil —— 「零伤害，无特殊伤害残留」。",
     "--   这两个返回值的含义：0 = 玩家不受伤害；nil = 元素伤害也被清空。",
     "--   ★★ 注意这里 return 0 而不是 return damage —— 伤害被完全消除。",
   ],
-  421: [
+  "Inventory:ApplyDamage#1+13": [
     "-- ★ elseif armor —— 「否则看看有没有护甲」。",
     "-- ★ 与 resistance 是 if/elseif，所以一件装备不能同时被两个系统处理。",
     "-- ★★★ 注意：**护甲不是提前 return**（不像 resistance），",
     "--   而是把吸收量记录下来，最后统一计算（430-442 行）。",
     "--   ★ 这是「收集 → 汇总」的两阶段模式。",
   ],
-  422: [
+  "Inventory:ApplyDamage#1+14": [
     "-- ★★ absorbers[armor] = armor:GetAbsorption(attacker, weapon)",
     "-- ★ GetAbsorption 返回吸收量（如 0.8 = 吸收 80% 伤害）。",
     "-- ★★★ 参数 (attacker, weapon) 表明吸收率可以**因攻击者/武器而异**。",
     "--   例：某些护甲对特定敌人吸收更高（如对蜘蛛的护盾）。",
     "-- ★★ 「赋值」而非累加：一件装备一个 armor 组件，不叠加。",
   ],
-  424: [
+  "Inventory:ApplyDamage#1+16": [
     "-- ★ damagetyperesist —— 元素抗性组件（与 armor 并列，不是互斥）。",
     "-- ★★ 与 416 行的 resistance（完全抵抗）是**不同组件**：",
     "--   · resistance = 完全免疫（触发即 return 0）；",
@@ -1044,7 +1044,7 @@ export const BEFORE = {
     "-- ★★★ 注意这个 if 不在 elseif 里 —— 可以和 armor 同时存在。",
     "--   即「既穿护甲又有元素抗性」是合法的组合。",
   ],
-  425: [
+  "Inventory:ApplyDamage#1+17": [
     "-- ★★ damagetypemult *= resist —— **乘算**降低元素伤害。",
     "-- ★★ 逐件相乘（不是取 min 或 max）。",
     "--   ⇒ 多件抗性叠加可能导致伤害趋近于零（0.5 × 0.5 = 0.25）。",
@@ -1053,17 +1053,17 @@ export const BEFORE = {
     "--   ⇒ 元素抗性会**同时**降低「扣血量」和「护甲损耗」。",
     "--   ★ 这是合理的：抗性高时护甲受到的损耗也小。",
   ],
-  430: [
+  "Inventory:ApplyDamage#1+22": [
     "-- ★★ `damage = damage * damagetypemult` —— 应用元素抗性。",
     "-- ★★★ ★ 顺序关键：抗性**先于**护甲计算。",
     "--   展开后的总伤害：`最终伤害 = 原伤害 × 抗性倍率 × (1 - 护甲吸收率)`。",
     "-- ★ 430 行之后的 damage 才是「实际进入护甲计算的值」。",
   ],
-  431: [
+  "Inventory:ApplyDamage#1+23": [
     "-- ↑ 原注释：print(\"Incoming damage\", damage) —— 调试用（已注释）。",
     "-- ★ 保留注释掉的 print 是 Klei 风格：标记调试历史。",
   ],
-  433: [
+  "Inventory:ApplyDamage#1+25": [
     "-- ★★★ 吸收计算：absorbed_percent（减伤率）和 total_absorption（分配用）。",
     "-- ★★★ ★★ 核心设计（435-439 行）：",
     "--   `absorbed_percent = math.max(amt, absorbed_percent)` —— **取最大值**！",
@@ -1078,7 +1078,7 @@ export const BEFORE = {
     "-- ★★ 若想让多件护甲叠加减伤，需改成 `absorbed_percent + amt`",
     "--   或某种 max 封顶公式。这是平衡性改动，风险高。",
   ],
-  437: [
+  "Inventory:ApplyDamage#1+29": [
     "-- ★★ `math.max(amt, absorbed_percent)` —— ★ 减伤率**取最大值**。",
     "-- ★★★ 这行是整个 ApplyDamage 的灵魂。",
     "--   若改成 `absorbed_percent + amt`（累加），穿 3 件 50% = 150% 吸收 = 免疫。",
@@ -1087,7 +1087,7 @@ export const BEFORE = {
     "--   所以「减伤取 max，耐久分摊按 sum」——两个不同策略并存。",
     "--   ⇒ 这是本函数最精妙也最容易误改的地方。",
   ],
-  438: [
+  "Inventory:ApplyDamage#1+30": [
     "-- ★ total_absorption += amt —— 累加所有护甲的吸收量。",
     "-- ★★ 这个值**只用于** 451 行分配耐久损耗，不影响减伤。",
     "--   · 若一件强甲 + 一件弱甲，总吸收 = 0.8 + 0.3 = 1.1；",
@@ -1096,7 +1096,7 @@ export const BEFORE = {
     "--   ★★ 即：**弱甲也会因为强甲的存在而少扣耐久**。",
     "--   平衡效果：让多穿护甲成为「耐久分散」的策略。",
   ],
-  441: [
+  "Inventory:ApplyDamage#1+33": [
     "-- ★★★ absorbed_damage = damage × absorbed_percent —— 被吸收的伤害量。",
     "-- ★★★ leftover_damage = damage - absorbed_damage —— 实际扣血量。",
     "-- ★★ 这是**减伤的最终公式**：",
@@ -1104,7 +1104,7 @@ export const BEFORE = {
     "-- ★ 三行代码，最核心的公式。",
     "-- ★★ 注意 leftover_damage **不会**为负（因为 absorbed_percent ≤ 1）。",
   ],
-  446: [
+  "Inventory:ApplyDamage#1+38": [
     "-- ★★ armor_damage 表：`{ [armor组件] = 该护甲应扣的耐久 }`。",
     "-- ★★★ 它与 absorbers 的区别：",
     "--   · absorbers（409 行）：收集阶段，吸收率；",
@@ -1112,14 +1112,14 @@ export const BEFORE = {
     "-- ★ 这是「收集 → 计算 → 分配 → 结算」四阶段模式的最后一步。",
     "-- ★ 若 total_absorption 为 0（无护甲），整个 447-453 块跳过。",
   ],
-  447: [
+  "Inventory:ApplyDamage#1+39": [
     "-- ★ `if total_absorption > 0 then` —— 只有有护甲时才分配。",
     "-- ★★ 此时记录统计：ProfileStatsAdd(\"armor_absorb\", absorbed_damage)",
     "--   上报给分析系统（只影响开发/运营统计，不影响游戏逻辑）。",
     "-- ★★ ★ 注意 448 行的统计在 `total_absorption > 0` 内 ——",
     "--   即只有真正挡了伤害才上报。合理。",
   ],
-  450: [
+  "Inventory:ApplyDamage#1+42": [
     "-- ★★★ 分配耐久损耗：每件护甲分得 `absorbed_damage × (它/total)`。",
     "-- ★★ 450-452 行的循环：",
     "--   `armor_damage[armor] = absorbed_damage × amt/total + armor:GetBonusDamage()`",
@@ -1131,7 +1131,7 @@ export const BEFORE = {
     "-- ★★★ 注意：减伤取 max（不叠加），但耐久损耗按 sum 分摊。",
     "--   两套策略并存，是本函数最精妙的设计（见 433-439 行注释）。",
   ],
-  455: [
+  "Inventory:ApplyDamage#1+47": [
     "-- ★「应用特殊伤害」（spdamage 段）。",
     "-- ★★★ 与普通伤害**完全独立**：",
     "--   · 普通伤害看 armor（护甲吸收率，取 max）；",
@@ -1141,12 +1141,12 @@ export const BEFORE = {
     "-- ★ spdamage 的类型：`{ [sptype] = 伤害量 }`（如 {fire=20, frost=10}）。",
     "-- ★ 这是 spdamageutil 的数据结构约定。",
   ],
-  456: [
+  "Inventory:ApplyDamage#1+48": [
     "-- ★ `if spdamage ~= nil then` —— 只有调用者传了特殊伤害才进入。",
     "-- ★★ 与普通伤害的分工：普通伤害用 armor，特殊伤害用元素抗性。",
     "-- ★ 两套系统**互不干扰**：护甲不会减火伤，火抗不会减普攻。",
   ],
-  457: [
+  "Inventory:ApplyDamage#1+49": [
     "-- ★★ 遍历每种特殊伤害类型（fire/frost/lightning/...）。",
     "-- ★ `for sptype, dmg in pairs(spdamage)` —— sptype 是伤害类型名。",
     "-- ★★ 458 行：特殊伤害也乘 damagetypemult（元素抗性）。",
@@ -1154,7 +1154,7 @@ export const BEFORE = {
     "-- ★★★ 这是一个双重减伤点：如防火装备的 damagetyperesist 组件",
     "--   既可能降低火伤（自身），又可能降低「其它特殊伤害」。",
   ],
-  459: [
+  "Inventory:ApplyDamage#1+51": [
     "-- ★★ spdefenders 表：`{ [实体] = 剩余防御值 }`。",
     "-- ★★ 与 absorbers 用组件做 key 不同，这里用**实体**做 key。",
     "-- ★ 原因：SpDamageUtil.GetSpDefenseForType 返回的是「实体对某元素的防御值」，",
@@ -1166,18 +1166,18 @@ export const BEFORE = {
     "--   同一种元素（fire）穿两件也可以叠加。",
     "-- ★★ 这是本文件里「减伤取 max（护甲）」vs「减伤可叠加（元素）」的对比点。",
   ],
-  462: [
+  "Inventory:ApplyDamage#1+54": [
     "-- ★★ GetSpDefenseForType(equip, sptype) —— 查实体对某元素的防御值。",
     "-- ★ 遍历**所有装备槽**（461 行），累加有防御的。",
     "-- ★★ 元素防御来自**标签**（如 fireproof 标签）：",
     "--   SpDamageUtil.GetSpDefenseForType 内部查 equip:HasTag(tag)。",
     "-- ★ 若 def > 0，说明这件装备能防御这种元素，加入 spdefenders。",
   ],
-  463: [
+  "Inventory:ApplyDamage#1+55": [
     "-- ★ `if def > 0` —— 只收录有防御的装备。",
     "-- ★★ 若 def = 0（无防御），不影响特殊伤害的分摊。",
   ],
-  468: [
+  "Inventory:ApplyDamage#1+60": [
     "-- ★★★ `while dmg > 0 and count > 0` —— **特殊伤害的分摊循环**。",
     "-- ★★★ 算法（与护甲完全不同）：",
     "--   ① 每次循环把剩余伤害**均分**给所有还在列表里的防御者：",
@@ -1201,20 +1201,20 @@ export const BEFORE = {
     "-- ★⚠ 性能：O(防御者数量 × 循环轮数)，但循环轮数通常很少",
     "--   （一轮基本就能分完，除非某件装备防御值极高）。",
   ],
-  469: [
+  "Inventory:ApplyDamage#1+61": [
     "-- ★★★ splitdmg = dmg / count —— 把剩余伤害**均分**给防御者。",
     "-- ★★ 每轮循环都重新计算（因为 count 会变），这是池化分摊的核心。",
     "-- ★ 若某防御者这次没能全部吸收，下次分摊时它的 count 就被排除",
     "--   （477-478 行 count -= 1），分母缩小，剩余伤害分给还活着的。",
     "-- ★★★ 这就是「强者多扛」的数学表达。",
   ],
-  472: [
+  "Inventory:ApplyDamage#1+64": [
     "-- ★★ 「防御值 > 本轮分摊量」= 这件装备能全吃下这轮伤害。",
     "-- ★ defended = splitdmg —— 它吸收了全部 splitdmg。",
     "-- ★ spdefenders[k] = v - splitdmg —— 防御值扣减，但**仍在列表里**。",
     "-- ★★ 即「防御值 > 0 就继续参与下一轮分摊」。",
   ],
-  476: [
+  "Inventory:ApplyDamage#1+68": [
     "-- ★★ 「防御值 ≤ 本轮分摊量」= 这件装备的防御**用完了**。",
     "-- ★ defended = v —— 它只能吸收 v（比 splitdmg 少）。",
     "-- ★ spdefenders[k] = nil —— 从防御者列表移除。",
@@ -1226,13 +1226,13 @@ export const BEFORE = {
     "--   count=0 → 退出。剩余 20 伤害（480 行减去已防御部分）。",
     "--   ⇒ 最终 spdamage.fire = 20（溢出伤害）。",
   ],
-  480: [
+  "Inventory:ApplyDamage#1+72": [
     "-- ★★ dmg = dmg - defended —— 扣除本件装备吸收的部分。",
     "-- ★★★ 循环内逐件扣除，循环结束后 dmg = 未被吸收的剩余伤害。",
     "-- ★★ 这就是为什么 487 行 `spdamage[sptype] = dmg > 0 and dmg or nil`。",
     "-- ★ 注意：count 减 1 也会让 469 行下轮 splitdmg 变大。",
   ],
-  481: [
+  "Inventory:ApplyDamage#1+73": [
     "-- ★ local armor = k.components.armor —— 该实体的护甲组件（可能为 nil）。",
     "-- ★★ 用于 482-483 行把特殊伤害也记入 armor_damage（消耗耐久）。",
     "-- ★★★ ★ 注意：特殊伤害消耗的是「护甲耐久」而非「元素抗性耐久」。",
@@ -1242,7 +1242,7 @@ export const BEFORE = {
     "-- ★ 若该实体只有元素抗性无 armor 组件（如纯药水效果），",
     "--   跳过（482 行的 nil 检查）。",
   ],
-  487: [
+  "Inventory:ApplyDamage#1+79": [
     "-- ★★★ `spdamage[sptype] = dmg > 0 and dmg or nil` —— 溢出伤害回写。",
     "-- ★★★ 这是「三元表达式」的 Lua 惯用法：",
     "--   若 dmg > 0（还有溢出）→ 值为 dmg（真值）→ 返回 dmg；",
@@ -1257,7 +1257,7 @@ export const BEFORE = {
     "--   正是我们想要的结果，所以这个写法是**正确的**。",
     "-- ★ 但对不熟悉的人来说是**误导性代码**。可读性差。",
   ],
-  489: [
+  "Inventory:ApplyDamage#1+81": [
     "-- ★★ `if next(spdamage) == nil then spdamage = nil end` ——",
     "--   所有元素伤害都被完全吸收 → 整个 spdamage 表置 nil。",
     "-- ★★ next(spdamage) == nil 表示「表空」。",
@@ -1265,14 +1265,14 @@ export const BEFORE = {
     "-- ★★★ 为什么需要这个？返回值语义：spdamage=nil 表示「打完了，连元素伤都清了」。",
     "--   若返回一个全 nil 的表（如 {fire=nil}），调用者难以区分。",
   ],
-  494: [
+  "Inventory:ApplyDamage#1+86": [
     "-- ★「应用护甲耐久损耗」。",
     "-- ★★★ 把 446-492 收集的 armor_damage 真正结算（调用 TakeDamage）。",
     "-- ★★ 这是「收集 → 计算 → 分配 → **结算**」的第四阶段。",
     "-- ★ 注意：此处**不处理** spdamage（元素伤害）的耐久，",
     "--   元素抗性的耐久在 482-483 行的循环里已累加进 armor_damage。",
   ],
-  495: [
+  "Inventory:ApplyDamage#1+87": [
     "-- ★★★ 遍历 armor_damage，调用每个 armor 组件的 TakeDamage。",
     "-- ★★ 这是护甲扣耐久的**唯一**执行点。整个 ApplyDamage 的最终目的之一。",
     "-- ★★★ 注意变量名复用：`for armor, dmg in pairs(armor_damage)`",
@@ -1281,7 +1281,7 @@ export const BEFORE = {
     "-- ★★ 注意：普通伤害 + 元素伤害的损耗已**合并**在 armor_damage 里，",
     "--   这里一次性扣除。若某装备既挡了普攻又挡了火，会合并扣一次。",
   ],
-  499: [
+  "Inventory:ApplyDamage#1+91": [
     "-- ★★★ 返回 (leftover_damage, spdamage) —— 实际扣血量 + 剩余元素伤害。",
     "-- ★★ 两个返回值对应调用方的期望：",
     "--   · leftover_damage：扣多少血（可能是 0，若被 resistance 完全抵抗）；",
@@ -1294,128 +1294,128 @@ export const BEFORE = {
 export const AFTER = {
   1: ["-- ↑ 两个 require 结束。"],
   2: ["-- ↑ SpDamageUtil 引用。"],
-  4: ["-- ↑ OnDeath 函数结束（单行体）。"],
-  10: ["-- ↑ OnOwnerDespawned 函数头。"],
-  12: ["-- ↑ itemslots 遍历开始。"],
-  15: ["-- ↑ equipslots 遍历开始。"],
-  18: ["-- ↑ activeitem 处理块。"],
-  24: ["-- ↑ onheavylifting 函数头。"],
-  25: ["-- ↑ SetHeavyLifting 调用。"],
-  28: ["-- ↑ onfloaterheld 函数头。"],
-  29: ["-- ↑ SetFloaterHeld 调用。"],
-  32: ["-- ↑ Class 构造开始。"],
-  35: ["-- ↑ isopen/isvisible 初始化。"],
-  38: ["-- ↑ 原英文注释保留。"],
-  39: ["-- ↑ ignoreoverflow 字段。"],
-  40: ["-- ↑ ignorespoverflow 字段。"],
-  41: ["-- ↑ ignoreclosedspoverflow 字段。"],
-  42: ["-- ↑ ignorefull 字段。"],
-  43: ["-- ↑ silentfull 字段。"],
-  44: ["-- ↑ ignoresound 字段。"],
-  46: ["-- ↑ itemslots 初始化。"],
-  47: ["-- ↑ maxslots 初始化。"],
-  49: ["-- ↑ equipslots 初始化。"],
-  50: ["-- ↑ heavylifting 初始化。"],
-  53: ["-- ↑ activeitem 初始化。"],
-  54: ["-- ↑ acceptsstacks 初始化。"],
-  55: ["-- ↑ ignorescangoincontainer 初始化。"],
-  56: ["-- ↑ opencontainers 初始化。"],
-  57: ["-- ↑ opencontainerproxies 初始化。"],
-  59: ["-- ↑ dropondeath 初始化。"],
-  60: ["-- ↑ death 事件注册。"],
-  62: ["-- ↑ isexternallyinsulated 初始化。"],
-  69: ["-- ↑ player_despawn 事件注册。"],
-  71: ["-- ↑ makereadonly 三连（仅客户端）。"],
-  83: ["-- ↑ EnableDropOnDeath 结束。"],
-  90: ["-- ↑ DisableDropOnDeath 结束。"],
-  97: ["-- ↑ 函数别名赋值（清理钩子）。"],
-  99: ["-- ↑ NumItems 函数头。"],
-  108: ["-- ↑ NumStackedItems 函数头。"],
-  117: ["-- ↑ 已废弃 API 的墓碑注释。"],
-  120: ["-- ↑ TransferInventory 函数头。"],
-  125: ["-- ↑ 原英文注释保留（JBK）。"],
-  128: ["-- ↑ itemslots 搬运循环开始。"],
-  135: ["-- ↑ equipslots 搬运循环开始。"],
-  156: ["-- ↑ SwapEquipment 函数头。"],
-  166: ["-- ↑ 装备槽遍历开始。"],
-  168: ["-- ↑ Unequip(force=true) 开始。"],
-  192: ["-- ↑ OnSave 函数头。"],
-  195: ["-- ↑ references 初始化。"],
-  197: ["-- ↑ itemslots 序列化循环。"],
-  199: ["-- ↑ GetSaveRecord 多返回值赋值。"],
-  208: ["-- ↑ equipslots 序列化循环。"],
-  219: ["-- ↑ activeitem 存档条件（四重判断）。"],
-  231: ["-- ↑ CanTakeItemInSlot 函数头（四层校验）。"],
-  232: ["-- ↑ 第一层校验（cangoincontainer）。"],
-  234: ["-- ↑ 第二层校验（non_item_equips 游戏模式）。"],
-  236: ["-- ↑ slot 非 nil 才继续。"],
-  237: ["-- ↑ 槽位越界检查。"],
-  240: ["-- ↑ 取目标槽现有物品。"],
-  241: ["-- ↑ 第四层校验（islockedinslot）。"],
-  254: ["-- ↑ AcceptsStacks 结束。"],
-  258: ["-- ↑ IgnoresCanGoInContainer 结束。"],
-  262: ["-- ↑ IsThiefProof 结束（字段未初始化）。"],
-  266: ["-- ↑ CheckMigrationPets 函数头（存档迁移）。"],
-  267: ["-- ↑ 性能守卫（无待迁移宠物则跳过）。"],
-  269: ["-- ↑ petleash 分支。"],
-  274: ["-- ↑ migrationpetowner 分支。"],
-  283: ["-- ↑ 递归进容器。"],
-  293: ["-- ↑ OnLoad 函数头。"],
-  296: ["-- ↑ 读 items 循环。"],
-  298: ["-- ↑ SpawnSaveRecord 重建实体。"],
-  301: ["-- ↑ GiveItem 按原槽号放回（槽位保持）。"],
-  306: ["-- ↑ 读 equip 循环。"],
-  311: ["-- ↑ Equip（不传槽位）。"],
-  316: ["-- ↑ 读 activeitem。"],
-  327: ["-- ↑ DropActiveItem 函数头。"],
-  336: ["-- ↑ ReturnActiveActionItem 函数头（三重条件）。"],
-  338: ["-- ↑ 原注释保留（Hacks）。"],
-  343: ["-- ↑ GiveItem 成功后 SetActiveItem(nil)。"],
-  348: ["-- ↑ 原注释保留（Super hacks）。"],
-  357: ["-- ↑ 三个 hack 标志复位。"],
-  364: ["-- ↑ HasAnyEquipment 结束。"],
-  368: ["-- ↑ IsWearingArmor 结束。"],
-  376: ["-- ↑ ArmorHasTag 结束。"],
-  384: ["-- ↑ EquipHasTag 结束。"],
-  392: ["-- ↑ EquipHasSpDefenseForType 结束。"],
-  400: ["-- ↑ IsHeavyLifting 结束。"],
-  404: ["-- ↑ IsFloaterHeld 结束。"],
-  408: ["-- ↑ ApplyDamage 函数头（五步算法）。"],
-  409: ["-- ↑ absorbers/damagetypemult 初始化。"],
-  411: ["-- ↑ 有序遍历所有装备槽（确定性）。"],
-  412: ["-- ↑ EquipSlot.FromID（ID → 槽名）。"],
-  413: ["-- ↑ 取出该槽物品。"],
-  414: ["-- ↑ 跳过空槽。"],
-  416: ["-- ↑ resistance 优先级最高（完全免疫）。"],
-  419: ["-- ↑ ResistDamage + return 0（提前返回）。"],
-  421: ["-- ↑ elseif armor（记录吸收量）。"],
-  422: ["-- ↑ absorbers[armor] = 吸收率（赋值非累加）。"],
-  424: ["-- ↑ damagetyperesist（部分减伤，可与护甲共存）。"],
-  425: ["-- ↑ damagetypemult *= 抗性（乘算叠加）。"],
-  430: ["-- ↑ 应用元素抗性（先于护甲）。"],
-  431: ["-- ↑ 注释掉的调试 print。"],
-  433: ["-- ↑ 吸收计算（取 max vs 累加）。"],
-  437: ["-- ↑ 减伤率取最大值（灵魂行）。"],
-  438: ["-- ↑ 累加吸收量（用于分摊）。"],
-  441: ["-- ↑ absorbed_damage / leftover_damage 公式。"],
-  446: ["-- ↑ armor_damage 初始化。"],
-  447: ["-- ↑ 只有有护甲才分配。"],
-  450: ["-- ↑ 耐久损耗分配循环。"],
-  455: ["-- ↑ 特殊伤害段开始。"],
-  456: ["-- ↑ if spdamage ~= nil。"],
-  457: ["-- ↑ 遍历元素伤害类型。"],
-  459: ["-- ↑ spdefenders 池化分摊（与护甲取 max 不同）。"],
-  462: ["-- ↑ GetSpDefenseForType 查元素防御。"],
-  463: ["-- ↑ 只收录有防御的。"],
-  468: ["-- ↑ 池化分摊主循环。"],
-  469: ["-- ↑ splitdmg 均分。"],
-  472: ["-- ↑ 防御值 > 分摊量（继续参与）。"],
-  476: ["-- ↑ 防御值 ≤ 分摊量（耗尽，移出）。"],
-  480: ["-- ↑ 扣除已防御部分。"],
-  481: ["-- ↑ 取护甲组件（可能 nil）。"],
-  487: ["-- ↑ 溢出伤害回写（三元陷阱）。"],
-  489: ["-- ↑ 全部吸收则 spdamage 置 nil。"],
-  494: ["-- ↑ 护甲耐久结算段。"],
-  495: ["-- ↑ TakeDamage 调用（扣耐久）。"],
-  499: ["-- ↑ 返回 (leftover_damage, spdamage)。"],
+  "OnDeath#1": ["-- ↑ OnDeath 函数结束（单行体）。"],
+  "OnOwnerDespawned#1": ["-- ↑ OnOwnerDespawned 函数头。"],
+  "OnOwnerDespawned#1+2": ["-- ↑ itemslots 遍历开始。"],
+  "OnOwnerDespawned#1+5": ["-- ↑ equipslots 遍历开始。"],
+  "OnOwnerDespawned#1+8": ["-- ↑ activeitem 处理块。"],
+  "onheavylifting#1": ["-- ↑ onheavylifting 函数头。"],
+  "onheavylifting#1+1": ["-- ↑ SetHeavyLifting 调用。"],
+  "onfloaterheld#1": ["-- ↑ onfloaterheld 函数头。"],
+  "onfloaterheld#1+1": ["-- ↑ SetFloaterHeld 调用。"],
+  "onfloaterheld#1+4": ["-- ↑ Class 构造开始。"],
+  "onfloaterheld#1+7": ["-- ↑ isopen/isvisible 初始化。"],
+  "onfloaterheld#1+10": ["-- ↑ 原英文注释保留。"],
+  "onfloaterheld#1+11": ["-- ↑ ignoreoverflow 字段。"],
+  "onfloaterheld#1+12": ["-- ↑ ignorespoverflow 字段。"],
+  "onfloaterheld#1+13": ["-- ↑ ignoreclosedspoverflow 字段。"],
+  "onfloaterheld#1+14": ["-- ↑ ignorefull 字段。"],
+  "onfloaterheld#1+15": ["-- ↑ silentfull 字段。"],
+  "onfloaterheld#1+16": ["-- ↑ ignoresound 字段。"],
+  "onfloaterheld#1+18": ["-- ↑ itemslots 初始化。"],
+  "onfloaterheld#1+19": ["-- ↑ maxslots 初始化。"],
+  "onfloaterheld#1+21": ["-- ↑ equipslots 初始化。"],
+  "onfloaterheld#1+22": ["-- ↑ heavylifting 初始化。"],
+  "onfloaterheld#1+25": ["-- ↑ activeitem 初始化。"],
+  "onfloaterheld#1+26": ["-- ↑ acceptsstacks 初始化。"],
+  "onfloaterheld#1+27": ["-- ↑ ignorescangoincontainer 初始化。"],
+  "onfloaterheld#1+28": ["-- ↑ opencontainers 初始化。"],
+  "onfloaterheld#1+29": ["-- ↑ opencontainerproxies 初始化。"],
+  "onfloaterheld#1+31": ["-- ↑ dropondeath 初始化。"],
+  "onfloaterheld#1+32": ["-- ↑ death 事件注册。"],
+  "onfloaterheld#1+34": ["-- ↑ isexternallyinsulated 初始化。"],
+  "onfloaterheld#1+41": ["-- ↑ player_despawn 事件注册。"],
+  "onfloaterheld#1+43": ["-- ↑ makereadonly 三连（仅客户端）。"],
+  "Inventory:EnableDropOnDeath#1": ["-- ↑ EnableDropOnDeath 结束。"],
+  "Inventory:DisableDropOnDeath#1": ["-- ↑ DisableDropOnDeath 结束。"],
+  "Inventory:DisableDropOnDeath#1+7": ["-- ↑ 函数别名赋值（清理钩子）。"],
+  "Inventory:NumItems#1": ["-- ↑ NumItems 函数头。"],
+  "Inventory:NumStackedItems#1": ["-- ↑ NumStackedItems 函数头。"],
+  "Inventory:NumStackedItems#1+9": ["-- ↑ 已废弃 API 的墓碑注释。"],
+  "Inventory:TransferInventory#1": ["-- ↑ TransferInventory 函数头。"],
+  "Inventory:TransferInventory#1+5": ["-- ↑ 原英文注释保留（JBK）。"],
+  "Inventory:TransferInventory#1+8": ["-- ↑ itemslots 搬运循环开始。"],
+  "Inventory:TransferInventory#1+15": ["-- ↑ equipslots 搬运循环开始。"],
+  "Inventory:SwapEquipment#1": ["-- ↑ SwapEquipment 函数头。"],
+  "Inventory:SwapEquipment#1+10": ["-- ↑ 装备槽遍历开始。"],
+  "Inventory:SwapEquipment#1+12": ["-- ↑ Unequip(force=true) 开始。"],
+  "Inventory:OnSave#1": ["-- ↑ OnSave 函数头。"],
+  "Inventory:OnSave#1+3": ["-- ↑ references 初始化。"],
+  "Inventory:OnSave#1+5": ["-- ↑ itemslots 序列化循环。"],
+  "Inventory:OnSave#1+7": ["-- ↑ GetSaveRecord 多返回值赋值。"],
+  "Inventory:OnSave#1+16": ["-- ↑ equipslots 序列化循环。"],
+  "Inventory:OnSave#1+27": ["-- ↑ activeitem 存档条件（四重判断）。"],
+  "Inventory:CanTakeItemInSlot#1": ["-- ↑ CanTakeItemInSlot 函数头（四层校验）。"],
+  "Inventory:CanTakeItemInSlot#1+1": ["-- ↑ 第一层校验（cangoincontainer）。"],
+  "Inventory:CanTakeItemInSlot#1+3": ["-- ↑ 第二层校验（non_item_equips 游戏模式）。"],
+  "Inventory:CanTakeItemInSlot#1+5": ["-- ↑ slot 非 nil 才继续。"],
+  "Inventory:CanTakeItemInSlot#1+6": ["-- ↑ 槽位越界检查。"],
+  "Inventory:CanTakeItemInSlot#1+9": ["-- ↑ 取目标槽现有物品。"],
+  "Inventory:CanTakeItemInSlot#1+10": ["-- ↑ 第四层校验（islockedinslot）。"],
+  "Inventory:AcceptsStacks#1": ["-- ↑ AcceptsStacks 结束。"],
+  "Inventory:IgnoresCanGoInContainer#1": ["-- ↑ IgnoresCanGoInContainer 结束。"],
+  "Inventory:IsThiefProof#1": ["-- ↑ IsThiefProof 结束（字段未初始化）。"],
+  "CheckMigrationPets#1": ["-- ↑ CheckMigrationPets 函数头（存档迁移）。"],
+  "CheckMigrationPets#1+1": ["-- ↑ 性能守卫（无待迁移宠物则跳过）。"],
+  "CheckMigrationPets#1+3": ["-- ↑ petleash 分支。"],
+  "CheckMigrationPets#1+8": ["-- ↑ migrationpetowner 分支。"],
+  "CheckMigrationPets#1+17": ["-- ↑ 递归进容器。"],
+  "Inventory:OnLoad#1": ["-- ↑ OnLoad 函数头。"],
+  "Inventory:OnLoad#1+3": ["-- ↑ 读 items 循环。"],
+  "Inventory:OnLoad#1+5": ["-- ↑ SpawnSaveRecord 重建实体。"],
+  "Inventory:OnLoad#1+8": ["-- ↑ GiveItem 按原槽号放回（槽位保持）。"],
+  "Inventory:OnLoad#1+13": ["-- ↑ 读 equip 循环。"],
+  "Inventory:OnLoad#1+18": ["-- ↑ Equip（不传槽位）。"],
+  "Inventory:OnLoad#1+23": ["-- ↑ 读 activeitem。"],
+  "Inventory:DropActiveItem#1": ["-- ↑ DropActiveItem 函数头。"],
+  "Inventory:ReturnActiveActionItem#1": ["-- ↑ ReturnActiveActionItem 函数头（三重条件）。"],
+  "Inventory:ReturnActiveActionItem#1+2": ["-- ↑ 原注释保留（Hacks）。"],
+  "Inventory:ReturnActiveActionItem#1+7": ["-- ↑ GiveItem 成功后 SetActiveItem(nil)。"],
+  "Inventory:ReturnActiveActionItem#1+12": ["-- ↑ 原注释保留（Super hacks）。"],
+  "Inventory:ReturnActiveActionItem#1+21": ["-- ↑ 三个 hack 标志复位。"],
+  "Inventory:HasAnyEquipment#1": ["-- ↑ HasAnyEquipment 结束。"],
+  "Inventory:IsWearingArmor#1": ["-- ↑ IsWearingArmor 结束。"],
+  "Inventory:ArmorHasTag#1": ["-- ↑ ArmorHasTag 结束。"],
+  "Inventory:EquipHasTag#1": ["-- ↑ EquipHasTag 结束。"],
+  "Inventory:EquipHasSpDefenseForType#1": ["-- ↑ EquipHasSpDefenseForType 结束。"],
+  "Inventory:IsHeavyLifting#1": ["-- ↑ IsHeavyLifting 结束。"],
+  "Inventory:IsFloaterHeld#1": ["-- ↑ IsFloaterHeld 结束。"],
+  "Inventory:ApplyDamage#1": ["-- ↑ ApplyDamage 函数头（五步算法）。"],
+  "Inventory:ApplyDamage#1+1": ["-- ↑ absorbers/damagetypemult 初始化。"],
+  "Inventory:ApplyDamage#1+3": ["-- ↑ 有序遍历所有装备槽（确定性）。"],
+  "Inventory:ApplyDamage#1+4": ["-- ↑ EquipSlot.FromID（ID → 槽名）。"],
+  "Inventory:ApplyDamage#1+5": ["-- ↑ 取出该槽物品。"],
+  "Inventory:ApplyDamage#1+6": ["-- ↑ 跳过空槽。"],
+  "Inventory:ApplyDamage#1+8": ["-- ↑ resistance 优先级最高（完全免疫）。"],
+  "Inventory:ApplyDamage#1+11": ["-- ↑ ResistDamage + return 0（提前返回）。"],
+  "Inventory:ApplyDamage#1+13": ["-- ↑ elseif armor（记录吸收量）。"],
+  "Inventory:ApplyDamage#1+14": ["-- ↑ absorbers[armor] = 吸收率（赋值非累加）。"],
+  "Inventory:ApplyDamage#1+16": ["-- ↑ damagetyperesist（部分减伤，可与护甲共存）。"],
+  "Inventory:ApplyDamage#1+17": ["-- ↑ damagetypemult *= 抗性（乘算叠加）。"],
+  "Inventory:ApplyDamage#1+22": ["-- ↑ 应用元素抗性（先于护甲）。"],
+  "Inventory:ApplyDamage#1+23": ["-- ↑ 注释掉的调试 print。"],
+  "Inventory:ApplyDamage#1+25": ["-- ↑ 吸收计算（取 max vs 累加）。"],
+  "Inventory:ApplyDamage#1+29": ["-- ↑ 减伤率取最大值（灵魂行）。"],
+  "Inventory:ApplyDamage#1+30": ["-- ↑ 累加吸收量（用于分摊）。"],
+  "Inventory:ApplyDamage#1+33": ["-- ↑ absorbed_damage / leftover_damage 公式。"],
+  "Inventory:ApplyDamage#1+38": ["-- ↑ armor_damage 初始化。"],
+  "Inventory:ApplyDamage#1+39": ["-- ↑ 只有有护甲才分配。"],
+  "Inventory:ApplyDamage#1+42": ["-- ↑ 耐久损耗分配循环。"],
+  "Inventory:ApplyDamage#1+47": ["-- ↑ 特殊伤害段开始。"],
+  "Inventory:ApplyDamage#1+48": ["-- ↑ if spdamage ~= nil。"],
+  "Inventory:ApplyDamage#1+49": ["-- ↑ 遍历元素伤害类型。"],
+  "Inventory:ApplyDamage#1+51": ["-- ↑ spdefenders 池化分摊（与护甲取 max 不同）。"],
+  "Inventory:ApplyDamage#1+54": ["-- ↑ GetSpDefenseForType 查元素防御。"],
+  "Inventory:ApplyDamage#1+55": ["-- ↑ 只收录有防御的。"],
+  "Inventory:ApplyDamage#1+60": ["-- ↑ 池化分摊主循环。"],
+  "Inventory:ApplyDamage#1+61": ["-- ↑ splitdmg 均分。"],
+  "Inventory:ApplyDamage#1+64": ["-- ↑ 防御值 > 分摊量（继续参与）。"],
+  "Inventory:ApplyDamage#1+68": ["-- ↑ 防御值 ≤ 分摊量（耗尽，移出）。"],
+  "Inventory:ApplyDamage#1+72": ["-- ↑ 扣除已防御部分。"],
+  "Inventory:ApplyDamage#1+73": ["-- ↑ 取护甲组件（可能 nil）。"],
+  "Inventory:ApplyDamage#1+79": ["-- ↑ 溢出伤害回写（三元陷阱）。"],
+  "Inventory:ApplyDamage#1+81": ["-- ↑ 全部吸收则 spdamage 置 nil。"],
+  "Inventory:ApplyDamage#1+86": ["-- ↑ 护甲耐久结算段。"],
+  "Inventory:ApplyDamage#1+87": ["-- ↑ TakeDamage 调用（扣耐久）。"],
+  "Inventory:ApplyDamage#1+91": ["-- ↑ 返回 (leftover_damage, spdamage)。"],
 };

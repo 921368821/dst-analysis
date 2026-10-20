@@ -2,7 +2,7 @@
 // 重点：部署间距 / 子实体与平台跟随 / Brain 与 StateGraph
 
 export const BEFORE = {
-  826: [
+  "EntityScript:SetDeployExtraSpacing#1": [
     "--★ 部署间距系列（826–868）：三个 Set*Spacing/Radius 函数共用同一套范式。",
     "--  【共同范式】",
     "--    ① 在实体上记一个字段，供其它系统查询",
@@ -23,13 +23,13 @@ export const BEFORE = {
     "--      SetGroundTargetBlockerRadius 应说的是 \"cannot be a ground target\"。",
     "--      ⚠ 疑似缺陷（文档层面）：误导性注释，建议修正。",
   ],
-  827: ["    --Extra spacing required when deploying other entities near this one."],
-  830: ["        --see components/map.lua"],
-  831: [
+  "EntityScript:SetDeployExtraSpacing#1+1": ["    --Extra spacing required when deploying other entities near this one."],
+  "EntityScript:SetDeployExtraSpacing#1+4": ["        --see components/map.lua"],
+  "EntityScript:SetDeployExtraSpacing#1+5": [
     "--【★ 注册到全局地图系统】components/map.lua 是唯一消费者。",
     "--   详见 map.lua 的 RegisterDeployExtraSpacing。",
   ],
-  835: [
+  "EntityScript:SetDeploySmartRadius#1": [
     "--【★ SmartRadius 与ExtraSpacing 的本质区别】",
     "--   ExtraSpacing 是「我单方面声明我的排斥半径」；",
     "--   SmartRadius 是「用我的半径参与双向计算」——注释明说：",
@@ -38,12 +38,12 @@ export const BEFORE = {
     "--     除非对方也声明了 deploy_extra_spacing。",
     "--   —— 这是「新旧两套系统并存」的典型痕迹。",
   ],
-  841: ["        --see components/map.lua"],
-  846: [
+  "EntityScript:SetDeploySmartRadius#1+6": ["        --see components/map.lua"],
+  "EntityScript:SetTerraformExtraSpacing#1": [
     "--【terraformblocker 标签】与间距值绑定：非 nil 时加，nil 时去。",
     "--   ★ 标签是给C++/UI 快速查询用的（快速跳过不可编辑地形）。",
   ],
-  858: [
+  "EntityScript:SetGroundTargetBlockerRadius#1": [
     "--【★ 第三类阻挡：地表目标阻挡】",
     "--   与 terraformblocker 的区别：",
     "--     terraformblocker  阻挡「地形编辑」（锄地、放树）",
@@ -51,7 +51,7 @@ export const BEFORE = {
     "--   ★ 例如「蜂巢」「蜘蛛洞穴」这类需要地面有空地的结构会声明它。",
   ],
 
-  870: [
+  "EntityScript:SpawnChild#1": [
     "--★★★ 子实体与平台跟随（870–950）：两套独立的从属关系★★★",
     "--【为什么要分成「父子」与「平台跟随」两套？】",
     "--   语义完全不同：",
@@ -67,35 +67,35 @@ export const BEFORE = {
     "--   ★ 两侧都记一份，是为了能在子实体上直接回答「我的父/平台是谁」，",
     "--     且让移除操作能O(1) 定位（见 RemoveChild:888 直接 child.parent = nil）。",
   ],
-  871: [
+  "EntityScript:SpawnChild#1+1": [
     "--【★ 双形态子实体：具名 vs 直接 prefab 名】",
     "--   若 self.prefabs 存在（本实体定义过子实体表），则 name 是表里的**键**；",
     "--   否则 name 直接当作 prefab 名。",
     "--   典型：牛的 prefabs = { beefalo = \"beefalo\" } → SpawnChild(\"beefalo\")",
     "--   ★ 这个「表或直名」的二义性是 DST 的老设计，代价是容易写错。",
   ],
-  872: [
+  "EntityScript:SpawnChild#1+2": [
     "--【★ 双重断言：第一层防「表不存在」，第二层防「键不存在」】",
     "--   871 行已经 if self.prefabs 判断，872 行的 assert(self.prefabs) 在逻辑上永真。",
     "--   ⚠ 疑似缺陷：冗余断言，可能是重构后残留。",
     "--     无害但增加了阅读负担——读者会以为它有什么深意。",
   ],
-  876: [
+  "EntityScript:SpawnChild#1+6": [
     "--【SpawnPrefab 失败的防护】返回的 inst 必须非nil，否则 AddChild(nil) 会崩。",
   ],
-  887: [
+  "EntityScript:RemoveChild#1": [
     "--★★ RemoveChild：解除父子关系",
     "--【★ 清理顺序】先断子侧指针 → 再断父侧集合 → 最后通知 C++。",
     "--   顺序要点：child.parent = nil 必须在最前，",
     "--   因为 AddChild:898 会检查 child.parent 来决定是否先调旧父的 RemoveChild，",
     "--   若不先置 nil 会产生递归。",
   ],
-  892: [
+  "EntityScript:RemoveChild#1+5": [
     "--【SetParent(nil) 通知 C++ 侧】",
     "--   ★ C++ 侧的父子关系驱动坐标继承与网络同步，",
     "--     所以 Lua 的 child.parent = nil 只是记账，真正生效的是这一句。",
   ],
-  895: [
+  "EntityScript:AddChild#1": [
     "--★★ AddChild：建立父子关系",
     "--【★ 三条不变量】",
     "--   ① child.platform = nil —— ★ 加为子实体时脱离原平台。",
@@ -106,13 +106,13 @@ export const BEFORE = {
     "   --     且若 RemoveChild 有副作用（如发事件）会造成「短暂脱离」。",
     "   --   ③ 懒建 children 表（保持 nil 语义，省内存）。",
   ],
-  908: [
+  "EntityScript:AddChild#1+13": [
     "--【★ SetParent(self.entity) 才真正建立父子变换关系】",
     "--   self.children[child]=true 只是 Lua 侧索引。",
     "   --   ★ 对称性保证：AddChild 与 RemoveChild 必须成对实现，",
     "--     否则 Lua 侧与 C++ 侧的父子关系会不一致（表现为「幽灵挂载」）。",
   ],
-  911: [
+  "EntityScript:RemovePlatformFollower#1": [
     "--★★ RemovePlatformFollower：解除平台跟随",
     "--【★ 首行守卫：不是我的跟随者就直接返回】",
     "--   ★ 这是「幂等 + 安全」的写法：即便误调也不会破坏别人的关系。",
@@ -121,14 +121,14 @@ export const BEFORE = {
     "   --   ★ 差别的原因：platform 的解除可能来自多个来源（换船、落地、被拾取），",
     "--     更容易出现「已经不在了还来解绑」的情况。",
   ],
-  922: [
+  "EntityScript:RemovePlatformFollower#1+11": [
     "--【★ 可覆写的钩子 OnRemovePlatformFollower】",
     "--   预制脚本可覆写此方法来响应「跟随关系解除」。",
     "--   ★ 典型用途：船上乘客落水时播放音效/特效。",
     "--   ★ 注意是 self:OnRemovePlatformFollower(child) 冒号调用，",
     "--     第一个参数会被自动补成 self。",
   ],
-  927: [
+  "EntityScript:AddPlatformFollower#1": [
     "--★★ AddPlatformFollower：建立平台跟随",
     "   --★ 与 AddChild 的三处差异（务必注意）：",
     "--   ① child.parent = nil —— 解除父子关系（方向相反！）",
@@ -137,12 +137,12 @@ export const BEFORE = {
     "--   ③ child.platform = self（AddChild 里是 child.parent = self）",
     "   --   ★ 一句话记忆：AddChild 让子「归属」父，AddPlatformFollower 让子「踩」在平台上。",
   ],
-  942: [
+  "EntityScript:AddPlatformFollower#1+15": [
     "--【★ 与 RemovePlatformFollower:922 对称的钩子】",
     "--   两侧钩子的存在说明「平台关系」被业务逻辑高度关注（船是核心玩法）。",
   ],
-  947: ["--only works on master sim"],
-  948: [
+  "EntityScript:AddPlatformFollower#1+20": ["--only works on master sim"],
+  "EntityScript:GetPlatformFollowers#1": [
     "--【GetPlatformFollowers：返回平台跟随者集合】",
     "--   ★ 注释警告只能在主模拟（服务端）用：",
     "--     客户端的 platformfollowers 为 nil，且客户端也不需要这个信息。",
@@ -150,16 +150,16 @@ export const BEFORE = {
     "   --   ⚠ 轻微封装问题：返回内部引用，调用方误改会破坏不变量。",
   ],
 
-  952: [
+  "EntityScript:GetBrainString#1": [
     "--【GetBrainString：大脑状态的调试串】",
     "--   ★ 注意格式 \"--------\\n\" 用转义换行而非真实换行，",
     "--     使整个字符串能被 table.concat 成单行日志。",
   ],
-  955: [
+  "EntityScript:GetBrainString#1+3": [
     "--【★ 有条件才输出】没配大脑的实体返回空串，不产生无意义的\"BRAIN:\\n--------\"。",
   ],
 
-  964: [
+  "EntityScript:GetDebugString#1": [
     "--★★ GetDebugString：实体的完整状态快照（调试核心工具）",
     "--【★ 注意开头有大约 100 行被注释掉的代码（992–1061）】",
     "--   被禁用的部分：组件列表、事件监听表、pendingtasks 列表。",
@@ -170,32 +170,32 @@ export const BEFORE = {
     "--【本函数实际输出的内容】tostring / 睡眠标记 / 年龄 / C++ 调试串 /",
     "--   当前缓冲动作 / StateGraph 状态 / prefab 自定义调试串。",
   ],
-  965: [
+  "EntityScript:GetDebugString#1+1": [
     "--【★ 无效实体也能出字符串】",
     "--   ★ 关键考虑：**调试工具在实体已崩溃时最需要工作**。",
     "--     若此处直接崩溃，开发者就失去了最后的诊断手段。",
   ],
-  972: [
+  "EntityScript:GetDebugString#1+8": [
     "--【IsAsleep 标记】睡眠的实体行为异常，调试时第一眼就能确认。",
   ],
-  975: [
+  "EntityScript:GetDebugString#1+11": [
     "--【★ \"%2.2f\" 格式：秒数保留两位小数】spawntime 差值，秒为单位。",
   ],
-  978: [
+  "EntityScript:GetDebugString#1+14": [
     "--【★ 拼接 C++ 侧调试信息】实体索引、碰撞体、动画状态等都在那边。",
     "--   ★ 这是「跨语言调试信息拼接」的范例：Lua 侧负责高层语义，",
     "--     C++ 侧负责底层细节。",
   ],
-  980: [
+  "EntityScript:GetDebugString#1+16": [
     "--【★ 缓冲动作永远打印（即使是nil）】",
     "--   「正在等待什么动作」是排查「为什么点击无效」的第一线索。",
   ],
-  992: [
+  "EntityScript:GetDebugString#1+28": [
     "--★★ 下面三大段是已禁用的深度调试输出，逐段说明其意图：",
     "--第1 段（992–1003）：组件列表 + 各组件的 GetDebugString",
     "--   意图：打印每个组件的调试串（health 会输出当前生命等）。",
   ],
-  1003: [
+  "EntityScript:GetDebugString#1+39": [
     "--★原代码】  local cmpkeys = {}",
     "--★重新启用时必须修的两处问题：",
     "--   ① 变量名冲突：cmpkeys 在 993 行声明，而 993-1002 行的 for 循环体里",
@@ -210,12 +210,12 @@ export const BEFORE = {
     "--     重新启用会抛 \"bad argument #2 to 'sort'\"。",
     "--   → 重新启用时必须先补上比较函数。",
   ],
-  1005: [
+  "EntityScript:GetDebugString#1+41": [
     "--第 2 段（1005–1010）：Brain 状态",
     "--★ 为什么被禁用？GetBrainString:952 已经提供了等价能力（同一份数据），",
     "--     属于早期重复实现。",
   ],
-  1012: [
+  "EntityScript:GetDebugString#1+48": [
     "--★★第 3 段（1012–1051）：事件监听表 —— 信息量最大的一段",
     "--【它想展示什么】",
     "--   event_listening —— 「我在监听谁」（事件 → 源实体 → 回调数组）",
@@ -225,17 +225,17 @@ export const BEFORE = {
     "--   ★ 理由：有些事件（如 onremove）有上千个监听者，全列会刷爆控制台。",
     "--     这个「输出也要有上限」的思路适用于所有调试打印。",
   ],
-  1021: [
+  "EntityScript:GetDebugString#1+57": [
     "--★原注释：\"this can be a very long list\" —— 作者自己也知道列表可能极长，",
     "--   所以加了 max_list 限制。这与第 2 段（1005–1010）的 brain 列表不同：",
     "--★   第 2 段的 GetTableSize(sources) 显示总数但只列 5 个；",
     "--   第 3 段（1038）用 GetTableSize(listeners) 同样处理。两处风格一致。",
   ],
-  1026: [
+  "EntityScript:GetDebugString#1+62": [
     "--★注意 break 在 n >= max_list 时触发，实际会列出 5 个（n=0..4），",
     "--   即第 5 次迭代时 n 已是 5（前面 +1），break。行为正确。",
   ],
-  1052: [
+  "EntityScript:GetDebugString#1+88": [
     "--第 4 段（1052–1061）：pendingtasks 列表",
     "--★意图：打印所有未完成的延时/周期任务（task.name + task.tick）。",
     "   --★ 它的价值在于发现「泄漏的任务」——若某实体 Remove 后任务还在跑，",
@@ -243,13 +243,13 @@ export const BEFORE = {
     "   --★ task.name 在 Scheduler 体系里并不存在（Task 类只有 guid/id/fn/co），",
     "--     所以这段若打开会输出 \"nil\"。属于历史遗留代码。",
   ],
-  1062: [
+  "EntityScript:GetDebugString#1+98": [
     "--【★ table.concat 一次性拼接】",
     "--   全部收集完再拼，而不是边加边拼 —— 避免 O(n²) 字符串复制。",
     "--   ★ 这是所有「拼接调试串」的标准做法。",
   ],
 
-  1065: [
+  "EntityScript:KillTasks#1": [
     "--★★ KillTasks：实体级协程清杀 —— 防泄漏的第一道防线",
     "--【★ 为什么这行至关重要】",
     "--   实体上用 StartThread(fn) 创建的协程，其id 是 self.GUID（见 1070 行）。",
@@ -259,14 +259,14 @@ export const BEFORE = {
     "--   ★ 这与scheduler.lua:442 KillTasksWithID 是同一套机制的上下游。",
     "--   参见 scheduler.lua:607 的 KillThreadsWithID 的说明。",
   ],
-  1069: [
+  "EntityScript:StartThread#1": [
     "--★ StartThread 的封装：固定用 self.GUID 作为任务归属 id。",
     "--   ★ 这样 EntityScript:KillTasks 与 KillThreadsWithID(self.GUID) 就成了",
     "--     「一个实体销毁 = 一次调用清掉所有协程」的标准模式。",
     "   --   ⚠ 强制传 GUID 也意味着「无法为子任务分组」——",
     "   --     所有协程被视作同一归属，无法只杀一部分。",
   ],
-  1073: [
+  "EntityScript:RunScript#1": [
     "--【★ RunScript：在运行时执行另一个脚本文件】",
     "--   LoadScript(name) 加载并返回该文件的顶层函数，然后立即以 self 为参数调用。",
     "--   ★ 用途：把大量初始化逻辑（尤其是数据驱动的 prefab 配置）拆到独立文件，",
@@ -280,7 +280,7 @@ export const BEFORE = {
     "--     污染所有实体。这可能是有意的（模组惯例），但极易误用。",
   ],
 
-  1078: [
+  "EntityScript:RestartBrain#1": [
     "--★★ Brain 控制的三层结构（1078–1146）：重启 / 停止 / 构造 ★ ★",
     "--【★ 为什么要三层？因为「停 brain」有三个不同的语义需求：】",
     "--   1. 临时暂停（打嗝、被打断）→ StopBrain(reason)，之后要能RestartBrain(reason)",
@@ -292,12 +292,12 @@ export const BEFORE = {
     "--   这是一个精妙的设计：用一个「带 key 的表」而非布尔，",
     "--   天然支持「多种原因并存」，只有当所有原因都被解除时才重启。",
   ],
-  1079: [
+  "EntityScript:RestartBrain#1+1": [
     "--【★ reason 默认空串】使 `StopBrain()` 不传参时 reason 为 \"\"，",
     "--   而空串在 Lua 中是**真值**，所以 _brainstopped[\"\"] = true 能正常登记。",
     "--   ★ 注意这与 nil 语义不同——这就是为什么 1079 和 1092 都要 `or \"\"`。",
   ],
-  1080: [
+  "EntityScript:RestartBrain#1+2": [
     "--★★ 多原因计数式恢复 —— 本文件最精妙的一段",
     "--   场景：StopBrain(\"eating\") 然后 StopBrain(\"fleeing\")",
     "--         → _brainstopped = { eating=true, fleeing=true }",
@@ -309,12 +309,12 @@ export const BEFORE = {
     "--   ★ 与 1093-1100 的配合：StopBrain 只在「从无到有」时才真正停 brain，",
     "--     避免重复调 _Stop_Internal（那会把 brain 从调度表里摘掉，重复调用虽无害但浪费）。",
   ],
-  1084: [
+  "EntityScript:RestartBrain#1+6": [
     "--【★ 只有最后一道原因解除时才真正重启 brain】",
     "--   重启走 brain:_Start_Internal()（brain.lua 提供），它会把 brain",
     "--   重新加入 BrainManager 的 updaters 列表。",
   ],
-  1091: [
+  "EntityScript:StopBrain#1": [
     "--★★ StopBrain：可恢复的暂停",
     "--【★ 双重保护的意义】",
     "--   if self._brainstopped then   —— 已有暂停原因，仅登记新原因",
@@ -324,7 +324,7 @@ export const BEFORE = {
     "--   ★ 双重保护确保 _Stop_Internal 只被调一次 —— ",
     "--     因为它会从 BrainManager 的调度列表里移除 brain，重复调虽不出错但徒增开销。",
   ],
-  1103: [
+  "EntityScript:SetBrain#1": [
     "--★★ SetBrain：挂载 / 更换大脑",
     "--【这是大脑生命周期的总入口，执行顺序每一步都有讲究】",
     "--   ① 记下工厂函数 brainfn（必须记住，因为 brain 对象会在停/启时被重建）",
@@ -333,14 +333,14 @@ export const BEFORE = {
     "--   ④ 根据禁用标记决定是否真的创建 brain 对象",
     "--   ⑤ 新 brain 绑定 inst，若无待恢复的停止原因则立即启动",
   ],
-  1105: [
+  "EntityScript:SetBrain#1+2": [
     "--★V2C 注释直接说明了 sleepstatepending 的用途，与 221 行呼应：",
     "--   \"sleepstatepending check to prevent brain starting at construction when",
     "--    :IsAsleep() always returns false\"",
     "--   ★ 翻译：构造期IsAsleep() 因引擎尚未发来初始状态而恒返回 false，",
     "--     若不检查 sleepstatepending，休眠实体会在构造时被错误启动大脑。",
   ],
-  1106: [
+  "EntityScript:SetBrain#1+3": [
     "--★★ 三条件或判定—— \"brainfn and (A or B or C) or nil\"",
     "--   语义：只有在「配了大脑」且「在 limbo / 已睡着 / 休眠状态未知」时才禁用。",
     "--   ★ 末尾的 `or nil` 是必需的：否则 false 会被存入 _braindisabled，",
@@ -348,10 +348,10 @@ export const BEFORE = {
     "--     false 与 nil 语义相同所以功能上没问题，但 `or nil` 让字段语义更干净",
     "--     （未设置 = nil）。",
   ],
-  1108: [
+  "EntityScript:SetBrain#1+5": [
     "--【★ 先停旧 brain】更换大脑时必须停，否则旧 brain 残留在调度表里。",
   ],
-  1110: [
+  "EntityScript:SetBrain#1+7": [
     "--★★ 三元表达式（Lua 的 a and b or c）】",
     "--   brainfn and not self._braindisabled and brainfn() or nil",
     "--   拆解：(brainfn and (not _braindisabled) and brainfn()) or nil",
@@ -359,27 +359,27 @@ export const BEFORE = {
     "--   ★★ 陷阱提示：这个写法在「中间结果可能为 false/nil」时会退化。",
     "--     这里 brainfn() 返回的是 Brain 实例（表），恒为真值，安全。",
   ],
-  1112: [
+  "EntityScript:SetBrain#1+9": [
     "--【★ brain.inst = self —— 回指宿主实体】",
     "--   Brain 类通过 .inst 访问实体，两者形成双向引用。",
     "--   ★ 这也是 _DisableBrain_Internal:1129 里 `self.brain = nil` 的原因：",
     "--     ★★ 断开回指，防止「实体 → brain → inst → 实体」形成引用环导致无法 GC。",
     "--     在有 GC 的 Lua 里环会被回收，但在无 GC 或引用计数环境下就是泄漏。",
   ],
-  1113: [
+  "EntityScript:SetBrain#1+10": [
     "--【★ 挂上 brain 后立刻检查是否有待恢复的暂停原因】",
     "--   若 _brainstopped 存在（早先 StopBrain 过），则**不启动** ——",
     "--   ★ 正确：换 brain 不应绕过「正在暂停」的状态。",
   ],
 
-  1120: [
+  "EntityScript:_DisableBrain_Internal#1": [
     "--★V2C 注释：\"should only be called from OnEntitySleep, RemoveFromScene\"",
     "--   ★ 这是调用契约的正式声明。实际调用点：",
     "--     RemoveFromScene:354（ limbo）、",
     "--     以及 C++ 引擎的 OnEntitySleep 回调（由 prefab 脚本转发，",
     "--     参见 components/amphibiouscreature.lua:29 的写法）。",
   ],
-  1122: [
+  "EntityScript:_DisableBrain_Internal#1+2": [
     "--★★ 原注释解释了「为何不检查 _braindisabled 已为 true」】",
     "--   \"_braindisabled flag is only valid if we have a brainfn.",
     "--   Don't bother checking 'not self._braindisabled'. This code is safe to run",
@@ -390,32 +390,32 @@ export const BEFORE = {
     "--     ③ 依赖引擎只在必要时调用。",
     "--   ——这是「用简单可重入的代码替代状态机」的思路，值得学习。",
   ],
-  1126: [
+  "EntityScript:_DisableBrain_Internal#1+6": [
     "--【置 _braindisabled = true】与 _EnableBrain_Internal:1137 成对。",
   ],
-  1127: [
+  "EntityScript:_DisableBrain_Internal#1+7": [
     "--★★ 停止并丢弃 brain 对象 —— 与 SetBrain:1110 的关键区别",
     "--   这里 `self.brain = nil` 彻底销毁对象（不只是停止），",
     "--   ★ 原因：brain 内部可能持有行为状态（当前目标、计时器），",
     "--     长时间休眠后这些状态早已过时，不如重建。",
     "--   ★ 重建时用的 brainfn 仍保存在 self.brainfn，不会丢失。",
   ],
-  1135: [
+  "EntityScript:_EnableBrain_Internal#1": [
     "--★V2C 注释：\"should only be called from OnEntityWake, ReturnToScene\"",
     "--   ★ 与 1120 行严格配对。两个函数构成「禁用/启用」的一对。",
   ],
-  1136: [
+  "EntityScript:_EnableBrain_Internal#1+1": [
     "--★ 守卫：只有在被禁用状态下才重建。",
     "--   ★ 若实体本来就没 brain（_braindisabled 为 nil），本函数是 no-op，",
     "--     因此 ReturnToScene:405 可以无条件调用它。",
   ],
-  1138: [
+  "EntityScript:_EnableBrain_Internal#1+3": [
     "--【★ 重新创建 brain 对象】用的是 self.brainfn 工厂函数。",
     "--   ★ 与 SetBrain 的区别：这里不需要再检查 _brainstopped 之外的条件，",
     "--     因为 ReturnToScene:405 已经保证了「不 asleep 且 sleepstatepending 已解除」。",
   ],
 
-  1148: [
+  "EntityScript:SetStateGraph#1": [
     "--★★ SetStateGraph：挂载状态图",
     "--【★ 与 SetBrain 的对照 —— 二者结构惊人地相似】",
     "--   SetBrain        用「工厂函数 + _braindisabled + _brainstopped」",
@@ -424,31 +424,31 @@ export const BEFORE = {
     "--     ① 先清理旧实例 ② 创建新实例 ③ 挂到全局管理器 ④ 按需暂停",
     "--   —— 两个 AI 框架在这一点上刻意保持一致，便于统一理解。",
   ],
-  1149: [
+  "EntityScript:SetStateGraph#1+1": [
     "--【★ 先移除旧实例】SGManager:RemoveInstance 会清理事件缓冲与调度列表。",
     "--   参见 stategraph.lua:82。",
   ],
-  1152: [
+  "EntityScript:SetStateGraph#1+4": [
     "--【LoadStateGraph：加载状态图定义（函数）】见 62 行。",
   ],
-  1155: [
+  "EntityScript:SetStateGraph#1+7": [
     "--★★ StateGraphInstance(sg, self) —— 包装定义成运行时实例】",
     "--   定义（工厂函数，静态）vs 实例（动态，含当前状态、变量）",
     "--   ★ StateGraphInstance 是 stategraph.lua 提供的类，持有：",
     "--     当前状态、当前/前一状态、历史、sg 定义、inst 宿主。",
   ],
-  1156: [
+  "EntityScript:SetStateGraph#1+8": [
     "--★SGManager:AddInstance(self.sg, self:IsAsleep())",
     "--   ★★ 第二个参数是休眠状态：若实体正睡着，状态图直接进入「休眠形态」，",
     "--     不做任何 tick 处理。参见 stategraph.lua 的 SendToList 逻辑。",
     "--   —— 与 ReturnToScene:409 的 sg:Start(asleep) 呼应。",
   ],
-  1157: [
+  "EntityScript:SetStateGraph#1+9": [
     "--★ GoToState(defaultstate) —— 立即进入初始状态。",
     "--   ★ 注意是直接调用而非 PushEvent(\"gointostate\")，",
     "--     保证状态图挂上的第一刻就处于有效状态，而不是空壳。",
   ],
-  1158: [
+  "EntityScript:SetStateGraph#1+10": [
     "--★★ 「在 limbo 则立即停止」的补偿】",
     "--   1156 行已经告诉 SGManager 按 asleep 处理，",
     "--   但 SGManager 的休眠是基于 **IsAsleep**（引擎状态），",
@@ -458,7 +458,7 @@ export const BEFORE = {
     "--   ★ 这正好印证了「limbo 与 sleep 正交」的论断 —— ",
     "--     若二者等价，这行代码就是多余的。",
   ],
-  1165: [
+  "EntityScript:ClearStateGraph#1": [
     "--★ ClearStateGraph 与 SetStateGraph:1149 的清理部分完全一致，",
     "--   但额外把 self.sg 置 nil（因为它没有紧接着创建新实例）。",
     "--   ★ 出现这个函数说明有时需要「只拆不装」——",

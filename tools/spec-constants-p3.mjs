@@ -2,7 +2,7 @@
 // 覆盖源文件行号区间：1649 - 2292
 
 export const BEFORE = {
-  1649: [
+  "Client_IsTournamentActive#1+442": [
     "--【★ 类别 M · 颜色表（★本文件最大单一区块）】1651-1836 行",
     "--  ★★ 约 180 行全是 { r/255, g/255, b/255, a/255 } 形式的颜色常量。",
     "--    ★ 这类值 99% 是纯数据，逐行注释无价值，跳读即可。",
@@ -12,7 +12,7 @@ export const BEFORE = {
     "--      不同之处在于这里不涉及调时钟，改动风险低。",
   ],
 
-  1651: [
+  "Client_IsTournamentActive#1+444": [
     "--  BGCOLOURS（1651 行）/ WEBCOLOURS（1662 行）背景与网页色。",
     "--  PLAYERCOLOURS（1722 行）：18 名角色各自的代表色。",
     "--    ★ 这会用于玩家头顶的名字标签颜色 —— 是身份识别功能。",
@@ -20,7 +20,7 @@ export const BEFORE = {
     "--      所以改颜色不会损坏存档，只是换了个观感。",
   ],
 
-  1767: [
+  "RGB#1+109": [
     "--★ DEFAULT_PLAYER_COLOUR = RGB(153, 153, 153) -- GREY（第 1767 行）",
     "--  ★ 用RGB() 辅助函数而非裸表 —— 这是本文件少数用函数构造颜色的地方。",
     "--  ★★ 说明：文件里存在**两套颜色写法**：",
@@ -32,7 +32,7 @@ export const BEFORE = {
     "--    ⇒ 属于UI 表现层，与 gameplay 无关。",
   ],
 
-  1773: [
+  "RGB#1+115": [
     "--  WET_TEXT_COLOUR = RGB(149, 191, 242)（第 1773 行）：",
     "--    ★★ 很有意思的细节：★「淋湿时」文字变为蓝色。",
     "--    ⇒ 这是一个纯表现层反馈，告诉玩家「你正处在湿身状态」，",
@@ -40,14 +40,14 @@ export const BEFORE = {
     "--    ★★ 数值设计的体现：状态变化不仅改血条，还改**UI 配色**。",
   ],
 
-  1786: [
+  "RGB#1+128": [
     "--★ CHARACTER_COLOURS（1786 行）：各角色的肤色/主色。",
     "--  ★ 消费方：角色选择界面与多人列表的头像。",
     "--  ANNOUNCEMENT_ICONS（1812 行）：公告图标路径。",
     "--  ROAD_STRIPS（1829 行）：路面贴图（对应 tuning.lua 的 ROADWAY 地面）。",
   ],
 
-  1837: [
+  "RGB#1+179": [
     "--【★ WRAP_MODE / FILTER_MODE / MIP_FILTER_MODE】1837-1859 行",
     "--  ★★ 这三个是**贴图采样模式**（纹理环绕、过滤方式）。",
     "--  ★ 与玩法完全无关，但影响画面表现：",
@@ -55,7 +55,7 @@ export const BEFORE = {
     "--  ★★ 识别方法：含MODE 且值为小整数的，多半是引擎枚举而非玩法参数。",
   ],
 
-  1860: [
+  "RGB#1+202": [
     "--【★ 渲染引擎高级常量】1860-1895 行",
     "--  SamplerEffectBase / SamplerSizes / SamplerColourMode / TexSamplers",
     "--  UniformVariables / SamplerEffects / PostProcessorEffects / TileGroups",
@@ -65,7 +65,7 @@ export const BEFORE = {
     "--    ★ 读表提示：看到 { } 且名字是渲染相关的，直接跳过。",
   ],
 
-  1896: [
+  "RGB#1+238": [
     "--★★ 【★ 图集路径常量（HUD/UI 贴图）】1896-1899 行",
     "--  HUD_ATLAS = \"images/hud.xml\" / UI_ATLAS = \"images/ui.xml\"",
     "--  CRAFTING_ATLAS = \"images/crafting_menu.xml\"",
@@ -75,12 +75,12 @@ export const BEFORE = {
     "--    与物品 ID 同属「字符串即 ID」的风险类别。",
   ],
 
-  1901: [
+  "RGB#1+243": [
     "--  SNOW_THRESH = .015（第 1901 行）：积雪阈值。",
     "--    ★ 无量纲比例（0~1），与 tuning.lua 的 DARK_CUTOFF 同属「归一化数值」。",
   ],
 
-  1903: [
+  "RGB#1+245": [
     "--★ VIBRATION_CAMERA_SHAKE=0 / VIBRATION_BLOOD_FLASH=1 / _OVER=2（1903-1905 行）：",
     "--  ★★★ 这是**手柄震动类型**枚举，不是数值参数。",
     "--    ★★ 与第 109 行的 CONTROL_* 同属「平台层动作编号」体系，",
@@ -88,7 +88,7 @@ export const BEFORE = {
     "--    ★ ★若主机端不支持震动，这些常量实际不会被用到。",
   ],
 
-  1907: [
+  "RGB#1+249": [
     "--★★★ 【★★ 存档与皮肤槽位 —— 本文件的高危魔数区】1907-1911 行",
     "--  NUM_SKIN_PRESET_SLOTS = 25（第 1907 行）：皮肤预设槽数量。",
     "--  ★★⚠ 魔数风险：槽位编号会写入玩家存档（\"我保存了第 17 号预设\"）。",
@@ -107,13 +107,13 @@ export const BEFORE = {
     "--    否则会误以为改这些数字能生效。",
   ],
 
-  1913: [
+  "RGB#1+255": [
     "--【SAVELOAD 存档读档操作枚举】1913-1935 行：",
     "--  OPERATION 字段定义存档操作类型（新建/读取/删除…）。",
     "--  ★★ 这是**命令枚举**，参与存档流程分支，改动风险高。",
   ],
 
-  1936: [
+  "RGB#1+278": [
     "--【★ 类别 N · 材质表】1936-1964 行",
     "--  MATERIALS（1936 行）：物品的物理材质（石/木/金属/玻璃…）。",
     "--    ★★ 材质影响：敲击音效、掉落耐久、能否点燃、能被什么工具破坏。",
@@ -121,7 +121,7 @@ export const BEFORE = {
     "--  ★ 消费方：components/forge.lua、inventory.lua 的耐久消耗逻辑。",
   ],
 
-1965: [
+"RGB#1+307": [
     "--★★★ 【★ 类别 O · ★★ 物品材质分类（与调平衡强相关）★★】1965-2182 行",
     "--",
     "--  ★★ 这是本文件中**与数值平衡关系最密切**的一段，",
@@ -155,7 +155,7 @@ export const BEFORE = {
     "--    *_WORK 等数值配合。",
   ],
 
-  2022: [
+  "RGB#1+364": [
     "--★★ 【FOODTYPE 食物类型表】2022-2044 行 —— ★★ 调平衡核心",
     "--  GENERIC / MEAT / VEGGIE / ELEMENTAL / GEARS / HORRIBLE / INSECT /",
     "--  SEEDS / BERRY …（约 20 种类型）",
@@ -179,7 +179,7 @@ export const BEFORE = {
     "--  components/perishable.lua（腐坏）。",
   ],
 
-  2045: [
+  "RGB#1+387": [
     "--【★★ FOODGROUP 食物分组表】2045-2106 行（★本区第二大表）",
     "--  ★★ 与 FOODTYPE 的区别：",
     "--    FOODTYPE = 「这食物是什么类型」（决定行为规则）",
@@ -191,7 +191,7 @@ export const BEFORE = {
     "--    真正影响体验的是 tuning.lua 里的卡路里与腐坏时间。",
   ],
 
-  2107: [
+  "RGB#1+449": [
     "--★★ 【FARM_PLANT_STRESS 作物受 Stress 影响】2107-2117 行",
     "--  ★★ 这是「作物会受极端温度影响」的参数表。",
     "--    与 tuning.lua 的 MIN/MAX_PLANT_WITHER_TEMP（2270-2271 行）配套：",
@@ -200,7 +200,7 @@ export const BEFORE = {
     "--★ 消费方：components/farmplant.lua。",
   ],
 
-  2118: [
+  "RGB#1+460": [
     "--【CRAFTINGSTATION_LIMITED_RECIPES 系列】2118-2122 行",
     "--  ★ 三张空表 + 一个计数器，都是**模组扩展点**：",
     "--    CRAFTINGSTATION_LIMITED_RECIPES = {}",
@@ -211,7 +211,7 @@ export const BEFORE = {
     "--    ⇒ 若想知道某配方从哪来，看模组而不是本文件。",
   ],
 
-  2123: [
+  "RGB#1+465": [
     "--★★ 【角色食材需求表】2123-2146 行",
     "--  CHARACTER_INGREDIENT（2123 行）：每个角色解锁哪些食材（烹饪解锁）。",
     "--  CHARACTER_INGREDIENT_SEG = 5（第 2134 行）：",
@@ -235,7 +235,7 @@ export const BEFORE = {
     "--    ★★ 本文件其他 _LOOKUP 表（第 2874、2896、2914 行）也遵循此模式。",
   ],
 
-  2175: [
+  "RGB#1+517": [
     "--【CONTAINERTEST 容器测试】2175 行：容器交互测试表。",
     "--  TOOLACTIONS 工具动作表（2183 行）：",
     "--    ★★ 定义「持某种工具对某物品做什么」—— 即工具的行为映射。",
@@ -245,7 +245,7 @@ export const BEFORE = {
     "--    ⇒ 又是「行为映射在常量、强度数值在调优」的分工。",
   ],
 
-  2195: [
+  "RGB#1+537": [
     "--【★ 类别 P · 动作与建造模式枚举】2195-2292 行",
     "--  FALLINGREASON 掉落原因枚举（2195 行）：",
     "--    ★★ 记录「东西为什么掉了」（被打死 / 掉进洞/ 被丢下）。",
@@ -267,7 +267,7 @@ export const BEFORE = {
     "--    ★★ 用于「熊孩子/捣蛋鬼」相关内容，属独立小游戏系统。",
   ],
 
-  2293: [
+  "RGB#1+635": [
     "--【★ 类别 Q · ★★ Steam AppID 与 UI 基础常量 —— 本区第一个高危魔数】2293 行",
     "--  ★★★ 三个 Steam 商店 ID（2293-2295 行）：",
     "--      DONT_STARVE_TOGETHER_APPID = 322330（★本作）",

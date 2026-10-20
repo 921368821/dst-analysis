@@ -6,7 +6,7 @@ export const BEFORE = {
   // ══════════════════════════════════════════════════════════════
   // 二、回复（Regen）体系
   // ══════════════════════════════════════════════════════════════
-  327: [
+  "DoRegen#1+9": [
     "--★★★【Klei 工程师 DiogoW 的公开建议】",
     "--   \"Consider using Health:AddRegenSource, specially for players.\"",
     "--   为什么专门提玩家？因为 StartRegen 是**单例**的——",
@@ -14,7 +14,7 @@ export const BEFORE = {
     "--   玩家身上可能同时挂着多种回复（食物、装备、队友技能），",
     "--   单例模型根本装不下，所以才有 AddRegenSource 的多源模型。",
   ],
-  328: [
+  "Health:StartRegen#1": [
     "--★★【StartRegen：单例回复，带一个纯粹为兼容而加的第三参数】",
     "--   原始英文注释把「为什么加这个参数」说得非常清楚：",
     "--   有些模组依赖「StartRegen 不打断已有任务」的老行为；",
@@ -23,16 +23,16 @@ export const BEFORE = {
     "--     不删参数、不报错，而是加一个「回到旧行为」的开关。",
     "--   ⚠ 强类型移植时这个「可选布尔 + 语义翻转」的约定极易丢失。",
   ],
-  332: [
+  "Health:StartRegen#1+4": [
     "--★ `interruptcurrentregen ~= false` —— 判定写成了「不等于 false」而非「为真」，",
     "--   所以 nil 也会走「打断」分支。这是刻意的：新增参数在旧调用点全是 nil，",
     "--   必须让 nil 表现为新行为，否则等于没改。",
   ],
-  336: [
+  "Health:StartRegen#1+8": [
     "--★ regen 表懒建，与 regensources 一样。但注意：StopRegen 会把 self.regen 置 nil，",
     "--   所以「regen 存在」等价于「有一个活跃的全局回复」。",
   ],
-  342: [
+  "Health:StartRegen#1+14": [
     "--★★★【只有 task 为 nil 才建周期任务】这是本函数最关键的一行。",
     "--   若 interruptcurrentregen == false（旧行为），此时 regen.task **已存在**，",
     "--   于是：新的 amount / period 被写进 self.regen，但**周期任务本身不重建**——",
@@ -43,7 +43,7 @@ export const BEFORE = {
     "--     回调里只读 self.regen.amount 而不读 period（见 318-325 行 DoRegen）。",
     "--     若调用方以为「period 也更新了」，实际刷新频率仍是旧的。",
   ],
-  343: [
+  "Health:StartRegen#1+15": [
     "--★★ 周期任务的生命周期完全由 self.regen.task 持有。",
     "--   一旦 self.regen 被置 nil 而 task 未 Cancel，任务就成了「孤儿」——",
     "--   它仍会每 period 秒调 DoRegen，而 DoRegen 读 self.regen.amount 会崩溃。",
@@ -51,14 +51,14 @@ export const BEFORE = {
   ],
 
   // ── 多来源回复 ──
-  347: [
+  "DoRegenFromSource#1": [
     "--★★【DoRegenFromSource：与 DoRegen 的唯一区别是 cause 带上 key】",
     "--   `DoDelta(amount, true, \"regen_\"..key)` ——",
     "--   ★ 设计意图：让 healthdelta 事件的 cause 字段能区分「哪种回复」。",
     "--     UI / 音效 / 成就系统靠这个前缀识别「这是回复而非伤害」。",
     "--   ★ key 由 AddRegenSource 的调用方传入，是回复来源的语义标识。",
   ],
-  353: [
+  "Health:AddRegenSource#1": [
     "--★★★【AddRegenSource：两级索引的来源表】",
     "--   结构：self.regensources[source].tasks[key] = { task, amount, period }",
     "--     外层 source —— 谁给的（可为实体，也可为任意字符串 key）",
@@ -66,18 +66,18 @@ export const BEFORE = {
     "--   ★ 为什么需要两级？因为一个装备可能同时给「持续回血」和「回满时额外奖励」，",
     "--     移除时也要能单独撤掉一路。这就是 key 参数存在的全部理由。",
   ],
-  354: [
+  "Health:AddRegenSource#1+1": [
     "--★ key 默认 \"key\"：不传 key 时只有一路，直接用占位符。",
   ],
-  360: [
+  "Health:AddRegenSource#1+7": [
     "--★ src_params 为 nil 判定「该来源首次注册」。",
   ],
-  363: [
+  "Health:AddRegenSource#1+10": [
     "--★ 注意任务创建时传的 param 是 (nil, self, amount, key) 四个参数——",
     "--   DoPeriodicTask 的约定是 (fn, id, param...)，param 展开为回调实参，",
     "--   再往前加 inst 作为隐式 self。所以 DoRegenFromSource(inst, self, amount, key)。",
   ],
-  373: [
+  "Health:AddRegenSource#1+20": [
     "--★★★【来源是实体时，自动注册 onremove 清理】",
     "--   这是 DST 的通用约定（util/sourcemodifierlist.lua 内部也是同一套）：",
     "--   「凡是按实体索引的缓存，都必须能自摘除」，否则会引用已销毁的实体。",
@@ -85,50 +85,50 @@ export const BEFORE = {
     "--   ⚠ 强类型移植时若用弱引用或 GC 代替显式摘除，",
     "--     会遇到「实体已销毁但缓存仍在」的逻辑错误——GC 只管内存，不管语义。",
   ],
-  374: [
+  "Health:AddRegenSource#1+21": [
     "--★ EntityScript.is_instance 判定 source 是真实体还是字符串/数字。",
     "--   ★ 这是移植陷阱：强类型语言没有「既是字符串又是实体」的动态类型，",
     "--     必须把 source 显式建模成一个 sealed class / tagged union。",
   ],
-  375: [
+  "Health:AddRegenSource#1+22": [
     "--★ onremove 闭包捕获了 self 与 source（作为参数传入，不是闭包变量）——",
     "--   ★★★ 这里很讲究：`onremove = function(source)` 的 source 是**回调实参**，",
     "--     即被移除的那个实体，而不是闭包捕获的注册源 key。",
     "--     两者可能不同（同一实体的 onremove 可能被多次触发），用实参更安全。",
   ],
-  385: [
+  "Health:AddRegenSource#1+32": [
     "--★ 已有该来源且已有该 key —— 进入「参数是否变化」的判定。",
   ],
-  388: [
+  "Health:AddRegenSource#1+35": [
     "--★★★【参数未变则什么都不做】这是最重要的性能优化。",
     "--   很多 prefab 会在每帧或每次事件里重复调用 AddRegenSource（参数相同），",
     "--   若无条件 Cancel + 重建任务，会造成任务表剧烈抖动（协程池压力）。",
     "--   ★ 这里的 `data.amount ~= amount or data.period ~= period` 短路判定",
     "--     把「幂等调用」的成本降到两次比较。",
   ],
-  391: [
+  "Health:AddRegenSource#1+38": [
     "--★ Cancel 旧任务 → 建新任务 → 回写参数。三步缺一不可，",
     "--   少回写 data.amount/data.period 会导致下次调用误判「参数变了」而重复重建。",
   ],
-  396: [
+  "Health:AddRegenSource#1+43": [
     "--★ else 分支：来源已存在但该 key 是新的 → 直接加一路任务，",
     "--   不需要重算 onremove（外层已经有了）。",
   ],
-  406: [
+  "Health:AddRegenSource#1+53": [
     "--★ 英文原注释：key 可选，不传就移除整个来源。",
   ],
-  407: [
+  "Health:RemoveRegenSource#1": [
     "--★★★【RemoveRegenSource：两段式移除】",
     "--   传 key → 移除该来源的某一路；剩余还有路就提前返回",
     "--   不传 key（或该来源的路已全部移除）→ 移除整个来源（含 onremove 监听）",
   ],
-  408: [
+  "Health:RemoveRegenSource#1+1": [
     "--★ `self.regensources ~= nil and self.regensources[source] or nil` ——",
     "--   双重 nil 安全的链式写法。移除操作**必须可重入**：",
     "--   ★ 典型场景是 onremove 自摘除与外部显式移除撞车，",
     "--     此时第二次调用会看到 nil 并安静返回，不会崩。",
   ],
-  414: [
+  "Health:RemoveRegenSource#1+7": [
     "--★★⚠【疑似缺陷：未判 src_params.tasks[key] 是否存在】",
     "--   `src_params.tasks[key].task:Cancel()` 直接下钻两层。",
     "--   推理依据：上面 413 只判了 `key ~= nil`，没判 `src_params.tasks[key] ~= nil`。",
@@ -138,20 +138,20 @@ export const BEFORE = {
     "--     那里做了判定，这里没有，属明显的不一致。",
     "--   ★ 正确写法应是 `local d = src_params.tasks[key]; if d ~= nil then d.task:Cancel() end`。",
   ],
-  417: [
+  "Health:RemoveRegenSource#1+10": [
     "--★ 提前返回：这一路还有别的 key，不该拆掉整个来源。",
   ],
-  425: [
+  "Health:RemoveRegenSource#1+18": [
     "--★ 拆来源时必须反注册 onremove，否则 self.regensources 里会残留指向已死实体的闭包。",
   ],
-  435: [
+  "Health:RemoveRegenSource#1+28": [
     "--★ 表空了就把整个 self.regensources 置 nil —— 与「懒建」配对，避免空表驻留。",
   ],
 
   // ══════════════════════════════════════════════════════════════
   // 三、吸收率、惩罚、上限
   // ══════════════════════════════════════════════════════════════
-  440: [
+  "Health:SetAbsorptionAmount#1": [
     "--★ SetAbsorptionAmount 写的是一代字段 absorb（已废弃但仍生效，见 89 行）。",
     "--   ★ 实际使用方：alterguardian_phase1.lua（守卫者阶段一护盾）、",
     "--     toadstool.lua（蟾蜍蛙按等级吸收酸雨）、wathgrithr.lua、",
@@ -159,16 +159,16 @@ export const BEFORE = {
     "--     共同特征：都是「按形态/状态整体改一次」的减伤，",
     "--     不需要按来源分别回收——所以留在旧字段上反而合适。",
   ],
-  444: [
+  "Health:SetAbsorptionAmountFromPlayer#1": [
     "--★ playerabsorb 是「仅对玩家攻击者生效」的吸收率。",
     "--   唯一使用方：prefabs/walls.lua:347 的 playerdamagemod（墙的世界设置减伤）。",
     "--   ★ 与 absorb 的区别在 DoDelta:628 的条件表达式里体现。",
   ],
-  448: [
+  "Health:StopRegen#1": [
     "--★★【StopRegen：必须先 Cancel 再置 nil】顺序即安全契约。",
     "--   若先置 nil，孤儿任务会在下次触发时读 self.regen.amount 崩溃。",
   ],
-  460: [
+  "Health:SetPenalty#1": [
     "--★★【SetPenalty：生命惩罚的收敛点】",
     "--   penalty 是「永久性降低可用血量上限」的比例，0 ~ TUNING.MAXIMUM_HEALTH_PENALTY(0.75)。",
     "--   ★ 语义等价于「最大血量打折」：GetMaxWithPenalty() = maxhealth * (1 - penalty)。",
@@ -176,18 +176,18 @@ export const BEFORE = {
     "--   ★ 游戏内表现：DST 的「战败标记」「灵魂jaar」等机制会施加惩罚，",
     "--     用来制造「越死越弱」的心理压力与死亡螺旋。",
   ],
-  462: [
+  "Health:SetPenalty#1+2": [
     "--★ disable_penalty 短路：整个机制可由 TUNING.HEALTH_PENALTY_ENABLED 全局关闭，",
     "--   而且是**静默关闭**（不发事件、不同步副本）。",
     "--   ⚠ 移植陷阱：这一行让 SetPenalty 成为「可能什么都不做」的函数，",
     "--     调用方不能假设赋值成功。强类型版本应显式返回 bool 表示是否生效。",
   ],
-  463: [
+  "Health:SetPenalty#1+3": [
     "--★★ 英文原注释点明了硬边界：「Penalty should never be less than 0% or ever above 75%」",
     "--   与 tuning.lua:2161 的 MAXIMUM_HEALTH_PENALTY = 0.75 一致。",
     "--   ★ math.clamp 同时防住「负惩罚（变相加血）」和「超过 75%（回血）」。",
   ],
-  468: [
+  "Health:DeltaPenalty#1": [
     "--★★★【DeltaPenalty：惩罚的增量接口 + 立刻封顶】",
     "--   `SetPenalty(self.penalty + delta)` 然后 `ForceUpdateHUD(false)`。",
     "--   ★★ 为什么必须紧跟 ForceUpdateHUD？因为惩罚只改「上限」不改「当前血量」。",
@@ -198,20 +198,20 @@ export const BEFORE = {
     "--   ★ 这是「改上限必须连带收敛当前值」的通用套路，在 506 行 SetMaxHealth 也一样。",
     "--   ⚠ ForceUpdateHUD 传的是 false（overtime=false），即视为「即时变化」而非定时变化。",
   ],
-  477: [
+  "Health:GetPercent#1": [
     "--★ GetPercent 返回 0~1 的原始血量百分比，**不含惩罚**。",
     "--   ★★ 对比 GetPercentWithPenalty（481 行）用 GetMaxWithPenalty 作分母。",
     "--     两者在 penalty=0 时完全相同；有惩罚时前者会 > 1。",
     "--   ★ 选择建议：UI 血条应该用 GetPercentWithPenalty（否则会画到超出槽外），",
     "--     而「血量百分比」类逻辑（如 SetPercent 的入参语义）用 GetPercent。",
   ],
-  481: [
+  "Health:GetPercentWithPenalty#1": [
     "--★ GetPercentWithPenalty：分母换成「实际可用上限」。",
     "--   ★ 客户端的对应实现在 health_replica.lua:80 MaxWithPenalty()，",
     "--     用 `maxhealth * (1 - healthpenalty/200)` —— 惩罚值以 ×200 定点数同步（见 66 行），",
     "--     因为 netvar 只支持整数。这是个典型的「网络带宽优先于精度」决策。",
   ],
-  485: [
+  "Health:IsInvincible#1": [
     "--★★★【IsInvincible：三源合流】",
     "--   ① self.invincible 字段（SetInvincible 设置）",
     "--   ② 状态图标签 \"temp_invincible\"（临时无敌，由具体 AI 状态图挂）",
@@ -219,7 +219,7 @@ export const BEFORE = {
     "--     状态图进入/退出时会自动增删标签，天然带生命周期管理，无需手工清理。",
     "--     这是「用状态图标签承载瞬时状态」的典范用法。",
   ],
-  486: [
+  "Health:IsInvincible#1+1": [
     "--★★★【V2C 注释解释了「为什么玩家不能只靠 temp_invincible」】",
     "--   原文：don't use \"temp_invincible\" for players, since they also need to use",
     "--   \"invincibletoggle\" event, which doesn't work with \"temp_invincible\".",
@@ -229,10 +229,10 @@ export const BEFORE = {
     "--   ★ 这条注释揭示了一条通用原则：**跨端可见的瞬时状态必须走 netvar 或 tag，",
     "--     状态图标签只能用于服务端内部逻辑**。",
   ],
-  491: [
+  "Health:GetDebugString#1": [
     "--★ GetDebugString 给调试模式（长按 Debug 键）用，显示血量与回复配置。",
   ],
-  499: [
+  "Health:SetCurrentHealth#1": [
     "--★★★【SetCurrentHealth：唯一的裸血量写入口，且不做任何夹取】",
     "--   直接赋值 → 触发 oncurrenthealth（同步副本 + 通知 repairable + 战斗阈值）。",
     "--   ⚠⚠ 但它**绕过了 SetVal 的全部封顶/地板逻辑**（572/576 行）。",
@@ -241,7 +241,7 @@ export const BEFORE = {
     "--   ⚠ 强类型移植建议：给这个方法改名 SetCurrentHealthUnclamped，",
     "--     或强制内部走 SetVal，避免使用者误以为它是安全写入。",
   ],
-  503: [
+  "Health:SetMaxHealth#1": [
     "--★★★【SetMaxHealth：上限与当前值一起改，然后封顶】",
     "--   `self.currenthealth = amount` 让血量直接等于新上限（满血），",
     "--   再 ForceUpdateHUD(true) 触发 SetVal 走封顶逻辑。",
@@ -251,11 +251,11 @@ export const BEFORE = {
     "--   ⚠ 这里同时赋了 maxhealth 和 currenthealth，两个 setter 都会触发，",
     "--     所以会产生两次 replica 写入（SetMax + SetCurrent）。可以优化但无害。",
   ],
-  509: [
+  "Health:SetMinHealth#1": [
     "--★ SetMinHealth 设置血量地板。设成正数 = 该实体不会真正死亡。",
     "--   ★ 实际用途：部分「不该死」的特殊实体，或剧情里锁血的单位。",
   ],
-  513: [
+  "Health:SetMaxDamageTakenPerHit#1": [
     "--★★★【SetMaxDamageTakenPerHit：单次伤害上限，符号取负是刻意的存储技巧】",
     "--   传入正数（如 20）表示「单次最多受 20 点伤」，",
     "--   内部存成 -20，因为 DoDelta 的 amount 约定是「负数为伤害」。",
@@ -264,11 +264,11 @@ export const BEFORE = {
     "--     比较方向与扣血方向一致，不需要额外取反。",
     "--   ★ nil 传参表示「取消上限」（517 行直接赋 nil）。",
   ],
-  520: [
+  "Health:IsHurt#1": [
     "--★ IsHurt 用 GetMaxWithPenalty 作分母：惩罚状态下即使血量等于裸上限，",
     "--   也算「受伤了」（因为达不到可用上限）。这与 UI 血条的缺口逻辑一致。",
   ],
-  524: [
+  "Health:GetMaxWithPenalty#1": [
     "--★★★【GetMaxWithPenalty：现算而非存储】",
     "--   这是本文件最重要的一个设计决策：**不缓存「惩罚后的上限」**。",
     "--   ★ 好处：任何路径改 maxhealth 或 penalty 都自动生效，",
@@ -279,7 +279,7 @@ export const BEFORE = {
     "--     SetVal 的地板计算（568）、GetDebugString（492）。",
     "--     漏掉任何一处都会导致惩罚状态下的不一致。",
   ],
-  528: [
+  "Health:Kill#1": [
     "--★★★【Kill：把自己打死，但尊重无敌】",
     "--   DoDelta(-currenthealth, nil, nil, nil, nil, true) 参数逐个看：",
     "--     amount = -currenthealth —— 一次扣到 0 底",
@@ -294,10 +294,10 @@ export const BEFORE = {
     "--     标志已被置 nil，行为就会不同。实际不发生，但强类型移植时",
     "--     应该改成显式的私有方法 doDeltaUncapped(amount, ...)。",
   ],
-  531: [
+  "Health:Kill#1+3": [
     "--★ 置 true → 调 DoDelta → 置 nil。严格 try/finally 形态（虽然没用 pcall）。",
   ],
-  537: [
+  "Health:ForceKill#1": [
     "--★★★【ForceKill = Kill + ignore_invincible=true】",
     "--   两行差异（541 行 vs 532 行）就是全部语义：ForceKill 能打死无敌的实体。",
     "--   ★ 用途：任务/调试/剧情强杀。搜 prefabs 可找到调用方。",
@@ -306,10 +306,10 @@ export const BEFORE = {
     "--     也就是说：开了 NONLETHAL_TEMPERATURE 的世界里，",
     "--     血量已低于 20% 的玩家，ForceKill 也杀不死。这是个真实的行为陷阱。",
   ],
-  546: [
+  "Health:IsDead#1": [
     "--★ IsDead 用 <= 0。与 oncurrenthealth:20 的 netvar 判定保持一致。",
   ],
-  550: [
+  "Health:SetPercent#1": [
     "--★★★【SetPercent：按比例设血，附带一次 HUD 刷新】",
     "--   `SetVal(self.maxhealth * percent, cause)` —— ★ 用的是**裸上限**不是惩罚后上限，",
     "--     所以 percent=1 在有惩罚时会被 SetVal 的封顶压回。",
@@ -319,7 +319,7 @@ export const BEFORE = {
     "--     目的很单纯：让这次「刷新」在 healthdelta 事件里带上正确的上下文，",
     "--     使得依赖 cause 做分支的监听者不会看到「无因变化」。",
   ],
-  555: [
+  "Health:CanFadeOut#1": [
     "--★★【CanFadeOut：故意不做 IsValid() 检查】",
     "--   英文原注释 \"Intentional lack of IsValid().\" 后面直接跟代码，什么都没解释。",
     "--   结合 597-598 行的 V2C 注释才明白：**这是刻意的「不掩盖 bug」策略**。",
@@ -329,12 +329,12 @@ export const BEFORE = {
     "--   ★★ 这是一个非常值得学习的错误处理哲学：",
     "--     「防御性检查」有时候是在掩盖调用方的 bug。",
   ],
-  560: [
+  "OnCorpsingEntitySleep#1": [
     "--★ OnCorpsingEntitySleep：实体在「化为尸体」前就休眠时的补偿处理。",
     "--   需求是「立刻进入 corpse 状态」，但状态图对休眠实体不调度，",
     "--   所以只能靠 entitysleep 事件 + 手动 GoToState。",
   ],
-  561: [
+  "OnCorpsingEntitySleep#1+1": [
     "--★ PushEventImmediate 绕过事件队列立即派发——因为实体马上就休眠了，",
     "--   排队的事件可能永远不被处理。参见 entityscript.lua 的 PushEventImmediate。",
   ],
@@ -342,7 +342,7 @@ export const BEFORE = {
   // ══════════════════════════════════════════════════════════════
   // 四、SetVal：死亡流程
   // ══════════════════════════════════════════════════════════════
-  565: [
+  "Health:SetVal#1": [
     "--★★★【SetVal：血量赋值的真正实现，是整个文件的心脏】",
     "--   所有路径（DoDelta / SetPercent / Kill / SetCurrentHealth）最终都汇到这里。",
     "--   它做四件事：① 事件预告；② 上限封顶；③ 地板兜底；④ 死亡判定。",
@@ -351,30 +351,30 @@ export const BEFORE = {
     "--     但监听者可以通过闭包间接改 self.currenthealth 来达到同样效果。",
     "--     实际用途见 prefabs 里监听该事件的地方。",
   ],
-  566: [
+  "Health:SetVal#1+1": [
     "--★ old_health 用于死亡判定（571 行）与 healthdelta 事件。",
   ],
-  567: [
+  "Health:SetVal#1+2": [
     "--★ ★★★ 关键：封顶用 GetMaxWithPenalty()，不是裸 maxhealth。",
     "--   这是「惩罚状态下的血量收敛点」——所有超额血量在此被削掉。",
   ],
-  568: [
+  "Health:SetVal#1+3": [
     "--★★ `math.min(self.minhealth or 0, max_health)` —— 地板也要受上限约束。",
     "--   ★ 为什么要 min？如果 minhealth 被设成 200 而 maxhealth 只有 100，",
     "--     地板高于上限会导致「满血 = 死」这种荒谬状态。",
     "--   ★ `self.minhealth or 0` 同时兼容「minhealth 未设置」与「显式设 0」。",
   ],
-  570: [
+  "Health:SetVal#1+5": [
     "--★ pre_health_setval 事件的数据表是一次性分配（每帧都可能分配 → GC 压力）。",
     "--   ★ 性能敏感：热路径上每帧一次 table 分配。移植时可用对象池或栈分配。",
   ],
-  572: [
+  "Health:SetVal#1+7": [
     "--★★【上限封顶】`if val > max_health then val = max_health end`",
     "--   ★ 设计意图：血量是「不能溢出」的物理量，回血超出上限的部分直接丢弃。",
     "--     这与多数游戏「回血溢出转化为治疗量」的设计相反——",
     "--     DST 明确选择了「丢弃」，因为它要保证血条读数与实际值严格一致。",
   ],
-  576: [
+  "Health:SetVal#1+11": [
     "--★★★【地板兜底与 minhealth 事件】",
     "--   `val <= min_health` → 强制设为 min_health，并 PushEvent(\"minhealth\")。",
     "--   ★★ 语义：minhealth > 0 时这实际上**阻止了死亡**（因为 571 行的死亡判定",
@@ -385,21 +385,21 @@ export const BEFORE = {
     "--     即使被 DoDelta 扣到 0 以下。这是「免死」的正确实现，但也意味着",
     "--     任何「靠 DoDelta(-99999) 强杀」的需求都会失效，必须改用 Kill/ForceKill。",
   ],
-  583: [
+  "Health:SetVal#1+18": [
     "--★★★【死亡判定的四个条件：老血 > 0 且 新血 <= 0】",
     "--   ★★ 「老血 > 0」这个条件保证**死亡事件只触发一次**：",
     "--     实体死后若还有周期任务在扣血（或者别人又打了一下），",
     "--     老血已经是 0，不会重复触发 death。",
     "--   ★ 这是「幂等事件」的标准写法，避免了「尸体生成多份」的严重 bug。",
   ],
-  584: [
+  "Health:SetVal#1+19": [
     "--★★【JBK 的注释解释了事件顺序的历史包袱】",
     "--   \"Make sure to keep the events fired up to date with the explosive component.\"",
     "--   意思是：这段死亡事件派发的顺序与 components/explosive.lua 里的",
     "--   死亡处理有隐式耦合，改动顺序会导致爆炸物行为异常。",
     "--   ★ 教训：跨组件的隐式顺序依赖一定要写在注释里。",
   ],
-  585: [
+  "Health:SetVal#1+20": [
     "--★★★【世界事件必须先于实体事件 —— 极易踩的坑】",
     "--   英文原注释：\"Push world event first, because the entity event may invalidate",
     "--   itself -- i.e. items that use .nofadeout and manually :Remove() on 'death' event\"。",
@@ -411,28 +411,28 @@ export const BEFORE = {
     "--     再告知实体自己（它可能自杀）。",
     "--   ⚠⚠ 这是本文件里**最值得记住的顺序契约**。移植到任何语言都必须保留。",
   ],
-  587: [
+  "Health:SetVal#1+22": [
     "--★ causeofdeath 只记 afflicter（施加者实体），不记 cause 字符串。",
     "--   ★ 语义分工：cause（\"fire\"/\"hunger\"）是类型，afflicter（实体）是凶手。",
     "--     「谁杀了我」用凶手，「怎么死的」用类型。",
     "--   ⚠ 注意这里赋在 PushEvent **之前**——因为下面的 death 事件处理里",
     "--     就可能去读 self.causeofdeath，顺序反了就读不到。",
   ],
-  588: [
+  "Health:SetVal#1+23": [
     "--★ CanEntityBecomeCorpse 判定尸体化资格。参见 componentutil.lua:1298。",
   ],
-  589: [
+  "Health:SetVal#1+24": [
     "--★★ 世界级死亡事件。用途：成就/统计/任务监听（每个玩家的每次死亡都会经过）。",
     "--   ★ 数据表一次性分配了 4 个字段，是全世界每帧都可能发生的分配。",
   ],
-  590: [
+  "Health:SetVal#1+25": [
     "--★ 实体级死亡事件。对应客户端的 isdead tag（见 20 行）。",
   ],
-  591: [
+  "Health:SetVal#1+26": [
     "--★ is_corpsing 在事件派发**之后**才赋值——",
     "--   因为 CanFadeOut（557 行）要读它，必须先有值。",
   ],
-  594: [
+  "Health:SetVal#1+29": [
     "--★★【统计类型的分流】玩家击杀与生物击杀是两条独立成就线。",
     "--   ★ `(self.inst.isplayer and \"TotalPlayersKilled\") or \"TotalEnemiesKilled\"`",
     "--     是 Lua 的 and/or 三元写法：isplayer 为真则取前者，否则取后者。",
@@ -440,7 +440,7 @@ export const BEFORE = {
     "--     所以它统计的是「发生了几次死亡」，不是「玩家主动杀了几个」。",
     "--     afflicter 作为第 3 参数传入用于排除自杀。",
   ],
-  597: [
+  "Health:SetVal#1+32": [
     "--★★★【V2C 注释：fadeout 与手动 Remove 的互斥契约】",
     "--   \"If 'death' handler removes ourself, then the prefab should explicitly set",
     "--   nofadeout = true. Intentionally NOT using IsValid() here to hide those bugs.\"",
@@ -453,35 +453,35 @@ export const BEFORE = {
     "--     不判，则立刻暴露成可复现的问题。",
     "--   ★★ 这是上一条 CanFadeOut 注释的展开，二者必须一起读。",
   ],
-  599: [
+  "Health:SetVal#1+34": [
     "--★ CanFadeOut 分支：正常淡出路径。",
   ],
-  600: [
+  "Health:SetVal#1+35": [
     "--★ 加 NOCLICK 标签：淡出中的尸体不能被点击——否则玩家能反复点开一个半透明的尸体。",
   ],
-  601: [
+  "Health:SetVal#1+36": [
     "--★★ `self.inst.persists = false` —— 淡出中的实体不再进存档。",
     "--   ★ 防止「玩家在尸体淡出的 2 秒内存档，读档后尸体又回来了」的时间旅行 bug。",
   ],
-  602: [
+  "Health:SetVal#1+37": [
     "--★ destroytime or 2：默认可配置延迟。ErodeAway 定义在 simutil.lua:570。",
   ],
-  603: [
+  "Health:SetVal#1+38": [
     "--★★ 尸体化分支：实体不淡出，而是转成「可交互的 corpse」。",
     "--   条件是 CanFadeOut() 为 false 且 is_corpsing 为真——",
     "--   即实体自己声明了「我要变尸体」（nofadeout 或自带尸体逻辑）。",
   ],
-  604: [
+  "Health:SetVal#1+39": [
     "--★ 休眠实体无法靠状态图自己跳转，所以走 560 行的补偿路径。",
   ],
-  606: [
+  "Health:SetVal#1+41": [
     "--★ 清醒实体则监听「即将休眠」事件。这是「状态图与组件生命周期」的标准协作。",
   ],
 
   // ══════════════════════════════════════════════════════════════
   // 五、DoDelta —— 逐行全解
   // ══════════════════════════════════════════════════════════════
-  613: [
+  "Health:DoDelta#1": [
     "--★★★★★【DoDelta —— 全游戏所有生存压力的最终汇聚点】",
     "--   120+ 处调用方（战斗、火焰、饥饿、温度、溺水、腐蚀、船体、",
     "--   爆炸物、月光、护盾道具……）的每一次伤害或回复都走这里。",
@@ -523,10 +523,10 @@ export const BEFORE = {
     "--   返回值：实际生效的 amount（已减免），或 0（被拦截）。",
     "--   ★★ 返回值被 combat.lua:653 用来计算「实际打了多少伤害」→ 决定击杀归属。",
   ],
-  614: [
+  "Health:DoDelta#1+1": [
     "--★ old_percent 在扣血**之前**取，后面用于 healthdelta 事件与 ondelta 回调。",
   ],
-  616: [
+  "Health:DoDelta#1+3": [
     "--★★★【第一级：非致死保护】",
     "--   条件：血量百分比 ≤ nonlethal_pct(0.2) **且**（cause 是温度 **或** cause 是饥饿）",
     "--         **且** 对应的 nonlethal_temperature / nonlethal_hunger 开关为真。",
@@ -545,10 +545,10 @@ export const BEFORE = {
     "--     是 nil（而非 false），`true and nil` = nil，再 or 右边 → 走错分支。",
     "--   ⚠⚠ 强类型移植必须改写成显式的 if/elseif/else 链。",
   ],
-  620: [
+  "Health:DoDelta#1+7": [
     "--★ 返回 0 而非 nil：调用方（如 combat.lua）会做算术，0 比 nil 安全。",
   ],
-  623: [
+  "Health:DoDelta#1+10": [
     "--★★★【第二级：redirect 钩子 —— 模组的完全接管点】",
     "--   `self.redirect(inst, amount, overtime, cause, ignore_invincible, afflicter, ignore_absorb)`",
     "--   ★★ 设计：**返回真值即表示「我已处理」**，函数立刻返回 0，什么都不做。",
@@ -558,7 +558,7 @@ export const BEFORE = {
     "--   ★ 签名与 DoDelta 完全一致（除 redirect 本身），便于模组包装转发。",
     "--   ⚠ 但 redirect 存在 self 上且无类型约束，任何模组误设都会静默吞掉所有伤害。",
   ],
-  625: [
+  "Health:DoDelta#1+12": [
     "--★★★【第三级：无敌与传送拦截】",
     "--   ★ `or self.inst.is_teleporting` 是「传送中免疫伤害」——",
     "--     传送是一个原子操作，中途被打断会导致实体落在非法位置。",
@@ -567,7 +567,7 @@ export const BEFORE = {
     "--     在 `not ignore_invincible and (...)` 里 nil 被当假处理，语义正确，",
     "--     但这依赖了「not nil == true」这个 Lua 特性。强类型语言需要显式 bool。",
   ],
-  627: [
+  "Health:DoDelta#1+14": [
     "--★★【第四级：吸收与减伤 —— 只对伤害生效】",
     "--   `elseif amount < 0 and not ignore_absorb`",
     "--   ★ 双重守卫：必须是伤害（负数）且调用方没要求跳过。",
@@ -575,7 +575,7 @@ export const BEFORE = {
     "--     ignore_absorb —— 结果无害（因为 amount>0 不进这个分支），",
     "--     但会让读者困惑。真正的误用是**给负数回复传了 true**。",
   ],
-  628: [
+  "Health:DoDelta#1+15": [
     "--★★★★★【减伤公式第一段：百分比吸收 —— 三个坑都在这一行】",
     "--   `amount = amount * math.clamp(1 - ABSORB_TOTAL, 0, 1) * math.max(1 - externalabsorb, 0)`",
     "--   ABSORB_TOTAL 的求值（and/or 链式三元）：",
@@ -609,7 +609,7 @@ export const BEFORE = {
     "--   ★ 顺带解释调用方：prefabs/foodbuffs.lua:7 传入 BUFF_PLAYERABSORPTION_MODIFIER",
     "--     = 1/3，即「伤害 × 2/3」。这是 `1 - p` 语义的直接体现。",
   ],
-  629: [
+  "Health:DoDelta#1+16": [
     "--★★★★★【减伤公式第二段：固定值减免 —— 用户指出的已知缺陷就在这里】",
     "--   `amount = afflicter ~= nil and math.min(0, amount + REDUCTION) or amount`",
     "--   意图：externalreductionmodifiers 存的是**绝对减免量**",
@@ -641,7 +641,7 @@ export const BEFORE = {
     "--     `math.min(0, amount + 0) = amount`（amount 为负），",
     "--     负数在 Lua 里是 truthy，所以结果仍是 amount——正确但绕。",
   ],
-  632: [
+  "Health:DoDelta#1+19": [
     "--★★★【第五级：deltamodifierfn —— 模组改写点】",
     "--   与 redirect 的区别：redirect 返回真值表示「我全处理了」；",
     "--   deltamodifierfn 返回值**直接成为新的 amount**，继续走后面的流水线。",
@@ -651,7 +651,7 @@ export const BEFORE = {
     "--   ⚠ 模组若返回 nil，则 amount 变 nil，后续 SetVal(currenthealth + nil) 崩溃。",
     "--     这是个未加保护的扩展点。",
   ],
-  636: [
+  "Health:DoDelta#1+23": [
     "--★★★【第六级：单次伤害上限】",
     "--   `if self.maxdamagetakenperhit ~= nil and amount < self.maxdamagetakenperhit`",
     "--     and not self._ignore_maxdamagetakenperhit then amount = self.maxdamagetakenperhit`",
@@ -669,11 +669,11 @@ export const BEFORE = {
     "--   ★ 用途示例：巨型生物（BETTER_HERDING 之类）设很小的单次上限，",
     "--     避免被一次高频小伤害（如 numerous spines 的 DoPeriodicTask）瞬秒。",
   ],
-  640: [
+  "Health:DoDelta#1+27": [
     "--★ 落地：把 amount 加到当前血量上。**这里是唯一真正改血量的地方**。",
     "--   ★ 注意调的是 SetVal 而不是裸赋值 —— 封顶、地板、死亡判定全在里面。",
   ],
-  642: [
+  "Health:DoDelta#1+29": [
     "--★★★【healthdelta 事件 —— 本文件订阅量最大的事件】",
     "--   一次性分配 7 字段的表。★ 这是血量变化的主要广播出口：",
     "--     oldpercent / newpercent —— 供 UI 做平滑动画与「刚刚掉了多少」",
@@ -687,14 +687,14 @@ export const BEFORE = {
     "--   ⚠ 另一注意：即使 amount=0（ForceUpdateHUD 的零伤害刷新），",
     "--     这个事件**依然会派发**。所以监听者必须能容忍 newpercent == oldpercent。",
   ],
-  644: [
+  "Health:DoDelta#1+31": [
     "--★★【ondelta 回调：比事件更早、更轻的一档】",
     "--   与 healthdelta 事件的区别：",
     "--     · ondelta 是直接函数引用，零事件分发开销（热路径友好）",
     "--     · healthdelta 走完整事件总线，能被任意监听者订阅",
     "--   ★ 谁在用 ondelta？搜 prefabs 可见部分角色用它在血量变化时切形态/播特效。",
   ],
-  645: [
+  "Health:DoDelta#1+32": [
     "--★★ 英文原注释 \"Re-call GetPercent on the slight chance that 'healthdelta' changed it.\"",
     "--   这揭示了一个**真实的重入风险**：healthdelta 的监听者可能反过来改血量",
     "--   （例如「触发即回血」的道具、或事件处理里调 SetVal）。",
@@ -702,17 +702,17 @@ export const BEFORE = {
     "--     必须现取，而不是复用中间变量。",
     "--   ⚠ 这也是「事件派发中允许状态被改变」的必然要求。",
   ],
-  646: [
+  "Health:DoDelta#1+33": [
     "--★ ondelta 签名与 healthdelta 的数据一一对应，参数名完全一致。",
   ],
-  648: [
+  "Health:DoDelta#1+35": [
     "--★★ 返回实际生效的 amount。这是 combat.lua 判定「打了多少伤害」的依据。",
   ],
 
   // ══════════════════════════════════════════════════════════════
   // 六、组件迁移
   // ══════════════════════════════════════════════════════════════
-  651: [
+  "Health:TransferComponent#1": [
     "--★★★【TransferComponent：把血量状态迁移到新实体】",
     "--   典型场景：武器耐久耗尽、物品变形（如耐久物品换成新形态）、",
     "--   玩家换 prefab（韦爵变形）等。旧实体的 health 组件状态要继承给新实体。",
@@ -725,25 +725,25 @@ export const BEFORE = {
     "--     这些是「施加在实体上的效果」，属于旧实体的语境。",
     "--     迁移它们会让新实体凭空获得不该有的减伤。",
   ],
-  653: [
+  "Health:TransferComponent#1+2": [
     "--★ SetPercent 迁的是比例而非绝对值——正确的选择，因为 maxhealth 常变。",
   ],
-  655: [
+  "Health:TransferComponent#1+4": [
     "--★ 直接赋值 takingfiredamage 会触发 setter → 同步副本。",
   ],
-  656: [
+  "Health:TransferComponent#1+5": [
     "--★ 只有「正在燃烧」才需要补齐后面三个字段——非燃烧态无需复制时序数据。",
   ],
-  659: [
+  "Health:TransferComponent#1+8": [
     "--★★ StartUpdatingComponent：新实体必须立刻接上帧更新，",
     "--   否则 DoFireDamage 里设置的燃烧状态会永远等不到 OnUpdate 的熄灭判定。",
     "--   ★ 这是「状态迁移必须连带迁移调度状态」的典型——",
     "--     只搬数据不搬调度，会导致「状态存在但无人维护」。",
   ],
-  660: [
+  "Health:TransferComponent#1+9": [
     "--★ 向新实体补发 startfiredamage 事件，让它的状态图/特效立刻进入燃烧表现。",
   ],
-  662: [
+  "Health:TransferComponent#1+11": [
     "--★★ lastfiredamagetime 无论是否燃烧都要迁移。",
     "--   理由：新实体若在 0.5 秒内又被点燃，火焰迟滞判定应以**旧实体的最后时刻**",
     "--   为基准，才能保持「刚灭的火不会立刻重新烧起来」的连续手感。",

@@ -166,7 +166,7 @@ export const BEFORE = {
     "--   它只通过 `act.doer.components.xxx` 的形式在运行时去摸组件，",
     "--   所以加载顺序上它可以是整个组件体系之前的第一批文件。",
   ],
-  8: [
+  "MakeRangeCheckFn#1": [
     "--★★【范围校验函数族 —— 本节是全文件最被低估的 280 行】",
     "--   它们回答一个问题：「玩家离目标**现在**够不够近？」",
     "--   ★★ 但更重要的是：这些函数**只做判断，不做移动**。",
@@ -179,18 +179,18 @@ export const BEFORE = {
     "--   CheckXxx      —— customarrivecheck，返回 (reached_dest, invalid)",
     "--★ 三者的返回值语义完全不同，混用会直接导致动作不执行或立刻执行。",
   ],
-  9: [
+  "MakeRangeCheckFn#1+1": [
     "--★ 工厂函数而不是直接写死：只有需要「不同距离的同款判断」时才 new 一个。",
     "--   全文件共调用两次：16 行的 4 格，以及 700/703 行的 7 格。",
     "--   ★ 若不需要闭包环境，直接 `return doer:IsNear(target, 4)` 就够了。",
   ],
-  10: [
+  "MakeRangeCheckFn#1+2": [
     "--★★ target 为 nil 时**返回 nil 而不是 true**。",
     "--   在 Lua 里 nil 与 false 同样为假，但作者坚持写 if 而非 `and`，",
     "--   是为了让「无目标」这个语义在阅读时一眼可见。",
     "--   ⚠ 注意：这个 nil 会被 320 行当作「不设 rangecheckfn」的信号之一。",
   ],
-  16: [
+  "MakeRangeCheckFn#1+8": [
     "--★★【DefaultRangeCheck = 4 格】—— 这是全游戏的默认交互距离基准。",
     "--   ★ 它的数值出现在 2 处：ATTACK 的行尾注释（364 行说明攻击范围",
     "--     「already handles that」）与 STEAL.fn:811 的 `GetDistanceSqToInst < 16`",
@@ -198,7 +198,7 @@ export const BEFORE = {
     "--   ★★ 811 行那个 16 是**手抄的魔数**，与这里的 4 没有任何代码关联。",
     "--     改 DefaultRangeCheck 不会同步 STEAL 的范围。这是一处真实的耦合缺失。",
   ],
-  18: [
+  "PickRangeCheck#1": [
     "--★★【PickRangeCheck —— 全文件唯一一处「按目标体积算范围」的判断】",
     "--   为什么需要它？因为世界上的可拾取物大小差异极大：",
     "--     · 树（半径 1~2）    → 需要走近 4 格",
@@ -207,14 +207,14 @@ export const BEFORE = {
     "--   ★★ 这意味着**大目标比小目标允许更远的距离**——反直觉但是对的：",
     "--     大目标的碰撞体本身就是「你至少要碰到它这么大一块地方」。",
   ],
-  23: [
+  "PickRangeCheck#1+5": [
     "--★ jostle* 系列标签是「翻找/搜刮」动作（拾取时附带翻找效果）的标记。",
     "--   携带这些标签的目标会额外加上武器的攻击距离。",
     "--   ★ 条件极长（3 层嵌套）的典型：因为它同时要满足",
     "--     「有 combat 副本」「有标签」「拿得出武器」三个独立条件。",
     "--   ★ 副本（replica.combat）而非组件：因为玩家侧也要做这个判断。",
   ],
-  30: [
+  "PickRangeCheck#1+12": [
     "--★★ target_r = 目标物理半径 + 4 + 武器范围，再平方比较。",
     "--   ★ 用 distsq（距离平方）而不是 Dist，避免每帧开根号。",
     "--     这类「每帧对每个候选目标调用」的热路径必须走平方距离。",
@@ -222,23 +222,23 @@ export const BEFORE = {
     "--     locomotor.lua:1004 有对应注释：忽略 physicsradiusoverride。",
     "--     原因是覆盖半径是为了**防碰撞**而放大的，不代表实际能触及的距离。",
   ],
-  35: [
+  "ExtraPickRange#1": [
     "--★★【ExtraPickRange —— 「走近一点才能捡」的距离余量】",
     "--   签名 (doer, dest, bufferedaction) 与 RangeCheck 家族不同：",
     "--   ★★ 第一个参数是 dest（目标点）而非 target（实体）。",
     "--     因为函数体里用 `dest:GetPoint()`，说明它可能在实体不存在时",
     "--     也能工作（纯地面点）。见 48 行 dest:GetPoint() 与 48 行的 nil 检查。",
   ],
-  40: [
+  "ExtraPickRange#1+5": [
     "--★★ 这段 4 层嵌套 if 完全可以展平成一个 and 链，作者选择保留嵌套",
     "--   是因为它想强调「逐步收窄信息」：",
     "--     bufferedaction → .target → 有标签 → 有 combat → 拿到武器。",
     "--   ★ 展平后会变成一行 130 字符的表达式，反而更难验证 nil 短路顺序。",
   ],
-  46: [
+  "ExtraPickRange#1+11": [
     "--★ 有 dest 才谈得上「这个点在不在水上」。无 dest（纯实体动作）不加余量。",
   ],
-  49: [
+  "ExtraPickRange#1+14": [
     "--★★【海面判定 = 「是海洋」且「不可通行」】",
     "--   两个条件缺一不可：",
     "--     · 海洋瓦片（IsOceanTileAtPoint）→ 覆盖了 boat（船地板也是海洋瓦片）",
@@ -247,7 +247,7 @@ export const BEFORE = {
     "--     这套双重判定在 154/158/212/216/181 五处重复出现，是本文件最密集的",
     "--     重复模式之一（拼写甚至完全一致）。",
   ],
-  57: [
+  "PhysicsPaddedRangeCheck#1": [
     "--⚠疑似缺陷 L8：PhysicsPaddedRangeCheck 从未被调用。",
     "--   作者自己在行尾写了 `-- Currently unused.`。",
     "--   ★★ 它与 PickRangeCheck(18 行) 几乎完全相同，唯一差别是**不叠加武器范围**。",
@@ -255,7 +255,7 @@ export const BEFORE = {
     "--   保留死代码的成本：读者会以为「物理感知范围」是可用能力，",
     "--     从而写出拿不到距离加成的 mod 动作。",
   ],
-  68: [
+  "CheckFishingOceanRange#1": [
     "--★★【CheckFishingOceanRange —— customarrivecheck 家族的第一个样本】",
     "--   ★★★ 重要：customarrivecheck 的返回值是二元组 (reached_dest, invalid)，",
     "--     **不是**单布尔。这是 locomotor.lua:1467 决定的：",
@@ -269,15 +269,15 @@ export const BEFORE = {
     "--     · CheckInsideGolfGame    → (bool,)        —— 同上",
     "--     · maponly_checkvalidpos_fn → (bool, reason, x, z, ent) —— 不是这一族",
   ],
-  69: [
+  "CheckFishingOceanRange#1+1": [
     "--★ 三个局部变量连成一条：doer 位置 → 目标点 → 方向向量。",
     "--   接下来只做一件事：从 doer 出发朝目标走 0.25+r 处的那个「探针点」。",
   ],
-  70: [
+  "CheckFishingOceanRange#1+2": [
     "--★ Vector3(dest:GetPoint()) —— dest 是 Point（2 维 + 高度）转成 3 维向量。",
     "--   高亮 dest 而非 Point：Point 是「地面上的一个格子」，Vector3 是「空间位移」。",
   ],
-  73: [
+  "CheckFishingOceanRange#1+5": [
     "--★★【探针点 = doer 位置 + 归一化方向 × (自身半径 + 0.25)】",
     "--   这是整个自定义到达检查家族的**通用手法**，全文件出现 3 次",
     "--   （73 / 90 / 108），差别只在最后的 0.25 还是 1.5。",
@@ -287,63 +287,63 @@ export const BEFORE = {
     "--   ★ 0.25 = 探针刚离开自身碰撞体；108 行的 1.5 则要求探针离得更远，",
     "--     因为抛竿要有一段助跑空间。",
   ],
-  75: [
+  "CheckFishingOceanRange#1+7": [
     "--★★ 分支的核心：「探针下面**有没有可站的地面**」。",
     "--   有地面 → 继续看这地面上有没有虚拟海洋实体（船就是海洋）。",
     "--   没地面（悬空/虚空）→ 直接放行，因为虚空区域允许玩家作业。",
     "--   ★ 顺序不可交换：`or` 的短路保证了 IsVisualGround 失败时不会去查平台。",
   ],
-  76: [
+  "CheckFishingOceanRange#1+8": [
     "--★ FindVirtualOceanEntity 是 TheSim 的查询，找出「看起来是海洋的实体」。",
     "--   用实体而非地形来问「是不是水」，是为了区分船地板与真海面。",
   ],
-  85: [
+  "CheckRowRange#1": [
     "--★ CheckRowRange —— 划船。与钓鱼的差别只有一处：",
     "--   只查 GetPlatformAtPoint（有没有船板），不查海洋实体。",
     "--   因为玩家划船时只要脚下有平台就是船上，桨不应该扔进海里。",
   ],
-  92: [
+  "CheckRowRange#1+7": [
     "--★ 注意这里是反过来的：探针**有**平台 ⇒ 返回 false（不许划）。",
     "--   玩家站在跳板（walkingplank）上时不能划桨 —— 与钓鱼的语义正好相反。",
     "--   ★ 这说明 customarrivecheck 的 true/false 含义**逐个动作不同**，",
     "--     不能靠函数名推断。看它的调用点与 fn 才是可靠办法。",
   ],
-  99: [
+  "CheckIsOnPlatform#1": [
     "--★★ CheckIsOnPlatform —— 全文件最短的 customarrivecheck（只有 2 行）。",
     "--   它甚至**不看 dest**：只看 doer 自己是不是站在船上。",
     "--   对应 BOARDPLATFORM（568 行），fn 也就是 `return true`（1380 行）。",
     "--   ★★ 这是「动作本身没有任何逻辑，纯粹靠 customarrivecheck 决定何时触发」",
     "--     的极端样本。fn 是空的，全部语义在到达判定里。",
   ],
-  103: [
+  "CheckOceanFishingCastRange#1": [
     "--★ CheckOceanFishingCastRange 与 CheckFishingOceanRange 结构完全相同，",
     "--   只有探针距离从 0.25 变成 1.5（见 108 行）。",
     "--   ⚠疑似缺陷：这 11 行是纯复制粘贴。若日后要修 bug 需同时改两处。",
   ],
-  121: [
+  "CheckTileWithinRange#1": [
     "--★★【CheckTileWithinRange —— 「格子级」到达判定，与前三个的思路完全不同】",
     "--   前三个都用「探针 + 地形查询」，这一个直接问「目标格子的中心离我多远」。",
     "--   ★ 因为 POUR_WATER_GROUNDTILE / DEPLOY_TILEARRIVE 的目标不是实体而是**格子**，",
     "--     必须把坐标吸附到 TILE_SCALE 的格网上才有意义。",
     "--   ★ TILE_SCALE * 0.5 = 半格宽，即「我只要在这一格内就算到位」。",
   ],
-  132: [
+  "CheckInsideGolfGame#1": [
     "--★★【CheckInsideGolfGame —— 把「地标」语义带进到达判定】",
     "--   唯一用到 bufferedaction.target.IsInGolfArea 这个**实体方法**的检查。",
     "--   高尔夫球场的球洞是逻辑区域而非实体，所以面积判定要问目标自己。",
   ],
-  138: [
+  "CheckInsideGolfGame#1+6": [
     "--★ 行尾英文注释「Lost target have the player reach the destination",
     "--   immediately to fail.」是理解本函数意图的关键：",
     "--   ★★ 目标丢了 → **故意**返回 true 让玩家「立刻到位」，",
     "--     然后 fn 里因为 target 为 nil 而失败，玩家看到的是「走到那儿发现没了」",
     "--     而不是「站在原地点不动」。这是刻意的交互选择。",
   ],
-  141: [
+  "ShowPourWaterTilePlacer#1": [
     "--★ ShowPourWaterTilePlacer 是 show_tile_placer_fn，不是 customarrivecheck。",
     "--   它决定「地面格子放置器」要不要显示高亮框 —— 纯视觉，客户端跑。",
   ],
-  148: [
+  "ShowPourWaterTilePlacer#1+7": [
     "--★★ 英文原注释解释了这里的 `return false` 是**依赖顺序**：",
     "--   「悬停在农田上时，若没有 target，POUR_WATER_GROUNDTILE 已经抢先了」。",
     "--   ★★ 也就是说：两个竞品动作靠 priority 排序（571-572 行都无 priority，",
@@ -351,14 +351,14 @@ export const BEFORE = {
     "--   ★ 这是典型的「同一语义在三处重复表达」—— 拆动作、加 priority、",
     "--     加渲染守卫。改规则时三处必须同步。",
   ],
-  154: [
+  "ExtraPickupRange#1": [
     "--★★ ExtraPickupRange 与 ExtraPickRange(35 行) 的唯一差别：",
     "--   ★★ 不看 bufferedaction.target，不加武器范围。固定返回 0.75 或 0。",
     "--   理由：捡东西不需要「能打到的距离」，只需要「别在水面上够不着」。",
     "--   ★ 也因此这个函数的 doer / bufferedaction 两个参数**完全没用到**。",
     "--     函数签名保留是为了与 extra_arrive_dist 家族的统一接口（209 行注释）。",
   ],
-  166: [
+  "ExtraDeployDist#1": [
     "--★★【ExtraDeployDist —— 全文件最复杂的一个 extra_arrive_dist，共 44 行】",
     "--   它要解决的问题：玩家在**船**上、目标是**陆地**（或反过来）时，",
     "--   8 格的抛射距离在跨介质时会算错，所以要按介质组合决定余量。",
@@ -370,7 +370,7 @@ export const BEFORE = {
     "--   ★★ 177 行用 `if passable(doer)` 二分，于是 has_ocean（180 行）",
     "--     只能在 doer 在陆地分支里被读到 —— 这是「分支内才关心世界类型」。",
   ],
-  170: [
+  "ExtraDeployDist#1+4": [
     "--★ `8 - ACTIONS.DEPLOY.distance` = 8 - 1.1 = 6.9。",
     "--   ⚠ 这个魔数 8 就是 ACTIONS.TOSS(501 行) 的 distance。",
     "--   ★★ 真正的设计意图是「让 DEPLOY 与 TOSS 的**总**射程一致」：",
@@ -379,38 +379,38 @@ export const BEFORE = {
     "--     并且 170 行**硬编码 ACTIONS.DEPLOY 自己的 distance** ——",
     "--     若将来把 DEPLOY 的 distance 改成 1.5，总射程会变成 8.5，静默漂移。",
   ],
-  198: [
+  "ExtraDeployDist#1+32": [
     "--★★ extra_deploy_distance 是物品自带的字段（由 prefab 设置），",
     "--   与 use_extra_space 触发的默认值 1.0 是**或**关系不是叠加。",
     "--   200 行的 `x = x or 1` 明确表达了「物品的设置优先，否则用 1」。",
   ],
-  202: [
+  "ExtraDeployDist#1+36": [
     "--★ usedeployspacingasoffset 标签让「余量」变成「以碰撞半径为基准」。",
     "--   ★★ DeploySpacingRadius 是 net 变量（客户端可读），所以这整个分支",
     "--     能在服务端正确计算的同时让客户端也读到同样的半径。",
   ],
-  212: [
+  "ExtraDropDist#1": [
     "--★ ExtraDropDist 三段式：水中 1.75 → 碰撞体半径+0.5 → 0。",
     "--   ★ 中间那段（224-234 行）是给「会撞到角色的大物品」用的：",
     "--     掉落时物品会落在角色身上，需要额外推开一点避免立刻又被捡起。",
   ],
-  225: [
+  "ExtraDropDist#1+13": [
     "--★★ 225 行是全文件最精细的一处条件：",
     "--   `not use_physics_radius_for_extra_drop_dist and not checkbit(mask, group)`",
     "--   读作「物品没要求用半径 **且** 碰撞掩码与角色不冲突 ⇒ 返回 0」。",
     "--   ★★ 这里用位运算 checkbit 检查碰撞分组，而不是简单比较类名，",
     "--     所以大象掉落物与普通石头走不同分支。注释也点明了这一点。",
   ],
-  229: [
+  "ExtraDropDist#1+17": [
     "--★ 半径为 0（无碰撞体，如纯数据物品）时跳过整个逻辑。",
   ],
-  240: [
+  "ExtraPourWaterDist#1": [
     "--★★ 最简单的 extra_arrive_dist：无条件返回 1.5。",
     "--   ★ 为什么倒水要 1.5 格余量？因为水会泼到脚下的格子，",
     "--     角色若站在格心之外，水就洒在别的格子上了。",
     "--   ★ 函数三个参数全部未使用 —— 保留签名只为统一接口。",
   ],
-  244: [
+  "ExtraPourWaterDist#1+4": [
     "--★★ 保留的英文注释说明了这是**已知的技术债**：",
     "--   「Brightshades 的 physics radius override 比实际碰撞体小，",
     "--     这里应该更全面地处理，但先给这个动作打个补丁。」",
@@ -419,11 +419,11 @@ export const BEFORE = {
     "--   ★ 补丁做法是取差值的绝对值当余量（249-252 行）。",
     "--★ 这处注释本身就是「为什么这样设计」的最佳范例，请勿删除。",
   ],
-  246: [
+  "ExtraHealRange#1": [
     "--★ phys_rad_delta < 0 才处理 —— 因为 override 只会让半径变小。",
     "--   变大的情况（0.5 那种为防卡住而放大的）不需要补距离。",
   ],
-  258: [
+  "ArriveAnywhere#1": [
     "--★★ ArriveAnywhere —— 「不需要到达判定」的哨兵值。",
     "--   全文件被 458/502/565/690/724/734 六个地图动作复用。",
     "--   ★ 为什么需要一个函数而不是直接让 customarrivecheck=nil？",
@@ -431,11 +431,11 @@ export const BEFORE = {
     "--     nil 会走 else 分支去做通用距离判断。地图动作必须显式覆盖掉。",
     "--   ★★ 这是「用恒真函数表达『禁用默认逻辑』」的典型手法。",
   ],
-  262: [
+  "ExtraWobyForagingDist#1": [
     "--★ ExtraWobyForagingDist：大型生物（Woby 机器狗）多走 1 格。",
     "--   largecreature 标签同时被别处用于物理体积，此处是语义标签。",
   ],
-  266: [
+  "ExtraOpenCraftingRange#1": [
     "--★★【ExtraOpenCraftingRange —— 一个「反向」的距离计算】",
     "--   ★★ 它不是在加余量，而是在**求差**：把 arrive_dist 抬到",
     "--     RESEARCH_MACHINE_DIST - 1 这个期望值，若当前已超过则返回 0。",
@@ -447,7 +447,7 @@ export const BEFORE = {
   // ══════════════════════════════════════════════════════════════
   // §一 Action 基类（273-351）
   // ══════════════════════════════════════════════════════════════
-  273: [
+  "ExtraOpenCraftingRange#1+7": [
     "--★★【CLIENT_REQUESTED_ACTION —— 跨文件传递「玩家刚刚按了哪个动作」的全局变量】",
     "--   global(...) 是 DST 的全局注册宏，让该名字在所有沙盒里都存在。",
     "--   ★★ 它解决的是**参数化动作**的困境：RPC 到来的只有一个整数 actioncode，",
@@ -459,33 +459,33 @@ export const BEFORE = {
     "--     干净之处：不改 RPC 签名即可扩展；风险之处：跨调用残留。",
     "--     因此 ClearClientRequestedAction（289 行）必须成对调用。",
   ],
-  276: [
+  "ExtraOpenCraftingRange#1+10": [
     "--★★ 保留的英文注释解释了 ACTIONS_MAP_REMAP 的存在意义：",
     "--   「把玩家本可以在游戏里做的动作，改为**在地图上**做。",
     "--   举例：原本要走到传送门才能传送，现在在地图上点一个点就跳过去。",
     "--   ★★ 注释还给出了一句自我限制：「能支持的动作数量，取决于地图本身的限制」",
     "--     —— 即地图分辨率与探索度是硬约束，不是代码问题。",
   ],
-  281: [
+  "SetClientRequestedAction#1": [
     "--★ SetClientRequestedAction 的两个分支处理「原版动作」与「模组动作」。",
     "--   ★★ 282 行 `if mod_name then` 是**必须显式写**的，不能写 and/or：",
     "--     因为模组动作的 code 空间是每个模组独立的（见 modutil.lua:466），",
     "--     拿不到 mod_name 时**绝不能**回退到原版表 —— 回退会执行错的动作。",
   ],
-  283: [
+  "SetClientRequestedAction#1+2": [
     "--★ 双重索引 MOD_ACTIONS_BY_ACTION_CODE[mod_name][actioncode]。",
     "--   ★ 与 743 行的 ACTIONS_BY_ACTION_CODE 结构完全对称，",
     "--     这让调用方（playercontroller.lua:5272-5277）能用同一段代码处理两者。",
     "--   ※ 代价是 mod_name 必须从 RPC 一路透传，中间任一环丢失就查不到。",
   ],
-  293: [
+  "ClearClientRequestedAction#1+4": [
     "--★★ 保留的英文注释：「位置参数已废弃，请传入 table。」",
     "--   ★ 这是全文件唯一的向后兼容代码块（295-304 行）。",
     "--   ★★ 为什么保留？因为模组大量使用 AddAction(Action()) 或",
     "--     AddAction(priority, instant, rmb, ...) 这类旧签名，",
     "--     直接删掉会让整个创意工坊崩溃。",
   ],
-  294: [
+  "ClearClientRequestedAction#1+5": [
     "--★★★【Action 基类 —— 全文件的设计核心，只有一处，就是这段构造】",
     "--",
     "--★ 为什么构造函数的形参是一长串位置参数（instant, rmb, distance, ...）",
@@ -512,23 +512,23 @@ export const BEFORE = {
     "--   Action() 一个参数都不给也能构造成功，得到一个「什么都不能做」的动作。",
     "--   modutil.lua:448 的 AddAction 正是这么用的（先 Action() 再逐个赋值）。",
   ],
-  295: [
+  "ClearClientRequestedAction#1+6": [
     "--★★ 295-297：data 为 nil 时补一个空表。",
     "--   这让 `Action(nil, true)` 这种半吊子调用不至于崩在 type(nil) 上。",
     "--   ★ 也让模组可以只写 `Action({instant=true})` 而不必关心 nil 检查。",
   ],
-  298: [
+  "ClearClientRequestedAction#1+9": [
     "--★★ 298-304：兼容层。检测到 data 不是表（即旧式位置参数）时打印警告",
     "--   并把位置参数重排进表。注意 301 行的 debugstack_oneline(4) ——",
     "--   ★ 这行只在**模组写错**时触发，所以正常游戏不会产生任何日志开销。",
     "--   ★ 301 行的存在是为了让模组作者能在自己的代码里找到调用位置。",
   ],
-  302: [
+  "ClearClientRequestedAction#1+13": [
     "--★ 注意 local priority = data 这一行的类型变化：",
     "--   进入这个分支时 data 是数字（旧的 priority），取出后立即被覆盖为表。",
     "--   ★ 写法上是「先抢救第一个参数，再整体重建」，读起来略绕但无副作用。",
   ],
-  303: [
+  "ClearClientRequestedAction#1+14": [
     "--★★ 兼容映射表：旧位置参数 → 新字段名。",
     "--   ★ 逐项对照 355 行之后的默认值声明，可见**新增字段没有被加进来**：",
     "--     数据表 params（298-301 的 7 项）与现代 40 字段表不等价。",
@@ -536,7 +536,7 @@ export const BEFORE = {
     "--     pre_action_cb 等所有新字段 —— 它们会被静默丢弃。",
     "--     ★ 这是「向后兼容往往意味着向前不兼容」的典型代价。",
   ],
-  306: [
+  "ClearClientRequestedAction#1+17": [
     "--★★【priority 默认 0 —— 全游戏的中间值】",
     "--   ★★ 这不是随便定的。看表里的实际分布：",
     "--     高于 0：PICKUP=1 / COOK=1 / GIVETOPLAYER=3 / CATCH=3 / GIVE_TACKLESKETCH=0",
@@ -551,7 +551,7 @@ export const BEFORE = {
     "--   ※ 完整排序发生在 componentactions.lua 与 playercontroller 的",
     "--     动作收集阶段，priority 只是输入之一，还受 rmb / 标签 / 手持物影响。",
   ],
-  307: [
+  "self.fn#1": [
     "--★★★【self.fn —— 「做了什么」的唯一入口，也是全文件的核心】",
     "--   ★★ 默认值是 `function() return false end` —— 一个永远失败的空动作。",
     "--   ★★ 为什么默认值是「失败」而不是「成功」？",
@@ -566,11 +566,11 @@ export const BEFORE = {
     "--     客户端从来不会调用它 —— 客户端只调用 validfn 与 strfn。",
     "--     这是 DST 联机模型的基础：状态只由服务端改。",
   ],
-  308: [
+  "self.fn#1+1": [
     "--★ strfn 默认 nil，表示「用 STRINGS.ACTIONS[id] 这个默认串」。",
     "--   见 bufferedaction.lua:65：modifier 为 nil 时走基础串。",
   ],
-  309: [
+  "self.fn#1+2": [
     "--★★【instant —— 「不播动作动画、立即结算」】",
     "--   ★★ 它影响两层：",
     "--     ① locomotor.lua:945 走 `action.instant` 分支直接 PushBufferedAction，",
@@ -582,7 +582,7 @@ export const BEFORE = {
     "--   ★★ 副作用：instant 动作也**无法被取消**。所以任何需要",
     "--     「中途松手要停下」的动作都不能设 instant。",
   ],
-  310: [
+  "self.fn#1+3": [
     "--★★【rmb —— 「这个动作绑定右键」】",
     "--   ★★ 保留的英文注释划出了关键边界：",
     "--     「注意！这实际上只对工具有效，其他所有东西在 componentactions",
@@ -594,11 +594,11 @@ export const BEFORE = {
     "--     因为 componentactions 不看这个字段。这是本文件最容易误解的字段之一。",
     "--   ★ 在 ACTIONS 表里统计：约 70 个动作声明了 rmb=true。",
   ],
-  311: [
+  "self.fn#1+4": [
     "--★ distance = 走到多近就停。nil 意味着「由到达判定或状态图自行决定」。",
     "--   ★ 对比 313 行 mindistance —— 一个是下限上限，另一个是下限。",
   ],
-  312: [
+  "self.fn#1+5": [
     "--★★【mindistance —— 「太近了反而不能做」】",
     "--   ★★ 全文件仅 3 处使用，而且都不是「距离」语义而是「拒绝」语义：",
     "--     462 行 HAUNT mindistance=2  —— 鬼魂太贴近会吓跑目标",
@@ -607,12 +607,12 @@ export const BEFORE = {
     "--     它由 locomotor / stategraph 的到达逻辑消费。",
     "--   ★ 所以它是本文件中「声明了但实现完全在别处」的字段之一。",
   ],
-  313: [
+  "self.fn#1+6": [
     "--★ arrivedist —— 直接指定到达距离，覆盖 distance 的换算。",
     "--   ★ 三个例子：STEER_BOAT=0.1（舵要贴得很近）、WOBY_PICKUP=2（狗要站远点）、",
     "--     MAKEMOLEHILL=0（原地不动）。",
   ],
-  314: [
+  "self.fn#1+7": [
     "--★★ ghost_exclusive / ghost_valid —— 幽灵（未复活玩家）的动作资格。",
     "--   315 行的耦合是不对称的：",
     "--     self.ghost_valid = self.ghost_exclusive or data.ghost_valid or false",
@@ -623,27 +623,27 @@ export const BEFORE = {
     "--   ★ 另一个例子：MIGRATE（508 行）ghost_valid 但不 exclusive，",
     "--     因为活人也能用（Mootown 之类的迁移台）。",
   ],
-  316: [
+  "self.fn#1+9": [
     "--★ mount_valid —— 骑乘状态下仍然允许。默认 false 的理由：",
     "--   骑牛时喂食、开箱都会破坏骑乘，所以默认禁止、逐个显式开放。",
     "--   ★ 统计：ACTIONS 表里约 40 个动作声明 mount_valid=true。",
   ],
-  317: [
+  "self.fn#1+10": [
     "--★★ encumbered_valid —— 「负重超限时仍然允许」。",
     "--   ★ 为什么需要这个？WILLOW 的「火把不灭」、WX78 的「充电」等",
     "--     生存类操作不能因为背包装满而失效。",
     "--   ★ 对应 628 行 LIFT_DUMBBELL 的 `mount_valid=false` 组合 ——",
     "--     举哑铃既不能骑乘又要允许超重，是限制最严的动作之一。",
   ],
-  318: [
+  "self.fn#1+11": [
     "--★ floating_valid —— 允许在浮空（海面/小船）平台上使用。",
     "--   ★ 出现在 EAT/DROP/EQUIP/UNEQUIP/DEPLOY_FLOATING 等少数几个。",
   ],
-  319: [
+  "self.fn#1+12": [
     "--★ canforce —— 「允许玩家强制发起」，即无视距离直接执行。",
     "--   ★★ 这是 320 行那行耦合的开关，务必与 rangecheckfn 一起看。",
   ],
-  320: [
+  "self.fn#1+13": [
     "--★★【rangecheckfn 只在 canforce~=nil 时才生效】",
     "--   `self.rangecheckfn = self.canforce ~= nil and data.rangecheckfn or nil`",
     "--   ★★ 为什么要这个耦合？有两个后果：",
@@ -656,18 +656,18 @@ export const BEFORE = {
     "--   ★ 这是一个极易踩的坑，本行是全文件最微妙的一行之一。",
     "--   参见 locomotor.lua:930-935 的实际消费点。",
   ],
-  321: [
+  "self.fn#1+14": [
     "--★ mod_name 默认 nil。赋值发生在 modutil.lua:456（AddAction）。",
     "--   ★ 它把动作与模组绑定，用于 (a) 生成模组独立的 code 空间；",
     "--     (b) 服务器校验客户端上报的 mod_name 是否合法。",
   ],
-  322: [
+  "self.fn#1+15": [
     "--★★ silent_fail —— 「失败时不显示通用失败提示」】",
     "--   ★ 只有一个用户：OCEAN_FISHING_REEL（420 行）。",
     "--     深海钓鱼收线失败时，如果每失败一次都播一次语音，玩家会被吵疯。",
     "--   ★ 与 323 行 silent_generic_fail 的区别见后者的注释。",
   ],
-  323: [
+  "self.fn#1+16": [
     "--★ silent_generic_fail —— 抑制**通用**失败串（保留专有 reason）。",
     "--   ★ 只有一个用户：JOUST（713 行）。",
     "--   ★★ 两个字段的分工由此明确：",
@@ -675,17 +675,17 @@ export const BEFORE = {
     "--     silent_generic_fail  → 播 reason 对应的专有提示，只是不追加通用后缀",
     "--   ★ 这个细分说明「失败提示」本身是被精心设计的 UX，不是随便一句话。",
   ],
-  325: [
+  "self.fn#1+18": [
     "--★★ 保留的英文注释标出了分界线：",
     "--   「以下是新参数，**只支持**通过 data 字段传入。」",
     "--   ★★ 结合 303 行的兼容映射表，可以确认这个「分界线」在实现上是严格的：",
     "--     326 行之后的字段在兼容路径上完全不可达。这就是上一条 L 类隐患。",
   ],
-  326: [
+  "self.fn#1+19": [
     "--★ paused_valid —— 「游戏暂停时仍可点」。ADDFUEL / ADDFELFUEL / EQUIP 用了它。",
     "--   ★ 用途：多人服务器房主暂停时仍能管理火堆燃料（避免别人饿着）。",
   ],
-  327: [
+  "self.fn#1+20": [
     "--★★【actionmeter —— 「显示长按进度环」】",
     "--   ★★ 全文件只有 1 个动作使用：REVIVE_CORPSE（507 行）。",
     "--   ★★ 为什么只有它？因为 actionmeter 的数据链路是：",
@@ -696,7 +696,7 @@ export const BEFORE = {
     "--     只是默认不显示。actionmeter=true 仅仅是「把这条数据接上 HUD」。",
     "--   ★ 若要给别的动作加进度环，只需在对应 SG 状态里写 SetActionMeter。",
   ],
-  328: [
+  "self.fn#1+21": [
     "--★★ customarrivecheck —— 覆盖默认到达判定，签名 (doer, dest, act)。",
     "--   ★★ 它是**唯一**能返回「invalid」的扩展点（见 §零 的返回值约定）。",
     "--   ★ 全文件 8 个动作使用：FISH_OCEAN / OCEAN_FISHING_CAST / OCEAN_TOSS /",
@@ -705,22 +705,22 @@ export const BEFORE = {
     "--   ★★ 全是「与水/船/地图格子相关」的动作 —— 因为只有这些场景",
     "--     的到达判定无法用「距离」表达。",
   ],
-  329: [
+  "self.fn#1+22": [
     "--★ is_relative_to_platform —— 坐标相对船体而非世界。",
     "--   ★ 8 个动作用（FILL_OCEAN / ROW / OCEAN_TOSS / WATER_TOSS…）。",
     "--   ★★ 船会移动。若目标坐标以世界坐标记录，玩家站在船上等船漂远了",
     "--     就会去错地方。相对坐标让「脚下这块地板」始终正确。",
   ],
-  330: [
+  "self.fn#1+23": [
     "--★ disable_platform_hopping —— 禁止跳到相邻的船上（省一次路径搜索）。",
     "--   ★★ 全是海洋动作。玩家在船上点海面时若允许跳板，locomotor 会",
     "--     先尝试跳到邻船，走到一半才失败，白跑一趟。",
   ],
-  331: [
+  "self.fn#1+24": [
     "--★ skip_locomotor_facing —— 到达后不自动转向目标。",
     "--   ★ 用于「玩家必须保持自己朝向」的场景：ROW_FAIL / LIFT_GYM_*。",
   ],
-  332: [
+  "self.fn#1+25": [
     "--★★ do_not_locomote —— 「完全不走，直接执行」。",
     "--   ★★ 与 instant 的区别必须说清：",
     "--     instant      → 仍然转向目标（entityscript.lua:1635 FacePoint）",
@@ -728,31 +728,31 @@ export const BEFORE = {
     "--   ★ 全文件 16 个动作用。SET_HEADING（562 行 distance=9999）与之配合，",
     "--     即「转向但不走」—— 摇船时人要面对船头但不移动。",
   ],
-  333: [
+  "self.fn#1+26": [
     "--★ extra_arrive_dist —— 一个返回数字的函数，§零 已详述。",
   ],
-  334: [
+  "self.fn#1+27": [
     "--★ tile_placer —— 「地面格子放置器」的名字（gridplacer 等）。",
     "--   ★ 只有 TERRAFORM（430）与 POUR_WATER（571）用它。",
     "--   ★★ 它让玩家在移动光标时就能看到「哪些格子会被改成什么」，",
     "--     这是 WASD/手柄玩家唯一能看清落点的手段。",
   ],
-  335: [
+  "self.fn#1+28": [
     "--★ show_tile_placer_fn —— 决定放置器高亮框要不要显示（141 行那个函数）。",
   ],
-  336: [
+  "self.fn#1+29": [
     "--★ theme_music —— 动作进行时播放的主题音乐名。",
     "--   ★ 全文件只有 TILL / PLANTSOIL / DEPLOY_TILEARRIVE / POUR_WATER_GROUNDTILE",
     "--     四个，都指向 \"farming\"。",
   ],
-  337: [
+  "self.fn#1+30": [
     "--★★ theme_music_fn —— theme_music 的**函数版**，运行在客户端。",
     "--   ★ 为什么需要函数版？因为「是否 farming」取决于**当前目标**，",
     "--     而目标在客户端是 replica。",
     "--   ★ 三个用户：INTERACT_WITH（1558）/ DIG（1800）/ DEPLOY（1656）——",
     "--     全部是「对着农田/作物做的事」。",
   ],
-  338: [
+  "self.fn#1+31": [
     "--★★【pre_action_cb —— 「动作开始前」的钩子，客户端 + 服务端都跑】",
     "--   ★ 三类用途（穷举全文件 10 个用户）：",
     "--     ① 关 HUD：STEER_BOAT(4903) / BOAT_CANNON_START_AIMING(5049) /",
@@ -765,7 +765,7 @@ export const BEFORE = {
     "--     而「关弹窗」必须在客户端发生。pre_action_cb 是少数几个双端钩子。",
     "--   ★ 调用点：locomotor.lua:895（PushAction 开头，先于 TestForStart）。",
   ],
-  339: [
+  "self.fn#1+32": [
     "--★★【invalid_hold_action —— 「禁止长按连续触发」】",
     "--   ★★ 语义在 playercontroller.lua:4623：",
     "--     if not action.instant and not action.invalid_hold_action and act:IsValid()",
@@ -780,15 +780,15 @@ export const BEFORE = {
     "--     instant=true          → 4622 行已经清空 actionholdtime，效果相同",
     "--     invalid_hold_action=true → 主动拒绝进入 lastheldaction 队列",
   ],
-  341: [
+  "self.fn#1+34": [
     "--★ show_primary_input_left —— 强制显示「左键」图标提示。",
     "--   ★ 只有一个用户：ROTATE_BOAT_COUNTERCLOCKWISE（586 行）。",
     "--     因为它不用左键，所以 UI 要显式告诉玩家「其实按右键」。",
   ],
-  342: [
+  "self.fn#1+35": [
     "--★ show_secondary_input_right —— 同理，显示「右键」提示（585 行）。",
   ],
-  344: [
+  "self.fn#1+37": [
     "--★★【五个地图专用字段构成一套完整的「地图动作协议」】",
     "--   map_action  —— 「这是一个地图动作」（可以由地图翻译产生）",
     "--   map_only    —— 「这个动作**只能**从地图发起」",
@@ -800,12 +800,12 @@ export const BEFORE = {
     "--     —— 只有带这两个标记之一才接受地图 RPC。",
     "--   ★ 安全含义：普通动作无法被地图 RPC 滥用成远程执行。",
   ],
-  350: [
+  "self.fn#1+43": [
     "--★ keepgroundactionhint —— 「即使目标无名也保留地面动作提示」。",
     "--   ★★ 唯一用户：TERRAFORM_REMOVE（740 行，高尔夫球场的球位标记）。",
     "--     它是一个「无名的临时目标」，若不留住提示，玩家松手后不知道该点哪。",
   ],
-  351: [
+  "self.fn#1+44": [
     "--★ 到此 Action 构造结束。整个基类**没有任何方法**，只有数据字段。",
     "--   ★★★ 这是刻意的：Action 不需要行为，它的「行为」全在 fn 字段里。",
     "--     它更像一张「动作规格表」而非一个对象。",

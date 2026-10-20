@@ -45,14 +45,14 @@ export default {
   ],
 
   // ══════════════ Visit ══════════════
-  10: [
+  "Leash:Visit#1": [
     '--★★★ Visit —— 链式 if / elseif / elseif 结构，三段各占一个分支。',
     '-- ★★ 与 leashandavoid 完全一致（对比那边第 12-57 行）。',
     '--   采用链式而非「顺序双 if」的原因：',
     '--   第 12 行的「无家 → FAILED」需要能**中断**任何状态，',
     '--   链式结构天然保证一次 Visit 只走一个分支，语义最清晰。',
   ],
-  11: [
+  "Leash:Visit#1+1": [
     '--★★★ 原注释（保留）：',
     '--   "V2C: legacy code may still be returning \'false\' instead of nil"',
     '--   翻译：「V2C：旧代码可能仍返回 false 而不是 nil」。',
@@ -68,39 +68,39 @@ export default {
     '-- ★ 移植建议：这类兼容决策必须写进注释，否则后人会以为是可以简化的冗余。',
     '--   （当然更好的做法是尽快淘汰 legacy 并删掉兼容分支。）',
   ],
-  12: [
+  "Leash:Visit#1+2": [
     '--★ 无家 → FAILED。放在 elseif 链**之前**，能中断 RUNNING 状态。',
     '--★ 若家是动态的（函数形式）且突然变成 nil，节点会立即放弃回归。',
   ],
-  14: [
+  "Leash:Visit#1+4": [
     '--★ READY 段：在圈内 → FAILED，让父节点去试别的行为（如战斗）。',
     '--★ 用 FAILED 而非 SUCCESS，理由与 leashandavoid 第 19 行一致：',
     '--   「站在家附近」没有完成「回家」这个动作。',
   ],
-  18: [
+  "Leash:Visit#1+8": [
     '--★ 进场先 Stop locomotor —— 清掉「把实体引出圈」的那个行为留下的移动。',
     '--★ 与 leashandavoid 第 24 行逐字相同。',
     '--★ ★ 移植要点：节点进入时「清场」再「布置」，消除竞态的通用手法。',
   ],
 
   // ══════════════ RUNNING 段 ══════════════
-  21: [
+  "Leash:Visit#1+11": [
     '--★★ RUNNING 段：还没到家 → 继续走；到家了 → SUCCESS。',
     '-- ★★ 与 leashandavoid 第 27-57 行同构，但**没有**那段绕行几何。',
     '--   这就是「精简版」的实质：第 24 行直接朝家走，不做任何方向修正。',
   ],
-  22: [
+  "Leash:Visit#1+12": [
     '--★★ 回归判定：距离 > inner_return_dist 才继续走。',
     '--★ 与 leashandavoid 第 28 行完全相同（连 `>` 而非 `>=` 都一致）。',
   ],
-  24: [
+  "Leash:Visit#1+14": [
     '--★ 移动：直接朝家走，第三参数 run 支持「值或函数」。',
     '--★ 与 leashandavoid 第 53 行对照：',
     '--   本节点传的 hp 就是真正的家（无需修正）',
     '--   leashandavoid 传的可能是被绕行 hack 改写过的落点',
     '--   ★ 差别仅此一处，但正是这一处支撑了那 30 行额外代码的全部意义。',
   ],
-  26: [
+  "Leash:Visit#1+16": [
     '--★ 回到圈内 → SUCCESS，行为完成。',
     '--⚠️ 与 leashandavoid 第 55 行相同：这里**没有**显式 Stop locomotor。',
     '--   我已在 leashandavoid 第 55 行详述过这个「疑似疏漏」，两处一致。',
@@ -110,23 +110,23 @@ export default {
   ],
 
   // ══════════════ DBString ══════════════
-  31: [
+  "Leash:DBString#1": [
     '--★ DBString：家位置 + 距家距离。比 leashandavoid 少了「避让目标/距离」两项。',
     '--★ `or 0` 兜底：GetDistFromHomeSq 可能返回 nil（无家时）。',
     '--★ 对比 leashandavoid 第 61 行——字段更多但结构完全相同。',
   ],
 
   // ══════════════ 谓词与阈值 ══════════════
-  35: [
+  "Leash:GetHomePos#1": [
     '--★ GetHomePos：家可以是坐标或函数（每次调用重新求值）。',
     '--★ 与 leashandavoid 第 64 行逐字相同。「家」是 DST 的统一动态概念。',
   ],
-  39: [
+  "Leash:GetDistFromHomeSq#1": [
     '--★★ 第 40 行重复了第 11 行的 V2C 注释（false 兼容）——',
     '--   因为「无家时返回什么」在两个地方都需要考虑。',
     '-- ★★ 同一个注意事项在两个函数各写一遍，属合理的就近注释。',
   ],
-  42: [
+  "Leash:GetDistFromHomeSq#1+3": [
     '--★★ `homepos and distsq(...) or nil` —— 无家时返回 nil。',
     '--★ 依赖「0 在 Lua 中为真值」：两点重合时 distsq 返回 0，',
     '--   `true and 0 or nil` → 0，不会错误地变成 nil。',
@@ -135,7 +135,7 @@ export default {
     '--★ 返回 nil 而非 0 的意义：让第 46/50 行的比较在「无家」时都为 false，',
     '--   即「无家 → 不在圈内 → 也不在圈外」，语义自洽。',
   ],
-  45: [
+  "Leash:IsInsideLeash#1": [
     '--★★★ IsInsideLeash：距家 < max_dist → 在圈内。',
     '--★ 与 leashandavoid 第 76 行逐字相同。',
     '--★ ⚠️ 边界情况（与 leashandavoid 相同，已核实）：',
@@ -146,7 +146,7 @@ export default {
     '--   ★ 影响极小（浮点上几乎不会精确相等），且方向良性（提前结束而非卡住）。',
     '--   ★ 移植建议：用 <= 与 > 配对，或 >= 与 < 配对，别混用严格不等号。',
   ],
-  49: [
+  "Leash:IsOutsideReturnDist#1": [
     '--★ IsOutsideReturnDist：距家 > inner_return_dist → 还在外面。',
     '--★ 与 leashandavoid 第 80 行逐字相同。',
     '-- ★★ 两个谓词合起来就是完整的滞回状态机：',
@@ -155,13 +155,13 @@ export default {
     '--   距家 ≤ return_dist      → 到家了（SUCCESS）',
     '--   ★ 记住这三行就够了，本文件其余代码都是为它们服务的。',
   ],
-  53: [
+  "Leash:GetMaxDistSq#1": [
     '--★ GetMaxDistSq：阈值也支持「值或函数」，求值后自平方。',
     '--★ 与 leashandavoid 第 83 行逐字相同。',
     '--★ 命名带 Sq 后缀是本目录的统一约定（凡返回平方距离的方法都叫 XxxSq）。',
     '--   ★ 移植建议：沿用这个命名规范，看到 Sq 就知道不必再开方。',
   ],
-  58: [
+  "Leash:GetReturnDistSq#1": [
     '--★ GetReturnDistSq：同上，对应内圈阈值。',
     '--★ 两个 *Sq 方法结构完全对称，扩展新阈值时照抄其一即可。',
   ],

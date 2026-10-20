@@ -58,7 +58,7 @@ export default {
   ],
 
   // ══════════════ IsNearFollowPos ══════════════
-  14: [
+  "IsNearFollowPos#1": [
     '--★★★ 局部函数：植物是否在「值得照料的范围」内。',
     '--★ 注意它**用常量 SEE_DIST 作为判断半径**，而不是另设参数。',
     '-- ★★ 这里有个语义上的含混：`IsNearFollowPos` 顾名思义是「是否靠近跟随位置」，',
@@ -68,7 +68,7 @@ export default {
     '--   也可能是复用过度。按函数名与用途推断，属「可读性不佳」而非缺陷。',
     '--★ 标注为「疑似设计含混」：如果要调整搜索半径，会连带改掉「值得照料」的范围。',
   ],
-  17: [
+  "IsNearFollowPos#1+3": [
     '--★★★ `distsq(followpos.x, followpos.z, plantpos.x, plantpos.z)`',
     '-- ★★ 四参数形式 → 走 util.lua:562 的**二维**分支 → **忽略高度**。',
     '-- ★ 与 controlminions 第 72 行同款（详见那边的两种调用形式说明）。',
@@ -80,7 +80,7 @@ export default {
   ],
 
   // ══════════════ DBString ══════════════
-  20: [
+  "FindFarmPlant:DBString#1": [
     '--★ 显示当前照料的植物（inst.planttarget）。',
     '-- ★ 与 findflower 第 9 行同款（都存在组件/实体字段而非节点自身字段）。',
     '--   区别：findflower 存 pollinator 组件的 target，本文件直接存 inst.planttarget。',
@@ -91,22 +91,22 @@ export default {
   ],
 
   // ══════════════ Visit:READY 段 ══════════════
-  24: [
+  "FindFarmPlant:Visit#1": [
     '--★★ Visit：顺序双 if。注意第 34-35 行之间**没有空行**，',
     '--   第 35 行的 `if self.status == RUNNING` 紧接第 34 行的 end。',
     '--   属排版瑕疵（findflower 第 24/26 行之间有空行）。',
   ],
-  25: [
+  "FindFarmPlant:Visit#1+1": [
     '--★ READY 段：先选目标，再判有无。',
   ],
-  28: [
+  "FindFarmPlant:Visit#1+4": [
     '--★★★ BufferedAction(..., self.action, nil, nil, nil, 0.1)',
     '-- ★ 与 findflower 第 18 行结构完全相同，只把 ACTIONS.POLLINATE 换成 self.action。',
     '--★ 第 7 个参数 0.1 仍是「必须贴身」的距离要求 —— 照料动作需要接近到很小距离。',
     '-- ★ 移植要点：动作的 dist 参数是「行为的精度要求」而非「随便给个数」，',
     '--   抄动作实现时务必连同它一起抄（详见 findflower 第 18 行的详解）。',
   ],
-  29: [
+  "FindFarmPlant:Visit#1+5": [
     '--⚠️【已核实 · 与 findflower 相同的疑似缺陷】self.shouldrun 从未初始化。',
     '--   · 构造器（第 5-12 行）未设该字段',
     '--   · 我 grep 了本文件，除本行外无任何赋值/读取',
@@ -118,19 +118,19 @@ export default {
     '--   对照 wander 第 24 行正确初始化了 should_run，说明它是后来才被加上的。',
     '--   标注为「已核实 · 疑似缺陷」。',
   ],
-  30: [
+  "FindFarmPlant:Visit#1+6": [
     '--★ 有目标才 RUNNING，否则 FAILED。',
   ],
 
   // ══════════════ Visit:RUNNING 段 ══════════════
-  35: [
+  "FindFarmPlant:Visit#1+11": [
     '--★★ RUNNING 段：四类失效条件 + 一个成功条件。',
   ],
-  36: [
+  "FindFarmPlant:Visit#1+12": [
     '--★ 缓存 plant = inst.planttarget（第 36 行），后续四个条件都用它。',
     '--★ 缓存局部变量避免重复索引，减少可读性负担。',
   ],
-  37: [
+  "FindFarmPlant:Visit#1+13": [
     '--★★★ 失效条件（or 链的四项）：',
     '--   ① plant 为 nil',
     '--   ② plant:IsValid() 失败        —— 植物被移除/枯萎消失',
@@ -144,18 +144,18 @@ export default {
     '--   ★ 这是「用 or 短路保护后续条件」的标准写法，与显式 if 判空等价但更紧凑。',
     '--   ★★ 前提：条件顺序敏感。挪动顺序就会崩。移植时应留意。',
   ],
-  38: [
+  "FindFarmPlant:Visit#1+14": [
     '--★★ 第 ④ 项的 growable 检查：`GetCurrentStageData().tendable`。',
     '-- ★★ 三层解引用：组件 → 阶段数据 → 字段。',
     '--★ 前半段 `(plant.components.growable == nil or ...)` 做了判空 ——',
     '--   即「没有 growable 组件的植物不算失效」（默认视为可照料）。',
     '-- ★ 与第 42 行的 farmplantstress 处理形成鲜明对比（那里没判空），见下文。',
   ],
-  39: [
+  "FindFarmPlant:Visit#1+15": [
     '--★ 失效则清目标 + FAILED。',
     '--★ 清 inst.planttarget 与本文件第 43/44 行同款，是「退出必清理」纪律。',
   ],
-  41: [
+  "FindFarmPlant:Visit#1+17": [
     '--★★★ 原注释（保留）：',
     '--   "we don\'t need to test for the component, since we won\'t ever set',
     '--    closest plant to anything that lacks that component"',
@@ -165,7 +165,7 @@ export default {
     '--   它依赖「所有带 farmplantstress 标签的实体都有该组件」这一假设。',
     '--   标签与组件的对应关系在 DST 里通常成立，但不是被编译器保证的。',
   ],
-  42: [
+  "FindFarmPlant:Visit#1+18": [
     '--★★★⚠️【疑似缺陷 · 已核实代码，标注不确定性】',
     '--',
     '-- 代码：`plant.components.farmplantstress.stressors.happiness ~= self.wantsstressed`',
@@ -195,7 +195,7 @@ export default {
     '--   ③ 对比第 38 行对 growable 的判空：同一段代码里两种态度并存，',
     '--      恰恰说明判空不是可有可无的洁癖，而是要看具体风险。',
   ],
-  43: [
+  "FindFarmPlant:Visit#1+19": [
     '--★★【成功条件】压力值与期望**不一致** → SUCCESS。',
     '--★★★ 这个反直觉的判定是本文件最值得学的一处：',
     '--   「照料完成」的标志不是「我做了动作」，而是「目标的状态变了」。',
@@ -212,11 +212,11 @@ export default {
   ],
 
   // ══════════════ PickTarget ══════════════
-  49: [
+  "FindFarmPlant:Visit#1+25": [
     '--★★ FARMPLANT_MUSTTAGS —— 必须是农作物的标签（AND 语义）。',
     '--★ 与 findflower 第 12 行的 FINDFLOWER_MUST_TAGS 完全同构。',
   ],
-  50: [
+  "FindFarmPlant:Visit#1+26": [
     '--★★ FARMPLANT_NOTAGS —— 排除「farm_plant_killjoy」。',
     '-- ★ ★ 值得玩味的名字：killjoy（扫兴的人/破坏气氛者）。',
     '--   即某种「会带来负面影响的作物」，果蝇不该去照料它。',
@@ -225,7 +225,7 @@ export default {
     '--   在 FindEntity 的三个参数里齐聚，是全目录最完整的用法示例。',
     '--   ★ 移植要点：一次空间查询就能表达复杂筛选，不必分多次查询再手动合并。',
   ],
-  51: [
+  "FindFarmPlant:PickTarget#1": [
     '--★★ PickTarget：五层筛选，一行式写法。',
     '-- ★ 与 findflower 第 36-46 行的 if/else 分支写法不同 ——',
     '--   本文件直接返回 FindEntity 的结果，无需分支。',
@@ -234,7 +234,7 @@ export default {
     '--   ★ 移植要点：**选一个「失败时返回 nil 而非抛错」的查询 API**，',
     '--     能让调用方省掉大量分支。',
   ],
-  55: [
+  "FindFarmPlant:PickTarget#1+4": [
     '--★★ 最后一层筛选：压力值与期望一致。',
     '-- ★ 与第 42 行的成功条件**严格互为取反**：',
     '--   第 55 行：happiness == wantsstressed  → 选中（还没照料好）',
@@ -244,7 +244,7 @@ export default {
     '-- ★ 移植要点：把「筛选条件」与「完成判定」写成互为取反的一对，',
     '--   是一种可靠的自我约束 —— 两者必须同时满足设计意图。',
   ],
-  57: [
+  "FindFarmPlant:PickTarget#1+6": [
     '--★ 结尾的三个括号依次是 musttags 与 canttags。',
     '--★ 第 6 个参数 mustoneoftags 未传（nil）—— 三个语义只用了两个。',
     '-- ★ 回调返回 nil 或 true，语义与 findclosest 第 84 行的用法一致。',

@@ -7,7 +7,7 @@ export const BEFORE = {
     "-- 文件头：模块依赖与全局状态标志",
     "--============================================================",
   ],
-  18: [
+  "SavePersistentString#1": [
     "-- 【分区 02】持久化字符串（Persistent String）—— 全局 KV 数据",
     "--",
     "-- ★ 机制：Persistent String 是**独立于世界存档**的一份全局键值数据，",
@@ -21,26 +21,26 @@ export const BEFORE = {
     "--   图标会让人以为没保存；而在游戏中（TheFrontEnd 为 nil）弹图标又多余。",
     "--   ⇒ 两个分支的唯一差别就是「要不要包一层图标」。callback 语义完全一致。",
   ],
-  27: [
+  "cb#1+6": [
     "-- ★ 注意 `encode or false`：第 3 个参数决定 C++ 是否对该字符串做编码，",
     "--   显式 or false 是为了把 nil 归一化成合法的布尔值——",
     "--   Lua 里参数不传就是 nil，而 C++ 侧期望的是明确的 true/false。",
     "-- ⚠ 疑似缺陷（设计约束，非 bug）：若调用方忘记传 encode，值被静默当成 false，",
     "--   即「不编码」。这在 lua 侧无法区分「显式传 false」与「忘了传」。",
   ],
-  33: [
+  "ErasePersistentString#1": [
     "-- 【分区 02 续】删除一个持久化字符串。",
     "-- ★ 为什么删除也要包图标：ErasePersistentString 同样是异步落盘，",
     "--   常用于「重置世界生成设置」这类需要清缓存的操作，玩家需要反馈。",
   ],
-  48: [
+  "Print#1": [
     "-- 【分区 03】小工具",
     "--",
     "-- ★ Print(verbosity, ...) 的设计是「按全局 VERBOSITY_LEVEL 过滤的 print」。",
     "--   这样调试语句可以保留在正式版代码里而不刷屏——按 VERBOSITY 编译期/启动期",
     "--   统一关闭即可，不需要到处删代码。参见 1573 行 Print(VERBOSITY.DEBUG, ...)。",
   ],
-  54: [
+  "SecondsToTimeString#1": [
     "-- 【分区 03 续】秒 → 「分:秒」显示串。",
     "-- ★ 三分支不是为了美观，而是为了匹配三种 UI 语境：",
     "--   · 有分钟 → \"3:07\"（战斗计时/技能 CD）",
@@ -48,12 +48,12 @@ export const BEFORE = {
     "--   · 纯秒且 <=9 → \"7\"（最后几秒的紧迫感，刻意不补零）",
     "-- ⚠ 注意用 math.floor 而非字符串截断：负数或浮点误差下 floor 行为可预期。",
   ],
-  67: [
+  "SecondsToTimeString#1+13": [
     "--============================================================",
     "-- 【分区 04】Prefab 注册（1/2）—— 决定「哪些资源需要加载、哪些跳过」",
     "--============================================================",
   ],
-  69: [
+  "ShouldIgnoreResolve#1": [
     "-- ★★ ShouldIgnoreResolve：资源解析的**白名单反函数**（黑名单）。",
     "--   prefab 的 assets 表里声明了上百个资源文件，这个函数决定哪些真正去磁盘找路径。",
     "--   跳过任何一个都会在后面的 assert 里炸（见 122 行），所以这张表必须精确。",
@@ -73,12 +73,12 @@ export const BEFORE = {
     "-- ★ 设计代价：因为专服跳过音频，**服务器上不能依赖音效事件驱动逻辑**",
     "--   （例如靠 playsound 触发的成就/任务），必须用独立的数据通道。",
   ],
-  101: [
+  "ShouldIgnoreResolve#1+32": [
     "-- ★ modprefabinitfns：按 prefab 名缓存模组注入的「构造后钩子」列表。",
     "--   缓存而非每次查询，是因为 GetPostInitFns 会遍历全部模组环境，很慢，",
     "--   而预制体实例化是高频操作（每次种一棵草都会走一遍）。",
   ],
-  103: [
+  "RegisterPrefabsImpl#1": [
     "-- ★ RegisterPrefabsImpl：预制体注册的**唯一真正实现**。",
     "--   所有入口（RegisterPrefabs / RegisterSinglePrefab / LoadPrefabFile）",
     "--   都汇聚到这里，差别只在传进来的 resolve_fn 不同。",
@@ -89,23 +89,23 @@ export const BEFORE = {
     "--     · 异步批量校验（大批预加载资源，失败延后报错）→ VerifyPrefabAssetExistsAsync",
     "--   把 resolve_fn 作为参数传入，让「登记」逻辑只写一遍，避免三份重复代码。",
   ],
-  107: [
+  "RegisterPrefabsImpl#1+4": [
     "-- ★ 只对未被黑名单过滤的 asset 调用解析器——与 69 行的黑名单严格配对。",
   ],
-  113: [
+  "RegisterPrefabsImpl#1+10": [
     "-- ★ 这一行是模组定制预制体的挂载点。PrefabPostInit 是「仅针对某个 prefab 名」",
     "--   的钩子，模组可用它给别人的 prefab 换贴图/改组件而不 fork 源文件。",
   ],
-  114: [
+  "RegisterPrefabsImpl#1+11": [
     "-- ★ Prefabs 是全局名字 → 预制体定义的查找表。SpawnPrefab（403 行）全靠它。",
     "--   ★ 因此这里是存档里 prefab 字符串的**唯一解析入口**——",
     "--     存档中存的是 prefab 名（如 \"grass\"),读档时靠这张表还原成真对象。",
     "--     ⇒ 若某个 prefab 在新版本被删除/改名，读档就会拿到 nil（见 353 行兜底）。",
   ],
-  119: [
+  "RegisterPrefabsResolveAssets#1": [
     "-- resolve_fn 的实现之一：**同步严格解析**。",
   ],
-  122: [
+  "RegisterPrefabsResolveAssets#1+3": [
     "-- ★★ fail-fast：资源找不到立刻 assert，绝不「悄悄跳过」。",
     "--   理由：资源缺失在开发期几乎必然是拼写错误或路径改动，硬报错能第一时间",
     "--   定位；若此处放行，等到渲染时才发现只会得到一个更难查的空模型。",
@@ -113,10 +113,10 @@ export const BEFORE = {
     "--   保护。若 asset.file 是 nil，字符串拼接会抛「attempt to concatenate a nil」",
     "--   ——错误信息本身报错，反而掩盖了真正的文件名。不修改。",
   ],
-  127: [
+  "VerifyPrefabAssetExistsAsync#1": [
     "-- resolve_fn 的实现之二：**异步批量校验**（第 130 行）。",
   ],
-  130: [
+  "VerifyPrefabAssetExistsAsync#1+3": [
     "-- ★★ 关键设计：这里刻意**不解析**路径，只把文件丢进「存在性批量校验」队列。",
     "--   原始英文注释说得很清楚：目的是「预热 HDD 文件缓存并确保进游戏前资源都在」。",
     "--   为什么重要：批量校验让磁盘 IO 可以并行摊开（AddBatch 是批量的），",
@@ -124,23 +124,23 @@ export const BEFORE = {
     "--   ⇒ 权衡：这条路径下 asset.file 保持相对路径，真正解析延后到加载期。",
     "--   ★ 这解释了 1458 行的断言：这两个模式**互斥**，不能同时开启。",
   ],
-  133: [
+  "RegisterPrefabs#1": [
     "-- 批量注册入口（一次传多个 prefab）。",
   ],
-  139: [
+  "RegisterSinglePrefab#1": [
     "-- ★ 单个注册入口。同样汇聚到 RegisterPrefabsImpl，只是 resolve_fn 固定。",
   ],
-  143: [
+  "RegisterSinglePrefab#1+4": [
     "-- ★ PREFABDEFINITIONS：prefab 名 → 定义，与 Prefabs 的区别是",
     "--   PREFABDEFINITIONS 保存的是**文件里声明的原始对象**（含 assets/deps 清单），",
     "--   而 Prefabs 是「已经解析过、可直接实例化」的运行时视图。",
   ],
-  145: [
+  "LoadPrefabFile#1": [
     "--============================================================",
     "-- 【分区 05】Prefab 文件加载（1/2）—— loadfile + 返回值约定",
     "--============================================================",
   ],
-  148: [
+  "LoadPrefabFile#1+3": [
     "-- ★★ 为什么断言的是「not A or not B」而不是「not (A and B)」？",
     "--   源码英文注释特意解释了：「not is used as cast to boolean」。",
     "--   两个开关都是「三态」：未定义(false) / 显式 false / 显式 true。",
@@ -148,10 +148,10 @@ export const BEFORE = {
     "--   才合法。写成 not A or not B 恰好等价于 not (A and B)。",
     "--   ⚠ 提示：这里用的是 A or B 的真值化语义；若未来有人改成 and 会静默改变行为。",
   ],
-  150: [
+  "LoadPrefabFile#1+5": [
     "-- ★ loadfile 返回 (chunk, err)。第二返回值在失败时是**错误消息字符串**。",
   ],
-  152: [
+  "LoadPrefabFile#1+7": [
     "-- ★★★ 这里是最经典的 loadfile 陷阱，也是本文件最重要的防御性代码之一：",
     "--   `if type(fn) == \"string\"` 判断的**不是** chunk，而是 err。",
     "--   换句话说：这段代码把「chunk 是不是函数」和「err 是不是字符串」混用一个",
@@ -161,39 +161,39 @@ export const BEFORE = {
     "--     作者希望用 DEV_FAILED_TO_LOAD_PREFAB 这个具名错误码上报，",
     "--     而不是抛一段人看不懂的堆栈。known_assert 会把错误登记到 knownerrors.lua。",
   ],
-  162: [
+  "LoadPrefabFile#1+17": [
     "-- ★ 补一道类型断言：文件必须返回可调用 chunk（function）。",
     "--   若 prefab 文件忘了 return 任何东西，这里会给出明确错误。",
   ],
-  163: [
+  "LoadPrefabFile#1+18": [
     "-- ★ `{fn()}` 强制把返回值**表化**成数组。这是 prefab 文件的调用约定：",
     "--   一个 prefab 文件可以返回 1 个或多个 Prefab 对象，返回值被收集成数组。",
     "--   ★ 注意这不是 `{fn(), fn()}`——fn 只被调用一次，多返回值全部装进同一张表。",
   ],
-  167: [
+  "LoadPrefabFile#1+22": [
     "-- ★ 双重校验：既要像表（type==table），又要通过 is_a(Prefab) 元类检查。",
     "--   is_a 是类.lua 提供的元类系统，prefab 文件若返回了别的东西会被这里挡住。",
   ],
-  168: [
+  "LoadPrefabFile#1+23": [
     "-- ★ 记录「这个 prefab 要优先在自己的目录找资源」——模组资源覆盖的关键。",
     "--   配合 121 行的 resolvefilepath 第三参数。",
   ],
-  183: [
+  "LoadPrefabFile#1+38": [
     "-- 【分区 05 续】模组前端/预加载资源管理",
   ],
-  184: [
+  "ModUnloadFrontEndAssets#1": [
     "-- ★★ ModUnloadFrontEndAssets：卸载模组资源。传 nil 表示「全部卸载」。",
     "--   设计上成对出现 UnloadPrefabs + UnregisterPrefabs，顺序不能反：",
     "--   先把 C++ 侧的资源实例卸掉，再注销注册表里的名字。",
   ],
-  190: [
+  "ModUnloadFrontEndAssets#1+6": [
     "-- ⚠ 疑似缺陷（低影响）：table.removearrayvalue 的第二参传的是**字符串**，",
     "--   若该工具要求元素本身（数组里存的是字符串，所以是对的）；",
     "--   但外层 { } 强行把返回值包成单元素表，若未找到则得到 {nil}，",
     "--   随后 IsTableEmpty({nil}) 的行为取决于其实现，存在把 {nil} 当非空的可能。",
     "--   ★ 这条路径只在模组卸载时触发，未找到时不会崩，但语义可疑。不修改。",
   ],
-  198: [
+  "ModReloadFrontEndAssets#1": [
     "-- ★ ModReloadFrontEndAssets：模组的前端资源热重载。",
     "-- ★★ 为什么要 shallowcopy（203 行）：",
     "--   assets 是**模组代码里的表**。如果直接把它的引用存进预制体，模组后续修改",
@@ -201,35 +201,35 @@ export const BEFORE = {
     "--   同样的三行在 ModPreloadAssets（236 行）里一字不差地重复——",
     "--   说明这两个函数是复制粘贴出来的，可以合并但没必要。",
   ],
-  206: [
+  "ModReloadFrontEndAssets#1+8": [
     "-- ★ modroot 让 resolvefilepath_soft 在模组目录内做软解析（找不到不报错）。",
     "--   用 _soft 后缀是因为模组资源本来就可能缺失（例如本地模组还在开发）。",
   ],
-  209: [
+  "ModReloadFrontEndAssets#1+11": [
     "-- ★ 给所有模组前端资源套一个虚拟 prefab 名 \"MODFRONTEND_<modname>\"，",
     "--   这样一次 Unload/Unregister 就能整批处理（见 190 行）。",
     "--   ★ 这是「用命名空间做批量管理」的典型手法，避免逐个资源记账。",
   ],
-  249: [
+  "RegisterAchievements#1": [
     "--============================================================",
     "-- 【分区 06】成就与平台服务（Steam/PSN/主机成就）",
     "--============================================================",
   ],
-  252: [
+  "RegisterAchievements#1+3": [
     "-- ★ 一个成就要登记到**三套** ID 空间：游戏内 name、Steam id、PSN id。",
     "--   主机与 PC 的成就系统完全独立，必须同时注册。",
   ],
-  256: [
+  "LoadAchievements#1": [
     "-- LoadAchievements：与 LoadPrefabFile 结构几乎完全一致的加载器。",
     "-- ★ 注意与 prefab 加载器的差异：这里 dev 分支**没有**特殊处理，",
     "--   直接 assert(false, ...)。成就文件出错比 prefab 出错少见，且不常热更。",
   ],
-  277: [
+  "LoadHapticEffects#1": [
     "-- LoadHapticEffects：手柄震动效果定义加载。同样是「loadfile → 收集返回值」。",
     "-- ★ 嵌套两层 ipairs（第 289 行）：外层遍历文件返回的表，内层遍历每个表的元素。",
     "--   这说明 haptics 文件的返回约定是「表套表」，与 prefab 文件的「一维数组」不同。",
   ],
-  299: [
+  "AwardFrontendAchievement#1": [
     "-- ★★ AwardFrontendAchievement vs AwardPlayerAchievement 的区别：",
     "--   前者不带玩家（纯 UI/全局成就），后者带 userid（进度型成就）。",
     "--   ★ 注意两者都被 IsConsole() 包住——**PC 上这两个函数是空操作**。",
@@ -238,75 +238,75 @@ export const BEFORE = {
     "--   若某平台（如 RAIL）既非 Steam 也非传统主机，这套成就逻辑会整体失效。",
     "--   由于无法从本文件确认 IsConsole 的定义，此处仅标注为待核实风险。不修改。",
   ],
-  307: [
+  "AwardPlayerAchievement#1+2": [
     "-- ★ 双重校验 player 非空 **且** 有 player 标签——防止把成就发给非玩家实体。",
     "--   tostring(player.userid) 是主机侧要求的字符串形式账号 ID。",
   ],
-  336: [
+  "AwardRadialAchievement#1": [
     "-- ★ AwardRadialAchievement：范围成就。FindPlayersInRange 找出范围内所有玩家",
     "--   逐个授予。注意它复用了 AwardPlayerAchievement，因此同样受 IsConsole 限制。",
   ],
-  347: [
+  "SpawnPrefabFromSim#1": [
     "--============================================================",
     "-- 【分区 07】实体生成（1/2）—— 存档/调试双用途的底层 spawn",
     "--============================================================",
   ],
-  348: [
+  "SpawnPrefabFromSim#1+1": [
     "-- ★★ `string.sub(name, string.find(name, \"[^/]*$\"))` 是一个「取路径末段」的惯用法：",
     "--   find 返回「从第一个非 / 字符开始到结尾」的**起始位置** i，",
     "--   string.sub(name, i) 于是取出该位置到结尾，即文件名部分。",
     "--   等价于现代写法 s:match(\"([^/]*)$\")。作用是容忍带目录前缀的 prefab 名。",
   ],
-  351: [
+  "SpawnPrefabFromSim#1+4": [
     "-- ★ Prefabs 查表失败的处理（353-358 行）是**降级 + 上报**而非崩溃：",
     "--   存档里可能有已下线模组的实体，读档时必然查不到。",
     "--   ⇒ 硬崩会让整个存档玩不了，所以这里返回 -1 让调用方跳过。",
     "--   ★ 只有在「无模组 + 服务器未启用模组」的纯净环境下才额外打印堆栈——",
     "--     因为那时还找不到，一定是官方 bug，值得上报。这是很好的分级诊断设计。",
   ],
-  361: [
+  "SpawnPrefabFromSim#1+14": [
     "-- ⚠ 疑似缺陷（低影响）：361 行 `if prefab then` 是**死判断**——",
     "--   上面 352 行已经 `return -1` 处理了 prefab == nil 的情况，",
     "--   走到 361 行时 prefab 必然非 nil。且若 prefab 真为 nil，397 行无 return，",
     "--   函数会隐式返回 nil 而非 -1（与 358 行的约定不一致）。不修改。",
   ],
-  366: [
+  "SpawnPrefabFromSim#1+19": [
     "-- ★★★ SetPrefabName 是**存档关键**：inst.prefab 是存档中记录的实体类型字符串。",
     "--   注意用 `inst.prefab or name` 兜底——个别 prefab 的构造函数不设置 self.prefab。",
     "--   ⇒ 读档时就是靠这个字段去 Prefabs 表里找对应的构造器（见 SpawnSaveRecord 440 行）。",
   ],
-  368: [
+  "SpawnPrefabFromSim#1+21": [
     "-- ★ 两段 modfns 调用的原因（374-381 行）：",
     "--   先用 inst.prefab（可能已被 prefab 构造函数改写成别的名字），",
     "--   如果它和请求的名字不同，再用**原始请求名**再查一次。",
     "--   ⇒ 保证「改名生成」的实体也能被模组钩到。",
   ],
-  391: [
+  "SpawnPrefabFromSim#1+44": [
     "-- ★ 返回 GUID（整数），这是实体在存档与世界中的**唯一标识**。",
     "--   ★★ 存档表达：GUID 不写进每条记录，而是作为 saved_ents / newents 的**键**。",
     "--     参见 1183 行 `saved_ents[k].id = k` 与 462 行 `newents[saved.id] = ...`。",
     "--   ★ 好处：GUID 一旦分配就永不复用（实体死亡不复用），因此存档里的 GUID 天然无歧义。",
   ],
-  399: [
+  "PrefabExists#1": [
     "-- 【分区 07 续】SpawnPrefab —— 游戏逻辑里 99% 的生成入口",
   ],
-  403: [
+  "SpawnPrefab#1": [
     "-- ★★ 与 SpawnPrefabFromSim 的区别（关键）：",
     "--   SpawnPrefabFromSim（347 行）= 直接在**本地**执行 prefab 构造函数（单机/调试/服务器），",
     "--   SpawnPrefab（这里）      = 通过 TheSim 请求，**跨网络到服务器**执行。",
     "--   ★ 在服务器上两者最终都会本地构造（TheSim 在本地），",
     "--     但 SpawnPrefab 是「客户端也能调」的统一入口，客户端调它会发 RPC。",
   ],
-  405: [
+  "SpawnPrefab#1+2": [
     "-- ★ 皮肤合法性检查：IsItemId 判定一个 skin 字符串是否是合法的物品 ID，",
     "--   不是则丢弃（skin = nil）。这防止存档/网络里的伪造皮肤名导致错误。",
   ],
-  409: [
+  "SpawnPrefab#1+6": [
     "-- ★★ TheSim:SpawnPrefab 是**权威生成入口**。返回值 guid 再用 Ents 查回实体。",
     "--   这依赖 Ents 全局表在 SpawnPrefab 返回前已被填好（见 CreateEntity 493 行）。",
     "--   ⇒ 若 TheSim 内部是异步的，Ents[guid] 会是 nil；实际是同步的，所以安全。",
   ],
-  413: [
+  "ReplacePrefab#1": [
     "-- 【分区 07 续】ReplacePrefab：原位替换实体（保位置换类型）。",
     "-- ★ 典型用途：四季/事件把某个 prefab 换成另一个（保持地形对齐不跳变）。",
     "-- ★ 注意它不复制任何业务数据——只是「删旧建新 + 对齐坐标」，",

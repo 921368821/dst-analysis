@@ -4,7 +4,7 @@
 // 锚点范围：327 ~ 528
 
 export const BEFORE = {
-  327: [
+  "StateGraph:__tostring#1": [
     "--★★【__tostring：调试输出 —— 被注释掉的诊断信息揭示了一个设计变更】",
     "--   ★ 328 行末尾那段被注释掉的 \"(currentstate=...)\" 说明：",
     "--     早期版本的 tostring 会打印当前状态与已停留时间，",
@@ -14,7 +14,7 @@ export const BEFORE = {
     "--     **StateGraph 是纯定义，不持有任何运行时状态。**",
     "--   ★ 若需要运行时信息，要打印 StateGraphInstance（373 行才是完整版）。",
   ],
-  332: [
+  "StateGraph:__tostring#1+5": [
     "--★★★【★★ StateGraphInstance：状态图的运行时实例 —— 本文件真正的数据所在】",
     "--   ★★ 与 StateGraph 的关系：定义（N 个实体共享 1 份）/ 实例（每实体 1 份）。",
     "--     所有会随时间变化的东西都在实例上，定义上一点都没有。",
@@ -26,12 +26,12 @@ export const BEFORE = {
     "--     三层嵌套，写代码时极易混淆。建议始终用完整的 self.sg.sg.states。",
     "--   构造参数：(stategraph=定义, inst=宿主实体)。",
   ],
-  333: [
+  "StateGraph:__tostring#1+6": [
     "--【★ 指向 StateGraph 定义 —— 只读，永不修改】",
     "--   ⚠ 唯一会被读写的反例：外部代码有时会 monkey-patch 定义",
     "--     （如 prefab 里给 sg.sg.states.xxx 打补丁），这是 mod 的常规手法。",
   ],
-  334: [
+  "StateGraph:__tostring#1+7": [
     "--【★★ currentstate = nil —— 刻意留空，由构造方显式 GoToState 决定初始状态】",
     "--   ★ 为什么不在构造函数里直接进 defaultstate？",
     "--     因为构造时实体可能还没准备好（组件没装配完、位置没设置），",
@@ -40,7 +40,7 @@ export const BEFORE = {
     "--       AddInstance（注册）→ GoToState(defaultstate)（此时实体已就绪）",
     "--   ⚠ 违反顺序会导致 onenter 访问未初始化的组件。",
   ],
-  335: [
+  "StateGraph:__tostring#1+8": [
     "--【★ timeinstate = 0 —— 「本状态已停留秒数」，timeline 的进度基准】",
     "--   ★★ 与 344 行的 statestarttime 的区别很重要：",
     "--     · timeinstate   = **累计活跃时长**，每帧加 dt（651 行）",
@@ -51,7 +51,7 @@ export const BEFORE = {
     "--     而动画只在活跃时推进，休眠不该推进动画进度。",
     "--     → 推论：状态图休眠期间，时间线是「暂停」的。",
   ],
-  336: [
+  "StateGraph:__tostring#1+9": [
     "--【★ lastupdatetime = 0 —— 上次 Update 的绝对时刻，用于算 dt】",
     "--   ★ 为 0 而非 nil：见 720-722 行，`if self.lastupdatetime then` 对 0 为真",
     "--     （Lua 里 0 是真值），所以首帧会算出一个巨大的 dt。",
@@ -60,7 +60,7 @@ export const BEFORE = {
     "--     那种情况下 718 行的 Update 会因为 currentstate 为 nil 而在 728 行崩 ——",
     "--     见 728 行的 ⚠ 说明。",
   ],
-  337: [
+  "StateGraph:__tostring#1+10": [
     "--★★【★ timelineindex：timeline 的实例级游标 —— 定义共享、进度独立】",
     "--   ★ 指向 State.timeline（253 行）里的下一个待触发节点下标。",
     "--   ★★ nil 的含义有**两种**，务必区分：",
@@ -70,14 +70,14 @@ export const BEFORE = {
     "--     `self.timelineindex and ...` —— nil 时整段跳过，零开销。",
     "--   ★ 这是本文件的性能技巧：timeline 播完后连 while 判断都是常量 false。",
   ],
-  338: [
+  "StateGraph:__tostring#1+11": [
     "--【★★ laststate：上一个状态对象 —— 实现 InNewState 的唯一依据】",
     "--   ★ 对比 lasttags（551 行，只在 onenter 期间有效）：",
     "--     laststate 是**永久**的（直到下次 GoToState）；",
     "--     lasttags 是**瞬态**的（591 行 onenter 之后立刻被清空）。",
     "--   ⚠ 这个不对称经常让人误用。",
   ],
-  339: [
+  "StateGraph:__tostring#1+12": [
     "--★★★【★★ bufferedevents：延迟事件队列 —— 事件机制的数据载体】",
     "--   ★★ 这是整个「刻末批处理」设计的落地容器：",
     "--     PushEvent（392 行）只往这里塞；",
@@ -89,11 +89,11 @@ export const BEFORE = {
     "--     → 92 行的 RemoveInstance 与 480 行的检查都依赖这一点。",
     "--     详见 490-494 行的详细说明。",
   ],
-  340: [
+  "StateGraph:__tostring#1+13": [
     "--【★ inst：宿主实体。State 里的一切 self.inst 都指向它】",
     "--   ★ 事件处理器签名 function(inst, data) 的 inst 就是它（268/469 行）。",
   ],
-  341: [
+  "StateGraph:__tostring#1+14": [
     "--【★ tags：当前状态的标签集合 —— 状态图对外暴露的「布尔属性」】",
     "--   ★★★ 由 GoToState 从 State.tags 复制而来（553-557 行），",
     "--     并可运行时增删（AddStateTag / RemoveStateTag，602-614 行）。",
@@ -102,7 +102,7 @@ export const BEFORE = {
     "--     会在**下一次** GoToState 时被重置（552 行 self.tags = {}）。",
     "--   ⚠ 因此「永久 tag」必须走实体标签（inst:AddTag）而非状态 tag。",
   ],
-  342: [
+  "StateGraph:__tostring#1+15": [
     "--★★★【★★★ statemem：本文件最重要的易错点 —— 「本状态的工作区」】",
     "--   ★★★ 三层记忆的分工（本文件必须背下来的表）：",
     "--     ┌ statemem ┬ 每次 GoToState 被**清空**（550 行）",
@@ -122,19 +122,19 @@ export const BEFORE = {
     "--     → 跨状态要传的，用 GoToState 的 params 参数（onenter 收到）或 mem。",
     "--   ⚠ 本条已核实源码：550 行确实是 `self.statemem = {}`，无条件清空。",
   ],
-  343: [
+  "StateGraph:__tostring#1+16": [
     "--★★【mem：跨状态持久数据 —— statemem 的正确替代品】",
     "--   ★ 全文件只有构造时初始化一次，GoToState 从不清它。",
     "--   ★ 典型用途：状态图级别的缓存、AI 参数、跨状态的目标记忆。",
     "--   ⚠ 代价：实体不销毁就不会释放，长生命周期的怪物要注意别无限增长。",
   ],
-  344: [
+  "StateGraph:__tostring#1+17": [
     "--【★ statestarttime：进入当前状态的绝对时刻（GetTime() 基准）】",
     "--   ★ 与 335 行的 timeinstate 的区别见 335 行注释。",
     "--   ★ GetDebugTable（363 行）与 __tostring（374 行）都用它显示「停留时间」，",
     "--     但那显示的是**真实**停留时间（含休眠），不是 timeinstate。",
   ],
-  347: [
+  "StateGraphInstance:RenderDebugUI#1": [
     "--★★【RenderDebugUI：调试面板注册 —— 提供「打开状态历史」入口】",
     "--   ★ 由 debugui 框架反射调用（方法名固定为 RenderDebugUI）。",
     "--   ★★ 只有**开发构建**会走这条路，正式构建里 debugui 模块不存在。",
@@ -143,14 +143,14 @@ export const BEFORE = {
     "--     无条件 require 会拖慢所有实体状态图的加载。",
     "--   ★ 这是一个很值得学的惰性加载范式。",
   ],
-  350: [
+  "StateGraphInstance:RenderDebugUI#1+3": [
     "--【★ 按钮文案带上实体名 —— 调试时能区分一堆同种怪物】",
   ],
-  351: [
+  "StateGraphInstance:RenderDebugUI#1+4": [
     "--【★★★ 惰性 require 的典型写法：只在用户真的点按钮时才加载调试模块】",
     "--   ★ 代价：拼错的模块名要到运行时点击才报错，而非启动时。",
   ],
-  357: [
+  "StateGraphInstance:GetDebugTable#1": [
     "--★★【GetDebugTable：把内部状态导出成一张可读的表 —— 排查状态机问题的主力工具】",
     "--   ★★★ 导出内容与排查价值对照：",
     "--     name     → 状态图名，确认加载的是哪个文件",
@@ -163,40 +163,40 @@ export const BEFORE = {
     "--   ★ shallowcopy 而非 deepcopy：状态表可能有大量键，深拷贝在调试路径上太贵。",
     "--     只需「看一眼」的语义下浅拷贝足够。",
   ],
-  358: [
+  "StateGraphInstance:GetDebugTable#1+1": [
     "--【Profiler：GetDebugTable 本身也会被性能剖析器统计】",
     "--   ★ 说明这个方法在开发期被调用得很频繁（debugui 每帧刷新）。",
   ],
-  362: [
+  "StateGraphInstance:GetDebugTable#1+5": [
     "--【★ current 可能为 nil（未进任何状态），所以要有 <>None 兜底】",
   ],
-  363: [
+  "StateGraphInstance:GetDebugTable#1+6": [
     "--【★ 除以 FRAMES 把秒转成帧 —— 显示单位与动画帧对齐，便于对照排查】",
     "--   ★ 用 GetTimeInState()（383 行）而非 timeinstate（335 行）：",
     "--     前者含休眠时长，反映「实际卡了多久」，排查问题时更有用。",
   ],
-  364: [
+  "StateGraphInstance:GetDebugTable#1+7": [
     "--【★ shallowcopy：浅拷贝，防止 UI 拿到的是活引用被误改】",
     "--   ★ tags / statemem 都是哈希表，用浅拷贝即可（值是布尔/标量）。",
   ],
-  365: [
+  "StateGraphInstance:GetDebugTable#1+8": [
     "--★★【★ statemem 快照 —— 调试 H2 类数据丢失问题的关键入口】",
     "--   ★★ 用法：状态卡住时看这张表。如果本该有值却是空的，",
     "--     大概率就是被某次意外的 GoToState 清掉了（550 行）。",
   ],
-  373: [
+  "StateGraphInstance:__tostring#1": [
     "--★★【__tostring：实例的完整调试字符串 —— 比定义版（327 行）信息多得多】",
     "--   ★ 格式：sg 名 + 状态名 + 已停留时间 + 全部 tag。",
     "--   ★ 用于 print(inst.sg) 或塞进错误信息。",
   ],
-  374: [
+  "StateGraphInstance:__tostring#1+1": [
     "--【★★ 三段信息一次打完：哪个状态图、哪个状态、停了多久】",
     "--   ★ 注意用 GetTime() - statestarttime（含休眠），与 363 行一致。",
     "--   ⚠ 访问 self.currentstate.name 不做 nil 检查 ——",
     "--     若实例还没进任何状态就会崩。",
     "--     实践中调用 tostring 的地方通常已经进状态了，故不视为缺陷。",
   ],
-  383: [
+  "StateGraphInstance:GetTimeInState#1": [
     "--★★【GetTimeInState：真实停留时长 —— 与 timeinstate 的区别是本文件的经典考点】",
     "--   ★ timeinstate（335 行）    = 累计被 Update 的时长（休眠时不增长）",
     "--   ★ GetTimeInState()（本函数）= GetTime() - statestarttime（含休眠）",
@@ -208,7 +208,7 @@ export const BEFORE = {
     "--     · ontimeout 判定相关逻辑",
     "--   ⚠ 混用会造成「看起来卡住了其实只是睡了」的误判。",
   ],
-  387: [
+  "StateGraphInstance:PlayRandomAnim#1": [
     "--★★【PlayRandomAnim：从动画列表里随机播一个 —— 状态表现层的基础工具】",
     "--   ★ 用法：idle 状态在 onenter 里调它，让怪物待机动作有变化。",
     "--   ★★ 这就是「状态驱动动画」在本文件里的**唯一**直接入口：",
@@ -216,7 +216,7 @@ export const BEFORE = {
     "--     （另一个入口是状态图文件里直接 inst.AnimState:PlayAnimation(...)，",
     "--       更常见，见 SGbat.lua 的 anims 表。）",
   ],
-  389: [
+  "StateGraphInstance:PlayRandomAnim#1+2": [
     "--★【★ AnimState:PlayAnimation —— 真正驱动骨骼/精灵动画的 C++ 调用】",
     "--   ★★ anims[idx+1] 的 +1 不能省：",
     "--     math.floor(math.random() * #anims) 的取值范围是 [0, #anims-1]（含 0）。",
@@ -225,7 +225,7 @@ export const BEFORE = {
     "--     +1 把 [0, n-1] 平移成 [1, n]，这是 Lua 里取随机表元素的惯用手法。",
     "--   ★ 这是一个很值得记住的防御性细节：Lua 的 math.random() 不是 (0,1) 开区间。",
   ],
-  392: [
+  "StateGraphInstance:PushEvent#1": [
     "--★★★【★★ PushEvent：把事件放进缓冲区 —— 不是立即处理！】",
     "--   ★★ 语义澄清（很多误解来自这里）：",
     "--     · PushEvent       = 入队，**当前帧不处理**，等刻末统一派发",
@@ -237,10 +237,10 @@ export const BEFORE = {
     "--   ★ PushEvent 的调用方通常是 EntityScript:PushEvent（entityscript.lua:1307），",
     "--     那里还先做了 IsListeningForEvent 的短路判断。",
   ],
-  393: [
+  "StateGraphInstance:PushEvent#1+1": [
     "--【★ 有 data 就地打上状态标记 —— 见 265 行的「事件归属校验」机制】",
   ],
-  396: [
+  "StateGraphInstance:PushEvent#1+4": [
     "--★★★【★ 无 data 时现场造一个只带状态标记的 data —— 保证 265 行的比对总能用上】",
     "--   ★★★ 这就是「事件归属」机制的写入端：",
     "--     无论事件带不带 payload，都必须带上「入队时的状态名」，",
@@ -248,14 +248,14 @@ export const BEFORE = {
     "--     事件就可能被错误状态的处理器消费。",
     "--   ★ 写成 data = {state = ...} 而非复用 data 表，是为了不污染调用方的表。",
   ],
-  398: [
+  "StateGraphInstance:PushEvent#1+6": [
     "--【★★ 入队：{name=事件名, data=载荷} 作为一个整体追加】",
     "--   ★ 用 table.insert 而非 hashed 结构 —— 事件必须**保序**（先进先出）。",
     "--     这是本文件唯一需要顺序语义的结构。",
     "--   ⚠ 无上限。理论上事件可以无限堆积（每帧 PushEvent 不被处理时），",
     "--     实际有 145 行的每帧清空做保证。",
   ],
-  401: [
+  "StateGraphInstance:IsListeningForEvent#1": [
     "--★★【IsListeningForEvent：任一层有人监听就算「在听」】",
     "--   ★★★ 调用点在 entityscript.lua:1307，是事件入队的**前置门卫**：",
     "--       elseif self.sg:IsListeningForEvent(event) and SGManager:OnPushEvent(self.sg) then",
@@ -271,7 +271,7 @@ export const BEFORE = {
     "--     IsListeningForEvent 为假就不调 PushEvent，OnPushEvent 也不会被调。",
     "--     两道门卫是串联的。",
   ],
-  405: [
+  "StateGraphInstance:PreviewAction#1": [
     "--★★★【★★ PreviewAction：玩家「按住不放」时的即时反馈路径 —— 预测的关键】",
     "--   ★★ 这条路径与 StartAction（430 行）是**平行实现**，必须成对理解：",
     "--     PreviewAction = 按下的瞬间（客户端预测，立刻给反馈，不等服务端）",
@@ -287,7 +287,7 @@ export const BEFORE = {
     "--   ★★ 注意：PreviewAction **不设置** statemem.is_going_to_action_state，",
     "--     而 StartAction 设置（438 行）。这个不对称有实际后果，见 438 行 ⚠。",
   ],
-  409: [
+  "StateGraphInstance:PreviewAction#1+4": [
     "--⚠⚠【★★ 疑似缺陷：condition 为假时**静默返回 nil**，与 H1 条目同族】",
     "--   ★ 推理依据：此处 `return`（无值）即返回 nil，调用方看到 nil 就当",
     "--     「预览未被受理」，但**没有任何日志**。",
@@ -300,24 +300,24 @@ export const BEFORE = {
     "--     print(\"[sg] preview reject\", self.inst.prefab, bufferedaction.action)",
     "--   ⚠ 本条为代码阅读推断，未在运行时验证。",
   ],
-  411: [
+  "StateGraphInstance:PreviewAction#1+6": [
     "--【★ deststate 存在时才走状态切换分支；否则落到 420 行】",
   ],
-  412: [
+  "StateGraphInstance:PreviewAction#1+7": [
     "--【★ 运行时才调 deststate —— 同一个 handler 可以根据上下文选不同状态】",
   ],
-  413: [
+  "StateGraphInstance:PreviewAction#1+8": [
     "--【★ 返回 nil 表示「这个动作现在不该发生」—— deststate 有权拒绝】",
     "--   ★ 见 SGbat.lua:7-13 的例子：GOHOME 时若目标是 sinkhole 就返回 flyaway，",
     "--     否则返回 action。deststate 也可以返回 nil 来表达「拒绝」。",
   ],
-  414: [
+  "StateGraphInstance:PreviewAction#1+9": [
     "--【★★ 真正的预测动作：立刻切到「起手」状态，动画马上播出来】",
     "--   ★ 这是玩家感知「即时」的全部来源。",
     "--   ⚠ 与 439 行 StartAction 的 GoToState 相比，缺少 441-449 的快进逻辑，",
     "--     也缺少 438 行的 statemem 标志。两个方法的差异见 430 行的对照说明。",
   ],
-  420: [
+  "StateGraphInstance:PreviewAction#1+15": [
     "--★★【★ 无 handler 的兜底路径：非瞬时动作统一进 previewaction 状态】",
     "--   ★★ 语义：状态图没为这个动作定义专门状态时，",
     "--     用一个通用的「正在预览动作」状态顶一下。",
@@ -329,22 +329,22 @@ export const BEFORE = {
     "--     表现是「角色摆出动作姿势但什么都没做」，而不是报错。",
     "--     → 排查「角色做了个奇怪动作」，先查该状态图的 actionhandlers 表是否缺项。",
   ],
-  421: [
+  "StateGraphInstance:PreviewAction#1+16": [
     "--【★ 通用状态名 —— 各状态图需自行定义这个状态，见 stategraphs/commonstates.lua】",
   ],
-  426: [
+  "StateGraphInstance:PreviewAction#1+21": [
     "--★【★★ 最后的兜底：交还给实体的预览机制（EntityScript:PerformPreviewBufferedAction）】",
     "--   ★ 这条路径通常会：把物品举起来 / 显示挖掘进度条 / 播放预演音效。",
     "--   ★ 与 414 行是**互斥**的两条路：有 deststate 就不会走到这里。",
   ],
-  428: [
+  "StateGraphInstance:PreviewAction#1+23": [
     "--【PreviewAction 结束，无条件返回 true —— 「预览已被受理」】",
   ],
 
   // ══════════════════════════════════════════════════════════════
   // 九、StartAction：服务端权威执行路径
   // ══════════════════════════════════════════════════════════════
-  430: [
+  "StateGraphInstance:StartAction#1": [
     "--★★★【★★ StartAction：动作的权威执行 —— 与 PreviewAction 平行且不对称】",
     "--   ★★ 两者的差异表（★ 移植时必须同改，否则联机表现不一致）：",
     "--     ┌────────────────────┬──────────────────┬──────────────────┐",
@@ -365,15 +365,15 @@ export const BEFORE = {
     "--     而 GoToState 的 550 行会清空 statemem —— 这个标志很可能立刻被抹掉！",
     "--     详见 438 行的详细分析。",
   ],
-  431: [
+  "StateGraphInstance:StartAction#1+1": [
     "--【★ 与 406 行同样的 nil 判断，但写得更宽松（没有 ~= nil，直接 if）】",
     "--   ★ 因为 actionhandlers 在 StateGraph 构造时必定被 reindex 成哈希表（282 行），",
     "--     这里永不为 nil。",
   ],
-  433: [
+  "StateGraphInstance:StartAction#1+3": [
     "--【查动作路由表】",
   ],
-  434: [
+  "StateGraphInstance:StartAction#1+4": [
     "--★★【★ condition 校验 —— 与 409 行的写法差异很大，注意对比】",
     "--   ★ 本行是 `if not handler.condition or handler.condition(self.inst) then`：",
     "--     · condition 为 nil → 视为通过（动作处理器可以无条件生效）",
@@ -396,13 +396,13 @@ export const BEFORE = {
     "--     → 规避：调用方（locomotor:PushAction）应检查 StartAction 的返回值，",
     "--       为假时至少打印一条日志。",
   ],
-  435: [
+  "StateGraphInstance:StartAction#1+5": [
     "--【★ deststate 存在才走状态切换；否则 453 行直接执行动作】",
   ],
-  436: [
+  "StateGraphInstance:StartAction#1+6": [
     "--【★ 与 412 行相同：运行时决定目标状态】",
   ],
-  438: [
+  "StateGraphInstance:StartAction#1+8": [
     "--⚠⚠⚠【★★ 疑似缺陷：标志在 GoToState 之前设置，而 GoToState 会清空 statemem】",
     "--   ★★★ 严格执行顺序（本行 → 439 行 → 550 行）：",
     "--       438: self.statemem.is_going_to_action_state = true   ← 设置",
@@ -435,10 +435,10 @@ export const BEFORE = {
     "--     或改用 onenter 的 params 传入。",
     "--   ⚠ 本条为代码阅读推断，未在运行时验证。",
   ],
-  439: [
+  "StateGraphInstance:StartAction#1+9": [
     "--【★★ 进入动作状态 —— 注意它会清空 statemem（550 行），见 438 行 ⚠】",
   ],
-  441: [
+  "StateGraphInstance:StartAction#1+11": [
     "--★★【★ 预测快进段：让客户端动画立刻演到位，消除一帧延迟】",
     "--   ★★ 问题背景：客户端预测执行了动作 → 状态切到「起手」→",
     "--     但时间线的第 0 帧是在**下一次** Update 才触发（因为时间已过）。",
@@ -449,7 +449,7 @@ export const BEFORE = {
     "--   ⚠ 条件严格：必须是「远端玩家 + 服务端权威 + 非 no_predict_fastforward」，",
     "--     否则会给非预测路径也快进，造成状态与权威结果错位。",
   ],
-  442: [
+  "StateGraphInstance:StartAction#1+12": [
     "--★【★ 双重豁免检查：状态级（statemem）与动作级（options）任一禁止就不快进】",
     "--   ⚠⚠ 疑似缺陷：self.statemem.no_predict_fastforward **恒为 nil**。",
     "--     推理依据：State 的这个字段在 242 行存为 self.no_predict_fastforward，",
@@ -462,10 +462,10 @@ export const BEFORE = {
     "--     → 修复方向：改读 self.no_predict_fastforward（570 行已备好）。",
     "--   ⚠ 本条为代码阅读推断，未在运行时验证。",
   ],
-  443: [
+  "StateGraphInstance:StartAction#1+13": [
     "--【★ 取 playercontroller —— 只有玩家有，怪物走不到这个分支】",
   ],
-  444: [
+  "StateGraphInstance:StartAction#1+14": [
     "--★★【★ 双重条件：remote_predicting（正在预测别人）且 remote_authority（我是权威）】",
     "--   ★★ 两个词容易混：",
     "--     · remote_predicting = 我在替**别的玩家**做预测",
@@ -475,10 +475,10 @@ export const BEFORE = {
     "--     快进才不会与真正的权威结果冲突。",
     "--   ★ 怪物实体没有 playercontroller（443 行判空），自动跳过。",
   ],
-  445: [
+  "StateGraphInstance:StartAction#1+15": [
     "--【★ 一帧的时长就是快进的基准量】",
   ],
-  446: [
+  "StateGraphInstance:StartAction#1+16": [
     "--★★【★ 把 AnimState 的播放时间也推进同样的量 —— 动画与状态图必须同步】",
     "--   ★★ 这一行是本段最容易被漏掉的细节：",
     "--     只快进状态图（447 行）而不动 AnimState，",
@@ -488,20 +488,20 @@ export const BEFORE = {
     "--   ⚠ 依赖 AnimState 存在。玩家实体一定有，但若某 prefab 无 AnimState，",
     "--     会在此崩（无判空）。实践中动作类 prefab 都有 AnimState。",
   ],
-  447: [
+  "StateGraphInstance:StartAction#1+17": [
     "--【★ FastForward：只改 lastupdatetime（见 755 行），不动其他时间基准】",
     "--   ★★ 这是个**极小但极关键**的手法：",
     "--     不改 timeinstate、不改 statestarttime，只改「上次更新时间」，",
     "--     于是下一次 Update 的 dt 变大，UpdateState 自动把 timeline 追上来。",
     "--   ★ 副作用最小化 —— 这就是它比「直接加 timeinstate」更优的原因。",
   ],
-  454: [
+  "StateGraphInstance:StartAction#1+24": [
     "--【★ 无 deststate 的动作：不切状态，直接执行（ACTIONS 的 strfn/doer_fn）】",
     "--   ★ 这条路径用于「纯数据操作」类动作（开关箱子、捡东西）。",
     "--   ★ 与 426 行的 PerformPreviewBufferedAction 的区别：",
     "--     这里是**真执行**（产生实际效果），那里只是预览。",
   ],
-  457: [
+  "StateGraphInstance:StartAction#1+27": [
     "--【★ return true：动作已被受理。调用方据此决定是否清掉缓冲动作】",
     "--   ★★ 这个返回值是调用方唯一的反馈通道：",
     "--     true  → 动作进入了动作状态，接下来由状态图的 timeline 推进",
@@ -513,7 +513,7 @@ export const BEFORE = {
   // ══════════════════════════════════════════════════════════════
   // 十、事件派发与缓冲
   // ══════════════════════════════════════════════════════════════
-  463: [
+  "StateGraphInstance:HandleEvent#1": [
     "--★★★【★★ HandleEvent：两级事件派发 —— 状态私有优先，全局兜底】",
     "--   ★★★ 派发顺序（★ 这个顺序决定了一堆「重复响应」的 bug）：",
     "--       ① 先问 currentstate.events[eventname]（状态私有，如 attack 的受击处理）",
@@ -527,21 +527,21 @@ export const BEFORE = {
     "--     确保用的是入队时的状态而非当前状态。",
     "--   ⚠ 处理器必须 return true 表示「我处理了」，否则会**双重响应**。",
   ],
-  465: [
+  "StateGraphInstance:HandleEvent#1+2": [
     "--★★【★ 第一级：问当前状态。`not ...` 取反是为了走「未处理」分支】",
     "--   ★ 若状态处理器返回 nil/false → 进入 466 行问全局表。",
     "--   ★★ 这里的 `not` 是必要的：不能写成 `if ... then` 然后在 else 里",
     "--     问全局，那样会丢掉「返回 nil 但确实处理了」的语义。",
   ],
-  466: [
+  "StateGraphInstance:HandleEvent#1+3": [
     "--【★ 第二级：问状态图全局事件表（含 mod 注入的）】",
   ],
-  468: [
+  "StateGraphInstance:HandleEvent#1+5": [
     "--【★ 全局处理器的调用签名与状态私有一致：fn(inst, data)】",
     "--   ★ 注意没有「处理了就 return」的约定 —— 全局处理器是最后一级，",
     "--     没有后续派发，所以返回值无所谓。",
   ],
-  473: [
+  "StateGraphInstance:HandleEvents#1": [
     "--★★★【★★ HandleEvents：把缓冲队列里的事件全部派发出去】",
     "--   ★ 由 SGManager:UpdateEvents（154 行）每帧调用一次。",
     "--   ★★★ 三个关键点：",
@@ -551,7 +551,7 @@ export const BEFORE = {
     "--   ★★ 顺序很重要：「受击」与「死亡」同时入队时，",
     "--     必须按入队顺序处理，否则可能出现「死后又播受击音效」。",
   ],
-  474: [
+  "StateGraphInstance:HandleEvents#1+1": [
     "--【★★ 防御性断言：绝不在没有状态时派发事件】",
     "--   ★ 因为 HandleEvent 内部要访问 currentstate（465 行），",
     "--     currentstate 为 nil 会直接崩。",
@@ -559,20 +559,20 @@ export const BEFORE = {
     "--     实际触发路径：状态图已 Stop 但实体还活着 → 但 Stop 时",
     "--     92 行 ClearBufferedEvents 已经清空了，所以正常不会触发。",
   ],
-  476: [
+  "StateGraphInstance:HandleEvents#1+3": [
     "--★★★【★ 实体有效性检查 —— 事件处理期间实体可能已被销毁】",
     "--   ★ 场景：队列里有 3 个事件，第 1 个的处理函数里调了 inst:Remove()。",
     "--     若不检查，第 2、3 个事件会操作已销毁的实体 → 崩溃或幽灵行为。",
     "--   ★ 与 480 行是**互补**的两道保险：",
     "--     476 行拦「实体死了」，480 行拦「缓冲表被换了」（状态图死了）。",
   ],
-  478: [
+  "StateGraphInstance:HandleEvents#1+5": [
     "--【★ 用局部变量 buff_events 持有当前表 —— 这是换表检测能生效的前提】",
   ],
-  479: [
+  "StateGraphInstance:HandleEvents#1+6": [
     "--【★★ 逐条派发，每条独立走 463 行的两级派发】",
   ],
-  480: [
+  "StateGraphInstance:HandleEvents#1+7": [
     "--★★★【★★ 「表被换掉了」的检测 —— 与 92 行 RemoveInstance 配套】",
     "--   ★★ 原理：ClearBufferedEvents（490 行）是**换表**（self.bufferedevents = {}），",
     "--     不是逐个置 nil。所以局部变量 buff_events 仍指向旧表，",
@@ -588,7 +588,7 @@ export const BEFORE = {
     "--     · 476 行  兜住「实体死了但表没换」的情况",
     "--   ⚠ 修改本文件时绝不能只删一处。",
   ],
-  490: [
+  "StateGraphInstance:ClearBufferedEvents#1": [
     "--★★★【★★ ClearBufferedEvents：换表式清空 —— 本文件最精妙的技巧之一】",
     "--   ★★★ 为什么不能逐个置 nil / 用 table.remove？",
     "--     因为**可能正在被遍历**（478 行 ipairs）。",
@@ -604,15 +604,15 @@ export const BEFORE = {
     "--   ★ 与 SGManager:UpdateEvents 的 haveEvents 换表（149-150）",
     "--     是同一思想在三个层次的第三次应用。",
   ],
-  491: [
+  "StateGraphInstance:ClearBufferedEvents#1+1": [
     "--【★ 空队列时直接返回 —— 绝大多数帧队列都是空的，这个早退很值钱】",
   ],
-  492: [
+  "StateGraphInstance:ClearBufferedEvents#1+2": [
     "--【★★ 换表：旧表交给还在遍历的 ipairs，新表接住后续 PushEvent】",
     "--   ★★ 于是「处理期间新来的事件」会自动落到新表，下一帧才处理。",
     "--     这就是「刻末批处理」能自洽的最后一环。",
   ],
-  496: [
+  "StateGraphInstance:InNewState#1": [
     "--★★【InNewState：「本帧是否刚进入新状态」—— 供外部判断该做什么初始化】",
     "--   ★ 用法：Brain 或组件在 onupdate 里问「状态刚变了吗」，",
     "--     是的话做一次性的准备工作（如重新寻路）。",
@@ -622,14 +622,14 @@ export const BEFORE = {
     "--     → 所以更可靠的做法是把初始化写在 onenter 里。",
     "--     InNewState 只适合「不一定需要重新初始化」的轻量检查。",
   ],
-  497: [
+  "StateGraphInstance:InNewState#1+1": [
     "--【★ 纯引用比较 —— 没有时间窗口判断，也没有「进入第几帧」的概念】",
   ],
 
   // ══════════════════════════════════════════════════════════════
   // 十一、状态标签 → 实体标签的映射表
   // ══════════════════════════════════════════════════════════════
-  500: [
+  "StateGraphInstance:InNewState#1+4": [
     "--★★★【★★ SGTagsToEntTags：状态 tag → 实体 tag 的自动同步白名单】",
     "--   ★★ 这是全文件最容易被忽略、但影响面极广的一段机制。",
     "--   ★ 机制（实现在 551-566 行）：",
@@ -652,72 +652,72 @@ export const BEFORE = {
     "--   ⚠ AddStateTag（602 行）/ RemoveStateTag（609 行）也会走同一条同步路径，",
     "--     所以运行期动态加 tag 同样会同步到实体 —— 这一点是自洽的。",
   ],
-  503: [
+  "StateGraphInstance:InNewState#1+7": [
     "--【★ attack：正在攻击。combat 与 locomotor 都查这个】",
   ],
-  504: [
+  "StateGraphInstance:InNewState#1+8": [
     "--【★ autopredict：自动预测相关（玩家输入相关）】",
   ],
-  505: [
+  "StateGraphInstance:InNewState#1+9": [
     "--★★【busy：忙碌中 —— ★ 最常被查的标签】",
     "--   ★ locomotor / brain 都会查它来决定「现在能不能被打扰/能不能移动」。",
   ],
-  506: [
+  "StateGraphInstance:InNewState#1+10": [
     "--【dirt：在土里（如土怪埋土状态）】",
   ],
-  507: [
+  "StateGraphInstance:InNewState#1+11": [
     "--★【doing：正在执行某个动作 —— ★ 物品栏自动暂停的判定依据】",
     "--   ★ 玩家打开物品栏时会暂停世界；「doing」状态的角色不应被暂停。",
     "--   ★ 典型：砍树中（doing）→ 打开物品栏 → 树不应该停止被砍。",
   ],
-  508: [
+  "StateGraphInstance:InNewState#1+12": [
     "--【fishing：钓鱼中】",
   ],
-  509: [
+  "StateGraphInstance:InNewState#1+13": [
     "--【flight：飞行中】",
   ],
-  510: [
+  "StateGraphInstance:InNewState#1+14": [
     "--★【hiding：躲藏中（如躲草丛）】",
   ],
-  511: [
+  "StateGraphInstance:InNewState#1+15": [
     "--★【idle：空闲 —— ★ 「可被打扰」的判据】",
     "--   ★ Brain 用它判断是否切换到警觉状态；locomotor 用它允许玩家指令。",
   ],
-  512: [
+  "StateGraphInstance:InNewState#1+16": [
     "--【invisible：隐身中】",
   ],
-  513: [
+  "StateGraphInstance:InNewState#1+17": [
     "--【lure：诱饵状态（如被海象吸引的鱼饵）】",
   ],
-  514: [
+  "StateGraphInstance:InNewState#1+18": [
     "--★【moving：移动中】",
   ],
-  515: [
+  "StateGraphInstance:InNewState#1+19": [
     "--【nibble：啃咬中（兔子吃草）】",
   ],
-  516: [
+  "StateGraphInstance:InNewState#1+20": [
     "--★【noattack：禁止攻击 —— AI 与战斗系统的互斥标记】",
     "--   ★★★ 用途：被眩晕/受击硬直时，AI 不该继续追打。",
     "--     Brain 与 combat 都会查它来中止攻击序列。",
     "--   ★ 这也是 H1「抢占重置」的痛点之一：",
     "--     若 noattack 没有正确加上，怪物会在硬直中继续攻击。",
   ],
-  517: [
+  "StateGraphInstance:InNewState#1+21": [
     "--【nopredict：禁止客户端预测】",
   ],
-  518: [
+  "StateGraphInstance:InNewState#1+22": [
     "--【pausepredict：暂停预测】",
   ],
-  519: [
+  "StateGraphInstance:InNewState#1+23": [
     "--【sleeping：睡眠中】",
   ],
-  520: [
+  "StateGraphInstance:InNewState#1+24": [
     "--★【working：劳作中（采矿/伐木）】",
   ],
-  521: [
+  "StateGraphInstance:InNewState#1+25": [
     "--【boathopping：跳船动作中 —— 船移动的判定依据】",
   ],
-  522: [
+  "StateGraphInstance:InNewState#1+26": [
     "--★★【★ 表里唯一的例外：shouldautopausecontrollerinventory 不在字母序末尾】",
     "--   ★ 它本该按字母序排在最后，但被放在 boathopping 之后，",
     "--     因为 522 行原本是最后一项，后来新增时直接追加了。",
@@ -730,7 +730,7 @@ export const BEFORE = {
     "--   ★★ 设计模式：白名单之外再加一层「例外」标记，",
     "--     避免了为每个特例都去改主判定逻辑。",
   ],
-  525: [
+  "StateGraphInstance:HasState#1": [
     "--★★【HasState：状态图里是否存在这个状态 —— 「能力查询」而非「当前状态」】",
     "--   ★★ 与 HasStateTag（616 行）区分：",
     "--     · HasState(name)     → 这个**状态图定义里**有没有这个状态",
@@ -740,7 +740,7 @@ export const BEFORE = {
     "--   ★★ 这是 313-318 行 mod 注入 State 的读取侧：",
     "--     mod 注入的状态可用 HasState 检查是否成功注入。",
   ],
-  526: [
+  "StateGraphInstance:HasState#1+1": [
     "--【★ 查的是定义表 self.sg.states，不是当前状态 —— 定义与运行时的又一次分离】",
   ],
 };

@@ -48,17 +48,17 @@ export default {
     '-- ★ 这个数字是「提前量」：不是「盐要过期了才去」，而是「还剩 16 秒就出发」，',
     '--   因为跑过去 + 舔完需要时间。这是一个很容易被忽略的「提前行动」设计。',
   ],
-  9: [
+  "OnSaltlickPlaced#1": [
     '-- 盐渍被吃掉时清掉缓存。',
     '-- ★ 注意它用的是 inst:RemoveEventCallback 而不是在 OnStop 里统一清 ——',
     '--   因为这个事件监听的生命周期独立于节点（AnchorToSaltlick 启停都可能重建它）。',
   ],
-  14: [
+  "OnSaltlickPlaced#1+5": [
     '-- 索敌标签表。注意语义：MUST_TAGS 是「必须全部具备」，CANT_TAGS 是「一个都不能有」。',
     '-- INLIMBO —— 正在加载/卸载，加载中的实体不可交互',
     '-- fire / burnt —— 会烧掉或已烧毁的盐渍不值得去舔',
   ],
-  17: [
+  "FindSaltlick#1": [
     '-- ★ FindSaltlick 的关键设计：不是每次都重新搜，而是「条件性重搜」。',
     '-- 第 18-23 行是一个 OR 起来的大条件，只要全部不成立才不进 if，即：',
     '--   缓存为空 / 缓存已失效 / 自己没盐渍 tag / 缓存进入 limbo /',
@@ -69,14 +69,14 @@ export default {
     '-- ⚠️ 事件注册条件是「从无到有」（第 27 行 not hadsaltlick），而不是每次都注册。',
     '--   若写成每次都 ListenForEvent，会在同一个实体上注册多个回调 —— 重复触发。',
   ],
-  25: [
+  "FindSaltlick#1+8": [
     '-- 真正的空间查询。FindEntity 是 DST 的通用空间检索，',
     '-- ★ 参数顺序：inst, 半径, 额外过滤函数, MUST_TAGS, CANT_TAGS（, ONE_OF_TAGS）。',
     '--   注意 TheSim:FindEntities 是另一个函数，参数顺序不同（x,y,z,半径,...），',
     '--   两者在本文件里混用（第 230、503 行 vs 第 25 行），移植时极易搞错。',
   ],
 
-  37: [
+  "WanderFromSaltlickDistFn#1": [
     '-- ★ WanderFromSaltlickDistFn：让「距盐渍的距离」随剩余时间收紧。',
     '--   盐渍还剩 16 秒 → 在 CHECK_DIST*0.75 处晃荡',
     '--   盐渍还剩  8 秒 → 距离线性收紧到 USE_DIST*0.75',
@@ -86,17 +86,17 @@ export default {
     '-- 第 38 行 GetTimeLeft 返回 nil 时用 or 0 兜底 —— 此时 t=0 会让结果落在映射区外，',
     '--   所以第 42 行的 or 分支（无定时器时用最大距离）是必要的防御。',
   ],
-  45: [
+  "ShouldSeekSalt#1": [
     '-- ShouldSeekSalt：有目标盐渍 + 有定时器 + 剩余时间不足。三个条件缺一不可。',
   ],
-  51: [
+  "AnchorToSaltlick#1": [
     '-- ★ AnchorToSaltlick：WhileNode + Wander 的组合，节点被反复进出。',
     '-- 第 52 行 WhileNode 条件里调 FindSaltlick —— ★ 条件函数带副作用是这里的刻意的：',
     '--   每帧重新校验缓存，「缓存失效」这个时机和「进入节点」自动同步。',
     '--   代价是条件函数不再是纯函数，读代码时容易误判它只是判断。',
     '-- 第 61 行 GetPosition() 或 inst:GetPosition() 的兜底：目标没了就原地站。',
   ],
-  67: [
+  "AnchorToSaltlick#1+16": [
     '-- ★★ 「猴子补丁 OnStop」—— 本文件最值得学的一段。',
     '-- 手法：先存下原 OnStop，再用自己的函数替换它，替换后的函数里',
     '--   (1) 做本节点自己的清理（摘事件监听、清缓存）',
@@ -111,7 +111,7 @@ export default {
   ],
 
   // ══════════════ 恐慌：Panic 系列 ══════════════
-  86: [
+  "ShouldTriggerPanic#1": [
     '-- ★ ShouldTriggerPanic：恐慌的触发条件是「三个独立来源的 OR」。',
     '--   health.takingfiredamage —— 正在受火焰伤害',
     '--   health:GetLunarBurnFlags() ~= 0 —— 月亮灼烧（月亮石机制，独立于火焰）',
@@ -121,30 +121,30 @@ export default {
     '--   在 Lua 里 nil 为假，所以调用方用它当条件是对的，**不是缺陷**。',
     '-- ⚠️ 但第 87-88 行混用了空格与 Tab 缩进，属风格问题（SOP 坑 6 的同类），Lua 不 care。',
   ],
-  92: [
+  "BrainCommon.PanicTrigger#1": [
     '-- 把「恐慌」包装成一个独立节点工厂，暴露给所有大脑调用。',
     '-- ★ 这是 braincommon 的核心价值主张：把「条件 + 动作」的配对固化，',
     '--   调用方只需一行 BrainCommon.PanicTrigger(inst) 就得到完整子树。',
     '-- 参数条件在 WhileNode 里，所以每帧重新求值 —— 火焰停了会自动退出恐慌。',
   ],
-  99: [
+  "ShouldAvoidElectricFence#1": [
     '-- 电栅栏恐慌。条件是 prefab/buff 设置的 inst.panic_electric_field 字段。',
     '-- ★ 这是「外部注入条件」的典型：大脑自己不判断电击，',
     '--   而是由电栅栏组件在触发时打标记，大脑只负责读标记。',
     '-- 好处是判定逻辑集中在施加伤害的那一侧，避免每个生物重复实现「我被电了吗」。',
   ],
-  108: [
+  "BrainCommon.HasElectricFencePanicTriggerNode#1": [
     '-- 反查接口：节点是否真的在跑。注释明说这个标志由 AvoidElectricFence 节点自己设置。',
     '-- ⚠️ 跨文件隐式契约：braincommon 读一个由 behaviours/ 节点写入的私有字段。',
     '--   仿写时务必把这类「谁写谁读」写清楚，否则改 behaviours/ 就会静默破坏 brains/。',
   ],
-  114: [
+  "ShouldTriggerPanicShadowCreature#1": [
     '-- 影子生物专属恐慌。同样是「外部打标记，大脑只读」。',
     '-- ⚠️ 第 115 行源码自带的 TODO 承认这是临时方案：标记由',
     '--   hermitcrabtea_moon_tree_blossom_buff 设置，注释原文建议扩展成更好的系统。',
     '--   这是原作者留的技术债标注，不是我们的判断。',
   ],
-  125: [
+  "PanicWhenScared#1": [
     '-- ★★ PanicWhenScared —— 全文件逻辑最密的一个工厂函数。',
     '--',
     '-- 【它解决的问题】被「epicscare」（大吓人事件）惊吓后：',
@@ -165,14 +165,14 @@ export default {
     '-- ⚠️ 这是本函数最精妙也最容易写错的地方：如果只写 if GetTime() < scareendtime then GiveUp() end，',
     '--   会在惊吓的每一帧反复调 GiveUp，虽不致命但浪费，且会打断其他战斗逻辑。',
   ],
-  130: [
+  "onepicscarefn#1+3": [
     '-- 注册 epicscare 监听。注意用的是 inst:ListenForEvent（实体级），',
     '-- 事件来源由调用方决定，与 inst 无关 —— 即「不管谁吓的，我都要反应」。',
   ],
-  134: [
+  "onepicscarefn#1+7": [
     '-- 可选台词：把恐慌子树包一层 ChattyNode，让它带语音/气泡。',
   ],
-  138: [
+  "onepicscarefn#1+11": [
     '-- ★ 吓掉忠诚的分支（第 138-153 行）。设计上很讲究：',
     '-- 用 ParallelNode 而不是 SequenceNode —— 一边恐慌，一边并行地每 3 秒抽一次签。',
     '-- 若用 SequenceNode，签检会排在恐慌后面，恐慌不结束就永远抽不到签。',
@@ -180,13 +180,13 @@ export default {
     '-- 第 147 行 TryLuckRoll(leader, chance, 公式id) —— 把「是否失去忠诚」交给',
     '--   幸运值系统统一裁决，因此不同幸运值的玩家被吓后的表现会不同。',
   ],
-  144: [
+  "onepicscarefn#1+17": [
     '-- ⚠️ 这里连取 leader 都要判两次（短路：leader ~= nil and ... 里的 hasLeader 局部变量），',
     '--   因为 GetLoyaltyPercent() 若在无 leader 时调用可能出错。防御式写法，值得学。',
   ],
 
   // ══════════════ 索敌标签表 ══════════════
-  195: [
+  "BrainCommon.IpecacsyrupPanicTrigger#1+5": [
     '-- 以下进入「帮工动作」的标签表。MINE/CHOP/DIG/TILL 四种动作共用一批排除标签。',
     '-- ★ 三个 CANT_TAGS 完全相同，说明「不可被采集」的理由对四动作是一致的：',
     '--   carnivalgame_part —— 嘉年华小游戏的道具，偷了会破坏玩法',
@@ -194,7 +194,7 @@ export default {
     '--   waxedplant        —— 上蜡的植物（不能采集，否则破坏蜡覆层机制）',
     '-- ⚠️ 这三条是「玩法保护」而非「物理不可达」。移植时容易漏掉最后一类。',
   ],
-  201: [
+  "BrainCommon.IpecacsyrupPanicTrigger#1+11": [
     '-- DIG 用的是 ONE_OF_TAGS 语义：「farm_debris 或 tree 之一即可」。',
     '-- ⚠️ 与 MINE/CHOP 的 MUST 语义不同。作者第 224 行注释说明了原因：',
     '--   「我们把树也算进来，所以要确认它是可挖的树桩」，靠 IsDigValid 二次筛。',
@@ -202,7 +202,7 @@ export default {
   ],
 
   // ══════════════ 耕地位置搜索 ══════════════
-  228: [
+  "CollectTillSites#1": [
     '-- CollectTillSites：围绕一个 tile 找可以耕种的格。',
     '-- ⚠️ 第 232 行 #soils < 9 是「这个格子里的土不够多就放弃」—— 防止玩家在',
     '--   已挖得稀烂的地上反复找到同一批位置。注意这里只统计半径 2 内的 soil 实体。',
@@ -213,7 +213,7 @@ export default {
     '--   属于「写法可疑但不能断定是 bug」，故标为疑似，不下定论。',
     '-- 第 238 行 CanTillSoilAtPoint 才是真正的合法性判定（地图层面能否耕）。',
   ],
-  248: [
+  "FindTillPosition#1": [
     '-- ★ FindTillPosition 的两级策略：',
     '--   有 inst.digtile（上次定的目标）→ 只看那一个格子',
     '--   没有 → 扫 9x9 个采样点（步长 4，实际覆盖 36x36 单位）找 FARMING_SOIL',
@@ -225,7 +225,7 @@ export default {
   ],
 
   // ══════════════ AssistLeaderDefaults 三钩子 ══════════════
-  287: [
+  "FindTillPosition#1+39": [
     '-- ★★★ 全文件最值得整段照抄的结构：跟随者帮工的「三钩子」策略表。',
     '--',
     '-- 【为什么是三个钩子而不是一个】帮工行为有三段截然不同的判断，',
@@ -252,28 +252,28 @@ export default {
     '-- 注释原文写 "Mod support access" —— ★ 模组可以替换这张表里的钩子来改写帮工 AI，',
     '--   而不必复制整个 NodeAssistLeaderDoAction。这是很干净的扩展点。',
   ],
-  289: [
+  "Starter#1": [
     '-- MINE.Starter：看主人状态图是否带 mining 标签。',
     '-- ★ 用 sg:HasStateTag 而不是直接问「主人是否在挖矿」，是 DST 状态图的通用解耦手法：',
     '--   大脑不需要知道状态图里状态叫什么名字，只认标签。改状态图名不会破坏大脑。',
     '-- 第 291 行连 leader.sg 都要判非空 —— 因为 sg 可能尚未初始化。',
   ],
-  293: [
+  "KeepGoing#1": [
     '-- MINE.KeepGoing：只要还在主人附近就继续挖。',
     '-- ⚠️ 注意与 FindNew 的距离参数不同：KeepGoing 用 leaderdist（KEEP_CHOPPING_DIST=10），',
     '--   FindNew 用 finder_finddist（SEE_TREE_DIST=15）。',
     '--   ★ 这是有意的不对称：「继续」的条件比「重新找」的半径更小，',
     '--   形成迟滞（hysteresis），避免在边界反复开工/收工。',
   ],
-  312: [
+  "FindNew#1+15": [
     '-- CHOP 的三个钩子。★ 三者开头都有 if inst.tree_target ~= nil then return true end，',
     '--   即「缓存目标存在时无条件继续」，把稳定性判断外包给缓存层。',
   ],
-  318: [
+  "Starter#2+5": [
     '-- ★ CHOP.Starter 里额外查 FindDeciduousTreeMonster —— 会走的树怪也要砍。',
     '--   这是「目标类型扩展」的例子：主线需求（树）之外补一个特殊需求（树怪）。',
   ],
-  340: [
+  "FindNew#2+11": [
     '-- ★ CHOP.FindNew 的「目标窃取」逻辑（第 340-345 行）：',
     '--   若 inst.tree_target 已被预先指定（由外部/状态图设置），直接用它并清空缓存；',
     '--   否则优先砍树怪。',
@@ -281,13 +281,13 @@ export default {
   ],
 
   // ══════════════ NodeAssistLeaderDoAction ══════════════
-  411: [
+  "FindNew#4+16": [
     '-- 源码作者原注释：这套机制是让跟随者「看到主人做某动作后跟着做一次」。',
     '-- ★ 关键设计：动作是高度上下文相关的（挖矿要矿，砍树要树，耕地要土），',
     '--   所以 Starter/KeepGoing/FindNew 各动作一套 —— 见上面的 AssistLeaderDefaults。',
     '--   注释明确说 "defaults above to help clarify context"。',
   ],
-  413: [
+  "NodeAssistLeaderDoAction#1": [
     '-- ★★ NodeAssistLeaderDoAction 的「可覆盖」设计：',
     '-- 第 417-419 行 —— parameters.starter or defaults.Starter',
     '--   ★ 模组可以只覆盖其中一两个钩子，其余走默认。这是「策略表的策略表」。',
@@ -297,22 +297,22 @@ export default {
     '-- ⚠️ 属「隐式契约」：调用方必须传合法 action（MINE/CHOP/DIG/TILL）。',
     '--   本文件内部 4 处调用都合法（第 470、476、481、486 行），已逐一核对。',
   ],
-  421: [
+  "NodeAssistLeaderDoAction#1+8": [
     '-- 两个距离参数的默认值。所有大脑共用同一套跟随者帮工距离手感。',
   ],
-  424: [
+  "ifnode#1": [
     '-- 三个匿名条件函数，把「钩子 + 距离参数」重新打包成节点需要的无参函数。',
     '-- ★ 这层适配是必需的：钩子签名是 (inst, leaderdist, finddist)，',
     '--   而节点的条件/动作回调签名是 () —— 适配层在此产生。',
   ],
-  434: [
+  "findnode#1+4": [
     '-- ★ 有无台词走两条不同分支（第 434-438 行）：',
     '--   有 chatterstring → LoopNode{ConditionNode(whilenode), ChattyNode(...DoAction...)}',
     '--   无 chatterstring → LoopNode{ConditionNode(whilenode), DoAction(...)}',
     '-- LoopNode = 无限循环；ConditionNode 只在条件为真时执行下一个节点。',
     '-- ★ 结构含义：每轮循环先问「还该继续吗」，不该继续就整轮跳过（即退出）。',
   ],
-  440: [
+  "findnode#1+10": [
     '-- IfThenDoWhileNode(if, while, name, do) —— 三段式大脑语义的一次性表达：',
     '--   「若 if 成立，则在 while 成立期间反复执行 do」。',
     '-- ★ 这是本文件与 brain.lua 机制最直接的对应：',
@@ -321,11 +321,11 @@ export default {
   ],
 
   // ══════════════ 捡东西给主人 ══════════════
-  446: [
+  "findnode#1+16": [
     '-- 源码原注释：这个节点帮跟随者为【玩家】主人捡东西，捡到后交给主人，',
     '-- 交不了（背包满/没开容器）就丢在地上。',
   ],
-  449: [
+  "Unignore#1": [
     '-- IgnoreThis / Unignore 的机制（第 449-460 行）：「软锁」。',
     '-- 一次只允许一个 worker 盯住同一个物品，防止一群跟随者同时扑向同一个物品。',
     '-- ★ 用 leader:DoTaskInTime(5, ...) 定 5 秒后自动解锁 —— 即使 worker 死了也不会永久锁死。',
@@ -333,7 +333,7 @@ export default {
     '-- ⚠️ 缺陷风险：定时器挂在 leader 上，若 leader 在 5 秒内被卸载，锁永不释放。',
     '--   不过该表是每次 OnStart 重建的局部变量（见各大脑调用处），影响有限。',
   ],
-  462: [
+  "PickUpAction#1": [
     '-- ★★ PickUpAction —— 参数极多（10 个），值得按「组」来读：',
     '--   pickup_range / pickup_range_local  —— 两个搜索半径（见第 502-507 行）',
     '--   furthestfirst                        —— 优先最远的还是最近的',
@@ -353,7 +353,7 @@ export default {
     '--   false → 背包满了直接放弃',
     '-- ★ 两种都用了「早退返回 nil」，即「不行动」，而不是退而求其次去捡别的。',
   ],
-  492: [
+  "PickUpAction#1+30": [
     '-- ★★ 第 492-495 行是一个 ★ 真实的边界条件（不是缺陷，但极易踩）：',
     '--   container == nil，或「主人有 inventory 但这个 container 没被主人打开」→ 返回 nil。',
     '--   源码自己的注释：Inventory existing and it being opened so the action can work.',
@@ -362,21 +362,21 @@ export default {
     '-- ⚠️ 移植要点：这一行同时用了 and / or / not 的混合短路，括号位置改变语义，',
     '--   拆成两行更好读（对照第 528 行 mermbrain 里是同样写法）。',
   ],
-  497: [
+  "PickUpAction#1+35": [
     '-- itemoverridefn 是「完全接管选品」的逃生舱；否则走标准的 FindPickupableItem。',
     '-- 第 502-507 行 ★ 两段搜索：先小半径（range_local）再大半径（range）。',
     '--   小半径优先 = 优先捡自己脚边的，减少乱跑。',
     '-- ⚠️ 第 503 行传的 inst:GetPosition() 作为排除中心，',
     '--   第 506 行传的 positionoverride —— 两者语义不同，注意别抄混。',
   ],
-  517: [
+  "PickUpAction#1+55": [
     '-- ★ 动作三分支：陷阱物品要「检查」，可摘的要「摘」，其余「捡」。',
     '--   item.components.trap ~= nil and ACTIONS.CHECKTRAP',
     '--   pickable and ACTIONS.PICK',
     '--   ACTIONS.PICKUP',
     '-- 语义：不能直接拿走的东西，先「检查」（拆陷阱）而不是硬拿。',
   ],
-  520: [
+  "GiveAction#1": [
     '-- GiveAction：把手上的东西给主人。',
     '-- 第 523 行 ★ 注释明说 "intentionally backwards"：',
     '--   先取 GetFirstItemInAnySlot 再取 GetActiveItem，',
@@ -389,18 +389,18 @@ export default {
     '--   都没有 → action 为 nil → 第 545 行早退。',
     '-- ★ 这是「同一个意图，按对象类型分派到不同动作」的干净范例。',
   ],
-  552: [
+  "DropAction#1": [
     '-- DropAction：交不了就丢在地上。',
     '-- 第 560 行 ba.options.wholestack = true —— 丢的是整堆而非一个。',
     '-- ★ 第 559 行 BufferedAction(inst, leader, ...) 的第二个参数是「目标」而非接收者，',
     '--   这里的语义是「对着主人丢下」；接收者其实是 item 参数（第 4 参）。',
     '--   参数顺序容易看错，是 BufferedAction 最常见的误读点。',
   ],
-  564: [
+  "AlwaysTrue#1": [
     '-- ★ AlwaysTrue 作为「无条件」的默认值 —— 全DST 大量使用这个惯用法。',
     '--   比直接写 function() return true end 少一次函数分配，可读性也不差。',
   ],
-  565: [
+  "NodeAssistLeaderPickUps#1": [
     '-- ★★ NodeAssistLeaderPickUps 的参数拆解（第 566-578 行）：',
     '--   几乎全是 parameters.xxx 的透传，真正的逻辑在 PickUpAction/GiveAction 里。',
     '-- 第 572-573 行 ★ 区分「函数型 positionoverride」与「值型 positionoverride」：',
@@ -410,12 +410,12 @@ export default {
     '--   而函数型还会被调用两次（第 581、600 行），★ 意味着 GetSpawn 被每帧求值多次，',
     '--   移植时若 overridefn 有副作用会出问题 —— GetSpawn 是纯函数所以安全。',
   ],
-  580: [
+  "CustomPickUpAction#1": [
     '-- 捡东西时挂成功/失败回调，推成实体事件对外广播。',
     '-- ★ 这是「大脑内部状态 → 对外事件」的解耦出口：',
     '--   prefab 或状态图可以 ListenForEvent("braincommon_pickup_success") 而不侵入大脑代码。',
   ],
-  593: [
+  "CustomPickUpAction#1+13": [
     '-- ★ give_cond_fn 的三态合成（第 593-603 行），非常值得学：',
     '--   有 give_range → 造一个闭包：先查 give_cond，再查与主人的距离是否在 give_range 内',
     '--   没有 give_range → 直接用调用方给的 give_cond',
@@ -425,7 +425,7 @@ export default {
     '--   但若传了 positionoverridefn 就取函数值 —— 又一次求值（第 600 行）。',
     '-- ★ 这段是「参数化条件」的标准写法：把「多个可选条件」合成成一个统一签名。',
   ],
-  605: [
+  "CustomPickUpAction#1+25": [
     '-- ★★ 最终结构（这是本函数的决策核心）：',
     '--',
     '--   PriorityNode({',
@@ -446,35 +446,35 @@ export default {
   ],
 
   // ══════════════ 附身机械 ══════════════
-  619: [
+  "CustomPickUpAction#1+39": [
     '-- 以下三段是 WX78 的「附身机甲」机制，与通用大脑逻辑无关，单独成节。',
   ],
-  623: [
+  "IsPossessableChassisValid#1": [
     '-- 已有机甲（linkeditem 有 owner）视为无效 —— 不能附身已被人附身的。',
     '-- ★ 互斥判定走组件而非 tag，是「行为契约用组件表达」的例子。',
   ],
-  627: [
+  "SelectPossessableChassis#1": [
     '-- SelectPossessableChassis：把找到的机甲缓存到 self（脑）而不是 inst（实体）。',
     '-- ★ 注意这个差异：脑里的字段脑自己管，实体上的字段要跨脑共享。',
     '--   WX78 只有一个脑，用 self 没差别；但若多脑共享就得分清。',
   ],
-  632: [
+  "CheckPossessableChassis#1": [
     '-- CheckPossessableChassis：每次用缓存前重新校验（IsValid + tag 还在）。',
     '-- ⚠️ 与 FindSaltlick（第 17 行）同构的「缓存 + 失效校验」模式，全DST 反复出现。',
   ],
-  636: [
+  "GetPossessableChassisPos#1": [
     '-- GetPossessableChassisPos：给 Leash 节点用的目标坐标提供者。',
     '-- ⚠️ 第 637-639 行 `if not inst.brain then return end` 的注释是 "Just in case??" ——',
     '--   ★ 作者自己都不确定这个判空是否必要，标为防御性代码，非缺陷。',
     '-- 第 641 行校验通过才给坐标，否则 nil（Leash 收到 nil 会原地不动）。',
   ],
-  644: [
+  "GetPossessableChassisPos#1+8": [
     '-- 附身距离的两个阈值：0.5 开始拉近，0.4 就算贴上了。',
     '-- ★ 内外双阈值 = 迟滞，防止在边界反复「走过去-退回来」。',
     '--   同一个模式在本文件出现多次（第 41 行 Remap、第 644 行、第 396 行 pigbrain），',
     '--   是 DST 处理「距离边界抖动」的统一手法。',
   ],
-  646: [
+  "PossessChassis#1": [
     '-- ★ PossessChassis 的三段结构：',
     '--   IfNode(先找到机甲) → PriorityNode{',
     '--       FailIfSuccessDecorator(Leash 拉近，贴上了就算成功并终止后续)',

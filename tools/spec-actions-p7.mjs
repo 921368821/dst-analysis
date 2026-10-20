@@ -3,13 +3,13 @@
 // 锚点范围：3850 ~ 4900
 
 export const BEFORE = {
-  3857: [
+  "ACTIONS.HAIRBALL.fn#1": [
     "--★ HAIRBALL.fn —— 猫猫吐毛球。两行。",
     "--   ★★ 3858 行 `doer.prefab == \"catcoon\"` —— 又是 prefab 硬判定（§p6 3713）。",
     "--     ★ 而且它返回 true 但什么都不做 —— 纯信号动作。",
     "--     ★★ 与 3888 行的 CATPLAYGROUND 形成对比：后者返回 true 且做很多事。",
   ],
-  3863: [
+  "ACTIONS.CATPLAYGROUND.fn#1": [
     "--★★★【CATPLAYGROUND.fn —— 猫猫玩闹（26 行）】",
     "--   ★★ 一个动作内的「概率分支大杂烩」（3870/3876/3884 三处 math.random）：",
     "--     ① cattoy    → 玩玩具（必现）",
@@ -25,7 +25,7 @@ export const BEFORE = {
     "--     · CATPLAYAIR 记录 last_play_air_time（3907）",
     "--   ★★ 两个动作≈30 行几乎重复 —— 典型的「复制后小改」演进。",
   ],
-  3870: [
+  "ACTIONS.CATPLAYGROUND.fn#1+7": [
     "--★★ 3870-3875 行：攻击分支的**五重限制**：",
     "--   ① 有 combat 组件",
     "--   ② 概率通过 CATCOON_ATTACK_CONNECT_CHANCE",
@@ -41,7 +41,7 @@ export const BEFORE = {
     "--     ★★★ 行尾注释「2*25 dmg」：这是「倍数 × 基础伤害」的表示法。",
     "--       猫猫攻击伤害是普通攻击的 2 倍。",
   ],
-  3876: [
+  "ACTIONS.CATPLAYGROUND.fn#1+13": [
     "--★★ 3876-3883 行：捡东西分支的四层判断。",
     "--   ★★★ 3877 行：目标是 bait → 推 onstolen 事件（而不是真的拿走）",
     "--     ★ 推测：诱饵被「偷」时游戏会记一笔（成就/统计）。",
@@ -53,13 +53,13 @@ export const BEFORE = {
     "--     ★ 条件要求 canbepickedup，所以只吞可捡的物品。",
     "--       仍属「静默销毁」。记录为 L 类观察点。",
   ],
-  3884: [
+  "ACTIONS.CATPLAYGROUND.fn#1+21": [
     "--★ 3887 行的 end 缩进错位（比函数体深一级）。",
     "--   ★★ 这是 §0 L7：3887 行的 `end` 缩进与 3886 行不匹配。",
     "--     语法上正确（Lua 不看缩进），但阅读时极易误判作用域。",
     "--     ★ 推测是从别处复制代码后缩进未调整。",
   ],
-  3892: [
+  "ACTIONS.CATPLAYAIR.fn#1": [
     "--★★ CATPLAYAIR.fn —— 空中玩闹。与 3863 高度重复。",
     "--   ★★ 3905 行 `local ret, msg = ...DoActivate(...)` ——",
     "--     ★★★ ret 与 msg **从未被使用**！",
@@ -68,20 +68,20 @@ export const BEFORE = {
     "--       ★★ 对比 3863 行的 CATPLAYGROUND：3885 行直接丢弃返回值，",
     "--         没有赋值。399 行与 4096 行写法不一致。",
   ],
-  3907: [
+  "ACTIONS.CATPLAYAIR.fn#1+15": [
     "--★ last_play_air_time = GetTime() —— 「上次空中玩闹的时间」。",
     "--   ★★ 这个时间戳供其它系统（可能是冷却或成就）读取。",
     "--     ★ doer 上的 `_` 命名不统一：last_play_air_time 没有下划线前缀，",
     "--       而 _freesoulhop_counter 有。见 p6 3554 行的约定说明。",
   ],
-  3912: [
+  "ACTIONS.ERASE_PAPER.fn#1": [
     "--★ ERASE_PAPER.fn —— 擦纸。四条件准入。",
     "--   ★★ 3916-3917 行排除 fire / burnt 标签 —— 「烧着的纸不能擦」。",
   ],
-  3924: [
+  "ACTIONS.FAN.fn#1": [
     "--★ FAN.fn —— 扇风（吹灭余烬）。四行。",
   ],
-  3934: [
+  "ACTIONS.TOSS.fn#1": [
     "--★★★【TOSS.fn —— 投掷的完整实现（47 行）】",
     "--   ★★ 六步流程：",
     "--     ① 3935-3942  doer 与 inventory 存在",
@@ -94,17 +94,17 @@ export const BEFORE = {
     "--     special_action_toss 标签 → 否则 projectile = nil → return nil。",
     "--     ★★★ 这个标签让「用手投掷」变成显式同意的行为。",
   ],
-  3948: [
+  "ACTIONS.TOSS.fn#1+14": [
     "--★ special_action_toss 标签 —— 「这个物品可以徒手投掷」。",
     "--   ★★ 3949 行 `projectile = nil` 而不是 return —— ",
     "--     让流程继续到 3952 行的统一失败出口。风格统一。",
   ],
-  3956: [
+  "ACTIONS.TOSS.fn#1+22": [
     "--★★ 3957-3958 行：必须有 complexprojectile 组件。",
     "--   ★★ 且装备有三种限制时都拒绝：IsRestricted / ShouldPreventUnequipping。",
     "--     ★ 与 3961 行 PERFORM 的同类检查同款。",
   ],
-  3968: [
+  "ACTIONS.TOSS.fn#1+34": [
     "--★★ 3969-3974 行：有目标用目标位置，无目标用光标位置。",
     "--   ★★★ 3971 行 `targetoffset = {x=0, y=1.5, z=0}` ——",
     "--     ★★ 投掷目标有 1.5 格的**高度偏移**。",
@@ -113,20 +113,20 @@ export const BEFORE = {
     "--     ★ 这个偏移是硬编码的字面量表，没有配置项。",
     "--     ★ 同样的字面量在 5187 行（OCEAN_TOSS）重复出现。",
   ],
-  3982: [
+  "ACTIONS.TOSS.fn#1+48": [
     "--★ WATER_TOSS.fn = TOSS.fn —— T12 同构模板（§2 546 行）。",
   ],
-  3984: [
+  "ACTIONS.TOSS_MAP.stroverridefn#1": [
     "--★ TOSS_MAP.stroverridefn —— 用物品的 CanTossOnMap 回调决定能否显示。",
     "--   ★★★ 与 DIRECTCOURIER_MAP（3507）的模式一致：",
     "--     「物品自己说能不能用」。",
   ],
-  3988: [
+  "ActionCanMapToss#1": [
     "--★ ActionCanMapToss —— 5 行的判定辅助函数。",
     "--   ★★ 3989 行的条件里同时检查 `act.doer ~= nil and act.invobject ~= nil`",
     "--     —— 但 3508/3523 行的调用点已经检查过。这是防御式冗余。",
   ],
-  3995: [
+  "ACTIONS.TOSS_MAP.fn#1": [
     "--★★ TOSS_MAP.fn —— 8 行，只做一件事：设 from_map 后转发。",
     "--   ★★★ 3998 行 `act.from_map = true` ——",
     "--     ★★ 与 BLINK_MAP 的 3598 行 `from_map = true` 同款机制。",
@@ -134,7 +134,7 @@ export const BEFORE = {
     "--     ★★★ 同一个约定在两处独立出现（没有共用常量或辅助函数），",
     "--       属「约定靠注释传递」的典型。",
   ],
-  4003: [
+  "ACTIONS.TOSS_MAP.fn#1+8": [
     "--★★★【ACTIONS_MAP_REMAP[ACTIONS.TOSS.code] —— 距离夹取 + 水面校验（33 行）】",
     "--   ★★ 4008-4024 行：「物品自带的最小/最大投掷距离」处理。",
     "--     ★★ 4013-4015 行有一个 **除零保护**：",
@@ -150,7 +150,7 @@ export const BEFORE = {
     "--     ⇒ 与 §零 49 行的判定完全一致（海洋瓦片 + 不可通行 = 真水面）。",
     "--     ★ 又一处重复的判定表达式（第五次出现）。",
   ],
-  4037: [
+  "ACTIONS.UPGRADE.fn#1": [
     "--★★ UPGRADE.fn —— 升级的七行双检（CanUpgrade 调了两次！）。",
     "--   ★★★ 4041 行 `act.invobject.components.upgrader:CanUpgrade(target, doer)`",
     "--     是「**升级工**能否升级这个目标」。",
@@ -164,7 +164,7 @@ export const BEFORE = {
     "--     ★★★ 第三个 return 缺失（4044 行为真时 return，4048 行 return false），",
     "--       若 Upgrade 返回 nil 则整个 fn 返回 nil。",
   ],
-  4052: [
+  "ACTIONS.UPGRADE.strfn#1": [
     "--★ UPGRADE.strfn —— WATERPLANT 变体（用前缀拼接的标签）。",
     "--   ★★ 4053 行 `HasTag(UPGRADETYPES.WATERPLANT..\"_upgradeable\")` ——",
     "--     ★★★ **动态拼接标签**：`\"waterplant_upgradeable\"`。",
@@ -172,10 +172,10 @@ export const BEFORE = {
     "--       而标签的构造依赖 UPGRADETYPES 常量。",
     "--     ★ 与 COMPARE_WEIGHABLE_TEST（4628 行）同款「标签交叉验证」模式。",
   ],
-  4057: [
+  "ACTIONS.NUZZLE.fn#1": [
     "--★ NUZZLE.fn —— 蹭。4059 行有被注释掉的 print（作者调试过）。",
   ],
-  4064: [
+  "ACTIONS.WRITE.fn#1": [
     "--★★ WRITE.fn —— 写告示牌的 17 行，教科书式的「静默失败」。",
     "--   ★★ 四步：",
     "--     ① 写过了吗？→ 条件不满足（隐式 nil）",
@@ -188,17 +188,17 @@ export const BEFORE = {
     "--   ★ 这个区分（他人冲突 = 报错 / 环境限制 = 静默）在本文件里反复出现。",
     "--   ★★ 4078 行的 return true 覆盖了③的情况 —— 静默成功。",
   ],
-  4082: [
+  "ACTIONS.ATTUNE.fn#1": [
     "--★ ATTUNE.fn —— 调频（韦伯）。四行。",
   ],
-  4090: [
+  "ACTIONS.MIGRATE.fn#1": [
     "--★ MIGRATE.fn —— 迁移。函数上方有注释标注失败原因：\"NODESTINATION\"。",
     "--   ★★ 4091 行的注释 `--fail reasons: \"NODESTINATION\"` ——",
     "--     ★★★ 这种「注释声明失败原因」的写法非常好：",
     "--       它把「本函数会返回哪些 reason」变成了契约。",
     "--       全文件只有这一处这么做。值得推广。",
   ],
-  4098: [
+  "ACTIONS.REMOTERESURRECT.fn#1": [
     "--★★ REMOTERESURRECT.fn —— 远程复活（韦伯）。",
     "--   ★★ 4102 行的双条件：doer 是幽灵（playerghost 标签）。",
     "--   ★★ 4103-4104 行两级 attuner 目标：",
@@ -206,14 +206,14 @@ export const BEFORE = {
     "--     ★★★ 两个道具都可能配「复活器」，按优先级取。",
     "--     ★ 用 or 链表达「优先级 fallback」，比嵌套 if 简洁。",
   ],
-  4112: [
+  "ACTIONS.REVIVE_CORPSE.fn#1": [
     "--★ REVIVE_CORPSE.fn —— 复活尸体的静默失败（§2 507 行已预告 actionmeter）。",
     "--   ★★ 4114 行注释 `--Silent fail` + 4115 行的检查：",
     "--     ★★★ 「能不能复活」失败时**仍 return true**。",
     "--       理由与 1231 行 LOOKAT 同款：复活是一个长动作（有进度环），",
     "--       走到位后条件可能已变，此时不该报错。",
   ],
-  4122: [
+  "ACTIONS.MOUNT.fn#1": [
     "--★★★【MOUNT.fn —— 骑乘判定的 7 条规则（24 行）】",
     "--   ★★ 4123-4127 行：战斗中不可骑 —— 但有例外！",
     "--       `(rideable == nil or rideable.saddle == nil",
@@ -231,7 +231,7 @@ export const BEFORE = {
     "--     ⇒ 只有「自己的狗骑手」能骑专用的狗。",
     "--     ★ _playerlink 是韦伯的「玩家与身体的链接」字段。",
   ],
-  4148: [
+  "ACTIONS.DISMOUNT.fn#1": [
     "--★ DISMOUNT.fn —— 下坐骑。四条件全是「自我指涉」检查。",
     "--   ★★★ `act.doer == act.target and doer.components.rider ~= nil",
     "--     and rider:IsRiding()` ——",
@@ -240,7 +240,7 @@ export const BEFORE = {
     "--       ⇒ 玩家在哪都能下马（因为不需要走到坐骑旁边）。",
     "--       ★★ 这是「声明与实现的一致性」的一个好例子。",
   ],
-  4155: [
+  "ACTIONS.SADDLE.fn#1": [
     "--★ SADDLE.fn —— 上鞍。四道守卫（战斗中/已死/ITEMMIMIC/rideable）。",
     "--   ★★ 4163-4164 行的保留注释「V2C: currently, rideable component",
     "--     implies saddleable always」——",
@@ -249,21 +249,21 @@ export const BEFORE = {
     "--       但实际只检查 rideable。注释明确指出了这个假设。",
     "--     ★ 若将来某个生物可骑但不可上鞍，需要在这里加组件检查。",
   ],
-  4171: [
+  "ACTIONS.UNSADDLE.fn#1": [
     "--★ UNSADDLE.fn —— 与 SADDLE.fn 严格对称的四道守卫。",
     "--   ★★ 4179 行重复了 4163 行的同一句 V2C 注释 ——",
     "--     ★ 同一注释被复制到两处。任何一方修改都会造成不一致。",
     "--     ★ 典型的「注释也应被抽取」的场景。",
   ],
-  4186: [
+  "ACTIONS.BRUSH.fn#1": [
     "--★ BRUSH.fn —— 刷毛。与 SADDLE 同样四道守卫 + brushable 组件。",
     "--   ★★ 4187-4192 的守卫块与 4156-4161 逐字相同（除组件名）。",
     "--     ★ 三连复制（SADDLE / UNSADDLE / BRUSH）+ 与 4138 附近的 MOUNT 同款。",
   ],
-  4199: [
+  "ACTIONS.BRUSH.fn#1+13": [
     "--★ CRITTER_MUST_TAGS —— 供 4205 行 FindEntities 使用的标签表。",
   ],
-  4200: [
+  "ACTIONS.ABANDON.fn#1": [
     "--★★ ABANDON.fn —— 遗弃宠物/跟随者。",
     "--   ★★ 4202-4208 的 ORPHANAGE 科技树检查（§2 514 行已预告）。",
     "--   ★★★ 4204-4206 行：只有「附近 10 格内完全没有 critterlab」时才失败。",
@@ -277,14 +277,14 @@ export const BEFORE = {
     "--       ★ 注释与代码有偏差，属 L 类瑕疵。",
     "--   ★★ 4212 行的 elseif 分支处理 follower（非宠物类跟随者）。",
   ],
-  4218: [
+  "ACTIONS.PET.fn#1": [
     "--★ PET.fn —— 撸猫猫。三个 if 各自独立（非 elseif）。",
     "--   ★★★ 4222 行注释掉的 `--if act.doer.components.inventory then` ——",
     "--     ★ 第三行（target:Remove()）需要 inventory 判断，被注释掉了。",
     "--       ★ 意味着现在无条件 Remove —— 与 p6 3876 行的隐患相同。",
     "--       ★ 若是刻意删除注释则应删掉整行。记录为 L 类瑕疵。",
   ],
-  4231: [
+  "ACTIONS.RETURN_FOLLOWER.fn#1": [
     "--★ RETURN_FOLLOWER.fn —— 归还猫猫到猫窝。",
     "--   ★★ 4232 行四条件：target 有 follower + leader 是自己 +",
     "--     doer 有 near_kitcoonden 标签 + 附近有 kitcoonden 实体。",
@@ -294,17 +294,17 @@ export const BEFORE = {
     "--       放在 fn 里意味着 UI 会显示动作但点击后失败。",
     "--       ★ 4239 行的 `return false` 无 reason。",
   ],
-  4244: [
+  "ACTIONS.HIDEANSEEK_FIND.fn#1": [
     "--★ HIDEANSEEK_FIND.fn —— 捉迷藏找藏身处。目标可以是 invobject。",
   ],
-  4255: [
+  "ACTIONS.HIDEANSEEK_FIND.fn#1+11": [
     "--★★ 4255 行在函数中间 require —— 见 §2 474 行的详细分析。",
     "--   ★★ 4256 行的 stroveroverridefn 定义在 require **之后** ——",
     "--     ★ 而 4257 行就调用了 FindEntityToDraw。",
     "--     ★ require 必须在使用之前，这行位置是「刚好正确」的。",
     "--     ★ 若以后有人在 4255 行之前用到 FindEntityToDraw 会崩。",
   ],
-  4263: [
+  "ACTIONS.DRAW.fn#1": [
     "--★★ DRAW.fn —— 画画的七行。",
     "--   ★★ 4269 行一次解包五个返回值：",
     "--       image, src, atlas, bgimage, bgatlas",
@@ -313,10 +313,10 @@ export const BEFORE = {
     "--       ★★ 有明确 reason —— 画板里没画东西是很常见的用户错误，",
     "--         值得给提示。",
   ],
-  4278: [
+  "ACTIONS.STARTCHANNELING.strfn#1": [
     "--★ STARTCHANNELING.strfn —— PUMP 变体。",
   ],
-  4282: [
+  "ACTIONS.STARTCHANNELING.fn#1": [
     "--★★ STARTCHANNELING.fn —— 两行，**无组件 nil 保护**。",
     "--   ★★★ 4283 行 `act.target.components.channelable:StartChanneling(doer)`：",
     "--     ★ 若目标没有 channelable 组件 ⇒ `nil:StartChanneling` 崩溃。",
@@ -328,7 +328,7 @@ export const BEFORE = {
     "--     ★ 但 target 非 nil 而组件为 nil 时会崩。",
     "--     ★ 记录为 L 类隐患（与 1883 行 FISH.fn 同型）。",
   ],
-  4286: [
+  "ACTIONS.STOPCHANNELING.fn#1": [
     "--★ STOPCHANNELING.fn —— 无条件 return true（即使 target 为 nil）。",
     "--   ★★★ 4290 行的 `return true` 在 `if` 块**外面**：",
     "--       if act.target ~= nil then StopChanneling end",
@@ -337,10 +337,10 @@ export const BEFORE = {
     "--     ★ 与 STOPCHANNELING 的 instant 声明（486 行）一致：",
     "--       停止动作应该总是「成功」（玩家的意图是「停下来」）。",
   ],
-  4293: [
+  "ACTIONS.START_CHANNELCAST.strfn#1": [
     "--★ START_CHANNELCAST.strfn —— LIGHTER 变体。",
   ],
-  4297: [
+  "ACTIONS.START_CHANNELCAST.fn#1": [
     "--★★ START_CHANNELCAST.fn —— 「三种引导方式」的分支（14 行）。",
     "--   ★★ 三个分支：",
     "--     ① 4299-4301 invobject 为 nil → 副手引导（不传物品）",
@@ -353,13 +353,13 @@ export const BEFORE = {
     "--     ★ 因为 ① 分支没有 invobject，不需要检查。",
     "--     ★ 这个「守卫位置随分支变化」容易遗漏。",
   ],
-  4313: [
+  "ACTIONS.START_CHANNELCAST.fn#1+16": [
     "--★ STOP_CHANNELCAST.strfn = START_CHANNELCAST.strfn —— T12 部分复用。",
   ],
-  4315: [
+  "ACTIONS.STOP_CHANNELCAST.fn#1": [
     "--★ STOP_CHANNELCAST.fn —— 停止引导，无条件 return true（同 4286 行）。",
   ],
-  4328: [
+  "ACTIONS.BUNDLE.fn#1": [
     "--★★ BUNDLE.fn —— 打包。八行，含一个**参数疑似写错**的地方。",
     "--   ★★★ 4335 行 `CanEntitySeeTarget(act.doer, act.doer)`：",
     "--     ★★★ 两个参数都传了 **doer 自己**！",
@@ -377,7 +377,7 @@ export const BEFORE = {
     "--     ★ 结论：**真实的笔误**（复制粘贴时漏改）。",
     "--       影响：打包动作没有黑暗保护。只记录不修改。",
   ],
-  4342: [
+  "ACTIONS.WRAPBUNDLE.fn#1": [
     "--★★ WRAPBUNDLE.fn —— 捆扎完成。「空包」用说话反馈。",
     "--   ★★ 4348-4350 行：容器为空时 Say 一句 WRAPBUNDLE/EMPTY。",
     "--     ★★★ 为什么这里说话而 RUMMAGE 那种情况静默？",
@@ -385,10 +385,10 @@ export const BEFORE = {
     "--       走到最后一步发现是空的 ⇒ 必须解释。",
     "--       ★ 这是「流程中段的失败」与「独立动作的失败」的区别。",
   ],
-  4355: [
+  "ACTIONS.UNWRAP.fn#1": [
     "--★ UNWRAP.fn —— 拆包。canbeunwrapped 检查。",
   ],
-  4365: [
+  "ACTIONS.PEEKBUNDLE.fn#1": [
     "--★★ PEEKBUNDLE.fn —— 偷看包内（12 行）。",
     "--   ★★ 4367 行的五条件 or/and 链：",
     "--     有 unwrappable + canbeunwrapped + canpeek 标签",
@@ -398,10 +398,10 @@ export const BEFORE = {
     "--     ★ 因为窥视需要腾出手。",
     "--     ★ 与 USESPELLBOOK.fn（5937 行）的同类调用同款。",
   ],
-  4376: [
+  "ACTIONS.BREAK.strfn#1": [
     "--★ BREAK.strfn —— PICKAPART 变体。",
   ],
-  4381: [
+  "ACTIONS.CONSTRUCT.stroverridefn#1": [
     "--★★ CONSTRUCT.stroverridefn —— 「建造 {名字}」的完整句子。",
     "--   ★★ 4382-4390 的两个分支（手持材料 / 无材料）：",
     "--     ★★ 4383 行的双重否定 `constructionname ~= nil and",
@@ -410,7 +410,7 @@ export const BEFORE = {
     "--     ★ 名字来自 STRINGS.NAMES[string.upper(constructionname)]。",
     "--     ★★ 与 4469 行 STOPCONSTRUCTION 用同一套写法。",
   ],
-  4393: [
+  "ACTIONS.CONSTRUCT.strfn#1": [
     "--★★【CONSTRUCT.strfn —— 一个动作五种显示名（13 行）】",
     "--   ★★ 五个分支：",
     "--     手上材料 + offerconstructionsite → OFFER（递交）",
@@ -424,7 +424,7 @@ export const BEFORE = {
     "--         语义变成「任一条件满足就显示」而非「按优先级取第一个」。",
     "--         ★ 这是全文件里最需要括号的一处（与 2789 行的缺陷对照）。",
   ],
-  4407: [
+  "ACTIONS.CONSTRUCT.fn#1": [
     "--★★★【CONSTRUCT.fn —— 建造流程（59 行）】",
     "--   ★★ 五步流程：",
     "--     ① 4409-4410  前置（target/doer/constructionbuilder 都要有）",
@@ -441,7 +441,7 @@ export const BEFORE = {
     "--     ★ 因为如果立即隐藏，手柄玩家会以为按钮没生效而继续按。",
     "--     ★★ 「为特定输入设备做的 UI 妥协」的清晰记录。",
   ],
-  4422: [
+  "ACTIONS.CONSTRUCT.fn#1+15": [
     "--★★ 4424-4431 行：「图纸纸」的处理（constructionplans 组件）。",
     "--   ★★★ 玩家拿着「建筑图纸」对着空地 →",
     "--       ① StartConstruction(target) 得到真正的工地",
@@ -449,7 +449,7 @@ export const BEFORE = {
     "--       ③ `item = nil` 避免后续重复处理",
     "--   ★★ 4429 行的无条件 Remove 是「消耗型蓝图」的正确处理。",
   ],
-  4436: [
+  "ACTIONS.CONSTRUCT.fn#1+29": [
     "--★★★ 4436-4462 行：「顺手把手上的东西放进刚打开的工地」。",
     "--   ★★ 流程：",
     "--     ① 找到刚建的工地容器（constructioninst）",
@@ -463,21 +463,21 @@ export const BEFORE = {
     "--       ★ 表不大，可接受。",
     "--   ★★ 4450-4457 行的失败还回：与 §p5 2559 行的手柄分支同款。",
   ],
-  4467: [
+  "ACTIONS.STOPCONSTRUCTION.stroverridefn#1": [
     "--★ STOPCONSTRUCTION.stroverridefn —— 「停止建造 {名字}」。",
   ],
-  4474: [
+  "ACTIONS.STOPCONSTRUCTION.strfn#1": [
     "--★ STOPCONSTRUCTION.strfn —— 与 4393 行的后三个分支相同。",
   ],
-  4481: [
+  "ACTIONS.STOPCONSTRUCTION.fn#1": [
     "--★ STOPCONSTRUCTION.fn —— 四行，无条件 return true。",
   ],
-  4488: [
+  "ACTIONS.APPLYCONSTRUCTION.strfn#1": [
     "--★ APPLYCONSTRUCTION.strfn —— 与 4474 行完全相同的三个分支。",
     "--   ★★ 与 STOPCONSTRUCTION.strfn 的差异：APPLY 用 `or` 起头且分支相同。",
     "--     ★ 两个动作（停止 / 应用）的显示词完全一样，靠 stroverridefn 区分。",
   ],
-  4495: [
+  "ACTIONS.APPLYCONSTRUCTION.fn#1": [
     "--★★ APPLYCONSTRUCTION.fn —— 「放最后一个材料」。",
     "--   ★★ 与 WRAPBUNDLE.fn（4342）结构一致：",
     "--     容器非空 → FinishConstruction",
@@ -485,30 +485,30 @@ export const BEFORE = {
     "--     return true",
     "--   ★★★ 「流程中段」的动作都用这个模式。",
   ],
-  4508: [
+  "ACTIONS.CASTAOE.stroverridefn#1": [
     "--★ CASTAOE.stroverridefn —— 从 spellbook 组件取法术名。",
   ],
-  4512: [
+  "ACTIONS.CASTAOE.strfn#1": [
     "--★ CASTAOE.strfn —— 用 prefab 大写名当动词（与 3353 行同款）。",
   ],
-  4516: [
+  "ACTIONS.CASTAOE.fn#1": [
     "--★ CASTAOE.fn —— AOE 施法。ITEMMIMIC 守卫在 CanCast **之后**。",
     "--   ★★★ 4518 行的条件顺序：先 `CanCast(doer, pos)` 才做 ITEMMIMIC 检查。",
     "--     ★ 与 CASTSPELL.fn（3437）的顺序**相反**（那里 ITEMMIMIC 在前）。",
     "--     ★ 不一致但不致错（都只是不执行）。",
     "--   ★★ 4522 行的返回值：`CastSpell(doer, pos)` 透传。",
   ],
-  4526: [
+  "ACTIONS.SCYTHE.fn#1": [
     "--★ SCYTHE.fn —— 镰刀。用 `act.invobject.DoScythe` 而非组件。",
     "--   ★★ 4527 行判断的是**方法存在**而不是组件存在。",
     "--     ★ 与 ACTIVATE 的 GetActivateVerb（3097 行）同型：",
     "--       「实体/物品自己提供方法」。",
     "--   ★★ 4535 行的 `return false` 无 reason。",
   ],
-  4538: [
+  "ACTIONS.NABBAG.fn#1": [
     "--★ NABBAG.fn —— 网袋抓取。ITEMMIMIC 守卫 + 四层 and。",
   ],
-  4550: [
+  "ACTIONS.DISMANTLE.fn#1": [
     "--★★★【DISMANTLE.fn —— 拆除的完整前置检查（25 行）】",
     "--   ★★ 4552-4553 行的条件有个例外：",
     "--       `not (burnable and IsBurning()) or HasTag(\"campfire\")`",
@@ -523,10 +523,10 @@ export const BEFORE = {
     "--     「里面有东西」与「正在用但里面空着」是两种不同的拒绝理由。",
     "--   ★★ 4567 行的 candismantle 回调 —— prefab 级的额外许可检查。",
   ],
-  4576: [
+  "ACTIONS.TACKLE.fn#1": [
     "--★ TACKLE.fn —— 冲撞。三条件 and 链直接作为返回值。",
   ],
-  4582: [
+  "ACTIONS.HALLOWEENMOONMUTATE.fn#1": [
     "--★★ HALLOWEENMOONMUTATE.fn —— 含一处**被放宽的判据**（§2 524 行已预告）。",
     "--   ★★ 4585 行的注释块是被注释掉的完整条件：",
     "--     `--or (not HasTag(\"flying\") and not IsPassableAtPoint(...))`",
@@ -535,10 +535,10 @@ export const BEFORE = {
     "--   ★★ 4586 行的条件：目标在燃烧或冒烟 ⇒ 拒绝。",
     "--     ★ 与 DASH 无关，纯游戏性限制（月亮药水不能浇着火的东西）。",
   ],
-  4597: [
+  "ACTIONS.APPLYPRESERVATIVE.strfn#1": [
     "--★ APPLYPRESERVATIVE.strfn —— SALT 变体（用盐岩）。",
   ],
-  4601: [
+  "ACTIONS.APPLYPRESERVATIVE.fn#1": [
     "--★★ APPLYPRESERVATIVE.fn —— 涂防腐剂的六条件准入。",
     "--   ★★ 4603 行 `act.target.components.health == nil` ——",
     "--     ★★★ 「不能给活着的东西涂防腐剂」（只能给食物）。",
@@ -554,7 +554,7 @@ export const BEFORE = {
     "--       已经改了效果却 return false ⇒ 玩家白得一次效果。",
     "--       ★ 潜在的小 bug，但 RemoveItem 失败概率极低（物品明明在手上）。",
   ],
-  4628: [
+  "COMPARE_WEIGHABLE_TEST#1": [
     "--★【COMPARE_WEIGHABLE_TEST —— 「标签交叉验证」（8 行）】",
     "--   ★★★ 4630 行 `HasTag(\"trophyscale_\"..v) and weighable:HasTag(\"weighable_\"..v)`",
     "--     ★★ 两侧都用同一个枚举值 v 拼接标签。",
@@ -564,7 +564,7 @@ export const BEFORE = {
     "--     ★ 加新类型只需往 TROPHYSCALE_TYPES 加一个值。",
     "--   ★★★ 这是本文件里最优雅的扩展设计之一。",
   ],
-  4637: [
+  "ACTIONS.COMPARE_WEIGHABLE.fn#1": [
     "--★★ COMPARE_WEIGHABLE.fn —— 「比重量」的 21 行。",
     "--   ★★ 4638-4645 行的物体重推导：",
     "--       weighable = invobject",
@@ -577,7 +577,7 @@ export const BEFORE = {
     "--     ★ 而 4655 行的 return 是 Compare 的结果。",
     "--       ⇒ 「不能比」与「比了但结果不通过」用不同返回值区分。",
   ],
-  4660: [
+  "ACTIONS.WEIGH_ITEM.fn#1": [
     "--★★★【WEIGH_ITEM.fn —— 「电子秤称重」的 16 行】",
     "--   ★★ 4662-4665 行的**双向对象识别**（本文件最精妙的一段）：",
     "--       weigher = target 有 itemweigher and target",
@@ -594,7 +594,7 @@ export const BEFORE = {
     "--     ★ 这是本文件里最值得学习的对象识别写法。",
     "--   ★★ 4668-4669 行的 fire/burnt 检查与 COMPARE_WEIGHABLE 完全一致。",
   ],
-  4677: [
+  "ACTIONS.START_CARRAT_RACE.fn#1": [
     "--★ START_CARRAT_RACE.fn —— 开赛。赛程存在世界组件里。",
     "--   ★★ 4686-4688 行的延时说话：DoTaskInTime(2, ...) ——",
     "--     ★★★ 「开赛后 2 秒再说一句话」。",
@@ -605,7 +605,7 @@ export const BEFORE = {
     "--       ★ 实践中 2 秒内动作不会失效。但属潜在的悬垂引用。",
     "--       ★ 记录为 L 类隐患（闭包持有已过期的 act）。",
   ],
-  4693: [
+  "ACTIONS.TILL.fn#1": [
     "--★ TILL.fn —— 开垦（§2 535 行 distance=0.5 的原因在此实现）。",
     "--   ★★ 4694 行 `tiller = act.invobject or act.doer` ——",
     "--     ★ 「没有工具也能犁地」（某些角色自带）。",
@@ -614,7 +614,7 @@ export const BEFORE = {
     "--     ★ 若 tiller 是 doer（空手），ShouldItemMimicBeRevealedFor(doer, doer)",
     "--       的行为由该函数决定（componentutil.lua:2087 应该有组件检查）。",
   ],
-  4708: [
+  "ACTIONS.PLANTSOIL.fn#1": [
     "--★ PLANTSOIL.fn —— 种土。四层分支 + 一处还回（4723 行）。",
     "--   ★★ 4714-4722 行的 if/elseif 结构：",
     "--     quagmire_plantable → Plant",
@@ -624,17 +624,17 @@ export const BEFORE = {
     "--     与 2619 行 PLANT.fn 的「elseif 不成立就不还回」形成对照。",
     "--     ★⇒ 同一文件里两种写法，一种健壮一种脆弱。",
   ],
-  4728: [
+  "ACTIONS.INSTALL.fn#1": [
     "--★ INSTALL.fn —— 安装。两条 Quagmire 安装路径。",
     "--   ★★ 4734 行的 SpawnPrefab + 4736 行的 invobject:Remove() ——",
     "--     ★ 「消耗安装件，生成安装物」。",
     "--   ★★ 4742 行的 `DoInstall(act.target)` 直接返回布尔，",
     "--     作为整个函数的结果（短路）。",
   ],
-  4749: [
+  "ACTIONS.TAPTREE.fn#1": [
     "--★ TAPTREE.fn —— 接/卸树液管。两分支。",
   ],
-  4761: [
+  "ACTIONS.TAPTREE.strfn#1": [
     "--★ TAPTREE.strfn —— UNTAP 变体。",
     "--   ★★ 4762 行 `not HasTag(\"tappable\") and \"UNTAP\" or nil` ——",
     "--     ★ 三元模式：(not X) and \"UNTAP\" or nil。",
@@ -644,10 +644,10 @@ export const BEFORE = {
     "--           若写成 `X and A or false` 结果是 false（语义等价但不同值）。",
     "--       ★ 很多下游代码用 `~= nil` 判断，两种值行为相同。",
   ],
-  4765: [
+  "ACTIONS.SLAUGHTER.stroverridefn#1": [
     "--★ SLAUGHTER.stroverridefn —— 用物品的 GetSlaughterActionString 回调。",
   ],
-  4772: [
+  "ACTIONS.SLAUGHTER.fn#1": [
     "--★★ SLAUGHTER.fn —— 手写距离检查（§2 539 行已预告）。",
     "--   ★★ 4778 行 `not (IsInLimbo() or doer:IsNear(target, 2))` ——",
     "--     ★★★ 距离是 **2 格**，比 DefaultRangeCheck(4) 近一半。",
@@ -655,10 +655,10 @@ export const BEFORE = {
     "--     ★ 与 811 行 STEAL 的 `< 16`（=4 格）是同类但不同值的写法。",
     "--     ★★ 4780 行 `health ~= nil and not IsDead()` ⇒ 死了就返回 nil（静默）。",
   ],
-  4787: [
+  "ACTIONS.REPLATE.stroverridefn#1": [
     "--★ REPLATE.stroverridefn —— 用 prefab 名切片推断菜系（与 p4 2229 行同型）。",
   ],
-  4799: [
+  "ACTIONS.BATHBOMB.fn#1": [
     "--★★★⚠ 疑似缺陷 L12：BATHBOMB.fn 的连锁调用。",
     "--     `act.doer.components.inventory:RemoveItem(act.invobject):Remove()`",
     "--   ★★★ 推理：RemoveItem **可能返回 nil**（§p3 4650 行已核实：",
@@ -678,17 +678,17 @@ export const BEFORE = {
     "--   ★★★ 结论：**真实的 nil 解引用风险**。只记录不修改。",
     "--     ★ 顺带：4807 行的 end 缩进错位，说明这段代码质量本就偏低。",
   ],
-  4810: [
+  "ACTIONS.RAISE_SAIL.fn#1": [
     "--★★ 保留的英文注释「this name is backwards」（§2 549 行已详述）。",
   ],
-  4829: [
+  "ACTIONS.LOWER_SAIL_BOOST.fn#1": [
     "--★ LOWER_SAIL_BOOST.fn —— 加速降帆。两个乘数相乘（4832 行）。",
     "--   ★★ `expertsailor:GetLowerSailStrength() or TUNING.DEFAULT_SAIL_BOOST_STRENGTH`",
     "--     × `(doer:HasTag(\"master_crewman\") and MULT or 1)`",
     "--     ★★★ 与 1697 行的 numworks 是同一「效率 × 乘数」结构。",
     "--   ★★ 4836 行的 on_lower_sail_boost 事件 —— 「降帆加速」的自定义事件。",
   ],
-  4841: [
+  "GetLowerSailStr#1": [
     "--★ GetLowerSailStr —— 「按船长相选词」（11 行）。",
     "--   ★★ 4846 行只检查 doer:HasTag(\"switchtoho\") 一个条件。",
     "--     ★★★ 这是一个「极简的个性化」：只区分「切换到了霍」的角色。",
@@ -696,27 +696,27 @@ export const BEFORE = {
     "--   ★★ 三处调用（4853/4861/以及 4857 的 LOWER_SAIL_FAIL.stroverridefn）——",
     "--     ★ 成功与失败共用同一个词选择器。",
   ],
-  4857: [
+  "ACTIONS.LOWER_SAIL_FAIL.fn#1": [
     "--★★ LOWER_SAIL_FAIL.fn —— 一行 return true（影子动作，§2 552 行已预告）。",
     "--   ★★ 与 LOWER_SAIL_BOOST 的差别只在 **do_not_locomote**（§2 已述）。",
     "--   ★ 4857-4859 这两行 fn 加一行注释，是本文件里最简的实现。",
   ],
-  4866: [
+  "ACTIONS.RAISE_ANCHOR.fn#1": [
     "--★ RAISE_ANCHOR.fn / LOWER_ANCHOR.fn —— 各一行转发。",
   ],
-  4874: [
+  "ACTIONS.MOUNT_PLANK.fn#1": [
     "--★ MOUNT_PLANK.fn / DISMOUNT_PLANK.fn —— 跳板上下。",
     "--   ★★ 两者的距离差异（0.5 vs 2.5，§2 558 行已解释）。",
   ],
-  4883: [
+  "ACTIONS.ABANDON_SHIP.fn#1": [
     "--★ ABANDON_SHIP.fn —— 弃船。",
   ],
-  4897: [
+  "ACTIONS.REPAIR_LEAK.fn#1": [
     "--★ REPAIR_LEAK.fn —— 补船漏。",
     "--   ★★ 4898 行同时检查 boatleak 组件与 boat_leak 标签 ——",
     "--     ★ 组件与标签双重确认，避免误触。",
   ],
-  4903: [
+  "ACTIONS.STEER_BOAT.pre_action_cb#1": [
     "--★ STEER_BOAT.pre_action_cb —— 关法术轮盘（§2 T10 的第 1 类用途）。",
     "--   ★★ 4904 行 `if act.doer.HUD ~= nil` —— HUD 可能不存在（服务端）。",
     "--     ★★★ pre_action_cb 在**双端都跑**（§p4 338 行），",

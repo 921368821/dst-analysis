@@ -4,7 +4,7 @@
 // 锚点范围：2259 ~ 2755
 
 export const BEFORE = {
-  2259: [
+  "Inventory:CanAccessItem#1": [
     "-- 【§十七】★★ CanAccessItem —— ★★ 本文件后半段的「权限闸门」。",
     "-- ★★★★ 2183-2433 行的**每一个** UI 处理器都先调它。",
     "-- ★★★ 三重判定（2260-2267 行）：",
@@ -27,7 +27,7 @@ export const BEFORE = {
     "--   ★★★ ★ 参照 2143 行 Show 的设计：isvisible 是「UI 可见」标志，",
     "--     而 UI 不可见时玩家看不到也点不到，用它做守卫很自然。",
   ],
-  2270: [
+  "Inventory:UseItemFromInvTile#1": [
     "-- ★★ UseItemFromInvTile —— 「在物品栏 UI 上使用某物品」。",
     "-- ★★★ 这是**物品栏 UI 交互的核心入口**。",
     "-- ★★★★ 四重入口守卫（2271-2273 行）：",
@@ -56,7 +56,7 @@ export const BEFORE = {
     "--   ⇒ ★★★ 物品栏 UI 的点击**不支持多动作选择**（不像场景交互）。",
     "--   ★★ 若有多个可用动作，只执行第一个（按 playeractionpicker 的优先级排）。",
   ],
-  2286: [
+  "Inventory:UseItemFromInvTile#1+16": [
     "-- ★★★ 2286-2292 行：地图动作的特殊处理。",
     "-- ★★ `playercontroller:GetMapTarget(act)` —— 「这个动作是否指向地图某处」。",
     "-- ★★★ ★★ 典型：望远镜、地图、罗盘这类「打开地图」的动作。",
@@ -79,7 +79,7 @@ export const BEFORE = {
     "--   ★★★ 强制意味着「忽略某些前置条件，直接执行」。",
     "--   ★★ 参见 locomotor.lua:882 PushAction 的第二参数语义。",
   ],
-  2305: [
+  "Inventory:ControllerUseItemOnItemFromInvTile#1": [
     "-- ★★ ControllerUseItemOnItemFromInvTile —— 「用手上物品对背包里的物品」。",
     "-- ★★ 守卫比 2270 多了 CanAccessItem(active_item)（2308 行）。",
     "--   ⇒ ★★ 两件物品都要可访问（防止用不可见的手上物品作弊）。",
@@ -96,7 +96,7 @@ export const BEFORE = {
     "--   ★★ DST 不暂停，所以不需要关。DST 相比 DS 的一次体验改进。",
     "--   ★★ 2328 行 return true —— 唯一返回 true 的地方（2319/2321 都不返回）。",
   ],
-  2337: [
+  "Inventory:ControllerUseItemOnSelfFromInvTile#1": [
     "-- ★★ ControllerUseItemOnSelfFromInvTile —— 「对物品栏里的物品对自己用」。",
     "-- ★★★★ 2344-2348 行的两分支（★ 重要）：",
     "--   · 2344 行 物品**没装备** → GetItemSelfAction(item)（用它对自己）；",
@@ -119,7 +119,7 @@ export const BEFORE = {
     "--   ★★★ 注意 2343 行也有一次 SetClientRequestedAction ——",
     "--     所以这个函数有「两次 set 一次 clear」？不，是 set→分支→clear。正确。",
   ],
-  2368: [
+  "Inventory:ControllerUseItemOnSceneFromInvTile#1": [
     "-- ★★ ControllerUseItemOnSceneFromInvTile —— 「用背包里的物品对场景中的东西」。",
     "-- ★★★★ 本文件**最复杂**的 UI 处理器（四层分支）。",
     "-- ★★★★ 2374-2395 行的分支结构：",
@@ -167,14 +167,14 @@ export const BEFORE = {
     "--   ★★★ 「自动装备」：让角色在需要时自动拿起手上的装备。",
     "--   ★★ 参见 playercontroller.lua:4634 DoActionAutoEquip。",
   ],
-  2418: [
+  "Inventory:InspectItemFromInvTile#1": [
     "-- ★★ InspectItemFromInvTile —— 「查看物品的详细信息」。",
     "-- ★★★ 条件：CanAccessItem + 有 inspectable 组件。",
     "-- ★★ 2420 行构造 BufferedAction(..., ACTIONS.LOOKAT, item)。",
     "-- ★★★ ★ LOOKAT 动作会播放「举起物品端详」的动画。",
     "-- ★ ★★ 与 2337 行的 UNEQUIP 构造是同一模式（都要走动作流程）。",
   ],
-  2424: [
+  "Inventory:DropItemFromInvTile#1": [
     "-- ★★ DropItemFromInvTile —— 「从物品栏丢弃物品」。",
     "-- ★★★★ 四重守卫（2425-2427 行）：不忙 + CanAccessItem + 有 playercontroller。",
     "-- ★★★ ★★ 2428 行的位置计算（★ 客户端预测的核心）：",
@@ -194,7 +194,7 @@ export const BEFORE = {
     "--     （如站着不动、或者在某些特殊状态）。",
     "--   ★★ 详见 stategraph 家族对 overridelocomote 的定义。",
   ],
-  2435: [
+  "Inventory:CastSpellBookFromInv#1": [
     "-- ★★ CastSpellBookFromInv —— 「用法术书施法」。",
     "-- ★★★★ 五重条件（2436-2439 行）：",
     "--   · 有 playercontroller 且不忙；",
@@ -213,7 +213,7 @@ export const BEFORE = {
     "-- ★★ 2447 行 `spell_action or ACTIONS.CAST_SPELLBOOK` ——",
     "--   优先用 spellbook 组件自带的动作，否则用默认。",
   ],
-  2452: [
+  "Inventory:EquipActiveItem#1": [
     "-- 【§二十二】★ EquipActiveItem —— 「把手上装备到对应槽」。",
     "-- ★★★ 条件（2454-2456 行）：手上有 equippable **且**该槽**为空**。",
     "-- ★★★★ ★★★ 2458 行：`self:Equip(active_item, true, active_item.components.equippable.equipslot)`",
@@ -235,7 +235,7 @@ export const BEFORE = {
     "--   old_to_active=true 实际无作用（没有旧装备）。",
     "--   ⇒ ★★ 这解释了为什么这个 bug 没被发现：**两处都是空槽场景**。",
   ],
-  2462: [
+  "Inventory:EquipActionItem#1": [
     "-- ★★ EquipActionItem —— 「装备某件物品（动作调用版）」。",
     "-- ★★★★ 2463-2469 行的参数处理（★ 值得注意）：",
     "--   · item 为 nil → 用 activeitem；",
@@ -267,7 +267,7 @@ export const BEFORE = {
     "--     activeitem 的引用应该消失（否则它同时在两处）。",
     "-- ★★ ★★ 对比 GiveItem:1041 的 new_item 判定也处理了这个「同体两槽」情形。",
   ],
-  2486: [
+  "Inventory:SwapEquipWithActiveItem#1": [
     "-- ★★ SwapEquipWithActiveItem —— 「手上的装备与已装备的交换」。",
     "-- ★★★ 与 2452 行 EquipActiveItem 的差异（★ 只有条件不同）：",
     "--   · 2452 行：要求该槽**为空**；",
@@ -281,7 +281,7 @@ export const BEFORE = {
     "--   ⇒ ★★★ 若作者本意是「播动画」，那这里的表现是错的。",
     "--   ★★ 玩家体验：「双击手上的装备与已装备的交换」应该有动画。",
   ],
-  2496: [
+  "Inventory:TakeActiveItemFromEquipSlot#1": [
     "-- ★★ TakeActiveItemFromEquipSlot —— 「把装备槽里的东西拿到手上」。",
     "-- ★★★ 与 514 行 SelectActiveItemFromEquipSlot 的差异（★★★ 重要）：",
     "--   · 514 行：无论 maxslots 如何，都走 SelectActiveItemFromEquipSlot；",
@@ -299,7 +299,7 @@ export const BEFORE = {
     "-- ★★ 与 2509 行的 ID 版（2510 行 `EquipSlot.FromID(slotid)`）配对。",
     "-- ★★★ 2510 行是 EquipSlot 的**第二个**使用点（第一个是 412 行）。",
   ],
-  2513: [
+  "Inventory:MoveItemFromAllOfSlot#1": [
     "-- 【§十八】★★ MoveItemFromAllOfSlot —— 「把背包物品移到打开的容器」。",
     "-- ★★★★ 五步（2514-2561 行）：",
     "--   ① 2516-2519 行 锁定检查（islockedinslot → 拒绝）；",
@@ -369,7 +369,7 @@ export const BEFORE = {
     "--   ⇒ ★★ currentuser 仍被正确复位（2532 的失败不跳过 2559）。",
     "--   ★★★ ★ 缩进上 2559 行在 2556 的 end 之后，与 if 同级。正确。",
   ],
-  2564: [
+  "Inventory:MoveItemFromHalfOfSlot#1": [
     "-- ★★ MoveItemFromHalfOfSlot —— 「把背包里的一半移到容器」。",
     "-- ★★★★ 与 2513 行的差异：",
     "--   · 2570-2571 行 额外要求「可堆叠且是堆叠」；",
@@ -389,7 +389,7 @@ export const BEFORE = {
     "-- ★★★★ 2599-2605 行：三个标志复位（与 2550-2556 同构）。",
     "-- ★★★ 2608 行 currentuser = nil 复位。",
   ],
-  2613: [
+  "Inventory:MoveItemFromCountOfSlot#1": [
     "-- ★★ MoveItemFromCountOfSlot(slot, container, count) ——",
     "--   「把指定数量移到容器」。",
     "-- ★★★★ 与前两个的差异：多一个 count 参数，逻辑分三支（2628-2684 行）：",
@@ -425,7 +425,7 @@ export const BEFORE = {
     "--   ★★ 而 2586/2537 各只有一份。⇒ ★★ MoveItemFromCountOfSlot 最冗长。",
     "-- ★★★★ 2687 行 currentuser = nil 复位。",
   ],
-  2692: [
+  "Inventory:GetEquippedMoistureRate#1": [
     "-- 【§二十四】★ GetEquippedMoistureRate(slot) —— 「装备携带的湿度」。",
     "-- ★★★★ 两个分支（2695-2710 行）：",
     "--   · 给了 slot → 只查那**一格**（但用的是 GetItemInSlot，普通槽！）；",
@@ -454,7 +454,7 @@ export const BEFORE = {
     "--   ⇒ ★★★ ★★ 所以本函数目前**恒返回 0, 0**！",
     "--   ★★★ ★ 这是「接口已就绪、数据源缺失」的半成品（见 equippable L4）。",
   ],
-  2714: [
+  "Inventory:GetWaterproofness#1": [
     "-- ★★ GetWaterproofness(slot) —— 「防水度」。",
     "-- ★★★★ 三段（2715-2733 行）：",
     "--   ① 2715-2717 行 全局短路：moisture 组件说有防水背包 → 返回 1；",
@@ -482,7 +482,7 @@ export const BEFORE = {
     "--   ★★★ ★★ 累加各装备的 `waterproofer:GetEffectiveness()`。",
     "--   ★★★ ★ 正确使用 equipslots（对比 2722 行的错误分支）。",
   ],
-  2736: [
+  "Inventory:IsWaterproof#1": [
     "-- ★★ IsWaterproof —— 「是否完全防水」。",
     "-- ★★★ ★★ `return self:GetWaterproofness() >= 1` ——",
     "--   ★★★ 「累加防水度达到 1」才算完全防水。",
@@ -491,7 +491,7 @@ export const BEFORE = {
     "--   · 防水是定量的（数值），累加有意义（半件+半件=完全防水）；",
     "--   · 绝缘是定性的（有/无），累加无意义。",
   ],
-  2740: [
+  "Inventory:TransferComponent#1": [
     "-- ★★ TransferComponent(newinst) —— 「把整个 inventory 组件转给新实体」。",
     "-- ★★ 2741-2743 行：EmptyBeard 清理（威尔逊）。",
     "-- ★★★ 2744 行 `self:TransferInventory(newinst)` ——",
@@ -506,7 +506,7 @@ export const BEFORE = {
     "-- ★★★ ★★ 对比 SwapEquipment（156 行）：那个是**交换装备**，",
     "--   这个是**转移所有物品**。",
   ],
-  2747: [
+  "Inventory:GetOpenContainerProxyFor#1": [
     "-- ★★ GetOpenContainerProxyFor(master) —— 「按 master 反查容器代理」。",
     "-- ★★★★ 2748-2752 行：遍历 opencontainerproxies，找匹配 master 的。",
     "-- ★★★ ★★ 这是本文件对 `opencontainerproxies`（57 行）的**唯一**读取点。",
@@ -521,46 +521,46 @@ export const BEFORE = {
 };
 
 export const AFTER = {
-  2259: ["-- ↑ CanAccessItem 结束（★ 权限闸门，★ 箱子物品也算可访问）。"],
-  2270: ["-- ↑ UseItemFromInvTile 结束（★ 只取 actions[1]）。"],
-  2286: ["-- ★★★ 地图动作特例（PullUpMap 后直接返回）。"],
-  2293: ["-- ★★ 动作码校验（★ 客户端意图校验范式）。"],
-  2296: ["-- ↑ PushAction(act, true)。"],
-  2305: ["-- ↑ ControllerUseItemOnItemFromInvTile 结束。"],
-  2322: ["-- ★★★ V2C 注释：DS 需要关窗口，DST 不需要。"],
-  2337: ["-- ↑ ControllerUseItemOnSelfFromInvTile 结束。"],
-  2347: ["-- ★★ 手动构造 UNEQUIP 的 BufferedAction。"],
-  2368: ["-- ↑ ControllerUseItemOnSceneFromInvTile 结束（四层分支）。"],
-  2386: ["-- ★★★ 「已无效」分支（V2C 审计记录）。"],
-  2392: ["-- ★★★ 魔术师「维度口袋」特例。"],
-  2403: ["-- ★★★ 排除 UNEQUIP / DROP（对场景用不应变成卸下）。"],
-  2418: ["-- ↑ InspectItemFromInvTile 结束（LOOKAT 动作）。"],
-  2424: ["-- ↑ DropItemFromInvTile 结束。"],
-  2428: ["-- ★★★ 客户端预测位置（★ 联机手感关键）。"],
-  2435: ["-- ↑ CastSpellBookFromInv 结束（★ 同物双参数位）。"],
-  2452: ["-- ↑ EquipActiveItem 结束（★ L36：第三参数传错）。"],
-  2462: ["-- ↑ EquipActionItem 结束（★ 只处理 HANDS）。"],
-  2475: ["-- ★★ 堆叠拆分（★ 与 Equip 的拆分方向相反，语义相同）。"],
-  2486: ["-- ↑ SwapEquipWithActiveItem 结束（★ L36：同样的错误）。"],
-  2496: ["-- ↑ TakeActiveItemFromEquipSlot 结束（★ 无背包则丢弃）。"],
-  2513: ["-- ↑ MoveItemFromAllOfSlot 结束。"],
-  2524: ["-- ★★★★ currentuser = self.inst（临时全局变量代替参数）。"],
-  2526: ["-- ★★ 建造 UI 联动（自动定位材料槽）。"],
-  2537: ["-- ★★★ 标志设置（★ L13：~= nil 对布尔恒真）。"],
-  2551: ["-- ↑ 标志复位。"],
-  2559: ["-- ★★★ currentuser = nil 复位。"],
-  2564: ["-- ↑ MoveItemFromHalfOfSlot 结束。"],
-  2582: ["-- ★★ 取一半（★ 与 2167 行逐字相同）。"],
-  2613: ["-- ↑ MoveItemFromCountOfSlot 结束（★ L38：锁定检查漏网）。"],
-  2630: ["-- ★★ fullstacksize 计算（★ 与 2179 行逐字相同）。"],
-  2638: ["-- ★ 标志设置（分支①）。"],
-  2665: ["-- ★ 标志设置（分支③，★ 复制粘贴的第二份）。"],
-  2687: ["-- ↑ currentuser = nil 复位。"],
-  2692: ["-- ↑ GetEquippedMoistureRate 结束（★ L39：slot 分支查错表）。"],
-  2714: ["-- ↑ GetWaterproofness 结束（★ 累加，与 IsInsulated 的布尔或不同）。"],
-  2722: ["-- ★★★ 同样用 GetItemInSlot（★ L39 的第二处）。"],
-  2736: ["-- ↑ IsWaterproof 结束（≥ 1 才算完全防水）。"],
-  2740: ["-- ↑ TransferComponent 结束（形态转换）。"],
-  2747: ["-- ↑ GetOpenContainerProxyFor 结束（★ 唯一读取点）。"],
-  2755: ["-- ↑ 文件末行（return Inventory 之后）。"],
+  "Inventory:CanAccessItem#1": ["-- ↑ CanAccessItem 结束（★ 权限闸门，★ 箱子物品也算可访问）。"],
+  "Inventory:UseItemFromInvTile#1": ["-- ↑ UseItemFromInvTile 结束（★ 只取 actions[1]）。"],
+  "Inventory:UseItemFromInvTile#1+16": ["-- ★★★ 地图动作特例（PullUpMap 后直接返回）。"],
+  "Inventory:UseItemFromInvTile#1+23": ["-- ★★ 动作码校验（★ 客户端意图校验范式）。"],
+  "Inventory:UseItemFromInvTile#1+26": ["-- ↑ PushAction(act, true)。"],
+  "Inventory:ControllerUseItemOnItemFromInvTile#1": ["-- ↑ ControllerUseItemOnItemFromInvTile 结束。"],
+  "Inventory:ControllerUseItemOnItemFromInvTile#1+17": ["-- ★★★ V2C 注释：DS 需要关窗口，DST 不需要。"],
+  "Inventory:ControllerUseItemOnSelfFromInvTile#1": ["-- ↑ ControllerUseItemOnSelfFromInvTile 结束。"],
+  "Inventory:ControllerUseItemOnSelfFromInvTile#1+10": ["-- ★★ 手动构造 UNEQUIP 的 BufferedAction。"],
+  "Inventory:ControllerUseItemOnSceneFromInvTile#1": ["-- ↑ ControllerUseItemOnSceneFromInvTile 结束（四层分支）。"],
+  "Inventory:ControllerUseItemOnSceneFromInvTile#1+18": ["-- ★★★ 「已无效」分支（V2C 审计记录）。"],
+  "Inventory:ControllerUseItemOnSceneFromInvTile#1+24": ["-- ★★★ 魔术师「维度口袋」特例。"],
+  "Inventory:ControllerUseItemOnSceneFromInvTile#1+35": ["-- ★★★ 排除 UNEQUIP / DROP（对场景用不应变成卸下）。"],
+  "Inventory:InspectItemFromInvTile#1": ["-- ↑ InspectItemFromInvTile 结束（LOOKAT 动作）。"],
+  "Inventory:DropItemFromInvTile#1": ["-- ↑ DropItemFromInvTile 结束。"],
+  "Inventory:DropItemFromInvTile#1+4": ["-- ★★★ 客户端预测位置（★ 联机手感关键）。"],
+  "Inventory:CastSpellBookFromInv#1": ["-- ↑ CastSpellBookFromInv 结束（★ 同物双参数位）。"],
+  "Inventory:EquipActiveItem#1": ["-- ↑ EquipActiveItem 结束（★ L36：第三参数传错）。"],
+  "Inventory:EquipActionItem#1": ["-- ↑ EquipActionItem 结束（★ 只处理 HANDS）。"],
+  "Inventory:EquipActionItem#1+13": ["-- ★★ 堆叠拆分（★ 与 Equip 的拆分方向相反，语义相同）。"],
+  "Inventory:SwapEquipWithActiveItem#1": ["-- ↑ SwapEquipWithActiveItem 结束（★ L36：同样的错误）。"],
+  "Inventory:TakeActiveItemFromEquipSlot#1": ["-- ↑ TakeActiveItemFromEquipSlot 结束（★ 无背包则丢弃）。"],
+  "Inventory:MoveItemFromAllOfSlot#1": ["-- ↑ MoveItemFromAllOfSlot 结束。"],
+  "Inventory:MoveItemFromAllOfSlot#1+11": ["-- ★★★★ currentuser = self.inst（临时全局变量代替参数）。"],
+  "Inventory:MoveItemFromAllOfSlot#1+13": ["-- ★★ 建造 UI 联动（自动定位材料槽）。"],
+  "Inventory:MoveItemFromAllOfSlot#1+24": ["-- ★★★ 标志设置（★ L13：~= nil 对布尔恒真）。"],
+  "Inventory:MoveItemFromAllOfSlot#1+38": ["-- ↑ 标志复位。"],
+  "Inventory:MoveItemFromAllOfSlot#1+46": ["-- ★★★ currentuser = nil 复位。"],
+  "Inventory:MoveItemFromHalfOfSlot#1": ["-- ↑ MoveItemFromHalfOfSlot 结束。"],
+  "Inventory:MoveItemFromHalfOfSlot#1+18": ["-- ★★ 取一半（★ 与 2167 行逐字相同）。"],
+  "Inventory:MoveItemFromCountOfSlot#1": ["-- ↑ MoveItemFromCountOfSlot 结束（★ L38：锁定检查漏网）。"],
+  "Inventory:MoveItemFromCountOfSlot#1+17": ["-- ★★ fullstacksize 计算（★ 与 2179 行逐字相同）。"],
+  "Inventory:MoveItemFromCountOfSlot#1+25": ["-- ★ 标志设置（分支①）。"],
+  "Inventory:MoveItemFromCountOfSlot#1+52": ["-- ★ 标志设置（分支③，★ 复制粘贴的第二份）。"],
+  "Inventory:MoveItemFromCountOfSlot#1+74": ["-- ↑ currentuser = nil 复位。"],
+  "Inventory:GetEquippedMoistureRate#1": ["-- ↑ GetEquippedMoistureRate 结束（★ L39：slot 分支查错表）。"],
+  "Inventory:GetWaterproofness#1": ["-- ↑ GetWaterproofness 结束（★ 累加，与 IsInsulated 的布尔或不同）。"],
+  "Inventory:GetWaterproofness#1+8": ["-- ★★★ 同样用 GetItemInSlot（★ L39 的第二处）。"],
+  "Inventory:IsWaterproof#1": ["-- ↑ IsWaterproof 结束（≥ 1 才算完全防水）。"],
+  "Inventory:TransferComponent#1": ["-- ↑ TransferComponent 结束（形态转换）。"],
+  "Inventory:GetOpenContainerProxyFor#1": ["-- ↑ GetOpenContainerProxyFor 结束（★ 唯一读取点）。"],
+  "Inventory:GetOpenContainerProxyFor#1+8": ["-- ↑ 文件末行（return Inventory 之后）。"],
 };

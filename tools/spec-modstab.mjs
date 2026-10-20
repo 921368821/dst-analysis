@@ -142,7 +142,7 @@ export default {
     '--   这是「容器把焦点转发给默认子项」的标准技巧。',
   ],
 
-  92: [
+  "ModsTab:DisableConfigButton#1": [
     '-- ══★【Enable/Disable 成对函数 = 「按钮可用性」的双写模式】',
     '-- 四个函数：DisableConfigButton / EnableConfigButton /',
     '--           DisableUpdateButton / EnableUpdateButton。',
@@ -162,7 +162,7 @@ export default {
     '--   三个函数里只有一个没写守卫，属不一致。',
   ],
 
-  136: [
+  "ModsTab:EnableUpdateButton#1": [
     '-- ★ 139-141 行：只有**鼠标**模式才 Unselect。',
     '--   手柄下保持 Select 状态（表示「这个按钮被手柄关注着」）。',
     '-- → ★★★ 「同一个 Select/Unselect 状态在不同输入设备下含义不同」：',
@@ -172,7 +172,7 @@ export default {
     '--   → 移植时若手柄与鼠标并存，可用性视觉必须分设备处理。',
   ],
 
-  148: [
+  "ModsTab:SetModsList#1": [
     '-- ★★ SetModsList 是「页签切换」的唯一入口，六件事按序做：',
     '-- 149 记录当前页签类型',
     '-- 151-153 数据未就绪则提前返回',
@@ -192,7 +192,7 @@ export default {
     '--   没有 else 分支 → 若传入其他 listtype，状态会停在「已记录但没执行」。',
   ],
 
-  164: [
+  "ModsTab:SetModsList#1+16": [
     '-- ★★★【选中态保持：与 mapscreen 的 AutoAimToStaticDecorations 同类问题】',
     '-- 遍历 modnames 找出 last_client_modname 的下标，找到就 break。',
     '--   找不到则 idx 保持 1（默认第一项）。',
@@ -205,7 +205,7 @@ export default {
     '-- ⚠️ 但如果模组被卸载了（名字消失），就回落到第一项 —— 合理降级。',
   ],
 
-  191: [
+  "ModsTab:CreateDetailPanel#1": [
     '-- ══⚠️★★【CreateDetailPanel：全量重建详情面板 + 严重的字段缺失】',
     '-- 192-195 行：KillAllChildren 后又 Kill，然后重新 AddChild。',
     '--   → 「KillAllChildren + Kill」是彻底销毁，比只 KillAllChildren 更干净。',
@@ -233,14 +233,14 @@ export default {
     '--   故标注为「真实缺陷但当前被上游守卫掩盖」。',
   ],
 
-  200: [
+  "ModsTab:CreateDetailPanel#1+9": [
     '-- ★ 201 行用 if/else 表达式取数量，是本文件少见的紧凑写法。',
     '--   但两个分支都判 `self.currentmodtype == "client"`，',
     '--   若 currentmodtype 是 ""（28 行的初值），会走 else 取 server 列表。',
     '--   → 初值为空串时的隐式默认是「server」，与 82 行的显式设置重复。',
   ],
 
-  241: [
+  "ModsTab:CreateDetailPanel#1+50": [
     '-- ★ 空模组分支（243-256）里连按钮状态都一并禁用。',
     '-- 252/253 调 Disable 系列 → 它们内部会调 DoFocusHookups。',
     '--   而 155 行（SetModsList）已经调过一次 DoFocusHookups，',
@@ -251,7 +251,7 @@ export default {
     '--   它被当作「状态变更后统一重算」的事件来用，而非「初始化时算一次」。',
   ],
 
-  261: [
+  "ModsTab:StartWorkshopUpdate#1": [
     '-- ★★ StartWorkshopUpdate：周期刷新循环的启动。',
     '-- 262-265 先取消旧任务 → 保证幂等（重复调用不会有两个循环）。',
     '-- 267 先同步跑一次 → 让界面立刻有数据，不用等第一个周期。',
@@ -265,7 +265,7 @@ export default {
     '--     避免界面打开后的一段空白期。',
   ],
 
-  272: [
+  "ModNameVersionTableContains#1": [
     '-- ══【三个纯函数辅助：变更检测的原子单位】',
     '-- ModNameVersionTableContains：查某个模组是否已在已安装列表里。',
     '--   用途见 506/634 行：下载中的模组若已在列表里就不重复加行。',
@@ -274,7 +274,7 @@ export default {
     '--   但与文件里其他地方（165/384 行用 ipairs）不统一。',
   ],
 
-  281: [
+  "CompareModnamesTable#1": [
     '-- ★★★ CompareModnamesTable 是「深度相等」的朴素实现。',
     '-- 逐项比较 modname 与 version。',
     '-- → ★★ 关键性质：**依赖调用方先排序**。',
@@ -290,7 +290,7 @@ export default {
     '--   但两个函数 90% 相同，应合并为带参数的一个。',
   ],
 
-  304: [
+  "IsModOutOfDate#1": [
     '-- ══★【IsModOutOfDate：本文件的核心业务判定，全文 6 处调用】',
     '-- 三个条件与：',
     '--   ① IsWorkshopMod：只有创意工坊模组才可能「过期」',
@@ -309,7 +309,7 @@ export default {
     '--   但依赖「nil 在条件里为假」是隐式契约，建议显式加 tostring 或补括号。',
   ],
 
-  308: [
+  "ModsTab:UpdateForWorkshop#1": [
     '-- ══★★★【UpdateForWorkshop：数据 → UI 的完整链路（375 行，本文件的心脏）】',
     '-- ★★ 309 行 TryLockModDir 是**跨进程文件锁**：',
     '--   模组目录可能被多个进程（游戏 + 启动器）同时读写。',
@@ -323,7 +323,7 @@ export default {
     '--   → ★ 移植时凡涉及外部锁/文件句柄，必须有异常安全的释放路径。',
   ],
 
-  315: [
+  "alphasort#1": [
     '-- ★ alphasort 排序比较函数，两个防御分支处理 nil：',
     '-- 316 `if not moda then return false end` —— 防止对 nil 取字段。',
     '-- 317 `if not modb then return true end` —— nil 排在前面。',
@@ -336,7 +336,7 @@ export default {
     '--   对含特殊字符的名字可能排序异常。属细节。',
   ],
 
-  324: [
+  "alphasort#1+9": [
     '-- ★★★ 版本信息的获取是「逐个查询 + 写回数据表」。',
     '-- 325 行 v.version = IsWorkshopMod(...) and TheSim:GetWorkshopVersion(...) or ""。',
     '--   → ★ 这是在**污染**从 KnownModIndex 拿到的原始表，',
@@ -351,7 +351,7 @@ export default {
     '--     所以拿到的是新表，安全。',
   ],
 
-  331: [
+  "alphasort#1+16": [
     '-- ★★★ 变更检测：四张表逐一比较，任一不同就重建全部 UI。',
     '-- 332 行 need_to_udpate = force_refresh —— ★ 注意变量名拼写错误',
     '--   （udpate 应为 update）。Lua 允许，但 grep 时容易漏。',
@@ -368,7 +368,7 @@ export default {
     '--     这是「多个数据源各自独立刷新的正确写法」。',
   ],
 
-  359: [
+  "alphasort#1+44": [
     '-- ══★【刷新后恢复选中态：按名字找新索引】',
     '-- 360 行默认索引 1。',
     '-- 361 行 client_mod_type = self.client_only —— ⚠️ 从未赋值过。',
@@ -385,7 +385,7 @@ export default {
     '--   → 「有无稳定标识」决定了选中保持的实现难度。',
   ],
 
-  384: [
+  "alphasort#1+69": [
     '-- ══⚠️⚠️【★★★ 本文件最大的结构问题：384-504 与 513-632 整段复制粘贴】',
     '-- 两段各约 120 行，逻辑完全相同，只有三处不同：',
     '--   1) 遍历 modnames_client vs modnames_server',
@@ -414,7 +414,7 @@ export default {
     '--   这是**一致且正确**的。',
   ],
 
-  395: [
+  "alphasort#1+80": [
     '-- ★★★ 焦点视觉反馈：OnGainFocus 播音效 + 显示 state_bg。',
     '-- 397 行用 ClickMouseoverSoundReduction() 降音量 ——',
     '--   与 scrollablelist 的 238/727/750 行同一模式。',
@@ -429,7 +429,7 @@ export default {
     '--     **写新代码时应优先用 SetOnGainFocus**，除非确认基类是空的。',
   ],
 
-  401: [
+  "alphasort#1+86": [
     '-- ★★ OnLoseFocus 除了藏背景，还负责「把按下位移复位」。',
     '-- 404-407：若 o_pos 非 nil（说明正被按下），恢复原位置并清标记。',
     '--   → ★★★ 「按下位移」的复位必须同时挂在 OnLoseFocus 和 OnControl(up) 上，',
@@ -440,7 +440,7 @@ export default {
     '-- o_pos 的设置见 435-438 行（按下时记录原位置并加 clickoffset）。',
   ],
 
-  410: [
+  "opt.StartClick#1": [
     '-- ══★【StartClick / FinishClick：双击检测的手写实现】',
     '-- 410-414 StartClick（按下时）：',
     '--   若点的不是当前选中项，清掉双击计时 → 保证「换行点击」不误判双击。',
@@ -458,7 +458,7 @@ export default {
     '--   在**松开**时执行是刻意的（避免按下时就改状态）。',
   ],
 
-  430: [
+  "opt.FinishClick#1+14": [
     '-- ══★【行的输入处理：opt.OnControl 被整体覆盖】',
     '-- 432 行先调基类 Widget.OnControl(opt, ...) —— 这是正确的兜底。',
     '--   （基类会递归派发给子控件，包括 checkbox。）',
@@ -473,7 +473,7 @@ export default {
     '--   → 双击只在主键上生效，是合理的设计取舍。',
   ],
 
-  443: [
+  "opt.FinishClick#1+27": [
     '-- ══★【松开分支：三个出口，各不相同】',
     '-- 444-447 复位按下位移（无条件，任何键松开都做）。',
     '-- 448-452 ACCEPT → FinishClick（可能双击）+ 播音效 + ShowModDetails。',
@@ -487,7 +487,7 @@ export default {
     '--     事件会继续冒泡给父控件。这是正确的。',
   ],
 
-  461: [
+  "opt.FinishClick#1+45": [
     '-- ★★ checkbox 的 OnControl 被单独覆盖，与 opt 的分开。',
     '-- ★ 463 行调的是 `Widget.OnControl(opt.checkbox, ...)` 而不是基类的基类，',
     '--   正确（要在 checkbox 自己的上下文里跑）。',
@@ -502,7 +502,7 @@ export default {
     '--   → 反映了这个文件的实现是「哪里方便塞哪里」。',
   ],
 
-  494: [
+  "opt.GetHelpText#1+12": [
     '-- ★★ out_of_date_mods 的累加与行内红点显示绑定在一起。',
     '-- 495 计数、496 显示行内红点；498 反之隐藏。',
     '-- → ★★★ 「统计与显示在同一个循环里完成」：',
@@ -514,7 +514,7 @@ export default {
     '--   但共用同一个徽章控件 —— 靠互斥的 if/elseif 保证只显示一种。',
   ],
 
-  501: [
+  "opt.GetHelpText#1+19": [
     '-- ★ 「可配置」标记（configurable_image）在**构建期**就确定。',
     '--   而不是等到选中时（860-864 行）才判断。',
     '-- → ★★ 两处判断用的是同一个 HasModConfigurationOptions，',
@@ -525,7 +525,7 @@ export default {
     '--   移植时应把这类判断抽成单一函数。',
   ],
 
-  505: [
+  "opt.GetHelpText#1+23": [
     '-- ★★ 下载中的模组作为「额外的行」追加到列表末尾。',
     '-- 506 行只加「尚未安装」的（避免与已安装的重复）。',
     '-- 507 行 ModDLListItem 是一个更简单的行模板（只有名字）。',
@@ -537,7 +537,7 @@ export default {
     '-- ★ 505 行的遍历对象是 self.modnames_client_dl（354 行刚赋的新值）。',
   ],
 
-  640: [
+  "opt.GetHelpText#2+30": [
     '-- ══★★【★ 列表的创建与更新：模式 A（自带子控件），非虚拟化】',
     '-- 641-651 行：首次创建用 AddChild(ScrollableList(...))，',
     '--   之后用 SetList 替换数据。',
@@ -564,7 +564,7 @@ export default {
     '--   说明滚动位置在 SetList 时会重置（scrollablelist 545 行 Scroll(0,true)）。',
   ],
 
-  653: [
+  "opt.GetHelpText#2+43": [
     '-- ★★ 653-654 行的顺序：先 SetModsList 再 ShowModDetails。',
     '-- 653 行 SetModsList 内部**也会**调 ShowModDetails（171/187 行）。',
     '-- 654 行又调了一次（用精确的 mod_index）。',
@@ -580,7 +580,7 @@ export default {
     '--     最好显式分成 RestoreSelection() 与 SelectMod(idx)。',
   ],
 
-  656: [
+  "opt.GetHelpText#2+46": [
     '-- ══★【updateallbutton 的三态：下载中 / 有更新 / 全部最新】',
     '-- 657-663 下载中：显示下载数，Select（灰掉，因为正在下载不能重复触发）',
     '-- 664-669 有过期：显示过期数，Unselect，**enabled = true**',
@@ -598,7 +598,7 @@ export default {
     '--   说明这是全文件统一的「字段驱动点击拦截」模式（见 1017 行）。',
   ],
 
-  678: [
+  "opt.GetHelpText#2+68": [
     '-- ★ 作者自己留了问句注释「Note(Peter) do we need to do this focus hookup?」。',
     '-- → ★★★ 「不确定但保险起见就调」——',
     '--   DoFocusHookups 是幂等的，多调一次无害，但留着这句注释',
@@ -610,7 +610,7 @@ export default {
     '--     但注释里的疑问仍未解答。',
   ],
 
-  699: [
+  "ModsTab:OnConfirmEnable#1": [
     '-- ══★★【OnConfirmEnable：模组启停的真正执行点 —— 有副作用、有副作用的重入】',
     '-- 700-706 行的启用/禁用：',
     '--   注意顺序：FrontendUnloadMod 在 Disable **之前**，',
@@ -624,7 +624,7 @@ export default {
     '--   代价是已加载的实体不会受影响（见 752 行 restart_required 判定）。',
   ],
 
-  708: [
+  "ModsTab:OnConfirmEnable#1+9": [
     '-- ★★ 启用后的两种警告，各压一个确认弹窗。',
     '-- 710-721 all_clients_require_mod 且非创意工坊 → 警告无法自动分发。',
     '--   713-715 IsRail() 时换文案（Rail = 主机平台，有自己的分发机制）。',
@@ -645,7 +645,7 @@ export default {
     '--     正确做法是把后续动作放进弹窗的回调里（见 716-719 就是这么做的）。',
   ],
 
-  731: [
+  "ModsTab:OnConfirmEnable#1+32": [
     '-- ★★★【反向通知宿主：这是「Widget 而非 Screen」的必然代价】',
     '-- 四行通知：更新模式转盘、更新按钮、标脏、刷新世界页签。',
     '-- → ★★ 「界面变化要通知所有关心的人」：',
@@ -661,7 +661,7 @@ export default {
     '--   → 「不可逆操作必须放在用户确认的回调里」，这里正是（756 行的回调）。',
   ],
 
-  742: [
+  "ModsTab:EnableCurrent#1": [
     '-- ══★【EnableCurrent：双击后的分派，含两处隐患】',
     '-- 744-748 按页签类型取 modname。',
     '-- ⚠️【真实缺陷，已逐行核实 + 已读下游实现确认】',
@@ -683,7 +683,7 @@ export default {
     '-- ★ 762 行无条件重调 ShowModDetails —— 刷新按钮与勾选态。',
   ],
 
-  752: [
+  "ModsTab:EnableCurrent#1+10": [
     '-- ★★ restart_required 的模组必须重启才能生效。',
     '-- 753 行 print 到控制台（开发者可见），玩家看不到。',
     '-- 754-758 弹出「重启 or 取消」双按钮确认框。',
@@ -702,7 +702,7 @@ export default {
     '--     实践中 746 行条件恒真所以不会到这。属「靠巧合」。',
   ],
 
-  765: [
+  "ModsTab:GetBestModStatus#1": [
     '-- ★★★ GetBestModStatus：把三种状态压成一个字符串枚举。',
     '-- 优先级：已启用 > 加载失败/已知坏 > 手动禁用。',
     '-- → ★ 「返回一个字符串枚举而非布尔」的价值：',
@@ -714,7 +714,7 @@ export default {
     '--   → 与 scrollablelist:46 的 `self.items = {}` 立即被覆盖同类。',
   ],
 
-  778: [
+  "ModsTab:GetBestModStatus#1+13": [
     '-- ⚠️【死变量，已 grep 全文件核实】splitChars 只出现在这一行。',
     '--   它是一个「用于把模组名按分隔符切成单词」的字符表，',
     '--   显然是某个搜索/高亮功能的遗留。',
@@ -725,7 +725,7 @@ export default {
     '--   → 移植时应删，但删了要确认没有模组通过 debug 手段引用它们。',
   ],
 
-  780: [
+  "ModsTab:ShowModDetails#1": [
     '-- ══★★【ShowModDetails：详情面板的唯一填充函数（146 行）】',
     '-- ★★ 781-782 行的三元表达式用 client_mod 选表：',
     '--   `client_mod and A or B` —— 经典写法（playerhud:1191 也这么判断）。',
@@ -749,7 +749,7 @@ export default {
     '--     所以下标从 modnames 来时反而安全。属「当前不可触发」。',
   ],
 
-  797: [
+  "ModsTab:ShowModDetails#1+17": [
     '-- ★★ 797-801 行：modname 为 nil 说明这一行是「下载中」的占位行。',
     '-- 800 行注释明说「probably in the download list」——',
     '--   作者清楚这个分支的成因。',
@@ -762,7 +762,7 @@ export default {
     '-- 803-807：写入 last_*_modname 供下次页签切换恢复。',
   ],
 
-  809: [
+  "ModsTab:ShowModDetails#1+29": [
     '-- ⚠️ 810-812 行 `if modinfo == nil then return end` 会**提前返回**，',
     '--   此时 currentmodname（802 行）已被设置，last_* 也已写。',
     '--   → 即「选中态已改变，但详情面板没刷新」。',
@@ -772,7 +772,7 @@ export default {
     '--   → 移植时应把所有默认贴图集中管理（DST 的 templates.lua 就是干这个的）。',
   ],
 
-  821: [
+  "ModsTab:ShowModDetails#1+41": [
     '-- ★★★ 双行标题的自适应布局 —— 本文件最精细的排版处理。',
     '-- 821 行 SetMultilineTruncatedString(..., 最多2行, ...) 先渲染两行。',
     '-- 822 行按换行符切开。',
@@ -791,7 +791,7 @@ export default {
     '--   属「排版魔数」，不影响功能但视觉上可能有偏差。',
   ],
 
-  838: [
+  "ModsTab:ShowModDetails#1+58": [
     '-- ★ 描述文本最多 11 行，截断。',
     '-- 839-840 行用实际渲染高度反推位置：`97 - .5 * h` ——',
     '--   → ★★★ 「控件变高时把它的**上边缘**固定住」：',
@@ -803,7 +803,7 @@ export default {
     '--     834-836 行的作者名用了同样的手法（835-836 行）。',
   ],
 
-  842: [
+  "ModsTab:ShowModDetails#1+62": [
     '-- ★★ 842-848 行是被注释掉的一整块逻辑（长注释块形式）。',
     '--   内容：根据模组是否有 forumthread 或 workshop- 前缀，',
     '--   决定 modlinkbutton 显示 MODLINK（跳论坛）还是 MODLINKGENERIC。',
@@ -814,7 +814,7 @@ export default {
     '--   移植时保留这类「注释掉但有价值的分支」，比直接删掉好。',
   ],
 
-  850: [
+  "ModsTab:ShowModDetails#1+70": [
     '-- ★★★ 兼容性三态显示（兼容 / 未知 / 不兼容）。',
     '-- 851 行的 dst_compatibility_specified == false 是关键：',
     '--   「作者没说」与「作者说不兼容」是**不同的事**，UI 必须区分。',
@@ -827,7 +827,7 @@ export default {
     '--   dst_compatibility_specified == false`），两处一致，正确。',
   ],
 
-  866: [
+  "ModsTab:ShowModDetails#1+86": [
     '-- ══★【更新按钮的三态判定，与 updateallbutton 同构】',
     '-- 867 过期？→ 868-876 检查是否正在下载（遍历两个下载表）',
     '-- 877-878 正在下载 → DisableUpdateButton("updating", idx)',
@@ -847,7 +847,7 @@ export default {
     '--   869 行位于 ShowModDetails 内，每次切换选中都会执行 → 轻微 GC 压力。',
   ],
 
-  886: [
+  "ModsTab:ShowModDetails#1+106": [
     '-- ★ 作者用分隔线加 TODO 标记「更新按钮的启用/禁用应该也放这里」。',
     '-- ★★ 但实际上 867-884 行**已经**做了这件事（紧邻的上面）。',
     '--   → ⚠️ 已过期的 TODO：它想做的事在它上面已经完成了。',
@@ -856,7 +856,7 @@ export default {
     '--   留着会误导后来人重复劳动。',
   ],
 
-  890: [
+  "ModsTab:ShowModDetails#1+110": [
     '-- ══★【三态配色：状态色是 UI 与玩法的唯一接口】',
     '-- WORKING_NORMALLY → 绿（59,222,99）/255',
     '-- DISABLED_ERROR    → 红（242,99,99）/255',
@@ -874,7 +874,7 @@ export default {
     '--   是「从旧写法迁移到除以 255 写法」的痕迹。',
   ],
 
-  914: [
+  "ModsTab:ShowModDetails#1+134": [
     '-- ★★ 启用/禁用的视觉：整行图标染色 + 勾选框换贴图。',
     '-- 915 启用 → 原色 + checkbox_on',
     '-- 920 禁用 → 粉红染色（1.0,0.5,0.5）+ checkbox_off',
@@ -890,7 +890,7 @@ export default {
     '--   → 守卫是必要的，说明作者遇到过这个问题。',
   ],
 
-  927: [
+  "ModsTab:LoadModInfoPrefabs#1": [
     '-- ══★【LoadModInfoPrefabs：运行时动态创建预制体 —— UI 与资源系统的交界】',
     '-- 928 行遍历所有已知模组。',
     '-- 930 行只处理有图标的（没图标的模组不占资源）。',
@@ -907,7 +907,7 @@ export default {
     '--   实践中 Klei 的模组名有字符限制，故未暴露。',
   ],
 
-  951: [
+  "ModsTab:ReloadModInfoPrefabs#1": [
     '-- ══★★【ReloadModInfoPrefabs：顺序敏感的引用计数操作 —— 极有价值的坑注释】',
     '-- 952-955 行的注释是本文件最好的一段：',
     '-- 「load before unload -- this prevents the refcounts of prefabs from',
@@ -924,7 +924,7 @@ export default {
     '--   → 顺序正确：必须在新表建好、旧表卸掉之后才更新字段。',
   ],
 
-  982: [
+  "ModsTab:Cancel#1": [
     '-- ══★【Cancel：完整的回滚路径，与 Apply 对称】',
     '-- 983-986 取消周期任务（与 Apply/OnDestroy 同一段代码，出现 3 次）。',
     '-- ⚠️ 三处相同的「取消 updatetask」代码应抽成 StopWorkshopUpdate()。',
@@ -942,7 +942,7 @@ export default {
     '--     应显式写 self.infoprefabs = {}。',
   ],
 
-  993: [
+  "ModsTab:Apply#1": [
     '-- ★★ 994 行的注释是重要的使用契约：',
     '-- 「After apply, the mods tab is no longer in a working state,',
     '--  it must be restarted with :StartWorkshopUpdate()」',
@@ -956,7 +956,7 @@ export default {
     '--   → 又一处「跨文件的责任约定」，只能靠注释维系。',
   ],
 
-  1005: [
+  "ModsTab:OnDestroy#1": [
     '-- ★ OnDestroy 只做两件事：停任务 + 卸预制体。',
     '--   与 Cancel（982）的区别：没有 FrontendUnloadMod 与 RestoreCachedSaveData。',
     '--   → ★ 语义正确：销毁不是取消，不需要回滚玩家配置。',
@@ -964,7 +964,7 @@ export default {
     '--   若 OnDestroy 后又有代码读它，会拿到空表（因 946-947 已清空）。',
   ],
 
-  1013: [
+  "ModsTab:OnBecomeActive#1": [
     '-- ══★★【OnBecomeActive：钩子由宿主手动转发（因为不是 Screen）】',
     '-- 1014 行 StartWorkshopUpdate。',
     '-- ⚠️ 但 StartWorkshopUpdate（261 行）**没有先取消已有任务之外的重入保护**：',
@@ -980,7 +980,7 @@ export default {
     '--   → 轻微的性能与体验问题：应该加上 OnBecomeInactive 停任务。',
   ],
 
-  1017: [
+  "ModsTab:ConfigureSelectedMod#1": [
     '-- ══★【ConfigureSelectedMod / UpdateSelectedMod：字段驱动的点击拦截范式】',
     '-- 1018 行 `if self.modconfigable then` —— 真正的判断只有这一句。',
     '-- ★★ 这就是「可用性字段」的意义所在：',
@@ -997,7 +997,7 @@ export default {
     '--     自身是 Widget，内部却会 Push 别的 Screen。',
   ],
 
-  1031: [
+  "ModsTab:CleanAllButton#1": [
     '-- ══★【CleanAllButton：最重的破坏性操作，三阶段确认】',
     '-- 1032-1057 构造一个双按钮确认框（OK / CANCEL）。',
     '-- 1034-1054 OK 的回调里做了五件事：',
@@ -1018,7 +1018,7 @@ export default {
     '--     本文件的注释只说了「clean all」这个动作名，没解释后果。',
   ],
 
-  1061: [
+  "ModsTab:UpdateAllButton#1": [
     '-- ══★★【UpdateAllButton：同一条逻辑的两份拷贝（1062-1077 与 1083-1097）】',
     '-- 1062 行 force=true 分支：直接执行更新，不弹确认框。',
     '-- 1078 行 else 分支：弹确认框，OK 回调里执行同样的循环。',
@@ -1038,7 +1038,7 @@ export default {
     '--   这里确实需要遍历全部，正确。',
   ],
 
-  1108: [
+  "ModsTab:SetSaveSlot#1": [
     '-- ══★★【SetSaveSlot：切换存档槽 = 换一整套模组配置】',
     '-- 1109 行早退：`not fromDelete and slotnum == self.slotnum`。',
     '--   → ★★ 「切到同一个槽则什么都不做」的幂等保护，',
@@ -1056,7 +1056,7 @@ export default {
     '--   顺序正确：先卸载（避免同时加载两套导致冲突）。',
   ],
 
-  1127: [
+  "ModsTab:DoFocusHookups#1": [
     '-- ══★★★【DoFocusHookups：整个页签的焦点导航图（43 行）】',
     '-- 本文件被调用 12+ 次（92/107/122/136/159/175/679/979 等），',
     '--   每次状态变化后重建。',

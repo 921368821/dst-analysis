@@ -228,7 +228,7 @@ export default {
   ],
 
   // ══════════════ 声音 ══════════════
-  256: [
+  "StartAmbientRainSound#1": [
     '--★ 四种雨声的设计：Start/Stop 成对，参数只有 intensity。',
     '-- intensity 通过 SoundEmitter:SetParameter 传给音频引擎，做连续音量调节，',
     '-- 而【不反复重启动声音】。这是音频系统的标准做法（避免爆音与开销）。',
@@ -236,14 +236,14 @@ export default {
     '--   【每个调用点都必须保证配对的 Stop 被调用】，否则声音会残留。',
     '--   第 989/1026 行那些「先全Stop 再Start需要的」的写法就是在做这个保证。',
   ],
-  258: [
+  "StartAmbientRainSound#1+2": [
     '-- ★ 同一个函数要按preciptype 选两套音效（普通雨 vs 月石雨）。',
     '-- 第 262 行的模式：只有 _rainsound ~= sound 时才 Kill+Play（即换音效时才重启），',
     '-- 否则只调 SetParameter 改音量。',
     '-- ⚠️ 这正是「存下当前音效名」这个upvalue 的用途：',
     '--   它是「防重复启动」与「检测需要换音效」的双重状态位。',
   ],
-  279: [
+  "StartTreeRainSound#1": [
     '-- ★★ 树上雨声走的是【另一个 emitter】：TheFocalPoint.SoundEmitter，',
     '--   而环境雨声（第 267 行）走 _world.SoundEmitter。',
     '-- 【区别很关键】',
@@ -255,7 +255,7 @@ export default {
     '-- ⚠️ 第 287 行的 KillSound 用了 "treerainsound" 而第 290 行的 PlaySound',
     '--   用的是同名 key —— 靠key 一致来配对，键名写错就会「停了但没声」。',
   ],
-  302: [
+  "StartUmbrellaRainSound#1": [
     '-- ★★ 伞声的选择逻辑有三层嵌套，值得逐层读：',
     '--  第 303 行：读玩家【手上】的装备 —— 所以「换伞」会改变雨声音色',
     '--  第 305 行：umbrella:HasTag("metal") —— 金属伞（温蒂的传送伞）用专属音效',
@@ -267,7 +267,7 @@ export default {
     '--⚠️ 第 305 行 umbrella 有 nil 保护（and 短路）但第 303 行没有，',
     '--   两者保护级别不一致，属可读性问题而非缺陷。',
   ],
-  331: [
+  "StartBarrierSound#1": [
     '-- StartBarrierSound 用布尔 _barriersound 而其他三个用「音效名或 nil」。',
     '-- ★ 因为屏障声只有一种，不需要记名字判断「是否要换」，只要记「开着没」。',
     '-- 两种状态表示的取舍：多音效时用字符串，单音效时用布尔。',
@@ -277,7 +277,7 @@ export default {
   ],
 
   // ══════════════ 地面叠加 ══════════════
-  345: [
+  "SetGroundOverlay#1": [
     '-- SetGroundOverlay：切换地面的贴图与颜色渐变，并设置混合进度。',
     '-- ★★ 第 346 行只在 overlay 【变化时】才重设贴图与三组颜色，',
     '--   而第 353 行的 SetOverlayLerp【每帧都调】。',
@@ -286,7 +286,7 @@ export default {
     '-- ★ 与第 358 行 SetWithPeriodicSync 是同一套思路的两个实例：',
     '--   「离散量按需更新，连续量逐帧更新」。',
   ],
-  348: [
+  "SetGroundOverlay#1+3": [
     '-- 注意这里直接改的是 _map（= TheWorld.Map），而不是发事件。',
     '-- ★ 地面渲染完全由【天气组件单方面驱动】，其他系统通过读 netvar 获知状态。',
     '--   推论：天气组件的 OnPostInit 之前，地面叠加层不会被设置 ——',
@@ -294,7 +294,7 @@ export default {
   ],
 
   // ══════════════ ★ 周期同步模型 ══════════════
-  356: [
+  "SetWithPeriodicSync#1": [
     '-- ★★★★★ SetWithPeriodicSync —— 全文件技术含量最高的一段，务必逐行读。',
     '--',
     '-- 【要解决的问题】',
@@ -329,7 +329,7 @@ export default {
     '-- ⚠️ 前提：period 必须两端【严格一致】（本文件全是常量，满足）。',
     '--   若 period 由随机或分端计算得出，整个对齐机制会失效。',
   ],
-  370: [
+  "SetWithPeriodicSync#1+14": [
     '-- set_local(nextperiod * period) —— 把客户端的值【吸附到桶的上边界】。',
     '--★ 这个值本身就是「本桶的最后一个合法值」，所以下一次跨桶比较时，',
     '--   客户端与服务端会落在同一个桶上，从而触发真正的 set。',
@@ -338,7 +338,7 @@ export default {
     '-- ★ 所以 period 的选择（第 17/56/61/152 行的30/100/.1/10）是平衡点，',
     '--   改这些数字前要想清楚「这个量跳变 0.01 会不会被看出来」。',
   ],
-  378: [
+  "SetWithPeriodicSync#1+22": [
     '-- ★★ ForceResync 的 `A and f or nil` 惯用法：只在服务端给出一个真函数，',
     '--   客户端得到 nil。若客户端误调 nil(...)，会立刻报「attempt to call a nil value」，',
     '--   属于「快速失败」—— 比静默出错好。',
@@ -349,7 +349,7 @@ export default {
     '--   具体效果是确保 set 判定为「需要更新」并真正发出网络包。',
     '--   用途见第 732 行：暂停游戏恢复后，客户端可能已积累漂移，必须全部拉回。',
   ],
-  383: [
+  "SetWithPeriodicSync#1+27": [
     '-- ★ 从第 378行开始的五个私有函数都用同一个惯用法：',
     '--   `local f = _ismastersim and function() ... end or nil`',
     '-- 【为什么不写成 if _ismastersim then local f = ... end】',
@@ -365,14 +365,14 @@ export default {
     '-- ★★ 这就是「双端差异」最干净的表达方式：',
     '--   用定义时的条件编译替代运行时的到处 if ismastersim。',
   ],
-  388: [
+  "SetWithPeriodicSync#1+32": [
     '-- RandomizeMoistureCeil：(1 + math.random()) * TOTAL_DAY_TIME * 倍率',
     '-- ★ 「1 + random()」给出 [1, 2) 的均匀分布，乘以一天的总时长，',
     '--   再乘季节倍率。所以湿度上限 = 1~2 个游戏日 × 季节系数。',
     '-- ★ 语义：湿度是「天」为单位累积的量（下雨是以天计的），而非以秒计。',
     '--   这是全局设计的尺度感：天气变化缓慢，一局游戏通常只经历 1~2 场雨。',
   ],
-  392: [
+  "SetWithPeriodicSync#1+36": [
     '-- RandomizeMoistureFloor：(.25 + random()*.5) * 当前湿度 * 季节倍率',
     '-- ★ 注意它以【当前湿度】为基准（相对量），而第 388 行的 ceil 是绝对量。',
     '--   这意味着「雨停后的湿度下限」正比于「停下时的湿度」——',
@@ -384,7 +384,7 @@ export default {
   ],
 
   // ══════════════ 降水率 ══════════════
-  400: [
+  "CalculatePrecipitationRate#1": [
     '-- ★★★ CalculatePrecipitationRate —— 雨量的【三态函数】，无状态纯计算。',
     '-- 【三个分支的优先级不能调换】',
     '--  1) 第 401 行 mode==always → 用【噪声】驱动，无视湿度。',
@@ -412,7 +412,7 @@ export default {
     '--   这一行让「不同季节的雨不一样大」成为可能，同时保留了正弦的自然感。',
     '-- ★ 移植建议：这类「物理形状 × 风格上限」的组合写法非常通用。',
   ],
-  411: [
+  "CalculateLunarHailRate#1": [
     '-- CalculateLunarHailRate：月石雨强度，同样是 sin 拱形（第 414 行）。',
     '-- 与 CalculatePrecipitationRate 用同一个数学形状，只是驱动量换成 _lunarhaillevel。',
     '-- ★ 两条通道【互不干扰】：月石雨有自己的 level 与自己的 rate 计算，',
@@ -421,7 +421,7 @@ export default {
     '--   所以实际上二者是【互斥】的，第 438-446 行 Start/StopLunarHail 会改 precip type。',
     '--   也就是说「独立」是结构上的，实际生命周期互斥。',
   ],
-  419: [
+  "CalculateLunarHailRate#1+8": [
     '-- ★★ StartPrecipitation —— 「开始下雨」这个状态迁移的全部副作用。',
     '--【四次赋值缺一不可，每一项都有理由】',
     '--  第 422 行 预先排好下一次闪电时间（下雨时才可能闪电）',
@@ -437,7 +437,7 @@ export default {
     '-- ⚠️ 但这个守卫意味着：月石雨中若有人调用 StartPrecipitation，会【完全无效】。',
     '--   这是「月石雨优先级更高」的隐式约定。',
   ],
-  429: [
+  "CalculateLunarHailRate#1+18": [
     '-- ★ StopPrecipitation 与 StartPrecipitation 完全对称：',
     '--  湿度落到 floor（第 432 行）、重置 ceil（第 433 行）、precip type 置 none。',
     '-- ★ 注意【没有】重置 _peakprecipitationrate —— 它会在下次 Start 时重新随机，',
@@ -448,7 +448,7 @@ export default {
   ],
 
   // ══════════════ POP与光照 ══════════════
-  448: [
+  "CalculatePOP#1": [
     '-- ★★★ CalculatePOP —— Probability Of Precipitation，降水的【发生概率】。',
     '-- 这是天气领域的标准术语（气象学里的 PoP）。它【不控制雨量，只控制是否下雨】，',
     '-- 所以与 CalculatePrecipitationRate 是两个独立的量。',
@@ -469,7 +469,7 @@ export default {
     '--  天气本身不用它做决策 —— 决策由湿度与 ceil 的比较直接完成（第 907-910 行）。',
     '-- ★ 这是「事件总线」的价值：算好的量广播出去，谁需要谁取。',
   ],
-  455: [
+  "CalculateLight#1": [
     '-- ★★★ CalculateLight —— 由天气驱动的【屏幕亮度】。',
     '-- 【输出范围恒为 [1-dynrange, 1]】（第 478 行：p*dynrange + 1 - dynrange，p∈[0,1]）',
     '--  即最坏情况也只是 1-dynrange，不会变黑。dynrange 就是「最多能暗多少」。',
@@ -491,7 +491,7 @@ export default {
     '--     所以「雨停后转晴」是瞬间变亮，而「开始下雨」是缓慢变暗。',
     '--     ★ 这是【不对称】的。可能是刻意的（乌云积累需要过程），也可能漏了。',
   ],
-  462: [
+  "CalculateLight#1+7": [
     '-- ★ dynrange 的选择：下雪时【强制用冬天的 dynrange】，不论当前季节。',
     '--   snowlight and (daylight and DAY["winter"] or NIGHT["winter"])',
     '--       or (daylight and DAY[season] or NIGHT[season])',
@@ -503,7 +503,7 @@ export default {
     '--   即【完全不暗】。这个值看起来可疑（可能是刻意的「冬夜本就黑」）。',
     '--   标为疑似：无法确认是笔误还是有意，源码无解释。',
   ],
-  469: [
+  "CalculateLight#1+14": [
     '-- p 的计算与第 404 行几乎相同，但没有 clamp 的双参数写法，',
     '-- 而是 math.min(math.max(..., 0), 1) —— 等价，只是顺序相反。',
     '-- ⚠️ 与第 404 行风格不一致（那里是 max(0, min(1, x))）。',
@@ -512,7 +512,7 @@ export default {
     '--   先取「更暗的那个进度」，再翻转成亮度。max 而非平均 ——',
     '--   即月石雨与普通雨叠加时取更强的一个，不做叠加。',
   ],
-  478: [
+  "CalculateLight#1+23": [
     '-- p * dynrange + 1 - dynrange —— 把 [0,1] 的进度映射到 [1-dynrange, 1]。',
     '-- ★ 这是标准的线性映射：f(p) = p*(max-min) + min，其中 min=1-dynrange, max=1。',
     '--   写成这种形式（而非先算 min 再插值）是为了少一次减法。',
@@ -522,7 +522,7 @@ export default {
   ],
 
   // ══════════════ 湿度累积速率 ══════════════
-  481: [
+  "CalculateWetnessRate#1": [
     '-- ★★ CalculateWetnessRate —— 地面湿度【变化速率】（可为负=变干）。',
     '-- 用 or 链实现「三分支互斥」，且每支返回的是【本帧速率】而非最终湿度。',
     '--',
@@ -546,7 +546,7 @@ export default {
   ],
 
   // ══════════════ 事件下发 ══════════════
-  491: [
+  "PushWeather#1": [
     '-- ★★★ PushWeather —— 每次 OnUpdate 末尾都调用（第 1122 行）的【广播出口】。',
     '-- 【它同时计算并打包了 8 个派生量】，一次性广播给所有订阅者：',
     '--   moisture / pop / precipitationrate / snowlevel /',
@@ -560,7 +560,7 @@ export default {
     '--   ⚠️ 但【事件里塞了表（第 492-502 行）】，每帧新建一个 table ——',
     '--   这在 Lua GC 压力下不算最优（可复用同一张表）。属可优化点，非缺陷。',
   ],
-  503: [
+  "PushWeather#1+12": [
     '-- _world:PushEvent("weathertick", data) —— 向【世界】广播而非向 inst。',
     '-- ★ 因为订阅者是世界级的组件（ambientlighting / ambientsound 挂在世界实体上），',
     '--   向 world 广播才能让它们用 inst:ListenForEvent("weathertick", fn) 收到。',
@@ -569,7 +569,7 @@ export default {
   ],
 
   // ══════════════ 季节事件 ══════════════
-  510: [
+  "OnSeasonTick#1": [
     '-- ★★★ OnSeasonTick —— 季节切换的唯一入口，由 components/season.lua 驱动。',
     '-- ★★ 回答了任务书的问题「季节推进怎么调度」：',
     '--  【weather 自己【没有】任何周期任务或季节计时器】。',
@@ -584,7 +584,7 @@ export default {
     '--  因为它们要用于计算光照（第 460 行）与花粉（第 1072 行）。',
     '--  ★ 典型的「读的部分双端都做，写的部分只有服务端」。',
   ],
-  515: [
+  "OnSeasonTick#1+5": [
     '-- ★★ 一个刻意的「作弊」：冬季第 2 天强制下大雪。',
     '--  条件：season == "winter" 且 elapseddaysinseason == 2',
     '--  动作：湿度速率设为 0（停止自然累积），偏移设为 50（强行快速累积）',
@@ -600,7 +600,7 @@ export default {
     '-- ★ 移植启示：这类「内容节拍 hack」应集中标注并写明意图，',
     '--   否则后人很容易把它当bug 优化掉。本行注释就做得很好。',
   ],
-  521: [
+  "OnSeasonTick#1+11": [
     '-- p = 1 - sin(PI * progress)：季节内湿度速率的「进度曲线」。',
     '-- ★ 形状：progress=0 → p=1（速率取MAX，最快）→ progress=0.5 → p=0 →',
     '--   progress=1 → p=1（又回到MAX）。即「慢-快-慢」的拱形。',
@@ -612,7 +612,7 @@ export default {
     '--   两条曲线刻意反向，形成了「雨势大时不一定下雨多」的错位，',
     '--   避免天气变化显得规律。',
   ],
-  527: [
+  "OnSeasonTick#1+17": [
     '--★ 四季的倍率表切换：全部用 `or .autumn` 兜底。',
     '-- ★ 这是【防御性编程的标准写法】：若 season 传入未知字符串（如 mod 自定义季节），',
     '--   不会得到 nil 导致后续算术崩溃，而是退回到秋季的默认行为。',
@@ -627,7 +627,7 @@ export default {
   ],
 
   // ══════════════ 玩家激活 ══════════════
-  542: [
+  "OnPlayerActivated#1": [
     '-- ★★ OnPlayerActivated：把四个 fx 实体【挂到激活玩家身上】。',
     '-- 【为什么要 SetParent】',
     '--  雨雪粒子是「世界坐标」生成的，但视觉效果应该以「镜头」为中心。',
@@ -642,7 +642,7 @@ export default {
     '--   标为【疑似】：若 fx 的 PostInit 不是幂等的，切玩家可能泄漏。',
     '-- ★ 第 544 行 _hasfx 判断必需：专服上 fx 是 nil（见第 212 行）。',
   ],
-  553: [
+  "OnPlayerDeactivated#1": [
     '-- OnPlayerDeactivated：把 fx 的 Parent 置空（第 558-561 行）。',
     '-- ★ 置空是必需的：否则退出的玩家实体被销毁时，',
     '--   挂在它下面的 fx 会被连带销毁（父子关系），造成天气特效永久消失。',
@@ -654,7 +654,7 @@ export default {
   ],
 
   // ══════════════ 闪电 ══════════════
-  627: [
+  "OnPlayerDeactivated#1+74": [
     '-- LIGHTNINGSTRIKE_CANT_TAGS：绝对不参与闪电的实体。',
     '--   playerghost —— 幽灵形态的玩家不该被劈（否则玩家已死还反复受击）',
     '--   INLIMBO    —— 正在加载/卸载，状态不稳定',
@@ -663,7 +663,7 @@ export default {
     '-- ⚠️ 注意 CAN 传第 6 参、ONEOF 传第 7 参，两者语义都是「排除」，',
     '--   名字里的 ONEOF 只是指「命中其一即可」，不代表正向包含。易误读。',
   ],
-  630: [
+  "OnPlayerDeactivated#1+77": [
     '-- ★★★ OnSendLightningStrike —— 闪电落点的【完整决策链】，全文件第二个核心函数。',
     '-- 【它做的是「优先级仲裁」】：在落点附近同时找出三类候选，',
     '--   然后按 blocker > rod > generic 的顺序决定谁生效。',
@@ -679,7 +679,7 @@ export default {
     '-- ★ 实际上 FindEntities 通常按距离从近到远返回，',
     '--   所以用 ipairs 会自然地「取最近的」。当前用 pairs 可能取到较远的。',
   ],
-  649: [
+  "OnPlayerDeactivated#1+96": [
     '-- ★★★ 三级 if/elseif 链的仲裁逻辑，逐支读：',
     '--  第 649-651 行 优先：lightningblocker 且在 block_rsq 范围内 → closest_blocker',
     '--    +0.0001 是【浮点容差】，防止边界上因精度误差漏判。',
@@ -696,14 +696,14 @@ export default {
     '--   而「不在范围内的 blocker 也不当 generic」—— 结果是范围内外的 blocker',
     '--   都【不会】成为 closest_generic。这是合理的（blocker 本就不该被劈）。',
   ],
-  650: [
+  "OnPlayerDeactivated#1+97": [
     '-- (block_rsq + 0.0001) > distance_sq —— 用「半径平方」比较，全程不开方。',
     '-- ★★ 全文件乃至 DST 通用的距离优化：比较平方而非距离。',
     '-- ⚠️ 但这行写了两次（第 650 与 687、708 行），每次都加同一个 0.0001 容差，',
     '--   却【没有抽成常量】。三处硬编码同一个魔数，改动时容易漏。',
     '--   标为【疑似】：属可维护性问题，非缺陷。',
   ],
-  655: [
+  "OnPlayerDeactivated#1+102": [
     '-- 【三个与条件，逐条说明】',
     '--  v.components.health == nil or not health:IsInvincible()',
     '--    —— ★ 没有 health 组件【或】有但不无敌，都算「可被劈」。',
@@ -720,7 +720,7 @@ export default {
     '-- ★ 这个「有的走必选、有的走概率」的混合策略值得抄：',
     '--   全世界只有「玩家」需要概率保护，NPC/物件就该确定性地被劈。',
   ],
-  666: [
+  "SetStrikePositionAndPrefab#1": [
     '-- ★★ SetStrikePositionAndPrefab 是一个「带默认值的 setter」：',
     '--  strike_position = new_pos or strike_position',
     '--  prefab_type   = new_prefab_type or prefab_type',
@@ -735,11 +735,11 @@ export default {
     '--   有轻微重复计算。可接受（换取规则集中）。',
     '-- ⚠️ 注释的 for now 表明这是临时设计，未来可能改。',
   ],
-  676: [
+  "SetStrikePositionAndPrefab#1+10": [
     '-- 先用默认值初始化（第 676 行），之后才能被后续调用覆盖。',
     '-- ★ 这个「先设默认再逐级覆盖」的模式，避免了后面每个分支都要判空。',
   ],
-  678: [
+  "SetStrikePositionAndPrefab#1+12": [
     '--★★ 【三级仲裁的最终执行，与第 649 行的收集逻辑严格对应】',
     '-- 第 678-680 行 blocker 最高优先：让 blocker 自己处理（DoLightningStrike），',
     '--   同时把 prefab 改成 "thunder"（只出雷声不出电光）。',
@@ -751,7 +751,7 @@ export default {
     '-- ⚠️ 第 685 与 706 行的这段 blocker 复查逻辑【几乎逐行重复】，',
     '--   唯一区别是第 697 行的条件不同。属可抽取的重复代码。',
   ],
-  697: [
+  "SetStrikePositionAndPrefab#1+31": [
     '-- 只有 prefab_type 还是 "lightning" 或 "moonstorm_lightning" 时才推 lightningstrike 事件。',
     '-- 即被 blocker 挡住（改成 thunder）时，避雷针【不会亮、不发声】。',
     '-- ★ 注释解释了为什么放开 moonstorm_lightning：',
@@ -761,7 +761,7 @@ export default {
     '--   而非 `~= "thunder"` 的反向写法。新增类型时【容易漏改这里】。',
     '--   标为【疑似】：扩展性隐患，当前正确。',
   ],
-  726: [
+  "SetStrikePositionAndPrefab#1+60": [
     '-- StrikeLightningAtPoint：在最终落点施加实际伤害/点燃效果。',
     '-- ★ 注意它只在 else 分支（第 700 行）里被调用 ——',
     '--   即【只有走 generic 路径时才会造成伤害】。',
@@ -770,7 +770,7 @@ export default {
     '--   所以三种路径最终都会生成对应的特效实体。',
     '--   这保证了「视觉反馈永远存在」，即使伤害被阻挡。',
   ],
-  732: [
+  "SetStrikePositionAndPrefab#1+66": [
     '-- ★★ OnSimUnpaused：游戏暂停/恢复后强制重同步五个连续量。',
     '-- 【为什么需要】暂停期间 OnUpdate 不跑，客户端本地演算【全部停止】，',
     '--   但两端积累的 dt 不完全相同（服务端可能因暂停处理略有出入），',
@@ -782,7 +782,7 @@ export default {
   ],
 
   // ══════════════ 初始化 ══════════════
-  746: [
+  "SetStrikePositionAndPrefab#1+80": [
     '-- ★★ 12 个 netvar 的【统一初始化】，且【无条件 set】。',
     '-- ⚠️ 注意这里是 set（会同步）而不是 set_local，',
     '--   因为组件构造在两端都跑，这实际起到「用默认值冲刷客户端旧值」的作用。',
@@ -794,12 +794,12 @@ export default {
     '--   且中间不会调用 CalculateLight（构造函数里没有 OnUpdate）。',
     '--   但这个「短暂危险区间」依赖调用顺序，属脆弱耦合。',
   ],
-  760: [
+  "SetStrikePositionAndPrefab#1+94": [
     '-- fx 的粒子数全部初始化为 0 —— 即「默认什么都不显示」。',
     '-- ★ 之后完全由 OnUpdate 驱动（第 1008行起）。',
     '-- 所以「初始无雨」的视觉状态是靠初始化保证的，不依赖 precip type 的默认值。',
   ],
-  777: [
+  "SetStrikePositionAndPrefab#1+111": [
     '-- ★★★ 【dirty netvar事件 → 全局事件的转抛层】。',
     '--  第 241/244/248/250 行声明 netvar 时传了 dirty 事件名，',
     '--  这里监听它们，再 PushEvent 成【世界级】事件。',
@@ -820,7 +820,7 @@ export default {
     '-- ★★ 这些「转抛」监听【没有在 OnRemoveEntity 里移除】，',
     '--   但因为监听源是 inst 自身（会被销毁），随实体一起消失，所以无泄漏。',
   ],
-  783: [
+  "SetStrikePositionAndPrefab#1+117": [
     '-- ★★★ 七个世界级事件监听，全是双端（无 _ismastersim 守卫）。',
     '--  seasontick / temperaturetick / phasechanged  —— 【外部数据源，本组件只收】',
     '--  playeractivated / playerdeactivated              —— 【表现层锚点切换】',
@@ -831,7 +831,7 @@ export default {
     '--   各自监听相同的上游事件、互不通信。',
     '--   切洞穴时靠 season/caveweather 组件的整体切换，而非 weather 内部状态。',
   ],
-  789: [
+  "SetStrikePositionAndPrefab#1+123": [
     '-- ★ 服务端专属的初始值设置，以及 13 个 "ms_" 前缀事件注册。',
     '-- 【★ "ms_" 前缀是本工程的服务端事件命名约定】（ms = master sim）',
     '--  【它划出了一条清晰的安全边界】',
@@ -840,7 +840,7 @@ export default {
     '--   对比第 783 行那些双端监听：全是【只读数据流入】。',
     '--  ★★ 这就是本文件「客户端能演化的只有连续量、离散决策全在服务端」的落地方式。',
   ],
-  804: [
+  "SetStrikePositionAndPrefab#1+138": [
     '-- 把已有的 AllPlayers 填进闪电目标池（第 802 行初始化为空表后）。',
     '-- ★ 因为 _lightningtargets 只在服务端维护（第 565行 OnPlayerJoined 增量添加），',
     '--   所以组件初始化时必须先灌入现存玩家，否则【重连/热加入的玩家永远不会被闪电劈到】。',
@@ -848,7 +848,7 @@ export default {
     '--   直接 table.insert，不检查重复、不判nil。',
     '--   初始化时 AllPlayers 无重复，所以安全；对比可见两处风格不一致但都正确。',
   ],
-  828: [
+  "SetStrikePositionAndPrefab#1+162": [
     '-- ★ 构造末尾立刻调一次 PushWeather（第 491 行），保证首个 weathertick 立即发出。',
     '-- 【为什么必需】第 1122 行只在 OnUpdate 末尾调 PushWeather，',
     '--   而 OnUpdate 首次执行前，订阅者（ambientlighting 等）拿不到任何天气数据。',
@@ -859,7 +859,7 @@ export default {
   ],
 
   // ══════════════ OnPostInit / OnRemoveEntity ══════════════
-  835: [
+  "SetStrikePositionAndPrefab#1+169": [
     '-- ★ if _hasfx then function self:OnPostInit() ... end end —— 条件定义方法。',
     '-- 【语法要点】Lua 没有「条件方法定义」语法，这里是把整个 function 表达式',
     '--   放在 then 分支里。专服上这个方法【根本不存在】。',
@@ -872,7 +872,7 @@ export default {
     '-- ⚠️ 两处都判季节，逻辑重复；且第 844 行没有 sandstorms 的排除，',
     '--   而第 1070 行有。存在轻微不一致，标为【疑似】。',
   ],
-  853: [
+  "SetStrikePositionAndPrefab#1+187": [
     '-- OnRemoveEntity：销毁时清理四个 fx 实体。',
     '-- ★ 四段结构完全相同：先判 entity:IsValid() 再 Remove()。',
     '-- ★★ 那个 IsValid() 判断【不是多余的】：',
@@ -886,7 +886,7 @@ export default {
   ],
 
   // ══════════════ OnUpdate ══════════════
-  879: [
+  "self:OnUpdate#1": [
     '-- ★★★★★ OnUpdate —— 全文件最长的函数（879-1123，245 行），天气的一切推进。',
     '--',
     '-- 【★ 开篇注释（第 873-878 行）是本文件最重要的一段文档，作者自己总结了分工】',
@@ -905,11 +905,11 @@ export default {
     '--     状态自然等待服务端下发 Start。视觉上无跳变。',
     '--   这是「预测但不越权」的标准处理，移植时非常值得抄。',
   ],
-  881: [
+  "self:OnUpdate#1+2": [
     '-- 噪声时间轴：无论是否下雨都在推进（它只是天气「always」模式的驱动源）。',
     '-- ★ 用 SetWithPeriodicSync 而非裸 set，说明连这个纯装饰量也要遵守同步约定。',
   ],
-  886: [
+  "self:OnUpdate#1+7": [
     '-- ★★ 【湿度的四态机 —— 这是整个天气系统的中枢】',
     '-- 四个互斥分支，对应「模式 × 是否在下雨」：',
     '--  第 887-890 行 always 且当前不下 → 服务端 StartPrecipitation',
@@ -936,7 +936,7 @@ export default {
     '--   但若客户端在 Stop 前用这个值参与第 404 行的归一化，p 会是负数 →',
     '--   第 404 行有 max(0,...) 钳制，安全。★ 各处的钳制是配套的，不能单独改。',
   ],
-  907: [
+  "self:OnUpdate#1+28": [
     '-- 【★ 累积分支的守卫 `_moistureceil:value() > 0`】',
     '-- 这行同时承担两个职责：',
     '--  1) 「本世界是否启用湿度累积」的总开关（ceil<=0 即关闭）',
@@ -946,7 +946,7 @@ export default {
     '--   第 895 行的 elseif 已捕获「正在下雨」的情况 → 走耗尽分支。',
     '--   ★ 四个分支的顺序确保了「正在下雨」优先于「累积开关」的判断。',
   ],
-  921: [
+  "self:OnUpdate#1+42": [
     '-- 【月石雨的完整生命周期，与湿度通道完全平行】',
     '--  触发源：riftspawner:IsLunarPortalActive()（第 923 行）——',
     '--  ★ 即「传送门活跃」时天上开始掉月石，与季节/湿度【完全无关】。',
@@ -962,14 +962,14 @@ export default {
     '--   我逐行核对第 922-949 行确认：确实没有「传送门关闭但仍在下月石雨」的分支。',
     '--   实际影响：StartLunarHail 时若传送门被关闭，月石雨不会自然结束。',
   ],
-  927: [
+  "self:OnUpdate#1+48": [
     '-- ★ 上升速率用第 135 行的 COOLDOWN（= CEIL / TUNING 冷却秒数）。',
     '-- 变量名叫 COOLDOWN 但用作「充能速率」，语义靠注释第 135 行串联。',
     '--  ⚠️ 命名与用途有割裂：COOLDOWN 通常指「两次之间的冷却时长」',
     '--     （这里也是：TUNING.LUNARHAIL_EVENT_COOLDOWN 就是总冷却秒数）。',
     '--     实际含义是「从 0 涨到 100 需要 COOLDOWN 秒」。尚可理解。',
   ],
-  951: [
+  "self:OnUpdate#1+72": [
     '-- ★★湿度值更新：先算速率，再钳制，再走周期同步。',
     '-- 第 953 行：clamp 到 [MIN_WETNESS, MAX_WETNESS]=[0, TUNING.MAX_WETNESS]',
     '--  ★ 用 WETNESS_SYNC_PERIOD=10（第 152 行）—— 比湿度的 100（第 56 行）短得多。',
@@ -984,7 +984,7 @@ export default {
     '--       这里的滞回是【独立的 bool】。两种实现同一思想。',
     '--   消费方：第 780 行转抛成 wetchanged 事件，供实体判断「是否淋湿」。',
   ],
-  964: [
+  "self:OnUpdate#1+85": [
     '-- ★★ 【声音的优先级决策 —— 本段是「玩家状态如何影响天气表现」的核心】',
     '-- 【第 966-971 行：先把两种降水折算成统一的 preciprate_sound】',
     '--   rain 用preciprate，lunarhail 用 lunarhailrate，其余为 nil。',
@@ -1019,13 +1019,13 @@ export default {
     '--  伞（第 991 行）、雨穹（第 978 行）、林荫（第 983 行）三种「避雨处」',
     '--  都有各自独立的声音表现。玩家能【听出】自己是否真的被挡住了。',
   ],
-  998: [
+  "self:OnUpdate#1+119": [
     '-- 音量>0 才播放，否则停止 —— 这是「雨声随雨停而渐弱」的实现。',
     '-- ★ 注意与第 973 行if 的配合：preciprate_sound 是算出来的中间值，',
     '--   减法（第 987/992 行）可能把它压到 <= 0 → 此时【连环境雨声都不播】，',
     '--   模拟「被完全遮蔽时听不到雨」。语义正确。',
   ],
-  1005: [
+  "self:OnUpdate#1+126": [
     '-- ★★ 【粒子表现：与第 964 行的声音段【结构平行但完全独立】】',
     '--【两段的分裂是本函数的结构性特点】',
     '--  声音段（第 964-1003 行）：只处理 rain 与 lunarhail',
@@ -1040,7 +1040,7 @@ export default {
     '--     且客户端第 1043 行的 else 分支会停掉各种声音（第 1026-1028 行），',
     '--     所以最终是干净的。但【数据流要跨两个分支才能确认**，可读性差。',
   ],
-  1008: [
+  "self:OnUpdate#1+129": [
     '-- 粒子数 = 系数 × 速率：_rainfx 5×preciprate，_snowfx 20×preciprate（第 1044 行）。',
     '-- ★ 系数不同（雨 5、雪 20）：雪更密所以需要更多粒子才显得同等强度。',
     '--   这类「表现系数」通常需要美术/手感反复调，没有推导公式。',
@@ -1051,7 +1051,7 @@ export default {
     '-- ⚠️ 第 1012 行 _lunarhailfx.splashes_per_tick = 0 已在此设，',
     '--   第 1018 行又设一次—— 重复但无害。属冗余。',
   ],
-  1030: [
+  "self:OnUpdate#1+151": [
     '-- 【★ 停止分支里唯一还在处理的一件事：雨穹屏障声】',
     '-- 不下雨时玩家若在雨穹下，仍要播屏障声（第 1031 行）——',
     '-- 因为雨穹是一个【持续存在的结构】，它的声音与是否下雨无关。',
@@ -1060,13 +1060,13 @@ export default {
     '--   不下雨时没有伞声是对的，但没有树声也合理（无雨打树）。',
     '--   所以只有雨穹需要特殊照顾——因为它是「物理屏障」不是「遮蔽」。',
   ],
-  1043: [
+  "self:OnUpdate#1+164": [
     '-- ★ 下雪在【else 分支】里（而非独立的 elseif），这是有意的。',
     '-- 因为「下雨」「月石雨」「下雪/无降水」三类恰好互斥且穷尽，',
     '-- 用 else 承接最后一类可省一次判断。',
     '-- 第 1062 行的判断用 _preciptype == snow，与本分支一致。',
   ],
-  1051: [
+  "self:OnUpdate#1+172": [
     '-- ★★ 【雪的两条路径：累积 vs 融化，注意累积条件更严】',
     '--  第 1053-1055 行 正在下雪 → 累积（min(+..., 1)）',
     '--  第 1056-1059 行 ★★ 有雪【且温度 > 0】 → 融化',
@@ -1084,7 +1084,7 @@ export default {
     '--   ⚠️ 若没有 MIN 那一项，0 度以下或恰好 0 度时雪会永远不化。',
     '-- ★ 第 1055 行累积用 preciprate 而非固定速率：雨/雪越大积雪越快。',
   ],
-  1061: [
+  "self:OnUpdate#1+182": [
     '-- 雪厚是本文件同步频率最高的量：SNOW_LEVEL_SYNC_PERIOD = .1（第 61 行）。',
     '-- ★★ 为什么这么短（0.1 秒 = 10Hz，比其他量快一到两个数量级）？',
     '--   因为【雪厚直接驱动地面贴图（第 1063 行）】——',
@@ -1092,7 +1092,7 @@ export default {
     '--   ★ 这是「按视觉敏感度分配带宽」的教科书案例（同第 152 行湿度对比）。',
     '--   带宽换体验的典型权衡：这个 net_float 占了本组件大部分网络流量。',
   ],
-  1062: [
+  "self:OnUpdate#1+183": [
     '-- ★★ 【雪地 vs 水洼的互斥选择 —— 本文件最精巧的一个条件】',
     '--  if snowlevel > 0 and (temperature < 0 or wetness < 5) then雪',
     '--  else 水洼',
@@ -1113,7 +1113,7 @@ export default {
     '-- ⚠️ 第 1065 行 wetness * 3 / 100 —— wetness 是 0-100，',
     '--   换算成 0-3 与雪侧对齐。★ 两边的「单位对齐」靠这个魔法数 3。',
   ],
-  1068: [
+  "self:OnUpdate#1+189": [
     '-- ★ 花粉：只与季节有关，与降水无关 —— 这是它的独立性。',
     '-- 第 1070 行 三条关闭条件（任一成立即无花粉）：',
     '--  ① 非夏天  ② 玩家在沙暴中（sandstorms:IsInSandstorm）',
@@ -1128,7 +1128,7 @@ export default {
     '-- ⚠️ 第 1070 行的判断顺序把「非夏天」放最前（最便宜），',
     '--   而 sandstorms 检查要取 ThePlayer 并调方法 —— 顺序正确。',
   ],
-  1083: [
+  "self:OnUpdate#1+204": [
     '-- ★★ 服务端专属的三件事，客户端【一律不做】。',
     '-- 【第 1085 行：下发 _snowcovered】',
     '--  ★ 判据是 `_groundoverlay == GROUND_OVERLAYS.snow and snowlevel >= 阈值`。',
@@ -1145,7 +1145,7 @@ export default {
     '--    ★ 这是有意的：月石雨不阻止湿度自然积累。合理但需注意。',
     '-- 【第 1095 行起：闪电决策】见下条。',
   ],
-  1095: [
+  "self:OnUpdate#1+216": [
     '-- ★★闪电的三个触发条件（or 连接，任一成立即进入）：',
     '--  ① _lightningmode == always   —— 强制（无雨也劈）',
     '--  ② LIGHTNING_MODE_NAMES[_lightningmode] == PRECIP_TYPE_NAMES[preciptype]',
@@ -1160,7 +1160,7 @@ export default {
     '--   真要优化可预先算一个 _lightningactivemode 布尔，',
     '--   但在 precip type 变化时才重算。当前写法更简单可靠。',
   ],
-  1098: [
+  "self:OnUpdate#1+219": [
     '-- 【倒计时模式：_nextlightningtime 递减到 <= dt 时触发，然后重新随机。】',
     '-- 第 1101-1102 行 ★ 间隔的默认值由【雨量】动态决定：',
     '--   easing.linear(preciprate, 30, 10, 1) —— 雨量 0 → 30 秒，雨量 1 → 10 秒。',
@@ -1172,7 +1172,7 @@ export default {
     '-- 第 1103 行 GetRandomMinMax(min, max) —— 每次都重新随机，',
     '--   所以闪电间隔【不规律】，比固定周期自然得多。',
   ],
-  1104: [
+  "self:OnUpdate#1+225": [
     '-- 【★★ 闪电落点：优先劈玩家】',
     '--  条件：雨量 > .75（大雨）或强制模式，且目标池非空',
     '--  第 1105 行 ★★ 用 easing.inQuint 做【偏斜的随机选择】：',
@@ -1202,12 +1202,12 @@ export default {
   ],
 
   // ══════════════ OnUpdate 收尾 ══════════════
-  1122: [
+  "self:OnUpdate#1+243": [
     '-- PushWeather 放在 OnUpdate 最末尾 —— 所有状态更新完成后再广播。',
     '-- ★ 保证订阅者读到的一定是「本帧已完全更新」的一致快照。',
     '-- 若放在开头，订阅者会读到上一帧的旧值。这是事件广播的基本时序纪律。',
   ],
-  1125: [
+  "self:OnUpdate#1+246": [
     '-- ★★ self.LongUpdate = self.OnUpdate —— 把自己同时注册为两个更新钩子。',
     '-- 【DST 的组件更新有OnUpdate（每帧）与 LongUpdate（较低频率）之分】',
     '-- 这里让【两者指向同一函数】，意味着天气逻辑【每帧都跑两次】？',
@@ -1222,7 +1222,7 @@ export default {
   ],
 
   // ══════════════ 存档 ══════════════
-  1131: [
+  "self:OnUpdate#1+252": [
     '-- ★★★ OnSave —— 存档序列化的完整字段表，值得当模板抄。',
     '-- 【覆盖范围】24 个字段，把所有【服务端私有状态 + 全部 netvar 值】都存了。',
     '-- 【★ 一个关键模式：`X or nil` 的「false 转 nil」压缩】',
@@ -1245,7 +1245,7 @@ export default {
     '--  ★ 这是存档设计的黄金法则：凡枚举一律存字符串/名字，不存索引。',
     '-- ⚠️ 缺点：文件稍大一点点（"summer" 比 3 长）。权衡完全值得。',
   ],
-  1164: [
+  "self:OnUpdate#1+285": [
     '-- ★★★ OnLoad —— 与 OnSave 逐字段对称，且【每一项都有默认值】。',
     '-- 【★ 全部使用 `data.X or 默认值` 模式】',
     '--  这是必需的：老存档没有新加的字段，或模组删掉了字段。',
@@ -1271,7 +1271,7 @@ export default {
   ],
 
   // ══════════════ Debug ══════════════
-  1200: [
+  "self:GetDebugString#1": [
     '-- ★ GetDebugString：复用 Calculate* 系列（第 1201-1202 行）得到诊断数据。',
     '-- 【★ 这验证了「计算与副作用分离」的设计价值】',
     '--  因为 CalculatePrecipitationRate / CalculateWetnessRate / CalculateLight',
@@ -1286,7 +1286,7 @@ export default {
     '-- 第 1210 行 wetrate 的显示：正数前加 "+" 号便于区分干/湿。',
     '-- 第 1214-1216 行 ★ 仅服务端额外显示闪电倒计时（客户端没这个状态）。',
   ],
-  1218: [
+  "self:GetDebugString#1+18": [
     '-- table.concat(str, "\\n") 拼成多行字符串返回给调试器显示。',
     '-- ★ 注意这里是【真换行转义】，源码里写的是 "\\n"。',
     '--   （本注释里的显示与源码一致。）',

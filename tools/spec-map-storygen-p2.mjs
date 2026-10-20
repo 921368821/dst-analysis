@@ -1,30 +1,30 @@
 // spec-map-storygen-p2.mjs —— map/storygen.lua 行级注释（299-491：RestrictNodesByKey）
 // ★★ 锁—钥匙·批量分支法 + E1 缺陷的「兜底掩盖」机理
 export const BEFORE = {
-  299: [
+  "Story:RestrictNodesByKey#1": [
     "-- ══════════════ ★★★★ RestrictNodesByKey（锁—钥匙·批量分支法）════════",
     "-- ★★★★ layout_mode == \"RestrictNodesByKey\" 时走这个（:886-887）。",
     "--   ★★ 它与 LinkNodesByKeys(:493) 是**两套独立实现**，不共享代码。",
     "--   ★★ 三处实质差异：候选集含义(:334)、深度粒度(:440)、钥匙维护(:457)。",
     "-- ★★★ **不可达性的兜底就在 :473-475** ——★ 全文件最重要的一处。",
   ],
-  300: ["-- ★ print(\"[Story Gen] RestrictNodesByKey\") ——★ 阶段日志（有输出）。"],
-  302: [
+  "Story:RestrictNodesByKey#1+1": ["-- ★ print(\"[Story Gen] RestrictNodesByKey\") ——★ 阶段日志（有输出）。"],
+  "Story:RestrictNodesByKey#1+3": [
     "-- ★★ lastNode = startParentNode ——★ 「上一个接上的节点」。",
     "--   ★★★★ 默认 branching 模式下它**不参与决策**（只在 :434 的 \"never\" 分支用）。",
   ],
-  304: [
+  "Story:RestrictNodesByKey#1+5": [
     "-- ★★ usedTasks{}：★ 已经接进图的任务（存 Graph 对象，非 id）。",
     "--   ★★★★ 对比 LinkNodesByKeys(:502)：那边同名变量**只写不读**（死变量）。",
   ],
-  305: ["-- ★★ 起点登记（key = Graph 的 id，因为 :367 按 taskid 查）。"],
-  306: [
+  "Story:RestrictNodesByKey#1+6": ["-- ★★ 起点登记（key = Graph 的 id，因为 :367 按 taskid 查）。"],
+  "Story:RestrictNodesByKey#1+7": [
     "-- ★★ startParentNode.story_depth = 0 ——★ 起点深度为 0。",
     "--   ★★★★ 与 network.lua:34 的 -1 默认值配合：★ 0 = 「是起点」。",
   ],
-  307: ["-- ★★ local story_depth = 1 ——★★ 从 1 开始（0 已被起点占用）。"],
-  308: ["-- ★ currentNode = nil ——★ 暂存「正在接入的节点」。"],
-  310: [
+  "Story:RestrictNodesByKey#1+8": ["-- ★★ local story_depth = 1 ——★★ 从 1 开始（0 已被起点占用）。"],
+  "Story:RestrictNodesByKey#1+9": ["-- ★ currentNode = nil ——★ 暂存「正在接入的节点」。"],
+  "Story:RestrictNodesByKey#1+11": [
     "-- ★★★★ local last_parent = 1 -- this is a desperate attempt to",
     "--   distribute the nodes better",
     "--   ★★★★ ★★★ **作者自己承认这是「绝望的尝试」**。全文件最诚实的注释。",
@@ -34,7 +34,7 @@ export const BEFORE = {
     "--       ★★★★2 ★2 代价：完全依赖 pairs 顺序 ⇒ **不可复现**。",
     "--     ★★★★2 ★2 正解应是「按 id 排序后轮转」——既均匀又可复现。",
   ],
-  312: [
+  "FindAttachNodes#1": [
     "-- ★★★★ FindAttachNodes(taskid, node, target_tasks)：「找出可挂的目标」。",
     "--   ★★★★ 返回 {target_taskid → target_node}，只含**可解锁**的。",
     "--     ★★★★2 语义：「这个 task 的所有锁都已被现有钥匙打开」。",
@@ -52,8 +52,8 @@ export const BEFORE = {
     "--       ★★★★2 ★2 只会导致「不该有的边没有 / 该有的边多了」。",
     "--     ★★★★2 ★2 ★★ ⇒ 这就是 E1 缺陷能存活多年的机制性原因。",
   ],
-  314: ["-- ★★ unlockingNodes{}：★ 返回值累加器。"],
-  316: [
+  "FindAttachNodes#1+2": ["-- ★★ unlockingNodes{}：★ 返回值累加器。"],
+  "FindAttachNodes#1+4": [
     "-- ★★ for target_taskid, target_node in pairs(target_tasks) do ——★★ pairs！",
     "--   ★★★★2 关键：★ 返回字典的**插入顺序 = pairs 遍历顺序**。",
     "--     ★★★★2 而 :395/:397 的默认分支正是按遍历顺序轮转父节点",
@@ -61,27 +61,27 @@ export const BEFORE = {
     "--       ★★★★2 ★2 对比 :175 求 maxdepth 也用 pairs 但**安全**（与顺序无关）。",
     "--         ★★★★2 ★2 判据：★ 只有「取第 k 个」才依赖顺序。",
   ],
-  318: ["-- ★★ local locks = {} ——★ 「本 task 的锁」的局部表。"],
-  319: [
+  "FindAttachNodes#1+6": ["-- ★★ local locks = {} ——★ 「本 task 的锁」的局部表。"],
+  "FindAttachNodes#1+7": [
     "-- ★★ for i,v in ipairs(self.tasks[taskid].locks) do ——★ ipairs（数组，稳定）。",
     "--   ★★★2 locks 是**数组**（task.lua:8-10 归一化过）⇒ ★★ ipairs 安全。",
     "--     ★★★★2 这就是 task.lua 那两行归一化（标量→表）的价值兑现处。",
   ],
-  320: [
+  "FindAttachNodes#1+8": [
     "-- ★★ local lock = {keys=LOCKS_KEYS[v], unlocked = false}",
     "--   ★★★★2 ⚠ 隐患：★ 若 LOCKS_KEYS[v] 为 nil（锁未定义），",
     "--     ★★★★2 则 lock.keys = nil ⇒ :333 `ipairs(lockData.keys)` ⇒ **崩溃**。",
     "--       ★★★★2 ★2 这就是 lockandkey.lua:173 那段 ⚠ 说的后果。",
     "--         ★★★★2 ★2 ★2 移植时应在 require 期校验 LOCKS_KEYS 覆盖率。",
   ],
-  321: ["-- ★★ locks[v] = lock ——★★ 用**整数 ID** v 作键（不是名字）。"],
-  324: [
+  "FindAttachNodes#1+9": ["-- ★★ locks[v] = lock ——★★ 用**整数 ID** v 作键（不是名字）。"],
+  "FindAttachNodes#1+12": [
     "-- ★★ local availableKeys = {} --What are we allowed to connect to this task?",
     "--   ★★★★2 注释里的问句很关键：★ 输入其实是「我们允许连到哪些地方」",
     "--     ★★★★2 ★2 ——即**钥匙检查**而非节点检查。",
     "--       ★★★★2 ★2 ⇒ 函数名 FindAttachNodes 有点名不副实。",
   ],
-  326: [
+  "FindAttachNodes#1+14": [
     "-- ★★ for i, v in ipairs(self.tasks[target_taskid].keys_given) do",
     "--   ★★★★2 【★ 与 LinkNodesByKeys 的重大差异 ★★】",
     "--     ★★★★2 本函数每次调用都**重新收集** availableKeys，",
@@ -93,18 +93,18 @@ export const BEFORE = {
     "--     ★★★★2 ★2 对比 LinkByKeys（:508 外维护、每轮只增）。",
     "--       ★★★★2 ★2 ★2 ⇒ 语义等价，实现方式不同（重算 vs 增量）。",
   ],
-  328: ["-- ★★ table.insert(availableKeys[v], target_node) ——★ 记录持钥匙的节点。"],
-  331: [
+  "FindAttachNodes#1+16": ["-- ★★ table.insert(availableKeys[v], target_node) ——★ 记录持钥匙的节点。"],
+  "FindAttachNodes#1+19": [
     "-- ★★★ for lock, lockData in pairs(locks) do ——★★ pairs 遍历锁。",
     "--   ★★★★2 顺序不定 ⇒ 不影响判定（只看布尔聚合）。★ 安全。",
   ],
-  332: ["-- ★★★ for key, keyNodes in pairs(availableKeys) do ——★ 检查每把钥匙。"],
-  333: [
+  "FindAttachNodes#1+20": ["-- ★★★ for key, keyNodes in pairs(availableKeys) do ——★ 检查每把钥匙。"],
+  "FindAttachNodes#1+21": [
     "-- ★★★ for reqKeyIdx, reqKey in ipairs(lockData.keys) do ——★★ 遍历锁的钥匙集。",
     "--   ★★★★2 ⚠ 崩溃点（见 :320）：★ lockData.keys 为 nil 时崩。",
     "--     ★★★★2 ★2 两套算法**同一处**风险。",
   ],
-  334: [
+  "FindAttachNodes#1+22": [
     "-- ★★ if reqKey == key then ——★★ 「这把钥匙能开这把锁吗？」",
     "--   ★★★★4 【★ 与 LinkNodesByKeys 的差异二 ★★】",
     "--     ★★★★2 本函数：**只把 lockData.unlocked 置为 true**。",
@@ -124,36 +124,36 @@ export const BEFORE = {
     "--             ★★★★2 ★2 ★2 也解释了 :310「desperate attempt」的由来：",
     "--               ★★★★2 ★2 ★2 候选集不含「钥匙所在」信息，分布就难均匀。",
   ],
-  335: [
+  "FindAttachNodes#1+23": [
     "-- ★★ lockData.unlocked = true ——★★ 开锁（OR 语义）。",
     "--   ★★★★2 印证 lockandkey.lua:171「Locks are unlocked if ANY key is provided」。",
     "--     ★★★★2 ★★ 全仓库**唯一**实现该规则的代码之一（另一处 :542）。",
   ],
-  341: [
+  "FindAttachNodes#1+29": [
     "-- ★★ local unlocked = true ——★★ AND 语义起点：默认全开。",
     "--   ★★★★2 印证 lockandkey.lua:172「ALL locks must be opened」。",
   ],
-  349: [
+  "FindAttachNodes#1+37": [
     "-- ★★ if unlocked then unlockingNodes[target_taskid] = target_node",
     "--   ★★★★3 「AND 语义」的落地点：★ 全部锁都开 ⇒ 收录。",
     "--     ★★★★2 任何一个锁没开 ⇒ 不收录（:342-347 的 break 跳出）。",
     "--       ★★★★2 ★2 ⇒ 语义等价于「检查全部」（break 只是优化）。",
   ],
-  351: [
+  "FindAttachNodes#1+39": [
     "-- ★★★ } else end ——★★ 空 else 分支！",
     "--   ★★★★2 没有任何说明。★ 这是一个「写了一半的分支」。",
     "--     ★★★★2 推测原本想写「否则记录原因以便调试」，但从未实现。",
     "--       ★★★★2 ★2 又一处「调试意图未落地」的痕迹，",
     "--         ★★★★2 ★2 与 :9/:12 空 print、:166 注释 assert 同一类。",
   ],
-  358: [
+  "FindAttachNodes#1+46": [
     "-- ★★ while GetTableSize(unusedTasks) > 0 do ——★ 主循环直到所有任务都接上。",
     "--   ★★★★2 终止性：★ 每轮至少接入一个（:466），或在 :473-475 强制接入。",
     "--     ★★★★2 ⚠ 但若 GetRandomNodeFromTasks 返回 nil（:475），",
     "--       ★★★★2 :379 的 `currentNode.id` 会**崩溃**。",
     "--         ★★★★2 ★2 依赖「unusedTasks 非空」这一隐含前提。",
   ],
-  359: [
+  "FindAttachNodes#1+47": [
     "-- ★★ local effectiveLastNode = lastNode ——★★ 「实际挂到哪个节点」。",
     "--   ★★★★2 会被 :394-436 的五种 branching 策略改写。",
     "--     ★★★★2 ★2 branching 参数**直接决定地图形态**。",
@@ -167,21 +167,21 @@ export const BEFORE = {
     "--         ★★★★2 ★2 —— 生成**几乎直线推进** vs **深度优先探索**。",
     "--         ★★★★2 ★2 ⇒ 这是玩家可选的「世界形状」旋钮。★",
   ],
-  360: [
+  "FindAttachNodes#1+48": [
     "-- ★ print_lockandkey_ex(\"\\n\\n_______Attempting new connection_______\")",
     "--   ★★★★3 这是**空函数**（:9-10）⇒ ★ 这条调试信息**永不出现**。",
     "--     ★★★★2 见文件头的「空掉的调试通道」说明。",
   ],
-  362: ["-- ★★ local candidateTasks = {} ——★ 本轮的可选任务集。"],
-  366: [
+  "FindAttachNodes#1+50": ["-- ★★ local candidateTasks = {} ——★ 本轮的可选任务集。"],
+  "FindAttachNodes#1+54": [
     "-- ★★ for taskid, node in pairs(unusedTasks) do ——★★ pairs 遍历。",
     "--   ★★★★2 ⇒ 遍历顺序决定 candidateTasks 的**插入顺序**。",
     "--     ★★★★2 而 :477 又是 pairs 遍历 candidateTasks ⇒ **双重顺序依赖**。",
     "--       ★★★★2 ★2 ⇒ 「哪些任务这一轮被接入」不可复现。",
   ],
-  367: ["-- ★★ local unlockingNodes = FindAttachNodes(taskid, node, usedTasks)"],
-  369: ["-- ★★ if GetTableSize(unlockingNodes) > 0 then ——★ 有候选才算。"],
-  375: [
+  "FindAttachNodes#1+55": ["-- ★★ local unlockingNodes = FindAttachNodes(taskid, node, usedTasks)"],
+  "FindAttachNodes#1+57": ["-- ★★ if GetTableSize(unlockingNodes) > 0 then ——★ 有候选才算。"],
+  "AppendNode#1": [
     "-- ★★ local function AppendNode(in_node, parents) ——★ 「把一个节点接进图」。",
     "--   ★★★★2 ★★ 这是本函数**唯一的写操作入口**，全部副作用在这里。",
     "--     ★★★★2 ★2 它做 5 件事：",
@@ -192,8 +192,8 @@ export const BEFORE = {
     "--       ★★★★2 · ⑤ 移出 unusedTasks、加入 usedTasks、更新 lastNode",
     "--     ★★★★2 ★2 ⇒ 原子性：★ 全部做完才算成功，无中间状态。",
   ],
-  379: ["-- ★★ currentNode = in_node ——★ 暂存。"],
-  381: [
+  "AppendNode#1+4": ["-- ★★ currentNode = in_node ——★ 暂存。"],
+  "AppendNode#1+6": [
     "-- ★★ local lowest = {i=999, node=nil} ——★★ i=999 是「无穷小」哨兵。",
     "--   ★★★★2 ⚠ 硬编码 999：★ 若 story_depth 超过 999，",
     "--     ★★★★2 \"most\" 策略（:428）会选错节点（999 比真实值大）。",
@@ -202,8 +202,8 @@ export const BEFORE = {
     "--       ★★★★2 ★2 对比 :715 的 `dist = math.huge`（用对了）——",
     "--         ★★★★2 ★2 同一文件两种写法，★ 不一致。",
   ],
-  382: ["-- ★★ local highest = {i=-1, node=nil} ——★ 「无穷大」哨兵。"],
-  383: [
+  "AppendNode#1+7": ["-- ★★ local highest = {i=-1, node=nil} ——★ 「无穷大」哨兵。"],
+  "AppendNode#1+8": [
     "-- ★★ for id, node in pairs(parents) do ——★★ pairs 遍历候选父节点。",
     "--   ★★★★2 ★2 ⚠★ 这里 pairs 顺序**确实有影响**：",
     "--     ★★★★2 · :384 `>= highest.i` ⇒ **相等时取后者**",
@@ -213,21 +213,21 @@ export const BEFORE = {
     "--       ★★★★2 ★2 ★2 branching 是玩家可选的 ⇒ 不同玩家世界形态不同",
     "--         ★★★★2 ★2 ★2 （即便同种子）。★ 很实质的不可复现性。",
   ],
-  394: [
+  "AppendNode#1+19": [
     "-- ★★★★ if branching == nil or branching == \"default\" then",
     "--   ★★★★2 「轮转分配」策略 ——★ :310 注释里的「desperate attempt」。",
     "--     ★★★★2 算法：last_parent = ((last_parent-1) % size) + 1",
     "--       ★★★★2 ★2 ⇒ 在 1..size 循环，每个父节点被轮流选中一次。",
     "--         ★★★★2 ★2 ⇒ 轮转的是「pairs 顺序里的位置」而非确定节点。",
   ],
-  395: [
+  "AppendNode#1+20": [
     "-- ★★ last_parent = ((last_parent-1) % GetTableSize(parents)) + 1 ——★ 循环索引。",
     "--   ★★★★2 ⚠ 若 GetTableSize(parents) 为 0 ⇒ 除零！",
     "--     ★★★★2 ★2 推理：:369 只收录有 unlockingNodes 的 ⇒ 非空。",
     "--       ★★★★2 ★2 但 :475 传的是 usedTasks ⇒ 它至少含起点 ⇒ 非空。✔ 安全。",
   ],
-  396: ["-- ★★ local parent_i = 1 ——★ 遍历计数器。"],
-  397: [
+  "AppendNode#1+21": ["-- ★★ local parent_i = 1 ——★ 遍历计数器。"],
+  "AppendNode#1+22": [
     "-- ★★ for k,v in pairs(parents) do ——★★ pairs（顺序即「第几个」的依据）。",
     "--   ★★★★2 ⚠ 疑似缺陷（变量语义混乱）：",
     "--     ★★★★2 · :401 的 `last_parent = last_parent + 1` **多加了 1**，",
@@ -235,9 +235,9 @@ export const BEFORE = {
     "--     ★★★★2 ★2 parent_i 与 last_parent 两个计数器交织，谁在数谁说不清。",
     "--       ★★★★2 ★2 ⇒ 对应 :310 的「desperate attempt」自嘲。",
   ],
-  402: ["-- ★★ effectiveLastNode = v ——★★ 选中它。"],
-  406: ["-- ★★ print_lockandkey_ex(\"\\tAttaching \"..) ——★ 空函数，无输出。"],
-  407: [
+  "AppendNode#1+27": ["-- ★★ effectiveLastNode = v ——★★ 选中它。"],
+  "AppendNode#1+31": ["-- ★★ print_lockandkey_ex(\"\\tAttaching \"..) ——★ 空函数，无输出。"],
+  "AppendNode#1+32": [
     "-- ★★★★ elseif branching == \"random\" then ——★ 随机选，但**避开上次**。",
     "--   ★★★★2 算法：摇随机数，若等于 last_parent 就**重摇**。",
     "--     ★★★★2 ⚠ 疑似缺陷（潜在活锁）：",
@@ -249,40 +249,40 @@ export const BEFORE = {
     "--             ★★★★2 ★2 ★2 若有人删掉 :409 特判，这里立刻变死循环。",
     "--     ★★★★2 ★2 每次重摇消耗 1 次随机数 ⇒ 消耗量是**变量**。",
   ],
-  409: [
+  "AppendNode#1+34": [
     "-- ★★★ if num_parents == 1 then ——★★ 唯一候选 ⇒ 直接用（★ 死循环防护）。",
   ],
-  411: ["-- ★★★ dummy, effectiveLastNode = next(parents) ——★ 用 next 取唯一元素。"],
-  413: ["-- ★★ local choice = last_parent ——★ 初始化为上次值以触发重摇。"],
-  414: [
+  "AppendNode#1+36": ["-- ★★★ dummy, effectiveLastNode = next(parents) ——★ 用 next 取唯一元素。"],
+  "AppendNode#1+38": ["-- ★★ local choice = last_parent ——★ 初始化为上次值以触发重摇。"],
+  "AppendNode#1+39": [
     "-- ★★★ while (choice == last_parent) do choice = math.random(num_parents) end",
     "--   ★★★★2 这就是上面 ⚠ 说的死循环点（★ :409 兜住了）。",
   ],
-  415: ["-- ★★ choice = math.random(num_parents) ——★★ 摇 1..num_parents。"],
-  417: ["-- ★★ last_parent = choice ——★★ 记住，供下次「避开」。"],
-  418: [
+  "AppendNode#1+40": ["-- ★★ choice = math.random(num_parents) ——★★ 摇 1..num_parents。"],
+  "AppendNode#1+42": ["-- ★★ last_parent = choice ——★★ 记住，供下次「避开」。"],
+  "AppendNode#1+43": [
     "-- ★★ for _, v in pairs(parents) do ——★★ pairs 找第 choice 个。",
     "--   ★★★★2 ⇒ 「random」的随机性被 pairs 稀释：",
     "--     ★★★★2 摇出的 index 落在 pairs 顺序上，而 pairs 顺序本身随机 ⇒ 双重随机。",
   ],
-  426: ["-- ★ print_lockandkey_ex(...) ——★ 空函数（★ 与 :579 的 print_lockandkey 不同）。"],
-  427: [
+  "AppendNode#1+51": ["-- ★ print_lockandkey_ex(...) ——★ 空函数（★ 与 :579 的 print_lockandkey 不同）。"],
+  "AppendNode#1+52": [
     "-- ★★ elseif branching == \"most\" then ——★ 挂到 story_depth 最**小**的候选。",
     "--   ★★★★2 效果：总是挂到**离起点最近**的位置 ⇒ 地图是「广度优先」。",
     "--     ★★★★2 对比 :430 \"least\" ⇒ 「深度优先」。",
   ],
-  430: [
+  "AppendNode#1+55": [
     "-- ★★ elseif branching == \"least\" then ——★ 挂到 story_depth 最**大**的候选。",
     "--   ★★★★2 效果：一直往最远最新的区域延伸 ⇒ 地图是「深度优先」。",
   ],
-  433: [
+  "AppendNode#1+58": [
     "-- ★★ elseif branching == \"never\" then ——★ 永远挂 lastNode ⇒ **纯线性链**。",
     "--   ★★★★2 效果：地图就是一条直线，每个区域依次接在末尾。",
     "--     ★★★★2 ★2 ⇒ ★★ 与 loop 闭环（:899-911）配合：",
     "--       ★★★★2 ★2 得到「一条直线绕一圈回到起点」= **环形世界**。★",
     "--       ★★★★2 ★2 ⇒ branching=never + loop=always 是环形世界的配方。",
   ],
-  436: [
+  "AppendNode#1+61": [
     "-- ★★ ⚠ 没有 else 分支！★ 若 branching 是别的值（如 \"foo\"），",
     "--   ★★★★2 五个分支全不命中 ⇒ effectiveLastNode 保持 :359 的初值",
     "--     ★★★★2 （= lastNode）⇒ 退化成 branching == \"never\" 的行为。",
@@ -290,8 +290,8 @@ export const BEFORE = {
     "--         ★★★★2 ★2 ⚠ 疑似缺陷：应加 else + print 警告。",
     "--           ★★★★2 ★2 对比 :589（LinkNodesByKeys）同样缺失 ⇒ 复制粘贴产物。",
   ],
-  438: ["-- ★ print_lockandkey_ex(...) ——★ 空函数。"],
-  440: [
+  "AppendNode#1+63": ["-- ★ print_lockandkey_ex(...) ——★ 空函数。"],
+  "AppendNode#1+65": [
     "-- ★★ currentNode.story_depth = story_depth ——★★ ★★ 深度分配。",
     "--   ★★★★4 ★★ 这是 story_depth 的**唯一赋值点**（本函数内）。",
     "--     ★★★★2 ★2 语义：**接入的先后顺序**，而非图上的最短距离。",
@@ -307,8 +307,8 @@ export const BEFORE = {
     "--           ★★★★2 ★2 ★2 ⇒ 运行时消费（grottowarmanager:239 判「是否同区域」）",
     "--             ★★★★2 ★2 ★2 会有**不一致的行为**。★ 值得记录。",
   ],
-  441: ["-- ★★ story_depth = story_depth + 1 ——★★ 单调递增（逐个递增）。"],
-  443: [
+  "AppendNode#1+66": ["-- ★★ story_depth = story_depth + 1 ——★★ 单调递增（逐个递增）。"],
+  "AppendNode#1+68": [
     "-- ★★ lastNodeExit = effectiveLastNode:GetRandomNodeForExit()",
     "--   ★★★★3 「接缝点」的选择 ——★ 这是地图观感的核心。",
     "--     ★★★★2 · 从父任务候选节点里**加权随机**挑一个当出口",
@@ -317,7 +317,7 @@ export const BEFORE = {
     "--       ★★★★2 ★2 ⇒ ★2 「哪些房间适合当出口」是**数据决定的**。",
     "--     ★★★★2 消耗 1 次随机数（weighted_random_choice 内）。",
   ],
-  444: [
+  "AppendNode#1+69": [
     "-- ★★★★ currentNodeEntrance = currentNode.entrancenode or",
     "--   currentNode:GetRandomNodeForEntrance()",
     "--   ★★★★4 「优先用任务自己的入口房」。",
@@ -332,14 +332,14 @@ export const BEFORE = {
     "--     ★★★★2 ⚠ :433 只保留**最后一个** entrance ⇒ 多个 entrance 时",
     "--       ★★★★2 只有最后一个被用作接入点，其余白建。★",
   ],
-  446: [
+  "AppendNode#1+71": [
     "-- ★★ assert(lastNodeExit) ——★★ 「父任务必须有可用出口」。",
     "--   ★★★★2 失败原因：所有房间 exit 权重为 0，或全是 entrance。",
     "--     ★★★★2 ⇒ 崩在这里说明该 task 的 room_choices 全是 entrance 房。",
     "--       ★★★★2 ★2 ⇒ 数据错误，★ 崩溃是**恰当**的。★ 好断言。",
   ],
-  447: ["-- ★★ assert(currentNodeEntrance) ——★★ 同理，「新区必须有可用入口」。"],
-  449: [
+  "AppendNode#1+72": ["-- ★★ assert(currentNodeEntrance) ——★★ 同理，「新区必须有可用入口」。"],
+  "AppendNode#1+74": [
     "-- ★★★★ if self.gen_params.island_percent ~= nil",
     "--   ★★★★3 「要不要造一个孤岛」的判定。",
     "--     ★★★★2 三个条件（都要满足）：",
@@ -355,10 +355,10 @@ export const BEFORE = {
     "--         ★★★★2 ★2 ★2 ⇒ 「孤岛」在最终地图上不可见，",
     "--           ★★★★2 ★2 只是在图上多了一个节点而已。★",
   ],
-  450: [
+  "AppendNode#1+75": [
     "-- ★★ and currentNodeEntrance.data.entrance == false then ——★ 排除有门任务。",
   ],
-  452: [
+  "AppendNode#1+77": [
     "-- ★★ self:SeperateStoryByBlanks(lastNodeExit, currentNodeEntrance)",
     "--   ★★★★2 切岛 ⇒ 造一个不可达的空节点，两端都连到它。",
     "--     ★★★★2 ★2 但★ 它**不是真的不可达**：",
@@ -367,7 +367,7 @@ export const BEFORE = {
     "--       ★★★★2 · forest_map.lua:536 的 ForceConnectivity 会**造陆桥**",
     "--         ★★★★2 ★2 ⇒ 所以「孤岛」最终会被修复。",
   ],
-  454: [
+  "AppendNode#1+79": [
     "-- ★★★★★★ self.rootNode:LockGraph(effectiveLastNode.id..'->'..currentNode.id,",
     "--   lastNodeExit, currentNodeEntrance,",
     "--   {type=\"none\", key=self.tasks[currentNode.id].locks, node=nil})",
@@ -389,7 +389,7 @@ export const BEFORE = {
     "--       ★★★★2 · type = \"none\"：★★ 恒为 \"none\"（也是纯元数据，",
     "--         ★★★★2 ★2 network.lua:264 的 assert 被注释掉了）。",
   ],
-  457: [
+  "AppendNode#1+82": [
     "-- ★★★★ -- for i,v in ipairs(currentNode.keys_given) do … end",
     "--   ★★★★4 【★ 与 LinkNodesByKeys 的差异三 ★★】",
     "--     ★★★★2 ★★ 这段「把新区给的钥匙加进 availableKeys」被**整段注释掉**！",
@@ -403,11 +403,11 @@ export const BEFORE = {
     "--       ★★★★2 · 钥匙维护方式不同（重算 vs 增量，见本行）",
     "--       ★★★★2 ★2 ⇒ ★2 移植时若只实现一套，★ 世界形态会变。",
   ],
-  466: ["-- ★★ unusedTasks[currentNode.id] = nil ——★★ 移出待接队列。"],
-  467: ["-- ★★ usedTasks[currentNode.id] = currentNode ——★★ 加入已接集合。"],
-  468: ["-- ★★ lastNode = currentNode ——★★ 供「never」策略与返回值用。"],
-  469: ["-- ★★ currentNode = nil ——★ 复位。"],
-  473: [
+  "AppendNode#1+91": ["-- ★★ unusedTasks[currentNode.id] = nil ——★★ 移出待接队列。"],
+  "AppendNode#1+92": ["-- ★★ usedTasks[currentNode.id] = currentNode ——★★ 加入已接集合。"],
+  "AppendNode#1+93": ["-- ★★ lastNode = currentNode ——★★ 供「never」策略与返回值用。"],
+  "AppendNode#1+94": ["-- ★★ currentNode = nil ——★ 复位。"],
+  "AppendNode#1+98": [
     "-- ★★★★★★ if next(candidateTasks) == nil then ——★★ 「本轮无可选任务」。",
     "--   ★★★★★4 ★★★★ 全文件最重要的「逃生阀」。",
     "--     ★★★★★2 触发条件：★ 没有任何任务的所有锁都被解开。",
@@ -432,7 +432,7 @@ export const BEFORE = {
     "--       ★★★★★2 · fallback = \"random\"（原版行为）",
     "--       ★★★★★2 · fallback = \"fail\"   （严格模式，暴露数据错误）",
   ],
-  475: [
+  "AppendNode#1+100": [
     "-- ★★ AppendNode(self:GetRandomNodeFromTasks(unusedTasks), usedTasks)",
     "--   ★★★★2 ★★ 强制接入：★ 随机挑一个未接任务，挂到 usedTasks 里。",
     "--     ★★★★2 · GetRandomNodeFromTasks(:634) 从 unusedTasks **随机**挑一个",
@@ -441,18 +441,18 @@ export const BEFORE = {
     "--       ★★★★2 ★2 ⇒ ★2 图仍然连通。✔",
     "--     ★★★★2 · ⇒ ★★ 「不可达」被消除，★ 但「合理性」被牺牲。",
   ],
-  477: [
+  "AppendNode#1+102": [
     "-- ★★ for taskid, unlockingNodes in pairs(candidateTasks) do ——★★ pairs！",
     "--   ★★★★2 批量接入：★ 本轮**所有**候选任务都被接入。",
     "--     ★★★★2 ★2 ⇒ 一个 depth 对应多个任务（见 :440 的 ⚠）。",
     "--     ★★★★2 ★2 pairs 遍历 ⇒ ★2 接入顺序不可复现 ⇒ 直接影响 depth 分配。",
   ],
-  478: ["-- ★ print_lockandkey_ex(\"Current Node: \"..taskid) ——★ 空函数。"],
-  479: ["-- ★ print_lockandkey_ex(\"  PARENTS:\") ——★ 空函数。"],
-  481: ["-- ★ print_lockandkey_ex(\"    \"..k) ——★ 空函数。"],
-  483: ["-- ★★ AppendNode(unusedTasks[taskid], unlockingNodes) ——★★ 真正的接入。"],
-  488: ["-- ★★ 循环结束。"],
-  490: [
+  "AppendNode#1+103": ["-- ★ print_lockandkey_ex(\"Current Node: \"..taskid) ——★ 空函数。"],
+  "AppendNode#1+104": ["-- ★ print_lockandkey_ex(\"  PARENTS:\") ——★ 空函数。"],
+  "AppendNode#1+106": ["-- ★ print_lockandkey_ex(\"    \"..k) ——★ 空函数。"],
+  "AppendNode#1+108": ["-- ★★ AppendNode(unusedTasks[taskid], unlockingNodes) ——★★ 真正的接入。"],
+  "AppendNode#1+113": ["-- ★★ 循环结束。"],
+  "AppendNode#1+115": [
     "-- ★★ return lastNode:GetRandomNodeForExit() ——★★ 返回「链尾的出口」。",
     "--   ★★★★3 返回值用途：★ GenerateNodesForRegion(:889) 赋给 finalNode。",
     "--     ★★★★2 ★2 ★2 ⇒ ★★ 返回的是**「房间」而非「任务」**，",

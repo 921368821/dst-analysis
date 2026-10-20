@@ -2,7 +2,7 @@
 // 重点：标签系统 / AddComponent & RemoveComponent
 
 export const BEFORE = {
-  556: [
+  "EntityScript:AddTag#1": [
     "--★★★ 标签系统 —— 游戏逻辑的「零成本布尔查询」层★★★",
     "--【标签是什么】",
     "--   标签（tag）是附着在实体上的字符串标记，供 C++ 侧做快速分组查询。",
@@ -16,16 +16,16 @@ export const BEFORE = {
     "--     决定副本可见性（entityreplica.lua:30），这是纯 Lua 访问不到的。",
     "--【本节四个查询函数的性能差异 —— 这是本节的重点】",
   ],
-  557: [
+  "EntityScript:AddTag#1+1": [
     "--【直接转发 C++】★ 标签的存储在 C++ 侧，Lua 只是句柄。",
   ],
-  564: [
+  "EntityScript:AddOrRemoveTag#1": [
     "--【★ AddOrRemoveTag：条件式标签切换的便利 API】",
     "--   ★ 这是极常见的写法：某状态改变时，「有就加、无就删」。",
     "--     写成 if cond then AddTag else RemoveTag end 会有 4 行样板代码。",
     "--   典型：SetTerraformExtraSpacing（846行）用它维护 terraformblocker 标签。",
   ],
-  572: [
+  "EntityScript:HasTag#1": [
     "--★★ HasTag：单标签查询 —— 最常用",
     "--【性能特征】",
     "--   一次 Lua → C++ FFI 调用 + C++ 侧哈希查找。",
@@ -35,7 +35,7 @@ export const BEFORE = {
     "--   —— 结论：需要跨端可见或被FindEntities 使用的标志，用标签；",
     "--     纯内部状态，用字段。",
   ],
-  576: [
+  "EntityScript:HasTags#1": [
     "--★★ HasTags：全部满足（AND 语义）",
     "--【★ 双形态签名：变长参数 or 数组】",
     "--   local tags = select(1, ...)  -- 取第一个变长参数",
@@ -48,20 +48,20 @@ export const BEFORE = {
     "--【★ 短路优化】C++ 侧 HasAllTags 会在第一个不匹配时立即返回 false，",
     "--   所以顺序很重要：把「最可能不满足」的标签放前面，可以更早退出。",
   ],
-  584: [
+  "EntityScript:HasTags#1+8": [
     "--【★ 别名】HasAllTags 是语义更清晰的名字，与 C++ 侧 HasAnyTag/HasAllTags 对齐。",
     "--   ★ 直接赋值别名而非再包一层函数，省一次函数调用。",
     "--   ⚠ 代价：两者是同一个函数对象，debug 里无法区分，且",
     "--     猴补其中一个会同时影响另一个（模组踩坑点）。",
   ],
-  586: [
+  "EntityScript:HasOneOfTags#1": [
     "--★★ HasOneOfTags：任一满足（OR 语义）",
     "--   对应 C++ 侧 HasAnyTag。是AIMove 目标筛选（如找 \"hostile\" 或 \"cattoy\"）的主力。",
     "--【★ OR 查询的短路优势更明显】一旦命中立即返回，",
     "--   所以在长列表里，把最可能命中的标签放前面能显著提速。",
   ],
 
-  596: [
+  "EntityScript:HasOneOfTags#1+10": [
     "--【★ require(\"entityreplica\") —— 通过副作用扩展本类】",
     "--   entityreplica.lua 顶部没有 return，它靠直接给EntityScript 挂方法来扩展。",
     "--   这种「require 即混入」的模块组织方式在 DST 里很常见。",
@@ -69,13 +69,13 @@ export const BEFORE = {
     "--                UnreplicateComponent / PrereplicateEntity / ReplicateEntity",
     "   --   ★ 见 597-602 行的原始说明（保留原文）。",
   ],
-  597: ["--Additional initialization for network entity replicas"],
-  598: ["--defines: EntityScript:ValidateReplicaComponent(name)"],
-  599: ["--         EntityScript:ReplicateComponent(name)"],
-  600: ["--         EntityScript:UnreplicateEntity(name)"],
-  601: ["--         EntityScript:PrereplicateEntity(name)"],
-  602: ["--         EntityScript:ReplicateEntity()"],
-  603: [
+  "EntityScript:HasOneOfTags#1+11": ["--Additional initialization for network entity replicas"],
+  "EntityScript:HasOneOfTags#1+12": ["--defines: EntityScript:ValidateReplicaComponent(name)"],
+  "EntityScript:HasOneOfTags#1+13": ["--         EntityScript:ReplicateComponent(name)"],
+  "EntityScript:HasOneOfTags#1+14": ["--         EntityScript:UnreplicateEntity(name)"],
+  "EntityScript:HasOneOfTags#1+15": ["--         EntityScript:PrereplicateEntity(name)"],
+  "EntityScript:HasOneOfTags#1+16": ["--         EntityScript:ReplicateEntity()"],
+  "EntityScript:HasOneOfTags#1+17": [
     "--【注意 602 行的 ReplicateEntity() 与 598-601 的 (name) 版本不匹配】",
     "--   ⚠ 疑似缺陷：602 行写作 UnreplicateEntity(name) 但实体replica.lua 中",
     "--     实际提供的方法名是 UnreplicateComponent。",
@@ -83,17 +83,17 @@ export const BEFORE = {
     "--     定义的是 ReplicateComponent(name)。这行注释显然没跟上重构。",
     "--     纯注释错误，不影响运行，但会误导后来者。",
   ],
-  604: [
+  "EntityScript:HasOneOfTags#1+18": [
     "--【同样用副作用混入】componentactions.lua 为每个组件生成 action 定义，",
     "--   带来：RegisterComponentActions / UnregisterComponentActions /",
     "--            CollectActions / IsActionValid。",
   ],
-  605: ["--defines: EntityScript:RegisterComponentActions(name)"],
-  606: ["--         EntityScript:UnregisterComponentActions(name)"],
-  607: ["--         EntityScript:CollectActions(type, ...)"],
-  608: ["--         EntityScript:IsActionValid(action, right)"],
+  "EntityScript:HasOneOfTags#1+19": ["--defines: EntityScript:RegisterComponentActions(name)"],
+  "EntityScript:HasOneOfTags#1+20": ["--         EntityScript:UnregisterComponentActions(name)"],
+  "EntityScript:HasOneOfTags#1+21": ["--         EntityScript:CollectActions(type, ...)"],
+  "EntityScript:HasOneOfTags#1+22": ["--         EntityScript:IsActionValid(action, right)"],
 
-  610: [
+  "EntityScript:AddComponent#1": [
     "--★★★ AddComponent —— 组件装配的唯一入口",
     "--【为什么组件要「动态安装」而不是「静态继承」】",
     "--   ① 内存：DST 世界里可能有 5 万个实体，只有 1% 有 health 组件。",
@@ -103,17 +103,17 @@ export const BEFORE = {
     "--   ③ 行为可插拔：mod 可以给任意实体追加组件。",
     "--【执行流水线 —— 顺序极其重要】见各行注释。",
   ],
-  611: [
+  "EntityScript:AddComponent#1+1": [
     "--【★ 全小写化：大小写不敏感去重的第一步】",
     "--   这是 218 行 lower_components_shadow 的核心用法。",
   ],
-  612: [
+  "EntityScript:AddComponent#1+2": [
     "--★★ 重复安装检测 —— 三种结局",
     "--   情况A：正常重复调用（同一名字大小写也相同）→ 返回已有实例",
     "--   情况B：大小写不同（Health vs health）→ 遍历找到真实实例并返回",
     "--   情况C：影子表说有、components 里找不到 → 返回 nil（下方 623 行）",
   ],
-  613: [
+  "EntityScript:AddComponent#1+3": [
     "--【★ 用 print 而非 error —— 显式记录但不让游戏崩溃】",
     "--   ★ debugstack_oneline(3) 打印的是**调用栈**而非调用者信息，",
     "--     所以看不出是谁调来的。这在排查「mod 重复加组件」时是个遗憾。",
@@ -122,26 +122,26 @@ export const BEFORE = {
     "--   ⚠ 疑似缺陷：返回 nil 而不是 error，调用方若不判空会在后续解引用处崩溃，",
     "--     报错信息与真正的根因（重复添加）相隔很远。",
   ],
-  614: [
+  "EntityScript:AddComponent#1+4": [
     "--【★ 情况B 的兜底查找：忽略大小写遍历】",
     "--   影子表有记录但按原名取不到 → 说明历史上有过大小写不一致的安装。",
     "--   这段线性查找是为了兼容这类「已被模组弄脏」的实体，",
     "--   代价是仅在异常路径执行。",
   ],
-  623: [
+  "EntityScript:AddComponent#1+13": [
     "--【★ 情况C：返回 nil 是「诚实」的失败】",
     "--   宁可不返回错误的组件实例，也不返回 nil 之外的错误对象。",
   ],
-  626: [
+  "EntityScript:AddComponent#1+16": [
     "--【LoadComponent：懒加载 + 猴补 worldstate 方法】见 52 行详解。",
   ],
-  627: [
+  "EntityScript:AddComponent#1+17": [
     "--【★ 显式 error】与 613 行的 print 形成鲜明对比：",
     "--   「装了个不存在的组件」是脚本 bug，必须立刻炸出来；",
     "--   「装了两次」可能是模组的合理行为，只记日志。",
     "--   —— 错误处理策略的经典分层。",
   ],
-  631: [
+  "EntityScript:AddComponent#1+21": [
     "--★★ 步骤①：安装网络副本（在构造组件之前！）",
     "--   ★ 为什么先做这步？ReplicateComponent 内部会 AddTag(\"_\"..name)，",
     "--     而 ValidateReplicaComponent 靠这个标签决定副本是否可见。",
@@ -149,21 +149,21 @@ export const BEFORE = {
     "--     可能就会访问 self.replica.xxx（很常见）。",
     "--   详见 entityreplica.lua:34 的 ReplicateComponent。",
   ],
-  633: [
+  "EntityScript:AddComponent#1+23": [
     "--【★ 步骤②：构造组件实例】",
     "--   cmp(self) 调用组件类的构造器，签名 function(component, inst)。",
     "--   组件在自己的构造器里做初始化（加标签、装子组件、注册更新等）。",
     "   --   ★ 构造器里可以访问 self.components —— 但此时新组件**尚未**登记进去，",
     "--     所以构造器内不要依赖 self.components[自己的名字]。",
   ],
-  634: [
+  "EntityScript:AddComponent#1+24": [
     "--【★ 步骤③：登记到两张表】",
     "--   components[name] —— 用**原始大小写**作键（保持脚本可读性）",
     "--   lower_components_shadow[小写] —— 用小写作影子键（保证去重）",
     "--   ★ 这个「双键」设计解释了为什么 AddComponent:616 还需要兜底遍历：",
     "--     因为真正存进 components 的键可能是任意大小写。",
   ],
-  637: [
+  "EntityScript:AddComponent#1+27": [
     "--【★ 步骤④：模组后初始化钩子】",
     "--   ModManager:GetPostInitFns(\"ComponentPostInit\", name) 收集所有模组为该组件",
     "--   注册的后初始化函数，按注册顺序依次调用。",
@@ -172,17 +172,17 @@ export const BEFORE = {
     "--   ★ 为什么放在构造后？某些组件构造后字段才齐备（如 locomotor 需要 inst.Transform）。",
     "--   ⚠ 执行顺序依赖模组的加载顺序，若模组之间有依赖需谨慎。",
   ],
-  643: [
+  "EntityScript:AddComponent#1+33": [
     "--【★ 步骤⑤：注册组件动作】",
     "--   让该组件定义的 action（如 chop、mine）在选中此实体时被收集到。",
     "--   ★ 必须最后一步：动作收集要读组件的完整状态。",
     "--   详见 componentactions.lua。",
   ],
-  645: [
+  "EntityScript:AddComponent#1+35": [
     "--【★ 返回实例】调用方写法：local h = inst:AddComponent(\"health\")",
   ],
 
-  648: [
+  "EntityScript:RemoveComponent#1": [
     "--★★★ RemoveComponent —— 动态组件的拆卸",
     "--【★ 清理顺序是本函数的核心，逐行解释见下】",
     "--   ★ 值得注意：本函数没有调用组件的 OnRemoveFromEntity 之外的任何钩子，",
@@ -191,50 +191,50 @@ export const BEFORE = {
     "--   ⚠ 重要含义：单独调RemoveComponent 并不会自动注销该组件注册的",
     "--     worldstate watcher 或事件监听。热插拔组件的代码需自行处理。",
   ],
-  649: [
+  "EntityScript:RemoveComponent#1+1": [
     "--【★ 用原始 name 取组件】",
     "--   ⚠ 疑似缺陷：这里没有做大小写不敏感处理，与 AddComponent:611 不对称。",
     "--     若组件是 AddComponent(\"Health\") 装的，RemoveComponent(\"health\") 会取不到，",
     "--     静默失败—— 调用方以为卸载了，实际还在。",
     "--     修复思路：复用 AddComponent:616 的兜底查找逻辑。",
   ],
-  651: [
+  "EntityScript:RemoveComponent#1+3": [
     "--【★ 清理顺序第①步：停止普通更新】",
     "--   用的是**延迟版**（StopUpdatingComponent），不是 _Deferred。",
     "--   ★ 正确性论证：如果这里用 _Deferred（当场删表），",
     "--     而本函数正是在某个组件的 OnUpdate 中被调用的话，",
     "--     就会在 update.lua:259 的遍历中删表。延迟版恰好规避了这个风险。",
   ],
-  652: [
+  "EntityScript:RemoveComponent#1+4": [
     "--【★ 清理顺序第②步：停止 wall 更新】",
     "--   ★ 这里用的是立即版 StopWallUpdatingComponent（527行），",
     "--     与上一步不对称。理由推测：wallupdate 组件极少被动态移除，风险可控。",
     "--   ⚠ 这是一处真实的风格/正确性不一致，值得统一。",
   ],
-  653: [
+  "EntityScript:RemoveComponent#1+5": [
     "--【★ 清理顺序第③步：先从表里摘除】",
     "--   ★ 顺序要点：先摘表，再回调 OnRemoveFromEntity。",
     "--     这样回调里若再遍历 self.components，已经看不到自己 ——",
     "--     避免了「回调中访问一个半拆卸状态的组件」。",
   ],
-  656: [
+  "EntityScript:RemoveComponent#1+8": [
     "--【★ 清理顺序第④步：通知组件自己收尾】",
     "--   典型收尾工作：停线程、停协程、移除标签、注销更新。",
     "--   ★ 此时组件已不在 self.components 里，所以回调里不能再用 self.components[name]。",
     "--   ⚠ 但可以把自己传进来的引用继续用（cmp 变量仍在作用域内）。",
   ],
-  660: [
+  "EntityScript:RemoveComponent#1+12": [
     "--【★ 清理顺序第⑤步：撤销网络副本】",
     "--   UnreplicateComponent 会 RemoveTag(\"_\"..name) 并从 replica._ 移除，",
     "--   于是 self.replica.xxx 立即返回 nil —— 无需等待网络同步。",
   ],
-  661: [
+  "EntityScript:RemoveComponent#1+13": [
     "--【★ 清理顺序第⑥步：注销动作】",
     "--   ★ 放在最后：与 AddComponent:643 完全反向对应。",
     "--     注册是「构造→ 副本 → 钩子 → 动作」，注销是它的严格镜像。",
   ],
 
-  665: [
+  "EntityScript:GetBasicDisplayName#1": [
     "--★★ GetBasicDisplayName：名字解析的四级回退链",
     "--【★ 回退顺序（第一个非 nil 即胜出）】",
     "--   ① displaynamefn     —— prefab 自定义函数（最高优先级）",
@@ -244,13 +244,13 @@ export const BEFORE = {
     "--   ★ 这个顺序把「mod 的完全控制权」放在最前，",
     "--     而「玩家命名」只比默认值高一级—— 这样玩家的自定义名不会被莫名覆盖。",
   ],
-  668: [
+  "EntityScript:GetBasicDisplayName#1+3": [
     "--★ 原注释承认这个上下文常量用得不准确（更像 NAME 而非 CHAT），",
     "--  但因为「所有玩家输入（如给牛牛起名）」都走这里，只能统一用更严格的 CHAT。",
     "--  ★ 这是「安全优先于精确」的取舍：宁可过滤得更狠，不可漏过滤。",
   ],
 
-  672: [
+  "EntityScript:GetAdjectivedName#1": [
     "--★★ GetAdjectivedName：状态形容词修饰 —— 游戏最讨喜的设计之一",
     "--【★ 设计目标】物品名由「基础名 + 状态修饰」拼成，如：",
     "--     \"湿的 火把\" / \"腐烂的 浆果\" / \"破的 草\" / \"凋零的 眼骨\"",
@@ -266,12 +266,12 @@ export const BEFORE = {
     "--   8. broken / deadcreature（非湿时的单独处理）",
     "--   ★ 顺序即语义：越「特殊」的状态越靠前，因为一个物品通常只处于一种特殊状态。",
   ],
-  686: [
+  "EntityScript:GetAdjectivedName#1+14": [
     "--【★ 蜡化植物特例】注释明说 \"No wet prefix for waxed plants.\"",
     "--   理由：蜡化植物会被雨淋坏，若同时是湿的会产生矛盾描述。",
     "--   ★ 典型的「文案一致性」需求 —— 说明 Klei 非常在意描述的自洽。",
   ],
-  689: [
+  "EntityScript:GetAdjectivedName#1+17": [
     "--★★ 湿前缀分支 —— 三重条件（4 个 and 连接）",
     "--   not self.no_wet_prefix  —— prefab 可以整体禁用湿前缀",
     "--   and (self.always_wet_prefix or self:GetIsWet())",
@@ -279,7 +279,7 @@ export const BEFORE = {
     "--     ★ GetIsWet() 是客户端可用的版本（见 770 行）。",
     "--   这一整块是 else-if 链的一部分，失败会落到 726 行的 broken 检查。",
   ],
-  695: [
+  "EntityScript:GetAdjectivedName#1+23": [
     "--【★ 装备类物品：按装备槽位决定前缀】",
     "--   ★ 注意访问的是 self.replica.equippable 而不是 components.equippable——",
     "--     因为 GetAdjectivedName 需要在客户端也能跑（客户端没有 components）。",
@@ -287,7 +287,7 @@ export const BEFORE = {
     "--   HEAD / BODY → \"湿的 帽子\"（衣物前缀）",
     "--   ★ 这是「按用途而非按类型命名」的设计：玩家关心的是「能不能用」，不是「是什么」。",
   ],
-  705: [
+  "EntityScript:GetAdjectivedName#1+33": [
     "--【★ 可食用：遍历 FOODTYPE 拼标签】",
     "--   因为食物类型是标签编码的（edible_meat / edible_vegetable），",
     "--   没有集中的表，只能遍历常量表反向拼。",
@@ -295,33 +295,33 @@ export const BEFORE = {
     "--     在「遍历背包所有物品生成名字」的 UI 路径上会被放大 N倍。",
     "--     建议后续优化时给 EntityScript 加一个「湿状态缓存字段」由变动时更新。",
   ],
-  711: [
+  "EntityScript:GetAdjectivedName#1+39": [
     "--【燃料：标签是 <type>_fuel 的形式】同样是标签编码，反向拼常量表。",
   ],
-  717: [
+  "EntityScript:GetAdjectivedName#1+45": [
     "--【★ 双重形容词：湿 + 破】",
     "--   ConstructAdjectivedName 嵌套调用 → \"湿的 破 草\"。",
     "--   ★ 之所以要嵌套而非拼接字符串，是因为 ConstructAdjectivedName 会处理",
     "--     本地化语言的语序（在某些语言里形容词在名词之后）。",
     "--   ★ 这是「不要用字符串拼接做本地化」的正面例子。",
   ],
-  726: [
+  "EntityScript:GetAdjectivedName#1+54": [
     "--【★ 非湿情况下的单独处理】",
     "--   注意这里是 else-if 链的尾巴，只有「不湿」时才会到达。",
     "--   ★ 与 717 行的湿+破 形成对称：湿且破 → 双重；不湿但破 → 单个。",
   ],
 
-  735: [
+  "EntityScript:GetDisplayName#1": [
     "--【★ GetDisplayName = GetAdjectivedName + prefab 专属描述】",
     "--   NAME_DETAIL_EXTENTION 提供 tooltip 里的补充说明（如「能点燃的树枝」）。",
     "--   ★ 用 \"\\n\" 而非 \" \" 分隔：物品 tooltip 是多行布局，",
     "--     名字与描述各占一行是既定的UI 约定。",
   ],
-  744: [
+  "EntityScript:GetDisplayName#1+9": [
     "--★ 没有匹配到扩展说明时只返回名字——tooltip 仍能正常显示。",
   ],
-  747: ["--Can NOT be used on clients"],
-  748: [
+  "EntityScript:GetDisplayName#1+12": ["--Can NOT be used on clients"],
+  "EntityScript:GetWetMultiplier#1": [
     "--★★ GetWetMultiplier：湿润度倍率 —— 服务端权威计算",
     "--【★ 为什么要分成「服务端版」与「客户端版」两个函数？】",
     "--   GetWetMultiplier（服务端）：能拿到 components，读真实组件状态，",
@@ -335,23 +335,23 @@ export const BEFORE = {
     "--   ④ components.temp_moisture / moisture → 读组件的湿度百分比（连续值）",
     "--   ⑤ 兜底：世界是否在下雨 / 是否在游泳",
   ],
-  753: [
+  "EntityScript:GetWetMultiplier#1+5": [
     "--★ 原注释坦承了这个「为了保持旧行为一致」的妥协：",
     "--   InventoryItem 组件其实能给出湿度百分比，但这里只返回 0/1 布尔，",
     "--   以免改变既有判定结果。",
     "--   ★ 这类注释记录了「为什么明知有更好方案却不改」—— 极有价值的知识。",
   ],
-  757: [
+  "EntityScript:GetWetMultiplier#1+9": [
     "--【★ 注释里被划掉的那行是关键】",
     "--   local moisture = self.components.temp_moisture or self.components.moisture --or self.components.inventoryitem",
     "--   曾经想把 inventoryitem 也纳入，但那样会改变行为（见上），故注释掉。",
     "--   ★ 保留「历史方案」在注释里，是重构时的安全网。",
   ],
-  759: [
+  "EntityScript:GetWetMultiplier#1+11": [
     "--【返回连续湿度百分比】0.3 表示 30% 湿度。",
     "--   ★ 这就是本函数与 GetIsWet 的本质区别：一个是连续量，一个是布尔。",
   ],
-  762: [
+  "EntityScript:GetWetMultiplier#1+14": [
     "--★★ 兜底分支用了一个极其别扭的写法：",
     "--     return ( A or B ) and 1 or 0",
     "--   ★ 拆解：`(TheWorld.state.iswet and not rainimmunity) or (swimming and not duck)`",
@@ -359,8 +359,8 @@ export const BEFORE = {
     "--   ⚠ 可读性差：多对括号容易看错。建议写成局部变量再判断。",
     "--   ★ 之所以要分开写而不是合并：两个条件要访问不同的组件（none 存在时只能用标签）。",
   ],
-  769: ["--Can be used on clients"],
-  770: [
+  "EntityScript:GetWetMultiplier#1+21": ["--Can be used on clients"],
+  "EntityScript:GetIsWet#1": [
     "--★★ GetIsWet：客户端安全的布尔版",
     "--【★ 与服务端版的对照 —— 这是理解 DST 双端模型的绝佳样本】",
     "--   服务端：self.components.temp_moisture:GetMoisturePercent()",
@@ -369,12 +369,12 @@ export const BEFORE = {
     "--     只能读 replica。这就是「replica 机制」存在的根本原因。",
     "--   ★ 客户端也不需要 5 级回退的完整精度，二元判断足够驱动 UI。",
   ],
-  777: [
+  "EntityScript:GetIsWet#1+7": [
     "--【★ replica 的自动校验在这里体现了价值】",
     "--   inventoryitem 或 moisture 都没有时返回 nil，调用方判空即可。",
     "--   若用传统写法，需要先 HasTag 判断再索引，样板代码多三倍。",
   ],
-  786: [
+  "EntityScript:IsAcidSizzling#1": [
     "--【★ IsAcidSizzling：酸雨腐蚀 —— 两级特殊处理】",
     "--   ① acidrainimmune 标签 → 直接免疫",
     "--   ② 有 inventoryitem 副本 → 问物品自己（物品可能自带抗性）",
@@ -383,41 +383,41 @@ export const BEFORE = {
     "--   ★ 第③级值得注意：这是给玩家的特殊通道，因为「玩家正在被酸雨淋」",
     "--     这个状态存在 player_classified（网络同步的分类组件）里。",
   ],
-  796: [
+  "EntityScript:IsAcidSizzling#1+10": [
     "--【player_classified：只在玩家实体上存在的组件】",
     "--   ★ 「classified」意为「给旁观者看的状态」，只同步给相关客户端。",
     "--     是DST 网络分层（replica vs classified vs private）的一个实例。",
   ],
-  798: [
+  "EntityScript:IsAcidSizzling#1+12": [
     "--【:value() 解包网络变量】网络变量的值需要显式取出，不是直接索引。",
   ],
 
-  804: [
+  "EntityScript:GetSkinBuild#1": [
     "--【★ 皮肤 build 名缓存】",
     "--   GetBuildForItem(self.skinname) 是一次表查找 + 字符串处理，开销不小。",
     "--   ★ 但 GetSkinBuild 会在「显示名字」时被调用，而命名是高频路径",
     "--     （背包每帧重绘都要给所有物品取名）。缓存是必需的。",
     "--   ★ 用 `or` 惰性求值：第一次调用才真正计算。",
   ],
-  810: [
+  "EntityScript:GetSkinName#1": [
     "--【★ 两级皮肤名：override 优先】",
     "--   override_skinname 用于「物品被染色/幻化但prefab 不变」的场景。",
     "--   ★ 两者都要支持是因为：override 只改外观不改 prefab，而",
     "--     skinname 本身是与 prefab 绑定的存档字段（见 308 行）。",
   ],
-  814: [
+  "EntityScript:SetPrefabName#1": [
     "--★ SetPrefabName 同时更新 Lua 与 C++ 两侧。",
     "--   C++ 侧需要它来做资源加载与网络标识。",
     "--   ★ `self.name = self.name or (...)` 保证「已有名字不被prefab 名覆盖」——",
     "--     这让玩家命名的物品在重载后保留名字。",
   ],
-  817: [
+  "EntityScript:SetPrefabName#1+3": [
     "--【★ 三级名字回退】预制名 → 大写查 STRINGS → \"MISSING NAME\"。",
     "--   ★ \"MISSING NAME\" 是显式的失败信号：一眼看出是预制表缺条目，",
     "--     而不是显示空白或崩溃。",
     "--   ★ 用 string.upper 查表：让 STRINGS 的键统一大写，避免大小写不一致。",
   ],
-  820: [
+  "EntityScript:SetPrefabNameOverride#1": [
     "--★★ SetPrefabNameOverride：借用另一个prefab 的名字与描述",
     "--【★ 典型用例（注释给了）】spiderhole_rock 借用 spiderhole 的名字。",
     "--   即「洞里的石头」显示为「蜘蛛洞穴」，因为玩家看到的是同一个地标。",

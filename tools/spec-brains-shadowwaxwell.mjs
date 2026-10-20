@@ -77,7 +77,7 @@ export default {
   ],
 
   // ══════════════ 软锁表 ══════════════
-  43: [
+  "Unignore#1": [
     '-- ★★★ ignorethese 软锁机制的又一个实现（braincommon 第 449-460 行同款）。',
     '--   【机制】worker 盯住某目标时登记，5 秒后由 leader 的定时任务自动解锁。',
     '--   【为什么表要挂在 leader 上】第 366-367 行：',
@@ -96,10 +96,10 @@ export default {
   ],
 
   // ══════════════ 注视 ══════════════
-  56: [
+  "GetLeader#1": [
     '-- GetLeader：follower 组件取队长。全DST 随从 AI 的第一行标配。',
   ],
-  60: [
+  "GetLeaderPos#1": [
     '-- ⚠️ 第 61 行 GetLeader(inst):GetPosition() —— 【没有判 GetLeader 为 nil】。',
     '--   已逐字核对第 61 行确认无判空。',
     '--   ★ 因此第 348 行 dance_party 的 Leash 锚点在「无主人」时会崩。',
@@ -107,14 +107,14 @@ export default {
     '--   而后者第 223 行判了 leader ~= nil —— ★ 靠外层保护。',
     '--   结论：与 mermbrain 第 175 行同样的模式（见那份注释），靠调用方保证。',
   ],
-  64: [
+  "GetFaceTargetFn#1": [
     '-- ★ 与 knightbrain 第 42 行逐字相同：排除 notarget 标签的玩家。',
     '--   ★★★ 这是 DST 的跨文件一致性证据：',
     '--     两个完全不同的大脑（一个 NPC、一个 Boss）、不同作者时期，',
     '--     却有逐字相同的 GetFaceTargetFn/KeepFaceTargetFn。',
     '--     说明这类「标准动作」是抄来抄去的，★ 也说明它已被验证可靠。',
   ],
-  73: [
+  "GetFaceLeaderFn#1": [
     '-- ★ GetFaceLeaderFn 比 knightbrain 第 55 行多两个条件：',
     '--   target.entity:IsVisible() 且 inst:IsNear(target, START_FACE_DIST)（4）。',
     '--   而 KeepFaceLeaderFn（第 79 行）用的是 KEEP_FACE_DIST（8）。',
@@ -122,7 +122,7 @@ export default {
   ],
 
   // ══════════════ 采集（废弃版） ══════════════
-  87: [
+  "IsNearLeader#1+5": [
     '-- TOWORK_CANT_TAGS：不能采集的东西。',
     '-- ★ 比 braincommon 第 198 行的 MINE_CANT_TAGS 多了两个：',
     '--   fire（正在烧）—— 碎片不该往火里走',
@@ -130,14 +130,14 @@ export default {
     '--   INLIMBO / NOCLICK —— 标准排除',
     '-- ★ 差异原因：暗影碎片没有「挖不动就跑」的顾虑，所以可以更保守。',
   ],
-  88: [
+  "FindEntityToWorkAction#1": [
     '-- ★⚠️ 源码已标注 DEPRECATED（废弃），替代品是第 169 行的版本。',
     '--   但第 478-483 行仍在用它！',
     '--   ★ 说明「废弃」只完成了一半：新逻辑给工匠用了，旧逻辑还服务于旧碎片。',
     '--   已核对第 478-483 行确实调用 FindEntityToWorkAction，非笔误。',
     '--   不标为缺陷（源码自己承认是技术债），但移植时要警惕这类半迁移状态。',
   ],
-  91: [
+  "FindEntityToWorkAction#1+3": [
     '-- ★★ 「优先保持已有目标」—— 一个目标必须通过 9 重校验才能续用：',
     '--  1) target ~= nil  2) IsValid  3) 不在 limbo  4) 不 NOCLICK  5) 不是 event_trigger',
     '--  6) IsOnValidGround（不在水面上/悬崖）',
@@ -149,7 +149,7 @@ export default {
     '--   ★ 第 108-113 行 addtltags 是可选的额外标签要求（只对特定标签生效）。',
     '--     有 addtltags 时遍历它，有任一匹配就返回；无则直接返回。',
   ],
-  119: [
+  "FindEntityToWorkAction#1+31": [
     '-- ★ 第 120 行 FindEntity(leader, SEE_WORK_DIST, ...) —— 以【主人】为中心搜索！',
     '--   不是以自己为中心。所以碎片会离开自己的位置去找主人附近的资源。',
     '--   ★ 与 braincommon 第 303 行「自己找不到再以 leader 找」的两段式不同：',
@@ -158,23 +158,23 @@ export default {
   ],
 
   // ══════════════ 采集（新版） ══════════════
-  125: [
+  "FindEntityToWorkAction#1+37": [
     '-- ANY_TOWORK_ACTIONS：三种采集动作的集合。',
     '-- ★ 设计意图：一个函数（FindAnyEntityToWorkActionsOn）处理三种工作，',
     '--   而不是为每种写一份。这是「多态化」的收益：新增第四种只需加进这个表。',
     '-- ⚠️ 但代价是失去了「按工种特化」的可能 —— 无法对砍树/挖矿做差异化处理。',
   ],
-  126: [
+  "FindEntityToWorkAction#1+38": [
     '-- ONE_OF 语义：「三样里有一种可采集」就行，用于 TheSim:FindEntities 的粗筛。',
     '-- ★ 与 MUST_TAGS 的区别很关键，这里是 any-of（任一即可）。',
   ],
-  127: [
+  "PickValidActionFrom#1": [
     '-- PickValidActionFrom：把目标实体反查成「该对它做什么动作」。',
     '-- ★ 即「按对象的 workable 组件决定动作」，而不是「按动作找对象」。',
     '--   两种设计方向：前者一次搜索支持多动作，后者需要多次搜索。',
     '-- ★ 这是本文件对废弃版的改进点之一，避免了第 125 行的三重分支。',
   ],
-  140: [
+  "FilterAnyWorkableTargets#1": [
     '-- ★★ FilterAnyWorkableTargets —— 带「软锁」的过滤器，逻辑很讲究：',
     '-- 【第 142 行】被别的 worker 锁住 → 跳过（注释写了 "Ignore me!"）',
     '-- 【第 144 行】正在燃烧/阴燃 → 跳过',
@@ -186,7 +186,7 @@ export default {
     '-- ★ 注意第 151 与 158 行都是 return：找到第一个可用就返回，不排序。',
     '--   所以优先级取决于 TheSim:FindEntities 的返回顺序（通常是创建顺序）。',
   ],
-  165: [
+  "GetSpawn#1": [
     '-- GetSpawn：取出生点。这是全文件的「空间锚点」来源。',
     '-- ★ 第 374 行 ShouldDeliver 也用它作为送货目标 ——',
     '--   所以「在主人附近」被换算成「在出生点附近」，',
@@ -194,7 +194,7 @@ export default {
     '-- ★ 这是一个巧妙的降维：主人到处跑，但碎片只在出生点小范围内活动，',
     '--   所以用出生点当「主人的代表位置」既近似又稳定（不会抽搐）。',
   ],
-  169: [
+  "FindAnyEntityToWorkActionsOn#1": [
     '-- ★★ FindAnyEntityToWorkActionsOn —— 替代废弃版的统一采集实现。',
     '-- 【四段式】',
     '--  第 170-172 行：状态图忙 → 不干（★ 与旧版不同，新版没有这一条在开头而是分散）',
@@ -211,14 +211,14 @@ export default {
     '--   第 206 行再剪掉「离出生点太远」的 —— 三步组合出「在允许范围内尽量帮忙」的行为。',
     '--   ★ 这是全DST 最值得学的「多圈搜索 + 距离闸」组合拳。',
   ],
-  201: [
+  "FindAnyEntityToWorkActionsOn#1+32": [
     '-- 第一级搜索：自己周围。半径是 LOCAL（小）。',
     '-- ★ 参数顺序：TheSim:FindEntities(x,y,z, 半径, MUST_TAGS, CANT_TAGS, ONE_OF_TAGS)',
     '--   —— 与 FindEntity 不同，第 5 参是排除、第 7 参才是「任一」。',
     '--   ⚠️ 与 braincommon 第 25 行的 FindEntity 参数顺序又不一样，',
     '--     三个搜索函数三种顺序，移植时必须逐个核对，这是本项目最大的坑之一。',
   ],
-  204: [
+  "FindAnyEntityToWorkActionsOn#1+35": [
     '-- ★★ 距离闸门的实现（第 204-209 行）：',
     '--   只算水平距离（dx, dz），不含 y。',
     '--   超过 LOCAL + RADIUS 就不认这个目标。',
@@ -228,22 +228,22 @@ export default {
   ],
 
   // ══════════════ 战斗判定 ══════════════
-  217: [
+  "DanceParty#1": [
     '-- DanceParty：推 dance 事件给实体，由状态图播放舞蹈动画。',
     '-- ★ 与 abigailbrain 第 25 行的 DanceParty 逐字相同 ——',
     '--   这类「推事件让状态图播动画」的小函数被大量复制。',
   ],
-  221: [
+  "ShouldDanceParty#1": [
     '-- ShouldDanceParty：看队长是否在跳舞。',
     '-- ★ 用 sg:HasStateTag("dancing") —— 靠标签而非状态名，解耦状态图内部结构。',
   ],
-  226: [
+  "ShouldAvoidExplosive#1": [
     '-- ★ ShouldAvoidExplosive：躲会爆的东西，但火里烧着的让它烧。',
     '--   第 229 行 target.components.burnable:IsBurning() 时返回 true（该躲）。',
     '--   ★ 语义：如果目标已经在烧（快炸了/正在炸），碎片也应该躲。',
     '--   三条 or 的意思：不是爆炸物，或者没烧，或者在烧。',
   ],
-  232: [
+  "ShouldRunAway#1": [
     '-- ★★★ ShouldRunAway —— 全文件最复杂的逃跑判定，三类敌人三种策略：',
     '-- 【第 233-234 行】目标已死 → 不跑（没必要）',
     '-- 【第 235-240 行】暗影生物 / 噩梦生物：',
@@ -256,7 +256,7 @@ export default {
     '-- 【第 245 行】其他一切 → 跑。',
     '-- ★★ 这是「按敌人类型分派逃跑策略」的完整范例，移植价值很高。',
   ],
-  248: [
+  "ShouldKite#1": [
     '-- ★ ShouldKite：只有「它是我的当前目标」且「它还活着」才风筝。',
     '--   第 249 行 combat:TargetIs(target) —— ★ 比「target ~= nil」更严格：',
     '--     要求 combat 组件的目标确实指向这个实体（别人抢走就不风筝了）。',
@@ -265,13 +265,13 @@ export default {
   ],
 
   // ══════════════ 迷你游戏观战 ══════════════
-  254: [
+  "ShouldWatchMinigame#1": [
     '-- ShouldWatchMinigame 与 WatchingMinigame（第 264 行）成对。',
     '-- ★ 第 257 行的额外条件：「我当前没在打架，或我的目标也是参赛者」。',
     '--   即：与外人打架时不去观战，只有安全时才去看热闹。',
     '-- ★ 这个「优先级让位」的设计在本项目很常见，值得学。',
   ],
-  269: [
+  "WatchingMinigame_MinDist#1": [
     '-- ★ 观看距离三段从 minigame 组件读，且每处都带 or 0 兜底（第 271/275/279 行）。',
     '--   ⚠️ 但找不到小游戏时返回 0 而不是 nil —— 与 mermbrain 第 271 行一致。',
     '--   Follow 拿到距离 0 会怎么处理？未核实 behaviours/follow.lua 的实现，',
@@ -279,7 +279,7 @@ export default {
   ],
 
   // ══════════════ 游荡与自毁 ══════════════
-  282: [
+  "CreateWanderer#1": [
     '-- ★★ CreateWanderer：制造一个「小范围、不跑」的游荡节点。',
     '--   第 286 行连续四个 nil —— ★ 说明 Wander 有至少 9 个位置参数，本文件只传前三个。',
     '--   ⚠️ 大量位置参数 + 连续 nil 是可读性最差的调用形式。',
@@ -287,7 +287,7 @@ export default {
     '--   说明 should_run = false 是刻意的：暗影碎片要显得优雅而非狼狈。',
     '--   ★ 数值本身不影响功能，只影响观感 —— 但作者专门为它写了注释。',
   ],
-  294: [
+  "CreateIdleOblivion#1": [
     '-- ★★★ CreateIdleOblivion —— 「打卡自毁」机制，本文件最独特的设计。',
     '--',
     '-- 【机制】LoopNode{ WaitNode(delay), ActionNode(...) }',
@@ -307,7 +307,7 @@ export default {
     '--   若调用方忘了平方，比较会永远成立/永远不成立。',
     '--   已核对第 436、455 行两处调用都传的是未平方的 TUNING 值，正确。',
   ],
-  309: [
+  "CreateIdleOblivion#1+15": [
     '-- ★★ IsLeaderInCombat —— 「6 秒内打过架就算在战斗」。',
     '--',
     '-- 【★ 三级判定，从确定到推测】',
@@ -325,35 +325,35 @@ export default {
     '--   主人正在打架 → 碎片不送货（送去会被误伤/没意义）。',
     '-- ★ 6 秒的窗口是为了避免「主人一停手碎片就立刻出发」的抖动。',
   ],
-  317: [
+  "IsLeaderInCombat#1+7": [
     '-- ★★ attack_time 取 max(laststartattacktime, lastdoattacktime) —— 保守判定。',
     '--   若只用 laststartattacktime（准备攻击），会出现「举剑未落」就被判为战斗中；',
     '--   若只用 lastdoattacktime，可能漏判刚蓄力的一次。取 max 更安全。',
   ],
 
   // ══════════════ OnStart：公共节点 ══════════════
-  337: [
+  "ShadowWaxwellBrain:OnStart#1": [
     '-- ★★★ OnStart 的前 30 行全是「公共节点」，三种碎片共用。',
     '--   注释原文："Common AI for most of the shadow minions"。',
     '--   ★ 设计：先建公共子树，再按 prefab 拼装。避免重复代码。',
   ],
-  339: [
+  "ShadowWaxwellBrain:OnStart#1+2": [
     '-- watch_game：观战。与 pigbrain 第 297 行的观战节点结构几乎相同。',
   ],
-  346: [
+  "ShadowWaxwellBrain:OnStart#1+9": [
     '-- dance_party：跳舞。优先级最高（注释见第 179 行 pigbrain 同款）。',
   ],
-  352: [
+  "ShadowWaxwellBrain:OnStart#1+15": [
     '-- ★ avoid_explosions 与 avoid_danger 是两个不同节点，用第 353 行的标签参数区分。',
     '--   躲爆炸物：{ fn = ShouldAvoidExplosive, tags = {"explosive"}, notags = {"INLIMBO"} }',
     '--   躲危险：  { fn = ShouldRunAway, oneoftags = {"monster","hostile"}, notags = {...} }',
     '-- ★ 参数表支持的键：fn / tags(AND) / oneoftags(OR) / notags / getfn。',
     '--   ★ 这五种目标指定方式覆盖了全部场景，本文件与 pigbrain 合起来是完整参考。',
   ],
-  353: [
+  "ShadowWaxwellBrain:OnStart#1+16": [
     '-- ★ notags 里的 "companion" 排除友方，"spiderden" 排除蜘蛛巢穴方向（安全区）。',
   ],
-  355: [
+  "ShadowWaxwellBrain:OnStart#1+18": [
     '-- face_player：★ WhileNode 条件只用「有没有主人」，不看敌友。',
     '--   即：只要跟着主人，就一直看着主人附近最近的玩家。',
     '--   ⚠️ 与第 358 行 face_leader（无条件）重复：两者都在 rooth里，',
@@ -362,12 +362,12 @@ export default {
   ],
 
   // ══════════════ OnStart：工匠分支 ══════════════
-  361: [
+  "ShadowWaxwellBrain:OnStart#1+24": [
     '-- ★ root 初始为 nil，按 prefab 重新赋值 —— ★ 说明「不是所有 prefab 都有对应分支」。',
     '--   若 prefab 三个分支都不匹配（第 440 行的 else 兜住了），不会为 nil。',
     '--   ⚠️ 但若 prefab 恰好等于 nil 且不匹配任何条件，仍走 else 兜底，安全。',
   ],
-  362: [
+  "ShadowWaxwellBrain:OnStart#1+25": [
     '-- ★★ 工匠分支。三点设计值得学：',
     '--  第 363-368 行：软锁表挂在主人身上（见第 43 行的详解）',
     '--  第 369 行：★ ShouldPickup 只在「不处于相位移动」时成立',
@@ -376,19 +376,19 @@ export default {
     '--    「主人打架时不送货」是这一分支的核心取舍：',
     '--    与 IsLeaderInCombat（第 310 行）联动。',
   ],
-  369: [
+  "ShouldPickup#1": [
     '-- 相位状态是暗影碎片的移动方式（瞬间消失/出现）。',
     '-- ★ 所有动作都要排除 phasing，否则会出现「传送到一半开始干活」的错位。',
     '--   本文件第 371、398、478、480、482 行都做了这个排除。',
   ],
-  377: [
+  "ShouldDeliver#1+7": [
     '-- pickupparams：拾取参数表，直接传给 braincommon 的通用节点（第 429 行）。',
     '-- ★ 这些参数名与 braincommon 第 566-578 行逐字对应，是标准的「参数化调用」。',
     '-- ★ wholestacks = true：只凑整堆（与 braincommon 第 475 行的实现对应）。',
     '-- ★ positionoverride = GetSpawn：★ 注意这里传的是【函数】而非调用结果，',
     '--   braincommon 第 572 行会识别出函数型并每帧求值（第 581、600 行）。',
   ],
-  389: [
+  "ShouldDeliver#1+19": [
     '-- ★★ 工匠的 root：优先级顺序解读',
     '--  1) dance_party（第 391 行）—— 跳舞，最高',
     '--  2) watch_game（第 392 行）—— 观战',
@@ -401,13 +401,13 @@ export default {
     '-- ★ 守卫包住的是一整个 PriorityNode —— 与 pigelitebrain 第 196 行的',
     '--   「空 ActionNode 占位法」不同，这里是「包裹子树」，功能更完整。',
   ],
-  396: [
+  "ShouldDeliver#1+26": [
     '-- ★ 状态守卫：排除 phasing（第 398 行）与 recoil（第 399 行）。',
     '-- ★ 注释标注为 "<busy state guard>" —— 与 knightbrain 第 329 行、',
     '--   beargerbrain 第 259 行、pigelitebrain 第 196 行同一命名惯例。',
     '--   ★ 这是 DST 全项目的统一命名法，grep 这个字符串能找到所有守卫点。',
   ],
-  404: [
+  "ShouldDeliver#1+34": [
     '-- ★★★ "Keep Working" 节点 —— 一个罕见的技术活。',
     '-- 【第 405-408 行的条件函数有副作用】',
     '--   每帧求值时先把 self.keepworking 置 false，再无条件 return true。',
@@ -430,7 +430,7 @@ export default {
     '--   ★ 这是「大脑与状态图动作协议不匹配」时的补偿代码。',
     '--   ⚠️ 属于典型技术债，但注释已诚实说明，移植时需理解其必要性。',
   ],
-  425: [
+  "ShouldDeliver#1+55": [
     '-- ★ 第 425-426 行的 FailIfSuccessDecorator(ConditionWaitNode(...))：',
     '--   条件 not self.keepworking 为真时成功（结束整个节点），',
     '--   为假则挂起等待 —— ★ 即「还有重复动作要等，就别退出」。',
@@ -438,7 +438,7 @@ export default {
     '-- ⚠️ ConditionWaitNode 里只做判断不产生活动，靠的是「等待」语义。',
     '--   若状态图一直重复工作，这个节点会一直挂着 —— 这是期望行为。',
   ],
-  428: [
+  "ShouldDeliver#1+58": [
     '-- ★ leash 距离 pickupparams.range + 4 —— 「带着战利品追主人」的容忍度。',
     '--   第 431 行注释："This Leash is to stop chasing after leader with loot if they keep moving too far away"。',
     '-- ★ 与第 431 行的低优先级 leash 形成对比：',
@@ -446,20 +446,20 @@ export default {
     '--   第 431 行范围更小（min(8,range)）、优先级更低。',
     '--   ★ 即：带着东西时走远一点没关系，但空闲时别跑太远。',
   ],
-  429: [
+  "ShouldDeliver#1+59": [
     '-- BrainCommon.NodeAssistLeaderPickUps：调用共享的「捡东西送给主人」节点。',
     '-- ★ 一行调用就获得完整的「软锁 + 捡 + 送 + 送不了就丢」行为。',
     '--   这是 braincommon 抽象价值的最直接体现 —— 对比第 43-77 行的软锁代码，',
     '--   这里的复杂逻辑全在 braincommon 里，本文件只需传参数。',
   ],
-  435: [
+  "ShouldDeliver#1+65": [
     '-- ★ ParallelNode：游荡与打卡同时跑。',
     '--   第 436 行的 delay 用 TUNING 里的碎片自毁等待时间。',
     '--   ★ 游荡与「准备消失」并行：一边正常晃悠，一边倒计时。',
   ],
 
   // ══════════════ OnStart：守卫分支 ══════════════
-  440: [
+  "ShouldDeliver#1+70": [
     '-- ★★ 守卫分支 —— 与工匠分支对比可以看清「角色差异 = 优先级表差异」：',
     '--   【工匠有、守卫没有】',
     '--     第 429 行 NodeAssistLeaderPickUps（捡东西送人）',
@@ -474,14 +474,14 @@ export default {
     '--     守卫那句写 "This protector is set to defend an area and then vanish"，',
     '--     ★ 同一个骨架，只换中间那一段 —— 极好的对照阅读材料。',
   ],
-  448: [
+  "ShouldDeliver#1+78": [
     '-- ChaseAndAttack(self.inst) —— 不传任何参数，全用默认值。',
     '-- ★ 与工匠分支对比：守卫的战斗参数完全写死在 behaviours/ 里。',
     '--   意味着守卫的攻击距离/时间不可调。',
     '--   ⚠️ 但守卫分支没引入 avoid_danger —— 它只躲爆炸（第 446 行），',
     '--     不躲普通怪物。对「守卫」这个定位是合理的（它就该站着打）。',
   ],
-  450: [
+  "ShouldDeliver#1+80": [
     '-- ★ 守卫的 leash 用 min(8, DEFEND_RADIUS)：半径不够 8 就用实际半径。',
     '--   ★ 这是「上限截断」手法：min(8, X) 保证 leash 不会超过 8。',
     '--   ★ 与第 454 行的 min(6, ...) 同款。本文件大量使用 min 上限，',
@@ -489,7 +489,7 @@ export default {
   ],
 
   // ══════════════ OnStart：废弃分支 ══════════════
-  458: [
+  "ShouldDeliver#1+88": [
     '-- ★★ 源码自标 DEPRECATED 的兜底分支。',
     '--   注释："Fallback to DEPRECATED thinking."',
     '--   ★ 覆盖 shadowduelist / shadowlumber / shadowminer / shadowdigger 四种。',
@@ -498,25 +498,25 @@ export default {
     '--   ★ 所以严格来说本文件是「两种组织方式并存」：',
     '--     工匠/守卫 = 整棵换；duelist/工种 = 同树内分派。',
   ],
-  464: [
+  "ShouldDeliver#1+94": [
     '-- ★ 条件「主人还在附近」才进入工作区（第 26 行 KEEP_WORKING_DIST=14）。',
     '--   即：主人走远了就只跟随（第 486 行），不再干活。',
     '--   ★ 守卫没有这一层 —— 守卫守的是「地点」不是「主人」。',
   ],
-  469: [
+  "ShouldDeliver#1+99": [
     '-- ★ 决斗者专属：先看能不能风筝，不能则直接打。',
     '--   第 471 行条件：★ 冷却超过 0.5 秒 且 ShouldKite ——',
     '--     即「攻击刚结束（冷却在走）才躲」。不是随时都躲。',
     '--   ★ 这个 0.5 秒的门槛让风筝成为「攻击后的反应」而非「持续行为」，',
     '--     符合风筝的操作节奏：打一下、退一下。',
   ],
-  472: [
+  "ShouldDeliver#1+102": [
     '-- 风筝的 RunAway 用 { fn = ShouldKite, tags = {"_combat","_health"}, notags = {"INLIMBO"} }。',
     '-- ★ tags 里的 _combat/_health 是「组件标签」，DST 用它表达「有战斗和血量组件的东西」。',
     '--   比写具体 prefab 列表健壮得多 —— 新增生物自动兼容。',
     '-- ★ 这是「按组件而非按名字」筛敌的范例，移植价值高。',
   ],
-  478: [
+  "ShouldDeliver#1+108": [
     '-- ★ 三个工种的 IfNode，全部形如：prefab == "X" 且 不 phasing。',
     '--   三者结构完全一致，只是动作不同（CHOP/MINE/DIG）。',
     '--   ★ 正是这种重复促使 Klei 后来写了统一版（第 169 行）。',
@@ -524,17 +524,17 @@ export default {
   ],
 
   // ══════════════ 收尾 ══════════════
-  486: [
+  "ShouldDeliver#1+116": [
     '-- 跟随主人。MIN=0（第 19 行）—— 碎片会贴到主人身上。',
     '-- ★ 优先级在 root 最后（工作区之后）：工作时不跟随，跟不上才跟随。',
   ],
-  492: [
+  "ShouldDeliver#1+122": [
     '-- ★★ 三个分支的共同收尾。三处都有这一行。',
     '--   self.bt = BT(self.inst, root)',
     '-- ★ 与 pigbrain（第 420 行）、knightbrain（第 388 行）完全一致。',
     '--   至此本项目已完成 4 个大脑的验证：「DST 大脑 = 一棵 PriorityNode」成立。',
   ],
-  495: [
+  "ShadowWaxwellBrain:OnInitializationComplete#1": [
     '-- ★★ OnInitializationComplete —— 大脑初始化完成后才执行。',
     '--   第 496-498 行：★ 若实体有 SaveSpawnPoint 方法，',
     '--     就调 SaveSpawnPoint(true)，注释明写 "true: dont_overwrite"。',

@@ -102,7 +102,7 @@ export default {
     '--   但回调函数忘了写（或被删）。',
   ],
 
-  111: [
+  "PlayerHud:CreateOverlays#1": [
     '-- ★【CreateOverlays = 全量重建特效层】',
     '-- 关键设计：函数开头先 KillAllChildren 三个根，然后从头 AddChild。',
     '-- 「重建」而非「增删」—— 因为 CreateOverlays 会被重复调用',
@@ -112,14 +112,14 @@ export default {
     '--   被重置为 0）。这是选择「简单可预测」而非「保留状态」的取舍。',
   ],
 
-  112: [
+  "PlayerHud:CreateOverlays#1+1": [
     '-- ⚠️ 注意这里 Kill 了 under_root，但**没有** Kill overlayroot 之外的两棵',
     '--   根（root / over_root / popupstats_root）—— 因为那些归 Controls 管。',
     '--   也就是说 overlayroot/under_root 完全由本函数拥有，',
     '--   root 及以上由外部（SetMainCharacter 923 行）拥有。',
   ],
 
-  116: [
+  "PlayerHud:CreateOverlays#1+5": [
     '-- 【暗角 vig】AnimateWhilePaused(false)（120 行）是关键：',
     '--   暂停时暗角动画**冻结**，这样暂停菜单打开时背景不会继续闪。',
     '--   对比：Widget 构造默认 UpdateWhilePaused(true)（widget.lua:43）。',
@@ -127,7 +127,7 @@ export default {
     '--   这是一条通用规则：背景特效不该在暂停时动，UI 反馈应该动。',
   ],
 
-  128: [
+  "PlayerHud:CreateOverlays#1+17": [
     '-- drops_vig = 「淋雨时屏幕边缘的水痕」。它是 UI 与玩法的又一个直连：',
     '--   142 行监听 owner 的 moisturedelta（湿度变化）事件来触发。',
     '-- 状态机只有两个：dropsplash（是否正在下雨）与 drops_alpha（0..1 透明度）。',
@@ -135,7 +135,7 @@ export default {
     '--   必须是「先隐藏再淡入」，否则构造完成的第一帧会闪一下水痕。',
   ],
 
-  142: [
+  "PlayerHud:CreateOverlays#1+31": [
     '-- ★【数据 → UI 刷新链路的教科书案例】',
     '-- moisturedelta 事件由 weather/sanity 相关组件推送，数据是 {old, new}。',
     '-- 三个分支的优先级设计值得学：',
@@ -153,7 +153,7 @@ export default {
     '--   读代码时不能相信 self.droptask ~= nil 表示「有任务在跑」。',
   ],
 
-  154: [
+  "PlayerHud:CreateOverlays#1+43": [
     '-- ★ 去抖的标准写法。3 秒是「雨停后水痕再维持 3 秒」的手感参数。',
     '-- ⚠️ 用 DoSimTaskInTime 而非 DoTaskInTime：widget.lua:40-41 显示',
     '--   实例创建时会把这俩替换成 Sim 版本，即 UI 计时器**跟随模拟暂停**。',
@@ -161,7 +161,7 @@ export default {
     '--   在暂停时继续走，必须显式走别的路径。',
   ],
 
-  161: [
+  "PlayerHud:CreateOverlays#1+50": [
     '-- storm_root / storm_overlays 是天气特效的两级容器。',
     '-- 为什么要嵌套两层而不是直接挂：',
     '--   storm_overlays 需要作为一个整体被 gogglesover 引用（189 行），',
@@ -169,7 +169,7 @@ export default {
     '-- → UI 树的层级设计原则：**按「谁引用谁」分层，而不是按「功能」分层**。',
   ],
 
-  182: [
+  "PlayerHud:CreateOverlays#1+71": [
     '-- ⚠️ 条件创建特效的写法：只有 Halloween 活动期才挂 batover。',
     '-- 这带来一个隐患（代码本身已规避）：其它地方若无条件访问 self.batover，',
     '--   非活动期就是 nil。移植时若新增 self.xxxover 的无条件访问，',
@@ -177,7 +177,7 @@ export default {
     '--   应当集中登记，而不是散落在 200 多行里。',
   ],
 
-  209: [
+  "PlayerHud:CreateOverlays#1+98": [
     '-- 云层放在 under_root（在 HUD 之下）：拉远镜头时云在天上、地在下面。',
     '-- 210 行的 GetGameModeProperty("cloudcolour") or {1,1,1}：',
     '--   游戏模式可覆盖云色，缺省白色。',
@@ -186,7 +186,7 @@ export default {
     '--   「初始透明 + 事件驱动淡入」避免了在没拉远镜头时白白付费画一层全屏。',
   ],
 
-  222: [
+  "PlayerHud:CreateOverlays#1+111": [
     '-- 服务器暂停遮罩：一层半透明黑 + FILLSCREEN。',
     '-- ★ 注意它挂在 under_root 而不是 overlayroot：',
     '--   这样遮罩会盖住云层但**盖不住 HUD 本体**，',
@@ -197,7 +197,7 @@ export default {
     '--   忘了同步就会漏掉遮罩。',
   ],
 
-  233: [
+  "PlayerHud:CreateOverlays#1+122": [
     '-- ⚠️【真实的字段复用，可读性陷阱】',
     '--   233 行 self.eventannouncer 指向「根容器」，237 行又把它改指向「内层容器」。',
     '--   于是 self.eventannouncer 最终只代表**内层**那个，根容器句柄丢失。',
@@ -207,7 +207,7 @@ export default {
     '--   一旦有人想给根容器加属性，就必须先读代码确认拿到的是内层。',
   ],
 
-  240: [
+  "PlayerHud:CreateOverlays#1+129": [
     '-- ⚠️ 这里用了全局 ThePlayer.HUD 而不是 self.owner.HUD / self。',
     '--   在分屏（is_split_screen）场景下 ThePlayer 只是其中一个本地玩家，',
     '--   第二个玩家的 HUD 走不到这个分支。',
@@ -217,7 +217,7 @@ export default {
     '--   说明作者知道这个顺序问题，但 240 行没加同样的检查）。',
   ],
 
-  245: [
+  "PlayerHud:OnDestroy#1": [
     '-- 【★ 屏幕销毁钩子】OnDestroy 会被 FrontEnd:PopScreen（frontend.lua:1109）调用。',
     '-- 247 行 TheCamera:PopScreenHOffset(self) 是一个**配对 hack**：',
     '--   giftitempopup.lua:95 在 ApplySkin 里 PushScreenHOffset(self.owner.HUD, ...)，',
@@ -229,7 +229,7 @@ export default {
     '--     重复了 8 次同样的弹调用，全是同一个 hack。',
   ],
 
-  249: [
+  "PlayerHud:OnDestroy#1+4": [
     '-- ★ 销毁时的清理顺序：先让子屏幕自己关嵌套界面，再 Kill，最后置 nil。',
     '-- 250 行 CloseUserCommandPickerScreen 必须**先于** Kill：',
     '--   那是 playerstatusscreen 内部再压的一层屏，',
@@ -239,7 +239,7 @@ export default {
     '--   所以「先清子项再 Kill」这个顺序不能反。',
   ],
 
-  257: [
+  "PlayerHud:OnLoseFocus#1": [
     '-- ══【焦点链：OnLoseFocus 的完整清单】',
     '-- 失焦 = 有别的屏幕压上来了。此时必须把所有「半开着」的东西收干净：',
     '--   261 CloseCrafting / 262 CloseSpellWheel / 264 CloseCommandWheel',
@@ -254,13 +254,13 @@ export default {
     '--   它只恢复 toast/复活按钮的焦点态。因为恢复需要知道之前开过什么。',
   ],
 
-  259: [
+  "PlayerHud:OnLoseFocus#1+2": [
     '-- 失焦时**强制打开**鼠标（与 OnGainFocus 的按需开启相反）。',
     '-- 理由：焦点已经交给别的屏幕了，此时不接管鼠标，',
     '--   就可能出现「界面在但鼠标不可用」的僵死态。',
   ],
 
-  274: [
+  "PlayerHud:OnLoseFocus#1+17": [
     '-- ⚠️ 这里访问 self.controls.hover 与 self.controls.toastitems 时加了',
     '--   `if self.controls ~= nil` 守卫，但 261-269 行的 CloseCrafting 等',
     '--   内部又访问 self.controls.craftingmenu 而没有守卫。',
@@ -269,7 +269,7 @@ export default {
     '--   （player_common.lua:744-751），窗口极窄。这是「靠调用时序侥幸正确」。',
   ],
 
-  287: [
+  "PlayerHud:OnGainFocus#1": [
     '-- ══【OnGainFocus：输入设备的接管点】',
     '-- 核心是一个**互斥决策**：手柄接上就关鼠标，鼠标就用鼠标。',
     '-- 289-290：TheInput:EnableMouse(not controller)。',
@@ -281,7 +281,7 @@ export default {
     '--   手柄切鼠标时则关掉。这是刻意的，但读代码极易看漏。',
   ],
 
-  319: [
+  "PlayerHud:Toggle#1": [
     '-- ★ Toggle 用 shown 标志位而非查询可见性。',
     '--   注意它把 targetindicators 一起切（322-326 / 329-333）——',
     '--   HUD 隐藏时目标指示器也要隐藏，否则会看到「没有 HUD 的世界标记」。',
@@ -291,7 +291,7 @@ export default {
     '--   属于「隐式契约」。',
   ],
 
-  337: [
+  "PlayerHud:Hide#1": [
     '-- ⚠️【Hide 与 Show 不对称】',
     '--   Hide（337）额外做了两件事：关投票界面、关指令选择器；',
     '--   Show（348）只做 self.shown = true + root:Show()。',
@@ -304,7 +304,7 @@ export default {
     '--   如果 SetMainCharacter 之前 Hide 就会崩（见 274 行的同类问题）。',
   ],
 
-  353: [
+  "PlayerHud:GetFirstOpenContainerWidget#1": [
     '-- ⚠️ GetFirstOpenContainerWidget 用 next() 取「任意一个」，不是「第一个」。',
     '--   next 的返回顺序是哈希序，**无保证**。',
     '--   函数名里的 First 有误导性。调用方若依赖它拿到确定的某个容器，',
@@ -315,7 +315,7 @@ export default {
     '--   本函数返回 nil 而不报错——调用方必须处理 nil。',
   ],
 
-  358: [
+  "CloseAllChestContainerWidgets#1": [
     '-- CloseAllChestContainerWidgets 用「父节点是谁」来近似判断「是不是箱子」：',
     '-- 360 行注释直言这是 cheap check。',
     '-- 依据：只有普通箱子才挂在 containerroot 下；背包等挂在别处。',
@@ -324,7 +324,7 @@ export default {
     '--   打开法术轮盘时就会把它误关掉。这类隐式契约应写进注释（作者做了，赞）。',
   ],
 
-  367: [
+  "CloseContainerWidget#1": [
     '-- ⚠️【形参未被使用】function CloseContainerWidget(self, container, side)',
     '--   side 在函数体内一次都没出现。',
     '--   调用点 381 行还把 side 传了进来（CloseContainer → CloseContainerWidget）。',
@@ -332,7 +332,7 @@ export default {
     '--     （361 行）后忘了删。删掉它不影响行为。',
   ],
 
-  375: [
+  "PlayerHud:CloseContainer#1": [
     '-- ★【输入独占的落地：CloseContainer 的手柄分支】',
     '-- 手柄 / 整合背包模式下**不立刻关容器**，只置一个脏标记：',
     '--   379 self.controls.inv.rebuild_pending = true',
@@ -345,7 +345,7 @@ export default {
     '--   写成标记让唯一的重建入口消费，可以从根本上避免状态撕裂。',
   ],
 
-  385: [
+  "OpenContainerWidget#1": [
     '-- ══【★ 挂载点决策：数据驱动的 UI 布局（本文件最值得学的一段）】',
     '-- 同一个 ContainerWidget，根据**容器副本的 type 字段**挂到不同的根上。',
     '-- 392 行的 typefn 支持「按玩家动态决定类型」的容器（如某些随角色变的背包）。',
@@ -362,7 +362,7 @@ export default {
     '--   容器 type 是网络变量，客户端拿到就能决定布局，无需询问服务端。',
   ],
 
-  391: [
+  "OpenContainerWidget#1+6": [
     '-- ⚠️ 391 行先取 _container = container.replica.container，',
     '--   392 行又用 _container.typefn。链式取值 + or 兜底写在一行里，',
     '--   非常紧凑但易错：若 container.replica 本身为 nil 会崩。',
@@ -370,7 +370,7 @@ export default {
     '--   写作规范上建议拆成三行并对 container.replica 加守卫。',
   ],
 
-  403: [
+  "OpenContainerWidget#1+18": [
     '-- ★ AddChild 到选定的父级。★ 但紧接着 409 行又 MoveToBack ——',
     '--   「挂上去但置于最底」，保证新开的箱子不会盖住同级的其它 HUD 元素',
     '--   （比如同层的背包格）。',
@@ -379,7 +379,7 @@ export default {
     '--   MoveToFront/Back 决定 z 序。混淆二者是常见 bug 来源。',
   ],
 
-  411: [
+  "OpenContainerWidget#1+26": [
     '-- ★ self.controls.containers[container] = containerwidget：',
     '--   **用容器实体当键**建立反查表。后续 CloseContainerWidget（368 行）',
     '--   就是遍历它按 container 反查 widget。',
@@ -391,7 +391,7 @@ export default {
     '--   彻底解法是监听容器的 onremove 事件主动 RemoveField。',
   ],
 
-  414: [
+  "OpenContainerWidget#1+29": [
     '-- 只有挂在「普通箱子位」的容器才关法术轮盘。',
     '-- 因为法术轮盘是径向菜单，箱子窗口会挡住它的可读区域；',
     '-- 而背包/侧栏容器不挡（轮盘画在它们旁边）。',
@@ -399,7 +399,7 @@ export default {
     '--   而不是无脑互斥。这是 UI 层级设计里最需要想清楚的部分。',
   ],
 
-  429: [
+  "PlayerHud:RemoveDressupWidget#1": [
     '-- ⚠️【字段名拼写：dressupAvatarPopUpcreen，缺了一个 s】',
     '--   正确应为 dressupAvatarPopUpScreen 或 dressupAvatarPopupScreen。',
     '--   已核实：本文件内 8 处（430/431/432/437/438/439/711/712/713）',
@@ -413,7 +413,7 @@ export default {
     '--     典型地容易漏。移植时建议收进一个专用管理器。',
   ],
 
-  436: [
+  "PlayerHud:TogglePlayerInfoPopup#1": [
     '-- TogglePlayerInfoPopup：换装预览与普通信息面板**互斥**。',
     '-- ★ 用 if/elseif 而非两个独立 if —— 保证同一时刻只有一个存在。',
     '-- ⚠️ 440 行 `elseif self.OpenPlayerInfoScreen ~= nil` 是个**真缺陷**：',
@@ -430,7 +430,7 @@ export default {
     '--   playerinfopopupscreen.lua:189 也在用它，调用方存在，不是死代码。',
   ],
 
-  447: [
+  "PlayerHud:ShowEndOfMatchPopup#1": [
     '-- ShowEndOfMatchPopup 里的延迟是**演出节奏**不是性能考虑：',
     '-- 448 行 `data.victory and 2.5 or 0` —— 赢了等 2.5 秒（让胜利演出演完），',
     '--   输了立刻弹。',
@@ -441,7 +441,7 @@ export default {
     '--   若 endofmatch 事件重复触发，第二次调用什么都不会发生。',
   ],
 
-  460: [
+  "PlayerHud:OpenScreenUnderPause#1": [
     '-- ══★【屏幕栈：本文件最重要的架构决策点】',
     '-- 同一个「打开弹窗」动作，在暂停与未暂停下走**两条不同的栈操作**：',
     '--   461-462 暂停屏已开 → InsertScreenUnderTop（插到栈顶「下面」）',
@@ -457,7 +457,7 @@ export default {
     '--   屏名一改这里就静默失效。',
   ],
 
-  468: [
+  "PlayerHud:OpenItemManagerScreen#1": [
     '-- ══★【跨屏数据传递的「最近礼物」机制】',
     '-- 打开礼物弹窗 → 拆包 → ApplySkin（giftitempopup.lua:92-98）→',
     '--   立刻 PushScreen 衣柜弹窗，并把 item_types/item_ids 存进 HUD 的',
@@ -472,7 +472,7 @@ export default {
     '-- ⚠️ 470 行的 PopScreenHOffset 是 247 行那个 hack 的第三次出现。',
   ],
 
-  486: [
+  "OnClearRecentGifts#1": [
     '-- ⚠️ DoTaskInTime(0, ...) 不是「立刻执行」，而是**下一帧**执行。',
     '--   为什么要延后一帧：PopScreen（500 行）会同步触发 giftitempopup 的',
     '--   OnDestroy → SetAutopaused(false)。若在同帧清 recentgifts，',
@@ -483,7 +483,7 @@ export default {
     '--   是为了让 495 行能保存任务句柄并在 839 行 Cancel 它。',
   ],
 
-  506: [
+  "PlayerHud:OpenWardrobeScreen#1": [
     '-- ══★【OpenWardrobeScreen：屏幕栈编排的完整样板】',
     '-- 固定五步，文件里 20 多对 Open*/Close* 全是这个模板：',
     '--   1) 508 弹镜头偏移（配对 hack）',
@@ -497,7 +497,7 @@ export default {
     '--   地图 UI 只在客户端有，服务端进这个分支会访问 nil 的 controls。',
   ],
 
-  543: [
+  "PlayerHud:CloseWardrobeScreen#1": [
     '-- ══★【延迟重试：一个真实存在的「屏打架」处理】',
     '-- 548 行判断当前栈顶不是 "ItemServerContactPopup"，否则：',
     '--   560-562 延迟 0.2 秒**再试一次**（递归调用自己）。',
@@ -513,14 +513,14 @@ export default {
     '-- 同一模板在 599/653 行重复两次。',
   ],
 
-  843: [
+  "PlayerHud:ClearRecentGifts#1+5": [
     '-- ⚠️【ClearRecentGifts 与 SetRecentGifts（829 行）几乎逐字相同】',
     '--   唯一差别是 834 赋 recentgifts vs 843 赋 nil。',
     '--   抽成一个 `ClearRecentGifts(keep)` 能省一半，',
     '--   但两份分开写的好处是「意图显式」，不算缺陷，只是冗余。',
   ],
 
-  846: [
+  "PlayerHud:RefreshControllers#1": [
     '-- ══★【RefreshControllers：输入设备热切换的完整事务】',
     '-- 触发源是 continuefrompause（85 行）—— 玩家从暂停恢复时重算。',
     '-- 848-850 手柄模式下停掉鼠标追踪（否则鼠标会乱飘）。',
@@ -537,14 +537,14 @@ export default {
     '--   靠 ActivateHUD 的时序（SetMainCharacter 必在 PushScreen 之后）保证不崩。',
   ],
 
-  873: [
+  "PlayerHud:RefreshControllers#1+27": [
     '-- ★ 重建背包之后还要通知合成菜单 —— 因为手柄合成菜单的',
     '--   焦点链依赖背包控件是否存在。',
     '--   → 「重建一个控件」必须显式通知所有持有它引用的模块。',
     '--     DST 没有依赖注入，全靠手工调。漏掉就是「手柄切过去合成菜单失灵」。',
   ],
 
-  875: [
+  "PlayerHud:RefreshControllers#1+29": [
     '-- ★ 缓存 Profile 值的变化检测（_CraftingHintAllRecipesEnabled）。',
     '-- 920 行在 SetMainCharacter 里初始化这个缓存。',
     '-- → 【数据 → UI 刷新链路】Profile 是客户端本地设置（不走网络），',
@@ -554,7 +554,7 @@ export default {
     '--   放进每帧路径要注意开销。这里是事件驱动所以没问题。',
   ],
 
-  882: [
+  "PlayerHud:ShowWriteableWidget#1": [
     '-- ══★【顺序陷阱：SetEditing 必须在 PushScreen 之后】',
     '-- 887 行先入栈，890 行才 SetEditing(true)。887 行的注释明说原因。',
     '-- 推测的真实原因：PushScreen 内部（frontend.lua:992-994）会调',
@@ -567,7 +567,7 @@ export default {
     '--   TheInputProxy:FlushInput()（清空输入队列）是同一类问题。',
   ],
 
-  903: [
+  "PlayerHud:GoSane#1": [
     '-- GoSane/GoInsane/GoEnlightened 三个方法体完全同构，',
     '-- 只是 PlayAnimation 的参数不同。',
     '-- ★ 它们是 925-927 行三个事件的回调 —— 「玩法事件 → 界面动画」的最短链路。',
@@ -577,7 +577,7 @@ export default {
     '--   说明作者意识到「首帧状态要对齐」的问题。',
   ],
 
-  915: [
+  "PlayerHud:SetMainCharacter#1": [
     '-- ══★【SetMainCharacter = HUD 的真正初始化入口】',
     '-- 构造函数（67 行）只建五棵空根；一切内容都在这里挂上去。',
     '-- 拆分的好处：**构造函数可以在没有玩家实体的情况下跑**',
@@ -590,12 +590,12 @@ export default {
     '--   之后任何地方都能 owner.HUD 拿回 HUD（本文档大量使用这个反向引用）。',
   ],
 
-  920: [
+  "PlayerHud:SetMainCharacter#1+5": [
     '-- 缓存 Profile 值，供 RefreshControllers（875 行）比对。',
     '-- 放在这里而不是构造函数：因为要等 owner 就位才有意义。',
   ],
 
-  925: [
+  "PlayerHud:SetMainCharacter#1+10": [
     '-- ★ 三个 sanity 事件监听。注意第三个参数是 self.owner（玩家实体），',
     '--   不是 TheWorld —— 事件由玩家自己 Push。',
     '-- 928-932 newactiveitem 的回调体看起来绕：',
@@ -603,7 +603,7 @@ export default {
     '--   即「拿起新物品 → 关掉旧法术轮盘」。合理。',
   ],
 
-  934: [
+  "PlayerHud:SetMainCharacter#1+19": [
     '-- ★ 首帧状态对齐：HUD 是延迟创建的，若玩家在创建前就已经疯/ enlightenment，',
     '--   光等事件会漏掉这一次。',
     '--   → 「事件驱动 UI」必须配一个「创建时读当前值」的对齐点，',
@@ -612,7 +612,7 @@ export default {
     '--   证明理智值是**网络同步到客户端**的 —— UI 可以直接判定，无需问服务器。',
   ],
 
-  942: [
+  "PlayerHud:SetMainCharacter#1+27": [
     '-- 换主角时重开背包容器窗。',
     '-- ⚠️ 三重 and/or 兜底：maincharacter.replica.inventory 本身可能 nil',
     '--   （角色未完全加载），replica.inventory 可能 nil，',
@@ -620,7 +620,7 @@ export default {
     '-- → ★ UI 初始化期读副本的标准兜底范式，抄。',
   ],
 
-  966: [
+  "PlayerHud:OnUpdate#1": [
     '-- ══★【OnUpdate：每帧路径的三个纪律】',
     '-- 本函数每帧执行，因此：',
     '-- 1) 967 行每个分支都要 nil 检查（Profile / vig / controls 可能未就绪）',
@@ -632,7 +632,7 @@ export default {
     '--   若换成「每帧遍历 100 个子控件找变化」就会成为性能热点。',
   ],
 
-  976: [
+  "PlayerHud:OnUpdate#1+10": [
     '-- CAN_USE_DBUI：调试 UI 总开关。',
     '-- 历史录制指示器 978-989 行：启→建、关→Kill 并置 nil。',
     '-- ⚠️ 987 行 `self.controls.historyrecordingindicator.inst.widget:Kill()`',
@@ -643,7 +643,7 @@ export default {
     '--   说明这个开关没有事件可订阅，只能轮询。',
   ],
 
-  992: [
+  "PlayerHud:OnUpdate#1+26": [
     '-- ★ 无敌模式指示器：随机戴一顶帽子（999 行 GetRandomItem）。',
     '-- 这是纯本地开发便利功能，CHEATS_ENABLED 为假时整段不编译。',
     '-- 1010-1014 关闭时先播 death 动画，1.5 秒后才 Kill ——',
@@ -651,7 +651,7 @@ export default {
     '-- ⚠️ 1012 行 `inst.widget:Kill()` 同 987 行，是冗余的绕路写法。',
   ],
 
-  1021: [
+  "PlayerHud:OnUpdate#1+55": [
     '-- ══★【OnUpdate 里的「焦点失效」检测 —— 焦点链的关键一环】',
     '-- 法术轮盘打开期间，每帧检查书是否还「可用」：',
     '--   1024 实体已失效（被烧掉/卸载）',
@@ -669,7 +669,7 @@ export default {
     '--   这两个是互斥分支而非「都要检查」，逻辑正确但极易看漏。',
   ],
 
-  1043: [
+  "PlayerHud:HideControllerCrafting#1": [
     '-- HideControllerCrafting/ShowControllerCrafting 用 MoveTo 滑出/滑入 200 像素。',
     '-- ⚠️ -200 是**魔法数字**，且 1048 行是 0 —— 两者必须成对且数值匹配，',
     '--   但没有任何断言保证它们一致。移植时改成同一个常量更安全。',
@@ -677,7 +677,7 @@ export default {
     '--   不会因为 Hide 触发 OnLoseFocus 链。',
   ],
 
-  1053: [
+  "PlayerHud:OpenControllerInventory#1": [
     '-- ══★【OpenControllerInventory：输入独占的手柄版】',
     '-- 1055 StopTrackingMouse —— 与 849 行同样的「手柄接管鼠标」动作，',
     '--   但这里是在打开动作里做的。',
@@ -693,7 +693,7 @@ export default {
     '--     但这个安全性是隐式的、依赖实现的。',
   ],
 
-  1081: [
+  "PlayerHud:HasInputFocus#1": [
     '-- ══★★【模态与输入独占的总闸 —— 本文件最该学的一段】',
     '-- 注释已经说了原理：HUD 永远在栈里，所以「栈顶不是我」就等于「我锁输入」。',
     '-- 逐项拆解五个 or 分支：',
@@ -715,7 +715,7 @@ export default {
     '--   官方自己不用，模组作者靠它实现自定义弹窗的模态。',
   ],
 
-  1101: [
+  "PlayerHud:SetModFocus#1": [
     '-- ══★【modfocus：给模组的两级焦点租约表】',
     '-- 结构：modfocus[modname][focusid] = true。',
     '-- ★ 1110-1117 的「逐级回收」是精髓：',
@@ -733,7 +733,7 @@ export default {
     '--   申请两次释放一次就彻底失去焦点。模组作者需自行保证配对。',
   ],
 
-  1121: [
+  "PlayerHud:IsControllerInventoryOpen#1": [
     '-- ★ 下面 1121-1188 是一整组「Is*Open」谓词。',
     '-- 两种写法并存，注意区分：',
     '--   A 型（1121-1148）：查 self.controls 下的子控件状态，需要 nil 守卫',
@@ -759,7 +759,7 @@ export default {
     '--   且该面板主要在鼠标下用（点黑底关闭，见 playerinfopopupscreen.lua:30）。',
   ],
 
-  1150: [
+  "PlayerHud:IsPauseScreenOpen#1": [
     '-- ⚠️ B 型谓词全部用**字符串比较**判屏：`active_screen.name == "PauseScreen"`。',
     '-- Screen 的 name 来自构造第一个参数（68 行 Screen._ctor(self, "HUD")）。',
     '-- 全库共 9 个这样的比较（1150-1188）。',
@@ -772,7 +772,7 @@ export default {
     '--   若同一个屏被压了两个（虽然各处都做了先关后开），这里只会看到最上面那个。',
   ],
 
-  1201: [
+  "PlayerHud:OpenCrafting#1": [
     '-- OpenCrafting 的三重前置条件：',
     '--   1202 没开着 + 1202 craftingshown（HUD 里确实有合成栏）+ 游戏模式没禁',
     '-- ★ 注意 game mode property 的作用：no_crafting 让竞技类模式直接砍掉合成。',
@@ -781,7 +781,7 @@ export default {
     '-- ⚠️ 1202 行 self.controls.craftingshown 无 nil 守卫。',
   ],
 
-  1240: [
+  "PlayerHud:OpenSpellWheel#1": [
     '-- ══★【OpenSpellWheel：径向菜单的数据 → 视图转换】',
     '-- 这是「客户端就地改造数据再交给通用控件」的典范：',
     '-- 1247 itemscpy = shallowcopy(v) —— 先浅拷贝，不改原数据',
@@ -802,7 +802,7 @@ export default {
     '--   同时同步 items 与 itemscpy 的 selected —— 两份都要改。',
   ],
 
-  1284: [
+  "PlayerHud:OpenSpellWheel#1+44": [
     '-- ⚠️ 注释明说用 GetProportionalHUDScale() 而非 GetHUDScale()，',
     '--   因为父级已经是 SCALEMODE_PROPORTIONAL。',
     '-- → ★ 缩放不能连乘：父级已按比例缩放，控件再乘一次 HUD 缩放就变成平方，',
@@ -811,7 +811,7 @@ export default {
     '--   （GetHierarchicalScale 在 scrollablelist.lua:434 就是干这个的）',
   ],
 
-  1288: [
+  "PlayerHud:OpenSpellWheel#1+48": [
     '-- 1288-1298 给轮盘加一个可配置的背景（不同法术书用不同底图）。',
     '-- 1296 MoveToBack —— 背景必须在轮盘按钮**之下**，',
     '-- 又一次印证「层级归属(AddChild)与 z 序(MoveToBack)是两件事」。',
@@ -824,7 +824,7 @@ export default {
     '--   所以不会发生。',
   ],
 
-  1300: [
+  "PlayerHud:OpenSpellWheel#1+60": [
     '-- ★ 1300-1305 是「打开新对象前先通知旧对象离开」的配对模式：',
     '--   old 收到 closespellwheel，新对象收到 openspellwheel。',
     '--   → 领域对象（法术书）通过这两个事件自己管理附属 UI',
@@ -834,7 +834,7 @@ export default {
     '--   正确写法其实应是 local old = ... 提到 1284 之前，可读性更好。',
   ],
 
-  1343: [
+  "PlayerHud:OpenCommandWheel#1": [
     '-- ══★【OpenCommandWheel：唯一会「自动暂停游戏」的 UI】',
     '-- 1372-1374：若 Profile 允许（即用户不想自动暂停），SetAutopaused(true)。',
     '-- → ★★★ 这是「UI 反向操纵模拟」的少见但重要的例子：',
@@ -852,7 +852,7 @@ export default {
     '--   语义：幽灵玩家 + 分屏 → 改开状态屏而不是指令轮盘。',
   ],
 
-  1349: [
+  "PlayerHud:OpenCommandWheel#1+6": [
     '-- ★ 1351 行的「脏判定重建」是本文件第二次出现这个模式：',
     '--   只在「能否邀请」或「是否骑乘」变化时才重建整个指令轮盘。',
     '--   重建成本高（几十个按钮），所以必须精确到「只有影响布局的因素」。',
@@ -860,7 +860,7 @@ export default {
     '--   一个重建背包，一个重建指令轮盘。',
   ],
 
-  1365: [
+  "PlayerHud:OpenCommandWheel#1+22": [
     '-- ★★ 打开指令轮盘时显式 Disable 背包与合成菜单 ——',
     '--   这是**第二种模态机制**，与 HasInputFocus 的「声明式」并存的',
     '--   「命令式」做法。',
@@ -873,7 +873,7 @@ export default {
     '--   CloseCommandWheel（1386-1387）对称 Enable —— 这一对是配对的。',
   ],
 
-  1393: [
+  "PlayerHud:ShowPlayerStatusScreen#1": [
     '-- ══★【Screen 实例缓存：ShowPlayerStatusScreen 的复用模式】',
     '-- 1394-1396：只在第一次创建 Screen 实例，之后复用同一对象。',
     '-- → ★★★ 与 PushScreen/PopScreen 语义强相关：',
@@ -891,7 +891,7 @@ export default {
     '--   可变状态必须在每次显示前重置 —— 复用即要求「状态在 Open 里全量初始化」。',
   ],
 
-  1404: [
+  "PlayerHud:InspectSelf#1": [
     '-- ══★【InspectSelf：三重守卫 + 「不追踪自己」的注释】',
     '-- 1405-1408 三条与：可见 + 玩家控制器启用 + 无人机面板没开。',
     '-- 1409 用 TheNet:GetClientTableForUser 取**客户端连接表**里的名字，',
@@ -902,7 +902,7 @@ export default {
     '--   后人「顺手补上 self.owner」会破坏它的设计意图。',
   ],
 
-  1418: [
+  "PlayerHud:OnControl#1": [
     '-- ══★★【OnControl：本文件的输入路由总表 —— 最该精读的一段】',
     '-- 结构分五段，每段都有明确的「放弃所有权」语义：',
     '--',
@@ -933,7 +933,7 @@ export default {
     '--   重构建议：拆成 5 个独立函数，各自 return。',
   ],
 
-  1427: [
+  "PlayerHud:OnControl#1+9": [
     '-- ★ 玩家控制器的「忽略此键」裁决。',
     '--   → UI 与玩法的边界不只在 frontend，**玩法侧也有否决权**。',
     '--   例如拉杆推箱子时，方向键归玩法；开界面时归 UI。',
@@ -944,7 +944,7 @@ export default {
     '--   实践中 HUD 隐藏只发生在切场景，此时世界交互本就不该发生。',
   ],
 
-  1432: [
+  "PlayerHud:OnControl#1+14": [
     '-- CONTROL_INSPECT 的三级与判定，顺序即优先级：',
     '--   1433-1437 已开信息面板 → 切换（关闭）；',
     '--     ⚠️ 因 1196 行的字段名缺陷，IsPlayerInfoPopUpOpen 恒假，',
@@ -956,7 +956,7 @@ export default {
     '-- → 手柄/鼠标两套交互的仲裁点，与 1090 行的手柄模态判断呼应。',
   ],
 
-  1453: [
+  "PlayerHud:OnControl#1+35": [
     '-- ══★【CONTROL_PAUSE 的双路径：手柄 vs 鼠标】',
     '-- 1454-1461 手柄：取消 AOE 选中 → 关三个面板 → 压 PauseScreen。',
     '--   **总是**压暂停屏（不检查是否已开）。',
@@ -972,14 +972,14 @@ export default {
     '--   而鼠标下会先关合成菜单。这是手柄/鼠标的行为差异（疑似不一致）。',
   ],
 
-  1486: [
+  "PlayerHud:OnControl#1+68": [
     '-- 「都没关掉」才压暂停屏。1487 行 PushScreen(PauseScreen()) 无参 ——',
     '--   PauseScreen 自己会去 owner.HUD 找数据。',
     '-- ★ 1490 行无条件 return true：无论是否压了暂停屏，这个键都被 HUD 消费，',
     '--   不会穿透到世界去触发别的暂停逻辑。',
   ],
 
-  1506: [
+  "PlayerHud:OnControl#1+88": [
     '-- ══★★【段4：焦点外控件的事件探测（V2C 自承认的 hack）】',
     '-- 1506 行注释直白：作者也不确定为什么要这么写。',
     '-- 机制：CheckControl 是「按这个键并返回是否处理」的探测接口，',
@@ -995,7 +995,7 @@ export default {
     '--   → 控件必须自己处理 down/up 配对，否则会双触发。',
   ],
 
-  1514: [
+  "PlayerHud:OnControl#1+96": [
     '-- ★ 1514 的 `elseif not down` 把「仅松开」的大批全局键绑定与段4 分开。',
     '-- 这些键（地图、指令轮、聊天、合成、物品栏）都是「松开时响应」，',
     '-- 目的是让长按/连按不重复触发。',
@@ -1010,7 +1010,7 @@ export default {
     '--     否则会出现「一按就开、一松就关」的抖动。',
   ],
 
-  1532: [
+  "PlayerHud:OnControl#1+114": [
     '-- ══★【手柄取消键的「逐层关闭」链】',
     '-- 与 1463 的鼠标 closed 标志同构，但只在手柄下生效。',
     '-- 关闭顺序：合成 → 法术轮（不关，注释解释）→ 控制器背包 → 无人机面板',
@@ -1023,7 +1023,7 @@ export default {
     '--     那就重新引入 1537 注释里描述的 bug。',
   ],
 
-  1601: [
+  "PlayerHud:OnControl#1+183": [
     '-- ★ 物品栏热键用**区间比较**而不是查表：',
     '--   1601 control >= CONTROL_INV_1 and control <= CONTROL_INV_10',
     '--   1605 hot_key_num = control - CONTROL_INV_1 + 1',
@@ -1038,7 +1038,7 @@ export default {
     '--   → 说明 DST 的合成图钉上限是 10，与背包 15 格不一致，是硬编码约束。',
   ],
 
-  1633: [
+  "PlayerHud:OnRawKey#1": [
     '-- OnRawKey 是**空实现**，只有注释。',
     '-- 1637-1639 的注释极有价值：它列出了「要让玩家能改键，',
     '--   就必须同步修改的全部文件清单」（strings / constants / playerhud /',
@@ -1049,7 +1049,7 @@ export default {
     '--   （注释明说「maybe a mod already hooked it」）。',
   ],
 
-  1642: [
+  "PlayerHud:OnRawKey#1+9": [
     '-- ══★【UpdateDrops：帧率无关性的反面教材（值得注意的设计取舍）】',
     '-- 1642-1643 两个速率常量：上升 0.01/帧，下降 0.05/帧。',
     '-- ⚠️⚠️ 这是**按帧**而非按时间递增的：',
@@ -1067,7 +1067,7 @@ export default {
     '--   除非你明确接受「效果随帧率变化」。',
   ],
 
-  1672: [
+  "PlayerHud:UpdateClouds#1": [
     '-- ══★【UpdateClouds：镜头距离驱动的全屏效果】',
     '-- 1673 行注释自嘲「这是个奇怪的位置，但这个动画确实是 HUD 资源」。',
     '-- 1675 把镜头距离归一化到 0..1（mindist..maxdist），',
@@ -1089,7 +1089,7 @@ export default {
     '--   而 dollyzoom（特殊镜头）时也不画云。',
   ],
 
-  1698: [
+  "PlayerHud:AddTargetIndicator#1": [
     '-- 目标指示器：世界中被标记的实体上方显示的箭头/名字。',
     '-- 挂 under_root（1703 行）→ 画在 HUD 之下但在地形之上。',
     '-- ★ 1704 用 table.insert 存进数组，但 1707/1718 行用 pairs 遍历 ——',
@@ -1100,7 +1100,7 @@ export default {
     '--   说明作者确实预期过 nil 元素存在 → 与 pairs 的用法自洽。',
   ],
 
-  1707: [
+  "PlayerHud:HasTargetIndicator#1": [
     '-- HasTargetIndicator 与 RemoveTargetIndicator 都先判 `if not self.targetindicators then return end`。',
     '-- ★ 这是本文件里少见的**早返回保护**：1699 行是惰性创建（首次 Add 才建表），',
     '--   而这里是防御性读取。两种风格并存。',
@@ -1109,7 +1109,7 @@ export default {
     '--   1707 的调用方（1715 等）都用条件判断，安全。',
   ],
 
-  1734: [
+  "PlayerHud:ShowPopupNumber#1": [
     '-- ══★【一次性特效的「建了就扔」范式】',
     '-- 1734-1736 ShowPopupNumber：直接 AddChild，不保存句柄。',
     '--   PopupNumber 自己负责动画播完后 Kill 自己。',
@@ -1123,7 +1123,7 @@ export default {
     '--   DST 靠「飘字频率不高」容忍了它。做自研游戏应上对象池。',
   ],
 
-  1738: [
+  "PlayerHud:ShowRingMeter#1": [
     '-- 1739-1741 惰性创建 + 缓存；1746 的 HideRingMeter 在 1753 把句柄置 nil，',
     '-- 下一帧又会新建。',
     '-- ⚠️ 这意味着 ringmeter 的「淡出动画」期间（1749/1751 传了 duration），',
@@ -1133,14 +1133,14 @@ export default {
     '--   正确写法是淡出完成后再置 nil，或淡出期间复用同一实例。',
   ],
 
-  1746: [
+  "PlayerHud:HideRingMeter#1": [
     '-- success 决定 FlashOut（成功金光）还是 FadeOut（普通淡出）——',
     '-- 同一次挖掘/成功的两种反馈。',
     '-- 「把结果语义传进动画选择」是 UI 反馈设计的基本功：',
     '-- 同一个动作，成功与失败必须视觉可区分。',
   ],
 
-  1757: [
+  "PlayerHud:SetServerPaused#1": [
     '-- SetServerPaused 双向：paused 且用户没开「隐藏暂停遮罩」才显示。',
     '-- ★ 1763 行无论显示与否都更新 self.serverpaused ——',
     '--   这个**状态**与**视觉表现**必须分开：',
@@ -1149,7 +1149,7 @@ export default {
     '-- → 「状态」与「该状态的视觉呈现」分离，UI 代码里反复出现这个原则。',
   ],
 
-  1777: [
+  "PlayerHud:ShowUpgradeModuleWidget#1": [
     '-- ══★【UpgradeModulesDisplay_Inspecting：HUD 内的「子界面」】',
     '-- 注意 1780 行：它**不是** Screen，而是 AddChild 到 controls.right_root。',
     '-- → ★★★ 这是屏幕栈之外的第三种界面形态：**嵌入式面板**。',
@@ -1167,7 +1167,7 @@ export default {
     '--   「借用了别人的地盘就必须记得还回去」，且这个约定只存在于两行代码里。',
   ],
 
-  1793: [
+  "PlayerHud:TryStopInspectingModules#1": [
     '-- ══★【TryStopInspectingModules：三态返回 —— 本文件最精巧的接口】',
     '-- 返回值有三种含义：',
     '--   true  = 确实关掉了升级模块面板（调用方应消费这个键）',
@@ -1188,7 +1188,7 @@ export default {
     '--   grep 本文件无第三处调用点 → 疑似死参数（可能供模组使用）。',
   ],
 
-  1807: [
+  "PlayerHud:TryStopInspectingModules#1+14": [
     '-- 1807 行的注释再次示范了「写清为什么」的价值：',
     '-- 客户端没有服务端的状态机，只能靠轮询 UI 对象来获取同类信息。',
     '-- → ★★★ 副本机制的根本限制：**客户端可以读状态但不能算状态**。',

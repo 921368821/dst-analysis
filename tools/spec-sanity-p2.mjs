@@ -4,46 +4,46 @@
 
 export const BEFORE = {
   // ============ 光环免疫 ============
-  213: [
+  "Sanity:AddSanityAuraImmunity#1": [
     "--【按标签的部分光环免疫 ——懒初始化 + 两级收缩】",
     "--   与 :110 的「全免疫」不同，这里是「只免疫带某个 tag 的光环」，",
     "--   典型需求：Wendy 只免疫「幽灵」类光环，但帽子带来的正面光环照吃。",
   ],
-  214: [
+  "Sanity:AddSanityAuraImmunity#1+1": [
     "--   ★ 两级懒初始化：整张表不存在时才建；某个 tag 的 SourceModifierList",
     "--     也不存在时才建。绝大多数实体一生都不会用到，所以必须懒。",
   ],
-  220: [
+  "Sanity:AddSanityAuraImmunity#1+7": [
     "--   首次为该 tag 创建免疫列表。参数 (inst, false, boolean) 分别是：",
     "--     inst —— 归属实体（SourceModifierList 需要它来触发事件）；",
     "--     false —— 初值为「无免疫」；",
     "--     boolean —— 取值模式：多个来源做「或」运算，全移除才回false。",
   ],
-  224: [
+  "Sanity:AddSanityAuraImmunity#1+11": [
     "--   source or self.inst：允许外部指定「谁提供的免疫」，",
     "--     不指定就记在实体自己名下。",
   ],
-  227: [
+  "Sanity:RemoveSanityAuraImmunity#1": [
     "--   Remove 的对称实现，同样做两级收缩（:232-237）。",
     "--   ★ 注意它是**在 RemoveSanityAuraImmunity 时清理**，",
     "--     而 Recalc 里（:552-564）也有一份相同的清理逻辑——",
     "--     那里是因为实体的 tag 可能被外部改掉，必须每帧重新校验。",
   ],
-  242: [
+  "Sanity:SetFullAuraImmunity#1": [
     "--下面四个是「一次性开关」式免疫，接口刻意做成对称的SetXxxImmunity：",
     "--   之所以不合并成一个带枚举参数的函数，是为了调用处可读性——",
     "--     SetLightDrainImmune 比 SetImmunity(IMMUNITY_LIGHT_DRAIN) 直观得多。",
   ],
-  250: [
+  "Sanity:SetPlayerGhostImmunity#1": [
     "--   SetPlayerGhostImmunity：屏蔽幽灵玩家惩罚（配合 RecalcGhostDrain :457）。",
   ],
-  254: [
+  "Sanity:SetLightDrainImmune#1": [
     "--   SetLightDrainImmune：屏蔽光照衰减（配合 Recalc :531）。",
     "--   ★ 注意屏蔽的是「光照这一项」，潮湿惩罚（:526）与体面度回血仍然生效。",
   ],
 
   // ============ 存档 ============
-  258: [
+  "Sanity:OnSave#1": [
     "--【★ OnSave：只存三样东西，且刻意「少存」】",
     "--   存：current（当前理智）、sane（是否正常）、mode（疯狂/开悟）。",
     "--   ★ 不存：penalty / inducedinsanity / inducedlunacy / dapperness / 所有修饰器。",
@@ -53,7 +53,7 @@ export const BEFORE = {
     "--     ★ 这是组件存档的通用原则：**只存不可推导的内部状态**。",
     "--     参见 hunger.lua:177 的同类取舍（那里更进一步，满值时存 nil）。",
   ],
-  267: [
+  "Sanity:OnLoad#1": [
     "--【OnLoad：注意「赋值顺序」与「不触发 setter」】",
     "--   ★ 关键：这里直接写 self.sane / self.current，",
     "--     由于 Class 属性表（:126）会拦截赋值，**其实会触发 setter**——",
@@ -66,18 +66,18 @@ export const BEFORE = {
     "--     推理依据：onsane → _replica_setissane(... self.mode ...) 要求 mode 正确。",
     "--     实际影响：几乎为零——OnLoad 里 current 与 sane 通常成对存在。",
   ],
-  272: [
+  "Sanity:OnLoad#1+5": [
     "--   mode 的默认值 0 即 SANITY_MODE_INSANITY（constants.lua:1234）。",
     "--   ★ 同样是靠「0 是真值」的反直觉性：这里用 `or 0` 兜底是因为",
     "--     mode 为 nil 时才走默认，而 nil 才是假值。",
   ],
-  276: [
+  "Sanity:OnLoad#1+9": [
     "--   借 DoDelta(0) 触发一次 sanitydelta 事件，",
     "--     让 UI/音效在读档后立刻同步，而不是等下一帧 Recalc。",
   ],
 
   // ============ 百分比家族 ============
-  280: [
+  "Sanity:GetPenaltyPercent#1": [
     "--【★★百分比家族：四个函数，两两成对，是本文件最易误用的 API】",
     "--",
     "--   GetRealPercent()        = current / max",
@@ -101,50 +101,50 @@ export const BEFORE = {
     "--   ⚠ 四个函数对 forced 标志的处理各不相同（两个无视、两个覆盖），",
     "--     这不是疏漏而是各有用处，但调用方必须清楚选哪个。",
   ],
-  288: [
+  "Sanity:GetPercent#1": [
     "--   ★ 这里的 `and / or` 链实现了「优先级短路」：",
     "--     inducedinsanity 为真 → 整个表达式短路为 0（且不再看 penalty）；",
     "--     否则看 inducedlunacy → 1 - penalty；",
     "--     都为假 → 退回 GetRealPercent()。",
     "--     这与 _replica_setcurrent（:4）的三段优先级完全对应。",
   ],
-  295: [
+  "Sanity:GetPercentWithPenalty#1": [
     "--   ★ 注意 forced 开悟时返回 1 而非 1-penalty（与 :291 不同）。",
     "--     推理依据：开悟是「更高层级」的表现，即便上限被压也应显示为满，",
     "--     否则会出现「已开悟但血条不满」的割裂感。属于有意的层级优先。",
   ],
-  299: [
+  "Sanity:GetPercentWithPenalty#1+4": [
     "--   分母是 GetMaxWithPenalty 的等价表达式（:324）——",
     "--     此处内联而非调用，是为了避免在每帧路径上多一次函数调用。",
     "--     ★ 这也是上面 GetPercent 返回 0.975 的原因：",
     "--       分子封顶在 max*(1-penalty)，分母是 max，比值自然上不去 1。",
   ],
-  302: [
+  "Sanity:SetPercent#1": [
     "--【★ SetPercent：外部「按比例设置理智」的标准入口】",
     "--   ★ 用 target - current 求差再走 DoDelta，而不是直接赋值。",
     "--     原因：DoDelta 会夹逼（:387）、跑阈值判定（:391）、",
     "--     发事件（:405）。直接赋值会绕过全部这些逻辑，导致 UI 不刷新。",
     "--     所有外部改理智的代码都应走它，参见 prefabs/waxwell.lua:135。",
   ],
-  303: [
+  "Sanity:SetPercent#1+1": [
     "--   ★ 分母用 max 而非有效上限：",
     "--     传入 1.0 表示「填满原始上限」，而 DoDelta 会再夹逼到惩罚后的上限。",
     "--     两段配合的净效果是「SetPercent(1) 总是尽可能填满」，符合直觉。",
   ],
-  312: [
+  "Sanity:SetMax#1": [
     "--   SetMax 同时把 current 也设成 amount ——",
     "--   ★ 这是刻意的「满血换装」语义：换角色/换上限时不希望半血。",
     "--     副作用：无法「只改上限不改当前值」，若将来需要，得另开接口。",
   ],
-  318: [
+  "Sanity:SetCurrent#1": [
     "--   SetCurrent：直接指定绝对值。注意它**不做夹逼**，",
     "--   但随后的 DoDelta(0) 会把值夹到 [0, 有效上限]（:387）。",
     "--   ★ 与 SetMax 的区别：这里没有连带改 max。",
   ],
-  323: [
+  "Sanity:GetMaxWithPenalty#1": [
     "--   GetMaxWithPenalty：与 GetPercentWithPenalty（:299）的分母同源。",
   ],
-  331: [
+  "Sanity:SetInducedInsanity#1": [
     "--【★★ SetInducedInsanity：引用计数式forced 标志】",
     "--   ★ 它不用 SourceModifierList，而是裸哈希表 { [src] = true }，",
     "--     因为需要「任一来源移除就清除最后一个则回落」的语义。",
@@ -152,7 +152,7 @@ export const BEFORE = {
     "--   用道具实体做 key 还有个好处：道具被销毁时若调用方忘了传 false，",
     "--     至少哈希表不会泄漏道具引用（bool值不持有引用）。",
   ],
-  338: [
+  "Sanity:SetInducedInsanity#1+7": [
     "--   移除分支。注意与添加分支的**不对称**：",
     "--   ⚠ 疑似缺陷（极轻微）：添加分支（:332-337）没有把 val 强制置 true，",
     "--     完全依赖调用方传入的 val；移除分支却在 :342/:344 显式改写了 val。",
@@ -161,18 +161,18 @@ export const BEFORE = {
     "--       再以 val=0 移除时，:347 的 `1 ~= nil` 成立，仍能正确翻转。",
     "--       实际无害，但两分支写法不对称，属风格瑕疵。",
   ],
-  340: [
+  "Sanity:SetInducedInsanity#1+9": [
     "--   最后一个来源被移除 → 把整张表置 nil 并把 val 回落为 nil（假值）。",
     "--   ★ 用 next() 检测「表是否空」，这是 Lua 里判断哈希表清空的标准写法。",
   ],
-  347: [
+  "Sanity:SetInducedInsanity#1+16": [
     "--   ★ 只有「布尔值真正翻转」才做事——这是 forced 标志的幂等保证：",
     "--     重复用同一个 src 调Set(true) 不会重复触发 DoDelta 与 PushEvent。",
   ],
-  350: [
+  "Sanity:SetInducedInsanity#1+19": [
     "--   推inducedinsanity 事件供外部（如 UI 图标）响应。",
   ],
-  354: [
+  "Sanity:SetInducedLunacy#1": [
     "--   SetInducedLunacy：与 SetInducedInsanity 逐行对称。",
     "--   两个函数没有抽公共逻辑，是可读性优先的取舍（复制优于错误抽象）。",
     "--",
@@ -200,16 +200,16 @@ export const BEFORE = {
     "--       RemoveSanity 找不到原键，会造成 forced 状态永久残留。",
     "--       现有调用方（amulet / hats）都传同一个 inst，行为正确。",
   ],
-  370: [
+  "Sanity:SetInducedLunacy#1+16": [
     "--   ★ 边沿检测：只有布尔值真正翻转才做事，保证幂等。",
     "--     重复 SetLunacy(inst, true) 不会重复发事件或重复 DoDelta。",
   ],
-  372: [
+  "Sanity:SetInducedLunacy#1+18": [
     "--   ★ DoDelta(0) 借道全量同步：forced 状态变了，",
     "--     必须让 replica 重新算一次显示值（走 _replica_setcurrent 的覆盖链）。",
     "--     与 :349 完全对称。",
   ],
-  373: [
+  "Sanity:SetInducedLunacy#1+19": [
     "--   推 inducedlunacy 事件。",
     "--   ⚠ 注意与 UpdateMode_Internal（:179）推的 sanitymodechanged 是",
     "--     两个不同事件：前者是「被强制」，后者是「模式真的切了」。",
@@ -217,7 +217,7 @@ export const BEFORE = {
   ],
 
   // ============ DoDelta ============
-  377: [
+  "Sanity:DoDelta#1": [
     "--【★★★★★ DoDelta：理智值唯一的写入口 —— 阈值判定与事件都在这里】",
     "--   全文件最关键的一个函数。职责链条：",
     "--     ① 两个提前退出通道（redirect / ignore）",
@@ -228,27 +228,27 @@ export const BEFORE = {
     "--   ★ 它被大量地方以 delta=0 调用，目的不是改数值，",
     "--     而是「借这次机会把状态重新广播一遍」。",
   ],
-  378: [
+  "Sanity:DoDelta#1+1": [
     "--   ① 通道一：redirect。把「数值变化」整个外包给外部，",
     "--   ★ 典型用途是 mod 用「另一个数值系统」接管理智（如改成恐惧值）。",
     "--     一旦 redirect 存在，本函数后续逻辑（含夹逼与事件）**全部不执行**，",
     "--     责任完全转移——所以 redirect 的实现方必须自己发事件。",
     "--   对比 hunger.lua:129 的同款设计，两者保持一致。",
   ],
-  383: [
+  "Sanity:DoDelta#1+6": [
     "--   ② 通道二：ignore。静默忽略所有 delta，连事件都不发。",
     "--   ★ 与 redirect 的区别：ignore 仍会「什么都不做」而 redirect 是「交给别人做」。",
     "--   ignore 通常由外部（剧情/过场）临时置位；",
     "--     OnUpdate（:444）也用它做短路，防止白算一整个 Recalc。",
   ],
-  387: [
+  "Sanity:DoDelta#1+10": [
     "--   ★★ 夹逼到 [0, max - max*penalty]。",
     "--     注意这是**唯一**把 penalty 落到「真实数值」上的地方：",
     "--       所有倍率、所有外部 delta 都会被这道墙拦住，",
     "--       所以带代价机制的角色永远不可能靠吃东西把理智刷回满。",
     "--   这是「代价」在数值层面的最终 enforcement。",
   ],
-  389: [
+  "Sanity:DoDelta#1+12": [
     "--   ★★ 必须用裸的 current/max 算比例，不能用 GetPercent()。",
     "--   源码注释：must calculate it due to inducedinsanity。",
     "--   原因：forced 疯狂时 GetPercent() 恒为 0，",
@@ -256,7 +256,7 @@ export const BEFORE = {
     "--     解除强制后又要经历一次迟滞上升——状态来回抖动。",
     "--   ★ 这是「forced 只影响显示、不影响真实状态」这一设计的关键守卫。",
   ],
-  391: [
+  "Sanity:DoDelta#1+14": [
     "--   ★★★ 阈值判定 —— 全游戏理智系统的核心规则。",
     "--   两个模式各有一对阈值，且都是**迟滞（hysteresis）**设计：",
     "--",
@@ -274,26 +274,26 @@ export const BEFORE = {
     "--     理智恰好停在线上时，每帧的微小浮动都会让 sane反复翻转，",
     "--     造成疯狂音效/滤镜每秒闪一次（flapping）。缓冲带让状态「粘住」。",
   ],
-  392: [
+  "Sanity:DoDelta#1+15": [
     "--   ⚠ 重要事实修正：阈值是 15%，**不是 1/3（33%）**。",
     "--   TUNING.SANITY_BECOME_INSANE_THRESH = 30/200（tuning.lua:2177）。",
     "--   分子 30 与分母 200 里的 200 是「设计基准理智值」，",
     "--     而非角色真实 max（Wilson 也是 200，但角色各异）。",
     "--     所以判定用的是**比例**而不是绝对点数——换角色时手感一致。",
   ],
-  394: [
+  "Sanity:DoDelta#1+17": [
     "--   迟滞的对侧：需要涨到 0.175 才算恢复。",
     "--   ⚠ 这意味着在 0.15~0.175 区间内玩家处于「已崩溃但正在回升」的灰态，",
     "--     此时 sanity 继续扣会直接维持崩溃状态。属于有意设计。",
   ],
-  398: [
+  "Sanity:DoDelta#1+21": [
     "--     LUNACY 模式的判定方向与上面相反：理智**够高**才开悟。",
     "--     ★ 所以开悟是靠「白天+ 光环」堆出来的，天然与「夜晚挨饿掉理智」互斥。",
   ],
-  400: [
+  "Sanity:DoDelta#1+23": [
     "--     开悟模式的迟滞对侧：掉到 0.825 以下才脱离开悟。",
   ],
-  405: [
+  "Sanity:DoDelta#1+28": [
     "--   ★★ 每次 DoDelta 都推sanitydelta（含 delta=0 的空转调用）。",
     "--     载荷里的 overtime 标记「这次变化是不是持续性伤害」，",
     "--       供 UI 决定用哪种动画（渐变 vs 瞬跳）。",
@@ -302,14 +302,14 @@ export const BEFORE = {
     "--   下游消费者：screens/playerhud.lua、components/colourcube.lua:342、",
     "--     prefabs/hats.lua:3571、prefabs/horrorfuel.lua:60。",
   ],
-  407: [
+  "Sanity:DoDelta#1+30": [
     "--   ★ 重新取一次 GetPercent——因为 sanitydelta 的监听者",
     "--     「有可能反过来改了理智」（例如吃到理智食物后同步更新 UI）。",
     "--     这行注释道出了事件驱动的经典陷阱：",
     "--       事件参数是在修改前算的，若被回调改动了状态，参数就过时了。",
     "--   所以 _oldpercent 必须用**事后**的值，否则下一帧的增量会算错。",
   ],
-  410: [
+  "Sanity:DoDelta#1+33": [
     "--   ★★ 边沿检测：只在「是否正常」翻转，或「模式变了且当前不正常」时触发。",
     "--     第二个条件 (not self._oldissane and self.mode ~= self._oldmode) 处理：",
     "--       玩家本已崩溃，此时模式从疯狂切成开悟 —— 需要补发一次",
@@ -318,28 +318,28 @@ export const BEFORE = {
     "--   ★ 这正是 :180 那句 DoDelta(0) 的价值所在：",
     "--     模式一变就立刻借DoDelta 把这条路径走一遍。",
   ],
-  412: [
+  "Sanity:DoDelta#1+35": [
     "--   分支一：恢复正常 → 触发 onSane 回调 + gosane 事件。",
     "--   ★ onSane/onInsane/onEnlightened 是「留给外部的回调钩子」，",
     "--     它们由 prefab 挂上去（如 prefabs/willow.lua 的 onInsane），",
     "--     用于播放动画/音效。这是本文件与业务逻辑解耦的接缝。",
   ],
-  416: [
+  "Sanity:DoDelta#1+39": [
     "--   gosane：恢复正常的对外事件。客户端侧由 sanity_replica.lua:36 重发一份，",
     "--   所以各端UI 能各自响应而不必等网络同步。",
   ],
-  417: [
+  "Sanity:DoDelta#1+40": [
     "--   ProfileStatsSet：写入 Steam 成就统计（went_sane / went_insane /",
     "--     went_enlightened，:424与 :430 同理）。成就系统靠这三个事件。",
   ],
-  419: [
+  "Sanity:DoDelta#1+42": [
     "--   ★ 分支二：崩溃。但要区分是「疯狂」还是「开悟」——",
     "--     因为两者的表现、事件、成就完全不同。",
   ],
-  425: [
+  "Sanity:DoDelta#1+48": [
     "--   LUNACY 模式下的同类崩溃，语义上是「开悟」而非「疯狂」。",
   ],
-  434: [
+  "Sanity:DoDelta#1+57": [
     "--   ★ _oldmode 在函数最末尾统一更新，而不是在各分支里更新。",
     "--     这样无论走哪个分支，缓存都保持一致——",
     "--     避免了「某条新分支忘了更新缓存」这类易错点。",

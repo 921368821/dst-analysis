@@ -2,7 +2,7 @@
 // 传送门反向更新、调试、存档/会话/投票转发、骰子冷却、月王与首领广播、事务包装
 
 export const BEFORE = {
-  123: [
+  "Shard_UpdateWorldState#1+55": [
     "--★★★[第 123-124 行：Shard_UpdatePortalState 的契约注释]",
     "--   \"--Called from worldmigrator whenever a new portal is\"",
     "--   \"--spawned to automatically link it with known shards\"",
@@ -14,7 +14,7 @@ export const BEFORE = {
     "--   ★ ★ 「自动链接到已知分片」（link it with known shards）——",
     "--     ★ 用 ShardConnected（已知分片）来给新门找归属。",
   ],
-  125: [
+  "Shard_UpdatePortalState#1": [
     "--★★★[Shard_UpdatePortalState —— ★★ 新传送门的反向绑定（★ 与 :68 对称）]",
     "--   ★★★★ 逻辑（:126-143）：",
     "--     ① ★★ 若 linkedWorld == nil（门还空闲）：",
@@ -81,7 +81,7 @@ export const BEFORE = {
     "--     ★★★ 两种函数分工：★ UpdateWorldState 管「分片侧的变化」，",
     "--       ★ UpdatePortalState 管「门侧的生成」。",
   ],
-  136: [
+  "Shard_UpdatePortalState#1+11": [
     "--★★[第 136 行：找不到可用分片的日志 —— 与 :113 的措辞对比]",
     "--   ★★★ 本行消息：\"(no available shard [%s] connected)\"",
     "--   ★★ 对比 :113 的 \"(different permanent world)\"：",
@@ -90,11 +90,11 @@ export const BEFORE = {
     "--   ★★★ 两种「门不可用」的原因，日志措辞不同但 reason 都用 MISSINGSHARD。",
     "--   ★ ★ 这种「统一 reason + 不同日志」的设计在排障时以日志为准。",
   ],
-  140: [
+  "Shard_UpdatePortalState#1+15": [
     "--★★[第 140 行：分支①的 end —— 「空闲门且找不到分片」的处理完毕]",
     "--   ★★★ 注意 return 已在 :133/:139，★ 所以走到这里的都是「循环完没找到」的情况。",
   ],
-  145: [
+  "Shard_GetConnectedShards#1": [
     "--★★[Shard_GetConnectedShards —— ★★ 调试接口（★ 返回深拷贝）]",
     "--   return deepcopy(ShardConnected)",
     "--   ★★★ 原注释第 145 行：\"-- useful for debugging\" —— ★★ 明确是调试用途。",
@@ -106,12 +106,12 @@ export const BEFORE = {
     "--     · ★ 用拷贝 → 后续处理不影响真实的 ShardConnected。",
     "--   ★ ★ 「调试接口」用 deepcopy 而非返回原表，是良好的封装习惯。",
   ],
-  149: [
+  "Shard_GetConnectedShards#1+4": [
     "--★★★ 分节线。【 分节标记】（源码风格，★ 划分第 2 大块：会话/存档/投票）。",
     "--   ★★ 前半（§〇-§五）处理「分片状态」；",
     "--   ★★ 后半（§六-§九）处理「跨分片的状态转发」。",
   ],
-  151: [
+  "Shard_UpdateMasterSessionId#1": [
     "--★★★[Shard_UpdateMasterSessionId —— ★★ 会话 id 的跨分片同步]",
     "--   ★★★★ 签名：Shard_UpdateMasterSessionId(session_id)",
     "--   ★★★ 第 152 行原注释（★ 重要的时序说明）：",
@@ -131,7 +131,7 @@ export const BEFORE = {
     "--       ★★★ 也就是说：★★ 不是「主推给次」，而是「各自收到这个值后本地使用」。",
     "--     ★ ★ 消息由分片层（ShardManager）负责投递到各分片。",
   ],
-  157: [
+  "Shard_WorldSave#1": [
     "--★★★[Shard_WorldSave —— ★★ 跨分片存档请求（★ 只主分片执行）]",
     "--   ★★★★ 第 158 行条件：`if TheWorld ~= nil and TheWorld.ismastershard then`",
     "--     ★★ 只有主分片才响应存档 —— ★★ 因为存档由主分片统一管理。",
@@ -147,10 +147,10 @@ export const BEFORE = {
     "--     ★★ 因为存档是全局的，由主分片协调（次分片的存档由事务系统合并，",
     "--       ★★ 见 Shard_CreateTransaction_TransferInventoryItem :296）。",
   ],
-  163: [
+  "Shard_WorldSave#1+6": [
     "--★★★ 分节线。【 分节标记】（投票相关，§七 之前）。",
   ],
-  165: [
+  "Shard_StartVote#1": [
     "--★★★[Shard_StartVote —— ★★ 跨分片投票的发起]",
     "--   ★★★★ 第 166 行条件：与 :158 相同的 ismastershard 守卫。",
     "--   ★★★ 第 167-172 行：TheWorld:PushEvent(\"ms_startvote\", {commandhash=..., starteruserid=..., targetuserid=...})",
@@ -169,13 +169,13 @@ export const BEFORE = {
     "--       ★★ 次分片收到的投票请求，转成事件给主分片（或本地不处理）。",
     "--     ★ ★ 与 :151 Shard_UpdateMasterSessionId 一样，是「跨分片状态转发」的模式。",
   ],
-  175: [
+  "Shard_StopVote#1": [
     "--★★[Shard_StopVote —— ★★ 结束投票]",
     "--   ★★★ 第 177 行：TheWorld:PushEvent(\"ms_stopvote\") —— ★ 无载荷。",
     "--   ★★ 「停止」不需要参数（★ 相比 StartVote 的三字段载荷）。",
     "--   ★★★ 与 :165 的 StartVote 配对（投票的「开始」与「结束」）。",
   ],
-  181: [
+  "Shard_ReceiveVote#1": [
     "--★★[Shard_ReceiveVote —— ★★ 收到玩家的投票]",
     "--   ★★★★ 第 183-186 行：TheWorld:PushEvent(\"ms_receivevote\", {selection=..., userid=...})",
     "--     · ★ selection —— ★★ 玩家投了哪个选项（如「赞成」/「反对」）；",
@@ -186,10 +186,10 @@ export const BEFORE = {
     "--     ★★ 因为投票结果需要主分片统计（★ 全局裁定）。",
     "--   ★ ★ 「投票」是本文件 §六-§七 的典型：★ 主分片权威 + 次分片转发。",
   ],
-  190: [
+  "Shard_ReceiveVote#1+9": [
     "--★★★ 分节线。【 分节标记】（骰子冷却，§七）。",
   ],
-  192: [
+  "Shard_ReceiveVote#1+11": [
     "--★★★[RecentDiceRolls = {} —— ★★ 本文件唯一的局部状态表]",
     "--   ★★★ 结构：{ user_id → 冷却结束时刻 }。",
     "--   ★★★ 与文件头注记 8 呼应：★ 这是「按玩家限频」的简单范式。",
@@ -198,7 +198,7 @@ export const BEFORE = {
     "--     ★★ 但这里的实现更简单（无清理过期项的性能考虑问题）。",
     "--   ★★ 注意是 local（不用外部访问）—— 比 ShardConnected 更私有。",
   ],
-  194: [
+  "Shard_OnDiceRollRequest#1": [
     "--★★★[Shard_OnDiceRollRequest —— ★★ 骰子投掷的限频（★ 完整拆解）]",
     "--   ★★★★ 签名：Shard_OnDiceRollRequest(user_id) → true/false",
     "--   ★★★ 第 195-197 行：非主分片直接拒绝",
@@ -240,20 +240,20 @@ export const BEFORE = {
     "--     ④ 写入新冷却；",
     "--     ⑤ 返回是否允许。",
   ],
-  195: [
+  "Shard_OnDiceRollRequest#1+1": [
     "--★★[第 195 行：TheWorld == nil or not ismastershard —— 双守卫]",
     "--   ★★★ ★ 与 :158/:166/:176/:182 相同的守卫模式。",
     "--     · TheWorld 为 nil → 拒绝（世界都没了）；",
     "--     · 非主分片 → 拒绝（骰子只在主分片可用）。",
   ],
-  200: [
+  "Shard_OnDiceRollRequest#1+6": [
     "--★★[第 200-206 行：★★ 过期冷却的收集（★ 先收集后删除的第一阶段）]",
     "--   ★★★ 「收集」阶段：遍历 RecentDiceRolls，找出已过期的（curt > endt）。",
     "--   ★★ `local curt = GetTime()` —— 取当前时间（秒）。",
     "--   ★ ★★ 与 networkclientrpc 的「逻辑刻」不同，这里用 GetTime()（墙上时间）。",
     "--     ★★ 因为骰子冷却是「现实时间」概念（不需要与逻辑刻同步）。",
   ],
-  216: [
+  "Shard_OnDiceRollRequest#1+22": [
     "--★★[第 216 行：写入新冷却 —— TUNING 可调参数]",
     "--   RecentDiceRolls[user_id] = curt + TUNING.DICE_ROLL_COOLDOWN",
     "--   ★★★ 两个设计点：",
@@ -264,10 +264,10 @@ export const BEFORE = {
     "--       ★★ 存结束时刻的语义更明确（「这个用户冷却到 X 时刻」）。",
     "--   ★ ★ 若存「剩余时间」，每次请求要减一次（且要处理浮点误差）。",
   ],
-  220: [
+  "Shard_OnDiceRollRequest#1+26": [
     "--★★★ 分节线。【 分节标记】（月王/首领同步，§八）。",
   ],
-  222: [
+  "Shard_SyncBossDefeated#1": [
     "--★★★[Shard_SyncBossDefeated —— ★★ boss 击败状态的跨分片广播]",
     "--   ★★★★ 原注释：\"NOTES(JBK): Flipped shardid argument order to make calling",
     "--   this easier elsewhere.\" —— ★★★ 「翻转了 shardid 参数顺序，让别处调用更方便」。",
@@ -300,14 +300,14 @@ export const BEFORE = {
     "--     ★★★ boss 场景是「双向」：次分片也有 boss（月王在洞穴），",
     "--       ★★ 所以次分片要上报给主分片（主分片统筹记录）。",
   ],
-  225: [
+  "Shard_SyncBossDefeated#1+3": [
     "--★★[第 225 行：shardid or TheShard:GetShardId() —— 默认值填充]",
     "--   ★★★ 若 boss 在本分片被击败（调用方没传 shardid），",
     "--     ★★★ 用自己的 shard_id 作为「谁击败的」。",
     "--   ★★ 这简化了调用方：「在本分片击败」时不必传 shardid。",
     "--   ★ ★ 这个「or 默认值」的模式在 :257/:272/:287 也重复（DoTaskInTime 的延迟）。",
   ],
-  234: [
+  "Shard_SyncMermKingExists#1": [
     "--★★★[Shard_SyncMermKingExists —— ★★ 月王存在状态同步（★ 与 Boss 的差异）]",
     "--   ★★★★ 签名：(exists, shardid) —— ★ 「存在」布尔（不是击败）。",
     "--   ★★★★ 第 235-244 行：主次分片分支",
@@ -333,7 +333,7 @@ export const BEFORE = {
     "--   ★★★ 「存在的月王」是一个**全局状态**：主分片记录「月王在哪个分片」。",
     "--     ★★ 用于跨分片逻辑（如「月王在哪」来决定掉落归属等）。",
   ],
-  240: [
+  "Shard_SyncMermKingExists#1+6": [
     "--★★★[第 240 行：DoTaskInTime(0, ...) 的注释 —— 「延迟一帧」的公开理由]",
     "--   TheWorld:DoTaskInTime(0, function() -- NOTES(JBK): This should be delayed",
     "--       a frame to let loading correctly handle the RPC message.",
@@ -342,7 +342,7 @@ export const BEFORE = {
     "--   ★★ 这印证了 prefabs/world.lua:301 的「DoTaskInTime(0) = 延迟一刻」原语",
     "--     ★★★ 在跨文件、跨场景下的普遍应用（网络消息尤其敏感）。",
   ],
-  248: [
+  "Shard_SyncMermKingTrident#1": [
     "--★★★[第 246-248 行：★ 「Merm King buffs」小节标记 + Shard_SyncMermKingTrident]",
     "--   ★★ 第 246 行 \"-- Merm King buffs --------------------------\" 分节。",
     "--   ★★★ 月王的三个部件（三叉戟/皇冠/护肩）各有独立的同步函数。",
@@ -358,12 +358,12 @@ export const BEFORE = {
     "--       ★★ 与 Shard_SyncMermKingExists 的 `exists = exists`（:237）不同。",
     "--       ★★ 语义微差：「部件已被捡起」vs「月王存在」。",
   ],
-  263: [
+  "Shard_SyncMermKingCrown#1": [
     "--★★[Shard_SyncMermKingCrown —— ★★ 月王皇冠同步（:263）]",
     "--   ★★★ 与 Trident（:248）完全同构（:264-275），只有 event 名不同。",
     "--   ★★★ 「皇冠」也是月王的可拾取部件（buff 道具）。",
   ],
-  278: [
+  "Shard_SyncMermKingPauldron#1": [
     "--★★[Shard_SyncMermKingPauldron —— ★★ 月王护肩同步（:278）]",
     "--   ★★★★ 与前三个完全同构（:279-290），最后一个 MermKing 部件。",
     "--   ★★★ ★ 至此月王有四个同步函数：",
@@ -371,11 +371,11 @@ export const BEFORE = {
     "--     · :248 Trident（三叉戟）；:263 Crown（皇冠）；:278 Pauldron（护肩）。",
     "--   ★★★ 全部「主分片推事件 / 次分片延迟上报」。",
   ],
-  293: [
+  "Shard_SyncMermKingPauldron#1+15": [
     "--★★★ 分节线。【 分节标记】（ShardTransactionSteps 包装，§九）。",
     "--   \"-- ShardTransactionSteps wrappers\" —— ★★ 下面都是「跨分片事务」的薄包装。",
   ],
-  296: [
+  "Shard_CreateTransaction_TransferInventoryItem#1": [
     "--★★★[Shard_CreateTransaction_TransferInventoryItem —— ★★ 跨分片「物品转移」事务]",
     "--   ★★★★ 第 297-304 行：",
     "--     TheWorld.components.shardtransactionsteps:CreateTransaction(",
@@ -404,7 +404,7 @@ export const BEFORE = {
     "--     · networkclientrpc.lua:1541 ShardTransactionSteps（接收侧）；",
     "--     · :58 shardtransactionsteps:OnShardConnected（事务感知新分片）。",
   ],
-  297: [
+  "Shard_CreateTransaction_TransferInventoryItem#1+1": [
     "--★★[第 297 行：直接访问 TheWorld.components.shardtransactionsteps]",
     "--   ★★★ 注意没有判空 —— ★★ 因为这个组件是「主分片必有」的",
     "--     （prefabs/world.lua:568 在 ismastersim 分支添加）。",
@@ -415,24 +415,24 @@ export const BEFORE = {
 };
 
 export const AFTER = {
-  143: [
+  "Shard_UpdatePortalState#1+18": [
     "--★★★★★ §五 结束。Shard_UpdatePortalState —— 新传送门的反向绑定。",
     "--   ★★★ 与 §四（Shard_UpdateWorldState）构成「双向触发」：",
     "--     · 分片状态变 → UpdateWorldState 重扫所有门（:68）；",
     "--     · ★ 新门生成 → UpdatePortalState 给门找分片（本函数）。",
     "--   ★★ 两者共同保证「分片 ↔ 传送门」的一致性。",
   ],
-  147: [
+  "Shard_GetConnectedShards#1+2": [
     "--★ Shard_GetConnectedShards 结束。★ 返回 ShardConnected 的深拷贝（调试接口）。",
   ],
-  155: [
+  "Shard_UpdateMasterSessionId#1+4": [
     "--★★ §六 之一：会话 id 同步（:151 Shard_UpdateMasterSessionId）。",
     "--   ★★★ 跨分片状态转发的第一个例子：主分片的 session_id 要让各分片知晓。",
   ],
-  161: [
+  "Shard_WorldSave#1+4": [
     "--★★ Shard_WorldSave 结束。★ 「ms_save」事件存档（只有主分片执行）。",
   ],
-  188: [
+  "Shard_ReceiveVote#1+7": [
     "--★★★ §六-§七 投票区结束。四个函数（:165/:175/:181 + 说明）全是",
     "--   「主分片执行 → 推事件」的跨分片转发：",
     "--     · Shard_StartVote   → ms_startvote（三字段载荷）；",
@@ -440,7 +440,7 @@ export const AFTER = {
     "--     · Shard_ReceiveVote → ms_receivevote（selection + userid）。",
     "--   ★★ 投票是「全局状态」，只有主分片（ismastershard）裁定。",
   ],
-  218: [
+  "Shard_OnDiceRollRequest#1+24": [
     "--★★★ §七 结束。Shard_OnDiceRollRequest —— 骰子限频（★ 完整范式）。",
     "--   ★★ 五步：",
     "--     ① 权限守卫（TheWorld 非 nil + ismastershard）；",
@@ -450,7 +450,7 @@ export const AFTER = {
     "--     ⑤ 返回是否允许（true/false）。",
     "--   ★ ★ 与 networkclientrpc.lua:1664 的 RPC_Queue_Limiter 同源思想（按主体限频）。",
   ],
-  291: [
+  "Shard_SyncMermKingPauldron#1+13": [
     "--★★★ §八 结束。月王与首领状态的跨分片广播（五个函数）。",
     "--   ★★ 五个函数高度同构（★ 平行实现）：",
     "--     · Shard_SyncBossDefeated    (:222) —— boss 击败（参数顺序被特意翻转）；",
@@ -461,7 +461,7 @@ export const AFTER = {
     "--     · ★★ boss 直接发，MermKing 延迟发（因可能在加载期调用）。",
     "--   ★★ 这五种「跨分片全局状态」的同步，是本文件的核心用途之一。",
   ],
-  305: [
+  "Shard_CreateTransaction_TransferInventoryItem#1+9": [
     "--★★★ §九 结束。Shard_CreateTransaction_TransferInventoryItem —— 跨分片物品转移事务。",
     "--   ★★★ 一个薄包装，转发到 shardtransactionsteps 组件的 CreateTransaction。",
     "--   ★★ 关键概念：跨分片操作涉及「两个分片的状态」，需「事务」保证一致性",
@@ -469,7 +469,7 @@ export const AFTER = {
     "--   ★ ★ 这也解释了 :58 为什么在分片连接时要调 OnShardConnected ——",
     "--     事务参与者变化时需要重新协商。",
   ],
-  307: [
+  "Shard_CreateTransaction_TransferInventoryItem#1+11": [
     "--★★ 分节线（结尾）。",
     "--   ★★★★ shardnetworking.lua 到此结束（307 行）。★★★ 全文件结构回顾（9 节）：",
     "--     §〇   依赖与全局状态（1-10）—— 三张表分工",

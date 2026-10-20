@@ -4,7 +4,7 @@
  */
 
 export const BEFORE = {
-  24: [
+  "containers.widgetsetup#1+15": [
     "-- ★ widget 表是「UI 蓝图」的容器：以下字段全集 ——",
     "--   · slotpos   —— 每个槽的绝对屏幕坐标（Vector3 数组）",
     "--   · slotbg    —— 每个槽的底纹贴图（table 数组，与 slotpos 一一对应）",
@@ -25,12 +25,12 @@ export const BEFORE = {
     "--     容器逻辑（components/container.lua）一个都不读。",
     "--     ⇒ 这是理解本文件的关键：widget 是纯表现层配置。",
   ],
-  29: [
+  "containers.widgetsetup#1+20": [
     "-- ★ animbank 与 animbuild 同名：bank 是「贴图库」，build 是「库内构建名」。",
     "--   两者通常相同，UI 层用 build 从 bank 里取出可渲染的实例。",
   ],
-  33: ["-- ★ 容器组件里对应的字段名 issidewidget（无下划线）——蓝图到组件会做重命名。"],
-  380: [
+  "containers.widgetsetup#1+24": ["-- ★ 容器组件里对应的字段名 issidewidget（无下划线）——蓝图到组件会做重命名。"],
+  "params.cookpot.widget.buttoninfo.fn#1+3": [
     "-- ★★ 「客户端读 widgets 字段」的直接证据就在这一行：",
     "--   `item.dryingrack_lastinfo` 是**客户端组件上的运行时字段**。",
     "--   它由服务端在搬运失败时写回，客户端在渲染时读它来决定「哪一格高亮」。",
@@ -38,7 +38,7 @@ export const BEFORE = {
     "--   ⚠ 风险：这个字段**在客户端与服务端的写入时机不一定同步**，",
     "--     若客户端判定早于同步，会出现「高亮错了格子」的短暂视觉 bug。",
   ],
-  488: [
+  "params.bundle_container.widget.buttoninfo.validfn#1+2": [
     "-- ★ IsReadOnlyContainer 在 validfn 里出现（第 487 行）：只读容器连按钮都不能点。",
     "--   ⇒ 只读容器（readonlycontainer）是一个**端到端的三层开关**：",
     "--     服务端：CanTakeItemInSlot 第 275 行拒绝一切放入；",
@@ -46,31 +46,31 @@ export const BEFORE = {
     "--     事件层：EnableReadOnlyContainer 第 1618 行挂断言监听器，",
     "--              若有物品硬塞进去直接 assert(false)。",
   ],
-  584: [
+  "IsConstructionSiteComplete#1+9": [
     "-- ★ 这里的 ingredients 来自建造站（constructionsite）而非容器本身。",
     "--   ⇒ 印证第 523 行的结论：建造容器的规则完全由「携带者」决定。",
   ],
-  1013: [
+  "params.livingtree_halloween.itemtestfn#1+21": [
     "-- ★ 冰箱的槽位坐标与 chester（第 85 行）**逐字相同**（80 间距 3x3）。",
     "--   ⇒ 冰箱 UI 与木箱 UI 用同一套坐标，美术换图即可 —— 布局参数已高度抽象。",
   ],
-  1126: [
+  "params.saltbox.itemtestfn#1+77": [
     "-- ★ 传送锅的按钮（ACTIVATE.GENERIC）是**空函数**（第 1137-1140 行），",
     "--   所以玩家点了没反应。与第 1187 行机房的「无 validfn（永远可点）」形成对比：",
     "--     传送锅 = 按钮可点但无效果；机房 = 按钮可点且有效果。",
   ],
-  1235: [
+  "params.balatro_machine.widget.buttoninfo.validfn#1+36": [
     "-- ★ quagmire_safe 用 deepcopy 而第 1230 行四连用赋值 —— 同区块两种风格。",
   ],
-  1535: [
+  "params.slingshot.itemtestfn#1+16": [
     "-- ★ 四个变体共享 itemtestfn：注意 slingshot999ex 是 slingshotex 的 deepcopy（1487 行），",
     "--   所以给它赋值等于「把 slingshotex 的判定也给它一份指针」。函数共享安全。",
   ],
-  1993: [
+  "params.battlesong_container.itemtestfn#1+13": [
     "-- ★ 魂罐的 slotpos 是 `{ Vector3(0, 0, 0) }` —— 单元格式，与第 1267 行沙尘蜂帽同型。",
     "--   ★ 单槽容器的标准写法：slotpos 数组长度 1 → 第 15 行得出 numslots = 1。",
   ],
-  2286: [
+  "typefn#1+5": [
     "-- ⚠ 注意第 2284 行被注释掉的 `excludefromcrafting = true`：",
     "--   柜子里的东西**参与合成搜索**（与第 1279 行沙尘蜂帽相反的取舍）。",
     "--   被注释而非写成 false，说明「暂时不排除」的意图留在了代码里。",

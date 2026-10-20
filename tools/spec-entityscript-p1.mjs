@@ -32,7 +32,7 @@ export const BEFORE = {
     "--   若做成 per-entity，客户端就没有统一的地方查询「当前是否允许换图」。",
   ],
 
-  11: [
+  "EntityWatchWorldState#1": [
     "--【★ 世界状态观察者登记 —— 实体侧】",
     "--   结构：self.worldstatewatching[变量名] = { 回调1, 回调2, ... }",
     "--   为什么用「数组 + 线性查找」而不是哈希？",
@@ -41,17 +41,17 @@ export const BEFORE = {
     "--   ★ 注意这个 local 函数同时被 EntityScript:WatchWorldState 与组件版包装共用，",
     "--     保证实体与组件登记到的是同一张表，便于统一清理。",
   ],
-  14: [
+  "EntityWatchWorldState#1+3": [
     "--【懒初始化】只有真的有人观察该变量时才建数组，避免每个实体都开一堆空表。",
   ],
-  20: [
+  "EntityWatchWorldState#1+9": [
     "--【★ 允许重复登记】这里用 table.insert 而不做去重，",
     "--   意味着同一个 fn 登记两次会被调用两次。",
     "--   这是刻意的：EntityWatchWorldState / ComponentWatchWorldState 各自登记自己那份，",
     "--   在某些「实体与组件都监听同一变量」的场合下，语义是「两次都要响应」。",
     "--   取消时用 RemoveByValue 按值删除（只删一个），保持了登记/取消的严格配对。",
   ],
-  23: [
+  "EntityStopWatchingWorldState#1": [
     "--【★ 反向操作：移除观察者】除了功能，还承担「内存收缩」职责。",
     "--   Lua 里空表仍占内存且会被 GC 遍历，所以这里做了两级收缩：",
     "--     ① 该变量下的观察者全空 → 删掉这个变量的条目",
@@ -59,18 +59,18 @@ export const BEFORE = {
     "--   ★ 这是典型的「惰性释放」模式：只有用完才还，代价是几行 next() 判断，",
     "--     收益是实体销毁时不必逐项清理。",
   ],
-  24: [
+  "EntityStopWatchingWorldState#1+1": [
     "--【早退保护】从未观察过任何变量时直接返回，这是最热的路径（大量实体无监听）。",
   ],
-  30: [
+  "EntityStopWatchingWorldState#1+7": [
     "--【★ 按值删除】Lua 数组无法 O(1) 删除中间元素，RemoveByValue 是线性扫描 + table.remove。",
     "--   再次印证「观察者数量必须很少」是这套设计成立的前提。",
   ],
-  37: [
+  "EntityStopWatchingWorldState#1+14": [
     "--【第二级收缩】整张表空了就置 nil，让实体对象能真正变轻。",
   ],
 
-  42: [
+  "ComponentWatchWorldState#1": [
     "--【★ 组件版世界状态观察 —— 双写设计】",
     "--   组件自己没有 worldstatewatching 表（否则每个组件都要开一张），",
     "--   而是**代理到宿主实体** self.inst 上，再额外在 worldstate 组件里登记一份。",
@@ -81,11 +81,11 @@ export const BEFORE = {
     "--                          否则每次变量变化都要全表扫描找订阅者。",
     "--   ★ 代价是两处状态可能不一致；RemoveByValue 保证它们成对增删。",
   ],
-  47: [
+  "ComponentStopWatchingWorldState#1": [
     "--【对称的注销】必须两处都清，否则会留下悬垂回调（实体已 GC 但回调仍指向它 → 崩溃）。",
   ],
 
-  52: [
+  "LoadComponent#1": [
     "--【★ 组件类加载器（懒加载 + 就地猴补）】",
     "--   步骤：① 查缓存 ② require 对应路径 ③ 断言非 nil（把静默失败变成显式崩溃）",
     "--        ④ **在组件类表上直接挂两个新方法**",
@@ -96,12 +96,12 @@ export const BEFORE = {
     "--     副作用：这段注入是**全局一次性**的，因Components[name] 已被缓存，",
     "--     同一组件的第二次加载不会重复注入。",
   ],
-  55: [
+  "LoadComponent#1+3": [
     "--【显式失败优于静默失败】require 失败返回 nil，assert 会打印组件名并中止加载。",
     "--   若没有这行，错误会推迟到「AddComponent 返回 nil」时才以更难懂的方式爆发。",
   ],
 
-  62: [
+  "LoadStateGraph#1": [
     "--【★ 状态图加载器】与 LoadComponent 的差异：",
     "--   ① 不猴补——状态图没有 worldstate 需求",
     "--   ② 返回的是**函数**（状态图是 { name=..., states=..., defaultstate=... } 的工厂函数），",
@@ -109,51 +109,51 @@ export const BEFORE = {
     "--   两次 assert 是冗余的（第65 行已经断言过），但无害。",
   ],
 
-  75: [
+  "LoadStateGraph#1+13": [
     "--────────────────────────────────────────────────────────────",
     "-- 【事件服务器文件】区段分隔线",
   ],
-  76: ["--【★ 事件服务器 = 「谁在监听这个事件」的权威索引】"],
-  77: [
+  "LoadStateGraph#1+14": ["--【★ 事件服务器 = 「谁在监听这个事件」的权威索引】"],
+  "event_server_data#1": [
     "--【★ 事件分发的一环】event_server_data(eventname, path) 返回某个事件在某文件里的监听表。",
     "--   path 通常是 \"components/xxx\" 或实体脚本路径。",
     "--   游戏里每个事件（如 \"onpickup\"）都会把所有监听它的脚本文件路径列出来；",
     "--   事件触发时，引擎据此只加载/执行相关的文件，而不是遍历全游戏脚本。",
     "--   ★ 这就是为什么文件顶部有 stategraphs/brains 那样的大目录 —— 它们被当作数据索引。",
   ],
-  78: [
+  "event_server_data#1+1": [
     "--【双层命名空间】事件名 + 路径 拼成唯一键，保证同名事件在不同文件里的监听互不干扰。",
   ],
-  80: [
+  "event_server_data#1+3": [
     "--【requireeventfile是引擎提供的特殊 require】它只解析「事件服务器目录」下的文件，",
     "--   不会污染普通的 require 缓存。",
   ],
-  81: [
+  "event_server_data#1+4": [
     "--【★ 条件猴补】只有组件目录下的事件文件才注入 worldstate 观察方法。",
     "--   因为 EntityWatchWorldState 需要 TheWorld.components.worldstate 这个宿主，",
     "--   而非组件上下文的脚本拿不到 inst。",
   ],
 
-  89: [
+  "event_server_data#1+12": [
     "--────────────────────────────────────────────────────────────",
     "-- 【覆盖 AddNetwork】区段分隔线",
     "-- 这一整段都在做一件事：让 C++ 侧的 Entity:AddNetwork() 多同步一批「动作」数据。",
   ],
-  92: [
+  "OnActionComponentsDirty#1": [
     "--【★ 网络脏标记的客户端回调解码器】",
     "--   actioncomponents 是一张「组件名 → 布尔」表，表示这个实体当前支持哪些动作组件。",
     "--   net_bytearray 只传索引，服务端与客户端的表顺序不一致，所以要用 dirty 事件重取。",
     "--   ★ 关键理解：replica 数据**不是每帧同步**的，而是「值变了才推一次 + 客户端收 dirty 回调解码」。",
     "--   这个模式贯穿全游戏的所有 replica 组件（health、hunger、container...）。",
   ],
-  96: [
+  "OnModActionComponentsDirty#1": [
     "--【★ 模组动作组件的动态键】",
     "--   为什么模组要单独一张表？因为 modactioncomponents 的键是「模组名」，",
     "--   数量不可预知，不能像基础组件那样用固定下标。",
     "--   代价：每加一个模组，实体就多一个 net_smallbytearray，",
     "--        这也是 SetClientSideInventoryImageFlags 之类机制存在的意义（控制规模）。",
   ],
-  101: [
+  "SerializeInherentActions#1": [
     "--【★ 固有能力（inherentactions）序列化】",
     "--   「固有能力」= 实体天生就拥有的动作（如火把自带「点火」），",
     "--   与「需要手持工具才有的动作」相对。",
@@ -162,21 +162,21 @@ export const BEFORE = {
     "--   ⚠ 但下标序列化依赖 pairs(ACTIONS) 的遍历顺序在服务端与客户端一致 ——",
     "--     若某模组在两端加载顺序不同，动作就会错位。详见 DeserializeInherentActions。",
   ],
-  108: [
+  "SerializeInherentActions#1+7": [
     "--【★ 遍历 pairs(ACTIONS) 累加 id】这依赖 Lua 表遍历顺序。",
     "--   在 Lua 5.1 中，同一未修改的表在两次遍历中顺序是稳定的（同为哈希布局），",
     "--   服务端与客户端只要加载了同一批模组，ACTIONS 内容相同，顺序就相同。",
     "--   ⚠ 疑似缺陷：若客户端比服务端**晚**加载某个模组，ACTIONS 表内容不同，",
     "--     顺序极可能不一致 → 固有能力全部错位。正确做法是传动作名字符串。",
   ],
-  119: [
+  "DeserializeInherentActions#1": [
     "--【★ 反序列化：两遍扫描的巧思】",
     "--   第一遍（121-123 行）：把收到的 id 列表展开成 { [id]=true }。",
     "--   第二遍（128-135 行）：把键从 id 换成真正的动作对象。",
     "--   ★ 为什么分两遍？因为第一遍的键已经是 id，第二遍要按同样的 pairs 顺序映射回来。",
     "--   为什么先判空再进第二遍？空表没必要遍历 ACTIONS —— 纯性能优化。",
   ],
-  129: [
+  "DeserializeInherentActions#1+10": [
     "--【★ 原地重映射的妙处与隐患】",
     "--   inst.inherentactions[id] = nil → inst.inherentactions[action] = true",
     "--   这样表里只有「真动作」作为键。",
@@ -184,28 +184,28 @@ export const BEFORE = {
     "--     修改的是**另一个表**，所以遍历本身安全；但如果某个 action 对象恰好等于某个整数 id，",
     "--     或者 id 超出 ACTIONS 长度，这些脏键会永远留在表里，导致 CanDoAction 误判。",
   ],
-  139: [
+  "SerializeAction#1": [
     "--【单动作序列化】同inherentactions 的下标方案。0 表示「无固有能力」。",
     "--   ★ 找不到时返回 0 而不是 nil：net_byte 只能传数字。",
   ],
-  152: [
+  "DeserializeAction#1": [
     "--【反序列化】id > 0 才查表。找不到时隐式返回 nil，调用方需判空。",
   ],
-  164: [
+  "OnInherentSceneActionDirty#1": [
     "--【★ 场景交互固有能力（鼠标左键 / 右键）】",
     "--   inherentsceneaction   —— 对场景使用（如「打开箱子」的主交互）",
     "--   inherentscenealtaction —— 对场景使用的备选（如「长按打开」）",
     "--   这两个是玩家鼠标右键最常触发的动作，必须网络同步给客户端才能正确画高亮。",
   ],
 
-  172: [
+  "OnInherentSceneAltActionDirty#1+4": [
     "--【★ 保存原函数再包装（猴子补丁）】",
     "--   Klei 需要在 C++ 的 AddNetwork 之外追加自己的同步数据，但 C++ 代码不可改。",
     "--   于是：先取出原函数 → 重定义同名全局函数 → 先调原函数再补逻辑。",
     "--   ★ 这是 Lua 里扩展封闭模块的标准手法，全游戏大量使用（见 stategraph.lua、brain.lua）。",
     "--   ⚠ 注意 AddNetworkProxy 保存的是**未加冒号**的函数，所以调用时传 self。",
   ],
-  174: [
+  "Entity:AddNetwork#1": [
     "--【★ Entity:AddNetwork 的完整扩展】执行时机：由引擎在实体「变为联网实体」时调用一次。",
     "--   步骤：① 先跑 C++ 原版逻辑建立基础连接",
     "--        ② 用 GUID 去 Ents 表反查 Lua 侧实例",
@@ -213,7 +213,7 @@ export const BEFORE = {
     "--        ④ 客户端侧监听 dirty 事件做解码。",
     "--   ★ 第②步的 Ents[guid] 说明：GUID 是连接 Lua 与 C++ 的唯一桥梁。",
   ],
-  181: [
+  "Entity:AddNetwork#1+7": [
     "--【★ 四类同步载荷一览】",
     "--   actioncomponents       bytearray —— 组件→动作映射表（变长）",
     "--   inherentactions        bytearray —— 固有能力 id 列表（变长）",
@@ -222,17 +222,17 @@ export const BEFORE = {
     "--   ★ 三次参数分别是：GUID、变量名、同步变化时的回调事件名。",
     "--     第三个参数命名成 \"xxxdirty\" 是全局约定，见下方 ListenForEvent 的监听。",
   ],
-  189: [
+  "Entity:AddNetwork#1+15": [
     "--【★ 服务端模组列表决定客户端要监听哪些变量】",
     "--   ⚠ 潜在时序问题：若客户端在本实体 AddNetwork 之后才加载完模组，",
     "--     ModManager:GetServerModsNames() 的结果会与服务端不一致。",
     "--     实践中 DST 要求两端模组版本严格一致，这个约束由前端菜单保证。",
   ],
-  194: [
+  "Entity:AddNetwork#1+20": [
     "--【★ 只在客户端挂 dirty 监听】服务端是数据源，不需要「解码」自己的数据。",
     "--   若两端都监听，服务端会多做一次无用的反序列化，且可能与本地状态打架。",
   ],
-  200: [
+  "Entity:AddNetwork#1+26": [
     "--【★ 闭包捕获循环变量的经典 Lua 陷阱 —— 这里安全的原因】",
     "--   Lua 5.1 中 for循环变量是**每次迭代新建的局部变量**，",
     "--   所以每个闭包捕获的都是自己那一份 modname，而不是循环结束后的最终值。",
@@ -240,7 +240,7 @@ export const BEFORE = {
     "--   ★ 但要注意：这些闭包会一直活在事件的回调表里，直到实体销毁时才释放。",
   ],
 
-  208: [
+  "Entity:AddNetwork#1+34": [
     "--【★★ replica 容器的元表 —— 全游戏副本机制的核心技巧】",
     "--   self.replica 是一个普通表 {_ = {}, inst = self}，它的「读未命中」被接管。",
     "--   __index = function(t, k)",
@@ -258,14 +258,14 @@ export const BEFORE = {
     "--     而不需要每次都先 HasTag(\"_inventory\") 再取。",
     "--   ★★ 并且它同时实现了「客户端只读」：副本端根本不写这些字段。",
   ],
-  211: [
+  "__index#1+1": [
     "--【★ 每次访问都做一次 HasTag 校验】HasTag 是 C++ 侧调用，有一定开销。",
     "--   这是「易用性换性能」的一处刻意取舍：副本访问频率远低于原生组件访问，",
     "--   且避免了脚本里到处散落标签判断，显著降低 mod 写错代码的概率。",
     "--   ⚠ 性能提示：高频循环里应缓存 local r = self.replica.inventory，而不是反复索引。",
   ],
 
-  215: [
+  "__index#1+5": [
     "--★★ ★ ★ EntityScript —— 全游戏每个实体的 Lua 基类 ★ ★ ★",
     "--【桥接层定位】",
     "--   C++ 引擎创建 Entity 后，Lua 侧创建一个 EntityScript 实例与它一一对应。",
@@ -281,17 +281,17 @@ export const BEFORE = {
     "--      且调试时 dump 出的实体结构是完整的、可预测的。",
     "--   ③ 默认值体现「安全默认」：persists=true（默认入存档）、inlimbo=false（在场景中）。",
   ],
-  216: [
+  "__index#1+6": [
     "--【entity = C++ 实体引用】Lua 与 C++ 的连接点。",
     "--   ★ 所有物理、变换、渲染、网络操作都要经过它转发。",
   ],
-  217: [
+  "__index#1+7": [
     "--【components：组件表】键是组件名（小写），值是组件实例。",
     "--   ★ 注意是「名字 → 实例」，不是「数组」——这是为了让脚本能用名字直接取：",
     "--     inst.components.health:IsAlive()",
     "--   遍历顺序无保证（Lua hash 表），所以依赖顺序的逻辑必须显式排序。",
   ],
-  218: [
+  "__index#1+8": [
     "--【★ lower_components_shadow：大小写不敏感的存在性影子表】",
     "--   问题：Lua 表键是大小写敏感的，但脚本里有人写 AddComponent(\"health\")、",
     "--         有人写 AddComponent(\"Health\")，若不管就会装出两个组件互相打架。",
@@ -299,7 +299,7 @@ export const BEFORE = {
     "--   ★ 只存 true 不存实例，因为它只回答「有没有」；真正取值仍走 self.components。",
     "--   ⚠ 该表不做自动同步：若外部直接往 self.components 里塞组件，影子表不会知道。",
   ],
-  219: [
+  "__index#1+9": [
     "--【★ GUID：C++ 分配的全局唯一实体编号】",
     "--   它是实体在 Lua 侧的一等身份：",
     "--     · 协程归属（StartThread(fn, self.GUID) → KillThreadsWithID 可批量杀）",
@@ -308,11 +308,11 @@ export const BEFORE = {
     "--     · Ents[guid] 反查",
     "--   ★ 注意它是**数字**，所以 __tostring 里用 %d 打印。",
   ],
-  220: [
+  "__index#1+10": [
     "--【spawntime】实体创建时刻。GetTimeAlive = GetTime() - spawntime。",
     "--   ★ 只在主模拟（服务端）有意义；客户端实体的 spawntime 是本地创建时刻。",
   ],
-  221: [
+  "__index#1+11": [
     "--【★ sleepstatepending —— 一个防御性的时序补丁】",
     "--   注释原文：「haven't received initial sleep state from engine yet」",
     "--   问题背景：C++ 引擎会在实体创建后异步告知「我是醒着还是睡着」，",
@@ -321,16 +321,16 @@ export const BEFORE = {
     "--     一个本该沉睡的实体（比如被 chunk 未加载而睡着的实体）会错误地跑AI。",
     "--   所以在收到初始状态前，一律按「要禁用」处理。见 SetBrain 中的使用（1106 行）。",
   ],
-  222: [
+  "__index#1+12": [
     "--【persists：是否写入存档】默认 true。",
     "--   EntityScript:Remove() 末尾会置false —— ★ 因为实体正在被销毁，",
     "--   如果此刻恰好触发一次存档，它就不该被写进去。",
   ],
-  223: [
+  "__index#1+13": [
     "--【inlimbo：是否处于虚体状态】",
     "--   ★ 与「睡眠（sleep）」是两个正交概念，详见 RemoveFromScene 的说明。",
   ],
-  226: [
+  "__index#1+16": [
     "--【以下是一批「可选子表」的统一显式置 nil】",
     "--   data                  —— GetPersistData 的产物槽",
     "--   listeners             —— 旧版事件监听残留字段",
@@ -346,12 +346,12 @@ export const BEFORE = {
     "--     Lua 空表也占内存（表头约56 字节），而实体可能有上万个。",
     "--     这些表只在真正用到时才创建。",
   ],
-  241: [
+  "__index#1+31": [
     "--【actionreplica 初始为 nil】由 Entity:AddNetwork() 在第 179 行注入。",
     "--   所以它是「可能不存在」的：非联网实体没有这张表。",
   ],
-  243: ["    --Replica components container with overriden accessor"],
-  244: [
+  "__index#1+33": ["    --Replica components container with overriden accessor"],
+  "__index#1+34": [
     "--【★★ 副本容器的物理结构】",
     "--   { _ = {}, inst = self }",
     "--     _   —— 真实存放副本组件实例的表。**必须用 rawget/rawset 访问**，",
@@ -360,7 +360,7 @@ export const BEFORE = {
     "--   ★ 注意 _ 会被 entityscriptproxy.lua:88 二次包一层代理，",
     "--     使客户端/服务端代码拿到的 inst 一致。参见 entityscriptproxy.lua:62。",
   ],
-  245: [
+  "__index#1+35": [
     "--【挂上元表】这一步之后，self.replica.health 就变成「自动校验的副本访问」。",
   ],
 };

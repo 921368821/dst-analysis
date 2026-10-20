@@ -2,7 +2,7 @@
 // SerializeUserSession 持久化、DownloadMods 模组协商、JoinServer 加入流程、MigrateToServer
 
 export const BEFORE = {
-  301: [
+  "RequestedLobbyCharacter#1+4": [
     "--★★★[第 301-302 行：★ 「这个函数也会被 Sim 调用」的源码警告]",
     "--   \"--NOTE: this is called from sim as well, so please check it before any",
     "--    interface changes! (NetworkManager)\"",
@@ -14,7 +14,7 @@ export const BEFORE = {
     "--     ★ 在纯 Lua 项目里改函数只需看调用点；在 DST 里还要看 C++。",
     "--     ★ ★ 移植时的教训：★ 与 C++ 有交互的函数应集中管理并标注。",
   ],
-  303: [
+  "SerializeUserSession#1": [
     "--★★★★★[SerializeUserSession —— ★★★ 玩家持久化存档的唯一出口]",
     "--   ★★★ 签名：SerializeUserSession(player, isnewspawn)",
     "--     · player    —— 玩家实体",
@@ -32,7 +32,7 @@ export const BEFORE = {
     "--   ★ 交叉引用：components 的 GetSaveRecord / OnSave 方法（各组件自行贡献数据）。",
     "--   ★★ 参见 01-报告/04-联机同步-模组系统-UI.md 的存档持久化章节。",
   ],
-  304: [
+  "SerializeUserSession#1+1": [
     "--★★★★★[第 304 行：★★★ 四重条件的归属校验 —— 本函数的安全核心]",
     "--   if player ~= nil and player.userid ~= nil and player.userid:len() > 0",
     "--       and (player == ThePlayer or TheNet:GetIsServer()) then",
@@ -62,7 +62,7 @@ export const BEFORE = {
     "--   ★★ 对照 :323 的 DeleteUserSession 用了**完全相同**的条件 ——",
     "--     ★★ 读写权限必须一致（能写就能删），这是本文件的一致性体现。",
   ],
-  306: [
+  "SerializeUserSession#1+3": [
     "--★★★★★[第 306 行：GetSaveRecord() —— ★ 存档数据的真正来源]",
     "--   local playerinfo--[[, refs]] = player:GetSaveRecord()",
     "--   ★★★ 一个被拆解的自调用：原本返回 playerinfo 和 refs（两个值），",
@@ -87,7 +87,7 @@ export const BEFORE = {
     "--       以及各组件的 OnSave 方法（如 locomotor、inventory）。",
     "--   ★★★ 这一行是「组件系统如何影响存档格式」的枢纽。",
   ],
-  307: [
+  "SerializeUserSession#1+4": [
     "--★★★[第 307 行：DataDumper 的第三参数 —— ★★ 「按构建分支决定是否含引用」]",
     "--   local data = DataDumper(playerinfo, nil, BRANCH ~= \"dev\")",
     "--   ★★★ 三个参数：",
@@ -110,14 +110,14 @@ export const BEFORE = {
     "--   ★★ ★ 移植警示：这一行是**存档兼容性**的关键 ——",
     "--     ★ 改变第三参数会让旧存档无法加载。务必保持语义一致。",
   ],
-  309: [
+  "SerializeUserSession#1+6": [
     "--★★[第 309 行：metadataStr 初始化为空串 —— 服务端专属的附加数据]",
     "--   ★★★ 对比第 318 行传给 TheNet 的四个参数里有两个字符串：",
     "--     · data（玩家存档本体）",
     "--     · ★ metadataStr（元数据，仅服务端非空）",
     "--   ★ 推理：元数据不进入普通存档，而是单独传（可能用于服务器列表展示）。",
   ],
-  311: [
+  "SerializeUserSession#1+8": [
     "--★★★[第 311-316 行：★★ 服务端专属的 metadata]",
     "--   if TheNet:GetIsServer() then",
     "--       local metadata = {",
@@ -135,7 +135,7 @@ export const BEFORE = {
     "--   ★★ 参见 01-报告/04-联机同步-模组系统-UI.md 的存档持久化章节，与 :328 世界级存档。",
     "--   ★★★ 与 :818 GetDefaultServerData 的「元数据」概念呼应（都是轻量索引）。",
   ],
-  318: [
+  "SerializeUserSession#1+15": [
     "--★★★★★[第 318 行：★ 交给存档层的最终调用]",
     "--   TheNet:SerializeUserSession(player.userid, data, isnewspawn == true,",
     "--                               player.player_classified.entity or nil, metadataStr)",
@@ -160,7 +160,7 @@ export const BEFORE = {
     "--     ⑤ metadataStr —— 服务端元数据（:311-316）。",
     "--   ★★ 「五参数传递」本身是 C++ 接口设计，Lua 侧不关心内部。",
   ],
-  322: [
+  "DeleteUserSession#1": [
     "--★★[DeleteUserSession —— 删除玩家存档（玩家永久离开）]",
     "--   ★★★ 与 :303 用了**完全相同**的四重条件（第 323 行）—— ★★ 刻意一致。",
     "--   ★★★ 语义：在玩家「永久离开」（而非临时断线）时清理其存档。",
@@ -172,7 +172,7 @@ export const BEFORE = {
     "--     「能写就能删」—— 若删除的条件比写入宽松，会成为越权删除的入口。",
     "--     ★ 一致性 = 安全的必要条件。",
   ],
-  328: [
+  "SerializeWorldSession#1": [
     "--★★★[SerializeWorldSession —— ★★ 世界级存档的序列化]",
     "--   ★★★ 签名：SerializeWorldSession(data, session_identifier, callback, metadataStr)",
     "--   ★★★ 与玩家级（:303）的关键差异：",
@@ -192,7 +192,7 @@ export const BEFORE = {
     "--     ★★ 两者独立存储 —— 玩家的存档不随世界存档一起清空（除非 DeleteUserSession）。",
     "--   ★ 交叉引用：:862 onsaved 回调（StartDedicatedServer 里的实际使用）。",
   ],
-  332: [
+  "ReportAction#1": [
     "--★★[ReportAction —— 「行为上报」（如举报、反馈）]",
     "--   ★★★ 第 333 行：TheSim:ReportAction(userid, items, item_counts, users, cb)",
     "--     ★★ 参数：userid（举报人）、items（被举报的物品）、item_counts、users。",
@@ -214,7 +214,7 @@ export const BEFORE = {
     "--     ★ 三目惯用法的链式写法（and/or 嵌套）。",
     "--   ★★ callback 的 param 是给 UI 用的（决定显示什么反馈）。",
   ],
-  347: [
+  "DownloadMods#1": [
     "--★★★★★[DownloadMods —— ★★ 联机前的模组对齐，140 行四层嵌套的复杂流程]",
     "--   ★★★ 整体流程（★ 五阶段）：",
     "--     ① 临时关闭服务端不需要的本地模组（:375-397）；",
@@ -231,7 +231,7 @@ export const BEFORE = {
     "--     ★★ 但在最末尾才被调用（:429/:450）—— 提前定义以确保可用。",
     "--   ★ 交叉引用：KnownModIndex（模组索引，模组系统核心对象）。",
   ],
-  350: [
+  "enable_server_mods#1+2": [
     "--★★★[第 350-355 行：临时启用「所有客户端都需要」的模组]",
     "--   for k,mod in pairs(server_listing.mods_description) do",
     "--       if mod.all_clients_require_mod then",
@@ -242,7 +242,7 @@ export const BEFORE = {
     "--     ★★ 因为下次进别的服（不需要这个模组）时不应该有它。",
     "--   ★ 第 353 行的 print(\"Temp Enabling \"..mod.mod_name) —— 调试日志。",
   ],
-  357: [
+  "enable_server_mods#1+9": [
     "--★★★[第 357-360 行：★★ 模组配置的沙箱应用]",
     "--   local success, temp_config_data = RunInSandboxSafe(server_listing.mods_config_data)",
     "--   if success and temp_config_data then",
@@ -259,7 +259,7 @@ export const BEFORE = {
     "--     ★★ 这里依然用了沙箱 —— 因为「信任」不等于「值得执行任意代码」。",
     "--     ★★ 这是比「信任模型」更严格的实践。",
   ],
-  366: [
+  "server_listing_contains#1": [
     "--★★[第 366-373 行：内部辅助函数 server_listing_contains]",
     "--   local function server_listing_contains(mod_desc_table, mod_name )",
     "--       for _,mod in pairs(mod_desc_table) do if mod.mod_name == mod_name then return true end end",
@@ -272,18 +272,18 @@ export const BEFORE = {
     "--   ★★ O(n) 查找 —— 本文件未建索引表（与 networkclientrpc:945 的反查同理）。",
     "--     ★ 在「每次会话一次」的流程里，O(n) 完全可接受。",
   ],
-  375: [
+  "server_listing_contains#1+9": [
     "--★★★[第 375 行：print(\"DownloadMods and temp disable\") —— 进入模组对齐流程的标志]",
     "--   ★★ 调试日志。每会话一次，不算吵。",
   ],
-  377: [
+  "server_listing_contains#1+11": [
     "--★★[第 377 行：KnownModIndex:UpdateModInfo() —— 刷新本地模组信息]",
     "--   ★★★ 必须在决策前调用 —— ★ 保证「本地有哪些模组」是最新状态",
     "--     （创意工坊可能在游戏运行期间下载了新模组）。",
     "--   ★★ 第 439 行在下载后又调了一次同样的方法 —— ★「用最新数据重新校验」。",
     "--     ★ 这是「两阶段校验」的模式：下载前查一次，下载后查一次。",
   ],
-  378: [
+  "server_listing_contains#1+12": [
     "--★★★[第 378-389 行：★★★ 临时禁用在服务端不需要的模组]",
     "--   for _,mod_name in pairs(KnownModIndex:GetServerModNames()) do",
     "--       local modinfo = KnownModIndex:GetModInfo(mod_name)",
@@ -307,7 +307,7 @@ export const BEFORE = {
     "--       ★★ 两种情况都导致「本地禁用」—— 因为本地用不上它。",
     "--   ★★ 第 384-385 行有被注释的 print —— ★ 作者调试后去掉（太吵）。",
   ],
-  390: [
+  "server_listing_contains#1+24": [
     "--★★[第 390-396 行：服务端禁用客户端模组时的处理]",
     "--   if server_listing.client_mods_disabled then",
     "--       --temp disable all the client enabled mods",
@@ -322,7 +322,7 @@ export const BEFORE = {
     "--       ★ 推测 Temp* 系列会改配置文件，而 Save 提交这些改动。",
     "--       ⚠ 但这与「临时」的语义有点矛盾（详见 :397 的分析）。",
   ],
-  397: [
+  "server_listing_contains#1+31": [
     "--★★[第 397 行：KnownModIndex:Save() —— 提交模组索引状态]",
     "--   ★★★ 为什么临时启停后要 Save？",
     "--     推理：TempEnable/TempDisable 改变了模组索引的状态，",
@@ -336,7 +336,7 @@ export const BEFORE = {
     "--     ★★★ 无论哪种，★ 「Temp 语义 + Save 持久化」的组合容易让移植者困惑，",
     "--       ★ 注释里也没说清，建议移植时明确 Temp* 与 Save 的交互。",
   ],
-  399: [
+  "server_listing_contains#1+33": [
     "--★★★[第 399 行：if server_listing.mods_enabled then —— ★★ 「服务端开模组」的总开关]",
     "--   ★★★ 这是一个大 if（约 90 行）的入口，第 486 行有对应的 else。",
     "--   ★★★ else 分支（第 486-488 行）极简：",
@@ -346,7 +346,7 @@ export const BEFORE = {
     "--       :471/:473/:483/:487）—— ★★ 无论成功失败都走这一个出口。",
     "--     ★★★ 这是「单一完成出口」的设计（保证 C++ 侧不会等不到回调）。",
   ],
-  401: [
+  "server_listing_contains#1+35": [
     "--★★★[第 401-423 行：★★★ 必需模组的检查与下载请求]",
     "--   ★★★ 三个状态标志（★ 本函数的控制流骨架）：",
     "--     · have_required_mods —— ★ 所有必需模组本地都有；",
@@ -369,7 +369,7 @@ export const BEFORE = {
     "--       ★ 推测：这种异常罕见，且强行中断可能导致玩家无法进任何有模组的服。",
     "--       ★ 「记录 + 继续」是务实的选择。仅标注。",
   ],
-  428: [
+  "server_listing_contains#1+62": [
     "--★★★[第 428-431 行：★★ 快速路径 —— 模组已齐备，直接完成]",
     "--   if have_required_mods then",
     "--       enable_server_mods()",
@@ -379,7 +379,7 @@ export const BEFORE = {
     "--     ★ 意味着「开了模组但列表为空」会被当作「模组已齐备」。",
     "--     ★ 这个行为其实是合理的（没有必需模组 = 无需下载）。",
   ],
-  432: [
+  "server_listing_contains#1+66": [
     "--★★★[第 432-433 行：需要下载的分支]",
     "--   if needed_mods_in_workshop then",
     "--       TheSim:StartDownloadTempMods(function(success, msg) ... end)",
@@ -391,7 +391,7 @@ export const BEFORE = {
     "--     · 「下载失败」（网络问题）→ 可重试；",
     "--     · ★「工坊上没有这个模组」→ 重试无用，需要人工处理 → 不同错误码。",
   ],
-  435: [
+  "server_listing_contains#1+69": [
     "--★★★[第 435-451 行：★★ 下载成功后的二次校验]",
     "--   if success then",
     "--       --downloading of mods succeeded, now double check if the right versions exists,",
@@ -409,7 +409,7 @@ export const BEFORE = {
     "--     mod_with_invalid_version = mod    -- ★★ 记下是哪个模组版本不对",
     "--   ★★ 记住「哪个」是为了生成准确的错误消息（第 452-464 行）。",
   ],
-  449: [
+  "server_listing_contains#1+83": [
     "--★★★[第 449-451 行：★★ 二次校验通过 → 与快速路径相同的完成流程]",
     "--   if all_mods_good then",
     "--       enable_server_mods()",
@@ -421,7 +421,7 @@ export const BEFORE = {
     "--     · ★★ 两条路径的收尾代码相同，避免重复。",
     "--   ★ 注意重复本身（两处相同的三行）—— 可提取为函数，但当前可读性尚可。",
   ],
-  452: [
+  "server_listing_contains#1+86": [
     "--★★★★[第 452-464 行：★★ 版本不符的错误报告（★ 最细致的一处）]",
     "--   ★★★ 第 452-458 行：获取工坊上的实际版本号用于对比。",
     "--     workshop_version = \"\"",
@@ -462,7 +462,7 @@ export const BEFORE = {
     "--       · 错误码供程序判断（稳定，不随文案变化）；",
     "--       · 消息供人阅读（可本地化、可详细）。",
   ],
-  465: [
+  "server_listing_contains#1+99": [
     "--★★★[第 465-477 行：★★ 下载失败的处理与渠道区分]",
     "--   else",
     "--       local sku = \"\"",
@@ -485,7 +485,7 @@ export const BEFORE = {
     "--         ★ 更好的做法是错误码枚举。仅标注为脆弱点。",
     "--   ★★★ 这一段整体是「失败分类上报」的最佳实践样本。",
   ],
-  478: [
+  "server_listing_contains#1+112": [
     "--★★★[第 478-485 行：★★ 「模组不在工坊上」的最终处理]",
     "--   else",
     "--       local error = \"SERVER_MODS_NOT_ON_WORKSHOP\"",
@@ -503,7 +503,7 @@ export const BEFORE = {
   ],
 
   // ── JoinServer ─────────────────────────────────────────────────────────
-  491: [
+  "ShowConnectingToGamePopup#1": [
     "--★★[ShowConnectingToGamePopup —— 「正在连接」弹窗的防重入封装]",
     "--   ★★★ 第 493 行的条件：只有当前**不在这三个界面**时才推新界面：",
     "--     · ConnectingToGamePopup（「正在连接」）",
@@ -515,7 +515,7 @@ export const BEFORE = {
     "--   ★★ 第 492 行的 nil 保护：active_screen 可能为 nil（刚启动还没界面）。",
     "--   ★ 这是一个「幂等的 UI 弹窗」辅助函数。",
   ],
-  498: [
+  "JoinServer#1": [
     "--★★★★★[JoinServer —— ★★★ 「加入服务器」的完整编排（146 行）]",
     "--   ★★★ 签名：JoinServer(server_listing, optional_password_override)",
     "--     · server_listing —— 服务器列表项（含 guid / 是否有密码 / 模组信息等）；",
@@ -541,7 +541,7 @@ export const BEFORE = {
     "--         ★★ 若先发连接请求再弹警告，取消就浪费了一次连接。",
     "--       ★ 这是一个很实际的优化：**先本地确认，再发起网络请求**。",
   ],
-  499: [
+  "send_response#1": [
     "--★★★[send_response —— ★★ 真正发起连接的地方]",
     "--   local function send_response(password)",
     "--       -- Just pass the guid in here, the network manager should have this listing",
@@ -575,7 +575,7 @@ export const BEFORE = {
     "--       ★ 推理：即使用户输入了错误密码，也需要显示「正在连接（验证）」。",
     "--       ★★ 错误反馈由后续流程（超时/失败）处理。",
   ],
-  509: [
+  "on_cancelled#1": [
     "--★★★[on_cancelled —— 取消路径]",
     "--   local function on_cancelled()",
     "--       TheNet:JoinServerResponse(true)",
@@ -590,7 +590,7 @@ export const BEFORE = {
     "--     ★★ 为什么要判 screen.name？因为取消可能发生在多个弹窗之间，",
     "--       ★★ 只关闭确实在显示的那个（避免关错界面）。",
   ],
-  517: [
+  "after_mod_warning#1": [
     "--★★★[after_mod_warning —— ★★ 密码输入与连接发起的决策点]",
     "--   ★★★ 第 518 行条件（★ 关键判断）：",
     "--     if server_listing.has_password",
@@ -616,14 +616,14 @@ export const BEFORE = {
     "--       ★★★ 即「打开对话框时光标已经就绪，可直接输入」。",
     "--       ★★ 这是「降低交互成本」的 UI 打磨（不用先点一下输入框）。",
   ],
-  553: [
+  "password_prompt_screen.edit_text.OnTextEntered#1+15": [
     "--★ send_response( optional_password_override or \"\" ) —— 无密码路径直接连接",
     "--   ★★★ `optional_password_override or \"\"`：",
     "--     · 有已知密码 → 用它；",
     "--     · ★ 没有 → ★★ 传空串（不是 nil）—— 因为 C++ 侧期望字符串。",
     "--     ★ 与 :518 的判断呼应：走到这行说明不需要密码输入。",
   ],
-  557: [
+  "after_client_mod_message#1": [
     "--★★★[after_client_mod_message —— ★★ 「服务端开了模组」的警告弹窗]",
     "--   ★★★ 第 558-561 行的四条件合取（★ 逐条推理）：",
     "--     ① server_listing.mods_enabled —— 服务端要求模组；",
@@ -639,7 +639,7 @@ export const BEFORE = {
     "--       ★★★ 这是「用户偏好控制提示」的尊重设计（不强制弹窗骚扰）。",
     "--   ★★★ 综上：这弹窗有「4 个条件同时满足」才出现 —— ★ 设计克制。",
   ],
-  563: [
+  "after_client_mod_message#1+6": [
     "--★★[第 563-581 行：手工构建复选框 UI（★ 少见的底层 UI 操作）]",
     "--   ★★★ 这里不用现成控件，而是手工创建：",
     "--     · Widget(\"checkbox_parent\") —— 空容器；",
@@ -658,7 +658,7 @@ export const BEFORE = {
     "--   ★★ 「状态存在容器上」是本项目 UI 的常见模式（便于闭包访问）。",
     "--   ★★ focus_forward —— 焦点管理（打开对话框后第一个可聚焦控件）。",
   ],
-  582: [
+  "after_client_mod_message#1+25": [
     "--★★[第 582-589 行：复选框的点击切换逻辑]",
     "--   checkbox:SetOnClick(function()",
     "--       checkbox_parent.do_warning = not checkbox_parent.do_warning",
@@ -680,7 +680,7 @@ export const BEFORE = {
     "--     ★★★ 结论：★ 语义可能正确但**命名极具误导性**，属可读性问题。",
     "--       → 移植时应重命名为 do_warn_mods 并确认贴图语义。仅标注。",
   ],
-  590: [
+  "after_client_mod_message#1+33": [
     "--★★[第 590-604 行：警告框的菜单项（继续/取消）]",
     "--   ★★★ 三项：复选框（{widget=...}）+ 继续 + 取消。",
     "--   ★★★ 每个 item 有 offset（Vector3）—— ★ 手工调整位置。",
@@ -692,7 +692,7 @@ export const BEFORE = {
     "--     ★★ 即「不要每次都问我」—— 记住偏好。",
     "--   ★★★ 第 599-603 行「取消」按钮：PopScreen + on_cancelled()。",
   ],
-  606: [
+  "cb#4+6": [
     "--★★[第 606-620 行：警告弹窗的最终布局调整（★ 纯视觉微调）]",
     "--   ★★★ 第 607 行创建 PopupDialogScreen（标题 + 正文 + 菜单项）。",
     "--   ★★★ 第 608-620 行是**大量手工微调**（SetScale/SetPosition/SetFocusChangeDir）：",
@@ -704,7 +704,7 @@ export const BEFORE = {
     "--   ★★ 这些细节反映「这个弹窗是在某个 UI 上手写出来的」（而非复用标准组件）。",
     "--   ★ 移植提示：★ 这类纯 UI 微调在新引擎里应丢弃（由布局系统替代）。",
   ],
-  628: [
+  "cb#4+28": [
     "--★★★[第 628-642 行：★★ 「客户端模组被禁」警告 —— 入口检查]",
     "--   if server_listing.client_mods_disabled and",
     "--       not IsMigrating() and",
@@ -731,7 +731,7 @@ export const BEFORE = {
   ],
 
   // ── MigrateToServer ────────────────────────────────────────────────────
-  646: [
+  "MigrateToServer#1": [
     "--★★★★★[MigrateToServer —— ★★★ 跨服务器迁移：★★ 为什么必须重启进程]",
     "--   ★★★ 签名：MigrateToServer(serverIp, serverPort, serverPassword, serverNetId)",
     "--   ★★★ 核心问题：为什么不 JoinServer（:498）那样直接连？",
@@ -747,7 +747,7 @@ export const BEFORE = {
     "--     ★★ 那其实是「换一个分片服务器」，算作迁移。",
     "--   ★★ 交叉参考：shardnetworking.lua:216 migration_portal 预制体。",
   ],
-  647: [
+  "do_join_server#1": [
     "--★★★[do_join_server 内部函数 —— ★ 真正执行迁移的地方]",
     "--   local function do_join_server()",
     "--       serverNetId = serverNetId or \"\"",
@@ -767,7 +767,7 @@ export const BEFORE = {
     "--       ★ 对照 :717 DoReset 用 RESET_ACTION.LOAD_SLOT（读存档）。",
     "--       ★★ 两个 RESET_ACTION 对应两种「下次启动做什么」。",
   ],
-  659: [
+  "do_join_server#1+12": [
     "--★★★[第 659-668 行：★★ 迁移前存档 —— 「重大变化前先落盘」]",
     "--   if InGamePlay() then",
     "--       if ThePlayer ~= nil and TheWorld ~= nil and not TheWorld.ismastersim then",
@@ -800,7 +800,7 @@ export const BEFORE = {
   ],
 
   // ── GetAvailablePlayerColours ─────────────────────────────────────────
-  671: [
+  "GetAvailablePlayerColours#1": [
     "--★★★[GetAvailablePlayerColours —— ★★ 玩家颜色的分配策略（★ 与 UI 资源联动）]",
     "--   ★★★ 第 672-681 行的注释块（★ 罕见的完整设计说明）：",
     "--     · 返回一个**有序**的颜色列表 + 一个默认色；",
@@ -820,7 +820,7 @@ export const BEFORE = {
     "--       ★★ 即「颜色 + 名字」的配对呈现。",
     "--   ★★ 这是本文件与 world.lua 的一个交叉呼应点。",
   ],
-  683: [
+  "GetAvailablePlayerColours#1+12": [
     "--★★[第 683 行原注释 \"Using a better colour theme to match world tones\"]",
     "--   ★★★ 说明选色标准：★ 与游戏世界色调协调（不是纯随机）。",
     "--   ★★ 24 个颜色（第 686-709 行）：从 TOMATO（番茄红）到 THISTLE（蓟紫）。",
@@ -835,10 +835,10 @@ export const BEFORE = {
 };
 
 export const AFTER = {
-  345: [
+  "ReportAction#1+13": [
     "--★ ReportAction 结束。★ 行为上报（举报/反馈）的一个薄封装。",
   ],
-  489: [
+  "server_listing_contains#1+123": [
     "--★★★ DownloadMods 结束（142 行）。★★★ 模组对齐流程的五阶段（见 :347 的总览）：",
     "--   ① 临时禁用多余模组（:378-396）",
     "--   ② 检查必需模组（:401-426）",
@@ -849,7 +849,7 @@ export const AFTER = {
     "--   ★★ 错误码体系（★ 良好实践）：机器可读错误码 + 人类可读消息双通道，",
     "--     且带渠道后缀（Rail vs Steam）以区分不同创意工坊。",
   ],
-  644: [
+  "cb#4+44": [
     "--★★★ JoinServer 结束（146 行）。★★★ 流程编排的完整回顾（见 :498 的流程图）：",
     "--   ① client_mods_disabled 检查（:628）→ 只有本地有客户端模组才警告",
     "--   ② mods_enabled 检查（:558）→ 「所有客户端需要模组」警告（4 条件）",
@@ -861,7 +861,7 @@ export const AFTER = {
     "--     · ★★ 不 IsMigrating() 时不弹窗（迁移要重启进程）；",
     "--     · ★★ 用户选择被保存到 Profile（不重复打扰）。",
   ],
-  669: [
+  "do_join_server#1+22": [
     "--★★★ MigrateToServer 结束（24 行）。★★ 与 JoinServer 的核心区别：",
     "--   · JoinServer —— 同进程内换世界（客户端切服务器，不重启）；",
     "--   · ★ MigrateToServer —— ★★ 重启进程换世界（因为跨服务器无法在同一 TheWorld 内切换）。",
@@ -869,7 +869,7 @@ export const AFTER = {
     "--   ★★ 跨进程机制有两个：SpawnSecondInstance(:12, os.execute 硬编码路径)",
     "--     与 StartNextInstance(:650, 引擎正规接口) —— ★ 推荐后者。",
   ],
-  713: [
+  "GetAvailablePlayerColours#1+42": [
     "--★★ GetAvailablePlayerColours 结束。★★ 24 色 + 默认色。",
     "--   ★★ 关键特性：有序（按加入顺序分配）、可被模组预随机化、session 内保持。",
   ],

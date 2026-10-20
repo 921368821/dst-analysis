@@ -5,7 +5,7 @@
 //   直接决定「同种子是否同世界」，属任务要求重点讲解的第 2 项。
 
 export const BEFORE = {
-382: [
+"Generate#1+1": [
 "-- ============================================================",
 "-- 【S0-a】把三个 Lua 回调注册进 C++ WorldSim",
 "-- ============================================================",
@@ -15,7 +15,7 @@ export const BEFORE = {
 "--   （:383）而规则逻辑留在 Lua 侧，改规则不必重编引擎。",
 ],
 
-393: [
+"Generate#1+12": [
 "-- 【deepcopy(level.overrides)】★ 注意是【深拷贝】。",
 "--   为什么必须深拷贝：overrides 之后会被本函数一路【写入】（:403/:417/:427…），",
 "--   若不拷贝就会污染 level.overrides 本身。",
@@ -25,7 +25,7 @@ export const BEFORE = {
 "--     ⇒ 这是「任务解析 + 图构建 < 50ms」预算里不可忽略的一小项。",
 ],
 
-395: [
+"Generate#1+14": [
 "-- 【story_gen_params】★ 与 current_gen_params 是【两张不同的表】，别混：",
 "--   current_gen_params ← level.overrides 的深拷贝，玩家设置（字符串枚举）",
 "--   story_gen_params    ← 翻译给 storygen 的参数（数字/布尔/表）",
@@ -33,20 +33,20 @@ export const BEFORE = {
 "--   这层间接是必需的：storygen 不该知道玩家界面的字符串长什么样。",
 ],
 
-397: [
+"Generate#1+16": [
 "-- 【默认不可通行地块】WORLD_TILES.IMPASSABLE。",
 "--   ★ 这是「锁」的物理材质：storygen 用 blocker_blank 造门（storygen.lua:995/:1165），",
 "--     烘焙后这些格就是玩家穿不过去的墙。",
 "--   ⇒ 锁—钥匙体系在本层的物理落点，见 map/lockandkey.lua 与 storygen.lua 的 blocker_blank。",
 ],
 
-402: [
+"Generate#1+21": [
 "-- 【start_location 兜底】为 nil 时补 \"default\"。",
 "--   ⚠ 注意 :405 又判了一次 `~= nil` —— 同一条件判两次，属冗余。",
 "--     第 2 次判断恒为真（:403 刚补过），无害但多余。",
 ],
 
-407: [
+"Generate#1+26": [
 "-- ============================================================",
 "-- 【★ 随机数消耗点 #1 & #2】出生场景件与起始节点",
 "-- ============================================================",
@@ -62,13 +62,13 @@ export const BEFORE = {
 "--   参见文件头「随机数与可复现性」小节与 bug-patterns.md E4。",
 ],
 
-408: [
+"Generate#1+27": [
 "-- 【随机数消耗点 #2】起始节点（与 :407 的 start_setpeice 相邻）。",
 "--   ★ 二者必须【成对理解】：先挑场景件、再挑节点，顺序颠倒会得到不同的世界。",
 "--   ⚠ :409-412 是向后兼容的兜底（existing_start_node 已不再支持）。",
 ],
 
-411: [
+"Generate#1+30": [
 "-- 【向后兼容兜底】existing_start_node —— 源码注释：",
 "--   \"existing_start_node is no longer supported\"（该字段已废弃）。",
 "--   ★ 保留它是为了不让老 MOD 的 startlocations 定义直接崩溃。",
@@ -76,7 +76,7 @@ export const BEFORE = {
 "--     这类「废弃但仍可达」的分支是可复现性的隐藏破坏者。",
 ],
 
-415: [
+"Generate#1+34": [
 "-- 【islands → island_percent】把玩家选项映射成概率：",
 "--   always=1  never=0  default=0.2  sometimes=0.1  often=0.8",
 "--   ★ 顺序有讲究：default(0.2) 比 sometimes(0.1) 高，",
@@ -87,13 +87,13 @@ export const BEFORE = {
 "--   参见 storygen.lua:449/:610 的消费点。",
 ],
 
-420: [
+"Generate#1+39": [
 "-- 【branching】分支策略，原样透传（字符串）。",
 "--   ★ 与 islands 不同，这里不做字符串→数字的翻译，",
 "--     因为 branching 的语义由 storygen 内部再分派（storygen.lua:394/:407/:427/:430/:433/:577）。",
 ],
 
-424: [
+"Generate#1+43": [
 "-- 【loop → loop_percent + loop_target】★ 一项设置翻成两个参数：",
 "--   never   → percent=0,    target=\"any\"",
 "--   default → percent=nil,  target=nil   ← 交给 storygen 自决定",
@@ -104,7 +104,7 @@ export const BEFORE = {
 "--   ⚠ 同 :415，未知选项 ⇒ percent=nil ⇒ 等价于 default，静默忽略玩家设置。",
 ],
 
-431: [
+"Generate#1+50": [
 "-- 【★ layout_mode】★★ 最关键的一项透传，直接【切换锁—钥匙算法】：",
 "--   \"RestrictNodesByKey\" → storygen 走 RestrictNodesByKey（批量分支法，:299）",
 "--   其他（含 nil）        → storygen 走 LinkNodesByKeys（逐个贪心法，:493）",
@@ -116,7 +116,7 @@ export const BEFORE = {
 "--   详见 map/lockandkey.lua 与 storygen.lua:299/:493。",
 ],
 
-435: [
+"Generate#1+54": [
 "-- 【keep_disconnected_tiles】★ 直接控制 E5 缺陷的暴露与否：",
 "--   nil/false → :853 会跑 DetectDisconnect，把悬空 FAKE_GROUND 清掉（正确但可能误删）",
 "--   true      → 【完全跳过检测】⇒ 保留 FAKE_GROUND ⇒ 玩家可能走进虚空",
@@ -124,7 +124,7 @@ export const BEFORE = {
 "--   ⚠ 这是玩家可见的难度/风险开关，但没有任何 UI 警示。",
 ],
 
-439: [
+"Generate#1+58": [
 "-- 【no_joining_islands】是否把孤岛强制连上主陆。",
 "--   ★ 与 :533 的 join_islands、:536 ForceConnectivity、:978 GetEncodedMap 三处联动，",
 "--     必须是同一个值，否则存档里的地图与实际编码的地图会不一致。",
@@ -132,7 +132,7 @@ export const BEFORE = {
 "--     而 :439 只是把它存进 overrides ⇒ 中间若被改会不一致。",
 ],
 
-443: [
+"Generate#1+62": [
 "-- 【has_ocean】★ 只透传给 story_gen_params，不改 overrides。",
 "--   ⇒ :874 的海洋分支读的是 story_gen_params.has_ocean，",
 "--     而 :585 存进 save.map 的是 current_gen_params.has_ocean。",
@@ -140,19 +140,19 @@ export const BEFORE = {
 "--     当前值相同（:443 原样拷贝）所以无害，属【脆弱的一致性】。",
 ],
 
-447: [
+"Generate#1+66": [
 "-- 【no_wormholes_to_disconnected_tiles】虫洞是否允许通向断开的地块。",
 "--   ⚠ 但 :540 的使用处被 `if false and ...` 整段关闭了 ⇒ 该设置当前【完全无效】。",
 "--     见 :539 的原始注释：与孤岛技术冲突，会在 Atrium 里造成虫洞。",
 ],
 
-451: [
+"Generate#1+70": [
 "-- 【wormhole_prefab】虫洞用的 prefab 名。",
 "--   ⚠ 同 :447，消费侧（:541）已被 `if false` 关闭 ⇒ 该参数当前也是无效的。",
 "--   ★ 两处失效设置并排出现，说明这是一次【未完成的回退】而非有意废弃。",
 ],
 
-455: [
+"Generate#1+74": [
 "-- 【ApplySpecialEvent】应用单个特殊事件（万圣节/冬天等）。",
 "--   ★ 与 :456-460 的循环并列：前者处理「单个具名事件」，",
 "--     循环处理「所有枚举出来的事件」⇒ 两套机制共存。",
@@ -161,7 +161,7 @@ export const BEFORE = {
 "--     ★ 这是 E4「pairs 遍历顺序」在本文件的具体落点之一。",
 ],
 
-456: [
+"Generate#1+75": [
 "-- 【遍历所有特殊事件】逐个检查 overrides 里是否为 \"enabled\"。",
 "--   ⚠⚠ 疑似缺陷（可确证·真 bug·影响可复现性）：",
 "--     `for k, event_name in pairs(SPECIAL_EVENTS)` 使用了【无序遍历】。",
@@ -176,17 +176,17 @@ export const BEFORE = {
 "--     只是 SPECIAL_EVENTS 用了字典。",
 ],
 
-462: [
+"Generate#1+81": [
 "-- 【默认地图边长 350】非「default」尺寸时的兜底。",
 "--   ★ 与 :476 的 `default = 425` 注释 \"default == large, at the moment\" 呼应：",
 "--     尺寸档位是纯数据表，增删改不影响逻辑。",
 ],
 
-463: [
+"Generate#1+82": [
 "-- 【world_size → 边长】★ 玩家界面的尺寸档位映射到具体边长。",
 ],
 
-465: [
+"Generate#1+84": [
 "-- 【PS4 分支】主机平台只有 3 档且没有 tiny/small/huge。",
 "--   ★ 平台差异被编码进【数据表】而非逻辑分支，是很干净的做法。",
 "--   ⚠ 但这也意味着 PS4 与 PC 的世界尺寸选项【不对等】，",
@@ -194,7 +194,7 @@ export const BEFORE = {
 "--   ⇒ 又一个 E4 的边界条件。",
 ],
 
-473: [
+"Generate#1+92": [
 "-- 【tiny=1 的荒诞取值】★ 极易误读，特意标注：",
 "--   tiny 的边长是【1 格】，不是 100/150 之类的任何实际尺寸。",
 "--   【为什么】tiny 的玩法含义是「测试地图」—— 只要够放下最基本的结构即可，",
@@ -204,13 +204,13 @@ export const BEFORE = {
 "--   ★ 这一点在原版没有任何 UI 提示，属【静默的功能性缺陷】。",
 ],
 
-476: [
+"Generate#1+95": [
 "-- 【default == 425 == large】源码自带注释承认两者当前等价。",
 "--   ⚠ 一旦哪天只改其中一个，玩家会看到「默认尺寸」与「大地图」行为分叉，",
 "--     而 UI 上看不出区别。属【数据耦合】风险。",
 ],
 
-482: [
+"Generate#1+101": [
 "-- 【无效尺寸的处理】只打印 ERROR，然后【继续用 min_size 默认值】。",
 "--   ⚠ 注意这里【不 return nil】⇒ 无效尺寸不会导致生成失败，",
 "--     而是静默退化成 350（或 default 预设的 min_size）。",
@@ -219,7 +219,7 @@ export const BEFORE = {
 "--     这里的不一致（只警告不失败）值得注意。",
 ],
 
-489: [
+"Generate#1+108": [
 "-- ============================================================",
 "-- 【★ 入参被完全覆盖】map_width / map_height 的生命周期终点",
 "-- ============================================================",
@@ -234,14 +234,14 @@ export const BEFORE = {
 "--   ★ 之后 :531 会从 WorldSim 重新读回真实尺寸（可能已被 ForceConnectivity 改变）。",
 ],
 
-493: [
+"Generate#1+112": [
 "-- 【阶段推进日志】\"Creating story...\" —— 玩家在生成界面看到的进度文案。",
 "--   ★ 全文件 27 处 print 构成了唯一的耗时观察点（没有任何计时器）。",
 "--   ⚠ 性能排查建议：这些 print 前后加 os.clock()/GetTimeReal() 埋点。",
 "--     参见 bug-patterns.md E3 的阶段耗时预算表。",
 ],
 
-495: [
+"Generate#1+114": [
 "-- ============================================================",
 "-- 【★ S1 边界】建剧情图 —— 与 storygen 的交接点",
 "-- ============================================================",
@@ -254,7 +254,7 @@ export const BEFORE = {
 "--   详见 map/storygen.lua:1394 BuildStory 与 :86 GenerationPipeline。",
 ],
 
-508: [
+"on_region_added_fn#1+7": [
 "-- 【ISLAND_EXPERIMENT_IDEA】★ 显式关闭的实验特性（硬编码 false）。",
 "--   ⚠ 与 :447/:451/:540 一样，这是【未完成的回退】。",
 "--     关闭它 ⇒ 洞穴世界的「遗迹离岛」不会生成。",
@@ -262,7 +262,7 @@ export const BEFORE = {
 "--     被部分回退，残留了这几处开关。建议在自研版本中统一清理。",
 ],
 
-533: [
+"on_region_added_fn#1+32": [
 "-- 【join_islands】★ 贯穿后半程的同一个布尔：",
 "--   :536 ForceConnectivity(join_islands, ...)  修复连通性时是否合并孤岛",
 "--   :557 DrawRoads(join_islands, ...)           铺路时是否跨越孤岛",
@@ -272,7 +272,7 @@ export const BEFORE = {
 "--   ★ 这是「同一语义参数在多处传递」的典型，适合抽成一个上下文对象。",
 ],
 
-536: [
+"on_region_added_fn#1+35": [
 "-- ★★ 【连通性修复的核心】ForceConnectivity",
 "--   【签名解读】ForceConnectivity(join_islands, false, WORLD_TILES.ROCKY)",
 "--     第 1 参 join_islands —— 是否把孤岛并入主陆",
@@ -291,7 +291,7 @@ export const BEFORE = {
 "--   关联缺陷：见 bug-patterns.md E5 与本文件 :846-852 的自白。",
 ],
 
-539: [
+"on_region_added_fn#1+38": [
 "-- 【原始注释逐字保留】",
 "--   \"turning this off for now because its conflicting with the island tech",
 "--    and disconnected node stripping, causing wormholes in the atrium\"",
@@ -303,12 +303,12 @@ export const BEFORE = {
 "--       是整套孤岛/断连机制的长期痛点。",
 ],
 
-550: [
+"on_region_added_fn#1+49": [
 "-- 【铺路条件】roads 设置非 never 【且】不是洞穴世界。",
 "--   ★ 洞穴世界不铺路 ⇒ 洞穴靠迷宫化地形本身引导玩家。",
 ],
 
-551: [
+"on_region_added_fn#1+50": [
 "-- 【SetRoadParameters】★ 道路的六项形态参数全在这里定死。",
 "--   ★ 道路宽度有【最小/最大/最小边缘/最大边缘】四档 + 抖动，",
 "--     说明道路是【有宽度渐变的有机形状】而非直线，",

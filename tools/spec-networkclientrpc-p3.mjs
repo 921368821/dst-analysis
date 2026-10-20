@@ -2,7 +2,7 @@
 // 物品栏一组（10 个平行 handler）、配方/制作、写作、popup、技能、移动开关
 
 export const BEFORE = {
-  546: [
+  "ReturnActiveItem#1": [
     "--★★[ReturnActiveItem —— 物品栏 RPC 组的开始]",
     "--   ★★ 从这里开始是一大组**结构完全相同**的物品栏操作 handler。",
     "--   ★★★ 这组平行实现的共同骨架（三行）：",
@@ -18,7 +18,7 @@ export const BEFORE = {
     "--   ★★ 安全模型（关键）：★ container 分支的 IsOpenedBy(player) 是授权核心。",
     "--     攻击者可以传任意容器实体，但只有自己打开过的容器才能通过。",
   ],
-  553: [
+  "PutOneOfActiveItemInSlot#1": [
     "--★★★[PutOneOfActiveItemInSlot —— 物品栏平行实现的第 1 号样板]",
     "--   ★ slot 用 **checkuint**（不是 optuint）：槽位号必须给定且为非负整数。",
     "--     ★ 这是 :15-16 那条说明的直接体现 —— 槽位必须是 uint。",
@@ -29,7 +29,7 @@ export const BEFORE = {
     "--   ★★ 对照整个文件：slot 类参数一律 checkuint，container 一律 optentity。",
     "--     ★★ 这就是「校验强度由业务语义决定」的成规模体现。",
   ],
-  560: [
+  "PutOneOfActiveItemInSlot#1+7": [
     "--★★[第 560 行：`if container == nil` —— 背包分支与容器分支的分流点]",
     "--   ★★ 两个分支调用的是**同名但不同对象**的方法：",
     "--     · 背包：inventory:PutOneOfActiveItemInSlot(slot)",
@@ -39,7 +39,7 @@ export const BEFORE = {
     "--   ★★ 这种「同名方法分派到不同接收者」的设计省掉了大量 if/else，",
     "--     ★ 但要求两边方法签名兼容（可选参数）。移植时要注意。",
   ],
-  564: [
+  "PutOneOfActiveItemInSlot#1+11": [
     "--★★★[第 564 行：`container = container.components.container` —— 覆盖形参的经典手法]",
     "--   ★★★ 注意这里把**形参 container** 重新绑定为它的 container 组件：",
     "--     · 进来时：container 是实体（客户端传来的引用）",
@@ -54,35 +54,35 @@ export const BEFORE = {
     "--   ★★ 第 565 行再检查 container ~= nil（实体可能没有 container 组件）",
     "--     与 IsOpenedBy —— 双层防线。",
   ],
-  572: [
+  "PutAllOfActiveItemInSlot#1": [
     "--★ PutAllOfActiveItemInSlot —— 样板 2 号。与 553 完全同构，只改方法名。",
     "--   ★★ 验证了「平行实现」的规律：10 个 handler 共享同一个三段骨架。",
   ],
-  591: [
+  "TakeActiveItemFromHalfOfSlot#1": [
     "--★ TakeActiveItemFromHalfOfSlot —— 样板 3 号。",
     "--   ★★ 方法名前缀 Take vs Put 区分方向，参数形态完全相同。",
   ],
-  610: [
+  "TakeActiveItemFromCountOfSlot#1": [
     "--★★[TakeActiveItemFromCountOfSlot —— 第一个带「数量」的样板]",
     "--   ★★ 多了 count 参数，用 checkuint（必需）：「取 N 个」必须给出 N。",
     "--   ★★ 容器版签名：container:TakeActiveItemFromCountOfSlot(slot, count, player)",
     "--     ★ 注意参数顺序是 (slot, count, player)，与背包版的 (slot, count) 不同，",
     "--       player 被追加在末尾 —— 与本文件 §零 的「参数只能末尾追加」铁律一致。",
   ],
-  630: [
+  "TakeActiveItemFromAllOfSlot#1": [
     "--★ TakeActiveItemFromAllOfSlot —— 样板 5 号（全部拿走）。",
   ],
-  649: [
+  "AddOneOfActiveItemToSlot#1": [
     "--★ AddOneOfActiveItemToSlot —— 样板 6 号（方向反转：Put→Add）。",
   ],
-  668: [
+  "AddAllOfActiveItemToSlot#1": [
     "--★ AddAllOfActiveItemToSlot —— 样板 7 号。",
   ],
-  687: [
+  "SwapActiveItemWithSlot#1": [
     "--★★[SwapActiveItemWithSlot —— 交换类，第 8 号样板]",
     "--   ★★ swap 类不需要数量参数（整格交换），所以是 4 个参数的最简形态。",
   ],
-  706: [
+  "SwapOneOfActiveItemWithSlot#1": [
     "--★★★[SwapOneOfActiveItemWithSlot —— ⚠ 疑似缺陷 C：背包分支是空的]",
     "--   ★★★ 第 715 行：`--inventory:SwapOneOfActiveItemInSlot(slot) -- TODO: Make this!`",
     "--   ★★★ 这是一条源码里的 TODO，暴露了一个**未完成的实现**：",
@@ -104,14 +104,14 @@ export const BEFORE = {
     "--     Lua 语法上合法（if 块不能为空是 Lua 的限制吗？不是，空 if 块合法），",
     "--     实际行为 = 什么都不做。",
   ],
-  715: [
+  "SwapOneOfActiveItemWithSlot#1+9": [
     "--★★[第 715 行：被注释掉的调用与其 TODO 标记 —— 缺陷 C 的证据所在]",
     "--   ★★ 注释内容 \"--inventory:SwapOneOfActiveItemInSlot(slot) -- TODO: Make this!\"",
     "--   ★★ 「Make this!」的语气说明它是**待实现**，而非「不需要」。",
     "--   ★★ 若真是设计上的不支持，通常会写成 \"not supported\" 或留空不加注释。",
     "--   ★ 交叉引用：本文件 §十 的缺陷清单 C 条。",
   ],
-  725: [
+  "UseItemFromInvTile#1": [
     "--★★★[UseItemFromInvTile —— 第一个带 controlmods（手柄按键）的物品栏 handler]",
     "--   ★★ 参数：action（动作 ID）、item（实体）、controlmods（按键位）、mod_name。",
     "--   ★★ 第 736-738 行是本文件**唯一一处**的「Decode / 执行 / Clear」三明治：",
@@ -130,25 +130,25 @@ export const BEFORE = {
     "--     ⚠ 因为它们的 controlmods 不在签名里（用手柄的 action 隐含了按键）。",
     "--     ★ 这个不一致值得注意：同一族 handler 的按键处理方式不同。",
   ],
-  742: [
+  "ControllerUseItemOnItemFromInvTile#1": [
     "--★★[ControllerUseItemOnItemFromInvTile —— 手柄版「用 A 于 B」]",
     "--   ★ 参数：action, item（被使用）, active_item（作用目标）, mod_name。",
     "--   ★★ 两个 checkentity（都必需）：物品与目标都必须指定。",
     "--   ★ 第 753 行只有 ClearControlMods 无 Decode（见 :725 的注记）。",
   ],
-  758: [
+  "ControllerUseItemOnSelfFromInvTile#1": [
     "--★ ControllerUseItemOnSelfFromInvTile —— 手柄版「对自己使用」。",
   ],
-  773: [
+  "ControllerUseItemOnSceneFromInvTile#1": [
     "--★ ControllerUseItemOnSceneFromInvTile —— 手柄版「对场景使用」。",
     "--   ★★ 三者的目标类型递进：B→B（物对物）、self（对己）、scene（对场景）。",
     "--     ★ 与 :773 同一族的第四个成员是 UseItemFromInvTile（:725 鼠标版），",
     "--       五个 handler 覆盖了「用物品」的全部目标类型。",
   ],
-  789: [
+  "InspectItemFromInvTile#1": [
     "--★ InspectItemFromInvTile —— 查看物品。比 :194 的 InspectButton 多了实体来源。",
   ],
-  800: [
+  "DropItemFromInvTile#1": [
     "--★★[DropItemFromInvTile —— 掉落的 single 参数：★ optbool（可选布尔）]",
     "--   ★★ 注意 single 用 optbool：可以传 nil（= 掉整个堆叠）。",
     "--   ★ 对照 :9 的分析：optbool ≡ checkbool（都放行 nil）。",
@@ -156,25 +156,25 @@ export const BEFORE = {
     "--   ★★★ 这是「命名表达意图」的一个纯例子 ——",
     "--     检查能力一样，但读者从名字知道「这参数可以不传」。",
   ],
-  812: [
+  "CastSpellBookFromInv#1": [
     "--★ CastSpellBookFromInv —— 法术书施法（★ 召唤 DLC 相关）。",
     "--   ★★ spell_id 用 checkuint（必需）：施法必须指定法术。",
     "--   ★ 与 :1159 SetSkillActivatedState 的 skill_rpc_id 是同一类 ID。",
   ],
-  824: [
+  "EquipActiveItem#1": [
     "--★ EquipActiveItem —— 装备手上的物品。零参数零校验。",
   ],
-  831: [
+  "EquipActionItem#1": [
     "--★★[EquipActionItem —— 「指定物品」的装备，item 用 optentity（可选）]",
     "--   ★★ 推理为什么可选：客户端可能只发「装备」信号，具体物品由",
     "--     服务端从 active item 推断（与 :824 的 EquipActiveItem 语义重叠）。",
     "--     ★ 即 EquipActionItem 是 EquipActiveItem 的「显式版本」，",
     "--       两者的区别只在 item 是否给定。",
   ],
-  842: [
+  "SwapEquipWithActiveItem#1": [
     "--★ SwapEquipWithActiveItem —— 手持物与装备栏交换。零参数零校验。",
   ],
-  849: [
+  "TakeActiveItemFromEquipSlot#1": [
     "--★★[TakeActiveItemFromEquipSlot —— ★ eslot 用 checknumber 而非 checkuint]",
     "--   ★★ 又是「谓词选择的语义依据」的例子：",
     "--     · 背包 slot（第 553 行等）用 checkuint —— 因为槽位号不能为负；",
@@ -185,7 +185,7 @@ export const BEFORE = {
     "--   ★ 这处差异是「不能把校验器当模板套用」的实证。",
     "--   ★ 参见 inventory 组件里 TakeActiveItemFromEquipSlotID 的槽位定义。",
   ],
-  860: [
+  "MoveInvItemFromAllOfSlot#1": [
     "--★★★[MoveInvItemFromAllOfSlot —— 「源固定是背包」的移动系列]",
     "--   ★★ 与前面 10 个平行 handler 的关键差异：",
     "--     · destcontainer 用 **checkentity**（必需），不是 optentity！",
@@ -200,7 +200,7 @@ export const BEFORE = {
     "--     源 srccontainer 必需且检查 IsOpenedBy，目标 destcontainer 可选。",
     "--     ★ 两组的方向完全相反，★ 改写时极易搞混。",
   ],
-  897: [
+  "MoveItemFromAllOfSlot#1": [
     "--★★★[MoveItemFromAllOfSlot —— 「源固定是容器」的移动系列，与 :860 镜像]",
     "--   ★★ 镜像关系（★ 移植时必须成对理解）：",
     "--     MoveInvItemFrom*Slot（:860-895）: checkentity(destcontainer)，不检查打开",
@@ -213,7 +213,7 @@ export const BEFORE = {
     "--     且这个不对称是**有意的语义区分**，不是疏漏。",
     "--   ★ 第 906 行的 `destcontainer or player` —— 目标缺省时是「玩家背包」。",
   ],
-  937: [
+  "MakeRecipeFromMenu#1": [
     "--★★★★★[MakeRecipeFromMenu —— 「用数值 ID 反查配方」的经典模式]",
     "--   ★★ 第 945-950 行：从 AllRecipes 里按 v.rpc_id == recipe 反查。",
     "--   ★★★ 为什么要用数字 ID 而不是配方名？",
@@ -236,7 +236,7 @@ export const BEFORE = {
     "--       实际多数情况下 skin_index 为 nil → 整个表达式短路，不求值。",
     "--     → 属「潜伏的潜在缺陷」，仅标注不改。",
   ],
-  954: [
+  "SetMovementPredictionEnabled#1": [
     "--★★★[SetMovementPredictionEnabled —— 客户端预测协议的服务端开关]",
     "--   ★★ 这个 RPC 看似普通，但它是 PredictWalking（:425）的前置条件：",
     "--     · 服务端先通过它开启/关闭某玩家的客户端预测；",
@@ -251,7 +251,7 @@ export const BEFORE = {
     "--     ★ 服务端必须能随时关闭某个玩家的预测来止损（网络差/作弊时）。",
     "--   ★ 参见 locomotor.lua 的客户端预测章节与 playercontroller 的 remote_predicting。",
   ],
-  965: [
+  "MakeRecipeAtPoint#1": [
     "--★★[MakeRecipeAtPoint —— 「配方 + 坐标」的制作，坐标版三重校验]",
     "--   ★★ 三个额外检查叠加在坐标类 RPC 上：",
     "--     ① checknumber(x), checknumber(z), checknumber(rot) —— rot 是**必需**",
@@ -261,7 +261,7 @@ export const BEFORE = {
     "--     ★ 二者共享「rpc_id 反查配方」的逻辑（第 982-987 行与 :945-950 行同构）。",
     "--   ★★ 第 984 行的 `v.name` 取 PREFAB_SKINS（见 :947 的不一致注记）。",
   ],
-  995: [
+  "BufferBuild#1": [
     "--★★[BufferBuild —— 「预缓冲」：把一次点击预演成可执行的动作]",
     "--   ★★ 第 1002-1005 行有个细微差异：",
     "--     `for k, v in pairs(AllRecipes) do if v.rpc_id == recipe then builder:BufferBuild(k) end end",
@@ -275,7 +275,7 @@ export const BEFORE = {
     "--     而 BufferBuild 需要覆盖所有同 id 登记处。",
     "--   ★ 差异细微但有意义 —— ★ 说明作者清楚这两个 handler 的语义差异。",
   ],
-  1010: [
+  "CannotBuild#1": [
     "--★★[CannotBuild —— 「客户端告知服务端我建不了」的反向通道]",
     "--   ★★★ 非常规设计：这是**客户端 → 服务端**的一个「失败上报」，",
     "--     方向与其他 RPC 相反（其他都是「请求做某事」）。",
@@ -288,13 +288,13 @@ export const BEFORE = {
     "--   ★ reason 用 checkstring（必需），且内容被限制在 GetString 的白名单里。",
     "--   ★ 参见 01-报告/04 的「本地化在客户端」相关讨论。",
   ],
-  1015: [
+  "CannotBuild#1+5": [
     "--★ GetString(player, \"ANNOUNCE_CANNOT_BUILD\", reason, true) —— ★ player 是本地玩家。",
     "--   ★★ 第四个参数 true 推测是「禁止跨语种回退」或「严格模式」。",
     "--   ★★ 这是本文件少数几处「服务端用 player 查客户端资源」的地方 ——",
     "--     因为 reason 是**枚举式**的短字符串，跨语言传输安全。",
   ],
-  1024: [
+  "WakeUp#1": [
     "--★★★[WakeUp —— 叫醒睡着的玩家：★ 四重语义检查的典范]",
     "--   ★★ 第 1026-1030 行的四个 and 条件：",
     "--     ① playercontroller:IsEnabled()   —— 控制器未被禁用",
@@ -313,7 +313,7 @@ export const BEFORE = {
     "--     ★ 复用 locomote 事件而非自定义事件，说明「叫醒」被建模成「开始移动」。",
     "--   交叉引用：components/sleepingbaguser.lua、components/sleeper.lua。",
   ],
-  1035: [
+  "exitgym#1": [
     "--★★★★⚠ [exitgym —— 缺陷 D：全小写命名 + 唯一绕过校验的 handler]",
     "--   ★★ 问题一（命名）：全部 90 个 handler 都是 PascalCase（LeftClick、",
     "--     DoWidgetButtonAction…），只有它是 exitgym。",
@@ -338,7 +338,7 @@ export const BEFORE = {
 };
 
 export const AFTER = {
-  648: [
+  "TakeActiveItemFromAllOfSlot#1+18": [
     "--★★ 物品栏「平行实现」群组在此结束（第 546-724 行，约 180 行、10 个 handler）。",
     "--   ★★ 这 180 行的价值不在逻辑（都是分派），而在**展示了「参数校验强度」",
     "--     如何逐个按业务语义决策**：",
@@ -349,10 +349,10 @@ export const AFTER = {
     "--     · IsOpenedBy 只在「从容器取」时检查，「往容器放」不检查",
     "--   ★★ 参见 loc篇 §零 关于「RPC 只能末尾追加参数」的注记。",
   ],
-  824: [
+  "EquipActiveItem#1": [
     "--★ 物品栏操作组告一段落。接下来是制作/配方、写作、popup、技能相关。",
   ],
-  1033: [
+  "WakeUp#1+9": [
     "--★ WakeUp 结束。★★ 它与 :1035 的 exitgym 是「同一语义域（叫醒/中断）",
     "--   的两种强度截然不同的实现」，★ 缺陷 D 的注记详见 BEFORE[1035]。",
   ],

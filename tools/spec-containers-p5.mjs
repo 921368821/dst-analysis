@@ -4,94 +4,94 @@
  */
 
 export const BEFORE = {
-  2011: [
+  "params.wortox_souljar.itemtestfn#1": [
     "-- 【itemtestfn 范例 W：标签 + 标签排除】HasTag(\"soul\") and not HasTag(\"nosouljar\")。",
     "--   ★ 「排除标签」模式：给特殊灵魂打上 nosouljar 就能把它挡在罐外，",
     "--     而无需为每种「不该放的灵魂」写一条规则。",
   ],
-  2015: ["-- ── wendy_elixir_container（温蒂灵药容器）区块 ──"],
-  2019: ["-- 灵药容器：3x3 = 9 格。"],
-  2033: ["-- 第五处 slotbg 游标（elixir_slot.tex）。"],
-  2042: [
+  "params.wortox_souljar.itemtestfn#1+4": ["-- ── wendy_elixir_container（温蒂灵药容器）区块 ──"],
+  "params.wortox_souljar.itemtestfn#1+8": ["-- 灵药容器：3x3 = 9 格。"],
+  "params.wortox_souljar.itemtestfn#1+22": ["-- 第五处 slotbg 游标（elixir_slot.tex）。"],
+  "params.elixir_container.itemtestfn#1": [
     "-- 双标签白名单：ghostlyelixir / ghostflower。",
   ],
-  2046: [
+  "params.elixir_container.itemtestfn#1+4": [
     "-- priorityfn = itemtestfn（第 1632 行模式）。不依赖 slot，安全。",
   ],
-  2048: ["-- ── dragonflyfurnace（蜻蜓焚化炉）区块 ──"],
-  2052: ["-- 焚化炉：2x2 = 4 格，INCINERATE 按钮。"],
-  2083: [
+  "params.elixir_container.itemtestfn#1+6": ["-- ── dragonflyfurnace（蜻蜓焚化炉）区块 ──"],
+  "params.elixir_container.itemtestfn#1+10": ["-- 焚化炉：2x2 = 4 格，INCINERATE 按钮。"],
+  "params.dragonflyfurnace.itemtestfn#1": [
     "-- 【itemtestfn 范例 X：与第 121 行传送门完全相同的黑名单】",
     "--   `not item:HasTag(\"irreplaceable\")`。",
     "--   ⇒ 「焚化炉能烧任何不可替代物之外的东西」—— 与传送门「能装任何不可替代物之外的东西」",
     "--     是**同一个规则**。两者语义不同却共用判定，说明这个规则被复用得很广。",
   ],
-  2087: ["-- 第 330 行双端模板的第 N 次复制（ACTIONS.INCINERATE）。"],
-  2095: [
+  "params.dragonflyfurnace.widget.buttoninfo.fn#1": ["-- 第 330 行双端模板的第 N 次复制（ACTIONS.INCINERATE）。"],
+  "params.dragonflyfurnace.widget.buttoninfo.validfn#1": [
     "-- 焚化炉 validfn：只需非空（不要求满）。",
     "--   ⇒ 有一个物品就能点，与 cookpot/sewingmachine 的 IsFull 形成对比。",
   ],
-  2099: ["-- ── slingshotammo_container（弹弓弹药箱）区块 ──"],
-  2103: ["-- 弹药箱：3x2 = 6 格。★ slotpos 循环变量 y 从 1 到 0（2 行）。"],
-  2117: [
+  "params.dragonflyfurnace.widget.buttoninfo.validfn#1+4": ["-- ── slingshotammo_container（弹弓弹药箱）区块 ──"],
+  "params.dragonflyfurnace.widget.buttoninfo.validfn#1+8": ["-- 弹药箱：3x2 = 6 格。★ slotpos 循环变量 y 从 1 到 0（2 行）。"],
+  "params.dragonflyfurnace.widget.buttoninfo.validfn#1+22": [
     "-- 第六处 slotbg 游标（slingshot_ammo_slot.tex）。",
     "--   ★ 与第 1473 行弹弓槽的贴图**同名**，说明弹药相关道具共用一张格子底图。",
   ],
-  2121: [
+  "params.dragonflyfurnace.widget.buttoninfo.validfn#1+26": [
     "-- ★ 坐标 `90 * x - 90`（x=0,1,2 → -90/0/90）与 `80 * y - 42.5`（y=1,0 → 37.5/-42.5）。",
     "--   这里 x 从 0 开始且偏移 -90，而多数容器是 -80*2+80。",
     "--   ⇒ 说明坐标原点并不统一，**每个容器都要独立看它的 slotpos 循环**。",
   ],
-  2126: [
+  "params.slingshotammo_container.itemtestfn#1": [
     "-- 单标签白名单：slingshotammo。与第 1532 行弹弓的判定一致。",
   ],
-  2130: [
+  "params.slingshotammo_container.itemtestfn#1+4": [
     "-- priorityfn = itemtestfn（第 1632 行模式）。不依赖 slot，安全。",
   ],
-  2132: ["-- ── wx78_backupbody（WX-78 备用躯体）区块 ──"],
-  2136: [
+  "params.slingshotammo_container.itemtestfn#1+6": ["-- ── wx78_backupbody（WX-78 备用躯体）区块 ──"],
+  "params.slingshotammo_container.itemtestfn#1+10": [
     "-- ★ 把坐标提成命名常量 WX78_BACKUPBODY_POS，第 2143 行 pos = 该常量。",
     "--   ★ 原因：第 2258 行 wx78_inventorycontainer 在「进入备用躯体」时",
     "--     **要把自己摆到与备用躯体相同的位置**，必须引用同一个常量。",
     "--     这是「跨容器共享布局常量」的必要条件，也是第 2205 行另一个常量的由来。",
   ],
-  2138: ["-- 备用躯体：5x3 = 15 格，15 = constants.lua:650 MAXITEMSLOTS（物品栏槽数）。"],
-  2145: [
+  "params.slingshotammo_container.itemtestfn#1+12": ["-- 备用躯体：5x3 = 15 格，15 = constants.lua:650 MAXITEMSLOTS（物品栏槽数）。"],
+  "params.slingshotammo_container.itemtestfn#1+19": [
     "-- 自定义开合音效（WX_rework 前缀 = 韦斯特 DLC 资源包）。",
   ],
-  2151: [
+  "params.wx78_backupbody.itemtestfn#1": [
     "-- 【itemtestfn 范例 Y：又一处 irreplaceable 黑名单】",
     "--   与第 121 行传送门、第 2083 行焚化炉**逐字相同**。",
     "--   ⇒ 三个语义完全不同的容器共用同一条规则，进一步说明该规则是「通用道具安全网」。",
   ],
-  2155: [
+  "params.wx78_backupbody.itemtestfn#1+4": [
     "-- 5 列 × 3 行。★ 注意 `for x = 0, 4, 1` 显式写了步长 1（Lua 默认步长就是 1，冗余）。",
     "--   坐标 `80 * x - 80 * 2` → x∈[0,4] 映射到 [-160..160]，y 偏移 -42.5。",
   ],
-  2161: ["-- ── wx78_drone_delivery（WX-78 送货无人机）区块 ──"],
-  2165: ["-- 送货无人机：3x2 = 6 格。★ 没有 itemtestfn —— 万能容器。"],
-  2184: [
+  "params.wx78_backupbody.itemtestfn#1+10": ["-- ── wx78_drone_delivery（WX-78 送货无人机）区块 ──"],
+  "params.wx78_backupbody.itemtestfn#1+14": ["-- 送货无人机：3x2 = 6 格。★ 没有 itemtestfn —— 万能容器。"],
+  "params.wx78_backupbody.itemtestfn#1+33": [
     "-- 小型无人机：3x1 = 3 格（单排）。★ 同样没有 itemtestfn。",
   ],
-  2201: ["-- ── wx78_inventorycontainer（WX-78 物品柜容器）区块 ──"],
-  2205: [
+  "params.wx78_backupbody.itemtestfn#1+50": ["-- ── wx78_inventorycontainer（WX-78 物品柜容器）区块 ──"],
+  "params.wx78_backupbody.itemtestfn#1+54": [
     "-- ★ 第二个共享布局常量：WX78_INVENTORY_CONTAINER_OFFSET = Vector3(0, 100, 0)。",
     "--   第 2264 行 posfn 用它把柜子挂到它所在**物品栏格子的位置 + 这个偏移**。",
     "--   ⇒ ★ 这是「UI 跟随物品栏实时定位」的常量 —— 玩家移动柜子，UI 立刻跟随。",
   ],
-  2207: [
+  "params.wx78_backupbody.itemtestfn#1+56": [
     "-- ★★ 五列位置表：WX78_INVENTORY_CONTAINER_SLOTPOS，5 个坐标。",
     "--   它们按「这个柜子当前在备用躯体的第几列」被索引（第 2235-2239 行 slotposfn）。",
     "--   ⇒ 这是全文件**唯一的动态布局**容器：槽位坐标由运行时状态决定，而非写死。",
   ],
-  2212: [
+  "wx78_inventorycontainer_isinbackupbody#1": [
     "-- 【★ wx78_inventorycontainer_isinbackupbody：双端兼容的归属判定】",
     "--   `container.replica.inventoryitem:IsHeldBy(doer)` —— 注意用的是 **replica**，",
     "--     这就是它能同时在两端工作的原因（replica 表两端都存在，见 entityscript.lua:244）。",
     "--   取反得到「柜子不在任何玩家手上」=「柜子在备用躯体里」。",
     "--   ★ 这解释了为什么第 1053 行 saltbox 用 replica 不会崩：replica 在两端都有。",
   ],
-  2217: [
+  "wx78_inventorycontainer_getcolumn#1": [
     "-- 【★ wx78_inventorycontainer_getcolumn：从父容器反查自己的列号】",
     "--   parent = container.entity:GetParent() —— 柜子的物理父实体是备用躯体；",
     "--   遍历备用躯体的 container items，找出「哪个槽里装的是我」，",
@@ -99,47 +99,47 @@ export const BEFORE = {
     "--   ★ mod 5 是因为备用躯体有 15 槽 = 3 行 × 5 列，列号需要从行号里剥出来。",
     "--   ⇒ 设计巧思：**UI 布局与数据布局解耦**，靠一个取模公式桥接。",
   ],
-  2226: [
+  "wx78_inventorycontainer_getcolumn#1+9": [
     "-- ⚠ 默认返回 5（最后一列）：找不到自己时兜底到最右列。",
     "--   推理依据：加载中/父容器还没同步完时 GetItems() 可能为空，",
     "--     必须给一个合法值否则 slotposfn 返回 nil → UI 无格子。",
     "--   选 5 而不是 1 是因为「放最右」在视觉上更不突兀。**不改代码**。",
   ],
-  2230: [
+  "wx78_inventorycontainer_getcolumn#1+13": [
     "-- 【★★ 动态布局容器本体】读它的 widget 需要理解 5 个 *fn 字段的组合。",
     "--   slotpos / slotposfn / slotscalefn / slothighlightscalefn / animfn / posfn",
     "--   ⇒ 规律：**静态字段是默认值，*fn 字段按需覆盖；fn 返回 nil 表示「用默认值」**。",
     "--   这是全文件唯一大量使用 *fn 的容器，也是唯一没有「确定槽位数」的容器。",
   ],
-  2234: [
+  "wx78_inventorycontainer_getcolumn#1+17": [
     "-- 默认槽位：固定在 (0,0)。★ 只有 1 个坐标 → 第 15 行数出 numslots = 1。",
   ],
-  2235: [
+  "slotposfn#1": [
     "-- 【★ slotposfn：动态槽位坐标】",
     "--   在备用躯体里 → 返回对应列的坐标；否则 → 返回 nil（用默认的 (0,0)）。",
     "--   ★ 注意它返回的是 **WX78_..._SLOTPOS 数组的一个元素**（一个 Vector3），",
     "--     不是函数结果集 —— widget 层把它当作 slotpos[i] 使用。",
   ],
-  2240: [
+  "slotposfn#1+5": [
     "-- ★ 原注释保留：「--numslots = 1, --required if we don't have slotpos table」。",
     "--   这条注释说明了「slotpos 与 numslots 的关系」：",
     "--     · 有 slotpos → 第 15 行自动数出槽位数；",
     "--     · 没 slotpos → 必须显式给 numslots，否则 slots 是空表。",
     "--   本容器两者都有（slotpos 1 个 + 不写 numslots），恰好都满足。",
   ],
-  2241: [
+  "slotscalefn#1": [
     "-- 【slotscalefn】在备用躯体里缩到 0.85 倍（柜子变小以塞进躯体框内），否则 nil（默认 1.0）。",
   ],
-  2244: [
+  "slothighlightscalefn#1": [
     "-- 【slothighlightscalefn】高亮放大 1.08 倍（与 0.85 缩放配套，放大比例也相应减小）。",
   ],
-  2249: [
+  "animfn#1": [
     "-- 【★ animfn：动态美术名】`anim .. tostring(列号)` ——",
     "--   ★ 把美术名按列号动态拼接：ui_wx78_inventorycontainer_1x1 → ..._3x1。",
     "--   ⇒ 意思是「第几列就用第几列的那张 UI 图」，美术资源命名必须严格遵循此约定。",
     "--   ⚠ 这是最脆弱的一处：美术改了命名规则，这里会静默找不到图（显示空白）。",
   ],
-  2256: [
+  "posfn#1": [
     "-- 【★ posfn：最复杂的一段】三条分支决定柜子 UI 摆在哪：",
     "--   ① 在备用躯体里 → 固定用 WX78_BACKUPBODY_POS（因为躯体 UI 是固定位置的）；",
     "--   ② 否则 → 遍历玩家的 HUD 物品栏，找到「哪个格子装的是我」，",
@@ -147,23 +147,23 @@ export const BEFORE = {
     "--   ③ 两者都不是 → 隐式返回 nil。",
     "--   ⇒ 这解释了第 2205 行常量偏移的用途：把柜子 UI 相对物品栏格微微下移，避免重叠。",
   ],
-  2261: [
+  "posfn#1+5": [
     "-- ★ 原注释保留：「-- TODO is this the best way of doing this?」",
     "--   ★ 作者自己标注了这套「翻 HUD 控件树找自己」的做法是临时方案。",
     "--     推理：doer.HUD.controls.inv.inv 是 UI 控件树，直接遍历它找 tile.item，",
     "--     属于**从渲染层反查数据**（本该反过来）。作者知道这不优雅但暂时没有更好的 API。",
     "--     ⇒ 这是本文件里少见的「作者自认技术债」标注，很有参考价值。",
   ],
-  2268: [
+  "posfn#1+12": [
     "-- ★ 注释再次提到音效归属：「Override the widget sound, which is heard only by the client」",
     "--   与第 508 行的 V2C 注释呼应 —— 这类音效只在客户端播放，**服务端无声**。",
     "--   推测：可能是从别的服务器主题（balatro/ = 梭哈主题音乐包）临时借用的音效。",
   ],
-  2272: [
+  "bottom_align_tip_fn#1": [
     "-- 【bottom_align_tip_fn / top_align_tip_fn：提示条对齐的动态版本】",
     "--   在躯体里 → 底部对齐 -90；否则 → 顶部对齐 70。",
   ],
-  2278: [
+  "top_align_tip_fn#1+3": [
     "-- ★ 原注释保留：「top_align_tip = 70, --backward compatibility, fn versions would have higher priority now」。",
     "--   ★★ 这是**向后兼容的教科书案例**：",
     "--     · 老版本只有静态 top_align_tip；",
@@ -173,10 +173,10 @@ export const BEFORE = {
     "--   ⇒ 配置系统的版本兼容三板斧：**加新字段 → 保留旧字段 → 声明优先级**。",
     "--     全库新增配置项都应参照这个模式。",
   ],
-  2280: [
+  "top_align_tip_fn#1+5": [
     "-- ★ 默认 type = \"inv\" —— UI 挂在物品栏顶行（playerhud.lua:394 `(\"inv\" and self.controls.inv.toprow_inv)`）。",
   ],
-  2281: [
+  "typefn#1": [
     "-- 【★★ typefn：动态类型】默认 \"inv\"，在备用躯体里 → \"chest_addon\"。",
     "--   ★ 这是全文件唯一使用 typefn 的容器。",
     "--   消费点：screens/playerhud.lua:392 ——",
@@ -184,49 +184,49 @@ export const BEFORE = {
     "--   ⇒ UI 层先问「你有没有 typefn？有就调它，没有用静态 type」。",
     "--     效果：同一个柜子在物品栏里占顶行，放进躯体里就变成躯体顶部的装饰区。",
   ],
-  2287: [
+  "params.wx78_inventorycontainer.priorityfn#1": [
     "-- 【★ priorityfn：唯一用 stackable 能力的 priorityfn】",
     "--   逻辑：若当前槽里已有物品且它能与新物品**叠加**，就优先放这个柜子。",
     "--   ⇒ 效果：玩家拿 20 个燧石，会优先塞进「已经装了燧石的柜子」而不是「空柜子」",
     "--     —— 即**按物品类型聚合**，减少碎片化占格。这是很典型的 UX 优化。",
   ],
-  2288: [
+  "params.wx78_inventorycontainer.priorityfn#1+1": [
     "-- 先看第 1 格（numslots = 1，唯一的槽）里有什么。",
   ],
-  2290: [
+  "params.wx78_inventorycontainer.priorityfn#1+3": [
     "-- stackable ~= nil and CanStackWith(item) —— ★ 「已有物品与新物品同类型且非空」。",
     "--   注意用的是 `existingitem.replica.stackable`（replica）而非 components —— ",
     "--     因为 priorityfn 会在**客户端 UI 侧**被提前调用（为了决定高亮哪个容器）。",
     "--   ⇒ ★ 这解释了全文件为什么允许 replica 访问：某些判定确实需要双端通用。",
   ],
-  2293: ["-- ── socket_keystone_construction_container（基岩插槽容器）区块 ──"],
-  2297: [
+  "params.wx78_inventorycontainer.priorityfn#1+6": ["-- ── socket_keystone_construction_container（基岩插槽容器）区块 ──"],
+  "params.wx78_inventorycontainer.priorityfn#1+10": [
     "-- 第七次（也是最后一次）deepcopy(construction_container) —— 派生建造容器的标准套路。",
   ],
-  2299: ["-- 槽位缩到 1 个。★ 与第 555 行的裂隙容器完全同构，连 side_align_tip 都一样（120）。"],
-  2303: ["-- 按钮文案换成 OFFER（献出基岩）。"],
-  2305: [
+  "params.wx78_inventorycontainer.priorityfn#1+12": ["-- 槽位缩到 1 个。★ 与第 555 行的裂隙容器完全同构，连 side_align_tip 都一样（120）。"],
+  "params.wx78_inventorycontainer.priorityfn#1+16": ["-- 按钮文案换成 OFFER（献出基岩）。"],
+  "DoKeyStoneAct#1": [
     "-- 【DoKeyStoneAct】与第 607 行 EnableRiftsDoAct **逐字同构**，只有名字不同。",
     "--   ⚠ 重复代码：本文件有 4 份几乎相同的双端执行模板（第 330/377/434/478/531/607/1191/2087/2305 行）。",
     "--     它们没有抽成公共函数，原因大概是每个都绑定不同的 ACTIONS，",
     "--     抽了反而要传更多参数。这是「小重复优于抽象过度」的合理取舍。",
   ],
-  2313: ["-- 取消回调：与第 603 行 EnableRiftsPopUpGoBack 同构（只 PopScreen）。"],
-  2324: [
+  "GiveKeyStoneGoBack#1": ["-- 取消回调：与第 603 行 EnableRiftsPopUpGoBack 同构（只 PopScreen）。"],
+  "params.socket_keystone_construction_container.widget.overrideactionfn#1": [
     "-- overrideactionfn：与第 622 行裂隙版**逐字同构**（同样弹 RiftConfirmScreen）。",
     "--   ⇒ 两套「献祭类」容器共享同一套交互模式，只是文案与动作不同。",
   ],
-  2336: [
+  "GiveKeyStonePopUp#1+9": [
     "-- ⚠ 缩进不齐：这一行比上下两行多缩进（`            { text = ...`）。",
     "--   推理依据：纯格式问题，Lua 对空白不敏感，执行无差异。",
     "--     仅标注为「疑似缺陷（格式）」，不改代码。",
   ],
-  2345: ["-- ── quagmire_pot（脓goo锅）区块 ──"],
-  2349: [
+  "GiveKeyStonePopUp#1+18": ["-- ── quagmire_pot（脓goo锅）区块 ──"],
+  "GiveKeyStonePopUp#1+22": [
     "-- 脓液锅：4 竖格。与普通 cookpot 同型但美术换成 quagmire 前缀（未开化 DLC）。",
   ],
-  2365: ["-- acceptsstacks = false：每格一份材料。"],
-  2369: [
+  "GiveKeyStonePopUp#1+38": ["-- acceptsstacks = false：每格一份材料。"],
+  "params.quagmire_pot.itemtestfn#1": [
     "-- 【★ itemtestfn 范例 AA：全文件最复杂的 itemtestfn —— 四重与，每重都有讲究】",
     "--   逐项拆解：",
     "--   ① HasTag(\"quagmire_stewable\") —— 白名单：可炖的东西；",
@@ -240,22 +240,22 @@ export const BEFORE = {
     "--     与第 2260 行 priorityfn 用 replica 形成对照 —— ",
     "--     同一个文件里两种风格并存，判断依据是「这段代码在哪一端跑」。",
   ],
-  2372: [
+  "params.quagmire_pot.itemtestfn#1+3": [
     "-- ★ 第 ③ 重条件的写法：`A ~= nil and not A:IsHeld()`。",
     "--   这是「先确保组件存在再调方法」的标准防 nil 模式。",
     "--   ⚠ 注意这里用 components 而第 2260 行用 replica，两处风格不一致（见上文说明）。",
   ],
-  2376: ["-- ── quagmire_pot_small 区块 ──"],
-  2380: ["-- 小锅：3 格（比 4 格版少一格）。"],
-  2386: [
+  "params.quagmire_pot.itemtestfn#1+7": ["-- ── quagmire_pot_small 区块 ──"],
+  "params.quagmire_pot.itemtestfn#1+11": ["-- 小锅：3 格（比 4 格版少一格）。"],
+  "params.quagmire_pot.itemtestfn#1+17": [
     "-- ★ 坐标 64 + 8 = 72 间距（而 4 格版是 64+32+8+4=108 与 36）。",
     "--   小锅用更紧凑的 72 间距，因为格子少、UI 更小。",
   ],
-  2399: [
+  "params.quagmire_pot.itemtestfn#1+30": [
     "-- itemtestfn 直接共享（第 904 行模式）。不依赖 slot，安全。",
   ],
-  2401: ["-- ── quagmire_casseroledish（平底锅）区块 ──"],
-  2405: [
+  "params.quagmire_pot.itemtestfn#1+32": ["-- ── quagmire_casseroledish（平底锅）区块 ──"],
+  "params.quagmire_pot.itemtestfn#1+36": [
     "-- ⚠ 疑似缺陷：`params.quagmire_casseroledish = params.quagmire_pot`（引用赋值）。",
     "--   第 2411/2417/2423 行同样是（quagmire_casseroledish_small / quagmire_grill /",
     "--     quagmire_grill_small = params.quagmire_pot_small）。",
@@ -265,12 +265,12 @@ export const BEFORE = {
     "--     ★ 对照第 950 行 merm_armory 用 deepcopy，说明作者在同一文件里也不统一。",
     "--     **不改代码，仅标注**。",
   ],
-  2407: ["-- ── quagmire_casseroledish_small 区块 ──"],
-  2413: ["-- ── quagmire_grill 区块 ──"],
-  2419: ["-- ── quagmire_grill_small 区块 ──"],
-  2425: ["-- ── quagmire_pot_syrup（糖浆锅）区块 ──"],
-  2429: ["-- 糖浆锅：3 格。与小锅同布局但**有独立 itemtestfn**。"],
-  2448: [
+  "params.quagmire_pot.itemtestfn#1+38": ["-- ── quagmire_casseroledish_small 区块 ──"],
+  "params.quagmire_pot.itemtestfn#1+44": ["-- ── quagmire_grill 区块 ──"],
+  "params.quagmire_pot.itemtestfn#1+50": ["-- ── quagmire_grill_small 区块 ──"],
+  "params.quagmire_pot.itemtestfn#1+56": ["-- ── quagmire_pot_syrup（糖浆锅）区块 ──"],
+  "params.quagmire_pot.itemtestfn#1+60": ["-- 糖浆锅：3 格。与小锅同布局但**有独立 itemtestfn**。"],
+  "params.quagmire_pot_syrup.itemtestfn#1": [
     "-- 【★ itemtestfn 范例 AB：与 quagmire_pot 的关键差异】",
     "--   对照第 2369 行，本函数：",
     "--     · 不再排除 quagmire_sap —— ★ **树液正是糖浆锅的原料**；",
@@ -278,23 +278,23 @@ export const BEFORE = {
     "--       即「树液可以进，但 takeonly 状态的锅不行」。",
     "--   ⇒ 这是「同一 UI 形态、不同语义」的典型：两个锅长得一样，规则互为反面。",
   ],
-  2454: ["-- ── quagmire_backpack_small 区块 ──"],
-  2458: [
+  "params.quagmire_pot_syrup.itemtestfn#1+6": ["-- ── quagmire_backpack_small 区块 ──"],
+  "params.quagmire_pot_syrup.itemtestfn#1+10": [
     "-- 小背包：type = \"backpack\"。★ 全文件仅 2 处用这个 type（第 2468/2489 行），",
     "--   且**两处都在未开化 DLC 里** —— 说明 backpack 是新引入的、尚未被主流程使用的类型。",
   ],
-  2471: [
+  "params.quagmire_pot_syrup.itemtestfn#1+23": [
     "-- ★ 4 个槽全在同一行 y = 120：单排布局。坐标 -x*75-37.5 → -37.5/-112.5/-187.5/-262.5。",
     "--   ⚠ 注意 x 从 0 递增但坐标**递减**（-x*75），所以 slot 1 在**最右**。",
     "--     这是本文件少数「槽序与视觉顺序相反」的写法（同第 1497 行弹弓2 的注释）。",
   ],
-  2476: ["-- ── quagmire_backpack 区块 ──"],
-  2479: ["-- 大背包：8 格（for x = 0, 7），单排。"],
-  2492: [
+  "params.quagmire_pot_syrup.itemtestfn#1+28": ["-- ── quagmire_backpack 区块 ──"],
+  "params.quagmire_pot_syrup.itemtestfn#1+31": ["-- 大背包：8 格（for x = 0, 7），单排。"],
+  "params.quagmire_pot_syrup.itemtestfn#1+44": [
     "-- 8 个槽全在同一行。★ 这是本文件唯一「单排 8 格」的布局，与背包的 2x4 视觉不同。",
   ],
-  2496: ["-- ── 文件末尾：全局槽位数统计 ──"],
-  2498: [
+  "params.quagmire_pot_syrup.itemtestfn#1+48": ["-- ── 文件末尾：全局槽位数统计 ──"],
+  "params.quagmire_pot_syrup.itemtestfn#1+50": [
     "-- 【★ MAXITEMSLOTS 计算】遍历所有蓝图，取最大的槽位数。",
     "--   · v.widget.numslots 优先（动态槽位容器显式声明的）；",
     "--   · 否则数 #v.widget.slotpos（静态布局的坐标数组长度）；",
@@ -303,7 +303,7 @@ export const BEFORE = {
     "--     而 MAXITEMSLOTS 取 max 所以不影响全局 —— 但该容器运行时 slots 会是空的。",
     "--     当前所有蓝图都有 slotpos 或 numslots（grep 核实无遗漏），故无害。",
   ],
-  2499: [
+  "params.quagmire_pot_syrup.itemtestfn#1+51": [
     "-- ★★ 这行决定了**整个游戏的容器网络开销**：",
     "--   container_classified.lua:1057 会 `for i = 1, containers.MAXITEMSLOTS` ",
     "--     为**每一个**容器实体预分配 net_entity 变量。",
@@ -314,7 +314,7 @@ export const BEFORE = {
     "--   ★ 对照 constants.lua:650 MAXITEMSLOTS = 15（物品栏槽数上限）——",
     "--     两个同名常量，一个是物品栏的、一个是容器的，**极易混淆**。",
   ],
-  2502: ["-- 收尾分隔线。"],
+  "params.quagmire_pot_syrup.itemtestfn#1+54": ["-- 收尾分隔线。"],
 };
 
 export const AFTER = {};

@@ -6,7 +6,7 @@
 //   此前一个锚点都没有 ⇒ 输出的 forest_map.lua 只比原版多 7 行、连保护标记都没有。
 
 export const BEFORE = {
-556: [
+"on_region_added_fn#1+55": [
 "-- ============================================================",
 "-- 【S3 尾】逐节点铺装 + 「不许被切掉」标记",
 "-- ============================================================",
@@ -14,20 +14,20 @@ export const BEFORE = {
 "--   本段保证的是「节点自己的地块」被正确铺设，并给关键节点打保护标记。",
 ],
 
-561: [
+"on_region_added_fn#1+60": [
 "-- 【逐节点处理】GetNodes(true) 的 true = 含子节点（递归展开整棵树）。",
 "-- ★ 这是【Lua 侧最后一次按节点遍历】的机会——之后全是 WorldSim 的批量操作。",
 "--   拓扑被压成 save.map.topology 之后（:587）就再也拿不回节点对象了。",
 ],
 
-563: [
+"on_region_added_fn#1+62": [
 "-- 【SetTilesViaFunction】把该节点的房间布局/静态布局写进 tilemap。",
 "--   真正的绘制在 network.lua 的 node:SetTilesViaFunction 里（按 node.data 里的",
 "--   room_name / layout_name 查 map/rooms/ 与 map/static_layouts/ 的定义）。",
 "--   参见 network.lua 的节点侧实现与 room_functions.lua。",
 ],
 
-565: [
+"on_region_added_fn#1+64": [
 "-- 【SafeFromDisconnect】★ 「保护这些格不被 DetectDisconnect 清理掉」。",
 "--   背景见 :846-852 的原始 NOTE：",
 "--     「ForceDisconnected 标签并不能真的让虚空里的东西与主陆断开，",
@@ -37,18 +37,18 @@ export const BEFORE = {
 "--   参见 map/forest_map.lua:855 DetectDisconnect 与 bug-patterns.md E5。",
 ],
 
-566: [
+"on_region_added_fn#1+65": [
 "-- 【GetPointsForSite】取出该节点 Voronoi 胞元覆盖的所有格子坐标。",
 "--   与 Voronoi/Lloyd 的站点集是同一套点（:497 WorldGen_InitializeNodePoints 建，",
 "--   :499 VoronoiPass(100) 松弛过）⇒ 这里拿到的是「松弛后」的最终胞元。",
 ],
 
-567: [
+"on_region_added_fn#1+66": [
 "-- ⚠ 疑似缺陷（低危·可确证）：#points_x ~= 0 的写法是对的（取长度），",
 "--   但下一行的错误分支有真 bug，见 :572。",
 ],
 
-572: [
+"on_region_added_fn#1+71": [
 "-- ⚠⚠ 疑似缺陷【可确证·真 bug·本批次最高价值发现】",
 "--   内容：`print(self.id..\" Cant process points\")`",
 "--",
@@ -74,7 +74,7 @@ export const BEFORE = {
 "--     说明 :572 是从别的「类方法」上下文复制粘贴过来的残留。",
 ],
 
-577: [
+"on_region_added_fn#1+76": [
 "-- ============================================================",
 "-- 【S6 前段】编码：把内存中的拓扑与地块压成 save 结构",
 "-- ============================================================",
@@ -82,27 +82,27 @@ export const BEFORE = {
 "--   ⚠ 因此 :579 之后到 :1056 之间任何 return nil，都是「白跑一遍烘焙」。",
 ],
 
-581: [
+"on_region_added_fn#1+80": [
 "-- 【save.map 的五个字段】",
 "--   tiles/topology 后面由 WorldSim 填；prefab/has_ocean 在此落定。",
 "--   ★ has_ocean 取自【关卡 overrides】而非 :443 的翻译结果，",
 "--     两者同名不同源 —— 注意 :443 只把值拷进 story_gen_params，不改 overrides。",
 ],
 
-587: [
+"on_region_added_fn#1+86": [
 "-- 【SaveEncode】把图拓扑序列化成可 JSON 化的纯表（节点/边/标签）。",
 "--   ★ 这一步之后拓扑就【不可逆地变成了数据】——后续 :596 起的校验",
 "--     只能读数据，不能再回头改图。这是「先生成后校验」架构的必然代价。",
 "--   参见 network.lua 的 SaveEncode 与 GetEncodedTopology。",
 ],
 
-588: [
+"on_region_added_fn#1+87": [
 "-- 【CreateNodeIdTileMap】生成「节点 ID 栅格图」：每格记录自己属于哪个节点。",
 "--   ★ 运行时（存档加载后）靠它做碰撞/寻路/实体归属判定，",
 "--     体积等于整张地图的宽×高 个字符串 ⇒ 编码耗时 0.3-1 s 的主因之一。",
 ],
 
-596: [
+"on_region_added_fn#1+95": [
 "-- ============================================================",
 "-- 【校验 #1】地块面积下限：area < 8 ⇒ 放弃本次生成",
 "-- ============================================================",
@@ -112,14 +112,14 @@ export const BEFORE = {
 "--   阈值 8 是经验值：一个最小可活动房间的量级。",
 ],
 
-597: [
+"on_region_added_fn#1+96": [
 "-- ★ 豁免：LOOP_BLANK_SUB 类型的节点不参与面积校验。",
 "--   原因见 storygen.lua 的 make_loop / LOOP_BLANK_SUB ——",
 "--   「环路空地」本来就是【故意留的空地】，面积小是设计意图，不是缺陷。",
 "--   参见 storygen.lua:1165（LOOP_BLANK_SUB 的 value 定义）。",
 ],
 
-601: [
+"on_region_added_fn#1+100": [
 "-- 【SKIP_GEN_CHECKS 闸门】",
 "--   ★ 调试世界生成的标准手法：把 :3 的 SKIP_GEN_CHECKS 改成 true，",
 "--     所有校验点全部放行，可以直接看到「生成器本来想放什么」。",
@@ -128,7 +128,7 @@ export const BEFORE = {
 "--   ⚠ 但 :1013 有个例外分支仍会兜底写入 {x=0,y=0,z=0} 的出生点。",
 ],
 
-608: [
+"on_region_added_fn#1+107": [
 "-- 【TranslateWorldGenChoices】把玩家在世界生成界面上的「资源频率」设置",
 "--   翻译成两张表：",
 "--     translated_prefabs : prefab名 → 数量乘数（供散布时缩放）",
@@ -138,13 +138,13 @@ export const BEFORE = {
 "--   详见 :267 的 TranslateWorldGenChoices 定义与 MULTIPLY(:86) 档位表。",
 ],
 
-611: [
+"on_region_added_fn#1+110": [
 "-- 【obj_layout】房间家具布局模块：知道「某个房间该摆哪些家具」。",
 "--   本文件后面所有 Place(...) 调用都通过 add_fn 回调把 prefab 塞进 entities。",
 "--   参见 map/object_layout.lua。",
 ],
 
-613: [
+"on_region_added_fn#1+112": [
 "-- ============================================================",
 "-- 【add_fn】★ 贯穿 S4/S5 的「实体投放回调」",
 "-- ============================================================",
@@ -157,7 +157,7 @@ export const BEFORE = {
 "--   entitiesOut/width/height/prefab_list/prefab_data/rand_offset",
 ],
 
-614: [
+"on_region_added_fn#1+113": [
 "-- 【先占格再放实体】★ 顺序很重要，不能反。",
 "--   ReserveTile 把该格标记为「已被预定」，后续散布阶段不会在它上面再放资源。",
 "--   ⇒ 房间家具与野外资源不会重叠。",
@@ -165,7 +165,7 @@ export const BEFORE = {
 "--     所以 ReserveTile 必须落在合法地形上（由 ValidateGroundTile :371 兜底）。",
 ],
 
-616: [
+"on_region_added_fn#1+115": [
 "-- 【坐标系转换：格 → 世界单位】",
 "--   x = (格X - 宽度/2) * TILE_SCALE",
 "--   ★ 减去一半宽度是因为 WorldSim 的格坐标【以左上角为原点且不居中】，",
@@ -177,7 +177,7 @@ export const BEFORE = {
 "--     说明【连原作者都没完全搞清 maze 点的偏移】，属已知遗留问题。",
 ],
 
-618: [
+"on_region_added_fn#1+117": [
 "-- ★ 精度处理：截断到小数点后 2 位。",
 "--   为什么不用四舍五入而用 math.floor：",
 "--   截断保证「两个相邻格算出的坐标严格单调递增且不相等」；",
@@ -186,14 +186,14 @@ export const BEFORE = {
 "--     这个误差远小于 1 格（TILE_SCALE 通常为 1），可忽略。",
 ],
 
-623: [
+"on_region_added_fn#1+122": [
 "-- 【save_data 的形状】{x, z} —— 注意存的是 z 不是 y。",
 "--   ★ 原因：DST 的世界坐标是 (x, y, z) 三轴，z 是「南北/平面」轴，",
 "--     y 是「高度/垂直」轴。2D 地图存 (x, z)，y 留给实体的实际海拔。",
 "--     这与 3D 引擎的直觉相反，是自研引擎最常见的踩坑点。",
 ],
 
-645: [
+"on_region_added_fn#1+144": [
 "-- ============================================================",
 "-- 【S4】特殊标签后处理 · Labyrinth（迷宫树）",
 "-- ============================================================",
@@ -201,13 +201,13 @@ export const BEFORE = {
 "--   本段【不生成新的图结构】，只在已烘焙的地块上刻迷宫、摆宝藏。",
 ],
 
-646: [
+"on_region_added_fn#1+145": [
 "-- 【双重守卫】先判非 nil，再判 GetTableSize > 0。",
 "--   GetTableSize 来自 util.lua，对非表参数安全返回 0。",
 "--   ⇒ GlobalTags[\"Labyrinth\"] 为 nil 时短路，不会进入循环。",
 ],
 
-649: [
+"on_region_added_fn#1+148": [
 "-- 【迷宫随机种子】val = floor(random()*10 - 2.5) ⇒ 整数区间 [-3, 6]，共 10 种。",
 "--   ★ 这个 val 直接决定迷宫的生长形态 ⇒ 它是【世界的又一个随机维度】。",
 "--   ⚠ 副作用：因为区间含负数，而 MAZE_TYPE 是固定值，",
@@ -215,7 +215,7 @@ export const BEFORE = {
 "--   ⇒ 对「同种子必须完全复现」的影响见文件头的随机数小节。",
 ],
 
-652: [
+"on_region_added_fn#1+151": [
 "-- 【RunMaze】在 labyrinth_nodes 指定的区域内生成迷宫。",
 "--   参数：迷宫类型 / 种子val / 【墙的地块】IMPASSABLE / 【路的地块】BRICK。",
 "--   ★ IMPASSABLE 作墙 ⇒ 这是「锁」的物理实现之一（另一种是 storygen 的 blocker_blank）。",
@@ -225,7 +225,7 @@ export const BEFORE = {
 "--   ⚠ types 用【位编码】而非索引，:717 的 1/2/4/8 判断即基于此。",
 ],
 
-659: [
+"on_region_added_fn#1+158": [
 "-- ⚠ 疑似缺陷（已由原作者承认）：坐标用了 +1.5 而非 +0.5。",
 "--   原始注释：\"gjans: note the +1.5 instead of +0.5... RunMaze points are",
 "--   in a strange position.\" —— 作者明确指出 RunMaze 返回的点位置【异常】，",
@@ -237,7 +237,7 @@ export const BEFORE = {
 "--   ⇒ 后果：迷宫里的宝箱【没有占格】，可能被后续散布的资源覆盖。",
 ],
 
-672: [
+"on_region_added_fn#1+171": [
 "-- ============================================================",
 "-- 【迷宫接回主陆】原注释：\"The maze can cut itself off from land at the",
 "--   edge, so draw a little road to bring it together.\"",
@@ -249,7 +249,7 @@ export const BEFORE = {
 "--     （:673 迷宫入口 / :683 迷宫出口 / :817 元迷宫入口）。",
 ],
 
-695: [
+"on_region_added_fn#1+194": [
 "-- ============================================================",
 "-- 【S4 续】Maze（元迷宫 / meta-maze）—— 与 Labyrinth 的区别",
 "-- ============================================================",
@@ -258,22 +258,22 @@ export const BEFORE = {
 "--   ⇒ Maze 的形状由 C++ 的 GetPointsForMetaMaze 决定，Lua 侧只负责填内容。",
 ],
 
-699: [
+"on_region_added_fn#1+198": [
 "-- 【maze_tile_size】默认 8：元迷宫每个逻辑格对应 8×8 个世界格。",
 "--   ★ 这个默认值决定了【元迷宫的物理大小】。若 level 未指定就用 8。",
 ],
 
-700: [
+"on_region_added_fn#1+199": [
 "-- 【GetPointsForMetaMaze】返回迷宫格中心点 + 每格的方向编码（同 :652 的 types）。",
 ],
 
-704: [
+"on_region_added_fn#1+203": [
 "-- 【以「入口质心」为参考原点】后续所有『离入口远近』的判断都基于它。",
 "--   c_x/c_y 是入口地块的质心 ⇒ 迷宫中心 = 离入口最远的那个格子。",
 "--   ★ 设计意图：让迷宫从入口「由内向外」展开，起点在核心、终点在外圈。",
 ],
 
-707: [
+"on_region_added_fn#1+206": [
 "-- 【距离排序】对每个迷宫格算到入口质心的平方距离并升序排。",
 "--   ★ 用 LengthSq()（平方距离）而非 :Length()：省掉 sqrt，",
 "--     在数百个格子的规模上是无意义的微优化，但不影响排序结果。",
@@ -281,13 +281,13 @@ export const BEFORE = {
 "--     而初始顺序来自 C++ 返回的 xs/ys ⇒ 理论上可影响 :722/:727 的随机取值。",
 ],
 
-713: [
+"on_region_added_fn#1+212": [
 "-- 【三分支之一：Archive（档案室）布局】",
 "--   有 choices.archive ⇒ 走「随机选 2 个不同出口当起点/终点 + 留一个密室」的完整流程。",
 "--   三个分支由 :713 / :782 / :805 判别，依据是 level 的 maze_tiles 配置。",
 ],
 
-722: [
+"on_region_added_fn#1+221": [
 "-- ★ 此处 math.random(1,#ends) 选起点与 :727 选终点。",
 "--   ⚠ 疑似缺陷（低危）：:723 取走一个后 :724 用 table.remove(ends, choice)",
 "--     从【中间】删除 ⇒ 剩下数组的顺序被打乱，但 ends 的元素本身仍是索引值，",
@@ -296,7 +296,7 @@ export const BEFORE = {
 "--     故实际安全）。守卫存在，此处无缺陷，仅记录依赖关系。",
 ],
 
-746: [
+"on_region_added_fn#1+245": [
 "-- 【密室 keyroom】在第三个（随机且不同于起点/终点的）格子里放钥匙房。",
 "--   ★ 这是「锁—钥匙」在世界侧的物理落点：",
 "--     图侧由 map/lockandkey.lua 定义（见该文件 :219/:254 的 TREES 缺陷），",
@@ -304,14 +304,14 @@ export const BEFORE = {
 "--   ★★ 这正是 bug-patterns.md E1「锁—钥匙同名覆盖致不可达」的完整链路。",
 ],
 
-750: [
+"on_region_added_fn#1+249": [
 "-- 【从迷宫核心画三条对角线】DrawGroundLine(..., DIRT, true, true)。",
 "--   后两个 true 应为「起点终点都写/不写半格」之类的布尔开关（C++ 侧约定）。",
 "--   ★ 画的是 DIRT（土路）而不是 BRICK ⇒ 迷宫中心被刻意做成一个『空地广场』。",
 "--   玩法上：这里是玩家会合点，也是档案室封印的位置（:758 起）。",
 ],
 
-758: [
+"on_region_added_fn#1+257": [
 "-- 【ARCHIVE SEALS】在迷宫核心与入口连线的中点堆碎石，封住档案室。",
 "--   rubble1 / rubble2 各插一个 ⇒ 两层碎石，需要玩家二次清理。",
 "--   ★ 这就是 meta-maze 的「锁」：纯实体实现，不依赖 lockandkey 的图约束。",
@@ -320,20 +320,20 @@ export const BEFORE = {
 "--     :777 的写法使最终落点偏靠近迷宫中心。属遗留魔法数字，不影响可达性。",
 ],
 
-840: [
+"on_region_added_fn#1+339": [
 "-- ============================================================",
 "-- 【S5】散布（Populate）：★ 耗时 1-3 s 的第二大块",
 "-- ============================================================",
 ],
 
-842: [
+"on_region_added_fn#1+341": [
 "-- 【GlobalPrePopulate】给【所有】节点一个统一的「生成前」钩子。",
 "--   ★ 与 :889 的 GlobalPostPopulate 成对，构成全图级的前后处理夹。",
 "--   节点级还有 SaveEncode/SetTilesViaFunction/PopulateVoronoi 等，",
 "--   详见 network.lua 的 root 节点实现。",
 ],
 
-843: [
+"on_region_added_fn#1+342": [
 "-- 【ConvertGround】★★ 把 Voronoi 胞元翻译成【实际地表】的关键一步。",
 "--   SpawnFunctions 三个回调（:386-390）就是本文件的「AI」：",
 "--     pickspawnprefab                  —— 按权重抽一个 prefab",
@@ -343,7 +343,7 @@ export const BEFORE = {
 "--   密度表 save.map.generated.densities 由本行第三个返回值填充。",
 ],
 
-846: [
+"on_region_added_fn#1+345": [
 "-- ============================================================",
 "-- 【★ 原始 NOTE（E5 缺陷的权威出处，逐字保留）】",
 "-- ============================================================",
@@ -365,13 +365,13 @@ export const BEFORE = {
 "--   ⇒ 见 bug-patterns.md E5「临时连通地块没被清理 → 玩家走进虚空」。",
 ],
 
-853: [
+"on_region_added_fn#1+352": [
 "-- 【断开检测的总闸】keep_disconnected_tiles 为真时【完全不检测】。",
 "--   该开关由关卡 overrides 透传（:435-437）。",
 "--   ⚠ 打开它就等于放弃 E5 的兜底 —— 可能产出有「设计外虚空」的地图。",
 ],
 
-855: [
+"on_region_added_fn#1+354": [
 "-- 【DetectDisconnect】★ 洪水填充：从主陆出发标记所有可达格，",
 "--   未被标记的格即为「悬空」⇒ 把它们的 FAKE_GROUND 替换掉。",
 "--   这就是 :849 注释里说的 \"cleaned up afterwards\" 的实体动作。",
@@ -381,7 +381,7 @@ export const BEFORE = {
 "--     ⇒ 结构性缺陷，非参数调优可解。",
 ],
 
-857: [
+"on_region_added_fn#1+356": [
 "-- 【容差 5%】map_width * map_height * 0.05。",
 "--   ★ 为什么要容差而不是 0：孤岛/洞穴的连通性本来就有天然断点，",
 "--     强行要求 100% 连通会导致几乎每次生成都失败 ⇒ 重试 5 次后放弃。",
@@ -391,13 +391,13 @@ export const BEFORE = {
 "--     这是一个隐性的规模相关缺陷，值得在自研生成器里改成绝对值或比例+下限。",
 ],
 
-868: [
+"on_region_added_fn#1+367": [
 "-- 【ClearSafeFromDisconnect】★ 检测结束，立刻清掉保护旗。",
 "--   ★ 必须清：否则下一轮散布会把上一轮的豁免名单也带上，越积越多。",
 "--   ⇒ 这是「标记—使用—清除」的三段式生命周期，:565 埋、:853 用、:868 清。",
 ],
 
-873: [
+"on_region_added_fn#1+372": [
 "-- 【PopulateVoronoi】★★ 撒资源的主循环，1-3 s 预算的主体。",
 "--   参数依次：三个 spawn 回调 / entities 出口 / 地图尺寸 /",
 "--              乘数表 translated_prefabs / 密度输出 densities。",
@@ -408,32 +408,32 @@ export const BEFORE = {
 "--     而 :572 那行坏掉的日志正是在报告这种情况 —— 两处 bug 互为因果。",
 ],
 
-874: [
+"on_region_added_fn#1+373": [
 "-- 【海洋分支】仅当 story_gen_params.has_ocean 为真时执行（:443 透传）。",
 "--   ★ 海洋是【独立于 Voronoi 的第二套空间系统】（ocean_gen.lua），",
 "--     与陆地区域通过 Wormhole（虫洞）相连。",
 "--   ⚠ 耗时 1-4 s，仅海洋世界额外付出。",
 ],
 
-885: [
+"on_region_added_fn#1+384": [
 "-- 【Ocean_ConvertImpassibleToWater】海洋区域里不可通行的地块改判为水。",
 "--   ★ 顺序要求：必须【先】铺 Ocean_PlaceSetPieces 再【后】改判，",
 "--     否则连海面也会被当成陆地铺满场景件。",
 ],
 
-886: [
+"on_region_added_fn#1+385": [
 "-- 【PopulateOcean】海洋资源散布，与陆地 PopulateVoronoi(:873) 对称。",
 "--   注意它拿的是 storygen.ocean_population（storygen 阶段算好的），",
 "--   而不是像陆地那样现算 ⇒ 海洋的「放什么」在 S1 就定死了。",
 ],
 
-889: [
+"on_region_added_fn#1+388": [
 "-- 【GlobalPostPopulate】与 :842 的 Pre 成对，全图级后处理钩子。",
 "--   ★ 这是【最后】一次能改 entities 的全图级时机；",
 "--     之后 :891 起就是逐实物的清理与裁剪。",
 ],
 
-891: [
+"on_region_added_fn#1+390": [
 "-- ============================================================",
 "-- 【实体清洗】删掉落在不可通行地块上的实体",
 "-- ============================================================",
@@ -443,7 +443,7 @@ export const BEFORE = {
 "--     正向遍历会漏删。【这是本文件唯一需要小心索引的地方】。",
 ],
 
-896: [
+"on_region_added_fn#1+395": [
 "-- ⚠ 疑似缺陷（原作者已自曝）：原始注释",
 "--   \"Warning: This does not quite work as expected. It thinks the ground",
 "--    type id is in rendering order, which it totally is not!\"",
@@ -457,7 +457,7 @@ export const BEFORE = {
 "--     （第一处是 :659/:661 的 +1.5 与被注释掉的 ReserveTile）。",
 ],
 
-904: [
+"on_region_added_fn#1+403": [
 "-- ============================================================",
 "-- 【乘数裁剪】按玩家设置砍掉多余的 prefab",
 "-- ============================================================",
@@ -467,7 +467,7 @@ export const BEFORE = {
 "--   ⇒ 只有 mult < 1 会走到这里；mult >= 1 的设置在 :873 就已生效。",
 ],
 
-907: [
+"on_region_added_fn#1+406": [
 "-- 【type(mult) == \"number\" 的必要性】",
 "--   ★ translated_prefabs 的值有两种形态（见 :303 与 :283）：",
 "--     number —— 普通乘数",
@@ -476,14 +476,14 @@ export const BEFORE = {
 "--     这个守卫是必需的，不是冗余。",
 ],
 
-910: [
+"on_region_added_fn#1+409": [
 "-- 【剪到 0 就整类删掉】entities[prefab] = nil",
 "--   ★ 语义：玩家选了 \"never\" ⇒ 这个 prefab 不应出现在地图上。",
 "--     置 nil 而非留空表 ⇒ 后面 :964 的必需 prefab 检查会正确地认为它「不存在」。",
 "--   ⇒ 两处判定靠同一个 nil 约定耦合，改一处必须改另一处。",
 ],
 
-912: [
+"on_region_added_fn#1+411": [
 "-- 【shuffleArray 后从头删】★ 保证「随机保留哪些」而非「保留前几个」。",
 "--   ★ 若不洗牌直接从头删（table.remove(...,1)），留下的永远是",
 "--     数组前端的同类实体 ⇒ 会造成【空间聚集】。",
@@ -492,7 +492,7 @@ export const BEFORE = {
 "--   ⚠ shuffleArray 消耗随机数 ⇒ 又一个影响可复现性的随机源。",
 ],
 
-921: [
+"on_region_added_fn#1+420": [
 "-- ============================================================",
 "-- 【成簇修正】Bunch*：把某些 prefab 聚成堆（草丛、灌木等）",
 "-- ============================================================",
@@ -503,12 +503,12 @@ export const BEFORE = {
 "--   参见 map/bunch_spawner.lua 与 bunches.lua。",
 ],
 
-924: [
+"on_region_added_fn#1+423": [
 "-- 【AncientArchivePass】古档案相关实体的世界生成后处理。",
 "--   单独一个模块（map/archive_worldgen.lua，:13 require）。",
 ],
 
-926: [
+"on_region_added_fn#1+425": [
 "-- ============================================================",
 "-- 【校验 #2】必需 prefab（required_prefabs）数量核对",
 "-- ============================================================",
@@ -517,7 +517,7 @@ export const BEFORE = {
 "--   若失败 ⇒ return nil ⇒ 重试 ⇒ 最多 5 次后放弃生成。",
 ],
 
-927: [
+"on_region_added_fn#1+426": [
 "-- 【三个来源累加】同一个 prefab 被多个来源要求时，数量【相加】。",
 "--   来源 1 :927 level.required_prefabs      —— 关卡声明的硬性要求",
 "--   来源 2 :936 图节点的 GetRequiredPrefabs() —— 房间/节点引入的要求",
@@ -525,7 +525,7 @@ export const BEFORE = {
 "--   ★ 用 double_check 累加而非覆盖 ⇒ 要求是【可叠加】的。",
 ],
 
-928: [
+"on_region_added_fn#1+427": [
 "-- ★ 关键守卫：translated_prefabs[prefab] ~= 0 才计入。",
 "--   mult == 0 来自 MULTIPLY[\"never\"]（:87）⇒ 玩家明确关了这类资源。",
 "--   ⇒ 语义：「玩家主动关掉的东西，不算缺失」。这是合理的优先级设计。",
@@ -534,13 +534,13 @@ export const BEFORE = {
 "--     若将来 translate 规则变化，两处可能给出不同判定 —— 一致性隐患。",
 ],
 
-961: [
+"on_region_added_fn#1+460": [
 "-- 【逐个核对并打印】打印格式含期望值与实际值，",
 "--   是排查「为什么生成失败」的第一手日志。",
 "--   ★ 这也是 SKIP_GEN_CHECKS=false 时唯一能看到的失败原因。",
 ],
 
-965: [
+"on_region_added_fn#1+464": [
 "-- ★ 失败分诊：区分「玩家关掉了」与「真的没放出来」。",
 "--   前者只打印提示、不失败 —— 因为那是玩家的选择，不是生成器的错。",
 "--   ⚠ 注意这里查的是 level.overrides[prefab] == \"never\"（字符串精确匹配），",
@@ -548,11 +548,11 @@ export const BEFORE = {
 "--     两条路径的判定条件不完全等价，见 :928 的告警。",
 ],
 
-976: [
+"on_region_added_fn#1+475": [
 "-- 【save.ents 定稿】此后 entities 不再变化，可以序列化了。",
 ],
 
-978: [
+"on_region_added_fn#1+477": [
 "-- ============================================================",
 "-- 【S6 收尾】地图编码与序列化",
 "-- ============================================================",
@@ -566,14 +566,14 @@ export const BEFORE = {
 "-- ★ join_islands 决定是否把孤岛一并编码进来。",
 ],
 
-981: [
+"on_region_added_fn#1+480": [
 "-- 【overrides 原样存档】deepcopy 后存进拓扑。",
 "--   ★ 为什么必须深拷贝：current_gen_params 仍被 :986 之后的代码使用，",
 "--     浅拷贝会让存档数据与运行时数据共享子表 ⇒ 后续任何修改都会污染存档。",
 "--   运行时读档后即可复原玩家的世界生成设置。",
 ],
 
-988: [
+"on_region_added_fn#1+487": [
 "-- ============================================================",
 "-- 【季节初始化】决定新世界从哪个季节开始",
 "-- ============================================================",
@@ -586,7 +586,7 @@ export const BEFORE = {
 "--   ★ GetRandomItem 又消耗随机数 ⇒ 季节也是可复现性的一环。",
 ],
 
-995: [
+"on_region_added_fn#1+494": [
 "-- 【seasonfn 闭包】SEASONS 表里存的是【函数】（:341-346）。",
 "--   调用 SEASONS[start_season](start_season) 得到 componentdata。",
 "--   ★ 温柔/严酷季两套长度（friendly=true → 乘 2 作为总长）。",
@@ -595,13 +595,13 @@ export const BEFORE = {
 "--     :988-993 的三种分支都未校验「值是否在 SEASONS 中」⇒ 隐患。",
 ],
 
-1003: [
+"on_region_added_fn#1+502": [
 "-- 【写入 persistdata】存档里的持久化数据（季节/天气进度）。",
 "--   ★ 这一段只影响「新存档的初始季节」，",
 "--     读档后由 world_network.persistdata 接管季节推进。",
 ],
 
-1007: [
+"on_region_added_fn#1+506": [
 "-- ============================================================",
 "-- 【校验 #3】出生点存在性 —— ★ 最后一道、也是最致命的一道校验",
 "-- ============================================================",
@@ -614,7 +614,7 @@ export const BEFORE = {
 "--     只有这一条管『玩家能不能开始游戏』—— 它是唯一不可协商的。",
 ],
 
-1012: [
+"on_region_added_fn#1+511": [
 "-- 【失败即 return nil】⇒ 触发 worldgen_main.lua:421 的重试循环。",
 "--   ★ 结合 :435 的 keep_disconnected_tiles 等参数，",
 "--     「总是生成不出出生点」往往是【世界设置组合本身有问题】，",
@@ -625,7 +625,7 @@ export const BEFORE = {
 "--     既可能白等 50 s，也仍可能 5 次全失败。",
 ],
 
-1015: [
+"on_region_added_fn#1+514": [
 "-- 【SKIP_GEN_CHECKS=true 时的兜底】硬塞一个原点出生点。",
 "--   ★ 这是唯一一处 return nil 的【降级分支】而非放弃分支。",
 "--     写法上更务实：既然校验都放行了，至少让游戏能跑起来。",
@@ -633,7 +633,7 @@ export const BEFORE = {
 "--     仅在调试模式下可接受。",
 ],
 
-1022: [
+"on_region_added_fn#1+521": [
 "-- ============================================================",
 "-- 【S6 尾】道路序列化",
 "-- ============================================================",
@@ -644,7 +644,7 @@ export const BEFORE = {
 "--   参见 :539 的注释：该功能与孤岛技术冲突被整段关闭（if false）。",
 ],
 
-1024: [
+"on_region_added_fn#1+523": [
 "-- 【最短道路长度 3-5】不足则丢弃这条道路。",
 "--   ★ 理由：太短的道路没有导航价值，只会在地图上留下难看的短线段。",
 "--   ⚠ 消耗随机数 ⇒ 又一个影响可复现性的随机源。",
@@ -652,7 +652,7 @@ export const BEFORE = {
 "--     两者单位是否一致需看 C++ 实现 —— 属跨语言契约，原版未加断言。",
 ],
 
-1030: [
+"on_region_added_fn#1+529": [
 "-- 【道路坐标精度：截断到 1 位小数】比 add_fn(:618) 的 2 位更粗。",
 "--   ★ 道路点数可达数百上千，用 1 位小数是为了压缩存档体积。",
 "--   ⚠ 精度不统一（实体 2 位 / 道路 1 位）容易在对比调试时造成困惑。",
@@ -661,7 +661,7 @@ export const BEFORE = {
 "--   ★ 与 :618 的处理方式一致（都用 math.floor 保住单调性），思路是对的。",
 ],
 
-1038: [
+"on_region_added_fn#1+537": [
 "-- 【补齐剩余道路】从 current_road 循环到 num_roads。",
 "--   ⚠ 疑似缺陷（低危·可确证）：循环变量名 current_road 与外层的局部变量【同名】。",
 "--     Lua 的 for 循环变量会遮蔽外层变量，循环结束后外层的 current_road",
@@ -671,7 +671,7 @@ export const BEFORE = {
 "--   ⚠ 不影响正确性，仅记录为可读性/可维护性问题。",
 ],
 
-1054: [
+"on_region_added_fn#1+553": [
 "-- 【成功出口】打印最终确认文案。",
 "--   ★ 至此 Generate 返回 save 表，由 worldgen_main.lua:422 接收。",
 "--   ⚠ 但注意：返回的 save 里【不含种子】——",
@@ -680,7 +680,7 @@ export const BEFORE = {
 "--       即使玩家记住了当时用的种子，也没有渠道把它与这张地图关联起来。",
 ],
 
-1059: [
+"on_region_added_fn#1+558": [
 "-- ============================================================",
 "-- 【模块导出】★ 全部导出都是【配置表】，只有 Generate 是函数",
 "-- ============================================================",

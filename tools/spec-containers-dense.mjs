@@ -11,162 +11,162 @@
 export const HEADER_EXTRA = [];
 
 export const BEFORE = {
-  28: [
+  "containers.widgetsetup#1+19": [
     "-- UI 贴图库名（客户端 .tex 图集名），widgets 层据此加载贴图。",
   ],
-  34: [
+  "containers.widgetsetup#1+25": [
     "-- type = \"pack\"",
     "--   背包类：UI 在屏幕侧边（issidewidget=true），同一时刻只能开一个。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  39: [
+  "containers.widgetsetup#1+30": [
     "-- 向 slotpos 追加一个槽位坐标：每轮的**第 2 个**坐标（同行向右偏移一格的那一列）。本容器累计第 1 次插入。",
     "--   ★ Vector3 是**绝对屏幕坐标**（不是相对容器的局部坐标）；数组顺序 = 槽位编号顺序。",
   ],
-  40: [
+  "containers.widgetsetup#1+31": [
     "-- 向 slotpos 追加一个槽位坐标：每轮的**第 2 个**坐标（同行向右偏移一格的那一列）。本容器累计第 2 次插入。",
     "--   ★ Vector3 是**绝对屏幕坐标**（不是相对容器的局部坐标）；数组顺序 = 槽位编号顺序。",
   ],
-  41: [
+  "containers.widgetsetup#1+32": [
     "-- 循环结束：已插入 **8 个** slotpos 坐标，本容器的 numslots 定为 8。",
   ],
-  53: [
+  "containers.widgetsetup#1+44": [
     "-- ★ 槽位坐标数组：每个 Vector3 是**一个格子在屏幕上的绝对位置**。",
     "--   ★★ 数组顺序 = 槽位编号顺序（slot 1 = 第一个坐标）。改顺序就改了物品编号，",
     "--     而存档按编号还原（components/container.lua:996 OnLoad），所以这是**存档兼容雷区**。",
   ],
-  54: [
+  "containers.widgetsetup#1+45": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_icepack_2x3\"。",
   ],
-  55: [
+  "containers.widgetsetup#1+46": [
     "-- UI 构建名：从 bank 中取出的可渲染实例名，通常与 animbank 同值。",
   ],
-  56: [
+  "containers.widgetsetup#1+47": [
     "-- ★ UI 整体位置偏移（屏幕像素）。正值=右/上，负值=左/下。",
     "--   ★ 与 slotpos 的关系：slotpos 是**绝对坐标**，pos 是**整体偏移**，二者叠加生效。",
   ],
-  58: [
+  "containers.widgetsetup#1+49": [
     "-- ★ UI 是否挂在屏幕**侧边**（背包类）而非中央（箱子类）。",
     "--   消费点：components/container.lua:637 作为第二参数传给 doer.HUD:OpenContainer。",
   ],
-  59: [
+  "containers.widgetsetup#1+50": [
     "-- type = \"pack\"",
     "--   背包类：UI 在屏幕侧边（issidewidget=true），同一时刻只能开一个。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  60: [
+  "containers.widgetsetup#1+51": [
     "-- ★ 同时开启人数上限（不是「一生只能开一次」）。",
     "--   判定在 components/container.lua:735 CanOpen；★ 但 Open 自身不检查它，",
     "--   守门在 actions.lua:1095 —— 这是「约定优于实现」的边界。",
   ],
-  64: [
+  "containers.widgetsetup#1+55": [
     "-- 向 slotpos 追加一个槽位坐标：每轮的**第 2 个**坐标（同行向右偏移一格的那一列）。本容器累计第 1 次插入。",
     "--   ★ Vector3 是**绝对屏幕坐标**（不是相对容器的局部坐标）；数组顺序 = 槽位编号顺序。",
   ],
-  65: [
+  "containers.widgetsetup#1+56": [
     "-- 向 slotpos 追加一个槽位坐标：每轮的**第 2 个**坐标（同行向右偏移一格的那一列）。本容器累计第 2 次插入。",
     "--   ★ Vector3 是**绝对屏幕坐标**（不是相对容器的局部坐标）；数组顺序 = 槽位编号顺序。",
   ],
-  66: [
+  "containers.widgetsetup#1+57": [
     "-- 循环结束：已插入 **6 个** slotpos 坐标，本容器的 numslots 定为 6。",
   ],
-  76: [
+  "containers.widgetsetup#1+67": [
     "-- slotpos：同第 53 行（首次定义），此处值 = {}。",
   ],
-  77: [
+  "containers.widgetsetup#1+68": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_chest_3x3\"。",
   ],
-  78: [
+  "containers.widgetsetup#1+69": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_chest_3x3\"。",
   ],
-  79: [
+  "containers.widgetsetup#1+70": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(0, 200, 0)。",
   ],
-  80: [
+  "containers.widgetsetup#1+71": [
     "-- 提示条侧边对齐距离（像素）：空间不足时把提示文字推到距容器这么远。",
   ],
-  82: [
+  "containers.widgetsetup#1+73": [
     "-- type = \"chest\"",
     "--   ★ 箱子类：UI 在屏幕中央。★ **与筛选规则无关**——冰箱/木箱都是它。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  89: [
+  "containers.widgetsetup#1+80": [
     "-- 循环结束：已插入 **9 个** slotpos 坐标，本容器的 numslots 定为 9。",
   ],
-  101: [
+  "containers.widgetsetup#1+92": [
     "-- slotpos：同第 53 行（首次定义），此处值 = {}。",
   ],
-  102: [
+  "containers.widgetsetup#1+93": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_chester_shadow_3x4\"。",
   ],
-  103: [
+  "containers.widgetsetup#1+94": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_chester_shadow_3x4\"。",
   ],
-  104: [
+  "containers.widgetsetup#1+95": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(0, 220, 0)。",
   ],
-  105: [
+  "containers.widgetsetup#1+96": [
     "-- side_align_tip：同第 80 行（首次定义），此处值 = 160。",
   ],
-  107: [
+  "containers.widgetsetup#1+98": [
     "-- type = \"chest\"",
     "--   ★ 箱子类：UI 在屏幕中央。★ **与筛选规则无关**——冰箱/木箱都是它。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  112: [
+  "containers.widgetsetup#1+103": [
     "-- 向 slotpos 追加一个槽位坐标：每轮的**第 2 个**坐标（同行向右偏移一格的那一列）。本容器累计第 1 次插入。",
     "--   ★ Vector3 是**绝对屏幕坐标**（不是相对容器的局部坐标）；数组顺序 = 槽位编号顺序。",
   ],
-  114: [
+  "containers.widgetsetup#1+105": [
     "-- 循环结束：已插入 **12 个** slotpos 坐标，本容器的 numslots 定为 12。",
   ],
-  117: [
+  "containers.widgetsetup#1+108": [
     "-- UI 贴图库名（客户端 .tex 图集名），widgets 层据此加载贴图。",
     "--   ★ 这是「派生后覆盖单个字段」：蓝图其余部分保持继承。",
   ],
-  118: [
+  "containers.widgetsetup#1+109": [
     "-- UI 构建名：从 bank 中取出的可渲染实例名，通常与 animbank 同值。",
     "--   ★ 这是「派生后覆盖单个字段」：蓝图其余部分保持继承。",
   ],
-  119: [
+  "containers.widgetsetup#1+110": [
     "-- ★ 开门动画是否**循环**播放（传送门漩涡这类用）。",
     "--   ★ 这是「派生后覆盖单个字段」：蓝图其余部分保持继承。",
   ],
-  129: [
+  "params.shadow_container.itemtestfn#1+8": [
     "-- UI 贴图库名（客户端 .tex 图集名），widgets 层据此加载贴图。",
     "--   ★ 这是「派生后覆盖单个字段」：蓝图其余部分保持继承。",
   ],
-  130: [
+  "params.shadow_container.itemtestfn#1+9": [
     "-- UI 构建名：从 bank 中取出的可渲染实例名，通常与 animbank 同值。",
     "--   ★ 这是「派生后覆盖单个字段」：蓝图其余部分保持继承。",
   ],
-  131: [
+  "params.shadow_container.itemtestfn#1+10": [
     "-- ★ 开门动画是否**循环**播放（传送门漩涡这类用）。",
     "--   ★ 这是「派生后覆盖单个字段」：蓝图其余部分保持继承。",
   ],
-  148: [
+  "params.shadow_container.itemtestfn#1+27": [
     "-- slotpos：同第 53 行（首次定义），此处值 = {}。",
   ],
-  149: [
+  "params.shadow_container.itemtestfn#1+28": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_woby_3x3\"。",
   ],
-  150: [
+  "params.shadow_container.itemtestfn#1+29": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_woby_3x3\"。",
   ],
-  152: [
+  "params.shadow_container.itemtestfn#1+31": [
     "-- side_align_tip：同第 80 行（首次定义），此处值 = 160。",
   ],
-  154: [
+  "params.shadow_container.itemtestfn#1+33": [
     "-- type = \"chest\"",
     "--   ★ 箱子类：UI 在屏幕中央。★ **与筛选规则无关**——冰箱/木箱都是它。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  161: [
+  "params.shadow_container.itemtestfn#1+40": [
     "-- ★ 槽位生成循环（顶层）：y = 2 … 0，步长 -1 → **3 轮**。",
     "--   内层循环：x = 0 … 2 → **3 列**。",
     "--   ⇒ 槽位总数 = 3 × 3 = **9 个槽**，即「沃比小形态容器 3x3」的 numslots。",
@@ -174,14 +174,14 @@ export const BEFORE = {
     "--     而从代码表面看不出来。判定处见 components/container.lua:107 IsFull。",
     "--   ★ 插入顺序 = 槽位编号顺序（slot 1 … slot 9），存档按编号还原",
   ],
-  163: [
+  "params.shadow_container.itemtestfn#1+42": [
     "-- 向 slotpos 追加一个槽位坐标：每轮的**第 2 个**坐标（同行向右偏移一格的那一列）。本容器累计第 1 次插入。",
     "--   ★ Vector3 是**绝对屏幕坐标**（不是相对容器的局部坐标）；数组顺序 = 槽位编号顺序。",
   ],
-  165: [
+  "params.shadow_container.itemtestfn#1+44": [
     "-- 循环结束：已插入 **9 个** slotpos 坐标，本容器的 numslots 定为 9。",
   ],
-  191: [
+  "params.shadow_container.itemtestfn#1+70": [
     "-- ★ 槽位生成循环（顶层）：x = 0 … 2 → **3 轮**。",
     "--   每轮直接插入 1 个 slotpos 坐标（无内层循环）。",
     "--   ⇒ 槽位总数 = 3 × 1 = **3 个槽**，即「沃比晾肉架 3x1」的 numslots。",
@@ -189,18 +189,18 @@ export const BEFORE = {
     "--     而从代码表面看不出来。判定处见 components/container.lua:107 IsFull。",
     "--   ★ 插入顺序 = 槽位编号顺序（slot 1 … slot 3），存档按编号还原",
   ],
-  192: [
+  "params.shadow_container.itemtestfn#1+71": [
     "-- 向 slotpos 追加一个槽位坐标：每轮的**第 2 个**坐标（同行向右偏移一格的那一列）。本容器累计第 1 次插入。",
     "--   ★ Vector3 是**绝对屏幕坐标**（不是相对容器的局部坐标）；数组顺序 = 槽位编号顺序。",
   ],
-  193: [
+  "params.shadow_container.itemtestfn#1+72": [
     "-- 向 slotbg 追加与该槽对应的底纹贴图（纯装饰，容器逻辑从不读）。",
     "--   ★ 必须与 slotpos **严格一一对应**，否则格子底图会错位。",
   ],
-  194: [
+  "params.shadow_container.itemtestfn#1+73": [
     "-- 循环结束：已插入 **3 个** slotpos 坐标，本容器的 numslots 定为 3。",
   ],
-  229: [
+  "params.woby_rack_container.itemtestfn#1+32": [
     "-- ★ 槽位生成循环（顶层）：x = 0 … 2 → **3 轮**。",
     "--   每轮直接插入 1 个 slotpos 坐标（无内层循环）。",
     "--   ⇒ 槽位总数 = 3 × 1 = **3 个槽**，即「普通晾肉架 3x1」的 numslots。",
@@ -208,18 +208,18 @@ export const BEFORE = {
     "--     而从代码表面看不出来。判定处见 components/container.lua:107 IsFull。",
     "--   ★ 插入顺序 = 槽位编号顺序（slot 1 … slot 3），存档按编号还原",
   ],
-  230: [
+  "params.woby_rack_container.itemtestfn#1+33": [
     "-- 向 slotpos 追加一个槽位坐标：每轮的**第 2 个**坐标（同行向右偏移一格的那一列）。本容器累计第 1 次插入。",
     "--   ★ Vector3 是**绝对屏幕坐标**（不是相对容器的局部坐标）；数组顺序 = 槽位编号顺序。",
   ],
-  231: [
+  "params.woby_rack_container.itemtestfn#1+34": [
     "-- 向 slotbg 追加与该槽对应的底纹贴图（纯装饰，容器逻辑从不读）。",
     "--   ★ 必须与 slotpos **严格一一对应**，否则格子底图会错位。",
   ],
-  232: [
+  "params.woby_rack_container.itemtestfn#1+35": [
     "-- 循环结束：已插入 **3 个** slotpos 坐标，本容器的 numslots 定为 3。",
   ],
-  279: [
+  "params.meatrack.itemtestfn#1+45": [
     "-- ★ 槽位生成循环（顶层）：y = 2 … 0，步长 -1 → **3 轮**。",
     "--   内层循环：x = 0 … 2 → **3 列**。",
     "--   ⇒ 槽位总数 = 3 × 3 = **9 个槽**，即「寄居蟹 3x3 晾肉架」的 numslots。",
@@ -227,355 +227,355 @@ export const BEFORE = {
     "--     而从代码表面看不出来。判定处见 components/container.lua:107 IsFull。",
     "--   ★ 插入顺序 = 槽位编号顺序（slot 1 … slot 9），存档按编号还原",
   ],
-  281: [
+  "params.meatrack.itemtestfn#1+47": [
     "-- 向 slotpos 追加一个槽位坐标：每轮的**第 2 个**坐标（同行向右偏移一格的那一列）。本容器累计第 1 次插入。",
     "--   ★ Vector3 是**绝对屏幕坐标**（不是相对容器的局部坐标）；数组顺序 = 槽位编号顺序。",
   ],
-  282: [
+  "params.meatrack.itemtestfn#1+48": [
     "-- 向 slotbg 追加与该槽对应的底纹贴图（纯装饰，容器逻辑从不读）。",
     "--   ★ 必须与 slotpos **严格一一对应**，否则格子底图会错位。",
   ],
-  284: [
+  "params.meatrack.itemtestfn#1+50": [
     "-- 循环结束：已插入 **9 个** slotpos 坐标，本容器的 numslots 定为 9。",
   ],
-  299: [
+  "params.meatrack.itemtestfn#1+65": [
     "-- 内联槽位坐标（本容器第 1 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  300: [
+  "params.meatrack.itemtestfn#1+66": [
     "-- 内联槽位坐标（本容器第 2 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  301: [
+  "params.meatrack.itemtestfn#1+67": [
     "-- 内联槽位坐标（本容器第 3 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  311: [
+  "params.meatrack.itemtestfn#1+77": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_chest_3x1\"。",
   ],
-  312: [
+  "params.meatrack.itemtestfn#1+78": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_chest_3x1\"。",
   ],
-  313: [
+  "params.meatrack.itemtestfn#1+79": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(0, 200, 0)。",
   ],
-  314: [
+  "params.meatrack.itemtestfn#1+80": [
     "-- side_align_tip：同第 80 行（首次定义），此处值 = 100。",
   ],
-  323: [
+  "params.meatrack.itemtestfn#1+89": [
     "-- type = \"cooker\"",
     "--   ★ 加工类：只用于「不是侧边 UI、不是背包」这个否定语义。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  354: [
+  "params.yotb_sewingmachine.widget.buttoninfo.validfn#1+16": [
     "-- 内联槽位坐标（本容器第 1 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  355: [
+  "params.yotb_sewingmachine.widget.buttoninfo.validfn#1+17": [
     "-- 内联槽位坐标（本容器第 2 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  356: [
+  "params.yotb_sewingmachine.widget.buttoninfo.validfn#1+18": [
     "-- 内联槽位坐标（本容器第 3 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  357: [
+  "params.yotb_sewingmachine.widget.buttoninfo.validfn#1+19": [
     "-- 内联槽位坐标（本容器第 4 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  359: [
+  "params.yotb_sewingmachine.widget.buttoninfo.validfn#1+21": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_cookpot_1x4\"。",
   ],
-  360: [
+  "params.yotb_sewingmachine.widget.buttoninfo.validfn#1+22": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_cookpot_1x4\"。",
   ],
-  361: [
+  "params.yotb_sewingmachine.widget.buttoninfo.validfn#1+23": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(200, 0, 0)。",
   ],
-  362: [
+  "params.yotb_sewingmachine.widget.buttoninfo.validfn#1+24": [
     "-- side_align_tip：同第 80 行（首次定义），此处值 = 100。",
   ],
-  369: [
+  "params.yotb_sewingmachine.widget.buttoninfo.validfn#1+31": [
     "-- ★ 是否接受整摞物品。false = 每格只放一件。",
     "--   落点：components/container.lua:534 GiveItem 会把超量堆叠 Get() 拆成单个并**返回 false**。",
   ],
-  370: [
+  "params.yotb_sewingmachine.widget.buttoninfo.validfn#1+32": [
     "-- type = \"cooker\"",
     "--   ★ 加工类：只用于「不是侧边 UI、不是背包」这个否定语义。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  390: [
+  "params.cookpot.widget.buttoninfo.validfn#1+5": [
     "-- 【蓝图：portablecookpot】便携烹饪锅",
     "--   ⚠ 疑似缺陷：**引用赋值**（params.X = params.Y），不是 deepcopy。",
     "--     ⇒ params.X 与 params.Y 指向**同一张表**，改一个等于改两个。",
     "--     本文件对同类派生多用 deepcopy（第 116/128/678/944/950 行等），此处属少数派。",
     "--     当前无后续修改故无害；模组若改 params.Y.widget.* 会连带影响 X。仅标注，不改代码。",
   ],
-  402: [
+  "params.cookpot.widget.buttoninfo.validfn#1+17": [
     "-- 内联槽位坐标（本容器第 1 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  403: [
+  "params.cookpot.widget.buttoninfo.validfn#1+18": [
     "-- 内联槽位坐标（本容器第 2 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  410: [
+  "params.cookpot.widget.buttoninfo.validfn#1+25": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_cookpot_1x2\"。",
   ],
-  411: [
+  "params.cookpot.widget.buttoninfo.validfn#1+26": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_cookpot_1x2\"。",
   ],
-  412: [
+  "params.cookpot.widget.buttoninfo.validfn#1+27": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(200, 0, 0)。",
   ],
-  413: [
+  "params.cookpot.widget.buttoninfo.validfn#1+28": [
     "-- side_align_tip：同第 80 行（首次定义），此处值 = 100。",
   ],
-  420: [
+  "params.cookpot.widget.buttoninfo.validfn#1+35": [
     "-- acceptsstacks：同第 369 行（首次定义），此处值 = false。",
   ],
-  422: [
+  "params.cookpot.widget.buttoninfo.validfn#1+37": [
     "-- type = \"cooker\"",
     "--   ★ 加工类：只用于「不是侧边 UI、不是背包」这个否定语义。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  456: [
+  "params.portablespicer.widget.buttoninfo.validfn#1+14": [
     "-- 内联槽位坐标（本容器第 1 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  457: [
+  "params.portablespicer.widget.buttoninfo.validfn#1+15": [
     "-- 内联槽位坐标（本容器第 2 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  458: [
+  "params.portablespicer.widget.buttoninfo.validfn#1+16": [
     "-- 内联槽位坐标（本容器第 3 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  459: [
+  "params.portablespicer.widget.buttoninfo.validfn#1+17": [
     "-- 内联槽位坐标（本容器第 4 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  461: [
+  "params.portablespicer.widget.buttoninfo.validfn#1+19": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_bundle_2x2\"。",
   ],
-  462: [
+  "params.portablespicer.widget.buttoninfo.validfn#1+20": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_bundle_2x2\"。",
   ],
-  463: [
+  "params.portablespicer.widget.buttoninfo.validfn#1+21": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(200, 0, 0)。",
   ],
-  464: [
+  "params.portablespicer.widget.buttoninfo.validfn#1+22": [
     "-- side_align_tip：同第 80 行（首次定义），此处值 = 120。",
   ],
-  471: [
+  "params.portablespicer.widget.buttoninfo.validfn#1+29": [
     "-- type = \"cooker\"",
     "--   ★ 加工类：只用于「不是侧边 UI、不是背包」这个否定语义。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  498: [
+  "params.bundle_container.widget.buttoninfo.validfn#1+12": [
     "-- slotpos：同第 53 行（首次定义），此处值 = {}。",
   ],
-  499: [
+  "params.bundle_container.widget.buttoninfo.validfn#1+13": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_construction_4x1\"。",
   ],
-  500: [
+  "params.bundle_container.widget.buttoninfo.validfn#1+14": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_construction_4x1\"。",
   ],
-  502: [
+  "params.bundle_container.widget.buttoninfo.validfn#1+16": [
     "-- 提示条顶部对齐距离（像素）。",
   ],
-  516: [
+  "params.bundle_container.widget.buttoninfo.validfn#1+30": [
     "-- type = \"cooker\"",
     "--   ★ 加工类：只用于「不是侧边 UI、不是背包」这个否定语义。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  520: [
+  "params.bundle_container.widget.buttoninfo.validfn#1+34": [
     "-- 向 slotpos 追加一个槽位坐标：每轮的**第 1 个**坐标。本容器累计第 1 次插入。",
     "--   ★ Vector3 是**绝对屏幕坐标**（不是相对容器的局部坐标）；数组顺序 = 槽位编号顺序。",
   ],
-  521: [
+  "params.bundle_container.widget.buttoninfo.validfn#1+35": [
     "-- 循环结束：已插入 **4 个** slotpos 坐标，本容器的 numslots 定为 4。",
   ],
-  556: [
+  "params.construction_container.widget.buttoninfo.validfn#1+17": [
     "-- 提示条侧边对齐距离（像素）：空间不足时把提示文字推到距容器这么远。",
     "--   ★ 这是「派生后覆盖单个字段」：蓝图其余部分保持继承。",
   ],
-  557: [
+  "params.construction_container.widget.buttoninfo.validfn#1+18": [
     "-- UI 贴图库名（客户端 .tex 图集名），widgets 层据此加载贴图。",
     "--   ★ 这是「派生后覆盖单个字段」：蓝图其余部分保持继承。",
   ],
-  558: [
+  "params.construction_container.widget.buttoninfo.validfn#1+19": [
     "-- UI 构建名：从 bank 中取出的可渲染实例名，通常与 animbank 同值。",
     "--   ★ 这是「派生后覆盖单个字段」：蓝图其余部分保持继承。",
   ],
-  565: [
+  "params.construction_container.widget.buttoninfo.validfn#1+26": [
     "-- 【蓝图：construction_container_1x1】建造材料容器 1x1 变体",
     "--   ⚠ 疑似缺陷：**引用赋值**（params.X = params.Y），不是 deepcopy。",
     "--     ⇒ params.X 与 params.Y 指向**同一张表**，改一个等于改两个。",
     "--     本文件对同类派生多用 deepcopy（第 116/128/678/944/950 行等），此处属少数派。",
     "--     当前无后续修改故无害；模组若改 params.Y.widget.* 会连带影响 X。仅标注，不改代码。",
   ],
-  567: [
+  "params.construction_container.widget.buttoninfo.validfn#1+28": [
     "-- ★ 槽位坐标数组：每个 Vector3 是**一个格子在屏幕上的绝对位置**。",
     "--   ★★ 数组顺序 = 槽位编号顺序（slot 1 = 第一个坐标）。改顺序就改了物品编号，",
     "--     而存档按编号还原（components/container.lua:996 OnLoad），所以这是**存档兼容雷区**。",
     "--   ★ 这是「派生后覆盖单个字段」：蓝图其余部分保持继承。",
   ],
-  569: [
+  "params.construction_container.widget.buttoninfo.validfn#1+30": [
     "-- 提示条侧边对齐距离（像素）：空间不足时把提示文字推到距容器这么远。",
     "--   ★ 这是「派生后覆盖单个字段」：蓝图其余部分保持继承。",
   ],
-  570: [
+  "params.construction_container.widget.buttoninfo.validfn#1+31": [
     "-- UI 贴图库名（客户端 .tex 图集名），widgets 层据此加载贴图。",
     "--   ★ 这是「派生后覆盖单个字段」：蓝图其余部分保持继承。",
   ],
-  571: [
+  "params.construction_container.widget.buttoninfo.validfn#1+32": [
     "-- UI 构建名：从 bank 中取出的可渲染实例名，通常与 animbank 同值。",
     "--   ★ 这是「派生后覆盖单个字段」：蓝图其余部分保持继承。",
   ],
-  656: [
+  "EnableRiftsPopUpConfirm#1+31": [
     "-- 内联槽位坐标（本容器第 1 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  657: [
+  "EnableRiftsPopUpConfirm#1+32": [
     "-- 内联槽位坐标（本容器第 2 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  658: [
+  "EnableRiftsPopUpConfirm#1+33": [
     "-- 内联槽位坐标（本容器第 3 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  659: [
+  "EnableRiftsPopUpConfirm#1+34": [
     "-- 内联槽位坐标（本容器第 4 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  661: [
+  "EnableRiftsPopUpConfirm#1+36": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_lamp_1x4\"。",
   ],
-  662: [
+  "EnableRiftsPopUpConfirm#1+37": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_lamp_1x4\"。",
   ],
-  663: [
+  "EnableRiftsPopUpConfirm#1+38": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(200, 0, 0)。",
   ],
-  664: [
+  "EnableRiftsPopUpConfirm#1+39": [
     "-- side_align_tip：同第 80 行（首次定义），此处值 = 100。",
   ],
-  666: [
+  "EnableRiftsPopUpConfirm#1+41": [
     "-- acceptsstacks：同第 369 行（首次定义），此处值 = false。",
   ],
-  667: [
+  "EnableRiftsPopUpConfirm#1+42": [
     "-- type = \"cooker\"",
     "--   ★ 加工类：只用于「不是侧边 UI、不是背包」这个否定语义。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  689: [
+  "params.mushroom_light2.itemtestfn#1+9": [
     "-- 【蓝图：yots_lantern_post】永夜灯柱 1 格（灯燃料/孢子/灯芯）",
     "--   ⚠ 疑似缺陷：**引用赋值**（params.X = params.Y），不是 deepcopy。",
     "--     ⇒ params.X 与 params.Y 指向**同一张表**，改一个等于改两个。",
     "--     本文件对同类派生多用 deepcopy（第 116/128/678/944/950 行等），此处属少数派。",
     "--     当前无后续修改故无害；模组若改 params.Y.widget.* 会连带影响 X。仅标注，不改代码。",
   ],
-  692: [
+  "params.mushroom_light2.itemtestfn#1+12": [
     "-- slotpos：同第 53 行（首次定义），此处值 = { Vector3(0, 0, 0), }。",
   ],
-  693: [
+  "params.mushroom_light2.itemtestfn#1+13": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_chest_1x1\"。",
   ],
-  694: [
+  "params.mushroom_light2.itemtestfn#1+14": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_chest_1x1\"。",
   ],
-  695: [
+  "params.mushroom_light2.itemtestfn#1+15": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(0, 160, 0)。",
   ],
-  696: [
+  "params.mushroom_light2.itemtestfn#1+16": [
     "-- side_align_tip：同第 80 行（首次定义），此处值 = 100。",
   ],
-  698: [
+  "params.mushroom_light2.itemtestfn#1+18": [
     "-- acceptsstacks：同第 369 行（首次定义），此处值 = false。",
   ],
-  699: [
+  "params.mushroom_light2.itemtestfn#1+19": [
     "-- type = \"chest\"",
     "--   ★ 箱子类：UI 在屏幕中央。★ **与筛选规则无关**——冰箱/木箱都是它。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  710: [
+  "params.yots_lantern_post.itemtestfn#1+8": [
     "-- 【蓝图：hermitcrab_lightpost】寄居蟹灯柱（换皮，复用同一 itemtestfn）",
     "--   ⚠ 疑似缺陷：**引用赋值**（params.X = params.Y），不是 deepcopy。",
     "--     ⇒ params.X 与 params.Y 指向**同一张表**，改一个等于改两个。",
     "--     本文件对同类派生多用 deepcopy（第 116/128/678/944/950 行等），此处属少数派。",
     "--     当前无后续修改故无害；模组若改 params.Y.widget.* 会连带影响 X。仅标注，不改代码。",
   ],
-  711: [
+  "params.yots_lantern_post.itemtestfn#1+9": [
     "-- UI 贴图库名（客户端 .tex 图集名），widgets 层据此加载贴图。",
     "--   ★ 这是「派生后覆盖单个字段」：蓝图其余部分保持继承。",
   ],
-  712: [
+  "params.yots_lantern_post.itemtestfn#1+10": [
     "-- UI 构建名：从 bank 中取出的可渲染实例名，通常与 animbank 同值。",
     "--   ★ 这是「派生后覆盖单个字段」：蓝图其余部分保持继承。",
   ],
-  713: [
+  "params.yots_lantern_post.itemtestfn#1+11": [
     "-- ★ 物品筛选闭包，签名固定 (container, item, slot)。",
     "--   调用点：components/container.lua:295 CanTakeItemInSlot —— **唯一的物品准入闸门**。",
     "--   ★ 第一形参 container 就是组件本身（调用处写的是 self:itemtestfn(item, slot)）。",
     "--   ★ 这是「派生后覆盖单个字段」：蓝图其余部分保持继承。",
   ],
-  730: [
+  "params.hermitcrab_lightpost.widget.bganim_visualfn#1+15": [
     "-- 内联槽位坐标（本容器第 1 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  731: [
+  "params.hermitcrab_lightpost.widget.bganim_visualfn#1+16": [
     "-- 内联槽位坐标（本容器第 2 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  732: [
+  "params.hermitcrab_lightpost.widget.bganim_visualfn#1+17": [
     "-- 内联槽位坐标（本容器第 3 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  733: [
+  "params.hermitcrab_lightpost.widget.bganim_visualfn#1+18": [
     "-- 内联槽位坐标（本容器第 4 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  746: [
+  "params.hermitcrab_lightpost.widget.bganim_visualfn#1+31": [
     "-- 底纹批量填充循环：i = 1 … 4 → **4 次**。",
     "--   ★ 只往 slotbg 塞贴图、**不产生槽位**——槽位由 slotpos 决定。",
     "--   ⇒ 它的次数必须与「寄居蟹屋 2 代 2x2=4 格」的 slotpos 数量严格相等，否则底纹会错位。",
   ],
-  748: [
+  "params.hermitcrab_lightpost.widget.bganim_visualfn#1+33": [
     "-- 循环结束：已插入 **0 个** slotpos 坐标，本容器的 numslots 定为 0。",
   ],
-  763: [
+  "params.hermithouse2.itemtestfn#1+12": [
     "-- slotpos：同第 53 行（首次定义），此处值 = {}。",
   ],
-  764: [
+  "params.hermithouse2.itemtestfn#1+13": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_backpack_2x4\"。",
   ],
-  765: [
+  "params.hermithouse2.itemtestfn#1+14": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_backpack_2x4\"。",
   ],
-  766: [
+  "params.hermithouse2.itemtestfn#1+15": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(275, 0, 0)。",
   ],
-  767: [
+  "params.hermithouse2.itemtestfn#1+16": [
     "-- side_align_tip：同第 80 行（首次定义），此处值 = 100。",
   ],
-  769: [
+  "params.hermithouse2.itemtestfn#1+18": [
     "-- acceptsstacks：同第 369 行（首次定义），此处值 = false。",
   ],
-  770: [
+  "params.hermithouse2.itemtestfn#1+19": [
     "-- type = \"cooker\"",
     "--   ★ 加工类：只用于「不是侧边 UI、不是背包」这个否定语义。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  773: [
+  "params.hermithouse2.itemtestfn#1+22": [
     "-- ★ 槽位生成循环（顶层）：y = 0 … 3 → **4 轮**。",
     "--   每轮直接插入 2 个 slotpos 坐标（无内层循环）。",
     "--   ⇒ 槽位总数 = 4 × 2 = **8 个槽**，即「冬季树 8 格」的 numslots。",
@@ -583,272 +583,272 @@ export const BEFORE = {
     "--     而从代码表面看不出来。判定处见 components/container.lua:107 IsFull。",
     "--   ★ 插入顺序 = 槽位编号顺序（slot 1 … slot 8），存档按编号还原",
   ],
-  774: [
+  "params.hermithouse2.itemtestfn#1+23": [
     "-- 向 slotpos 追加一个槽位坐标：每轮的**第 2 个**坐标（同行向右偏移一格的那一列）。本容器累计第 1 次插入。",
     "--   ★ Vector3 是**绝对屏幕坐标**（不是相对容器的局部坐标）；数组顺序 = 槽位编号顺序。",
   ],
-  775: [
+  "params.hermithouse2.itemtestfn#1+24": [
     "-- 向 slotpos 追加一个槽位坐标：每轮的**第 2 个**坐标（同行向右偏移一格的那一列）。本容器累计第 2 次插入。",
     "--   ★ Vector3 是**绝对屏幕坐标**（不是相对容器的局部坐标）；数组顺序 = 槽位编号顺序。",
   ],
-  776: [
+  "params.hermithouse2.itemtestfn#1+25": [
     "-- 循环结束：已插入 **8 个** slotpos 坐标，本容器的 numslots 定为 8。",
   ],
-  783: [
+  "params.winter_tree.itemtestfn#1+5": [
     "-- 【蓝图：winter_deciduoustree】冬季落叶树",
     "--   ⚠ 疑似缺陷：**引用赋值**（params.X = params.Y），不是 deepcopy。",
     "--     ⇒ params.X 与 params.Y 指向**同一张表**，改一个等于改两个。",
     "--     本文件对同类派生多用 deepcopy（第 116/128/678/944/950 行等），此处属少数派。",
     "--     当前无后续修改故无害；模组若改 params.Y.widget.* 会连带影响 X。仅标注，不改代码。",
   ],
-  784: [
+  "params.winter_tree.itemtestfn#1+6": [
     "-- 【蓝图：winter_palmconetree】冬季棕榈树",
     "--   ⚠ 疑似缺陷：**引用赋值**（params.X = params.Y），不是 deepcopy。",
     "--     ⇒ params.X 与 params.Y 指向**同一张表**，改一个等于改两个。",
     "--     本文件对同类派生多用 deepcopy（第 116/128/678/944/950 行等），此处属少数派。",
     "--     当前无后续修改故无害；模组若改 params.Y.widget.* 会连带影响 X。仅标注，不改代码。",
   ],
-  796: [
+  "params.winter_tree.itemtestfn#1+18": [
     "-- 内联槽位坐标（本容器第 1 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  797: [
+  "params.winter_tree.itemtestfn#1+19": [
     "-- 内联槽位坐标（本容器第 2 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  798: [
+  "params.winter_tree.itemtestfn#1+20": [
     "-- 内联槽位坐标（本容器第 3 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  799: [
+  "params.winter_tree.itemtestfn#1+21": [
     "-- 内联槽位坐标（本容器第 4 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  808: [
+  "params.winter_tree.itemtestfn#1+30": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_chest_2x2\"。",
   ],
-  809: [
+  "params.winter_tree.itemtestfn#1+31": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_chest_2x2\"。",
   ],
-  810: [
+  "params.winter_tree.itemtestfn#1+32": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(200, 0, 0)。",
   ],
-  811: [
+  "params.winter_tree.itemtestfn#1+33": [
     "-- side_align_tip：同第 80 行（首次定义），此处值 = 120。",
   ],
-  813: [
+  "params.winter_tree.itemtestfn#1+35": [
     "-- acceptsstacks：同第 369 行（首次定义），此处值 = false。",
   ],
-  814: [
+  "params.winter_tree.itemtestfn#1+36": [
     "-- type = \"cooker\"",
     "--   ★ 加工类：只用于「不是侧边 UI、不是背包」这个否定语义。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  815: [
+  "params.winter_tree.itemtestfn#1+37": [
     "-- openlimit：同第 60 行（首次定义），此处值 = 1。",
   ],
-  844: [
+  "params.sisturn.itemtestfn#1+26": [
     "-- 内联槽位坐标（本容器第 1 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  845: [
+  "params.sisturn.itemtestfn#1+27": [
     "-- 内联槽位坐标（本容器第 2 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  846: [
+  "params.sisturn.itemtestfn#1+28": [
     "-- 内联槽位坐标（本容器第 3 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  847: [
+  "params.sisturn.itemtestfn#1+29": [
     "-- 内联槽位坐标（本容器第 4 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  856: [
+  "params.sisturn.itemtestfn#1+38": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_chest_2x2\"。",
   ],
-  857: [
+  "params.sisturn.itemtestfn#1+39": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_chest_2x2\"。",
   ],
-  858: [
+  "params.sisturn.itemtestfn#1+40": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(200, 0, 0)。",
   ],
-  859: [
+  "params.sisturn.itemtestfn#1+41": [
     "-- side_align_tip：同第 80 行（首次定义），此处值 = 120。",
   ],
-  861: [
+  "params.sisturn.itemtestfn#1+43": [
     "-- acceptsstacks：同第 369 行（首次定义），此处值 = false。",
   ],
-  862: [
+  "params.sisturn.itemtestfn#1+44": [
     "-- type = \"cooker\"",
     "--   ★ 加工类：只用于「不是侧边 UI、不是背包」这个否定语义。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  879: [
+  "params.offering_pot.itemtestfn#1+14": [
     "-- 内联槽位坐标（本容器第 1 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  880: [
+  "params.offering_pot.itemtestfn#1+15": [
     "-- 内联槽位坐标（本容器第 2 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  881: [
+  "params.offering_pot.itemtestfn#1+16": [
     "-- 内联槽位坐标（本容器第 3 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  882: [
+  "params.offering_pot.itemtestfn#1+17": [
     "-- 内联槽位坐标（本容器第 4 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  883: [
+  "params.offering_pot.itemtestfn#1+18": [
     "-- 内联槽位坐标（本容器第 5 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  884: [
+  "params.offering_pot.itemtestfn#1+19": [
     "-- 内联槽位坐标（本容器第 6 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  895: [
+  "params.offering_pot.itemtestfn#1+30": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_chest_3x2\"。",
   ],
-  896: [
+  "params.offering_pot.itemtestfn#1+31": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_chest_3x2\"。",
   ],
-  897: [
+  "params.offering_pot.itemtestfn#1+32": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(200, 0, 0)。",
   ],
-  898: [
+  "params.offering_pot.itemtestfn#1+33": [
     "-- side_align_tip：同第 80 行（首次定义），此处值 = 120。",
   ],
-  900: [
+  "params.offering_pot.itemtestfn#1+35": [
     "-- acceptsstacks：同第 369 行（首次定义），此处值 = false。",
   ],
-  901: [
+  "params.offering_pot.itemtestfn#1+36": [
     "-- type = \"cooker\"",
     "--   ★ 加工类：只用于「不是侧边 UI、不是背包」这个否定语义。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  916: [
+  "params.offering_pot.itemtestfn#1+51": [
     "-- 内联槽位坐标（本容器第 1 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  917: [
+  "params.offering_pot.itemtestfn#1+52": [
     "-- 内联槽位坐标（本容器第 2 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  924: [
+  "params.offering_pot.itemtestfn#1+59": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_chest_1x2\"。",
   ],
-  925: [
+  "params.offering_pot.itemtestfn#1+60": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_chest_1x2\"。",
   ],
-  926: [
+  "params.offering_pot.itemtestfn#1+61": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(200, 0, 0)。",
   ],
-  927: [
+  "params.offering_pot.itemtestfn#1+62": [
     "-- side_align_tip：同第 80 行（首次定义），此处值 = 100。",
   ],
-  929: [
+  "params.offering_pot.itemtestfn#1+64": [
     "-- ★ 关箱 UI 音效，同样只在客户端播放（同上）。",
   ],
-  932: [
+  "params.offering_pot.itemtestfn#1+67": [
     "-- type = \"cooker\"",
     "--   ★ 加工类：只用于「不是侧边 UI、不是背包」这个否定语义。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  967: [
+  "params.merm_armory.itemtestfn#1+9": [
     "-- 【蓝图：merm_armory_upgraded】鱼人军械库升级版",
     "--   ⚠ 疑似缺陷：**引用赋值**（params.X = params.Y），不是 deepcopy。",
     "--     ⇒ params.X 与 params.Y 指向**同一张表**，改一个等于改两个。",
     "--     本文件对同类派生多用 deepcopy（第 116/128/678/944/950 行等），此处属少数派。",
     "--     当前无后续修改故无害；模组若改 params.Y.widget.* 会连带影响 X。仅标注，不改代码。",
   ],
-  979: [
+  "params.merm_armory.itemtestfn#1+21": [
     "-- 内联槽位坐标（本容器第 1 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  980: [
+  "params.merm_armory.itemtestfn#1+22": [
     "-- 内联槽位坐标（本容器第 2 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  981: [
+  "params.merm_armory.itemtestfn#1+23": [
     "-- 内联槽位坐标（本容器第 3 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  983: [
+  "params.merm_armory.itemtestfn#1+25": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_chest_3x1\"。",
   ],
-  984: [
+  "params.merm_armory.itemtestfn#1+26": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_chest_3x1\"。",
   ],
-  985: [
+  "params.merm_armory.itemtestfn#1+27": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(200, 0, 0)。",
   ],
-  986: [
+  "params.merm_armory.itemtestfn#1+28": [
     "-- side_align_tip：同第 80 行（首次定义），此处值 = 100。",
   ],
-  988: [
+  "params.merm_armory.itemtestfn#1+30": [
     "-- acceptsstacks：同第 369 行（首次定义），此处值 = false。",
   ],
-  989: [
+  "params.merm_armory.itemtestfn#1+31": [
     "-- type = \"cooker\"",
     "--   ★ 加工类：只用于「不是侧边 UI、不是背包」这个否定语义。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  1004: [
+  "params.livingtree_halloween.itemtestfn#1+12": [
     "-- slotpos：同第 53 行（首次定义），此处值 = {}。",
   ],
-  1005: [
+  "params.livingtree_halloween.itemtestfn#1+13": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_chest_3x3\"。",
   ],
-  1006: [
+  "params.livingtree_halloween.itemtestfn#1+14": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_chest_3x3\"。",
   ],
-  1007: [
+  "params.livingtree_halloween.itemtestfn#1+15": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(0, 200, 0)。",
   ],
-  1008: [
+  "params.livingtree_halloween.itemtestfn#1+16": [
     "-- side_align_tip：同第 80 行（首次定义），此处值 = 160。",
   ],
-  1010: [
+  "params.livingtree_halloween.itemtestfn#1+18": [
     "-- type = \"chest\"",
     "--   ★ 箱子类：UI 在屏幕中央。★ **与筛选规则无关**——冰箱/木箱都是它。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  1015: [
+  "params.livingtree_halloween.itemtestfn#1+23": [
     "-- 向 slotpos 追加一个槽位坐标：每轮的**第 2 个**坐标（同行向右偏移一格的那一列）。本容器累计第 1 次插入。",
     "--   ★ Vector3 是**绝对屏幕坐标**（不是相对容器的局部坐标）；数组顺序 = 槽位编号顺序。",
   ],
-  1017: [
+  "params.livingtree_halloween.itemtestfn#1+25": [
     "-- 循环结束：已插入 **9 个** slotpos 坐标，本容器的 numslots 定为 9。",
   ],
-  1065: [
+  "params.saltbox.itemtestfn#1+16": [
     "-- slotpos：同第 53 行（首次定义），此处值 = {}。",
   ],
-  1066: [
+  "params.saltbox.itemtestfn#1+17": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_krampusbag_2x8\"。",
   ],
-  1067: [
+  "params.saltbox.itemtestfn#1+18": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_krampusbag_2x8\"。",
   ],
-  1069: [
+  "params.saltbox.itemtestfn#1+20": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(-5, -130, 0)。",
   ],
-  1071: [
+  "params.saltbox.itemtestfn#1+22": [
     "-- issidewidget：同第 58 行（首次定义），此处值 = true。",
   ],
-  1072: [
+  "params.saltbox.itemtestfn#1+23": [
     "-- type = \"pack\"",
     "--   背包类：UI 在屏幕侧边（issidewidget=true），同一时刻只能开一个。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  1076: [
+  "params.saltbox.itemtestfn#1+27": [
     "-- ★ 槽位生成循环（顶层）：y = 0 … 6 → **7 轮**。",
     "--   每轮直接插入 2 个 slotpos 坐标（无内层循环）。",
     "--   ⇒ 槽位总数 = 7 × 2 = **14 个槽**，即「圣诞怪口袋 14 格」的 numslots。",
@@ -856,42 +856,42 @@ export const BEFORE = {
     "--     而从代码表面看不出来。判定处见 components/container.lua:107 IsFull。",
     "--   ★ 插入顺序 = 槽位编号顺序（slot 1 … slot 14），存档按编号还原",
   ],
-  1077: [
+  "params.saltbox.itemtestfn#1+28": [
     "-- 向 slotpos 追加一个槽位坐标：每轮的**第 2 个**坐标（同行向右偏移一格的那一列）。本容器累计第 1 次插入。",
     "--   ★ Vector3 是**绝对屏幕坐标**（不是相对容器的局部坐标）；数组顺序 = 槽位编号顺序。",
   ],
-  1078: [
+  "params.saltbox.itemtestfn#1+29": [
     "-- 向 slotpos 追加一个槽位坐标：每轮的**第 2 个**坐标（同行向右偏移一格的那一列）。本容器累计第 2 次插入。",
     "--   ★ Vector3 是**绝对屏幕坐标**（不是相对容器的局部坐标）；数组顺序 = 槽位编号顺序。",
   ],
-  1079: [
+  "params.saltbox.itemtestfn#1+30": [
     "-- 循环结束：已插入 **14 个** slotpos 坐标，本容器的 numslots 定为 14。",
   ],
-  1089: [
+  "params.saltbox.itemtestfn#1+40": [
     "-- slotpos：同第 53 行（首次定义），此处值 = {}。",
   ],
-  1090: [
+  "params.saltbox.itemtestfn#1+41": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_piggyback_2x6\"。",
   ],
-  1091: [
+  "params.saltbox.itemtestfn#1+42": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_piggyback_2x6\"。",
   ],
-  1093: [
+  "params.saltbox.itemtestfn#1+44": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(-5, -90, 0)。",
   ],
-  1095: [
+  "params.saltbox.itemtestfn#1+46": [
     "-- issidewidget：同第 58 行（首次定义），此处值 = true。",
   ],
-  1096: [
+  "params.saltbox.itemtestfn#1+47": [
     "-- type = \"pack\"",
     "--   背包类：UI 在屏幕侧边（issidewidget=true），同一时刻只能开一个。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  1097: [
+  "params.saltbox.itemtestfn#1+48": [
     "-- openlimit：同第 60 行（首次定义），此处值 = 1。",
   ],
-  1100: [
+  "params.saltbox.itemtestfn#1+51": [
     "-- ★ 槽位生成循环（顶层）：y = 0 … 5 → **6 轮**。",
     "--   每轮直接插入 2 个 slotpos 坐标（无内层循环）。",
     "--   ⇒ 槽位总数 = 6 × 2 = **12 个槽**，即「背背怪背包 12 格」的 numslots。",
@@ -899,114 +899,114 @@ export const BEFORE = {
     "--     而从代码表面看不出来。判定处见 components/container.lua:107 IsFull。",
     "--   ★ 插入顺序 = 槽位编号顺序（slot 1 … slot 12），存档按编号还原",
   ],
-  1101: [
+  "params.saltbox.itemtestfn#1+52": [
     "-- 向 slotpos 追加一个槽位坐标：每轮的**第 2 个**坐标（同行向右偏移一格的那一列）。本容器累计第 1 次插入。",
     "--   ★ Vector3 是**绝对屏幕坐标**（不是相对容器的局部坐标）；数组顺序 = 槽位编号顺序。",
   ],
-  1102: [
+  "params.saltbox.itemtestfn#1+53": [
     "-- 向 slotpos 追加一个槽位坐标：每轮的**第 2 个**坐标（同行向右偏移一格的那一列）。本容器累计第 2 次插入。",
     "--   ★ Vector3 是**绝对屏幕坐标**（不是相对容器的局部坐标）；数组顺序 = 槽位编号顺序。",
   ],
-  1103: [
+  "params.saltbox.itemtestfn#1+54": [
     "-- 循环结束：已插入 **12 个** slotpos 坐标，本容器的 numslots 定为 12。",
   ],
-  1115: [
+  "params.saltbox.itemtestfn#1+66": [
     "-- 内联槽位坐标（本容器第 1 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  1116: [
+  "params.saltbox.itemtestfn#1+67": [
     "-- 内联槽位坐标（本容器第 2 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  1117: [
+  "params.saltbox.itemtestfn#1+68": [
     "-- 内联槽位坐标（本容器第 3 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  1118: [
+  "params.saltbox.itemtestfn#1+69": [
     "-- 内联槽位坐标（本容器第 4 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  1120: [
+  "params.saltbox.itemtestfn#1+71": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_cookpot_1x4\"。",
   ],
-  1121: [
+  "params.saltbox.itemtestfn#1+72": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_cookpot_1x4\"。",
   ],
-  1122: [
+  "params.saltbox.itemtestfn#1+73": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(0, 0, 0)。",
   ],
-  1123: [
+  "params.saltbox.itemtestfn#1+74": [
     "-- side_align_tip：同第 80 行（首次定义），此处值 = 100。",
   ],
-  1130: [
+  "params.saltbox.itemtestfn#1+81": [
     "-- type = \"cooker\"",
     "--   ★ 加工类：只用于「不是侧边 UI、不是背包」这个否定语义。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  1158: [
+  "params.teleportato_base.widget.buttoninfo.fn#1+21": [
     "-- 内联槽位坐标（本容器第 1 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  1159: [
+  "params.teleportato_base.widget.buttoninfo.fn#1+22": [
     "-- 内联槽位坐标（本容器第 2 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  1160: [
+  "params.teleportato_base.widget.buttoninfo.fn#1+23": [
     "-- 内联槽位坐标（本容器第 3 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  1161: [
+  "params.teleportato_base.widget.buttoninfo.fn#1+24": [
     "-- 内联槽位坐标（本容器第 4 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  1162: [
+  "params.teleportato_base.widget.buttoninfo.fn#1+25": [
     "-- 内联槽位坐标（本容器第 5 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  1174: [
+  "params.teleportato_base.widget.buttoninfo.fn#1+37": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_cookpot_1x4\"。",
   ],
-  1175: [
+  "params.teleportato_base.widget.buttoninfo.fn#1+38": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(100, 0, 0)。",
   ],
-  1182: [
+  "params.teleportato_base.widget.buttoninfo.fn#1+45": [
     "-- acceptsstacks：同第 369 行（首次定义），此处值 = false。",
   ],
-  1183: [
+  "params.teleportato_base.widget.buttoninfo.fn#1+46": [
     "-- type = \"cooker\"",
     "--   ★ 加工类：只用于「不是侧边 UI、不是背包」这个否定语义。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  1184: [
+  "params.teleportato_base.widget.buttoninfo.fn#1+47": [
     "-- openlimit：同第 60 行（首次定义），此处值 = 1。",
   ],
-  1213: [
+  "params.balatro_machine.widget.buttoninfo.validfn#1+14": [
     "-- slotpos：同第 53 行（首次定义），此处值 = {}。",
   ],
-  1214: [
+  "params.balatro_machine.widget.buttoninfo.validfn#1+15": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_chest_3x3\"。",
   ],
-  1215: [
+  "params.balatro_machine.widget.buttoninfo.validfn#1+16": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_chest_3x3\"。",
   ],
-  1217: [
+  "params.balatro_machine.widget.buttoninfo.validfn#1+18": [
     "-- ★ 升级态构建名。",
   ],
-  1218: [
+  "params.balatro_machine.widget.buttoninfo.validfn#1+19": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(0, 200, 0)。",
   ],
-  1219: [
+  "params.balatro_machine.widget.buttoninfo.validfn#1+20": [
     "-- side_align_tip：同第 80 行（首次定义），此处值 = 160。",
   ],
-  1221: [
+  "params.balatro_machine.widget.buttoninfo.validfn#1+22": [
     "-- type = \"chest\"",
     "--   ★ 箱子类：UI 在屏幕中央。★ **与筛选规则无关**——冰箱/木箱都是它。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  1224: [
+  "params.balatro_machine.widget.buttoninfo.validfn#1+25": [
     "-- ★ 槽位生成循环（顶层）：y = 2 … 0，步长 -1 → **3 轮**。",
     "--   内层循环：x = 0 … 2 → **3 列**。",
     "--   ⇒ 槽位总数 = 3 × 3 = **9 个槽**，即「宝箱 3x3=9 格」的 numslots。",
@@ -1014,421 +1014,421 @@ export const BEFORE = {
     "--     而从代码表面看不出来。判定处见 components/container.lua:107 IsFull。",
     "--   ★ 插入顺序 = 槽位编号顺序（slot 1 … slot 9），存档按编号还原",
   ],
-  1226: [
+  "params.balatro_machine.widget.buttoninfo.validfn#1+27": [
     "-- 向 slotpos 追加一个槽位坐标：每轮的**第 2 个**坐标（同行向右偏移一格的那一列）。本容器累计第 1 次插入。",
     "--   ★ Vector3 是**绝对屏幕坐标**（不是相对容器的局部坐标）；数组顺序 = 槽位编号顺序。",
   ],
-  1228: [
+  "params.balatro_machine.widget.buttoninfo.validfn#1+29": [
     "-- 循环结束：已插入 **9 个** slotpos 坐标，本容器的 numslots 定为 9。",
   ],
-  1231: [
+  "params.balatro_machine.widget.buttoninfo.validfn#1+32": [
     "-- 【蓝图：chest_mimic】拟态怪箱",
     "--   ⚠ 疑似缺陷：**引用赋值**（params.X = params.Y），不是 deepcopy。",
     "--     ⇒ params.X 与 params.Y 指向**同一张表**，改一个等于改两个。",
     "--     本文件对同类派生多用 deepcopy（第 116/128/678/944/950 行等），此处属少数派。",
     "--     当前无后续修改故无害；模组若改 params.Y.widget.* 会连带影响 X。仅标注，不改代码。",
   ],
-  1232: [
+  "params.balatro_machine.widget.buttoninfo.validfn#1+33": [
     "-- 【蓝图：skullchest】骷髅宝箱",
     "--   ⚠ 疑似缺陷：**引用赋值**（params.X = params.Y），不是 deepcopy。",
     "--     ⇒ params.X 与 params.Y 指向**同一张表**，改一个等于改两个。",
     "--     本文件对同类派生多用 deepcopy（第 116/128/678/944/950 行等），此处属少数派。",
     "--     当前无后续修改故无害；模组若改 params.Y.widget.* 会连带影响 X。仅标注，不改代码。",
   ],
-  1233: [
+  "params.balatro_machine.widget.buttoninfo.validfn#1+34": [
     "-- 【蓝图：terrariumchest】生态箱",
     "--   ⚠ 疑似缺陷：**引用赋值**（params.X = params.Y），不是 deepcopy。",
     "--     ⇒ params.X 与 params.Y 指向**同一张表**，改一个等于改两个。",
     "--     本文件对同类派生多用 deepcopy（第 116/128/678/944/950 行等），此处属少数派。",
     "--     当前无后续修改故无害；模组若改 params.Y.widget.* 会连带影响 X。仅标注，不改代码。",
   ],
-  1236: [
+  "params.balatro_machine.widget.buttoninfo.validfn#1+37": [
     "-- UI 贴图库名（客户端 .tex 图集名），widgets 层据此加载贴图。",
     "--   ★ 这是「派生后覆盖单个字段」：蓝图其余部分保持继承。",
   ],
-  1237: [
+  "params.balatro_machine.widget.buttoninfo.validfn#1+38": [
     "-- UI 构建名：从 bank 中取出的可渲染实例名，通常与 animbank 同值。",
     "--   ★ 这是「派生后覆盖单个字段」：蓝图其余部分保持继承。",
   ],
-  1240: [
+  "params.balatro_machine.widget.buttoninfo.validfn#1+41": [
     "-- UI 贴图库名（客户端 .tex 图集名），widgets 层据此加载贴图。",
     "--   ★ 这是「派生后覆盖单个字段」：蓝图其余部分保持继承。",
   ],
-  1241: [
+  "params.balatro_machine.widget.buttoninfo.validfn#1+42": [
     "-- UI 构建名：从 bank 中取出的可渲染实例名，通常与 animbank 同值。",
     "--   ★ 这是「派生后覆盖单个字段」：蓝图其余部分保持继承。",
   ],
-  1248: [
+  "params.balatro_machine.widget.buttoninfo.validfn#1+49": [
     "-- 循环结束：已插入 **16 个** slotpos 坐标，本容器的 numslots 定为 16。",
   ],
-  1256: [
+  "params.balatro_machine.widget.buttoninfo.validfn#1+57": [
     "-- ★ 升级态贴图库名（箱子被季节活动升级后使用）。",
     "--   ★ 这是「派生后覆盖单个字段」：蓝图其余部分保持继承。",
   ],
-  1257: [
+  "params.balatro_machine.widget.buttoninfo.validfn#1+58": [
     "-- ★ 升级态构建名。",
     "--   ★ 这是「派生后覆盖单个字段」：蓝图其余部分保持继承。",
   ],
-  1267: [
+  "params.balatro_machine.widget.buttoninfo.validfn#1+68": [
     "-- slotpos：同第 53 行（首次定义），此处值 = {。",
   ],
-  1268: [
+  "params.balatro_machine.widget.buttoninfo.validfn#1+69": [
     "-- 内联槽位坐标（本容器第 1 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  1274: [
+  "params.balatro_machine.widget.buttoninfo.validfn#1+75": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_antlionhat_1x1\"。",
   ],
-  1275: [
+  "params.balatro_machine.widget.buttoninfo.validfn#1+76": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_antlionhat_1x1\"。",
   ],
-  1276: [
+  "params.balatro_machine.widget.buttoninfo.validfn#1+77": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(106, 40, 0)。",
   ],
-  1278: [
+  "params.balatro_machine.widget.buttoninfo.validfn#1+79": [
     "-- type = \"hand_inv\"",
     "--   手持物容器：UI 挂在角色的手持区（playerhud.lua:395）。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  1294: [
+  "params.antlionhat.itemtestfn#1+12": [
     "-- slotpos：同第 53 行（首次定义），此处值 = {}。",
   ],
-  1295: [
+  "params.antlionhat.itemtestfn#1+13": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_fish_box_5x4\"。",
   ],
-  1296: [
+  "params.antlionhat.itemtestfn#1+14": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_fish_box_5x4\"。",
   ],
-  1297: [
+  "params.antlionhat.itemtestfn#1+15": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(0, 220, 0)。",
   ],
-  1298: [
+  "params.antlionhat.itemtestfn#1+16": [
     "-- side_align_tip：同第 80 行（首次定义），此处值 = 160。",
   ],
-  1300: [
+  "params.antlionhat.itemtestfn#1+18": [
     "-- type = \"chest\"",
     "--   ★ 箱子类：UI 在屏幕中央。★ **与筛选规则无关**——冰箱/木箱都是它。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  1305: [
+  "params.antlionhat.itemtestfn#1+23": [
     "-- 向 slotpos 追加一个槽位坐标：每轮的**第 2 个**坐标（同行向右偏移一格的那一列）。本容器累计第 1 次插入。",
     "--   ★ Vector3 是**绝对屏幕坐标**（不是相对容器的局部坐标）；数组顺序 = 槽位编号顺序。",
   ],
-  1307: [
+  "params.antlionhat.itemtestfn#1+25": [
     "-- 循环结束：已插入 **20 个** slotpos 坐标，本容器的 numslots 定为 20。",
   ],
-  1324: [
+  "params.fish_box.itemtestfn#1+15": [
     "-- 内联槽位坐标（本容器第 1 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  1325: [
+  "params.fish_box.itemtestfn#1+16": [
     "-- 内联槽位坐标（本容器第 2 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  1332: [
+  "params.fish_box.itemtestfn#1+23": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_cookpot_1x2\"。",
   ],
-  1333: [
+  "params.fish_box.itemtestfn#1+24": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_cookpot_1x2\"。",
   ],
-  1334: [
+  "params.fish_box.itemtestfn#1+25": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(0, 60, 0)。",
   ],
-  1336: [
+  "params.fish_box.itemtestfn#1+27": [
     "-- acceptsstacks：同第 369 行（首次定义），此处值 = false。",
   ],
-  1337: [
+  "params.fish_box.itemtestfn#1+28": [
     "-- ★ 槽位是否有语义：true 时物品必须进 itemtestfn(item, slot) 指定的**那一格**。",
     "--   落点：components/container.lua:298 GetSpecificSlotForItem（逐槽试）、451 GiveItem（优先用）。",
   ],
-  1338: [
+  "params.fish_box.itemtestfn#1+29": [
     "-- type = \"hand_inv\"",
     "--   手持物容器：UI 挂在角色的手持区（playerhud.lua:395）。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  1339: [
+  "params.fish_box.itemtestfn#1+30": [
     "-- 箱内物品是否**排除在合成搜索之外**。true=不参与合成（沙尘蜂帽/弹弓用）。",
     "--   ⚠ 对照第 1373/1408/1444 行：beard_sack 把同一行注释掉了，即胡子袋要参与合成。",
   ],
-  1359: [
+  "params.oceanfishingrod.itemtestfn#1+17": [
     "-- 内联槽位坐标（本容器第 1 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  1365: [
+  "params.oceanfishingrod.itemtestfn#1+23": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_beard_1x1\"。",
   ],
-  1366: [
+  "params.oceanfishingrod.itemtestfn#1+24": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_beard_1x1\"。",
   ],
-  1367: [
+  "params.oceanfishingrod.itemtestfn#1+25": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(-82, 89, 0)。",
   ],
-  1368: [
+  "params.oceanfishingrod.itemtestfn#1+26": [
     "-- 提示条底部对齐距离（像素）。",
   ],
-  1370: [
+  "params.oceanfishingrod.itemtestfn#1+28": [
     "-- type = \"side_inv_behind\"",
     "--   角色背后侧边容器（playerhud.lua:397）。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  1392: [
+  "params.beard_sack_1.itemtestfn#1+16": [
     "-- 内联槽位坐标（本容器第 1 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  1393: [
+  "params.beard_sack_1.itemtestfn#1+17": [
     "-- 内联槽位坐标（本容器第 2 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  1400: [
+  "params.beard_sack_1.itemtestfn#1+24": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_beard_2x1\"。",
   ],
-  1401: [
+  "params.beard_sack_1.itemtestfn#1+25": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_beard_2x1\"。",
   ],
-  1402: [
+  "params.beard_sack_1.itemtestfn#1+26": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(-82, 89, 0)。",
   ],
-  1403: [
+  "params.beard_sack_1.itemtestfn#1+27": [
     "-- bottom_align_tip：同第 1368 行（首次定义），此处值 = -100。",
   ],
-  1406: [
+  "params.beard_sack_1.itemtestfn#1+30": [
     "-- acceptsstacks：同第 369 行（首次定义），此处值 = true。",
   ],
-  1407: [
+  "params.beard_sack_1.itemtestfn#1+31": [
     "-- ★ 自动取物优先级最低（从背包找东西时先翻别处，找不到才来这里）。",
   ],
-  1426: [
+  "params.beard_sack_2.itemtestfn#1+15": [
     "-- 内联槽位坐标（本容器第 1 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  1427: [
+  "params.beard_sack_2.itemtestfn#1+16": [
     "-- 内联槽位坐标（本容器第 2 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  1428: [
+  "params.beard_sack_2.itemtestfn#1+17": [
     "-- 内联槽位坐标（本容器第 3 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  1436: [
+  "params.beard_sack_2.itemtestfn#1+25": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_beard_3x1\"。",
   ],
-  1437: [
+  "params.beard_sack_2.itemtestfn#1+26": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_beard_3x1\"。",
   ],
-  1438: [
+  "params.beard_sack_2.itemtestfn#1+27": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(-82, 89, 0)。",
   ],
-  1439: [
+  "params.beard_sack_2.itemtestfn#1+28": [
     "-- bottom_align_tip：同第 1368 行（首次定义），此处值 = -100。",
   ],
-  1441: [
+  "params.beard_sack_2.itemtestfn#1+30": [
     "-- type = \"side_inv_behind\"",
     "--   角色背后侧边容器（playerhud.lua:397）。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  1442: [
+  "params.beard_sack_2.itemtestfn#1+31": [
     "-- acceptsstacks：同第 369 行（首次定义），此处值 = true。",
   ],
-  1443: [
+  "params.beard_sack_2.itemtestfn#1+32": [
     "-- lowpriorityselection：同第 1407 行（首次定义），此处值 = true。",
   ],
-  1469: [
+  "params.beard_sack_3.itemtestfn#1+22": [
     "-- 内联槽位坐标（本容器第 1 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  1475: [
+  "params.beard_sack_3.itemtestfn#1+28": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_cookpot_1x2\"。",
   ],
-  1476: [
+  "params.beard_sack_3.itemtestfn#1+29": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_cookpot_1x2\"。",
   ],
-  1477: [
+  "params.beard_sack_3.itemtestfn#1+30": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(0, 15, 0)。",
   ],
-  1480: [
+  "params.beard_sack_3.itemtestfn#1+33": [
     "-- excludefromcrafting：同第 1339 行（首次定义），此处值 = true。",
   ],
-  1484: [
+  "params.beard_sack_3.itemtestfn#1+37": [
     "-- UI 贴图库名（客户端 .tex 图集名），widgets 层据此加载贴图。",
     "--   ★ 这是「派生后覆盖单个字段」：蓝图其余部分保持继承。",
   ],
-  1485: [
+  "params.beard_sack_3.itemtestfn#1+38": [
     "-- UI 构建名：从 bank 中取出的可渲染实例名，通常与 animbank 同值。",
     "--   ★ 这是「派生后覆盖单个字段」：蓝图其余部分保持继承。",
   ],
-  1487: [
+  "params.beard_sack_3.itemtestfn#1+40": [
     "-- 【蓝图：slingshot999ex】弹弓 999 变体（deepcopy slingshotex 换皮）",
     "--   ⚠ 疑似缺陷：**引用赋值**（params.X = params.Y），不是 deepcopy。",
     "--     ⇒ params.X 与 params.Y 指向**同一张表**，改一个等于改两个。",
     "--     本文件对同类派生多用 deepcopy（第 116/128/678/944/950 行等），此处属少数派。",
     "--     当前无后续修改故无害；模组若改 params.Y.widget.* 会连带影响 X。仅标注，不改代码。",
   ],
-  1488: [
+  "params.beard_sack_3.itemtestfn#1+41": [
     "-- UI 贴图库名（客户端 .tex 图集名），widgets 层据此加载贴图。",
     "--   ★ 这是「派生后覆盖单个字段」：蓝图其余部分保持继承。",
   ],
-  1489: [
+  "params.beard_sack_3.itemtestfn#1+42": [
     "-- UI 构建名：从 bank 中取出的可渲染实例名，通常与 animbank 同值。",
     "--   ★ 这是「派生后覆盖单个字段」：蓝图其余部分保持继承。",
   ],
-  1498: [
+  "params.beard_sack_3.itemtestfn#1+51": [
     "-- 内联槽位坐标（本容器第 1 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  1499: [
+  "params.beard_sack_3.itemtestfn#1+52": [
     "-- 内联槽位坐标（本容器第 2 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  1515: [
+  "params.beard_sack_3.itemtestfn#1+68": [
     "-- UI 贴图库名（客户端 .tex 图集名），widgets 层据此加载贴图。",
     "--   ★ 这是「派生后覆盖单个字段」：蓝图其余部分保持继承。",
   ],
-  1516: [
+  "params.beard_sack_3.itemtestfn#1+69": [
     "-- UI 构建名：从 bank 中取出的可渲染实例名，通常与 animbank 同值。",
     "--   ★ 这是「派生后覆盖单个字段」：蓝图其余部分保持继承。",
   ],
-  1536: [
+  "params.slingshot.itemtestfn#1+17": [
     "-- ★ 物品筛选闭包，签名固定 (container, item, slot)。",
     "--   调用点：components/container.lua:295 CanTakeItemInSlot —— **唯一的物品准入闸门**。",
     "--   ★ 第一形参 container 就是组件本身（调用处写的是 self:itemtestfn(item, slot)）。",
     "--   ★ 这是「派生后覆盖单个字段」：蓝图其余部分保持继承。",
   ],
-  1537: [
+  "params.slingshot.itemtestfn#1+18": [
     "-- ★ 物品筛选闭包，签名固定 (container, item, slot)。",
     "--   调用点：components/container.lua:295 CanTakeItemInSlot —— **唯一的物品准入闸门**。",
     "--   ★ 第一形参 container 就是组件本身（调用处写的是 self:itemtestfn(item, slot)）。",
     "--   ★ 这是「派生后覆盖单个字段」：蓝图其余部分保持继承。",
   ],
-  1538: [
+  "params.slingshot.itemtestfn#1+19": [
     "-- ★ 物品筛选闭包，签名固定 (container, item, slot)。",
     "--   调用点：components/container.lua:295 CanTakeItemInSlot —— **唯一的物品准入闸门**。",
     "--   ★ 第一形参 container 就是组件本身（调用处写的是 self:itemtestfn(item, slot)）。",
     "--   ★ 这是「派生后覆盖单个字段」：蓝图其余部分保持继承。",
   ],
-  1551: [
+  "params.slingshot.itemtestfn#1+32": [
     "-- 内联槽位坐标（本容器第 1 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  1552: [
+  "params.slingshot.itemtestfn#1+33": [
     "-- 内联槽位坐标（本容器第 2 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  1613: [
+  "params.slingshotmodscontainer.itemtestfn#1+34": [
     "-- slotpos：同第 53 行（首次定义），此处值 = {}。",
   ],
-  1614: [
+  "params.slingshotmodscontainer.itemtestfn#1+35": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_tacklecontainer_3x2\"。",
   ],
-  1615: [
+  "params.slingshotmodscontainer.itemtestfn#1+36": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_tacklecontainer_3x2\"。",
   ],
-  1616: [
+  "params.slingshotmodscontainer.itemtestfn#1+37": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(0, 200, 0)。",
   ],
-  1617: [
+  "params.slingshotmodscontainer.itemtestfn#1+38": [
     "-- side_align_tip：同第 80 行（首次定义），此处值 = 160。",
   ],
-  1619: [
+  "params.slingshotmodscontainer.itemtestfn#1+40": [
     "-- type = \"chest\"",
     "--   ★ 箱子类：UI 在屏幕中央。★ **与筛选规则无关**——冰箱/木箱都是它。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  1624: [
+  "params.slingshotmodscontainer.itemtestfn#1+45": [
     "-- 向 slotpos 追加一个槽位坐标：每轮的**第 2 个**坐标（同行向右偏移一格的那一列）。本容器累计第 1 次插入。",
     "--   ★ Vector3 是**绝对屏幕坐标**（不是相对容器的局部坐标）；数组顺序 = 槽位编号顺序。",
   ],
-  1626: [
+  "params.slingshotmodscontainer.itemtestfn#1+47": [
     "-- 循环结束：已插入 **6 个** slotpos 坐标，本容器的 numslots 定为 6。",
   ],
-  1642: [
+  "params.tacklecontainer.itemtestfn#1+14": [
     "-- slotpos：同第 53 行（首次定义），此处值 = {}。",
   ],
-  1643: [
+  "params.tacklecontainer.itemtestfn#1+15": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_tacklecontainer_3x5\"。",
   ],
-  1644: [
+  "params.tacklecontainer.itemtestfn#1+16": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_tacklecontainer_3x5\"。",
   ],
-  1645: [
+  "params.tacklecontainer.itemtestfn#1+17": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(0, 280, 0)。",
   ],
-  1646: [
+  "params.tacklecontainer.itemtestfn#1+18": [
     "-- side_align_tip：同第 80 行（首次定义），此处值 = 160。",
   ],
-  1648: [
+  "params.tacklecontainer.itemtestfn#1+20": [
     "-- type = \"chest\"",
     "--   ★ 箱子类：UI 在屏幕中央。★ **与筛选规则无关**——冰箱/木箱都是它。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  1653: [
+  "params.tacklecontainer.itemtestfn#1+25": [
     "-- 向 slotpos 追加一个槽位坐标：每轮的**第 2 个**坐标（同行向右偏移一格的那一列）。本容器累计第 1 次插入。",
     "--   ★ Vector3 是**绝对屏幕坐标**（不是相对容器的局部坐标）；数组顺序 = 槽位编号顺序。",
   ],
-  1655: [
+  "params.tacklecontainer.itemtestfn#1+27": [
     "-- 循环结束：已插入 **15 个** slotpos 坐标，本容器的 numslots 定为 15。",
   ],
-  1658: [
+  "params.tacklecontainer.itemtestfn#1+30": [
     "-- ★ 专用容器优先判定（弹药包这类）。常与 itemtestfn 共用同一函数，但语义相反：",
     "--   itemtestfn 管「能不能放」，priorityfn 管「优先往哪放」（components/container.lua:319）。",
     "--   ★ 这是「派生后覆盖单个字段」：蓝图其余部分保持继承。",
   ],
-  1670: [
+  "params.tacklecontainer.itemtestfn#1+42": [
     "-- slotpos：同第 53 行（首次定义），此处值 = {}。",
   ],
-  1671: [
+  "params.tacklecontainer.itemtestfn#1+43": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_tacklecontainer_3x5\"。",
   ],
-  1672: [
+  "params.tacklecontainer.itemtestfn#1+44": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_tacklecontainer_3x5\"。",
   ],
-  1673: [
+  "params.tacklecontainer.itemtestfn#1+45": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(0, 280, 0)。",
   ],
-  1674: [
+  "params.tacklecontainer.itemtestfn#1+46": [
     "-- side_align_tip：同第 80 行（首次定义），此处值 = 160。",
   ],
-  1676: [
+  "params.tacklecontainer.itemtestfn#1+48": [
     "-- type = \"chest\"",
     "--   ★ 箱子类：UI 在屏幕中央。★ **与筛选规则无关**——冰箱/木箱都是它。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  1681: [
+  "params.tacklecontainer.itemtestfn#1+53": [
     "-- 向 slotpos 追加一个槽位坐标：每轮的**第 2 个**坐标（同行向右偏移一格的那一列）。本容器累计第 1 次插入。",
     "--   ★ Vector3 是**绝对屏幕坐标**（不是相对容器的局部坐标）；数组顺序 = 槽位编号顺序。",
   ],
-  1683: [
+  "params.tacklecontainer.itemtestfn#1+55": [
     "-- 循环结束：已插入 **15 个** slotpos 坐标，本容器的 numslots 定为 15。",
   ],
-  1693: [
+  "params.tacklecontainer.itemtestfn#1+65": [
     "-- slotpos：同第 53 行（首次定义），此处值 = {}。",
   ],
-  1694: [
+  "params.tacklecontainer.itemtestfn#1+66": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_chest_3x2\"。",
   ],
-  1695: [
+  "params.tacklecontainer.itemtestfn#1+67": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_chest_3x2\"。",
   ],
-  1696: [
+  "params.tacklecontainer.itemtestfn#1+68": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(0, 200, 0)。",
   ],
-  1697: [
+  "params.tacklecontainer.itemtestfn#1+69": [
     "-- side_align_tip：同第 80 行（首次定义），此处值 = 160。",
   ],
-  1699: [
+  "params.tacklecontainer.itemtestfn#1+71": [
     "-- type = \"chest\"",
     "--   ★ 箱子类：UI 在屏幕中央。★ **与筛选规则无关**——冰箱/木箱都是它。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  1702: [
+  "params.tacklecontainer.itemtestfn#1+74": [
     "-- ★ 槽位生成循环（顶层）：y = 1 … 0，步长 -1 → **2 轮**。",
     "--   内层循环：x = 0 … 2 → **3 列**。",
     "--   ⇒ 槽位总数 = 2 × 3 = **6 个槽**，即「圣柜 3x2=6 格」的 numslots。",
@@ -1436,38 +1436,38 @@ export const BEFORE = {
     "--     而从代码表面看不出来。判定处见 components/container.lua:107 IsFull。",
     "--   ★ 插入顺序 = 槽位编号顺序（slot 1 … slot 6），存档按编号还原",
   ],
-  1704: [
+  "params.tacklecontainer.itemtestfn#1+76": [
     "-- 向 slotpos 追加一个槽位坐标：每轮的**第 2 个**坐标（同行向右偏移一格的那一列）。本容器累计第 1 次插入。",
     "--   ★ Vector3 是**绝对屏幕坐标**（不是相对容器的局部坐标）；数组顺序 = 槽位编号顺序。",
   ],
-  1706: [
+  "params.tacklecontainer.itemtestfn#1+78": [
     "-- 循环结束：已插入 **6 个** slotpos 坐标，本容器的 numslots 定为 6。",
   ],
-  1716: [
+  "params.tacklecontainer.itemtestfn#1+88": [
     "-- slotpos：同第 53 行（首次定义），此处值 = {}。",
   ],
-  1717: [
+  "params.tacklecontainer.itemtestfn#1+89": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_krampusbag_2x8\"。",
   ],
-  1718: [
+  "params.tacklecontainer.itemtestfn#1+90": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_krampusbag_2x8\"。",
   ],
-  1719: [
+  "params.tacklecontainer.itemtestfn#1+91": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(-5, -130, 0)。",
   ],
-  1721: [
+  "params.tacklecontainer.itemtestfn#1+93": [
     "-- issidewidget：同第 58 行（首次定义），此处值 = true。",
   ],
-  1722: [
+  "params.tacklecontainer.itemtestfn#1+94": [
     "-- type = \"pack\"",
     "--   背包类：UI 在屏幕侧边（issidewidget=true），同一时刻只能开一个。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  1723: [
+  "params.tacklecontainer.itemtestfn#1+95": [
     "-- openlimit：同第 60 行（首次定义），此处值 = 1。",
   ],
-  1726: [
+  "params.tacklecontainer.itemtestfn#1+98": [
     "-- ★ 槽位生成循环（顶层）：y = 0 … 6 → **7 轮**。",
     "--   每轮直接插入 2 个 slotpos 坐标（无内层循环）。",
     "--   ⇒ 槽位总数 = 7 × 2 = **14 个槽**，即「种子袋 14 格」的 numslots。",
@@ -1475,42 +1475,42 @@ export const BEFORE = {
     "--     而从代码表面看不出来。判定处见 components/container.lua:107 IsFull。",
     "--   ★ 插入顺序 = 槽位编号顺序（slot 1 … slot 14），存档按编号还原",
   ],
-  1727: [
+  "params.tacklecontainer.itemtestfn#1+99": [
     "-- 向 slotpos 追加一个槽位坐标：每轮的**第 2 个**坐标（同行向右偏移一格的那一列）。本容器累计第 1 次插入。",
     "--   ★ Vector3 是**绝对屏幕坐标**（不是相对容器的局部坐标）；数组顺序 = 槽位编号顺序。",
   ],
-  1728: [
+  "params.tacklecontainer.itemtestfn#1+100": [
     "-- 向 slotpos 追加一个槽位坐标：每轮的**第 2 个**坐标（同行向右偏移一格的那一列）。本容器累计第 2 次插入。",
     "--   ★ Vector3 是**绝对屏幕坐标**（不是相对容器的局部坐标）；数组顺序 = 槽位编号顺序。",
   ],
-  1729: [
+  "params.tacklecontainer.itemtestfn#1+101": [
     "-- 循环结束：已插入 **14 个** slotpos 坐标，本容器的 numslots 定为 14。",
   ],
-  1745: [
+  "params.seedpouch.itemtestfn#1+14": [
     "-- slotpos：同第 53 行（首次定义），此处值 = {}。",
   ],
-  1746: [
+  "params.seedpouch.itemtestfn#1+15": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_krampusbag_2x8\"。",
   ],
-  1747: [
+  "params.seedpouch.itemtestfn#1+16": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_krampusbag_2x8\"。",
   ],
-  1748: [
+  "params.seedpouch.itemtestfn#1+17": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(-5, -130, 0)。",
   ],
-  1750: [
+  "params.seedpouch.itemtestfn#1+19": [
     "-- issidewidget：同第 58 行（首次定义），此处值 = true。",
   ],
-  1751: [
+  "params.seedpouch.itemtestfn#1+20": [
     "-- type = \"pack\"",
     "--   背包类：UI 在屏幕侧边（issidewidget=true），同一时刻只能开一个。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  1752: [
+  "params.seedpouch.itemtestfn#1+21": [
     "-- openlimit：同第 60 行（首次定义），此处值 = 1。",
   ],
-  1755: [
+  "params.seedpouch.itemtestfn#1+24": [
     "-- ★ 槽位生成循环（顶层）：y = 0 … 6 → **7 轮**。",
     "--   每轮直接插入 2 个 slotpos 坐标（无内层循环）。",
     "--   ⇒ 槽位总数 = 7 × 2 = **14 个槽**，即「糖果袋 14 格」的 numslots。",
@@ -1518,72 +1518,72 @@ export const BEFORE = {
     "--     而从代码表面看不出来。判定处见 components/container.lua:107 IsFull。",
     "--   ★ 插入顺序 = 槽位编号顺序（slot 1 … slot 14），存档按编号还原",
   ],
-  1756: [
+  "params.seedpouch.itemtestfn#1+25": [
     "-- 向 slotpos 追加一个槽位坐标：每轮的**第 2 个**坐标（同行向右偏移一格的那一列）。本容器累计第 1 次插入。",
     "--   ★ Vector3 是**绝对屏幕坐标**（不是相对容器的局部坐标）；数组顺序 = 槽位编号顺序。",
   ],
-  1757: [
+  "params.seedpouch.itemtestfn#1+26": [
     "-- 向 slotpos 追加一个槽位坐标：每轮的**第 2 个**坐标（同行向右偏移一格的那一列）。本容器累计第 2 次插入。",
     "--   ★ Vector3 是**绝对屏幕坐标**（不是相对容器的局部坐标）；数组顺序 = 槽位编号顺序。",
   ],
-  1758: [
+  "params.seedpouch.itemtestfn#1+27": [
     "-- 循环结束：已插入 **14 个** slotpos 坐标，本容器的 numslots 定为 14。",
   ],
-  1764: [
+  "params.candybag.itemtestfn#1+4": [
     "-- ★ 专用容器优先判定（弹药包这类）。常与 itemtestfn 共用同一函数，但语义相反：",
     "--   itemtestfn 管「能不能放」，priorityfn 管「优先往哪放」（components/container.lua:319）。",
     "--   ★ 这是「派生后覆盖单个字段」：蓝图其余部分保持继承。",
   ],
-  1774: [
+  "params.candybag.itemtestfn#1+14": [
     "-- slotpos：同第 53 行（首次定义），此处值 = {。",
   ],
-  1775: [
+  "params.candybag.itemtestfn#1+15": [
     "-- 内联槽位坐标（本容器第 1 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  1781: [
+  "params.candybag.itemtestfn#1+21": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_alterguardianhat_1x1\"。",
   ],
-  1782: [
+  "params.candybag.itemtestfn#1+22": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_alterguardianhat_1x1\"。",
   ],
-  1783: [
+  "params.candybag.itemtestfn#1+23": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(0, 160, 0)。",
   ],
-  1785: [
+  "params.candybag.itemtestfn#1+25": [
     "-- acceptsstacks：同第 369 行（首次定义），此处值 = false。",
   ],
-  1786: [
+  "params.candybag.itemtestfn#1+26": [
     "-- type = \"chest\"",
     "--   ★ 箱子类：UI 在屏幕中央。★ **与筛选规则无关**——冰箱/木箱都是它。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  1801: [
+  "params.alterguardianhatshard.itemtestfn#1+12": [
     "-- slotpos：同第 53 行（首次定义），此处值 = {}。",
   ],
-  1802: [
+  "params.alterguardianhatshard.itemtestfn#1+13": [
     "-- 格子底纹贴图数组（与 slotpos 严格一一对应）。★ 纯装饰，容器逻辑从不读。",
   ],
-  1803: [
+  "params.alterguardianhatshard.itemtestfn#1+14": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_alterguardianhat_1x6\"。",
   ],
-  1804: [
+  "params.alterguardianhatshard.itemtestfn#1+15": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_alterguardianhat_1x6\"。",
   ],
-  1807: [
+  "params.alterguardianhatshard.itemtestfn#1+18": [
     "-- acceptsstacks：同第 369 行（首次定义），此处值 = false。",
   ],
-  1808: [
+  "params.alterguardianhatshard.itemtestfn#1+19": [
     "-- type = \"hand_inv\"",
     "--   手持物容器：UI 挂在角色的手持区（playerhud.lua:395）。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  1809: [
+  "params.alterguardianhatshard.itemtestfn#1+20": [
     "-- excludefromcrafting：同第 1339 行（首次定义），此处值 = true。",
   ],
-  1815: [
+  "params.alterguardianhatshard.itemtestfn#1+26": [
     "-- ★ 槽位生成循环（顶层）：i = 0 … 4 → **5 轮**。",
     "--   每轮直接插入 1 个 slotpos 坐标（无内层循环）。",
     "--   ⇒ 槽位总数 = 5 × 1 = **5 个槽**，即「监护者帽 5 竖排」的 numslots。",
@@ -1591,42 +1591,42 @@ export const BEFORE = {
     "--     而从代码表面看不出来。判定处见 components/container.lua:107 IsFull。",
     "--   ★ 插入顺序 = 槽位编号顺序（slot 1 … slot 5），存档按编号还原",
   ],
-  1817: [
+  "params.alterguardianhatshard.itemtestfn#1+28": [
     "-- 向 slotpos 追加一个槽位坐标：每轮的**第 1 个**坐标。本容器累计第 1 次插入。",
     "--   ★ Vector3 是**绝对屏幕坐标**（不是相对容器的局部坐标）；数组顺序 = 槽位编号顺序。",
   ],
-  1818: [
+  "params.alterguardianhatshard.itemtestfn#1+29": [
     "-- 向 slotbg 追加与该槽对应的底纹贴图（纯装饰，容器逻辑从不读）。",
     "--   ★ 必须与 slotpos **严格一一对应**，否则格子底图会错位。",
   ],
-  1819: [
+  "params.alterguardianhatshard.itemtestfn#1+30": [
     "-- 循环结束：已插入 **5 个** slotpos 坐标，本容器的 numslots 定为 5。",
   ],
-  1834: [
+  "params.alterguardianhat.itemtestfn#1+12": [
     "-- slotpos：同第 53 行（首次定义），此处值 = {}。",
   ],
-  1835: [
+  "params.alterguardianhat.itemtestfn#1+13": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_tacklecontainer_3x2\"。",
   ],
-  1836: [
+  "params.alterguardianhat.itemtestfn#1+14": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_tacklecontainer_3x2\"。",
   ],
-  1837: [
+  "params.alterguardianhat.itemtestfn#1+15": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(-850, 100, 0)。",
   ],
-  1838: [
+  "params.alterguardianhat.itemtestfn#1+16": [
     "-- side_align_tip：同第 80 行（首次定义），此处值 = 100。",
   ],
-  1840: [
+  "params.alterguardianhat.itemtestfn#1+18": [
     "-- type = \"hand_inv\"",
     "--   手持物容器：UI 挂在角色的手持区（playerhud.lua:395）。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  1841: [
+  "params.alterguardianhat.itemtestfn#1+19": [
     "-- excludefromcrafting：同第 1339 行（首次定义），此处值 = true。",
   ],
-  1844: [
+  "params.alterguardianhat.itemtestfn#1+22": [
     "-- ★ 槽位生成循环（顶层）：y = 1 … 0，步长 -1 → **2 轮**。",
     "--   内层循环：x = 0 … 2 → **3 列**。",
     "--   ⇒ 槽位总数 = 2 × 3 = **6 个槽**，即「怀表 3x2=6 格」的 numslots。",
@@ -1634,150 +1634,150 @@ export const BEFORE = {
     "--     而从代码表面看不出来。判定处见 components/container.lua:107 IsFull。",
     "--   ★ 插入顺序 = 槽位编号顺序（slot 1 … slot 6），存档按编号还原",
   ],
-  1846: [
+  "params.alterguardianhat.itemtestfn#1+24": [
     "-- 向 slotpos 追加一个槽位坐标：每轮的**第 2 个**坐标（同行向右偏移一格的那一列）。本容器累计第 1 次插入。",
     "--   ★ Vector3 是**绝对屏幕坐标**（不是相对容器的局部坐标）；数组顺序 = 槽位编号顺序。",
   ],
-  1848: [
+  "params.alterguardianhat.itemtestfn#1+26": [
     "-- 循环结束：已插入 **6 个** slotpos 坐标，本容器的 numslots 定为 6。",
   ],
-  1864: [
+  "params.pocketwatch.itemtestfn#1+14": [
     "-- 内联槽位坐标（本容器第 1 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  1865: [
+  "params.pocketwatch.itemtestfn#1+15": [
     "-- 内联槽位坐标（本容器第 2 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  1866: [
+  "params.pocketwatch.itemtestfn#1+16": [
     "-- 内联槽位坐标（本容器第 3 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  1867: [
+  "params.pocketwatch.itemtestfn#1+17": [
     "-- 内联槽位坐标（本容器第 4 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  1869: [
+  "params.pocketwatch.itemtestfn#1+19": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_cookpot_1x4\"。",
   ],
-  1870: [
+  "params.pocketwatch.itemtestfn#1+20": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_cookpot_1x4\"。",
   ],
-  1871: [
+  "params.pocketwatch.itemtestfn#1+21": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(200, 0, 0)。",
   ],
-  1872: [
+  "params.pocketwatch.itemtestfn#1+22": [
     "-- side_align_tip：同第 80 行（首次定义），此处值 = 100。",
   ],
-  1874: [
+  "params.pocketwatch.itemtestfn#1+24": [
     "-- acceptsstacks：同第 369 行（首次定义），此处值 = false。",
   ],
-  1875: [
+  "params.pocketwatch.itemtestfn#1+25": [
     "-- type = \"cooker\"",
     "--   ★ 加工类：只用于「不是侧边 UI、不是背包」这个否定语义。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  1890: [
+  "params.ocean_trawler.itemtestfn#1+12": [
     "-- slotpos：同第 53 行（首次定义），此处值 = {}。",
   ],
-  1891: [
+  "params.ocean_trawler.itemtestfn#1+13": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_bookstation_4x5\"。",
   ],
-  1892: [
+  "params.ocean_trawler.itemtestfn#1+14": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_bookstation_4x5\"。",
   ],
-  1893: [
+  "params.ocean_trawler.itemtestfn#1+15": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(0, 280, 0)。",
   ],
-  1894: [
+  "params.ocean_trawler.itemtestfn#1+16": [
     "-- side_align_tip：同第 80 行（首次定义），此处值 = 160。",
   ],
-  1896: [
+  "params.ocean_trawler.itemtestfn#1+18": [
     "-- type = \"chest\"",
     "--   ★ 箱子类：UI 在屏幕中央。★ **与筛选规则无关**——冰箱/木箱都是它。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  1900: [
+  "params.ocean_trawler.itemtestfn#1+22": [
     "-- 向 slotpos 追加一个槽位坐标：每轮的**第 2 个**坐标（同行向右偏移一格的那一列）。本容器累计第 1 次插入。",
     "--   ★ Vector3 是**绝对屏幕坐标**（不是相对容器的局部坐标）；数组顺序 = 槽位编号顺序。",
   ],
-  1901: [
+  "params.ocean_trawler.itemtestfn#1+23": [
     "-- 向 slotpos 追加一个槽位坐标：每轮的**第 2 个**坐标（同行向右偏移一格的那一列）。本容器累计第 2 次插入。",
     "--   ★ Vector3 是**绝对屏幕坐标**（不是相对容器的局部坐标）；数组顺序 = 槽位编号顺序。",
   ],
-  1902: [
+  "params.ocean_trawler.itemtestfn#1+24": [
     "-- 向 slotpos 追加一个槽位坐标：每轮的**第 2 个**坐标（同行向右偏移一格的那一列）。本容器累计第 3 次插入。",
     "--   ★ Vector3 是**绝对屏幕坐标**（不是相对容器的局部坐标）；数组顺序 = 槽位编号顺序。",
   ],
-  1903: [
+  "params.ocean_trawler.itemtestfn#1+25": [
     "-- 向 slotpos 追加一个槽位坐标：每轮的**第 2 个**坐标（同行向右偏移一格的那一列）。本容器累计第 4 次插入。",
     "--   ★ Vector3 是**绝对屏幕坐标**（不是相对容器的局部坐标）；数组顺序 = 槽位编号顺序。",
   ],
-  1904: [
+  "params.ocean_trawler.itemtestfn#1+26": [
     "-- 循环结束：已插入 **20 个** slotpos 坐标，本容器的 numslots 定为 20。",
   ],
-  1918: [
+  "params.bookstation.itemtestfn#1+12": [
     "-- slotpos：同第 53 行（首次定义），此处值 = {}。",
   ],
-  1919: [
+  "params.bookstation.itemtestfn#1+13": [
     "-- slotbg：同第 1802 行（首次定义），此处值 = {}。",
   ],
-  1920: [
+  "params.bookstation.itemtestfn#1+14": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_icepack_2x3\"。",
   ],
-  1921: [
+  "params.bookstation.itemtestfn#1+15": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_icepack_2x3\"。",
   ],
-  1922: [
+  "params.bookstation.itemtestfn#1+16": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(75, 195, 0)。",
   ],
-  1923: [
+  "params.bookstation.itemtestfn#1+17": [
     "-- side_align_tip：同第 80 行（首次定义），此处值 = 160。",
   ],
-  1925: [
+  "params.bookstation.itemtestfn#1+19": [
     "-- type = \"chest\"",
     "--   ★ 箱子类：UI 在屏幕中央。★ **与筛选规则无关**——冰箱/木箱都是它。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  1930: [
+  "params.bookstation.itemtestfn#1+24": [
     "-- 向 slotpos 追加一个槽位坐标：每轮的**第 2 个**坐标（同行向右偏移一格的那一列）。本容器累计第 1 次插入。",
     "--   ★ Vector3 是**绝对屏幕坐标**（不是相对容器的局部坐标）；数组顺序 = 槽位编号顺序。",
   ],
-  1931: [
+  "params.bookstation.itemtestfn#1+25": [
     "-- 向 slotbg 追加与该槽对应的底纹贴图（纯装饰，容器逻辑从不读）。",
     "--   ★ 必须与 slotpos **严格一一对应**，否则格子底图会错位。",
   ],
-  1933: [
+  "params.bookstation.itemtestfn#1+27": [
     "-- 循环结束：已插入 **6 个** slotpos 坐标，本容器的 numslots 定为 6。",
   ],
-  1960: [
+  "params.houndstooth_blowpipe.itemtestfn#1+12": [
     "-- slotpos：同第 53 行（首次定义），此处值 = {}。",
   ],
-  1961: [
+  "params.houndstooth_blowpipe.itemtestfn#1+13": [
     "-- slotbg：同第 1802 行（首次定义），此处值 = {}。",
   ],
-  1962: [
+  "params.houndstooth_blowpipe.itemtestfn#1+14": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_backpack_2x4\"。",
   ],
-  1963: [
+  "params.houndstooth_blowpipe.itemtestfn#1+15": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_backpack_2x4\"。",
   ],
-  1964: [
+  "params.houndstooth_blowpipe.itemtestfn#1+16": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(75, 195, 0)。",
   ],
-  1965: [
+  "params.houndstooth_blowpipe.itemtestfn#1+17": [
     "-- side_align_tip：同第 80 行（首次定义），此处值 = 160。",
   ],
-  1967: [
+  "params.houndstooth_blowpipe.itemtestfn#1+19": [
     "-- type = \"chest\"",
     "--   ★ 箱子类：UI 在屏幕中央。★ **与筛选规则无关**——冰箱/木箱都是它。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  1972: [
+  "params.houndstooth_blowpipe.itemtestfn#1+24": [
     "-- ★ 槽位生成循环（顶层）：y = 0 … 3 → **4 轮**。",
     "--   每轮直接插入 2 个 slotpos 坐标（无内层循环）。",
     "--   ⇒ 槽位总数 = 4 × 2 = **8 个槽**，即「战歌容器 8 格」的 numslots。",
@@ -1785,81 +1785,81 @@ export const BEFORE = {
     "--     而从代码表面看不出来。判定处见 components/container.lua:107 IsFull。",
     "--   ★ 插入顺序 = 槽位编号顺序（slot 1 … slot 8），存档按编号还原",
   ],
-  1973: [
+  "params.houndstooth_blowpipe.itemtestfn#1+25": [
     "-- 向 slotpos 追加一个槽位坐标：每轮的**第 2 个**坐标（同行向右偏移一格的那一列）。本容器累计第 1 次插入。",
     "--   ★ Vector3 是**绝对屏幕坐标**（不是相对容器的局部坐标）；数组顺序 = 槽位编号顺序。",
   ],
-  1974: [
+  "params.houndstooth_blowpipe.itemtestfn#1+26": [
     "-- 向 slotpos 追加一个槽位坐标：每轮的**第 2 个**坐标（同行向右偏移一格的那一列）。本容器累计第 2 次插入。",
     "--   ★ Vector3 是**绝对屏幕坐标**（不是相对容器的局部坐标）；数组顺序 = 槽位编号顺序。",
   ],
-  1976: [
+  "params.houndstooth_blowpipe.itemtestfn#1+28": [
     "-- 向 slotbg 追加与该槽对应的底纹贴图（纯装饰，容器逻辑从不读）。",
     "--   ★ 必须与 slotpos **严格一一对应**，否则格子底图会错位。",
   ],
-  1977: [
+  "params.houndstooth_blowpipe.itemtestfn#1+29": [
     "-- 向 slotbg 追加与该槽对应的底纹贴图（纯装饰，容器逻辑从不读）。",
     "--   ★ 必须与 slotpos **严格一一对应**，否则格子底图会错位。",
   ],
-  1978: [
+  "params.houndstooth_blowpipe.itemtestfn#1+30": [
     "-- 循环结束：已插入 **8 个** slotpos 坐标，本容器的 numslots 定为 8。",
   ],
-  1995: [
+  "params.battlesong_container.itemtestfn#1+15": [
     "-- slotpos：同第 53 行（首次定义），此处值 = {。",
   ],
-  1996: [
+  "params.battlesong_container.itemtestfn#1+16": [
     "-- 内联槽位坐标（本容器第 1 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  1998: [
+  "params.battlesong_container.itemtestfn#1+18": [
     "-- slotbg：同第 1802 行（首次定义），此处值 = {。",
   ],
-  2001: [
+  "params.battlesong_container.itemtestfn#1+21": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_wortox_souljar_1x1\"。",
   ],
-  2002: [
+  "params.battlesong_container.itemtestfn#1+22": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_wortox_souljar_1x1\"。",
   ],
-  2003: [
+  "params.battlesong_container.itemtestfn#1+23": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(0, 195, 0)。",
   ],
-  2004: [
+  "params.battlesong_container.itemtestfn#1+24": [
     "-- side_align_tip：同第 80 行（首次定义），此处值 = 160。",
   ],
-  2006: [
+  "params.battlesong_container.itemtestfn#1+26": [
     "-- closesound：同第 929 行（首次定义），此处值 = \"meta5/wortox/souljar_close_pop\"。",
   ],
-  2008: [
+  "params.battlesong_container.itemtestfn#1+28": [
     "-- type = \"chest\"",
     "--   ★ 箱子类：UI 在屏幕中央。★ **与筛选规则无关**——冰箱/木箱都是它。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  2023: [
+  "params.wortox_souljar.itemtestfn#1+12": [
     "-- slotpos：同第 53 行（首次定义），此处值 = {}。",
   ],
-  2024: [
+  "params.wortox_souljar.itemtestfn#1+13": [
     "-- slotbg：同第 1802 行（首次定义），此处值 = {}。",
   ],
-  2025: [
+  "params.wortox_souljar.itemtestfn#1+14": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_elixir_container_3x3\"。",
   ],
-  2026: [
+  "params.wortox_souljar.itemtestfn#1+15": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_elixir_container_3x3\"。",
   ],
-  2027: [
+  "params.wortox_souljar.itemtestfn#1+16": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(0, 200, 0)。",
   ],
-  2028: [
+  "params.wortox_souljar.itemtestfn#1+17": [
     "-- side_align_tip：同第 80 行（首次定义），此处值 = 160。",
   ],
-  2030: [
+  "params.wortox_souljar.itemtestfn#1+19": [
     "-- type = \"chest\"",
     "--   ★ 箱子类：UI 在屏幕中央。★ **与筛选规则无关**——冰箱/木箱都是它。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  2035: [
+  "params.wortox_souljar.itemtestfn#1+24": [
     "-- ★ 槽位生成循环（顶层）：y = 2 … 0，步长 -1 → **3 轮**。",
     "--   内层循环：x = 0 … 2 → **3 列**。",
     "--   ⇒ 槽位总数 = 3 × 3 = **9 个槽**，即「温蒂灵药容器 3x3=9 格」的 numslots。",
@@ -1867,76 +1867,76 @@ export const BEFORE = {
     "--     而从代码表面看不出来。判定处见 components/container.lua:107 IsFull。",
     "--   ★ 插入顺序 = 槽位编号顺序（slot 1 … slot 9），存档按编号还原",
   ],
-  2037: [
+  "params.wortox_souljar.itemtestfn#1+26": [
     "-- 向 slotpos 追加一个槽位坐标：每轮的**第 2 个**坐标（同行向右偏移一格的那一列）。本容器累计第 1 次插入。",
     "--   ★ Vector3 是**绝对屏幕坐标**（不是相对容器的局部坐标）；数组顺序 = 槽位编号顺序。",
   ],
-  2038: [
+  "params.wortox_souljar.itemtestfn#1+27": [
     "-- 向 slotbg 追加与该槽对应的底纹贴图（纯装饰，容器逻辑从不读）。",
     "--   ★ 必须与 slotpos **严格一一对应**，否则格子底图会错位。",
   ],
-  2040: [
+  "params.wortox_souljar.itemtestfn#1+29": [
     "-- 循环结束：已插入 **9 个** slotpos 坐标，本容器的 numslots 定为 9。",
   ],
-  2058: [
+  "params.elixir_container.itemtestfn#1+16": [
     "-- 内联槽位坐标（本容器第 1 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  2059: [
+  "params.elixir_container.itemtestfn#1+17": [
     "-- 内联槽位坐标（本容器第 2 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  2060: [
+  "params.elixir_container.itemtestfn#1+18": [
     "-- 内联槽位坐标（本容器第 3 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  2061: [
+  "params.elixir_container.itemtestfn#1+19": [
     "-- 内联槽位坐标（本容器第 4 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  2070: [
+  "params.elixir_container.itemtestfn#1+28": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_dragonflyfurnace_2x2\"。",
   ],
-  2071: [
+  "params.elixir_container.itemtestfn#1+29": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_dragonflyfurnace_2x2\"。",
   ],
-  2072: [
+  "params.elixir_container.itemtestfn#1+30": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(200, 0, 0)。",
   ],
-  2073: [
+  "params.elixir_container.itemtestfn#1+31": [
     "-- side_align_tip：同第 80 行（首次定义），此处值 = 120。",
   ],
-  2080: [
+  "params.elixir_container.itemtestfn#1+38": [
     "-- type = \"cooker\"",
     "--   ★ 加工类：只用于「不是侧边 UI、不是背包」这个否定语义。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  2107: [
+  "params.dragonflyfurnace.widget.buttoninfo.validfn#1+12": [
     "-- slotpos：同第 53 行（首次定义），此处值 = {}。",
   ],
-  2108: [
+  "params.dragonflyfurnace.widget.buttoninfo.validfn#1+13": [
     "-- slotbg：同第 1802 行（首次定义），此处值 = {}。",
   ],
-  2109: [
+  "params.dragonflyfurnace.widget.buttoninfo.validfn#1+14": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_slingshotammo_container_3x2\"。",
   ],
-  2110: [
+  "params.dragonflyfurnace.widget.buttoninfo.validfn#1+15": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_slingshotammo_container_3x2\"。",
   ],
-  2111: [
+  "params.dragonflyfurnace.widget.buttoninfo.validfn#1+16": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(0, 200, 0)。",
   ],
-  2112: [
+  "params.dragonflyfurnace.widget.buttoninfo.validfn#1+17": [
     "-- side_align_tip：同第 80 行（首次定义），此处值 = 160。",
   ],
-  2114: [
+  "params.dragonflyfurnace.widget.buttoninfo.validfn#1+19": [
     "-- type = \"chest\"",
     "--   ★ 箱子类：UI 在屏幕中央。★ **与筛选规则无关**——冰箱/木箱都是它。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  2119: [
+  "params.dragonflyfurnace.widget.buttoninfo.validfn#1+24": [
     "-- ★ 槽位生成循环（顶层）：y = 1 … 0，步长 -1 → **2 轮**。",
     "--   内层循环：x = 0 … 2 → **3 列**。",
     "--   ⇒ 槽位总数 = 2 × 3 = **6 个槽**，即「弹弓弹药箱 3x2=6 格」的 numslots。",
@@ -1944,47 +1944,47 @@ export const BEFORE = {
     "--     而从代码表面看不出来。判定处见 components/container.lua:107 IsFull。",
     "--   ★ 插入顺序 = 槽位编号顺序（slot 1 … slot 6），存档按编号还原",
   ],
-  2122: [
+  "params.dragonflyfurnace.widget.buttoninfo.validfn#1+27": [
     "-- 向 slotbg 追加与该槽对应的底纹贴图（纯装饰，容器逻辑从不读）。",
     "--   ★ 必须与 slotpos **严格一一对应**，否则格子底图会错位。",
   ],
-  2124: [
+  "params.dragonflyfurnace.widget.buttoninfo.validfn#1+29": [
     "-- 循环结束：已插入 **6 个** slotpos 坐标，本容器的 numslots 定为 6。",
   ],
-  2139: [
+  "params.slingshotammo_container.itemtestfn#1+13": [
     "-- ★ widget 子表：本容器全部 UI 配置的容器（槽位/贴图/音效/按钮/位置）。",
     "--   ★ 纯表现层——components/container.lua 一个字段都不读，只有 widgets 层消费。",
     "--   参见 widgets/containerwidget.lua（仓库外）；本文件只负责「声明值」。",
   ],
-  2140: [
+  "params.slingshotammo_container.itemtestfn#1+14": [
     "-- slotpos：同第 53 行（首次定义），此处值 = {}。",
   ],
-  2141: [
+  "params.slingshotammo_container.itemtestfn#1+15": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_wx78_backupbody_5x3\"。",
   ],
-  2142: [
+  "params.slingshotammo_container.itemtestfn#1+16": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_wx78_backupbody_5x3\"。",
   ],
-  2144: [
+  "params.slingshotammo_container.itemtestfn#1+18": [
     "-- side_align_tip：同第 80 行（首次定义），此处值 = 160。",
   ],
-  2146: [
+  "params.slingshotammo_container.itemtestfn#1+20": [
     "-- closesound：同第 929 行（首次定义），此处值 = \"WX_rework/module_side/close\"。",
   ],
-  2148: [
+  "params.slingshotammo_container.itemtestfn#1+22": [
     "-- type = \"chest\"",
     "--   ★ 箱子类：UI 在屏幕中央。★ **与筛选规则无关**——冰箱/木箱都是它。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  2157: [
+  "params.wx78_backupbody.itemtestfn#1+6": [
     "-- 向 slotpos 追加一个槽位坐标：每轮的**第 1 个**坐标。本容器累计第 1 次插入。",
     "--   ★ Vector3 是**绝对屏幕坐标**（不是相对容器的局部坐标）；数组顺序 = 槽位编号顺序。",
   ],
-  2159: [
+  "params.wx78_backupbody.itemtestfn#1+8": [
     "-- 循环结束：已插入 **15 个** slotpos 坐标，本容器的 numslots 定为 15。",
   ],
-  2178: [
+  "params.wx78_backupbody.itemtestfn#1+27": [
     "-- ★ 槽位生成循环（顶层）：y = 1 … 0，步长 -1 → **2 轮**。",
     "--   内层循环：x = 0 … 2 → **3 列**。",
     "--   ⇒ 槽位总数 = 2 × 3 = **6 个槽**，即「WX-78 送货无人机 3x2=6 格」的 numslots。",
@@ -1992,14 +1992,14 @@ export const BEFORE = {
     "--     而从代码表面看不出来。判定处见 components/container.lua:107 IsFull。",
     "--   ★ 插入顺序 = 槽位编号顺序（slot 1 … slot 6），存档按编号还原",
   ],
-  2180: [
+  "params.wx78_backupbody.itemtestfn#1+29": [
     "-- 向 slotpos 追加一个槽位坐标：每轮的**第 2 个**坐标（同行向右偏移一格的那一列）。本容器累计第 1 次插入。",
     "--   ★ Vector3 是**绝对屏幕坐标**（不是相对容器的局部坐标）；数组顺序 = 槽位编号顺序。",
   ],
-  2182: [
+  "params.wx78_backupbody.itemtestfn#1+31": [
     "-- 循环结束：已插入 **6 个** slotpos 坐标，本容器的 numslots 定为 6。",
   ],
-  2197: [
+  "params.wx78_backupbody.itemtestfn#1+46": [
     "-- ★ 槽位生成循环（顶层）：x = 0 … 2 → **3 轮**。",
     "--   每轮直接插入 1 个 slotpos 坐标（无内层循环）。",
     "--   ⇒ 槽位总数 = 3 × 1 = **3 个槽**，即「WX-78 小型无人机 3x1=3 格」的 numslots。",
@@ -2007,210 +2007,210 @@ export const BEFORE = {
     "--     而从代码表面看不出来。判定处见 components/container.lua:107 IsFull。",
     "--   ★ 插入顺序 = 槽位编号顺序（slot 1 … slot 3），存档按编号还原",
   ],
-  2198: [
+  "params.wx78_backupbody.itemtestfn#1+47": [
     "-- 向 slotpos 追加一个槽位坐标：每轮的**第 2 个**坐标（同行向右偏移一格的那一列）。本容器累计第 1 次插入。",
     "--   ★ Vector3 是**绝对屏幕坐标**（不是相对容器的局部坐标）；数组顺序 = 槽位编号顺序。",
   ],
-  2199: [
+  "params.wx78_backupbody.itemtestfn#1+48": [
     "-- 循环结束：已插入 **3 个** slotpos 坐标，本容器的 numslots 定为 3。",
   ],
-  2208: [
+  "params.wx78_backupbody.itemtestfn#1+57": [
     "-- 底纹批量填充循环：x = 0 … 4 → **5 次**。",
     "--   ★ 只往 slotbg 塞贴图、**不产生槽位**——槽位由 slotpos 决定。",
     "--   ⇒ 它的次数必须与「WX-78 小型无人机 3x1=3 格」的 slotpos 数量严格相等，否则底纹会错位。",
   ],
-  2210: [
+  "params.wx78_backupbody.itemtestfn#1+59": [
     "-- 循环结束：已插入 **0 个** slotpos 坐标，本容器的 numslots 定为 0。",
   ],
-  2247: [
+  "slothighlightscalefn#1+3": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_wx78_inventorycontainer_1x1\"。",
   ],
-  2248: [
+  "slothighlightscalefn#1+4": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_wx78_inventorycontainer_1x1\"。",
   ],
-  2300: [
+  "params.wx78_inventorycontainer.priorityfn#1+13": [
     "-- 提示条侧边对齐距离（像素）：空间不足时把提示文字推到距容器这么远。",
     "--   ★ 这是「派生后覆盖单个字段」：蓝图其余部分保持继承。",
   ],
-  2301: [
+  "params.wx78_inventorycontainer.priorityfn#1+14": [
     "-- UI 贴图库名（客户端 .tex 图集名），widgets 层据此加载贴图。",
     "--   ★ 这是「派生后覆盖单个字段」：蓝图其余部分保持继承。",
   ],
-  2302: [
+  "params.wx78_inventorycontainer.priorityfn#1+15": [
     "-- UI 构建名：从 bank 中取出的可渲染实例名，通常与 animbank 同值。",
     "--   ★ 这是「派生后覆盖单个字段」：蓝图其余部分保持继承。",
   ],
-  2355: [
+  "GiveKeyStonePopUp#1+28": [
     "-- 内联槽位坐标（本容器第 1 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  2356: [
+  "GiveKeyStonePopUp#1+29": [
     "-- 内联槽位坐标（本容器第 2 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  2357: [
+  "GiveKeyStonePopUp#1+30": [
     "-- 内联槽位坐标（本容器第 3 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  2358: [
+  "GiveKeyStonePopUp#1+31": [
     "-- 内联槽位坐标（本容器第 4 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  2360: [
+  "GiveKeyStonePopUp#1+33": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"quagmire_ui_pot_1x4\"。",
   ],
-  2361: [
+  "GiveKeyStonePopUp#1+34": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"quagmire_ui_pot_1x4\"。",
   ],
-  2362: [
+  "GiveKeyStonePopUp#1+35": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(200, 0, 0)。",
   ],
-  2363: [
+  "GiveKeyStonePopUp#1+36": [
     "-- side_align_tip：同第 80 行（首次定义），此处值 = 100。",
   ],
-  2366: [
+  "GiveKeyStonePopUp#1+39": [
     "-- type = \"cooker\"",
     "--   ★ 加工类：只用于「不是侧边 UI、不是背包」这个否定语义。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  2387: [
+  "params.quagmire_pot.itemtestfn#1+18": [
     "-- 内联槽位坐标（本容器第 1 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  2388: [
+  "params.quagmire_pot.itemtestfn#1+19": [
     "-- 内联槽位坐标（本容器第 2 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  2390: [
+  "params.quagmire_pot.itemtestfn#1+21": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"quagmire_ui_pot_1x3\"。",
   ],
-  2391: [
+  "params.quagmire_pot.itemtestfn#1+22": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"quagmire_ui_pot_1x3\"。",
   ],
-  2392: [
+  "params.quagmire_pot.itemtestfn#1+23": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(200, 0, 0)。",
   ],
-  2393: [
+  "params.quagmire_pot.itemtestfn#1+24": [
     "-- side_align_tip：同第 80 行（首次定义），此处值 = 100。",
   ],
-  2395: [
+  "params.quagmire_pot.itemtestfn#1+26": [
     "-- acceptsstacks：同第 369 行（首次定义），此处值 = false。",
   ],
-  2396: [
+  "params.quagmire_pot.itemtestfn#1+27": [
     "-- type = \"cooker\"",
     "--   ★ 加工类：只用于「不是侧边 UI、不是背包」这个否定语义。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  2411: [
+  "params.quagmire_pot.itemtestfn#1+42": [
     "-- 【蓝图：quagmire_casseroledish_small】未开化小平底锅",
     "--   ⚠ 疑似缺陷：**引用赋值**（params.X = params.Y），不是 deepcopy。",
     "--     ⇒ params.X 与 params.Y 指向**同一张表**，改一个等于改两个。",
     "--     本文件对同类派生多用 deepcopy（第 116/128/678/944/950 行等），此处属少数派。",
     "--     当前无后续修改故无害；模组若改 params.Y.widget.* 会连带影响 X。仅标注，不改代码。",
   ],
-  2417: [
+  "params.quagmire_pot.itemtestfn#1+48": [
     "-- 【蓝图：quagmire_grill】未开化烤架",
     "--   ⚠ 疑似缺陷：**引用赋值**（params.X = params.Y），不是 deepcopy。",
     "--     ⇒ params.X 与 params.Y 指向**同一张表**，改一个等于改两个。",
     "--     本文件对同类派生多用 deepcopy（第 116/128/678/944/950 行等），此处属少数派。",
     "--     当前无后续修改故无害；模组若改 params.Y.widget.* 会连带影响 X。仅标注，不改代码。",
   ],
-  2423: [
+  "params.quagmire_pot.itemtestfn#1+54": [
     "-- 【蓝图：quagmire_grill_small】未开化小烤架",
     "--   ⚠ 疑似缺陷：**引用赋值**（params.X = params.Y），不是 deepcopy。",
     "--     ⇒ params.X 与 params.Y 指向**同一张表**，改一个等于改两个。",
     "--     本文件对同类派生多用 deepcopy（第 116/128/678/944/950 行等），此处属少数派。",
     "--     当前无后续修改故无害；模组若改 params.Y.widget.* 会连带影响 X。仅标注，不改代码。",
   ],
-  2435: [
+  "params.quagmire_pot.itemtestfn#1+66": [
     "-- 内联槽位坐标（本容器第 1 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  2436: [
+  "params.quagmire_pot.itemtestfn#1+67": [
     "-- 内联槽位坐标（本容器第 2 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  2437: [
+  "params.quagmire_pot.itemtestfn#1+68": [
     "-- 内联槽位坐标（本容器第 3 个 slot）。",
     "--   ★ 数组内先后顺序 = 槽位编号顺序。",
   ],
-  2439: [
+  "params.quagmire_pot.itemtestfn#1+70": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"quagmire_ui_pot_1x3\"。",
   ],
-  2440: [
+  "params.quagmire_pot.itemtestfn#1+71": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"quagmire_ui_pot_1x3\"。",
   ],
-  2441: [
+  "params.quagmire_pot.itemtestfn#1+72": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(200, 0, 0)。",
   ],
-  2442: [
+  "params.quagmire_pot.itemtestfn#1+73": [
     "-- side_align_tip：同第 80 行（首次定义），此处值 = 100。",
   ],
-  2444: [
+  "params.quagmire_pot.itemtestfn#1+75": [
     "-- acceptsstacks：同第 369 行（首次定义），此处值 = false。",
   ],
-  2445: [
+  "params.quagmire_pot.itemtestfn#1+76": [
     "-- type = \"cooker\"",
     "--   ★ 加工类：只用于「不是侧边 UI、不是背包」这个否定语义。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  2462: [
+  "params.quagmire_pot_syrup.itemtestfn#1+14": [
     "-- slotpos：同第 53 行（首次定义），此处值 = {}。",
   ],
-  2463: [
+  "params.quagmire_pot_syrup.itemtestfn#1+15": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_chest_3x3\"。",
   ],
-  2464: [
+  "params.quagmire_pot_syrup.itemtestfn#1+16": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_chest_3x3\"。",
   ],
-  2465: [
+  "params.quagmire_pot_syrup.itemtestfn#1+17": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(-50, -450, 0)。",
   ],
-  2466: [
+  "params.quagmire_pot_syrup.itemtestfn#1+18": [
     "-- side_align_tip：同第 80 行（首次定义），此处值 = 100。",
   ],
-  2468: [
+  "params.quagmire_pot_syrup.itemtestfn#1+20": [
     "-- type = \"backpack\"",
     "--   背包类新类型（全文件仅未开化 DLC 的两个容器在用）。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  2472: [
+  "params.quagmire_pot_syrup.itemtestfn#1+24": [
     "-- 向 slotpos 追加一个槽位坐标：每轮的**第 1 个**坐标。本容器累计第 1 次插入。",
     "--   ★ Vector3 是**绝对屏幕坐标**（不是相对容器的局部坐标）；数组顺序 = 槽位编号顺序。",
   ],
-  2473: [
+  "params.quagmire_pot_syrup.itemtestfn#1+25": [
     "-- 循环结束：已插入 **4 个** slotpos 坐标，本容器的 numslots 定为 4。",
   ],
-  2483: [
+  "params.quagmire_pot_syrup.itemtestfn#1+35": [
     "-- slotpos：同第 53 行（首次定义），此处值 = {}。",
   ],
-  2484: [
+  "params.quagmire_pot_syrup.itemtestfn#1+36": [
     "-- animbank：同第 28 行（首次定义），此处值 = \"ui_chest_3x3\"。",
   ],
-  2485: [
+  "params.quagmire_pot_syrup.itemtestfn#1+37": [
     "-- animbuild：同第 55 行（首次定义），此处值 = \"ui_chest_3x3\"。",
   ],
-  2486: [
+  "params.quagmire_pot_syrup.itemtestfn#1+38": [
     "-- pos：同第 56 行（首次定义），此处值 = Vector3(-50, -450, 0)。",
   ],
-  2487: [
+  "params.quagmire_pot_syrup.itemtestfn#1+39": [
     "-- side_align_tip：同第 80 行（首次定义），此处值 = 100。",
   ],
-  2489: [
+  "params.quagmire_pot_syrup.itemtestfn#1+41": [
     "-- type = \"backpack\"",
     "--   背包类新类型（全文件仅未开化 DLC 的两个容器在用）。",
     "--   ★ 全文件 type 取值：chest×24 / cooker×21 / pack×6 / hand_inv×6 /",
     "--     side_inv_behind×3 / backpack×2 / inv×1 / top_rack×1 / chest_addon（动态）。",
   ],
-  2493: [
+  "params.quagmire_pot_syrup.itemtestfn#1+45": [
     "-- 向 slotpos 追加一个槽位坐标：每轮的**第 1 个**坐标。本容器累计第 1 次插入。",
     "--   ★ Vector3 是**绝对屏幕坐标**（不是相对容器的局部坐标）；数组顺序 = 槽位编号顺序。",
   ],
-  2494: [
+  "params.quagmire_pot_syrup.itemtestfn#1+46": [
     "-- 循环结束：已插入 **8 个** slotpos 坐标，本容器的 numslots 定为 8。",
   ],
 };

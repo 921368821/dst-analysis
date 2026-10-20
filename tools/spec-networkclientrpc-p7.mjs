@@ -2,7 +2,7 @@
 // 大小写不敏感元表机制、AddModRPCHandler 三兄弟、模组 RPC 收发、HandleModRPC
 
 export const BEFORE = {
-  1804: [
+  "__index_lower#1": [
     "--★★★[__index_lower —— ★★ 「大小写不敏感」的元表钩子]",
     "--   local function __index_lower(t, k)",
     "--       return rawget(t, string.lower(k))",
@@ -18,7 +18,7 @@ export const BEFORE = {
     "--     ★ rawget 绕过元表，直接读原始键 —— 防止递归。",
     "--     ★ 这是「元表实现里必须用 rawget/rawset」的经典理由。",
   ],
-  1808: [
+  "__newindex_lower#1": [
     "--★★★[__newindex_lower —— 写入时同样转小写]",
     "--   local function __newindex_lower(t, k, v)",
     "--       rawset(t, string.lower(k), v)",
@@ -34,7 +34,7 @@ export const BEFORE = {
     "--     ★ 本文件靠「所有键都经由元表首次写入」来保证一致性。",
     "--   ★★★ ★ 与 __index_lower 配对：「读和写都转小写」→ 访问不敏感。",
   ],
-  1812: [
+  "setmetadata#1": [
     "--★★[setmetadata —— 「给表装上大小写不敏感元表」的小工具]",
     "--   setmetatable(tab, { __index = __index_lower, __newindex = __newindex_lower })",
     "--   ★★★ 两个钩子都装：读 + 写都转小写。",
@@ -45,7 +45,7 @@ export const BEFORE = {
     "--   ★★ 简单封装：避免每次都写完整的 setmetatable 调用。",
     "--   ★ 本文件在 6 个表上调用它（:1825-1832，六个成对出现）。",
   ],
-  1816: [
+  "setmetadata#1+4": [
     "--★★★[模组 RPC 的六张表：★★ 三对（注册表 + 处理表）]",
     "--   MOD_RPC = {}                    -- 模组→服务器：名字→{namespace, id}",
     "--   MOD_RPC_HANDLERS = {}           -- 模组→服务器：id→函数",
@@ -62,14 +62,14 @@ export const BEFORE = {
     "--     · ★★ 这就是模组 RPC 必须走独立通道的根本原因（见 :1844 注记）。",
     "--   ★ 六张表在 :1825-1832 全部装上大小写不敏感元表。",
   ],
-  1825: [
+  "setmetadata#1+13": [
     "--★★[六行 setmetadata —— 给六张表及其 namespace 子表都装元表]",
     "--   ★★★ 注意是**成对**调用：外层表（MOD_RPC 等）+ 之后新增的 namespace 子表",
     "--     （:1839/:1840 在 AddModRPCHandler 里也调用 setmetadata）。",
     "--   ★★ 为什么要给「namespace 子表」也装？",
     "--     因为 MOD_RPC[namespace] 是「名字→id 表」，按名字查 handler 时"
   ],
-  1834: [
+  "AddModRPCHandler#1": [
     "--★★★★★[AddModRPCHandler —— ★★ 模组 RPC 的注册入口，也是缺陷 B 的执行点]",
     "--   ★★★ 签名：AddModRPCHandler(namespace, name, fn)",
     "--     · namespace = ★ 模组名（用于隔离，同模组的 handler 归一组）",
@@ -88,21 +88,21 @@ export const BEFORE = {
     "--     ★★ 好处：★ 不占内置的 1-127 编号空间（:1385），各模组互不干扰。",
     "--   ★★ 发送时传（namespace, id）两个参数，接收时也用两者查（:1897-1898）。",
   ],
-  1835: [
+  "AddModRPCHandler#1+1": [
     "--★★[if MOD_RPC[namespace] == nil then —— 「首次见到这个 namespace」的守卫]",
     "--   ★★★ 惰性初始化：第一次注册某 namespace 时才创建它的两张子表。",
     "--   ★★ 为什么用 nil 判断而不是 table 里查？",
     "--     因为 MOD_RPC_HANDLERS[namespace] 是数组，第 0 项 nil。",
     "--   ★★ 若不用守卫，每次注册都重建表会丢失已有 handler。",
   ],
-  1839: [
+  "AddModRPCHandler#1+5": [
     "--★★[setmetadata(MOD_RPC[namespace]) + setmetadata(MOD_RPC_HANDLERS[namespace])]",
     "--   ★★★ 给新建的 namespace 子表也装大小写不敏感元表。",
     "--   ★★ 这样「模组写 name 时用任何大小写，发送时都能匹配」。",
     "--   ★ ★ 注意：处理表 MOD_RPC_HANDLERS[namespace] 是**数组**（按 id 索引），",
     "--     给数组装元表是为了 id 转换时也大小写不敏感（虽然 id 是数字，"
   ],
-  1843: [
+  "AddModRPCHandler#1+9": [
     "--★★[table.insert(MOD_RPC_HANDLERS[namespace], fn) —— 处理函数按序追加]",
     "--   ★★★ id 由数组长度隐式决定（下一个空位）。",
     "--   ★★ 注意：这个追加是**运行时动态**的（不像内置 RPC 是加载期一次分配）。",
@@ -113,7 +113,7 @@ export const BEFORE = {
     "--       （否则 id 对不上，调用错 handler）。",
     "--       ★ 这是模组 RPC 的隐式契约：加载顺序敏感。",
   ],
-  1844: [
+  "AddModRPCHandler#1+10": [
     "--★★★[MOD_RPC[namespace][name] = { namespace = namespace, id = #... }]",
     "--   ★★★ 「名字→id 记录」的建立。返回的是一个「元数据对象」：",
     "--     { namespace = \"MyMod\", id = 3 }",
@@ -125,7 +125,7 @@ export const BEFORE = {
     "--     ★ 模组代码完全不用关心 id 的数值。",
     "--     ★★ 但它也暴露了「id 是运行时分配的」这一事实（:1843）。",
   ],
-  1846: [
+  "AddModRPCHandler#1+12": [
     "--★★[setmetadata(MOD_RPC[namespace][name]) —— 给「名字项」也装元表]",
     "--   ★★ 这一处元表装在「{namespace, id} 这个元数据表」上。",
     "--   ★★ 意义：让模组可以用任意大小写访问 .namespace / .id 字段。",
@@ -133,7 +133,7 @@ export const BEFORE = {
     "--   ★★★ ⚠ 副作用：MOD_RPC[namespace][name] 现在也被当作「不区分大小写的表」",
     "--     → 若误访问不存在的字段，会返回 nil（与普通表一样），无实质区别。",
   ],
-  1848: [
+  "AddModRPCHandler#1+14": [
     "--★★★★⚠[第 1848 行：★★ 缺陷 B 的执行点 —— 全局限流无上限抬高]",
     "--   RPC_QUEUE_RATE_LIMIT = RPC_QUEUE_RATE_LIMIT + RPC_QUEUE_RATE_LIMIT_PER_MOD",
     "--   ★★★★ 这行代码是「模组可无限抬高全局限流」的执行处。",
@@ -160,7 +160,7 @@ export const BEFORE = {
     "--     ③ 或直接去掉本行（模组玩家的 20 条/刻通常够用）。",
     "--   ★ 按本文件约定（只注释不改码），此处标注不修改。",
   ],
-  1851: [
+  "AddClientModRPCHandler#1": [
     "--★★[AddClientModRPCHandler —— 服务器→客户端版，与 C2V 版结构相同]",
     "--   ★★★ 唯一差异：★ 第 1864 行之后**没有** `RPC_QUEUE_RATE_LIMIT = ... +5`。",
     "--   ★★★ 为什么不需要？（推理）：",
@@ -173,14 +173,14 @@ export const BEFORE = {
     "--     ★ 这个函数也需要相应修改（加配额）。",
     "--     → 移植时应把「哪些方向需要限流」显式化，而非依赖「刚好只有 C2V 加了」。",
   ],
-  1866: [
+  "AddShardModRPCHandler#1": [
     "--★★[AddShardModRPCHandler —— 分片→分片版，同样不加限流]",
     "--   ★ 与 :1851 同理：S2S 方向不经 limiter（:1715 无 limiter）。",
     "--   ★★★ 三个 Add*ModRPCHandler 函数结构几乎完全相同，",
     "--     ★ 唯一实质差异就是「C2V 版有那行缺陷 B」。",
     "--     ★★ 这又是一次「平行实现」（本文件 §十 提到的模式）。",
   ],
-  1881: [
+  "SendModRPCToServer#1": [
     "--★★★[SendModRPCToServer —— 模组版的发送函数（客户端→服务端）]",
     "--   ★★★ 签名：SendModRPCToServer(id_table, ...) —— ★ id_table 是「名字元数据」。",
     "--   ★★★ 第 1882 行的断言比内置版（:1637）严格得多：",
@@ -197,15 +197,15 @@ export const BEFORE = {
     "--   ★★★ 接收侧（:1897-1898）用同样的两级查找。",
     "--   ★ TheNet:SendModRPCToServer(namespace, id, ...) —— C++ 侧发送。",
   ],
-  1886: [
+  "SendModRPCToClient#1": [
     "--★ SendModRPCToClient —— 服务器→客户端版模组 RPC 发送。",
     "--   ★ 三重校验同构（对应 CLIENT_MOD_RPC_HANDLERS）。",
   ],
-  1891: [
+  "SendModRPCToShard#1": [
     "--★ SendModRPCToShard —— 分片→分片版模组 RPC 发送。",
     "--   ★ 三重校验同构（对应 SHARD_MOD_RPC_HANDLERS）。",
   ],
-  1896: [
+  "HandleModRPC#1": [
     "--★★★★[HandleModRPC —— ★★ 模组 RPC 的客户端→服务端接收（服务端侧）]",
     "--   ★★★ 签名：HandleModRPC(sender, tick, namespace, code, data)",
     "--     ★★ 比内置 HandleRPC（:1675）多一个 **namespace** 参数！",
@@ -226,7 +226,7 @@ export const BEFORE = {
     "--       模组 handler 走的限流计数器 RPC_Queue_Limiter 就是内置那个，",
     "--       ★ 所以抬高全局限额会同时放宽内置 RPC 的流量控制。",
   ],
-  1897: [
+  "HandleModRPC#1+1": [
     "--★ if MOD_RPC_HANDLERS[namespace] ~= nil then —— ★ 第一级查找：namespace]",
     "--   ★★ 两级查找的第一步：确认这个模组注册过 handler。",
     "--     ★ 若没注册（namespace 不存在），后续 else 分支打印「无效 namespace」。",
@@ -235,18 +235,18 @@ export const BEFORE = {
     "--     · ★ 模组（本行）两级（namespace → 表，code → 函数）。",
     "--     · 原因：见 :1844（两级索引设计）。",
   ],
-  1898: [
+  "HandleModRPC#1+2": [
     "--★ local fn = MOD_RPC_HANDLERS[namespace][code] —— 第二级查找：code→函数]",
     "--   ★★ 与内置的 `RPC_HANDLERS[code]` 相比多了一层 namespace。",
     "--   ★ code 来自 C++ 层（由发送方传的 id，:1883）。",
   ],
-  1900: [
+  "HandleModRPC#1+4": [
     "--★★[senderistable —— 与内置 HandleRPC（:1678）同构]",
     "--   ★★★ 模组 RPC 复用了完全相同的发送者类型判定与 USERID_RPC 机制。",
     "--   ★★ 这说明模组 RPC 被当作「一等公民」对待（与内置同等校验）。",
     "--     ★ 参见 §九 的详细分析。",
   ],
-  1909: [
+  "HandleModRPC#1+13": [
     "--★★★[if limit < RPC_QUEUE_RATE_LIMIT then —— ★★ 模组 RPC 用同一个 limiter]",
     "--   ★★★ 这是缺陷 B 的**危害确认点**：",
     "--     · 模组 RPC 的限流检查用的是**同一个 RPC_Queue_Limiter**（:1908/:1910）；",
@@ -259,7 +259,7 @@ export const BEFORE = {
     "--     应该维护 per-(sender, namespace) 的独立计数器，",
     "--     ★ 让模组 A 的宽松配额只作用于模组 A 的 RPC，不影响内置 RPC 和其他模组。",
   ],
-  1911: [
+  "HandleModRPC#1+15": [
     "--★ table.insert(RPC_Queue, {fn, sender, data, tick}) —— ★ 与内置共用队列]",
     "--   ★★★★ 关键：★ 模组 RPC 与内置 RPC 入**同一条队列** RPC_Queue。",
     "--   ★★★ 后果（缺陷 B 的具体危害）：",
@@ -270,12 +270,12 @@ export const BEFORE = {
     "--       会因「模组 A 有配额」而放宽，5000 个内置 RPC 仍受 20 的原始限额约束。",
     "--   ★★ 这就是「全局抬高」比「独立配额」危险的精确原因。",
   ],
-  1916: [
+  "HandleModRPC#1+20": [
     "--★ print(\"Rate limiting RPCs from [MOD]\", sender, userid, ...) —— 模组版告警日志]",
     "--   ★★ 与内置版（:1694）的区别：多了 [MOD] 标记与 namespace 信息，",
     "--     ★ 便于区分「是模组 RPC 被限流」。",
   ],
-  1930: [
+  "HandleClientModRPC#1": [
     "--★★★[HandleClientModRPC —— 服务器→客户端的模组 RPC 接收]",
     "--   ★★★ 签名：HandleClientModRPC(tick, namespace, code, data) —— ★ 无 sender。",
     "--     ★ 与内置 HandleClientRPC（:1705）一致（V2C 无 sender）。",
@@ -285,24 +285,24 @@ export const BEFORE = {
     "--     ★⚠ 模组版**没有**这个检查。",
     "--     ★★★ 推理影响：若在 ThePlayer 为 nil 时收到模组 V2C，"
   ],
-  1934: [
+  "HandleClientModRPC#1+4": [
     "--★ table.insert(RPC_Client_Queue, {fn, data, tick}) —— ★★ 与内置共用 V2C 队列]",
     "--   ★★ 模组 RPC 与内置 RPC 在**三个方向**都共用队列。",
     "--     ★ 这是缺陷 B 在 S2S/V2C 方向的对应（虽然那两方向不限流，危害较小）。",
   ],
-  1943: [
+  "HandleShardModRPC#1": [
     "--★★★[HandleShardModRPC —— 分片→分片的模组 RPC 接收]",
     "--   ★★★ 签名：HandleShardModRPC(sender, tick, namespace, code, data) —— 有 sender。",
     "--   ★★★ 结构：两级查找 + 入 S2S 队列。",
     "--   ★★ 与内置 HandleShardRPC（:1715）同构（同样无发送者校验、无限流）。",
   ],
-  1947: [
+  "HandleShardModRPC#1+4": [
     "--★ table.insert(RPC_Shard_Queue, {fn, sender, data, tick}) —— 与内置共用 S2C 队列]",
   ],
 };
 
 export const AFTER = {
-  1832: [
+  "setmetadata#1+20": [
     "--★★ 模组 RPC 六张表的元表装配结束。接下来是三个 Add*ModRPCHandler（:1834-1879）。",
     "--   ★ ★★★ 回看本节的整体设计意图（§十一 + §十二）：",
     "--     · 内置 RPC：单层名字↔数字，编号 1-127 有上限（:1385），只能加载期分配；",
@@ -311,12 +311,12 @@ export const AFTER = {
     "--     · ★★ 后者是对前者的必要补充：模组不能重排内置表（会改编号），",
     "--       也不能无限新增（127 不够），所以必须走独立通道。",
   ],
-  1879: [
+  "AddShardModRPCHandler#1+13": [
     "--★★ 三个 Add*ModRPCHandler 结束。★★★ ★★ 缺陷 B 就在这里（:1848）。",
     "--   三个函数的唯一实质差异：C2V 版有那行 +5（:1848），另两个没有。",
     "--   ★★ 这是「限流专为不可信方向设计」原则的体现，"
   ],
-  1954: [
+  "HandleShardModRPC#1+11": [
     "--★★★ 六个 Handle*ModRPC 结束。★★★ 模组 RPC 的收发至此完整：",
     "--   注册（Add*ModRPCHandler）→ 发送（Send*ModRPC*）→ 接收入队（Handle*ModRPC）",
     "--   ★★ 三对收发函数与内置的六个 Handle*/Send* 严格对应。",

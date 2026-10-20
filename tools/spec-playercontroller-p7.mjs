@@ -4,13 +4,13 @@
 //       DoDragWalking、DoBoatSteering
 
 export const BEFORE = {
-  3700: [
+  "PlayerController:ResetRemoteController#1+3": [
     "--============================================================",
     "-- 【第七段】3700-4200 行：★★★ 移动链路（客户端预测 + 橡皮筋 + teleport）",
     "--============================================================",
   ],
 
-  3694: [
+  "PlayerController:CycleControllerAttackTargetBack#1+13": [
     "--★★ 【3694-3695 顶部注释 —— 本文件最重要的一行注释】",
     "--   --remote_vector.y is used as a flag for stop/direct/drag walking",
     "--   --since its value is never actually used in the walking function",
@@ -33,7 +33,7 @@ export const BEFORE = {
     "--   参见 bug-patterns.md B8：「一字段三语义」。",
   ],
 
-  3697: [
+  "PlayerController:ResetRemoteController#1": [
     "--【ResetRemoteController】★ 全量重置远端镜像。三件事：",
     "--   ① remote_vector.y = 0（模式归零 = 停止）",
     "--   ② remote_controls = {}（按键全松）",
@@ -42,7 +42,7 @@ export const BEFORE = {
     "--     5927（ToggleMovementPrediction）。四处都是「状态彻底变了」的时刻。",
   ],
 
-  3705: [
+  "PlayerController:ClearRemotePredictData#1": [
     "--【ClearRemotePredictData(force_reset_timer)】★ 预测数据的三段握手清理。",
     "--   3706-3707 行：dir 与 stop_tick 直接清。",
     "--   3708-3712 行：★ 若已收到 stop 通知 → 清标志并取消 locomotor 的计时器。",
@@ -53,14 +53,14 @@ export const BEFORE = {
     "--     · 强制 → 无条件取消（3043 行的 busy 分支用）",
   ],
 
-  3711: [
+  "PlayerController:ClearRemotePredictData#1+6": [
     "--   ★ CancelPredictMoveTimer（locomotor.lua:465）：",
     "--     取消「预测移动超时自杀」定时器。",
     "--     若不取消，玩家停下后 locomotor 会在某个时刻自行归位（回滚），",
     "--     造成「明明停住了却又抖一下退回」。",
   ],
 
-  3718: [
+  "ConvertPlatformRelativeToAbsoluteXZ#1": [
     "--【ConvertPlatformRelativeToAbsoluteXZ】平台局部坐标 → 世界坐标。",
     "--   ★ 3719 行 platform 为 nil → 原样返回（世界坐标）。",
     "--   ⚠ 3721 行 `elseif platform:IsValid()` —— 若平台无效则**隐式返回 nil**，",
@@ -69,7 +69,7 @@ export const BEFORE = {
     "--   ⇒ 平台的失效是被显式处理的，这是平台机制补丁史里少见的干净之处。",
   ],
 
-  3727: [
+  "PlayerController:GetRemoteDirectVector#1": [
     "--★★★ 【四个解码器】—— remote_vector 的读出端。",
     "--   GetRemoteDirectVector  (3727) y==1 → 方向向量（directwalking）",
     "--   GetRemoteDragPosition  (3731) y==2 → 拖拽目标点（dragwalking）",
@@ -77,7 +77,7 @@ export const BEFORE = {
     "--   GetRemotePredictStopXZ  (3759) 特殊：读取「刚停止的那一帧」的坐标",
   ],
 
-  3736: [
+  "PlayerController:GetRemotePredictPosition#1": [
     "--   --V2C: These aren't really meant for use outside of this component XD",
     "--   ⇒ 标注「内部 API」，但 12 处外部调用（inventory / locomotor 等）。",
     "--     「XD」暗示这是临时状态。",
@@ -92,14 +92,14 @@ export const BEFORE = {
     "--       但 3743 行的写法依然是一个**定时炸弹**：任何人拿这个返回值算高度都会中招。",
   ],
 
-  3750: [
+  "PlayerController:GetRemotePredictPositionExternal#1": [
     "--   --V2C; This one can be used externally XD",
     "--   ★ 与 GetRemotePredictPosition 的区别：3754 行**显式构造 y=0** 的向量。",
     "--     ⇒ 这个版本是「干净的」，没有 B8 陷阱。",
     "--     外部调用点：inventory.lua:2428（丢物品的落点）、locomotor.lua:930。",
   ],
 
-  3759: [
+  "PlayerController:GetRemotePredictStopXZ#1": [
     "--★ 【GetRemotePredictStopXZ】「上一帧刚停止」的坐标读取。",
     "--   ★★ 3760 行的双重条件：`remote_predict_stop_tick + 1 == GetTick()`",
     "--     且 `remote_vector.y == 0`。",
@@ -110,7 +110,7 @@ export const BEFORE = {
     "--   ⇒ 净效果：极端情况下可能残留半格误差，无纠正。属可接受的权衡。",
   ],
 
-  3765: [
+  "PlayerController:OnRemoteDirectWalking#1": [
     "--★★ 【OnRemoteDirectWalking】移动 RPC 的服务端接收端（direct）。",
     "--   ★ 三重守卫与所有 Remote* 一致。",
     "--   ★★ 3771 行的 ClearRemotePredictData()：",
@@ -120,7 +120,7 @@ export const BEFORE = {
     "--     ClearRemotePredictData 把它们清了。所以切到 direct 后预测状态是干净的。",
   ],
 
-  3785: [
+  "PlayerController:OnRemotePredictWalking#1": [
     "--★★★ 【OnRemotePredictWalking】★★ 预测行走 RPC 的服务端接收端 —— 最复杂的一个。",
     "--   签名：(x, z, isdirectwalking, isstart, platform, overridemovetime, isstop)",
     "--   ⚠ 服务端已经做过参数校验（networkclientrpc.lua:425-467）：",
@@ -132,7 +132,7 @@ export const BEFORE = {
     "--   ⇒ 所以本函数收到的是「已清洗」的数据。",
   ],
 
-  3789: [
+  "PlayerController:OnRemotePredictWalking#1+4": [
     "--   ★★ 3789 行写入标签：`isdirectwalking and 3 or 4`。",
     "--     这是 remote_vector.y 的**唯一写入点**之一（另一处是 3923 行的客户端）。",
     "--   ⚠ 3791 行的 platform 参数：**x/z 是该平台的局部坐标**。",
@@ -149,19 +149,19 @@ export const BEFORE = {
     "--   ⚠ 已核实当前所有调用点都只读不写，故 aliasing 未被触发。",
   ],
 
-  3794: [
+  "PlayerController:OnRemotePredictWalking#1+9": [
     "--★ 3794 行 `remote_predict_stop_notified = isstop`：",
     "--   isstop 可能是 nil（只发坐标不发 stop），此时 notified 被清空。",
     "--   ⇒ 语义：「客户端最后一条消息明确说了 stop 吗」。",
   ],
 
-  3796: [
+  "PlayerController:OnRemotePredictWalking#1+11": [
     "--★ isstart → RestartPredictMoveTimer（locomotor.lua:461）：",
     "--   「重新开始计时」。locomotor 内部有个超时：预测移动若在 N 秒内没更新就自杀。",
     "--   ⇒ 这是**预测的保险丝**：客户端崩溃/断网时服务器不会永远追一个死目标。",
   ],
 
-  3798: [
+  "PlayerController:OnRemotePredictWalking#1+13": [
     "--   overridemovetime → OverridePredictTimer(GetTime() - overridemovetime)：",
     "--   ★★ 客户端告诉服务器「我已经移动了 N 秒」。",
     "--     服务器用 `GetTime() - N` 反推出「客户端的移动起点时刻」，",
@@ -170,7 +170,7 @@ export const BEFORE = {
     "--     避免时钟偏移）。参见 locomotor.lua:469 OverridePredictTimer。",
   ],
 
-  3800: [
+  "PlayerController:OnRemotePredictWalking#1+15": [
     "--   x == nil 分支：只发控制信号（isstart / isstop / overridemovetime）不发坐标。",
     "--   3801-3803 行 K 的注释：\"guaranteed either isstart or isstop (or both) /",
     "--   overridemovetime optional / everything else nil\"",
@@ -179,7 +179,7 @@ export const BEFORE = {
     "--     **前四个全 nil**（x, z, isdirectwalking, platform）。",
   ],
 
-  3809: [
+  "PlayerController:OnRemotePredictWalking#1+24": [
     "--★ 3809-3816 行的判定：客户端说「我停了」时，服务器怎么处理计时器。",
     "--   ① 不是 stop → 清 notified（还在走）",
     "--   ② 是 stop 且（服务器知道停止 tick 或有预测位置）→ notified = true，",
@@ -188,7 +188,7 @@ export const BEFORE = {
     "--     （客户端骗我们？没有有效目标，停就停）",
   ],
 
-  3821: [
+  "PlayerController:OnRemotePredictOverrideLocomote#1": [
     "--★ 【OnRemotePredictOverrideLocomote】busy 状态下的方向微调（服务端）。",
     "--   3822 行的三重守卫 + 状态标签 overridelocomote：",
     "--     ★ 必须处于「可被外部驱动移动」的状态（滑索、传送带等）。",
@@ -197,20 +197,20 @@ export const BEFORE = {
     "--      state itself is still busy」—— 密恐魔被套住时能用摇杆挣脱。",
   ],
 
-  3824: [
+  "PlayerController:OnRemotePredictOverrideLocomote#1+3": [
     "--   ★ classified.busyremoteoverridelocomote（--WASD）：服务端标记「这个状态",
     "--     允许摇杆驱动」。由 SGwilson 在进入特定状态时设置。",
     "--   ★ 3824-3825 行两个 classified 或运算：摇杆 与 左键 两种驱动源。",
   ],
 
-  3835: [
+  "PlayerController:OnRemoteStartHop#1": [
     "--★★★ 【OnRemoteStartHop(x, z, platform)】★★ 跳跃的**服务器权威校验**。",
     "--   ★ 这是本文件里「反作弊校验」写得最完整的一段，值得逐行读。",
     "--   RPC 层已做（networkclientrpc.lua:491-506）：参数类型 + platform 一致性。",
     "--   本函数再做**距离校验**（3835-3882）。",
   ],
 
-  3838: [
+  "PlayerController:OnRemoteStartHop#1+3": [
     "--   3838 行 `if not self.handler == nil then return end` ——",
     "--   ⚠ 疑似缺陷（Lua 运算符优先级）：`not self.handler` 先求值为布尔，",
     "--     再与 nil 比较 → **恒为 false**（布尔永远不等于 nil）。",
@@ -223,13 +223,13 @@ export const BEFORE = {
     "--   ⚠ 这是一个**真实存在但低危**的缺陷：守卫失效，且恰好对房主最不重要。",
   ],
 
-  3840: [
+  "PlayerController:OnRemoteStartHop#1+5": [
     "--   ★★ 3850 行的守卫：`platform == nil and (当前无平台 or 落点在海里)` → 拒绝。",
     "--   逻辑：请求跳到「没有平台的地方」→ 除非那是个漂浮物（跳到海里的浮冰）。",
     "--   ⇒ 防止客户端凭空请求「跳到地图外的虚空」。",
   ],
 
-  3857: [
+  "PlayerController:OnRemoteStartHop#1+22": [
     "--★★ 【3857-3874：移动平台的橡皮筋补偿】★ 本文件最精细的一段计算。",
     "--   问题：站在**移动的船**上跳向对岸。客户端算落点时基于自己的世界坐标，",
     "--     服务端执行时船已移动。若不补偿，合法跳会被判「太远」。",
@@ -244,14 +244,14 @@ export const BEFORE = {
     "--     偏了应该由别的方式修正。",
   ],
 
-  3876: [
+  "PlayerController:OnRemoteStartHop#1+41": [
     "--★ 跳跃的橡皮筋距离 = 基础 4 + 平台速度补偿 + locomotor 自己的跳跃距离。",
     "--   GetHopDistance（locomotor.lua:1222）返回「按当前速度能跳多远」。",
     "--   ⇒ 三项相加意味着：合法跳（落点在跳跃能力内 + 网络滞后补偿内 + 平台移动内）",
     "--     才被接受。",
   ],
 
-  3879: [
+  "PlayerController:OnRemoteStartHop#1+44": [
     "--★ 超距则 `print` 一整段诊断信息后 return。",
     "--   ⚠ 注意用的是 `print` 而非 Print/VERBOSITY 包装 ——",
     "--     开发版会把这段打到日志，生产版被 C++ 层过滤。",
@@ -259,7 +259,7 @@ export const BEFORE = {
     "--     因为「Hop discarded」是玩家会遇到的真实问题（船跳失败）。",
   ],
 
-  3884: [
+  "PlayerController:OnRemoteStartHop#1+49": [
     "--   ★★ remote_vector.y = 6 —— 跳跃模式。这是唯一的 y=6 写入点。",
     "--   3964 行 IsLocalOrRemoteHopping 会读它：`remote_vector.y == 6 or",
     "--   locomotor.hopping`。",
@@ -267,7 +267,7 @@ export const BEFORE = {
     "--   ⚠ 3885 行 ClearRemotePredictData()：跳跃会取消预测移动（互斥）。",
   ],
 
-  3889: [
+  "PlayerController:OnRemoteStopWalking#1": [
     "--★ OnRemoteStopWalking / OnRemoteStopHopping：停止的两种 RPC，",
     "--   ★★ 但两个函数体**完全相同**（都是 y=0 + ClearRemotePredictData）。",
     "--   ⚠ 疑似缺陷（冗余 RPC）：既然行为一致，可以合并成一个 StopWalking。",
@@ -276,7 +276,7 @@ export const BEFORE = {
     "--     历史原因：推测 StopHopping 是后加的，忘了合并。",
   ],
 
-  3903: [
+  "PlayerController:RemoteDirectWalking#1": [
     "--★★ 【3903-3945 客户端发 RPC 端】—— 四种移动手势的发送。",
     "--   RemoteDirectWalking (3903) / RemoteDragWalking (3912) /",
     "--   RemotePredictWalking (3922) / RemoteStopWalking (3940)",
@@ -284,7 +284,7 @@ export const BEFORE = {
     "--     这是**带宽优化的第一道闸**。",
   ],
 
-  3905: [
+  "PlayerController:RemoteDirectWalking#1+2": [
     "--   ★★ 3905 行的英文注释是一条协议设计说明：",
     "--   \"x and z are directions, not positions, so we don't need it to be",
     "--    platform relative\"",
@@ -296,14 +296,14 @@ export const BEFORE = {
     "--   ⇒ 对比 dragwalking（4402 行）：发的是位置，需要 IsPointInRange 与平台转换。",
   ],
 
-  3914: [
+  "PlayerController:RemoteDragWalking#1+2": [
     "--★ 拖拽行走需要平台相对坐标（3914 行 GetPlatformRelativePosition）。",
     "--   3915 行 SendRPCToServer(RPC.DragWalking, pos_x, pos_z, platform,",
     "--   platform ~= nil) —— ★ 最后那个 `platform ~= nil` 是 RPC 的",
     "--   **类型标记位**（RPC 需要区分「nil 参数」与「缺省参数」）。",
   ],
 
-  3922: [
+  "PlayerController:RemotePredictWalking#1": [
     "--★★ 【RemotePredictWalking】预测行走的客户端发送端。",
     "--   3923 行 `local y = (overridedirect or self.directwalking) and 3 or 4`：",
     "--     ★★ 客户端**自己**算出与服务器 3789 行相同的标签值，",
@@ -314,7 +314,7 @@ export const BEFORE = {
     "--     （4119/5756 行的调用会传 overridedirect = 上一次的 direct 值）。",
   ],
 
-  3924: [
+  "PlayerController:RemotePredictWalking#1+2": [
     "--★★ 3924 行的去重条件是**三段或**，且末段带 `self.remote_vector.y ~= 0`：",
     "--   `x 变了 or z 变了 or (y 变了 and 当前不是停止态)`。",
     "--   ⇒ 语义：「服务器说停了（y==0）之后，即使客户端的意图没变也不再发」。",
@@ -329,13 +329,13 @@ export const BEFORE = {
     "--     且 2659 行每帧清零，说明它也依赖「至少发过一次」。",
   ],
 
-  3931: [
+  "PlayerController:RemotePredictWalking#1+9": [
     "--   ★ 3931-3932 行：坐标没变但 isstart/isstop 变了 → 补发「无坐标」的控制消息。",
     "--     对应服务端 3800 行的 x==nil 分支。",
     "--   ⇒ 这是三态消息（坐标 / 控制 / 无）的第二种形态。",
   ],
 
-  3936: [
+  "PlayerController:RemotePredictOverrideLocomote#1": [
     "--【RemotePredictOverrideLocomote】busy 态方向微调的客户端发送端。",
     "--   3937 行 `dir or (autodir ~= false and GetRotation()) or nil`：",
     "--     ★★ 三态：无 dir + autodir ~= false → 用当前朝向（持续微调）",
@@ -344,11 +344,11 @@ export const BEFORE = {
     "--   ⇒ autodir 参数是一个「布尔化的 nil」，与文件头的 or/nil 惯用法同源。",
   ],
 
-  3940: [
+  "PlayerController:RemoteStopWalking#1": [
     "--★ RemoteStopWalking：只有 y ~= 0 时才发（3941 行去重）。",
   ],
 
-  3947: [
+  "PlayerController:DoPredictHopping#1": [
     "--★ 【DoPredictHopping】★★ 客户端「检测到跳跃就上报」。",
     "--   ★★ 3950 行的边沿检测：`if locomotor.hopping and not self.is_hopping`。",
     "--     ⇒ 只在跳跃**开始的那一帧**发一次 StartHop（3954 行）。",
@@ -358,20 +358,20 @@ export const BEFORE = {
     "--     这不是跳跃目标，而是**当前所站的平台上的落点**（服务端的出发基准）。",
   ],
 
-  3950: [
+  "PlayerController:DoPredictHopping#1+3": [
     "--   ⚠ 3951 行 `self.inst.components.embarker` 无 nil 检查。",
     "--     缓解：能 hopping 说明有 embarker 组件（Boarding 是 locomotor 的前置）。",
     "--   ⚠ 3956 行 `self.is_hopping = self.locomotor.hopping` 每帧更新（边沿维护）。",
   ],
 
-  3963: [
+  "PlayerController:IsLocalOrRemoteHopping#1": [
     "--★ IsLocalOrRemoteHopping：`remote_vector.y == 6 or (locomotor and locomotor.hopping)`。",
     "--   ★ 两个来源：远端玩家的跳跃标志（服务端）/ 本地的实际跳跃（客户端）。",
     "--   ⇒ 这个函数被 4005（DoPredictWalking）、4127（DoDragWalking）、",
     "--     4307（DoDirectWalking）三处调用 —— 「跳跃时不接受任何其他移动意图」。",
   ],
 
-  3967: [
+  "PlayerController:DoClientBusyOverrideLocomote#1": [
     "--★★ 【DoClientBusyOverrideLocomote】busy 态的方向微调（客户端发送）。",
     "--   3968-3971 行的注释解释了动机（莫比乌斯/密恐魔）。",
     "--   ★★ 3983 行的边沿检测：摇杆松开时的**下一帧**才发「停止」消息。",
@@ -385,14 +385,14 @@ export const BEFORE = {
     "--       not IsBusy 时会退出，故影响有限。",
   ],
 
-  3991: [
+  "PlayerController:DoClientBusyOverrideLocomoteClick#1": [
     "--★ DoClientBusyOverrideLocomoteClick：左键版（3992 行注释：\"e.g. Getting",
     "--   out of hotspring\" —— 从温泉里出来）。",
     "--   与摇杆版的区别：单击**给一个方向**（3999 行 GetAngleToPoint），",
     "--     不持续更新，也不发停止消息（因为是一次性动作）。",
   ],
 
-  4003: [
+  "PlayerController:DoPredictWalking#1": [
     "--★★★ 【DoPredictWalking】★★★ **本文件第二核心函数**（122 行）。",
     "--   双端共用同一个函数，靠 `if self.ismastersim` 分成两个完全不同的实现：",
     "--   · 服务端分支（4004-4106）：**消费**客户端的预测目标，驱动 locomotor，",
@@ -401,30 +401,30 @@ export const BEFORE = {
     "--   ★ 由 3045 行每帧调用。",
   ],
 
-  4004: [
+  "PlayerController:DoPredictWalking#1+1": [
     "--   服务端分支入口。",
   ],
 
-  4005: [
+  "PlayerController:DoPredictWalking#1+2": [
     "--   ★ 跳跃中不接受预测行走（三种移动手势互斥的第一处）。",
   ],
 
-  4008: [
+  "PlayerController:DoPredictWalking#1+5": [
     "--   ★★ GetRemotePredictPosition 有值才继续 —— 意味着「客户端在预测移动」。",
     "--     为 nil 时走 4095 行的「刚停止」处理分支。",
   ],
 
-  4010: [
+  "PlayerController:DoPredictWalking#1+7": [
     "--   x0,y0,z0 = 服务器当前的权威位置。",
   ],
 
-  4011: [
+  "PlayerController:DoPredictWalking#1+8": [
     "--   ★ distancetotargetsq：服务器与客户端预测目标的**平面**距离平方。",
     "--     ⚠ 注意用的是 util.lua:553 的 distsq(pt.x, pt.z, x0, z0) —— 忽略 y。",
     "--     这是对的：B8 陷阱在这里被规避了（没有用 pt.y）。",
   ],
 
-  4012: [
+  "PlayerController:DoPredictWalking#1+9": [
     "--★ 停止阈值：floating（漂浮）时 0.0001（几乎精确），否则 0.05（≈0.22 格）。",
     "--   ⚠ 疑似缺陷（精度过低）：0.05 的平方 = 0.22 格的停止容差。",
     "--     对比 PREDICT_STOP_ERROR_DISTANCE_SQ = 0.25（0.5 格）。",
@@ -435,7 +435,7 @@ export const BEFORE = {
     "--     与 4098 行引用 PREDICT_STOP_ERROR_DISTANCE_SQ 的风格不一致。",
   ],
 
-  4014: [
+  "PlayerController:DoPredictWalking#1+11": [
     "--★★★ 【pt.y == 5 分支】★ 这是 B8 最直接的消费者。",
     "--   y==5 的含义（5801 行设置）：「客户端要开始执行动作，预测目标被冻结」。",
     "--   条件：正在执行动作（locomotor 或实体有 bufferedaction）或状态图不在 idle/moving。",
@@ -445,7 +445,7 @@ export const BEFORE = {
     "--   ⇒ 逻辑：「走到位再停下开始动作」—— 这是「走过去砍树」的时序保证。",
   ],
 
-  4030: [
+  "PlayerController:DoPredictWalking#1+27": [
     "--★ 4030-4032 行 `if pt.y < 5 then self.inst:ClearBufferedAction() end`：",
     "--   ★★★ **移动优先于动作**：只要还在预测行走（y=3/4），就清掉缓冲动作。",
     "--     实体脚本的 ClearBufferedAction（entityscript.lua:1563）会 Fail 掉它。",
@@ -454,14 +454,14 @@ export const BEFORE = {
     "--     所以只有 y=3/4（纯移动）才会走到 4030 行清动作。二者互补。",
   ],
 
-  4034: [
+  "PlayerController:DoPredictWalking#1+31": [
     "--★ 4034 行 `local dir = math.atan2(z0 - pt.z, pt.x - x0) * RADIANS`：",
     "--   从当前位置指向目标的角度。★ 这是 atan2(y, x) 的标准形式，",
     "--     但引擎坐标系 Z 相反 ⇒ 结果的角度与「屏幕方向」差一个镜像。",
     "--   ⇒ 与 1654 行、3601-3601 行的同一约定保持一致。",
   ],
 
-  4035: [
+  "PlayerController:DoPredictWalking#1+32": [
     "--★★ 【4035-4050：未到达 vs 已到达】",
     "--   未到达（distancetotargetsq > stopdistancesq）：",
     "--     · RunInDirection(dir)（全速跑向目标）",
@@ -473,7 +473,7 @@ export const BEFORE = {
     "--       was meant to cancel an action\" —— 强制进 idle 态是为了中断动作。",
   ],
 
-  4039: [
+  "PlayerController:DoPredictWalking#1+36": [
     "--★★★ 【4039-4043：过冲瞬移（overshoot 纠正）】★ remote_authority 的特权。",
     "--   条件：① remote_authority（房主/好友，见 94-98 行）",
     "--     ② 有 remote_predict_dir（之前在走）",
@@ -495,7 +495,7 @@ export const BEFORE = {
     "--     ⇒ 这是「传送 vs 预测」冲突的**残留漏洞**。",
   ],
 
-  4052: [
+  "PlayerController:DoPredictWalking#1+49": [
     "--   ★★ 4052-4053 行注释解释了「为什么服务端要伪造客户端的手势标志」：",
     "--   \"Even though we're predict walking, we want the server to behave",
     "--    according to whether the client thinks he's direct/drag walking\"",
@@ -506,7 +506,7 @@ export const BEFORE = {
     "--     必须与客户端看到的一致，否则动作校验会失败。",
   ],
 
-  4054: [
+  "PlayerController:DoPredictWalking#1+51": [
     "--★ 4054-4075 行：把 remote_vector.y（3/4/其他）翻译成三个布尔手势标志。",
     "--   ★★ 这段是 3694 行「y 是 flag」这一原始设计的**忠实实现**，",
     "--     也是 B8 缺陷仍然存活的原因：",
@@ -516,14 +516,14 @@ export const BEFORE = {
     "--     三者叠加使 y 无法被安全地改成别的语义。",
   ],
 
-  4064: [
+  "PlayerController:DoPredictWalking#1+61": [
     "--★ 4064-4066 行：直接行走超过 0.2 秒 → 清战斗目标。",
     "--   ⇒ 「持续按方向键走路时自动脱战」。",
     "--   ⚠ 但 4064 行的攻击状态检查与 3035 行的 boathopping 豁免不同构，",
     "--     说明这段逻辑加了不止一次补丁。",
   ],
 
-  4077: [
+  "PlayerController:DoPredictWalking#1+74": [
     "--★★★ 【4077-4092：停止检测 / 橡皮筋回滚】★ 本项目重点。",
     "--   --Detect stop, teleport, or prediction errors /",
     "--   --Cancel the cached prediction vector and force resync if necessary",
@@ -533,13 +533,13 @@ export const BEFORE = {
     "--     ③ 传送：服务器自己把玩家挪走了（距离自然变得很远）",
   ],
 
-  4079: [
+  "PlayerController:DoPredictWalking#1+76": [
     "--★ ① 停止：y=0 + 记录 stop_tick（供 4095 行下一帧的微调）。",
     "--   ⚠ 注意这里**没有** ClearRemotePredictData —— 有意为之，",
     "--     因为下一帧（4095 行）还要用 stop_tick 做最后一次位置微调。",
   ],
 
-  4082: [
+  "PlayerController:DoPredictWalking#1+79": [
     "--★★★★ 【4082-4091：橡皮筋回滚】★★★ 本项目重点（bug-patterns B7/B8 的核心）。",
     "--   条件：`distancetotargetsq > RUBBER_BAND_DISTANCE_SQ`（> 16，即 > 4 格）。",
     "--   动作：",
@@ -579,7 +579,7 @@ export const BEFORE = {
     "--     **终止条件**。设计上是一石二鸟，但过于脆弱。",
   ],
 
-  4095: [
+  "PlayerController:DoPredictWalking#1+92": [
     "--★★ 【4095-4106：停止后的位置微调】",
     "--   触发：pt 为 nil（模式已回 0）但 stop_tick 有值。",
     "--   4096 行 GetRemotePredictStopXZ **只在停止后的紧接一帧有效**（3760 行）。",
@@ -599,12 +599,12 @@ export const BEFORE = {
     "--     实际后果轻微：下一次 OnRemotePredictWalking 会重置这些字段（3792-3793）。",
   ],
 
-  4107: [
+  "PlayerController:DoPredictWalking#1+104": [
     "--★★ 【4107-4123：客户端分支】★★ 生产预测目标并发送。",
     "--   守卫：CanLocomote（760 行）—— 无预测能力则不发。",
   ],
 
-  4108: [
+  "PlayerController:DoPredictWalking#1+105": [
     "--★ 4108 行 `sg:HasAnyStateTag(\"moving\", \"floating_predict_move\")`：",
     "--   ★★ floating_predict_move 是一个**专门为预测设计的虚拟状态标签**。",
     "--   为什么需要：漂浮时（坐船/泳圈）真实状态图可能没有 moving 状态，",
@@ -612,7 +612,7 @@ export const BEFORE = {
     "--   ⇒ 这说明「移动预测」与「状态图」的耦合是通过**标签**解开的。",
   ],
 
-  4109: [
+  "PlayerController:DoPredictWalking#1+106": [
     "--★★ 4109 行 `self.inst.Transform:GetPredictionPosition()`：",
     "--   ★★ 不是 GetWorldPosition()！GetPredictionPosition 是**引擎为客户端",
     "--     预测专门维护的位置**（客户端实体的 transform 在预测时会给出预测值）。",
@@ -624,18 +624,18 @@ export const BEFORE = {
     "--   ⚠ 这个差异本身就是 B8 类问题的表现：同一个 API 在两处被相反地使用。",
   ],
 
-  4110: [
+  "PlayerController:DoPredictWalking#1+107": [
     "--★ 4110 行的 isstart = `locomotor:GetTimeMoving() == 0`：",
     "--   ★ 「刚开始移动」（累计移动时间为 0）= isstart。",
     "--     这让服务器知道「这是新一段行走的开始，可以重启超时计时器」。",
     "--   PopOverrideTimeMoving（locomotor.lua:452）取出并清空覆盖的移动时长。",
   ],
 
-  4111: [
+  "PlayerController:DoPredictWalking#1+108": [
     "--★ 4111-4112 行记录本次的时间戳与手势，供 4119 行补发 isstop 用。",
   ],
 
-  4113: [
+  "PlayerController:DoPredictWalking#1+110": [
     "--★ 4113-4122 行：上一帧在移动、本帧不在 → 补发一次 isstop。",
     "--   4114-4117 行的守卫：",
     "--     ① 状态图 idle 或 floating",
@@ -647,19 +647,19 @@ export const BEFORE = {
     "--     否则 3924 行的去重会认为「标签变了」而多发一条。",
   ],
 
-  4126: [
+  "PlayerController:DoDragWalking#1": [
     "--★★ 【DoDragWalking】鼠标左键按住拖地走。",
     "--   ★ 由 3046 行调用（仅当 DoPredictWalking 返回 false 时）。",
     "--   ★★ 拖拽是**鼠标独占**的手势（4134 行 draggingonground，鼠标模式）。",
     "--     而 dragwalking 标志本身是双端的（服务端由 y==2 反推，4067 行）。",
   ],
 
-  4127: [
+  "PlayerController:DoDragWalking#1+1": [
     "--   ★★ 4127 行两个守卫：跳跃中 或 状态标签 nodragwalk（不允许拖拽走）。",
     "--     nodragwalk 用于「必须站着不动才能操作」的场景（如某些施法）。",
   ],
 
-  4131: [
+  "PlayerController:DoDragWalking#1+5": [
     "--★ 4131-4137 行：三个来源取目标点。",
     "--     ① handler == nil（远端玩家）→ GetRemoteDragPosition（y==2 的信封）",
     "--     ② draggingonground（鼠标本地拖拽）→ TheInput:GetWorldPosition（实时鼠标）",
@@ -670,7 +670,7 @@ export const BEFORE = {
     "--       能力削减之一（另一个是 4107 行的 CanLocomote）。",
   ],
 
-  4140: [
+  "PlayerController:DoDragWalking#1+14": [
     "--★ 4140 行 `distsq(pt.x, pt.z, x0, z0) > 1`：",
     "--   ★★ 已经站在 1 格以内就不动。1 是**平方**（0 格 = 重合，1 格 = 1 单位）。",
     "--     ⇒ 拖拽走的死区是 1 单位（1 格），比预测走的 0.22 格大得多。",
@@ -678,13 +678,13 @@ export const BEFORE = {
     "--   ⚠ 4141 行 ClearBufferedAction：拖拽移动会取消缓冲动作（同 4030 行思路）。",
   ],
 
-  4146: [
+  "PlayerController:DoDragWalking#1+20": [
     "--   ★ 4146 行 `RunInDirection(self.inst:GetAngleToPoint(pt))`：",
     "--     ★ 用 GetAngleToPoint 而不是手算 atan2 —— 这是引擎提供的便捷函数。",
     "--     对比 4034 行手算 atan2。两处等价但写法不同（历史遗留）。",
   ],
 
-  4152: [
+  "PlayerController:DoDragWalking#1+26": [
     "--★★ 4152-4156 行：★ **远端与本地的镜像处理**。",
     "--   服务端 → CancelPredictMoveTimer（4153 行，注释 \"remote drag walking,",
     "--   means client is not predicting\"）。",
@@ -697,7 +697,7 @@ export const BEFORE = {
     "--     这是三种移动手势里唯一的「非预测」模式。",
   ],
 
-  4161: [
+  "PlayerController:DoBoatSteering#1": [
     "--★ 【DoBoatSteering】船上操舵。与行走的双端分派结构相同（4164-4168）。",
     "--   ★ 4167 行手柄模式用 GetWorldControllerVector（真实摇杆），",
     "--     远端玩家用 GetRemoteDirectVector（y==1 的信封）——",
@@ -723,12 +723,12 @@ export const BEFORE = {
     "--     ⇒ 死代码的**严格**证明依赖「3062 行不会被调用」这一点。",
   ],
 
-  4172: [
+  "PlayerController:DoBoatSteering#1+11": [
     "--   steeringwheeluser 组件：只有「在船上且操作舵轮」时存在。",
     "--   ⇒ 4173 行的 nil 检查是必要的（站在船上但没碰舵）。",
   ],
 
-  4182: [
+  "PlayerController:DoDoubleTapDir#1": [
     "--★★★ 【DoDoubleTapDir】双击方向键（默认「跳跃」）。由 3084 行调用。",
     "--   双阈值设计是本函数的核心：",
     "--   · deadzone（4189-4190）：与 GetWorldControllerVector 同源，用于「有没有在推」",
@@ -740,7 +740,7 @@ export const BEFORE = {
     "--     → 有意让按下与释放的处理在灰区重叠。",
   ],
 
-  4200: [
+  "PlayerController:DoDoubleTapDir#1+18": [
     "--   ★★ 4201 行的条件 `isoverdeadzone or isoverminthreshold`：",
     "--     用 deadzone（0.2?）**或** 0.6。死区值远小于 0.6，",
     "--     所以这个 or 实质上被 isoverminthreshold 主导。",
@@ -752,19 +752,19 @@ export const BEFORE = {
     "--     影响：极小（若死区极大则行为不同），属冗余而非错误。",
   ],
 
-  4209: [
+  "PlayerController:DoDoubleTapDir#1+27": [
     "--★ 4209-4211 行：方向角度差超过阈值 → 认为是「转了个方向」而非「双击」。",
     "--   阈值随推杆幅度变化：推到底（0.8）时 60°，轻推（0.6）时 90°。",
     "--   ⇒ 推得越满，允许的角度变化越大（更容易判定为双击）。",
   ],
 
-  4216: [
+  "PlayerController:DoDoubleTapDir#1+34": [
     "--★ 4214-4216 行：新 tap 但角度变化太大 → 只记录不执行动作（allowaction=false）。",
     "--   注释 \"don't allowaction below, but still track the new tap\" ——",
     "--     仍然要更新 tap 记录，否则玩家「推过去再推回来」永远双击不了。",
   ],
 
-  4226: [
+  "PlayerController:DoDoubleTapDir#1+44": [
     "--★★ 4226-4269 行：tap 成功的处理。",
     "--   4233 行 `CanEntitySeeTarget(self.inst, self.inst)` ——",
     "--     ★★ 检查「玩家能否看见自己」＝ 没有全屏遮挡（UI/其他界面）。",
@@ -772,13 +772,13 @@ export const BEFORE = {
     "--   ⚠ 这是一个 hack 式判据：把自己的可见性当作「UI 没挡着」的代理。",
   ],
 
-  4239: [
+  "PlayerController:DoDoubleTapDir#1+57": [
     "--★ 4239 行 GetDoubleClickActions(nil, dir, nil)[1] —— 传 dir（当前方向）。",
     "--   ★ 与 4758 行的调用对比：那里传 (position, dir, target)，多了位置与目标。",
     "--     ⇒ 双击方向键用**方向**，双击鼠标用**位置**。这是两条独立的双击路径。",
   ],
 
-  4242: [
+  "PlayerController:DoDoubleTapDir#1+60": [
     "--★ 4242-4243 行的双击判定：`allowaction and (last_t and t < last_t + DOUBLE_CLICK_TIMEOUT)`。",
     "--   DOUBLE_CLICK_TIMEOUT = .5（constants.lua:2306）。",
     "--   ⚠ 4245 行 `if self.ismastersim then`：服务端直接执行，",
@@ -787,7 +787,7 @@ export const BEFORE = {
     "--     但 4258 行的 preview_cb **不发 canforce**（传 nil），因为跳跃不能强制。",
   ],
 
-  4272: [
+  "dblclickact.preview_cb#1+15": [
     "--★ 4273 行的释放判定：`if mem.down and not (isoverminthreshold and",
     "--   isoverdeadzone) then mem.down = false end`。",
     "--   ⚠ 与 4201 行的分析同理，isoverdeadzone 冗余（被 isoverminthreshold 主导）。",

@@ -6,7 +6,7 @@ export const BEFORE = {
     "--   ★ grep 核实：本文件**零 math.random、零 WorldSim 调用**。",
     "--   ★ 但它通过「否决候选集」间接决定所有随机抽取的结果（见 HEADER 第 5 条）。",
   ],
-  3: [
+  "OnlyAllow#1": [
     "-- ══════════════ OnlyAllow：白名单求补 ══════════════",
     "-- ★★ 语义：传入「允许的地块」，返回「**除此之外全部**」的地块清单。",
     "--   用法 `xxx = OnlyAllow({ WORLD_TILES.ROCKY })` 意为「只长在 ROCKY」。",
@@ -14,22 +14,22 @@ export const BEFORE = {
     "--   而白名单求补**自动覆盖**——新注册的地块自动进黑名单。",
     "--   ⚠ 但代价是：若 C++ 侧新增了某个地块，行为会**静默改变**。",
   ],
-  5: [
+  "OnlyAllow#1+2": [
     "-- ★ GetWorldTileMap() 是 **C++ 注入的全局函数**，返回当前注册的全部地块 ID。",
     "--   ★★ 这意味着：★ 本文件的加载时机必须晚于 C++ 的地块注册完成。",
     "--   ★ 若在纯 Lua 单元测试里 require 本文件，此行会 crash（nil 索引）。",
     "--   ⇒ 这也是「世界生成脚本无法单测」的一个具体例证（对比 graphnode.lua:189 的同类写法）。",
   ],
-  6: [
+  "OnlyAllow#1+3": [
     "-- ★ table.contains(approved, v)：v 不在白名单里就收进 filter。",
     "--   approved 是数组，用 ipairs 线性查找 ⇒ 7 处调用，代价可忽略。",
   ],
-  10: [
+  "OnlyAllow#1+7": [
     "-- ★ 返回的 filter 是一张「普通数组」，被当作 TERRAIN_FILTER 的 value 使用。",
     "--   ⇒ ★★ 注意两种 value 形态并存：黑名单风格的表也用 `{...}` 字面量，",
     "--     但它们是**语义相反**的两种表。读表时必须先看它是哪种风格。",
   ],
-  13: [
+  "OnlyAllow#1+10": [
     "-- ══════════════ ★★★ TERRAIN_FILTER：prefab → 禁止出现的地块 ══════════════",
     "-- ★★★ 语义方向（最易搞反）：★ 表里列的地块是「**不能**长」，",
     "--   凡是**不在**表里的地块都允许。",
@@ -39,85 +39,85 @@ export const BEFORE = {
     "--   风格 B（白名单求补）      ：toadstool_cap = OnlyAllow({ROCKY})     ← 7 处",
     "--   ★ 维护提示：风格 B 对未来新增地块是安全的，风格 A 不是。",
   ],
-  16: [
+  "OnlyAllow#1+13": [
     "-- ★ 典型黑名单条目：浆果丛禁道路/人造地板/岩石地/沼泽/沙地/猴岛码头。",
     "--   ★ 语义解读：这些地块都是「人造或非自然」的，浆果丛不该长在上面。",
   ],
-  19: [
+  "OnlyAllow#1+16": [
     "-- ★ beefalo（牛）：禁道路等 + 沼泽。★ 因为沼泽对牛是水，无处立蹄。",
     "-- ★ pighouse / pigman 猪：禁 ROAD/地板类，但**允许** MARSH（见 65-66 行）",
     "--   ⇒ ★ 与 beefalo 形成对照：**同类生物的不同变体可以有不同地形约束**，",
     "--     这是「生物群系约束精细化」的实例。",
   ],
-  22: [
+  "OnlyAllow#1+19": [
     "-- ★ beemine（蜂巢残骸）：禁列表比 beehive 短（无 MARSH/ROCKY）。",
     "--   ⇒ 微调粒度可以到单个 prefab。",
   ],
-  23: [
+  "OnlyAllow#1+20": [
     "-- ★ carrot_planted（种下的胡萝卜）：禁列表**额外含 SAVANNA**。",
     "--   ⇒ ★ 同一个 prefab 在不同地貌的可种植性由这张表唯一决定。",
   ],
-  39: [
+  "OnlyAllow#1+36": [
     "-- ★ twigs（树枝）：禁列表**不含 MONKEY_DOCK**（对比 33 行 twiggytree 含）。",
     "--   ⇒ ★★ 极细粒度：twiggytree 禁猴岛码头，twigs 不禁。",
     "--   ⇒ 这是**手工逐条维护**的表，改动时容易漏。",
   ],
-  74: [
+  "OnlyAllow#1+71": [
     "-- ★★ rock_moon（月岛石）：禁列表**含 WORLD_TILES.GRASS 与 FOREST**！",
     "--   ⇒ 这是全表唯一「禁草地」的反向条目：月岛石是月岛特产，",
     "--     不该出现在普通草原/森林里。★ 属地约束的实现方式。",
   ],
-  90: [
+  "OnlyAllow#1+87": [
     "-- ★★ tentacle（触手）：禁列表含 GRASS / FOREST / SAVANNA ——",
     "--   ⇒ 触手是**洞穴**专属，不能长在地面群系。★ 群系隔离。",
   ],
-  98: [
+  "OnlyAllow#1+95": [
     "-- ★ critterlab（实验室）：禁 ROAD/GRASS/FOREST/SAVANNA/MARSH",
     "--   ⇒ 只允许在瓷砖地/洞穴地。★ 特殊场景的地形强约束。",
   ],
-  101: [
+  "OnlyAllow#1+98": [
     "-- ─── ★★★ 从这里开始是「风格 B：OnlyAllow 白名单求补」的 7 处 ───",
     "-- ★★ 与上面 127 行黑名单并列存在，**同一个文件两种思维**。",
     "-- ⚠ 维护者必须同时在脑内维护「正向白名单」与「反向黑名单」两套模型。",
   ],
-  103: [
+  "OnlyAllow#1+100": [
     "-- ★ monkeybarrel_spawner（猴桶生成器）：只允许 MUD / CAVE_NOISE。",
     "--   ★ 注意 spawner 类 prefab 也在这张表里受约束（forest_map.lua:150-166",
     "--   还有专门的 spawner 密度补偿表）。",
   ],
-  105: [
+  "OnlyAllow#1+102": [
     "-- ★ worm_spawner（ worm 生成器）：只允许洞穴系地块。",
     "--   ★ 链条：WORLD_TILES.TILES / TILES_GLOW / TRIM / TRIM_GLOW /",
     "--     CAVE / MUD / CAVE_NOISE —— 全是洞穴内的细分地面。",
   ],
-  110: [
+  "OnlyAllow#1+107": [
     "-- ★★ 这 4 行（driftwood_*）是**海洋/海滩**的锚点：",
     "--   只允许 PEBBLEBEACH（卵石滩）与 DIRT。",
     "--   ⇒ 「海洋回归」DLC 的地形约束入口。",
   ],
-  115: [
+  "OnlyAllow#1+112": [
     "-- ★ moonglass_rock：只允许 METEOR（陨石地）——★ 月岛专属。",
   ],
-  124: [
+  "OnlyAllow#1+121": [
     "-- ★ flower_cave（洞穴花）：禁 FUNGUSMOON 与 MONKEY_DOCK，",
     "--   ⇒ 注意它**允许**普通 FUNGUS（蘑菇地）。",
   ],
-  135: [
+  "OnlyAllow#1+132": [
     "-- ★ daywalkerspawningground：只允许 MUD（泥地）。",
   ],
-  137: [
+  "OnlyAllow#1+134": [
     "-- ★ 注释列出 6 种 Quagmire（执政官）地块的全名，",
     "--   紧接着下面 10 条规则全是 OnlyAllow 限定到 Quagmire 地块。",
     "--   ⇒ ★★ 这是「新 DLC 扩展一张纯数据表」的典型成本：10 行新规则。",
     "--   ★ 且它们全部依赖 OnlyAllow（白名单）⇒ 新增 Quagmire 地块时这些规则",
     "--     会**自动跟着变严**，这是选择风格 B 的收益。",
   ],
-  147: [
+  "OnlyAllow#1+144": [
     "-- ══════════════ TERRAIN_FILTER 主表结束 ══════════════",
     "-- ★★★ 统计（grep 核实）：约 134 条 prefab 规则，其中",
     "--   风格 A（黑名单字面量）约 127 条、风格 B（OnlyAllow）7 条。",
   ],
-  149: [
+  "OnlyAllow#1+146": [
     "-- ══════════════ ★★★ 全局副作用：三地块禁长 ══════════════",
     "-- ★★★ 下面这个循环在 require 时**一次性执行**，",
     "--   给**每一条**规则的禁止列表追加 3 个地块：",
@@ -125,21 +125,21 @@ export const BEFORE = {
     "--     WORLD_TILES.VAULT         （保险库）",
     "--     WORLD_TILES.VAULT_CLEAN   （保险库-净）",
   ],
-  150: [
+  "OnlyAllow#1+147": [
     "-- ★★ 后果①：这三个地块里**任何植物都不长**。",
     "--   ⇒ ★ 这是「存档区/保险库必须是纯净空地」的实现方式——",
     "--     ★★ 靠**数据表兜底**，而不是靠布置逻辑去保证。",
     "--     ⇒ 好处：新增任何 prefab 到某个房间模板里，自动继承这条约束。",
     "--     ⇒ 坏处：★ 无法为某个 prefab 开例外（除非绕开这张表）。",
   ],
-  151: [
+  "OnlyAllow#1+148": [
     "-- ★ table.insert(tiles, …)：★ in-place 修改 TERRAIN_FILTER 的每个 value 表。",
     "--   ⚠ 副作用链：任何在 require 之前/之后缓存了某个 value 表引用的代码，",
     "--     读到的将是**被追加后**的表。目前无此类代码（grep 核实）。",
   ],
-  152: ["-- ★ 保险库地块，同样禁长一切植物。"],
-  153: ["-- ★ 保险库净（未开封状态），同样禁长一切植物。"],
-  154: [
+  "OnlyAllow#1+149": ["-- ★ 保险库地块，同样禁长一切植物。"],
+  "OnlyAllow#1+150": ["-- ★ 保险库净（未开封状态），同样禁长一切植物。"],
+  "OnlyAllow#1+151": [
     "-- ⚠ 疑似缺陷（轻微，恰好无害）：",
     "--   ★★ OnlyAllow 生成的补集是在 :101-145 **求值时**算完的，",
     "--     早于本循环追加这 3 个地块。",
@@ -149,7 +149,7 @@ export const BEFORE = {
     "--   ⇒ 这是**巧合而非设计**。记录在此以防将来把白名单改成",
     "--     「只列出允许项」的正向表时，悄悄打破这个巧合。",
   ],
-  156: [
+  "TERRAIN_FILTER.Print#1": [
     "-- ★★ TERRAIN_FILTER.Print：调试辅助，把地块 ID 列表转成可读地名。",
     "-- ★ 作为**函数挂在表上**（不是独立函数）⇒ 只影响 table 本身，",
     "--   ★★★ 但 ★★★ 这会让 pairs(TERRAIN_FILTER) 遍历出一个非 prefab 的项！",
@@ -160,10 +160,10 @@ export const BEFORE = {
     "--     room 的 distributeprefabs（prefab 名单），而不是 TERRAIN_FILTER 本身。",
     "--   ★★ 但这是本文件**唯一的设计陷阱**，务必记住。",
   ],
-  159: [
+  "TERRAIN_FILTER.Print#1+3": [
     "-- ★ GROUND_NAMES[v] 是 constants.lua 里的反向映射：地块 ID → 显示名。",
   ],
-  164: [
+  "TERRAIN_FILTER.Print#1+8": [
     "-- ══════════════ ★ 弃用 shim：老 API terrain.rooms ══════════════",
     "-- ★★ gjans 的注释说明了意图：房间应该用 AddRoomPreInit 修改，",
     "--   而不是直接读写 terrain.rooms。保留兼容但打警告。",
@@ -175,20 +175,20 @@ export const BEFORE = {
     "--   · 字段（数据结构）废弃 ⇒ assert 硬崩（自己会改的代码）；",
     "--   · API（外部访问方式）废弃 ⇒ shim 软弃用（外部 mod 在用的）。",
   ],
-  168: [
+  "old_rooms_mt.__index#1": [
     "-- ★ 元表的 __index 拦截「表中不存在的键」——old_rooms 初始是空表 {}，",
     "--   所以任何 terrain.rooms.X 访问都会走进这个函数。",
   ],
-  169: [
+  "old_rooms_mt.__index#1+1": [
     "-- ★ moderror（不是 error）⇒ 只在开发版弹提示，发行版静默。",
     "--   ★ 错误信息里的 %s 就是 key 名，例如：",
     "--     \"Accessing 'terrain.rooms' directly is being deprecated,",
     "--      please use AddRoomPreInit(\\\"Forest\\\") instead!\"",
   ],
-  170: [
+  "old_rooms_mt.__index#1+2": [
     "-- ★★ 仍然返回正确结果 ⇒ 老代码「能跑但有警告」，这是平滑迁移的关键。",
   ],
-  174: [
+  "old_rooms_mt.__index#1+6": [
     "-- ★★★ 全文件收尾：导出全局 terrain 表，只有两个字段。",
     "-- ★★ 注意这是**直接覆盖全局名 terrain**（不是 local terrain）。",
     "--   ⇒ 所有 `terrain.filter[...]` 引用（forest_map.lua:25/65/69、",

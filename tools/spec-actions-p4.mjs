@@ -3,14 +3,14 @@
 // 锚点范围：1300 ~ 2000
 
 export const BEFORE = {
-  1300: [
+  "ACTIONS.LOOKAT.fn#1+80": [
     "--★ 保留的英文注释是一份**给翻译/本地化人员的注意事项**：",
     "--   「V2C: 我们只是返回同一个字符串，但因为它技术上被『覆盖』了，",
     "--     它不会显示目标：例如『Tell Story Portable Campfire』。」",
     "--   ★★ 注意这条注释出现在 1574 行，但紧挨着 1277 行的",
     "--     ACTIONS_MAP_REMAP 与 READ.fn —— 位置略偏，说明它是后补的。",
   ],
-  1322: [
+  "ACTIONS.READ.fn#1": [
     "--★★ READ.fn —— 「读」的三种形态。",
     "--   ★★ 1325 行的三元写法要注意：",
     "--     `targ.components.book ~= nil and act.doer.components.reader ~= nil`",
@@ -21,7 +21,7 @@ export const BEFORE = {
     "--   ★★ 1328 行的 elseif 不检查 doer 是否有 reader —— ",
     "--     「简单书」不需要特殊能力，任何人都能读。",
   ],
-  1335: [
+  "ACTIONS.ROW_FAIL.fn#1": [
     "--★★★ ROW_FAIL.fn —— T6 影子动作价值最清晰的样本（§2 565 行已预告）。",
     "--   ★★★ 请对照这段与 fn 主体（1350 行）一起读，能看到影子动作的全部动机：",
     "--     · fn 主体在「桨掉耐久」时走 oar:Row(1341 行的 RowFail)",
@@ -43,7 +43,7 @@ export const BEFORE = {
     "--     ★★★ 这是一处**副作用驱动**的伪事件：不是为了工作，",
     "--       而是为了触发「手湿了会掉东西」这个副作用。",
   ],
-  1350: [
+  "row#1": [
     "--★【row() 局部函数 —— ROW 与 ROW_CONTROLLER 共用的实现】",
     "--   ★★ 1372/1376 两行都只做 `return row(act)`。",
     "--     抽成局部函数而不是写两遍，因为两者的差异只在**声明**",
@@ -57,26 +57,26 @@ export const BEFORE = {
     "--       需要先保证 oar 非 nil 或有 oar 组件。",
     "--       ★ 归一化前置，后面就能放心使用。",
   ],
-  1357: [
+  "row#1+7": [
     "--★ `not oar and not act.doer.components.crewmember` —— 船员也能划。",
     "--   ★★★ 全文件唯一一次 crewmember（船员）检查。",
     "--     船员不需要桨也能划船。1361-1362 行专门为它开了一个分支。",
     "--   ★★ 1357 行的条件是 `not oar and not crewmember` ⇒ 两者都没有才失败。",
     "--     写法上不如 `oar == nil and crewmember == nil` 直观。",
   ],
-  1364: [
+  "row#1+14": [
     "--★ `act:GetActionPoint() or act.target:GetPosition()` —— 坐标兜底。",
     "--   ★★ 这是一个通用模式：当动作既可能有点又可能有实体目标时，",
     "--     用 GetActionPoint 统一处理。",
     "--     ★★ 为什么划船会有点？467 行 ROW_CONTROLLER 没有 target。",
   ],
-  1366: [
+  "row#1+16": [
     "--★ 又一处「伪 working 事件」，与 1346 行同一个理由。",
   ],
-  1372: [
+  "ACTIONS.ROW.fn#1": [
     "--★ ROW.fn → row()。两行转发。",
   ],
-  1376: [
+  "ACTIONS.ROW_CONTROLLER.fn#1": [
     "--★ ROW_CONTROLLER.fn → row()。与 1372 完全相同。",
     "--   ★★ 实现相同但声明不同（566 vs 567）：",
     "--     ROW              有 CheckRowRange（探针检查站位）",
@@ -84,18 +84,18 @@ export const BEFORE = {
     "--   ★★★ 这印证了 §2 566 行的推断：手柄玩家用摇杆驱动，",
     "--     不需要站位检查，且原地划即可。",
   ],
-  1380: [
+  "ACTIONS.BOARDPLATFORM.fn#1": [
     "--★★ BOARDPLATFORM.fn —— 一个只有一行的 fn（return true）。",
     "--   ★★ 配合 customarrivecheck=CheckIsOnPlatform（§零 99 行），",
     "--     这个动作的全部语义都在「何时触发」上，「做什么」是空。",
     "--   ★ 这是 T5「状态图驱动」的最纯粹形态：动作只是个信号。",
   ],
-  1384: [
+  "ACTIONS.OCEAN_FISHING_POND.fn#1": [
     "--★ OCEAN_FISHING_POND.fn —— 判断目标是不是「虚拟海洋」（鱼塘）。",
     "--   ★★ 失败原因 \"WRONGGEAR\" 有点误导：不是装备问题，是地点问题。",
     "--     ★ 可能沿用了「地点不对」的旧措辞未改。轻微不一致。",
   ],
-  1392: [
+  "ACTIONS.OCEAN_FISHING_CAST.fn#1": [
     "--★★ OCEAN_FISHING_CAST.fn —— 抛竿的标准三步：取竿、定点、调用。",
     "--   ★★ 1393 行 `act.invobject or GetEquippedItem(EQUIPSLOTS.HANDS)` ——",
     "--     ★★★ T7 的第三种变体：动作的两个对象槽（target/invobject）",
@@ -106,7 +106,7 @@ export const BEFORE = {
     "--     1393/1410/1417/1427 用的是 **components** 版本（fn 在服务端跑）。",
     "--     ★★★ 这条区分是本文件最重要的 client/server 对照，见下。",
   ],
-  1402: [
+  "ACTIONS.OCEAN_FISHING_REEL.strfn#1": [
     "--★★ OCEAN_FISHING_REEL.strfn —— 「客户端读副本」的标准示范。",
     "--   ★★★ 1403-1404 行逐字对照 fn（1410 行）：",
     "--     strfn: act.doer.**replica**.inventory ... rod.**replica**.oceanfishingrod",
@@ -120,26 +120,26 @@ export const BEFORE = {
     "--     ★ 这是 DST 联机架构必然带来的重复，没有办法完全消除。",
     "--   ★ 1404 行的 `rod:IsValid()` 检查在副本上调用 —— 副本也有 IsValid。",
   ],
-  1409: [
+  "ACTIONS.OCEAN_FISHING_REEL.fn#1": [
     "--★ OCEAN_FISHING_REEL.fn —— 服务端版。silent_fail 让失败不吵玩家。",
   ],
-  1416: [
+  "ACTIONS.OCEAN_FISHING_STOP.fn#1": [
     "--★ OCEAN_FISHING_STOP.fn —— T5 模板：显式 GoToState + 组件调用。",
     "--   ★★ 1420 行 `StopFishing(\"reeledin\")` 的字符串参数说明原因，",
     "--     供组件决定播放什么动画/音效。",
     "--   ★★★ 三个动作（STOP 1416/CATCH 1426/REEL 1409）连续排列，",
     "--     都是同一套「取竿 → 调组件」结构。",
   ],
-  1426: [
+  "ACTIONS.OCEAN_FISHING_CATCH.fn#1": [
     "--★ OCEAN_FISHING_CATCH.fn —— priority=6（最高非 HIGH），执行完即结束。",
   ],
-  1436: [
+  "ACTIONS.CHANGE_TACKLE.strfn#1": [
     "--★ CHANGE_TACKLE.strfn —— REMOVE / AMMO 两个变体 + 副本读取。",
     "--   ★★ 1439 行 `equipped.replica.container:IsHolding(item)` ——",
     "--     ★ 用副本判断「手持物里是否已装着」，客户端可读。",
     "--   ★ 1440 行回退到 `HasTag(\"reloaditem_ammo\")` —— 标签驱动。",
   ],
-  1444: [
+  "ACTIONS.CHANGE_TACKLE.fn#1": [
     "--★★★ CHANGE_TACKLE.fn —— 80 行，四条互斥路径（弹药容器的四种情形）。",
     "--   ★★ 结构：",
     "--     ① 1445-1448  前置检查（必须有手持物且它有 container）",
@@ -150,7 +150,7 @@ export const BEFORE = {
     "--     它的逻辑与「钓鱼」「投掷」无关，只与「容器 + 堆叠 + 特定槽位」有关。",
     "--     ★ §2 423 行的英文注释说得对：它已经被泛化成通用容器操作。",
   ],
-  1454: [
+  "ACTIONS.CHANGE_TACKLE.fn#1+10": [
     "--★★ 1454-1455 行清理 prevcontainer / prevslot。",
     "--   ★★★ 这两个字段是容器体系的「回滚信息」：",
     "--     当 GiveItem 失败时，物品要能被送回原来的槽位。",
@@ -159,14 +159,14 @@ export const BEFORE = {
     "--     会让「失败回滚」把物品送到一个已经不属于它的容器。",
     "--     ★ 这是一个「忘记清理就会出幽灵物品」的坑，值得记住。",
   ],
-  1460: [
+  "ACTIONS.CHANGE_TACKLE.fn#1+16": [
     "--★★ 特定槽位容器（如弹药带的 6 个格子）—— 三分支：",
     "--   ① 槽位空            → 直接放入（1467-1469）",
     "--   ② 可堆叠且没满      → 合并（1470-1482）",
     "--   ③ 其它（会腐烂/不能堆）→ 替换（1483-1493）",
     "--   ★★ 三分支的顺序即优先级：空 > 可堆 > 可替换。",
   ],
-  1475: [
+  "ACTIONS.CHANGE_TACKLE.fn#1+31": [
     "--★★★⚠ 可疑处（已核对：当前**不是**缺陷，但极脆）：",
     "--     `GiveItem(act.invobject, targetslot, nil, false)`",
     "--   ★★ 对比紧邻的 1469 行（同一分支的兄弟写法）：",
@@ -189,7 +189,7 @@ export const BEFORE = {
     "--   ★⇒ 归类为「高危代码形状」而非缺陷。正确写法应统一用 item。",
     "--     只记录不修改。",
   ],
-  1494: [
+  "ACTIONS.CHANGE_TACKLE.fn#1+50": [
     "--★★ 普通容器路径 —— 三层回退（1496-1519 行），设计相当精细：",
     "--   ① 放入成功 → 完事",
     "--   ② 放入失败但**数量变了**（部分放入）→ 把剩余的还回玩家（1500 行）",
@@ -201,10 +201,10 @@ export const BEFORE = {
     "--     ★ 1508 行的提示文案专属 slingshot 标签（弹弓的弹药槽超量堆叠）。",
     "--     ⇒ 这是全文件里最长的一个失败分支（4 层判断）。",
   ],
-  1519: [
+  "ACTIONS.CHANGE_TACKLE.fn#1+75": [
     "--★ 1523 行 `return false` —— 容器满且无槽位 1 时的兜底。",
   ],
-  1526: [
+  "ACTIONS.TALKTO.fn#1": [
     "--★★ TALKTO.fn —— 「说话」与「Maxwell 特殊处理」。",
     "--   ★★ 1529 行显式 locomotor:Stop()：对话要停步。",
     "--     ★ 与 LOOKAT.fn 里的 ShouldLOOKATStopLocomotor 形成对比 ——",
@@ -220,10 +220,10 @@ export const BEFORE = {
     "--     StartThread 返回的 task 若被丢弃，中断处理就失效。",
     "--     ★ 这里存进了字段，所以可被找到 —— 是正确用法。",
   ],
-  1541: [
+  "ACTIONS.INTERACT_WITH.strfn#1": [
     "--★ INTERACT_WITH.strfn —— FARM_PLANT 变体（照料作物）。",
   ],
-  1547: [
+  "ACTIONS.INTERACT_WITH.fn#1": [
     "--★★ INTERACT_WITH.fn —— 「照料成功也要说话」的设计。",
     "--   ★★ 1551 行 `sg:AddStateTag(\"idle\")` 很关键：",
     "--     ★★★ 加了 idle 状态标签，状态图才允许 talker 接管。",
@@ -232,26 +232,26 @@ export const BEFORE = {
     "--   ★ 1552 行的固定台词 \"ANNOUNCE_TALK_TO_PLANTS\" —— ",
     "--     「照料作物」是少数带专属台词的动作。",
   ],
-  1558: [
+  "ACTIONS.INTERACT_WITH.theme_music_fn#1": [
     "--★ INTERACT_WITH.theme_music_fn —— 「对着作物做 → farming 音乐」。",
     "--   ★★★ 注意它读的是 `act.target:HasTag(\"farm_plant\")` ——",
     "--     纯客户端判断（tag 在客户端可读），所以不需要组件副本。",
   ],
-  1564: [
+  "ACTIONS.ATTACKPLANT.fn#1": [
     "--★ ATTACKPLANT.fn —— 「打作物来减压」。两个副作用：压压力 + 变为可照料。",
     "--   ★★ 1567-1569 行的联动很妙：攻击作物之后它变成「可照料」状态，",
     "--     于是玩家需要接着用 INTERACT_WITH 照料它。",
     "--     ★ 这是一个「两个动作协同构成一个玩法」的小设计。",
   ],
-  1587: [
+  "ACTIONS.PERFORM.fn#1": [
     "--★ PERFORM.fn —— 表演。stdactor + stageactingprop 双重组件检查。",
   ],
-  1594: [
+  "ACTIONS.BAIT.fn#1": [
     "--★ BAIT.fn —— T1 模板：trap 组件 + RemoveItem + SetBait。",
     "--   ★★ 1596 行把 bait 作为 RemoveItem 的结果直接传入 —— ",
     "--     若背包里没有诱饵，RemoveItem 返回 nil，SetBait(nil) 的行为由组件决定。",
   ],
-  1601: [
+  "ACTIONS.DEPLOY.fn#1": [
     "--★★★ DEPLOY.fn —— 「放置」的三种模式（42 行）。",
     "--   ★★ 三模式对应三类可部署物：",
     "--     ① complexprojectile（1648 行的岩浆球类）→ 先 DropItem 再 Launch",
@@ -271,7 +271,7 @@ export const BEFORE = {
     "--     ★ 三步缺一不可：清理（否则还回位置不对）、尝试、还回。",
     "--     ★ 这是 T11「消耗道具」模板的完整形态，见 §0。",
   ],
-  1608: [
+  "ACTIONS.DEPLOY.fn#1+7": [
     "--★★ complexprojectile 分支 —— 「投掷型部署」。",
     "--   ★★ 1610-1612 行：DropItem 产生地面实体，再 Launch 发射。",
     "--     ★★ 与 TOSS.fn（3934 行）的结构相同，差别在于这里用的是",
@@ -279,20 +279,20 @@ export const BEFORE = {
     "--       —— 实际上是同样的调用，参数不同（TOSS 从 act.target 或 act point 取点）。",
     "--     ★ 换句话说 DEPLOY 的这个分支是 TOSS 的简化版。",
   ],
-  1619: [
+  "ACTIONS.DEPLOY.fn#1+18": [
     "--★ `container = inventory or components.container` —— 兼容玩家与 AI。",
     "--   ★★ 玩家有 inventory，AI（牛、蜘蛛）有 container。",
     "--     同一个动作服务两类执行者。",
   ],
-  1621: [
+  "ACTIONS.DEPLOY.fn#1+20": [
     "--★★ 清理 prevcontainer/prevslot（与 1454 行同一个理由，见 p3 的说明）。",
   ],
-  1625: [
+  "ACTIONS.DEPLOY.fn#1+24": [
     "--★★ 部署失败 ⇒ 物品还回容器，并返回失败原因。",
     "--   ★★★ 这是「事务」的 rollback 步骤。整个函数只有这一处失败还回，",
     "--     说明作者对「部署会失败」这件事有清醒认识。",
   ],
-  1637: [
+  "ACTIONS.DEPLOY.strfn#1": [
     "--★★ DEPLOY.strfn —— 13 个变体的标签 or 链。",
     "--   ★★ 值得注意的两个「同词不同标签」：",
     "--     trap → TURRET        deploykititem → TURRET",
@@ -302,26 +302,26 @@ export const BEFORE = {
     "--   ★★ 顺序即优先级：projectile 在 groundtile 之前，",
     "--     所以「既像投射物又像地面砖」的物品会显示成投掷。",
   ],
-  1656: [
+  "ACTIONS.DEPLOY.theme_music_fn#1": [
     "--★ DEPLOY.theme_music_fn —— 只有「部署农田作物」才播 farming。",
   ],
-  1662: [
+  "ACTIONS.DEPLOY.theme_music_fn#1+6": [
     "--★★ T12 同构模板的样板句：`ACTIONS.X.fn = ACTIONS.Y.fn`。",
     "--   ★ 同一行的 stroverridefn（1663 行）引用 ACTIONS.DEPLOY.strfn(act)，",
     "--   ★★ 于是 TILEARRIVE 的 UI 是「DEPLOY 的大类词 + 小类修饰」两层结构。",
     "--     而 1668 行的 DEPLOY_FLOATING 用了完全相同的写法。",
   ],
-  1672: [
+  "ACTIONS.DEPLOY_FLOATING.stroverridefn#1+4": [
     "--★ T12 变体：只借用 strfn，不共用 fn（因为本动作没有 fn）。",
     "--   ★★ 复用 UI 字符串而不复用逻辑 —— 这是最轻量的 T12。",
   ],
-  1674: [
+  "ACTIONS.SUMMONGUARDIAN.fn#1": [
     "--★ SUMMONGUARDIAN.fn —— 两行转发。distance=5 但无 canforce。",
   ],
-  1680: [
+  "ACTIONS.CHECKTRAP.fn#1": [
     "--★ CHECKTRAP.fn —— T1 模板。",
   ],
-  1687: [
+  "DoToolWork#1": [
     "--★★★【DoToolWork —— 全文件最重要的局部函数（46 行）】",
     "--   ★★ 它是 CHOP / MINE / HAMMER / DIG 四个动作的**共同实现**，",
     "--     也是整个游戏「干活」系统的唯一入口。",
@@ -337,7 +337,7 @@ export const BEFORE = {
     "--       于是「斧头砍树」与「锄头挖地」的代码 100% 相同，",
     "--       只有传入的 ACTIONS.CHOP / ACTIONS.DIG 不同。",
   ],
-  1688: [
+  "DoToolWork#1+1": [
     "--★★ 四条件准入与 ValidToolWork（1734 行）完全相同。",
     "--   ★★★ 这是一处**有意的重复**而不是疏忽：",
     "--     ValidToolWork 是 validfn 用的纯条件函数，",
@@ -347,13 +347,13 @@ export const BEFORE = {
     "--     忘记同步 DoToolWork 就会导致「UI 说能做但执行时不做」。",
     "--     ★ 这是典型的「判断逻辑双写」缺陷类型。记为 L 类隐患。",
   ],
-  1691: [
+  "DoToolWork#1+4": [
     "--★ 第四个条件：工具不被 restricted（如韦伯被限制的装备）。",
     "--   ★★ 1691 行用了三个 or 把「invobject 为 nil」「doer 为 nil」",
     "--     「equippable 为 nil」都当作「不限制」。",
     "--     ★ 写法冗长但语义正确。",
   ],
-  1697: [
+  "DoToolWork#1+10": [
     "--★★★【numworks 的计算 —— 决定「敲一下能刮掉多少」。】",
     "--   ★★★ 两个乘数：",
     "--     ① 工具/角色的「效率」（1698-1706）：",
@@ -371,18 +371,18 @@ export const BEFORE = {
     "--         · workmultiplier —— 「角色对这类工作的全局加成」（如火油助燃）",
     "--       ★ 两者相乘（1707 行）得到最终 numworks。",
   ],
-  1698: [
+  "DoToolWork#1+11": [
     "--★★ 1700 行 `tool:GetEffectiveness(workaction)` 传的是 workaction。",
     "--   ★★ 同一个工具对不同工作有不同效率（斧头砍树 1，斧头挖矿 0.5）。",
     "--     所以 workaction 参数必须一路传到底。",
   ],
-  1702: [
+  "DoToolWork#1+15": [
     "--★ 空手时的角色能力分支（韦伯的无工具修理等）。",
   ],
-  1707: [
+  "DoToolWork#1+20": [
     "--★ 第一个乘数结束，开始第二个乘数。",
   ],
-  1713: [
+  "DoToolWork#1+26": [
     "--★★★【反弹（recoil）机制 —— 工具太弱时敲不动】】",
     "--   ★★ 1714 行 `recoil, numworks = ShouldRecoil(doer, invobject, numworks)`",
     "--     —— ★★★ 注意这是**覆盖**了 numworks，不是叠加。",
@@ -396,13 +396,13 @@ export const BEFORE = {
     "--     ★ 为什么？反弹动画必须立刻开始，不能被前面的事件延迟。",
     "--     ★★ 这是本文件里唯一用 PushEventImmediate 的地方（除了 1721）。",
   ],
-  1720: [
+  "DoToolWork#1+33": [
     "--★★ `act.doer.sg.statemem.recoilstate ~= nil` —— 只有存在 recoil 状态时处理。",
     "--   ★★ 这说明「反弹动画」由 SG 侧的 recoilstate 负责，",
     "--     而工作系统只负责「推送事件」。",
     "--     ★ 分层很清晰：工作系统不碰动画。",
   ],
-  1726: [
+  "DoToolWork#1+39": [
     "--★★ 保留的英文注释解释了为什么调 Internal 版本：",
     "--   「调用『internal』函数因为我们已经算过反弹了。",
     "--     选『internal』这个名字就是为了阻止更多地方直接调用它。」",
@@ -412,13 +412,13 @@ export const BEFORE = {
     "--   ★ WorkedBy（公开版，workable.lua:123）内部会自己再算一次反弹，",
     "--     重复计算会让「先反弹后干活」的顺序错乱。",
   ],
-  1729: [
+  "DoToolWork#1+42": [
     "--★ return true —— 只要进了 if 就报告成功。",
     "--   ★★ 与 1731 行的 `return false` 对照：",
     "--     进 if ⇒ 成功；没进 if ⇒ 返回 false（但不返回 reason）。",
     "--     ★ 这就是 §0 里 T2 模板的「弱化版」。",
   ],
-  1730: [
+  "DoToolWork#1+43": [
     "--★ 1731 行的 return false —— 没进 if 时。",
     "--   ★★★ 但注意这里返回的是**纯 false**，没有 reason。",
     "--     而 CHOP.fn（1742 行）会把这个结果转成 `false, work_fail_reason`。",
@@ -428,7 +428,7 @@ export const BEFORE = {
     "--         在「目标不可干」时为假 ⇒ 走 else 分支 return **true**！",
     "--   ★★★ 这是一个真实的逻辑后果，值得仔细看 p4 的 CHOP 分析。",
   ],
-  1734: [
+  "ValidToolWork#1": [
     "--★★ ValidToolWork —— 纯条件版本，供 validfn 使用。",
     "--   ★★ 四个动作的 validfn 都只调它一行：",
     "--     CHOP.validfn  = function(act) return ValidToolWork(act, ACTIONS.CHOP) end",
@@ -438,7 +438,7 @@ export const BEFORE = {
     "--   ★★ 「四行一模一样的函数」是本文件的典型风格：",
     "--     显式重复优于抽象，因为每个动作以后都可能单独加条件。",
   ],
-  1742: [
+  "ACTIONS.CHOP.fn#1": [
     "--★★★【CHOP.fn —— 「工具工作」动作的统一外壳（14 行）】",
     "--   ★★ 四个动作的 fn 都是这个形状，只有额外的一句不同：",
     "--     CHOP   : DoToolWork + spooked:Spook(target)（1744-1749）",
@@ -463,10 +463,10 @@ export const BEFORE = {
     "--     那两条路径才会真的返回 false。",
     "--   ★ 记录为 L9：一个刻意的、但极度隐晦的「静默失败」实现。",
   ],
-  1750: [
+  "ACTIONS.CHOP.fn#1+8": [
     "--★ 只有有 reason 时才真失败。reason 只有两个来源（见上）。",
   ],
-  1757: [
+  "ACTIONS.CHOP.validfn#1": [
     "--★★ CHOP.validfn —— validfn 的语义要点。",
     "--   ★★★ validfn 在哪里被调用？bufferedaction.lua:46：",
     "--       (not TheWorld.ismastersim or",
@@ -479,31 +479,31 @@ export const BEFORE = {
     "--   ★ 用途：目标在「走过去」的过程中变得不能砍了 → 中断动作。",
     "--     ★★ 这就是 CHOP 声明 invalid_hold_action 之外的第二道保险。",
   ],
-  1761: [
+  "ACTIONS.MINE.fn#1": [
     "--★ MINE.fn —— 与 CHOP 完全相同，只少了 spooked 那一段。",
     "--   ★★ 结构对称到可以直接 diff 出 4 行差异。",
   ],
-  1770: [
+  "ACTIONS.MINE.validfn#1": [
     "--★ MINE.validfn —— ValidToolWork(act, ACTIONS.MINE)。",
   ],
-  1774: [
+  "ACTIONS.HAMMER.fn#1": [
     "--★ HAMMER.fn —— 第三个同构实现。",
   ],
-  1783: [
+  "ACTIONS.HAMMER.validfn#1": [
     "--★ HAMMER.validfn —— ValidToolWork(act, ACTIONS.HAMMER)。",
   ],
-  1787: [
+  "ACTIONS.DIG.fn#1": [
     "--★ DIG.fn —— 第四个同构实现。",
   ],
-  1796: [
+  "ACTIONS.DIG.validfn#1": [
     "--★ DIG.validfn —— ValidToolWork(act, ACTIONS.DIG)。",
   ],
-  1800: [
+  "ACTIONS.DIG.theme_music_fn#1": [
     "--★ DIG.theme_music_fn —— 清理农田残骸/作物时播 farming。",
     "--   ★★ 只有 DIG 有 theme_music_fn 而 CHOP/MINE 没有 ——",
     "--     因为「清作物残骸」与「耕种」在玩家感知上是同一件事。",
   ],
-  1806: [
+  "ACTIONS.FERTILIZE.fn#1": [
     "--★★ FERTILIZE.fn —— 「施肥」的四目标分支 + 一个自我分支。",
     "--   ★★ 1809 行的前置排除：`rider:IsRiding()` 时不施肥。",
     "--     ★★ 为什么？骑着牛时点击会把肥料给坐骑？",
@@ -511,16 +511,16 @@ export const BEFORE = {
     "--     ★ 注意这里是「跳过」而不是「return false」，所以动作会 return false",
     "--       （因为 applied 保持 nil），行为上是静默失败。",
   ],
-  1811: [
+  "ACTIONS.FERTILIZE.fn#1+5": [
     "--★ 作物未成熟或非枯萎才可施肥。与 2611 行的 PLANT 检查对称。",
   ],
-  1817: [
+  "ACTIONS.FERTILIZE.fn#1+11": [
     "--★ CHEVO_fertilized 事件 —— 一个成就相关的世界事件。",
     "--   ★★ 只在 pickable 分支推（1815 行），其他分支不推。",
     "--     ⇒ 成就在「给野花施肥」时触发，「给农田施肥」时不触发。",
     "--     ★ 这是有意还是遗漏？不确定，记为可疑但非缺陷。",
   ],
-  1823: [
+  "ACTIONS.FERTILIZE.fn#1+17": [
     "--★★ 1823-1828：「没有目标或目标是自己的时候，可以给自己施肥」。",
     "--   ★★ 条件 `act.target == nil or act.doer == act.target`：",
     "--     没有目标（点在空气）⇒ 给自己（顾自己的皮肤）",
@@ -529,18 +529,18 @@ export const BEFORE = {
     "--   ★ 1826 行被注释掉的旧实现 `fertilizer:Heal(doer)` ——",
     "--     保留了「曾经是直接回血」的历史信息。",
   ],
-  1838: [
+  "ACTIONS.SMOTHER.fn#1": [
     "--★★ SMOTHER.fn —— 「闷火」。判定极简：只要目标在冒烟。",
     "--   ★★ 1840 行 `act.invobject or act.doer` —— T7 模板的又一次使用。",
     "--     「用手闷」与「用物品闷」都是同一个动作。",
   ],
-  1846: [
+  "ACTIONS.MANUALEXTINGUISH.fn#1": [
     "--★ MANUALEXTINGUISH.fn —— 「用冰灭火」需要 frozen 标签 + 目标在烧。",
     "--   ★★ 1848 行传 `TUNING.SMOTHERER_EXTINGUISH_HEAT_PERCENT` ——",
     "--     灭火时保留一部分热量（防止「一桶水浇灭整片森林」）。",
     "--     ★ 与 1838 行的 SmotherSmolder 是两套不同的灭火逻辑。",
   ],
-  1853: [
+  "ACTIONS.NET.fn#1": [
     "--★★★ NET.fn —— 「网捕」是自己写的一套，不走 DoToolWork。",
     "--   ★★ 理由：网不需要「工具效率」，只需要「能不能抓」。",
     "--     ★★ 所以它自己检查 workable:GetWorkAction() == ACTIONS.NET（1857 行），",
@@ -553,7 +553,7 @@ export const BEFORE = {
     "--   ★★ 1866-1868 行：nabbag 组件要把网捕结果复制给自己",
     "--     （网袋功能）。这是模组/装备扩展点。",
   ],
-  1869: [
+  "ACTIONS.NET.fn#1+16": [
     "--★★⚠ 疑似缺陷 L5：1871 行的无条件 `return true`。",
     "--   ★★★ 推理依据：",
     "--     · 1854-1859 的外层 if 不成立时（目标不是可网之物、已死、",
@@ -569,17 +569,17 @@ export const BEFORE = {
     "--   ★ 结论：**刻意但粗糙**的静默失败。若要给出清晰反馈应改为返回 reason。",
     "--     只记录不修改。",
   ],
-  1874: [
+  "ACTIONS.CATCH.fn#1": [
     "--★ CATCH.fn —— 一行 return true（接住由捕蝇草组件自己完成）。",
   ],
-  1878: [
+  "ACTIONS.FISH_OCEAN.fn#1": [
     "--★★ FISH_OCEAN.fn —— 永远失败并带原因 \"TOODEEP\"。",
     "--   ★★★ 这是「用失败做 UI 反馈」的标准样本（§2 415 行已预告）。",
     "--     玩家在水太深的地方点「钓鱼」，会得到「太深了」的提示。",
     "--   ★★ 为什么不在 fn 里做位置检查再返回 false（无 reason）？",
     "--     因为 reason 需要被翻译成语音/文字，而 TUNING 里有对应的字符串。",
   ],
-  1882: [
+  "ACTIONS.FISH.fn#1": [
     "--★★ FISH.fn —— 淡水钓鱼。1883 行直接 `act.invobject.components.fishingrod`。",
     "--   ★⚠ 隐患：没有 nil 检查。若 invobject 为 nil（手上有东西但不是鱼竿），",
     "--     `act.invobject.components` 会崩。",
@@ -588,7 +588,7 @@ export const BEFORE = {
     "--   ★★★ 1885 行调 StartFishing 后无条件 return true（1887 行），",
     "--     即「即使不是鱼竿也报告成功」。与 NET 同款静默失败。",
   ],
-  1890: [
+  "ACTIONS.REEL.fn#1": [
     "--★★ REEL.fn —— 三态分派（收线 / 刺 / 取消）。",
     "--   ★★ 1891 行的 fishingrod 直接取组件（无 nil 检查），同 1883 行。",
     "--   ★★ 三态的顺序即优先级：有鱼 > 在咬 > 空闲。",
@@ -598,7 +598,7 @@ export const BEFORE = {
     "--     ★ 而 strfn（1904 行）会把这种情况显示为 \"CANCEL\"，",
     "--       提示了玩家这一点。strfn 与 fn 的三态是配对的。",
   ],
-  1904: [
+  "ACTIONS.REEL.strfn#1": [
     "--★★ REEL.strfn —— 与 fn 严格镜像的三态，且**必须用副本**。",
     "--   ★★★ 1905 行 `act.invobject.replica.fishingrod` —— 客户端没有组件。",
     "--     这就是「同一套逻辑写两遍」的代价（见 1402 行的对照说明）。",
@@ -608,7 +608,7 @@ export const BEFORE = {
     "--   ★★ 1909 行的 `act.doer:HasTag(\"nibble\")` 决定是 \"HOOK\" 还是 \"CANCEL\"",
     "--     —— 「会钓鱼的特性」（韦伯的钓鱼钩）。",
   ],
-  1917: [
+  "ACTIONS.PICK.strfn#1": [
     "--★★ PICK.strfn —— 四个标签变体。",
     "--   ★★ pickable_harvest_str → HARVEST / pickable_rummage_str → RUMMAGE",
     "--     pickable_search_str   → SEARCH / gemsocket → UNSOCKET",
@@ -616,14 +616,14 @@ export const BEFORE = {
     "--     「带 _str 后缀的标签只影响 UI 显示，不影响能否执行」。",
     "--     ★ 这样区分「能力标签」与「显示标签」，模组作者容易混淆。",
   ],
-  1927: [
+  "ACTIONS.PICK.fn#1": [
     "--★★ PICK.fn —— 采摘 / 搜索二分。",
     "--   ★★ 1930-1932 行的 STUCK 检查：物品「卡住」时不能采。",
     "--     ★★★ 这是为了防止「卡在两个碰撞体之间的物品被无限次采摘」。",
     "--   ★ 1935 行 elseif searchable → Search：搜索（草丛、石头缝）。",
     "--     ★ 采摘与搜索共用一个动作，靠目标组件区分。",
   ],
-  1941: [
+  "ACTIONS.PICK.validfn#1": [
     "--★★ PICK.validfn —— 「能不能采」的纯条件版本。",
     "--   ★★ 注意它复述了 fn 的部分条件（pickable:CanBePicked / searchable.canbesearched），",
     "--     但**没有**复述 STUCK 检查。",
@@ -632,7 +632,7 @@ export const BEFORE = {
     "--     但 fn 每次都返回 false → 语音 spam。",
     "--     ★ 记录为 L 类隐患（与 1688/1736 的双写同类）。",
   ],
-  1955: [
+  "ACTIONS.ATTACK.fn#1": [
     "--★★★ ATTACK.fn —— 「攻击」的三种特殊模式 + 通用路径。",
     "--   ★★ 1957-1970 行：检查 sg 的三个状态标签，各走一条武器特殊路径：",
     "--     propattack     → 道具武器，不做真实攻击，直接 return true",
@@ -647,13 +647,13 @@ export const BEFORE = {
     "--     ★★ 对比很有价值：工具工作在本文件算反弹，攻击在组件里算。",
     "--       原因是 combat 还要处理伤害、闪避、击退，反弹只是其中一环。",
   ],
-  1961: [
+  "ACTIONS.ATTACK.fn#1+6": [
     "--★ thrusting 分支：要求武器有 multithruster 组件。",
     "--   ★★★ `weapon ~= nil and weapon.components.multithruster ~= nil and`",
     "--     整条表达式作为返回值 ⇒ 三个条件同时满足才 return true。",
     "--     ★ 写法上把一个逻辑表达式直接当返回值，可读性偏低。",
   ],
-  1978: [
+  "ACTIONS.ATTACK.strfn#1": [
     "--★★ ATTACK.strfn —— 六个变体，全部是「武器改变攻击方式」。",
     "--   ★★ 1984 行 `act.doer.replica.combat ~= nil` —— 用副本，客户端可跑。",
     "--   ★★ 三个 combat 分支的顺序即优先级：",

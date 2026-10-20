@@ -4,7 +4,7 @@
 
 export const BEFORE = {
   // ── §零 ExtraPickRange 内部（172-197）
-  175: [
+  "ExtraDeployDist#1+9": [
     "--★★ ExtraPickRange 内部（35-55 行）的四层嵌套逐步收窄：",
     "--   ① 37  bufferedaction 存在？",
     "--   ② 38    └ bufferedaction.target 存在？",
@@ -12,18 +12,18 @@ export const BEFORE = {
     "--   ④ 40          └ 目标有 jostle* 标签？ → 25 拿到 extrarange",
     "--   ★★★ 这与 §p1 40 行的分析一致：逐层收窄而非展平。",
   ],
-  184: [
+  "ExtraDeployDist#1+18": [
     "--★★ 184 行 —— 三重 and 全部通过，进入距离计算。",
     "--   ★★ extrarange 此时已确定（非武器目标时为 0）。",
   ],
-  190: [
+  "ExtraDeployDist#1+24": [
     "--★★ 190-197 行 —— dest 的水面判定与返回。",
     "--   ★★ 与 §p1 49 行同一套双重判定（海洋瓦片 + 不可通行）。",
     "--   ★ 到此 §零 的范围函数族全部注释完毕。",
   ],
 
   // ── LOOKAT.fn 坐标版（1236-1260）
-  1237: [
+  "ACTIONS.LOOKAT.fn#1+17": [
     "--★★ LOOKAT.fn 的坐标版（1240-1258 行）与实体版（1223-1239）结构对称。",
     "--   ★★ 唯一差异：",
     "--     · 实体版：if act.target then ... CloseInspectTarget",
@@ -32,14 +32,14 @@ export const BEFORE = {
     "--     而不是写成两个独立动作（如 PICKUP vs PICKUP_MAP）。",
     "--       ★ 因为「看一个东西」与「看一个位置」在体感上完全一样。",
   ],
-  1248: [
+  "ACTIONS.LOOKAT.fn#1+28": [
     "--★ 1248 行 —— 坐标版的「停步」判断（ShouldLOOKATStopLocomotor）。",
     "--   ★★ 与 1228 行完全相同。★ 两处都调 locomotor:Stop()。",
     "--   ★★ 注意 1229/1247 行的调用形式不同：",
     "--     1229 `act.doer.components.locomotor:Stop()`",
     "--     ★ 两者可读性略有差异，但行为相同。",
   ],
-  1252: [
+  "ACTIONS.LOOKAT.fn#1+32": [
     "--★ 1252 行 —— 坐标版的失败说话（与 1234 行对称）。",
     "--   ★★★ 这里再次出现 talker:Say 的十个位置参数。",
     "--     ★ 1234 与 1252 两处各写了一遍完全相同的十个 nil + sgparam。",
@@ -47,7 +47,7 @@ export const BEFORE = {
   ],
 
   // ── GIVE.fn 分支（2311-2339）
-  2313: [
+  "ACTIONS.GIVE.fn#1+36": [
     "--★★ GIVE.fn 的分支③（商人）在 2313-2315 结束，",
     "--   ★★ 接下来 2317-2336 是另外四个分支（每个都很短）。",
     "--   ★★★ 四个分支的共同形状：",
@@ -59,13 +59,13 @@ export const BEFORE = {
     "--   ★★ 分支⑥（inventoryitemholder）2328-2329：一行转发",
     "--   ★★ 分支⑦⑧（quagmire 两个）2331-2336：各一行转发",
   ],
-  2320: [
+  "ACTIONS.GIVE.fn#1+43": [
     "--★ 分支⑤（家具装饰）的三行：判 AbleToAccept → 不行 return false,reason",
     "--   ★ ★ 行 → 调 AcceptDecor。",
   ],
 
   // ── HARVEST 分支（2640-2666）
-  2640: [
+  "ACTIONS.HARVEST.fn#1+2": [
     "--★★ HARVEST.fn 的七分支逐个看（2639-2665）：",
     "--   ① crop        → 2639-2641（成熟/枯萎都收）",
     "--   ② harvestable → 2642-2643（通用收获，两行）",
@@ -78,7 +78,7 @@ export const BEFORE = {
     "--     ★ 这是「同构模板」在单个函数内的体现。",
     "--   ★★ ⑥2656 行的条件用 and 连接 IsOccupied() 与组件存在。",
   ],
-  2656: [
+  "ACTIONS.HARVEST.fn#1+18": [
     "--★★ 分支⑥（occupiable）的六行 —— 「从占用型容器取走」。",
     "--   ★★ 2658 行的 `if item ~= nil then` 检查：",
     "--     ★ Occupy 可能返回 nil（容器里其实没东西）。",
@@ -87,7 +87,7 @@ export const BEFORE = {
   ],
 
   // ── HITCHUP 判定链（2701-2736）
-  2705: [
+  "ACTIONS.HITCHUP.fn#1+6": [
     "--★★ HITCHUP.fn 的判定链逐步展开：",
     "--   ②7005-2711 背包里找牛铃（FindItem + GetBeefalo）",
     "--   ③2713-2716 取出 beefalo，没有 → NEEDBEEF",
@@ -100,13 +100,13 @@ export const BEFORE = {
     "--     ★ 与 §p5 2940 行 COMMENT.fn 的清空同款 ——",
     "--       「doer 上的临时字段当参数通道」的模式。",
   ],
-  2727: [
+  "ACTIONS.HITCHUP.fn#1+28": [
     "--★★ 2727 行的 hitchto 事件 —— 「牛走向桩子」的信号。",
     "--   ★★ 事件负载只有 doer 与 target（牛的移动由 hitcher 组件处理）。",
   ],
 
   // ── COMMENT.fn（2911-2942）
-  2915: [
+  "ACTIONS.COMMENT.fn#1+7": [
     "--★★ COMMENT.fn 的两套 talker 逐步展开：",
     "--   ①2915-2927 npc_talker（NPC 评论）：",
     "--     · 2916-2922 do_chatter → Chatter，否则 Say",
@@ -116,14 +116,14 @@ export const BEFORE = {
     "--   ★★★ 两套组件接口相似但不完全相同（Chatter 的参数更多），",
     "--     所以作者选择复制而非抽象。",
   ],
-  2927: [
+  "ACTIONS.COMMENT.fn#1+19": [
     "--★ 2927 行 —— 「让 NPC 继续说下一句」。",
     "--   ★★ 只有 npc_talker 有这个方法，玩家没有。",
     "--     ★ 语义：NPC 评论是一串连续的话，说完这句自动接下一句。",
   ],
 
   // ── DoCharlieResidueMapAction（2991-3015）
-  2997: [
+  "DoCharlieResidueMapAction#1+8": [
     "--★★ DoCharlieResidueMapAction 的 wormhole 分支（2993-3014）内部：",
     "--   ①2995      在 WORMHOLE_DETECTION_RADIUS 内找所有 wormhole",
     "--   ②2996-3001 遍历，取第一个「有 teleporter 且不是我」的",
@@ -134,14 +134,14 @@ export const BEFORE = {
     "--     ★ 不能「从自己传送到自己」。",
     "--   ★★ ③的兜底让「只找到一个虫洞」时传送退化为原地。",
   ],
-  3009: [
+  "DoCharlieResidueMapAction#1+20": [
     "--★★ tentacle_pillar 分支（3006-3023）的遍历：",
     "--   ★★ 与 2996-3001 逐行对称，只是 must tags 换成 TENTACLE_PILLAR。",
     "--   ★★ 3016-3019 多了一步 Overtake（唤醒沉睡的触手柱）。",
   ],
 
   // ── FEED 尾段（3821-3856）
-  3823: [
+  "ACTIONS.FEED.fn#1+74": [
     "--★★ FEED.fn 的分支④（eater）在 3822 结束 —— return true。",
     "--   ★★ 3825-3854 是**被整段注释掉的旧实现**（30 行）。",
     "--     ★★★ 保留它的三个价值：",
@@ -154,7 +154,7 @@ export const BEFORE = {
   ],
 
   // ── TOSS_MAP remap（4005-4036）
-  4017: [
+  "ACTIONS.TOSS_MAP.fn#1+22": [
     "--★★ TOSS_MAP 重映射的「距离夹取」在 4017-4023：",
     "--   ★★ 两个分支只差方向：",
     "--     · 距离 < min → 拉到 min 远（4018-4019）",
@@ -163,7 +163,7 @@ export const BEFORE = {
     "--     ★ 玩家看到抛物线被截断，比看到「不能扔」友好得多。",
     "--     ★★★ 这与 §p8 6785-6791 的 MAPSCOUT_MAP 钳制同源手法。",
   ],
-  4026: [
+  "ACTIONS.TOSS_MAP.fn#1+31": [
     "--★ 4026 行 —— 水面校验（与 §p1 49 行的双重判定完全一致）。",
     "--   ★★ 这是该表达式在 actions.lua 里**第五次**出现。",
     "--     ★ 49 / 158 / 216 / 181 / 4026 —— 五处。",
@@ -172,7 +172,7 @@ export const BEFORE = {
   ],
 
   // ── CONSTRUCT 尾段（4441-4466）
-  4448: [
+  "ACTIONS.CONSTRUCT.fn#1+41": [
     "--★★ CONSTRUCT.fn 的「顺手放材料」在 4448-4462：",
     "--   ①4448  槽位能放？",
     "--   ②4449  取出物品（按容器是否接受堆叠）",
@@ -183,14 +183,14 @@ export const BEFORE = {
     "--   ★★ 4452-4456 的手柄分支：手柄玩家 GiveItem，键鼠玩家 GiveActiveItem。",
     "--     ★★ 因为手柄没有「点物品」的概念。",
   ],
-  4459: [
+  "ACTIONS.CONSTRUCT.fn#1+52": [
     "--★ 4459 行 —— 「材料放不进去」的说话反馈。",
     "--   ★★★ 与 §p5 2527/2533 的强制说话同款：",
     "--     「构造是一个忙状态，所以需要强制说话」。",
   ],
 
   // ── REPLATE 四场景（5256-5321）
-  5265: [
+  "ACTIONS.REPLATE.fn#1+12": [
     "--★★ REPLATE.fn 的 owner 推导（5265-5268）：",
     "--   ★★ `replatable.inst.components.inventoryitem:GetGrandOwner()`",
     "--     ★★ 用 GetGrandOwner（递归）而非 owner ——",
@@ -199,7 +199,7 @@ export const BEFORE = {
     "--     ★★★ 又是「玩家 / AI」的兼容写法（§p4 1619 行同款）。",
     "--   ★★ 5268 行的 replater_owner 为 nil ⇒ 「盘子在地上」（5269-5273 分支）。",
   ],
-  5275: [
+  "ACTIONS.REPLATE.fn#1+22": [
     "--★★ REPLATE 的场景②（盘子在物品槽）5274-5292 的十行重建：",
     "--   ①5276-5277 注释：必须 Spawn 新实体让客户端播动画",
     "--   ②5278      记住 replater 的槽位（不是 replatable 的！）",
@@ -212,7 +212,7 @@ export const BEFORE = {
     "--   ★★★ 「记住状态 → 销毁 → 重建 → 恢复 → 放回原槽」是完整的",
     "--     「实体不可热替换组件」的标准解法。",
   ],
-  5294: [
+  "ACTIONS.REPLATE.fn#1+41": [
     "--★★ REPLATE 的场景③（食物盘子在背包）5294-5311 ——",
     "--   ★★ 与场景②（5274-5292）**几乎逐行相同**，",
     "--     唯一差别是 5296 行 `inventory:GetItemSlot(replatable.inst)`",
@@ -225,7 +225,7 @@ export const BEFORE = {
   ],
 
   // ── SALT 段（5326-5356）
-  5330: [
+  "ACTIONS.SALT.fn#1+8": [
     "--★★ SALT.fn 的「重建」在 5330-5348，与 REPLATE 场景③同款：",
     "--   ①5332-5335 找容器与槽位",
     "--   ②5336-5338 记住 prefab / perish / replated（★ 三个状态）",
@@ -237,7 +237,7 @@ export const BEFORE = {
     "--   ★★★ 与 REPLATE 相比多记了「replated」（盘子被替换过没有）。",
     "--     ★ 因为 SALT 要同时保留「换过盘子」与「腌过」两个状态。",
   ],
-  5350: [
+  "ACTIONS.SALT.fn#1+28": [
     "--★ 5350-5352 行 —— 「盘子在地上」的简单路径。",
     "--   ★★★ 只有一行 `quagmire_saltable:Salt(1)`。",
     "--     ★ 与背包路径的 18 行形成极端对比 ——",
@@ -246,7 +246,7 @@ export const BEFORE = {
   ],
 
   // ── UNPATCH 段（5361-5396）
-  5366: [
+  "ACTIONS.UNPATCH.fn#1+9": [
     "--★★ UNPATCH.fn 的「临时方案」在 5368-5373：",
     "--   ★★ 条件 `GetRemainingRepairedTime()` —— 「这个洞已经被修过一次」。",
     "--     ★★ 于是直接转成 small_leak 并 return true，**不掉任何战利品**。",
@@ -254,7 +254,7 @@ export const BEFORE = {
     "--   ★★★ 5368 行的「NOTES(DiogoW): Temporary boat patch.」",
     "--     明确标注了这是权宜之计 —— 后来者应知。",
   ],
-  5376: [
+  "ACTIONS.UNPATCH.fn#1+19": [
     "--★★ 5376-5388 行 —— 「补丁顺手修船」：",
     "--   ★★ 5375 行按动画状态选 prefab（boat_repair_tape_build → sewing_tape）。",
     "--   ★★ 5379-5382 的双重条件：patch 非 nil 且有 repairer 且有 healthrepairvalue。",
@@ -264,7 +264,7 @@ export const BEFORE = {
   ],
 
   // ── PLANTREGISTRY_RESEARCH（5446-5471）
-  5449: [
+  "ACTIONS.PLANTREGISTRY_RESEARCH.fn#1+8": [
     "--★★ PLANTREGISTRY_RESEARCH.fn 的三分支（5444-5468）：",
     "--   ①5449-5459  plantresearchable",
     "--     · 5450-5453 IsRandomSeed → 说话「这是随机种子」（不学）",
@@ -274,12 +274,12 @@ export const BEFORE = {
     "--   ★★★ 三处的说话都传了 `inspectable.noanim` ——",
     "--     ★ 隐式依赖 inspectable 组件（未声明的依赖，见 5452 处注释）。",
   ],
-  5462: [
+  "ACTIONS.PLANTREGISTRY_RESEARCH.fn#1+21": [
     "--★ 5462-5466 行 —— 肥料研究分支。四行，无随机种子概念。",
   ],
 
   // ── USESPELLBOOK.pre_action_cb（5901-5933）
-  5913: [
+  "ACTIONS.USESPELLBOOK.pre_action_cb#1+15": [
     "--★★ USESPELLBOOK.pre_action_cb 的③④⑤（5913-5927）：",
     "--   ③5913-5918 HUD 挡着（ishudblocking）→ 先关制作栏，再重新检查",
     "--     ★★★ 5917 行的「重新检查」很关键：",
@@ -290,7 +290,7 @@ export const BEFORE = {
     "--     ★ 与 fn（5939-5941）里同样的调用 ——",
     "--       「pre_action_cb 与 fn 各做一遍」是这个动作的双端协作。",
   ],
-  5921: [
+  "ACTIONS.USESPELLBOOK.pre_action_cb#1+23": [
     "--★★ 5922 行的 ShouldOpen —— 「静默阻止开书」的钩子。",
     "--   ★★ 注释（5920-5921 行）说明了用途：",
     "--     「ShouldOpen 对静默阻止很有用，比如指令正处于忙的预览状态时。」",
@@ -299,7 +299,7 @@ export const BEFORE = {
   ],
 
   // ── CARVEPUMPKIN（6046-6075）
-  6056: [
+  "ACTIONS.CARVEPUMPKIN.fn#1+15": [
     "--★★ CARVEPUMPKIN.fn 的「先放下」在 6056-6068：",
     "--   ①6056  owner = 目标的直接持有者",
     "--   ②6057  grandowner = 递归持有者（见 §p3 1098 行的说明）",
@@ -312,7 +312,7 @@ export const BEFORE = {
     "--     「谁的手包里」与「最终是谁的」是两个概念。",
     "--     ★ 这里两者都用，是为了「不能雕刻别人背包里的南瓜」。",
   ],
-  6064: [
+  "ACTIONS.CARVEPUMPKIN.fn#1+23": [
     "--★★ 6064-6067 行 —— 「放下来失败」的兜底。",
     "--   ★★ `if act.target.components.inventoryitem:IsHeld() then return false`",
     "--   ★★★ 注释「failed to drop?!?!」表达了作者的不确定 ——",
@@ -320,7 +320,7 @@ export const BEFORE = {
   ],
 
   // ── DECORATESNOWMAN（6091-6167）
-  6110: [
+  "ACTIONS.DECORATESNOWMAN.fn#1+23": [
     "--★★ DECORATESNOWMAN.fn 的模式②（叠小雪球）6108-6134：",
     "--   ①6110  CanStack 预检",
     "--   ②6116  CanEntitySeeTarget（黑暗中静默）",
@@ -331,14 +331,14 @@ export const BEFORE = {
     "--   ④6131  Stack(doer, invobject)",
     "--   ★★★ 6121-6123 的「堆叠拆分」与 REPLATE 的「堆叠还原」是镜像操作。",
   ],
-  6125: [
+  "ACTIONS.DECORATESNOWMAN.fn#1+38": [
     "--★★ 6125-6130 行 —— 「销毁旧的、长出新的」。",
     "--   ★★ 6127 行硬编码 prefab 名 \"snowman\"。",
     "--     ★ 与 DROP.strfn（1191 行）硬编码 \"pumpkin_lantern\" 同款 ——",
     "--       全文件大量使用标签，唯独这里用 prefab 名（因为要 Spawn 新的）。",
     "--   ★★ 6128 行 SetSize(size) 保留原有尺寸 ⇒ 「长大」而非「重造」。",
   ],
-  6147: [
+  "ACTIONS.DECORATESNOWMAN.fn#1+60": [
     "--★★ 模式③（叠大雪球）6135-6164 与模式②**几乎逐行相同**：",
     "--   ★★ 唯一差别：6137 行从 BODY 槽取装备而非从 invobject 取。",
     "--   ★★★ 6174-6181 与 6108-6134 的结构完全对应 ——",
@@ -347,7 +347,7 @@ export const BEFORE = {
   ],
 
   // ── CONTAINER_INSTALL_ITEM（6356-6398）
-  6375: [
+  "ACTIONS.CONTAINER_INSTALL_ITEM.fn#1+23": [
     "--★★ CONTAINER_INSTALL_ITEM 的路径②（特定槽位）6372-6388：",
     "--   ①6373-6374 GetSpecificSlotForItem → slot",
     "--   ②6375      取出新物品（RemoveFromOwner(true)）",
@@ -358,13 +358,13 @@ export const BEFORE = {
     "--     ★ 与 6341 行的 pre_action_cb 播否定音效配对 ——",
     "--       「预告失败」+「实际不动」的一致设计。",
   ],
-  6393: [
+  "ACTIONS.CONTAINER_INSTALL_ITEM.fn#1+41": [
     "--★ 6393 行 —— 路径结束的统一 return true。",
     "--   ★★ 6396 行的 return false 只在「找不到有效容器」时到达。",
   ],
 
   // ── DRAW_FROM_DECK（6451-6482）
-  6455: [
+  "ACTIONS.DRAW_FROM_DECK.fn#1+7": [
     "--★★ DRAW_FROM_DECK.fn 的造牌与降级（6455-6477）：",
     "--   ①6455-6462 造牌（组件 or 直接 Spawn 的双路径）",
     "--   ②6463      SetPosition 到牌堆位置",
@@ -375,7 +375,7 @@ export const BEFORE = {
     "--     这个组件的存在只是为了「复用造牌逻辑」，",
     "--     而它的实现本身也可以直接调用。",
   ],
-  6466: [
+  "ACTIONS.DRAW_FROM_DECK.fn#1+18": [
     "--★★ 6466-6473 行 —— 「背包满了怎么办」的三级降级。",
     "--   ★★ ②6166 取当前 activeitem → 6468 丢掉它 → 6469 给新牌",
     "--     ★★★ 「丢掉手上的东西来腾位」—— 粗暴但有效。",
@@ -385,7 +385,7 @@ export const BEFORE = {
   ],
 
   // ── ADD_CARD_TO_DECK（6496-6559）
-  6506: [
+  "ACTIONS.ADD_CARD_TO_DECK.fn#1+13": [
     "--★★ ADD_CARD_TO_DECK.fn 的四种组合（6494-6557）：",
     "--   ①6505-6529 牌 → 牌     （**两张牌合并成牌堆**）",
     "--   ②6530-6543 牌堆 → 牌堆 （合并两副）",
@@ -395,7 +395,7 @@ export const BEFORE = {
     "--     ★ 注意 6498 行的 if 只判 `invobject.components.playingcard`，",
     "--       6530 行才是 deckcontainer —— 两者的 else 链是平行的。",
   ],
-  6531: [
+  "ACTIONS.ADD_CARD_TO_DECK.fn#1+38": [
     "--★★ ②6531-6543「牌堆 → 牌堆」的二分：",
     "--   ★★ 6532 行 `if not IsHeld()` —— 目标牌堆在地上：",
     "--     ★ 6533-6536 把自己挪过去合并（但 6534 行 RemoveItem 后",
@@ -413,14 +413,14 @@ export const BEFORE = {
   ],
 
   // ── MAPDELIVER_MAP（6846-6873）
-  6855: [
+  "ACTIONS.MAPDELIVER_MAP.maponly_checkvalidpos_fn#1+13": [
     "--★★ MAPDELIVER_MAP 的双点飞行许可检查在 6853-6859：",
     "--   ★★ 6853-6854 分别取「飞行起点」（图标）与「终点」（光标）。",
     "--   ★★ 6855 行的双点 API：两端都必须允许飞行。",
     "--     ★★ 对比 6835 行的单点版（只要起点允许）。",
     "--       ★ 「世界内起飞的地点」与「地图上两点的航线」是两种判定。",
   ],
-  6863: [
+  "ACTIONS.MAPDELIVER_MAP.fn#1+1": [
     "--★★ 6863-6872 行 —— fn 里重复了同样的检查（6866 行）。",
     "--   ★★★ 「strfn 查一次、fn 再查一次」是**正确的双端模式**",
     "--     （对比 6842 行的 maponly_checkvalidpos_fn 也是这样做的）。",
@@ -430,7 +430,7 @@ export const BEFORE = {
   ],
 
   // ── SWAPBODIES_MAP（6878-6903）
-  6888: [
+  "ACTIONS.SWAPBODIES_MAP.maponly_checkvalidpos_fn#1+14": [
     "--★★ SWAPBODIES_MAP.maponly_checkvalidpos_fn 的五道检查（6875-6901）：",
     "--   ①6875-6876 doer 存在且是 WX-78",
     "--   ②6878-6879 skilltreeupdater + wx78_remotebodyswap 技能",
@@ -439,14 +439,14 @@ export const BEFORE = {
     "--   ⑤6893-6900 **WagPunk 竞技场屏障检查**",
     "--   ★★★ ⑤是本函数最独特的一步，且必须在地图层做。",
   ],
-  6896: [
+  "ACTIONS.SWAPBODIES_MAP.maponly_checkvalidpos_fn#1+22": [
     "--★★ 6896-6900 行 —— 「竞技场屏障」的几何判定：",
     "--   ★★ `map:IsPointInWagPunkArena(px,py,pz) ~= map:IsPointInWagPunkArena(x,y,z)`",
     "--     ★★★ 「两点分处屏障两侧」⇒ 拒绝。",
     "--       ★ 这是一个纯几何判定，与叙事设定（Wagstaff 的信号屏障）绑定。",
     "--       ★★ 若 mod 改动了 arena 的形状，这里必须同步。",
   ],
-  3824: [
+  "ACTIONS.FEED.fn#1+75": [
     "--★★ 3824 行 —— FEED.fn 主体结束，进入 30 行被注释掉的旧实现。",
     "--   ★★ 这段（3825-3854）全部以 `--[[` 包裹（3831 行可见开标记），",
     "--     属于 Lua 的**长注释块**，因此整块不参与语法解析。",
@@ -460,7 +460,7 @@ export const BEFORE = {
   ],
 
   // ── ADD_CARD_TO_DECK 场景④（6544-6559）
-  6546: [
+  "ACTIONS.ADD_CARD_TO_DECK.fn#1+53": [
     "--★★ ADD_CARD_TO_DECK 的场景④（牌堆 → 牌）6544-6555：",
     "--   ★★ 6545-6547 又是「目标是否在手上」的二分：",
     "--     · 在手上 → 6546 取下来当作「要加入的那张」",
@@ -481,7 +481,7 @@ export const BEFORE = {
   ],
 
   // ── REPLATE 场景④ 尾段（5295-5321）
-  5296: [
+  "ACTIONS.REPLATE.fn#1+43": [
     "--★★ REPLATE.fn 场景③（5294-5311）的对称说明已在上方，",
     "--   ★★ 5312-5321 是最后两个分支：",
     "--     ①5312-5316 「盘子在地上」：最简（Remove + Replate 两行）",

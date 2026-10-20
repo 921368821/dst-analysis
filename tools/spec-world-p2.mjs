@@ -1,7 +1,7 @@
 // spec-world-p2.mjs —— prefabs/world.lua 第 2 段：玩家出生、游戏数据同步、PostInit、销毁（298-397）
 
 export const BEFORE = {
-  300: [
+  "OnPlayerSpawn#1": [
     "--★★★【OnPlayerSpawn —— 联机出生流程在 Lua 侧的回调】",
     "--   签名 (world, inst)：world 是派发事件的实体（= TheWorld），inst 是事件参数。",
     "--   ★ 第 606 行 inst:ListenForEvent(\"ms_playerspawn\", OnPlayerSpawn) 完成绑定。",
@@ -12,7 +12,7 @@ export const BEFORE = {
     "--     ms_save、ms_startvote、ms_worldreset（见 shardnetworking.lua 与 networking.lua）。",
     "--   整个函数体包在 DoTaskInTime(0, ...) 里 —— 见下方注记。",
   ],
-  301: [
+  "OnPlayerSpawn#1+1": [
     "--★★★【为什么整个函数体要包一层 DoTaskInTime(0, ...)？—— 本文件最重要的一个 trick】",
     "--   DoTaskInTime(0) = 下一个刻（tick）执行，而不是立即执行。",
     "--   ★★ 原因：**监听器注册时刻，事件源实体的状态可能还没准备好**。",
@@ -27,7 +27,7 @@ export const BEFORE = {
     "--     而游戏逻辑往往需要「变更已落定」的世界。延迟一刻是两者之间唯一的缓冲。",
     "--   参见 entityscript.lua 的 DoTaskInTime 实现（任务队列挂在实体上，实体死亡则任务取消）。",
   ],
-  302: [
+  "OnPlayerSpawn#1+2": [
     "--★★【auto_teleport_players —— 一个纯粹的「调试/测试便利」开关】",
     "--   语义：新人加入时，把玩家瞬移到任意一个已有玩家身边。",
     "--   ★ 用途：开房主调试联机时，让所有客户端角色重叠在一起便于观察。",
@@ -36,13 +36,13 @@ export const BEFORE = {
     "--   推理：它是 inst 上的裸字段（不是组件设置），没有暴露给玩家可见的开关，",
     "--     应属开发者调试用。生产配置中必须确保为假。",
   ],
-  303: [
+  "OnPlayerSpawn#1+3": [
     "--★ teleported 标志：保证**最多只传送一个玩家**（第 309 行的 and not teleported）。",
     "--   ★ 为什么不是循环里逐个传送？",
     "--     因为 teleport 的目标必须是「一个稳定的参照物」；如果每个新人都传送到前一个新人，",
     "--     会形成一条漂移链。所以只认「第一个找到的老玩家」。",
   ],
-  305: [
+  "OnPlayerSpawn#1+5": [
     "--★★★【Ents 表 —— 全局实体注册表，本文件最核心的数据结构】",
     "--   local 变量 k 是 GUID（全局唯一实体号），v 是实体对象。",
     "--   ★★★ Ents 定义在 main.lua:289（Ents = {}），**不是本文件**。",
@@ -59,7 +59,7 @@ export const BEFORE = {
     "--   交叉引用：networking.lua:25 Networking_SlashCmd 用 Ents[guid] 做 O(1) 直取 ——",
     "--     知道 GUID 时务必走索引，不要学本行做全表遍历。",
   ],
-  306: [
+  "OnPlayerSpawn#1+6": [
     "--★★【三个条件的合取，各有各的理由，不能删任何一个】",
     "--   v:IsValid() —— 必查。★ 遍历期间其他实体可能已被移除，",
     "--     访问已 Remove 的实体会拿到失效引用（DST 的实体移除是延迟的，",
@@ -71,13 +71,13 @@ export const BEFORE = {
     "--   v ~= inst —— 排除新玩家自己（否则会传送到自己身上，无意义）。",
     "--   and not teleported —— 见第 303 行。",
   ],
-  307: [
+  "OnPlayerSpawn#1+7": [
     "--★ inst.Transform:SetPosition(v.Transform:GetWorldPosition()) —— 复制的是**世界坐标**。",
     "--   ★ 注意用的是 GetWorldPosition 而不是 v.Transform.position：",
     "--     后者是局部坐标，只有在无父级变换时才等于世界坐标。",
     "--   ★ 直接 SetPosition（而非插值移动）= 瞬移，玩家会看到一次视觉跳变。",
   ],
-  308: [
+  "OnPlayerSpawn#1+8": [
     "--★★★【inst:SnapCamera() —— 瞬移后必须强制同步相机，否则玩家会「看见自己飞过去」】",
     "--   相机在客户端独立运行并有自己的平滑跟随逻辑（见 01-报告/05 的 TheCamera:Update）。",
     "--   实体瞬移但相机还在旧位置并缓缓跟随，中间这段就是「拉镜头」，很难看。",
@@ -87,7 +87,7 @@ export const BEFORE = {
   ],
 
   // ── DoGameDataChanged ───────────────────────────────────────────────────
-  316: [
+  "DoGameDataChanged#1": [
     "--★★★【DoGameDataChanged —— 把世界 Lua 状态「打包下发给所有客户端」】",
     "--   数据源是 inst.state（第 529 行 = worldstate 组件的 data）。",
     "--   三个字段构成「客户端 HUD 上显示的日历信息」：",
@@ -98,12 +98,12 @@ export const BEFORE = {
     "--   ★★ 注意这里**没有** daylength / 时钟信息 —— 那些走 clock 组件的 netvar。",
     "--     本函数只负责「日历类」的汇总。",
   ],
-  319: [
+  "DoGameDataChanged#1+3": [
     "--★ 这张表是纯数据，字段名与客户端 UI 的取值预期严格对应。",
     "--   ⚠ 如果模组扩展了 worldstate 的 data 字段，这里不会自动带上 ——",
     "--     想同步额外字段必须改这个函数。这是**加字段需双改**的耦合点。",
   ],
-  325: [
+  "DoGameDataChanged#1+9": [
     "--★★★【TheNet:SetGameData(DataDumper(...)) —— 序列化 + 广播】",
     "--   DataDumper(table, nil, false) —— 第三个参数是「是否包含引用」：",
     "--   false = 不含 entity 引用。★ 理由：广播给所有客户端的数据必须可序列化，",
@@ -114,13 +114,13 @@ export const BEFORE = {
     "--     状态在服务端 → DataDumper 转字符串 → TheNet 广播。",
     "--     参见 01-报告/04-联机同步-模组系统-UI.md 的「实体复制 — 网络变量」章节。",
   ],
-  326: [
+  "DoGameDataChanged#1+10": [
     "--★ SetSeason 单独一行 —— 季节名与季节天数分开发送。",
     "--   ★ 推理：季节在 SetGameData 里被「量化」成了天数（第 322-323 行），",
     "--     但客户端 UI 还要显示季节**名**（春/夏/秋/冬的图标与配色），",
     "--     而 season 字段不是数字，DataDumper 的编码路径不同，故单独发。",
   ],
-  329: [
+  "OnGameDataChanged#1": [
     "--★★★【OnGameDataChanged —— 「多个状态字段共用一次广播」的合并器】",
     "--   问题：第 349-352 行连续监听 4 个字段。夜晚推进时，cycles 和",
     "--   elapseddaysinseason 可能在同一刻同时变，若各自触发一次广播就是 4 倍浪费。",
@@ -130,7 +130,7 @@ export const BEFORE = {
     "--   ★ 与第 301 行的 DoTaskInTime(0) 是同一套「延迟一刻」原语的两种用法：",
     "--     那里用来等外部状态稳定，这里用来合并重复触发。",
   ],
-  330: [
+  "OnGameDataChanged#1+1": [
     "--★★ nil 检查即去抖开关：只有没排过队时才排。",
     "--   标志位由 DoGameDataChanged 的**第一行**清空（第 317 行），",
     "--   ★ 所以清理发生在任务真正执行时，而不是排队时 ——",
@@ -140,7 +140,7 @@ export const BEFORE = {
   ],
 
   // ── PostInit ────────────────────────────────────────────────────────────
-  335: [
+  "PostInit#1": [
     "--★★★【PostInit —— 「实体已经建好」的收尾钩子，与 prefab 无关】",
     "--   注意这是**全局函数**（第 335 行没有 local），在第 535 行挂为 inst.PostInit。",
     "--   ★ 为什么必须做成全局函数而不是文件内的 local？",
@@ -149,7 +149,7 @@ export const BEFORE = {
     "--     挂到 inst 上是给框架一个「取得到」的名字。",
     "--   ★ 同一个文件里第 336/342/348 行的结构就是 PostInit 的四段职责。",
   ],
-  336: [
+  "PostInit#1+1": [
     "--★★★【第 336 行：if inst.net ~= nil —— 「TheWorld 与 TheWorld.net 是两个实体」的证据】",
     "--   ★★ 完整调用链见文件头 §九 的注记：",
     "--     TheWorld（本文件构造的 world prefab）与 TheWorld.net（net.lua 预制体）",
@@ -160,7 +160,7 @@ export const BEFORE = {
     "--   交叉引用：networking.lua:186 TheWorld.net.components.worldcharacterselectlobby；",
     "--             prefabs/world_network.lua:52-61 的 7 个时钟/存档类组件。",
   ],
-  340: [
+  "PostInit#1+5": [
     "--★★★【inst:LongUpdate(0) —— 「以 0 延迟补跑一次长更新」】",
     "--   ★ LongUpdate 是 DST 的「低频更新」钩子（默认约 1 秒一次），",
     "--     与每帧的 OnUpdate 相对。传 0 表示「立刻补一次」，",
@@ -171,7 +171,7 @@ export const BEFORE = {
     "--     「延迟一刻」用于等状态，「立即补跑」用于初始化。",
     "--   参见 01-报告/01-核心架构：Update / LongUpdate / WallUpdate 三种更新频率。",
   ],
-  342: [
+  "PostInit#1+7": [
     "--★★【遍历 components 调用每个组件的 OnPostInit —— 组件级的收尾钩子】",
     "--   ★★ 与实体的 PostInit 对称：实体建完 → 组件各自再收尾一次。",
     "--   典型用途：某组件的初始化依赖别的组件已经就绪，此时做最后的校验或索引建立。",
@@ -182,10 +182,10 @@ export const BEFORE = {
     "--   ⚠ 遍历 pairs(inst.components) 的顺序不确定 → 若两个组件的 OnPostInit",
     "--     互相依赖对方的初始化结果，会出现非确定性 bug。设计时必须避免这类依赖。",
   ],
-  343: [
+  "PostInit#1+8": [
     "--★ 钩子存在性检查。第 342 行的 v 是组件实例，v.OnPostInit 是取它的方法字段。",
   ],
-  348: [
+  "PostInit#1+13": [
     "--★★★★【ismastersim —— 本文件最关键的一次分流，也是全项目端判定的权威】",
     "--   ★★★ 赋值在第 426 行：inst.ismastersim = TheNet:GetIsMasterSimulation()",
     "--   ★★ 语义（三选一，不是二选一 —— 这是最容易搞错的地方）：",
@@ -204,7 +204,7 @@ export const BEFORE = {
     "--   交叉引用：shardnetworking.lua:13 Shard_IsMaster 的判定式与此同源；",
     "--             01-报告/04-联机同步-模组系统-UI.md 的「联机模式判断」小节。",
   ],
-  349: [
+  "PostInit#1+14": [
     "--★★【四个 WatchWorldState —— 把 worldstate 的字段变更变成事件订阅】",
     "--   ★★ 为什么监听四个字段而 OnGameDataChanged 只有一个？",
     "--     因为 WatchWorldState 是**按字段**订阅的，而回调可以共用同一个函数",
@@ -217,7 +217,7 @@ export const BEFORE = {
     "--   ⚠ 加字段时必须同改这三处（349-352 的订阅、319-324 的打包、客户端 UI）。",
     "--   交叉引用：components/worldstate.lua（data 的实际定义处）。",
   ],
-  353: [
+  "PostInit#1+18": [
     "--★★【第 353 行 DoGameDataChanged(inst) —— 补一次「初始广播」】",
     "--   ★ 为什么监听之后还要立刻手动调一次？",
     "--     因为监听只在**变化**时触发。新建世界的第一次状态是「从来没有广播过」，",
@@ -225,7 +225,7 @@ export const BEFORE = {
     "--   ★ 这是所有「订阅 + 初始同步」模式的必备半步。",
     "--   ★ 手工调用（而非排任务）说明这里允许同步执行 —— 此刻网络层已就绪。",
   ],
-  355: [
+  "PostInit#1+20": [
     "--★ PostInit 结束。回顾四段职责：",
     "--   :336-338 net 实体收尾（条件性）→ :340 补跑一次长更新 →",
     "--   :342-346 组件级收尾 → :348-354 主模拟才做的状态订阅。",
@@ -235,7 +235,7 @@ export const BEFORE = {
   ],
 
   // ── OnRemoveEntity ──────────────────────────────────────────────────────
-  357: [
+  "OnRemoveEntity#1": [
     "--★★★【OnRemoveEntity —— 世界销毁。与 PostInit 完全对称的逆过程】",
     "--   ★ 同样是无 local 的全局函数，第 536 行挂为 inst.OnRemoveEntity。",
     "--   ★ 为什么销毁逻辑比初始化简单这么多？",
@@ -243,7 +243,7 @@ export const BEFORE = {
     "--     **没有在销毁时释放** —— 靠「世界寿命 = 游戏寿命」掩盖了。",
     "--   所以这里只清理三样：一个成员实体 + 两个全局单例。",
   ],
-  358: [
+  "OnRemoveEntity#1+1": [
     "--★ inst.minimap:Remove() —— 删掉第 540 行创建的 minimap。",
     "--   ★ 注意用的是 :Remove()（实体移除）而非成员表的置空 ——",
     "--     因为 minimap 是真实体，必须走完整的实体生命周期（onremove 事件、组件清理）。",
@@ -251,7 +251,7 @@ export const BEFORE = {
     "--     推理：第 540 行的 SpawnPrefab(\"minimap\") 只要 minimap 在第 73 行的清单里",
     "--     就必然成功；这是「清单即契约」的保证 —— 清单里列了就不会失败。",
   ],
-  360: [
+  "OnRemoveEntity#1+3": [
     "--★★★【assert(TheWorld == inst) —— 销毁前的所有权断言】",
     "--   ★★ 语义：如果现在要删的不是「当前的世界」，说明有逻辑错误。",
     "--   为什么需要？防止在分片迁移/重连过程中误删他人世界的场景。",
@@ -259,18 +259,18 @@ export const BEFORE = {
     "--   ★ 与第 543 行的 assert(TheFocalPoint == nil) 构成一对：",
     "--     一个校验「我拥有它」，一个校验「我不重复拥有它」。",
   ],
-  361: [
+  "OnRemoveEntity#1+4": [
     "--★ TheWorld = nil —— 清空全局单例。",
     "--   ★★ 必须清空：否则下一次 MakeWorld 的第 417 行检查会误判「世界已存在」，",
     "--     导致新世界创建失败。这是「全局单例」纪律的核心要求。",
     "--   ⚠ 若此处不清，第 543 行的 assert(TheFocalPoint == nil) 也会连锁失败。",
   ],
-  363: [
+  "OnRemoveEntity#1+6": [
     "--★★【第 363 行：assert(TheFocalPoint ~= nil) —— 销毁时的存在性断言】",
     "--   ★ 与第 543 行创建时的 assert(TheFocalPoint == nil) 精确互逆。",
     "--     一对断言把「创建—销毁」的配对契约写进了代码。",
   ],
-  364: [
+  "OnRemoveEntity#1+7": [
     "--★ TheFocalPoint:Remove() —— 兴趣中心点实体随世界一同销毁。",
     "--   ★★ 重要性：焦点实体是引擎层兴趣管理的输入（见文件头 §一 的 focalpoint 说明）。",
     "--     世界没了而焦点还在，会导致引擎按一个已死实体的位置计算复制范围。",
@@ -279,7 +279,7 @@ export const BEFORE = {
   ],
 
   // ── CreateTilePhysics ───────────────────────────────────────────────────
-  368: [
+  "CreateTilePhysics#1": [
     "--★★★【CreateTilePhysics —— 「地块碰撞」的定义入口，且可被完全替换】",
     "--   ★★★ 设计要点：第 369-370 行优先用 inst.tile_physics_init（自定义实现），",
     "--     只有为 nil 才走内置的两条 AddTileCollisionSet。",
@@ -288,7 +288,7 @@ export const BEFORE = {
     "--   ★ 该字段的赋值点在第 450 行：inst.tile_physics_init = custom_data.tile_physics_init",
     "--     来自 MakeWorld 的第 8 个参数 custom_data。",
   ],
-  372: [
+  "CreateTilePhysics#1+4": [
     "--★★【AddTileCollisionSet 的六个参数逐个读解 —— 这是理解地块碰撞的钥匙】",
     "--   :373 COLLISION.LAND_OCEAN_LIMITS —— 碰撞组名：陆地与海洋的交界",
     "--   :374 TileGroups.LandTiles —— ★★ 属于这个组的地图层：LandTiles",
@@ -302,7 +302,7 @@ export const BEFORE = {
     "--     避免在缓坡上把人弹飞。数值是手感调参，改动会影响所有角色移动。",
     "--   :376 64 —— ★ 碰撞组优先级/阈值（64），同类参数，影响多组冲突时的胜出者。",
   ],
-  378: [
+  "CreateTilePhysics#1+10": [
     "--★★【第二组：不可通行地块（墙、悬崖），且带一个可切换的碰撞组】",
     "--   :379 inst:CanFlyingCrossBarriers() and COLLISION.GROUND or COLLISION.LAND_OCEAN_LIMITS",
     "--   ★★★ 这是本文件最巧妙的一行：碰撞组的名字在运行时决定。",
@@ -316,11 +316,11 @@ export const BEFORE = {
     "--     因为墙是「挡住别人」而不是「站在别人上面」。",
     "--   :382 0.25 同第 376 行（斜坡容差），:382 128 优先级高于第一组的 64。",
   ],
-  369: [
+  "CreateTilePhysics#1+1": [
     "--★ 覆盖检查。tile_physics_init 的类型未做校验，赋非函数会在这里崩溃，",
     "--   属「信任调用方」的约定式 API（custom_data 来自 MakeWorld 的调用者）。",
   ],
-  381: [
+  "CreateTilePhysics#1+13": [
     "--★ 注意第二组里 :380 是 true、:381 是 false，",
     "--   与第一组的 (:375 false, :376 true) 正好对调。",
     "--   ★ 推理：不可通行地块是「实体撞上它」，不是「实体站在它上面」，",
@@ -328,7 +328,7 @@ export const BEFORE = {
   ],
 
   // ── 口袋维度 ────────────────────────────────────────────────────────────
-  387: [
+  "SetPocketDimensionContainer#1": [
     "--★★【口袋维度容器 —— 「一个世界里的另一个世界」的一等公民】",
     "--   两个函数构成最小 API：按名字存 / 按名字取。",
     "--   ★ 这是「存储 + 接口」的直接手写示范，没有引入任何抽象基类。",
@@ -338,11 +338,11 @@ export const BEFORE = {
     "--     · 分片 shard = 独立的模拟进程（shardnetworking.lua，走 SHARD_RPC）",
     "--   ★ 挂载在第 608-610 行（主模拟分支内），因此只有服务端持有这张表。",
   ],
-  391: [
+  "GetPocketDimensionContainer#1": [
     "--★ Getter 是纯查表，无副作用。注意**返回 nil 不做校验**：",
     "--   调用方必须自己处理「名字不存在」的情况。这是 Lua 的常见风格（信任调用方）。",
   ],
-  395: [
+  "CanFlyingCrossBarriers#1": [
     "--★★★【CanFlyingCrossBarriers —— 一个被挂到实体上的「策略函数」】",
     "--   ★★★ 第 453 行 inst.CanFlyingCrossBarriers = CanFlyingCrossBarriers",
     "--     把这个**文件级 local 函数**直接挂成实体的方法。",
@@ -356,7 +356,7 @@ export const BEFORE = {
     "--     它挂在实体上却被当 world 用，因为调用者是 `inst:CanFlyingCrossBarriers()`，",
     "--     隐式参数就是 inst。命名与实际接收者不一致，是本文件的一处小瑕疵。",
   ],
-  396: [
+  "CanFlyingCrossBarriers#1+1": [
     "--★★【两个条件都是「宽松兼容」的产物】",
     "--   world.has_ocean —— 原注释标注 has_ocean 是「backwards compatability」",
     "--     （向后兼容）：早期世界没有 has_ocean 字段，用它判断是否有海洋。",
@@ -368,7 +368,7 @@ export const BEFORE = {
     "--     若世界有海洋，cancrossbarriers_flying=false 会被 has_ocean=true 覆盖 ——",
     "--     ⚠ 这是一个真实的语义缺口：两个布尔用 or 合并时无法表达「显式禁止」。",
   ],
-  397: [
+  "CanFlyingCrossBarriers#1+2": [
     "--★ 函数结束。参见文件头 §三 提到的移植注意事项。",
   ],
 };

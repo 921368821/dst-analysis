@@ -2,7 +2,7 @@
 // 注册表查询、MarkUserIDRPC、DisableRPCSending 熔断
 
 export const BEFORE = {
-  1956: [
+  "GetModRPCHandler#1": [
     "--★★[GetModRPCHandler —— 「名字→handler 函数」的反查]",
     "--   ★★★ MOD_RPC_HANDLERS[namespace][MOD_RPC[namespace][name].id]",
     "--   ★★★ 两级下钻：先用 name 拿 id，再用 id 拿函数。",
@@ -14,13 +14,13 @@ export const BEFORE = {
     "--   ★★ 这三个 Get*ModRPCHandler 函数是「public API」，",
     "--     模组可能直接调用它们 → 这个隐患对模组也可见。",
   ],
-  1968: [
+  "GetModRPC#1": [
     "--★ GetModRPC —— 只拿「名字→id 元数据」，不拿 handler 函数。",
     "--   ★★★ MOD_RPC[namespace][name] —— 一级下钻（返回 {namespace, id}）。",
     "--   ★ ★ 比 GetModRPCHandler 安全：只查一层，返回 nil 时不崩溃。",
     "--   ★ ★ 用途：模组在发包前确认「这个名字注册过」再取 id。",
   ],
-  1980: [
+  "MarkUserIDRPC#1": [
     "--★★★★★[MarkUserIDRPC —— ★★ 「标记该 RPC 以 userid 为第一参数」的注册入口]",
     "--   ★★★ 签名：MarkUserIDRPC(namespace, name) 或 MarkUserIDRPC(name) —— ★ 双签名！",
     "--   ★★★ 第 1981-1984 行的参数归一化：",
@@ -47,7 +47,7 @@ export const BEFORE = {
     "--   ★→ 移植规则：★ 若新增一个「第一个参数不是实体」的 RPC，",
     "--     必须调 MarkUserIDRPC，否则 HandleRPC 会拒绝（:1698）"
   ],
-  1990: [
+  "MarkUserIDRPC#1+10": [
     "--★ fn = RPC_HANDLERS[RPC[name]] —— ★ 内置 RPC 的两级查找]",
     "--   ★★★ RPC[name] 拿编号（:1401-1404 建立的「名字→数字」映射）；",
     "--     RPC_HANDLERS[编号] 拿函数（:1401 改造后的「数字→函数」映射）。",
@@ -58,7 +58,7 @@ export const BEFORE = {
     "--     ⚠ 这是一个隐患：MarkUserIDRPC(\"不存在的名字\") 会崩溃。",
     "--     → 移植时应先 `if fn ~= nil then`。仅标注，不改码。",
   ],
-  1992: [
+  "MarkUserIDRPC#1+12": [
     "--★★[USERID_RPCS[fn] = true —— ★★ 用函数作键的标记]",
     "--   ★★★ 与 :1398 的 USERID_RPCS 表对应。",
     "--   ★★ 「以函数为键」的必要性：",
@@ -67,7 +67,7 @@ export const BEFORE = {
     "--     · 若用 RPC 名作键，HandleRPC 收到的是 code（数字），还要反查名字。",
     "--     ★★ 所以「以函数为键」是最直接的实现。",
   ],
-  1997: [
+  "DisableRPCSending#1": [
     "--★★★★★[DisableRPCSending —— ★★ 世界重置/重生成时的一键熔断]",
     "--   ★★★ 原注释：",
     "--     \"For gamelogic to deactivate world on a client when",
@@ -90,7 +90,7 @@ export const BEFORE = {
     "--   交叉引用：networking.lua:722 WorldResetFromSim（服务端发起重置）、",
     "--             gamelogic.lua（调用 DisableRPCSending 的地方）。",
   ],
-  1998: [
+  "SendRPCToServer#2": [
     "--★★[SendRPCToServer = function() end —— ★ 把内置发送函数替换为空函数]",
     "--   ★★ 这是「全局函数重绑定」：SendRPCToServer 原本是 :1636 的真实实现，",
     "--     现在被一个空函数覆盖 —— 所有调用 SendRPCToServer 的代码",
@@ -100,34 +100,34 @@ export const BEFORE = {
     "--   ★★ 复用而非各写一个空函数：省内存（同一个闭包被多处引用）。",
     "--     ★ 空函数无捕获变量 → 所有空函数其实是同一个对象（Lua 优化）。",
   ],
-  1999: [
+  "SendRPCToServer#2+1": [
     "--★★[SendModRPCToServer = SendRPCToServer —— ★★ 模组版也指向空函数]",
     "--   ★★★ 「让六个发送函数都指向同一个空函数」的配对写法。",
     "--   ★★★ 内置版（:1998）先变空，然后这里让模组版也指向它 ——",
     "--     ★ 顺序有意义：必须先定义空函数，再引用它。",
   ],
-  2000: [
+  "SendRPCToClient#2": [
     "--★★[SendRPCToClient = function() end —— 服务端→客户端发送也被禁用]",
     "--   ★★★ 注意：V2C 发送也被关。",
     "--     ★ 在「客户端正在重置」时，客户端本来也不该发 V2C（那是服务端发的），",
     "--       但这里一并关闭是「一刀切」的思路（简单彻底）。",
   ],
-  2001: [
+  "SendRPCToClient#2+1": [
     "--★ SendModRPCToClient = SendRPCToClient —— 模组版 V2C 也指向空函数。",
   ],
-  2002: [
+  "SendRPCToShard#2": [
     "--★ SendRPCToShard = function() end —— ★ 分片发送也被禁用。",
     "--   ★★★ 一个客户端（纯客户端）通常不用发 shard RPC（那是服务端进程的事），",
     "--     但这里一并关闭是「宁可多关」的思路。",
   ],
-  2003: [
+  "SendRPCToShard#2+1": [
     "--★ SendModRPCToShard = SendRPCToShard —— 模组版分片发送也指向空函数。",
     "--   ★★★ 至此六个发送函数全部熔断（:1998-2003）。",
   ],
 };
 
 export const AFTER = {
-  1966: [
+  "GetShardModRPCHandler#1+2": [
     "--★★ 三对 Get*ModRPC* 查询函数结束。★ 它们是给模组用的「反射式 API」：",
     "--   GetModRPCHandler (:1956) —— 名字→handler 函数",
     "--   GetModRPC        (:1968) —— 名字→id 元数据",
@@ -137,7 +137,7 @@ export const AFTER = {
     "--   ★ ⚠ GetModRPCHandler 对未注册的名字会崩溃（见 :1956 注记）——",
     "--     而 GetModRPC 是安全的（返回 nil）。这是两者唯一的健壮性差异。",
   ],
-  1993: [
+  "MarkUserIDRPC#1+13": [
     "--★★ MarkUserIDRPC 结束。★★★ 回顾它的完整链路（§九 的核心机制）：",
     "--   ① MarkUserIDRPC(:1980) 标记某 handler「以 userid 为第一参数」；",
     "--   ② 标记存入 USERID_RPCS[fn]（:1992，以函数为键）；",
@@ -145,7 +145,7 @@ export const AFTER = {
     "--   ★★ 三个函数构成一条完整的「userid 型 RPC」支持链。",
     "--   ★★ 典型用例：GetChatHistory(:1114) —— 玩家实体未生成时也要能请求聊天历史。",
   ],
-  2004: [
+  "SendRPCToShard#2+2": [
     "--★★★ DisableRPCSending 结束。整个文件至此完整闭合。",
     "--   ★★★ 全文件结构总览（19 节）：",
     "--     §零   类型校验谓词（check*/opt*）—— 安全地基",

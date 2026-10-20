@@ -36,26 +36,26 @@ export default {
   ],
 
   // ══════════════ 调试输出 ══════════════
-  6: [
+  "AttackWall:__tostring#1": [
     '--★ __tostring 显示 self.target —— 在本目录中，self.target 只在 Visit 里被赋值，',
     '--   构造器未初始化，故初始值为 nil，tostring 兜底输出 nil。安全。',
     '-- ★ 对照 follow/approach 的 currenttarget：那几个在构造器就初始化了。',
   ],
 
   // ══════════════ 目标筛选 ══════════════
-  10: [
+  "AttackWall:__tostring#1+4": [
     '--★ ATTACKWALL_MUST_TAGS = {"wall"} —— 只找墙。',
     '--★ 与 findflower 第 12 行、findfarmplant 第 49 行的 musttags 同款。',
   ],
 
   // ══════════════ Visit:READY 段 ══════════════
-  12: [
+  "AttackWall:Visit#1": [
     '--★★ Visit：顺序双 if。',
   ],
-  13: [
+  "AttackWall:Visit#1+1": [
     '--★ READY 段：找目标 → 有则 RUNNING，无则 FAILED。',
   ],
-  14: [
+  "AttackWall:Visit#1+2": [
     '--★★ 先记录自身朝向 rot —— 后面用它做「前方」判定。',
     '--★★ 这是一个重要的设计取舍：**在进入时固定基准朝向**，',
     '--   而不是每帧重新算。',
@@ -66,17 +66,17 @@ export default {
     '-- ★ 注意 rot 是 TRANSFORM 的旋转角（度），不是 GetAngleToPoint，',
     '--   两者单位一致（都是度），所以第 17 行能直接 anglediff 比较。',
   ],
-  15: [
+  "AttackWall:Visit#1+3": [
     '--★★★ 搜索半径 = 1.5 + 自身物理半径。',
     '-- ★★★ 与 follow/chaseandattack 第 85 行同一思想：',
     '--   **搜索范围要包含自己的体型**，否则大块头够不到近处的墙。',
     '--   固定值 1.5 是「墙的厚度量级」，加上半径覆盖了「贴脸也有墙」的情况。',
     '-- ★ 移植要点：任何近身搜索都该叠加自身半径，否则不同体型的行为会不一致。',
   ],
-  16: [
+  "AttackWall:Visit#1+4": [
     '--★ 逐个候选的筛选回调（两个条件 and）。',
   ],
-  17: [
+  "AttackWall:Visit#1+5": [
     '--★★★ 角度筛选：与正前方的夹角 < 30 度。',
     '-- ★★ 用了 anglediff 而非直接相减 —— 正确处理 ±180° 环绕。',
     '--   对照 chaseandram 第 94 行（直接相减，我在那里标了疑似缺陷），',
@@ -88,25 +88,25 @@ export default {
     '-- ★ 移植要点：**窄扇形比全向搜索更安全**，避免「打错东西」。',
     '-- ★ 第 17 行传的是 guy 的世界坐标三元组（GetAngleToPoint 的三参形式）。',
   ],
-  18: [
+  "AttackWall:Visit#1+6": [
     '--★ 业务过滤：combat:CanTarget(guy) —— 战斗组件说「这个能打吗」。',
     '-- ★★★ 与 controlminions 第 88-90 行、findfarmplant 第 40 行同一思想：',
     '--   可行性判定由「相关组件」回答，节点只负责查询。',
     '--   ★ 移植建议：把「能否对 X 做 Y」的规则交给拥有该规则的组件，',
     '--     避免在每个调用点各写一遍 if。',
   ],
-  20: [
+  "AttackWall:Visit#1+8": [
     '--★ 结尾参数 musttags（第五个参数），canttags 与 oneoftags 未传。',
   ],
-  23: [
+  "AttackWall:Visit#1+11": [
     '--★ 找到目标才继续。',
   ],
-  25: [
+  "AttackWall:Visit#1+13": [
     '--★ 进场先 Stop locomotor —— 「站定砸墙」，不移动。',
     '-- ★ 对照 chaseandattack 第 88 行（GoToPoint 压近）：',
     '--   本节点明确要求站定，两者目标不同。',
   ],
-  26: [
+  "AttackWall:Visit#1+14": [
     '--★ done = false —— ⚠️ 已核实：done 在本文件后续**从未被读取**。',
     '--   我 grep 了全部 42 行，done 仅此一处出现。属无用赋值。',
     '--   推测原打算用它来防止重复攻击，但最终改用「一次就结束」的方式（第 38 行）。',
@@ -114,16 +114,16 @@ export default {
   ],
 
   // ══════════════ Visit:RUNNING 段 ══════════════
-  32: [
+  "AttackWall:Visit#1+20": [
     '--★★ RUNNING 段。执行体只有几行 —— 「攻击一次，立即定生死」。',
   ],
-  33: [
+  "AttackWall:Visit#1+21": [
     '--★ 被注释掉的 `local is_attacking = ...`，与 standandattack 第 51 行、',
     '--   chaseandattackandavoid 第 61 行**完全相同**的一行残留。',
     '-- ★★ 三处都有同一行未被使用的局部变量，说明这段代码被复制过多次。',
     '-- ★ 读源码时不要把注释/无用赋值当成有效逻辑（SOP 第 4 条）。',
   ],
-  34: [
+  "AttackWall:Visit#1+22": [
     '--★★★ 失效判定（与 chaseandattack 第 55-60 行同款的三类）：',
     '--   ① target 为 nil',
     '--   ② target.entity:IsValid() 失败    —— 墙被砸掉了',
@@ -132,7 +132,7 @@ export default {
     '--   墙的「死亡」就是被砸开。对生物则是 health:IsDead()。',
     '--   ★ 与 chaseandattack 第 60 行同款写法。',
   ],
-  36: [
+  "AttackWall:Visit#1+24": [
     '--★ 目标没了 → FAILED + 停止移动。',
     '-- ★ 三步清理（改状态 / 停移动 / 无需清目标），',
     '--   比 chaseandattack 少一步「SetTarget(nil)」——',
@@ -140,7 +140,7 @@ export default {
     '--   ★★★ 这印证了 chaseandattack 文件头强调的「所有权」原则：',
     '--     谁设置目标谁负责清理。本文件没设置，就不该清。',
   ],
-  38: [
+  "AttackWall:Visit#1+26": [
     '--★★★★★【本文件的核心一行，也是与 chaseandattack 最大的不同】',
     '--   self.status = self.inst.components.combat:TryAttack(self.target) and SUCCESS or FAILED',
     '--',
@@ -167,7 +167,7 @@ export default {
     '--   ★★★ 同一个 TryAttack 调用，在两个节点里被赋予完全不同的语义 ——',
     '--     取决于「这个行为是持续型还是单次型」。这是极好的对照。',
   ],
-  39: [
+  "AttackWall:Visit#1+27": [
     '--★★★ self:Sleep(1) —— 1 秒节流，是本目录**最慢**的节拍。',
     '-- ★ 与战斗类节点的 0.125 秒差了 8 倍。',
     '-- ★★★ 为什么不更快？因为本节点转瞬即结束：',

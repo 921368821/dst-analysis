@@ -6,7 +6,7 @@ export const BEFORE = {
   // ══════════════════════════════════════════════════════════════
   // 十、PriorityNode —— 决策层的心脏（★ 本文件最重要的一段）
   // ══════════════════════════════════════════════════════════════
-  533: [
+  "RandomNode:Visit#1+38": [
     "--★★【PriorityNode —— 带优先级、周期重排与抢占的组合节点】",
     "--   ★★ 【它是 DST 所有脑的根节点类型】",
     "--     核实：brains/rabbitbrain.lua:52、brains/abigailbrain.lua:252、",
@@ -28,15 +28,15 @@ export const BEFORE = {
     "--     ★ 值越小反应越快但 CPU 越贵；值越大越省但迟钝。",
     "--   ★★ noscatter 的意义见 537 行详解 —— 它是一个**反惊群**设计。",
   ],
-  534: [
+  "RandomNode:Visit#1+39": [
     "--★ name 硬编码 \"Priority\"。",
   ],
-  535: [
+  "RandomNode:Visit#1+40": [
     "--★★ `self.period = period or 1` —— 默认重排周期 1 秒。",
     "--   ★★ 注意这行让 `not self.period` 的检查（544 行）在**构造后永远为假**，",
     "--     所以 544-546 行是死代码（详见该行的 ※）。",
   ],
-  536: [
+  "RandomNode:Visit#1+41": [
     "--★★【noscatter：反「惊群」的抖动分散 —— 一个很聪明的细节】",
     "--   `if not noscatter then self.lasttime = self.period * 0.5 + (self.period * math.random()) end`",
     "--   ★★ 翻译成人话：「把初始 lasttime 随机设在 [0.5×period, 1.5×period) 之间」。",
@@ -57,12 +57,12 @@ export const BEFORE = {
     "--     ★ 严格说这更像是「开局立即评估一次 + 之后逐步分散」，",
     "--       而不是「完全均匀分散」。但效果上确实起到了抖动作用。",
   ],
-  537: [
+  "RandomNode:Visit#1+42": [
     "--★ `self.period * 0.5 + (self.period * math.random())`：math.random() 无参返回 [0,1)，",
     "--   所以范围是 [0.5p, 1.5p)。空的一对括号是笔误，语义无影响。",
   ],
 
-  541: [
+  "PriorityNode:GetSleepTime#1": [
     "--★★【PriorityNode:GetSleepTime —— 节点级休眠协议的三种返回】",
     "--   它**完全覆写**了基类的 101 行实现，理由是 Priority 有自己的时间概念（period）。",
     "--   ★★ 四个分支的语义：",
@@ -100,10 +100,10 @@ export const BEFORE = {
     "--       没有任何外部定时器参与，整个节流是靠 brain 的休眠队列 + 返回值表达的。",
     "--       这是一个非常巧妙的纯返回值式调度。",
   ],
-  542: [
+  "PriorityNode:GetSleepTime#1+1": [
     "--★ 只有 RUNNING 才计算重排倒计时 —— 已完成的节点不占节流预算。",
   ],
-  544: [
+  "PriorityNode:GetSleepTime#1+3": [
     "--⚠【疑似缺陷 · 死代码】`if not self.period then return 0 end`",
     "--   ★★ 推理依据：535 行 `self.period = period or 1` 保证 period **永远非 nil**，",
     "--     所以这个分支在任何构造路径下都进不去。",
@@ -115,7 +115,7 @@ export const BEFORE = {
     "--     模组若想在运行期调整重排频率，只能直接写 `self.bt.root.period = x`，",
     "--     而这个死分支会让人误以为「period 可以为 nil 表示特殊模式」。",
   ],
-  549: [
+  "PriorityNode:GetSleepTime#1+8": [
     "--★★ time_to 初值 0 —— 「默认马上要醒」。",
     "--   ★★ 这个默认值是**故意且关键**的：",
     "--     550 行只在 lasttime 存在时才计算真实剩余时间；",
@@ -123,24 +123,24 @@ export const BEFORE = {
     "--     返回 0 就意味着「立即重排」—— 正是事件唤醒所求的效果。",
     "--   ★★ 所以 lasttime = nil 构成了一个「立刻执行」的信号。",
   ],
-  550: [
+  "PriorityNode:GetSleepTime#1+9": [
     "--★★ 只有 lasttime 存在才计算。它为 nil 时（事件刚触发）保持 0。",
     "--   ★ 三种 lasttime 为 nil 的场景：",
     "--     · noscatter = true 构造（536-538 行不赋值）",
     "--     · EventNode:734 的 DoToParents 清空（事件唤醒）",
     "--     · 632 行「分支跑完不再 RUNNING 时」主动清空",
   ],
-  551: [
+  "PriorityNode:GetSleepTime#1+10": [
     "--★ 剩余时间 = 上次重排时刻 + 周期 - 当前时刻。",
   ],
-  552: [
+  "PriorityNode:GetSleepTime#1+11": [
     "--★ 钳成 0 —— 「已到期，该重排了」。配合 585 行的 do_eval，两者互为因果。",
   ],
-  557: [
+  "PriorityNode:GetSleepTime#1+16": [
     "--★★ 返回剩余秒数。上界是 period（0 除外）。",
     "--   ★ 实践中 brain.lua:144 会把它换算成 tick 数排队休眠。",
   ],
-  558: [
+  "PriorityNode:GetSleepTime#1+17": [
     "--★★【分支②：READY → 返回 0 —— 空闲脑的 CPU 命运就在这一行】",
     "--   ★★ 详见 541 行的完整分析。此处只强调结论：",
     "--     「PriorityNode 一旦被 Reset 成 READY，就宣称『我下一 tick 还要被问』」。",
@@ -152,10 +152,10 @@ export const BEFORE = {
     "--   ★★ 所以「Priority 更耗 CPU」这个直觉，根因就在这里。",
     "--     它的补偿是 period 节流（重排之间便宜）与 GetTreeSleepTime 的子树逻辑。",
   ],
-  559: [
+  "PriorityNode:GetSleepTime#1+18": [
     "--★ 返回 0 —— 「下一 tick 继续」。",
   ],
-  562: [
+  "PriorityNode:GetSleepTime#1+21": [
     "--★ SUCCESS / FAILED → nil（「我不表态」）。",
     "--   ★★ 注意这里是 nil 而非 0，与 559 行的 0 形成鲜明对比。",
     "--     推论：若一棵 Priority 树的根是 Priority 且当前是 FAILED，",
@@ -165,7 +165,7 @@ export const BEFORE = {
     "--     ★ 所以「Priority 根的脑会 Hibernate」在实践中几乎不会发生。",
   ],
 
-  567: [
+  "PriorityNode:DBString#1": [
     "--★★【PriorityNode:DBString —— 排查「AI 卡住」的第一现场】",
     "--   输出形如：`execute 3, eval in 0.18`",
     "--   ★★ 两个信息位各有独立诊断价值：",
@@ -180,10 +180,10 @@ export const BEFORE = {
     "--       而那个 RUNNING 的子节点在做一件永远做不完的事。",
     "--   ★★ 这是本文件最有实用价值的调试输出，务必掌握。",
   ],
-  568: [
+  "PriorityNode:DBString#1+1": [
     "--★ time_till 初值 0。",
   ],
-  569: [
+  "PriorityNode:DBString#1+2": [
     "--★ `if self.period then` —— 恒真（见 544 行的死代码分析）。",
     "--   ★ 与 552 行的钳位不同，**这里没有钳位**。",
     "--   ※ 因此当 lasttime 为 nil 时，time_till 会是 `0 + period - GetTime()`，",
@@ -191,17 +191,17 @@ export const BEFORE = {
     "--     与 541 行 GetSleepTime 的「保持 0」行为不一致。",
     "--     ★ 差异仅体现在调试输出上，不影响逻辑（DBString 不参与决策）。",
   ],
-  570: [
+  "PriorityNode:DBString#1+3": [
     "--★★ 计算「距下次评估还有多久」。注意无钳位（对比 552 行）。",
   ],
-  573: [
+  "PriorityNode:DBString#1+6": [
     "--★★ `self.idx or -1` —— 用 -1 表示「尚未选中任何分支」。",
     "--   ★ 与 579 行 Reset 时的 `self.idx = nil` 配对：",
     "--     nil = 未选中 → 显示 -1。",
     "--   ★ 选 -1 而非 0 是因为 children 从 1 开始编号（Lua 数组惯例）。",
   ],
 
-  577: [
+  "PriorityNode:Reset#1": [
     "--★★【PriorityNode:Reset —— 与 Sequence 的 Reset 结构相同，语义不同】",
     "--   ★★ 代码形态与 SequenceNode:314 一模一样，但 `self.idx = nil` 而非 1。",
     "--   ★★ 差异的意义见 489 行（RandomNode 的同款分析）：",
@@ -219,14 +219,14 @@ export const BEFORE = {
     "--       lasttime = 节流游标（必须留）",
     "--     ★★ 「什么是进度、什么是节流」是阅读行为树代码时最重要的分类标准。",
   ],
-  578: [
+  "PriorityNode:Reset#1+1": [
     "--★ 显式父类调用。",
   ],
-  579: [
+  "PriorityNode:Reset#1+2": [
     "--★ idx = nil —— 「未选中」。详见 577 行分析。",
   ],
 
-  582: [
+  "PriorityNode:Visit#1": [
     "--★★【PriorityNode:Visit —— 本文件最复杂、最有价值的 55 行】",
     "--   ★★ 【整体结构：两条互斥的大路】",
     "--     do_eval 为真  → 589 行：**全量遍历所有孩子，重新挑赢家**（598-620）",
@@ -238,10 +238,10 @@ export const BEFORE = {
     "--     ★★ 这是整个 DST 决策系统的性能基石。",
     "--   ★★ 两条路都与 EventNode 抢占机制深度耦合 —— 见 585-636 各行详解。",
   ],
-  584: [
+  "PriorityNode:Visit#1+2": [
     "--★ 本次取一次时间，585/596 两处复用，避免同帧内时间漂移。",
   ],
-  585: [
+  "PriorityNode:Visit#1+3": [
     "--★★【do_eval：该不该在本次思考里重新挑赢家】",
     "--   `local do_eval = not self.lasttime or not self.period or self.lasttime + self.period < time`",
     "--   ★★ 三个「或」条件，逐一分析：",
@@ -259,7 +259,7 @@ export const BEFORE = {
     "--   ★★ 注意条件是 `< time` 而非 `<= time`，",
     "--     所以每 period 至少间隔一次思考，不会因为同一时刻反复触发而空转。",
   ],
-  586: [
+  "PriorityNode:Visit#1+4": [
     "--⚠【疑似缺陷 · 无用局部变量】`local oldidx = self.idx`",
     "--   ★★ 推理依据：检索本函数（582-638）全文，oldidx **从未被读取**。",
     "--     代码里用的都是 self.idx（如 592/593/609/614/627 行）。",
@@ -271,13 +271,13 @@ export const BEFORE = {
     "--     ★ 这是「一个无用变量」如何成为「一个真实缺陷的化石记录」的范例。",
   ],
 
-  589: [
+  "PriorityNode:Visit#1+7": [
     "--★★【全量重排路径的入口 —— 只有这一条路会遍历所有孩子】",
     "--   ★★ 与节流路径（625 行）的对比是本函数的核心：",
     "--     全量路径：O(孩子数) × Visit 成本 —— 贵，但频率低（每 period 一次）",
     "--     节流路径：O(1) —— 便宜，每帧都走",
   ],
-  591: [
+  "PriorityNode:Visit#1+9": [
     "--★★ old_event —— 「上一轮的赢家是不是一个 EventNode」。",
     "--   ★★ 这个变量是**抢占机制的总开关**，下面两行是全文件最关键的三行之一：",
     "--     ① 只有当旧赢家是 EventNode 时，才可能发生「事件抢占」",
@@ -293,7 +293,7 @@ export const BEFORE = {
     "--     ★★ 抢占发生时，旧赢家被**直接 Reset**（610 行）而不是挂起，",
     "--       于是旧行为的状态被彻底清空 —— 这就是「AI 莫名其妙停下」的机制。",
   ],
-  592: [
+  "PriorityNode:Visit#1+10": [
     "--★★ `if self.idx and self.children[self.idx]:is_a(EventNode) then`",
     "--   ★★ 三个守卫缺一不可：",
     "--     ① self.idx 非 nil → 上轮确实选过赢家（对比 Reset 后的 nil）",
@@ -311,10 +311,10 @@ export const BEFORE = {
     "--     ★ 这在实践中是合理的：WhileNode 通常本身就是「重要状态」（夜晚、回巢），",
     "--       不该被普通事件打断。",
   ],
-  593: [
+  "PriorityNode:Visit#1+11": [
     "--★ 记下旧事件节点本身（后续要读它的 priority 字段）。",
   ],
-  596: [
+  "PriorityNode:Visit#1+14": [
     "--★★ lasttime = time —— 「本轮重排发生在此刻」。",
     "--   ★★ 注意这行在**遍历之前**执行，所以本次遍历中即使发生抢占，",
     "--     lasttime 也已是新值 —— 抢占不会导致「下一次重排也被迫立即执行」。",
@@ -325,12 +325,12 @@ export const BEFORE = {
     "--       确保事件不被「同一次重排吞掉」。但也意味着可能连续两帧重排。",
     "--       ★ 属于可接受的轻微冗余。",
   ],
-  597: [
+  "PriorityNode:Visit#1+15": [
     "--★ found —— 「已经找到赢家了」。它控制 601 行的短路。",
     "--   ★★ found 的作用是：**一旦找到赢家，后面的孩子就不必再试**（除非可抢占）。",
     "--     这是本函数唯一的性能优化，也是「优先级 = 位置顺序」的实现。",
   ],
-  598: [
+  "PriorityNode:Visit#1+16": [
     "--★★【全量遍历循环 —— 「优先级」二字的实际含义就在这个顺序里】",
     "--   ★★ `ipairs` 从孩子 1 走到孩子 N。**靠前的先被问，先被问的就是优先级高**。",
     "--   ★★ 「优先级」在这个框架里**没有任何数字**（除了 EventNode 的 priority），",
@@ -341,7 +341,7 @@ export const BEFORE = {
     "--   ★★ 详见 600 行的抢占分支 —— 它是对「位置即优先级」这一规则的**唯一例外**。",
   ],
 
-  600: [
+  "PriorityNode:Visit#1+18": [
     "--★★【should_test_anyway —— 抢占机制的核心判据，全文件最精妙的一行】",
     "--   `local should_test_anyway = old_event and child:is_a(EventNode) and old_event.priority <= child.priority`",
     "--   ★★ 三个条件逐个拆解：",
@@ -375,7 +375,7 @@ export const BEFORE = {
     "--       **必须显式指定 priority**，否则顺序行为会非常难以预测。",
   ],
 
-  601: [
+  "PriorityNode:Visit#1+19": [
     "--★★【短路条件 —— 决定「谁被问、谁被跳过」】",
     "--   `if not found or should_test_anyway then`",
     "--   ★★ 两种进入方式：",
@@ -388,7 +388,7 @@ export const BEFORE = {
     "--     这比「Visit 了再 Reset」省得多，是重要的性能细节。",
   ],
 
-  603: [
+  "PriorityNode:Visit#1+21": [
     "--★★【重置已完成的分支 —— 「每轮重新评估」的前提】",
     "--   `if child.status == FAILED or child.status == SUCCESS then child:Reset() end`",
     "--   ★★ 为什么只 Reset 这两种状态，不 Reset RUNNING？",
@@ -405,25 +405,25 @@ export const BEFORE = {
     "--     603 行：会被本轮询问的分支 → 先擦再问",
     "--     618 行：不会被询问的分支 → 直接擦（不问了）",
   ],
-  604: [
+  "PriorityNode:Visit#1+22": [
     "--★★ 擦干净，让这次 Visit 从 READY 状态开始。",
     "--   ★ 若不擦，一个上轮 SUCCESS 的分支可能因为内部状态残留而立即 SUCCESS，",
     "--     形成「自我实现的成功」（假阳性）。",
   ],
-  605: [
+  "PriorityNode:Visit#1+23": [
     "--★ 调用的是子节点自己的 Reset —— 若子节点是 Sequence/Event 等，",
     "--   会走它们覆写的版本（连带归零 idx / 清 triggered）。",
     "--   ★★ 这就是「Reset 的多态」：框架不需要知道子节点类型。",
   ],
-  606: [
+  "PriorityNode:Visit#1+24": [
     "--★★ 真正询问这个分支 —— 递归 Visit。",
     "--   ★★ 这是本文件里**唯一**会对「优先级低于赢家」的分支也调用 Visit 的地方",
     "--     （另一半是 629 行的节流路径，只 Visit 赢家）。",
   ],
-  607: [
+  "PriorityNode:Visit#1+25": [
     "--★ 读取这次询问的结果。",
   ],
-  608: [
+  "PriorityNode:Visit#1+26": [
     "--★★【赢家的判定：SUCCESS 或 RUNNING 都算「这个分支愿意干」】",
     "--   ★★ 与其他组合节点的「采纳」条件一致（对照 507、327、366 行）。",
     "--   ★★ 为什么 RUNNING 也算赢家？",
@@ -431,7 +431,7 @@ export const BEFORE = {
     "--     ★★ 所以 Priority 的语义是「找一个愿意做事的分支」，",
     "--       而不是「找一个能立即做完事」的分支。",
   ],
-  609: [
+  "PriorityNode:Visit#1+27": [
     "--★★【★★ H1 缺陷的核心：抢占时的破坏性 Reset ★★】",
     "--   `if should_test_anyway and self.idx ~= idx then`",
     "--        `self.children[self.idx]:Reset()`      ← 这一行是 bug-patterns.md H1 的根因",
@@ -518,7 +518,7 @@ export const BEFORE = {
     "--   ★ 这解释了为什么该缺陷「偶发」而非「必现」——它依赖具体的树结构。",
     "--   ※ 参见 bug-patterns.md 分区 H 的 H1 条目（症状 / 根因 / 修复建议）。",
   ],
-  610: [
+  "PriorityNode:Visit#1+28": [
     "--★★⚠【★ 缺陷现场 · bug-patterns.md H1 的根因行】`self.children[self.idx]:Reset()`",
     "--   ★★ 这一行做了两件破坏性的事：",
     "--     ① 把旧赢家的 status 从 RUNNING 打回 READY",
@@ -540,20 +540,20 @@ export const BEFORE = {
     "--     但本框架完全不知道 locomotor 的存在（节点只操作回调）。",
     "--   ※ 这一行绝不能改。本文件是「只加注释」的注释工程，不修改任何代码。",
   ],
-  611: [
+  "PriorityNode:Visit#1+29": [
     "--★ `end` —— 结束 if。",
     "--   ★★ 注意缩进用的是 16 空格（比同层多一级），说明作者写这段时",
     "--     对嵌套层级的判断有过犹豫。不影响语义。",
   ],
 
-  612: [
+  "PriorityNode:Visit#1+30": [
     "--★★ 自己继承孩子的状态（RUNNING 或 SUCCESS）。",
     "--   ★★ 与 614 行相邻：先定状态，再定 idx。顺序无关紧要。",
   ],
-  613: [
+  "PriorityNode:Visit#1+31": [
     "--★ found = true —— 「赢家已定，后续分支默认不再询问」。",
   ],
-  614: [
+  "PriorityNode:Visit#1+32": [
     "--★★ `self.idx = idx` —— 「赢家易主」。",
     "--   ★★ 这一行与 610 行的 Reset 是同一个抢占动作的两半：",
     "--     610：把旧赢家清空",
@@ -569,7 +569,7 @@ export const BEFORE = {
     "--       Step 会 Reset 它 → 577 行把 idx 置 nil → 下轮重新挑。",
   ],
 
-  618: [
+  "PriorityNode:Visit#1+36": [
     "--★★⚠【★ 缺陷现场 · 与 603 行自相矛盾的 Reset】`child:Reset()`",
     "--   ★★ 这个 else 分支 = 「已找到赢家，而这个孩子不能抢占 → 跳过它」。",
     "--   ★★ 本意是「清理落选者，节省后续帧的开销」——出发点没问题。",
@@ -601,7 +601,7 @@ export const BEFORE = {
     "--     这正是我们期望的「低优先级行为持续进行」语义。",
   ],
 
-  621: [
+  "PriorityNode:Visit#1+39": [
     "--★ 一轮遍历结束仍无赢家 → 整体 FAILED。",
     "--   ★★ 与 374 行（Selector 全失败）语义相同。",
     "--   ★★ 但注意这里**没有把 idx 设回 nil** —— idx 保持上轮的值。",
@@ -613,7 +613,7 @@ export const BEFORE = {
     "--     调试时看到这种组合不必惊慌，它只存在于一帧之间。",
   ],
 
-  625: [
+  "PriorityNode:Visit#1+43": [
     "--★★【节流路径 —— 「不重排，只推进赢家」】",
     "--   `else` 分支对应 589 行的 if 不成立，即 do_eval 为假（周期未到 / lasttime 为 nil）。",
     "--   ★★ 注意：「lasttime 为 nil」也会走这里！",
@@ -627,17 +627,17 @@ export const BEFORE = {
     "--   ★★ 这让 period 只限制「无事发生时的检查频率」，",
     "--     而「有事发生时」立即响应。",
   ],
-  626: [
+  "PriorityNode:Visit#1+44": [
     "--★ `if self.idx then` —— 有过赢家才需要推进。",
     "--   ★ 没有 idx（Reset 后）说明上轮没选出赢家，那 do_eval 应该为真才对。",
     "--     走到这里的 idx=nil 情形极少，保守跳过即可。",
   ],
-  627: [
+  "PriorityNode:Visit#1+45": [
     "--★ 直接索引当前赢家 —— O(1) 的关键。",
     "--   ★★ 对比全量路径的 598 行 `for idx, child in ipairs(...)`：",
     "--     这里是「按索引直达」，完全不遍历。",
   ],
-  628: [
+  "PriorityNode:Visit#1+46": [
     "--★★ `if child.status == RUNNING then` —— 只推进正在跑的那个。",
     "--   ★★ 为什么必须判 RUNNING？",
     "--     若赢家已完成（SUCCESS/FAILED），状态透传出去会让本 Priority 也变成 SUCCESS/FAILED，",
@@ -649,7 +649,7 @@ export const BEFORE = {
     "--     节流路径：只维持现状，完成信号转成「该重排了」",
     "--     ★ 这个不对称是有意的 —— 见 625 行的分析。",
   ],
-  629: [
+  "PriorityNode:Visit#1+47": [
     "--★ 只 Visit 赢家 —— 推进它（让 Wait 比时间、让 Leash 查距离等）。",
     "--   ★★ 【这一行是整个 DST 决策系统每帧成本的主要来源】",
     "--     假设一个服务器有 500 个生物，每个脑的 Priority 有 10 个分支，",
@@ -665,17 +665,17 @@ export const BEFORE = {
     "--     · ★ 若赢家里有个 ConditionWaitNode 卡住（251 行），",
     "--       它每帧返回 0 → 整棵树每帧被调度且每帧重跑该节点 → CPU 空转。",
   ],
-  630: [
+  "PriorityNode:Visit#1+48": [
     "--★★ 状态透传：赢家仍是 RUNNING，本 Priority 也是 RUNNING。",
     "--   ★★ 这样 541 行的 GetSleepTime 会进入 542 行分支，计算剩余重排时间，",
     "--     实现节流。",
   ],
-  631: [
+  "PriorityNode:Visit#1+49": [
     "--★★ 赢家不再是 RUNNING（做完了）→ 本 Priority 也不透传。",
     "--   ★★ 保持原 status（可能是 RUNNING 或别的）不变，",
     "--     由 632 行清 lasttime 触发下帧重排。",
   ],
-  632: [
+  "PriorityNode:Visit#1+50": [
     "--★★【节流路径的关键一步：主动清空 lasttime 以触发立即重排】",
     "--   `self.lasttime = nil`",
     "--   ★★ 为什么这是必需的？",
@@ -691,10 +691,10 @@ export const BEFORE = {
     "--   ★★ 条件（631 行的 else）：只有「赢家结束」时才清，",
     "--     保证不会在赢家还跑着的时候反复清（那会导致每帧全量遍历）。",
   ],
-  633: [
+  "PriorityNode:Visit#1+51": [
     "--★ 结束 if（631 行）。",
   ],
-  636: [
+  "PriorityNode:Visit#1+54": [
     "--★ 结束 if（625 行）。",
     "--   ★★ 整个 Visit 至此结束。回头看整体结构：",
     "--       582  function PriorityNode:Visit()",
@@ -711,7 +711,7 @@ export const BEFORE = {
   // ══════════════════════════════════════════════════════════════
   // 十一、ParallelNode：条件重算与中断的载体
   // ══════════════════════════════════════════════════════════════
-  644: [
+  "PriorityNode:Visit#1+62": [
     "--★★【ParallelNode —— 「同时推进所有孩子」的组合节点】",
     "--   ★★ 与前三种组合节点的根本差异：",
     "--     Sequence / Selector / Priority —— **一次只问一个孩子**（靠 idx）",
@@ -736,14 +736,14 @@ export const BEFORE = {
     "--     ★★ 这与 610/618 行的破坏性 Reset 是同一个问题的两面：",
     "--       框架缺少显式的取消语义，导致所有「停止」都表现为「遗忘」。",
   ],
-  645: [
+  "PriorityNode:Visit#1+63": [
     "--★ name 可传（ParallelNodeAny 借此改成 \"Parallel(Any)\"，见 693 行）。",
     "--   ★★ 这是本文件里**唯一支持自定义名字的组合节点构造器**。",
     "--   ※ 对比 Sequence:305 / Selector:341 / Priority:534 / Loop:428 / Random:485",
     "--     都硬编码名字。可传名字在调试多并行场景时很有用。",
   ],
 
-  649: [
+  "ParallelNode:Step#1": [
     "--★★【ParallelNode:Step —— 覆写基类 Step 的唯一理由：条件必须每帧重算】",
     "--   ★★ 两个分支与基类（161 行）完全一致，唯一区别在 654 行的条件重置。",
     "--   ★★ 【为什么需要这一步？】",
@@ -763,15 +763,15 @@ export const BEFORE = {
     "--     ★ 重复但必要：Visit 内的重置保证「本轮问的是新答案」，",
     "--       Step 内的重置保证「下轮不会被 SUCCESS 短路掉」。",
   ],
-  650: [
+  "ParallelNode:Step#1+1": [
     "--★ 非 RUNNING → 整体 Reset（与基类 163 行相同）。",
   ],
-  651: [
+  "ParallelNode:Step#1+2": [
     "--★ `self:Reset()` 而不是 `self._base.Reset(self)` ——",
     "--   ★★ 两者等价（ParallelNode 没有覆写 Reset，走的是基类），",
     "--     但写法不一致，属于风格不统一。无功能影响。",
   ],
-  654: [
+  "ParallelNode:Step#1+5": [
     "--★★「已成功的条件节点」需要复位 —— 这是 ParallelNode 的核心机制。",
     "--   ★★ `v:is_a(ConditionNode)` 精确限定「只复位条件」，",
     "--     不动动作节点 —— 动作节点的 SUCCESS 状态需要保留吗？",
@@ -802,11 +802,11 @@ export const BEFORE = {
     "--             MinPeriod 用「距离上次成功不足 minperiod 就 FAILED」来限流。",
     "--             参见 behaviours/minperiod.lua:14-19。",
   ],
-  655: [
+  "ParallelNode:Step#1+6": [
     "--★ 复位这个条件节点，让它下轮能被重新询问。",
   ],
 
-  661: [
+  "ParallelNode:Visit#1": [
     "--★★【ParallelNode:Visit —— 「全部访问 + 任一失败即整体失败」】",
     "--   ★★ 核心规则（与所有其他组合节点都不同）：",
     "--     ① **每个孩子都访问**（664 行遍历）—— 与 Sequence/Selector 的 O(1) 对比",
@@ -820,22 +820,22 @@ export const BEFORE = {
     "--       ★★ 于是又出现「行为树状态」与「实体状态」的分裂（同 610 行的分析）。",
     "--     ★★ 这是 WhileNode 的「优雅之处」也是它的「隐患之处」。",
   ],
-  662: [
+  "ParallelNode:Visit#1+1": [
     "--★ done = true 起步 —— 「默认全部完成」，只要有一个 RUNNING 就置假。",
     "--   ★★ 注意 done 的语义是 **AND**（全部完成才算完成），",
     "--     与 any_done 的 OR 形成一对（685 行）。",
   ],
-  663: [
+  "ParallelNode:Visit#1+2": [
     "--★★ any_done = false —— 「是否至少有一个孩子已完成」。",
     "--   ★★ 只被 stoponanycomplete 为真时使用（685 行），",
     "--     也就是 ParallelNodeAny 专用。普通 Parallel 不看它。",
   ],
-  664: [
+  "ParallelNode:Visit#1+3": [
     "--★★ 遍历所有孩子 —— 与 Sequence 的 `while idx <= #children` 形成对比。",
     "--   ★★ 性能：O(孩子数) 每帧。Parallel 的孩子通常只有 2 个（条件 + 动作），",
     "--     所以这个 O(N) 是可接受的。",
   ],
-  666: [
+  "ParallelNode:Visit#1+5": [
     "--★★【条件节点每帧复位 —— 「While 语义」的物理实现】",
     "--   `if child:is_a(ConditionNode) then child:Reset() end`",
     "--   ★★ 为什么必须每帧复位？",
@@ -852,10 +852,10 @@ export const BEFORE = {
     "--           行为上大体一致（都能每帧判定 MultiCondition 本身，",
     "--           因为 231/235 行每次 Visit 都会重算），但值得注意。",
   ],
-  667: [
+  "ParallelNode:Visit#1+6": [
     "--★ 复位 —— 注意用的是 self（Parallel）风格的调用写法。",
   ],
-  670: [
+  "ParallelNode:Visit#1+9": [
     "--★★「已经 SUCCESS 的孩子不再访问」—— 三个后果要分清：",
     "--   ① 条件节点：因 666-668 每帧被复位，所以几乎不会命中这个短路。",
     "--   ② 动作节点：一旦 SUCCESS 就冻结，直到整体被 Reset。",
@@ -864,10 +864,10 @@ export const BEFORE = {
     "--     但它意味着 Parallel 内部**没有进度记录**，",
     "--     「跑到第几步」完全靠各子节点自己的状态维持。",
   ],
-  671: [
+  "ParallelNode:Visit#1+10": [
     "--★ 递归访问这个孩子。",
   ],
-  672: [
+  "ParallelNode:Visit#1+11": [
     "--★★【任一失败 → 整体失败 + 立刻返回 —— 「中断」的触发点】",
     "--   ★★ 注意这里是 `return`，**立即**结束遍历，",
     "--     所以排在后面的孩子这一轮不会被访问。",
@@ -877,22 +877,22 @@ export const BEFORE = {
     "--     ★ 771 行的 WhileNode 正是这个顺序（ConditionNode 在前）。",
     "--   ★★ 反过来若动作在前，条件为假时动作已经被启动一次（虽然会被 Reset）。",
   ],
-  673: [
+  "ParallelNode:Visit#1+12": [
     "--★ 状态置 FAILED —— 下轮 Step(162) 会 Reset 整个 Parallel。",
     "--   ★★ 那时正在 RUNNING 的动作节点被级联 Reset —— 「中断」完成。",
   ],
-  674: [
+  "ParallelNode:Visit#1+13": [
     "--★ 立即返回，不访问后面的孩子。见 672 行的分析。",
   ],
-  678: [
+  "ParallelNode:Visit#1+17": [
     "--★ 该孩子还在跑 → 整体还不能算完成。",
   ],
-  681: [
+  "ParallelNode:Visit#1+20": [
     "--★★ 该孩子已完成（SUCCESS）→ 记一笔 any_done。",
     "--   ★★ 这里 else 分支包含 FAILED，但 FAILED 已在 672 行 return 了，",
     "--     所以能到这里的「非 RUNNING」必然是 SUCCESS。",
   ],
-  685: [
+  "ParallelNode:Visit#1+24": [
     "--★★【收尾判定 —— 两条不同的成功标准】",
     "--   `if done or (self.stoponanycomplete and any_done) then`",
     "--   ★★ 两种语义：",
@@ -906,16 +906,16 @@ export const BEFORE = {
     "--     典型用途（oceanfishbrain.lua:210、beequeenbrain.lua:214）：",
     "--       并行做几件事，哪件先完成就用哪件的结果。",
   ],
-  686: [
+  "ParallelNode:Visit#1+25": [
     "--★ 整体 SUCCESS —— 「都做完了」或「够了（Any 模式）」。",
   ],
-  688: [
+  "ParallelNode:Visit#1+27": [
     "--★ 有孩子还在跑 → 整体 RUNNING，parent 会继续保留本节点。",
     "--   ★★ RUNNING 会让 Step(162) 跳过 Reset，从而保住整棵子树的状态。",
     "--     这是「正在做的事能持续下去」的物理保证。",
   ],
 
-  692: [
+  "ParallelNode:Visit#1+31": [
     "--★★【ParallelNodeAny —— 「任一子节点完成即成功」的并行节点】",
     "--   ★★ 它只是 ParallelNode 的一个特化：加了 stoponanycomplete 标志。",
     "--     所以可以理解为「带一个布尔开关的 ParallelNode」。",
@@ -925,7 +925,7 @@ export const BEFORE = {
     "--   ★★ 代价：使用者必须知道有这两个类（ParallelNodeAny / ParallelNode）。",
     "--     ★ 实践中的命名不对称（一个是类一个是子类）容易让人漏掉 Any 版本。",
   ],
-  693: [
+  "ParallelNode:Visit#1+32": [
     "--★★ 注意参数顺序：`ParallelNode._ctor(self, children, \"Parallel(Any)\")`。",
     "--   ★★ 而 ParallelNode 的构造器签名是 `function(self, children, name)`（644 行），",
     "--     所以 children 在前、name 在后 —— 正确。",
@@ -934,7 +934,7 @@ export const BEFORE = {
     "--   ★★ 唯一的例外是 ConditionNode:202（fn 在前）与 MultiConditionNode:218。",
     "--     因为它们没有 children。见 202 行的说明。",
   ],
-  694: [
+  "ParallelNode:Visit#1+33": [
     "--★★ stoponanycomplete = true —— 685 行的判据由此生效。",
     "--   ★ 这是 ParallelNode 与 ParallelNodeAny 的**唯一行为差异**。",
   ],

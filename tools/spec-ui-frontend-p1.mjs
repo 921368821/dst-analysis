@@ -455,37 +455,37 @@ export const BEFORE = {
     "-- 【MotdManager】登录时的「消息-of-the-day」推送。",
     "--   属于 UI 层但业务上是网络层，参见 motdmanager.lua。",
   ],
-  256: [
+  "FrontEnd:ShowSavingIndicator#1": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- 段 3/8：存档指示器与浮层显隐（256-296）",
     "-- ════════════════════════════════════════════════════════════════",
   ],
-  257: [
+  "FrontEnd:ShowSavingIndicator#1+1": [
     "-- ★ 双重守卫：saving_indicator 存在（主机平台，197-208）",
     "--   且存储系统可用（主机不支持本地存档时为 false）。",
     "--   ⇒ PC 上第一个条件为 false，256-269 整个函数是空操作。",
   ],
-  258: [
+  "FrontEnd:ShowSavingIndicator#1+2": [
     "-- ★ if not self.saving_indicator.shown then —— 幂等保护。",
     "--   多个并发存档请求里只有第一个会真正显示指示器，",
     "--   但 267 行 num_pending_saves 仍然全部累加。",
     "--   ⇒ 「显示一次、计数多次」是这里的核心设计。",
   ],
-  261: [
+  "FrontEnd:ShowSavingIndicator#1+5": [
     "-- ★ ForceStartWallUpdating（widget.lua:212）→ uianim 的",
     "--   StartWallUpdatingComponent：让补间用真实时间轴驱动。",
     "--   存档指示器是一个 save_loop 循环动画（201行），",
     "--   ★ 服务器暂停时它必须继续转——这就是 22 行 UpdateWhilePaused",
     "--     机制的具体应用。",
   ],
-  271: [
+  "FrontEnd:HideSavingIndicator#1": [
     "-- ★★ HideSavingIndicator（271-275）是**只减计数不改显示**：",
     "--   真正的淡出由 745-748 行触发（num_pending_saves <= 0 且超时）。",
     "--   ⇒ 「最后一次保存完成」+「至少显示 3 秒」两个条件都满足才淡出。",
     "--   为什么要有最短显示时间？⚠ 推理：快速连续存档时指示器会闪一下，",
     "--     闪烁是明显的视觉噪音。3 秒（259 行）是体验取舍。",
   ],
-  277: [
+  "FrontEnd:HideTopFade#1": [
     "-- ────────────────────────────────────────────────────────────────",
     "-- 【topFade 显隐】277-295。四个 top 遮罩的批量开关。",
     "-- ★★ 注意 ShowTopFade（285）**依赖 self.fade_type** 这个外部设置，",
@@ -497,12 +497,12 @@ export const BEFORE = {
     "--     这是「用字符串当状态机标签」的典型脆弱点。",
     "--────────────────────────────────────────────────────────────────",
   ],
-  297: [
+  "FrontEnd:GetFocusWidget#1": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- 段 4/8：★ 焦点查询 API（297-366）—— G1 的第一现场",
     "-- ════════════════════════════════════════════════════════════════",
   ],
-  298: [
+  "FrontEnd:GetFocusWidget#1+1": [
     "-- ★★★ 【GetFocusWidget】—— 「当前焦点控件」的定义式。",
     "--   定义：栈顶屏幕的**最深**焦点控件。",
     "--   为什么不是遍历 self.focus？",
@@ -520,7 +520,7 @@ export const BEFORE = {
     "--     Screen 可能没有），这条链会返回一个野对象。",
     "--────────────────────────────────────────────────────────────────",
   ],
-  303: [
+  "FrontEnd:GetIntermediateFocusWidgets#1": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- ★★ 【GetIntermediateFocusWidgets】—— 焦点链的「中间段」。",
     "--",
@@ -550,7 +550,7 @@ export const BEFORE = {
     "--     这里的 while 会**无限循环**。框架层没有任何深度上限保护。",
     "--────────────────────────────────────────────────────────────────",
   ],
-  306: [
+  "FrontEnd:GetIntermediateFocusWidgets#1+3": [
     "-- ⚠ 306 行的 `if self.screenstack[#self.screenstack] then` 是**死代码**：",
     "--   304 行已经保证 #self.screenstack > 0，而 1..n 位的元素不可能是 nil",
     "--   （table.insert 不会插入 nil）。",
@@ -559,7 +559,7 @@ export const BEFORE = {
     "--   ★ 教训：Lua 表可以持有 nil 值（长度语义特殊），",
     "--     防御性判空在这里不是错，只是被外层条件覆盖了。",
   ],
-  318: [
+  "FrontEnd:GetHelpText#1": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- ★★ 【GetHelpText】—— 焦点链 + 独占优先级的完整实现。",
     "--",
@@ -584,20 +584,20 @@ export const BEFORE = {
     "--   「有就用」的探测式接口风格（对比 widget.lua:336 GetHelpText 的空实现）。",
     "--────────────────────────────────────────────────────────────────",
   ],
-  322: [
+  "FrontEnd:GetHelpText#1+4": [
     "-- ★ active_screen 可能为 nil（栈空），所有使用处都做了 `and` 短路。",
     "--   ⇒ 325 行 `active_screen_exclusivehelp or active_screen and ...`",
     "--     依赖 Lua 的 and/or 优先级：and 优先于 or，所以等价于",
     "--     `exclusivehelp or (active_screen and (active_screen ~= widget))`。",
     "--     写法紧凑但可读性差——**典型的 Lua 遗留风格**。",
   ],
-  324: [
+  "FrontEnd:GetHelpText#1+6": [
     "-- ★ 三重 and/or 链：`A and A:HasExclusiveHelpText() or false`。",
     "--   显式 `or false` 是为了让结果严格是布尔值，",
     "--   因为 HasExclusiveHelpText 可能返回 nil。",
     "--   ⇒ 326 行因此不必再判一次。",
   ],
-  326: [
+  "FrontEnd:GetHelpText#1+8": [
     "-- ⚠ 326 行直接active_screen:GetHelpText()。",
     "--   走到这里时 325 行已保证 active_screen 非nil（因为 active_screen ~= widget",
     "--   时 active_screen 必须非 nil；exclusivehelp 为真时 active_screen 也非 nil，",
@@ -605,7 +605,7 @@ export const BEFORE = {
     "--   ⇒ 逻辑上安全，但**依赖对324 行短路语义的精确理解**，",
     "--     可读性差。改动 324 行会静默打破 326 行。",
   ],
-  332: [
+  "FrontEnd:GetHelpText#1+14": [
     "-- ★★★ 原注释 \"-- Show the help text for secondary widgets, like scroll bars\"",
     "--   这行英文注释是理解 333-350 那段代码的钥匙：",
     "--   「次级控件」= 焦点链上的中间段，不是叶子。",
@@ -613,26 +613,26 @@ export const BEFORE = {
     "--   玩家在列表里移动焦点时，滚动条自己有提示（\"X 键滚动\"）。",
     "--   ⇒ 若焦点只是指针（不保留链），就**无法**表达这个需求。",
   ],
-  339: [
+  "FrontEnd:GetHelpText#1+21": [
     "-- ★ 独占优先级的第二次应用：中间控件也可以独占。",
     "--   341 行 t = {} 清空，然后 break——后续中间段不再处理。",
   ],
-  353: [
+  "FrontEnd:GetHelpText#1+35": [
     "-- ★ 叶控件的独占处理354-357：清空 t 后才继续。",
     "--   注意它**先清空再添加**（359-361行），保证叶控件独占时",
     "--   结果恰好是「只有叶控件的文本」。",
   ],
-  365: [
+  "FrontEnd:GetHelpText#1+47": [
     "-- ★ table.concat(t, \"  \") —— 双空格分隔。",
     "--   为什么是两个空格？因为单个空格在视觉上分隔度不够，",
     "--   两段提示会糊在一起。这是**纯美术/排版决策**写进了代码。",
   ],
-  368: [
+  "FrontEnd:UpdateHelpTextSize#1": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- 段 5/8：帮助文本尺寸自适应（368-385）",
     "-- ════════════════════════════════════════════════════════════════",
   ],
-  369: [
+  "FrontEnd:UpdateHelpTextSize#1+1": [
     "-- ★★ 分屏缩放系数1.8 —— 为什么不是 2？",
     "--   分屏时视口宽度减半但字体不用减半（否则太小看不清），",
     "--   所以整体放大 1.8 倍来补偿视觉密度。",
@@ -643,29 +643,29 @@ export const BEFORE = {
     "--   ★ 369 行还额外要求 `not IsGameInstance(Instances.Overlay)`：",
     "--     Overlay 实例（游戏里弹出的界面，如物品栏）**不缩放**。",
   ],
-  374: [
+  "FrontEnd:UpdateHelpTextSize#1+6": [
     "-- ★ 缓存式字号更新：只有 splitscreen_scale 变了才 SetSize。",
     "--   SetSize 会触发字体图集重建，是**昂贵**操作。",
     "--   ⇒ 与 167 行 helptextstring 同属「缓存键避免重复重排」。",
   ],
-  379: [
+  "FrontEnd:UpdateHelpTextSize#1+11": [
     "-- ★ help_height = 80 * scale * num_lines —— 高度随行数线性增长。",
     "--   而 158 行初始化时 num_lines 隐含为 1。",
     "--   ⇒ 背景高度是**动态**的，这解释了为什么 60 行的 SetRegionSize(900,406)",
     "--     对 helptext 不适用（helptexttext 用 384 行的动态值）。",
   ],
-  387: [
+  "FrontEnd:StopTrackingMouse#1": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- 段 6/8：输入门禁与焦点移动（387-416）",
     "-- ════════════════════════════════════════════════════════════════",
   ],
-  387: [
+  "FrontEnd:StopTrackingMouse#1": [
     "-- ★★ StopTrackingMouse(autofocus) —— 交出鼠标控制权。",
     "--   autofocus=true 时立即给栈顶屏幕一个默认焦点，",
     "--   避免「鼠标交出去了但焦点还停在某个控件上」的中间态。",
     "--   392 行 screen:SetDefaultFocus() → screen.lua:70 → default_focus:SetFocus()。",
   ],
-  397: [
+  "FrontEnd:IsControlsDisabled#1": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- ★★★ 【IsControlsDisabled】—— 整个前端最重要的一行守卫。",
     "--",
@@ -693,7 +693,7 @@ export const BEFORE = {
     "--     这两种结果取决于**弹窗是否伴随淡出**，而不是弹窗本身。",
     "--────────────────────────────────────────────────────────────────",
   ],
-  403: [
+  "FrontEnd:OnFocusMove#1": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- ★★ 【OnFocusMove】—— 手柄/键盘的方向导航入口。",
     "--",
@@ -713,18 +713,18 @@ export const BEFORE = {
     "--     的正面例子——本文件做对了，419-450 的补丁是另一处没做对的地方。",
     "--────────────────────────────────────────────────────────────────",
   ],
-  408: [
+  "FrontEnd:OnFocusMove#1+5": [
     "-- ★ 焦点移动成功音效：\"dontstarve/HUD/click_mouseover_controller\"。",
     "--   ★ 用 controller 专属音效而不是通用的 click_mouseover，",
     "--     因为手柄导航的听觉反馈要和鼠标 hover 区分开。",
     "--   对比 widgets/button.lua:110 用的 click_mouseover（鼠标版）。",
   ],
-  409: [
+  "FrontEnd:OnFocusMove#1+6": [
     "-- ★ 焦点被手柄/键盘移动后**立刻**关闭鼠标跟随。",
     "--   ⇒ 一旦发生方向键导航，鼠标就不再抢焦点，直到用户再点一下",
     "--     （OnMouseButton 1287 无条件恢复）。",
   ],
-  411: [
+  "FrontEnd:OnFocusMove#1+8": [
     "-- ★★ elseif 分支：屏幕自己「吃不下」这次导航，但鼠标还在跟随。",
     "--   这时给屏幕一个默认焦点（992-994 PushScreen 里也有同样调用）。",
     "--   ⇒ 效果：从「鼠标模式」第一次按方向键时，焦点跳到默认控件，",

@@ -1,7 +1,7 @@
 // spec-world-p4.mjs —— prefabs/world.lua 第 4 段：端分流与主模拟组件装配（551-618）
 
 export const BEFORE = {
-  551: [
+  "fn#1+137": [
     "--★★★【SetPrefabName(\"world\") —— ★★ 故意放在整个初始化的最后一步】",
     "--   原注释：\"the actual prefab to load comes from gamelogic.lua, this is for postinitfns.\"",
     "--   ★★ 翻译：真正决定「加载哪个预制体」的是 gamelogic.lua，这里设的名字",
@@ -17,7 +17,7 @@ export const BEFORE = {
     "--     永远不会执行到这行 —— 顺序保证了失败路径的隔离。",
     "--   ⚠ 移植警告：任何在 fn 尾部之后插入代码的修改，都要确认是否抢在设名前面。",
   ],
-  553: [
+  "fn#1+139": [
     "--★★★【阶段⑥的第一道分流：`not TheNet:IsDedicated()` —— 「是不是有画面的进程」】",
     "--   ★★★ 为什么用 IsDedicated 而不是 ismastersim？",
     "--     因为这里要判断的是「**有没有本地显示**」，与「是否权威」是两个正交维度：",
@@ -32,7 +32,7 @@ export const BEFORE = {
     "--     两者正交，组合起来才是完整的运行身份判定。",
     "--   TheNet 是 C++ 侧对象，无 Lua 源码。参见 01-报告/04 的联机模式判断小节。",
   ],
-  554: [
+  "fn#1+140": [
     "--★★【三个纯表现组件：只在「有界面的进程」上装】",
     "--   oceancolor —— ★ 海水颜色渐变。客户端逐帧根据玩家位置/时间算颜色，",
     "--     服务端不需要，白装就是纯浪费。",
@@ -43,11 +43,11 @@ export const BEFORE = {
     "--   hudindicatablemanager —— HUD 图标的全局注册与显示仲裁。",
     "--     与第 209 行的 hud 预制体配套。",
   ],
-  558: [
+  "fn#1+144": [
     "--★ 裸 `--` 分隔符，标记「非专服专属段」结束（源码风格，非笔误）。",
     "--   第 214 行有完全相同的用法。",
   ],
-  559: [
+  "fn#1+145": [
     "--★★★[walkableplatformmanager —— 可站平台的全局登记表 ★ 移动系统的关键依赖]",
     "--   ★★ 它管的是船、矿车这类「能站上去的移动平台」。",
     "--     locomotor.lua 的跳跃（hopping）机制要向它查询「哪些平台我能跳上」",
@@ -61,7 +61,7 @@ export const BEFORE = {
     "--     客户端必须知道平台上有哪些空位才能做出正确的预测。",
     "--   ★ 对比第 568 行起的一堆仅主模拟组件：这里体现的是「客户端需要预测」的例外。",
   ],
-  561: [
+  "fn#1+147": [
     "--★★[waterphysics —— 水体物理，且立刻配置弹性系数]",
     "--   :562 restitution = 0.75 —— ★★★ 弹性系数 0.75 是硬编码的调参结果。",
     "--   ★ restitution（恢复系数）= 碰撞后保留的速度比例。0.75 意味着",
@@ -73,7 +73,7 @@ export const BEFORE = {
     "--     没有依赖初始化的副作用。",
     "--   交叉引用：components/waterphysics.lua、components/drownable.lua（落水判定）。",
   ],
-  564: [
+  "fn#1+150": [
     "--★★★★★【★ 整个 MakeWorld 的性能命门：纯客户端在此直接返回】",
     "--   if not inst.ismastersim then return inst end",
     "--   ★★★ 这三行是整个文件最重要的性能设计：",
@@ -88,7 +88,7 @@ export const BEFORE = {
     "--   ★★ 对应 networking.lua:660/723/734 的三处 ismastersim / ismastershard 判断，",
     "--     同一套判定被整个项目复用。",
   ],
-  566: [
+  "fn#1+152": [
     "--★ 客户端在此返回。★ 注意此时客户端已经完成的东西：",
     "--   · TheWorld 全局单例（第 422 行）",
     "--   · 五个底层 C++ 组件（第 444-448 行）",
@@ -101,17 +101,17 @@ export const BEFORE = {
   ],
 
   // ── 仅主模拟的 15 个组件 ───────────────────────────────────────────────
-  568: [
+  "fn#1+154": [
     "--★★★★★[阶段⑦：仅主模拟的 15 个管理器组件 —— 文件头 §四 有逐个职责清单]",
     "--   下列逐个组件的详细职责见文件头「【★ 23 个管理器组件逐个职责】」一节，",
     "--   此处只标注设计上的分类与要点。",
     "--   ┌─ 跨分片 / 网络 ────────────────────────────────┐",
   ],
-  570: [
+  "fn#1+156": [
     "--★ klaussackloot —— 小鸡（Klaus Sack）与神秘雕像的战利品机制。",
     "--   ★ 名字来源是游戏内的 NPC「克laus·萨克」。归在主模拟是因为它影响掉落。",
   ],
-  572: [
+  "fn#1+158": [
     "--★★[undertile —— 地板之下：洞穴层的实体管理]",
     "--   ★★ 这是「双向世界」在 Lua 侧的管理者：表面世界与洞穴世界是同一存档的",
     "--     两个区域，undertile 负责洞穴区域的实体生命周期。",
@@ -123,7 +123,7 @@ export const BEFORE = {
     "--     双向世界的洞穴 = 同进程地下一层（undertile 管）；",
     "--     分片集群的次分片 = 独立进程（shardnetworking.lua 管）。",
   ],
-  574: [
+  "fn#1+160": [
     "--★[worldsettingstimer —— 世界设置变更的定时回调]",
     "--   ★★ 注意：AddComponent(\"worldsettingstimer\") 这一行在本文件是**首次注册**该组件",
     "--     的地方之一，但组件本体（components/worldsettingstimer.lua，236 行）",
@@ -133,7 +133,7 @@ export const BEFORE = {
     "--     这个组件负责在恰当的时机推送变更与重算。",
     "--   交叉引用：components/worldsettingstimer.lua、worldsettingsutil.lua。",
   ],
-  575: [
+  "fn#1+161": [
     "--★★[timer —— 通用定时器，是 DoPeriodicTask 等机制的实际宿主]",
     "--   ★★ 单独提出来：entityscript.lua 的 DoPeriodicTask/DoTaskInTime 会把任务",
     "--     挂到**实体**上，而世界的任务需要有一个全局的时钟源来驱动它们。",
@@ -141,20 +141,20 @@ export const BEFORE = {
     "--   ★ 对比第 340 行的 inst:LongUpdate(0) —— 那是长更新钩子，",
     "--     而 timer 是**周期性任务**的容器，两者都是「时间驱动的世界维护」。",
   ],
-  577: [
+  "fn#1+163": [
     "--★ farming_manager —— 农场全局规则：季节掉率、土壤肥沃度、腐化。",
     "--   ★ 与第 555 行 nutrients_visual_manager 的分工见该行注记（逻辑 vs 视觉）。",
   ],
-  579: [
+  "fn#1+165": [
     "--★ dockmanager —— 码头与龙骸（Fire Keeper）类停靠点的全局管理。",
     "--   ★ 与第 275-276 行的 vinebridgemanager 同属「可交互世界设施的管理器」类别：",
     "--     负责设施的注册、状态维护、以及在玩家交互时的调度。",
   ],
-  581: [
+  "fn#1+167": [
     "--★ worldroutes —— 世界路线图数据（地图 UI 与传送点路径）。",
     "--   ★ 名字里的 routes 指的是「导航路线」而非「HTTP 路由」。",
   ],
-  583: [
+  "fn#1+169": [
     "--★★★[playerspawner —— 出生点选择与出生流程，全文件最常用的管理器]",
     "--   ★★ 被 networking.lua:269 跨文件调用：",
     "--     TheWorld.components.playerspawner:SpawnAtNextLocation(TheWorld, player)",
@@ -167,15 +167,15 @@ export const BEFORE = {
     "--   ★★ 这条链路横跨 networking.lua 与 world.lua 两个文件，",
     "--     是理解「跨文件协作」的最好例子。",
   ],
-  585: [
+  "fn#1+171": [
     "--★ nightlightmanager —— 夜晚光照管理（照明半径、无光区域、光衰减）。",
     "--   ★ 相关组件：moonlightcontroller、lightningreducer 等（各自在别处挂载）。",
   ],
-  586: [
+  "fn#1+172": [
     "--★ winonateleportpadmanager —— 汇智之帽（Winona）传送基座的全局登记。",
     "--   ★ 命名规律：{角色名}*manager —— 角色专属功能的管理器。",
   ],
-  588: [
+  "fn#1+174": [
     "--★★[corpsepersistmanager —— 尸体跨会话保留]",
     "--   ★★ 解决的问题：玩家死亡掉落物在存档/重连后应当保留（可被找回），",
     "--     但清理策略必须有一个统一的执行者，否则尸体会在世界里无限累积。",
@@ -183,14 +183,14 @@ export const BEFORE = {
     "--     回滚存档时实体状态变化，corpsepersistmanager 保证死亡物品的处理一致。",
     "--   交叉引用：networking.lua:733 WorldRollbackFromSim（回滚请求的实现）。",
   ],
-  590: [
+  "fn#1+176": [
     "--★ 注释「World health management」引出下一个组件 ——",
     "--   ★★ 这是一条有实质影响的注记： skeletonsweeper 清理的不是「垃圾」，",
     "--     而是**世界膨胀的数据**（游离骨骼）。在多分片集群里，",
     "--     每个分片都有一份实体表，扩容时会产生「本分片用不到的引用」，",
     "--     必须清扫否则内存与查询成本随扩容次数线性增长。",
   ],
-  591: [
+  "fn#1+177": [
     "--★★★[skeletonsweeper —— 分片扩容时的清扫者]",
     "--   ★★ 结合第 154-157 行的 skeleton_notplayer / _1 / _2 三个预制体看：",
     "--     洞穴里散布的装饰性骨架在分片反复载入/卸载时会累积成千上万，",
@@ -198,7 +198,7 @@ export const BEFORE = {
     "--   ★ 这是「世界健康（world health）」字面意义上的组件 ——",
     "--     它维护的不是玩法状态，而是**世界数据结构本身的健康度**。",
   ],
-  593: [
+  "fn#1+179": [
     "--★★★【master_postinit —— 「仅主模拟」的生物群系钩子，与 common_postinit 精确二分】",
     "--   ★★ 位置极讲究：在第 591 行 skeletonsweeper 之后、",
     "--     第 598 行 uniqueprefabids 之前 —— 也就是「所有常规组件装完」之后。",
@@ -211,10 +211,10 @@ export const BEFORE = {
     "--     ★ 这是一个真实可观察的差异，生物群系代码若依赖 self.prefab，",
     "--       必须写在 master_postinit 里而不能写 common_postinit。",
   ],
-  597: [
+  "fn#1+183": [
     "--★ 注释「Metrics」—— 下面这个组件归入「度量/统计」而非玩法。",
   ],
-  598: [
+  "fn#1+184": [
     "--★★[uniqueprefabids —— 预制体 ID 去重]",
     "--   ★★ 解决的问题：批量生成（一次生成一堆）时，同一份 prefab 可能被重复登记，",
     "--     导致计数器重复、清理逻辑错算、或者刷怪器生成数量异常。",
@@ -223,7 +223,7 @@ export const BEFORE = {
     "--   ★ 这个组件放在第 598 行（master_postinit 之后）是有理由的：",
     "--     唯一性检查必须在生物群系逻辑装好之后才有意义。",
   ],
-  600: [
+  "fn#1+186": [
     "--★★[UpdateServerWorldGenDataString —— 世界生成数据的对外广播]",
     "--   ★★ 原注释给了两条关键信息：",
     "--     \"World gen data for server listing\" —— 供**服务器列表界面**使用，",
@@ -235,7 +235,7 @@ export const BEFORE = {
     "--   ★ 这正是文件头说的「双层 TheWorld」结构的又一体现：",
     "--     网络相关的数据上报被单独放在 networking.lua 那一层。",
   ],
-  602: [
+  "fn#1+188": [
     "--★★【UpdateServerWorldGenDataString() —— 上报世界生成配置】",
     "--   ★ 内容是 ShardGameIndex:GetGenOptions() 打包压缩后的字符串",
     "--     （见 networking.lua:814 TheNet:SetWorldGenData(DataDumper(ZipAndEncodeSaveData(...))）。",
@@ -244,14 +244,14 @@ export const BEFORE = {
     "--   ★★ 为什么只在上报时需要：这是给**未加入的玩家**看的元数据，",
     "--     加入之后直接从存档读，不需要再广播。",
   ],
-  604: [
+  "fn#1+190": [
     "--★ inst.game_data_task = nil —— 初始化去抖标志位。",
     "--   ★ 与第 317 行（DoGameDataChanged 里清空）、第 330 行（判空后排队）",
     "--     构成完整的状态机。",
     "--   ★★ 位置在第 602 行之后、所有事件监听之前 —— ",
     "--     保证在 PostInit（第 331 行会用到它）之前标志位已就绪。",
   ],
-  606: [
+  "fn#1+192": [
     "--★★★[ListenForEvent(\"ms_playerspawn\") —— 世界自己监听自己的事件]",
     "--   ★★★ 这正是「TheWorld 是全局事件总线」的具体体现：",
     "--     派发方是引擎/gamelogic，监听方是世界本体，绑定发生在本文件。",
@@ -264,7 +264,7 @@ export const BEFORE = {
     "--     永不死亡、恰好只有一个」的实体。",
     "--   ★ ms_ 前缀约定见第 300 行注记。参见 01-报告/01-核心架构-实体预制体组件.md。",
   ],
-  608: [
+  "fn#1+194": [
     "--★★★[阶段⑦末尾：口袋维度容器的三个公开接口]",
     "--   PocketDimensionContainers = {}   —— 名字 → 容器实体的字典",
     "--   SetPocketDimensionContainer（第 609 行）—— 见第 387 行",
@@ -275,11 +275,11 @@ export const BEFORE = {
     "--     理由：口袋维度（随身子世界）是服务端权威的世界内容，",
     "--     客户端只渲染被复制出来的实体，不需要知道容器实体本身。",
   ],
-  612: [
+  "fn#1+198": [
     "--★ return inst —— 构造函数返回实体实例，Prefab 系统据此完成注册。",
     "--   ★ 这是 fn 的唯一出口。客户端在第 565 行提前 return，服务端走到底。",
   ],
-  615: [
+  "fn#1+201": [
     "--★★★★★[Prefab(name, fn, customassets, worldprefabs) —— 预制体注册的四元组]",
     "--   ★★★ 四个参数正是 §零 至 §一 声明的那些东西：",
     "--     name         = \"world\"（或生物群系自定义名）",
@@ -293,7 +293,7 @@ export const BEFORE = {
     "--     而这张清单正是作为第四参数交给 Prefab 的。",
     "--   交叉引用：01-报告/01-核心架构-实体预制体组件.md（Prefab/PrefabFiles 机制）。",
   ],
-  618: [
+  "fn#1+204": [
     "--★★★[return MakeWorld(\"world\", prefabs, assets) —— 本文件的自我调用]",
     "--   ★★★ 这是全文件最巧妙的一行：",
     "--     定义 MakeWorld 工厂 → 立即用它造一个名为 \"world\" 的预制体 → 返回它。",
@@ -317,25 +317,25 @@ export const AFTER = {
     "--★ 呼应第 43/45 行的重复声明问题：这里的 pumpkin_carving2 是**真实**的第二套，",
     "--   与第 43 行的无意重复不同，不要混淆两类「重复」。",
   ],
-  437: [
+  "fn#1+23": [
     "--★ 阶段①结束。回顾此时 TheWorld 的状态：",
     "--   已建立全局单例 + 打好两个标签 + 写入 ismastersim/ismastershard/net/shard 四个字段，",
     "--   但**还没有任何组件**。从第 444 行起才逐步装配。",
     "--   ★ 这段「先设好身份，再装能力」的顺序，保证后续任何代码读到的",
     "--     ismastersim 都是可靠的。",
   ],
-  561: [
+  "fn#1+147": [
     "--★ 呼应第 561 行注记：waterphysics 是所有端共享的，",
     "--   因为客户端也要预测落水（drownable 组件）。",
   ],
-  610: [
+  "fn#1+196": [
     "--★ 阶段⑦结束。回顾纯客户端（提前 return）与主模拟的差别，",
     "--   唯一多出来的能力就是这 15 个管理器组件 ——",
     "--   ★★ 它们合起来定义了「服务端权威」这个概念的具体内容：",
     "--     玩家、刷怪、季节、农场、存档、投票、跨分片同步。",
     "--   ★ 参见 01-报告/04-联机同步-模组系统-UI.md 的「谁负责什么」划分。",
   ],
-  616: [
+  "fn#1+202": [
     "--★ MakeWorld 函数结束（文件到第 618 行直接调用它）。",
     "--   ★★★ 全文件结构回顾：",
     "--     §零-§一  资源与预制体清单（世界「能有什么」）",

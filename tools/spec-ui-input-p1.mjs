@@ -118,12 +118,12 @@ export const BEFORE = {
     "-- ★ 这解释了 90-96 ControllerAttached 的缓存机制：",
     "--   「有手柄插着」≠「手柄被启用」。",
   ],
-  30: [
+  "Input:DisableAllControllers#1": [
     "-- ================================================================",
     "-- 段 2/6：控制器设备管理（30-113）",
     "-- ================================================================",
   ],
-  30: [
+  "Input:DisableAllControllers#1": [
     "-- ★★★ DisableAllControllers —— 关闭除 0 号外的所有输入设备。",
     "-- 【★ 关键：for i = 1, N-1 —— 从 1 开始，跳过设备 0】",
     "--   0 号设备 = 键鼠（TheInputProxy 的约定）。",
@@ -133,12 +133,12 @@ export const BEFORE = {
     "--   ⇒ 与「记住玩家设置」的意图相反，标注为轻度疑似缺陷。",
     "-- ★ 38 行 EnableAllControllers 是对称的反操作。",
   ],
-  38: [
+  "Input:EnableAllControllers#1": [
     "-- EnableAllControllers —— 30 行的镜像（无条件启用已连接的）。",
     "-- ★ 与 30 行不同：这里不检查是否已启用，直接启用。",
     "--   ⇒ 「全开」的语义，对称。",
   ],
-  46: [
+  "Input:IsControllerLoggedIn#1": [
     "-- ================================================================",
     "-- 【主机平台的一组「空实现」】46-67",
     "--  46 IsControllerLoggedIn  —— 仅 XB1 真实实现",
@@ -152,11 +152,11 @@ export const BEFORE = {
     "--   可能是早期 XB1 独占期的遗留。",
     "-- ===============================================================",
   ],
-  53: [
+  "Input:LogUserAsync#1": [
     "-- ★ LogUserAsync —— 「异步登录手柄用户」。仅 XB1 有意义。",
     "-- ⚠ grep 核实：全库无调用点。⇒ 疑似死代码。",
   ],
-  69: [
+  "Input:EnableMouse#1": [
     "-- ★ EnableMouse(enable) —— 运行期开关鼠标。",
     "-- ★★ 70 行重复了 22 行的判定：",
     "--   enable and IsNotConsole() and not IsDedicated",
@@ -164,7 +164,7 @@ export const BEFORE = {
     "--   ⇒ 语义不是「打开鼠标」而是「请求打开鼠标」。",
     "-- ⚠ 若调用方以为「传 true 就一定开了」会误判。语义不直白，非缺陷。",
   ],
-  73: [
+  "Input:ClearCachedController#1": [
     "-- ================================================================",
     "-- ★★★ 【控制器 ID 缓存与判定】73-96 —— 一个精致的小设计",
     "--  73 ClearCachedController() —— 清缓存",
@@ -190,7 +190,7 @@ export const BEFORE = {
     "--   ⇒★★ 这是「用缓存值 0 表达『已知答案：无』」的编码技巧。",
     "-- ===============================================================",
   ],
-  77: [
+  "Input:CacheController#1": [
     "-- ★★ CacheController 的双与或链：IsNotConsole() and (X or 0) or nil",
     "-- ★★ or 0 与 or nil 的双层兜底：",
     "--   · PC：C++ 返回 nil（无活动设备）→ or 0 → 缓存 0",
@@ -198,14 +198,14 @@ export const BEFORE = {
     "-- ⇒ ★ 这是「利用 and/or 的三值性表达平台分支」的技巧。",
     "-- ⚠ 可读性极差；若 IsNotConsole() 返回 nil 而非 false，行为会不同。",
   ],
-  82: [
+  "Input:TryRecacheController#1": [
     "-- ★★ TryRecacheController —— 「设备切换了吗」。",
     "--   cached ~= nil and cached ~= self:CacheController()",
     "--   ⇒ ★★ 副作用：它会**更新缓存**（调了 CacheController）。",
     "--     所以它是「检查并刷新」，不是纯查询。命名略有误导。",
     "-- ★ 消费者：grep 核实 → 用于「切设备时重建 UI/重绑按键」的场景。",
   ],
-  86: [
+  "Input:GetControllerID#1": [
     "-- ★★ GetControllerID —— 缓存优先。",
     "--   self.controllerid_cached or TheInputProxy:GetLastActiveControllerIndex() or 0",
     "-- ⚠ 主机上缓存恒为 nil ⇒ 每次调用都跨语言。",
@@ -213,7 +213,7 @@ export const BEFORE = {
     "--   ⚠ 但主机 CPU 相对宽裕，且调用频率可能不高。",
     "--   ⇒ 标注为「缓存在主机平台失效」，轻度问题。",
   ],
-  90: [
+  "Input:ControllerAttached#1": [
     "-- ★★ ControllerAttached —— 「玩家在用手柄吗」。【★ 键盘/手柄分叉总开关】",
     "-- 【两条路径】",
     "--  91-93 有缓存 → cached > 0（PC 路径）",
@@ -225,7 +225,7 @@ export const BEFORE = {
     "--   用于决定「用哪套导航键」（817-820/838-850 的 not controller 分支）。",
     "--   ⇒ ★ 这是「键鼠玩家 vs 手柄玩家」体验分叉的总开关。",
   ],
-  98: [
+  "Input:ControllerConnected#1": [
     "-- ★★ ControllerConnected —— 「插了手柄吗」（不管启用与否）。",
     "-- ★ 99 行原注释 \"--V2C: didn't cache this one because it's not used regularly\"",
     "--   ⇒ ★ 与 90 的对照：ControllerAttached 缓存，ControllerConnected 不缓存。",
@@ -233,7 +233,7 @@ export const BEFORE = {
     "-- ⇒ 这是一个有意识的性能分级：热路径缓存，冷路径直查。",
     "-- ★★ 这种「注释解释为什么不做某个优化」的习惯值得学习。",
   ],
-  103: [
+  "Input:ControllerConnected#1+5": [
     "-- ★ GetInputDevices —— 列出已连接设备（给设置界面用）。",
     "-- ★★ 109 行 STRINGS.UI.CONTROLSSCREEN.INPUT_NAMES[device_type + 1]",
     "--   ⇒ ★ device_type 是从 0 开始的枚举，而 Lua 数组从 1 开始，",
@@ -241,7 +241,7 @@ export const BEFORE = {
     "-- ⚠ 若 device_type 越界（表只有 9 项而 device_type 是 9），会得 nil。",
     "--   109 行没有兜底。轻微风险。",
   ],
-  115: [
+  "Input:AddTextInputHandler#1": [
     "-- ================================================================",
     "-- ★★★ 【十三个注册器】115-153 —— 全部是 EventProcessor 的薄封装",
     "-- 【★★ 关键：EventProcessor 支持两种派发命名空间】",
@@ -272,12 +272,12 @@ export const BEFORE = {
     "--     而不是靠 EventProcessor 的短路。★ 这是重要区别。",
     "-- ===============================================================",
   ],
-  139: [
+  "Input:AddControlHandler#1": [
     "-- ★★ AddControlHandler —— 注册某个控制码的处理器。",
     "-- ★ 玩家控制器用它：playercontroller.lua 大量 AddControlHandler(CONTROL_*)。",
     "-- ★★ 注意这里没有「消费」概念：返回 handler 对象，供将来 Remove 用。",
   ],
-  143: [
+  "Input:AddGeneralControlHandler#1": [
     "-- ★★ AddGeneralControlHandler —— 监听所有控制码。",
     "-- ★★ 这是「游戏层」的入口：playercontroller 就是用它接一切的。",
     "-- ★★ 与 139 的区别在回调签名：",
@@ -285,13 +285,13 @@ export const BEFORE = {
     "--   AddGeneralControlHandler → fn(control, digitalvalue, analogvalue)",
     "-- ⇒ 通用版多一个 control 参数（168 行多传了一个）。",
   ],
-  147: [
+  "Input:AddControlMappingHandler#1": [
     "-- ★ AddControlMappingHandler —— 监听「键位被改了」。",
     "-- ★ 唯一派发点：237-239 OnControlMapped（776-778 全局函数，C++ 调用）。",
     "-- ★ 消费者：widgets/controls.lua（按键设置界面）。",
     "-- ★★ 与控制码事件完全分离：一个是「按键触发」，一个是「映射变更」。",
   ],
-  155: [
+  "Input:UpdatePosition#1": [
     "-- ================================================================",
     "-- ★★ 【输入派发：五入口】155-235",
     "-- 【★ C++ → Lua 的全部绑定点（文件末尾 742-778 的全局函数）】",
@@ -311,7 +311,7 @@ export const BEFORE = {
     "--   ⇒ 这就是 14 行注释里说的「架构分裂」。",
     "-- ===============================================================",
   ],
-  155: [
+  "Input:UpdatePosition#1": [
     "-- ★★ UpdatePosition —— 派发鼠标位置给 FollowMouse 类控件。",
     "-- ★ 156 行 if self.mouse_enabled —— 主机上不派发。",
     "-- ★★ 与 173 OnMouseMove 的分工：",
@@ -319,18 +319,18 @@ export const BEFORE = {
     "--   OnMouseMove    → 「我要维护 tracking_mouse 状态」（前端）",
     "-- ★ 唯一消费者：widgets/widget.lua:536 的 AddMoveHandler。",
   ],
-  161: [
+  "Input:UpdatePosition#1+6": [
     "-- ★★ 原注释 \"-- Is for all the button devices (mouse, joystick (even the",
     "--   analog parts), keyboard as well, keyboard\" ——",
     "--   说明 CONTROL_* 是设备无关的：鼠标、手柄（含摇杆模拟量）、",
     "--   键盘全都映射到同一套控制码。这是「统一抽象」的核心。",
   ],
-  162: [
+  "Input:UpdatePosition#1+7": [
     "-- 【ValidateLineNumber(162)】哨兵框住 OnControl 的定义处（163）。",
     "-- ★ 与 171 配对 —— 这两个哨兵框住的正是「全游戏最重要的仲裁点」。",
     "--   哨兵的存在说明这里被改动过多次（G3 补丁、平台适配……）。",
   ],
-  163: [
+  "Input:OnControl#1": [
     "-- ================================================================",
     "-- ★★★★★ 【Input:OnControl】—— 缺陷 G3 的环节一",
     "--          也是整个输入系统最重要的一行",
@@ -363,7 +363,7 @@ export const BEFORE = {
     "-- ⚠⚠⚠ 但它缺少 swallowed 标记，这正是 G3 的根因。",
     "--   详见 164-165 与 167 行的完整分析。",
   ],
-  164: [
+  "Input:OnControl#1+1": [
     "-- ⚠⚠⚠ 【★ 缺陷 G3 环节一的精确位置：164-165】",
     "--",
     "-- 条件一：(self.mouse_enabled or (control ~= CONTROL_PRIMARY and",
@@ -402,7 +402,7 @@ export const BEFORE = {
     "--     写法是「丢弃」而非「直通」，意图正确，只是无诊断。",
     "-- ================================================================",
   ],
-  166: [
+  "Input:OnControl#1+3": [
     "-- ★★★ not TheFrontEnd:OnControl(control, digitalvalue) —— 仲裁调用。",
     "-- 【★ 这是 UI 唯一被询问「你要不要这个输入」的地方】",
     "-- 【返回值语义】",
@@ -422,7 +422,7 @@ export const BEFORE = {
     "--     所以未暴露。但这是明确的架构不对称。",
     "--     详见 179-184 的完整分析。",
   ],
-  167: [
+  "Input:OnControl#1+4": [
     "-- ★★ 第一步广播：具名处理器（AddControlHandler 注册的）。",
     "-- ★★ 168 行第二步广播：通用处理器（AddGeneralControlHandler）。",
     "-- ⇒ ★★ 两者都会执行（不是短路）。",
@@ -439,22 +439,22 @@ export const BEFORE = {
     "--   ⇒⇒ 这就是为什么需要 mark_input_swallowed 那一步：",
     "--     事件层能拦，轮询层拦不住。",
   ],
-  168: [
+  "Input:OnControl#1+5": [
     "-- ★★ 第二步广播：「oncontrol」通用命名空间。",
     "--   ★ 多传了 control 参数（相对 167）—— 通用处理器不知道是哪个键。",
     "-- ★★ 这是 playercontroller 的主要入口（AddGeneralControlHandler）。",
   ],
-  171: [
+  "Input:OnControl#1+8": [
     "-- 第二个 ValidateLineNumber，框住 OnControl 结束（171 = end 行）。",
   ],
-  173: [
+  "Input:OnMouseMove#1": [
     "-- ★★ OnMouseMove —— 只通知前端维护 tracking_mouse。",
     "-- ★ 不派发 self.position（那是 UpdatePosition 155 的职责）。",
     "-- ⇒ ★★ 两条鼠标移动通路彻底分离（见 155 行分析）。",
     "-- ★ 175 行直接调 TheFrontEnd —— 不经 EventProcessor，",
     "--   因为前端是唯一消费者，不需要广播机制。",
   ],
-  179: [
+  "Input:OnMouseButton#1": [
     "-- ================================================================",
     "-- ★★★ 【OnMouseButton】179-184 —— ★★ 缺少仲裁的地方",
     "--",
@@ -487,15 +487,15 @@ export const BEFORE = {
     "--   ⇒⇒ 标注为 ⚠ 疑似缺陷（鼠标路径缺少输入仲裁）。不改代码。",
     "-- ===============================================================",
   ],
-  181: [
+  "Input:OnMouseButton#1+2": [
     "-- ⚠⚠ 缺陷核心行：★ 返回值被丢弃（详见 179 行完整分析）。",
     "-- ★★ frontend.lua:1289 在这里做的短路，其返回值在此被扔掉。",
   ],
-  182: [
+  "Input:OnMouseButton#1+3": [
     "-- ★★ 无条件广播 —— 这是与 163 OnControl 的关键差异。",
     "-- ⚠ 唯一消费者是调试/UI 侧，游戏逻辑不走这里。",
   ],
-  186: [
+  "Input:OnRawKey#1": [
     "-- ================================================================",
     "-- ★★ 【OnRawKey】186-193 —— 物理按键的第二条通路",
     "-- 【三步派发】",
@@ -515,7 +515,7 @@ export const BEFORE = {
     "--   ⇒ ★ 两条路径的哲学差异：因为按键不走 UI 点击语义，所以不需仲裁。",
     "-- ===============================================================",
   ],
-  195: [
+  "Input:OnText#1": [
     "-- ★★ OnText —— 文本输入（IME 输入法的最终字符）。",
     "-- ★★ 唯一消费者：frontend.lua:221 AddTextInputHandler → 1208 OnTextInput。",
     "-- ★ 与 OnRawKey 一样没有仲裁。",
@@ -523,20 +523,20 @@ export const BEFORE = {
     "--   ⇒ 所以 186 OnRawKey（每个按键）与 195 OnText（每个字符）是",
     "--     不同粒度的事件。前者管功能键，后者管可打印字符。",
   ],
-  199: [
+  "Input:OnText#1+4": [
     "-- ★★ 原注释 \"-- Specifically for floating text input on Steam Deck\" ——",
     "--   ★ Steam Deck 的浮动键盘（触屏输入）。",
     "-- ★★ vk_text_widget 记录「当前哪个控件占用了虚拟键盘」。",
     "-- ★ 与 207-212 AbortVirtualKeyboard / 214-231 OpenVirtualKeyboard",
     "--   组成完整的虚拟键盘生命周期。",
   ],
-  200: [
+  "Input:OnFloatingTextInputDismissed#1": [
     "-- ★★ OnFloatingTextInputDismissed —— 「C++ 调用」（原注释）。",
     "-- ★★ 与 743 全局函数 OnFloatingTextInputDismissed 成对：",
     "--   C++ → 全局（742-744）→ TheInput:xxx（200）→ 控件回调。",
     "-- ★★ 「方法 + 同名全局」的桥接模式，文件末尾共 9 处（742-778）。",
   ],
-  214: [
+  "Input:OpenVirtualKeyboard#1": [
     "-- ================================================================",
     "-- ★★ 【虚拟键盘】200-231 —— Steam Deck / 主机的屏幕键盘",
     "--  200 OnFloatingTextInputDismissed —— 键盘被关闭",
@@ -559,22 +559,22 @@ export const BEFORE = {
     "--   ⇒ ⚠ 若某处需要多行输入框，这里会阻止。标注为「配置缺失」。",
     "-- ===============================================================",
   ],
-  216: [
+  "Input:OpenVirtualKeyboard#1+2": [
     "-- ★★ 用 UITransform:GetWorldPosition 拿世界坐标（与 widget.lua:336 同源）。",
     "-- ★ 这是三套坐标问题在输入层的又一个体现。",
   ],
-  233: [
+  "Input:OnGesture#1": [
     "-- ================================================================",
     "-- 段 3/6：★ 事件收尾（233-290）",
     "-- ================================================================",
   ],
-  233: [
+  "Input:OnGesture#1": [
     "-- ★ OnGesture —— 主机平台的手势（滑动等）。",
     "-- ★ 唯一派发点；注册器是 151 AddGestureHandler。",
     "-- ★★ grep 核实：AddGestureHandler 全库无调用点 ⇒ 疑似死代码。",
     "--   推测是主机平台才有意义的功能（主机键盘搜索手势）。",
   ],
-  237: [
+  "Input:OnControlMapped#1": [
     "-- ★★ OnControlMapped —— 「键位映射变更」的唯一派发点。",
     "-- 【★ 与 163 OnControl 的区别】",
     "--   · 163：某个键被按下（每帧可触发多次）",
@@ -586,7 +586,7 @@ export const BEFORE = {
     "-- ★ 唯一注册器：147 AddControlMappingHandler。",
     "-- ★ 消费者：widgets/controls.lua（按键设置界面）。",
   ],
-  241: [
+  "Input:OnFrameStart#1": [
     "-- ★★ OnFrameStart —— 每帧开始时清空 hover 状态。",
     "-- 【★ 为什么是「清空」而不是「更新」？】",
     "--   242  self.hoverinst = nil",
@@ -598,7 +598,7 @@ export const BEFORE = {
     "--   ⚠ 这是一个隐式的时序契约，框架层没有强制。",
     "-- ===============================================================",
   ],
-  246: [
+  "Input:GetScreenPosition#1": [
     "-- ================================================================",
     "-- ★★ 【三套坐标转换】246-261 —— 输入与模拟世界的接缝",
     "--  246 GetScreenPosition()     —— 屏幕坐标（Vector3）",
@@ -615,7 +615,7 @@ export const BEFORE = {
     "--   ⇒ ★ 这解释了 G3 为什么那么难修：两条路各自跑到底。",
     "-- ===============================================================",
   ],
-  251: [
+  "Input:GetWorldPosition#1": [
     "-- ★★ GetWorldPosition —— 屏幕坐标 → 3D 世界坐标（反投影）。",
     "-- ★★ 253 行 x ~= nil and y ~= nil and z ~= nil and Vector3(x,y,z) or nil",
     "--   ⇒ ★ 四重 and 链做判空：任一为 nil 则返回 nil。",
@@ -625,7 +625,7 @@ export const BEFORE = {
     "--   而 256-259 行的 GetWorldXZWithHeight 拆成 x, y 再传。",
     "--   ⇒ 两种调用风格，取决于 ProjectScreenPos 的重载。",
   ],
-  256: [
+  "Input:GetWorldXZWithHeight#1": [
     "-- ★★ GetWorldXZWithHeight —— 把鼠标投影到指定高度的水平面。",
     "-- 【★★ 这是「地面拾取」的标准做法】",
     "--   259  x, y, z = TheSim:ProjectScreenPos(x, y, height)",
@@ -638,7 +638,7 @@ export const BEFORE = {
     "--   ⇒ 与 widget.lua:344 GetPositionXYZ 同类优化。",
     "-- ★★ 这是「鼠标点击地面移动/攻击」的底层实现。",
   ],
-  263: [
+  "Input:GetAllEntitiesUnderMouse#1": [
     "-- ================================================================",
     "-- ★★ 【鼠标拾取查询三函数】263-291",
     "--  263 GetAllEntitiesUnderMouse —— 全部（不过滤）",
@@ -664,14 +664,14 @@ export const BEFORE = {
     "--   ⇒⇒ 标注为 ⚠ 疑似缺陷（两套判据并存且不等价）。",
     "-- ===============================================================",
   ],
-  264: [
+  "Input:GetAllEntitiesUnderMouse#1+1": [
     "-- ★★ self.mouse_enabled and self.entitiesundermouse or 空表",
     "--   ★ 主机上返回空表（不是 nil）⇒ 调用方无需判空。",
     "--   ⇒ 这是「用空值代替 nil」的典型手法（同 frontend.lua:251 match_results）。",
     "-- ★★ 与 519-521 的关系：entitiesundermouse 由 OnUpdate 每帧填。",
     "--   若 OnUpdate 还没跑过（游戏刚启动），该字段为 nil → 返回空表，安全。",
   ],
-  267: [
+  "Input:GetWorldEntityUnderMouse#1": [
     "-- ★★ GetWorldEntityUnderMouse —— 「鼠标下的 3D 实体」。",
     "-- 【★ 六重守卫（267-273）】",
     "--  268 mouse_enabled",
@@ -689,7 +689,7 @@ export const BEFORE = {
     "--     「实体对象还在但已无效」vs「实体有效但不可见」。",
     "--   ⇒ 这个函数是防御写得最扎实的查询函数，可作为范本。",
   ],
-  284: [
+  "Input:GetHUDEntityUnderMouse#1": [
     "-- ★★ GetHUDEntityUnderMouse —— 与 267 完全对称，判据取反。",
     "-- ★★ 289 行 self.hoverinst.Transform == nil —— 「没有 3D 变换」= HUD。",
     "-- ★⚠ 与 frontend.lua:933 的 hover_inst.widget 判据不等价：",

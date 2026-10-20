@@ -67,40 +67,40 @@ export default {
   ],
 
   // ══════════════ 盔甲 ══════════════
-  41: [
+  "GetLeader#1+4": [
     '-- ★★★ 盔甲棚（与 mermbrain 第 184 行的工具棚逐字同构）：',
     '--   mermbrain:  TOOLSHED_ONEOF_TAGS = { "merm_toolshed", "merm_toolshed_upgraded" }',
     '--   本文件:    ARMORY_ONEOF_TAGS  = { "merm_armory", "merm_armory_upgraded" }',
     '--   ★ 只换了名字。这种「同一逻辑两个副本」是 DST 最常见的组织方式。',
     '-- ⚠️ 代价：本文件可以独立修改，而 mermbrain 不能 —— 两边会漂移。',
   ],
-  50: [
+  "NeedsArmor#1": [
     '-- ★ NeedsArmor 与 mermbrain 第 193 行 NeedsTool 逐字同构，只改两处：',
     '--   1) EQUIPSLOTS.HANDS → EQUIPSLOTS.HEAD',
     '--   2) IsHandEquip（第 46 行）→ IsHeadEquip',
     '-- ★ 这种「同构替换」让两个角色的行为逻辑完全一致，只是资源不同。',
     '--   移植时可直接照抄 mermbrain 的实现。',
   ],
-  67: [
+  "GetClosestArmory#1": [
     '-- GetClosestArmory 与 mermbrain 第 210 行 GetClosestToolShed 逐字同构。',
     '-- ⚠️ 同样的瑕疵：第 79-89 行遍历中「普通版只记遇到的第一个」，',
     '--   而函数名叫 GetClosest —— 并不保证最近。已核对第 85-87 行确认。',
     '--   这是从 mermbrain 复制过来的同一个问题。',
     '-- ★ 但第 81-83 行升级版「立即返回」的优先级是合理的（升级装备价值更高）。',
   ],
-  112: [
+  "CollectArmor#1": [
     '-- CollectArmor 与 mermbrain 第 255 行 CollectTool 逐字同构，推 merm_use_building 事件。',
     '-- ★ 同一套建筑交互协议（工具棚/盔甲棚共用 merm_use_building 事件）——',
     '--   意味着这两个建筑的 prefab 侧有统一的处理逻辑。',
   ],
-  124: [
+  "PickupArmor#1": [
     '-- ★ PickupArmor 与 mermbrain 第 267 行 PickupTool 逐字同构。',
     '--   第 140 行优先 mermarmorupgradedhat（升级盔甲），对应工具版的 upgraded 工具。',
     '-- ⚠️ 同样有「遍历兜底导致非最近」的问题（第 144 行）。',
   ],
 
   // ══════════════ 治疗 ══════════════
-  153: [
+  "GetHealerFn#1": [
     '-- ★★ 与 mermbrain 第 37 行 GetHealerFn 逐字同构，两处差异：',
     '--  第 157 行：★ 直接用 inst.components.follower:GetLeader()，',
     '--     而 mermbrain 用本地 GetLeader(inst) helper（带 nil 保护）。',
@@ -119,7 +119,7 @@ export default {
     '--     同一文件里两种写法，说明这两处是【忘记用本地 helper】而非设计。',
     '--   已用 grep 逐条核实本文件 follower 的 4 处出现（第 38/157/174/268 行）。',
   ],
-  173: [
+  "KeepHealerFn#1": [
     '-- ★★ KeepHealerFn 第 179 行：act, target = ...GetRemoteInteraction()',
     '--   与 mermbrain 第 64 行逐字相同。',
     '--   ★★ 已核实 components/playercontroller.lua:5866 返回 (action, target, pos)，',
@@ -131,13 +131,13 @@ export default {
   ],
 
   // ══════════════ 注视 ══════════════
-  201: [
+  "GetFaceTargetFn#1": [
     '-- ★ GetFaceTargetFn 与 mermbrain 第 85 行逐字同构（两个定时器控制注视时长）。',
     '--   唯一差异：mermbrain 第 90 行是 local leader = GetLeader(inst)，',
     '--     本文件第 205 行直接用 GetLeader(inst) or FindClosestPlayerToInst(...)',
     '--     —— 把两行合成一行，行为等价。',
   ],
-  212: [
+  "KeepFaceTargetFn#1": [
     '-- KeepFaceTargetFn 与 mermbrain 第 97 行逐字同构。',
     '-- ⚠️ 差异：mermbrain 第 101 行有 local leader = GetLeader(inst) 然后',
     '--   (leader and leader == target) or (...)；',
@@ -155,20 +155,20 @@ export default {
   ],
 
   // ══════════════ 觅食 ══════════════
-  230: [
+  "GetRunAwayTarget#1+5": [
     '-- ★ EatFoodAction 与 mermbrain 第 116 行逐字同构（只吃素食、恐吓检查、validfn）。',
     '-- ★★ 唯一真实差异：mermbrain 第 117-119 行有 waking 状态检查，',
     '--   本文件【没有】。意味着守卫在「醒来」过程中也会去找食。',
     '--   守卫不会睡觉（本文件无 sleeper 相关逻辑），故此检查对它无意义 ——',
     '--   ★ 这说明复制时是【有意简化】，不是漏抄。很好的对照。',
   ],
-  267: [
+  "TargetFollowDistFn#1": [
     '-- ★★ TargetFollowDistFn 与 mermbrain 第 365 行逐字同构，包括注释。',
     '--   ★ 公式：(MAX-MIN) * (1-忠诚度) * boatmod * random() + MIN',
     '--   ★★ 「忠诚度越高跟随越近」的反直觉设计在两个文件里一致，',
     '--     确认是刻意选择而非笔误。详见 mermbrain 的同段注释。',
   ],
-  276: [
+  "TargetFollowTargetDistFn#1": [
     '-- ★★ TargetFollowTargetDistFn —— 本文件【独有】的函数，mermbrain 没有。',
     '-- 【机制】跟随【战斗目标】而不是队长，距离取决于目标的攻击范围。',
     '-- 【第 283 行公式】',
@@ -184,7 +184,7 @@ export default {
   ],
 
   // ══════════════ OnStart ══════════════
-  328: [
+  "MermBrain:OnStart#1": [
     '-- ★★ OnStart。结构与 mermbrain 相同：NODES（第 329 行）+ root 守卫（第 423 行）。',
     '--   但少了 in_contest 子树 —— 守卫不参加猪王争霸赛。',
     '-- ★ 差异清单（对照 mermbrain 的第 428-515 行）：',
@@ -196,7 +196,7 @@ export default {
     '--                     TargetFollowTargetDistFn（第 276 行）、',
     '--                     SpringCombatMod（第 359 行）',
   ],
-  329: [
+  "MermBrain:OnStart#1+1": [
     '-- ★★★ NODES 优先级表（本文件的核心）：',
     '--  第 331 行：普通恐慌（PanicTrigger）',
     '--  第 332-334 行：电栅栏恐慌',
@@ -222,7 +222,7 @@ export default {
     '--   ★ 守卫更少觅食（它是战斗单位），美人鱼更常觅食（它要长时间在外干活）。',
     '--   但守卫有 mermbrain 没有的 WaitingForHelp，且排在战斗【之前】（第 348 行）。',
   ],
-  348: [
+  "MermBrain:OnStart#1+20": [
     '-- ★★★ WaitingForHelp —— 守卫独有的「请求支援」行为。',
     '-- 【结构】',
     '--   条件：self.inst:ShouldWaitForHelp()（★ 由实体的 prefab 脚本定义，不在本文件）',
@@ -241,18 +241,18 @@ export default {
     '--     状态图知道「我现在掉了多少血、有没有队友在打同一个目标」，',
     '--     大脑只负责「该喊救命时喊救命」。职责分离得很干净。',
   ],
-  350: [
+  "MermBrain:OnStart#1+22": [
     '-- ★ Follow(self.inst, function() return self.inst.components.combat.target end, ...)',
     '--   ★ 目标就是当前战斗目标 —— 请求支援时靠近战场。',
     '--   ★ 距离用 TargetFollowTargetDistFn（第 276 行）：',
     '--     「刚好能打到目标」的位置。守卫会自己站到输出位。',
   ],
-  358: [
+  "MermBrain:OnStart#1+30": [
     '-- ★ 战斗。与 mermbrain 第 451 行同款（含 SpringCombatMod）。',
     '--   SpringCombatMod 定义在 simutil.lua:555，是【季节修正器】。',
     '--   ★ 守卫也用它，说明季节追击加强是全局统一机制。',
   ],
-  366: [
+  "MermBrain:OnStart#1+38": [
     '-- ★★★★ 国王死亡回收 —— 本文件最独特的一段，mermbrain 完全没有。',
     '--',
     '-- 【★★ 条件函数有【大量副作用】，这是刻意的「状态检查 + 状态写入」】',
@@ -283,7 +283,7 @@ export default {
     '--   ★ 对比：本文件第 157 行（follower）也漏了保护，',
     '--     而 mermbrain 用 helper 保护了。同类问题的三个实例。',
   ],
-  377: [
+  "MermBrain:OnStart#1+49": [
     '-- ★ 回收子树：走到国王位置 → 立即消失。',
     '--   第 380 行 IfNode(function() return true end, "IsThroneValid", ...)',
     '--   ⚠️★★ 第 380 行的条件是【恒真】的 return true，节点名还叫 "IsThroneValid" ——',
@@ -295,7 +295,7 @@ export default {
     '--     这是复制粘贴未清理的明确证据，与第 31 行的类名错误同源。',
     '--   结论：功能正确（恒真 = 「无条件执行回收」），但命名误导。',
   ],
-  381: [
+  "MermBrain:OnStart#1+53": [
     '-- ★★ 回收的收尾四步（第 381-386 行）：',
     '--  1) 生成特效（merm_spawn_fx）',
     '--  2) 特效放到自己位置',
@@ -305,28 +305,28 @@ export default {
     '-- ⚠️ 第 382-384 行直接访问 .Transform 与 .SoundEmitter，未判空。',
     '--   这些是 DST 实体标配，隐式假定存在，属既定契约。',
   ],
-  390: [
+  "MermBrain:OnStart#1+62": [
     '-- ★★ 只有 CHOP 与 MINE 两种帮工（第 390、395 行），没有 TILL/DIG。',
     '--   ★ 守卫不种地，所以不需要工具链（也就不用 HasDigTool 分支）。',
     '--   ★ 这解释了为什么本文件完全没有 mermbrain 第 469-479 行的存在。',
     '--   ★ 与第 50 行 NeedsArmor 对照：守卫要的是盔甲（防御），不是工具（生产）。',
   ],
-  409: [
+  "MermBrain:OnStart#1+81": [
     '-- ★ 觅食在这里（第 409 行），比 mermbrain 第 458 行【靠后 6 位】。',
     '--   ★ 语义：守卫把战斗放在觅食之前 —— 它更倾向打架。',
     '-- ⚠️ 优先级差异的确切影响依赖其余节点的实际触发条件，未做运行时验证。',
     '--   标为设计观察而非缺陷。',
   ],
-  423: [
+  "MermBrain:OnStart#1+95": [
     '-- ★ root = PriorityNode({ WhileNode(不跳跃, "pause for jump", NODES) }, .25)',
     '--   与 mermbrain 第 517-519 行逐字同构。',
     '--   ★ 至此「root 包一层状态守卫」已在 4 个文件中确认（knightbrain / mermbrain /',
     '--     mermguardbrain / abigailbrain），是稳定的项目惯例。',
   ],
-  427: [
+  "MermBrain:OnStart#1+99": [
     '-- ★ self.bt = BT(self.inst, root) —— 第 6 个文件，同样收尾。',
   ],
-  430: [
+  "MermBrain:OnStart#1+102": [
     '-- ★ return MermBrain —— 返回的是第 31 行那个【名叫 MermBrain】的局部类。',
     '--   名字虽然错，但与第 31 行一致，所以 prefab 侧 require 本文件拿到的类是对的。',
     '--   ★ 再次强调：命名瑕疵，非功能缺陷（详见文件头注释）。',

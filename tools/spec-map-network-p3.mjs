@@ -1,6 +1,6 @@
 // spec-map-network-p3.mjs —— map/network.lua 行级注释（第 3 部分：679-1079）
 export const BEFORE = {
-  679: [
+  "Graph:UpdateMinimumRadius#1+12": [
     "-- ══════════════ ★ 散布调度：四个 Convert/Populate ══════════════",
     "-- ★★ 这四个函数是「Graph 层 → Node 层」的批量转发器。",
     "--   真正的逻辑全在 map/graphnode.lua 的同名 Node 方法里。",
@@ -9,14 +9,14 @@ export const BEFORE = {
     "--   ★★ ⇒ 这是「先收集后处理」而非「边遍历边处理」，",
     "--     ★★ 因为后者会边遍历边改图（危险）。★ 值得学的模式。",
   ],
-  681: [
+  "Graph:ConvertGround#1": [
     "-- ★★ ConvertGround(map, spawnFN, entities, check_col)",
     "--   ★★ 转发到 Node:ConvertGround（graphnode.lua:247）—— 静态场景件落位。",
     "--   ★★ 消费：forest_map.lua:843（★ 在 PopulateVoronoi **之前**调用）。",
     "--   ★★★ 顺序很重要：★ 场景件要**先**占位（ReserveTile），",
     "--     ★★★ 否则后面的 PopulateVoronoi 可能把道具放在宝箱正中央。",
   ],
-  688: [
+  "Graph:Populate#1": [
     "-- ★★★ Populate(map, spawnFN, entities, check_col)",
     "--   ★★ ⚠★★ 疑似缺陷（严重）：★ 本函数**从未被调用**",
     "--     （★ grep 核实 map/ 与 forest_map.lua 内零调用点），",
@@ -30,7 +30,7 @@ export const BEFORE = {
     "--       ★★★ 而现在的架构是 PopulateVoronoi（:729）按胞元采样点散布。",
     "--   ★★ 保留它说明架构迁移后清理不彻底。★",
   ],
-  716: [
+  "Graph:Populate#1+28": [
     "-- ★★★ child:GetArea(map, graph_points, graph_minus)",
     "--   ★★★ ⚠ 与上面同源的断链：★ **Graph 没有 GetArea 方法**",
     "--     （★ grep 核实：本文件无 GetArea 定义，Node 也没有）。",
@@ -38,13 +38,13 @@ export const BEFORE = {
     "--   ★★ ⇒ ★★ Populate + GetArea 是**成对的死代码**，",
     "--     ★★★ 它们一起描述了「上一代按区域补默认物品」的完整方案。",
   ],
-  724: [
+  "Graph:Populate#1+36": [
     "-- ★★ spawnFN.spawnfordefault(map, point.x, point.y, entities, check_col)",
     "--   ★★★ 该函数在 SpawnFunctions 表（forest_map.lua:386-390）里不存在。",
     "--     ★★ ⇒ 第三处断链。★ 三处断链共同证明：这是彻底的死代码。",
   ],
-  727: ["-- ★═══ Populate 结束（死代码）═══"],
-  729: [
+  "Graph:Populate#1+39": ["-- ★═══ Populate 结束（死代码）═══"],
+  "Graph:PopulateVoronoi#1": [
     "-- ══════════════ ★★★ PopulateVoronoi：★ 真正的散布调度 ══════════════",
     "-- ★★★ 这是本文件**唯一真正被调用**的散布入口。",
     "--   消费：forest_map.lua:873",
@@ -60,14 +60,14 @@ export const BEFORE = {
     "--   ★★★ 这就解释了 storygen.lua 的 Graph 层级为何重要：",
     "--     ★★ 任务（task）的背景房间由**它自己**的 background 决定。",
   ],
-  730: [
+  "Graph:PopulateVoronoi#1+1": [
     "-- ★★ GetNodes(false) ——★ 只取本图节点（★ 不含子图）。",
     "--   ★★★ 与 :681/:688 的 incChildren=true 形成对比。",
     "--     ★★★ 这是**正确的**：因为 :742 的第二个循环会递归处理子图，",
     "--       ★★ 若这里也递归就会**重复散布**子图的节点！",
     "--     ★★ ⇒ ★★ 这两处的 incChildren 取值差异是必需的，不是随意。",
   ],
-  733: [
+  "Graph:PopulateVoronoi#1+4": [
     "-- ★★★ node:PopulateVoronoi(spawnFN, entities, w, h, choices, prefabDensities)",
     "--   ★★★ 真正干活的地方（graphnode.lua:330）：",
     "--     · countprefabs 定数摆放",
@@ -75,7 +75,7 @@ export const BEFORE = {
     "--     · PopulateExtra 用世界生成设置加量",
     "--   ★★ E2 缺陷的现场就在里面（graphnode.lua:369/421/392/441 的静默 return）。",
   ],
-  734: [
+  "Graph:PopulateVoronoi#1+5": [
     "-- ★★ local perTerrain = false",
     "--   ★★★ 语义：**「背景房间是否需要按地块类型分别指定」**。",
     "--     ★★ 当 data.background 是一张 {地块 → 房间名} 的表时为 true。",
@@ -87,7 +87,7 @@ export const BEFORE = {
     "--       ★★ （storygen.lua:1284 `background=task.background_room`）。",
     "--     ★★ ⇒ ★★ 所以 perTerrain 的判定依据是「task 的 background_room 是不是表」。",
   ],
-  738: [
+  "Graph:PopulateVoronoi#1+9": [
     "-- ★★ local backgroundRoom = self:GetBackgroundRoom(self.data.background)",
     "--   ★★★ GetBackgroundRoom（:746）会按类型分派：",
     "--     · string ⇒ GetRoomForName → Rooms.GetRoomByName",
@@ -101,7 +101,7 @@ export const BEFORE = {
     "--   ★★★ 这与 level.lua 的「四条 assert 迁移」风格**完全相反**：",
     "--     ★★ 房间名这种外部字符串引用**零校验**。★ 架构不一致。",
   ],
-  739: [
+  "Graph:PopulateVoronoi#1+10": [
     "-- ★★★ node:PopulateChildren(spawnFN, entities, w, h, backgroundRoom,",
     "--   perTerrain, world_gen_choices)",
     "--   ★★★★ 真实缺陷（参数个数不匹配）：",
@@ -123,44 +123,44 @@ export const BEFORE = {
     "--   ⚠★★ 这是本文件最严重的一处缺陷：★ 「背景房间的内容物」可能根本没被散布。",
     "--     ★★ 需要运行时验证才能确定（★ 本次只做静态分析，不改代码）。",
   ],
-  741: [
+  "Graph:PopulateVoronoi#1+12": [
     "-- ★★ for k,child in pairs(self:GetChildren()) ——★ 递归处理子图。",
     "--   ★★★ 注意 :742 是**对子图整体再调一次** PopulateVoronoi，",
     "--     ★★ 于是子图的节点会在子图自己的 :730 循环里被处理。",
     "--   ★★★ ⇒ 结构上是「广度优先的分层派发」，不是「深度优先」。",
     "--     ★★ 结果正确（每个节点恰好被处理一次），但可读性一般。",
   ],
-  744: ["-- ★═══ PopulateVoronoi 结束 ════"],
-  746: [
+  "Graph:PopulateVoronoi#1+15": ["-- ★═══ PopulateVoronoi 结束 ════"],
+  "Graph:GetBackgroundRoom#1": [
     "-- ★★ GetBackgroundRoom(roomName)：★ 按类型分派（详见 :738 的调用点注释）。",
   ],
-  747: [
+  "Graph:GetBackgroundRoom#1+1": [
     "-- ★★ if type(roomName) == type(\"\") ——★ 字符串形式：一个房间名给所有地块。",
   ],
-  749: [
+  "Graph:GetBackgroundRoom#1+3": [
     "-- ★★ elseif type(roomName) == type({}) ——★★ 表形式：多地块各配一个房间。",
     "--   ★★★ 这是「混合地块群系」的数据表达方式。",
     "--     ★★ 对照 map/rooms/cave/*.lua 里的 background 定义",
     "--       （★ caves.lua 等洞穴任务大量使用这种表）。",
   ],
-  759: [
+  "Graph:GetRoomForName#1": [
     "-- ★★ GetRoomForName(roomName)：★ 直接透传给 Rooms。",
     "--   ★★ 注意：**没有 nil 检查**。★ 若房间名不存在，返回 nil，",
     "--     ★★ 崩溃点被推迟到 graphnode.lua:540（见 :738 的 ⚠）。",
   ],
-  765: [
+  "Graph:GlobalPrePopulate#1": [
     "-- ★★★ GlobalPrePopulate：★ 全局「前置」散布钩子，只做一件事。",
     "--   ★★ 消费：forest_map.lua:842（在 ConvertGround 之前）。",
     "--   ★★★ 顺序意义：★ 「前置」= 在所有房间内容物之前。",
     "--     ★★ 所以它适合放**全局唯一**的东西（虫洞配对这类）。",
   ],
-  766: [
+  "Graph:GlobalPrePopulate#1+1": [
     "-- ★★ self:ProcessInsanityWormholes(entities, width, height)",
     "--   ★★★ 疯狂虫洞（OneshotWormhole 标签）：★ 见 :814 的详细说明。",
     "--   ★★ 消费：forest_map.lua 的标注是「在 Voronoi 之前」——",
     "--     ★★★ 但实际是「在 PopulateVoronoi 之前、ConvertGround 之前」。",
   ],
-  770: [
+  "Graph:GlobalPostPopulate#1": [
     "-- ══════════════ GlobalPostPopulate：★ 全局「后置」散布钩子 ══════════════",
     "-- ★★ 消费：forest_map.lua:889（在 PopulateVoronoi 之后、实体清理之前）。",
     "-- ★★★ 三件事，顺序有意义：",
@@ -169,16 +169,16 @@ export const BEFORE = {
     "--   ③ ResolveRandomizationPrefabs —— 随机化 prefab → 真 prefab",
     "-- ★★ ⇒ ①②③ 都在「把占位/代理名字换成实际 prefab」，是同一类收尾工作。",
   ],
-  771: [
+  "Graph:GlobalPostPopulate#1+1": [
     "-- ★★ 原始注释：-- Spawn wormhole pairs (randomly, for now)",
     "--   ★★ 「randomly, for now」★ 暗示这是临时方案。",
   ],
-  779: [
+  "Graph:AddRequiredPrefab#1": [
     "-- ★★★ AddRequiredPrefab(prefab)：★ 计数 +1（★ 不是置位）。",
     "--   ★★ 三个调用点：:58（构造，task 级）、:454（AddNodeByNode，房间级）。",
     "--   ★★ 「计数」语义是关键：★ 同一 prefab 在 3 个房间都要求 ⇒ 需要 3 个。",
   ],
-  786: [
+  "Graph:GetRequiredPrefabs#1": [
     "-- ★★★ GetRequiredPrefabs()：★ 递归汇总全图的必需 prefab 计数。",
     "--   ★★ 这是「三重来源求和」的**来源 2**（forest_map.lua:936-944）：",
     "--     来源 1 = level.required_prefabs（关卡级）",
@@ -192,12 +192,12 @@ export const BEFORE = {
     "--     ★★ 而 :788 的 for 循环每次迭代都调一次本函数（递归）。",
     "--   ★★ 正确做法：把 deepcopy 提到循环外，或改为浅拷贝 + 只读。",
   ],
-  801: [
+  "IsNodeTagged#1": [
     "-- ★★ IsNodeTagged(node, tag)：★ 文件级局部函数（非方法）。",
     "--   ★★ 消费点：:817、:830、:1030、:1037、:1040。",
     "--   ★★★ 「局部函数」而非 Graph 方法 ⇒ 外部无法复用。★ 小小的设计选择。",
   ],
-  814: [
+  "Graph:ProcessInsanityWormholes#1": [
     "-- ══════════════ ★★★ ProcessInsanityWormholes ══════════════",
     "-- ★★★ 功能：给带 \"OneshotWormhole\" 标签的节点**成对放置传送门**。",
     "-- ★★ 机制：★ 在该节点的前后两个邻居房间各放一个虫洞，",
@@ -208,10 +208,10 @@ export const BEFORE = {
     "--     ★★ 而 DoWormholeLayout 内部会 ReserveAndPlaceLayout（:868），",
     "--       ★★★ 而 reserve 会占住格子 ⇒ 后续散布会绕开。★ 顺序正确。",
   ],
-  817: [
+  "Graph:ProcessInsanityWormholes#1+3": [
     "-- ★★ IsNodeAWormhole：★ 闭包，判断节点是否带该标签。",
   ],
-  819: [
+  "Graph:ProcessInsanityWormholes#1+5": [
     "-- ★★★★ NeighborNodes(task, node)：★★ 本函数是全文件最「硬」的一段。",
     "-- ★★★ 它要求：**该节点在本图内恰好 1 个邻居，且在 exit 边里恰好 1 个邻居**。",
     "--   ★★ 语义：★ 虫洞节点位于「房间 A」与「跨图连接 B」的交界处，",
@@ -226,13 +226,13 @@ export const BEFORE = {
     "--   ⚠ 推理依据：:824/:828 明确要求「排除 blocker_blank」，",
     "--     ★★★ 可见作者考虑过 blocker 但**没考虑** crosslink/hub/loop。",
   ],
-  824: [
+  "Graph:ProcessInsanityWormholes#1+10": [
     "-- ★★ if edge.node1.id == node.id and not edge.node2.data.blocker_blank then",
     "--   ★★★ blocker_blank 排除的理由：★ storygen.lua:1056 给每个 entrance",
     "--     ★★★ 挂了 2 个 blocker_blank 子节点，若不排除它们，",
     "--       ★★★ entrance 的度会是 3 ⇒ 直接违反「恰好 1 个」。",
   ],
-  826: [
+  "Graph:ProcessInsanityWormholes#1+12": [
     "-- ★★★★ assert(nextNode == nil, \"We already have a node from this task!\")",
     "--   ★★★ 「宁死不屈」的设计：宁可在生成期崩溃，",
     "--     ★★★ 也不产出一个错位的虫洞（错位会导致玩家传送到虚空）。",
@@ -240,7 +240,7 @@ export const BEFORE = {
     "--     ★★ 但在这里崩溃**是对的**：虫洞错位是致命的、不可挽回的。",
     "--   ★★★ ⇒ ★★ 通用原则：**「错了就崩」还是「错了就凑合」取决于错误是否可恢复**。",
   ],
-  834: [
+  "Graph:ProcessInsanityWormholes#1+20": [
     "-- ★★ for edgeId,edge in pairs(self:GetExitEdges(false)) ——★ exit 边。",
     "--   ★★ ⚠ 变量遮蔽：★ 这里复用了上一轮的 `edge` 变量名（pairs 的第二参）。",
     "--     ★★ 上一轮是 `for edgeId,edge in pairs(task:GetEdges(false))`，",
@@ -248,7 +248,7 @@ export const BEFORE = {
     "--         ★★★ edge 仍是上一轮的值。★ 靠 if/elseif 结构恰好不出错，",
     "--           ★★★ 但这是**极易读错**的写法。⚠ 建议拆成两个变量名。",
   ],
-  846: [
+  "Graph:ProcessInsanityWormholes#1+32": [
     "-- ★★★★ assert(prevNode ~= nil and nextNode ~= nil,",
     "--   \"A wormhole blocker must have exactly 2 neighbors!!\")",
     "--   ★★★★ 全文件最严格的一条断言：「必须恰好 2 个邻居」。",
@@ -257,26 +257,26 @@ export const BEFORE = {
     "--   ★★★ 而「多于 1 个」由 :826/:830/:838/:842 的四个 assert 覆盖。",
     "--   ★★ ⇒ 合起来是「恰好 2 个」的完整校验。★ 严谨。",
   ],
-  850: [
+  "Graph:ProcessInsanityWormholes#1+36": [
     "-- ★★ DoWormholeLayout(node, data)：★ 在指定节点放一个 WormholeOneShot 布局。",
   ],
-  851: [
+  "Graph:ProcessInsanityWormholes#1+37": [
     "-- ★★ obj_layout 在**函数内 require** ——★ 延迟加载，打破循环依赖。",
     "--   ★★ 值得学的模式：★ storygen.lua:251 也是同样的局部 require。",
   ],
-  856: [
+  "Graph:ProcessInsanityWormholes#1+42": [
     "-- ★★ add_fn：★ 把布局里的 prefab 塞进 entitiesOut。",
     "--   ★★ 注意 `rand_offset = false` ⇒ ★ 虫洞位置是**格子中心**，完全确定。",
     "--     ★★ 对比 graphnode.lua 的普通散布会加随机偏移。",
     "--     ★★★ ⇒ 虫洞位置可复现，普通散布不可。",
   ],
-  858: [
+  "Graph:ProcessInsanityWormholes#1+44": [
     "-- ★★ obj_layout.LayoutForDefinition(\"WormholeOneShot\") ——★ 按名字取布局。",
   ],
-  859: [
+  "Graph:ProcessInsanityWormholes#1+45": [
     "-- ★★ ConvertLayoutToEntitylist(layout) ——★ 布局 → prefab 列表。",
   ],
-  861: [
+  "Graph:ProcessInsanityWormholes#1+47": [
     "-- ★★ for i,p in ipairs(prefabs) ——★ 找名字里带 \"wormhole\" 的那个。",
     "--   ★★★ 用 string.find 而非精确匹配 ⇒ ★ 匹配任意含 wormhole 的名。",
     "--     ★★ 这是一种「按约定而非按契约」的查找 ★：",
@@ -284,17 +284,17 @@ export const BEFORE = {
     "--         ★★★ 这里会**静默找不到**，:862 的 break 不执行，",
     "--           ★★★ 结果是「布局放了但没有配对目标」⇒ 传送门失效。★ 无日志。",
   ],
-  868: [
+  "Graph:ProcessInsanityWormholes#1+54": [
     "-- ★★ obj_layout.ReserveAndPlaceLayout(node.id, layout, prefabs, add_fn)",
     "--   ★★★ ReserveAndPlace = ★「先占格再放置」⇒ 后续散布会绕开。",
     "--     ★★★ 这是本文件里少数几处「主动预留」的地方（对比 :856 只是转交）。",
     "--   ★★ ⚠ 注意 bug-patterns.md E2 提到：★ 这类调用内部有",
     "--     ★★ `if rcx == nil then return end` 的静默失败（场景件丢失）。",
   ],
-  872: [
+  "Graph:ProcessInsanityWormholes#1+58": [
     "-- ★★ ProcessWormholes(task, node)：★ 取邻居 + 分配一对 ID + 各放一个。",
   ],
-  876: [
+  "Graph:ProcessInsanityWormholes#1+62": [
     "-- ★★★ id1/id2 = MIN_WORMHOLE_ID 与 +1 ——★ 一对连续 ID。",
     "--   ★★★ 用「两个连续整数」而非两个随机数：★ 保证配对唯一性。",
     "--     ★★ ⚠ 隐患：★ 每次配对都从当前 MIN 递增 2，",
@@ -302,23 +302,23 @@ export const BEFORE = {
     "--     ★★ 但若某个 task 有多个虫洞节点且 pairs 顺序不定（:888），",
     "--       ★★★ 它们拿到的 ID 顺序就随机 ⇒ 但 ID 本身不携带语义 ⇒ 无影响。",
   ],
-  878: [
+  "Graph:ProcessInsanityWormholes#1+64": [
     "-- ★★ self.MIN_WORMHOLE_ID = self.MIN_WORMHOLE_ID + 2 ——★ 推进游标。",
   ],
-  880: [
+  "Graph:ProcessInsanityWormholes#1+66": [
     "-- ★★ firstWormholeData = {id=id1, data={teleporter={target=id2}}}",
     "--   ★★★ teleporter.target 指向对方 ID ⇒ ★★ 这就是「互指」的实现。",
     "--   ★★ 注意 ID 顺序固定（先 id1 后 id2）⇒ 无随机性。",
   ],
-  887: [
+  "Graph:ProcessInsanityWormholes#1+73": [
     "-- ★★ TryProcessTask(task)：★ 遍历该 task 的所有节点找虫洞。",
   ],
-  888: [
+  "Graph:ProcessInsanityWormholes#1+74": [
     "-- ★★ for id,node in pairs(task.nodes) ——★★ pairs 遍历。",
     "--   ★★ 但如 :876 处所注：遍历顺序只影响 ID 分配次序，不影响结果。",
     "--     ★★ ⇒ 这里**不引入**不可复现性。✔",
   ],
-  901: [
+  "Graph:SwapOutWormholeMarkers#1": [
     "-- ══════════════ SwapOutWormholeMarkers ══════════════",
     "-- ★★★ 与 ProcessInsanityWormholes 是**两套独立的虫洞机制**：",
     "--   · ProcessInsanityWormholes —— 图阶段，直接放成对的虫洞布局；",
@@ -327,43 +327,43 @@ export const BEFORE = {
     "--   ★★ ⇒ 后者是给**房间内容物**里写了 wormhole_MARKER 的场景用的。",
     "--   ★★ 两者都用 MIN_WORMHOLE_ID 游标 ⇒ ★★ ID 不会冲突（共享同一个游标）。",
   ],
-  902: [
+  "Graph:SwapOutWormholeMarkers#1+1": [
     "-- ★★ if entities[\"wormhole_MARKER\"] ~= nil then ——★ 没有标记就整体跳过。",
     "--   ★★ 注意 ★ 这个检查是「实体表里有没有这个 key」，",
     "--     ★★ 而不是「有没有内容」⇒ 空表 { } 也会进入分支。",
     "--     ★★ 后果：★ 空表时 :909 的 id 游标不推进（:930 才赋值），",
     "--       ★★ 然后 :933 把 key 删掉。★ 无害但逻辑冗余。",
   ],
-  903: [
+  "Graph:SwapOutWormholeMarkers#1+2": [
     "-- ★★ assert(self.wormholeprefab ~= nil, \"Level must specify a wormhole",
     "--   prefab when wormholes are used.\")",
     "--   ★★★ 好的断言：★ 用**条件化**的措辞（when wormholes are used），",
     "--     ★★★ 而不是笼统的「必须配置」。★ 错误信息可读性高。",
     "--   ★★ wormholeprefab 的来源：storygen.lua:77-79 从 gen_params 挂到 rootNode。",
   ],
-  909: [
+  "Graph:SwapOutWormholeMarkers#1+8": [
     "-- ★★ local id = self.MIN_WORMHOLE_ID ——★ 从当前游标开始。",
     "--   ★★★ 与 :876 同一套 ID 分配机制 ⇒ 两个机制共享 ID 空间。",
   ],
-  911: [
+  "Graph:SwapOutWormholeMarkers#1+10": [
     "-- ★★ firstMarkerData = nil ——★ 「攒两个配一对」的状态变量。",
   ],
-  912: [
+  "Graph:SwapOutWormholeMarkers#1+11": [
     "-- ★★ 遍历所有 marker（★ ipairs 数组 ⇒ 顺序稳定 ✔）。",
   ],
-  913: [
+  "Graph:SwapOutWormholeMarkers#1+12": [
     "-- ★★ 第一个：存下来，等第二个。",
   ],
-  916: [
+  "Graph:SwapOutWormholeMarkers#1+15": [
     "-- ★★ else：第二个到了 ⇒ 配成一对。",
   ],
-  917: [
+  "Graph:SwapOutWormholeMarkers#1+16": [
     "-- ★★★ firstMarkerData[\"id\"] = id ——★ 就地改写第一个的 id。",
     "--   ★★★ 注意这是**就地修改** entities 数组里的元素（不是拷贝）。",
     "--     ★★ 因为 marker 本来就是要被丢弃的占位符（:933），所以无副作用。",
     "--   ★★ ⇒ 但这依赖「wormhole_MARKER 是一次性的」这个隐含前提。",
   ],
-  921: [
+  "Graph:SwapOutWormholeMarkers#1+20": [
     "-- ★★★ firstMarkerData[\"data\"] = {teleporter={target=secondMarkerData[\"id\"]}}",
     "--   ★★ 互指的写入（第一个指向第二个）。★ 下一行对称地写第二个。",
     "--   ★★★ 注意 ⚠ ：如果标记总数是**奇数**，最后一个会被留在 :911 的",
@@ -371,10 +371,10 @@ export const BEFORE = {
     "--       ★★★ **最后一个 marker 连带它的坐标一起消失** ⇒ 静默丢失。",
     "--       ★★ 不会有任何日志。★ 这是个真实的静默失败。",
   ],
-  930: [
+  "Graph:SwapOutWormholeMarkers#1+29": [
     "-- ★★ self.MIN_WORMHOLE_ID = id ——★ 游标回写（★ 让两套机制继续共享 ID 空间）。",
   ],
-  933: [
+  "Graph:SwapOutWormholeMarkers#1+32": [
     "-- ★★ entities[\"wormhole_MARKER\"] = nil ——★ 删掉占位 key。",
     "--   ★★★★ ⚠ 上面 :921 处指出的问题在这里落地：",
     "--     ★★ 奇数个 marker 时，最后一个的位置数据**被整体删除**，",
@@ -382,13 +382,13 @@ export const BEFORE = {
     "--       ★★★ **无 print、无统计、无 assert** ⇒ 完全静默。",
     "--     ★★ 修复方向：循环结束后若 firstMarkerData ~= nil 则应报错或补一个单端虫洞。",
   ],
-  936: [
+  "Graph:ResolveCustomizationPrefabs#1": [
     "-- ★★★ ResolveCustomizationPrefabs：★ 「自定义皮肤」代理 prefab → 真 prefab。",
     "--   ★★ 场景：玩家用「换皮」选项把 spideregg 换成 spider_dropper。",
     "--   ★★ 机制：★ 生成期先用代理名占位，★ **最后一步**统一换成真名。",
     "--   ★★★ 为什么放在最后：★ 因为只有到这时才知道玩家选了什么皮肤。",
   ],
-  938: [
+  "Graph:ResolveCustomizationPrefabs#1+2": [
     "-- ★★ for prefab in pairs(entities) ——★★ pairs 遍历。",
     "--   ★★★ ⚠ 危险点：★ :951 `entities[proxy_prefab] = nil` **在遍历中删键**！",
     "--   ★★ 在 Lua 里「遍历时修改表」是**未定义行为**：",
@@ -397,17 +397,17 @@ export const BEFORE = {
     "--       ★★ 但这不是规范保证。★ 严格的移植（如移植到 C++/Rust）会出问题。",
     "--   ★★★ ⚠ 同一模式在 :966 又出现一次（ResolveRandomizationPrefabs）。",
   ],
-  939: [
+  "Graph:ResolveCustomizationPrefabs#1+3": [
     "-- ★★ PrefabSwaps.ResolveCustomizationPrefab(prefab) ——★ 外部模块。",
     "--   ★★ 返回 nil 表示「这个 prefab 不是皮肤代理」⇒ 跳过。",
   ],
-  941: [
+  "Graph:ResolveCustomizationPrefabs#1+5": [
     "-- ★★ 收集：真prefab → {代理prefab, …} 的反向表。",
   ],
-  945: [
+  "Graph:ResolveCustomizationPrefabs#1+9": [
     "-- ★★ for real_prefab, proxies in pairs(customization_swaps) ——★ 逐个真 prefab 处理。",
   ],
-  946: [
+  "Graph:ResolveCustomizationPrefabs#1+10": [
     "-- ★★ entities[real_prefab] = entities[real_prefab] or {} ——★ 懒建（可能是 0 个）。",
     "--   ★★★ 潜在副作用：★ 若真 prefab 本来一个都没生成，",
     "--     ★★ 这里会创建一个**空表** entities[real_prefab] = {}。",
@@ -418,13 +418,13 @@ export const BEFORE = {
     "--           ★★★ **空表不是 nil** ⇒ `#{} = 0 < count` ⇒ 正确判失败。✔",
     "--     ★★ ⇒ 结论：空表的副作用被下游正确处理了，但纯属侥幸。",
   ],
-  948: [
+  "Graph:ResolveCustomizationPrefabs#1+12": [
     "-- ★★ for _, entity in ipairs(entities[proxy_prefab]) do ——★ 把代理的实体搬进真表。",
     "--   ★★★ 注意搬的是**元素引用**（不是 deepcopy）⇒",
     "--     ★★ 同一个实体表可能被同时引用在两个 key 下。",
     "--     ★★ 但 :951 立刻删掉代理 key ⇒ 最终只有一个引用。✔",
   ],
-  956: [
+  "Graph:ResolveRandomizationPrefabs#1": [
     "-- ★★★ ResolveRandomizationPrefabs：★ 「随机化」代理 prefab → 真 prefab。",
     "--   ★★ 场景：★ 某些生物的变体是**运行时随机决定**的（不是玩家选的），",
     "--     ★★ 所以生成期用随机化代理名占位，最后统一解析。",
@@ -432,39 +432,39 @@ export const BEFORE = {
     "--     · Customization 是**玩家选择**（多对一，:941 收集成列表）；",
     "--     · Randomization 是**单对多**（:960 每个实体单独 resolve）。",
   ],
-  958: [
+  "Graph:ResolveRandomizationPrefabs#1+2": [
     "-- ★★ if PrefabSwaps.IsRandomizationPrefab(prefab) ——★ 判定循环。",
     "--   ★★★ 与 :939 相反：这里是「先问是不是」，那里是「问能解析成什么」。",
   ],
-  960: [
+  "Graph:ResolveRandomizationPrefabs#1+4": [
     "-- ★★ real_prefab = PrefabSwaps.ResolveRandomizationPrefab(prefab)",
     "--   ★★★ 在**每个实体的循环内**调用（:959-960），",
     "--     ★★ 而非像 :936 那样先收集。★ 意味着同一个代理名可能解析出不同结果",
     "--       ★★ （如果 ResolveRandomizationPrefab 内部含随机）。",
     "--     ★★★ 这其实正是「随机化」的语义。★ 设计正确。",
   ],
-  966: [
+  "Graph:ResolveRandomizationPrefabs#1+10": [
     "-- ★★ entities[prefab] = nil ——★★ **遍历中删键**（同 :938 的问题）。",
   ],
-  972: [
+  "Graph:ApplyWormhole#1": [
     "-- ══════════════ ApplyWormhole ══════════════",
     "-- ★★★ 手工在两个坐标之间放一对虫洞（★ 不依赖 Voronoi 邻接）。",
     "--   ★★ 消费：:1012（SwapWormholesAndRoadsExtra）与 :1068（SwapWormholesAndRoads）。",
     "--   ★★ 后者当前**无调用点**（★ forest_map.lua:540 的 if false 关掉了它）。",
   ],
-  975: [
+  "Graph:ApplyWormhole#1+3": [
     "-- ★★ 四重边界检查 + `> 1` ——★ 排除贴边坐标。",
     "--   ★★★ 为什么要求 > 1：★ 坐标换算（:978）会减 width/2，",
     "--     ★★ 坐标 0 或 1 换算后落在世界边缘 ⇒ 传送门会放在边界外。",
     "--   ★★ 四重 nil 检查防止上游返回不完整数据。",
   ],
-  978: [
+  "Graph:ApplyWormhole#1+6": [
     "-- ★★ xx1 = math.floor((x1 - width/2)*TILE_SCALE*10)/10 ——★ 坐标换算。",
     "--   ★★★ 精度控制：★ 乘 10 再 floor 再除 10 ⇒ 保留 1 位小数。",
     "--     ★★★ 这与 graphnode.lua:146 的 *100/100、:201-202 的 *100/100 一致，",
     "--       ★★★ 是全项目统一的坐标精度约定（避免浮点尾巴写进存档）。",
   ],
-  991: [
+  "Graph:ApplyWormhole#1+19": [
     "-- ★★ else 分支：坐标不合格 ⇒ 记错误。",
     "--   ★★★ 这里**记错误而不崩溃** ——与 :846 的 assert 形成对比。",
     "--     ★★ 设计区别：★ 手工 ApplyWormhole 的坐标来自 C++ 统计，",
@@ -472,7 +472,7 @@ export const BEFORE = {
     "--   ★★ 消费：:1013 `if self.error == true then return end`",
     "--     ★★ 以及 forest_map.lua:542-547 的检查（★ 那条路径已被 if false 关掉）。",
   ],
-  996: [
+  "Graph:SwapWormholesAndRoadsExtra#1": [
     "-- ★★★ SwapWormholesAndRoadsExtra：★ 用「C++ 统计出的孤岛」来配虫洞。",
     "--   ★★★ 这是「让被切断的岛屿互通」的方案：",
     "--     ★★ WorldSim:GetWormholesExtra() 找出所有被分离的陆地区块，",
@@ -485,14 +485,14 @@ export const BEFORE = {
     "--     ★★★ ⇒ 「与孤岛技术冲突，会在 Atrium（回廊区域）里乱放虫洞」。",
     "--   ★★ ⇒ 本函数与 :1052 的 SwapWormholesAndRoads **都是死代码**。",
   ],
-  1007: [
+  "Graph:SwapWormholesAndRoadsExtra#1+11": [
     "-- ★★ WorldSim:GetWormholesExtra() ——★ C++ 侧的孤岛配对统计。",
   ],
-  1008: [
+  "Graph:SwapWormholesAndRoadsExtra#1+12": [
     "-- ★★ 四重长度一致性检查（C++ 返回的四条数组必须等长）。",
     "--   ★★ 严谨：★ 防止 C++ 侧返回不完整数据导致 Lua 侧越界。",
   ],
-  1026: [
+  "Graph:ApplyPoisonTag#1": [
     "-- ══════════════ ★★ ApplyPoisonTag：★ 标签 → C++ 位标志 ══════════════",
     "-- ★★★ 这是**标签真正生效**的地方（★ 对照 :448 的被注释掉的版本）。",
     "--   ★★ 三个标签 → 三种行为：",
@@ -507,14 +507,14 @@ export const BEFORE = {
     "--   ★★ 调用点：forest_map.lua:526，在 WorldGen_Commit 之后、",
     "--     ★★ ConvertToTileMap 之前。★ 时机正确（此时边已生成）。",
   ],
-  1029: [
+  "Graph:ApplyPoisonTag#1+3": [
     "-- ★ TODO: Need to handle BG nodes ——★ 已知未完成项。",
     "--   ★★★ 这是一个**承认的技术债**：★ 背景节点（BG）的标签没处理。",
     "--     ★★ 后果：★ 带 RoadPoison/ForceDisconnected 的**背景节点**不会被毒化。",
     "--       ★★ 也就是说 ★ 「洞居房（cove）」与「背景节点」上的标签可能无效。",
     "--     ★★★ ⚠ 这类「作者自己标了 TODO 的缺陷」是最可信的缺陷证据。",
   ],
-  1030: [
+  "Graph:ApplyPoisonTag#1+4": [
     "-- ★★ if IsNodeTagged(node, \"ForceDisconnected\") ——★ 断链标签。",
     "--   ★★★ 原始注释里有一个被注释掉的替代条件：",
     "--     `--or string.find(node.id, \"LOOP_BLANK_SUB\")~=nil then`",
@@ -524,22 +524,22 @@ export const BEFORE = {
     "--     ★★ 而 :1040 的 RoadPoison 只是禁路、不断链 ⇒",
     "--       ★★ 若只靠 RoadPoison，环路空地仍会被连通。★ 所以两个标签缺一不可。",
   ],
-  1031: [
+  "Graph:ApplyPoisonTag#1+5": [
     "-- ★★ WorldSim:ClearNodeLinks(node.id) ——★ 断掉该节点的所有链接。",
     "--   ★★★ 这是「锁」在像素层的**唯一实际动作**。",
     "--     ★★★ 回顾开头：lock.key 从不被读；",
     "--       ★★★ 真正让区域不通的是这里的 ClearNodeLinks + impassable 地块。",
   ],
-  1034: [
+  "Graph:ApplyPoisonTag#1+8": [
     "-- ★ --WorldSim:SetNodeType(node.id, 1) -- BLANK ——★ 被注释的替代方案。",
     "--   ★★ 又一处「方案 A 换成方案 B」的痕迹（节点类型 vs 标签）。",
   ],
-  1036: [
+  "Graph:ApplyPoisonTag#1+10": [
     "-- ★★ local flags = 0 ——★★ 逐节点从 0 重算（★ 不是累加旧值）。",
     "--   ★★★ 这与 ApplyPoisonTag 是递归调用（:1048）配合的关键：",
     "--     ★★ 每个节点独立算自己的 flag，★ 不会互相污染。",
   ],
-  1037: [
+  "Graph:ApplyPoisonTag#1+11": [
     "-- ★★ if IsNodeTagged(node, \"ForceConnected\") then flags = flags + 0x000002",
     "--   ★★★ 「强制连通」= ★ 连通性修复时**必须**把这个节点接上。",
     "--     ★★★ ⇒ 这是「反向锁」：★ 强制让某片区域可达。",
@@ -547,13 +547,13 @@ export const BEFORE = {
     "--         ★★ 那边**故意**造一个不可达的空节点（造「环路孤岛」），",
     "--         ★★ 这边是**强制**让某区域可达。★ 两个方向都有机制。",
   ],
-  1040: [
+  "Graph:ApplyPoisonTag#1+14": [
     "-- ★★ if IsNodeTagged(node, \"RoadPoison\") then flags = flags + 0x000004",
     "--   ★★★ 「毒路」= ★ 道路不会画到这些节点连接的地方。",
     "--   ★★★ 这是「无路」的物理实现，与 :1031 的 ClearNodeLinks 配合：",
     "--     ★★ 断链 ⇒ 没有通路；毒路 ⇒ 连空地也不长路。",
   ],
-  1043: [
+  "Graph:ApplyPoisonTag#1+17": [
     "-- ★★ WorldSim:SetSiteFlags(node.id, flags) ——★ 把位标志交给 C++。",
     "--   ★★★ ★★ 注意：★ SetSiteFlags 也会**清除**之前设的标志",
     "--     ★★★（因为是整体赋值）。",
@@ -561,19 +561,19 @@ export const BEFORE = {
     "--       ★★★ 若两者同时生效，★ :448 的标志会被 :1043 覆盖。",
     "--       ★★★ 这解释了为什么 :448-450 被注释掉了。★",
   ],
-  1045: [
+  "Graph:ApplyPoisonTag#1+19": [
     "-- ★ Process the graph and unlink any poisoned nodes ——★ 原始注释。",
     "-- ★★ 注意「unlink」的实现在 :1031（循环内），而这段注释在循环**之后**。",
     "--   ★★ ⇒ 注释位置与实际行为不符（★ 小瑕疵，无功能影响）。",
   ],
-  1046: [
+  "Graph:ApplyPoisonTag#1+20": [
     "-- ★★ 递归处理所有子图 ——★★ 逐节点设置标签。",
     "--   ★★★ 注意 :1048 用 child:ApplyPoisonTag()（有 self），",
     "--     ★★ 而 :682 的 ApplyPoisonTag 是唯一处理 tags 的 Graph 方法。",
     "--     ★★★ ⇒ 「标签 → 位标志」的全图遍历在此完成。",
   ],
-  1050: ["-- ★═══ ApplyPoisonTag 结束 ════"],
-  1052: [
+  "Graph:ApplyPoisonTag#1+24": ["-- ★═══ ApplyPoisonTag 结束 ════"],
+  "Graph:SwapWormholesAndRoads#1": [
     "-- ══════════════ SwapWormholesAndRoads ══════════════",
     "-- ★★★★ ⚠★★ 死代码：★ 当前**无调用点**",
     "--   （★ forest_map.lua:540 用 `if false and …` 把它连同 :541 一起关掉了）。",
@@ -583,7 +583,7 @@ export const BEFORE = {
     "--   ★★★ 但 :1062-1063 排除了 LOOP_BLANK_SUB 与 START ——",
     "--     ★★★ 说明作者意识到「环路空地不该放虫洞」。",
   ],
-  1062: [
+  "Graph:SwapWormholesAndRoads#1+10": [
     "-- ★★ if edge.node1.id ~= \"LOOP_BLANK_SUB\" and edge.node2.id ~= \"LOOP_BLANK_SUB\"",
     "--   ★★★ ★★ 排除条件只判 node1/node2 两端，",
     "--     ★★★ **不判中间那个 task_graph** ⇒ 若一个 exit 边是",
@@ -591,13 +591,13 @@ export const BEFORE = {
     "--     ★★★ ⚠ 疑似缺陷（轻微）：★ 排除不完整。",
     "--   ★★★ 而「START」排除同理：★ 避免在出生点放虫洞。",
   ],
-  1067: [
+  "Graph:SwapWormholesAndRoads#1+15": [
     "-- ★★ WorldSim:GetWormholes(edge.node1.id, edge.node2.id) ——★ 取配对坐标。",
   ],
-  1074: [
+  "Graph:SwapWormholesAndRoads#1+22": [
     "-- ★★ 递归处理子图 ——★★ 与 :1046 同构。",
   ],
-  1078: [
+  "Graph:SwapWormholesAndRoads#1+26": [
     "-- ★★★ 全文件结束（1079 行含末尾空行）。",
     "-- ★★ 最后一次总账（重申开头）：",
     "--   · ★★★★★ **本文件是地图生成图，与联机网络无关**；",

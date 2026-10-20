@@ -282,7 +282,7 @@ export const BEFORE = {
   // ══════════════════════════════════════════════════════════════
   // §二 Do（22-37）
   // ══════════════════════════════════════════════════════════════
-  22: [
+  "BufferedAction:Do#1": [
     "--★★★【Do —— 真正执行动作的入口（16 行）】",
     "--   ★★ 调用方只有两个：",
     "--     · entityscript.lua:1640（instant 动作，立即执行）",
@@ -290,7 +290,7 @@ export const BEFORE = {
     "--   ★★ 因此「Do 的那一刻」= 「服务端确认玩家能做这个动作的那一刻」。",
     "--     ★★ 这就是 DST 联机模型的核心：**只有服务端能改状态**。",
   ],
-  23: [
+  "BufferedAction:Do#1+1": [
     "--★★ 23-25 行：**执行前的最后一道校验**。",
     "--   ★★ 注意这是「早退」，与下面的 else 分支不同：",
     "--     · 早退 → return false，**不调 Fail**（onfail 不执行）",
@@ -300,7 +300,7 @@ export const BEFORE = {
     "--     ★ 所以早退也会推事件 → 玩家仍会听到失败语音。",
     "--     ★★ 但 onfail 回调（如「把借出去的东西还回去」）不会跑。",
   ],
-  26: [
+  "BufferedAction:Do#1+4": [
     "--★★★ `local success, reason = self.action.fn(self)` —— 全 DST 的枢纽。",
     "--   ★★★ 把整个 BufferedAction（self）传给动作的 fn。",
     "--     ★ 这就是「一个动作的全部上下文」的唯一传递方式。",
@@ -313,14 +313,14 @@ export const BEFORE = {
     "--     ★★★ 记住：**动作 fn 必须显式 return true**，",
     "--       否则即使做完了事也会被判定失败（见 actions.lua:2747 的 L6）。",
   ],
-  27: [
+  "BufferedAction:Do#1+5": [
     "--★ 27 行把 reason 存到 self.reason 上 ——",
     "--   ★★ 存下来是为了「失败回调里能读到为什么失败」。",
     "--     ★ 本文件不提供 reason getter，onfail 回调只能闭包捕获或读 act.reason。",
     "--     ★ actions.lua 里搜 `.reason` 可找到实际用法（29 行 Do 的返回、",
     "--       locomotor 的 actionfailed 事件都读它）。",
   ],
-  29: [
+  "BufferedAction:Do#1+7": [
     "--★★ 29-31 行：成功后调用 OnUsedAsItem。",
     "--   ★★★ `if self.invobject ~= nil and self.invobject:IsValid()` ——",
     "--     ★ 「使用次数」的扣减统一在这里。",
@@ -331,15 +331,15 @@ export const BEFORE = {
     "--         是同一条链路。",
     "--       ★★ 也因此「失败了但消耗了耐久」是不可能的（33 行走 Fail）。",
   ],
-  30: [
+  "BufferedAction:Do#1+8": [
     "--★ OnUsedAsItem(self.action, self.doer, self.target) —— 三个参数。",
     "--   ★★ 物品组件因此能知道「被用来做什么、对谁用」。",
     "--     ★ 这是「物品自己决定耐久怎么扣」的钩子。",
   ],
-  32: [
+  "BufferedAction:Do#1+10": [
     "--★ Succeed() —— 82 行。跑 onsuccess 回调。",
   ],
-  34: [
+  "BufferedAction:Do#1+12": [
     "--★★ Fail() —— 104 行。跑 onfail 回调。",
     "--   ★★ 33-35 的结构是「二选一后无返回值」，",
     "--     36 行才把结果返回给调用方。",
@@ -350,7 +350,7 @@ export const BEFORE = {
   // ══════════════════════════════════════════════════════════════
   // §三 IsValid（39-50）—— 全文件的心脏
   // ══════════════════════════════════════════════════════════════
-  39: [
+  "BufferedAction:IsValid#1": [
     "--★★★【IsValid —— 「这个动作现在还该继续吗？」（9 行）】",
     "--   ★★ 这是**全文件最重要的函数**。它不是「校验参数」，",
     "--     而是「**反复回答一个时间相关的问题**」：",
@@ -365,7 +365,7 @@ export const BEFORE = {
     "--     ⑦ 46  动作自带的 validfn 通过吗（**仅服务端**）？",
     "--   ★★ 注意 ①与⑤都在第 44 行 —— 一个 and 链里两个条件。",
   ],
-  40: [
+  "BufferedAction:IsValid#1+1": [
     "--★★ 条件①：手持物品的有效性。",
     "--   `(self.invobject == nil or self.invobject:IsValid())`",
     "--   ★★ 注意用 `or` 而不是 `and` —— 「没有物品」也算通过。",
@@ -373,7 +373,7 @@ export const BEFORE = {
     "--     ★★ 可读性代价：`nil` 在左边看起来像「取反」，",
     "--       实际是「若没有物品则免检」。",
   ],
-  41: [
+  "BufferedAction:IsValid#1+2": [
     "--★★★ 条件②：执行者的有效性 + autoequipped 的特殊处理。",
     "--   `(self.doer == nil or (self.doer:IsValid()",
     "--     and (not self.autoequipped",
@@ -392,7 +392,7 @@ export const BEFORE = {
     "--       用「should've been」正是这个意思。",
     "--   ★★ 注意这里用了 **replica.inventory** —— 客户端也要读（IsValid 双端跑）。",
   ],
-  42: [
+  "BufferedAction:IsValid#1+3": [
     "--★★★ 条件③：目标有效性 + ★★ 归属未变（本文件最核心的一行）",
     "--   `(self.target == nil or (self.target:IsValid()`",
     "--     and self.initialtargetowner ==",
@@ -414,7 +414,7 @@ export const BEFORE = {
     "--     ⇒ 抢夺的仲裁**只在服务端发生**。",
     "--     ★ 与 46 行的 validfn 短路是同一个「端区分」模式。",
   ],
-  43: [
+  "BufferedAction:IsValid#1+4": [
     "--★★ 条件④：坐标所属平台的有效性。",
     "--   `(self.pos == nil or self.pos.walkable_platform == nil",
     "--     or self.pos.walkable_platform:IsValid())`",
@@ -425,7 +425,7 @@ export const BEFORE = {
     "--       （第一种是 ③ 的目标被抢）。",
     "--   ★★ 注意 walkable_platform 是 DynamicPosition 的字段（9 行构造时设的）。",
   ],
-  44: [
+  "BufferedAction:IsValid#1+5": [
     "--★★★ 条件⑤：doerownsobject 的持续性 —— 「物品还在执行者手里吗？」",
     "--   `(not self.doerownsobject",
     "--     or (self.doer ~= nil and self.invobject ~= nil",
@@ -441,7 +441,7 @@ export const BEFORE = {
     "--       「双向快照一致性」。",
     "--   ★★ 注意这里用 **replica**（双端都要检查），与第 8 行构造时一致。",
   ],
-  45: [
+  "BufferedAction:IsValid#1+6": [
     "--★★ 条件⑥：外部挂的 validfn。",
     "--   `(self.validfn == nil or self.validfn(self))`",
     "--   ★★★ 这个字段**不是构造函数参数**，也没有 setter ——",
@@ -458,7 +458,7 @@ export const BEFORE = {
     "--       ★ 两者在命名空间上相隔一层，但在代码里都是 `.validfn`。",
     "--         ★★★ 建议读到这里时在纸上画个图记住这个区别。",
   ],
-  46: [
+  "BufferedAction:IsValid#1+7": [
     "--★★★ 条件⑦：Action 原型上的 validfn —— ★★ 全文件最微妙的一行",
     "--   `(not TheWorld.ismastersim",
     "--     or (self.action.validfn == nil or self.action.validfn(self)))`",
@@ -482,7 +482,7 @@ export const BEFORE = {
     "--   ★★★ 这就是「客户端预测 + 服务端权威」在**单个文件内**的体现。",
     "--   ★★ 对照 actions.lua:1757（CHOP.validfn）的注释可确认这个分工。",
   ],
-  48: [
+  "BufferedAction:IsValid#1+9": [
     "--★ 48 行的 `end)` —— IsValid 结束。",
     "--   ★★★ 七道检查全部是**纯读**：不修改 self 的任何字段。",
     "--     ★ 这是「可以被任意频繁调用」的前提 ——",
@@ -490,7 +490,7 @@ export const BEFORE = {
     "--   ★★ 若 IsValid 修改了状态（比如「已检查过就不再查」），",
     "--     每帧调用就会出问题。",
   ],
-  49: [
+  "BufferedAction:IsValid#1+10": [
     "--★★ 保留的英文注释说明了「V2C」这个注释前缀的含义：",
     "--   「V2C: TestForStart can return \"reason\" as a second return value",
     "--     (but we don't in DST)」",
@@ -504,14 +504,14 @@ export const BEFORE = {
     "--     ★ 直接赋值函数对象，所以两者的 upvalue 与行为完全相同。",
     "--   ★★ 实际调用点：locomotor.lua:899 与 entityscript.lua:1624。",
   ],
-  50: [
+  "BufferedAction:IsValid#1+11": [
     "--★ 50 行 —— 别名赋值。",
   ],
 
   // ══════════════════════════════════════════════════════════════
   // §四 字符串（52-72）
   // ══════════════════════════════════════════════════════════════
-  52: [
+  "BufferedAction:GetActionString#1": [
     "--★★★【GetActionString —— 「这个动作现在显示成什么」（15 行）】",
     "--   ★★ ★★★ 本文件里唯一的「UI 字符串」决策点，且**双端都跑**。",
     "--   ★★ 它有**三级优先级**（这是整个 DST 动作 UI 的规范）：",
@@ -528,7 +528,7 @@ export const BEFORE = {
     "--       （如吃撑了时把「吃」改成「太饱了」）。",
     "--   ★★ 全部在客户端可用：replica 组件 + 标签都是客户端可读的。",
   ],
-  53: [
+  "BufferedAction:GetActionString#1+1": [
     "--★ `local str, overriden = nil, nil` —— 两个返回值都要初始化。",
     "--   ★★ overriden 的含义：「我已经完全接管了这个字符串」。",
     "--     ★★★ 传上去之后，调用方（如 locomotor 的调试输出、",
@@ -539,14 +539,14 @@ export const BEFORE = {
     "--     ★★ `overriden` 的拼写（应为 overridden）是一个笔误，",
     "--       但因为是局部变量名，不影响任何外部行为。",
   ],
-  54: [
+  "BufferedAction:GetActionString#1+2": [
     "--★★ 54-56 行：执行者覆盖（第一优先级）。",
     "--   ★★ 条件检查的是 `doer.ActionStringOverride ~= nil`（实例字段），",
     "--     不是方法存在性 —— 写法略绕但正确。",
     "--   ★★★ 这个钩子的存在意味着：**角色可以自定义所有动作的文案**。",
     "--     ★ 例如韦伯在挖坟时显示特殊的话。",
   ],
-  57: [
+  "BufferedAction:GetActionString#1+5": [
     "--★★ 57-58 行：执行者给了字符串就直接返回（连 overridden 也不设）。",
     "--   ★★ 注意 `return str, overriden` —— overriden 是 nil（54 行未赋值）。",
     "--     ★★ 语义：「我给了词，但我没说我接管了整个串」",
@@ -559,7 +559,7 @@ export const BEFORE = {
     "--       例：TELLSTORY 的 stroverridefn（actions.lua:1576）",
     "--       ★★★ 「修饰 vs 完整」的区分只由第二个返回值表达。",
   ],
-  59: [
+  "BufferedAction:GetActionString#1+7": [
     "--★★ 59-64 行：动作原型的完全覆盖（第二优先级）。",
     "--   ★★ 只有 stroverridefn 存在时才走这条（strfn 不是）。",
     "--     ★★ **strfn 与 stroverridefn 的根本区别在此确立**：",
@@ -568,7 +568,7 @@ export const BEFORE = {
     "--   ★★ 60 行返回单值，所以 62 行硬编码 `return str, true`。",
     "--     ★ 作者用显式的 true 而非透传 overriden，说明这是「必然覆盖」。",
   ],
-  65: [
+  "BufferedAction:GetActionString#1+13": [
     "--★★★ 65 行 —— 本文件与 actions.lua 交界的那一行。",
     "--   `GetActionString(self.action.id,",
     "--     self.action.strfn ~= nil and self.action.strfn(self) or nil)`",
@@ -587,10 +587,10 @@ export const BEFORE = {
     "--     「strfn 不存在」与「strfn 返回 nil」在这里被合并了。",
     "--     ★ 这在语义上正确（两者都不加修饰词），但丢失了区分能力。",
   ],
-  66: [
+  "BufferedAction:GetActionString#1+14": [
     "--★ 66 行 —— GetActionString 结束。",
   ],
-  68: [
+  "BufferedAction:__tostring#1": [
     "--★★ __tostring —— 调试输出（5 行）。",
     "--   ★★ 三段可选后缀：动作串 + 目标 / With Inv + 手持物 / Recipe + 配方。",
     "--   ★★★ 「调试信息按重要性分层」的范例：",
@@ -599,7 +599,7 @@ export const BEFORE = {
     "--   ★★ 这行在调试器、print、DBString 里都会出现 ——",
     "--     排查「玩家说他按了但没反应」时，这是第一手信息。",
   ],
-  69: [
+  "BufferedAction:__tostring#1+1": [
     "--★ 69 行 —— 与 70/71 行的串接。",
     "--   ★★★ 用 `..` 而非 string.format：调试路径不需要格式化性能。",
   ],
@@ -607,7 +607,7 @@ export const BEFORE = {
   // ══════════════════════════════════════════════════════════════
   // §五 回调队列（74-88）
   // ══════════════════════════════════════════════════════════════
-  74: [
+  "BufferedAction:AddFailAction#1": [
     "--★★ AddFailAction —— 登记失败回调（3 行）。",
     "--   ★★ 只有两件事：push 到数组。",
     "--     ★ **没有去重**：同一个函数可以被登记多次 ⇒ 会跑多次。",
@@ -619,11 +619,11 @@ export const BEFORE = {
     "--     ★ 这是「回调可能永不执行」的常见陷阱 ——",
     "--       若回调持有资源（如打开了 UI），需要小心泄漏。",
   ],
-  78: [
+  "BufferedAction:AddSuccessAction#1": [
     "--★ AddSuccessAction —— 登记成功回调。与 74 行严格对称。",
     "--   ★★ 11 行初始化为空表，所以 78 行前不需要 nil 检查。",
   ],
-  82: [
+  "BufferedAction:Succeed#1": [
     "--★★【Succeed —— 跑成功回调（7 行）】",
     "--   ★★ 83-85 行用 `pairs` 遍历（不是 ipairs）：",
     "--     ★ 数组用 pairs 遍历略不规范，但顺序不保证 ——",
@@ -636,7 +636,7 @@ export const BEFORE = {
     "--     ★ 这是「一次性回调」的实现方式。",
     "--       ★★ 若 Succeed 被调用两次，回调不会跑第二次。",
   ],
-  85: [
+  "BufferedAction:Succeed#1+3": [
     "--★ 85 行 `v()` —— 无参数调用。",
     "--   ★★ 回调拿不到 act 作为参数 —— 必须自己闭包捕获。",
     "--     ★ 这限制了回调的表达力：",
@@ -644,14 +644,14 @@ export const BEFORE = {
     "--       里的 act 是闭包变量，可以访问。",
     "--       ★★★ 这也是为什么 actions.lua 里大量使用局部变量 act。",
   ],
-  86: [
+  "BufferedAction:Succeed#1+4": [
     "--★★ 清空回调的两个数组 —— 「一次性」语义。",
   ],
 
   // ══════════════════════════════════════════════════════════════
   // §六 坐标存取（90-102）
   // ══════════════════════════════════════════════════════════════
-  90: [
+  "BufferedAction:GetActionPoint#1": [
     "--★★【GetActionPoint —— 「动作的目标坐标」（4 行）】",
     "--   ★★ 保留的英文注释「returns a Vector3 or nil」——",
     "--     ★★ 注释明确了返回类型，而这正是 actions.lua 里最常被误用的接口。",
@@ -666,15 +666,15 @@ export const BEFORE = {
     "--     ★ 但 actions.lua 里 60+ 处用的都是 GetActionPoint，",
     "--       只有 is_relative_to_platform 的动作才真正需要后者。",
   ],
-  91: [
+  "BufferedAction:GetActionPoint#1+1": [
     "--★ 91 行的保留注释「returns a Vector3 or nil」—— 类型契约。",
   ],
-  95: [
+  "BufferedAction:GetDynamicActionPoint#1": [
     "--★ GetDynamicActionPoint —— 直接返回 self.pos（四个字符）。",
     "--   ★★ 与 90 行构成一对：一个转坐标、一个给原对象。",
     "--     ★ 有了它，接收方可以决定要不要用 DynamicPosition 的跟随能力。",
   ],
-  100: [
+  "BufferedAction:SetActionPoint#1": [
     "--★ SetActionPoint —— **修改** pos 的唯一入口。",
     "--   ★★ 它用 `DynamicPosition(pt)` 而不是直接赋值 ——",
     "--     ★ 保证修改后 pos 仍然是 DynamicPosition（9 行的不变量）。",
@@ -683,14 +683,14 @@ export const BEFORE = {
     "--     或 overridedest 生效时可能重新设定目标点。",
     "--     ★ 「动作执行前可以改变它的目标点」—— 这是动态性的体现。",
   ],
-  102: [
+  "BufferedAction:SetActionPoint#1+2": [
     "--★ 102 行 —— SetActionPoint 结束。",
   ],
 
   // ══════════════════════════════════════════════════════════════
   // §七 Fail（104-110）
   // ══════════════════════════════════════════════════════════════
-  104: [
+  "BufferedAction:Fail#1": [
     "--★★【Fail —— 跑失败回调（7 行）】",
     "--   ★★ 与 Succeed（82）**逐行对称**，只有两点不同：",
     "--     ① 遍历的是 self.onfail 而非 onsuccess",
@@ -705,12 +705,12 @@ export const BEFORE = {
     "--     ★★ 其中后两者说明：**打断一个动作也走 Fail**。",
     "--       ★ 这就是「打断」在回调层面的体现。",
   ],
-  105: [
+  "BufferedAction:Fail#1+1": [
     "--★ 105 行 `for k,v in pairs(self.onfail) do` —— 同样用 pairs。",
     "--   ★★ 与 83 行一致的不规范（数组该用 ipairs）。",
     "--     ★ 若回调数组里有洞（不会发生，因为只用 table.insert），无影响。",
   ],
-  108: [
+  "BufferedAction:Fail#1+4": [
     "--★★ 108-109 行：清空两个数组。",
     "--   ★★★ 「失败时也清空 onsuccess」与 Succeed 的「失败时也清空 onfail」",
     "--     是完全对称的设计。",

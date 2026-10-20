@@ -52,7 +52,7 @@ export default {
   ],
 
   // ══════════════ GetRunPosition ══════════════
-  20: [
+  "RunToDist:GetRunPosition#1": [
     '--★★★ GetRunPosition —— 与 runaway 的 GetRunAngle 四级降级完全同构，',
     '--   唯一差别是**返回偏移向量而非角度**。',
     '-- 逐段对照（括号内为 runaway 的对应行号）：',
@@ -61,7 +61,7 @@ export default {
     '--   ③ 选点四级降级   （同第 65-86 行）',
     '--   ④ deflected 缓存 （同第 89-92 行）',
   ],
-  21: [
+  "RunToDist:GetRunPosition#1+1": [
     '--★★ 方向惯性：缓存「上一次被迫偏转后的偏移」，1 秒内继续沿用。',
     '--★ 与 runaway 第 34 行的机制完全相同（详见 runaway 第 34 行的详解）：',
     '--   给转向一个冷却期，避免贴着墙高频重算导致的抽搐。',
@@ -69,21 +69,21 @@ export default {
     '--   因为本节点的返回值就是 offset。缓存的东西必须与返回值同类型 ——',
     '--   这也是 runaway 与本文件最容易在移植时搞混的地方。',
   ],
-  24: [
+  "RunToDist:GetRunPosition#1+4": [
     '--★ 缓存命中直接返回，跳过全部几何计算（本函数最贵的部分）。',
     '--★ 性能收益与 runaway 相同。',
   ],
-  31: [
+  "RunToDist:GetRunPosition#1+11": [
     '--★ 背向目标：`GetAngleToPoint(hp) + 180`（度）。',
     '--★ 第 31 行末尾同样有被注释掉的 math.random(30)-15（见 runaway 第 51 行的说明）。',
     '--★ 两个文件都留了同一段注释，说明这段是从 runaway 整体复制来的。',
   ],
-  32: [
+  "RunToDist:GetRunPosition#1+12": [
     '--★★ 归一到 [0, 360)。⚠️ 只减一次 360，依赖上游返回 (-180,180]。',
     '--   我已标注为 runaway 同一处的「疑似脆弱点」，此处同理。',
     '--   更稳妥的写法是 math.fmod(angle, 360)，对任意输入都正确。',
   ],
-  36: [
+  "RunToDist:GetRunPosition#1+16": [
     '--★★ `local radius = safe_dist` —— 搜索半径就等于目标安全距离。',
     '--★★★ 这是本节点与 runaway 的**根本差异**，也是它名字的由来：',
     '--   runaway    ：radius = 6（硬编码，第 58 行），与 safe_dist 无关',
@@ -94,10 +94,10 @@ export default {
     '--   ★ 移植要点：把「搜索半径」与「目标距离」绑定，才可能实现「精确停在某距离」，',
     '--     否则只能「随便找个能走的方向」（runaway 的做法）。',
   ],
-  38: [
+  "RunToDist:GetRunPosition#1+18": [
     '--★ 按能力选选点函数（水生/陆生），与 runaway 第 60 行相同。',
   ],
-  44: [
+  "RunToDist:GetRunPosition#1+24": [
     '--★★★ 第一级：避墙选点。参数比 runaway 第 65 行**多一个**：',
     '--   第 9 个参数 allow_boats（本文件的独有配置）。',
     '--★ 但注意第 9 个参数的表达式是 `allowwater_or_allowboat or self.allow_boats`：',
@@ -107,25 +107,25 @@ export default {
     '--   ★ 移植建议：变量名应当与内容一致，这里容易误读。',
     '--★ 第 44/46 行把 angle*DEGREES 转弧度（DEGREES = π/180）。',
   ],
-  45: [
+  "RunToDist:GetRunPosition#1+25": [
     '--★ 用 result_angle == nil 判失败（与 runaway/beargeroffscreen 同一判据）。',
     '--★ ★★ 已核实：FindValidPositionByFan 返回 (offset, check_angle, deflected)，',
     '--   所以「结果角度」确实是判断成败的正确信号。',
   ],
-  46: [
+  "RunToDist:GetRunPosition#1+26": [
     '--★★ 第二级：放弃避墙。与 runaway 第 67 行结构相同，但参数完整（9 个）。',
     '--★ 对照：runaway 第 67 行只传了 6 个参数，漏了 allowwater 相关项。',
     '--   ★ 本文件这一处**比 runaway 更完整**，说明它不是从 runaway 复制，',
     '--     而是从更早的版本演化而来。',
   ],
-  48: [
+  "RunToDist:GetRunPosition#1+28": [
     '--★★ 第三级：fix_overhang 兜底（拉回合法地面），与 runaway 第 69 行同构。',
     '--★ 三条件：开关开 + 前两级失败 + 当前不在地面之上。',
   ],
-  57: [
+  "RunToDist:GetRunPosition#1+37": [
     '--★ 第 3 级的陆生分支，同样带完整参数（本处也传了 self.allow_boats）。',
   ],
-  61: [
+  "RunToDist:GetRunPosition#1+41": [
     '--★★★ 第四级（最终兜底）：`return result_offset` —— 直接返回（可能是 nil）。',
     '--   原注释：ok whatever, just run',
     '--★ 与 runaway 第 82-83 行的 `return angle`（保证非 nil）**语义不同**：',
@@ -135,7 +135,7 @@ export default {
     '--   标注为「已核实的设计差异」：不是 bug，但两个「逃跑」节点行为不一致，',
     '--     移植时要按需求选择（硬走更安全，放弃更诚实）。',
   ],
-  67: [
+  "RunToDist:GetRunPosition#1+47": [
     '--⚠️【已核实 · 死代码】`result_angle = result_angle / DEGREES` 转换了角度，',
     '--   但**后面从未使用 result_angle**：第 73 行返回的是 result_offset。',
     '--   我已逐行核对第 67-73 行确认。',
@@ -144,11 +144,11 @@ export default {
     '--★ ★★ 这类残留正是「复制代码后未清理」的典型产物，',
     '--     与本文件多处保留的注释掉的 print（第 32 行等）同源。',
   ],
-  68: [
+  "RunToDist:GetRunPosition#1+48": [
     '--★★ deflected 缓存 —— 本文件与 runaway 第 89 行同构。',
     '--★ 效果：方向被墙/水挡住而偏转时，缓存 1 秒，防止每帧重算又被打回。',
   ],
-  70: [
+  "RunToDist:GetRunPosition#1+50": [
     '--⚠️【已核实 · 疑似不一致】`self.avoid_angle = result_offset`。',
     '--   字段名叫 avoid_angle，但存的是**偏移向量**。',
     '--   ★ 与第 24 行 `return self.avoid_angle`（当作 pos 返回）是一致的，',
@@ -157,12 +157,12 @@ export default {
     '--   ★★ 即两个文件的同名字段存着不同类型的值 —— 跨文件对照时极易误解。',
     '--   标注为「已核实 · 命名误导，功能正确」。',
   ],
-  73: [
+  "RunToDist:GetRunPosition#1+53": [
     '--★ 返回偏移向量。调用方第 102 行会加上追猎者位置得到绝对目标点。',
   ],
 
   // ══════════════ 容差常量 ══════════════
-  76: [
+  "RunToDist:GetRunPosition#1+56": [
     '--★★★ TOLERANCE_DIST = 0.4（局部常量，模块级）。',
     '--★ 用途：第 104 行判断「是否已经站在目标点附近」。',
     '--★★ 这个「容差」的设计非常值得学：',
@@ -174,19 +174,19 @@ export default {
   ],
 
   // ══════════════ Visit ══════════════
-  78: [
+  "RunToDist:Visit#1": [
     '--★★ Visit：READY 段做索敌，RUNNING 段驱动移动 —— 与 runaway 结构一致。',
   ],
-  80: [
+  "RunToDist:Visit#1+2": [
     '--★ 只支持 gethunterfn 一种索敌方式（无四种分支）。',
   ],
-  88: [
+  "RunToDist:Visit#1+10": [
     '--★★ 找到就 RUNNING，否则 FAILED。',
     '--★ 用 and/or 三元（与 runaway 第 149 行同款）。',
     '--★ 安全前提：RUNNING/FAILED 是非空字符串（behaviourtree.lua:4-7），恒为真，',
     '--   不会触发 and/or 的假值回退陷阱。',
   ],
-  91: [
+  "RunToDist:Visit#1+13": [
     '--★★ RUNNING 段。复检追猎者时比 runaway 多一个条件：IsEntityDead。',
     '--★ 即本节点把「追猎者已死」也算作失效（FAILED），而 runaway 不检查死亡。',
     '--★★ 语义差异：',
@@ -195,28 +195,28 @@ export default {
     '--   但本文件仍判 FAILED，说明它假设目标总是活的。',
     '--★ 标注为「已核实的行为差异」，非缺陷。',
   ],
-  96: [
+  "RunToDist:Visit#1+18": [
     '--★ pt（自己）与 hp（追猎者），与 runaway 第 160-161 行相同。',
   ],
-  98: [
+  "RunToDist:Visit#1+20": [
     '--★★ safe_dist 也支持「值或函数」，且传入 (inst, hunter) 两个参数。',
     '--★ ★★ 与 runaway 的关键区别：runaway 第 70 行 safe_dist 构造器里存的是固定值，',
     '--   本节点则**每帧重新求值**（第 98 行在 RUNNING 段内）。',
     '--   语义：目标距离可以随状态动态变化（如「离玩家远点」）。',
     '--★ 移植要点：把阈值求值放在 RUNNING 段而非构造器，才能支持动态阈值。',
   ],
-  101: [
+  "RunToDist:Visit#1+23": [
     '--★ 有可用偏移 → 继续；为 nil → FAILED + 停止（第 116-119 行）。',
     '--★ 承接第 62 行的「可能返回 nil」设计。',
   ],
-  102: [
+  "RunToDist:Visit#1+24": [
     '--★★★★ `pos = hp + pos` —— 把偏移转成绝对目标点。',
     '--★ 承接 GetRunPosition 返回的是「相对追猎者的偏移」这一约定。',
     '--★★ 这个「相对 → 绝对」转换放在调用方而非函数内，好处是：',
     '--   GetRunPosition 可以被复用于「以任何点为基准」的搜索，不绑定追猎者。',
     '-- ★ 移植要点：搜索函数返回相对偏移，调用方决定基准点 —— 更好的复用性。',
   ],
-  104: [
+  "RunToDist:Visit#1+26": [
     '--★★★【容差判定】距目标点 < 0.4 格 → FAILED（不是 SUCCESS）。',
     '--★★★ 这个终态选择很反直觉，值得单独说明：',
     '--   「已经站到目标位置了」为什么是 FAILED 而不是 SUCCESS？',
@@ -232,17 +232,17 @@ export default {
     '--     上层逻辑全盘错误。',
     '--★ 第 106-107 行的 Stop + return 与其他终止路径写法一致。',
   ],
-  110: [
+  "RunToDist:Visit#1+32": [
     '--★ walk_instead 分支：先清 locomotor.dest（同 runaway 第 166 行）。',
     '--★★ 再次强调这行的必要性：',
     '--   locomotor 的 GoToPoint 会设 dest，若不清理会与当前行为打架。',
     '--   ★ 移植要点：切换「按点走」与「按方向走」必须清掉另一套的残留状态。',
   ],
-  112: [
+  "RunToDist:Visit#1+34": [
     '--★ walk_instead → GoToPoint(pos, nil, false)（第三参数 false = 走路）',
     '--   需对比下一行第 114 行的第三参数 true（= 跑）。',
   ],
-  121: [
+  "RunToDist:Visit#1+43": [
     '--★★★【成功判定】|当前距离² - 目标距离²| < 0.75 → SUCCESS。',
     '--',
     '-- ★★★ 这个判据值得仔细拆解（我已逐行核实）：',
@@ -265,7 +265,7 @@ export default {
   ],
 
   // ══════════════ 休眠 ══════════════
-  127: [
+  "RunToDist:Visit#1+49": [
     '--★★ self:Sleep(.125) —— 与 runaway 的 .25 相比更快（战斗级节拍）。',
     '--★ 差异原因：本节点的目标是「精确停在某距离」，需要频繁校正；',
     '--   runaway 只要求「越远越好」，不需要这么精确。',

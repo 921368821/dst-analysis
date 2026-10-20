@@ -12,7 +12,7 @@ export const BEFORE = {
     "--   摘除修饰器（见 sourcemodifierlist.lua 的 SetModifier 里注册的 onremove 监听）。",
     "--   本文件用它承载 absorb / reduction / 火焰伤害倍率三组外部修正。",
   ],
-  3: [
+  "onpercent#1": [
     "--★★★【血量→战斗阈值 的隐式联动钩子】这是全文件最容易被忽略的一段。",
     "--   读取 panic_thresh（逃跑阈值）再原样写回自己，纯粹是为了触发",
     "--   components/combat.lua 里 panic_thresh 的属性 setter 副作用——",
@@ -23,27 +23,27 @@ export const BEFORE = {
     "--   ⚠ 移植到强类型语言时这条「自赋值触发副作用」的约定会丢失，",
     "--     必须改成显式的 healthpercentchanged 回调。",
   ],
-  4: [
+  "onpercent#1+1": [
     "--★ nil 守卫：不是所有挂了 health 的实体都有 combat（树人、物品、雕像等）。",
     "--   组件之间只做「弱存在」检查，绝不假设对方一定在。",
   ],
-  9: [
+  "onmaxhealth#1": [
     "--★★【onmaxhealth】上限变化的三件事：同步副本 → 通知可修理性 → 通知战斗阈值。",
     "--   为什么 SetMax 要通知 repairable？因为「护甲/船体能否修理」取决于",
     "--   当前耐久是否低于满值；上限一变，判定基准就变了。",
   ],
-  10: [
+  "onmaxhealth#1+1": [
     "--★【replica 同步的唯一入口】血量上限写进 player_classified 的 netvar，",
     "--   由 netvars.lua 的脏标记机制在下一网络帧广播给客户端。",
     "--   参见 netvars.lua 的 netvar 定义。",
   ],
-  13: [
+  "onmaxhealth#1+4": [
     "--★ `(self.currenthealth or maxhealth) < maxhealth`：构造期 currenthealth 可能为 nil",
     "--   （读档时序），此时按「满血」处理，即不提示修理。",
     "--   ★ 注意这里读的是 raw self.currenthealth 而非 GetMaxWithPenalty()，",
     "--     所以带 penalty 的实体修理提示判定用的是「未扣罚」的上限——有意为之。",
   ],
-  18: [
+  "oncurrenthealth#1": [
     "--★★★【oncurrenthealth：血量变化的下游扇出点】每次 currenthealth 被赋值都会触发。",
     "--   三件事：① 同步 current；② 同步 isdead 标志；③ 通知 repairable；",
     "--   ④ 回调 onpercent 触发战斗阈值重算。",
@@ -52,42 +52,42 @@ export const BEFORE = {
     "--     因为 tag 参与兴趣管理与点击检测，客户端逻辑（如 locomotor）",
     "--     需要在血量数值尚未到达时就能提前中止移动。参见 locomotor.lua:1457。",
   ],
-  20: [
+  "oncurrenthealth#1+2": [
     "--★ 死亡判定用 `<= 0` 而不是 `== 0`——因为 minhealth 机制允许血量停在负数区间，",
     "--   0 只是一个阈值而不是必须精确命中的值。",
   ],
-  28: [
+  "ontakingfiredamage#1": [
     "--★ 火焰状态也要下发：客户端用它播「正在燃烧」的音效/特效与屏幕效果，",
     "--   所以必须是 netvar 而不是纯服务端字段。",
   ],
-  32: [
+  "ontakingfiredamagelow#1": [
     "--★ 二次伤害（low damage）单独一路 netvar：客户端据此决定播弱特效还是强特效，",
     "--   避免每帧同步布尔翻转造成的抖动。",
     "--   ⚠ 这里做了 `== true` 归一化，把 nil 也压成 false——",
     "--     因为 health.lua 里 takingfiredamagelow 用 nil 表示「无低伤阶段」，",
     "--     而 netvar 不能传 nil。参见下方 203/215/247 行的 nil 语义。",
   ],
-  36: [
+  "onlunarburnflags#1": [
     "--★ 月光灼烧用位标志（bit flags）而不是布尔：同一次召唤可以叠加多种灼烧源",
     "--   （例：守卫者多种攻击同时附加），客户端按位判断要播哪种特效。",
     "--   `or 0` 是 nil 守卫：lunarburnflags 为 nil 表示「无灼烧」。",
     "--   ★ 注意本行用 Tab 缩进（原文件混用 Tab 与空格），但缩进差异不影响 Lua 语义。",
   ],
-  40: [
+  "onpenalty#1": [
     "--★ penalty（生命惩罚）也同步：客户端 HUD 要画出「实际可用血量上限」的缺口。",
   ],
-  44: [
+  "oncanmurder#1": [
     "--★ canmurder / canheal 走 tag 而非 netvar（见 health_replica.lua:192-214），",
     "--   因为它们本质是「能力开关」，客户端多处逻辑（含 UI）都要按 tag 快速判断。",
   ],
-  52: [
+  "oninvincible#1": [
     "--★★【只在作弊开启时生效】invincible 的 tag 下发被 CHEATS_ENABLED 包住。",
     "--   理由：这是调试可视化，不允许在正常对局里给实体留下「无敌」痕迹",
     "--   （tag 会被客户端逻辑读到，可能被用来判断该不该攻击）。",
     "--   ★ 与 SetInvincible 不同：SetInvincible 无条件 PushEvent，但 tag 仍然",
     "--     只在作弊模式下挂——事件给服务端逻辑用，tag 给客户端逻辑用。",
   ],
-  62: [
+  "oninvincible#1+10": [
     "--★★★【Health 类的构造：全部状态字段的初始化清单】",
     "--   这个类只有一个构造函数，第二个参数 base=nil 表示不继承任何类，",
     "--   第三个参数是「属性 setter 表」——参见 class.lua:82 的 Class() 实现：",
@@ -96,15 +96,15 @@ export const BEFORE = {
     "--   ★★★ 这是 DST 组件类的通用范式：构造函数只做数据初始化，",
     "--     「字段变化 → 副作用」的绑定交给 props 表声明式描述。",
   ],
-  64: [
+  "oninvincible#1+12": [
     "--★ 默认上限 100。注意这是**未扣 penalty** 的裸上限；实际可用上限由",
     "--   GetMaxWithPenalty() 现算，参见 524 行。",
   ],
-  65: [
+  "oninvincible#1+13": [
     "--★ minhealth 是「血量地板」，默认 0。注意语义：设成正数可以让实体",
     "--   永远不掉到 0 以下（不会死），同时 SetVal 会 PushEvent(\"minhealth\")。",
   ],
-  69: [
+  "oninvincible#1+17": [
     "--★★【被删掉的字段与「注释即墓碑」惯例】",
     "--   这段注释揭示了一条重要的工作流：Klei 把一些字段从构造函数里删掉",
     "--   （改为「读不到就当默认值」），但保留注释作为记忆，",
@@ -113,25 +113,25 @@ export const BEFORE = {
     "--     所以老模组写 false 依然有效，写 true 也有效，删掉也有效。",
     "--   ⚠ 强类型移植时无法表达这种「nil 即 true」的语义，必须补默认值。",
   ],
-  80: [
+  "oninvincible#1+28": [
     "--★ 火焰伤害总倍率 = fire_damage_scale（基础） × externalfiredamagemultipliers（外部，multiply）",
     "--   × burnable 的受控燃烧伤害倍率。三者相乘，见 190 行 GetFireDamageScale。",
   ],
-  82: [
+  "oninvincible#1+30": [
     "--★ fire_timestart = 1：刚着火后的 1 秒内不结算伤害（只有低伤特效）。",
     "--   设计意图是「点燃有前摇」，避免擦到火就秒杀。",
   ],
-  83: [
+  "oninvincible#1+31": [
     "--★★【每秒火焰伤害上限的计数器】firedamageinlastsecond 累加本秒内已造成的火焰伤害，",
     "--   超过 TUNING.MAX_FIRE_DAMAGE_PER_SECOND(=120) 就截断。",
     "--   设计意图：防止「站在大火里」在一秒内被瞬秒，火焰必须是可逃离的持续压力。",
     "--   firedamagecaptimer 是「本秒窗口的到期时刻」（下一个整秒）。",
   ],
-  87: [
+  "oninvincible#1+35": [
     "--★ disable_penalty 来自 TUNING.HEALTH_PENALTY_ENABLED（默认 true）。",
     "--   难度/世界设置可以整体关掉生命惩罚系统（山庄难度、战败标记等）。",
   ],
-  89: [
+  "oninvincible#1+37": [
     "--★★★【已废弃字段与新机制的对照 —— 移植必读的 nil 陷阱源头】",
     "--   absorb / playerabsorb 是一代减伤机制：直接写一个 0~1 的比例，",
     "--   在 DoDelta 里做 `amount * (1 - absorb)`。",
@@ -145,7 +145,7 @@ export const BEFORE = {
     "--      628 行的 `self.absorb` 就会是 nil，参与 `1 - (nil or ...)` 运算直接崩。",
     "--      ★ 这正是本项目 bug-patterns.md 收录的「护甲 nil 吸收率」坑的根因。",
   ],
-  92: [
+  "oninvincible#1+40": [
     "--★★【externalabsorbmodifiers：二代百分比减伤】",
     "--   SourceModifierList(inst, 0, additive) 的三个参数含义：",
     "--     · inst        —— 归属实体，用于自动注册 onremove 清理",
@@ -157,7 +157,7 @@ export const BEFORE = {
     "--     即「伤害减少三分之一」，这与玩家直觉的「+33% 防御」同义，",
     "--     但在数值上是减法语义，不是 1/1.33 的乘法规避——误差更小。",
   ],
-  93: [
+  "oninvincible#1+41": [
     "--★★【externalreductionmodifiers：三代「固定值减免」】",
     "--   同样是 additive、基值 0，但语义完全不同：Get() 返回一个**绝对血量**，",
     "--   在 DoDelta 里直接从 amount 里减掉。",
@@ -169,14 +169,14 @@ export const BEFORE = {
     "--     三代 externalreduction—— 有来源、固定值、有回收，为「一次性的巨大打击缓冲」",
     "--   ⚠⚠ 已知缺陷：三代在 health.lua:629 的应用方式有 bug，见该行注释。",
   ],
-  95: [
+  "oninvincible#1+43": [
     "--★ destroytime：尸体（不 fadeout 的实体）延迟销毁时间。nil 时 SetVal 里用 2 秒。",
   ],
-  96: [
+  "oninvincible#1+44": [
     "--★ canmurder / canheal 默认全开；由 specific prefab 关闭。",
     "--   canmurder=false 的实体（如友方雕像）不能被玩家攻击致死。",
   ],
-  99: [
+  "oninvincible#1+47": [
     "--★★★【非致死保护三兄弟：nonlethal_temperature / nonlethal_hunger / nonlethal_pct】",
     "--   这是「保底不死」机制，DoDelta 的第一条判定就用它们（见 616 行）。",
     "--   语义：血量百分比低于 nonlethal_pct 时，如果伤害来源是 temperature 或 hunger，",
@@ -188,42 +188,42 @@ export const BEFORE = {
     "--     即该保护默认关闭；NONLETHAL_PERCENT 默认 0.2（20%）。",
     "--     也就是说：**代码路径存在但默认不生效**，只有开了对应世界设置才会免疫。",
   ],
-  104: [
+  "oninvincible#1+52": [
     "--★★【属性 setter 表】与构造函数第三参数配对。参见 class.lua:82-105：",
     "--   传入 props 后，Class() 会为每个实例建 obj._ = { key = { 原值, setterfn } }，",
     "--   并把 __newindex 指向 class.lua 的 __newindex，实现「赋值即回调」。",
     "--   ★ 由此得到一条铁律：给 currenthealth 赋值**永远不会失败**，",
     "--     但会同步触发网络写入与战斗阈值重算——热路径上要避免无谓赋值。",
   ],
-  116: [
+  "Health:OnRemoveFromEntity#1": [
     "--★★【OnRemoveFromEntity：清理三类「自持资源」】",
     "--   组件被移除时必须：① 停周期任务；② 摘掉所有事件监听；③ 清状态。",
     "--   ★ 这里没做「停机前的最后一次结算」——任务被 Cancel 后不会再跑，",
     "--     所以 regensources 里的回复是纯粹丢失的（不会补发）。",
   ],
-  117: [
+  "Health:OnRemoveFromEntity#1+1": [
     "--★ StopRegen 停的是「全局单例回复」（StartRegen 建的），",
     "--   与下面的多来源回复（AddRegenSource 建的）不是同一套。",
   ],
-  119: [
+  "Health:OnRemoveFromEntity#1+3": [
     "--★ 先判 nil 再遍历：regensources 是懒创建的（AddRegenSource 里才建表）。",
   ],
-  125: [
+  "Health:OnRemoveFromEntity#1+9": [
     "--★★【月光灼烧源的「自摘除」机制】",
     "--   灼烧源若是实体，自动 ListenForEvent(\"onremove\") 把自己摘掉。",
     "--   ★ 为什么用 pairs 而不需要快照？因为 RemoveEventCallback 不改 regensources 表，",
     "--     只改实体的事件表——Lua 的 pairs 遍历安全。",
     "--   （对比 bug-patterns.md A6：那种危险来自「遍历中往同一张表增删 key」。）",
   ],
-  135: [
+  "Health:OnRemoveFromEntity#1+19": [
     "--★ 显式 PushEvent(\"stoplunarburn\")：因为摘除监听时不会有「最后一个源消失」的",
     "--   语义事件，必须在这里手动补一个完整清理通知。",
   ],
-  138: [
+  "Health:OnRemoveFromEntity#1+22": [
     "--★ 组件卸载也要重算一次战斗阈值——因为此刻 currenthealth 可能已被外部改过，",
     "--   而 panic_thresh 的下游（逃跑 AI）还在按旧值决策。",
   ],
-  141: [
+  "Health:RecalculatePenalty#1": [
     "--★★【已废弃的空函数：函数签名保留是 ABI 兼容手段】",
     "--   RecalculatePenalty 曾经负责「扣罚后重算上限」，现在被 GetMaxWithPenalty()",
     "--   的「每次现算」取代了。但函数体保留为空并注明 deprecated，",
@@ -231,16 +231,16 @@ export const BEFORE = {
     "--     这是重构时的通用做法——删函数容易，删函数会炸别人的模组。",
     "--   ⚠ 强类型移植时若把空实现删掉，Lua 侧的 nil 调用会变成「方法不存在」错误。",
   ],
-  145: [
+  "Health:SetInvincible#1": [
     "--★★【SetInvincible 与 IsInvincible 的三源合流】",
     "--   SetInvincible 只改字段 + 发事件；真正「无敌」还要看状态图标签。",
     "--   为什么要分事件和字段两条路？见 486 行的 V2C 注释。",
   ],
-  147: [
+  "Health:SetInvincible#1+2": [
     "--★ PushEvent(\"invincibletoggle\", {invincible=val}) 供服务端逻辑响应；",
     "--   客户端视觉（tag）由 oninvincible 在 CHEATS_ENABLED 下单独处理。",
   ],
-  150: [
+  "Health:ForceUpdateHUD#1": [
     "--★★★【ForceUpdateHUD：用「0 伤害」骗过整条 DoDelta 管线】",
     "--   DoDelta(0, overtime, nil, true, nil, true) 的六个参数逐个看：",
     "--     amount=0        —— 不改变血量，但仍然会走 SetVal → 触发 oncurrenthealth",
@@ -255,24 +255,24 @@ export const BEFORE = {
     "--   ⚠ 代价：会真的 PushEvent(\"healthdelta\")，让所有监听者被唤醒一次。",
     "--     所以热路径（如 DeltaPenalty 连续调用）要注意事件风暴。",
   ],
-  154: [
+  "Health:OnSave#1": [
     "--★★【OnSave：只存三样东西】",
     "--   刻意**不存**的：regen（回复源）、lunarburns（月光灼烧）、",
     "--   fire 状态、invincible。理由是这些都属于「临时状态」，读档后应重新建立。",
     "--   ★ 设计判据：能重建的（回复源会被道具重新施加）不存；",
     "--     重建不了的（invincible 是关卡脚本设的）由关卡 OnLoad 重新设置。",
   ],
-  158: [
+  "Health:OnSave#1+4": [
     "--★ penalty 只在 > 0 时才写：避免大量实体的存档里出现 \"penalty\": 0 的噪音，",
     "--   存档体积在 DST 里是真实成本（上千个实体时差异可观）。",
   ],
-  159: [
+  "Health:OnSave#1+5": [
     "--★★ maxhealth 的条件保存：只有显式设过 save_maxhealth 的实体才写上限。",
     "--   绝大多数实体上限就是 100，写进存档纯属冗余。",
     "--   ★ save_maxhealth 标志由外部（通常是特定 prefab 的构造代码）设置，",
     "--     health.lua 自己从不设它——所以这里只读不写。",
   ],
-  163: [
+  "Health:OnLoad#1": [
     "--★★【OnLoad：读档顺序有严格讲究】",
     "--   ① maxhealth 必须**先**恢复——因为后面的 SetVal 要用 GetMaxWithPenalty() 封顶；",
     "--   ② penalty 恢复时走 SetPenalty 而非直接赋值，以便触发副本同步；",
@@ -281,34 +281,34 @@ export const BEFORE = {
     "--     实体会以构造函数给的 currenthealth=100 上限存档值可能出现矛盾。",
     "--     实际不会发生，因为 OnSave 总是一起写这两个字段。",
   ],
-  168: [
+  "Health:OnLoad#1+5": [
     "--★★ haspenalty 的三重校验：非 nil、> 0、< 1。",
     "--   ★ < 1 是防御性检查：TUNING.MAXIMUM_HEALTH_PENALTY = 0.75 已经封顶，",
     "--     但存档可能被外部工具改坏；这里宁可忽略非法值也不让脏数据进来。",
   ],
-  177: [
+  "Health:OnLoad#1+14": [
     "--★ SetVal(data.health, \"file_load\")：cause 传固定字符串 \"file_load\"。",
     "--   ★ 意义在于：死亡时若有残留的「致命伤害监听」，可以据此区分读档与真实伤害。",
     "--     搜 prefabs 可找到监听 \"file_load\" 的地方。",
   ],
-  179: [
+  "Health:OnLoad#1+16": [
     "--★★★【percent 分支：专为 setpieces（关卡演出）保留】",
     "--   英文原注释直接写了 \"used for setpieces!\"。",
     "--   某些剧情 prefab 用 \"percent\" 字段表达「以百分比形式恢复血量」，",
     "--   因为它们的 maxhealth 在运行期会被剧情改过，写绝对值不可靠。",
     "--   ★ SetPercent 内部已含 ForceUpdateHUD，所以这里不能再调一次（否则事件翻倍）。",
   ],
-  183: [
+  "Health:OnLoad#1+20": [
     "--★ 只有 penalty 被恢复（血量本身没变）时，也要刷新一次 HUD——",
     "--   因为 penalty 改变了「可用上限」，血条缺口必须重画。",
   ],
-  188: [
+  "Health:OnLoad#1+25": [
     "--★ FIRE_TIMEOUT = 0.5 秒：最后一次火焰伤害后 0.5 秒才判定「火焰已灭」。",
     "--   为什么要延迟？因为 DoFireDamage 会被高频调用（站在火里每帧调用），",
     "--   若立即判定熄灭，takingfiredamage 会疯狂翻转，netvar 每帧变一次，",
     "--   客户端特效会疯狂重播。0.5 秒的迟滞窗口是必需的防抖。",
   ],
-  190: [
+  "Health:GetFireDamageScale#1": [
     "--★★★【GetFireDamageScale：火焰伤害倍率的唯一读取点】",
     "--   三项相乘，缺一不可：",
     "--     ① self.fire_damage_scale            —— 实体自身的基础倍率",
@@ -321,7 +321,7 @@ export const BEFORE = {
     "--   ⚠ 强类型移植时这行是最危险的：`controlledburn.damage == 0` 会走到 `or 1`，",
     "--     导致「受控燃烧 0 伤害」被误判成「倍率 1」。必须改写成显式三段 if。",
   ],
-  194: [
+  "Health:DoFireDamage#1": [
     "--★★【DoFireDamage：火焰伤害的状态机入口】",
     "--   被 burnable / burning / explosive 等组件在着火期间持续调用。",
     "--   整体分三段：① 状态转换（点燃 / 进入低伤阶段）；② 结算本次伤害；③ 事件派发。",
@@ -330,23 +330,23 @@ export const BEFORE = {
     "--     · not instant 且 mult <= 0 → 进低伤阶段但不掉血（防燃烧护符「挡火但不灭火」）",
     "--     · not instant 且 mult > 0  → 进低伤阶段，等 fire_timestart 秒后才真掉血",
   ],
-  195: [
+  "Health:DoFireDamage#1+1": [
     "--★★【V2C 原注释】「not instant」通常意味着「正在燃烧，或正被点着」。",
     "--   这是理解整个火焰系统的钥匙：instant = 一次性火焰伤害（如爆炸点燃的瞬时火）；",
     "--   非 instant = 持续燃烧。二者走的是同一条 DoDelta 路径，但时序判定不同。",
   ],
-  197: [
+  "Health:DoFireDamage#1+3": [
     "--★★ 双条件 `(not instant or mult > 0)` 的含义：",
     "--   · instant=true  → 只要没无敌就处理（哪怕 mult<=0，也要走状态转换去「灭火」）",
     "--   · instant=false → 只有 mult>0 才处理",
     "--   ★ 这样设计是为了让「火焰抗性护符」（mult 变 0）能够**立即中断**燃烧：",
     "--     走进火里 → 触发低伤阶段 → 之后 mult 被护符压到 0 → 走 elseif 分支停伤。",
   ],
-  199: [
+  "Health:DoFireDamage#1+5": [
     "--★ 进入火焰状态只在「第一次」时执行（if not self.takingfiredamage）。",
     "--   状态转换只发生一次，后续每帧调用只走结算段——这是每帧热路径的优化。",
   ],
-  202: [
+  "Health:DoFireDamage#1+8": [
     "--★★★【低伤阶段的两种进入条件】",
     "--   ① `self.fire_timestart > 1 and not instant`：fire_timestart 默认 1，",
     "--      所以**默认情况下这个条件为假**——即正常点燃时不会进低伤阶段。",
@@ -357,21 +357,21 @@ export const BEFORE = {
     "--     在 215/247 行被设为 **nil**。true/nil 混用是有意的：",
     "--     nil 表示「这个维度不适用」，见 32 行 ontakingfiredamagelow 的 == true 归一化。",
   ],
-  205: [
+  "Health:DoFireDamage#1+11": [
     "--★ StartUpdatingComponent 把组件加进每帧更新队列——",
     "--   注意这个队列在 update.lua 的 NewUpdatingEnts 里，参见 update.lua:270。",
     "--   ★ 实体休眠（IsAsleep）时 StartUpdatingComponent 会被跳过，",
     "--     所以火焰状态在休眠实体上「冻结」；OnEntityWake 时不会自动续上，",
     "--     要靠 DoFireDamage 被再次调用（burnable 的更新）来恢复。",
   ],
-  207: [
+  "Health:DoFireDamage#1+13": [
     "--★ ProfileStatsAdd(\"onfire\")：遥测埋点，用于统计「有多少实体曾着火」。",
     "--   ★ 这类 Profile* 调用是性能分析基础设施，正式构建里是空函数。",
   ],
-  210: [
+  "Health:DoFireDamage#1+16": [
     "--★ lastfiredamagetime 每帧都刷——它是 OnUpdate 里「火焰熄灭」判定的唯一依据。",
   ],
-  212: [
+  "Health:DoFireDamage#1+18": [
     "--★★★【真正掉血的时间闸门】`(instant or 已燃烧超过 fire_timestart 秒) and amount > 0`",
     "--   ★ 这行是「点燃前摇」的实现：非 instant 时必须熬过 fire_timestart 秒。",
     "--     结合 202 行的低伤阶段，形成完整的时序：",
@@ -380,18 +380,18 @@ export const BEFORE = {
     "--     因此也不会走到 233 行把 takingfiredamagelow 置 true 的逻辑——",
     "--     也就是说 amount=0 的调用会让状态永久停在「非低伤」阶段。",
   ],
-  214: [
+  "Health:DoFireDamage#1+20": [
     "--★ 低伤阶段退出：真实伤害开始前，先把 low 标志清掉并广播，",
     "--   让客户端把弱特效切换成强特效。",
   ],
-  220: [
+  "Health:DoFireDamage#1+26": [
     "--★★【每秒上限的滑动窗口】`if self.firedamagecaptimer <= time then`",
     "--   firedamagecaptimer 初值 0，time 是 GetTime()（大数），",
     "--   所以第一次进来必然重置。这就是「每秒 120 点」窗口的实现。",
     "--   ★ 窗口是「硬切」的（不是滑动窗口），所以理论上 1.0s 内可造成 240 点：",
     "--     前一秒末尾 120 + 后一秒开头 120。属于有意为之的宽松设计。",
   ],
-  225: [
+  "Health:DoFireDamage#1+31": [
     "--★★【每秒伤害截断】amount 被压到「本秒剩余配额」。",
     "--   如果本秒配额已用尽，amount 会变成 0 甚至负数：",
     "--   若 firedamageinlastsecond 恰好等于 120，则 amount = 0；",
@@ -400,7 +400,7 @@ export const BEFORE = {
     "--     实际发生概率极低（需要 120 被精确命中），但这是真实的理论缺陷。",
     "--     防御只需把 226 行的结果再 math.max(..., 0) 一次。",
   ],
-  229: [
+  "Health:DoFireDamage#1+35": [
     "--★★★【火焰伤害的 DoDelta 调用形态 —— 五个参数里有三个非常规】",
     "--   `self:DoDelta(-amount * mult, false, <cause 字符串>, nil, doer)`",
     "--     amount = -amount * mult —— 负号在内、倍率在外，注意运算顺序",
@@ -417,43 +417,43 @@ export const BEFORE = {
     "--   ⚠ 常见误用：用实体当 cause（如 cookiecutterdrill.lua:46 传了 self.inst），",
     "--     会让 cause 变成 Entity 对象而非字符串，下游做字符串比较的逻辑会失效。",
   ],
-  230: [
+  "Health:DoFireDamage#1+36": [
     "--★ \"firedamage\" 事件在每次结算后派发，供「火焰伤害统计」「受击特效」等监听。",
   ],
-  232: [
+  "Health:DoFireDamage#1+38": [
     "--★ 累加的是「未乘倍率」的 amount —— 因为上面 225 行已经把 amount 截断成配额，",
     "--   而 229 行才乘 mult。所以配额统计的是「原始伤害额度」而非实际掉血。",
     "--   ★ 意图：上限针对的是「火焰的原始威胁」，与抗性无关——",
     "--     抗性应该由 mult 单独承担，两条机制互不干扰。",
   ],
-  233: [
+  "Health:DoFireDamage#1+39": [
     "--★ mult<=0 的镜像分支：进低伤阶段但不结算。",
     "--   与 212 行的进入条件配对，构成「进低伤 ↔ 出低伤」的双向状态机。",
   ],
-  241: [
+  "Health:OnUpdate#1": [
     "--★★【OnUpdate：火焰熄灭的迟滞判定】只有这一个用途，",
     "--   而它需要占一个每帧更新槽位——这是「用帧循环换迟滞逻辑」的代价。",
   ],
-  244: [
+  "Health:OnUpdate#1+3": [
     "--★★ 迟滞判定的唯一条件：距最后一次火焰伤害调用超过 0.5 秒。",
     "--   ★ 之所以能这样简化：DoFireDamage 每帧被调用时都会刷 lastfiredamagetime，",
     "--     所以「不再被调用」等价于「调用间隔超过 0.5 秒」。",
     "--   ⚠ 副作用：如果某个 burnable 因为自身逻辑停了更新（不再调 DoFireDamage），",
     "--     实体会在 0.5 秒内「自动熄灭」——即使视觉上还在烧。",
   ],
-  245: [
+  "Health:OnUpdate#1+4": [
     "--★ 先清 takingfiredamage 再清 low，顺序有意义：",
     "--   takingfiredamage=false 时 takingfiredamagelow 还短暂为 true，",
     "--   但因为二者分别 netvar，客户端会在同一帧内都收到，无中间态。",
   ],
-  249: [
+  "Health:OnUpdate#1+8": [
     "--★ 主动退出更新队列——不这么做的话，每帧都会空跑这个函数。",
     "--   ★ 这是 health.lua 里唯一的每帧更新点，火焰熄灭后立刻归零，开销为零。",
   ],
-  255: [
+  "Health:GetLunarBurnFlags#1": [
     "--★ 月光灼烧标志的读取包装，nil 安全。",
   ],
-  259: [
+  "Health:CalcLunarBurnFlags#1": [
     "--★★【CalcLunarBurnFlags：位或归约】",
     "--   把所有来源的 flags 按位或起来。bit.bor 是 DST 注入的位运算库提供的。",
     "--   ★ 为什么用位或而不是加法？因为位标志要求「同时具备所有效果」时",
@@ -462,7 +462,7 @@ export const BEFORE = {
     "--     而 RegisterLunarBurnSource 的第一个分支会把它置为非 nil，",
     "--     所以实际调用总是安全的——但作为公开方法它缺一个 nil 守卫。",
   ],
-  267: [
+  "Health:RegisterLunarBurnSource#1": [
     "--★★★【RegisterLunarBurnSource：灼烧源注册（三个分支）】",
     "--   分支 1：第一个源 → 建表、存 flags、注册 onremove 自摘、广播开始事件",
     "--   分支 2：已存在的源且 flags 变了 → 更新后重算总标志，有变化才广播",
@@ -470,54 +470,54 @@ export const BEFORE = {
     "--   ★ 设计要点：**只在「总标志」变化时才广播事件**。",
     "--     这样两个源叠加（A 消失）时，客户端不会收到无意义的更新。",
   ],
-  268: [
+  "Health:RegisterLunarBurnSource#1+1": [
     "--★ 懒建表：lunarburns 为 nil 说明「还没有任何源」，是分支判定的依据。",
   ],
-  269: [
+  "self._onremovelunarburn#1": [
     "--★ _onremovelunarburn 只创建一次并被所有源共享——避免每个源都建一个闭包。",
   ],
-  275: [
+  "self._onremovelunarburn#1+6": [
     "--★★【`if flags ~= 0` 才广播 startlunarburn】",
     "--   第一个源注册时如果 flags=0（无灼烧），静默初始化、不广播。",
     "--   ★ 这是「注册」与「生效」的分离：注册只是建立跟踪，",
     "--     只有非零标志才代表真的有灼烧效果。",
   ],
-  278: [
+  "self._onremovelunarburn#1+9": [
     "--★ flags 变化才进分支——避免每帧调 RegisterLunarBurnSource 造成的写放大。",
   ],
-  285: [
+  "self._onremovelunarburn#1+16": [
     "--★ 被注释掉的 assert(flags ~= 0)：",
     "--   说明曾怀疑「startlunarburn 事件不应带 0 标志」，但发现有合法路径会推 0",
     "--   （所有源的 flags 都是 0 时总标志为 0），于是放弃了这个断言。",
   ],
-  292: [
+  "Health:UnregisterLunarBurnSource#1": [
     "--★ UnregisterLunarBurnSource 用 `self.lunarburns[source]` 双重判空，",
     "--   既保证源存在也保证它的 flags 非零/非 nil。",
   ],
-  298: [
+  "Health:UnregisterLunarBurnSource#1+6": [
     "--★★【`next(self.lunarburns) == nil` —— 最后一个源被摘除的判定】",
     "--   摘完后表变空，就该整体清理并广播 stoplunarburn。",
     "--   ★ 与 RegisterLunarBurnSource 的「懒建表」严格配对：",
     "--     nil ↔ 空 ↔ nil，两个方向都不会留下半初始化状态。",
   ],
-  305: [
+  "Health:UnregisterLunarBurnSource#1+13": [
     "--★ 源还在但总标志变了：重算并按是否为零分别广播 start / stop。",
   ],
-  310: [
+  "Health:UnregisterLunarBurnSource#1+18": [
     "--★ 归零时推 stoplunarburn 而不是 startlunarburn(0)，",
     "--   与 RegisterLunarBurnSource:276 的「0 标志不广播」形成一致约定。",
   ],
-  318: [
+  "DoRegen#1": [
     "--★ DoRegen 是周期任务的回调。第一个参数 inst 是 DoPeriodicTask 的约定，",
     "--   第二个 self 是构造时传的 param。",
   ],
-  320: [
+  "DoRegen#1+2": [
     "--★★【回复不作用于死人】`if not self:IsDead()`。",
     "--   ★ 为什么要判？因为 DoRegen 是周期任务，若实体在死亡到移除之间还活着，",
     "--     周期任务会继续触发并把「负血量往上加」——那会触发假死亡逻辑。",
     "--   ★ 这是「周期任务必须自己判断有效性」的典型；health.lua 里三处 regen 都这么做。",
   ],
-  321: [
+  "DoRegen#1+3": [
     "--★ `DoDelta(amount, true, \"regen\")` —— 注意 overtime=true！",
     "--   ★★★ 语义：回复是「定时」的持续恢复，标记为 overtime 后，",
     "--     下游（连杀奖励、血条动画、音效节流）会知道这是缓慢回复而非战斗行为。",

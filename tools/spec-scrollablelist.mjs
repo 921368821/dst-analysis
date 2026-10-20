@@ -276,7 +276,7 @@ export default {
     '--     与 playerhud 的 HasInputFocus 是同一思想在不同层的体现。',
   ],
 
-  149: [
+  "self.position_marker.OnLoseFocus#1": [
     '-- ⚠️⚠️【直接覆盖实例方法的反模式，已核实无隐藏收益】',
     '-- 这里写的是 `self.position_marker.OnLoseFocus = function() ... end`，',
     '-- **没有 self 参数**，直接顶掉了 ImageButton:OnLoseFocus 这个方法。',
@@ -299,7 +299,7 @@ export default {
     '--   那是**并存**的 onlosefocusfn，与方法覆盖互不干扰。作者没用是可惜。',
   ],
 
-  156: [
+  "self.position_marker.OnLoseFocus#1+7": [
     '-- SetOnClick 版本与 149 行的 OnLoseFocus 版本**逐行相同**（除了没调基类）。',
     '-- → 这是有意的冗余：两条路径（失焦 / 点击）都要收尾，',
     '--   且都要保证 MoveMarkerToNearestStep 被调用（把手吸附到刻度）。',
@@ -307,7 +307,7 @@ export default {
     '--   抽成一个 local function 收尾 + 两处调用会更安全。',
   ],
 
-  165: [
+  "self.position_marker.OnLoseFocus#1+16": [
     '-- 轨道 MoveToBack → 箭头与把手显示在轨道之上。',
     '-- ★ 又一次印证：**AddChild 决定归属，MoveToBack/Front 决定 z 序**，',
     '--   两者独立。此处 scroll_bar_container 的 AddChild 顺序是',
@@ -315,13 +315,13 @@ export default {
     '--   若不 MoveToBack，轨道会盖住箭头与把手。',
   ],
 
-  170: [
+  "self.position_marker.OnLoseFocus#1+21": [
     '-- 构造末尾的 RefreshView() 让列表一出生就有正确布局。',
     '-- ⚠️ 没传 movemarker，所以初始把手位置不对（见 69 行的分析）。',
     '-- 若构造时给了 starting_offset，应改成 self:RefreshView(true)。',
   ],
 
-  173: [
+  "ScrollableList:DebugDraw_AddSection#1": [
     '-- ★ 开发者调试面板（dbui）直接改字段并触发重排。',
     '-- ★★ 217-227 行「参数改了就把构造器里那套位置计算重做一遍」——',
     '--   注意注释明说「Resize commands copied from ctor」。',
@@ -334,14 +334,14 @@ export default {
     '--   说明作者知道初始刷新该带把手更新 —— 反衬 170 行是遗漏。',
   ],
 
-  208: [
+  "ScrollableList:DebugDraw_AddSection#1+35": [
     '-- dbui.Checkbox("focus_children", ...) 的返回值被丢弃：',
     '-- 209 行没有接收 has_modified，所以勾选它**不会**触发重排。',
     '-- ⚠️ 疑似缺陷：调试面板里改 focus_children 无效（因为它只影响',
     '--   SetFocus 的行为，不影响布局，不重排也算合理，但界面会让人误以为生效了）。',
   ],
 
-  232: [
+  "ScrollableList:OnControl#1": [
     '-- ★ 滚轮处理。注意 `force` 参数 —— 它让调用方可以',
     '--   **绕过 self.focus 检查**强制滚动。',
     '-- 235 行的条件 `(self.focus and self.scroll_bar:IsVisible()) or force`：',
@@ -355,7 +355,7 @@ export default {
     '--   但 DST 选了「可见性」这个更简单的代理条件。',
   ],
 
-  250: [
+  "ScrollableList:Scroll#1": [
     '-- ══★★【Scroll：滚动列表的单一入口 —— 所有状态变更都走这里】',
     '-- 完整流程：改 offset → 夹紧 → 动把手 → 刷新视图 → 通知回调。',
     '-- ★★ 254-259 的夹紧顺序值得学：',
@@ -375,7 +375,7 @@ export default {
     '--     545/574/592/607 行都在数据变更后用它。非常值得记住。',
   ],
 
-  266: [
+  "ScrollableList:Scroll#1+16": [
     '-- ★★★ 把手位置公式：(height/2 - arrow_size) - (view_offset * step_size)',
     '-- 这是**滚动条位置与列表内容的映射**：',
     '--   view_offset 是「已滚过多少项」，step_size 是「每项对应把手多少像素」。',
@@ -388,7 +388,7 @@ export default {
     '--     后者会让把手永远走不到底。',
   ],
 
-  276: [
+  "ScrollableList:Scroll#1+26": [
     '-- 275-282：刷新视图 → 通知 onscrollcb → 返回是否真的滚动了。',
     '-- ★ 278-280 的 onscrollcb 是**外部挂钩**：serverlistingscreen:1128 用它',
     '--   调 GuaranteeSelectedServerHighlighted（保证选中项在视口内）。',
@@ -399,7 +399,7 @@ export default {
     '--   性能上可接受，但说明「刷新」不是幂等保护的。',
   ],
 
-  284: [
+  "ScrollableList:RefreshView#1": [
     '-- ══★★【RefreshView：虚拟化的核心 —— 全文件最该精读的函数】',
     '-- 它做的事：遍历**全部**数据项，决定每一项「显示在哪个池控件上」或「隐藏」。',
     '-- 表面上像 O(n) 全量刷新，但这正是虚拟化的本质：',
@@ -419,7 +419,7 @@ export default {
     '-- ★ 这就是虚拟化的「提前退出」：每帧只处理 widgets_per_view + 少量项。',
   ],
 
-  290: [
+  "ScrollableList:RefreshView#1+6": [
     '-- ★ 核心变量 item_offset = (view_offset + 1) - i',
     '-- 语义：「第 i 项位于视口第 item_offset 行（从 0 开始）」。',
     '-- 例子：view_offset = 0（没滚），i = 1 → item_offset = 0（第 0 行 = 第一行）',
@@ -430,7 +430,7 @@ export default {
     '--   比写两三个比较分支简洁得多，是循环视口（carousel）算法的经典写法。',
   ],
 
-  298: [
+  "ScrollableList:RefreshView#1+14": [
     '-- ══【模式 B 分支：静态池 + updatefn】',
     '-- ★★★ 301 行 `self.updatefn(控件, 数据项, 索引)` —— 这一行就是虚拟化本身：',
     '--   把「第 k 个池控件」绑定到「第 i 个数据项」。',
@@ -454,7 +454,7 @@ export default {
     '--     即首行确实靠「滚动后」才正确。属已存在但被调用方掩盖的边界缺陷。',
   ],
 
-  302: [
+  "ScrollableList:RefreshView#1+18": [
     '-- ★ SetPosition 与 305 行（模式 A）完全相同的公式：',
     '--   y = nextYPos + (item_height + item_padding) * item_offset',
     '--   x = -width/2 + x_offset',
@@ -467,7 +467,7 @@ export default {
     '--   是移植时最容易搞错的地方。',
   ],
 
-  310: [
+  "ScrollableList:RefreshView#1+26": [
     '-- ★★ 「显示够了就关窗」—— 虚拟化的性能核心。',
     '-- 311 numShown >= widgets_per_view 时置 showing = false，',
     '-- 之后所有后续项都走 314/321 分支（隐藏或修正焦点），不再 SetPosition。',
@@ -478,7 +478,7 @@ export default {
     '--   否则会漏修焦点（见 316-329 的分析）。',
   ],
 
-  314: [
+  "ScrollableList:RefreshView#1+30": [
     '-- ⚠️ 315 行注释自承：「#srosen 手柄滚动有点问题：焦点被放到奇怪的东西上',
     '--   （update 与 constructed）」—— **作者自己标注了这个分支的缺陷**。',
     '-- 316-320 行的意图：视口移动后，把 focused_index 夹回视口内。',
@@ -499,7 +499,7 @@ export default {
     '--   绝不能只更新记录用的索引字段。',
   ],
 
-  321: [
+  "ScrollableList:RefreshView#1+37": [
     '-- 模式 A 的对应分支。322 `if v.focus` 先问「这个被隐藏的项当前有焦点吗」。',
     '-- 323-325 焦点在视口上方 → 把焦点强制给视口第一项，并同步 focused_index。',
     '-- 326-328 焦点在视口下方 → 同理给最后一项。',
@@ -512,7 +512,7 @@ export default {
     '--     当前顺序正确，但依赖了这个隐含保证。',
   ],
 
-  336: [
+  "ScrollableList:RefreshView#1+52": [
     '-- ══【池大小与数据项数不匹配的三种收尾处理】',
     '-- 情况 1（336）：项数 < 池大小，且不要求常显 → 多余的控件直接 Hide。',
     '-- 情况 2（344）：项数 < 池大小，且要求常显 → 用 updatefn(v, nil) 绑定空数据，',
@@ -528,7 +528,7 @@ export default {
     '--   344 行会传 nil 进来。需调用方自行处理。属契约脆弱。',
   ],
 
-  358: [
+  "ScrollableList:RefreshView#1+74": [
     '-- ★ 装得下时隐藏**全部**滚动条控件（含把手与轨道按钮）。',
     '-- 这是 232 行 OnControl 里 `self.scroll_bar:IsVisible()` 判断的依据 ——',
     '-- 滚动条不可见 → 不吞滚轮事件 → 允许冒泡给外层列表。',
@@ -537,7 +537,7 @@ export default {
     '--   好处是零额外状态；坏处是无法表达「可见但不响应」。',
   ],
 
-  372: [
+  "ScrollableList:RefreshView#1+88": [
     '-- 373-382 行的代码与 263-273 行（Scroll 内部）**逐行重复**。',
     '-- ★ RefreshView 加一个 movemarker 参数来支持「只更新把手不重算位置」，',
     '--   出发点是好的（构造后与 dbui 调整后需要），',
@@ -548,7 +548,7 @@ export default {
     '-- → 移植时把这类重复当作重构信号：同一公式出现两次就该抽出来。',
   ],
 
-  385: [
+  "ScrollableList:RefreshView#1+101": [
     '-- ★★【构造函数上方的三行注释 —— 作者自己写下的使用契约】',
     '-- 「skip fixup」：调用方自己已经给行加了滚动提示与焦点处理（如 ListCursor），',
     '--   就不让 LayOutStaticWidgets 再包一层。',
@@ -563,7 +563,7 @@ export default {
     '--   通用组件被具体需求反向污染的痕迹。',
   ],
 
-  388: [
+  "ScrollableList:LayOutStaticWidgets#1": [
     '-- ══【LayOutStaticWidgets：一次性布局 + 三重「猴补丁」】',
     '-- 这个函数只做两件事：',
     '--   1) 395-397 给每个池控件排一次初始位置（自上而下累加）',
@@ -584,7 +584,7 @@ export default {
     '--     而不是往别人的方法上贴胶带。',
   ],
 
-  395: [
+  "ScrollableList:LayOutStaticWidgets#1+7": [
     '-- 自上而下累加位置：每行往下移 (item_height + item_padding)。',
     '-- ⚠️ 这里算的是**初始位置**，滚动后的位置由 RefreshView（302 行）覆盖。',
     '--   所以 LayOutStaticWidgets 只在建表时调一次（serverlistingscreen:1127）。',
@@ -593,7 +593,7 @@ export default {
     '-- → 隐含契约：LayOutStaticWidgets 之后应紧跟一次 RefreshView。',
   ],
 
-  399: [
+  "ScrollableList:LayOutStaticWidgets#1+11": [
     '-- 399 行的 not skipFixUp 包住全部三层补丁 —— 逃生舱机制。',
     '-- ★ 调用方已经有自己的处理时传 skipFixUp = true 完全跳过。',
     '-- ⚠️ 但跳过之后 419 行的 SetParentScrollList 也不执行，',
@@ -603,7 +603,7 @@ export default {
     '--   说明调用方清楚这个后果。属「知情的重复」。',
   ],
 
-  400: [
+  "ScrollableList:LayOutStaticWidgets#1+12": [
     '-- ★★ 先把原函数存起来再包一层 —— 这是**正确**的猴补丁写法，',
     '--   与 149 行的错误覆盖形成鲜明对比。',
     '-- 402-405 拼滚动提示，且只在滚动条可见时才加（404 行）。',
@@ -615,7 +615,7 @@ export default {
     '--   指向已被包装的函数，拼接出「滚动提示 滚动提示」。',
   ],
 
-  413: [
+  "v.GetHelpText#1+12": [
     '-- ★ 413-417 行：包 OnGainFocus 以记录 focused_index。',
     '-- 416 行 `self.focused_index = self.view_offset + i` 的换算：',
     '--   i 是**池下标**（1 基），要加 view_offset 才得到全局项索引。',
@@ -630,14 +630,14 @@ export default {
     '--   没有它，列表不知道焦点在池里的哪个位置，手柄导航会断。',
   ],
 
-  423: [
+  "v.OnGainFocus#1+9": [
     '-- focusChildren 传 nil 表示「不改」，与 focus 语义区分开。',
     '-- ★ 385-387 行的注释说明了这个参数：纯信息列表应传 false。',
     '-- ⚠️ 用 nil 当「保持原值」是 Lua 惯用法，但要注意调用方若想',
     '--   误传 nil 而期望 false，行为会不符直觉。注释已覆盖此点。',
   ],
 
-  429: [
+  "ScrollableList:GetNearestStep#1": [
     '-- ★★★ 由把手位置反推「当前在第几项」—— 拖拽的核心换算。',
     '-- 公式：floor(marker.y / step_size + 0.5)',
     '--   marker.y 是相对锚点的偏移（顶部为 +height/2）',
@@ -653,7 +653,7 @@ export default {
     '--   448-483 行的 DoDragScroll 里能看出全部细节。',
   ],
 
-  434: [
+  "ScrollableList:GetHierarchicalScale#1": [
     '-- ★★ GetHierarchicalScale：向上累乘所有祖先的缩放，得到「实际显示缩放」。',
     '-- 为什么需要：鼠标坐标 TheFrontEnd.lasty 是**屏幕像素**，',
     '-- 而 SetPosition 要的是**本地单位**。中间隔着任意层级的缩放，',
@@ -670,7 +670,7 @@ export default {
     '--   所以返回三个分量而不只是一个数。',
   ],
 
-  448: [
+  "ScrollableList:DoDragScroll#1": [
     '-- ══★★【DoDragScroll：三个坐标系的换算，最难读也最值得学】',
     '-- 要做的事：把「鼠标在屏幕上的位置」变成「把手在本地单位的位置」。',
     '-- 完整换算链（448-471）：',
@@ -692,7 +692,7 @@ export default {
     '--   但 266 行的把手行程也用同一个 40 —— 两处一致，正确。',
   ],
 
-  451: [
+  "ScrollableList:DoDragScroll#1+3": [
     '-- ★ 双重条件：self.dragging（确实在拖）且水平距离在阈值内。',
     '-- ⚠️ 451 行只判断了**水平**距离，没判断垂直。',
     '--   结果：玩家在列表正下方很远的地方按住拖，',
@@ -706,7 +706,7 @@ export default {
     '--     这种「越界仍收敛」的设计是所有拖拽控件应有的行为。',
   ],
 
-  469: [
+  "ScrollableList:DoDragScroll#1+21": [
     '-- ★★★ 拖拽的滚动兑现：只在「跨过了整项」时才 Scroll。',
     '--   469 curr_step ~= prev_step → 移动了 (prev - curr) 项',
     '--   注意方向：把手向上（y 增大，c 增大）→ prev > curr → Scroll 正数 → 下滚。',
@@ -717,7 +717,7 @@ export default {
     '-- → 这个参数用得极准：Scroll 的 movemarker 就是「要不要用逻辑位置覆盖把手」。',
   ],
 
-  485: [
+  "ScrollableList:MoveMarkerToNearestStep#1": [
     '-- MoveMarkerToNearestStep = 「松手后吸附」。',
     '-- 与 DoDragScroll 的 469 行同款逻辑，但没有坐标换算，',
     '-- 因为它直接用 view_offset 重算（486 行）。',
@@ -726,7 +726,7 @@ export default {
     '-- ⚠️ 但 149/156 两处是**重复代码**（见 156 行注释）。',
   ],
 
-  495: [
+  "ScrollableList:SetScrollPerClick#1": [
     '-- ⚠️⚠️⚠️【★ 本文件最严重的设计缺陷，已逐行核实】',
     '-- SetScrollPerClick 改的是 **scroll_per_click 这个文件级 upvalue**',
     '-- （定义在第 5 行），而不是 self.scroll_per_click。',
@@ -750,7 +750,7 @@ export default {
     '--   （这一点值得写进注释：告诉后人「你可以安全地修复它」）',
   ],
 
-  503: [
+  "ScrollableList:RecalculateStepSize#1": [
     '-- ══★【RecalculateStepSize：三项派生量的计算中心】',
     '-- 504 widgets_per_view = ceil(height / (item_height + item_padding))',
     '--   → 「一屏能放几项」。ceil 而非 floor：宁可多算半个，',
@@ -780,7 +780,7 @@ export default {
     '-- 507-513 把越界的 view_offset 夹回来 —— 这是「数据变了要重算」的兜底。',
   ],
 
-  507: [
+  "ScrollableList:RecalculateStepSize#1+4": [
     '-- 507 行的 `self.view_offset and ...` 前半段判断其实多余：',
     '--   view_offset 在 69 行已被赋过（构造期），这里必然非 nil。',
     '--   真正起作用的是后半段的越界判断。',
@@ -790,7 +790,7 @@ export default {
     '-- ★ 正确的重构：`self.view_offset = math.max(0, math.min(self.view_offset, math.max(0, self.max_step)))`',
   ],
 
-  516: [
+  "ScrollableList:SetListItemPadding#1": [
     '-- ══【改尺寸的标准三步：改字段 → 重算派生量 → 刷新视图】',
     '-- ★★★ 这三步在 SetListItemPadding/SetListItemHeight/SetList/AddItem/',
     '--   RemoveItem/Clear 里**重复了 6 次**，每次都是同样的顺序。',
@@ -801,7 +801,7 @@ export default {
     '--   UI 里这类重复的代价是「改漏一处」，比代码冗余严重得多。',
   ],
 
-  530: [
+  "ScrollableList:SetList#1": [
     '-- ══★【SetList：换数据的完整事务 —— 焦点保持是重点】',
     '-- 参数 keepitems：保留现有控件（只换数据），false 则销毁重建（仅模式 A）。',
     '-- 531 行先算出「焦点相对视口的位置」rel_focus_index ——',
@@ -827,7 +827,7 @@ export default {
     '--   （AddItem/RemoveItem/Clear 也是同样的错误顺序，见 574-577/592-595/606-607）',
   ],
 
-  532: [
+  "ScrollableList:SetList#1+2": [
     '-- 只在模式 A 且不保留旧控件时才销毁重建。',
     '-- 模式 B 跳过整个 if：池控件是共用的，不能随数据销毁。',
     '-- ★ 正确 —— 这正是虚拟化的核心收益：',
@@ -839,14 +839,14 @@ export default {
     '--   属「参数组合未全部验证」的隐患。',
   ],
 
-  545: [
+  "ScrollableList:SetList#1+15": [
     '-- ★ 「滚动 0 格来更新位置」—— 前面 250 行分析过的核心惯用法。',
     '-- scrollto 传入时按「目标绝对位置」滚动（scrollto - 当前），',
     '-- 否则纯刷新。movemarker=true 让把也跟着动。',
     '-- ⚠️ 顺序问题见 530 行的详细分析（应先 RecalculateStepSize）。',
   ],
 
-  556: [
+  "ScrollableList:AddItem#1": [
     '-- 557 行 RemoveItem 先跑一次 —— 注释明说「别让同一个 item 被加进两个位置」。',
     '-- ★ 这是**幂等性防护**的典型写法：',
     '--   允许「重复添加」这种调用错误存在，但内部先清理，',
@@ -860,7 +860,7 @@ export default {
     '--   → 性能缺陷（不是正确性缺陷）。正确做法是加一个内部的无刷新版 RemoveItem。',
   ],
 
-  567: [
+  "ScrollableList:AddItem#1+11": [
     '-- ⚠️ index 初值为 -1，567 行无条件 table.insert(self.items, index, item)。',
     '-- Lua 的 table.insert(t, pos, v) 在 pos 越界时会**报错**',
     '--   （实测报错信息类似 "position out of bounds"）。',
@@ -874,7 +874,7 @@ export default {
     '--   故标注为「真实缺陷但当前不可触发」。',
   ],
 
-  580: [
+  "ScrollableList:RemoveItem#1": [
     '-- RemoveItem 与 AddItem 的 RemoveItem 同款哨兵问题（581 行 index = -1），',
     '-- 但这里用了 589 行的 `if index > -1` 守卫，**正确**。',
     '-- ★ 对比 567 行的无条件 insert —— 同一文件里两种写法，',
@@ -883,7 +883,7 @@ export default {
     '--   AddItem 应该照抄这个守卫。',
   ],
 
-  599: [
+  "ScrollableList:Clear#1": [
     '-- Clear 只在模式 A 销毁控件；模式 B 的池控件必须留着。',
     '-- ⚠️ 但 605 行 `self.items = {}` 无条件执行 —— 模式 B 也清数据，',
     '--   正确（池要留着，数据要清）。',
@@ -894,7 +894,7 @@ export default {
     '--   都在同一个刷新函数里自然收敛，不需要逐个地方写清理。',
   ],
 
-  614: [
+  "ScrollableList:OnGainFocus#1": [
     '-- ══★【OnGainFocus 与 OnLoseFocus 是逐行相同的两段代码】',
     '-- 614-634（OnGainFocus）与 636-656（OnLoseFocus）**除基类调用外完全一致**：',
     '--   都是「扫描所有项，找到 v.focus 为真的那个，把 focused_index 设成它」。',
@@ -917,7 +917,7 @@ export default {
     '--   最后兜底 `self.focused_index = 1`。写法本身没问题。',
   ],
 
-  658: [
+  "ScrollableList:SetFocus#1": [
     '-- ══★★【SetFocus：把「全局焦点索引」落到「视口内的池控件」上】',
     '-- 这是本文件「全局索引 ↔ 视口下标」换算的第 4 处（也是最关键的一处）。',
     '-- 660-668 三步夹紧：',
@@ -941,7 +941,7 @@ export default {
     '--     而视口内的池控件一定是 Show 的，所以侥幸安全。',
   ],
 
-  686: [
+  "ScrollableList:DoFocusHookups#1": [
     '-- ★★【DoFocusHookups：把池控件串成一条**焦点链**】',
     '-- 这是手柄/键盘导航能上下移动的根本原因。',
     '-- 691/695 给每个控件设置 focus_flow[MOVE_UP/DOWN] = 上一项/下一项的控件。',
@@ -965,7 +965,7 @@ export default {
     '--   所以「滚到底再往下」必须靠 732 行的 else 分支兜住 —— 见该处。',
   ],
 
-  711: [
+  "ScrollableList:OnFocusMove#1": [
     '-- ══★★【OnFocusMove：焦点链的滚动协调器 —— 手柄纵向导航的核心】',
     '-- 基类先处理（712 行）：Widget:OnFocusMove 会尝试 focus_flow 与冒泡。',
     '-- 只有基类返回 false（本控件无路可走）时，才执行下面的「滚动 + 重定位」。',
@@ -991,7 +991,7 @@ export default {
     '--   标注为「真实缺陷但需要非典型构造才能触发」。',
   ],
 
-  728: [
+  "ScrollableList:OnFocusMove#1+17": [
     '-- ★★ 滚动后把焦点给 static_widgets[1]（视口新的第一项），',
     '--   然后 729 行 focused_index - 1 —— 因为滚动后视口下移一项，',
     '--   同一个控件对应的全局索引减了 1。',
@@ -1003,7 +1003,7 @@ export default {
     '--   → ★ 音效在「每次有效滚动」时播一次，是廉价但极有效的反馈。',
   ],
 
-  732: [
+  "ScrollableList:OnFocusMove#1+21": [
     '-- ★★★ 这里有个**双重边界条件**，是全文件最精细的一处：',
     '-- 条件：`dir == MOVE_DOWN and focused_index >= view_offset + #static_widgets',
     '--         and view_offset + #static_widgets < #self.items`',
@@ -1022,7 +1022,7 @@ export default {
     '--   两者等价。抽象成同一套逻辑时要注意这个差异。',
   ],
 
-  755: [
+  "ScrollableList:OnFocusMove#1+44": [
     '-- 模式 A 的 MOVE_DOWN：755 用数据边界，756 用视口边界，两个都要判。',
     '--   755 若已在最后一个数据项 → 不处理（返回 true 吃掉键，避免世界响应）',
     '--   756 若焦点在视口最后一项 → 先滚一格再重定位',
@@ -1033,7 +1033,7 @@ export default {
     '--   焦点在列表里时，方向键属于列表而非角色。',
   ],
 
-  769: [
+  "ScrollableList:GetHelpText#1": [
     '-- 列表自身的帮助文本。769-776 与 LayOutStaticWidgets 里 400-411 注入的',
     '-- 那份逻辑**完全相同** —— 又是复制粘贴。',
     '-- ⚠️ 两处必须同步修改，否则「列表自己的提示」与「行内的提示」不一致。',
@@ -1042,7 +1042,7 @@ export default {
     '--   占 788 行的相当比例。整体呈现出「多次增量打补丁」的演化痕迹。',
   ],
 
-  778: [
+  "ScrollableList:IsAtEnd#1": [
     '-- IsAtEnd 用**严格相等**（==）判断，而非 >=。',
     '-- ★ 正确：Scroll（250 行）保证 view_offset 始终被夹在 [0, max_step]，',
     '--   所以相等是可达的。但若外部直接改 view_offset，判定会失效。',

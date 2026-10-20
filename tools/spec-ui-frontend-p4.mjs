@@ -1,12 +1,12 @@
 // spec-ui-frontend-p4.mjs —— frontend.lua 第 1309-1655 行
 // 存档错误对话框栈 / imgui 调试面板 / 全局错误锁
 export const BEFORE = {
-  1309: [
+  "FrontEnd:OnSaveLoadError#1": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- 段 16/8：★★ 存档错误对话框栈（1309-1436）—— G4 的教科书案例",
     "-- ════════════════════════════════════════════════════════════════",
   ],
-  1309: [
+  "FrontEnd:OnSaveLoadError#1": [
     "-- ★★★ 【OnSaveLoadError】—— 全文件最长、最绕的一个函数。",
     "--",
     "-- 【它做什么】",
@@ -28,25 +28,25 @@ export const BEFORE = {
     "--     或至少在 PopScreen 时校验「弹的是不是当前活动屏」。",
     "--────────────────────────────────────────────────────────────────",
   ],
-  1310: [
+  "FrontEnd:OnSaveLoadError#1+1": [
     "-- ★ 无论走哪条路径，第一步都是 HideSavingIndicator ——",
     "--   「出错时先把存档指示器收掉」，否则指示器会一直转。",
     "--   1310 原注释：\"-- in case it's still being shown for some reason\"。",
   ],
-  1312: [
+  "retry#1": [
     "-- ★★ retry —— 三个分支（1314/1341/1345）共用的「重试」回调。",
     "-- 1313 第一步也是 PopScreen（\"saveload error message box\"），",
     "--   注释再次确认层次。",
     "-- ⚠ 1313 的 PopScreen 无参 → 走 1114 分支（弹栈顶）→ 对称 ✓。",
     "--   ⇒ 这是本文件中 PopScreen 使用**正确**的写法，与 G4 的 1105-1107 分支形成对比。",
   ],
-  1316: [
+  "OnSaveGameIndexLoaded#1": [
     "-- ⚠ 1316-1318 一个空回调 OnSaveGameIndexLoaded ——",
     "--   整个 OnSaveGameIndexLoaded 函数体只有一行注释掉的 print。",
     "--   ⚠ 空回调是典型的「预留钩子」，但空函数本身无成本，",
     "--     真正的问题是它让ShardGameIndex:Load 的回调链多了一层无意义间接。",
   ],
-  1320: [
+  "OnProfileLoaded#1": [
     "-- ★★ 三级回调链 OnProfileLoaded → SaveGameIndex:Load →",
     "--   ShardSaveGameIndex:Load → ShardGameIndex:Load。",
     "-- ★ 每一个都在判success 后才继续下一层（1322/1334）。",
@@ -57,22 +57,22 @@ export const BEFORE = {
     "--       玩家会看到一个「什么都没发生」的界面。",
     "--   ⇒ 这是一个**已收录风格问题**（静默失败）。",
   ],
-  1332: [
+  "OnMorgueLoaded#1": [
     "-- Morgue 加载 —— 「死亡记录」存储。加载失败同样静默（1334 无 else）。",
   ],
-  1341: [
+  "OnMorgueLoaded#1+9": [
     "-- ★ 保存分支：1343 ShowSavingIndicator + 1344 RetryOperation。",
     "--   1342 原注释 \"-- the system service knows which files are not saved",
     "--   and will try to resave any files from the cache\"。",
     "--   ⇒ 重试期间必须显示指示器，因为可能耗时较久。",
   ],
-  1350: [
+  "OnMorgueLoaded#1+18": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- 【分支一：status == SAVELOAD.STATUS.DAMAGED】1350-1406",
     "--   存档**损坏**——提供三选项：重试 / 覆盖 / 取消。",
     "--────────────────────────────────────────────────────────────────",
   ],
-  1352: [
+  "overwrite#1": [
     "-- ★ overwrite —— 「覆盖损坏存档」。",
     "-- 1358 原注释 \"-- OverwriteStorage will also try to resave any files",
     "-- found in the cache\"。",
@@ -89,13 +89,13 @@ export const BEFORE = {
     "--     但这是把「成功标志」复用为「配置值」的**语义混用**，",
     "--     可读性差且极易被误改。标注为「语义混用」而非缺陷。",
   ],
-  1364: [
+  "cancel#1": [
     "-- cancel —— 「原样保留不处理」。",
     "-- ★ 1365 EnableStorage(IsAutosaveEnabled()) —— 恢复存储开关到当前自动存档设置。",
     "-- ★ 1366 ClearLastOperation —— 清掉 TheSystemService 里挂起的失败操作，",
     "--   否则下次启动还会重试同一个失败操作。",
   ],
-  1370: [
+  "confirm_autosave_disable#1": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- ★★ confirm_autosave_disable —— **第二层弹窗**。",
     "-- 【触发条件】1394-1397：取消操作时若自动存档开着，",
@@ -108,7 +108,7 @@ export const BEFORE = {
     "--   ⇒ UI 设计的正确顺序：副作用越重，确认层级越深。",
     "--────────────────────────────────────────────────────────────────",
   ],
-  1372: [
+  "disable_autosave#1": [
     "-- ★★ 1375-1377 **连续两次 PopScreen**，注释标明层次：",
     "--     1376 -- confirmation message box     （刚弹出的确认框）",
     "--     1377 -- saveload error message box   （下面那层损坏提示）",
@@ -125,11 +125,11 @@ export const BEFORE = {
     "--     没有一处有「校验当前活动屏是否是我要弹的那层」的断言。",
     "--────────────────────────────────────────────────────────────────",
   ],
-  1380: [
+  "dont_disable#1": [
     "-- dont_disable —— 「不关自动存档」分支。只弹一层（1381）。",
     "-- ★ 与 1376-1377 的双层弹形成对照，说明作者知道层次。",
   ],
-  1384: [
+  "dont_disable#1+4": [
     "-- ★★ 第二层对话框的构造：PopupDialogScreen（旧版，非 redux）。",
     "-- ★ 1390 行 `confirmation.title:SetPosition(0, 40, 0)` ——",
     "--   ★★ 这是「锚点定位」的一个手工调整样本：",
@@ -137,7 +137,7 @@ export const BEFORE = {
     "--     为什么不是让 PopupDialogScreen 支持参数？因为直接改更省事。",
     "--   ⇒ 这正是「没有布局引擎」的代价：每个调用点都可能手工微调。",
   ],
-  1394: [
+  "dont_disable#1+14": [
     "-- ★★ cancel_cb 的动态选择（1394-1397）：",
     "--   若自动存档开着 → cancel_cb = confirm_autosave_disable（会再弹一层）",
     "--   否则            → cancel_cb = cancel（直接弹）",
@@ -148,7 +148,7 @@ export const BEFORE = {
     "--       只有第三个按钮的 cb 被动态替换。",
     "--     ⇒ 这是可接受的渐进式确认，但属于 UI 设计上的隐患。",
   ],
-  1406: [
+  "dont_disable#1+26": [
     "-- ★ 第一层对话框 Push（1399-1405 构造，1406 压栈）。",
     "-- ⚠ 注意 1406 在 1391（第二层 Push）**之后**？不——",
     "--   执行顺序是 1391 PushScreen(confirmation) 在 confirm_autosave_disable",
@@ -158,7 +158,7 @@ export const BEFORE = {
     "--     代码的**书写顺序**（1391 在前，1406 在后）与**执行顺序**相反。",
     "--   ⚠ 这是本函数最容易读错的地方，务必注意。",
   ],
-  1408: [
+  "dont_disable#1+28": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- 【分支二：status == SAVELOAD.STATUS.FAILED】1408-1431",
     "--   存档操作**失败**（非损坏）——只给两个选项：重试 / 取消。",
@@ -167,19 +167,19 @@ export const BEFORE = {
     "--   ⇒ 对比分支一的三选项，设计差异源于**破坏性**。",
     "--────────────────────────────────────────────────────────────────",
   ],
-  1415: [
+  "cancel#2+5": [
     "-- ★ text 的三分支赋值（1415-1422）—— 没有 else 分支。",
     "-- ⚠ 若 operation 是未知值，text 为 nil → 1424 的PopupDialogScreen",
     "--   第一个参数为 nil。是否崩溃取决于 PopupDialogScreen 的实现。",
     "--   ⇒ 理论上的空指针风险，实践中 operation 只取三个枚举值。",
   ],
-  1424: [
+  "cancel#2+14": [
     "-- 第二层也是最后一个对话框。1408 分支只需**两层**（错误框 → 确认框），",
     "--   不像分支一需要三层。",
     "-- ⚠ 注意 1430 PushScreen 与 1406 相同——说明两层结构在两个分支里",
     "--   复用了同一套代码路径（只有第三个按钮的 cb 不同）。",
   ],
-  1434: [
+  "OnSaveLoadError#1": [
     "-- ★★ 全局函数 OnSaveLoadError —— C++ 侧调用的入口。",
     "--   与本文件末尾其它全局（1460 等）同构：",
     "--     C++ → 全局函数 → TheFrontEnd:方法。",
@@ -189,12 +189,12 @@ export const BEFORE = {
     "--   ⇒ ★ 两个文件都采用「类 + 全局转发函数」的组合，",
     "--     因为 Lua 的全局函数表就是 C 侧的绑定面。",
   ],
-  1438: [
+  "FrontEnd:IsScreenInStack#1": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- 段 17/8：屏幕栈工具与离线模式（1438-1453）",
     "-- ════════════════════════════════════════════════════════════════",
   ],
-  1438: [
+  "FrontEnd:IsScreenInStack#1": [
     "-- ★★ IsScreenInStack —— 「这个屏还在栈里吗」。",
     "-- ⚠ 1429 行同样有这个判空风格：1439-1444 用 pairs 而非 ipairs，",
     "--   因为**不关心顺序**，只关心存在性。",
@@ -202,12 +202,12 @@ export const BEFORE = {
     "--     「查存在性」用 pairs（无序更快），「查最新」用 ipairs_reverse。",
     "--   ⇒ 「选对遍历方式」是这类查询的基本功。",
   ],
-  1447: [
+  "FrontEnd:SetOfflineMode#1": [
     "-- SetOfflineMode / GetIsOfflineMode —— 离线模式标志的存取。",
     "-- ★ 注意字段名 self.offline 与方法名不一致（少了 Is）。",
     "--   小瑕疵。",
   ],
-  1455: [
+  "FrontEnd:ToggleImgui#1": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- 段 18/8：imgui 调试面板（1455-1629）",
     "-- ★ 这整段在零售版**全是死代码**（CAN_USE_DBUI 为 false）。",
@@ -215,24 +215,24 @@ export const BEFORE = {
     "--   ★ 但也意味着：这 175 行代码缺少零售版的实机验证。",
     "--────────────────────────────────────────────────────────────────",
   ],
-  1456: [
+  "FrontEnd:ToggleImgui#1+1": [
     "-- ★★ 每个调试函数开头都是 `if not CAN_USE_DBUI then return end`。",
     "--   ⇒ 这是「编译期条件」的运行时模拟。",
     "--   ★ 为什么不在文件顶部就整体包一层？",
     "--     因为 Lua 没有条件编译，只能逐函数守卫。",
     "--     ⇒ 代价：1456/1498/1511/1524/1581/1624 六处重复守卫。",
   ],
-  1460: [
+  "FrontEnd:ToggleImgui#1+5": [
     "-- ★ ToggleImgui 的主逻辑（1460-1493）。三个分支：",
     "--   ① imgui 已启用 → 切换 self.imgui_enabled（开关语义）",
     "--   ② 首次开启且无面板无节点 → 建一个 DebugEntity 面板（1467-1469）",
     "--   ③ 线程渲染开着 → **弹窗告知必须关掉**（1471-1492）",
   ],
-  1467: [
+  "FrontEnd:ToggleImgui#1+12": [
     "-- ★ \"#self.debug_panels == 0 and not node\" —— 「一个面板都没开时",
     "--   默认建一个实体检查面板」。这是调试工具的合理默认值。",
   ],
-  1471: [
+  "FrontEnd:ToggleImgui#1+16": [
     "-- ⚠⚠ 1472 行的 print 揭示了一个**部署陷阱**：",
     "--   \"IsImguiEnabled is disabled due to threaded renderer being enabled\"",
     "-- ★★ 【线程渲染与调试 UI 的冲突】—— 一个重要的架构约束：",
@@ -245,7 +245,7 @@ export const BEFORE = {
     "--   ★ 这类「渲染管线特性与工具链互斥」的限制，是难以从代码",
     "--     本身看出来的，只能通过这种「运行时才发现」的弹窗暴露。",
   ],
-  1474: [
+  "FrontEnd:ToggleImgui#1+19": [
     "-- ★★ 1474-1490：阻断性对话框。两个选项都是「终止型」：",
     "--   · Ignore for now → 记下警告已显示（1478），PopScreen",
     "--   · Turn OFF and Quit → 写 Profile + RequestShutdown",
@@ -253,26 +253,26 @@ export const BEFORE = {
     "--     因为线程渲染是**启动时**决定的设置，中途不能改。",
     "--   ⇒ 这是一个「设置变更需要重启游戏」的典型场景。",
   ],
-  1478: [
+  "cb#1+1": [
     "-- ★★ self.ignoredebugpanelwarning = true —— 「不再提示」。",
     "--   ⇒ 典型的「一次性提示」模式（teach the user once）。",
     "--   ★ 对照本文件其他布尔标志（tracking_mouse 等）是运行时状态，",
     "--     这个是**用户偏好性质**的。但它**不存 Profile**（重启后重置）。",
     "--     ⚠ 轻微缺陷：玩家每次重启游戏都会被这个弹窗打扰一次。",
   ],
-  1497: [
+  "FrontEnd:IsDebugPanelOpen#1": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- 段 19/8：调试面板查询与管理（1497-1578）",
     "-- ════════════════════════════════════════════════════════════════",
   ],
-  1497: [
+  "FrontEnd:IsDebugPanelOpen#1": [
     "-- ★ IsDebugPanelOpen(nodename) —— 按节点**名**查是否已开。",
     "-- ★ 1529 行 `node.type = node` 是「记住原始类」，让 1543 FindOpenDebugPanel",
     "--   能按类查（panel.type:is_a(node)）。",
     "--   ⇒ ★ 这是「运行时保存类型信息」以便后续 is_a 判定的常见技巧，",
     "--     因为实例被创建后类型信息会丢失（除非保留构造引用）。",
   ],
-  1510: [
+  "FrontEnd:CloseDebugPanel#1": [
     "-- ★★ CloseDebugPanel —— ⚠ 遍历中 table.remove 的经典隐患。",
     "-- 1515  for i, panel in ipairs(self.debug_panels) do",
     "--  1517      panel:OnClose()",
@@ -287,7 +287,7 @@ export const BEFORE = {
     "--   ⇒ 对比 1592-1611 的 OnRenderImGui 用了正确的 while + i 不自增模式。",
     "--     ★ 同一个文件里两种写法，说明这是疏漏而非约定。",
   ],
-  1523: [
+  "FrontEnd:CreateDebugPanel#1": [
     "-- CreateDebugPanel —— 三个职责：建面板 / 按需开 imgui / 登记。",
     "-- ★ 1530-1532：`if not self.imgui_enabled then self:ToggleImgui(node) end` ——",
     "--   「要开面板就先把 imgui 打开」的隐式依赖。",
@@ -295,18 +295,18 @@ export const BEFORE = {
     "--   也就是说 CreateDebugPanel 的调用结果可能是「什么都没发生，",
     "--   反而弹了个对话框」。副作用方向反了。",
   ],
-  1543: [
+  "FrontEnd:FindOpenDebugPanel#1": [
     "-- ★ FindOpenDebugPanel(node) —— 按**类**查面板。",
     "-- ★ 依赖 1529 的 node.type = node 保存的类型引用。",
     "-- ★ 1554 GetNumberOpenDebugPanel 是同一个 is_a 判定的计数版。",
     "-- ⇒ 这一对（查找 + 计数）是「已打开面板」的唯一查询入口。",
   ],
-  1562: [
+  "FrontEnd:GetSelectedDebugPanel#1": [
     "-- ★★ GetSelectedDebugPanel —— 按 isSelected **字段**找。",
     "-- ⚠ 与 1564 的 ipairs 遍历中可能一个都不满足，返回 nil。",
     "--   调用方需判空。",
   ],
-  1573: [
+  "FrontEnd:SetImguiFontSize#1": [
     "-- ★★ SetImguiFontSize —— **唯一会写 Profile 的调试函数**。",
     "-- 1576 `Profile.dirty = true` —— 手动标脏。",
     "--   ⚠ 1575-1577 直接 `Profile:Save()` 异步保存。",
@@ -314,7 +314,7 @@ export const BEFORE = {
     "--   ⚠ 写入键名硬编码 \"imgui_font_size\"（244 行读取同一字符串）",
     "--     —— 字符串字面量在两处重复，没有共享常量。",
   ],
-  1580: [
+  "FrontEnd:OnRenderImGui#1": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- ★★ 【OnRenderImGui】—— 调试面板的渲染循环。",
     "--【防重入锁】1585 `if not self.imgui_is_running and self.imgui_enabled`",
@@ -328,7 +328,7 @@ export const BEFORE = {
     "--   ⇒ 典型的**递归进入保护**。",
     "--────────────────────────────────────────────────────────────────",
   ],
-  1587: [
+  "FrontEnd:OnRenderImGui#1+7": [
     "-- ★★ i = 1 的 while 循环 —— 与 1515 的 for 循环对比：",
     "--   这里是**正确**的遍历-删除模式：",
     "--     1603  table.remove( self.debug_panels, i )   ← 删除第 i 个",
@@ -337,7 +337,7 @@ export const BEFORE = {
     "--   ⇒ 删除后不前进 i，下一轮访问的就是被移上来的那个元素。",
     "--   ★ 同一个文件里的 1515-1520 用了错误写法。对照阅读价值很高。",
   ],
-  1595: [
+  "FrontEnd:OnRenderImGui#1+15": [
     "-- ★★ xpcall(函数, generic_error) —— 每个面板独立捕获异常。",
     "-- ★ 为什么不用 pcall？generic_error 是 Klei 的统一错误格式化器，",
     "--   会输出完整堆栈（stacktrace.lua）。",
@@ -345,30 +345,30 @@ export const BEFORE = {
     "--   ⚠ 推理依据：出错后继续渲染其它面板可能在错误状态下二次出错。",
     "--     break 是保守选择，但也意味着一个坏面板会阻塞其它面板的更新。",
   ],
-  1613: [
+  "FrontEnd:OnRenderImGui#1+33": [
     "-- 面板清空时自动关闭 imgui（1613-1615）。",
     "-- ★ 避免「imgui 开着但没有面板」的空转开销。",
   ],
-  1620: [
+  "FrontEnd:OnRenderImGui#1+40": [
     "-- ⚠ 1620 `self.debugMenu:Render(dt)` 在 if 块**之外** ——",
     "--   即使 imgui 没启用也会调用。",
     "--   ⚠ 若 CAN_USE_DBUI 为 true 但 self.debugMenu 为 nil（246 行创建），",
     "--     会崩。实际两者总是同时为真（241 行同一个 if 里创建）。",
     "--   ⇒ 依赖了「两个字段总是一起创建」这个隐式不变量。",
   ],
-  1623: [
+  "FrontEnd:IsImGuiWindowFocused#1": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- 段 20/8：★★ 全局错误锁与文件尾（1631-1655）",
     "-- ════════════════════════════════════════════════════════════════",
   ],
-  1631: [
+  "FrontEnd:SetServerPauseText#1": [
     "-- ★★ SetServerPauseText —— 「服务器暂停」提示的文本更新。",
     "--   这是**推模式**（外部主动调），与 694 的轮询模式相反。",
     "--   ⇒ ★ 对照结论：同一个文件里两种 UI 更新风格并存。",
     "--     轮询（控制台日志、存档指示器）vs 推送（暂停提示）。",
     "--   ⇒ 推模式更好，但需要外部知道「何时该更新」。",
   ],
-  1635: [
+  "FrontEnd:SetGlobalErrorWidget#1": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- ★★★ 【全局错误锁的三段式】1635-1655 —— 一个精巧的设计。",
     "--",
@@ -394,7 +394,7 @@ export const BEFORE = {
     "--     「先完成操作，再关对话框」。",
     "--────────────────────────────────────────────────────────────────",
   ],
-  1636: [
+  "FrontEnd:SetGlobalErrorWidget#1+1": [
     "-- ★★ `if not self.cachedError then self.cachedError = {...} end` ——",
     "--   ★ 只缓存**第一次**错误！",
     "--   ⇒ 后续错误不会覆盖。",
@@ -403,7 +403,7 @@ export const BEFORE = {
     "-- ⚠ 但参数被 `{...}` 打包成表，丢失了参数个数信息。",
     "--   1647 用 `unpack(self.cachedError)` 还原 ✓ 正确。",
   ],
-  1641: [
+  "FrontEnd:ResetGlobalErrorWidget#1": [
     "-- ★★ ResetGlobalErrorWidget —— ⚠ 命名误导（文件头已提）。",
     "--   它清的是**缓存**（self.cachedError = nil），",
     "--   **不是**全局锁（global_error_widget）。",
@@ -416,27 +416,27 @@ export const BEFORE = {
     "--     但 ResetGlobalErrorWidget 这个名字会让人误以为能解锁。",
     "--   ⇒ 标注为「命名误导 + 潜在困惑」，不是缺陷。",
   ],
-  1645: [
+  "FrontEnd:CheckCachedError#1": [
     "-- ★ CheckCachedError —— 「消费」缓存并上锁。",
     "-- ★ 1646 的条件 `if self.cachedError and not global_error_widget`：",
     "--   双重门禁——有缓存**且**尚未上锁。",
     "--   ⇒ 保证 CheckCachedError 可以被反复调用（幂等）。",
     "--   ★ 这是「缓存 + 幂等消费」的标准模式。",
   ],
-  1648: [
+  "FrontEnd:CheckCachedError#1+3": [
     "-- ★★ widget:MarkTransformDirty() —— 强制刷新变换矩阵。",
     "-- ⚠ 为什么需要？因为错误弹窗可能在一个「变换未同步」的",
     "--   时刻被创建（错误往往发生在实体操作中途）。",
     "--   ⇒ 手动标脏确保它能正确渲染。",
     "--   ★ 这是「异常路径需要额外的正确性保障」的体现。",
   ],
-  1649: [
+  "FrontEnd:CheckCachedError#1+4": [
     "-- ★★ self:PushScreen(widget) —— 错误弹窗压栈。",
     "-- ⚠ 此时 global_error_widget 还是 nil，所以 PushScreen 的 973-974",
     "--   那个「有错误就不许压栈」的检查（已注释）不会阻止它。",
     "--   ⇒ 必须压栈成功才能显示错误。",
   ],
-  1653: [
+  "FrontEnd:CheckCachedError#1+8": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- ★★ 全文件最后一行有语义的代码：global_error_widget = widget。",
     "-- ★ 原注释 \"-- Pushing screens is not allowed after creating the error",

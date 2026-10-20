@@ -2,7 +2,7 @@
 // 重点：交互判定 / 存档读入 / 光照 / 减益 / 死亡掉落
 
 export const BEFORE = {
-  1774: [
+  "EntityScript:IsValid#1": [
     "--★★ IsValid：实体有效性 —— 全游戏最热也最容易被误用的函数",
     "--【★ 直接转发 C++】因为实体有效性由 C++ 侧决定（Retire 时标记），",
     "--   Lua 无法自行判断。",
@@ -18,7 +18,7 @@ export const BEFORE = {
     "--   ★ 参见 1290 行的拷贝列表方案，它正是为了规避这类问题。",
   ],
 
-  1778: [
+  "EntityScript:CanInteractWith#1": [
     "--★★ CanInteractWith：能否与某实体交互",
     "--【★ 语义：只能交互「世界中的」或「自己的」东西】",
     "--   若目标的父实体存在且不是自己 → 拒绝。",
@@ -29,11 +29,11 @@ export const BEFORE = {
     "--   参见 components/inventoryitem.lua:349 正是「入包即移出场景」的逻辑。",
     "   --★ 逻辑上等价于「目标没有父，或父是我」。",
   ],
-  1779: [
+  "EntityScript:CanInteractWith#1+1": [
     "--【★ 无效目标直接拒绝】在读 parent 之前必须判，否则是访问已释放对象。",
   ],
 
-  1786: [
+  "EntityScript:OnUsedAsItem#1": [
     "--【OnUsedAsItem：向后转发给所有组件】",
     "--   当该实体被当作「物品」使用（如「给牛刷毛」）时调用。",
     "--   ★ 与 OnBuilt:1694 结构完全相同 —— 都是「广播给组件」。",
@@ -41,7 +41,7 @@ export const BEFORE = {
     "--     因为该操作在服务端权威执行。",
   ],
 
-  1794: [
+  "EntityScript:CanDoAction#1": [
     "--★★★ CanDoAction：能否执行某个动作 —— 动作系统的统一入口",
     "--【★ 四级判定（任一通过即返回 true）】",
     "--   ① 固有能力（inherentactions，含网络的 inherentsceneaction）",
@@ -51,22 +51,22 @@ export const BEFORE = {
     "   --★ 注意②的标签命名法：动作 id + \"_tool\"（如 \"chop_tool\"），",
     "--     这是 DST 里「工具类需求」的标准表达方式。",
   ],
-  1795: [
+  "EntityScript:CanDoAction#1+1": [
     "--【★ 固有能力优先】即使手里拿着东西，实体自带的动作仍可用。",
     "--   因为 inherentactions 在客户端也会被 DeserializeInherentActions:119 同步，",
     "--   ★ 这让客户端能在本地预判「这个动作是否可用」而无需问服务端。",
   ],
-  1801: [
+  "EntityScript:CanDoAction#1+7": [
     "--★ ★ 用 replica 而非 components —— 因为该函数要在客户端也能跑。",
     "--   ★ 客户端实体没有 components，只有 replica。",
     "--   与 GetIsWet:777 完全一致的双端访问范式。",
   ],
-  1807: [
+  "EntityScript:CanDoAction#1+13": [
     "--★ 同时检查已装备的双手物品 —— 盾、工具类装备也算。",
     "--   ★ 两处检查的原因：inventory 的「手持物」与「装备槽物品」是两个概念。",
   ],
 
-  1814: [
+  "EntityScript:IsOnValidGround#1": [
     "--★★ IsOnValidGround：脚下是否是合法地面",
     "--【★ 原注释的重要警告】\"this currently does not support boats.\"",
     "--   ★即：站在船上的生物会得到错误答案（船不是「地面」）。",
@@ -75,22 +75,22 @@ export const BEFORE = {
     "--     根本原因：IsVisualGroundAtPoint 查的是地形网格，",
     "--     而船是动态平台，不在地形网格里。",
   ],
-  1818: [
+  "EntityScript:IsOnPassablePoint#1": [
     "--【★ 两个可选参数都做了 or false 归一】",
     "--   传入 nil 与 false 等价，保证C++ 侧收到确定的布尔值。",
     "--   ★ floating_platforms_are_not_passable：",
     "--     「飘浮平台不算可通行」—— 用于「雕像能否把东西放上去」这类判定。",
   ],
-  1823: [
+  "EntityScript:IsOnOcean#1": [
     "--【IsOnOcean：是否在海里】allow_boats 控制「船算不算海」。",
   ],
-  1828: ["--deprecated"],
-  1829: [
+  "EntityScript:IsOnOcean#1+5": ["--deprecated"],
+  "EntityScript:IsOnOcean#1+6": [
     "--★ 保留旧名 IsOnWater 作为别名，避免破坏模组代码。",
     "--★ 与 327 行的 StackableSkinHack 同属「明知废弃但保留」的兼容性做法。",
   ],
 
-  1831: [
+  "EntityScript:GetCurrentPlatform#1": [
     "--★★★ GetCurrentPlatform：递归向上查找所属平台",
     "--【★ 主/客双端两套实现 —— 原因见下】",
     "--【★ 为什么必须递归？】",
@@ -100,7 +100,7 @@ export const BEFORE = {
     "   --★ 对照 1833：主模拟用 self.parent（Lua 侧记账），",
     "--     客户端用 self.entity:GetParent()（C++ 侧记账）。",
   ],
-  1832: [
+  "EntityScript:GetCurrentPlatform#1+1": [
     "--【★TheWorld.ismastersim —— 主/客分支的唯一依据】",
     "--   ★ 这是 DST 双端架构的核心标志位：",
     "--     主模拟（服务端）有权威状态（components、平台记账），",
@@ -108,12 +108,12 @@ export const BEFORE = {
     "--   ★ 本文件里这样的分支出现在 1832、194、776、797 等多处，",
     "--     每一个都意味着「此处两端行为不同，写代码时必须小心」。",
   ],
-  1833: [
+  "EntityScript:GetCurrentPlatform#1+2": [
     "--★ 递归顺序：先问父实体的平台，再问自己站着的平台。",
     "--   ★ 注意父实体的 GetCurrentPlatform 是「方法调用」，会继续递归上去。",
   ],
 
-  1842: [
+  "EntityScript:GetCurrentTileType#1": [
     "--★★ GetCurrentTileType：判断脚下地块类型（含容错）",
     "--★原注释的警告很重要】",
     "--  \"WARNING: This function is only an approximate, if you only care if the",
@@ -127,25 +127,25 @@ export const BEFORE = {
     "--     就检查 3×3 邻域中偏移在 ±0.166 内的四个邻块，取其中最大的瓦片号。",
     "--   ★ 意图：如果实体踩在「树枝」的投影上，就用周围的实际地面类型。",
   ],
-  1846: [
+  "EntityScript:GetCurrentTileType#1+4": [
     "--★ GetTileCenterPoint 取瓦片中心 —— 用于计算实体在瓦片内的相对位置。",
   ],
-  1850: [
+  "EntityScript:GetCurrentTileType#1+8": [
     "--★ 三重判空（瓦片存在 + 中心坐标存在）—— 地图边缘时可能拿不到。",
   ],
-  1851: [
+  "EntityScript:GetCurrentTileType#1+9": [
     "--★★ 「非陆地瓦片才需要修正」】",
     "--   IsLandTile 判断是否已是地面（如草地）。",
     "--   ★ 已经是地面就不做邻域采样 —— 因为地面上的取值本来就准。",
     "--   需要修正的是「非地面」瓦片（树、石头、水、花等物件占据的格子）。",
   ],
-  1852: [
+  "EntityScript:GetCurrentTileType#1+10": [
     "--★★ xpercent / ypercent：实体相对瓦片中心的偏移（归一化到 ±0.5）】",
     "--   TILE_SCALE 是瓦片的物理边长，除完得到「瓦片内的相对位置」。",
     "--   ★ 变量名 ypercent 其实是**z**方向的偏移（1853 行用 tilecenter_z - ptz），",
     "--     沿用 y 指「第二个平面轴」的旧习惯 —— 阅读时容易误解。",
   ],
-  1855: [
+  "EntityScript:GetCurrentTileType#1+13": [
     "--★★★ ±0.166 阈值 —— 这是整个算法的魔法常数】",
     "--   x_min = xpercent > 0.166 and -1 or 0 —— 即实体在瓦片中心偏右 → 查左边一块",
     "--   ★ 为什么是 1/6？因为一块瓦片被视作 6×6 的采样网格，",
@@ -156,42 +156,42 @@ export const BEFORE = {
     "   --★⚠ 魔法数字无说明：代码里没有注释解释 0.166 的来历，",
     "--     这是本函数最难理解的部分。应补注释或提取为常量。",
   ],
-  1863: [
+  "EntityScript:GetCurrentTileType#1+21": [
     "--【★★ 双层循环：至多 2×2 = 4 个邻块】",
     "--   ★ 性能可接受：仅在「取到的不是地面」时才执行，",
     "--     而这通常是少数情况。",
   ],
-  1866: [
+  "EntityScript:GetCurrentTileType#1+24": [
     "--★ 取瓦片号更大的那个 —— 瓦片号即优先级（如地面 < 道路 < 人工地板）。",
     "--   ★ 与TileGroupManager:IsLandTile 的语义配套。",
   ],
-  1875: [
+  "EntityScript:GetCurrentTileType#1+33": [
     "--【★ 第二个返回值 GetTileInfo(actual_tile) —— 瓦片的完整信息表】",
     "--   含标签、湿度、可挖掘性等。第一个返回值只是瓦片号（便于快速比较）。",
   ],
-  1878: [
+  "EntityScript:GetCurrentTileType#1+36": [
     "--★ 被注释掉的调试打印：会输出坐标偏移与采样结果。",
     "--   ★ 这行证明了 x_off / y_off 变量原本用于调试采样结果，现已无用。",
   ],
 
-  1882: [
+  "EntityScript:PutBackOnGround#1": [
     "--★ 原注释（JBK）：\"This function will return true if the entity is now on",
     "--valid ground, false if it could not find a suitable location.\"",
     "--【★ 三级策略】① 原地可通行 → 直接返回；② 附近有陆地 → 传送；③ 否则 false。",
   ],
-  1889: [
+  "EntityScript:PutBackOnGround#1+7": [
     "--★★ 先找陆地，再找海洋 —— 顺序体现「优先站到安全的地方」】",
     "--   ★ FindNearbyLand 返回 Point 或 nil。",
     "--   ★ 玩家掉出世界时被调用，把人拉回最近的合法位置。",
   ],
-  1891: [
+  "EntityScript:PutBackOnGround#1+9": [
     "--【★ 传送优先走 Physics，有 Physics 才会走 Transform】",
     "--   ★ 为什么？Physics:Teleport 会处理碰撞体同步与速度清零，",
     "--     而 Transform:SetPosition 只是硬改位置，可能与物理体不同步。",
     "--   ★ 无 Physics 的实体（纯装饰）才退而求其次。",
   ],
 
-  1903: [
+  "EntityScript:GetPersistData#1": [
     "--★★★ GetPersistData —— 存档写出的数据收集",
     "--【★ 逐组件调OnSave 并合并到 data】",
     "--   ★★ 关键：只有非空表才写入（1909 行 `not IsTableEmpty(t)`），",
@@ -201,7 +201,7 @@ export const BEFORE = {
     "   --★⚠ 副作用：无法区分「组件存在但无状态」与「组件不存在」，",
     "--     读档时只能靠 SetPersistData 遍历 data 的键来推断。",
   ],
-  1911: [
+  "EntityScript:GetPersistData#1+8": [
     "--★★ add_component_if_missing —— 跨版本兼容的巧思】",
     "--   组件返回的表里若带这个标记，base 就会在 data 上也打一个同名的标记。",
     "--   ★ 用途：某组件是在某个版本之后才加入的。",
@@ -210,19 +210,19 @@ export const BEFORE = {
     "--     ★ 这是「数据驱动的向后兼容」的标准做法：",
     "--     新版本加组件不需要迁移旧存档，只需加一个标记。",
   ],
-  1916: [
+  "EntityScript:GetPersistData#1+13": [
     "--★ references 的收集：把各组件返回的引用列表汇入总表。",
     "--   ★ 注意是 table.insert（数组式）而非哈希式收集 ——",
     "--     因为引用可能被多个组件重复报告，需要后续去重。",
   ],
-  1924: [
+  "EntityScript:GetPersistData#1+21": [
     "--【★ prefab 自己的 OnSave —— 在所有组件之后】",
     "--   ★ 顺序要点：组件数据先写，prefab 数据后写。",
     "--     这样若两者写同一字段，prefab 的值胜出（可控的覆盖）。",
     "--   ★ OnSave 的签名是 (self, data) —— 能看到已收集的组件数据，",
     "--     可以据此做条件性保存。",
   ],
-  1934: [
+  "EntityScript:GetPersistData#1+31": [
     "--★★「全空则什么都不返回」】",
     "--   if not IsTableEmpty(data) or not IsTableEmpty(references) then",
     "--       return data, references",
@@ -236,7 +236,7 @@ export const BEFORE = {
     "--     序列化端需能正确处理「空 data + 有 references」的组合。",
   ],
 
-  1939: [
+  "EntityScript:LoadPostPass#1": [
     "--★★★ LoadPostPass —— 存档读入的「第二遍」",
     "--【★ 为什么需要两遍？】",
     "--   有些数据只能在其**依赖的实体都加载完之后**才能恢复。",
@@ -249,14 +249,14 @@ export const BEFORE = {
     "--   ★ 这就是 GetSaveRecord:315 返回 references 的原因 —— ",
     "--     它们正是要在这一遍被解析的。",
   ],
-  1943: [
+  "EntityScript:LoadPostPass#1+4": [
     "--★ 双重守卫：组件存在 且 组件定义了 LoadPostPass。",
   ],
-  1949: [
+  "EntityScript:LoadPostPass#1+10": [
     "--★ prefab 自己的 OnLoadPostPass —— 在组件之后。",
   ],
 
-  1954: [
+  "EntityScript:SetPersistData#1": [
     "--★★★ SetPersistData —— 存档读入的第一遍",
     "--【★ 四步严格有序】",
     "--   步骤1（1955-1961）：★ 预扫描补装组件（向后兼容）",
@@ -269,17 +269,17 @@ export const BEFORE = {
     "--     · OnLoad：所有组件已就绪，进行跨组件的初始化",
     "--   ★ 这解决了「组件数据依赖另一个组件」的问题。",
   ],
-  1955: [
+  "EntityScript:SetPersistData#1+1": [
     "--★★ 步骤1：向后兼容的组件补装（★ 必须最先执行）】",
     "--   ★★ 原因：若某组件的数据在存档里，但实体上还没装这个组件，",
     "--     步骤3 的 self.components[k] 会取到 nil，数据永远加载不进去。",
     "--   ★ 所以必须先扫一遍 data，把标记了 add_component_if_missing 的组件装上。",
   ],
-  1963: [
+  "EntityScript:SetPersistData#1+9": [
     "--★ OnPreLoad(data, newents) —— 组件尚未加载时。",
     "--   ★ 可用于「根据存档数据决定加哪个组件」等场景。",
   ],
-  1971: [
+  "EntityScript:SetPersistData#1+17": [
     "--★V2C 原注释完整保留了这段逻辑的演进史】",
     "--  \"backward compatibility for add_component_if_missing\"",
     "--  \"the flag has since been added to the base data table as well so that we",
@@ -293,20 +293,20 @@ export const BEFORE = {
     "--   但 V2C 注释解释了冗余的成因 —— 读代码的人不会再困惑。",
     "--   ★ 这种「解释历史遗留」的注释是维护大型代码库的宝贵财富。",
   ],
-  1974: [
+  "EntityScript:SetPersistData#1+20": [
     "--★ 1974-1977 的逐项补装 —— 与 1955 段在功能上重叠】",
     "--   ★ 保留它是为了兼容「标记只在组件数据里、不在顶层」的旧存档。",
     "--   两处并存 = 向后兼容做到极致，代价是代码冗余。",
   ],
-  1980: [
+  "EntityScript:SetPersistData#1+26": [
     "--【步骤3：逐组件加载数据】",
     "--   ★注意 OnLoad 的参数是 (data, newents)，与 GetSaveRecord 的 OnSave 对称。",
   ],
-  1986: [
+  "EntityScript:SetPersistData#1+32": [
     "--★ OnLoad(data, newents) —— 所有组件就绪后。",
   ],
 
-  1991: [
+  "EntityScript:GetAdjective#1": [
     "--★★ GetAdjective：给 HUD 用的状态形容词（「一只饥饿的牛」）",
     "--【★ 与 GetAdjectivedName 的区别】",
     "--   GetAdjectivedName —— 物品名修饰（本地化字符串，可含两词组合）",
@@ -319,13 +319,13 @@ export const BEFORE = {
     "--   ④ stale        → STALE / STALE_FROZEN",
     "--   ⑤ spoiled      → SPOILED / STALE_FROZEN",
   ],
-  1995: [
+  "EntityScript:GetAdjective#1+4": [
     "--★★ critter 的特征标签反向查找】",
     "--   与 GetAdjectivedName:705 的 FOODTYPE 遍历同构：",
     "--   标签是 trait_<name>，反查 TUNING.CRITTER_TRAITS 拿显示名。",
     "--   ★ 同样存在遍历开销，但 critter 数量远少于物品。",
   ],
-  2000: [
+  "EntityScript:GetAdjective#1+9": [
     "--★★ small_livestock 的布尔表达式】",
     "--   return not sick and ( (stale and HUNGRY) or (spoiled and STARVING) ) or nil",
     "--   ★ 拆解：",
@@ -336,22 +336,22 @@ export const BEFORE = {
     "--     也可能是 HUNGRY 字符串。外层 `or nil` 只在整体为 false 时生效。",
     "--     写法正确但可读性一般 —— 建议拆成 if/elseif 链（与本函数其他分支统一）。",
   ],
-  2005: [
+  "EntityScript:GetAdjective#1+14": [
     "--★ frozen 的通用处理：stale 与 spoiled 都共用 STALE_FROZEN 字符串。",
     "--   ★ 复用同一字符串而非各写一个，减少本地化条目。",
   ],
 
-  2012: [
+  "EntityScript:SetInherentSceneAction#1": [
     "--【SetInherentSceneAction：设置场景交互的固有动作】",
     "--【★ 两步：写本地字段 + 写网络变量】",
     "--   本地字段供服务端逻辑立即使用；网络变量供客户端画高亮。",
     "--   ★ 两者的顺序无关（互不依赖），但都要做。",
   ],
-  2014: [
+  "EntityScript:SetInherentSceneAction#1+2": [
     "--★ 判空 actionreplica —— 非联网实体没有这张表。",
   ],
 
-  2026: [
+  "EntityScript:LongUpdate#1": [
     "--★★★ LongUpdate —— 大跨度时间跳跃时的单帧推进",
     "--【★ 何时调用？调用方在 update.lua:301】",
     "--   用于「跳过夜晚」「从洞穴回来」这类 dt 极大（几十秒）的场景。",
@@ -365,7 +365,7 @@ export const BEFORE = {
     "--   并临时把胡子的 pause 置 true（防止长跳跃导致胡子瞬间长好）。",
     "--   ★ 典型用途：载入存档时补算离线时间，物品不该跟着腐败。",
   ],
-  2027: [
+  "EntityScript:LongUpdate#1+1": [
     "--【★ prefab 的 OnLongUpdate 优先于组件】",
     "--   ★ 顺序与 LongUpdate 的「先自己后组件」相反—— ",
     "--     因为 LongUpdate 是「先实体后组件」，这里先调实体的 OnLongUpdate。",
@@ -374,7 +374,7 @@ export const BEFORE = {
     "--     所以未暴露问题。",
   ],
 
-  2038: [
+  "EntityScript:SetClientSideInventoryImageOverride#1": [
     "--★★ 客户端侧物品图标重映射 —— mod 换肤的通用方案",
     "--【★ 三层数据结构】",
     "--   self.inventoryimageremapping[flagname][hash(源图名)] = { image=新图, atlas=新atlas }",
@@ -387,20 +387,20 @@ export const BEFORE = {
     "--   因为换图纯属显示优化，不值得走网络同步（浪费带宽）。",
     "--   客户端本地注册本地生效 —— 典型的「客户端专属优化」。",
   ],
-  2042: [
+  "EntityScript:SetClientSideInventoryImageOverride#1+4": [
     "--★ hash(srcinventoryimage) —— 对图名求哈希作为键。",
     "--   ★ 整数键比字符串键在 Lua 表里快得多（无需字符串哈希比较）。",
   ],
-  2043: [
+  "EntityScript:SetClientSideInventoryImageOverride#1+5": [
     "--★ 只有该 flag 已在全局表中开启、且存在本地玩家时才通知刷新。",
     "--   条件严格避免不必要的 UI 重建。",
   ],
-  2053: [
+  "EntityScript:GetClientSideInventoryImageOverride#1": [
     "--【GetClientSideInventoryImageOverride：按图名哈希查映射】",
     "--   ★ 遍历所有 flag —— 因为查询方不知道当前生效的是哪个 flag。",
     "--   ⚠ 性能：每次查询都遍历 remaps（通常1-3 项），可接受。",
   ],
-  2061: [
+  "EntityScript:SetClientSideInventoryImageOverrideFlag#1": [
     "--★★ SetClientSideInventoryImageOverrideFlag：设置全局开关】",
     "--【★ 2072 行的巧妙表达式 `value = (not value) ~= true or nil`】",
     "--   拆解：not value 得到布尔 b；`b ~= true` 判断 b 是否为 false。",
@@ -409,12 +409,12 @@ export const BEFORE = {
     "--   即：把 boolean 归一化成「true 或 nil」。",
     "--   ★ 目的与 1106 行的 `or nil` 一致：让字段语义干净（关闭 = nil）。",
   ],
-  2063: [
+  "EntityScript:SetClientSideInventoryImageOverrideFlag#1+2": [
     "--【★ updated：只有值真的变了才通知 UI 重建】",
     "--   ★ 这是避免无效刷新的标准做法。",
   ],
 
-  2070: [
+  "EntityScript:IsInLight#1": [
     "--★★★ IsInLight —— 带迟滞（hysteresis）的光照判定",
     "--【★ 两条路径】",
     "--   ① 有 LightWatcher 组件 → 委托给它（组件内可能有多光源合成逻辑）",
@@ -428,13 +428,13 @@ export const BEFORE = {
     "--     · 当前 inLight == false（暗），只有 light >= 0.1 才变亮",
     "--   ★ 这就是电子电路里的施密特触发器 —— 游戏里大量使用。",
   ],
-  2080: [
+  "EntityScript:IsInLight#1+10": [
     "--★★ move_to_light 的计算 —— 只在「跨过上阈值」时为真】",
     "--   self.inLight == false and light >= lightThresh",
     "--   ★ 即「现在是暗的，且光够亮」→ 想要变亮。",
     "   --★ 注意这里只处理「变亮」，「变暗」在下一行处理 —— 两条路径不对称。",
   ],
-  2082: [
+  "EntityScript:IsInLight#1+12": [
     "--★★ 状态更新的双条件】",
     "--   if move_to_light or (self.inLight ~= false and light <= darkThresh) then",
     "--       self.inLight = move_to_light",
@@ -457,29 +457,29 @@ export const BEFORE = {
     "--       if move_to_light then self.inLight = true",
     "--       elseif self.inLight ~= false and light <= darkThresh then self.inLight = false end",
   ],
-  2086: [
+  "EntityScript:IsInLight#1+16": [
     "--【★ 统一返回「是否在光中」而非原始光值】",
     "--   这让调用方不必关心迟滞逻辑，只需一个布尔。",
   ],
-  2090: [
+  "EntityScript:IsLightGreaterThan#1": [
     "--【★ IsLightGreaterThan：不做迟滞的原始光值查询】",
     "--   ★ 与 IsInLight 的区别：这里返回「光值 >= 阈值」而非「是否在光中」。",
     "--     所以没有缓存，每次都问 C++（成本更高但精确）。",
     "--   ★ 有 LightWatcher 时走组件的 GetLightValue()（可能是多光源合成值）。",
   ],
 
-  2101: [
+  "EntityScript:DebuffsEnabled#1": [
     "--★ 减益（Debuff）系统（2101–2135）—— 状态类效果的标准接口。",
     "--【★ 统一走 debuffable 组件】",
     "--   好处：① 效果类型统一 ② 存档统一 ③ 死亡清理统一。",
   ],
-  2102: [
+  "EntityScript:DebuffsEnabled#1+1": [
     "--★★ 没有 debuffable 组件视为「支持减益」】",
     "--   `self.components.debuffable == nil or ...:IsEnabled()`",
     "--   ★ 默认开放：普通实体（草、石头）不装这个组件，",
     "--     但若有人对它施加重力压制等效果，AddDebuff:2116 会现场装一个。",
   ],
-  2115: [
+  "EntityScript:AddDebuff#1": [
     "--★★ AddDebuff：施加重益效果",
     "--【★ 四步】",
     "--   ① 按需安装 debuffable 组件（懒加载）",
@@ -489,33 +489,33 @@ export const BEFORE = {
     "   --★ skip_test 参数：用于「已确认有效、只要强制施加」的场景",
     "--     （如从存档恢复时、或已通过其他检查的重入调用）。",
   ],
-  2116: [
+  "EntityScript:AddDebuff#1+1": [
     "--★ 懒安装：调用者无需关心组件是否存在。",
   ],
-  2120: [
+  "EntityScript:AddDebuff#1+5": [
     "--★★ IsEntityDeadOrGhost —— 死亡/幽灵状态不接受减益】",
     "--   ★ 典型：僵尸化的玩家不应再被「点燃」。",
   ],
-  2124: [
+  "EntityScript:AddDebuff#1+9": [
     "--★ AddDebuff(name, prefab, data, buffer) —— buffer 参数被透传。",
     "--   ★ 注意 pre_buff_fn 在函数内被调用（2115 行的参数），而非传给组件，",
     "--     说明它是 EntityScript 层的钩子而非 debuffable 的参数。",
   ],
-  2131: [
+  "EntityScript:RemoveDebuff#1": [
     "--【RemoveDebuff：移除减益】存在性检查后转发。",
   ],
 
-  2140: [
+  "EntityScript:SetDeathLootLevel#1": [
     "--★ 死亡掉落（DeathLoot）系列（2140–2173）：尸体状态跨存档保持。",
     "--【★ 为什么要存死亡掉落？】",
     "--   场景：生物死亡 → 玩家搜刮尸体 → 中途退出游戏 → 重新登录。",
     "--   ★ 掉落物必须已生成并持久化，否则玩家会「刷出」额外战利品或丢失物品。",
     "--   机制：掉落物存进尸体（deathloothandler），尸体存档时保留。",
   ],
-  2142: [
+  "EntityScript:SetDeathLootLevel#1+2": [
     "--★ 按需安装 —— 与 AddDebuff:2116 同构的懒加载范式。",
   ],
-  2156: [
+  "EntityScript:DropDeathLoot#1": [
     "--★★ DropDeathLoot —— 两条分支的真正差异】",
     "--【★ 原注释揭示的意图】\"To handle just dropping it like usual, OR store",
     "--   it in the corpse if we're corpsing.\"",
@@ -525,11 +525,11 @@ export const BEFORE = {
     "--   ★ why：在尸体化的生物（如被巨人吃剩的牛）身上搜刮时，",
     "--     掉落物应该出现在尸体里而不是地上。",
   ],
-  2157: [
+  "EntityScript:DropDeathLoot#1+1": [
     "--【★ SetDeathLootLevel(1) 必须在分支之前】",
     "--   保证 deathloothandler 组件已装且等级为 1（标准掉落率）。",
   ],
-  2161: [
+  "EntityScript:DropDeathLoot#1+5": [
     "--★★ ⚠ 疑似缺陷：直接访问 components.health.is_corpsing】",
     "--   if self.components.health.is_corpsing then",
     "--   推理依据：",
@@ -545,12 +545,12 @@ export const BEFORE = {
     "--   ⚠ 注意：2162 行同样直接访问 components.deathloothandler，",
     "--     依赖 2157 行 SetDeathLootLevel 已确保它存在 —— 这是一种隐式契约。",
   ],
-  2169: [
+  "EntityScript:GetDeathLoot#1": [
     "--【GetDeathLoot：查询已存放的掉落物】",
     "--   ★ 供 UI / 搜刮逻辑使用。",
   ],
 
-  2177: [
+  "EntityScript:GetDeathLoot#1+8": [
     "--★ require(\"entityscriptproxy\") —— 通过副作用挂上 EntityScriptProxy 类。",
     "--   ★ 文件末尾的这个 require 不是为了返回值，而是为了「执行副作用」。",
     "--   entityscriptproxy.lua:81 定义了：",

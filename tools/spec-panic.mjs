@@ -37,7 +37,7 @@ export default {
   ],
 
   // ══════════════ Visit ══════════════
-  7: [
+  "Panic:Visit#1": [
     '--★★ Visit —— 全部逻辑 11 行，是理解节点协议的最佳范本。',
     '-- ★ 注意没有 `if self.status == RUNNING` 的显式判断，',
     '--   而是直接用 else（即「非 READY」）。因为本节点永不写终态，',
@@ -48,16 +48,16 @@ export default {
     '--     有 → 必须设计终态（approach/chaseandattack）；',
     '--     没有 → 让它一直 RUNNING（panic/wander/avoidlight）。',
   ],
-  8: [
+  "Panic:Visit#1+1": [
     '--★ READY 段：进来就跑一次，然后转 RUNNING。',
     '--★ 没有 FAILED 分支 —— 「不可能失败」的节点不需要失败路径。',
   ],
-  11: [
+  "Panic:Visit#1+4": [
     '--★ else（即 RUNNING 段）：到点了就换方向，否则什么也不做。',
     '--★ 二选一结构用两个 if 实现（第 12 行 if + 第 15 行无条件的 Sleep），',
     '--   逻辑上更直白：先判断「是否到期」，再「安排下次」。',
   ],
-  12: [
+  "Panic:Visit#1+5": [
     '--★ 到期 → 换一个随机方向跑。',
     '--★ ⚠️ 这里有个微妙之处：到期后 PickNewDirection 会把 waittime 推到未来，',
     '--   而第 15 行的 Sleep 紧接着就会读到新的 waittime（同一个 Visit 内）。',
@@ -65,7 +65,7 @@ export default {
     '-- ★★ 对照 beargeroffscreen 第 190 行的同一模式（先 Roam 再设 waittime），',
     '--   这是「固定步进」的标准实现。',
   ],
-  15: [
+  "Panic:Visit#1+8": [
     '--★★★ self:Sleep(self.waittime - GetTime()) —— 睡到下次换向时刻。',
     '--★★★ 这与 wander 第 62 行的 `self:Sleep(self.waittime - GetTime())` **完全相同**。',
     '-- ★★ 它是本目录最优雅的一行：',
@@ -85,14 +85,14 @@ export default {
   ],
 
   // ══════════════ PickNewDirection ══════════════
-  19: [
+  "Panic:PickNewDirection#1": [
     '--★★ PickNewDirection —— 「跑 + 排下次闹钟」两件事，与 wander 的 Wait 封装同构。',
     '-- ★ 但本文件**没有**像 wander 那样封装成 Wait 方法，直接两行写完。',
     '--   区别在于本文件的「等」很短（0.25~0.5 秒），不值得抽象。',
     '-- ★ ★ 移植建议：短逻辑不必强行封装；',
     '--   只有当同样的「设时长 + 排闹钟」模式出现三次以上时才提取（wander/avoidlight 提取了）。',
   ],
-  20: [
+  "Panic:PickNewDirection#1+1": [
     '--★★★ `RunInDirection(math.random() * 360)` —— 完全随机的全向角。',
     '--★ 单位是**度**（0~360），与 RunInDirection 的要求一致（见 wander 第 187 行的单位说明）。',
     '--★★★ 注意与 wander 第 125 行的差别：那里是 `math.random() * PI2`（弧度），',
@@ -110,7 +110,7 @@ export default {
     '--   ② 基础避障（panicandavoid）—— 绕开一个已知障碍',
     '--   ③ 完整降级选点（runaway/runtodist）—— 多级兜底，绝不卡死',
   ],
-  21: [
+  "Panic:PickNewDirection#1+2": [
     '--★★ waittime = 现在 + .25 + random()*.25 → 下次换向在 0.25~0.5 秒后。',
     '--★ 又一个「min + random()*rand」模式（wander 第 46/192/199 行同款）。',
     '-- ★★ 0.25~0.5 秒的换向频率，效果是「小幅快速地改变跑动方向」——',

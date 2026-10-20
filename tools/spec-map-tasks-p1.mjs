@@ -40,19 +40,19 @@ export const BEFORE = {
     "-- ★ 用 local 封装 ⇒ 外部无法直接改，只能通过下面 4 个导出函数。",
   ],
   9: ["-- ★ modtaskdefinitions[modname] = { Task, Task, … }（数组，便于顺序遍历）"],
-  15: [
+  "GetAllTaskNames#1": [
     "-- ══════════════ 模块内查找函数（★ 全是 O(N) 线性扫描）══════════════",
   ],
-  17: [
+  "GetAllTaskNames#1+2": [
     "-- ★ GetAllTaskNames：把所有任务名拍平成一个数组。",
     "--   ★ 消费方：前端任务选择 UI（★ grep 核实 map/ 内无消费，",
     "--     说明它被 worldgen_main.lua 或 screens/ 用来列任务）。",
   ],
-  20: [
+  "GetAllTaskNames#1+5": [
     "-- ★★ 先扫 mod 的桶（pairs 顺序），再扫本文件的 —— ★ 顺序不稳定！",
     "--   ⇒ 若调用方依赖这个顺序做「取第一个」的逻辑，会随 mod 变动而变。",
   ],
-  28: [
+  "GetTaskByName#1": [
     "-- ★★ GetTaskByName：★ 全库最热的任务查找函数（线性扫描两遍）。",
     "-- ★ 调用点：level.lua:220 EnqueueATask（每个任务调 1 次）、",
     "--   tasks.lua:58/63（注册期防重，各调 1 次）。",
@@ -61,33 +61,33 @@ export const BEFORE = {
     "--   ★ 相对 Lloyd 的 2-8 s 可以忽略。**不是瓶颈**（这点值得说清楚，",
     "--   免得读者照抄 O(N) 就当成性能问题去优化）。",
   ],
-  34: [
+  "GetTaskByName#1+6": [
     "-- ★★ 第二遍：扫所有 mod 的桶。★ 嵌套两层循环 ⇒ O(总任务数)。",
   ],
-  45: [
+  "ClearModData#1": [
     "-- ★ ClearModData(mod)：★ 卸载 mod 时清空它注册的任务。",
     "--   ★ 消费方：mod 系统的 UnloadMod 流程。",
     "-- ★★ 注意 :49 `modtaskdefinitions = {}` 是**重新绑定 local**，",
     "--   不是清空原表。这在有其他引用指向旧表时有区别，",
     "--   ★ 但因为 modtaskdefinitions 只在本文件内使用（local），无影响。",
   ],
-  57: [
+  "AddTask#1": [
     "-- ══════════════ 全局注册函数 ══════════════",
     "-- ★★ AddTask(name, data)：★ 本文件与 map/tasks/*.lua 唯一的注册路径。",
     "-- ★ 注意「注册」= 立刻构造 Task 对象（不是延迟），",
     "--   ⇒ ★★ Task 构造里对 locks/keys_given 的归一化在此刻完成。",
   ],
-  58: [
+  "AddTask#1+1": [
     "-- ★★ assert 防重：**启动期崩溃**，是本文件唯一的强校验。",
     "--   ⇒ 对比 lockandkey.lua 的 LOCKS_KEYS **没有**查重（E1 缺陷根因）。",
     "--   ★ 同一个仓库里两种截然不同的重复防护策略并存，值得对照。",
   ],
-  59: [
+  "AddTask#1+2": [
     "-- ★ table.insert 保持**注册顺序** ⇒ 后续 ipairs 遍历顺序稳定。",
     "--   ★ 这与 map/network.lua 里 pairs 遍历的不确定性形成对比——",
     "--     ★★ 数组顺序稳定，字典顺序不稳定。这是可复现性的分水岭。",
   ],
-  62: [
+  "AddModTask#1": [
     "-- ★★ AddModTask(mod, name, data)：★ mod 的注册路径。",
     "-- ★★ 与 AddTask 的三处差异（★ 值得逐条对照）：",
     "--   ① 重复名不 assert 而是 moderror；",
@@ -95,15 +95,15 @@ export const BEFORE = {
     "--      that task using AddTaskPreInit instead?\"）——很好的错误信息设计；",
     "--   ③ ★★ 重复时 **return 不插入**（模组任务被静默丢弃）。",
   ],
-  64: [
+  "AddModTask#1+2": [
     "-- ★ moderror（不是 error）⇒ 不崩，mod 继续跑，只是那个任务没了。",
     "--   ⚠ 副作用：玩家会在世界里发现「少了一个区域」，但日志只有一行 moderror。",
     "--   ★ 这与 forest_map.lua 里那些「只 print 就 return nil」的静默失败同源。",
   ],
-  68: [
+  "AddModTask#1+6": [
     "-- ★ 按 mod 名分桶：同一个 mod 的任务放一起，便于整体卸载。",
   ],
-  78: [
+  "AddModTask#1+16": [
     "-- ══════════════ 调试用任务集样本（★ 非正式数据）══════════════",
     "-- ★★ everything_sample2：小型样本（4 种房间，共 6 间房）。",
     "--   ★ locks=NONE（无锁，可直接进）、keys_given=PICKAXE（给镐）。",
@@ -111,19 +111,19 @@ export const BEFORE = {
     "--     · 无锁 ⇒ 不依赖锁钥匙算法的正确性；",
     "--     · 给 PICKAXE ⇒ 可以立刻验证 KEYS.PICKAXE 能否开 LOCKS.ROCKS。",
   ],
-  83: [
+  "AddModTask#1+21": [
     "-- ★★ DenseRocks / DenseForest / SpiderCon / Forest —— 4 种房间各 1 间。",
     "-- ★ 观察点：room_bg=GRASS + background_room=BGGrass ⇒ 胞元内草地、胞元外草地背景。",
     "--   ★ colour 绿 ⇒ 调试视图里这个 task 显示为绿色块。",
   ],
-  93: [
+  "AddModTask#1+31": [
     "-- ★★ everything_sample：全房间穷举样本（22 种房间，各 1 间）。",
     "--   ★ 用途：**人工目检**——生成一张把所有房间类型都放一遍的图，",
     "--     肉眼检查每种房间的地形/内容物是否正常。",
     "--   ★★ 它是**死数据**：只有 sample2 被导出（:180），本表未导出。",
     "--     ⇒ 改动它对正式生成**零影响**。",
   ],
-  97: [
+  "AddModTask#1+35": [
     "-- ★★ 22 种房间：Graveyard 墓地 / BeefalowPlain 牛平原 / SpiderVillage 蜘蛛村 /",
     "--   PigKingdom 猪王国 / PigVillage 猪村 / MandrakeHome 曼达草窝 /",
     "--   BeeClearing 蜂林 / DenseRocks 密石 / DenseForest 密林 / Rockpile 石堆 /",
@@ -132,10 +132,10 @@ export const BEFORE = {
     "--   DeepForest 深林 / Clearing 空地 / BurntForest 烧林。",
     "-- ★★ 这份清单也是理解「DST 有哪些群系」的最快索引。",
   ],
-  121: [
+  "AddModTask#1+59": [
     "-- ★★ 与 sample2 相同的 room_bg / background_room，只是房间列表更长。",
   ],
-  127: [
+  "AddModTask#1+65": [
     "-- ══════════════ ★★★ 真正的任务定义在这里被 require ══════════════",
     "-- ★★ 9 个文件、约 100 个 task 全部在这里加载。",
     "-- ★★★ 加载顺序 = 上表的先后顺序 ⇒ ★★ 注册顺序 = 这个顺序，",
@@ -143,14 +143,14 @@ export const BEFORE = {
     "--   （map/level.lua:123 `for i=1,#self.tasks`）⇒ ★★ 影响随机结果。",
     "--   ⚠ 调换 require 顺序会改变地图。这是一条隐藏的耦合。",
   ],
-  130: [
+  "AddModTask#1+68": [
     "-- ★ forest：主世界（森林/平原/沼泽/岩地…），★ 是 mainland 的主体。",
   ],
-  132: [
+  "AddModTask#1+70": [
     "-- ★ caves：洞穴（矿洞/食人花洞/古迹洞/龙洞…），★ 全部以 Sinkhole/Cave 为底。",
     "--   ★ 洞穴任务是 biome 分区的代表：perTerrain（graphnode.lua:536）为它们启用。",
   ],
-  142: [
+  "AddModTask#1+80": [
     "-- ══════════════ ★★ TEST_TASK 三件套：常驻调试任务 ══════════════",
     "-- ★★★ 这三个 task 不是被 #if 掉的临时代码，",
     "--   ★★ 而是**永久注册进正式表**的调试任务。",
@@ -162,24 +162,24 @@ export const BEFORE = {
     "--     锁—钥匙连线是否正确，★ 不必生成完整世界（省掉 2-8 s 的 Lloyd）。",
     "--   ⇒ 这是**最小可验证世界**（MWV）的现成样本，调试世界生成时首选。",
   ],
-  143: [
+  "AddModTask#1+81": [
     "-- ★★ 锁定环：★ 只放 1 间 BGCaveRoom（洞穴房间），底色 SINKHOLE（天坑）。",
     "-- ★ keys_given=LIGHT ⇒ ★★ 这是专门用来测试「LIGHT 锁」的钥匙。",
     "--   ★ 为什么用 LIGHT？因为它是 LOCKS.LIGHT 的**唯一**钥匙",
     "--     （lockandkey.lua:323-326 `[LOCKS.LIGHT] = { KEYS.LIGHT }`），",
     "--   ★★ 单钥匙锁最容易验证「锁没被错误地自动解开」。",
   ],
-  148: [
+  "AddModTask#1+86": [
     "-- ★ room_bg=SINKHOLE + background_room=BGSinkholeRoom ⇒ 天坑地形。",
     "-- ★ colour 粉紫色 ⇒ 调试视图里一眼认出是测试数据。",
   ],
-  153: [
+  "AddModTask#1+91": [
     "-- ★★ TEST_TASK1：锁 LIGHT（= LOCKS.LIGHT 整数），3 间 CaveRoom + 1 间 BatCaveRoom。",
     "--   ★ 验证点：★ 若生成结果里 TEST_TASK1 与 TEST_TASK 直接相连，",
     "--     ⇒ 说明锁被错误解开了（storygen.lua 的 availableKeys 判定有 bug）。",
     "--   ★ 若 TEST_TASK1 被孤立成孤岛 ⇒ 说明该开的锁没开（E1 类缺陷）。",
   ],
-  164: [
+  "AddModTask#1+102": [
     "-- ★ TEST_EMPTY：最简任务。无锁、给 NONE 钥匙、1 间 Clearing。",
     "--   ★★ 用途：作为「汇点/终点」——它不需要钥匙，",
     "--     ★ 所以任何东西都能连到它，适合放在 story 链的末尾。",
@@ -187,7 +187,7 @@ export const BEFORE = {
     "--   lockandkey.lua:86/4 的第一个）。★ 给 NONE 钥匙等于「什么都不给」，",
     "--   但它让 :617 的 availableKeys[KEYS.NONE] = { … } 照常执行 ⇒ 无害。",
   ],
-  179: [
+  "AddModTask#1+117": [
     "-- ══════════════ 导出表 ══════════════",
     "-- ★★ 导出的 4 个函数正好对应 4 类消费方：",
     "--   · GetAllTaskNames → 前端任务列表面板",
@@ -195,7 +195,7 @@ export const BEFORE = {
     "--   · ClearModData    → mod 卸载流程",
     "--   · oneofeverything → ★ 调试用任务集（★ 唯一导出的数据）",
   ],
-  184: [
+  "AddModTask#1+122": [
     "-- ★★ oneofeverything = everything_sample（不是 sample2！）。",
     "--   ⚠ 注意：名字一样，两个表内容不同，且导出的是**长版**。",
     "--   ⇒ 调试时想要「22 种房间全放一遍」用这个；",

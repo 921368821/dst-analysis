@@ -67,7 +67,7 @@ export default {
   ],
 
   // ══════════════ 治疗 ══════════════
-  37: [
+  "GetHealerFn#1": [
     '-- ★★★ GetHealerFn —— 「谁正在给我治疗」的判定，本文件最巧的函数。',
     '-- 【难点】治疗不是通过「对实体做动作」完成的，而是「玩家对着美人鱼操作」，',
     '--   所以要检测玩家的【意图】而不是执行结果。',
@@ -84,7 +84,7 @@ export default {
     '-- ⚠️ 第 48 行 v.components.playercontroller —— 只对玩家成立，',
     '--   对同类美人鱼为 nil，走 elseif 自然跳过。正确。',
   ],
-  58: [
+  "KeepHealerFn#1": [
     '-- ★★ KeepHealerFn —— 与 GetHealerFn 几乎逐字相同，差异只在结尾。',
     '-- 【★ 第 64 行的一处关键写法】',
     '--   act, target = target.components.playercontroller:GetRemoteInteraction()',
@@ -107,14 +107,14 @@ export default {
   ],
 
   // ══════════════ 注视 ══════════════
-  85: [
+  "GetFaceTargetFn#1": [
     '-- ★ GetFaceTargetFn 用【两个定时器】实现「看一会儿就移开视线」：',
     '--   第 86-88 行：dontfacetime 存在 → 明确不看（被别的东西打断了）',
     '--   第 91-93 行：要看的对象存在且没在 facetime 计时 → 开一个 2-4 秒的计时',
     '--   ★ KeepFaceTargetFn（第 97 行）在「不该看」时停掉 facetime（第 104 行）。',
     '-- ★ 这实现了「目光有持续时间」的拟人化效果，且完全无状态。',
   ],
-  97: [
+  "KeepFaceTargetFn#1": [
     '-- ★ 第 104 行 StopTimer("facetime")：条件不再满足时主动清计时器。',
     '--   ★ 清理逻辑放在 keepfn 里（而非 getfn）是关键：',
     '--     getfn 只在「要开始看」时被调用，状态清理必须挂在「维持」判定上。',
@@ -122,10 +122,10 @@ export default {
   ],
 
   // ══════════════ 觅食 ══════════════
-  113: [
+  "GetRunAwayTarget#1+4": [
     '-- 只吃素食（VEGGIE）。美人鱼是素食者，与 pigbrain 的肉食形成对照。',
   ],
-  116: [
+  "EatFoodAction#1": [
     '-- ★ EatFoodAction 的四段（与 pigbrain 第 81 行同构但更简单）：',
     '--  第 117-119 行：★ 状态图在「醒来」过程中 → 不吃（比 pigbrain 的 busy 更严）',
     '--  第 123-125 行：先吃背包里的（含 moonlight 玻璃碎片）',
@@ -138,7 +138,7 @@ export default {
     '--   pigbrain 无论有没有主人都找（第 105 行无条件）。',
     '--   语义：美人鱼被玩家指挥时专心干活，不自作主张找食。这是角色设计差异。',
   ],
-  139: [
+  "act.validfn#1": [
     '-- ★★ validfn 的必要性：觅食目标在「找到」到「执行」之间可能被人抢走。',
     '--   三重校验：没有 inventoryitem / 没有 owner / owner 就是自己。',
     '--   ★ 这是「决策与执行之间存在时间差」的通用防御手段。',
@@ -147,13 +147,13 @@ export default {
   ],
 
   // ══════════════ 王座 ══════════════
-  147: [
+  "IsThroneValid#1": [
     '-- ★ IsThroneValid：五重校验（存在/有效/没烧/没烧毁/管理者允许）。',
     '-- ★ 第 148 行 if TheWorld.components.mermkingmanager then ——',
     '--   王座系统可能未初始化（世界没加载完、或没开美人鱼王座），此时返回 false。',
     '--   ★ 这是「全局管理器可选」的防御写法，移植时要注意同类模式。',
   ],
-  161: [
+  "ShouldGoToThrone#1": [
     '-- ★★ ShouldGoToThrone 的两步查找：',
     '--  先问「我被分配了王座吗」（GetThrone，第 167 行）',
     '--  找不到再全场搜 50 距离内带 mermthrone 标签的（第 168 行）',
@@ -166,21 +166,21 @@ export default {
     '--   所以没有递归，只是同名不同物。★ 这个「同名方法」很容易让读者误判为递归，',
     '--     特此标注，是本文件最易误读的一处。',
   ],
-  173: [
+  "GetThronePosition#1": [
     '-- GetThronePosition：只从管理器拿，不做搜索（与 ShouldGoToThrone 的策略不同）。',
     '-- ★ 原因：位置函数每帧调用，不能做 50 距离的空间搜索。',
     '--   ★ 「判定函数可以重，坐标函数必须轻」——这是重要的性能分工原则。',
   ],
 
   // ══════════════ 工具 ══════════════
-  184: [
+  "GetThronePosition#1+11": [
     '-- ★ 工具棚有两种：普通与升级版。ONE_OF 语义。',
     '-- ★ 与 ARMORY（mermguardbrain 第 41 行）逐字对应 —— 盔甲版的孪生实现。',
   ],
-  189: [
+  "IsHandEquip#1": [
     '-- IsHandEquip：只看装备槽位，不看手持。',
   ],
-  193: [
+  "NeedsTool#1": [
     '-- ★ NeedsTool 的三段判定（第 196-207 行）：',
     '--  手上拿着 → 不需要',
     '--  背包里有手部装备 → 不需要（会自己去装备）',
@@ -189,7 +189,7 @@ export default {
     '-- ★ 这与 mermguardbrain 第 50 行 NeedsArmor 逐字同构（HEAD 槽位）。',
     '-- ★ 值得学的点：把「我需不需要 X」写得如此对称，两种资源只需改槽位。',
   ],
-  210: [
+  "GetClosestToolShed#1": [
     '-- ★★ GetClosestToolShed：优先升级版工具棚。',
     '--   第 222-232 行遍历，第 224-226 行遇到升级版【立即返回】',
     '--   第 228-230 行普通版只记第一个',
@@ -199,23 +199,23 @@ export default {
     '--   命名 GetClosest 有误导性。属真实的命名与实现不符，非功能缺陷。',
     '--   （升级版的立即返回不受影响，因为它是绝对优先级。）',
   ],
-  237: [
+  "GetClosestToolShedPosition#1": [
     '-- ★ 第 243 行 GetPositionAdjacentTo(shed, distance)：站在棚子旁边而不是中心。',
     '--   distance 用棚子的物理半径 —— 避免走进建筑模型里。',
     '-- ★ 「目标点 = 物体位置 + 其半径」是 DST 处理「走到某建筑旁」的统一手法。',
   ],
-  247: [
+  "NeedsToolAndFoundTool#1": [
     '-- NeedsToolAndFoundTool：★ 「需要」且「找得到」——两个条件都要满足才行动。',
     '--   ★ 这是 IfNode 条件的标准形态：不要在找不到目标时也进入该子树。',
     '--   第 445 行使用它。若只判 NeedsTool，找不到棚子时也会反复尝试。',
   ],
-  255: [
+  "CollectTool#1": [
     '-- CollectTool：★ 推事件而不是返回 BufferedAction。',
     '--   第 263 行 inst:PushEvent("merm_use_building", { target = shed })',
     '--   ★ 与 knightbrain 第 105 行 TryJoust 同款：「大脑只发请求，状态图执行」。',
     '--   第 260 行距离 2.5 —— 比第 447 行 leash 的 2.1 略大，留出余量。',
   ],
-  267: [
+  "PickupTool#1": [
     '-- ★ PickupTool 与 GetClosestToolShed（第 210 行）是同一个「优先升级版」逻辑的副本。',
     '--   ⚠️ 第 282-288 行同样「遍历第一个非升级版当兜底」，与第 222-232 行同款瑕疵。',
     '--   第 276-278 行还有个空的 if 结构：if #ents <= 0 then return nil end ——',
@@ -223,7 +223,7 @@ export default {
     '-- ⚠️ 第 290 行 return tool ~= nil and ... —— 但第 284 行升级版已提前 return，',
     '--   所以 tool 只可能是最后一个非升级版。命名暗示「closest」但不保证。',
   ],
-  294: [
+  "HasDigTool#1": [
     '-- HasDigTool：★ 不只看装备槽，还要求工具「能做 DIG 动作」。',
     '--   第 297 行 tool:CanDoAction(ACTIONS.DIG)',
     '-- ★ 比 NeedsTool 更严格：NeedsTool 只问「有没有手部装备」，',
@@ -232,11 +232,11 @@ export default {
   ],
 
   // ══════════════ 家园 ══════════════
-  302: [
+  "GoHomeAction#1": [
     '-- GoHomeAction：★ 四重校验（第 309-314 行）：家存在/有效/没烧/没烧毁，才 GOHOME。',
     '--   第 303-305 行：★ 有战斗目标就不回家（与 pigbrain 第 136 行同款）。',
   ],
-  317: [
+  "ShouldGoHome#1": [
     '-- ★★★ ShouldGoHome —— 本函数藏着一个「群体级」的资源分配策略。',
     '-- 【第 318-320 行】不是白天 或 有队长 → 不回家',
     '-- 【第 322 行注释】"One merm should stay outside."（要留下一只美人鱼在外面）',
@@ -251,18 +251,18 @@ export default {
     '--   或都认为「有 2 只」而都回。实际由执行时序与 childspawner 的计数时机缓解。',
     '--   标为疑似：无法确定 childspawner 的计数是否即时，未核实其实现。',
   ],
-  330: [
+  "IsHomeOnFire#1": [
     '-- IsHomeOnFire：比 pigbrain 第 205 行少两个条件（无距离限制）。',
     '-- ★ 差异原因：美人鱼的家是王帐（可能很大），不在附近也会担心。',
     '--   pigbrain 需要 20 平方距离限制（第 210 行）。',
     '-- ⚠️ 两处实现不一致，但各自合理，属「按角色调参」而非缺陷。',
   ],
-  337: [
+  "GetNoLeaderHomePos#1": [
     '-- GetNoLeaderHomePos：有队长返回 nil。与 pigbrain 第 145 行同款。',
   ],
 
   // ══════════════ 跟随距离 ══════════════
-  365: [
+  "TargetFollowDistFn#1": [
     '-- ★★★ TargetFollowDistFn —— 「忠诚度影响跟随距离」的动态算法。',
     '-- 【第 371 行公式】',
     '--   距离 = (MAX-MIN) * (1-忠诚度) * boat系数 * random() + MIN',
@@ -282,10 +282,10 @@ export default {
   ],
 
   // ══════════════ 召唤响应 ══════════════
-  376: [
+  "TargetFollowDistFn#1+11": [
     '-- 献祭锅标签。玩家把东西放进锅里召唤美人鱼。',
   ],
-  378: [
+  "shouldanswercall#1": [
     '-- ★ shouldanswercall 的四段拒绝条件（第 379-381 行）：',
     '--   lunarminion（月亮仆从）—— 不是野生美人鱼，是玩家召唤的',
     '--   shadowminion（暗影仆从）—— 同上',
@@ -300,17 +300,17 @@ export default {
   ],
 
   // ══════════════ OnStart ══════════════
-  415: [
+  "MermBrain:OnStart#1": [
     '-- ★★ OnStart。结构：先建 in_contest（第 416 行），再建 NODES（第 428 行），',
     '--   最后 root 包一层跳跃守卫（第 517 行）。',
     '--   ★ 对比 pigbrain：那边有 day/night 两棵子树，这边只有一棵 NODES + 一个守卫。',
     '--     美人鱼不分昼夜行为（美人鱼在深海/王帐区，昼夜影响小）。',
   ],
-  416: [
+  "MermBrain:OnStart#1+1": [
     '-- in_contest：比赛模式。与 pigbrain 第 286 行几乎逐字相同（只换了台词）。',
     '-- ★ 这是跨文件的「复制粘贴式复用」：同一套活动逻辑，多种 NPC 共用。',
   ],
-  428: [
+  "MermBrain:OnStart#1+13": [
     '-- ★★ NODES —— 完整优先级表（这是本文件最需要读的部分）：',
     '--  第 430-431 行：★「有美人鱼王时」的恐慌（台词不同）',
     '--  第 432-433 行：★「没有王时」的恐慌',
@@ -344,7 +344,7 @@ export default {
     '-- 2) 觅食（第 458 行）在王座（第 461 行）之前 —— ★ 源码第 459 行注释明说原因。',
     '-- 3) 跟随（第 500 行）排在所有主动行为之后 —— 有事做事，没事才跟。',
   ],
-  430: [
+  "MermBrain:OnStart#1+15": [
     '-- ★★ 用两个互斥 IfNode 选择不同台词的恐慌（第 430 / 432 行）。',
     '--   PanicWhenScared(inst, 丢忠诚概率 .25, 台词字符串)',
     '--   ★ 与 pigbrain 第 385 行的 BrainCommon.PanicWhenScared(self.inst, .25, ...) 同款，',
@@ -352,18 +352,18 @@ export default {
     '-- ★ 两个 IfNode 的条件互为否定（第 430 行 king 存在、第 432 行 king 不存在），',
     '--   所以任意时刻只有一个会进入 —— 但 PriorityNode 会先试前者。',
   ],
-  440: [
+  "MermBrain:OnStart#1+25": [
     '-- 被治疗 → 面对治疗者（第 37 行的 GetHealerFn）。',
     '-- ★ 优先级在「捡工具」之前：治疗比工具重要（工具可再捡）。',
   ],
-  445: [
+  "MermBrain:OnStart#1+30": [
     '-- ★ 去工具棚取工具：Leash 过去 + 推事件使用。',
     '--   Leash(inst, GetClosestToolShedPosition, 2.1, 2, true)',
     '--   第 5 参 true = 不可打断。第 2.1/2 也是迟滞。',
     '--   ★ 与第 469 行 TILL 的 leash(2.1, 2, true) 参数完全相同 ——',
     '--     同一类「走到建筑旁操作」的统一手感。',
   ],
-  451: [
+  "MermBrain:OnStart#1+36": [
     '-- ★★ 战斗条件：不是「不在冷却」，是【无目标 或 不在冷却】。',
     '--   第 452 行 ★ ChaseAndAttack(self.inst, SpringCombatMod(MAX_CHASE_TIME),',
     '--                                    SpringCombatMod(MAX_CHASE_DIST))',
@@ -383,24 +383,24 @@ export default {
     '--     本文件调用时 amount 恒为常量 MAX_CHASE_TIME/MAX_CHASE_DIST，安全。',
     '--     这是 Lua and/or 表达式只能返回两操作数的固有陷阱，非本文件缺陷。',
   ],
-  453: [
+  "MermBrain:OnStart#1+38": [
     '-- 闪避：与第 451 行严格互补（combat.target ~= nil and InCooldown()）。',
     '--   ★ 与 pigbrain 第 402-404 行、knightbrain 第 341-342 行完全同款 ——',
     '--     「攻击/闪避两个互斥 WhileNode」是 DST 战斗 AI 的标准写法。',
   ],
-  458: [
+  "MermBrain:OnStart#1+43": [
     '-- ★★ 觅食被刻意放在王座任务【之前】，源码注释给出了理由（第 459 行）。',
     '--   "Leave this above throne task so the Merm eats the food given."',
     '--   ★ 这是一条纯粹的「行为优先级」注释，移植时最该保留的一类信息：',
     '--     为什么这个节点在这个位置。',
   ],
-  461: [
+  "MermBrain:OnStart#1+46": [
     '-- ★ 去王座的条件：「该去」且「当前没在战斗」。',
     '--   第 463 行 leash 距离 0.2/0.2（相等，无迟滞）——',
     '--   ★ 与第 447 行的 2.1/2 形成对比：站在王座上要求极高精度。',
     '--   第 464-466 行：到位后推 onarrivedatthrone 事件，交给状态图处理。',
   ],
-  469: [
+  "MermBrain:OnStart#1+54": [
     '-- ★★ 已确认的缺陷：TILL 与 DIG 两个节点条件完全相同（第 469、475 行），',
     '--   但第 478 行 DIG 节点配了 MERM_TALK_HELP_CHOP_WOOD（砍木头）台词。',
     '--   已逐字核对第 471 行 action = "TILL"、第 476 行 action = "DIG"、',
@@ -413,14 +413,14 @@ export default {
     '--     临时复用了 CHOP_WOOD。属真实的文案缺陷（未清理的半成品）。',
     '--   ★ 影响范围仅限台词文本，不影响 DIG 动作本身正常执行。',
   ],
-  475: [
+  "MermBrain:OnStart#1+60": [
     '-- ★ 第 469 行与本行条件完全相同（HasDigTool），因此两者互斥靠 PriorityNode 顺序。',
     '--   ★ 更重要的是：★ TILL 在前 DIG 在后，意味着有铲子时【总是先种地】。',
     '--   ⚠️ 这是「条件相同的两节点靠顺序决定」的写法，可读性差：',
     '--     读者必须比较两行才能发现条件一样。',
     '--   源码未加注释说明「为什么先种地后挖桩」，属意图不明处，非缺陷。',
   ],
-  500: [
+  "MermBrain:OnStart#1+85": [
     '-- Follow(inst, 取队长的函数, MIN_FOLLOW_DIST, TargetFollowDistFn, MAX_FOLLOW_DIST, nil, true)',
     '-- ★★★ 第 4 个参数传的是【函数】TargetFollowDistFn —— 即动态目标距离。',
     '--   ★ 第 6 参 nil、第 7 参 true —— 对比 pigbrain 第 344 行只传了 5 个参数。',
@@ -428,7 +428,7 @@ export default {
     '--     与 shadowwaxwellbrain 第 311 行 Leash 的第 5 参 true 位置不同，',
     '--     不可类推。标注为待核实，不下结论。',
   ],
-  517: [
+  "MermBrain:OnStart#1+102": [
     '-- ★★★ root = PriorityNode({ WhileNode(不跳跃, "pause for jump", NODES) }, .25)',
     '--   ★ 只有一层守卫。NODES 是上面第 428 行建好的完整子树。',
     '--   与 knightbrain 第 326 行结构相同，但 mermguardbrain 第 424 行也是。',
@@ -436,7 +436,7 @@ export default {
     '-- ⚠️ 守卫名 "pause for jump" 是字面直译（暂停跳跃），语义应是「跳跃中暂停思考」。',
     '--   命名不准确但无害。',
   ],
-  521: [
+  "MermBrain:OnStart#1+106": [
     '-- ★ self.bt = BT(self.inst, root) —— 第 5 个大脑，同样的收尾。',
     '--   ★ 已验证 5 个文件（braincommon / pigbrain / knightbrain / shadowwaxwell / merm）',
     '--     的收尾完全一致，「DST 大脑 = 一棵 PriorityNode」结论成立。',

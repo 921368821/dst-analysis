@@ -1,7 +1,7 @@
 // key = 源文件行号（1-based），注释插入到该行「之后」
 // 目标：components/workable.lua —— 物品交互链的「敲打/修理」核心
 export default {
-  1: [
+  "onworkable#1": [
     '-- ============================================================',
     '-- components/workable.lua —— 「可施工」组件：斧镐锄对实体的挖掘与修理进度',
     '--',
@@ -33,7 +33,7 @@ export default {
     '--   而第 136 行的「小于 1 直接归零」保证了这个判定不会被浮点误差卡住。',
     '-- ============================================================',
   ],
-  4: [
+  "onworkable#1+3": [
     '-- ★★ SetWorkRepairable：把「能否修理」这个派生状态同步给 repairable 组件。',
     '--   条件三件套：设过 maxwork（不是无限耐久物）、还有余量、且未被禁用。',
     '--   ★ 这就是「属性钩子表」（第 41-46 行）的价值：',
@@ -43,7 +43,7 @@ export default {
     '--   ⚠️ 代价：这里是「副作用重入」的入口。若 repairable 的 setter 又反过来',
     '--     写 workable.workleft，就会形成递归。所以两边必须有一边不做反向写。',
   ],
-  7: [
+  "onworkable#1+6": [
     '-- ★ 用标签表达「这件东西能被哪种工具施工」：标签名 = action.id + "_workable"。',
     '--   例：能被 CHOP 砍的实体带 "CHOP_workable" 标签。',
     '--   标签机制的好处是「声明式」：美术/音效/AI 只需 HasTag 判断，',
@@ -51,7 +51,7 @@ export default {
     '--   ⚠️ 这也意味着标签名与 ACTIONS 常量耦合。改 ACTIONS.CHOP.id 会让所有',
     '--     已存世界的标签失效（存档里存的是字符串）。',
   ],
-  16: [
+  "onaction#1": [
     '-- action 变更时的钩子。与 onworkable 不同，这里必须手动摘掉旧标签 ——',
     '-- 因为属性钩子只告诉你「新值」，旧值要从 old_action 参数拿。',
     '-- ⚠️ 第 18-24 行整体嵌在 `if workleft > 0 and workable` 里面。',
@@ -60,7 +60,7 @@ export default {
     '--   但若 workleft 恰好在这个时刻被改回 0，会留下一个陈旧标签。',
     '--   （此条为代码结构推断，我未构造实际触发场景，标为疑似。）',
   ],
-  27: [
+  "onaction#1+11": [
     '-- 构造函数。注意第 31-35 行每个字段都给了显式初值，',
     '-- 与 weapon.lua 的「惰性初始化」风格相反。',
     '-- ★ 差别的原因：workable 的这些字段会被 onworkable（第 1 行）立即读取，',
@@ -71,14 +71,14 @@ export default {
     '--   实体会变成「永远敲不完但每次扣 1」的软锁死实体。',
     '--   SetWorkLeft（第 83 行）用 math.max(1, ...) 保底，暗示实际最少 1 点。',
   ],
-  32: [
+  "onaction#1+16": [
     '-- ★ maxwork = -1 是「无限/不消耗」的哨兵值，不是 0。',
     '--   为什么不用 0？因为 0 在别处（第 93、155 行）表示「已完成」。',
     '--   若用 0 当无限哨兵，`workleft <= 0` 会立刻误判为完成。',
     '--   代价：所有读 maxwork 的地方都要写 `maxwork > 0` 或 `maxwork ~= nil` 判断，',
     '--   不能直接当数字用。第 4、85、103 行都在做这个判断。',
   ],
-  36: [
+  "onaction#1+20": [
     '-- 第 36-38 行是被注释掉的字段：tough / workmultiplierfn / shouldrecoilfn。',
     '-- ★ 同样是「惰性初始化」：没调对应 Setter 时为 nil，',
     '--   所以第 132、190、199 行的读取都带 nil 判断。',
@@ -86,7 +86,7 @@ export default {
     '--     与 weapon.lua 第 158 行的 EnableToughFight 名字近似但含义不同，',
     '--     见第 199-204 行的详细对照。',
   ],
-  48: [
+  "Workable:OnRemoveFromEntity#1": [
     '-- OnRemoveFromEntity：对称撤销构造期加的标签。',
     '-- ⚠️ 注意第 49 行摘的是 "workrepairable"，',
     '--   而第 4 行 SetWorkRepairable 传的第三个参数才是那个标签名。',
@@ -94,7 +94,7 @@ export default {
     '--   （SetWorkRepairable 的实现在 components/repairable.lua，',
     '--    本轮未打开该文件核实其内部如何处理标签，标为未核实。）',
   ],
-  73: [
+  "Workable:Destroy#1": [
     '-- ★ Destroy(destroyer)：一次性把剩余工作量全部扣完，等价于「瞬间敲碎」。',
     '--   实现是复用 WorkedBy 传满 workleft —— 复用的是数值扣减，不是判定。',
     '--   为什么要有它：AOE 武器（地雷爆炸、地面重锤）、物理倒塌（physics.lua:175）、',
@@ -104,14 +104,14 @@ export default {
     '--    （本人已对照第 73-77 行与第 123-128 行核实：Destroy 走 WorkedBy，',
     '--     而 WorkedBy 确实丢弃了 recoil。）',
   ],
-  79: [
+  "Workable:SetWorkable#1": [
     '-- SetWorkable(able)：一个「总开关」。',
     '-- ★ 与 workleft == 0 的区别：workleft=0 是「敲完了」，workable=false 是「暂时不让敲」。',
     '--   所以 SetWorkable(false) 之后还能 SetWorkable(true) 恢复，',
     '--   而 workleft 归零后除非 OnLoad 否则不可逆。',
     '--   GetWorkLeft（第 88-90 行）也据此把 disabled 映射成 0，对外表现一致。',
   ],
-  83: [
+  "Workable:SetWorkLeft#1": [
     '-- ★★ SetWorkLeft：设置余量，并【顺手把 workable 强制置 true】。',
     '--   这是一个隐式副作用：即使之前 SetWorkable(false) 关掉了，',
     '--   只要调一次 SetWorkLeft 就会重新打开。',
@@ -129,13 +129,13 @@ export default {
     '--   也就是 SetWorkLeft(1) 建出来的东西，第一次敲击就直接完成，',
     '--   不会真的经历「1 → 0」的扣减。这是有意的边界优化，见第 136 行。',
   ],
-  92: [
+  "Workable:CanBeWorked#1": [
     '-- CanBeWorked：对外的「现在能不能敲」总闸门。',
     '-- ★ 被 actions.lua 第 1737 行的 ValidToolWork 消费，',
     '--   也被 physics.lua 第 171 行的倒塌判定消费。',
     '--   写成一个方法而不是让各处自己判断，是为了保证判定口径唯一。',
   ],
-  102: [
+  "Workable:SetMaxWork#1": [
     '-- SetMaxWork：设上限。下限夹到 1（第 103 行 math.max(1, work or 10)）。',
     '-- ⚠️ 这里没有设成 -1 的路径 —— 也就是说一旦调了 SetMaxWork，',
     '--   就再也不能变回「无限耐久」物了。',
@@ -143,7 +143,7 @@ export default {
     '--   但那会触发钩子且不保证一致性。属于设计取舍，非缺陷。',
     '--    （本人已对照第 102-104 行核实：math.max(1, ...) 无上限通道。）',
   ],
-  106: [
+  "Workable:OnSave#1": [
     '-- ★ OnSave：存档。返回空表 {} 表示「这个组件不需要存」。',
     '--   门控是 self.savestate（第 34 行初值 false）。',
     '-- ⚠️ 【重要】默认 savestate = false，意味着绝大多数实体的 workable 进度【不进存档】。',
@@ -153,7 +153,7 @@ export default {
     '--    （本人已对照第 106-113 行与第 34 行核实：savestate 初值确为 false，',
     '--     且 OnSave 无条件以它为门控。）',
   ],
-  115: [
+  "Workable:OnLoad#1": [
     '-- ★★ OnLoad：读档。',
     '-- ⚠️ 第 116-117 行的赋值顺序是【先 workleft 后 maxwork】，且都是裸赋值，',
     '--   不走 SetWorkLeft（第 83 行）。',
@@ -171,7 +171,7 @@ export default {
     '--    （本人已核对 components/prefabs 下 daywalker_pillar.lua 第 433/445 行',
     '--     确实用 SetShouldRecoilFn(nil) 取消回调，此处是类比推断。）',
   ],
-  123: [
+  "Workable:WorkedBy#1": [
     '-- ★★★ WorkedBy(worker, numworks) —— 「不经过 action 的直接扣减」入口。',
     '--   与 WorkedBy_Internal 的区别只有一处：前者自己查工具、自己问 recoil。',
     '--',
@@ -209,7 +209,7 @@ export default {
     '--   ⚠️ 第 127 行传的 numworks 已经是 ShouldRecoil 过滤后的值，',
     '--     所以 tough 归零是靠 numworks 生效的，不是靠 recoil。',
   ],
-  130: [
+  "Workable:WorkedBy_Internal#1": [
     '-- ★★★ WorkedBy_Internal —— 真正的账本操作。',
     '--   命名带 _Internal 是刻意的（actions.lua 第 1727 行原文：',
     '--   「Chose the \'internal\' naming to discourage more places from calling it directly」）。',
@@ -232,7 +232,7 @@ export default {
     '--   ⚠️ 自研游戏只要进度条允许倍率修正，就必须留 epsilon。',
     '--    （本人已对照第 135-144 行核实 epsilon 判定与源码注释一致。）',
   ],
-  132: [
+  "Workable:WorkedBy_Internal#1+2": [
     '-- ★★ workmultiplierfn：「叠加式」效率修正。',
     '--   第 133 行 numworks = numworks * (fn(...) or 1)。',
     '--   ⚠️ 这是【乘】不是【设】：每注册一个回调就多乘一次，',
@@ -247,7 +247,7 @@ export default {
     '-- ⚠️ 传入的 numworks 是本次要扣的量，回调可以「按本次量」返回不同倍率，',
     '--   也就是能实现「最后一击必破」的语义。',
   ],
-  136: [
+  "Workable:WorkedBy_Internal#1+6": [
     '-- ★ workleft <= 1 → 直接归零。',
     '-- 源码注释说明动机：有些实体只设 1 点工作量，不希望出现「0.5 点」这种中间态。',
     '-- ★ 与第 140 行的 epsilon 是两种不同的收尾策略：',
@@ -255,7 +255,7 @@ export default {
     '-- ⚠️ 副作用：SetWorkLeft(1) 造出来的实体，第一次被敲就完成，',
     '--   onfinish（第 162 行）会触发。设计如此（第 85 行把下限设成 1 就是为了这个）。',
   ],
-  140: [
+  "Workable:WorkedBy_Internal#1+10": [
     '-- ★★ 浮点 epsilon 收尾。源码注释署名 NOTES(JBK)，',
     '--   明确指出成因是「work 效率修正器会产生浮点数」。',
     '--   ⚠️ 0.01 这个阈值是拍脑袋的经验值，没有依据 TUNING 暴露出去。',
@@ -263,14 +263,14 @@ export default {
     '--   这时走的是第 139-141 行分支，仍然能正确归零。',
     '--   所以 epsilon 只在「小幅越过零点」时起作用，不会漏判。',
   ],
-  145: [
+  "Workable:WorkedBy_Internal#1+15": [
     '-- ★ lastworktime / lastworker：记录「最近一次是谁在什么时候敲的」。',
     '-- ⚠️ 注意这两行在 if numworks > 0 之外 ——',
     '--   即便这次什么都没扣（比如工具崩了，numworks 被归零），也会更新时间戳。',
     '--   推断用途是「多久没人管这个耐久了」（如自动修理 / 苔藓蔓延判定）。',
     '--   本轮未找到这两字段的读取方，标为未核实。',
   ],
-  148: [
+  "Workable:WorkedBy_Internal#1+18": [
     '-- 双事件：worker 上的 "working"（给施动者特效用）与',
     '--   inst 上的 "worked"（携带 worker 与剩余 workleft，给音效/UI 用）。',
     '-- ★ 载荷都带足上下文：订阅者不需要反向查询就能拿到全部信息。',
@@ -278,7 +278,7 @@ export default {
     '--   想还原「扣了多少」得自己减 —— 但那是订阅者的事，本组件不给。',
     '--    （本人已对照第 148-149 行核实载荷字段。）',
   ],
-  155: [
+  "Workable:WorkedBy_Internal#1+25": [
     '-- ★★★ 完成分支。整个「敲完会发生什么」的编排都在这里，顺序有讲究：',
     '',
     '-- 【第 156-160 行：先判断是不是植物】',
@@ -304,7 +304,7 @@ export default {
     '--    （本人已核对第 162-165 行顺序；PushEvent 对已移除实体不抛错这一点',
     '--     未在 entityscript.lua 中打开核实，标为未核实。）',
   ],
-  166: [
+  "Workable:WorkedBy_Internal#1+36": [
     '-- 收尾事件三连：',
     '--   inst 上的 "workfinished"、worker 上的 "finishedwork"（携带 action 字段）、',
     '--   以及仅植物才有的世界级 "plantkilled"（携带坐标，供掉落逻辑用）。',
@@ -313,13 +313,13 @@ export default {
     '--   而且原注释明说这个事件在别处也会推 —— 植物也可能是被烧死/病死的。',
     '--    （本人已对照第 168 行源码注释核实：该注释确声明别处也会推。）',
   ],
-  181: [
+  "Workable:SetWorkMultiplierFn#1": [
     '-- SetWorkMultiplierFn：注册效率回调。见第 132 行的详细分析。',
     '-- ⚠️ 没有对应的 RemoveWorkMultiplierFn —— 设 nil 即取消（第 181 行接受 nil）。',
     '--   但没有 getter，所以「临时覆盖再恢复」只能靠自己先存旧值。',
     '--   对比 attackwearmultipliers 那种 SourceModifierList 就没这个问题。',
   ],
-  185: [
+  "Workable:SetShouldRecoilFn#1": [
     '-- SetShouldRecoilFn：注册「是否反弹」的判定回调。',
     '-- ⚠️ 签名 (inst, worker, tool, numworks) → (recoil, remainingworks)。',
     '--   两个返回值都是可选的，语义见第 190-198 行。',
@@ -327,7 +327,7 @@ export default {
     '--   返回 nil 表示「我不管，走默认逻辑」；返回 false 表示「明确不反弹」。',
     '--   两者的区别对默认逻辑有影响，见第 192 行的判断。',
   ],
-  189: [
+  "Workable:ShouldRecoil#1": [
     '-- ★★★ ShouldRecoil —— 「工具会不会崩开」的判定，两级：自定义优先，默认兜底。',
     '--   返回 (recoil: boolean, remainingworks: number)',
     '--',

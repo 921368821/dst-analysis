@@ -35,26 +35,26 @@ export default {
   13: [
     '--★ 存句柄以便反注册，与 chaseandattack 第 12 行完全相同的套路。',
   ],
-  22: [
+  "ChaseAndAttackAndAvoid:__tostring#1": [
     '--★ __tostring 同时显示「攻击目标」与「正在躲避的障碍」——',
     '--   两个目标都要能看到，排障时很实用。',
   ],
-  26: [
+  "ChaseAndAttackAndAvoid:OnStop#1": [
     '--★ OnStop 摘两个监听，与构造器注册的对称。',
   ],
-  31: [
+  "ChaseAndAttackAndAvoid:OnAttackOther#1": [
     '--★ OnAttackOther：计数 + 清空追击计时器（静默超时语义）。',
     '--★ 与 chaseandattack 第 30-34 行逐行相同。',
   ],
 
   // ══════════════ Visit:READY 段 ══════════════
-  37: [
+  "ChaseAndAttackAndAvoid:Visit#1": [
     '--★★ Visit：顺序双 if 结构，与 chaseandattack 完全一致。',
   ],
-  39: [
+  "ChaseAndAttackAndAvoid:Visit#1+2": [
     '--★ 先 ValidateTarget（与 chaseandattack 第 39 行相同）。',
   ],
-  46: [
+  "ChaseAndAttackAndAvoid:Visit#1+9": [
     '--★★★ 避障目标在**进场时**选一次，之后不重选。',
     '--★ 与 leashandavoid 第 21-23 行同一取舍：',
     '--   重选障碍会改变绕行方向 → 抖动；不重选则障碍跑了会白绕。',
@@ -62,17 +62,17 @@ export default {
     '-- ★ 移植要点：这个取舍的判据是「目标变化是否会引发行为抖动」，',
     '--   而非「重选是否更准确」。这里选了「不抖」。',
   ],
-  50: [
+  "ChaseAndAttackAndAvoid:Visit#1+13": [
     '--★ 判断用 combat:HasTarget() 而非 chaseandattack 的 `combat.target ~= nil`。',
     '--★ 语义更强：HasTarget 可能还检查目标是否可攻击（我未读 combat.lua 该方法，',
     '--   但从命名看是更严格的判断）。属合理改进。',
   ],
 
   // ══════════════ RUNNING 段 ══════════════
-  60: [
+  "ChaseAndAttackAndAvoid:Visit#1+23": [
     '--★★ RUNNING 段。与 chaseandattack 同构的三分支。',
   ],
-  61: [
+  "ChaseAndAttackAndAvoid:Visit#1+24": [
     '--★ `local is_attacking = sg:HasStateTag("attack")` ——',
     '--⚠️【已核实 · 疑似无用变量】is_attacking 在本文件后续（第 61-131 行）',
     '--   **从未被读取**。我已通读全文确认。',
@@ -80,14 +80,14 @@ export default {
     '--★ 说明这是作者调试时留下的残留。Lua 允许未使用变量，无功能危害。',
     '--   标注为「已核实」：属代码整洁性问题。',
   ],
-  76: [
+  "ChaseAndAttackAndAvoid:Visit#1+39": [
     '--★★ 贴身距离 r = 双方物理半径之和 + 0.1 余量。',
     '--★ 与 chaseandattack 第 85 行逐字相同 —— 同一套「跑动时用半径、走路时用射程」的判据。',
     '--★ 提前算出 r 是为了第 98 行的两分支比较，避免重复开方。',
   ],
 
   // ══════════════ 绕行 hack（原版） ══════════════
-  79: [
+  "ChaseAndAttackAndAvoid:Visit#1+42": [
     '--★★★ 原注释（保留，作者原话）：',
     '--   "this is probably the biggest hack i\'ve done in my life..."',
     '--   翻译：「这可能是我这一生做过的最大的 hack……」',
@@ -98,14 +98,14 @@ export default {
     '-- ★ 移植要点：给复杂逻辑留「作者自评」注释很有帮助，',
     '--   它能提示后来者「这段要小心，作者自己都说它很 hack」。',
   ],
-  80: [
+  "ChaseAndAttackAndAvoid:Visit#1+43": [
     '--★ 两道守卫：障碍存在且仍有效。',
     '--★ 注意**没有**检查「障碍是否仍挡在途中」—— 与 leashandavoid 同样的简化。',
   ],
-  81: [
+  "ChaseAndAttackAndAvoid:Visit#1+44": [
     '--★ 障碍点。三个点齐备：pt（自己）/ hp（目标）/ ap（障碍）。',
   ],
-  82: [
+  "ChaseAndAttackAndAvoid:Visit#1+45": [
     '--★★★ 第一层廉价判据：障碍比目标更近。',
     '--★ 我已核实 leashandavoid 第 37 行用的是 `distsq(ap, pt) < distsq(hp, pt)`',
     '--   （障碍 vs 目标的距离平方比较），',
@@ -114,7 +114,7 @@ export default {
     '--★ ★ 移植要点：把「与目标的距离平方」缓存下来复用，是等价且更省的写法。',
     '--   本文件比 leashandavoid 略优一点点。',
   ],
-  83: [
+  "ChaseAndAttackAndAvoid:Visit#1+46": [
     '--★★★ anglediff(A, B) —— 求两个角度之差（自动处理 ±360° 环绕）。',
     '--★ 第 83 行还留着一个被注释掉的 `--[[angle]]`，说明这里曾是变量名 angle。',
     '--★ ★ 移植要点：做角度比较**必须**用 anglediff，不能直接相减。',
@@ -125,7 +125,7 @@ export default {
     '--   这里两处角度都来自 GetAngleToPoint（同源、同范围），相减相对安全；',
     '--   但仍不如 anglediff 稳健。属可改进点。',
   ],
-  84: [
+  "ChaseAndAttackAndAvoid:Visit#1+47": [
     '--★★ 第二层廉价判据：夹角小于 45 度（障碍在正前方锥形内）。',
     '--★ 与 leashandavoid 第 39 行完全相同的阈值。',
     '--★★ 两层廉价判据的意义（详见 leashandavoid 第 37-39 行的详解）：',
@@ -133,13 +133,13 @@ export default {
     '--   ② 方向接近  →  确认在正前方',
     '--   只有都成立才做真正的绕行几何 —— 用便宜判断过滤掉绝大多数情况。',
   ],
-  85: [
+  "ChaseAndAttackAndAvoid:Visit#1+48": [
     '--★ 归一化的「指向目标」方向向量，用作侧移的基准轴。',
     '--★ ⚠️ 与 leashandavoid 第 40 行同样的问题：',
     '--   该向量在 xz 平面上（y 分量为 0），所以第 93 行的 y 偏移恒为 0。',
     '--   「抬高/压低」这一项目前不起作用。我已在 leashandavoid 第 41 行详述。',
   ],
-  86: [
+  "ChaseAndAttackAndAvoid:Visit#1+49": [
     '--★★ 绕行方向的选择：delta_dir 的符号决定绕向障碍物的哪一侧。',
     '--★ 两个分支只差 offset.z / offset.x 的正负号（正交旋转的两种方向）。',
     '--★★ 几何构造（与 leashandavoid 第 41-47 行同构）：',
@@ -148,14 +148,14 @@ export default {
     '--★ 移植建议：leashandavoid 用了 Lua 的 and/or 三元一次表达两个分支，',
     '--   本文件用显式 if/else —— **本文件的写法更清晰，建议照抄这一版**。',
   ],
-  87: [
+  "ChaseAndAttackAndAvoid:Visit#1+50": [
     '--★ 绕向一侧：ap.x - offset.z × d，ap.z + offset.x × d。',
     '--★ 这一对分量就是「把 offset 向量顺时针旋转 90°」的结果。',
   ],
-  89: [
+  "ChaseAndAttackAndAvoid:Visit#1+52": [
     '--★ 绕向另一侧：符号相反，即旋转 -90°。',
   ],
-  93: [
+  "ChaseAndAttackAndAvoid:Visit#1+56": [
     '--★⚠️ y 方向的偏移。**已核实恒等于 ap.y**（因为 offset.y 为 0）。',
     '--★ 与 leashandavoid 第 43/46 行相同 —— 都是「看似在抬高、实际没抬」。',
     '--★ 对比：本文件第 72-73 行的 hp 是 Point（y 可能是真实高度），',
@@ -163,7 +163,7 @@ export default {
   ],
 
   // ══════════════ 移动与攻击 ══════════════
-  98: [
+  "ChaseAndAttackAndAvoid:Visit#1+61": [
     '--★★ 移动判定：与 chaseandattack 第 86 行逐字相同。',
     '--   跑动用物理半径 r，走动用 CalcAttackRangeSq()。',
     '--★ 注意用的是第 74 行的 dsq（**未被绕行 hack 修改**），',
@@ -173,18 +173,18 @@ export default {
     '--   偏移很大（avoid_dist 大）时会「明明没到位却停下了」。',
     '--   标注为「疑似不精确」：无功能危害，属几何近似的固有代价。',
   ],
-  100: [
+  "ChaseAndAttackAndAvoid:Visit#1+63": [
     '--★ GoToPoint(hp, nil, not self.walk) —— 第三参数控制跑/走。',
     '--★ hp 可能是被绕行 hack 改写的点（第 87-93 行），',
     '--   这就是「决策结果编码进目标变量」的传递方式（对照 leashandavoid 第 53 行）。',
   ],
-  101: [
+  "ChaseAndAttackAndAvoid:Visit#1+64": [
     '--★ 跳跃豁免：滞空时不打断（与 chaseandattack 第 89 行相同）。',
   ],
-  103: [
+  "ChaseAndAttackAndAvoid:Visit#1+66": [
     '--★ 只有 canrotate 状态才转身，避免扭歪攻击动画朝向。',
   ],
-  108: [
+  "ChaseAndAttackAndAvoid:Visit#1+71": [
     '--★ TryAttack 返回值被丢弃（空 then），语义与 chaseandattack 第 96 行相同：',
     '--   真正的计时器重置在事件回调（第 34 行）里，不在这里。',
     '--★ ⚠️ 但本文件的绕行 hack 改写了 hp（移动目标），而攻击方向',
@@ -192,18 +192,18 @@ export default {
   ],
 
   // ══════════════ 终止 ══════════════
-  115: [
+  "ChaseAndAttackAndAvoid:Visit#1+78": [
     '--★★ 终止一：攻击次数用尽 → SUCCESS + 清目标 + 停止 + return。',
     '--★ 与 chaseandattack 第 104-108 行完全相同。',
   ],
-  120: [
+  "ChaseAndAttackAndAvoid:Visit#1+83": [
     '--★★ 终止二：距离过远 或 静默超时 → FAILED + GiveUp + 停止 + return。',
     '--★ GiveUp 而非 SetTarget(nil)：会一并清掉仇恨来源（同 chaseandattack 第 112 行）。',
     '--⚠️ 第 121 行的 startruntime ~= nil 防御是必需的（startruntime 会被第 34 行置 nil）。',
   ],
 
   // ══════════════ 休眠 ══════════════
-  128: [
+  "ChaseAndAttackAndAvoid:Visit#1+91": [
     '--★★ self:Sleep(.125) —— 与 chaseandattack/standandattack/chaseandram 全部相同。',
     '--★ 至此本目录的「战斗类节点」节拍完全统一（0.125 秒），',
     '--   而「移动类节点」用 0.25 秒。这个区分是清晰的：',

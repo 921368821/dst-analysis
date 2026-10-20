@@ -2,7 +2,7 @@
 // 重点：GetSaveRecord 存档结构 / limbo 虚体机制 / 组件更新双缓冲
 
 export const BEFORE = {
-  248: [
+  "EntityScript:GetSaveRecord#1": [
     "--★★ ★ ★ 存档序列化 —— 全游戏存档格式的定义处 ★ ★ ★",
     "--【调用时机】由 C++ 引擎在存档时回调（每个要持久化的实体调一次）。",
     "--   调用方在 mainfunctions.lua 的 SaveToFile 路径。",
@@ -17,10 +17,10 @@ export const BEFORE = {
     "--   为什么不用更精确？因为存档是明文的，位数越少文件越小。",
     "--   为什么不用更粗略？0.001 的误差在游戏里察觉不到（1 单位 = 1 像素）。",
   ],
-  254: [
+  "EntityScript:GetSaveRecord#1+6": [
     "--【先取世界坐标】后续所有分支（平台相对化 / 校验 / 写record）都基于它。",
   ],
-  256: [
+  "EntityScript:GetSaveRecord#1+8": [
     "--【★ 两条进入「平台相对坐标」分支的条件】",
     "--   ① self.temp_save_platform_pos —— 该实体要求存档时相对平台存储",
     "--   ② HasTag(\"player\")          —— 玩家永远用相对坐标",
@@ -30,7 +30,7 @@ export const BEFORE = {
     "--   ★ 同时这里还顺便存了 record.age = 网络层记录的存活时长，",
     "--     用于重连后恢复玩家饥饿度等随时间增长的数值。",
   ],
-  260: [
+  "EntityScript:GetSaveRecord#1+12": [
     "--【★ _snapshot_platform —— 一个带V2C 标记的临时补丁】",
     "--   场景：RestoreSnapshotUserSession（从快照恢复会话）时，",
     "--         玩家的平台归属还没被正确重建。",
@@ -40,12 +40,12 @@ export const BEFORE = {
     "--   ⚠ 疑似缺陷：它用「平台对象相等」而非 UID 比较，",
     "--     若两帧之间平台被销毁重建（对象不同但 UID 相同），hack 会失效并退化为世界坐标。",
   ],
-  268: [
+  "EntityScript:GetSaveRecord#1+20": [
     "--【WorldToLocalSpace】把世界坐标转成平台的局部坐标。",
     "--   ★ 这是整个存档相对坐标机制的地基：存的是「我相对船的位置」。",
   ],
-  271: ["            -- NaN and +/-inf hunting"],
-  272: [
+  "EntityScript:GetSaveRecord#1+23": ["            -- NaN and +/-inf hunting"],
+  "EntityScript:GetSaveRecord#1+24": [
     "--【★★ NaN / ±Inf 防御 —— 存档系统最脏的问题在这里被解决】",
     "--   背景：一旦某个实体坐标变成 NaN 或无穷大，它会被写进存档；",
     "--        下次读档时，这个 NaN 会通过「相对坐标 → 世界坐标」的链式计算",
@@ -53,27 +53,27 @@ export const BEFORE = {
     "--        这是 DST 历史上真实发生过的灾难级Bug。",
     "--   isbadnumber 同时检测 NaN 与 ±Inf。",
   ],
-  273: [
+  "EntityScript:GetSaveRecord#1+25": [
     "--【★ 生产环境不崩，开发环境崩】",
     "--   print 始终执行 —— 线上留证据以便事后分析。",
     "--   error 只在非 PRODUCTION 时抛 —— ★ 让 QA/开发立刻看到问题，",
     "--     而不是让玩家带着坏档继续玩。",
     "--   ★ 这是「快速失败 + 优雅降级」并存的典范：诊断信息不丢，游戏不中断。",
   ],
-  274: [
+  "EntityScript:GetSaveRecord#1+26": [
     "--【配置常量】CONFIGURATION 在开发版为 \"DEVELOPMENT\"，正式包为 \"PRODUCTION\"。",
   ],
-  277: [
+  "EntityScript:GetSaveRecord#1+29": [
     "--【降级：归零】NaN 坐标退化成 (0,0,0)，世界至少能加载。",
   ],
-  280: [
+  "EntityScript:GetSaveRecord#1+32": [
     "--【★ puid = 平台的 WalkablePlatform UID】",
     "--   不是实体 GUID，而是 walkableplatform 组件自己维护的 UID。",
     "--   原因：同一条船在客户端与服务端的实体 GUID 不同，",
     "--         但「这是同一条船的第几块可行走甲板」的 UID 是稳定的、随存档持久化的。",
     "--   ★ 这是「跨端稳定的身份」与「本端运行身份」分离的典型设计。",
   ],
-  282: [
+  "EntityScript:GetSaveRecord#1+34": [
     "--【★ 「x and ... or 0」的三元写法】",
     "--   Lua 没有 ?: 运算符，惯用法是 a and b or c。",
     "--   ★ 陷阱：当 b 为 false 或 nil 时会退化到 c。",
@@ -81,7 +81,7 @@ export const BEFORE = {
     "--     而 0 在 Lua 中是**真值**，所以不会退化 —— 这个写法是安全的。",
     "--     （若写成 record.rx = cond and 0 or 0 就无意义了。）",
   ],
-  284: [
+  "EntityScript:GetSaveRecord#1+36": [
     "--【★ Y 坐标的「选择性存储」优化】",
     "--   注释说得很清楚：\"y is often 0 in our game, so be selective.\"",
     "--   只在非 0 时才存 y，字段不存在则读档时视为 0。",
@@ -89,7 +89,7 @@ export const BEFORE = {
     "--     省下每个实体 6 个字符，几万个实体就是几百 KB。",
     "   --   ⚠ 代价：读档端必须把缺失的 y 当0 处理，参见 loadworld 的反序列化。",
   ],
-  285: [
+  "EntityScript:GetSaveRecord#1+37": [
     "--【★ 注意顺序：先判 ry ~= 0 再取整】",
     "--   这里先判断原始值是否为 0，再做四舍五入，然后**再次**判断是否为 0。",
     "--   两段判断看似冗余，实则关键：",
@@ -97,32 +97,32 @@ export const BEFORE = {
     "--     · 取整后再次判断 → 「原本是 0.0004 这类极小值，取整后变 0，也别存」",
     "--   ★ 移植时若省略第二次判断，会往存档里塞大量 y=0 的字段。",
   ],
-  291: ["    -- NaN and +/-inf hunting"],
-  292: [
+  "EntityScript:GetSaveRecord#1+43": ["    -- NaN and +/-inf hunting"],
+  "EntityScript:GetSaveRecord#1+44": [
     "--【★ 世界坐标也要做同样的 NaN 防御】",
     "--   即使走了平台相对分支，世界坐标仍会写进 record.x/z/y，",
     "--   所以必须再校验一次。这是「两处独立的污染源」思维。",
   ],
-  308: [
+  "EntityScript:GetSaveRecord#1+60": [
     "--【★ 皮肤三件套】skinname / skin_id / alt_skin_ids",
     "--   DST 支持「同一 prefab 有多个皮肤」（如四季草、幻化道具）。",
     "--   ★ 全部无条件写入（哪怕是 nil），因为它们不是坐标那种可以省略的稀疏字段 ——",
     "--     皮肤逻辑需要区分「显式为 nil」与「未设置」两种情况。",
   ],
-  312: [
+  "EntityScript:GetSaveRecord#1+64": [
     "--【★ 委托各组件序列化】",
     "--   GetPersistData 会遍历 components，逐个调 OnSave，",
     "--   把它们的产物合并到 data 里。参见本文件 1903 行。",
     "--   ★ references 是「跨实体引用」列表：例如「谁拿我当目标」「我属于哪个容器」，",
     "--     这些只能用 GUID 记录，且需要第二遍统一写盘。",
   ],
-  315: [
+  "EntityScript:GetSaveRecord#1+67": [
     "--【★ 关键：返回两个值】第二返回值 references 会一路冒泡到存档系统的顶层，",
     "--   那里统一处理「引用去重 + 全局表写入」。",
     "   --   这就是为什么本函数内部从不关心引用怎么落盘 —— 单一职责。",
   ],
 
-  319: [
+  "EntityScript:Hide#1": [
     "--【★ Hide/Show 直接转发给 C++】",
     "--   注意参数是 false —— C++ 的 Hide 签名是 Hide(shadowhide)，",
     "--   传 false 表示「不隐藏阴影」。",
@@ -130,8 +130,8 @@ export const BEFORE = {
     "--     因为业务代码常常写 inst:Hide()（EntityScript 层面），",
     "--     这一层薄封装统一了语义并留出了将来加逻辑的空间。",
   ],
-  327: ["-- NOTES(Omar): Deprecated, we do not use this function (still use the hack though!)"],
-  328: [
+  "EntityScript:Show#1+4": ["-- NOTES(Omar): Deprecated, we do not use this function (still use the hack though!)"],
+  "EntityScript:StackableSkinHack#1": [
     "--【⚠ 疑似缺陷：自我否定但仍在运行的函数】",
     "--   注释明确说「已废弃，我们不用它」，但代码还留着，且仍有调用方。",
     "--   推理依据：函数体返回一个永远为 true 或皮肤 build 相等的布尔值，",
@@ -139,18 +139,18 @@ export const BEFORE = {
     "--   ★ 保留它的唯一理由是「兼容外部模组」—— 删除会破坏 mod 的脚本。",
     "--   → 正确做法：标记 deprecated 并加警告日志，同时保留实现直到下个大版本移除。",
   ],
-  329: [
+  "EntityScript:StackableSkinHack#1+1": [
     "--【★ 注释里说的 hack 是什么】",
     "--   原来靠 StackableSkinHack 判断「两个实体的皮肤是否兼容」，",
     "--   但注释说「客户端不行，所以改用 AnimState 的 GetSkinBuild」。",
     "--   AnimState 是 C++ 对象，其状态在两端都能读到，因此可跨端使用。",
     "--   ★ 教训：凡是「纯 Lua 推断但两端不一致」的逻辑，都必须改由 C++ 提供权威答案。",
   ],
-  331: [
+  "EntityScript:StackableSkinHack#1+3": [
     "--【缺 AnimState 就视为兼容】宁可放过（true）也不误杀。",
   ],
 
-  338: [
+  "EntityScript:IsInLimbo#1": [
     "--★★ ★ ★ limbo（虚体）机制 ★ ★ ★",
     "--【★ limbo 是什么】",
     "--   limbo（虚体）= 实体仍然存在于内存与存档中，但不参与世界模拟。",
@@ -168,8 +168,8 @@ export const BEFORE = {
     "--【与 sleep 的耦合点】见 ReturnToScene 403-411 行：",
     "--   回场时先看IsAsleep()，只有「不 asleep 且 sleepstatepending 已解除」才重启大脑。",
   ],
-  339: ["    --V2C: faster than checking tag, but only valid on mastersim"],
-  340: [
+  "EntityScript:IsInLimbo#1+1": ["    --V2C: faster than checking tag, but only valid on mastersim"],
+  "EntityScript:IsInLimbo#1+2": [
     "--【★ 为什么直接返回字段而不是 self.entity:HasTag(\"INLIMBO\")？】",
     "--   注释说「比查标签快，但只在 mastersim 有效」。",
     "--   推理依据：",
@@ -180,14 +180,14 @@ export const BEFORE = {
     "--   ★ 这是一条重要的通用准则：**服务端专属的捷径必须注明只在一个模拟有效**。",
     "   --   ⚠ 潜在陷阱：若将来在客户端也调RemoveFromScene，inlimbo 会失准。",
   ],
-  343: [
+  "EntityScript:ForceOutOfLimbo#1": [
     "--【★ ForceOutOfLimbo：把「进 limbo」的决策权从外部夺过来】",
     "--   语义：即使当前不在 limbo，也强制让实体保持在场景中。",
     "--   典型用途：某些逻辑（如 hide-and-seek 的躲藏点）要求实体必须留在场景里，",
     "--     不允许被常规的 RemoveFromScene 带走。",
     "--   ★ 只设一个标志位，不做实际的 SetInLimbo —— 由调用者在合适时机落地。",
   ],
-  345: [
+  "EntityScript:ForceOutOfLimbo#1+2": [
     "--【★★ 三态真值表 —— 这行是全文最绕的表达式之一】",
     "--   self.entity:SetInLimbo( self:IsInLimbo() and not self.forcedoutoflimbo or false )",
     "--",
@@ -202,35 +202,35 @@ export const BEFORE = {
     "--     所以 `not self.forcedoutoflimbo` 天然覆盖两者。",
     "--   ★ `or false` 是防止 `false and ... or ...` 缺省分支产出 nil 的惯用法。",
   ],
-  348: [
+  "EntityScript:RemoveFromScene#1": [
     "--★★ RemoveFromScene：把实体从「活跃世界」中摘除 —— 进入 limbo 的完整流程",
     "--【调用方】网络裁剪（客户端离开范围）、hideout、despawn 类逻辑。",
     "--   参考调用点：components/inventoryitem.lua:349（放入容器时移出场景）、",
     "--     components/hideout.lua:177、components/hermitcrab_relocation_manager.lua:240。",
     "--【执行顺序的讲究】见 375 行后的说明。",
   ],
-  349: [
+  "EntityScript:RemoveFromScene#1+1": [
     "--【★ 标签与布尔字段双写】",
     "--   标签 INLIMBO  给「跨端/通用查询」用（如 UI 过滤），",
     "--   字段 inlimbo  给「服务端高频查询」用（IsInLimbo）。",
     "--   ★ 同一份状态两种表示，是为了兼顾「C++ 侧可见」与「Lua 侧低开销」。",
   ],
-  350: [
+  "EntityScript:RemoveFromScene#1+2": [
     "--【尊重强制留在场景的标志】与 ForceOutOfLimbo 呼应。",
   ],
-  354: [
+  "EntityScript:RemoveFromScene#1+6": [
     "--【★★ 先停大脑 —— 因为大脑会驱动状态图和组件，顺序至关重要】",
     "--   若先停组件再停大脑，大脑在停止过程中还可能调组件方法 → 访问已停组件。",
     "--   _DisableBrain_Internal 见1120 行。",
   ],
-  356: [
+  "EntityScript:RemoveFromScene#1+8": [
     "--【★★ 状态图必须显式 Stop】",
     "--   状态图不只是「不再 tick」，它内部还持有 OnTick 回调、定时等待、事件队列。",
     "--   SGManager 侧需要被通知才能把这些从调度列表里摘掉。",
     "--   ★ 注意：Stop 后 self.sg 仍然存在（对象还在），",
     "--     回到场景时用 sg:Start(asleep) 恢复，见 408-410 行。",
   ],
-  359: [
+  "EntityScript:RemoveFromScene#1+11": [
     "--【逐组件「冻结」】顺序无关紧要，但清单必须完整：",
     "--   Physics      —— 停止碰撞与重力，否则会继续下落穿地",
     "--   Light        —— ★ 只在 GetDisableOnSceneRemoval() 为真时关，",
@@ -239,7 +239,7 @@ export const BEFORE = {
     "--   DynamicShadow—— 阴影是渲染开销大户，limbo 实体不需要投影",
     "--   MiniMapEntity—— 从小地图消失，玩家不会跑到看不见的坑里",
   ],
-  375: [
+  "EntityScript:RemoveFromScene#1+27": [
     "--【★ enterlimbo 事件放在最后】",
     "--   监听者（如 UI、音效、埋点）拿到的状态是「完全冻结之后」的，",
     "--   读取任何组件属性都得到一致的静止值。",
@@ -247,7 +247,7 @@ export const BEFORE = {
     "--     在全游戏的 PushEvent 使用中都能看到。",
   ],
 
-  378: [
+  "EntityScript:ReturnToScene#1": [
     "--★★ ReturnToScene：从 limbo 恢复 —— 与 RemoveFromScene 完全对称",
     "--【★ 三态防护】若实体已无效，仍继续执行会把崩溃推迟到更难排查的地方，",
     "--   所以打印错误日志（注释说 \"Keep this for debug logs to come\"）。",
@@ -255,17 +255,17 @@ export const BEFORE = {
     "--     于是调用方无法从返回值判断失败，继续操作已失效的 Transform。",
     "--     更稳妥的做法是 return false 并让调用方处理。",
   ],
-  380: [
+  "EntityScript:ReturnToScene#1+2": [
     "--【原注释：\"Keep this for debug logs to come.\"】",
     "--   即：这行日志是为了将来接入日志系统而保留的，暂不删。",
   ],
-  383: [
+  "EntityScript:ReturnToScene#1+5": [
     "--【★ 与 RemoveFromScene 逐行对称】",
     "--   RemoveTag → SetInLimbo(false) → inlimbo=false → Show()",
     "--   这四步与 349-352 行严格对应。",
     "--   ★ 维护提示：修改其中一个必须同步修改另一个，否则进出 limbo 行为会不一致。",
   ],
-  387: [
+  "EntityScript:ReturnToScene#1+9": [
     "--【★ 与 RemoveFromScene 的不对称：这里无条件恢复】",
     "--   RemoveFromScene 里 Light 只在 GetDisableOnSceneRemoval() 时关闭，",
     "--   这里却无条件 Enable(true)。",
@@ -274,7 +274,7 @@ export const BEFORE = {
     "--   ⚠ 疑似缺陷：更严谨的写法应该同样检查 GetDisableOnSceneRemoval()。",
     "--     不过实践中 limbo 不太可能跨越「灯被手动关闭」的时间窗口。",
   ],
-  403: [
+  "EntityScript:ReturnToScene#1+25": [
     "--★★ ★ ★ 大脑与状态图的恢复 —— 与睡眠状态的三方协商 ★ ★ ★",
     "--   三个输入：",
     "--     brainfn —— 该实体配置了大脑吗（由 prefab 脚本设置）",
@@ -284,28 +284,28 @@ export const BEFORE = {
     "--     没配大脑 → 跳过；配了但实体在睡觉 → 不启动（省CPU）；",
     "--     配了但初始休眠状态还没从引擎传来 → 不启动（否则会误启动）。",
   ],
-  404: [
+  "EntityScript:ReturnToScene#1+26": [
     "--【★ 先算 asleep】因为下面两个分支都要用它，避免重复调用 C++。",
   ],
-  405: [
+  "EntityScript:ReturnToScene#1+27": [
     "--【★★ 三重条件：brain 存在 + 不 asleep + 休眠状态已知】",
     "--   注意是 `not (asleep or self.sleepstatepending)`，",
     "--   ★ 即「既没睡着、而且已经知道它没睡着」—— 双保险。",
     "--   这正是构造器里 sleepstatepending 存在的原因（见 221 行），",
     "--     两个相隔 800 行的决策点共享同一个时序补丁，非常值得注意。",
   ],
-  409: [
+  "EntityScript:ReturnToScene#1+31": [
     "--【★ sg:Start(asleep) 把休眠状态透传给状态图】",
     "--   状态图据此决定是否立即进入 sleepstate ——",
     "--   如果实体醒着，状态图正常跑；",
     "--   如果实体还睡着，状态图进入「只在 OnEntityWake 里干活」的形态。",
     "   --   ★ 这个参数传递是 Sleep 与 StateGraph 两个系统之间的唯一耦合点。",
   ],
-  412: [
+  "EntityScript:ReturnToScene#1+34": [
     "--【★ exitlimbo 在最后】与 enterlimbo 对称：状态完全恢复后才广播。",
   ],
 
-  415: [
+  "EntityScript:__tostring#1": [
     "--【★ __tostring = 调试身份】",
     "--   \"<GUID> - <prefab>(LIMBO)\"",
     "--   ★ 在日志里带上 (LIMBO) 后缀，排查「为什么实体没动」时一眼看穿。",
@@ -313,13 +313,13 @@ export const BEFORE = {
     "--     用 `self.prefab or \"\"` 兜住了。",
   ],
 
-  435: [
+  "EntityScript:GetTimeAlive#1": [
     "--【GetTimeAlive】GetTime() - spawntime。",
     "--   ★ 只用于调试显示与「实体活了多久」类的年龄逻辑（如小树苗成长）。",
     "--   ⚠ 因为基于 GetTime()，会受游戏加速影响；不可用于需要真实时间的逻辑。",
   ],
 
-  439: [
+  "EntityScript:StartUpdatingComponent#1": [
     "--★★ ★ ★ 组件更新双缓冲机制 ★ ★ ★",
     "--【三张全局更新表】理解本节必须先看update.lua:256 的主循环：",
     "--   UpdatingEnts        —— 本帧要更新组件的实体（GUID → EntityScript）",
@@ -338,13 +338,13 @@ export const BEFORE = {
     "--",
     "--【★ 为什么停止必须是「延迟」的？—— 见 475 行的详细说明】",
   ],
-  440: [
+  "EntityScript:StartUpdatingComponent#1+1": [
     "--【★ 无效实体直接拒绝】",
     "--   因为 self.updatecomponents = self 会把实体挂进全局表，",
     "--   而已Retire 的实体再被遍历到就是「访问已释放资源」。",
     "--   ★ 这是所有「把自己注册进全局表」的方法都必须做的防护。",
   ],
-  444: [
+  "EntityScript:StartUpdatingComponent#1+5": [
     "--【★★ 懒创建 + 一次性入表】",
     "--   只有第一个组件调 StartUpdatingComponent 时才创建 updatecomponents 表，",
     "--   并把实体登记进全局表。后续组件只填表不再碰全局表。",
@@ -352,12 +352,12 @@ export const BEFORE = {
     "--   ⚠ 递增只在这里、递减只在 StopUpdatingComponent_Deferred 与 Remove 里，",
     "--     这三处必须严格配对，否则计数会漂移。参见 1735 行。",
   ],
-  450: [
+  "EntityScript:StartUpdatingComponent#1+11": [
     "--【★ do_static_update：同时加入「暂停时也更新」集合】",
     "--   典型用途：UI 驱动的组件（inventory、craftable）在游戏暂停时仍需响应。",
     "--   ★ 注意 StaticUpdatingEnts 的入表没有计数—— 因为主循环靠 next() 判空而非计数。",
   ],
-  457: [
+  "EntityScript:StartUpdatingComponent#1+18": [
     "--★★ 撤销「待停标记」—— 这是双缓冲里最容易漏掉的一环",
     "--   场景：组件 C 在本帧 A 处调了 StopUpdatingComponent(C)，",
     "--         随后在本帧 B 处又调了 StartUpdatingComponent(C)。",
@@ -366,7 +366,7 @@ export const BEFORE = {
     "--   `StopUpdatingComponents[cmp] == self` 确认这个待停标记确实属于自己，",
     "--   避免误清除别的实体的待停标记（理论上同一 cmp 只属于一个实体，但保持严谨）。",
   ],
-  461: [
+  "EntityScript:StartUpdatingComponent#1+22": [
     "--★★★ 反查组件名的 O(n) 遍历 —— 本节唯一的性能槽点",
     "--   为什么需要 cmpname？因为 updatecomponents 的键是「组件实例」，",
     "--     值是「组件名」，update.lua 的性能剖析器会用这个值做 ProfilerPush 的标签",
@@ -379,7 +379,7 @@ export const BEFORE = {
     "--     （nil 值会让 updatecomponents[cmp]=nil 等价于「不存在」，是逻辑陷阱）。",
   ],
 
-  475: [
+  "EntityScript:StopUpdatingComponent#1": [
     "--★★ ★ ★ StopUpdatingComponent：为什么「停止」必须延迟 ★ ★ ★",
     "--【问题】主循环 update.lua:259 正在这样遍历：",
     "--     for cmp in pairs(v.updatecomponents) do",
@@ -407,14 +407,14 @@ export const BEFORE = {
     "--   · 若同帧又有 Start，StartUpdatingComponent:457 会撤销待停标记",
     "   --★ 移植到 C#/C++ 时必须显式区分这两个阶段，否则会遇到难以复现的时序 bug。",
   ],
-  476: [
+  "EntityScript:StopUpdatingComponent#1+1": [
     "--【★ 守卫条件】只有确实在更新表里才需要登记待停。",
     "--   若实体从未注册过更新，登记只会给 StopUpdatingComponents 留下垃圾条目，",
     "--   而帧末清理时 self.updatecomponents 为 nil 会直接跳过（见 482 行），",
     "--   垃圾条目虽然无害但会让 `next(StopUpdatingComponents) ~= nil` 恒真，",
     "--   ★ 每帧都白跑一次清理循环。",
   ],
-  481: [
+  "EntityScript:StopUpdatingComponent_Deferred#1": [
     "--★★ 帧末的真正删除 —— 由 update.lua:277 调用",
     "--   ★ 本函数是 public 的（带下划线前缀但确实是 EntityScript 方法），",
     "--     因为主循环要通过 v: 冒号调用它。",
@@ -423,25 +423,25 @@ export const BEFORE = {
     "--   ② 省内存（空表也要占表头）；",
     "--   ③ 让「是否在更新表」这个判断成为 O(1) 的 nil 检查。",
   ],
-  485: [
+  "EntityScript:StopUpdatingComponent_Deferred#1+4": [
     "--【★ 计数器递减的唯一出口之一】与 StartUpdatingComponent:447 配对。",
     "   --⚠ 这里的 decrement 只在 updatecomponents 整体变空时发生，",
     "--     若实体同时有 wallupdate 和 static 组件，计数语义是独立的。",
   ],
-  493: [
+  "EntityScript:StopUpdatingComponent_Deferred#1+12": [
     "--【★ 静态更新表的对称清理】",
     "--   ★ 注意静态更新表没有配对的计数变量 ——",
     "--     因为 update.lua:203 用 `if next(StopUpdatingComponents) ~= nil` 判断，",
     "--     且 StaticUpdate 分支是 `if TheNet:IsServerPaused()` 才进入，",
     "--     属于低频路径，不需要优化计数器。",
   ],
-  498: [
+  "EntityScript:StopUpdatingComponent_Deferred#1+17": [
     "--【同时从新旧两张表移除】",
     "--   ★ 必要性：实体可能在本帧的 NewStaticUpdatingEnts 里（刚加入还没并入），",
     "--     只清 StaticUpdatingEnts 会让它在下一帧的并表操作中复活。",
     "--   对照 200行：entity Remove 时也要清 NewUpdatingEnts，见 1740/1746/1752。",
   ],
-  504: [
+  "EntityScript:StartWallUpdatingComponent#1": [
     "--★★WallUpdate：物理步之前的更新阶段",
     "--【与 OnUpdate 的区别 —— 时机】",
     "--   OnUpdate      —— 每帧的「逻辑帧」，dt 约 1/30 秒",
@@ -456,13 +456,13 @@ export const BEFORE = {
     "--     StopWallUpdatingComponent，会在遍历中删表（update.lua:56 是 for cmp in pairs(...))。",
     "--     实践上很少有人在 OnWallUpdate 里停自己，暂未暴露。",
   ],
-  509: [
+  "EntityScript:StartWallUpdatingComponent#1+5": [
     "--【懒创建 + 入表】与 StartUpdatingComponent 结构一致，但少了计数器和待停撤销。",
   ],
-  514: [
+  "EntityScript:StartWallUpdatingComponent#1+10": [
     "--【同样的 O(n) 组件名反查】与 461行 相同的技术债。",
   ],
-  527: [
+  "EntityScript:StopWallUpdatingComponent#1": [
     "--★★ 立即停止 WallUpdate —— 无延迟缓冲",
     "--【★ 与 StopUpdatingComponent 的核心差异】",
     "--   那里是「标记 +帧末删」，这里是「当场删」。",
@@ -472,16 +472,16 @@ export const BEFORE = {
     "--     此处在遍历中置 nil 属于「修改已有键」，Lua 5.1 允许，但行为依赖实现。",
     "--     更安全的是像 OnUpdate 那套加缓冲。",
   ],
-  532: [
+  "EntityScript:StopWallUpdatingComponent#1+5": [
     "--★ 这里没有用 IsTableEmpty 而是手写了一个「只数一个就 break」的循环。",
     "--   推理：这可能是在热路径上避免一次函数调用（IsTableEmpty 是全局 Lua 函数），",
     "--   属于微优化。但写法晦涩，与 StopUpdatingComponent_Deferred:485 用 IsTableEmpty 不一致。",
     "--   → 建议统一为 next(t) == nil，可读性更好且同样快。",
   ],
-  540: [
+  "EntityScript:StopWallUpdatingComponent#1+13": [
     "--【★ 同时清 NewWallUpdatingEnts】理由同498 行：新表里可能残留刚入表未并入的实体。",
   ],
-  547: [
+  "EntityScript:GetComponentName#1": [
     "--【GetComponentName：调试与性能剖析用的名字查询】",
     "--   ★ 失败时返回 \"component\" 而不是 nil —— 保证永远能拼进字符串。",
     "--   ⚠ 这也是一次 O(n) 线性查找，若在每帧调用会成为热点。",

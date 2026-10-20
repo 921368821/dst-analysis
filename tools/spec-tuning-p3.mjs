@@ -3,7 +3,7 @@
 // ★★ 本文件注释密度最高的 spec：归一化写法的完整解剖都在这里。
 
 export const BEFORE = {
-  1301: [
+  "Tune#1+1287": [
     "--【分区 8 · 物品 · 耐久与护甲】1301-2000 行",
     "--  ★ 分区边界：进入物品维度。特征键名前缀：ARMOR_ / PERISH_ / REPAIR_。",
     "--  ★★ 本区的核心是一整套「分级表」：同一件物品有 TINY/SMALL/MED/LARGE/HUGE",
@@ -11,7 +11,7 @@ export const BEFORE = {
     "--    好处是加新品质只需加一档，不必改逻辑。",
   ],
 
-  1886: [
+  "Tune#1+1872": [
     "--【★★ 护甲耐久公式 —— 这是本文件最值得学的「设计意图即注释」范例】",
     "--  英文原注释：'NOTE: + 20 * 10 <= 20 hits of defending 10 planar damage'",
     "--  对应代码（第 1887 行）：",
@@ -44,19 +44,19 @@ export const BEFORE = {
     "--★ 参见 components/armor.lua（护甲扣减实现：吸收率与耐久扣减）。",
   ],
 
-  1932: [
+  "Tune#1+1918": [
     "--【★ Scrapbook（手札）配置区】1932-2000 行。",
     "--  属于「收集向」内容，参与度低，故数值集中在区块末尾。",
   ],
 
-  1999: [
+  "Tune#1+1985": [
     "--【★ 蛛后 SPIDERQUEEN 参数区】",
     "--  SPIDERQUEEN_ATTACKPERIOD = 3（第 1995 行）与普通蜘蛛的 3 秒相同 ——",
     "--  ★ 设计意图：Boss 不靠「攻击更快」施压，而靠血量与召唤能力。",
     "--    这样玩家在面对蛛后时，背下来的「3 秒一刀」肌肉记忆依然有效。",
   ],
 
-  2001: [
+  "Tune#1+1987": [
     "--【分区 9 · 生存三围与治疗】2001-2170 行",
     "--  ★ 分区边界：SANITY / PERISH / HEALING / REPAIR / CALORIES 五个家族。",
     "--  ★ 这五个家族是「玩家生存循环」的数值体现：",
@@ -65,7 +65,7 @@ export const BEFORE = {
     "--  ★ 这部分直接对应 components/hunger.lua、sanity.lua、health.lua。",
   ],
 
-  2020: [
+  "Tune#1+2006": [
     "--【★★ 治疗量分级表】HEALING_* 系列：SMALL / MED / HUGE 三档。",
     "--  HEALING_MOREHUGE = 75 —— 注意命名有 MOREHUGE（更多）这一档。",
     "--  ★★ 这里的「分级」是给植物/道具用的：",
@@ -74,7 +74,7 @@ export const BEFORE = {
     "--    这印证了文件头「判据」：只有与「一天/一次成熟」挂钩的量才归一化。",
   ],
 
-  2058: [
+  "Tune#1+2044": [
     "--【★★ 食物卡路里分级表 —— 归一化写法的又一次应用】",
     "--  CALORIES_SMALL = calories_per_day/6 = 75/6 = 12.5",
     "--  ★★ 注意它**不是**直接写 12.5，而是 75/6。",
@@ -89,7 +89,7 @@ export const BEFORE = {
     "--  components/hunger.lua。",
   ],
 
-  2100: [
+  "Tune#1+2086": [
     "--【★ 修理与合成工时】REPAIR_THULECITE_WORK = 1.5 等。",
     "--  ★ WORK 后缀统一表示「敲打次数」，不是秒数。",
     "--    命名约定：本文件的单位后缀是识别数值性质的**主要线索**：",
@@ -100,7 +100,7 @@ export const BEFORE = {
     "--      _HEALTH / _DAMAGE / _SANITY / _HUNGER → 点数",
   ],
 
-  2136: [
+  "Tune#1+2122": [
     "--★★★ 【本文件最核心的分区：理智 SANITY 与归一化示范区】2136-2250 行 ★★★",
     "--",
     "--  ★★ 为什么这个分区最重要：",
@@ -109,7 +109,7 @@ export const BEFORE = {
     "--    本文件约 30 处 100/(分母*N) 写法中的绝大部分，是学习归一化的最佳样本。",
   ],
 
-  2140: [
+  "Tune#1+2126": [
     "--【★ 墙体血量分级表】WOODWALL=200 / STONEWALL=400 / RUINSWALL=800。",
     "--  ★ 成倍递增（2倍）而非等差，因为墙体的价值在于「挡住多少次攻击」，",
     "--    指数增长才能让高级墙有质变优势。",
@@ -120,7 +120,7 @@ export const BEFORE = {
     "--      multiplayer_armor_durability_modifier 属同一思路。",
   ],
 
-  2163: [
+  "Tune#1+2149": [
     "--【★★ 复活代价 —— 惩罚设计区】2155-2170 行。",
     "--  ★ PORTAL_HEALTH_PENALTY / HEART_HEALTH_PENALTY = 惩罚值（绝对点数）",
     "--  ★ MAXIMUM_HEALTH_PENALTY = 0.75 / MAXIMUM_SANITY_PENALTY = 0.9",
@@ -136,7 +136,7 @@ export const BEFORE = {
     "--      这是「让影怪复活有代价」的设计，一正一负形成有趣的风险收益。",
   ],
 
-  2170: [
+  "Tune#1+2156": [
     "--★★★ 【★★ 归一化写法 · 完整解剖区】2170-2215 行 ★★★",
     "--",
     "--  ── 先看两个「阈值」常量，它们示范了另一种归一化 ──",
@@ -159,7 +159,7 @@ export const BEFORE = {
     "--      触发大量无谓的音效与特效，甚至可能刷资源。",
   ],
 
-  2182: [
+  "Tune#1+2168": [
     "--【★★★ 归一化写法 · 第 2 例：昼夜理智速率 ★★★】",
     "--  SANITY_DAY_GAIN = 0,--100/(day_time*32),",
     "--  ★★ 当前值为 **0**，即白天不回理智 —— 神经/gameplay 上这是「白天不涨理智」",
@@ -173,7 +173,7 @@ export const BEFORE = {
     "--      而非「每白天 300 秒」—— 见下方 SANITYAURA 验算。",
   ],
 
-  2184: [
+  "Tune#1+2170": [
     "--【★★ 夜间理智流失 —— 分night_time 而非 seg_time】",
     "--  SANITY_NIGHT_LIGHT   = -100/(night_time*20) = -0.0833/秒",
     "--  SANITY_NIGHT_MID     = -100/(night_time*20) = -0.0833/秒",
@@ -192,7 +192,7 @@ export const BEFORE = {
     "--    （与文件头警告的 2196/2204 那对不一致形成对照）",
   ],
 
-  2188: [
+  "Tune#1+2174": [
     "--【★ 月狂（SANITY_LUNACY）—— 疯狂的独立速率组】",
     "--  SANITY_LUNACY_DAY_GAIN = 100/(day_time*32) = +0.0104/秒",
     "--    ★ 正好是第 2182 行被注释掉的 100/(day_time*32) ——",
@@ -205,7 +205,7 @@ export const BEFORE = {
     "--      否则玩家进月狂就是必死。这是「避免惩罚叠加」的设计。",
   ],
 
-  2193: [
+  "Tune#1+2179": [
     "--【★ 幽灵形态的理智流失】",
     "--  SANITY_GHOST_PLAYER_DRAIN = -100/(night_time*30) = -0.0556/秒",
     "--    ★ 幽灵状态无法生火，无法保暖 —— 每夜掉 (0.0556×60) = 3.3 点理智。",
@@ -217,7 +217,7 @@ export const BEFORE = {
     "--      基础速率 + ..._MULT 上限倍数。",
   ],
 
-  2196: [
+  "Tune#1+2182": [
     "--★★★ 【★★ 全文件最重要的 15 行：SANITYAURA 与 DAPPERNESS】★★★",
     "--",
     "--  这两组「光源 / 仪态」速率是本项目**归一化写法的最佳范本**。",
@@ -253,7 +253,7 @@ export const BEFORE = {
     "--      这些倍率是玩家升级光源时能感知的「质变程度」。",
   ],
 
-  2204: [
+  "Tune#1+2190": [
     "--★★ 【DAPPERNESS 仪态流失 —— 与上面 SANITYAURA 形成关键对照】★★",
     "--  DAPPERNESS_TINY = 100/(day_time*15) = 100/4500 = 0.02222/秒",
     "--      × 480 = **10.67** 点/昼夜  ← 与注释「10.7 per day」一致 ✓",
@@ -284,7 +284,7 @@ export const BEFORE = {
     "--      两种视角各自合理，合并到同一区块时就产生了不一致。",
   ],
 
-  2212: [
+  "Tune#1+2198": [
     "--【★ 湿度对理智的惩罚】MOISTURE_SANITY_PENALTY_MAX = -100/(day_time*6)",
     "--  ★ 英文注释 'Was originally 10 days' 说明它是重调过的。",
     "--    同样以 day_time 为分母，与 DAPPERNESS 组保持一致。",
@@ -292,14 +292,14 @@ export const BEFORE = {
     "--    与温度系统（见第 11 分区 INSULATION_*）形成联动。",
   ],
 
-  2214: [
+  "Tune#1+2200": [
     "--【★ CRAZINESS（变疯速率）】CRAZINESS_SMALL / CRAZINESS_MED。",
     "--  ★ 同样采用 100/(day_time*N) 归一化写法 ——",
     "--    说明作者在这个区块是**有意识地统一采用归一化**的，",
     "--    这也是为什么 SANITYAURA 用 seg_time 显得格外突兀（应为历史遗留）。",
   ],
 
-  2216: [
+  "Tune#1+2202": [
     "--【★ 季节天数 —— 本文件的季节时间基】2218-2221 行。",
     "--  AUTUMN=20 / WINTER=15 / SPRING=20 / SUMMER=15（单位：**天**）",
     "--  ★★ 一个完整年 = 20+15+20+15 = **70 天**。",
@@ -313,7 +313,7 @@ export const BEFORE = {
     "--  与上面四季各自的固定天数是两套东西，别混。",
   ],
 
-  2226: [
+  "Tune#1+2212": [
     "--【★★ 季节长度预设表】2226-2235 行。",
     "--  SEASON_LENGTH_FRIENDLY_DEFAULT = 20（温和·默认）",
     "--  SEASON_LENGTH_HARSH_DEFAULT = 15（严酷·默认）",
@@ -326,12 +326,12 @@ export const BEFORE = {
     "--    两类乘数的来源不同，调平衡时别混淆。",
   ],
 
-  2244: [
+  "Tune#1+2230": [
     "--★ DIVINING_MAXDIST=300 / DIVINING_DEFAULTPING=8 —— 探查（Divining Rod）参数。",
     "--  下方是 DIVINING_DISTANCES 表（2238-2244），按距离分档返回不同描述文本。",
   ],
 
-  2248: [
+  "Tune#1+2234": [
     "--★★★ 【分区 11 · 温度 · 湿度 · 作物】2248-2400 行 ★★★",
     "--",
     "--  ★★ 这个分区回答玩家最常问的问题：「为什么会冻死/热死/枯死？」。",
@@ -346,7 +346,7 @@ export const BEFORE = {
     "--    ★ 这个映射让保暖数值可以与 seg_time 直接对齐（见下）。",
   ],
 
-  2249: [
+  "Tune#1+2235": [
     "--★★ 【保暖值 = 时间，不是点数】2249-2261 行。",
     "--  INSULATION_TINY        = seg_time     = 30秒（小暖石）",
     "--  INSULATION_SMALL       = seg_time*2   = 60秒（暖石）",
@@ -374,7 +374,7 @@ export const BEFORE = {
     "--        这减轻了「夜里必须永远穿着大暖石」的苛刻感。",
   ],
 
-  2263: [
+  "Tune#1+2249": [
     "--【★★ 作物温度参数】2263-2274 行。",
     "--  ★ 注意两条被注释掉的键：CROP_BONUS_TEMP=28、CROP_HEAT_BONUS=1。",
     "--    英文注释无说明。推测是早期「作物自己产热」的机制，已废弃。",
@@ -397,7 +397,7 @@ export const BEFORE = {
   ],
 
 
-  2276: [
+  "Tune#1+2262": [
     "--【★ 滚草球 TUMBLEWEED 刷新】MIN/MAX_PERIOD + REGEN_PERIOD。",
     "--  MIN_TUMBLEWEED_SPAWN_PERIOD = total_day_time*.5（240秒）",
     "--  MAX_TUMBLEWEED_SPAWN_PERIOD = total_day_time*3（1440秒）",
@@ -405,7 +405,7 @@ export const BEFORE = {
     "--    推论：滚草球是「低频高量」资源，玩家不必守着等。",
   ],
 
-  2282: [
+  "Tune#1+2268": [
     "--【★★ 世界温度基准 —— 温度系统的根】2282-2300 行。",
     "--  DAY_HEAT = 8：白天温度基准增量（度）。",
     "--  NIGHT_COLD = -10：夜晚温度基准（负 = 更冷）。",
@@ -420,7 +420,7 @@ export const BEFORE = {
     "--  调平衡时要沿着这条加法链找每一项，参见 components/temperature.lua。",
   ],
 
-  2286: [
+  "Tune#1+2272": [
     "--【★ 洞穴修正】CAVES_MOISTURE_MULT = 3（湿度×3）、",
     "--  CAVES_TEMP_MULT = 0.6（温度增量×0.6）。",
     "--    ★★ 设计意图：洞穴**又湿又冷但不会极端**。",
@@ -435,7 +435,7 @@ export const BEFORE = {
     "--    ★ 这是唯一能造成「极端低温」的天气 —— 夏季暴雨是最凶险的自然灾害。",
   ],
 
-  2296: [
+  "Tune#1+2282": [
     "--★★ 【温度变化速率 —— 决定「冷/热得多快」】2296-2300 行。",
     "--  WARM_DEGREES_PER_SEC   = 1：靠近火堆时每秒升温 1 度。",
     "--  THAW_DEGREES_PER_SEC    = 5：解冻每秒 5 度（比升温快 5 倍）。",
@@ -451,7 +451,7 @@ export const BEFORE = {
     "--    ★ 调平衡时不要把四个值调成对称，会瞬间消除紧张感。",
   ],
 
-  2302: [
+  "Tune#1+2288": [
     "--【★ 冰冻机（Ice Flingomatic）应急模式】2302-2310 行。",
     "--  EMERGENCY_BURNT_NUMBER = 2：英文注释 'emergency mode'。",
     "--    ★ 这是「保底机制」：玩家即将冻死时触发，避免不可逆死亡。",
@@ -460,7 +460,7 @@ export const BEFORE = {
     "--  调整它们要格外小心，容易造成「本该死的局没死」。",
   ],
 
-  2310: [
+  "Tune#1+2296": [
     "--【★ 温度装备系列】ICEHAT_COOLER = 40 等（2310-2320 行）。",
     "--  ★ 命名规律：COOLER = 降温能力（度），REDUCTION = 降低幅度。",
     "--  FOOD_TEMP_BRIEF/AVERAGE/LONG = 5/10/15：食物保暖时长三档。",
@@ -471,7 +471,7 @@ export const BEFORE = {
     "--      湿 + 热的组合伤害 > 干 + 热，这就是「湿冷湿热」机制的意义。",
   ],
 
-  2345: [
+  "Tune#1+2331": [
     "--【★ 天气系统参数】2345-2400 行（雨、雪、雷暴等）。",
     "--  BIRD_RAIN_FACTOR = .25：下雨时鸟类活动率降至 25%。",
     "--    ★★ 这是「天气影响生物行为」的例子：雨天鸟少，玩家可以放心采蛋。",

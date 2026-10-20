@@ -105,7 +105,7 @@ export default {
     '--     正确做法是启动时校验两者一致并报错。',
   ],
 
-  212: [
+  "ServerListingScreen:SetTab#1": [
     '-- SetTab：切换在线/LAN 两个页签。',
     '-- ★ 与 modstab 的 SetModsList 同模式（视图 + 焦点 + 选中态三者齐更新）。',
     '--   移植时可对照阅读。',
@@ -113,7 +113,7 @@ export default {
     '--   即页签状态直接决定焦点图 —— 两处保持一致。',
   ],
 
-  326: [
+  "ServerListingScreen:OnBecomeActive#1": [
     '-- ══★【OnBecomeActive：进入界面的初始化 —— 搜索的触发点】',
     '-- ★★★ 与 mapscreen 的 OnBecomeActive 完全同构（都是「从后台回前台」）：',
     '--   重新拉数据、重新布局、重建焦点。',
@@ -125,7 +125,7 @@ export default {
     '--   对比 tradescreen 的 TradeScreen 没有对应实现（缺 OnBecomeInactive）。',
   ],
 
-  348: [
+  "ServerListingScreen:Join#1": [
     '-- ★ tchelper（344 行）是一个「延迟执行 + 防重入」的辅助：',
     '--   加入服务器前先做一次确认（询问 mod 列表等）。',
     '-- ★ 348 行 Join(warnedOffline)：',
@@ -136,7 +136,7 @@ export default {
     '--   说明团队形成了「先问再做」的约定，但没有统一成基类方法。',
   ],
 
-  551: [
+  "CompareTable#1": [
     '-- ══★★★【CompareTable：递归深度相等 —— 整个界面性能的关键】',
     '-- ★★★ 这个函数的用途决定了本文件的性能特征：',
     '--   每秒被调用多次（轮询任务）来判断「服务器列表有没有变」，',
@@ -183,7 +183,7 @@ export default {
     '--   前提：数据是「小而完整」的（几十个服务器），而不是分页的。',
   ],
 
-  579: [
+  "ServerListingScreen:UpdateServerData#1": [
     '-- ══★★【UpdateServerData：详情面板的数据 → UI（120 行）】',
     '-- ★★ 581 行的守卫是整个函数的开关：',
     '--   `if sel_serv and CompareTable(sel_serv, self.selected_server) == false`',
@@ -226,7 +226,7 @@ export default {
     '--     因为业务规则变更通常不会同步改注释。',
   ],
 
-  702: [
+  "ServerListingScreen:ServerSelected#1": [
     '-- ══★【ServerSelected：选中态的唯一入口】',
     '-- ★★★ 与 modstab 的 SetNewMapTarget、tradescreen 的选中处理同模式：',
     '--   一个函数负责「有选中」与「无选中」两条路径的全部状态更新。',
@@ -243,7 +243,7 @@ export default {
     '--     保证所有行的光标都被取消选中。',
   ],
 
-  725: [
+  "ServerListingScreen:StartPeriodicRefreshTask#1": [
     '-- ══★【周期刷新任务：轮询的实现】',
     '-- ★★ 729 行 `DoPeriodicTask(self.tickperiod, function() self:RefreshView(false, true) end)`：',
     '--   第二个参数 keepScrollFocusPos = true ——',
@@ -259,7 +259,7 @@ export default {
     '--   → 属「同一操作两处实现，风格不同」，无害但不统一。',
   ],
 
-  739: [
+  "ServerListingScreen:ClearServerList#1": [
     '-- ══★【ClearServerList：清空显示而不销毁控件 —— 虚拟化的配套】',
     '-- ★★ 740 行遍历 list_widgets（13 个池控件）逐个清空字段并 Hide 图标。',
     '--   → ★★★ 这是「模式 B」的关键配套：',
@@ -279,7 +279,7 @@ export default {
     '--     这里用负偏移是多余的绕路。属「同一效果的不同写法」。',
   ],
 
-  761: [
+  "ServerListingScreen:SearchForServers#1": [
     '-- ══★★【SearchForServers：一次搜索的完整生命周期】',
     '-- ★ 763-764 行清空 servers 与 viewed_servers ——',
     '--   → ★★ 注意「服务器总数」也被清零，但 766 行马上用',
@@ -309,7 +309,7 @@ export default {
     '--   → ★ 与 326 行 OnBecomeActive 的顺序一致，符合惯例。',
   ],
 
-  818: [
+  "ServerListingScreen:RefreshView#1": [
     '-- ══★★★【RefreshView：本文件的中心调度函数 —— 与 mapscreen 同一模式】',
     '-- ★ 820 行淡出时不刷新：',
     '--   「If we\'re fading, don\'t mess with stuff」。',
@@ -340,7 +340,7 @@ export default {
     '--   再更新高亮，最后更新详情面板。',
   ],
 
-  855: [
+  "ServerListingScreen:SetRowColour#1": [
     '-- ★★ SetRowColour：把一个颜色应用到一行的三个文本控件。',
     '-- ★ 三个字段 NAME / PLAYERS / PING 必须在同一行被改，',
     '--   否则会出现「名字是红的但延迟是黑的」。',
@@ -354,7 +354,7 @@ export default {
     '--   DST 用 5.1 语义所以 unpack 可用。',
   ],
 
-  861: [
+  "ServerListingScreen:MakeServerListWidgets#1": [
     '-- ══★【MakeServerListWidgets：建立 13 个行控件（约 280 行）】',
     '-- ★★ 865 行的循环是虚拟化的**池构建**：',
     '--   for i=1,listings_per_view do ... AddChild(Widget("server_list_row")) ... end',
@@ -380,7 +380,7 @@ export default {
     '--     标注为「真实缺陷（资源泄漏）」。',
   ],
 
-  984: [
+  "UpdateServerListWidget#1": [
     '-- ══★★★【UpdateServerListWidget：虚拟化的核心 —— 一行代码的职责】',
     '-- ★★★★ 这个函数是 ScrollableList 模式 B 的 `updatefn`：',
     '--   签名 (widget, serverdata) 由 scrollablelist:301 调用，',
@@ -407,7 +407,7 @@ export default {
     '--   移植时列一张「数据字段 ↔ 视觉表现」的对照表，逐项落实。',
   ],
 
-  1016: [
+  "UpdateServerListWidget#1+32": [
     '-- ⚠️ 行尾注释「actual index is wrong」—— ★★★ 作者自己标注了不确定。',
     '-- 1017 行 `widget.index = serverdata.actualindex`。',
     '-- ★★ 这里的 index 是**选中判定的依据**（1147 行、1601 行都用它）：',
@@ -439,7 +439,7 @@ export default {
     '--   → ★ 这个顺序依赖没有注释，是「靠执行顺序保证正确」的又一处。',
   ],
 
-  1055: [
+  "UpdateServerListWidget#1+71": [
     '-- ══★【角色头像：跨层资源查找的完整案例】',
     '-- ★★★ 1041-1053 行处理「这个服务器上有什么角色」：',
     '--   1039 拿沙盒解析出的玩家数据',
@@ -465,7 +465,7 @@ export default {
     '--     更通用的做法是复数规则表（CLDR 风格）。',
   ],
 
-  1125: [
+  "UpdateServerListWidget#1+141": [
     '-- ══★★★★【★★ 虚拟化的配置现场 —— 三个关键参数】',
     '-- ScrollableList(self.viewed_servers, 320, 385, 20, 10, ',
     '--                UpdateServerListWidget, self.list_widgets, 150, true)',
@@ -531,7 +531,7 @@ export default {
     '--     属「事后修正」而非「事前规划」，是 z 序管理的常见妥协。',
   ],
 
-  1143: [
+  "ServerListingScreen:GuaranteeSelectedServerHighlighted#1": [
     '-- ══★【GuaranteeSelectedServerHighlighted：高亮的逐行重算】',
     '-- ★★ 1145-1146 行的两个状态判定（注意 `and ... or false` 的写法）：',
     '--   dev_server         = version == -1（开发版服务器）',
@@ -563,7 +563,7 @@ export default {
     '--     在 13 行的规模下这是正确的取舍。',
   ],
 
-  1175: [
+  "ServerListingScreen:CycleColumnSort#1": [
     '-- ══★【CycleColumnSort：列排序的循环切换】',
     '-- ★★ 1176-1188 行：升序时重复按同一列（= 切换成降序），',
     '--   降序时循环到下一列。',
@@ -578,7 +578,7 @@ export default {
     '--     而不是在 if/elseif 链里手写跳转**。',
   ],
 
-  1191: [
+  "ServerListingScreen:SetSort#1": [
     '-- ══★【SetSort：排序状态的切换 + 表头箭头的完整重画】',
     '-- ★★ 1230-1234 行是排序状态机的全部：',
     '--   同列 → 翻转升序/降序；换列 → 重置为升序。',
@@ -600,7 +600,7 @@ export default {
     '--   → 「焦点态与状态态正交」的贴图准备方式，标准做法。',
   ],
 
-  1242: [
+  "ServerListingScreen:DoSorting#1": [
     '-- ══★★【DoSorting：多列排序与「无延迟优先」的完整规则】',
     '-- ★★ 1243-1244 行的注释是一个**已知缺陷的自述**：',
     '-- 「This does the trick, but we might want more clever criteria...',
@@ -645,7 +645,7 @@ export default {
     '-- ★ 用 stringidsorter 而非 `<`：见 1244 行的已知缺陷注释。',
   ],
 
-  1325: [
+  "ServerListingScreen:ProcessPlayerData#1": [
     '-- ══★★★【ProcessPlayerData：★ 沙盒执行与缓存 —— 联机 UI 的安全边界】',
     '-- ★★★ 1332 行 `RunInSandboxSafe(data)`：',
     '--   → ★★★★★ 这是整个文件里最值得移植的一处安全设计：',
@@ -684,7 +684,7 @@ export default {
     '--   （进入 1329 分支时已检查过），是冗余的。但它让缓存的自描述性更好。',
   ],
 
-  1344: [
+  "ServerListingScreen:IsValidWithFilters#1": [
     '-- ══★★★【IsValidWithFilters：过滤器判定 —— 分两类是关键设计】',
     '-- ★★★ 1377-1379 行的注释点明了本函数的核心思想：',
     '-- 「先检查不可加入的服务器，让计数准确。这样无论选什么过滤器',
@@ -747,7 +747,7 @@ export default {
     '--   用 pairs 遍历数组是本文件（乃至本项目）的通病，结果正确但语义不对。',
   ],
 
-  1491: [
+  "ServerListingScreen:DoFiltering#1": [
     '-- ══★★★【DoFiltering：过滤流水线 + 本文件最难读的查询分词】',
     '-- ★★ 1495 行重置 unjoinable_servers ——',
     '--   这个重置必须在过滤**之前**，因为 IsValidWithFilters 会累加它。',
@@ -850,7 +850,7 @@ export default {
     '--   → ★★★★ 这是「虚拟化让高频刷新变得可行」的最好证明。',
   ],
 
-  1615: [
+  "ServerListingScreen:Cancel#1": [
     '-- ══★【Cancel：退出的淡入淡出编排】',
     '-- ★★ 1616 行先停搜索 —— 必须在关闭界面前停止网络请求。',
     '-- 1617 行 self:Disable() —— 禁用整个屏幕，防止淡出期间被操作。',
@@ -874,7 +874,7 @@ export default {
     '--   所以顺序是安全的（先淡入完成再允许刷新）。',
   ],
 
-  1643: [
+  "CreateButtonFilter#1": [
     '-- ══★【CreateButtonFilter / CreateSpinnerFilter：筛选器的工厂函数】',
     '-- ★★ 这两个 local function（1643/1673）是「筛选器控件的构造器」，',
     '--   每个返回 {name=..., spinner=...} 或 {name=..., textbox=...} 的表。',
@@ -895,7 +895,7 @@ export default {
     '--   → ★ 移植要点：**布局常量要推导而非重复定义**。',
   ],
 
-  1720: [
+  "ServerListingScreen:MakeFiltersPanel#1": [
     '-- MakeFiltersPanel：构建筛选器面板（约 145 行）。',
     '-- ★★ 1842 行用 ScrollableList 装筛选器，且**用模式 A**（不传 updatefn）：',
     '--   `ScrollableList(self.filters, scroll_width, scroll_height, item_height, item_padding, nil, nil, 0)`',
@@ -911,7 +911,7 @@ export default {
     '--   「列表控件需要被外部查询（IsVisible 等）」是存字段的理由。',
   ],
 
-  2145: [
+  "MakeHeader#1": [
     '-- ══★【MakeHeader：列表列头 —— 表头的排序热区】',
     '-- ★ 本地函数，接收 parent/xPos/name/onclick。',
     '-- ★★ 2217 行 MakeColumnHeaders 用它建四个列头（NAME/DETAILS/PLAYERS/PING）。',
@@ -922,7 +922,7 @@ export default {
     '--   → ★ 「排序也是一次列表变化」，必须走同样的刷新链路。',
   ],
 
-  2241: [
+  "ServerListingScreen:OnControl#1": [
     '-- ══★★★【OnControl：输入路由 —— 「输入独占」的教科书实现】',
     '-- ★★ 2244-2247 行是「文本框焦点独占」：',
     '--   若搜索框正在编辑，或搜索框有焦点且按 ACCEPT，',
@@ -967,7 +967,7 @@ export default {
     '--   两者在条件判断中等价。',
   ],
 
-  2279: [
+  "ServerListingScreen:CurrentCenterFocus#1": [
     '-- ══★★【CurrentCenterFocus / CurrentRightFocus / CurrentLeftFocus：动态焦点图】',
     '-- ★★★ 这三个函数是「焦点目标可以是函数」的用法（对照 modstab:1128）：',
     '--   971/977 行把它们作为 SetFocusChangeDir 的目标传入，',
@@ -999,7 +999,7 @@ export default {
     '--     且都是动态的。这是本文件输入系统的骨架。',
   ],
 
-  2299: [
+  "ServerListingScreen:GetHelpText#1": [
     '-- ══★★【GetHelpText：与 OnControl 严格对应的帮助系统】',
     '-- ★★ 逐条对照 2241 行的 OnControl：',
     '--   CANCEL        → BACK            ✓ 对应 2250 行',

@@ -1,6 +1,6 @@
 // spec-map-level-p2.mjs —— map/level.lua 行级注释（第 2 部分：152-245）
 export const BEFORE = {
-  152: [
+  "Level:GetTasksForLevelSetPieces#1": [
     "-- ══════════════ ★ GetTasksForLevelSetPieces：过滤 blocker ══════════════",
     "-- ★★ 返回一个**新数组**，剔除 level_set_piece_blocker == true 的任务。",
     "--   用途：只让「正常」任务去承接关卡级场景件。",
@@ -12,7 +12,7 @@ export const BEFORE = {
     "--   :152 返回**过滤后**的子集（只给 ChooseSetPieces 用）。",
     "--   ⇒ ★★ 两个名字只差一个词，极易在外部代码里用错。",
   ],
-  155: [
+  "Level:GetTasksForLevelSetPieces#1+3": [
     "-- ★★ if not v.level_set_piece_blocker then —— 唯一判据。",
     "--   ★★ 无日志、无统计 ⇒ 有多少任务被过滤掉是不可见的。",
     "--   ⚠ 若某关卡把所有任务都标了 blocker，则返回空数组 ⇒",
@@ -20,8 +20,8 @@ export const BEFORE = {
     "--     ★★★ 该关卡的**所有**关卡级场景件都消失，且**完全静默**。",
     "--     ★★ 这正是 E2 类缺陷的形态：无日志的静默丢失。",
   ],
-  159: ["-- ★ 返回过滤后的数组。"],
-  162: [
+  "Level:GetTasksForLevelSetPieces#1+7": ["-- ★ 返回过滤后的数组。"],
+  "Level:ChooseSetPieces#1": [
     "-- ══════════════ ★★ ChooseSetPieces：把场景件分配到任务 ══════════════",
     "-- ★★★ 本函数分两半：",
     "--   · :167-186  ★ 生效路径（required_setpieces + random_set_pieces）",
@@ -31,33 +31,33 @@ export const BEFORE = {
     "--   ★★★ 讽刺之处：★ 那段死代码里恰好写着本函数最重要的设计不变量，",
     "--     而生效路径**没有**这个不变量。详见 :202 处注释。",
   ],
-  163: [
+  "Level:ChooseSetPieces#1+1": [
     "-- ★★ assert：必须先调 ChooseTasks。★ 顺序契约。",
   ],
-  165: [
+  "Level:ChooseSetPieces#1+3": [
     "-- ★ 取过滤后的任务数组（:152）。★★★ 这就是「场景件不能进哪些任务」的来源。",
   ],
-  166: [
+  "Level:ChooseSetPieces#1+4": [
     "-- ★★ if #tasks > 0 then ——★ 没有可用任务就整段跳过（静默）。",
     "--   ⚠ 见 :155 的推论：全被 blocker ⇒ 场景件全部丢失且无日志。",
   ],
-  167: [
+  "Level:ChooseSetPieces#1+5": [
     "-- ★ set_pieces = {}：本地累加器，不写回 self。",
   ],
-  168: [
+  "Level:ChooseSetPieces#1+6": [
     "-- ★★ if self.required_setpieces ~= nil then —— 关卡级必需场景件。",
     "--   ★★ deepcopy：★ 每个 task 拿到的是**独立副本**，",
     "--     ★★★ 这是必需的：同一个场景件若塞进 3 个任务，",
     "--       ★★★ 不 deepcopy 就会共享同一张表，后续改动互相污染。",
   ],
-  170: [
+  "Level:ChooseSetPieces#1+8": [
     "-- ★★ 随机场景件循环：★ 塞 numrandom_set_pieces 个（默认 0）。",
     "--   ★★★ 注意 :172 每个场景件都独立摇一次 math.random(#池子)，",
     "--     ★★ **允许重复**（同一场景件可能被摇中两次）。",
     "--   ★★ 对比 :198-215 的死代码里有 `idx[k]=nil; table.remove(choices,i)`",
     "--     ★★★ 保证「一任务一场景件」——★ 那份唯一性在生效路径里不存在。",
   ],
-  172: [
+  "Level:ChooseSetPieces#1+10": [
     "-- ★★ 从候选池随机取一个名字。⚠ 池为 nil 时 `#nil` 崩溃（见 :34 处注释）。",
     "--   ★★★ 允许重复 ⇒ 可能两个任务拿到同一个场景件名字，",
     "--     ★★ 而 storygen.lua:293 的 `countstaticlayouts[setpiece_name] = 1`",
@@ -65,29 +65,29 @@ export const BEFORE = {
     "--         ★★ 后者覆盖前者（实际都只放 1 个，无害）。",
     "--     ★★ 但若同一名字被塞进**不同** task ⇒ 两个任务各放 1 个（符合预期）。",
   ],
-  176: [
+  "Level:ChooseSetPieces#1+14": [
     "-- ★★ 逐个已确定的场景件，随机挑一个 task 塞进去。",
   ],
-  178: [
+  "Level:ChooseSetPieces#1+16": [
     "-- ★★ `local idx = math.random(#tasks)` ——★ 取数组下标，不是 task id。",
     "--   ★★ 依赖 #tasks：来自 :154-158 的 table.insert 构建的**数组** ⇒ 顺序稳定。",
     "--   ★★ ⇒ ★ 这里**没有** pairs 顺序陷阱。★（对比 storygen.lua:477 的 pairs 遍历。）",
     "--   ★★★ 一个场景件 = 一个 math.random() ⇒ numrandom + #required 个随机数。",
   ],
-  180: [
+  "Level:ChooseSetPieces#1+18": [
     "-- ★★ if tasks[idx].random_set_pieces == nil then —— 懒初始化。",
   ],
-  183: [
+  "Level:ChooseSetPieces#1+21": [
     "-- ★★ print 出分配结果 ⇒ ★ 场景件去了哪个任务是**可见的**。",
     "--   ★★★ 这是全文件最好的一处日志：它是「关卡级配置生效」的",
     "--     ★★★ **唯一可观测点**。E2 类缺陷排查时先看这行。",
   ],
-  184: [
+  "Level:ChooseSetPieces#1+22": [
     "-- ★★ table.insert(tasks[idx].random_set_pieces, set_piece)。",
     "--   ★★ 注意 tasks 是 :152 的**过滤后数组**，其元素与 chosen_tasks 同对象",
     "--     ★★ ⇒ 这里改的是 chosen_tasks 里的 task 对象。★ 引用而非拷贝。",
   ],
-  187: [
+  "Level:ChooseSetPieces#1+25": [
     "-- ══════════════════════════════════════════════════════════════",
     "-- ★★★★ 【完全死代码】★ 因为 :16 的 assert 强制 data.set_pieces == nil，",
     "--   ★★ 于是 self.set_pieces 恒为 nil（:17 又显式赋 nil），",
@@ -100,17 +100,17 @@ export const BEFORE = {
     "--     ★★★ 也可以多个场景件塞进同一个任务」。",
     "--   ⚠ 疑似缺陷（表现层无害，但会让「场景件应该分散开」的直觉失效）。",
   ],
-  191: [
+  "Level:ChooseSetPieces#1+29": [
     "-- ★ idx[task.id] = i：建 id → 下标的反查表（数组语义，顺序稳定）。",
   ],
-  194: [
+  "Level:ChooseSetPieces#1+32": [
     "-- ★ table.invert(idx)：反查表取反 ⇒ 变成 下标 → id。",
     "--   ★★ 于是 availabletasks 是**「任务 id 集合」**（值是 id，键是下标）。",
     "--   ★★ 命名有误导性：变量叫「available**tasks**」但存的是 id 字符串。",
     "--   ★★ 而下面 :197 的 ArrayIntersection 求的是**交集**，结果仍是 id 数组。",
     "--     ★⇒ :205 `idx[choices[idx_choice]]` 用 id 查下标 ⇒ 逻辑自洽。",
   ],
-  197: [
+  "Level:ChooseSetPieces#1+35": [
     "-- ★★ ArrayIntersection(choicedata.tasks, availabletasks)：",
     "--   ★★ 「这个场景件允许放在哪些任务」∩ 「本次实际有的任务」。",
     "--   ★★★ 这是本设计的关键收敛点：★ 场景件的**允许范围**由数据声明，",
@@ -118,16 +118,16 @@ export const BEFORE = {
     "--   ★★ 但注意：★ 因为这段是死代码，★ 这个「允许范围」机制",
     "--     ★★★ 在当前版本里**完全没有生效**。",
   ],
-  198: [
+  "Level:ChooseSetPieces#1+36": [
     "-- ★ count = choicedata.count or 1：要放几个（默认 1）。",
   ],
-  200: [
+  "Level:ChooseSetPieces#1+38": [
     "-- ★★ assert(choices and #choices > 0, \"Trying to add set piece '\"..name..",
     "--   \"' but no choices given.\") ——★ 好消息：这在死代码里所以不生效。",
     "--   ★★ 若这段是活的，那么一个「允许范围与实际任务无交集」的场景件",
     "--     ★★ 会让整个世界生成崩溃。★ 迁移把这颗雷也一起拆掉了。",
   ],
-  203: [
+  "Level:ChooseSetPieces#1+41": [
     "-- ★★★ 「Only one layout per task, so we stop when we run out of tasks or」",
     "--   ★★★ 这是**全文件最可惜的一行注释**：",
     "--     ★★ 它准确描述了一个本来存在的不变量，但因为 :16 的 assert，",
@@ -136,16 +136,16 @@ export const BEFORE = {
     "--   ⚠ 这是「大规模迁移」的典型副作用：★ 断言挡住了新写法，",
     "--     ★★ 却没人为旧代码里的隐含约束找到新家。",
   ],
-  204: [
+  "Level:ChooseSetPieces#1+42": [
     "-- ★★ idx_choice = math.random(#choices) —— 死代码内的随机点。",
   ],
-  206: [
+  "Level:ChooseSetPieces#1+44": [
     "-- ★★ if self.chosen_tasks[choice].set_pieces == nil then ——懒初始化。",
     "--   ★★ 注意写的是 **self.chosen_tasks**（全部任务），而 :180/:184 写的是",
     "--     ★★ tasks（过滤后子集）★★ ⇒ 两处用的对象集合不同。",
     "--   ★★ 但因为这段是死代码，这个不一致不会造成实际问题。",
   ],
-  210: [
+  "Level:ChooseSetPieces#1+48": [
     "-- ★★ table.insert(..., {name=name, restrict_to=choicedata.restrict_to})。",
     "--   ★★ restrict_to 的消费在 storygen.lua:234：",
     "--     `setpiece_data.restrict_to ~= \"background\" or room.data.type == \"background\"`",
@@ -153,17 +153,17 @@ export const BEFORE = {
     "--   ★★ ⇒ 「允许范围」有两层：① 允许放哪些任务（本段，死代码）",
     "--     ★★ ② 允许放进哪类房间（restrict_to，生效）。",
   ],
-  212: [
+  "Level:ChooseSetPieces#1+50": [
     "-- ★★★ idx[choices[idx_choice]] = nil + table.remove(choices, idx_choice)",
     "--   ★★★ 这两行是「一任务一场景件」的实现：把已选任务从候选里剔除。",
     "--   ★★★ 而这两行随 :16 的 assert 一起变成了死代码。",
     "--     ★★ ⇒ ★★ 这就是 HEADER 里那条 ⚠ 缺陷的确切根因与行号。",
   ],
-  219: [
+  "Level:EnqueueATask#1": [
     "-- ══════════════ EnqueueATask ══════════════",
     "-- ★★ 三步：查表 → 断言非空 → **deepcopy** 入队。",
   ],
-  223: [
+  "Level:EnqueueATask#1+4": [
     "-- ★★★ table.insert(tasklist, deepcopy(task)) ——★ 全流程固定的拷贝开销。",
     "--   ★★★ 为什么必须 deepcopy：★ 因为 :147 之后每个 task 会被挂上",
     "--     ★★★ **各自的** substitutes 表（:73）。若共享同一对象，",
@@ -172,14 +172,14 @@ export const BEFORE = {
     "--     ★★ 相对 Lloyd 的 2-8 s 可忽略（< 50 ms 预算内）。",
     "--   ★★ 但 ★ 它是「为什么 Task 是 immutable 而 Level 不是」的根本原因。",
   ],
-  225: [
+  "Level:EnqueueATask#1+6": [
     "-- ★★ assert(task, \"Could not find a task called \"..taskname)",
     "--   ★★★ 注意这里断言的是 **task 变量**而不是 taskname，",
     "--     ★★ 所以错误信息里 taskname 已经在字符串里拼进去了。★ 写法正确。",
     "--   ★★★ 另一个细节：★ :223 的 assert 缺失（这里只在 else 里断言）——",
     "--     若 task 存在但 deepcopy 失败…不会发生。可忽略。",
   ],
-  229: [
+  "Level:SetID#1": [
     "-- ══════════════ SetID / SetBaseID / SetNameAndDesc ══════════════",
     "-- ★★★ 这三个函数都做同一件事：**写两份**（原字段 + worldgen_* 镜像）。",
     "-- ★★ 镜像字段的用途（★ 重要）：",
@@ -188,29 +188,29 @@ export const BEFORE = {
     "--   · ★★ 两个 VM 的命名空间不同 ⇒ 用 worldgen_* 前缀区分「给 worldgen 用的副本」。",
     "--   ⇒ ★★ 这些镜像字段**不可删**（否则序列化后 worldgen 侧读不到）。",
   ],
-  230: [
+  "Level:SetID#1+1": [
     "-- ★ assert(id ~= nil) —— 重复了一次构造期的 :5 检查。★ 无害的防御。",
   ],
-  231: [
+  "Level:SetID#1+2": [
     "-- ★ self.id = id —— 主字段（前端显示用）。",
   ],
-  232: [
+  "Level:SetID#1+3": [
     "-- ★ self.worldgen_id = id —— ★ 镜像（worldgen VM 读）。",
   ],
-  235: [
+  "Level:SetBaseID#1": [
     "-- ★ SetBaseID：baseid 是「关卡家族」标识（如 cave 系列共用 baseid）。",
     "--   ★★ 用途：★ 前端按 baseid 分组显示，★ 存档按 baseid 做兼容。",
   ],
-  237: ["-- ★ worldgen_baseid = id —— 同 :232 的镜像模式。"],
-  240: [
+  "Level:SetBaseID#1+2": ["-- ★ worldgen_baseid = id —— 同 :232 的镜像模式。"],
+  "Level:SetNameAndDesc#1": [
     "-- ★ SetNameAndDesc：★ 关卡显示名与描述。",
     "--   ★★ 注意 `name or \"\"` —— nil 时给空串而非 nil，",
     "--     ★★ 简化下游的 nil 检查。★ 小而实用的默认值。",
   ],
-  243: [
+  "Level:SetNameAndDesc#1+3": [
     "-- ★ worldgen_name = self.name —— 镜像。",
   ],
-  244: [
+  "Level:SetNameAndDesc#1+4": [
     "-- ★ worldgen_desc = self.desc —— 镜像。",
     "-- ★★ 全文件结束（245 行）。",
     "-- ★★★ 本文件的三层价值总结：",

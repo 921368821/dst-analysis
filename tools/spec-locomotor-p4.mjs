@@ -6,7 +6,7 @@ export const BEFORE = {
   // ══════════════════════════════════════════════════════════════
   // 十二、停止与状态清理
   // ══════════════════════════════════════════════════════════════
-  1078: [
+  "LocoMotor:SetBufferedAction#1": [
     "--★★★【SetBufferedAction：换动作时必须 Fail 掉旧的】",
     "--   ★★ 核心契约：**替换即作废**。",
     "--     旧动作的 Fail 会通知上层「这个动作没做成」，",
@@ -15,20 +15,20 @@ export const BEFORE = {
     "--   ★★ 1063 行的 1512 `self.bufferedaction = nil --so it doesn't get Failed at Clear()`",
     "--     正是为了配合这个契约：到达目的地时先把动作取出（避免被 Fail），再执行。",
   ],
-  1079: [
+  "LocoMotor:SetBufferedAction#1+1": [
     "--★ Fail 旧动作 —— 只有旧动作非 nil 才需要（1078 行已判空，这里不判也无害）。",
   ],
-  1083: [
+  "LocoMotor:SetBufferedAction#1+5": [
     "--★★ allow_platform_hopping 开启时，重置 last_platform_visited。",
     "--   ★★★ 语义：「允许跨平台跳跃」的移动中，",
     "--     **不允许跳回刚离开的那块平台**（1257 行的判定）。",
     "--     每次接新动作就重置这个「记忆」，让新的一次移动可以跳任何平台。",
     "--   ★ 否则连续做两个动作时，第二个动作会因「记得第一块平台」而拒绝跳跃。",
   ],
-  1086: [
+  "LocoMotor:SetBufferedAction#1+8": [
     "--★ 通知 playercontroller 有新动作 —— 用于客户端预测/重复动作的协调。",
   ],
-  1091: [
+  "LocoMotor:Stop#1": [
     "--★★★【Stop：完整的移动终止】",
     "--   ★★ 清理清单（比 Clear 更彻底）：",
     "--     · isrunning = false",
@@ -45,7 +45,7 @@ export const BEFORE = {
     "--     ★ 这个「留白」是刻意的：Stop 负责「停止移动」，",
     "--       不负责「取消动作」—— 两者是不同维度的事。",
   ],
-  1103: [
+  "LocoMotor:Stop#1+12": [
     "--★★★【softstop 状态标签：把停止物理的权限交给状态图】",
     "--   `if self.softstop and self.inst.sg and self.inst.sg:HasStateTag(\"softstop\")`",
     "--   ★★ softstop 状态（如玩家「转身」动画）需要**自己控制物理停止时机**，",
@@ -55,10 +55,10 @@ export const BEFORE = {
     "--   ⚠ 注意 1104 行在这个分支里重复设了 isrunning=false（外层 1093 已经设过）——",
     "--     冗余但无害。",
   ],
-  1108: [
+  "LocoMotor:Stop#1+17": [
     "--★ 非 softstop 分支：正常路径 —— 停计时器 + 停物理。",
   ],
-  1112: [
+  "LocoMotor:Stop#1+21": [
     "--★★★【PushEvent(\"locomote\") —— locomotor 与状态图之间的核心契约】",
     "--   ★★ 状态图监听 \"locomote\" 来进入 walk / run 状态。",
     "--     所以「移动意图」与「移动状态」是**双向握手**：",
@@ -66,10 +66,10 @@ export const BEFORE = {
     "--       状态图 → HasStateTag(\"moving\") → locomotor 决定是否继续 locomote（1643 行）",
     "--   ★ sgparams 透传给状态图，供其区分停止原因。",
   ],
-  1113: [
+  "LocoMotor:Stop#1+22": [
     "--★ 退出每帧更新 —— 若不退出，静止实体会被无谓遍历。",
   ],
-  1116: [
+  "LocoMotor:WalkInDirection#1": [
     "--★★★【WalkInDirection：朝指定方向走（无目标点）】",
     "--   ★ 与 GoToPoint 的关键区别：**没有目的地**。",
     "--     所以不走寻路（除非 directdrive），只靠 motor 速度 + 物理碰撞。",
@@ -77,7 +77,7 @@ export const BEFORE = {
     "--   ★★ 仍然要 ResetPath：清掉「上一个目标的路径」，",
     "--     否则 OnUpdate 里的路径跟随代码会继续按旧路径转向。",
   ],
-  1123: [
+  "LocoMotor:WalkInDirection#1+7": [
     "--★★★【canrotate 标签：状态图可以禁止转向】",
     "--   `if not self.inst.sg or self.inst.sg:HasStateTag(\"canrotate\") then SetMoveDir`",
     "--   ★★ 语义：状态图处于「正在做事」（如挖矿挥动）时不该转身，",
@@ -87,13 +87,13 @@ export const BEFORE = {
     "--     两处的 canrotate 语义有细微差异（busy 是 canrotate 的超集还是子集？",
     "--     取决于各状态图的标签定义）。",
   ],
-  1137: [
+  "LocoMotor:WalkInDirection#1+21": [
     "--★★ pusheventwithdirection 时把方向塞进事件数据（见 341 行注释的设计动机）。",
   ],
-  1141: [
+  "LocoMotor:RunInDirection#1": [
     "--★ RunInDirection = WalkInDirection + 节流。throttle 为 nil 时默认 1。",
   ],
-  1148: [
+  "LocoMotor:GetDebugString#1": [
     "--★★★【GetDebugString：调试模式下的移动诊断】",
     "--   ★ 输出：跑/走状态、目标速度、目的地、缓冲动作、",
     "--     地图地块坐标、寻路地块索引、arrive_step_dist。",
@@ -103,16 +103,16 @@ export const BEFORE = {
     "--     ★ 这两套网格的分辨率不同（寻路网格更粗），",
     "--       正是 1832 行 lastdesttile 存在的原因 —— 寻路去重必须在寻路网格上做。",
   ],
-  1162: [
+  "LocoMotor:HasDestination#1": [
     "--★ HasDestination：外部查询「当前是否有目标」。空检查即可（Dest:IsValid 由 OnUpdate 负责）。",
   ],
-  1166: [
+  "LocoMotor:SetShouldRun#1": [
     "--★ SetShouldRun：外部可改「跑还是走」（如体力不足时改为走）。",
   ],
-  1170: [
+  "LocoMotor:WantsToRun#1": [
     "--★ WantsToRun / WantsToMoveForward：状态图与 AI 查询移动意图的接口。",
   ],
-  1178: [
+  "LocoMotor:WaitingForPathSearch#1": [
     "--★★★【WaitingForPathSearch：返回搜索句柄本身（不是布尔）】",
     "--   `return self.path and self.path.handle`",
     "--   ★★ 三个返回值场景：",
@@ -121,12 +121,12 @@ export const BEFORE = {
     "--     · 有 path 且有 handle → 数字句柄（真）",
     "--   ★ 返回句柄而非 true，是为了 774/1559 行能直接拿它去 KillSearch。",
   ],
-  1182: [
+  "LocoMotor:UpdateHopping#1": [
     "--⚠【已废弃的 UpdateHopping（函数体全被注释）】",
     "--   跳跃机制从「每帧更新跳跃状态」改为「事件驱动 + 状态图 jumping 状态」。",
     "--   ★ 保留空壳是为了不炸调用它的模组。",
   ],
-  1186: [
+  "LocoMotor:FinishHopping#1": [
     "--★★★【FinishHopping：跳跃结束，释放平台预约】",
     "--   ★★ 平台预约（reservation）机制：",
     "--     跳跃前 TryToReservePlatform 占用目标平台（1702 行），",
@@ -135,7 +135,7 @@ export const BEFORE = {
     "--   ★ 1191 行的双重检查：只有「我当前所在平台 ≠ 我预约的平台」才需要释放",
     "--     （说明我可能没跳成功）。",
   ],
-  1200: [
+  "LocoMotor:SetAllowPlatformHopping#1": [
     "--★★【SetAllowPlatformHopping：是否允许跨平台跳跃】",
     "--   开启时也重置 last_platform_visited（与 1083 行同款初始化）。",
     "--   ★★ 这个开关会通过 FindPath:1796 间接影响寻路能力",
@@ -145,7 +145,7 @@ export const BEFORE = {
   // ══════════════════════════════════════════════════════════════
   // 十三、跳跃扫描的三个原语
   // ══════════════════════════════════════════════════════════════
-  1207: [
+  "LocoMotor:CheckEdge#1": [
     "--★★★【CheckEdge：判断「前方是否已无落脚点」】",
     "--   采样点 = 当前位置 + 方向 × radius（物理半径）。",
     "--   `is_water = not map:IsVisualGroundAtPoint(pt_x, 0, pt_z)` ——",
@@ -157,7 +157,7 @@ export const BEFORE = {
     "--     ② 采样点的平台 ≠ 我当前平台 → 平台边界",
     "--   ★★ 这是整个跳跃检测的基石：把「边缘」定义为「脚下地面类型改变」。",
   ],
-  1214: [
+  "LocoMotor:IsAtEdge#1": [
     "--★★★【IsAtEdge：三点采样防抖】",
     "--   用 radius - 0.25 / radius / radius + 0.25 三个半径各采一次，任一为真即在边缘。",
     "--   ★★★ 为什么要三点？",
@@ -167,16 +167,16 @@ export const BEFORE = {
     "--   ★ 这是一个「扩大判定范围」的经典技巧 ——",
     "--     用多个偏移采样代替「加个 margin 参数」。",
   ],
-  1216: [
+  "LocoMotor:IsAtEdge#1+2": [
     "--★ edge_range = 0.25 —— 采样偏移量。与跳跃距离 6.0 相比很小，",
     "--   说明三点采样覆盖的区间只有 0.5 格，靠的是「时间上连续多帧」而非「空间上很大」。",
   ],
-  1222: [
+  "LocoMotor:GetHopDistance#1": [
     "--★ GetHopDistance：优先用 hop_distance_fn 钩子，否则用固定值。",
     "--   ★★ 传 speed_mult 参数（1664 行调用）——",
     "--     设计上允许「速度越快跳越远」，但当前实现不传也能工作。",
   ],
-  1226: [
+  "LocoMotor:IsValidDestinationPlatform#1": [
     "--★★★★★【IsValidDestinationPlatform：目标平台的四道准入检查】",
     "--   ① 目标 == 当前平台 → 有效（不需要跳）",
     "--   ② walkableplatform.player_only 且我不是玩家 → 无效",
@@ -198,20 +198,20 @@ export const BEFORE = {
     "--   ⚠ 1241 行客户端版：`not dest_platform:HasTag(...)` ——",
     "--     若 dest_platform 为 nil 会崩，但调用方（1680/1689）已判空。",
   ],
-  1229: [
+  "LocoMotor:IsValidDestinationPlatform#1+3": [
     "--★ no_mounts 检查用 replica.rider —— 见上方分析，这是双端不对称点。",
   ],
-  1231: [
+  "LocoMotor:IsValidDestinationPlatform#1+5": [
     "--★ walkableplatform 组件保证存在（能拿到平台的实体都有这个组件）。",
   ],
-  1238: [
+  "LocoMotor:IsValidDestinationPlatform#1+12": [
     "--★ 服务端：查真实容量（IsFull 由 walkableplatformmanager 维护）。",
   ],
-  1244: [
+  "LocoMotor:IsValidDestinationPlatform#1+18": [
     "--★ WALL_TAGS —— 跳跃时需要避让的「墙类」实体标签。",
     "--   ★ 只有 wall 标签：其他有物理的障碍（如栅栏 gate）不阻挡跳跃。",
   ],
-  1245: [
+  "LocoMotor:IsValidDestinationPlatform#1+19": [
     "--★★★【ScanForPlatformInDir_Internal 签名解释】",
     "--   steps        —— 常规扫描步数",
     "--   steps_to_land—— 从「悬浮位置」跳向陆地时的额外扫描步数（可大于 steps）",
@@ -221,14 +221,14 @@ export const BEFORE = {
     "--   ★★ steps_to_land 的存在是为了解决「站在船边跳到岸上比跳到船上远」",
     "--     的不对称：跳向陆地时要多扫几步找可落脚的点。",
   ],
-  1246: [
+  "LocoMotor:ScanForPlatformInDir_Internal#1": [
     "--★ 本函数是跳跃检测的**唯一实现**，另外两个 ScanForPlatformInDir* 都是它的包装。",
   ],
-  1247: [
+  "LocoMotor:ScanForPlatformInDir_Internal#1+1": [
     "--★ is_first_hop_point：跳过第一个采样点的返回（见 1322 行）——",
     "--   因为第一个采样点通常就是脚下的位置，返回它等于「不跳」。",
   ],
-  1248: [
+  "LocoMotor:ScanForPlatformInDir_Internal#1+2": [
     "--★★★【`for i = 1, steps_to_land or steps` —— 扫描步数取决于出发点】",
     "--   ★ 站在平台上 → 扫 steps 步",
     "--   ★ 悬浮在空中 → 扫 steps_to_land 步（更多）",
@@ -236,10 +236,10 @@ export const BEFORE = {
     "--     若 steps_to_land 是浮点数，循环会向上取整（实际是 i <= steps_to_land）。",
     "--     1367 行的 step_count 就是浮点数（(dist+1)/0.5），所以这里有隐式取整。",
   ],
-  1251: [
+  "LocoMotor:ScanForPlatformInDir_Internal#1+5": [
     "--★ 平台无效则当不存在（置 nil）—— 后续判定会自然落到「有地面但没平台」。",
   ],
-  1255: [
+  "LocoMotor:ScanForPlatformInDir_Internal#1+9": [
     "--★★★【英文原注释解释了一个手感问题】",
     "--   \"prevent jumping back onto the same platform because if you click an action",
     "--    and land near the edge of a platform you would sometimes turn around",
@@ -249,13 +249,13 @@ export const BEFORE = {
     "--     实体转身又跳回船上 → 玩家看到「莫名其妙的往返跳」。",
     "--   ★ 解法：记住 last_platform_visited（1714 行设置），本次移动中不跳回它。",
   ],
-  1257: [
+  "LocoMotor:ScanForPlatformInDir_Internal#1+11": [
     "--★ from_floating 时无条件放行（悬浮状态没有「来路平台」可记忆）。",
   ],
-  1258: [
+  "LocoMotor:ScanForPlatformInDir_Internal#1+12": [
     "--★ is_water：脚下无实体（无地面）判定，与 CheckEdge:1210 同款。",
   ],
-  1260: [
+  "LocoMotor:ScanForPlatformInDir_Internal#1+14": [
     "--★★★【跳跃前的障碍物检查：扫「有物理的墙」】",
     "--   `TheSim:FindEntities(整格坐标, 0, 整格坐标, 半径1, WALL_TAGS)`",
     "--   ★★ FindEntities 用**整数格坐标**（math.floor）——",
@@ -271,13 +271,13 @@ export const BEFORE = {
     "--   ⚠ 性能：每帧可能对多个采样点做 FindEntities。",
     "--     优化靠 1438 行的 lastpos 缓存（只有跨格才进 OnUpdate 深处）。",
   ],
-  1261: [
+  "LocoMotor:ScanForPlatformInDir_Internal#1+15": [
     "--★ math.floor 是必须的：TheSim 的空间哈希只认整数格。",
   ],
-  1264: [
+  "LocoMotor:ScanForPlatformInDir_Internal#1+18": [
     "--★ placer 组件：正在被放置的实体（有预览幽灵时存在）。",
   ],
-  1272: [
+  "LocoMotor:ScanForPlatformInDir_Internal#1+26": [
     "--★★★【跳跃成立的两个必要条件（用 and 连接）】",
     "--   `from_floating or (platform ~= my_platform and (i <= steps or platform == nil))`",
     "--   ① 目标是不同的平台（platform ~= my_platform）",
@@ -288,10 +288,10 @@ export const BEFORE = {
     "--     —— or 的优先级高于 and，必须显式加括号。",
     "--   ⚠ 移植到强类型语言时，Lua 的运算符优先级差异是最容易出错的地方。",
   ],
-  1275: [
+  "LocoMotor:ScanForPlatformInDir_Internal#1+29": [
     "--★ `platform ~= nil or not is_water` —— 有平台，或有地面（陆地）。",
   ],
-  1276: [
+  "LocoMotor:ScanForPlatformInDir_Internal#1+30": [
     "--★★★【跳跃延迟机制：防止「贴着边缘狂点方向键连跳」】",
     "--   条件：hop_delay 存在 + 没有目标（dest == nil，即纯方向移动） + 未 nodelay。",
     "--   ★★ 为什么只在「无目标的方向移动」时延迟？",
@@ -300,7 +300,7 @@ export const BEFORE = {
     "--     若立刻跳船，玩家会觉得「误跳」。",
     "--   ★ 延迟时长按情况分三档（见 1280-1287 行）。",
   ],
-  1279: [
+  "LocoMotor:ScanForPlatformInDir_Internal#1+33": [
     "--★★【延迟时长三档】",
     "--   ① 目标是水（跳向船）→ TUNING.PLATFORM_FLOATING_HOP_DELAY_TICKS = 4",
     "--   ② 目标是陆地 → 取「源平台与目标平台的 platformhopdelay 的较大者」，",
@@ -312,13 +312,13 @@ export const BEFORE = {
     "--   ★ 平台级可配（components/platformhopdelay.lua）——",
     "--     某些平台（如需要「蓄力」的吊桥）可以要求更长延迟。",
   ],
-  1283: [
+  "LocoMotor:ScanForPlatformInDir_Internal#1+37": [
     "--★ platformhopdelay 组件：平台级的跳跃延迟配置（可选组件）。",
   ],
-  1288: [
+  "LocoMotor:ScanForPlatformInDir_Internal#1+42": [
     "--★ delay <= 0 时直接跳过延迟判断（该场景不延迟）。",
   ],
-  1290: [
+  "LocoMotor:ScanForPlatformInDir_Internal#1+44": [
     "--★★★【skip_delay：三种「不延迟」的情形】",
     "--   ① my_platform.Physics == nil —— 固定平台（如 abysspillar 深海柱）",
     "--      ★ 没有 Physics = 不可移动的平台，跳到它上面不会造成",
@@ -328,10 +328,10 @@ export const BEFORE = {
     "--   ③ 例外：boatringdata:IsRotating() —— 旋转中的环形船阵不算静止",
     "--      ★ 即使速度为 0，旋转中的船阵也在动，所以不能跳过延迟。",
   ],
-  1291: [
+  "LocoMotor:ScanForPlatformInDir_Internal#1+45": [
     "--★ abysspillar（深海柱）—— 固定不动的平台，是这个分支的主要受益者。",
   ],
-  1297: [
+  "LocoMotor:ScanForPlatformInDir_Internal#1+51": [
     "--★★★【boatringdata 的关键注释】",
     "--   \"boatringdata is available on clients!\"",
     "--   ★★★ 这条注释解释了为什么这里可以安全地在客户端读这个组件：",
@@ -340,10 +340,10 @@ export const BEFORE = {
     "--   ★★ 双端同构的又一个例子：为了让两端跳跃延迟一致，",
     "--     这个判定用到的组件必须是双端可读的。",
   ],
-  1298: [
+  "LocoMotor:ScanForPlatformInDir_Internal#1+52": [
     "--★ 三重条件：速度全 0 且不在旋转 → 才算「静止可直连」。",
   ],
-  1308: [
+  "LocoMotor:ScanForPlatformInDir_Internal#1+62": [
     "--★★★【延迟计时的核心：starttick 只在「目标或来源变化」或「中断一帧以上」时重置】",
     "--   `if platform ~= toplatform or my_platform ~= fromplatform`",
     "--     `or tick > lasttick + 1 then starttick = tick`",
@@ -353,24 +353,24 @@ export const BEFORE = {
     "--   ★ 这是「连续输入确认」的防抖实现 ——",
     "--     防止「点一下方向键松手」被当成「按住」，也防止「连续快速点击」绕过延迟。",
   ],
-  1315: [
+  "LocoMotor:ScanForPlatformInDir_Internal#1+69": [
     "--★ 计时够了才返回 true（可以跳）。否则返回 false（继续等）。",
   ],
-  1322: [
+  "LocoMotor:ScanForPlatformInDir_Internal#1+76": [
     "--★★★【跳过第一个采样点】",
     "--   `if is_first_hop_point then is_first_hop_point = false else return true, ... end`",
     "--   ★★ 为什么？第一个采样点在「脚边 + 一小步」，通常还在当前平台上，",
     "--     返回它等于「原地跳」。跳过它让扫描从「真正离开平台后的第一个点」开始。",
   ],
-  1331: [
+  "LocoMotor:ScanForPlatformInDir_Internal#1+85": [
     "--★ 扫完都没找到 → 不跳。这是正常路径（走到平台边缘但不跳）。",
   ],
-  1334: [
+  "LocoMotor:ScanForPlatformInDir#1": [
     "--★★【ScanForPlatformInDir：先判边缘再扫】",
     "--   ★ 短路：不在边缘就不扫（省掉 1246 行那个重循环）。",
     "--   ★ 这是「前置快速筛 + 后置精细判」的标准优化结构。",
   ],
-  1341: [
+  "LocoMotor:ScanForPlatformInDirFromFloating#1": [
     "--★ 从悬浮位置扫描：my_platform 传 nil，from_floating 传 true，步数用 steps_to_platform。",
   ],
 };

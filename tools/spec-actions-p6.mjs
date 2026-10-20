@@ -3,7 +3,7 @@
 // 锚点范围：2900 ~ 3900
 
 export const BEFORE = {
-  2896: [
+  "ACTIONS.INVESTIGATE.fn#1": [
     "--★ INVESTIGATE.fn —— 调查热点。读 knownlocations 的「investigate」标记。",
     "--   ★★ 2899 行 RememberLocation(..., nil) 把标记清掉（用一次就没）。",
     "--   ★★ 2901-2903 行的额外动作：TryRetarget —— ",
@@ -11,7 +11,7 @@ export const BEFORE = {
     "--     ★★★ 这是「调查」这个玩法在战斗系统里的延伸：",
     "--       考古调查点往往在怪物附近，所以调查完立刻重新选目标。",
   ],
-  2908: [
+  "ACTIONS.COMMENT.fn#1": [
     "--★★ COMMENT.fn —— 「点评动物花纹」的动作，34 行。",
     "--   ★★ 结构：读 doer.comment_data（由别处预填），然后：",
     "--     ① 2915-2927 有 npc_talker（NPC 评论）→ Chatter 或 Say",
@@ -27,7 +27,7 @@ export const BEFORE = {
     "--       CLIENT_REQUESTED_ACTION 同源。",
     "--     ★ 好处：不需要改 fn 签名；风险：字段可能被别处覆盖。",
   ],
-  2943: [
+  "ACTIONS.GOHOME.fn#1": [
     "--★★ GOHOME.fn —— 「回家」，20 行，含自我销毁。",
     "--   ★★ 保留的自嘲注释「this is gross. make it better later.」——",
     "--     ★★★ 作者对这段代码的评价。读到这里应该理解为什么：",
@@ -37,7 +37,7 @@ export const BEFORE = {
     "--   ★★ 2945-2947 行的 `force_onwenthome_message` 是一个调试/特效开关：",
     "--     只有强制设置时才推 onwenthome 事件。",
   ],
-  2956: [
+  "ACTIONS.GOHOME.fn#1+13": [
     "--★ 兜底分支：既不是已知 home 类型就推事件 + 销毁玩家。",
     "--   ★★★ 这里**直接 Remove 掉执行者**。",
     "--     全文件唯一的「动作删除执行者」的行为。",
@@ -46,12 +46,12 @@ export const BEFORE = {
     "--       访问已被移除的 doer —— 幸好 Succeed 只跑 onsuccess 回调数组，",
     "--       通常是空的。属「侥幸安全」。",
   ],
-  2965: [
+  "ACTIONS.JUMPIN.strfn#1": [
     "--★ JUMPIN.strfn —— 「附身 / 跳跃」的名字由 doer 是不是幽灵决定。",
     "--   ★★ 与 CLIMB.strfn（6964 行）完全相同的写法 ——",
     "--     ★ 两个动作共用一套「幽灵时改名」的规则。",
   ],
-  2969: [
+  "ACTIONS.JUMPIN.fn#1": [
     "--★★★ JUMPIN.fn —— 「两阶段动作」的第一阶段（§2 431 行已预告）。",
     "--   ★★ 2972 行 `sg.currentstate.name == \"jumpin_pre\"` ——",
     "--     ★★★ 动作**只有在特定状态下才生效**。",
@@ -66,11 +66,11 @@ export const BEFORE = {
     "--     ★★★ 这是「用状态机兜住失败」的写法：",
     "--       动作层返回失败，状态层已经自我修复。",
   ],
-  2983: [
+  "ACTIONS.JUMPIN_MAP.stroverridefn#1": [
     "--★ JUMPIN_MAP.stroverridefn —— 地图版显示固定的 MAP_WORMHOLE 词。",
     "--   ★★ 与 TELLSTORY 同款：用 stroverridefn 得到「干净的词」。",
   ],
-  2987: [
+  "ACTIONS.JUMPIN_MAP.stroverridefn#1+4": [
     "--★ 两个 FindEntities 的 must-tag 列表。",
     "--   ★★ ★★★ 「章鱼洞」这个玩法用两级 indirection 实现：",
     "--     charlieresidue（章鱼残留物）—— 一个**地图上的标记实体**",
@@ -80,7 +80,7 @@ export const BEFORE = {
     "--   ★ 这是本文件里最复杂的「多级目标」逻辑（1300-1320 的 remap +",
     "--     2989-3027 的 fn + 3028-3051 的 MAP 变体，共 100 行）。",
   ],
-  2989: [
+  "DoCharlieResidueMapAction#1": [
     "--★★【DoCharlieResidueMapAction —— 章鱼洞地图传送的 39 行】",
     "--   ★★ 两个大分支：",
     "--     ① 2993 residuetarget 有 wormhole 标签   → 找另一个虫洞作出口",
@@ -94,12 +94,12 @@ export const BEFORE = {
     "--       玩家从 A 点进、从 A 点出（什么都没变）而不是卡死。",
     "--     ★ 一个刻意的 graceful degradation。",
   ],
-  3016: [
+  "DoCharlieResidueMapAction#1+27": [
     "--★ 沉睡的触手柱要先 Overtake()（唤醒成实体形态）才能当出口。",
     "--   ★★ 3018 行 `teleporterexit:Overtake() or teleporterexit` ——",
     "--     ★ or 兜底：唤醒失败就用原实体。",
   ],
-  3025: [
+  "DoCharlieResidueMapAction#1+36": [
     "--★★ 3025 行：条件都不满足 → 「让残留物消失并进入冷却」+ return false。",
     "--   ★★ DecayCharlieResidueAndGoOnCooldownIfItExists —— 玩家点错了地方，",
     "--     章鱼残留物会消失并冷却一段时间（防止反复尝试刷传送）。",
@@ -107,17 +107,17 @@ export const BEFORE = {
     "--   ★ 与 3004/3021 行的 DecayCharlieResidueIfItExists（成功时）对比：",
     "--     成功 → 只消失；失败 → 消失 + 冷却。",
   ],
-  3028: [
+  "ACTIONS.JUMPIN_MAP.fn#1": [
     "--★★ JUMPIN_MAP.fn —— 30 行，与 JUMPIN.fn（2969）的差异：",
     "--   ★★ ① 3033-3038 行要解包「残留物 → 真正的目标」这一层 indirection",
     "--   ★★ ② 3040 行区分「走残留物路径」还是「普通虫洞路径」",
     "--   ★★★ 3037 行的 `target = target and target:IsValid() and target or nil`",
     "--     是一个防 nil 的三段式 —— 若 target 无效则置 nil。",
   ],
-  3053: [
+  "ACTIONS.TELEPORT.strfn#1": [
     "--★ TELEPORT.strfn —— 「传送到城镇」固定词。",
   ],
-  3057: [
+  "ACTIONS.TELEPORT.fn#1": [
     "--★★ TELEPORT.fn —— 「复用已有状态」的典范（§2 433 行已预告）。",
     "--   ★★ 3061 行检查 sg 处于 **dolongaction**（长动作中）：",
     "--     ★★★ 这个状态是「玩家正在播放长动作」的通用态。",
@@ -128,10 +128,10 @@ export const BEFORE = {
     "--     说明这些状态是**通用容器**，而非某个动作的私有状态。",
     "--   ★★ 3068 行的 teleporter 标签检查是最后一道守卫。",
   ],
-  3075: [
+  "ACTIONS.RESETMINE.fn#1": [
     "--★ RESETMINE.fn —— 两行转发（地雷重置）。",
   ],
-  3082: [
+  "ACTIONS.ACTIVATE.fn#1": [
     "--★★★ ACTIVATE.fn —— 「最泛用动作」的实现（13 行）。",
     "--   ★★ 3084 行的前置：目标有 activatable 组件，",
     "--     ★★ 且目标**不在燃烧也不在冒烟**：",
@@ -149,22 +149,22 @@ export const BEFORE = {
     "--   ★★ 与 6918-6923 行 SWAPBODIES_MAP.fn 的写法完全一致 ——",
     "--     同一个模式在两个文件区域重复。",
   ],
-  3096: [
+  "ACTIONS.ACTIVATE.strfn#1": [
     "--★★ ACTIVATE.strfn —— 委托给实体的 GetActivateVerb。",
     "--   ★★ 3097 行检查 `act.target.GetActivateVerb ~= nil` 而非 components ——",
     "--     ★★★ 因为这个方法挂在 prefab 的实例上（inst 方法），不是组件上。",
     "--     ★ 与 TRAVEL 的 travel_action_fn 同型（§p5 2109 行）。",
   ],
-  3102: [
+  "ACTIONS.ACTIVATE.stroverridefn#1": [
     "--★ ACTIVATE.stroverridefn —— OverrideActivateVerb（完全覆盖）。",
     "--   ★★ 与 strfn 的区别：strfn 只给修饰词（会拼目标名），",
     "--     stroverridefn 给完整字符串（不拼目标名）。见 p3 498 行的说明。",
   ],
-  3109: [
+  "ACTIONS.OPEN_CRAFTING.strfn#1": [
     "--★ OPEN_CRAFTING.strfn —— 从 PROTOTYPER_DEFS 查动作词。",
     "--   ★★ 3111 行用 prefab 名查表 —— 「制作台按 prefab 配置显示词」。",
   ],
-  3116: [
+  "ACTIONS.OPEN_CRAFTING.fn#1": [
     "--★★ OPEN_CRAFTING.fn —— 「隐藏的原型台」处理（9 行）。",
     "--   ★★ 3119-3120 行：",
     "--       prototyper = (target.prototyper.redirect_to_prototyper) or target",
@@ -176,17 +176,17 @@ export const BEFORE = {
     "--   ★★ 3122 行 `return ...UsePrototyper(prototyper)` 且 3124 行兜底 false。",
     "--     注意 3122 是 return，3124 的 false 只有 prototyper 为 nil 时到达。",
   ],
-  3127: [
+  "ACTIONS.CAST_POCKETWATCH.strfn#1": [
     "--★ CAST_POCKETWATCH.strfn —— FunctionOrValue 工具的用法。",
     "--   ★★ 3129 行 `FunctionOrValue(fn, self, doer, target)` ——",
     "--     ★★★ 这是 DST 处理「字段可以是函数也可以是值」的通用惯例。",
     "--       避免每个 prefab 都写一个 `if type(f) == \"function\"`。",
     "--     ★ 全文件出现 2 次（3129/3161/3163/3794）。",
   ],
-  3133: [
+  "ACTIONS.CAST_POCKETWATCH.fn#1": [
     "--★ CAST_POCKETWATCH.fn —— 施法。pocketwatchcaster 标签守卫。",
   ],
-  3140: [
+  "ACTIONS.HAUNT.fn#1": [
     "--★★ HAUNT.fn —— 「附身」，七条件准入。",
     "--   ★★ 六个否定条件：",
     "--     ① target 无效                     → 不能",
@@ -196,7 +196,7 @@ export const BEFORE = {
     "--     ⑤ 有 haunted 或 catchable 标签    → 已被附身/可被抓",
     "--   ★★ 3147 行先推 haunt 事件再调 DoHaunt —— 与 2679/3169 同款「事件先行」。",
   ],
-  3153: [
+  "ACTIONS.MURDER.fn#1": [
     "--★★★【MURDER.fn —— 完整的「处决」流程（41 行）】",
     "--   ★★ 七步流程：",
     "--     ① 3154-3155  取出对象（invobject 或 target）",
@@ -212,7 +212,7 @@ export const BEFORE = {
     "--     ★ 差异原因：MURDER 是「主动杀」，对象从背包取出后已无归属；",
     "--       FEED 的对象还在背包里，要先判断是否还在。",
   ],
-  3168: [
+  "ACTIONS.MURDER.fn#1+15": [
     "--★★ 保留的英文注释「Push the events before spawning any giving any loot.」",
     "--   ★★★ 这是一条**顺序约束**：事件先于战利品。",
     "--     原因：监听 killed 的系统（如成就、任务、统计）会在回调里",
@@ -220,7 +220,7 @@ export const BEFORE = {
     "--     统计就会算错。",
     "--     ★ 这是「事件驱动系统对执行顺序的隐式要求」，非常容易在重构时破坏。",
   ],
-  3172: [
+  "ACTIONS.MURDER.fn#1+19": [
     "--★★★ 3175 行的 `for i = 1, stacksize` —— 「一整堆全杀」。",
     "--   ★★★ 杀掉 10 个浆果就要生成 10 次战利品。",
     "--     ★ 3173 行 causeofdeath = doer —— 「谁杀的」必须记录，",
@@ -228,11 +228,11 @@ export const BEFORE = {
     "--   ★★ 3174 行的 `local pos = Vector3(x, y, z)` 与 3156 行的 x,y,z 重复取值，",
     "--     纯性能考量（避免在循环里反复解包）。",
   ],
-  3186: [
+  "ACTIONS.MURDER.fn#1+33": [
     "--★ drop_inventory_onmurder 标签：被杀时倒出背包。",
     "--   ★★ 与 PICKUP.fn 924 行的 drop_inventory_onpickup 对称。",
   ],
-  3195: [
+  "ACTIONS.HEAL.strfn#1": [
     "--★★ HEAL.strfn —— 「治自己 vs 治别人」的三态显示。",
     "--   ★★ 3196 行的 `isself` 同样依赖 TheInput:ControllerAttached()，",
     "--     与 SHAVE.strfn（2813 行）同款。",
@@ -241,7 +241,7 @@ export const BEFORE = {
     "--       隐藏动作会让玩家困惑「为什么这个不能治」。",
     "--     ★ 显示但点了报错，是更好的 UX。",
   ],
-  3204: [
+  "ACTIONS.HEAL.fn#1": [
     "--★★ HEAL.fn —— 两个治疗组件分支。",
     "--   ★★ 3206 行的三重否定：",
     "--       target 有 health 组件 且 未死 且 不是 playerghost",
@@ -251,17 +251,17 @@ export const BEFORE = {
     "--   ★★ healer 分支传两个参数，maxhealer 分支只传一个 ——",
     "--     ★ 又一个「看起来一样实则不同」的签名差异（与 2825 行的 Shave 同类）。",
   ],
-  3215: [
+  "ACTIONS.UNLOCK.fn#1": [
     "--★ UNLOCK.fn —— 3219-3221 行的注释块是被移除的「重新上锁」功能。",
     "--   ★★ 保留了注释，说明「锁」的接口设计考虑了对称性，但只用了一半。",
   ],
-  3226: [
+  "ACTIONS.USEKLAUSSACKKEY.fn#1": [
     "--★ USEKLAUSSACKKEY.fn —— T2 模板的干净样本（9 行）。",
   ],
-  3236: [
+  "ACTIONS.TEACH.strfn#1": [
     "--★ TEACH.strfn —— 四个标签对应四个动词。",
   ],
-  3247: [
+  "ACTIONS.TEACH.fn#1": [
     "--★★ TEACH.fn —— 五个组件分支，其中两个带特殊返回处理。",
     "--   ★★ 3255-3259 行的 maprecorder 分支：",
     "--       if success or reason == \"BLANK\" then return true",
@@ -276,18 +276,18 @@ export const BEFORE = {
     "--       则会出现「没揭示成功但物品被消耗」。",
     "--     ★ 记录为 L 类隐患（依赖 mapspotrevealer.postreveal 的实现细节）。",
   ],
-  3272: [
+  "ACTIONS.TURNON.fn#1": [
     "--★ TURNON.fn —— T4「用状态控制可用性」的样本（7 行）。",
     "--   ★★ `tar = act.target or act.invobject` —— T7 模板的又一次使用。",
     "--     ★「开关自己的手持物」（如灯的开关）是常见需求。",
   ],
-  3280: [
+  "ACTIONS.TURNOFF.strfn#1": [
     "--★ TURNOFF.strfn —— EMERGENCY 变体（有紧急模式标签）。",
   ],
-  3285: [
+  "ACTIONS.TURNOFF.fn#1": [
     "--★ TURNOFF.fn —— TURNON 的严格镜像（IsOn 为真时才执行）。",
   ],
-  3293: [
+  "ACTIONS.USEITEM.fn#1": [
     "--★★★【USEITEM.fn —— 「使用手持物」的两分支（20 行）】",
     "--   ★★ 两个组件：",
     "--     ① toggleableitem → ToggleItem（可开关的物品）",
@@ -301,7 +301,7 @@ export const BEFORE = {
     "--       3308 行立刻清掉（注释说「万一没发生状态改变」）。",
     "--     ★★★ 这是「用临时状态位协调两个系统」的典型手法。",
   ],
-  3299: [
+  "ACTIONS.USEITEM.fn#1+6": [
     "--★★★⚠ 可疑处：`act.doer.components.inventory:IsOpenedBy(act.doer)`",
     "--   ★★★ 核对 inventory.lua:2015：",
     "--       function Inventory:IsOpenedBy(guy)",
@@ -323,7 +323,7 @@ export const BEFORE = {
     "--     ★ 记录为 L14。**无法从静态代码确定玩家影响**，",
     "--       需要运行时验证。只记录不修改。",
   ],
-  3314: [
+  "ACTIONS.USEITEMON.strfn#1": [
     "--★★ USEITEMON.strfn —— 四级回退的动词选择。",
     "--   ★★ 3316 行 `act.invobject == nil and \"GENERIC\"` ——",
     "--     ★★★ 注意这条在最前面：**没有手持物时直接返回 GENERIC**，",
@@ -333,7 +333,7 @@ export const BEFORE = {
     "--       ★★★ 矛盾：strfn 假设 invobject 必非 nil，fn 却做了 nil 保护。",
     "--       说明 fn 更 defensive。这是 strfn/fn 逻辑不同步的一个实例。",
   ],
-  3322: [
+  "ACTIONS.USEITEMON.pre_action_cb#1": [
     "--★★ USEITEMON.pre_action_cb —— 「关手柄背包 + 清模组移除状态」。",
     "--   ★★ 3322-3336 共 15 行做两件事：",
     "--     ① 3324-3326 关手柄背包 UI（防止挡住目标）",
@@ -346,7 +346,7 @@ export const BEFORE = {
     "--   ★★ 注释「socketable and socketholder components are available on",
     "--     client」—— 再次强调「能在客户端判断，所以放在 pre_action_cb」。",
   ],
-  3338: [
+  "ACTIONS.USEITEMON.fn#1": [
     "--★★ USEITEMON.fn —— 「对目标使用物品」的九行。",
     "--   ★★ 3340 行：",
     "--       `local target = act.target or act.invobject:HasTag(...) and act.doer`",
@@ -361,33 +361,33 @@ export const BEFORE = {
     "--     ★ 等价于 `return success, reason`，但保留了分支的意图可读性。",
     "--       属「防御式冗余」。",
   ],
-  3352: [
+  "ACTIONS.STOPUSINGITEM.strfn#1": [
     "--★ STOPUSINGITEM.strfn —— 用 prefab 大写名当动词（兜底显示 prefab 名）。",
     "--   ★★★ 这是全文件里最「偷懒」但最有效的 strfn：",
     "--     直接把 prefab 名大写当动词（\"PISTOL\"、\"LANTERN\"…）。",
     "--   ★ 好处：任何新物品零成本获得 UI 提示。",
     "--   ★ 缺点：物品改了 prefab 名，UI 就变了（可能正是想要的）。",
   ],
-  3364: [
+  "ACTIONS.USEEQUIPPEDITEM.strfn#1": [
     "--★ USEEQUIPPEDITEM.strfn —— 与 STOPUSINGITEM 同款（无 GENERIC 兜底）。",
     "--   ★★ 3365 行 `act.invobject and string.upper(act.invobject.prefab)` ——",
     "--     ★ 三元式：invobject 为 nil 时返回 **nil**（不是 GENERIC）。",
     "--     与 3353 行的 `or \"GENERIC\"` 不同 —— 微小但真实的差异。",
   ],
-  3374: [
+  "ACTIONS.USEEQUIPPEDITEM.fn#1+6": [
     "--★ 3374 行重复了 3299 行的 IsOpenedBy 疑点（同款写法）。",
   ],
-  3380: [
+  "ACTIONS.USEEQUIPPEDITEM.fn#1+12": [
     "--★★ 保留的英文注释「same fn, diff str table」——",
     "--   ★★★ 精确描述了 T12 模板的「部分复用」：",
     "--     · fn   不同（StartUsingItem vs StopUsingItem）",
     "--     · strfn 相同（共用 USEEQUIPPEDITEM.strfn）",
     "--   ★★ 这行注释本身就是一份「如何在不抽象的前提下复用」的示范文档。",
   ],
-  3388: [
+  "ACTIONS.TAKEITEM.fn#1": [
     "--★ TAKEITEM.fn —— 两个分支（shelf 的 cantakeitem 与 inventoryitemholder）。",
   ],
-  3399: [
+  "ACTIONS.TAKEITEM.strfn#1": [
     "--★ TAKEITEM.strfn —— BIRDCAGE 变体 + GENERIC 兜底。",
     "--   ★★ 3400 行 `act.target.prefab` 无 nil 保护 ——",
     "--     ★ 若 act.target 为 nil 会崩。",
@@ -396,7 +396,7 @@ export const BEFORE = {
     "--     ★ 实践中 TAKEITEM 只在有 inventoryitemholder 的目标上出现，",
     "--       target 必非 nil。属「依赖上游保证」。",
   ],
-  3403: [
+  "ACTIONS.TAKEITEM.stroverridefn#1": [
     "--★★ TAKEITEM.stroverridefn —— 「显示要拿走的东西的名字」。",
     "--   ★★ 3408-3413 行的三层：",
     "--     ① winter_feast 桌 / 特定标签 → 固定的 GENERIC",
@@ -412,20 +412,20 @@ export const BEFORE = {
     "--       3404 行的裸访问只能判「字段是否存在」，不能判「值是否为空」。",
     "--       3408 行才正确取值。写法正确但两条路径的可读性差异较大。",
   ],
-  3418: [
+  "ACTIONS.TAKESINGLEITEM.fn#1": [
     "--★ TAKESINGLEITEM.fn —— 与 TAKEITEM 只差一个 false 参数（不拿整堆）。",
   ],
-  3424: [
+  "ACTIONS.TAKESINGLEITEM.stroverridefn#1": [
     "--★ TAKESINGLEITEM.stroverridefn —— 直接返回固定串（不做任何动态拼接）。",
     "--   ★★ 与 3403 行那个 14 行的动态版形成鲜明对比 ——",
     "--     「拿单个」不需要告诉玩家拿的是什么（只有一件，无数量）。",
   ],
-  3428: [
+  "ACTIONS.CASTSPELL.strfn#1": [
     "--★ CASTSPELL.strfn —— 用物品自己的 spelltype 字段当动词。",
     "--   ★★ 3429 行 `act.invobject.spelltype` —— 字段而非标签。",
     "--     ★ 物品自己声明「我是什么法术」比用标签更精确。",
   ],
-  3432: [
+  "ACTIONS.CASTSPELL.fn#1": [
     "--★★★【CASTSPELL.fn —— 施法（25 行），三道守卫 + 两段调用】",
     "--   ★★ 三道守卫：",
     "--     ① 3437-3439 ITEMMIMIC 反伪装（T3 模板，第 27 次出现）",
@@ -438,7 +438,7 @@ export const BEFORE = {
     "--     ★ fn 在服务端跑，两种写法都可以 —— 混用显得犹豫。",
     "--     ★ 但也可以解释为「replica 版本更快」（无组件查找开销）。",
   ],
-  3459: [
+  "ACTIONS.CASTSPELL.fn#1+27": [
     "--★★★⚠⚠⚠ 疑似缺陷 L1（**本文件最严重的一处**）：",
     "--     `if act.doer == nil or not act.doer.components.skilltreeupdater and",
     "--         act.doer.components.skilltreeupdater:IsActivated(\"walter_camp_wobycourier\") then`",
@@ -469,17 +469,17 @@ export const BEFORE = {
     "--   ★★★ 结论：**真实的、必然触发的缺陷**。只记录不修改。",
     "--     ★ 修复方式只需把 `not X` 改成 `X == nil or not X`。",
   ],
-  3475: [
+  "TryToUpdateNearest#1": [
     "--★ TryToUpdateNearest —— 「找最近目标」的内部辅助函数（9 行）。",
     "--   ★★ 它是闭包，能访问外层的 mindsq / act_posx / act_posz。",
     "--     ★ 用闭包做「带状态的查找」比返回多个值更简洁。",
   ],
-  3486: [
+  "TryToUpdateNearest#1+11": [
     "--★★ 3485-3489 行：`-- Check for chest first.` 注释说明了顺序的重要性。",
     "--   ★★ 先查箱子再查玩家 —— 若查了玩家，箱子（更常见的用法）会被跳过。",
     "--   ★ 「先查更常见的」是找不到最优时的实用折中。",
   ],
-  3493: [
+  "TryToUpdateNearest#1+18": [
     "--★★ 3493 行的三重过滤：",
     "--   ① `ent.MiniMapEntity:EntityHasRestriction(doer.GUID)` —— 有权限",
     "--   ② `GetDistanceSqToInst(ent) > WOBYCOURIER_MIN_DIST_TO_PLAYER_SQ` —— 不贴脸",
@@ -487,12 +487,12 @@ export const BEFORE = {
     "--   ★ 三次 GetPosition / GetDistanceSqToInst 在循环里 ——",
     "--     每次都在遍历实体做 O(1) 查询，实体数量有限，可接受。",
   ],
-  3501: [
+  "TryToUpdateNearest#1+26": [
     "--★★ 3501-3503：找不到任何目标 → `return false, \"NOTARGET\"`。",
     "--   ★★ 与 3601 行的 BLINK_MAP 同款失败原因名。",
     "--     ★ 说明这是「地图动作找不到目标」的标准原因码。",
   ],
-  3505: [
+  "TryToUpdateNearest#1+30": [
     "--★★ `return true, nil, act_posx, act_posz, mapent` —— 五元返回。",
     "--   ★★ maponly_checkvalidpos_fn 家族的统一返回契约（§0 T9）：",
     "--     (valid, reason, x, z, entity)",
@@ -500,16 +500,16 @@ export const BEFORE = {
     "--     杜绝了「UI 说能发、实际发不了」的分裂。",
     "--     ★★ 这是本文件里少见的「单一真源」正确实践。",
   ],
-  3507: [
+  "ACTIONS.DIRECTCOURIER_MAP.stroverridefn#1": [
     "--★ DIRECTCOURIER_MAP.stroverridefn —— 复用同一个校验函数生成动词。",
     "--   ★★★ 3508 行直接调 3460 行的 maponly_checkvalidpos_fn ——",
     "--     完美体现了 T9 的价值。",
   ],
-  3513: [
+  "ACTIONS.DIRECTCOURIER_MAP.stroverridefn#1+6": [
     "--★ 3513-3520 行：目标是玩家显示 SEND{target}，否则显示 CHEST。",
     "--   ★★ 3514 行用 prefab == \"globalmapiconnamed\" 精确判定。",
   ],
-  3522: [
+  "ACTIONS.DIRECTCOURIER_MAP.fn#1": [
     "--★★ DIRECTCOURIER_MAP.fn —— 20 行，含平台偏移计算。",
     "--   ★★ 3524 行 `local ischest = mapent == nil` 在 valid 检查**之前**：",
     "--     ★ 若 valid 为 false，mapent 为 nil ⇒ ischest = true，",
@@ -521,7 +521,7 @@ export const BEFORE = {
     "--       手动实现 —— 因为这里不走 locomotor。",
     "--       ★ 同一个概念在两处用两种方式实现，说明地图动作路径缺少统一抽象。",
   ],
-  3545: [
+  "TryToSoulhop#1": [
     "--★★【TryToSoulhop —— 「灵魂跳跃」的前置判定（8 行）】",
     "--   ★★ 四个条件全满足才返回 true：",
     "--     ① doer 非 nil  ② sg 存在  ③ sg 处于 **portal_jumpin_pre** 状态",
@@ -535,7 +535,7 @@ export const BEFORE = {
     "--     ⇒ TryToPortalHop(nil, ...) 拿到 nil souls。",
     "--     ★ 推断由 prefabs/wortox.lua:614 的实现兜底。属可接受的松散耦合。",
   ],
-  3554: [
+  "ACTIONS.BLINK.strfn#1": [
     "--★ BLINK.strfn —— FREESOUL / SOUL 两态，由 _freesoulhop_counter 决定。",
     "--   ★★ 3555 行的 `(act.doer._freesoulhop_counter or 0) > 0` ——",
     "--     ★★★ doer 上的下划线前缀字段：`_` 开头是 DST 的约定，",
@@ -543,7 +543,7 @@ export const BEFORE = {
     "--     ★ 全文件大量使用（_freesoulhop_counter / _controller_start_moduleremover",
     "--       / _freesoulhop_counter 等），是一个**软约定**（无语言强制）。",
   ],
-  3558: [
+  "ACTIONS.BLINK.fn#1": [
     "--★★【BLINK.fn —— 韦伯闪现的两分支（19 行）】",
     "--   ★★ 分支①：手持闪烁法杖 ⇒ blinkstaff:Blink(点, doer)",
     "--   ★★ 分支②：空手 ⇒ TryToSoulhop（3545 行）成功则跳状态",
@@ -557,10 +557,10 @@ export const BEFORE = {
     "--     ★★★ 这个 flag 让状态图知道「这次传送来自地图」，",
     "--       从而播放不同的过场（地图传送不应有角色的施法动画）。",
   ],
-  3578: [
+  "ACTIONS.BLINK_MAP.stroverridefn#1": [
     "--★ BLINK_MAP.stroverridefn —— 显示所需灵魂数。",
   ],
-  3582: [
+  "ActionCanMapSoulhop#1": [
     "--★ ActionCanMapSoulhop —— 「地图跳跃够不够灵魂」的判定（6 行）。",
     "--   ★★ 3585 行 `act.doer:CanSoulhop(act.distancecount)` ——",
     "--     ★ distancecount 由 remap（3660 行）预先算好。",
@@ -569,7 +569,7 @@ export const BEFORE = {
     "--       在 3662 行 remap 内部调用时 distancecount 也已设置（3660 行在前）。",
     "--       ★ 顺序正确，但这是隐式契约。",
   ],
-  3589: [
+  "ACTIONS.BLINK_MAP.fn#1": [
     "--★★★【BLINK_MAP.fn —— 带一条关键英文注释（13 行）】",
     "--   ★★ 3590 行的保留注释：",
     "--     「NOTES(JBK): 这目前只支持灵魂跳跃，因为存在理论上的无限距离。」",
@@ -578,7 +578,7 @@ export const BEFORE = {
     "--     距离限制机制无法适用。",
     "--     ★★★ 「明确说出被砍掉的功能与原因」—— 这是极好的注释习惯。",
   ],
-  3603: [
+  "ACTIONS.BLINK_MAP.fn#1+14": [
     "--★★★【ACTIONS_MAP_REMAP[ACTIONS.BLINK.code] —— 地图重映射的 63 行】",
     "--   ★★ 它是本文件最长的地图重映射函数，做六件事：",
     "--     ① 3609-3640  无地形格时的瞄准辅助（找 boat 上的 fogrevealer）",
@@ -594,25 +594,25 @@ export const BEFORE = {
     "--         但服务端会自行修正（注释 3626-3627 明确说了这点）。",
     "--       ★★★ 「客户端预测 + 服务端修正」的标准模式。",
   ],
-  3609: [
+  "ACTIONS.BLINK_MAP.fn#1+20": [
     "--★ 3609 行 `not IsAboveGroundAtPoint(...)` —— 「光标处没有地图格」。",
     "--   ★★ 注释（3612-3613 行）解释了原因：「船上可能有 maprevealer 组件，",
     "--     即使该处没有地图格也可能是可行区域。」",
   ],
-  3616: [
+  "ACTIONS.BLINK_MAP.fn#1+27": [
     "--★ MAX_WALKABLE_PLATFORM_DIAMETERSQ = MAX_WALKABLE_PLATFORM_RADIUS² × 4。",
     "--   ★★ 注释说明「半径的 4 倍 = 直径」。",
     "--   ★★★ 于是这个变量名叫 DIAMETER 但存的是**直径的平方**。",
     "--     名字里的 SQ 后缀是对的唯一提示。",
   ],
-  3618: [
+  "ACTIONS.BLINK_MAP.fn#1+29": [
     "--★★ 3618 行 `if doer:GetDistanceSqToInst(v) > MAX_... then` —— 反直觉的「忽略近的」。",
     "--   ★★ 保留的注释给出了理由：「忽略近处的船，因为瞄准辅助的范围非常大。」",
     "--   ★★★ 逻辑：附近（屏幕上很近）的**自己的**船不该成为目标，",
     "--     因为玩家不是在传送，而是在传送前就站在船上。",
     "--   ★ 「太近反而忽略」的思路与 3493 行的 WOBYCOURIER_MIN_DIST 相同。",
   ],
-  3626: [
+  "ACTIONS.BLINK_MAP.fn#1+37": [
     "--★★★ 3626-3627 行注释解释了「doverride」的必要性：",
     "--   「Ocuvigils（侦测眼）通常放在船边，会导致被传送者被挤出船边界。",
     "--     服务端会做调整，但客户端无法得知，",
@@ -622,7 +622,7 @@ export const BEFORE = {
     "--     服务端用「修正后」的版本执行。",
     "--     ★ distoverride = act.pos 到修正后 targetpos 的实际距离。",
   ],
-  3643: [
+  "ACTIONS.BLINK_MAP.fn#1+54": [
     "--★★ 3643-3661 行：把大量计算结果**挂在动作实例上**。",
     "--   ★★★ 挂载的 6 个字段（maxsouls / distancemod / distanceperhop /",
     "--     distancefloat / distancecount / aimassisted）全部是给 UI 用的。",
@@ -642,24 +642,24 @@ export const BEFORE = {
     "--     注释说明「这里的计数不包含地图加成」。",
     "--     ★ 这是一个「两个系统共用一个计数器」的设计，需要注释才不会误解。",
   ],
-  3662: [
+  "ACTIONS.BLINK_MAP.fn#1+73": [
     "--★ 3662-3664：灵魂不够则 remap 失败（返回 nil ⇒ 不生成替代动作）。",
   ],
-  3668: [
+  "ACTIONS.CASTSUMMON.fn#1": [
     "--★ CASTSUMMON.fn —— 召唤幽灵（韦伯）。三重 and 检查。",
   ],
-  3674: [
+  "ACTIONS.CASTUNSUMMON.fn#1": [
     "--★ CASTUNSUMMON.fn —— 收回幽灵。与 CASTSUMMON 严格对称。",
   ],
-  3680: [
+  "ACTIONS.COMMUNEWITHSUMMONED.strfn#1": [
     "--★ COMMUNEWITHSUMMONED.strfn —— 「改为防御 / 改为攻击」双态。",
   ],
-  3690: [
+  "ACTIONS.COMBINESTACK.fn#1": [
     "--★ COMBINESTACK.fn —— 合并堆叠的六行实现。",
     "--   ★★ 3693 行的三条件：可堆叠 + CanStackWith + 没满。",
     "--     ★★★ 与 CHANGE_TACKLE 的 1470 行同款三连。",
   ],
-  3699: [
+  "ACTIONS.TRAVEL.fn#1": [
     "--★★【TRAVEL.fn —— 「实体自带回调」的原型样本（6 行）】",
     "--   ★★ 全函数只有一句 `act.target.travel_action_fn(act.doer)`。",
     "--     ★★★ 没有组件检查、没有条件判断、没有失败原因。",
@@ -668,10 +668,10 @@ export const BEFORE = {
     "--     ★ 这两个是本文件里最「轻」的动作。",
     "--     ★ 适合由 prefab 自己控制行为的场景（不需要统一策略）。",
   ],
-  3706: [
+  "ACTIONS.UNPIN.fn#1": [
     "--★ UNPIN.fn —— 三条件：不是自己 + 有 pinnable + 卡住了。",
   ],
-  3713: [
+  "ACTIONS.STEALMOLEBAIT.fn#1": [
     "--★ STEALMOLEBAIT.fn —— 猴子的专属动作（doer.prefab == \"mole\"）。",
     "--   ★★ 与 3721 行的 MAKEMOLEHILL 一样用 **prefab 硬判定**角色，",
     "--     ★ 而非标签。",
@@ -680,20 +680,20 @@ export const BEFORE = {
     "--       标签方案对 AI 无效（AI 不打标签），所以必须查 prefab。",
     "--       ★★★ 这是「标签用于玩家角色，prefab 用于动物」的分界线。",
   ],
-  3721: [
+  "ACTIONS.MAKEMOLEHILL.fn#1": [
     "--★★ MAKEMOLEHILL.fn —— 生成丘并把自己收进去。",
     "--   ★★ 3726 行 `molehill:AdoptChild(act.doer)` ——",
     "--     ★★★ 「收进丘里」= 把猴子设为丘的子实体。",
     "--     ★ 3727 行清掉 needs_home_time —— 「不再需要回家」。",
     "--   ★★ 两个 prefab 分支（mole / molebat）结构逐行对应。",
   ],
-  3738: [
+  "ACTIONS.MOLEPEEK.fn#1": [
     "--★ MOLEPEEK.fn —— 三行，只推事件。最小动作的实现。",
   ],
-  3745: [
+  "ACTIONS.FEED.strfn#1": [
     "--★ FEED.strfn —— TREAT 变体（宠物零食）。",
   ],
-  3749: [
+  "ACTIONS.FEED.fn#1": [
     "--★★【FEED.fn —— 106 行，全文件最长的单一动作实现】",
     "--   ★★ 结构：",
     "--     ① 3750-3752  ITEMMIMIC 守卫（T3）",
@@ -708,17 +708,17 @@ export const BEFORE = {
     "--     ★ 旧版里也有 grandowner 这个未定义变量（3831 行），",
     "--       说明这段代码**从未真正跑过**，只是被留下的草稿。",
   ],
-  3754: [
+  "ACTIONS.FEED.fn#1+5": [
     "--★ 3754-3760 行：目标为 nil 时用坐骑。",
     "--   ★★★ 与 3757 行的提前 return false 组合：",
     "--     「既没有目标也没有坐骑」⇒ 失败。",
     "--     ★ 这是 T7 模板的一个变体：不是「target or invobject」，",
     "--       而是「target 或（从 doer 推导出的默认值）」。",
   ],
-  3762: [
+  "ACTIONS.FEED.fn#1+13": [
     "--★ trader 分支 —— 喂商人。九行，与 GIVE.fn 的 trader 分支同型。",
   ],
-  3771: [
+  "ACTIONS.FEED.fn#1+22": [
     "--★★★ 3771 行的 eater 分支 —— 「喂生物吃」。",
     "--   ★★ 3773-3777 行的 `murdered` 局部变量推导很紧凑：",
     "--       target:IsValid() and target.components.health",
@@ -731,7 +731,7 @@ export const BEFORE = {
     "--     ★⇒ CanEat 的检查被下推到 eater 组件内部。",
     "--       与 FEEDPLAYER 的做法不一致。记录为 L 类差异。",
   ],
-  3779: [
+  "ACTIONS.FEED.fn#1+30": [
     "--★★ 3779-3821 行：喂食导致死亡时的处决流程（42 行）。",
     "--   ★★★ 与 MURDER.fn（3153）的差异（注释 3784-3787 行说明了）：",
     "--     · 「因为受害者是**原地吃然后死**的，所以不该有 looting 动画」",
@@ -744,12 +744,12 @@ export const BEFORE = {
     "--     reference.」—— 作者自己标注了「这里应该查一下 inventory 组件但没查」。",
     "--     ★★★ 又一处显式的技术债标注，非常难得。",
   ],
-  3793: [
+  "ACTIONS.FEED.fn#1+44": [
     "--★ 3793 行的 `grandowner.SoundEmitter` 双重保护（组件 + 字段）。",
     "--   ★★ 与 3161 行 MURDER 里的 `act.doer.SoundEmitter` 不同 ——",
     "--     这里不检查 doer 是否是玩家（因为可能不是）。",
   ],
-  3818: [
+  "ACTIONS.FEED.fn#1+69": [
     "--★★ 3818-3820 行：`if owner ~= nil then murdered:Remove() end`",
     "--   ★★★ 条件：只有「原本在背包/容器里」才 Remove。",
     "--     若在地上喂死（owner 为 nil），3820 行不执行 ⇒ 尸体留在原地。",

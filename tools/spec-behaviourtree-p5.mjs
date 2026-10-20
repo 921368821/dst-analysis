@@ -7,7 +7,7 @@ export const BEFORE = {
   // ══════════════════════════════════════════════════════════════
   // 十二、EventNode —— 事件的接入点与「唤醒」的执行者
   // ══════════════════════════════════════════════════════════════
-  702: [
+  "ParallelNode:Visit#1+41": [
     "--★★【EventNode —— 「事件发生时才跑」的节点（★ 事件驱动的落地点）】",
     "--   ★★ 【它在整个框架里的角色：事件的「执行器」】",
     "--     整条链路：",
@@ -35,19 +35,19 @@ export const BEFORE = {
     "--       · \"minhealth\"—— 血量组件或 brain 的检查逻辑",
     "--     ★ 所以 EventNode 是「外部世界 → 内部决策」的唯一入口。",
   ],
-  703: [
+  "ParallelNode:Visit#1+42": [
     "--★★ name 内嵌事件名：`\"Event(\"..event..\")\"`。",
     "--   ★ 这是调试时最有用的一行 —— 一眼就能看出「这个分支等的是哪个事件」。",
     "--   ※ 若 event 为 nil，字符串拼接会抛异常（Lua 里 .. 与 nil 报错）。",
     "--     所以 event 必须是字符串，没有默认值。",
   ],
-  704: [
+  "ParallelNode:Visit#1+43": [
     "--★ inst 存起来 —— OnEvent(715) 与 Visit(730) 都要用。",
   ],
-  705: [
+  "ParallelNode:Visit#1+44": [
     "--★ event 名也存一份（除了拼 name 还用于反注册）。",
   ],
-  706: [
+  "ParallelNode:Visit#1+45": [
     "--★★ priority 默认 0 —— 这个默认值有个反直觉的后果，务必记住：",
     "--   ★★ 因为 600 行的判据是 `old_event.priority <= child.priority`，",
     "--     当**所有**事件节点都用默认值 0 时，该条件恒成立（0 <= 0），",
@@ -57,7 +57,7 @@ export const BEFORE = {
     "--     结论：树里只有一个 EventNode 时无碍；有多个时必须显式指定 priority。",
     "--   ★★ 参见 600 行的完整分析。",
   ],
-  708: [
+  "self.eventfn#1": [
     "--★★【事件回调的闭包 —— 为什么用闭包而不是直接绑定方法】",
     "--   `self.eventfn = function(inst, data) self:OnEvent(data) end`",
     "--   ★★ 三个设计理由，逐个说清：",
@@ -78,7 +78,7 @@ export const BEFORE = {
     "--   ★★ 顺带说明：eventfn 被存为**实例字段**而非局部变量，",
     "--     每个 EventNode 实例各有自己的闭包实例，因此可以独立反注册。",
   ],
-  709: [
+  "self.eventfn#1+1": [
     "--★★【监听注册 —— 发生在构造期，不是启动期】",
     "--   ★★ 后果一：**从构造那一刻起事件就一直被监听**，",
     "--     哪怕这个节点当前是 READY、整棵树还没跑起来。",
@@ -93,14 +93,14 @@ export const BEFORE = {
     "--   ※ 但模组若绕过 SetBrain 直接操作 self.brain，就可能漏掉 Stop。",
     "--     ★ 这是模组开发时最需要注意的「行为树资源生命周期」问题。",
   ],
-  710: [
+  "self.eventfn#1+2": [
     "--※【被注释掉的调试打印】`--print(self.inst, \"EventNode()\", self.event)`",
     "--   ★ 原样保留 —— 它是排查「事件到底注册到哪个实体上」的第一手线索。",
     "--   ★ 注意这行在构造器里，所以它打的是「节点被创建时」的信息，",
     "--     而不是「事件被触发时」的信息（后者见 722 行）。",
   ],
 
-  713: [
+  "EventNode:OnStop#1": [
     "--★★【OnStop —— 全文件唯一的资源释放点，也是 Reset/Stop 的分水岭】",
     "--   ★★ 对照 33 行的 BT:Stop 与 182 行的 BehaviourNode:Stop：",
     "--     · Reset（171 行）**不动** eventfn，监听保留",
@@ -124,11 +124,11 @@ export const BEFORE = {
     "--       而非「复用旧 bt」的原因 —— 重建 = 重新构造 = 重新注册监听。",
     "--     ★★ 这个约束对模组作者是硬性的：**bt 一旦 Stop 就必须丢弃重建**。",
   ],
-  714: [
+  "EventNode:OnStop#1+1": [
     "--※【被注释掉的调试打印】`--print(self.inst, \"EventNode:OnStop()\", self.event)`",
     "--   ★ 与 710 行的构造打印配套，可确认「监听被摘掉了」。",
   ],
-  715: [
+  "EventNode:OnStop#1+2": [
     "--★★ `if self.eventfn then` —— 幂等守卫。",
     "--   ★★ 为什么必须幂等？BehaviourNode:Stop（182 行）会**递归全树**调用 OnStop，",
     "--     而 Stop 可能被多次调用（见 713 行的上游路径分析）。",
@@ -136,18 +136,18 @@ export const BEFORE = {
     "--   ★★ 这是「用 eventfn 既是引用也是存活标志」的巧思：",
     "--     一个字段同时承担了「回调引用」与「是否已注册」两个职责。",
   ],
-  716: [
+  "EventNode:OnStop#1+3": [
     "--★★ 反注册 —— 必须传入与 709 行**完全相同**的函数引用。",
     "--   ★★ 这就是 708 行把 eventfn 存成字段的全部理由。",
     "--   ★ 若写成 `self.inst:RemoveEventCallback(self.event, self.eventfn)` 时",
     "--     eventfn 是 nil（已被清），引擎侧应当忽略。",
   ],
-  717: [
+  "EventNode:OnStop#1+4": [
     "--★★ eventfn = nil —— 「已注销」的标记，让 715 行的幂等守卫生效。",
     "--   ★★ 注意这里**没有**把 status 或 triggered 清掉 —— OnStop 只管资源。",
   ],
 
-  721: [
+  "EventNode:OnEvent#1": [
     "--★★⚠【★★ 缺陷现场之二 · OnEvent 的第一行就是破坏性 Reset ★★】",
     "--   `if self.status == RUNNING then self.children[1]:Reset() end`",
     "--   ★★ 【这是 H1「AI 莫名其妙停下」的第二处根因，且比 610 行更隐蔽】",
@@ -197,7 +197,7 @@ export const BEFORE = {
     "--         「放弃时是否保留状态必须在节点类型上声明清楚」。",
     "--   ※ 参见 bug-patterns.md H1 条目的「预防」段。",
   ],
-  727: [
+  "EventNode:OnEvent#1+6": [
     "--★★ triggered = true —— 「有新事件到达」的粘性标志。",
     "--   ★★ 【它的生命周期只有一帧，由 Step(741) 清除】",
     "--     · 置位：725-737 行的 OnEvent（事件发生的瞬间，可能任意两次思考之间）",
@@ -219,7 +219,7 @@ export const BEFORE = {
     "--       ★★ 这是「事件标志 + 每帧清除」这种设计的固有竞态。",
     "--       正确做法应是「消费时才清除」或在 Visit 开头统一快照。",
   ],
-  728: [
+  "EventNode:OnEvent#1+7": [
     "--★★ data —— 事件的负载数据。",
     "--   ★★ 全仓库检索确认：**没有任何代码读取 self.data**。",
     "--     它是一个「预留的扩展点」：模组或未来的 brain 可以通过",
@@ -232,10 +232,10 @@ export const BEFORE = {
     "--   ★★ 对照 727 行的 triggered（会被清除），data 是「粘住的」，",
     "--     两者生命周期不同 —— 这一点很容易误解。",
   ],
-  729: [
+  "EventNode:OnEvent#1+8": [
     "--★ 空行分隔「数据记录」与「唤醒请求」两个阶段。",
   ],
-  730: [
+  "EventNode:OnEvent#1+9": [
     "--★★【唤醒 brain —— 把「事件发生」翻译成「立即重新考虑」】",
     "--   `if self.inst.brain then ... end`",
     "--   ★★ nil 守卫：不是所有有 EventNode 的实体都有 brain。",
@@ -256,14 +256,14 @@ export const BEFORE = {
     "--     ★★ 这三步缺一不可，是本框架「事件响应」的最短路径。",
     "--   ★★ 这个唤醒路径同时也解决了 33 行提到的「Hibernate 后只能靠事件唤醒」。",
   ],
-  731: [
+  "EventNode:OnEvent#1+10": [
     "--★ 转发给 brain.lua:170-176 的 Brain:ForceUpdate。",
     "--   ★★ 那里做两件事：置 bt.forceupdate + BrainManager:Wake(inst)。",
     "--     前者让 38 行的 GetSleepTime 返回 0（立即更新），",
     "--     后者把实体从 hibernaters 移回 updaters。",
     "--   ★★ 参见 brain.lua:170 与本文件 17 行的详细分析。",
   ],
-  734: [
+  "EventNode:OnEvent#1+13": [
     "--★★【★ 强制重排的另一半：把祖先 PriorityNode 的 lasttime 清成 nil】",
     "--   `self:DoToParents(function(node) if node:is_a(PriorityNode) then node.lasttime = nil end end)`",
     "--   ★★ 【它解决的是 730 行解决不了的问题】",
@@ -293,7 +293,7 @@ export const BEFORE = {
     "--   ※ 性能：每次事件都要向上走一遍祖先链（通常 1-3 层）+ is_a 判定。",
     "--     ★ 开销极低，事件本身频率也不高（不是每帧）。",
   ],
-  736: [
+  "EventNode:OnEvent#1+15": [
     "--★ 原注释（保留）：`--wake the parent!`（唤醒父节点！）",
     "--   ★★ 这行英文注释揭示了作者的**原始设计意图**：",
     "--     他认为这一行的作用是「叫醒父节点」。",
@@ -305,7 +305,7 @@ export const BEFORE = {
     "--       但 triggered 在本轮末就被清掉了（741 行），两者时序错位。",
   ],
 
-  739: [
+  "EventNode:Step#1": [
     "--★★【EventNode:Step —— 「一次性标志的清除点」】",
     "--   ★★ 两个动作，顺序不可交换：",
     "--     ① 先调基类 Step（做该做的清理/递归）",
@@ -328,7 +328,7 @@ export const BEFORE = {
     "--   ★★ 对照 744 行 Reset：那里清 triggered 的时机是「被复位时」。",
     "--     两者合起来保证「triggered 只被消费一次」。",
   ],
-  740: [
+  "EventNode:Step#1+1": [
     "--★★ `self._base.Step(self)` —— 调基类 Step。",
     "--   ★★ **必须是 self._base 而不是 self**：",
     "--     若写 `self:Step()` 就是无限递归（自己调自己）。",
@@ -337,7 +337,7 @@ export const BEFORE = {
     "--   ★★ 对比 746 行的 `self._base.Reset(self)` —— 完全一致的写法。",
     "--     本文件里所有需要「调父类」的地方都用这个模式，共 7 处。",
   ],
-  741: [
+  "EventNode:Step#1+2": [
     "--★★ triggered = false —— 「本次事件已被消费」。",
     "--   ★★ 清除时机是**思考周期末**，而不是「读取时」。",
     "--     ※ 这就是 727 行所述竞态的根源，见该行的完整分析。",
@@ -346,7 +346,7 @@ export const BEFORE = {
     "--     ※ 只有「行为树自己 PushEvent」时才会踩到（见 727 行的分析）。",
   ],
 
-  744: [
+  "EventNode:Reset#1": [
     "--★★【EventNode:Reset —— 「清标志但保留资源」】",
     "--   ★★ 两行的顺序：先清 triggered（745 行），再调基类 Reset（746 行）。",
     "--     ★★ 顺序其实无所谓，因为基类 Reset（171 行）有 `status ~= READY` 守卫，",
@@ -364,19 +364,19 @@ export const BEFORE = {
     "--     ★★ EventNode（744）清 triggered —— 它也有一个「必须归零的游标」，",
     "--       所以覆写 Reset 是**必需的**，符合 577 行推导的通用规则。",
   ],
-  745: [
+  "EventNode:Reset#1+1": [
     "--★ 清一次性标志。",
     "--   ★★ 注意这行在 741 行之外，说明「清除触发」有两个入口：",
     "--     · 741 行 Step（每轮末）",
     "--     · 745 行 Reset（被复位时）",
     "--   ★★ 两个入口是为了覆盖不同路径，逻辑上有冗余但无害。",
   ],
-  746: [
+  "EventNode:Reset#1+2": [
     "--★★ 调基类 Reset 做级联（清子节点）。",
     "--   ★★ 与 740 行的 Step 配对，构成 EventNode 的两个父类调用。",
   ],
 
-  749: [
+  "EventNode:Visit#1": [
     "--★★【EventNode:Visit —— 「触发判定 → 执行」的极简两段】",
     "--   ★★ 【与所有其他节点的本质差异】",
     "--     其他节点：每次 Visit 都重新判定（条件是纯函数）。",
@@ -393,7 +393,7 @@ export const BEFORE = {
     "--     的 Visit（例如节流路径下 idx 指向别的分支），",
     "--     triggered 会等到下一轮 Step(741) 才被清 —— 事件可能延迟一轮才生效。",
   ],
-  751: [
+  "EventNode:Visit#1+2": [
     "--★★ 启动条件：`status == READY and triggered`。",
     "--   ★★ 两个条件缺一不可：",
     "--     · status == READY —— 「现在没在跑」（若已 RUNNING 则不该重复启动）",
@@ -412,12 +412,12 @@ export const BEFORE = {
     "--       让 751 行的分支自然接管。",
     "--   ⚠ 参见 724 行的完整缺陷分析。",
   ],
-  752: [
+  "EventNode:Visit#1+3": [
     "--★ 转 RUNNING —— 「事件已被接受，这个分支现在在做事」。",
     "--   ★★ 这一行让 EventNode 对外表现为一个普通的 RUNNING 节点，",
     "--     后续所有组合节点的通用逻辑（Step 保活、GetSleepTime 统计）都自动生效。",
   ],
-  755: [
+  "EventNode:Visit#1+6": [
     "--★★【执行段 —— 「启动了或本来就在跑，就去问子节点」】",
     "--   ★★ 与 751 行是并列的两个 if，不是 if/else：",
     "--     · 751 行可能把 status 改成 RUNNING",
@@ -436,7 +436,7 @@ export const BEFORE = {
     "--         若再来一个事件（triggered 置位），EventNode 不会立刻响应。",
     "--       ★★ 参见 727 行的竞态分析。",
   ],
-  756: [
+  "EventNode:Visit#1+7": [
     "--★★ `self.children and #self.children == 1` —— 结构校验。",
     "--   ★★ EventNode 的构造器（703 行）保证 children 恒为 {child}，",
     "--     所以这个条件**几乎恒真**。",
@@ -445,15 +445,15 @@ export const BEFORE = {
     "--   ※ 注意 child 为 nil 时 `{child}` = `{}`，长度 0 → 走 761 行 FAILED。",
     "--     ★★ 这是**优雅降级**：EventNode(inst, \"ev\", nil) 不会崩，只是永不触发。",
   ],
-  757: [
+  "EventNode:Visit#1+8": [
     "--★ 取唯一的孩子。",
   ],
-  758: [
+  "EventNode:Visit#1+9": [
     "--★★ 递归 Visit —— 真正干活的地方。",
     "--   ★★ 注意这里是**无条件** Visit（与 Parallel 的 670 行短路不同），",
     "--     因为 EventNode 只有一个孩子，不存在「选择」问题。",
   ],
-  759: [
+  "EventNode:Visit#1+10": [
     "--★★※【★ 状态退化的关键行】`self.status = child.status`",
     "--   ★★ 【逐个分析子节点可能返回的状态】",
     "--     · child == RUNNING  → self 保持 RUNNING（正常推进）",
@@ -477,7 +477,7 @@ export const BEFORE = {
     "--     或在 751 行的判断里用 `self.status ~= RUNNING` 而非 `== READY`。",
     "--   ※ 参见 751 行的矛盾分析。",
   ],
-  761: [
+  "EventNode:Visit#1+12": [
     "--★★ 防御分支：孩子数量不为 1 → FAILED。",
     "--   ★★ 结合 756 行的 `and #self.children == 1`，",
     "--     这里处理的是「构造器被绕过 / child 为 nil」的情况。",
@@ -491,7 +491,7 @@ export const BEFORE = {
   // ══════════════════════════════════════════════════════════════
   // 十三、三个语法糖构造器
   // ══════════════════════════════════════════════════════════════
-  767: [
+  "EventNode:Visit#1+18": [
     "--★★【组合辅助函数 WhileNode —— 「只要条件成立就持续执行 node」】",
     "--   ★★ 原注释（保留，逐行对照）：",
     "--     `WhileNode: The While condition will be checked on every update,`",
@@ -526,7 +526,7 @@ export const BEFORE = {
     "--     ★★ 这是本文件最值得记住的一条结构性缺陷。",
     "--     ※ 参见 bug-patterns.md 分区 H（H1 的「预防」段正是这条）。",
   ],
-  771: [
+  "WhileNode#1": [
     "--★★【WhileNode 的实现 —— 两个类型、一个 Parallel】",
     "--   `return ParallelNode { ConditionNode(cond, name), node }`",
     "--   ★★ 【Lua 语法糖】ParallelNode 后面直接跟 `{...}` 等价于 `ParallelNode({...})`，",
@@ -552,11 +552,11 @@ export const BEFORE = {
     "--       天亮后条件变假 → 回家动作被中断 → 回到 PriorityNode 选下一个分支。",
     "--       ★★ 这是「昼夜节律」在行为树里的全部实现 —— 极其简洁。",
   ],
-  772: [
+  "WhileNode#1+1": [
     "--★ ParallelNode 后直接跟表 —— 隐式调用语法（class.lua:181 的 __call）。",
   ],
 
-  779: [
+  "WhileNode#1+8": [
     "--★★【IfNode —— 「条件成立一次，就一直做下去」】",
     "--   ★★ 原注释（保留）：",
     "--     `IfNode: Once the If condition passes, the brain will move on to`",
@@ -577,7 +577,7 @@ export const BEFORE = {
     "--   ★★ IfNode 的实际用途相对少（因为 DST brain 更常用 WhileNode），",
     "--     但它在「不可中断的一次性任务」场景下是唯一正确的表达。",
   ],
-  783: [
+  "IfNode#1": [
     "--★★【IfNode 的实现 —— Sequence + ConditionNode】",
     "--   `return SequenceNode { ConditionNode(cond, name), node }`",
     "--   ★★ 与 WhileNode（771 行）的对照，一眼看出设计上的对称：",
@@ -590,11 +590,11 @@ export const BEFORE = {
     "--       `SequenceNode{ IfNode(cond1, A), IfNode(cond2, B), Fallback }`",
     "--       —— 能做 A 就做 A，能做 B 就做 B，都不行就 Fallback。",
   ],
-  784: [
+  "IfNode#1+1": [
     "--★ SequenceNode 后直接跟表 —— 隐式调用。",
   ],
 
-  792: [
+  "IfThenDoWhileNode#1": [
     "--★★【IfThenDoWhileNode —— 「进入判一次，之后持续判」的三段式】",
     "--   ★★ 结构：ParallelNode{ MultiConditionNode(ifcond, whilecond), node }",
     "--   ★★ 与 WhileNode / IfNode 的三方对照，这是本文件的**完整谱系**：",
@@ -621,10 +621,10 @@ export const BEFORE = {
     "--     ★ 实际影响不大：MultiConditionNode:Visit 每次访问都会重新求值",
     "--     （224-236 行无条件执行），所以仍能每帧判定。",
   ],
-  793: [
+  "IfThenDoWhileNode#1+1": [
     "--★ ParallelNode 后直接跟表 —— 隐式调用。",
   ],
-  795: [
+  "IfThenDoWhileNode#1+3": [
     "--★★ MultiConditionNode(ifcond, whilecond, name) —— 218 行的构造签名。",
     "--   ★★ 注意第三个参数是 name（不是 children），与 ConditionNode:202 同构。",
     "--   ※ name 兜底是 \"Condition\"（219 行），调试时与普通条件无法区分。",
@@ -633,7 +633,7 @@ export const BEFORE = {
   // ══════════════════════════════════════════════════════════════
   // 十四、LatchNode：唯一的「限流」节点
   // ══════════════════════════════════════════════════════════════
-  800: [
+  "IfThenDoWhileNode#1+8": [
     "--★★【LatchNode —— 「冷却 / 最小间隔」节点（★ 对照 ConditionWaitNode 的必备设计）】",
     "--   ★★ 【它解决的问题：动作重复触发】",
     "--     WhileNode 的语义是「条件成立就一直做 node」。",
@@ -665,11 +665,11 @@ export const BEFORE = {
     "--       MinPeriod 基于「上次成功后经过了多久」，",
     "--       且 LatchNode 支持 FunctionOrValue 做动态时长。",
   ],
-  801: [
+  "IfThenDoWhileNode#1+9": [
     "--★★ 构造器：inst / latchduration / child 三个参数。",
     "--   ★ inst 传给 FunctionOrValue（814 行）作为上下文，与 WaitNode 不同。",
   ],
-  802: [
+  "IfThenDoWhileNode#1+10": [
     "--★★ name 内嵌时长：`\"Latch (\"..tostring(latchduration)..\")\"`。",
     "--   ※ 若 latchduration 是**函数**，tostring 会打印函数地址（如 `function: 0x...`），",
     "--     调试输出会变得很长且无意义。",
@@ -677,19 +677,19 @@ export const BEFORE = {
     "--       「name 里想打印时长」与「时长可以是函数」不能兼得。",
     "--       实践中 FunctionOrValue 的动态时长更实用，故保留函数支持。",
   ],
-  803: [
+  "IfThenDoWhileNode#1+11": [
     "--★ inst 存起来（814 行求值时作为参数传入）。",
   ],
-  804: [
+  "IfThenDoWhileNode#1+12": [
     "--★★ latchduration —— 可以是数字或函数（814 行 FunctionOrValue）。",
   ],
-  805: [
+  "IfThenDoWhileNode#1+13": [
     "--★★ currentlatchduration = 0 —— 「上一次锁定的时长」（尚未锁定过所以是 0）。",
     "--   ★★ 它在 811 行被用作「上一次冷却了多久」的依据，",
     "--     而真正的当前时长要到 814 行锁定成功时才更新。",
     "--   ★★ 这个「先用旧的再更新」的顺序保证了 811 行的判断用的是上一次的时长。",
   ],
-  806: [
+  "IfThenDoWhileNode#1+14": [
     "--★★ lastlatchtime = -math.huge —— 「从未锁定」的哨兵值。",
     "--   ★★ 为什么用 -math.huge 而不是 0 或 nil？",
     "--     811 行要算 `GetTime() > currentlatchduration + lastlatchtime`。",
@@ -701,7 +701,7 @@ export const BEFORE = {
     "--   ★★ 这是本文件里最优雅的一处初始化。",
   ],
 
-  809: [
+  "LatchNode:Visit#1": [
     "--★★【LatchNode:Visit —— 「先判冷却，再执行」的简洁结构】",
     "--   ★★ 【 它刻意不覆写 Reset —— 这是与所有其他节点最大的不同】",
     "--     其他节点（Sequence/Selector/Loop/Random/Priority/Event）都覆写了 Reset，",
@@ -717,7 +717,7 @@ export const BEFORE = {
     "--     ★★ 与 ConditionWaitNode（247 行）对比：后者的 fn 返回真就 SUCCESS，",
     "--       而 LatchNode 是「时间到了就 RUNNING 并执行」—— 语义完全不同。",
   ],
-  810: [
+  "LatchNode:Visit#1+1": [
     "--★★ `if self.status == READY then` —— 只在未运行时判冷却。",
     "--   ★★ 用 READY 而非 `~= RUNNING`（对比 WaitNode:286）：",
     "--     两者在此处等价（因为非 READY 的状态只有 RUNNING，",
@@ -728,7 +728,7 @@ export const BEFORE = {
     "--       LatchNode 则什么都不做（保持 SUCCESS 直到 Step 复位）。",
     "--       ★ 差异极小（最多一帧），但说明两个「等待类节点」是独立编写的。",
   ],
-  811: [
+  "LatchNode:Visit#1+2": [
     "--★★【冷却判定 —— LatchNode 的全部智慧所在】",
     "--   `if GetTime() > self.currentlatchduration + self.lastlatchtime then`",
     "--   ★★ 【 为什么用「严格大于」而非「大于等于」】",
@@ -750,7 +750,7 @@ export const BEFORE = {
     "--   ★★ 806 行的 -math.huge 哨兵在此生效：",
     "--     `-inf + 0 = -inf`，`GetTime() > -inf` 恒真 → 首次必定解锁。",
   ],
-  812: [
+  "LatchNode:Visit#1+3": [
     "--※【被注释掉的调试打印】`--print(\"GONNA GO!\", GetTime(), ...)`",
     "--   ★★ 这行打印的内容极其有用：",
     "--     GetTime()（当前时刻）、self.currentlatchduration（上次时长）、",
@@ -760,14 +760,14 @@ export const BEFORE = {
     "--     注意它还把整个判定条件写进了打印：",
     "--     `\"----\"` 后面就是 811 行的完整比较式。",
   ],
-  813: [
+  "LatchNode:Visit#1+4": [
     "--★★ lastlatchtime = GetTime() —— 「本次锁定从此刻开始」。",
     "--   ★★ 必须在 814 行更新 currentlatchduration **之前**执行，",
     "--     因为 811 行的判定已经用完了旧值。",
     "--   ★★ 这是「先判定、再更新」的两阶段模式的又一次运用",
     "--     （与 WaitNode:287-288 的 wake_time 模式类似）。",
   ],
-  814: [
+  "LatchNode:Visit#1+5": [
     "--★★ FunctionOrValue(latchduration, inst) —— 动态时长求值。",
     "--   ★★ 与 WaitNode:287 的对比：",
     "--     · WaitNode:   FunctionOrValue(self.wait_time)  ← 不传 inst",
@@ -779,11 +779,11 @@ export const BEFORE = {
     "--   ★★ 重新求值的时机：只在「解锁成功的那一刻」（813-814 行的顺序保证）。",
     "--     冷却期间不重复求值 —— 性能友好。",
   ],
-  815: [
+  "LatchNode:Visit#1+6": [
     "--※【被注释掉的调试打印】`--print(\"New vals:\", self.currentlatchduration, self.lastlatchtime)`",
     "--   ★ 与 812 行配套：812 打「准备进」，815 打「已更新后的新值」。",
   ],
-  817: [
+  "LatchNode:Visit#1+8": [
     "--★★ status = RUNNING —— 「冷却结束，开始执行」。",
     "--   ★★ 注意这里是**直接**转 RUNNING，不经过任何中间态。",
     "--     于是 823 行紧随其后就会执行子节点 —— 同一个 Visit 内启动。",
@@ -794,10 +794,10 @@ export const BEFORE = {
     "--   ★★ 转 RUNNING 的一个关键副作用：Step(161) 会保活本节点，",
     "--     于是 806/813 行的 lastlatchtime 得以跨帧存活（Step 不重置字段）。",
   ],
-  818: [
+  "LatchNode:Visit#1+9": [
     "--★ else 分支：还在冷却中 → FAILED。",
   ],
-  819: [
+  "LatchNode:Visit#1+10": [
     "--★★【冷却中 → FAILED —— 让父节点去找别的分支】",
     "--   ★★ 这是 LatchNode 作为「限流器」的核心行为：",
     "--     放在 PriorityNode 里 → 冷却期间这个分支不可用，",
@@ -817,7 +817,7 @@ export const BEFORE = {
     "--       而不是「RUNNING 就等」—— 因为 FAILED 才是「让路」的通用表达。",
   ],
 
-  823: [
+  "LatchNode:Visit#1+14": [
     "--★★【执行段 —— 与 WaitNode:291 / EventNode:755 结构同型】",
     "--   `if self.status == RUNNING then`",
     "--   ★★ 三个节点（WaitNode:291 / EventNode:755 / LatchNode:823）都是同一个模式：",
@@ -827,10 +827,10 @@ export const BEFORE = {
     "--   ★★ 本节点的子节点执行是**无条件**的（无短路），",
     "--     因为 LatchNode 只有一个孩子，不存在选择问题。",
   ],
-  824: [
+  "LatchNode:Visit#1+15": [
     "--★★ 无条件 Visit 唯一的孩子。",
   ],
-  825: [
+  "LatchNode:Visit#1+16": [
     "--★★【状态透传 —— LatchNode 自己不维护任何执行状态】",
     "--   `self.status = self.children[1].status`",
     "--   ★★ 与 EventNode:759 完全同构：「我是子节点的壳」。",
@@ -852,7 +852,7 @@ export const BEFORE = {
     "--       这通常是正确的（避免疯狂重试），但若子节点的 FAILED 是"
       + "瞬时故障，就会浪费一个冷却周期。",
   ],
-  826: [
+  "LatchNode:Visit#1+17": [
     "--★ Visit 函数结束。",
     "--   ★★ 【 全文件在此结束 —— 最后一个符号是 LatchNode】",
     "--   回顾本文件的结构（826 行）：",

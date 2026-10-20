@@ -30,7 +30,7 @@ export default {
     '-- 【⚠️ 已确认的两处真实缺陷，见第 107 行与第 214 行注释】',
     '--]]',
   ],
-  16: [
+  "OnSetPlayerMode#1": [
     '-- 【★★ OnSetPlayerMode：玩家形态的事件订阅总入口】',
     '-- 为什么是 local function 而非 Widget 方法？',
     '--   因为它是通过 DoStaticTaskInTime（第 626 行）作为**回调**传给引擎的，',
@@ -44,25 +44,25 @@ export default {
     '--   （引擎要求传入与注册时**同一个函数对象**才能解绑）。',
     '--   → 这是 DST 全工程通用的「用 self 字段缓存回调」模式，极重要。',
   ],
-  19: [
+  "OnSetPlayerMode#1+3": [
     '-- forcehealthpulse：服务端强制播放血量脉冲（如被治疗/回血道具）。',
     '-- ★ 注意它没有对应的 data.newpercent/oldpercent，',
     '--   而是 data.up / data.down（第 674-680 行）——',
     '--   「只说方向不说数值」的轻量事件，用于只需动画无需数值的场景。',
   ],
-  27: [
+  "self.onhealthdelta#1+2": [
     '-- ★ 订阅后立刻拉一次当前值（Initialize on subscribe）。',
     '-- 因为事件只在**变化**时触发：新 HUD 刚建好时若不主动拉一次，',
     '-- 血条会停留在 0% 直到玩家第一次掉血才更新。',
     '-- ★ 这个「订阅 + 立即同步初始值」的动作在本函数出现 8 次，',
     '--   是所有事件驱动 UI 的必备步骤。',
   ],
-  30: [
+  "self.onhealthdelta#1+5": [
     '-- 饥饿度：注意变量名 stomach（胃），UI 上叫 stomach，实际数据是 hunger。',
     '-- ★ 命名不统一是 DST 历史遗留，读代码时容易困惑：',
     '--   数据源 owner.replica.hunger，控件字段 self.stomach。',
   ],
-  48: [
+  "self.onmoisturedelta#1+5": [
     '-- 【★ boatmeter：上下船时的血条同步（双平台）】',
     '-- 49-54 行：进游戏时先判定当前是否站在带 healthsyncer 的平台上，',
     '--   是则 Enable，不则 Disable。',
@@ -74,21 +74,21 @@ export default {
     '--   未判 platform 非 nil。第 49 行 GetCurrentPlatform 可能返回 nil，',
     '--   但有第 49 行的 ~= nil 守卫。事件回调里则假定平台必然存在。',
   ],
-  64: [
+  "self.ongotoffplatform#1+4": [
     '-- ★ 双重条件：徽章存在（wereness ~= nil）**且**尚未订阅。',
     '--   第 70、83、89、101、113 行的 inspiration/mighty/pethealth/heartbuff/petskin 同构。',
     '-- ★ 为什么要判徽章存在？因为 AddWereness 是**后加**的（可变身获得），',
     '--   若徽章还没建就订阅事件，回调会访问 nil 徽章而崩溃。',
     '--   → 「事件订阅必须晚于控件创建」的不变式。',
   ],
-  71: [
+  "self.oninspirationdelta#1": [
     '-- inspirationdelta 事件同时携带三个信息：newpercent / slots_available / draining。',
     '-- ★ 第 71 行密集的 `data ~= nil and data.X or nil` 防御：',
     '--   每个字段都判空。服务端可能只发部分字段。',
     '--   注意 slots_available 用 `or nil`（把 false 归一成 nil），',
     '--   因为第 923 行的 `slots_available or CalcAvailable...` 需要区分「没给」与「给 0」。',
   ],
-  89: [
+  "self.onmightinessdelta#1+5": [
     '-- 【★ 六个 pethealth 相关事件绑到同一个回调】',
     '-- 第 90 行：六个事件共用一个匿名函数，存进 self.onpethealthdirty。',
     '-- ★ 因为存的是同一个函数对象，第 205-209 行解绑时传同一个引用即可全部解绑。',
@@ -97,13 +97,13 @@ export default {
     '-- 五个 dirty 事件分别对应：血量、符号、最大血量、脉冲、状态；',
     '-- 第 96 行 bonus 是第六个。',
   ],
-  101: [
+  "self.onpethealthdirty#1+11": [
     '-- ★ 与第 89 行的对比：这里只有**一个**事件（clienthealthbuffdirty），',
     '--   但守卫条件是 `self.heart ~= nil and self.onheartbuffdirty == nil` ——',
     '--   既判控件存在又判未订阅。heart 是构造器里无条件建的（第 329 行），',
     '--   这个判空其实是冗余的，但无害。',
   ],
-  107: [
+  "self.onheartbuffdirty#1+5": [
     '-- ⚠️⚠️ 【真实缺陷 · 已逐行核实并全库检索确认】',
     '--',
     '-- 第 107 行条件写作 `if self.onavengetimedirty ~= nil then`，',
@@ -127,13 +127,13 @@ export default {
     '-- 我 grep 全库确认 onavengetimedirty 仅出现在本文件第 107/108/109/220/221/222 行，',
     '-- 无其它地方修正此条件。判定为确凿缺陷。',
   ],
-  113: [
+  "self.onheartbuffdirty#1+11": [
     '-- petskindirty：宠物皮肤变化。',
     '-- ★ 第 995 行 RefreshPetSkin 里用 TheInventory:LookupSkinname 查贴图，',
     '--   再 self.pethealthbadge:SetIconSkin(skinname) ——',
     '--   「数据名 → 贴图名」的一步转换，UI 只认贴图名。',
   ],
-  119: [
+  "self.onpetskindirty#1+5": [
     '-- 【★ 四个宠物饥饿事件 + 一个「显隐决定」回调】',
     '-- 第 123-132 行 onshowpethunger 值得注意：',
     '--   它不是简单 Show/Hide，而是**同时用 classified 里的数据初始化全部子状态**：',
@@ -143,7 +143,7 @@ export default {
     '--   「恢复显示时全量重同步」—— 与第 27 行的「订阅即拉初值」同源。',
     '-- 第 137 行末尾主动调用一次，确保初始化时状态正确。',
   ],
-  140: [
+  "self.onshowpethunger#1+17": [
     '-- 【★ 护盾：两个事件 + 一次百分比自除】',
     '-- 第 146 行：GetCurrentShield() / maxshield 求当前比例。',
     '-- ⚠️ 疑似健壮性缺口：未判 maxshield == 0。',
@@ -152,7 +152,7 @@ export default {
     '--   且本行只在 wxshieldanim 存在（即角色是 wx78）时才执行，故实际风险低。',
     '-- 第 147 行同步「能否开始蓄力」，这是独立于数值的状态。',
   ],
-  151: [
+  "OnSetGhostMode#1": [
     '-- 【★★ OnSetGhostMode：灵魂形态 —— 与 OnSetPlayerMode 完全对称的解绑函数】',
     '-- 结构：逐个 if self.onXxx ~= nil → RemoveEventCallback → 置 nil。',
     '--',
@@ -166,14 +166,14 @@ export default {
     '--   ★ 本文件这一对函数就是这个纪律的活教材：新增一个事件订阅时，',
     '--     必须同时在这两个函数里各加一段。',
   ],
-  199: [
+  "OnSetGhostMode#1+48": [
     '-- ⚠️ 疑似残留：解绑的字段名是 onupgrademodulesenergylevelupdated，',
     '--   但实际注册时的事件名是 "energylevelupdate"。',
     '--   我在本文件 grep 确认该字段**只有这一处出现**（无对应注册代码）。',
     '--   判定为「疑似死代码」：可能是升级模块功能被移除后遗留的解绑残留。',
     '--   若该字段真为 nil，则整个分支永不执行 → 无实际影响。',
   ],
-  204: [
+  "OnSetGhostMode#1+53": [
     '-- ★ 注意这里解绑了**五个**事件，而第 89-96 行注册了**六个**。',
     '-- ⚠️⚠️ 【真实缺陷 · 已核实】缺 clientpethealthpulsedirty。',
     '--',
@@ -190,7 +190,7 @@ export default {
     '-- 若未来 SetValues 在隐藏态被调用出问题，这里就是引线。',
     '-- 判定为确凿缺陷（解绑不完整），影响程度中等偏低。',
   ],
-  214: [
+  "OnSetGhostMode#1+63": [
     '-- ⚠️⚠️ 【真实缺陷 · 已逐行核实并全库检索确认】',
     '--',
     '-- 第 216 行写的是 `self.onheartbonusdirty = nil`，',
@@ -211,7 +211,7 @@ export default {
     '--',
     '-- 修复：第 216 行应为 `self.onheartbuffdirty = nil`。',
   ],
-  251: [
+  "UpdateRezButton_Enable#1": [
     '-- UpdateRezButton_Enable：延迟执行「显示复活按钮」。',
     '-- ★ 第 253-254 行把 proxy_is_gravestone 转成 effigy_type（"grave" 或 nil），',
     '--   传给 EnableResurrect。',
@@ -219,7 +219,7 @@ export default {
     '--   → 第 1001 行 EnableResurrect 靠这个二值区分按钮贴图。',
     '-- 第 252 行先清任务句柄，因为这个函数本身是任务回调。',
   ],
-  257: [
+  "UpdateRezButton_Disable#1": [
     '-- 【★ UpdateRezButton_Disable：隐藏时播放「塑像碎裂」动画】',
     '-- 第 260 行先记下「隐藏前按钮是否可见」—— 因为马上要隐藏，无法再问。',
     '-- 第 262 行：只有「本来可见 → 现在不可见」才播破碎动画。',
@@ -232,7 +232,7 @@ export default {
     '--   优先用 inv（更权威），为空才用 cursortile。',
     '--   这是「双数据源择一」的典型写法。',
   ],
-  271: [
+  "OnFinishSeamlessPlayerSwap#1": [
     '-- 【★ OnFinishSeamlessPlayerSwap：换人完成后的重订阅】',
     '-- 与 inventorybar.lua 第 125 行是同一个事件，处理方式一致：',
     '--   换人过程中 UI 可能短暂处于「旧数据 + 新 owner」的错配状态，',
@@ -244,7 +244,7 @@ export default {
     '--     长期订阅 → 必须存字段。',
     '-- 第 275-283 行取消未完成的 modetask 再重新分派形态函数。',
   ],
-  286: [
+  "OnFinishSeamlessPlayerSwap#1+15": [
     '-- 【★ 构造器的首要动作：UpdateWhilePaused(false)】',
     '-- 对比 widget.lua:11 基类默认是 UpdateWhilePaused(true)（暂停时仍更新）。',
     '-- ★ 状态条必须「跟随游戏暂停」：',
@@ -253,13 +253,13 @@ export default {
     '--   更实际的是：暂停时玩家看背包/菜单，状态条狂闪会分散注意力。',
     '-- 第 288 行是整个文件「冷静」观感的基础。',
   ],
-  291: [
+  "OnFinishSeamlessPlayerSwap#1+20": [
     '-- 若自己是「无缝换人的目标」，先订阅完成事件。',
     '-- ★ 这意味着换人前 HUD 是残缺的（没订阅任何事件），',
     '--   靠 finishseamlessplayerswap 补齐（OnFinishSeamlessPlayerSwap）。',
     '-- 与 inventorybar 的两阶段 swap 处理是同一套思路。',
   ],
-  295: [
+  "OnFinishSeamlessPlayerSwap#1+24": [
     '-- 【★★ 分屏的镜像布局 —— 一个数字常量解决两套布局】',
     '-- 第 296 行：分屏 且 是 1P → 用一组列坐标；否则（含 2P 与非分屏）用另一组。',
     '--',
@@ -276,7 +276,7 @@ export default {
     '--   5 个徽章 × 5 个位置 = 本该 25 个分支判断，现在 0 个。',
     '-- 移植自研项目做本地化/分屏/横竖屏适配时，这种手法极其有效。',
   ],
-  316: [
+  "OnFinishSeamlessPlayerSwap#1+45": [
     '-- 【★★ 三个徽章都用「owner 可覆盖工厂」模式】',
     '-- `owner.CreateSanityBadge ~= nil and owner.CreateSanityBadge(owner) or SanityBadge(owner)`',
     '--',
@@ -293,7 +293,7 @@ export default {
     '-- ★ 移植要点：这是给第三方（角色/mod）预留扩展点的标准手法，',
     '--   比在 statusdisplays 里写 `if owner.prefab == \"wendy\" then` 干净得多。',
   ],
-  324: [
+  "OnFinishSeamlessPlayerSwap#1+53": [
     '-- ★ 按标签（HasTag）条件添加宠物饥饿条 —— 沃尔特骑狗时才需要。',
     '-- 第 325 行建徽章、第 326 行做额外配置（SetupWobyPetHunger 换贴图与箭头逻辑）。',
     '-- ★ 「建控件」与「配控件」分离成两个调用，因为徽章也可能由别的路径创建。',
@@ -301,7 +301,7 @@ export default {
     '-- wereness/battlesinger/strongman 完全同构 ——',
     '-- → 角色能力 → 决定显示哪些状态条，是可扩展的通用模式。',
   ],
-  329: [
+  "OnFinishSeamlessPlayerSwap#1+58": [
     '-- 血条：注入点可替换，第三个参数 "status_abigail" 是特效图集/默认名。',
     '-- ★ 第 331 行把「塑像碎裂音效」挂在 heart 上，供第 266 行使用 ——',
     '--   把「与血条相关的音效」随血条一起存放，而不是散落成独立字段。',
@@ -309,7 +309,7 @@ export default {
     '-- 第 333 行 healthpenalty 缓存「上一帧的惩罚百分比」，',
     '--   供第 642 行 HealthDelta 做差分比较（见该处注释）。',
   ],
-  344: [
+  "OnFinishSeamlessPlayerSwap#1+73": [
     '-- 复活按钮：固定缩放 .75，带默认 tooltip。',
     '-- 第 348-354 行 resurrectbuttonfx 是独立的 UIAnim（破碎动画）。',
     '-- ★ 第 352 行 AnimateWhilePaused(false)：动画不跟随暂停 ——',
@@ -318,7 +318,7 @@ export default {
     '--   动画播完自动隐藏，无需在别处维护计时。',
     '--   → 一次性动画的标准收尾方案，比 DoTaskInTime 延迟隐藏更可靠。',
   ],
-  356: [
+  "OnFinishSeamlessPlayerSwap#1+85": [
     '-- ★★★ 源码原注释直接点明了一个真实的状态陷阱：',
     '-- 「不能依赖 attunement 的获得/丢失顺序，尤其是切换塑像的同一帧内」。',
     '--',
@@ -336,7 +336,7 @@ export default {
     '-- ★ 移植自研项目做「可多目标激活的增益/交互」时必然遇到同类问题，',
     '--   「延迟合并 + 取最终态」是通用解法。',
   ],
-  363: [
+  "OnFinishSeamlessPlayerSwap#1+92": [
     '-- 「刚获得 attunement 即可假定已连接」—— 与第 375 行的「不能假定」形成对照。',
     '-- ★ 第 367 行：remoteresurrector（扑火机）或 gravestoneresurrector（墓碑）任一即可。',
     '-- 第 368-370 行：取消上一个待执行的 Enable 任务 ——',
@@ -344,7 +344,7 @@ export default {
     '-- 第 371 行 DoTaskInTime(rezbuttondelay, UpdateRezButton_Enable, self, proxy_is_gravestone)',
     '--   注意额外传了 self 与 proxy_is_gravestone —— 引擎任务回调的参数透传。',
   ],
-  375: [
+  "OnFinishSeamlessPlayerSwap#1+104": [
     '-- ⚠️ 【★ 关键不对称：丢失时必须复查是否还有其它同类连接】',
     '-- 第 380-383 行：失去一个 proxy 时，要查 attuner 组件里是否**还有别的**同类型连接。',
     '--   全部失去才隐藏按钮。',
@@ -355,7 +355,7 @@ export default {
     '-- ★ 这段与第 617-620 行 SetGhostMode 里的同类查询逻辑重复，',
     '--   可提取为 HasAttunementAny() 辅助函数；现状是重复代码，属轻微技术债。',
   ],
-  391: [
+  "OnFinishSeamlessPlayerSwap#1+120": [
     '-- ★ 第 393-396 行的初始化序列是本文件最巧妙的设计：',
     '--   modetask = nil                       —— 占位',
     '--   isghostmode = true                   —— ★ 故意设成「错的当前值」',
@@ -370,14 +370,14 @@ export default {
     '--   移植要点：若你有 change-detection 的早退守卫，需要一个可靠的「首次必执行」通道。',
     '-- 第 395 行 instantboatmeterclose 同理，让第 53 行的 Disable 走无动画的快速路径。',
   ],
-  398: [
+  "OnFinishSeamlessPlayerSwap#1+127": [
     '-- ★ 条件添加四类徽章的统一写法：HasTag（wereness/battlesinger/strongman）、',
     '--   components 判定（avengingghost）、pethealthbar 判定（pethealthbadge）。',
     '--   每个 AddXxx 内部都是 `if self.xxx == nil then` 幂等守卫（第 475、522、532 行）。',
     '-- ★ 双层幂等：构造器判条件 + Add 函数判 nil。',
     '--   因为这些 Add 还可能被别处（变身事件）再次调用。',
   ],
-  408: [
+  "OnFinishSeamlessPlayerSwap#1+137": [
     '-- ★ 温蒂（Wendy）的宠物血条：需要同时满足「有 pethealthbar 组件」且「是 wendy」。',
     '--   第 409 行的 prefab 判定说明该功能只服务于特定角色。',
     '-- 第 410 行传入两个颜色（浅色 + 青色），是 PetHealthBadge 的构造参数。',
@@ -387,7 +387,7 @@ export default {
     '-- → 「新增一个徽章 → 挤走另一个徽章的位置」是这类固定布局的必然痛点，',
     '--   DST 的处理是硬编码挪位，没有通用的重排机制。',
   ],
-  426: [
+  "StatusDisplays:ShowStatusNumbers#1": [
     '-- ShowStatusNumbers：打开「显示数值」设置时，逐个显示数字。',
     '-- ★ 第 430 行对护盾数字做了额外判断：',
     '--   不仅要求 wxshieldanimnum 存在，还要求 wxshieldanimflicker 当前 shown ——',
@@ -395,7 +395,7 @@ export default {
     '-- ★ 逐项显式列出（而非遍历子节点）说明这些徽章结构不同，',
     '--   没有统一接口。对比第 445 行 HideStatusNumbers 的写法完全平行。',
   ],
-  445: [
+  "StatusDisplays:HideStatusNumbers#1": [
     '-- HideStatusNumbers：与 ShowStatusNumbers 逐行对称。',
     '-- ★ 注意第 453 行直接 self.boatmeter.num:Hide()，',
     '--   而第 434-436 行的 Show 却先判 `if self.boatmeter.boat then`。',
@@ -404,7 +404,7 @@ export default {
     '--   Hide 路径会尝试访问 num 字段。',
     '--   实际未崩溃，说明 num 字段大概率无条件存在；标为疑似。',
   ],
-  462: [
+  "StatusDisplays:Layout#1": [
     '-- 【⚠️ 空方法：Layout 是纯占位】',
     '-- 函数体为空，没有任何布局逻辑。',
     '-- ★ 结合第 295-308 行的「列常量」设计可知：',
@@ -412,7 +412,7 @@ export default {
     '--   这个空方法是**接口预留**（可能供分屏切换时重算，或供子类/外部调用）。',
     '-- ★ 移植提示：保留空接口比删掉更安全 —— 外部可能通过 Widget 基类机制调用它。',
   ],
-  467: [
+  "StatusDisplays:AddBeaverness#1": [
     '-- 【⚠️ 五个 Beaver 相关方法全部空实现，且明确标注 Deprecated】',
     '-- 第 466 行的区块注释（Lua 长注释双中括号）内写 Deprecated，是作者主动标记。',
     '-- 河狸（Beaver）相关机制被移除，但方法签名保留为空壳。',
@@ -424,7 +424,7 @@ export default {
     '-- ★ 移植自研项目做长期维护时同样需要：',
     '--   废弃功能时留空壳 + 标注 Deprecated，而不是直接删除。',
   ],
-  474: [
+  "StatusDisplays:AddWereness#1": [
     '-- AddWereness：运行时动态添加（狼人形态触发）。',
     '-- ★ 第 477 行用 `self.stomach:GetPosition()` ——',
     '--   直接复用饥饿条的坐标，让狼人条**出现在饥饿条原来的位置**。',
@@ -432,7 +432,7 @@ export default {
     '--   ★ 这个「位置别名」技巧让 SetWereMode（第 502 行）的切换逻辑极其简单。',
     '-- 第 481 行的 elseif 复合守卫：非灵魂形态 且 未订阅 → 才订阅并同步初值。',
   ],
-  502: [
+  "StatusDisplays:SetWereMode#1": [
     '-- 【★ SetWereMode：两个徽章的互换 —— UI 的「形态切换」范式】',
     '-- 第 506-507 行：狼人形态 → 隐藏 stomach、显示 wereness；',
     '-- 第 513-514 行：正常形态 → 反之。',
@@ -446,7 +446,7 @@ export default {
     '--   把 isghostmode 赋值为 **nil**（不是 false）。Lua 中 nil 与 false 都为假，',
     '--   故判断逻辑仍然正确，但语义风格不统一，易让读者困惑。',
   ],
-  539: [
+  "StatusDisplays:SetGhostMode#1": [
     '-- 【★★ SetGhostMode：整个状态条的总开关】',
     '-- 第 540 行的双重否定比较：',
     '--   `not self.isghostmode == not ghostmode`  ← 「当前态」与「目标态」的「非」值相同',
@@ -464,14 +464,14 @@ export default {
     '--   对齐第 394 行「首次初始化时预设为 true」的约定。Lua 里 nil/false 等价，',
     '--   但混用会增加阅读成本。',
   ],
-  609: [
+  "StatusDisplays:SetGhostMode#1+70": [
     '-- ★ 切形态时取消所有待执行的延迟任务（第 609-616 行）。',
     '-- ★ 必要性：切形态瞬间，之前排的 rezbutton 延迟任务仍会执行，',
     '--   在**错误的形态**下改按钮状态。',
     '-- → 「状态切换必须取消与旧状态相关的异步任务」，与 inventorybar 的',
     '--   CancelMoveTo（第 376 行）同源。',
   ],
-  617: [
+  "StatusDisplays:SetGhostMode#1+78": [
     '-- ★★ 复活按钮状态在切形态时重算 —— 与第 375 行 attunementlost 用同一套查询。',
     '-- 第 619 行：attuner 组件存在 且（连接了扑火机 或 墓碑）→ 显示。',
     '-- 第 620 行：只把「墓碑」作为 effigy_type 传出；',
@@ -479,7 +479,7 @@ export default {
     '--   → 按钮按「普通复活器」显示。这是刻意的优先级（墓碑优先）。',
     '-- ★★ 与第 251/257 行同款推导 —— 「是否显示」与「显示哪种」是两个独立维度。',
   ],
-  626: [
+  "StatusDisplays:SetGhostMode#1+87": [
     '-- 【★ DoStaticTaskInTime(0, ...) —— 延迟到本帧之后执行】',
     '-- 用 Static（而非 Sim）版本：即使游戏暂停也能执行。',
     '-- ★ 为什么要延迟 0 帧而不是直接调用？',
@@ -490,7 +490,7 @@ export default {
     '-- ★ 第 623-625 行：先取消上一次未完成的 modetask，',
     '--   保证同一时刻只有一个待执行的形态切换任务。',
   ],
-  629: [
+  "StatusDisplays:SetHealthPercent#1": [
     '-- 【★ SetHealthPercent：唯一的数值写入点】',
     '-- 第 631-632 行：同时更新显示百分比与惩罚百分比。',
     '--   penalty（惩罚）是 DST 的机制：吃了腐坏食物等会临时扣最大血量。',
@@ -502,7 +502,7 @@ export default {
     '-- ★ SetXxxPercent 与 XxxDelta 的分工：',
     '--   Set 只管数值，Delta 只管动画反馈（第 641 行）。职责分离清晰。',
   ],
-  641: [
+  "StatusDisplays:HealthDelta#1": [
     '-- 【★★ HealthDelta：血量变化的反馈决策 —— 「惩罚优先」是关键】',
     '-- 第 642 行先存旧 penalty，然后 SetHealthPercent 更新它。',
     '--',
@@ -521,13 +521,13 @@ export default {
     '--   否则用通用逻辑。这是「徽章可自定义反馈」的第二处扩展点',
     '--   （第一处是第 316 行的工厂注入）。',
   ],
-  670: [
+  "StatusDisplays:ForceHealthPulse#1": [
     '-- ForceHealthPulse：服务端强制的血条脉冲。',
     '-- 第 671 行的双重判空（heart 存在 且 徽章实现了该方法），与第 645 行同构。',
     '-- 第 674-680 行的 else 分支只处理 up/down，不比较数值 ——',
     '--   因为该事件本就不携带百分比。',
   ],
-  684: [
+  "StatusDisplays:SetHungerPercent#1": [
     '-- 饥饿度条：与血条的差别在阈值。',
     '-- ★ 第 687 行 `if pct <= 0` —— 饥饿只在**归零**时告警，',
     '--   而血量低到 33% 就告警。',
@@ -535,7 +535,7 @@ export default {
     '-- ★ 这是「把游戏平衡参数编码进 UI」的体现：',
     '--   同一个 `warning` 机制，不同资源用不同触发点。',
   ],
-  694: [
+  "StatusDisplays:HungerDelta#1": [
     '-- HungerDelta：反馈逻辑比血量简单 —— 没有 penalty 维度。',
     '-- 第 699 行的 `if not data.overtime` 同样跳过溢出伤害的音效。',
     '-- ⚠️ 第 703-705 行两行的顺序与血量（第 663-665 行）相反：',
@@ -543,19 +543,19 @@ export default {
     '--   两者无功能差异（同一帧内完成），但风格不统一。属轻微不一致。',
     '-- ★ 若日后要统一封装 Pulse+sound，应一并修正顺序。',
   ],
-  711: [
+  "StatusDisplays:AddPetHunger#1": [
     '-- AddPetHunger：构造沃尔特宠物饥饿条。',
     '-- 第 713 行颜色 RGB(198,198,0) 是暗黄，背景名为 "status_woby"。',
     '-- 第 715 行默认 Hide —— 等第 123-137 行的 onshowpethunger 决定是否显示。',
     '-- ★ 「先建后隐」而非「按需再建」：避免运行中反复建/销控件。',
   ],
-  719: [
+  "StatusDisplays:SetPetHungerPercent#1": [
     '-- SetPetHungerPercent：第 720 行无判空。',
     '-- ⚠️ 与第 949-952 行的 SetWxShieldPercent（有 `if self.heart ~= nil`）对比，',
     '--   这里的保护更弱。',
     '--   判定为轻微不一致（实际由调用方保证徽章存在），不构成缺陷。',
   ],
-  723: [
+  "StatusDisplays:PetHungerDelta#1": [
     '-- 【★ 宠物饥饿变化：一个「代码被注释掉」的现场】',
     '-- 第 727 行只调徽章自己的 HungerDelta（若实现），无 fallback 分支。',
     '--',
@@ -567,7 +567,7 @@ export default {
     '-- ★ 第 724 行 max 的取值用了 `and ... or nil` 兜底，',
     '--   因为宠物可能尚未生成（pet_hunger_classified 为 nil）。',
   ],
-  748: [
+  "StatusDisplays:SetupWobyPetHunger#1": [
     '-- 【★★★ SetupWobyPetHunger：运行时「猴子补丁」替换徽章方法 —— 本文件技术含量最高的一段】',
     '--',
     '-- 【机制 1：运行时 require（第 749 行）】',
@@ -601,21 +601,21 @@ export default {
     '-- ★★★ 本函数整体是「不修改被扩展方源码而扩展其行为」的完整范例，',
     '--   对自研游戏的 mod/plugin 系统设计有直接参考价值。',
   ],
-  761: [
+  "StatusDisplays:SetupWobyPetHunger#1+13": [
     '-- ★ dont_animate_circleframe = true：禁止圆环随数值变化而动画。',
     '-- 第 760 行原注释给了理由：会打断变形过渡动画。',
     '-- ★ 这是「视觉状态之间的优先级冲突」—— 数值动画 vs 形态动画，',
     '--   后者优先级更高，故关掉前者。',
     '-- 值得学的是「在注释里写清为什么关」，避免后人误以为是性能优化而恢复它。',
   ],
-  764: [
+  "StatusDisplays:SetupWobyPetHunger#1+16": [
     '-- 被注释掉的色彩校正（color cube）配置。',
     '-- 第 763 行注释说明原因：圆环帧要匹配 Woby 的本体配色。',
     '-- ⚠️ 同样属「注释掉的代码」（SOP 第 4 条）—— 此处是刻意关闭而非未实现。',
     '-- ★ 与 inventorybar 第 535-539、908-910、952-954 行同类：',
     '--   DST 里大量功能被有意注释掉，是「保留意图但停用」的做法。',
   ],
-  802: [
+  "self.pethungerbadge.OnFlagsChanged#1+32": [
     '-- pethungerbadge.build 默认值。',
     '-- ★ 与第 806-822 行的 OnBuildChanged 包装配对：',
     '--   换皮肤时改 SetBank/SetBuild（第 815-816 行），',
@@ -623,7 +623,7 @@ export default {
     '-- 第 810 行对 build 为 nil/0/"" 三种空值统一兜底 ——',
     '-- ★ 服务端下发的可选字段可能用 0 表示「无」，需显式转换。',
   ],
-  826: [
+  "self.pethungerbadge.OnBuildChanged#1+20": [
     '-- 【★★ SetArrowAnimFn：把「箭头该播哪个动画」的决策注入徽章】',
     '-- 徽章负责画箭头，但不知道什么情况下该显示哪种箭头 ——',
     '-- 由本文件把决策函数塞进去（第 826 行 SetArrowAnimFn）。',
@@ -648,7 +648,7 @@ export default {
     '--   第 849 行的「满月 & 非新月」与第 838 行的「月狂模式」共同构成',
     '--   「由月亮能量供能、无需消耗体力」的判定。',
   ],
-  861: [
+  "StatusDisplays:SetSanityPercent#1": [
     '-- 【★ SetSanityPercent 与血量/饥饿的关键差异：返回旧新 penalty】',
     '-- 第 862 行 oldpenalty 取自徽章自身的 penaltypercent 字段（而非本类缓存）。',
     '-- ★ 为什么血量用 self.healthpenalty（第 631 行）、理智却读徽章字段？',
@@ -659,7 +659,7 @@ export default {
     '-- ★ 第 866 行的告警条件最有意思：IsInsane **或** IsEnlightened 都告警 ——',
     '--   理智过低（疯狂）与过高（清醒）都是需要注意的状态，故同用告警闪烁。',
   ],
-  874: [
+  "StatusDisplays:SanityDelta#1": [
     '-- 【★★ SanityDelta：唯一「两种变化可能同时发生」的 Delta 处理】',
     '-- 第 888-892 行：penalty 变化与百分比变化**各自**置 red/green 标志，',
     '--   最后第 893-899 行统一决定播哪个。',
@@ -673,13 +673,13 @@ export default {
     '-- 第 893 行「红优先」的设计意图：任何变差都应被感知到。',
     '-- ★ 这是很好的 UX 原则：**负面反馈优先于正面反馈**。',
   ],
-  903: [
+  "StatusDisplays:SetWerenessPercent#1": [
     '-- 狼形态值：★ 注意第 913/915 行复用**血量**的音效',
     '--   （health_up / health_down），而非专属音效。',
     '-- 判定为有意复用（音效池有限），非缺陷；但可读性略差。',
     '-- 第 905 行 SetPercent 只传 pct 不传 max —— 狼形态值是 0-1 绝对值，无需 max。',
   ],
-  921: [
+  "StatusDisplays:SetInspiration#1": [
     '-- 【★ SetInspiration：一个 setter 承担三件事】',
     '-- 第 922 行设百分比；',
     '-- 第 923 行设可用槽位 —— ★ 带兜底：没给就算 CalcAvailableSlotsForInspiration(pct)，',
@@ -690,10 +690,10 @@ export default {
     '--   不加这个守卫箭头会错误地持续闪烁。',
     '--   → 「派生状态的兜底」：由多个输入共同决定时，取保守值。',
   ],
-  931: [
+  "StatusDisplays:SetMightiness#1": [
     '-- 壮力值（Wortox 相关）：直接透传。',
   ],
-  935: [
+  "StatusDisplays:MightinessDelta#1": [
     '-- 【★ MightinessDelta：一个防抖阈值 —— 全文件最精细的数值处理】',
     '-- 第 936-937 行：data 可能为 nil，兜底成 0。',
     '--',
@@ -713,14 +713,14 @@ export default {
     '-- ★★ 这段是「连续型数值变化必须去抖」的教科书案例。',
     '--   移植自研游戏做体力条/饥饿条/法力条的下降反馈时必读。',
   ],
-  949: [
+  "StatusDisplays:SetWxShieldPercent#1": [
     '-- 护盾百分比：★ 有 `if self.heart ~= nil` 判空（第 950 行）。',
     '-- 原因：护盾是 wx78 专属，其 heart 徽章由 CreateHealthBadge 注入，',
     '--   不保证存在。',
     '-- ★ 这与第 719 行的 SetPetHungerPercent（无判空）形成对比：',
     '--   本文件对「可选徽章」的保护力度不统一，属风格问题。',
   ],
-  963: [
+  "StatusDisplays:SetMoisturePercent#1": [
     '-- 【★ 潮湿度的三个参数，与其它条的 (pct, max) 两参数不同】',
     '-- 第 964 行：SetValue(pct, max, rateScale)。',
     '-- ★ 多出的 rateScale（湿度变化速率）用于「变化方向」的视觉提示：',
@@ -729,7 +729,7 @@ export default {
     '--   没有强行统一成 (percent, max) 的通用接口。',
     '-- ★ 这是合理的取舍：抽象要看真实差异，不能为了统一而丢信息。',
   ],
-  975: [
+  "StatusDisplays:RefreshPetHealth#1": [
     '-- RefreshPetHealth：★ 一次性刷新八个字段（第 977 行）。',
     '-- 符号1、符号2、百分比、超时、最大血量、脉冲、最大加成、加成百分比。',
     '-- ★ 这种「宽接口」的原因是宠物血条要表达的信息确实多',
@@ -738,7 +738,7 @@ export default {
     '--   由服务端置位、客户端消费一次。',
     '-- ★ 这是「事件式一次性状态」的标准消费模式。',
   ],
-  981: [
+  "StatusDisplays:RefreshHealthBuff#1": [
     '-- RefreshHealthBuff：读 owner._buffsymbol 这个网络变量。',
     '-- ★ 注意第 982 行直接访问 `_buffsymbol`（带下划线前缀的「内部」字段），',
     '--   绕过了 replica 的正规接口。',
@@ -746,7 +746,7 @@ export default {
     '--   若该变量改名或移除，UI 会静默报错。',
     '-- 实际不影响功能（字段存在），标为疑似技术债。',
   ],
-  985: [
+  "StatusDisplays:RefreshAvengingGhost#1": [
     '-- RefreshAvengingGhost：★ 第 987 行用 `> 0` 而非 `~= nil` 判断。',
     '--   即「时间为 0」与「无此组件」都走 Hide 分支。',
     '-- ⚠️ 但第 986 行 components.avengingghost 若为 nil，第 987 行会崩溃。',
@@ -756,13 +756,13 @@ export default {
     '--   判定为「依赖隐式契约的脆弱但当前正确」。',
     '-- 第 989 行三个参数：符号、当前时间、最大时间 → 供徽章画进度环。',
   ],
-  995: [
+  "StatusDisplays:RefreshPetSkin#1": [
     '-- RefreshPetSkin：两步查表把「皮肤编号」转成「贴图名」。',
     '-- 第 997 行 TheInventory:LookupSkinname(_petskin:value())。',
     '-- ★ 与第 982 行相同，直接读内部网络变量（_petskin），同属架构越界。',
     '--   但比 RefreshHealthBuff 好一点 —— 至少经过了 LookupSkinname 这层封装。',
   ],
-  1001: [
+  "StatusDisplays:EnableResurrect#1": [
     '-- 【★★ EnableResurrect：复活按钮的「显示 + 外观」总控】',
     '-- enable=true（第 1002-1016 行）：',
     '--   ① 第 1003 行血条上显示塑像标记（effigy 图标）；',
@@ -781,7 +781,7 @@ export default {
     '--   UpdateRezButton_Disable 里，且需要「从可见变为不可见」的沿检测。',
     '--   → 动画职责被放在调用侧而非本函数，职责划分不彻底。',
   ],
-  1023: [
+  "StatusDisplays:EnableResurrect#1+22": [
     '-- 导出类本身（不是实例），消费方写法：',
     '--   local StatusDisplays = require "widgets/statusdisplays"',
     '--   status = StatusDisplays(owner)',

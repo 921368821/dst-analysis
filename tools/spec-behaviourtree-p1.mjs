@@ -70,7 +70,7 @@ export const BEFORE = {
     "--   但那样一来 Update 会崩（root:Visit），所以实际代码总是先建树再 new BT。",
   ],
 
-  17: [
+  "BT:ForceUpdate#1": [
     "--★★【ForceUpdate：事件唤醒的闸门】",
     "--   只置一个标志 `self.forceupdate = true`，不直接跑树。",
     "--   ★★ 为什么不在这里直接 Update？两个原因：",
@@ -90,12 +90,12 @@ export const BEFORE = {
     "--   ※ 代价：事件到生效之间最多有一帧的延迟。",
     "--     对「被打了要逃」这类反应，最多延迟 1/30 秒，玩家感知不到。",
   ],
-  18: [
+  "BT:ForceUpdate#1+1": [
     "--★ 注意这里是整体覆盖（true），不是计数。连续两个事件也只算一次。",
     "--   ★ 这是**正确的**：事件的意义是「该重新考虑了」，不是「要考虑两次」。",
   ],
 
-  20: [
+  "BT:Update#1": [
     "--★★【BT:Update —— 整个决策层的一次完整思考，只有这四步】",
     "--     ① root:Visit()      —— 自顶向下重算全树状态（决策发生在这里）",
     "--     ② root:SaveStatus() —— 把本轮 status 抄进 lastresult（为了可观测性）",
@@ -113,7 +113,7 @@ export const BEFORE = {
     "--   ※ 但它**不是**真正的事务：Step 阶段的 Reset 是破坏性的，",
     "--     中途抛错会导致树停在半复位状态。行为树节点里应避免 error。",
   ],
-  22: [
+  "BT:Update#1+2": [
     "--★★ Visit 是**自顶向下**的递归，不是自底向上。",
     "--   父节点决定「要不要问子节点」，子节点只在被问到时才执行。",
     "--   ★ 这与传统顺序遍历型行为树最大的区别就在这里 ——",
@@ -122,31 +122,31 @@ export const BEFORE = {
     "--   ★★ 好处：任何时刻从任何节点进入都能得到正确状态（无隐藏游标）。",
     "--     代价：每帧都要重新走「到当前节点」的那段路径，深度越深越贵。",
   ],
-  23: [
+  "BT:Update#1+3": [
     "--★★ SaveStatus 单独成为一步（而不是塞进 Step），",
     "--   是为了让「RUNNING 的节点」也能被快照 —— Step 会跳过它们。",
     "--   见 152 行：lastresult 对全树无条件赋值。",
   ],
-  24: [
+  "BT:Update#1+4": [
     "--★★ Step 是「本轮结束」的信号，也是唯一会向下递归的一步。",
     "--   注意基类 Step（161 行）对非 RUNNING 节点调用的是 Reset 而不是 Step，",
     "--   所以「跑完的子树」走的是 Reset 路径（连带清 children），",
     "--   「还在跑的子树」才继续往下 Step。",
     "--   ★★ 这就是为什么「正在跑的行为」能跨帧存活，而「跑完的行为」立刻被忘记。",
   ],
-  26: [
+  "BT:Update#1+6": [
     "--★ 放在最后清标志：保证本次 Update 一定消费掉它。",
     "--   ※ 若在 18-24 之间清，中途被 ForceUpdate 会丢失唤醒请求。",
   ],
 
-  29: [
+  "BT:Reset#1": [
     "--★ Reset 透传：给「手动打断整棵树」用（如换形态、切阶段）。",
     "--   典型调用：brains/ 里换阶段时先 `self.bt:Reset()`。",
     "--   ※ 注意 Reset **不会** 清 EventNode 的事件监听（见 744 行），",
     "--     只有 Stop 才会（713 行 OnStop）。这是刻意区分：",
     "--     Reset = 「重新考虑」，Stop = 「拆掉」。",
   ],
-  33: [
+  "BT:Stop#1": [
     "--★★【Stop 与 Reset 的区别 —— 涉及资源回收，是本文件的关键分界】",
     "--   Reset：把状态擦成 READY，**不释放任何外部资源**",
     "--   Stop ：调用每个节点的 OnStop 钩子，**释放外部资源**",
@@ -161,7 +161,7 @@ export const BEFORE = {
     "--     （这正是 entityscript.lua:1110 的做法：self.brain = brainfn() 重建）。",
   ],
 
-  37: [
+  "BT:GetSleepTime#1": [
     "--★★【GetSleepTime：行为树与「全局调度器」的唯一接口】",
     "--   这是整个 DST AI 性能体系的关键，理解它就理解了「为什么怪物不费 CPU」。",
     "--   返回值语义（被 brain.lua:143-149 消费）：",
@@ -186,18 +186,18 @@ export const BEFORE = {
     "--       这就是「事件驱动」四个字的确切含义，也是本文件与",
     "--       「每帧轮询型」AI 在性能上的天壤之别。",
   ],
-  38: [
+  "BT:GetSleepTime#1+1": [
     "--★ 三元写法 `if ... then return 0 end` 而不是 `return 0 or ...`，",
     "--   意图是让「强制更新」的优先级高于一切时间计算。",
   ],
-  42: [
+  "BT:GetSleepTime#1+5": [
     "--★ 注意可能返回 nil —— 那不是 bug，是「休眠」的信号（见上方 37 行详解）。",
     "--   ★★ nil 与 0 的区别是本文件最容易误读的地方：",
     "--     0 = 「马上」（还在 updaters 里，下 tick 继续）",
     "--     nil = 「别叫我了」（已移出 updaters，只有事件能叫醒）",
   ],
 
-  45: [
+  "BT:__tostring#1": [
     "--★★ __tostring 让 `print(brain)` / 调试面板直接吐出整棵树的快照。",
     "--   brain.lua:178-184 的 Brain:__tostring 会把它包在 \"--brain--\" 头里，",
     "--   并附上 GetSleepTime —— 这就是玩家在控制台敲 brain 命令看到的东西。",
@@ -207,7 +207,7 @@ export const BEFORE = {
   // ══════════════════════════════════════════════════════════════
   // 二、BehaviourNode 基类
   // ══════════════════════════════════════════════════════════════
-  52: [
+  "BT:__tostring#1+7": [
     "--★★【NODE_COUNT：全局自增节点计数器】",
     "--   ★★ 它的**唯一用途**是给 imgui 调试面板一个稳定可点的 id（见 61-63 行原注释）。",
     "--   为什么需要 id？因为行为树是**递归结构**，同一个 Panic 节点在树的",
@@ -221,7 +221,7 @@ export const BEFORE = {
     "--   ★ 结论：这是「为可观测性付费」的典型取舍，可接受。",
   ],
 
-  54: [
+  "BT:__tostring#1+9": [
     "--★★【BehaviourNode：全文件的心脏 —— 所有节点类型的共同基类】",
     "--   它承载三件事，任何节点都免费继承：",
     "--     ① 七个基础字段（54-63）：身份与状态",
@@ -234,14 +234,14 @@ export const BEFORE = {
     "--     浅拷贝基类的所有方法，所以基类新增方法时子类自动获得。",
     "--     ★ 但注意这也是「猴补陷阱」的来源：给基类打补丁会**立即影响所有节点**。",
   ],
-  55: [
+  "BT:__tostring#1+10": [
     "--★ name 是调试与错误定位的唯一线索，务必写清楚。",
     "--   ★★ 它在 145 行的 GetString 里被拼进输出，形如：",
     "--     `Event(gohome) - RUNNING <SUCCESS> (idx=2)`",
     "--   ※ 实践中大量节点的 name 是硬编码英文（如 428 行 LoopNode 的 name 就写成了",
     "--     \"Sequence\"，见该行的 ※ 标注），所以调试输出并不总是准确。",
   ],
-  56: [
+  "BT:__tostring#1+11": [
     "--★★ children 是**数组**（用 ipairs 遍历），不是字典。",
     "--   ★ 这一点很重要：节点的孩子**有顺序**，顺序即优先级。",
     "--     Sequence / Selector / Priority / Random 全部依赖这个顺序语义。",
@@ -249,10 +249,10 @@ export const BEFORE = {
     "--     属于风格不统一而非缺陷。",
     "--   ★ nil 表示「叶节点」。101 行的 GetSleepTime 靠它区分叶/非叶。",
   ],
-  57: [
+  "BT:__tostring#1+12": [
     "--★ status 是「当前思考周期的实时状态」，本周期内会被反复改写。",
   ],
-  58: [
+  "BT:__tostring#1+13": [
     "--★★【lastresult —— 为了可观测性而存在的字段】",
     "--   它是 status 的**上一周期快照**，由 SaveStatus（152 行）在 Visit 之后立刻定格。",
     "--   ★★ 为什么要留历史？因为 status 在 Step 阶段会被 Reset 成 READY，",
@@ -261,7 +261,7 @@ export const BEFORE = {
     "--     ★ 也就是说：lastresult **纯粹给人看**，没有任何逻辑读它。",
     "--     这是本文件「调试优先」设计哲学的一处明证。",
   ],
-  59: [
+  "BT:__tostring#1+14": [
     "--⚠【疑似缺陷】`self.nextupdatetick = 0` —— 一个**从未被读取的字段**。",
     "--   ★★ 全仓库检索（grep nextupdatetick）只命中这一处。",
     "--     真正被用的是 98 行的 `self.nextupdatetime`（注意少了 tick 的 t）。",
@@ -275,19 +275,19 @@ export const BEFORE = {
     "--     也提醒我们：**不要给行为树节点加没人读的字段**，它们会永远留在内存里。",
   ],
 
-  61: [
+  "BT:__tostring#1+16": [
     "--★ 原注释（保留）：`--jcheng: this is for imgui to have an id to use`",
     "--   翻译：「jcheng：这是给 imgui 用的，好让它有个 id」。",
     "--   ★★ 这行原注释本身就说明了作者的态度：**框架的核心是给调试器用的**。",
     "--     一个纯逻辑框架主动给每个节点分配稳定 id，是很强的可观测性承诺。",
   ],
-  62: [
+  "BT:__tostring#1+17": [
     "--★ id 在构造时分配，此后**永不改变**，与节点在树中的位置无关。",
     "--   ★★ 因此调试面板可以用 id 做「上次的同一个节点」的高亮，",
     "--     即使这轮思考里它换了父节点也一样能对上。",
   ],
 
-  65: [
+  "BT:__tostring#1+20": [
     "--★★【父子链接：只向上设 parent，不向下设 children 的反向引用】",
     "--   ★ 这个单向链接是本文件里一条**最重要的隐藏契约**：",
     "--     · 构造期：父节点给每个孩子设 parent（这里）",
@@ -300,7 +300,7 @@ export const BEFORE = {
     "--     这个节点就永远是叶子，无法被 DoToParents 之外的方式遍历到。",
   ],
 
-  72: [
+  "BehaviourNode:DoToParents#1": [
     "--★★【DoToParents：向上广播 —— 本文件唯一的「向祖先发通知」机制】",
     "--   递归向上执行 fn，每个祖先一次。",
     "--   ★★ 唯一使用者是 EventNode:734：",
@@ -318,15 +318,15 @@ export const BEFORE = {
     "--     但自定义树时这是个真实的坑。",
     "--   ※ 递归无深度上限：树有多深就递归多深。正常树深度 < 10，无性能问题。",
   ],
-  73: [
+  "BehaviourNode:DoToParents#1+1": [
     "--★ nil 守卫：根节点没有 parent，递归到此为止。",
   ],
-  75: [
+  "BehaviourNode:DoToParents#1+3": [
     "--★ 注意 `return self.parent:DoToParents(fn)` —— 返回值被丢弃。",
     "--   DoToParents 没有有意义的返回值，调用方也不需要（EventNode 传的是副作用函数）。",
   ],
 
-  79: [
+  "BehaviourNode:GetTreeString#1": [
     "--★★【GetTreeString：排查「AI 卡住」的第一工具】",
     "--   递归吐出整棵树的文本快照，每行形如：",
     "--     <缩进>NAME>STATUS>剩余秒数 (DBString 补充信息)",
@@ -341,15 +341,15 @@ export const BEFORE = {
     "--   ※ 代价：整棵树字符串拼接是 O(节点数)，每次调用都分配大量字符串。",
     "--     ★ 所以只在调试/按需时调用，绝不放进每帧路径。",
   ],
-  81: [
+  "BehaviourNode:GetTreeString#1+2": [
     "--★★ `self:GetTreeSleepTime() or 0` —— nil 兜底成 0。",
     "--   含义：「这一小片子树现在没有在等时间的事」。",
     "--   ★ 格式 `%2.2f` 保留两位小数，肉眼足以判断「还剩 0.01 秒」还是「还剩 3 秒」。",
   ],
-  83: [
+  "BehaviourNode:GetTreeString#1+4": [
     "--★ 用 ipairs 遍历 —— 顺序即优先级（见 56 行）。",
   ],
-  84: [
+  "BehaviourNode:GetTreeString#1+5": [
     "--★ 原注释（保留）：",
     "--   `// uncomment this to see only the \"active\" part of the tree. handy for pigbrain.`",
     "--   翻译：「取消注释这行就只看树的『活动』部分，对猪很有用。」",
@@ -360,7 +360,7 @@ export const BEFORE = {
     "--     只取消其中一行会造成 Lua 语法错误（if 有 then 却没有 end）。",
     "--   ★ 「pigbrain」之所以好用，是因为 pigelitebrain.lua:251 那类树特别大。",
   ],
-  85: [
+  "BehaviourNode:GetTreeString#1+6": [
     "--※【被注释掉的「只看活动节点」过滤器】三个条件：",
     "--     v.status == RUNNING          —— 本轮正在跑",
     "--     v.status == SUCCESS          —— 本轮刚成功（尚未被 Step 复位）",
@@ -375,7 +375,7 @@ export const BEFORE = {
     "--     所以只能看「哪些在跑」，看不出「挂在谁下面」。二者互补。",
   ],
 
-  93: [
+  "BehaviourNode:DBString#1": [
     "--★★ DBString 是「节点自述」的钩子，默认返回空串。",
     "--   ★ 全文只有三处实现（309/434/567 行 + behaviours/minperiod.lua:22），",
     "--     都是「打印一个能定位问题的数字」：",
@@ -387,11 +387,11 @@ export const BEFORE = {
     "--     **只有 RUNNING 的节点才输出 DBString**。",
     "--     这是刻意的降噪：没在跑的节点没什么可说。",
   ],
-  94: [
+  "BehaviourNode:DBString#1+1": [
     "--★ 空串是安全的默认值：string.format 里的 %s 会得到空文本，不会有 nil。",
   ],
 
-  97: [
+  "BehaviourNode:Sleep#1": [
     "--★★【Sleep / nextupdatetime：节点级的「我要睡 N 秒」声明】",
     "--   ★★ 与 BT:GetSleepTime 的关系：",
     "--     Sleep()      —— 声明「我还要 t 秒」（由具体节点在 Visit 里调用）",
@@ -404,13 +404,13 @@ export const BEFORE = {
     "--     但 106-108 行会把负数钳成 0，等价于「不睡」。",
     "--     ★ 这条容错救了 295 行 WaitNode 的一个笔误（见该行的 ※）。",
   ],
-  98: [
+  "BehaviourNode:Sleep#1+1": [
     "--★ 用 GetTime()（秒，浮点）而非 GetTick()（帧数整数）。",
     "--   ★ 理由：period / latchduration 等配置项都以秒为单位书写，",
     "--     用秒统一后，配置里写 0.25 就是 0.25 秒，不需要任何换算。",
   ],
 
-  101: [
+  "BehaviourNode:GetSleepTime#1": [
     "--★★【GetSleepTime（基类）：本方法是对称设计的关键半边】",
     "--   与 97 行的 Sleep 配对，构成「声明—查询」协议。基类的四个返回分支：",
     "--     · 满足 RUNNING && 无孩子 && 不是 Condition → 返回剩余时间（可能 0）",
@@ -428,35 +428,35 @@ export const BEFORE = {
     "--     意思是「每帧都要重新问我」—— 这对 ActionNode 这类瞬时动作是对的，",
     "--     但对**卡住的动作**也是 0，会导致 CPU 空转（详见 p1 中 ActionNode 的说明）。",
   ],
-  103: [
+  "BehaviourNode:GetSleepTime#1+2": [
     "--★★ 这一行浓缩了三层判断：RUNNING && 无孩子 && 不是条件。",
     "--   ★ 读法：只有「正在执行的、自己是叶子的、不是纯判定」的节点才管休眠。",
     "--   ※ ConditionNode 在本文件 202 行才定义，此处引用的是**运行时**的全局变量。",
     "--     因为方法体在调用时才求值，所以不存在「定义顺序」问题 ——",
     "--     但这意味着本文件存在**前向引用**，阅读时要留意。",
   ],
-  104: [
+  "BehaviourNode:GetSleepTime#1+3": [
     "--★ `if self.nextupdatetime then` —— 没调过 Sleep 的 RUNNING 节点落到 111 行。",
   ],
-  105: [
+  "BehaviourNode:GetSleepTime#1+4": [
     "--★ `self.nextupdatetime - GetTime()` 就是「还差多少秒」。",
     "--   ★★ 可以为负（Sleep 之后又过了更久），所以下一步必须钳位。",
   ],
-  106: [
+  "BehaviourNode:GetSleepTime#1+5": [
     "--★★ 负数钳成 0 —— 「已经超期了，那就现在立刻跑」。",
     "--   ★ 这条容错让 295 行的 `Sleep(current_time - self.wake_time)`（一个负数）",
     "--     退化成「每帧都醒」，行为仍然正确，只是丢了优化。见 295 行的 ※。",
   ],
-  111: [
+  "BehaviourNode:GetSleepTime#1+10": [
     "--★ 没调过 Sleep 的 RUNNING 叶节点 → 0 → 「下一 tick 继续」。",
     "--   ★★ 这是**保守且正确**的默认值：不确定要睡多久，那就别睡。",
     "--     性能靠「主动声明 Sleep」来赚，而不是靠默认休眠。",
   ],
-  114: [
+  "BehaviourNode:GetSleepTime#1+13": [
     "--★ nil 是「我不表态」，由 GetTreeSleepTime 去问孩子（123 行）。",
   ],
 
-  117: [
+  "BehaviourNode:GetTreeSleepTime#1": [
     "--★★【GetTreeSleepTime：向上汇报「这棵子树最早要醒的时刻」】",
     "--   算法只有两步：",
     "--     ① 遍历 RUNNING 的孩子，取它们的最早醒时刻（取最小值）",
@@ -472,14 +472,14 @@ export const BEFORE = {
     "--     ★★ 所以「树里没在跑任何东西」= 「大脑休眠」。",
     "--       这是整个 AI 系统「空闲零开销」的实现方式。",
   ],
-  120: [
+  "BehaviourNode:GetTreeSleepTime#1+3": [
     "--★ nil 守卫：叶节点没有 children。",
   ],
-  122: [
+  "BehaviourNode:GetTreeSleepTime#1+5": [
     "--★★ 只看 RUNNING 的孩子 —— 已完成的（SUCCESS/FAILED）不占睡眠预算。",
     "--   ★ 理由：完成的节点马上会被 Step 复位成 READY，不值得为它定闹钟。",
   ],
-  124: [
+  "BehaviourNode:GetTreeSleepTime#1+7": [
     "--★★ `if t and (not sleeptime or sleeptime > t)` —— 三重守卫：",
     "--     · t 非 nil（孩子不表态就跳过）",
     "--     · 还没收集到任何时间（第一次）",
@@ -487,17 +487,17 @@ export const BEFORE = {
     "--   ★★ 用 `sleeptime > t` 而不是 `t < sleeptime` 是等价的，",
     "--     写法上后者更易读；此处保持原样不改。",
   ],
-  133: [
+  "BehaviourNode:GetTreeSleepTime#1+16": [
     "--★ 同样的取最小逻辑，把自己也纳入竞争。",
     "--   ※ 注意若自己是 RUNNING 且无孩子的叶节点，这里可能返回 0，",
     "--     于是 124 行收集到的孩子时间会被 0 覆盖 —— 语义正确（「我马上要醒」），",
     "--     但会让整棵树每帧都醒。",
   ],
-  137: [
+  "BehaviourNode:GetTreeSleepTime#1+20": [
     "--★ 返回 nil 表示「这一片没有在等的东西」→ 逐层上抛 → Hibernate。",
   ],
 
-  140: [
+  "BehaviourNode:GetString#1": [
     "--★★【GetString：单节点的文本自述，GetTreeString 的零件】",
     "--   输出格式：`NAME - STATUS <LASTRESULT> (DBString)`",
     "--   ★★ 三个信息位的分工：",
@@ -509,19 +509,19 @@ export const BEFORE = {
     "--     `Event(gohome) - READY <RUNNING>` 表示「上一轮还在跑，这轮已复位」；",
     "--     `Priority - RUNNING <FAILED> (execute 3, eval in 0.18)` 表示正在跑第 3 个分支。",
   ],
-  142: [
+  "BehaviourNode:GetString#1+2": [
     "--★★ 只有 RUNNING 才问 DBString —— 没在跑的节点没什么可补充。",
     "--   ★ 这也让 DBString 的实现者可以放心写「访问正在倒计时的字段」，",
     "--     因为那些字段只在 RUNNING 时才保证有效（见 WaitNode:279 的 wake_time）。",
   ],
-  145: [
+  "BehaviourNode:GetString#1+5": [
     "--★★ `self.status or \"UNKNOWN\"` / `self.lastresult or \"?\"` 的 nil 兜底。",
     "--   ★ 理论上 57-58 行已初始化，不会是 nil；这里是纯防御。",
     "--   ★★ 格式串里 status 被放在「-」后面而不是括号内，",
     "--     与 name 同列对齐，便于人眼纵向扫读整棵树的状态列。",
   ],
 
-  148: [
+  "BehaviourNode:Visit#1": [
     "--★★【BehaviourNode:Visit 的默认实现：直接 FAILED】",
     "--   ★★ 这是整个框架一个**非常重要的默认值**：",
     "--     「没有 Visit 覆写的节点 = 永远失败」。",
@@ -536,11 +536,11 @@ export const BEFORE = {
     "--     而 EventNode/ParallelNode 等子类覆写后不调用基类 Visit ——",
     "--     所以「不调用 super」是本文件的常态写法。",
   ],
-  149: [
+  "BehaviourNode:Visit#1+1": [
     "--★ 唯一一行就是 FAILED。参见上方设计理由。",
   ],
 
-  152: [
+  "BehaviourNode:SaveStatus#1": [
     "--★★【SaveStatus：把「本轮结果」定格成「上一轮结果」】",
     "--   ★★ 这是 BT:Update 三段式的第二段（见 23 行），也是理解 lastresult 的关键。",
     "--   ★★ 【为什么必须独立成一步，而不是在 Visit 末尾顺手做？】",
@@ -552,13 +552,13 @@ export const BEFORE = {
     "--   ★ 无条件递归（不看 status）：连 SUCCESS/FAILED 的节点也快照，",
     "--     因为调试时要能看到「它刚才成功过」。",
   ],
-  153: [
+  "BehaviourNode:SaveStatus#1+1": [
     "--★ 这一行是 lastresult 唯一的写入点。",
     "--   ※ 推论：**任何直接改 self.status 的代码都不会更新 lastresult**，",
     "--     只有下一次 SaveStatus 才会。所以调试输出里 lastresult 天然滞后一轮。",
   ],
 
-  161: [
+  "BehaviourNode:Step#1": [
     "--★★【BehaviourNode:Step：思考周期的「垃圾回收」阶段 —— 三段式的第三段】",
     "--   逻辑只有两条岔路，但它是全框架「状态得以跨帧延续」的核心：",
     "--     ① 自己不是 RUNNING → 调 Reset()（连带把整棵子树擦成 READY）",
@@ -577,17 +577,17 @@ export const BEFORE = {
     "--     这也意味着 Reset 的代价与子树大小成正比 —— 宽而浅的树 Reset 快，",
     "--     深而窄的树 Reset 慢。",
   ],
-  162: [
+  "BehaviourNode:Step#1+1": [
     "--★★ 判据只有 status 是否为 RUNNING，其余一概 Reset。",
     "--   ★ 注意没有区分 SUCCESS 与 FAILED —— 对框架而言两者等价：「做完了」。",
     "--   ★★ 组合节点（Sequence/Selector）通常在上层就把子节点的 RUNNING 透传上来，",
     "--     所以到 Step 时组合节点自己也是 RUNNING，走 elseif 分支继续往下。",
   ],
-  164: [
+  "BehaviourNode:Step#1+3": [
     "--★★ 用 ipairs：顺序遍历对 Step 无影响，但与其他遍历保持一致。",
   ],
 
-  171: [
+  "BehaviourNode:Reset#1": [
     "--★★【Reset：把节点连同子树擦回 READY】",
     "--   ★★ 【最精妙的一处优化：if self.status ~= READY 守卫】",
     "--   已经是 READY 的节点**整个 Reset 都不会执行**——既不改自己，也不碰孩子。",
@@ -608,17 +608,17 @@ export const BEFORE = {
     "--   ★★ 对比：SequenceNode:314 与 PriorityNode:577 都**覆写了** Reset，",
     "--     因为它们有额外的 idx 状态必须归零。这是正确的差异化。",
   ],
-  172: [
+  "BehaviourNode:Reset#1+1": [
     "--★★ 整个文件最重要的一行守卫。性能与幂等性全靠它。",
     "--   ★ 推论：Reset **不是** 「清空所有字段」，只是「状态归位 + 级联」。",
     "--     自定义节点若有不变量状态，必须自己覆写 Reset。",
   ],
-  175: [
+  "BehaviourNode:Reset#1+4": [
     "--★ 用 ipairs 遍历 children 做级联 Reset。",
     "--   ★ 命名 child（其余地方叫 v）—— 无语义差别，纯风格。",
   ],
 
-  182: [
+  "BehaviourNode:Stop#1": [
     "--★★【Stop：与 Reset 的本质区别 —— 前者释放资源，后者只改状态】",
     "--   ① 先调自己的 OnStop 钩子（若存在）",
     "--   ② 再无条件递归所有孩子（注意：这里是 ipairs 全量，不是按 status 筛）",
@@ -632,13 +632,13 @@ export const BEFORE = {
     "--     而调用方连调两次 Stop，就会出错。本文件自己避免了（716 行的守卫），",
     "--     但模组节点未必。",
   ],
-  183: [
+  "BehaviourNode:Stop#1+1": [
     "--★ `if self.OnStop then` —— 钩子检测用真值判断，",
     "--   所以定义 OnStop 时不能写成 `OnStop = false` 之类。",
     "--   ★★ 子类覆写 OnStop 时**必须自己决定要不要调基类版本**——",
     "--     这里的机制是「钩子替换」而非「钩子链」，不像典型模板方法那样自动串联。",
   ],
-  186: [
+  "BehaviourNode:Stop#1+4": [
     "--★ 无条件递归：不看 status，因为 Stop 的语义是「拆干净」，",
     "--   已完成的节点同样持有资源（比如 EventNode 的监听）。",
     "--   ★★ 这与 Reset 的守卫形成鲜明对比 ——",

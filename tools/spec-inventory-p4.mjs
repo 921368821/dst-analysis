@@ -6,7 +6,7 @@
 // 锚点范围：1455 ~ 1800
 
 export const BEFORE = {
-  1456: [
+  "Inventory:RemoveItem#1+66": [
     "-- 【§十四】★★★ GetOverflowContainer —— 「返回当前穿在身上的背包」。",
     "-- ★★★★ 这是本文件的**架构支点**：整个物品栏系统的三层结构由此串联。",
     "-- ★★★ 三层结构全貌：",
@@ -23,7 +23,7 @@ export const BEFORE = {
     "-- ★★★ ★ 所以「背包」的定义是：「BODY 槽上、能打开的 container 组件物品」。",
     "--   ⇒ 穿上背包 = 获得额外格子。这是 DST 物品系统的优雅之处。",
   ],
-  1469: [
+  "ValidateSpecializedContainer#1": [
     "-- ★★ ValidateSpecializedContainer —— 局部辅助函数（1469-1478 行）。",
     "-- ★★★ 五重条件：",
     "--   ① container 非 nil；",
@@ -44,7 +44,7 @@ export const BEFORE = {
     "--   · 1114 行（GiveItem 自动开容器）用 \"portablestorage\"。",
     "--   ⇒ ★★★ **两个不同的标签**，且都没有解释。移植时务必注意。",
   ],
-  1481: [
+  "Inventory:GetSpecializedContainers#1": [
     "-- ★★ GetSpecializedContainers —— 「我的专用口袋容器列表」。",
     "-- ★★★ 「专用容器」= 弹药袋、金币袋这类**只收特定物品**的口袋。",
     "-- ★★ 三步（1482-1493 行）：",
@@ -62,7 +62,7 @@ export const BEFORE = {
     "-- ★★ 1489 行 `ret = ret or {}` —— 惰性建数组。",
     "-- ★★ ★★ 返回的是**新表**（重要！GetNextAvailableSlot:824 会就地修改它）。",
   ],
-  1496: [
+  "Inventory:IsSpecializedContainer#1": [
     "-- ★★ IsSpecializedContainer(container) —— 「这个 container 是不是我的专用容器」。",
     "-- ★★★ 与 1481 行互逆：一个枚举列表，一个反查单个。",
     "-- ★★ 1497 行遍历 itemslots（理由同 1486 行）。",
@@ -81,7 +81,7 @@ export const BEFORE = {
     "--   ⇒ ★★ 修正：2538 行调用的是 **container.lua 的** IsSpecializedContainer，",
     "--     参数是 inventory。两侧同构。这是「同名方法互调」的常见模式。",
   ],
-  1507: [
+  "Inventory:Has#1": [
     "-- 【§十五】★ Has —— 「我有多少个某 prefab 的物品」。",
     "-- ★★★ 三个参数：item（prefab 名）、amount（要几个）、",
     "--   checkallcontainers（是否搜索打开的容器）。",
@@ -103,7 +103,7 @@ export const BEFORE = {
     "--   ★★ 1513 行 `not (iscrafting and v:HasTag(\"nocrafting\"))` ——",
     "--     只有 iscrafting 为真时才检查标签。",
   ],
-  1512: [
+  "Inventory:Has#1+5": [
     "-- ★★ 遍历 itemslots 统计。",
     "-- ★★ 1514-1518 行的三元表达式（与 108 行同款）：",
     "--   有 stackable → 加 StackSize；否则加 1。",
@@ -117,12 +117,12 @@ export const BEFORE = {
     "--   ★★ 设计理由：配方 ingredients 里写的是 prefab 名（recipe.lua），",
     "--     没有 skinname 概念。保持一致。",
   ],
-  1522: [
+  "Inventory:Has#1+15": [
     "-- ★★ activeitem 也统计 —— 与 itemslots 同款判定。",
     "-- ★★★ ★ 注意这里**同样**排除了 nocrafting（1522 行）。",
     "--   ⇒ ★★ 手上的东西也能用来合成。",
   ],
-  1530: [
+  "Inventory:Has#1+23": [
     "-- ★★ overflow 递归统计 —— `overflow:Has(item, amount, iscrafting)`。",
     "-- ★★★ ★ 第三参数传的是 **iscrafting**（不是 checkallcontainers）。",
     "--   ⇒ ★★ 确认了二义性向下传递。",
@@ -137,7 +137,7 @@ export const BEFORE = {
     "--   ⇒ ★★ Has 家族**普遍缺少早退**，在大背包 + 高数量时会慢。",
     "-- ★★ 这在「合成时检查材料」的热路径上尤其明显（每次都全量扫描）。",
   ],
-  1536: [
+  "Inventory:Has#1+29": [
     "-- ★★ 打开的容器统计 —— 与 RemoveItem:1440 的结构完全同构。",
     "-- ★★★ ★ 三重排除（1541 行）：`container ~= overflow`、",
     "--   `not excludefromcrafting`、`not readonlycontainer`。",
@@ -147,7 +147,7 @@ export const BEFORE = {
     "--   因为 1531-1534 行已经统计过 overflow 了。",
     "-- ★★ ★ 同样忽略了 container_enough（1542 行）—— 与 1532 同病。",
   ],
-  1551: [
+  "Inventory:HasItemThatMatches#1": [
     "-- ★★ HasItemThatMatches(fn, amount) —— 「有多少物品满足谓词」。",
     "-- ★★★ 与 Has 的差异：Has 用 prefab 名相等，本函数用**任意谓词**。",
     "-- ★★★ ★ 这是「按条件检查材料」的实现，如「有没有任何可燃物」。",
@@ -162,7 +162,7 @@ export const BEFORE = {
     "-- ★★★ ★ 所以「我身上穿的装备算不算 HasItemThatMatches」= **不算**。",
     "-- ★★ 这可能是有意的（谓词通常是关于材料的）。",
   ],
-  1572: [
+  "Inventory:HasItemWithTag#1": [
     "-- ★★ HasItemWithTag(tag, amount) —— 「有多少带某标签的物品」。",
     "-- ★★★ 与 HasItemThatMatches 的关系：",
     "--   HasItemWithTag 是**特例** —— fn 就是 HasTag(tag)。",
@@ -176,7 +176,7 @@ export const BEFORE = {
     "-- ★ ★★ 这解释了 384 行 EquipHasTag 存在的必要性——",
     "--   「查装备」必须用专门的方法。",
   ],
-  1601: [
+  "Inventory:GetItemsWithTag#1": [
     "-- ★★ GetItemsWithTag(tag) —— 「返回所有带某标签的物品」。",
     "-- ★★★ 与 HasItemWithTag 的差异：返回**数组**而非计数。",
     "-- ★★ ★★ 注意本函数**会展开 overflow**（1615 行递归），",
@@ -187,7 +187,7 @@ export const BEFORE = {
     "--   ★ 一致，只是写法略省。",
     "-- ★★ 1616-1618 行拼接 overflow 的结果。",
   ],
-  1624: [
+  "Inventory:GetItemByName#1": [
     "-- 【§十六】★ GetItemByName(item, amount, checkallcontainers) ——",
     "--   「找出 amount 个某 prefab 的物品，返回 {物品→数量} 映射」。",
     "-- ★★★ ★★ 返回结构是 **反向映射**：`{ [物品实体] = 数量 }`。",
@@ -199,7 +199,7 @@ export const BEFORE = {
     "-- ★★ ★★ 这是 builder.lua:500 GetIngredients 用的函数，",
     "--   它需要知道「用哪几个具体物品来合成」。",
   ],
-  1628: [
+  "tryfind#1": [
     "-- ★★ tryfind —— 局部辅助函数（1628-1646 行）。",
     "-- ★★★ ★ 核心逻辑（1631-1643 行）：`num_left_to_find = amount - total_num_found`",
     "--   ★★★ ★★ 这里有一个**精妙的截断**（1633-1635 行）：",
@@ -220,7 +220,7 @@ export const BEFORE = {
     "--   ★★ 一个微妙的赋值：宣告「找到的总量已达需求」。",
     "--   ★★ 因为这一摞就够补齐剩余需求，多找也没意义。",
   ],
-  1648: [
+  "tryfind#1+20": [
     "-- ★★ 1648-1654 行：遍历 itemslots（有**顺序**的 for 循环 + 早退）。",
     "-- ★★★ ★★ 与 1530 行的 Has 不同，这里有**早退**：",
     "--   `if total_num_found >= amount then break end`（1651-1653）。",
@@ -229,21 +229,21 @@ export const BEFORE = {
     "--   ⇒ ★★★ 确定性：**总是从低槽位开始取**。",
     "--   ⇒ ★★ 合成用掉的材料总是背包靠前的部分。",
   ],
-  1660: [
+  "tryfind#1+32": [
     "-- ★★ overflow 递归 —— 注意第二参数是「剩余需求」。",
     "-- ★★ 1662 行 `overflow:GetItemByName(item, (amount - total_num_found))` ——",
     "--   ★★★ ★ 传入**剩余量**而不是原始 amount。",
     "--   ★★★ 这是「增量查询」：先查普通栏，不够的部分才去 overflow 查。",
     "-- ★★ 1661 行 `and total_num_found < amount` —— 够了就不查了。",
   ],
-  1669: [
+  "tryfind#1+41": [
     "-- ★★ 打开的容器递归 —— 结构与 1660/1440/1536 完全同构。",
     "-- ★★★ ★ 四处遍历 opencontainers（1440/1536/1669/1702）",
     "--   是**完全相同的代码**，只有排除条件微调。",
     "--   ⇒ ★★★ 这是本文件最大的复制粘贴重复（4 处 × 10 行）。",
     "-- ★★ ★★ 1675 行同样传「剩余需求」`amount - total_num_found`。",
   ],
-  1673: [
+  "tryfind#1+45": [
     "-- ★★ 1673 行 `local containers = self.opencontainers` ——",
     "--   ★★★ ★★ 这行是**无用赋值**（见 L25）：",
     "--   下一行 1674 行立即用 pairs(containers) 重新遍历它，",
@@ -253,7 +253,7 @@ export const BEFORE = {
     "-- ★★ ★ 与 1537/1702 行的同名局部变量对比：那里也一样是无用赋值。",
     "--   ⇒ ★★★ 三处同样的「无害冗余」，可能是模板复制的残留。",
   ],
-  1690: [
+  "crafting_priority_fn#1": [
     "-- 【§十七】★★ crafting_priority_fn —— ★★ 合成取料的排序规则。",
     "-- ★★★ 这是本文件**唯一**的排序函数，作用是决定",
     "--   「合成时优先吃掉哪些堆叠」。",
@@ -270,7 +270,7 @@ export const BEFORE = {
     "-- ★★ ★★ 这一点非常重要：**排序必须确定**，否则",
     "--   「服务端与客户端各自算一遍」的逻辑会分歧。",
   ],
-  1697: [
+  "Inventory:GetCraftingIngredient#1": [
     "-- 【§十七】★★★ GetCraftingIngredient —— 「合成时该吃哪些物品」。",
     "-- ★★★★ builder.lua:500 GetIngredients 的实际实现。",
     "-- ★★★★ 返回 `{ [物品实体] = 数量 }` 映射（同 GetItemByName）。",
@@ -299,12 +299,12 @@ export const BEFORE = {
     "--   它没有早退，只是**追加**到 crafting_items（第 4 项）。",
     "--   ★★★ ★ 与前三项不同：手上物品只在「其他都不够」时被用上。",
   ],
-  1698: [
+  "Inventory:GetCraftingIngredient#1+1": [
     "-- ★ local overflow = self:GetOverflowContainer() —— 取背包（用于排除）。",
     "-- ★★ ★★ 注意 1703 行的排除条件里会用到它（`container ~= overflow`），",
     "--   避免重复统计（overflow 在 1736 行单独处理）。",
   ],
-  1702: [
+  "Inventory:GetCraftingIngredient#1+5": [
     "-- ★★ 搜索源①：**打开的容器**（优先）。",
     "-- ★★★ ★ 1705 行 `container:GetCraftingIngredient(item, 剩余量, true)` ——",
     "--   ★★★ ★★ 第三个参数 true 的含义：",
@@ -324,7 +324,7 @@ export const BEFORE = {
     "--   属「不可能状态」的保护性覆盖。",
     "-- ★ 1710-1712 行：够了就 return（★ 贪心的体现）。",
   ],
-  1715: [
+  "Inventory:GetCraftingIngredient#1+18": [
     "-- ★★ 搜索源②：**普通背包槽**（按优先级排序后取）。",
     "-- ★★★ ★★ 1718 行的条件：`v.prefab == item and not v:HasTag(\"nocrafting\")` ——",
     "--   ★★★ ★★ ★★ **nocrafting 在这里是硬排除**（与 Has 的二义性不同！）。",
@@ -336,7 +336,7 @@ export const BEFORE = {
     "--   ★★ 注意字段名 stacksize 复用了 stackable 组件的概念，",
     "--     但这里是「该摞的数量」（单件则为 1）。",
   ],
-  1726: [
+  "Inventory:GetCraftingIngredient#1+29": [
     "-- ★★★ `table.sort(items, crafting_priority_fn)` —— ★★ 排序发生处。",
     "-- ★★ ★★★ 这是 crafting_priority_fn 的**唯一**调用点（grep 核实）。",
     "-- ★★★ ★★ 排序的作用（★ 见 1690 行的详解）：",
@@ -349,7 +349,7 @@ export const BEFORE = {
     "-- ★★ ★★★ 注意：这是**唯一**对 itemslots 做 table.sort 的地方，",
     "--   其余遍历都是 pairs（有顺序）或有序 for。",
   ],
-  1727: [
+  "Inventory:GetCraftingIngredient#1+30": [
     "-- ★★★ 逐个消耗（贪心）：只取需要的量。",
     "-- ★★ ★★ 1728 行 `math.min(v.stacksize, 剩余量)` —— ★ 关键：",
     "--   · 摞里的数量够剩余需求 → 只取剩余需求（`items[v.item] = 剩余`）；",
@@ -363,7 +363,7 @@ export const BEFORE = {
     "--     「站在箱子边合成时，箱子里的材料优先被消耗，",
     "--       即使背包里也有」——先到先用。",
   ],
-  1736: [
+  "Inventory:GetCraftingIngredient#1+39": [
     "-- ★★ 搜索源③：**overflow**（背包容体）。",
     "-- ★★ ★★ 1737 行 `overflow:GetCraftingIngredient(item, 剩余量)` ——",
     "--   ★★★ 注意这里**只传两个参数**（对比 1705 行传了三个 true）。",
@@ -372,7 +372,7 @@ export const BEFORE = {
     "--   ★★★ ★ 这是一个**细微的不一致**（见 L28）。",
     "--   ★★ 1741-1743 行早退（够了就 return，不看手上）。",
   ],
-  1746: [
+  "Inventory:GetCraftingIngredient#1+49": [
     "-- ★★ 搜索源④：**activeitem**（手上）—— 最后，且**不早退**。",
     "-- ★★★ ★★ 1747-1750 行的写法很特殊：",
     "--   `crafting_items[self.activeitem] = math.min(数量, 剩余量)`",
@@ -389,7 +389,7 @@ export const BEFORE = {
     "-- ★★★ ★★ 若将来有人在 1744 行后加了分支而忘记早退，就会崩。",
     "-- ★★★ ★★ 1746 行的条件也排除了 nocrafting（与 1718 行一致）。",
   ],
-  1753: [
+  "Inventory:GetCraftingIngredient#1+56": [
     "-- ★★ `return crafting_items` —— 全部走完，返回结果。",
     "-- ★★★★ ★★ **注意此时不再检查是否真的够了**：",
     "--   函数会返回一份「可能不足」的映射，由调用方判断。",
@@ -402,7 +402,7 @@ export const BEFORE = {
     "--     GetCraftingIngredient **信息量更少**。",
     "-- ★★ 这是一个**接口设计的不对称**（见 L30）。",
   ],
-  1756: [
+  "tryconsume#1": [
     "-- 【§十七】★★ tryconsume —— 局部辅助函数：吃掉 N 个物品。",
     "-- ★★★★ 三分支（1757-1767 行）：",
     "--   ① 无 stackable（单件）→ RemoveItem + Remove（1758）；",
@@ -423,7 +423,7 @@ export const BEFORE = {
     "--   ★★ 但它是防御性的（万一 stacksize 为负等异常）。",
     "-- ★★★ 注意作者自己标了「?」（不确定），说明这是「保险起见」。",
   ],
-  1772: [
+  "Inventory:ConsumeByName#1": [
     "-- 【§十七】★ ConsumeByName(item, amount) —— 「吃掉 N 个某 prefab 的物品」。",
     "-- ★★★ 用于「消耗材料」的场景（如某些 buff 的持续消耗、事件惩罚）。",
     "-- ★★★ 原注释（同 1506/1624 行的取舍）：不区分 skinname。",
@@ -448,34 +448,34 @@ export const BEFORE = {
 };
 
 export const AFTER = {
-  1456: ["-- ↑ GetOverflowContainer 上方的原注释（三行 TODO，见 L1）。"],
-  1469: ["-- ↑ ValidateSpecializedContainer 局部函数。"],
-  1481: ["-- ↑ GetSpecializedContainers 结束（返回新表）。"],
-  1496: ["-- ↑ IsSpecializedContainer 结束（★ 与 container.lua 同名方法互调）。"],
-  1507: ["-- ↑ Has 函数头（返回「够不够, 有多少」）。"],
-  1512: ["-- ↑ itemslots 统计（★ 不区分 skinname）。"],
-  1522: ["-- ↑ activeitem 统计。"],
-  1530: ["-- ★★ overflow 统计（★ 忽略 enough，无早退 —— 见 L23）。"],
-  1536: ["-- ↑ 打开的容器统计（三重排除）。"],
-  1551: ["-- ↑ HasItemThatMatches 结束（★ 不含 equipslots —— 见 L24）。"],
-  1572: ["-- ↑ HasItemWithTag 结束（★ 独立重写而非复用）。"],
-  1601: ["-- ↑ GetItemsWithTag 结束（会展开 overflow）。"],
-  1624: ["-- ↑ GetItemByName 函数头（返回 {实体→数量} 映射）。"],
-  1628: ["-- ↑ tryfind 局部函数。"],
-  1648: ["-- ↑ itemslots 有序遍历（★ 有早退）。"],
-  1660: ["-- ↑ overflow 递归（传「剩余需求」）。"],
-  1669: ["-- ↑ 打开的容器递归（第 4 处复制粘贴）。"],
-  1673: ["-- ★★★ 无用赋值（见 L25）。"],
-  1690: ["-- ★★★★★ crafting_priority_fn 结束（小堆优先 + 确定性）。"],
-  1697: ["-- ↑ GetCraftingIngredient 函数头（四个搜索源）。"],
-  1698: ["-- ↑ 取 overflow（用于排除）。"],
-  1702: ["-- ↑ 搜索源①：打开的容器（★ 优先）。"],
-  1715: ["-- ↑ 搜索源②：普通槽（构造排序记录）。"],
-  1726: ["-- ★★★ 排序发生处（小堆优先 → 留下整齐堆叠）。"],
-  1727: ["-- ↑ 贪心消耗（math.min 精确取量）。"],
-  1736: ["-- ↑ 搜索源③：overflow（★ 只传两参 —— 见 L28）。"],
-  1746: ["-- ↑ 搜索源④：activeitem（不早退，靠上游保证剩余为正）。"],
-  1753: ["-- ★★★ return crafting_items（★ 不返回「是否足够」—— 见 L30）。"],
-  1756: ["-- ↑ tryconsume 结束（三分支，返回「实际吃掉数」）。"],
-  1772: ["-- ↑ ConsumeByName 函数头（★ 搜索顺序与取料不同）。"],
+  "Inventory:RemoveItem#1+66": ["-- ↑ GetOverflowContainer 上方的原注释（三行 TODO，见 L1）。"],
+  "ValidateSpecializedContainer#1": ["-- ↑ ValidateSpecializedContainer 局部函数。"],
+  "Inventory:GetSpecializedContainers#1": ["-- ↑ GetSpecializedContainers 结束（返回新表）。"],
+  "Inventory:IsSpecializedContainer#1": ["-- ↑ IsSpecializedContainer 结束（★ 与 container.lua 同名方法互调）。"],
+  "Inventory:Has#1": ["-- ↑ Has 函数头（返回「够不够, 有多少」）。"],
+  "Inventory:Has#1+5": ["-- ↑ itemslots 统计（★ 不区分 skinname）。"],
+  "Inventory:Has#1+15": ["-- ↑ activeitem 统计。"],
+  "Inventory:Has#1+23": ["-- ★★ overflow 统计（★ 忽略 enough，无早退 —— 见 L23）。"],
+  "Inventory:Has#1+29": ["-- ↑ 打开的容器统计（三重排除）。"],
+  "Inventory:HasItemThatMatches#1": ["-- ↑ HasItemThatMatches 结束（★ 不含 equipslots —— 见 L24）。"],
+  "Inventory:HasItemWithTag#1": ["-- ↑ HasItemWithTag 结束（★ 独立重写而非复用）。"],
+  "Inventory:GetItemsWithTag#1": ["-- ↑ GetItemsWithTag 结束（会展开 overflow）。"],
+  "Inventory:GetItemByName#1": ["-- ↑ GetItemByName 函数头（返回 {实体→数量} 映射）。"],
+  "tryfind#1": ["-- ↑ tryfind 局部函数。"],
+  "tryfind#1+20": ["-- ↑ itemslots 有序遍历（★ 有早退）。"],
+  "tryfind#1+32": ["-- ↑ overflow 递归（传「剩余需求」）。"],
+  "tryfind#1+41": ["-- ↑ 打开的容器递归（第 4 处复制粘贴）。"],
+  "tryfind#1+45": ["-- ★★★ 无用赋值（见 L25）。"],
+  "crafting_priority_fn#1": ["-- ★★★★★ crafting_priority_fn 结束（小堆优先 + 确定性）。"],
+  "Inventory:GetCraftingIngredient#1": ["-- ↑ GetCraftingIngredient 函数头（四个搜索源）。"],
+  "Inventory:GetCraftingIngredient#1+1": ["-- ↑ 取 overflow（用于排除）。"],
+  "Inventory:GetCraftingIngredient#1+5": ["-- ↑ 搜索源①：打开的容器（★ 优先）。"],
+  "Inventory:GetCraftingIngredient#1+18": ["-- ↑ 搜索源②：普通槽（构造排序记录）。"],
+  "Inventory:GetCraftingIngredient#1+29": ["-- ★★★ 排序发生处（小堆优先 → 留下整齐堆叠）。"],
+  "Inventory:GetCraftingIngredient#1+30": ["-- ↑ 贪心消耗（math.min 精确取量）。"],
+  "Inventory:GetCraftingIngredient#1+39": ["-- ↑ 搜索源③：overflow（★ 只传两参 —— 见 L28）。"],
+  "Inventory:GetCraftingIngredient#1+49": ["-- ↑ 搜索源④：activeitem（不早退，靠上游保证剩余为正）。"],
+  "Inventory:GetCraftingIngredient#1+56": ["-- ★★★ return crafting_items（★ 不返回「是否足够」—— 见 L30）。"],
+  "tryconsume#1": ["-- ↑ tryconsume 结束（三分支，返回「实际吃掉数」）。"],
+  "Inventory:ConsumeByName#1": ["-- ↑ ConsumeByName 函数头（★ 搜索顺序与取料不同）。"],
 };

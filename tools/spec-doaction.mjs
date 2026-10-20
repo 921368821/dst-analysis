@@ -55,13 +55,13 @@ export default {
   ],
 
   // ══════════════ 结果回调 ══════════════
-  11: [
+  "DoAction:OnFail#1": [
     '--★★ OnFail —— 动作失败的回调体，逻辑只有一行。',
     '--★ 抽成独立方法的理由：与第 27-31 行的闭包逻辑分离，',
     '--   便于阅读（闭包里只剩「何时调用」的条件判断）。',
     '--★ 也可以直接内联，但那样回调体会变成 5 行嵌套，可读性下降。',
   ],
-  12: [
+  "DoAction:OnFail#1+1": [
     '--★★ 只写 pendingstatus，**不碰 self.status** —— 这是本文件的核心纪律。',
     '-- ★★★ 详见文件头的说明：回调只写数据，Visit 负责改状态。',
     '--★ 若直接写 self.status：回调可能在行为树遍历中途触发，',
@@ -71,18 +71,18 @@ export default {
     '-- ★ 移植要点：**外部/异步回调只能写自己的数据字段**，',
     '--   这是所有状态机系统的通用纪律（GUI 线程、定时器、网络回调同理）。',
   ],
-  15: [
+  "DoAction:OnSucceed#1": [
     '--★ OnSucceed：与 OnFail 完全对称，只改 pendingstatus 的值。',
   ],
 
   // ══════════════ Visit:READY 段 ══════════════
-  19: [
+  "DoAction:Visit#1": [
     '--★★ Visit：顺序双 if。注意第 20 行是空行（打字留下的），无功能影响。',
   ],
-  21: [
+  "DoAction:Visit#1+2": [
     '--★ READY 段：向调用方要一个动作，发起它，进入 RUNNING。',
   ],
-  22: [
+  "DoAction:Visit#1+3": [
     '--★ getactionfn(inst) —— 由调用方决定「做什么动作」。',
     '--★★ 这与 findflower 第 18 行硬编码 ACTIONS.POLLINATE、',
     '--   findfarmplant 第 28 行用 self.action 的做法都不同 ——',
@@ -93,13 +93,13 @@ export default {
     '--   · 回调（本文件）—— 最灵活，调用方可有任意选择逻辑',
     '-- ★ 移植建议：**动作选择逻辑复杂时用回调，简单时用参数**。',
   ],
-  23: [
+  "DoAction:Visit#1+4": [
     '--★ 缓存到 self.action —— 这个字段承担两个职责：',
     '--   ① 第 53 行的有效性检查',
     '--   ② 第 28/33 行「代际校验」的基准',
     '-- ★★ 职责 ② 是关键：正是靠它才能识别「这是不是当前这一轮的动作」。',
   ],
-  24: [
+  "DoAction:Visit#1+5": [
     '--★★★ pendingstatus = nil —— 进场时清空上一轮的残留结果。',
     '--★★ 这行与第 23 行同样重要，缺了就会出错：',
     '--   若上一轮的 SUCCESS 回调把 pendingstatus 设成了 SUCCESS，',
@@ -110,10 +110,10 @@ export default {
     '-- ★ 移植建议：凡是「等异步结果」的逻辑，',
     '--   **发起操作前必须显式清空结果槽**，并写注释说明为什么。',
   ],
-  26: [
+  "DoAction:Visit#1+7": [
     '--★ 没有动作可做 → FAILED（调用方当时判断此事不可行）。',
   ],
-  27: [
+  "DoAction:Visit#1+8": [
     '--★★★★★【代际校验 —— 本文件最关键的一行】',
     '--   action:AddFailAction(function()',
     '--       if action == self.action and self.pendingstatus == nil then',
@@ -145,20 +145,20 @@ export default {
     '--   ★ 闭包捕获的是**本次的局部变量**，与 self.action（当前轮）区分。',
     '--   两者相等 ⟹ 这个回调属于当前轮。校验的语义正在于此。',
   ],
-  32: [
+  "DoAction:Visit#1+13": [
     '--★ Success 回调：只做代际校验（无 pendingstatus 判断，见上）。',
     '--★ 我已核实 bufferedaction.lua:78-80 的实现：AddSuccessAction 就是',
     '--   table.insert(self.onsuccess, fn)，即回调会**长期驻留在动作对象上**，',
     '--   所以「代际校验」不是可选项而是必需品。',
   ],
-  37: [
+  "DoAction:Visit#1+18": [
     '--★ 推动作到 locomotor，第二个参数 FunctionOrValue(self.shouldrun) 求值跑/走。',
     '--★ 对照 findflower 第 19 行直接传 self.shouldrun（可能是 nil），',
     '--   本文件多包了一层 FunctionOrValue —— 写法更正确。',
     '-- ★ ★ 移植要点：**凡是要支持「值或函数」的参数，就在消费点包一层**，',
     '--   否则调用方传函数时会被当成真值常量使用。',
   ],
-  38: [
+  "DoAction:Visit#1+19": [
     '--★ 记录发起时刻（供超时判定）。',
     '--★ 注意这里是「发起」时刻而非「开始执行」时刻 —— 包含寻路与排队时间。',
     '--   ★ 移植建议：超时判定要用「发起时刻」，这样「排队很久」也算在超时内，',
@@ -166,10 +166,10 @@ export default {
   ],
 
   // ══════════════ Visit:RUNNING 段 ══════════════
-  45: [
+  "DoAction:Visit#1+26": [
     '--★★ RUNNING 段：两个 if 顺序执行，pendingstatus 优先。',
   ],
-  46: [
+  "DoAction:Visit#1+27": [
     '--★ 超时判定：超过 timeout 秒还没结果 → FAILED。',
     '--★ `if self.timeout and ...` —— 先判 timeout 存在，',
     '--   短路保护了第 47 行的 GetTime() - self.time 运算。',
@@ -186,7 +186,7 @@ export default {
     '--   标注为「疑似缺陷」：需动作确实会成功才暴露，实践中概率不高但真实存在。',
     '--   ★ 修复方向：超时时应同时置一个「已终止」标记，让回调失效。',
   ],
-  51: [
+  "DoAction:Visit#1+32": [
     '--★★★★★【终态回填 —— 全文件的收尾】',
     '--   if self.pendingstatus then self.status = self.pendingstatus',
     '-- ★★★ 这就是「回调写数据、Visit 改状态」的落地点。',
@@ -198,7 +198,7 @@ export default {
     '--★ 顺序很重要：pendingstatus 优先于 IsValid 检查（第 53 行）。',
     '--   即「明确收到成功/失败结果」优先于「动作对象失效」。',
   ],
-  53: [
+  "DoAction:Visit#1+34": [
     '--★★ 兜底：没有结果但动作对象已失效 → FAILED。',
     '--★ 覆盖的场景：动作被外部取消/打断（既没 Succeed 也没 Fail，',
     '--   动作对象被移除 → IsValid 失败）。',
@@ -210,7 +210,7 @@ export default {
     '-- ★★ 对照 wander 第 64 行的 WantsToMoveForward 检查（同类兜底思路），',
     '--   但那是在「主动轮询进展」，本文件是在「检测对象消失」。',
   ],
-  56: [
+  "DoAction:Visit#1+37": [
     '--★ 无 self:Sleep —— 故 GetSleepTime 返回 0，大脑每帧都跑。',
     '--★ ★★ 在本场景下**这是正确的**，不应优化：',
     '--   节点正等着回调写入 pendingstatus，',

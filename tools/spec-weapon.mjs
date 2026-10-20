@@ -35,30 +35,30 @@ export default {
     '-- 都要同步加到 components/inventoryitem_replica.lua 里，否则客户端拿不到。',
     '-- 本行的 setter 就是靠这条约定保持两端同步的（见第 33 行注册）。',
   ],
-  5: [
+  "onattackrange#1": [
     '-- attackrange 的属性 setter。Class 的第三个参数（第 32-34 行）是「属性钩子表」，',
     '-- 语义是：self.attackrange 被赋值时自动调这个函数。',
     '-- ★ 这是 DST 组件层的通用手法：把「派生状态的同步」写进 setter，',
     '--   调用方（prefab）只管 SetRange，不需要知道要通知客户端。',
   ],
-  11: [
+  "onattackrange#1+6": [
     '-- 组件构造函数。约定第一个参数恒为 self、第二个为 inst，',
     '-- 因为 Class() 会用 metatable 接管方法查找。',
   ],
-  13: [
+  "onattackrange#1+8": [
     '-- 默认伤害 10。几乎所有武器都会用 SetDamage 覆盖掉这个默认值。',
     '-- ★ 注意它允许是「函数或值」：见第 95 行 FunctionOrValue 的用法。',
     '--   所以 damage 可以写成 function(inst, attacker, target) return ... end，',
     '--   实现「同一把刀打不同目标不同伤害」，而不用再派生一个组件。',
   ],
-  15: [
+  "onattackrange#1+10": [
     '-- ★ attackrange 与 hitrange 是两个不同的量，别混：',
     '--   attackrange = 「我发起攻击的有效距离」；',
     '--   hitrange    = 「我的攻击判定能覆盖到的距离」。',
     '--   SetRange(attack, hit) 第 48-51 行：hit 为 nil 时回落成 attack，',
     '--   也就是「不区分」时两个值相等。这两个值最终喂给 combat.lua 的命中判定。',
   ],
-  21: [
+  "onattackrange#1+16": [
     '-- ★ 下面四行是被注释掉的字段声明（第 21-24 行）：',
     '--   overridestimulifn / electric_damage_mult / electric_wet_damage_mult / tough。',
     '--   它们是「按需惰性初始化」的字段 —— 构造函数不设初值，',
@@ -67,7 +67,7 @@ export default {
     '--     漏一个就是「attempt to compare nil with number」类的运行期错误。',
     '--   对比第 13-20 行那些给了显式初值的字段。',
   ],
-  26: [
+  "onattackrange#1+21": [
     '-- ★★ SourceModifierList：ModifierList 复用模式的典型样本。',
     '--   用途是「让别的组件给攻击耐久损耗加修正，而不必认识 weapon」。',
     '--   典型用法：某个组件拿到 weapon.attackwearmultipliers，',
@@ -80,20 +80,20 @@ export default {
     '--   ★ 自研游戏照抄这条：凡是「多处可能修改同一个数值」的场景，',
     '--     都用 Source 类 ModifierList + AddModifier，别用裸字段赋值。',
   ],
-  29: [
+  "onattackrange#1+24": [
     '-- ★ 构造时就打 "weapon" 标签。',
     '-- 原因：这个标签是 replica 侧做客户端预测/UI 的依据，',
     '-- 而标签同步是异步的 —— 如果等到 SetDamage 时才打，客户端会有一帧不一致。',
     '-- 第 36-42 行 OnRemoveFromEntity 对称地摘掉，并通知客户端把 range 置 -1。',
     '-- -1 是「无效/不可攻击」的哨兵值，不是 0。',
   ],
-  36: [
+  "Weapon:OnRemoveFromEntity#1": [
     '-- 组件卸载。必须成对撤销第 29 行做的两件事：',
     '-- 标签要在实体上摘掉（实体可能复用），replica 的 range 要复位。',
     '-- ⚠️ 这里没有清 attackwearmultipliers —— SourceModifierList 挂在 inst 上，',
     '--   实体回收时自然一起销毁，所以不需要手动清。',
   ],
-  48: [
+  "Weapon:SetRange#1": [
     '-- SetRange(attack, hit)：设攻击距离与命中距离。',
     '-- ★ 第 50 行 `hit or self.attackrange`：',
     '--   若调方只给一个值，两个距离相等；显式传 hit 则可让命中范围大于攻击范围',
@@ -101,7 +101,7 @@ export default {
     '--   ⚠️ 不能写成 self.hitrange = hit，因为 hit 可能为 nil，',
     '--     那会让 hitrange 变成 nil 而破坏上面 SetRange 的回落约定。',
   ],
-  73: [
+  "Weapon:SetElectric#1": [
     '-- SetElectric：把武器标记为「电击系」。',
     '-- ★ 三件事一起做，别拆：',
     '--   1) stimuli = "electric" 让 combat 知道走哪条刺激类型分支；',
@@ -113,20 +113,20 @@ export default {
     '-- ⚠️ 这两个倍率不在本文件消费，是 combat.lua 读 weapon 上的字段。',
     '--   也就是说本文件只负责「存」，真正的乘法在 combat 那边。',
   ],
-  84: [
+  "Weapon:CanRangedAttack#1": [
     '-- CanRangedAttack：能否远程。判定依据只是「有没有配投射物」。',
     '-- ⚠️ 名字有歧义：它不检查射程、不检查弹药、不检查冷却。',
     '--   真正的远程合法性由 combat 的 CanHitTarget + inventory 的弹药判定负责。',
     '--   这个函数只回答「这把武器的伤害是近身结算还是飞行物结算」。',
   ],
-  88: [
+  "Weapon:CanRangedAttack#1+4": [
     '-- 原文注释直言 deprecated：「why\'s this even here? it\'s same as :SetOnAttack(fn)」。',
     '-- ★ 这是 KLIE 为了兼容老 mod 保留的别名。',
     '--   它与 SetOnAttack 完全等价（第 91 行 vs 第 54 行都是写 self.onattack）。',
     '--   教训：公开 API 一旦发布就很难删，所以要在注释里明确标废弃，',
     '--   否则新代码会继续用它。',
   ],
-  94: [
+  "Weapon:GetDamage#1": [
     '-- ★★★ GetDamage(attacker, target) —— 伤害聚合，本文件最核心的函数。',
     '',
     '-- 【为什么用 FunctionOrValue】',
@@ -150,7 +150,7 @@ export default {
     '--   若将来有实体的 GetBonus 返回 nil，这里会立刻报错。',
     '--   （本人已对照源码核实：第 98 行确无兜底。是否已有实体返回 nil 未核实。）',
   ],
-  105: [
+  "Weapon:OnAttack#1": [
     '-- ★★ OnAttack：一次攻击的「执行收尾」。combat 命中后调它。',
     '',
     '-- 【顺序为什么是这样】',
@@ -168,11 +168,11 @@ export default {
     '--   第 c 条很有意思：弹回来的投射物（如被格挡/反弹的投石）不该扣耐久，',
     '--   因为那一击实际上没造成有效伤害。这是设计，不是疏漏。',
   ],
-  109: [
+  "Weapon:OnAttack#1+4": [
     '-- 广播式事件。注意载荷是 table，不是位置参数 ——',
     '-- 事件参数一律用 table，便于以后加字段而不破坏既有订阅者。',
   ],
-  114: [
+  "Weapon:OnAttack#1+9": [
     '-- ★ 耐久损耗量 = attackwear × attackwearmultipliers:Get()',
     '--   attackwear 是 prefab 直接写在 weapon 组件上的裸字段（构造函数未初始化，',
     '--   见第 21-24 行的同类风格），所以这里用 (x or 1) 兜底成「1 次」。',
@@ -180,7 +180,7 @@ export default {
     '-- ⚠️ 这一行是整个文件里唯一使用 Tab 缩进的地方（连同 111-120 整块）。',
     '--   推断是后期补丁，行数与缩进都和文件整体风格不符。',
   ],
-  115: [
+  "Weapon:OnAttack#1+10": [
     '-- efficientuser（如韦斯的科学专业/_opts 效率加成）再乘一层。',
     '-- ★ 注意三重校验：attacker 非 nil、IsValid()、且有 efficientuser 组件。',
     '--   ★★ IsValid() 这道校验不能省：攻击协程可能 yield，',
@@ -188,7 +188,7 @@ export default {
     '--     直接访问 attacker.components 会崩。',
     '--   这是 DST 协程模型的普遍陷阱：任何 yield 之后都要重新验证实体有效性。',
   ],
-  123: [
+  "Weapon:LaunchProjectile#1": [
     '-- ★★★ LaunchProjectile：发射投射物。远程武器的伤害在飞行结束后才结算。',
     '',
     '-- 【为什么这里只负责「造出来并扔出去」】',
@@ -203,7 +203,7 @@ export default {
     '--   （本人已核实：第 129-150 的 if proj ~= nil 在第 150 行 end 结束，',
     '--     第 152 行的回调确实在其外层。订阅方必须处理 proj == nil。）',
   ],
-  132: [
+  "Weapon:LaunchProjectile#1+9": [
     '-- ★ projectile_offset：出手位置的横向偏移，用于「从手/从弓弦/从炮口发射」。',
     '--   算法（第 135-138 行）：',
     '--     1) 取攻击者世界坐标 (x,y,z)；',
@@ -221,7 +221,7 @@ export default {
     '--   （本人已核实 entityscript.lua:1355。GetWorldPosition 在该文件中的',
     '--     定义行未由我打开确认，此处只依据 GetPosition 的实现推断等价。）',
   ],
-  142: [
+  "Weapon:LaunchProjectile#1+19": [
     '-- ★ 三个参数的位置很容易记错：Throw(owner, target, attacker)。',
     '--   owner 是「武器实体」（投射物的所有者，决定拾取归属），',
     '--   attacker 是「攻击者实体」（决定伤害来源与击杀归属）。',
@@ -229,7 +229,7 @@ export default {
     '--   的签名把它们分成了两个形参，所以击杀归属与掉落归属可以独立处理。',
     '--   （本人已核实 components/projectile.lua:149 的签名为 Throw(owner, target, attacker)。）',
   ],
-  143: [
+  "Weapon:LaunchProjectile#1+20": [
     '-- ★ projectiledelay 是又一个「构造函数未初始化」的惰性字段：',
     '--   prefab 通过 weapon.projectiledelay = 0.1 直接赋值（不走 Setter）。',
     '--   DelayVisibility 让投射物在空中飞一小段才显形（模拟箭矢离弦）。',
@@ -238,7 +238,7 @@ export default {
     '--      若客户端需要同样延迟，就得靠 replica 另行同步。',
     '--   （本人未核实是否有实体在客户端做了同步补偿，标为未核实。）',
   ],
-  146: [
+  "Weapon:LaunchProjectile#1+23": [
     '-- complexprojectile 分支：AOE 类武器（地雷、陨石）的发射。',
     '-- ★ 与普通 projectile 的区别：Launch 接收的是「目标点坐标」而非实体，',
     '--   因为 AOE 武器不一定有具体目标实体，落在哪算哪。',
@@ -246,14 +246,14 @@ export default {
     '--   也就是说 SetProjectileOffset 对 complexprojectile 武器无效。',
     '--   （本人已对照第 146-149 行核实：该分支内无 offset 处理。）',
   ],
-  158: [
+  "Weapon:EnableToughFight#1": [
     '-- EnableToughFight：标记这把武器能打「tough fight」（硬仗）。',
     '-- ⚠️ 与 workable 的 SetRequiresToughWork（第 61 行）名字高度相似，',
     '--   语义却不同：workable 的 tough 是「需要结实的工具才砍得动」，',
     '--   weapon 的 tough 是「允许参与硬仗类战斗判定」。',
     '--   两者不是同一套机制，别在自研实现里合并成一个字段。',
   ],
-  162: [
+  "Weapon:CanDoToughFight#1": [
     '-- CanDoToughFight 用 `== true` 严格比较，而不是直接返回 self.tough。',
     '-- ★ 为什么要这样写：因为构造函数没给 self.tough 赋初值（第 24 行被注释），',
     '--   未调用 EnableToughFight 时它是 nil。',

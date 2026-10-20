@@ -75,52 +75,52 @@ export default {
     '-- 源码原注释是 Client update —— 这行注释本身就标出了 DST 预制体文件的一条铁律：',
     '-- ★ 同一个 fn() 里既有跑两端的代码，也有只跑客户端的代码，靠注释和缩进区分，没有语法级隔离。',
   ],
-  17: [
+  "OnUpdateWindow#1": [
     '-- 【纯客户端帧回调】每 FRAMES 帧执行一次，做「窗户亮不亮 / 窗户上有没有积雪」的视觉同步。',
     '-- ★ 它被 DoPeriodicTask 传给了 _window（第 397 行），所以 inst 是 _window 而非猪屋本体，',
     '-- 第 6 个参数 inst._windowsnow 才是另一个实体。三者通过参数传递耦合，',
     '-- 完全靠调用点那行 DoPeriodicTask 的实参顺序维持 —— 极易写错且不会报错。',
   ],
-  23: [
+  "OnUpdateWindow#1+6": [
     '-- 双重条件：灯开着 且 当前动画确实是 lit。',
     '-- ⚠️ 注意这里读的是 inst.Light（猪屋本体，由 on_start 传入），但 inst 是窗户子实体。',
     '-- 靠的是参数 shadowing：DoPeriodicTask 的第 4 参数把外层 pighouse 的 inst 传了进来。',
   ],
-  24: [
+  "OnUpdateWindow#1+7": [
     '-- 【皮肤同步】GetSkinBuild 返回 AnimState 当前用的 skin 名（皮肤系统换贴图时非空）。',
     '-- ★ 下面第 25 行做脏检查：只有 skin 名真的变了才 SetSkin，避免每帧重设。',
     '-- 这是 DST 里反复出现的「脏标记」范式，客户端每帧回调里必须这么写，否则会浪费 drawcall。',
   ],
-  36: [
+  "OnUpdateWindow#1+19": [
     '-- _shown 是自己维护的可见性缓存。',
     '-- ⚠️ 但它是直接赋值的普通字段，没有走 inst.entity 的网络变量 —— 因为子实体本就不跨网络，',
     '-- 纯客户端本地状态，不需要同步。',
   ],
 
   // ══════════════ 灯效 ══════════════
-  49: [
+  "LightsOn#1": [
     '-- 【★ 幂等守卫的标准写法】所有灯光切换函数都写成 if not burnt and not inst.lightson，',
     '-- 意思是「只做 开→关」的单向转换，不做反向。移植时把这个守卫去掉会导致音效重复播放。',
   ],
-  53: [
+  "LightsOn#1+4": [
     '-- PlaySound 第二参省略时用默认通道；带 tag 的调用（第 112 行）才能被 KillSound 精确掐掉。',
   ],
 
   // ══════════════ playerprox 回调 ══════════════
-  89: [
+  "onfar#1": [
     '-- playerprox 组件的「玩家走远」回调。只有里面住着猪时才点灯。',
     '-- ★ 注意这里是 onfar 调 LightsOn（远处点灯）、onnear（第 103 行）调 LightsOff。',
     '-- 看起来反直觉，实际是刻意的：住着猪时天黑了屋里点灯，人一走近就把灯关掉「省油」，',
     '-- 玩家离开视线后屋里又暗下来 —— 视觉提示「猪在里面睡着了/冬眠了」。',
   ],
-  95: [
+  "getstatus#1": [
     '-- 【inspectable.getstatus 钩子】返回的字符串会被查 STRINGS 表翻译成提示文字。',
     '-- ★ 用 or 链做优先级短路：burnt > FULL/LIGHTSOUT > nil。',
     '-- 这种写法比嵌套 if 简洁，但★ 顺序即优先级，改动顺序会改显示含义，移植时容易踩。',
   ],
 
   // ══════════════ 门音效任务 ══════════════
-  123: [
+  "onoccupieddoortask#1": [
     '-- 【★ inst.doortask 的三段式生命周期】',
     '--   预约：第 138 行 onoccupied 里 DoTaskInTime(1, onoccupieddoortask)',
     '--   执行：本函数开头把 inst.doortask 置 nil（防重入）',
@@ -128,13 +128,13 @@ export default {
     '-- DST 没有「任务句柄自动失效」，每个 DoTaskInTime 必须自己记下句柄、自己取消，',
     '-- 否则实体已 Remove 了任务还在跑回调 → 访问已销毁实体报错。这是自研引擎最容易漏的一环。',
   ],
-  125: [
+  "onoccupieddoortask#1+2": [
     '-- IsPlayerClose 与 onoccupieddoortask 的时序配合：延迟 1 秒后如果玩家已经走开，才点灯。',
     '-- 玩家还在附近就什么都不做（保持灯灭）。',
   ],
 
   // ══════════════ 猪进出 ══════════════
-  130: [
+  "onoccupied#1": [
     '-- spawner 组件的 onoccupied 回调：猪进屋。',
     '-- ★ 第 140-141 行对 child 注册了 transformwere / transformnormal 两个事件监听。',
     '-- 这两个事件由 components/werebeast 在月圆变身时发出，用来切换屋里播放的是猪叫还是猪人叫。',
@@ -142,81 +142,81 @@ export default {
     '-- 若 pigman 在屋里变身又被赶出，监听会正确清理；但若猪直接死亡，RemoveEventCallback 不会被调用，',
     '-- 回调挂在已销毁实体上由引擎兜底清理 —— 依赖 entity 的自动解绑。',
   ],
-  135: [
+  "onoccupied#1+5": [
     '-- 先取消上一次的开门任务再重新预约 —— 防止猪被反复塞进塞出时任务堆积。',
   ],
 
-  146: [
+  "onvacate#1": [
     '-- onvacate：猪离屋。这里是全文件★ 副作用最多的一段（灯、声音、变身状态、血量、事件解绑）。',
   ],
-  159: [
+  "onvacate#1+13": [
     '-- ★ ResetTriggers：werebeast 组件保存了变身倒计时的触发器，离屋时必须清掉，',
     '-- 否则玩家把猪从猪屋拖出来它会在野外立刻变身。',
     '-- 同一段还 SetPercent(1) 回满血 —— 语义是「猪回窝睡觉，伤势与疲劳一并重置」。',
   ],
-  167: [
+  "onvacate#1+21": [
     '-- 离屋后重新检查溺水状态：猪是被抬出水面的话，CheckDrownable 会决定它要不要浮起来。',
     '-- if drownable then 而非 ~= nil —— Lua 里这是等价的（nil 为假），但风格上更宽松。',
   ],
 
   // ══════════════ 锤击 ══════════════
-  175: [
+  "onhammered#1": [
     '-- 【workable 组件的 onfinish 回调】玩家锤完的第 4 下。',
     '-- ★ 顺序有讲究：先灭火（否则 Remove 后火会飘在空中）→ 取消任务 → 赶出猪 → 掉战利品 → 塌方特效 → Remove。',
     '-- 这个「拆解收尾序列」在 DST 所有可锤结构体里高度一致，可当模板抄。',
   ],
-  184: [
+  "onhammered#1+9": [
     '-- ReleaseChild 让猪自己走出屋（不是直接删掉），因此会触发 onvacate，走一遍完整清理。',
   ],
-  186: [
+  "onhammered#1+11": [
     '-- lootdropper:DropLoot() 按 lootdropper 的表掉东西，具体表在 recipes.lua / loot 表里定义。',
   ],
 
   // ══════════════ 白天逻辑 ══════════════
-  219: [
+  "onstartdaylighttask#1": [
     '-- 【白天逐层驱赶】这是一个自递归的延迟链：白天来了就把猪赶出去，赶之前先判断天够不够亮。',
   ],
-  220: [
+  "onstartdaylighttask#1+1": [
     '-- ★ 源码原注释解释了 0.8 这个魔法数：屋里自己点灯，所以要等外面比屋里还亮（0.8）才放猪出去，',
     '-- 避免猪刚出门就被「天亮了」刺眼。这是美术与玩法耦合的地方，纯数值无法解释，必须读注释。',
   ],
-  223: [
+  "onstartdaylighttask#1+4": [
     '-- iscaveday（洞穴白天）分支：这里递延到下一次 onstartdaylighttask 重新判断，而不是直接放猪。',
     '-- ★ 因为洞穴里没有 TheNet 的光照变化，等于「在洞穴里白天不放猪出去」。',
   ],
-  230: [
+  "OnStartDay#1": [
     '-- WatchWorldState 绑定的回调（见第 286 行 inst:WatchWorldState("startcaveday", OnStartDay)）。',
   ],
 
   // ══════════════ 存读档 ══════════════
-  272: [
+  "onsave#1": [
     '-- 【存读档钩子】OnSave 只写 ★ 增量状态（burnt 标志），其余由各组件自己存。',
     '-- DST 的存档约定：组件的内部状态由组件自己负责，预制体只存「组件管不到的跨组件语义」。',
     '-- ★ 反面例子就在同目录的 boat.lua：它必须手写 arms / cannontowers / keystones 的 GUID 列表，',
     '-- 因为那些是 SpawnPrefab 出来的独立实体，不属于任何组件。',
   ],
-  278: [
+  "onload#1": [
     '-- ★ onload 直接调 inst.components.burnable.onburnt(inst) —— 手动触发组件私有字段。',
     '-- 这是绕过 burnable 公开 API 的写法。原因：BurntStructureFn 会做一堆特效与掉落，',
     '-- 读档时不需要那些副作用，只要把「焦黑」这个状态摆出来。属于有意为之的内部调用。',
   ],
 
   // ══════════════ 初始化 ══════════════
-  284: [
+  "spawncheckday#1": [
     '-- spawncheckday 由 oninit（第 299 行）在随机延迟后调用。',
     '-- ★ 随机延迟是刻意的：若所有猪屋同一帧创建并立即检查状态，世界加载时会卡一帧。',
     '-- DST 大量使用 DoTaskInTime(math.random(), fn) 做负载打散，这里是典型。',
   ],
-  292: [
+  "spawncheckday#1+8": [
     '-- ForceUpdate 强制立刻重算 playerprox 距离，而不是等自然触发。',
     '-- 猪屋可能整个加载过程都处于休眠，从未触发过距离回调，得手动补一次。',
   ],
-  298: [
+  "oninit#1": [
     '-- oninit：第二段的服务端初始化。注意它被 DoTaskInTime(0, oninit) 延到下一帧（第 445 行），',
     '-- ★ 而不是直接在 fn() 里调。原因：fn() 还在组件装配的半途中，oninit 里要读 components.spawner。',
     '-- ★ 移植要点：预制体的「二次初始化」一律用 DoTaskInTime(0) 推迟一帧，绝不能内联。',
   ],
-  300: [
+  "oninit#1+2": [
     '-- ★★ 这段是「存档里只记了 childname、没记实体」的兼容处理：',
     '-- child == nil（实体没被加载出来）且 childname ~= nil（但配置里有）且不在生成队列里',
     '-- → 手动 SpawnPrefab 补一只出来，再 TakeOwnership + GoHome。',
@@ -225,7 +225,7 @@ export default {
   ],
 
   // ══════════════ 客户端子实体工厂 ══════════════
-  312: [
+  "MakeWindow#1": [
     '-- ★★ 客户端专属子实体的标准模板，对比第 335 行的 MakeWindowSnow 与 boat.lua 的同类工厂：',
     '--   1) CreateEntity("Pighouse.MakeWindow")  —— ★ 传字符串只是为了报错信息好看，本地实体不需要',
     '--   2) 只 AddTransform / AddAnimState 这类最轻的实体组件',
@@ -234,39 +234,39 @@ export default {
     '--   5) 未 AddNetwork() —— ★ 跨不了网，服务端无此实体',
     '--   6) 结尾 inst:Hide() —— 初始隐藏，等猪住进来才点亮',
   ],
-  320: [
+  "MakeWindow#1+8": [
     '-- 源码此处原本是一个长注释块，标明「以下是不可联网实体」的约定区。',
     '-- ★ 预制体文件里这种长注释块常用来圈出「不写存档」的区段，是 DST 的既有风格。',
   ],
-  321: [
+  "MakeWindow#1+9": [
     '-- persists = false 的含义：这个实体不会被写进存档。',
     '-- ★ 必须同时满足「未 AddNetwork」才安全 —— 有网络实体却 persists=false，',
     '-- 客户端与服务端会对「它是否存在」产生分歧。',
   ],
-  326: [
+  "MakeWindow#1+14": [
     '-- SetLightOverride(.6) 是让窗户的自发光压到 60%，比主灯暗，避免抢戏。',
     '-- 典型用途：让「远处看房子有光」成立，但走近时窗户不至于刺眼。',
   ],
-  327: [
+  "MakeWindow#1+15": [
     '-- ★ BloomEffectHandle：手工接管 Bloom 后处理。',
     '-- 机制：AnimState 自己画一遍颜色，又往 bloom buffer 里画一遍，最终泛光 = 两次叠加。',
     '-- ⚠️ 副作用：这个 entity 从此由客户端负责画 bloom，服务端要负责渲染就得复制这套逻辑。',
   ],
-  335: [
+  "MakeWindowSnow#1": [
     '-- 第二个客户端子实体：窗台积雪。同样 DECOR + NOCLICK + persists=false 三件套。',
   ],
-  349: [
+  "MakeWindowSnow#1+14": [
     '-- FinalOffset(2) 与窗户的 FinalOffset(1) 错开 —— ★ 这是 2D 伪 3D 的深度排序技巧：',
     '-- 同一个 z 平面上，靠 FinalOffset 决定谁盖住谁。窗户在 1、积雪在 2 → 积雪画在上面。',
     '-- DST 全是这种「手工 z-sort」，比真实 3D 便宜得多。',
   ],
-  353: [
+  "MakeWindowSnow#1+18": [
     '-- MakeSnowCovered 是标准组件函数（standardcomponents.lua），加积雪组件。',
     '-- ★ 注意窗口实体也调用它 —— 说明积雪是「凡是朝上的结构都加」的通用装饰组件，与主实体无关。',
   ],
 
   // ══════════════ OnPreLoad ══════════════
-  358: [
+  "OnPreLoad#1": [
     '-- 【★ OnPreLoad 是 DST 存档钩子里最早的一个】',
     '-- 时序：OnPreLoad → （各组件 OnLoad）→ OnLoadPostPass',
     '-- 用途是在组件 OnLoad 之前先把世界配置（TUNING）按当前世界设定覆写回去。',
@@ -276,7 +276,7 @@ export default {
   ],
 
   // ══════════════ ★ fn()：预制体主工厂 ══════════════
-  362: [
+  "fn#1": [
     '-- ============================================================',
     '-- ★★★ fn() —— 预制体工厂函数。整个 DST 实体装配范式都在这 90 行里。',
     '--',
@@ -306,10 +306,10 @@ export default {
     '-- ★ 这不是随便排的：Network 一定在实体组件之后、AddComponent 之前。',
     '-- ============================================================',
   ],
-  363: [
+  "fn#1+1": [
     '-- CreateEntity() 无参 = 不指定 prefab 名。名字由后面的 SetPrefabName 或 modindex 补。',
   ],
-  365: [
+  "fn#1+3": [
     '-- ★ 实体组件（entity:AddXxx）的挂载顺序在本文件里是固定的：',
     '--   Transform   —— 空间变换，一切的前提，必须第一个',
     '--   AnimState   —— 动画渲染',
@@ -319,56 +319,56 @@ export default {
     '--   Network     —— ★ 必须最后，因为它会快照前面所有组件的状态',
     '-- 顺序错了在 A 段末尾 SetPristine 时会被发现（快照缺字段），表现为图标在客户端不显示。',
   ],
-  370: [
+  "fn#1+8": [
     '-- ★ AddNetwork() 必须放在 A 段末尾（MiniMapEntity 之后）。',
     '-- 它一挂上，引擎就开始按网络实体的规则管理这个 inst，之后再挂实体组件就要格外小心了。',
   ],
-  372: [
+  "fn#1+10": [
     '-- MakeObstaclePhysics(inst, 1)：挂物理碰撞体（圆柱，半径 1）。',
     '-- 标准components 之一，内部就是 AddComponent("physics") + 一组 SetCylinder。',
     '-- ★ 放在 SetPristine 之前 → 客户端也知道自己有多大，可以做本地预判与遮挡剔除。',
   ],
-  375: [
+  "fn#1+13": [
     '-- 源码此行是被注释掉的 Light 参数模板（anim/sound/radius/intensity/falloff/colour）。',
     '-- ★ DST 常见做法：把上一版调好的参数注释掉留在原地，改参数时能直接对比回滚。',
     '-- 读源码时看到大片注释掉的代码，多半是这个用途 —— 不是废弃代码。',
   ],
-  376: [
+  "fn#1+14": [
     '-- 灯光四件套：Falloff(衰减曲线) / Intensity(强度) / Radius(半径) / Colour(色温)。',
     '-- ★ 这四个值是「艺术参数」而非「玩法参数」，所以写在 A 段（两端都设）而非 TUNING。',
     '-- 平衡性调整走 TUNING.lua，视觉调整留在预制体文件 —— 这个分工在 DST 里贯彻全项目。',
   ],
-  380: [
+  "fn#1+18": [
     '-- 颜色用除法而非直接写 0.7/0.76/0.19 —— 意图是「从 255 色阶换算成 0~1 浮点」。',
     '-- ⚠️ 这是硬编码换算，跨色彩空间（线性 vs sRGB）时会偏色。移植到自己的引擎建议统一走色彩管理。',
   ],
-  386: [
+  "fn#1+24": [
     '-- ★★ AddTag 是 DST 的「跨系统行为总线」，比组件更灵活也更危险。',
     '-- 全代码库靠 FindEntities 的 must_tags / cant_tags 筛实体，等于用字符串做了一套无编译期检查的接口。',
     '-- tag 打错字不会报错，只是功能静默失效。移植时建议加一个 tag 常量表 + 拼写检查。',
   ],
-  389: [
+  "fn#1+27": [
     '-- MakeSnowCoveredPristine：★ 注意名字里的 Pristine —— 它加的积雪标记要参与网络同步，',
     '-- 所以必须在 SetPristine 之前调用。',
     '-- 与第 431 行的 MakeSnowCovered 配对：前者打标记（两端），后者生成实体（仅服务端）。',
     '-- ★ 这个「Pristine 版 / 非 Pristine 版」成对出现的模式，在 standardcomponents.lua 里到处都是。',
   ],
-  391: [
+  "fn#1+29": [
     '-- ★★★ 以下是纯客户端子实体的创建，条件是 not TheNet:IsDedicated()（非专用服务器）。',
     '-- 与第 403 行的 ismastersim 判断是两个不同的维度，别混淆：',
     '--   IsDedicated() —— 这台机器有没有画面（判断要不要造纯装饰实体）',
     '--   ismastersim  —— 这一端是不是服务端（判断要不要造逻辑组件）',
     '-- 监听服务器（Listen Server）两者都是真；专服只有 ismastersim 为真。',
   ],
-  392: [
+  "fn#1+30": [
     '-- 第 4 参数是实体本身的 parent。窗户跟着猪屋移动，而不是独立漂浮。',
   ],
-  396: [
+  "fn#1+34": [
     '-- ★ 只在客户端注册帧回调。服务端不需要维护窗户的显示状态 —— 反正没人看。',
     '-- DoPeriodicTask 第 4/5 参数是额外传参：本函数签名是 (window, inst, snow)，',
     '-- 实际收到的是 (窗户, 猪屋, 积雪)。这个实参/形参错位是本文件最容易看晕的地方。',
   ],
-  401: [
+  "fn#1+39": [
     '-- ★★★ SetPristine：预制体装配的分水岭。',
     '-- 语义：把此刻 inst 上的所有「可网络化状态」打包发给客户端，并冻结本地对这些字段的修改。',
     '-- 之后服务端修改 net_* 变量必须走 net_bool / net_float 等包装器才能同步，',
@@ -376,90 +376,90 @@ export default {
     '-- ★ 本文件此行之后没有任何 net_* 声明 —— 因为猪屋的状态全靠服务端权威、客户端不需要知道。',
     '-- 对比 boat.lua 第 433 行：那里必须用 net_bool 声明 doplatformcamerazoom，因为客户端要跟着变焦。',
   ],
-  403: [
+  "fn#1+41": [
     '-- ★ 客户端在此返回。后面的所有 AddComponent 客户端一行都不会执行。',
     '-- 客户端拿到的猪屋 = 物理碰撞体 + 外观 + 窗户 + 积雪 + 声音，全是「看得见的」，',
     '-- 没有 lootdropper / workable / spawner —— 它没法被交互、不能被锤子敲、不知道里面住没住猪。',
     '-- 这就是「服务端权威」的物理体现：客户端是纯表现层。',
   ],
-  407: [
+  "fn#1+45": [
     '-- ★ C 段开始。以下每个 AddComponent 都只存在于服务端。',
     '-- 【组件装配的讲究】顺序上唯一真正的依赖是 lootdropper 必须在 workable 之前 ——',
     '-- 不对，实际没依赖；DST 的组件基本无序，靠 Configure/SetXxx 显式接线。',
     '-- 这正是组件化的好处：加一个新能力 = 加一行 AddComponent，不需要继承、不需要改父类。',
   ],
-  409: [
+  "fn#1+47": [
     '-- SetWorkAction(ACTIONS.HAMMER)：声明交互方式为锤击。这决定了客户端 HUD 显示什么图标。',
   ],
-  410: [
+  "fn#1+48": [
     '-- ★ SetWorkLeft(4) = 需要锤 4 下。这是纯数值，本该放 TUNING。',
     '-- 但它硬编码在此处 —— 说明策划改这里就能生效（override 优先于 TUNING），',
     '-- 属于「预制体级 override」惯例，不是缺陷。',
   ],
-  414: [
+  "fn#1+52": [
     '-- 【spawner 组件】负责「生成 / 持有 / 释放」一个子实体，是所有「房子」类结构的标配。',
     '-- 它天然处理了：子实体归属（归属本屋）、玩家离开时的转移、日出时的释放。',
     '-- ★ 用组件代替继承的典型：一个 spawner 组件 + 3 个回调 = 一整套「野生动物栖息地」逻辑。',
   ],
-  416: [
+  "fn#1+54": [
     '-- Configure("pigman", TUNING.PIGHOUSE_SPAWN_TIME)：告诉 spawner 生成什么、多久一只。',
   ],
-  417: [
+  "fn#1+55": [
     '-- ★ 直接给组件的回调字段赋值（onoccupied / onvacate），而不是 SetOnOccupiedFn 之类的方法。',
     '-- DST 里两种风格并存：直接赋字段快但绕过校验，SetXxxFn 有默认行为可继承。',
     '-- 组件自己有默认实现时优先用 SetXxxFn，否则会连默认逻辑一起丢掉。',
   ],
-  419: [
+  "fn#1+57": [
     '-- SetWaterSpawning(false, true)：第一个参数 false = 不在水里生成猪；',
     '-- 第二个参数 true = 允许「在船上/平台上」的猪回屋。★ 这两个布尔是独立的正交开关，别看成一个。',
   ],
-  422: [
+  "fn#1+60": [
     '-- 【playerprox 组件】按距离触发回调。用组件表达「玩家靠近/走远」而非自己每帧算距离。',
     '-- ★ 内部有节流与休眠联动，比裸 for 每帧遍历玩家列表省得多。',
   ],
-  423: [
+  "fn#1+61": [
     '-- SetDist(10, 13)：near=10，far=13。★ 有 3 单位的滞回带（hysteresis），',
     '-- 防止玩家在边界反复横跳导致灯光每帧闪烁。所有距离阈值都该这么设计。',
   ],
-  427: [
+  "fn#1+65": [
     '-- inspectable 提供「鼠标悬停显示名字与状态」。没有它，客户端不知道该显示什么提示。',
     '-- ★ 组件在服务端，客户端通过组件的 replica 层拿到名字与 getstatus 的结果。',
   ],
-  431: [
+  "fn#1+69": [
     '-- MakeSnowCovered（非 Pristine 版）：真正生成积雪实体。只有服务端会做。',
   ],
-  432: [
+  "fn#1+70": [
     '-- 月亮石砸落的积聚量。结构体用 Large（PCL 组件里有等级枚举）。',
     '-- ★ 为什么要单独一行：月石伤害要按「这是个什么东西」查表，积聚量就是这个查表键。',
   ],
-  434: [
+  "fn#1+72": [
     '-- MakeMediumBurnable(inst, nil, nil, true)：可点燃结构体。第 4 参数 true = 是 structure',
     '-- （structure 版会额外处理「烧完后倒塌」的流程）。',
     '-- ★ 注意用的是 Medium 而不是 pighouse 视觉上的大小 —— 燃烧等级看的是「倒塌后留什么」，不是模型大小。',
   ],
-  435: [
+  "fn#1+73": [
     '-- Propagator：火焰传播组件。能点燃 ≠ 火会蔓延，这是两个独立组件。',
     '-- ★ 大多数可燃结构体都要成对加 burnable + propagator，漏了 propagator 火就烧不过去。',
   ],
-  436: [
+  "fn#1+74": [
     '-- burntup 事件：burnable 烧完、火焰熄灭时发出。此处用来清理客户端子实体引用。',
     '-- ★ 为什么要清理：窗户实体是客户端 CreateEntity 出来的，永远不会自动消失，',
     '-- 猪屋烧毁后若不 Remove 窗户，就会留下一个「悬空的发光窗户」。',
   ],
-  439: [
+  "fn#1+77": [
     '-- OnSave / OnLoad 是「实例字段」覆写，不是组件覆写。',
     '-- ★ 预制体级覆写的组件回调：onload（第 278 行）刻意不调用 onload 里那套完整逻辑。',
   ],
-  442: [
+  "fn#1+80": [
     '-- MakeHauntableWork：被鬼魂「闹」时，概率改为执行一次 Work（锤一下）。',
     '-- ★ 这是把「闹鬼」与「敲击」复用同一套 playable 机制的技巧，省掉一整套单独逻辑。',
   ],
-  445: [
+  "fn#1+83": [
     '-- ★ 见第 298 行注释：DoTaskInTime(0) 把二次初始化推到下一帧。',
   ],
 
   // ══════════════ return ══════════════
-  452: [
+  "fn#1+90": [
     '-- ★★ return 语句就是「注册本文件声明的所有预制体」。',
     '-- Lua 的 return 只能返回一个值，这里写了两个表达式，等价于返回一个「多返回值序列」，',
     '-- modindex.lua 会遍历它，把每个 Prefab 对象登记进全局表。',
@@ -474,7 +474,7 @@ export default {
     '-- 【⚠️ 常见坑】改了 assets / prefabs 表忘了同步 return 的依赖，',
     '-- 开发环境（不裁剪）跑得好好的，正式打包就空 Prefab。',
   ],
-  453: [
+  "fn#1+91": [
     '-- MakePlacer("pighouse_placer", ...)：★ 同一份预制体「派生」出第二个实体 —— 放置预览幽灵。',
     '-- Placer 只在本地存在（CLASSIFIED + NOCLICK + persists=false，见 prefabutil.lua 第 5-10 行），',
     '-- 不跨网络、不入存档，纯客户端交互辅助物。',

@@ -37,7 +37,7 @@ export const BEFORE = {
   6: [
     "-- 以下是「属性 setter」区，见 :41-44的 Class 第三参数表说明。",
   ],
-  8: [
+  "onmax#1": [
     "--   ★ 整个 setter 区只有两个函数（max / current），",
     "--     对比 sanity 有九个（sanity.lua:127-135）。",
     "--     差异原因：hunger 的状态极其简单——只有两个数字。",
@@ -47,7 +47,7 @@ export const BEFORE = {
   ],
 
   // ============ OnTaskTick ============
-  18: [
+  "OnTaskTick#1": [
     "--【OnTaskTick：周期任务的唯一回调】",
     "--   ★ 注意参数是 (inst, self)：",
     "--     周期任务由 DoPeriodicTask 在构造时以 self 为附加参数创建（:38），",
@@ -56,7 +56,7 @@ export const BEFORE = {
     "--     ★ 这个「inst, self」双参数约定在整个 DST 里通用，",
     "--       写事件回调时可直接套用。",
   ],
-  19: [
+  "OnTaskTick#1+1": [
     "--   ★★ 每秒调用一次 DoDec(1)，即「以1 秒为单位扣减」。",
     "--     这里传的是常量 UPDATE_PERIOD 而不是真实经过时间，",
     "--     所以：",
@@ -71,14 +71,14 @@ export const BEFORE = {
   ],
 
   // ============ 构造函数 ============
-  24: [
+  "OnTaskTick#1+6": [
     "--【★★★构造函数：本组件的全部状态只有 9 个字段】",
     "--   对比 sanity 有 25+ 个字段（sanity.lua:74-120）。",
     "--   ★ 字段数量之差，就是两个组件复杂度之差的最直观体现：",
     "--     sanity 是「多源汇流+ 阈值状态机 + 多模式 + 网络同步」；",
     "--     hunger 是「单源匀速 + 一个开关 + 一个状态位」。",
   ],
-  26: [
+  "OnTaskTick#1+8": [
     "--   ★ max 默认 100，真实值由角色 prefab 设置，",
     "--     例如 prefabs/willow.lua:167 的 SetMax(TUNING.WILLOW_HUNGER)。",
     "--     tuning.lua 中 wilson_hunger = 150。",
@@ -90,7 +90,7 @@ export const BEFORE = {
     "--       实际影响极小，因为 SetMax 都在角色初始化时调用，",
     "--         那时UI 尚未建立。",
   ],
-  29: [
+  "OnTaskTick#1+11": [
     "--   ★★ 三个速率参数的分工（这是本组件最容易混淆的地方）：",
     "--     hungerrate —— 「基础消耗率」，每秒扣多少点，默认 1。",
     "--                   由SetRate 改（:53）。",
@@ -104,10 +104,10 @@ export const BEFORE = {
     "--       语义无关，burnrate 是历史遗留的「倍率」叫法。",
     "--       实际语义是 hunger 的「速率倍率」。",
   ],
-  30: [
+  "OnTaskTick#1+12": [
     "--   hurtrate：饿死时的扣血速率（每秒点数）。",
   ],
-  31: [
+  "OnTaskTick#1+13": [
     "--   ★ overridestarvefn —— 「替换掉默认的饿死行为」的钩子。",
     "--     默认行为是调 health:DoDelta 扣血（:160）；",
     "--     设置了这个函数则改为调它，组件不再自己扣血。",
@@ -117,20 +117,20 @@ export const BEFORE = {
     "--     因为这里它是被当作「一个普通函数」调用的（:158），",
     "--     而非组件方法。写自定义函数时要传对参数顺序。",
   ],
-  33: [
+  "OnTaskTick#1+15": [
     "--   ★ burning：这个字段名是「正在消耗（燃烧）」的意思，",
     "--     即「是否处于正常扣减状态」。命名沿用自体力/燃烧的旧设定。",
     "--     false 表示已暂停（IsPaused，:65）。",
     "--     ★ 注意它与 burnrate（:35）名字相近但语义无关，容易混淆。",
   ],
-  35: [
+  "OnTaskTick#1+17": [
     "--   ⚠ 已废弃字段（源码注释：DEPRECATED, please use burnratemodifiers instead）。",
     "--   ★ 保留它是为了兼容直接写 self.burnrate 的老 mod。",
     "--     新代码应使用下面的 burnratemodifiers（SourceModifierList）。",
     "--     ★ 注意 GetDebugString（:198）仍会把两者相乘显示，",
     "--       所以调试面板上看到的是「综合速率」。",
   ],
-  36: [
+  "OnTaskTick#1+18": [
     "--   burnratemodifiers：饥饿速率的**乘性**修饰器列表。",
     "--   ★ 使用方（可作为调用范例）：",
     "--     prefabs/armor_slurper.lua:9（Armor Slurper 减缓饥饿）",
@@ -139,7 +139,7 @@ export const BEFORE = {
     "--   ★ 统一写法：SetModifier(inst, 值) 施加，RemoveModifier(inst) 撤销。",
     "--     值小于 1 表示减缓，大于 1 表示加速。",
   ],
-  38: [
+  "OnTaskTick#1+20": [
     "--   ★★★ 构造时立即注册周期任务——这是与 sanity 的架构分水岭。",
     "--     sanity 是 StartUpdatingComponent(self)（sanity.lua:122），每帧跑。",
     "--     hunger 是 DoPeriodicTask(UPDATE_PERIOD, OnTaskTick, nil, self)，每秒跑。",
@@ -157,7 +157,7 @@ export const BEFORE = {
     "--     OnRemoveFromEntity（:190）还额外显式 Cancel 一次，双重保险。",
     "--   参见 scheduler.lua:295 ExecutePeriodic 与 entityscript.lua:1512。",
   ],
-  41: [
+  "OnTaskTick#1+23": [
     "--   ★ Class 第三参数：属性 setter 表。",
     "--     与 sanity.lua:126 同一机制，作用是「赋值即同步」。",
     "--     ★ 注意本组件没有 redirect/ignore 之类的字段初始化，",
@@ -168,24 +168,24 @@ export const BEFORE = {
   ],
 
   // ============ 基础操作 ============
-  48: [
+  "Hunger:SetMax#1": [
     "--   SetMax：同时改上限与当前值（见 :26 的⚠ 说明——不触发事件）。",
   ],
-  53: [
+  "Hunger:SetRate#1": [
     "--   SetRate：设置基础消耗率（见 :29 的说明）。",
   ],
-  57: [
+  "Hunger:SetKillRate#1": [
     "--   SetKillRate：设置**饿死后的扣血率**。",
     "--   ★ 提醒：它不影响饥饿消耗，只影响归零后的伤害速度。",
   ],
-  61: [
+  "Hunger:SetOverrideStarveFn#1": [
     "--   SetOverrideStarveFn：接管饿死行为（见 :31）。",
   ],
-  65: [
+  "Hunger:IsPaused#1": [
     "--   IsPaused：语义是「未在消耗中」，实现是取burning 的反值。",
     "--   ★ 与 DoDec 里的 early return（:147）配合：暂停时既不扣饥饿也不扣血。",
   ],
-  69: [
+  "Hunger:IsStarving#1": [
     "--   ★★ IsStarving 用 <= 0 而非 < 0。",
     "--     因为 current 被 SetCurrent（:107）夹逼在 [0, max]，",
     "--     恰好等于 0 是真实可达的状态（刚好被扣光）。",
@@ -195,7 +195,7 @@ export const BEFORE = {
   ],
 
   // ============ Pause / Resume ============
-  75: [
+  "Hunger:Pause#1": [
     "--【★ Pause：取消周期任务，而不只是置个标志】",
     "--   ★ 关键设计：暂停的**实现方式**是取消任务本身，",
     "--     而不是「保留任务、在回调里判断 burning 再 return」。",
@@ -205,10 +205,10 @@ export const BEFORE = {
     "--     Pause/Resume/OnRemoveFromEntity 三处都写了成对处理（:76-81、:85-89、:191-194），",
     "--     任何一处漏掉都会导致「永久暂停」或「重复注册两个任务」。",
   ],
-  78: [
+  "Hunger:Pause#1+3": [
     "--   nil 检查：重复调Pause 是安全的（第二次直接跳过）。",
   ],
-  84: [
+  "Hunger:Resume#1": [
     "--【Resume：与 Pause 严格对称】",
     "--   ★ 幂等性靠 :87 的 if self.updatetask == nil 保证：",
     "--     重复调Resume 不会注册出两个周期任务，",
@@ -217,14 +217,14 @@ export const BEFORE = {
   ],
 
   // ============ 百分比 ============
-  94: [
+  "Hunger:GetPercent#1": [
     "--   ★ GetPercent 是最朴素的 current/max——",
     "--     对比 sanity 有四个百分比函数（sanity.lua:280-300）并各有微妙差别。",
     "--     差异根源：hunger 没有 penalty（上限惩罚）与 forced 状态，",
     "--       所以一个公式就够用。",
     "--     ★ 这个对比很能说明问题：**API 的复杂度反映状态模型的复杂度**。",
   ],
-  98: [
+  "Hunger:SetPercent#1": [
     "--   SetPercent：外部「按比例设置」的标准入口。",
     "--   ★ 与 sanity.lua:302 的 SetPercent 结构完全一致（都是转调 SetCurrent），",
     "--     差别只在 sanity 需要自己算 delta 而hunger 直接给绝对值。",
@@ -234,7 +234,7 @@ export const BEFORE = {
   ],
 
   // ============ SetCurrent ============
-  104: [
+  "Hunger:SetCurrent#1": [
     "--【★★★ SetCurrent：与 sanity 的 DoDelta（sanity.lua:377）职责对等的写入点】",
     "--   hunger 的所有写入最终都汇聚到这里。职责：",
     "--     ① 夹逼到 [0, max]",
@@ -245,14 +245,14 @@ export const BEFORE = {
     "--       因为它有崩溃阈值；hunger 的唯一阈值是 0，",
     "--       且是「精确等于 0」而非「低于某比例」，所以无需迟滞。",
   ],
-  107: [
+  "Hunger:SetCurrent#1+3": [
     "--   ★ math.clamp(current, 0, self.max) —— 唯一的数值防线。",
     "--     ★ 所有外部 delta（含玩家自己写的 mod）都被这道墙拦住，",
     "--       饥饿度永远不会出现负数或超过上限。",
     "--     ★ 与 sanity.lua:387 的夹逼是同一思路，",
     "--       区别是 sanity 的上界是「惩罚后的上限」而hunger 就是 max。",
   ],
-  109: [
+  "Hunger:SetCurrent#1+5": [
     "--   ★★ hungerdelta 事件—— 与 sanitydelta（sanity.lua:405）对称。",
     "--     载荷比 sanity 多一个 **delta 字段（:113）**：",
     "--       饥饿的变化是线性的，直接给绝对增量比给两个百分比更好用。",
@@ -262,7 +262,7 @@ export const BEFORE = {
     "--     components/wisecracker.lua:122、components/mightiness.lua:107、",
     "--     prefabs/pet_hunger_classified.lua:84（宠物镜像同步）。",
   ],
-  116: [
+  "Hunger:SetCurrent#1+12": [
     "--   ★★★ 边沿检测：饥饿开始 / 结束的切换。",
     "--     结构是两层 if：外层区分「之前有饥饿 / 之前已空」，",
     "--       内层判断「现在是否变空」。",
@@ -275,7 +275,7 @@ export const BEFORE = {
     "--   ★ 但要注意：这里只在**状态切换**时发事件，",
     "--     而 sanity 的 goinsane（sanity.lua:423）同理——两个组件风格一致。",
   ],
-  118: [
+  "Hunger:SetCurrent#1+14": [
     "--   ★ startstarving：开始饿。",
     "--     ⚠ 值得注意：本组件**只发事件，不做任何伤害**。",
     "--       扣血发生在 DoDec（:156-162），由周期任务每 1 秒驱动。",
@@ -286,12 +286,12 @@ export const BEFORE = {
     "--       推理依据：Pause 会取消唯一的伤害驱动源，且无任何补偿逻辑。",
     "--       实际影响：取决于是否有 mod 这么做，属理论风险。",
   ],
-  119: [
+  "Hunger:SetCurrent#1+15": [
     "--   ProfileStatsSet：成就/统计（started_starving / stopped_starving，:124 同理）。",
   ],
 
   // ============ DoDelta ============
-  128: [
+  "Hunger:DoDelta#1": [
     "--【★ DoDelta：饥饿版的「加delta」通道】",
     "--   与 sanity 的 DoDelta（sanity.lua:377）同名同职责，但**简单得多**：",
     "--     sanity 的 DoDelta 还要做阈值判定与状态迁移；",
@@ -299,14 +299,14 @@ export const BEFORE = {
     "--   ★ 本文件没有独立的 ignore 字段（sanity 有，sanity.lua:383），",
     "--     而是用第三个参数 ignore_invincible 来控制无敌判定。",
   ],
-  129: [
+  "Hunger:DoDelta#1+1": [
     "--   ★ redirect 通道：与 sanity.lua:378 完全同构。",
     "--     存在时把整个 delta 外包给外部函数，并**立即 return**。",
     "--     于是夹逼与事件都不会执行——责任完全转移。",
     "--     ★ 两个组件在这里刻意保持同样的写法与同样的陷阱，",
     "--       便于维护者用同一套心智模型理解两者。",
   ],
-  135: [
+  "Hunger:DoDelta#1+7": [
     "--   ⚠★★ 疑似缺陷（运算符优先级陷阱）—— 本文件最值得注意的一处。",
     "--     原文：",
     "--       if not ignore_invincible and",
@@ -339,14 +339,14 @@ export const BEFORE = {
     "--     ——而这恰好是正确的期望行为。",
     "--     ※ 按要求只标注不修改代码。",
   ],
-  143: [
+  "Hunger:DoDelta#1+15": [
     "--   ★ 转发到 SetCurrent（:104）—— 所有写入的唯一出口。",
     "--     注意这里传的 overtime 来自调用方；",
     "--     DoDec（:154）总是传 true，因为饥饿变化是持续性的。",
   ],
 
   // ============ DoDec ============
-  146: [
+  "Hunger:DoDec#1": [
     "--【★★★★ DoDec：本组件的「心跳」—— 每秒被调用一次】",
     "--   ★ 两个参数：",
     "--     dt          —— 本次结算覆盖的时长（周期任务恒为 1）。",
@@ -362,17 +362,17 @@ export const BEFORE = {
     "--     这就是「饥饿」与「饿死」两种状态的实现——",
     "--     它们不是两个状态机，而是**同一条if/else 的两个分支**。",
   ],
-  147: [
+  "Hunger:DoDec#1+1": [
     "--   ★ 暂停早退：连扣血一起停掉。",
     "--     注意这是必要的安全检查——虽然 Pause（:75）已经取消了任务，",
     "--     但 LongUpdate（:167）**不经过任务**，仍会调用 DoDec，",
     "--     所以这个判断对长更新路径同样有效。",
     "--     ★ 这是「双驱动」架构必须注意的地方，很容易漏。",
   ],
-  151: [
+  "Hunger:DoDec#1+5": [
     "--   old：仅用于 :153 的分支判断，此处保存是为了可读性。",
   ],
-  153: [
+  "Hunger:DoDec#1+7": [
     "--   ★★ 分支一：还有饥饿 → 扣减。",
     "--     ★★ 扣减公式（下一行）：",
     "--       -hungerrate × dt × burnrate × burnratemodifiers:Get()",
@@ -392,18 +392,18 @@ export const BEFORE = {
     "--     ⚠ 四个因子相乘，若某个 burnratemodifiers 返回 0，",
     "--       饥饿将完全停止（合理，表示被完全冻结）。",
   ],
-  156: [
+  "Hunger:DoDec#1+10": [
     "--   ★★ 分支二：已经空了 → 扣血（若未被要求忽略）。",
     "--     ★ 注意这里用 elseif：current <= 0 时**不再扣饥饿**，",
     "--       因为饥饿已经在 0（被 :107 夹逼），再扣也是 0，没有意义。",
     "--     ★ 所以从「满」到「饿死」的过程中，最后一步会跨过 0，",
     "--       紧接着下一次结算就开始扣血。",
   ],
-  157: [
+  "Hunger:DoDec#1+11": [
     "--   overridestarvefn 优先（:31）：若设置了，饿死行为完全由它接管。",
     "--   ★ 注意传参 (self.inst, dt) —— 不是 (self, inst, dt)。",
   ],
-  160: [
+  "Hunger:DoDec#1+14": [
     "--   ★★★ 默认饿死行为：对 health 组件造成伤害。",
     "--     逐参数解读（对照 components/health.lua:613 的签名）：",
     "--       -self.hurtrate * dt  —— 伤害量（默认每秒 1 点）",
@@ -426,7 +426,7 @@ export const BEFORE = {
   ],
 
   // ============ LongUpdate ============
-  167: [
+  "Hunger:LongUpdate#1": [
     "--【★ LongUpdate：与 sanity 的 LongUpdate（sanity.lua:617）对比】",
     "--   ★★★ 最关键的差异是第二个参数 **true**（ignore_damage）：",
     "--     sanity：  Sanity.LongUpdate = Sanity.OnUpdate（完整结算）",
@@ -443,14 +443,14 @@ export const BEFORE = {
     "--     （同一函数引用），hunger 则是独立函数体。",
     "--     因为hunger 的长更新语义确实不同，不能共用。",
   ],
-  171: [
+  "Hunger:TransferComponent#1": [
     "--   TransferComponent：组件转移时按**比例**交接。",
     "--   ★ 与 sanity.lua:612 完全对称——都用比例而非绝对值，",
     "--     以适配新旧实体 max 不同的情形。",
   ],
 
   // ============ 存档 ============
-  177: [
+  "Hunger:OnSave#1": [
     "--【★ OnSave：满值时返回 nil 的省空间技巧】",
     "--   ★ `self.current ~= self.max and { hunger = ... } or nil`：",
     "--     当饥饿是满的时，整个表达式求值为 nil。",
@@ -463,14 +463,14 @@ export const BEFORE = {
     "--       无法用简单比较判断是否可以省略。",
     "--     ★ 两个组件在存档上的取舍差异，根源仍是状态模型的复杂度。",
   ],
-  181: [
+  "Hunger:OnLoad#1": [
     "--   OnLoad：仅当存档值与当前值不同时才动作。",
   ],
-  183: [
+  "Hunger:OnLoad#1+2": [
     "--   ★ 直接赋值 current（不走 SetCurrent），是为了避免加载瞬间",
     "--     触发 startstarving 等事件——存档加载不应产生「剧情事件」。",
   ],
-  184: [
+  "Hunger:OnLoad#1+3": [
     "--   ★★ DoDelta(0) 的真正用途：这里**不是**为了改数值（delta 为 0），",
     "--     而是为了「借道」SetCurrent（:143）把状态广播出去。",
     "--     于是 hungerdelta 事件被发出，UI 立刻刷新成存档里的数值。",
@@ -483,7 +483,7 @@ export const BEFORE = {
   ],
 
   // ============ 清理 ============
-  190: [
+  "Hunger:OnRemoveFromEntity#1": [
     "--【★ OnRemoveFromEntity：实体销毁时的清理】",
     "--   ★ 与 Pause（:75）的代码几乎相同，但语义不同：",
     "--     Pause 是「暂停，可能还会恢复」；",
@@ -496,7 +496,7 @@ export const BEFORE = {
   ],
 
   // ============ 调试 ============
-  197: [
+  "Hunger:GetDebugString#1": [
     "--   ★ GetDebugString：调试面板的显示。",
     "--     ★ 它把 burnrate 与 burnratemodifiers 先乘起来（:198）",
     "--       再显示为「综合速率」，并额外打印 hungerrate 与 burntrate 的分解，",
@@ -505,7 +505,7 @@ export const BEFORE = {
     "--       因为「暂停」在游戏里最常见的来源是季节（冬天不来食物）",
     "--       或剧情，排查饥饿异常时第一眼就该看这个。",
   ],
-  201: [
+  "Hunger:GetDebugString#1+4": [
     "--   ★ 格式串里的 (%2.1f*%2.1f) 对应 hungerrate × burntrate，",
     "--     把「基础速率 × 综合倍率」的分解直接打出来。",
     "--     ★ 这是本组件唯一的调试出口——",
@@ -513,7 +513,7 @@ export const BEFORE = {
   ],
 
   // ============ 模块出口 ============
-  208: [
+  "Hunger:GetDebugString#1+11": [
     "-- 全文结束。本组件导出的 API 面非常小：",
     "--   状态查询：IsPaused / IsStarving / GetPercent",
     "--   数值写入：DoDelta / DoDec / SetCurrent / SetPercent",

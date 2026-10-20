@@ -5,14 +5,14 @@
 //       ★ OnRemoteToggleMovementPrediction（客户端预测总开关）
 
 export const BEFORE = {
-  5330: [
+  "PlayerController:GetItemSelfAction#1+1": [
     "--============================================================",
     "-- 【第十段】5330-5941 行：动作查询族尾部 / 库存格子 / ★ OnRemoteBufferedAction",
     "--   / AI 交互广播 / ★ 客户端预测总开关",
     "--============================================================",
   ],
 
-  5329: [
+  "PlayerController:GetItemSelfAction#1": [
     "--★ 【GetItemSelfAction(item)】★ 一个**已被掏空**的函数。",
     "--   5333-5335 行两行赋值语句**全部被注释掉**：",
     "--     --[[rmb]] ...GetInventoryActions(item, true)[1] or",
@@ -28,7 +28,7 @@ export const BEFORE = {
     "--     删除会破坏 UI。属技术债。",
   ],
 
-  5339: [
+  "PlayerController:GetSceneItemControllerAction#1": [
     "--★★ 【GetSceneItemControllerAction(item)】手柄对「实体」的动作查询。",
     "--   ★ 与 GetItemUseAction（5484）不同：这里查的是**鼠标模式下鼠标指向时",
     "--     系统会给什么动作**（GetLeftClickActions/GetRightClickActions）。",
@@ -36,7 +36,7 @@ export const BEFORE = {
     "--     AOE 瞄准时不做实体查询（此时关心的是点地，不是实体）。",
   ],
 
-  5343: [
+  "PlayerController:GetSceneItemControllerAction#1+4": [
     "--   ★★ 5346-5357 行的过滤：**剔除三类动作**。",
     "--     LOOKAT（查看）—— 有专门的 CONTROLLER 键",
     "--     ATTACK（仅当目标有 combat 组件时）—— 有专门的攻击键",
@@ -51,22 +51,22 @@ export const BEFORE = {
     "--       所以对箱子执行 ATTACK 只会「打空气」，不会破坏箱子。",
   ],
 
-  5358: [
+  "PlayerController:GetSceneItemControllerAction#1+19": [
     "--   ★ 5358 行的去重：`rmb ~= nil and (lmb == nil or lmb.action ~= rmb.action)`。",
     "--     与 5252/5444 行同款。⚠ 三处重复，未抽函数。",
   ],
 
-  5361: [
+  "PlayerController:IsAxisAlignedPlacement#1": [
     "--【IsAxisAlignedPlacement】轴对齐放置（0/45/90 度）是否激活。",
     "--   ★ 消费点：588 行（优先级仲裁）、4071 行（菜单里切换对齐）、5040 行（部署）。",
   ],
 
-  5367: [
+  "PlayerController:GetPlacerPosition#1": [
     "--【GetPlacerPosition】三个放置器（建造/部署/terraformer）的位置查询。",
     "--   优先级：placer > deployplacer（terraformer 在 5383 行单独处理）。",
   ],
 
-  5373: [
+  "PlayerController:GetGroundUseAction#1": [
     "--★★★ 【GetGroundUseAction(position, spellbook)】★ **点地动作查询（最核心的查询）**。",
     "--   被 4 处调用：831（手柄X）、1004/1012/1248（服务端）、2921（手柄高亮）。",
     "--   ★ 它承担了「鼠标模式下右键点地面」和「手柄模式下 X/Y 键」的共同查询。",
@@ -78,20 +78,20 @@ export const BEFORE = {
     "--     ⑤ 5406-5443 TERRAFORM 特判与草皮移除",
   ],
 
-  5374: [
+  "PlayerController:GetGroundUseAction#1+1": [
     "--   ★ HasContainerWidgetAction()：当前有容器（箱子/冰箱）打开。",
     "--     ⇒ 打开容器时地面动作全部失效（避免「开着箱子还能挖地」）。",
     "--     参见 playeractionpicker.lua:38。",
   ],
 
-  5376: [
+  "PlayerController:GetGroundUseAction#1+3": [
     "--   ★ usingmagiciantool：魔术帽使用中 → 只提供「停止使用」这一个动作。",
     "--   5377 行 `return nil, BufferedAction(...)` —— ★★ 注意返回**两个值**：",
     "--     LMB 为 nil（地面无动作），RMB 是 STOPUSINGMAGICTOOL。",
     "--     ⇒ 符合「右键取消」的语义。",
   ],
 
-  5380: [
+  "PlayerController:GetGroundUseAction#1+7": [
     "--★★ 5380 行 islocal = (position == nil) —— **「本地查询」标志**。",
     "--   ★★ 它决定三个行为：",
     "--     ① 5393 行：islocal 时才从手持物读 aoetargeting 参数",
@@ -103,7 +103,7 @@ export const BEFORE = {
     "--       客户端会通过 spellbook 参数显式传入（988-1013 行），绕开 islocal 依赖。",
   ],
 
-  5381: [
+  "PlayerController:GetGroundUseAction#1+8": [
     "--★★ 5381-5385 行：目标位置的**四级回退**。",
     "--     ① 准星位置（但排除「准星属于玩家自己」的情况 —— 5382 行的",
     "--        `self.reticule.inst ~= self.inst` 判断）",
@@ -114,12 +114,12 @@ export const BEFORE = {
     "--     不能用它当「点地位置」，否则移动鼠标会改变脚下动作。",
   ],
 
-  5387: [
+  "PlayerController:GetGroundUseAction#1+14": [
     "--★ 可见性检查（CanEntitySeePoint，simutil.lua:536）：含光照判定。",
     "--   ⇒ 黑暗中的点不能交互（除非玩家有夜视）。",
   ],
 
-  5395: [
+  "PlayerController:GetGroundUseAction#1+22": [
     "--★★ 5395-5403 行：AoE 施法参数从**手持物组件**读出。",
     "--   alwaysvalid：无视地形（法术可空中施放）",
     "--   allowwater：可对水施放",
@@ -128,13 +128,13 @@ export const BEFORE = {
     "--   ★ 5403 行 `self.map:CanCastAtPoint(...)` 是最终的地图合法性判定。",
   ],
 
-  5404: [
+  "PlayerController:GetGroundUseAction#1+31": [
     "--★ 5404 行 `not isaoetargeting and ...GetPointActions(position, item, false, nil)[1] or nil`：",
     "--   ★★ AOE 瞄准时**不取 LMB**（瞄准中只按右键施法）。",
     "--     → 与 4732 行（鼠标 AOE 用 GetRightMouseAction）一致。",
   ],
 
-  5405: [
+  "PlayerController:GetGroundUseAction#1+32": [
     "--★★ 5405 行的条件是本函数最复杂的一行：",
     "--   `(not islocal or isaoetargeting or item.components.aoetargeting == nil",
     "--    or not item.components.aoetargeting:IsEnabled()) and ...GetPointActions(..., true, ...)`",
@@ -145,7 +145,7 @@ export const BEFORE = {
     "--   ⚠ 四个条件的 or 冗长但语义清晰，优于 5136 行的隐式优先级。",
   ],
 
-  5406: [
+  "PlayerController:GetGroundUseAction#1+33": [
     "--★ 5407-5411 行的动作改写：",
     "--   DROP → 丢弃动作不能作为「点地 LMB」（否则右键丢弃会变成左键动作）",
     "--   TERRAFORM → 距离改成 2（挖地需要够到格子中心）",
@@ -153,7 +153,7 @@ export const BEFORE = {
     "--   ⚠ BufferedAction 是每次新建的（picker 里新建），所以修改安全。",
   ],
 
-  5416: [
+  "PlayerController:GetGroundUseAction#1+43": [
     "--★★ 【5416-5443 草皮移除特判】★ 与 3409-3428 行是**完整复制**。",
     "--   注释文字与 3410-3411 行几乎逐字相同。",
     "--   ⚠ 疑似缺陷（代码重复）：两处必须同步修改。",
@@ -165,11 +165,11 @@ export const BEFORE = {
     "--     原点就在玩家身上，距离判据必须放宽为 0。",
   ],
 
-  5444: [
+  "PlayerController:GetGroundUseAction#1+71": [
     "--   ★ 与 5358/5252 行同款的去重（第三次出现）。",
   ],
 
-  5450: [
+  "PlayerController:GetGroundUseSpecialAction#1": [
     "--★★ 【GetGroundUseSpecialAction(position, right)】「特殊」点地动作。",
     "--   与 GetGroundUseAction 的区别：",
     "--     · 不查手持物（5459 行只查地形与 picker 的 special 动作）",
@@ -180,14 +180,14 @@ export const BEFORE = {
     "--     ★ IsPassableAtPoint 比 CanCastAtPoint 严格 —— 特殊动作不能对水/墙。",
   ],
 
-  5464: [
+  "PlayerController:HasGroundUseSpecialAction#1": [
     "--【HasGroundUseSpecialAction(right)】★ 存在性查询（不算具体动作）。",
     "--   ★ 5465 行传了**第四个参数 true**（usereticulepos），与 5460 行不同。",
     "--     用途不同：这里只问「有没有」，所以用准星位置参数以匹配实际查询。",
     "--   消费点：2933 行（决定要不要藏准星）。",
   ],
 
-  5468: [
+  "ValidateItemUseAction#1": [
     "--★ 【ValidateItemUseAction】物品使用动作的过滤器（局部函数，不导出）。",
     "--   5470 行：`active_item:HasTag(act.action.id..\"_tool\")` 为真则拒绝。",
     "--   ★★ 这是「装备的物品不能被自己用」的判据（防「手持斧头用斧头砍树」）。",
@@ -196,17 +196,17 @@ export const BEFORE = {
     "--     若没有 equippable 组件则放行。",
   ],
 
-  5471: [
+  "ValidateItemUseAction#1+3": [
     "--   ★ 5471 行：STORE/BUNDLESTORE 只在「目标自己不是物主」时允许。",
     "--     ⇒ 不能把东西存进自己已经拿着的容器（会形成循环嵌套）。",
   ],
 
-  5472: [
+  "ValidateItemUseAction#1+4": [
     "--   COMBINESTACK（合并堆叠）与 ATTACK 一律拒绝 —— 它们是右键专属动作，",
     "--   不应出现在 GetUseItemActions 的结果里。",
   ],
 
-  5480: [
+  "AllowMountedStoreActionFilter#1": [
     "--★ AllowMountedStoreActionFilter：骑乘时的动作过滤器（模组 hack）。",
     "--   5477-5479 行的注释：\"--#V2C #Hack to allow controllers to Store in",
     "--   Magician's Top Hat while mounted. This is for DPAD actions, so they don't",
@@ -218,7 +218,7 @@ export const BEFORE = {
     "--     推理依据：注释自认；ACTION_FILTER_PRIORITIES.mounted（5510 行使用）。",
   ],
 
-  5484: [
+  "PlayerController:GetItemUseAction#1": [
     "--★★ 【GetItemUseAction(active_item, target)】★ 手柄「对某物使用手持物」的查询。",
     "--   5490-5504 行的 target 解析四级：",
     "--     ① 5491 行：显式 target 或 GetControllerTarget()（手柄选中目标）",
@@ -229,19 +229,19 @@ export const BEFORE = {
     "--     这是客户端预测必需的宽松。",
   ],
 
-  5516: [
+  "PlayerController:GetItemUseAction#1+32": [
     "--★★ 5516-5519 行：**右键优先，再取左键**。",
     "--   注释用 `--[[rmb]]` / `--[[lmb]]` 标注了两次调用的语义（该注释风格全文件通用）。",
     "--   ⇒ 与 5414 行的顺序一致（先 rmb 后 lmb）。",
   ],
 
-  5521: [
+  "PlayerController:GetItemUseAction#1+37": [
     "--   5521-5523 行：及时弹出过滤器（try/finally 模式）。",
     "--   ⚠ 若 5517-5518 行的 picker 抛错，过滤器会泄漏在栈上。",
     "--     实际不会抛（纯数据查询），属理论风险。",
   ],
 
-  5525: [
+  "PlayerController:GetItemUseAction#1+41": [
     "--★★ 5525-5535 行：没有目标时退回「对自己用」（背包格动作）。",
     "--   5531 行 `lmb.action ~= rmb.action and lmb.action ~= ACTIONS.LOOKAT`：",
     "--     ★ 排除 LOOKAT（查看物品）—— 因为它已在 GetItemSelfAction（被掏空）里处理过。",
@@ -251,19 +251,19 @@ export const BEFORE = {
     "--       LOOKAT 在这条路径上不再被产出（但 5361/4811 行的 LOOKAT 路径仍可用）。",
   ],
 
-  5537: [
+  "PlayerController:GetItemUseAction#1+53": [
     "--★ 5538-5540 行：存进「口袋维度」（无限 dumping bag 变体）→ 标记为 instant。",
     "--   ★ `act.options.instant = true` 让 locomotor 不缓冲，立即执行。",
     "--     因为「存进口袋」不该要求玩家走过去。",
     "--   ⚠ options 是 BufferedAction 实例的字段（bufferedaction.lua:14），安全。",
   ],
 
-  5541: [
+  "PlayerController:GetItemUseAction#1+57": [
     "--   magiciantool + magician 标签（魔术师角色）→ 唯一动作 USEMAGICTOOL。",
     "--   ★ 兜底分支：当没有任何物品使用动作时的最后手段。",
   ],
 
-  5547: [
+  "PlayerController:GetItemUseAction#1+63": [
     "--★ 5547-5559 行：**可部署物品**在无其他动作时的兜底。",
     "--   5549-5550 行的注释解释了 rmb/lmb 的强制：",
     "--     \"When not mounted, use self actions blocked by controller R.Dpad",
@@ -278,7 +278,7 @@ export const BEFORE = {
     "--     ⇒ 逻辑正确，但极难读。建议改成显式 if。",
   ],
 
-  5484: [
+  "PlayerController:GetItemUseAction#1": [
     "--★★ 【GetItemUseAction(active_item, target)】★ 手柄「对某物使用手持物」的查询。",
     "--   5490-5504 行的 target 解析四级：",
     "--     ① 5491 行：显式 target 或 GetControllerTarget()（手柄选中目标）",
@@ -286,7 +286,7 @@ export const BEFORE = {
     "--     ③ 5506-5514 行：骑乘特例（允许存进魔术帽）",
   ],
 
-  5490: [
+  "PlayerController:GetItemUseAction#1+6": [
     "--   ★ 5489 行 `target ~= nil and target:HasTag(\"pocketdimension_container\")`：",
     "--     ★★★ 这行在 5491 行的 `target = target or GetControllerTarget()` **之前**——",
     "--     即「显式传入的 target 是口袋维度容器」才算 allow_mounted_store，",
@@ -299,7 +299,7 @@ export const BEFORE = {
     "--     推测：这是「先算标志再解析目标」的顺序疏漏，而非有意。",
   ],
 
-  5493: [
+  "PlayerController:GetItemUseAction#1+9": [
     "--   ★ 5493-5504 行：魔术帽使用中且无目标 → 从打开的容器里找一个可写的。",
     "--   ★ 5499 行 `k.replica.container == nil or not IsReadOnlyContainer()`：",
     "--     ★★ 同时允许「还没有 container 组件」的容器（客户端未同步时）。",
@@ -309,7 +309,7 @@ export const BEFORE = {
     "--     所以若开多个魔术帽，选中哪个不确定）。",
   ],
 
-  5506: [
+  "PlayerController:GetItemUseAction#1+22": [
     "--★★ 5506-5514 行：骑乘特例的动作过滤器安装。",
     "--   ★ 5508 行必须 rider:IsRiding()，否则 5512 行撤销 allow_mounted_store。",
     "--     ⇒ 非骑乘时这个标签白名单不生效，保持「骑乘时不显示容器动作」的常规规则。",
@@ -321,11 +321,11 @@ export const BEFORE = {
     "--       ACTION_FILTER_PRIORITIES.mounted。",
   ],
 
-  5562: [
+  "PlayerController:RemoteUseItemFromInvTile#1": [
     "--【RemoteUseItemFromInvTile】库存格子「使用」的客户端发起端。",
   ],
 
-  5585: [
+  "PlayerController:RemoteControllerUseItemOnItemFromInvTile#1": [
     "--★★ 【RemoteControllerUseItemOnItemFromInvTile】★ 「在物品 A 上用物品 B」。",
     "--   ★★ 5586 行用 `if not self.ismastersim then` 而其他函数用 `== nil` 分支——",
     "--     语义等价（都是「非服务端才执行」），但风格不一致。",
@@ -338,7 +338,7 @@ export const BEFORE = {
     "--   ★ 5595 行的 RPC 参数多了 active_item（双物品），故不能完全参数化。",
   ],
 
-  5607: [
+  "PlayerController:RemoteControllerUseItemOnSelfFromInvTile#1": [
     "--【RemoteControllerUseItemOnSelfFromInvTile】★ 「对自己用」。",
     "--   ★ 与 5585 行版相比只是少一个 active_item 参数。",
     "--   ★ 5617 行的注释 \"--V2C: Block inv tile actions that have pre_action_cb;",
@@ -349,7 +349,7 @@ export const BEFORE = {
     "--     玩家视角：手柄在手上之物时突然失灵。属可接受但需文档化的取舍。",
   ],
 
-  5629: [
+  "PlayerController:RemoteControllerUseItemOnSceneFromInvTile#1": [
     "--【RemoteControllerUseItemOnSceneFromInvTile】★ 「对世界用」。",
     "--   ★ 5639 行的 RPC 带 buffaction.target —— 这是四个里唯一带目标的。",
     "--     ⇒ 「对世界用」需要告诉服务端用在哪（服务端会重算，见 5730 行模式）。",
@@ -357,7 +357,7 @@ export const BEFORE = {
     "--     是「四份复制」的第四份。",
   ],
 
-  5651: [
+  "PlayerController:RemoteInspectItemFromInvTile#1": [
     "--★ 【RemoteInspectItemFromInvTile】查看库存物品。",
     "--   ★★ 5567-5572 行：**只在有 pre_action_cb 且不 busy 时**才调它，否则直接发 RPC。",
     "--   注释 \"--V2C: Block inv tile actions that have pre_action_cb; otherwise send",
@@ -368,12 +368,12 @@ export const BEFORE = {
     "--     这是有意的（避免状态错乱），但玩家会以为「手柄失灵」。",
   ],
 
-  5574: [
+  "PlayerController:RemoteUseItemFromInvTile#1+12": [
     "--   5574-5580 行：有 locomotor 且能预测且不 busy → 走 preview。",
     "--   ★ 与 5563 行的 `self.locomotor == nil` 分支构成标准二选一。",
   ],
 
-  5585: [
+  "PlayerController:RemoteControllerUseItemOnItemFromInvTile#1": [
     "--★★ 【RemoteControllerUseItemOnItemFromInvTile】★ 「在物品 A 上用物品 B」。",
     "--   5586 行的 `if not self.ismastersim then` —— 注意其他函数用 `== nil`，",
     "--     这里用 `not ... then`，语义等价但风格不一致。",
@@ -382,27 +382,27 @@ export const BEFORE = {
     "--     推理依据：5562-5583 / 5585-5605 / 5607-5627 / 5629-5649 四段结构一致。",
   ],
 
-  5651: [
+  "PlayerController:RemoteInspectItemFromInvTile#1": [
     "--【RemoteInspectItemFromInvTile】查看库存物品。",
     "--   ★ 5655-5657 行：即使是无 locomotor 客户端也要调 LOOKAT 的 pre_action_cb。",
     "--     与其他 invTile 函数的「busy 时 return」不同，这里**没有** busy 检查。",
     "--   ⚠ 疑似缺陷（守卫缺失）：查看是无害的，busy 时也允许。属有意为之。",
   ],
 
-  5669: [
+  "PlayerController:RemoteDropItemFromInvTile#1": [
     "--★ 5682 行 `buffaction.options.instant = self.inst.sg:HasStateTag(\"overridelocomote\")`：",
     "--   ★★ 丢弃物品的 instant 性**取决于状态图**！",
     "--     在 overridelocomote 态（如温泉里）丢东西是瞬发的（不用走过去）。",
     "--   ⚠ 直接读 sg:HasStateTag，无 sg 检查 —— 但玩家必有 sg。",
   ],
 
-  5688: [
+  "PlayerController:RemoteCastSpellBookFromInv#1": [
     "--【RemoteCastSpellBookFromInv】从库存释放法术。",
     "--   5690-5691 行的 target/invobject 二选一（与 5585 行同款）。",
     "--   5692 行 spell_action 可覆盖（不同法术书的默认动作不同）。",
   ],
 
-  5709: [
+  "PlayerController:RemoteMakeRecipeFromMenu#1": [
     "--【RemoteMakeRecipeFromMenu / RemoteMakeRecipeAtPoint】建造菜单的两条路径。",
     "--   ★ 5711 行用 `PREFAB_SKINS_IDS[recipe.product][skin]`（菜单路径查 product），",
     "--     5731 行用 `PREFAB_SKINS_IDS[recipe.name][skin]`（放置路径查 name）。",
@@ -415,23 +415,23 @@ export const BEFORE = {
     "--     说明 name 才是配方的权威键 ⇒ 5711 行更可疑。",
   ],
 
-  5737: [
+  "PlayerController:RemoteMakeRecipeAtPoint#1+8": [
     "--★ 5737 行 MakeRecipeAtPoint 需要平台相对坐标（建造也要处理平台）。",
   ],
 
-  5740: [
+  "PlayerController:RemoteMakeRecipeAtPoint#1+11": [
     "--★ 5740 行 `self.locomotor:Stop()` —— 建造前先停移动（其余函数没有）。",
     "--   ⇒ 建造是「站定不动」的动作，与挖矿不同（挖矿可以边走边挖）。",
   ],
 
-  5742: [
+  "act.preview_cb#10": [
     "--   ★ 5743 行的 preview_cb **重新读** act.pos.local_pt —— 而不是用 5737 行的 pt。",
     "--     因为 preview_cb 触发时 act.pos 可能已被平台移动改写。",
     "--   ⚠ 这与 5738 行（非 preview 路径用闭包捕获的 pt）不一致。",
     "--   ⇒ 两条路径的平台处理精度不同。属实现细节的差异。",
   ],
 
-  5750: [
+  "PlayerController:RemoteBufferedAction#1": [
     "--★★★ 【RemoteBufferedAction(buffaction)】★★ 由 locomotor 在**预览回调时**调用。",
     "--   5751 行守卫：classified.iscontrollerenabled（服务端的输入启用位）。",
     "--   ★★ 5752-5758 行：在发动作 RPC 之前，**先把最后的预测行走发出去**。",
@@ -443,7 +443,7 @@ export const BEFORE = {
     "--   ⇒ 这就是「动作与移动的交接协议」：动作开始前，先把位置对齐。",
   ],
 
-  5753: [
+  "PlayerController:RemoteBufferedAction#1+3": [
     "--★ 5753 行 `--V2C: not GetPredictionPosition()` —— 刻意用真实位置。",
     "--   5754-5755 行的注释解释：",
     "--     \"Physics:Stop() fixed to stop at last sim position; no need to correct",
@@ -456,7 +456,7 @@ export const BEFORE = {
     "--     说明「客户端位置修正」这件事被引擎层接管过一次。",
   ],
 
-  5765: [
+  "PlayerController:OnRemoteBufferedAction#1": [
     "--★★★ 【OnRemoteBufferedAction】★★ 服务端侧的「动作前位置对齐」。",
     "--   ⚠ 与所有其他 OnRemote* 不同，本函数**没有** ismastersim/IsEnabled/handler 三重守卫，",
     "--     只有 5766 行的 `if self.ismastersim then`。",
@@ -467,13 +467,13 @@ export const BEFORE = {
     "--     ② 也被 locomotor 在「远端缓冲动作开始」时调用（见 5750 行的对端注释）",
   ],
 
-  5767: [
+  "PlayerController:OnRemoteBufferedAction#1+2": [
     "--   --If we're starting a remote buffered action, prevent the last movement",
     "--   prediction vector from cancelling us out right away",
     "--   ★★ 5770 行注释解释了本函数的核心意图：**别让移动把动作顶掉**。",
   ],
 
-  5771: [
+  "PlayerController:OnRemoteBufferedAction#1+6": [
     "--★ 5771 行 `pt.y < 5 and not self:IsBusy()`：",
     "--   ★★ 排除 y>=5（正在执行动作）与 y==6（跳跃）。",
     "--     5772 行注释 \"excludes self:IsLocalOrRemoteHopping() as well, ie. y ~= 6\" ——",
@@ -482,15 +482,15 @@ export const BEFORE = {
     "--     而不是独立的布尔字段。",
   ],
 
-  5773: [
+  "PlayerController:OnRemoteBufferedAction#1+8": [
     "--   5773 行：取服务器当前世界位置（忽略 y）。",
   ],
 
-  5776: [
+  "PlayerController:OnRemoteBufferedAction#1+11": [
     "--   5776 行 `if dx ~= 0 or dz ~= 0`：完全重合则什么都不做（省开销）。",
   ],
 
-  5777: [
+  "PlayerController:OnRemoteBufferedAction#1+12": [
     "--★★★ 【5777-5785：should_snap 的两级条件】★ remote_authority 的特权。",
     "--   ★ 5778-5779 行：remote_authority → **无条件**瞬移。",
     "--     ★ 不做任何距离/合法性检查。这是「信任」的极致体现（也见文件头警告）。",
@@ -506,7 +506,7 @@ export const BEFORE = {
     "--     5777 行有 should_snap 变量与额外两项检查。",
   ],
 
-  5787: [
+  "PlayerController:OnRemoteBufferedAction#1+22": [
     "--★ 5787-5798：snap 的三步（转向 → 强制进 idle → 停止 → SetPosition）。",
     "--   5789 行的 canrotate 检查：不能转朝向时跳过第一步。",
     "--   5793 行的 `sg:HandleEvent(\"locomote\", {dir=dir, force_idle_state=true})`：",
@@ -516,7 +516,7 @@ export const BEFORE = {
     "--     顺序重要：先停（停止路径计算），再挪位置（否则路径会重新计算）。",
   ],
 
-  5801: [
+  "PlayerController:OnRemoteBufferedAction#1+36": [
     "--★★★ 5801 行 `self.remote_vector.y = 5` —— **B8 编码表的最后一个成员**。",
     "--   ★ 语义：「客户端要开始执行动作，预测目标冻结在此处」。",
     "--   ★★ 它的三个消费者：",
@@ -533,12 +533,12 @@ export const BEFORE = {
     "--     缓解：4014 行进入该分支后会清三个移动标志并 return，行为退化到「静止」。",
   ],
 
-  5802: [
+  "PlayerController:OnRemoteBufferedAction#1+37": [
     "--   5802-5806 行：没有预测位置（pt 为 nil）且 y 已是 0 → 清手势标志。",
     "--   ★ 这是「干净退出」的收尾。",
   ],
 
-  5810: [
+  "PlayerController:OnRemoteBufferedAction#1+45": [
     "--★★ CREATURE_INTERACTIONS：★ 「玩家正在对生物做什么」的广播清单。",
     "--   注释：\"This is just for friendly interactions where some brains may have",
     "--   logic to stop and wait for you.\"",
@@ -549,7 +549,7 @@ export const BEFORE = {
     "--   ⚠ WEATHER 类的 GIVE/GIVEALLTOPLAYER 不在清单里 —— 那些是「给予」不是「交互」。",
   ],
 
-  5826: [
+  "PlayerController:OnRemoteBufferedAction#1+61": [
     "--★ WX78_INTERACTIONS：温蒂附身身体需要跟随主人的动作。",
     "--   ★ 包含 ATTACK / CHOP / MINE / DIG / TILL / FEEDPLAYER ...",
     "--   注释 \"Special logic for WX so possessed bodies can follow in sync\" ——",
@@ -559,13 +559,13 @@ export const BEFORE = {
     "--     即「我是一个被别人附着的身体」，而非「我是温蒂」。方向相反，容易搞混。",
   ],
 
-  5843: [
+  "PlayerController:OnRemoteBufferedAction#1+78": [
     "--★ WX78_INTERACTION_POSITIONS：需要**位置**的三个划船动作。",
     "--   ★ 为什么只有这三个：ROW / ROW_FAIL / ROW_CONTROLLER ——",
     "--     划船需要「在哪条船上划」的位置信息，其余动作只需 target 即可。",
   ],
 
-  5850: [
+  "PlayerController:OnRemoteBufferedAction#1+85": [
     "--   --InteractionTarget naming scheme from when this was initially just used",
     "--   for action + target only",
     "--   ★★ 一条历史注记：这套协议最初只有「动作+目标」两个字段，",
@@ -573,7 +573,7 @@ export const BEFORE = {
     "--   ⇒ 与 1932 行的 isreleased 注释同款约定：**只能在末尾追加参数**。",
   ],
 
-  5851: [
+  "PlayerController:OnRemoteInteractionTarget#1": [
     "--★ 【OnRemoteInteractionTarget】服务端接收 AI 交互意图。",
     "--   ⚠⚠ 疑似缺陷（缺少有效性校验）：本函数**没有任何守卫**",
     "--     （无 ismastersim / IsEnabled / handler == nil），"
@@ -588,21 +588,21 @@ export const BEFORE = {
     "--     对比 5857 行客户端版有 `if 三者都变了才发` 的去重。",
   ],
 
-  5857: [
+  "PlayerController:RemoteInteractionTarget#1": [
     "--★ RemoteInteractionTarget：客户端发送端（三元组变化才发）。",
     "--   ★ 5862 行 `position ~= nil and position.x or nil`：",
     "--     Vector3 无法直接网络传输（不是引擎支持的类型），故拆成 x/z 两个字数。",
     "--     ★ 这也解释了 5859 行本地存的是完整 Vector3（本地不需要序列化）。",
   ],
 
-  5866: [
+  "PlayerController:GetRemoteInteraction#1": [
     "--★ GetRemoteInteraction：★ 13 处外部调用（全部是 brain）。",
     "--   ⇒ 「AI 读取玩家意图」的唯一接口。",
     "--   ⚠ 三元返回，调用方都写成 `act, target = GetRemoteInteraction()`",
     "--     （只取前两个），WX78 的 5887 行才用第三个（position）。",
   ],
 
-  5870: [
+  "PlayerController:OnLocomotorBufferedAction#1": [
     "--★★★ 【OnLocomotorBufferedAction(act)】★ 被 locomotor.lua:1087 调用。",
     "--   ★ 这是「动作被缓冲进 locomotor」时的回调，双端都跑。",
     "--   两个职责：",
@@ -610,7 +610,7 @@ export const BEFORE = {
     "--     ② 广播 remoteinteractionaction（★ AI 意图）",
   ],
 
-  5875: [
+  "PlayerController:OnLocomotorBufferedAction#1+5": [
     "--   ★★ 5875-5877 行：`self.handler == nil`（远端玩家）时**清空**交互意图。",
     "--     注释 \"Clear any remote interactions if server takes over\" ——",
     "--     ⇒ 语义：一旦服务器接管（玩家不再由客户端预测驱动），",
@@ -623,14 +623,14 @@ export const BEFORE = {
     "--     影响：WX78 的划船逻辑（5891 行）可能读到过期位置。",
   ],
 
-  5894: [
+  "PlayerController:OnLocomotorBufferedAction#1+24": [
     "--   ★★ 5894-5895 行：动作的成功/失败回调都清意图。",
     "--     回调是 _clearinteractiontarget（166-171 行定义的闭包）。",
     "--     ⇒ 语义：「做了这个交互」或「交互失败」都让 AI 重新评估。",
     "--   ⚠ 注意只有「友好交互」才挂回调（5885 行的标签判据）。",
   ],
 
-  5901: [
+  "PlayerController:OnLocomotorBufferedAction#1+31": [
     "--★ 5901-5906 行：更新松手护栏的四元组。",
     "--   5903 行 `act.action == ACTIONS.CASTAOE and BUFFERED_CASTAOE_TIME or",
     "--   BUFFERED_ACTION_NO_CANCEL_TIME` ——",
@@ -641,7 +641,7 @@ export const BEFORE = {
     "--     这解释了为什么护栏不会影响鼠标玩家的动作。",
   ],
 
-  5909: [
+  "OnNewState#1": [
     "--★ 【OnNewState】状态切换 → 强制 currentstate 变脏。",
     "--   --V2C: -Don't use data.statename /",
     "--   --     -\"newstate\" events are fired off in reverse order when chaining",
@@ -651,7 +651,7 @@ export const BEFORE = {
     "--     正确做法是**直接读 sg.currentstate.name**。",
   ],
 
-  5913: [
+  "OnNewState#1+4": [
     "--   --#V2C #client_prediction / --force dirty",
     "--   --see SGWilson_client -> ClearCachedServerState",
     "--   ★★ 5916 行 `currentstate:set_local(0)` —— ★★ **这就是「force dirty」**。",
@@ -662,7 +662,7 @@ export const BEFORE = {
     "--     对状态切换频繁的实体有额外带宽开销。",
   ],
 
-  5920: [
+  "PlayerController:OnRemoteToggleMovementPrediction#1": [
     "--★★★ 【OnRemoteToggleMovementPrediction(val)】★ 客户端预测的**总开关**。",
     "--   ★ 它的 RPC 对端是 networkclientrpc.lua:954 SetMovementPredictionEnabled，",
     "--     ★★ 由**客户端发起**（一个 RPC 参数只有 bool，却能关闭服务器的预测能力）。",
@@ -680,7 +680,7 @@ export const BEFORE = {
     "--   ★★ 但它同时也是理解整个预测系统的**架构骨架**，值得逐行读：",
   ],
 
-  5924: [
+  "PlayerController:OnRemoteToggleMovementPrediction#1+4": [
     "--★ 5924-5926 行的三步「关闭现有预测」：",
     "--   ① locomotor:Stop() —— 立即停止移动",
     "--   ② locomotor:Clear() —— 清掉所有意图（dest + bufferedaction）",
@@ -689,11 +689,11 @@ export const BEFORE = {
     "--     没有预测就没有「客户端先行跳跃」的能力，故必须禁。",
   ],
 
-  5927: [
+  "PlayerController:OnRemoteToggleMovementPrediction#1+7": [
     "--   ResetRemoteController：彻底清空远端镜像（同 3697 行）。",
   ],
 
-  5928: [
+  "PlayerController:OnRemoteToggleMovementPrediction#1+8": [
     "--★ 5928 行 `if dirty then`：只有开关**真正变化**时才做后续的监听管理。",
     "--   ⚠ 但 5924-5926 行的 Stop/Clear/SetAllowPlatformHopping 在 if 之外 ——",
     "--     即「每次调用都会强制停止移动」，哪怕值没变。",
@@ -704,7 +704,7 @@ export const BEFORE = {
     "--     若调用方每次状态切换都调一次（如某些角色技能），会造成频繁打断。",
   ],
 
-  5929: [
+  "PlayerController:OnRemoteToggleMovementPrediction#1+9": [
     "--★ 5929-5931 行：开启预测 → 开始监听 newstate，同步状态名给客户端。",
     "--   ★ 5931 行 `currentstate:set(真实值)` —— 因为 5916 行的 set_local(0) 已置脏，",
     "--     所以这里必定发包。",
@@ -712,13 +712,13 @@ export const BEFORE = {
     "--     因为预测的合法性判断（CanLocomote:763）依赖 sg 状态标签。",
   ],
 
-  5932: [
+  "PlayerController:OnRemoteToggleMovementPrediction#1+12": [
     "--★ 关闭预测 → 停止监听，currentstate:set(0)。",
     "--   ★ set(0) 而非 set_local(0) —— 这是**发给客户端**的终止信号，",
     "--     客户端据此知道「服务端不再预测，位置以服务器为准」。",
   ],
 
-  5940: [
+  "PlayerController:OnRemoteToggleMovementPrediction#1+20": [
     "--★★ 返回类对象本身 —— DST 组件的标准导出形式。",
   ],
 };

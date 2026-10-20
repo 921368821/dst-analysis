@@ -38,7 +38,7 @@ export default {
   ],
 
   // ══════════════ HasLocomotor ══════════════
-  12: [
+  "FaceEntity:HasLocomotor#1": [
     '--★★ 抽成独立方法的能力探测 —— 与 controlminions 第 67 行的判空同款。',
     '--★ 「只需要知道有没有 locomotor，不需要操作它」的场景，',
     '--   抽个方法是好习惯（语义清晰、可复用）。',
@@ -47,41 +47,41 @@ export default {
   ],
 
   // ══════════════ Visit:READY 段 ══════════════
-  16: [
+  "FaceEntity:Visit#1": [
     '--★★ Visit：顺序双 if。',
   ],
-  17: [
+  "FaceEntity:Visit#1+1": [
     '--★ READY 段：问「看谁」，有就 RUNNING，无就 FAILED。',
   ],
-  18: [
+  "FaceEntity:Visit#1+2": [
     '--★ getfn(inst) —— 目标可能是实体，也可能是别的回调结果。',
     '--★ 缓存到 self.target 供 RUNNING 段使用（不重复调用回调）。',
     '-- ★★ 「进入时解析一次、之后用缓存」是正确做法：',
     '--   若每帧调用 getfn，目标可能中途变化，导致 AI 视线游移不定。',
   ],
-  20: [
+  "FaceEntity:Visit#1+4": [
     '--★ 有目标才继续。',
   ],
-  23: [
+  "FaceEntity:Visit#1+7": [
     '--★ 有 locomotor 就停下 —— 「站定」。',
     '--★★ 站定是本节点的基本姿态；但第 54 行的每帧重申同样重要（见该行）。',
   ],
-  27: [
+  "FaceEntity:Visit#1+11": [
     '--★ 记录起始时刻，供第 43 行的超时判定。',
   ],
 
   // ══════════════ Visit:RUNNING 段 ══════════════
-  33: [
+  "FaceEntity:Visit#1+17": [
     '--★★ RUNNING 段：三件事（切状态 / 超时 / 转身），顺序固定。',
   ],
-  34: [
+  "FaceEntity:Visit#1+18": [
     '--★ 原注释保留：uhhhh....（作者对这段逻辑的无奈吐槽）。',
     '--★★★ 这条吐槽式注释很有价值 —— 它暗示第 35-41 行这段代码连作者自己都不满意，',
     '--   却因历史原因保留着。',
     '-- ★ 移植建议：这类「我也不确定这写得对」的注释，',
     '--   比若无其事地留着代码有用得多 —— 它提醒后人不要盲目信任。',
   ],
-  35: [
+  "FaceEntity:Visit#1+19": [
     '--★★★★★【状态图切换 —— 本文件最容易看不懂的一段】',
     '-- 三个条件同时成立才切换：',
     '--   ① HasStateTag("idle")    —— 当前处于待机',
@@ -101,7 +101,7 @@ export default {
     '-- ★ 即「站着看人」这个行为，在状态图里表现为「警戒」状态，',
     '--   从而触发警戒的动画/音效 —— 表演与状态机在此联动。',
   ],
-  36: [
+  "FaceEntity:Visit#1+20": [
     '--★★ customalert 分支：调用方指定了自定义警戒状态名就用它。',
     '--★ 条件多一层 `and self.inst.sg.currentstate.name ~= self.customalert`',
     '--   —— 防止重复切到同一个状态（防抖）。',
@@ -110,7 +110,7 @@ export default {
     '-- ★ 移植要点：**每次 GoToState 前都检查「已经不在这个状态了」**，',
     '--   是避免状态机抖动的标准做法（与 follow 的 sticky 思路同源）。',
   ],
-  37: [
+  "FaceEntity:Visit#1+21": [
     '--★ GoToState(customalert) —— 切到调用方指定的状态。',
     '--⚠️ 注意：这里**没有**再检查 self.inst.sg.sg.states[self.customalert] 是否存在，',
     '--   而第 35 行只验证了 states.alert。',
@@ -118,11 +118,11 @@ export default {
     '--   ⚠️【疑似风险】已核实第 35 行的条件只检查 states.alert，',
     '--     未检查 states[self.customalert]。属「信任调用方」的取舍。',
   ],
-  38: [
+  "FaceEntity:Visit#1+22": [
     '--★ 默认分支：切到标准的 "alert" 状态（第 39 行执行）。',
     '--★ 第 35 行已保证 states.alert 存在，这里是安全的。',
   ],
-  43: [
+  "FaceEntity:Visit#1+27": [
     '--★★ 超时 → SUCCESS + return。',
     '--★★★ 【★ 成功语义的重要澄清】',
     '--   「超时」为什么是 **SUCCESS** 而不是 FAILED？',
@@ -140,14 +140,14 @@ export default {
     '--   ★ 这是本目录里关于 SUCCESS/FAILED 语义最精妙的一组对照，值得反复读。',
     '--★ 第 45 行的 return：超时后不再执行第 48-54 行。',
   ],
-  48: [
+  "FaceEntity:Visit#1+32": [
     '--★★★ 维持条件检查：目标还在、还有效、keepfn 仍说该看。',
     '--★ 三重与，任一不满足即 FAILED。',
     '--★ 与 doaction 第 53 行的「动作对象失效」是同类兜底：',
     '--   跨帧存活的行为必须每帧复检外部世界。',
     '-- ★ keepfn(inst, target) —— 注意传了 target，可让调用方做「看着这个人」的具体判断。',
   ],
-  50: [
+  "FaceEntity:Visit#1+34": [
     '--★ 维持中 → 朝目标转身。',
     '--★★★ `HasStateTag("canrotate")` 是必需的守卫：',
     '--   与 chaseandattack 第 91 行、standandattack 第 70 行、',
@@ -158,13 +158,13 @@ export default {
     '-- ★ 移植建议：建立「状态标签 = 能力许可」的约定，',
     '--   行为树只在被允许时才动。这比自己维护布尔标志可靠得多。',
   ],
-  51: [
+  "FaceEntity:Visit#1+35": [
     '--★ FacePoint 取目标的当前位置并转向。',
     '--★ 每 0.5 秒转一次（第 54 行节流），足以跟上目标的移动。',
   ],
 
   // ══════════════ 休眠 ══════════════
-  54: [
+  "FaceEntity:Visit#1+38": [
     '--★★★ self:Sleep(.5) —— 每 0.5 秒转身一次，是本目录**第二慢**的节拍。',
     '--★ 谱系回顾：',
     '--   .1   avoidlight（避光要实时）',

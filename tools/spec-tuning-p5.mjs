@@ -2,7 +2,7 @@
 // 覆盖源文件行号区间：3401 - 4499
 
 export const BEFORE = {
-  3450: [
+  "Tune#1+3436": [
     "--【★ 角色肖像表 WORTOX/WANDA 等】3450-3510 行。",
     "--  WORTOX = {\"wortox_soul\", \"wortox_soul\", ...}（重复 5 次）",
     "--    ★★ 注意 WANDA = {},-- TODO（第 3500 行）。",
@@ -12,7 +12,7 @@ export const BEFORE = {
     "--★ 这些「角色肖像 / 灵魂列表」是给 UI 与特效用的字符串表。",
   ],
 
-  3560: [
+  "Tune#1+3546": [
     "--【★★ 生成保护期】SPAWNPROTECTIONBUFF_IDLE_DURATION = 60。",
     "--  ★ 新角色/刚复活时有 60 秒保护，防止被 mobs 秒掉。",
     "--    ★★ 注意这是**绝对秒数**，不是 seg_time 的倍数 —— 属例外。",
@@ -21,14 +21,14 @@ export const BEFORE = {
     "--      ⇒ 调平衡时注意：这个 60 秒不受 seg_time 改动影响。",
   ],
 
-  3600: [
+  "Tune#1+3586": [
     "--【★ 角色专属 prefab 映射】3600-3640 行。",
     "--  DAYWALKER = {basic=1, special=\"winter_ornament_boss_daywalker\"}",
     "--    ★★ 「basic + special」双层结构：普通形态 + 特殊形态（黑夜/道具触发）。",
     "--      角色需要第二种表现的场合就沿用这个模板。",
   ],
 
-  3643: [
+  "Tune#1+3629": [
     "--【分区 16 · 季节筹备与角色专属（维诺娜/威尔洛/热泉）】3643-3760 行",
     "--  ★ 英文原注释标注 'v2 Winona'、'v2 Willow'（第 3643、3737 行）。",
     "--    ★★ 命名规律：带 'v2' 前缀的参数块表示**该角色的第二次大改版**。",
@@ -36,26 +36,26 @@ export const BEFORE = {
     "--    ★ 找角色参数时先 grep 'v2 ' 能快速定位最新版。",
   ],
 
-  3650: [
+  "Tune#1+3636": [
     "--【★ 默认配方间距】3650-3660 行。",
     "--  英文注释 'this is just the default recipe spacing'。",
     "--  ★ 与植物间距（FARM_TILL_SPACING=1.25）同属「网格对齐」类参数。",
     "--    ★★ 设计原理：间距设为整数倍能让物品吸附成行，避免视觉杂乱。",
   ],
 
-  3700: [
+  "Tune#1+3686": [
     "--【★ 维诺娜机器人工作半径】WINONA_STORAGE_ROBOT_WORK_RADIUS = 15。",
     "--    ★ WORK_RADIUS 统一表示「玩家交互距离」。",
     "--      这类值要足够大让玩家不必精准点击，又足够小不让自动化泛滥。",
   ],
 
-  3761: [
+  "Tune#1+3747": [
     "--【分区 17 · ★农业与农业设备】3761-3900 行",
     "--  ★★ 本分区是「种植玩法」的全部数值支撑：威尔洛（ Willow）的火龙草、",
     "--    岩石果实、葡萄藤、蘑菇园。玩家中期的主要产出都来自这里。",
   ],
 
-  3805: [
+  "Tune#1+3791": [
     "--【★★ 移植后可采次数 —— 威尔洛核心机制】3805-3810 行。",
     "--  英文原注释：",
     "--      'After being transplanted, this is the number of times the bush can be",
@@ -69,7 +69,7 @@ export const BEFORE = {
     "--    这里是「移植→多次采收→荒芜」，用次数约束。两种约束方式并存。",
   ],
 
-  3858: [
+  "Tune#1+3844": [
     "--【★★ 一条「刻意偏离枚举」的设计说明】3857-3860 行。",
     "--  MOON_TREE_DEPLOY_SPACING = 4, --DO NOT USE! (use DEPLOYSPACING enums instead)",
     "--  英文原注释（第 3858-3860 行）：",
@@ -90,7 +90,7 @@ export const BEFORE = {
     "--★ 参见 constants.lua:DEPLOYMODE / DEPLOYSPACING 枚举定义。",
   ],
 
-  3901: [
+  "Tune#1+3887": [
     "--【分区 18 · GESTALT 雕像与月岩】3901-4140 行",
     "--  ★ 分区边界：GESTALT（月亮石像）是「拼图式生存」机制的核心。",
     "--  AWAKE_TIME_MIN = 20（第 3901 行）：石像从沉睡到苏醒的最短天数。",
@@ -98,13 +98,13 @@ export const BEFORE = {
     "--  ★ GESTALT 用 20 个参数描述石像状态机，是「一个物件=20 个数值」的典型。",
   ],
 
-  3970: [
+  "Tune#1+3956": [
     "--【★ 月岩 / 盐堆相关】3970-4010 行。",
     "--  GESTALT_POP_CHANGE_VARIANCE：石像「破碎」的概率浮动。",
     "--    ★★ VARIANCE 后缀统一表示「随机浮动量」，与 base 配对使用。",
   ],
 
-  4013: [
+  "Tune#1+3999": [
     "--【★★ GESTALT GUARD（月亮守卫）】4013-4040 行。",
     "--  GESTALTGUARD_MAX_DISTSQ_FROM_SPAWN_PT = 36*36（第 4020 行）。",
     "--    ★★ 命名规律：**_DISTSQ / _RADIUSSQ 表示「距离的平方」**，单位是**格²**。",
@@ -116,21 +116,21 @@ export const BEFORE = {
     "--        GOLFHOLE_SCORE_RANGE_SQ = 0.05*0.05）都是这个约定。",
   ],
 
-  4141: [
+  "Tune#1+4127": [
     "--【分区 19 · 海洋与远征（海鸟 / 船 / 炮）】4141-4340 行",
     "--  ★ 分区边界：进入海洋主题。CANNONBALLS 等舰炮参数集中于此。",
     "--  MAX_DAMPENING = 1（第 4141 行）：最大减震系数（0~1 无量纲）。",
     "--    ★ 「DAMPENING」= 冲击缓冲，对应玩家站在船上的颠簸反馈。",
   ],
 
-  4200: [
+  "Tune#1+4186": [
     "--【★ 海鸟 MALBATROSS 参数表】4200-4270 行。",
     "--  MALBATROSS 是「双形态 Boss」：白天正常、夜晚暴怒。",
     "--    ★★ 这类双形态生物的参数通常成对：XXX 与 XXX_ENRAGED / XXX_NIGHT。",
     "--      找参数时若只改 daytime 那一半，会出现「白天好打夜晚要死」的失衡。",
   ],
 
-  4300: [
+  "Tune#1+4286": [
     "--【★ 玩家基线三围（另一处入口）】4300-4355 行。",
     "--  ★★ 第 4331-4333 行有被注释掉的 --HEALTH = 0 / --HUNGER = 0 / --SANITY = 0。",
     "--    ⚠疑似缺陷（重复定义的历史残留）：同一语义在本文件有两处定义点。",
@@ -144,7 +144,7 @@ export const BEFORE = {
     "--    与第 87 行OCEAN_WETNESS（入海初始湿度）语义不同却同名。",
   ],
 
-  4361: [
+  "Tune#1+4347": [
     "--【★ 玩家专属调优：跳远距离】4361-4370 行。",
     "--  英文注释 'these are for players only; see WILSON_HOP_DISTANCE etc. for",
     "--   other player hop tuning val'",
@@ -155,7 +155,7 @@ export const BEFORE = {
     "--★ 参见 components/locomotor.lua（移动与跳跃组件）。",
   ],
 
-  4381: [
+  "Tune#1+4367": [
     "--★ WETNESS = 75, -- DEPRECATED - use TUNING.OCEAN_WETNESS",
     "--  ★★ 这是一条明确的**迁移指引**：改湿度数值请改第 87 行 OCEAN_WETNESS，",
     "--    此处仅为兼容旧模组而保留。",
@@ -169,7 +169,7 @@ export const BEFORE = {
     "--    ⇒ 75/100 = 75% 起步，恰好跨过多数生物的「潮湿」判定线。",
   ],
 
-  4430: [
+  "Tune#1+4416": [
     "--【★ 渲染与材质杂项】4430-4499 行。",
     "--  TEXTURE_BLUR_SIZE = 2：贴图模糊等级。",
     "--    ★★ 这类参数属于**表现层**，不影响任何玩法数值，",

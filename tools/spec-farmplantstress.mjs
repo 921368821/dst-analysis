@@ -61,7 +61,7 @@ export default {
     '--   该标签的消费者是 prefabs/farm_plants.lua:818 附近的 plantresearchable 组件，',
     '--   （本人已核实 farm_plants.lua:818 处的注释「for plantresearchable component」。）',
   ],
-  17: [
+  "FarmPlantStress:AddStressCategory#1": [
     '-- ★★★ AddStressCategory(name, testfn, onchangefn) —— 注册一个压力源。',
     '--   本组件最重要的扩展点。三个参数的分工：',
     '--     name         源的名字，也是存档的 key，也是 UI 描述的 key',
@@ -98,7 +98,7 @@ export default {
     '--     并 grep 全库确认 AddStressCategory 仅在 prefabs/farm_plants.lua:855-861',
     '--     被调用 7 次，均为实体构造期，无动态增删。）',
   ],
-  24: [
+  "FarmPlantStress:CopyFrom#1": [
     '-- CopyFrom(rhs)：通过「存档往返」实现状态复制。',
     '-- ★ 这是个很巧的技巧：不想逐字段拷贝，就借 OnSave/OnLoad 走一遍序列化。',
     '--   好处是将来 OnSave 加字段时 CopyFrom 自动跟随，零维护成本。',
@@ -111,7 +111,7 @@ export default {
     '--   （本人已核实唯一调用点 farm_plants.lua:160：',
     '--    plant.components.farmplantstress:CopyFrom(inst.components.farmplantstress)。）',
   ],
-  28: [
+  "FarmPlantStress:Reset#1": [
     '-- ★ Reset：把所有源打回「有压力」，并清零累计积分。',
     '--   第 29-31 行遍历 stressors 全置 true —— 注意它【不重置 num_stressors】。',
     '-- ⚠️ 第 33 行把 stress_points 清零、第 34 行把 final_stress_state 置 nil，',
@@ -126,7 +126,7 @@ export default {
     '--    （本人已核对第 28-35 行与第 55-65 行核实这一区别，',
     '--     并已核实 Reset 的唯一调用点为 prefabs/farm_plants.lua:541。）',
   ],
-  37: [
+  "FarmPlantStress:SetStressed#1": [
     '-- ★★★ SetStressed(name, stressed, doer) —— 【更新单个压力源的状态】。',
     '--   这是外部（farm_plants.lua）灌入判定结果的唯一入口。',
     '',
@@ -154,7 +154,7 @@ export default {
     '--   宽松判定会把 nil 当真值累加，导致压力分虚高。',
     '--    （本人已对照本行与 useableitem.lua:40 核实两处约定相反。）',
   ],
-  47: [
+  "FarmPlantStress:MakeCheckpoint#1": [
     '-- ★★★ MakeCheckpoint —— 阶段结算：本阶段记一次账，然后把源重置回 true。',
     '',
     '-- 【★ 本函数是整个组件的算法核心，第 55-65 行的五步】',
@@ -197,7 +197,7 @@ export default {
     '--   ⚠️ 即「注释说是 debug，实际是业务数据」—— 注释已过时/不准确。',
     '--    （本人已核对 farm_plants.lua:256 与 :382 两处消费点核实此结论。）',
   ],
-  72: [
+  "FarmPlantStress:CalcFinalStressState#1": [
     '-- ★★★ CalcFinalStressState —— 把累计积分映射到四档压力等级。',
     '--   阈值链（全部硬编码，不在 TUNING 里）：',
     '--     stress <= 1  → NONE     （源码注释：allow one mistake，允许犯一次错）',
@@ -228,12 +228,12 @@ export default {
     '-- ★ 档位常量 FARM_PLANT_STRESS 定义在 constants.lua:2107-2112（NONE=1..HIGH=4），',
     '--   用整数而非字符串，便于比较与反查（第 139 行用了 table.invert）。',
   ],
-  82: [
+  "FarmPlantStress:GetFinalStressState#1": [
     '-- GetFinalStressState：读最终档位。注意它【没有】 ismastersim 守卫，',
     '--   与 revivablecorpse.lua 的双端约定形成对比 —— 本组件是纯服务端组件。',
     '--    （本人已核实本文件全文无 ismastersim / TheWorld.ismastersim 引用。）',
   ],
-  86: [
+  "FarmPlantStress:OnInteractWith#1": [
     '-- OnInteractWith(doer)：把「检查」也转成一个回调钩子。',
     '-- ⚠️ 但构造函数（第 3-15 行）从未初始化 self.oninteractwithfn，',
     '--   全文件也没有给它赋值的 Setter —— 即本函数【永远返回 false】。',
@@ -244,7 +244,7 @@ export default {
     '--    （本人已核对第 3-15 行构造函数字段列表，确认无 oninteractwithfn；',
     '--     并 grep 全文确认无该字段的赋值与 SetOnInteractWith 方法。）',
   ],
-  90: [
+  "FarmPlantStress:GetStressDescription#1": [
     '-- ★★★ GetStressDescription(viewer) —— 给玩家看的压力描述，是本组件的「出口」。',
     '--   这是把内部状态翻译成玩家能懂的话的唯一地方，逻辑分五层：',
     '',
@@ -289,7 +289,7 @@ export default {
     '--   ⚠️ 5 这个阈值同样是硬编码，与第 112 行的 7 个源总数耦合。',
     '--    （本人已核实 farm_plants.lua:855-861 共注册 7 个压力源。）',
   ],
-  120: [
+  "FarmPlantStress:OnSave#1": [
     '-- ★ OnSave：存档三样东西 —— 最终档位、累计积分、当前各源状态。',
     '-- ⚠️ 不存的：stressors_testfns / stressor_fns（函数不能存）、',
     '--   num_stressors（可由 AddStressCategory 重建）、',
@@ -302,7 +302,7 @@ export default {
     '--     实际无碍。这里只提示「引用语义」这个易错点。',
     '--   （本人已对照第 121-125 行核实 stressors 是直接赋值未拷贝。）',
   ],
-  128: [
+  "FarmPlantStress:OnLoad#1": [
     '-- ★★ OnLoad(data) —— 读档。有一个值得注意的设计：',
     '--   第 132-134 行 `for k, _ in pairs(self.stressors) do`',
     '--   遍历的是【自己已注册的源】，而不是 data.stressors 的键。',
@@ -330,7 +330,7 @@ export default {
     '-- ⚠️ 第 130-131 行同样是裸赋值，若 data.final_stress_state 为 nil，',
     '--   会把已有的档位清成 nil（而不是保留）。这是「读档即覆盖」的一致语义，可接受。',
   ],
-  138: [
+  "FarmPlantStress:GetDebugString#1": [
     '-- GetDebugString：调试面板用的多行摘要。',
     '-- ★ 第 139 行用了 table.invert(FARM_PLANT_STRESS) 把档位常量反查成名字，',
     '--   再用了一个小技巧：`self.final_stress_state ~= nil and (...) or ""`',

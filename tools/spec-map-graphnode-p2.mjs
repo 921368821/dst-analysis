@@ -1,11 +1,11 @@
 // spec-map-graphnode-p2.mjs —— map/graphnode.lua 行级注释（第 2 部分：316-611）
 export const BEFORE = {
-  316: [
+  "resolveswappableprefabs#1": [
     "-- ══════════════ ★ resolveswappableprefabs：代理名 → 真名 ══════════════",
     "-- ★★ 作用：★ 把 {代理名 → {prefabs={…}, weight=w}} 展平成 {真名 → w}。",
     "-- ★★ 消费：:453（在 PopulateVoronoi 的 distributeprefabs 分支里）。",
   ],
-  321: [
+  "resolveswappableprefabs#1+5": [
     "-- ★★ local choice = GetRandomItem(v.prefabs) ——★ 从候选里**随机挑一个**。",
     "--   ★★★★ 这是一个**在循环里摇随机数**的地方，★ 每次调用消耗 1 次 math.random。",
     "--     ★★★ ⇒ ★★ 它对「同种子同世界」有直接影响：",
@@ -15,15 +15,15 @@ export const BEFORE = {
     "--     ★★★ 也就是说：★ **代理 prefab 的选择顺序本身就是不可复现的源头之一**。",
     "--       ★★ 加之 pairs 遍历顺序不定（:319），★ 两重不可控。",
   ],
-  322: [
+  "resolveswappableprefabs#1+6": [
     "-- ★★ tbl[choice] = v.weight ——★★ 注意存的是**权重**（数字）。",
     "--   ★★★ ⇒ ★★ 这印证了 getFilteredSpawnWeight(:14) 里那个 table 分支是死代码：",
     "--     ★★★ 「{prefabs={…}, weight=w}」形态在展平后已消失。",
   ],
-  326: [
+  "resolveswappableprefabs#1+10": [
     "-- ★ else 分支：不是 swap 表，直接拷贝。",
   ],
-  330: [
+  "Node:PopulateVoronoi#1": [
     "-- ══════════════ ★★★★ PopulateVoronoi：★ 全文件最重要的一段 ══════════════",
     "-- ★★ 消费：network.lua:733（★ 每个节点调一次）。",
     "-- ★★★ 「Voronoi」之名指：★ 它在**烘焙好的胞元**里按采样点散布，",
@@ -39,7 +39,7 @@ export const BEFORE = {
     "--   ④ :449-480 distributeprefabs + distributepercent ——★ 权重散布",
     "--   ⑤ :482-493 密度统计",
   ],
-  331: [
+  "Node:PopulateVoronoi#1+1": [
     "-- ★★ if self.populated == true then return end ——★ 幂等保护。",
     "--   ★★★ ⚠ 语义混淆（见 :127）：★ :313 的 SetTilesViaFunction 也设这个标记。",
     "--     ★★★ ⇒ ★★ 跑过 custom_tiles 的节点，其 PopulateVoronoi **被跳过**。",
@@ -47,7 +47,7 @@ export const BEFORE = {
     "--         ★★★ 但用同一个 boolean 表达两件事，★ 极难排查。",
     "--   ⚠ 疑似缺陷（设计瑕疵）。",
   ],
-  336: [
+  "Node:PopulateVoronoi#1+6": [
     "-- ★★ if TileGroupManager:IsImpassableTile(self.data.value) then return end",
     "--   ★★★ 「不可通行地块的房间不散布」。",
     "--     ★★★ 这是**大面积丢弃**的一道：",
@@ -58,24 +58,24 @@ export const BEFORE = {
     "--     ★★★ 对比 storygen.lua:237 的 isnt_blank 用的是 type ~= \"blank\"。",
     "--       ★★★ 两处判据不同 ⇒ 边界情况可能不一致。★ 轻微。",
   ],
-  340: [
+  "Node:PopulateVoronoi#1+10": [
     "-- ★★ if not terrain_contents or (countprefabs==nil and distributeprefabs==nil)",
     "--   ★★★ 没有内容物的房间跳过（空白房、LINK 房）。",
   ],
-  344: [
+  "Node:PopulateVoronoi#1+14": [
     "-- ★★ prefab_list{}：★ 本次散布的计数表（供 :482 算密度）。",
   ],
-  345: [
+  "Node:PopulateVoronoi#1+15": [
     "-- ★★★ generate_these{}：★「还要放多少个」的清单（prefab → 剩余数量）。",
     "--   ★★★ 它与 prefab_list 的区别：",
     "--     ★★★ · generate_these = ★ 计划（多少个还没放）",
     "--     ★★★ · prefab_list     = ★ 实际（放了多少个）",
     "--     ★★★ ⇒ ★★ 两者之差就是「没放成的」，★ :403-405 会报警告。",
   ],
-  346: [
+  "Node:PopulateVoronoi#1+16": [
     "-- ★★ pos_needed = 0：★ 总共需要多少个位置。",
   ],
-  348: [
+  "Node:PopulateVoronoi#1+18": [
     "-- ★★★★ points_x, points_y, points_type = WorldSim:GetPointsForSite(self.id)",
     "--   ★★★★ 全文件最关键的一行。",
     "--     ★★★ 三个返回值的含义：",
@@ -89,18 +89,18 @@ export const BEFORE = {
     "--         ★★★ 散布循环跑 20 次而不是 100 次。",
     "--       ★★★ 而采样点密度由 Lloyd 松弛控制 ⇒ 生成期与散布期耦合。",
   ],
-  349: [
+  "Node:PopulateVoronoi#1+19": [
     "-- ★★ if #points_x == 0 then ——★ 胞元里一个采样点都没有。",
     "--   ★★★ print + return ——★ E2 缺陷的形态之一：**静默放弃整个节点**。",
     "--     ★★★ 推理：这个胞元可能是被后续处理（如 ForceConnectivity 挖掉）",
     "--       ★★★ 弄成空地的。★ 此时什么都不放是合理的。",
     "--       ★★ 但只有一行 print，★ 无统计、无告警等级。",
   ],
-  350: ["-- ★★ print(self.id..\" Cant process points\") ——★ 仅日志。"],
-  353: [
+  "Node:PopulateVoronoi#1+20": ["-- ★★ print(self.id..\" Cant process points\") ——★ 仅日志。"],
+  "Node:PopulateVoronoi#1+23": [
     "-- ★★ current_pos_idx = 1：★ 顺序放置的游标（从数组头往后取点）。",
   ],
-  357: [
+  "Node:PopulateVoronoi#1+27": [
     "-- ★★★★ local area = #points_x ——★★ 注意这里的「面积」是**采样点数**，",
     "--   ★★★ 而不是真正的格子面积（那个是 :162 的 WorldSim:GetSiteArea）。",
     "--     ★★★ 两处同名不同义，★ 极易混淆：",
@@ -111,12 +111,12 @@ export const BEFORE = {
     "--       ★★★ ⇒ ★★ 「静态场景件按真实面积缩放，散布 prefab 按采样点缩放」",
     "--         ★★★ ——★ 两套不同的量纲。★ 设计如此，但极易读错。",
   ],
-  359: [
+  "Node:PopulateVoronoi#1+29": [
     "-- ★★ scratchpad{}：★ countprefabs 专用（★ 与 :259 的不共享）。",
     "--   ★★★ 原注释明确：\"shared data between all entries in countprefabs.",
     "--     This is not shared with countstaticlayouts.\" ★ 刻意隔离。",
   ],
-  360: [
+  "Node:PopulateVoronoi#1+30": [
     "-- ★★★★ if self.data.terrain_contents.countprefabs ~= nil then",
     "--   ★★★ 「定数摆放」：★ 明确指定「这个房间恰好有 N 个 X」。",
     "--     ★★★ 典型内容（★ storygen.lua:954-962 的 START 节点）：",
@@ -133,19 +133,19 @@ export const BEFORE = {
     "--       ★★ 这是「设计意图（概率）」与「实现（整数循环）」的语义错配。",
     "--   ⚠⚠ 疑似缺陷（真实，且影响玩家可见内容）。",
   ],
-  362: [
+  "Node:PopulateVoronoi#1+32": [
     "-- ★★ if type(count) == \"function\" then count = count(area, prefab, scratchpad) end",
     "--   ★★★ 与 :263 的 countstaticlayouts 版本同构。",
     "--     ★★★ 注意第一个参数是 **:357 的采样点数**（不是真实面积，见 :357 注释）。",
   ],
-  365: [
+  "Node:PopulateVoronoi#1+35": [
     "-- ★★ generate_these[prefab] = count ——★ 登记计划量。",
   ],
-  366: [
+  "Node:PopulateVoronoi#1+36": [
     "-- ★★ pos_needed = pos_needed + count ——★ 累加总需求。",
     "--   ★★★ 注意 count 可能是**小数**（见 :360 的注释）⇒ pos_needed 可能是小数。",
   ],
-  369: [
+  "Node:PopulateVoronoi#1+39": [
     "-- ★★★★ 【E2 缺陷现场之一】`if #points_x < math.floor(pos_needed) then",
     "--   ★★★ 「点位不够 ⇒ **整个节点的所有 prefab 一个都不放**」+ 一行 print。",
     "--     ★★★★ 这是 bug-patterns.md **E2** 的确切现场，行号：**graphnode.lua:369-372**。",
@@ -157,8 +157,8 @@ export const BEFORE = {
     "--   ★★ 注意 math.floor：★ 小数 pos_needed 会被向下取整，",
     "--     ★★ 所以 2.5 个需求只需 2 个点位就算够。★ 略微宽松。",
   ],
-  370: ["-- ★★ print(self.id..\" Didnt get enough points for all prefabs, got \"…)"],
-  374: [
+  "Node:PopulateVoronoi#1+40": ["-- ★★ print(self.id..\" Didnt get enough points for all prefabs, got \"…)"],
+  "Node:PopulateVoronoi#1+44": [
     "-- ★★★★ countprefabs_uses_filters 分支：★ 按地块过滤地投放。",
     "--   ★★★ 这是一个**可选优化**：★ 只有声明了这个标志的房间才走",
     "--     ★★★ 「挑一个适合当前地块的 prefab」的逻辑。",
@@ -170,7 +170,7 @@ export const BEFORE = {
     "--         ★★★ 后面所有 prefab 的点位都错位（因为 current_pos_idx 照常前进）。",
     "--         ★★★ 这是一个隐蔽但真实的行为差异。",
   ],
-  375: [
+  "Node:PopulateVoronoi#1+45": [
     "-- ★★ local cur_pt = #points_x ——★ 从**尾部**开始扫（★ 不是从头部）。",
     "--   ★★★★ 从尾部扫的设计意图：★ 让散布从胞元边缘往内填，",
     "--     ★★ **留出中心的空地**。★ 视觉上有意义。",
@@ -178,7 +178,7 @@ export const BEFORE = {
     "--     ★★★ ⇒ ★★ 同一个房间里，两类 prefab 会从**相反的方向**抢点位。",
     "--       ★★★ 这会产生「一边稀一边密」的不对称。★ 疑似设计瑕疵。",
   ],
-  377: [
+  "Node:PopulateVoronoi#1+47": [
     "-- ★★ while next(generate_these) ~= nil do ——★ 直到所有 prefab 都放够。",
     "--   ★★★ ⚠ 疑似缺陷（控制流脆弱）：★ 循环退出只靠两个条件：",
     "--     ★★ ① generate_these 空了",
@@ -187,7 +187,7 @@ export const BEFORE = {
     "--       ★★★ :397 的 cur_pt 仍会 -1 ⇒ 最终 cur_pt 变 0 ⇒ break。✔ 不死循环。",
     "--       ★★★ 但 :403-405 会打印一大堆 \"could not be placed\" 警告。",
   ],
-  378: [
+  "Node:PopulateVoronoi#1+48": [
     "-- ★★ prefab = spawnFn.pickspawncountprefabforground(generate_these, points_type[cur_pt])",
     "--   ★★★ ★★ 核心一行：**按当前点的地块类型，从待放清单里挑一个合适的**。",
     "--     ★★★ spawnFn 来自 forest_map.lua:62-84：",
@@ -198,30 +198,30 @@ export const BEFORE = {
     "--       ★★★★ 「群系」在 DST 里 = 「地块类型」×「TERRAIN_FILTER 规则」。",
     "--         ★★★ 改那张表 ⇒ 直接改变所有群系的植被分布。",
   ],
-  379: [
+  "Node:PopulateVoronoi#1+49": [
     "-- ★★ if prefab ~= nil then ——★ 挑到了合法 prefab。",
   ],
-  380: [
+  "Node:PopulateVoronoi#1+50": [
     "-- ★★ prefab_data = {} ——★ 该 prefab 的附加数据容器。",
   ],
-  381: [
+  "Node:PopulateVoronoi#1+51": [
     "-- ★★ prefab_data.data = terrain_contents.prefabdata[prefab] or nil",
     "--   ★★ 房间可以给特定 prefab 预设初始化数据（★ 如随机属性）。",
     "--   ★★★ 数据来源是**房间模板**的 contents.prefabdata 表。",
   ],
-  382: [
+  "Node:PopulateVoronoi#1+52": [
     "-- ★★ self:AddEntity(prefab, points_x, points_y, cur_pt, …)",
     "--   ★★ 注意传的是 cur_pt（★ 而非常量索引）⇒ 每次都取不同的点。",
   ],
-  384: [
+  "Node:PopulateVoronoi#1+54": [
     "-- ★★ generate_these[prefab] = generate_these[prefab] - 1 ——★ 减库存。",
   ],
-  385: [
+  "Node:PopulateVoronoi#1+55": [
     "-- ★★ if generate_these[prefab] == 0 then generate_these[prefab] = nil end",
     "--   ★★★ 用 nil 而非 0 来移除 ——★ 这样 next(generate_these) 才会认为该键没了。",
     "--     ★★★ 若留 0，循环会**死转**（0 永远不为 nil）。★ 正确。",
   ],
-  389: [
+  "Node:PopulateVoronoi#1+59": [
     "-- ★★★★ table.remove(points_x, cur_pt) 等三行 ——★★ 原地删点。",
     "--   ★★★★ 这是「已用的点从池子里移除」，★ 保证不会重复使用同一格。",
     "--     ★★★ ⚠ 疑似缺陷（同步问题，逻辑上自洽但极难读）：",
@@ -234,20 +234,20 @@ export const BEFORE = {
     "--       ★★★ ⇒ 代码正确但可读性极差。★ 属于「能跑但脆弱」。",
     "--     ★★★ 三条数组（x/y/type）必须**同步删除**——★ :389-391 三行缺一不可。",
   ],
-  392: [
+  "Node:PopulateVoronoi#1+62": [
     "-- ★★ if #points_x == 0 then ——★ 点用光了。",
     "--   ★★★★ 【E2 缺陷之二】`print(self.id..\" countprefabs used all\--   ★★★ the points\")` + return ——★ **整个节点放弃**。",
     "--     ★★★ 相比 :369 的检查，这里是「投放中途点用光」。",
     "--     ★★★ ⇒ ★★ 已放的东西已经进了 entitiesOut（无法回滚），",
     "--       ★★★ 而**没放的全部丢弃**。★ 部分成功 + 静默。",
   ],
-  397: [
+  "Node:PopulateVoronoi#1+67": [
     "-- ★★ cur_pt = cur_pt - 1 ——★ 向胞元内侧推进。",
   ],
-  398: [
+  "Node:PopulateVoronoi#1+68": [
     "-- ★★ if cur_pt <= 0 then break end ——★ 扫完了。",
   ],
-  403: [
+  "Node:PopulateVoronoi#1+73": [
     "-- ★★ for p, c in pairs(generate_these) do ——★ 剩下的都是没放成的。",
     "--   ★★★★ 这是本文件**最诚实的一处日志**：",
     "--     ★★★ 「哪些 prefab、缺多少个、在哪个胞元」全部打印出来。",
@@ -258,19 +258,19 @@ export const BEFORE = {
     "--     ★★★ 若把它改成写进 save.map.generated.warnings，",
     "--       ★★★ 前端就能告诉玩家「这个房间放不下 N 只蜘蛛」。",
   ],
-  406: [
+  "Node:PopulateVoronoi#1+76": [
     "-- ★★ else 分支：★ **顺序投放**（不按地块过滤）。",
     "--   ★★★ 语义：按 countprefabs 的 pairs 顺序，★ 从 cur_pt=1 正向填。",
     "--     ★★★ ⚠ 与 :374 的过滤分支**方向相反**（那边从尾往头）。",
     "--       ★★★ ⇒ ★★ 同房间内两类 prefab 从相反方向占位（见 :375 注释）。",
   ],
-  409: [
+  "Node:PopulateVoronoi#1+79": [
     "-- ★★ if current_pos_idx > #points_x then break end ——★ 点用完就停。",
   ],
-  419: [
+  "Node:PopulateVoronoi#1+89": [
     "-- ★★ current_pos_idx = current_pos_idx + 1 ——★ 正向推进。",
   ],
-  421: [
+  "Node:PopulateVoronoi#1+91": [
     "-- ★★★★ 【E2 缺陷之三】`if current_pos_idx > #points_x then print(...) return end`",
     "--   ★★★★ 「投放中途点不够 ⇒ 放弃剩余 prefab」。",
     "--     ★★★★ 与 :392 同型，但**发生在非过滤分支**。",
@@ -279,24 +279,24 @@ export const BEFORE = {
     "--     ★★★ ⇒ ★★ 若 B 没点，B 及其后的所有 prefab 全部丢失。",
     "--   ⚠ 三处（:369 / :392 / :421）+ graphnode.lua:441 共四处静默放弃。",
   ],
-  429: [
+  "Node:PopulateVoronoi#1+99": [
     "-- ★★★ terrain_contents_extra.prefabs ——★ 「标签带来的额外实体」。",
     "--   ★★★ 来源：storygen.lua:1190 的 `\"ITEM\"` 类型 maptag 展开。",
     "--     ★★★ 与 countprefabs 的区别：★ 这些是**无条件、无数量**的，",
     "--       ★★★ 每个条目放 1 个（:431 的 ipairs）。",
   ],
-  433: [
+  "Node:PopulateVoronoi#1+103": [
     "-- ★★ if type(prefab) == \"table\" then ——★ 允许 {名字, 数据} 的二元组。",
   ],
-  434: [
+  "Node:PopulateVoronoi#1+104": [
     "-- ★★ assert(#prefab == 2, \"Data prefabs must have a name and data.\")",
     "--   ★★★ 好的断言：★ **精确**说明期望的数据形态。",
   ],
-  447: [
+  "Node:PopulateVoronoi#1+117": [
     "-- ★★ local removed = {} ——★ 被 prefab 改名机制移除的 prefab 权重。",
     "--   ★★★ 用途：:474-477 把它们的权重**按比例**加回剩余 prefab。",
   ],
-  449: [
+  "Node:PopulateVoronoi#1+119": [
     "-- ★★★★ distributeprefabs + distributepercent：★ 权重散布分支。",
     "--   ★★★★ 这是「地图看起来自然」的**主要来源**：",
     "--     ★★★ · distributepercent（0~1）= ★ 每个点有多大概率被填上东西",
@@ -305,7 +305,7 @@ export const BEFORE = {
     "--       ★★★★★ 再判「填什么」（:459 的 pickspawnprefab 内部再摇一次）。",
     "--     ★★★ 这是「稀疏但自然」的分布模型，比定数摆放更像野外。",
   ],
-  451: [
+  "Node:PopulateVoronoi#1+121": [
     "-- ★★ idx_left{}：★ 「没能放东西的点」的集合。",
     "--   ★★★★ 语义澄清（极易误解）：★ 它是「**空位**」不是「失败位」。",
     "--     ★★★ 这些点会在 :479 传给 PopulateExtra，",
@@ -313,19 +313,19 @@ export const BEFORE = {
     "--     ★★★★ ⇒ ★★ idx_left 是「留给加量的点」，不是「被丢弃的点」。",
     "--       ★★ 理解错了会以为「这些点废了」。",
   ],
-  453: [
+  "Node:PopulateVoronoi#1+123": [
     "-- ★★ distributeprefabs = resolveswappableprefabs(...) ——★ 展平代理名。",
     "--   ★★★ 注意 ★★ 这里重新赋值了一个**局部变量**，",
     "--     ★★ 而 self.data.terrain_contents.distributeprefabs **不变**。",
     "--     ★★ ⇒ ★★ 原始表保持「未展平」形态，供 :476 的 getFilteredSpawnWeight 用。",
     "--       ★★★ 这个「两个版本并存」是刻意且必要的。",
   ],
-  455: [
+  "Node:PopulateVoronoi#1+125": [
     "-- ★★ distributeprefabs, removed = filterPrefabsForGlobalSwaps(...)",
     "--   ★★★ 删掉未启用的 prefab + 代理名换真名（:82）。",
     "--     ★★★ 这就是「玩家关掉了某资源 ⇒ 它真的不生成」的落地点。",
   ],
-  457: [
+  "Node:PopulateVoronoi#1+127": [
     "-- ★★ for current_pos_idx = current_pos_idx, #points_x do ——★ 继续从游标往后扫。",
     "--   ★★★★ 注意 ★★ **重用了外层的 current_pos_idx 作为循环起点**。",
     "--     ★★★ ⇒ ★★ countprefabs 用过的点**不会被重复使用**。★ 正确。",
@@ -335,7 +335,7 @@ export const BEFORE = {
     "--     ★★★ 推论：★ 同一个房间模板，若 countprefabs 数字写大了，",
     "--       ★★★ 地图会明显变空（distributepercent 打折）。★ 隐蔽的耦合。",
   ],
-  458: [
+  "Node:PopulateVoronoi#1+128": [
     "-- ★★ if math.random() < self.data.terrain_contents.distributepercent then",
     "--   ★★★ 第一级随机：★ 「这个点填不填东西」。",
     "--     ★★★★ 每次循环消耗 1 次 math.random()。",
@@ -343,7 +343,7 @@ export const BEFORE = {
     "--       ★★★ ⇒ 这是全生成过程中**最大的随机消耗源**（在 Lua 侧）。",
     "--     ★★★ ⇒ ★★★ 「同种子 = 同世界」的前提再次成立在 pairs 顺序上。",
   ],
-  459: [
+  "Node:PopulateVoronoi#1+129": [
     "-- ★★★ prefab = spawnFn.pickspawnprefab(distributeprefabs, points_type[idx])",
     "--   ★★★ 第二级随机 + 地块过滤：",
     "--     ★★★ · forest_map.lua:16-52 的实现：",
@@ -358,23 +358,23 @@ export const BEFORE = {
     "--     ★★★ 若 total 为 0（全部候选被地块过滤掉）⇒ :43 不进 ⇒ 返回 nil",
     "--       ★★★ ⇒ :464 的 else 分支把它记入 idx_left。★ 优雅降级。",
   ],
-  464: [
+  "Node:PopulateVoronoi#1+134": [
     "-- ★★ else ——★ prefab 为 nil ⇒ 这个点「空着」。",
     "--   ★★★ table.insert(idx_left, current_pos_idx) ——★ 留给加量用。",
   ],
-  470: [
+  "Node:PopulateVoronoi#1+140": [
     "-- ★★ else ——★ 没通过 distributepercent 判定 ⇒ 也是空点。",
     "--   ★★★ 两种「空」的原因不同（:464 地块不允许 vs :470 概率没过），",
     "--     ★★★ 但都进 idx_left ⇒ **后续处理不区分原因**。",
     "--     ★★★ 这是「信息在流程中被抹平」的典型例子。",
   ],
-  473: [
+  "Node:PopulateVoronoi#1+143": [
     "-- ★★★ -- converts the removed prefabs to a percent of the distrubute percents",
     "--   ★★★ 原注释有个拼写错误（distrubute），★ 但含义清晰。",
     "--     ★★★ 语义：★ 被移除的 prefab 的权重，",
     "--       ★★★ 要**按比例**加到剩余 prefab 上（保持总密度不变）。",
   ],
-  474: [
+  "Node:PopulateVoronoi#1+144": [
     "-- ★★ for prefab,v in pairs(removed) do ——★ pairs 遍历。",
     "--   ★★★ 与 :491 同款循环，但这里改 removed 自身（:476）。",
     "--     ★★★ ⚠ 疑似缺陷（遍历中改表）：★ :476 `removed[prefab] = …`",
@@ -384,7 +384,7 @@ export const BEFORE = {
     "--         ★★★ ⇒ ★★ 同一个仓库两种写法，★ 本处是不严谨的那个。",
     "--         ⚠ 实际影响：改已有键的值通常安全，★ 但不保证。",
   ],
-  476: [
+  "Node:PopulateVoronoi#1+146": [
     "-- ★★ removed[prefab] = getFilteredSpawnWeight(distributeprefabs, v, prefab)",
     "--   ★★   * self.data.terrain_contents.distributepercent",
     "--   ★★★★ 权重分摊的算式：",
@@ -396,7 +396,7 @@ export const BEFORE = {
     "--       ★★★★ 而是「在密度报告里如实记录：这些被让出来的密度归谁了」。",
     "--       ★★★ 一个纯粹的「统计修正」，不影响生成结果。",
   ],
-  479: [
+  "Node:PopulateVoronoi#1+149": [
     "-- ★★★★ self:PopulateExtra(world_gen_choices, spawnFn, {...})",
     "--   ★★★★ 把「空点」交给加量处理（★ 见 :590）。",
     "--     ★★★ 传入的是一个**大表**（context 对象）：",
@@ -406,7 +406,7 @@ export const BEFORE = {
     "--       ★★★ ⚠ 但表是**共享的**：★ PopulateExtra 内部会改 entitiesOut/prefab_list，",
     "--         ★★★ 副作用直接可见。★ 这里是有意的（要累加计数）。",
   ],
-  482: [
+  "Node:PopulateVoronoi#1+152": [
     "-- ★★ prefabDensities[self.id] = {} ——★ 本胞元的密度表。",
     "--   ★★★★ ⚠ 疑似缺陷（覆盖）：★ :558 的 PopulateChildren **又赋值一次**",
     "--     ★★★ 同一个键（也用 self.id）⇒ ★★ 房间密度被背景房间密度**覆盖**。",
@@ -415,10 +415,10 @@ export const BEFORE = {
     "--     ★★★ 影响面：★ 只用于前端/调试展示，★ 不影响生成。",
     "--     ★★★ ⇒ 属「调试数据不可信」类缺陷。★ 值得记录。",
   ],
-  483: [
+  "Node:PopulateVoronoi#1+153": [
     "-- ★★★ if self.data.terrain_contents.distributepercent then ——★ 只在有散布时统计。",
   ],
-  486: [
+  "Node:PopulateVoronoi#1+156": [
     "-- ★★★ prefabDensities[self.id][prefab] = v/#points_x",
     "--   ★★★★ 密度 = 「这个 prefab 放了多少个」/「总采样点数」。",
     "--     ★★★ ★★ ⚠ 与 :560 的 PopulateChildren 不同：",
@@ -429,20 +429,20 @@ export const BEFORE = {
     "--       ★★★★ 推理：:349 已保证 #points_x ~= 0（否则 :350 return），",
     "--         ★★★ 所以本行安全。★（:370/:392/:421 的 return 也保证了。）",
   ],
-  490: [
+  "Node:PopulateVoronoi#1+160": [
     "-- ★★ -- merges the items removed due to prefab swaps back into the list",
     "--   ★★★ 原注释：★ 把因 prefab 替换而移除的项合并回列表。",
   ],
-  491: [
+  "Node:PopulateVoronoi#1+161": [
     "-- ★★ for prefab,v in pairs(removed) do ——★ 同 :474（又是遍历中写自己）。",
   ],
-  492: [
+  "Node:PopulateVoronoi#1+162": [
     "-- ★★★ prefabDensities[self.id][prefab] = v ——★ 直接写入 :476 算好的值。",
     "--   ★★★ 位于 :482 的赋值之后 ⇒ **会覆盖**同 prefab 的真实密度。",
     "--     ★★★ ⚠ 但如果该 prefab 已被 removed，它就不会在 :486 里出现 ⇒ 无冲突。✔",
     "--     ★★★ ⇒ 逻辑上没问题。",
   ],
-  498: [
+  "Node:PopulateChildren#1": [
     "-- ══════════════ ★★ PopulateChildren：★ 背景房间散布 ══════════════",
     "-- ★★ 消费：network.lua:739（★ ⚠ 见 network.lua 注释里关于参数个数的缺陷）。",
     "-- ★★★ 它做的事与 PopulateVoronoi 平行，★ 但对象是「本节点的子站点」。",
@@ -453,11 +453,11 @@ export const BEFORE = {
     "--       ★★★ 这解释了「背景房间的内容物也是 Voronoi 散布的」，",
     "--         ★★★ 而 density 的覆盖 bug（:558 vs :482）就是在这个语境下发生的。",
   ],
-  501: [
+  "Node:PopulateChildren#1+3": [
     "-- ★★ if self.children_populated == true then return end ——★ 幂等。",
   ],
-  504: ["-- ★★ self.children_populated = true ——★ 标记（★ 在实际工作**之前**置位）。"],
-  506: [
+  "Node:PopulateChildren#1+6": ["-- ★★ self.children_populated = true ——★ 标记（★ 在实际工作**之前**置位）。"],
+  "Node:PopulateChildren#1+8": [
     "-- ★★ local children = WorldSim:GetChildrenForSite(self.id) ——★ 子站点列表。",
     "--   ★★★★ 这是一个**从 C++ 查询**的操作，★ 不是 Lua 侧的图结构。",
     "--     ★★★ ⇒ ★★ 所以「背景节点」在两套体系里各有一个身份：",
@@ -468,23 +468,23 @@ export const BEFORE = {
     "--           ★★★★ 那它的内容物就**永远不会散布** —— ★★ 静默丢失。",
     "--         ★★★ ⚠ 这是「两套模型不同步」的典型风险。",
   ],
-  518: [
+  "Node:PopulateChildren#1+20": [
     "-- ★★★ if children ~= nil then ——★ 没有子站点就什么都不做。",
   ],
-  520: [
+  "Node:PopulateChildren#1+22": [
     "-- ★★ for i,id in ipairs(children) do ——★★ ipairs ⇒ 顺序稳定 ✔。",
     "--   ★★★ 这是本文件**少见的**有序遍历（对比 :319/:344/:538 的 pairs）。",
   ],
-  522: [
+  "Node:PopulateChildren#1+24": [
     "-- ★★ local prefab_list = {} ——★★ 每个子站点一个独立的计数表。",
     "--   ★★★ 注意它与 PopulateVoronoi 的 prefab_list（:344）**不共享**。",
     "--     ★★★ ⇒ ★★ 房间的计数与背景的计数是分开的。✔ 设计正确。",
   ],
-  524: [
+  "Node:PopulateChildren#1+26": [
     "-- ★★ points_x, points_y, points_type = WorldSim:GetPointsForSite(id)",
     "--   ★★★ 与 :348 同款，但参数是**子站点 id**。",
   ],
-  525: [
+  "Node:PopulateChildren#1+27": [
     "-- ★★ if points_x == nil then ——★★ 注意这里判 **nil** 而非 :349 的 `#points_x == 0`！",
     "--   ★★★★ 两种判据不一致：",
     "--     ★★ · :349（PopulateVoronoi）判 `#points_x == 0`",
@@ -496,19 +496,19 @@ export const BEFORE = {
     "--       ★★★★ ⇒ :559 的 pairs 空表不执行 ⇒ 实际不崩）。",
     "--       ★★★ 结论：**碰巧不崩**，但两处判据本该统一。⚠ 疑似缺陷（潜伏）。",
   ],
-  530: [
+  "Node:PopulateChildren#1+32": [
     "-- ★★ -- need to stash this incase we are on a multi-terrain ground",
     "--   ★★★ 「多地块地面」的正式支持机制的注释。",
   ],
-  531: [
+  "Node:PopulateChildren#1+33": [
     "-- ★★ local room = backgroundRoom ——★★ 循环外的默认房间。",
     "--   ★★★ perTerrain 时（:537）会被改写。★ 非 perTerrain 时一直保持整体房间。",
   ],
-  533: [
+  "Node:PopulateChildren#1+35": [
     "-- ★★ local idx_left = {} ——★ 同样收集「空点」。",
     "--   ★★★ ⇒ 与 :451 同构，★ :556 也传给 PopulateExtra。★ 结构对称。",
   ],
-  535: [
+  "Node:PopulateChildren#1+37": [
     "-- ★★ for current_pos_idx = 1, #points_x do ——★★ 从**头部**正向扫！",
     "--   ★★★★ 与 :457（PopulateVoronoi 的 distributeprefabs 从 current_pos_idx 起）",
     "--     ★★★ 不同的是这里**总是从头扫**，而 :375 的过滤分支是**从尾扫**。",
@@ -516,7 +516,7 @@ export const BEFORE = {
     "--       ★★★ 视觉后果：★ 不同的散布路径会在胞元的不同侧留下密集区。",
     "--         ★★★ 这是「散布不够均匀」的一个隐藏来源。★ 值得记录。",
   ],
-  536: [
+  "Node:PopulateChildren#1+38": [
     "-- ★★★★ perTerrain 分支：★★★ 这是「生物群系」概念的真正落地点。",
     "--   ★★★★ 「biome with mixed tile types (caves mostly)」——★ 原注释。",
     "--     ★★★ 语义：★ 当 background 是 {地块 → 房间名} 表时，",
@@ -528,7 +528,7 @@ export const BEFORE = {
     "--       ★★ `if type(self.data.background) == type({}) then perTerrain = true end`",
     "--       ★★★ 即：**background 是表 ⇒ perTerrain**。★ 纯类型判定。",
   ],
-  537: [
+  "Node:PopulateChildren#1+39": [
     "-- ★★ room = backgroundRoom[points_type[current_pos_idx]]",
     "--   ★★★ ★★ 按当前点的地块类型选房间。",
     "--     ★★★★ ⚠ 疑似缺陷：★ 若该地块没有对应房间 ⇒ room = nil，",
@@ -540,18 +540,18 @@ export const BEFORE = {
     "--       ★★★ 那里有**兜底注释**（是否加 `or nil`），这里没有。",
     "--       ★★★ ⇒ ★★ 表格式 background 的**鲁棒性比字符串格式差**。",
   ],
-  540: [
+  "Node:PopulateChildren#1+42": [
     "-- ★★★ if room.contents.distributepercent and math.random() < … then",
     "--   ★★★ 同样是「第一级随机」⇒ 每次循环消耗 1 次 math.random。",
     "--   ★★★★ ⚠ 但 ★★ **没有 nil 检查 room**（见 :537）。",
   ],
-  541: [
+  "Node:PopulateChildren#1+43": [
     "-- ★★★ prefab = spawnFn.pickspawnprefab(room.contents.distributeprefabs,",
     "--   points_type[current_pos_idx])",
     "--   ★★ 与 :459 同款（同样消耗 1 次随机数 + 依赖 pairs 顺序）。",
   ],
-  543: ["-- ★★ prefab_data = {} ——★ 同 :380。"],
-  544: [
+  "Node:PopulateChildren#1+45": ["-- ★★ prefab_data = {} ——★ 同 :380。"],
+  "Node:PopulateChildren#1+46": [
     "-- ★★★★ ⚠⚠ ★★ 疑似缺陷（真实，字段错误）：",
     "--   prefab_data.data = room.contents.prefabdata and",
     "--                      backgroundRoom.contents.prefabdata[prefab] or nil",
@@ -577,19 +577,19 @@ export const BEFORE = {
     "--         ★★★ ⇒ 整个 and 表达式得 nil ⇒ or nil ⇒ nil。✔ 安全但无效。",
     "--   ⚠ 推理依据：:531 `local room = backgroundRoom`，:537 在 perTerrain 时改写 room。",
   ],
-  556: [
+  "Node:PopulateChildren#1+58": [
     "-- ★★ self:PopulateExtra(world_gen_choices, spawnFn, {…}) ——★ 同 :479。",
     "--   ★★★ context 表的字段与 :479 一致。★ 两处同构。",
   ],
-  558: [
+  "Node:PopulateChildren#1+60": [
     "-- ★★★★ prefabDensities[self.id] = {} ——★★ 覆盖 :482 的同键赋值！",
     "--   ★★★★ ⚠ 真实缺陷：★ 见 :482 的详细说明。",
     "--     ★★★ ⇒ ★★ 保存到存档的 densities 是**背景房间**的，不是房间的。",
   ],
-  559: [
+  "Node:PopulateChildren#1+61": [
     "-- ★★ for k,v in pairs(prefab_list) do ——★ 统计实际放了多少。",
   ],
-  560: [
+  "Node:PopulateChildren#1+62": [
     "-- ★★★ prefabDensities[self.id][k] = RoundToNearest(v / #points_x, DENSITY_PRECISION)",
     "--   ★★ 与 :486 的区别：★ 做了精度归整（见 :8 的说明）。",
     "--   ★★★ 这里用对了常量 ⇒ ★★ 说明作者**知道**该用，只是 :486 漏了。",
@@ -597,7 +597,7 @@ export const BEFORE = {
     "--       ★★★ 但 :559 的 pairs(prefab_list) 在 0 次循环后为空表 ⇒ 不执行。✔",
     "--       ★★★ ⇒ 又是「碰巧不崩」。",
   ],
-  567: [
+  "Node:PopulateExtra#1": [
     "-- ══════════════ ★★★ PopulateExtra：★ 世界生成设置的加量 ══════════════",
     "-- ★★ 这是**玩家设置直接改变世界**的最后一道：",
     "--   ★★ world_gen_choices（forest_map.lua:873 的 translated_prefabs）",
@@ -605,7 +605,7 @@ export const BEFORE = {
     "-- ★★★ 于是同一种世界预设，★ 玩家的密度设置会真实改变地图。",
     "-- ★★ 消费点：:479（房间）与 :556（背景）。",
   ],
-  572: [
+  "Node:PopulateExtra#1+5": [
     "-- ★★★★ if world_gen_choices ~= nil and #data.idx_left > 0 then",
     "--   ★★★ 两个前提：★ 有设置（不是 default-only），★ 且有空点可填。",
     "--     ★★★ 注意：★ **只有在 distributepercent 分支被走到时才有空点**。",
@@ -614,14 +614,14 @@ export const BEFORE = {
     "--         ★★★ ⇒ ★★ 也就是说：★ 「世界生成设置」只对**有散布配置的房间**有效。",
     "--           ★★★★ 这是个**很隐蔽的限制**，★ 玩家调密度对某些房间完全无效。",
   ],
-  574: [
+  "Node:PopulateExtra#1+7": [
     "-- ★★ local amount_to_generate = {} ——★ 本次要加的数量表。",
     "--   ★★ 语义：★「额外要放多少个」（不是总数）。",
   ],
-  575: [
+  "Node:PopulateExtra#1+8": [
     "-- ★★ for prefab,amt in pairs(world_gen_choices) ——★ pairs 遍历设置表。",
   ],
-  576: [
+  "Node:PopulateExtra#1+9": [
     "-- ★★ if not PrefabSwaps.IsPrefabInactive(prefab) then ——★ 二次过滤。",
     "--   ★★★ 与 :86 的 IsPrefabInactive 是同一个判据。",
     "--     ★★★ ⇒ ★★ 「未启用的 prefab」被挡两次（filterPrefabs + 这里）。",
@@ -629,13 +629,13 @@ export const BEFORE = {
     "--         ★★★ distributeprefabs，而 world_gen_choices 是**另一张表**，",
     "--         ★★★ 所以这里**不是**冗余，是必要的！）",
   ],
-  577: [
+  "Node:PopulateExtra#1+10": [
     "-- ★★★ if type(amt) == \"number\" then ——★ 普通倍数（MULTIPLY 表的结果）。",
     "--   ★★★ amt 的形态来自 forest_map.lua:267-319 TranslateWorldGenChoices：",
     "--     ★★★ ① number = MULTIPLY[tweak] ⇒ 「1.5 倍」等",
     "--     ★★★ ② table  = {clumpcount=N, clumpsize={a,b}} ⇒ 「成簇」形态",
   ],
-  578: [
+  "Node:PopulateExtra#1+11": [
     "-- ★★ if data.prefab_list[prefab] then ——★★ 必须已经放过至少一个。",
     "--   ★★★★ 这是「倍数」逻辑的正确实现：",
     "--     ★★★ · prefab_list[prefab] = 已放的数量",
@@ -649,7 +649,7 @@ export const BEFORE = {
     "--           ★★★ · 这里：只负责**增加**",
     "--           ★★★ · forest_map:904：负责**减少**（shuffleArray + table.remove）",
   ],
-  582: [
+  "Node:PopulateExtra#1+15": [
     "-- ★★★★ else 分支（成簇形态）：★ `if amt.clumpcount > 0 and 0.25 > math.random()`",
     "--   ★★★ 「簇」的逻辑：",
     "--     ★★ · CLUMP 表（forest_map.lua:106-116）定义每档的簇大小上限",
@@ -665,32 +665,32 @@ export const BEFORE = {
     "--         ★★★ 而 forest_map.lua:873 传的是同一张 translated_prefabs。",
     "--       ★★★ 这是一个**确凿的共享状态污染 bug**。",
   ],
-  584: [
+  "Node:PopulateExtra#1+17": [
     "-- ★★ amount_to_generate[prefab] = math.random(amt.clumpsize[1], amt.clumpsize[2])",
     "--   ★★ 本簇的颗数（CLUMPSIZE 表，forest_map.lua:118-128）。",
     "--   ★★★ 注意：这是**直接赋值**不是累加，★ 而 :600 的减 1 假设它是库存。",
     "--     ★★★ ⇒ ★★ 每处理一个 prefab 都会**覆盖**上一次的值。",
     "--       ★★★ 于是「同档多次成簇」只会保留最后一次的数量。★ 轻微。",
   ],
-  590: [
+  "Node:PopulateExtra#1+23": [
     "-- ★★ for idx = 1, #data.idx_left do ——★ 遍历所有空点。",
     "--   ★★★ 注意：★ 与 :535 的正向扫描一致，★ 都是从头。",
   ],
-  593: [
+  "Node:PopulateExtra#1+26": [
     "-- ★★★ prefab = spawnFn.pickspawnprefab(amount_to_generate, data.points_type[...])",
     "--   ★★★ ★★ 与 :459 同款：消耗 1 次随机数 + 依赖 pairs 顺序。",
     "--     ★★★★ ⇒ ★★ 加量路径**也**受地形过滤（因为 amount_to_generate 的键会",
     "--       ★★★★ 被 pickspawnprefab 内部按 terrain.filter 剔除）。",
     "--     ★★★★ 所以「世界生成设置里勾了某资源，但那个地块上放不下」是可能的。",
   ],
-  597: [
+  "Node:PopulateExtra#1+30": [
     "-- ★★ prefab_data.data = (self.data.terrain_contents and .prefabdata and",
     "--   .prefabdata[prefab]) or nil ——★★ 这里写对了！",
     "--   ★★★ 三重 and 保护（防止 terrain_contents 或 prefabdata 为 nil）。",
     "--     ★★★ 与 :381/:462 同款，但更防御。★ 正确写法。",
     "--     ★★★ 对照 :544 的错误写法，★ 差距一目了然。",
   ],
-  598: [
+  "Node:PopulateExtra#1+31": [
     "-- ★★ self:AddEntity(prefab, data.points_x, data.points_y, data.idx_left[idx], …)",
     "--   ★★★ 注意 ★★ **没有传 rand_offset**（第 11 个参数缺省）。",
     "--     ★★★ ⇒ ★★ 依据 :196 的约定（nil == true），★ 这里**会加随机偏移**。",
@@ -698,16 +698,16 @@ export const BEFORE = {
     "--       ★★★ 也就是「玩家设置加的那批东西位置会飘」。",
     "--       ★★★ 这与「房间自己的 prefab 位置固定在格心」形成对比。",
   ],
-  600: [
+  "Node:PopulateExtra#1+33": [
     "-- ★★ amount_to_generate[prefab] = amount_to_generate[prefab] - 1 ——★ 减库存。",
   ],
-  603: [
+  "Node:PopulateExtra#1+36": [
     "-- ★★ if amount_to_generate[prefab] <= 0 then amount_to_generate[prefab] = nil end",
     "--   ★★★ 与 :385 同款：用 nil 移除，★ 让 :593 的 pickspawnprefab 选不到它。",
     "--   ★★★ 注意这里是 `<= 0` 而 :385 是 `== 0`：★ 更稳健。",
     "--     ★★ 小的正确性改进。",
   ],
-  610: [
+  "Node:PopulateExtra#1+43": [
     "-- ★★★ 全文件结束（611 行含末尾空行）。",
     "-- ★★ 本文件的四类缺陷总结（供移植时逐条检查）：",
     "--   ⚠ :52  recurseTable 漏传参数（嵌套表必崩，当前不触发）",

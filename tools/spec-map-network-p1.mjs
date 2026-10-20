@@ -150,19 +150,19 @@ export const BEFORE = {
     "--   ★ 来源：map/task.lua:33 → storygen.lua:1284 Graph(required_prefabs=task.required_prefabs)。",
   ],
   61: ["-- ══════════════ 构造结束 ══════════════"],
-  67: [
+  "Graph:Dump#1": [
     "-- ══════════════ Dump：递归调试打印 ══════════════",
     "-- ★★ 唯一会打印**全图结构**的函数。★ 用法：topology_save.root:Dump()",
     "--   （storygen.lua:1402 的注释掉的调用）。",
     "-- ★★ 它也打印 exit 边两端的 graph.id（:87）⇒ ★ 排查「谁连谁」最快的工具。",
   ],
-  72: ["-- ★ 只有有父图才打印 Parent 行。"],
-  87: [
+  "Graph:Dump#1+5": ["-- ★ 只有有父图才打印 Parent 行。"],
+  "Graph:Dump#1+20": [
     "-- ★★★ 打印 exit 边时特意带上 `v.node1.graph.id` ——",
     "--   ★★ 这是本文件唯一能看出「跨图连接」的地方，非常有用。",
     "--   ★★ 普通边（:82）不打印 graph.id（因为必然同图）。",
   ],
-  101: [
+  "EncodeColour#1": [
     "-- ══════════════ ★★ EncodeColour：颜色去重 ══════════════",
     "-- ★★★ 为什么要去重：★ 一张 425×425 的地图有几百个节点，",
     "--   ★★ 若每个节点都存一份 {r,g,b,a} 四元组，savedata 会膨胀。",
@@ -170,24 +170,24 @@ export const BEFORE = {
     "-- ★★ 算法：线性扫描 encoded.colours，找到相同则替换为下标。",
     "--   ★★ 复杂度 O(种类数) = O(10~60)，可忽略。",
   ],
-  105: [
+  "EncodeColour#1+4": [
     "-- ★★ 逐分量比较 r/g/b/a。★ 注意用 `colour.a == item.c.a` 而非 a==item.a，",
     "--   ★★ 因为此时 item.c 已经被替换成颜色表的索引了（:108/:116）。",
     "--   ★★ 这是个**顺序依赖**的写法：读起来容易困惑。",
   ],
-  108: [
+  "EncodeColour#1+7": [
     "-- ★★ item.c = k ——★ 把颜色对象换成它在 colours 数组里的下标。",
     "--   ★★ 副作用：调用方的表被**就地修改**。★ 所以 SaveEncode 不可重复调用。",
   ],
-  114: [
+  "EncodeColour#1+13": [
     "-- ★★ if found == false then —— 新颜色。",
   ],
-  116: [
+  "EncodeColour#1+15": [
     "-- ★★ item.c = #encoded.colours —— 新颜色的下标。",
     "--   ★★ ⚠ 这里有个隐蔽 bug 面：若某颜色恰好等于「新表长度」时的下标，",
     "--     ★★ 由于是先 insert 再取长度，下标总是有效的。✔ 顺序正确。",
   ],
-  120: [
+  "Graph:SaveEncode#1": [
     "-- ══════════════ ★★ SaveEncode：图 → savedata 的序列化 ══════════════",
     "-- ★★★ 这是本文件**唯一影响存档体积**的函数。",
     "--   输入：map = {width=…, height=…}",
@@ -198,41 +198,41 @@ export const BEFORE = {
     "-- ★★ 消费：forest_map.lua:587 `topology_save.root:SaveEncode({width,height},",
     "--   save.map.topology)`，之后 :588 CreateNodeIdTileMap。",
   ],
-  124: [
+  "Graph:SaveEncode#1+4": [
     "-- ★★★ if encoded.nodes == nil then ——★ 只在**最外层**初始化。",
     "--   ★★ 递归调用（:193 child:SaveEncode(map, encoded)）会带着同一个 encoded，",
     "--     ★★ 所以判据是「第一次进来」而不是「自己是 root」。",
     "--   ★★★ 这个技巧保证了：**整个图共用一个扁平化的编码表**。",
     "--   ★★ 这就是为什么节点的 id 映射是全局的（不是「每图一份」）。",
   ],
-  133: [
+  "Graph:SaveEncode#1+13": [
     "-- ★★ edge_ids{}：★ 收集边在 encoded.edges 里的下标。",
     "--   ★★ ⚠ 疑似缺陷：edge_ids 被填充（:139/:148）但**从未被读取**。",
     "--     ★★ 纯死变量。★ 推测原本想做「边 id 交叉引用」但没实现完。",
   ],
-  135: [
+  "Graph:SaveEncode#1+15": [
     "-- ★★ 第一段：编码 **exit 边**（跨图边）。",
     "--   ★★ 为什么 exit 边先编码：★ 因为它们的 node2 属于**别的图**，",
     "--     ★★ 那些图还没被遍历到 ⇒ 若等对方编码完再回头，",
     "--       ★★ 跨图边的两个端点就不在同一遍扫描里了。",
     "--   ★★★ 于是「先 exit 后 internal」是这个算法能工作的前提。",
   ],
-  136: [
+  "Graph:SaveEncode#1+16": [
     "-- ★★ edge:SaveEncode(map) ——★ 委托给 Edge 类（map/graphedge.lua）。",
     "--   ★ 返回 {n1=node1.id, n2=node2.id, c=colour, …} —— ★ 此时 n1/n2 仍是字符串。",
   ],
-  137: ["-- ★ EncodeColour：★ 边也有颜色（默认继承 Graph 的 colour，:331）。"],
-  138: ["-- ★★ 入表（此时端点还是字符串 id）。"],
-  139: ["-- ★★ 记录下标（★ 但 edge_ids 之后再也没被用过，见 :133）。"],
-  143: [
+  "Graph:SaveEncode#1+17": ["-- ★ EncodeColour：★ 边也有颜色（默认继承 Graph 的 colour，:331）。"],
+  "Graph:SaveEncode#1+18": ["-- ★★ 入表（此时端点还是字符串 id）。"],
+  "Graph:SaveEncode#1+19": ["-- ★★ 记录下标（★ 但 edge_ids 之后再也没被用过，见 :133）。"],
+  "Graph:SaveEncode#1+23": [
     "-- ★★ 第二段：编码**图内边**（internal edges）。★ 结构与上面完全相同。",
   ],
-  144: ["-- ★★ for id,edge in pairs(self.edges) ——★★ pairs！顺序不定。"],
-  145: ["-- ★★ 同 :136。"],
-  146: ["-- ★ EncodeColour。"],
-  147: ["-- ★ 入表。"],
-  148: ["-- ★ 记录下标（同 :139，死变量）。"],
-  151: [
+  "Graph:SaveEncode#1+24": ["-- ★★ for id,edge in pairs(self.edges) ——★★ pairs！顺序不定。"],
+  "Graph:SaveEncode#1+25": ["-- ★★ 同 :136。"],
+  "Graph:SaveEncode#1+26": ["-- ★ EncodeColour。"],
+  "Graph:SaveEncode#1+27": ["-- ★ 入表。"],
+  "Graph:SaveEncode#1+28": ["-- ★ 记录下标（同 :139，死变量）。"],
+  "Graph:SaveEncode#1+31": [
     "-- ★★★ 第三段：编码 **exit_nodes**（出现在 exit 边上的本图节点）。",
     "--   ★★★ 这是最容易漏读的一段：★ .nodes 之外的节点也要编码！",
     "--   ★★ 推论：★ 一个节点要么在 .nodes 里，要么在 .exit_nodes 里，",
@@ -243,21 +243,21 @@ export const BEFORE = {
     "--     ★★★ 这是一个真实的潜在缺陷（是否触发取决于 GetNodeById/add 的时序）。",
     "--     ⚠ 推理依据：:155 的 table.insert(encoded.ids, id) 无查重。",
   ],
-  152: [
+  "Graph:SaveEncode#1+32": [
     "-- ★ node:SaveEncode(map) ——★ 委托 Node 类（graphnode.lua:142）。",
     "--   ★★ 返回 {x, y, cent, poly[], type, c, area, tags} —— ★★ 注意 poly 是多边形顶点！",
     "--   ★★★ 这意味着**存档里存了每个胞元的完整边界**，而不是只存站点坐标。",
     "--     ★★★ 因为 Voronoi 胞元不是规则图形（做过 100 次 Lloyd 松弛），",
     "--       ★★★ 必须存边界才能在运行时还原房间形状。",
   ],
-  153: ["-- ★ EncodeColour：★ 节点颜色也是去重的。"],
-  155: [
+  "Graph:SaveEncode#1+33": ["-- ★ EncodeColour：★ 节点颜色也是去重的。"],
+  "Graph:SaveEncode#1+35": [
     "-- ★★ table.insert(encoded.ids, id) ——★★ **id → 下标映射的逆表**。",
     "--   ★★ encoded.ids[i] 就是第 i 个节点的字符串 id。",
     "--   ★★ 运行时靠它把存档节点反查回原始 id",
     "--     （forest_map.lua:597/598 就是用它：GetSiteArea(save.map.topology.ids[idx])）。",
   ],
-  156: [
+  "Graph:SaveEncode#1+36": [
     "-- ★★ table.insert(encoded.story_depths, self.story_depth)",
     "--   ★★★ 极容易读错：**插的是 Graph 的 story_depth**（:34 的那个），",
     "--     ★★ **不是**节点的。★ 一个 Graph 的所有房间共享同一个深度值。",
@@ -267,8 +267,8 @@ export const BEFORE = {
     "--   ★★ 零值语义：rootNode 与未参与链接的 Graph 保持 -1 或 0，",
     "--     ★★★ 运行时（caves_retrofit_land.lua:40 等）会把某些节点强制设成 0。",
   ],
-  157: ["-- ★ 入 nodes 数组。"],
-  159: [
+  "Graph:SaveEncode#1+37": ["-- ★ 入 nodes 数组。"],
+  "Graph:SaveEncode#1+39": [
     "-- ★★★★★★★ 本文件**最关键的算法段**：id → 整数下标的重映射。",
     "-- ★★★ 做法：**对每个已编码的节点，把所有边里等于它字符串 id 的端点，",
     "--   替换成「当前节点在 encoded.nodes 里的下标」（#encoded.nodes）。**",
@@ -284,45 +284,45 @@ export const BEFORE = {
     "--       （代码看起来像「顺手做一下」）。",
     "--   ★★★ 正确做法：建 id→下标 的哈希表，一次遍历所有边完成替换（O(E)）。",
   ],
-  160: [
+  "Graph:SaveEncode#1+40": [
     "-- ★★ ⚠ 变量遮蔽：`local edge = encoded.edges[edge_id]` 把外层的 edge",
     "--   （当前正在编码的边）**遮蔽**掉了。",
     "--   ★★ 本函数内 :160/:181 之后不再需要外层 edge，所以无害；",
     "--   ★★ 但这是典型的**易碎写法**——★ 以后有人想在循环后用 edge 就中招了。",
   ],
-  161: ["-- ★★ edge.n1 == id ⇒ 替换 n1 为当前节点下标。"],
-  164: ["-- ★★ 同理替换 n2。"],
-  168: ["-- ★ 内层循环结束。"],
-  172: [
+  "Graph:SaveEncode#1+41": ["-- ★★ edge.n1 == id ⇒ 替换 n1 为当前节点下标。"],
+  "Graph:SaveEncode#1+44": ["-- ★★ 同理替换 n2。"],
+  "Graph:SaveEncode#1+48": ["-- ★ 内层循环结束。"],
+  "Graph:SaveEncode#1+52": [
     "-- ★★ 第四段：编码 **nodes**（本图内的房间节点）。★ 与第三段结构完全相同。",
     "--   ★★ 于是 exit_nodes 与 nodes 的编码逻辑是**复制粘贴**关系。",
     "--   ★★★ 唯一差别：注释里写明了第二段遍历的是 self.nodes（第三段的注释",
     "--     还留着 `for id,node in pairs(self.exit_nodes) do --self.nodes) do`",
     "--     的痕迹，说明这段是从 nodes 那段**复制过来**后改了表名）。",
   ],
-  173: ["-- ★ Node:SaveEncode —— ★★ 这里是唯一真正编码房间几何的地方。"],
-  176: ["-- ★★ ids 追加（★ 无查重，见 :151 的 ⚠）。"],
-  177: ["-- ★★ story_depths 追加（同 :156）。"],
-  180: [
+  "Graph:SaveEncode#1+53": ["-- ★ Node:SaveEncode —— ★★ 这里是唯一真正编码房间几何的地方。"],
+  "Graph:SaveEncode#1+56": ["-- ★★ ids 追加（★ 无查重，见 :151 的 ⚠）。"],
+  "Graph:SaveEncode#1+57": ["-- ★★ story_depths 追加（同 :156）。"],
+  "Graph:SaveEncode#1+60": [
     "-- ★★ 第五次全量扫描边（★ 与 :159 完全重复的代码）。",
     "--   ★★★ 即：**同一段重映射逻辑在本文件里被写了两遍**（:159-168 与 :180-189）。",
     "--     ★★ 属于「复制粘贴」而非抽象。★ 在这个规模下可接受，",
     "--       ★★ 但它意味着任何修复都要改两处。",
   ],
-  196: [
+  "Graph:SaveEncode#1+76": [
     "-- ★ Get the background nodes ——★ 这段整体被注释掉了（:199-230）。",
     "-- ★★ 从注释内容看，作者曾想做「用 GetSitePolygon 直接生成背景节点」的旧方案，",
     "--   ★★ 后被「真实背景节点 AddBGNodes」方案取代。",
     "--   ★★ 保留 30 行注释掉的代码是常见的「历史层积」，无害但增加阅读负担。",
   ],
-  232: ["-- ★★ print(\"\\tEncoding complete: \"..) ——★ 唯一会打的日志（且被注释）。"],
-  233: ["-- ══════════════ SaveEncode 结束 ══════════════"],
-  240: [
+  "Graph:SaveEncode#1+112": ["-- ★★ print(\"\\tEncoding complete: \"..) ——★ 唯一会打的日志（且被注释）。"],
+  "Graph:SaveEncode#1+113": ["-- ══════════════ SaveEncode 结束 ══════════════"],
+  "Graph:AddChild#1": [
     "-- ══════════════ AddChild / RemoveChild / GetChildren ══════════════",
     "-- ★★ AddChild：★ 最简单的函数，但有两条**关键 assert**。",
   ],
-  241: ["-- ★ assert(child) —— 不接受 nil。"],
-  242: [
+  "Graph:AddChild#1+1": ["-- ★ assert(child) —— 不接受 nil。"],
+  "Graph:AddChild#1+2": [
     "-- ★★ assert(not self.children[child.id]) ——★ **子图 id 必须全局唯一**。",
     "--   ★★★ 这条 assert 是整个拓扑正确性的**根保证**：",
     "--     ★★ 若两个 Graph 撞 id，后面所有 GetNodeById(:485) 都会找到错的那个，",
@@ -330,7 +330,7 @@ export const BEFORE = {
     "--   ★★ id 的来源：storygen.lua:1284 `task.id`、:769 `REGION_LINK_N`、",
     "--     :1156 `LOOP_BLANK N` ⇒ 都带唯一后缀。",
   ],
-  247: [
+  "Graph:RemoveChild#1": [
     "-- ★★★ ⚠ 疑似缺陷（真实）：RemoveChild 用 table.remove 删字典键。",
     "--   `table.remove(self.children, child.id)` ——★ child.id 是**字符串**！",
     "--   ★★ Lua 的 table.remove 只接受**整数下标**；传字符串是 no-op 或报错，",
@@ -339,10 +339,10 @@ export const BEFORE = {
     "--   ⚠ 当前不触发：★ grep 核实 map/ 内无 RemoveChild 调用点。",
     "--     ★★ 但这是个「谁一调谁坏」的地雷。",
   ],
-  251: [
+  "Graph:RemoveChild#1+4": [
     "-- ★★ return table.remove(self.children, child.id) ——★ 见上，删不掉。",
   ],
-  253: [
+  "Graph:GetChildren#1": [
     "-- ★★ GetChildren()：★ 直接返回内部字典引用（不拷贝）。",
     "--   ★★★ 后果：★ 外部可以拿到并**直接修改** children 字典，",
     "--     ★★ 绕过 :242 的 assert（可以覆盖已存在的子图）。",
@@ -350,8 +350,8 @@ export const BEFORE = {
     "--   ★★ storygen.lua:175 / :223 / :482 都用它遍历 ⇒",
     "--     ★★★ 这些地方的遍历顺序全部不确定。★ 可复现性雷区。",
   ],
-  255: ["-- ══════════════ 完毕 ══════════════"],
-  257: [
+  "Graph:GetChildren#1+2": ["-- ══════════════ 完毕 ══════════════"],
+  "Graph:LockGraph#1": [
     "-- ══════════════ ★★★ LockGraph：★ 「锁」的物理载体 ══════════════",
     "-- ★★★★★ 头号认知（本文件最重要的知识）：",
     "--   ★★ lock.key 这个字段**在本文件里从未被读取**。",
@@ -366,24 +366,24 @@ export const BEFORE = {
     "--     （storygen.lua:993/:1163，network.lua:1040），",
     "--     ★★ 与 lock.key 无关。★ lock.key 是纯声明式元数据。",
   ],
-  258: [
+  "Graph:LockGraph#1+1": [
     "-- ★ Lock a graph by adding an exit edge across both nodes ——★ 原始注释。",
     "--   ★★ 精确定义：这条边跨两个 Graph（node1 在 left 所属图，",
     "--     node2 在 right 所属图）。",
   ],
-  263: [
+  "Graph:LockGraph#1+6": [
     "-- ★★ assert(lock) —— lock 表必须存在（但不断言 type/key）。",
     "--   ★★ 被注释掉的 :264-265 是 `assert(lock.type)` / `assert(lock.key)`。",
     "--   ★★ 注释掉它们说明：**存在不带 type/key 的调用**（★ 例如海岛链接）。",
   ],
-  267: [
+  "Graph:LockGraph#1+10": [
     "-- ★ id 为 nil 时自动命名：\"Exit\" .. 当前 exit 边数。",
     "--   ★★★ ⚠ 潜在缺陷：若中途有边被 RemoveExitEdge(:287) 导致数量减少，",
     "--     ★★ 命名会**重复**（例：删掉一个后，\"Exit3\" 会被复用）",
     "--     ★★ 而 :270 的 assert(not self.exit_edges[id]) 会因此**崩溃**。",
     "--   ⚠ 当前不触发（无自动命名路径的调用点，★ storygen 都显式传 id）。",
   ],
-  270: [
+  "Graph:LockGraph#1+13": [
     "-- ★★ assert(not self.exit_edges[id]) ——★ exit 边 id 唯一。",
     "--   ★★ 与 :242 的子图唯一性是同一级别的保证。",
     "--   ★★★ ★★ 而这个 assert 正是 E1 缺陷的**间接证人**：",
@@ -393,7 +393,7 @@ export const BEFORE = {
     "--     ★★ 实际不崩 ⇒ 说明 E1 的表现是「少连/多连」，不是「重复连同一 id」。",
     "--       ★★（storygen.lua:793-794 的 id 用 `REGION_LINK_N` 计数器保证唯一。）",
   ],
-  272: [
+  "Graph:LockGraph#1+15": [
     "-- ★★★ self.exit_edges[id] = Edge(id, left_exit_node, right_exit_node, lock)",
     "--   ★★ 关键：**Edge 构造函数会把自己注册到两个端点的 edges 表里**",
     "--     ★★ （见 :336-339 的注释确认这一点）。",
@@ -401,7 +401,7 @@ export const BEFORE = {
     "--     ★★ 即使 node2 不在 self.nodes 里（它在兄弟图里）。",
     "--   ★★★ 这就是 exit_nodes 需要单独存在的原因（回看 :27 的注释）。",
   ],
-  274: [
+  "Graph:LockGraph#1+17": [
     "-- ★★ WorldSim:AddExternalLink(left, right) ——★ 通知 C++ 侧「这两点之间有路」。",
     "--   ★★ 与图内边的 WorldSim:AddLink(:344) 相对：",
     "--     · AddLink          = 图内相邻",
@@ -409,29 +409,29 @@ export const BEFORE = {
     "--   ★★★ C++ 侧靠这两个调用构建 Voronoi 的邻接约束 ⇒",
     "--     ★★★ **图上的邻接 = 地图上的邻接**，这正是整个设计的关键收益。",
   ],
-  279: [
+  "Graph:GetExitEdges#1": [
     "-- ★★★ GetExitEdges(false)：★ 注意形参 incChildren 在 :281 被忽略。",
     "--   ★★ 传 false 也一样返回本图的 exit_edges（★ 参数无用）。",
     "--   ★★ ⚠ 疑似缺陷（轻微）：签名承诺了行为但未实现。",
     "--   ★★ 与 GetEdges(:403) / GetNodes(:515) 的正确实现形成对比",
     "--     ★★（那两个都判断了 incChildren）。",
   ],
-  281: [
+  "Graph:GetExitEdges#1+2": [
     "-- ★★ 拷贝一份（★ 与 GetChildren(:253) 返回引用不同，这里是拷贝）。",
     "--   ★★★ 同一文件里两种风格不一致：",
     "--     · GetChildren(:253) → 返回**引用**（可被外部改坏）",
     "--     · GetExitEdges(:279) → 返回**拷贝**（安全但每次 O(E)）",
     "--   ★★ 返回拷贝反而保证了 :829 `for id,edge in pairs(...)` 的安全。",
   ],
-  287: [
+  "Graph:RemoveExitEdge#1": [
     "-- ★★★ ⚠ 疑似缺陷（同 :247）：RemoveExitEdge 同样用 table.remove 删字典键。",
     "--   ★★ `table.remove(self.exit_edges, id)` 中 id 是字符串 ⇒ 删不掉。",
     "--   ★★ 后果叠加：★ :267 的自动命名会因「数量不减」而一直递增，",
     "--     ★★ 所以 **RemoveExitEdge 无效反而避免了 :270 的 assert 崩溃**。",
     "--   ⚠ 当前无调用点（★ grep 核实）。",
   ],
-  290: ["-- ★★ return table.remove(...) ——★ 见上。"],
-  293: [
+  "Graph:RemoveExitEdge#1+3": ["-- ★★ return table.remove(...) ——★ 见上。"],
+  "Graph:IsConnectedTo#1": [
     "-- ★★ IsConnectedTo(graph)：★ 只查**图内边**（self.edges），不查 exit_edges。",
     "--   ★★★ ⚠ 语义缺陷：★ 一个 Graph 通过 exit_edge 连到别的图，",
     "--     ★★ 这里会返回 **false**（因为 exit 边不在 self.edges 里）。",
@@ -439,9 +439,9 @@ export const BEFORE = {
     "--   ★★★ 真实语义是「图内是否有边指向该图的节点」——这是个很窄的条件。",
     "--   ⚠ 当前无调用点（★ grep 核实 map/ 内零消费）。★ 又一个「语义与名字不符」的化石。",
   ],
-  297: [
+  "Graph:IsConnectedTo#1+4": [
     "-- ★★ edge.node1.graph == graph or edge.node2.graph == graph",
     "--   ★★ 用 .graph 指针比较（而不是 id）⇒ 快。",
   ],
-  303: ["-- ★═══ 完毕：Utility / SAVE-LOAD / Graph / EDGES 四节结束 ════"],
+  "Graph:IsConnectedTo#1+10": ["-- ★═══ 完毕：Utility / SAVE-LOAD / Graph / EDGES 四节结束 ════"],
 };

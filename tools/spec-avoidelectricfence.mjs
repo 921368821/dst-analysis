@@ -2,7 +2,7 @@
 // ⚠️ 行号对应 avoidelectricfence.lua 实际 75 行（末尾无换行符，wc -l 报 74）。
 
 export default {
-  1: [
+  "onelectrocute#1": [
     '--[[',
     '-- avoidelectricfence.lua —— 躲避电栅栏节点（AvoidElectricFence）',
     '--',
@@ -31,7 +31,7 @@ export default {
     '--   ★ 移植要点：回调若不需要捕获实例状态，就用模块级函数 ——',
     '--     省内存，且省掉「存句柄以便反注册」的样板代码。',
   ],
-  2: [
+  "onelectrocute#1+1": [
     '--★ 原注释：TODO Can we move this to shocked_by_field?',
     '--   翻译：「TODO：能否把这个挪到 shocked_by_field 里去？」',
     '--★ 这条 TODO 记录了一个**未完成的优化意图**：',
@@ -44,17 +44,17 @@ export default {
   ],
 
   // ══════════════ 构造器 ══════════════
-  5: [
+  "onelectrocute#1+4": [
     '--★★ 构造器零参数 —— 完全不可配置（对照 follow/wander 的高度参数化）。',
     '--★ 合理：电栅栏的逃跑方向由几何决定，没有可调阈值。',
   ],
-  7: [
+  "onelectrocute#1+6": [
     '--★ 单独的注释行 `--`（不是空行也不是代码）—— 源码里的分隔符习惯。',
     '--★ 纯风格：本文件多处用裸 `--` 把构造器切成逻辑块，便于阅读。',
     '--★ ★ 移植建议：这类分隔符在长构造器里很有用，',
     '--     比空行更醒目地标出「接下来是另一个方面」。',
   ],
-  9: [
+  "onelectrocute#1+8": [
     '--★ run_angle 初值 nil —— 「还没有逃跑方向」。',
     '--★ 第 60 行用它作为进入 RUNNING 的前提（`if self.status == READY and self.run_angle`）。',
     '--★★ 即「没有方向就什么都不做」= FAILED 语义（虽然没显式写 FAILED）。',
@@ -64,7 +64,7 @@ export default {
     '-- ★ 移植要点：「什么都不做」与「显式写 FAILED」对 Selector 等价，',
     '--   前者更简洁，但调试输出里会显示 READY 而非 FAILED，排障时要留意。',
   ],
-  11: [
+  "onelectrocute#1+10": [
     '--★★★ 在实体上挂一个「标记字段」，供**外部查询本节点是否启用**：',
     '--   inst._has_electric_fence_panic_trigger = true',
     '--   原注释：used by BrainCommon.HasElectricFencePanicTriggerNode',
@@ -80,7 +80,7 @@ export default {
     '--     当 A 要用 B、B 又要判断有没有 A 时，让 A 在 B 上留个标记。',
     '-- ⚠️ 字段名以 `_` 开头，按 Lua 惯例表示「内部字段」。规范。',
   ],
-  13: [
+  "self.shocked_by_field#1": [
     '--★★★ shocked_by_field 回调 —— 本节点的真正入口。',
     '-- 收到「被新电栏电到」事件时做两件事：',
     '--   ① 第 14 行 算出逃跑角度并缓存',
@@ -89,21 +89,21 @@ export default {
     '--   否则 Visit 会在 run_angle 还没就绪时被调用（第 60 行条件不成立，什么都不做）。',
     '-- ★ 移植要点：**事件回调与轮询之间的数据交接要有明确的时序保证**。',
   ],
-  14: [
+  "self.shocked_by_field#1+1": [
     '--★ 算出方向并缓存到 self.run_angle（详见第 32 行的详解）。',
     '--★ 注意这里覆盖而非追加 —— 多次被电就以最近一次的为准。',
     '--★ ★ 与 runaway 的 avoid_angle 缓存（1 秒锁定）不同：',
     '--   本节点不设时间锁，因为「朝电栏反方向跑」在短时间内一定是对的，',
     '--   没有理由「锁住旧方向」。两处差异反映了两种不同的避险需求。',
   ],
-  18: [
+  "self.shocked_by_field#1+5": [
     '--★ 两个事件监听：一个来自「自己被电」，一个来自「被新电栏波及」。',
     '--★ 第 18 行的回调是模块级 onelectrocute（无实例状态）；',
     '--   第 19 行是实例专属闭包（需要 self）。两种类型并存，各取所需。',
   ],
 
   // ══════════════ OnStop ══════════════
-  22: [
+  "AvoidElectricFence:OnStop#1": [
     '--★ OnStop 摘两个监听，与构造器严格对应。',
     '--★ 第 23 行用的是模块级 `onelectrocute` 引用 —— 与注册时完全同一个对象，',
     '--   所以能正确摘除（Lua 的事件匹配基于函数对象身份）。',
@@ -111,7 +111,7 @@ export default {
   ],
 
   // ══════════════ 空函数 ══════════════
-  27: [
+  "GetOtherFields#1": [
     '--⚠️【已核实 · 空函数残留】local function GetOtherFields(fences) 完全是空的。',
     '--   · 函数体（第 28 行）只有一个空行',
     '--   · `fences` 形参从未使用',
@@ -123,7 +123,7 @@ export default {
   ],
 
   // ══════════════ GetRunAngle ══════════════
-  31: [
+  "GetOtherFields#1+4": [
     '--★★★ 原注释（保留）：',
     '--   "--TODO we can still improve this, in an odd angled corner piece we should',
     '--    get the run away angle a lil differently"',
@@ -137,7 +137,7 @@ export default {
     '--     对直线排列的障碍完全正确，对复杂形状只是「大致正确」。',
     '--     知道它的边界在哪，比会写它更重要。',
   ],
-  32: [
+  "AvoidElectricFence:GetRunAngle#1": [
     '--★★ GetRunAngle(field) —— 算出「背离电栏群」的方向。',
     '-- ★★★ 核心算法只有 4 行，但思想很漂亮：',
     '--   对电栏的每一段，取「指向它的反方向」单位向量，全部累加，',
@@ -145,11 +145,11 @@ export default {
     '--   ★★ 直观解释：每段电栏往反方向推一点，加起来的总方向就是最省力的逃法。',
     '--   这正是「向量场求和」在避障中的标准用法。',
   ],
-  35: [
+  "AvoidElectricFence:GetRunAngle#1+3": [
     '--★ 遍历电栏的所有分段（field.fences 是电栏的构成段）。',
     '--★ 一个电栏由多段组成，每段都要单独贡献一份推力。',
   ],
-  37: [
+  "AvoidElectricFence:GetRunAngle#1+5": [
     '--★ 取自己指向该段电栏的方位角，并立即转成弧度（* DEGREES）。',
     '--★ ★★ 本文件是全目录少见的「一进入就转弧度」的地方 ——',
     '--   下一行直接 math.cos/sin 消费，需要弧度。',
@@ -158,7 +158,7 @@ export default {
     '--   ★ 这是「角度单位纪律」的又一实例（详见 wander 第 187 行的系统说明）。',
     '--★ 第 37 行传的是 (x, 0, z) 三个参数（GetAngleToPoint 的三坐标形式）。',
   ],
-  38: [
+  "AvoidElectricFence:GetRunAngle#1+6": [
     '--★★★ 合力累加的真正一行：xs, zs = xs - cos(angle), zs - sin(angle)',
     '--★ 取负号 = 指向「背离电栏」的方向，即逃跑方向。',
     '-- ★★★ 这一行同时做了两件事，很高效：',
@@ -170,7 +170,7 @@ export default {
     '--   `(hp - pt):GetNormalized()` —— 那里需要真实长度，那里有必要。',
     '--   这里只需要方向，所以 cos/sin 就够了。',
   ],
-  41: [
+  "AvoidElectricFence:GetRunAngle#1+9": [
     '--★★★ 返回角度：atan2 求合力方向，* RADIANS 转成度，% 360 归一。',
     '--★ RADIANS = 180/PI（constants.lua:15），DEGREES = PI/180（第 14 行），',
     '--   两者互为倒数。这里用 RADIANS 是「弧度 → 度」。',
@@ -190,7 +190,7 @@ export default {
     '--   「给随机行为加扰动」在本目录是一条反复出现的原则。',
     '--   ★ 移植建议：群体 AI 的同质化是廉价感的主要来源，加点扰动很值得。',
   ],
-  44: [
+  "AvoidElectricFence:GetRunAngle#1+12": [
     '--★ 被注释掉的一大段代码（约 11 行），是另一套基于实体朝向的算法草稿：',
     '--   思路是「取电栏方向 → 算与实体朝向的夹角 → 折半」（recoilangle 逻辑）。',
     '--★ 注意最后一行注释「我推断这里可以省掉一些方差」——',
@@ -201,7 +201,7 @@ export default {
   ],
 
   // ══════════════ Visit ══════════════
-  59: [
+  "AvoidElectricFence:Visit#1": [
     '--★★★ Visit —— 全部逻辑只有两段共 4 行，是本目录最精简的 Visit。',
     '--★ 没有 FAILED、没有 SUCCESS、没有 Sleep：',
     '--   节点一旦 RUNNING 就永远 RUNNING，直到别处 Stop 整棵树。',
@@ -210,7 +210,7 @@ export default {
     '--   对照 leash 那样有明确「到家」终点的节点 —— 差别就在这。',
     '-- ★ 移植要点：**先判断行为有没有完成点**，有则必须设计终态，无则让它持续。',
   ],
-  60: [
+  "AvoidElectricFence:Visit#1+1": [
     '--★★★ 双重条件进入 RUNNING：`status == READY and self.run_angle`。',
     '--★ run_angle 非 nil ⟺ 已经收到过电栏事件并算出了方向。',
     '--★★ 「事件填数据 + 轮询读数据」的两阶段模式（本文件的核心架构）：',
@@ -219,7 +219,7 @@ export default {
     '-- ★★ 相比 findclosest 的「周期性重选」，本节点是「一次触发永久有效」，',
     '--   因为逃跑方向不需要重新评估（电栏不会自己移动）。',
   ],
-  63: [
+  "AvoidElectricFence:Visit#1+4": [
     '--★★ 进入时丢弃战斗目标 —— 「逃命要紧，不打了」。',
     '--★ DropTarget 而非 GiveUp：Drop 只是解除锁定，',
     '--   不像 GiveUp 会清仇恨来源（本节点只关心逃跑，不承担仇恨管理）。',
@@ -229,7 +229,7 @@ export default {
     '-- ★★ 这与 chaseandattack 退出时 SetTarget(nil) 是同类的「状态清理」',
     '--     但方向相反：那个是清自己的，那个是清别人的。',
   ],
-  68: [
+  "AvoidElectricFence:Visit#1+9": [
     '--★ 每帧朝 run_angle 跑。用 Run（跑）而非 Walk —— 避险要快。',
     '--★ 用 RunInDirection 而非 GoToPoint：方向移动只依赖瞬时方位。',
     '--★★ 对照 wander 第 187 行（同为 WalkInDirection）与 runaway 第 169 行',
@@ -243,7 +243,7 @@ export default {
   ],
 
   // ══════════════ 调试输出 ══════════════
-  73: [
+  "AvoidElectricFence:__tostring#1": [
     '--★ __tostring：显示当前逃跑角度。',
     '--★ 排查「为什么它不跑」时看这一行：若显示 nil，说明事件没来过。',
     '-- ★ 移植要点：事件驱动型节点尤其需要这种「数据是否就绪」的调试输出，',

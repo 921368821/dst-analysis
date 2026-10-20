@@ -23,7 +23,7 @@ export const BEFORE = {
     "--     ★ 这是真实风险：模组能削弱服务器的安全防线。",
     "--     → 移植时应把这五个函数放进只读的模块表，或加一层不可篡改的封装。",
   ],
-  4: [
+  "checkbool#1": [
     "--★★【checkbool —— 全族里唯一的特殊项：它把 nil 也算「合法」】",
     "--   return val == nil or type(val) == \"boolean\"",
     "--   ★★ 为什么布尔允许 nil？因为「按下」与「没按下」用 nil 表达，",
@@ -34,13 +34,13 @@ export const BEFORE = {
     "--   ★ 原注释第 3 行说 \"Global so Mods can use them too\"，",
     "--     第 9 行的 `optbool = checkbool` 则是别名的来源。",
   ],
-  5: [
+  "checknumber#1": [
     "--★ checknumber —— 最宽松的数值检查：只认 type == \"number\"。",
     "--   ★ 不检查是否为整数、不检查范围（NaN / math.huge 都能通过）。",
     "--     范围校验交给上层（如 IsPointInRange / IsRotationValid）。",
     "--   ★ 这种「谓词只管类型，业务函数管范围」的分工是本文件的统一风格。",
   ],
-  6: [
+  "checkuint#1": [
     "--★★★【checkuint —— 用字符串正则来判断「无小数」，这是本文件最巧妙的一行】",
     "--   return type(val) == \"number\" and tostring(val):find(\"%D\") == nil",
     "--   ★★ 技巧说明：tostring(number) 产生的字符串里，\"%D\" 匹配任何**非数字**字符。",
@@ -57,13 +57,13 @@ export const BEFORE = {
     "--   ⚠ 边界：tostring(1e15) 在某些 Lua 实现下会变成 \"1e+15\"，含非数字字符 →",
     "--     会被误判为非 uint。实践中槽位号远小于 10^15，不构成问题。",
   ],
-  7: [
+  "checkstring#1": [
     "--★ checkstring —— 只认 string 类型。",
     "--   ★ 注意它**不检查长度**。长度校验在各自的 handler 里做，",
     "--     例如 networking.lua:54 的 `message:utf8len() > MAX_CHAT_INPUT_LENGTH`。",
     "--   ★★ 印证「谓词管类型、业务管约束」的分工原则。",
   ],
-  8: [
+  "checkentity#1": [
     "--★★★【checkentity —— 全文件最需要警惕的一个谓词】",
     "--   return type(val) == \"table\"",
     "--   ★★★ 它**只检查是不是 table**，不检查这个 table 是不是一个合法实体！",
@@ -82,7 +82,7 @@ export const BEFORE = {
     "--     → 参见 01-报告/04-联机同步-模组系统-UI.md:1115 的安全基线。",
     "--   ★ optentity（第 13 行）是它的可选版本（允许 nil）。",
   ],
-  9: [
+  "checkentity#1+1": [
     "--★★【`optbool = checkbool` —— 十个字符解释了 check 族与 opt 族的真正关系】",
     "--   ★★★ optbool 不是新函数，只是 checkbool 的**别名**。",
     "--   ★★ 而 optbool 的定义（第 10 行）是 `val == nil or type(val) == \"boolean\"` ——",
@@ -95,25 +95,25 @@ export const BEFORE = {
     "--   ★ 这是「命名一致性」优先于「消除重复」的取舍 ——",
     "--     可读性收益大于 DRY 收益。",
   ],
-  10: [
+  "optnumber#1": [
     "--★★【optnumber —— 「可为 nil 的数值」，与 checknumber 的唯一差别就是 nil】",
     "--   ★ 语义：某些 RPC 参数是「可选的数值」，不传就是 nil，",
     "--     而传了就必须是 number。例如 controlmods（手柄按键位）。",
   ],
-  11: [
+  "optuint#1": [
     "--★ optuint —— checkuint 的可选版本：多一个 nil 放行。",
     "--   ★ 组合了第 6 行的字符串技巧与 nil 放行。",
   ],
-  12: [
+  "optstring#1": [
     "--★ optstring —— checkstring 的可选版本。",
   ],
-  13: [
+  "optentity#1": [
     "--★ optentity —— checkentity 的可选版本（target / platform / spellbook 常可省略）。",
     "--   ★★ 注意第 62 行的 LeftClick 校验里 optentity(target) 与 checkentity(target)",
     "--     混用：target 可选而 item 必需（后者见第 727 行 checkentity(item)）。",
     "--     ★ 选哪个取决于「这个参数缺席时业务是否还成立」，不是随意的。",
   ],
-  15: [
+  "optentity#1+2": [
     "--★★★【两条说明 pin 住整个校验哲学】",
     "--   :15 \"checkuint since non-integer inventory slots are not handled gracefully\"",
     "--       → 解释为什么槽位类参数必须用严格的 uint（第 6 行的原因）。",
@@ -124,7 +124,7 @@ export const BEFORE = {
   ],
 
   // ── printinvalid ────────────────────────────────────────────────────────
-  18: [
+  "printinvalid#1": [
     "--★★★【printinvalid —— 非法 RPC 的三段式处理，本文件的安全哲学集中体现】",
     "--   ① 打印日志（含 userid 与 name，便于追查）；",
     "--   ② 派发 invalidrpc 事件 —— ★ 这是给反作弊模组的正式接口；",
@@ -140,13 +140,13 @@ export const BEFORE = {
     "--     没有让模组替换它的必要（与第 4-8 行的 check* 形成对比，",
     "--     ★ 说明「哪些东西该暴露」的判断标准是「模组是否需要复用」）。",
   ],
-  19: [
+  "printinvalid#1+1": [
     "--★ 日志格式：\"Invalid <RPC名> RPC from (<userid>) <name>\"。",
     "--   ★ 两个身份字段都打印：userid 是账号标识（唯一），name 是显示名（易读）。",
     "--     ★ `player.userid or \"\"` 的 or 兜底是必需的 —— 因为 player 可能",
     "--       是 userid 字符串（USERID_RPCS 场景），或一个尚未生成实体的新玩家。",
   ],
-  22: [
+  "printinvalid#1+4": [
     "--★★★【PushEvent(\"invalidrpc\") —— 「让模组自己决定怎么处理」的设计】",
     "--   { player = player, rpcname = rpcname } —— 载荷极简，只有身份与 RPC 名。",
     "--   ★★ 为什么不直接踢人？三个理由（推理）：",
@@ -162,20 +162,20 @@ export const BEFORE = {
     "--     → 移植时这里应加 `if TheWorld ~= nil then`。当前是既有行为，仅标注。",
     "--   ★ 事件数据里没有 code 数字与 tick —— 若模组需要，得从别处拿。",
   ],
-  24: [
+  "printinvalid#1+6": [
     "--★ `if BRANCH == \"dev\"` —— 仅开发构建才崩溃。",
     "--   ★★ 这是一个「编译期常量分支」，生产构建里是死代码。",
     "--     内测时任何客户端 bug 会立刻暴露成明确的服务端崩溃，",
     "--     远好过在正式服里静默丢弃。",
     "--   ★ BRANCH 是构建常量，全项目多处使用（如 networking.lua:307 的 BRANCH ~= \"dev\"）。",
   ],
-  26: [
+  "printinvalid#1+8": [
     "--★ assert(false, msg) —— 主动崩溃，附带与上面 print 相同的消息格式。",
     "--   ★ 重复构造消息字符串（而非复用）是本文件的小瑕疵，无功能影响。",
   ],
 
   // ── printinvalidplatform ────────────────────────────────────────────────
-  30: [
+  "printinvalidplatform#1": [
     "--★★★【printinvalidplatform —— 「平台相对坐标用错了」的专项诊断】",
     "--   ★★ 与 printinvalid 的区别：不派发事件、不崩溃，只打日志。",
     "--     为什么级别更低？因为它是**可容忍的竞态**，不是攻击。",
@@ -188,21 +188,21 @@ export const BEFORE = {
     "--   ★★ 所以处理方式必须是「记日志并丢弃」而非「报错」。",
     "--     这解释了为什么后续一律用 `if x ~= nil then` 静默跳过。",
   ],
-  32: [
+  "printinvalidplatform#1+2": [
     "--★★【第 32 行的三目兜底：玩家不存在时用 math.huge 保证格式化不崩】",
     "--   local player_pt = player ~= nil and player:GetPosition() or Vector3(math.huge, math.huge, math.huge)",
     "--   ★★ 为什么用 math.huge 而不是 nil？因为下一步要访问 .x 和 .z 做格式化，",
     "--     那样会崩。用 math.huge 打出来就是 \"inf\"，一眼看出「玩家不在」。",
     "--   ★ 这是「诊断代码不应引入新崩溃」的防御式写法 —— 值得学习。",
   ],
-  33: [
+  "printinvalidplatform#1+3": [
     "--★ 日志里带 Player 的 tostring（实体地址）与坐标，便于定位竞态发生的时刻。",
     "--   ★ 注意 `VecUtil_Length(relative_x, relative_z)` 算出相对偏移的模长，",
     "--     这个值能直接告诉你客户端「以为自己在哪」。",
   ],
 
   // ── 几何原语 ────────────────────────────────────────────────────────────
-  39: [
+  "IsRotationValid#1": [
     "--★★[IsRotationValid —— 旋转角的合法性检查]",
     "--   return rot > -math.huge and rot < math.huge",
     "--   ★★★ 这个检查的真实目的是**排除 NaN**！",
@@ -215,7 +215,7 @@ export const BEFORE = {
     "--   ★ 调用点：:154（RightClick）、:294（ControllerActionButtonDeploy）、",
     "--     :981（MakeRecipeAtPoint）、:1312（PredictGallopTrip）。",
   ],
-  43: [
+  "IsPointInRange#1": [
     "--★★★★★[IsPointInRange —— 本文件最重要的安全原语，反作弊的第一道几何闸门]",
     "--   ★★ 判定式：distsq(x, z, px, pz) <= 4096",
     "--   ★★★ 4096 = 64²，即**允许玩家在 64 格半径内点击/交互**。",
@@ -237,7 +237,7 @@ export const BEFORE = {
     "--     → 移植时应把「距离 + 视线 + 可交互性」收敛成一个统一校验器。",
     "--   ★ 参见 01-报告/04-联机同步-模组系统-UI.md:147（对这条规则的说明）。",
   ],
-  48: [
+  "ConvertPlatformRelativePositionToAbsolutePosition#1": [
     "--★★★★★[ConvertPlatformRelativePositionToAbsolutePosition —— 平台相对坐标的安全转换]",
     "--   ★★★ 这是本文件安全设计里最精妙的一环。",
     "--   ── 问题 ──",
@@ -261,7 +261,7 @@ export const BEFORE = {
     "--     return relative_x, relative_z —— ★ 只返回两个值，丢弃了 y。",
     "--     因为后续所有用途都是 Vector3(x, 0, z)（贴地），不需要高度。",
   ],
-  49: [
+  "ConvertPlatformRelativePositionToAbsolutePosition#1+1": [
     "--★★[platform_relative 为假 → 原样返回，什么都不做]",
     "--   ★ 语义：客户端没有使用平台相对坐标，说明它发的是绝对坐标，直接用。",
     "--   ★★ 注意这个函数的「静默」性：两种失败（缺平台、非法平台）",
@@ -269,7 +269,7 @@ export const BEFORE = {
     "--     ★ 理由：这是**正常的竞态**（见 :30 的 printinvalidplatform 注释），",
     "--       不能因此中断整个 RPC 流程。",
   ],
-  50: [
+  "ConvertPlatformRelativePositionToAbsolutePosition#1+2": [
     "--★★[平台为 nil 时裸 return —— 只返回 nil，不返回第二个值]",
     "--   ★★ Lua 语法点：裸 `return` 等价于 `return nil`，且只返回**一个**值。",
     "--     所以调用方的 `local x, z = Convert(...)` 会得到 x=nil, z=nil。",
@@ -278,7 +278,7 @@ export const BEFORE = {
     "--   ★⚠ 契约脆弱：若某处误写成 `if x and z then`，",
     "--     当 x=nil 时短路，安全；写成 `if z ~= nil` 则会崩。移植时须逐一核对。",
   ],
-  54: [
+  "ConvertPlatformRelativePositionToAbsolutePosition#1+6": [
     "--★★[LocalToWorldSpace —— 平台 Transform 的坐标变换]",
     "--   ★ 第二个参数写死 0：相对高度不使用（只有 x/z 两个自由度）。",
     "--   ★★ 平台可以是**任意朝向**的（翻覆的船、直立的门），",
@@ -293,14 +293,14 @@ export const BEFORE = {
 };
 
 export const AFTER = {
-  16: [
+  "optentity#1+3": [
     "--★ 说明区结束。第 18 行起是诊断与几何原语，第 59 行起才是真正的处理器表。",
   ],
-  13: [
+  "optentity#1": [
     "--★ opt* 族结束。五组 check/opt 谓词是整个 RPC 校验体系的地基 ——",
     "--   ★ 全文件约 90 个 handler 里的每一个 if 语句都在调用它们。",
   ],
-  57: [
+  "ConvertPlatformRelativePositionToAbsolutePosition#1+9": [
     "--★★★ 几何原语区结束。三个函数的职责边界很清楚：",
     "--   IsRotationValid (:39) —— 旋转角是否可用（专杀 NaN）",
     "--   IsPointInRange (:43) —— 距离是否在允许范围内（安全闸门）",
@@ -308,17 +308,17 @@ export const AFTER = {
     "--   ★★ 三者都是**纯函数、无副作用、无状态** —— 便于推理与测试。",
     "--     这在本文件（大量有状态逻辑）中是一股清流。",
   ],
-  35: [
+  "printinvalidplatform#1+5": [
     "--★ printinvalidplatform 结束。它与 printinvalid 的分工：",
     "--   · printinvalid      → 类型/参数非法，可能是攻击 → 事件 + dev 断言",
     "--   · printinvalidplatform → 平台引用缺失，正常竞态 → 仅日志",
   ],
-  46: [
+  "IsPointInRange#1+3": [
     "--★ IsPointInRange 结束。⚠ 缺陷 A 的完整表述见 BEFORE[43]。",
   ],
 
   // ── RPC_HANDLERS 与 LeftClick ──────────────────────────────────────────
-  59: [
+  "ConvertPlatformRelativePositionToAbsolutePosition#1+11": [
     "--★★★★★★★★★【RPC_HANDLERS —— 本文件最核心的数据结构，约 90 个处理器（59-1386）】",
     "--   ★★★ 方向：客户端 → 服务端（对应 C2V / CLIENT_TO_SERVER）。",
     "--   ★★ 信任级别：★★ 不可信。这是全文件唯一需要逐个校验的方向。",
@@ -338,7 +338,7 @@ export const AFTER = {
     "--     ★ 这是「异步消息到达时状态可能已变」的典型防御。",
     "--   参见 01-报告/04-联机同步-模组系统-UI.md:116-120（三通道表）。",
   ],
-  61: [
+  "LeftClick#1": [
     "--★★★[LeftClick —— 90 个 handler 里参数最多的一个，也是最值得逐行读的样板]",
     "--   ★★ 13 个参数：player, action, x, z, target, isreleased, controlmods,",
     "--     noforce, mod_name, platform, platform_relative, spellbook, spell_id",
@@ -354,7 +354,7 @@ export const AFTER = {
     "--   ★★ mod_name 的存在是模组系统的要求：mods_description 里的 mod_name",
     "--     是路由键，用来把动作分发给正确的模组逻辑。",
   ],
-  62: [
+  "LeftClick#1+1": [
     "--★★★★★[第 62-90 行：二元校验 —— 「要么全 nil，要么全部合法」]",
     "--   ★★★ 这是本文件最需要理解的校验范式，与其他 handler 的单一校验不同。",
     "--   ── 为什么是二元的？──",
@@ -372,19 +372,19 @@ export const AFTER = {
     "--       ControllerAltActionButton(:304)、PredictWalking(:426)、DoActionOnMap(:1130)。",
     "--     ★ 「哪些 handler 用二元校验」取决于「该 RPC 是否支持空包」。",
   ],
-  63: [
+  "LeftClick#1+2": [
     "--★ `--these are either all nil` —— ★ 源码自己给出的解释。",
     "--   ★ 第一个分支：13 个参数必须**全部**为 nil（有 1 个非 nil 就不成立）。",
     "--   ★ 注意这里的 and 连接是「必须全 nil」的严格表述，",
     "--     而下面第 77 行那个分支是「必须全部合法」。",
   ],
-  75: [
+  "LeftClick#1+14": [
     "--★ `) or` —— 两个分支的连接点。",
     "--   ★★★ 读法：`if not ( (全 nil) or (全部合法) ) then → 非法`。",
     "--     ★ 注意最外层那个 not 覆盖了整个 or，",
     "--       所以只要**任意一个合法分支成立**就算通过。",
   ],
-  76: [
+  "LeftClick#1+15": [
     "--★ `--or all validated` —— 第二个分支的注释。",
     "--   ★★ 这里开始逐参数校验，注意 check 与 opt 的选择差异：",
     "--     checknumber(action/x/z) —— 必需",
@@ -398,7 +398,7 @@ export const AFTER = {
     "--     optentity(spellbook)      —— 可选",
     "--     optuint(spell_id)         —— 可选",
   ],
-  85: [
+  "LeftClick#1+24": [
     "--★★[optentity(platform) 的语义 —— 为什么可选]",
     "--   ★ platform 可以为 nil：当玩家不在任何可站平台上时点击。",
     "--     此时 platform_relative 也必然是 nil/false（见第 86 行）。",
@@ -412,10 +412,10 @@ export const AFTER = {
     "--       并在第 101 行由 printinvalidplatform 记录为竞态。",
     "--       → 这是「校验层放行、业务层降级」的分工，本文件严格遵守。",
   ],
-  91: [
+  "LeftClick#1+30": [
     "--★ 校验通过后的缩进/格式（then 换行）—— 语法细节，无语义。",
   ],
-  95: [
+  "LeftClick#1+34": [
     "--★★[playercontroller 的取得 —— 几乎所有输入类 RPC 的第一跳]",
     "--   ★★ playercontroller 是玩家输入的总路由组件。",
     "--   ★ 它的 OnRemoteXxx 系列方法（:98/:105/:148/:155/:174/:190/...）",
@@ -426,7 +426,7 @@ export const AFTER = {
     "--     ★ 「RPC 层只做格式校验，语义校验在组件层」的分层在此体现。",
     "--   参见 components/playercontroller.lua（★ 建议一并阅读该文件的 OnRemote* 系列）。",
   ],
-  97: [
+  "LeftClick#1+36": [
     "--★★★[action == nil → 空包分支：只调 OnRemoteLeftClick() 不带参数]",
     "--   ★★ 这就是第 62-90 行那个「全 nil」合法状态的唯一用途：",
     "--     客户端发一个空 LeftClick，服务端只触发 onremotehandler，",
@@ -435,14 +435,14 @@ export const AFTER = {
     "--   ★★ 若没有第 62 行那个「全 nil」分支，这个分支就永远进不去（",
     "--     会被第 92 行 printinvalid 拦掉）。两个分支是配套设计的。",
   ],
-  101: [
+  "LeftClick#1+40": [
     "--★★[printinvalidplatform —— 平台坐标竞态的诊断点]",
     "--   ★ 注意它传的第 4/5 参数是 x, z（转换**前**的相对坐标），",
     "--     这样日志里的偏移量才有诊断价值（若传转换后的绝对坐标就无意义了）。",
     "--   ★★ 调用顺序：先诊断，再转换（第 102 行）。",
     "--     顺序不可颠倒 —— 转换会覆盖 x/z 变量，事后无法还原原始载荷。",
   ],
-  102: [
+  "LeftClick#1+41": [
     "--★★[转换的执行点 —— 与范围检查的顺序是安全关键]",
     "--   ★ x, z = ConvertPlatformRelativePositionToAbsolutePosition(x, z, platform, platform_relative)",
     "--   ★★★ 顺序必须「先转换，后 IsPointInRange」（第 104 行）：",
@@ -452,29 +452,29 @@ export const AFTER = {
     "--   ★★★ 这个「先归一化再校验」的顺序在本文件出现 10 次（见 §零 清单），",
     "--     是移植时最容易搞错的一处。",
   ],
-  103: [
+  "LeftClick#1+42": [
     "--★★[if x ~= nil then —— 转换失败的静默跳过]",
     "--   ★ 这与第 50 行的「裸 return」约定配对（见 :50 的注记）。",
     "--   ★★ 为什么不报错？因为这是正常竞态（见 :30 的分析）。",
     "--     若在此抛错，一个客户端的时序问题会拖垮整个服务器。",
   ],
-  104: [
+  "LeftClick#1+43": [
     "--★★★[IsPointInRange —— 距离闸门]",
     "--   ★ 这是「客户端能点击多远」的唯一约束。",
     "--   ★★ 通过后第 105 行才构造 Vector3(x, 0, z) —— ★ y 恒为 0：",
     "--     因为这是**地面**交点，实体实际落地高度由组件自己算。",
   ],
-  106: [
+  "LeftClick#1+45": [
     "--★ else 分支只打印不惩罚 —— ★ 再次体现本文件的安全哲学：",
     "--   「超距点击」可能是客户端预测误差，不一定是攻击。",
     "--   ★ 对比 :107 与 :92：前者只打印，后者推 invalidrpc 事件。",
     "--     区别在于**超距是合法参数组合下的越界行为**，而非法参数是格式错误。",
   ],
-  110: [
+  "LeftClick#1+49": [
     "--★ playercontroller 为 nil 时静默返回（玩家已死亡/正在重生）。",
     "--   ★ 这是本文件出现频率最高的防御句式，约 40 处。",
   ],
-  111: [
+  "LeftClick#1+50": [
     "--★ LeftClick 结束。★★★ 请把它的结构记住 ——",
     "--   后面 89 个 handler 全都是这个骨架的变体：",
     "--     校验 → 坐标还原 → 范围检查 → 转发组件 → 防御性判空。",

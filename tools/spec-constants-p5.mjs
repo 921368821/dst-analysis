@@ -2,7 +2,7 @@
 // 覆盖源文件行号区间：2759 - 3041
 
 export const BEFORE = {
-  2759: [
+  "RGB#1+1101": [
     "--★★★ 【★ 类别 U · ★★★ 物品系统枚举 —— 本文件最核心的一段★★★】2761-3041 行",
     "--",
     "--  ★★ 这 280 行是「物品的元数据定义」—— 它们不描述某个具体物品，",
@@ -14,7 +14,7 @@ export const BEFORE = {
     "--    + TOOLACTIONS 中登记的敲击动作。",
   ],
 
-  2761: [
+  "RGB#1+1103": [
     "--★ SKIN_TYPES_THAT_RECEIVE_CLOTHING 接受服装的皮肤类型（2761 行）。",
     "--  ★★ 这是「哪些角色模型能穿上某种装备」的白名单。",
     "--    ⇒ 皮肤（skin）与装备（clothing）是两个正交维度，",
@@ -22,7 +22,7 @@ export const BEFORE = {
     "--★ 属于存档相关（玩家拥有哪些皮肤会写入存档），改名有风险。",
   ],
 
-  2773: [
+  "RGB#1+1115": [
     "--★★ 【POSTACTIVATEHANDSHAKE 激活握手】2773-2779 行",
     "--  ★★ 英文原注释是一条**不可逆性警告**：",
     "--    'NOTES(JBK): These are expected to never go backwards and ...'",
@@ -34,13 +34,13 @@ export const BEFORE = {
     "--★ 参照 networking.lua 的版本校验逻辑。",
   ],
 
-  2780: [
+  "RGB#1+1122": [
     "--★★ 【STORM_TYPES 风暴类型】2780 行",
     "--  ★★ 玻璃风暴/月亮的阶段类型枚举。",
     "--  ★ 与 tuning.lua 的 STORM_* 系列数值配合。",
   ],
 
-  2787: [
+  "RGB#1+1129": [
     "--【★★ HUNT_ACTIONS 狩猎动作】2787 行",
     "--  ★★★ 这张表把「狩猎」分解成若干**可被逐步执行的动作**：",
     "--    打手势 → 挖坑 → 竖网 → 等待 → 收网……",
@@ -52,7 +52,7 @@ export const BEFORE = {
     "--    ★ 与 HUNT_ACTIONS 同为「大型仪式」系统（狼人召唤/月亮召唤）。",
   ],
 
-  2803: [
+  "RGB#1+1145": [
     "--【LOADING_SCREEN_TIP_* 载入界面提示】2803-2864 行",
     "--  ★★ 一整套关于「载入小贴士」的配置：内容、分类、图标、权重区间。",
     "--  ★★★ LOADING_SCREEN_TIP_CATEGORY_WEIGHTS_START / _END（第 2829/2838 行）：",
@@ -62,7 +62,7 @@ export const BEFORE = {
     "--  ★ 权重决定各类提示被随机抽中的频率 —— 属体验微调，无存档风险。",
   ],
 
-  2865: [
+  "RGB#1+1207": [
     "--★★ 【SCRAPBOOK_CATS 手札分类】2865-2895 行 —— ★★ 与存档强相关",
     "--  SCRAPBOOK_CATS（第 2865 行）：手札（Scrapbook）页面的分类。",
     "--  SPECIAL_SCRAPBOOK_PAGES_LOOKUP（第 2874 行）。",
@@ -77,13 +77,13 @@ export const BEFORE = {
     "--★ 参见 components/scrapbook.lua。",
   ],
 
-  2884: [
+  "RGB#1+1226": [
     "--  BERNIEALLEGIANCE（第 2884 行）：伯尼（雕像 Boss）的阵营选择。",
     "--  ★ 对应 tuning.lua:7455 区的 ALLEGIANCE_VS_LUNAR / _VS_SHADOW 加成。",
     "--    ⇒ 常量表存「选了哪个阵营」，调优表存「选了对玩家什么好处」。",
   ],
 
-  2896: [
+  "RGB#1+1238": [
     "--【LOADING_SCREEN_CONTROLLER_ID_LOOKUP】2896 行：",
     "--  ★ _LOOKUP 后缀 = 反查表（由前表 table.invert 生成）。",
     "--  INSPECTACLES_GAMES（2905 行）眼镜小游戏配置 + _LOOKUP（2914 行）。",
@@ -92,7 +92,7 @@ export const BEFORE = {
     "--  CHARLIERESIDUE_MAP_ACTIONS 地图操作（2919 行）。",
   ],
 
-  2924: [
+  "RGB#1+1266": [
     "--★★ 【★ 小地图装饰优先级上限】2924 行",
     "--  MINIMAP_DECORATION_PRIORITY = 50 -- NOTES(JBK): Nothing should go above",
     "--   this to maint...",
@@ -103,7 +103,7 @@ export const BEFORE = {
     "--    它们的值不能孤立理解，必须与别处的设计假设一起看。",
   ],
 
-  2926: [
+  "RGB#1+1268": [
     "--★★ 【WOBYCOURIER_NO_CHEST_COORD = -32767】—— 极端哨兵坐标",
     "--  ★★ 英文原注释：'Way off of any normal sized map.'",
     "--    「远离任何正常尺寸的地图。」",
@@ -121,7 +121,7 @@ export const BEFORE = {
     "--    ★ 离开容器 3 单位外自动关闭 UI。属交互手感参数。",
   ],
 
-  2931: [
+  "RGB#1+1273": [
     "--【CLIENTAUTHORITATIVESETTINGS 客户端权威设置】2931 行：",
     "--  ★★★ 这是一个**架构性概念**，值得单独理解：",
     "--    某些设置由**客户端**决定并上报给主机，而非主机强制下发。",
@@ -132,12 +132,12 @@ export const BEFORE = {
     "--    ⇒ 调平衡时绝不能把平衡数值放进这张表，否则可被客户端篡改。",
   ],
 
-  2935: [
+  "RGB#1+1277": [
     "--【NIGHTSWORD_FX_OFFSETS 夜剑特效偏移】2935 行。",
     "--  ★ 纯表现层坐标，与 gameplay 无关。",
   ],
 
-  2940: [
+  "RGB#1+1282": [
     "--★★ 【SHARDTRANSACTIONSTEPS / _TYPES 跨服事务】2940-2950 行",
     "--  ★★ 这是「跨服务器迁移玩家」的事务状态机：",
     "--    STEPS = 流程的各个阶段，_TYPES = 事务类型。",
@@ -146,13 +146,13 @@ export const BEFORE = {
     "--    属「局部高风险」常量。",
   ],
 
-  2951: [
+  "RGB#1+1293": [
     "--  EQUIVALENT_ATTUNABLE_TAGS 等价可调标签（2951 行）。",
     "--  HAPTICS 触觉反馈表（2958 行）：手柄震动强度映射。",
     "--    ★ 与第 1903 行 VIBRATION_* 同属手柄震动体系。",
   ],
 
-  2977: [
+  "RGB#1+1319": [
     "--【MIGRATION_TYPES 存档迁移类型】2977 行：",
     "--  ★★★ 这张表的存在本身就是「魔数风险」的历史证据：★★",
     "--    因为开发过程中**确实修改过存档格式**，",
@@ -163,13 +163,13 @@ export const BEFORE = {
     "--  YOTH_HORSE_NAMES 犹多马名字（3005 行）：纯文本列表。",
   ],
 
-  3012: [
+  "RGB#1+1354": [
     "--【SKINUNLOCKS 皮肤解锁表】3012 行：",
     "--  ★★ 记录皮肤解锁方式（游戏内进度/购买/活动赠送）。",
     "--    ★ 属**存档数据**：玩家的解锁进度会记录在此。",
   ],
 
-  3017: [
+  "RGB#1+1359": [
     "--★★★ 【★★ 韦斯电路板系统常量 —— 本文件最后一段 ★★】3017-3041 行",
     "--",
     "--  ★★★ 这 25 行定义韦斯（WX78）技能树的电路板体系，",
@@ -203,12 +203,12 @@ export const BEFORE = {
     "--    ⇒ 这是本文件中改动代价最高的单个数字之一。",
   ],
 
-  3030: [
+  "RGB#1+1372": [
     "--  SOCKETNAMES 插槽名（3030 行）：韦斯装备的插槽名称。",
     "--  ★ 与 CIRCUIT_BARS（电路板类型）配合，构成装备结构定义。",
   ],
 
-  3034: [
+  "RGB#1+1376": [
     "--★★ 【SOCKETQUALITY 插槽品质】3034-3040 行",
     "--  ★★ 行尾同样带有 export_accountitems.lua 同步警告（第 5 处同步要求）。",
     "--  ★★ 紧随其后的英文注释提供了品质对应关系（重要背景知识）：",
@@ -233,7 +233,7 @@ export const BEFORE = {
 };
 
 export const AFTER = {
-  3041: [
+  "RGB#1+1383": [
     "--★★★ 【★ 全文件结束】3041 行 ★★★",
     "--  ★★★ 回看整个 constants.lua 的三条主线：★★★",
     "--",

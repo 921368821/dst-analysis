@@ -82,12 +82,12 @@ export default {
   ],
 
   // ══════════════ 几何工具 ══════════════
-  25: [
+  "distSquared#1": [
     '--★ distSquared：二维距离平方（只用 x/y，不含高度 z）。',
     '--★ 局部函数（local function）→ 只在本文件可见，不污染全局。',
     '--   与第 71/198 行的两个「非 local」函数形成鲜明对比，那两个是真问题。',
   ],
-  31: [
+  "distPointToSegmentSquared#1": [
     '--★★★ distPointToSegmentSquared：点到线段的距离平方（标准投影公式）。',
     '-- 完整算法：',
     '--   l2 = |v1→v2|²',
@@ -99,7 +99,7 @@ export default {
     '--   ★ 这是「除法前先处理分母为零」的正确姿势。',
     '--★ 注意本函数全程避免开方（返回平方），符合 DST 全局约定。',
   ],
-  46: [
+  "distPointToSegment#1": [
     '--★★★★⚠️【已核实 · 真实缺陷】distPointToSegment 的实参传错。',
     '--',
     '--   实际代码（第 47 行）：',
@@ -127,14 +127,14 @@ export default {
   ],
 
   // ══════════════ 路径旁实体查询 ══════════════
-  50: [
+  "GetEntitiesAlongLine#1": [
     '--★★ GetEntitiesAlongLine：查询「这条线段附近的实体」。',
     '--   参数 musthavetags / canthavetags / musthaveoneoftags 原样透传给 FindEntities，',
     '--   与 findclosest 第 32/42/52 行讲的三种标签语义完全一致（AND / NOT ANY / OR）。',
     '--★ 移植要点：**空间查询用引擎提供的索引接口，不要自己写遍历循环**。',
     '--   这是本文件最该学的一条性能纪律。',
   ],
-  55: [
+  "GetEntitiesAlongLine#1+5": [
     '--★★★【疑似缺陷 · 已核实】算出的 radius 变量**从未被使用**。',
     '--   公式本身是对的：线段中点到端点距离 + 查询半径 = 正确的搜索半径。',
     '--   但第 59 行传的是硬编码的 8：',
@@ -148,7 +148,7 @@ export default {
     '--   在**当前参数下**刚好不溢出。改大 moveRadius 或 r 就会暴露。',
     '--★★ 这是一处典型的「被参数巧合掩盖的 bug」，比稳定复现的 bug 更危险。',
   ],
-  59: [
+  "GetEntitiesAlongLine#1+9": [
     '--⚠️【已核实】第二参数传 0 —— y 坐标写死为 0。',
     '--   ★ 这是**正确的**：本节点全程在二维平面上工作（第 25 行的 distSquared 也不用 z），',
     '--     高度统一按 0 处理，只用 x/z 定位。',
@@ -158,18 +158,18 @@ export default {
     '--     代价是「平面 y 实际存的是世界 z」，读代码时极易看错。',
     '--     移植建议：用 {x = x, z = z} 或直接用 Vector3，避免这种隐式映射。',
   ],
-  62: [
+  "GetEntitiesAlongLine#1+12": [
     '--★★ `local p = {x=x, y=z}` —— 世界 (x,y,z) → 平面 (x, y=世界z)。',
     '--   变量名 p.y 装的是世界 z，这是本文件最易误读的一行。',
     '--   ★ 调试这类二维几何时，务必先在纸上画清楚 x/z 到底谁是谁。',
   ],
-  64: [
+  "GetEntitiesAlongLine#1+14": [
     '--★ 命中则收进结果表。用 `dist < r`（严格小于）而非 ≤，边界不计入。',
     '--★ 结合第 47 行的 bug，这里的 dist 实为「到终点的距离」而非「到线段的距离」。',
   ],
 
   // ══════════════ 全局函数污染 ══════════════
-  71: [
+  "ApplyToEntities#1": [
     '--★★★【疑似缺陷 · 已核实】ApplyToEntities **没有加 local**。',
     '--   对比第 25/31/46/50 行同级的工具函数全部是 `local function`，',
     '--   只有这一处是裸 `function`，因此它成了**全局函数**。',
@@ -181,13 +181,13 @@ export default {
     '--     唯一需要 global 的情况是「引擎要从外部按名字调用它」，',
     '--     而这类函数通常应挂到引擎自己的命名空间而不是 _G。',
   ],
-  72: [
+  "ApplyToEntities#1+1": [
     '--★ 用 pairs 而非 ipairs 遍历 ents（ents 是数组，两者行为等价）。',
     '--   ※ 同 behaviourtree.lua 的风格问题一致，属非缺陷。',
   ],
 
   // ══════════════ 沿途破坏 ══════════════
-  77: [
+  "BeargerOffScreen:WorkEntitiesAlongLine#1": [
     '--★★ WorkEntitiesAlongLine：阿比盖尔瞬移时把「跑过的路上的树」摧毁。',
     '--★ 标签筛选只认 {"running","tree"}（OR 语义）。',
     '--★ 这是「沿途事件」的设计：移动不只改坐标，还触发沿途后果。',
@@ -195,11 +195,11 @@ export default {
     '--★★ 这是「用视觉线索补偿不可见信息」的技巧：',
     '--   离屏 AI 的行为必须留下痕迹，否则玩家无法感知、也无法预判。',
   ],
-  81: [
+  "BeargerOffScreen:WorkEntitiesAlongLine#1+4": [
     '--★ 先判「能不能被破坏」—— 已被采集/破坏过的不再处理（避免重复触发事件）。',
     '--★ workable:CanBeWorked 是状态查询，本节点不关心破坏的具体后果，只关心「可不可」。',
   ],
-  82: [
+  "BeargerOffScreen:WorkEntitiesAlongLine#1+5": [
     '--★★ 先把 lootdropper 的掉落清空，再 Destroy。',
     '--★ 为什么清空掉落？防止树被撞倒后还掉出一堆原木。',
     '--★ 标签判定是 tree 或 boulder（注意 boulder 不在第 78 行的筛选标签里，',
@@ -211,13 +211,13 @@ export default {
     '--   ★ 这不影响当前功能（tree 分支已经覆盖了实际会命中的情况），',
     '--     但说明 boulder 的支持是「写了一半」—— 作者可能打算同时撞石头。',
   ],
-  85: [
+  "BeargerOffScreen:WorkEntitiesAlongLine#1+8": [
     '--★ Destroy(destroyer) 传入摧毁者，让树能把「被阿比盖尔撞倒」记入因果链。',
     '--   ★ 移植要点：破坏类事件都应带上「谁干的」，下游（音效、任务计数、仇恨）依赖它。',
   ],
 
   // ══════════════ 沿途掉落 ══════════════
-  91: [
+  "BeargerOffScreen:DropTrailItem#1": [
     '--★★ DropTrailItem：掉落一件毛发。',
     '--⚠️【疑似 · 已核实】`SpawnPrefab(traildrop).Transform:SetPosition(x, 0, z)`：',
     '--   · y 坐标写死 0，即所有掉落物都生成在高度 0 上。',
@@ -228,7 +228,7 @@ export default {
     '--     与此处的 0 不一致 —— 两处对 y 的处理方式不同，属不一致的瑕疵。',
     '--★ 移植建议：SpawnPrefab 后应判空（生成失败会返回 nil），这里没有防护。',
   ],
-  95: [
+  "BeargerOffScreen:DropTrail#1": [
     '--★★ DropTrail：沿「起点→终点」这条线，以概率沿途掉落。',
     '--★ 逐点撒而不是一次性撒：掉落物因此**沿路径均匀分布**，',
     '--   形成玩家能看见的「毛发拖尾」，而不是随机一坨。',
@@ -236,25 +236,25 @@ export default {
     '--   路径长短不影响掉落总量（由 dropsPerUnitChance × 长度决定），',
     '--   且不依赖帧率 —— 无论 AI 每步走 5 还是 15 格，视觉密度都一致。',
   ],
-  99: [
+  "BeargerOffScreen:DropTrail#1+4": [
     '--★ `for i=1,dist` —— 逐步遍历，dist 是浮点数，Lua 的数值 for 会向上取整。',
     '--⚠️ 细节：循环变量 i 的最大次数取决于 dist 向上取整，',
     '--   所以掉落物的实际密度是每「1 格」1 个机会，而非严格每 1 格。',
     '--   影响极小（<1 格的误差），属可接受。',
   ],
-  101: [
+  "BeargerOffScreen:DropTrail#1+6": [
     '--★★★ `spread = i - 0.5 + math.random()` —— 在「本格中点 ± 0.5 格」内随机抖动。',
     '-- 拆解：i - 0.5 是本格的中点，+ random()∈[0,1) 把它抖动到整格范围内。',
     '--★★ 意义：避免所有掉落物精确落在整数格点上（那会显得像网格而不是自然痕迹）。',
     '--★ 移植要点：程序化生成散布物体时，一定要加这种「格内抖动」，',
     '--   否则机械感极强，玩家一眼看出是脚本生成的。',
   ],
-  104: [
+  "BeargerOffScreen:DropTrail#1+9": [
     '--★ 沿单位方向向量推进。y 传 0（与 DropTrailItem 内部一致）。',
   ],
 
   // ══════════════ 踩地痕迹（已禁用） ══════════════
-  109: [
+  "BeargerOffScreen:DropGroundPoundTrail#1": [
     '--★★【已核实 · 死代码】DropGroundPoundTrail 全仓无调用方。',
     '--   我 grep 了整个 behaviours/ 与 components/，无任何 :DropGroundPoundTrail 调用。',
     '--   配套的 poundChance（第 4 行）与 4 个常量（8-11 行）也因此全部无效。',
@@ -262,47 +262,47 @@ export default {
     '--★★ 移植要点：保留这类「已禁用但保留」的代码是有价值的，',
     '--   因为注释记录了「为什么不做」；但要明确标注它是死的，否则会误导读者。',
   ],
-  113: [
+  "BeargerOffScreen:DropGroundPoundTrail#1+4": [
     '--★ 随机半径 = base + random() * variance，范围 [3, 11)。',
     '--★ 与第 110 行的 count 配对：数量 [3,6)，半径 [3,11)。',
     '--   两者都是 base+variance 写法（第 8-11 行的设计）。',
   ],
-  114: [
+  "BeargerOffScreen:DropGroundPoundTrail#1+5": [
     '--★ 极角随机（0 ~ 360°），配合随机半径得到「圆盘内均匀散布」。',
     '--   ★ 均匀取极角 + 均匀取半径 = 圆盘内均匀分布（不是中心密集）。',
     '--   若要「中心密集」的雪花状分布，半径应取 sqrt(random())。',
   ],
 
   // ══════════════ 漫游区域初始化 ══════════════
-  120: [
+  "BeargerOffScreen:SetupRoaming#1": [
     '--★★★ SetupRoaming：在地图拓扑图上圈出一块「活动多边形」作为活动边界。',
     '-- 这是本节点与同目录其他节点最大的不同：其他节点用「半径」，它用「多边形」。',
     '-- ★★ 为什么用多边形？地图上的可走区域是不规则的，圆形边界会包含大量水面/禁区。',
     '--   ★ 移植要点：活动范围用「多边形 + 点在多边形内测试」比「半径」精确得多。',
   ],
-  121: [
+  "BeargerOffScreen:SetupRoaming#1+1": [
     '--★ 第 121 行 `local x,_,y` —— 丢掉高度，只用平面的 x 与 y(=世界z)。',
     '--   第 2 个返回值用 _ 显式丢弃，比起个变量名再不用更清晰。',
   ],
-  122: [
+  "BeargerOffScreen:SetupRoaming#1+2": [
     '--★ GetClosestNode：找到地图拓扑图上离自己最近的节点。',
     '--★ 拓扑图（topology）= 地图被离散成节点 + 边，用来规划步行路径。',
     '--   ★ 移植要点：用「导航图」而不是「距离场」来做区域选择，',
     '--     能天然处理不连通地形（不会选到岛对面的点）。',
   ],
-  124: [
+  "BeargerOffScreen:SetupRoaming#1+4": [
     '--★★ 首次与后续取不同数量的节点（第 12-13 行的两个常量）。',
     '--★ roamedBefore 在构造器里没有初始化，靠 Lua 的 nil 假值语义工作 ——',
     '--   等价于 false。属简洁但不够显式的写法。',
   ],
-  126: [
+  "BeargerOffScreen:SetupRoaming#1+6": [
     '--★ GrabSubGraphAroundNode 取该节点周围 N 个连通节点（maputil.lua:81 实现）。',
     '--★ 强调「连通」：不会跨越不可走区域去抓节点，所以得到的多边形一定可达。',
   ],
-  130: [
+  "BeargerOffScreen:SetupRoaming#1+10": [
     '--★ 节点转点对 {x, y}（注意是二维，与前面 p.y=世界z 的惯例一致）。',
   ],
-  134: [
+  "BeargerOffScreen:SetupRoaming#1+14": [
     '--★★★ `local ressorted =  convexHull(points)` —— 凸包运算。',
     '-- 作用：把散乱的节点收紧成凸多边形，作为活动边界。',
     '-- ★ 为什么取凸包而不是直接用原始点集？',
@@ -312,14 +312,14 @@ export default {
     '--⚠️ 瑕疵：`ressorted` 这个名字不含义（疑似「re-sorted」的遗留），',
     '--   且 = 与凸包之间多了一个空格。纯风格问题。',
   ],
-  135: [
+  "BeargerOffScreen:SetupRoaming#1+15": [
     '--★ 被注释掉的一大段调试代码：用小地图画出凸包的所有边（ShowArea）。',
     '--★ 完整保留了「怎么把凸包可视化」的做法：',
     '--   对每条边 (p1→p2) 求单位方向，再沿线段每 5 格画一个 8 半径的标记。',
     '--★★ 这类调试可视化对本文件这类「看不见内部状态」的 AI 极其必要。',
     '--   推荐移植：任何「在多边形里随机游走」的 AI 都该有这个可视化开关。',
   ],
-  160: [
+  "BeargerOffScreen:SetupRoaming#1+40": [
     '--★★ 三个字段初始化出「区域状态机」的起点：',
     '--   boundary      —— 多边形边界（第 160 行）',
     '--   roamAreaNode  —— 区域中心节点，用于「还没进区域就先往中心走」（第 246 行）',
@@ -328,7 +328,7 @@ export default {
   ],
 
   // ══════════════ 单步漫游 ══════════════
-  166: [
+  "BeargerOffScreen:Roam#1": [
     '--★★★ Roam —— 一次「离屏单步」的全部动作，是本节点的核心函数。',
     '-- 顺序很重要，五个动作有严格前后关系：',
     '--   ① 第 167 行 读当前位置（作为路径起点）',
@@ -340,13 +340,13 @@ export default {
     '--   所以沿途事件的实现不依赖实体当前位置，只依赖传入的起点/终点坐标。',
     '--   ★ 这个顺序设计让 ③④ 可以是纯函数式的「给定一条线，产生副作用」。',
   ],
-  167: [
+  "BeargerOffScreen:Roam#1+1": [
     '--★ 位置三元组解包：(x, origy, y) —— 第 3 个变量名叫 y，装的是世界 z。',
     '--   命名极其容易误导：第 171 行的 SetPosition(newx, origy, newy) 是对的，',
     '--   因为 SetPosition 期望 (x, y, z) 而这里的 y 变量确实是 z。',
     '--   ⚠️ 但变量名 y 装 z 是本文件最常见的阅读陷阱，注释需反复提醒。',
   ],
-  171: [
+  "BeargerOffScreen:Roam#1+5": [
     '--★★★★★【本节点与全目录其他移动节点的根本差异】',
     '--   self.inst.Transform:SetPosition(newx, origy, newy) —— **直接瞬移**。',
     '--',
@@ -368,17 +368,17 @@ export default {
     '--   ⚠️ 副作用：瞬移会跳过所有「移动中」的状态（脚步声、扬尘、路径跟随脚本）。',
     '--     这是可接受的取舍，但移植时要知道会丢什么。',
   ],
-  173: [
+  "BeargerOffScreen:Roam#1+7": [
     '--★★ 沿途摧毁：路径半径 3 格。',
     '--★ 半径 3 大于 moveRadius 的一半（5），所以相邻两步的破坏区基本连成一片，',
     '--   视觉上是「一条被推平的走廊」。这个参数与 moveRadius 是配对调的。',
   ],
-  174: [
+  "BeargerOffScreen:Roam#1+8": [
     '--★★ 沿途掉落：概率 0.05/格（第 5 行常量）。',
     '--★ 0.05 × 10 格/步 ≈ 0.5 个/步，两步才掉一个 —— 稀疏但可见。',
     '--   调高会刷屏，调低玩家看不见。',
   ],
-  178: [
+  "BeargerOffScreen:Roam#1+12": [
     '--★ 选下一个落点 —— 放在 Roam 的最后，形成「走一步选一步」的滚动规划。',
     '--★★ 滚动规划（receding horizon）的思想：',
     '--   每走一步就重新规划，而不是一次规划完整路径。',
@@ -388,7 +388,7 @@ export default {
   ],
 
   // ══════════════ Visit ══════════════
-  181: [
+  "BeargerOffScreen:Visit#1": [
     '--★★ Visit —— 本节点的 Visit 与同目录其他节点**结构完全不同**。',
     '-- 对照：',
     '--   其他节点：READY 段做决策 → RUNNING 段执行 → 写 SUCCESS/FAILED 终态',
@@ -402,18 +402,18 @@ export default {
     '--   ⚠️ 这是本节点的主要性能特征：**它的高频轮询是靠「自己独占一个大脑」换来的**。',
     '--     若在一个大脑里与别的节点混用，会白白拖快那个大脑的节拍。',
   ],
-  183: [
+  "BeargerOffScreen:Visit#1+2": [
     '--★ READY 段：一次性初始化，然后立刻转 RUNNING。',
     '--★ 第 185 行 SetupRoaming 在这里调，之后不再调用 —— 区域只定一次。',
   ],
-  186: [
+  "BeargerOffScreen:Visit#1+5": [
     '--★ 首次更新时间戳：waittime = 当前 + 3 秒。',
     '--★ `or not self.waittime` 这个条件：因为构造器里 waittime 初始为 0（第 18 行），',
     '--   0 在 Lua 中是真值，所以第一次 t >= 0 恒成立 → 会立即执行。',
     '--   写成 `t >= self.waittime or not self.waittime` 是为了容忍 waittime 未初始化的情况。',
     '--★ 有点冗余（waittime 从不 nil），属防御性写法，无害。',
   ],
-  190: [
+  "BeargerOffScreen:Visit#1+9": [
     '--★★ 非 READY 分支（即 RUNNING）：到点了就 Roam 一步，然后重置时间戳。',
     '--★★ 这就是「固定步长」的实现：无论上一帧耗时多少，',
     '--   至少间隔 timePerStep 秒才走一步 —— 保证离屏 AI 的移动**速度与在线时一致**。',
@@ -422,7 +422,7 @@ export default {
     '--   ★★ 顺带说明为什么用 GetTime() 而非累加 deltaTime：',
     '--     累加会在掉帧时累积误差，而 GetTime() 是绝对时钟，天然免疫。',
   ],
-  195: [
+  "BeargerOffScreen:Visit#1+14": [
     '--★★★ self:Sleep(0.01) —— 每 0.01 秒醒一次（每秒 100 次）。',
     '--★ 与同目录对比：chaseandattack .125 / follow .25 / findclosest 不睡（每帧）。',
     '--   本节点是最频繁的，因为它的实际推进由第 190 行的 waittime 门控，',
@@ -436,50 +436,50 @@ export default {
   ],
 
   // ══════════════ 边界内选点 ══════════════
-  198: [
+  "FindWalkableOffsetWithBoundary#1": [
     '--★★★【疑似缺陷 · 已核实】FindWalkableOffsetWithBoundary **没有加 local**。',
     '--   与第 71 行的 ApplyToEntities 同样的全局污染问题。',
     '--★ 函数名很长，但职责明确：',
     '--   在 (position + 某方向的 offset) 附近找第一个满足「可走」的点。',
     '--★ 三层筛选依次为：多边形内 → 陆地 → 路径可达（对应第 205/212/216 行）。',
   ],
-  199: [
+  "FindWalkableOffsetWithBoundary#1+1": [
     '--★ ignore_walls 默认为 true：找不到完全无障碍的路径也接受绕墙。',
     '--★ 这是个务实的取舍：宁可穿墙也不要卡住。',
   ],
-  203: [
+  "FindWalkableOffsetWithBoundary#1+5": [
     '--★ test 闭包：把「一个候选 offset 是否合格」的判定封装成函数，',
     '--   以便交给第 225 行的 FindValidPositionByFan 做扇形扫描。',
     '--★★ 这是「把判定逻辑作为回调交给通用搜索器」的经典结构。',
     '--   ★ 移植要点：几何搜索与合法性判定分离，搜索器可复用、判定可独立测试。',
   ],
-  205: [
+  "FindWalkableOffsetWithBoundary#1+7": [
     '--★★★ 多边形内外判定 —— 本方法的第一个筛选，也是本节点用「多边形而非半径」的兑现。',
     '--   WorldPointInPoly(x, z, boundarypoints) 返回 true 表示点在多边形内。',
     '--★ 注意取的是 x 与 z（跳过 y），因为多边形是二维的（见第 62 行）。',
     '--   ★★ 这正是凸包的价值：点在凸多边形内可以用叉积符号一致性快速判定，',
     '--     而凹多边形要做更复杂的射线法。',
   ],
-  211: [
+  "FindWalkableOffsetWithBoundary#1+13": [
     '--★ 取落脚点的地格类型，再用 TileGroupManager:IsLandTile 判断能否站立。',
     '--★ 显式排除水面/不可走地格，是离屏 AI 不会「瞬移进海里」的第一道保障。',
   ],
-  216: [
+  "FindWalkableOffsetWithBoundary#1+18": [
     '--★ 最后一道筛选：路径可达性检测（IsClear）。',
     '--★ 选项 ignorecreep=true：忽略其他单位挡路。',
     '--   ★ 合理：离屏 AI 没必要为「被别的生物挡住」而放弃，选点会更快更稳定。',
     '--⚠️ 性能提示：IsClear 是相对昂贵的寻路查询，且每次选点要试最多 8 个候选（第 229 行）。',
     '--   ★ 优化手段：若前两道筛选（多边形 + 陆地）已经足够，可以跳过它。',
   ],
-  225: [
+  "FindWalkableOffsetWithBoundary#1+27": [
     '--★ FindValidPositionByFan：以 start_angle 为中心做扇形扫描，依次试 attempts 个方向。',
     '--★ 「扇形扫描 + 逐个测试」是 2D 空间选点的标准套路，好处是无需全局寻路。',
   ],
-  228: [
+  "BeargerOffScreen:GetRandomWanderDestWithinBoundary#1": [
     '--★★ GetRandomWanderDestWithinBoundary：在活动多边形内选一个随机的下一落点。',
     '--   ★ 三个参数：lookAhead（探测半径）→ moveRadius（实际位移）+ curAngle（历史角度）',
   ],
-  230: [
+  "BeargerOffScreen:GetRandomWanderDestWithinBoundary#1+2": [
     '--★ 以上次角度为基准继续随机，而不是完全随机 → 产生「连续漫游」而非「乱跳」。',
     '--★ 这是一个很小但很重要的 AI 质感技巧：',
     '--   每次方向都在上次基础上小幅偏转（见第 231 行 ±0.5 弧度），',
@@ -487,11 +487,11 @@ export default {
     '--   ★★ 移植要点：让随机行为具备「惯性」，观感立刻提升一个档次。',
     '--⚠️ 首次调用时 lastangle 为 nil → 走 or 分支取全随机角度（0 ~ 2π）。',
   ],
-  231: [
+  "BeargerOffScreen:GetRandomWanderDestWithinBoundary#1+3": [
     '--★ 角度扰动 ±0.5 弧度（约 ±28.6°）—— 随机但不至于原地打转。',
     '--★ 数值越小轨迹越平滑，越大越「跳脱」。这是「漫游感」的调参旋钮。',
   ],
-  234: [
+  "BeargerOffScreen:GetRandomWanderDestWithinBoundary#1+6": [
     '--★★★ 注释是一句设计声明：',
     '--   "if we can\'t avoid walls, at least avoid water"',
     '--   翻译：「如果避不开墙，至少避开水」。',
@@ -500,7 +500,7 @@ export default {
     '--★★ 把「不变量」写进注释是极好的实践：',
     '--   读代码的人立刻知道哪些约束是绝对的、哪些是可妥协的。',
   ],
-  237: [
+  "BeargerOffScreen:GetRandomWanderDestWithinBoundary#1+9": [
     '--★★ fraction = moveRadius / lookAhead = 10/15 ≈ 0.67 —— 缩放系数。',
     '--   「先在 15 格范围内找到可走的点，再只走其中的 2/3」。',
     '--   ★★ 这个「前瞻但只走一部分」的设计保证了：',
@@ -509,7 +509,7 @@ export default {
     '--   典型的「安全步长」思想：贪心推进但不贪到底。',
     '--★ 若 offset 为 nil（第 238 行 if 不成立），则原地不动 —— 安全降级。',
   ],
-  243: [
+  "BeargerOffScreen:GetRandomWanderDestWithinBoundary#1+15": [
     '--★ 返回两个值：落点 与 实际尝试的角度（check_angle）。',
     '--   ★ 把「实际用的角度」回传，让调用方（第 272 行）存为历史角度，',
     '--     保证下一次扰动是基于真实方向而非原始方向。',
@@ -518,7 +518,7 @@ export default {
   ],
 
   // ══════════════ 区域状态机 ══════════════
-  246: [
+  "BeargerOffScreen:PickNewDirection_Rampage#1": [
     '--★★★ PickNewDirection_Rampage —— 活动区域状态机的核心。',
     '--',
     '-- 【两分支结构】',
@@ -528,20 +528,20 @@ export default {
     '-- ★★ 这是一个「先抵达、后游荡」的两阶段模式，',
     '--   与 beargeroffscreen 第 246 行注释、第 7 行原注释共同说明了这个 AI 的设计演进。',
   ],
-  248: [
+  "BeargerOffScreen:PickNewDirection_Rampage#1+2": [
     '--★ 原注释：还没进漫游区，先朝中心走。',
     '--★★ 这是「路径引导」阶段：不允许在区域外随机游荡，',
     '--   否则阿比盖尔会永远在边界外徘徊、看起来像卡住了。',
   ],
-  255: [
+  "BeargerOffScreen:PickNewDirection_Rampage#1+9": [
     '--★ 先探测「能否直达区域中心」—— 忽略了墙与其他单位。',
     '--★ 探测失败（默认路径）就原地不动，不做任何移动。',
     '--★ 与第 234 行的取舍一致：宁可不动也不做出错误移动。',
   ],
-  264: [
+  "BeargerOffScreen:PickNewDirection_Rampage#1+18": [
     '--★ 沿单位方向走 moveRadius 格。与第 237 行的缩放逻辑同理（这里没缩放，因为是直奔中心）。',
   ],
-  268: [
+  "BeargerOffScreen:PickNewDirection_Rampage#1+22": [
     '--★★ 走到多边形内 → 标记已进入区域，下次就走随机漫游分支。',
     '--★ 这个判断是滞回式的：一旦置 true 就不再看 false（不检查是否又走出去了）。',
     '--   ★★ 这是有意的：允许走出去（走到边界外也无妨），',
@@ -549,10 +549,10 @@ export default {
     '--   ★ 移植要点：单向状态标志（latch）适合「达成过就不再关心」的场景，',
     '--     能有效消除边界抖动。',
   ],
-  271: [
+  "BeargerOffScreen:PickNewDirection_Rampage#1+25": [
     '--★ 已进入区域 → 在多边形内随机取点（第 272 行）。',
   ],
-  272: [
+  "BeargerOffScreen:PickNewDirection_Rampage#1+26": [
     '--★★★⚠️【已核实 · 真实缺陷】字段名大小写不一致。',
     '--',
     '--   第 272 行读的是 self.lastAngle（大写 A），',
@@ -573,7 +573,7 @@ export default {
   ],
 
   // ══════════════ 死代码：网格行走 ══════════════
-  277: [
+  "BeargerOffScreen:PickNewDirection#1": [
     '--★★★【已核实 · 死代码】PickNewDirection（第 277-312 行）全仓无调用方。',
     '--',
     '--   我 grep 了整个 scripts/ 目录，所有 PickNewDirection 调用点为：',
@@ -597,38 +597,38 @@ export default {
     '--     —— 即「不要挑之前走过的那条边」尚未实现完（只处理了最后一条）。',
     '--   ★ 这解释了为什么它被替换：只记住「上一条边」不足以避免长距离折返。',
   ],
-  281: [
+  "BeargerOffScreen:PickNewDirection#1+4": [
     '--★ 首次：落点 = 最近的图节点。注意这里传的是 (x, z)，',
     '--   而第 121 行同类调用传的是 (x, y) —— 两处都正确（各取自己需要的分量），',
     '--   但同文件内不一致，容易看错。',
   ],
-  288: [
+  "BeargerOffScreen:PickNewDirection#1+11": [
     '--★★【已核实 · 无用变量】allEdges 取出后从未使用（下一行直接开始建 choices）。',
     '--   属残留代码。',
   ],
-  290: [
+  "BeargerOffScreen:PickNewDirection#1+13": [
     '--★ 遍历当前节点的邻居，用 node 作为键去重（value 恒 true）。',
     '--★ 用表去重而非直接收集，是标准写法。',
     '--⚠️ 注意第 291 行局部变量 node 遮蔽了外层的 node（第 287 行）。',
     '--   此处无害（内层用完即弃），但遮蔽是 Lua 里最难查的 bug 来源之一。',
   ],
-  301: [
+  "BeargerOffScreen:PickNewDirection#1+24": [
     '--★ 随机选一个候选。'  ,
   ],
-  304: [
+  "BeargerOffScreen:PickNewDirection#1+27": [
     '--★★★ 「尽量不原路折返」—— 巡逻算法的关键细节。',
     '-- 做法：若随机到的是上一个节点，就把索引 +1 循环取下一个。',
     '-- ★ 简单有效，但只记住「上一个」，遇到三节点环仍会兜圈（第 286 行 TODO 所指）。',
   ],
-  305: [
+  "BeargerOffScreen:PickNewDirection#1+28": [
     '--★ 两步环回：+1 再对长度取模，保证不越界。',
     '--★ 这是「循环索引」的标准防越界写法，比直接访问 arr[i+1] 安全。',
   ],
-  309: [
+  "BeargerOffScreen:PickNewDirection#1+32": [
     '--★ 记录「来时的节点」供下次比较。注意赋的是外层 node（第 287 行取出的旧 finaldest）。',
     '--★ 变量遮蔽使这里极易看错：内层第 291 行的 node 已出作用域，此处 node 是外层的。',
   ],
-  310: [
+  "BeargerOffScreen:PickNewDirection#1+33": [
     '--★ 更新下一段行程的终点。三字段结构与第 282 行保持一致。',
   ],
 };

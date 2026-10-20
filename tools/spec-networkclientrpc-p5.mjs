@@ -2,7 +2,7 @@
 // CLIENT_RPC_HANDLERS（服务端→客户端）、SHARD_RPC_HANDLERS（分片间）、三个发送函数、限流常量
 
 export const BEFORE = {
-  1406: [
+  "StopInspectingModules#1+29": [
     "--★★★★★[第 1406 行：\"these rpc's don't need special verification because",
     "--             server->client communication is already trusted.\"]",
     "--   ★★★ 这是本文件**第二个**方向的信任前提声明（第一个在 :1537）。",
@@ -21,7 +21,7 @@ export const BEFORE = {
     "--     ★ 但**没有**参数校验 —— 那是纯粹的「类型安全」，与服务端无关。",
     "--   参见 01-报告/04-联机同步-模组系统-UI.md:119（CLIENT_RPC 可信级别说明）。",
   ],
-  1407: [
+  "StopInspectingModules#1+30": [
     "--★★★[CLIENT_RPC_HANDLERS —— 服务端 → 客户端方向的 16 个处理器（1407-1519）]",
     "--   ★★★ 与 RPC_HANDLERS 的结构性差异（★ 对照学习最有效的方式）：",
     "--     ┌──────────────────┬──────────────────┬──────────────────┐",
@@ -41,7 +41,7 @@ export const BEFORE = {
     "--   ★★★ 绝无 TheNet:GetIsServer() 或 ismastersim 检查 ——",
     "--     因为 CLIENT_RPC 只在客户端执行（服务端发出的消息到服务端无效）。",
   ],
-  1409: [
+  "ShowPopup#1": [
     "--★★[ShowPopup —— 「弹窗显示」的通用协议（与 :1073 ClosePopup 配对）]",
     "--   ★★★ 参数：popupcode, mod_name, show（是否显示）, ...（弹窗自定义数据）。",
     "--   ★★ 第 1410 行：local popup = GetPopupFromPopupCode(popupcode, mod_name)",
@@ -58,13 +58,13 @@ export const BEFORE = {
     "--     形成对照 —— ★ 注意 fn 用点号（无 self），Close 用冒号（有 self）。",
     "--     推理：fn 是「纯函数式」的显示入口，Close 是「方法式」的关闭操作。",
   ],
-  1417: [
+  "RecievePopupMessage#2": [
     "--★★[RecievePopupMessage —— 客户端版本，与 :1089 完全镜像]",
     "--   ★ 第 1421 行：popup:SendMessageToClient(ThePlayer, ...)",
     "--   ★★ 与服务端版（:1097 的 SendMessageToServer）对称。",
     "--   ★⚠ 同样没有 validaterpcfn —— 见 :1089 的不对称分析。",
   ],
-  1425: [
+  "LearnRecipe#1": [
     "--★★[LearnRecipe —— 教学配方：★ 用 {...} 捕获变长参数作为材料列表]",
     "--   ★★★ 第 1427 行：`local ingredients = {...}`",
     "--     把变长参数打包成 table（材料 ID 列表）。",
@@ -77,24 +77,24 @@ export const BEFORE = {
     "--   ★★ 对比 LeftClick（:62）的 13 参数校验（防御恶意消息）——",
     "--     性质根本不同。★ 读代码时区分这两类检查很重要。",
   ],
-  1433: [
+  "LearnFoodStats#1": [
     "--★ LearnFoodStats —— 教学食物属性（烹饪相关的数值知识）。",
     "--   ★ 与 LearnRecipe 同族：都是「解锁图鉴/知识」类。",
   ],
-  1440: [
+  "LearnPlantStage#1": [
     "--★ LearnPlantStage —— 教学植物生长阶段（农业知识图鉴）。",
     "--   ★★ plant 和 stage 都做了判空（:1442 `plant and stage`）——",
     "--     两个依赖参数都要检查。",
   ],
-  1447: [
+  "LearnFertilizerStage#1": [
     "--★ LearnFertilizerStage —— 教学肥料知识。",
   ],
-  1454: [
+  "TakeOversizedPicture#1": [
     "--★ TakeOversizedPicture —— 拍超大尺寸的「生物图鉴照片」（超过某尺寸）。",
     "--   ★★ 参数：plant, weight（重量阈值）, beardskin, beardlength（体型定制）。",
     "--     这个 RPC 揭示了一个游戏机制：玩家可以拍「超规格」的生物照片（游戏内趣味）。",
   ],
-  1461: [
+  "RecieveChatHistory#1": [
     "--★ RecieveChatHistory —— 接收聊天历史（与 :1114 GetChatHistory 配对）。",
     "--   ★★★ 这是一个「双向 RPC 对」的例子：",
     "--     · C2V: GetChatHistory  (:1114)  客户端请求历史",
@@ -103,7 +103,7 @@ export const BEFORE = {
     "--   ★ ★「Recieve」是拼写错误（同 :1089），已成为协议标识，不能修改。",
     "--   参见 chathistory.lua（聊天历史的存储与分页逻辑）。",
   ],
-  1465: [
+  "LearnBuilderRecipe#1": [
     "--★★[LearnBuilderRecipe —— ★ 用 PushEvent 而非组件方法，唯一的例外]",
     "--   ThePlayer:PushEvent(\"LearnBuilderRecipe\", {recipe = product})",
     "--   ★★ 16 个 CLIENT_RPC 里**只有这一个**不走组件方法，而是推事件。",
@@ -112,7 +112,7 @@ export const BEFORE = {
     "--   ★★ 事件名「LearnBuilderRecipe」是 PascalCase，与其他事件（onuse 等）不同，",
     "--     命名不规范，但 ★ 它是约定的接口名（模组可能监听），不能改。",
   ],
-  1469: [
+  "UpdateAccomplishment#1": [
     "--★★[UpdateAccomplishment —— 用通用 KV 存储「成就」进度]",
     "--   ★★★ TheGenericKV:SetKV(name, \"1\") —— 通用键值存储。",
     "--   ★★ 只存字符串「1」，不存数值 —— 「已解锁」的布尔语义。",
@@ -120,7 +120,7 @@ export const BEFORE = {
     "--   ★★ TheGenericKV 是个全局 KV 存储，支持任何 name，",
     "--     ★ 这是一个「开放式存储 API」——新成就无需改本文件。",
   ],
-  1473: [
+  "UpdateCountAccomplishment#1": [
     "--★★★[UpdateCountAccomplishment —— 计数型成就，含单调递增保护]",
     "--   ★★★ 第 1474 行：读取当前值（默认 0）",
     "--   ★★★ 第 1476-1478 行：`if maxvalue ~= nil and current >= maxvalue then return end`",
@@ -133,7 +133,7 @@ export const BEFORE = {
     "--     ★ 但客户端可以**连发**这个 RPC 快速累加 —— → 速率受统一限流（:1687）约束。",
     "--   ★ 泛化理解：这是「乐观更新 + 服务端放行」的典型实现。",
   ],
-  1483: [
+  "SetSkillActivatedState#2": [
     "--★★★[SetSkillActivatedState —— 与 :1159 完全对称的客户端版本]",
     "--   ★★★ 逐字对照服务端版（:1159-1183）：",
     "--     · 都用 TheSkillTree:GetSkillNameFromID(prefab, skill_rpc_id)",
@@ -149,11 +149,11 @@ export const BEFORE = {
     "--   ★★★ 另一个差异：服务端版检查 characterprefab 用 player.prefab，",
     "--     客户端版用 ThePlayer.prefab（:1484）—— 各自的上下文。",
   ],
-  1505: [
+  "AddSkillXP#2": [
     "--★ AddSkillXP —— 客户端版本。amount 判空（:1507 `if ... and amount`）。",
     "--   ★ 与服务端版（:1185）对称，同样**无范围检查**。",
   ],
-  1512: [
+  "PostActivateHandshake#2": [
     "--★★[PostActivateHandshake —— 客户端版本，与 :1196 对称]",
     "--   ThePlayer:OnPostActivateHandshake_Client(state)",
     "--   ★★ 与服务端版（:1202 的 OnPostActivateHandshake_Server）配对。",
@@ -162,39 +162,39 @@ export const BEFORE = {
     "--     与 :1483 的「characterprefab == nil then return」不同风格。",
     "--     推理：激活握手时 ThePlayer 必然存在（否则不会有激活消息）。",
   ],
-  1516: [
+  "TryToTeachScrapbookData#1": [
     "--★ TryToTeachScrapbookData —— 教学图鉴数据（与 :1205 C2V 对应）。",
     "--   ★ ★ 对比 :1205（C2V 版用 TheScrapbookPartitions）。",
     "--     本行（V2C 版）用 TheScrapbookPartitions:TryToTeachScrapbookData(false, inst)。",
     "--     ★ 注意 false 参数（推测是「非服务端/客户端标记」）。",
   ],
-  1521: [
+  "TryToTeachScrapbookData#1+5": [
     "--★★[CLIENT_RPC = {} —— 与 RPC（:1388）对称的编号表]",
     "--   ★★★ 结构完全同构：编号 → 就地改造。",
     "--   ★★ 两个方向的编号是**各自独立**的（都从 1 开始）——",
     "--     因为两个方向的 code 在不同的网络消息类型里，数值相同不冲突。",
     "--   ★★ 这是「按通道独立编号」的必然设计（见 :1391）。",
   ],
-  1524: [
+  "TryToTeachScrapbookData#1+8": [
     "--★ i = 1 —— 重新初始化计数器（★★★ 注意：这里复用了第 1391 行的变量 i）]",
     "--   ★★★ i 在 :1396 被设为 nil（:1401-1404 的转换循环结束后），",
     "--     现在第 1524 行重新赋值 i = 1 为 CLIENT_RPC 编号。",
     "--     ★ 说明 i 是**文件级局部变量**，跨越三个编号块复用。",
     "--   ★→ 每个编号块结束后都置 nil（:1529）—— 防止误用。",
   ],
-  1525: [
+  "TryToTeachScrapbookData#1+9": [
     "--★ for k, v in orderedPairs(CLIENT_RPC_HANDLERS) —— 与 :1392 同样的机制。",
     "--   ★★ 完全同构：orderedPairs 保证顺序 → 编号终身绑定。",
     "--   ★ 对照 RPC_HANDLERS（:1392）的注释，本处机制一致，约束相同。",
   ],
-  1531: [
+  "TryToTeachScrapbookData#1+15": [
     "--★★[第 1531-1535 行：CLIENT_RPC_HANDLERS 的键转换为数字（同 :1401）]",
     "--   ★★★ 机制完全一致：遍历 CLIENT_RPC（名字→数字），",
     "--     用数字给 CLIENT_RPC_HANDLERS 建键，删名字键。",
     "--   ★ 结果：CLIENT_RPC_HANDLERS 变成「数字 → 函数」，供 :1707 的",
     "--     `CLIENT_RPC_HANDLERS[code]` O(1) 查。",
   ],
-  1537: [
+  "TryToTeachScrapbookData#1+21": [
     "--★★★★★[第 1537 行：\"these rpc's don't need special verification because",
     "--             server<->server communication is already trusted.\"]",
     "--   ★★★ 第三个方向的信任前提声明。措辞更准确：「server<->server」（双向的服务端）",
@@ -205,7 +205,7 @@ export const BEFORE = {
     "--     · C2S（:59区）：客户端→服务端 —— ★ 不可信（唯一需要全部校验的）",
     "--   ★★ 设计原则总结：★ **「凡是从客户端来的都不可信，其余都可信」**。",
   ],
-  1538: [
+  "TryToTeachScrapbookData#1+22": [
     "--★ WorldSettings_Overrides = require(\"worldsettings_overrides\")",
     "--   ★★★ 本文件唯一的第三条 require（除了 :1 的 util）。",
     "--   ★★★ 加载时机极讲究：放在 SHARD_RPC_HANDLERS（:1539）**之前**。",
@@ -218,7 +218,7 @@ export const BEFORE = {
     "--        在 SyncWorldSettings 被调用前就要求 WorldSettings_Overrides 已赋值。）",
     "--   ★ 对照 util 在 :1 加载 —— 两种就近/顶部加载并存的例子。",
   ],
-  1539: [
+  "TryToTeachScrapbookData#1+23": [
     "--★★★[SHARD_RPC_HANDLERS —— 分片 → 分片方向的 13 个处理器（1539-1618）]",
     "--   ★★★ 这是第三条通道，专用于「多分片集群」的跨进程同步。",
     "--     场景：主分片（表面）与次分片（洞穴）是两个独立的 Sim 进程",
@@ -239,7 +239,7 @@ export const BEFORE = {
     "--     （如 :24 Shard_SyncWorldSettings、:222 Shard_SyncBossDefeated）。",
     "--   ★ 交叉引用：shardnetworking.lua（分片互联的完整逻辑）。",
   ],
-  1541: [
+  "ShardTransactionSteps#1": [
     "--★★★[ShardTransactionSteps —— ★ 跨分片事务的「分步提交」]",
     "--   ★★★ 参数：shardid（发送方分片）、shardpayload_string（序列化的事务载荷）。",
     "--   ★★★ 第 1542 行的注释揭示了一个协议细节：",
@@ -261,13 +261,13 @@ export const BEFORE = {
     "--   ★ RunInSandboxSafe 是全项目通用的安全反序列化（也见 :1572/:1576/:1908）。",
     "--   ★ 对照 :1097（RecievePopupMessage 无校验）—— 严格程度差异巨大。",
   ],
-  1542: [
+  "ShardTransactionSteps#1+1": [
     "--★★[第 1542 行：shardid = tostring(shardid) —— 手动类型还原]",
     "--   ★★ 传输层把 shardid（字符串）转成了整数，接收时转回来。",
     "--   ★ 这说明底层网络协议对分片 ID 做了压缩（可能转整数传输）。",
     "--   ★→ 移植时若分片 ID 格式改变（如带前缀），这几处 tostring 都要改。",
   ],
-  1546: [
+  "ShardTransactionSteps#1+5": [
     "--★★★[来源校验：shardid == originshardid or shardid == receivershardid]",
     "--   ★★★ 这是本文件**最强的一道校验**，值得逐字理解：",
     "--     · shardid 是「这个 RPC 从哪个分片来的」（由 HandleShardRPC 传入）；",
@@ -281,7 +281,7 @@ export const BEFORE = {
     "--   ★★★ 这是「即使认为源可信，也做语义校验」的典范。",
     "--     与 :1097（RecievePopupMessage 完全不校验）形成鲜明对照。",
   ],
-  1559: [
+  "ReskinWorldMigrator#1": [
     "--★★[ReskinWorldMigrator —— 跨分片改传送门的皮肤]",
     "--   ★★ 参数：shardid, migrator（传送门 ID）, skin_theme, skin_id, sessionid。",
     "--   ★★★ 第 1560-1568 行：遍历 ShardPortals 找匹配的传送门，改其外观。",
@@ -289,7 +289,7 @@ export const BEFORE = {
     "--     （不同世界有不同主题）。跨分片时需要主分片告诉次分片「你的门该长什么样」。",
     "--   ★★ TheSim:ReskinEntity 是 C++ 侧调用（无 Lua 源码）。",
   ],
-  1571: [
+  "SyncWorldSettings#1": [
     "--★★★[SyncWorldSettings —— ★ 世界设置的跨分片同步机制]",
     "--   ★★★ 这是「分片集群保持一致」的核心。",
     "--   ★★ 三层保护：",
@@ -315,7 +315,7 @@ export const BEFORE = {
     "--     ★ 发送与接收用同一个 sync_options 白名单，保证只同步该同步的。",
     "--   ★ 详见 shardnetworking.lua:24-41 的注释（可选的交叉引用）。",
   ],
-  1572: [
+  "SyncWorldSettings#1+1": [
     "--★★[第 1572-1573 行：RunInSandboxSafe + 打印「收到主分片的世界设置」]",
     "--   ★★★ 打印日志带 shard 上下文，便于调试集群同步问题。",
     "--     ★ 这与 :33（打印失败诊断）、:39（超距打印）是同一日志风格。",
@@ -324,14 +324,14 @@ export const BEFORE = {
     "--       但考虑到「设置同步」是低频操作（启动时/重同步），可接受。",
     "--     ⚠ 若高频重同步（如频繁 ResyncWorldSettings）就会刷屏。",
   ],
-  1592: [
+  "ResyncWorldSettings#1": [
     "--★★[ResyncWorldSettings —— 简单的转发，第 1592-1594 行]",
     "--   Shard_SyncWorldSettings(shardid, true)",
     "--   ★★ 这是「反方向」：次分片主动请求主分片重新发送设置。",
     "--   ★ is_resync = true（第 33 行在发送侧用作日志文案「Resyncing」）。",
     "--   ★★ 场景：次分片启动晚，错过了主分片的初始广播，需要主动拉取。",
   ],
-  1596: [
+  "SyncWorldStateTag#1": [
     "--★★[SyncWorldStateTag —— 同步世界状态标签（开关型状态）]",
     "--   ★★★ 参数：shardid, namespace（命名空间）, tag（标签名）, enabled（布尔）。",
     "--   ★★ GetWorldStateTagObjectFromNamespace(namespace) —— 按命名空间取标签对象。",
@@ -341,7 +341,7 @@ export const BEFORE = {
     "--   ★★ 对照 :1454 TakeOversizedPicture（V2C）：也是「命名空间」概念的应用。",
     "--     ★ 命名空间模式在本文件反复出现（模组 RPC、popup、world tag）。",
   ],
-  1601: [
+  "SyncBossDefeated#1": [
     "--★ SyncBossDefeated —— 同步 boss 击败状态。",
     "--   ★★ 原注释：\"This should not be called often enough to warrant a lookup",
     "--   table for bossprefab as an enum.\"",
@@ -354,13 +354,13 @@ export const BEFORE = {
     "--       ★ 那个确实值得优化 —— 因为它是高频）。",
     "--   ★ 调用 Shard_SyncBossDefeated(bossprefab, shardid)（shardnetworking.lua:222）。",
   ],
-  1620: [
+  "SyncMermKingPauldron#1+5": [
     "--★★[SHARD_RPC = {} —— 第三个编号表，与前两个同构]",
     "--   ★ 编号机制完全一致（orderedPairs → 终身编号 → 键转换）。",
     "--   ★ 三个通道（RPC / CLIENT_RPC / SHARD_RPC）的编号**各自独立**，",
     "--     都从 1 开始（因为它们在不同消息类型里传递）。",
   ],
-  1636: [
+  "SendRPCToServer#1": [
     "--★★★[SendRPCToServer —— ★ 三个发送函数之一，客户端→服务端]",
     "--   ★★★ 第 1637 行的 assert：`assert(RPC_HANDLERS[code] ~= nil)`",
     "--   ★★ 「发送前验证 code 有效」：防止发送一个未注册的 code。",
@@ -370,7 +370,7 @@ export const BEFORE = {
     "--   ★★★ 参数用 ... 变长转发：本文件不关心具体参数，交给 C++ 层序列化。",
     "--     ★ 这就是「RPC 帧」的边界：Lua 只提供 code + 变长参数。",
   ],
-  1641: [
+  "SendRPCToServer#1+5": [
     "--★★★[第 1641-1646 行：SendRPCToClient 的参数约定注释]",
     "--   \"--SendRPCToClient(CLIENT_RPC.RPCNAME, users, ...)\"",
     "--   \"--users is either:\"",
@@ -389,7 +389,7 @@ export const BEFORE = {
     "--   ★★★ 所以 users 是「变长参数的第一个」，由 C++ 解释。",
     "--     这就是为什么本文件的 Lua 侧看不到 users 形参 —— ★ 它在 ... 里。",
   ],
-  1646: [
+  "SendRPCToServer#1+10": [
     "--★★[第 1646 行：\"all users must be connected to the shard this command originated from\"]",
     "--   ★★★ 这是一个**重要的约束声明**：所有接收用户必须连接到「命令发起的那片」。",
     "--   ★★ 推理（多分片场景）：",
@@ -399,7 +399,7 @@ export const BEFORE = {
     "--     ★ 这解释了为什么需要 Shard_IsWorldAvailable（shardnetworking.lua:16）——",
     "--       判断某分片是否可用（连接中）再发送。",
   ],
-  1647: [
+  "SendRPCToClient#1": [
     "--★★[SendRPCToClient —— 服务端→客户端的发送函数]",
     "--   ★ 结构与 SendRPCToServer（:1636）完全对称：",
     "--     assert(CLIENT_RPC_HANDLERS[code] ~= nil) + TheNet:SendRPCToClient(code, ...)",
@@ -407,7 +407,7 @@ export const BEFORE = {
     "--   ★ ★ 三个发送函数的断言对象不同（RPC/CLIENT_RPC/SHARD_RPC_HANDLERS），",
     "--     防止把 A 方向的 code 用 B 方向的函数发送。",
   ],
-  1652: [
+  "SendRPCToClient#1+5": [
     "--★★★[第 1652-1656 行：SendRPCToShard 的参数约定]",
     "--   \"--SendRPCToShard(SHARD_RPC.RPCNAME, shards, ...)\"",
     "--   \"--shards is either:\"",
@@ -417,11 +417,11 @@ export const BEFORE = {
     "--   ★★ 结构与 :1641 的 users 完全对称（shards ↔ users）。",
     "--   ★★★ 这是三个发送函数参数约定的一致性体现。",
   ],
-  1657: [
+  "SendRPCToShard#1": [
     "--★ SendRPCToShard —— 分片→分片的发送函数。",
     "--   ★ 结构与前两个对称：assert(SHARD_RPC_HANDLERS[code] ~= nil) + TheNet:SendRPCToShard。",
   ],
-  1662: [
+  "SendRPCToShard#1+5": [
     "--★★★★★[第 1662 行：RPC_QUEUE_RATE_LIMIT = 20 —— 限流的核心常量]",
     "--   \"-- Per logic tick.\"",
     "--   ★★★ 语义：每个发送者每个**逻辑刻**最多入队 20 条 RPC。",
@@ -439,7 +439,7 @@ export const BEFORE = {
     "--     而恶意客户端能单刻发几千条 → 被限流挡住。",
     "--   ★ ★ 参见 01-报告/04-联机同步-模组系统-UI.md:1536-1567（限流的完整分析）。",
   ],
-  1663: [
+  "SendRPCToShard#1+6": [
     "--★★★★⚠[第 1663 行：RPC_QUEUE_RATE_LIMIT_PER_MOD = 5 —— ★★ 缺陷 B 的根源]",
     "--   \"--+this for every mod RPC added.\"",
     "--   ★★★ 设计意图（善意的部分）：",
@@ -469,7 +469,7 @@ export const BEFORE = {
     "--   ★★ 参见 01-报告/04-联机同步-模组系统-UI.md:1559-1565（完全相同的分析）与",
     "--     :2381（修复方案清单）、:2926（陷阱 3：模组可无限抬高全局 RPC 限流）。",
   ],
-  1664: [
+  "SendRPCToShard#1+7": [
     "--★★[RPC_Queue_Limiter = {} —— ★★ 「发送者 → 当前额度」的计数表]",
     "--   ★★★ 键是 sender（玩家实体或 userid 字符串），值是「本刻已入队数」。",
     "--   ★★★ 这是限流的**状态存储**。它的生命周期管理是本文件的关键：",
@@ -484,7 +484,7 @@ export const BEFORE = {
     "--     ★★ 归零逻辑：若当前是 1，减 1 得 0 → 置 nil 清表；",
     "--       若 > 1，减 1 保留。★ 这个 or 1 兜底处理了「表里没有该 sender」的情况。",
   ],
-  1665: [
+  "SendRPCToShard#1+8": [
     "--★★[RPC_Queue_Warned = {} —— 「已告警过的 sender」表]",
     "--   ★★★ 用途：保证同一个 sender 超限**只打印一次**日志（:1692-1694）。",
     "--   ★★ 为什么要「只打一次」？",
@@ -494,7 +494,7 @@ export const BEFORE = {
     "--     → 生产环境应把这张表接入监控，而非只看日志。",
     "--   ★ 清表时机与 RPC_Queue_Limiter 同步（:1734）—— 归零时一并清。",
   ],
-  1666: [
+  "SendRPCToShard#1+9": [
     "--★★[RPC_Queue = {} —— ★★ 客户端→服务端的 RPC 队列（★ 主队列）]",
     "--   ★★★ 这是一个「延迟处理」的队列：HandleRPC 入队，HandleRPCQueue 每帧排空。",
     "--   ★★ 每项是 {fn, sender, data, tick} 四元组（:1689）：",
@@ -505,7 +505,7 @@ export const BEFORE = {
     "--   ★★★ 队列存在的理由（★ 见 §九/§十 的详细分析）：",
     "--     不立即执行，避免「在网络回调里执行游戏逻辑」的线程/时序问题。",
   ],
-  1667: [
+  "SendRPCToShard#1+10": [
     "--★★[RPC_Timeline = {} —— ★★ 同刻重入保护的状态表]",
     "--   ★★★ 键是 sender，值是「该 sender 当前正在处理的 tick」。",
     "--   ★★★ 用途（见 HandleRPCQueue :1741-1750）：",
@@ -517,7 +517,7 @@ export const BEFORE = {
     "--   ★★ 解决方案：同一 sender 的 RPC 严格串行（一次只跑一条）。",
     "--   ★ 每刻开始时清空（TickRPCQueue :1799）—— 每刻重置。",
   ],
-  1669: [
+  "SendRPCToShard#1+12": [
     "--★★[RPC_Client_Queue = {} —— 服务端→客户端方向的队列]",
     "--   ★★★ 与主队列的差异（★ 结构不同）：",
     "--     · 主队列项：{fn, sender, data, tick} —— 四元组，有 sender",
@@ -527,12 +527,12 @@ export const BEFORE = {
     "--   ★★ 对照 CLIENT_RPC_HANDLERS（§五）—— 第一个参数就不是 player。",
     "--     两处一致：客户端方向的消息不带发送者信息。",
   ],
-  1670: [
+  "SendRPCToShard#1+13": [
     "--★ RPC_Client_Timeline —— 同刻重入保护的状态（客户端方向）。",
     "--   ★★ 注意它是**单个变量**（不是表），因为客户端方向消息都发给本地玩家，",
     "--     无需按 sender 区分。",
   ],
-  1672: [
+  "SendRPCToShard#1+15": [
     "--★★[RPC_Shard_Queue = {} —— 分片→分片方向的队列]",
     "--   ★ 结构与主队列相同：{fn, sender, data, tick}（四元组，有 sender）。",
     "--   ★★ 因为分片方向也需要按发送分片做重入保护（每个分片独立）。",
@@ -541,20 +541,20 @@ export const BEFORE = {
     "--     · RPC_Client_Queue（V2C）：无 sender、无 limiter",
     "--     · RPC_Shard_Queue（S2S）：有 sender、无 limiter、有重入保护",
   ],
-  1673: [
+  "SendRPCToShard#1+16": [
     "--★ RPC_Shard_Timeline —— 分片方向的同刻重入保护状态表。",
   ],
 };
 
 export const AFTER = {
-  1634: [
+  "SyncMermKingPauldron#1+19": [
     "--★★ 三个通道的编号与转换全部完成。此时三个表都是「数字 → 函数」形态：",
     "--   · RPC_HANDLERS（:59）      —— 90 个 handler",
     "--   · CLIENT_RPC_HANDLERS（:1407）—— 16 个 handler",
     "--   · SHARD_RPC_HANDLERS（:1539）  —— 13 个 handler",
     "--   ★ 接下来是发送（§七）、限流（§八）、入队（§九）、排空（§十）。",
   ],
-  1660: [
+  "SendRPCToShard#1+3": [
     "--★★★ 三个发送函数区结束。它们是 Lua 侧对外暴露 RPC 能力的唯一出口：",
     "--   SendRPCToServer  (:1636) → RPC_HANDLERS",
     "--   SendRPCToClient  (:1647) → CLIENT_RPC_HANDLERS",
@@ -562,7 +562,7 @@ export const AFTER = {
     "--   ★★ 每个都 assert 验证 code 有效 —— 防止方向混用。",
     "--   ★ ★ 后面 §十五 的 DisableRPCSending 会把这三个函数整体替换为空函数。",
   ],
-  1673: [
+  "SendRPCToShard#1+16": [
     "--★★★ 限流常量与队列声明区结束。接下来是本文件的「心脏」：",
     "--   §九  HandleRPC / HandleClientRPC / HandleShardRPC —— 三条入队路径",
     "--   §十  HandleRPCQueue —— 逐帧排空 + 同刻重入保护",

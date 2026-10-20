@@ -4,32 +4,32 @@
  */
 
 export const BEFORE = {
-  96: [
+  "Container:WidgetSetup#1+10": [
     "-- ★★ 至此 WidgetSetup 完成：9 个字段全部变成只读。",
     "--   ⇒ 后续任何对这些字段的修改都必须走 Enable* 系列或改蓝图源。",
     "--   ★★ 这就是「蓝图 → 组件」的完整生命周期：",
     "--     prefab 构造时调 WidgetSetup(name) → 浅拷贝 9 字段 → 锁死。",
     "--     之后组件就是「一块被配置好的硬件」，只提供行为方法。",
   ],
-  118: [
+  "Container:SetNumSlots#1+3": [
     "-- ★ 槽位数只增不减的断言到此结束。",
     "--   ★★ 呼应 containers.lua:1663-1666 sunkenchest 的原注释：",
     "--     「它常常从小容量（3x3）旧存档数据满载进来，我们已迁到 3x5」——",
     "--     正因为 numslots 只能增大，旧存档的 9 件物品才能安全落到新版的 15 槽里。",
     "--   ⇒ 这个 assert 不是随手写的防御，它是**存档兼容机制的基石**。",
   ],
-  141: [
+  "Container:DropItemBySlot#1+21": [
     "-- ★★★ 搬运成功的返回点。★ 注意此时 ignoresound 可能已被第 1385 行的回滚改过，",
     "--   但正常路径下它早就被第 1386 行（或在别处）恢复为 false。",
   ],
-  295: [
+  "Container:CanTakeItemInSlot#1+26": [
     "-- ★★ 再强调一次：这是 itemtestfn 的**唯一**调用点（服务端组件侧）。",
     "--   客户端有一份同构实现：components/container_replica.lua:340 CanTakeItemInSlot。",
     "--   ⇒ ★★ 两份实现必须同步修改，否则会出现「客户端说能放、服务端拒绝」的抖动。",
     "--   ★ 这也是 DST 双端架构的常态成本：判定逻辑天然需要写两遍",
     "--     （对比 components/inventory.lua 的 Reclientify 式单向同步就没有这个问题）。",
   ],
-  416: [
+  "Container:CanAcceptCount#1+39": [
     "-- ★★ itemtestfn 调用时机全表（服务端组件侧，共 11 处调用 CanTakeItemInSlot）：",
     "--   ┌ 场景                        │ 调用行   │ 何时触发",
     "--   ├─────────────────────────────┼──────────┼──────────────────────",
@@ -49,14 +49,14 @@ export const BEFORE = {
     "--   ⇒ ★★ 结论：**itemtestfn 是容器系统唯一的物品准入判据**，",
     "--     12 个入口无一例外。这就是任务问「itemtestfn 的调用时机」的完整答案。",
   ],
-  445: [
+  "Container:CanAcceptCount#1+68": [
     "-- ★★ 至此 CanAcceptCount 的完整算法：",
     "--   阶段一（本容器）：① 同类摞的 RoomLeft 之和 ② 空槽位数（不收整摞时每槽只算 1）",
     "--   阶段二（专用容器）：同样的两轮，但只对 ShouldPrioritizeContainer 通过的容器做",
     "--   ⇒ ★ 推论：**专用容器的内容物算进背包的接收能力**，",
     "--     所以「背包显示还有位置」实际包含了弹药包的空位。",
   ],
-  566: [
+  "Container:GiveItem#1+119": [
     "-- ★★ 至此 GiveItem 的完整决策树（供速查）：",
     "--   1. item 为 nil？→ false",
     "--   2. 无 inventoryitem 或 CanTakeItemInSlot 不过？→ 落到第 558 行落地 + false",
@@ -65,7 +65,7 @@ export const BEFORE = {
     "--   5. 能定槽？→ 放进去；若是超量堆叠进非堆叠容器，只放 1 个并 **返回 false**",
     "--   6. 以上全败 → 落地 + false",
   ],
-  721: [
+  "Container:Close#1+47": [
     "-- ★★ 至此 Close 的完整流程与 Open 对照表：",
     "--   步骤            │ Open                        │ Close",
     "--   ────────────────┼─────────────────────────────┼──────────────────────────",
@@ -80,7 +80,7 @@ export const BEFORE = {
     "--   事件            │ 656 \"onopen\"                │ 719 \"onclose\"",
     "--   ⚠ 参数格式      │ {doer = doer}（表）          │ doer（裸值）★ 不对称",
   ],
-  814: [
+  "Container:GetSpecializedContainers#1+13": [
     "-- ★★ 至此「专用容器」机制的全貌（专有概念，容器系统的隐藏特性）：",
     "--   定义：一个**带着 priorityfn 的容器实体**，且它自己被装在别的容器/背包里。",
     "--   例：弹药包（装弹药）、种子袋（装种子）、战斗歌容器。",
@@ -91,7 +91,7 @@ export const BEFORE = {
     "--   ⇒ ★ 这个机制让「嵌套的窄容器」在体验上表现得像「父容器的格子」，",
     "--     是 DST 背包系统少见的深度设计。",
   ],
-  1053: [
+  "Container:RemoveItem_Internal#1+34": [
     "-- ★★ 至此 RemoveItem_Internal 的完整决策树：",
     "--   1. readonlycontainer？→ 返回 nil（一个都不给）",
     "--   2. 可堆叠且 IsStack()？→ 进入拆分路径，算 num：",
@@ -101,7 +101,7 @@ export const BEFORE = {
     "--   3. 整体移除：slots[slot]=nil（★不搬移）+ 超量处理 + 恢复 maxsize",
     "--   4. 发 itemlose 事件（★ 联机同步的关键）+ OnRemoved + 记 prev 字段",
   ],
-  1198: [
+  "Container:TakeActiveItemFromCountOfSlot#1+28": [
     "-- ★★★ 「七处理器 × itemtestfn」速查矩阵（回答任务的核心问题）：",
     "--   ┌ 函数                          │ 手持物 │ 槽状态 │ itemtestfn │ acceptsstacks │ 超量",
     "--   ├───────────────────────────────┼────────┼────────┼────────────┼───────────────┼──────",
@@ -123,7 +123,7 @@ export const BEFORE = {
     "--     ② **放入与合并类（Put/Add/Swap/Move）全部要查**；",
     "--     ③ **超量堆叠只在取出与搬运时处理**（因为放入时 infinitestacksize 会重新放开上限）。",
   ],
-  1531: [
+  "Container:MoveItemFromCountOfSlot#1+52": [
     "-- ★★ 至此本文件的整体结构（1651 行的四段划分）：",
     "--   ① 1-118    类定义 / 属性 setter / WidgetSetup —— 「装配」",
     "--   ② 120-445  掉落 / 准入 / 容量查询     —— 「维护」",

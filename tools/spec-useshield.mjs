@@ -97,7 +97,7 @@ export default {
     '--★ ★ 移植要点：事件监听不是免费的（每次事件都要做一次表查找），',
     '--     不用的监听就不要注册。构造器里用开关决定注册哪些监听是好习惯。',
   ],
-  21: [
+  "self.onepicscarefn#1": [
     '--★★★ 惊吓持续时间的计算：`data.duration + GetTime() + math.random()`。',
     '-- ★三层含义：',
     '--   · GetTime()      —— 当前时刻',
@@ -118,7 +118,7 @@ export default {
   ],
 
   // ══════════════ 电击事件 ══════════════
-  28: [
+  "self.onelectrocutefn#1": [
     '--★★★★【本文件最值得学的一行】self.inst.brain:ForceUpdate()',
     '--',
     '-- 一个「被电击」事件触发的**唯一**动作：强行唤醒大脑。',
@@ -141,7 +141,7 @@ export default {
   ],
 
   // ══════════════ OnStop ══════════════
-  37: [
+  "UseShield:OnStop#1": [
     '--★★ OnStop 摘掉全部 6 个监听，与构造器注册的一一对应。',
     '--★ 第 38 行的判空是因为 onepicscarefn 只在 hidewhenscared 时才创建（第 20-23 行）。',
     '--★ ★ 移植要点：**注册与反注册必须成对，且反注册前要判空**。',
@@ -153,7 +153,7 @@ export default {
   ],
 
   // ══════════════ TimeToEmerge ══════════════
-  48: [
+  "UseShield:TimeToEmerge#1": [
     '--★★★ TimeToEmerge —— 决定「什么时候可以从盾里钻出来」的三重与条件。',
     '--',
     '-- 【三个条件全满足才返回 true】',
@@ -170,17 +170,17 @@ export default {
     '--   ★ 移植要点：几乎所有「临时状态」都该有一个静默超时，',
     '--     否则状态会永久卡住。DST 这里用 2 秒，是个好起点。',
   ],
-  50: [
+  "UseShield:TimeToEmerge#1+2": [
     '--★ 静默超时：t - timelastattacked > shieldtime。',
     '--★ ⚠️ 用的是严格大于；恰好等于 2.0 秒时仍不算结束。微小差异，无影响。',
   ],
-  52: [
+  "UseShield:TimeToEmerge#1+4": [
     '--★ shieldendtime 为 nil 表示「没设自定义时长」→ 该条件自动满足。',
     '--★ 三重与里的 or nil 项，作用是「让没配自定义时长的走默认逻辑」。',
   ],
 
   // ══════════════ ShouldShield ══════════════
-  55: [
+  "UseShield:ShouldShield#1": [
     '--★★ ShouldShield —— 「此刻要不要举盾」的完整判断链，优先级从上到下。',
     '-- ★★ 这个函数的结构值得学：**硬性否决 → 状态检查 → 自定义 → 默认规则**。',
     '--   自定义回调（shouldshieldfn）放在默认规则**之前**，',
@@ -188,11 +188,11 @@ export default {
     '-- ★ 移植要点：扩展点的优先级顺序要在设计时明确，',
     '--   否则「自定义却没生效」会是最难查的 bug。',
   ],
-  56: [
+  "UseShield:ShouldShield#1+1": [
     '--★ 硬否决 1：已死不举盾。显然。',
     '--★ 但它必须排在最前 —— 否则死人会进入防御状态并卡住（无头骑士效应）。',
   ],
-  60: [
+  "UseShield:ShouldShield#1+5": [
     '--★★ 硬否决 2：状态图「忙且不可打断」时不举盾。',
     '--   条件：checkstategraph 开关开 + HasStateTag("busy") + 不 HasStateTag("caninterrupt")',
     '-- ★★ 语义：正在播放某个不能被打断的动作（如挖矿、开门动画）时不要插举盾。',
@@ -205,11 +205,11 @@ export default {
     '--   这里没有，说明作者假定「用 UseShield 的实体必有 stategraph」。',
     '--   标注为「隐含前提」：非缺陷，但对「无 sg 实体」不健壮。',
   ],
-  64: [
+  "UseShield:ShouldShield#1+9": [
     '--★ 自定义判断：若提供了 shouldshieldfn，优先听它的。',
     '--★ 第 65 行一次调用取两个返回值（是否 + 举盾时长）。',
   ],
-  67: [
+  "UseShield:ShouldShield#1+12": [
     '--★★★ `return should_shield, time_to_shield or nil` —— 双返回值的转交。',
     '-- ★★ `time_to_shield or nil` 是纯粹的防御：若回调只返回 true，',
     '--   time_to_shield 就是 nil，加 or nil 无变化。',
@@ -217,7 +217,7 @@ export default {
     '--   标注为「冗余但无害」：也可写成 return should_shield, time_to_shield。',
     '--★ 真正的消费点在第 109-111 行：time_to_shield 非 nil 时设 shieldendtime。',
   ],
-  71: [
+  "UseShield:ShouldShield#1+16": [
     '--★★★★ 内建的四条「举盾理由」，任一成立即举盾：',
     '--   ① 累计伤害超过阈值     —— 被打得够多了，用盾回本',
     '--   ② 正在受到火焰伤害     —— 除非 dontshieldforfire（第 72 行）',
@@ -231,7 +231,7 @@ export default {
   ],
 
   // ══════════════ OnAttacked ══════════════
-  77: [
+  "UseShield:OnAttacked#1": [
     '--★ OnAttacked 是四个事件的共同落点（第 25-27 行的三个回调都调它）。',
     '--★★ 关键设计：**不同事件传不同参数，用 nil 表达「信息缺失」**：',
     '--   attacked            → OnAttacked(attacker, damage)         两个都有',
@@ -241,11 +241,11 @@ export default {
     '--★ ★ 移植要点：用 nil 占位比定义多个回调更省，但**必须清楚每个位置可能缺什么**，',
     '--   否则会出现「以为 damage 一定有值」的隐蔽 bug。',
   ],
-  78: [
+  "UseShield:OnAttacked#1+1": [
     '--★ 冰冻状态下不响应 —— 无法在举盾时被打断举盾动画。',
     '--★ 语义：「被冻结的生物不做任何防御反应」，合理。',
   ],
-  79: [
+  "UseShield:OnAttacked#1+2": [
     '--★ 只有「不在受击时更新时间」的模式下才更新 timelastattacked。',
     '--★★ 这解释了 dontupdatetimeonattack 的用途（第 113-119 行）：',
     '--   默认：每次挨打都续期 → 持续挨打就一直举盾（合理）',
@@ -253,12 +253,12 @@ export default {
     '-- ★ 移植要点：这类开关本质是「计时起点放哪」的策略差异，',
     '--   写成配置项就变成了一族行为，参数化做得非常到位。',
   ],
-  81: [
+  "UseShield:OnAttacked#1+4": [
     '--★ 被攻击时清掉自定义结束时刻，改回「按最后一次受击计时」。',
     '--★ 原注释有一处笔误：if we **we** had（重复了一个 we），不影响理解。',
     '--★★ 语义优先级的体现：默认逻辑优先于自定义时长。',
   ],
-  84: [
+  "UseShield:OnAttacked#1+7": [
     '--★★ 已经在举盾且不是投射物 → 播「被击中」动画，然后 return。',
     '--   三条件：不用自定义动画 + 当前状态名恰为 "shield" + 不是投射物',
     '-- ★★ 注意这里**直接访问 sg.currentstate.name**（精确匹配状态名而非状态标签）。',
@@ -269,11 +269,11 @@ export default {
     '--   ★ 移植要点：这是「防御成功 → 不推进威胁累积量」的短路，',
     '--     避免了「明明挡住了却还在累加伤害导致无限举盾」。',
   ],
-  91: [
+  "UseShield:OnAttacked#1+14": [
     '--★ 累加伤害。damage 为 nil 时跳过（第 91 行的 if 保护）。',
     '--★ ★ 移植要点：这就是第 77 行「参数可能缺失」的直接后果 —— 必须判 nil。',
   ],
-  95: [
+  "UseShield:OnAttacked#1+18": [
     '--★ 投射物 + hidefromprojectiles → 记下 incoming 并 return。',
     '--★★ 同样用 return 短路：不累加 damage（第 95 行在第 91 行之后）。',
     '--   即「躲起来时把伤害视为 0」—— 因为躲开了就不该扣血阈值。',
@@ -281,7 +281,7 @@ export default {
   ],
 
   // ══════════════ Visit ══════════════
-  102: [
+  "UseShield:Visit#1": [
     '--★★ Visit —— 本节点的结构与其他节点有一个显著不同：**有 return**。',
     '-- ★★ 对照 chaseandattack/approach 的「顺序双 if」，本文件是：',
     '--     READY 段执行完就 return；只有 RUNNING 段独立执行。',
@@ -291,7 +291,7 @@ export default {
     '-- ★ 移植要点：局部变量的作用域决定了结构 ——',
     '--   有跨段依赖就用 return 隔开，没有就用顺序双 if 少一次判断。',
   ],
-  105: [
+  "UseShield:Visit#1+3": [
     '--★★★★【进入条件 —— 四重判断，是本节点最精妙的一处】',
     '--   第 104 行：ShouldShield() 返回 (should_shield, time_to_shield)',
     '--   第 105 行：',
@@ -310,33 +310,33 @@ export default {
     '-- ★★★★ 移植要点：「进入条件」要考虑「当前是否已在目标状态」，',
     '--     否则节点会被自己的判定结果卡在边缘。',
   ],
-  106: [
+  "UseShield:Visit#1+4": [
     '--★ 进入时清空两个累积量 —— 防御是「一次性的」，不累积上一轮的伤。',
     '--★★ 与 chaseandattack 第 48 行重置 numattacks 完全同构：',
     '--   进入新阶段时清空累积计数，是所有「计数型节点」的通用纪律。',
   ],
-  109: [
+  "UseShield:Visit#1+7": [
     '--★ 有自定义时长 → 记录结束时刻（TimeToEmerge 的第三个条件会用到）。',
     '--★ 只有第 67 行返回了时长时才生效，默认路径下 shieldendtime 保持 nil。',
   ],
-  113: [
+  "UseShield:Visit#1+11": [
     '--★★★ dontupdatetimeonattack 分支 —— 与第 79 行是配对的。',
     '--   因为这个模式不在「被攻击」时更新时间（第 79 行被跳过），',
     '--   所以必须在**节点启动时**记一次，否则第 50 行的静默判定永远不满足，',
     '--   节点会永久卡在 RUNNING。',
     '--★★ 典型的「两处修改必须成对」：第 79 行跳过更新，这里补上。',
   ],
-  117: [
+  "UseShield:Visit#1+15": [
     '--★ 双重判断：只有「还没在举盾」时才推 entershield 事件。',
     '--★ 防抖：已在举盾时不重复推事件（stategraph 已在该状态里，推了也没用）。',
   ],
-  118: [
+  "UseShield:Visit#1+16": [
     '--★ PushEvent 是行为树与 stategraph 的通信手段。',
     '--★★ 全节点只用了两个事件名：entershield（进入）/ exitshield（退出）。',
     '--   ★ 移植要点：**行为树不直接控制动画，而是推事件让状态图自己决定怎么演**。',
     '--     这样动画、声音、特效都能在状态图里统一编排，不会与 AI 逻辑打架。',
   ],
-  121: [
+  "UseShield:Visit#1+19": [
     '--★ 默认模式直接推 entershield（无需判断当前状态 —— 因为第 105 行已排除已在举盾的重复进入？',
     '--   实际上第 105 行的 or 分支允许「已在举盾」也进来，此时会重复推事件）。',
     '--⚠️【疑似冗余 · 已核实】对比第 117-118 行有 HasStateTag("shield") 判空，',
@@ -345,14 +345,14 @@ export default {
   ],
 
   // ══════════════ RUNNING 段 ══════════════
-  130: [
+  "UseShield:Visit#1+28": [
     '--★★ RUNNING 段：决定「什么时候解除防御」，三条路径。',
   ],
-  131: [
+  "UseShield:Visit#1+29": [
     '--★ 被电击 → FAILED（强制放弃防御）。',
     '--★ 与第 105 行的排除项呼应：电击状态下不会进入，也不会持续。',
   ],
-  133: [
+  "UseShield:Visit#1+31": [
     '--★★★ 核心分支：两个 or 条件**都表示「继续举盾」**：',
     '--   not TimeToEmerge()                 —— 时间没到，继续',
     '--   正在受火焰伤害（且未禁用火焰防御）    —— 火还没灭，继续',
@@ -364,14 +364,14 @@ export default {
     '--   我已核实第 133-135 行的条件成立时确实是「维持 RUNNING」，语义正确。',
     '--   标注为「已核实的冗余赋值」：无害，但读代码时会让人困惑。',
   ],
-  134: [
+  "UseShield:Visit#1+32": [
     '--★ 着火时「不结束防御」—— 因为火还没灭，钻出来会被烧。',
     '--★ 与第 72 行的 dontshieldforfire 开关对应：',
     '--   默认（不设）→ 着火也举盾（第 72 行 true 分支）',
     '--   开启        → 着火不举盾（第 72 行 false 分支），',
     '--                  此处也不再续期，会正常结束。',
   ],
-  137: [
+  "UseShield:Visit#1+35": [
     '--★ 结束防御：推 exitshield 事件 + SUCCESS。',
     '--★★ SUCCESS 的语义是「防御这一轮成功完成」，',
     '--   与第 126 行的 FAILED（不满足进入条件）形成对照。',

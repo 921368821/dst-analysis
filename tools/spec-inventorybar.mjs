@@ -216,7 +216,7 @@ export default {
     '-- ⚠️ 这个标志在 Rebuild 末尾（第 461 行）清空，',
     '-- 意味着它只影响「紧接着的这一帧」的重建。',
   ],
-  150: [
+  "Inv:AddEquipSlot#1": [
     '-- AddEquipSlot：**只登记，不立刻建控件**。',
     '-- 把装备槽信息塞进 equipslotinfo 并排序，然后置 rebuild_pending。',
     '-- ★★★ 这是「延迟重建」模式的最纯粹示范：',
@@ -232,7 +232,7 @@ export default {
     '-- 第 151 行 sortkey 默认取表长度，保证新槽排到末尾。',
     '-- 第 153 行每次插入后重排 —— 装备槽显示顺序由 sortkey 决定（mod 可改）。',
   ],
-  157: [
+  "BackpackGet#1": [
     '-- 【★ overflow（溢出背包）的事件转发 —— 为什么要多这一层？】',
     '-- 背包栏本身（inv）和溢出容器（overflow，即第二行）是**两个 container**。',
     '-- 第 349-352 行给 overflow.inst 也挂了同名事件监听。',
@@ -247,7 +247,7 @@ export default {
     '-- IsHolding(inst) 确认这个事件确实是「当前打开的这个容器」发出的，',
     '-- 防止别的容器（如同时打开的冰箱）的同名事件串台。',
   ],
-  189: [
+  "RebuildLayout_Quagmire#1": [
     '-- RebuildLayout_Quagmire：圣旗模式**独立写了一份**布局函数。',
     '-- 与通用版 RebuildLayout（第 240 行）并存，由第 441-445 行二选一调用。',
     '-- ★ 为什么不抽象成「配置驱动的布局」？',
@@ -262,7 +262,7 @@ export default {
     '-- ★ 但反面看：这也是「不强行抽象」 pragmatically 的选择。',
     '--   两套 ~55 行代码各自清晰，好过一层充满 if 的万能函数。',
   ],
-  194: [
+  "RebuildLayout_Quagmire#1+5": [
     '-- inv_tip_y = inv_w + inv_sep + 30：槽位提示条的 Y 偏移。',
     '-- ★ 换算成「槽高 + 间距 + 文字高度」，即提示条落在槽位正下方。',
     '-- 通用版对应的是第 276 行的 slot.top_align_tip = W*.5 + YSEP。',
@@ -270,13 +270,13 @@ export default {
     '-- 通用版 W*.5 = 34 是半宽（因为 top_align_tip 以槽中心为原点）。',
     '-- 混用这两个数会导致提示条位置差一倍。',
   ],
-  241: [
+  "RebuildLayout#1+1": [
     '-- ★ 有 overflow（第二行）时整条 bar 上移 (W+YSEP)/2 = 38，',
     '-- 为 bottomrow 让出垂直空间。这是「无布局引擎」的经典手工避让：',
     '-- 子容器数量变了，父容器位置要跟着补偿。',
     '-- 有布局引擎的话这里会是一行 flex 配置。',
   ],
-  247: [
+  "RebuildLayout#1+7": [
     '-- 【★★ 槽位网格公式 —— 全文件最该抄的一段布局代码】',
     '-- num_slotintersep = ceil(num_slots / 5)：物品栏每 5 格一组，',
     '--   组与组之间要额外加 INTERSEP 的间距，所以组数 = ceil(格数/5)。',
@@ -292,7 +292,7 @@ export default {
     '--   并把底板拉伸到刚好匹配（第 361 行 bg:Flow(total_w+60, 256)）。',
     '--   即「先算内容宽 → 再据此摆内容、拉伸背景」的两步法。',
   ],
-  251: [
+  "RebuildLayout#1+11": [
     '-- ★ 这一行是**从右边往左**推算装备槽的起始 x：',
     '--   左侧留白 (W-total_w)/2',
     '-- + 物品区总宽（num_slots 个 W + (num_slots-1) 个 SEP + 分组 INTERSEP）',
@@ -307,20 +307,20 @@ export default {
     '-- ⚠️ 整个文件没有一处循环同时排两者，全靠这个「先跳到右端」的动作。',
     '--   改动布局时务必同时看这两处，否则装备槽会跑到物品栏左边。',
   ],
-  253: [
+  "RebuildLayout#1+13": [
     '-- EquipSlot vs InvSlot：装备槽是特化控件（自带装备图标、不能自由放东西）。',
     '-- ★ 第 260 行 SetTile(ItemTile(item)) —— 装备槽与物品槽共用同一个 ItemTile，',
     '-- 说明「显示一个物品」与「槽位类型」是解耦的两层。',
     '-- 这是 widget 组合式设计的好处：换槽型不影响物品渲染。',
   ],
-  264: [
+  "RebuildLayout#1+24": [
     '-- ★ 罗盘（hudcompass）与手部图标（hand_inv）跟随 HANDS 装备槽定位：',
     '-- HANDS 槽就是玩家「当前手持物」的位置，把这两个 UI 钉在它上面，',
     '-- 视觉上就成了「手里拿着的东西」。',
     '-- do_integrated_backpack 时下移 80 而非 40，避开第二行背包。',
     '-- ★ 这是「用另一个控件的坐标驱动自己」—— 无布局引擎下的常见手法。',
   ],
-  276: [
+  "RebuildLayout#1+36": [
     '-- ★ slot.top_align_tip = W*.5 + YSEP：记录「提示条应在此槽上方（W/2 处）」。',
     '-- 注意是给**槽位对象**打标记，而非直接算提示条坐标。',
     '-- 第 1208 行 UpdateCursorText 再读这个标记决定提示条朝向。',
@@ -331,7 +331,7 @@ export default {
     '--   同一套字段也用于游戏内容器（冰箱/箱子）的提示条定位。',
     '--   → 即：**背包与箱子共用一套提示条定位协议**，靠这三个字段区分。',
   ],
-  286: [
+  "RebuildLayout#1+46": [
     '-- 【★★ 数据驱动 UI：按角色动态选图集】',
     '-- image_name = "self_inspect_" .. prefab .. ".tex"',
     '-- atlas_name = "images/avatars/self_inspect_" .. prefab .. ".xml"',
@@ -345,7 +345,7 @@ export default {
     '--   新角色忘了加图，玩家看到的是通用图标而不是报错，很难排查。',
     '--   移植时建议至少加一条日志。',
   ],
-  293: [
+  "RebuildLayout#1+53": [
     '-- do_self_inspect（能否查看自己）：决定是否加「查看自己」按钮。',
     '-- ★ 第 294-295 行同步拉伸底板 bg/bgcover 到 1.22（比第 303 行的 1.15 更宽），',
     '--   因为多了一个按钮，总宽度变大。',
@@ -355,7 +355,7 @@ export default {
     '--   ⚠️ 不置 nil 的话，下次 Rebuild（第 409 行）会把它当残留节点处理。',
     '--   「创建与销毁严格配对」是这段的要点。',
   ],
-  312: [
+  "RebuildLayout#1+72": [
     '-- ★★ 溢出背包的事件监听「先解绑再重建」，三步走：',
     '--   314-316 行 RemoveEventCallback 三个监听',
     '--   317 行 self.backpack = nil',
@@ -368,7 +368,7 @@ export default {
     '-- ★★ 移植要点：任何「挂到外部对象上的监听」都要成对管理，',
     '--   且重建前必须清理。这是 UI 与外部对象交互的头号泄漏源。',
   ],
-  323: [
+  "RebuildLayout#1+83": [
     '-- 集成背包（第二行）的排布有两种策略，由 offset 正负决定：',
     '--   offset > 0（第 336-337 行）：借用主背包第 offset..offset+n-1 格的 x 坐标',
     '--   offset ≤ 0（第 338-341 行）：自己从 x=-num*(W+SEP)/2 起居中排',
@@ -379,20 +379,20 @@ export default {
     '-- 第 325 行 offset = 1 + #self.inv - num。',
     '-- ⚠️ 这是「两套坐标二选一」的手写布局分支，逻辑正确但不易维护。',
   ],
-  327: [
+  "RebuildLayout#1+87": [
     '-- integrated_arrow：指向第二行的箭头图标。',
     '-- 第 328 行定位方式是**读取主背包最后一格的实际坐标**再右移，',
     '-- 而不是用公式重算 —— 这样即使主背包布局将来变了，箭头仍跟着对。',
     '-- ★ 「用已有控件的真实坐标定位新控件」是无布局引擎下的稳妥做法，',
     '-- 比复制公式更抗改动。',
   ],
-  355: [
+  "RebuildLayout#1+115": [
     '-- hadbackpack 且重建后没有 backpack → 说明玩家收起了溢出背包，',
     '-- 此时重置光标到默认槽，避免 active_slot 指向已被 Kill 的槽位。',
     '-- ★ 「外部状态变化后清理内部选择」的典型处理。',
     '-- 不做的话，第 552 行虽然有 IsValid 检查，但会有一帧的错误状态。',
   ],
-  359: [
+  "RebuildLayout#1+119": [
     '-- ★ 底板自适应宽度：Flow 是三段切片（3-slice）拉伸，',
     '-- 比 NineSlice 便宜（只需首/中/尾三块而非九块）。',
     '-- total_w + 60：槽区总宽 + 两侧各留 30 像素边距。',
@@ -400,13 +400,13 @@ export default {
     '--   若只改 INTERSEP 而漏改此处，底板与槽位会不匹配。',
     '--   ★ 这类「同一数值在两处使用」的耦合是本文件最易出错的地方。',
   ],
-  375: [
+  "RebuildLayout#1+135": [
     '-- rebuild_snapping（见第 125 行）→ 瞬移而非补间。',
     '-- CancelMoveTo 必须先调：否则之前发起的 MoveTo 动画会在瞬移后',
     '-- 继续把 root 拉回旧位置，造成「刚瞬移又滑回去」的抖动。',
     '-- ★ MoveTo/CancelMoveTo 成对使用，是补间动画的基本纪律。',
   ],
-  388: [
+  "RebuildLayout#1+148": [
     '-- ⚠️★★ 【真实缺陷 · 已逐行核实】此处分支永远为假。',
     '--',
     '-- 上下文：第 369 行是 `elseif do_integrated_backpack then`，',
@@ -426,7 +426,7 @@ export default {
     '-- 建议在第 388 行加注释说明其为死分支，或直接删除。',
     '-- （我已对照第 369/382/388 三行确认行号与逻辑无误。）',
   ],
-  398: [
+  "Inv:Rebuild#1": [
     '-- 【★★ Rebuild：整条背包栏的结构性重建】',
     '-- 被调用时机：AddEquipSlot 置脏后（522 行）、finishseamlessplayerswap（125 行）、',
     '-- 以及首次 Refresh（1150 行的 Refresh 里 self.rebuild_pending 判断）。',
@@ -435,13 +435,13 @@ export default {
     '--   Refresh —— 改**内容**：每个槽里放哪个物品。便宜。',
     '-- 频繁 Refresh 无妨，Rebuild 必须尽量少（靠 rebuild_pending 合并）。',
   ],
-  404: [
+  "Inv:Rebuild#1+6": [
     '-- ★ 第 405-407 行：toprow_inv 需要被「摘下来再挂回去」，不能随 toprow 一起 Kill。',
     '--   因为 toprow_inv 是**跨重建持久存在**的容器（存放外部塞进来的控件）。',
     '-- ★ 若直接 Kill 会把外部控件一起销毁，调用方持有的引用就悬空了。',
     '-- 移植要点：重建子树时，先把「不属于本子树但需要保留」的节点摘出。',
   ],
-  416: [
+  "Inv:Rebuild#1+18": [
     '-- 新建 toprow / bottomrow 两行容器。',
     '-- ★ toprow 装主背包与装备槽，bottomrow 装溢出背包（第 330-347 行）。',
     '--   两行分开是为了能独立上移/下移（第 372-373、385-386 行）。',
@@ -449,7 +449,7 @@ export default {
     '-- ★ 重建前必须清空索引表，否则会残留上一轮的槽位引用。',
     '--   这是「重建 = 清空 + 重建」标准模式的体现。',
   ],
-  429: [
+  "Inv:Rebuild#1+31": [
     '-- 【★ 交互模式探测：手柄 or 键鼠，直接决定布局形态】',
     '-- controller_attached = TheInput:ControllerAttached()',
     '--',
@@ -461,31 +461,31 @@ export default {
     '--   自研游戏做手柄适配时，输入方式会反过来约束界面布局，',
     '--   而不只是「给现有界面加按键映射」。',
   ],
-  436: [
+  "Inv:Rebuild#1+38": [
     '-- ★★ overflow 归属校验：必须确认这个容器是「当前玩家打开的」。',
     '-- IsOpenedBy(self.owner) 防止拿到别人（如队友代开）的容器。',
     '-- 第 438 行再与 integrated_backpack 相与 —— 两个条件缺一不可。',
     '-- ★ 这是安全校验：UI 绝不能展示/操作不属于当前玩家的数据。',
   ],
-  439: [
+  "Inv:Rebuild#1+41": [
     '-- do_self_inspect = not (controller_build or no_avatar_popup)',
     '-- ★ 手柄模式不给「查看自己」按钮：手柄玩家按不出鼠标点击，',
     '--   且该功能对查看装备状态意义不大。',
     '-- GetGameModeProperty("no_avatar_popup") 让 mod 能全局禁用。',
     '-- ★ 「游戏模式属性」是 DST 的扩展点：一个 flag 关掉一组 UI 行为。',
   ],
-  447: [
+  "Inv:Rebuild#1+49": [
     '-- 重建后让外部塞进 toprow_inv 的控件重算坐标。',
     '-- ★ 为什么必须显式调？它们不是 toprow_inv 的自动子节点，',
     '--   坐标基于旧布局算的。布局一变就得通知它们 RefreshPosition。',
     '-- ⚠️ 漏掉这行 → 外部控件停留在旧坐标，视觉上「错位但不报错」。',
   ],
-  460: [
+  "Inv:Rebuild#1+62": [
     '-- rebuild_pending / rebuild_snapping 清空。',
     '-- ★ 置 pending 的唯一目的是「让下次 OnUpdate 执行 Rebuild」，',
     '--   执行完必须清掉，否则会无限重建（每帧一次，直接卡死）。',
   ],
-  464: [
+  "Inv:RefreshRepeatDelay#1": [
     '-- 【★ 连发速度的三档策略】',
     '-- reps<=1：首次 —— 最慢（inventory_repeat_base），给玩家反应时间；',
     '-- reps>=3 且摇杆推到底(>0.95)：最快（inventory_repeat_ninja），',
@@ -496,7 +496,7 @@ export default {
     '-- 这避免了「一推就飞速乱窜」的失控感，也是竞速游戏的标准手感设计。',
     '-- ⚠️ 这三个值来自 TheFrontEnd（用户设置），允许玩家调 —— 手感应当可定制。',
   ],
-  474: [
+  "Inv:OnUpdate#1": [
     '-- 【★★ OnUpdate：本文件每帧都会走一次，热点代码】',
     '-- 可读本函数被拆成五段，依次是：',
     '--   475-503  自动暂停判定（autopause）',
@@ -506,7 +506,7 @@ export default {
     '--   552-609  槽位有效性维护 + 光标移动',
     '-- ★ 整体性能意识很强：多处做了「无变化则跳过」的早退。',
   ],
-  475: [
+  "Inv:OnUpdate#1+1": [
     '-- 【★ 自动暂停（autopause）机制 —— 手柄玩家边操作边看背包时的体验设计】',
     '-- 问题：手柄玩家打开背包时若不暂停，NPC 会继续攻击。',
     '-- 解决：打开背包期间自动暂停游戏。',
@@ -517,7 +517,7 @@ export default {
     '-- → 联机玩家不自动暂停（避免影响别人），单机玩家自动暂停。',
     '-- ★ 这是「按运行环境降级功能」的教科书案例。',
   ],
-  486: [
+  "Inv:OnUpdate#1+12": [
     '-- 【★★ autopause_delay：0.5 秒「宽限期」—— 细节见第 880 行设置处】',
     '-- 逻辑：玩家按下丢弃键后，给 0.5 秒让角色「真的开始动作」，',
     '--   若动作迟迟没开始（被 busy 挡住）就强制自动暂停。',
@@ -531,13 +531,13 @@ export default {
     '-- ★ 这与 SetAutopausedInternal 的 `not pause == self.autopaused`（第 899 行）',
     '--   配合：那是防重复触发的守卫。',
   ],
-  507: [
+  "Inv:OnUpdate#1+33": [
     '-- ★ hint_update_check 节流：每 2 秒才检查一次是否要更新手柄提示。',
     '-- 第 515 行归零重计，形成 2 秒周期。',
     '-- ★ 为什么节流？因为第 513 行的 GetLocalizedControl 会做本地化查表，',
     '--   且提示内容不常变（除非插拔手柄）。每帧调纯属浪费。',
   ],
-  518: [
+  "Inv:OnUpdate#1+44": [
     '-- 【★ 早退守卫：本帧剩余逻辑只在「HUD 可见且是当前屏幕」时执行】',
     '-- ★ 这是性能与正确性双重守卫：',
     '--   性能 —— 背包不在前台时，光标/连发/重建全部跳过；',
@@ -546,33 +546,33 @@ export default {
     '-- ⚠️ 注意它在第 522 行的 Rebuild **之前**：',
     '--   所以「看不见时不重建」是有意设计，不是遗漏。',
   ],
-  522: [
+  "Inv:OnUpdate#1+48": [
     '-- ★ 延迟重建的唯一执行点：',
     '-- AddEquipSlot（第 154 行）置 dirty，这里消费。',
     '-- ★ 关键是「消费后立刻 Rebuild + Refresh」且第 460 行会清标志，',
     '--   保证一帧只重建一次。',
     '-- ⚠️ 若 Rebuild 内部又置了 pending，会变成每帧重建 → 性能悬崖。',
   ],
-  535: [
+  "Inv:OnUpdate#1+61": [
     '-- ★ V2C（开发期校验）注释：原本想在手柄开背包时暂停，',
     '-- 但联机里暂停只改音频设置，会误伤玩家音频，故注释掉。',
     '-- ★ 这类「被注释掉的功能」在本文件出现多次（第 537-539、908-910、952-954 行）。',
     '--   与 SOP 第 4 条一致：注释掉的代码 ≠ 未实现，要看它是否真被注释。',
     '--   这里确实是死代码。',
   ],
-  548: [
+  "Inv:OnUpdate#1+74": [
     '-- repeat_time 倒计时。归零后（第 565 行）才处理方向键 → 连发循环。',
     '-- ★ 这就是「首延迟」的实现：第一次按下走 IsControlPressed（边沿触发），',
     '--   之后靠 repeat_time 到期重复。',
   ],
-  552: [
+  "Inv:OnUpdate#1+78": [
     '-- ★ 槽位有效性自愈：active_slot 指向的控件可能已被 Kill',
     '--   （如物品被丢弃后 ItemTile 被销毁）。',
     '-- 检测到失效就重置到默认槽，并清掉 cursor。',
     '-- ★★ 「UI 持有的引用可能先于数据失效」—— 这是所有长生命周期 UI 的必修课。',
     '--   注意第 676 行 CursorNav 里还有一次同样的检查，属双保险。',
   ],
-  565: [
+  "Inv:OnUpdate#1+91": [
     '-- 【★ 光标移动的总入口 —— 三种输入源的优先级链】',
     '-- 第 568-586 行：手柄摇杆（仅 open 时，即面板已展开）',
     '-- 第 588-604 行：虚拟控制键 VIRTUAL_CONTROL_INV_*（始终可用）',
@@ -583,7 +583,7 @@ export default {
     '--   移动了光标就**立即结束本帧**，不再往下走。',
     '--   漏掉 return 会导致一帧内连移多格。',
   ],
-  612: [
+  "Inv:OffsetCursor#1": [
     '-- 【★ OffsetCursor：带环绕与「跳过无效槽」的光标步进】',
     '-- 用于单行内的左右/上下移动（本文件其它方向走 CursorNav）。',
     '--',
@@ -598,7 +598,7 @@ export default {
     '-- ⚠️ 这是必需的防御：没有它，一个「全无效」的列表会让手柄卡死转圈。',
     '-- ★ 移植要点：任何「循环查找」都要有起点回归判断，否则死循环。',
   ],
-  645: [
+  "Inv:GetInventoryLists#1": [
     '-- GetInventoryLists：决定光标能在哪些槽位列表间移动。',
     '--',
     '-- ★ same_container_only=true（第 646-655 行）：只在「主背包↔装备槽」之间跳，',
@@ -614,7 +614,7 @@ export default {
     '-- 第 658 行从 HUD.controls.containers 取所有打开的容器 ——',
     '--   动态扩展，无需在背包栏里硬编码容器列表。',
   ],
-  666: [
+  "Inv:CursorNav#1": [
     '-- 【★★ CursorNav：几何式焦点导航的核心】',
     '-- 第 667 行 CancelDeployPlacement：',
     '--   ★ 导航前先取消建造放置态 —— 否则玩家在放蓝图时按方向键，',
@@ -628,7 +628,7 @@ export default {
     '--   active_slot 存在 且 控件有效 且 current_list 存在 且首个槽位有效。',
     '--   任何一项不满足就重置到默认槽并返回，绝不继续用无效引用。',
   ],
-  683: [
+  "Inv:CursorNav#1+17": [
     '-- ★★ 几何导航：GetClosestWidget 按方向向量找最近的可导航槽位。',
     '-- ★ 注意返回的 slot 与 list **成对**（第 787 行）——',
     '--   光标必须同时知道「选中哪个槽」和「当前在哪个列表」，',
@@ -636,7 +636,7 @@ export default {
     '-- 第 685 行 self.current_list = list 是这个配对关系的落点。',
     '-- ★ 若只返回 slot 而不更新 current_list，横向移动会算错边界。',
   ],
-  760: [
+  "Inv:GetClosestWidget#1": [
     '-- 【★★ GetClosestWidget：纯几何的焦点导航算法】',
     '-- 遍历候选列表里所有槽，算出「相对当前槽的向量」，',
     '--   ① 点积 > 0（第 775 行）：确认在**指定方向**上 ——',
@@ -655,14 +655,14 @@ export default {
     '-- ⚠️ 若要做严格的方向性导航（如只能上下左右），',
     '--   需把点积改为角度区间判定，并按 4 个方向各跑一次。',
   ],
-  790: [
+  "Inv:GetCursorItem#1": [
     '-- GetCursorItem：当前光标所指槽位里的物品。',
     '-- ★ 三重 and 保护：active_slot 存在 → 有 tile → 有 item。',
     '--   任一为空则返回 nil。',
     '-- ★ 这个函数被第 669、817、996、1008… 等大量调用，',
     '--   是全文件使用频率最高的取值入口。',
   ],
-  800: [
+  "Inv:OnControl#1": [
     '-- 【★★ OnControl：输入分发的总入口 —— 「判定顺序」是本文件精华】',
     '--',
     '-- 顺序（★ 这个顺序本身就是设计，不可调换）：',
@@ -683,7 +683,7 @@ export default {
     '--   （replica 尚未同步销毁），当作 nil 处理。',
     '--   避免对「已消失的物品」执行操作导致报错。',
   ],
-  807: [
+  "Inv:OnControl#1+7": [
     '-- 【★ force_single_drop：一次按键只丢 1 个的「弱化」模式】',
     '-- 第 808-810 行：若上一帧设了这个标志、但本次没再按 PUTSTACK，就复位。',
     '--',
@@ -692,7 +692,7 @@ export default {
     '--   通过 0.5 秒宽限 + 标志位实现，避开重复触发的竞态。',
     '-- ★ 这是「按键语义随重复次数变化」的技巧，移植做长按/连发交互时常见。',
   ],
-  824: [
+  "Inv:OnControl#1+24": [
     '-- 【★★ CONTROL_ACCEPT（主键/A键）的分支 —— 最复杂的判定链】',
     '--',
     '-- 优先级（★ 顺序即优先级）：',
@@ -708,7 +708,7 @@ export default {
     '-- ★ 注意第 846 行：有 active_slot 才点。',
     '--   即「A 键 = 拿起/放下当前槽物品」，是最基础的操作。',
   ],
-  850: [
+  "Inv:OnControl#1+50": [
     '-- CONTROL_PUTSTACK：堆叠/半取。',
     '-- ★ 第 856 行 `if not was_force_single_drop` —— 弱化模式生效时忽略本次，',
     '--   避免「弱化」与「堆叠」两个机制打架。',
@@ -717,7 +717,7 @@ export default {
     '--   槽里有一堆 + 手上没东西 → GETHALF（拿一半）；',
     '--   槽里有单个 + 手上同类 → PUTONE（放一个）。',
   ],
-  861: [
+  "Inv:OnControl#1+61": [
     '-- ★ VIRTUAL_CONTROL_INV_ACTION_DOWN：用虚拟键做「丢弃」。',
     '-- 第 867 行的双重条件 `not was_force_single_drop and IsControlPressed(PUTSTACK)`：',
     '--   同时按住修饰键表示「只要一个」。',
@@ -726,7 +726,7 @@ export default {
     '--     `not (stackable and IsStack())`，即「不是整组」才拒绝。',
     '--   这个双重否定读起来绕，但语义精确。',
   ],
-  879: [
+  "Inv:OnControl#1+79": [
     '-- ★★ 丢弃前先关自动暂停 + 设 0.5 秒宽限（第 880 行）。',
     '--',
     '-- 为什么？丢弃动作会让角色进入 busy 状态，',
@@ -738,13 +738,13 @@ export default {
     '--   在 DST 这种「UI 逻辑与 gameplay 逻辑交织」的架构里非常典型。',
     '--   自研游戏若有类似的「操作中」状态，同样需要这种宽限机制。',
   ],
-  890: [
+  "Inv:OnControl#1+90": [
     '-- CONTROL_USE_ITEM_ON_ITEM：两个物品互相使用（如把火把插进灯）。',
     '-- 第 892 行 ControllerUseItemOnItemFromInvTile 交给 inventory 组件处理。',
     '-- ★ 注意同样有第 890-891 行的解冻 + 宽限 ——',
     '--   凡是会触发角色动作的操作都要走这套。',
   ],
-  898: [
+  "Inv:SetAutopausedInternal#1": [
     '-- SetAutopausedInternal：自动暂停的唯一入口。',
     '-- ★ 第 899 行 `if not pause == self.autopaused then` 是防抖守卫：',
     '--   只有「目标状态 ≠ 当前状态」才真正切换。',
@@ -753,7 +753,7 @@ export default {
     '--   作用：防止重复调用 SetAutopaused（该函数会改全局暂停状态，代价高）。',
     '-- ★ 「用状态比较代替幂等标记」的常见写法。',
   ],
-  905: [
+  "Inv:OpenControllerInventory#1": [
     '-- 【★ OpenControllerInventory：展开手柄背包的全过程】',
     '-- 顺序很有讲究（★ 打断动画前的准备）：',
     '--  907 行 SetDark(true)          —— 先压暗背景（视觉反馈，即时）',
@@ -768,12 +768,12 @@ export default {
     '-- ★ 第 924-926 行：打开背包时**所有已打开的容器一起放大**，',
     '--   否则背包大了而容器还是小号，视觉不协调。',
   ],
-  917: [
+  "Inv:OpenControllerInventory#1+12": [
     '-- ★ 已在 pin bar（制作面板的置顶栏）导航状态时展开背包，',
     '--   强制右移一格把手柄焦点拉回背包内。',
     '-- 属于「状态切换时的焦点复位」，避免焦点遗留在已隐藏的 UI 上。',
   ],
-  949: [
+  "Inv:CloseControllerInventory#1": [
     '-- CloseControllerInventory：Open 的逆操作。',
     '-- ★ 第 960 行 ReturnActiveItem()：关闭时强制归还手持物。',
     '--   若不还，物品会「卡在光标上」丢失。',
@@ -782,14 +782,14 @@ export default {
     '-- 第 974 行 LockFocus(false) 与第 928 行严格配对。',
     '-- ★ 第 950 行的 `if self.open` 保证幂等。',
   ],
-  978: [
+  "Inv:GetDescriptionString#1": [
     '-- GetDescriptionString：物品的完整描述名。',
     '-- ★ 第 983 行「形容词 + 显示名」的拼接，',
     '--   如「温热的 浆果酱」—— 形容词来自 GetAdjective（受火把/保温影响）。',
     '-- ⚠️ 用 `adjective ~= nil and (...) or ...` —— 若形容词是 false 会被吞，',
     '--   但 GetAdjective 返回 nil 或字符串，安全。',
   ],
-  994: [
+  "Inv:UpdateCursorText#1": [
     '-- 【★★ UpdateCursorText：手柄提示条的全部生成逻辑（约 250 行）】',
     '-- 这是本文件最长的函数，结构是「两层嵌套」：',
     '--   外层（1004-1243）：决定标题颜色 + 生成操作列表 + 摆放位置；',
@@ -804,7 +804,7 @@ export default {
     '--   DST 靠这个函数保证不出现「提示了但做不到」。',
     '--   移植自研项目时，这段是最值得完整参考的。',
   ],
-  995: [
+  "Inv:UpdateCursorText#1+1": [
     '-- ⚠️ 【疑似调试残留】ThePlayer.test = self.active_slot',
     '--',
     '-- 我 grep 过全库 scripts/：ThePlayer.test 这个字段**没有任何读取方**',
@@ -816,18 +816,18 @@ export default {
     '-- ★ 顺带说明 UpdateCursorText 里可以访问 ThePlayer ——',
     '--   因为它只在 ThePlayer 存在时（游戏内）被调用（第 518 行已守卫）。',
   ],
-  998: [
+  "Inv:UpdateCursorText#1+4": [
     '-- ★ 双端有效性校验：inv_item 与 active_item 都要查 replica.inventoryitem。',
     '-- 原因：replica 数据由服务端异步下发，客户端可能持有「已删除但未同步」的引用。',
     '-- ★ 这是分布式客户端 UI 的标准防御模式，全文件出现多次',
     '--   （第 818、998、1001 行）。照抄这个检查即可避免大量 nil 崩溃。',
   ],
-  1010: [
+  "Inv:UpdateCursorText#1+16": [
     '-- ★ 标题染色反映物品状态：湿的物品用 WET_TEXT_COLOUR（蓝），否则普通色。',
     '-- 第 1011/1013 行与 1019/1021 行逻辑完全相同（只是 inv/active 二选一）。',
     '-- ★ 「颜色即状态」的视觉编码：玩家不看字也能知道物品湿没湿。',
   ],
-  1028: [
+  "Inv:UpdateCursorText#1+34": [
     '-- 只读容器 → 不生成任何操作提示（第 1186 行 new_string = " "）。',
     '-- ★ 与第 801 行的输入拦截配套：',
     '--   输入层在第 825/851/862/885 行拦截只读容器的操作，',
@@ -836,7 +836,7 @@ export default {
     '--     「不能按但提示说能按」或「提示没有但其实能按」。',
     '-- 这正是第 994 行开头说的「提示要诚实」的维护成本。',
   ],
-  1032: [
+  "Inv:UpdateCursorText#1+38": [
     '-- 【★ 控制方案（scheme）适配 —— 手柄 UI 复杂度最高的根源】',
     '-- 第 1034 行从 Profile 直读控制方案（注释第 1032-1033 行说明了原因：',
     '--   原本用 GetActiveControlScheme，但这段代码专供手柄 UI，故直接查 Profile）。',
@@ -851,7 +851,7 @@ export default {
     '--   用 scheme 数值区间判断（>=4 and <=7）是 DST 的做法，',
     '--   换成枚举会更清晰但需要引擎配合。',
   ],
-  1039: [
+  "Inv:UpdateCursorText#1+45": [
     '-- 【★ DPad 模式下还要判断「是否按住修饰键」】',
     '-- scheme>=6（第 1041 行）：DPad 独占给「物品动作」，',
     '--   必须按住修饰键才能用 —— 否则 show_actions=false + show_mod_hint=true。',
@@ -862,21 +862,21 @@ export default {
     '--   这段每帧可能跑多次，省下的开销可累积。',
     '-- ★ 性能敏感位置的小优化，移植时可参考其取舍思路。',
   ],
-  1055: [
+  "Inv:UpdateCursorText#1+61": [
     '-- 绑定「查看/丢弃/对场景/对自己」四个动作到具体按键常量。',
     '-- ★ 第 1057-1067 行是纯查表：两套 DPad 方案各对应一组按键。',
     '--   若再加一种 scheme，这里要加第三组。',
     '-- ★ 第 1071 行 `if not is_equip_slot` —— 装备槽的可执行动作完全不同',
     '--   （不能「拿起来」，只能「卸下」），故整个 1071-1105 与 1088-1105 分开写。',
   ],
-  1095: [
+  "Inv:UpdateCursorText#1+101": [
     '-- ★ 卸下装备的条件：背包非空、物品非 heavy、模式允许物品式装备。',
     '-- 第 1096 行提示 UNEQUIP。',
     '-- ⚠️ `#self.inv > 0` 说明「手上没有可放的东西时不给卸下选项」——',
     '--   但实际卸下并不需要背包有空间，卸下后物品进 active_item。',
     '--   判定：这是刻意的 UX 约束（避免手上已满时困惑），非缺陷。',
   ],
-  1142: [
+  "Inv:UpdateCursorText#1+148": [
     '-- ★★ can_take_active_item：目标槽能否接收手上的物品。',
     '-- `container.CanTakeItemInSlot == nil` 时视为可以（兼容无此方法的容器）。',
     '--',
@@ -886,7 +886,7 @@ export default {
     '-- ★ 这个判断同时决定提示文案（第 1164 行 SWAP）与实际点击行为，',
     '--   保证提示与结果一致。',
   ],
-  1184: [
+  "Inv:UpdateCursorText#1+190": [
     '-- 【★ 提示条更新的两重节流】',
     '-- 第 1187 行：字符串**没变**就不更新、不重置计时、不 Show。',
     '--   → 避免每帧 SetString 造成文字重排与闪烁。',
@@ -898,13 +898,13 @@ export default {
     '--   缺任何一个都会让 UI 每帧做无用功。',
     '-- ★ 第 1235 行用 DistSq > 1 而非距离 > 1：省开方，阈值更精确。',
   ],
-  1193: [
+  "Inv:UpdateCursorText#1+199": [
     '-- ★ 先量出标题与正文各自的尺寸，取较大值 wmax 作为整体宽度。',
     '-- 因为 title 在上、body 在下（纵向堆叠），宽度取 max 而非相加。',
     '-- ★ 「先测量再定位」—— 无布局引擎下必须手工完成这个步骤，',
     '--   否则提示条会在文字长短不一时左右跳动。',
   ],
-  1200: [
+  "Inv:UpdateCursorText#1+206": [
     '-- ★★ dest_pos 换算：槽位给的是**世界坐标**，',
     '--   但 actionstring 挂在 self.root 下，需要**局部坐标**。',
     '--   第 1207/1213/1219/1225 行统一乘 xscale/yscale 换算。',
@@ -915,7 +915,7 @@ export default {
     '--   正确做法是 GetWorldPosition 后减去父节点偏移并除以父缩放。',
     '--   DST 这里直接乘 root 的缩放，等价于假设 root 原点为基准。',
   ],
-  1202: [
+  "Inv:UpdateCursorText#1+208": [
     '-- 【★ 提示条四向对齐：三种标记 + 一个兜底】',
     '-- side_align_tip   —— 容器类（冰箱/箱子），提示在右侧（第 1203 行注释）；',
     '-- top_align_tip    —— 主背包，提示在上方；',
@@ -930,13 +930,13 @@ export default {
     '-- ⚠️ 注意顺序：必须先判 side（第 1202 行），',
     '--   因为 top/bottom 用 elseif 串联。三个标记互斥由调用方保证。',
   ],
-  1210: [
+  "Inv:UpdateCursorText#1+216": [
     '-- title 在 body 上方：标题贴 h0/2+h1（自身底边紧贴正文顶边），',
     '-- body 贴 h1/2。两者之间零间隙，紧凑排列。',
     '-- ★ 与第 1216-1217 行（下方排列，body 在 title 之下）对照：',
     '--   两处的符号完全不同，说明定位全靠手算。',
   ],
-  1250: [
+  "Inv:SelectSlot#1": [
     '-- 【★ SelectSlot：光标切换的守卫与副作用】',
     '-- 第 1251 行 `slot ~= self.active_slot` 保证「选中同一格不算切换」，',
     '--   → 避免重复触发 DeHighlight/Highlight 与提示条闪烁。',
@@ -947,7 +947,7 @@ export default {
     '--   这是「选中行为隐式驱动模式切换」的耦合，移植时需注意。',
     '-- 第 1264 行 return true —— 调用方（OnControl）靠它知道是否真的切换了。',
   ],
-  1268: [
+  "Inv:SelectDefaultSlot#1": [
     '-- SelectDefaultSlot：选第一个可用槽。',
     '-- ★ 第 1269 行 `self.inv[1] and self.inv or self.equip`：',
     '--   有物品槽就用物品槽，没有才退到装备槽（纯手柄模式可能无物品栏）。',
@@ -957,7 +957,7 @@ export default {
     '-- ★ 这两行组合保证了「任何状态下都有一个合法选中项」，',
     '--   是第 552、676、1292 行三处兜底调用的实现。',
   ],
-  1273: [
+  "Inv:UpdateCursor#1": [
     '-- 【★★ UpdateCursor：光标图标的绘制与跟随】',
     '-- ★ 开头第 1274-1285 行先判「没接手柄」就整体隐藏并 return：',
     '--   鼠标模式下整个手柄光标 UI 不存在。',
@@ -970,7 +970,7 @@ export default {
     '--   第 1346 行 StartDrag() —— ★ 它处于「拖拽中」状态，',
     '--   这样鼠标模式下不会重复触发拾取。',
   ],
-  1306: [
+  "Inv:UpdateCursor#1+33": [
     '-- 【★★ 三分支决定光标框的挂载位置 —— 看似重复，实则必要】',
     '-- 分支1（第 1306-1317 行）：物品会腐坏（HasSpoilage）',
     '--   → 光标挂到 **tile 里面**，随物品一起缩放/销毁；',
@@ -989,7 +989,7 @@ export default {
     '-- ⚠️ 注意第 1332 行的 else 分支：active_slot 为 nil 时 self.cursor 可能也是 nil',
     '--   （第 1292 行已 SelectDefaultSlot 兜底），实际不会到此。',
   ],
-  1336: [
+  "Inv:UpdateCursor#1+63": [
     '-- 【★ cursortile 的「差分更新」】',
     '-- 第 1338 行条件：cursortile 为空 **或** 物品已变 → 才重建。',
     '--   否则什么都不做，保留现有 tile。',
@@ -1000,7 +1000,7 @@ export default {
     '-- ★ 移植要点：跟随类 UI 要区分「重建对象」与「只改位置」，',
     '--   两者开销差一个数量级。',
   ],
-  1357: [
+  "Inv:Refresh#1": [
     '-- 【★ Refresh：内容刷新（与 Rebuild 的结构刷新相对）】',
     '-- 遍历三组槽位（背包 1363、装备 1376、溢出 1389），每组三个分支：',
     '--   该槽无物品 → SetTile(nil) 清理；',
@@ -1017,7 +1017,7 @@ export default {
     '-- ★ skipbackpack 参数（第 1357、1389 行）：refreshinventory 事件传 true，',
     '--   跳过溢出背包刷新 —— 因为该事件不代表溢出容器变化。',
   ],
-  1417: [
+  "Inv:SetHoverTileHideModifier#1": [
     '-- 【★ SetHoverTileHideModifier：多来源遮罩的统一入口】',
     '-- 第 1418 行把「来源 + 隐藏位 + 键」交给 SourceModifierList 聚合，',
     '-- 第 1419 行再根据聚合结果（Get 返回任一为真）切换可见性。',
@@ -1027,13 +1027,13 @@ export default {
     '--   「加法而非覆盖」的语义 —— 只需一个来源撤销即可恢复。',
     '-- key 或 source（第 1418 行）：同一来源可按不同键分别控制。',
   ],
-  1423: [
+  "Inv:OnPlacerChanged#1": [
     '-- OnPlacerChanged：建造蓝图放置态变化时的回调。',
     '-- ★ 用固定字符串 PLACER_SOURCE（第 1422 行）作为来源标识，',
     '--   与第 118 行的通用事件入口共用同一个聚合器。',
     '-- ★ 这样「放蓝图时隐藏手持物」就自动实现了，无需特殊逻辑。',
   ],
-  1427: [
+  "Inv:EnableHoverTileVisibility#1": [
     '-- EnableHoverTileVisibility：切隐藏时**只动 image 和 imagebg 两个子件**，',
     '-- 而不 Kill 整个 hovertile。',
     '-- ★ 意义：悬停位置、物品、数量等状态全部保留，',
@@ -1041,14 +1041,14 @@ export default {
     '-- ⚠️ 若改成 Hide()/Show() 整个 tile，被它挡住的鼠标事件也会变化，',
     '--   交互会不稳定。这是「局部隐藏优于整体隐藏」的实例。',
   ],
-  1448: [
+  "Inv:Cancel#1": [
     '-- Cancel：手柄模式下取消操作。',
     '-- ★ 第 1450-1453 行：若手持着东西，先 ReturnActiveItem 归还。',
     '--   否则「按取消键」只会清光标，手上的物品却还跟着，',
     '--   玩家会觉得「东西卡住了」。',
     '-- ★ 与第 960 行（Close 时归还）同构：任何中止路径都要回收临时状态。',
   ],
-  1464: [
+  "Inv:OnBuild#1": [
     '-- OnBuild：放置建造物时的反馈动画。',
     '-- ★ 第 1466 行 ScaleTo(3,1,.5)：从 3 倍缩回 1 倍（放大后收缩），',
     '--   配合第 1515-1532 行「物品飞入」的 0.3 秒动画，',
@@ -1058,7 +1058,7 @@ export default {
     '--   判定为**疑似健壮性缺口**：实际触发路径（第 108 行 builditem 事件）',
     '--   与 hovertile 的生命周期关系不保证。不易复现，故标疑似。',
   ],
-  1470: [
+  "Inv:OnNewActiveItem#1": [
     '-- 【★★ OnNewActiveItem：手持物变化 —— 双模式分流的第二处】',
     '-- 第 1471 行按 ControllerAttached 分成两大分支：',
     '--   手柄（1472-1492）：维护 cursortile；',
@@ -1074,7 +1074,7 @@ export default {
     '-- 第 1493 行 `item == nil or controls == nil`：',
     '--   第二个条件是防御 —— HUD 拆除过程中 controls 可能已为 nil。',
   ],
-  1511: [
+  "Inv:OnItemGet#1": [
     '-- 【★★ OnItemGet：物品飞入动画 —— 「假物品图 + 真 tile」技巧】',
     '-- 第 1513-1515 行：真正的 tile 已建好，但**先 Hide()**。',
     '--',
@@ -1093,7 +1093,7 @@ export default {
     '-- 第 1533-1535 行：没有 source_pos（如服务端直接下发）就直接显示，不做动画。',
     '--   ★ 优雅降级：动画是加分项，缺了也不影响正确性。',
   ],
-  1554: [
+  "Inv:UpdatePosition#1": [
     '-- UpdatePosition：把背包条锚到 autoanchor（屏幕安全区）。',
     '-- 第 1555 行 `self:IsVisible() and (...) or 0`：',
     '--   可见时贴到 root 下方 10 像素；不可见时归零（滑出视野）。',
@@ -1102,13 +1102,13 @@ export default {
     '-- ★ 移植要点：UI 需要区分「引擎给的固定锚点」与「自己算的布局坐标」。',
     '-- ★ 第 1552 行注释说明这是为世界重置计时器扩展的接口。',
   ],
-  1558: [
+  "Inv:OnShow#1": [
     '-- OnShow/OnHide（第 1558-1570 行）：显隐时同步刷新锚点与悬停物。',
     '-- ★ 第 1560-1562 行：显示时把 hovertile 一并 Show ——',
     '--   因为 EnableHoverTileVisibility 可能在隐藏期间把它 Hide 掉了。',
     '--   显隐钩子里同步子对象状态，是「状态型 UI」的必要收尾。',
   ],
-  1572: [
+  "Inv:OnCraftingHidden#1": [
     '-- OnCraftingHidden：制作面板关闭后的收尾。',
     '-- ★ 条件 `pin_nav and not self.open`：',
     '--   若焦点还在已关闭的 pin bar 里，则重置到默认槽。',
@@ -1116,7 +1116,7 @@ export default {
     '-- ⚠️ 若 pin_nav 为真但制作面板是被别的方式关闭的，',
     '--   这里可能不触发 → pin_nav 残留。属疑似状态残留风险。',
   ],
-  1578: [
+  "Inv:OnCraftingHidden#1+6": [
     '-- 返回 Inv 类本身（不是实例）。',
     '-- ★ 消费方写法：`local Inv = require "widgets/inventorybar"` 然后 `Inv(owner)`。',
     '--   对比 templates.lua 的 `return TEMPLATES`（返回工厂表，调用时带括号）。',

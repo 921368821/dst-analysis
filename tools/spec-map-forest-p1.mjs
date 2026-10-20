@@ -35,7 +35,7 @@ export const BEFORE = {
 "--   ⇒ 这是一个「故意关掉随机」的历史残留表。",
 "--   保持不改：若恢复随机，同一个种子会得到完全不同的地图。",
 ],
-16: [
+"pickspawnprefab#1": [
 "-- ============================================================",
 "-- 三个「spawn 选择器」—— 传给 C++ WorldSim 的 Lua 回调",
 "-- ============================================================",
@@ -45,14 +45,14 @@ export const BEFORE = {
 "-- ★ 这是 Lua↔C++ 的关键接缝：Lua 提供策略，C++ 提供数据。",
 "--   也因此这三函数的签名必须与 C++ 侧严格对齐，改动会静默失效。",
 ],
-20: [
+"pickspawnprefab#1+4": [
 "-- ★ pickspawnprefab(items_in, ground_type)：按权重随机挑一个 prefab。",
 "--   items_in 是 {prefab名 = 权重} 的表（来自房间的 contents.countprefabs）。",
 "--   ground_type 是当前地块类型（草地/道路/沙地…），用于过滤禁生 prefab。",
 "-- ⚠ :17-19 有一段被注释掉的「道路不生成任何东西」的旧逻辑。",
 "--   现在的做法是在下面用 terrain.filter 过滤，而不是整体跳过。",
 ],
-25: [
+"pickspawnprefab#1+9": [
 "-- ★★ 过滤核心：terrain.filter[item] —— 这就是【生物群系约束】的真正实现。",
 "--   terrain.filter 来自 map/terrain.lua 的 TERRAIN_FILTER 表。",
 "--   它的语义是【黑名单】：列出的地块类型是「这个 prefab 不能长的地方」。",
@@ -69,7 +69,7 @@ export const BEFORE = {
 "--     这就是为什么 DST 的世界看起来「群系感」比 Minecraft 弱：",
 "--     因为群系不是一个被整体切换的模式，而是逐 prefab 的独立判定。",
 ],
-39: [
+"pickspawnprefab#1+23": [
 "-- ★ 加权随机：先求总和 total，再取 [0, total) 的随机数，线性扫描扣减。",
 "--   这是标准的「按权重抽样」写法，避免了先展开成数组再取下标的开销。",
 "--",
@@ -86,7 +86,7 @@ export const BEFORE = {
 "--   调用方必须能处理 nil ⇒ C++ 侧会理解为「这块地什么都不长」。",
 "--   这是一个有意设计的默认值，不是缺陷。",
 ],
-54: [
+"pickspawngroup#1": [
 "-- ★ pickspawngroup(groups)：独立概率抽样。",
 "--   groups 是 {名字 = {percent=概率}} 的表。",
 "--   ⚠ 关键语义：【返回第一个命中概率的】，而不是「按权重抽样」。",
@@ -99,7 +99,7 @@ export const BEFORE = {
 "--   ⚠ 正确做法应为逐个独立掷骰（每个都掷），而非「第一个命中就返回」。",
 "--   保持不改：改它会改变所有种子的地图。",
 ],
-62: [
+"pickspawncountprefabforground#1": [
 "-- ★ pickspawncountprefabforground(prefabs, ground_type)：纯等概率取一个。",
 "--   与 pickspawnprefab 的区别：【不考虑权重，只做禁生过滤 + 等概率】。",
 "--   用于「一组同类 prefab 里随便挑一个」（如几种岩石里挑一个）。",
@@ -110,7 +110,7 @@ export const BEFORE = {
 "--   净效果：同种子下可复现（整条链统一），跨版本不保证。",
 "-- ⚠ :83 显式返回 nil（与 pickspawnprefab 的隐式返回不同）—— 风格不统一但无害。",
 ],
-86: [
+"pickspawncountprefabforground#1+24": [
 "-- ============================================================",
 "-- 【密度倍率表】MULTIPLY —— 世界生成选项的数值化",
 "-- ============================================================",
@@ -124,19 +124,19 @@ export const BEFORE = {
 "--   ⇒ 海洋的曲线更平缓。这是一条【手感调优曲线】，不是数学推导。",
 "-- ⚠ 全部硬编码，无 TUNING 外挂项 ⇒ Mod 无法调整这些手感参数。",
 ],
-106: [
+"pickspawncountprefabforground#1+44": [
 "-- 【CLUMP】成簇生成的数量档位。",
 "--   典型用法：浆果丛不是散着长，而是「一次长 8 丛，每丛 1~2 个」。",
 "-- ⚠ ocean_often 是 15，比陆地的 often=8 大近一倍。",
 "--   ⇒ 海洋资源本身就是成片分布的（藻类带、鱼群），符合视觉预期。",
 ],
-118: [
+"pickspawncountprefabforground#1+56": [
 "-- 【CLUMPSIZE】每簇的个数范围 {min, max}。",
 "--   ⚠ 档位越高簇越大：insane 是 {5,6}，意味着单次生成会连续摇 5~6 次随机数。",
 "--   ★ 这是「随机数消耗量随难度增长」的一个例子，会影响后续所有随机结果。",
 "--     对本文件而言：换难度档 ⇒ 后续地图细节整体变化（不是 bug，是耦合）。",
 ],
-130: [
+"pickspawncountprefabforground#1+68": [
 "-- ============================================================",
 "-- ★【Spawner 密度修正】—— 本文件最巧妙的设计之一",
 "-- ============================================================",
@@ -147,7 +147,7 @@ export const BEFORE = {
 "--   ⇒ 【资源点可以很少，但它产出的资源总量不变】——这正是设计意图。",
 "-- ★ 这个「稀疏但高产」的设计是 DST 资源分布的核心手感。",
 ],
-132: [
+"prefab_spawner_multiply#1": [
 "-- prefab_spawner_multiply：mult>1 时除以 1.2 并夹到 <=1；mult<1 时乘 1.2 并夹到 >=1。",
 "-- ⚠ 注意 mult<1 的分支是【放大】（mult*1.2）——",
 "--   即「rare」档位的 spawner 密度反而比原值高。",
@@ -155,14 +155,14 @@ export const BEFORE = {
 "--   ⚠ 参数 density 在函数体内【完全未被使用】（两个函数都是）。",
 "--     推测是早期版本按 density 缩放的遗留签名。保持不改。",
 ],
-140: [
+"prefab_spawner_ocean_multiply#1": [
 "-- prefab_spawner_ocean_multiply：与 :132 逻辑相同，只是用 OCEAN_SPAWNER_MUL。",
 "-- ⚠ 但 OCEAN_SPAWNER_MUL 也是 1.2（:131），与 SPAWNER_MUL 完全相同。",
 "--   ⇒ 两个函数目前行为【完全等价】，差异只是为将来调参预留的接口。",
 "--   疑似缺陷：OCEAN_SPAWNER_MUL 被定义为常量却与普通常量同值，",
 "--     属于「预留参数位」而非「有意区分」。",
 ],
-150: [
+"prefab_spawner_ocean_multiply#1+10": [
 "-- ============================================================",
 "-- MULTIPLY_PREFABS：哪些 prefab 走 spawner 修正逻辑",
 "-- ============================================================",
@@ -173,7 +173,7 @@ export const BEFORE = {
 "--     统一处理两种类型，无需分支判断。",
 "--   ⚠ 代价：语义被藏在一个表里，看表本身无法知道某个 prefab 是否被修正。",
 ],
-157: [
+"prefab_spawner_ocean_multiply#1+17": [
 "-- wobster_den_spawner_shore：虽然是海洋 prefab，但生成条件要求像陆地一样处理。",
 "--   ★ 注释自承这一点，说明这是【内容驱动的特例】而非分类错误。",
 "-- oceanfish_shoalspawner：用陆地倍率。",
@@ -184,7 +184,7 @@ export const BEFORE = {
 "--   ⚠ 这个表明显不完整（例如 mermhouse 会刷海妖、catcoonden 会刷猫）。",
 "--   可能是有意的（避免过度削弱），也可能是遗漏。记录为观察项。",
 ],
-168: [
+"prefab_spawner_ocean_multiply#1+28": [
 "-- ============================================================",
 "-- ★★ TRANSLATE_TO_PREFABS：【世界设置项 → prefab 名】的翻译总表",
 "-- ============================================================",
@@ -208,7 +208,7 @@ export const BEFORE = {
 "-- ⚠ 「1 个抽象名 → N 个 prefab」的展开由 :288 的循环完成，",
 "--   所有变体共用【同一个倍率】⇒ 无法单独调节某个变体的密度。",
 ],
-204: [
+"prefab_spawner_ocean_multiply#1+64": [
 "-- chess → 三个棋子。注释明说目的：「降低棋子的数量」。",
 "--   ★ 这是一个很典型的【用翻译表实现数量控制】的手法：",
 "--     不改倍率（那会影响整个抽象项），而是把一个条目拆成三个独立 prefab，",
@@ -217,7 +217,7 @@ export const BEFORE = {
 "--     TRANSLATE_TO_CLUMP 的注释（:259）说「提高棋子数量」。",
 "--     两处注释互相矛盾，说明这块逻辑经历过反复修改。记录为观察项。",
 ],
-245: [
+"prefab_spawner_ocean_multiply#1+105": [
 "-- 三个「特例」条目：terrariumchest / stageplays / junkyard / balatro。",
 "--   注释统一模式：「允许它作为必需的 world gen prefab，但仍可通过设置禁用」。",
 "-- ★ 解决的是一个真实矛盾：任务系统要求某些 prefab 必须出现（如竞技场道具），",
@@ -226,7 +226,7 @@ export const BEFORE = {
 "--     同时由 runtime_overrides 记住玩家的选择（使 :965 的 never 判断生效）。",
 "--   这个「双写」机制见 :277 的 TRANSLATE_AND_OVERRIDE 判定。",
 ],
-258: [
+"prefab_spawner_ocean_multiply#1+118": [
 "-- TRANSLATE_TO_CLUMP：走「成簇」而非「均布」的条目。",
 "--   目前只有 chess 一项。",
 "-- ⚠ :303 写入的 translated_prefabs[prefab] 是【表】，而其他项是【数字】。",
@@ -236,7 +236,7 @@ export const BEFORE = {
 "--       参见 graphnode.lua 中 amt.clumpcount 的注释（那里记录了共享状态污染问题）。",
 "-- ⇒ 这是一个「类型不一致但靠调用方自觉」的隐患。",
 ],
-262: [
+"prefab_spawner_ocean_multiply#1+122": [
 "-- ============================================================",
 "-- TRANSLATE_AND_OVERRIDE：翻译 + 运行时覆盖（双写）",
 "-- ============================================================",
@@ -248,7 +248,7 @@ export const BEFORE = {
 "--     只做 ① 的话，玩家设置「never」只能控制地图生成，控制不了孢子。",
 "--   ⇒ 双写是为了让设置对【地图生成】与【运行时生成】同时生效。",
 ],
-267: [
+"TranslateWorldGenChoices#1": [
 "-- ============================================================",
 "-- ★ TranslateWorldGenChoices —— 把玩家设置翻译成两份产物",
 "-- ============================================================",
@@ -261,7 +261,7 @@ export const BEFORE = {
 "--   通路 B（运行期）：runtime_overrides → 各游戏系统的 spawn 判定",
 "--   ⇒ 同一个设置在两个阶段各生效一次，实现「生成时少放、运行时也少刷」。",
 ],
-275: [
+"TranslateWorldGenChoices#1+8": [
 "-- ★ 三分支分派：一个抽象项有三种处理方式。",
 "--   1) 在 TRANSLATE_AND_OVERRIDE 里 ⇒ 翻译 + 运行时覆盖（:277）",
 "--   2) 在 TRANSLATE_TO_PREFABS 里 ⇒ 只翻译（:287）",
@@ -272,13 +272,13 @@ export const BEFORE = {
 "--   UpdatePercentage 当前【没有任何调用点】（grep 核实：本文件内无调用）。",
 "--   ⇒ 这是一个死函数，但它是「未来的雷」：一旦被启用就会崩。",
 ],
-276: [
+"TranslateWorldGenChoices#1+9": [
 "-- ★ 跳过 \"default\"：默认档位不需要任何处理。",
 "--   ⚠ 这意味着「default」在翻译阶段是完全透明的 ——",
 "--     但倍率表里 default=1（即不改变），所以跳过与乘 1 等价。",
 "--   ⇒ 优化正确。",
 ],
-299: [
+"TranslateWorldGenChoices#1+32": [
 "-- 成簇处理【独立于三分支】：不管走哪条分支都会检查。",
 "-- ⚠ 嵌套层级：它在 `if v ~= \"default\"` 内部、三分支【之外】。",
 "--   ⇒ 只有 chess 会走到（因为只有它在 TRANSLATE_TO_CLUMP 里）。",
@@ -287,13 +287,13 @@ export const BEFORE = {
 "--   ⚠ 实际不会冲突（chess 走的是 :287 分支，写入的是 knight/bishop/rook，",
 "--     而 :303 写的是 worldgen_chesspieces，是不同的 prefab 名）。",
 ],
-310: [
+"TranslateWorldGenChoices#1+43": [
 "-- ★ 空表 ⇒ nil 的归一化。",
 "--   目的：下游 `if translated_prefabs ~= nil then` 就能省掉长度判断。",
 "--   ⚠ 代价：调用方无法区分「没有设置项」与「设置项全被跳过」。",
 "--   在 :928/:937 的必需要求校验里，这个区分是有意义的（见那些行的注释）。",
 ],
-320: [
+"seasonfn#1": [
 "-- ============================================================",
 "-- seasonfn —— 季节工厂（柯里化）",
 "-- ============================================================",
@@ -302,7 +302,7 @@ export const BEFORE = {
 "--   ⇒ SEASONS 表里每个值都只需要标注两个布尔量，非常易读。",
 "-- ★ 这是 Lua 里做「带参数的模板」最简洁的写法（没有其他语言的闭包糖）。",
 ],
-324: [
+"seasonfn#1+4": [
 "-- friendly 分支用 SEASON_LENGTH_FRIENDLY_DEFAULT。",
 "-- ⚠⚠ 疑似缺陷（硬编码系数 2）：totaldaysinseason = ..._FRIENDLY_DEFAULT * 2",
 "--   而 remainingdaysinseason = ..._FRIENDLY_DEFAULT（不乘 2）。",
@@ -314,13 +314,13 @@ export const BEFORE = {
 "--   没有任何注释说明这一点 —— 记录为高优先级观察项。",
 "--   非 friendly 分支（harsh）没有 *2，说明 harsh 走的是另一套约定。",
 ],
-337: [
+"seasonfn#1+17": [
 "-- ★ 返回 {seasons=..., weather=...}。",
 "--   winter 为真时附带 weather = {snowlevel=1} ⇒ 一开始就下雪。",
 "--   ⚠ 这是【烘焙进存档】的初始天气，不是运行时逻辑（见 :995-1005）。",
 "--   ⇒ 天气的后续演化由 seasonsmanager 组件负责，生成器只给初值。",
 ],
-341: [
+"seasonfn#1+21": [
 "-- ★ 四个季节的初始状态表。",
 "--   autumn/spring 用 friendly 长度且不下雪；",
 "--   winter  同长度但 snowlevel=1；",
@@ -328,7 +328,7 @@ export const BEFORE = {
 "--   ⚠ 注意 summer 没有 winter 参数 ⇒ 从函数签名看第三个参数缺省为 nil/false，",
 "--     语法上合法（Lua 允许少传参数）。",
 ],
-350: [
+"UpdatePercentage#1": [
 "-- ============================================================",
 "-- ⚠ UpdatePercentage —— 【死函数】（grep 核实：全文件零调用点）",
 "-- ============================================================",
@@ -340,18 +340,18 @@ export const BEFORE = {
 "--   ⇒ 在 :295 的「只做运行时覆盖」分支里，任何非 prefab 的设置项都会触发。",
 "--   记录为高优先级死代码观察项。不改代码。",
 ],
-362: [
+"UpdatePercentage#1+12": [
 "-- ★ 噪声地块函数表（来自独立模块 noisetilefunctions）。",
 "-- 【机制】噪声地块是一种「贴图化」的连续地块（如沼泽、灰烬地）。",
 "--   WorldSim 烘焙时会逐格求值，用噪声函数决定该格的实际地块类型。",
 "-- ⚠ 它被注册进 C++（:383），所以噪声逻辑在烘焙期才真正生效。",
 ],
-364: [
+"GetTileForNoiseTile#1": [
 "-- ★ GetTileForNoiseTile：C++ 反调用的 Lua 侧实现。",
 "--   未在噪声表里的地块类型 ⇒ 走 default 兜底。",
 "--   ⚠ 注意参数名叫 tile（噪声函数名）但被当作表键用 —— 命名与用途略有错位。",
 ],
-371: [
+"ValidateGroundTile#1": [
 "-- ★ ValidateGroundTile：烘焙后的地块合法性校验与纠正。",
 "--   噪声地块 ⇒ 强制变成 DIRT（噪声地块是逻辑概念，不是可存储的地块）。",
 "--   非陆地（IsLandTile 为假，如水/不可通行）⇒ 强制变成 ROCKY。",

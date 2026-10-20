@@ -6,22 +6,22 @@ export const BEFORE = {
   // ══════════════════════════════════════════════════════════════
   // 十四、扫描参数与障碍检测
   // ══════════════════════════════════════════════════════════════
-  1345: [
+  "LocoMotor:ScanForPlatformInDirFromFloating#1+4": [
     "--★★ PLATFORM_SCAN_STEP_SIZE = 0.5 —— 扫描步长（格）。",
     "--   ★ 取 0.5 而非 1.0：0.5 的精度足以捕捉平台边缘，",
     "--     而步数只有 1.0 的一半 —— 精度与开销的折中点。",
   ],
-  1346: [
+  "LocoMotor:ScanForPlatformInDirFromFloating#1+5": [
     "--★ PLATFORM_SCAN_LANDING_RANGE = 1 —— 落点搜索时额外多扫 1 格。",
     "--   ★ 用途：给「刚好在边缘」留一点余量，避免差几厘米跳不上去的挫败感。",
   ],
-  1347: [
+  "LocoMotor:ScanForPlatformInDirFromFloating#1+6": [
     "--★ BLOCKER_TAGS = {\"blocker\"} —— TestForBlocked 查的标签。",
     "--   ★ 与 1244 行的 WALL_TAGS 是两套：",
     "--     · WALL_TAGS —— 「跳过去」的障碍（垂直墙）",
     "--     · BLOCKER_TAGS —— 「跳不过去」的障碍（路径封锁）",
   ],
-  1348: [
+  "LocoMotor:TestForBlocked#1": [
     "--★★★【TestForBlocked：路径上是否有阻挡物】",
     "--   与 1260 行的 WALL 检查是**不同用途**：",
     "--     · 1260 行：跳跃落点处有墙 → 不跳",
@@ -30,10 +30,10 @@ export const BEFORE = {
     "--     for 循环会向上取整，所以实际扫描了 ⌈step_count⌉ 个点。",
     "--   ★ 半径参数 `radius + PLATFORM_SCAN_STEP_SIZE` 让检测范围略宽于实体。",
   ],
-  1353: [
+  "LocoMotor:TestForBlocked#1+5": [
     "--★ 用 FindEntities 查 blocker 标签，命中任一即 return true。",
   ],
-  1361: [
+  "LocoMotor:ScanForPlatform#1": [
     "--★★★【ScanForPlatform：把「向某点跳跃」分解为「定方向 + 定距离」】",
     "--   步骤：",
     "--     ① 算到目标的向量，归一化成方向",
@@ -45,15 +45,15 @@ export const BEFORE = {
     "--     整个函数在单帧内跑几千次 FindEntities → 卡死。",
     "--     ★ 钳制后步数上限 = (6+1)/0.5 = 14 步，可接受。",
   ],
-  1364: [
+  "LocoMotor:ScanForPlatform#1+3": [
     "--★ VecUtil_Length：求向量长度。dir_length 为 0 时（原地跳）会除零得 NaN ——",
     "--   ⚠ 实际不会发生，因为只有「有目标」才走到这里，且目标不会正好在脚下",
     "--     （否则 1034 行的立即到达检查就处理了）。",
   ],
-  1367: [
+  "LocoMotor:ScanForPlatform#1+6": [
     "--★★★【★ 性能与正确性的双重关键行】双重钳制（见上方说明）。",
   ],
-  1371: [
+  "LocoMotor:ScanForPlatform#1+10": [
     "--⚠【被整块注释掉的「路径通畅性检查」】",
     "--   ★ 这段死代码揭示了一个**被否决的设计**：",
     "--     原本想在跳跃后额外验证「从起点到落点中心」的直线路径是否被 blocker 挡住，",
@@ -72,35 +72,35 @@ export const BEFORE = {
     "--     但 1722/1728 行的「if my_platform ~= nil then ScanForPlatform」分支里，",
     "--     blocked 只能来自 ScanForPlatform 的返回值（恒 false）。",
   ],
-  1370: [
+  "LocoMotor:ScanForPlatform#1+9": [
     "--★ blocked 变量现在主要由调用方（1707 行）设置。",
   ],
-  1393: [
+  "LocoMotor:ScanForPlatform#1+32": [
     "--★ 返回 5 个值，blocked 在当前实现下几乎恒 false（见 1371 行的说明）。",
   ],
-  1396: [
+  "LocoMotor:StartHopping#1": [
     "--★★★【StartHopping：宣告「我要跳了」】",
     "--   ★ 三个作用：",
     "--     ① 通知 embarker 组件（玩家登船/下船的位置记录）",
     "--     ② 置 hopping = true（使 OnUpdate:1425 早退，把控制权交给状态图）",
     "--     ③ 设 0.2 秒跳跃冷却",
   ],
-  1397: [
+  "LocoMotor:StartHopping#1+1": [
     "--★ embarker 组件：玩家专用，负责「从船上岸 / 上船」的过场与重生点。",
   ],
-  1400: [
+  "LocoMotor:StartHopping#1+4": [
     "--★ SetEmbarkable(目标平台) vs SetDisembarkPos(x, z)：",
     "--   跳向平台 → 记平台；跳向陆地 → 记坐标点。",
   ],
-  1404: [
+  "LocoMotor:StartHopping#1+8": [
     "--★ 已在 jumping 状态则不重复推 onhop —— 防止状态图被重复触发。",
   ],
-  1409: [
+  "LocoMotor:StartHopping#1+13": [
     "--★★ hopping = true 是「控制权移交信号」：",
     "--   OnUpdate 开头见到它就直接 return，跳跃期间 locomotor 不做任何决策，",
     "--   完全交给状态图的 jumping 状态 + C++ 物理。",
   ],
-  1411: [
+  "LocoMotor:StartHopping#1+15": [
     "--★★★【英文原注释解释了 0.2 秒冷却的双重目的】",
     "--   ① \"to give the server a little bit of time to land it's hop before the",
     "--      client starts hopping again\" —— 网络同步延迟保护",
@@ -112,14 +112,14 @@ export const BEFORE = {
     "--     若两次询问之间跳跃已结束，会误判为「可以连跳」。",
     "--   ★ 0.2 秒 = 6 帧，是「够网络往返 + 够轮询间隔」的保守值。",
   ],
-  1416: [
+  "LocoMotor:CheckDrownable#1": [
     "--★ CheckDrownable：落水检查的薄包装。返回 false 表示「不需要游」。",
   ],
 
   // ══════════════════════════════════════════════════════════════
   // 十五、★★ OnUpdate —— locomotor 的心脏
   // ══════════════════════════════════════════════════════════════
-  1424: [
+  "LocoMotor:OnUpdate#1": [
     "--★★★★★【OnUpdate —— locomotor 的心脏，每帧执行】",
     "--   签名：OnUpdate(dt, arrive_check_only)",
     "--     dt                —— 本帧时长（秒）。0 表示「只检查不推进」",
@@ -134,7 +134,7 @@ export const BEFORE = {
     "--   ⑦ 非跳跃路径：设置 motor 速度（含到达减速）",
     "--   ★★ 最后一步：跳跃冷却倒计时（1757 行）",
   ],
-  1425: [
+  "LocoMotor:OnUpdate#1+1": [
     "--★★★【跳跃期间的完全让权】",
     "--   `if self.hopping then return end` ——",
     "--   ★★ 这是本文件最重要的架构约定：",
@@ -144,14 +144,14 @@ export const BEFORE = {
     "--   ★★ 状态由谁恢复？状态图的 jumping 状态结束时会调 FinishHopping（1186 行），",
     "--     它把 hopping 置 false，OnUpdate 下一帧就恢复工作。",
   ],
-  1430: [
+  "LocoMotor:OnUpdate#1+6": [
     "--★★ 实体失效兜底：OnUpdate 是每帧调用的，实体可能在帧间被移除。",
     "--   ★ Print 用 VERBOSITY.DEBUG 而非 print —— 调试日志有等级控制，避免刷屏。",
   ],
-  1432: [
+  "LocoMotor:OnUpdate#1+8": [
     "--★ 实体已失效：清路径、停更新、停计时器。必须全部做，否则会留下悬挂状态。",
   ],
-  1438: [
+  "LocoMotor:OnUpdate#1+14": [
     "--★★★【★★ 性能优化的核心：地面速度的「跨格才重算」】",
     "--   条件：enablegroundspeedmultiplier 且不是 arrive_check_only",
     "--   逻辑：取当前地块坐标 → 与 lastpos 比较 → 不同才 UpdateGroundSpeedMultiplier",
@@ -163,18 +163,18 @@ export const BEFORE = {
     "--     地块坐标是整数，变化频率远低于浮点世界坐标。",
     "--   ⚠ lastpos 初始为空表 → 第一次必然重算（正确行为）。",
   ],
-  1441: [
+  "LocoMotor:OnUpdate#1+17": [
     "--★ 只用 tx/ty（地块的 x/y），忽略 z —— DST 地图是单层的。",
   ],
-  1443: [
+  "LocoMotor:OnUpdate#1+19": [
     "--★★ 注意这里是整体替换而非逐字段赋值：`self.lastpos = { x = tx, y = ty }`。",
     "--   ★ 每格一次的小表分配，比三个字段赋值稍慢但更简洁。",
     "--   ⚠ 高性能要求下可考虑复用同一个表（self.lastpos.x = tx）。",
   ],
-  1447: [
+  "LocoMotor:OnUpdate#1+23": [
     "--★ facedir：本次要转到的角度，1750/1649 行会用它（pusheventwithdirection 场景）。",
   ],
-  1450: [
+  "LocoMotor:OnUpdate#1+26": [
     "--★★★【有目标的主分支：整个 OnUpdate 的核心逻辑】",
     "--   从 1450 到 1621 行，占本函数一半篇幅。子结构：",
     "--     1452 有效性检查（目标/动作失效 → Clear）",
@@ -184,7 +184,7 @@ export const BEFORE = {
     "--     1489 到达后处理（派发事件、转向、推动作、Stop）",
     "--     1522 未到达 → 路径搜索轮询 + 转向",
   ],
-  1452: [
+  "LocoMotor:OnUpdate#1+28": [
     "--★★★【有效性检查：目标实体可能已死，动作可能已失效】",
     "--   ★ 追踪移动目标时，目标可能随时被吃掉 —— 必须每帧验证。",
     "--   ★ 缓冲动作失效（如目标物被烧毁）也要中止移动。",
@@ -192,7 +192,7 @@ export const BEFORE = {
     "--     因为「目标消失」不等于「正常停止」，不该派发 locomote 事件，",
     "--     状态图需要自己通过其他方式恢复。",
   ],
-  1457: [
+  "LocoMotor:OnUpdate#1+33": [
     "--★★★【死亡检查 —— health 与 locomotor 的耦合点】",
     "--   `if self.inst.components.health and self.inst.components.health:IsDead()`",
     "--   ★★ 死掉的实体不继续移动：否则玩家死亡后角色会「滑行」一段，",
@@ -200,13 +200,13 @@ export const BEFORE = {
     "--   ★ 注意判了 health 存在：不是所有 locomotor 实体都有 health。",
     "--   ⚠ 但只 Clear 不 Stop：死亡时物理与状态由状态图/死亡流程接管。",
   ],
-  1462: [
+  "LocoMotor:OnUpdate#1+38": [
     "--★ 取目的地的当前坐标（Dest:GetPoint 每帧重取，因为目标在动）。",
   ],
-  1465: [
+  "LocoMotor:OnUpdate#1+41": [
     "--★ 三个结果变量一次性声明：到达 / 失效 / 攻击冷却中。",
   ],
-  1466: [
+  "LocoMotor:OnUpdate#1+42": [
     "--★★★【到达判定的两个实现】",
     "--   ① customarrivecheck —— 动作自定义判定（完全接管）",
     "--   ② 标准判定 —— 距离平方比较（见下）",
@@ -214,7 +214,7 @@ export const BEFORE = {
     "--     比如「追到能看见的位置」「追到攻击范围内但保持距离」",
     "--     「召唤物追到主人身边」等等。",
   ],
-  1469: [
+  "LocoMotor:OnUpdate#1+45": [
     "--★★【标准到达判定：距离平方】",
     "--   `dsq = distsq(目标x, 目标z, 我x, 我z)` ——",
     "--   ★ 只比较 x/z，**完全忽略 y**！",
@@ -223,10 +223,10 @@ export const BEFORE = {
     "--     —— 因为跳跃系统（平台 hopping）会负责把他送过去。",
     "--     ★ 绝不能改成三维距离，否则跨平台移动永远判不到达。",
   ],
-  1470: [
+  "LocoMotor:OnUpdate#1+46": [
     "--★ arrive_dist 的平方 —— 避免每帧开方。",
   ],
-  1471: [
+  "LocoMotor:OnUpdate#1+47": [
     "--★★★【★ 高帧率/大 dt 的容差放大 —— 一个反直觉但正确的优化】",
     "--   `if dt > 0 then run_dist = GetRunSpeed() * dt * 0.5`",
     "--      `arrive_dsq = math.max(arrive_dsq, run_dist * run_dist)`",
@@ -239,13 +239,13 @@ export const BEFORE = {
     "--   ⚠ dt 极大时（如断线重连的时间跳跃）这个容差会很大，",
     "--     可能导致「远处就判定到达」。dt=0 时不放大（1035 行的调用）。",
   ],
-  1472: [
+  "LocoMotor:OnUpdate#1+48": [
     "--★ 系数 0.5 是「半帧」的经验值 —— 留一半余量避免误判。",
   ],
-  1475: [
+  "LocoMotor:OnUpdate#1+51": [
     "--★ reached_dest = 距离平方 ≤ 到达距离平方。",
   ],
-  1477: [
+  "LocoMotor:OnUpdate#1+53": [
     "--★★★【攻击的特殊处理：冷却中不算「到达」也不算「失效」】",
     "--   ★★ 问题场景：玩家点击攻击一个正在冷却中的目标。",
     "--     若按标准判定，距离到了就算 reached_dest → 立刻执行攻击 →",
@@ -259,14 +259,14 @@ export const BEFORE = {
     "--   ★ 这是一个「移动系统向战斗系统请求三态裁决」的模式，",
     "--     避免了「移动层不知道业务状态」的困境。",
   ],
-  1482: [
+  "LocoMotor:OnUpdate#1+58": [
     "--★ combat 是**副本组件** —— 客户端也能访问，所以这段判定在两端都能跑。",
     "--   ★★ 这是必须的：到达判定在客户端也要跑（预测）。",
   ],
-  1489: [
+  "LocoMotor:OnUpdate#1+65": [
     "--★★ 失效：完全中止（Stop + Clear）。Stop 会派发 locomote 让状态图停下。",
   ],
-  1493: [
+  "LocoMotor:OnUpdate#1+69": [
     "--★★★【到达分支：整条移动指令的终点】",
     "--   顺序（每一步都有讲究）：",
     "--     ① 冷却中 → 只 return（保持状态，等下一帧）",
@@ -276,62 +276,62 @@ export const BEFORE = {
     "--     ⑤ 取出 bufferedaction 并推给实体（★ 先置 nil 防 Clear 里 Fail）",
     "--     ⑥ Stop + Clear",
   ],
-  1494: [
+  "LocoMotor:OnUpdate#1+70": [
     "--★ 英文原注释 \"I think this is fine?\" —— 作者自己对代码的自审存疑。",
     "--   ★ 这类注释在 Klei 代码里常见：标记出「我也不确定但先这样」的地方。",
   ],
-  1495: [
+  "LocoMotor:OnUpdate#1+71": [
     "--★★★【冷却中的早退 —— 必须 return 而不是继续】",
     "--   ★ 若继续往下走，会执行动作（失败）或 Stop（丢失「等冷却后攻击」的意图）。",
     "--   ★★ 保持 dest 与 bufferedaction 不变，下一帧重新判定，",
     "--     冷却结束后自然就能执行了。这就是「等待」的实现。",
   ],
-  1497: [
+  "LocoMotor:OnUpdate#1+73": [
     "--★ onreachdestination 事件：外部（特效/成就）得知「到达了」。",
     "--   ★ 落点坐标用 destpos（目标坐标）而非实际位置 —— 供特效定位。",
   ],
-  1498: [
+  "LocoMotor:OnUpdate#1+74": [
     "--★ atdestfn 是「到达即执行」的轻量回调（比 bufferedaction 更简单）。",
   ],
-  1502: [
+  "LocoMotor:OnUpdate#1+78": [
     "--★★【`self.bufferedaction ~= self.inst.bufferedaction` 的判定】",
     "--   防止「重复推同一个动作」：若 inst.bufferedaction 已经是它，说明之前推过了。",
   ],
-  1503: [
+  "LocoMotor:OnUpdate#1+79": [
     "--★ skip_locomotor_facing 标记的动作不强制转向（如「开门」不该转身看门）。",
   ],
-  1511: [
+  "LocoMotor:OnUpdate#1+87": [
     "--★★ 先存局部变量、再置 nil —— 顺序不能反。",
     "--   ★ 置 nil 的目的是「Clear 时不要 Fail 它」（见 1078 行的契约）。",
   ],
-  1513: [
+  "LocoMotor:OnUpdate#1+89": [
     "--★★★【双端分派：服务端 Push / 客户端 Preview】",
     "--   ★ 这是本文件「双端同构」模式在动作执行处的体现 ——",
     "--     与 PreviewAction/PushAction 的分派是同一个思路。",
   ],
-  1519: [
+  "LocoMotor:OnUpdate#1+95": [
     "--★ Stop（派发 locomote 让状态图停）→ Clear（清所有意图）。",
   ],
-  1522: [
+  "LocoMotor:OnUpdate#1+98": [
     "--★★★【未到达分支：路径搜索轮询 + 转向】",
     "--   ★ 这里的职责是「决定往哪转」，实际位移由物理马达完成。",
     "--   ★★ 与寻路器的关系：本文件只**消费**寻路结果（GetSearchStatus /",
     "--     GetSearchResult），求解本身在 C++ 侧。",
   ],
-  1524: [
+  "LocoMotor:OnUpdate#1+100": [
     "--★ 等待搜索结果：path.handle 非 nil 说明有搜索在跑。",
   ],
-  1525: [
+  "LocoMotor:OnUpdate#1+101": [
     "--★ GetSearchStatus 返回 0/1/nil（见文件头的状态定义）。",
   ],
-  1527: [
+  "LocoMotor:OnUpdate#1+103": [
     "--★★ `pathstatus ~= STATUS_CALCULATING` —— 搜索结束（找到或没找到）。",
     "--   ★ 每帧轮询一次直到结束 —— 这是异步搜索的 Lua 侧消费方式。",
   ],
-  1531: [
+  "LocoMotor:OnUpdate#1+107": [
     "--★ GetSearchResult 取结果（steps 是路径点列表）。",
   ],
-  1535: [
+  "LocoMotor:OnUpdate#1+111": [
     "--★★★【★ 「两步以内视为直线」的优化 —— 一个很实用的技巧】",
     "--   `if #foundpath.steps > 2 then 采纳路径 else 丢弃，走直线 end`",
     "--   ★★★ 为什么？A* 寻路器返回的结果里，起点与终点各占一个 step，",
@@ -341,22 +341,22 @@ export const BEFORE = {
     "--   ★ 这是「把复杂解法降级为简单解法」的典型优化 ——",
     "--     物理马达本来就能处理碰撞，直线走不会比绕路差。",
   ],
-  1537: [
+  "LocoMotor:OnUpdate#1+113": [
     "--★ currentstep = 2 —— 从第 3 个点开始（跳过起点附近的两个点，",
     "--   它们通常在实体脚下或紧邻位置，无转向价值）。",
   ],
-  1543: [
+  "LocoMotor:OnUpdate#1+119": [
     "--★ 丢弃直线路径：设 steps = nil，OnUpdate 的跟随分支就跳过。",
   ],
-  1552: [
+  "LocoMotor:OnUpdate#1+128": [
     "--★ pathstatus 为 nil = 搜索句柄失效（C++ 侧回收了）→ 视为失败。",
     "--   ★ 这是一个「防御性分支」：正常情况下不会发生。",
   ],
-  1559: [
+  "LocoMotor:OnUpdate#1+135": [
     "--★★ 无论找到与否都要 KillSearch 并清 handle —— 句柄必须释放，否则泄漏。",
     "--   ★ 注意：先 KillSearch 再 handle = nil，顺序与 771 行一致。",
   ],
-  1564: [
+  "LocoMotor:OnUpdate#1+140": [
     "--★★★【canrotate 状态标签 + pusheventwithdirection】",
     "--   `if canrotate or self.pusheventwithdirection then`",
     "--   ★★ 双重条件很有意思：",
@@ -365,16 +365,16 @@ export const BEFORE = {
     "--       也要把方向放进 locomote 事件（见 341 行的设计动机）",
     "--   ★ 所以对「玩家」而言，转向能力始终保留（因为玩家有 pusheventwithdirection）。",
   ],
-  1569: [
+  "LocoMotor:OnUpdate#1+145": [
     "--★★【路径跟随：确定「转向哪个点」】",
     "--   有路径且未到最后一点 → 转向当前 step 点",
     "--   否则 → 转向终点",
     "--   ★ 这是「路径跟随」的经典结构：不是转向终点，而是转向下一个拐点。",
   ],
-  1576: [
+  "LocoMotor:OnUpdate#1+152": [
     "--★ step_distsq：到当前拐点的距离平方。",
   ],
-  1579: [
+  "LocoMotor:OnUpdate#1+155": [
     "--★★★【非终点拐点的容差放大 —— 与 1471 行的到达容差同理】",
     "--   `if currentstep < maxsteps then step_distsq = step_distsq - physdiameter^2`",
     "--   ★★ 为什么要「减去直径平方」？",
@@ -385,19 +385,19 @@ export const BEFORE = {
     "--   ★ 这与 1471 行的「半帧位移容差」是同一族技巧：",
     "--     都在补偿「离散帧 + 有限体积」带来的判定误差。",
   ],
-  1584: [
+  "LocoMotor:OnUpdate#1+160": [
     "--★ 到达拐点 → 前进到下一个。arrive_step_dist 通常只有 0.15，很严格。",
   ],
-  1587: [
+  "LocoMotor:OnUpdate#1+163": [
     "--★ 还没到最后 → 预读下一个拐点（提前取，减少下一帧的延迟）。",
   ],
-  1594: [
+  "LocoMotor:OnUpdate#1+170": [
     "--★ 到最后一点了 → 直接用终点坐标作为转向目标。",
   ],
-  1600: [
+  "LocoMotor:OnUpdate#1+176": [
     "--★ GetAngleToPoint：算「我指向那个点应该转多少度」。",
   ],
-  1602: [
+  "LocoMotor:OnUpdate#1+178": [
     "--★★★【★ 「后退时转身」的经典处理】",
     "--   `local x,y,z = self.inst.Physics:GetMotorVel()`",
     "--   `if x < 0 and self.strafedir == nil then facedir = facedir + 180`",
@@ -417,13 +417,13 @@ export const BEFORE = {
     "--     正确做法是让物理马达的方向与实体朝向解耦（像现代 3D 角色控制那样，",
     "--     移动向量直接在世界空间计算，不依赖朝向）。",
   ],
-  1610: [
+  "LocoMotor:OnUpdate#1+186": [
     "--★★ 另一分支：正常前进时转向，但避开 busy 状态（正在做动作不转身）。",
     "--   ★ V2C 注释坦承了这个 busy 检查是「为了匹配旧行为」而保留的，",
     "--     作者本人想删掉（\"while I'd like to remove the busy check\"）。",
     "--     ★ 这类注释是「技术债的显式记录」的好范例。",
   ],
-  1619: [
+  "LocoMotor:OnUpdate#1+195": [
     "--★★★【`wantstomoveforward = wantstomoveforward or not WaitingForPathSearch()`】",
     "--   ★★ 语义：**寻路搜索完成后，即使之前没打算前进，也继续前进**。",
     "--   ★★★ 原因：路径搜索是异步的，GoToEntity 发起时它还在算，",
@@ -431,15 +431,15 @@ export const BEFORE = {
     "--     所以必须「无条件继续」直到到达。",
     "--   ★ 若没有这行，实体会在等待搜索期间判定「无需前进」→ 停止更新 → 搜索结果永远不被消费。",
   ],
-  1623: [
+  "LocoMotor:OnUpdate#1+199": [
     "--★ arrive_check_only 早退：跳过后面所有移动决策与状态修改。",
   ],
-  1627: [
+  "LocoMotor:OnUpdate#1+203": [
     "--★★★【should_locomote：locomotor 与状态图的核心握手逻辑】",
     "--   目的：决定「本帧是否需要再推一次 locomote 事件（让状态图继续移动）」。",
     "--   条件 1628：limbo 判定（被移出场景的实体不处理）",
   ],
-  1628: [
+  "LocoMotor:OnUpdate#1+204": [
     "--★★★【limbo 判定 —— 一个微妙的双端逻辑】",
     "--   `(self.ismastersim and not self.inst:IsInLimbo())`",
     "--     `or not (self.ismastersim or self.inst:HasTag(\"INLIMBO\"))`",
@@ -451,20 +451,20 @@ export const BEFORE = {
     "--     （ limbo 实体的 netvar 会被跳过同步，见 entityscript.lua 的 limbo 机制）。",
     "--   ⚠ 这又是一处「双端不对称但语义等价」的实现。",
   ],
-  1629: [
+  "LocoMotor:OnUpdate#1+205": [
     "--★ is_moving：状态图当前是否在「移动中」状态。",
   ],
-  1630: [
+  "LocoMotor:OnUpdate#1+206": [
     "--★ is_running：状态图当前是否在「跑」状态。",
   ],
-  1631: [
+  "LocoMotor:OnUpdate#1+207": [
     "--★★★【overridelocomote 特殊分支：状态图接管移动时不做任何推动】",
     "--   条件：不在 moving + 无目标 + 状态图有 overridelocomote 标签。",
     "--   ★★ 语义：「移动由状态图自己驱动（如玩家直走、载具、动画位移），",
     "--     locomotor 不要插手」。",
     "--   ★ 与 805 行的 PreviewAction 里的同名检查配对。",
   ],
-  1636: [
+  "LocoMotor:OnUpdate#1+212": [
     "--★★【★ 核心判定式：布尔异或的自表达写法】",
     "--   `should_locomote = (not is_moving ~= not self.wantstomoveforward)`",
     "--     `or (is_moving and (not is_running ~= not self.wantstorun))`",
@@ -484,17 +484,17 @@ export const BEFORE = {
     "--     在强类型语言里必须显式写成 `a != b`。若有人误写成 `!a != b`（一边取反一边不取反），",
     "--     语义会完全颠倒 —— 这是本文件最需要小心的一行。",
   ],
-  1637: [
+  "LocoMotor:OnUpdate#1+213": [
     "--★ 英文原注释 \"'not' is being used below as a cast-to-boolean operator\" ——",
     "--   明确说明了「not 在这里用作布尔化操作符」。",
   ],
-  1643: [
+  "LocoMotor:OnUpdate#1+219": [
     "--★ 正在移动/跑 → 刷新移动计时器（StartMoveTimerInternal 有 0.3 秒迟滞）。",
   ],
-  1648: [
+  "LocoMotor:OnUpdate#1+224": [
     "--★ 状态不一致 → 推 locomote（带方向数据，若 pusheventwithdirection）。",
   ],
-  1650: [
+  "LocoMotor:OnUpdate#1+226": [
     "--★★★【完全停止的判定与清理】",
     "--   `not wantstomoveforward and not WaitingForPathSearch()`",
     "--   ★★ 为什么还要检查「没在等搜索」？",
@@ -503,15 +503,15 @@ export const BEFORE = {
     "--   ★★ 「三条件全部满足才停」是本函数最重要的资源回收逻辑：",
     "--     意图没了 + 没在等 → 清路径、停更新、停计时器。",
   ],
-  1656: [
+  "LocoMotor:OnUpdate#1+232": [
     "--★★ 物理马达速度：> 0 表示正在移动。这是整个跳跃分支的门槛。",
   ],
-  1657: [
+  "LocoMotor:OnUpdate#1+233": [
     "--★★ `cur_speed > 0` 才做跳跃检测 —— 站着不动不跳。",
     "--   ★ 性能优化：绝大多数帧实体不移动（待命/攻击/死亡），",
     "--     这个判断让整段跳跃逻辑（几百行）在这些帧完全跳过。",
   ],
-  1658: [
+  "LocoMotor:OnUpdate#1+234": [
     "--★★ 跳跃检测的四个前置条件：",
     "--     · allow_platform_hopping 开启（默认 nil，即关闭！）",
     "--     · bufferedaction 为空，或该动作不禁用跳跃",
@@ -519,38 +519,38 @@ export const BEFORE = {
     "--     所以「走到船边自动跳上船」不是全局行为，",
     "--     必须由具体 prefab 显式调 SetAllowPlatformHopping(true)。",
   ],
-  1661: [
+  "LocoMotor:OnUpdate#1+237": [
     "--★ 朝向转弧度：Transform:GetRotation 是弧度，乘 DEGREES 得角度。",
   ],
-  1662: [
+  "LocoMotor:OnUpdate#1+238": [
     "--★ 世界空间的「正前方」向量：+X 为 0°，-Z 为 90°（DST 约定）。",
   ],
-  1664: [
+  "LocoMotor:OnUpdate#1+240": [
     "--★ 传 GetSpeedMultiplier() 作参数 —— 预留「速度影响跳跃距离」的钩子。",
   ],
-  1666: [
+  "LocoMotor:OnUpdate#1+242": [
     "--★ GetCurrentPlatform：拿脚下平台（entityscript.lua 定义）。",
   ],
-  1667: [
+  "LocoMotor:OnUpdate#1+243": [
     "--★★ 平台可自定义最大跳跃距离（更窄的平台不跳太远）。",
   ],
-  1668: [
+  "LocoMotor:OnUpdate#1+244": [
     "--★ 取较小者：min(实体默认距离, 平台限制)。",
   ],
-  1671: [
+  "LocoMotor:OnUpdate#1+247": [
     "--★ other_platform：目标平台。初始为 nil（未知）。",
   ],
-  1673: [
+  "LocoMotor:OnUpdate#1+249": [
     "--★★★【优先场景：目标就在同一平台上】",
     "--   `if self.dest and self.dest:IsValid() and my_platform == self.dest:GetPlatform()`",
     "--   ★★ 场景：玩家在船上点击船上的箱子。目标平台 = 船 = 脚下平台。",
     "--     此时跳跃方向应指向**箱子**而不是正前方。",
     "--   ★ 用 Dest:GetPlatform() 统一处理「目标是被拿在手里的物品」等情况。",
   ],
-  1677: [
+  "LocoMotor:OnUpdate#1+253": [
     "--★ 没有明确目标平台 → 走「自动探测前方平台」的三分支。",
   ],
-  1678: [
+  "LocoMotor:OnUpdate#1+254": [
     "--★★★【自动探测的三个分支】",
     "--   ① 玩家 或 有静态可跳平台 → 用地图的 GetNearestPlatformInDirection",
     "--   ② 其他情况 → 向前 hop_distance 试探，查询该点平台",
@@ -560,32 +560,32 @@ export const BEFORE = {
     "--     其他实体只在「有静态可跳平台」时才找（性能优先）。",
     "--   ★ ② 的探测点 = 当前位置 + 前进方向 × 跳跃距离。",
   ],
-  1679: [
+  "LocoMotor:OnUpdate#1+255": [
     "--★ GetNearestPlatformInDirection 由 TheWorld.Map 提供（C++ 侧）。",
   ],
-  1683: [
+  "LocoMotor:OnUpdate#1+259": [
     "--★ 目标平台无效 → 只用距离当作「跳跃点」，放弃平台校验。",
   ],
-  1688: [
+  "LocoMotor:OnUpdate#1+264": [
     "--★ 非玩家分支：直接查「跳跃落点处有什么平台」。",
   ],
-  1695: [
+  "LocoMotor:OnUpdate#1+271": [
     "--★ can_hop：能否跳跃。默认 false（每帧重算）。",
   ],
-  1697: [
+  "LocoMotor:OnUpdate#1+273": [
     "--★★ too_early_top_hop：跳跃冷却未结束则不跳（1413 行设的 0.2 秒）。",
   ],
-  1698: [
+  "LocoMotor:OnUpdate#1+274": [
     "--★★★【跳跃的四个必要条件】",
     "--   ① my_platform ~= other_platform（目标不是脚下这块）",
     "--   ② 冷却已过（not too_early_top_hop）",
     "--   ③ ScanForPlatform 找到落脚点（can_hop）",
     "--   ④ 未被阻挡（not blocked）",
   ],
-  1700: [
+  "LocoMotor:OnUpdate#1+276": [
     "--★ 找到落脚点后，若目标平台需要预约则预约。",
   ],
-  1701: [
+  "LocoMotor:OnUpdate#1+277": [
     "--★★【平台预约：防止两个实体同时跳向同一平台】",
     "--   TryToReservePlatform 是 walkableplatform 组件的可选方法。",
     "--   ★★ 解决的问题：船很小，两个人同时从两侧跳上去会「卡在边缘」。",
@@ -595,21 +595,21 @@ export const BEFORE = {
     "--     · TryToReserve() —— 软预约（时间窗口内的意图占用）",
     "--   ★★ 软预约的好处：不占用硬容量，但能防止「同时挤」。",
   ],
-  1704: [
+  "LocoMotor:OnUpdate#1+280": [
     "--★ 预约失败 → 取消本次跳跃并标记 blocked（阻止后续的游动逻辑）。",
   ],
-  1712: [
+  "LocoMotor:OnUpdate#1+288": [
     "--★ 没有阻挡才继续处理跳跃/游动。",
   ],
-  1713: [
+  "LocoMotor:OnUpdate#1+289": [
     "--★★ can_hop 分支：记录 last_platform_visited 后发起跳跃。",
     "--   ★★ 记录时机很讲究（1714 行）：记录的是**当前平台**（my_platform），",
     "--     因为「不能跳回」针对的是「我刚从这块跳走」。",
   ],
-  1716: [
+  "LocoMotor:OnUpdate#1+292": [
     "--★ StartHopping 移交控制权给状态图（详见 1396 行）。",
   ],
-  1717: [
+  "LocoMotor:OnUpdate#1+293": [
     "--★★★【两栖生物的「游过去」分支 —— 不能跳跃时的替代方案】",
     "--   条件：有 amphibiouscreature 组件 + other_platform 为 nil（没有可跳的平台）",
     "--        + 不在 jumping 状态",
@@ -619,30 +619,30 @@ export const BEFORE = {
     "--     同一个事件，两种行为 —— 状态图根据生物类型分流。",
     "--   ★ 这是「用同一事件 + 状态图分流」而非「组件内分支」的架构选择。",
   ],
-  1718: [
+  "LocoMotor:OnUpdate#1+294": [
     "--★ 过渡距离 = 自身半径 + amphibiouscreature 定义的过渡距离。",
     "--   ★★ `GetTransitionDistance()` 是「从站着到开始游泳的距离」，",
     "--     即岸边的缓冲带宽度。",
   ],
-  1721: [
+  "LocoMotor:OnUpdate#1+297": [
     "--★ 单纯的赋值占位 —— Lua 用来解构多返回值（只需要第二个）。",
     "--   ★ 这是 Lua 特有的技巧：`local _` 声明一个不用的变量来吃掉第一个返回值。",
     "--   ★★ 注意 1720 行同样用 `local _` 吃掉 ScanForPlatform 的 x/z。",
     "--     强类型移植时这会变成显式的 discard/ignore 语法。",
   ],
-  1722: [
+  "LocoMotor:OnUpdate#1+298": [
     "--★ 只在「有平台时」才检测阻挡（无平台时不需要，下方 1728 行会另行检测）。",
   ],
-  1725: [
+  "LocoMotor:OnUpdate#1+301": [
     "--★ ShouldTransition：两栖组件自己判断「这里该下水了吗」（如根据水深/速度）。",
   ],
-  1726: [
+  "LocoMotor:OnUpdate#1+302": [
     "--★★ 英文原注释解释了 blocked 复用的逻辑：",
     "--   \"If my_platform ~= nil, we already ran the 'is blocked' test as part of",
     "--    ScanForPlatform. Otherwise, run one now.\"",
     "--   ★ 即「有平台时 1722 行已检测过，无平台时现在补一次」—— 避免重复查询。",
   ],
-  1729: [
+  "LocoMotor:OnUpdate#1+305": [
     "--★★★【`dist * 1.41421` —— 精确的 sqrt(2) 近似】",
     "--   英文原注释：\"~sqrt(2); _x,_z are a dist right triangle so sqrt(dist^2 + dist^2)\"",
     "--   ★★★ 推理：检测点 (_x, _z) 在距离 dist 的方向上，",
@@ -652,10 +652,10 @@ export const BEFORE = {
     "--   ★ 1.41421 是 sqrt(2)=1.41421356 的截断，精度足够。",
     "--   ★ 这种「按最坏方向取值」的处理方式在性能敏感代码里很常见。",
   ],
-  1730: [
+  "LocoMotor:OnUpdate#1+306": [
     "--★ 推 onhop 且带落点坐标 —— 状态图据此播放「下水」动画并设置物理初速度。",
   ],
-  1736: [
+  "LocoMotor:OnUpdate#1+312": [
     "--★★★【落水检查的触发条件】",
     "--   `not can_hop and my_platform == nil and target_platform == nil`",
     "--     and not HasStateTag(\"jumping\")",
@@ -663,20 +663,20 @@ export const BEFORE = {
     "--     → 说明这个实体正在**离岸漂向虚空**，需要检查是否会溺亡。",
     "--   ★ 若正在 jumping 则不检查（跳跃中有平台信息，状态图会处理落水）。",
   ],
-  1739: [
+  "LocoMotor:OnUpdate#1+315": [
     "--★ 跳跃检测的 else 分支：不允许跳跃（或未开启）→ 走「普通移动」路径。",
   ],
-  1740: [
+  "LocoMotor:OnUpdate#1+316": [
     "--★★★【CheckDrownable 为真时直接跳过电机设置】",
     "--   ★★★ 这是「游泳接管移动」的机制：",
     "--     落水后由 drownable 组件接管位置更新（浮力/游动），",
     "--     locomotor 不能再设 motor 速度 —— 否则两者会打架（物体被拉回）。",
     "--   ★ CheckDrownable 定义在 components/drownable.lua。",
   ],
-  1741: [
+  "LocoMotor:OnUpdate#1+317": [
     "--★ speed_mult = GetSpeedMultiplier() —— 装备/地面等倍率的合成值。",
   ],
-  1742: [
+  "LocoMotor:OnUpdate#1+318": [
     "--★★★【desired_speed：跑用 RunSpeed()，走用裸 walkspeed】",
     "--   `self.isrunning and self:RunSpeed() or self.walkspeed`",
     "--   ★★ 与 GetWalkSpeed() 的差异：后者是 `walkspeed * GetSpeedMultiplier()`，",
@@ -684,10 +684,10 @@ export const BEFORE = {
     "--   ★ 结果等价，但这里的写法是为 1748 行的「接近减速」做准备 ——",
     "--     减速时改的是 speed_mult，不是 desired_speed。",
   ],
-  1743: [
+  "LocoMotor:OnUpdate#1+319": [
     "--★ 有目标时按距离平方判定「快到了」。",
   ],
-  1747: [
+  "LocoMotor:OnUpdate#1+323": [
     "--★★★★★【★★ 接近减速（arrival easing）—— 手感的关键】",
     "--   `if dsq <= .25 then speed_mult = math.max(.33, math.sqrt(dsq)) end`",
     "--   ★★★ 这段代码是「走到目标时自然减速」的实现：",
@@ -704,13 +704,13 @@ export const BEFORE = {
     "--   ★★ 没有这段减速，实体在接近目标时会「急刹」，看起来很僵硬。",
     "--   ⚠ 这是一个「手感参数」：0.25 与 0.33 是调出来的，改动会明显影响观感。",
   ],
-  1748: [
+  "LocoMotor:OnUpdate#1+324": [
     "--★ math.max(.33, sqrt(dsq)) —— 见上方分析。0.33 是 1/3 速下限。",
   ],
-  1752: [
+  "LocoMotor:OnUpdate#1+328": [
     "--★ SetMotorSpeed 处理斜向（见 726 行）。非斜向时直接设 motor 速度。",
   ],
-  1757: [
+  "LocoMotor:OnUpdate#1+333": [
     "--★ 跳跃冷却倒计时：每帧递减，最多减到 0。",
     "--   ★★ 放在函数**最末尾**是刻意的：",
     "--     它必须在「本帧是否跳了」的判定之后递减，",

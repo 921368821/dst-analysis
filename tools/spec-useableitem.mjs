@@ -1,7 +1,7 @@
 // key = 源文件行号（1-based），注释插入到该行「之后」
 // 目标：components/useableitem.lua —— 物品使用统一抽象的「无目标」一端
 export default {
-  1: [
+  "oninuse#1": [
     '-- ============================================================',
     '-- components/useableitem.lua —— 「可直接使用」组件（56 行的极简协议）',
     '--',
@@ -39,20 +39,20 @@ export default {
     '-- ★ 「inuse」标签的消费者：装备栏图标灰显、角色说话时收起手持物、音效。',
     '--   这些都是【跨系统】读取，所以必须走标签而不是直接摸组件字段。',
   ],
-  9: [
+  "oninuse#1+8": [
     '-- 构造函数。第 11-14 行四个字段全部给了显式初值。',
     '-- ⚠️ 第 14 行 stopuseevents 从未被本文件【写入】过 ——',
     '--   它是个预留的外部钩子字段（某个 prefab 直接写 self.stopuseevents = fn）。',
     '--   本轮全库搜索未找到给它赋值的调用方，标为未核实。',
   ],
-  21: [
+  "UseableItem:OnRemoveFromEntity#1": [
     '-- OnRemoveFromEntity：摘掉 inuse 标签，防止实体被回收后标签残留。',
     '-- ⚠️ 注意它【只摘标签，不调 onstopusefn】：',
     '--   也就是说物品在被移除时不会触发「停止使用」的回调。',
     '--   对「喝药过程中物品被销毁」这类边缘情况，回调里的清理逻辑不会跑。',
     '--   这是「回调 vs 清理」分离的常见取舍：本组件只管标签，对外行为由 prefab 兜底。',
   ],
-  33: [
+  "UseableItem:CanInteract#1": [
     '-- ★★★ CanInteract(doer) —— 「能不能用」的唯一判定口。',
     '--   三个条件全满足才返回 true：',
     '--   a) 当前不在使用中（第 34 行前半）；',
@@ -79,7 +79,7 @@ export default {
     '--   表现为「按使用键毫无反应」而不是报错。',
     '--   ★ 排查提示：物品「没反应」时先确认它到底是不是 equippable 的。',
   ],
-  37: [
+  "UseableItem:StartUsingItem#1": [
     '-- ★★★ StartUsingItem —— 「开始使用」。',
     '',
     '-- 【★ 第 38-41 行的三行技巧是本文件最值得学的地方】',
@@ -110,7 +110,7 @@ export default {
     '--   动作层据此决定动作成功与否。返回 false 会触发动作失败（播手势/提示）。',
     '--   （本人已对照 actions.lua:3306-3309 核实：ret 被直接 return。）',
   ],
-  49: [
+  "UseableItem:StopUsingItem#1": [
     '-- ★ StopUsingItem：与 StartUsingItem 对称的收尾。',
     '--   第 50 行【先】置 inuse = false，【后】调 onstopusefn。',
     '-- ★ 顺序含义：回调内部若再查实体的 inuse 标签，会看到已经摘掉了。',
@@ -123,7 +123,7 @@ export default {
     '--   推断调用方（actions.lua STOPUSINGITEM，第 3357-3362 行）保证配对。',
     '--   （本人已对照 actions.lua:3357-3362 核实该动作只调 StopUsingItem。）',
   ],
-  54: [
+  "UseableItem:StopUsingItem#1+5": [
     '-- 文件结束。全文 56 行，是 components/ 下最小的协议类组件之一。',
     '-- ★ 但它承载了「物品交互统一抽象」的最小充分集合：',
     '--   资格判定 + 状态字段 + 状态标签 + 开始回调 + 停止回调 + 开始时注册停止条件。',

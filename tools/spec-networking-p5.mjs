@@ -2,7 +2,7 @@
 // 填补 ≥25 行的无锚点区段：模组检查循环体、密码对话框内部、颜色列表
 
 export const BEFORE = {
-  404: [
+  "server_listing_contains#1+38": [
     "--★★★[第 404-423 行：★★★ 模组检查主循环的逐段拆解]",
     "--   ★★★ 循环遍历 server_listing.mods_description（服务端要求的模组列表）：",
     "--   ── 段①（第 405 行）：计数 ──",
@@ -42,7 +42,7 @@ export const BEFORE = {
     "--   ★★★ ★★★ 循环体只对 all_clients_require_mod 的模组做检查",
     "--     ——★ 非必需模组（「可选」的）不检查（没有也能进服）。",
   ],
-  428: [
+  "server_listing_contains#1+62": [
     "--★★★[第 428-431 行：★★ 「模组已齐备」的快速路径]",
     "--   if have_required_mods then",
     "--       enable_server_mods()",
@@ -51,7 +51,7 @@ export const BEFORE = {
     "--   ★★ 「本地已有 → 跳过下载」是优化路径（:428 vs :449 两条路径都汇聚于此）。",
     "--   ★★★ 上报的三参数：(成功标志, 消息, 错误码)。成功时后两空。",
   ],
-  518: [
+  "after_mod_warning#1+1": [
     "--★★★[第 518-557 行：★★ 密码对话框内部的全部逻辑]",
     "--   ★★★ 第 519-537 行：构建 InputDialogScreen（密码输入框）：",
     "--     · 标题：STRINGS.UI.SERVERLISTINGSCREEN.PASSWORDREQUIRED",
@@ -77,7 +77,7 @@ export const BEFORE = {
     "--       ★★ 第 551 行 OnControl(CONTROL_ACCEPT, false) 是「模拟一次接受键」。",
     "--         ★★★ 这在 DST 的 UI 体系里是一种「主动激活输入」的惯用法。",
   ],
-  519: [
+  "after_mod_warning#1+2": [
     "--★★[第 519-537 行：密码对话框的构造参数]",
     "--   ★★★★ InputDialogScreen(标题, 按钮数组, true) 的三参数：",
     "--     ① 标题：STRINGS.UI.SERVERLISTINGSCREEN.PASSWORDREQUIRED（需要密码）；",
@@ -87,7 +87,7 @@ export const BEFORE = {
     "--     ★★ 与 :546-548 的 SetPassword(true)（输入框自己的）是两套机制。",
     "--     ★★ 前者创建时就声明，后者在设置允许显示时才不启用。",
   ],
-  524: [
+  "cb#1": [
     "--★★[第 524-527 行：JOIN 按钮回调]",
     "--   cb = function()",
     "--       TheFrontEnd:PopScreen()   -- ★★ 先关对话框",
@@ -99,14 +99,14 @@ export const BEFORE = {
     "--     ② ★★ PopScreen 在前 —— ★ 因为 send_response 会弹新的界面（:506），",
     "--       ★★ 必须先关旧的（见本段 BEFORE 的分析）。",
   ],
-  530: [
+  "cb#1+6": [
     "--★★[第 530-535 行：CANCEL 按钮回调]",
     "--   cb = function()",
     "--       TheFrontEnd:PopScreen()  -- 关对话框",
     "--       on_cancelled()           -- ★ 通知网络层取消",
     "--   ★★★ 与 JOIN 平行，区别只在后续动作（send_response vs on_cancelled）。",
   ],
-  538: [
+  "password_prompt_screen.edit_text.OnTextEntered#1": [
     "--★★★[第 538-545 行：★ OnTextEntered —— 「回车即确认」]",
     "--   password_prompt_screen.edit_text.OnTextEntered = function()",
     "--       if password_prompt_screen:GetActualString() ~= \"\" then",
@@ -123,7 +123,7 @@ export const BEFORE = {
     "--         ★★ 「空输入 = 重新聚焦」是一个优雅的「就地拒绝」。",
     "--       ★★ 对比：很多 UI 在空输入时会关窗口或报错，这里选择「拦住不让走」。",
   ],
-  546: [
+  "password_prompt_screen.edit_text.OnTextEntered#1+8": [
     "--★★[第 546-551 行：★★ 「是否显示密码」+ 「强制聚焦」]",
     "--   if not Profile:GetShowPasswordEnabled() then",
     "--       password_prompt_screen.edit_text:SetPassword(true)",
@@ -144,7 +144,7 @@ export const BEFORE = {
     "--       ★★ 效果：★ 打开对话框 → 键盘弹出、焦点就绪 → 玩家直接输入。",
     "--       ★★ 「零点击输入」是优秀的移动端 UX 标准。",
   ],
-  553: [
+  "password_prompt_screen.edit_text.OnTextEntered#1+15": [
     "--★ send_response( optional_password_override or \"\" ) —— 「无需密码」路径",
     "--   ★★★ 与密码路径的对比：",
     "--     · 密码路径：send_response(GetActualString()) —— 用输入的密码；",
@@ -152,7 +152,7 @@ export const BEFORE = {
     "--       ★★ 用「已知密码」或「空串」（服务器无密码时）。",
     "--   ★★ 二者最终都走同一条 send_response 路径（:501 的 JoinServerResponse）。",
   ],
-  691: [
+  "GetAvailablePlayerColours#1+20": [
     "--★★[第 691-711 行：颜色列表的中段]",
     "--   ★★★ 中段颜色（BURLYWOOD, RED, PERU, DARKPLUM, EGGSHELL, SALMON,",
     "--     CHOCOLATE, VIOLETRED, SANDYBROWN, BROWN, BISQUE, PALEVIOLETRED,",
@@ -170,7 +170,7 @@ export const BEFORE = {
     "--     ★★ 应该保留「相邻颜色不同系 + 饱和度递变」的排序逻辑。",
     "--     ★★★ 这一条注释记录了原版的设计意图，避免后来者「优化」成字典序。",
   ],
-  684: [
+  "GetAvailablePlayerColours#1+13": [
     "--★★★[第 684-712 行：★★ 24 个玩家颜色的具体列表]",
     "--   ★★★ 颜色的组织（★ 按色系分组，★ 值得注意的细节）：",
     "--     · 红色系：TOMATO, RED, PERU, FIREBRICK, INDIANRED(推测)",
@@ -193,10 +193,10 @@ export const BEFORE = {
 };
 
 export const AFTER = {
-  557: [
+  "after_client_mod_message#1": [
     "--★★ after_mod_warning 结束。★★ 密码输入与连接发起的决策点。",
   ],
-  712: [
+  "GetAvailablePlayerColours#1+41": [
     "--★★ GetAvailablePlayerColours 结束。★★ 24 色 + 默认色。",
     "--   ★ ★★ 关键：★ 列表顺序即分配优先级（见 :684 与 :691 的分析）。",
   ],

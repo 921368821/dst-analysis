@@ -7,7 +7,7 @@ export const BEFORE = {
   // ══════════════════════════════════════════════════════════════
   // 三、装饰器与条件类节点
   // ══════════════════════════════════════════════════════════════
-  195: [
+  "BehaviourNode:Stop#1+13": [
     "--★★【DecoratorNode —— 「单子节点 + 改写结果」的基类】",
     "--   ★★ 它与传统行为树里的 Decorator 概念一致：只包一个孩子，",
     "--     自己不改行为，只**转换孩子的状态**。",
@@ -25,7 +25,7 @@ export const BEFORE = {
     "--     这些方法就会因为 children 为 nil 而静默跳过整棵子树。",
     "--     ★ 这是「结构对齐」的价值：为了多复用几个基类方法，付出一个数组的代价。",
   ],
-  196: [
+  "BehaviourNode:Stop#1+14": [
     "--★ 注意这一行用的是 **Tab 缩进**，而文件其余部分用 4 空格。",
     "--   ※ 不影响 Lua 语义（Lua 不敏感缩进），但说明这行是后期加的。",
     "--   ★ 名称兜底为 \"Decorator\"，子类一般会覆盖（379/396/412 行都传了具体名）。",
@@ -34,7 +34,7 @@ export const BEFORE = {
     "--     此时访问 children[1] 会得 nil。※ 构造时不校验，由使用时报错。",
   ],
 
-  202: [
+  "BehaviourNode:Stop#1+20": [
     "--★★【ConditionNode —— 「纯判定」节点：一次函数调用决定成败】",
     "--   ★★ 这是全文件最高频使用的节点类型。behaviours/ 与 brains/ 里",
     "--     出现的 `ConditionNode(function() ... end, \"名字\")` 绝大多数都是它。",
@@ -49,19 +49,19 @@ export const BEFORE = {
     "--     ⇒ 也不受 Step 的级联 Reset 影响（171 行的守卫）。",
     "--     这两点正是「条件每帧重算」的物理保证。",
   ],
-  203: [
+  "BehaviourNode:Stop#1+21": [
     "--★ name 兜底 \"Condition\"。实际用起来几乎都会显式传名字（调试全靠它）。",
     "--   ※ 不传 children，所以 self.children 为 nil —— 这是**刻意的**：",
     "--     条件节点没有孩子，103 行 GetSleepTime 的 `not self.children` 会成立，",
     "--     再配合 is_a(ConditionNode) 被排除，于是条件节点对休眠时间零贡献。",
   ],
-  204: [
+  "BehaviourNode:Stop#1+22": [
     "--★ fn 存成字段 —— Visit 里直接调用。闭包捕获了外部世界的引用，",
     "--   所以条件天然是「动态」的：每次思考都重新读实体的当前状态。",
     "--   ★★ 不缓存结果，是本框架「无隐藏游标」哲学的又一处体现。",
   ],
 
-  207: [
+  "ConditionNode:Visit#1": [
     "--★★【ConditionNode:Visit —— 三行做完判定，无任何状态记忆】",
     "--   ★★ 【为什么条件节点永远不该有中间态？】",
     "--     因为条件的语义是「此刻成立吗」。若允许它 RUNNING，",
@@ -73,7 +73,7 @@ export const BEFORE = {
     "--   ★ 在 Sequence 里，条件永远在同一轮得出 SUCCESS/FAILED，",
     "--     所以 Sequence 不可能停在「等条件」上（对比 ConditionWaitNode）。",
   ],
-  208: [
+  "ConditionNode:Visit#1+1": [
     "--★ 直接调用，无参。",
     "--   ★★ 条件函数**不允许 yield**：它在 Visit 栈里同步执行，",
     "--     一旦 yield 会破坏 BT:Update 的三段式（Visit 未完成就进入 SaveStatus）。",
@@ -81,15 +81,15 @@ export const BEFORE = {
     "--       条件函数里绝对不要写 Sleep / DoTaskInTime 的等待逻辑。",
     "--     ★ 参见 bug-patterns.md 分区 A：「定时器回调是不可挂起的」同理适用于此。",
   ],
-  209: [
+  "ConditionNode:Visit#1+2": [
     "--★ 成立即 SUCCESS。SUCCESS 在组合节点里的含义见 327 行（Sequence 继续）。",
   ],
-  211: [
+  "ConditionNode:Visit#1+4": [
     "--★ 不成立即 FAILED。在 Sequence 里会立刻短路整条序列（327 行）。",
     "--   ★★ 这是「条件不满足就什么都不做」的自然实现，不需要额外的 Not 装饰器。",
   ],
 
-  218: [
+  "ConditionNode:Visit#1+11": [
     "--★★【MultiConditionNode —— 「两段式条件」：进入时判一次，之后判另一个】",
     "--   这是本文件里最容易被忽略、但设计很精巧的一个节点。",
     "--   ★★ 【它解决的问题】",
@@ -104,16 +104,16 @@ export const BEFORE = {
     "--     `ParallelNode{ MultiConditionNode(ifcond, whilecond), node }`",
     "--     语义就是字面的「if 条件 then while 另一条件 do ...」。",
   ],
-  219: [
+  "ConditionNode:Visit#1+12": [
     "--★ name 兜底仍是 \"Condition\"（与 ConditionNode 相同），",
     "--   ※ 所以调试输出里 MultiConditionNode 和 ConditionNode 无法从名字区分。",
     "--   ★ 这是一个小的可观测性缺陷：排查 IfThenDoWhileNode 时看不出是哪个。",
   ],
-  220: [
+  "ConditionNode:Visit#1+13": [
     "--★★ start —— 第一次进入时（running 为假）求值的函数。",
     "--   ★ 典型：`function() return self.inst.components.combat.target ~= nil end`",
   ],
-  221: [
+  "ConditionNode:Visit#1+14": [
     "--★★ continue —— running 已为真时每帧求值的函数（「还能继续吗」）。",
     "--   ★ 两段式的意义：continue 通常更宽松（如「目标还在视野内」），",
     "--     因为一旦启动就不该轻易放弃。",
@@ -126,7 +126,7 @@ export const BEFORE = {
     "--       但若 start 有副作用（如「分配一个目标」），就会每次都重新分配。",
   ],
 
-  224: [
+  "MultiConditionNode:Visit#1": [
     "--★★【MultiConditionNode:Visit —— 用 running 粘住「该问哪个函数」】",
     "--   ★★ 全部逻辑就是这一句 if/else：",
     "--     还没跑起来 → 问 start（门卫）",
@@ -136,28 +136,28 @@ export const BEFORE = {
     "--     这一点很关键：节点只被查询（is it ok），不被等待（等到何时）。",
     "--   ★ 真正的「等待」由 ParallelNode 的另一个孩子（node）承担。",
   ],
-  225: [
+  "MultiConditionNode:Visit#1+1": [
     "--★ `not self.running` —— 首帧（running 为 nil）走 start 分支。",
     "--   ※ 注意 running 是**唯一**的自定义状态，且如上所述永不被 Reset 清除。",
   ],
-  226: [
+  "MultiConditionNode:Visit#1+2": [
     "--★★ 求值入口。函数无参（若需要上下文，调用方自己用闭包捕获）。",
   ],
-  228: [
+  "MultiConditionNode:Visit#1+4": [
     "--★ 后续帧走 continue。",
   ],
-  231: [
+  "MultiConditionNode:Visit#1+7": [
     "--★★ running 为真 → SUCCESS。注意这里**不设 RUNNING**。",
     "--   ★★ 推论：MultiConditionNode 在 GetTreeSleepTime 里永远不贡献睡眠时间",
     "--     （它不是 RUNNING），所以整个 Parallel 也不会因它而休眠。",
     "--     ★ 这是正确的 —— 条件每帧重算正是它的存在意义。",
   ],
-  235: [
+  "MultiConditionNode:Visit#1+11": [
     "--★ running 为假 → FAILED。ParallelNode 见此立刻整体 FAILED（672-674 行），",
     "--   连带中断另一个孩子。这就是 IfThenDoWhileNode 的「退出 while」语义。",
   ],
 
-  242: [
+  "MultiConditionNode:Visit#1+18": [
     "--★★【ConditionWaitNode —— 「等条件成立」的节点（名字有误导性）】",
     "--   ★★ 它与 ConditionNode 只差一行，但语义完全相反：",
     "--     ConditionNode      成立→SUCCESS，不成立→FAILED（不等）",
@@ -177,17 +177,17 @@ export const BEFORE = {
     "--     ★ 更危险的是：没有任何超时机制。一个永远不成立的等待会永远 RUNNING，",
     "--       整棵树永远停在它上面（详见 812 行 LatchNode 的对照）。",
   ],
-  243: [
+  "MultiConditionNode:Visit#1+19": [
     "--★ name 兜底 \"Wait\" —— ※ **与 WaitNode 的兜底名完全相同**。",
     "--   ★★ 调试输出里 `Wait - RUNNING <SUCCESS>` 无法区分是「等固定时长」",
     "--     还是「等条件成立」。这是本文件的一处可观测性缺陷。",
   ],
 
-  247: [
+  "ConditionWaitNode:Visit#1": [
     "--★★ 两个分支的映射是本节点的全部意义（对照 207-213 行）。",
     "--   ★ 成立的那一刻给 SUCCESS，让父节点（通常是 Sequence）往下走。",
   ],
-  251: [
+  "ConditionWaitNode:Visit#1+4": [
     "--★★ 【本文件最重要的语义分水岭之一】不成立 → RUNNING（而不是 FAILED）。",
     "--   ★★ 三个直接后果，每一个都是实践中的坑：",
     "--     ① **它会卡住父节点**：在 Sequence 里 RUNNING 会让序列停在原地（327 行），",
@@ -207,7 +207,7 @@ export const BEFORE = {
   // ══════════════════════════════════════════════════════════════
   // 四、动作类节点与等待节点
   // ══════════════════════════════════════════════════════════════
-  259: [
+  "ConditionWaitNode:Visit#1+12": [
     "--★★【ActionNode —— 「执行一段代码」的最简节点】",
     "--   ★★ 它几乎总是被包在别的节点里用，本身不构成决策：",
     "--     LoopNode{ ActionNode(function() inst:PushEvent(\"matchover\") end) }",
@@ -220,11 +220,11 @@ export const BEFORE = {
     "--     所以每次访问都会被 Step 立刻 Reset（161 行），",
     "--     意味着「每次被访问就执行一次」—— 想重复必须靠 LoopNode。",
   ],
-  260: [
+  "ConditionWaitNode:Visit#1+13": [
     "--★ name 兜底 \"ActionNode\"。实践里几乎都会传名字便于调试。",
   ],
 
-  264: [
+  "ActionNode:Visit#1": [
     "--★★【ActionNode:Visit —— 执行后无条件 SUCCESS】",
     "--   ★★ 【为什么不允许失败？】",
     "--     因为 action 是一个无返回值回调，本框架没有约定它能表达失败。",
@@ -235,18 +235,18 @@ export const BEFORE = {
     "--   ※ 这个限制意味着 ActionNode 无法表达「尝试做但失败」，",
     "--     只能表达「做或不做」。这是刻意的简化。",
   ],
-  265: [
+  "ActionNode:Visit#1+1": [
     "--★ 无条件调用。不检查结果、不捕获错误。",
     "--   ※ action 里若 yield 会破坏三段式（同 208 行的理由）。",
     "--   ※ action 里若抛 error，整个 BT:Update 中断，树停在半更新状态",
     "--     （Visit 已改了部分 status，SaveStatus/Step 没跑）。",
     "--     ★ 这是行为树里**最需要防御**的一行：动作里应尽量不炸。",
   ],
-  266: [
+  "ActionNode:Visit#1+2": [
     "--★ 恒为 SUCCESS。对比 ConditionWaitNode 的 251 行 —— 差一个字，语义天壤之别。",
   ],
 
-  273: [
+  "ActionNode:Visit#1+9": [
     "--★★【WaitNode —— 「固定等 N 秒」节点（真正的等待）】",
     "--   ★★ 与 ConditionWaitNode 的区别：",
     "--     ConditionWaitNode 等的是「某个条件变真」（无限期）",
@@ -262,15 +262,15 @@ export const BEFORE = {
     "--     典型用途：`WaitNode(function() return math.random()*0.5 end)`。",
     "--     ★★ 注意函数在**每次开始等待时**求值一次，不是每帧。",
   ],
-  274: [
+  "ActionNode:Visit#1+10": [
     "--★ name 硬编码 \"Wait\"。※ 与 ConditionWaitNode:243 的兜底名重复（见该行说明）。",
   ],
-  275: [
+  "ActionNode:Visit#1+11": [
     "--★★ wait_time 存原始值（可能是数字也可能是函数），不预先求值。",
     "--   ★ 推迟到 287 行求值，好处是闭包能捕获「当下的」上下文。",
   ],
 
-  278: [
+  "WaitNode:DBString#1": [
     "--★★ DBString 输出**剩余秒数** —— 「还剩 1.34 秒」。",
     "--   ★ 这是排查「AI 卡住」最有用的一个数字：",
     "--     若某节点长期卡在 `Wait - RUNNING <SUCCESS> (1.34)`，",
@@ -279,16 +279,16 @@ export const BEFORE = {
     "--     非 RUNNING 时 self.wake_time 为 nil，`nil - GetTime()` 会崩。",
     "--     ★ 可见那个 `if status == RUNNING` 的守卫不只为降噪，还承担了正确性。",
   ],
-  279: [
+  "WaitNode:DBString#1+1": [
     "--★★ `self.wake_time - GetTime()` = 剩余秒数。",
     "--   ※ 首帧调用 DBString 时 wake_time 可能为 nil（第 142 行的守卫保证了不会）。",
   ],
 
-  283: [
+  "WaitNode:Visit#1": [
     "--★★【WaitNode:Visit —— 两阶段计时机的全部实现】",
     "--   变量 current_time 只取一次，两处比较都用它，保证同一帧内一致。",
   ],
-  286: [
+  "WaitNode:Visit#1+3": [
     "--★★【阶段一：不是 RUNNING → 记录起点，转 RUNNING】",
     "--   ★★ 为什么不能用 status == READY 来判断「刚开始」？",
     "--     因为 status 还可能是 SUCCESS / FAILED（上一轮刚跑完，尚未被 Step 复位）。",
@@ -299,7 +299,7 @@ export const BEFORE = {
     "--   ★ 实践含义：**WaitNode 只能通过被 Reset 打断**（父节点整体复位）。",
     "--     若要提前结束一段等待，只能让父节点不再 Visit 它。",
   ],
-  287: [
+  "WaitNode:Visit#1+4": [
     "--★★ FunctionOrValue 在此求值一次（见 util.lua:1716 的定义）。",
     "--   ★★ 为什么不在构造时求值？因为构造时可能还没准备好上下文",
     "--     （比如行为树在 OnStart 里构造，某些状态尚未设置）。",
@@ -308,22 +308,22 @@ export const BEFORE = {
     "--   ※ 求值结果赋给 wake_time，因此 duration 变成绝对时刻，",
     "--     期间再改 self.wait_time 不影响本次等待。",
   ],
-  288: [
+  "WaitNode:Visit#1+5": [
     "--★ 转 RUNNING —— 这是「等待」的起点标记，Step 会因此保住本节点。",
   ],
-  291: [
+  "WaitNode:Visit#1+8": [
     "--★ 条件恒真（286 行已保证非 RUNNING 会转 RUNNING），",
     "--   所以实际总是走这个分支。写成 if 是为了表达「此刻是运行态」。",
   ],
-  292: [
+  "WaitNode:Visit#1+9": [
     "--★★ 到点判定：`current_time >= self.wake_time`。",
     "--   ★ 用 >= 而非 >：保证最终一定等到（浮点误差下 > 可能永不成立）。",
   ],
-  293: [
+  "WaitNode:Visit#1+10": [
     "--★ 到点即 SUCCESS，父节点（Sequence/Selector）本轮就能往下走。",
     "--   ★★ 注意：本轮就 SUCCESS，不需要再等一帧。",
   ],
-  295: [
+  "WaitNode:Visit#1+12": [
     "--★★⚠【疑似缺陷 · 符号写反】`self:Sleep(current_time - self.wake_time)`",
     "--   ★★ 这个表达式在数学上是**负数**：此刻还没到点（292 行的 else 分支），",
     "--     所以 current_time < wake_time，差值为负。",
@@ -357,7 +357,7 @@ export const BEFORE = {
   // ══════════════════════════════════════════════════════════════
   // 五、组合节点：Sequence
   // ══════════════════════════════════════════════════════════════
-  304: [
+  "WaitNode:Visit#1+21": [
     "--★★【SequenceNode —— 「依次做，全部成功才算成功」】",
     "--   ★★ 【与「传统顺序遍历型 BT」的根本差异】",
     "--     传统实现：每帧从 idx=1 开始跑，跑到 RUNNING 就 return，",
@@ -374,30 +374,30 @@ export const BEFORE = {
     "--     语义「条件成立就做这个动作」，这是 DST brain 里最常见的组合。",
     "--     对照 783 行 IfNode 的语法糖 —— 它就是这两行的封装。",
   ],
-  305: [
+  "WaitNode:Visit#1+22": [
     "--★ name 硬编码 \"Sequence\"（不是从参数传入）。",
     "--   ※ 对比 PriorityNode:534 也硬编码 \"Priority\"，LoopNode:428 硬编码 \"Sequence\"。",
     "--   ★★ 后果：调试输出里**无法区分 SequenceNode 与 LoopNode**（见 428 行 ※）。",
     "--   ★ 硬编码而非可传参，是因为它们属于「框架内建」节点，名字不会歧义；",
     "--     需要区分时靠 DBString（309 行输出 idx）。",
   ],
-  306: [
+  "WaitNode:Visit#1+23": [
     "--★★ idx = 1 —— 「还没开始做」。这个字段是 Sequence 的全部记忆。",
     "--   ★★ 与 RandomNode:491（idx = nil）、PriorityNode:579（idx = nil）对比：",
     "--     Sequence 用 1 起步，Random/Priority 用 nil 表示「尚未选中」，",
     "--     因为它们需要区分「从头」与「无」。",
   ],
 
-  309: [
+  "SequenceNode:DBString#1": [
     "--★ DBString 输出当前走到第几个孩子 —— 「走到第 3 步了」。",
     "--   ★★ 排查价值：若某 Sequence 长时间停在同一个 idx，",
     "--     说明那个孩子一直在 RUNNING（卡住了）。idx 就是卡点。",
   ],
-  310: [
+  "SequenceNode:DBString#1+1": [
     "--★ tostring(self.idx) 转字符串交给 string.format 的 %s。",
   ],
 
-  314: [
+  "SequenceNode:Reset#1": [
     "--★★【SequenceNode:Reset —— 必须覆写，因为基类不知道 idx 的存在】",
     "--   ★★ 写法要点：`self._base.Reset(self)` 先调基类做级联，",
     "--     再把自己独有的 idx 归位。",
@@ -421,18 +421,18 @@ export const BEFORE = {
     "--     （实际不会发生，因为基类会把 status 归 READY，319 行会把 idx 归 1 ——",
     "--     属于双保险。）",
   ],
-  315: [
+  "SequenceNode:Reset#1+1": [
     "--★ 显式父类调用。写法上等价于 `BehaviourNode.Reset(self)`。",
     "--   ★★ 注意 EventNode:746 用的是 `self._base.Reset(self)`（无冒号），",
     "--     而这里也是无冒号传 self —— 一致。",
   ],
-  316: [
+  "SequenceNode:Reset#1+2": [
     "--★★ idx 归 1 —— 「下次从头开始」。",
     "--   ★★ 这一行是 Sequence 幂等性的来源：无论被 Reset 多少次，",
     "--     重新开始时都从第一个孩子起步。",
   ],
 
-  319: [
+  "SequenceNode:Visit#1": [
     "--★★【SequenceNode:Visit —— 本文件最核心的循环，也是最容易看错的一处】",
     "--   ★★ 【两个隐藏机制，缺一个整个框架就不成立】",
     "--   机制一：**idx 的归位条件是「我是否在跑」，不是「我是否成功」**（320-322 行）",
@@ -453,7 +453,7 @@ export const BEFORE = {
     "--       不需要等到下一帧。",
     "--     ★ 对照 349-375 行 SelectorNode:Visit，结构完全对称，只是中断条件不同。",
   ],
-  320: [
+  "SequenceNode:Visit#1+1": [
     "--★★ `if self.status ~= RUNNING then self.idx = 1 end` —— 机制一的落点。",
     "--   ★★ 这一行与 161 行 Step 的配合是本框架最精妙的咬合：",
     "--     Step（帧尾）把跑完的节点 Reset 成 READY；",
@@ -468,21 +468,21 @@ export const BEFORE = {
     "--       Priority = 「保持正在做的事，只在必要时换」（有连续性）",
     "--       Sequence = 「每次从头走一遍流程」（无连续性）",
   ],
-  321: [
+  "SequenceNode:Visit#1+2": [
     "--★ idx 归 1。与 316 行的 Reset 重复，属于**双保险**（见 314 行的 ※）。",
     "--   ★ 重复不是冗余：320 行处理「本轮首次进入」，316 行处理「被父节点 Reset」。",
     "--     两条路径都会导致「需要从头」，所以两处都要归位。",
   ],
 
-  324: [
+  "SequenceNode:Visit#1+5": [
     "--★★ while 而非 for —— 因为 idx 会在循环体内被修改（332 行），",
     "--   且需要「跑到边界就自然结束」的语义。",
     "--   ★ `#self.children` 每次求值；children 是数组，# 即长度。",
   ],
-  325: [
+  "SequenceNode:Visit#1+6": [
     "--★ 只取当前孩子，不递归遍历 —— 递归由 child:Visit 自己负责。",
   ],
-  326: [
+  "SequenceNode:Visit#1+7": [
     "--★★【递归的落点 —— 这里是「父节点询问子节点」的唯一入口类型】",
     "--   ★ 组合节点只 Visit「当前这一个」孩子，不遍历全部。",
     "--   ★★ 原因：status 已经把「该问谁」编码进 idx 了，遍历全部是浪费。",
@@ -493,7 +493,7 @@ export const BEFORE = {
     "--     因为 RUNNING 的孩子需要「被推进」（如 WaitNode 比时间、Leash 检查距离）。",
     "--     ★★ 这一点常被误解：RUNNING 不等于「冻结」，而是「继续问它」。",
   ],
-  327: [
+  "SequenceNode:Visit#1+8": [
     "--★★【本框架最重要的 4 行之一：Sequence 的中断条件】",
     "--   `if child.status == RUNNING or child.status == FAILED then`",
     "--   ★★ 逐个解读为什么是这两个状态：",
@@ -516,18 +516,18 @@ export const BEFORE = {
     "--   ★★ 注意 status 被**直接透传**（328 行 self.status = child.status），",
     "--     所以 Sequence 自己永远不会有第三种状态。",
   ],
-  328: [
+  "SequenceNode:Visit#1+9": [
     "--★★ 直接透传孩子的状态 —— 「我即我现在的孩子」。",
     "--   ★★ 这行让 Sequence 在有孩子时永远与当前孩子同态，",
     "--     状态机被压缩成两层：Sequence ↔ 当前孩子。",
     "--   ★ 这是「组合即传递」的设计：组合节点不做状态翻译，只做路由。",
   ],
-  329: [
+  "SequenceNode:Visit#1+10": [
     "--★ return —— 立即结束本节点的 Visit，父节点拿到的是这个透传上来的状态。",
     "--   ★★ 不 break 而用 return：这是递归函数，直接结束整个 Visit 调用。",
     "--     所以「中断」= 「本节点 Visit 结束」，语义上就是「我停在这」。",
   ],
-  332: [
+  "SequenceNode:Visit#1+13": [
     "--★ 当前孩子成功了，前进到下一个。",
     "--   ★★ 配合 326 行，会在**同一次 Visit** 里立刻 Visit 新idx 的孩子。",
     "--     ★ 这就是「一次思考内连续完成多个步骤」的实现。",
@@ -535,7 +535,7 @@ export const BEFORE = {
     "--       这帧的 CPU 消耗会偏高。对 brain 的可观察行为没有影响。",
   ],
 
-  335: [
+  "SequenceNode:Visit#1+16": [
     "--★★ 所有孩子都 SUCCESS → 整个序列 SUCCESS。",
     "--   ★★ 走到这一行意味着 while 条件失效，即 idx > #children ——",
     "--     即所有孩子都返回了 SUCCESS。",

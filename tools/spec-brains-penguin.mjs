@@ -96,7 +96,7 @@ export default {
   ],
 
   // ══════════════ 天敌检测 ══════════════
-  33: [
+  "GetClosestInstWithTagAndExcludeTag#1": [
     '-- ★★ GetClosestInstWithTagAndExcludeTag —— 极易误读的函数。',
     '-- 【第 36 行】return ents[1] ~= inst and ents[1] or ents[2]',
     '--   ★★★ 这行用 and/or 实现「取第一个不是我的人」：',
@@ -114,27 +114,27 @@ export default {
     '--     不会继续往 ents[3] 找 —— 这是逻辑上的截断。',
     '--     实际影响：自己排第一时只会漏掉第 3 个以后的候选。属轻微缺陷。',
   ],
-  43: [
+  "GetClosestInstWithTagAndExcludeTag#1+10": [
     '-- scarytoprey：天敌标记（如猫/蜘蛛/海鸥）。',
   ],
-  44: [
+  "GetClosestInstWithTagAndExcludeTag#1+11": [
     '-- ★★ MUTATED_EXCLUDE_TAGS —— 变异企鹅不互相恐惧。',
     '--   注释原文："Let\'s not be scared of each other!"',
     '--   ★ 变异体是「被支配的形态」，不再是猎食者关系。设计意图明确。',
   ],
-  45: [
+  "FindScaryPredator#1": [
     '-- FindScaryPredator：普通与变异走不同的排除标签（第 46-50 行）。',
     '--   ★ 「同一函数、两种参数」—— 比写两个函数更紧凑。',
   ],
 
   // ══════════════ 巢穴判定 ══════════════
-  53: [
+  "AtRookery#1": [
     '-- ★ AtRookery：距离平方 > 100（即 10 距离）就认为不在巢穴。',
     '--   第 60 行 100 是硬编码的平方值，没用常量。',
     '--   ⚠️ 与第 30 行 LEASH_MAX_DIST=10 数值相同，疑似同源。',
     '--   ★ 但没有复用常量，属轻微重复定义。',
   ],
-  58: [
+  "AtRookery#1+5": [
     '-- ★★ 巢穴位置从 knownlocations 读 —— 坐标存在组件里而非实体字段，',
     '--   这样存档/读档后自动保持，且可用 ForgetLocation 清除。',
     '--   第 58 行 inst.components.knownlocations.GetLocation and inst.components...:GetLocation("rookery")',
@@ -146,10 +146,10 @@ export default {
   ],
 
   // ══════════════ 蛋的状态机 ══════════════
-  67: [
+  "HasEgg#1": [
     '-- HasEgg：背包第 1 个槽有蛋。企鹅蛋固定放槽 1（见第 216-217 行）。',
   ],
-  72: [
+  "CheckMyEgg#1": [
     '-- ★★★ CheckMyEgg —— 全文件的核心状态机，「我下的蛋现在算什么」。',
     '-- 【四条出口，逐一对应不同的蛋的命运】',
     '--  第 75 行：没有蛋 → nil',
@@ -171,7 +171,7 @@ export default {
     '--    ★ 也为第 421-425 行的 Wander 锚点提供兜底。',
     '-- 【★ 返回值语义】返回蛋 or nil，返回 nil 即「没有可管的蛋」。',
   ],
-  102: [
+  "PrepareForNight#1": [
     '-- ★ PrepareForNight：★ 三个条件或：夜、黄昏 80% 后、已经在睡。',
     '--   第 103 行 timeinphase > .8 —— 黄昏阶段超过 80% 就算「该休息了」。',
     '--   ★ 这是「把连续时间轴映射到布尔」的手法，避免下游写复合条件。',
@@ -180,7 +180,7 @@ export default {
   ],
 
   // ══════════════ 搜物品 ══════════════
-  109: [
+  "FindItems#1": [
     '-- ★★ FindItems —— 自制的实体过滤器，比 FindEntity 更严格。',
     '-- 【第 112 行】TheSim:FindEntities(x,y,z, 半径, MUST_TAGS, NO_TAGS)',
     '--   ⚠️ 注意第 6 参传的是【单个值】{ "outofreach" } 而非列表 ——',
@@ -195,7 +195,7 @@ export default {
   ],
 
   // ══════════════ 偷蛋 ══════════════
-  124: [
+  "StealAction#1": [
     '-- ★★★ StealAction —— 「天敌靠近时把蛋抢回来」，本文件最有戏剧性的行为。',
     '-- 【第 125 行】背包满了就放弃（第 127 行 egg 也要放得下）',
     '-- 【第 129 行】先查天敌（第 129 行 FindScaryPredator, TOOCLOSE=9）',
@@ -216,14 +216,14 @@ export default {
     '--   ★ 语义推测：抢蛋（叼回来）与下蛋（放出去）是同一动作的两面，',
     '--     所以用同一个冷却字段。合理，非缺陷。',
   ],
-  141: [
+  "StealAction#1+17": [
     '-- ★★ 注意这里用 `#lst >= 1`（正确写法），',
     '--   而第 185 行 EatFoodAction 与第 297 行 PickUpEggAction 用的是 `#lst > 1`。',
     '--   ★ 同一文件三种写法不一致 —— 这是确认真实缺陷的关键对照证据。',
   ],
 
   // ══════════════ 迁徙 ══════════════
-  157: [
+  "GetMigrateLeashPos#1": [
     '-- ★★ GetMigrateLeashPos：★ 战斗状态【直接返回 nil】。',
     '-- 【第 158 行】if teamattacker.teamleader or combat.target then return nil end',
     '--   ★ 即「我是队长」或「我有敌人」时，不受巢穴牵引。',
@@ -238,7 +238,7 @@ export default {
   ],
 
   // ══════════════ 觅食 ══════════════
-  167: [
+  "EatFoodAction#1": [
     '-- ★★★ EatFoodAction —— ★★ 含有本文件确认的第一处真实缺陷。',
     '-- 【第 169 行】local target = nil 之后第 175 行 if not target then',
     '--   ⚠️★★ 第 169 行刚把 target 赋成 nil，第 175 行就判「if not target」——',
@@ -263,14 +263,14 @@ export default {
     '--   排除 GetTimeAlive < 8（新掉落的）、penguin_egg（是蛋）、rottenegg（坏蛋）、',
     '--   不在有效地面、eater:CanEat —— 逐条合理。',
   ],
-  191: [
+  "EatFoodAction#1+24": [
     '-- ★ 第 192 行 ba.distance = 1.5 —— 手动覆盖吃食距离。',
     '--   ★ 企鹅的嘴短，默认距离可能够不到某些食物（如地上的浆果）。',
     '--   ★ 直接改 BufferedAction 的 distance 字段是快速调参手法。',
   ],
 
   // ══════════════ 下蛋 ══════════════
-  198: [
+  "LayEggAction#1": [
     '-- ★★★ LayEggAction —— 最长的函数（78 行），两种下蛋分支。',
     '-- 【三道前置门】',
     '--  第 200 行：layingEgg 为真 → 不是产蛋季/正在下蛋，跳过',
@@ -314,12 +314,12 @@ export default {
     '--     第 268 行 nobounce = true —— 蛋掉出来不弹跳，落地即静止。',
     '--     ★ 与第 90、220 行三处一致，是蛋的统一处理。',
   ],
-  202: [
+  "LayEggAction#1+4": [
     '-- ★ nextDropTime 的冷却检查（第 150、306 行设置，第 202 行检查）。',
     '--   ★ 与 nextPickupTime（第 240、272 行设置，第 280 行检查）配对。',
     '--   ★ 两个冷却字段对应「放蛋」与「叼蛋」两个方向。',
   ],
-  243: [
+  "LayEggAction#1+45": [
     '-- ★★ 产蛋季的三重检查（第 243 行）：',
     '--   not inst.nesting —— 不在产蛋期（季节性，由世界状态控制）',
     '--   or inst.eggsLayed > MAX_EGGS —— 已下超过 2 个',
@@ -328,7 +328,7 @@ export default {
     '--   ★ 这形成一个循环：蛋没了 → 清空计数 → 可以再下最多 2 个。',
     '--   ★ 「产蛋配额随蛋的存在而重置」—— 很实用的资源循环设计。',
   ],
-  255: [
+  "LayEggAction#1+57": [
     '-- ⚠️★★ 自我纠正：此处我曾误判为「运算符优先级缺陷」，现已撤回。',
     '--   第 256-257 行 (iswinter and temperature <= -15) and (nearest and IsNear(...))',
     '--   ★★ 我最初认为它缺少包裹 or 的括号，会让天敌检查被短路。',
@@ -344,7 +344,7 @@ export default {
     '--   ★ 特此记录以免后人重复此误判：Lua 的 and 优先级高于 or，',
     '--     「A or B or C and D」不会解析成「(A or B or C) and D」。',
   ],
-  262: [
+  "LayEggAction#1+64": [
     '-- ★ 第 266 行 eggsLayed 的自增写法：',
     '--   inst.eggsLayed = (inst.eggsLayed and inst.eggsLayed + 1) or 1',
     '--   ★ and/or 二义性：原值为 nil → 走 or 1；否则 +1。',
@@ -352,7 +352,7 @@ export default {
   ],
 
   // ══════════════ 捡蛋 ══════════════
-  278: [
+  "PickUpEggAction#1": [
     '-- ★★★ PickUpEggAction —— 把地上的蛋叼回巢。',
     '-- 【第 280 行】★ 条件有个反直觉的 or：',
     '--   if not PrepareForNight(inst) and (inst.nextPickupTime or 0) - GetTime() > 0 then',
@@ -382,7 +382,7 @@ export default {
   ],
 
   // ══════════════ 游荡 ══════════════
-  312: [
+  "GetWanderDistFn#1": [
     '-- ★★★ GetWanderDistFn —— 游荡半径的三级策略。',
     '-- 【第 316-318 行】★ 蛋在地上 → 半径缩到 2（紧紧围着蛋）',
     '--   ★ 这是「有蛋时行为范围收缩」的核心逻辑。',
@@ -391,7 +391,7 @@ export default {
     '-- ★★★ 综合效果：企鹅的游荡半径 = 「有蛋最小，无蛋夜间小，白天大」。',
     '--   ★ 一个纯函数就表达了「保护资源时收缩」这一行为模式。',
   ],
-  323: [
+  "ShouldRunAway#1": [
     '-- ★★ ShouldRunAway：★ 命令优先于恐惧。',
     '-- 【第 326-327 行】有队长且命令是 ATTACK 或 HOLD → 【不跑】',
     '--   ★ 即「上峰让打就打，哪怕对方是移动状态」。',
@@ -401,24 +401,24 @@ export default {
     '--     （可能在睡觉/发呆），动起来才是要扑过来。',
     '--   ★★★ 这是「用运动状态判断意图」的轻量模型，AI 成本极低而效果不错。',
   ],
-  337: [
+  "ShouldAttack#1": [
     '-- ShouldAttack：★ 唯一的攻击条件就是「有目标且够近」。',
     '--   没有 ShouldRunAway 那样的命令判断 —— 攻击时听命令。',
     '--   ★ 第 339 行用的是 MAX_CHASE_DIST(15) 而非某个新常量，合理复用。',
   ],
-  342: [
+  "HerdAtRookery#1": [
     '-- ★ HerdAtRookery：巢穴与群落在同一区域（距离平方 < 102，即约 10）。',
     '--   ★ 102 ≈ 10^2，写成 102 而非 100 是笔误级别的粗糙，但不致错。',
     '--   ⚠️ 属风格瑕疵。若要严谨应为 100 或 10*10。',
   ],
 
   // ══════════════ OnStart ══════════════
-  358: [
+  "PenguinBrain:OnStart#1": [
     '-- ★★ OnStart：单棵 PriorityNode，无子树的局部变量拆分。',
     '--   ★ 与 pigbrain（拆 4 棵子树）不同，企鹅的树相对扁平，节点直接内联。',
     '--   ★ 何时该拆分？当条件函数需要引用节点时。本文件不需要，故可内联。',
   ],
-  359: [
+  "PenguinBrain:OnStart#1+1": [
     '-- ★★★ root 优先级表（行内注释帮了大忙）：',
     '--  第 361-362 行：★ 飞行中 → 继续飞（IfNode + ActionNode）',
     '--    ★ 这是唯一处理「已在空中」的分支：状态图在 flight 时大脑不干预，',
@@ -445,26 +445,26 @@ export default {
     '--  第 439 行：★ StandStill（永不失败的最后兜底）',
     '--  第 440 行：重评估间隔 0.25 秒',
   ],
-  361: [
+  "PenguinBrain:OnStart#1+3": [
     '-- ★ IfNode 条件 sg:HasStateTag("flight") —— 飞行中的唯一处理。',
     '--   第 362 行 ActionNode(FlyAway) 只是再推一次 flyaway 事件。',
     '--   ★ 语义：「只要还在飞，就持续发送飞行事件维持状态」。',
   ],
-  367: [
+  "PenguinBrain:OnStart#1+9": [
     '-- ★★ 源码原注释直说了这个节点的行为（很有价值的注释）：',
     '--   "Penguins will panic and pick up eggs if player comes too close"',
     '--   ★ 即 StealAction 排在这里（优先级高于躲天敌）——',
     '--     因为「保护蛋」比「躲天敌」更重要。',
     '--   ★ 又一次印证：★ 注释解释了「为什么排在这个位置」，这是最高价值的注释。',
   ],
-  370: [
+  "PenguinBrain:OnStart#1+12": [
     '-- ★★ 第 370-371 行注释解释了 RunAway 的完整参数表（跨文件接口说明）：',
     '--   "--RunAway(hunterparams, see_dist, safe_dist, shouldRunFn, runhome)"',
     '--   ★ 这是 behaviours/runaway.lua 的签名，在调用点旁标注 ——',
     '--     极好的文档习惯，移植时若被调节点签名变了，看这里就知道要改什么。',
     '--   第 375 行末参 false = 不回家（跑起来别想着回家）。',
   ],
-  381: [
+  "PenguinBrain:OnStart#1+23": [
     '-- ★★ EventNode —— 全DST 少见的节点类型，本文件的亮点之一。',
     '-- 【语义】只在外部 PushEvent("gohome") 时才执行子树，平时不占用决策。',
     '--   ★★ 与 WhileNode 的根本区别：',
@@ -475,11 +475,11 @@ export default {
     '--   ★ 移植价值：★★★ 这是「AI 接受外部指令」的干净入口。',
     '--   ★ monkeybrain 第 292 行也用它接 gohome —— 同一约定被多处复用。',
   ],
-  390: [
+  "PenguinBrain:OnStart#1+32": [
     '-- ★ 注释说明 Leash 的用途：「不打架也不吃东西时，迁徙回巢穴」。',
     '--   ★ 这行注释补充了代码没表达的语义（优先级位置的含义）。',
   ],
-  393: [
+  "PenguinBrain:OnStart#1+35": [
     '-- ★★ 下蛋条件的四重与（第 394-399 行）：',
     '--   在巢穴 且 不在下蛋中 且 不是夜晚 且 不是队长',
     '--   ★ 第 398 行 teamattacker.teamleader == nil —— 队长不下蛋（它要带队）。',
@@ -488,13 +488,13 @@ export default {
     '--     节点层（不在夜里才进入）+ 延迟回调层（执行时再确认）。',
     '--     ★ 双层检查是长周期任务的标准防御。',
   ],
-  404: [
+  "PenguinBrain:OnStart#1+46": [
     '-- ★★ 源码原注释："Don\'t leave the egg lying around to freeze"',
     '--   （别让蛋留在外面冻住）—— 这解释了第 280 行的 not PrepareForNight。',
     '--   ★ 注释在这里解释了反直觉的逻辑，与我在第 278 行的分析相互印证。',
     '--   ★ 这类「解释反直觉条件」的注释，比逐行翻译有价值得多。',
   ],
-  409: [
+  "PenguinBrain:OnStart#1+51": [
     '-- ★★ 捡蛋条件四重与（第 406-411 行）：',
     '--   在巢穴 且 不是队长 且 背包没蛋 且 （天冷到 ≤-10 或 该休息了）',
     '--   ★ 第 408 行 not HasEgg —— 手里没蛋才去捡。',
@@ -502,7 +502,7 @@ export default {
     '--   ★ 注意这里的写法【是】正确的（有括号），与第 256-257 行形成对比。',
     '--     再次印证第 256 行的括号缺失是笔误。',
   ],
-  421: [
+  "PenguinBrain:OnStart#1+63": [
     '-- ★★ 最终群落游荡的锚点是三级优先级链（第 422-424 行）：',
     '--   myegg（我的蛋）→ rookery（巢穴）→ herd（群落）',
     '--   ★ 语义：蛋在哪就围着哪，没蛋就围着巢，巢也没有就围着群落。',
@@ -517,13 +517,13 @@ export default {
     '--   ★ 实际影响有限：这是最后的兜底（前面所有节点都不成立时），',
     '--     且企鹅很少进入这个状态。标为真实但低影响的瑕疵。',
   ],
-  428: [
+  "PenguinBrain:OnStart#1+70": [
     '-- ★ 跟随队长。目标用内联匿名函数而不是本地 helper ——',
     '--   与 pigbrain 第 429 行 hermitcrabbrain 第 614 行风格一致（有些文件用 helper）。',
     '--   ⚠️ 第 429 行内联函数与第 37 行的 GetLeader 不存在（本文件无此 helper），',
     '--     所以内联是必需的，不是风格选择。已 grep 确认本文件无 GetLeader 定义。',
   ],
-  432: [
+  "PenguinBrain:OnStart#1+74": [
     '-- ⚠️★★ 真实的设计瑕疵：锚点在 OnStart 时被【立即求值】，之后不再更新。',
     '--   第 433-435 行 GetLocation(...) 是直接调用，不是传函数。',
     '--   ★ 对比第 421-425 行用的是函数形式（每帧重算），两种写法在同一文件并存。',
@@ -531,7 +531,7 @@ export default {
     '--     若企鹅后来搬了家，游荡会一直朝着旧位置。',
     '--   ★ 实际影响有限（兜底路径 + 企鹅很少移动巢穴），故为低影响瑕疵。',
   ],
-  439: [
+  "PenguinBrain:OnStart#1+81": [
     '-- ★ StandStill 作为最后兜底 —— 保证 root 永不会「什么都不做而失败」。',
     '--   ★ 这是 PriorityNode 设计的要点：最后放一个必然成功的节点。',
     '--   ★ 若省略它，所有条件都不满足时 PriorityNode 会返回失败，',

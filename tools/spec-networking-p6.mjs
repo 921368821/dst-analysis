@@ -4,44 +4,44 @@
 export const BEFORE = {};
 
 export const AFTER = {
-  29: [
+  "Networking_SlashCmd#1+5": [
     "--【机制：C2V 斜杠命令入口】客户端发来的斜杠命令在服务端落地。",
     "--   ★ 核心：双来源取 caller（Ents[guid] → GetClientTableForUser(userid)），",
     "--     解决「玩家实体尚未生成」的时序问题。参见 :25 的详解。",
   ],
-  51: [
+  "Networking_SystemMessage#1+4": [
     "--【机制：公告消息总线】所有网络公告最终都落到 ChatHistory。",
     "--   ★ announce_type 是字符串枚举（12 种），加新类型不必改本文件。",
     "--   ★★ 可覆盖钩子 Networking_Announcement_GetDisplayName(:87) 改变名字显示。",
   ],
-  68: [
+  "Networking_Say#1+15": [
     "--【机制：玩家发言双通道】同一句话走两条呈现路径。",
     "--   · 世界气泡：talker:Say（:62，★ 含 mime 哑剧置空、颜色、过滤上下文、netid）；",
     "--   · 聊天框：ChatHistory:OnSay（:66，★ 表情动作也进聊天历史）。",
     "--   ★ 长度防护：:54 的 message:utf8len() > MAX_CHAT_INPUT_LENGTH（★ UTF-8 感知）。",
   ],
-  137: [
+  "Networking_RollAnnouncement#1+2": [
     "--【机制：管理操作遥测】四个 MetricsEvent 函数（踢/封/回滚/重生成）。",
     "--   ★★ 源码自承（C 侧尚未接线，见 :107 TODO）：目前接近死代码。",
   ],
-  154: [
+  "OnTwitchMessageReceived#1+8": [
     "--【机制：Twitch/外部系统回调桥】三个 Twitch 回调全部「转成世界事件」。",
     "--   ★★ 模式：网络层只认全局函数名 → PushEvent 桥接给游戏逻辑（解耦）。",
     "--   ★ 都有 `if TheWorld ~= nil` 保护：外部系统随时可能回调，游戏未就绪时会崩。",
   ],
-  183: [
+  "ValidateRecipeSkinRequest#1+10": [
     "--【机制：三重玩家所有权校验】CheckClientOwnership 是服务端权威判断。",
     "--   ★★ 三层语义（:177 的四条件）：存在性 → 玩家所有权 → 预制体适用性 → 活动时效。",
     "--   ★ 失败的返回是 nil（不算错误，只是「不设这个皮肤」）。",
   ],
-  246: [
+  "ValidateSpawnPrefabRequest#1+52": [
     "--【机制：非法输入降级而非拒绝】ValidateSpawnPrefabRequest 的总策略。",
     "--   ★★★ 角色白名单 = DST_CHARACTERLIST + ExceptionArrays(MODCHARACTEREXCEPTIONS_DST)；",
     "--   ★ 两级兜底（:226/:229）保证 validated_prefab 永远非 nil —— 调用方永不崩。",
     "--   ★★ 四件衣物平行校验（:232-243）：存在 + 拥有 + IsClothingItem（防穿武器）。",
     "--   ★ [WERR] 日志（:204）= 安全事件约定，★ 不踢人只留证据链。",
   ],
-  294: [
+  "SpawnSeamlessPlayerReplacementFromSim#1+19": [
     "--【机制：无缝换角色（seamless swap）】复用进程与世界，只换实体外观。",
     "--   ★★★ 与「新生成」的三处差异：",
     "--     · 不调 OnNewSpawn（玩家已存在）；",
@@ -50,7 +50,7 @@ export const AFTER = {
     "--   ★★ 广播 ms_seamlesscharacterspawned（:290）—— 影响全世界的认知。",
     "--   ★★ 与 MigrateToServer(:646) 的对比：换角色复用进程，换服务器必须重启。",
   ],
-  320: [
+  "SerializeUserSession#1+17": [
     "--【机制：玩家持久化唯一出口】SerializeUserSession（★ 跨语言边界，:301 警告）。",
     "--   ★★★★ 四步：",
     "--     ① 归属校验（:304）★★ `player == ThePlayer or GetIsServer()`",
@@ -62,7 +62,7 @@ export const AFTER = {
     "--   ★★ DeleteUserSession(:322) 用完全相同的条件（能写就能删 = 权限一致）。",
     "--   ★ 世界级存档 SerializeWorldSession(:328)：异步 + callback + ENCODE_SAVES。",
   ],
-  489: [
+  "server_listing_contains#1+123": [
     "--【机制：联机模组对齐】DownloadMods（142 行，五阶段）。",
     "--   ★★ 安全基石：RunInSandboxSafe(:357) —— ★★ 即便「服务端可信」，",
     "--     ★★ 来自服务端的代码仍必须沙箱执行（防远程代码执行）。",
@@ -73,7 +73,7 @@ export const AFTER = {
     "--   ★★ 错误码体系：机器码 + 人类消息双通道，带渠道后缀（_RAIL）。",
     "--   ★★ 参见 networkclientrpc.lua:1848 ⚠ 缺陷 B（模组可无限抬高全局 RPC 限流）。",
   ],
-  644: [
+  "cb#4+44": [
     "--【机制：加入服务器编排】JoinServer（146 行，四层嵌套回调）。",
     "--   ★★★ 流程：客户端模组警告 → 服务端模组警告 → 密码 → 连接。",
     "--   ★★ 两条设计原则：",
@@ -84,7 +84,7 @@ export const AFTER = {
     "--     ★ 一个接口 + 一个布尔 = 「确认/取消」二态协议；★ 只传 guid（列表已在网管）。",
     "--   ★ DisableAllDLC() 在「发起」时而非「成功」后（:503）—— 关卡切换前必须就绪。",
   ],
-  669: [
+  "do_join_server#1+22": [
     "--【机制：跨服务器迁移】MigrateToServer（24 行）。",
     "--   ★★★★ 为什么必须重启进程（三条推理）：",
     "--     ① ★★ 一进程一世界（TheWorld 全局单例，prefabs/world.lua:422）；",
@@ -94,7 +94,7 @@ export const AFTER = {
     "--     ★★ 重启会丢；服务端存档由服务端统一管理（故用 not ismastersim 守卫）。",
     "--   ★ StartNextInstance(:650) 是引擎正规接口（优于 :12 的 os.execute 硬编码路径）。",
   ],
-  713: [
+  "GetAvailablePlayerColours#1+42": [
     "--【机制：玩家颜色分配】24 色有序表 + 默认色。",
     "--   ★★ 三个设计点：",
     "--     · ★ 有序分配（按加入顺序，:677 注释）；",
@@ -103,14 +103,14 @@ export const AFTER = {
     "--       ★★ 高区分度颜色靠前，★ 保证「先到的玩家颜色最醒目」。",
     "--   ★ 模组可预随机化（shuffle）此列表（:711 TODO 预留钩子）。",
   ],
-  746: [
+  "WorldRollbackFromSim#1+13": [
     "--【机制：存档回滚的两个修正】WorldRollbackFromSim。",
     "--   ★★ ismastershard（比 ismastersim 严格）—— 回滚涉及跨分片快照，只主分片能做。",
     "--   ★★ 步数修正（:736-741）：距上次自动存档 < 30 秒则 count+1，",
     "--     ★★★ 理由：刚存的那个点「太新」，真回滚到它玩家会以为没回滚。",
     "--   ★★ 「从数据布局约束推导权限」的典范（UnplugModule :1336 的同类手法）。",
   ],
-  815: [
+  "UpdateServerWorldGenDataString#1+31": [
     "--【机制：集群元数据汇总】UpdateServerWorldGenDataString。",
     "--   ★★ 三层防护：",
     "--     · ★★ deepcopy（:786）—— 因随后会改 overrides（★ 不拷贝会污染存档配置）；",
@@ -120,13 +120,13 @@ export const AFTER = {
     "--   ★★ 已知限制（:813 自承）：自定义多层世界可能超数据大小限制。",
     "--   ★★ 交叉引用：shardnetworking.lua:119-120 —— 分片增删后必须重新上报。",
   ],
-  847: [
+  "GetDefaultServerData#1+30": [
     "--【机制：开服参数快照】GetDefaultServerData → 存进存档供客户端读。",
     "--   ★★ 时序约束（:818 注释）：必须在 StartServer 之后调用，",
     "--     ★★★ 否则 IsOnlineMode() 返回错误值（:827）。",
     "--   ★ privacy_type 四选一（:835-839）—— 用单字段表达互斥的隐私级别。",
   ],
-  882: [
+  "onsaved#1+20": [
     "--【机制：专服启动三阶段时序】StartDedicatedServer（顺序是硬约束）。",
     "--   ① StartServer（:852）—— 网络层就绪，online_mode 确定；",
     "--   ② SetServerShardData（:869/:879）—— 写入开服设置 + 向后兼容处理；",
@@ -137,7 +137,7 @@ export const AFTER = {
     "--   ★★ 向后兼容（:872-877）：新字段用默认值补（encode_user_path）、",
     "--     历史字段保持旧值（use_legacy_session_path）—— ★ 两类字段两种策略。",
   ],
-  916: [
+  "CalcQuickJoinServerScore#1+28": [
     "--【机制：服务器推荐算法】CalcQuickJoinServerScore（★ 硬过滤 + 软评分两段式）。",
     "--   ★★ 硬过滤（8 条件→-1）：非 PVP / ★★ 专服 / 无密码 / 无模组 / 生存 /",
     "--     未满 / 0 < ping < 200。",
@@ -145,23 +145,23 @@ export const AFTER = {
     "--   ★★ 软评分：朋友+10 > 有角色+4 > 3人+3 > 有人+2 > 秋季+2 > 同clan+1 > 空服-1。",
     "--     ★★★ 秋季 +2（:908）—— 把「游戏体验偏好」编入推荐（★ 最值得学习的一条）。",
   ],
-  924: [
+  "LookupPlayerInstByUserID#1+6": [
     "--【机制：userid → 玩家实体】LookupPlayerInstByUserID。",
     "--   ★ 用 ipairs(AllPlayers)（有序玩家列表），与 Ents[guid] 是不同索引维度。",
     "--   ★★ O(n) 遍历：DST 最多 8 人可接受；★ 移植到 MMO 必须改为哈希索引。",
   ],
-  943: [
+  "GetPlayerClientTable#1+16": [
     "--【机制：主机对象剔除】GetPlayerClientTable。",
     "--   ★★★ 房主托管时保留主机对象（有真实角色）；专服托管时剔除。",
     "--   ★ 用 `v.performance ~= nil` 字段存在性做鸭子类型识别（:937）。",
     "--   ★ break 一次 —— 同时规避了 table.remove 在 ipairs 中的跳过问题。",
   ],
-  955: [
+  "ClientDisconnected#1+4": [
     "--【机制：连接生命周期事件】认证完成 / 断开连接。",
     "--   ★★ 都用 `TheWorld ~= nil and TheWorld:IsValid()` —— ★★ 双重检查。",
     "--     ★★ PushEvent 需要活实体（prefabs/world.lua:606 同款 ms_ 约定）。",
   ],
-  1003: [
+  "Networking_PartyChat#1+4": [
     "--【机制：全局回调 → UI 实例的桥】_friendsmanager（★ 本文件唯一的模块级状态）。",
     "--   ★★ 为什么需要它：网络层只认全局函数名，而 UI 实例由某个界面局部持有",
     "--     ★★ → 必须用文件级变量做桥（:958）。",

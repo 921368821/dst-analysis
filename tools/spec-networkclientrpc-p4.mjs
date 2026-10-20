@@ -2,7 +2,7 @@
 // 写作/控制器/popup/聊天/地图动作/技能/激活握手/classified 设置/模块拔插，以及编号机制
 
 export const BEFORE = {
-  1043: [
+  "SetWriteableText#1": [
     "--★★[SetWriteableText —— 「客户端写字」的 RPC]",
     "--   ★★ 参数：target（要写的对象）+ text（内容）。text 用 optstring（可选）。",
     "--   ★★★ 关键安全设计：★ text 是**字符串**，但它不会直接进存档。",
@@ -15,20 +15,20 @@ export const BEFORE = {
     "--     长度限制、XSS 过滤、所有权检查、存档写入，全部在组件里。",
     "--   ★ 交叉引用：components/writeable.lua、prefabs/world.lua:224 writeable_classified。",
   ],
-  1044: [
+  "SetWriteableText#1+1": [
     "--★ checkentity(target) —— target 必需（总要有个东西写）。",
     "--   ★ optstring(text) —— text 可选：传 nil 可能表示「擦除」。",
   ],
-  1055: [
+  "ToggleController#1": [
     "--★ ToggleController —— 手柄连接/断开。isattached 用 checkbool（必需）。",
     "--   ★ 注意这里调的是 playercontroller:ToggleController（不带 OnRemote 前缀），",
     "--   ★ 与其他 handler 的 OnRemoteXxx 命名不一致 —— 属早期代码痕迹。",
   ],
-  1066: [
+  "OpenGift#1": [
     "--★ OpenGift —— 打开下一个礼物。零参数零校验。",
     "--   ★★ 组件名 giftreceiver 说明这是「礼物接收」玩法（Steam 节日活动）。",
   ],
-  1073: [
+  "ClosePopup#1": [
     "--★★★[ClosePopup —— ★ 「可插拔 RPC」的架构示范，也是全文件最抽象的 handler]",
     "--   ★★★ 三个固定参数 + 一个变长参数列表 `(...)`：",
     "--     popupcode（弹窗的数字 ID）、mod_name（模组名）、...（任意参数）",
@@ -52,7 +52,7 @@ export const BEFORE = {
     "--   ★★ 变长参数 (...) 的网络序列化：Lua 的 ... 会被打包成表，",
     "--     跨端传输后顺序与类型保持 —— ★ 前提是调用方与 handler 对参数个数有共识。",
   ],
-  1074: [
+  "ClosePopup#1+1": [
     "--★★[第 1074-1076 行：校验条件里嵌了一个「函数调用」作为真值]",
     "--   if not (checkuint(popupcode) and optstring(mod_name) and GetPopupFromPopupCode(popupcode, mod_name)) then",
     "--   ★★★ 把「存在性检查」写成校验条件的一部分，简洁但有副作用：",
@@ -63,11 +63,11 @@ export const BEFORE = {
     "--   ★★ 但这样写的好处是「校验通过即保证对象存在」，无需二次判空。",
     "--     这是可读性 vs 效率的权衡。",
   ],
-  1080: [
+  "ClosePopup#1+7": [
     "--★ 第二次调用 GetPopupFromPopupCode —— 取实际对象。",
     "--   ★ 与 :1076 的重复调用对应（见上方注记）。",
   ],
-  1082: [
+  "ClosePopup#1+9": [
     "--★ `printinvalid(\"ClosePopup\"..tostring(popup.id), player)` —— 拼接 popup.id。",
     "--   ★ ★★ 对比 :1146 的 `printinvalid(\"DoActionOnMap PARAMS\", player)` 与",
     "--     :1162 的 `printinvalid(\"SetSkillActivatedState arguments\", player)` ——",
@@ -76,7 +76,7 @@ export const BEFORE = {
     "--     出现「同一个 RPC 的多条不同字符串」，**破坏可聚合性**。",
     "--     ⚠ 轻微的可观测性缺陷（前三处日志无法被精确 grep 聚合）。仅标注。",
   ],
-  1089: [
+  "RecievePopupMessage#1": [
     "--★★[RecievePopupMessage —— 与 ClosePopup 的完全镜像（消息方向）]",
     "--   ★★★ 与 ClosePopup 的对称性：",
     "--     · ClosePopup:      popup:Close(player, ...)           —— 客户端请求关闭",
@@ -93,17 +93,17 @@ export const BEFORE = {
     "--     但它已成为**协议的一部分**（两个方向的表里都叫这个名字），",
     "--     所以不能改 —— ★ 「拼写错误一旦成为协议就不能修」的典型。",
   ],
-  1100: [
+  "RepeatHeldAction#1": [
     "--★ RepeatHeldAction —— 「按住持续动作」的重复触发。零参数零校验。",
     "--   ★★★ 典型的「持续输入」机制：玩家按住鼠标左键时反复调用。",
     "--     ★ 这类「按住类」操作天然是高频的 → ★ 需要限流关注（见 §八/§九）。",
     "--     ★ 本文件未对这类 RPC 单独限流，靠统一的 :1687 每刻 20 条上限兜底。",
   ],
-  1107: [
+  "ClearActionHold#1": [
     "--★ ClearActionHold —— 停止持续动作。与 :1100 配对。",
     "--   ★ 三件套（三处）：RepeatHeldAction / ClearActionHold / StopControl / StopAllControls。",
   ],
-  1114: [
+  "GetChatHistory#1": [
     "--★★★[GetChatHistory —— USERID_RPCS 的第一个实例，全文件最需要解释的 handler]",
     "--   ★★ 参数：last_message_hash（必需 uint）、first_message_hash（可选 uint）。",
     "--   ★★★ 第 1121 行的原注释是理解全局的钥匙：",
@@ -126,7 +126,7 @@ export const BEFORE = {
     "--     → handler 收到 userid 字符串。",
     "--   ★ 交叉引用：chathistory.lua（聊天历史的发送与存储）。",
   ],
-  1122: [
+  "GetChatHistory#1+8": [
     "--★★★[第 1122-1123 行：防重复请求的标志位 —— ChatHistory 的去重]",
     "--   if not player.sent_chat_history then",
     "--       player.sent_chat_history = true",
@@ -138,7 +138,7 @@ export const BEFORE = {
     "--   ⚠ 这是一个隐含假设：**标记为 USERID_RPC 的 handler，其 sender",
     "--     仍需支持字段赋值**。→ 移植时需确认 userid 形式是 table 还是 string。",
   ],
-  1128: [
+  "GetChatHistory#1+14": [
     "--★★★[原注释 \"NOTES(JBK): OnMap RPCs are always world relative.\"]",
     "--   ★★★ 「世界相对」= 不接受 platform 参数（对比 :102/:152 的平台相对）。",
     "--   ★★ 推理：地图是全局的（不随平台移动），所以地图上的坐标",
@@ -151,7 +151,7 @@ export const BEFORE = {
     "--     「x and z are directions, not positions, so we don't need platform」。",
     "--     → 两处注释合起来定义了一套完整的「坐标语义分类」。",
   ],
-  1129: [
+  "DoActionOnMap#1": [
     "--★★[DoActionOnMap —— 二元校验 + 两分支分派（地图坐标 vs 取消）]",
     "--   ★★★ 第 1149-1156 行两个分支：",
     "--     · actioncode 非 nil → playercontroller:OnMapAction(actioncode, ...) —— 执行动作",
@@ -164,10 +164,10 @@ export const BEFORE = {
     "--     （非 optentity）—— ★ 取消时必须有一个目标实体。",
     "--     这是二元校验内部还能有细微差异的例子（★ 不是简单复制粘贴）。",
   ],
-  1146: [
+  "DoActionOnMap#1+17": [
     "--★ printinvalid(\"DoActionOnMap PARAMS\", ...) —— ⚠ 拼接额外字（见 :1082 注记）。",
   ],
-  1159: [
+  "SetSkillActivatedState#1": [
     "--★★★[SetSkillActivatedState —— 技能激活/解锁，★ 客户端与服务端版本完全对称]",
     "--   ★★ 参数：skill_rpc_id（必需 number）、isunlocked（必需 bool）。",
     "--   ★★★ 与 CLIENT_RPC_HANDLERS 里的同名 handler（:1483）**逐字对称**：",
@@ -192,7 +192,7 @@ export const BEFORE = {
     "--       但改为「拒绝 false」会导致控制台玩家 UI 不同步 ——",
     "--       作者选择了「容忍不同步」而非「拒绝请求」。",
   ],
-  1168: [
+  "SetSkillActivatedState#1+9": [
     "--★ printinvalid(\"SetSkillActivatedState no skill with id\", player, skill_rpc_id)",
     "--   ⚠ 第 1168 行：第 3 个参数 skill_rpc_id 被传入 printinvalid，",
     "--   但 printinvalid 的签名只有 (rpcname, player)（第 18 行）。",
@@ -201,7 +201,7 @@ export const BEFORE = {
     "--     → 移植时应改为把 id 拼进第一个字符串参数。",
     "--   ★ 这是「Lua 不会报错所以容易漏掉」的典型例子。",
   ],
-  1185: [
+  "AddSkillXP#1": [
     "--★★[AddSkillXP —— 加技能经验：★ 无上限校验]",
     "--   ★ amount 用 checknumber（必需），但**没有任何范围检查**。",
     "--   ⚠ 客户端可以发 AddSkillXP(1e15) 或负数。",
@@ -216,7 +216,7 @@ export const BEFORE = {
     "--   ★★ 呼应 §零：checknumber 只管类型，不管范围。",
     "--       → 这里的「不管」可能有业务后果。",
   ],
-  1196: [
+  "PostActivateHandshake#1": [
     "--★★★[PostActivateHandshake —— 激活后的「确认握手」，与 :1512 完全对称]",
     "--   ★★★ 与 CLIENT_RPC_HANDLERS 的同名 handler（:1512）配对：",
     "--     · 本 handler（服务端侧）: player:OnPostActivateHandshake_Server(state)",
@@ -230,7 +230,7 @@ export const BEFORE = {
     "--     ★ 目的：发现半失效连接（客户端以为连上了但服务端已重启等）。",
     "--   ★ state 用 checkuint（必需）—— 握手状态码必须明确。",
   ],
-  1205: [
+  "OnScrapbookDataTaught#1": [
     "--★★[OnScrapbookDataTaught —— 「图鉴数据学习」RPC，★ 直接调用实体方法]",
     "--   ★★ 第 1211-1212 行：`if inst.OnScrapbookDataTaught then inst:OnScrapbookDataTaught(player, response) end`",
     "--   ★★★ 这个 handler 的转发方式是「直接调实体上的方法」，而非调组件方法。",
@@ -247,7 +247,7 @@ export const BEFORE = {
     "--   ★ response 参数未做类型校验（第 1206 行只校验了 inst）——",
     "--     ⚠ 潜在的类型混乱风险（若 response 被当作 table 使用）。",
   ],
-  1216: [
+  "SetClientAuthoritativeSetting#1": [
     "--★★★[SetClientAuthoritativeSetting —— ⚠ 注释坦承了「校验在下游」的设计]",
     "--   ★★★ 原注释：\"NOTES(JBK): Check passed in variables in the callback not in the RPC here.\"",
     "--   ★★ 翻译：「校验传入的变量应该在回调里做，不是在这个 RPC 里做」。",
@@ -263,11 +263,11 @@ export const BEFORE = {
     "--   ★★ 没有 printinvalid —— 因为「无参数校验」是有意的，不是遗漏。",
     "--   ★ 这是本文件里最「危险也最优雅」的一处：把校验推到信息更充分的地方。",
   ],
-  1221: [
+  "AOECharging#1": [
     "--★ AOECharging —— 范围技能蓄力。rotation + startflag。",
     "--   ★ startflag 用 optuint（可选）：蓄力开始/结束用不同值（或不传 = 结束）。",
   ],
-  1233: [
+  "DoubleTapAction#1": [
     "--★ DoubleTapAction —— 双击动作。结构同 LeftClick 的坐标路径。",
     "--   ★ ⚠ 第 1252 行：失败时打印 \"Remote left click out of range\" ——",
     "--   ★★ 复制粘贴的痕迹：这是 DoubleTapAction，但日志写的是 left click。",
@@ -275,7 +275,7 @@ export const BEFORE = {
     "--     这是本文件比 :1082 更严重的一处（日志文案错误，不只是拼接）。",
     "--     仅标注，不改码。",
   ],
-  1258: [
+  "WobyCommand#1": [
     "--★★★[WobyCommand —— 执行「Woby」命令：★ 多层授权检查]",
     "--   ★★ 第 1264-1270 行：",
     "--     if player.woby_commands_classified then",
@@ -291,7 +291,7 @@ export const BEFORE = {
     "--   ★ cmd 用 checkuint（必需）—— 命令是数字 ID（枚举）。",
     "--   ★ 与 :937 的「rpc_id 反查」模式类似（数字 ID → 实际操作）。",
   ],
-  1273: [
+  "InteractionTarget#1": [
     "--★★[InteractionTarget —— 「交互目标」的统一入口]",
     "--   ★★ 参数：action（可选 number）、target（可选 entity）、x, z（可选 number）。",
     "--   ★★★ 全部用 opt*（都可以不传）—— 因为这个 RPC 的语义是「宽泛的交互请求」，",
@@ -310,7 +310,7 @@ export const BEFORE = {
     "--   ★★ 第 1294 行：pos 可能为 nil（x 存在但超距时 return），",
     "--     或者 x 不存在时 pos 保持 nil（初始状态）—— 两种情况都传 nil 给组件。",
   ],
-  1286: [
+  "InteractionTarget#1+13": [
     "--★★[第 1286 行的注释掉的调用 —— 平台相对处理在此被刻意省略]",
     "--   -- local x1, z1 = ConvertPlatformRelativePositionToAbsolutePosition(x, z, platform, platform_relative)",
     "--   ★★ 这行明确被注释掉，且**参数列表里也没有 platform 相关参数**。",
@@ -318,7 +318,7 @@ export const BEFORE = {
     "--   ⚠ 所以 InteractionTarget 是一个「坐标语义 = 绝对世界坐标」的 handler。",
     "--   ★ 这与其他「带坐标的 RPC」不同 —— ★ 移植时要特别标注这个 handler。",
   ],
-  1298: [
+  "PredictGallopTrip#1": [
     "--★★[PredictGallopTrip —— 骑牛冲撞的预测（含 IsRotationValid 的特殊用法）]",
     "--   ★★★ 第 1312 行：`if IsRotationValid(dir) and (speed == nil or speed > 0) then`",
     "--   ★★ 这是 IsRotationValid 的第四个用法（见 :39）：",
@@ -332,10 +332,10 @@ export const BEFORE = {
     "--     理由：预测事件需要在同一帧内处理完，否则预测会滞后于移动。",
     "--     ★ 参见 entityscript.lua 的 PushEvent / PushEventImmediate 区别。",
   ],
-  1309: [
+  "PredictGallopTrip#1+11": [
     "--★ printinvalidplatform —— 这个 handler 也做平台相对诊断。",
   ],
-  1325: [
+  "UnplugModule#1": [
     "--★★★[UnplugModule —— 拔插模块：★ 双重技能校验，典型的「能力门槛」设计]",
     "--   ★★★ 第 1336-1344 行：",
     "--     if not (skilltreeupdater and skilltreeupdater:IsActivated(\"wx78_circuitry_betterunplug\")) then",
@@ -352,14 +352,14 @@ export const BEFORE = {
     "--     无论是拔插模块还是拔暗影插口，都要先查技能树（IsActivated）。",
     "--     ★ 服务端用自己的 skilltreeupdater（权威状态）而非信任客户端。",
   ],
-  1369: [
+  "StopUsingDrone#1": [
     "--★ StopUsingDrone —— 停用无人机。零参数。",
     "--   ★ 与 :1377 StopInspectingModules 同属「实体方法转发」类。",
   ],
-  1377: [
+  "StopInspectingModules#1": [
     "--★ StopInspectingModules —— 停止检视模块。零参数。",
   ],
-  1385: [
+  "StopInspectingModules#1+8": [
     "--★★★[第 1385 行：\"NOTES(JBK): RPC limit is at 128, with 1-127 usable.\"]]",
     "--   ★★★★ 这条注释是全文件最重要的**协议约束**：",
     "--     · RPC 数字 ID 上限是 128（推测是 C++ 侧的传输位宽限制）；",
@@ -379,7 +379,7 @@ export const BEFORE = {
 };
 
 export const AFTER = {
-  1386: [
+  "StopInspectingModules#1+9": [
     "--★★★ RPC_HANDLERS 表结束。整个客户端→服务端方向的约 90 个 handler 都在上面。",
     "--   ★★ 回顾本段的共同骨架（≈90 次重复）：",
     "--     ① 参数校验（check*/opt*）→ 非法则 printinvalid + return",
@@ -390,15 +390,15 @@ export const AFTER = {
     "--   ★★★ 而「不可信方向」正是这 1300 行密集校验的根本原因。",
     "--     （对比：客户端→客户端和分片→分片的两个表加起来不到 300 行，无需校验。）",
   ],
-  1389: [
+  "StopInspectingModules#1+12": [
     "--★ RPC_HANDLERS 结束。★★ 接下来是编号机制（§四）——",
     "--   「代码名 → 数字」的终身绑定，以及为什么它对模组不适用。",
   ],
-  1391: [
+  "StopInspectingModules#1+14": [
     "--★★★[i = 1 —— 编号从 1 开始（0 保留为「无效」的证据见 :1385 的注释）]",
     "--   ★ 第 1385 行说「1-127 可用」，与此处的 `i = 1` 完全对应。",
   ],
-  1392: [
+  "StopInspectingModules#1+15": [
     "--★★★★★[orderedPairs —— ★★ 编号机制的核心，也是本文件最需要警惕的设计]",
     "--   for k, v in orderedPairs(RPC_HANDLERS) do RPC[k] = i; i = i + 1 end",
     "--   ★★★ 关键点：**orderedPairs 按表的定义顺序**遍历（而非 pairs 的任意顺序）。",
@@ -423,11 +423,11 @@ export const AFTER = {
     "--     → 移植时应改用**显式数组**定义顺序（不依赖表遍历顺序）。",
     "--   参见 01-报告/04-联机同步-模组系统-UI.md:106-114（对这段编号代码的分析）。",
   ],
-  1396: [
+  "StopInspectingModules#1+19": [
     "--★ i = nil —— 立刻释放计数器变量（垃圾回收友好）。",
     "--   ★ 这是「临时变量用完即弃」的习惯写法，Lua 社区常见。",
   ],
-  1398: [
+  "StopInspectingModules#1+21": [
     "--★★★[USERID_RPCS = {} —— 「sender 不是实体而是 userid」的白名单表]",
     "--   ★★★ 语义：一个 handler 函数 → true，表示「这个 handler 的第一个参数",
     "--     是 userid 字符串而非玩家实体」。",
@@ -443,7 +443,7 @@ export const AFTER = {
     "--   ★ 注册入口是 MarkUserIDRPC（:1980）。",
     "--   ★★ 这张表为空时不生效；本文件中被标记的 handler 主要有 GetChatHistory（:1114）。",
   ],
-  1401: [
+  "StopInspectingModules#1+24": [
     "--★★★[第 1401-1404 行：★「键从名字换成数字」的原地转换]",
     "--   for k, v in orderedPairs(RPC) do",
     "--       RPC_HANDLERS[v] = RPC_HANDLERS[k]  -- 用数字做键，值从名字键取出",
@@ -465,7 +465,7 @@ export const AFTER = {
     "--     所以 §三 里所有的 RPC_HANDLERS.Xxx 引用若在运行时执行会拿到 nil。",
     "--     → 这是「加载期一次性转换」的必然后果，移植时不能在本文件运行期再按名字查。",
   ],
-  1404: [
+  "StopInspectingModules#1+27": [
     "--★ 编号与转换结束。接下来是 CLIENT_RPC_HANDLERS（服务端→客户端，可信方向）。",
   ],
 };

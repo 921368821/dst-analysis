@@ -30,7 +30,7 @@ export default {
   ],
 
   // ══════════════ 调试输出 ══════════════
-  8: [
+  "FindFlower:DBString#1": [
     '--★ DBString 显示 pollinator 组件的当前目标。',
     '--★★★ 注意目标存在**组件**里（pollinator.target）而非节点自身字段，',
     '--   对照 findclosest 的 self.targ、findflower 的 self.currenttarget。',
@@ -49,7 +49,7 @@ export default {
   ],
 
   // ══════════════ 标签常量 ══════════════
-  12: [
+  "FindFlower:DBString#1+4": [
     '--★★ FINDFLOWER_MUST_TAGS = {"pollinator"}',
     '--★ 语义：**必须**带 pollinator 标签（AND），即「也是一只传粉者」。',
     '--★ 用途见第 29/41 行：找出「抢同一朵花的竞争者」。',
@@ -59,20 +59,20 @@ export default {
   ],
 
   // ══════════════ Visit:READY 段 ══════════════
-  14: [
+  "FindFlower:Visit#1": [
     '--★★ Visit：顺序双 if 结构（与全目录一致）。',
   ],
-  15: [
+  "FindFlower:Visit#1+1": [
     '--★ READY 段：先选目标（PickTarget），再看是否有可用目标。',
     '--★ 第 16 行的 PickTarget 内部已做了完整校验（含 pollinator 组件判空），',
     '--   所以第 17 行可以直接访问 self.inst.components.pollinator.target。',
   ],
-  17: [
+  "FindFlower:Visit#1+3": [
     '--★★★「有 pollinator 组件 且 有目标」才算成功。',
     '--★ 判空顺序正确：先判组件（短路径最快），再取字段。',
     '--★ 三个组件里只有 pollinator 需要显式判空（另两个不存在）。',
   ],
-  18: [
+  "FindFlower:Visit#1+4": [
     '--★★★★ BufferedAction(self.inst, target, ACTIONS.POLLINATE, nil, nil, nil, 0.1)',
     '--★★★ 这行是本节点与同族节点的核心区别：它构造并推送了动作。',
     '-- 参数逐个解读：',
@@ -88,7 +88,7 @@ export default {
     '--★ 对照 controlminions 第 106 行 `ba.distance = 4`（采集，4 格），',
     '--   同样是采集动作，距离却差 40 倍 —— 再次印证「距离=精度要求」。',
   ],
-  19: [
+  "FindFlower:Visit#1+5": [
     '--★ locomotor:PushAction(action, self.shouldrun)',
     '--⚠️【已核实 · 疑似缺陷】self.shouldrun **从未被初始化**。',
     '--   · 构造器（第 3-6 行）只设了 self.inst',
@@ -106,12 +106,12 @@ export default {
     '--     那里我核实了后果确实发生（惯性机制失效）。',
     '-- ★ 唯一的防线是「对照同族节点的构造器逐行看字段是否齐全」。',
   ],
-  20: [
+  "FindFlower:Visit#1+6": [
     '--★ 推送成功才转 RUNNING。若第 17 行判空失败则走 FAILED。',
   ],
 
   // ══════════════ Visit:RUNNING 段 ══════════════
-  26: [
+  "FindFlower:Visit#1+12": [
     '--★★ RUNNING 段：三个 or 条件任一成立就放弃。',
     '--★ 本节点**没有** SUCCESS 分支 —— 授粉由动作系统完成，',
     '--   本节点不负责确认「授粉是否成功」。',
@@ -120,18 +120,18 @@ export default {
     '-- ★ 移植建议：**发起型节点与确认型节点应分离**。',
     '--   否则节点要同时管理「动作生命周期」与「行为状态机」，极易出错。',
   ],
-  27: [
+  "FindFlower:Visit#1+13": [
     '--★★ 放弃条件一：目标没了（被别的逻辑清了，或花被采走）。',
     '--★ 这就是「共享黑板」的代价：别人改了 target，本节点必须能察觉。',
   ],
-  28: [
+  "FindFlower:Visit#1+14": [
     '--★ 放弃条件二：目标已不能被授粉（花枯萎/被采过/状态不对）。',
     '--★ CanPollinate 是 pollinator 组件的业务判定 —— 资源自己说「行不行」。',
     '-- ★ ★ 移植要点：与 controlminions 第 88-90 行同一思想：',
     '--     判定逻辑放在资源自己的组件里，节点只负责查询。',
     '--     判据随游戏规则变化时，两个节点都不用改。',
   ],
-  29: [
+  "FindFlower:Visit#1+15": [
     '--★★★★ 放弃条件三：「有别的传粉者也在盯着同一朵花」。',
     '-- 展开这行（括号内三个条件的 and 关系）：',
     '--   FindEntity(target, 2, fn, {"pollinator"})',
@@ -148,7 +148,7 @@ export default {
     '--   但它排在 or 的最后，短路求值会先评估前两条便宜的条件。',
     '--   ★ 性能写法正确：贵的检查放最后，用短路避免无谓开销。',
   ],
-  30: [
+  "FindFlower:Visit#1+16": [
     '--★ 三个条件都满足 → FAILED，交回父节点（去找别的花）。',
     '--★ FAILED 而非 SUCCESS：失败是「没采到花」，不是「采到花了」。',
     '-- ★★★ 又一个 SUCCESS/FAILED 语义判断的例子：',
@@ -156,26 +156,26 @@ export default {
   ],
 
   // ══════════════ PickTarget ══════════════
-  35: [
+  "FindFlower:Visit#1+21": [
     '--★ FLOWER_TAGS = {"flower"} —— 目标必须是带 flower 标签的实体。',
   ],
-  36: [
+  "FindFlower:PickTarget#1": [
     '--★★ PickTarget —— 选目标，四个条件全满足才要。',
     '-- ★ 与 findclosest 的 PickTarget（第 81-87 行）对照：',
     '--   findclosest 靠 TheSim:FindEntities + 标签过滤（自己找）',
     '--   findflower   靠 GetClosestInstWithTag（引擎便捷函数，指定自己为基准）',
     '-- ★ 两者都用引擎的空间索引，没有自己写遍历循环 —— 性能原则一致。',
   ],
-  37: [
+  "FindFlower:PickTarget#1+1": [
     '--★ GetClosestInstWithTag(FLOWER_TAGS, self.inst, SEE_DIST)',
     '--   找 30 格内离自己最近的、且带 flower 标签的实体。',
     '--★ 注意 it 不检查「是否被别的蜜蜂占了」—— 那个在第 41 行查。',
     '--   ★ 即「最近」与「可获得」是两个独立条件，必须都满足。',
   ],
-  40: [
+  "FindFlower:PickTarget#1+4": [
     '--★ CanPollinate(closestFlower) —— 花自己说「能不能采」。',
   ],
-  41: [
+  "FindFlower:PickTarget#1+5": [
     '--★★ 与第 29 行同款「抢花检查」，在**选目标时**就做一次。',
     '-- ★★ 注意与第 29 行的细微差别：',
     '--   第 41 行（选目标时）：fn 里**没有** `guy ~= self.inst` 的显式检查',
@@ -187,10 +187,10 @@ export default {
     '-- ★ 移植要点：**同一个判定写两遍时，一定要确认两遍等价**，',
     '--   否则会出现「选的时候没排除、放弃的时候排除」的逻辑错位。',
   ],
-  42: [
+  "FindFlower:PickTarget#1+6": [
     '--★ 通过全部校验 → 设为目标（写入共享黑板 pollinator.target）。',
   ],
-  43: [
+  "FindFlower:PickTarget#1+7": [
     '--★ 未通过 → 目标置 nil。',
     '--⚠️⚠️【已核实 · 真实缺陷 · 崩溃风险】第 44 行会崩。',
     '--',

@@ -2,7 +2,7 @@
 // 覆盖 storygen.lua:664-762  FindMainlandNodesForNewRegion（九宫格就近挂载）
 
 export const BEFORE = {
-664: [
+"Story:FindMainlandNodesForNewRegion#1": [
 "-- ============================================================",
 "-- FindMainlandNodesForNewRegion —— 新区域挂载点选择（3×3 九宫格最近邻）",
 "-- ============================================================",
@@ -20,7 +20,7 @@ export const BEFORE = {
 "--   且新区域不会与已有区域的边重叠打架。",
 "--   这是「留白优先」的布局策略，与 Voronoi 的均匀化取向相反但目标一致。",
 ],
-667: [
+"Story:FindMainlandNodesForNewRegion#1+3": [
 "-- ★ next_bucket：九宫格的【邻接表】，每个格子记录它的四个对角邻居与四条边中点。",
 "--   形如 {x=1..3, y=1..3}，用途见 :728-738 的 bucket_edge_pts 选择逻辑。",
 "--   ⚠ 这张表在当前代码路径里【实际上没有用到】——",
@@ -30,50 +30,50 @@ export const BEFORE = {
 "--   这是「重构后未清理的遗留表」，典型表现：常量还在、引用已消失。",
 "--   保持不改：删它属于源码修改，超出本任务范围。",
 ],
-670: [
+"Story:FindMainlandNodesForNewRegion#1+6": [
 "-- bucket_counts：九个格子的计数器，初始化顺序为 x=1 外层、y=1 内层，",
 "--   因此数组下标 (x-1)*3 + y 与 [y][x] 的访问方式在 :751 保持一致。",
 "-- ⚠ 注意 :751 写的是 bucket_counts[(x-1)*3 + y]，与 :673 的插入顺序匹配，",
 "--   但 :734 访问边点表时用的是 [y][x]（行优先）——两种下标约定混用。",
 "--   不是缺陷（两处各自自洽），但阅读时极易看错。",
 ],
-677: [
+"_GetOffsetPositionsAndSize#1": [
 "-- 【_GetOffsetPositionsAndSize】把当前所有任务节点换算到「左上角为原点、",
 "--   宽高均为 w」的正方形坐标系里，并返回正方形边长 w。",
 "--   这一步是九宫格划分的前提：必须先归一化，否则地图尺寸会随 region 大小漂移。",
 ],
-681: [
+"_GetOffsetPositionsAndSize#1+4": [
 "-- 双层 pairs：先遍历任务，再遍历该任务下的所有节点。",
 "--   ⚠ pairs 遍历 ⇒ 这里只做 min/max 聚合，属于【安全用法】：",
 "--     聚合量（min/max）与遍历顺序无关，结果确定。",
 "--   对照 GetRandomNodeFromTasks:638 的「取第 k 个」——那种才是不安全用法。",
 "--   这条判据是全库可复现性分析的核心：聚合安全，取序危险。",
 ],
-683: [
+"_GetOffsetPositionsAndSize#1+6": [
 "-- 过滤：只统计带 task 字段的节点。",
 "--   WorldSim:GetSite(n_id) 从 C++ WorldSim 取该点的整数格位坐标。",
 "--   ⚠ 这意味着本函数【强依赖 WorldSim 已完成点集初始化】，",
 "--     调用时机必须在 forest_map.lua:497 WorldGen_InitializeNodePoints 之后。",
 ],
-691: [
+"_GetOffsetPositionsAndSize#1+14": [
 "-- padding = 5：包围盒向外扩 5 格再取整。",
 "--   作用：让九宫格边界不贴着实际节点，避免边缘格子因数值取整而漏掉边缘节点。",
 ],
-695: [
+"_GetOffsetPositionsAndSize#1+18": [
 "-- 偏移量把包围盒左下角移到原点；:697-698 随后把 max 改成【边长】。",
 "-- :699-703：长边不变、短边【居中补齐】⇒ 得到一个正方形。",
 "--   为什么强制正方形？因为九宫格必须是 w×w 的正方形才能等分。",
 ],
-713: [
+"_FindBestNodes#1": [
 "-- 【_FindBestNodes】在选定的空格里找两个最近的非空节点作为挂载点。",
 "--   返回 (closest_node1, closest_node2)，两者分属【不同任务】。",
 ],
-714: [
+"GetClosestNode#1": [
 "-- GetClosestNode：找离给定点最近的节点。",
 "--   ⚠ exclude_task 参数用于 :741 强制第二个点来自【不同任务】，",
 "--     避免两个挂载点都在同一块地里（那等于只挂了一次）。",
 ],
-717: [
+"GetClosestNode#1+3": [
 "-- 排除 Blank 节点：留白节点不可作为挂载点。",
 "--   NODE_TYPE.Blank 是 SeperateStoryByBlanks / LinkRegions 造出来的隔断地块。",
 "--   ★ 这与锁—钥匙机制呼应：留白节点带 RoadPoison / ForceDisconnected 标签，",
@@ -81,35 +81,35 @@ export const BEFORE = {
 "-- ⚠ 这里【只】排除 Blank，没排除 Background / Blocker ——",
 "--   背景地块也可能被选为挂载点，语义上略微奇怪，但不是错误。",
 ],
-728: [
+"GetClosestNode#1+14": [
 "-- 桶的外侧中点（朝地图外缘的那个边中点）。",
 "-- bucket_edge_pts：九宫格各【边】上的两个候选点（每边两个，形成 3 等分）。",
 "--   ⚠ 注意与 :667 的 next_bucket 结构几乎相同——两张重复的表。",
 "--     next_bucket 已成死表，bucket_edge_pts 是活表。",
 "-- :734 用 [y][x] 取桶的边点（行优先），与 :751 的 (x-1)*3+y 索引约定不同。",
 ],
-735: [
+"GetClosestNode#1+21": [
 "-- 第一个挂载点：桶为空时取外侧中点，否则取边点 bucket_p1。",
 "-- ★ 这里用了「桶是否为空」做分支：空桶优先往【地图外缘】挂 ——",
 "--   新的离岛应该长在地图边缘，而不是长在中心。",
 ],
-737: [
+"GetClosestNode#1+23": [
 "-- 空桶时，在两个边点里挑【离第一个挂载点更近的那个】当第二个点。",
 "--   目的：让新区域的连接口集中在同一侧，视觉上更紧凑。",
 ],
-741: [
+"GetClosestNode#1+27": [
 "-- 第二个挂载点：排除与第一个点【同任务】的节点。",
 "--   ⚠ 潜在 nil 解引用：closest_node1.node 若为 nil（node_pos 全是 Blank 时），",
 "--     :741 的 closest_node1.node.data 会抛错。",
 "--   实际不会发生：起点必有非空节点。但这是一个未加保护的边界。",
 ],
-748: [
+"GetClosestNode#1+34": [
 "-- ★ 把每个节点按归一化坐标划入九宫格：",
 "--   x = 1 + floor(n.x / w * 3)，clamp 到 >= 1（即 [1,3]）。",
 "--   ⚠ 硬编码 3 与 w/2 等字面量（:728-731）散落在多处，共同构成「九宫格」约定。",
 "--     改成可配置需要同时改这 4~5 处，耦合度较高。",
 ],
-753: [
+"GetClosestNode#1+39": [
 "-- ★ shuffleArray 后再按 count 升序排序。",
 "--   【为什么先洗牌再排序？】为了让 count 相同的格子之间产生随机的决胜顺序。",
 "--   若只排序，count 相同的格子会按 shuffle 后的相对位置稳定排列，",
@@ -118,7 +118,7 @@ export const BEFORE = {
 "-- ⚠ 排序不是稳定排序（table.sort 不保证），count 相同时顺序不确定。",
 "--   但因为前面洗过，最终效果等价于「在 count 最小的格子里随机选一个」。",
 ],
-760: [
+"GetClosestNode#1+46": [
 "-- ★ 取节点最少且【不是中心格】的那个。",
 "--   注释原文「never pick the center bucket, even if it is the best」说明这是有意为之。",
 "--   【为什么排除中心】地图中心是玩家主要活动区，把新离岛塞到中心会让",
@@ -128,7 +128,7 @@ export const BEFORE = {
 "--   这是一个防御性写法，代价可忽略。",
 "-- 返回 _FindBestNodes(node_pos, bucket, w) 的两个挂载点。",
 ],
-765: [
+"Story:LinkRegions#1": [
 "-- ============================================================",
 "-- LinkRegions —— 用一条「装饰用的假地块链」把两个区域连起来",
 "-- ============================================================",
@@ -144,14 +144,14 @@ export const BEFORE = {
 "-- 【外观】子节点的 value = link_tile（默认 OCEAN_COASTAL，:767），",
 "--   即「看起来是海岸的过道」—— 让玩家从视觉上知道这是一条捷径/渡口。",
 ],
-769: [
+"Story:LinkRegions#1+4": [
 "-- 任务 id 形如 REGION_LINK_0 / REGION_LINK_1，:796 自增。",
 "--   ⚠ 这个 id 会进入 WorldSim 的子节点表（:771/:775），",
 "--     是序列化格式的一部分 ⇒ 不可随意改名（旧存档会读不出）。",
 "-- :770 的 Graph 参数里 default_bg = IMPASSABLE 而 background=\"MoonIsland_Meadows\"，",
 "--   两者语义不同：default_bg 是地块底图，background 是背景房模板。",
 ],
-774: [
+"Story:LinkRegions#1+9": [
 "-- ★ 循环造 num_links 个子节点，并在相邻者之间连边（:787-789，i>1 才连 ⇒ 链状）。",
 "-- ⚠ :775 的 WorldSim:AddChild 在循环体内重复调用，",
 "--   而 :771 已经在循环【外】调用过一次同 id 的 AddChild。",
@@ -160,12 +160,12 @@ export const BEFORE = {
 "--   若为覆盖语义则无副作用；若是「重复插入」则可能产生一条游离记录。",
 "--   这类「C++ 侧语义未知」的假设在本仓库多处存在，属既定风险模式。",
 ],
-791: [
+"Story:LinkRegions#1+26": [
 "-- 把链首与链尾相连 ⇒ 得到一个【环】。",
 "--   ⚠ 这样环上任意点都能到达任意点，是为了让 n1/n2 的挂载顺序不重要。",
 "--   实际形成的结构是：n1 → 环上一点，环 → n2，双向都通。",
 ],
-793: [
+"Story:LinkRegions#1+28": [
 "-- ★ 第一端连接：n1 的【节点对象】→ 链的第一个节点。",
 "--   对照 :812 的调用点 LinkRegions(c1, new_region.entranceNode)，",
 "--   c1 是 FindMainlandNodesForNewRegion 返回的 {node=...} 结构，",
@@ -183,30 +183,30 @@ export const BEFORE = {
 "-- {key=KEYS.NONE} ⇒ 这是条【无锁】的边，任何人都能走。",
 "--   ★ 与 :613 的 {key=self.tasks[...].locks} 形成对照：连线的锁语义是显式声明的。",
 ],
-796: [
+"Story:LinkRegions#1+31": [
 "-- 区域连接任务的序号自增。⚠ 名字里有笔误（region_link_tasks 语义是「已建连接数」）。",
 ],
-799: [
+"Story:AddRegionsToMainland#1": [
 "-- ============================================================",
 "-- AddRegionsToMainland —— 把所有非大陆 region 挂回大陆",
 "-- ============================================================",
 "-- 【在 GenerationPipeline 七步中的位置】第 4 步（storygen.lua:89）。",
 "--   也就是说：主大陆的图已经建好，这里负责给【外围区域】各建一套子图并连回来。",
 ],
-801: [
+"Story:AddRegionsToMainland#1+2": [
 "-- ★ 排除名单：mainland（自己）、ruins_island、vault_island（都是特殊区域，",
 "--   由各自的专用流程处理，不由这里统一挂载）。",
 "--   ⚠ 这三个 id 是【硬编码的魔法字符串】，与 level.lua 里 region_tasksets 的键名耦合。",
 "--     若 Mod 自定义区域名恰好叫这三个，会被误排除。",
 "--     参见 level.lua 的 region_tasksets 定义。",
 ],
-802: [
+"Story:AddRegionsToMainland#1+3": [
 "-- 选两个大陆挂载点（九宫格算法，见 :664）。",
 "-- ★ 注意 :802 在 :803 之前调用：挂载点基于【当前已有节点】计算，",
 "--   所以第 2 个区域挂载时，地图上已经多了第 1 个区域 ⇒ 挂载点会避开它。",
 "--   ⇒ 多个离岛天然分散，不会全部堆在同一侧。这是顺序生效的自然结果。",
 ],
-803: [
+"Story:AddRegionsToMainland#1+4": [
 "-- ⚠ 关键差异：这里【硬编码传入 \"RestrictNodesByKey\"】，",
 "--   不看 gen_params.layout_mode。",
 "--   ⇒ 与主大陆（:850 用 self.gen_params.layout_mode）不一致。",
@@ -219,11 +219,11 @@ export const BEFORE = {
 "-- ★ 这也意味着 :566 的 E1-B 缺陷【不影响离岛】（离岛走 Restrict），",
 "--   但影响主大陆（默认 layout_mode 走 LinkNodesByKeys）。",
 ],
-806: [
+"Story:AddRegionsToMainland#1+7": [
 "-- 把本 region 的任务映射到对应地块对象，供后续 AddCoveNodes / InsertAdditionalSetPieces 使用。",
 "--   ⚠ 与 :833-836 的 AddRegionToTasksNodes 是完全相同的 4 行样板代码，两处重复。",
 ],
-812: [
+"Story:AddRegionsToMainland#1+13": [
 "-- ⚠ 疑似缺陷（类型不一致）：见 :793 的完整分析。",
 "--   c1 是 {node=..., ...} 包装结构（FindMainlandNodesForNewRegion 返回），",
 "--   new_region.entranceNode 是裸 Node（:892 GetRandomNodeForEntrance 的返回值）。",
@@ -234,7 +234,7 @@ export const BEFORE = {
 "-- 两条 LinkRegions：分别接新区域的【入口】和【末端】。",
 "--   ⇒ 新区域有两条路连回大陆，玩家可以从入口进、从末端出，形成环游结构。",
 ],
-823: [
+"Story:AddRegionToTasksNodes#1": [
 "-- ============================================================",
 "-- AddRegionToTasksNodes —— 把一个 region 挂到【指定任务】的指定名字节点上",
 "-- ============================================================",
@@ -243,19 +243,19 @@ export const BEFORE = {
 "--   本函数：挂到【调用方点名的任务节点】（task_name + node_name）",
 "--   ⇒ 本函数用于「精确指定挂载点」的场景，如洞穴层、海底等定向区域。",
 ],
-825: [
+"Story:AddRegionToTasksNodes#1+2": [
 "-- 防御：任务不存在时打印并返回（软失败）。",
 "--   ★ 与 :872 的 assert（硬失败）形成对比：这里选择不崩。",
 "--     软失败在本仓库是常见风格 —— 生成器宁可少生成也不中断。",
 ],
-830: [
+"Story:AddRegionToTasksNodes#1+7": [
 "-- ⚠ 这里硬编码 \"LinkNodesByKey\"（单数），与 :803 的 \"RestrictNodesByKey\" 恰好相反。",
 "--   ★ 注意字符串是单数 \"LinkNodesByKey\"，而实际函数名是复数 LinkNodesByKeys。",
 "--     但 :886 只做 string.upper 比较，不校验函数名 ⇒ 能正常工作。",
 "--   ⚠ 这是一处脆弱点：:886 用 string.upper(layout_mode) == \"RESTRICTNODESBYKEY\" 判断，",
 "--     任何其他取值都落到 else 分支调 LinkNodesByKeys ⇒ 传错名字会静默走另一条路。",
 ],
-840: [
+"Story:AddRegionToTasksNodes#1+17": [
 "-- 对该任务的每个同名节点都连一条 LinkRegions。",
 "--   links 默认 2（:841）⇒ 假链只造 2 个子节点 ⇒ 视觉上很短。",
 "--   WORLD_TILES.FAKE_GROUND ⇒ 地面看起来像普通地面，而不是海岸。",
@@ -263,7 +263,7 @@ export const BEFORE = {
 "--     「自然形成的区域」用明显的海岸过道，「人工挂载的区域」用普通地面。",
 "--     这是给玩家的视觉暗示：Fake_GROUND 的路看起来「像是本来就有的」。",
 ],
-849: [
+"Story:GenerateNodesFromTasks#1": [
 "-- ============================================================",
 "-- GenerateNodesFromTasks —— 生成总编排的第 1 步（storygen.lua:87）",
 "-- ============================================================",
@@ -274,18 +274,18 @@ export const BEFORE = {
 "--     大陆图本身挂在 self.TERRAIN / self.rootNode 上，后续步骤直接取用。",
 "--   这是与 AddRegionsToMainland 的接口风格差异（后者返回 new_region）。",
 ],
-850: [
+"Story:GenerateNodesFromTasks#1+1": [
 "-- ★ 唯一使用 gen_params.layout_mode 的地方（对比 :803/:830 的硬编码）。",
 "--   主大陆用玩家配置的模式，其余区域用硬编码 ⇒ 配置只影响主大陆。",
 ],
-851: [
+"Story:GenerateNodesFromTasks#1+2": [
 "-- 生成 START 节点并记为 self.startNode。",
 "--   ★ 注释点明用途：placement.lua 会用它【强制玩家出生点位于地图中心】。",
 "--   ⇒ 世界坐标的「中心」不是几何中心，而是 START 节点所在的 Voronoi 点。",
 "--     这是一个重要约定：所有『距离中心多远』的逻辑都以 START 为原点。",
 "--   参见 :967-968 给 START 打的特殊配色（青色 .80 透明）—— 调试渲染时一眼可见。",
 ],
-854: [
+"Story:_FindStartingTask#1": [
 "-- ============================================================",
 "-- _FindStartingTask —— 选「任务链的起点」",
 "-- ============================================================",
@@ -302,7 +302,7 @@ export const BEFORE = {
 "--   若 availableKeys 里没有对应钥匙 ⇒ 第一轮就走进 :596/:473 的逃生阀。",
 "--   ⇒ 不是崩溃，而是「任务顺序被打乱」。玩家仍能通关，但体验错乱。",
 ],
-861: [
+"Story:_FindStartingTask#1+7": [
 "-- ⚠ 三处风险：",
 "--   1) startTasks 用 pairs 收集 ⇒ 顺序不定；math.random(#startTasks) 取下标 ⇒",
 "--      起点选择在多个无锁任务之间是随机的。",
@@ -312,7 +312,7 @@ export const BEFORE = {
 "--      依赖 pairs 顺序 ⇒ 又一处可复现性陷阱。",
 "--   ⚠ 更稳的写法应是收集 task_id 列表后排序 —— 但本仓库普遍未这样做。",
 ],
-864: [
+"Story:GenerateNodesForRegion#1": [
 "-- ============================================================",
 "-- GenerateNodesForRegion —— 【任务集 → 子图】的核心工厂",
 "-- ============================================================",
@@ -326,46 +326,46 @@ export const BEFORE = {
 "-- 【心智模型】「先有图，图才有点，点才成地块，地块才长东西」",
 "--   本函数是第 2 步（建子图）与第 3 步（连子图）的交界。",
 ],
-865: [
+"Story:GenerateNodesForRegion#1+1": [
 "-- ★ layout_mode 必填断言。",
 "--   ⇒ 这条断言把「布局模式」确立为区域生成的【必填契约】，",
 "--     所有调用点都必须显式指定（因而才出现 :803/:830 的硬编码）。",
 ],
-867: [
+"Story:GenerateNodesForRegion#1+3": [
 "-- ⚠ 静默返回 nil（不是 {}），调用点 :812 直接访问 new_region.entranceNode 会崩。",
 "--   实际不会触发：三个调用点传的都是非 nil 的 region_taskset。",
 "--   但这是一个未标注的隐式前置条件。",
 ],
-871: [
+"Story:GenerateNodesForRegion#1+7": [
 "-- ★ 为 taskset 里每个任务生成一个子图。",
 "--   ⚠ :872 的 assert「Cannot add the same task twice」是【全局唯一性约束】：",
 "--     因为 self.TERRAIN 是跨区域共享的，同一个任务 id 只能生成一次。",
 "--     这也意味着 AddRegionsToMainland 里若两个 region 共享任务，会直接崩。",
 "--   现实中 region_tasksets 是互斥的，所以不触发。",
 ],
-874: [
+"Story:GenerateNodesForRegion#1+10": [
 "-- crossLinkFactor 缺省为 1（来自 task.lua 的 crosslink_factor）。",
 "--   ⇒ 传给 GenerateNodesFromTask → :1385 CrosslinkRandom，控制【任务内部的额外连边数】。",
 "--   值越大，任务内部的房间之间横向连接越多 ⇒ 地图越「网状」而非「线性」。",
 ],
-879: [
+"Story:GenerateNodesForRegion#1+15": [
 "-- 挑起点，并把起点从待连接集合里摘掉（:880）。",
 "--   ★ 为什么要摘掉：起点已经是根，不需要再被「接入」，否则会形成自环。",
 ],
-886: [
+"Story:GenerateNodesForRegion#1+22": [
 "-- ⚠ layout_mode 的分派：只有大小写不敏感地等于 \"RestrictNodesByKey\" 才走批量法，",
 "--   其余【一切】取值都走 LinkNodesByKeys。",
 "--   ⇒ 传 \"LinkNodesByKey\"（单数）、传 \"foo\"、传 nil（被 :865 拦下）都走同一条路。",
 "--   这是一种「默认兜底」写法：只有明确要求才切换。",
 "--   ★ 实用含义：mod 或世界设置若想用批量法，必须拼对大小写与单复数。",
 ],
-892: [
+"Story:GenerateNodesForRegion#1+28": [
 "-- ★ entranceNode = 起点任务的随机入口节点。",
 "--   这是整个区域的「对外接口」，:812 的 LinkRegions 就接在这里。",
 "--   ⚠ 起点任务若有多个 entrance 节点（AddStartingSetPiece 处理过），",
 "--     GetRandomNodeForEntrance 是加权随机 ⇒ 结果依赖 network.lua 的权重实现。",
 ],
-899: [
+"Story:GenerateNodesForRegion#1+35": [
 "-- ============================================================",
 "-- 【成环】把入口与末端用留白节点连起来，形成一条回环",
 "-- ============================================================",
@@ -385,7 +385,7 @@ export const BEFORE = {
 "--   SeperateStoryByBlanks 会自增 self.loop_blanks（:1169），命名 LOOP_BLANKn。",
 "-- 返回三元组：起点任务 / 入口节点 / 末端节点。",
 ],
-916: [
+"Story:_AddPlayerStartNode#1": [
 "-- ============================================================",
 "-- _AddPlayerStartNode —— 挂 START 节点",
 "-- ============================================================",
@@ -394,25 +394,25 @@ export const BEFORE = {
 "--   并用一条无向直连边连到该任务的某个入口节点（:975）。",
 "--   ⇒ START 本身不参与锁—钥匙连线，它只是「地图的坐标原点标记」。",
 ],
-918: [
+"Story:_AddPlayerStartNode#1+2": [
 "-- 若关卡配置了 valid_start_tasks，从中随机挑一个任务名。",
 "--   ⚠ :919 是「math.random 取下标」用法 ⇒ 依赖数组的真实顺序（这里是数组，安全）。",
 "--   valid_start_tasks 是数组 ⇒ 与 GetRandomItem（表）不同，这里没有 pairs 顺序问题。",
 ],
-926: [
+"Story:_AddPlayerStartNode#1+10": [
 "-- ⚠ 遍历 rootNode 的【所有子孙任务】找同名者（:927 比对 id）。",
 "--   效率：这是线性查找，在任务数多时是 O(N)。任务数通常 < 200，可接受。",
 "--   若找不到（:936），静默降级到 mainland.startingTask ⇒ 出生点可能不符合关卡设计。",
 "--   ★ 这个「找不到就降级」的策略贯穿全文件：不崩，但会静默改变结果。",
 ],
-942: [
+"Story:_AddPlayerStartNode#1+26": [
 "-- ★ start_node_data：START 节点的数据模板。",
 "--   两种来源：",
 "--   A) :944 gen_params.start_node 指定了房间模板 → 用关卡里预定义的房间；",
 "--   B) :948 兜底 → 现编一个草地房（草、树枝、燧石、浆果丛、树苗）。",
 "--   B 的物品清单是「最小可玩出生点」：有燧石（开局工具）、浆果丛（食物）。",
 ],
-947: [
+"Story:_AddPlayerStartNode#1+31": [
 "-- ⚠ 疑似缺陷：terrain_contents = start_node_data.data.contents",
 "--   把【内容物】赋给了【地形内容】字段。",
 "--   参照 task.lua 对两者的区分：terrain_contents 是地块级的（草、石头），",
@@ -423,7 +423,7 @@ export const BEFORE = {
 "--     默认路径（:948 兜底）不走这里。",
 "--     这解释了为什么这个覆盖行为可能长期未被发现：默认配置走不到。",
 ],
-961: [
+"grass#1": [
 "-- ⚠ 求值时机陷阱：grass 是【函数】，写成 function() return 2 + math.random(2) end。",
 "--   它不会在此刻求值，而是被塞进 countprefabs 传给 C++ / graphnode。",
 "--   ⇒ 真正求值发生在 PopulateWorld_AddEntity 阶段（graphnode.lua 的实体生成循环）。",
@@ -432,7 +432,7 @@ export const BEFORE = {
 "--     math.random 调用都会受影响 ⇒ 改 Story 代码会连带改变地图布局。",
 "--   这是「可复现性」最容易被破坏的地方，值得单独记住。",
 ],
-967: [
+"grass#1+6": [
 "-- ★ START 的统一标记：name=\"START\"，青色半透明。",
 "--   这两个字段让调试渲染能一眼认出「地图原点」，",
 "--   玩家看到的世界里不会有它（这是仅用于调试视图的 data）。",
@@ -447,7 +447,7 @@ export const BEFORE = {
 "--   ★ 这条边是 AddEdge（无锁语义），不是 LockGraph。",
 "--     ⇒ 出生门户始终可达，不受任何钥匙影响。这是刻意的正确设计。",
 ],
-980: [
+"Story:AddBGNodes#1": [
 "-- ============================================================",
 "-- AddBGNodes —— 给每个非入口节点挂背景地块（BG）",
 "-- ============================================================",
@@ -457,7 +457,7 @@ export const BEFORE = {
 "-- ★ 这是本文件里少见的【纯增点】操作：不连线、不加锁，只为了影响几何。",
 "-- min_count/max_count 每个节点挂多少个背景地块（:1010 每次现摇）。",
 ],
-985: [
+"Story:AddBGNodes#1+5": [
 "-- ⚠ 外层 pairs 遍历任务 ⇒ BG 的分配顺序依赖 hash 顺序。",
 "--   与 GetRandomNodeFromTasks:638 的「取第 k 个」不同，",
 "--   这里只在【每个任务内部】用 math.random(1, count) ⇒ 危险度较低",
@@ -483,12 +483,12 @@ export const BEFORE = {
 "-- :1004 RunTaskSubstitution：按任务的 substitutes 表替换 prefab（见 :1211）。",
 "--   ⚠ 同样是对共享模板的原地修改，见 :1001 的同类风险。",
 ],
-1006: [
+"Story:AddBGNodes#1+26": [
 "-- 遍历该任务下的所有【非子节点】节点（:1006 false 参数）。",
 "--   ★ 传 false 是为了排除已添加的 BG 节点自身，否则会无限增殖。",
 "-- :1008 入口节点跳过背景 —— 入口不能被背景埋掉。",
 ],
-1012: [
+"Story:AddBGNodes#1+32": [
 "-- ★ 内层：为这一个节点挂 count 个背景地块。",
 "--   每次都 deepcopy 模板（:1014）⇒ 互不干扰，这是正确的隔离做法。",
 "--   ⚠ 对比 :997/:1004 的共享模板污染 —— 这里是干净的。",
@@ -528,7 +528,7 @@ export const BEFORE = {
 "--   ⚠ :1074 blocker_blank = true —— 这个标记让 graphnode 侧把它画成门而非地面。",
 "--     参见 graphnode.lua 的 PopulateWorld_AddEntity 对该标记的处理。",
 ],
-1090: [
+"Story:AddCoveNodes#1": [
 "-- ============================================================",
 "-- AddCoveNodes —— 挂「小口袋地块」（cove）",
 "-- ============================================================",
@@ -542,19 +542,19 @@ export const BEFORE = {
 "--   ⇒ cove 的 cove_room_max_edges 判定读到的边数【已经包含 BG 边】。",
 "--   这两个参数是耦合的：BG 数量会挤占 cove 的名额。",
 ],
-1097: [
+"Story:AddCoveNodes#1+7": [
 "-- ⚠ 跳过「自动生成的任务」：LOOP_BLANK_n / REGION_LINK_n 等没有任务定义。",
 "--   它们的 id 在 self.TERRAIN 里存在但 self.tasks 里没有。",
 "--   ★ 硬编码的判断方式（task_def == nil）而非「是否属于某一类」，",
 "--     简洁但脆弱：任何新增的自动任务都会被自动排除（这是想要的行为）。",
 ],
-1098: [
+"Story:AddCoveNodes#1+8": [
 "-- cove 房名默认 \"Blank\"，任务可覆盖。",
 "--   ★ 注意默认是 Blank：没有专门配置 cove 房的任务，长出的就是留白地块。",
 "--     留白地块在烘焙后就是一小块空地/岩壁 —— 视觉上像地图上的「小坑」。",
 "-- :1100 assert：模板缺失即硬失败。",
 ],
-1106: [
+"Story:AddCoveNodes#1+16": [
 "-- cove 出现概率缺省 0.35，任务可覆盖。",
 "-- cove 挂载数上限缺省 1（cove_room_max_edges 是【判定阈值】不是数量）。",
 "-- ⚠⚠ 疑似缺陷（整批中止）：下面 :1108-1110 的 return 位于【任务遍历循环内部】。",
@@ -578,12 +578,12 @@ export const BEFORE = {
 "--   ⇒ 判定：这是【真实缺陷】而非防御性冗余。",
 "--   影响面：任何含 cove 禁用配置的任务集，其 cove 分配都被截断。",
 ],
-1112: [
+"Story:AddCoveNodes#1+22": [
 "-- ⚠ 与 AddBGNodes:1004 同样的共享模板污染：RunTaskSubstitution 原地修改",
 "--   cove_room_template.contents.distributeprefabs。",
 "--   cove 房模板的 distributeprefabs 若非空，替换会累积。",
 ],
-1114: [
+"Story:AddCoveNodes#1+24": [
 "-- ★ 五重筛选条件，缺一不可：",
 "--   (1) not node.data.entrance          → 入口不挂 cove（入口已有 blocker_blank 门）",
 "--   (2) node.data.type ~= Blank         → 留白节点不挂（留白本身就是空隙）",
@@ -600,7 +600,7 @@ export const BEFORE = {
 "-- ⚠ 这个自反馈（加了边就超过阈值）使 max_edges=1 时严格只挂一个。",
 "-- :1119 id 形如 <taskid>:COVE_<n>:<roomname>，bg_idx 在每个任务内重置（:1150）。",
 ],
-1155: [
+"Story:SeperateStoryByBlanks#1": [
 "-- ============================================================",
 "-- SeperateStoryByBlanks —— 用【不可通行地块】把两个节点「连」起来",
 "-- ============================================================",
@@ -636,7 +636,7 @@ export const BEFORE = {
 "--   参照 :613 的 {type=\"none\", key=self.tasks[...].locks, node=nil}，",
 "--   这里连 locks 都没传 ⇒ 纯粹是「无条件加一条边到 blank 节点」。",
 ],
-1174: [
+"Story:GetExtrasForRoom#1": [
 "-- ============================================================",
 "-- GetExtrasForRoom —— 【tag → 内容物】的翻译器",
 "-- ============================================================",
@@ -664,7 +664,7 @@ export const BEFORE = {
 "--   若某个 tag 函数同时返回多个语义（实际不会），会全部写入。",
 "--   写法上是防御性的，语义上无副作用。",
 ],
-1211: [
+"Story:RunTaskSubstitution#1": [
 "-- ============================================================",
 "-- RunTaskSubstitution —— prefab 替换（substitutes）",
 "-- ============================================================",
@@ -682,7 +682,7 @@ export const BEFORE = {
 "--   实践上 substitutes 通常只有一层 ⇒ 不触发。属潜在风险。",
 "-- ★ :1213 提前 return items（不做替换）—— 两个 nil 检查都是「没有就原样返回」。",
 ],
-1232: [
+"Story:GenerateNodesFromTask#1": [
 "-- ============================================================",
 "-- GenerateNodesFromTask —— 【单任务 → 子图】的真正实现",
 "-- ============================================================",
@@ -703,7 +703,7 @@ export const BEFORE = {
 "--   ⇒ LIFO 使「最后遍历到的房间」出现在地图入口处。",
 "--   ⚠ 这是个隐式的顺序耦合，且依赖 pairs 遍历顺序。",
 ],
-1237: [
+"Story:GenerateNodesFromTask#1+5": [
 "-- ★ 入口房：按 entrance_room_chance 概率决定是否给这个任务一个入口。",
 "--   多数任务没有 entrance_room ⇒ 这段跳过 ⇒ 该任务没有专门的入口地块。",
 "-- ⚠ :1238-1239 的判定是 `chance == nil or chance > r`：",
@@ -729,7 +729,7 @@ export const BEFORE = {
 "--   本仓库正确的隔离手法见 graphnode.lua 的 scratchpad（那里显式做了双层拷贝）。",
 "-- :1255 push 进栈 ⇒ 将来会作为该任务的第一个节点（:1298 pop 时先出栈）。",
 ],
-1261: [
+"Story:GenerateNodesFromTask#1+29": [
 "-- ★ room_choices：任务内各房间的【数量表】，{ RoomName = count }。",
 "--   count 可以是数字，也可以是【函数】（:1264-1266 现求值）。",
 "-- ⚠ :1264 的求值时机在这里（Story 阶段），而 :1238 的 entrance 概率也是。",
@@ -758,7 +758,7 @@ export const BEFORE = {
 "--   ⇒ ★ 所有「加点」操作（AddBGNodes / AddCoveNodes）必须在此之前完成，",
 "--     否则新点不会参与 Voronoi。这是流程顺序不可颠倒的根本原因。",
 ],
-1297: [
+"Story:GenerateNodesFromTask#1+65": [
 "-- ★ 主循环：只要栈非空就弹一个房间做成节点。",
 "--   LIFO ⇒ 栈顶（最后 push 的）先出。",
 "-- ⚠ :1292 的 TODO 自承「这里可以 shuffleArray 让 room_choices 更随机」——",
@@ -790,15 +790,15 @@ export const BEFORE = {
 "--   ⇒ 枢纽被排除在链外，但随后 :1374 MakeLoop 会把链闭成环，:1379 MakeHub 再接枢纽。",
 "--   三者叠加的拓扑是「环 + 一个挂在环上的枢纽」，是本文件最复杂的形态。",
 ],
-1374: [
+"Story:GenerateNodesFromTask#1+142": [
 "-- ★ make_loop：MakeLoop 把链首尾相连（见 network.lua 的实现注释）。",
 "--   ⇒ 任务内部成一个环，玩家可以绕一圈回到起点。",
 ],
-1378: [
+"Story:GenerateNodesFromTask#1+146": [
 "-- MakeHub：把所有节点连到枢纽节点上，形成星形 + 可能的环。",
 "--   详见 network.lua 的 MakeHub 注释（含它对节点数量的假设）。",
 ],
-1382: [
+"Story:GenerateNodesFromTask#1+150": [
 "-- CrosslinkRandom(crossLinkFactor)：随机加横向边。",
 "--   详见 network.lua 的注释（含 20 次上限与隐藏边的说明）。",
 "--   ⚠ crossLinkFactor 恒非 nil（:874 用 `or 1` 兜底），所以这段【总会被调用】。",
@@ -806,7 +806,7 @@ export const BEFORE = {
 "--   真正的不加需要显式传 false/nil，但 :874 的 `or 1` 堵死了这条路。",
 "--   ⚠ 这是一个「默认值吞掉禁用意图」的经典陷阱。",
 ],
-1394: [
+"BuildStory#1": [
 "-- ============================================================",
 "-- BuildStory —— ★ 模块的唯一对外入口",
 "-- ============================================================",
@@ -829,7 +829,7 @@ export const BEFORE = {
 "--   七步完整流程见 storygen.lua:86-95 的注释。",
 "--   之后 Lua 侧的图构建就结束了，剩下交给 C++ WorldSim 的 Voronoi 与铺装。",
 ],
-1408: [
+"BuildStory#1+14": [
 "-- ★ 模块出口：一个函数（Story）被导出。",
 "--   ⚠ 注意 :1394 的 BuildStory 是【全局函数】（无 local），",
 "--     会污染 _G 命名空间。在 DST 的 Lua 环境里这是可接受的惯例。",

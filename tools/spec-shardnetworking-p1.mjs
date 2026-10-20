@@ -66,7 +66,7 @@ export const BEFORE = {
     "--     ★★ 用「项的存在」表达连接状态 —— 简化查询（无需判 ready 字段）。",
     "--     ★★ 代价：ready 字段冗余（永远为 true）。",
   ],
-  12: [
+  "Shard_IsMaster#1": [
     "--★★★[Shard_IsMaster —— ★★ 「我是主分片吗」的权威判定]",
     "--   ★★★ 第 13 行的判定式（★ 看似怪异，实则周全）：",
     "--     return TheShard:IsMaster() or TheNet:GetIsMasterSimulation() and not TheShard:IsSecondary()",
@@ -95,7 +95,7 @@ export const BEFORE = {
     "--   ★★ 本文件的选择（函数）可能因为 TheShard 状态会变化（连接/断开）。",
     "--   TheShard 是 C++ 侧对象，无 Lua 源码。",
   ],
-  16: [
+  "Shard_IsWorldAvailable#1": [
     "--★★★[Shard_IsWorldAvailable —— ★★ 「某个分片可用吗」（供发送方判断）]",
     "--   ★★★★ 第 17 行的判定：",
     "--     return world_id ~= nil and (ShardConnected[world_id or SHARDID.MASTER] ~= nil",
@@ -125,7 +125,7 @@ export const BEFORE = {
     ,
     "--     （不可用 且 不是自己 → 丢弃）。",
   ],
-  20: [
+  "Shard_IsWorldFull#1": [
     "--★★[Shard_IsWorldFull —— ⚠ 空实现（TODO）]",
     "--   -- TODO",
     "--   ★★★ 函数体为空 → 隐式返回 nil（永远是假）。",
@@ -139,7 +139,7 @@ export const BEFORE = {
     "--     ★→ 移植时应确认：容量判定是否需要在分片层做，",
     "--       ★  或应由服务端（更权威的数据源）提供。",
   ],
-  24: [
+  "Shard_SyncWorldSettings#1": [
     "--★★★[Shard_SyncWorldSettings —— ★★ 世界设置从主分片同步到次分片]",
     "--   ★★★★ 签名：Shard_SyncWorldSettings(world_id, is_resync)",
     "--     · world_id —— 目标分片（发给谁）；",
@@ -186,7 +186,7 @@ export const BEFORE = {
     "--       ★ 接收侧（networkclientrpc.lua:1571-1590）用 RunInSandboxSafe 解码",
     "--       ★★ 沙箱 + WorldSettings_Overrides 三路钩子应用。",
   ],
-  29: [
+  "Shard_SyncWorldSettings#1+5": [
     "--★★[第 29 行：`if worldoptions.overrides then` —— 保护「没有 overrides」的情况]",
     "--   ★★★ overrides 是「世界生成中被修改的设置」—— 可能为 nil（新世界）。",
     "--   ★★ 没有它就跳过同步（不发空消息）。",
@@ -194,12 +194,12 @@ export const BEFORE = {
     "--     ★★ 对比 networking.lua:786 用 deepcopy 是因为那里**要修改**。",
     "--       ★★ 同一个数据源，两处因用途不同而采取不同策略（★★★★ 值得学习）。",
   ],
-  38: [
+  "Shard_SyncWorldSettings#1+14": [
     "--★ IsTableEmpty(sync_settings) —— 「没有要同步的项就不发」",
     "--   ★★ 省略空消息的价值：★ 分片 RPC 有序列化/网络开销；",
     "--     ★★ 大量「无变化」的分片本来就不需要消息。",
   ],
-  43: [
+  "Shard_OnShardConnected#1": [
     "--★★★★[Shard_OnShardConnected —— ★★ 分片连接后的握手]",
     "--   ★★★★ 原注释（第 44 行）：\"NOTES(JBK): Only should be called when",
     "--   the shard state is REMOTESHARDSTATE.READY.\"",
@@ -244,12 +244,12 @@ export const BEFORE = {
     "--   ★★★ OnShardConnected 让事务系统知道「有新分片了」",
     "--     ★★ （可能需要重新协商跨分片事务的参与者）。",
   ],
-  50: [
+  "Shard_OnShardConnected#1+7": [
     "--★ 第二次 `if Shard_IsMaster()` —— ★★ 与第 45 行重复判定（可合并但未合并）。",
     "--   ★★★ 步骤①（同步设置）与步骤②（同步月王网络变量）都只在主分片执行。",
     "--   ★ ★ 这两个 if 相邻且条件相同 —— 属于可简化的小冗余（无功能影响）。",
   ],
-  63: [
+  "Shard_OnShardConnected#1+20": [
     "--★★★[第 63-67 行：★ Shard_UpdateWorldState 的契约注释（★ 关键）]",
     "--   ★★★ 四行注释，每一条都重要：",
     "--   ★★ (a) \"Called from ShardManager whenever a shard is connected or",
@@ -273,7 +273,7 @@ export const BEFORE = {
     ,
     "--       ★★ 说明洞穴世界也是通过 MakeWorld 的同一工厂（:401）构造的变体。",
   ],
-  68: [
+  "Shard_UpdateWorldState#1": [
     "--★★★★★[Shard_UpdateWorldState —— ★★★ 本文件的心脏（★ 54 行）]",
     "--   ★★★★★ 签名：Shard_UpdateWorldState(world_id, state, tags, world_data, shard_name)",
     "--     · world_id   —— 分片标识；",
@@ -299,13 +299,13 @@ export const BEFORE = {
     "--       ★★ 不重扫就会出现「传送门指向一个已断开的分片」。",
     "--     ★★ 而遍历 ShardPortals（第 101 行）是唯一知道所有传送门的方式。",
   ],
-  69: [
+  "Shard_UpdateWorldState#1+1": [
     "--★★[第 69-70 行：ready 判定与连接状态日志]",
     "--   ★★★ 「connected / disconnected」的措辞用词很准确：",
     "--     ★★ 断开（disconnected）不只是「不在了」，而是「明确断了」。",
     "--     ★★ 日志对运维（服务器管理员）友好。",
   ],
-  73: [
+  "Shard_UpdateWorldState#1+5": [
     "--★★★[第 73-91 行：★★★ world_data 的「双层沙箱解码」（★ 本文件安全设计的精华）]",
     "--   ★★★★ 第 73 行：`if world_data ~= nil and #world_data > 0 then`",
     "--     ★★ #world_data > 0 —— 非空字符串检查（不是 table 长度）。",
@@ -352,7 +352,7 @@ export const BEFORE = {
     "--     （也是 RunInSandboxSafe + 白名单应用）。",
     "--     ★★ 「发送侧筛选白名单 + 接收侧沙箱 + 结构校验」= 三层防护。",
   ],
-  84: [
+  "Shard_UpdateWorldState#1+16": [
     "--★★★[第 84 行：★ 第二层沙箱解码 —— 数据的真正形态在这里]",
     "--   success, data = RunInSandboxSafe(TheSim:DecodeAndUnzipString(data.str))",
     "--   ★★★★ 逐段读解：",
@@ -367,7 +367,7 @@ export const BEFORE = {
     "--   ★★★ 这一行的位置（缩进更深）表示它在「count == 1」条件内 ——",
     "--     ★★ 只有结构校验通过才会二次解码（见 :83 的 if）。",
   ],
-  88: [
+  "Shard_UpdateWorldState#1+20": [
     "--★★[第 88 行：`world_data = success and data or {}` —— 降级处理]",
     "--   ★★★ 两分支：",
     "--     · success 为真且 data 非 nil → 用 data；",
@@ -378,7 +378,7 @@ export const BEFORE = {
     "--       ★★★ 「优雅降级」优于「整体失败」。",
     "--   ★ ★ 与第 92 行（存进 ShardConnected）呼应 —— 空表也照存。",
   ],
-  92: [
+  "Shard_UpdateWorldState#1+24": [
     "--★★★[第 92-95 行：★★★ 状态更新 + 触发握手]",
     "--   ShardConnected[world_id] = { ready = true, tags = tags, world = world_data, shard_name = shard_name }",
     "--   ShardList[world_id] = true",
@@ -394,7 +394,7 @@ export const BEFORE = {
     "--     ★★ （可能是 {} 若解码失败）。",
     "--   ★ 交叉参考：networking.lua:791 用 Shard_GetConnectedShards() 读这些数据。",
   ],
-  97: [
+  "Shard_UpdateWorldState#1+29": [
     "--★★[第 96-99 行：★★ not ready 分支 —— 断开时的清理]",
     "--   ShardConnected[world_id] = nil",
     "--   ShardList[world_id] = nil",
@@ -406,7 +406,7 @@ export const BEFORE = {
     "--       ★★ 所以「断开」也会触发传送门重新评估（这正是第 114 行禁用逻辑的意义）。",
     "--       ★★★ 见 :101-117 的分析。",
   ],
-  101: [
+  "Shard_UpdateWorldState#1+33": [
     "--★★★★★[第 101-117 行：★★★ 传送门与分片的三分支绑定（★ 本函数真正的价值）]",
     "--   ★★★ 为什么要遍历 ShardPortals（★ 回顾）：",
     "--     ★★ 分片的连接状态变了 → 所有传送门可能需要重新评估绑定。",
@@ -472,7 +472,7 @@ export const BEFORE = {
     "--       ★★ 分支③ 是「这个门要去的分片不是这个，所以仍不可用」。",
     "--       ★★★ 同一 reason 覆盖「缺失」和「不匹配」两种不可用 —— ★ 略粗糙但实用。",
   ],
-  102: [
+  "Shard_UpdateWorldState#1+34": [
     "--★★[第 102-103 行：分支①的两个「可绑定」条件]",
     "--   ★★★ 再次强调：★ linkedWorld == nil（空闲）OR auto == true（自动）。",
     "--   ★★★ ★ 为什么 auto 的门可以被重指向？",
@@ -482,7 +482,7 @@ export const BEFORE = {
     "--     ★★★ 与「固定门」对比：固定门不自动变（尊重玩家的设定）。",
     "--       ★★ 这是「自动化 vs 手动」的经典权衡。",
   ],
-  104: [
+  "Shard_UpdateWorldState#1+36": [
     "--★★[第 104 行：shard_name 匹配检查（★ 传送门的目的地偏好）]",
     "--   ★★★★ 三种 shard_name 值的语义（★ 再强调，见上方分支①的详解）：",
     "--     · nil —— ★ 「不挑」（这个门去任何分片都行）；",
@@ -491,7 +491,7 @@ export const BEFORE = {
     "--   ★★★ 例：「去洞穴的门」shard_name=\"Caves\"，只有 Caves 分片连上才绑定；",
     "--     ★「回地表的门」shard_name=\"Master\"，同理。",
   ],
-  109: [
+  "Shard_UpdateWorldState#1+41": [
     "--★★[第 109 行：分支②条件「已绑定到刚连上的分片」]",
     "--   elseif v.components.worldmigrator.linkedWorld == world_id then",
     "--   ★★★ 场景：这个门本来就指向 world_id，现在 world_id 连上了 → 恢复它。",
@@ -499,7 +499,7 @@ export const BEFORE = {
     "--     ★★ ② 是「确认绑定」（只刷新状态）。",
     "--   ★★★ 两条路径都调 ClearDisabledWithReason —— ★ 解除禁用。",
   ],
-  113: [
+  "Shard_UpdateWorldState#1+45": [
     "--★★[第 113 行：分支③的日志 —— 「跳过这个门（不同的永久世界）」]",
     "--   print(string.format(\"Skipping portal[%s] (different permanent world)\", tostring(...)))",
     "--   ★★★ 日志措辞 \"Skipping portal[...] (different permanent world)\" ——",
@@ -508,7 +508,7 @@ export const BEFORE = {
     "--   ★★★ 「Skipping」而非「Disabling」—— ★ 但紧接着又 SetDisabledWithReason。",
     "--     ★★★ 措辞与动作略有出入（跳过绑定，但仍禁用）—— 略粗糙。仅记录。",
   ],
-  119: [
+  "Shard_UpdateWorldState#1+51": [
     "--★★★[第 119-120 行：★★ 刷新对外元数据（★ 跨文件协作）]",
     "--   UpdateServerTagsString()",
     "--   UpdateServerWorldGenDataString()",
@@ -533,26 +533,26 @@ export const AFTER = {
     "--   · ShardList      —— 分片存在性 set（给外部查询用）；",
     "--   · ★ ShardConnected —— 分片连接详情（local，本文件核心状态）。",
   ],
-  22: [
+  "Shard_IsWorldFull#1+2": [
     "--★ §一 结束。★★ 三张查询/判定函数：",
     "--   Shard_IsMaster (:12)  —— ★「我是主分片吗」（双分支推断，兼容多部署形态）；",
     "--   Shard_IsWorldAvailable (:16) —— ★「某分片可用吗」（含「自己」的特例）；",
     "--   ★★ Shard_IsWorldFull (:20) —— ⚠ 空实现（TODO）—— 「分片满了吗」永远返回假。",
   ],
-  41: [
+  "Shard_SyncWorldSettings#1+17": [
     "--★★ §二 结束。Shard_SyncWorldSettings 是「主分片 → 次分片」推送世界设置的单向通道。",
     "--   ★★ 三步：取白名单 → 筛 overrides → 序列化发送。",
     "--   ★ ★ 「推拉」的另一半（次分片请求重发）在 networkclientrpc.lua:1592",
     "--     ResyncWorldSettings 与本文件 :48 互相配合。",
   ],
-  62: [
+  "Shard_OnShardConnected#1+19": [
     "--★★ §三 结束。Shard_OnShardConnected —— 分片连接后的三步握手：",
     "--   ① 同步世界设置（主推 / 次拉）；",
     "--   ② 主分片额外同步月王网络变量；",
     "--   ③ 通知事务步骤组件有新分片。",
     "--   ★ ★ 这三步让「分片加入」后状态趋于一致。",
   ],
-  121: [
+  "Shard_UpdateWorldState#1+53": [
     "--★★★★★ §四 结束。Shard_UpdateWorldState —— 本文件的心脏（54 行）。",
     "--   ★★★ 五个阶段回顾：",
     "--     ① ready 判定与日志（:69-70）；",

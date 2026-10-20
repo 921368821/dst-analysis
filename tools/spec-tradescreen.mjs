@@ -83,7 +83,7 @@ export default {
     '--   → 移植时这是极实用的「远程开关」：改一行常量即可全服关闭某功能。',
   ],
 
-  34: [
+  "FindFirstEmptySlot#1": [
     '-- ★ FindFirstEmptySlot：从 1 正向找第一个空位。',
     '-- ★★ 关键是它接收的是 **items_in_use**（78 行的合并表），',
     '--   而不是 self.selected_items。',
@@ -96,7 +96,7 @@ export default {
     '--   而非 MAX_TRADE_ITEMS —— specials 模式下只用前 6 格。正确。',
   ],
 
-  45: [
+  "FindLastFullSlot#1": [
     '-- FindLastFullSlot：反向找最后一个有物品的格子。',
     '-- ★ 用途（1318/1414 行）：手柄按 X 键时「移除最后一个放入的」。',
     '--   → ★ 与 FindFirstEmptySlot 配对（添加用正序、移除用倒序），',
@@ -105,7 +105,7 @@ export default {
     '--     「撤销最后一次」比「撤销第一个」自然得多。',
   ],
 
-  56: [
+  "CountItemsInTable#1": [
     '-- ★ CountItemsInTable：统计表里有多少项的 .item 等于给定名字。',
     '-- ⚠️ 参数名 `table` **遮蔽了全局的 table 库**。',
     '--   函数体内没有用到 table.insert 等全局 table 函数，所以安全。',
@@ -118,7 +118,7 @@ export default {
     '-- → ★★ 这是「稀疏表就该用 pairs」的正确实例。',
   ],
 
-  67: [
+  "CountItemsInTable#1+11": [
     '-- ══★★【ItemEndMove：物品飞行结束的回调 —— 输入解锁的唯一出口】',
     '-- 68 行从 moving_items_list 移除该项。',
     '-- 70-73 行：★ **只有全部物品都飞完了才 EnableInput**。',
@@ -135,7 +135,7 @@ export default {
     '-- 75 行 RefreshUIState：飞行结束后必须重算界面（物品真正入位了）。',
   ],
 
-  78: [
+  "CountItemsInTable#1+22": [
     '-- ══★★★【ItemsInUse：把「已放置」与「飞行中」合并成一张占用表】',
     '-- 这是本文件**最核心的数据抽象**。',
     '-- 80-82 行：把 selected_items 拷进新表（浅拷贝）。',
@@ -159,7 +159,7 @@ export default {
     '--   依赖此表来避免重复占位的机制。设计自洽。',
   ],
 
-  92: [
+  "CountItemsInTable#1+36": [
     '-- ⚠️⚠️【★★ 真实缺陷：构造函数参数与调用方错位，已全库核实】',
     '-- 签名是 `function(self, prev_screen, profile)`。',
     '-- 但全库仅有的两个调用点（skinsscreen.lua:69 与 :384）都是：',
@@ -189,7 +189,7 @@ export default {
     '--     这是「构造顺序即隐式契约」的又一例（对照 scrollablelist:57/67）。',
   ],
 
-  100: [
+  "TradeScreen:DoInit#1": [
     '-- ══★【DoInit：一次建完所有控件，含五只乌鸦小游戏入口】',
     '-- 101-102 行：关闭模板缓冲与光照贴图。',
     '--   → ★★★ 「这个界面比别的界面贵」的显式优化：',
@@ -209,7 +209,7 @@ export default {
     '--   → ★ 这类隐式顺序依赖应写进注释，目前只有代码顺序体现。',
   ],
 
-  136: [
+  "TradeScreen:DoInit#1+36": [
     '-- ★ default_focus 指向物品列表的第一项。',
     '-- → 「焦点进入这个界面时落在哪」的答案。',
     '--   合理的选择：让玩家第一眼看到的是「要放东西的地方」。',
@@ -223,7 +223,7 @@ export default {
     '--       mapscreen:120 的 UpdateTexture，同一思想。）',
   ],
 
-  141: [
+  "TradeScreen:DoInit#1+41": [
     '-- ★★ 142 行的行尾注释解释了构造顺序的必要性：',
     '-- 「这必须在 RefreshUIState 之后，因为需要已过滤的列表」。',
     '-- → ★★★ 「先刷新数据，再基于数据创建依赖它的控件」——',
@@ -247,7 +247,7 @@ export default {
     '--   属「复制粘贴尚可接受」的规模（5 份）。',
   ],
 
-  222: [
+  "TradeScreen:DoInit#1+122": [
     '-- ★ letterbox 加在 self 之下而不是 fixed_root 之下。',
     '-- → ★★★ 「画幅遮幅」必须在**所有界面元素之上**，所以挂最外层。',
     '--   若挂在 fixed_root 里，它会被后加的控件盖住。',
@@ -255,7 +255,7 @@ export default {
     '--   注意它必须是 AddChild 的最后一个（222 行确实是最后一个）。',
   ],
 
-  225: [
+  "TradeScreen:DoInitInventoryAndMachine#1": [
     '-- ══★【DoInitInventoryAndMachine：机器与物品列表的组装】',
     '-- ★ 237 行 local machine_scale = 0.62 —— 全机器的缩放基准，',
     '--   在 243/269 行用于两个 UIAnim，在 248 行用于容器（×1.75）。',
@@ -271,7 +271,7 @@ export default {
     '--   ⚠️ 但这里的 profile 是 nil（见 92 行的参数错位缺陷）。',
   ],
 
-  246: [
+  "TradeScreen:DoInitInventoryAndMachine#1+21": [
     '-- ★★★ 246 行的注释解释了 frames_container 为何挂在 fixed_root 而非机器里：',
     '-- 「为了能正确排序所有图层，同时让 specials_list 不被缩放」。',
     '-- → ★ 「图层顺序」与「缩放继承」是两个正交的诉求，冲突时需要分层：',
@@ -306,7 +306,7 @@ export default {
     '--   移除是靠点击（252 行的回调）。',
   ],
 
-  298: [
+  "TradeScreen:DoInitInventoryAndMachine#1+73": [
     '-- ★★ 298-299 行的注释解释了「为什么按钮在主机上不隐藏」：',
     '-- 「按钮是装饰的一部分，且它们会给帮助栏添加按键提示；',
     '--  只隐藏文字，这样玩家不会试图导航到它们」。',
@@ -321,7 +321,7 @@ export default {
     '--     SetScale 两种都接受。属「多态参数的隐患」。',
   ],
 
-  331: [
+  "TradeScreen:DoInitState#1": [
     '-- ══★★★【DoInitState：六个布尔标志 = 动画状态机的全部状态】',
     '-- ★ 每个标志都有行尾注释说明含义 —— 这是本文件注释质量最高的地方之一。',
     '-- machine_in_use   (332) 机器使用中 → 禁用一切输入',
@@ -347,7 +347,7 @@ export default {
     '--     这个设计更灵活但更难推理，代价由 RefreshUIState 的 or 链承担。',
   ],
 
-  360: [
+  "TradeScreen:ToggleSpecialsMode#1": [
     '-- ⚠️⚠️⚠️【★★ 重要发现：ToggleSpecialsMode 及其依赖字段全是死代码】',
     '-- 已 grep 全库核实以下事实：',
     '--  ① ToggleSpecialsMode 只有定义（360 行），**零调用点**。',
@@ -382,7 +382,7 @@ export default {
     '--   说明这些帧数是**试出来的**，不是算出来的。属美术驱动的编排。',
   ],
 
-  419: [
+  "TradeScreen:PlayMachineAnim#1": [
     '-- ★★ PlayMachineAnim / PushMachineAnim：两个函数同时驱动**两个** AnimState。',
     '-- self.claw_machine 与 self.claw_machine_bg 是两套美术资源',
     '-- （swapshoppe / shop_bg），必须同步播放。',
@@ -397,7 +397,7 @@ export default {
     '--   → ★ 「一次性动作 → 循环待机」的自动串联，标准做法。',
   ],
 
-  428: [
+  "TradeScreen:CancelPendingMoves#1": [
     '-- CancelPendingMoves：把所有正在飞的物品杀掉。',
     '-- 429 行遍历时调 v:Kill() ——',
     '--   → ⚠️ Kill 会触发回调吗？若 MovingItem:Kill 触发了 Move 的完成回调',
@@ -415,7 +415,7 @@ export default {
     '--   （Lua 的 next 行为未定义，可能漏元素也可能死循环）。',
   ],
 
-  435: [
+  "TradeScreen:Reset#1": [
     '-- ══★★【Reset：一个「请求」函数而非「立即执行」函数】',
     '-- ★★★ 这是本文件最值得学的异步模式：',
     '-- Reset 请求重置 → 播放 skin_off 动画 → 置 reset_started = true',
@@ -438,7 +438,7 @@ export default {
     '--     非常宝贵：告诉后来人「这里曾经出过一个 bug」。',
   ],
 
-  444: [
+  "TradeScreen:Reset#1+9": [
     '-- ⚠️⚠️【★★ 真实缺陷：拼写错误导致守卫失效】',
     '-- 444 行写的是 `if self.innkekeeper then`（innkeeper 多了个字母 e）。',
     '-- 445 行用正确的 self.innkeeper。',
@@ -455,7 +455,7 @@ export default {
     '--   说明作者本意就是要判 innkeeper，444 行纯属笔误。',
   ],
 
-  475: [
+  "TradeScreen:FinishReset#1": [
     '-- ══★【FinishReset：Reset 的真正实现 —— 状态清零 + 视觉归位】',
     '-- 476-477 行：恢复机器的默认图标（OverrideSkinSymbol 清空）。',
     '--   → ★「清除 Override」是引擎的语义：OverrideSkinSymbol(a, b, c)',
@@ -494,7 +494,7 @@ export default {
     '--   顺序正确：先杀旧动画，再清数据。',
   ],
 
-  516: [
+  "TradeScreen:EnableMachineTiles#1": [
     '-- ★★ EnableMachineTiles / DisableMachineTiles：两者的粒度不同。',
     '-- Enable（516）按 current_num_trade_items 区分「可见可用」与「隐藏禁用」；',
     '-- Disable（529）**全部禁用但不隐藏**。',
@@ -508,7 +508,7 @@ export default {
     '--   所以永远有 3 个格子在遍历中被禁用隐藏。正确但略绕。',
   ],
 
-  535: [
+  "TradeScreen:OnBecomeActive#1": [
     '-- ══★【OnBecomeActive：从别的屏幕回来时的状态修复】',
     '-- 538-541 行 do_nothing_on_activate 是一个**「一次性跳过」标志**：',
     '--   1344 行 CONTROL_MENU_R2 压入 BirdInteractScreen 前置 true，',
@@ -542,7 +542,7 @@ export default {
     '--   ★ 成对的 Wake/Disappear 与 Appear/Hide 构成老板的四种状态。',
   ],
 
-  584: [
+  "widget_already_processed#1": [
     '-- widget_already_processed：判断某名字是否已在列表里（线性查找）。',
     '-- ★ 用途见 602 行：避免同一个皮肤因多个格子而重复弹警告。',
     '-- → 「去重」的标准做法：O(n²) 但 n 很小（≤ 9），无需优化。',
@@ -551,7 +551,7 @@ export default {
     '--   所以靠 widg.name 字段比对。属「命名与内容不符但正确」。',
   ],
 
-  594: [
+  "TradeScreen:Trade#1": [
     '-- ══★★★【Trade：交易的核心，含确认弹窗与服务器请求】',
     '-- ★★ done_warning 参数是「递归守卫」：',
     '--  596 行 `if not done_warning` —— 第一次调用走警告检查，',
@@ -588,7 +588,7 @@ export default {
     '--   → 「先弹窗，等确认」，正确的中断点。',
   ],
 
-  641: [
+  "TradeScreen:Trade#1+47": [
     '-- ★★★ 641 行 machine_in_use = true 是「输入独占」的总开关。',
     '-- 它被读于：',
     '--   843 RemoveSelectedItem 早退、1020/1026/1034 RefreshUIState 禁用、',
@@ -609,7 +609,7 @@ export default {
     '--   → ★ 这是「依赖上游不变式的脆弱代码」，注释已标明可接受。',
   ],
 
-  655: [
+  "TradeScreen:Trade#1+61": [
     '-- ★ 656 行只读 frames_single[1] 的稀有度来推算「期望稀有度」。',
     '-- → 777 行用它判断「结果是不是比期望的好」→ 播「运气不错」台词。',
     '--   即 expected_rarity 是一个**叙事用**的字段，不影响功能。',
@@ -621,7 +621,7 @@ export default {
     '--   属小技巧，但读代码时容易困惑（为什么不是 nil）。',
   ],
 
-  664: [
+  "TradeScreen:Trade#1+70": [
     '-- ⚠️【调试路径被硬编码关闭】if false then --DEBUG TESTING',
     '-- ★ 665 行直接给一个测试物品名，绕过整个配方匹配流程。',
     '--   → 开发者想测试「收到物品后的表现」时本该用这个。',
@@ -633,7 +633,7 @@ export default {
     '--     删掉的话下次开发要重写一遍。',
   ],
 
-  674: [
+  "TradeScreen:Trade#1+80": [
     '-- ══★【specials 模式的分支（不可达，见 360 行的死代码分析）】',
     '-- 675-676 与 679 行 ★★ GetRecipeIndex() 被连续调用两次（676 与 679），',
     '--   结果赋给同名局部变量 recipe_index（676 与 679 各一次声明）。',
@@ -653,7 +653,7 @@ export default {
     '--   重复出现两次（683 与 972），本应抽成共享函数。',
   ],
 
-  697: [
+  "TradeScreen:Trade#1+103": [
     '-- ══★★★【TheItems:SwapItems：客户端 → 服务器的网络事务】',
     '-- ★★ 这是全文件唯一的服务器调用，也是「数据 → UI」的终点。',
     '-- 697-698 行：把物品 id 数组发给服务器。',
@@ -676,7 +676,7 @@ export default {
     '--   正式版不应有 print。属遗留调试代码。',
   ],
 
-  722: [
+  "TradeScreen:FinishTrade#1": [
     '-- ★★★ FinishTrade：动画到达「吐物完成」时被调用（1261 行）。',
     '-- 723-728 行：★ 只有 queued_item 非 nil 才给物品。',
     '--   → 这是「网络失败时 queued_item 为 nil」的兜底：',
@@ -690,7 +690,7 @@ export default {
     '--     标注为「疑似缺陷」：实际流程中此时应该没有在飞的物品。',
   ],
 
-  731: [
+  "TradeScreen:GiveItem#1": [
     '-- ★★ 734 行的注释解释了一个设计约束：',
     '-- 「需要一个引用，这样玩家点击时我们才能启动它移动」。',
     '-- → ★★★ 「把物品动画对象存在 self 上，等玩家点击才启动」：',
@@ -704,7 +704,7 @@ export default {
     '--     标注为「疑似设计意图不明」。',
   ],
 
-  766: [
+  "TradeScreen:DisplayItemName#1": [
     '-- ══★【DisplayItemName：结果展示 + 状态推进】',
     '-- 767 行 `assert(not self.item_name_displayed)`：',
     '--   → ★ 用 assert 强制「同一时刻只能展示一个结果名」。',
@@ -726,7 +726,7 @@ export default {
     '--     这是「同一个键在不同阶段有不同含义」的正确处理（对照 mapscreen:1409）。',
   ],
 
-  787: [
+  "TradeScreen:Quit#1": [
     '-- ══★★【Quit：最完整的清理路径 —— 本文件的「析构函数」】',
     '-- ★★★ 790-813 行连着 6 个任务的 Cancel，这是本文件最长的一段清理。',
     '--   skin_in_task / idle_sound_task / snap_task / snap_sound / talk_task',
@@ -760,7 +760,7 @@ export default {
     '--     这是异步界面必备的标志位。',
   ],
 
-  841: [
+  "TradeScreen:RemoveSelectedItem#1": [
     '-- ══★【RemoveSelectedItem：把物品从格子移回背包】',
     '-- 843-845 行 machine_in_use 时早退 —— 输入独占的第二道防线',
     '--   （第一道是格子被 Disable）。',
@@ -785,7 +785,7 @@ export default {
     '--   → 「先存后删」的顺序正确（否则信息就没了）。',
   ],
 
-  879: [
+  "TradeScreen:StartAddSelectedItem#1": [
     '-- ══★★★【StartAddSelectedItem：从背包放入格子的两阶段提交】',
     '-- ★★★ 这是本文件最精细的异步交互，值得逐行读：',
     '-- 阶段一（879-916 立即执行）：',
@@ -818,7 +818,7 @@ export default {
     '--   → 874 行 GetLastAddedItem 返回它，调用方拿它做什么需要查。',
   ],
 
-  920: [
+  "TradeScreen:AddSelectedItem#1": [
     '-- ══★【AddSelectedItem：物品落位的四路分支反馈】── 全部是「老板台词」',
     '-- ★★★ 927-950 行的四路分支是本文件的「情绪反馈」设计：',
     '--   927 count == 0 → 「这是你最后一件了」（警告）',
@@ -840,7 +840,7 @@ export default {
     '--   → ★ 全文件的 pairs/ipairs 混用很普遍，是 Lua 项目的通病。',
   ],
 
-  959: [
+  "TradeScreen:IsTradeAllowed#1": [
     '-- ══★★★【IsTradeAllowed：交易可行性判定 —— 本文件的业务规则核心】── 也是唯一被复用 4 次的判定',
     '-- ★ 957-958 行的两条注释是关键的**前置假设声明**：',
     '--   「假设每条规则只有一种输入类型，且输入只指定稀有度与数量」',
@@ -868,7 +868,7 @@ export default {
     '-- ⚠️ 997 行 `if count == 9` 用字面量而非 MAX_TRADE_ITEMS（见 28 行分析）。',
   ],
 
-  1007: [
+  "TradeScreen:RefreshUIState#1": [
     '-- ══★★★【RefreshUIState：全文件唯一的状态 → UI 渲染函数】',
     '-- ★★★ 这是「单向数据流」的典范：读状态 → 更新 UI，绝不反向。',
     '-- 1009-1018 行：★ 算出过滤条件并交给列表。',
@@ -901,7 +901,7 @@ export default {
     '--     作者用一行注释保住了这个知识。极有价值。',
   ],
 
-  1058: [
+  "TradeScreen:RefreshMachineTilesState#1": [
     '-- ══★【RefreshMachineTilesState：格子的悬停提示与「最后一个」标记维护】',
     '-- ★★★ 1062-1080 行是一个精巧的「状态自愈」逻辑：',
     '--   问题：若玩家放了两件同款皮肤，第二件不是「最后一件」了，',
@@ -930,7 +930,7 @@ export default {
     '--   → 「控件自己决定怎么画状态，外部只传语义」——职责分离。',
   ],
 
-  1104: [
+  "TradeScreen:StartFlushTiles#1": [
     '-- ══★【StartFlushTiles：吐物动画的初始化 —— 用数据驱动的伪随机编排】',
     '-- ★★★ 1112-1117 行为每个格子生成三组随机数：',
     '--   flush_tiles_rot_rand：旋转终点（0-100 度）',
@@ -957,7 +957,7 @@ export default {
     '-- 1138 行 flush_sound_stage = 1：★ 音效的多阶段触发状态（见 1145 行）。',
   ],
 
-  1141: [
+  "TradeScreen:FlushTilesUpdate#1": [
     '-- ══★★★【FlushTilesUpdate：手写的程序化动画 —— 逐帧算位置】',
     '-- ★★★ 1145-1152 行的「音效阶段机」值得学：',
     '--   flush_sound_stage 从 1 → 2 → nil，',
@@ -992,7 +992,7 @@ export default {
     '--   前者让格子逐个消失（视觉渐进），后者做状态收尾。',
   ],
 
-  1197: [
+  "TradeScreen:ResetFrameTiles#1": [
     '-- ══★【ResetFrameTiles：格子布局的计算与归位】',
     '-- ★★★ 1199-1204 行用双重循环计算 3×3 网格的位置：',
     '--   index = x + y*3（列优先），',
@@ -1024,7 +1024,7 @@ export default {
     '--     与 scrollablelist 的虚拟化是同一思想（虽然这里只有 9 个格子）。',
   ],
 
-  1222: [
+  "TradeScreen:OnUpdate#1": [
     '-- ══★★★【OnUpdate：状态机的 tick —— 动画名驱动的状态转移】',
     '-- ★★ 1224-1245 行：离线模式的处理。',
     '--   「无法交易」的兜底：显示道歉弹窗并退出。',
@@ -1059,7 +1059,7 @@ export default {
     '--   → ★ 值得学：不需要更新时可以主动返回 false 省下每帧开销。',
   ],
 
-  1281: [
+  "TradeScreen:OnControl#1": [
     '-- ══★★★【OnControl：输入路由 —— 双设备分支的典型结构】── 手柄与键鼠几乎完全分开',
     '-- ★★ 1282-1284 行 quitting 时**立即返回（无值）**：',
     '--   → 「返回 nil = 不消费 = 事件继续冒泡」。',
@@ -1101,7 +1101,7 @@ export default {
     '--     误以为它会立即求值则会出现「永远是 nil」的 bug。',
   ],
 
-  1360: [
+  "TradeScreen:ScrollBack#1": [
     '-- ══★【ScrollBack/ScrollFwd：滚动节流 —— 两个近乎重复的函数】',
     '-- ★★ 1362 行 `if not scroll_list.repeat_time or scroll_list.repeat_time <= 0`：',
     '--   → ★★★ 「把节流计时器存在**列表控件自己**身上」：',
@@ -1134,7 +1134,7 @@ export default {
     '--   应合并为 Scroll(direction, control)。属「对称函数」的正常写法。',
   ],
 
-  1390: [
+  "TradeScreen:GetHelpText#1": [
     '-- ══★★★【GetHelpText：帮助文本 = 输入处理的可执行文档】── 与 OnControl 逐条对应',
     '-- ★★★★ 这是本文件最值得学的一处工程实践：',
     '--   GetHelpText 里列出的每一个键，都在 OnControl（1281 行）里有对应处理；',

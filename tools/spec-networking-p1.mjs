@@ -31,7 +31,7 @@ export const BEFORE = {
     "--     （main.lua 或 gamelogic.lua 可能读写它）。",
     "--   ★ 在第 17 行被重置为 false（用掉之后立刻清）。",
   ],
-  12: [
+  "SpawnSecondInstance#1": [
     "--★★★[SpawnSecondInstance —— ★「开第二个游戏进程」的 Windows 实现]",
     "--   ★★★ 场景：房主在游戏中开新世界，DST 需要**两个游戏实例**同时运行",
     "--     （一个继续当前世界，一个开新世界）。",
@@ -53,7 +53,7 @@ export const BEFORE = {
     "--   ★★ 依赖 CWD 的相对路径推导也很脆弱（换安装结构就失效）。",
     "--   ★ 相关：:646 MigrateToServer 用 StartNextInstance（另一套跨进程机制）。",
   ],
-  14: [
+  "SpawnSecondInstance#1+2": [
     "--★★[if TheNet:GetIsServer() then —— 「只有服务端能开第二实例」]",
     "--   ★★ 为什么限制在服务端（房主/专服）？",
     "--     推理：只有房主才有「另一个世界」的概念（专服是给所有人玩的，不开世界）。",
@@ -65,13 +65,13 @@ export const BEFORE = {
     "--       次分片也是「服务端」但可能不需要开新世界。",
     "--     ★ 实际差异极小，本文件多处用 GetIsServer()。",
   ],
-  17: [
+  "SpawnSecondInstance#1+5": [
     "--★ FirstStartupForNetworking = false —— 「用掉了就清掉」，防止重复开进程",
     "--   ★★ 单次性标志：函数可能被多次调用，但只能开一次进程。",
   ],
 
   // ── 斜杠命令 ────────────────────────────────────────────────────────────
-  23: [
+  "SpawnSecondInstance#1+11": [
     "--★★★[Networking_SlashCmd —— ★★ 「C2V」方向的回调：服务端执行远程斜杠命令]",
     "--   ★★★ 原注释 \"V2C: This is for server side processing of remote slash command requests\"",
     "--     ★★ 注意这个注释的措辞矛盾（V2C 却描述服务端处理客户端请求 → 实为 C2V）。",
@@ -100,14 +100,14 @@ export const BEFORE = {
     "--       「这条命令被视为远程请求」→ 权限校验走 userid 路径。",
     "--   ★★ 参见 networkclientrpc.lua:1073 的 userid RPC 与 usercommands 的命令解析。,"
   ],
-  26: [
+  "Networking_SlashCmd#1+2": [
     "--★ if caller ~= nil then —— 两种来源都拿不到时静默丢弃",
     "--   ★ 推理：连客户端表都没有 → 这个 userid 完全不认识 → 丢弃。",
     "--   ★ 不打印错误 —— 与 networkclientrpc.lua 的 printinvalid 不同（那是 RPC 层）。",
   ],
 
   // ── 公告 ────────────────────────────────────────────────────────────────
-  31: [
+  "Networking_Announcement#1": [
     "--★★★[Networking_Announcement —— ★ 全文件的「公告基类」，几乎所有提示都走它]",
     "--   ★★★ 签名：Networking_Announcement(message, colour, announce_type)",
     "--   ★★★ 三个参数的角色：",
@@ -125,24 +125,24 @@ export const BEFORE = {
     "--       ★ 说明所有公告都被**记入历史**，玩家可以往上翻看。",
     "--   ★ 交叉引用：chathistory.lua。",
   ],
-  34: [
+  "Networking_Announcement#1+3": [
     "--★★[if not announce_type or announce_type == \"\" then —— 空类型兜底]",
     "--   ★★ 两个条件都用 or：既处理 nil（没传），又处理空串（传了但空）。",
     "--     ★ 推理：模组或旧代码可能传空串，用 or 统一兜底。",
     "--   ★ 默认 \"default\" —— 通用样式。",
   ],
-  41: [
+  "Networking_SkinAnnouncement#1": [
     "--★ Networking_SkinAnnouncement —— 皮肤获取公告。",
     "--   ★★★ 三个参数全部判空（第 42 行）——",
     "--     ★ 推理：三个都是必需信息（用户名、颜色、皮肤名），缺一无法显示。",
     "--     ★ 与 :31 的 message 可为 nil 形成对比（那里的 message 是可选的）。",
   ],
-  47: [
+  "Networking_SystemMessage#1": [
     "--★ Networking_SystemMessage —— 系统消息（如「你被踢了」）。",
     "--   ★ 与 :31 的区别：走 OnSystemMessage（系统消息专用通道），",
     "--     ★★ 推测在 UI 上有不同样式（如红色警告）。",
   ],
-  53: [
+  "Networking_Say#1": [
     "--★★★★★[Networking_Say —— ★★ 玩家说话：★ 本文件最需要逐行理解的函数]",
     "--   ★★★ 签名：Networking_Say(guid, userid, name, prefab, message, colour,",
     "--                    whisper, isemote, user_vanity)",
@@ -154,7 +154,7 @@ export const BEFORE = {
     "--     ★★ 为什么两个都要？玩家的话同时出现在「头顶气泡」和「聊天框」里。",
     "--   ★★ 参见 components/talker.lua（气泡）、chathistory.lua（聊天框）、,"
   ],
-  54: [
+  "Networking_Say#1+1": [
     "--★★★★★[第 54-56 行：★ 长度限制 —— 本函数的第一道防线]",
     "--   if message ~= nil and message:utf8len() > MAX_CHAT_INPUT_LENGTH then return end",
     "--   ★★★ 三个细节：",
@@ -172,7 +172,7 @@ export const BEFORE = {
     "--     ★ 因为「哪些 RPC 的参数需要长度限制」是业务知识，由本函数负责。",
     "--     → 这是「谓词管类型、业务管约束」分工的又一例（见 networkclientrpc §零）。",
   ],
-  58: [
+  "Networking_Say#1+5": [
     "--★★[local netid = TheNet:GetNetIdForUser(userid) —— 取网络 ID]",
     "--   ★★★ netid 是「这个连接的网络标识」（区别于 userid 账号标识）。",
     "--   ★★★ 为什么需要它？第 62 行把它传给 talker:Say 作为最后一个参数，",
@@ -180,7 +180,7 @@ export const BEFORE = {
     "--   ★★ 推测它用于消息的「作者标记」，让客户端知道这条气泡是谁发的",
     "--     （比 guid 更底层，因为它在 C++ 网络层）。",
   ],
-  61: [
+  "Networking_Say#1+8": [
     "--★★★[第 61 行：`if not isemote and entity ~= nil and entity.components.talker ~= nil then`]",
     "--   ★★★ 三个条件：",
     "--     · not isemote —— ★★ 表情动作**不产生气泡**。",
@@ -194,7 +194,7 @@ export const BEFORE = {
     "--     ★★★ 推测表情动作**也会**进聊天历史（只是没有气泡）。",
     "--     ★★ 这是一个「同一事件、两路呈现、不同规则」的典型例子。",
   ],
-  62: [
+  "Networking_Say#1+9": [
     "--★★★[第 62 行：talker:Say 的十个参数与其中的三处精妙处理]",
     "--   entity.components.talker:Say(not entity:HasTag(\"mime\") and message or \"\", nil, nil, nil, true, colour, TEXT_FILTER_CTX_CHAT, netid)",
     "--   ★★★★ 三处需要展开：",
@@ -216,7 +216,7 @@ export const BEFORE = {
     "--   ★★ 整体：一个调用里塞了「哑剧判定 + 颜色 + 过滤上下文 + 网络归属」，",
     "--     ★ 是本文件最密集的一行。",
   ],
-  70: [
+  "Networking_ModOutOfDateAnnouncement#1": [
     "--★★[Networking_ModOutOfDateAnnouncement —— 模组版本过旧警告]",
     "--   ★★ IsRail() 分支 —— ★ 「Rail」是 WeGame/腾讯代理的版本（国服渠道）。",
     "--     ★ 推理：不同渠道的模组版本体系不同，需要不同的提示文案。",
@@ -224,7 +224,7 @@ export const BEFORE = {
     "--   ★★ 两条 STRINGS 分别对应两渠道（OUT_OF_DATE_RAIL vs OUT_OF_DATE）。",
     "--   ★ 注意 announce_type = \"mod\"（模组专用样式）。",
   ],
-  78: [
+  "Networking_DeathAnnouncement#1": [
     "--★ Networking_DeathAnnouncement —— 死亡公告（type=\"death\"）。",
     "--   ★★★ 这是 Networking_Announcement（:31）的**薄包装**：",
     "--     固定 announce_type，转发其余参数。",
@@ -232,10 +232,10 @@ export const BEFORE = {
     "--     ★★ 它们的存在只有一个理由：★ 给 C++/其他文件一个稳定的调用点。",
     "--     转发后本文件不必到处写字符串字面量，改文案只需改这一处。",
   ],
-  82: [
+  "Networking_ResurrectAnnouncement#1": [
     "--★ Networking_ResurrectAnnouncement —— 复活公告（type=\"resurrect\"）。",
   ],
-  86: [
+  "Networking_ResurrectAnnouncement#1+4": [
     "--★★★[Networking_Announcement_GetDisplayName —— ★ 唯一的「可覆盖钩子」]",
     "--   ★★★ 原注释 \"For ease of overriding in mods\" —— ★★★ 专为模组覆盖而设。",
     "--   ★★★ 它是一个恒等函数（return name），存在的意义纯粹是「一个可替换的点」：",
@@ -248,20 +248,20 @@ export const BEFORE = {
     "--   ★ 注意它**只**用于「加入/离开/踢出/封禁」四类，玩家自己说话（:66）",
     "--     走的是 ChatHistory:GetDisplayName（见 :136 的对照）—— ★ 两条不同的路径。",
   ],
-  91: [
+  "Networking_JoinAnnouncement#1": [
     "--★ Networking_JoinAnnouncement —— 「XX 加入了游戏」。",
     "--   ★★ type=\"join_game\"。经 GetDisplayName 处理名字。",
   ],
-  95: [
+  "Networking_LeaveAnnouncement#1": [
     "--★ Networking_LeaveAnnouncement —— 「XX 离开了游戏」。type=\"leave_game\"。",
   ],
-  99: [
+  "Networking_KickAnnouncement#1": [
     "--★ Networking_KickAnnouncement —— 「XX 被踢出」。type=\"kicked_from_game\"。",
   ],
-  103: [
+  "Networking_BanAnnouncement#1": [
     "--★ Networking_BanAnnouncement —— 「XX 被封禁」。type=\"banned_from_game\"。",
   ],
-  107: [
+  "Networking_BanAnnouncement#1+4": [
     "--★★[第 107-108 行：TODO V2C —— ★ 两条自承的未完成注记]",
     "--   \"-- TODO V2C: Call these appropriately from C\"",
     "--   \"-- these should only run on the server. Could also call",
@@ -278,7 +278,7 @@ export const BEFORE = {
     "--   ★ 移植提示：★ 这四个函数可以视为可选的遥测层，",
     "--     若新引擎不需要管理操作遥测，可整体删除。",
   ],
-  109: [
+  "Networking_KickMetricsEvent#1": [
     "--★★[Networking_KickMetricsEvent —— 管理操作遥测（踢人）]",
     "--   ★★★ 签名：Networking_KickMetricsEvent(caller, target)",
     "--     ★ caller —— 谁执行的（房主/控制台/投票）",
@@ -292,18 +292,18 @@ export const BEFORE = {
     "--     ★★ 注意参数顺序与本函数签名不同（target 在前，caller 在后）——",
     "--       转发时重排，容易看错。",
   ],
-  112: [
+  "Networking_BanMetricsEvent#1": [
     "--★ Networking_BanMetricsEvent —— 封禁遥测。与 :109 完全同构。",
   ],
-  115: [
+  "Networking_RollbackMetricsEvent#1": [
     "--★ Networking_RollbackMetricsEvent —— 回滚存档遥测（无 target，只有 caller）。",
     "--   ★★ 与前两个的差异：SendCommandMetricsEvent(\"rollback\", nil, caller)",
     "--     ★ target 传 nil —— 回滚不针对特定玩家。",
   ],
-  118: [
+  "Networking_RegenerateMetricsEvent#1": [
     "--★ Networking_RegenerateMetricsEvent —— 重生成世界遥测。同样无 target。",
   ],
-  122: [
+  "Networking_VoteAnnouncement#1": [
     "--★★★[Networking_VoteAnnouncement —— ★ 投票结果公告（含命令哈希反查）]",
     "--   ★★★ 第 123 行：`local command = UserCommands.GetCommandFromHash(commandid)`",
     "--     ★★ commandid 是**哈希**（不是名字），需要反查回命令定义。",
@@ -327,7 +327,7 @@ export const BEFORE = {
     "--     ★★★ 这不是无意的：返回值供调用方使用（如 UI 显示、后续逻辑）。",
     "--     ★ 命令非投票型时隐式返回 nil（第 133 行没有 return）。",
   ],
-  135: [
+  "Networking_RollAnnouncement#1": [
     "--★★[Networking_RollAnnouncement —— 骰子结果公告]",
     "--   ★★ 第 136 行的复合 string.format：",
     "--     STRINGS.UI.NOTIFICATION.DICEROLLED 包含 3 个占位符",
@@ -339,7 +339,7 @@ export const BEFORE = {
     "--   ★★ rolls 是一个数组（一次投多颗骰子），需要拼接。",
     "--   ★ announce_type = \"dice_roll\"。",
   ],
-  139: [
+  "Networking_Talk#1": [
     "--★★[Networking_Talk —— 「实体说话」（非聊天）]",
     "--   ★★ 与 Networking_Say（:53）的区别：",
     "--     · :53 是**玩家**在聊天框/头顶说话（有 ChatHistory 参与）；",
@@ -356,7 +356,7 @@ export const BEFORE = {
     "--       NPC 说话不需要玩家专属颜色。",
     "--   ★ 交叉引用：components/talker.lua。",
   ],
-  146: [
+  "OnTwitchMessageReceived#1": [
     "--★★[OnTwitchMessageReceived —— ★★ Twitch 联动的三个回调之一]",
     "--   ★★★ 三个 Twitch 回调（:146/:156/:165）结构完全一致：",
     "--     if TheWorld ~= nil then TheWorld:PushEvent(\"twitch...\", {...}) end",
@@ -378,13 +378,13 @@ export const BEFORE = {
     "--   ★★ 这是「外部系统集成」的通用模式：外部系统（Steam/Twitch/云存档）",
     "--     随时可能回调，游戏侧必须容忍「此时游戏还没准备好」。",
   ],
-  156: [
+  "OnTwitchLoginAttempt#1": [
     "--★ OnTwitchLoginAttempt —— Twitch 登录结果。载荷 {success, result}。",
   ],
-  165: [
+  "OnTwitchChatStatusUpdate#1": [
     "--★ OnTwitchChatStatusUpdate —— Twitch 聊天状态变化。载荷 {status}。",
   ],
-  173: [
+  "ValidateRecipeSkinRequest#1": [
     "--★★★[ValidateRecipeSkinRequest —— ★ 配方皮肤请求的合法性校验]",
     "--   ★★★ 签名：(user_id, prefab_name, skin) → 返回 validated_skin 或 nil",
     "--   ★★★ 第 175-181 行三重校验（★ 层层收紧）：",
@@ -404,7 +404,7 @@ export const BEFORE = {
     "--   ★★ 设计模式：「逐层收窄的过滤器」—— 每层淘汰一批可能。",
     "--   ★★ 参见 prefabs/world.lua:222-228（classified 实体族）与 networkclientrpc.lua:1089。,"
   ],
-  185: [
+  "VerifySpawnNewPlayerOnServerRequest#1": [
     "--★★★[VerifySpawnNewPlayerOnServerRequest —— ★★ 请求生成新玩家的前置闸门]",
     "--   ★★★ 第 186 行的巨型条件（★ 三个 or 分支）：",
     "--     ① TheWorld == nil                              → 无世界",
@@ -426,7 +426,7 @@ export const BEFORE = {
   ],
 
   // ── ValidateSpawnPrefabRequest ─────────────────────────────────────────
-  194: [
+  "ValidateSpawnPrefabRequest#1": [
     "--★★★★★[ValidateSpawnPrefabRequest —— ★★★ 本文件最长的校验函数，也是最重要的反作弊闸门]",
     "--   ★★★ 签名（7 个参数）：",
     "--     (user_id, prefab_name, skin_base, clothing_body, clothing_hand,",
@@ -445,7 +445,7 @@ export const BEFORE = {
     "--     · ★★★ 这就是「安全不靠拒绝，靠替换」的成熟思路。",
     "--   ★ 交叉引用：:249 SpawnNewPlayerOnServerFromSim（消费本函数返回值）。",
   ],
-  195: [
+  "ValidateSpawnPrefabRequest#1+1": [
     "--★★[第 195 行：两张角色白名单分别判定]",
     "--   local in_mod_char_list = table.contains(MODCHARACTERLIST, prefab_name)",
     "--   ★★ MODCHARACTERLIST 是「模组添加的角色」白名单（服务器管理员授权的）；",
@@ -453,7 +453,7 @@ export const BEFORE = {
     "--   ★★ 注意这里只判定「在不在列表里」，不检查**是否拥有该模组**——",
     "--     ★ 推测在更早的环节（连服时的模组同步，:347 DownloadMods）已保证。",
   ],
-  197: [
+  "ValidateSpawnPrefabRequest#1+3": [
     "--★★★[第 197 行：ExceptionArrays —— ★ 带「例外名单」的白名单计算]",
     "--   local valid_chars = ExceptionArrays(DST_CHARACTERLIST, MODCHARACTEREXCEPTIONS_DST)",
     "--   ★★★ 「主名单 + 例外名单」的合并：",
@@ -466,7 +466,7 @@ export const BEFORE = {
     "--   ★★★ 返回值 valid_chars 是**实际可用**的角色列表，第 226 行会取 [1] 作为兜底。",
     "--   ★ 交叉引用：MODCHARACTEREXCEPTIONS_DST 相关的模组配置（modoverrides）。",
   ],
-  200: [
+  "ValidateSpawnPrefabRequest#1+6": [
     "--★★★[第 200-205 行：★★ 无缝换角色的权限检查 + 入侵记录]",
     "--   if table.contains(SEAMLESSSWAP_CHARACTERLIST, prefab_name) and not allow_seamlessswap_characters then",
     "--   ★★★ 原注释：\"NOTES(JBK): This is not assertion level of importance but",
@@ -490,13 +490,13 @@ export const BEFORE = {
     "--     ★★ \"tried spawning as\" —— 说明这是**已知**的绕过尝试，",
     "--       说明作者考虑过「客户端伪造请求角色」的攻击面。",
   ],
-  207: [
+  "ValidateSpawnPrefabRequest#1+13": [
     "--★[第 207-212 行：六个 validated_ 变量的初始化]",
     "--   ★★ 先全部置 nil/原值，后续按条件逐个填充 —— 「收集-验证-返回」模式。",
     "--   ★★ ★ validated_prefab 初始化为**请求值**（不是 nil）——",
     "--     ★ 因为「合法时直接用请求值，非法时才降级」（第 214-230 行）。",
   ],
-  214: [
+  "ValidateSpawnPrefabRequest#1+20": [
     "--★★★[第 214-223 行：皮肤校验（三层，与 :175 的 ValidateRecipeSkinRequest 同源）]",
     "--   if in_valid_char_list then",
     "--       if skin_base == prefab_name..\"_none\" then",
@@ -523,7 +523,7 @@ export const BEFORE = {
     "--   ★★ 若 ② 或 ③ 任一失败 → validated_skin_base 保持 nil → 不设置皮肤。",
     "--   ★ 三层与 :175 的 ValidateRecipeSkinRequest 是同一套校验范式。",
   ],
-  224: [
+  "ValidateSpawnPrefabRequest#1+30": [
     "--★★[第 224-225 行：模组角色分支 —— ★「模组角色不能用皮肤」]",
     "--   elseif in_mod_char_list then",
     "--       --if mod character, don't use a skin",
@@ -533,7 +533,7 @@ export const BEFORE = {
     "--     ★ 这是一个「显式空分支」—— 用注释说明「故意什么都不做」。",
     "--     ★ 比留空更好（避免后来者以为漏写了）。",
   ],
-  226: [
+  "ValidateSpawnPrefabRequest#1+32": [
     "--★★★[第 226-230 行：★★ 双层兜底 —— 非法角色的降级策略]",
     "--   elseif table.getn(valid_chars) > 0 then",
     "--       validated_prefab = valid_chars[1]",
@@ -554,7 +554,7 @@ export const BEFORE = {
     "--     ★ 实际上第 214 行的 if 覆盖了「合法角色」，第 224/226/228 覆盖其余，",
     "--       ★ 链条是完备的（合法/模组/有兜底/全兜底）。",
   ],
-  232: [
+  "ValidateSpawnPrefabRequest#1+38": [
     "--★★★[第 232-243 行：四件衣物的校验 —— ★★★ 完全平行的四行代码]",
     "--   if clothing_body ~= \"\" and TheInventory:CheckClientOwnership(user_id, clothing_body) and IsClothingItem(clothing_body) then",
     "--       validated_clothing_body = clothing_body",
@@ -578,7 +578,7 @@ export const BEFORE = {
   ],
 
   // ── SpawnNewPlayerOnServerFromSim ──────────────────────────────────────
-  248: [
+  "ValidateSpawnPrefabRequest#1+54": [
     "--★★★[第 248 行原注释 \"NOTES(JBK): [Searchable \\\"SN_SKILLSELECTION\\\"] skillselection\"]",
     "--   ★★★ 这是一条「可搜索标记」：作者刻意写了 SN_SKILLSELECTION 这样的标记串，",
     "--     ★ 目的是让后来者能通过 grep 找到「技能选择相关的所有代码」。",
@@ -586,7 +586,7 @@ export const BEFORE = {
     "--     ★ 类似的标记还见于 prefabs/world.lua 的 NOTES(JBK)（多处）。",
     "--     ★★ 推测是团队内部约定：看到 NOTES(姓名) 表示「这条有历史包袱，别乱改」。",
   ],
-  249: [
+  "SpawnNewPlayerOnServerFromSim#1": [
     "--★★★★★[SpawnNewPlayerOnServerFromSim —— ★★ 新玩家生成的落地执行]",
     "--   ★★★ 原注释说明「从 Sim 调用」—— ★ 即由 C++ 侧在生成玩家后回调。",
     "--   ★★★ 九个参数全是外观与技能：",
@@ -601,7 +601,7 @@ export const BEFORE = {
     "--   ★★ 推理：玩家在生成瞬间必定存在（这是「生成后」的回调）；",
     "--     ★ 判空是防御（GUID 传错/实体已销毁）。",
   ],
-  252: [
+  "SpawnNewPlayerOnServerFromSim#1+3": [
     "--★★[第 252-259 行：六行 skinner 调用 —— ★「外观设置」的完整序列]",
     "--   local skinner = player.components.skinner",
     "--   skinner:SetClothing(clothing_body)",
@@ -630,7 +630,7 @@ export const BEFORE = {
     "--       ★★ 这是「钩子 + 自毁」模式：保证「只做一次」。",
     "--     ★ starting_item_skins —— 新手物品的皮肤（新号赠送物的外观）。",
   ],
-  266: [
+  "SpawnNewPlayerOnServerFromSim#1+17": [
     "--★★★[第 266-267 行：技能树设置 —— ★★ 注意它无条件调用（无判空）]",
     "--   local skilltreeupdater = player.components.skilltreeupdater",
     "--   skilltreeupdater:SetPlayerSkillSelection(skillselection)",
@@ -641,7 +641,7 @@ export const BEFORE = {
     "--         而这里在「刚生成」时同步执行（状态确定）。",
     "--     ★★ 这是一个值得学习的区分：★ 何时需要防御性判空，取决于「时机是否确定」。",
   ],
-  269: [
+  "SpawnNewPlayerOnServerFromSim#1+20": [
     "--★★★[第 269 行：★★ 跨文件调用 —— 本文件与 world.lua 的接缝]",
     "--   TheWorld.components.playerspawner:SpawnAtNextLocation(TheWorld, player)",
     "--   ★★★ 完整跨文件链路（★ 理解 DST 生成流程的最佳样本）：",
@@ -657,7 +657,7 @@ export const BEFORE = {
     "--     ★ 把 TheWorld 作为第一个参数传入（虽然组件本身就挂在 TheWorld 上）。",
     "--     ★ 推测是为了「明确这是哪个世界的出生点系统」（多世界集群时的正确性）。",
   ],
-  270: [
+  "SpawnNewPlayerOnServerFromSim#1+21": [
     "--★★★[第 270 行：★★ 生成后立即存档 —— 为什么这一步至关重要]",
     "--   SerializeUserSession(player, true)",
     "--   ★★★ 第二个参数 true = isnewspawn（第 303 行的形参名）。",
@@ -672,7 +672,7 @@ export const BEFORE = {
     "--   ★★ 与 :663（迁移前存档 ThePlayer）同一哲学：",
     "--     ★★ 「在状态即将发生重大变化前，先把数据落盘」。",
   ],
-  274: [
+  "SpawnNewPlayerOnServerFromSim#1+25": [
     "--★★[第 274 行：\"--TheNet:SpawnSeamlessPlayerReplacement(userid, prefab_name, ...)\"]",
     "--   ★★★ 被注释掉的 C++ 侧函数名 —— ★ 揭示了「无缝换角色」的完整入口。",
     "--   ★★★ 「无缝」（seamless）的含义：",
@@ -682,7 +682,7 @@ export const BEFORE = {
     "--     ★★ 换服务器 = 重启进程（世界变了），换角色 = 复用进程（世界不变）。",
     "--     ★ 这个区分是理解本文件两个「换」的关键。",
   ],
-  275: [
+  "SpawnSeamlessPlayerReplacementFromSim#1": [
     "--★★★[SpawnSeamlessPlayerReplacementFromSim —— 「无缝换角色」的落地]",
     "--   ★★★ 与 SpawnNewPlayerOnServerFromSim（:249）的对比：",
     "--     ┌──────────────────┬──────────────────────┬──────────────────────┐",
@@ -710,7 +710,7 @@ export const BEFORE = {
     "--       ★ 三目惯用法的又一个实例（对比 :62 的 mime 处理）。",
     "--     ★ 判空 `then` 保护：组件可能不存在（非竞技场模式）。",
   ],
-  290: [
+  "SpawnSeamlessPlayerReplacementFromSim#1+15": [
     "--★★[第 290 行：TheWorld:PushEvent(\"ms_seamlesscharacterspawned\", player)]",
     "--   ★★ 换角色完成后广播世界级事件（ms_ 前缀，见 prefabs/world.lua:300 注记）。",
     "--   ★★★ 推理：换角色会影响很多东西（UI 要重建、任务要重置、图鉴要刷新）——",
@@ -719,14 +719,14 @@ export const BEFORE = {
     "--   ★★ 与新生成（:249）不同：★ 新生成不发事件，无缝替换要发 ——",
     "--     ★ 因为替换影响的是「全世界的认知」，需要广播。",
   ],
-  292: [
+  "SpawnSeamlessPlayerReplacementFromSim#1+17": [
     "--★★[第 292 行：SerializeUserSession(player, true) —— 换角色后立即存档]",
     "--   ★★★ 与 :270 相同的调用，isnewspawn 同样为 true。",
     "--   ★★ 推理：换角色是重大状态变化（新角色 + 迁移的背包/技能），",
     "--     ★ 必须立即落盘，否则崩溃会导致玩家「角色换了但没存档」。",
     "--   ★ 交叉引用：:303 SerializeUserSession 的详细分析。",
   ],
-  297: [
+  "RequestedLobbyCharacter#1": [
     "--★★[RequestedLobbyCharacter —— ★ 大厅里的「角色请求」事件]",
     "--   ★★★ 把 7 个参数打包成一个表推事件：",
     "--     TheWorld:PushEvent(\"ms_requestedlobbycharacter\", {userid=..., prefab_name=...,",
@@ -746,11 +746,11 @@ export const BEFORE = {
 };
 
 export const AFTER = {
-  20: [
+  "SpawnSecondInstance#1+8": [
     "--★ SpawnSecondInstance 结束。★★ 它示范了「用 os.execute 开第二个进程」，",
     "--   ★ 与 :650 的 StartNextInstance 是本文件的两处跨进程机制。",
   ],
-  137: [
+  "Networking_RollAnnouncement#1+2": [
     "--★★★ 聊天与公告区结束（§一）。★★★ 结构小结：",
     "--   · 1 个基类（Networking_Announcement :31）；",
     "--   · 8 个固定 type 的薄包装（:78/:82/:91/:95/:99/:103/:122/:135）；",
@@ -758,22 +758,22 @@ export const AFTER = {
     "--   · 1 个带参数校验的实现（Networking_Say :53）。",
     "--   ★★ 全部落在 ChatHistory —— 所有网络消息都进聊天历史（可上翻）。",
   ],
-  144: [
+  "Networking_Talk#1+5": [
     "--★ Networking_Talk 结束。★ 与 :53 的 Networking_Say 是「玩家说」与「实体说」之分。",
   ],
-  171: [
+  "OnTwitchChatStatusUpdate#1+6": [
     "--★★★ Twitch 联动三个回调结束（:146/:156/:165）。",
     "--   ★★ 共同模式：网络层回调 → TheWorld:PushEvent（带 TheWorld ~= nil 保护）。",
     "--   ★ 与 prefabs/world.lua:606 的 ms_playerspawn 是同类「网络/引擎 → 世界事件」桥接。",
   ],
-  192: [
+  "VerifySpawnNewPlayerOnServerRequest#1+7": [
     "--★ VerifySpawnNewPlayerOnServerRequest 结束。★★ 它是「请求生成」的前置闸门：",
     "--   不通过就 TheNet:Kick(user_id)（见 :187）。",
     "--   ★ 与 :194 ValidateSpawnPrefabRequest 是一对：",
     "--     · 本函数 = 「能不能生成」（角色选择大厅规则）；",
     "--     · :194    = 「生成成什么样」（外观合法性）。",
   ],
-  246: [
+  "ValidateSpawnPrefabRequest#1+52": [
     "--★★★ ValidateSpawnPrefabRequest 结束。★★★ 本文件最重要的反作弊闸门，",
     "--   ★★ 核心哲学复述（★ 移植时必须保留）：",
     "--     「非法输入不是拒绝，而是降级到合法值」。",
@@ -784,7 +784,7 @@ export const AFTER = {
     "--     ④ 四件衣物平行校验（存在 + 所有权 + 是衣物）。",
     "--   ★★ 恒定契约：返回值中 validated_prefab **永远非 nil**（两级兜底，:226-230）。",
   ],
-  299: [
+  "RequestedLobbyCharacter#1+2": [
     "--★★★ 出生与无缝换角色区结束（§四）。★★ 两者的对照见 :275 的表格。",
     "--   ★★ 「一进程一世界」的架构含义（★ 参见文件头注记 4）：",
     "--     · 换角色（:275）→ 复用进程与世界，只换实体外观；",

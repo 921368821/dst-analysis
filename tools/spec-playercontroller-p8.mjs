@@ -4,14 +4,14 @@
 //       DoActionAutoEquip
 
 export const BEFORE = {
-  4300: [
+  "PlayerController:OnRemoteDoubleTapAction#1+22": [
     "--============================================================",
     "-- 【第八段】4300-4700 行：双击 RPC 对端 / ★ DoDirectWalking / 相机 /",
     "--   OnLeftUp / ★★ DoAction（所有按钮的汇合点）",
     "--============================================================",
   ],
 
-  4278: [
+  "PlayerController:OnRemoteDoubleTapAction#1": [
     "--【OnRemoteDoubleTapAction(actioncode, position, noforce, mod_name)】",
     "--   ★ 与其他按钮不同：本函数**不查 mod 表**（4278 行的 actioncode 直接进",
     "--     GetDoubleClickActions），靠 4286-4289 行的 code 匹配校验。",
@@ -22,11 +22,11 @@ export const BEFORE = {
     "--     影响：若某动作依赖 dir 或 target（如「朝某方向跳」），服务端算不出来。",
   ],
 
-  4294: [
+  "PlayerController:OnRemoteDoubleTapAction#1+16": [
     "--   4294-4296 行：force 时对齐到客户端预测位置（同 975/2334 行的范式）。",
   ],
 
-  4306: [
+  "PlayerController:DoDirectWalking#1": [
     "--★★★ 【DoDirectWalking】★★ 直接行走（手柄摇杆 / 远端玩家的方向键）。",
     "--   110 行，是三种移动手势里最复杂的一个 —— 因为它要处理「松开摇杆时不打断动作」。",
     "--   结构：",
@@ -36,11 +36,11 @@ export const BEFORE = {
     "--   ★ 由 3062 行调用（仅在完全空闲时）。",
   ],
 
-  4307: [
+  "PlayerController:DoDirectWalking#1+1": [
     "--   ★ 跳跃中不接受直接行走（与 DoPredictWalking:4005、DoDragWalking:4127 同构）。",
   ],
 
-  4309: [
+  "PlayerController:DoDirectWalking#1+3": [
     "--★ 4309-4313 行的三重「不能移动」条件：",
     "--     ① 无 locomotor 或不能预测（CanLocomote）",
     "--     ② controller_attack_override 非 nil（手柄持续攻击中）",
@@ -48,7 +48,7 @@ export const BEFORE = {
     "--   ⇒ 这三条保证「战斗中的方向键」不触发行走。",
   ],
 
-  4319: [
+  "PlayerController:DoDirectWalking#1+13": [
     "--★★★ 【4319-4343：★ 松手护栏（recent_bufferedaction）】本文件最精细的手感逻辑。",
     "--   --Prevent cancelling actions when letting go of direct walking controls late",
     "--   ★ 问题场景：",
@@ -61,7 +61,7 @@ export const BEFORE = {
     "--   ★★ 这是玩家感知不到但确实存在的一段「保护期」。",
   ],
 
-  4321: [
+  "PlayerController:DoDirectWalking#1+15": [
     "--★★ 4321-4324 行的三重判定：",
     "--     ① recent_bufferedaction.act 非 nil（有刚缓冲的动作）",
     "--     ② recent_bufferedaction.t > dt（★ 保护时间还没耗尽）",
@@ -80,7 +80,7 @@ export const BEFORE = {
     "--     这个「一帧窗口」正是 6 行注释里 \"prevent instant cancelling\" 的本意。",
   ],
 
-  4326: [
+  "PlayerController:DoDirectWalking#1+20": [
     "--   ★★ 4326-4334 行的两个方向比较：",
     "--     精确相等（远端玩家：x/z 就是原始数值）",
     "--     或角度差 ≤ 89°（4328 行 `self.isclientcontrollerattached` —— 注释说",
@@ -89,22 +89,22 @@ export const BEFORE = {
     "--     这与 4039 行的 >= 90 形成对比（那边没有余量）。",
   ],
 
-  4336: [
+  "PlayerController:DoDirectWalking#1+30": [
     "--   护栏生效 → 递减保护时间但**不**清标志。",
   ],
 
-  4338: [
+  "PlayerController:DoDirectWalking#1+32": [
     "--   护栏失效 → 立刻作废（4389 行的常规停止逻辑接管）。",
   ],
 
-  4344: [
+  "PlayerController:DoDirectWalking#1+38": [
     "--   ★★ 4344-4350 行：护栏**仍然生效**时的处理 ——",
     "--     清三个手势标志（因为摇杆确实松了）但**保留** act；",
     "--     4349 行 CooldownRemoteController()（无参 = 清零所有按键状态）。",
     "--   ⇒ 关键：这里没有 locomotor:Stop()，所以缓冲动作存活。",
   ],
 
-  4351: [
+  "PlayerController:DoDirectWalking#1+45": [
     "--★ 4351-4381 行：摇杆有值的正常行走。",
     "--   4352 行 ClearBufferedAction：★ 有新输入 → 旧动作作废（覆盖护栏）。",
     "--   ★ 4358-4360 行：",
@@ -118,13 +118,13 @@ export const BEFORE = {
     "--     两者在不同上下文使用，不冲突，但对照阅读容易困惑。",
   ],
 
-  4363: [
+  "PlayerController:DoDirectWalking#1+57": [
     "--   ★ time_direct_walking 计时：首次进入为 dt，之后累加。",
     "--   ★★ 4364-4366 行的意义：「刚松开后立刻按住」不重置计时 ——",
     "--     保证 0.2 秒的「脱战延迟」不会被快速点按绕过。",
   ],
 
-  4372: [
+  "PlayerController:DoDirectWalking#1+66": [
     "--★★ 4372-4381 行：**本机客户端 vs 服务端**的镜像分派。",
     "--   4374 行：无 locomotor 的客户端 → RemoteDirectWalking（发方向 RPC）。",
     "--   4376-4381 行：服务端 → CancelPredictMoveTimer（4377 行注释：",
@@ -136,7 +136,7 @@ export const BEFORE = {
     "--       直接行走还要执行脱战。",
   ],
 
-  4382: [
+  "PlayerController:DoDirectWalking#1+76": [
     "--★ 4382-4388 行：客户端在预测行走、但本函数被调到了（预测刚停）。",
     "--   4383 行 `if locomotor.bufferedaction == nil then locomotor:Stop() end`：",
     "--   ★★ **只清移动，不清动作**：有缓冲动作时保留。",
@@ -145,7 +145,7 @@ export const BEFORE = {
     "--     的 CanLocomote 过滤（无 locomotor 时 4309 为假 → 不进本分支）。",
   ],
 
-  4389: [
+  "PlayerController:DoDirectWalking#1+83": [
     "--★★ 【4389-4414：摇杆松开时的收尾】",
     "--   4391-4392 行 CanLocomote + 无 override → locomotor:Stop()（**用 Stop 不用 Clear**）。",
     "--   4393 行注释 \"instead of self.locomotor:Clear()\" ——",
@@ -157,13 +157,13 @@ export const BEFORE = {
     "--     与 4420 行的 DoDirectStopWalking 不同（那里没有这个条件）。",
   ],
 
-  4399: [
+  "PlayerController:DoDirectWalking#1+93": [
     "--   4399-4404 行：客户端清按键状态 + 无 locomotor 时发停止 RPC。",
     "--   ⚠ 4401-4403 行只在 locomotor == nil 时发 RPC ——",
     "--     有 locomotor 的客户端不发，因为引擎会自己同步 locomotion 状态。",
   ],
 
-  4417: [
+  "PlayerController:DoDirectWalking#1+111": [
     "--★★ 【DoDirectStopWalking】★ 无 locomotor 客户端在 busy 时的停止补偿。",
     "--   注释：\"for non-predicting clients, stopping during busy states\"",
     "--   五重条件（4419-4424）：",
@@ -176,23 +176,23 @@ export const BEFORE = {
     "--     它没有 locomotor 组件，所以 busy 期间（3041 行）必须靠 RPC 停住。",
   ],
 
-  4435: [
+  "PlayerController:DoDirectStopWalking#1+17": [
     "--★ ROT_REPEAT = .25 / ZOOM_REPEAT = .1：相机旋转/缩放的最小间隔。",
     "--   ★ 用 GetStaticTime（墙钟）而非 GetTime → 暂停时仍生效。",
   ],
 
-  4438: [
+  "PlayerController:DoCameraControl#1": [
     "--★★ 【DoCameraControl】相机控制。由 OnWallUpdate(2631 行) 每墙钟帧调用。",
     "--   ★ 双路径：SupportsControllerFreeCamera（自由视角手柄，4453-4477 行）",
     "--     与传统按键（4479-4502 行）。",
   ],
 
-  4441: [
+  "PlayerController:DoCameraControl#1+3": [
     "--   ★ 4441 行与 RotLeft/RotRight（1476/1495 行）同款守卫：",
     "--     「不能控制相机 但 在用无人机」→ 仍允许旋转。",
   ],
 
-  4446: [
+  "PlayerController:DoCameraControl#1+8": [
     "--   4446 行：既没 enabled 也没 hudblocking → 放弃。",
     "--     ★ 但 4445 行已经拿到了 isenabled/ishudblocking，而这里**只判 isenabled**，",
     "--       与 601 行 OnControl 的 `if not isenabled and not ishudblocking` 不同。",
@@ -200,12 +200,12 @@ export const BEFORE = {
     "--     但 DoCameraControl 完全不工作。这是有意的（地图里用自己的缩放）。",
   ],
 
-  4453: [
+  "PlayerController:DoCameraControl#1+15": [
     "--   ★★ 4453 行的自由视角分支（4419-4477）：支持「按住旋转 + 垂直缩放」同时进行。",
     "--     移动端/主机平台的常见需求（右摇杆转视角 + 扳机缩放）。",
   ],
 
-  4459: [
+  "PlayerController:DoCameraControl#1+21": [
     "--★ 4459 行 `absxdir >= deadzone and absxdir > absydir * 1.3`：",
     "--   --favour zoom a bit more at diagonals",
     "--   ★★ 1.3 的系数：对角线输入时**优先缩放**。",
@@ -213,25 +213,25 @@ export const BEFORE = {
     "--     1.3 意味着缩放方向需要比旋转方向推得更远才触发。",
   ],
 
-  4464: [
+  "PlayerController:DoCameraControl#1+26": [
     "--   ★ 4464 行 Remap(min(1, absxdir), deadzone, 1, 2, 3)：",
     "--     ★★ 把摇杆幅度映射到「每秒转 2~3 格」。死区处最慢，推满最快。",
     "--     这是「模拟量旋转」的实现（对比传统分支的定步长 45°）。",
   ],
 
-  4472: [
+  "PlayerController:DoCameraControl#1+34": [
     "--   4472 行 Remap(min(1, absydir), deadzone, 1, 0, 0.65) → 缩放速度。",
     "--   ★ 4473 行 ContinuousZoomDelta(ydir > 0 and -delta or delta)：",
     "--     ★ 负号来源：摇杆「上」（ydir > 0）对应「放大」，而缩放是反向的。",
   ],
 
-  4479: [
+  "PlayerController:DoCameraControl#1+41": [
     "--   -- CharlesB: Not used right now",
     "--   ⇒ 4480 行之后的传统按键分支在支持自由视角的手柄上是死代码。",
     "--     但键盘玩家仍走这里（TheInput:SupportsControllerFreeCamera 为假）。",
   ],
 
-  4490: [
+  "PlayerController:DoCameraControl#1+52": [
     "--★ 4490-4502 行：滚轮/按键缩放。4492/4497 行的 craftingmenu.focus 检查",
     "--   呼应 303-304 行 OnContinueFromPause 缓存的 zoomin_same_as_scrollup。",
     "--   ⚠ 4492 行 `self.inst.HUD.controls.craftingmenu.focus` 没有 craftingmenu 的",
@@ -245,13 +245,13 @@ export const BEFORE = {
     "--       故只在「缩放键映射到滚轮键」的手柄配置下触发。",
   ],
 
-  4505: [
+  "IsWalkButtonDown#1": [
     "--★ IsWalkButtonDown：四个移动键任一按下。",
     "--   ★ 用于 4516 行：「松开鼠标左键时若方向键还按着，就不停住」。",
     "--     ⇒ 玩家「按住方向键 + 点地面 + 松鼠标」应该继续走而不是停。",
   ],
 
-  4509: [
+  "PlayerController:OnLeftUp#1": [
     "--★ 【OnLeftUp】鼠标左键抬起（由 4684 行 OnLeftClick(down=false) 调用）。",
     "--   ⚠ 注意：**不是** RPC 的对端，是一个纯客户端的本地事件处理。",
     "--   ⇒ 客户端的「松开鼠标」不需要通知服务器（服务器只关心最终位置）。",
@@ -259,20 +259,20 @@ export const BEFORE = {
     "--     因为 remote_controls 需要同步（服务端要用 IsControlPressed 判断攻击）。",
   ],
 
-  4516: [
+  "PlayerController:OnLeftUp#1+7": [
     "--★ 4516 行 `CanLocomote() and not IsWalkButtonDown()`：",
     "--   ★★ 「松开鼠标但方向键还按着 → 不 Stop」。",
     "--     与 4319 行的松手护栏同源，但判据是**按键状态**而非时间窗。",
     "--   ⇒ 两个护栏互补：护栏 1 用时间窗，护栏 2 用按键状态。",
   ],
 
-  4527: [
+  "PlayerController:OnLeftUp#1+18": [
     "--   4527-4529 行：非服务端 → 通知服务器「鼠标左键松开」。",
     "--   ★★ 这解释了为什么 remote_controls 里需要存按键的「按住时长」：",
     "--     抬起事件让服务器能清掉它，否则 IsControlPressed 永远为真。",
   ],
 
-  4542: [
+  "PlayerController:DoAction#1": [
     "--★★★ 【DoAction(buffaction, spellbook)】★★★ **所有按钮的最终汇合点**。",
     "--   13379 行的 actions.lua 定义「有什么动作」，本文件定义「何时用哪个动作」，",
     "--   而 DoAction 是「把选好的动作真正启动」的唯一入口。",
@@ -287,7 +287,7 @@ export const BEFORE = {
     "--   ⚠ 它被 20+ 处调用，是全文件耦合度最高的函数。",
   ],
 
-  4543: [
+  "PlayerController:DoAction#1+1": [
     "--   --V2C: -New support for \"non_preview_cb\" on non-predicting clients.",
     "--   --     -If there's no pre_action_cb, trigger the cb to send the RPC",
     "--   --      right away, matching old behaviour.",
@@ -299,13 +299,13 @@ export const BEFORE = {
     "--     · preview_cb     → 经 locomotor 缓冲，到达/动画完成才发（延迟）",
   ],
 
-  4546: [
+  "PlayerController:DoAction#1+4": [
     "--★ 4546-4552 行：条件极其特殊 —— non_preview_cb 存在 且 无 pre_action_cb",
     "--   且 无 locomotor。此时**立刻**触发回调（即发 RPC）。",
     "--   ⚠ 4549 行的 `self.locomotor == nil` 是必要条件（否则预览路径会触发）。",
   ],
 
-  4554: [
+  "PlayerController:DoAction#1+12": [
     "--   --Check if the action is actually valid. /",
     "--   --Cached LMB/RMB actions can become invalid. /",
     "--   --Also check if we're busy.",
@@ -313,12 +313,12 @@ export const BEFORE = {
     "--     这一帧目标可能已被删除/销毁。",
   ],
 
-  4559: [
+  "PlayerController:DoAction#1+17": [
     "--★ 4559-4563 行：四个有效性判据（动作存在、invobject/target/doer 有效）。",
     "--   ⇒ 即使动作原型有效，参与的实体也必须都还活着。",
   ],
 
-  4565: [
+  "PlayerController:DoAction#1+23": [
     "--★ 4565-4579 行：busy 时的例外 —— CASTAOE 允许重复施法。",
     "--   4568 行 `local item = spellbook or buffaction.invobject`：",
     "--     ★ spellbook 参数从 836/1036/4736 行一路传下来。",
@@ -327,12 +327,12 @@ export const BEFORE = {
     "--     意味着「这个角色能不能连射」是角色属性，与武器无关。",
   ],
 
-  4581: [
+  "PlayerController:DoAction#1+39": [
     "--   ★ 4582 行 `self.actionholdtime = nil`：",
     "--     动作无效 → 取消长按起点 → 不会进入长按重复状态。",
   ],
 
-  4586: [
+  "PlayerController:DoAction#1+44": [
     "--★★ 【4587-4600 重复动作检查】★ 本文件防「连点」的最终防线。",
     "--   四个比较：action 相同 / target 相同 / pos 相同。",
     "--   4591-4592 行 `currentbuffaction.pos == buffaction.pos` 带注释：",
@@ -347,28 +347,28 @@ export const BEFORE = {
     "--     ★ 即「如果服务器卡住了，我们要能重发」，否则玩家会觉得卡死。",
   ],
 
-  4602: [
+  "PlayerController:DoAction#1+60": [
     "--★ ATTACK 动作时把 target 写进 sg.statemem.retarget（供 2635 行读）。",
     "--   ⇒ 3140 行的链式攻击由此获得目标。",
   ],
 
-  4606: [
+  "PlayerController:DoAction#1+64": [
     "--★ 4606-4616 行：目标闪烁（表现层）。仅 handler ~= nil（本机客户端）。",
     "--   4611 行的默认参数 .2/.125/.1：闪白强度/渐入/渐出时间（秒）。",
     "--   4612 行 highlightflashaddoverride：模组可覆盖闪烁强度。",
   ],
 
-  4618: [
+  "PlayerController:DoAction#1+76": [
     "--★ 4619 行 `self.attack_buffer = nil`：",
     "--   ★★ 「开始新动作 → 清掉待处理的攻击请求」。",
     "--     优先级规则：任何非攻击动作都会丢弃之前的攻击请求。",
   ],
 
-  4621: [
+  "PlayerController:DoAction#1+79": [
     "--★ DoActionAutoEquip：先自动装备，再执行（见 4652 行）。",
   ],
 
-  4623: [
+  "PlayerController:DoAction#1+81": [
     "--★★ 【4623-4627 长按记录】`not instant and not invalid_hold_action and IsValid()`",
     "--   三个否定条件：",
     "--     · instant（瞬发动作，如走路/看）→ 不可长按重复",
@@ -377,7 +377,7 @@ export const BEFORE = {
     "--   ⇒ 只有「持续性动作」（挖矿/砍树/进食）会被记录为 lastheldaction。",
   ],
 
-  4629: [
+  "PlayerController:DoAction#1+87": [
     "--★★★ 【4629-4644 三个执行分支】",
     "--   4629-4630 服务端：PushAction(buffaction, true) —— force_run=true",
     "--   4631-4641 无 locomotor 客户端：手工触发 pre_action_cb + non_preview_cb",
@@ -389,13 +389,13 @@ export const BEFORE = {
     "--     有 pre_action_cb → 在这里触发；无 pre_action_cb → 在 4546 行已触发。",
   ],
 
-  4646: [
+  "PlayerController:DoAction#1+104": [
     "--   LOOKAT（查看）完成后登记到「已查看」图鉴（TheScrapbookPartitions）。",
     "--   ★ 2391 行的同款调用在 GetInspectButtonAction 路径上也有 ——",
     "--     两处都记，说明「登记」既不在动作里也不在 RPC 里，而在调用点。",
   ],
 
-  4652: [
+  "PlayerController:DoActionAutoEquip#1": [
     "--★★★ 【DoActionAutoEquip】★ 自动装备的**黑名单式**实现（25 行全是排除）。",
     "--   4654-4673 行：22 个条件全满足才自动装备。",
     "--   ★ 结构性观察：**没有白名单，全是黑名单**。",
@@ -406,13 +406,13 @@ export const BEFORE = {
     "--     必须自己 patch 这个函数或用 invobject 的标签绕过。",
   ],
 
-  4672: [
+  "PlayerController:DoActionAutoEquip#1+20": [
     "--   ★ 4672 行是唯一的复合条件：TOSS（投掷）除非物品带 keep_equip_toss。",
     "--     ⇒ 多数投掷动作不自动装备（避免「扔石头顺手装备石头」），",
     "--       但某些角色（如韦布斯特的球）可以。",
   ],
 
-  4676: [
+  "PlayerController:DoActionAutoEquip#1+24": [
     "--   ★ 4676 行 autoequipped = true —— ★★ 这个标志的**关键用途在服务端**：",
     "--     963-972 行（OnRemoteControllerActionButton）与 1213-1220 行",
     "--     都在检查「lmb/rmb 中任一 code 匹配」，正是为了容忍自动装备导致的漂移。",
@@ -424,7 +424,7 @@ export const BEFORE = {
     "--     这是「客户端预测 + 服务端独立重算」的又一处体现。",
   ],
 
-  4680: [
+  "PlayerController:OnLeftClick#1": [
     "--★★★ 【OnLeftClick(down)】鼠标左键。由 652 行 OnControl 分派。",
     "--   ★★ 4681 行 `if not self:UsingMouse() then return end`：手柄模式完全忽略。",
     "--   结构（140 行）：",
@@ -437,45 +437,45 @@ export const BEFORE = {
     "--     ⑦ 4875-4887 收尾（DoAction + 防闪烁 + busy 微调）",
   ],
 
-  4683: [
+  "PlayerController:OnLeftClick#1+3": [
     "--   ★ 4683-4686 行：抬起事件转给 OnLeftUp（4509 行）后立即返回。",
     "--     ⇒ 与 622 行的统一抬起处理不同：**鼠标左右键被显式排除**于统一处理。",
   ],
 
-  4688: [
+  "PlayerController:OnLeftClick#1+8": [
     "--   ★ 4688 行 ClearActionHold：每次左键都重置长按状态。",
     "--     ⇒ 保证「每次新点击都是干净的长按起点」。",
   ],
 
-  4692: [
+  "PlayerController:OnLeftClick#1+12": [
     "--   ★ 4692-4695 行：保存并清空上一次的**双击**记录（区别于长按记录）。",
     "--   ⚠ 变量名 startdoubleclicktime/pos 与 long press 的 actionholdtime 不同，",
     "--     两者互不干扰。",
   ],
 
-  4699: [
+  "PlayerController:OnLeftClick#1+19": [
     "--   ★ 4699-4701 行：鼠标在 HUD 元素上 → 取消建造放置。",
     "--     \"点 UI 会取消建造\" 是一个容易被误解但很重要的行为。",
   ],
 
-  4702: [
+  "PlayerController:OnLeftClick#1+22": [
     "--   建造放置模式：与 2308 行的手柄版本同构，但多了 can_build / onfailed 分支。",
   ],
 
-  4721: [
+  "PlayerController:OnLeftClick#1+41": [
     "--★ 4722 行 `self.actionholdtime = GetTime()`：长按起点。",
     "--   ⚠ 4721 行先取 `local t = GetTime()` 再存，4722 行同时赋值 ——",
     "--     t 在 4760/4774/4798/4801 行被复用（双击判定）。",
   ],
 
-  4725: [
+  "PlayerController:OnLeftClick#1+45": [
     "--★ AOE 瞄准分支（4725-4743）：与 824-843 行的手柄版本几乎逐行同构。",
     "--   ⚠ 但 4732 行用的是 `self:GetRightMouseAction()`（**鼠标右键**的缓存），",
     "--     而手柄版 831 行用 `self:GetGroundUseAction()`（现算点地动作）。",
     "--     ⇒ 同一个语义，两条不同实现。这是鼠标/手柄不对称的一例。",
   ],
 
-  4745: [
+  "PlayerController:OnLeftClick#1+65": [
     "--★ 4745-4746 行 `TheSim:GetPosition()` + `ProjectScreenPos()`：",
     "--   ★★ 这个组合**不是**取鼠标位置，而是取「屏幕中心投影到世界」。",
     "--   为什么？TheSim:ProjectScreenPos 需要世界坐标→屏幕的逆运算；",
@@ -489,28 +489,28 @@ export const BEFORE = {
     "--     ⇒ 正确理解：这是「从屏幕中心反投影」，等价于取鼠标下的地面点。",
   ],
 
-  4752: [
+  "PlayerController:OnLeftClick#1+72": [
     "--★ 4752 行 `TheInput:GetWorldEntityUnderMouse()`：鼠标下的实体。",
     "--   4753-4755 行：不可见则置 nil（4754 行的重复判断是优化）。",
   ],
 
-  4756: [
+  "PlayerController:OnLeftClick#1+76": [
     "--★ 4756 行的条件 `if target or CanEntitySeeTarget(self.inst, self.inst)`：",
     "--   与 4233 行同款 —— 「有目标 或 玩家能看见自己」才尝试双击。",
   ],
 
-  4758: [
+  "PlayerController:OnLeftClick#1+78": [
     "--★ 4758 行 GetDoubleClickActions(position, dir, target)[1] —— 三参数版。",
     "--   ⚠ 与 4283 行（服务端）只传 position 的版本不对称（见该处注释）。",
   ],
 
-  4760: [
+  "PlayerController:OnLeftClick#1+80": [
     "--★ 4760-4761 行的双击判定比 4243 行更严：还要**位置接近**",
     "--   （DOUBLE_CLICK_POS_THRESHOLD = 3，constants.lua:2307）。",
     "--   ⇒ 鼠标双击要求两次点击在同一片区域（3 像素内），摇杆双击只要求时间。",
   ],
 
-  4764: [
+  "PlayerController:OnLeftClick#1+84": [
     "--★★ 4764-4770 行 trypreventdirflicker —— 一个被主动限定范围的修复。",
     "--   注释全文：",
     "--     \"If we're holding a direction key, direct walking will (after one frame)",
@@ -526,13 +526,13 @@ export const BEFORE = {
     "--   ⚠ 后果：**只有双击动作受保护**，其他动作仍有朝向闪烁。",
   ],
 
-  4772: [
+  "PlayerController:OnLeftClick#1+92": [
     "--   ★ 4772-4775 行：首次（不构成双击）时**记录**位置与时间，作为第二次的基准。",
     "--     且 4772 行的条件包含 `or self:IsBusy()` ——",
     "--     ⇒ busy 时即使不是首次双击也持续记录，因为 busy 期间点击不会执行。",
   ],
 
-  4780: [
+  "PlayerController:OnLeftClick#1+100": [
     "--★★ 4780-4785 行：动作选择的最终兜底链。",
     "--   4781 行 `GetLeftMouseAction() or BufferedAction(self.inst, nil,",
     "--   ACTIONS.WALKTO, nil, position)`：",
@@ -544,40 +544,40 @@ export const BEFORE = {
     "--     实则是清掉 4773-4774 行可能已记录的起点。属防御式冗余。",
   ],
 
-  4795: [
+  "PlayerController:OnLeftClick#1+115": [
     "--★★ 4795-4799 行：WALKTO 时若目标是**平台**（船/冰），不进入拖拽模式。",
     "--   4797 行的 HasAnyTag(\"walkableplatform\", \"walkableperipheral\") 排除。",
     "--   ⇒ 「点击船上走过去」不会变成「按住拖拽」。",
   ],
 
-  4800: [
+  "PlayerController:OnLeftClick#1+120": [
     "--   DASH（冲刺，如韦德的技能）也设置 startdragtime ——",
     "--   ⇒ 冲刺后可继续拖拽连续冲刺。",
   ],
 
-  4802: [
+  "PlayerController:OnLeftClick#1+122": [
     "--★ ATTACK 分支：与 DoAttackButton 的「重复攻击」检查同构（2802/1302 行）。",
     "--   ★ 4805 行 `sg:HasStateTag(\"attack\") and act.target == combat:GetTarget()`",
     "--     4804 行先写 retarget —— ★ 即使要 return 也已经写了。",
     "--   ⚠ 副作用：对着同一目标狂点时，每次都会刷新 retarget（无害）。",
   ],
 
-  4811: [
+  "PlayerController:OnLeftClick#1+131": [
     "--★ LOOKAT 分支：目标带 playeravatardata → 弹玩家资料；",
     "--   4819-4821 行：目标带 quagmire_shoptab → 推事件打开商店页。",
     "--   ⚠ 硬编码模组内容（quagmire）写在通用文件里（同 2489 行温蒂特例）。",
   ],
 
-  4823: [
+  "PlayerController:OnLeftClick#1+143": [
     "--   船炮 / 高尔夫的准星涟漪（纯表现）。",
   ],
 
-  4833: [
+  "PlayerController:OnLeftClick#1+153": [
     "--★★★ 【4833-4873 发送分支】与手柄版同构，但有两处鼠标特有的细节。",
     "--   4834 行服务端：combat:SetTarget(nil)（同其他按钮）。",
   ],
 
-  4837: [
+  "PlayerController:OnLeftClick#1+157": [
     "--★ 4837-4846 行：★ 「用准星位置」还是「用鼠标位置」的抉择。",
     "--   四种动作用 reticule 的位置：",
     "--     · CASTAOE（法术）",
@@ -591,7 +591,7 @@ export const BEFORE = {
     "--     「动作实例换了，位置来源也必须跟着换」。",
   ],
 
-  4847: [
+  "PlayerController:OnLeftClick#1+167": [
     "--★ 4847-4851 行的 else 分支：用真实鼠标位置，并转成平台相对坐标。",
     "--   4850 行 `act.action ~= ACTIONS.DROP and GetWorldEntityUnderMouse() or nil`：",
     "--     ★★ DROP（丢弃）时不发 mouseover —— 丢弃不需要悬停物信息。",
@@ -599,16 +599,16 @@ export const BEFORE = {
     "--       false（不会，实体是 table 或 nil），结果为 nil。安全。",
   ],
 
-  4853: [
+  "PlayerController:OnLeftClick#1+173": [
     "--★ EncodeControlMods：把修饰键掩码一起发给服务器（转发的强制攻击等）。",
   ],
 
-  4854: [
+  "PlayerController:OnLeftClick#1+174": [
     "--★ 4854-4872 行：三分支发送，与 886-939 行同构。",
     "--   ★ 4861-4864 行的「按钮按下」通知：鼠标左键的无参 RPC（RPC.LeftClick）。",
   ],
 
-  4865: [
+  "act.non_preview_cb#8+10": [
     "--★ 4865 行 `act.action ~= ACTIONS.WALKTO and self:CanLocomote()`：",
     "--   ★★ 与 2300 行一致的 WALKTO 豁免 —— 走过去不产生动作 RPC。",
     "--     但 4861-4864 行的「按下通知」**仍会发**。",
@@ -616,11 +616,11 @@ export const BEFORE = {
     "--     而不是发一个完整的 LeftClick(code, x, z, ...)。带宽优化成立。",
   ],
 
-  4875: [
+  "act.preview_cb#8+9": [
     "--★ 4875 行 DoAction：无论走哪条分支，最终都汇合到这里。",
   ],
 
-  4877: [
+  "act.preview_cb#8+11": [
     "--★ 4877-4879 行：trypreventdirflicker 的实际执行。",
     "--   ★ 完整条件链（跨 4758-4879 行）：",
     "--     ① 4758 行算出 dblclickact 但**首次点击**（未构成双击）",
@@ -637,35 +637,35 @@ export const BEFORE = {
     "--     玩家若想执行该动作，松开方向键再点一次即可（此时 dir 为 nil）。",
   ],
 
-  4881: [
+  "act.preview_cb#8+15": [
     "--★ 4881-4887 行：位置存在时发 busy 微调（温泉等场景）。",
     "--   4883 行服务端走 sg:HandleEvent(\"ms_overridelocomote_click\", ...)，",
     "--     4885 行客户端走 DoClientBusyOverrideLocomoteClick（3991 行）。",
   ],
 
-  4890: [
+  "PlayerController:OnRemoteLeftClick#1": [
     "--【OnRemoteLeftClick】★ 左键的服务端对端（最长的一个 Remote 函数）。",
     "--   ★★ 4901 行 DecodeControlMods 在**动作选择之前**调用 ——",
     "--     修饰键（强制攻击等）必须先生效，picker 才能算出对应动作。",
     "--     与 5098 行（右键）的顺序一致。",
   ],
 
-  4896: [
+  "PlayerController:OnRemoteLeftClick#1+6": [
     "--   actioncode == nil → 「只是按下通知」（4863 行发的）。",
     "--   4897 行 assert(isreleased == nil)：同 951/1199 行的自检断言范式。",
   ],
 
-  4901: [
+  "PlayerController:OnRemoteLeftClick#1+11": [
     "--★ 4901-4924 行：解码修饰键 → 选动作 → 清修饰键。",
     "--   ★ 4924 行 ClearControlMods() 在**动作算完之后**才清 ——",
     "--     保证算动作时修饰键生效。",
   ],
 
-  4904: [
+  "PlayerController:OnRemoteLeftClick#1+14": [
     "--★ 法术书分支（4904-4911）：与 998 行同构，含 GetGrandOwner 校验。",
   ],
 
-  4912: [
+  "PlayerController:OnRemoteLeftClick#1+22": [
     "--   4912 行的 `elseif spell_id == nil`：",
     "--   ⚠ 疑似缺陷（条件含义）：这个条件是「spell_id 为 nil」，",
     "--     而 spellbook == nil 的情况由上一分支覆盖。",
@@ -678,12 +678,12 @@ export const BEFORE = {
     "--       不会同时出现「有书无 spell_id」。故当前不可触发。",
   ],
 
-  4915: [
+  "PlayerController:OnRemoteLeftClick#1+25": [
     "--★ 4915-4918 行：服务端也算一次双击动作（用于 4945 行的回退链）。",
     "--   4916 行同样用 CanEntitySeeTarget(self.inst, self.inst) 做守卫。",
   ],
 
-  4926: [
+  "PlayerController:OnRemoteLeftClick#1+36": [
     "--★★ 【4929-4949：四级回退链】★ 本文件最精巧的一段。",
     "--   注释：\"Default fallback lmb action is WALKTO /",
     "--    Possible for lmb action to switch to rmb after autoequip /",
@@ -707,13 +707,13 @@ export const BEFORE = {
     "--     而不是简单地丢弃请求。**容错优先于严格**。",
   ],
 
-  4951: [
+  "PlayerController:OnRemoteLeftClick#1+61": [
     "--★ 4951-4956 行：force 时对齐预测位置（同 975 行）。",
     "--   ★★ 4956 行的 DoAction(lmb, spellbook) 传了 spellbook ——",
     "--     因为 ① 的 LOOKAT 兜底可能来自法术书路径。",
   ],
 
-  4957: [
+  "PlayerController:OnRemoteLeftClick#1+67": [
     "--   --see trypreventdirflicker",
     "--★★ 4958 行：服务端的 trypreventdirflicker 对应实现。",
     "--   条件与客户端 4877 行不同：这里多了 `self:GetRemoteDirectVector()`",

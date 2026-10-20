@@ -78,7 +78,7 @@ export default {
   ],
 
   // ══════════════ 目标解析 ══════════════
-  34: [
+  "Follow:GetTarget#1": [
     '--★★ GetTarget：把 self.target（实体 or 函数）解析成「此刻有效」的实体。',
     '--   FunctionOrValue 是 DST 的全局工具函数：',
     '--     · 参数是函数 → 调用它并返回结果',
@@ -92,7 +92,7 @@ export default {
   ],
 
   // ══════════════ 阈值求值 ══════════════
-  39: [
+  "Follow:EvaluateDistances#1": [
     '--★★ EvaluateDistances：把三个「函数形式阈值」求值成数字。',
     '--   原注释写明 "this is run once per follow target" —— 每个目标只算一次。',
     '--★ 与第 88 行 `if targetswitched or self.alwayseval` 配合：',
@@ -102,7 +102,7 @@ export default {
   ],
 
   // ══════════════ 调试输出 ══════════════
-  51: [
+  "Follow:DBString#1": [
     '--★★ DBString：仅在 RUNNING 时被 GetString 调用（behaviourtree.lua:664）。',
     '--   输出格式「<目标> <动作>, (<距离>) 」—— 距离保留两位小数便于肉眼判断差多少。',
     '--★ 距离用 GetDistanceSqToInst + sqrt（现算），而不是复用 Visit 里缓存的 dist_sq：',
@@ -111,7 +111,7 @@ export default {
   ],
 
   // ══════════════ 距离计算 ══════════════
-  59: [
+  "_distsq#1": [
     '--★★ _distsq：自己实现距离平方计算，返回 (距离², 目标世界坐标)。',
     '--   一次函数调用同时拿到距离和目标点，避免调用方再取一次 Transform ——',
     '--   ★ 这是「把两个查询合并成一次」的典型优化，Visit 里每帧都要用。',
@@ -123,7 +123,7 @@ export default {
   ],
 
   // ══════════════ 平台判定 ══════════════
-  69: [
+  "Follow:AreDifferentPlatforms#1": [
     '--★★ AreDifferentPlatforms：两者是否不在同一块平台上（船 vs 岸）。',
     '--★ 第一行 `if self.inst.components.locomotor.allow_platform_hopping` 是能力开关：',
     '--   只有生物**允许跳船**时，「不同平台」才是有意义的问题；否则一律返回 false。',
@@ -135,7 +135,7 @@ export default {
   ],
 
   // ══════════════ Visit：READY 段 ══════════════
-  76: [
+  "Follow:Visit#1": [
     '--★★ Visit —— 本节点唯一被框架调用的方法，三段式写法的范本。',
     '--   结构固定为：',
     '--     if self.status == READY  then ... end   -- ① 能否进入 + 决定动作',
@@ -144,38 +144,38 @@ export default {
     '--     紧接着的 RUNNING 段会在**同一次调用**里执行。这是刻意的 ——',
     '--     「决定做」和「开始做」之间不浪费一帧。',
   ],
-  80: [
+  "Follow:Visit#1+4": [
     '--★ 先存旧目标，再解出新目标，二者不等即「目标切换」。',
     '--   targetswitched 是本节点最核心的一个状态位 —— 它同时触发：',
     '--     · 重新求值阈值（第 88-90 行）',
     '--     · 重新做进入/退出决策（第 84 行的 or targetswitched）',
     '--   ★ 即「换目标 = 重新考虑要不要跟」，而不是继续沿用旧目标的结论。',
   ],
-  84: [
+  "Follow:Visit#1+8": [
     '--★★ `if self.status == READY or targetswitched then` —— 决策段的入口守卫。',
     '--   为什么 RUNNING 期间换目标也要重进决策段？因为 APPROACH 和 BACKOFF 的方向相反，',
     '--   目标一变就必须重新判断该靠近还是该后退。',
     '--   ★ 这就是内层 action 小状态机必须与「目标切换」联动的根本原因。',
   ],
-  88: [
+  "Follow:Visit#1+12": [
     '--★ 只有「刚切换目标」或「alwayseval 开启」才重算阈值。',
     '--   若 alwayseval=false 且目标未变，阈值保持上次求值结果（快照语义）。',
   ],
 
   // ══════════════ 三段距离带判定 ══════════════
-  92: [
+  "Follow:Visit#1+16": [
     '--★ 先算「是否跨平台」，后面两个分支都以它为前提，避免重复计算。',
   ],
-  94: [
+  "Follow:Visit#1+18": [
     '--★★【BACKOFF 判定】进入内圈（比 min_dist 还近）→ 要后退。',
     '--   注意 `not on_different_platforms` 前置：跨平台时距离语义失效（见 _distsq 的 3D 注释），',
     '--   所以跨平台一律不走 BACKOFF。',
   ],
-  97: [
+  "Follow:Visit#1+21": [
     '--★★【APPROACH 判定】跨平台，或超出 max_dist → 要追。',
     '--   两条独立触发条件用 or 连接，语义不同：前者是「够不着」，后者是「太远」。',
   ],
-  100: [
+  "Follow:Visit#1+24": [
     '--★★【收敛判定】既不近也不远 —— 已在目标距离带内。',
     '--   ★★ 这里写的是 FAILED 而不是 SUCCESS，这是本文件最容易被误读的一行：',
     '--     站在正确位置「不需要采取任何行动」，对行为树来说就是「本节点不适用」，',
@@ -191,7 +191,7 @@ export default {
   ],
 
   // ══════════════ Visit：RUNNING 段 ══════════════
-  114: [
+  "Follow:Visit#1+38": [
     '--★★ RUNNING 段入口。四类失效条件逐层检查（任一命中即 FAILED）：',
     '--   ① 目标为 nil          —— 被外层换掉了',
     '--   ② 目标 IsValid 失败   —— 被删了',
@@ -201,7 +201,7 @@ export default {
     '--   READY 段到 RUNNING 段之间虽然只隔几行，但下一帧 RUNNING 段执行时',
     '--   目标可能已被销毁。多帧存活的行为必须**每帧重新验证外部世界**。',
   ],
-  119: [
+  "Follow:Visit#1+43": [
     '--⚠️ 第 118 行 `self.inlimbo_invalid and self.currenttarget:IsInLimbo()`：',
     '--   inlimbo_invalid 默认为 nil（构造器第 29 行不设默认值），',
     '--   所以默认**不把 limbo 当失效**。这是有意的：',
@@ -210,17 +210,17 @@ export default {
   ],
 
   // ══════════════ APPROACH 动作 ══════════════
-  125: [
+  "Follow:Visit#1+49": [
     '--★ APPROACH 分支。先补算距离：dist_sq 是第 78 行的局部缓存，',
     '--   若本次调用是从 RUNNING 直接进入（未走过 READY 段）则仍为 nil。',
     '--   ★ 「缓存 + 按需补算」而非每帧无条件重算，兼顾正确性与开销。',
   ],
-  132: [
+  "Follow:Visit#1+56": [
     '--★★ APPROACH 的完成条件：进入 target_dist 内 → **SUCCESS**。',
     '--   这是本文件唯一产出 SUCCESS 的地方（对照第 101 行的 FAILED）。',
     '--   ★ 同理第 132 行的 not different_platforms：跨平台时距离无意义，不能判成功。',
   ],
-  137: [
+  "Follow:Visit#1+61": [
     '--★★ `local max_dist = self.max_dist * .75` —— 关键细节：跑步时用 75% 距离。',
     '--   ★ 为什么？因为「跑」的刹车距离远大于「走」。若按满 max_dist 起跑，',
     '--     冲过头再 BACKOFF，来回摆动的幅度会更大（抖动更明显）。',
@@ -228,12 +228,12 @@ export default {
     '--     只在能跑时生效（第 142 行 canrun 守卫）。',
     '--   ※ 代价：跑步时会在比 max_dist 更远处就转为走路，观感上略「怂」。',
   ],
-  139: [
+  "Follow:Visit#1+63": [
     '--★ 跨平台时 max_dist 强制为 0 —— 效果是「永远处于「太远」状态」，',
     '--   于是第 142 行必然成立，强制进入跑步分支去追跳板/船。',
     '--   ★ 用一个哨兵值（0）让后续统一逻辑自然退化，比在多处写 if 更省事。',
   ],
-  142: [
+  "Follow:Visit#1+66": [
     '--★★ 三个条件任一成立就跑起来走：太远 / 状态图已在 running。',
     '--★ 第二条 `self.inst.sg:HasStateTag("running")` 是**迟滞（sticky）技巧**：',
     '--   一旦开始跑，除非进了 target_dist，否则不切回走。',
@@ -245,10 +245,10 @@ export default {
   ],
 
   // ══════════════ BACKOFF 动作 ══════════════
-  147: [
+  "Follow:Visit#1+71": [
     '--★ BACKOFF 分支。结构与 APPROACH 对称：补算距离 → 判完成 → 移动。',
   ],
-  151: [
+  "Follow:Visit#1+75": [
     '--★★ BACKOFF 的完成条件：退到 target_dist 之外 → SUCCESS。',
     '--   ★ 注意用的是 target_dist 而不是 min_dist：',
     '--     进入时判定「比 min_dist 还近」用的是更内圈的 min_dist，',
@@ -258,19 +258,19 @@ export default {
     '--     实体会在阈值线附近高频进出，BACKOFF/APPROACH 疯狂切换。',
     '--   ★ 这一处是「迟滞」思想在 DST 里写得最清楚的地方，值得反复读。',
   ],
-  155: [
+  "Follow:Visit#1+79": [
     '--★ BACKOFF 不指定目标点，而是朝「远离目标」的方向走：',
     '--   GetAngleToPoint 给出指向目标的方位角，+180 即反方向。',
     '--⚠️ 为什么不也用 GoToPoint(某个反向点)？因为反向点需要计算「自己 + 单位向量*某距离」，',
     '--   而目标在移动，那点会过时。RunInDirection 只依赖瞬时方位，永远不会指向过时位置。',
     '--★ 移植要点：需要「持续远离某物」时，用方向移动而非目标点移动，更鲁棒。',
   ],
-  156: [
+  "Follow:Visit#1+80": [
     '--★ 第 157 行 RunInDirection / 第 159 行 WalkInDirection 对应 canrun 的两种分支。',
   ],
 
   // ══════════════ 休眠 ══════════════
-  163: [
+  "Follow:Visit#1+87": [
     '--★★ self:Sleep(.25) —— 节点与框架休眠机制的**唯一**协作点。',
     '--   语义（behaviourtree.lua:97-99）：self.nextupdatetime = GetTime() + .25。',
     '--★ 效果链：Sleep(.25) → GetSleepTime 返回剩余秒 → BT:GetSleepTime 逐层取最小 →',

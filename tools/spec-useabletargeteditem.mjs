@@ -1,7 +1,7 @@
 // key = 源文件行号（1-based），注释插入到该行「之后」
 // 目标：components/useabletargeteditem.lua —— 物品使用统一抽象的「有目标」一端
 export default {
-  1: [
+  "oninuse_targeted#1": [
     '-- ============================================================',
     '-- components/useabletargeteditem.lua —— 「对目标使用」组件（139 行）',
     '--',
@@ -36,7 +36,7 @@ export default {
     '--   消费者：componentactions.lua 第 3012 行（决定此时显示「停止」还是「使用」）。',
     '--   即「使用中把动作按钮切换成停止」这个 UI 行为，是靠这个标签实现的。',
   ],
-  9: [
+  "on_inventory_disableable#1": [
     '-- 属性钩子：inventory_disableable → 标签。',
     '-- ★ 语义：允许「使用中把物品塞回背包」而不是强制拿在手上。',
     '--   典型场景：手持手电筒（需要持续使用）时可以按丢弃把它放回背包。',
@@ -48,7 +48,7 @@ export default {
     '--   被压缩成了两个标签的组合判断，逻辑放在动作注册器里而非组件里。',
     '--   ★ 自研游戏可直接借用这个手法：组件只负责打标签，UI/动作层读标签决策。',
   ],
-  17: [
+  "oncanselftarget#1": [
     '-- ★★ canselftarget：允许「对着自己使用」。',
     '',
     '-- 【⚠️ 第 18 行的标签名有拼写错误】',
@@ -69,7 +69,7 @@ export default {
     '--   典型用途：给自己喂食、给自己上药（对称的 Give 类物品）。',
     '-- ★ 本文件用 AddOrRemoveTag（useableitem.lua 那边用 if/else），风格不同但等价。',
   ],
-  21: [
+  "ontargetprefab#1": [
     '-- 属性钩子：useabletargetprefab → 「<prefab名>_targeter」标签。',
     '-- ★★ 这是「声明式目标白名单」的物理实现：',
     '--   SetTargetPrefab("rock") 之后，本物品会带上 "rock_targeter" 标签；',
@@ -82,7 +82,7 @@ export default {
     '-- ★★ 这说明「标签 = 字符串拼接出来的协议 ID」是 DST 全局通用的手法，',
     '--   workable / useabletargeteditem / socketholder 都用同一套路。',
   ],
-  31: [
+  "onuseablemounted#1": [
     '-- 属性钩子：useablemounted → useabletargeteditem_mounted 标签。',
     '-- ★ 语义：允许「骑乘状态下使用」。',
     '-- 消费点：componentactions.lua 第 3019-3023 行 ——',
@@ -97,7 +97,7 @@ export default {
     '--   ★ 自研游戏的「物品可用性」应该也这样建模：正交布尔 + 统一查询入口，',
     '--     而不是把条件写成一条越来越长的 if。',
   ],
-  39: [
+  "onuseablemounted#1+8": [
     '-- 构造函数。注意第 40-52 行的字段分成两拨：',
     '--   第 42-44 行三个布尔【给了初值】（false）；',
     '--   第 46-52 行四个字段【不给初值】（全被注释掉）。',
@@ -110,7 +110,7 @@ export default {
     '--   这解释了为什么上面的合法性判定要放在 componentactions（客户端侧）而不是动作 fn 里。',
     '--   （本人已对照 componentactions.lua:3015-3017 与 1867-1869 核实该回调确在客户端消费。）',
   ],
-  63: [
+  "UseableTargetedItem:OnRemoveFromEntity#1": [
     '-- ★★★ OnRemoveFromEntity —— 【⚠️ 疑似真实缺陷：漏摘一个标签】',
     '--   本函数按「字段是否为真」逐个摘标签，第 64-78 行摘了三个：',
     '--     inuse_targeted（第 64-66 行）、inventory_disableable（第 68-70 行）、',
@@ -130,19 +130,19 @@ export default {
     '--      并已 grep 确认 canselftarget 标签的写入点仅第 18 行、',
     '--      读取点为那 5 处 actions/componentactions/stategraphs 代码。）',
   ],
-  81: [
+  "UseableTargetedItem:SetTargetPrefab#1": [
     '-- SetTargetPrefab：声明本物品能作用于哪一类实体。',
     '-- ★ 走属性钩子（第 59 行注册），所以会先摘旧标签再加新标签（第 22-28 行）。',
     '--   这意味着可以反复调用来回切换目标类型，不会留下旧标签。',
     '-- ⚠️ 与 workable.lua 的 SetWorkAction（第 65 行）是同一套模式：',
     '--   「用 Setter 改声明 + 钩子负责标签同步」，prefab 侧不必手工维护标签。',
   ],
-  97: [
+  "UseableTargetedItem:SetInventoryDisable#1": [
     '-- SetInventoryDisable：见第 9-15 行的详细说明。',
     '-- ⚠️ 参数名叫 value 但没有类型检查 —— 传任何真值都会加标签。',
     '--   与 SetCanSelfTarget（第 101 行）、SetUseableMounted（第 85 行）风格一致。',
   ],
-  105: [
+  "UseableTargetedItem:SetUsingItemDoesNotToggleUseability#1": [
     '-- ★★ SetUsingItemDoesNotToggleUseability —— 「用了不进入使用中状态」。',
     '--   对应字段 usingdoesnottoggleuseability，【构造函数里没有初始化】，',
     '--   也【不在第 55-61 行的属性钩子表里】（所以不会产生标签）。',
@@ -157,7 +157,7 @@ export default {
     '--   inuse_targeted，否则动作表会塞 STOPUSINGITEM 而永远等不到开始。',
     '--    （本人已对照第 123 行 `if not self.usingdoesnottoggleuseability` 核实该判断。）',
   ],
-  109: [
+  "UseableTargetedItem:CanInteract#1": [
     '-- ★ CanInteract —— 【与 useableitem.lua 判若两套】',
     '--   本文件第 110 行只判一句 not self.inuse_targeted。',
     '--   useableitem.lua 第 34 行却还要查副本 equippable 的已装备状态。',
@@ -170,7 +170,7 @@ export default {
     '--   真正的合法性判定在 componentactions 的客户端侧（第 3013-3017 行）。',
     '--   ★ 自研游戏要把「粗筛」与「精确判定」分开，不要指望一个 CanInteract 全包。',
   ],
-  113: [
+  "UseableTargetedItem:StartUsingItem#1": [
     '-- ★★★ StartUsingItem(target, doer) —— 「对目标使用」。',
     '',
     '-- 【与 useableitem.lua StartUsingItem 的四处关键差异】',
@@ -190,7 +190,7 @@ export default {
     '--   Lua 里未加 local 的赋值会变成【全局变量】污染，',
     '--   所以「先 local 声明再分支赋值」是必要写法，不是啰嗦。',
   ],
-  116: [
+  "UseableTargetedItem:StartUsingItem#1+3": [
     '-- 调回调并【一次接收两个返回值】。',
     '-- ★ 第 117 行传了三个参数：inst、target、doer。',
     '--   对比 useableitem.lua 第 40 行只传了 inst。',
@@ -200,13 +200,13 @@ export default {
     '--   只写 return true 就等于 failreason = nil，动作层会走通用失败提示。',
     '--   想给玩家看具体原因（如「这只动物还没挤过奶」）就必须返回两个值。',
   ],
-  118: [
+  "UseableTargetedItem:StartUsingItem#1+5": [
     '-- 没有回调时的默认成功。',
     '-- ⚠️ 也就是「挂了这个组件但没配 SetOnUseFn」的物品，按使用键会',
     '--   进入使用中状态却什么也不发生 —— 表现为「道具卡在手里一直亮着」。',
     '--   属于配置错误，组件层不做防御。',
   ],
-  122: [
+  "UseableTargetedItem:StartUsingItem#1+9": [
     '-- ★★★ 第 122 行 `if success and self.inst:IsValid() then` —— 两个条件缺一不可。',
     '',
     '-- 【为什么 success 已经够了还要 IsValid】',
@@ -220,13 +220,13 @@ export default {
     '-- ★★ 自研游戏结论：回调若可能销毁自身，置状态前必须验活。',
     '--    （本人已对照第 122-126 行核实 IsValid 与置位的先后顺序。）',
   ],
-  123: [
+  "UseableTargetedItem:StartUsingItem#1+10": [
     '-- 「用了但不进入使用中状态」的豁免分支。详见第 105 行的完整说明。',
     '-- ⚠️ 注意这一行同时管两件事：',
     '--   既决定「是否置 inuse_targeted」，也是第 105 行那个字段的唯一消费点。',
     '--   字段全库仅此一处使用，删除 Setter 不会破坏任何其他逻辑。',
   ],
-  131: [
+  "UseableTargetedItem:StopUsingItem#1": [
     '-- ★★ StopUsingItem —— 与 StartUsingItem 的对称端，但有两处不对称。',
     '--   不对称 1：第 132 行【无条件】置 inuse_targeted = false，',
     '--     不像 StartUsingItem 那样先问 success。',
@@ -241,7 +241,7 @@ export default {
     '--   调度方 actions.lua:3357-3362 的 STOPUSINGITEM 只调它一次。',
     '--    （本人已对照 actions.lua:3357-3362 核实。）',
   ],
-  135: [
+  "UseableTargetedItem:StopUsingItem#1+4": [
     '-- ⚠️ 只传了 self.inst —— target 与 doer 都拿不到。详见第 131 行的说明。',
     '-- ★ 对照第 117 行 StartUsingItem 的三参数回调签名，这里的单参数是明显的不对称。',
     '--   若自研游戏需要「停止时回调目标」，应把签名统一成 (inst, target, doer)，',

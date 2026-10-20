@@ -135,7 +135,7 @@ export default {
     '--     若挂在 self 下，缩放地图时装饰不会跟着缩放。',
   ],
 
-  62: [
+  "MapScreen:RemoveStaticDecorations#1": [
     '-- ══【Remove*Decorations：三层的独立清理】',
     '-- 设计要点：static / LMB / RMB 分开清理，因为**生命周期不同**：',
     '--   static：长期存在（技能标记），只在技能切换时清',
@@ -151,7 +151,7 @@ export default {
     '--   正确做法是把清表放进 Remove 函数内部（原子操作）。',
   ],
 
-  76: [
+  "MapScreen:RemoveDecorations#1": [
     '-- ★★ 77 行注释是关键：静态装饰**故意不清**。',
     '-- 「NOTES(JBK): Do not remove static decorations here they are static!」',
     '-- → ★★★ 「函数名叫 Remove*，但作者特意注释掉一行不删」——',
@@ -163,7 +163,7 @@ export default {
     '--   会更准确。',
   ],
 
-  82: [
+  "MapScreen:OnMinimapMoved#1": [
     '-- ★★ OnMinimapMoved = 地图被拖动时的回调（MapWidget 调）。',
     '-- 83 行置 dirty = true：告诉 1180 行的刷新器「状态变了，要重算」。',
     '-- → ★★★ 这就是「脏标记」模式：',
@@ -176,7 +176,7 @@ export default {
     '--   → ★ 这是「交互互斥」：拖拽与点击是互斥的手势，切换时要明确断开。',
   ],
 
-  87: [
+  "MapScreen:SetHandleLmbUp#1": [
     '-- SetHandleLmbUp 控制「左键松开是否被特殊处理」。',
     '-- 91 行 StartDragThreshold(0.02)：拖拽阈值 = 屏幕尺寸的 2%。',
     '-- → ★★★ 「拖拽阈值」是所有可拖拽 UI 的必备参数：',
@@ -188,7 +188,7 @@ export default {
     '-- → ★ 幂等 setter 的标准写法：先查当前状态，再决定是否动作。',
   ],
 
-  99: [
+  "MapScreen:OnBecomeInactive#1": [
     '-- ══★【OnBecomeInactive：屏幕被别的屏幕压住时的清理】',
     '-- 这个钩子由 FrontEnd:PushScreen（frontend.lua:978）调用。',
     '-- ★ 105-106 行：把 hover 提示强制隐藏并标记 forcehide。',
@@ -205,7 +205,7 @@ export default {
     '--     前者要隐藏瞬时物，后者要释放所有资源。',
   ],
 
-  114: [
+  "MapScreen:OnBecomeActive#1": [
     '-- ══★【OnBecomeActive：从后台回到前台的完整恢复】',
     '-- 与 OnBecomeInactive（99 行）严格对称：逐项恢复。',
     '-- 117-119：确保 C++ 层的小地图可见。',
@@ -227,7 +227,7 @@ export default {
     '-- 133-134 行：hover 的缩放要跟随 HUD 缩放，与 22-29 行的两层结构对应。',
   ],
 
-  138: [
+  "MapScreen:OnBecomeActive#1+24": [
     '-- ★★ 138-140 行：被注释掉的 SetPause(true)，并解释了原因。',
     '-- 「V2C: Don\'t set pause in multiplayer, all it does is change the',
     '--  audio settings, which we don\'t want to do now」',
@@ -237,7 +237,7 @@ export default {
     '--   说明这两件事是同期改动被打包到一起。',
   ],
 
-  143: [
+  "MapScreen:OnDestroy#1": [
     '-- ══★【OnDestroy：Screen 基类契约的最后一环】',
     '-- ★ 165 行 MapScreen._base.OnDestroy(self) → Screen:OnDestroy → self:Kill()',
     '--   （screen.lua:19-21）。',
@@ -260,7 +260,7 @@ export default {
     '--   → ★ 「同一个副作用的两处执行点」必须用标志位互斥，否则会重复执行。',
   ],
 
-  168: [
+  "MapScreen:GetZoomOffset#1": [
     '-- ══★【GetZoomOffset：光标锚定缩放的核心换算 —— 本文件最难的 8 行】',
     '-- 要解决的问题：缩放时，让**光标指向的那个地图点**在屏幕上保持不动。',
     '-- 169 行注释：魔法数字 9 来自 MiniMapRenderer 的 ZOOM_MODIFIER。',
@@ -285,7 +285,7 @@ export default {
     '--   → 作者已知的未修问题，注释如实标注，值得肯定。',
   ],
 
-  178: [
+  "MapScreen:DoZoomIn#1": [
     '-- ★★ DoZoomIn/DoZoomOut 的对称结构，且注释说明了设计意图：',
     '-- 181 行「Run the function always, conditionally do offset fixup.」',
     '-- → ★★★ 「缩放本身总是执行，锚点补偿才是有条件的」：',
@@ -304,7 +304,7 @@ export default {
     '--     但若有人改成 `negativedelta = negativedelta or -0.1 or ...` 就会出错。',
   ],
 
-  198: [
+  "MapScreen:SetZoom#1": [
     '-- ══★【SetZoom：一次性设定缩放（供外部/模组调用）】',
     '-- 与 DoZoomIn/Out 的关键区别：它**同步**完成缩放（201 行直接设 zoom_old），',
     '-- 不走动画。',
@@ -317,7 +317,7 @@ export default {
     '--   若未来新增第三种缩放方式，这里需要再加分支。',
   ],
 
-  212: [
+  "MapScreen:ValidateMapTarget#1": [
     '-- ══★★【ValidateMapTarget：焦点/选中态的自动失效检测】',
     '-- 用户提到「焦点链：控件销毁时焦点如何失效」——这里是**同一问题的玩法侧版本**：',
     '--   地图上「选中的目标」必须在其失效时自动清空。',
@@ -340,7 +340,7 @@ export default {
     '--   → 移植时应拆成 ValidateMapTarget（纯查询）+ 调用方决定是否取消。',
   ],
 
-  228: [
+  "MapScreen:UpdateMapActions#1": [
     '-- ★★ UpdateMapActions 是「UI → 玩法」的方向性桥梁。',
     '-- 它把地图坐标与当前目标交给 playercontroller 算出「这里能做什么」。',
     '-- 232 行返回两个值（LMBaction, RMBaction）——左右键各一个。',
@@ -354,7 +354,7 @@ export default {
     '--   属可接受的重复计算（playercontroller 的动作筛选不贵）。',
   ],
 
-  237: [
+  "MapScreen:ProcessStaticDecorations_CharlieResidue#1": [
     '-- ══【ProcessStaticDecorations_* 系列：技能标记的六个同构实现】',
     '-- 六个函数（CharlieResidue / WobyCourier / VaultOrbTeleporter /',
     '--   SwapBodies / ScoutSelect）结构完全相同：',
@@ -379,7 +379,7 @@ export default {
     '--   → 这是所有「按距离取最近」的 UI 都必须做的事。',
   ],
 
-  266: [
+  "MapScreen:ProcessStaticDecorations_CharlieResidue#1+29": [
     '-- ⚠️⚠️【★★ 真实缺陷，已逐行核实并实测】',
     '-- 条件写的是 `if ex ~= rx and ez ~= rz then`（两个条件用 and 连接）。',
     '-- 意图显然是「跳过虫洞目标自身」，正确写法应是：',
@@ -403,7 +403,7 @@ export default {
     '--   但 238-239 行特意取了 ry 却没用，属于残留。',
   ],
 
-  267: [
+  "MapScreen:ProcessStaticDecorations_CharlieResidue#1+30": [
     '-- ★ key 的构造：GUID 加一个功能后缀。',
     '-- 用后缀而不是纯 GUID，是为了允许同一实体挂多种标记',
     '-- （如既有 _WORMHOLE 又有别的技能标记）。',
@@ -417,7 +417,7 @@ export default {
     '--   再查表，而 267 行先查表再取坐标。风格不统一但都正确。',
   ],
 
-  279: [
+  "MapScreen:ProcessStaticDecorations_CharlieResidue#1+42": [
     '-- ★ 建完控件立刻设 bank/build 并播 idle 循环动画。',
     '-- 283-285：算位置与缩放。',
     '-- 284 行 `x * w` —— w 是屏幕宽的一半（630-631 行 w,h 各乘 0.5）。',
@@ -437,7 +437,7 @@ export default {
     '--   → ⚠️ 这行在 262/327/397/453/509 共出现 5 次，全是死兜底。',
   ],
 
-  333: [
+  "MapScreen:ProcessStaticDecorations_WobyCourier#1+38": [
     '-- ★★ decorationdata 里混入了两个「不属于装饰」的字段：',
     '--   alwaysdirty（333 行）：强制每帧重建静态装饰',
     '-- 原因：沃尔特的信使标记需要每帧检查「玩家是否进入太近范围」，',
@@ -454,7 +454,7 @@ export default {
     '--   说明他也意识到这块代码需要清理。',
   ],
 
-  545: [
+  "MapScreen:ProcessStaticDecorations_Internal#1": [
     '-- ══★【ProcessStaticDecorations_Internal：两层 if 的分发结构】',
     '-- 第一层（546）：有「地图选中的目标」→ 按目标 prefab 分发',
     '--   547 charlieresidue → 虫洞标记（薇洛）',
@@ -475,7 +475,7 @@ export default {
     '--   属于重复但无害的防御。',
   ],
 
-  577: [
+  "MapScreen:SetNewMapTarget#1": [
     '-- ★★★【SetNewMapTarget：选中态的唯一入口（自洽性保证）】',
     '-- 578-580：**先**给旧目标发 cancelmaptarget，**再**替换。',
     '--   顺序正确 —— 旧目标需要在还知道自己被选中的状态下收到取消通知。',
@@ -494,7 +494,7 @@ export default {
     '--   三条退出路径都覆盖到了。**这是本文件做得最好的一处。**',
   ],
 
-  589: [
+  "MapScreen:SetInherentMapActions#1": [
     '-- ══⚠️⚠️【★★ 真实缺陷：599 行局部变量遮蔽，已实测确认】',
     '-- 本函数要判断「固有地图动作集合是否变化」，变化则清空静态装饰。',
     '-- 595 行 `local dirty = false` —— 外层变量。',
@@ -525,7 +525,7 @@ export default {
     '--   → 移植到自研游戏时，「空集合 vs nil」应当有明确约定并在入口归一化。',
   ],
 
-  620: [
+  "MapScreen:ClearStaticDecorations#1": [
     '-- ClearStaticDecorations 用 next 判断非空，避免无谓的清空。',
     '-- 622 行调 RemoveStaticDecorations（只 Kill 控件），',
     '-- 623 行清表 —— **两步必须成对**，见 62 行的分析。',
@@ -535,7 +535,7 @@ export default {
     '-- → 移植时建议：Create/Add vs Clear vs Destroy/Remove 三套动词严格分离。',
   ],
 
-  627: [
+  "MapScreen:ProcessStaticDecorations#1": [
     '-- ★★ 629 行 zoomscale = 0.75 / zoom —— 「让标记在屏幕上保持恒定视觉大小」。',
     '-- 地图放大时 zoom 变大，zoomscale 变小，标记缩小 → 视觉大小不变。',
     '-- → ★★★ 这是 2D 地图标记的标准做法：',
@@ -550,7 +550,7 @@ export default {
     '--   → 应在 OnUpdate 开头取一次存进 self，供全文件复用。',
   ],
 
-  635: [
+  "MapScreen:UpdateStaticDecorations#1": [
     '-- ══★★【UpdateStaticDecorations：静态标记的每帧刷新 —— 可见性仲裁中心】',
     '-- 遍历所有静态装饰，逐个决定「显示还是隐藏」并更新位置。',
     '-- ★★★ 四层可见性判定（644-661），层层递进，顺序有意义：',
@@ -586,7 +586,7 @@ export default {
     '--   标注为「疑似」：需要确认 SetAutopaused 时 GetStep 的行为。',
   ],
 
-  684: [
+  "MapScreen:ProcessLMBDecorations_MAPSCOUT_MAP#1": [
     '-- ══【LMB/RMB 装饰的统一范式：fresh 参数控制重建】',
     '-- 686-701 行：MAPSCOUT 的射程指示由 4 个控件叠成，',
     '--   decor2 + decor2.centerbar 是「半透明宽条 + 不透明窄条」的组合。',
@@ -608,7 +608,7 @@ export default {
     '--   正确做法是把 Remove 收进本函数的 fresh 分支里。',
   ],
 
-  712: [
+  "MapScreen:ProcessLMBDecorations_MAPSCOUT_MAP#1+28": [
     '-- ★ GetActionPoint 取「动作将要发生的世界点」（不是光标点）。',
     '-- 720-721 行：算从玩家到该点的水平距离。',
     '-- 726 行 `r = math.min(dist, validdist)`：把指示线**截断在射程内**。',
@@ -624,7 +624,7 @@ export default {
     '--   → 自研 UI 的「射程指示」「连线预览」都该这么实现。',
   ],
 
-  735: [
+  "MapScreen:ProcessLMBDecorations_MAPSCOUT_MAP#1+51": [
     '-- ★★ 735-737：超射程时**自动降级动作类型**。',
     '-- ACTIONS.MAPSCOUT_MAP → ACTIONS.MAPSCOUT_MAP_TOOFAR',
     '-- → ★★★ 这不是 UI 装饰，而是**UI 反向改写玩法输入**：',
@@ -641,7 +641,7 @@ export default {
     '--   属「单向状态机」，正确但略脆弱。',
   ],
 
-  747: [
+  "MapScreen:ProcessLMBDecorations_MAPSCOUT_MAP#1+63": [
     '-- ★★★ 指示线末端的世界坐标计算，与 726-728 的归一化配对。',
     '-- 748-749：世界 → 地图 → 屏幕像素，三段换算（见 279 行的分析）。',
     '-- 753-758：装饰条的角度与长度。',
@@ -662,7 +662,7 @@ export default {
     '--   → 两个魔数互相抵消，是「坐标系转换」的常见写法。',
   ],
 
-  803: [
+  "MapScreen:ProcessRMBDecorations_BLINK_MAP#1": [
     '-- ══【RMB 装饰：传送落点预览】',
     '-- 830-832 行的 alpha 计算值得单独看：',
     '--   alphascaler = clamp(distancecount - distancefloat, 0, 1)',
@@ -683,7 +683,7 @@ export default {
     '--   → 瞄准辅助（鼠标吸附到合法落点）是开启时才有的功能。',
   ],
 
-  850: [
+  "MapScreen:ProcessRMBDecorations_BLINK_MAP#1+47": [
     '-- ★ 850/861 行是**距离分档**的三层判定：',
     '--   < 0.1          → 太近，两个都藏',
     '--   < 单跳距离     → 只显示 decor2（下一跳）',
@@ -702,7 +702,7 @@ export default {
     '--   四处重复，应抽成局部函数 place_at_distance(target_d, dist, dx, dz)。',
   ],
 
-  894: [
+  "MapScreen:ProcessRMBDecorations_TOSS_MAP#1": [
     '-- ══★【TOSS 装饰：唯一支持「物品自带地图表现」的分支】',
     '-- 900 行 `does_custom = equippedhands.InitMapDecorations ~= nil and ...`：',
     '--   → ★★★ 「鸭子类型」检测：装备的物品若实现了这两个方法，',
@@ -722,7 +722,7 @@ export default {
     '-- 940-942 行的 `if decor == nil then return end` 是必要的防御。',
   ],
 
-  961: [
+  "MapScreen:ProcessRMBDecorations_JUMPIN_MAP#1": [
     '-- ══【RMB 的五种「高亮已有标记」型装饰】',
     '-- JUMPIN / DIRECTCOURIER / SWAPBODIES / MAPSCOUTSELECT / VAULTORBTELEPORT',
     '-- 这五个函数结构完全相同（各约 55 行，合计 280 行）：',
@@ -750,7 +750,7 @@ export default {
     '--   又用 `radius * radius` 现场平方，属重复运算（微小）。',
   ],
 
-  1176: [
+  "MapScreen:UpdateMapActionsDecorations#1": [
     '-- ══★★★【UpdateMapActionsDecorations：脏标记调度中心 —— 本文件的心脏】',
     '-- ★★ 1180 行是一个五路 or 的脏判断：',
     '--   dd.dirty         显式脏标记（拖动地图、缩放时置位，见 83/179/189/199 行）',
@@ -782,7 +782,7 @@ export default {
     '--   只要外层 if 成立就刷新静态标记，保证它们与光标位置同步。',
   ],
 
-  1206: [
+  "MapScreen:AutoAimToStaticDecorations#1": [
     '-- ══★【AutoAimToStaticDecorations：吸附式瞄准】',
     '-- 作用：若光标靠近某个标记，把操作点**吸附到标记中心**。',
     '-- 1217 行半径计算：`zoomradius * zoomscale_clamped * zoom * 0.5`',
@@ -800,7 +800,7 @@ export default {
     '--     吸附是锦上添花，不能成为阻塞条件。',
   ],
 
-  1233: [
+  "MapScreen:OnUpdate#1": [
     '-- ══★★【OnUpdate：每帧主循环 —— 六件事按顺序做完】',
     '-- ① 1234-1239：递减「忽略按键」计时器',
     '-- ② 1242-1250：摇杆平移地图',
@@ -825,7 +825,7 @@ export default {
     '-- 1249 行每次平移都置 dirty：地图动了，所有装饰都要重算位置。',
   ],
 
-  1252: [
+  "MapScreen:OnUpdate#1+19": [
     '-- ══★【缩放动画的完整状态机 —— 1240-1275】',
     '-- 1252 注释：为了不改引擎侧的既有绑定，**模拟**出模拟量输入。',
     '--   → ★★★ 「数字输入模拟成模拟输入」是兼容层的经典手法：',
@@ -862,7 +862,7 @@ export default {
     '--     标注为「疑似」：实际手感无问题，但代码冗余且易误读。',
   ],
 
-  1283: [
+  "MapScreen:GetCursorPosition#1": [
     '-- ★★ GetCursorPosition：光标的归一化坐标。',
     '-- 1287-1288：手柄下强制返回 (0,0) —— 「把手柄的光标放在屏幕中心」。',
     '-- 1292-1293：`2 * x / w - 1` 把像素坐标映射到 -1..1。',
@@ -874,7 +874,7 @@ export default {
     '--   保留原样是因为我们不改代码；但这提醒：注释也会出错。',
   ],
 
-  1298: [
+  "MapScreen:GetWorldPositionAtCursor#1": [
     '-- ★ 1300 行把归一化光标转成世界坐标（MapPosToWorldPos 是 minimap 的方法）。',
     '-- 1301 行 `return x, 0, y` —— ★★ **y 恒为 0**：',
     '--   地图是 2D 的，点击只能指定水平位置。',
@@ -886,7 +886,7 @@ export default {
     '--   选中目标才能拿到精确的 3D 坐标（1354 行 target = self.maptarget）。',
   ],
 
-  1304: [
+  "MapScreen:OnControl#1": [
     '-- ══★★★【OnControl：输入路由 —— 本文件最需要小心读的函数】',
     '-- 1308 行的 `not down and control == CONTROL_ACCEPT`：',
     '--   ★★ 只在**松开**时检查，且用的是 CONTROL_ACCEPT 而不是 CONTROL_PRIMARY。',
@@ -915,7 +915,7 @@ export default {
     '--     → 建议改名区分，如 map_hack_ignore_held / ctrl_hack_ignore_held。',
   ],
 
-  1322: [
+  "MapScreen:OnControl#1+18": [
     '-- ★★ 关闭地图的两个键：CONTROL_MAP（再按一次地图键）与 CONTROL_CANCEL（ESC）。',
     '-- 1323 行 PopScreen() 无参 —— 「弹掉栈顶」，而栈顶就是自己。',
     '-- → ★ 与 playerhud 的 PopScreen(self.xxx) 不同：',
@@ -936,7 +936,7 @@ export default {
     '--   → 正确写法应拆成中间变量，这是可读性最差的一处。',
   ],
 
-  1335: [
+  "MapScreen:OnControl#1+31": [
     '-- 1335-1342：旋转与缩放快捷键。',
     '-- ★ 1339 行注释极有价值：「NOTES(JBK): Keep these here for mods but',
     '--   modify their value to do nothing with new code.」',
@@ -950,7 +950,7 @@ export default {
     '--   而实际缩放由 1263 行的持续按键逻辑完成，这两个分支是给模组的一次性缩放。',
   ],
 
-  1343: [
+  "MapScreen:OnControl#1+39": [
     '-- ══★★【OnControl 的核心：四路互斥的动作分发】',
     '-- 所有分支都以 `LMBaction and ...` / `RMBaction and ...` 为前提，',
     '-- 也就是说「先问玩法层这里能做什么，再决定这个键干什么」。',
@@ -975,7 +975,7 @@ export default {
     '--   影响：forced_actiondef 残留可能让下次进地图时带着过期的强制动作。',
   ],
 
-  1381: [
+  "MapScreen:OnControl#1+77": [
     '-- ★★ 1381-1391：取消地图选中（右键/CANCEL）。',
     '-- 1383-1389：★ 只在 CANCEL 时装吞键窗口。',
     '--   为什么要装：取消选中后地图**还开着**，',
@@ -992,7 +992,7 @@ export default {
     '--   → 与 1358 行的「半个状态」形成对比，说明这里才是正确写法。',
   ],
 
-  1399: [
+  "MapScreen:GetHelpText#1": [
     '-- ★★ GetHelpText：动态帮助文本。',
     '-- 1409-1413：★★ **同一个 CANCEL 键，根据上下文显示不同含义**：',
     '--   有选中目标 → 「取消」（取消选择）',
@@ -1007,7 +1007,7 @@ export default {
     '--   → 简单但受限：条目多时会横向溢出。',
   ],
 
-  1428: [
+  "MapScreen:GetHelpText#1+29": [
     '-- ══★★【作者标注的已知技术债 —— 值得单独读的 4 行】',
     '-- 「NOTES(JBK): These functions are not accurate and need fixed to do',
     '--  proper scaling calculations relative to window size and not internal',
@@ -1034,7 +1034,7 @@ export default {
     '--     它服务于开发者调试，而非正式功能。',
   ],
 
-  1461: [
+  "MapScreen:MapPosToWidgetPos#1": [
     '-- ⚠️ 三个换算函数是「作者自承不准确」的辅助层（见 1428 行的详细分析）。',
     '-- 已核实真实调用方：1469/1478 两个被 debugkeys.lua:1095-1096 调用（调试传送），',
     '--   而 1461 的 MapPosToWidgetPos 在可执行代码中零调用，是死代码。',

@@ -1,7 +1,7 @@
 // spec-ui-frontend-p3.mjs —— frontend.lua 第 913-1310 行
 // ★ 屏幕栈管理（G4 现场）/ 焦点 / 文本输入 / 缩放 / 鼠标捕获
 export const BEFORE = {
-  914: [
+  "FrontEnd:PushShowHelpTextForEverything#1": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- 段 11/8：★★ 屏幕栈管理（914-1174）—— 缺陷 G4 的现场",
     "-- ════════════════════════════════════════════════════════════════",
@@ -13,7 +13,7 @@ export const BEFORE = {
     "-- ★ 用途：菜单/教学流程需要「即使没插手柄也显示按键提示」，",
     "--   此时调 Push，不依赖 895 行的 controller 条件。",
   ],
-  925: [
+  "FrontEnd:DoHoverFocusUpdate#1": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- ★★★ 【DoHoverFocusUpdate】—— 鼠标 → 焦点的同步（每帧执行）。",
     "--",
@@ -36,11 +36,11 @@ export const BEFORE = {
     "--   ⇒ 这是防止焦点链断裂的兜底机制。",
     "--────────────────────────────────────────────────────────────────",
   ],
-  926: [
+  "FrontEnd:DoHoverFocusUpdate#1+1": [
     "-- ★ 双门禁：tracking_mouse（鼠标模式）且 focus 未被 LockFocus 锁住。",
     "--   ⇒ 549LockFocus 期间鼠标不抢焦点，但 OnControl/OnMouseButton 仍工作。",
   ],
-  927: [
+  "FrontEnd:DoHoverFocusUpdate#1+2": [
     "-- ★ manual_update 参数来自哪里？—— 全文只有 925 定义、873 调用（无参），",
     "--   所以 manual_update 恒为 nil/false，927-930 实际**从不执行**。",
     "--   ⚠ 疑似缺陷/死代码：manual_update 参数在本文件无任何传 true 的调用点。",
@@ -53,14 +53,14 @@ export const BEFORE = {
     "--     ⚠ 但控件移动后本应重新拾取——所以 manual_update 的意图",
     "--       与实际调用方式不匹配。属未完成的机制。",
   ],
-  931: [
+  "FrontEnd:DoHoverFocusUpdate#1+6": [
     "-- ★★ GetAllEntitiesUnderMouse（input.lua:263-265）返回的是",
     "--   **实体拾取结果**，包含 3D 世界实体与 UI 实体混排的列表。",
     "--   该列表由 input.lua:519-571 OnUpdate 每帧计算。",
     "--   ★ 933 行只取 [1]（最上面的那个），不做穿透筛选——",
     "--     穿透筛选已在 input.lua:526-557 的 CanMouseThrough 里做完。",
   ],
-  933: [
+  "FrontEnd:DoHoverFocusUpdate#1+8": [
     "-- ★★ 判据是 `hover_inst.widget` 存在 —— 即「这是一个 UI 实体」。",
     "--   3D 世界实体没有 widget 字段（widget.lua:11 只给 UI 实体设）。",
     "--   ⇒ 这一行就是「鼠标命中的是 UI 还是世界」的判定点。",
@@ -69,14 +69,14 @@ export const BEFORE = {
     "--     **两种判定方式并存**（有无 widget 字段 vs 有无 Transform）。",
     "--     理论上一致（UI 实体无 3D Transform），但不统一。",
   ],
-  941: [
+  "FrontEnd:StartUpdatingWidget#1": [
     "-- ★★★ StartUpdatingWidget / StopUpdatingWidget —— 更新注册表。",
     "--   这是 widget.lua:485-487 StartUpdating/StopUpdating 的对端。",
     "--   ★ 表是弱键（234 行），所以控件被 GC 后条目自动消失。",
     "-- ⚠ 但 StopUpdating（945-947）显式置 nil：如果控件被 Kill 后",
     "--   有人再调 StopUpdating，置 nil 一个不存在的键是安全的（无副作用）。",
   ],
-  949: [
+  "FrontEnd:InsertScreenAtIndex#1": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- ★★ 【屏幕栈管理三函数】949-974：压栈的三种变体。",
     "--",
@@ -104,13 +104,13 @@ export const BEFORE = {
     "--     而它专用于「暂停时开物品栏/制作栏」的场景。",
     "--────────────────────────────────────────────────────────────────",
   ],
-  950: [
+  "FrontEnd:InsertScreenAtIndex#1+1": [
     "-- ★ screenroot:AddChild(screen) —— 挂载即决定了渲染层级（见 169-179 说明）。",
   ],
-  951: [
+  "FrontEnd:InsertScreenAtIndex#1+2": [
     "-- ★ table.insert(screenstack, idx, screen) —— idx 是插入位置（1..n+1）。",
   ],
-  952: [
+  "FrontEnd:InsertScreenAtIndex#1+3": [
     "-- ★★ 952-954：把 idx 及其之后的所有屏幕 MoveToFront。",
     "--   ⇒ 视觉效果：从插入位置往下，层序依次抬到最前。",
     "--   ★ 为什么 consoletext / serverpausewidget 要单独再提一次（955-956）？",
@@ -121,7 +121,7 @@ export const BEFORE = {
     "--     953 的循环会把 idx 之后的屏幕盖在 consoletext 之上——",
     "--     随后 955-956 把 consoletext 提到最前，顺序正确。",
   ],
-  959: [
+  "FrontEnd:InsertScreenUnderTop#1": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- ★★★ 【InsertScreenUnderTop】—— 压到栈顶之下，但不激活。",
     "--",
@@ -150,11 +150,11 @@ export const BEFORE = {
     "--     但只有两条（Push/Pop）维护了激活/失活的对称性。",
     "--────────────────────────────────────────────────────────────────",
   ],
-  962: [
+  "FrontEnd:InsertScreenUnderTop#1+3": [
     "-- ★ 只对**这一个**屏幕 MoveToFront（而不是 952 那样循环）。",
     "--   因为它插在「栈顶之下」，其后没有任何屏幕需要提层。",
   ],
-  967: [
+  "FrontEnd:PushScreen#1": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- ★★★★ 【PushScreen】—— 压栈的主路径，全文件最重要的函数之一。",
     "--",
@@ -191,14 +191,14 @@ export const BEFORE = {
     "--     靠 IsControlsDisabled（400行）冻结一切输入。",
     "--────────────────────────────────────────────────────────────────",
   ],
-  969: [
+  "FrontEnd:PushScreen#1+2": [
     "-- ★★ SetForceProcessTextInput(false) —— 结束任何「强制文本输入」。",
     "--   签名只有一个参数 takeText（见 1176），widget 为 nil → 走 1184 分支",
     "--   → 通知旧控件 OnStopForceProcessTextInput 并清空。",
     "--   ★ 为什么压栈必须结束文本输入？因为新屏有自己的文本框，",
     "--     旧的强制输入状态会让新屏的输入被劫持。",
   ],
-  970: [
+  "FrontEnd:PushScreen#1+3": [
     "-- ★★ TheInputProxy:FlushInput() —— C++ 侧的输入缓冲清空。",
     "-- ★★ 这是缺陷 G3 的一环：FlushInput 清的是「物理按键的按下状态」，",
     "--   但**清不掉**已经写进游戏层的 sg.statemem.retarget。",
@@ -208,7 +208,7 @@ export const BEFORE = {
     "--     应在 Input::OnControl（input.lua:163）就一次性标记 swallowed，",
     "--     而不是在下游反向清理。",
   ],
-  977: [
+  "FrontEnd:PushScreen#1+10": [
     "-- ★★ 旧顶屏失活。977 行的 `#self.screenstack > 0` 保证不会对空栈调用。",
     "--   ⚠ 但这里**没有**对应地调旧顶屏的 SetFocus 清理，",
     "--     也没有任何「焦点迁移」逻辑——焦点迁移完全靠 1127-1129 在",
@@ -223,37 +223,37 @@ export const BEFORE = {
     "--     则走screen: SetFocus() 收敛到栈顶屏。",
     "--     ⇒ 最终是收敛的，但路径曲折。",
   ],
-  981: [
+  "FrontEnd:PushScreen#1+14": [
     "-- ★★ screenroot:AddChild(screen) —— 挂载。",
     "--   ★ 隐含约定：新屏成为 screenroot 的**最后一个子节点**，",
     "--     因而在所有遮罩之上（详见 169-179 行的层级说明）。",
   ],
-  985: [
+  "FrontEnd:PushScreen#1+18": [
     "-- ★ serverpausewidget:SetOffset(0, 0) —— 先复位偏移。",
     "--   然后 987-989 若屏幕实现了 OffsetServerPausedWidget 就让它自己调。",
     "--   ★ 为什么要在 Push 时复位？因为 PopScreen（1131）也复位，",
     "--     两个入口保持一致 ⇒ 偏移不会被上一个屏幕的设置污染。",
   ],
-  987: [
+  "FrontEnd:PushScreen#1+20": [
     "-- ★★ 可选钩子：screen.OffsetServerPausedWidget is not nil then screen:...()",
     "--   ⇒ 「鸭子类型」：屏幕想自定义服务器暂停提示的位置就实现它，",
     "--     不想就什么都不做。",
     "--   ★ 对比 PopScreen 的 1133-1135 用完全相同的写法。",
   ],
-  991: [
+  "FrontEnd:PushScreen#1+24": [
     "-- ⚠ 991 行原注释 \"-- screen:Show()\" 被注释掉了。",
     "--   ★ 推理：Screen 构造时默认可见（widget.lua:25 self.shown = true），",
     "--     所以不需要 Show。而 FadeBack（1075）在 PopScreen 之后",
     "--     显式调 TheFrontEnd:GetActiveScreen():Show() —— 说明确实存在",
     "--     「屏幕被 Hide 过」的状态（比如 FadeToScreen 的 1070 existing_screen:Hide()）。",
   ],
-  992: [
+  "FrontEnd:PushScreen#1+25": [
     "-- ★★ `if not self.tracking_mouse then screen:SetDefaultFocus() end`",
     "--   ★ 语义：**只有当鼠标不跟随时**才立即给默认焦点。",
     "--   鼠标跟随时不给焦点，让鼠标位置决定（996 Update(0) → 873 hover 更新）。",
     "--   ⇒ 这就是「鼠标模式 / 手柄模式」两套焦点策略的分叉点。",
   ],
-  995: [
+  "FrontEnd:PushScreen#1+28": [
     "-- ★★ screen:OnBecomeActive() —— 见 widgets/screen.lua:32-43。",
     "--   做三件事：",
     "--   ① LastUIRoot = self.inst.entity    （全局变量，给 C++ 用）",
@@ -265,7 +265,7 @@ export const BEFORE = {
     "--       而是靠 UIRoot —— 这就是为什么 InsertScreenUnderTop",
     "--       插入的屏幕收不到输入（它没被 SetUIRoot 过）。",
   ],
-  996: [
+  "FrontEnd:PushScreen#1+29": [
     "-- ★★ self:Update(0) —— 用 dt=0 立即跑一帧前端更新。",
     "--   为什么必须立刻跑？",
     "--   · 759-761 只有栈顶屏收 OnUpdate → 新屏要立刻初始化布局；",
@@ -276,7 +276,7 @@ export const BEFORE = {
     "--   ⚠ 代价：PushScreen 会触发一次完整的 Update（可能很贵，",
     "--     因为 694-698 每帧重建控制台字符串）。",
   ],
-  1002: [
+  "FrontEnd:ClearScreens#1": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- ★★ 【ClearScreens】—— 清空整个屏幕栈。",
     "--",
@@ -309,15 +309,15 @@ export const BEFORE = {
     "--     ClearScreens 不在其中。",
     "--────────────────────────────────────────────────────────────────",
   ],
-  1013: [
+  "FrontEnd:ShowConsoleLog#1": [
     "-- ShowConsoleLog / HideConsoleLog —— 一行转发。",
     "-- ★ 与 462-468 的 toggle 分支配合使用。",
   ],
-  1021: [
+  "FrontEnd:SetConsoleLogPosition#1": [
     "-- SetConsoleLogPosition —— 外部可移动控制台文本。",
     "-- ★ 说明控制台文本的位置不是完全固定的（调试工具会挪它）。",
   ],
-  1025: [
+  "FrontEnd:DoFadeIn#1": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- ★★★ 【Fade / FadeToScreen / FadeBack】—— 转场三件套。",
     "--",
@@ -326,7 +326,7 @@ export const BEFORE = {
     "-- 【FadeBack(1075)】出栈 + 淡出 + 淡入 的组合",
     "--────────────────────────────────────────────────────────────────",
   ],
-  1029: [
+  "FrontEnd:DoFadeIn#1+4": [
     "-- ╔═════════════════════════════════════════════════════════════╗",
     "-- ║ ★★★ 官方原文警告（1029-1031）—— 这是理解「alpha 淡出」的关键  ║",
     "-- ╚═════════════════════════════════════════════════════════════╝",
@@ -359,7 +359,7 @@ export const BEFORE = {
     "--   对照 bug-patterns.md G4 的建议：",
     "--   应在 Screen 基类用断言强制 OnBecomeActive/Inactive 对称。",
   ],
-  1032: [
+  "FrontEnd:Fade#1": [
     "-- ★★ Fade(in_or_out, time_to_take, cb, fade_delay_time, delayovercb, fadeType)",
     "-- 七个状态字段一次性设定：",
     "--   fadedir / total_fade_time / fadecb / fade_time / fade_type",
@@ -369,7 +369,7 @@ export const BEFORE = {
     "--   所以 Fade(FADE_IN) 之后若省略该参数，fade_delay_time = nil，",
     "--   652DoFadingUpdate 会走 664 的过渡分支。✓ 正确。",
   ],
-  1038: [
+  "FrontEnd:Fade#1+6": [
     "-- ★★ FADE_IN 分支：立刻 SetFadeLevel(1)（全黑），然后过渡到 0。",
     "--   ⇒ 「淡入」的实现是：**先瞬间全黑，再渐渐变透明**。",
     "--   这解释了为什么 597 SetFadeAlpha(1) 在「alpha」模式下是必要的：",
@@ -379,7 +379,7 @@ export const BEFORE = {
     "--     1-alpha（0），结束时 alpha→0 ⇒ 控件 alpha 恢复为 1。",
     "--     ⇒ 593-597 的补救其实只在**手动调SetFadeLevel(0)** 时才需要。",
   ],
-  1041: [
+  "FrontEnd:Fade#1+9": [
     "-- ★★ 1041-1042 的原注释解释了 top 遮罩的复位：",
     "--   \"-- starting a fade out, make the top fade visible again\"",
     "--   \"-- this place it can actually be out of sync with the backfade, so make it full trans\"",
@@ -387,7 +387,7 @@ export const BEFORE = {
     "--   然后让 652 的 DoFadingUpdate 正常推进，避免残留中间态。",
     "--   ⇒ 这是「宁可多设一次也不能留脏状态」的实用主义。",
   ],
-  1059: [
+  "FrontEnd:FadeToScreen#1": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- ★★★ 【FadeToScreen】—— 「淡出 → 换屏 → 淡入」的原子操作。",
     "--",
@@ -421,16 +421,16 @@ export const BEFORE = {
     "--   立即执行 delayovercb（这里为 nil）并转入过渡分支。",
     "--────────────────────────────────────────────────────────────────",
   ],
-  1060: [
+  "FrontEnd:FadeToScreen#1+1": [
     "-- ★ 淡入淡出时长按类型分：SCREEN_FADE_TIME / SWIPE_FADE_TIME。",
     "-- ★ 这是常量级的差异（普通转场 vs 扫场转场），不在参数里暴露。",
   ],
-  1067: [
+  "FrontEnd:FadeToScreen#1+8": [
     "-- ★★ new_screen_fn() —— 延迟构造的兑现点。",
     "--   ⚠ 若这个函数抛错，fadecb 已被清空（686-687）→ 屏幕会卡在全黑。",
     "--     没有错误兜底。⚠ 属「异常安全」缺失。",
   ],
-  1075: [
+  "FrontEnd:FadeBack#1": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- ★★ 【FadeBack】—— FadeToScreen 的「反向」版本（出栈）。",
     "--",
@@ -449,12 +449,12 @@ export const BEFORE = {
     "--     而框架没有断言检查这种遗留。",
     "--────────────────────────────────────────────────────────────────",
   ],
-  1086: [
+  "FrontEnd:FadeBack#1+11": [
     "-- ★★ PopScreen() —— 注意**没有传参**，所以走 1114-1123 的「弹栈顶」分支。",
     "--   这保证了 OnBecomeInactive/OnDestroy/RemoveChild 三步都执行（对称）。",
     "--   ⇒ 对比 1103-1113 的「按对象弹出」分支（有不对称）。",
   ],
-  1093: [
+  "FrontEnd:PopScreen#1": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- ★★★★ 【PopScreen(screen)】—— 出栈，缺陷 G4 的核心现场。",
     "--",
@@ -476,13 +476,13 @@ export const BEFORE = {
     "--    ⇒ ⚠ 两处都不完整：PopScreen 完全不调，ClearScreens 只调一个。",
     "--────────────────────────────────────────────────────────────────",
   ],
-  1099: [
+  "FrontEnd:PopScreen#1+6": [
     "-- ★★ old_head = 弹栈前的栈顶 —— 用于 1127 判断「栈顶是否改变」。",
     "--   若弹的就是栈顶，弹完后新栈顶**必然**与 old_head 不同（栈里原来就有它）。",
     "--   ⇒ 1127 的条件恒真，除非栈只剩1 个（弹完栈空，top_screen 为 nil）。",
     "--   ★ 变量名的意义在于对比，而不是判断「谁被弹了」。",
   ],
-  1100: [
+  "FrontEnd:PopScreen#1+7": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- ⚠⚠⚠ 【分支 A：按对象弹出】—— 缺陷 G4 的最准确行号：1103-1113",
     "--",
@@ -534,19 +534,19 @@ export const BEFORE = {
     "--   ⇒ 这正是 bug-patterns.md G4 建议的「对称性断言」的价值所在。",
     "--────────────────────────────────────────────────────────────────",
   ],
-  1103: [
+  "FrontEnd:PopScreen#1+10": [
     "-- ★ ipairs 正序遍历 + break —— 只弹第一个匹配的（正确）。",
     "--   ⚠ 但 table.remove(self.screenstack, k) 在遍历中修改了被遍历的表。",
     "--     因为紧接着 break，Lua 的 for 循环不会再访问 k+1，安全。",
     "--     ⇒ 这是「修改后立即退出」的合法模式，不是缺陷。",
   ],
-  1105: [
+  "FrontEnd:PopScreen#1+12": [
     "-- ⚠⚠ 缺陷 G4 的**准确行号：1105-1107**。",
     "--   条件 `old_head == v` 使OnBecomeInactive 只在弹栈顶时执行。",
     "--   弹出栈中屏时该回调被跳过 ⇒ 状态残留 + 与 PushScreen 不对称。",
     "--   完整推理见 1100 行的注释块。",
   ],
-  1109: [
+  "FrontEnd:PopScreen#1+16": [
     "-- ★★ screen:OnDestroy() → screen.lua:20 → self:Kill()",
     "--   → widget.lua:325-334：StopUpdating + KillAllChildren + 摘出父节点",
     "--   + self.inst.widget = nil + StopFollowMouse + self.inst:Remove()。",
@@ -560,7 +560,7 @@ export const BEFORE = {
     "--     931GetAllEntitiesUnderMouse 的拾取只搜 UIRoot 子树，",
     "--     摘除后这个屏幕的任何实体都不会再被鼠标命中。",
   ],
-  1126: [
+  "FrontEnd:PopScreen#1+33": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- ★★★ 【新栈顶的重新激活】1126-1142 —— G4 的另一半补丁。",
     "--",
@@ -585,7 +585,7 @@ export const BEFORE = {
     "--    hover 焦点用的是**压栈前**的鼠标位置数据，可能有一帧的偏差）。",
     "--────────────────────────────────────────────────────────────────",
   ],
-  1128: [
+  "FrontEnd:PopScreen#1+35": [
     "-- ★★ top_screen:SetFocus() —— widget.lua:659-688。",
     "--   它会：",
     "--   ① 若有 focus_forward（661-665）转发给目标控件",
@@ -600,7 +600,7 @@ export const BEFORE = {
     "--     ⚠ 但 widget.lua 中 grep 不到 focus_forward 的**设置**函数",
     "--       （只有 661 行的读取）—— 由子类（widgets/ 里）直接赋值。",
   ],
-  1129: [
+  "FrontEnd:PopScreen#1+36": [
     "-- ★★ top_screen:OnBecomeActive() —— 恢复 last_focus（screen.lua:35-42）。",
     "--   ⚠⚠ 缺陷 G1 的完整链路在此闭合：",
     "--     ① 1105-1107（或 1119）调 OnBecomeInactive → 记住 last_focus；",
@@ -617,23 +617,23 @@ export const BEFORE = {
     "--   ★ 结论：DST 的 Screen 基类（widgets/screen.lua:35）已经做到了；",
     "--     但 bug-patterns.md 记录的是这个坑被踩过的历史。",
   ],
-  1140: [
+  "FrontEnd:PopScreen#1+47": [
     "-- ⚠ 1140-1141 被注释掉的调试打印：",
     "--   \"--print (\"POP!\", self.screenstack[#self.screenstack]:GetDeepestFocus(), self.tracking_mouse)\"",
     "--   ⚠ 若取消注释，在栈空时会索引 nil（#0 = nil → [nil] 报 Index 错误）。",
     "--     说明当时调试时没考虑空栈。这是被注释代码的通病。",
   ],
-  1145: [
+  "FrontEnd:ClearFocus#1": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- 段 12/8：屏幕栈查询 API（1145-1174）",
     "-- ════════════════════════════════════════════════════════════════",
   ],
-  1145: [
+  "FrontEnd:ClearFocus#1": [
     "-- ★ ClearFocus —— 名字有误导性：它不是「清除焦点」，",
     "--   而是「让栈顶屏重新收敛焦点」（screen:SetFocus 会清子节点焦点）。",
     "--   ⇒ 效果上是把焦点退回屏幕根，等价于「焦点复位」。",
   ],
-  1151: [
+  "FrontEnd:GetActiveScreen#1": [
     "-- ★★ GetActiveScreen —— 「当前界面」的唯一定义：栈顶。",
     "-- ⚠ 缺陷 G1 的第一现场：",
     "--   它**不校验**栈顶屏幕是否仍然有效（inst 是否被 Kill）。",
@@ -646,7 +646,7 @@ export const BEFORE = {
     "--   一切 GetActiveScreen 的消费者（401/481/555/592/611/1088/1198/1213）",
     "--   都直接信任返回值。",
   ],
-  1155: [
+  "FrontEnd:GetOpenScreenOfType#1": [
     "-- ★ GetOpenScreenOfType(name) —— 按类型名查找，**从栈顶往下**",
     "--   （ipairs_reverse）。",
     "--   ★ 为什么反序？因为「最新的那个」才是调用者想要的",
@@ -654,11 +654,11 @@ export const BEFORE = {
     "-- ★ 1156 行 ipairs_reverse 是 Klei 自定义的倒序 ipairs，",
     "--   Lua 标准库没有。参见 util.lua。",
   ],
-  1165: [
+  "FrontEnd:GetScreenStackSize#1": [
     "-- GetScreenStackSize —— 简单的栈深度查询。",
     "-- ★ 使用场景：判断「是不是在最外层界面」（例如 ESC 的行为）。",
   ],
-  1169: [
+  "FrontEnd:ShowScreen#1": [
     "-- ★★ ShowScreen —— 「清空再压栈」的组合操作。",
     "--   1170 ClearScreens()（⚠ 走的是有缺陷的那条路径，见 1002 行分析）",
     "--   1172 PushScreen(screen)",
@@ -668,7 +668,7 @@ export const BEFORE = {
     "--   ★ 但因为每次都是全新屏幕实例（`if screen then`），",
     "--     实际污染有限——除非调用方复用了同一实例。",
   ],
-  1176: [
+  "FrontEnd:SetForceProcessTextInput#1": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- ★★ 【SetForceProcessTextInput】—— 文本输入的所有权仲裁。",
     "--",
@@ -692,7 +692,7 @@ export const BEFORE = {
     "--   · 1200/1215 OnRawKey / OnTextInput —— 检查 forceProcessText",
     "--────────────────────────────────────────────────────────────────",
   ],
-  1179: [
+  "FrontEnd:SetForceProcessTextInput#1+3": [
     "-- ★ 1180 行 self.textProcessorWidget:OnStopForceProcessTextInput()",
     "--   —— 通知控件「别再强制处理输入了」。",
     "--   基类实现是空函数（widget.lua:120-121），",
@@ -700,17 +700,17 @@ export const BEFORE = {
     "--   ★ 双重守卫（1177 takeText and widget + 1179 if textProcessorWidget）",
     "--     保证不会对 nil 调用。",
   ],
-  1188: [
+  "FrontEnd:SetForceProcessTextInput#1+12": [
     "-- ★ self.forceProcessText = false —— 与 1183 的 true 配对。",
     "--   ⚠ 潜在不一致：1183 置 textProcessorWidget + forceProcessText，",
     "--     1188-1189 同时置 nil + false。两条路径都成对 ✓。",
   ],
-  1193: [
+  "FrontEnd:OnRawKey#1": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- 段 13/8：文本与按键分发（1193-1231）",
     "-- ════════════════════════════════════════════════════════════════",
   ],
-  1193: [
+  "FrontEnd:OnRawKey#1": [
     "-- ★★ OnRawKey(key, down) —— **物理按键**的第二条通路。",
     "--",
     "-- 【与 OnControl 的分工】",
@@ -726,7 +726,7 @@ export const BEFORE = {
     "--   ← frontend.lua:220 AddKeyHandler",
     "--────────────────────────────────────────────────────────────────",
   ],
-  1200: [
+  "FrontEnd:OnRawKey#1+7": [
     "-- ★★ 三路分发（优先级从高到低）：",
     "--   ① 强制文本输入 → 直接给 textProcessorWidget（1201）",
     "--   ② 否则 screen:OnRawKey（1202）—— 传的是**栈顶屏幕**",
@@ -738,14 +738,14 @@ export const BEFORE = {
     "--   ⇒ 若栈顶屏没有焦点，什么都不会消费，调试键生效。",
     "--   ⚠ 这是**正确**的：玩家没在任何 UI 焦点上时按 F1 应该能用调试键。",
   ],
-  1208: [
+  "FrontEnd:OnTextInput#1": [
     "-- ★ OnTextInput —— 文本输入的第二条通路（input.lua:195-197）。",
     "-- ★ 与 OnRawKey 的结构几乎一致，但**没有** DoDebugText 兜底分支。",
     "--   ⇒ 文本输入只能到强制输入的控件或屏幕，没有全局兜底。",
     "-- ⚠ 这意味着：若一个 Screen 忘了实现 OnTextInput，",
     "--   文本框就完全收不到字符——静默失败。",
   ],
-  1213: [
+  "FrontEnd:OnTextInput#1+5": [
     "-- ★ screen ~= nil 守卫 —— 栈空时忽略文本输入。",
     "-- ⚠ 但 1215 的强制输入分支在栈空时**也不生效**，",
     "--   即使 textProcessorWidget 存在——因为它被包在 screen ~= nil 里。",
@@ -755,12 +755,12 @@ export const BEFORE = {
     "--     所以未被发现。但这是 1193 OnRawKey 同样有的问题",
     "--     （1198-1205 同样被 screen ~= nil 包住）。",
   ],
-  1223: [
+  "FrontEnd:OnTextInput#1+15": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- 段 14/8：★ 缩放系数（1223-1280）—— 「锚点定位」的另一半",
     "-- ════════════════════════════════════════════════════════════════",
   ],
-  1223: [
+  "FrontEnd:OnTextInput#1+15": [
     "-- ★★★ 「V2C」标记的含义：这是 mod「V2」移植到原版「C」（core）时",
     "--   留下的注释标记。Klei 的 mod 工具（V2 = Klei Entertainment 内部",
     "--   的 mod 分支标记）会在代码里留 #V2C 标注移植点。",
@@ -770,7 +770,7 @@ export const BEFORE = {
     "--     · 1223-1224 本行的缩放排除说明",
     "--   ⇒ 这是追溯「这段代码为什么长这样」的历史线索。",
   ],
-  1225: [
+  "FrontEnd:GetProportionalHUDScale#1": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- ★★★ 【GetProportionalHUDScale】—— 等比缩放（HUD 尺寸偏好）。",
     "--",
@@ -792,18 +792,18 @@ export const BEFORE = {
     "--     挂在已有 PROPORTIONAL 父级下的用 GetProportionalHUDScale。",
     "--────────────────────────────────────────────────────────────────",
   ],
-  1226: [
+  "FrontEnd:GetProportionalHUDScale#1+1": [
     "-- ★ Profile:GetHUDSize() —— 玩家在设置界面拖的 HUD 大小滑块（0..10）。",
     "-- ★ 这是**少数把玩家偏好直接变成渲染参数**的地方，",
     "--   与 1225/1233 的 min/max 共同定义映射曲线。",
   ],
-  1230: [
+  "FrontEnd:GetProportionalHUDScale#1+5": [
     "-- ★ easing.linear(size, min_scale, max_scale - min_scale, 10) ——",
     "--   第三个参数是**增量**（delta）不是终点值。",
     "--   ⇒ linear(t, from, delta, duration) = from + delta * t/duration",
     "--   验证：size=10 → 0.75 + 0.35*10/10 = 1.10 ✓",
   ],
-  1233: [
+  "FrontEnd:GetHUDScale#1": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- ★★ 【GetHUDScale】—— 等比缩放 + 分辨率补偿。",
     "--",
@@ -823,13 +823,13 @@ export const BEFORE = {
     "--     在大窗口下等比放大。**永不为小**。",
     "--────────────────────────────────────────────────────────────────",
   ],
-  1241: [
+  "FrontEnd:GetHUDScale#1+8": [
     "-- ★★ 基准宽度 1920 —— 与 1200 成 3:2 比例。",
     "--   ⚠ 硬编码的「设计基准」，无外部配置。",
     "--   ⇒ 如果 Klei 未来改变美术基准，所有 UI 需要同步改这两个数。",
     "--────────────────────────────────────────────────────────────────",
   ],
-  1248: [
+  "FrontEnd:GetCraftingMenuScale#1": [
     "-- ★★★ GetCraftingMenuScale —— 合成菜单的独立缩放。",
     "--   min/max 区间不同（.6 ~ 1.15，比 HUD 的 .75~1.1 更宽），",
     "--   因为合成菜单信息密度更高、用户常手动调小。",
@@ -842,7 +842,7 @@ export const BEFORE = {
     "--   ★ 这类「每个面板一套缩放曲线」是没有布局引擎的必然结果：",
     "--     没有全局的 auto-fit，只能逐个手调。",
   ],
-  1267: [
+  "FrontEnd:UpdateRepeatDelays#1": [
     "-- ★★ UpdateRepeatDelays —— 把玩家灵敏度偏好换算成三个连发基值。",
     "-- 1269 行 `easing.linear(20-craft_sensitivity, .11, .4-.11, 20)`：",
     "--   craft_sensitivity ∈ [0,20]，反转成 (20 - s) →",
@@ -856,17 +856,17 @@ export const BEFORE = {
     "--   ⚠ 注意变量名不对称：合成用 self.crafting_repeat_*（无下划线分隔），",
     "--     物品栏用 self.inventory_repeat_*。纯粹是命名不统一。",
   ],
-  1278: [
+  "FrontEnd:UpdateRepeatDelays#1+11": [
     "-- ⚠ 1278-1279 两行注释掉的调试打印。",
     "--   它们揭示了变量命名的意图（crafting vs inventory 的对照）。",
     "--   ★ 保留注释是好习惯——调试这类数值对齐时需要它们。",
   ],
-  1282: [
+  "FrontEnd:OnMouseButton#1": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- 段 15/8：★★ 鼠标捕获与输入（1282-1307）",
     "-- ════════════════════════════════════════════════════════════════",
   ],
-  1282: [
+  "FrontEnd:OnMouseButton#1": [
     "-- ★★★ OnMouseButton —— 鼠标点击的 UI 侧入口。",
     "-- 【来自 input.lua:181，由 Input:OnMouseButton 调用（C++ → OnMouseButton）】",
     "--",
@@ -882,7 +882,7 @@ export const BEFORE = {
     "--   ★ 为什么点击必然夺回？直觉上正确：玩家主动点了界面，",
     "--     就说明他要回到鼠标交互。",
   ],
-  1289: [
+  "FrontEnd:OnMouseButton#1+7": [
     "-- ★ screenstack[top]:OnMouseButton(button, down, x, y)",
     "--   → widgets/screen.lua 未覆盖 → widget.lua:56-62。",
     "--   ★ widget.lua:57 `if not self.focus then return false end` ——",
@@ -890,7 +890,7 @@ export const BEFORE = {
     "--   ⚠ 注意 x, y 原样传递：**屏幕坐标**（不是控件局部坐标）。",
     "--     控件若要判断「点在我身上」得自己用 UITransform 换算。",
   ],
-  1293: [
+  "FrontEnd:OnMouseButton#1+11": [
     "-- ★★ `return CHEATS_ENABLED and DoDebugMouse(...)` ——",
     "--   正式版 CHEATS_ENABLED 为 false ⇒ 返回 false ⇒ 输入透传到游戏层。",
     "--   ⚠ 注意这里**没有**把结果再传给别的监听者——",
@@ -909,7 +909,7 @@ export const BEFORE = {
     "--       所以未暴露为玩家可见 bug。但这确实是**不对称**。",
     "--     参见 input.lua:181 的缺陷标注。",
   ],
-  1296: [
+  "FrontEnd:OnMouseMove#1": [
     "-- ★★ OnMouseMove —— 只做两件事，不分发事件。",
     "-- 1301  坐标**都**变 → tracking_mouse = true",
     "-- 1305-1306 记录 lastx / lasty",
@@ -919,7 +919,7 @@ export const BEFORE = {
     "--   ⇒ 分离「输入采样」（高频）与「命中计算」（每帧一次）",
     "--     是性能上的正确做法。",
   ],
-  1301: [
+  "FrontEnd:OnMouseMove#1+5": [
     "-- ⚠⚠ `self.lastx ~= x and self.lasty ~= y` —— 「与」不是「或」。",
     "--   ★ 后果：沿单轴滑动（水平或垂直）**不会**恢复鼠标跟随。",
     "--   ★ 这与 1305-1306 记录的 lastx/lasty 的用途矛盾——",

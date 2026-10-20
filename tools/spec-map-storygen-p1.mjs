@@ -38,7 +38,7 @@ export const BEFORE = {
     "-- ★ Rooms：房间模板库（map/rooms/*.lua 的汇总）。",
     "--   ★★ 使用点：:108 GetRoom → deepcopy(Rooms.GetRoomByName(...))。",
   ],
-  8: [
+  "print_lockandkey_ex#1": [
     "-- ══════════════ ★★ 空掉的调试通道（本文件最重要的「坑」）══════════════",
     "-- ★★★ 这两个 print 函数是**空函数体**（原代码里 print 被注释掉了）：",
     "--   print_lockandkey_ex(...)  -- print(...)   ← :9",
@@ -54,7 +54,7 @@ export const BEFORE = {
     "--   ★★★ 但即使恢复也有用：见 map/lockandkey.lua:531 的说明——",
     "--     ★★ 打印覆盖后的表**看不出重复键**，★ 必须构造期检测。",
   ],
-  15: [
+  "print_lockandkey#1+4": [
     "-- ══════════════ ★★★ 设计备忘（原作者的思路文档）══════════════",
     "-- ★★★ 这段注释是全文件最有价值的文档，★ 它揭示了作者的心智模型：",
     "--   ★★ 「目标：杀光所有蜘蛛 → 1. 先过山口（锁：巨石；钥匙：造镐）",
@@ -71,23 +71,23 @@ export const BEFORE = {
     "-- ★★★ 记住这句话，整套系统就通了：",
     "--   ★★★ 「图 = 骨架 + 骨架之间的随机填充物」。",
   ],
-  36: [
+  "print_lockandkey#1+25": [
     "-- ★★★ 这条推导的四步，就是 story_depth 的语义来源：",
     "--   Area 0（起点，蜘蛛巢）→ Area 1（猪村）",
     "--   ★★★ 而 tasks.lua:142 的 TEST_TASK → TEST_TASK1 正是这条链的代码化。",
   ],
-  49: [
+  "print_lockandkey#1+38": [
     "-- ══════════════ ★★★ Story 类构造 ══════════════",
     "-- ★★★ 本类只有 4 个成员：tasks / region_tasksets / rootNode / map_tags。",
     "--   ★★ 加上从 gen_params/level 抄来的配置字段。",
   ],
-  50: ["-- ★ id：★ 固定是 \"GAME\"（forest_map.lua:1398 传的）。★ 不区分世界类型。"],
-  51: [
+  "print_lockandkey#1+39": ["-- ★ id：★ 固定是 \"GAME\"（forest_map.lua:1398 传的）。★ 不区分世界类型。"],
+  "print_lockandkey#1+40": [
     "-- ★★ loop_blanks = 1：★ 「环路空地」的计数器起点。",
     "--   ★★ 使用点：:1156/:1157/:1159/:1169。每建一个闭环空地 +1。",
     "--   ★★★ 注意初值是 1 而不是 0 ⇒ 第一个叫 LOOP_BLANK1。",
   ],
-  52: [
+  "print_lockandkey#1+41": [
     "-- ★★ gen_params：★ forest_map.lua:395-460 组装的参数表。",
     "--   ★★★ 消费者（★ 本文件读它的 6 处）：",
     "--     ★★ :394 branching（分支策略）",
@@ -97,23 +97,23 @@ export const BEFORE = {
     "--     ★★ :864 layout_mode（★ 连线算法选择器）",
     "--     ★★ :900 loop_percent（闭环概率）",
   ],
-  53: [
+  "print_lockandkey#1+42": [
     "-- ★★ impassible_value：★ 「不可通行地块」的 ID，缺省 WORLD_TILES.IMPASSABLE。",
     "--   ★★ 使用点：:995（blocker_blank 的 value）、:1165（LOOP_BLANK_SUB 的 value）。",
     "--   ★★★ 这就是「锁」的**物理实现**：★ 用不可通行地块当门。",
     "--     ★★ gen_params 里可以覆盖 ⇒ ★★ 不同关卡可以用不同的「门」材质。",
   ],
-  54: [
+  "print_lockandkey#1+43": [
     "-- ★ level：★ map/level.lua 的 Level 对象（forest_map.lua:1398 传入）。",
     "--   ★★ 消费者：:89/:91 background_node_range、:173 ordered_story_setpieces、",
     "--     ★★ :193 ocean_population、:207 ocean_population_setpieces、",
     "--     ★★ :234 background（maptag 展开用）、:988 blocker_blank_room_name。",
   ],
-  56: [
+  "print_lockandkey#1+45": [
     "-- ★★ self.tasks{}：★ 按 id 索引的任务表。",
     "--   ★★★ 这是**唯一**的任务索引，★ 本文件所有 tasks[..].locks 都查它。",
   ],
-  57: [
+  "print_lockandkey#1+46": [
     "-- ★★ for k,task in pairs(tasks) do ——★★ pairs 遍历入参。",
     "--   ★★★ 后果：★ 若 tasks 里有两个同名 id（不可能，tasks.lua:58 有 assert），",
     "--     ★★ 后者会覆盖前者。★ 实际安全。",
@@ -122,13 +122,13 @@ export const BEFORE = {
     "--       ★★ 不同的插入顺序 ⇒ 不同的 hash 布局 ⇒ 不同的 pairs 顺序",
     "--         ★★ ⇒ 不同的随机结果。★ 移植时必须改成有序遍历。",
   ],
-  61: [
+  "print_lockandkey#1+50": [
     "-- ★★ region_link_tasks = 1：★ 区域连接任务的计数器。",
     "--   ★★ 使用点：:769 生成 REGION_LINK_N 的 N，:796 +1。",
     "--   ★★★ 这个计数器的存在保证了 :793-794 的 exit 边 id 唯一，",
     "--     ★★★ 而唯一性是 network.lua:270 的 assert 要求的。★ 设计正确。",
   ],
-  62: [
+  "print_lockandkey#1+51": [
     "-- ★★ self.region_tasksets{}：★ 按 region_id 分组的任务。",
     "--   ★★★★ 这是「多区域」机制的核心数据：",
     "--     ★★★ · 绝大多数任务没有 region_id ⇒ 全部进 \"mainland\"（:64）",
@@ -139,10 +139,10 @@ export const BEFORE = {
     "--   ★★ 消费点：:850 mainland、:800 AddRegionsToMainland 的迭代、",
     "--     ★★ :512 storygen.region_tasksets[\"ruins_island\"]（forest_map:512）。",
   ],
-  63: [
+  "print_lockandkey#1+52": [
     "-- ★★ for task_id, task in pairs(self.tasks) do ——★★ pairs 遍历。",
   ],
-  64: [
+  "print_lockandkey#1+53": [
     "-- ★★★★ `local region_id = task.region_id or \"mainland\"`",
     "--   ★★★★ ★★ **全文件最关键的一行默认值**。",
     "--     ★★★ · 大部分 task 没写 region_id ⇒ 归入 mainland",
@@ -154,7 +154,7 @@ export const BEFORE = {
     "--     ★★★ 而 :801 的条件（非 mainland/ruins_island/vault_island）仍然放行它，",
     "--     ★★★★ ⇒ 它会被生成并连上大陆（不会丢）。★ 容错性不错。",
   ],
-  72: [
+  "print_lockandkey#1+61": [
     "-- ★★ self.GlobalTags{}：★★ **跨节点**的标签收集器。",
     "--   ★★★★ 这是「区域级声明」的唯一载体：",
     "--     ★★★ · :1196-1203 的 GLOBALTAG 分支往这里塞 {tag → {task → {node_ids}}}",
@@ -169,7 +169,7 @@ export const BEFORE = {
     "--       ★★★ ⇒ ★★ 两种 GlobalTag 成对出现：X 与 XEntrance。",
     "--         ★★★ 这就是「迷宫有一批节点 + 一批入口节点」的数据结构。",
   ],
-  76: [
+  "print_lockandkey#1+65": [
     "-- ★★★★ self.rootNode = Graph(id..\"_root\", {}) ——★ 根图。",
     "--   ★★★★ 整个剧情图的**唯一根**。所有 task 图都是它的 children。",
     "--     ★★★ 它的 id 是 \"GAME_root\"（forest_map:1398 传 id=\"GAME\"）。",
@@ -177,7 +177,7 @@ export const BEFORE = {
     "--       ★★★ ⇒ 真正的房间节点都在子图里。★ 这就是 :730 GetNodes(false)",
     "--         ★★★ 在 PopulateVoronoi 里返回空集的原因。",
   ],
-  77: [
+  "print_lockandkey#1+66": [
     "-- ★★ if gen_params.wormhole_prefab ~= nil then ——★ 虫洞 prefab。",
     "--   ★★ 它被挂到 rootNode 上，★ 而 network.lua:53 声明 wormholeprefab = nil，",
     "--     ★★★ 二者对上了 ⇒ ★★ 虫洞 prefab 的传递链：",
@@ -187,14 +187,14 @@ export const BEFORE = {
     "--             → network.lua:903/:973/:997/:1053 的 assert",
     "--   ★★★ 一个字段串了 4 个文件。★ 脆弱但清晰。",
   ],
-  81: [
+  "print_lockandkey#1+70": [
     "-- ★ startNode = nil ——★ 玩家出生节点，★ :851 赋值。",
     "--   ★★ 它会被单独返回（:1405）★ 给 placement.lua 强制把出生点放地图中心。",
   ],
-  83: [
+  "print_lockandkey#1+72": [
     "-- ★ map_tags = MapTags() ——★ 标签展开器实例（★ 见 :5 的说明）。",
   ],
-  86: [
+  "Story:GenerationPipeline#1": [
     "-- ══════════════ ★★★ GenerationPipeline：★ 本文件的总流程 ══════════════",
     "-- ★★★★ ★★ 只有 7 行，但它是整个剧情图的**唯一驱动点**。",
     "--   ★★★★ 真实执行顺序（★ 已逐行核实，这是唯一的真相）：",
@@ -236,14 +236,14 @@ export const BEFORE = {
     "--     ★★★★ ⇒ 正确心智模型：★「**先有图，图才有点，点才成地块，地块才长东西**」。",
     "--     ★★ 这个顺序不能颠倒：★ 图是因，地块是果。",
   ],
-  87: [
+  "Story:GenerationPipeline#1+1": [
     "-- ★★ S1：★ 整个剧情图的诞生。★ 详见 :849 GenerateNodesFromTasks。",
   ],
-  89: [
+  "Story:GenerationPipeline#1+3": [
     "-- ★★ local min_bg = self.level.background_node_range and [1] or 0",
     "--   ★★★ 缺省下限 0。★ 所以「不加背景节点」也是允许的。",
   ],
-  90: [
+  "Story:GenerationPipeline#1+4": [
     "-- ★★ local max_bg = … and [2] or 2 ——★ 缺省上限 **2**。",
     "--   ★★★★ ★★ 每个 task 的每个非入口节点会加 0~2 个背景节点。",
     "--     ★★★★ 「背景节点」是**胞元外圈**用的房间（背景房间的 Voronoi 站点）。",
@@ -254,25 +254,25 @@ export const BEFORE = {
     "--         ★★★★ ★★ Voronoi 更慢 ⇒ ★★ Lloyd 的 O(P×S) 里 S 变大）。",
     "--       ★★★ ★★ ⇒ ★★ background_node_range 直接影响生成耗时！★ 重要。",
   ],
-  92: [
+  "Story:GenerationPipeline#1+6": [
     "-- ★★ S3：AddCoveNodes() ——★ 给边数少的节点加「穴居小房间」。",
     "--   ★★ 目的纯粹是**视觉打散**：★ 没有它，Voronoi 胞元大小差异会更明显。",
   ],
-  93: [
+  "Story:GenerationPipeline#1+7": [
     "-- ★★ S4：★ 把任务声明的 set_pieces 塞进该任务的某个合格房间。",
   ],
-  94: [
+  "Story:GenerationPipeline#1+8": [
     "-- ★★ S5：★ ProcessExtraTags ——★ 原注释「deprecated but leaving in for modders」。",
     "--   ★★ ★★★ 诚实的注释：★ 知道废弃了，★ 但为了不破坏 mod 留着。",
     "--     ★★★★ 对比 map/level.lua:16-22 用 assert 硬崩的迁移风格，",
     "--       ★★★ 这里选择了**软保留**。★ 因为被废弃的是 mod 会调的函数。",
     "--     ★★★★ ⇒ ★★ 两个文件对「废弃」有两种策略，★ 各有道理。",
   ],
-  95: [
+  "Story:GenerationPipeline#1+9": [
     "-- ★★ S6：★ 把 level.ocean_population 的房间模板灌进 self.ocean_population。",
     "--   ★★ 消费点：forest_map.lua:886 PopulateOcean(…, storygen.ocean_population, …)。",
   ],
-  98: [
+  "Story:ModRoom#1": [
     "-- ══════════════ ★ ModRoom：mod 的房间改写钩子 ══════════════",
     "-- ★★ 这是本文件提供的**唯一 mod 扩展点**（RoomPreInit）。",
     "--   ★★ 它在 GetRoom(:114) 里被调用 ⇒ ★★ **每个房间实例化时都会跑一遍**。",
@@ -280,14 +280,14 @@ export const BEFORE = {
     "--     ★★★ · 只针对某个房间（\"Forest\"）注册钩子",
     "--     ★★★★ 也可以用 ModManager 的通配（★ 取决于框架实现）。",
   ],
-  99: [
+  "Story:ModRoom#1+1": [
     "-- ★★ ModManager:GetPostInitFns(\"RoomPreInit\", roomname)",
     "--   ★★ PostInit 语义：★ 「post-init」= 构造完、初始化前。",
     "--     ★★★ 同一体系还有 TaskPreInit / TaskSetPreInit / LevelPreInit",
     "--       ★★★ 共 6 个钩子（★ 详见 map/level.lua 的 §一）。",
   ],
-  101: ["-- ★★ print 出正在改哪个房间 ⇒ mod 生效可见。★ 好实践。"],
-  107: [
+  "Story:ModRoom#1+3": ["-- ★★ print 出正在改哪个房间 ⇒ mod 生效可见。★ 好实践。"],
+  "Story:GetRoom#1": [
     "-- ══════════════ ★★ GetRoom：★ 房间模板实例化（★ 唯一的 deepcopy 点）══════",
     "-- ★★★★ ★★ `deepcopy(Rooms.GetRoomByName(roomname))` ——★ 全文件唯一的深拷贝。",
     "--   ★★★★ 它在 GenerateNodesFromTask 的 while 循环里被逐房间调用",
@@ -310,7 +310,7 @@ export const BEFORE = {
     "--       ★★★★ ⇒ ★★ deepcopy 是**正确且必要**的。★ 不是过度设计。",
     "--   ★★★ 另一处 deepcopy 在 map/level.lua:223（task 层）。",
   ],
-  109: [
+  "Story:GetRoom#1+2": [
     "-- ★★ if newroom == nil then return nil end ——★ 房间不存在。",
     "--   ★★ 这里**返回 nil 而不是崩溃** ⇒ ★★ 下游的 assert（:1245/:1270）",
     "--     ★★ 才崩。而 :999-1000（AddBGNodes）用 assert，:1099-1100（AddCoveNodes）也用。",
@@ -320,12 +320,12 @@ export const BEFORE = {
     "--     ★★★★ · storygen.lua:865 的 assert（Must specify a layout mode）",
     "--     ★★★★ ⇒ ★★ 总体上「有清晰报错」，★ 这点比纯静默失败好得多。",
   ],
-  112: [
+  "Story:GetRoom#1+5": [
     "-- ★ newroom.name = roomname ——★ 显式写回名字。",
     "--   ★★ 为什么？★ 因为 deepcopy 出来的表可能没有 name 字段，",
     "--     ★★ 而 :1320 `name = next_room.name` 与 :583 GetNodesByName 都要它。",
   ],
-  113: [
+  "Story:GetRoom#1+6": [
     "-- ★★ newroom.type = newroom.type or NODE_TYPE.Default",
     "--   ★★ **给类型兜底**。★ 房间模板没写 type 就当普通房。",
     "--     ★★★ 后续 :1027/:1125 会据此转换：",
@@ -334,7 +334,7 @@ export const BEFORE = {
     "--       ★★★ ⇒ ★★ 「没写 type」的普通房在背景节点里会变 Background。",
     "--     ★★★ 这就是「同一套房间模板在不同用途下类型不同」的机制。",
   ],
-  118: [
+  "Story:PlaceTeleportatoParts#1": [
     "-- ══════════════ ★★ PlaceTeleportatoParts（★ 已废弃）══════════════",
     "-- ★★★★ ★★ 本函数是「传送门零件按剧情顺序布置」的遗留实现。",
     "--   ★★ 它被 :94 ProcessExtraTags 调用 ⇒ ★★ **仍在执行**，",
@@ -344,30 +344,30 @@ export const BEFORE = {
     "--     ★★★ 无害的浪费。★ 但若某 mod 设置了 ordered_story_setpieces，",
     "--       ★★★★ 它就会真的执行——★ 而 :180 有除零隐患（见该行）。",
   ],
-  119: ["-- ★★★ \"-- This is deprecated\" ★★ 作者自己标注的废弃。"],
-  120: [
+  "Story:PlaceTeleportatoParts#1+1": ["-- ★★★ \"-- This is deprecated\" ★★ 作者自己标注的废弃。"],
+  "Story:PlaceTeleportatoParts#1+2": [
     "-- ★★ RemoveExitTag：★ 局部函数，从节点上摘掉 \"ExitPiece\" 标签。",
     "--   ★★ 为什么要摘？★ 因为传送门零件要放进一个**正常的**房间，",
     "--     ★★ 而不能是「入口房」。★ 所以放完之后就把「入口」标记去掉。",
   ],
-  121: ["-- ★★ local newtags = {} ——★ 重建标签数组（不能用 table.remove 边遍历边删）。"],
-  122: [
+  "Story:PlaceTeleportatoParts#1+3": ["-- ★★ local newtags = {} ——★ 重建标签数组（不能用 table.remove 边遍历边删）。"],
+  "Story:PlaceTeleportatoParts#1+4": [
     "-- ★★ for i,tag in ipairs(node.data.tags) do ——★ ipairs（数组，顺序稳定）。",
   ],
-  123: ["-- ★★ if tag ~= \"ExitPiece\" then ——★ 过滤。"],
-  127: [
+  "Story:PlaceTeleportatoParts#1+5": ["-- ★★ if tag ~= \"ExitPiece\" then ——★ 过滤。"],
+  "Story:PlaceTeleportatoParts#1+9": [
     "-- ★★ node.data.tags = newtags ——★ 就地替换标签数组。",
   ],
-  130: [
+  "Story:PlaceTeleportatoParts#1+12": [
     "-- ★★ IsNodeAnExit：★ 局部函数，判断节点是否带 ExitPiece 标签。",
   ],
-  142: [
+  "Story:PlaceTeleportatoParts#1+24": [
     "-- ★★ AddPartToTask(part, task)：★★ 「找一个出口房，把零件塞进去」。",
     "--   ★★ 它**修改**了 task.nodes[name].data.terrain_contents_extra.static_layouts",
     "--     ★★ ⇒ ★★ 副作用是就地修改图节点。★ 无 deepcopy 保护。",
     "--     ★★★ 但这是**有意的**：★ 我们就是要把它加进最终要烘焙的数据里。",
   ],
-  143: [
+  "Story:PlaceTeleportatoParts#1+25": [
     "-- ★★★ local nodeNames = shuffledKeys(task.nodes) ——★ 随机打乱候选节点。",
     "--   ★★★★ ★★ 这是本函数**唯一**的随机消耗点：",
     "--     ★★★ · shuffledKeys（util.lua:873）→ shuffleArray（:864）",
@@ -379,30 +379,30 @@ export const BEFORE = {
     "--       ★★★ 因为 ordered_story_setpieces 通常为空，★ 所以实际上不消耗。",
     "--         ★★ ⇒ ★★ 「废弃代码」反而**保护了随机流的稳定性**。★ 讽刺但真实。",
   ],
-  145: ["-- ★★ if IsNodeAnExit(task.nodes[name]) then ——★ 找到带 ExitPiece 的房间。"],
-  146: [
+  "Story:PlaceTeleportatoParts#1+27": ["-- ★★ if IsNodeAnExit(task.nodes[name]) then ——★ 找到带 ExitPiece 的房间。"],
+  "Story:PlaceTeleportatoParts#1+28": [
     "-- ★★ local extra = task.nodes[name].data.terrain_contents_extra",
     "--   ★★★★ ⚠ 疑似缺陷（轻度 nil 风险）：★ 若 terrain_contents_extra 为 nil，",
     "--     ★★ :147 的 `if not extra then extra = {} end` 会兜住。★ 安全。",
   ],
-  150: [
+  "Story:PlaceTeleportatoParts#1+32": [
     "-- ★★ if not extra.static_layouts then extra.static_layouts = {} end",
     "--   ★★ 懒初始化（★ 与 :151 同款）。",
   ],
-  153: [
+  "Story:PlaceTeleportatoParts#1+35": [
     "-- ★★ table.insert(extra.static_layouts, part) ——★ 加入场景件清单。",
     "--   ★★ ★★★ 「传送门零件」本质上就是一个**静态布局**（prefab 的排布模板）。",
     "--     ★★★★ ★★ ⇒ ★★ 传送门零件与其他场景件（如废墟）在数据层面**没有区别**，",
     "--       ★★★★ ★★ 区别只在**放置位置与时机**。★ 统一抽象的好处。",
   ],
-  154: [
+  "Story:PlaceTeleportatoParts#1+36": [
     "-- ★★ RemoveExitTag(task.nodes[name]) ——★ 放完就摘掉入口标记。",
   ],
-  155: [
+  "Story:PlaceTeleportatoParts#1+37": [
     "-- ★★ return true ——★ 成功。★ 调用方用它决定是否继续。",
   ],
-  158: ["-- ★★ return false ——★ 失败（没有出口房）。"],
-  161: [
+  "Story:PlaceTeleportatoParts#1+40": ["-- ★★ return false ——★ 失败（没有出口房）。"],
+  "Story:PlaceTeleportatoParts#1+43": [
     "-- ★★ InsertPartnumIntoATask(partnum, partSpread, part, tasks)：",
     "--   ★★ 「把第 N 个零件放进 story_depth ≈ N × partSpread 的任务」。",
     "--   ★★★★ ★★ 这是**唯一**用到 story_depth 做决策的地方。",
@@ -411,7 +411,7 @@ export const BEFORE = {
     "--     ★★★★ ⚠ 但 story_depth 是**任务级**的（network.lua:34），",
     "--       ★★★★ 而这里遍历 tasks（= rootNode 的 children = 任务图）★ 对上了。",
   ],
-  163: [
+  "Story:PlaceTeleportatoParts#1+45": [
     "-- ★★ if task.story_depth == math.ceil(partnum*partSpread) then ——★ 匹配深度。",
     "--   ★★★★ ★★ ⚠ 这里有个**精度隐患**：",
     "--     ★★★ · story_depth 是整数（:440/:601 的自增计数器）",
@@ -421,13 +421,13 @@ export const BEFORE = {
     "--       ★★★ ★★ 没人检查返回值（★ :164 的返回值被 :167 直接 return）。",
     "--       ★★★★ ⇒ ★★ 「有零件没放上去」是完全静默的。★ E2 类缺陷。",
   ],
-  164: [
+  "Story:PlaceTeleportatoParts#1+46": [
     "-- ★★ local success = AddPartToTask(part, task)",
     "--   ★★★ 注意 ★★ success 赋值后**只用于 :167 的 return**，",
     "--     ★★★ ★★ 真正用来检测失败的是下一行那个**被注释掉的 assert**。",
     "--       ★★★★ ⇒ ★★ 「失败」不会中断任何流程，★ 只是这个任务被跳过。",
   ],
-  165: [
+  "Story:PlaceTeleportatoParts#1+47": [
     "-- ★★★★ ★★★ 「-- Not sure why we need this, was causeing crash」",
     "--   ★★★★ ★★★ 这一行是**整个文件最沉痛的一行注释**。",
     "--     ★★★★ 翻译：「不知道为什么需要这个，它会导致崩溃」。",
@@ -441,7 +441,7 @@ export const BEFORE = {
     "--           ★★★★ ★★ 正确的修法应是「白名单化」而不是「整个 assert 注释掉」。",
     "--     ★★★ ★★ ⇒ ★★ 这是一个**可以确定修好**的历史遗留，值得还原。",
   ],
-  166: [
+  "Story:PlaceTeleportatoParts#1+48": [
     "-- ★★★★★★ --assert( success or task.id == \"TEST_TASK\" or task.id == \"MaxHome\",",
     "-- ★★★★ ★★ 「Could not add an exit part to task \"..task.id)",
     "--   ★★★ ★★ 白名单：TEST_TASK 与 MaxHome。",
@@ -451,26 +451,26 @@ export const BEFORE = {
     "--       ★★★★ ★★ 只是需要一个更好的白名单机制（比如「task 无出口房就跳过」）。",
     "--       ★★ 现在的处理（整体注释）代价太大：★ 连真正的问题也一起掩盖了。",
   ],
-  167: [
+  "Story:PlaceTeleportatoParts#1+49": [
     "-- ★★ return success ——★★ 无论成功失败都返回，★ 不重试别的任务。",
     "--   ★★★ ⚠ 于是「匹配到深度但放不下」的任务会被放弃，",
     "--     ★★★ 而 **for id,task in pairs(tasks) 里的后续任务不再尝试**（:168 return）。",
     "--       ★★★ ⇒ ★★ 顺序依赖：★ 哪个任务先被遍历到，决定了哪个能拿到零件。",
     "--         ★★★★ ★★ **pairs 顺序不定 ⇒ 结果不可复现**。★ 又一个雷点。",
   ],
-  173: [
+  "Story:PlaceTeleportatoParts#1+55": [
     "-- ★★ local parts = self.level.ordered_story_setpieces or {}",
     "--   ★★★ ★★ 绝大多数关卡这一项是 nil ⇒ ★★ parts = {} ⇒ 整个函数空转。",
     "--     ★★★★ 对照 map/level.lua:27：「ordered_story_setpieces = data.ordered",
     "--       ★★★★ _story_setpieces -- Deprecated」。★ 确认：默认无人填。",
   ],
-  174: [
+  "Story:PlaceTeleportatoParts#1+56": [
     "-- ★★ local maxdepth = -1 ——★★ 初值 -1 而不是 0。",
     "--   ★★★★ ★★ 与 network.lua:34 的 `story_depth or -1` 一致。",
     "--     ★★★ 语义：★ -1 = 「未参与深度链」。★ 区分于 0（起点）。",
     "--       ★★★★ 这是本文件里 story_depth 的**唯一语义规范**。",
   ],
-  175: [
+  "Story:PlaceTeleportatoParts#1+57": [
     "-- ★★ for id, task_node in pairs(self.rootNode:GetChildren()) do",
     "--   ★★★ ★★ 求 maxdepth 用 pairs 遍历，★ 但 **max 与顺序无关**。",
     "--     ★★★★ ⇒ ★★ 这里**安全**。★（对比 :143/:316 那些依赖顺序的地方。）",
@@ -478,7 +478,7 @@ export const BEFORE = {
     "--       ★★★ ⇒ ★★ 判断标准：**只有「取第 k 个」才依赖顺序，",
     "--         ★★★★ 「求聚合量（max/min/sum）永远安全」。★ 好判据。",
   ],
-  180: [
+  "Story:PlaceTeleportatoParts#1+62": [
     "-- ★★★★ ★★★ 【缺陷】`local partSpread = maxdepth/#parts`",
     "--   ★★★★ ★★★ 当 parts 为**空表**时 #parts == 0 ⇒ ★★ 除零！",
     "--     ★★★★ 推演：",
@@ -498,24 +498,24 @@ export const BEFORE = {
     "--           ★★★★ ★★ 所有零件都堆到**起点任务**上！★ 这是真实风险。",
     "--     ★★ ⚠ 记录：★ 修复方向是 `if #parts == 0 then return end`。",
   ],
-  182: [
+  "Story:PlaceTeleportatoParts#1+64": [
     "-- ★★ for partnum = 1, #parts do ——★ 空表时不执行。★ 所以上面那行除零是唯一影响。",
   ],
-  187: [
+  "Story:ProcessExtraTags#1": [
     "-- ══════════════ ProcessExtraTags（★ 已废弃，保留给 mod）══════════════",
     "-- ★★ 只有一行：调 PlaceTeleportatoParts。",
     "--   ★★ 原注释「-- This is deprecated」★ 再次确认。",
   ],
-  192: [
+  "Story:ProcessOceanContent#1": [
     "-- ══════════════ ProcessOceanContent：★ 海洋区域的内容物准备 ══════════════",
     "-- ★★ 它不生成任何节点，★ 只是把房间模板收集到一个表里，",
     "--   ★★ 交给 forest_map.lua:886 的 PopulateOcean 去撒。",
   ],
-  193: [
+  "Story:ProcessOceanContent#1+1": [
     "-- ★★ if self.level.ocean_population then ——★ 关卡没配海洋 ⇒ 整段跳过。",
     "--   ★★ 森林地图（无海洋）走不到这里。",
   ],
-  196: [
+  "Story:ProcessOceanContent#1+4": [
     "-- ★★ if self.ocean_population == nil then self.ocean_population = {} end",
     "--   ★★★★ ⚠ 疑似缺陷（轻度隐患）：★ :200-205 是**无条件 for 循环**，",
     "--     ★★ 若 level.ocean_population 存在但**所有房间名都无效**，",
@@ -527,20 +527,20 @@ export const BEFORE = {
     "--         ★★★★ ★★ **世界生成崩溃**。⚠ 疑似缺陷（真实，触发条件苛刻）。",
     "--     ★★★ 修复方向：`if #self.ocean_population == 0 then return end`。",
   ],
-  200: [
+  "Story:ProcessOceanContent#1+8": [
     "-- ★★ for _, room in pairs(self.level.ocean_population) do ——★ pairs 遍历。",
     "--   ★★ 消费顺序不定 ⇒ :209 的随机选取顺序不定。★ 依赖 pairs 顺序。",
   ],
-  201: ["-- ★★ local data = self:GetRoom(room) ——★ 同样 deepcopy 一份。"],
-  202: ["-- ★★ if data then ——★ 房间不存在就跳过（★ 静默）。"],
-  203: [
+  "Story:ProcessOceanContent#1+9": ["-- ★★ local data = self:GetRoom(room) ——★ 同样 deepcopy 一份。"],
+  "Story:ProcessOceanContent#1+10": ["-- ★★ if data then ——★ 房间不存在就跳过（★ 静默）。"],
+  "Story:ProcessOceanContent#1+11": [
     "-- ★★ table.insert(self.ocean_population, {data = data})",
     "--   ★★★ 注意包装成 {data=data}：★ 与 Graph:GetNodesByName 同样的包装风格。",
     "--     ★★★★ 为什么包装？★ 因为 PopulateOcean 的参数签名可能要求多返回值位。",
     "--       ★★★ 这种「为了凑位置而包装」的手法在本仓库出现多次（:584/:831）。",
     "--         ★★★ 是一种**接口适配技巧**，不算优雅但有效。",
   ],
-  207: [
+  "Story:ProcessOceanContent#1+15": [
     "-- ★★ if self.level.ocean_population_setpieces then ——★ 海洋场景件计数表。",
     "--   ★★★ ★★ 与 :263 的 random_set_pieces 对应，★ 但这里的语义不同：",
     "--     ★★★ · ★ 它是 {预制体名 → 数量}（:213-216 的自增）",
@@ -548,7 +548,7 @@ export const BEFORE = {
     "--     ★★★★ ⇒ ★★ 两者**不是同一套机制**，★ 容易混淆。",
     "--       ★★★ 海洋的这套更接近「资源数量表」，★ 会走 ocean_gen.lua 的加权散布。",
   ],
-  209: [
+  "Story:ProcessOceanContent#1+17": [
     "-- ★★ content = self.ocean_population[math.random(#self.ocean_population)]",
     "--   ★★★ ⚠ 见 :196 的 ⚠：★ **空表 ⇒ math.random(0) 崩溃**。",
     "--   ★★★★ 每次循环**独立**摇一次 ⇒ 多个场景件可能落在同一个房间。",
@@ -558,13 +558,13 @@ export const BEFORE = {
     "--       ★★★ ⇒ ★★ 结果是「总共 N 个 setpiece 分散在 M 个房间里，",
     "--         ★★★ ★★ 可能有两个挤在同一房间」。",
   ],
-  210: [
+  "Story:ProcessOceanContent#1+18": [
     "-- ★★ if content.data.contents.countstaticlayouts == nil then … end",
     "--   ★★★ countstaticlayouts 是 graphnode.lua:260 消费的字段。",
     "--     ★★★★ ⇒ ★★ 这里的自增会**直接变成**海洋房间里要放的数量。",
     "--       ★★★★ ★★ 所以：★ 同一个海洋房间被抽中两次 ⇒ 放 2 个该场景件。",
   ],
-  216: [
+  "Story:ProcessOceanContent#1+24": [
     "-- ★★ content.data.contents.countstaticlayouts[v] = … + 1 ——★ 计数 +1。",
     "--   ★★★ ★★ 对比 storygen.lua:260（`= 1`，赋值）与 :293（`= 1`，赋值）：",
     "--     ★★★★ ★★ 这里是**唯一的自增**！★ 语义确实是「数量」。",

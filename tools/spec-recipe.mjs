@@ -186,18 +186,18 @@ export const BEFORE = {
     "--   grep 核实 deconstruct 的消费点在 builder 的拆解流程，",
     "--   recipe.lua 自身只负责存。",
   ],
-  25: [
+  "Ingredient:GetAtlas#1": [
     "-- ★ GetAtlas 是惰性求值 + 记忆化：第一次调用时按 image 名反查图集并写入",
     "--   self.atlas，此后直接返回。配方表有上千条，全惰性可以省掉上千次字符串运算。",
   ],
-  32: [
+  "Ingredient:GetImage#1": [
     "-- ★ GetImage 同样的惰性模式（33-35 行）。",
     "--   约定：`type..\".tex\"` —— 即材料名直接对应贴图名，",
     "--   所以「decrease_health.tex」这类贴图必须存在于图集中。",
   ],
 
   // ── §一 全局表与惰性谓词 ────────────────────────────────
-  39: [
+  "Ingredient:GetImage#1+7": [
     "-- 【§一】全局状态与两个惰性谓词。",
     "-- ★ num 是**全局自增序号**，构造时（178 行）赋给 sortkey 与 rpc_id。",
     "--   它衡量的是「这条配方在本进程里是第几个被构造的」，",
@@ -205,7 +205,7 @@ export const BEFORE = {
     "-- ★★ 因此 AllRecipes 是 `pairs` 遍历的（203 行 SetModRPCID 就这么干），",
     "--   顺序不可靠；凡是需要顺序的地方都必须显式用 sortkey。",
   ],
-  40: [
+  "Ingredient:GetImage#1+8": [
     "-- ★★ AllRecipes 是**全局唯一表**，不是原型注册表。",
     "--   179 行直接 AllRecipes[name] = self —— 同名配方**静默覆盖**，无警告。",
     "--   对比 actions.lua：Action 有 ACTION_IDS 编号层与冲突处理，",
@@ -213,30 +213,30 @@ export const BEFORE = {
     "-- ★ 为什么不做冲突检测？因为 1106 条配方在 mod 加载期批量构造，",
     "--   任何 assert 都会让互相覆盖的 mod 无法共存。Klei 选择了容忍。",
   ],
-  41: [
+  "Ingredient:GetImage#1+9": [
     "-- ★ AllBuilderTaggedRecipes：value 是 builder_tag 或 builder_skill，",
     "--   表本身用于「机器人（WX78 / 蜜蜂 / 机器人）按标签找配方」的批量查询。",
     "--   登记条件见 180-182 行：必须设了 builder_tag 或 builder_skill，",
     "--   且 more_data.allowautopick 为 nil。",
   ],
-  43: [
+  "Ingredient:GetImage#1+11": [
     "-- ★ 惰性建表的经典写法：is_character_ingredient 首调为 nil，",
     "--   于是真建表，之后复用。反射的是 constants.lua:2123 CHARACTER_INGREDIENT。",
   ],
-  44: [
+  "IsCharacterIngredient#1": [
     "-- ★★ IsCharacterIngredient 的反射方向值得注意：",
     "--   `for k, v in pairs(CHARACTER_INGREDIENT)`，k 被丢弃、**v 被当真值**。",
     "--   ⇒ 这张表的键（HEALTH/MAX_HEALTH/…）只是 UI 用的短名，",
     "--     真正的判据是值（decrease_health/half_health/…）。",
     "--   ★ 这与 2138 行 TECH_INGREDIENT 的注释 \"Value is used as key for NAME\" 呼应。",
   ],
-  51: [
+  "IsCharacterIngredient#1+7": [
     "-- ★ 51 行的 `ingredienttype ~= nil and ...` 是**防御性判据**：",
     "--   Ingredient.type 未设时（构造漏参）返回 false 而不是崩。",
     "--   注意 ingredienttype 若是非字符串（如数字），下标访问只会返回 nil，",
     "--   不报错——Lua 的宽松性在这里被当成了特性使用。",
   ],
-  55: [
+  "IsTechIngredient#1": [
     "-- ★ IsTechIngredient 与 IsCharacterIngredient 是**完全同构**的两份代码。",
     "--   各自维护一张惰性缓存表。",
     "--   ⚠ 若将来新增第三类材料类型，必须复制第三份；",
@@ -244,14 +244,14 @@ export const BEFORE = {
   ],
 
   // ── §二 Recipe 构造 ─────────────────────────────────────
-  65: [
+  "IsTechIngredient#1+10": [
     "-- 【§二】Recipe 类的构造。它是本文件 80% 的代码量。",
     "-- ★★ mod_protect_Recipe 是一个**全局开关**，用于给从 mod 里",
     "--   直接 new Recipe() 的旧写法打弃用警告。",
     "--   推测设置位置在 modutil 的初始化里；grep 显示本文件之外无处赋值，",
     "--   默认 false ⇒ 这段警告目前只在外部显式打开时才生效。",
   ],
-  67: [
+  "IsTechIngredient#1+12": [
     "-- ★★★ 16 个位置参数，是全游戏最长的构造签名之一。",
     "--   原注释直言：\"do not add more params here, add them to placer_or_more_data\"。",
     "-- ★ 为什么这么写？历史上每次加参数都要改全部配方调用点，",
@@ -261,48 +261,48 @@ export const BEFORE = {
     "--   会被误判成 more_data。placer 是字符串（prefab 名）所以不会撞，",
     "--   但这是一个隐式契约，扩展时必须小心。",
   ],
-  72: [
+  "IsTechIngredient#1+17": [
     "-- ★ 74-80 行是「位置参数 vs 配置袋」的双态分流。",
     "--   传 table ⇒ more_data = 该表，placer = table.placer（可能 nil）；",
     "--   传其他 ⇒ more_data = 空表，placer = 该值。",
     "-- ★ Recipe2（229 行）总是走 table 分支，所以 placer 恒为 nil——",
     "--   Recipe2 造出来的配方**不能带 placer**，这是它与 Recipe 的实质区别之一。",
   ],
-  84: [
+  "IsTechIngredient#1+29": [
     "-- ★★ 三张材料表的初始化。89-96 行会把传入的 ingredients 全部重新分类。",
     "--   ⚠ 注意：`for k,v in pairs(ingredients)` —— 材料的**顺序丢失**。",
     "--   ⇒ 下游（builder 的扣料、UI 的材料展示顺序）不能依赖 ingredients",
     "--     数组的原始顺序。UI 若要显示材料，通常按 ingredient.type 排序。",
   ],
-  89: [
+  "IsTechIngredient#1+34": [
     "-- ★★ 材料三分类的实现：一个三目链。",
     "--   判定顺序：IsCharacterIngredient → IsTechIngredient → 普通。",
     "--   ★ 顺序即优先级：若某个 type 同时出现在两个枚举里，",
     "--     会被归到 character 而非 tech。目前两表无交集，但这是隐式依赖。",
   ],
-  98: [
+  "IsTechIngredient#1+43": [
     "-- ★ product：产物 prefab 名。默认与 name 相同，但两者**可以不同**——",
     "--   典型用途是「一个配方产出多个 prefab」或「产物名与配方名不同以避免覆盖」。",
     "--   ★ 这是 AllRecipes[name] 键空间与 prefab 空间解耦的地方。",
   ],
-  99: [
+  "IsTechIngredient#1+44": [
     "-- ★★ self.tab = tab  —— DEPRECATED（行内原注释）。",
     "--   字段仍然保留，但它的**唯一实际用途**是 174 行反推",
     "--   is_deconstruction_recipe。⇒ 这是一个「已废弃但不可删」的字段，",
     "--   因为删掉会连带改变 174 行的行为（见 L2）。",
   ],
-  101: [
+  "IsTechIngredient#1+46": [
     "-- ★ nameoverride / description：纯 UI 覆盖项（合成菜单里的名字与描述）。",
     "--   ★ 与 21 行的 self.image = imageoverride 是同一层级的「显示覆盖」，",
     "--     说明 Ingredient 也有自己的 override 通道（用于「材料显示为别的东西」）。",
   ],
-  105: [
+  "IsTechIngredient#1+50": [
     "-- ★ imagefn 与 image 的互斥设计（105-106 行）：",
     "--   传函数 ⇒ imagefn 存函数、image 退化成 product..\".tex\"（占位）；",
     "--   传字符串 ⇒ imagefn 为 nil、image 为该字符串。",
     "--   ★ 这样 consumer 只需判断 `if recipe.imagefn then ... else ... end`。",
   ],
-  107: [
+  "IsTechIngredient#1+52": [
     "-- ★★ atlas 的惰性机制在这里被**提前禁用**了：",
     "--   107 行的 `self.atlas = (atlas and resolvefilepath(atlas))` 没有 fallback，",
     "--   而 196 行的 GetAtlas 里才补上 `or resolvefilepath(GetInventoryItemAtlas(...))`。",
@@ -310,14 +310,14 @@ export const BEFORE = {
     "--   110-111 行的原注释保留了被废弃的 lockedatlas/lockedimage 方案，",
     "--   说明「配方未解锁时的灰显图」曾是一个独立字段，现已放弃。",
   ],
-  113: [
+  "IsTechIngredient#1+58": [
     "-- ★★ sortkey 与 rpc_id 都取自 num。",
     "--   sortkey = num         —— 合成菜单里的稳定排序键（按构造顺序）；",
     "--   rpc_id   = num         —— modutil 会在 AddRecipe 时改写成哈希（见 114 行注释）。",
     "--   ★ 两个字段初值相同是巧合：一个是排序键、一个是网络 ID，",
     "--     生命周期不同，只有在配方不是由 AddRecipe 注册时才相等。",
   ],
-  115: [
+  "IsTechIngredient#1+60": [
     "-- ★★★ level 的存储形式 —— 本文件最容易被误解的一行。",
     "--   `self.level` **不是数字**，而是 TechTree.Create(level) 的产物：",
     "--   一张以 40 个科技轴名为键、值为所需等级（缺省 0）的稀疏对照表。",
@@ -326,90 +326,90 @@ export const BEFORE = {
     "--   ★ 真正的「多轴科技比较」不在本文件，在 components/builder.lua 的",
     "--     KnowsRecipe 家族；recipe.lua 对玩家的科技等级一无所知。",
   ],
-  117: [
+  "IsTechIngredient#1+62": [
     "-- ★ min_spacing 默认 3.2：建造类配方放置器之间的最小间距，",
     "--   单位是世界单位（约等于 1 网格）。用于「一次只能放一个」的摆件。",
   ],
-  120: [
+  "IsTechIngredient#1+65": [
     "-- ★★ testfn：placer 的**自定义可放置性测试**，覆盖默认的 IsDeployPointClear。",
     "--   ★ 121 行的 overridecandeployrecipeatpointfn 是它的加强版：",
     "--     同样是覆盖 CanDeployRecipeAtPoint 的默认处理，",
     "--     但可以完全接管而不只是测试。两者并存说明历史上加过两轮。",
   ],
-  122: [
+  "IsTechIngredient#1+67": [
     "-- ★★ canbuild：返回**失败原因字符串**或 false —— 与 Action.fn 的约定一致",
     "--   （参见 actions.lua 的 `return false, \"XXX\"` 模式）。",
     "--   ⇒ 合成失败原因字符串同样是 UI 契约的一部分。",
   ],
-  124: [
+  "IsTechIngredient#1+69": [
     "-- ★ unlocks_from_skin 是**布尔 → 枚举**的转换（124-130 行）。",
     "--   注意分支条件是 `level == TECH.LOST`：**只有「失落的」配方**",
     "--   才能从皮肤解锁为 ALWAYS。",
     "--   ★ 这解释了 TECH.LOST 的语义：它不是「科技等级为 0」，",
     "--     而是「标记为可通过皮肤/合成台获得的特殊配方」。",
   ],
-  131: [
+  "IsTechIngredient#1+76": [
     "-- ★★ nounlock 的三来源合并：unlocks_from_skin > nounlock > false。",
     "--   131 行是**唯一一个把三者合成**的地方，下游只需读 nounlock。",
     "--   ★ 注意 unlock_from_skin 的值不是 bool 而是 SKINUNLOCKS 枚举（1/2），",
     "--     但 nounlock 这里只把它当 true 用（`or` 短路），",
     "--     所以枚举信息保留在 unlock_from_skin 字段里供 builder.lua:283 细判。",
   ],
-  133: [
+  "IsTechIngredient#1+78": [
     "-- ★ numtogive：产物数量。134 行允许完全接管（override_numtogive_fn）。",
     "--   ★ 配合 167 行的 getlimitedrecipecount 看：",
     "--     后者是「客户端与服务端都知道限量」的配方在外部合成台用的查询钩子，",
     "--     原注释明确警告只在「两端都知道限量」时用。",
   ],
-  136: [
+  "IsTechIngredient#1+81": [
     "-- ★★★ builder_tag / builder_skill：机器人的建造配方绑定。",
     "--   ★★ 危险默认值见 HEADER_EXTRA 第 4 条与 180 行：",
     "--     不设 allowautopick = 会被登记进 AllBuilderTaggedRecipes，",
     "--     即「会被 WX78 / 蜜蜂等自动捡走并使用」。",
     "--   mod 作者必须显式写 allowautopick = false 才能阻止。",
   ],
-  140: [
+  "IsTechIngredient#1+85": [
     "-- ★ forward_ingredients：技能树替换基础配方时，告知 crafting",
     "--   「应该转发到哪个替代配方」。这是技能树（沃尔特/Wanda/Wortox）",
     "--   覆盖原有配方链的机制入口。",
   ],
-  141: [
+  "IsTechIngredient#1+86": [
     "-- ★ sg_state / buildingstate：建造时状态图进入的状态名。",
     "--   原注释「buildingstate is the old variable name」说明这是改名兼容。",
     "--   ★ 与 actions.lua 的状态图契约呼应：动作执行期走 sg_deconstructing 等。",
   ],
-  143: [
+  "IsTechIngredient#1+88": [
     "-- ★★ build_mode 默认 LAND（constants.lua:2224 BUILDMODE：NONE/LAND/WATER）。",
     "--   WATER 是水_BUILD 配方（如救生筏）必需的落点模式。",
     "--   build_distance 默认 1 —— 放置点相对玩家的距离约束。",
   ],
-  146: [
+  "IsTechIngredient#1+91": [
     "-- ★ no_deconstruction / decon_ignores_finiteuses：拆解相关的两个开关。",
     "--   后者的原注释字段名暗示「拆解时忽略有限耐久」，",
     "--   典型用于「耐久已耗尽但仍可拆解回收部分材料」的物品。",
   ],
-  149: [
+  "IsTechIngredient#1+94": [
     "-- ★ always_allow_buffered_placer：**绕过 KnowsRecipe 检查**的逃生舱。",
     "--   原注释：useful for placing buildings out of crafting stations。",
     "--   ⚠ 风险：任何模组配方设了这个字段，玩家就能在未解锁时通过",
     "--     buffered placer 放置它——等于给配方开后门。这是设计取舍，不是 bug。",
   ],
-  151: [
+  "IsTechIngredient#1+96": [
     "-- ★ dropitem：产物直接掉在地上而非进背包（与 numtogive 配合）。",
     "--   ★ 154 行的 recipedisplaynamefn 与 155 行的 hint_msg 是两个 UI 钩子，",
     "--     156 行的 force_hint 见 HEADER_EXTRA 第 6 条。",
   ],
-  158: [
+  "IsTechIngredient#1+103": [
     "-- ★★★ manufactured：若为 true，**物品不由 builder 组件创建**，",
     "--   而由合成台自己处理（原型机工厂 / 彩虹核心等）。",
     "--   ⇒ 这是 builder 的「产物生成」环节的第一个分支点，",
     "--     也解释了 141 行为什么要有 sg_state 这种底层字段。",
   ],
-  159: [
+  "IsTechIngredient#1+104": [
     "-- ★ station_tag：把配方限定到带某个 tag 的原型机工厂上，",
     "--   只在 CRAFTING_FILTERS.CRAFTING_STATION 分类下出现。",
   ],
-  161: [
+  "IsTechIngredient#1+106": [
     "-- ★★★ limitedamount：限量合成（战役模式 / 熔炉等）。",
     "--   162-166 行：构造期就调用 DeclareLimitedCraftingRecipe 登记到全局表",
     "--   （simutil.lua:930），这样存档加载器才知道这条配方有限量。",
@@ -417,14 +417,14 @@ export const BEFORE = {
     "--     时 TheSim 不存在，此时执行 simutil 的登记会崩。",
     "--     ⇒ 这是「同一份代码在两种初始化模式下都跑」的典型防御。",
   ],
-  167: [
+  "IsTechIngredient#1+112": [
     "-- ★ getlimitedrecipecount 与 limitedamount 的差别：",
     "--   前者把限量判定交给配方自己（并在 170 行登记进",
     "--   EXTERNALLY_HANDLED_LIMITED_RECIPES 通知外部合成台），",
     "--   ★ 原注释明确警告：**只在客户端与服务端都知道限量时才用**。",
     "--     否则会出现「客户端显示可做、服务端拒绝」的不一致。",
   ],
-  174: [
+  "IsTechIngredient#1+119": [
     "-- ⚠ 疑似缺陷 L2：`tab == nil` 即判定为「分解配方」。",
     "--   推理依据：Recipe2（229 行）传入 tab=nil，随后 236 行显式改写为 false，",
     "--   说明官方自己也必须「写错再修正」。",
@@ -433,18 +433,18 @@ export const BEFORE = {
     "--     进而在 GetValidRecipe（216 行）被永久过滤 —— 配方「不存在」且无报错。",
     "--   这是本文件最隐蔽的坑。",
   ],
-  178: [
+  "IsTechIngredient#1+123": [
     "-- ★★ 构造的最后三步：分配 sortkey → 登记全局表 → 跑模组钩子。",
     "--   注意 num 在 178 行自增，所以 self.sortkey 拿到的是**自增前**的值；",
     "--   第 1 条配方 sortkey = 0。",
   ],
-  180: [
+  "IsTechIngredient#1+125": [
     "-- ★★ AllBuilderTaggedRecipes 的登记条件（含默认危险值，见 HEADER_EXTRA）。",
     "--   原注释 \"donotautopick filtered items should set allowautopick in the recipe",
     "--   if they are to be picked up by things for the player\" 的措辞很别扭，",
     "--   实意是：**要阻止机器人捡走，就必须显式设置 allowautopick**。",
   ],
-  184: [
+  "IsTechIngredient#1+129": [
     "-- ★★ 模组后置钩子：构造完成后按注册顺序跑两批回调。",
     "--   RecipePostInit  —— 按配方名注册（modutil.lua:613），只对特定配方生效；",
     "--   RecipePostInitAny —— 对**每一个**配方生效（modutil.lua:602）。",
@@ -454,26 +454,26 @@ export const BEFORE = {
   ],
 
   // ── §三 配方查询 ───────────────────────────────────────
-  195: [
+  "Recipe:GetAtlas#1": [
     "-- 【§三】查询与校验。整个文件对外只暴露 4 个函数。",
   ],
-  196: [
+  "Recipe:GetAtlas#1+1": [
     "-- ★★ GetAtlas 的 fallback 只在这里出现（对照 107 行构造期的无 fallback）。",
     "--   `self.atlas = self.atlas or resolvefilepath(...)` 同样是惰性记忆化：",
     "--   每条配方只做一次图集反查。",
   ],
-  200: [
+  "Recipe:SetModRPCID#1": [
     "-- ★★ SetModRPCID：把 rpc_id 从自增序号换成**配方名的小哈希**。",
     "--   为什么？序号只在单进程内有效；模组配方需要跨进程（服务端算、客户端查）",
     "--   一致的稳定 ID，smallhash(name) 才能保证两端一致。",
   ],
-  203: [
+  "Recipe:SetModRPCID#1+3": [
     "-- ⚠ 疑似缺陷 L3：哈希碰撞检测是**全表 O(n) 扫描**，",
     "--   且 205 行只 print 不中断。1000+ 配方时每注册一条都扫一遍，",
     "--   是 O(n²) 的注册开销。实际注册发生在 mod 加载期，可接受；",
     "--   但「检测到碰撞却不拒绝」是弱契约——两个模组配方名哈希相同会静默合并。",
   ],
-  211: [
+  "GetValidRecipe#1": [
     "-- ★★★ GetValidRecipe 是全局最重要的过滤器，四重过滤逐层收窄：",
     "--   ① TheNet == nil              —— 无网络上下文（如主菜单）→ 一律无效；",
     "--   ② IsRecipeValidInGameMode    —— 游戏模式过滤（gamemodes.lua:302）；",
@@ -483,10 +483,10 @@ export const BEFORE = {
     "--   所以这里返回的是「配方对象或 nil」，**从不返回 false**。",
     "--   调用方只需 `if recipe ~= nil`。",
   ],
-  219: [
+  "IsRecipeValid#1": [
     "-- ★ IsRecipeValid 是 GetValidRecipe 的布尔包装，供 UI 批量查询。",
   ],
-  223: [
+  "RemoveAllRecipes#1": [
     "-- ★★ RemoveAllRecipes 把三样东西一起重置（AllRecipes / AllBuilderTaggedRecipes / num）。",
     "--   ★ num 必须归零，否则新加载的配方 sortkey 会从一个很大的值开始，",
     "--     导致「重载后合成菜单排序全变」。这正是 HEADER_EXTRA 第 4 条的推论。",
@@ -494,14 +494,14 @@ export const BEFORE = {
   ],
 
   // ── §四 两个子类 ───────────────────────────────────────
-  229: [
+  "RemoveAllRecipes#1+6": [
     "-- 【§四】Recipe2 —— 「现代写法」的子类，是 recipes.lua 的主力。",
     "-- ★★ 与 Recipe 的实质差异只有两点：",
     "--   ① 第 4 参数位置传的是 **tech**（Recipe 那里叫 level，语义相同）；",
     "--   ② 强制 is_deconstruction_recipe = false（236 行）。",
     "--   ★ tab 恒为 nil（Recipe2 不传），因此必须显式修正——见 L2。",
   ],
-  231: [
+  "RemoveAllRecipes#1+8": [
     "-- ★★ 参数转发是一次「位置 → 配置袋」的完整重排：",
     "--   Recipe2 收到的 config 被拆散，config 整体又被当作 more_data（第 5 参数）。",
     "--   ⚠ 因此 Recipe2 支持的**全部**字段 = config 表的字段 ∪ Recipe 的位置参数，",
@@ -509,7 +509,7 @@ export const BEFORE = {
     "--   ★ 233 行是 config 为 nil 的极简路径：只传 5 个参数，",
     "--     于是 placer/numtogive/atlas/image/testfn/... 全部走默认值。",
   ],
-  239: [
+  "RemoveAllRecipes#1+16": [
     "-- ★ DeconstructRecipe：拆解配方 = 「产物是材料」的反向配方。",
     "--   ★ 与 Recipe2 的对照最能说明架构：两者都传 tab=nil，",
     "--     但 DeconstructRecipe 在 241 行又显式设为 true（Recipe2 设为 false）。",
@@ -520,7 +520,7 @@ export const BEFORE = {
     "--   TECH.NONE          —— 永远不锁（不需要科技就能拆）；",
     "--   nounlock = true     —— 不占用合成栏位。",
   ],
-  242: [
+  "RemoveAllRecipes#1+19": [
     "-- ★ nounlock = true 是拆解配方的语义核心：拆解永远可用，",
     "--   所以永远显示在合成菜单的「可做」列表里。",
   ],
@@ -530,19 +530,19 @@ export const AFTER = {
   16: [
     "-- ↑ 这里用字面量 5 而非 CHARACTER_INGREDIENT_SEG，见 L1。",
   ],
-  96: [
+  "IsTechIngredient#1+41": [
     "-- ★↑ 循环结束后：self.ingredients / character_ingredients / tech_ingredients",
     "--   三张表**共享**同一批 Ingredient 对象（不是拷贝）。",
     "--   ⇒ 修改一个 Ingredient 实例会同时影响三处的引用。",
     "--   builder.lua 的扣料逻辑遍历的正是其中一张。",
   ],
-  179: [
+  "IsTechIngredient#1+124": [
     "-- ★↑ AllRecipes[name] = self —— 同名覆盖，无警告（见 §一）。",
   ],
-  216: [
+  "GetValidRecipe#1+5": [
     "-- ★↑ 返回 `rec or nil`：从不为 false。调用方用 `~= nil` 判定。",
   ],
-  237: [
+  "RemoveAllRecipes#1+14": [
     "-- ★↑ Recipe2 构造结束。236 行的修正让 is_deconstruction_recipe 回到 false。",
   ],
 };

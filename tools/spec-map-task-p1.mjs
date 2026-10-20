@@ -183,7 +183,7 @@ export const BEFORE = {
     "--   · random_set_pieces  → level.lua:180-184 同上。",
     "-- ⇒ ★★ 读代码时若在 Task 对象上找不到这三个字段，不是 bug，是挂载时机不同。",
   ],
-  38: [
+  "Task:__tostring#1": [
     "-- ★ __tostring：唯一的「行为」，纯粹为了让日志/报错可读。",
     "--   ★ 在 storygen.lua 的各种 print(..task.id..) 里其实没被用到，",
     "--   ★ 但 print(task) 自动调用它（Lua 的 tostring 协议）。",

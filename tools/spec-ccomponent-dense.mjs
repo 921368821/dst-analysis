@@ -11,1379 +11,1379 @@
 export const HEADER_EXTRA = [];
 
 export const BEFORE = {
-  16: [
+  "OnOwnerDespawned#1+1": [
     "-- 局部变量：local container = inst.components.container  〔所在：OnOwnerDespawned〕",
   ],
-  17: [
+  "OnOwnerDespawned#1+2": [
     "-- 条件分支：if container ~= nil then  〔所在：OnOwnerDespawned〕",
   ],
-  19: [
+  "OnOwnerDespawned#1+4": [
     "-- 局部变量：local item = container.slots[i]  〔所在：OnOwnerDespawned〕",
   ],
-  20: [
+  "OnOwnerDespawned#1+5": [
     "-- 条件分支：if item ~= nil then  〔所在：OnOwnerDespawned〕",
   ],
-  32: [
+  "OnOwnerDespawned#1+17": [
     "-- ★ 关掉客户端开箱音效。★ 由容器组件设、由客户端读（container_replica.lua:289）。",
     "--   本行初值：false。",
   ],
-  33: [
+  "OnOwnerDespawned#1+18": [
     "-- ★ 关掉客户端关箱音效（同上，container_replica.lua:293）。",
     "--   本行初值：false。",
   ],
-  35: [
+  "OnOwnerDespawned#1+20": [
     "-- ★ 是否接受整摞物品。默认 true；蓝图可覆盖（containers.lua 有 20+ 处 false）。",
     "--   本行初值：true。",
   ],
-  41: [
+  "OnOwnerDespawned#1+26": [
     "-- ★ 蓝图里的 UI 配置表。★ 浅拷贝共享：多个同类容器的 self.widget 是同一张表。",
     "--   本行初值：nil。",
   ],
-  61: [
+  "OnOwnerDespawned#1+46": [
     "-- ★ hack flag：禁用 GetSpecializedContainers（第 802 行）。设置于第 1375 行。",
     "--   本行初值：false。",
   ],
-  62: [
+  "OnOwnerDespawned#1+47": [
     "-- ★ hack flag：允许往**未打开**的专用容器塞物（第 793 行）。设置于第 1378 行。",
     "--   本行初值：false。",
   ],
-  63: [
+  "OnOwnerDespawned#1+48": [
     "-- ★ hack flag：塞物时不播 gotnewitem 音效（第 549 行）。搬运事务期间的临时静音。",
     "--   本行初值：false。",
   ],
-  68: [
+  "OnOwnerDespawned#1+53": [
     "-- 局部赋值：canbeopened = oncanbeopened,  〔所在：OnOwnerDespawned〕",
   ],
-  69: [
+  "OnOwnerDespawned#1+54": [
     "-- 局部赋值：skipopensnd = onskipopensnd,  〔所在：OnOwnerDespawned〕",
   ],
-  70: [
+  "OnOwnerDespawned#1+55": [
     "-- 局部赋值：skipclosesnd = onskipclosesnd,  〔所在：OnOwnerDespawned〕",
   ],
-  75: [
+  "OnOwnerDespawned#1+60": [
     "-- 白名单成员「numslots」：★ WidgetSetup 会对它 removesetter + makereadonly。",
   ],
-  76: [
+  "OnOwnerDespawned#1+61": [
     "-- 白名单成员「acceptsstacks」：★ WidgetSetup 会对它 removesetter + makereadonly。",
   ],
-  77: [
+  "OnOwnerDespawned#1+62": [
     "-- 白名单成员「usespecificslotsforitems」：★ WidgetSetup 会对它 removesetter + makereadonly。",
   ],
-  78: [
+  "OnOwnerDespawned#1+63": [
     "-- 白名单成员「issidewidget」：★ WidgetSetup 会对它 removesetter + makereadonly。",
   ],
-  79: [
+  "OnOwnerDespawned#1+64": [
     "-- 白名单成员「type」：★ WidgetSetup 会对它 removesetter + makereadonly。",
   ],
-  80: [
+  "OnOwnerDespawned#1+65": [
     "-- 白名单成员「widget」：★ WidgetSetup 会对它 removesetter + makereadonly。",
   ],
-  81: [
+  "OnOwnerDespawned#1+66": [
     "-- 白名单成员「itemtestfn」：★ WidgetSetup 会对它 removesetter + makereadonly。",
   ],
-  82: [
+  "OnOwnerDespawned#1+67": [
     "-- 白名单成员「priorityfn」：★ WidgetSetup 会对它 removesetter + makereadonly。",
   ],
-  83: [
+  "OnOwnerDespawned#1+68": [
     "-- 白名单成员「openlimit」：★ WidgetSetup 会对它 removesetter + makereadonly。",
   ],
-  87: [
+  "Container:WidgetSetup#1+1": [
     "-- 循环：for i, v in ipairs(widgetprops) do  〔所在：Container:WidgetSetup〕",
   ],
-  94: [
+  "Container:WidgetSetup#1+8": [
     "-- 循环：for i, v in ipairs(widgetprops) do  〔所在：Container:WidgetSetup〕",
   ],
-  100: [
+  "Container:GetWidget#1+1": [
     "-- 返回：return self.widget  〔所在：Container:GetWidget〕",
   ],
-  104: [
+  "Container:NumItems#1+1": [
     "-- 返回：return GetTableSize(self.slots)  〔所在：Container:NumItems〕",
   ],
-  108: [
+  "Container:IsFull#1+1": [
     "-- 返回：return GetTableSize(self.slots) >= self.numslots  〔所在：Container:IsFull〕",
   ],
-  112: [
+  "Container:IsEmpty#1+1": [
     "-- 返回：return next(self.slots) == nil  〔所在：Container:IsEmpty〕",
   ],
-  116: [
+  "Container:SetNumSlots#1+1": [
     "-- assert(numslots >= self.numslots)  〔所在：Container:SetNumSlots〕",
   ],
-  117: [
+  "Container:SetNumSlots#1+2": [
     "-- 槽位总数。★ 只增不减（第 116 行 assert）。判定见第 107 行 IsFull。",
     "--   本行初值：numslots。",
   ],
-  121: [
+  "Container:DropItemBySlot#1+1": [
     "-- 局部变量：local item = slot and self.slots[slot]  〔所在：Container:DropItemBySlot〕",
   ],
-  122: [
+  "Container:DropItemBySlot#1+2": [
     "-- 条件分支：if item == nil or item.components.inventoryitem == nil then  〔所在：Container:DropItemBySlot〕",
   ],
-  123: [
+  "Container:DropItemBySlot#1+3": [
     "-- 返回：return  〔所在：Container:DropItemBySlot〕",
   ],
-  125: [
+  "Container:DropItemBySlot#1+5": [
     "-- assert(BRANCH ~= \"dev\")  〔所在：Container:DropItemBySlot〕",
   ],
-  126: [
+  "Container:DropItemBySlot#1+6": [
     "-- 返回：return  〔所在：Container:DropItemBySlot〕",
   ],
-  130: [
+  "Container:DropItemBySlot#1+10": [
     "-- 条件分支：if item ~= nil then  〔所在：Container:DropItemBySlot〕",
   ],
-  134: [
+  "Container:DropItemBySlot#1+14": [
     "-- 条件分支：if item.components.inventoryitem ~= nil then  〔所在：Container:DropItemBySlot〕",
   ],
-  145: [
+  "Container:DropEverythingWithTag#1+1": [
     "-- 局部变量：local internal_containers = {}  〔所在：Container:DropEverythingWithTag〕",
   ],
-  147: [
+  "Container:DropEverythingWithTag#1+3": [
     "-- 循环：for i = 1, self.numslots do  〔所在：Container:DropEverythingWithTag〕",
   ],
-  148: [
+  "Container:DropEverythingWithTag#1+4": [
     "-- 局部变量：local item = self.slots[i]  〔所在：Container:DropEverythingWithTag〕",
   ],
-  149: [
+  "Container:DropEverythingWithTag#1+5": [
     "-- 条件分支：if item ~= nil then  〔所在：Container:DropEverythingWithTag〕",
   ],
-  153: [
+  "Container:DropEverythingWithTag#1+9": [
     "-- table.insert(internal_containers, item)  〔所在：Container:DropEverythingWithTag〕",
   ],
-  158: [
+  "Container:DropEverythingWithTag#1+14": [
     "-- 循环：for i, v in ipairs(internal_containers) do  〔所在：Container:DropEverythingWithTag〕",
   ],
-  164: [
+  "Container:DropEverythingByFilter#1+1": [
     "-- 局部变量：local internal_containers = {}  〔所在：Container:DropEverythingByFilter〕",
   ],
-  166: [
+  "Container:DropEverythingByFilter#1+3": [
     "-- 循环：for i = 1, self.numslots do  〔所在：Container:DropEverythingByFilter〕",
   ],
-  167: [
+  "Container:DropEverythingByFilter#1+4": [
     "-- 局部变量：local item = self.slots[i]  〔所在：Container:DropEverythingByFilter〕",
   ],
-  168: [
+  "Container:DropEverythingByFilter#1+5": [
     "-- 条件分支：if item ~= nil then  〔所在：Container:DropEverythingByFilter〕",
   ],
-  171: [
+  "Container:DropEverythingByFilter#1+8": [
     "-- 次选条件：elseif item.components.container ~= nil then  〔所在：Container:DropEverythingByFilter〕",
   ],
-  172: [
+  "Container:DropEverythingByFilter#1+9": [
     "-- table.insert(internal_containers, item)  〔所在：Container:DropEverythingByFilter〕",
   ],
-  177: [
+  "Container:DropEverythingByFilter#1+14": [
     "-- 循环：for i, v in ipairs(internal_containers) do  〔所在：Container:DropEverythingByFilter〕",
   ],
-  183: [
+  "Container:DropEverything#1+1": [
     "-- 局部变量：local internal_containers  〔所在：Container:DropEverything〕",
   ],
-  185: [
+  "Container:DropEverything#1+3": [
     "-- 循环：for i = 1, self.numslots do  〔所在：Container:DropEverything〕",
   ],
-  186: [
+  "Container:DropEverything#1+4": [
     "-- 局部变量：local item = self.slots[i]  〔所在：Container:DropEverything〕",
   ],
-  187: [
+  "Container:DropEverything#1+5": [
     "-- 条件分支：if item then  〔所在：Container:DropEverything〕",
   ],
-  188: [
+  "Container:DropEverything#1+6": [
     "-- 条件分支：if not item.components.inventoryitem.islockedinslot then  〔所在：Container:DropEverything〕",
   ],
-  191: [
+  "Container:DropEverything#1+9": [
     "-- 条件分支：if internal_containers then  〔所在：Container:DropEverything〕",
   ],
-  192: [
+  "Container:DropEverything#1+10": [
     "-- table.insert(internal_containers, item)  〔所在：Container:DropEverything〕",
   ],
-  193: [
+  "Container:DropEverything#1+11": [
     "-- 兜底分支（前述条件全不成立）。〔所在：Container:DropEverything〕",
   ],
-  194: [
+  "Container:DropEverything#1+12": [
     "-- 局部赋值：internal_containers = { item }  〔所在：Container:DropEverything〕",
   ],
-  200: [
+  "Container:DropEverything#1+18": [
     "-- 条件分支：if internal_containers then  〔所在：Container:DropEverything〕",
   ],
-  201: [
+  "Container:DropEverything#1+19": [
     "-- 循环：for _, v in ipairs(internal_containers) do  〔所在：Container:DropEverything〕",
   ],
-  208: [
+  "Container:DropEverythingUpToMaxStacks#1+1": [
     "-- 局部变量：local stacks = 0  〔所在：Container:DropEverythingUpToMaxStacks〕",
   ],
-  210: [
+  "Container:DropEverythingUpToMaxStacks#1+3": [
     "-- 循环：for k in pairs(self.slots) do  〔所在：Container:DropEverythingUpToMaxStacks〕",
   ],
-  212: [
+  "Container:DropEverythingUpToMaxStacks#1+5": [
     "-- 局部赋值：stacks = stacks + 1  〔所在：Container:DropEverythingUpToMaxStacks〕",
   ],
-  213: [
+  "Container:DropEverythingUpToMaxStacks#1+6": [
     "-- 条件分支：if stacks >= maxstacks then  〔所在：Container:DropEverythingUpToMaxStacks〕",
   ],
-  214: [
+  "Container:DropEverythingUpToMaxStacks#1+7": [
     "-- 返回：return  〔所在：Container:DropEverythingUpToMaxStacks〕",
   ],
-  221: [
+  "Container:DropItem#1": [
     "-- 【Container:DropItem】单件丢弃（用自身坐标）。⚠ container_proxy 下坐标恒为 (0,0,0)，见第 222 行注释。",
     "--   ★ 服务端权威实现。客户端镜像在 components/container_replica.lua 同名方法。",
   ],
-  224: [
+  "Container:DropItem#1+3": [
     "-- 局部变量：local x, y, z = self.inst.Transform:GetWorldPosition()  〔所在：Container:DropItem〕",
   ],
-  230: [
+  "Container:DropOverstackedExcess#1+2": [
     "-- 条件分支：if maxsize then  〔所在：Container:DropOverstackedExcess〕",
   ],
-  231: [
+  "Container:DropOverstackedExcess#1+3": [
     "-- 局部变量：local num = item.components.stackable:StackSize()  〔所在：Container:DropOverstackedExcess〕",
   ],
-  232: [
+  "Container:DropOverstackedExcess#1+4": [
     "-- 条件分支：if num > maxsize then  〔所在：Container:DropOverstackedExcess〕",
   ],
-  233: [
+  "Container:DropOverstackedExcess#1+5": [
     "-- 局部变量：local x, y, z = self.inst.Transform:GetWorldPosition()  〔所在：Container:DropOverstackedExcess〕",
   ],
-  237: [
+  "Container:DropOverstackedExcess#1+9": [
     "-- 条件分支：if excess.components.inventoryitem then  〔所在：Container:DropOverstackedExcess〕",
   ],
-  240: [
+  "Container:DropOverstackedExcess#1+12": [
     "-- 局部赋值：num = item.components.stackable:StackSize()  〔所在：Container:DropOverstackedExcess〕",
   ],
-  248: [
+  "Container:DropItemAt#1+1": [
     "-- 条件分支：if itemtodrop == nil or itemtodrop.components.inventoryitem == nil then  〔所在：Container:DropItemAt〕",
   ],
-  249: [
+  "Container:DropItemAt#1+2": [
     "-- 返回：return  〔所在：Container:DropItemAt〕",
   ],
-  250: [
+  "Container:DropItemAt#1+3": [
     "-- 次选条件：elseif itemtodrop.components.inventoryitem.islockedinslot then  〔所在：Container:DropItemAt〕",
   ],
-  251: [
+  "Container:DropItemAt#1+4": [
     "-- assert(BRANCH ~= \"dev\")  〔所在：Container:DropItemAt〕",
   ],
-  252: [
+  "Container:DropItemAt#1+5": [
     "-- 返回：return  〔所在：Container:DropItemAt〕",
   ],
-  253: [
+  "Container:DropItemAt#1+6": [
     "-- 次选条件：elseif Vector3.is_instance(x) then  〔所在：Container:DropItemAt〕",
   ],
-  257: [
+  "Container:DropItemAt#1+10": [
     "-- 条件分支：if item then  〔所在：Container:DropItemAt〕",
   ],
-  259: [
+  "Container:DropItemAt#1+12": [
     "-- 条件分支：if item.components.inventoryitem then  〔所在：Container:DropItemAt〕",
   ],
-  264: [
+  "Container:DropItemAt#1+17": [
     "-- self.inst:PushEvent(\"dropitem\", {item = item})  〔所在：Container:DropItemAt〕",
   ],
-  266: [
+  "Container:DropItemAt#1+19": [
     "-- 返回：return item  〔所在：Container:DropItemAt〕",
   ],
-  277: [
+  "Container:CanTakeItemInSlot#1+8": [
     "-- 返回：return false  〔所在：Container:CanTakeItemInSlot〕",
   ],
-  279: [
+  "Container:CanTakeItemInSlot#1+10": [
     "-- 返回：return false  〔所在：Container:CanTakeItemInSlot〕",
   ],
-  282: [
+  "Container:CanTakeItemInSlot#1+13": [
     "-- 返回：return false  〔所在：Container:CanTakeItemInSlot〕",
   ],
-  284: [
+  "Container:CanTakeItemInSlot#1+15": [
     "-- 局部变量：local existingitem = self:GetItemInSlot(slot)  〔所在：Container:CanTakeItemInSlot〕",
   ],
-  292: [
+  "Container:CanTakeItemInSlot#1+23": [
     "-- 返回：return false  〔所在：Container:CanTakeItemInSlot〕",
   ],
-  299: [
+  "Container:GetSpecificSlotForItem#1+1": [
     "-- 条件分支：if self.usespecificslotsforitems and not self.readonlycontainer and self.itemtestfn ~= nil then  〔所在：Container:GetSpecificSlotForItem〕",
   ],
-  300: [
+  "Container:GetSpecificSlotForItem#1+2": [
     "-- 循环：for i = 1, self:GetNumSlots() do  〔所在：Container:GetSpecificSlotForItem〕",
   ],
-  302: [
+  "Container:GetSpecificSlotForItem#1+4": [
     "-- 返回：return i  〔所在：Container:GetSpecificSlotForItem〕",
   ],
-  309: [
+  "Container:ShouldPrioritizeContainer#1+1": [
     "-- 条件分支：if not self.priorityfn then  〔所在：Container:ShouldPrioritizeContainer〕",
   ],
-  310: [
+  "Container:ShouldPrioritizeContainer#1+2": [
     "-- 返回：return false  〔所在：Container:ShouldPrioritizeContainer〕",
   ],
-  323: [
+  "Container:AcceptsStacks#1+1": [
     "-- 返回：return self.acceptsstacks  〔所在：Container:AcceptsStacks〕",
   ],
-  327: [
+  "Container:IsSideWidget#1+1": [
     "-- 返回：return self.issidewidget  〔所在：Container:IsSideWidget〕",
   ],
-  331: [
+  "Container:DestroyContents#1+1": [
     "-- 循环：for k = 1, self.numslots do  〔所在：Container:DestroyContents〕",
   ],
-  332: [
+  "Container:DestroyContents#1+2": [
     "-- 局部变量：local item = self:RemoveItemBySlot(k)  〔所在：Container:DestroyContents〕",
   ],
-  333: [
+  "Container:DestroyContents#1+3": [
     "-- 条件分支：if item ~= nil then  〔所在：Container:DestroyContents〕",
   ],
-  345: [
+  "Container:DestroyContentsConditionally#1+1": [
     "-- 条件分支：if filterfn == nil then  〔所在：Container:DestroyContentsConditionally〕",
   ],
-  348: [
+  "Container:DestroyContentsConditionally#1+4": [
     "-- 返回：return  〔所在：Container:DestroyContentsConditionally〕",
   ],
-  351: [
+  "Container:DestroyContentsConditionally#1+7": [
     "-- 循环：for k = 1, self.numslots do  〔所在：Container:DestroyContentsConditionally〕",
   ],
-  352: [
+  "Container:DestroyContentsConditionally#1+8": [
     "-- 局部变量：local testitem = self.slots[k]  〔所在：Container:DestroyContentsConditionally〕",
   ],
-  354: [
+  "Container:DestroyContentsConditionally#1+10": [
     "-- 局部变量：local item = self:RemoveItemBySlot(k)  〔所在：Container:DestroyContentsConditionally〕",
   ],
-  355: [
+  "Container:DestroyContentsConditionally#1+11": [
     "-- 条件分支：if item ~= nil then  〔所在：Container:DestroyContentsConditionally〕",
   ],
-  356: [
+  "Container:DestroyContentsConditionally#1+12": [
     "-- 条件分支：if onpredestroyitemcallbackfn ~= nil then  〔所在：Container:DestroyContentsConditionally〕",
   ],
-  359: [
+  "Container:DestroyContentsConditionally#1+15": [
     "-- 条件分支：if item:IsValid() then  〔所在：Container:DestroyContentsConditionally〕",
   ],
-  369: [
+  "ValidateItemForOverflow#1+2": [
     "-- 返回：return true --should never happen, just return true XD  〔所在：ValidateItemForOverflow〕",
   ],
-  371: [
+  "ValidateItemForOverflow#1+4": [
     "-- 返回：return false  〔所在：ValidateItemForOverflow〕",
   ],
-  373: [
+  "ValidateItemForOverflow#1+6": [
     "-- 返回：return true  〔所在：ValidateItemForOverflow〕",
   ],
-  379: [
+  "Container:CanAcceptCount#1+2": [
     "-- 返回：return 0  〔所在：Container:CanAcceptCount〕",
   ],
-  384: [
+  "Container:CanAcceptCount#1+7": [
     "-- 局部赋值：stacksize = math.max(maxcount or math.huge, stacksize - 1)  〔所在：Container:CanAcceptCount〕",
   ],
-  385: [
+  "Container:CanAcceptCount#1+8": [
     "-- 兜底分支（前述条件全不成立）。〔所在：Container:CanAcceptCount〕",
   ],
-  386: [
+  "Container:CanAcceptCount#1+9": [
     "-- 局部赋值：stacksize = maxcount or stacksize  〔所在：Container:CanAcceptCount〕",
   ],
-  389: [
+  "Container:CanAcceptCount#1+12": [
     "-- 返回：return 0  〔所在：Container:CanAcceptCount〕",
   ],
-  392: [
+  "Container:CanAcceptCount#1+15": [
     "-- 局部变量：local acceptcount = 0  〔所在：Container:CanAcceptCount〕",
   ],
-  395: [
+  "Container:CanAcceptCount#1+18": [
     "-- 循环：for k = 1, self.numslots do  〔所在：Container:CanAcceptCount〕",
   ],
-  396: [
+  "Container:CanAcceptCount#1+19": [
     "-- 局部变量：local v = self.slots[k]  〔所在：Container:CanAcceptCount〕",
   ],
-  398: [
+  "Container:CanAcceptCount#1+21": [
     "-- 条件分支：if v ~= nil then  〔所在：Container:CanAcceptCount〕",
   ],
-  400: [
+  "Container:CanAcceptCount#1+23": [
     "-- 局部赋值：acceptcount = acceptcount + v.components.stackable:RoomLeft()  〔所在：Container:CanAcceptCount〕",
   ],
-  402: [
+  "Container:CanAcceptCount#1+25": [
     "-- 返回：return stacksize  〔所在：Container:CanAcceptCount〕",
   ],
-  408: [
+  "Container:CanAcceptCount#1+31": [
     "-- 返回：return stacksize  〔所在：Container:CanAcceptCount〕",
   ],
-  410: [
+  "Container:CanAcceptCount#1+33": [
     "-- 局部赋值：acceptcount = acceptcount + 1  〔所在：Container:CanAcceptCount〕",
   ],
-  411: [
+  "Container:CanAcceptCount#1+34": [
     "-- 条件分支：if acceptcount >= stacksize then  〔所在：Container:CanAcceptCount〕",
   ],
-  412: [
+  "Container:CanAcceptCount#1+35": [
     "-- 返回：return stacksize  〔所在：Container:CanAcceptCount〕",
   ],
-  418: [
+  "Container:CanAcceptCount#1+41": [
     "-- 条件分支：if specialized then  〔所在：Container:CanAcceptCount〕",
   ],
-  419: [
+  "Container:CanAcceptCount#1+42": [
     "-- 循环：for _, spoverflow in ipairs(specialized) do  〔所在：Container:CanAcceptCount〕",
   ],
-  421: [
+  "Container:CanAcceptCount#1+44": [
     "-- 循环：for k = 1, spoverflow.numslots do  〔所在：Container:CanAcceptCount〕",
   ],
-  422: [
+  "Container:CanAcceptCount#1+45": [
     "-- 局部变量：local v = spoverflow.slots[k]  〔所在：Container:CanAcceptCount〕",
   ],
-  423: [
+  "Container:CanAcceptCount#1+46": [
     "-- 条件分支：if v then  〔所在：Container:CanAcceptCount〕",
   ],
-  425: [
+  "Container:CanAcceptCount#1+48": [
     "-- 局部赋值：acceptcount = acceptcount + v.components.stackable:RoomLeft()  〔所在：Container:CanAcceptCount〕",
   ],
-  426: [
+  "Container:CanAcceptCount#1+49": [
     "-- 条件分支：if acceptcount >= stacksize then  〔所在：Container:CanAcceptCount〕",
   ],
-  427: [
+  "Container:CanAcceptCount#1+50": [
     "-- 返回：return stacksize  〔所在：Container:CanAcceptCount〕",
   ],
-  431: [
+  "Container:CanAcceptCount#1+54": [
     "-- 条件分支：if spoverflow.acceptsstacks or stacksize <= 1 then  〔所在：Container:CanAcceptCount〕",
   ],
-  432: [
+  "Container:CanAcceptCount#1+55": [
     "-- 返回：return stacksize  〔所在：Container:CanAcceptCount〕",
   ],
-  434: [
+  "Container:CanAcceptCount#1+57": [
     "-- 局部赋值：acceptcount = acceptcount + 1  〔所在：Container:CanAcceptCount〕",
   ],
-  435: [
+  "Container:CanAcceptCount#1+58": [
     "-- 条件分支：if acceptcount >= stacksize then  〔所在：Container:CanAcceptCount〕",
   ],
-  436: [
+  "Container:CanAcceptCount#1+59": [
     "-- 返回：return stacksize  〔所在：Container:CanAcceptCount〕",
   ],
-  449: [
+  "Container:GiveItem#1+2": [
     "-- 返回：return false  〔所在：Container:GiveItem〕",
   ],
-  456: [
+  "Container:GiveItem#1+9": [
     "-- 条件分支：if specialized then  〔所在：Container:GiveItem〕",
   ],
-  458: [
+  "Container:GiveItem#1+11": [
     "-- 条件分支：if spoverflow:ShouldPrioritizeContainer(item) and ValidateItemForOverflow(item, spoverflow) then  〔所在：Container:GiveItem〕",
   ],
-  475: [
+  "Container:GiveItem#1+28": [
     "-- 返回：return true  〔所在：Container:GiveItem〕",
   ],
-  488: [
+  "Container:GiveItem#1+41": [
     "-- 局部变量：local other_item = self.slots[slot]  〔所在：Container:GiveItem〕",
   ],
-  495: [
+  "Container:GiveItem#1+48": [
     "-- 条件分支：if item == nil then  〔所在：Container:GiveItem〕",
   ],
-  496: [
+  "Container:GiveItem#1+49": [
     "-- 返回：return true  〔所在：Container:GiveItem〕",
   ],
-  504: [
+  "Container:GiveItem#1+57": [
     "-- 循环：for k = 1, self.numslots do  〔所在：Container:GiveItem〕",
   ],
-  505: [
+  "Container:GiveItem#1+58": [
     "-- 局部变量：local other_item = self.slots[k]  〔所在：Container:GiveItem〕",
   ],
-  506: [
+  "Container:GiveItem#1+59": [
     "-- 条件分支：if other_item and item.components.stackable:CanStackWith(other_item) and not other_item.components.stackable:IsFull() then  〔所在：Container:GiveItem〕",
   ],
-  507: [
+  "Container:GiveItem#1+60": [
     "-- 条件分支：if self.inst.components.inventoryitem ~= nil and self.inst.components.inventoryitem.owner ~= nil then  〔所在：Container:GiveItem〕",
   ],
-  512: [
+  "Container:GiveItem#1+65": [
     "-- 条件分支：if item == nil then  〔所在：Container:GiveItem〕",
   ],
-  513: [
+  "Container:GiveItem#1+66": [
     "-- 返回：return true  〔所在：Container:GiveItem〕",
   ],
-  522: [
+  "Container:GiveItem#1+75": [
     "-- 局部赋值：in_slot = slot  〔所在：Container:GiveItem〕",
   ],
-  524: [
+  "Container:GiveItem#1+77": [
     "-- 循环：for i = 1, self.numslots do  〔所在：Container:GiveItem〕",
   ],
-  526: [
+  "Container:GiveItem#1+79": [
     "-- 局部赋值：in_slot = i  〔所在：Container:GiveItem〕",
   ],
-  535: [
+  "Container:GiveItem#1+88": [
     "-- 局部赋值：item = item.components.stackable:Get()  〔所在：Container:GiveItem〕",
   ],
-  538: [
+  "Container:GiveItem#1+91": [
     "-- self.inst:PushEvent(\"itemget\", { slot = in_slot, item = item, src_pos = src_pos, })  〔所在：Container:GiveItem〕",
   ],
-  539: [
+  "Container:GiveItem#1+92": [
     "-- 返回：return false  〔所在：Container:GiveItem〕",
   ],
-  553: [
+  "Container:GiveItem#1+106": [
     "-- 返回：return true  〔所在：Container:GiveItem〕",
   ],
-  558: [
+  "Container:GiveItem#1+111": [
     "-- 条件分支：if drop_on_fail ~= false then  〔所在：Container:GiveItem〕",
   ],
-  562: [
+  "Container:GiveItem#1+115": [
     "-- 条件分支：if item.components.inventoryitem ~= nil then  〔所在：Container:GiveItem〕",
   ],
-  570: [
+  "Container:RemoveItemBySlot#1+1": [
     "-- 局部变量：local item = slot and self.slots[slot] or nil  〔所在：Container:RemoveItemBySlot〕",
   ],
-  571: [
+  "Container:RemoveItemBySlot#1+2": [
     "-- 条件分支：if item then  〔所在：Container:RemoveItemBySlot〕",
   ],
-  575: [
+  "Container:RemoveItemBySlot#1+6": [
     "-- 返回：return nil  〔所在：Container:RemoveItemBySlot〕",
   ],
-  579: [
+  "Container:RemoveAllItems#1+1": [
     "-- 局部变量：local collected_items = {}  〔所在：Container:RemoveAllItems〕",
   ],
-  580: [
+  "Container:RemoveAllItems#1+2": [
     "-- 循环：for i = 1, self.numslots do  〔所在：Container:RemoveAllItems〕",
   ],
-  581: [
+  "Container:RemoveAllItems#1+3": [
     "-- 局部变量：local item = self:RemoveItemBySlot(i)  〔所在：Container:RemoveAllItems〕",
   ],
-  582: [
+  "Container:RemoveAllItems#1+4": [
     "-- table.insert(collected_items, item)  〔所在：Container:RemoveAllItems〕",
   ],
-  585: [
+  "Container:RemoveAllItems#1+7": [
     "-- 返回：return collected_items  〔所在：Container:RemoveAllItems〕",
   ],
-  589: [
+  "Container:GetNumSlots#1+1": [
     "-- 返回：return self.numslots  〔所在：Container:GetNumSlots〕",
   ],
-  593: [
+  "Container:GetItemInSlot#1+1": [
     "-- 条件分支：if slot and self.slots[slot] then  〔所在：Container:GetItemInSlot〕",
   ],
-  594: [
+  "Container:GetItemInSlot#1+2": [
     "-- 返回：return self.slots[slot]  〔所在：Container:GetItemInSlot〕",
   ],
-  599: [
+  "Container:GetItemSlot#1+1": [
     "-- 循环：for k,v in pairs(self.slots) do  〔所在：Container:GetItemSlot〕",
   ],
-  600: [
+  "Container:GetItemSlot#1+2": [
     "-- 条件分支：if item == v then  〔所在：Container:GetItemSlot〕",
   ],
-  601: [
+  "Container:GetItemSlot#1+3": [
     "-- 返回：return k  〔所在：Container:GetItemSlot〕",
   ],
-  607: [
+  "Container:GetAllItems#1+1": [
     "-- 局部变量：local collected_items = {}  〔所在：Container:GetAllItems〕",
   ],
-  608: [
+  "Container:GetAllItems#1+2": [
     "-- 循环：for k,v in pairs(self.slots) do  〔所在：Container:GetAllItems〕",
   ],
-  609: [
+  "Container:GetAllItems#1+3": [
     "-- 条件分支：if v ~= nil then  〔所在：Container:GetAllItems〕",
   ],
-  610: [
+  "Container:GetAllItems#1+4": [
     "-- table.insert(collected_items, v)  〔所在：Container:GetAllItems〕",
   ],
-  614: [
+  "Container:GetAllItems#1+8": [
     "-- 返回：return collected_items  〔所在：Container:GetAllItems〕",
   ],
-  623: [
+  "Container:Open#1+6": [
     "-- 条件分支：if inventory ~= nil then  〔所在：Container:Open〕",
   ],
-  669: [
+  "Container.Close_Items_Internal#1+1": [
     "-- 条件分支：if item.components.container ~= nil then  〔所在：Container:Open〕",
   ],
-  677: [
+  "Container:Close#1+3": [
     "-- 循环：for opener, _ in pairs(self.openlist) do  〔所在：Container:Close〕",
   ],
-  680: [
+  "Container:Close#1+6": [
     "-- 返回：return  〔所在：Container:Close〕",
   ],
-  695: [
+  "Container:Close#1+21": [
     "-- 局部变量：local skinsound = self.inst.AnimState and SKIN_SOUND_FX[self.inst.AnimState:GetSkinBuild()] or nil  〔所在：Container:Close〕",
   ],
-  724: [
+  "Container:IsOpen#1+1": [
     "-- 返回：return self.opencount > 0  〔所在：Container:IsOpen〕",
   ],
-  728: [
+  "Container:IsOpenedBy#1+1": [
     "-- 返回：return self.openlist[guy]  〔所在：Container:IsOpenedBy〕",
   ],
-  732: [
+  "Container:IsOpenedByOthers#1+1": [
     "-- 返回：return (self.opencount - (self.openlist[guy] and 1 or 0)) > 0  〔所在：Container:IsOpenedByOthers〕",
   ],
-  736: [
+  "Container:CanOpen#1+1": [
     "-- 返回：return self.openlimit == nil or self.opencount < self.openlimit  〔所在：Container:CanOpen〕",
   ],
-  740: [
+  "Container:GetOpeners#1+1": [
     "-- 局部变量：local openers = {}  〔所在：Container:GetOpeners〕",
   ],
-  741: [
+  "Container:GetOpeners#1+2": [
     "-- 循环：for opener in pairs(self.openlist) do  〔所在：Container:GetOpeners〕",
   ],
-  742: [
+  "Container:GetOpeners#1+3": [
     "-- table.insert(openers, opener)  〔所在：Container:GetOpeners〕",
   ],
-  744: [
+  "Container:GetOpeners#1+5": [
     "-- 返回：return openers  〔所在：Container:GetOpeners〕",
   ],
-  748: [
+  "CheckItem#1+1": [
     "-- 返回：return target ~= nil  〔所在：CheckItem〕",
   ],
-  756: [
+  "Container:IsHolding#1+1": [
     "-- 循环：for k, v in pairs(self.slots) do  〔所在：Container:IsHolding〕",
   ],
-  757: [
+  "Container:IsHolding#1+2": [
     "-- 条件分支：if CheckItem(item, v, checkcontainer) then  〔所在：Container:IsHolding〕",
   ],
-  758: [
+  "Container:IsHolding#1+3": [
     "-- 返回：return true  〔所在：Container:IsHolding〕",
   ],
-  764: [
+  "Container:FindItem#1+1": [
     "-- 循环：for k,v in pairs(self.slots) do  〔所在：Container:FindItem〕",
   ],
-  765: [
+  "Container:FindItem#1+2": [
     "-- 条件分支：if fn(v) then  〔所在：Container:FindItem〕",
   ],
-  766: [
+  "Container:FindItem#1+3": [
     "-- 返回：return v  〔所在：Container:FindItem〕",
   ],
-  772: [
+  "Container:FindItems#1+1": [
     "-- 局部变量：local items = {}  〔所在：Container:FindItems〕",
   ],
-  774: [
+  "Container:FindItems#1+3": [
     "-- 循环：for k,v in pairs(self.slots) do  〔所在：Container:FindItems〕",
   ],
-  775: [
+  "Container:FindItems#1+4": [
     "-- 条件分支：if fn(v) then  〔所在：Container:FindItems〕",
   ],
-  776: [
+  "Container:FindItems#1+5": [
     "-- table.insert(items, v)  〔所在：Container:FindItems〕",
   ],
-  780: [
+  "Container:FindItems#1+9": [
     "-- 返回：return items  〔所在：Container:FindItems〕",
   ],
-  784: [
+  "Container:ForEachItem#1+1": [
     "-- 循环：for k,v in pairs(self.slots) do  〔所在：Container:ForEachItem〕",
   ],
-  790: [
+  "ValidateSpecializedContainer#1+1": [
     "-- 返回：return container ~= nil  〔所在：ValidateSpecializedContainer〕",
   ],
-  803: [
+  "Container:GetSpecializedContainers#1+2": [
     "-- 返回：return  〔所在：Container:GetSpecializedContainers〕",
   ],
-  805: [
+  "Container:GetSpecializedContainers#1+4": [
     "-- 局部变量：local ret  〔所在：Container:GetSpecializedContainers〕",
   ],
-  807: [
+  "Container:GetSpecializedContainers#1+6": [
     "-- 局部变量：local v = self.slots[i]  〔所在：Container:GetSpecializedContainers〕",
   ],
-  809: [
+  "Container:GetSpecializedContainers#1+8": [
     "-- 局部赋值：ret = ret or {}  〔所在：Container:GetSpecializedContainers〕",
   ],
-  810: [
+  "Container:GetSpecializedContainers#1+9": [
     "-- table.insert(ret, v.components.container)  〔所在：Container:GetSpecializedContainers〕",
   ],
-  813: [
+  "Container:GetSpecializedContainers#1+12": [
     "-- 返回：return ret  〔所在：Container:GetSpecializedContainers〕",
   ],
-  817: [
+  "Container:IsSpecializedContainer#1+1": [
     "-- 循环：for i = 1, self.numslots do  〔所在：Container:IsSpecializedContainer〕",
   ],
-  818: [
+  "Container:IsSpecializedContainer#1+2": [
     "-- 局部变量：local v = self.slots[i]  〔所在：Container:IsSpecializedContainer〕",
   ],
-  819: [
+  "Container:IsSpecializedContainer#1+3": [
     "-- 条件分支：if v and v.components.container == container then  〔所在：Container:IsSpecializedContainer〕",
   ],
-  823: [
+  "Container:IsSpecializedContainer#1+7": [
     "-- 返回：return false  〔所在：Container:IsSpecializedContainer〕",
   ],
-  827: [
+  "Container:Has#1+1": [
     "-- 局部变量：local num_found = 0  〔所在：Container:Has〕",
   ],
-  828: [
+  "Container:Has#1+2": [
     "-- 循环：for k,v in pairs(self.slots) do  〔所在：Container:Has〕",
   ],
-  830: [
+  "Container:Has#1+4": [
     "-- 条件分支：if v.components.stackable ~= nil then  〔所在：Container:Has〕",
   ],
-  831: [
+  "Container:Has#1+5": [
     "-- 局部赋值：num_found = num_found + v.components.stackable:StackSize()  〔所在：Container:Has〕",
   ],
-  832: [
+  "Container:Has#1+6": [
     "-- 兜底分支（前述条件全不成立）。〔所在：Container:Has〕",
   ],
-  833: [
+  "Container:Has#1+7": [
     "-- 局部赋值：num_found = num_found + 1  〔所在：Container:Has〕",
   ],
-  838: [
+  "Container:Has#1+12": [
     "-- 返回：return num_found >= amount, num_found  〔所在：Container:Has〕",
   ],
-  842: [
+  "Container:HasItemThatMatches#1+1": [
     "-- 局部变量：local num_found = 0  〔所在：Container:HasItemThatMatches〕",
   ],
-  843: [
+  "Container:HasItemThatMatches#1+2": [
     "-- 循环：for k, v in pairs(self.slots) do  〔所在：Container:HasItemThatMatches〕",
   ],
-  844: [
+  "Container:HasItemThatMatches#1+3": [
     "-- 条件分支：if fn(v) then  〔所在：Container:HasItemThatMatches〕",
   ],
-  845: [
+  "Container:HasItemThatMatches#1+4": [
     "-- 局部赋值：num_found = num_found + (v.components.stackable and v.components.stackable:StackSize() or 1)  〔所在：Container:HasItemThatMatches〕",
   ],
-  848: [
+  "Container:HasItemThatMatches#1+7": [
     "-- 返回：return num_found >= amount, num_found  〔所在：Container:HasItemThatMatches〕",
   ],
-  852: [
+  "Container:HasItemWithTag#1+1": [
     "-- 局部变量：local num_found = 0  〔所在：Container:HasItemWithTag〕",
   ],
-  853: [
+  "Container:HasItemWithTag#1+2": [
     "-- 循环：for k,v in pairs(self.slots) do  〔所在：Container:HasItemWithTag〕",
   ],
-  854: [
+  "Container:HasItemWithTag#1+3": [
     "-- 条件分支：if v and v:HasTag(tag) then  〔所在：Container:HasItemWithTag〕",
   ],
-  855: [
+  "Container:HasItemWithTag#1+4": [
     "-- 条件分支：if v.components.stackable ~= nil then  〔所在：Container:HasItemWithTag〕",
   ],
-  856: [
+  "Container:HasItemWithTag#1+5": [
     "-- 局部赋值：num_found = num_found + v.components.stackable:StackSize()  〔所在：Container:HasItemWithTag〕",
   ],
-  857: [
+  "Container:HasItemWithTag#1+6": [
     "-- 兜底分支（前述条件全不成立）。〔所在：Container:HasItemWithTag〕",
   ],
-  858: [
+  "Container:HasItemWithTag#1+7": [
     "-- 局部赋值：num_found = num_found + 1  〔所在：Container:HasItemWithTag〕",
   ],
-  863: [
+  "Container:HasItemWithTag#1+12": [
     "-- 返回：return num_found >= amount, num_found  〔所在：Container:HasItemWithTag〕",
   ],
-  867: [
+  "Container:GetItemsWithTag#1+1": [
     "-- 局部变量：local items = {}  〔所在：Container:GetItemsWithTag〕",
   ],
-  868: [
+  "Container:GetItemsWithTag#1+2": [
     "-- 循环：for k,v in pairs(self.slots) do  〔所在：Container:GetItemsWithTag〕",
   ],
-  869: [
+  "Container:GetItemsWithTag#1+3": [
     "-- 条件分支：if v and v:HasTag(tag) then  〔所在：Container:GetItemsWithTag〕",
   ],
-  870: [
+  "Container:GetItemsWithTag#1+4": [
     "-- table.insert(items, v)  〔所在：Container:GetItemsWithTag〕",
   ],
-  874: [
+  "Container:GetItemsWithTag#1+8": [
     "-- 返回：return items  〔所在：Container:GetItemsWithTag〕",
   ],
-  878: [
+  "Container:GetItemByName#1+1": [
     "-- 局部变量：local total_num_found = 0  〔所在：Container:GetItemByName〕",
   ],
-  879: [
+  "Container:GetItemByName#1+2": [
     "-- 局部变量：local items = {}  〔所在：Container:GetItemByName〕",
   ],
-  882: [
+  "tryfind#1+1": [
     "-- 局部变量：local num_found = 0  〔所在：tryfind〕",
   ],
-  883: [
+  "tryfind#1+2": [
     "-- 条件分支：if v and v.prefab == item then  〔所在：tryfind〕",
   ],
-  884: [
+  "tryfind#1+3": [
     "-- 局部变量：local num_left_to_find = amount - total_num_found  〔所在：tryfind〕",
   ],
-  885: [
+  "tryfind#1+4": [
     "-- 条件分支：if v.components.stackable then  〔所在：tryfind〕",
   ],
-  888: [
+  "tryfind#1+7": [
     "-- 局部赋值：num_found = amount  〔所在：tryfind〕",
   ],
-  889: [
+  "tryfind#1+8": [
     "-- 兜底分支（前述条件全不成立）。〔所在：tryfind〕",
   ],
-  893: [
+  "tryfind#1+12": [
     "-- 兜底分支（前述条件全不成立）。〔所在：tryfind〕",
   ],
-  895: [
+  "tryfind#1+14": [
     "-- 局部赋值：num_found = num_found + 1  〔所在：tryfind〕",
   ],
-  898: [
+  "tryfind#1+17": [
     "-- 返回：return num_found  〔所在：tryfind〕",
   ],
-  902: [
+  "tryfind#1+21": [
     "-- 局部变量：local v = self.slots[k]  〔所在：tryfind〕",
   ],
-  903: [
+  "tryfind#1+22": [
     "-- 局部赋值：total_num_found = total_num_found + tryfind(v)  〔所在：tryfind〕",
   ],
-  905: [
+  "tryfind#1+24": [
     "-- 条件分支：if total_num_found >= amount then  〔所在：tryfind〕",
   ],
-  910: [
+  "tryfind#1+29": [
     "-- 返回：return items  〔所在：tryfind〕",
   ],
-  914: [
+  "crafting_priority_fn#1+1": [
     "-- 条件分支：if a.stacksize == b.stacksize then  〔所在：crafting_priority_fn〕",
   ],
-  915: [
+  "crafting_priority_fn#1+2": [
     "-- 返回：return a.slot < b.slot  〔所在：crafting_priority_fn〕",
   ],
-  921: [
+  "Container:GetCraftingIngredient#1+1": [
     "-- 局部变量：local items = {}  〔所在：Container:GetCraftingIngredient〕",
   ],
-  922: [
+  "Container:GetCraftingIngredient#1+2": [
     "-- 循环：for i = 1, self.numslots do  〔所在：Container:GetCraftingIngredient〕",
   ],
-  923: [
+  "Container:GetCraftingIngredient#1+3": [
     "-- 局部变量：local v = self.slots[i]  〔所在：Container:GetCraftingIngredient〕",
   ],
-  925: [
+  "Container:GetCraftingIngredient#1+5": [
     "-- table.insert(items, {  〔所在：Container:GetCraftingIngredient〕",
   ],
-  926: [
+  "Container:GetCraftingIngredient#1+6": [
     "-- 局部赋值：item = v,  〔所在：Container:GetCraftingIngredient〕",
   ],
-  927: [
+  "Container:GetCraftingIngredient#1+7": [
     "-- 局部赋值：stacksize = v.components.stackable and v.components.stackable:StackSize() or 1,  〔所在：Container:GetCraftingIngredient〕",
   ],
-  934: [
+  "Container:GetCraftingIngredient#1+14": [
     "-- 局部变量：local crafting_items = {}  〔所在：Container:GetCraftingIngredient〕",
   ],
-  935: [
+  "Container:GetCraftingIngredient#1+15": [
     "-- 局部变量：local total_num_found = 0  〔所在：Container:GetCraftingIngredient〕",
   ],
-  936: [
+  "Container:GetCraftingIngredient#1+16": [
     "-- 循环：for i, v in ipairs(items) do  〔所在：Container:GetCraftingIngredient〕",
   ],
-  937: [
+  "Container:GetCraftingIngredient#1+17": [
     "-- 局部变量：local stacksize = math.min(v.stacksize, amount - total_num_found)  〔所在：Container:GetCraftingIngredient〕",
   ],
-  939: [
+  "Container:GetCraftingIngredient#1+19": [
     "-- 局部赋值：total_num_found = total_num_found + stacksize  〔所在：Container:GetCraftingIngredient〕",
   ],
-  940: [
+  "Container:GetCraftingIngredient#1+20": [
     "-- 条件分支：if total_num_found >= amount then  〔所在：Container:GetCraftingIngredient〕",
   ],
-  945: [
+  "Container:GetCraftingIngredient#1+25": [
     "-- 返回：return crafting_items  〔所在：Container:GetCraftingIngredient〕",
   ],
-  949: [
+  "tryconsume#1+1": [
     "-- 条件分支：if v.components.stackable == nil then  〔所在：tryconsume〕",
   ],
-  951: [
+  "tryconsume#1+3": [
     "-- 返回：return 1  〔所在：tryconsume〕",
   ],
-  952: [
+  "tryconsume#1+4": [
     "-- 次选条件：elseif v.components.stackable.stacksize > amount then  〔所在：tryconsume〕",
   ],
-  954: [
+  "tryconsume#1+6": [
     "-- 返回：return amount  〔所在：tryconsume〕",
   ],
-  955: [
+  "tryconsume#1+7": [
     "-- 兜底分支（前述条件全不成立）。〔所在：tryconsume〕",
   ],
-  956: [
+  "tryconsume#1+8": [
     "-- 局部赋值：amount = v.components.stackable.stacksize  〔所在：tryconsume〕",
   ],
-  958: [
+  "tryconsume#1+10": [
     "-- 返回：return amount  〔所在：tryconsume〕",
   ],
-  961: [
+  "tryconsume#1+13": [
     "-- 返回：return 0  〔所在：tryconsume〕",
   ],
-  966: [
+  "Container:ConsumeByName#1+2": [
     "-- 返回：return  〔所在：Container:ConsumeByName〕",
   ],
-  969: [
+  "Container:ConsumeByName#1+5": [
     "-- 循环：for k, v in pairs(self.slots) do  〔所在：Container:ConsumeByName〕",
   ],
-  970: [
+  "Container:ConsumeByName#1+6": [
     "-- 条件分支：if v.prefab == item then  〔所在：Container:ConsumeByName〕",
   ],
-  971: [
+  "Container:ConsumeByName#1+7": [
     "-- 局部赋值：amount = amount - tryconsume(self, v, amount)  〔所在：Container:ConsumeByName〕",
   ],
-  972: [
+  "Container:ConsumeByName#1+8": [
     "-- 条件分支：if amount <= 0 then  〔所在：Container:ConsumeByName〕",
   ],
-  973: [
+  "Container:ConsumeByName#1+9": [
     "-- 返回：return  〔所在：Container:ConsumeByName〕",
   ],
-  980: [
+  "Container:OnSave#1+1": [
     "-- 局部变量：local data = {items= {}}  〔所在：Container:OnSave〕",
   ],
-  981: [
+  "Container:OnSave#1+2": [
     "-- 局部变量：local references = {}  〔所在：Container:OnSave〕",
   ],
-  982: [
+  "Container:OnSave#1+3": [
     "-- 局部变量：local refs  〔所在：Container:OnSave〕",
   ],
-  983: [
+  "Container:OnSave#1+4": [
     "-- 循环：for k,v in pairs(self.slots) do  〔所在：Container:OnSave〕",
   ],
-  986: [
+  "Container:OnSave#1+7": [
     "-- 条件分支：if refs then  〔所在：Container:OnSave〕",
   ],
-  987: [
+  "Container:OnSave#1+8": [
     "-- 循环：for k,v in pairs(refs) do  〔所在：Container:OnSave〕",
   ],
-  988: [
+  "Container:OnSave#1+9": [
     "-- table.insert(references, v)  〔所在：Container:OnSave〕",
   ],
-  993: [
+  "Container:OnSave#1+14": [
     "-- 返回：return data, references  〔所在：Container:OnSave〕",
   ],
-  997: [
+  "Container:OnLoad#1+1": [
     "-- 条件分支：if data.items then  〔所在：Container:OnLoad〕",
   ],
-  998: [
+  "Container:OnLoad#1+2": [
     "-- 循环：for k,v in pairs(data.items) do  〔所在：Container:OnLoad〕",
   ],
-  999: [
+  "Container:OnLoad#1+3": [
     "-- 局部变量：local inst = SpawnSaveRecord(v, newents)  〔所在：Container:OnLoad〕",
   ],
-  1010: [
+  "Container:RemoveItem#1+1": [
     "-- 条件分支：if item then  〔所在：Container:RemoveItem〕",
   ],
-  1011: [
+  "Container:RemoveItem#1+2": [
     "-- 局部变量：local slot = self:GetItemSlot(item)  〔所在：Container:RemoveItem〕",
   ],
-  1012: [
+  "Container:RemoveItem#1+3": [
     "-- 条件分支：if slot then  〔所在：Container:RemoveItem〕",
   ],
-  1013: [
+  "Container:RemoveItem#1+4": [
     "-- 返回：return self:RemoveItem_Internal(item, slot, wholestack, keepoverstacked)  〔所在：Container:RemoveItem〕",
   ],
-  1022: [
+  "Container:RemoveItem_Internal#1+3": [
     "-- 返回：return nil  〔所在：Container:RemoveItem_Internal〕",
   ],
-  1025: [
+  "Container:RemoveItem_Internal#1+6": [
     "-- 局部变量：local stackable = item.components.stackable  〔所在：Container:RemoveItem_Internal〕",
   ],
-  1031: [
+  "Container:RemoveItem_Internal#1+12": [
     "-- 条件分支：if num then  〔所在：Container:RemoveItem_Internal〕",
   ],
-  1036: [
+  "Container:RemoveItem_Internal#1+17": [
     "-- 返回：return dec  〔所在：Container:RemoveItem_Internal〕",
   ],
-  1052: [
+  "Container:RemoveItem_Internal#1+33": [
     "-- 返回：return item  〔所在：Container:RemoveItem_Internal〕",
   ],
-  1060: [
+  "Container:OnUpdate#1+1": [
     "-- 条件分支：if self.opencount == 0 then  〔所在：Container:OnUpdate〕",
   ],
-  1062: [
+  "Container:OnUpdate#1+3": [
     "-- 兜底分支（前述条件全不成立）。〔所在：Container:OnUpdate〕",
   ],
-  1068: [
+  "Container:OnUpdate#1+9": [
     "-- 局部变量：local ismount = mount == self.inst  〔所在：Container:OnUpdate〕",
   ],
-  1095: [
+  "QueryActiveItem#1+1": [
     "-- 局部变量：local inventory = opener ~= nil and opener.components.inventory or nil  〔所在：QueryActiveItem〕",
   ],
-  1096: [
+  "QueryActiveItem#1+2": [
     "-- 返回：return inventory, inventory ~= nil and inventory:GetActiveItem() or nil  〔所在：QueryActiveItem〕",
   ],
-  1101: [
+  "Container:PutOneOfActiveItemInSlot#1+2": [
     "-- 返回：return  〔所在：Container:PutOneOfActiveItemInSlot〕",
   ],
-  1103: [
+  "Container:PutOneOfActiveItemInSlot#1+4": [
     "-- 局部变量：local inventory, active_item = QueryActiveItem(self, opener)  〔所在：Container:PutOneOfActiveItemInSlot〕",
   ],
-  1114: [
+  "Container:PutOneOfActiveItemInSlot#1+15": [
     "-- ignoresound：同第 63 行（首次初始化），此处显式赋 false。",
   ],
-  1121: [
+  "Container:PutAllOfActiveItemInSlot#1+1": [
     "-- 条件分支：if self.readonlycontainer then  〔所在：Container:PutAllOfActiveItemInSlot〕",
   ],
-  1122: [
+  "Container:PutAllOfActiveItemInSlot#1+2": [
     "-- 返回：return  〔所在：Container:PutAllOfActiveItemInSlot〕",
   ],
-  1124: [
+  "Container:PutAllOfActiveItemInSlot#1+4": [
     "-- 局部变量：local inventory, active_item = QueryActiveItem(self, opener)  〔所在：Container:PutAllOfActiveItemInSlot〕",
   ],
-  1125: [
+  "Container:PutAllOfActiveItemInSlot#1+5": [
     "-- 局部变量：local item = self:GetItemInSlot(slot)  〔所在：Container:PutAllOfActiveItemInSlot〕",
   ],
-  1126: [
+  "Container:PutAllOfActiveItemInSlot#1+6": [
     "-- 条件分支：if active_item ~= nil then  〔所在：Container:PutAllOfActiveItemInSlot〕",
   ],
-  1137: [
+  "Container:PutAllOfActiveItemInSlot#1+17": [
     "-- ignoresound：同第 63 行（首次初始化），此处显式赋 true。",
   ],
-  1139: [
+  "Container:PutAllOfActiveItemInSlot#1+19": [
     "-- ignoresound：同第 63 行（首次初始化），此处显式赋 false。",
   ],
-  1147: [
+  "Container:TakeActiveItemFromHalfOfSlot#1+1": [
     "-- 条件分支：if self.readonlycontainer then  〔所在：Container:TakeActiveItemFromHalfOfSlot〕",
   ],
-  1148: [
+  "Container:TakeActiveItemFromHalfOfSlot#1+2": [
     "-- 返回：return  〔所在：Container:TakeActiveItemFromHalfOfSlot〕",
   ],
-  1150: [
+  "Container:TakeActiveItemFromHalfOfSlot#1+4": [
     "-- 局部变量：local inventory, active_item = QueryActiveItem(self, opener)  〔所在：Container:TakeActiveItemFromHalfOfSlot〕",
   ],
-  1151: [
+  "Container:TakeActiveItemFromHalfOfSlot#1+5": [
     "-- 局部变量：local item = self:GetItemInSlot(slot)  〔所在：Container:TakeActiveItemFromHalfOfSlot〕",
   ],
-  1153: [
+  "Container:TakeActiveItemFromHalfOfSlot#1+7": [
     "-- 局部赋值：active_item == nil and  〔所在：Container:TakeActiveItemFromHalfOfSlot〕",
   ],
-  1171: [
+  "Container:TakeActiveItemFromCountOfSlot#1+1": [
     "-- 条件分支：if self.readonlycontainer then  〔所在：Container:TakeActiveItemFromCountOfSlot〕",
   ],
-  1172: [
+  "Container:TakeActiveItemFromCountOfSlot#1+2": [
     "-- 返回：return  〔所在：Container:TakeActiveItemFromCountOfSlot〕",
   ],
-  1174: [
+  "Container:TakeActiveItemFromCountOfSlot#1+4": [
     "-- 局部变量：local inventory, active_item = QueryActiveItem(self, opener)  〔所在：Container:TakeActiveItemFromCountOfSlot〕",
   ],
-  1175: [
+  "Container:TakeActiveItemFromCountOfSlot#1+5": [
     "-- 局部变量：local item = self:GetItemInSlot(slot)  〔所在：Container:TakeActiveItemFromCountOfSlot〕",
   ],
-  1176: [
+  "Container:TakeActiveItemFromCountOfSlot#1+6": [
     "-- 条件分支：if item ~= nil and  〔所在：Container:TakeActiveItemFromCountOfSlot〕",
   ],
-  1177: [
+  "Container:TakeActiveItemFromCountOfSlot#1+7": [
     "-- 局部赋值：active_item == nil and  〔所在：Container:TakeActiveItemFromCountOfSlot〕",
   ],
-  1180: [
+  "Container:TakeActiveItemFromCountOfSlot#1+10": [
     "-- 局部变量：local stackable = item.components.stackable  〔所在：Container:TakeActiveItemFromCountOfSlot〕",
   ],
-  1184: [
+  "Container:TakeActiveItemFromCountOfSlot#1+14": [
     "-- 局部变量：local countedstack = stackable:Get(count)  〔所在：Container:TakeActiveItemFromCountOfSlot〕",
   ],
-  1189: [
+  "Container:TakeActiveItemFromCountOfSlot#1+19": [
     "-- assert(BRANCH ~= \"dev\")  〔所在：Container:TakeActiveItemFromCountOfSlot〕",
   ],
-  1190: [
+  "Container:TakeActiveItemFromCountOfSlot#1+20": [
     "-- 兜底分支（前述条件全不成立）。〔所在：Container:TakeActiveItemFromCountOfSlot〕",
   ],
-  1200: [
+  "Container:TakeActiveItemFromAllOfSlot#1+1": [
     "-- 条件分支：if self.readonlycontainer then  〔所在：Container:TakeActiveItemFromAllOfSlot〕",
   ],
-  1201: [
+  "Container:TakeActiveItemFromAllOfSlot#1+2": [
     "-- 返回：return  〔所在：Container:TakeActiveItemFromAllOfSlot〕",
   ],
-  1203: [
+  "Container:TakeActiveItemFromAllOfSlot#1+4": [
     "-- 局部变量：local inventory, active_item = QueryActiveItem(self, opener)  〔所在：Container:TakeActiveItemFromAllOfSlot〕",
   ],
-  1204: [
+  "Container:TakeActiveItemFromAllOfSlot#1+5": [
     "-- 局部变量：local item = self:GetItemInSlot(slot)  〔所在：Container:TakeActiveItemFromAllOfSlot〕",
   ],
-  1205: [
+  "Container:TakeActiveItemFromAllOfSlot#1+6": [
     "-- 条件分支：if item ~= nil and  〔所在：Container:TakeActiveItemFromAllOfSlot〕",
   ],
-  1206: [
+  "Container:TakeActiveItemFromAllOfSlot#1+7": [
     "-- 局部赋值：active_item == nil and  〔所在：Container:TakeActiveItemFromAllOfSlot〕",
   ],
-  1210: [
+  "Container:TakeActiveItemFromAllOfSlot#1+11": [
     "-- assert(BRANCH ~= \"dev\")  〔所在：Container:TakeActiveItemFromAllOfSlot〕",
   ],
-  1211: [
+  "Container:TakeActiveItemFromAllOfSlot#1+12": [
     "-- 返回：return  〔所在：Container:TakeActiveItemFromAllOfSlot〕",
   ],
-  1217: [
+  "Container:TakeActiveItemFromAllOfSlot#1+18": [
     "-- 局部变量：local fullstack = item.components.stackable:Get(item.components.stackable.originalmaxsize)  〔所在：Container:TakeActiveItemFromAllOfSlot〕",
   ],
-  1221: [
+  "Container:TakeActiveItemFromAllOfSlot#1+22": [
     "-- 兜底分支（前述条件全不成立）。〔所在：Container:TakeActiveItemFromAllOfSlot〕",
   ],
-  1231: [
+  "Container:AddOneOfActiveItemToSlot#1+1": [
     "-- 条件分支：if self.readonlycontainer then  〔所在：Container:AddOneOfActiveItemToSlot〕",
   ],
-  1232: [
+  "Container:AddOneOfActiveItemToSlot#1+2": [
     "-- 返回：return  〔所在：Container:AddOneOfActiveItemToSlot〕",
   ],
-  1234: [
+  "Container:AddOneOfActiveItemToSlot#1+4": [
     "-- 局部变量：local inventory, active_item = QueryActiveItem(self, opener)  〔所在：Container:AddOneOfActiveItemToSlot〕",
   ],
-  1235: [
+  "Container:AddOneOfActiveItemToSlot#1+5": [
     "-- 局部变量：local item = self:GetItemInSlot(slot)  〔所在：Container:AddOneOfActiveItemToSlot〕",
   ],
-  1255: [
+  "Container:AddAllOfActiveItemToSlot#1+1": [
     "-- 条件分支：if self.readonlycontainer then  〔所在：Container:AddAllOfActiveItemToSlot〕",
   ],
-  1256: [
+  "Container:AddAllOfActiveItemToSlot#1+2": [
     "-- 返回：return  〔所在：Container:AddAllOfActiveItemToSlot〕",
   ],
-  1258: [
+  "Container:AddAllOfActiveItemToSlot#1+4": [
     "-- 局部变量：local inventory, active_item = QueryActiveItem(self, opener)  〔所在：Container:AddAllOfActiveItemToSlot〕",
   ],
-  1259: [
+  "Container:AddAllOfActiveItemToSlot#1+5": [
     "-- 局部变量：local item = self:GetItemInSlot(slot)  〔所在：Container:AddAllOfActiveItemToSlot〕",
   ],
-  1277: [
+  "Container:SwapActiveItemWithSlot#1+1": [
     "-- 条件分支：if self.readonlycontainer then  〔所在：Container:SwapActiveItemWithSlot〕",
   ],
-  1278: [
+  "Container:SwapActiveItemWithSlot#1+2": [
     "-- 返回：return  〔所在：Container:SwapActiveItemWithSlot〕",
   ],
-  1280: [
+  "Container:SwapActiveItemWithSlot#1+4": [
     "-- 局部变量：local inventory, active_item = QueryActiveItem(self, opener)  〔所在：Container:SwapActiveItemWithSlot〕",
   ],
-  1281: [
+  "Container:SwapActiveItemWithSlot#1+5": [
     "-- 局部变量：local item = self:GetItemInSlot(slot)  〔所在：Container:SwapActiveItemWithSlot〕",
   ],
-  1282: [
+  "Container:SwapActiveItemWithSlot#1+6": [
     "-- 条件分支：if active_item ~= nil then  〔所在：Container:SwapActiveItemWithSlot〕",
   ],
-  1283: [
+  "Container:SwapActiveItemWithSlot#1+7": [
     "-- 条件分支：if item == nil then  〔所在：Container:SwapActiveItemWithSlot〕",
   ],
-  1308: [
+  "Container:SwapOneOfActiveItemWithSlot#1+1": [
     "-- 条件分支：if self.readonlycontainer then  〔所在：Container:SwapOneOfActiveItemWithSlot〕",
   ],
-  1309: [
+  "Container:SwapOneOfActiveItemWithSlot#1+2": [
     "-- 返回：return  〔所在：Container:SwapOneOfActiveItemWithSlot〕",
   ],
-  1311: [
+  "Container:SwapOneOfActiveItemWithSlot#1+4": [
     "-- 局部变量：local inventory, active_item = QueryActiveItem(self, opener)  〔所在：Container:SwapOneOfActiveItemWithSlot〕",
   ],
-  1312: [
+  "Container:SwapOneOfActiveItemWithSlot#1+5": [
     "-- 局部变量：local item = self:GetItemInSlot(slot)  〔所在：Container:SwapOneOfActiveItemWithSlot〕",
   ],
-  1334: [
+  "Container:MoveItemFromAllOfSlot#1+2": [
     "-- 返回：return  〔所在：Container:MoveItemFromAllOfSlot〕",
   ],
-  1337: [
+  "Container:MoveItemFromAllOfSlot#1+5": [
     "-- 条件分支：if item ~= nil and container ~= nil then  〔所在：Container:MoveItemFromAllOfSlot〕",
   ],
-  1339: [
+  "Container:MoveItemFromAllOfSlot#1+7": [
     "-- assert(BRANCH ~= \"dev\")  〔所在：Container:MoveItemFromAllOfSlot〕",
   ],
-  1340: [
+  "Container:MoveItemFromAllOfSlot#1+8": [
     "-- 返回：return  〔所在：Container:MoveItemFromAllOfSlot〕",
   ],
-  1355: [
+  "Container:MoveItemFromAllOfSlot#1+23": [
     "-- 局部变量：local shouldignoresound = false  〔所在：Container:MoveItemFromAllOfSlot〕",
   ],
-  1357: [
+  "Container:MoveItemFromAllOfSlot#1+25": [
     "-- 局部赋值：item = self:RemoveItemBySlot(slot)  〔所在：Container:MoveItemFromAllOfSlot〕",
   ],
-  1358: [
+  "Container:MoveItemFromAllOfSlot#1+26": [
     "-- 次选条件：elseif container.infinitestacksize then  〔所在：Container:MoveItemFromAllOfSlot〕",
   ],
-  1360: [
+  "Container:MoveItemFromAllOfSlot#1+28": [
     "-- ★ hack flag：取出超量堆叠时**不**把多出的丢地上（第 1042 行）。",
     "--   本行初值：true。",
   ],
-  1361: [
+  "Container:MoveItemFromAllOfSlot#1+29": [
     "-- 局部赋值：item = self:RemoveItemBySlot(slot)  〔所在：Container:MoveItemFromAllOfSlot〕",
   ],
-  1362: [
+  "Container:MoveItemFromAllOfSlot#1+30": [
     "-- ignoreoverstacked：同第 1360 行（首次初始化），此处显式赋 false。",
   ],
-  1363: [
+  "Container:MoveItemFromAllOfSlot#1+31": [
     "-- 兜底分支（前述条件全不成立）。〔所在：Container:MoveItemFromAllOfSlot〕",
   ],
-  1367: [
+  "Container:MoveItemFromAllOfSlot#1+35": [
     "-- 条件分支：if item ~= nil then  〔所在：Container:MoveItemFromAllOfSlot〕",
   ],
-  1377: [
+  "Container:MoveItemFromAllOfSlot#1+45": [
     "-- 次选条件：elseif container.ignoreclosedspoverflow ~= nil then  〔所在：Container:MoveItemFromAllOfSlot〕",
   ],
-  1380: [
+  "Container:MoveItemFromAllOfSlot#1+48": [
     "-- 条件分支：if container.ignorefull ~= nil then  〔所在：Container:MoveItemFromAllOfSlot〕",
   ],
-  1387: [
+  "Container:MoveItemFromAllOfSlot#1+55": [
     "-- ignoresound：同第 63 行（首次初始化），此处显式赋 false。",
   ],
-  1394: [
+  "Container:MoveItemFromAllOfSlot#1+62": [
     "-- 条件分支：if container.ignorespoverflow then  〔所在：Container:MoveItemFromAllOfSlot〕",
   ],
-  1397: [
+  "Container:MoveItemFromAllOfSlot#1+65": [
     "-- 条件分支：if container.ignoreclosedspoverflow then  〔所在：Container:MoveItemFromAllOfSlot〕",
   ],
-  1400: [
+  "Container:MoveItemFromAllOfSlot#1+68": [
     "-- 条件分支：if container.ignorefull then  〔所在：Container:MoveItemFromAllOfSlot〕",
   ],
-  1413: [
+  "Container:MoveItemFromHalfOfSlot#1+1": [
     "-- 条件分支：if self.readonlycontainer then  〔所在：Container:MoveItemFromHalfOfSlot〕",
   ],
-  1414: [
+  "Container:MoveItemFromHalfOfSlot#1+2": [
     "-- 返回：return  〔所在：Container:MoveItemFromHalfOfSlot〕",
   ],
-  1416: [
+  "Container:MoveItemFromHalfOfSlot#1+4": [
     "-- 局部变量：local item = self:GetItemInSlot(slot)  〔所在：Container:MoveItemFromHalfOfSlot〕",
   ],
-  1417: [
+  "Container:MoveItemFromHalfOfSlot#1+5": [
     "-- 条件分支：if item ~= nil and container ~= nil then  〔所在：Container:MoveItemFromHalfOfSlot〕",
   ],
-  1418: [
+  "Container:MoveItemFromHalfOfSlot#1+6": [
     "-- 局部赋值：container = container.components.container or container.components.inventory  〔所在：Container:MoveItemFromHalfOfSlot〕",
   ],
-  1419: [
+  "Container:MoveItemFromHalfOfSlot#1+7": [
     "-- 条件分支：if container ~= nil and  〔所在：Container:MoveItemFromHalfOfSlot〕",
   ],
-  1427: [
+  "Container:MoveItemFromHalfOfSlot#1+15": [
     "-- 局部变量：local targetslot =  〔所在：Container:MoveItemFromHalfOfSlot〕",
   ],
-  1433: [
+  "Container:MoveItemFromHalfOfSlot#1+21": [
     "-- 条件分支：if container:CanTakeItemInSlot(item, targetslot) then  〔所在：Container:MoveItemFromHalfOfSlot〕",
   ],
-  1435: [
+  "Container:MoveItemFromHalfOfSlot#1+23": [
     "-- 局部变量：local halfstack = item.components.stackable:Get(math.floor(fullstacksize / 2))  〔所在：Container:MoveItemFromHalfOfSlot〕",
   ],
-  1440: [
+  "Container:MoveItemFromHalfOfSlot#1+28": [
     "-- 条件分支：if container.ignoreoverflow ~= nil and container:GetOverflowContainer() == self then  〔所在：Container:MoveItemFromHalfOfSlot〕",
   ],
-  1443: [
+  "Container:MoveItemFromHalfOfSlot#1+31": [
     "-- 条件分支：if container.ignorespoverflow ~= nil and container:IsSpecializedContainer(self) then  〔所在：Container:MoveItemFromHalfOfSlot〕",
   ],
-  1445: [
+  "Container:MoveItemFromHalfOfSlot#1+33": [
     "-- 次选条件：elseif container.ignoreclosedspoverflow ~= nil then  〔所在：Container:MoveItemFromHalfOfSlot〕",
   ],
-  1448: [
+  "Container:MoveItemFromHalfOfSlot#1+36": [
     "-- 条件分支：if container.ignorefull ~= nil then  〔所在：Container:MoveItemFromHalfOfSlot〕",
   ],
-  1453: [
+  "Container:MoveItemFromHalfOfSlot#1+41": [
     "-- ignoresound：同第 63 行（首次初始化），此处显式赋 true。",
   ],
-  1455: [
+  "Container:MoveItemFromHalfOfSlot#1+43": [
     "-- ignoresound：同第 63 行（首次初始化），此处显式赋 false。",
   ],
-  1459: [
+  "Container:MoveItemFromHalfOfSlot#1+47": [
     "-- 条件分支：if container.ignoreoverflow then  〔所在：Container:MoveItemFromHalfOfSlot〕",
   ],
-  1462: [
+  "Container:MoveItemFromHalfOfSlot#1+50": [
     "-- 条件分支：if container.ignorespoverflow then  〔所在：Container:MoveItemFromHalfOfSlot〕",
   ],
-  1465: [
+  "Container:MoveItemFromHalfOfSlot#1+53": [
     "-- 条件分支：if container.ignoreclosedspoverflow then  〔所在：Container:MoveItemFromHalfOfSlot〕",
   ],
-  1468: [
+  "Container:MoveItemFromHalfOfSlot#1+56": [
     "-- 条件分支：if container.ignorefull then  〔所在：Container:MoveItemFromHalfOfSlot〕",
   ],
-  1480: [
+  "Container:MoveItemFromCountOfSlot#1+1": [
     "-- 条件分支：if self.readonlycontainer then  〔所在：Container:MoveItemFromCountOfSlot〕",
   ],
-  1483: [
+  "Container:MoveItemFromCountOfSlot#1+4": [
     "-- 局部变量：local item = self:GetItemInSlot(slot)  〔所在：Container:MoveItemFromCountOfSlot〕",
   ],
-  1484: [
+  "Container:MoveItemFromCountOfSlot#1+5": [
     "-- 条件分支：if item ~= nil and container ~= nil then  〔所在：Container:MoveItemFromCountOfSlot〕",
   ],
-  1485: [
+  "Container:MoveItemFromCountOfSlot#1+6": [
     "-- 局部赋值：container = container.components.container or container.components.inventory  〔所在：Container:MoveItemFromCountOfSlot〕",
   ],
-  1486: [
+  "Container:MoveItemFromCountOfSlot#1+7": [
     "-- 条件分支：if container ~= nil and container:IsOpenedBy(opener) then  〔所在：Container:MoveItemFromCountOfSlot〕",
   ],
-  1491: [
+  "Container:MoveItemFromCountOfSlot#1+12": [
     "-- 局部变量：local targetslot =  〔所在：Container:MoveItemFromCountOfSlot〕",
   ],
-  1497: [
+  "Container:MoveItemFromCountOfSlot#1+18": [
     "-- 条件分支：if container:CanTakeItemInSlot(item, targetslot) then  〔所在：Container:MoveItemFromCountOfSlot〕",
   ],
-  1498: [
+  "Container:MoveItemFromCountOfSlot#1+19": [
     "-- 局部变量：local stackable = item.components.stackable  〔所在：Container:MoveItemFromCountOfSlot〕",
   ],
-  1499: [
+  "Container:MoveItemFromCountOfSlot#1+20": [
     "-- 局部变量：local fullstacksize = stackable and (stackable:IsOverStacked() and stackable.originalmaxsize or stackable:StackSize()) or 1  〔所在：Container:MoveItemFromCountOfSlot〕",
   ],
-  1500: [
+  "Container:MoveItemFromCountOfSlot#1+21": [
     "-- 局部赋值：count = math.clamp(count, 1, fullstacksize)  〔所在：Container:MoveItemFromCountOfSlot〕",
   ],
-  1501: [
+  "Container:MoveItemFromCountOfSlot#1+22": [
     "-- 局部变量：local countedstack  〔所在：Container:MoveItemFromCountOfSlot〕",
   ],
-  1503: [
+  "Container:MoveItemFromCountOfSlot#1+24": [
     "-- 局部赋值：countedstack = stackable:Get(count)  〔所在：Container:MoveItemFromCountOfSlot〕",
   ],
-  1505: [
+  "Container:MoveItemFromCountOfSlot#1+26": [
     "-- assert(BRANCH ~= \"dev\")  〔所在：Container:MoveItemFromCountOfSlot〕",
   ],
-  1506: [
+  "Container:MoveItemFromCountOfSlot#1+27": [
     "-- 兜底分支（前述条件全不成立）。〔所在：Container:MoveItemFromCountOfSlot〕",
   ],
-  1507: [
+  "Container:MoveItemFromCountOfSlot#1+28": [
     "-- 局部赋值：countedstack = self:RemoveItemBySlot(slot)  〔所在：Container:MoveItemFromCountOfSlot〕",
   ],
-  1515: [
+  "Container:MoveItemFromCountOfSlot#1+36": [
     "-- 条件分支：if container.ignoreoverflow ~= nil and container:GetOverflowContainer() == self then  〔所在：Container:MoveItemFromCountOfSlot〕",
   ],
-  1518: [
+  "Container:MoveItemFromCountOfSlot#1+39": [
     "-- 条件分支：if container.ignorespoverflow ~= nil and container:IsSpecializedContainer(self) then  〔所在：Container:MoveItemFromCountOfSlot〕",
   ],
-  1520: [
+  "Container:MoveItemFromCountOfSlot#1+41": [
     "-- 次选条件：elseif container.ignoreclosedspoverflow ~= nil then  〔所在：Container:MoveItemFromCountOfSlot〕",
   ],
-  1523: [
+  "Container:MoveItemFromCountOfSlot#1+44": [
     "-- 条件分支：if container.ignorefull ~= nil then  〔所在：Container:MoveItemFromCountOfSlot〕",
   ],
-  1527: [
+  "Container:MoveItemFromCountOfSlot#1+48": [
     "-- 条件分支：if not container:GiveItem(countedstack, targetslot) then  〔所在：Container:MoveItemFromCountOfSlot〕",
   ],
-  1528: [
+  "Container:MoveItemFromCountOfSlot#1+49": [
     "-- ignoresound：同第 63 行（首次初始化），此处显式赋 true。",
   ],
-  1530: [
+  "Container:MoveItemFromCountOfSlot#1+51": [
     "-- ignoresound：同第 63 行（首次初始化），此处显式赋 false。",
   ],
-  1534: [
+  "Container:MoveItemFromCountOfSlot#1+55": [
     "-- 条件分支：if container.ignoreoverflow then  〔所在：Container:MoveItemFromCountOfSlot〕",
   ],
-  1537: [
+  "Container:MoveItemFromCountOfSlot#1+58": [
     "-- 条件分支：if container.ignorespoverflow then  〔所在：Container:MoveItemFromCountOfSlot〕",
   ],
-  1540: [
+  "Container:MoveItemFromCountOfSlot#1+61": [
     "-- 条件分支：if container.ignoreclosedspoverflow then  〔所在：Container:MoveItemFromCountOfSlot〕",
   ],
-  1543: [
+  "Container:MoveItemFromCountOfSlot#1+64": [
     "-- 条件分支：if container.ignorefull then  〔所在：Container:MoveItemFromCountOfSlot〕",
   ],
-  1556: [
+  "Container:ReferenceAllItems#1+1": [
     "-- 局部变量：local items = {}  〔所在：Container:ReferenceAllItems〕",
   ],
-  1557: [
+  "Container:ReferenceAllItems#1+2": [
     "-- 循环：for i=1,self.numslots do  〔所在：Container:ReferenceAllItems〕",
   ],
-  1558: [
+  "Container:ReferenceAllItems#1+3": [
     "-- 条件分支：if self.slots[i] ~= nil then  〔所在：Container:ReferenceAllItems〕",
   ],
-  1559: [
+  "Container:ReferenceAllItems#1+4": [
     "-- table.insert(items, self.slots[i])  〔所在：Container:ReferenceAllItems〕",
   ],
-  1562: [
+  "Container:ReferenceAllItems#1+7": [
     "-- 返回：return items  〔所在：Container:ReferenceAllItems〕",
   ],
-  1566: [
+  "Container:EnableInfiniteStackSize#1+1": [
     "-- 局部变量：local _ = rawget(self, \"_\") --see class.lua for property setters implementation  〔所在：Container:EnableInfiniteStackSize〕",
   ],
-  1567: [
+  "Container:EnableInfiniteStackSize#1+2": [
     "-- 条件分支：if enable then  〔所在：Container:EnableInfiniteStackSize〕",
   ],
-  1568: [
+  "Container:EnableInfiniteStackSize#1+3": [
     "-- 条件分支：if not _.infinitestacksize[1] then  〔所在：Container:EnableInfiniteStackSize〕",
   ],
-  1570: [
+  "Container:EnableInfiniteStackSize#1+5": [
     "-- 循环：for i = 1, self.numslots do  〔所在：Container:EnableInfiniteStackSize〕",
   ],
-  1571: [
+  "Container:EnableInfiniteStackSize#1+6": [
     "-- 局部变量：local item = self.slots[i]  〔所在：Container:EnableInfiniteStackSize〕",
   ],
-  1572: [
+  "Container:EnableInfiniteStackSize#1+7": [
     "-- 条件分支：if item and item.components.stackable then  〔所在：Container:EnableInfiniteStackSize〕",
   ],
-  1581: [
+  "Container:EnableInfiniteStackSize#1+16": [
     "-- 循环：for i = 1, self.numslots do  〔所在：Container:EnableInfiniteStackSize〕",
   ],
-  1582: [
+  "Container:EnableInfiniteStackSize#1+17": [
     "-- 局部变量：local item = self.slots[i]  〔所在：Container:EnableInfiniteStackSize〕",
   ],
-  1583: [
+  "Container:EnableInfiniteStackSize#1+18": [
     "-- 条件分支：if item and item.components.stackable then  〔所在：Container:EnableInfiniteStackSize〕",
   ],
-  1594: [
+  "ReadOnlyContainerAssert_in#1+2": [
     "-- dumptable(data)  〔所在：ReadOnlyContainerAssert_in〕",
   ],
-  1595: [
+  "ReadOnlyContainerAssert_in#1+3": [
     "-- print(\"Time to assert, please report this.\")  〔所在：ReadOnlyContainerAssert_in〕",
   ],
-  1600: [
+  "ReadOnlyContainerAssert_out#1+1": [
     "-- print(\"__ DATA __\")  〔所在：ReadOnlyContainerAssert_out〕",
   ],
-  1601: [
+  "ReadOnlyContainerAssert_out#1+2": [
     "-- dumptable(data)  〔所在：ReadOnlyContainerAssert_out〕",
   ],
-  1602: [
+  "ReadOnlyContainerAssert_out#1+3": [
     "-- print(\"Time to assert, please report this.\")  〔所在：ReadOnlyContainerAssert_out〕",
   ],
-  1603: [
+  "ReadOnlyContainerAssert_out#1+4": [
     "-- assert(false, string.format(\"VERY BAD! Item %s was transferred out of a read only container.\", tostring(item)))  〔所在：ReadOnlyContainerAssert_out〕",
   ],
-  1607: [
+  "Container:EnableReadOnlyContainer#1+1": [
     "-- 局部变量：local _ = rawget(self, \"_\") --see class.lua for property setters implementation  〔所在：Container:EnableReadOnlyContainer〕",
   ],
-  1608: [
+  "Container:EnableReadOnlyContainer#1+2": [
     "-- 条件分支：if enable then  〔所在：Container:EnableReadOnlyContainer〕",
   ],
-  1609: [
+  "Container:EnableReadOnlyContainer#1+3": [
     "-- 条件分支：if not _.readonlycontainer[1] then  〔所在：Container:EnableReadOnlyContainer〕",
   ],
-  1628: [
+  "Container:EnableReadOnlyContainer#1+22": [
     "-- 条件分支：if self.inst.components.preserver then  〔所在：Container:EnableReadOnlyContainer〕",
   ],
-  1637: [
+  "Container:IsRestricted#1+1": [
     "-- 条件分支：if not target:HasTag(\"player\") then  〔所在：Container:IsRestricted〕",
   ],
-  1639: [
+  "Container:IsRestricted#1+3": [
     "-- 返回：return false  〔所在：Container:IsRestricted〕",
   ],
-  1648: [
+  "Container:IsThiefProof#1+1": [
     "-- 返回：return self.thiefproof  〔所在：Container:IsThiefProof〕",
   ],
-  1651: [
+  "Container:IsThiefProof#1+4": [
     "-- 返回：return Container  〔所在：Container:IsThiefProof〕",
   ],
 };

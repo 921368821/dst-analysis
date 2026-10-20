@@ -4,7 +4,7 @@
 // 锚点范围：501 ~ 1010
 
 export const BEFORE = {
-  502: [
+  "Inventory:GetActiveItem#1": [
     "-- 【§六】GetActiveItem —— 「手上拿着的」。",
     "-- ★★ 全文件被外部调用最多的查询函数（几乎所有操作都针对手上物品）。",
     "-- ★ 与 GetEquippedItem（773 行）的区别：",
@@ -12,7 +12,7 @@ export const BEFORE = {
     "--   · equippeditem = 只限 equippable 组件的装备。",
     "-- ★ 客户端版本：inventory_replica.lua:308（读 classified）。",
   ],
-  506: [
+  "Inventory:IsItemEquipped#1": [
     "-- ★★ IsItemEquipped —— 「这件装备穿在哪个槽」。",
     "-- ★★★ ★ 返回**槽位名**（字符串，如 \"head\"）而不是布尔！",
     "--   这是本文件最容易被误用的函数之一：",
@@ -21,7 +21,7 @@ export const BEFORE = {
     "-- ★ 用法：1035 行 GiveItem 里用它判断「这件要给的装备是否正穿着」。",
     "-- ★★ 复杂度 O(装备槽数)，最多 4 次比较。",
   ],
-  514: [
+  "Inventory:SelectActiveItemFromEquipSlot#1": [
     "-- ★★ SelectActiveItemFromEquipSlot —— 「把装备槽里的东西拿到手上」。",
     "-- ★★ 流程（顺序关键）：",
     "--   ① 516 行备份旧的 activeitem；",
@@ -32,16 +32,16 @@ export const BEFORE = {
     "-- ★ 与 548 行 SelectActiveItemFromSlot（普通槽版）的差异：",
     "--   普通槽版不需要 Unequip，直接操作 itemslots。",
   ],
-  516: [
+  "Inventory:SelectActiveItemFromEquipSlot#1+2": [
     "-- ★ local olditem = self.activeitem —— 备份，稍后要还回背包。",
   ],
-  517: [
+  "Inventory:SelectActiveItemFromEquipSlot#1+3": [
     "-- ★★ self:Unequip(slot) —— 注意**不传 force**。",
     "-- ★★ ⇒ 若装备带 preventunequipping（1224 行），Unequip 返回 nil，",
     "--   518 行 GiveActiveItem(nil) 无操作，520 行把旧物还回。",
     "--   ★ 净效果：**什么都没发生**。这是对「粘住」装备的正确保护。",
   ],
-  520: [
+  "Inventory:SelectActiveItemFromEquipSlot#1+6": [
     "-- ★★★ `if olditem and not self:IsItemEquipped(olditem) then` ——",
     "--   ★★ 这个判定是**必要的**：如果旧的手上物品恰好也被穿在身上",
     "--     （如玩家同时手持并穿着同一件可堆叠装备），",
@@ -51,7 +51,7 @@ export const BEFORE = {
     "--   OnSave:219 行专门为这个情况做了去重处理。",
     "-- ★ 这是「多槽位共享一个实体」在 DST 里唯一允许的情形。",
   ],
-  528: [
+  "Inventory:CombineActiveStackWithSlot#1": [
     "-- ★★ CombineActiveStackWithSlot —— 「把手上的一摞与槽里的合并」。",
     "-- ★★★ 三步：",
     "--   ① 529 行同时查两个表（itemslots 优先，再查 equipslots）；",
@@ -63,7 +63,7 @@ export const BEFORE = {
     "--   · stack_mod=true → 只挪 1 个（用于「点一下放一个」）；",
     "--   · stack_mod=nil → 整摞合并。",
   ],
-  529: [
+  "Inventory:CombineActiveStackWithSlot#1+1": [
     "-- ★★ `self.itemslots[slot] or self.equipslots[slot]` —— 同时查两张表。",
     "-- ★★★ ★ 这是本文件**唯一**把普通槽与装备槽当同一空间处理的地方！",
     "--   因为 UI 上「合并到槽」的点击可能落在装备槽上（equipstack 装备）。",
@@ -71,7 +71,7 @@ export const BEFORE = {
     "--   普通槽键是 1..maxslots（整数），装备槽键是 \"hands\"/\"head\" 等（字符串），",
     "--   ⇒ 两者不会冲突（整数 ≠ 字符串）。这是「多态键」的设计。",
   ],
-  535: [
+  "Inventory:CombineActiveStackWithSlot#1+7": [
     "-- ★★ `if not (handitem and handitem.components.stackable and",
     "--   handitem.components.stackable:CanStackWith(invitem)) then return end`",
     "-- ★ 三个条件与运算：手上非空 + 手上可堆叠 + 两者可合并。",
@@ -83,14 +83,14 @@ export const BEFORE = {
     "--     （stackable.lua 的实现会检查对端是否可堆叠），所以 535 行就 return 了。",
     "--   ⇒ 这是 CanStackWith 的**契约保证**，不是隐含假设。",
   ],
-  539: [
+  "Inventory:CombineActiveStackWithSlot#1+11": [
     "-- ★★★ 两条路径的分叉点。",
     "-- ★★ stack_mod 且手上是堆叠 → 只挪 1 个：",
     "--   540 行手上减 1；541 行槽里加 1。",
     "-- ★★★ ★ 注意这里用的是 **SetStackSize**（正规 setter，走 onchange），",
     "--   而不是直接改 stacksize 字段。★ 所以不是 hack，事件会正常触发。",
   ],
-  540: [
+  "Inventory:CombineActiveStackWithSlot#1+12": [
     "-- ★ SetStackSize(StackSize() - 1) —— 手上从 N 变 N-1。",
     "-- ★★ ★★ 边界隐患：若手上只有 1 个（N=1）且是 stack，539 行条件成立，",
     "--   540 行把它减到 0 —— 一个 stacksize=0 的「空堆」实体。",
@@ -98,10 +98,10 @@ export const BEFORE = {
     "--     但这里没检查返回值。若不 Remove，槽里会多一个 stacksize=0 的实体。",
     "-- ★★ 这是一个真实的边界隐患，值得在移植时留意。",
   ],
-  541: [
+  "Inventory:CombineActiveStackWithSlot#1+13": [
     "-- ★ SetStackSize(StackSize() + 1) —— 槽里的加 1。",
   ],
-  543: [
+  "Inventory:CombineActiveStackWithSlot#1+15": [
     "-- ★★★ `local leftovers = invitem.components.stackable:Put(handitem)` ——",
     "--   整摞合并。Put 的返回值是「没放进去的部分」。",
     "-- ★★ ★ 关键：Put 不会**移动**原实体，只是改数量；",
@@ -115,7 +115,7 @@ export const BEFORE = {
     "--   ⇒ nil 时会走到 1254 行 `elseif item == nil or ...` 分支，",
     "--   把 activeitem 置 nil + PushEvent。这是**正确**的（手上确实空了）。",
   ],
-  548: [
+  "Inventory:SelectActiveItemFromSlot#1": [
     "-- ★★ SelectActiveItemFromSlot —— 「把普通槽里的东西拿到手上」。",
     "-- ★★★ 流程（与装备槽版的差异）：",
     "--   ① 552 行检查 islockedinslot（锁定物品不能取出）；",
@@ -126,7 +126,7 @@ export const BEFORE = {
     "-- ★★ ★ 与装备槽版的关键差异：旧物品**回到原槽**而不是任意槽。",
     "--   这让「A↔B 交换」保持位置稳定，玩家体验更好。",
   ],
-  552: [
+  "Inventory:SelectActiveItemFromSlot#1+4": [
     "-- ★★ 锁定物品不能取出 —— 553 行 assert(BRANCH ~= \"dev\") 见 L6。",
     "-- ★★ ⚠ 这个 assert 在 dev 分支下会**中断执行**（抛错）。",
     "--   生产环境（BRANCH ~= \"dev\"）则静默 return。",
@@ -135,7 +135,7 @@ export const BEFORE = {
     "-- ★★ 风险：若某个 mod 提供了带 islockedinslot 且玩家可操作的物品，",
     "--   dev 版会 crash。这是 L6 说的隐患。",
   ],
-  558: [
+  "Inventory:SelectActiveItemFromSlot#1+10": [
     "-- ★★★ `self.itemslots[slot] = nil` —— 直接摘除，不走 RemoveItem。",
     "-- ★★ 为什么可以直接置 nil？因为：",
     "--   · 这是「移动到手上」不是「丢弃」，不需要 RemoveFromOwner；",
@@ -145,7 +145,7 @@ export const BEFORE = {
     "-- ★★ 与 1407 行 RemoveItem 的处置**完全相同** —— 都是直接置 nil。",
     "--   ⇒ 槽位摘除永远是「置 nil」，不做数组压缩。",
   ],
-  559: [
+  "Inventory:SelectActiveItemFromSlot#1+11": [
     "-- ★★★ PushEvent(\"itemlose\", { slot = slot, prev_item = newitem }) ——",
     "-- ★★ ★ 这是**槽位变化的联机通知点**！",
     "--   inventory_replica.lua:24 监听 itemlose →",
@@ -157,14 +157,14 @@ export const BEFORE = {
     "-- ★ 对照 1151 行的 itemget：`{ item = inst, slot = slot, src_pos = src_pos }`。",
     "--   ⇒ itemget 传 item（设置槽），itemlose 不传（清空槽）。",
   ],
-  561: [
+  "Inventory:SelectActiveItemFromSlot#1+13": [
     "-- ★ self:SetActiveItem(newitem) —— 设为手上物品。",
     "-- ★ SetActiveItem（1250 行）会 PushEvent(\"newactiveitem\")，",
     "--   inventory_replica.lua:22 监听它 → SetActiveItem(data.item)。",
     "-- ★★ 于是「拿物品到手上」在客户端的完整同步是**两个事件**：",
     "--   itemlose（旧槽清空）+ newactiveitem（新手上物品）。",
   ],
-  564: [
+  "Inventory:SelectActiveItemFromSlot#1+16": [
     "-- ★★★ `self:GiveItem(olditem, slot)` —— 旧物品回到**同一个槽位**。",
     "-- ★★★ ★ 这实现了「交换」的语义：手上↔槽位的原子交换。",
     "--   若 GiveItem 失败（槽位被抢/锁定），会走 1171 行的兜底。",
@@ -173,7 +173,7 @@ export const BEFORE = {
     "-- ★ 若原槽的锁定状态变了，GiveItem 会选新位置。",
     "-- ★★★ 这就是「拖拽交换」在背包里的实现。",
   ],
-  570: [
+  "Inventory:ReturnActiveItem#1": [
     "-- ★★ ReturnActiveItem —— 「把手上的东西放回背包」。",
     "-- ★★ 两条路径（575 行分叉）：",
     "--   · stack_mod 且是堆叠 → 只放回 1 个（Get 一个出来），剩余留手上；",
@@ -183,7 +183,7 @@ export const BEFORE = {
     "-- ★★ 注意 stack_mod 路径下，activeitem **不会**被清空（577 行只 GiveItem）。",
     "--   因为手上还留着 N-1 个。只有非 stack_mod 路径才 SetActiveItem(nil)。",
   ],
-  575: [
+  "Inventory:ReturnActiveItem#1+5": [
     "-- ★★★ `if stack_mod and stackable ~= nil and IsStack()` —— 只放回 1 个。",
     "-- ★★ 三个条件：stack_mod 为真 + 有 stackable + 是堆叠（非单个）。",
     "-- ★ 576 行 Get() 取出 1 个 —— 返回的是**新实体**。",
@@ -191,7 +191,7 @@ export const BEFORE = {
     "--   ⇒ 「shift+点击格子」= 从手上的一摞里分 1 个到槽位。",
     "-- ★ 这是标准的「拆分堆叠」交互。",
   ],
-  577: [
+  "Inventory:ReturnActiveItem#1+7": [
     "-- ★★ `if not self:GiveItem(item, slot) then self:DropItem(item)` ——",
     "--   ★★★ 失败兜底：**丢到地上**而不是静默消失。",
     "-- ★★ 为什么可以丢地上？因为这个 item 是从 Get() 新建的实体，",
@@ -199,11 +199,11 @@ export const BEFORE = {
     "-- ★ ★ 但注意：这会造成**物品散落在地上**（若背包满）。",
     "--   玩家的东西不会消失（重要保证），但会掉在地上一地。",
   ],
-  588: [
+  "Inventory:GetNumSlots#1": [
     "-- 【§七】GetNumSlots —— 背包格数（客户端 197 行同款）。",
     "-- ★ 纯查询。★ 72 行 makereadonly 保证客户端改不了。",
   ],
-  592: [
+  "Inventory:GetItemSlot#1": [
     "-- ★★ GetItemSlot —— 「这件物品在第几格」。",
     "-- ★★★ 返回**整数槽号**或 nil（不在 itemslots 里）。",
     "-- ★★ ★ 重要局限：**只查 itemslots，不查 equipslots 和 activeitem**！",
@@ -212,7 +212,7 @@ export const BEFORE = {
     "-- ★★ 复杂度 O(maxslots)，≤ 20 次比较。",
     "-- ★ 对比 506 行的 IsItemEquipped（查装备槽），两者互补。",
   ],
-  600: [
+  "CheckItem#1": [
     "-- ★★ CheckItem —— 局部辅助函数，判定「item 是否等于 target（或在其容器内）」。",
     "-- ★★★ 三段条件：",
     "--   ① target 非 nil；",
@@ -224,7 +224,7 @@ export const BEFORE = {
     "-- ★★ 设计用途：「我是否持有 X 木材」—— 若 X 在我背包里的箱子里，",
     "--   算不算持有？checkcontainer=true 就算。",
   ],
-  608: [
+  "Inventory:IsHolding#1": [
     "-- ★★ IsHolding —— 「我是否持有这个物品」。",
     "-- ★★★ 三个来源（顺序）：",
     "--   ① activeitem（609 行）；",
@@ -240,7 +240,7 @@ export const BEFORE = {
     "--     的搜索范围**各不相同**。这是本文件最大的语义不一致点。",
     "--   ★ 矩阵见 638 行的详细对照表。",
   ],
-  623: [
+  "Inventory:FindItem#1": [
     "-- ★★ FindItem —— 「找出第一个满足 fn 的物品」。",
     "-- ★★★ 搜索范围（623-635 行）：",
     "--   ① itemslots（624 行）；",
@@ -254,7 +254,7 @@ export const BEFORE = {
     "--   ⇒ 顺序即优先级：**优先从背包格找，再看手上**。",
     "--   合理：手上东西是「临时持有」，背包才是「真正拥有」。",
   ],
-  638: [
+  "Inventory:FindItems#1": [
     "-- ★★ FindItems —— FindItem 的批量版本（返回数组）。",
     "-- ★★★ 搜索范围比 FindItem **多一个**：",
     "--   ① itemslots（641）；② **equipslots**（647）；③ activeitem（653）；",
@@ -271,7 +271,7 @@ export const BEFORE = {
     "--     用 FindItem 会漏掉 equipslots 里的。",
     "-- ★★ 657-661 行的递归：overflow:FindItems 也要拼接结果。",
   ],
-  667: [
+  "Inventory:ForEachItem#1": [
     "-- ★★ ForEachItem —— 「对每件物品做点什么」。",
     "-- ★★★ 搜索范围最全（与 FindItems 相同）：itemslots + equipslots +",
     "--   activeitem + overflow 递归。",
@@ -282,7 +282,7 @@ export const BEFORE = {
     "-- ★★ ⚠ 回调里若修改了物品列表（如 RemoveItem），遍历会出问题。",
     "--   679 行 overflow:ForEachItem(fn, ...) 也是递归。",
   ],
-  686: [
+  "Inventory:ForEachWetableItem#1": [
     "-- ★★ ForEachWetableItem —— 「对每件**可淋湿**的物品做点什么」。",
     "-- ★★★ ★★ 与 ForEachItem 的唯一差异：**不递归 overflow**！",
     "-- ★ 原注释保留：\"Items that can get wet are inventory, equipment,",
@@ -291,15 +291,15 @@ export const BEFORE = {
     "--   而 overflow（背包）里的东西不会被淋湿。",
     "-- ★★ 这个差异说明「淋湿」是**装备相关**而非「持有相关**的概念。",
   ],
-  701: [
+  "Inventory:ForEachEquipment#1": [
     "-- ★★ ForEachEquipment —— 只遍历 equipslots。",
     "-- ★ 最小范围的遍历。最常用（如「所有装备掉耐久」）。",
   ],
-  707: [
+  "Inventory:ForEachItemSlot#1": [
     "-- ★★ ForEachItemSlot —— 只遍历 itemslots。",
     "-- ★ ★ 与 99 行 NumItems 的范围完全一致（都是普通槽，不含装备/手上）。",
   ],
-  713: [
+  "Inventory:RemoveItemBySlot#1": [
     "-- ★★ RemoveItemBySlot —— 「把第 k 格的物品整个取出」。",
     "-- ★★★ 与 RemoveItem 的关系：",
     "--   · RemoveItemBySlot(slot, ...) —— 按**槽号**取，wholestack 默认为 **true**；",
@@ -315,7 +315,7 @@ export const BEFORE = {
     "-- ★ 714 行的 `if slot and self.itemslots[slot]` —— 双重保护。",
     "--   slot 为 nil 或该槽为空时，返回 nil（不报错）。",
   ],
-  721: [
+  "Inventory:DropItem#1": [
     "-- 【§七】DropItem —— 「把物品丢到地上」。",
     "-- ★★★ 本文件唯一的「物品离开背包」出口（除了 RemoveItem+Remove）。",
     "-- ★★★ 五步流程（721-753 行）：",
@@ -328,13 +328,13 @@ export const BEFORE = {
     "--   就把传入的 item 当作已掉落。",
     "--   ★ 这与其他函数的「找不到也返回」风格一致（见 1453 行）。",
   ],
-  722: [
+  "Inventory:DropItem#1+1": [
     "-- ★★ `if item == nil or item.components.inventoryitem == nil then return` ——",
     "--   ★ 双重检查：item 非空 + 是「可放入物品栏的东西」。",
     "-- ★★ 为什么检查 inventoryitem 组件？因为不是所有实体都能被拿起",
     "--   （如地面上的树、火焰）。这是「物品资格」的判定。",
   ],
-  724: [
+  "Inventory:DropItem#1+3": [
     "-- ★★★ islockedinslot 的第二道检查（见 713 行的第一道）。",
     "-- ★★ 条件：物品锁定 **且**（要整摞丢 **或** 它不是堆叠）。",
     "-- ★★★ 语义拆解：",
@@ -345,7 +345,7 @@ export const BEFORE = {
     "--   但可以从里面「抽走一个」（这个动作不算破坏道具）。",
     "-- ★ 这是 islockedinslot 的完整语义（另见 241 行的合并例外）。",
   ],
-  733: [
+  "Inventory:DropItem#1+12": [
     "-- ★★★ `local dropped = item.components.inventoryitem:RemoveFromOwner(",
     "--   wholestack, keepoverstacked) or item` ——",
     "-- ★★ ★★★ 这是本文件**最需要理解的一行**：",
@@ -361,12 +361,12 @@ export const BEFORE = {
     "--   ★★★ 这是本行最重要的一课：**丢弃堆叠的一部分时，",
     "--     真正落地的是新实体，不是传入的那个**。",
   ],
-  735: [
+  "Inventory:DropItem#1+14": [
     "-- ★★ `if dropped ~= nil then` —— 虽然 733 行有 or 兜底，",
     "--   这里仍检查 —— 因为 733 行的兜底只在 RemoveFromOwner 返回 nil 时生效。",
     "-- ★ 双重防御，Klei 代码的常见风格。",
   ],
-  736: [
+  "Inventory:DropItem#1+15": [
     "-- ★★ 位置设置：优先用 pos 参数（736 行），否则用 owner 的当前位置（739 行）。",
     "-- ★ pos 是 **Vector3 对象**（不是坐标三元组）：`pos:Get()` 取坐标。",
     "-- ★★★ pos 参数的来源：",
@@ -374,7 +374,7 @@ export const BEFORE = {
     "--     客户端预测的掉落位置（避免联机时物品瞬移回服务端位置）。",
     "-- ★★ 这是**客户端预测**在物品掉落上的应用 —— 见 2428 行注释。",
   ],
-  739: [
+  "Inventory:DropItem#1+18": [
     "-- ★ else 分支：用 owner 的世界坐标。",
     "-- ★★★ `self.inst.Transform:GetWorldPosition()` ——",
     "--   ★ 用 Transform 而不是 inst:GetPosition()：",
@@ -382,7 +382,7 @@ export const BEFORE = {
     "--     GetPosition 是实体原点的位置。",
     "-- ★⇒ 物品会掉在角色的**脚边**而非身体中心。细节但重要。",
   ],
-  742: [
+  "Inventory:DropItem#1+21": [
     "-- ★★ `if dropped.components.inventoryitem ~= nil then` ——",
     "--   又一次检查（733 行的兜底可能让 dropped 是无组件的实体）。",
     "-- ★ OnDropped(randomdir) —— 「掉落时」的钩子：",
@@ -390,7 +390,7 @@ export const BEFORE = {
     "--   · randomdir 为 nil → 原地掉落。",
     "-- ★★★ 典型实现：火把掉落时熄灭、海水中的物品立即销毁。",
   ],
-  749: [
+  "Inventory:DropItem#1+28": [
     "-- ★★★ PushEvent(\"dropitem\", { item = dropped }) ——",
     "-- ★★ UI 同步点：客户端播放「物品掉到地上」的动画/音效。",
     "-- ★★ 注意 data 里传的是 `dropped`（可能不是原 item）——",
@@ -398,14 +398,14 @@ export const BEFORE = {
     "-- ★★ 这是 733 行 `or item` 兜底设计的**必要配套**：",
     "--   若事件里传原 item，客户端会显示错。",
   ],
-  755: [
+  "Inventory:ForceNoInsulated#1": [
     "-- ★ ForceNoInsulated —— 「强制不绝缘」。",
     "-- ★★★ 与 equippable.lua 的 insulated 是**反向**的强制开关。",
     "-- ★ 760 行：`if self.force_no_insulation then return false` ——",
     "--   强制优先级**最高**，压过任何装备的绝缘效果。",
     "-- ★★★ 用途：某些 buff/debuff 强制剥夺绝缘能力（如「潮湿」状态）。",
   ],
-  759: [
+  "Inventory:IsInsulated#1": [
     "-- ★★ IsInsulated —— 「是否绝缘（防触电）」。",
     "-- ★★★ 判定顺序（优先级从高到低）：",
     "--   ① 760 行 force_no_insulation → 强制 false；",
@@ -424,10 +424,10 @@ export const BEFORE = {
     "--     但与 370 行 IsWearingArmor（`v.components.armor ~= nil` 有检查）",
     "--     风格不一致。同一文件内两种防御强度。",
   ],
-  764: [
+  "Inventory:IsInsulated#1+5": [
     "-- ★★ 遍历装备查绝缘。短路：找到就 return true。",
   ],
-  770: [
+  "Inventory:IsInsulated#1+11": [
     "-- ★★ `return self.isexternallyinsulated:Get()` ——",
     "-- ★★ 最后一层：外部绝缘源（SourceModifierList 聚合）。",
     "-- ★ 与 62 行的构造对应。这层是「装备之外的绝缘来源」",
@@ -435,25 +435,25 @@ export const BEFORE = {
     "-- ★★★ 62 行初始化为 `SourceModifierList(inst, false, boolean)`，",
     "--   即默认 false。所以这里返回 false（除非有外部源开启）。",
   ],
-  773: [
+  "Inventory:GetEquippedItem#1": [
     "-- ★★ GetEquippedItem(eslot) —— 「这个装备槽里有什么」。",
     "-- ★ 与 502 行 GetActiveItem 的区别：只查装备槽。",
     "-- ★★ 是 1305-1320 行「重物互斥」逻辑的基础。",
   ],
-  777: [
+  "Inventory:GetItemInSlot#1": [
     "-- ★★ GetItemInSlot(slot) —— 「第 slot 槽有什么」。",
     "-- ★★★ O(1) 直接索引（数组）。槽号为 nil 时返回 nil。",
     "-- ★ ★ 对比 GetItemSlot（592 行）反向查询（O(n)）。",
     "--   两者构成「正查/反查」对。",
   ],
-  781: [
+  "Inventory:GetFirstItemInAnySlot#1": [
     "-- ★★ GetFirstItemInAnySlot —— 「任何一格里的第一件东西」。",
     "-- ★★★ 用 1..maxslots 的**有序**遍历（而非 pairs）。",
     "-- ★★ ★ 为什么要有序？因为要「第一格」——pairs 无序无法保证。",
     "-- ★ 用途：某些需要「随便拿一件东西」的逻辑（自动合成、丢弃）。",
     "-- ★ 复杂度 O(maxslots)，最坏情况扫全表。",
   ],
-  791: [
+  "Inventory:IsFull#1": [
     "-- ★★ IsFull —— 「背包是否已满」。",
     "-- ★★★ 有序遍历 1..maxslots，找**任何一个空槽**。",
     "-- ★★ ★ 注意：只看 itemslots，**不看** overflow（背包本体）、",
@@ -464,7 +464,7 @@ export const BEFORE = {
     "--   循环不执行 → 直接 return true（恒满）。这是正确的。",
     "-- ★ 对应客户端：inventory_replica.lua:378 IsFull（走 classified）。",
   ],
-  801: [
+  "ValidateItemForOverflow#1": [
     "-- 【§八】ValidateItemForOverflow —— 「这物品能进 overflow（背包）吗」。",
     "-- ★★★ 四种判定（801-810 行）：",
     "--   ① 无 inventoryitem 组件 → **返回 true**（放行！见 803 行注释）；",
@@ -479,13 +479,13 @@ export const BEFORE = {
     "--   · canonlygoinpocketorpocketcontainers = 「能进口袋或口袋里装的东西」。",
     "-- ★★ 设计意图：某些关键物品不能被「丢进箱子里再拿出来」绕过限制。",
   ],
-  804: [
+  "ValidateItemForOverflow#1+3": [
     "-- ★ canonlygoinpocket —— 「只能进口袋」。",
     "-- ★★ 与 overflow 的关系：overflow 是**别人给的背包**，",
     "--   而「口袋」= 玩家自己的 itemslots。",
     "--   ⇒ 这个标记的物品即使玩家穿了背包，也不能进那个背包。",
   ],
-  806: [
+  "ValidateItemForOverflow#1+5": [
     "-- ★★★ canonlygoinpocketorpocketcontainers —— 条件放行。",
     "-- ★ 807 行：`overflow.inst.components.inventoryitem ~= nil and",
     "--   overflow.inst.components.inventoryitem.canonlygoinpocket`",
@@ -499,7 +499,7 @@ export const BEFORE = {
     "--   ⇒ 这个条件几乎总是 false。⇒ ③ 与 ② 实际效果相近。",
     "-- ★ 这可能是「为 mod 预留的钩子」而非实用功能。",
   ],
-  813: [
+  "Inventory:GetNextAvailableSlot#1": [
     "-- 【§八】★★ GetNextAvailableSlot —— 「下一个可用槽在哪」。",
     "-- ★★★★ 本文件**最核心的选位算法**。GiveItem 完全依赖它。",
     "-- ★★★ 返回 `(slot, container)` 二元组：",
@@ -521,12 +521,12 @@ export const BEFORE = {
     "--   注意：**第二个返回值仍是 itemslots**（不是 nil）。",
     "--   ⇒ 调用方（如 1095 行）会用 container == self.itemslots 判断。",
   ],
-  814: [
+  "Inventory:GetNextAvailableSlot#1+1": [
     "-- ★★ `local overflow = self:GetOverflowContainer()` —— 取背包本体。",
     "-- ★★ 注意这里**没有**检查 self.ignoreoverflow ——",
     "--   GetOverflowContainer 内部（1460 行）会检查。",
   ],
-  815: [
+  "Inventory:GetNextAvailableSlot#1+2": [
     "-- ★ prioritize_overflow —— 「优先放 overflow」。",
     "-- ★★★ `overflow:ShouldPrioritizeContainer(item)` ——",
     "--   overflow 组件自己决定「这件物品该优先进背包」。",
@@ -536,7 +536,7 @@ export const BEFORE = {
     "--   继续看 overflow 有没有更好的位置。",
     "-- ★★★ 这就是「优先」的实现：**先不急着定，继续找**。",
   ],
-  816: [
+  "Inventory:GetNextAvailableSlot#1+3": [
     "-- ★★ useoverflow —— 「这件物品允许进 overflow 吗」。",
     "-- ★ ValidateItemForOverflow（801 行）的结果。",
     "-- ★ 与 815 的区别：",
@@ -544,7 +544,7 @@ export const BEFORE = {
     "--   · useoverflow = 「overflow 有资格收它」。",
     "-- ★ 两个都要 true 才可能在 overflow 里放置。",
   ],
-  819: [
+  "Inventory:GetNextAvailableSlot#1+6": [
     "-- ★★ 专用容器（specialized）的获取与预排序。",
     "-- ★★ 820-835 行把「想要这件物品的专用容器」重排到数组**前面**：",
     "--   825 行筛出 ShouldPrioritizeContainer 为真的；",
@@ -554,7 +554,7 @@ export const BEFORE = {
     "-- ★★ 为什么要重排？因为 870 行按 ipairs 遍历，",
     "--   顺序 = 优先级。★ 专用容器的**顺序**会影响物品落在哪个容器。",
   ],
-  820: [
+  "Inventory:GetNextAvailableSlot#1+7": [
     "-- ★ `if specialized then` —— ★ 注意：**空表在 Lua 里是 truthy**！",
     "-- ★★★ 所以 GetSpecializedContainers 返回空表时也会进入本分支。",
     "-- ★★ 这依赖 832-834 行把空表转成 nil 才能让后续的",
@@ -563,7 +563,7 @@ export const BEFORE = {
     "--   820 行的 if 会进（空表 truthy），然后 870 的 ipairs 空转，",
     "--     功能上不出错但多几次无用的 table 操作。",
   ],
-  824: [
+  "Inventory:GetNextAvailableSlot#1+11": [
     "-- ★★★ `specialized[i] = nil` —— **就地压缩**数组。",
     "-- ★★ 这是「过滤数组」的经典 Lua 技巧：用双指针原地过滤。",
     "-- ★★★ ★ 关键安全前提：GetSpecializedContainers（1481 行）",
@@ -572,14 +572,14 @@ export const BEFORE = {
     "-- ★★ 若该函数改成返回共享表，这里就会**破坏状态**。",
     "--   ⇒ ★ 这是一个隐式但重要的耦合，值得在注释里记下。",
   ],
-  832: [
+  "Inventory:GetNextAvailableSlot#1+19": [
     "-- ★★ 空表转 nil —— 让后续的 `specialized and` 判定语义正确。",
     "-- ★★ `#specialized <= 0` 用的是长度运算符 #（等价于 #t == 0）。",
     "-- ★★★ ★ 这是**唯一**让 820 行的 `if specialized then` 逻辑正确的地方。",
     "-- ★ 若删掉，848 行的 `or specialized` 会是**真值**，",
     "--   导致 848-853 走「暂存」分支而非「立即返回」，**行为改变**。",
   ],
-  837: [
+  "Inventory:GetNextAvailableSlot#1+24": [
     "-- ★★★ 堆叠合并搜索 —— 第一级：装备槽。",
     "-- ★★ `if item.components.stackable ~= nil then` ——",
     "--   只有**可堆叠的物品**才需要找合并位置。",
@@ -587,7 +587,7 @@ export const BEFORE = {
     "-- ★★★ 这是一个大 if（837-882 行），把整个「堆叠合并」搜索包起来。",
     "-- ★ 缩进是 tab/空格混用（Klei 源码风格），不影响语义。",
   ],
-  839: [
+  "Inventory:GetNextAvailableSlot#1+26": [
     "-- ★★★ 第一级：遍历 equipslots 找可合并的 equipstack 装备。",
     "-- ★★★ 四重条件（840 行，全部与运算）：",
     "--   ① v.components.equippable.equipstack —— 这件装备支持整摞装备；",
@@ -604,7 +604,7 @@ export const BEFORE = {
     "-- ★ ★★ 注意：这一级**没有** prioritize_overflow 判定（直接 return）。",
     "--   ⇒ 「装备槽里的可合并堆叠」优先级最高，无条件返回。",
   ],
-  845: [
+  "Inventory:GetNextAvailableSlot#1+32": [
     "-- ★★★ 第二级：遍历 itemslots 找可合并的堆叠。",
     "-- ★★ 为什么要暂存（inv_slot/inv_pref）而不是直接返回？",
     "-- ★★★ 因为 848 行的条件：`if prioritize_overflow or specialized then`",
@@ -613,7 +613,7 @@ export const BEFORE = {
     "--     看看 overflow/专用容器里有没有更好的位置。",
     "-- ★★★ 这就是「优先」机制的实现：**找到候选但不立即定**。",
   ],
-  857: [
+  "Inventory:GetNextAvailableSlot#1+44": [
     "-- ★★★★ 第三级：overflow 里的堆叠搜索。",
     "-- ★★★ 两个进入条件（857 行）：",
     "--   ① useoverflow 为真（物品有资格进 overflow）；",
@@ -623,28 +623,28 @@ export const BEFORE = {
     "--   普通槽有可合并的地方就用普通槽，**除非** overflow 要优先。",
     "-- ★★★ 这就是「优先」的真实含义：**凌驾于普通槽之上**。",
   ],
-  860: [
+  "Inventory:GetNextAvailableSlot#1+47": [
     "-- ★★ `if specialized and not prioritize_overflow` ——",
     "--   有专用容器要，但 overflow 不优先 → 暂存 overflow 的槽位，",
     "--   继续看专用容器（873 行可能立即返回）。",
     "-- ★★★ 三方博弈的第三种情况：专用容器 > overflow > 普通槽。",
   ],
-  869: [
+  "Inventory:GetNextAvailableSlot#1+56": [
     "-- ★★ 第四级：遍历专用容器（重排后的顺序 = 优先级）找堆叠。",
     "-- ★★★ 与第二级不同：这里**没有**暂存逻辑，直接 return。",
     "-- ★★★ 原因：专用容器已经是「最高优先级」了（经过了 820 行的重排）。",
     "-- ★ 871-876 行遍历 specialized 里每个容器的 slots 数组。",
   ],
-  879: [
+  "Inventory:GetNextAvailableSlot#1+66": [
     "-- ★★★ `if (prioritize_overflow or specialized) and inv_slot and inv_pref then` ——",
     "--   ★ 兜底返回：若之前暂存了候选且确实需要优先，现在返回它。",
     "-- ★★★ 这是「暂存-延迟决定」模式的终点。",
     "-- ★★ 若两者都不为真，852 行早就返回了，走不到这里。",
   ],
-  882: [
+  "Inventory:GetNextAvailableSlot#1+69": [
     "-- ↑ 堆叠合并搜索块结束（837-882 的大 if）。",
   ],
-  884: [
+  "Inventory:GetNextAvailableSlot#1+71": [
     "-- ★★★ 空位搜索 —— 第一级：overflow 的空槽。",
     "-- ★★ 条件：`useoverflow and prioritize_overflow` ——",
     "--   只有「overflow 要这件物品」时才在 overflow 里找**空位**。",
@@ -654,7 +654,7 @@ export const BEFORE = {
     "--   ★ CanTakeItemInSlot 是 container 的同名方法（container.lua），",
     "--     与本文件 231 行的版本**同构但不同实现**（容器版接受 numslots 概念）。",
   ],
-  892: [
+  "Inventory:GetNextAvailableSlot#1+79": [
     "-- ★★★ 空位搜索 —— 第二级：专用容器的空槽。",
     "-- ★★★ 与 884 的差异：**没有 prioritize_overflow 条件**。",
     "--   ⇒ 专用容器**总是**参与空位搜索（在 ①-④ 都没找到之后）。",
@@ -663,7 +663,7 @@ export const BEFORE = {
     "-- ★ 顺序：专用容器**在**普通背包格**之前**（892 在 902 之前）。",
     "-- ★★ 这就是「弹药会优先进弹药袋」的完整实现。",
   ],
-  902: [
+  "Inventory:GetNextAvailableSlot#1+89": [
     "-- ★★★ 空位搜索 —— 第三级（最后）：普通背包格的空位。",
     "-- ★★ 这是**兜底**：所有容器都不行才用普通格。",
     "-- ★ 904 行 `self:CanTakeItemInSlot(item, k)` 复用本文件的判定（231 行）。",
@@ -672,14 +672,14 @@ export const BEFORE = {
     "-- ★★ ★ 有序遍历 1..maxslots ⇒ 优先填前面的格子。",
     "--   ⇒ 玩家的背包会「从上往下」填满，符合直觉。",
   ],
-  908: [
+  "Inventory:GetNextAvailableSlot#1+95": [
     "-- ★★ `return nil, self.itemslots` —— 找不到时的返回值。",
     "-- ★★★ ★ 第二返回值仍是 self.itemslots（不是 nil）。",
     "--   这是一个**约定**而非语义需要。",
     "-- ★★ 调用方（1095 行）只检查第一个返回值。",
     "--   ⇒ 1085-1169 行的 `if slot then` 分支自然覆盖了「找不到」的情况。",
   ],
-  911: [
+  "Inventory:GetNextAvailableSlot#1+98": [
     "-- 【§八】★ CanAcceptCount —— 「这物品能一次接收多少个」。",
     "-- ★★★ 与 GetNextAvailableSlot 的分工：",
     "--   · GetNextAvailableSlot = 「下一个放哪」（返回槽号）；",
@@ -688,14 +688,14 @@ export const BEFORE = {
     "--   GetNextAvailableSlot 找到就返回；CanAcceptCount 累加所有空间。",
     "-- ★★ 典型用途：「拖动时显示能放多少个」。",
   ],
-  912: [
+  "Inventory:CanAcceptCount#1": [
     "-- ★★ 913 行：`stacksize = item.components.stackable and StackSize() or 1` ——",
     "--   「这物品现在有几个」（对可堆叠物）或「1 个」（对单件）。",
     "-- ★★ 若 stackable 存在但 stacksize=0（空堆），得到 0，",
     "--   然后 919 行 `if stacksize <= 0 then return 0` —— 返回 0。",
     "-- ★ 这是对「空堆实体」的正确处理（既不是 1 也不是原值）。",
   ],
-  914: [
+  "Inventory:CanAcceptCount#1+2": [
     "-- ★★★ islockedinslot 的特殊处理（914-918 行）：",
     "--   · 锁定物品：`stacksize = math.max(maxcount or math.huge, stacksize - 1)`",
     "--     ⇒ 效果：**至少允许取 1 个**（即使 stacksize 只有 1）。",
@@ -713,15 +713,15 @@ export const BEFORE = {
     "--     ★ 这是一个**过估**（over-estimate）。",
     "--     ★ 但 931/940 行的早返回会兜住，最终返回真实值，不崩。",
   ],
-  919: [
+  "Inventory:CanAcceptCount#1+7": [
     "-- ★★ `if stacksize <= 0 then return 0` —— 零个可接受时立即返回。",
     "-- ★ 这是提前退出优化（避免无意义的遍历）。",
     "-- ★ ★★ 边界：stacksize = 0（空堆）或负数（异常）都走这里。",
   ],
-  923: [
+  "Inventory:CanAcceptCount#1+11": [
     "-- ★★ acceptcount —— 累加器。从 0 开始。",
   ],
-  925: [
+  "Inventory:CanAcceptCount#1+13": [
     "-- ★★★ 主循环：遍历 1..maxslots 的普通槽。",
     "-- ★★★ 两分支：",
     "--   ① 928-934 行：槽内有物品且**可合并** → 加 RoomLeft；",
@@ -734,17 +734,17 @@ export const BEFORE = {
     "--   ⇒ 这是 acceptsstacks 字段的核心作用（54 行的初始化在此兑现）。",
     "-- ★★ 943 行则是不接受整摞时，每个空格只能放 1 个 → 逐格累加。",
   ],
-  929: [
+  "Inventory:CanAcceptCount#1+17": [
     "-- ★★ 可合并判定：`v.components.stackable ~= nil and CanStackWith(item)`。",
     "-- ★ ★ 注意这里**没有** IsFull() 检查 —— 因为下面用 RoomLeft()。",
     "-- ★★ RoomLeft() 返回「还能装几个」，所以已满的堆叠 RoomLeft=0，",
     "--   加 0 不影响结果。**更优雅**的写法（比 840 行的三重条件简洁）。",
   ],
-  930: [
+  "Inventory:CanAcceptCount#1+18": [
     "-- ★★★ acceptcount += RoomLeft —— 「这一摞还能装几个」。",
     "-- ★★ RoomLeft 是 stackable 的方法（stackable.lua）。",
   ],
-  931: [
+  "Inventory:CanAcceptCount#1+19": [
     "-- ★★ `if acceptcount >= stacksize then return stacksize` —— 够早退。",
     "-- ★★★ 提前返回（已经能装下全部）。避免无谓的继续遍历。",
     "-- ★ ★ 返回的是 stacksize（**上限**），不是 acceptcount（实际累加值）。",
@@ -752,7 +752,7 @@ export const BEFORE = {
     "--   ★ 但若 acceptcount 一次跳了很多（RoomLeft 很大），返回值被**截断**。",
     "--   ★ 这是有意的：「最多能收 stacksize 个」（不会超发）。",
   ],
-  935: [
+  "Inventory:CanAcceptCount#1+23": [
     "-- ★★★ 空槽分支：能否放这个物品。",
     "-- ★ `elseif self:CanTakeItemInSlot(item, k)` —— 复用 231 行的判定。",
     "-- ★ ★★★ ★ 注意：这里**没有**显式的「k 槽为空」检查，",
@@ -760,7 +760,7 @@ export const BEFORE = {
     "--   已经保证了：elseif 分支意味着 v 为 nil（空槽）。",
     "-- ★★ 结构是 `if v ~= nil then (可合并判定) elseif (可以放) then`。",
   ],
-  936: [
+  "Inventory:CanAcceptCount#1+24": [
     "-- ★★★ `if self.acceptsstacks or stacksize <= 1 then return stacksize` ——",
     "--   ★★★ 快速路径：**一个空槽就能装下全部**。",
     "-- ★★ 两种触发：",
@@ -769,7 +769,7 @@ export const BEFORE = {
     "-- ★★★ ★ 这是「整摞进背包」的判定点。",
     "-- ★ 与 939 行的逐格累加互斥：acceptsstacks 时**永远不进** 939。",
   ],
-  946: [
+  "Inventory:CanAcceptCount#1+34": [
     "-- ★★★ overflow 的容量计算 —— 与普通槽**完全同构**的逻辑。",
     "-- ★★ 949 行用 `overflow.numslots`（不是 GetNumSlots()）——",
     "--   两者对 container 组件等价（container.lua 的 GetNumSlots 返回 numslots）。",
@@ -777,7 +777,7 @@ export const BEFORE = {
     "--   只有 overflow **有资格收**才计算它的容量。",
     "-- ★★ 与 GetNextAvailableSlot 的 857 行逻辑一致（都检查 useoverflow）。",
   ],
-  970: [
+  "Inventory:CanAcceptCount#1+58": [
     "-- ★★★ 专用容器的容量计算。",
     "-- ★★ 973 行**又**检查了一次 ShouldPrioritizeContainer：",
     "--   `if spoverflow:ShouldPrioritizeContainer(item) and ...`",
@@ -787,7 +787,7 @@ export const BEFORE = {
     "--   · CanAcceptCount 这里**需要**再判一次（没有重排步骤）。",
     "-- ★★ 两条路径的等价实现，但 CanAcceptCount 更直接。",
   ],
-  997: [
+  "Inventory:CanAcceptCount#1+85": [
     "-- ★★★ 装备槽的容量（最后一级，与 GetNextAvailableSlot 的 839 行对应）。",
     "-- ★★ 999-1005 行：遍历 equipslots，累加 equipstack 装备的 RoomLeft。",
     "-- ★★★ ★ 注意：这一级放在**最后**（997 行之后），",
@@ -801,7 +801,7 @@ export const BEFORE = {
     "--   这个顺序差异**不影响正确性**，只影响「是否早退」的时机。",
     "-- ★★ ⇒ 结论：无功能 bug，但两个函数的搜索顺序应统一以减少维护困惑。",
   ],
-  1009: [
+  "Inventory:CanAcceptCount#1+97": [
     "-- ★★ `return acceptcount` —— 累加完毕的真实容量。",
     "-- ★★★ ★ 不变式：**返回值永远 ≤ stacksize**。",
     "--   证明：所有累加点后都有 `if acceptcount >= stacksize then return`；",
@@ -811,94 +811,94 @@ export const BEFORE = {
 };
 
 export const AFTER = {
-  502: ["-- ↑ GetActiveItem 结束（纯查询）。"],
-  506: ["-- ↑ IsItemEquipped 结束（返回槽名而非布尔！）。"],
-  514: ["-- ↑ SelectActiveItemFromEquipSlot 结束（装备↔手上互换）。"],
-  516: ["-- ↑ 备份旧 activeitem。"],
-  517: ["-- ↑ Unequip（不带 force）。"],
-  518: ["-- ↑ GiveActiveItem(卸下的装备)。"],
-  520: ["-- ↑ 「旧物未被同时穿着」判定。"],
-  528: ["-- ↑ CombineActiveStackWithSlot 结束。"],
-  529: ["-- ↑ 同时查两张表（唯一的多态键处）。"],
-  535: ["-- ↑ 可合并判定。"],
-  539: ["-- ↑ 两条合并路径的分叉。"],
-  540: ["-- ↑ 手上减 1。"],
-  541: ["-- ↑ 槽里加 1。"],
-  543: ["-- ↑ 整摞 Put，返回溢出部分。"],
-  544: ["-- ↑ 溢出的成为新手上的。"],
-  548: ["-- ↑ SelectActiveItemFromSlot 结束（普通槽↔手上互换）。"],
-  552: ["-- ↑ 锁定物品 assert（见 L6）。"],
-  558: ["-- ↑ 直接置 nil 摘除（不做数组压缩）。"],
-  559: ["-- ★★★ itemlose 事件 = 槽位清空的通知（联机同步点）。"],
-  561: ["-- ↑ SetActiveItem 触发 newactiveitem。"],
-  564: ["-- ★★★ 旧物回到同一槽位（交换语义）。"],
-  570: ["-- ↑ ReturnActiveItem 结束。"],
-  575: ["-- ↑ 「只放回 1 个」路径。"],
-  577: ["-- ↑ GiveItem 失败则丢地上。"],
-  588: ["-- ↑ GetNumSlots 结束。"],
-  592: ["-- ↑ GetItemSlot 结束（只查 itemslots）。"],
-  600: ["-- ↑ CheckItem 局部函数结束。"],
-  608: ["-- ↑ IsHolding 结束（★ 不含 overflow）。"],
-  623: ["-- ↑ FindItem 结束（★ 不含 equipslots，含 overflow）。"],
-  638: ["-- ↑ FindItems 结束（★ 含 equipslots + overflow）。"],
-  667: ["-- ↑ ForEachItem 结束（范围最全）。"],
-  686: ["-- ↑ ForEachWetableItem 结束（★ 不递归 overflow）。"],
-  701: ["-- ↑ ForEachEquipment 结束。"],
-  707: ["-- ↑ ForEachItemSlot 结束。"],
-  713: ["-- ↑ RemoveItemBySlot 结束（wholestack 默认 true）。"],
-  721: ["-- ↑ DropItem 函数头（五步流程）。"],
-  722: ["-- ↑ 资格检查。"],
-  724: ["-- ↑ islockedinslot 的丢弃限制。"],
-  733: ["-- ★★★ RemoveFromOwner + `or item` 兜底（最关键一行）。"],
-  735: ["-- ↑ 双重防御。"],
-  736: ["-- ↑ 位置设置分叉。"],
-  739: ["-- ↑ 用 Transform 拿世界坐标（脚边而非身体中心）。"],
-  742: ["-- ↑ OnDropped 钩子。"],
-  749: ["-- ★★★ dropitem 事件（传真正落地的实体）。"],
-  755: ["-- ↑ ForceNoInsulated 结束。"],
-  759: ["-- ↑ IsInsulated 结束（三级判定，布尔或）。"],
-  764: ["-- ↑ 装备槽绝缘遍历。"],
-  770: ["-- ↑ 外部 SourceModifierList 层。"],
-  773: ["-- ↑ GetEquippedItem 结束。"],
-  777: ["-- ↑ GetItemInSlot 结束（O(1)）。"],
-  781: ["-- ↑ GetFirstItemInAnySlot 结束（有序遍历）。"],
-  791: ["-- ↑ IsFull 结束（★ 只看 itemslots）。"],
-  801: ["-- ↑ ValidateItemForOverflow 结束（★ 803 行是「明知不该发生却放行」）。"],
-  804: ["-- ↑ canonlygoinpocket 分支。"],
-  806: ["-- ↑ 套娃式的 canonlygoinpocketorpocketcontainers 判定。"],
-  813: ["-- ★★★ GetNextAvailableSlot 函数头（八级搜索）。"],
-  814: ["-- ↑ 取 overflow。"],
-  815: ["-- ↑ prioritize_overflow 判定。"],
-  816: ["-- ↑ useoverflow 资格判定。"],
-  819: ["-- ↑ 专用容器重排起点。"],
-  820: ["-- ↑ 注意空表是 truthy。"],
-  824: ["-- ↑ 就地压缩（★ 依赖「新表」前提）。"],
-  832: ["-- ↑ 空表转 nil（维持后续语义正确）。"],
-  837: ["-- ↑ 堆叠合并大 if 开始。"],
-  839: ["-- ↑ 第一级：装备槽堆叠。"],
-  845: ["-- ↑ 第二级：普通槽堆叠（带暂存逻辑）。"],
-  857: ["-- ↑ 第三级：overflow 堆叠。"],
-  860: ["-- ↑ 专用容器优先于 overflow 的暂存。"],
-  869: ["-- ↑ 第四级：专用容器堆叠。"],
-  879: ["-- ↑ 暂存候选的兜底返回。"],
-  882: ["-- ↑ 堆叠合并块结束。"],
-  884: ["-- ↑ 空位搜索一级：overflow。"],
-  892: ["-- ↑ 空位搜索二级：专用容器（优先于普通格）。"],
-  902: ["-- ↑ 空位搜索三级：普通格（兜底）。"],
-  908: ["-- ↑ 找不到时的 (nil, self.itemslots)。"],
-  911: ["-- ↑ CanAcceptCount 函数头。"],
-  912: ["-- ↑ stacksize 计算起点。"],
-  914: ["-- ↑ islockedinslot 的特殊容量计算。"],
-  919: ["-- ↑ 零容量早退。"],
-  923: ["-- ↑ 累加器初始化。"],
-  925: ["-- ↑ 主循环开始。"],
-  929: ["-- ↑ 可合并判定（无 IsFull 检查，用 RoomLeft）。"],
-  930: ["-- ↑ 累加 RoomLeft。"],
-  931: ["-- ↑ 够早退（返回 stacksize 而非累加值）。"],
-  935: ["-- ↑ 空槽分支。"],
-  936: ["-- ★★★ acceptsstacks 的快速路径。"],
-  946: ["-- ↑ overflow 容量计算（与普通槽同构）。"],
-  970: ["-- ↑ 专用容器容量计算。"],
-  997: ["-- ↑ 装备槽容量（★ 顺序与 GetNextAvailableSlot 不一致）。"],
-  1009: ["-- ★★★ 返回 acceptcount（不变式：≤ stacksize）。"],
+  "Inventory:GetActiveItem#1": ["-- ↑ GetActiveItem 结束（纯查询）。"],
+  "Inventory:IsItemEquipped#1": ["-- ↑ IsItemEquipped 结束（返回槽名而非布尔！）。"],
+  "Inventory:SelectActiveItemFromEquipSlot#1": ["-- ↑ SelectActiveItemFromEquipSlot 结束（装备↔手上互换）。"],
+  "Inventory:SelectActiveItemFromEquipSlot#1+2": ["-- ↑ 备份旧 activeitem。"],
+  "Inventory:SelectActiveItemFromEquipSlot#1+3": ["-- ↑ Unequip（不带 force）。"],
+  "Inventory:SelectActiveItemFromEquipSlot#1+4": ["-- ↑ GiveActiveItem(卸下的装备)。"],
+  "Inventory:SelectActiveItemFromEquipSlot#1+6": ["-- ↑ 「旧物未被同时穿着」判定。"],
+  "Inventory:CombineActiveStackWithSlot#1": ["-- ↑ CombineActiveStackWithSlot 结束。"],
+  "Inventory:CombineActiveStackWithSlot#1+1": ["-- ↑ 同时查两张表（唯一的多态键处）。"],
+  "Inventory:CombineActiveStackWithSlot#1+7": ["-- ↑ 可合并判定。"],
+  "Inventory:CombineActiveStackWithSlot#1+11": ["-- ↑ 两条合并路径的分叉。"],
+  "Inventory:CombineActiveStackWithSlot#1+12": ["-- ↑ 手上减 1。"],
+  "Inventory:CombineActiveStackWithSlot#1+13": ["-- ↑ 槽里加 1。"],
+  "Inventory:CombineActiveStackWithSlot#1+15": ["-- ↑ 整摞 Put，返回溢出部分。"],
+  "Inventory:CombineActiveStackWithSlot#1+16": ["-- ↑ 溢出的成为新手上的。"],
+  "Inventory:SelectActiveItemFromSlot#1": ["-- ↑ SelectActiveItemFromSlot 结束（普通槽↔手上互换）。"],
+  "Inventory:SelectActiveItemFromSlot#1+4": ["-- ↑ 锁定物品 assert（见 L6）。"],
+  "Inventory:SelectActiveItemFromSlot#1+10": ["-- ↑ 直接置 nil 摘除（不做数组压缩）。"],
+  "Inventory:SelectActiveItemFromSlot#1+11": ["-- ★★★ itemlose 事件 = 槽位清空的通知（联机同步点）。"],
+  "Inventory:SelectActiveItemFromSlot#1+13": ["-- ↑ SetActiveItem 触发 newactiveitem。"],
+  "Inventory:SelectActiveItemFromSlot#1+16": ["-- ★★★ 旧物回到同一槽位（交换语义）。"],
+  "Inventory:ReturnActiveItem#1": ["-- ↑ ReturnActiveItem 结束。"],
+  "Inventory:ReturnActiveItem#1+5": ["-- ↑ 「只放回 1 个」路径。"],
+  "Inventory:ReturnActiveItem#1+7": ["-- ↑ GiveItem 失败则丢地上。"],
+  "Inventory:GetNumSlots#1": ["-- ↑ GetNumSlots 结束。"],
+  "Inventory:GetItemSlot#1": ["-- ↑ GetItemSlot 结束（只查 itemslots）。"],
+  "CheckItem#1": ["-- ↑ CheckItem 局部函数结束。"],
+  "Inventory:IsHolding#1": ["-- ↑ IsHolding 结束（★ 不含 overflow）。"],
+  "Inventory:FindItem#1": ["-- ↑ FindItem 结束（★ 不含 equipslots，含 overflow）。"],
+  "Inventory:FindItems#1": ["-- ↑ FindItems 结束（★ 含 equipslots + overflow）。"],
+  "Inventory:ForEachItem#1": ["-- ↑ ForEachItem 结束（范围最全）。"],
+  "Inventory:ForEachWetableItem#1": ["-- ↑ ForEachWetableItem 结束（★ 不递归 overflow）。"],
+  "Inventory:ForEachEquipment#1": ["-- ↑ ForEachEquipment 结束。"],
+  "Inventory:ForEachItemSlot#1": ["-- ↑ ForEachItemSlot 结束。"],
+  "Inventory:RemoveItemBySlot#1": ["-- ↑ RemoveItemBySlot 结束（wholestack 默认 true）。"],
+  "Inventory:DropItem#1": ["-- ↑ DropItem 函数头（五步流程）。"],
+  "Inventory:DropItem#1+1": ["-- ↑ 资格检查。"],
+  "Inventory:DropItem#1+3": ["-- ↑ islockedinslot 的丢弃限制。"],
+  "Inventory:DropItem#1+12": ["-- ★★★ RemoveFromOwner + `or item` 兜底（最关键一行）。"],
+  "Inventory:DropItem#1+14": ["-- ↑ 双重防御。"],
+  "Inventory:DropItem#1+15": ["-- ↑ 位置设置分叉。"],
+  "Inventory:DropItem#1+18": ["-- ↑ 用 Transform 拿世界坐标（脚边而非身体中心）。"],
+  "Inventory:DropItem#1+21": ["-- ↑ OnDropped 钩子。"],
+  "Inventory:DropItem#1+28": ["-- ★★★ dropitem 事件（传真正落地的实体）。"],
+  "Inventory:ForceNoInsulated#1": ["-- ↑ ForceNoInsulated 结束。"],
+  "Inventory:IsInsulated#1": ["-- ↑ IsInsulated 结束（三级判定，布尔或）。"],
+  "Inventory:IsInsulated#1+5": ["-- ↑ 装备槽绝缘遍历。"],
+  "Inventory:IsInsulated#1+11": ["-- ↑ 外部 SourceModifierList 层。"],
+  "Inventory:GetEquippedItem#1": ["-- ↑ GetEquippedItem 结束。"],
+  "Inventory:GetItemInSlot#1": ["-- ↑ GetItemInSlot 结束（O(1)）。"],
+  "Inventory:GetFirstItemInAnySlot#1": ["-- ↑ GetFirstItemInAnySlot 结束（有序遍历）。"],
+  "Inventory:IsFull#1": ["-- ↑ IsFull 结束（★ 只看 itemslots）。"],
+  "ValidateItemForOverflow#1": ["-- ↑ ValidateItemForOverflow 结束（★ 803 行是「明知不该发生却放行」）。"],
+  "ValidateItemForOverflow#1+3": ["-- ↑ canonlygoinpocket 分支。"],
+  "ValidateItemForOverflow#1+5": ["-- ↑ 套娃式的 canonlygoinpocketorpocketcontainers 判定。"],
+  "Inventory:GetNextAvailableSlot#1": ["-- ★★★ GetNextAvailableSlot 函数头（八级搜索）。"],
+  "Inventory:GetNextAvailableSlot#1+1": ["-- ↑ 取 overflow。"],
+  "Inventory:GetNextAvailableSlot#1+2": ["-- ↑ prioritize_overflow 判定。"],
+  "Inventory:GetNextAvailableSlot#1+3": ["-- ↑ useoverflow 资格判定。"],
+  "Inventory:GetNextAvailableSlot#1+6": ["-- ↑ 专用容器重排起点。"],
+  "Inventory:GetNextAvailableSlot#1+7": ["-- ↑ 注意空表是 truthy。"],
+  "Inventory:GetNextAvailableSlot#1+11": ["-- ↑ 就地压缩（★ 依赖「新表」前提）。"],
+  "Inventory:GetNextAvailableSlot#1+19": ["-- ↑ 空表转 nil（维持后续语义正确）。"],
+  "Inventory:GetNextAvailableSlot#1+24": ["-- ↑ 堆叠合并大 if 开始。"],
+  "Inventory:GetNextAvailableSlot#1+26": ["-- ↑ 第一级：装备槽堆叠。"],
+  "Inventory:GetNextAvailableSlot#1+32": ["-- ↑ 第二级：普通槽堆叠（带暂存逻辑）。"],
+  "Inventory:GetNextAvailableSlot#1+44": ["-- ↑ 第三级：overflow 堆叠。"],
+  "Inventory:GetNextAvailableSlot#1+47": ["-- ↑ 专用容器优先于 overflow 的暂存。"],
+  "Inventory:GetNextAvailableSlot#1+56": ["-- ↑ 第四级：专用容器堆叠。"],
+  "Inventory:GetNextAvailableSlot#1+66": ["-- ↑ 暂存候选的兜底返回。"],
+  "Inventory:GetNextAvailableSlot#1+69": ["-- ↑ 堆叠合并块结束。"],
+  "Inventory:GetNextAvailableSlot#1+71": ["-- ↑ 空位搜索一级：overflow。"],
+  "Inventory:GetNextAvailableSlot#1+79": ["-- ↑ 空位搜索二级：专用容器（优先于普通格）。"],
+  "Inventory:GetNextAvailableSlot#1+89": ["-- ↑ 空位搜索三级：普通格（兜底）。"],
+  "Inventory:GetNextAvailableSlot#1+95": ["-- ↑ 找不到时的 (nil, self.itemslots)。"],
+  "Inventory:GetNextAvailableSlot#1+98": ["-- ↑ CanAcceptCount 函数头。"],
+  "Inventory:CanAcceptCount#1": ["-- ↑ stacksize 计算起点。"],
+  "Inventory:CanAcceptCount#1+2": ["-- ↑ islockedinslot 的特殊容量计算。"],
+  "Inventory:CanAcceptCount#1+7": ["-- ↑ 零容量早退。"],
+  "Inventory:CanAcceptCount#1+11": ["-- ↑ 累加器初始化。"],
+  "Inventory:CanAcceptCount#1+13": ["-- ↑ 主循环开始。"],
+  "Inventory:CanAcceptCount#1+17": ["-- ↑ 可合并判定（无 IsFull 检查，用 RoomLeft）。"],
+  "Inventory:CanAcceptCount#1+18": ["-- ↑ 累加 RoomLeft。"],
+  "Inventory:CanAcceptCount#1+19": ["-- ↑ 够早退（返回 stacksize 而非累加值）。"],
+  "Inventory:CanAcceptCount#1+23": ["-- ↑ 空槽分支。"],
+  "Inventory:CanAcceptCount#1+24": ["-- ★★★ acceptsstacks 的快速路径。"],
+  "Inventory:CanAcceptCount#1+34": ["-- ↑ overflow 容量计算（与普通槽同构）。"],
+  "Inventory:CanAcceptCount#1+58": ["-- ↑ 专用容器容量计算。"],
+  "Inventory:CanAcceptCount#1+85": ["-- ↑ 装备槽容量（★ 顺序与 GetNextAvailableSlot 不一致）。"],
+  "Inventory:CanAcceptCount#1+97": ["-- ★★★ 返回 acceptcount（不变式：≤ stacksize）。"],
 };

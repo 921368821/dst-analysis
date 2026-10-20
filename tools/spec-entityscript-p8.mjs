@@ -4,26 +4,26 @@
 
 export const BEFORE = {
   // ── 补充：GetDebugString 中已禁用的「事件监听表」段的细节 ──
-  1017: [
+  "EntityScript:GetDebugString#1+53": [
     "--【★ 该段想输出的格式】对每个被监听的事件，列出「事件名: 源实体列表」。",
     "--   ★ 注意它遍历的是 event_listening（我在监听谁），",
     "--     而非 event_listeners（谁在监听我）—— ",
     "--     调试时「我订阅了什么」通常比「谁订阅了我」更直观。",
   ],
-  1019: [
+  "EntityScript:GetDebugString#1+55": [
     "--【★ 计数后缀：(N)】当同一事件有多个源时显示总数，避免误解为只有一个。",
     "--   ★ 这是输出限流模式：告诉你「被截断了」但不让你知道总数之外的细节。",
   ],
-  1023: [
+  "EntityScript:GetDebugString#1+59": [
     "--【★ 三层限流：事件列表只列 5 个源，每源只标数量不列回调】",
     "--   设计意图：这是「快速发现问题」的工具，不是完整清单。",
     "--   ★ 真正的完整信息应该用一个专门的调试命令按需输出。",
   ],
-  1034: [
+  "EntityScript:GetDebugString#1+70": [
     "--【★ 方向②：监听我的人】格式与上面完全对称。",
     "--   ★ 两个方向都输出，才可能发现「本该一对一却有多对多」的不对称。",
   ],
-  1040: [
+  "EntityScript:GetDebugString#1+76": [
     "--【★ 同样限流 5 个】体现「调试输出必须有上限」的纪律。",
   ],
 
@@ -42,7 +42,7 @@ export const BEFORE = {
     "--   ⚠ 代价：这些文件一旦加载就常驻内存，无法卸载。",
     "--     对模组热重载不友好 —— 改完模组需重启游戏。",
   ],
-  219: [
+  "__index#1+9": [
     "--【★ GUID 的四重用途小结（详见各处引用）】",
     "--   ① 协程归属：StartThread(fn, self.GUID) → KillThreadsWithID 可批量清",
     "--   ② 更新表索引：UpdatingEnts[self.GUID] / StaticUpdatingEnts[...]",
@@ -50,13 +50,13 @@ export const BEFORE = {
     "--   ④ 反查入口：Ents[guid] 拿回 Lua 实例",
     "--   ★ 四者共用同一个数值，使实体成为全局系统中的一等公民。",
   ],
-  457: [
+  "EntityScript:StartUpdatingComponent#1+18": [
     "--【★ 与 StopUpdatingComponent:477 的对偶关系】",
     "--   Stop 把 cmp 放进 StopUpdatingComponents；",
     "--   Start 把 cmp 从 StopUpdatingComponents 里拿掉。",
     "--   ★ 一放一取，构成完整的「状态覆盖」语义。",
   ],
-  476: [
+  "EntityScript:StopUpdatingComponent#1+1": [
     "--【★ 守卫的真正意义 —— 避免 StopUpdatingComponents 永不收敛】",
     "--   若无条件登记，帧末清理时 StopUpdatingComponent_Deferred:482",
     "--   会因 self.updatecomponents 为 nil 而直接 return，",
@@ -64,7 +64,7 @@ export const BEFORE = {
     "--   所以条目不会残留。",
     "--   ★ 所以这个守卫纯粹是「省一次无用调用」，不是正确性必需。",
   ],
-  481: [
+  "EntityScript:StopUpdatingComponent_Deferred#1": [
     "--【★ 与 StartUpdatingComponent:439 的完整对偶清单】",
     "--   对偶点1：本函数删，彼函数建",
     "--   对偶点2：本函数不动 NewUpdatingEnts（由 488 行处理），",
@@ -72,7 +72,7 @@ export const BEFORE = {
     "--   ★ 两个「不动」正是双缓冲设计的关键：",
     "--     「谁登记新实体」与「谁撤销待停标记」是两件正交的事。",
   ],
-  1286: [
+  "EntityScript:PushEvent_Internal#1": [
     "--【★ PushEvent 的三个目的地顺序不可交换】",
     "   --★★  为什么组件监听者必须在 AI 之前？】",
     "--   场景：生物吃了浆果 → 组件处理 OnEat（加饱食度、播放音效）",
@@ -80,18 +80,18 @@ export const BEFORE = {
     "--   ★ 若 brain 先收到事件，它读到的饱食度还是旧值 → 决策错误。",
     "--   ★★ 这就是「状态先更新，AI 后决策」的强保证。",
   ],
-  1298: [
+  "EntityScript:PushEvent_Internal#1+12": [
     "--【★ 回调的调用签名 fn(self, data)】",
     "--   第一个参数恒为「事件源实体」（即 self），",
     "--   ★ 这让监听者无需闭包捕获即可知道是谁发出的事件。",
   ],
-  1307: [
+  "EntityScript:PushEvent_Internal#1+21": [
     "--【★ SGManager:OnPushEvent 的作用 —— 参见 stategraph.lua】",
     "--   它检查状态图实例是否处于可接受事件的状态，",
     "--   并返回布尔。状态图在 stop/sleep/destroy 状态下返回 false。",
     "--   ★ 这避免了「往已停止的状态图里塞事件」导致的内部状态损坏。",
   ],
-  1903: [
+  "EntityScript:GetPersistData#1": [
     "--【★ 与 SetPersistData:1954 的严格对偶关系】",
     "--   GetPersistData  →  SetPersistData",
     "--   组件 OnSave()    →  组件 OnLoad(data)",
@@ -99,14 +99,14 @@ export const BEFORE = {
     "--   references 汇总  →  LoadPostPass(newents) 解析",
     "--   ★ 四对关系全部对应，这是理解存档系统的骨架。",
   ],
-  2026: [
+  "EntityScript:LongUpdate#1": [
     "--【★ 与 OnUpdate 的三个本质区别】",
     "--   ① 触发频率：OnUpdate 每 tick；LongUpdate 只在大跳跃时",
     "--   ② 覆盖范围：OnUpdate 只遍历 UpdatingEnts；LongUpdate 遍历全部 Ents",
     "--   ③ 是否有忽略玩家开关：LongUpdate 有（update.lua:308）",
     "--   ★★ ②意味着休眠实体的时间也在推进 —— 这是正确的时间语义。",
   ],
-  341: [
+  "EntityScript:IsInLimbo#1+3": [
     "--【★ limbo 与 sleep 的交叉表 —— 全文最重要的概念澄清】",
     "   --★ ★★ 四种组合及其行为】",
     "--   醒 + 不在 limbo：正常工作（常见情况）",
@@ -115,25 +115,25 @@ export const BEFORE = {
     "--   睡 + 在 limbo：合法（船离开加载范围时同时满足两者）",
     "--   ★ 第四种组合正是ReturnToScene:403-411 需要三重判断的原因。",
   ],
-  1046: [
+  "EntityScript:GetDebugString#1+82": [
     "--【★ 这段代码要展示「我监听了什么」与「谁在监听我」的对照】",
     "--   ★ 在排查「事件重复触发」时，两者的差异能立刻暴露问题：",
     "--     若 event_listening 只有一个源，但 event_listeners 里有 5 个，",
     "--     说明有人在监听我，而我没监听它们 —— 这在「自己触发自己的事件」时是正常的。",
   ],
-  1904: [
+  "EntityScript:GetPersistData#1+1": [
     "--【★ references 用数组而非哈希的原因】",
     "--   同一个引用可能被多个组件重复报告（如「我引用了玩家 A」，",
     "--   但 player_classified 组件和 health 组件都报告了它）。",
     "--   ★ 收集阶段不去重，把去重交给上层统一处理 —— ",
     "--   分工清晰，且避免了在遍历中去重可能引入的顺序问题。",
   ],
-  611: [
+  "EntityScript:AddComponent#1+1": [
     "--【★ 为什么 lower 在这里而不是在 SetPrefabName 等处统一处理？】",
     "--   因为组件名来源不可控：prefab 脚本写死、模组传入、配置文件读取。",
     "--   ★ 只能在唯一的收口点（AddComponent）做归一化。",
   ],
-  631: [
+  "EntityScript:AddComponent#1+21": [
     "--【★ ReplicateComponent 在构造之前调用的完整推理】",
     "--   ReplicateComponent 内部（entityreplica.lua:39）执行：",
     "--     self:AddTag(\"_\"..name)",
@@ -143,19 +143,19 @@ export const BEFORE = {
     "--     不依赖主组件的构造结果。",
     "--   ★ 副作用：副本组件的构造器里访问 self.components[自己的名字] 会拿到 nil。",
   ],
-  1723: [
+  "EntityScript:Remove#1+18": [
     "--【★ 遍历顺序不确定：pairs 的哈希顺序】",
     "--   ★ 因此组件的 OnRemoveEntity 之间**没有执行顺序保证**。",
     "--     若两个组件的清理互相依赖，必须改为显式排序。",
   ],
-  1770: [
+  "EntityScript:Remove#1+65": [
     "--【★ persists=false 与存档系统的协作】",
     "--   ★ GetPersistData:1903 会检查 self.persists 吗？—— 不会。",
     "--     实际上 persists 由更上层（mainfunctions 的存档流程）检查。",
     "--   ⚠ 但 Retire 之后 C++ 侧的实体已经无效，上层遍历 Ents 时自然遇不到。",
     "--     所以这行更像是「防御性标注」—— 明确表达「此刻我不该被存档」。",
   ],
-  1304: [
+  "EntityScript:PushEvent_Internal#1+18": [
     "--【★ StateGraph 事件的两种投递方式的技术含义】",
     "--   排队（PushEvent）：事件进入 sg.eventqueue，在 SGManager:Update 时消费。",
     "--     ★ 优点：不会重入；缺点：延迟一帧。",
@@ -163,35 +163,35 @@ export const BEFORE = {
     "--     ★ 优点：同步；缺点：可能重入，需要调用方保证安全。",
     "--   PushEventImmediate:1321 就是给需要同步的场景准备的出口。",
   ],
-  258: [
+  "EntityScript:GetSaveRecord#1+10": [
     "--【★ 相对存档 + 「只有 y 非零才存」的组合效果】",
     "--   玩家站在船上：record = { puid=<船的UID>, rx=..., rz=..., age=... }",
     "--   ★ 注意此时**不写** record.x/z/y —— 因为那是船的局部坐标，",
     "--     只有在「没有找到平台」时才回退到世界坐标（256 行的条件不成立时）。",
     "--   ★ 读档流程：先用 puid 找到船 → WorldToSpace(rx,ry,rz) 还原世界坐标。",
   ],
-  262: [
+  "EntityScript:GetSaveRecord#1+14": [
     "--★V2C 注释明确说了这是 \"quick hack\"，值得原样保留。",
     "--   ★ 这类注释在大型商业代码里很常见：它记录了「我们知道这是临时的」。",
   ],
-  318: [
+  "EntityScript:GetSaveRecord#1+70": [
     "--（空行）GetSaveRecord 与 Hide 之间的空行是风格上的分隔。",
   ],
 };
 
 export const AFTER = {
   // ── AFTER 型补充：给关键函数补上「回看提示」 ──
-  246: [
+  "__index#1+36": [
     "--★ 构造完成后的实体具备的最小能力：",
     "--   GUID / spawntime / 组件表 / 副本容器 / limbo 标志 / persists 标志",
     "--   ★ 一切行为都要靠后续 AddComponent / SetStateGraph / SetBrain 装配出来。",
   ],
-  316: [
+  "EntityScript:GetSaveRecord#1+68": [
     "--★ 存档写出的完整字段清单：",
     "--   prefab, [age], [puid, rx, ry, rz], x, y, z, skinname, skin_id, alt_skin_ids, data",
     "--   ★ 方括号表示「条件性存在」。",
   ],
-  413: [
+  "EntityScript:ReturnToScene#1+35": [
     "--★ ReturnToScene 与 RemoveFromScene 的对称性检查清单：",
     "--   RemoveTag('INLIMBO')   ↔ RemoveFromScene 的 AddTag",
     "--   SetInLimbo(false)      ↔ SetInLimbo(...)",
@@ -204,19 +204,19 @@ export const AFTER = {
     "--   ★★ 唯二不对称：Light 的条件判断（见 362/390 行的分析）",
     "--     与 sleep 状态的处理（RemoveFromScene 不动 sleep）。",
   ],
-  502: [
+  "EntityScript:StopUpdatingComponent_Deferred#1+21": [
     "--★ 帧末清理的完整动作清单（供 update.lua:279 参考）：",
     "--   ① updatecomponents[cmp] = nil",
     "--   ② 若整体空 → updatecomponents = nil + UpdatingEnts[GUID] = nil",
     "--                  + NewUpdatingEnts[GUID] = nil + num_updating_ents -= 1",
     "--   ③ updatestaticcomponents 同样处理（但无计数）",
   ],
-  554: [
+  "EntityScript:GetComponentName#1+7": [
     "--★ 这三个函数（StartUpdating / StartWallUpdating / GetComponentName）",
     "--   都做了「O(n) 组件名反查」。这是本文件已知的性能债，",
     "--   在 update.lua:260 那行被注释掉的 ProfilerPush 里也能看出痕迹。",
   ],
-  663: [
+  "EntityScript:RemoveComponent#1+15": [
     "--★ 组件完整生命周期回顾：",
     "--   AddComponent: LoadComponent → ReplicateComponent → cmp(self) → 登记 →",
     "--                ModPostInit → RegisterComponentActions",
@@ -226,12 +226,12 @@ export const AFTER = {
     "--   ★ 两个函数的步骤严格逆序，且★缺失「worldstate 观察者」与",
     "--     「事件监听」的清理 —— 这两项只能靠 EntityScript:Remove 整体处理。",
   ],
-  1063: [
+  "EntityScript:GetDebugString#1+99": [
     "--★ GetDebugString 的实际输出（禁用段落除外）：",
     "--   \"<GUID> - <prefab> <ASLEEP?> age <N.NN>\\n<C++ 调试串>\"",
     "--   \"Buffered Action: <action>\\nSG:<状态图>\\nDebugString:<自定义>\\n-----------\\n\"",
   ],
-  1117: [
+  "EntityScript:SetBrain#1+14": [
     "--★ Brain 生命周期完整状态机：",
     "--   SetBrain  → 若 _braindisabled 则 self.brain = nil（不创建）",
     "--   StopBrain(reason) → _brainstopped[reason]=true → brain:_Stop_Internal()",
@@ -241,7 +241,7 @@ export const AFTER = {
     "--   ★★ 关键区别：_brainstopped 保留 brain 对象（可恢复），",
     "--     _braindisabled 直接销毁 brain 对象（重建）。",
   ],
-  1170: [
+  "EntityScript:ClearStateGraph#1+5": [
     "--★ StateGraph 生命周期：",
     "--   SetStateGraph(name) → RemoveInstance(旧) → LoadStateGraph →",
     "--                     StateGraphInstance → SGManager:AddInstance(sg, asleep) →",
@@ -249,13 +249,13 @@ export const AFTER = {
     "--   ClearStateGraph()  → RemoveInstance + self.sg = nil",
     "--   ★ 销毁时由 stategraph.lua:77 的 OnRemoveEntity 钩子兜底清理。",
   ],
-  1323: [
+  "EntityScript:PushEventImmediate#1+2": [
     "--★ PushEvent 两个入口的完整对照表：",
     "--   PushEvent(event, data)          → PushEvent_Internal(e, d, false) → 状态图排队",
     "--   PushEventImmediate(event, data) → PushEvent_Internal(e, d, true)  → 状态图立即",
     "--   ★ 普通监听者与 brain 在两种模式下行为完全相同（都是同步调用）。",
   ],
-  1467: [
+  "EntityScript:IsAsleep#1+2": [
     "--★ IsAsleep 的四个消费点（本文件内）：",
     "--   1106 SetBrain     —— 决定是否禁用新挂的 brain",
     "--   404  ReturnToScene —— 决定是否重启 brain",
@@ -263,24 +263,24 @@ export const AFTER = {
     "--   972  GetDebugString —— 显示 <ASLEEP> 标记",
     "--   ★★ 全部是「AI 相关」决策 —— 因为睡眠对实体逻辑的影响主要就是停 AI。",
   ],
-  1937: [
+  "EntityScript:GetPersistData#1+34": [
     "--★ GetPersistData 的返回值三个可能：",
     "--   (data, references) —— 两者至少一者非空（常见）",
     "--   (nil, nil)         —— 完全无状态 → 不写入存档（省空间的关键）",
     "--   ★ 这就是为什么「绝大多数实体的存档很小」。",
   ],
-  1989: [
+  "EntityScript:SetPersistData#1+35": [
     "--★ SetPersistData 的对称返回值：无（in-place 修改）",
     "--   ★ 与 GetPersistData 不同，读入不需要收集 references —— ",
     "--     references 是在 LoadPostPass:1939 阶段由 newents 表解析的。",
   ],
-  2088: [
+  "EntityScript:IsInLight#1+18": [
     "--★ IsInLight 的迟滞参数可由 prefab 覆盖：",
     "--   self.lightThresh —— 进入「暗」的上阈值（默认 0.1）",
     "--   self.darkThresh  —— 退出「暗」的下阈值（默认 0.05）",
     "--   ★ 两个阈值**故意不相等** —— 相等就没有迟滞效果了。",
   ],
-  2135: [
+  "EntityScript:RemoveDebuff#1+4": [
     "--★ Debuff 系统的五个接口与组件的关系：",
     "--   DebuffsEnabled()    —— 无组件时视为 true（默认开放）",
     "--   HasDebuff(name)     —— 委托组件",
@@ -288,14 +288,14 @@ export const AFTER = {
     "--   AddDebuff(...)      —— 按需装组件 + 三重测试 + pre_buff_fn 钩子",
     "--   RemoveDebuff(name)  —— 委托组件",
   ],
-  2173: [
+  "EntityScript:GetDeathLoot#1+4": [
     "--★ 死亡掉落的三种状态存储位置：",
     "--   SetDeathLootLevel(n) —— 设定掉落等级（0=不掉落）",
     "--   DropDeathLoot()      —— 执行掉落：存尸体 或 掉地上",
     "--   GetDeathLoot()       —— 查询已存放的掉落物（供 UI）",
     "--   ★ 三者共同保证「死亡掉落状态」能被正确存档与恢复。",
   ],
-  2178: [
+  "EntityScript:GetDeathLoot#1+9": [
     "--★ 文件末尾的 require 是「副作用式混入」的典型：",
     "--   它不为返回值，只为执行 module body。",
     "--   ★ DST 里大量使用这种模式（见 596、604 行的 require）。",

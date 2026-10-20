@@ -43,7 +43,7 @@ export default {
   ],
 
   // ══════════════ 装备：伞与大衣 ══════════════
-  48: [
+  "holding_umbrella#1": [
     '-- ★★ 伞的三个查询函数（区分「手持/装备中/背包里」）：',
     '--   第 48 行 holding_umbrella  —— 手持槽（HANDS）',
     '--   第 53 行 equipped_umbrella —— 任何装备槽',
@@ -55,7 +55,7 @@ export default {
     '--   ★★ 即「手持伞会阻止其他动作」，这是状态互斥的实现方式。',
     '--   ★ 移植价值：用一个装备槽作为「忙」的标志，隐式排斥其他动作。',
   ],
-  58: [
+  "has_umbrella#1+1": [
     '-- ★ has_umbrella 只取 HasItemWithTag 的【第一个】返回值（是否存在）。',
     '--   ★ 源码自己用长注释标出了被忽略的第二个返回值（数量），',
     '--     说明作者清楚语义但只需布尔值。',
@@ -63,34 +63,34 @@ export default {
     '--   ⚠️ 注意本行【不在条件表达式里】，若返回多个值会全部返回给调用方。',
     '--     但这里先赋给 ret 再 return ret（单值），行为正确。',
   ],
-  62: [
+  "item_is_umbrella#1": [
     '-- item_is_umbrella：传给 FindItem 的谓词（找伞用）。',
   ],
-  66: [
+  "EquipUmbrella#1": [
     '-- ★ EquipUmbrella：找伞并装备。',
     '--   第 69 行 Equip(umbrella) —— 装备动作由 inventory 处理。',
     '--   ★ 与第 99 行 EquipCoat 同款结构。',
   ],
-  73: [
+  "try_unequip_umbrella#1": [
     '-- ★ try_unequip_umbrella：★ 参数顺序反直觉。',
     '--   ForEachEquipment 的回调签名是 (item, inst)，',
     '--   所以第 75 行的 inst 其实是第二个参数。',
     '--   ★★★ 移植提示：读 Lua 回调时先确认回调签名，别被参数名误导。',
   ],
-  80: [
+  "UnEquipUmbrella#1": [
     '-- ★ UnEquipUmbrella：遍历所有装备槽卸下伞。',
     '--   第 81 行 ForEachEquipment(try_unequip_umbrella, inst) —— 传入额外参数。',
     '--   ★ 与第 106 行 UnEquipBody 的直接 Unequip(EQUIPSLOTS.BODY) 写法不同，',
     '--     因为伞可能在【任意】槽位，而大衣只在 BODY 槽。',
     '--   ★★★ 这是「按物品特性选择卸下方式」的准确处理。',
   ],
-  85: [
+  "using_coat#1": [
     '-- ★ using_coat：是否穿着大衣。返回值是 equipped（物品）或 nil，',
     '--   ★ 注意它返回的是【物品本身】而非布尔 —— 但用作条件时等价。',
     '--   ⚠️ 与第 90 行 has_coat 返回【物品】、第 94 行 getcoat 返回【物品】一致，',
     '--     三个函数都返回物品。统一风格，不是缺陷。',
   ],
-  94: [
+  "getcoat#1": [
     '-- ★★ getcoat 的「or 降级链」：',
     '--   先在背包里找（FindItem），找不到才看身上穿的。',
     '--   ★★★ 这个顺序有实际意义：',
@@ -99,10 +99,10 @@ export default {
   ],
 
   // ══════════════ 交易与好感度 ══════════════
-  111: [
+  "ShouldRunAway#1": [
     '-- ShouldRunAway：与 pigbrain 第 41 行逐字相同（正在交易就不跑）。',
   ],
-  115: [
+  "GetTraderFn#1": [
     '-- ★★★ GetTraderFn —— 一个「有副作用」的 getter，本文件最需要注意的写法。',
     '-- 【★ 它在求值过程中做了四件事（第 125-140 行）】',
     '--   1) 选台词并立即 Chatter（说话！）',
@@ -127,7 +127,7 @@ export default {
     '--   ★ 语义：抱怨计时器越接近到期，加得越多 → 实际是「不断延长」。',
     '--   ★ 这是一种「软性冷却」：抱怨越来越难被触发。',
   ],
-  147: [
+  "KeepTraderFn#1": [
     '-- KeepTraderFn：与 GetTraderFn 配对，但【没有副作用】。',
     '--   ★★ 这个不对称很关键：GetFn 有副作用（说话），KeepFn 干净。',
     '--   ★ 因为 FaceEntity 每帧调 KeepFn 多次、调 GetFn 一次（进入时）。',
@@ -135,27 +135,27 @@ export default {
     '--   ★ 与 braincommon 第 12 行 AnchorToSaltlick 的 GetSaltlick（有副作用）',
     '--     + 无独立 keepfn 的结构对照，属不同场景下的合理差异。',
   ],
-  155: [
+  "HasValidHome#1": [
     '-- ★★ HasValidHome 的四重校验，与 pigbrain 第 125 行逐字相同。',
     '--   ★ 全项目出现 3 次（pigbrain / mermbrain / hermitcrabbrain）的标准写法。',
   ],
-  163: [
+  "GoHomeImmediatelyAction#1": [
     '-- ★ GoHomeImmediatelyAction：不检查任何前置条件，有家就回。',
     '--   ★ 对比第 169 行 GoHomeAction 额外检查 not AllNightTest()（是否通宵营业）。',
     '--   ★★ 两个「回家」函数的区别是【是否看营业时间】。',
     '--   第 689 行皮肤请求时用 Immediate（第 685 行条件含 skinrequest）。',
   ],
-  169: [
+  "GoHomeAction#1": [
     '-- GoHomeAction：正常回家，会检查 AllNightTest（蟹壳怪可能整夜营业）。',
   ],
 
   // ══════════════ 台词系统 ★ 本文件核心 ══════════════
-  197: [
+  "formatstring#1": [
     '-- formatstring：把台词里的占位符替换成目标名字。',
     '--   第 198 行 string.format(str, target:GetDisplayName())',
     '--   ★ 即台词里可能有 %s 之类占位符。',
   ],
-  201: [
+  "getfriendlevelspeech#1": [
     '-- ★★★ getfriendlevelspeech —— 本文件最长的函数（61 行），社交 AI 的核心。',
     '-- 【第 202 行】★ 单向锁存：说话冷却没到就直接返回 nil',
     '--   ★ 与第 115 行 GetTraderFn 用同一个 speak_time 定时器 ——',
@@ -195,7 +195,7 @@ export default {
     '--     Chatter —— 可以排队、多句、显示气泡',
     '--   ★ 移植价值：区分「单句应答」与「多句闲聊」两种表达形式。',
   ],
-  202: [
+  "getfriendlevelspeech#1+1": [
     '-- ★★ speak_time 定时器是【社交行为的总闸门】：',
     '--   第 129 行（GetTraderFn）与第 202 行（本函数）共用同一个定时器名。',
     '--   ★★★ 效果：蟹壳怪不会「一边跟人打招呼一边吆喝卖货」。',
@@ -203,14 +203,14 @@ export default {
     '--   ⚠️ 副作用：这两类行为的频率被【互相牵制】——',
     '--     若频繁交易吆喝，就打不了招呼。属于可接受的取舍。',
   ],
-  205: [
+  "getfriendlevelspeech#1+4": [
     '-- ★★ 台词表是【二级结构】：STRINGS.HERMITCRAB_GREETING[好感度][随机项]。',
     '--   ★ 与第 38 行 getstring 的判断条件（是否有 "LOW" 子键）同源。',
     '--   ★★ 结构解读：',
     '--     STRINGS.HERMITCRAB_GREETING = { [好感度] = { 台词1, 台词2, ... } }',
     '--   即「每档好感度有一组台词，组内随机」。这是 DST 台词系统的标准形态。',
   ],
-  229: [
+  "getfriendlevelspeech#1+28": [
     '-- ★★★ 满好感玩家的专属台词 —— 用「玩家 GUID」拼定时器名。',
     '--   第 229 行 "hermit_grannied"..target.GUID',
     '--   ★★★ 这个技巧值得单独学：',
@@ -221,7 +221,7 @@ export default {
     '--   ★★★ 移植价值极高：任何「对多个对象分别限频」的需求都能套用。',
     '--   ★ 第 230 行时长用 TUNING.TOTAL_DAY_TIME（一整天）。',
   ],
-  240: [
+  "getfriendlevelspeech#1+39": [
     '-- ⚠️ 疑似边界缺陷：三个「谁最差」的比较都用 not nil 简化。',
     '--   第 240 行 (not health or sanity <= health) and (not hunger or sanity <= hunger)',
     '--   ★ 若 health 为 nil，第一支直接为真 → 判为「sanity 最差」。',
@@ -229,7 +229,7 @@ export default {
     '--   已逐字核对第 240、242、244 行，三处结构完全对称。',
     '--   ★ 作者显然为了简化而牺牲了边界严谨性，属「风格换健壮性」的取舍。',
   ],
-  263: [
+  "GetFaceTargetFn#1": [
     '-- ★★ GetFaceTargetFn 把「打招呼」逻辑【塞进了取目标的过程】。',
     '-- 【四个分支】',
     '--  第 264-266 行：正在交谈（talking）→ 返回 nil（不打断对话）',
@@ -249,7 +249,7 @@ export default {
     '-- ★★★ 这个函数是「一个 getter 干四件事」的极端例子，',
     '--   与第 115 行 GetTraderFn 同款策略：副作用 + 定时器限频。',
   ],
-  301: [
+  "KeepFaceTargetFn#1": [
     '-- ★★★ KeepFaceTargetFn —— 与 GetFaceTargetFn 配对，但【判据完全不同】。',
     '--   第 306-308 行排除 notarget / playerghost / 对方在 talking',
     '--   ★★ 注意：它【没有】排除 hasgreeted，也没有 distance 的 4 分档。',
@@ -261,13 +261,13 @@ export default {
   ],
 
   // ══════════════ 日常活动 ══════════════
-  326: [
+  "IsItemHarvestableMeat#1": [
     '-- ★★ IsItemHarvestableMeat：只收「不可晾晒的鲜肉」。',
     '--   第 327 行 components.dryable == nil and foodtype == MEAT',
     '--   ★★★ 语义：晾肉架上【已经晒好】的（没 dryable）与【正在晒】的分别处理',
     '--     （见第 338-349 行）。这是「同一个设施的两种状态」。',
   ],
-  330: [
+  "DoHarvestMeat#1": [
     '-- ★★ DoHarvestMeat：肉架的三态处理（第 334-350 行）。',
     '--   遍历所有肉架，逐个判断：',
     '--   ① 架上有可收的鲜肉 → targetitem = 收它，target = 架子（第 338-344 行）',
@@ -276,11 +276,11 @@ export default {
     '--   第 352 行 BufferedAction(inst, target, ACTIONS.HARVEST, targetitem)',
     '--   ★ HARVEST 的第 4 参可为 nil（只收成品）或指定物品（收鲜肉）。',
   ],
-  357: [
+  "DoHarvestMeat#1+27": [
     '-- ★ PICKABLE_TAGS 同时含 "pickable" 与 "bush" ——',
     '--   ★ 即灌木本身也可摘（摘浆果）。用标签而非 prefab 列表，更易扩展。',
   ],
-  375: [
+  "DoFishingAction#1": [
     '-- ★★★ DoFishingAction —— 「选最优钓鱼点」的两段式算法。',
     '-- 【第 376 行】★ 两个前置：没手持伞（第 48 行）且不在恶劣居住区',
     '--   ★ 手持伞不钓鱼：伞要腾手（见文件头说明）。',
@@ -299,10 +299,10 @@ export default {
     '--   ★ 注意与 GetClosestToolShed（mermbrain 第 224 行）的「升级版立即返回」不同，',
     '--     这里用 or 降级 —— 因为「背包鱼竿」与「手持竿」都可用，无优劣之分。',
   ],
-  402: [
+  "DoReel#1": [
     '-- ★ DoReel：收线。条件是「有鱼 且 处于钓鱼待机」。',
   ],
-  440: [
+  "DoBottleToss#1": [
     '-- ★★★ DoBottleToss：★ 用三次随机重试来「确保投到海里」。',
     '--   第 447 行 for attempt = 1, 3 do',
     '--   第 448 行 pos = 随机选一个标记点',
@@ -313,14 +313,14 @@ export default {
     '--   ★ 第 453-459 行的工具准备（找/生成/装备瓶子）与 DoFishingAction 第 394 行同款。',
     '--   ★ ★ 复用套路：缺工具就 SpawnPrefab 一个再装备。',
   ],
-  472: [
+  "DoChairSit#1": [
     '-- ★ DoChairSit：坐下休息。',
     '--   第 480-483 行 for _, ent in ipairs(ents) do target = ent; break end',
     '--   ★★★ 写法冗余：等价于 target = ents[1]。',
     '--   ★ 已逐字核对第 480-483 行：确实是无意义的 for + break。',
     '--   标为冗余代码，非缺陷（行为正确）。',
   ],
-  494: [
+  "DoSoakin#1": [
     '-- ★★ DoSoakin：泡温泉的三个前置条件。',
     '--   第 495 行 不在泡 且 没有「泡过」的定时器',
     '--   第 500-503 行 ★★ 若温泉被「bathbomb」过，剩余时间不足则不泡',
@@ -330,12 +330,12 @@ export default {
     '--   ⚠️ 第 496 行用 y=0 搜索（TheSim:FindEntities(x, 0, z, 20, ...)），',
     '--     忽略了自身高度。多处（第 362、380 行）都是如此，属既定简化。',
   ],
-  511: [
+  "ExitHotSpring#1": [
     '-- ★ ExitHotSpring：主动离开温泉。',
     '--   第 512 行从状态图记忆取当前占用的温泉。',
     '--   ★ 与第 695、765 行的调用点配对（出口热泉的三处）。',
   ],
-  518: [
+  "DoTalkQueue#1": [
     '-- ★★ DoTalkQueue：把待说的话逐条说完。',
     '--   第 519 行四个条件：npc_talker 有待说的话 且 不在说话 且 不忙 且 说话冷却已过',
     '--   ★★★ 「说完话」这件事被建模成一个【持续行为】（root 里的一个节点），',
@@ -343,13 +343,13 @@ export default {
     '--   ★ 第 758、787 行两处调用 —— 第 758 行在「瞬移收尾」里（第 756 行），',
     '--     即传送前一定要把话说完。设计细节很到位。',
   ],
-  530: [
+  "DoThrow#1+6": [
     '-- ★ CHATTERPARAMS_LOW：把台词优先级设为低，避免打断重要提示。',
     '--   第 531 行 echotochatpriority = CHATPRIORITIES.LOW',
     '--   ★★★ 「台词也有优先级」—— 防止 NPC 闲聊盖过任务提示音。',
     '--   ★ 本文件几乎所有 ChattyNode 都用 LOW（第 688、696、714 行等）。',
   ],
-  533: [
+  "DoThrow#1+9": [
     '-- ⚠️ CHATTERPARAMS_HIGH 定义后【全文件未使用】。',
     '--   ★ 已逐字核实：该变量只出现在第 533-535 行的定义处，无任何使用点。',
     '--   ★ 属真实的死代码（可能是早期版本用过高优先级后改用 LOW 的遗留）。',
@@ -357,22 +357,22 @@ export default {
   ],
 
   // ══════════════ 茶会系统 ══════════════
-  537: [
+  "DoThrow#1+13": [
     '-- ★★ 类构造里初始化茶摊表（构造器而非 OnStart）。',
     '--   第 540 行 self.tea_shops = {}    -- [ent] = true（集合）',
     '--   第 541 行 self.selected_tea_shop = nil',
     '--   ★ 用【表当集合】（value 全 true）是 Lua 里的标准做法。',
     '--   ★ 与 buzzardbrain 第 138-139 行ignorethese 的建表方式同款。',
   ],
-  546: [
+  "IsTeaShopValid#1": [
     '-- ★ IsTeaShopValid：三重校验（存在/有效/没烧）。',
     '--   ★ 比 HasValidHome（第 155 行）少一个 burnt 检查 —— 但第 548 行合并了。',
   ],
-  551: [
+  "HermitBrain:AddActiveTeaShop#1": [
     '-- ★ AddActiveTeaShop：登记一个可用茶摊（由外部调用）。',
     '--   ★ 即「茶摊可以随时加入/退出」，支持动态场景。',
   ],
-  555: [
+  "HermitBrain:RemoveActiveTeaShop#1": [
     '-- ★★★ RemoveActiveTeaShop —— 移除时的级联处理。',
     '--   第 558-561 行：★ 若被移除的正是当前选中的，则',
     '--     1) 清空 selected_tea_shop',
@@ -383,18 +383,18 @@ export default {
     '--   ★ 与 knightbrain 第 208 行 GetWanderFormationPos 返回自身位置是同类防御，',
     '--     但这里更主动（直接停）。两种做法都对。',
   ],
-  564: [
+  "HermitBrain:AnyActiveTeaShop#1": [
     '-- ★ AnyActiveTeaShop：有没有茶摊。next(self.tea_shops) ~= nil',
     '--   ★ 用 next() 检查表非空，比 # 或 pairs 更严谨（支持稀疏键）。',
   ],
-  572: [
+  "HermitBrain:ValidateTeaShops#1": [
     '-- ★ ValidateTeaShops：批量清理失效茶摊。',
     '--   ★★ 与 buzzardbrain 第 167 行 LoseCorpseOwnership 同款：',
     '--     「清理共享表时发现无效项就地删除」。',
     '--   ★ 第 577-579 行还要额外清 selected_tea_shop。',
     '--   ★★ 移植要点：任何长生命周期的缓存表都要有「批量校验并清理」的方法。',
   ],
-  584: [
+  "HermitBrain:SelectTeaShop#1": [
     '-- ★★★ SelectTeaShop：选茶摊 + 宣布。',
     '--   第 585 行 先 Validate（清理失效项）',
     '--   第 586 行 self.selected_tea_shop = self:GetFirstTeaShop()',
@@ -405,11 +405,11 @@ export default {
     '--   ★★★ 行为与台词绑定：做了决定就先说出来。',
     '--   第 593 行 return nil（没有茶摊）',
   ],
-  596: [
+  "HermitBrain:CheckSelectedTeaShop#1": [
     '-- ★ CheckSelectedTeaShop：校验当前选中的是否还可用。',
     '--   ★ 第 597 行也先 Validate —— 每次用之前都清理。',
   ],
-  601: [
+  "HermitBrain:GetSelectedTeaShopPos#1": [
     '-- GetSelectedTeaShopPos：给 Leash 用的坐标提供者。',
     '--   ★ 与第 605 行 GetSelectedTeaShop 成对。',
     '--   ★ 返回 nil 时（茶摊失效），第 697-704 行的 Leash 回调会走到第 703 行，',
@@ -418,7 +418,7 @@ export default {
   ],
 
   // ══════════════ 宠物 ══════════════
-  620: [
+  "IsPetCritterHungry#1": [
     '-- ★★ IsPetCritterHungry 与 GetFirstHungryPetCritter（第 611 行）的筛选条件',
     '--   【逐字相同】（第 615 行 vs 第 624 行）：',
     '--   critter 标签 且 饿 且 不在海上 且 不被阻挡物遮住。',
@@ -427,7 +427,7 @@ export default {
     '--   ⚠️ 与 pigbrain 第 165 行同样问题（GetTraderFn / KeepTraderFn 判据重复）。',
     '--   ★ 这似乎是本项目的普遍写法，属可接受的冗余。',
   ],
-  635: [
+  "GetFoodForCritter#1": [
     '-- ★★★ GetFoodForCritter：★ 没有食物就【凭空生成】一个。',
     '--   第 639-640 行 honey = SpawnPrefab("honey"); inventory:GiveItem(honey)',
     '--   ★★★ 「AI 需要某个物品而背包没有时，直接造一个」——',
@@ -435,14 +435,14 @@ export default {
     '--   ★ 代价：凭空出现的蜂蜜可能让玩家困惑（背包里多了个蜂蜜）。',
     '--   ★ 移植提示：这是「让 AI 永远能完成目标」的务实技巧，代价是物品守恒被打破。',
   ],
-  646: [
+  "DoFeedPetCritterAction#1": [
     '-- ★ DoFeedPetCritterAction：喂宠物，喂完聊一句。',
     '--   ★ 第 648 行四参 BufferedAction：目标 + FEED + 指定食物。',
     '--   ★ 第 650-652 行成功回调里 Chatter —— 「喂食有台词」。',
   ],
 
   // ══════════════ 夜间游荡限制 ══════════════
-  662: [
+  "CanWanderAtPoint#1": [
     '-- ★★★ CanWanderAtPoint —— 「夜里不去暗处游荡」。',
     '-- 【第 663 行】不是白天 → 才需要检查',
     '-- 【第 664-671 行】遍历 12 距离内的光源，任一光照范围覆盖 pos → 可以去',
@@ -457,10 +457,10 @@ export default {
   ],
 
   // ══════════════ OnStart ══════════════
-  679: [
+  "HermitBrain:OnStart#1": [
     '-- ★★ OnStart：先建 day / night 两棵子树，再拼 root。',
   ],
-  681: [
+  "HermitBrain:OnStart#1+2": [
     '-- ★★★ day 的条件是 isday【或】AllNightTest（第 681 行）。',
     '--   return TheWorld.state.isday or self.inst:AllNightTest()',
     '--   ★★ 「营业到通宵」：蟹壳怪有夜市设定，所以晚上也能开门。',
@@ -469,7 +469,7 @@ export default {
     '--   ★★ 与 night（第 743 行）的条件 not isday and not AllNightTest 严格互补。',
     '--     ★ 又一处对称设计，读代码时两者要对照看。',
   ],
-  683: [
+  "HermitBrain:OnStart#1+4": [
     '-- ★★★ 「不友好」层 —— 本文件独有的第三层优先级。',
     '--   条件：not sg:HasStateTag("mandatory")',
     '--   ★★ mandatory（强制）标签让这一整层【在特定剧情中失效】，',
@@ -483,7 +483,7 @@ export default {
     '--     第 722 行 IfNode(level > UNFRIENDLY_LEVEL) —— 已友好 → 打招呼',
     '--   ★ 这是「同一层内的态度分叉」，用两个互斥 IfNode 实现。',
   ],
-  685: [
+  "HermitBrain:OnStart#1+6": [
     '-- ★ 皮肤请求 → 回家换皮肤（第 686-689 行）。',
     '--   ★ 第 687 行台词名是【函数】："HERMITCRAB_TALK_ONSKINREQUEST." .. 好感度',
     '--   ★ ChattyNode 支持名字为函数 —— 按当时的好感度动态选台词。',
@@ -491,7 +491,7 @@ export default {
     '--     而第 746、749 行用的是【字符串】形式。两种都支持。',
     '--   ★ 迁移细节：函数形式让台词随好感度动态变化，更细腻。',
   ],
-  692: [
+  "name#1+5": [
     '-- ★ 茶会节点（第 692-710 行）：本文件最复杂的行为。',
     '--   第 694-695 行 ★ 若正在泡温泉 → 先离开',
     '--   第 696-707 行 ★★ FailIfSuccessDecorator(Leash 到茶摊)',
@@ -502,29 +502,29 @@ export default {
     '--       ★ 减 1 与 0.5 形成迟滞。',
     '--   第 708-709 行 到位 → 推 hermitcrab_entered 事件给茶摊',
   ],
-  705: [
+  "name#1+18": [
     '-- ★★★ leash 距离是【动态函数】，取决于茶摊本身的物理大小。',
     '--   外距 = 茶摊半径 + 1.5，内距 = 茶摊半径 + 1',
     '--   ★ 大茶摊要站得更远。合理的自适应。',
     '--   ★ 与第 243 行 mermbrain GetClosestToolShedPosition 同思路。',
   ],
-  714: [
+  "name#1+27": [
     '-- ★ ChattyNode 台词名也是函数形式（第 715 行），按好感度动态选择。',
     '--   ★ 与第 686-689 行同款。与第 746、749 行的字符串形式对照。',
   ],
-  720: [
+  "name#2+5": [
     '-- ★ runawaytest（第 408 行）作为 IfNode 条件：仍不友好就躲开玩家。',
     '--   ★★ 注意它不是纯判定 —— 它还有【说话副作用】（第 415-426 行）。',
     '--   ★ 依赖第 414 行的 not hasgreeted 与第 202 行的 speak_time 限频。',
   ],
-  722: [
+  "name#2+7": [
     '-- ★★★ 好感度够 → 打招呼（第 723 行）。',
     '--   FaceEntity(inst, GetFaceTargetFn, KeepFaceTargetFn, 7)',
     '--   ★ 第 4 参 7 —— FaceEntity 的第 4 参未逐字核实。',
     '--     与 pigbrain 第 294 行的 (…, 5, 15) 两个参数形式不同。',
     '--     ⚠️ 不下结论，仅记录：同一节点在不同文件里参数个数不同。',
   ],
-  725: [
+  "name#2+10": [
     '-- ★★★ 「空闲时才做日常」的四重与（第 725-728 行）。',
     '--   not alert（没有被惊动）',
     '--   not npg_fishing（没在钓鱼）',
@@ -539,14 +539,14 @@ export default {
     '--   ★ 第 736 行 if not sitting and not soakin —— 坐着/泡着就不游荡。',
     '--   ★ 第 737 行 Wander 的第 7 参是 CanWanderAtPoint（夜光限制）。',
   ],
-  728: [
+  "name#2+13": [
     '-- ★★★ not inst.components.locomotor.dest —— 「正在赶路时不插队」。',
     '--   ★★★ 这是本文件最值得学的一条细节。',
     '--   几乎所有大脑都会检查 busy，但【很少有检查「有没有移动目标」】。',
     '--   ★ 而这一条恰恰阻止了「边走向 A 边突然跑去采浆果」的低级 AI 表现。',
     '--   ★ 移植建议：给任何有「多活动可选」的 NPC 都加这条守卫。',
   ],
-  743: [
+  "name#2+28": [
     '-- ★★ night 的条件与 day（第 681 行）严格互补：',
     '--   not isday and not AllNightTest()',
     '--   ★ 三行：跑开玩家 → 喊话回家 → 喊话恐慌。',
@@ -554,7 +554,7 @@ export default {
     '--     本文件夜晚行为极简 —— 因为白天已经包办了绝大多数活动。',
     '--   ★ 优先级：先跑（第 745 行）再考虑回家 —— 危险优先。',
   ],
-  753: [
+  "name#2+38": [
     '-- ★★★ root 的八个小节（按行号）逐一解读：',
     '--  第 756-761 行：★★ 瞬移收尾 —— 传送前把话说完、然后等 1 秒',
     '--    第 758 行 DoTalkQueue + 第 759 行 WaitNode(1)',
@@ -577,7 +577,7 @@ export default {
     '--  第 788-789 行：day / night',
     '--  第 790 行：重评估间隔 0.5 秒',
   ],
-  756: [
+  "name#2+41": [
     '-- ★★★ 瞬移收尾：传送前先把话说完。',
     '--   条件 inst.sg.mem.teleporting —— 状态图已在传送流程中',
     '--   第 758 行 DoTalkQueue（把待说的话说完）',
@@ -585,7 +585,7 @@ export default {
     '--   ★★★ 极人性化的细节：NPC 被打断对话/传送时，至少把话说完。',
     '--   ★ 移植建议：这类「善后」节点能显著提升 AI 的「像活物」感受。',
   ],
-  777: [
+  "name#2+62": [
     '-- ★★ 装备类行为的「成对节点」模式（本文件反复使用）。',
     '--   第 777-778 行：需要时装备（下雨 + 有伞 + 未装备）',
     '--   第 779-780 行：不需要时卸下（不下雨 + 已装备）',
@@ -595,7 +595,7 @@ export default {
     '--   ★ 移植价值：装备/穿脱这类「状态维护」行为必须成对写，',
     '--     漏掉反向分支会导致「雨停了还打着伞」。',
   ],
-  790: [
+  "name#2+75": [
     '-- ★ 重评估间隔 0.5 秒（与 pigbrain 第 418 行相同）。',
     '--   ★ 比 knightbrain/penguin 的 0.25 宽松 —— ',
     '--     蟹壳怪的行为都是「慢节奏社交」，不需要高频重算。',

@@ -1,12 +1,12 @@
 // spec-ui-input-p3.mjs —— input.lua 第 479-780 行
 // 查询接口 / ★★ 鼠标穿透（CanMouseThrough）/ 本地化 / 全局桥接
 export const BEFORE = {
-  479: [
+  "Input:IsControlPressed#1": [
     "-- ================================================================",
     "-- ★★★ 【查询接口】479-513 —— 双层抽象的兑现点",
     "-- ================================================================",
   ],
-  479: [
+  "Input:IsControlPressed#1": [
     "-- ══════════════════════════════════════════════════════════════",
     "-- ★★★★ 【IsControlPressed】—— 「我想要 X，问它按下了没」。",
     "-- 【★ 这是全游戏使用频率最高的输入函数（每帧被调用无数次）】",
@@ -36,7 +36,7 @@ export const BEFORE = {
     "--     G3 就会**结构性消失**。这就是 mark_input_swallowed 的价值。",
     "--═════════════════════════════════════════════════════════════",
   ],
-  484: [
+  "Input:GetAnalogControlValue#1": [
     "-- ★★ GetAnalogControlValue —— 模拟量版本（摇杆推力）。",
     "--   control = self:ResolveVirtualControls(control)",
     "--   return control and TheSim:GetAnalogControl(control) or 0",
@@ -49,7 +49,7 @@ export const BEFORE = {
     "-- ★★★ 486 与 481 有**同样的绕过仲裁问题**（480 行同样到 TheSim）。",
     "--   ⇒ playercontroller 的摇杆瞄准也读物理模拟量。",
   ],
-  489: [
+  "Input:GetActiveControlScheme#1": [
     "-- ══════════════════════════════════════════════════════════════",
     "-- ★★ 【GetActiveControlScheme】—— 「当前用哪套方案」。",
     "-- 【★ 490-491 的原注释很重要】",
@@ -71,14 +71,14 @@ export const BEFORE = {
     "--   ⚠ 但 ControllerAttached 91 行读缓存（PC 上）所以较便宜。",
     "--   ⇒ 标注为「潜在热点，靠缓存缓解」。",
   ],
-  495: [
+  "Input:SupportsControllerFreeAiming#1": [
     "-- ★ SupportsControllerFreeAiming —— 「当前方案支持自由瞄准？」",
     "--   return scheme >= 4 and scheme <= 7",
     "-- ★★ 与 325 IsTwinStickAiming 的 `scheme < 4 or scheme > 7` 互为取反。",
     "--   ⇒ 印证「双摇杆只在方案 4-7 支持」。",
     "-- ★ 消费者：控制设置界面（决定是否显示某个选项）。",
   ],
-  500: [
+  "Input:SupportsControllerFreeCamera#1": [
     "-- ★ SupportsControllerFreeCamera —— 「支持自由摄像机？」",
     "--   return scheme >= 2 and scheme <= 7",
     "-- ★★ 比 495 宽（2 起）。★ 这是 398行",
@@ -86,12 +86,12 @@ export const BEFORE = {
     "--   ⇒ 方案 2 起有虚拟摄像机控制（其中偶数方案需修饰键）。",
     "-- ★★ 三个 Supports 函数构成了「方案能力查询」的公共 API。",
   ],
-  505: [
+  "Input:IsPasteKey#1": [
     "-- ══════════════════════════════════════════════════════════════",
     "-- 段 5/6：★ 平台适配与鼠标穿透（505-576）",
     "-- ================================================================",
   ],
-  505: [
+  "Input:IsPasteKey#1": [
     "-- ★★ IsPasteKey —— 「这个键是粘贴键吗」（跨平台）。",
     "-- 【★ 三个平台的差异（505-513）】",
     "--  macOS  → Cmd+V（LSUPER / RSUPER）",
@@ -109,7 +109,7 @@ export const BEFORE = {
     "--   ⇒ ★ 实际是安全的：因为第二个条件是布尔比较。",
     "-- ★★ 消费者：widgets/textedit.lua（粘贴功能）。",
   ],
-  515: [
+  "Input:UpdateEntitiesUnderMouse#1": [
     "-- ══════════════════════════════════════════════════════════════",
     "-- ★★★★ 【UpdateEntitiesUnderMouse】—— 鼠标拾取的显式触发。",
     "--",
@@ -124,7 +124,7 @@ export const BEFORE = {
     "--   ⇒ 主机上调用它会做一次无用的 C++ 拾取。",
     "--   ⇒ 轻微性能问题，无功能影响。标注为「轻度不一致」。",
   ],
-  516: [
+  "Input:UpdateEntitiesUnderMouse#1+1": [
     "-- ★★ TheSim:GetEntitiesAtScreenPoint —— ★ 实体拾取的 C++ 实现。",
     "-- 【★★★ 这就是「UI 与世界共用一套鼠标命中」的技术底座】",
     "--   返回一个**列表**（按深度/距离排序），包含：",
@@ -141,7 +141,7 @@ export const BEFORE = {
     "--       ★★ 它的任何 UI 实体都**无法被鼠标命中**！",
     "--   ⇒⇒ 这是缺陷 G4 的**物理层后果**，比 1105 行的逻辑不对称更致命。",
   ],
-  519: [
+  "Input:OnUpdate#1": [
     "-- ══════════════════════════════════════════════════════════════",
     "-- ★★★★ 【OnUpdate】—— ★★ 每帧鼠标穿透判定（519-571，53 行）",
     "--",
@@ -167,7 +167,7 @@ export const BEFORE = {
     "--  559-569  变化检测 → 派发 mouseover / mouseout",
     "--─────────────────────────────────────────────────────────────",
   ],
-  524: [
+  "Input:OnUpdate#1+5": [
     "-- ★★ client_forward_target —— 「实体代理」机制。",
     "-- 【★ 联机下的实体分层】",
     "--   客户端上，一个「远端玩家」可能有多个实体：",
@@ -179,7 +179,7 @@ export const BEFORE = {
     "--   输入系统的鼠标命中结果需要经过一层「代理解析」。",
     "--   ⇒ 参见 04-联机同步报告的「classified 实体模式」章节。",
   ],
-  526: [
+  "Input:OnUpdate#1+7": [
     "-- ★★★★ 【★★ CanMouseThrough 穿透循环】526-557",
     "-- 【★ 三个 break 条件（决定何时停止往里找）】",
     "--  533-541  nextinst 为 nil、或是玩家、或是「世界/HUD 属性变化」",
@@ -197,7 +197,7 @@ export const BEFORE = {
     "--   「当前已选实体 + 它是否允许继续穿透 + 若穿透到底是否放弃」。",
     "--   ⇒ 这是一个干净的状态机写法。",
   ],
-  527: [
+  "Input:OnUpdate#1+8": [
     "-- ★★ `local mousethrough, keepnone = inst:CanMouseThrough()` ——",
     "--   ★★ **鸭子类型探测**：只有实现了 CanMouseThrough 的实体才回答。",
     "--   （526 行先判 `inst.CanMouseThrough ~= nil`）",
@@ -211,7 +211,7 @@ export const BEFORE = {
     "--   ⇒ 框架没有「纯装饰」这一类别，只有「可穿透 / 不可穿透」二元。",
     "--   ⇒ 这是 G2 的**机制层根因**。",
   ],
-  533: [
+  "Input:OnUpdate#1+14": [
     "-- ★★★ 三个 break 条件的合取（533-535）—— 「跨类型不穿透」。",
     "--   nextinst == nil or",
     "--   nextinst:HasTag(\"player\") or",
@@ -230,7 +230,7 @@ export const BEFORE = {
     "--   ⇒★ 所以「点 UI 不穿透到世界」这条规则在此实现。",
     "--     ★★ 这也解释了为什么点击 UI 不会同时攻击底下的怪物。",
   ],
-  536: [
+  "Input:OnUpdate#1+17": [
     "-- ★★ keepnone 分支：「穿透到底就什么都不选」。",
     "--   537  inst = nextinst",
     "--   538  mousethrough, keepnone = false, false",
@@ -246,7 +246,7 @@ export const BEFORE = {
     "--     553 是「所有层都穿透且最后说 keepnone，全放弃」。",
     "--   ⇒ 标注为「两处 keepnone 语义不同，需仔细区分」。",
   ],
-  544: [
+  "Input:OnUpdate#1+25": [
     "-- ★★ 544-548 的推进：无论穿透与否都把 inst 设为 nextinst。",
     "--   544  if nextinst.CanMouseThrough == nil then",
     "--   545      mousethrough, keepnone = false, false   ← 无方法 = 不可穿透",
@@ -257,7 +257,7 @@ export const BEFORE = {
     "--   ⇒ 怪物、物品等玩法实体默认「实心」，能挡住后面的 UI。",
     "--   ⇒ 这就是「点怪物」能工作的原因。",
   ],
-  553: [
+  "Input:OnUpdate#1+34": [
     "-- ★★ 循环结束后的 keepnone 收尾：全穿透且要求放弃 → inst = nil。",
     "-- ★★ 553 行 `if mousethrough and keepnone then` ——",
     "--   循环自然结束（没被 break）时，mousethrong 仍为 true",
@@ -265,7 +265,7 @@ export const BEFORE = {
     "--   ⇒ 置 nil ⇒ hoverinst = nil ⇒ frontend.lua:935 走屏幕级兜底。",
     "-- ★★ 与 536-540 的对照见该行分析。",
   ],
-  559: [
+  "Input:OnUpdate#1+40": [
     "-- ══════════════════════════════════════════════════════════════",
     "-- ★★ 【mouseover / mouseout 派发】559-569 —— hover 的副作用",
     "-- 【★ 变化检测：`if inst ~= self.hoverinst then`】",
@@ -282,7 +282,7 @@ export const BEFORE = {
     "--   ⇒ 与 widget.lua:187 的 HandleEvent（同步）不同。",
     "--   ⇒ ⚠ 「hoverinst 已更新但 mouseout 还没处理」可能发生。",
   ],
-  573: [
+  "Input:IsControlMapped#1": [
     "-- ★ IsControlMapped —— 「这个控制码有绑定吗」。",
     "-- ★★ 574 行 GetLocalizedControl(..., false, true) 与 598 相同，",
     "--   区别是这里只看返回的 device/numInputs，不取文本。",
@@ -291,7 +291,7 @@ export const BEFORE = {
     "--   ⇒ ★ 「9」在本地化表里是一个特殊条目。",
     "-- ★ 消费者：控制设置界面（判断是否要显示「未绑定」）。",
   ],
-  578: [
+  "Input:ControlsHaveSameMapping#1": [
     "-- ★★ ControlsHaveSameMapping —— 「这两个控制码绑的是同一个东西吗」。",
     "-- 【★ 实现：逐字段比较 8 个返回值】",
     "--   device_1~4, numInputs, input1_1~3, intParam_1 —— 共 8 个",
@@ -304,12 +304,12 @@ export const BEFORE = {
     "--   ⇒ ★ 未绑定的控制码**不算相同**（哪怕都未绑定）。",
     "--   ⇒ 合理：两个「未绑定」不构成冲突。",
   ],
-  593: [
+  "Input:GetLocalizedControl#1": [
     "-- ══════════════════════════════════════════════════════════════",
     "-- 段 6/6：★★ 本地化与全局桥接（593-780）",
     "-- ================================================================",
   ],
-  593: [
+  "Input:GetLocalizedControl#1": [
     "-- ★★ GetLocalizedControl —— 「这个控制码现在绑的是哪个键（人类可读）」。",
     "-- 【★ 594-596 的分发】",
     "--   if controlId >= VIRTUAL_CONTROL_START then",
@@ -328,7 +328,7 @@ export const BEFORE = {
     "--     string.format 会报错或格式化失败。这里用 and/or 规避 ✓",
     "--   ⇒ 与 675 行的同类模式呼应。",
   ],
-  600: [
+  "Input:GetLocalizedControl#1+7": [
     "-- ★★ 600-604 的三态返回：",
     "--   601  device == nil → STRINGS.UI.CONTROLSSCREEN.INPUTS[9][1]",
     "--        ⇒ ★ 设备号 9 的本地化文本（哨兵，通常是「未知」）",
@@ -337,14 +337,14 @@ export const BEFORE = {
     "-- ★★ 三态区分得很清楚：**未知设备 / 未绑定 / 已绑定**。",
     "--   ⇒ 说明按键设置界面要处理这三种显示。",
   ],
-  606: [
+  "Input:GetLocalizedControl#1+13": [
     "-- ★ local inputs = { input1, input2, input3, input4 } —— 收集四个输入。",
     "-- ★★ 607 行只用 inputs[1]（text 从 input1 开始），",
     "--   609-611 循环从 idx=2 追加。",
     "-- ⚠ 若 numInputs > 4（比如绑了 5 个键）？",
     "--   C++ 最多返回 4 个，所以不会。⚠ 但代码没有断言。",
   ],
-  617: [
+  "Input:GetLocalizedVirtualControl#1": [
     "-- ══════════════════════════════════════════════════════════════",
     "-- ★★ 【GetLocalizedVirtualControl】—— 本地化版的虚拟层（617-678）",
     "-- 【★★ 它是 339-477 ResolveVirtualControls 的「镜像」】",
@@ -365,7 +365,7 @@ export const BEFORE = {
     "--   ⇒★ 这是一个真实的维护隐患：改一处忘另一处。",
     "--─────────────────────────────────────────────────────────────",
   ],
-  618: [
+  "Input:GetLocalizedVirtualControl#1+1": [
     "-- ★★ `Profile:GetControlScheme(CONTROL_SCHEME_CAM_AND_INV) or 1` ——",
     "-- ★★★ 注意与 489 GetActiveControlScheme 的**关键差异**：",
     "--   489  有 `self:ControllerAttached() and ...`（键鼠强制方案 1）",
@@ -378,7 +378,7 @@ export const BEFORE = {
     "--   ⇒ ★ 这是设置界面与运行时的**不同需求**。",
     "--   ⇒ 618 行的 `or 1` 只在 Profile 里没这个键时兜底。",
   ],
-  649: [
+  "Input:GetLocalizedVirtualControl#1+32": [
     "-- ⚠⚠⚠ 【★ 未定义全局 player —— 本文件最实的一个缺陷】",
     "--",
     "-- 原代码：if needsmodifier and player.HUD and player.HUD:IsControllerInventoryOpen() then",
@@ -418,11 +418,11 @@ export const BEFORE = {
     "--     ★ 这个模式（从 ResolveVirtualControls 复制到本地化函数时",
     "--       漏掉 local 声明）在两个函数间迁移代码时很常见。",
   ],
-  655: [
+  "Input:GetLocalizedVirtualControl#1+38": [
     "-- ★★ 655 行 D-pad 预设（与 653 的 R 摇杆对应）。",
     "-- ★★ 与 430 行的 ResolveVirtualControls 分支完全对称 ✓",
   ],
-  674: [
+  "Input:GetLocalizedVirtualControl#1+57": [
     "-- ★★★ 674-676 的修饰键前缀拼接。",
     "--   if needsmodifier then",
     "--       text = self:GetLocalizedControl(..., CONTROL_CAM_AND_INV_MODIFIER, ...)",
@@ -433,7 +433,7 @@ export const BEFORE = {
     "--   ⇒ 可能显示「有修饰键」但实际不生效（或反之）。",
     "--   ⇒ 见 617 行完整分析。",
   ],
-  680: [
+  "Input:GetLocalizedVirtualControl#1+63": [
     "-- ══════════════════════════════════════════════════════════════",
     "-- ★★ 【GetLocalizedVirtualDirectionalControl】681-710",
     "-- 【★ 它的存在理由（680 行原注释）】",
@@ -450,7 +450,7 @@ export const BEFORE = {
     "-- ★★ 682 行的 GetLocalizedControl 调用与 598 相同",
     "--   但参数是 modifierId 而非 controlId。",
   ],
-  712: [
+  "Input:GetControlIsMouseWheel#1": [
     "-- ══════════════════════════════════════════════════════════════",
     "-- ★★★ 【GetControlIsMouseWheel】—— ⚠⚠ 最脆弱的一个判定",
     "-- 【★ 实现（712-719）】",
@@ -477,14 +477,14 @@ export const BEFORE = {
     "-- ⇒⇒ 标注为 ⚠⚠⚠ 疑似缺陷（靠本地化字符串做行为判定）。**不改代码**。",
     "--─────────────────────────────────────────────────────────────",
   ],
-  716: [
+  "Input:GetControlIsMouseWheel#1+4": [
     "-- ⚠ 716 行 GetLocalizedControl(0, controlId) —— 设备号写死 0。",
     "-- ★★ 0 是键鼠设备（呼应 31 行跳过 0 号）。",
     "-- ★ 713 行的 `if self:ControllerAttached() then return false end`",
     "--   ⇒ 手柄玩家直接返回 false（手柄没有滚轮）✓",
     "-- ⇒ 714-715 行是快速路径，避免手柄玩家走慢路径。",
   ],
-  717: [
+  "Input:GetControlIsMouseWheel#1+5": [
     "-- ★★ `STRINGS.UI.CONTROLSSCREEN.INPUTS[1]` —— 设备 1 的字符串表。",
     "-- ⚠⚠ 注意这里取 [1]，而 609-611 取 [device]（device 来自 C++）。",
     "--   ⇒ ★★ 索引不一致！716 行的 device 可能是别的值，但这里写死 1。",
@@ -495,21 +495,21 @@ export const BEFORE = {
     "--     就会**误判**。",
     "--   ⇒ 标注为「索引不一致的潜在误判」，与 712 的脆弱性叠加。",
   ],
-  721: [
+  "Input:GetStringIsButtonImage#1": [
     "-- ★ GetStringIsButtonImage —— 「这个字符串是手柄图标吗」。",
     "-- ★★ 722-726 行查四张表（2/4/5/7/8）—— 各种手柄类型的图标表。",
     "-- ★★ 用 or 串起 5 次 table.contains —— 无缓存，",
     "--   但只在渲染设置界面时调用，频率低 ✓",
     "-- ★ 消费者：按键设置界面（决定显示文字还是图标）。",
   ],
-  729: [
+  "Input:PlatformUsesVirtualKeyboard#1": [
     "-- ★ PlatformUsesVirtualKeyboard —— 「这个平台用屏幕键盘吗」。",
     "--   return IsConsole() or IsSteamDeck()",
     "-- ★★ 只有主机与 Steam Deck（触屏）用虚拟键盘。",
     "--   PC 用真实键盘 ⇒ 不用。",
     "-- ★ 消费者：widgets/textedit.lua（决定要不要弹虚拟键盘）。",
   ],
-  738: [
+  "Input:PlatformUsesVirtualKeyboard#1+9": [
     "-- ══════════════════════════════════════════════════════════════",
     "-- ★★★ 【全局桥接】738-780 —— C++ 与 Lua 的最后一道接缝",
     "--",
@@ -541,7 +541,7 @@ export const BEFORE = {
     "--     **仲裁链的最后一跳也有哨兵保护**。",
     "--─────────────────────────────────────────────────────────────",
   ],
-  740: [
+  "Input:PlatformUsesVirtualKeyboard#1+11": [
     "-- ★★★★ TheInput = Input() —— 唯一的实例化点。",
     "-- 【★★ 为什么放在文件末尾（780 行 return 之前）？】",
     "--   ① Class / EventProcessor 必须在 require 之后才可用；",
@@ -553,20 +553,20 @@ export const BEFORE = {
     "--   TheInput 是「正确的全局」，但 Input（8 行）也仍是全局。",
     "--   ⇒ 全局表里有两个名字指向同一个东西。",
   ],
-  742: [
+  "OnFloatingTextInputDismissed#1": [
     "-- ★★ 全局 OnFloatingTextInputDismissed —— C++ 侧调用点。",
     "--   原注释 \"-- called from C++\" ★ 直接写在函数上方。",
     "-- ★★ 这种「C 绑定点」的注释很有价值：",
     "--   它明确告诉读者「这个函数不能改名/改签名」。",
     "-- ★ 与 200 行的方法同名（不同层级）。",
   ],
-  746: [
+  "OnPosition#1": [
     "-- ★★ 全局 OnPosition —— 鼠标移动（C++ 调用）。",
     "--   → TheInput:UpdatePosition（155 行）→ self.position 事件",
     "-- ★★ 注意**不**走 TheFrontEnd（那是 OnMouseMove 760）。",
     "--   ⇒ 两条鼠标移动通路在 C 侧就已经分开。",
   ],
-  750: [
+  "OnPosition#1+4": [
     "-- ★ ValidateLineNumber(750) —— 框住全局 OnControl。",
     "-- ★★ 与 162 行的哨兵成对：",
     "--   162/171 框住 **Input:OnControl 方法**",
@@ -574,7 +574,7 @@ export const BEFORE = {
     "--   ⇒★★ 仲裁链的**最后两跳**都有哨兵。",
     "--   ⇒ 说明 Klei 对这个入口极其重视（改过很多次）。",
   ],
-  751: [
+  "OnControl#1": [
     "-- ★★ 全局 OnControl —— ★ C++ 输入的最终入口。",
     "--   → TheInput:OnControl（163）★ 仲裁在这里",
     "-- 【★ 与 163 的签名完全一致】",
@@ -582,10 +582,10 @@ export const BEFORE = {
     "--   （对比 166 行 UI 调用只传两个 —— 那是另一个调用点）",
     "-- ★★ 751 是「C++ → Lua」的边界，753 是「回到 Lua」的边界。",
   ],
-  754: [
+  "OnControl#1+3": [
     "-- 第二个 ValidateLineNumber，框住全局 OnControl 结束（754 = end 行）。",
   ],
-  756: [
+  "OnMouseButton#1": [
     "-- ★★ 全局 OnMouseButton —— ★★ 注意第三个参数名是 is_up。",
     "--   原注释之外的线索：`is_up`（抬起）而不是 `down`（按下）。",
     "--   ⚠ 参数名与 179 行的 down **相反**！",
@@ -599,27 +599,27 @@ export const BEFORE = {
     "--   ⇒ **这是全文件统一的命名风格**（C 侧叫 is_up，Lua 侧叫 down）。",
     "--   ⇒ 标注为「跨语言命名不一致，易误读」而非缺陷。",
   ],
-  760: [
+  "OnMouseMove#1": [
     "-- ★ 全局 OnMouseMove —— → TheInput:OnMouseMove（173）。",
     "-- ★★ 与 746 OnPosition 是**两个不同的全局**（见 738 段分析）。",
   ],
-  764: [
+  "OnInputKey#1": [
     "-- ★ 全局 OnInputKey —— → TheInput:OnRawKey（186）。",
     "-- ★★ 参数名 is_up 同 756 行，Lua 侧叫 down。命名不统一。",
   ],
-  768: [
+  "OnInputText#1": [
     "-- ★ 全局 OnInputText —— → TheInput:OnText（195）。",
     "-- ★★ 这是 IME 文本的 C 入口。",
   ],
-  772: [
+  "OnGesture#1": [
     "-- ★ 全局 OnGesture —— → TheInput:OnGesture（233）。",
     "-- ⚠ 对应 233 的 AddGestureHandler 全库无调用者 ⇒ 疑似死链路。",
   ],
-  776: [
+  "OnControlMapped#1": [
     "-- ★ 全局 OnControlMapped —— → TheInput:OnControlMapped（237）。",
     "-- ★★ 键位映射变更的 C 入口。",
   ],
-  780: [
+  "OnControlMapped#1+4": [
     "-- ★ return Input —— 导出类本身。",
     "-- ★★ 与 TheInput（740）不同：返回的是**类**，不是实例。",
     "--   ⇒ 其它文件可以 `local Input = require(\"input\")` 做继承。",

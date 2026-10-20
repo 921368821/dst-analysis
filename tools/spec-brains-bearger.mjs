@@ -67,7 +67,7 @@ export default {
   ],
 
   // ══════════════ 吃地面食物 ══════════════
-  32: [
+  "EatFoodAction#1": [
     '-- ★★★ EatFoodAction 的双重 busy 检查（★ 容易看漏的一处设计）。',
     '-- 【第 33-35 行】if 忙 且 【没有 wantstoeat 标签】 → 退出',
     '--   ★★ 特殊在 and not：忙【但】处于「想要吃东西」状态时【不退出】。',
@@ -83,14 +83,14 @@ export default {
     '--   ⚠️ 若删掉第 33 行的 not wantstoeat，行为几乎不变 —— 属冗余条件。',
     '--   已逐字核对第 33、37、46 行确认这个结构。标为冗余，非缺陷。',
   ],
-  50: [
+  "EatFoodAction#1+18": [
     '-- ★ 搜索时用 eater:GetEdibleTags() 动态获取可吃标签（而非硬编码）。',
     '--   ★★ 与 buzzardbrain 第 42 行 FOOD_TAGS 的做法同源：',
     '--     「能吃什么」由配置决定，大脑不硬编码。',
     '--   ★ 但 buzzard 是模块加载时算一次，这里是每次调用现算。',
     '--     （GetEdibleTags 可能有缓存，未核实其实现。）',
   ],
-  55: [
+  "EatFoodAction#1+23": [
     '-- ★★★ 蜂蜜【优先于】其他食物（找到就立即返回，不进兜底）。',
     '--   第 56 行 return BufferedAction(inst, v, ACTIONS.PICKUP) 直接返回；',
     '--   第 57-59 行 elseif target == nil then target = v 只暂存第一个非蜂蜜食物。',
@@ -100,7 +100,7 @@ export default {
   ],
 
   // ══════════════ 偷窃来源：两段式决策 ★ 本文件核心 ══════════════
-  67: [
+  "StealFoodAction#1": [
     '-- ★★★ StealFoodAction —— 「两段式决策」的完整实现。',
     '--',
     '-- 【★ 源码注释直接写出了优先级（第 68 行）】',
@@ -123,7 +123,7 @@ export default {
     '--   ★ 即【同一个「获取食物」的意图，按来源映射到不同动作】。',
     '--     与 mermbrain 第 537-543 行 GiveAction 的三选一分派同思路。',
   ],
-  82: [
+  "StealFoodAction#1+15": [
     '-- ★★★ 一次搜索，收集所有候选（第 82-144 行）。',
     '-- 【★ 第 83 行的双重前置】IsValid 且 IsOnValidGround',
     '--   ★ 所有来源统一要求「在有效地面上」—— 排除水面/空中/岩浆。',
@@ -149,7 +149,7 @@ export default {
     '--   ★★★ 所以 honeyed_backpack 存的是物品、其他来源存的是容器/结构。',
     '--     「存什么」取决于后续动作需要什么 —— 很好的抽象。',
   ],
-  106: [
+  "StealFoodAction#1+39": [
     '-- ★★★ 第 110 行 targets.fridge = nil —— 撤销次优候选。',
     '--   ★★ 语义：「这台冰箱里有蜂蜜」→ 之前的普通冰箱记录作废。',
     '--   ★★ 第 111-113 行的 elseif 保证了只有【还没找到蜂蜜冰箱】时才记 fridge。',
@@ -157,7 +157,7 @@ export default {
     '--     必须靠「发现更优就作废次优」来保证最终取到最好的。',
     '--   ★ 第 120 行与第 129 行在箱子/背包分支里也做了同样的作废处理。',
   ],
-  147: [
+  "StealFoodAction#1+80": [
     '-- ★★★ 优先级 if/elseif 链（第 147-169 行），★ 顺序即第 68 行注释的顺序。',
     '--   ① stewer        → HARVEST  第 148 行',
     '--   ② beebox        → HARVEST  第 150 行',
@@ -180,10 +180,10 @@ export default {
   ],
 
   // ══════════════ 攻击蜂巢 ══════════════
-  172: [
+  "StealFoodAction#1+105": [
     '-- ★ 攻击蜂巢：熊讨厌蜜蜂，有特殊仇恨。',
   ],
-  174: [
+  "AttackHiveAction#1": [
     '-- ★★ AttackHiveAction 的过滤条件（第 178-181 行）：',
     '--   combat:CanTarget(guy)（能攻击它）且 IsOnValidGround（够得着）',
     '--   ★ 与其他攻击判定一致，无特殊之处。',
@@ -192,7 +192,7 @@ export default {
   ],
 
   // ══════════════ 「是否到了基地」 ══════════════
-  185: [
+  "ShouldEatFoodFn#1": [
     '-- ★★★ ShouldEatFoodFn —— 一个「单向锁存」的判定，与 pigelite 第 148 行同思路。',
     '-- 【第 188-194 行】一次性探索',
     '--   if not inst.seenbase then',
@@ -210,7 +210,7 @@ export default {
   ],
 
   // ══════════════ 季节迁徙 ══════════════
-  198: [
+  "GetHome#1": [
     '-- ★★ GetHome：★ 只在【夏季】有家，其他季节返回 nil。',
     '--   return TheWorld.state.issummer and inst.components.knownlocations:GetLocation("spawnpoint") or nil',
     '--   ★★★ 季节性归属 —— 温蒂的故事设定她夏天住在玩家营地。',
@@ -219,7 +219,7 @@ export default {
     '--     GetLocation 返回坐标或 nil，安全。',
     '--   ★ 返回 nil 时，Wander（第 289 行）与 Leash 会退回「自身位置」为锚点。',
   ],
-  202: [
+  "GetTargetDistance#1": [
     '-- ★★★ GetTargetDistance —— 季节决定的游荡半径。',
     '--   夏季 → BEARGER_SHORT_TRAVEL（短）',
     '--   秋季 → BEARGER_LONG_TRAVEL（长）★ 迁徙季',
@@ -230,7 +230,7 @@ export default {
     '--     取决于 behaviours/wander.lua 对 maxdist=0 的处理，未核实。',
     '--     标为不确定处，不下结论。',
   ],
-  209: [
+  "GetWanderDirection#1": [
     '-- GetWanderDirection / SetWanderDirection（第 214 行）：游荡方向的自定义。',
     '-- ★★★ 第 298-299 行把它们作为 Wander 的第 6、7 参传入。',
     '--   ★ 机制：每次决定游荡方向时先调 getter 拿到上次的方向，',
@@ -242,13 +242,13 @@ export default {
   ],
 
   // ══════════════ 冲锋的距离函数 ══════════════
-  219: [
+  "SetWanderDirection#1+5": [
     '-- ★★ OUTSIDE_CATAPULT_RANGE —— 「追不上」的判定距离。',
     '--   = 投石车最大射程 + 目标保持缓冲 + 最大可行走平台半径 + 1',
     '--   ★★★ 由四个可调参数【推导】出来，而非硬编码。',
     '--     ★ 移植价值：这类复合常量应写成推导式，改平衡时自动同步。',
   ],
-  220: [
+  "OceanDistanceTest#1": [
     '-- ★★★ OceanDistanceTest —— 「目标在海上时该跑多远」。',
     '-- 【语义：一个三元选择】',
     '--   满足全部三条 → TUNING.BEARGER_ATTACK_RANGE - 0.25（够得着，就追）',
@@ -268,7 +268,7 @@ export default {
     '-- ⚠️ 第 221 行 not inst.components.timer:TimerExists("GroundPound")',
     '--   未判 timer 组件存在，隐式假定熊总有 timer。',
   ],
-  228: [
+  "InRamDistance#1": [
     '-- ★★★ InRamDistance —— 「该不该冲锋」的三段判定。',
     '-- 【第 229-231 行】已在 10 格内 → 【不冲锋】（Return false）',
     '--   ★★ 关键：近距离时不冲锋，因为普通攻击更快。',
@@ -283,29 +283,29 @@ export default {
   ],
 
   // ══════════════ OnStart ══════════════
-  247: [
+  "InRamDistance#1+19": [
     '-- ★ Class 定义。与其他文件同款，构造只调父类。',
   ],
-  251: [
+  "BeargerBrain:OnStart#1": [
     '-- ★★ OnStart：★ 只有一个「状态守卫」（第 254-259 行）。',
     '--   ★ 与 pigbrain 等（多层守卫）不同，熊只有一层。',
   ],
-  252: [
+  "BeargerBrain:OnStart#1+1": [
     '-- ★ ismutated 局部捕获（与 shadowwaxwell 第 293 行、buzzard 第 331 行同款）。',
   ],
-  254: [
+  "BeargerBrain:OnStart#1+3": [
     '-- ★★ 状态守卫：不在跳跃、不在被击退（staggered）。',
     '--   ★★ 【两个】状态而非一个 —— 因为熊有两个招牌动作。',
     '--   ★ 与 pigelitebrain 第 196 行正好相反：那边是「跳跃时空转」，',
     '--     这里是「跳跃/被击退时停工」。★ 对照阅读能避免混淆。',
   ],
-  261: [
+  "BeargerBrain:OnStart#1+10": [
     '-- ★ 普通熊才会恐慌；变异体不会（已被 gestalt 支配）。',
     '--   ★ 与 buzzardbrain 第 339 行同一模式：not ismutated 才恐慌。',
     '--   ★ buzzard 源码第 21 行注释明确写了这条（变异体被 gestalt 支配），',
     '--     本文件无注释，但模式相同，推测同因。标为推测。',
   ],
-  264: [
+  "BeargerBrain:OnStart#1+13": [
     '-- ★★★ 「冲锋」的完整条件（第 265-273 行），★ 四重与：',
     '--  1) ★ 第 266-268 行 canrunningbutt 为假，或没有 GroundPound 定时器',
     '--     ★ 「已经在地锤」→ 不冲锋。canrunningbutt 由 prefab 提供的状态标志。',
@@ -318,7 +318,7 @@ export default {
     '--     不是标准的 ChaseAndAttack —— 熊有独特的冲锋动作。',
     '--   ★ 移植提示：复合节点（动作 + 额外约束）在 DST 里很常见。',
   ],
-  277: [
+  "BeargerBrain:OnStart#1+26": [
     '-- ★★ 标准追击：ChaseAndAttack(inst, TUNING.BEARGER_MAX_CHASE_TIME, 60, nil, nil, true, OceanDistanceTest)',
     '-- 【七个参数的完整解读（第 277 行）】',
     '--   1) inst',
@@ -332,7 +332,7 @@ export default {
     '--   ★ 对比其他大脑的第 7 参通常是常量或 nil。',
     '--   ⚠️ 第 6 参 true 的确切语义未核实（未读 behaviours/chaseandattack.lua）。',
   ],
-  279: [
+  "BeargerBrain:OnStart#1+28": [
     '-- ★★★ 「到了基地」才主动找吃的（第 279-283 行）。',
     '--   优先级：EatFoodAction（地上的）→ StealFoodAction（翻冰箱箱子）',
     '--   ★★ 与第 285-286 行的无条件版本构成对照：',
@@ -342,7 +342,7 @@ export default {
     '--   ★ 实际效果：seenbase 时先翻冰箱再吃地上的；否则先吃地上的再翻。',
     '--   ★ 微妙的优先级差异，属有意设计（优先级文档见第 68 行）。',
   ],
-  285: [
+  "BeargerBrain:OnStart#1+34": [
     '-- ★ 无条件觅食（第 285-286 行）。',
     '--   ★★★ 与第 279-283 行重复出现是【刻意的】而非冗余，',
     '--     因为 PriorityNode 的顺序即优先级，两处的顺序不同：',
@@ -353,12 +353,12 @@ export default {
     '--   结论：第 279-283 行与第 285-286 行功能重复，属冗余代码。',
     '--   ★ 不影响行为（两者都会跑），标为结构冗余而非缺陷。',
   ],
-  287: [
+  "BeargerBrain:OnStart#1+36": [
     '-- ★ 攻击蜂巢。第 5 参传 7（DoAction 的间隔/冷却参数）。',
     '--   ★★ 优先级在觅食【之后】 —— 饿了先吃饭，饱了才去砸蜂巢。',
     '--   ★ 符合「有需求先满足需求」的一般原则。',
   ],
-  289: [
+  "BeargerBrain:OnStart#1+38": [
     '-- ★★ Wander 的【9 个位置参数】调用（本项目最复杂的 Wander 用法）。',
     '--   第 290 行 GetHome         —— 锚点（夏季才有家）',
     '--   第 291 行 GetTargetDistance —— ★ 半径函数（季节决定）',
@@ -370,10 +370,10 @@ export default {
     '--   ★ 对比 pigbrain 第 370-374 行（停 5-10 秒）—— 相差近百倍。',
     '--   ★ 数值差异直接反映角色：猪在村里闲逛，熊在路上奔波。',
   ],
-  301: [
+  "BeargerBrain:OnStart#1+50": [
     '-- StandStill：最后的兜底，保证 root 永不会全失败。',
   ],
-  308: [
+  "BeargerBrain:OnInitializationComplete#1": [
     '-- ★★ OnInitializationComplete：记住出生点。',
     '--   第 309 行 RememberLocation("spawnpoint", 位置, true)',
     '--   ★★ 必须在这里做 —— 因为第 199 行 GetHome 依赖这个 key。',

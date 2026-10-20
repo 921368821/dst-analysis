@@ -2,7 +2,7 @@
 // DoReset / WorldResetFromSim / WorldRollbackFromSim / 标签元数据 / StartDedicatedServer / 快速加入 / 好友管理器
 
 export const BEFORE = {
-  715: [
+  "DoReset#1": [
     "--★★★[DoReset —— ★「读档重启」的最小实现]",
     "--   ★★★ 只做一件事：StartNextInstance({ reset_action = RESET_ACTION.LOAD_SLOT, save_slot = ShardGameIndex:GetSlot() })",
     "--   ★★★ 与 :647 do_join_server 的对比（同构，不同参数）：",
@@ -11,7 +11,7 @@ export const BEFORE = {
     "--   ★★ 「重载当前存档」= 重启进程 + LOAD_SLOT。",
     "--   ★ 交叉参考：:722 WorldResetFromSim（重置世界）和 :733 WorldRollbackFromSim（回滚）。",
   ],
-  722: [
+  "WorldResetFromSim#1": [
     "--★★★[WorldResetFromSim —— ★★ 「重置世界」（回到空白存档）]",
     "--   ★★★ 第 723 行的守卫：`if TheWorld ~= nil and TheWorld.ismastersim then`",
     "--     ★★ **只有主模拟端**才能重置世界（客户端不能）。",
@@ -35,7 +35,7 @@ export const BEFORE = {
     "--         ★★★ 即「用同样的设置重新生成一个新世界」。",
     "--         ★★ 这是「保设置、重内容」的语义，区别于「彻底删档」。",
   ],
-  733: [
+  "WorldRollbackFromSim#1": [
     "--★★★★★[WorldRollbackFromSim —— ★★★ 存档回滚（★ 本文件最精妙的逻辑）]",
     "--   ★★★ 第 734 行守卫：`if TheWorld ~= nil and TheWorld.ismastershard then`",
     "--     ★★★ 注意是 **ismastershard**（不是 ismastersim）—— ★★ 比 :723 更严格！",
@@ -72,7 +72,7 @@ export const BEFORE = {
     "--   ★★ 交叉参考：net.lua 的 autosaver 组件（自动存档，管理 GetLastSaveTime）。",
     "--   ★★ 这就是网络侧 RPC 回滚与引擎层实体状态回滚的完整链路（★ 服务器本地回滚，非云端）。",
   ],
-  748: [
+  "UpdateServerTagsString#1": [
     "--★★★[UpdateServerTagsString —— ★★ 服务器标签的生成（★ 有已知的重复实现）]",
     "--   ★★★ 原注释（第 749-750 行）：",
     "--     \"--V2C: ughh... well at least try to keep this in sync with",
@@ -96,7 +96,7 @@ export const BEFORE = {
     "--     ★★ 由 C++ 或工具函数提供（推测用逗号分隔）。",
     "--     ★ 交给 TheNet:SetServerTags —— C++ 广播给服务器列表。",
   ],
-  756: [
+  "UpdateServerTagsString#1+8": [
     "--★★[第 756-770 行：四个游戏设置的标签注入]",
     "--   · TheNet:GetDefaultPvpSetting()      → STRINGS.TAGS.PVP",
     "--   · TheNet:GetDefaultFriendsOnlyServer() → STRINGS.TAGS.FRIENDSONLY",
@@ -108,7 +108,7 @@ export const BEFORE = {
     "--     ★★★ 推理：★ 这是**服务器预设**（开服时定的），不是运行时可变。",
     "--       ★ 与 :817 GetDefaultServerData 呼应（那些设置被存进存档）。",
   ],
-  772: [
+  "UpdateServerTagsString#1+24": [
     "--★★[第 772-779 行：世界生成元数据（★ location 标签）]",
     "--   local worldoptions = ShardGameIndex:GetGenOptions()",
     "--   ★★★ ShardGameIndex 是「存档索引」—— 存储当前世界的生成配置。",
@@ -126,13 +126,13 @@ export const BEFORE = {
     "--     ★★ 每一层都判空 → ★ 防御性良好。",
     "--     ★★ string.upper 规范化（★ 枚举存储规范）。",
   ],
-  781: [
+  "UpdateServerTagsString#1+33": [
     "--★ TheNet:SetServerTags(...) —— 提交标签（广播给服务器列表）。",
     "--   ★★★ 「服务器标签」= 服务器列表界面显示的分类标签（PVP/好友限定等）。",
     "--   ★★ 这个函数需要与 prefabs/world.lua:602 的 UpdateServerWorldGenDataString",
     "--     以及本文件 :789 的 GetAvailablePlayerColours 一起理解（都是「对外元数据」）。",
   ],
-  784: [
+  "UpdateServerWorldGenDataString#1": [
     "--★★★[UpdateServerWorldGenDataString —— ★★ 世界生成元数据的广播（★ 多分片合并）]",
     "--   ★★★ 与 :748 的区别（★ 两个函数管两类元数据）：",
     "--     · :748 UpdateServerTagsString      —— 「分类标签」（PVP/好友等）",
@@ -152,7 +152,7 @@ export const BEFORE = {
     "--     · ★★ 而信息分散在各分片 → 主分片收集并汇总。",
     "--     ★ 与 shardnetworking.lua 的分片互联配合。",
   ],
-  786: [
+  "UpdateServerWorldGenDataString#1+2": [
     "--★★[第 786 行：deepcopy(ShardGameIndex:GetGenOptions()) —— ★★ 必须深拷贝！]",
     "--   local worldoptions = deepcopy(ShardGameIndex:GetGenOptions())",
     "--   ★★★ 为什么必须深拷贝（★ 关键）：",
@@ -162,7 +162,7 @@ export const BEFORE = {
     "--     · ★★ 这是本函数最容易出错的地方 —— 拷贝是正确性保障。",
     "--   ★ deepcopy 是本文件唯一的深拷贝调用（对比 :798 的 require(\"map/customize\")）。",
   ],
-  791: [
+  "UpdateServerWorldGenDataString#1+7": [
     "--★★★[第 791-796 行：★★ 合并次分片的世界生成数据]",
     "--   for k, v in pairs(Shard_GetConnectedShards()) do",
     "--       if v.world ~= nil and v.world[1] ~= nil then",
@@ -183,7 +183,7 @@ export const BEFORE = {
     "--       ★ 取 [1] 是「取当前生效的版本」。",
     "--   ★★★ 交叉参考：shardnetworking.lua:73-91（world_data 的沙箱解码）。",
   ],
-  798: [
+  "UpdateServerWorldGenDataString#1+14": [
     "--★★[第 798 行：require(\"map/customize\") —— ★★ 运行时 require（函数内）]",
     "--   local Customize = require\"map/customize\"",
     "--   ★★★ 为什么在函数内 require（而非文件顶部）？",
@@ -196,7 +196,7 @@ export const BEFORE = {
     "--     ★★ shardnetworking.lua 在顶部 require（因为 Shard_SyncWorldSettings 常用），",
     "--       ★ networking.lua 在函数内（因为只在特定时机用）。",
   ],
-  800: [
+  "UpdateServerWorldGenDataString#1+16": [
     "--★★★★[第 800-811 行：★★ 元数据的裁剪（★ 「广播前瘦身」）]",
     "--   for i,world in ipairs(clusteroptions) do",
     "--       if world.overrides == nil then",
@@ -228,7 +228,7 @@ export const BEFORE = {
     "--       ★★ 裁剪的依据：★ 服务器列表不需要精确的生成配置，只需「大致的描述」。",
     "--   ★★★ 这是一个「元数据瘦身」的标准实践：★ 广播前删掉一切非必需项。",
   ],
-  813: [
+  "UpdateServerWorldGenDataString#1+29": [
     "--★★★[第 813 行：★★ 源码自承的技术债]",
     "--   \"--V2C: TODO: Likely to exceed data size limit with custom multilevel worlds\"",
     "--   ★★★ 「自定义多层世界时，很可能超出数据大小限制」。",
@@ -244,7 +244,7 @@ export const BEFORE = {
     "--   ★ 与 :790 的 TODO（modinfo_name）和 :107 的 TODO（V2C 遥测未接）",
     "--     并列构成本文件的「技术债清单」。",
   ],
-  814: [
+  "UpdateServerWorldGenDataString#1+30": [
     "--★★★[第 814 行：★ 世界生成元数据的最终广播]",
     "--   TheNet:SetWorldGenData(DataDumper(ZipAndEncodeSaveData(clusteroptions), nil, true))",
     "--   ★★★★ 三层序列化（★ 注意每层的含义）：",
@@ -265,7 +265,7 @@ export const BEFORE = {
   ],
 
   // ── GetDefaultServerData ───────────────────────────────────────────────
-  817: [
+  "GetDefaultServerData#1": [
     "--★★★[GetDefaultServerData —— ★★ 开服参数的一次性快照]",
     "--   ★★★ 用途：★ 把当前服务器设置「打包」成一张表，存进存档。",
     "--     ★★ 为什么存进存档？",
@@ -295,7 +295,7 @@ export const BEFORE = {
     "--   ★★★ 第 829 行 use_legacy_session_path = nil —— 固定置 nil（向后兼容标记）：",
     "--     ★ 推断：旧版存档路径格式的标记；新版恒为 nil（用新路径）。",
   ],
-  835: [
+  "GetDefaultServerData#1+18": [
     "--★★[第 835-839 行：privacy_type 的四级优先级组合]",
     "--   privacy_type =",
     "--       (TheNet:GetDefaultFriendsOnlyServer() and PRIVACY_TYPE.FRIENDS) or",
@@ -310,7 +310,7 @@ export const BEFORE = {
     "--   ★★★ 第 877 行读回这个值（slot_server_data.use_legacy_session_path）——",
     "--     ★ 说明隐私信息被持久化到存档，跨会话保持。",
   ],
-  849: [
+  "StartDedicatedServer#1": [
     "--★★★[StartDedicatedServer —— ★★ 专服启动的完整时序（★ 三阶段）]",
     "--   ★★★ 三个阶段（★ 本函数结构）：",
     "--     ① 启动网络层（:851-852）；",
@@ -326,7 +326,7 @@ export const BEFORE = {
     "--       · ★ 离线集群（内网，无匹配）→ offline mode。",
     "--     ★★ ★ 这就是「专服」与「离线集群」的区别（一个接互联网，一个不接）。",
   ],
-  856: [
+  "StartDedicatedServer#1+7": [
     "--★★★[第 856-857 行：★★ 时序保证（★ 与 GetDefaultServerData:818 呼应）]",
     "--   \"--V2C: From now on, we want to actually write data into",
     "--    a slot before initiating LOAD_SLOT action on it!\"",
@@ -340,7 +340,7 @@ export const BEFORE = {
     "--     · ★★ 若顺序反了（先读档后写入）→ ★★ 读到空槽位 → 崩或重置。",
     "--   ★★★ 这是本函数「存档 → 重启 → 读档」三阶段的顺序保证。",
   ],
-  862: [
+  "onsaved#1": [
     "--★★★[第 862-866 行：★★ onsaved 回调 —— 「存档完成后再重启」]",
     "--   local function onsaved()",
     "--       TheNet:SetServerPlaystyle(ShardGameIndex:GetServerData().playstyle or PLAYSTYLE_DEFAULT)",
@@ -366,7 +366,7 @@ export const BEFORE = {
     "--     StartServer → SetServerShardData（异步）→ onsaved → SetServerPlaystyle",
     "--     → UpdateServerTagsString → StartNextInstance(LOAD_SLOT)",
   ],
-  868: [
+  "onsaved#1+6": [
     "--★★★[第 868-880 行：★★ 空存档 vs 已有存档的分支处理]",
     "--   if ShardGameIndex:IsEmpty() then",
     "--       ShardGameIndex:SetServerShardData(nil, serverdata, onsaved)",
@@ -405,13 +405,13 @@ export const BEFORE = {
     "--     · 历史字段 → 保持旧值（不能改语义）。",
     "--   ★★ 这与 networking.lua:829 的 use_legacy_session_path = nil 呼应。",
   ],
-  849: [
+  "StartDedicatedServer#1": [
     "--★ ★★★ 【小节标记】StartDedicatedServer 的第 1 阶段在此（:851-852 StartServer）。",
   ],
 };
 
 export const AFTER = {
-  731: [
+  "WorldResetFromSim#1+9": [
     "--★★ WorldResetFromSim 结束。重置 = 删存档 + 重启读档（保留世界生成设置）。",
     "--   ★ 与 :715 DoReset 的区别：★ DoReset 是「读档重启」，",
     "--     ★ 而这里是「删档后读档重启」（Delete 的回调里调 DoReset 逻辑）。",
@@ -419,7 +419,7 @@ export const AFTER = {
     "--     · WorldReset（:722）—— 清空世界内容，保留生成设置；",
     "--     · ★ DoReset（:715）—— 只是重启去读档（存档不变）。",
   ],
-  746: [
+  "WorldRollbackFromSim#1+13": [
     "--★★★ WorldRollbackFromSim 结束（14 行）。★★ 本函数的核心是两个「修正」：",
     "--   ① ★★ 时序：ismastershard（比 ismastersim 严格，因为涉及跨分片快照）。",
     "--   ② ★★ 步数修正：若 30 秒内刚自动存档过，count +1（见 :736 的详解）。",
@@ -427,11 +427,11 @@ export const AFTER = {
     "--   ★★ 完整流程：修正步数 → TruncateSnapshots → DoReset 重启读档。",
     "--   ★ 交叉参考：net.lua 的 autosaver 组件（GetLastSaveTime）。",
   ],
-  782: [
+  "UpdateServerTagsString#1+34": [
     "--★ UpdateServerTagsString 结束。★ 输出的是「分类标签」而非世界数据（:784 管后者）。",
     "--   ★ ★★ 源码自承：与 servercreationscreen.lua 的 BuildTagsStringHosting() 重复实现。",
   ],
-  815: [
+  "UpdateServerWorldGenDataString#1+31": [
     "--★★★ UpdateServerWorldGenDataString 结束（32 行）。★★ 核心机制：",
     "--   · ★★ 主分片汇总全集群（:789-796）——只有主分片知道所有分片；",
     "--   · ★★ 深拷贝防污染（:786）——因后面会修改 overrides；",
@@ -439,11 +439,11 @@ export const AFTER = {
     "--   · ★★ Zip + DataDumper 双重序列化（:814）；",
     "--   · ★★ 已知限制（:813）：自定义多层世界可能超数据大小限制。",
   ],
-  847: [
+  "GetDefaultServerData#1+30": [
     "--★ GetDefaultServerData 结束。★★ 返回「开服设置的快照表」，存进存档供客户端读。",
     "--   ★ ★★ 关键约束（:818 注释）：必须在 StartServer 之后调用，否则 online_mode 错。",
   ],
-  882: [
+  "onsaved#1+20": [
     "--★★★ StartDedicatedServer 结束（34 行）。★★ 三阶段时序（见 :856-866 的分析）：",
     "--   ① StartServer（网络层就绪）",
     "--   ② SetServerShardData（写入开服设置，处理向后兼容）",

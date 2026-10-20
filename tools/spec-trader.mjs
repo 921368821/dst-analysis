@@ -1,7 +1,7 @@
 // key = 源文件行号（1-based），注释插入到该行「之后」
 // 目标：components/trader.lua —— 商人组件：双闸门接受 + 赠送事务
 export default {
-  1: [
+  "onenabled#1": [
     '-- ============================================================',
     '-- components/trader.lua —— 「商人」组件（170 行）：谁愿意收我的东西',
     '--',
@@ -36,7 +36,7 @@ export default {
     '--   它是惰性字段，由 prefab 事后赋值。见第 109 行。',
     '-- ============================================================',
   ],
-  15: [
+  "onacceptnontradable#1": [
     '-- 属性钩子：acceptnontradable → alltrader 标签。',
     '-- ⚠️ 与 onenabled（第 1 行）不同，这里加了 `if self.enabled then` 的前置判断。',
     '--   为什么要判？因为 enabled = false 时不应该有 alltrader 标签。',
@@ -48,7 +48,7 @@ export default {
     '--   对比 useabletargeteditem.lua 第 21 行的 ontargetprefab，',
     '--   那里只需要处理 old/new 两值，不需要看第三个字段。',
   ],
-  25: [
+  "onacceptnontradable#1+10": [
     '-- 构造函数。第 27-33 行七个字段全部给了显式初值。',
     '-- ★ 注意两个默认值的设计意图：',
     '--   enabled = true（第 27 行）：商人默认就能用，prefab 不必显式开启。',
@@ -64,7 +64,7 @@ export default {
     '--   实践中无害（重复 AddTag 幂等），但说明该注释写于钩子实现之前。',
     '--    （本人已对照第 15-23 行与第 36-38 行核实：钩子确会自动加 alltrader。）',
   ],
-  51: [
+  "Trader:IsTryingToTradeWithMe#1": [
     '-- ★★ IsTryingToTradeWithMe(inst) —— 「此人此刻是否正打算与我交易」。',
     '-- ★ 这不是「能否交易」，而是「有没有在跟我交易」，用途是 UI 与状态反馈：',
     '--   比如商人要说「收下你的心意」时，只在对方正准备给东西时才播。',
@@ -85,7 +85,7 @@ export default {
     '--   注意不含 USEITEMON，所以「用某物作用于商人」不算交易。',
     '--    （本人已对照 actions.lua 中 GIVE / GIVEALLTOPLAYER / GIVETOPLAYER 三个动作核实。）',
   ],
-  67: [
+  "Trader:IsAcceptingStacks#1": [
     '-- IsAcceptingStacks：是否接受成堆的物品。',
     '-- ⚠️ 它只是把 acceptstacks 原样返回 —— 本身不做任何逻辑。',
     '--   真正的消费点在动作层：actions.lua 的 GIVEALLTOPLAYER 会先算 count 再给。',
@@ -93,7 +93,7 @@ export default {
     '--   即无法关闭，只能开启。这是单向开关。',
     '--    （本人已对照第 67-69 行与第 99-101 行核实。）',
   ],
-  79: [
+  "Trader:Disable#1+4": [
     '-- ★★ 本组件对回调语义的完整约定，写在 setter 上（源码原注释）：',
     '',
     '-- SetAcceptTest（第 81 行）:',
@@ -119,7 +119,7 @@ export default {
     '-- ★ 自研游戏的结论：两级闸门 + 一个「替换」入口 + 一个「追加」入口，',
     '--   这套组合拳足以支撑大多数 NPC 交易需求，且扩展点清晰。',
   ],
-  104: [
+  "Trader:AbleToAccept#1": [
     '-- ★★★ AbleToAccept(item, giver, count) —— 物理闸门，返回 (bool, reason)。',
     '',
     '-- 【★ 第 105 行 on_inventory 的含义与两处用法，是本函数最容易误读的地方】',
@@ -168,7 +168,7 @@ export default {
     '--   把状态机的状态标签当业务状态用，省去维护第三套状态字段。',
     '--    （本人已对照本行源码核实确为 sg:HasStateTag 判定。）',
   ],
-  125: [
+  "Trader:WantsToAccept#1": [
     '-- ★★ WantsToAccept(item, giver, count) —— 意愿闸门，返回布尔（无 reason）。',
     '--   第 126 行：`self.enabled and (not self.test or self.test(...))`',
     '',
@@ -186,7 +186,7 @@ export default {
     '--   对比 workable.lua 第 191-197 行 ShouldRecoil 的严格处理，',
     '--   DST 的回调返回值约定在全局上并不统一，跨组件移植时要逐个确认。',
   ],
-  129: [
+  "Trader:AcceptGift#1": [
     '-- ★★★ AcceptGift(giver, item, count) —— 执行赠送，本组件的事务主体。',
     '',
     '-- 【完整的六步流程】',
@@ -221,7 +221,7 @@ export default {
     '--    （本人已对照 components/container_replica.lua 中 RemoveFromOwner 的语义理解推断，',
     '--     未打开该文件逐行核实，标为未核实。）',
   ],
-  143: [
+  "Trader:AcceptGift#1+14": [
     '-- ★ 两个互斥的处置分支，取决于 deleteitemonaccept（第 28 行默认 true）。',
     '--   A. 直接销毁（第 144 行）：不落地，进背包。',
     '--   B. 转交商人背包（第 145-149 行）：',
@@ -247,7 +247,7 @@ export default {
     '--    （本人已对照 actions.lua:2349、2371 的 CanAcceptCount 检查与此处核实；',
     '--    「物品凭空消失」是该失败路径的推断，未实际构造验证。）',
   ],
-  151: [
+  "Trader:AcceptGift#1+22": [
     '-- onaccept 回调：在物品已易手【之后】才触发。',
     '-- ⚠️ 所以回调里拿到的 item 已经是「新的归属状态」（已进背包或已销毁）。',
     '--   carnival_crowkid.lua:129 的注释印证了这一点：',
@@ -261,7 +261,7 @@ export default {
     '--   ★ 若订阅者需要数量，本组件的事件载荷是不完整的。',
     '--    （本人已对照第 155 行核实载荷仅含 giver 与 item 两字段。）',
   ],
-  159: [
+  "Trader:AcceptGift#1+30": [
     '-- 意愿被拒时的回调。注意【没有返回值语义】：触发完就 return false。',
     '-- ★ onrefuse 收到 (inst, giver, item)，比 onaccept 少了 count ——',
     '--   因为「拒绝」时物品从未被拆出或取走，count 本就没有意义。',

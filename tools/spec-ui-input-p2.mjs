@@ -1,14 +1,14 @@
 // spec-ui-input-p2.mjs —— input.lua 第 293-478 行
 // ★★ 虚拟控制层 / 控制方案解释器
 export const BEFORE = {
-  293: [
+  "Input:IsMouseDown#1": [
     "-- ================================================================",
     "-- 段 4/6：★★ 虚拟控制层与控制方案（293-503）",
     "-- ★★ 这是 input.lua 里最长、最难懂、也最有价值的一段。",
     "--   它回答：**手柄上那根摇杆，在当前方案下应该干什么？**",
     "-- ================================================================",
   ],
-  293: [
+  "Input:IsMouseDown#1": [
     "-- ★ IsMouseDown(button) —— 直读 TheSim 的鼠标按钮状态。",
     "-- ★★ 与 OnMouseButton（179）的关系：",
     "--   · 179 是**事件**（按下/抬起的瞬间）",
@@ -20,7 +20,7 @@ export const BEFORE = {
     "--   ⇒ 主机上 IsMouseDown 仍返回 C++ 的原始状态。",
     "--   ⇒ 标注为轻度不一致（多数情况下 mouse_enabled 为 false 时无消费者）。",
   ],
-  297: [
+  "Input:IsKeyDown#1": [
     "-- ★ IsKeyDown(key) —— 键盘按键的**状态**查询（对应 186 的事件）。",
     "-- ★★ 这是「轮询式」读取的第二例（另一例是 479 IsControlPressed）。",
     "-- ⚠ G3 的教训：轮询式读取**绕过了事件仲裁**。",
@@ -29,7 +29,7 @@ export const BEFORE = {
     "--   ⇒ 那个场景里不需要仲裁（是调试快捷键），所以没问题。",
     "--   ⇒ 但它证明了「两条路并存」这个架构事实。",
   ],
-  301: [
+  "Input:IsKeyDown#1+4": [
     "-- ================================================================",
     "-- ★★★ 【虚拟控制层】301-321 —— 本文件的精华所在",
     "--",
@@ -53,7 +53,7 @@ export const BEFORE = {
     "--   ⇒ 这是本文件最漂亮的一处设计：用数值区间代替类型系统。",
     "--============================================================",
   ],
-  301: [
+  "Input:IsKeyDown#1+4": [
     "-- ★★ RemapTo_CONTROL_INVENTORY —— 「方向 → 物品栏方向」的重映射表。",
     "-- 【★ 为什么需要一张表而不是直接算？】",
     "--   301 行 VIRTUAL_CONTROL_INV_UP = 10000+0（推测）",
@@ -67,7 +67,7 @@ export const BEFORE = {
     "--   于是 320 行就能只做一次区间比较（>= base and <= base+3）判断归属。",
     "-- ⇒ 五个判定函数的写法完全同构，源头就是这张表。",
   ],
-  309: [
+  "Input:IsKeyDown#1+12": [
     "-- ★★ RemapTo_CONTROL_INVENTORY_ACTIONS —— 「动作组」的重映射表。",
     "-- 【★ 与 301 的区别】",
     "--   301 映射到 CONTROL_INVENTORY_UP/DOWN/LEFT/RIGHT（**方向**）",
@@ -76,7 +76,7 @@ export const BEFORE = {
     "-- ★ 方向与动作分离是手柄 UI 的需求：",
     "--   D-pad 导航 + X/A/C 面键动作，是常见的手柄 UI 布局。",
   ],
-  317: [
+  "IsVCtrlCamera#1": [
     "-- ★★★ 【五个区间判定函数】317-321 —— 「四连组」的通用套路",
     "--  317 IsVCtrlCamera  摄像机组（缩放/旋转）",
     "--  318 IsVCtrlAiming  瞄准组",
@@ -91,7 +91,7 @@ export const BEFORE = {
     "--     加一个重映射表。三处改动，模式统一。",
     "-- ===============================================================",
   ],
-  317: [
+  "IsVCtrlCamera#1": [
     "-- ★ IsVCtrlCamera —— 「摄像机」组（缩放 / 旋转）。",
     "-- ★★ 基址 VIRTUAL_CONTROL_CAMERA_ZOOM_IN，终点 VIRTUAL_CONTROL_CAMERA_ROTATE_RIGHT。",
     "-- ⇒ ★★ 「终点常量」是**另一组的起点减一**的写法！",
@@ -104,7 +104,7 @@ export const BEFORE = {
     "--     插入新组到中间会**静默破坏**所有区间判定。",
     "-- 这是本文件最脆弱的架构点。",
   ],
-  319: [
+  "IsVCtrlInvNav#1": [
     "-- ★ IsVCtrlInvNav —— 物品栏导航组。",
     "-- ★★ 370 行做 `RemapTo_CONTROL_INVENTORY[control - VIRTUAL_CONTROL_INV_UP]`，",
     "--   ★★★ 硬依赖「INV_UP 的偏移是 0」。",
@@ -112,19 +112,19 @@ export const BEFORE = {
     "--   ★★★ 这里的索引会**静默错位**（查到 nil 或错误的动作）。",
     "--   ⇒ 与 317 行同源的隐式契约，且此处更脆弱（无终止常量保护）。",
   ],
-  320: [
+  "IsVCtrlInvAct#1": [
     "-- ★ IsVCtrlInvAct —— 物品栏动作组。",
     "-- ★★ 372 行 `RemapTo_CONTROL_INVENTORY_ACTIONS[control - VIRTUAL_CONTROL_INV_ACTION_UP]`",
     "--   与 319 同构。",
   ],
-  321: [
+  "IsVCtrlStrafe#1": [
     "-- ★ IsVCtrlStrafe —— 横向移动组（方案 2-7 才有）。",
     "-- ★★ 388 行 `RemapTo_CONTROL_INVENTORY[control - VIRTUAL_CONTROL_STRAFE_UP]`",
     "--   ★★ 注意：映射到 **CONTROL_INVENTORY** 而不是别的组。",
     "--   ⇒ 横向移动在方案 1（经典）里复用物品栏导航的语义。",
     "--   ⇒ 合理：手柄上「横向移动」最自然的语义就是「在物品栏里左右移动」。",
   ],
-  323: [
+  "IsCamAndInvCtrlScheme1#1": [
     "-- ★★ IsCamAndInvCtrlScheme1(scheme) —— 「是不是经典方案」。",
     "--   return scheme < 2 or scheme > 7",
     "-- 【★★ 为什么不是 `scheme == 1`？】",
@@ -138,7 +138,7 @@ export const BEFORE = {
     "--   ⇒ 作者承认这个检查是简化的。",
     "-- ⇒ 标注为「用区间而非等值判断，隐含回退语义」，正面设计。",
   ],
-  325: [
+  "IsTwinStickAiming#1": [
     "-- ★★ IsTwinStickAiming(player, scheme) —— 「双摇杆瞄准」判定。",
     "-- 【★ 三层判定】",
     "--  326  player.components.playercontroller:IsTwinStickAiming()",
@@ -158,7 +158,7 @@ export const BEFORE = {
     "--     **输入的解释不是纯函数，它依赖玩家状态与当前 UI 状态**。",
     "--   ⇒⚠ 这也是它难以测试的原因（同输入不同结果）。",
   ],
-  335: [
+  "IsStrafing#1": [
     "-- ★★ IsStrafing(player) —— 「横向移动中」。",
     "--   return player.components.strafer and player.components.strafer:IsAiming()",
     "-- ★★ 与 325 的双摇杆并列，是「抢占条件」之一。",
@@ -166,7 +166,7 @@ export const BEFORE = {
     "--   ⇒ 横向移动在所有方案里都会抢占。",
     "--   ⇒ 365-368/385-388/403-407/421-427 里与 IsTwinStickAiming 并列使用。",
   ],
-  339: [
+  "Input:ResolveVirtualControls#1": [
     "-- ══════════════════════════════════════════════════════════════",
     "-- ★★★★★ 【ResolveVirtualControls】—— 虚拟控制层的解释器（339-477）",
     "--",
@@ -197,14 +197,14 @@ export const BEFORE = {
     "--   ⇒ ★ 这是「用 nil 统一表达无效」的优雅之处。",
     "--═════════════════════════════════════════════════════════════",
   ],
-  340: [
+  "Input:ResolveVirtualControls#1+1": [
     "-- ★★ `if control == nil then return end` —— 空输入守卫。",
     "-- ★ 注意是 return（无值）而不是 return nil —— 等价。",
     "-- ⚠ 但调用方 479/484 都做了 `control ~= nil` 检查，",
     "--   说明它们**不信任**本函数会正确处理 nil。",
     "-- ⇒ 双重防御，无害。",
   ],
-  342: [
+  "Input:ResolveVirtualControls#1+3": [
     "-- ★★★ 【分支0】control < VIRTUAL_CONTROL_START —— 「非虚拟码直通」",
     "-- 【★ 339-349 的意义：把「物理层」和「虚拟层」分开处理】",
     "--   · control < 10000 → 已经是真正的 CONTROL_*，直接返回",
@@ -214,7 +214,7 @@ export const BEFORE = {
     "-- ★★ 好处：调用方**可以**直接传虚拟码（见 484GetAnalogControlValue），",
     "--   框架负责翻译。调用方不需要知道自己传的是哪一层。",
   ],
-  343: [
+  "Input:ResolveVirtualControls#1+4": [
     "-- ★★ CONTROL_CAM_AND_INV_MODIFIER（= 90，constants.lua:227）——",
     "--   「摄像机+物品栏修饰键」。★ 它是**物理层**的码（90 < 10000）。",
     "-- ★★ 343-347 的特殊处理：这个修饰键在方案 1 里**无效**。",
@@ -224,7 +224,7 @@ export const BEFORE = {
     "-- ★★ 经典的双重否定 + and/or 三值技巧，语义正确但极难读。",
     "-- ★ 原注释 \"--Modifier button is not used in control scheme 1\" 说明了原因。",
   ],
-  351: [
+  "Input:ResolveVirtualControls#1+12": [
     "-- ★★ `local player = ThePlayer` —— ★ **函数依赖游戏状态**。",
     "-- ★★ 352 行的法术轮盘检查说明：",
     "--   「输入的解释」依赖于「玩家当前在做什么 UI」。",
@@ -235,7 +235,7 @@ export const BEFORE = {
     "--   ⇒ 正确做法应该是 UI 层先拦截，输入层只做纯翻译。",
     "--   ⇒★ 但这是**有意的**设计（见 353-355 的原注释）。",
   ],
-  352: [
+  "Input:ResolveVirtualControls#1+13": [
     "-- ★★★ 法术轮盘（Spell Wheel）—— 一个打开后「吞掉所有方向」的面板。",
     "-- 【★ 353-355 的原注释是理解本函数意图的关键】",
     "--   \"--Spell wheel is treated as ishudblocking in playercontroller,",
@@ -252,7 +252,7 @@ export const BEFORE = {
     "--     值得记住：**阻挡策略是按层决定的，不是全局的**。",
     "-- ★★ 356 行直接 return（无值）⇒ 所有虚拟码变nil ⇒ 摇杆无效。",
   ],
-  359: [
+  "Input:ResolveVirtualControls#1+20": [
     "-- ★★ local scheme = self:GetActiveControlScheme(CONTROL_SCHEME_CAM_AND_INV)",
     "--   ★ 只有一个 scheme 被查询（摄像机+物品栏），说明这是**唯一需要",
     "--     按方案解释的输入组**。其它控制码（接受/攻击）不区分方案。",
@@ -261,7 +261,7 @@ export const BEFORE = {
     "--   ⇒ ★ 键鼠玩家**强制方案 1**（因为 ControllerAttached 为假）。",
     "--   ⇒★ 这是「一套 scheme 表同时服务两种输入设备」的简化。",
   ],
-  362: [
+  "Input:ResolveVirtualControls#1+23": [
     "-- ══════════════════════════════════════════════════════════════",
     "-- ★★ 【分支1：方案 1（经典）】362-391",
     "-- 【★ 方案 1 的特征（361 行原注释）】",
@@ -279,7 +279,7 @@ export const BEFORE = {
     "--   区分靠的是**下标不同**（301/309 两张表）。",
     "--─────────────────────────────────────────────────────────────",
   ],
-  363: [
+  "Input:ResolveVirtualControls#1+24": [
     "-- ★★ 导航组在方案 1 下的处理。",
     "-- 【★★ 365-369 是本分支最精细的逻辑】",
     "--   `if player and not (player.HUD and player.HUD:IsCraftingOpen()) then`",
@@ -293,13 +293,13 @@ export const BEFORE = {
     "--   ⇒ ★ 这就是「UI 优先级高于玩法优先级」的直接编码。",
     "-- ★★ 原注释 \"--Handle CONTROL_INVENTORY priorities\" 说明这是「优先级处理」。",
   ],
-  371: [
+  "Input:ResolveVirtualControls#1+32": [
     "-- ★ 动作组在方案 1 下**无任何前置条件**，直接映射。",
     "-- ★★ 与导航组（363-370）的三行判定形成对比。",
     "-- ⇒ 合理：动作键（查看/丢弃/使用）不该被双摇杆瞄准抢占，",
     "--     因为它们是「显式操作」而非「连续方向」。",
   ],
-  373: [
+  "Input:ResolveVirtualControls#1+34": [
     "-- ★★★ 瞄准组 —— 方案 1 下的**严格限制**。",
     "-- 【★ 374-375 的原注释】",
     "--   \"--Twin stick aiming outside of AOE targeting is only supported",
@@ -321,7 +321,7 @@ export const BEFORE = {
     "-- ⚠ 375 行无 player 判断时的短路顺序：player and ... and ...",
     "--   ⇒ 逻辑正确（player 为 nil 时整个 and 链为 nil，not nil 为真 → return）。",
   ],
-  379: [
+  "Input:ResolveVirtualControls#1+40": [
     "-- ★★ 380 行的 `if player and player.HUD and player.HUD:IsCraftingOpen() then return end`",
     "--   ★★ 与 365 行**完全相同**的判定，但在这里的语义是反的：",
     "--   365 行：「**不**在合成面板才检查抢占」（359-370 是导航组）",
@@ -335,14 +335,14 @@ export const BEFORE = {
     "--   ⇒ 实际上两者都导致「合成面板打开时摇杆不控制角色」，",
     "--     只是实现路径不同。⚠ 标注为「逻辑重复，语义等价」。",
   ],
-  383: [
+  "Input:ResolveVirtualControls#1+44": [
     "-- ★ 横移组 —— 与 373 同构，但**少了 AOE 限制**。",
     "-- ★★ 384-385 的注释 \"--Handle CONTROL_INVENTORY priorities\" 与 365 相同，",
     "--   判定也相同（合成面板打开就 return）。",
     "-- ⇒ ★ 方案 1 的四组处理里有**三组**是「合成面板检查」。",
     "--   ⇒ 说明「合成面板优先级」是方案 1 的核心规则。",
   ],
-  390: [
+  "Input:ResolveVirtualControls#1+51": [
     "-- ★ 兜底 return —— 不是任何虚拟组 → nil。",
     "-- ★★ 注意 390 的 return 在 if 链**之外**（362 的 if 块的末尾）。",
     "--   ⇒ 摄像机组（IsVCtrlCamera）**不在**方案 1 的处理里！",
@@ -351,10 +351,10 @@ export const BEFORE = {
     "--     而不是虚拟摇杆。方案 2+ 才引入虚拟摄像机控制。",
     "--   ⇒ 395 行的 IsVCtrlCamera 分支只在方案 2-7 生效。",
   ],
-  391: [
+  "Input:ResolveVirtualControls#1+52": [
     "-- ★★ 方案 1 分支的结束。★ 注意 390 的 return 覆盖所有未匹配组。",
   ],
-  393: [
+  "Input:ResolveVirtualControls#1+54": [
     "-- ★★ 原注释 \"--Now handle all the new schemes (2 to 7) for each control category\"",
     "--   —— ★★ 这是整个「新版方案」体系的入口。",
     "-- ★★ 新旧方案的本质差异：",
@@ -366,7 +366,7 @@ export const BEFORE = {
     "--   而这个槽位在不同方案下被解释成不同语义。",
     "--   ⇒★ 这是「控制方案」作为一等概念的真正含义。",
   ],
-  395: [
+  "Input:ResolveVirtualControls#1+56": [
     "-- ══════════════════════════════════════════════════════════════",
     "-- ★★ 【分支2：方案 2-7】395-476 —— 五组逐一处理",
     "-- 【★ 共同套路：算 needsmodifier → 判断修饰键状态 → 决定映射目标】",
@@ -384,7 +384,7 @@ export const BEFORE = {
     "--   ⇒★★ 必须直接查 TheSim，否则会无限递归。",
     "--   ⇒ 这是一个**必须绕过自身**的边界，标注为「递归防护点」。",
   ],
-  398: [
+  "Input:ResolveVirtualControls#1+59": [
     "-- ★★★ bit.band(scheme, 1) == 0 —— ★ 「奇偶编码方案需求」的技巧。",
     "-- 【★ 四种取法在文件里的分布】",
     "--  398  bit.band(scheme, 1) == 0     —— 摄像机组：偶数方案需修饰键",
@@ -401,7 +401,7 @@ export const BEFORE = {
     "--   ⇒ ⚠ 隐式耦合：改方案编号会同时影响这五处。",
     "--   ⇒ 这是「把配置藏在代码里」的典型代价。",
   ],
-  399: [
+  "Input:ResolveVirtualControls#1+60": [
     "-- ★★ `if ismodified ~= needsmodifier then return end` ——",
     "--   「修饰键状态与需求不匹配 → 无效」。",
     "-- ★★ 语义：",
@@ -415,7 +415,7 @@ export const BEFORE = {
     "--     DST 选了「严格匹配」，更可预测。",
     "-- ★★ 注意 `~= xor` 的写法：两者不同时 return。",
   ],
-  403: [
+  "Input:ResolveVirtualControls#1+64": [
     "-- ★★★ 402-407 的抢占判定，★ 与 366 的差别很关键。",
     "--   366 行（方案 1）：`IsTwinStickAiming(player, scheme) or IsStrafing(player)`",
     "--   404 行（方案 2-7）：`scheme ~= 5 and scheme ~= 7 and IsTwinStickAiming(...) or IsStrafing(player)`",
@@ -431,7 +431,7 @@ export const BEFORE = {
     "--   ⚠ 但 404 的写法可读性极差，且与 366 的写法不一致。",
     "--   ⇒ 标注为「优先级陷阱 + 与366不一致」，轻度隐患。",
   ],
-  408: [
+  "Input:ResolveVirtualControls#1+69": [
     "-- ★★★ 映射公式：`control - VIRTUAL_CONTROL_CAMERA_ZOOM_IN + CONTROL_PRESET_RSTICK_UP`",
     "-- 【★ 这是「新方案」映射的标准形态】",
     "--   公式：虚拟码 → 减去组基址（得索引 0..3）→ 加上目标组基址",
@@ -442,7 +442,7 @@ export const BEFORE = {
     "-- ⚠ 隐式契约：CONTROL_PRESET_RSTICK_* 必须连续且顺序一致",
     "--   （constants.lua:231 CONTROL_PRESET_RSTICK_UP = 92）。",
   ],
-  409: [
+  "Input:ResolveVirtualControls#1+70": [
     "-- ══════════════════════════════════════════════════════════════",
     "-- ★★ 【导航组（方案 2-7）】409-431 —— 最复杂的一段",
     "-- 【★ 410 行原注释是完整的设计说明】",
@@ -467,7 +467,7 @@ export const BEFORE = {
     "--     ⇒ 实际未崩说明 ThePlayer 在主菜单不是 nil（可能是上一局的）。",
     "--     ⇒⇒ **推理依据完整但需实机验证**，如实标注为「疑似」。",
   ],
-  415: [
+  "Input:ResolveVirtualControls#1+76": [
     "-- ★★ ismodified/needsmodifier 的取值（416 行）。",
     "--   needsmodifier = scheme >= 3 and scheme <= 5",
     "-- ★ 与 398 的 bit 写法不同 —— 这里用区间。",
@@ -476,7 +476,7 @@ export const BEFORE = {
     "--   · 方案 4-7 → 映射到 D-pad 预设",
     "--   ⇒ ★★ **同一个函数返回两种物理预设** —— 这就是「方案」的意义。",
   ],
-  421: [
+  "Input:ResolveVirtualControls#1+82": [
     "-- ★★ 421-427：方案 2/3 的抢占判定（未按修饰键时）。",
     "--   422  `if not (player.HUD and player.HUD:IsCraftingOpen()) then`",
     "--   423      双摇杆 or 横移 → return",
@@ -486,21 +486,21 @@ export const BEFORE = {
     "--     所以 422 行的 player.HUD 是唯一会崩的点。",
     "--   ⇒ 与 411 行同源，标注一致。",
   ],
-  428: [
+  "Input:ResolveVirtualControls#1+89": [
     "-- ★★ 方案 2/3 → R 摇杆预设。与 408 行同构。",
   ],
-  430: [
+  "Input:ResolveVirtualControls#1+91": [
     "-- ★★ 方案 4-7 → D-pad 预设。与 428 对称。",
     "-- ★★★ 这就是「R.Stick for 2 and 3, DPad for 4 to 7」的实现。",
   ],
-  432: [
+  "Input:ResolveVirtualControls#1+93": [
     "-- ★ 动作组（方案 2-7）：434 行「Classic mapping for 2 and 3, DPad for 4 to 7,",
     "--   modifier button for 6 and 7」—— 与导航组结构一致。",
     "-- ★★ 但 434-435 的方案 2/3 分支**直接映射，无任何判定**。",
     "--   ⇒ 对比导航组 419-431 的复杂判定。",
     "--   ⇒ 合理：动作键是离散的，不需要抢占判定。",
   ],
-  444: [
+  "Input:ResolveVirtualControls#1+105": [
     "-- ★ 瞄准组（方案 2-7）：445 行「R.Stick for all schemes,",
     "--   modifier button for 5 and 7」。",
     "-- ★★ 452 行 `if scheme <= 3 and not (player and ...IsAOETargeting()) then return end`",
@@ -510,7 +510,7 @@ export const BEFORE = {
     "--   ⇒ 进一步佐证 411 行的缺陷是疏漏而非有意。",
     "-- ★★ 456-460：方案 2 且合成面板打开 → 抢占。",
   ],
-  462: [
+  "Input:ResolveVirtualControls#1+123": [
     "-- ★ 横移组（方案 2-7）：463 行「Unmodified R.Stick for all schemes」。",
     "-- ★★ 465 行 needsmodifier = false —— **永远不需要修饰键**。",
     "--   ⇒ 397/415/437/446 四处都要查修饰键状态，",
@@ -518,10 +518,10 @@ export const BEFORE = {
     "--   ⇒ ★★ 换言之：**横移组与修饰键互斥**（按了就失效）。",
     "--   ⇒ 体验：按住修饰键时 R 摇杆变成摄像机/瞄准，而不是横移。",
   ],
-  475: [
+  "Input:ResolveVirtualControls#1+136": [
     "-- ★★ 横移组 → R 摇杆预设。与 408 同构。",
   ],
-  477: [
+  "Input:ResolveVirtualControls#1+138": [
     "-- ★★ 函数结束。★★ 隐式返回 nil（若所有分支都未命中）。",
     "--   ⇒ 这是「未知虚拟码 → 无效」的默认行为 ✓",
   ],

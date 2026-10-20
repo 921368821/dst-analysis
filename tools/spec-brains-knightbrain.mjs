@@ -70,7 +70,7 @@ export default {
   ],
 
   // ══════════════ 基础动作 ══════════════
-  32: [
+  "GoHomeAction#1": [
     '-- GoHomeAction：★ 回家前先检查「没在战斗」。',
     '--   第 36 行 homePos 来自 clockwork_common.GetHomePosition ——',
     '--   ★ 与 pigbrain 用 homeseeker 组件不同，骑士的家由 clockwork_common 统一管理，',
@@ -80,19 +80,19 @@ export default {
     '--     最后一个参数 .2 是「到达容差」。',
     '--     ★ 为什么不用 GOHOME？因为家可能不是实体（坐标），WALKTO 可直接给坐标。',
   ],
-  42: [
+  "GetFaceTargetFn#1": [
     '-- GetFaceTargetFn：找 4 距离内最近的玩家，排除 notarget 标签。',
     '-- ★ KeepFaceTargetFn（第 47 行）用的是 KEEP_FACE_DIST(6) 而非 START_FACE_DIST(4)，',
     '--   形成迟滞：4 内开始看、6 内才放弃。避免玩家在边界上让骑士反复转头。',
   ],
-  55: [
+  "GetFaceLeaderFn#1": [
     '-- GetFaceLeaderFn / KeepFaceLeaderFn（第 59 行）：注视队长。',
     '-- ⚠️ 第 75 行比 pigbrain 多了 target.entity:IsVisible() 判断 ——',
     '--   队长隐身时不再注视。骑士是机械体，能感知可见性，这是合理的差异。',
   ],
 
   // ══════════════ 攻防时机 ══════════════
-  68: [
+  "ShouldDodge#1": [
     '-- ★★ ShouldDodge —— 全文件最需要理解的一对函数之一。',
     '--',
     '-- 【职责划分：把状态「外化」到 inst.hit_recovery】',
@@ -110,7 +110,7 @@ export default {
     '--   每次条件求值都会重复设置 hit_recovery。这是幂等的，无害。',
     '--   但若其他系统读 hit_recovery 却没人清它，就会残留 —— 第 73 行负责清。',
   ],
-  77: [
+  "ShouldAttack#1": [
     '-- ★★ ShouldAttack：先清 hit_recovery，再取 ShouldDodge 的反值。',
     '--',
     '-- 【★ 与第 397 行 pigbrain 的写法差异，很值得对照】',
@@ -122,14 +122,14 @@ export default {
     '--   而 pigbrain 那个多余分支（not HasTarget() 时也判 true）正是我前面提到的绕。',
     '--   ★ 这说明本文件的写法语义更清晰：「能不能打」=「不需要闪避」。',
   ],
-  91: [
+  "AreDifferentPlatforms#1": [
     '-- ★ AreDifferentPlatforms：防止隔着船/平台互相冲锋。',
     '--   先查 allow_platform_hopping —— 不允许跳平台就直接返回 false（不拦）。',
     '-- ⚠️ 语义要读清楚：返回 true 表示「平台不同」，调用方（第 104 行）',
     '--   用它来【禁止】冲锋。所以返回 false（平台相同）才允许冲锋。',
     '--   ★ 函数名描述的是「事实」，调用处决定「怎么处理」，这是好设计。',
   ],
-  98: [
+  "TryJoust#1": [
     '-- ★★ TryJoust —— 特殊技能「持枪冲锋」，但它【不产生 BufferedAction】。',
     '--   第 105 行 inst:PushEvent("dojoust", target) —— 推事件给实体，由状态图接管。',
     '--',
@@ -150,14 +150,14 @@ export default {
 
 
   // ══════════════ 编队核心 ══════════════
-  111: [
+  "AnyHorsemenAllies#1": [
     '-- AnyHorsemenAllies：编队中至少还有一个活着的骑士。',
     '-- ★ 用 entitytracker 而不是全场 FindEntity —— ★ 性能考量。',
     '--   entitytracker 是「按名字直接查」的组件，等价于哈希表；',
     '--   FindEntity 是球形空间查询。编队判定每帧要做，不该用后者。',
     '-- ★ 这是「能用名字查就别用空间查」的普遍优化原则。',
   ],
-  120: [
+  "GetFormationIndexAndCount#1": [
     '-- ★★ GetFormationIndexAndCount —— 整个编队系统的基石。',
     '--',
     '-- 【算法（第 125-137 行）】',
@@ -180,7 +180,7 @@ export default {
     '--   YOTH_HORSE_NAMES 这份「全局共知的常量列表」固定，与存活情况无关',
     '--   （每个人都能查到同样的存活集合）。★ 不需要任何通信。',
   ],
-  142: [
+  "GetKnightAtFormationIndex#1": [
     '-- ★ GetKnightAtFormationIndex：序号 → 具体实体（含返回自己的情况）。',
     '--   第 154-157 行 ★ 自己那个槽位返回 inst 本身，而不是去查 entitytracker。',
     '--   这一步不可省：entitytracker 里不一定登记了自己（取决于 prefab 实现）。',
@@ -189,13 +189,13 @@ export default {
     '--   ★ 作者主动承认这里可能进入异常状态，选择「返回自己」这个安全值',
     '--     而不是返回 nil 让下游崩掉。防御式兜底的范例。',
   ],
-  164: [
+  "NoPlayersOrHoles#1": [
     '-- NoPlayersOrHoles：★ 站位微调时要避开的区域。',
     '--   两个都避开：玩家所在处（不站在人身上）、洞穴洞口（不掉进去）。',
     '-- ★ 作为 FindWalkableOffset 的「不可用判定」回调（第 174-176 行）。',
     '--   即：找一个「能站」的位置时，用它过滤候选点。',
   ],
-  168: [
+  "_calc_formation_pos#1": [
     '-- ★★★ _calc_formation_pos —— 编队站位的数学核心。',
     '--',
     '-- 【第 169 行的角度公式】',
@@ -216,7 +216,7 @@ export default {
     '--     即使不可达也返回一个坐标，让 Leash 至少有目标。',
     '--   ★ 「宁可给出不可达的目标，也不要返回 nil」是本函数的设计取舍。',
   ],
-  185: [
+  "GetLocationInFormation#1": [
     '-- GetLocationInFormation：★ 注意第 187 行传的是【函数本身】而非调用结果。',
     '--   GetFormationIndexAndCount 返回两个值，Lua 会把第一个传给 _calc_formation_pos，',
     '--   ★ 这利用了 Lua 的「多返回值按位置展开」特性，等价于显式解包。',
@@ -225,7 +225,7 @@ export default {
   ],
 
   // ══════════════ 游荡编队 ══════════════
-  190: [
+  "GetLocationInFormation#1+5": [
     '--[ [',
     '-- ★★★ 源码原注释解释了游荡编队的意图：',
     '--   三个骑士里挑一个当游荡「领袖」，其余人不先动；',
@@ -233,14 +233,14 @@ export default {
     '-- ★ 这段注释价值极高：它说明了一个纯技术实现背后的【设计意图 —— 拟群体】。',
     '--] ]',
   ],
-  194: [
+  "GetLocationInFormation#1+9": [
     '-- 每 8 秒换一次游荡领袖。',
     '-- ★ 与第 377 行 Wander 的 minwaittime 配合：',
     '--   minwaittime = WANDER_SWITCH_PERIOD - 4 - 1.5（第 378 行）',
     '--   即游荡领袖「只在等待期换」，不会在走路途中换。',
     '--   ★ 这解决了「换领袖时队伍乱窜」的问题 —— 换领袖时机被约束到静止期。',
   ],
-  195: [
+  "GetWanderFormationLeaderIndex#1": [
     '-- ★★★ GetWanderFormationLeaderIndex —— 全文件最巧妙的一段。',
     '--',
     '-- 【目标】让三个骑士独立算出「现在该谁先动」，且答案一致。',
@@ -267,13 +267,13 @@ export default {
     '--     存档损坏时第 160 行兜底返回自己，此时全队都以自己为种子，可能分裂。',
     '--     属极端边界，源码已有兜底，不额外标注缺陷。',
   ],
-  203: [
+  "IsWanderFormationLeader#1": [
     '-- IsWanderFormationLeader：我是不是本轮该先动的那个人。',
     '-- ★ 与第 195 行完全相同的算法再跑一遍，比对结果是否等于我的序号。',
     '--   ★ 有意重复计算而非缓存 —— 缓存反而要处理「何时失效」。',
     '--   这是纯函数（无副作用）的直接好处：随便调。',
   ],
-  208: [
+  "GetWanderFormationPos#1": [
     '-- ★★★ GetWanderFormationPos —— 非领袖骑士该站在哪。',
     '--',
     '-- 【第 213-218 行：一个防御性兜底】',
@@ -293,7 +293,7 @@ export default {
     '--   第 226 行 _calc_formation_pos 只读不改，故实际未污染。',
     '--   标为疑似隐患：依赖「下游只读」这一隐式约定，若下游改为写入即出事。',
   ],
-  230: [
+  "MatchWanderLeaderFacing#1": [
     '-- ★ MatchWanderLeaderFacing：跟着领袖一起转向。',
     '--   第 231 行只在 idle 状态才做 —— 移动中由状态图控制朝向，不干预。',
     '--   第 235 行 ★ 双重条件：我 idle 且领袖也 idle —— 避免一个人动其他人跟着转。',
@@ -302,16 +302,16 @@ export default {
   ],
 
   // ══════════════ 观众席 ══════════════
-  242: [
+  "MatchWanderLeaderFacing#1+12": [
     '-- 观众席座位搜索。CHARLIE_SEAT_RANGE=15 —— 舞台周围 15 单位内的座位。',
   ],
-  245: [
+  "MatchWanderLeaderFacing#1+15": [
     '-- ★ 座位被占用的判定：距离 < 0.1 + 目标物理半径 + 3（缓冲）。',
     '--   SEAT_BLOCKER_RANGE=0.1 + SEAT_BLOCKER_RANGE_PADDING=3',
     '--   ★ 加 3 的缓冲是因为「骑士体积大」，两个骑士同时扑向同一座位时',
     '--     即使中心相距 0.1 也可能物理重叠。',
   ],
-  248: [
+  "GetStageSeatPosition#1": [
     '-- ★★ GetStageSeatPosition —— 三层过滤找空座，全文件最绕的一段。',
     '--',
     '-- 【第 261 行 while v ~= nil and not continue do 的循环结构】',
@@ -337,7 +337,7 @@ export default {
     '--   seats[formation_index] —— ★ 与阵型同一套序号算法（第 120 行），',
     '--     保证三个骑士在观众席也是各占一个、不重叠。',
   ],
-  287: [
+  "GetStageFollowMinDist#1": [
     '-- ★ GetStageFollowMinDist：坐着时把跟随距离压到 0.1。',
     '--   ★ 这是「同一套参数按状态动态切换」的范例：',
     '--     站着时用 FOLLOW_MIN_DIST(5)，坐着时用 0.1（几乎贴死）。',
@@ -346,7 +346,7 @@ export default {
     '--     第 281 行为真时才置 true。若条件函数求值时序不同步，',
     '--     可能读到上一帧的值。属可接受的最终一致性，非缺陷。',
   ],
-  291: [
+  "GetStageFollowMinDist#1+4": [
     '-- ★★ PRIORITY_NODE_RATE = 0.25 —— 全文件所有 PriorityNode 的统一重评估间隔。',
     '--   对比 pigbrain 的 0.5、penguinbrain 的 0.25。',
     '-- ★ 骑士是 Boss 级单位，决策开销本来就大（编队要遍历），',
@@ -355,28 +355,28 @@ export default {
   ],
 
   // ══════════════ OnStart ══════════════
-  292: [
+  "KnightBrain:OnStart#1": [
     '-- ★★★ OnStart —— 参数化 + 子树装配。',
   ],
-  293: [
+  "KnightBrain:OnStart#1+1": [
     '-- ★★★ 标签化参数化（第 293-299 行）：整个 OnStart 的第一个动作就是分叉。',
     '--   ★ 这是「一个大脑文件服务多种实体」的标准手法，全文件后续所有行为',
     '--     都读这批局部变量，而不是读模块级常量。',
     '--   移植价值：新增变体时只需加一个标签分支，不必新建文件。',
   ],
-  294: [
+  "KnightBrain:OnStart#1+2": [
     '-- ★★ 镶金的追击距离用 ENTITY_POPOUT_RADIUS（原注释解释了原因）。',
     '--   ⚠️ 注释里的小瑕疵：「距离他们能追到目标的距离相对于【队伍】而不是自己」，',
     '--     意思是追击范围由队友的位置决定 —— 因为骑士能传送到队友身边。',
     '--   这也解释了第 341 行闪避和第 350 行回家的相对关系。',
   ],
-  295: [
+  "KnightBrain:OnStart#1+3": [
     '-- ⚠️★ CHASE_TIME 在此计算，但全文从未被使用（第 335 行传的是 MAX_CHASE_TIME）。',
     '--   已逐字核对第 335 行与第 295 行，确认这是真实的参数失效。',
     '--   若要修复，把第 335 行的 MAX_CHASE_TIME 换成 CHASE_TIME 即可。',
     '--   严重度：低（镶金变体的追击时长没生效）。但确实是缺陷，已核实。',
   ],
-  303: [
+  "KnightBrain:OnStart#1+11": [
     '-- gilded_stage_nodes：镶金骑士在舞台上就座。',
     '--   第 307 行 ★ 注意运算符优先级：',
     '--     stageactor ~= nil and stageactor:GetStage() ~= nil or nil',
@@ -386,23 +386,23 @@ export default {
     '--   ⚠️ 但写成 `(A and B) or nil` 这种形式通常是为了「把 false 变成 nil」，',
     '--     这里纯属多余（WhileNode 不区分）。属冗余代码，非缺陷。',
   ],
-  311: [
+  "KnightBrain:OnStart#1+19": [
     '-- ★ 四个距离：外/内 leash + 跟随 min/max。',
     '--   Leash(inst, 目标位置, 0.5, 0.25, true)',
     '--   ★ 第 5 个参数 true = 「不可打断」/持续牵引，骑士不该中途跑去打架。',
     '--   ★ 这是 Leash 的第 5 参数，控制「到位后是否继续保持」。',
   ],
-  317: [
+  "KnightBrain:OnStart#1+25": [
     '-- gilded_formation_nodes：镶金骑士编队待命（非观众场景）。',
     '--   第 318 行 ★ 三重与条件：镶金 + 有队长 + 还有活着的队友。',
     '--   ★ 第 2 个条件「有队长」排除了「落单」的镶金骑士 —— 落单时走第 360 行的游荡。',
   ],
-  321: [
+  "KnightBrain:OnStart#1+29": [
     '-- ★ 与第 311 行对比：编队待命时 leash 距离是 0.5/0.5（相等）。',
     '--   而就座时是 0.5/0.25（有迟滞）。',
     '-- ★ 编队时不需要迟滞 —— 槽位是硬性位置，不是「到了就行」。',
   ],
-  326: [
+  "KnightBrain:OnStart#1+34": [
     '-- ★ root：最外层只有一个 WhileNode —— 「不在跳跃状态时才思考」。',
     '--   ★★ 这就是「状态守卫」模式，在本项目反复出现：',
     '--     pigelitebrain  第 196 行 "jumping"',
@@ -414,12 +414,12 @@ export default {
     '--   ★ 语义：动画播到一半时大脑「罢工」，避免在不该动的时机下指令。',
     '--   ★ 移植要点：这是 AI 与动画系统解耦最简单有效的手段。',
   ],
-  330: [
+  "KnightBrain:OnStart#1+38": [
     '-- ★★ 两个恐慌触发器来自 braincommon（第 434 行 mermbrain 同样用到）。',
     '--   ⚠️ 注意骑士用的是 PanicTrigger（普通）而非 PanicWhenScared（可吓掉忠诚），',
     '--     因为骑士没有 follower 组件的自然用法 —— 骑士用 entitytracker 追踪队友。',
   ],
-  333: [
+  "KnightBrain:OnStart#1+41": [
     '-- ★★ 攻击节点用 ParallelNodeAny（第 334 行）：',
     '--   两个子节点并行跑，任一成功即整棵成功。',
     '--   ChaseAndAttack —— 追着打',
@@ -427,15 +427,15 @@ export default {
     '-- ★ 第 338 行 return false 是必须的：冲锋请求不该让整棵节点「完成」，',
     '--   否则会打断追击。★ 「副作用钩子永远返回 false」是 ConditionWaitNode 的惯用法。',
   ],
-  341: [
+  "KnightBrain:OnStart#1+49": [
     '-- 闪避。条件用 ShouldDodge（第 68 行），与第 333 行的 ShouldAttack 严格互补。',
     '-- ★ RunAway 的目标用 getfn 而非标签：要躲的是当前战斗目标。',
   ],
-  343: [
+  "KnightBrain:OnStart#1+51": [
     '-- ★ 回家节点的位置：攻击之后、编队之前。',
     '--   意味着「打架优先于回家」，对 Boss 合理。',
   ],
-  345: [
+  "KnightBrain:OnStart#1+53": [
     '-- ★ FailIfSuccessDecorator(ActionNode(...))：',
     '--   语义是「TryToEngageCombatWithGroup 返回真（成功接敌）就短路掉整棵 PriorityNode」。',
     '--   即一旦成功与整个队伍交战，后续节点（含第 341 行闪避）都不再执行。',
@@ -445,30 +445,30 @@ export default {
     '--   ★★ 「接敌后完全让位」与 pigbrain 的「攻击/闪避互斥」是两种不同的战斗组织方式：',
     '--     pigbrain 是两个 WhileNode 各自管一段；本文件是一个开关 + 多个 WhileNode。',
   ],
-  352: [
+  "KnightBrain:OnStart#1+60": [
     '-- 镶金专属子树的位置：★ 在「接敌」之后、「普通跟随」之前。',
     '--   ★ 意味着只有没在交战的镶金骑士才去就座/编队。战斗优先。',
   ],
-  355: [
+  "KnightBrain:OnStart#1+63": [
     '-- 普通跟随。★ 对比第 297 行：镶金的追随已在第 352 行处理，',
     '--   此处用的是「可能已被改写为镶金值」的 FOLLOWER_MIN_DIST 等局部变量。',
     '--   ★ 这正是第 293-299 行参数化的成果：同一行代码服务两种生物。',
   ],
-  360: [
+  "KnightBrain:OnStart#1+68": [
     '-- ★★ 镶金游荡（唯一的镶金专属移动逻辑）。',
     '--   第 362 行 WhileNode 条件：★ not IsWanderFormationLeader ——',
     '--     「我不是本轮领袖」才进入这个分支。',
     '--   即领袖走第 374 行的 Wander，非领袖走第 362 行的「站着等」。',
     '-- ★ 这就是第 190-194 行注释描述的机制：其余人不先动。',
   ],
-  366: [
+  "KnightBrain:OnStart#1+74": [
     '-- ★ StandStill —— 第 366 行源码自带吐槽 "tbh likely never reach here because of 0 dist leash"。',
     '--   ★ 作者直接标注了这是死代码：因为 leash 距离为 0，永远立刻「到达」，',
     '--     所以 Leash 总成功，PriorityNode 短路，走不到 StandStill。',
     '--   ★ 这是罕见的「作者自己标注死代码」的例子，属诚实的写法，值得学。',
     '--   保留它是为了兜底（若 leash 行为变化时不至于没有动作）。',
   ],
-  374: [
+  "KnightBrain:OnStart#1+82": [
     '-- ★★★ Wander 的时机参数是「固定值 + 零随机」，注释说明了原因：',
     '--   "fixed times so wander leader switches happen during waiting"',
     '--   第 376-379 行：走 4 秒（randwalktime=0），停 WANDER_SWITCH_PERIOD-4-1.5 = 2.5 秒。',
@@ -477,7 +477,7 @@ export default {
     '--     即一个完整周期内至少有一次静止期，且第 8 秒时必在静止。',
     '--   ★ 这是一个「用等待时间反推换领袖时机」的精巧设计，可整段照抄。',
   ],
-  388: [
+  "KnightBrain:OnStart#1+96": [
     '-- ★ 与 pigbrain 第 420 行逐字相同的收尾：self.bt = BT(self.inst, root)。',
     '--   ★★ 对照阅读建议：pigbrain 是「随从 AI 的广度」，本文件是「群体 AI 的深度」，',
     '--     两者的收尾完全一样 —— 印证了「DST 大脑 = 一棵 PriorityNode」这个结论。',

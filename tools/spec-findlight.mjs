@@ -54,23 +54,23 @@ export default {
   ],
 
   // ══════════════ 调试输出 ══════════════
-  14: [
+  "FindLight:DBString#1": [
     '--★ DBString：显示当前盯着哪个光源。',
     '--★ 与 findclosest 第 16 行格式几乎相同（「Stay near target/light %s」）。',
     '--★ 排查「它为什么不靠近那盏灯」时看这一行。',
   ],
 
   // ══════════════ Visit ══════════════
-  18: [
+  "FindLight:Visit#1": [
     '--★★ Visit：两个独立节流块，是本文件的核心结构。',
     '--★ 结构上仍是「顺序双 if」（READY 段 + RUNNING 段），与全目录一致。',
   ],
-  19: [
+  "FindLight:Visit#1+1": [
     '--★ READY 段：先选目标，然后**无条件**转 RUNNING。',
     '--★ 与 findclosest 第 20-23 行完全相同（不判空，直接进 RUNNING）。',
     '--★ 找不到目标的情况由第 31 行在下一个检查周期转 FAILED。',
   ],
-  24: [
+  "FindLight:Visit#1+6": [
     '--★★ RUNNING 段由两个互不影响的节流块组成：',
     '--   块 A（第 25-27 行）：5 秒一次 —— 重选目标',
     '--   块 B（第 29-42 行）：1 秒一次 —— 趋近 / 达标 / 失效判定',
@@ -78,17 +78,17 @@ export default {
     '--   这是正确的：重选目标后应当立即用它做趋近判定。',
     '-- ★ 移植要点：节流块若相互独立，用并列 if；若互斥，才用 elseif。',
   ],
-  25: [
+  "FindLight:Visit#1+7": [
     '--★ 5 秒重选目标。与 findclosest 第 26 行同一思路（理由详见那边的详解）：',
     '--   空间查询昂贵，不能每帧做；但也不能不重选（目标会消失）。',
   ],
-  29: [
+  "FindLight:Visit#1+11": [
     '--★★★ 1 秒一次的趋近/判定块 —— 本文件相对 findclosest 的核心改进。',
     '--★ 第 30 行立即更新时间戳（先记后算，避免执行耗时导致下次判定提前）。',
     '--★★ 先更新再执行的写法值得学：若先执行后更新，',
     '--   当 PickTarget/GoToPoint 耗时较长时，实际间隔会短于 1 秒。',
   ],
-  31: [
+  "FindLight:Visit#1+13": [
     '--★★★ 失效判定：目标不在了，或不再是光源。',
     '--   三重与：非 nil + IsValid + HasTag("lightsource")',
     '-- ★★ 第三条 HasTag 很关键：光源可能被替换（篝火熄灭后变成灰烬），',
@@ -98,18 +98,18 @@ export default {
     '--★ 与 findclosest 第 29-60 行的三层标签复核是同类思想，',
     '--   但本文件只用单条 HasTag —— 因为目标类型单一。',
   ],
-  34: [
+  "FindLight:Visit#1+16": [
     '--★ safe_dist 支持「值或函数」，传 (inst, targ) 两个参数，兜底 5。',
     '--★ 与 findclosest 第 70 行逐字相同 —— 同族节点的一致写法。',
   ],
-  35: [
+  "FindLight:Visit#1+17": [
     '--★ 达标判定：站在 safe_dist 内 → SUCCESS + 停止移动。',
     '--★ 与 findclosest 第 71-73 行逐字相同。',
     '--★★ 注意与 findclosest 第 116 行的差异（前者每帧判、此处每秒判）：',
     '--   本文件达标后会最多多走 0.5 秒 —— 观感上略有「冲过头」。',
     '--   ★ 这是「降频」换来 CPU 的直接代价，属有意的取舍。',
   ],
-  39: [
+  "FindLight:Visit#1+21": [
     '--★ 未达标 → 走向「目标旁边 safe_dist 处」。',
     '--★★★ `actual_safe_dist * 0.98` 的 0.98 系数是本文件最值得抄的一处：',
     '--   目标点比判定边界**略微靠内**，保证走到后一定满足第 35 行的 IsNear。',
@@ -124,11 +124,11 @@ export default {
   ],
 
   // ══════════════ PickTarget ══════════════
-  46: [
+  "FindLight:Visit#1+28": [
     '--★ LIGHTS_TAGS = {"lightsource"} —— 模块级常量，目标标签唯一。',
     '--★ 与 findfarmplant 第 49 行的 FARMPLANT_MUSTTAGS 同款写法。',
   ],
-  47: [
+  "FindLight:PickTarget#1": [
     '--★★ PickTarget：目标查找，两行搞定。',
     '-- ★ 用 GetClosestInstWithTag（与 findfarmplant 第 37 行同款便捷函数），',
     '--   而非 findclosest 的 TheSim:FindEntities + 手动取 ents[1]。',
@@ -139,12 +139,12 @@ export default {
     '--   后者要求你手动处理「结果里第一个是自己」的排除（findclosest 第 84 行）。',
     '--   这里由引擎处理，少一处易错点。',
   ],
-  49: [
+  "FindLight:PickTarget#1+2": [
     '--★ 更新时间戳（重选周期用）。',
     '--★ 注意第 29 行的 lastfollowchecktime **不在**这里更新 ——',
     '--   两者是独立的时钟，分开管理才不会互相干扰。',
   ],
-  50: [
+  "FindLight:PickTarget#1+3": [
     '--★★ 全文件结束在 PickTarget —— 印证了它没有任何终态转换逻辑。',
     '--   节点的生命周期：READY → RUNNING →（重选 or 达标）→ SUCCESS/FAILED。',
     '--   ★ 全程无 self:Sleep 调用 ——',

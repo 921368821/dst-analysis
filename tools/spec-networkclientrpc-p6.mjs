@@ -2,7 +2,7 @@
 // HandleRPC 入队、HandleClientRPC、HandleShardRPC、HandleRPCQueue 排空、TickRPCQueue
 
 export const BEFORE = {
-  1675: [
+  "HandleRPC#1": [
     "--★★★★★[HandleRPC —— ★★★ 本文件的心脏之一：客户端→服务端 RPC 的入口]",
     "--   ★★★ 签名：HandleRPC(sender, tick, code, data)",
     "--     · sender = ★ 发送者（玩家实体，或 userid 字符串）",
@@ -17,7 +17,7 @@ export const BEFORE = {
     "--     ③ 限流（:1686-1696）：检查额度，超限则丢弃并告警",
     "--   ★★ 全函数**不做任何游戏逻辑** —— 只是「排队 + 计数」。",
   ],
-  1676: [
+  "HandleRPC#1+1": [
     "--★★[local fn = RPC_HANDLERS[code] —— O(1) 查表]",
     "--   ★ RPC_HANDLERS 已在 :1401-1404 被改造成「数字 → 函数」，所以这里直接查。",
     "--   ★★ fn 为 nil 时（:1700）打印「Invalid RPC code」—— 说明收到了未注册的 code。",
@@ -26,13 +26,13 @@ export const BEFORE = {
     "--       推理：连 code 都无效，说明是协议层问题而非参数问题，",
     "--       推 invalidrpc 事件对模组没有意义（模组也无法处理未知 code）。",
   ],
-  1677: [
+  "HandleRPC#1+2": [
     "--★ if fn ~= nil then —— 有效性检查的骨架。",
     "--   ★ 注意结构：if/else 两个分支都只处理「无效」情形（:1700）。",
     "--     · fn 无效 → 打印无效 code",
     "--     · fn 有效 → 进入处理（:1678）",
   ],
-  1678: [
+  "HandleRPC#1+3": [
     "--★★★[senderistable —— ★「发送者是实体还是 userid 字符串」的判定]",
     "--   local senderistable = type(sender) == \"table\"",
     "--   ★★★ 关键理解：★ sender 的类型决定了两件事。",
@@ -45,7 +45,7 @@ export const BEFORE = {
     "--     因为此时实体可能「还没准备好」，但仍是 table；",
     "--     ★ type 判定比「尝试访问字段」更安全（不会触发 __index）。",
   ],
-  1679: [
+  "HandleRPC#1+4": [
     "--★★★[if USERID_RPCS[fn] or senderistable then —— ★★ 双重放行条件]",
     "--   ★★★ 两个条件是「或」：",
     "--     · USERID_RPCS[fn] 为真 → 该 RPC 允许 sender 是 userid 字符串（:1121 场景）",
@@ -60,21 +60,21 @@ export const BEFORE = {
     "--     ★ 所以这是**安全边界**，不只是「防御性编程」。",
     "--   ★→ 移植时：新增 handler 若第一个参数不是实体，必须调 MarkUserIDRPC（:1980）。",
   ],
-  1680: [
+  "HandleRPC#1+5": [
     "--★★[local userid = senderistable and sender.userid or nil —— 提取 userid]",
     "--   ★★★ 三目惯用法：实体 → sender.userid；字符串 → nil。",
     "--   ★★ 提取 userid 是为了「把实体 sender 转换成字符串 userid」",
     "--     （当 USERID_RPCS[fn] 成立时，见 :1682-1684）。",
     "--   ★★ 注意这里能安全访问 sender.userid —— 因为 senderistable 为真（是实体 table）。",
   ],
-  1682: [
+  "HandleRPC#1+7": [
     "--★★★[if USERID_RPCS[fn] then sender = userid or sender end —— ★ 类型替换]",
     "--   ★★★ 语义：若该 RPC 标记为「以 userid 为第一参数」，",
     "--     ★ 则把 sender（实体）替换为 userid（字符串）。",
     "--   ★★ `userid or sender` 的兜底：若实体无 userid（异常），保留原实体。",
     "--   ★★★ 替换后 handler 收到的是字符串，"
   ],
-  1686: [
+  "HandleRPC#1+11": [
     "--★★★[local limit = RPC_Queue_Limiter[sender] or 0 —— ★★ 取当前额度]",
     "--   ★★★ 「发送者 → 当前已入队数」的查表。",
     "--   ★ or 0 兜底：没记录过 = 额度 0（还没入队过）。",
@@ -84,14 +84,14 @@ export const BEFORE = {
     "--       ★★ 这正是 :1739 的 `if type(sender)==\"table\" and not sender:IsValid()`",
     "--         与 :1733-1734 的清表逻辑要存在的原因（见 :1664 的分析）。",
   ],
-  1687: [
+  "HandleRPC#1+12": [
     "--★★★[if limit < RPC_QUEUE_RATE_LIMIT then —— ★★ 限流判定]",
     "--   ★★★ 「当前额度 < 上限」→ 放行；否则拒绝。",
     "--   ★★ 上限是 RPC_QUEUE_RATE_LIMIT（:1662，默认 20，但可被模组抬高，缺陷 B）。",
     "--   ★★★ 这是「严格小于」：额度达到上限时（limit == 上限）就拒绝。",
     "--     所以单刻最多入队 20 条（第 20 条时 limit 从 19→20，"
   ],
-  1688: [
+  "HandleRPC#1+13": [
     "--★★[RPC_Queue_Limiter[sender] = limit + 1 —— ★★ 入队前先占额度]",
     "--   ★★★ 顺序（★ 关键）：★ 先自增计数器，再入队（:1689）。",
     "--   ★★ 为什么这个顺序？保证「额度与队列长度一致」。",
@@ -101,7 +101,7 @@ export const BEFORE = {
     "--     自减发生在**排空时**（HandleRPCQueue :1731）——",
     "--     ★★★ 这就是「入队额度」而非「执行额度」的机制（见 :1662 注记）。",
   ],
-  1689: [
+  "HandleRPC#1+14": [
     "--★★★★★[table.insert(RPC_Queue, {fn, sender, data, tick}) —— ★ 入队]",
     "--   ★★★ 「为什么收到 RPC 要入队而不是立即执行」的答案（★ 完整列举）：",
     "--   ── 理由一：★ 时序确定性（最重要）──",
@@ -124,7 +124,7 @@ export const BEFORE = {
     "--     参见 prefabs/world.lua:301 的 DoTaskInTime(0)（同一原语的另一次运用）。",
     "--   ★★★ 四元组 {fn, sender, data, tick} 的 tick 是重入保护的关键（:1741）。",
   ],
-  1691: [
+  "HandleRPC#1+16": [
     "--★★★[第 1691-1694 行：超限时的「只告警一次」处理]",
     "--   \"-- This user is sending way too much for normal activity so take note of it.\"",
     "--   ★★★ 注释措辞很有意思：「for normal activity」——",
@@ -138,30 +138,30 @@ export const BEFORE = {
     "--   ⚠ 代价：攻击者可以利用这点（超量的部分被丢弃，但大部分仍被处理）。",
     "--     真正的防护还是要靠 20 这个较小的上限。",
   ],
-  1692: [
+  "HandleRPC#1+17": [
     "--★★[if not RPC_Queue_Warned[sender] then —— 「只告警一次」的守卫]",
     "--   ★★★ 与 RPC_Queue_Limiter（计数）配套的「告警去重」表。",
     "--   ★★ 目的：防止攻击者把日志刷爆（见 :1665 的分析）。",
   ],
-  1694: [
+  "HandleRPC#1+19": [
     "--★ print(\"Rate limiting RPCs from\", sender, userid, \"last one being ID\", tostring(code))",
     "--   ★★ 日志含 sender、userid、code —— 便于追查是谁在被限流、发什么 RPC。",
     "--     ★ 「last one being ID」指被丢弃的那条的 code。",
   ],
-  1698: [
+  "HandleRPC#1+23": [
     "--★ else 分支：sender 是 userid 字符串但该 RPC 未标记 USERID_RPCS。",
     "--   ★ 这是「协议不一致」的拒绝（见 :1679 的分析）——",
     "--     攻击者不能靠发这种 RPC 触发服务端崩溃。",
     "--   ★★ 注意这里只打印，不推事件 —— 因为这是「我方代码的协议假设被违反」，",
     "--     模组无法处理。",
   ],
-  1700: [
+  "HandleRPC#1+25": [
     "--★★[else 分支（:1700-1701）：fn 为 nil —— 无效 code]",
     "--   print(\"Invalid RPC code: \"..tostring(code))",
     "--   ★★ 注意用字符串拼接而非 print 的多参数形式（与 :1694 不同风格）。",
     "--   ★ 无效 code 说明客户端发了服务端不认识的 RPC（版本不匹配/恶意探测）。",
   ],
-  1705: [
+  "HandleClientRPC#1": [
     "--★★★[HandleClientRPC —— 服务端→客户端 RPC 的入口（客户端侧）]",
     "--   ★★★ 签名：HandleClientRPC(tick, code, data) —— ★★ **没有 sender**！",
     "--   ★★★ 与 HandleRPC（:1675）的签名差异：",
@@ -179,7 +179,7 @@ export const BEFORE = {
     "--     推理：服务端→客户端可信，服务端不会滥用自己的通道。",
     "--     ★ 这与 §八 的限流只针对 C2S 方向一致。",
   ],
-  1706: [
+  "HandleClientRPC#1+1": [
     "--★★[if not ThePlayer then return end —— 「ThePlayer 为 nil 则所有 RPC 都无效」]",
     "--   ★ 原注释：\"ThePlayer being nil means all rpc's are invalid.\"",
     "--   ★★★ 推理：客户端在「选人界面」阶段（玩家实体未生成），",
@@ -188,12 +188,12 @@ export const BEFORE = {
     "--   ★★ 早退 vs 打印：这里不打印「无效」，因为**这是正常情况**（不是攻击/异常）。",
     "--     ★ 对比 :1701 的 Invalid RPC code 会打印 —— 那是异常。",
   ],
-  1709: [
+  "HandleClientRPC#1+4": [
     "--★★[table.insert(RPC_Client_Queue, {fn, data, tick}) —— 入队（★ 三元组）]",
     "--   ★★★ 注意是 {fn, data, tick} —— ★★ 无 sender（对比主队列的 {fn, sender, data, tick}）。",
     "--   ★ 结构与主队列的差异见 :1669 的注记。",
   ],
-  1715: [
+  "HandleShardRPC#1": [
     "--★★★[HandleShardRPC —— 分片→分片 RPC 的入口]",
     "--   ★★★ 签名：HandleShardRPC(sender, tick, code, data) —— 有 sender（同主队列）。",
     "--   ★★ sender 是**分片 ID**（字符串），不是玩家。",
@@ -204,11 +204,11 @@ export const BEFORE = {
     "--   ★★ 且**没有限流** —— 理由同 HandleClientRPC。",
     "--   ★★ 所以三条入队路径的校验强度递减：C2S（最强）> S2S（中，队列排空时校验）> V2C（弱）。",
   ],
-  1718: [
+  "HandleShardRPC#1+3": [
     "--★★[table.insert(RPC_Shard_Queue, {fn, sender, data, tick}) —— 分片队列入队]",
     "--   ★ 与主队列同构（四元组，有 sender=分片id）。",
   ],
-  1724: [
+  "HandleRPCQueue#1": [
     "--★★★★★[HandleRPCQueue —— ★★★ 每帧一次，逐帧排空三条队列]",
     "--   ★★★ 由主循环调用（★ 参见 01-报告/05-原生C++引擎层.md:660 的 WallUpdate，",
     "--     以及 update.lua:42 —— ★ 每帧的「实时更新」阶段）。",
@@ -222,7 +222,7 @@ export const BEFORE = {
     "--     ★ 而 CallRPC 内部才真正执行 fn。",
     "--     → 本函数只是「调度器」，真正的 handler 执行发生在 C++ 侧的 CallRPC 里。",
   ],
-  1725: [
+  "HandleRPCQueue#1+1": [
     "--★★[local RPC_Queue_new = {} —— 「新队列」用于承接未能执行的项]",
     "--   ★★★ 经典的「双缓冲」排空模式：",
     "--     · 遍历**旧队列** RPC_Queue；",
@@ -234,24 +234,24 @@ export const BEFORE = {
     "--     ★ 双缓冲是最安全的做法（遍历只读旧，写新）。",
     "--   ★★★ 这个模式在三条队列的排空中重复三次（:1725、:1754、:1773）。",
   ],
-  1726: [
+  "HandleRPCQueue#1+2": [
     "--★ local RPC_Queue_len = #RPC_Queue —— 记录长度（遍历时队列不再变）。",
     "--   ★★ 注意先取长度再遍历 —— 若在遍历中往 RPC_Queue 加了新项（不该发生），",
     "--     #RPC_Queue 会变，用固定长度保证遍历范围确定。",
   ],
-  1727: [
+  "HandleRPCQueue#1+3": [
     "--★★[for i = 1, RPC_Queue_len do —— 顺序遍历队列]",
     "--   ★★ 顺序遍历保证了 RPC 的**执行顺序 = 入队顺序 = 到达顺序**。",
     "--     ★ 这对「玩家连发多个操作」的正确性至关重要。",
     "--   ★ 对比 HandleRPC 那里用的是 table.insert（追加），这里是按下标访问。",
   ],
-  1729: [
+  "HandleRPCQueue#1+5": [
     "--★ local fn, sender, data, tick = unpack(rpcdata) —— 解包四元组。",
     "--   ★★ 解包成局部变量，后续逻辑用它们。",
     "--   ★ 注意 unpack 在 Lua 5.1/5.2 是全局函数，5.3+ 是 table.unpack（局部）。",
     "--     ★ 本项目是 Lua 5.1（游戏原生），unpack 是全局的。",
   ],
-  1731: [
+  "HandleRPCQueue#1+7": [
     "--★★★★★[第 1731-1737 行：★★ 额度自减 + ★★ 清表（防泄漏的关键）]",
     "--   ★★★ 三步逻辑：",
     "--     local limit = (RPC_Queue_Limiter[sender] or 1) - 1  -- 减 1",
@@ -273,11 +273,11 @@ export const BEFORE = {
     "--   ★ 参见 01-报告/04-联机同步-模组系统-UI.md:1545-1557（对该逻辑的分析，",
     "--     明确指出「清表这一行是防内存泄漏的关键」）。",
   ],
-  1732: [
+  "HandleRPCQueue#1+8": [
     "--★ if limit == 0 then —— 归零判断。",
     "--   ★ 用 `== 0` 而非 `< 1`：因为额度不可能为负（自增自减配对）。",
   ],
-  1739: [
+  "HandleRPCQueue#1+15": [
     "--★★★[if type(sender) == \"table\" and not sender:IsValid() then -- Ignore.]",
     "--   ★★★ 「发送者实体已失效」→ 丢弃这条 RPC。",
     "--   ★★★ 推理：玩家可能在「发 RPC → 服务器排空队列」之间死亡/断开，",
@@ -288,7 +288,7 @@ export const BEFORE = {
     "--   ★★ 与 S2C 方向对比（:1779）：那里判断的是「分片是否可用」，",
     "--     而 C2V 方向判断的是「实体是否有效」—— 同一个丢弃点，两种判断。",
   ],
-  1741: [
+  "HandleRPCQueue#1+17": [
     "--★★★★★[elseif RPC_Timeline[sender] == nil or RPC_Timeline[sender] == tick then]",
     "--   ★★★ 「同刻重入保护」的核心判定（★ 与限流无关，是另一回事）：",
     "--   ── 两种情况可执行 ──",
@@ -309,10 +309,10 @@ export const BEFORE = {
     "--     → 串行执行保证每个操作都基于「上一个操作的最终结果」。",
     "--   ★★ 「nil 或 == tick」的判定保证了「每刻第一条必执行，后续排队」。",
   ],
-  1742: [
+  "HandleRPCQueue#1+18": [
     "--★ \"-- Invoke.\" —— 可执行分支的标记注释。",
   ],
-  1743: [
+  "HandleRPCQueue#1+19": [
     "--★★★[if TheNet:CallRPC(fn, sender, data) then —— ★★ 实际执行在 C++ 侧]",
     "--   ★★★ CallRPC 由 TheNet（C++）提供，它内部真正调用 fn(sender, data)。",
     "--   ★★ 「执行」这个动作发生在 C++ 的 CallRPC 里，不是本文件。",
@@ -324,7 +324,7 @@ export const BEFORE = {
     "--     ★→ 这解释了为什么 handler 里可以放心写 player.components.xxx（:61 等），",
     "--       崩溃会被 C++ 层捕获吗？—— 不一定，但至少有一层隔离。",
   ],
-  1744: [
+  "HandleRPCQueue#1+20": [
     "--★★[RPC_Timeline[sender] = tick —— ★★ 执行成功后标记「本刻已处理」]",
     "--   ★★★ 这是重入保护的状态更新：一旦某 sender 执行了一条，",
     "--     就把它的 Timeline 标记为当前 tick ——",
@@ -332,7 +332,7 @@ export const BEFORE = {
     "--   ★★★ 注意只在 CallRPC 返回 true 时更新（:1743 的 if 保护）。",
     "--     ★ 若 CallRPC 失败（返回 false），不更新 → 下条仍可尝试。",
   ],
-  1746: [
+  "HandleRPCQueue#1+22": [
     "--★★★[else 分支：同刻已有处理 → 放入新队列，延到下刻]",
     "--   ★★★ 「-- Pending.」—— 排队，不是丢弃！",
     "--     ★★ 与限流的「丢弃」（:1690 附近）不同：",
@@ -350,17 +350,17 @@ export const BEFORE = {
     "--       ★★★ 设为 0 的作用：防止本刻内被再次误判为「可执行」。",
     "--         （若保持 tick，同 tick 的后续项会以为「是我这条」而重复执行。）",
   ],
-  1749: [
+  "HandleRPCQueue#1+25": [
     "--★★[RPC_Timeline[sender] = 0 —— 「本刻已处理，且已排队到下刻」的标记]",
     "--   ★★★ 详细推理见上方 :1746 的注记。",
     "--   ★ 关键：TickRPCQueue（:1798）每刻开头会 `RPC_Timeline = {}` 清空，",
     "--     ★ 所以「0」的存活期只有本刻剩余时间（防本刻重复处理）。",
   ],
-  1752: [
+  "HandleRPCQueue#1+28": [
     "--★★[RPC_Queue = RPC_Queue_new —— 换上新队列（含未能执行的项）]",
     "--   ★★★ 双缓冲模式的收尾：旧队列（已执行的项被丢弃，"
   ],
-  1754: [
+  "HandleRPCQueue#1+30": [
     "--★★[RPC_Client_Queue_new = {} —— V2C 队列的新队列（V2C 排空开始）]",
     "--   ★★★ V2C 排空循环（:1754-1771）比 C2V 简单，因为：",
     "--     · 无 sender（:1760 用单个 RPC_Client_Timeline 变量，不用表）；",
@@ -368,29 +368,29 @@ export const BEFORE = {
     "--     · 无发送者有效性检查（:1739 的 IsValid 在 V2C 不适用）。",
     "--   ★★★ 核心仍是同刻重入保护（:1760），但只有一个全局 Timeline。",
   ],
-  1757: [
+  "HandleRPCQueue#1+33": [
     "--★ local fn, data, tick = unpack(rpcdata) —— 解包三元组（无 sender）。",
   ],
-  1760: [
+  "HandleRPCQueue#1+36": [
     "--★★[if RPC_Client_Timeline == nil or RPC_Client_Timeline == tick then]",
     "--   ★★★ 与 :1741 同构，但用**单个变量**（非表）——",
     "--     ★ 因为 V2C 只有一个接收者（本地客户端），无需按 sender 区分。",
     "--   ★ 排空期间 V2C 消息严格串行（同一刻只执行一条）。",
   ],
-  1762: [
+  "HandleRPCQueue#1+38": [
     "--★ if TheNet:CallClientRPC(fn, data) then —— V2C 实际执行（C++ 侧）。",
     "--   ★ 参数结构与 CallRPC（:1743）类似，但函数名不同（ClientRPC）。",
   ],
-  1773: [
+  "HandleRPCQueue#1+49": [
     "--★★[RPC_Shard_Queue_new = {} —— S2S 队列的新队列（分片排空开始）]",
     "--   ★★★ S2S 排空循环（:1773-1795）的特殊性：",
     "--     · ★ 有额外的「分片可用性」检查（:1779）；",
     "--     · ★★ 有一个「处理中触发同帧另一个 shard RPC」的警告（:1786-1787）。",
   ],
-  1777: [
+  "HandleRPCQueue#1+53": [
     "--★ local fn, sender, data, tick = unpack(rpcdata) —— 解包四元组（有 sender=分片）。",
   ],
-  1779: [
+  "HandleRPCQueue#1+55": [
     "--★★★[if not Shard_IsWorldAvailable(tostring(sender)) and tostring(sender) ~= TheShard:GetShardId() then]",
     "--   ★★★ 「分片不可用」的丢弃条件（比 C2V 的 IsValid 更语义化）：",
     "--   ── 两个条件（and 连接）都成立才丢弃 ──",
@@ -405,15 +405,15 @@ export const BEFORE = {
     "--     · S2S: 检查「分片连接是否还在」—— 不同的失效维度。",
     "--   ★★ tostring(sender) 的两次调用 —— 转字符串以匹配 shard id 格式。",
   ],
-  1781: [
+  "HandleRPCQueue#1+57": [
     "--★★[elseif RPC_Shard_Timeline[sender] == nil or RPC_Shard_Timeline[sender] == tick then]",
     "--   ★ 与 :1741 逐字同构的分片版重入保护。",
   ],
-  1783: [
+  "HandleRPCQueue#1+59": [
     "--★ if TheNet:CallShardRPC(fn, sender, data) then —— S2S 实际执行。",
     "--   ★ 第三个函数名（CallShardRPC）。",
   ],
-  1786: [
+  "HandleRPCQueue#1+62": [
     "--★★★[第 1786-1787 行：★★ 「处理中触发同帧 shard RPC」的警告]",
     "--   if RPC_Shard_Queue[RPC_Shard_Queue_len + 1] then",
     "--       print(\"Shard RPC invoked another RPC in the same frame and will be dropped!",
@@ -433,11 +433,11 @@ export const BEFORE = {
     "--     说明 S2S 方向确实存在「重入」隐患，作者用警告来提示。",
     "--   ★ 移植时务必理解这条约束，否则会遇到「shard RPC 莫名丢失」。",
   ],
-  1795: [
+  "HandleRPCQueue#1+71": [
     "--★★[RPC_Shard_Queue = RPC_Shard_Queue_new —— 换上新分片队列]",
     "--   ★ 三条队列的排空至此全部完成。",
   ],
-  1798: [
+  "TickRPCQueue#1": [
     "--★★★[TickRPCQueue —— ★ 每刻开头重置重入保护状态]",
     "--   RPC_Timeline = {}",
     "--   RPC_Client_Timeline = nil",
@@ -457,7 +457,7 @@ export const BEFORE = {
     "--     · RPC_Queue_Limiter：按 sender 归零时清（防泄漏）",
     "--     · RPC_Timeline：每刻无条件整体清（重置串行窗口）",
   ],
-  1802: [
+  "TickRPCQueue#1+4": [
     "--★★★ TickRPCQueue 结束。★★★ 至此「RPC 的完整生命周期」闭合：",
     "--   ① 编号分配（加载期，:1391-1634）—— 名字↔数字终身绑定",
     "--   ② 发送（:1636-1660）—— 三个方向各一个函数",

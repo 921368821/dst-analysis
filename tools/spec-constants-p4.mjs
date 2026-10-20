@@ -2,31 +2,31 @@
 // 覆盖源文件行号区间：2293 - 2790
 
 export const BEFORE = {
-  2351: [
+  "RGB#1+693": [
     "--【★ 类别 R · 聊天 / 玩家权限 / 权限等级】2351-2595 行",
     "--  ★★ 本区是「联机规则」的定义处，与网络同步密切相关。",
     "--  ★ 承接上一部分（2293-2350 行的 Steam AppID 与 UI 基础常量）。",
   ],
 
-  2318: [
+  "RGB#1+660": [
     "--★ UICOLOURS 界面配色表（2318 行）+ PLANTREGISTRYUICOLOURS（2341 行）。",
     "--  ★ PLANTREGISTRY = 植物图鉴。这是 DST 的收集系统UI。",
     "--    植物图鉴的收集进度会写入存档（见第 2889 行 SPECIAL_SCRAPBOOK_PAGES）。",
   ],
 
-  2347: [
+  "RGB#1+689": [
     "--★ MAX_CHAT_INPUT_LENGTH = 150 / MAX_WRITEABLE_LENGTH = 200（第 2347-2348 行）：",
     "--  ★★ 输入长度上限。属技术限制（防超长文本），非平衡数值。",
     "--    ★ 200 > 150 ⇒ 「可写入的内容（存档/日志）」比「聊天框」更长，",
     "--      两者服务于不同场景。",
   ],
 
-  2351: [
+  "RGB#1+693": [
     "--  DST_NPCCHATTERLIST NPC 闲聊库（2351 行）。",
     "--  ★★ 这是「NPC 会随机说的话」文本库。纯内容，无逻辑。",
   ],
 
-  2364: [
+  "RGB#1+706": [
     "--★★★ 【CHATPRIORITIES 聊天优先级】2364-2382 行",
     "--  ★★ 这张表决定「谁的消息显示在哪里 / 谁能看到谁的消息」：",
     "--    例如普通聊天进公共频道、世界管理员消息给所有人看、",
@@ -37,7 +37,7 @@ export const BEFORE = {
     "--    ⇒ 在修改权限系统时必须格外小心。",
   ],
 
-  2383: [
+  "RGB#1+725": [
     "--★★★ 【USERFLAGS 用户权限标志位】2383-2395 行 —— ★★ 位掩码",
     "--  ★★ 这是**权限的位掩码枚举**，与 YOTB_COSTUMES 同一用法：",
     "--    每个标志是 2 的幂（1/2/4/8...），可按位或组合成一个整数。",
@@ -50,7 +50,7 @@ export const BEFORE = {
     "--★ 消费方：networking.lua / consolecommands.lua 的权限校验。",
   ],
 
-  2396: [
+  "RGB#1+738": [
     "--★ CAMERASHAKE 震屏类型（2396 行）/ RATE_SCALE 速率缩放（2404 行）。",
     "--  TWITCH（2416 行）：Twitch 联动的平台 ID 与配置。",
     "--  ★ Twitch 相关的键名会参与账号鉴权，改动会导致登录失败。",
@@ -61,7 +61,7 @@ export const BEFORE = {
     "--    ⇒ 这是「存档兼容性」最敏感的表之一，只增不减。",
   ],
 
-  2444: [
+  "RGB#1+786": [
     "--【★ 传送门与危险提示枚举】2444-2495 行",
     "--  WORMHOLETYPE 传送门类型（2444 行）。",
     "--  HOUNDWARNINGTYPE 猎犬预警类型（2453 行）。",
@@ -74,7 +74,7 @@ export const BEFORE = {
     "--  ★★ 这几项是联机底层协议的枚举，改动会导致客户端与主机握手失败。",
   ],
 
-  2505: [
+  "RGB#1+847": [
     "--【★ 联机世界类型与标签】2505-2545 行",
     "--  PLAYSTYLE_ANY / PLAYSTYLE_DEFAULT = \"survival\"（2505-2506 行）。",
     "--    ★ 玩法类型字符串（生存/标本/ Davenport 等）。",
@@ -88,7 +88,7 @@ export const BEFORE = {
     "--    ★★ 这几张表描述「联机服务器如何拉起世界」，是运维侧配置。",
   ],
 
-  2564: [
+  "RGB#1+906": [
     "--★★★ 【CLOUD_SAVES_SAVE_OFFSET = 100000】—— 存档编号的高危魔数",
     "--  ★★★ 这个数字必须单独理解，它决定云存档的编号空间：★★",
     "--    · 本地存档编号从 0（或 1）开始；",
@@ -102,13 +102,13 @@ export const BEFORE = {
     "--  ★ 若确需变更（如迁移），必须同时做数据迁移脚本。",
   ],
 
-  2566: [
+  "RGB#1+908": [
     "--【COMMAND_PERMISSION / COMMAND_RESULT】2566-2579 行：",
     "--  ★ 控制台指令所需的权限等级，以及指令执行结果枚举。",
     "--  ★★ 与第 2383 行 USERFLAGS 配合，构成完整的权限校验体系。",
   ],
 
-  2580: [
+  "RGB#1+922": [
     "--  CARRAT_MUSIC_STATES 嘉年华音乐状态（2580 行）。",
     "--  LOCALPLAYER_MUSIC 本地玩家音乐（2586 行）：",
     "--    ★★ 这是**本地偏好**而非世界状态，所以不同步给其他玩家。",
@@ -118,7 +118,7 @@ export const BEFORE = {
     "--      这些是防滥用/防性能问题的技术上限，不参与平衡。",
   ],
 
-  2593: [
+  "RGB#1+935": [
     "--★★★ 【USER_HISTORY_EXPIRY_TIME = 60*60*24*30】—— 见习期时长",
     "--  ★★ 写法极具示范性：`60*60*24*30` 而不是 `2592000`。",
     "--    ⇒ 一眼看出是「30 天」，而 2592000 无法心算。",
@@ -128,7 +128,7 @@ export const BEFORE = {
     "--  ★⇒ 这是本文件里**归一化/可读性写法**的最佳实例之一。",
   ],
 
-  2596: [
+  "RGB#1+938": [
     "--【★ 类别 S · 语言与物品数量上限】2596-2675 行",
     "--  LANGUAGE 语言表（2596 行）：定义支持的语言代码。",
     "--  LANGUAGE_STEAMCODE_TO_ID（2624 行）：Steam 语言代码 → 游戏内部 ID。",
@@ -136,7 +136,7 @@ export const BEFORE = {
     "--    ⚠ 语言代码是 Steam 约定的标准值，不可自创。",
   ],
 
-  2654: [
+  "RGB#1+996": [
     "--★★ 【QUAGMIRE_NUM_* 沼泽世界数量上限】2654-2656 行",
     "--  QUAGMIRE_NUM_FOOD_PREFABS = 69 / QUAGMIRE_NUM_SEEDS_PREFABS = 7",
     "--  QUAGMIRE_USE_KLUMP = false",
@@ -154,7 +154,7 @@ export const BEFORE = {
     "--  QUAGMIRE_USE_KLUMP = false：是否使用特殊土球（沼泽机制）开关。",
   ],
 
-  2658: [
+  "RGB#1+1000": [
     "--★ OCEAN_MAPWRAPPER_WARN_RANGE / OCEAN_POPULATION_EDGE_DIST /",
     "--  OCEAN_WATERFALL_MAX_DIST（2658-2660 行）：海洋地图与瀑布的渲染/生成参数。",
     "--  INVENTORY_PROGRESS 物品栏进度表（2663 行）：",
@@ -162,7 +162,7 @@ export const BEFORE = {
     "--    ★ 与 FOODGROUP 配合，图鉴 UI 据此渲染。",
   ],
 
-  2663: [
+  "RGB#1+1005": [
     "--★ 【★ BETA_INFO 测试版信息】2663-2710 行",
     "--  CURRENT_BETA = 1（第 2675 行）：",
     "--  ★★ 英文原注释：'set to 0 if there is no beta. Note: release builds",
@@ -180,7 +180,7 @@ export const BEFORE = {
     "--★ 命名识别法：当前行是源数据，行尾注释标注了「另一个常量是它的函数」。",
   ],
 
-  2710: [
+  "RGB#1+1052": [
     "--★★★ 【★ 类别 T · ★★ 物品 ID 与联机协议 —— 本任务重点★★】2710-2760 行",
     "--",
     "--  ★★★ TEMP_ITEM_ID = \"0\"（第 2710 行）：临时物品 ID。",
@@ -194,7 +194,7 @@ export const BEFORE = {
     "--    ⚠ 这是「迁移兼容」的痕迹，与本文件多处废弃键同源。",
   ],
 
-  2713: [
+  "RGB#1+1055": [
     "--★ IAP_TYPE_REAL = 0 / IAP_TYPE_VIRTUAL = 1（第 2713-2714 行）：",
     "--  ★★ 内购类型：真实货币 vs 虚拟货币。",
     "--    ★⚠ 与 IAP_TYPE_REAL = 0 组合的注意事项：",
@@ -204,7 +204,7 @@ export const BEFORE = {
     "--        RENDER_QUALITY.LOW = 0 属同类陷阱。",
   ],
 
-  2717: [
+  "RGB#1+1059": [
     "--  TEXT_FILTER_CTX_* 文本过滤上下文（2717-2721 行）：",
     "--    UNKNOWN=0 / GAME=1 / CHAT=2 / NAME=3 / SERVERNAME=0",
     "--    ★★ ⚠ 疑似缺陷（枚举值重复）：",
@@ -217,12 +217,12 @@ export const BEFORE = {
     "--    ⇒ 这是一个「进行中的设计」，不应视为最终定义。",
   ],
 
-  2724: [
+  "RGB#1+1066": [
     "--★ CHARACTER_BUTTON_OFFSET / _SCALE（2724-2745 行）：角色选择界面布局。",
     "--  ★★ 纯 UI 坐标常量，不涉及存档与联机，风险低。",
   ],
 
-  2746: [
+  "RGB#1+1088": [
     "--★★★ 【★★ YOTB_COSTUMES —— ★★ 位掩码枚举，本文件最易写错处★★】★★",
     "--  WAR=1  DOLL=2  ROBOT=4  NATURE=8  FORMAL=16",
     "--  VICTORIAN=32  ICE=64  FESTIVE=128  BEAST=256",

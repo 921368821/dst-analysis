@@ -4,7 +4,7 @@
 // 锚点范围：529 ~ 759
 
 export const BEFORE = {
-  529: [
+  "StateGraphInstance:GoToState#1": [
     "--★★★【★★★★ GoToState —— 本文件最重要、也最需要小心的一个函数】",
     "--   ★★ 它是状态图唯一的转移入口。执行顺序共 12 步，顺序本身就是设计：",
     "--     ① 530  查状态（不存在则 print + return，不崩）",
@@ -30,14 +30,14 @@ export const BEFORE = {
     "--   ★★ 它**可以**重入（自身内部调它），这是设计允许的：",
     "--     UpdateState 的 661/681 行专门检测了「新状态 != 进入时的状态」并提前退出。",
   ],
-  530: [
+  "StateGraphInstance:GoToState#1+1": [
     "--★【★★ 按名字查状态 —— 整个状态图就是一张「状态名 → State」的哈希表】",
     "--   ★ 名字是唯一标识（见 219 行），这是状态图可序列化、可动态构造的基础。",
     "--   ★★ 性能：这是一次哈希查找，O(1)。",
     "--     GoToState 在怪物密集场景下调用极频繁（每次受击/每次目标变化），",
     "--     所以不能做成线性扫描。定义与查找的分离在这里体现了价值。",
   ],
-  532: [
+  "StateGraphInstance:GoToState#1+3": [
     "--★★【★ 容错：状态不存在时打印并返回，而不是 assert 崩掉】",
     "--   ★★ 这是刻意的「软失败」设计，原因有三：",
     "--     ① mod 移除或改名状态后，实体仍可能在跑旧状态图",
@@ -49,16 +49,16 @@ export const BEFORE = {
     "--     536 行的 assert 被注释掉了（见那行注释），说明作者主动选择了软失败。",
     "--     → 建议：在开发构建里打开 print，或自己加断言。",
   ],
-  533: [
+  "StateGraphInstance:GoToState#1+4": [
     "--★★【★ 错误日志格式：实体 + 状态名，连玩的人是谁都能看出来】",
     "--   ★ 第一项是 self.inst，会被 __tostring 转成含 sg 名/状态名的长字符串（373 行），",
     "--     所以这一行 print 的信息量其实很大。",
   ],
-  536: [
+  "StateGraphInstance:GoToState#1+7": [
     "--★【★ 被注释掉的 assert —— 作者主动放弃「状态不存在就崩」】",
     "--   保留它作为设计决策的证据：曾经想用硬失败，后来改成软失败 + 日志。",
   ],
-  538: [
+  "StateGraphInstance:GoToState#1+9": [
     "--★★★【★★ onexit 的调用点 —— 本行是「清理的最后窗口」的关键】",
     "--   ★★ 它在 550 行清空 statemem **之前**执行，所以：",
     "--     ✓ 可以读到即将被丢弃的 statemem（做清理或交接）",
@@ -72,11 +72,11 @@ export const BEFORE = {
     "--   ⚠ onexit 只在「有当前状态」时被调（538 行判空），",
     "--     所以第一次进状态时不会有 onexit。",
   ],
-  539: [
+  "StateGraphInstance:GoToState#1+10": [
     "--★【★ 传的是「下一个状态名」而非 params —— onexit 的第二参数语义】",
     "--   ★ 用法示例：CommonStates 里的「离开 attack 时清除目标锁定」类逻辑。",
   ],
-  542: [
+  "StateGraphInstance:GoToState#1+13": [
     "--【★★「Record stats」段 —— 整套「状态耗时统计」机制被整体注释掉】",
     "--   ★★ 543 行 KAJ 的 TODO 说明它被废弃的原因：",
     "--     「what are we going to do with metrics?」—— 指标数据没有去处。",
@@ -87,18 +87,18 @@ export const BEFORE = {
     "--   ★ 若要复活：需要配套一个「把统计画出来」的界面，",
     "--     否则数据只累积不消费，纯浪费内存。",
   ],
-  543: [
+  "StateGraphInstance:GoToState#1+14": [
     "--【★ 废弃指标机制的 TODO —— 「这些数据拿去干什么」是真正的阻塞点】",
   ],
-  544: [
+  "StateGraphInstance:GoToState#1+15": [
     "--【被注释的统计代码：只对本地玩家统计，且要求「玩家在键盘前」】",
     "--   ★ 三个限制条件说明它是为**本地调试**设计的，不是通用统计。",
   ],
-  545: [
+  "StateGraphInstance:GoToState#1+16": [
     "--【★ dt 用 GetTime() - statestarttime（含休眠的真实时长）】",
     "--   ★ 与 UpdateState 用 timeinstate（活跃时长）不同，这里要的是真实时长。",
   ],
-  546: [
+  "StateGraphInstance:GoToState#1+17": [
     "--【★ clever 的写法：先判空再累加，因此不依赖 currentstate.time 是否预先存在】",
     "--   注释原文点明：「works even if currentstate.time is nil」",
     "--   ⚠ 但这里累加的是 State 对象上的字段 —— 而 State 是**所有实体共享**的！",
@@ -107,7 +107,7 @@ export const BEFORE = {
     "--     写法本身就是错的（应为 StateGraphInstance 上的字段）。",
     "--   ⚠ 说明：这是被注释掉的死代码，不影响运行；但复活时必须修正。",
   ],
-  550: [
+  "StateGraphInstance:GoToState#1+21": [
     "--★★★★★【★★★ GoToState 的第 ③ 步 —— statemem 无条件清空，H2 缺陷的根因】",
     "--   ★★★ 已核实：本项目 bug-patterns.md 的 H2 条目",
     "--     「跨状态传递的数据丢失（statemem 在 GoToState 时被清空）」",
@@ -132,7 +132,7 @@ export const BEFORE = {
     "--     ② 写进 self.mem（343 行，跨状态保留）",
     "--   ⚠ 再次强调：这是源码核实结论，非推断。",
   ],
-  551: [
+  "StateGraphInstance:GoToState#1+22": [
     "--★★★【★ lasttags：保存上一个状态的标签，供新状态 onenter 读取】",
     "--   ★★★ 用途：「继承」上一个状态的某个标记。",
     "--     典型：被打断（staggered）后进入攻击状态，希望攻击状态也带 staggered，",
@@ -161,23 +161,23 @@ export const BEFORE = {
     "--     tags = {}，所以第一次进状态时 lasttags 是空表（不是 nil），",
     "--     读 lasttags[\"x\"] 得 nil → 安全。真正为 nil 的只有 onenter 之后。",
   ],
-  552: [
+  "StateGraphInstance:GoToState#1+23": [
     "--★★【★ tags 全量重建 —— 新状态的标签是「替换」不是「继承」】",
     "--   ★ 语义：状态图标签是**当前状态的属性**，不跨状态保留。",
     "--     需要继承的语义，用 lasttags 显式读出来再自己加（551 行）。",
     "--   ⚠ 但运行期动态加的 tag（AddStateTag）也会被这里清掉 ——",
     "--     这就是 341 行 ⚠ 说的「永久 tag 必须走实体标签」。",
   ],
-  553: [
+  "StateGraphInstance:GoToState#1+24": [
     "--【★ State.tags 永远是表（225 行构造时初始化为 {}），判空是防御性写法】",
   ],
-  555: [
+  "StateGraphInstance:GoToState#1+26": [
     "--【★ 复制 State.tags 到实例 tags —— 定义（共享）→ 实例（私有）】",
     "--   ★★ 浅拷贝单个表的内容，不是共享引用，所以",
     "--     实例的 tags 与 State.tags 完全独立。",
     "--     这就是「一个 State 被所有实体共享，但每个实体的标签互不干扰」。",
   ],
-  558: [
+  "StateGraphInstance:GoToState#1+29": [
     "--★★★【★★ 实体标签同步的唯一入口 —— 只在服务端（或无网络的实体）执行】",
     "--   ★★ 两个条件缺一不可：",
     "--     · TheWorld.ismastersim —— 服务端才允许改实体标签",
@@ -193,7 +193,7 @@ export const BEFORE = {
     "--   ⚠ 但注意：客户端的 self.tags 仍会被 553-557 行更新（只是不同步到实体），",
     "--     所以客户端的 HasStateTag 查询是本地准确的，只是实体标签不同步。",
   ],
-  560: [
+  "StateGraphInstance:GoToState#1+31": [
     "--【★★ 遍历整张白名单表（约 20 项）逐个比对 —— 每次 GoToState 都做一次】",
     "--   ★ 性能注意：这是每次状态切换的固定开销，约 20 次哈希查询。",
     "--     状态切换在怪物密集场景下极频繁，但这个量级（几十 ns）仍可接受。",
@@ -202,10 +202,10 @@ export const BEFORE = {
     "--     ★ 这与 bug-patterns.md E4「pairs 顺序」是不同性质的问题：",
     "--       那里是顺序影响结果，这里顺序不影响结果。",
   ],
-  561: [
+  "StateGraphInstance:GoToState#1+32": [
     "--【★ 有这个 tag → 给实体打上】",
   ],
-  563: [
+  "StateGraphInstance:GoToState#1+34": [
     "--★★【★ 没有这个 tag → **移除**实体上的标签】",
     "--   ★★★ 这个「反向」操作是最容易被忽略的设计要点：",
     "--     它不是「只加不减」，而是**全量同步**——",
@@ -220,7 +220,7 @@ export const BEFORE = {
     "--     所以任何系统直接 inst:AddTag(\"busy\") 都会被下一次 GoToState 抹掉。",
     "--     → 想设永久标签，只能用白名单外的名字，或每帧重设。",
   ],
-  568: [
+  "StateGraphInstance:GoToState#1+39": [
     "--★★★【★ 客户端预测分支 —— 服务端与客户端在此分道扬镳】",
     "--   ★★★ 两条互斥路径（服务端 / 客户端各走一条，见 232-243 行的对应构造）：",
     "--     服务端：记录 no_predict_fastforward（能不能快进）",
@@ -233,11 +233,11 @@ export const BEFORE = {
     "--     更重要的是省掉了无用字段的写入。",
     "--   ★ 代价：两端行为不同，调试时必须分端思考。",
   ],
-  569: [
+  "StateGraphInstance:GoToState#1+40": [
     "--【★ ismastersim 判定：这是 DST 里判断「我是不是服务端」的标准写法】",
     "--   ★ 全工程统一使用，见 entityscript.lua、network*.lua 等。",
   ],
-  570: [
+  "StateGraphInstance:GoToState#1+41": [
     "--★★【★ 服务端路径：把状态的 no_predict_fastforward 拷到实例】",
     "--   ⚠⚠ 疑似缺陷（与 442 行配对分析）：",
     "--     这里拷到的是 **self.no_predict_fastforward**（实例字段），",
@@ -251,10 +251,10 @@ export const BEFORE = {
     "--     442 行读 statemem 字段 —— 三处两套命名空间，无交叉赋值。",
     "--   ⚠ 本条为代码阅读推断，未在运行时验证。",
   ],
-  571: [
+  "StateGraphInstance:GoToState#1+42": [
     "--【客户端路径开始】",
   ],
-  572: [
+  "StateGraphInstance:GoToState#1+43": [
     "--★★★【★★ 客户端路径：计算本次状态切换后「哪些服务端状态算合法」】",
     "--   ★★★ 这个表达式的语义（★ 展开讲）：",
     "--       结果 = (上一状态要「转发」 且 上一状态有白名单) ? 上一状态白名单",
@@ -268,25 +268,25 @@ export const BEFORE = {
     "--       不会被「假值表」坑到（Lua 里只有 false/nil 是假值，空表是真值）。",
     "--       ★ 对比 D1 的经典坑：「返回 0 被当 falsy」——这里没有这种风险。",
   ],
-  573: [
+  "StateGraphInstance:GoToState#1+44": [
     "--【★ 第一重条件：必须有「上一个状态」—— 第一次进状态时为 nil，直接走 or 分支】",
     "--   ★ 这是正确的：第一次进状态没有「转发路径」的概念。",
   ],
-  574: [
+  "StateGraphInstance:GoToState#1+45": [
     "--★【★ 第二重条件：上一状态要求转发白名单（见 239 行的完整说明）】",
     "--   ★ 这个标志由状态作者在 State 定义里给出，属于**显式声明**。",
   ],
-  575: [
+  "StateGraphInstance:GoToState#1+46": [
     "--【★ 第三重条件：上一状态确实有白名单表】",
     "--   ★ 与 574 连起来读：只有「要求转发」且「有东西可转发」才转发。",
   ],
-  576: [
+  "StateGraphInstance:GoToState#1+47": [
     "--★【★ or 分支：否则用新状态自己的白名单 —— ★ 这就是正常的客户端预测路径】",
     "--   ★★ 举例：`State{name=\"attack\", server_states={\"attack\", \"attackpre\"}}`",
     "--     进入 attack 时，服务端报 attack 或 attackpre 都算客户端预测正确。",
     "--   ★ 服务端校验点：ServerStateMatches（749 行）。",
   ],
-  579: [
+  "StateGraphInstance:GoToState#1+50": [
     "--★★【★ 清 timeout —— 换状态即作废旧的定时器】",
     "--   ★★★ 为什么必须清？——因为 timeout 是**实例级**的，",
     "--     而 ontimeout 是 State 上的钩子。",
@@ -297,17 +297,17 @@ export const BEFORE = {
     "--     本文件的重置清单：statemem(550) / tags(552) / timeout(579) /",
     "--                    timelineindex(584) / timeinstate(582)。",
   ],
-  580: [
+  "StateGraphInstance:GoToState#1+51": [
     "--【★ laststate = currentstate —— 给 InNewState（496 行）提供比较基准】",
     "--   ★★★ 这行与 581 行是一对，必须连续看：",
     "--     先存旧，再换新。顺序反了 InNewState 就永远为假。",
   ],
-  581: [
+  "StateGraphInstance:GoToState#1+52": [
     "--★★★【★ currentstate = state —— 唯一的「当前状态」真相来源】",
     "--   ★ 全文件所有 currentstate 的读写都以此为准。",
     "--   ★ 由 StateGraph 定义持有 → 见 274 行「定义/实例分离」的核心论述。",
   ],
-  582: [
+  "StateGraphInstance:GoToState#1+53": [
     "--★★【★ timeinstate 归零 —— timeline 的进度基准重置】",
     "--   ★★ 注意 statestarttime 要到 598 行才更新，",
     "--     所以在 onenter（591 行）执行期间，GetTimeInState() 仍返回**旧值**。",
@@ -315,7 +315,7 @@ export const BEFORE = {
     "--     在 onenter 里调 GetTimeInState() 得到的是「上一个状态停留了多久」，",
     "--     不是 0。若要拿本状态的停留时间，onenter 里应该用 0。",
   ],
-  584: [
+  "StateGraphInstance:GoToState#1+55": [
     "--★★★【★ timelineindex 重置为 1 —— 时间线从头开始播放】",
     "--   ★★★ 这里是 timeline 进度的**唯一重置点**。",
     "--   ★ 两个分支的语义（★ 别搞混）：",
@@ -327,10 +327,10 @@ export const BEFORE = {
     "--     ★ 性能考虑：没有 timeline 的状态（F 大多数静态状态）",
     "--       每帧的 while 判断变成一次常量 false。",
   ],
-  587: [
+  "StateGraphInstance:GoToState#1+58": [
     "--【★ 无 timeline → 游标置 nil，进入 668 行的零开销短路路径】",
   ],
-  590: [
+  "StateGraphInstance:GoToState#1+61": [
     "--★★★【★★ onenter 的调用点 —— 状态切换的最后一环】",
     "--   ★★ 参数 (inst, params)：params 就是 GoToState 第二实参的原样透传。",
     "--     ★★ 这是**跨状态传数据的正规通道**：",
@@ -345,12 +345,12 @@ export const BEFORE = {
     "--     所以 laststate 会是「被跳过的那个状态」。",
     "--     ★ UpdateState 的 661/681 行就是为此做了检测。",
   ],
-  591: [
+  "StateGraphInstance:GoToState#1+62": [
     "--★【★ onenter(inst, params) —— ★ 唯一能拿到 params 的地方】",
     "--   ★ 典型：CommonStates 的战斗状态在 onenter 里读 ba（bufferedaction）",
     "--     来决定是被谁攻击的。",
   ],
-  594: [
+  "StateGraphInstance:GoToState#1+65": [
     "--★★★【★ 广播 newstate 事件 —— 状态切换的对外通知机制】",
     "--   ★★★ 这是「其他系统感知状态变化」的标准途径：",
     "--       inst:ListenForEvent(\"newstate\", function(inst, data) ... end)",
@@ -367,7 +367,7 @@ export const BEFORE = {
     "--   ⚠ 副作用：状态图自己若监听 newstate，事件会进 339 行的缓冲队列，",
     "--     在刻末由 HandleEvents 派发（而状态私有事件优先，见 463 行）。",
   ],
-  596: [
+  "StateGraphInstance:GoToState#1+67": [
     "--★★★【★ lasttags 清空 —— 再次强调：它只在 onenter 期间有效】",
     "--   ★★★ 这是本文件一个**未被文档化、一致性不足**的 API：",
     "--     · SGbearger.lua:2235 / SGbishop.lua:704 直接 `lasttags[\"x\"]` 无判空",
@@ -380,21 +380,21 @@ export const BEFORE = {
     "--   ★ 保留本行的原因：不让 lasttags 一直持有上一状态的 tag 表，",
     "--     减少内存驻留 + 避免误以为它一直有效。",
   ],
-  597: [
+  "StateGraphInstance:GoToState#1+68": [
     "--【★★ lastupdatetime = GetTime() —— 下一次 Update 的 dt 基准】",
     "--   ★★★ 这一行同时解决了「首次进状态的 dt 爆炸」问题：",
     "--     若不设，718 行会算出「从上次更新到现在的全部时间」作为 dt，",
     "--     一次性推进整个 timeline —— 表现为「刚进状态动画就跳到结尾」。",
     "--   ★ 参见 336 行的初始值 0 与那里的 ⚠ 说明。",
   ],
-  598: [
+  "StateGraphInstance:GoToState#1+69": [
     "--【★ statestarttime = lastupdatetime —— 两个时间戳同源，语义不同】",
     "--   ★ statestarttime 是「进入状态的那一刻」，供 GetTimeInState 用；",
     "--     lastupdatetime 是「上次 Update 的时刻」，供算 dt 用。",
     "--     ★ 换状态时它们相等；之后各自独立演化（状态图休眠时",
     "--       lastupdatetime 不更新而 statestarttime 更早，dt 会变大）。",
   ],
-  599: [
+  "StateGraphInstance:GoToState#1+70": [
     "--★★★【★ 最后一步：通知调度器「我进新状态了，叫醒我」】",
     "--   ★★ 对应 27 行的 OnEnterNewState。",
     "--   ★★ 为什么必须在 GoToState 的**最后**？",
@@ -413,7 +413,7 @@ export const BEFORE = {
   // ══════════════════════════════════════════════════════════════
   // 十二、标签运行时操作
   // ══════════════════════════════════════════════════════════════
-  602: [
+  "StateGraphInstance:AddStateTag#1": [
     "--★★【AddStateTag：运行期给当前状态动态加标签 —— 跨状态图的通用开关】",
     "--   ★★★ 为什么需要动态加？——因为「打断时临时禁用某能力」是通用需求：",
     "--     components/mightygym.lua:457  `player.sg:AddStateTag(\"nointerrupt\")`",
@@ -427,19 +427,19 @@ export const BEFORE = {
     "--     · AddStateTag  → 只对**当前这一次进入**有效（下次 GoToState 被 552 清掉）",
     "--   ★ 这个差异正是它的价值：「临时补丁」而非「修改状态定义」。",
   ],
-  603: [
+  "StateGraphInstance:AddStateTag#1+1": [
     "--【★ 写的是 self.tags（实例级），不是 State.tags（共享定义）】",
     "--   ★★ 若写 State.tags 会污染**所有**使用该状态的实体 —— 绝不能这么写。",
     "--     502 行 SGTagsToEntTags 的注释里也强调过「所有状态共享」。",
   ],
-  604: [
+  "StateGraphInstance:AddStateTag#1+2": [
     "--★★【★ 同步到实体标签 —— 与 GoToState 的 558-566 行同一套白名单机制】",
     "--   ★★ 这是本函数最容易漏掉的一半：",
     "--     只加 self.tags 不加实体标签，外部系统（locomotor/combat）根本看不到。",
     "--   ★ 条件与 558 行完全一致（服务端 或 无网络实体），",
     "--     客户端不加标签是为了防止同步不一致（见 558 行的详细分析）。",
   ],
-  609: [
+  "StateGraphInstance:RemoveStateTag#1": [
     "--★★【RemoveStateTag：动态移除标签 —— 与 AddStateTag 完全对称】",
     "--   ★★ 使用场景：actions.lua:1551 的反向用法，",
     "--     「临时让出 idle 权限，谈完话再拿回来」。",
@@ -448,7 +448,7 @@ export const BEFORE = {
     "--     · 本行是「精准移除」：只删指定的某一个标签",
     "--   前者管一致性，后者管临时性。",
   ],
-  616: [
+  "StateGraphInstance:HasStateTag#1": [
     "--★★【HasStateTag：查当前状态的标签 —— 外部系统问状态图的第一入口】",
     "--   ★★★ 这是「状态图对外接口」里最高频的一个：",
     "--     · brain 检查 \"idle\" 决定是否进入警觉",
@@ -460,7 +460,7 @@ export const BEFORE = {
     "--     只是不与实体标签同步（558 行）——",
     "--     所以 HasStateTag 在两端都准确，但 HasTag(\"busy\") 只在服务端准确。",
   ],
-  620: [
+  "StateGraphInstance:HasAnyStateTag#1": [
     "--★★【HasAnyStateTag：变参形式的批量查询 —— 「满足其中任一」】",
     "--   ★★ 为什么需要它？——因为「例外情况」多：",
     "--     「除了 idle 和 sleeping，其他状态都要能被打扰」",
@@ -470,21 +470,21 @@ export const BEFORE = {
     "--   ★ 两种调用形态（表格 / 变参）都要支持，",
     "--     因为调用点的书写习惯不统一，且 Lua 没有函数重载。",
   ],
-  621: [
+  "StateGraphInstance:HasAnyStateTag#1+1": [
     "--【★ select(1, ...) 取第一个参数 —— 兼容「表格 或 单值」两种形态的技巧】",
     "--   ★ Lua 的 select(n, ...) 中 n 为负数时取倒数，1 就是第一个。",
   ],
-  622: [
+  "StateGraphInstance:HasAnyStateTag#1+2": [
     "--【★ 表格分支：传进来的就是一张标签数组（典型是字面量 {\"a\",\"b\"}）】",
     "--   ★ 用 ipairs 遍历数组。",
   ],
-  623: [
+  "StateGraphInstance:HasAnyStateTag#1+3": [
     "--【★ 找到任一即返回 true（短路）—— 命中即停，不遍历剩余的】",
   ],
-  624: [
+  "StateGraphInstance:HasAnyStateTag#1+4": [
     "--【★ 整个数组都没命中才走到这里】",
   ],
-  628: [
+  "StateGraphInstance:HasAnyStateTag#1+8": [
     "--★★【★ 非表格分支：单个标签值的快速路径】",
     "--   ★★ 这个分支其实是「变参调用」的规范化：",
     "--     · 单值调用 → 走这里，O(1) 一次哈希查",
@@ -492,21 +492,21 @@ export const BEFORE = {
     "--   ★ 也就是说 **table 分支只在使用者显式传了表时触发**。",
     "--     传 {\"busy\"} 与传 \"busy\" 走不同路径但结果相同。",
   ],
-  632: [
+  "StateGraphInstance:HasAnyStateTag#1+12": [
     "--【★ 遍历剩余的变参（第 2 个到第 n 个）】",
     "--   ★ select(\"#\", ...) 返回**参数总数**，不是「最后一个参数」，",
     "--     这是 select 最常被误解的地方。",
     "--   ★★ 性能：变参调用会创建栈上的参数列表，",
     "--     远高于直接传表的效率。热路径上应优先传表。",
   ],
-  638: [
+  "StateGraphInstance:HasAnyStateTag#1+18": [
     "--【★ 都没命中 → 返回 false。调用方据此判断「可以打断/可以移动」】",
   ],
 
   // ══════════════════════════════════════════════════════════════
   // 十三、SetTimeout 与 UpdateState
   // ══════════════════════════════════════════════════════════════
-  641: [
+  "StateGraphInstance:SetTimeout#1": [
     "--★★★【SetTimeout：设定「本状态最多停留多久」—— ontimeout 的触发源】",
     "--   ★★★ 参数单位是**秒**。置 nil 表示取消定时。",
     "--   ★★ 典型用法：「攻击状态最多持续 3 秒，3 秒后自动回到待机」",
@@ -522,14 +522,14 @@ export const BEFORE = {
     "--   ★★ 顺序很重要：先 OnSetTimeout 唤醒（642 行）再设 timeout（643 行），",
     "--     否则可能设完之后立刻休眠，永远等不到 ontimeout。见 33 行说明。",
   ],
-  642: [
+  "StateGraphInstance:SetTimeout#1+1": [
     "--【★★ 先唤醒（642）再设值（643）—— 顺序不能反，否则会睡死】",
     "--   ★ 推演错误顺序的后果：设 timeout → 此时实例在 hibernaters →",
     "--     永远不会被 Update → timeout 永不到期 → 状态永久卡住。",
     "--   ★ 这也是本文件「先唤醒后操作」统一风格的又一个例证",
     "--     （对比 599 行 GoToState 末尾才唤醒，因为那里是全部就绪后才需要）。",
   ],
-  646: [
+  "StateGraphInstance:UpdateState#1": [
     "--★★★【★★ UpdateState：单个状态图实例的每帧推进 —— 时间线的执行引擎】",
     "--   ★★ 它做三件事，顺序固定：",
     "--     ① 累加 timeinstate",
@@ -539,19 +539,19 @@ export const BEFORE = {
     "--     因为 ontimeout / TimeEvent 内部完全可以调 GoToState。",
     "--     ★★ 这就是本函数全部复杂度的来源：**状态切换的重入处理。**",
   ],
-  647: [
+  "StateGraphInstance:UpdateState#1+1": [
     "--【★ 防御：没有当前状态就什么都不做。Update 的调用前提是实例已注册】",
     "--   ★ 这是为了容忍 334 行 currentstate 初始为 nil 的窗口。",
     "--   ⚠ 但 728 行的 Update 没有同样的判空，见那里的 ⚠ 说明。",
   ],
-  651: [
+  "StateGraphInstance:UpdateState#1+5": [
     "--【★★ 累加 timeinstate —— timeline 的唯一进度来源】",
     "--   ★★ 关键：这是**活跃时长**，休眠期间本函数不被调用，所以不增长。",
     "--     所以时间线在休眠时是「暂停」的。",
     "--   ★ 与 statestarttime / GetTimeInState 的区别见 383 行说明。",
     "--   ⚠ dt 可能异常大（长时间休眠后的第一帧），见 718-722 行的说明。",
   ],
-  652: [
+  "StateGraphInstance:UpdateState#1+6": [
     "--★★★【★ startstate：记住「进入本函数时的状态」—— 重入检测的基准】",
     "--   ★★★ 这是本函数的核心技巧：",
     "--     在处理 timeout/timeline 之前拍一张快照，",
@@ -563,15 +563,15 @@ export const BEFORE = {
     "--     但那样无法区分「切走又切回同一状态」，",
     "--     而 652 行的快照法能正确处理「A → B → A」的情况（仍然收工，保守但安全）。",
   ],
-  655: [
+  "StateGraphInstance:UpdateState#1+9": [
     "--【★ 只在设了 timeout 时才处理（579 行保证换状态时会清空）】",
   ],
-  656: [
+  "StateGraphInstance:UpdateState#1+10": [
     "--【★★ 倒计时递减 —— 这是 timeout 的唯一实现，非常简单】",
     "--   ★ 时间线不是「绝对时间触发」而是「每帧递减后比较」，",
     "--     好处是天然与 Update 频率对齐，无需处理跨帧补触发。",
   ],
-  657: [
+  "StateGraphInstance:UpdateState#1+11": [
     "--★【★ 浮点误差容差：0.0001 秒（0.1 毫秒）】",
     "--   ★★★ 为什么需要 epsilon？",
     "--     浮点减法会累积误差：`3.0 - 0.1 - 0.1 - ... ` 可能得到 -1e-16 而不是 0。",
@@ -581,21 +581,21 @@ export const BEFORE = {
     "--   ★ 这与 bug-patterns.md D3「需要迟滞双带」的思路一致：",
     "--     浮点/临界判定处必须留容差，否则会随机抖动。",
   ],
-  658: [
+  "StateGraphInstance:UpdateState#1+12": [
     "--【★ 触发后立刻清 timeout —— 防止 ontimeout 里没换状态时被反复触发】",
     "--   ★★ 这一点很重要：ontimeout 未必会换状态",
     "--     （也可能只是发个事件、或做一次检查）。",
     "--     不清的话下一帧 timeout 还是负数，会**每帧触发**。",
   ],
-  659: [
+  "StateGraphInstance:UpdateState#1+13": [
     "--【★ 有 ontimeout 钩子才调 —— 没设钩子的状态设了 timeout 也白设】",
   ],
-  660: [
+  "StateGraphInstance:UpdateState#1+14": [
     "--★【★ ontimeout(inst) —— 只传实体，不传别的（对比 onenter 有 params）】",
     "--   ★ ontimeout 的签名刻意精简：它是「时间到了」的通知，",
     "--     不需要额外上下文。",
   ],
-  661: [
+  "StateGraphInstance:UpdateState#1+15": [
     "--★★★【★★ 重入检测 ①：ontimeout 导致了状态切换 → 立刻收工】",
     "--   ★★★ 为什么必须收工？",
     "--     因为 668 行的 while 循环用的是 **self.currentstate.timeline** ——",
@@ -607,7 +607,7 @@ export const BEFORE = {
     "--   ⚠ 若 ontimeout 没换状态（startstate == currentstate），继续执行，",
     "--     这是正常路径。",
   ],
-  668: [
+  "StateGraphInstance:UpdateState#1+22": [
     "--★★★【★★★ timeline 的执行 while 循环 —— 本文件最精巧的一段】",
     "--   ★★ 循环条件四重短路：",
     "--     ① self.timelineindex          —— 有游标（无 timeline 或已播完 → nil）",
@@ -622,28 +622,28 @@ export const BEFORE = {
     "--   ★ 排序前提（261 行 table.sort）在这里生效：",
     "--     因为是 while 顺序推进，若 timeline 未排序会乱序触发。",
   ],
-  670: [
+  "StateGraphInstance:UpdateState#1+24": [
     "--【★ 先取当前游标位置 —— 后面要用它算「欠了多久」（677 行）】",
   ],
-  671: [
+  "StateGraphInstance:UpdateState#1+25": [
     "--★【★ 游标前移 —— 必须在调用 fn 之前前移，防止 fn 内部递归触发同一节点】",
     "--   ★★★ 先推进再调用是关键的防御：",
     "--     若 TimeEvent 的 fn 内部间接导致本函数被重入，",
     "--     已推进的游标能保证同一节点不会重复触发。",
   ],
-  672: [
+  "StateGraphInstance:UpdateState#1+26": [
     "--★★【★ 播完检测 —— 置 nil 让 668 行的 while 下次直接短路】",
     "--   ★ 这是「性能友好型终止」：不仅不重复检查，",
     "--     连 737-742 行的休眠决策都因为 timelineindex 为 nil 而更简单。",
     "--   ★ 与 587 行（无 timeline 时的初始 nil）是同一个「nil 即结束」的约定。",
   ],
-  674: [
+  "StateGraphInstance:UpdateState#1+28": [
     "--【★ 时间线播完 → timelineindex = nil。★ 三个 nil 的含义见 337 行】",
   ],
-  676: [
+  "StateGraphInstance:UpdateState#1+30": [
     "--【★ old_time：记录调用 fn **之前**的时间，用于 681 行的检测】",
   ],
-  677: [
+  "StateGraphInstance:UpdateState#1+31": [
     "--★★★【★ extra_time = 当前时间 - 本节点应触发时间 = 本节点「迟到了」多少】",
     "--   ★★★ 这是补偿掉帧的机制：",
     "--     假设 timeline 里 3 帧和 11 帧各有一个节点（伤害在 11 帧），",
@@ -653,7 +653,7 @@ export const BEFORE = {
     "--     否则新状态的时间线会整体延后（看起来「攻击慢了半拍」）。",
     "--   ★★ 这是本文件处理「掉帧」的核心技巧，值得单独记住。",
   ],
-  678: [
+  "StateGraphInstance:UpdateState#1+32": [
     "--★【★ 真正执行时间线节点：fn(inst) —— ★ 不传 dt、不传任何上下文】",
     "--   ★★★ 这就是「时间线」的纯粹性：节点只知道「到点了，该做这件事」。",
     "--   ⚠ 危险之处：fn 里可以调 GoToState（时间线经常这么干，",
@@ -666,7 +666,7 @@ export const BEFORE = {
     "--     实践中时间线里的 Remove 通常会同时切状态（进 corpse 状态），",
     "--     所以被 681 行的第一个条件捕获了。",
   ],
-  681: [
+  "StateGraphInstance:UpdateState#1+35": [
     "--★★★【★★ 重入检测 ② —— 本函数最关键的一行】",
     "--   ★★★ 两个条件，语义完全不同：",
     "--     ① startstate ~= self.currentstate",
@@ -685,7 +685,7 @@ export const BEFORE = {
     "--     会形成「每次 Update 都换一次状态」的死循环（每帧重置时间线）。",
     "--     ⚠ 本条为代码阅读推断，未在运行时验证。",
   ],
-  682: [
+  "StateGraphInstance:UpdateState#1+36": [
     "--★★【★ 把「迟到的 extra_time」补喂给新状态 —— 掉帧补偿的落点】",
     "--   ★★ 注意调用的是 **self:Update（718 行）而非 self:UpdateState（646 行）**：",
     "--     Update 是完整的一拍（算 dt + 推进 + 决定休眠），",
@@ -702,13 +702,13 @@ export const BEFORE = {
     "--       预期写法应是 self:UpdateState(extra_time)。",
     "--     ⚠ 本条为代码阅读推断，未在运行时验证。",
   ],
-  683: [
+  "StateGraphInstance:UpdateState#1+37": [
     "--【★★ return 0：告诉调度器「下一帧还要更新我」（见 128 行三态协议）】",
     "--   ★ 为什么不是 return nil（休眠）？",
     "--     因为刚发生了状态切换，必须立刻验证新状态能否正常推进。",
     "--     ★ 若这一步返回 nil 休眠了，新状态可能永远不更新 → 卡死。",
   ],
-  687: [
+  "StateGraphInstance:UpdateState#1+41": [
     "--★★【onupdate：每帧钩子 —— ★★ 性能敏感区，见 bug-patterns.md F3】",
     "--   ★★ 铁律：能不用就不用。写了它，737 行就会让整个状态图每帧更新。",
     "--   ★ 正确做法：把「持续判断」拆成 onenter（起点）+",
@@ -717,14 +717,14 @@ export const BEFORE = {
     "--   ⚠ 与 onenter 不同，onupdate 在休眠状态下**不会**被调用",
     "--     （因为整个 Update 都不跑）。",
   ],
-  689: [
+  "StateGraphInstance:UpdateState#1+43": [
     "--【UpdateState 结束 —— 返回值由外层 Update（718 行）决定，不在这里】",
   ],
 
   // ══════════════════════════════════════════════════════════════
   // 十四、limbo 生命周期：Start / Stop
   // ══════════════════════════════════════════════════════════════
-  692: [
+  "StateGraphInstance:UpdateState#1+46": [
     "--★★★【★ Start：从 limbo 恢复 —— 由 EntityScript:ReturnToScene 调用】",
     "--   ★★ 注释（--@V2C）说明了精确的调用契约：",
     "--     「should only be called from EntityScript:ReturnToScene (legacy behaviour)」",
@@ -737,7 +737,7 @@ export const BEFORE = {
     "--     ★★ 这是性能优化的重要一环：存档切换/世界切换时",
     "--       几百个实体的状态图全部停止更新。",
   ],
-  695: [
+  "StateGraphInstance:Start#1+1": [
     "--★★【★ 守卫：只有处于 stopped 状态才允许 Start】",
     "--   ★★ 为什么要这个守卫？—— 防重复启动。",
     "--     若实体重复调用 ReturnToScene，Start 会被调多次，",
@@ -752,12 +752,12 @@ export const BEFORE = {
     "--     ⚠ 两处初始值不同是刻意的：状态图注册与 Brain 注册的时机不同",
     "--       （见 334 行的初始化契约说明）。",
   ],
-  697: [
+  "StateGraphInstance:Start#1+3": [
     "--【★ OnStart 钩子：可选的子类扩展点，在正式注册之前调用】",
     "--   ★ 顺序：OnStart → 清 stopped 标记 → AddInstance（注册）。",
     "--   ★ 所以 OnStart 里可以访问 self.sg / self.inst，且状态图即将恢复。",
   ],
-  701: [
+  "StateGraphInstance:Start#1+7": [
     "--★★【★ AddInstance 重新注册 —— hibernate 参数由调用方（ReturnToScene 链路）传入】",
     "--   ★ 与 Stop 的 RemoveInstance（715 行）严格配对。",
     "--   ★★ 配对的完整性是内存安全的关键：",
@@ -765,15 +765,15 @@ export const BEFORE = {
     "--       靠 123 行的 k.stopped 兜住不崩，但纯浪费 CPU）；",
     "--     漏 Start → 实体回来了但状态图不更新（完全静默的失效）。",
   ],
-  704: [
+  "StateGraphInstance:Start#1+10": [
     "--★★★【★ Stop：进入 limbo —— 与 Start 严格配对】",
     "--   ★★ 注释同样标注了契约：只能由 EntityScript:RemoveFromScene 调用。",
     "--   ★★ 停止流程比启动多一步（710 行 HandleEvents），值得单独讲，见下。",
   ],
-  707: [
+  "StateGraphInstance:Stop#1+1": [
     "--【★ 守卫：已经在 stopped 就不重复停（与 695 行对称）】",
   ],
-  710: [
+  "StateGraphInstance:Stop#1+4": [
     "--★★★【★ Stop 里**先处理完缓冲事件**，再注销 —— 这个顺序很讲究】",
     "--   ★★ 为什么？——「不把已发生的事丢掉」：",
     "--     若实体在进 limbo 前刚 PushEvent 了什么（比如「死亡」），",
@@ -788,16 +788,16 @@ export const BEFORE = {
     "--     ★ 结论：结果正确（最终是注销状态），但过程有「注册了又被移除」的浪费。",
     "--     属于「能工作但不优雅」，不构成缺陷。",
   ],
-  711: [
+  "StateGraphInstance:Stop#1+5": [
     "--【★ OnStop 钩子：在注销前调用，此时状态图仍可用】",
   ],
-  714: [
+  "StateGraphInstance:Stop#1+8": [
     "--【★ 打上 stopped 标记 —— 123 行的 k.stopped 检查就是读它】",
     "--   ★★ 与 696/697 行的 Start 配对：Start 读它决定能否启动。",
     "--   ★ 注意它在 HandleEvents **之后**设，正是为了让 710 行",
     "--     处理事件期间状态图仍被视为「运行中」。",
   ],
-  715: [
+  "StateGraphInstance:Stop#1+9": [
     "--★【★★ RemoveInstance：注销 —— 与 Start 的 AddInstance（701 行）配对】",
     "--   ★ RemoveInstance 内部会调 92 行 ClearBufferedEvents，",
     "--     丢弃剩余事件（因为实体要进 limbo 了，剩下的多半也没意义）。",
@@ -806,7 +806,7 @@ export const BEFORE = {
   // ══════════════════════════════════════════════════════════════
   // 十五、Update：★ 休眠决策的最终裁决
   // ══════════════════════════════════════════════════════════════
-  718: [
+  "StateGraphInstance:Update#1": [
     "--★★★【★★★★ Update：决定「本拍之后还要不要继续更新」—— 全文件性能的枢纽】",
     "--   ★★★★ 它是 SGManager:Update（128 行）调用的目标，",
     "--     其返回值直接决定实例的生死（Sleep / 留在表里 / Hibernate）。",
@@ -821,15 +821,15 @@ export const BEFORE = {
     "--   ★★ 这就是 F3 性能原则「能写成时间点的一律不要写成 onupdate」",
     "--     在框架层的落地实现。",
   ],
-  719: [
+  "StateGraphInstance:Update#1+1": [
     "--【★ dt 初值 0 —— 保证 first run 时不会算出一个巨大的 dt】",
   ],
-  720: [
+  "StateGraphInstance:Update#1+2": [
     "--【★ 判 lastupdatetime 存在 —— 336 行构造时是 0（真值），所以这里总为真】",
     "--   ⚠ 见 336 行的 ⚠：初值 0 会导致首次算出「从纪元开始的 dt」。",
     "--     实践中不触发，因为 GoToState 的 597 行会先把它设为 GetTime()。",
   ],
-  721: [
+  "StateGraphInstance:Update#1+3": [
     "--★【★ dt 用真实时间差，而不是固定帧长 GetTickTime()】",
     "--   ★★ 这是「时间真实」而非「帧真实」的关键：",
     "--     掉帧时 dt 变大 → timeinstate 加速推进 → timeline 正确追上；",
@@ -840,19 +840,19 @@ export const BEFORE = {
     "--   ⚠ 副作用：dt 可能很大（如切换世界回来时），",
     "--     一次 Update 可能推进整条 timeline（668 行的 while 就是为此存在）。",
   ],
-  723: [
+  "StateGraphInstance:Update#1+5": [
     "--★【★ 立刻更新基准 —— 即使下面出错也不会反复算出同一个大 dt】",
   ],
-  725: [
+  "StateGraphInstance:Update#1+7": [
     "--★★【★ 推进状态机 —— 若过程中切了状态，本函数的后续计算用新状态的数据】",
     "--   ★★ 注意 UpdateState（646 行）返回 nil，本函数不使用它的返回值。",
     "--     状态切换的影响通过 self.currentstate 间接体现（728/737 行读它）。",
   ],
-  727: [
+  "StateGraphInstance:Update#1+9": [
     "--★【★ time_to_sleep = 「距下一个 timeline 节点还有多久」】",
     "--   ★★★ 这是「睡多久」的精确计算，让状态图可以睡到**恰好**错过节点之前。",
   ],
-  728: [
+  "StateGraphInstance:Update#1+10": [
     "--⚠⚠【★★ 疑似缺陷：此处未判空 self.currentstate】",
     "--   ⚠ 推理依据：",
     "--     · UpdateState（647 行）有 `if not self.currentstate then return end` 守卫",
@@ -877,12 +877,12 @@ export const BEFORE = {
     "--     这是一个「配置错误导致运行时空指针」的真实陷阱。",
     "--   ⚠ 本条为代码阅读推断，未在运行时验证。",
   ],
-  729: [
+  "StateGraphInstance:Update#1+11": [
     "--【★ 相减得到「还需等待的秒数」，可为 0 或负（节点已到点但还没触发）】",
     "--   ★ 负值不会出错：668 行的 while 会立刻补触发，然后 741 行返回负值，",
     "--     134 行的 `sleep_amount > 0` 判断为假 → 走 136 行继续更新 → 自愈。",
   ],
-  733: [
+  "StateGraphInstance:Update#1+15": [
     "--★★★【★ timeout 与 timeline 的「先到先睡」仲裁】",
     "--   ★★ 逻辑：若 timeout 更早（或没有 timeline），就按 timeout 睡。",
     "--   ★★ 用 `not time_to_sleep or time_to_sleep > self.timeout` 而非简单的 min，",
@@ -896,10 +896,10 @@ export const BEFORE = {
     "--   ★★★ 这就是「状态图能在整段时间安睡」的完整实现，",
     "--     同时服务 timeline 驱动的动作和 timeout 驱动的兜底。",
   ],
-  734: [
+  "StateGraphInstance:Update#1+16": [
     "--【★ 覆盖为 timeout —— timeout 更早，先睡到它】",
   ],
-  737: [
+  "StateGraphInstance:Update#1+19": [
     "--⚠⚠⚠【★★ 关键：onupdate 的存在与否决定「永不休眠」】",
     "--   ★★★ 这一行是 bug-patterns.md **F3 条目**「状态图永不休眠」的根因：",
     "--       if self.currentstate.onupdate then",
@@ -918,23 +918,23 @@ export const BEFORE = {
     "--     「onenter / onexit / ontimeout 是\"点\"，timeline 是\"帧\"，",
     "--       onupdate 是\"每帧\"。能写成时间点的一律不要写成 onupdate 里的时间比较。」",
   ],
-  738: [
+  "StateGraphInstance:Update#1+20": [
     "--【★★ return 0 = 「下一帧继续更新我」（见 128 行三态协议）】",
     "--   ⚠ 这就是 F3 的执行点：0 被 133 行判断为「不是正数」，",
     "--     走 136 行 `self.updaters[k] = true` 留在表里 → 每帧都跑。",
   ],
-  739: [
+  "StateGraphInstance:Update#1+21": [
     "--【★ 没有 onupdate → 走休眠分支，能睡就睡】",
   ],
-  740: [
+  "StateGraphInstance:Update#1+22": [
     "--★【★ return time_to_sleep = 「睡这么久」—— 状态图省 CPU 的主路径】",
     "--   ★★ 走 134 行的 Sleep → 归入 tickwaiters 桶 → 完全不参与更新。",
     "--   ★ 这是绝大多数状态在绝大多数时间里的归宿。",
   ],
-  741: [
+  "StateGraphInstance:Update#1+23": [
     "--【★ 兜底：既没 onupdate 也没 timeout/timeline → 冬眠】",
   ],
-  742: [
+  "StateGraphInstance:Update#1+24": [
     "--★【★ return nil = 「我没事了」→ Hibernate（见 139 行）】",
     "--   ★★ nil 是三个返回值里唯一「表示没有值」的，",
     "--     靠 132 行的 `if sleep_amount then` 与 nil 的 falsy 特性区分。",
@@ -944,10 +944,10 @@ export const BEFORE = {
     "--       它当前状态是否既没 onupdate、也没 timeout、也没 timeline，",
     "--       且本该有的后续事件没有 Wake 它。",
   ],
-  743: [
+  "StateGraphInstance:Update#1+25": [
     "--【Update 结束 —— ★ 三态协议（0 / 正数 / nil）在此完成】",
   ],
-  749: [
+  "StateGraphInstance:ServerStateMatches#1": [
     "--★★★【★ ServerStateMatches：客户端预测的合法性校验 —— 联机一致性的守门人】",
     "--   ★★ 机制（三步）：",
     "--     ① 本地必须有 player_classified（服务端镜像实体）",
@@ -960,7 +960,7 @@ export const BEFORE = {
     "--     `server_states = {\"attack\"}` 就算合法。",
     "--   ★ 这是「预测容差」的表达方式，比严格相等实用得多。",
   ],
-  750: [
+  "StateGraphInstance:ServerStateMatches#1+1": [
     "--★★【★ V2C 注释：刻意不做 nil 检查，「让开发期所有错误都崩出来」】",
     "--   ★★ 这条注释是一份设计哲学声明：",
     "--     与 532 行的「状态不存在就 print 不崩」形成鲜明对比 ——",
@@ -972,11 +972,11 @@ export const BEFORE = {
     "--   ★★★ 这是本项目一条重要的取舍原则，值得记住：",
     "--     **对不可信输入降级，对程序员疏忽硬失败。**",
   ],
-  751: [
+  "StateGraphInstance:ServerStateMatches#1+2": [
     "--★【★ 两条件短路：先查有无服务端镜像，再查白名单】",
     "--   ★ 短路顺序正确：没有镜像时不该去访问它（否则崩）。",
   ],
-  752: [
+  "StateGraphInstance:ServerStateMatches#1+3": [
     "--★【★ 查白名单：self.server_states 是 572-577 行 GoToState 时算好的】",
     "--   ★★ 二者的对应关系：",
     "--     · 客户端每进一次状态，GoToState 的 571-577 行重算一次 server_states",
@@ -988,7 +988,7 @@ export const BEFORE = {
     "--     ★ 这正是 forward_server_states（239 行）要缓解的问题：",
     "--       沿用上一状态的白名单，把整条预测路径都算作合法。",
   ],
-  754: [
+  "StateGraphInstance:ServerStateMatches#1+5": [
     "--★【★ FastForward：预测快进的唯一实现 —— ★ 整个函数只有一行】",
     "--   ★★ 注释自称 \"#hack: use sparingly\"（慎用），这个自评很诚实。",
     "--   ★ 原理：lastupdatetime 往前拨 time 秒，",
@@ -1007,13 +1007,13 @@ export const BEFORE = {
     "--     ★ 缓解：真正使用它的场景（447 行）已限定在",
     "--       「起手状态」的早期，此时通常只有 1-2 个节点。",
   ],
-  755: [
+  "StateGraphInstance:FastForward#1": [
     "--【★ 参数 time 单位是秒；调用方传的是 GetTickTime()（447 行的一帧时长）】",
     "--   ★★ 也就是说实际只用「一帧」这个量做快进，",
     "--     目的是消除「按下动作后动画慢一帧起步」的视觉延迟，",
     "--     而非跳过整段前摇。",
   ],
-  756: [
+  "StateGraphInstance:FastForward#1+1": [
     "--★★【★ 核心一行：把「上次更新时间」往前拨 = 让时间凭空前进 time 秒】",
     "--   ★★ 为什么减去而不是加？",
     "--     dt = GetTime() - lastupdatetime（721 行）。",

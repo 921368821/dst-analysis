@@ -6,7 +6,7 @@ export const BEFORE = {
   // ══════════════════════════════════════════════════════════════
   // 六、SelectorNode：与 Sequence 完全对称的另一半
   // ══════════════════════════════════════════════════════════════
-  340: [
+  "SequenceNode:Visit#1+21": [
     "--★★【SelectorNode —— 「依次试，第一个成功就停」】",
     "--   ★★ 它与 SequenceNode 是**严格的镜像结构**，对比一眼就懂：",
     "--     327 行 Sequence : `if RUNNING or FAILED  then` 停",
@@ -22,21 +22,21 @@ export const BEFORE = {
     "--   ★★ 典型用法：`SelectorNode{ 找食物, 找火, Wander }`",
     "--     语义「有食物吃食物，否则生火，否则闲逛」。",
   ],
-  341: [
+  "SequenceNode:Visit#1+22": [
     "--★ name 硬编码 \"Selector\"。",
   ],
-  342: [
+  "SequenceNode:Visit#1+23": [
     "--★ idx = 1，与 Sequence:306 行同构。",
   ],
-  345: [
+  "SelectorNode:DBString#1": [
     "--★ DBString 与 Sequence 完全相同（都输出 idx）——",
     "--   ※ 调试输出里两者只能靠 name 区分（\"Sequence\" vs \"Selector\"）。",
   ],
-  346: [
+  "SelectorNode:DBString#1+1": [
     "--★ tostring(idx)。",
   ],
 
-  350: [
+  "SelectorNode:Reset#1": [
     "--★★【SelectorNode:Reset —— 与 Sequence:314 完全同构】",
     "--   ★★ 为什么两者都要覆写？同一原因：基类 Reset 只管 status（171 行守卫），",
     "--     不知道 idx 的存在。不覆写会导致「停在原地的 idx 永远选不中后面的分支」。",
@@ -44,14 +44,14 @@ export const BEFORE = {
     "--     说明 idx 的归位是「组合节点通用协议」，不是某一种的特有需求。",
     "--     ★ 这也提示：自定义组合节点只要引入游标，就必须覆写 Reset。",
   ],
-  351: [
+  "SelectorNode:Reset#1+1": [
     "--★ 显式父类调用（class.lua:99 的 _base 机制）。",
   ],
-  352: [
+  "SelectorNode:Reset#1+2": [
     "--★ idx 归 1。",
   ],
 
-  355: [
+  "SelectorNode:Visit#1": [
     "--★★【SelectorNode:Visit —— 与 Sequence:319 的结构对称】",
     "--   唯一差别：中断条件与收尾状态相反。",
     "--   ★ 这里多了一个 `local done = false`（361 行），",
@@ -59,7 +59,7 @@ export const BEFORE = {
     "--   ★ 与 LoopNode:452、RandomNode:497 的 `local done` 同病，",
     "--     三处都声明了未使用的局部变量 —— 说明这三段代码是同一份模板改的。",
   ],
-  357: [
+  "SelectorNode:Visit#1+2": [
     "--★★ `if self.status ~= RUNNING then self.idx = 1 end` —— 与 320 行逐字相同。",
     "--   ★★ 这再次印证 320 行注释里的结论：",
     "--     「status == RUNNING」是本框架**唯一**的进度记忆机制。",
@@ -69,11 +69,11 @@ export const BEFORE = {
     "--     因为 Priority 需要表达「尚未选中任何分支」这个第三种状态。",
     "--     ★ Selector/Sequence 不需要，因为它们「第 1 个」永远合法。",
   ],
-  358: [
+  "SelectorNode:Visit#1+3": [
     "--★ idx 归 1。",
   ],
 
-  361: [
+  "SelectorNode:Visit#1+6": [
     "--⚠【疑似缺陷 · 无用局部变量】`local done = false` —— 声明后从未被读取或赋值。",
     "--   ★★ 推理依据：本函数（355-375）内没有任何 `done` 的使用；",
     "--     全文件 `grep -n done behaviourtree.lua` 只命中 361/452/497 三处声明，",
@@ -88,16 +88,16 @@ export const BEFORE = {
     "--     只有 Selector 用 while + return 短路 —— 说明 Selector 是被改造过的那一个。",
   ],
 
-  362: [
+  "SelectorNode:Visit#1+7": [
     "--★ while 而非 for：idx 在循环体内被修改（371 行）。",
   ],
-  364: [
+  "SelectorNode:Visit#1+9": [
     "--★ 只 Visit 当前这一个孩子。理由同 325 行。",
   ],
-  365: [
+  "SelectorNode:Visit#1+10": [
     "--★ 与 326 行同构：递归的落点。",
   ],
-  366: [
+  "SelectorNode:Visit#1+11": [
     "--★★【Selector 的中断条件 —— Sequence:327 的镜像】",
     "--   `if child.status == RUNNING or child.status == SUCCESS then`",
     "--   ★★ 逐个解读：",
@@ -113,17 +113,17 @@ export const BEFORE = {
     "--     ★ 这就是「粘性」—— 优先级低的分支一旦赢了就赖着不走，",
     "--       直到高级条件失效。这也是为什么脑根要用 PriorityNode（它会周期性重排）。",
   ],
-  367: [
+  "SelectorNode:Visit#1+12": [
     "--★ 状态直接透传给父节点。Selector 同样不做状态翻译。",
   ],
-  368: [
+  "SelectorNode:Visit#1+13": [
     "--★ return —— 「命中，停在这里」。",
   ],
-  371: [
+  "SelectorNode:Visit#1+16": [
     "--★ 当前分支不行，idx 前进 —— 在**同一次 Visit** 里立刻试下一个。",
     "--   ★★ 与 332 行的对称：一个前进是「做完了」，一个前进是「失败了」。",
   ],
-  374: [
+  "SelectorNode:Visit#1+19": [
     "--★★ 所有孩子都 FAILED → 整个 Selector FAILED。",
     "--   ★★ 与 Sequence:335 行（全部 SUCCESS 才 SUCCESS）完全镜像。",
     "--   ★ 走到这一行意味着「所有选项都不成立」——",
@@ -137,7 +137,7 @@ export const BEFORE = {
   // ══════════════════════════════════════════════════════════════
   // 七、三个装饰器
   // ══════════════════════════════════════════════════════════════
-  378: [
+  "SelectorNode:Visit#1+23": [
     "--★★【NotDecorator —— 「取反」】",
     "--   ★★ 映射表：",
     "--     孩子 SUCCESS → 自己 FAILED（386 行）",
@@ -152,37 +152,37 @@ export const BEFORE = {
     "--   ★★ 实践价值：WriteConditionNode（如 abigailbrain 里的自定义条件）",
     "--     常常只能表达「找到了/没找到」，用 Not 就能反过来当禁用条件用。",
   ],
-  379: [
+  "SelectorNode:Visit#1+24": [
     "--★ 名字固定 \"Not\"，覆盖了 196 行的 \"Decorator\" 兜底。",
   ],
 
-  382: [
+  "NotDecorator:Visit#1": [
     "--★★【NotDecorator:Visit —— 纯状态翻译，不含任何自己的判断逻辑】",
     "--   ★★ 全函数就是「问孩子一次，然后反着答」。",
     "--   ★ 注意它是**递归调用** child:Visit() —— 装饰器总是主动问孩子。",
     "--   ★★ 与组合节点的区别：组合节点按 idx 决定问谁，装饰器永远问那唯一的孩子。",
   ],
-  383: [
+  "NotDecorator:Visit#1+1": [
     "--★ `self.children[1]` —— 恒为构造时传入的那一个孩子（196 行 {child}）。",
     "--   ※ 若构造时传了 nil，children 是空表，这里得 nil → 下行child:Visit() 会崩。",
     "--     框架不校验，由使用方负责。",
   ],
-  385: [
+  "NotDecorator:Visit#1+3": [
     "--★ 孩子成功 → 我失败。这是「Not」的核心。",
   ],
-  387: [
+  "NotDecorator:Visit#1+5": [
     "--★ 孩子失败 → 我成功。",
     "--   ★★ 这条在实践中最有用：`NotDecorator{ ConditionNode(不该做的条件) }`",
     "--     用来表达「除非…否则…」的禁用语义。",
   ],
-  389: [
+  "NotDecorator:Visit#1+7": [
     "--★★ else 分支（含 RUNNING）→ 原样透传。理由见 378 行的说明。",
     "--   ★★ 用 `elseif ... else` 而非 `elseif RUNNING then` 的好处：",
     "--     若孩子未来新增了第四种状态，这里会自动透传而不是静默变 FAILED。",
     "--     ★ 这是很稳的写法 —— 对未知状态保持「不干预」。",
   ],
 
-  395: [
+  "NotDecorator:Visit#1+13": [
     "--★★【FailIfRunningDecorator —— 「只要还在跑就算失败」】",
     "--   ★★ 语义：孩子 FAILED → 自己 FAILED；孩子 SUCCESS → 自己 SUCCESS；",
     "--     孩子 RUNNING → **自己 FAILED**（而不是透传）。",
@@ -198,16 +198,16 @@ export const BEFORE = {
     "--   ★ 注意 410 行那行英文原注释解释了 FailIfSuccess 的用途，",
     "--     对照 FailIfRunning 的用途可自行类推。",
   ],
-  396: [
+  "NotDecorator:Visit#1+14": [
     "--★ 名字 \"FailIfRunning\"。",
   ],
-  399: [
+  "FailIfRunningDecorator:Visit#1": [
     "--★★【FailIfRunningDecorator:Visit —— 与 Not:382 结构完全对称】",
   ],
-  400: [
+  "FailIfRunningDecorator:Visit#1+1": [
     "--★ 与 383 行同构。",
   ],
-  402: [
+  "FailIfRunningDecorator:Visit#1+3": [
     "--★★ 本装饰器的全部价值在这一行：RUNNING → FAILED。",
     "--   ★★ 【为什么这个映射有用】",
     "--     在 Selector / Priority 里，FAILED 会让父节点「去看下一个分支」。",
@@ -215,14 +215,14 @@ export const BEFORE = {
     "--       「只要这个长行为还在跑，就当它不存在，让别的分支有机会」。",
     "--     ★ 这实现了「互斥行为」—— 追击时不会同时去生火。",
   ],
-  405: [
+  "FailIfRunningDecorator:Visit#1+6": [
     "--★ 非 RUNNING 时原样透传（SUCCESS→SUCCESS, FAILED→FAILED）。",
     "--   ★★ 所以这个装饰器**只改 RUNNING 一种状态**，是极窄的干预。",
     "--     这种「只改一种状态」的装饰器比 Not 安全得多，",
     "--     因为它不会把「失败」误判成「成功」。",
   ],
 
-  410: [
+  "FailIfRunningDecorator:Visit#1+11": [
     "--★ 原注释（保留）：",
     "--   `-- Useful to make a prioritynode move to the next element whether a child succeeds or fails`",
     "--   翻译：「用来让 PriorityNode 无论孩子成功还是失败都跳到下一个元素。」",
@@ -234,7 +234,7 @@ export const BEFORE = {
     "--     保证它执行完不会挡住后面的高价值分支。",
     "--     ★ 语义上它就是 Priority 的「不占用选择权的一次性动作」。",
   ],
-  411: [
+  "FailIfRunningDecorator:Visit#1+12": [
     "--★★【FailIfSuccessDecorator —— 「成功也算失败」】",
     "--   映射：孩子 SUCCESS → 自己 FAILED（419 行）；其余原样透传。",
     "--   ★★ 与 FailIfRunning 恰好互补：",
@@ -248,26 +248,26 @@ export const BEFORE = {
     "--       孩子 RUNNING 时本装饰器会停住 Priority，不会前进。",
     "--       ※ 这是原注释与代码之间的一处**语义落差**，排查时需注意。",
   ],
-  412: [
+  "FailIfRunningDecorator:Visit#1+13": [
     "--★ 名字 \"FailIfSuccess\"。",
   ],
-  415: [
+  "FailIfSuccessDecorator:Visit#1": [
     "--★★ 与 Not:382 / FailIfRunning:399 结构对称。",
   ],
-  416: [
+  "FailIfSuccessDecorator:Visit#1+1": [
     "--★ 与 400 行同构。",
   ],
-  418: [
+  "FailIfSuccessDecorator:Visit#1+3": [
     "--★ 本装饰器的全部价值：SUCCESS → FAILED。",
   ],
-  421: [
+  "FailIfSuccessDecorator:Visit#1+6": [
     "--★ 其余状态（FAILED / RUNNING）原样透传。※ 见 412 行的语义落差说明。",
   ],
 
   // ══════════════════════════════════════════════════════════════
   // 八、LoopNode
   // ══════════════════════════════════════════════════════════════
-  427: [
+  "FailIfSuccessDecorator:Visit#1+12": [
     "--★★【LoopNode —— 「把一段序列重复执行 N 次（或无限次）」】",
     "--   ★★ 它的 Visit（445-480 行）与 SequenceNode:319 几乎一样，",
     "--     只在收尾处多了一步：**把 idx 拨回 1 并重置所有孩子**（468-479 行）。",
@@ -287,7 +287,7 @@ export const BEFORE = {
     "--     所以 maxreps = 3 → 实际执行 3 轮（rep 从 0 递增三次后到 3）。",
     "--     ★ 「轮」= 把所有孩子从头走一遍，不是「单个孩子执行三次」。",
   ],
-  428: [
+  "FailIfSuccessDecorator:Visit#1+13": [
     "--⚠【疑似缺陷 · 文案错误】name 硬编码为 **\"Sequence\"**，应为 \"Loop\"。",
     "--   ★★ 推理依据：",
     "--     本行所在类明确是 LoopNode（427 行），但传给基类的名字是 \"Sequence\"。",
@@ -304,13 +304,13 @@ export const BEFORE = {
     "--     且若有模组按 name 做字符串匹配（`node.name == \"Loop\"`），",
     "--     修正反而会让它们失效 —— 这类隐式契约是 DST 里的常见陷阱。",
   ],
-  429: [
+  "FailIfSuccessDecorator:Visit#1+14": [
     "--★ idx = 1 —— 与 Sequence 同构。",
   ],
-  430: [
+  "FailIfSuccessDecorator:Visit#1+15": [
     "--★★ maxreps 为 nil 表示无限循环（见 471 行的双重条件）。",
   ],
-  431: [
+  "FailIfSuccessDecorator:Visit#1+16": [
     "--★★ rep = 0 —— 「已重复了几轮」。与 idx 是两套独立的进度。",
     "--   ★★ idx  = 「这一轮走到第几个孩子」",
     "--     rep  = 「已经完成了几轮」",
@@ -319,13 +319,13 @@ export const BEFORE = {
     "--   ★ rep 在 447-450 行被归零：不是 RUNNING 时视为「新一轮循环开始」。",
   ],
 
-  434: [
+  "LoopNode:DBString#1": [
     "--★ DBString 输出 idx —— 与 SequenceNode:309 完全相同。",
     "--   ★★ 这是 428 行 ※ 的连带后果：name 与 DBString 都无法区分 Loop 与 Sequence，",
     "--     调试时只能靠「它在 Priority 里的位置」与行为特征（会回到 idx=1）来推断。",
   ],
 
-  439: [
+  "LoopNode:Reset#1": [
     "--★★【LoopNode:Reset —— 归位 idx 与 rep 两个游标】",
     "--   ★★ 对比 Sequence:314 只归 idx，Loop 多归一个 rep。",
     "--   ★★ 470 行的 rep+1 与本行的 rep=0 是一对：",
@@ -334,17 +334,17 @@ export const BEFORE = {
     "--   ★★ 注意 rep=0 的时机（447 行）：非 RUNNING 时也归零，",
     "--     与 idx 归零的时机完全一致。",
   ],
-  440: [
+  "LoopNode:Reset#1+1": [
     "--★ 显式父类调用。",
   ],
-  441: [
+  "LoopNode:Reset#1+2": [
     "--★ idx 归 1。",
   ],
-  442: [
+  "LoopNode:Reset#1+3": [
     "--★ rep 归 0 —— 「新一轮循环」。",
   ],
 
-  445: [
+  "LoopNode:Visit#1": [
     "--★★【LoopNode:Visit —— Sequence 的复制品 + 循环收尾】",
     "--   ★★ 前半段（447-466）与 SequenceNode:319-336 逐行同构，",
     "--     中断条件也一样是 RUNNING 或 FAILED（457 行）。",
@@ -352,14 +352,14 @@ export const BEFORE = {
     "--     Sequence 跑到边界 → SUCCESS（335 行）",
     "--     Loop     跑到边界 → idx 拨回 1 + rep+1 + 重置所有孩子（468-479 行）",
   ],
-  447: [
+  "LoopNode:Visit#1+2": [
     "--★ 与 320 行同构：非 RUNNING 视为新一轮，idx 与 rep 双双归零。",
     "--   ★★ 为什么 rep 也要在这里归零（而不是只在 Reset 里）？",
     "--     因为 Step（161 行）已经在这轮结束时把非 RUNNING 的节点 Reset 了，",
     "--     本行的 447 分支实际上**很少被走到** —— 它是双保险。",
     "--     ★ 与 320/321 行的双保险结构完全一致。",
   ],
-  452: [
+  "LoopNode:Visit#1+7": [
     "--⚠【疑似缺陷 · 无用局部变量】`local done = false` —— 见 361 行的完整分析。",
     "--   ★★ 但**这里的情况与 Selector 不同**：Loop 真的在做循环收割，",
     "--     作者原本可能想用 done 表达「一轮已走完」，",
@@ -367,16 +367,16 @@ export const BEFORE = {
     "--     ★ 三处 `local done`（361/452/497）说明这三段代码同源，",
     "--       而只有 Loop 与 Random 真的进入了「循环收割」的写法。",
   ],
-  453: [
+  "LoopNode:Visit#1+8": [
     "--★ while 而非 for：idx 在循环体内被修改（465 行）。",
   ],
-  455: [
+  "LoopNode:Visit#1+10": [
     "--★ 与 364 行同构。",
   ],
-  456: [
+  "LoopNode:Visit#1+11": [
     "--★ 与 365 行同构：递归 Visit 当前孩子。",
   ],
-  457: [
+  "LoopNode:Visit#1+12": [
     "--★★ 中断条件与 Sequence:327 完全一致：`RUNNING or FAILED`。",
     "--   ★★ 【Loop 的关键行为由此确定】",
     "--     · 孩子 FAILED → **整个 Loop FAILED**（461 行透传），不进入下一轮。",
@@ -388,24 +388,24 @@ export const BEFORE = {
     "--   ★★ 与「容错型循环」的直觉相反：这里是「一次失败即退出」。",
     "--     设计上是自洽的：既然是「依次做完全部」，中途失败就该报告失败。",
   ],
-  458: [
+  "LoopNode:Visit#1+13": [
     "--★ `if child.status == FAILED then` —— 只为取一个空的注释块。",
   ],
-  459: [
+  "LoopNode:Visit#1+14": [
     "--※【被注释掉的调试打印】`--print(\"EXIT LOOP ON FAIL\")`",
     "--   ★ 位置在 457-460 的 if 内部，说明它只会在「因失败而退出」时打印。",
     "--   ★★ 这是排查「Loop 为什么停了」的直接线索 —— 取消注释即可看到。",
     "--   ★ 与 712/714/722 行 EventNode 的三处注释打印同属一类：",
     "--     作者用注释掉的 print 留下了关键观察点。",
   ],
-  461: [
+  "LoopNode:Visit#1+16": [
     "--★ 状态透传（RUNNING 或 FAILED 都直接向上传递）。与 328 行同构。",
   ],
-  465: [
+  "LoopNode:Visit#1+20": [
     "--★ 当前孩子成功，idx 前进。",
   ],
 
-  468: [
+  "LoopNode:Visit#1+23": [
     "--★★【循环收尾 —— LoopNode 的灵魂，全部 5 行都在这】",
     "--   ★★ 「一轮走完」被翻译成「idx 拨回 1」。这一行是循环的起点动作。",
     "--   ★★ 为什么用「拨回 idx」而不是「从头重新调用 Visit」？",
@@ -413,13 +413,13 @@ export const BEFORE = {
     "--     就复用了同一套 while 循环代码，无需第二份逻辑。",
     "--   ★★ 这一行 + 470 行 + 475-477 行合起来构成一个完整的循环体。",
   ],
-  470: [
+  "LoopNode:Visit#1+25": [
     "--★★ rep+1 —— 「完成一轮」。",
     "--   ★★ 只有走到 468 行（所有孩子都 SUCCESS）才会执行到这里。",
     "--     任何一轮里出现 FAILED 都在 457 行提前 return 了，rep 不会增加。",
     "--     ★★ 所以 rep 精确等于「成功完成了几轮」，语义很干净。",
   ],
-  471: [
+  "LoopNode:Visit#1+26": [
     "--★★【有界 / 无界循环的分岔点】",
     "--   `if self.maxreps and self.rep >= self.maxreps then`",
     "--   ★ 三重判断：",
@@ -438,13 +438,13 @@ export const BEFORE = {
     "--       ★ 由于它是「>=」且在 rep 自增之后判断，实际上界是精确的，",
     "--         所以只有命名问题，没有行为缺陷。",
   ],
-  473: [
+  "LoopNode:Visit#1+28": [
     "--★ 次数用尽 → SUCCESS。",
     "--   ★★ 注意是 SUCCESS 而不是「继续外层序列」——",
     "--     对父节点（Sequence/Selector）而言，Loop 的任务是「跑完 N 轮」，",
     "--     跑完了就该报告成功。至于「跑完后干什么」由父节点决定。",
   ],
-  475: [
+  "LoopNode:Visit#1+30": [
     "--★★【无限循环的关键：手动重置所有孩子】",
     "--   ★★ 为什么这里要显式 `v:Reset()` 而不能指望 Step？",
     "--     因为本节点**没有立刻返回** —— 它要在同一次 Visit 里进入下一轮。",
@@ -456,10 +456,10 @@ export const BEFORE = {
     "--   ★★ 注意 Reset 有基类守卫（171 行）：已 READY 的孩子跳过，",
     "--     所以重置成本与「上一轮真正跑过多少个孩子」成正比。",
   ],
-  476: [
+  "LoopNode:Visit#1+31": [
     "--★ 用 ipairs 全量重置 —— 不是「从 idx 开始」，因为 idx 已被拨回 1。",
   ],
-  478: [
+  "LoopNode:Visit#1+33": [
     "--★ else 分支是空的 —— 「还没跑够，继续留在本节点，下一轮再来」。",
     "--   ★★ 【无限 Loop 的休眠语义 —— 一个重要推论】",
     "--     本函数走完 else 分支后**不设置 status**，",
@@ -491,7 +491,7 @@ export const BEFORE = {
   // ══════════════════════════════════════════════════════════════
   // 九、RandomNode
   // ══════════════════════════════════════════════════════════════
-  484: [
+  "LoopNode:Visit#1+39": [
     "--★★【RandomNode —— 「随机挑一个能成的来跑」】",
     "--   ★★ 与 Selector 的核心差异：**下一轮换一个起点**。",
     "--     Selector：永远从 idx=1 开始试（340 行），顺序固定。",
@@ -508,11 +508,11 @@ export const BEFORE = {
     "--   ★★ 典型用法：见 oceanfishbrain.lua:210 的 ParallelNodeAny 组合，",
     "--     以及 braincommon.lua 里多处 RandomNode 的群聚行为。",
   ],
-  485: [
+  "LoopNode:Visit#1+40": [
     "--★ name 硬编码 \"Random\"。",
   ],
 
-  489: [
+  "RandomNode:Reset#1": [
     "--★★【RandomNode:Reset —— 把 idx 设成 nil 而不是 1】",
     "--   ★★ 这是 Random 与 Sequence / Selector 最直观的代码差异：",
     "--     Sequence:316  `self.idx = 1`   （下次从头）",
@@ -527,14 +527,14 @@ export const BEFORE = {
     "--   ★ 三种写法对比（Sequence/Selector=1, Random/Priority=nil）说明：",
     "--     「idx = 1」表示「有序列表的游标」，「idx = nil」表示「未选择的指针」。",
   ],
-  490: [
+  "RandomNode:Reset#1+1": [
     "--★ 显式父类调用。注意与 RandomNode 无 Sequence 的继承关系无关。",
   ],
-  491: [
+  "RandomNode:Reset#1+2": [
     "--★ idx = nil —— 「下次重新随机挑」。见 489 行详解。",
   ],
 
-  495: [
+  "RandomNode:Visit#1": [
     "--★★【RandomNode:Visit —— 两条路径：重选 / 续跑】",
     "--   ★★ 整体结构：",
     "--     ① status == READY → 进入「随机起点 + 环遍历搜索」",
@@ -542,12 +542,12 @@ export const BEFORE = {
     "--   ★★ 这是本文件里**唯一用 while(true) + 环回绕**做选择的节点，",
     "--     也是唯一会「一次尝试多个孩子直到找到能成的」的地方。",
   ],
-  497: [
+  "RandomNode:Visit#1+2": [
     "--⚠【疑似缺陷 · 无用局部变量】`local done = false` —— 见 361 行的完整分析。",
     "--   ★★ 与 Loop:452 同为「本段确实在循环，但没用 done 标志」。",
     "--     推测这三个节点（Selector/Loop/Random）的 Visit 出自同一份草稿。",
   ],
-  499: [
+  "RandomNode:Visit#1+4": [
     "--★★【重选路径的触发条件 —— 粘性机制的落点】",
     "--   `if self.status == READY then`",
     "--   ★★ 为什么看 status 而不是看 idx？",
@@ -564,7 +564,7 @@ export const BEFORE = {
     "--       ★ 因为 Step（161 行）会在本轮末把它们 Reset 成 READY，",
     "--         所以「什么都不做」是安全的 —— 下一轮自然是 READY。",
   ],
-  501: [
+  "RandomNode:Visit#1+6": [
     "--★★【随机起点：`math.random(#self.children)`】",
     "--   ★★ 返回 1..N 的均匀随机整数，作为环遍历的起点。",
     "--   ★★ 【为什么是「随机起点 + 顺序环遍历」而不是「随机洗牌」？】",
@@ -578,12 +578,12 @@ export const BEFORE = {
     "--     ★★ 缓解手段：这也是 RandomNode 不适合做脑根的原因之一",
     "--       —— 脑根用 PriorityNode（见 p4），它有 found 标志做短路（601 行）。",
   ],
-  502: [
+  "RandomNode:Visit#1+7": [
     "--★ start = 记住起点，用于检测「是否已绕回原点」（517 行）。",
     "--   ★★ 这是环遍历的标准终止条件：转到起点就说明全试过一遍了。",
     "--   ★★ 若没有 start 就无法判断「是否试完了」，会无限循环。",
   ],
-  503: [
+  "RandomNode:Visit#1+8": [
     "--★★【while(true) —— 环遍历搜索】",
     "--   ★★ 三种退出路径：",
     "--     ① 507 行：孩子非 FAILED → 采纳并 return（509 行）",
@@ -593,10 +593,10 @@ export const BEFORE = {
     "--     ★ RUNNING 也被采纳的理由：它意味着「这件事能做下去」，",
     "--       与 Sequence/Selector 的处理一致。",
   ],
-  504: [
+  "RandomNode:Visit#1+9": [
     "--★ 取当前候选孩子。注意这是**试探**：可能白跑一趟。",
   ],
-  505: [
+  "RandomNode:Visit#1+10": [
     "--★★ 试探性 Visit —— 即使最后不采纳，这次执行已经产生了副作用。",
     "--   ★★ ※ 这是一个值得注意的行为：",
     "--     ActionNode:264 的副作用是**立即执行**的，不可回滚。",
@@ -606,36 +606,36 @@ export const BEFORE = {
     "--     它们的 Visit 无副作用，所以试探无害。",
     "--   ★★ 规则总结：**RandomNode 的孩子应当无副作用**，否则会出现「误执行」。",
   ],
-  507: [
+  "RandomNode:Visit#1+12": [
     "--★★ `if child.status ~= FAILED then` —— 「非 FAILED 即采纳」。",
     "--   ★★ SUCCESS 与 RUNNING 都采纳，与 Sequence:327 的中断条件互为镜像。",
     "--   ※ 注意这里用的是 `~=` 而非 `== SUCCESS or == RUNNING`，",
     "--     所以若孩子返回了第四种状态（若有），也会被采纳。",
     "--     ★ 与 NotDecorator:389 的「else 透传」是同一种防御风格。",
   ],
-  508: [
+  "RandomNode:Visit#1+13": [
     "--★ 采纳孩子的状态（SUCCESS 或 RUNNING）作为自己的状态。",
   ],
-  509: [
+  "RandomNode:Visit#1+14": [
     "--★★ return —— 「选定了，就用它」。idx 已指向它。",
     "--   ★★ 与 Selector:368 的 return 语义完全一致，只是搜索方式不同。",
   ],
-  512: [
+  "RandomNode:Visit#1+17": [
     "--★ 前进到下一个候选。",
   ],
-  513: [
+  "RandomNode:Visit#1+18": [
     "--★ 越过末尾判断 —— 为后面的绕回做准备。",
   ],
-  514: [
+  "RandomNode:Visit#1+19": [
     "--★★ 环回绕：idx = 1。配合 501 行的随机起点，实现「循环选取」。",
     "--   ★★ 注意这里不是直接 return FAILED，而是**继续 while** ——",
     "--     因为可能绕回 1 时正好遇到一个能成的。",
     "--   ★★ 与 517 行的区别：514 行是「修正越界」，517 行是「确认试完了」。",
   ],
-  515: [
+  "RandomNode:Visit#1+20": [
     "--★ 空行结束，注意 514 行是它上一句的续行。",
   ],
-  517: [
+  "RandomNode:Visit#1+22": [
     "--★★【终止条件：绕回起点 → 全部 FAILED】",
     "--   `if self.idx == start then`",
     "--   ★★ 为什么用 `==` 而不是 `>=`？因为 513-515 行保证了 idx 始终在 1..N，",
@@ -643,11 +643,11 @@ export const BEFORE = {
     "--   ★★ 这里没有 break 而是 `self.status = FAILED; return`（518-519 行），",
     "--     与其余分支的 return 风格统一。",
   ],
-  518: [
+  "RandomNode:Visit#1+23": [
     "--★ 全部候选都 FAILED → 自己 FAILED。",
     "--   ★★ 与 Sequence:374 / Selector:374 的语义一致：「所有选项都不成立」。",
   ],
-  523: [
+  "RandomNode:Visit#1+28": [
     "--★★【续跑路径 —— 「不是 READY 就只问已选中的那个」】",
     "--   ★★ 【本文件里最值得学的一段「廉价粘性」】",
     "--     续跑时**不遍历任何兄弟节点**，只 Visit `self.children[self.idx]`。",
@@ -662,7 +662,7 @@ export const BEFORE = {
     "--   ★★ 由此引出一条实用规则：**RandomNode / PriorityNode 只在「选定」后才是廉价的**，",
     "--     选定之前（Random:499 / Priority:598）仍然是全量遍历。",
   ],
-  524: [
+  "RandomNode:Visit#1+29": [
     "--★ 直接索引 —— ※ 若 idx 为 nil 且 status 不是 READY，这里会崩。",
     "--   ★★ 但这个状态不可达：idx 只在 501 行被赋值，",
     "--     而赋值前必然走 499 的 READY 分支；赋值后若变 RUNNING 才走这里。",
@@ -670,10 +670,10 @@ export const BEFORE = {
     "--     ★ 所以这是一个由「status 与 idx 同步维护」保证的不变量。",
     "--   ※ 自定义节点若破坏这个不变量（如单独改 status 不改 idx），就会崩。",
   ],
-  525: [
+  "RandomNode:Visit#1+30": [
     "--★ 递归 Visit 选中的孩子。",
   ],
-  526: [
+  "RandomNode:Visit#1+31": [
     "--★★ 状态直接透传 —— 与 Random 的「搜索」角色无关，",
     "--     续跑时它只是个透明的转发器。",
     "--   ★★ 所以 RandomNode 的「智能」全部在 495-521 的选择阶段，",

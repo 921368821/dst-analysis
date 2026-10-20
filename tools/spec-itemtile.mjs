@@ -31,7 +31,7 @@ export default {
     '-- 【⚠️ 一处构造器早退隐患，见第 94 行注释】',
     '--]]',
   ],
-  7: [
+  "DoInspected#1": [
     '-- DoInspected：把物品登记进「已查阅图鉴」。',
     '-- ★ 第 10-12 行：若 ThePlayer 还不存在（加载顺序竞争），',
     '--   延迟一帧重试，**只重试一次**（tried 标志）后放弃。',
@@ -40,7 +40,7 @@ export default {
     '-- ⚠️ 第 9 行的 self 参数不存在（这是个 local function），',
     '--   说明它曾被改成实例方法或准备改成方法，属遗留痕迹。',
   ],
-  15: [
+  "DoInspected#1+8": [
     '-- ★★ 源码原注释：「与 RecipeTile.sSetImageFromRecipe 保持同步」。',
     '--',
     '-- 这是全文件最值得学的一条注释 —— 它不是解释代码，',
@@ -52,7 +52,7 @@ export default {
     '--   读源码时看到 "keep in sync with" 注释，一定要记住两处都要查。',
     '--   自研项目应优先提取共享函数（第 385 行正是这么做的）。',
   ],
-  16: [
+  "SetImageFromItem#1": [
     '-- 【★★ SetImageFromItem：图标解析 —— 支持「分层图标」的两条路径】',
     '--',
     '-- 路径 A（第 17-63 行）：item.layeredinvimagefn 存在 → 分层图标',
@@ -63,7 +63,7 @@ export default {
     '--   且可叠加（如「传说品质 + 附魔光效」）。',
     '--   这比「为每种变体出一张贴图」灵活得多，是美术管线的重要机制。',
   ],
-  22: [
+  "SetImageFromItem#1+6": [
     '-- ⚠️ 第 23 行明确警告「layer 1 不支持 offset」，',
     '--   第 24 行 assert(BRANCH ~= "dev") 保证开发版会断言失败。',
     '-- ★★ 这是「分层图标的第一层必须是主图、不允许偏移」的契约，',
@@ -71,7 +71,7 @@ export default {
     '-- ★ assert 在 dev 分支生效、正式版被编译掉 —— 零运行时开销的开发期守卫。',
     '--   这种做法在 DST 里很常见，值得学习。',
   ],
-  29: [
+  "SetImageFromItem#1+13": [
     '-- 【★ 图层池：只增不减，按需创建】',
     '-- 第 30 行 im.layers = im.layers or {} —— 图层数组挂在 im 上复用。',
     '-- 第 35-44 行：已有图层就换贴图（第 37 行 SetTexture），',
@@ -83,7 +83,7 @@ export default {
     '--   ★ 两步合起来才是完整的池：增长时复用、收缩时回收。',
     '-- 第 40-42 行：新建图层才加色彩校正 shader，已有图层不重复加。',
   ],
-  66: [
+  "SetImageFromItem#1+50": [
     '-- ★ 切回普通路径时（第 66-71 行）必须清理已建的分层，',
     '--   否则会残留悬空图层叠在图标上。',
     '--   注意这里用 `for i, v in ipairs(im.layers)` 而不是数字下标循环，',
@@ -92,7 +92,7 @@ export default {
     '-- ★ 「先遍历清理、再置 nil」的顺序不能颠倒，',
     '--   否则循环体内访问 im.layers 已为 nil。',
   ],
-  77: [
+  "SetImageFromItem#1+61": [
     '-- 【★★ ItemTile 构造器：约 300 行，全是「按条件建子件 + 订阅事件」】',
     '-- 与 templates.lua 的工厂模式、inventorybar 的 Class 模式都不同：',
     '-- 这里用 Class(Widget, ...) 因为 ItemTile 是被大量复用的小控件，',
@@ -103,14 +103,14 @@ export default {
     '--   ② 第 188-379 行：订阅约 15 个事件，每个只做一件事。',
     '-- → 「构造 = 搭骨架 + 挂监听」，没有一行玩法逻辑。',
   ],
-  80: [
+  "SetImageFromItem#1+64": [
     '-- ★★ ismastersim 在**构造时快照**一次（不是每次读 TheWorld.ismastersim）。',
     '-- 第 395 行、第 350 行都用它做分支。',
     '-- ★ 为什么快照？主机/客户端身份在生命周期内不变，快照避免重复查询，',
     '--   也保证同一 tile 内的逻辑分支始终一致。',
     '-- ★ 这个字段还决定了 Refresh 的行为差异（服务端直读组件 vs 客户端反序列化）。',
   ],
-  86: [
+  "SetImageFromItem#1+70": [
     '-- 【★★ 四个标志位，构成「本地预览 vs 服务端同步」的完整协议】',
     '--   isactivetile   —— 这是「手持中」的 tile（跟着光标/鼠标，',
     '--                    不是容器里的格位）。由 inventorybar 第 1343 行设置。',
@@ -127,7 +127,7 @@ export default {
     '--   少了任一环节，就会出现「数字弹两下」或「该弹时不弹」。',
     '-- ★ 移植自研项目做背包数量显示时，这套协议可直接照搬。',
   ],
-  93: [
+  "SetImageFromItem#1+77": [
     '-- ⚠️ 【构造器早退隐患 · 已核实】',
     '--',
     '-- 第 94-97 行：若物品没有 inventoryitem 组件，print 一句就 return，',
@@ -148,7 +148,7 @@ export default {
     '--   判定为「确凿的健壮性缺口，但当前流程不触发」——',
     '--   正确的做法应是 return 一个空 Image 或让调用方能检测失败。',
   ],
-  101: [
+  "SetImageFromItem#1+85": [
     '-- ★ show_spoiled_meter 决定是否创建腐败条底衬（第 111-119 行）。',
     '--   条件一：自身会腐败（HasSpoilage，第 732 行有缓存）；',
     '--   条件二：物品带 show_broken_ui 标签（损坏类物品，如护甲、斧、帽）。',
@@ -157,7 +157,7 @@ export default {
     '-- ★ 「按需创建」的价值：普通物品（石头、草）不会有这些子节点，',
     '--   背包里几十个格子因此省下大量空节点与绘制调用。',
   ],
-  102: [
+  "SetImageFromItem#1+86": [
     '-- ⚠️⚠️ 【功能被硬编码关闭 · 已核实】',
     '--',
     '-- 第 102 行把 has_temperature 写死为 false，',
@@ -184,13 +184,13 @@ export default {
     '-- ★ 移植提示：这类「保留数据通路、关闭 UI」的做法若要恢复，',
     '--   把第 102 行的表达式解注释即可。',
   ],
-  105: [
+  "SetImageFromItem#1+89": [
     '-- bg：腐败/损坏状态的通用底衬（全屏方块）。',
     '-- ★ 第 106 行 SetClickable(false) —— 装饰件必须不可点击，',
     '--   否则会挡住物品本身的点击与拖拽。',
     '--   这条纪律贯穿全文件（第 116、127、149、154、185、815、852 行）。',
   ],
-  111: [
+  "SetImageFromItem#1+95": [
     '-- 腐败条：spoiled_meter 图集的 meter+frame 两个 symbol。',
     '-- ★ 第 117-118 行：把「物品的腐败事件」直接绑到「条」的隐藏/显示上，',
     '--   ★ 关键细节：ListenForEvent 的 source 是 **invitem**（不是 self.inst），',
@@ -199,14 +199,14 @@ export default {
     '-- 第 115 行 AnimateWhilePaused(false)：腐败条不跟随游戏暂停 ——',
     '--   因为玩家常在暂停时检查食物状态。',
   ],
-  121: [
+  "SetImageFromItem#1+105": [
     '-- 潮湿标记：与腐败条同构，但**无条件创建**（第 121 行在 if 外）。',
     '-- ★ 为什么潮湿不按需创建？因为任何物品都可能被淋湿，',
     '--   且湿润状态变化频繁 —— 预建一个隐藏节点比每次动态创建更省。',
     '--   → 「高频变化的装饰」预建，「低频的」按需建。',
     '-- 第 126 行默认 Hide，由第 331-340 行的 wetnesschange 事件控制。',
   ],
-  129: [
+  "SetImageFromItem#1+113": [
     '-- 【★ 蓄力环：两件套结构】',
     '-- rechargeframe —— 外框（环的底圈），第 132 行；',
     '-- recharge     —— 进度填充，第 176 行（在本 if 内部再建）。',
@@ -217,13 +217,13 @@ export default {
     '-- 第 131 行 rechargetime 初值 math.huge = 「无需时间流逝」的哨兵值，',
     '--   对应第 663 行的 math.huge 判断。',
   ],
-  152: [
+  "SetImageFromItem#1+136": [
     '-- 物品自带底图（如某些皮肤的边框）。第三参数 "default.tex" 是回退贴图。',
     '-- ★ 第 155-157 行：按游戏模式加色彩校正 shader。',
     '--   icons_use_cc 是 GameModeProperty（游戏模式属性），与 statusdisplays 第 316 行',
     '--   的工厂注入同属「mod/模式可定制」的扩展点体系。',
   ],
-  159: [
+  "SetImageFromItem#1+143": [
     '-- ★ 主图：SetImageFromItem(Image(), invitem) —— 传入新建的空 Image，',
     '--   由函数负责填贴图（含分层图标的图层池初始化）。',
     '-- → 「造好空壳交给解析函数」：调用方不关心内部是单层还是多层。',
@@ -231,7 +231,7 @@ export default {
     '--   ★ 说明 image 是**刻意保持可点击**的 —— 它是物品的命中区域。',
     '--   与装饰件的 SetClickable(false) 形成对照。',
   ],
-  166: [
+  "SetImageFromItem#1+150": [
     '-- ★★ 原注释（NOTES(JBK)）说明了 AddChild **顺序的重要性**：',
     '--   「在其它东西之前应用 invitem.itemtile_tagname，',
     '--     它们会被当作物品的一部分而非叠加层处理。」',
@@ -244,14 +244,14 @@ export default {
     '-- ★★★ 与 templates.lua 第 718 行 MoveToBack、inventorybar 第 1312 行',
     '--   MoveToBack 属同一类「用子节点顺序表达层级」的机制。',
   ],
-  171: [
+  "SetImageFromItem#1+155": [
     '-- 三类特效的初始化集中调用，各自在下方有独立函数。',
     '-- ★ ToggleShadowFX（第 805 行）会**反向清理**（无相关标签时 Kill 掉已建的），',
     '--   是「幂等设置」的完整实现：开与关都在同一函数里。',
     '-- → 移植要点：特效开关函数应同时负责创建与销毁，',
     '--   不要让调用方分别调 Enable/Disable，否则状态容易不同步。',
   ],
-  188: [
+  "SetImageFromItem#1+172": [
     '-- 【★★ 事件订阅总览（约 15 个）】',
     '-- 按职责分五类：',
     '--   ① 图标变化：imagechange（188）、clientsideinventoryflagschanged（201）',
@@ -271,7 +271,7 @@ export default {
     '-- ★ 第 214 行的 serverpauseddirty 来自 TheWorld（第 220 行）——',
     '--   「服务端状态变化」也能驱动 UI 更新。',
   ],
-  208: [
+  "SetImageFromItem#1+192": [
     '-- 【★ 四处 tooltip 事件回调的守卫完全一致】',
     '--   `if self.focus and not TheInput:ControllerAttached() then self:UpdateTooltip() end`',
     '--',
@@ -288,7 +288,7 @@ export default {
     '--   因为事件触发时物品数据可能还没同步完成，',
     '--   下一帧才拿到最新的耐久/描述。',
   ],
-  239: [
+  "SetImageFromItem#1+223": [
     '-- 【★★★ stacksizechange：全文件最精妙的一段，双重问题同时解决】',
     '--',
     '-- 【要解决的问题】',
@@ -316,7 +316,7 @@ export default {
     '-- ★★ 移植要点：这是「乐观更新 + 版本标记」在 UI 层的标准实现。',
     '--   任何有本地预测的游戏 UI（倒计时、读条、进度）都会遇到同类问题。',
   ],
-  248: [
+  "SetImageFromItem#1+232": [
     '-- ★ 取消上一段动画的**附加条件**：只当它「还没更新过一次」才 Kill。',
     '--   判据是 uianim 组件的 pos_t（第 248 行）。',
     '-- → 动机：同一次堆叠会连发多个包，',
@@ -325,7 +325,7 @@ export default {
     '-- ★★ 「打断阈值」：只在动画尚未产生位移时才允许打断。',
     '--   这是动画与状态同步耦合时的通用技巧，移植价值高。',
   ],
-  260: [
+  "SetImageFromItem#1+244": [
     '-- ⚠️ V2C 原注释说明了一个真实竞态：「动画期间玩家可能已用鼠标把它捡走了」。',
     '-- ★ 第 260 行 `if self.inst:IsValid()` 是必需的有效性检查 ——',
     '--   异步动画回调里 self 可能已被 Kill。',
@@ -336,14 +336,14 @@ export default {
     '--   避免字段指向已 Kill 的对象。',
     '--   → 「异步回调结束时清理自身登记」。',
   ],
-  267: [
+  "SetImageFromItem#1+251": [
     '-- ScaleTo(basescale*2 → basescale, .25)：从两倍大弹回原尺寸。',
     '-- ★ 用 basescale 而非硬编码 1：让 tile 被缩放后动画仍回到正确尺寸。',
     '--   第 437 行 SetBaseScale 提供了缩放入口。',
     '--   同一个 ScaleTo 表达式在本文件出现 6 次（267、278、289、360、368、374），',
     '--   可提取为函数；现状是复制粘贴，属轻微重复。',
   ],
-  283: [
+  "SetImageFromItem#1+267": [
     '-- container_got_item_while_closed：关闭状态的容器收到物品时的提示动画。',
     '-- ★ 第 291 行 `self.item.entity:GetParent()` 反查父容器，',
     '--   第 292-297 行检查并清除 _receiveitemonopen 标记。',
@@ -352,14 +352,14 @@ export default {
     '--   若容器改用别的方式记录该状态，这里会静默失效。',
     '--   判定为「疑似技术债」，功能上当前正确。',
   ],
-  305: [
+  "SetImageFromItem#1+289": [
     '-- perishchange：腐败进度变化的统一入口。',
     '-- ★ 二分支（第 307-311 行）：',
     '--   HasSpoilage() → 用 SetPerishPercent（画腐败条）；',
     '--   带 fresh/stale/spoiled 标签但无腐败条 → 用 SetPercent（显示数字）。',
     '-- → 「同一个数据、两种视觉方案」，按物品能力选择。',
   ],
-  350: [
+  "SetImageFromItem#1+334": [
     '-- 【★★★ stacksizepreview：客户端本地预览 —— 「不信任服务端」的窗口】',
     '-- 第 350 行 `if not self.ismastersim`：仅客户端订阅（服务端不需要预览）。',
     '--',
@@ -379,7 +379,7 @@ export default {
     '--   预测 → 打标记 → 服务端确认 → 清标记。',
     '--   与第 86 行 ispreviewing 的声明处呼应。',
   ],
-  384: [
+  "SetImageFromItem#1+368": [
     '-- ★★ 把 local function 挂成静态字段，供其它文件复用而不污染全局命名空间。',
     '-- 原注释第 384 行明说「static function so we can share it without making it global」。',
     '-- 调用方写法：ItemTile.sSetImageFromItem(Image(), item)',
@@ -387,7 +387,7 @@ export default {
     '-- → 这正是第 15 行「与 RecipeTile 保持同步」那条契约的复用面：',
     '--   物品图标解析逻辑因此只有一份实现，被多处共享。',
   ],
-  387: [
+  "ItemTile:Refresh#1": [
     '-- 【★★ Refresh：与 inventorybar 的 Refresh 是同一职责分层】',
     '--   inventorybar.Rebuild → 改结构（槽位数量、坐标）；',
     '--   inventorybar.Refresh → 调本方法刷新内容。',
@@ -406,7 +406,7 @@ export default {
     '--   第 432-434 行的 itemtile_Refresh 是**物品自定义钩子**，',
     '--   让 mod/物品自己决定 tile 的额外刷新逻辑。',
   ],
-  442: [
+  "ItemTile:OnControl#1": [
     '-- 【★ OnControl：故意什么都不做】',
     '-- 第 443 行更新 tooltip（鼠标悬停时刷新），',
     '-- 第 444 行 `return false` —— **明确告诉框架「我没处理这个输入」」。',
@@ -416,7 +416,7 @@ export default {
     '--   若这里 return true，事件会被吞掉，背包将无法拾取。',
     '-- ★ 移植要点：明确「不处理」和「没写」是两回事，前者要显式 return false。',
   ],
-  457: [
+  "ItemTile:GetDescriptionString#1": [
     '-- 【★★★ GetDescriptionString：约 80 行的提示文本生成器 —— 「诚实提示」的极致】',
     '--',
     '-- 第 459 行三重守卫取 inventoryitem（self.item 有效 且 组件存在）。',
@@ -438,7 +438,7 @@ export default {
     '-- ★ 第 526-527 行的原注释是个好例子：解释了「为什么不显示右键快速丢弃提示」',
     '--   （怕玩家误以为是丢弃手上的东西），并说明 mod 版也没这提示、玩家照样会用。',
   ],
-  545: [
+  "ItemTile:SetOnQuantityChangedFn#1": [
     '-- 【★ 数量显示的回调钩子（用于建造站点容器）】',
     '-- 第 543-544 行注释说明了协议：',
     '--   「返回 true 以跳过默认处理代码」。',
@@ -447,7 +447,7 @@ export default {
     '-- → 移植要点：把「可跳过的钩子」作为扩展点，',
     '--   比让调用方替换整个控件更轻量。',
   ],
-  549: [
+  "ItemTile:SetQuantity#1": [
     '-- 【★ 数量文本的三段逻辑】',
     '-- 第 550-554 行：外部钩子接管时，销毁默认 Text（第 552 行 Kill 并取返回值）。',
     '--   ★ 第 552 行 `self.quantity = self.quantity:Kill()` ——',
@@ -461,7 +461,7 @@ export default {
     '-- ★ 为什么缩字号？因为槽位宽度固定，"1000" 会溢出格子。',
     '--   → 「文本自适应容器」的经典解法：截断 + 缩放。',
   ],
-  569: [
+  "ItemTile:SetPerishPercent#1": [
     '-- 【★★ SetPerishPercent：用「标签」而非「数值」判断颜色 —— 抗网络误差设计】',
     '--',
     '-- 第 571-572 行原注释点明关键：',
@@ -485,7 +485,7 @@ export default {
     '--   注释第 582 行说明「不用 100% 帧，那样会被 spoiled_food 之类的图标替换」。',
     '--   → 为了保留美术上 100% 那一帧的特殊含义，主动不显示满格。',
   ],
-  587: [
+  "ItemTile:SetPercent#1": [
     '-- 【★ SetPercent：耐久百分比文本】',
     '-- 第 588 行 hide_percentage 标签可整体关闭此显示。',
     '-- 第 591-593 行：日文 PS4 特殊处理（横向压缩 0.7 防溢出），',
@@ -498,7 +498,7 @@ export default {
     '--   第 613 行注意：损坏时调 SetPerishPercent(0) 会显示**满格腐败条**，',
     '--   用腐败条表达「已损坏」，是视觉语言的复用。',
   ],
-  619: [
+  "ItemTile:SetChargePercent#1": [
     '-- 【★★ SetChargePercent：蓄力环的完整状态机】',
     '--',
     '-- 第 620-621 行保存旧值，供第 637 行判断「是否刚充满」。',
@@ -525,13 +525,13 @@ export default {
     '-- ★ 整体是一台「有限状态机」，但用嵌套 if 而非状态表实现 ——',
     '--   可读性尚可，但加新状态时会变复杂。',
   ],
-  661: [
+  "ItemTile:SetChargeTime#1": [
     '-- SetChargeTime：设置蓄力总时长，同时决定是否需要每帧推进。',
     '-- ★ 第 663 行 math.huge 分支：无限蓄力（如永续光源）不需要更新。',
     '-- 第 665 行 rechargepct < .9999 才启动 —— 已经充满的物品不必再更新。',
     '-- ★ 与第 631 行的 0.9999 阈值呼应，保持一致的浮点容差策略。',
   ],
-  670: [
+  "ItemTile:SetChargeTime#1+9": [
     '-- 【⚠️ 整段被注释掉的 CancelDrag（第 670-684 行）—— SOP 第 4 条的典型】',
     '-- 被注释的是一个「取消拖拽」方法：恢复腐败条/潮湿底衬、恢复可点击。',
     '--',
@@ -543,7 +543,7 @@ export default {
     '-- ⚠️ 若将来要恢复拖拽预览功能，这段代码是现成的起点，',
     '--   但必须同时实现 StartDrag/Refresh 的对称恢复。',
   ],
-  686: [
+  "ItemTile:StartDrag#1": [
     '-- 【★★ StartDrag：拖拽开始 —— 「把所有状态层藏起来」】',
     '--',
     '-- ★ 关键设计：拖拽时**只显示物品图标**，隐藏腐败条、潮湿标记、',
@@ -559,7 +559,7 @@ export default {
     '-- 第 704 行顺带 StopUpdating：拖拽时不需要每帧推进蓄力进度。',
     '-- 第 687 行 dragging = true 是第 601、711、945 行判断的共同依据。',
   ],
-  732: [
+  "ItemTile:HasSpoilage#1": [
     '-- 【★ HasSpoilage：带缓存的幂等判定】',
     '-- 第 733-734 行 hasspoilage 非 nil 直接返回 —— 缓存命中。',
     '-- 第 740-745 行遍历 FOODTYPE 常量表，检查 edible_XXX 标签。',
@@ -572,7 +572,7 @@ export default {
     '--   而第 738 行是 else 分支没有立刻 return，靠第 748 行统一返回 ——',
     '--   逻辑正确，但返回点分散，可读性稍差。',
   ],
-  751: [
+  "_StartUpdating#1": [
     '-- 【★★★ 多原因更新计数 —— 防止「互相误停」的关键设计】',
     '--',
     '-- 为什么需要？本 tile 可能同时因两个原因需要每帧更新：',
@@ -591,7 +591,7 @@ export default {
     '--   与 inventorybar 第 1417 行的 SourceModifierList（多来源布尔遮罩）',
     '--   是同一思路的两种形态：一个做「或」，一个做「计数」。',
   ],
-  783: [
+  "ItemTile:OnUpdate#1": [
     '-- 【★ OnUpdate：每帧逻辑极简，因为只做两件事】',
     '-- 第 784 行 `if TheNet:IsServerPaused() then return end` ——',
     '--   ★ 游戏暂停时**完全不更新**蓄力进度。',
@@ -604,7 +604,7 @@ export default {
     '--   因为燃料状态变化慢。',
     '--   → 「不同频率的检查，用不同的节流间隔」。',
   ],
-  805: [
+  "ItemTile:ToggleShadowFX#1": [
     '-- 【★ ToggleShadowFX：幂等的特效开关（含反向清理）】',
     '-- 第 806 行：showequipshadowfx（外部设置，见第 830 行）或 magiciantool 标签。',
     '-- 第 807-816 行：惰性创建，★ 第 812 行用 SetTime 随机化动画起始相位：',
@@ -616,7 +616,7 @@ export default {
     '--   与第 586 行 PerishDelta 的 ClearAllOverrideSymbols 同属「恢复默认」。',
     '-- ★ 第 806 行与第 817 行都用 HasTag 判定，说明该特效服务于多个物品。',
   ],
-  830: [
+  "ItemTile:SetIsEquip#1": [
     '-- 【★ SetIsEquip：用「取反比较」做状态变化检测】',
     '-- 第 831 行三层 and：被装备 && 玩家有 shadowmagic 标签 && 物品有 shadowlevel 标签。',
     '-- 第 832 行 `if not self.showequipshadowfx == shadowfx then` ——',
@@ -627,7 +627,7 @@ export default {
     '--   判定为「疑似健壮性缺口」：本方法应在游戏内被调用（此时 ThePlayer 存在），',
     '--   但若在菜单/加载期被调用会崩。风险低但存在。',
   ],
-  838: [
+  "ItemTile:HandleAcidSizzlingFX#1": [
     '-- HandleAcidSizzlingFX：酸液嘶嘶特效。',
     '-- 第 839-841 行：参数为 nil 时**主动查询**当前状态，',
     '--   ★ 于是本函数同时服务「事件驱动」与「Refresh 全量同步」两种入口',
@@ -637,7 +637,7 @@ export default {
     '-- 第 854-858 行 else 分支反向清理（Kill + 置 nil），与第 823 行同构。',
     '-- 第 844 行挂在 self.image 上 —— 特效是主图的子节点，随主图缩放/移动。',
   ],
-  862: [
+  "ItemTile:HandleBuffFX#1": [
     '-- 【★★ HandleBuffFX：按 prefab/标签分派的一次性特效（本文件最长的分支函数）】',
     '-- 第 863-866 行：player_classified 取不到就整体返回（前端/菜单态不画）。',
     '--',
@@ -671,13 +671,13 @@ export default {
     '--   prefab 判定精确但不可扩展，标签判定通用但需物品作者配合。',
     '--   属设计取舍，非缺陷。',
   ],
-  899: [
+  "DoRandomizeLoop#1+17": [
     '-- ★ 一次性特效的标准自销毁：animover → Kill。',
     '--   第 897 行**先置 nil**再 Kill（第 898 行播收尾动画）。',
     '--   → 保证在本帧内若有其它代码检查 self.freecastpanflute，会看到「已清空」。',
     '--   这是「状态先于对象」的一致性写法。',
   ],
-  943: [
+  "ItemTile:UpdateTemperaturePercent#1": [
     '-- 【⚠️ 命名误导：一个叫 Update 的方法只做「损坏态显示」】',
     '-- 第 944 行原注释自嘲：「Haack. we need to update broken state for fumarole tool,',
     '--   so do it hereeeee :)」—— 作者承认这是搭便车。',
@@ -698,7 +698,7 @@ export default {
     '-- 第 964-967 行：★ 用 Remap 把温度线性映射到 0-1 再交给 SetTemperaturePercent。',
     '--   「物理量 → 归一化进度」的转换，与第 583 行同属归一化处理。',
   ],
-  976: [
+  "ItemTile:SetTemperaturePercent#1+6": [
     '-- 导出 ItemTile 类本身。注意：源文件此行末尾**没有换行符**，',
     '-- build 脚本按行分割后不弹空行，因此行号仍与源文件严格对应（第 976 行）。',
     '-- ★ 对比 templates.lua 第 1465 行 return TEMPLATES：',

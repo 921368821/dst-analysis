@@ -10,14 +10,14 @@ export const BEFORE = {
     "--   ★ 这意味着：容器系统 99% 的逻辑在这里，蓝图里的 itemtestfn 只是「被调用的闭包」。",
     "--   参见 containers.lua:9 containers.widgetsetup —— 浅拷贝 + 设置 numslots。",
   ],
-  3: [
+  "oncanbeopened#1": [
     "-- 【属性 setter 三兄弟之一：canbeopened】",
     "--   ★ 关键：setter 里**只写 netvar，不改本地字段**。",
     "--     本地值由第 31 行构造函数直接赋值，之后只能读。",
     "--   为什么要走 setter？因为 canbeopened 必须**双端一致**，而客户端没有组件。",
     "--   ⇒ 这是「服务端组件 + 客户端镜像」架构的标准写法，全文件 3 处。",
   ],
-  4: [
+  "oncanbeopened#1+1": [
     "-- ★ SetCanBeOpened → container_replica.lua:277 → netvar `container._cannotbeopened`。",
     "--   ⚠ 注意 netvar 名字是**反向的**（_cannotbeopened）：",
     "--     原因见 container_replica.lua:278 `self._cannotbeopened:set(not canbeopened)`。",
@@ -26,14 +26,14 @@ export const BEFORE = {
     "--     即实体刚复制过来、netvar 尚未同步时，客户端默认显示为「不能开」——",
     "--     这是安全的默认值（fail-closed）。而若正向存，零值会变成「可以开」。",
   ],
-  7: [
+  "onskipopensnd#1": [
     "-- 【属性 setter 二：skipopensnd】→ netvar `container._skipopensnd`（正向）。",
     "--   ★ 用途见 containers.lua:508-513 的 V2C 注释：",
     "--     多数容器让 prefab 在**世界空间**播放开箱音效，于是要关掉客户端 HUD 音效。",
     "--   消费点：本文件第 639 行 ShouldSkipOpenSnd。",
   ],
-  11: ["-- 【属性 setter 三：skipclosesnd】→ netvar `container._skipclosesnd`。消费点第 694 行。"],
-  15: [
+  "onskipclosesnd#1": ["-- 【属性 setter 三：skipclosesnd】→ netvar `container._skipclosesnd`。消费点第 694 行。"],
+  "OnOwnerDespawned#1": [
     "-- 【OnOwnerDespawned：玩家下线时的容器善后】",
     "--   ★ 只做一件事：给容器里每个物品推 player_despawn 事件。",
     "--   为什么需要？物品的 inventoryitem:OnPutInInventory（第 346 行）记录了 owner，",
@@ -41,19 +41,19 @@ export const BEFORE = {
     "--   ⚠ 推理依据：grep 核实 player_despawn 的消费方主要是 perishable/temperature 类组件。",
     "--   ★ 注意这里**不转移物品**——容器本身若在玩家背包里，会随玩家一起被移除。",
   ],
-  18: [
+  "OnOwnerDespawned#1+3": [
     "-- ★ 遍历用 `for i = 1, numslots`（有序、连续），而不是 pairs(self.slots)。",
     "--   理由：这里不需要槽号，只要遍历全部物品，两种都对；",
     "--     但用连续循环能**天然遍历到空洞槽**，语义更直白。",
     "--   ⚠ 潜在缺陷：若 self.slots 里有下标 > numslots 的物品（理论上不可能，",
     "--     因为所有写入路径都检查了 slot <= numslots），这里会漏掉。当前安全。",
   ],
-  21: [
+  "OnOwnerDespawned#1+6": [
     "-- ★ PushEvent(\"player_despawn\") —— 注意是 **PushEvent 而不是 PushEventImmediate**。",
     "--   PushEvent 会把回调排到下一帧（DeferredEventHandler 机制），",
     "--     所以物品的保质期结算会**晚一帧**，这是有意的（避免重入）。",
   ],
-  27: [
+  "OnOwnerDespawned#1+12": [
     "-- 【★★ Container 类构造：全部字段初始化清单】",
     "--   ★ 读法：这里列出的就是「一个容器可能有的全部状态」，共 20+ 个字段。",
     "--     其中 3 个是核心数据结构（slots/openlist/opencount），其余是配置与开关。",
@@ -65,20 +65,20 @@ export const BEFORE = {
     "--     · 「找空位」时才用 1..numslots 的有序 for（如第 524 行）。",
     "--   ⇒ 这是「物品栏」（components/inventory.lua）的同款设计，参见 inventory.lua 注释版。",
   ],
-  28: ["-- inst 引用：组件与实体的双向指针。★ 所有对外 API 都通过 self.inst 触达实体。"],
-  29: [
+  "OnOwnerDespawned#1+13": ["-- inst 引用：组件与实体的双向指针。★ 所有对外 API 都通过 self.inst 触达实体。"],
+  "OnOwnerDespawned#1+14": [
     "-- ★★ slots：稀疏的「槽号 → 物品实体」表。**不存物品数据，只存实体引用**。",
     "--   推论：背包、箱子里的东西全是独立实体，各自带着 stackable/perishable/fuel 组件。",
     "--     这与「把物品存成 {name=, count=} 表」的引擎做法完全相反，",
     "--     也是 DST 能让一堆物品各自腐烂/受潮/被诅咒的根本原因。",
   ],
-  30: ["-- numslots：槽位总数。★ 来自 containers.lua:15（数 widget.slotpos）。判定见第 107 行 IsFull。"],
-  31: [
+  "OnOwnerDespawned#1+15": ["-- numslots：槽位总数。★ 来自 containers.lua:15（数 widget.slotpos）。判定见第 107 行 IsFull。"],
+  "OnOwnerDespawned#1+16": [
     "-- canbeopened：能否被打开。★ 构造函数直接赋值，之后 setter 只写 netvar 不改它。",
     "--   消费方：actions.lua:1097 / 4560、brains/monkeybrain.lua:227 等（AI 与动作层）。",
     "--   ★ 注意：Open（第 617 行）**不检查** canbeopened——同样是「动作层守门」的模式。",
   ],
-  36: [
+  "OnOwnerDespawned#1+21": [
     "-- ★★ makereadonly(self, \"infinitestacksize\") —— 只读属性系统。",
     "--   效果：这个字段之后不能被 `self.infinitestacksize = true` 直接赋值，",
     "--     只能通过第 1565 行 EnableInfiniteStackSize 修改。",
@@ -87,44 +87,44 @@ export const BEFORE = {
     "--     三步必须原子完成。直接赋值会只做第一步，导致状态不同步。",
     "--   ⇒ 这是「用类型系统强制不变量」的少见但正确的用法。",
   ],
-  37: ["-- readonlycontainer：只读容器开关，同样 makereadonly（见第 1606 行 EnableReadOnlyContainer）。"],
-  38: [
+  "OnOwnerDespawned#1+22": ["-- readonlycontainer：只读容器开关，同样 makereadonly（见第 1606 行 EnableReadOnlyContainer）。"],
+  "OnOwnerDespawned#1+23": [
     "-- usespecificslotsforitems：槽位是否有语义。★ 来自蓝图，默认 false。",
     "--   落点：第 299 行 GetSpecificSlotForItem、第 523 行 GiveItem 的选位分支。",
   ],
-  39: ["-- issidewidget：UI 是否在侧边。★ 来自蓝图，第 637 行传给 HUD:OpenContainer。"],
-  40: [
+  "OnOwnerDespawned#1+24": ["-- issidewidget：UI 是否在侧边。★ 来自蓝图，第 637 行传给 HUD:OpenContainer。"],
+  "OnOwnerDespawned#1+25": [
     "-- type：容器类型字符串。★ 只用于第 625 行的「同类互斥」判定。",
     "--   ⚠ 它**不参与**物品筛选（那是 itemtestfn 的事）。",
   ],
-  42: [
+  "OnOwnerDespawned#1+27": [
     "-- ★ itemtestfn：来自蓝图的闭包，形如 (container, item, slot) → boolean。",
     "--   唯一调用点：第 295 行（CanTakeItemInSlot 的最后一行）。",
     "--   ★ 这是全文件**最重要的一个字段**——它就是「容器能装什么」的全部规则。",
   ],
-  43: [
+  "OnOwnerDespawned#1+28": [
     "-- priorityfn：专用容器优先判定，形如 (container, item) → boolean。",
     "--   唯一调用点：第 319 行 ShouldPrioritizeContainer 内部。",
     "--   ★ 与 itemtestfn 的区别：它不决定「能不能放」，只决定「优先往哪放」。",
   ],
-  45: [
+  "OnOwnerDespawned#1+30": [
     "-- ★★ openlist：打开者表 {doer → true}。以**实体为键**，不是布尔数组。",
     "--   作用：① 支持多人同时开同一个箱子；② 知道「谁开着」以便逐个关闭。",
     "--   ★ 它是哈希表（pairs 无序），所以第 821 行 GetOpeners()[1] 的「第一个」",
     "--     在严格意义上是未定义行为（见 containers.lua:819 的 ⚠ 标注）。",
   ],
-  46: [
+  "OnOwnerDespawned#1+31": [
     "-- ★ opencount：打开者**计数**（由 openlist 派生，第 633/684 行增减）。",
     "--   为什么不用 #openlist？因为表的「长度」对哈希表无意义，必须显式计数。",
     "--   它是 openlimit 判定（第 736 行）与 IsOpen（第 724 行）的唯一依据。",
   ],
-  48: [
+  "OnOwnerDespawned#1+33": [
     "-- ⚠ isexposed：原注释「--flag to disable protection from rain」——已注释。",
     "--   推理：这是「暴露在雨下」的开关，但没有任何地方读写 self.isexposed。",
     "--   ★ grep 核实（本文件内）：`isexposed` 零命中；说明该字段被更底层的 sheltered 组件取代。",
     "--   ⇒ 这与第 34 行的 skipautoclose 是同一类「已被重构淘汰但保留痕迹」的字段。",
   ],
-  50: [
+  "OnOwnerDespawned#1+35": [
     "-- ⚠ droponopen：原注释整行被注释，无任何说明。",
     "--   ★ grep 核实：**全库唯一**的引用在第 795 行 ValidateSpecializedContainer：",
     "--     `not (container.droponopen or container.inst:HasTag(\"portablecontainer\"))`。",
@@ -132,7 +132,7 @@ export const BEFORE = {
     "--     所以第 795 行的判据实际等价于「不是 portablecontainer 标签」。",
     "--     这是一个**半失效的字段**——读它的代码以为它在起作用。仅标注，不改代码。",
   ],
-  51: [
+  "OnOwnerDespawned#1+36": [
     "-- ⚠ restrictedtag：原注释「-- Only entities with this tag can interact.」",
     "--   ★ grep 核实：**本文件从不给 self.restrictedtag 赋值**，只有第 1642 行在读它。",
     "--     赋值方在别处（模组或特定 prefab 通过 makereadonly/直接赋值设置）。",
@@ -140,18 +140,18 @@ export const BEFORE = {
     "--     但实现只对**玩家**生效（第 1637 行 `if not target:HasTag(\"player\") then return false`）。",
     "--     ⇒ 注释与实现**不完全一致**：非玩家目标一律「不受限」。这是一条文档偏差。",
   ],
-  52: [
+  "OnOwnerDespawned#1+37": [
     "-- ⚠ thiefproof：原注释「--self.thiefproof = nil」被注释掉，但第 1647 行仍在读它。",
     "--   ★ 与 droponopen 同类：读它的代码（第 1647 行 IsThiefProof）以为它有意义，",
     "--     实际永远返回 nil（falsy）= 「不防贼」。",
     "--   ⇒ 真正的防贼逻辑应该在 prefab 层（如 prefabs/safe.lua 自己判断），",
     "--     组件层只是个空挂点。仅标注，不改代码。",
   ],
-  54: [
+  "OnOwnerDespawned#1+39": [
     "-- ★ ListenForEvent(\"player_despawn\", OnOwnerDespawned)：构造函数里注册监听。",
     "--   注册在组件构造函数中而非 OnAddComponent，是 DST 的常见做法。",
   ],
-  56: [
+  "OnOwnerDespawned#1+41": [
     "-- ★ 原注释保留：「--the current opener that has performed an action, can be nil or",
     "--   incorrect, verify before using this!!!」",
     "--   → currentuser：执行动作的当前打开者，**故意设计成不可靠**。",
@@ -161,7 +161,7 @@ export const BEFORE = {
     "--   ⚠ 因为是临时全局状态，**嵌套操作会互相覆盖**（注释里明说了「can be incorrect」）。",
     "--     例如在 GiveItem 的回调里再触发另一个 GiveItem，currentuser 就会被内层改掉。",
   ],
-  60: [
+  "OnOwnerDespawned#1+45": [
     "-- ★★ 「Hacky flags」注释块：三个为「在容器之间搬物品」准备的临时开关。",
     "--   · ignorespoverflow（第 802 行）——本容器被当作溢出容器时，忽略 GetSpecializedContainers；",
     "--   · ignoreclosedspoverflow（第 813 行）——忽略「关闭状态的专用容器」；",
@@ -170,12 +170,12 @@ export const BEFORE = {
     "--   ★ 它们全都不是 makereadonly 的（即可以随手改），因为它们是「一次搬运期间的临时态」。",
     "--   ⇒ 设计模式：把「例外」编码成 flag 而不是参数，避免给 GiveItem 加 5 个布尔形参。",
   ],
-  64: [
+  "OnOwnerDespawned#1+49": [
     "-- ignoreoverstacked：取出超量堆叠物品时，是否**不**把多出来的部分丢到地上。",
     "--   设置点：第 1360 行 MoveItemFromAllOfSlot（目标容器 infinitestacksize 时）。",
     "--   ⇒ 语义：目标是「无限堆叠容器」时，整摞一起搬走，多余部分不落地。",
   ],
-  67: [
+  "OnOwnerDespawned#1+52": [
     "-- 【Class 的第三参数：属性 setter 表】",
     "--   ★ class.lua 的 Class(constructor, parent, props) —— props 里每个键自动生成",
     "--     「读方法 + setter（触发 on<key> 回调）」。",
@@ -183,7 +183,7 @@ export const BEFORE = {
     "--     而 infinitestacksize / readonlycontainer 是用 makereadonly 走的另一条路。",
     "--   ⇒ ★ 两条路并存是有意为之：前三个只需同步 netvar，后两个还要批量改物品。",
   ],
-  73: [
+  "OnOwnerDespawned#1+58": [
     "-- 【★★ widgetprops：蓝图字段的「白名单」——本文件承认的容器配置全集】",
     "--   这 9 个字段就是 containers.lua 能配置的一切容器行为/外观参数。",
     "--   ★ 它被第 88/95 行用在 WidgetSetup 的「拆锁 → 设置 → 上锁」流程里。",
@@ -192,7 +192,7 @@ export const BEFORE = {
     "--     **仍然会被拷进 self**，只是不会被 makereadonly 保护。",
     "--   ⇒ 推论：widgetprops 不是「过滤白名单」，而是「需要变成只读属性的清单」。",
   ],
-  86: [
+  "Container:WidgetSetup#1": [
     "-- 【★★ WidgetSetup：服务端的蓝图装配入口】三步走，每步都有讲究：",
     "--   ① removesetter：把 9 个字段的 setter **全部拆掉**（第 88 行）；",
     "--   ② containers.widgetsetup + replica:WidgetSetup：把值灌进来（第 91-92 行）；",
@@ -204,29 +204,29 @@ export const BEFORE = {
     "--     当前代码无抛错路径（containers.lua:15 的 SetNumSlots 有 assert，",
     "--     但那是 assert(numslots >= self.numslots)，在重复调用时可能触发）。",
   ],
-  88: [
+  "Container:WidgetSetup#1+2": [
     "-- ★ removesetter(self, v)：class.lua 提供的辅助函数，移除该属性的 setter 钩子。",
     "--   没有它，下一行的浅拷贝会触发 oncanbeopened 等回调，导致半初始化状态写 netvar。",
   ],
-  91: [
+  "Container:WidgetSetup#1+5": [
     "-- ★ 把蓝图灌进**服务端组件**（第 9 行 containers.lua 的浅拷贝 + SetNumSlots）。",
     "--   ⇒ 注意此时 self.widget 指向 containers.params.X.widget 的**同一张表**（共享）。",
   ],
-  92: [
+  "Container:WidgetSetup#1+6": [
     "-- ★ 同一个蓝图灌进**客户端镜像**（container_replica.lua:232）。",
     "--   —— 这是「双端分裂」的第二步：两端各自持有一份同源的 widget/itemtestfn。",
     "--   ⚠ 代价：任何新增的蓝图字段都必须**同时**在服务端与客户端组件上有意义，",
     "--     否则就会出现「服务端认、客户端不认」的分裂。",
     "--     这也是第 156-157 行的 FIXMEC 注释所指出的历史遗留问题的根源。",
   ],
-  99: ["-- GetWidget：返回蓝图里的 widget 表（共享引用，非副本）。消费方：widgets 层。"],
-  103: [
+  "Container:GetWidget#1": ["-- GetWidget：返回蓝图里的 widget 表（共享引用，非副本）。消费方：widgets 层。"],
+  "Container:NumItems#1": [
     "-- ★★ NumItems：GetTableSize(self.slots) —— 统计**非 nil 槽位数**。",
     "--   注意：不是 stacksize 之和。①格 20 个木头和 20 格各 1 个木头，NumItems 都算 1。",
     "--   ⇒ 想查总数要用 Has（第 826 行）/ HasItemWithTag（第 851 行）。",
     "--   ⚠ O(n) 复杂度（遍历整表），在每帧调用的 UI 里是性能隐患（但本文件不每帧调）。",
   ],
-  107: [
+  "Container:IsFull#1": [
     "-- ★★ IsFull：**槽位占满**而不是「装不下」。判定 = 非空槽数 >= numslots。",
     "--   ★ 这是本系统唯一的「容量」概念——★ grep 核实**不存在** maxweight/重量上限。",
     "--     任务描述提到的 rangecheck/maxweight 在容器系统中并不存在（见文件头说明）。",
@@ -234,11 +234,11 @@ export const BEFORE = {
     "--   ⚠ 推论：一个装满 9 摞 99 燧石的冰箱和一个空冰箱，IsFull 都返回 true。",
     "--     若要让「放不下的堆叠」也能塞进去，需要 infinitestacksize（见第 36 行）。",
   ],
-  111: [
+  "Container:IsEmpty#1": [
     "-- ★ IsEmpty：next(self.slots) == nil —— 比 NumItems() == 0 更省（O(1) 短路）。",
     "--   两者语义完全等价，此处选 next 是因为空表判定不需要遍历。",
   ],
-  115: [
+  "Container:SetNumSlots#1": [
     "-- 【★ SetNumSlots：只能变大，不能变小】",
     "--   assert(numslots >= self.numslots) 是本文件**唯一的 assert**。",
     "--   ★ 为什么只许增大？两个理由：",
@@ -246,13 +246,13 @@ export const BEFORE = {
     "--     ② 缩小会让旧存档的物品「凭空消失」（第 1001 行按 slot 还原时 GiveItem 会失败）。",
     "--   ⇒ 这是「数据结构不变量由 assert 守卫」的正确范例。",
   ],
-  120: [
+  "Container:DropItemBySlot#1": [
     "-- 【★★ DropItemBySlot：把某槽物品丢到地面的完整流程】",
     "--   五步：① 取物品 → ② 检查可丢 → ③ 内部移除 → ④ 定位+落地 → ⑤ 清 prev 字段+发事件。",
     "--   ★ 关键点：它**不调用 RemoveItemBySlot**（那会多一次查表），",
     "--     而是直接调 RemoveItem_Internal（第 129 行），并显式传 wholestack=true。",
   ],
-  124: [
+  "Container:DropItemBySlot#1+4": [
     "-- ★★ islockedinslot：槽位锁。带这个标记的物品**不能被丢出**。",
     "--   ★ assert(BRANCH ~= \"dev\") —— dev 分支会直接崩溃，这是「主动暴露 bug」的手法：",
     "--     开发期一旦有物品被错误丢弃立刻炸，正式版（BRANCH ~= \"dev\"）静默返回。",
@@ -260,87 +260,87 @@ export const BEFORE = {
     "--     都是「不该发生的状态发生时就地炸掉」。",
     "--   ⇒ 这是生产级代码里少见的「调试断言常驻」策略。",
   ],
-  129: [
+  "Container:DropItemBySlot#1+9": [
     "-- ★ RemoveItem_Internal(item, slot, true, keepoverstacked)：",
     "--   第三个参数 wholestack=true → 整摞拿走；第四个 keepoverstacked 由调用方决定。",
     "--   ⚠ 注意这里绕过了第 450 行的 CanTakeItemInSlot 检查——**移除不需要准入检查**。",
     "--     这是对的：准入是「能不能进」，取出永远允许。",
   ],
-  131: [
+  "Container:DropItemBySlot#1+11": [
     "-- 落地位置：drop_pos 缺省用容器自己的世界坐标。",
     "--   ⚠ 注释「@V2C NOTE: not supported when using container_proxy」在第 222-223 行，",
     "--     因为 container_proxy（客户端影子实体）位置恒为 (0,0,0)，用它会把物品丢到原点。",
   ],
-  133: [
+  "Container:DropItemBySlot#1+13": [
     "-- ★ Transform:SetPosition(drop_pos:Get()) —— 两种坐标 API：",
     "--   drop_pos 是 Vector3 时用 :Get() 拆成 x,y,z（见第 133 行）；",
     "--   或直接接受 x,y,z 三个数（第 247 行的 DropItemAt 支持两种）。",
     "--   ⇒ 这是 DST 里「一个函数支持 Vector3 与 xyz 双形态」的标准模式。",
   ],
-  135: [
+  "Container:DropItemBySlot#1+15": [
     "-- ★ OnDropped(true)：参数 true = 「是被丢弃而非被移动」。",
     "--   inventoryitem 组件据此重置湿度/温度/归属（对比 OnPutInInventory 第 346 行）。",
   ],
-  137: [
+  "Container:DropItemBySlot#1+17": [
     "-- ★★ prevcontainer / prevslot 置 nil：这两个字段是「**物品刚刚从哪来**」的记忆。",
     "--   用途：MoveItemFromAllOfSlot 第 1381 行会清掉它们再 GiveItem 到目标，",
     "--     以防「移回去时又被当成移回来」。",
     "--   ⇒ 设计含义：容器系统用这两个字段表达「跨容器搬运的事务性」。",
   ],
-  139: [
+  "Container:DropItemBySlot#1+19": [
     "-- ★ PushEvent(\"dropitem\", {item = item}) —— 通知实体「有东西掉了」。",
     "--   ⚠ 注意这里**不发网络包**。联机同步靠第 1047 行的 itemlose 事件",
     "--     → container_replica.lua:39 → classified 的 netvar。",
     "--   ⇒ 这就是「服务端组件只产生事件、replica 负责转写」模式的两处体现。",
   ],
-  144: [
+  "Container:DropEverythingWithTag#1": [
     "-- 【★ DropEverythingWithTag：递归丢出带某标签的物品】",
     "--   ★ 关键设计：它会**递归进嵌套容器**（第 158-160 行）。",
     "--   推理：把背包里的「易腐品」全倒出来时，背包里可能还装着冰箱，",
     "--     冰箱里也有易腐品——必须一路递归到底。",
     "--   ⚠ 但递归是**无深度限制**的。若容器自引用（不可能，但理论上），会栈溢出。",
   ],
-  150: [
+  "Container:DropEverythingWithTag#1+6": [
     "-- 只丢带该标签的**直接**物品；带 container 组件的先收集起来，稍后递归。",
     "--   ★ 两阶段处理（先扫本层、再递归）避免了「递归时修改本层 slots」的迭代失效问题。",
   ],
-  152: [
+  "Container:DropEverythingWithTag#1+8": [
     "-- 嵌套容器不入表也不丢（除非它自己带 tag），只记下来稍后递归。",
     "--   ★ 这是「容器套容器」的普遍处理模式，第 163/182 行的两个函数同构。",
   ],
-  163: [
+  "Container:DropEverythingByFilter#1": [
     "-- 【DropEverythingByFilter：与上者同构，但判定换成回调】",
     "--   filterfn(self.inst, item) —— 注意**多传了容器自身**作为第一参，",
     "--     让回调能根据容器类型/标签做决策（例如「只从冰箱里倒出来」）。",
   ],
-  169: [
+  "Container:DropEverythingByFilter#1+6": [
     "-- ★ filterfn 返回 true 才丢。与 DropEverythingWithTag 的 HasTag 等价。",
   ],
-  170: [
+  "Container:DropEverythingByFilter#1+7": [
     "-- ⚠ 此处调 `self:DropItemBySlot(i)` **不传 drop_pos** —— 与第 151 行不同。",
     "--   ⇒ 后果：物品会落在**容器自己的坐标**上，而不是调用方指定的位置。",
     "--   推理依据：DropItemBySlot 第 131 行 `drop_pos = drop_pos or self.inst:GetPosition()`。",
     "--   这与 DropEverythingWithTag（第 151 行传 drop_pos）行为不一致，",
     "--   ★ 看起来是**遗漏参数**而非有意设计。仅标注，不改代码。",
   ],
-  182: [
+  "Container:DropEverything#1": [
     "-- 【★★ DropEverything：全清空，且递归 —— 最彻底的一个】",
     "--   ★ 与前两个的差异：① 跳过 islockedinslot 的物品（第 188 行）；",
     "--     ② 嵌套容器即使带锁也要递归（第 190 行）；",
     "--     ③ 用**惰性建表**（internal_containers 为 nil 时才 { item }），省一次分配。",
     "--   典型用途：箱子被砸/被烧毁时清场（prefabs 里大量调用）。",
   ],
-  190: [
+  "Container:DropEverything#1+8": [
     "-- ★ 带 islockedinslot 的物品不能丢；但**如果它本身是容器**，仍要递归清空它内部。",
     "--   推理：锁只锁「这个物品作为物品被拿走」，不锁「它的内部内容」。",
     "--     这是一个考虑得很细的边界——否则锁定的箱子里会留一堆孤儿物品。",
   ],
-  207: [
+  "Container:DropEverythingUpToMaxStacks#1": [
     "-- 【★ DropEverythingUpToMaxStacks：限量倾倒】",
     "--   keepoverstacked=true（第 211 行）→ 保留超量堆叠，超出的随物品一起走。",
     "--   ★ 典型用途：沃比坐骑「吐出库存里的 N 摞东西」这类玩法需求。",
   ],
-  209: [
+  "Container:DropEverythingUpToMaxStacks#1+2": [
     "-- ★ while next(self.slots)：循环直到**所有槽都空**为止。",
     "--   ⚠ 危险结构：若 DropItemBySlot 因 islockedinslot 而没真正移除（第 124 行），",
     "--     这里会**死循环**。推理：第 211 行没传 keepoverstacked 之外的锁定检查，",
@@ -349,18 +349,18 @@ export const BEFORE = {
     "--     ★ 判定为 **⚠ 真实缺陷**（非风格问题）。当前无调用方受影响（grep 核实无外部调用），",
     "--       故未暴露。仅标注，绝不改代码。",
   ],
-  220: [
+  "Container:DropEverythingUpToMaxStacks#1+13": [
     "-- ★ 原注释保留：「--V2C: this drops single, so no need to add \"keepoverstacked\"」",
     "--   ⇒ 这条注释解释了 API 设计：单件丢弃场景不需要超量堆叠的处理参数。",
   ],
-  222: [
+  "Container:DropItem#1+1": [
     "-- ★ 原注释保留：「--@V2C NOTE: not supported when using container_proxy because this",
     "--   will be the pocket dimension_container at (0, 0, 0)」",
     "--   → container_proxy 是客户端影子实体，其 Transform 恒为 (0,0,0)，",
     "--     所以「用自身坐标掉落」这条路在代理实体上不可用。",
     "--   ⇒ 这是「服务端/客户端实体分离」导致的经典坑，值得记住。",
   ],
-  228: [
+  "Container:DropOverstackedExcess#1": [
     "-- 【★★ DropOverstackedExcess：把超量堆叠的部分丢到地上】",
     "--   ★ 概念：当 infinitestacksize 容器（第 543 行）把物品堆到超过 originalmaxsize 时，",
     "--     取出时必须把多出来的部分**物归原主地丢出去**，否则就凭空消失了。",
@@ -368,33 +368,33 @@ export const BEFORE = {
     "--   ★ 消费点：第 560 行（GiveItem 失败时）、第 1043 行（从无限堆叠容器取出时）、",
     "--     第 1584 行（关闭无限堆叠时）。共 3 处。",
   ],
-  229: [
+  "Container:DropOverstackedExcess#1+1": [
     "-- ★ originalmaxsize：stackable.lua:15-17 在 SetIgnoreMaxSize(true) 时把原 maxsize 存到这里。",
     "--   所以「超量」= stacksize > originalmaxsize（见 stackable.lua:68 IsOverStacked）。",
   ],
-  234: [
+  "Container:DropOverstackedExcess#1+6": [
     "-- ★★ repeat…until num <= maxsize：循环吐料直到堆叠回到正常上限。",
     "--   每轮吐出的量是 `math.min(num - maxsize, maxsize)` —— 即「要么刚好补齐，要么吐一整摞」。",
     "--   ★ 为什么不用 for？因为堆叠大小会在循环中变化（Get 会减少 stacksize），",
     "--     while/repeat 才能保证「直到满足条件」。",
   ],
-  235: [
+  "Container:DropOverstackedExcess#1+7": [
     "-- ★ stackable:Get(n) —— 拆分堆叠。stackable.lua:109 实现：",
     "--   克隆同 prefab 的新实体、给自己减 n、给对方设 n，并继承 perishable/cursed/rechargeable/湿度温度。",
     "--   ⚠ 每次 Get 都会 **SpawnPrefab**——超量很大时会一次生成很多实体，有性能代价。",
   ],
-  247: [
+  "Container:DropItemAt#1": [
     "-- 【★ DropItemAt：DropItem 的双形态版本（接受 Vector3 或 xyz）】",
     "--   第 253 行 `Vector3.is_instance(x)` 是形态判别：传 Vector3 就拆成 xyz。",
     "--   ★ 这是 DST 的惯用「鸭子类型 + 类型判别」写法，避免重载函数。",
   ],
-  256: [
+  "Container:DropItemAt#1+9": [
     "-- ★ 这里用 `self:RemoveItem(itemtodrop)`（整摞语义由 wholestack 缺省 nil → 取 1 个）",
     "--   对照第 129 行 DropItemBySlot 用 RemoveItem_Internal(..., true)。",
     "--   ⚠ RemoveItem 的 wholestack 参数**未传**（默认 nil）→ 第 1028 行 `(not wholestack and 1)`",
     "--     → 只取 1 个。所以 DropItemAt 丢的是**一个**而非整摞，与原注释一致。",
   ],
-  269: [
+  "Container:CanTakeItemInSlot#1": [
     "-- 【★★★ CanTakeItemInSlot —— 本文件最重要、也是整个 DST 物品系统的核心闸门】",
     "--   ★ 它被 12 处调用：",
     "--     · GiveItem 第 450 行（所有程序化放入）；",
@@ -406,7 +406,7 @@ export const BEFORE = {
     "--     这一点是 DST 物品一致性的基石——无论从背包拖、点击放、脚本塞、跨容器搬，",
     "--     判定逻辑完全一致，服务端也不需要额外的防作弊检查（只需同样调用它）。",
   ],
-  270: [
+  "Container:CanTakeItemInSlot#1+1": [
     "-- ★★ 五道门（层层 and，全部为真才继续）：",
     "--   ① item 存在；",
     "--   ② 有 inventoryitem 组件；",
@@ -416,7 +416,7 @@ export const BEFORE = {
     "--      而本容器必须是 pocket 容器（自己也有 canonlygoinpocket 标记）；",
     "--   ⑥ 本容器不是 readonlycontainer。",
   ],
-  274: [
+  "Container:CanTakeItemInSlot#1+5": [
     "-- ★★ 第 274 行是全文件最复杂的一行：处理「只能进背包/口袋容器」的物品。",
     "--   `not A or (self.inst.components.inventoryitem and self.inst.components.inventoryitem.canonlygoinpocket)`",
     "--   翻译：「若物品没这个限制 → 通过；否则要求**本容器自己**也是 pocket 容器」。",
@@ -425,25 +425,25 @@ export const BEFORE = {
     "--     所以逻辑正确；但风格上 `self.inst.components.inventoryitem ~= nil and ...`",
     "--     更明确（对照第 274 行右侧就没写）。全文件两种风格并存。",
   ],
-  278: [
+  "Container:CanTakeItemInSlot#1+9": [
     "-- ★ GetGameModeProperty(\"non_item_equips\") —— 玩法开关（某些模式下禁止装备进容器）。",
     "--   ★ 这是「游戏模式」层对容器规则的介入点，说明容器系统不是完全封闭的。",
   ],
-  280: [
+  "Container:CanTakeItemInSlot#1+11": [
     "-- ★ 有 slot 参数时才做槽位级检查；slot == nil 时只做物品级检查（第 295 行）。",
     "--   ⇒ 「能不能进这个容器」与「能不能进这个槽位」是两级判定，拖拽悬停时只需前者。",
   ],
-  281: [
+  "Container:CanTakeItemInSlot#1+12": [
     "-- ★ 槽号越界检查：slot < 1 or slot > self.numslots。",
     "--   这是**外部输入校验**——slot 可能来自网络请求，所以必须验。",
   ],
-  285: [
+  "Container:CanTakeItemInSlot#1+16": [
     "-- ★★ 槽位锁的例外规则：已有物品被锁时，只有「同类型可堆叠且未满」才允许追加。",
     "--   推理：islockedinslot 表示「这个槽位整体被某玩法锁定（如展示柜）」，",
     "--     但往里**继续加同类物品**不破坏锁定语义，所以放行。",
     "--   三重与：stackable 存在 + 未满 + CanStackWith(传入物品)。",
   ],
-  295: [
+  "Container:CanTakeItemInSlot#1+26": [
     "-- ★★★ itemtestfn 的唯一调用点：`self.itemtestfn == nil or self:itemtestfn(item, slot)`。",
     "--   语义：**没配置筛选器 = 全放行**（这就是木箱/圣柜「什么都能装」的实现）。",
     "--   ★ 冒号调用 `self:itemtestfn(item, slot)` 把 self 补成第一个形参，",
@@ -453,62 +453,62 @@ export const BEFORE = {
     "--       等价于「拒绝一切」，这是个**容易踩的坑**：第 1383 行其实因为循环内",
     "--       命中就 return true，所以实际是正常的；但风格上仍危险。",
   ],
-  298: [
+  "Container:GetSpecificSlotForItem#1": [
     "-- 【★ GetSpecificSlotForItem：为「有语义的物品」找专属槽位】",
     "--   ★ 三个前置条件缺一不可：usespecificslotsforitems 开了、非只读容器、有筛选器。",
     "--   ⇒ 若容器只有优先级函数（priorityfn）而无 itemtestfn，它无法分配专用槽。",
   ],
-  301: [
+  "Container:GetSpecificSlotForItem#1+3": [
     "-- ★ 逐槽试 `self:itemtestfn(item, i)`，第一个接受的槽即返回。",
     "--   ⚠ 这是 **1..numslots 顺序扫描**（有序）：所以「谁的规则更宽谁靠前」会影响选槽。",
     "--     对照第 427 行 portablespicer：slot1=食材、slot2=香料，规则互斥所以无歧义。",
     "--   ⚠ 隐式返回 nil（没有 else）→ 调用方（第 451 行）据此知道「没找到专用槽」。",
   ],
-  308: [
+  "Container:ShouldPrioritizeContainer#1": [
     "-- 【★ ShouldPrioritizeContainer：判断「这个专用容器优先收这个物品」】",
     "--   ★ 与 CanTakeItemInSlot 的差别：这里**不做槽位级检查，也不调 itemtestfn**（第 319 行除外），",
     "--     而是调 priorityfn。二者是**平行**的判定入口，不是包含关系。",
     "--   ★ 用途：背包里的弹药包应该优先收「弹药类」物品（第 317 行校验 inventoryitem 条件）。",
   ],
-  312: [
+  "Container:ShouldPrioritizeContainer#1+4": [
     "-- ★ 四重校验：item 存在 / 有 inventoryitem / cangoincontainer / 不是 pocketonly。",
     "--   与第 270 行几乎重复——这是**有意的冗余**，因为两个函数可能被不同调用方单独使用。",
   ],
-  319: [
+  "Container:ShouldPrioritizeContainer#1+11": [
     "-- ★ 唯一调用 priorityfn 的地方。★ 注意它在**所有其他校验通过之后**才执行，",
     "--   所以 priorityfn 可以假设「这物品本来就该进容器」，只需回答「是否优先」。",
   ],
-  322: [
+  "Container:AcceptsStacks#1": [
     "-- AcceptsStacks：★ 只是读蓝图字段的 getter，本文件不做任何栈逻辑。",
     "--   实际栈处理在第 483/534/1130/1241/1265/1288/1431 行（都是「读它然后分支」）。",
   ],
-  326: ["-- IsSideWidget：读蓝图字段 issidewidget。消费点：第 637/692 行传给 HUD。"],
-  330: [
+  "Container:IsSideWidget#1": ["-- IsSideWidget：读蓝图字段 issidewidget。消费点：第 637/692 行传给 HUD。"],
+  "Container:DestroyContents#1": [
     "-- 【★ DestroyContents：清空并销毁容器内容（不留掉落物）】",
     "--   ★ 与 DropEverything 的本质区别：**这里 item:Remove() 实体直接消失**，",
     "--     而 DropEverything 是丢到地上。对比第 338 行。",
     "--   典型用途：箱子被砸毁时清场（游戏设计不希望爆一地东西）。",
   ],
-  334: [
+  "Container:DestroyContents#1+4": [
     "-- ★ onpredestroyitemcallbackfn：在销毁**之前**回调，给调用方最后一次机会。",
     "--   注意签名 (self.inst, item) —— 传入容器实体与物品。",
     "--   ⚠ 用途推测：给 prefab 一个「记录被销毁了什么」的机会（如统计成就）。",
   ],
-  337: [
+  "Container:DestroyContents#1+7": [
     "-- ★ `if item:IsValid()` 再 Remove() —— 防悬空实体保护。",
     "--   容器销毁过程中，槽内物品可能已被其他路径移除。",
   ],
-  344: [
+  "Container:DestroyContentsConditionally#1": [
     "-- 【★ DestroyContentsConditionally：条件版销毁】",
     "--   ★ filterfn == nil 时**退化为无条件销毁**（第 345-349 行）。",
     "--   ⚠ 注意原注释「-- NOTES(JBK): Revert to unconditionally.」——",
     "--     作者留了 TODO 说要把这段删掉改成无条件。当前行为无害（nil 时等价）。",
   ],
-  346: [
+  "Container:DestroyContentsConditionally#1+2": [
     "-- ★ 原注释保留：「-- NOTES(JBK): Revert to unconditionally.」",
     "--   → JBK 是 Klei 工程师的缩写。含义：这段 nil 兜底将来会删掉。",
   ],
-  353: [
+  "Container:DestroyContentsConditionally#1+9": [
     "-- ★ 先用 filterfn 筛，筛中才移除+销毁。与第 334 行的无条件版结构对称。",
   ],
 };

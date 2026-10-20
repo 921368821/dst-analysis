@@ -152,7 +152,7 @@ export const BEFORE = {
   // ══════════════════════════════════════════════════════════════
   // 一、清理与调试辅助
   // ══════════════════════════════════════════════════════════════
-  12: [
+  "BrainWrangler:OnRemoveEntity#1": [
     "--★★【OnRemoveEntity：实体销毁时摘掉它的大脑】",
     "--   ★★ 与 StateGraphWrangler:OnRemoveEntity（stategraph.lua:76）对照：",
     "--     · 那边的参数 inst 是 EntityScript，内部用 inst.sg 取状态图",
@@ -162,13 +162,13 @@ export const BEFORE = {
     "--   ★★ 注意「已注销」的检查：只有还在调度表里才需要摘，",
     "--     否则说明已经被 Pause / _Stop_Internal 摘过了，重复摘是幂等操作。",
   ],
-  14: [
+  "BrainWrangler:OnRemoveEntity#1+2": [
     "--【★ 双重守卫：大脑存在 且 仍在调度系统里】",
     "--   ★ 与状态图那边「只查 instances[inst.sg]」的写法略有不同：",
     "--     状态图版没判 inst.sg 本身（nil 索引在 Lua 里安全）；",
     "--     大脑版显式判了。可读性更好。",
   ],
-  20: [
+  "BrainWrangler:NameList#1": [
     "--★★【NameList：纯调试辅助 —— 把集合表反向翻译成可读名字】",
     "--   ★★ 这个函数存在的唯一理由是调试那些被注释掉的 print（42 行）。",
     "--   ★ 它的实现方式暴露了一个设计细节：",
@@ -177,18 +177,18 @@ export const BEFORE = {
     "--     ★ 这正是二级索引的代价：写入 O(1)、按时间取 O(1)，",
     "--       但「反查某个集合表是什么」退化成 O(N)。",
   ],
-  28: [
+  "BrainWrangler:NameList#1+8": [
     "--【★ 线性扫描所有桶找匹配 —— 印证二级索引「反查困难」的代价】",
     "--   ★ 仅用于调试，不在热路径上，可以接受。",
   ],
-  30: [
+  "BrainWrangler:NameList#1+10": [
     "--【★ tickwaiters 的可读名带上 tick 号，便于定位「它睡到第几帧」】",
   ],
 
   // ══════════════════════════════════════════════════════════════
   // 二、SendToList
   // ══════════════════════════════════════════════════════════════
-  39: [
+  "BrainWrangler:SendToList#1": [
     "--★★★【★★ SendToList：集合路由 —— ★★ 与 stategraph.lua:13 的三处实质差异】",
     "--   ★★★ 差异一：★ 多了一层 `old_list ~= list` 早退守卫",
     "--     语义：若实例**已经在目标集合里**，什么都不做。",
@@ -212,33 +212,33 @@ export const BEFORE = {
     "--     但 90 行的 RemoveInstance 依赖它把 instances 清掉 ——",
     "--     幸运的是 96 行 `self.instances[inst] = nil` 是无条件补上的，兜住了。",
   ],
-  41: [
+  "BrainWrangler:SendToList#1+2": [
     "--【★ 反查当前所在集合（与 stategraph.lua:14 同义）】",
   ],
-  43: [
+  "BrainWrangler:SendToList#1+4": [
     "--★★★【★ 早退守卫 —— 本文件与状态图版最关键的语义差异】",
     "--   ★ 「已经在目标集合就什么都不做」是幂等优化的经典写法。",
     "--   ⚠ 但注意它同时意味着「未注册时也什么都不做」（见 39 行的详细分析）。",
   ],
-  48: [
+  "BrainWrangler:SendToList#1+9": [
     "--【★ 反查表更新 —— 与 stategraph.lua:19 同义】",
   ],
-  50: [
+  "BrainWrangler:SendToList#1+11": [
     "--【★ 目标集合非 nil 才写入】",
   ],
-  51: [
+  "BrainWrangler:SendToList#1+12": [
     "--【★ 集合语义：键在集合里，值恒为 true（与状态图版同）】",
   ],
 
   // ══════════════════════════════════════════════════════════════
   // 三、唤醒 / 休眠 / 定时睡
   // ══════════════════════════════════════════════════════════════
-  56: [
+  "BrainWrangler:Wake#1": [
     "--★【Wake：唤醒休眠中的大脑 —— 与 stategraph.lua:53 同构】",
     "--   ★★ 注意这里的守卫是 `if self.instances[inst] then`（与状态图完全一样），",
     "--     结合 43 行的早退，语义是「只有已注册且不在 updaters 里的才搬」。",
   ],
-  62: [
+  "BrainWrangler:Hibernate#1": [
     "--★★【Hibernate：让大脑进入零 CPU 状态 —— 与状态图同构】",
     "--   ★ 谁会显式调它？—— 实体侧代码（如冻结、装晕）停用大脑，",
     "--     或者行为树自己决定「当前无事可做」。",
@@ -246,7 +246,7 @@ export const BEFORE = {
     "--     状态图几乎只靠 Update 返回 nil 自动进（139 行），外部极少显式调；",
     "--     大脑这边外部显式调用更常见（因为 Update 的路径更复杂，见 147-155 行）。",
   ],
-  68: [
+  "BrainWrangler:Sleep#1": [
     "--★★★【★ Sleep：把「睡 N 秒」翻译成「第 T 帧醒来」—— 与 stategraph.lua:59 同构】",
     "--   ★★ 与状态图版的两处差异（★ 移植时的坑）：",
     "--     ① 目标 tick 少一个 +1（72 行 vs stategraph.lua:64）",
@@ -263,17 +263,17 @@ export const BEFORE = {
     "--        状态图那边（60 行）有守卫；这边靠 43 行的早退隐式兜住。",
     "--   ★ 结论：两文件的 Sleep 语义**近似但不等价**，混用需谨慎。",
   ],
-  69: [
+  "BrainWrangler:Sleep#1+1": [
     "--【秒 → 帧：与 stategraph.lua:61 同义】",
   ],
-  70: [
+  "BrainWrangler:Sleep#1+2": [
     "--【零帧下限保护：与 stategraph.lua:62 同义】",
     "--   ★ 注意 0 是真值，所以 `sleep_ticks == 0` 这个比较是安全的。",
   ],
-  72: [
+  "BrainWrangler:Sleep#1+4": [
     "--★★【★ 目标 tick 计算 —— ★ 比状态图版少 +1（详见 68 行的对比分析）】",
   ],
-  74: [
+  "BrainWrangler:Sleep#1+6": [
     "--★★★【★ 「目标 tick 必须在未来」的守卫 —— 状态图版没有的显式检查】",
     "--   ★★★ 这就是状态图用无条件 `+1` 达到的效果，两种写法两种风格：",
     "--     · stategraph.lua:  floor(...) + 1        —— 靠加法保证未来",
@@ -284,16 +284,16 @@ export const BEFORE = {
     "--   ★ 69-73 行的 GetTickTime 除法保证 sleep_ticks >= 1（70 行兜底），",
     "--     所以 floor(GetTick()+1) 在 GetTick 为整数时必然 > GetTick。",
   ],
-  75: [
+  "BrainWrangler:Sleep#1+7": [
     "--【取出（或新建）目标 tick 的桶】",
   ],
-  77: [
+  "BrainWrangler:Sleep#1+9": [
     "--【懒建桶 —— 与 stategraph.lua:67 同构】",
   ],
-  79: [
+  "BrainWrangler:Sleep#1+11": [
     "--【登记到 tickwaiters[target_tick]】",
   ],
-  83: [
+  "BrainWrangler:Sleep#1+15": [
     "--【★ SendToList 的副作用：把大脑从 updaters 摘出（这就是「睡」的实质）】",
     "--   ★ 与状态图版（71 行）同构：没有额外标志位，",
     "--     「不在 updaters 里」自然等价于「不会被更新」。",
@@ -303,25 +303,25 @@ export const BEFORE = {
   // ══════════════════════════════════════════════════════════════
   // 四、注销与注册
   // ══════════════════════════════════════════════════════════════
-  89: [
+  "BrainWrangler:RemoveInstance#1": [
     "--★★★【★★ RemoveInstance：把大脑从调度系统彻底抹掉】",
     "--   ★★★ 与 StateGraphWrangler:RemoveInstance（stategraph.lua:82）对比，",
     "--     **本文件的写法是正确的，状态图那边有一处 bug** —— 见 93-95 行注释。",
     "--   ★ 六行清理覆盖了全部五张表（instances / updaters / hibernaters /",
     "--     tickwaiters 各桶 / 由 SendToList 负责的反查表）。",
   ],
-  90: [
+  "BrainWrangler:RemoveInstance#1+1": [
     "--【★★ 传 nil 摘出所有集合 —— 依赖 43 行守卫此时 old_list 非 nil】",
     "--   ★ 若大脑已不在任何集合（重复注销），43 行会早退，",
     "--     但 91-96 行的无条件清理照样兜住 → 幂等。",
   ],
-  91: [
+  "BrainWrangler:RemoveInstance#1+2": [
     "--【无条件清理：不依赖 SendToList 是否生效】",
   ],
-  92: [
+  "BrainWrangler:RemoveInstance#1+3": [
     "--【无条件清理 hibernaters】",
   ],
-  93: [
+  "BrainWrangler:RemoveInstance#1+4": [
     "--★★★【★ 正确做法：遍历所有 tickwaiters 桶把大脑摘出来 —— 参照样板】",
     "--   ★★★ 这一段是本文件最有教学价值的地方，因为 stategraph.lua:100",
     "--     把它写错了（写成了 `self.tickwaiters[inst] = nil`，",
@@ -333,13 +333,13 @@ export const BEFORE = {
     "--     远不如每帧的热路径敏感。",
     "--   ⚠ 推论：若要修复 stategraph.lua:100，应照抄这里。",
   ],
-  94: [
+  "BrainWrangler:RemoveInstance#1+5": [
     "--【★ 从每个桶里摘掉本大脑 —— 真正生效的那一行】",
   ],
-  96: [
+  "BrainWrangler:RemoveInstance#1+7": [
     "--【★ 清反查表 —— 无条件，兜住 SendToList 早退的情况】",
   ],
-  100: [
+  "BrainWrangler:AddInstance#1": [
     "--★★【AddInstance：注册一个大脑 —— ★ 与状态图版的显著差异】",
     "--   ★★ 对比 stategraph.lua:105 的 AddInstance(inst, hibernate)：",
     "--     · 状态图版有 hibernate 参数，初始落点可以是 hibernaters",
@@ -357,13 +357,13 @@ export const BEFORE = {
     "--   ★ 但大脑侧的实现更简单（无需处理「初始落在哪张表」），",
     "--     且 43 行的早退守卫让反复注册无副作用。是取舍而非缺陷。",
   ],
-  102: [
+  "BrainWrangler:AddInstance#1+2": [
     "--【★ 注意：这里直接赋值，绕过了 SendToList】",
     "--   ★★ 合理：因为 43 行的早退守卫要求 old_list 存在，",
     "--     而新注册的大脑本来就不在任何集合里，走 SendToList 会无效。",
     "--     ★ 这也解释了 AddInstance 为什么必须这么写。",
   ],
-  103: [
+  "BrainWrangler:AddInstance#1+3": [
     "--【★ 同时写正向表与反查表 —— 两处必须同步】",
     "--   ★ 对比 stategraph.lua:113（唤醒路径）只写 updaters 不写 instances，",
     "--     那里是不一致，本文件这里是正确的完整写法。",
@@ -373,7 +373,7 @@ export const BEFORE = {
   // ══════════════════════════════════════════════════════════════
   // 五、主循环
   // ══════════════════════════════════════════════════════════════
-  106: [
+  "BrainWrangler:Update#1": [
     "--★★★【★★★ Update：驱动所有清醒的大脑 —— 本文件的核心循环】",
     "--   ★★★ 与 SGManager:Update（stategraph.lua:109）的结构对照：",
     "--     ┌ stategraph.lua ┬ ① 唤醒到期等待者（同样）",
@@ -392,28 +392,28 @@ export const BEFORE = {
     "--        状态图那边 113 行缺）",
     "--   调用点：update.lua:292，紧跟 SGManager:Update(i) 之后。",
   ],
-  108: [
+  "BrainWrangler:Update#1+2": [
     "--【被注释的调试统计：按 prefab 统计大脑数量与种类分布】",
     "--   ★ 这是排查「为什么游戏变卡」的有用工具：",
     "--     直接告诉你有多少个大脑、分别是什么种类。",
     "--   ★★ 被注释而非删除，说明「性能问题需要这类统计」是真实需求，",
     "--     但每帧打印的开销太大，只能临时启用。",
   ],
-  114: [
+  "BrainWrangler:Update#1+8": [
     "--【★ 注意：类型分布表直接按 prefab 名字聚合 —— 不区分已休眠与清醒的】",
     "--   ★ 所以这段统计的是「注册了多少大脑」而非「有多少在思考」。",
     "--     两者差距大 = 休眠机制工作良好。",
   ],
-  123: [
+  "BrainWrangler:Update#1+17": [
     "--【★ 取本 tick 该醒的桶 —— 与 stategraph.lua:110 同构】",
   ],
-  124: [
+  "BrainWrangler:Update#1+18": [
     "--【桶可能不存在（这帧没人醒），跳过】",
   ],
-  126: [
+  "BrainWrangler:Update#1+20": [
     "--【被注释的调试输出「BRAIN COMES ONLINE」—— 调试唤醒时机时可用】",
   ],
-  127: [
+  "BrainWrangler:Update#1+21": [
     "--★★★【★ 唤醒大脑 —— ★★ 与 stategraph.lua:113 的关键差异】",
     "--   ★ 本文件**同时**写了正向表与反查表两处，是正确完整的写法。",
     "--   ★ 对比 stategraph.lua:113：那里只写了 `self.updaters[k] = true`，",
@@ -425,7 +425,7 @@ export const BEFORE = {
     "--     状态图那边漏了同步，恰好因为它无条件重写（没有 43 行的早退），",
     "--     错误被掩盖了。两份代码的「正确性依赖对方」互相成对。",
   ],
-  128: [
+  "BrainWrangler:Update#1+22": [
     "--★★【★ 同步反查表 —— ★ 这一行是 stategraph.lua:113 缺失的那一行】",
     "--   ★★★ 缺了它会怎样（推理）：",
     "--     反查表仍指向 tickwaiters[current_tick] 那个即将被弃的桶。",
@@ -434,10 +434,10 @@ export const BEFORE = {
     "--     于是大脑会在 updaters 和未来的桶里**同时存在** → 每帧被更新两次。",
     "--     ★ 本文件写对了，状态图那边侥幸没炸（因为无条件重写）。",
   ],
-  130: [
+  "BrainWrangler:Update#1+24": [
     "--【擦除空桶 —— 与 stategraph.lua:115 同构】",
   ],
-  134: [
+  "BrainWrangler:Update#1+28": [
     "--★★★【★★ NOTES(JBK) 注释直接点明了双缓冲的动机 —— 这是全文件最该读的一行】",
     "--   ★★ 原文：\"We need to make a copy of the keys to safely iterate over",
     "--     the table because brains will remove and add onto the self.updaters",
@@ -454,10 +454,10 @@ export const BEFORE = {
     "--     同一趟循环里另一只大脑唤醒它 → Wake → 加回 updaters。",
     "--     没有快照的话，pairs 的行为未定义。",
   ],
-  135: [
+  "BrainWrangler:Update#1+29": [
     "--【★ count 从 0 开始，每收集一个就 +1 —— _safe_updaters 是从 1 开始的下标】",
   ],
-  136: [
+  "BrainWrangler:Update#1+30": [
     "--★★【第 ① 趟遍历：只收集，不处理 —— 与 stategraph.lua:122 的「只遍历不处理」对应】",
     "--   ★★ 这一趟的职责是「筛选 + 快照」，三件事一次做完：",
     "--     ① 遍历 updaters 现有的键",
@@ -467,7 +467,7 @@ export const BEFORE = {
     "--     性能：过滤一次比每个大脑判两次便宜；",
     "--     更重要的是避免在快照数组里留下空洞（处理时要额外判 nil）。",
   ],
-  137: [
+  "BrainWrangler:Update#1+31": [
     "--★★★【★★ 收集阶段的过滤条件 —— ★★ 与状态图的关键差异所在】",
     "--   ★★ 两个条件，缺一不可：",
     "--     · `k.inst.entity:IsValid()` —— C++ 侧实体仍有效（未销毁）",
@@ -492,10 +492,10 @@ export const BEFORE = {
     "--       · stopped   由**大脑自身**决定（_Stop_Internal，实体主动停）",
     "--       · paused    由**玩家行为**决定（打开背包等，见 269 行）",
   ],
-  138: [
+  "BrainWrangler:Update#1+32": [
     "--【★ count 自增 —— 数组下标从 1 开始（Lua 里 table.insert 的习惯）】",
   ],
-  139: [
+  "BrainWrangler:Update#1+33": [
     "--★★【★ 写入 _safe_updaters[count] —— 只存键（Brain 对象引用），不存值】",
     "--   ★★★ 为什么只存键？——因为值恒为 true（集合语义），没有信息量。",
     "--     只存键把快照体积压到最小，★ 这就是 NOTES(JBK) 说的",
@@ -503,18 +503,18 @@ export const BEFORE = {
     "--   ★ 存的是引用而非拷贝：Brain 对象较大，绝不能深拷贝，",
     "--     引用传递零成本。",
   ],
-  141: [
+  "BrainWrangler:Update#1+35": [
     "--【第 ① 趟结束 —— 此时 updaters 可能已被改动，但快照是安全的】",
   ],
-  142: [
+  "BrainWrangler:Update#1+36": [
     "--★★【第 ② 趟遍历：从 1 到 count —— ★★ 遍历的是快照，不是 updaters】",
     "--   ★★ 这一趟无论对 self.updaters 做任何增删都不会影响自身遍历。",
     "--     这就是 134 行注释所说的 \"safely iterate\"。",
   ],
-  143: [
+  "BrainWrangler:Update#1+37": [
     "--★【★ 从快照取出当前要处理的大脑】",
   ],
-  144: [
+  "BrainWrangler:Update#1+38": [
     "--★★★【★ 处理完立刻置 nil —— ★★ 「复用数组」模式的关键一行】",
     "--   ★★★ 为什么要置 nil？——因为 _safe_updaters 是**复用**的字段，",
     "--     不是每次新建的局部数组。",
@@ -530,7 +530,7 @@ export const BEFORE = {
     "--     ★ 复用 + 置 nil 是「零分配」与「不泄漏」的兼顾解 ——",
     "--       也正是 stategraph.lua:119 换表法的同源思路（都不分配）。",
   ],
-  146: [
+  "BrainWrangler:Update#1+40": [
     "--★★【★ OnUpdate：推进一只大脑 —— 见 228 行 Brain:OnUpdate 的详解】",
     "--   ★★★ 这是本文件最热的一行：每个清醒的大脑每帧都过这里。",
     "--     OnUpdate 内部会：",
@@ -542,7 +542,7 @@ export const BEFORE = {
     "--       ★ 这就是「思考周期」的实现：大脑不是每帧都在想，",
     "--         而是按 period 睡醒一次。",
   ],
-  147: [
+  "BrainWrangler:Update#1+41": [
     "--★★★【★ GetSleepTime：问这只大脑「你还想睡多久」】",
     "--   ★★★ 委托给行为树的 PriorityNode:GetSleepTime（behaviourtree.lua:541）。",
     "--     那个函数的三种返回值（★ 本文件的分支处理必须与它对齐理解）：",
@@ -556,11 +556,11 @@ export const BEFORE = {
     "--     · nil → 走 154 行 Hibernate → 大脑彻底退出更新",
     "--   ★★ 所以 0 的语义是「还要再跑一次，但不必专门睡一个 tick」。",
   ],
-  148: [
+  "BrainWrangler:Update#1+42": [
     "--★★【★ sleep_amount 非 nil 才有后续处理（0 也是真值，会进来）】",
     "--   ★ 与 132 行 stategraph.lua 的 `if sleep_amount then` 结构一致。",
   ],
-  149: [
+  "BrainWrangler:Update#1+43": [
     "--★★★【★ 「睡得够久才值得睡」的判断 —— ⚠ 空 else 的真正含义在这里】",
     "--   ★★★ 判据是 sleep_amount > GetTickTime()（即睡眠时长超过一帧）。",
     "--   ★★ 为什么要有这个门槛？因为亚帧睡眠毫无意义：",
@@ -569,10 +569,10 @@ export const BEFORE = {
     "--   ★★ 这与 74 行的 `target_tick > GetTick()` 是同源设计：",
     "--     两处都在处理「睡眠时长不足一 tick」的边界情况。",
   ],
-  150: [
+  "BrainWrangler:Update#1+44": [
     "--【★ 睡眠时间超过一帧 → 归入 tickwaiters 桶（Sleep 内部会把自己摘出 updaters）】",
   ],
-  151: [
+  "BrainWrangler:Update#1+45": [
     "--⚠⚠⚠【★★ 疑似缺陷/陷阱：一个「空 else」—— 极易被误读为漏写】",
     "--   ★★★ 这个 else 什么都不做，意味着：",
     "--     大脑**既不 Sleep 也不 Hibernate**，就地留在 self.updaters 里，",
@@ -590,7 +590,7 @@ export const BEFORE = {
     "--   ⚠ 建议（仅记录，不改代码）：加一行注释说明「亚帧睡眠降级为不睡」。",
     "--   ⚠ 本条为代码阅读推断，未在运行时验证。",
   ],
-  154: [
+  "BrainWrangler:Update#1+48": [
     "--★★【★ sleep_amount 为 nil（无 period / 状态非 RUNNING）→ 彻底休眠】",
     "--   ★★ 与 stategraph.lua:139 的 Hibernate 完全同构。",
     "--     含义：行为树认为「无事可做且不该再想」，大脑退出更新循环。",
@@ -599,7 +599,7 @@ export const BEFORE = {
     "--   ★★★ 这就是「有需要时再想」的设计：",
     "--     空闲的大脑完全不占 CPU，与状态图的 Hibernate 目的相同。",
   ],
-  157: [
+  "BrainWrangler:Update#1+51": [
     "--【Update 结束 —— ★ 本文件没有 UpdateEvents 阶段（大脑事件是同步的）】",
     "--   ★ 这是与状态图最直观的结构差异，参见 261 行 PushEvent 的说明。",
   ],
@@ -607,7 +607,7 @@ export const BEFORE = {
   // ══════════════════════════════════════════════════════════════
   // 六、Brain 基类
   // ══════════════════════════════════════════════════════════════
-  159: [
+  "BrainWrangler:Update#1+53": [
     "--★★★【★★ Brain 基类 —— 决策层的「载体」而非「决策者」】",
     "--   ★★ 与 StateGraphInstance（stategraph.lua:332）对称：",
     "--     状态图实例 = 「我现在看起来该做什么动作」（表现层）",
@@ -625,7 +625,7 @@ export const BEFORE = {
     "--   ★ 为什么不在构造函数里传？—— 因为 Brain 类名通常是 local，",
     "--     实体侧拿到的可能是一个工厂函数（brainfn），调用时机与参数由实体决定。",
   ],
-  160: [
+  "BrainWrangler:Update#1+54": [
     "--★★【★ inst：宿主实体 —— 由外部在实例化后赋值（★ 不在构造函数里）】",
     "--   ★★ 赋值点：entityscript.lua:1140 `self.brain.inst = self`",
     "--     与 entityscript.lua:1117（SetBrain 内）两处。",
@@ -635,7 +635,7 @@ export const BEFORE = {
     "--   ⚠ 风险：若外部忘了赋值，Brain 的所有方法都会在 nil 上调用。",
     "--     137 行的 `k.inst.entity` 会崩。",
   ],
-  161: [
+  "BrainWrangler:Update#1+55": [
     "--⚠⚠【★ 遗留字段 currentbehaviour —— 已核实：全工程无任何读取点】",
     "--   ★★ 这是旧版 FSM（Finite State Machine）时代的残留：",
     "--     那时大脑直接持有「当前行为」对象，由 Brain:ThinkPeriodic 推进。",
@@ -647,7 +647,7 @@ export const BEFORE = {
     "--     没有任何 mod 或游戏代码读它。",
     "--   ⚠ 本条为代码阅读 + 全仓库 grep 核实，非推断。",
   ],
-  162: [
+  "BrainWrangler:Update#1+56": [
     "--⚠【★ 遗留字段 behaviourqueue：同上，已核实全工程无读取点】",
     "--   ★ 旧 FSM 时代的行为队列（多个待执行行为的排队）。",
     "--   ★ 行为树不需要它（PriorityNode 自己处理优先级，见 behaviourtree.lua:533）。",
@@ -655,7 +655,7 @@ export const BEFORE = {
     "--     在怪物极多的场景下是可测量的浪费。",
     "--   ⚠ 本条为代码阅读 + 全仓库 grep 核实，非推断。",
   ],
-  163: [
+  "BrainWrangler:Update#1+57": [
     "--★【★ events：大脑的事件处理器表 —— ★ 与状态图同名但语义不同】",
     "--   ★★ 登记方式：Brain:AddEventHandler（186 行），",
     "--     只有一个处理器**槽位**（不是数组）—— 同名事件会互相覆盖。",
@@ -666,7 +666,7 @@ export const BEFORE = {
     "--   ★ 典型用途：brains/*.lua 里监听",
     "--     \"attackother\"/\"msghandler_pickedup\" 等外部事件唤醒行为树。",
   ],
-  164: [
+  "BrainWrangler:Update#1+58": [
     "--⚠【★ 遗留字段 thinkperiod：★ 已核实全工程无读取点，是死字段】",
     "--   ★★ 这是「大脑思考周期」最直观的实现方式（旧版）：",
     "--     thinkperiod 存秒数，Brain:ThinkPeriodic 每次比较 GetTime() - lastthinktime。",
@@ -678,12 +678,12 @@ export const BEFORE = {
     "--     ★ 这正是从「轮询式 AI」到「事件驱动式 AI」的升级。",
     "--   ⚠ 本条为代码阅读 + 全仓库 grep 核实，非推断。",
   ],
-  165: [
+  "BrainWrangler:Update#1+59": [
     "--⚠【★ 遗留字段 lastthinktime：与 thinkperiod 配对，同为死字段】",
     "--   ⚠ 两个字段一起构成旧版 FSM 计时机制的全部，",
     "--     现在整体废弃。保留它们是纯粹的兼容负担。",
   ],
-  166: [
+  "BrainWrangler:Update#1+60": [
     "--★【paused：是否被玩家暂停 —— ★ 第三种「不更新」的状态】",
     "--   ★★ 三种「不更新」的区别（★ 本文件最容易混淆的地方）：",
     "--     · stopped=true  —— 大脑被彻底停用（_Stop_Internal）",
@@ -695,7 +695,7 @@ export const BEFORE = {
     "--     213 行的 `if not self.paused` 就是为这个组合准备的。",
     "--   ★ 典型触发：玩家打开背包/地图（entityscript 的 pause 机制）。",
   ],
-  167: [
+  "BrainWrangler:Update#1+61": [
     "--★【★ stopped：初始为 true —— 与状态图的初值相反，这点很重要】",
     "--   ★★ 对比 stategraph.lua 的 StateGraphInstance 构造函数（332-345 行）：",
     "--     那里**没有**初始化 stopped（初值为 nil），",
@@ -709,7 +709,7 @@ export const BEFORE = {
     "--     ★★ 两个文件在这个标志的初值/语义上完全不同，",
     "--       移植代码时若照抄会得到「大脑永不启动」。",
   ],
-  170: [
+  "Brain:ForceUpdate#1": [
     "--★★【ForceUpdate：立刻唤醒并强制推进大脑 —— 「有事发生了马上想」】",
     "--   ★★ 两步动作：",
     "--     ① 行为树强制推进（bt:ForceUpdate）—— 忽略思考周期，立刻 Visit",
@@ -720,14 +720,14 @@ export const BEFORE = {
     "--   ⚠ 注意 bt:ForceUpdate 之后必须 Wake，否则若大脑在 hibernaters 里，",
     "--     行为树推进了但大脑不会在下一帧被更新 —— 推进结果被浪费。",
   ],
-  171: [
+  "Brain:ForceUpdate#1+1": [
     "--【★ 有行为树才强制推进 —— 没有 bt 的旧式大脑走不到这里】",
   ],
-  175: [
+  "Brain:ForceUpdate#1+5": [
     "--★★【Wake：把大脑捞回更新集合 —— 必须的，否则上一步的推进白做】",
     "--   ★ 与 170 行形成完整的两步：推进 + 唤醒。",
   ],
-  178: [
+  "Brain:__tostring#1": [
     "--★★【__tostring：调试输出 —— 把「睡多久 + 行为树内容」一起打出】",
     "--   ★★ 与 stategraph.lua:373（StateGraphInstance:__tostring）对照：",
     "--     状态图版打「状态名 + 停留时间 + tags」；",
@@ -736,10 +736,10 @@ export const BEFORE = {
     "--     调试时 print(inst.brain) 就能看到完整的决策结构，",
     "--     这是调试 AI 行为最有效的手段。",
   ],
-  181: [
+  "Brain:__tostring#1+3": [
     "--【★ 把睡眠时间与行为树一起打出，一眼看出「它在睡还是在想」】",
   ],
-  186: [
+  "Brain:AddEventHandler#1": [
     "--★★★【★ AddEventHandler：登记一个事件处理器 —— 只有一个槽位】",
     "--   ★★ 与状态图的 EventHandler 机制的根本差异：",
     "--     · 状态图：EventHandler **对象** + 两级表（状态私有 / 全局）",
@@ -752,10 +752,10 @@ export const BEFORE = {
     "--   ⚠ 与状态图对照的坑：状态图的事件是**延迟**的（刻末批处理），",
     "--     大脑的事件是**同步**的 —— 在 PushEvent 里调的行为树代码会立即执行。",
   ],
-  187: [
+  "Brain:AddEventHandler#1+1": [
     "--【★ 直接赋值（不是 table.insert）—— 印证「单槽位、后者覆盖前者」】",
   ],
-  190: [
+  "Brain:GetSleepTime#1": [
     "--★★★【★ GetSleepTime：大脑的「思考周期」对外接口 —— 本文件的核心查询方法】",
     "--   ★★★ 三种返回值（★ 必须理解清楚，本文件 147-154 行的分支全靠它）：",
     "--     · 正数 → 距下次思考还有多少秒 → Update 会 Sleep 这么久",
@@ -770,10 +770,10 @@ export const BEFORE = {
     "--       无论是否有事可做。性能上不如行为树方案。",
     "--   ★ 委托给行为树时（191-192 行）由 PriorityNode:GetSleepTime 决定。",
   ],
-  191: [
+  "Brain:GetSleepTime#1+1": [
     "--【★ 有行为树才问它 —— 没有就直接返回 0（见 195 行的详细分析）】",
   ],
-  195: [
+  "Brain:GetSleepTime#1+5": [
     "--★★【★ 返回 0 而非 nil —— ★★ 这个选择导致「无行为树的大脑每帧更新」】",
     "--   ★★★ 完整推理链（★ 移植时最容易搞错的一处）：",
     "--     BrainManager:Update 147 行：sleep_amount = k:GetSleepTime() → 0",
@@ -792,7 +792,7 @@ export const BEFORE = {
   // ══════════════════════════════════════════════════════════════
   // 七、内部启停与事件
   // ══════════════════════════════════════════════════════════════
-  198: [
+  "Brain:GetSleepTime#1+8": [
     "--★【★ 已废弃：Brain:Start → 转发到 EntityScript:RestartBrain】",
     "--   ★★ 迁移说明（--V2C: deprecated）：",
     "--     旧设计：大脑自己管自己的启停。",
@@ -809,10 +809,10 @@ export const BEFORE = {
     "--     ★ 这避免了「解除一个原因就把大脑放出来」的经典 bug。",
     "--     参见 entityscript.lua:1078-1102 的成对实现。",
   ],
-  200: [
+  "Brain:Start#1+1": [
     "--【★ 有宿主实体才转发 —— 大脑可能还没被装配（inst 为 nil）】",
   ],
-  205: [
+  "Brain:Start#1+6": [
     "--★★【★ _Start_Internal：真正的大脑启动 —— 「只应从 EntityScript 调用」】",
     "--   ★★ 与公开的 Brain:Start（199 行）配对：",
     "--     公开的 Start 转发到实体，实体再回调内部的 _Start_Internal。",
@@ -833,22 +833,22 @@ export const BEFORE = {
     "--       paused 的大脑被启动但**不注册** —— ",
     "--       因为它是被玩家暂停的，不该参与思考。",
   ],
-  207: [
+  "Brain:_Start_Internal#1+1": [
     "--★★【★ 幂等守卫：只有处于 stopped 才允许启动】",
     "--   ★★ 依赖 167 行的 `self.stopped = true` 初值 ——",
     "--     若初值是 nil，这里会永远 return，大脑永不启动。",
     "--     ★ 这是「Brain 构造初值不可改」的直接原因。",
     "--   ★ 防止重复启动：重复调 RestartBrain 不会重复跑 OnStart。",
   ],
-  209: [
+  "Brain:_Start_Internal#1+3": [
     "--【★ OnStart 钩子：可选的子类扩展点（如绑定事件处理器）】",
   ],
-  212: [
+  "Brain:_Start_Internal#1+6": [
     "--★★【★ 清 stopped 标记 —— 「逻辑上开始运行」】",
     "--   ★ 必须在 AddInstance（214 行）之前：",
     "--     这样 OnStart 钩子里若调 BrainManager:Wake 也能正常工作。",
   ],
-  213: [
+  "Brain:_Start_Internal#1+7": [
     "--★★★【★ 守卫「未暂停」才注册 —— ★★ 三状态矩阵的关键行】",
     "--   ★★ 为什么要判 paused？——★ 因为 paused 的语义是「玩家主动暂停」，",
     "--     实体可以从「被冻结 + 被玩家暂停」的复合状态中恢复，",
@@ -866,11 +866,11 @@ export const BEFORE = {
     "--     成对处理 paused 这一维；Start/Stop 成对处理 stopped 那一维。",
     "--     ★ 两个维度正交，代码里就是靠这些 if 组合保证不重复注册。",
   ],
-  214: [
+  "Brain:_Start_Internal#1+8": [
     "--★★【★ AddInstance：注册到 BrainManager —— 「物理上开始被更新」】",
     "--   ★ 与 212 行合起来才是完整的「启动」：一个清标志，一个入调度表。",
   ],
-  216: [
+  "Brain:_Start_Internal#1+10": [
     "--★★★【★ OnInitializationComplete 钩子 —— 「初始化真正完成」的信号】",
     "--   ★★ 与 OnStart（209 行）的区别（★ 这是本文件最精妙的设计之一）：",
     "--     · OnStart 在**注册之前**调用 —— 大脑即将运行，但还没进调度表",
@@ -890,13 +890,13 @@ export const BEFORE = {
     "--   ⚠ 命名有点误导：名字叫「初始化完成」，但 OnStart 已经跑过了。",
     "--     它其实是「post-registration」，属于历史命名。",
   ],
-  217: [
+  "Brain:_Start_Internal#1+11": [
     "--【★ 无条件调用（不像 209 行那样判 self.OnStart 是否存在）】",
     "--   ★★ 这里判的是 `if self.OnInitializationComplete then`，",
     "--     与 209 行的 `elseif self.OnStart then` 写法不同但语义一致。",
     "--   ★ 风格上的小不一致，说明两段代码是分别加上去的。",
   ],
-  220: [
+  "Brain:_Start_Internal#1+14": [
     "--★★★【★ 模组 postinit 钩子 —— ★ 大脑版的「模组注入点」】",
     "--   ★★ 与状态图的四个注入点（stategraph.lua:289/301/313/321）对照：",
     "--     · 状态图：在 StateGraph 构造期注入（每个状态图一次）",
@@ -912,15 +912,15 @@ export const BEFORE = {
     "--     ⚠ 顺序上，大脑的 modinit 在 OnInitializationComplete **之后**，",
     "--       即模组能看到初始化后的最终状态。",
   ],
-  221: [
+  "Brain:_Start_Internal#1+15": [
     "--【★ 判空才执行 —— 大脑没有构造期注入，所以可能是 nil】",
   ],
-  223: [
+  "Brain:_Start_Internal#1+17": [
     "--★【★ modfn(self) —— 传入的是**实例**，可以任意改造这个大脑】",
     "--   ★ 对比状态图的 `modfn(self)`（stategraph.lua:323），",
     "--     那里的 self 是 StateGraph 定义对象。",
   ],
-  228: [
+  "Brain:OnUpdate#1": [
     "--★★★【★★ OnUpdate：每帧推进一只大脑 —— BrainManager:Update 的调用目标】",
     "--   ★★★ 两步（顺序固定）：",
     "--     ① DoUpdate 钩子（229-231 行）—— 旧式手写 AI 的入口",
@@ -935,16 +935,16 @@ export const BEFORE = {
     "--   ★★ 这是本文件能跑 300 种怪物 AI 而不需要重写全部的代价：",
     "--     新怪用行为树，老怪保持 DoUpdate，互不干扰。",
   ],
-  229: [
+  "Brain:OnUpdate#1+1": [
     "--★【★ DoUpdate 是可选钩子 —— 判存在才调，这是旧式兼容的关键】",
     "--   ★ 若子类没定义，Lua 里取 nil，229 行判空跳过。",
   ],
-  233: [
+  "Brain:OnUpdate#1+5": [
     "--★★【★ 有行为树才推进 —— 与 DoUpdate 互不依赖】",
     "--   ★★ 典型现代大脑（如 brains/batbrain.lua）走这一支；",
     "--     典型旧式大脑走 229 行的 DoUpdate。",
   ],
-  238: [
+  "Brain:OnUpdate#1+10": [
     "--★【★ 已废弃：Brain:Stop → 转发到 EntityScript:StopBrain —— 与 Start 配对】",
     "--   ★★ 与 Start（198 行）的对照：",
     "--     Start → RestartBrain → 清除某个 reason 的停止标记",
@@ -957,7 +957,7 @@ export const BEFORE = {
     "--     components/centipedebody.lua:69 `head:StopBrain(\"centipedebody_halt\")`",
     "--     ★★ 四个组件都用 reason 机制，验证了 198-202 行的设计说明。",
   ],
-  245: [
+  "Brain:Stop#1+6": [
     "--★★【★ _Stop_Internal：真正的大脑停止 —— 与 _Start_Internal 严格配对】",
     "--   ★★ 停止四步（与启动四步对称）：",
     "--     ① 守卫：已停止就返回（247-248 行）",
@@ -971,20 +971,20 @@ export const BEFORE = {
     "--       ★ 不对称：启动有「两个钩子」，停止只有「一个」。",
     "--       推测是因为「停止后还需收尾」的需求较少。",
   ],
-  247: [
+  "Brain:_Stop_Internal#1+1": [
     "--★【★ 幂等守卫：已经在 stopped 就直接返回】",
     "--   ★ 与 207 行的启动守卫对称。",
   ],
-  252: [
+  "Brain:_Stop_Internal#1+6": [
     "--★【★ 通知行为树自己停止 —— bt:Stop() 的存在说明行为树有独立的生命周期】",
     "--   ★ 典型用途：让行为树清理它的子节点状态、停止正在进行的动作。",
     "--   ★★ 顺序：bt:Stop() 在 255 行清 stopped 标记**之前**，",
     "--     所以行为树的 Stop 实现里可以访问一个「仍然算运行中」的大脑。",
   ],
-  255: [
+  "Brain:_Stop_Internal#1+9": [
     "--★【★ 打上 stopped 标记 —— 与 212 行严格对称】",
   ],
-  256: [
+  "Brain:_Stop_Internal#1+10": [
     "--★★【★ 守卫「未暂停」才注销 —— ★★ 与 213 行完全对称】",
     "--   ★★ 注释 \"already removed if paused\" 点明了原因：",
     "--     若大脑处于 paused，Pause（269 行）时已经 RemoveInstance 过了，",
@@ -996,7 +996,7 @@ export const BEFORE = {
     "--     一个「已暂停且已停止」的大脑被 Stop 时会调 RemoveInstance，",
     "--     而此时它已经不在表里 —— 幂等所以不崩，但语义混乱。",
   ],
-  261: [
+  "Brain:PushEvent#1": [
     "--★★★【★★★ PushEvent：★ 同步立即的事件派发 —— 与状态图的根本差异】",
     "--   ★★★ 这是本文件与 stategraph.lua 最重要的行为差异（H3 的根源）：",
     "--     ┌ stategraph.lua ┬ PushEvent → 塞进 bufferedevents（392 行）",
@@ -1023,7 +1023,7 @@ export const BEFORE = {
     "--     且确保当前不在状态的 onupdate 深层调用栈里。",
     "--   ⚠ 本条为代码阅读推断，未在运行时验证。",
   ],
-  262: [
+  "Brain:PushEvent#1+1": [
     "--★【★ 直接查表 —— 与状态图的两级派发（状态私有 → 全局）对照】",
     "--   ★ 大脑只有一级：self.events[eventname]。",
     "--   ⚠ 查表**不转小写**（对比 stategraph.lua:179 行构造时转小写）：",
@@ -1033,14 +1033,14 @@ export const BEFORE = {
     "--       的兜底，大脑这边是「查不到就静默忽略」。",
     "--     ⚠ 实践上原版所有调用点都用全小写，故未暴露。",
   ],
-  264: [
+  "Brain:PushEvent#1+3": [
     "--★★【★ 处理器存在才调 —— ★★ 没有「返回值」语义】",
     "--   ★★★ 与状态图的差别（stategraph.lua:268 行）：",
     "--     · 状态图的 handler.fn 返回值有语义（true 表示「我处理了，别往下派」）",
     "--     · 大脑的处理器返回值**完全忽略**（因为只有一级派发）",
     "--   ★★ 因此大脑事件的处理器不需要 return 任何东西。",
   ],
-  265: [
+  "Brain:PushEvent#1+4": [
     "--★【★ handler(data) —— ★ 注意只传 data，不传 self（处理器是闭包）】",
     "--   ★★ 与状态图形成鲜明对比：",
     "--     · 状态图：handler.fn(sg.inst, data) —— ★ 显式传实体（stategraph.lua:268）",
@@ -1054,7 +1054,7 @@ export const BEFORE = {
   // ══════════════════════════════════════════════════════════════
   // 八、暂停 / 恢复
   // ══════════════════════════════════════════════════════════════
-  269: [
+  "Brain:Pause#1": [
     "--★★★【★★ Pause：玩家暂停大脑 —— 第三种「不更新」状态】",
     "--   ★★ 与 Start/Stop 的区别（★ 本文件最后也是最重要的一组对比）：",
     "--     · Start/Stop 管的是**永久性**的停用（死亡、冻结、睡着）",
@@ -1071,14 +1071,14 @@ export const BEFORE = {
     "--     此时 Pause 只置标志不动调度表，Resume 也不重新注册。",
     "--   ★ 典型触发：玩家打开背包时的世界暂停。",
   ],
-  270: [
+  "Brain:Pause#1+1": [
     "--★【★ 幂等守卫：已经暂停就直接返回 —— 防止重复 RemoveInstance】",
   ],
-  272: [
+  "Brain:Pause#1+3": [
     "--★★【★ 只在「运行中」时才需要摘 —— 已停止者本就不在表里】",
     "--   ★ 与 213 / 256 行构成「注册/暂停/注销」三处守卫的一致风格。",
   ],
-  278: [
+  "Brain:Resume#1": [
     "--★★★【★★ Resume：取消暂停 —— 与 Pause 严格配对】",
     "--   ★★★ 三步（与 Pause 三步对称）：",
     "--     ① 清 paused = false（280 行）",
@@ -1096,10 +1096,10 @@ export const BEFORE = {
     "--     paused == false（Resume 调用） 且 stopped == false（未被停止）。",
     "--     两个条件都在 281 行被检查。",
   ],
-  279: [
+  "Brain:Resume#1+1": [
     "--★【★ 幂等守卫：未暂停就直接返回】",
   ],
-  281: [
+  "Brain:Resume#1+3": [
     "--★★【★ 「未停止」才重新注册 —— ★★ 与 213 行 AddInstance 的守卫完全一致】",
     "--   ★★★ 这两行（213 / 281）是本文件「注册」路径的全部，",
     "--     语义完全对称：",

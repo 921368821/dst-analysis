@@ -2,7 +2,7 @@
 // RightClick / ActionButton / AttackButton / 各 Controller* / 移动与预测类 RPC
 
 export const BEFORE = {
-  113: [
+  "RightClick#1": [
     "--★★[RightClick —— 与 LeftClick 的对照是理解「同类变体」的最佳样本]",
     "--   ★ 12 个参数（比 LeftClick 少一个 spell_id，多一个 rotation）。",
     "--   ★★ 二元校验的分支数比 LeftClick 少：只有两组可选参数检查，",
@@ -12,7 +12,7 @@ export const BEFORE = {
     "--   ★★ 多出的 rotation 引入了 IsRotationValid 检查（:154），",
     "--     这是 NaN 防护的用武之地（见 :39 的注记）。",
   ],
-  154: [
+  "RightClick#1+41": [
     "--★★★[旋转有效性与距离检查的「与」条件 —— 为什么用 and 串联]",
     "--   if IsPointInRange(player, x, z) and (rotation == nil or IsRotationValid(rotation)) then",
     "--   ★★ 两层含义：",
@@ -22,7 +22,7 @@ export const BEFORE = {
     "--     即使真正的原因是「旋转是 NaN」。⚠ 日志文案与原因不匹配，",
     "--     排查时会误导（以为距离有问题）。属轻微诊断缺陷，仅标注。",
   ],
-  163: [
+  "ActionButton#1": [
     "--★★[ActionButton —— 「无坐标」的输入：只验参数不验距离]",
     "--   ★★ 这是本文件里最简单的一类 handler：没有 x/z，因此不需要",
     "--     ConvertPlatformRelativePositionToAbsolutePosition，也不需要 IsPointInRange。",
@@ -30,11 +30,11 @@ export const BEFORE = {
     "--     因为「无坐标输入」没有空包语义（action 就是必需的）。",
     "--   ★ 语义：点的是 UI 按钮（背包/建造栏），不是场景里的东西。",
   ],
-  164: [
+  "ActionButton#1+1": [
     "--★ 单行形式的 `if not (...) then` —— 与 LeftClick 的多行形式等价，",
     "--   只是排版不同。★ 本文件两种写法混用，阅读时按语义而非排版去对应。",
   ],
-  178: [
+  "ActionButton#1+15": [
     "--★★[原注释 \"V2C: isleftmouse & isreleased at the end because added a lot later\"]",
     "--   ★★★ 这条注释记录了一次**协议演进**，信息量很大：",
     "--     · isleftmouse 与 isreleased 是**后加的两个参数**；",
@@ -47,13 +47,13 @@ export const BEFORE = {
     "--     参数靠位置编码（只能追加），★ 两者都不可动态变更。",
     "--   ★→ 移植时的铁律：★ 任何 RPC 签名变更只能追加，且必须同时更新客户端。",
   ],
-  194: [
+  "InspectButton#1": [
     "--★★[InspectButton —— 「必须有个东西可看」的最小 handler]",
     "--   ★ 唯一校验是 checkentity(target)：**必须**有 target，不能省。",
     "--   ★★ 因为「查看」这个动作没有「查看空气」的可能，",
     "--     所以用 check 而非 opt —— ★ 校验强度由语义决定（呼应 :15-16 的说明）。",
   ],
-  205: [
+  "ResurrectButton#1": [
     "--★★[ResurrectButton —— 零校验的 handler]",
     "--   ★ 没有 printinvalid，没有参数校验（本来就没有参数）。",
     "--   ★★★ 为什么可以零校验？推理：",
@@ -63,11 +63,11 @@ export const BEFORE = {
     "--   ★★ 这是「校验强度与攻击面成正比」的正确体现：",
     "--     不是所有 handler 都需要同样的防御强度。",
   ],
-  212: [
+  "CharacterCommandWheelButton#1": [
     "--★ CharacterCommandWheelButton —— 角色指令轮盘（切换角色时弹出的操作菜单）。",
     "--   ★ 命名惯例：xxxButton = 「按下了 xxx 按钮」。全文件统一。",
   ],
-  223: [
+  "ControllerActionButton#1": [
     "--★★[ControllerActionButton —— 手柄版 ActionButton，带二元校验]",
     "--   ★★ 注意这里的二元校验与 :163 的手柄版 ActionButton **不同**：",
     "--     ActionButton（:164）用的是纯 opt*；",
@@ -81,21 +81,21 @@ export const BEFORE = {
     "--       `checknumber(action)` 失败而被判非法。",
     "--       → 说明客户端实际上不会这么发（协议约定）。这是「契约靠约定」的脆弱处。",
   ],
-  249: [
+  "ControllerActionButtonPoint#1": [
     "--★★[ControllerActionButtonPoint —— 手柄版的「点击场景某点」]",
     "--   ★ 参数比 ControllerActionButton 多出 x, z, platform, platform_relative,",
     "--     isspecial, spellbook, spell_id —— ★ 全部用 check*/opt* 无二元校验。",
     "--   ★★ 与 LeftClick 的关键差异：LeftClick 支持空包（:97），本函数不支持。",
     "--     推理：手柄的点击总是有目标点的，不需要「空包唤起 handler」语义。",
   ],
-  278: [
+  "ControllerActionButtonDeploy#1": [
     "--★★[ControllerActionButtonDeploy —— 「放置类」动作：多了 invobject 与 rotation]",
     "--   ★ invobject 用 **checkentity**（必需）：放置动作必须指明要放什么。",
     "--   ★ rotation 用 **optnumber**（可选）：不旋转时不传。",
     "--   ★★ 第 291 行传给 printinvalidplatform 的 action 参数写死 nil：",
     "--     因为诊断只需要 x/z/platform/platform_relative 四个信息。",
   ],
-  303: [
+  "ControllerAltActionButton#1": [
     "--★★[ControllerAltActionButton —— Alt 键版，与 ActionButton 完全同构]",
     "--   ★★ 与 :223 的 ControllerActionButton 逐字同构（除了函数名）。",
     "--   ★★ 这是一对**平行实现**：同模版复制两份。",
@@ -104,7 +104,7 @@ export const BEFORE = {
     "--   ★ 与 locomotor.lua:782/882 的 PreviewAction / PushAction 是同一类问题，",
     "--     ★ 这正是 locomotor 注释里点名的「移植时最需重写」的模式。",
   ],
-  329: [
+  "ControllerAltActionButtonPoint#1": [
     "--★★[ControllerAltActionButtonPoint —— Alt 键 + 点位，三者中参数最全]",
     "--   ★★ 比 ControllerActionButtonPoint（:249）少 spellbook/spell_id，多 isspecial；",
     "--     但参数顺序不同（isspecial 在 mod_name 之前）。",
@@ -112,7 +112,7 @@ export const BEFORE = {
     "--     RPC 按位置编码，两处若要「合并语义」必须严格对齐实际调用方，",
     "--     否则会出现「值互换」的静默 bug。",
   ],
-  356: [
+  "ControllerAttackButton#1": [
     "--★★★[ControllerAttackButton —— 唯一允许 target == true 的 handler]",
     "--   if not ((target == true or optentity(target)) and ...)",
     "--   ★★★ 这个 target == true 是**特设的哨兵值**：",
@@ -124,18 +124,18 @@ export const BEFORE = {
     "--   ★ 注意 AttackButton（:179）用的是纯 optentity，没有这个哨兵 ——",
     "--     ★ 两个版本的攻击语义不同，不能互相套用。",
   ],
-  369: [
+  "StopControl#1": [
     "--★★[StopControl —— 手柄按键释放的统一入口]",
     "--   control 用 checknumber（必需）：释放必须指明是哪个按键。",
     "--   ★★ 与 StopAllControls（:380）成对：前者精确释放一个，后者全释放。",
     "--     ★ 这对 API 体现「能精确就不粗暴」的输入处理原则。",
   ],
-  380: [
+  "StopAllControls#1": [
     "--★ StopAllControls —— 零参数、零校验（同 :205 的理由）。",
     "--   ★★ 语义：玩家松开所有手柄键（或切换设备时），一次性清理。",
     "--     ★ 这是「防御性全清」API，防止按键状态卡在按下。",
   ],
-  387: [
+  "DirectWalking#1": [
     "--★★★[DirectWalking —— 「方向」而非「位置」，校验方式完全不同]",
     "--   ★★★ 第 395 行：`if x * x + z * z < 1.01 then`",
     "--   ★★ 关键区别：x/z 是**方向向量**，不是世界坐标。",
@@ -154,7 +154,7 @@ export const BEFORE = {
     "--   ★★ 安全影响：因为不涉及世界坐标，DirectWalking 无法被用于远程操作 ——",
     "--     它只能让玩家朝某个方向走。这是「按语义选择校验强度」的又一例。",
   ],
-  403: [
+  "DragWalking#1": [
     "--★★[DragWalking —— 「拖拽摇杆」版，坐标 + 平台，组合了两种语义]",
     "--   ★★ 奇特的命名：Drag 指「摇杆被拖到某个偏移位置」，",
     "--     此时 x/z 是**屏幕空间的偏移量**，但被当作世界坐标处理。",
@@ -162,7 +162,7 @@ export const BEFORE = {
     "--     推理：拖拽偏移量被直接当作目标点使用，语义上接近「走向某处」。",
     "--   ★ 与 DirectWalking 的对比：同属移动类，一个走方向校验，一个走位置校验。",
   ],
-  425: [
+  "PredictWalking#1": [
     "--★★★★★[PredictWalking —— 客户端预测的行走包，本文件最语义复杂的 RPC]",
     "--   ★★★ 它承载「客户端预测移动」的上报，是客户端预测机制的数据入口。",
     "--   ★★ 参数：x, z（目标点）, isdirectwalking（方向还是位置）、isstart（开始）、",
@@ -181,7 +181,7 @@ export const BEFORE = {
     "--       ★ 两个维度是**与**关系，而每个维度内部是**或**关系 ——",
     "--         这是本文件最复杂的校验表达式，但结构其实是清晰的。",
   ],
-  452: [
+  "PredictWalking#1+27": [
     "--★★★[remote_predicting 门禁 —— 预测协议的服务端开关]",
     "--   if not playercontroller.remote_predicting then printinvalid(...); return",
     "--   ★★★ 语义：客户端只有被服务端**开启**了预测，才能发 PredictWalking。",
@@ -198,12 +198,12 @@ export const BEFORE = {
     "--   ★★ 注意这里用的是 printinvalid（推事件 + 可能 dev 崩溃），",
     "--     比「超距」严重 —— 因为协议握手被绕过更像攻击。",
   ],
-  457: [
+  "PredictWalking#1+32": [
     "--★ `elseif x then` —— 分流：有坐标走完整流程，无坐标走停止流程。",
     "--   ★★ 这与第 426 行分支①的 `(isstart or isstop)` 呼应：",
     "--     没有坐标时，一定是「开始预测」或「停止预测」这类无坐标指令。",
   ],
-  460: [
+  "PredictWalking#1+35": [
     "--★★★[PredictWalking 的范围检查用「局部变量」而非覆盖原变量]",
     "--   local x1, z1 = ConvertPlatformRelativePositionToAbsolutePosition(x, z, platform, platform_relative)",
     "--   if x1 and not IsPointInRange(player, x1, z1) then",
@@ -222,7 +222,7 @@ export const BEFORE = {
     "--     理由推测：预测包可能合法地不带坐标（停止预测），此时 x 本身就是 nil。",
     "--     → 两条路径的容错策略不同，是有意的。",
   ],
-  465: [
+  "PredictWalking#1+40": [
     "--★★★[第 465 行：七个参数的转发，含一个精妙的条件表达式]",
     "--   playercontroller:OnRemotePredictWalking(x, z, isdirectwalking, isstart,",
     "--                                          platform_relative and platform or nil,",
@@ -236,14 +236,14 @@ export const BEFORE = {
     "--   ★★ 这是「在边界处归一化数据」的又一例（与 :102 的「先转换再校验」同源）。",
     "--   ★ 参数顺序与 :425 的签名一致 —— 注意 x/z 是原始相对坐标（见 :460 注记）。",
   ],
-  469: [
+  "PredictOverrideLocomote#1": [
     "--★★[PredictOverrideLocomote —— 预测的「覆盖方向」微调]",
     "--   ★ 单个数值参数 dir（方向），optnumber 校验。",
     "--   ★★ 语义：客户端预测移动时，额外上报一个「我希望转向哪」，",
     "--     用于让服务端对齐客户端的转身决策（避免转身时来回抖动）。",
     "--   ★ 这是「预测 + 校正」体系里的**方向同步**，与位置同步分离。",
   ],
-  480: [
+  "StrafeFacing#1": [
     "--★★[StrafeFacing —— 唯一绕过 playercontroller 直接进 locomotor 的 handler]",
     "--   ★★ 第 485-488 行：取 locomotor（不是 playercontroller）并调 OnStrafeFacingChanged。",
     "--   ★★★ 唯一被检查的语义条件：",
@@ -256,7 +256,7 @@ export const BEFORE = {
     "--   ⚠ player.sg 可能为 nil（实体尚未完全初始化），此时条件为 nil（假）→",
     "--     会执行转向。⚠ 这是一个潜在的「未初始化窗口」，仅标注。",
   ],
-  491: [
+  "StartHop#1": [
     "--★★★★★[StartHop —— 「成对参数约束」的最佳范例]",
     "--   ★★★ 第 501-502 行是一对互斥检查：",
     "--     if has_platform and (platform == nil or platform.components.walkableplatform == nil)",
@@ -275,7 +275,7 @@ export const BEFORE = {
     "--   ★★ 与 :999 的 `if playercontroller == nil then return end` 相比，",
     "--     这里用了紧凑的单行写法。两种风格并存，无语义差别。",
   ],
-  508: [
+  "SteerBoat#1": [
     "--★★[SteerBoat —— 船的操舵，同样是「方向」而非「位置」]",
     "--   ★★ 与 DirectWalking（:387）同构：dir_x, dir_z 是方向向量。",
     "--   ★★ 但缺少长度校验！",
@@ -287,12 +287,12 @@ export const BEFORE = {
     "--     → 移植时应补上范数检查，与 :395 对齐。",
     "--   ★ 目标组件是 steeringwheeluser（操舵轮使用者），不是 locomotor。",
   ],
-  520: [
+  "StopWalking#1": [
     "--★ StopWalking —— 零参数零校验（同 :380）。",
     "--   ★★ 与 :1107 ClearActionHold、:1100 RepeatHeldAction 同属",
     "--     「玩家主动终止某个持续状态」的三件套。",
   ],
-  527: [
+  "StopWalking#1+7": [
     "--★★★[原注释：\"action\" and \"mod_name\" are deprecated, but keep them for mod compatibility]",
     "--   ★★★ 又一次「协议演进」的记录：两个参数已被废弃但保留。",
     "--   ★★ 与 :178 的处理形成鲜明对比：",
@@ -306,7 +306,7 @@ export const BEFORE = {
     "--   ★★ 与 prefabs/world.lua:250 的 slow_farmplot（deprecated but still used）",
     "--     是同一套向后兼容纪律的两面：参数与预制体都要留。",
   ],
-  528: [
+  "DoWidgetButtonAction#1": [
     "--★★[DoWidgetButtonAction —— 本文件防御最深的一个 handler]",
     "--   ★★ 四层检查（第 533-543 行），逐层收紧：",
     "--     ① 校验参数：仅 optentity(target)（为什么可选见 :529 的后注）",
@@ -328,12 +328,12 @@ export const BEFORE = {
     "--     ★ 因为 DoWidgetButtonAction 会触发**模组提供的任意回调函数**，",
     "--       攻击面更大，必须更严。",
   ],
-  529: [
+  "DoWidgetButtonAction#1+1": [
     "--★ target 用 optentity（可选）—— 推理：点空地时没有 widget，",
     "--   但第 535 行的 `target ~= nil and target.components.container or nil`",
     "--   已经处理了 nil 的情况，所以 target 可以是 nil。",
   ],
-  535: [
+  "DoWidgetButtonAction#1+7": [
     "--★★[第 535 行：`target ~= nil and target.components.container or nil` 的双重防护]",
     "--   ★★★ 这行有两个作用：",
     "--     ① `target ~= nil and` —— 防止 target 为 nil 时索引崩溃；",
@@ -347,19 +347,19 @@ export const BEFORE = {
     "--       ★ 这是防御性地写好「Lua 三目惯用法」的示范。",
     "--   ★★ 第 536 行 container:IsOpenedBy(player) 再授权 —— 双重保险。",
   ],
-  546: [
+  "ReturnActiveItem#1": [
     "--★ ReturnActiveItem —— 归还手上的物品。零参数零校验。",
   ],
 };
 
 export const AFTER = {
-  425: [
+  "PredictWalking#1": [
     "--★ PredictWalking 结束。★★★ 回看它的三元校验（第 426-447 行）：",
     "--   〔全nil 且 isstart/isstop〕 or 〔坐标全对〕 —— 然后 and 〔公共部分合法〕",
     "--   ★★ 本文件最复杂的校验表达式，但只有两个维度：",
     "--     「载荷形态」是或，「公共字段」是与。",
   ],
-  489: [
+  "StrafeFacing#1+9": [
     "--★ StrafeFacing 结束。★ 本文件到这里（约 490 行）覆盖了全部「鼠标+手柄」输入类 RPC。",
     "--   ★★ 注意规律：",
     "--     · 带坐标的 → 转换 + 范围检查",

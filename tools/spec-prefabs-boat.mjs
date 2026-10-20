@@ -109,56 +109,56 @@ export default {
   ],
 
   // ══════════════ 存档后处理 ══════════════
-  165: [
+  "OnLoadPostPass#1": [
     '-- 【★ OnLoadPostPass：读档的「后处理」阶段，存档里 GUID → 实体的还原发生在这里】',
     '-- 时序：OnSave → OnLoad → OnLoadPostPass',
     '-- OnLoadPostPass 的 newents 参数是一张「存档记录的文件名 → 实体」的映射表，',
     '-- ★ 只有这个阶段才能安全地把 GUID 换回实体引用。',
     '-- 对比 pighouse.lua：它没有子实体，所以只需 OnLoad，treasurechest 也没用到后处理。',
   ],
-  175: [
+  "OnLoadPostPass#1+10": [
     '-- FindEntities(x, y, z, radius, MUST_TAGS)：★ 只传 MUST_TAGS 不传 CANT_TAGS，',
     '-- 意味着「半径内所有带 boatbumper 标签的实体」，不排除任何东西。',
   ],
-  184: [
+  "OnLoadPostPass#1+19": [
     '-- +90 是美术约定：碰撞网格的基准朝向为 +Y 轴，而实体旋转基准是别的方向。',
     '-- ⚠️ 这类「魔法角度补偿」是资产与代码的隐式契约，改美术朝向时必须同步改这里。',
   ],
 
   // ══════════════ 漏水事件 ══════════════
-  188: [
+  "OnSpawnNewBoatLeak#1": [
     '-- 【★ 事件驱动的动态子实体创建】OnSpawnNewBoatLeak 由 hullhealth 组件在产生新漏水时 PushEvent。',
     '-- 预制体监听自己的事件、生成子实体、注册回调 —— 这是 DST 里「动态装配」的通用套路，',
     '-- 对比静态装配（本文件 create_master_pst 里的固定子实体）。',
   ],
-  190: [
+  "OnSpawnNewBoatLeak#1+2": [
     '-- data.pt.y = 0：强制把漏水源压到海平面。★ 船会随浪起伏，但漏洞位置必须在固定高度，',
     '-- 否则漏水点会跟着船上下浮动，视觉与判定都会错位。',
   ],
-  198: [
+  "OnSpawnNewBoatLeak#1+10": [
     '-- ★ 直接往 hullhealth 的内部数组 leak_indicators_dynamic 里插元素 ——',
     '-- 绕过 hullhealth 的公开 API。属于「自己组件的私有字段随便改，同事组件的尽量用方法」。',
     '-- 【移植提示】组件内改自己的私有数组是安全的；改别人组件的私有数组要在组件间先约定。',
   ],
-  200: [
+  "OnSpawnNewBoatLeak#1+12": [
     '-- ★★★ 关键：把漏水源也加进 walkableplatform。',
     '-- ⇒ 玩家站在漏水点上时，第 202 行遍历所有在船上的玩家，推送 on_standing_on_new_leak 事件。',
     '-- 这说明 walkableplatform 维护的不只是「站在上面的东西」，而是「随船移动的实体全集」。',
     '-- ⇒ 【可移植模式】需要把一个实体加入另一个实体的「影响范围」时，',
     '-- 找到那个组件的成员列表并显式注册，比轮询查找更可靠。',
   ],
-  215: [
+  "OnSpawnNewBoatLeak_Grass#1": [
     '-- OnSpawnNewBoatLeak_Grass：★ 草船的漏水处理完全不同 —— 不生成漏水实体，改为直接扣血。',
     '-- ⇒ 草船 leakproof = true（第 845 行），漏了就掉血，不生成可交互的漏洞。',
     '-- 「同一个事件、同一组参数、变体各自解释」：这是钩子机制在事件层面的体现。',
   ],
-  224: [
+  "OnSpawnNewBoatLeak_Grass#1+9": [
     '-- TUNING.BOAT.GRASSBOAT_LEAK_DAMAGE[leak_size] 用漏口大小做表索引，',
     '-- 第 225 行的 ~= nil 判空说明并非所有 leak_size 都有对应伤害值。',
   ],
 
   // ══════════════ 物理约束 ══════════════
-  235: [
+  "RemoveConstrainedPhysicsObj#1": [
     '-- 【★★ ConstrainTo：物理约束的正解示范】',
     '-- RemoveConstrainedPhysicsObj 做了两件事：先 ConstrainTo(nil) 解绑，再 Remove。',
     '-- ⚠️ 顺序不可颠倒：先 Remove 再解绑，物理世界会因「被约束对象已消失」而崩溃。',
@@ -166,12 +166,12 @@ export default {
     '-- ⇒ 【移植要点】任何「一对多物理跟随」的实现都必须成对管理：',
     '--   绑定时 ConstrainTo，被销毁时先解绑再删。这个 bug 在自研引擎里极易复现。',
   ],
-  242: [
+  "constrain_object_to_boat#1": [
     '-- constrain_object_to_boat 在 DoTaskInTime(0) 里调用（第 251 行）。',
     '-- ★ 为什么要延迟一帧：SpawnPrefab 返回的瞬间，新实体的 Transform 可能还没同步到世界坐标。',
     '-- 直接读 GetWorldPosition 会拿到 (0,0,0)。这又是一个「DoTaskInTime(0) 二次初始化」的实例。',
   ],
-  248: [
+  "AddConstrainedPhysicsObj#1": [
     '-- AddConstrainedPhysicsObj：★ 先注册 onremove 回调做自动清理，再延迟绑定。',
     '-- 自动清理的意义：船被拆掉时，挂在上面的碰撞体不需要外部逐个通知，自己会解绑消失。',
     '-- ⇒ 【可移植模式】把「解除关系」挂在被约束方自己的 onremove 上，而不是调用方负责，',
@@ -179,13 +179,13 @@ export default {
   ],
 
   // ══════════════ 手柄瞄准 ══════════════
-  254: [
+  "on_start_steering#1": [
     '-- ★ 双重条件：ThePlayer 存在 且 playercontroller.isclientcontrollerattached。',
     '-- 后者表示「有手柄输入设备接在客户端」，前者只是「本地有玩家」。',
     '-- 手柄专属的 UI 逻辑必须查这个标志，不能只看 ThePlayer —— 服务器上 ThePlayer 为 nil，',
     '-- 而专服虽然没有 ThePlayer 也不该崩。',
   ],
-  267: [
+  "ReticuleTargetFn#1": [
     '-- ReticuleTargetFn：★ 手柄瞄准光标的落点计算。三段结构值得抄：',
     '--   1) 读摇杆 → 死区判定（第 275-283 行）：死区内保持上次方向，全死区返回 nil 隐藏',
     '--   2) 相机朝向 → 旋转摇杆向量（第 285-290 行）：因为摇杆是「屏幕空间」的',
@@ -194,39 +194,39 @@ export default {
     '-- 手算验证：对 (1,0) 代入得 (cos, sin)，即 x 轴转到 theta —— 是标准逆时针旋转，方向没错。',
     '-- 但 newz 的符号与 newx 的 z 项一致，若以后改成 -z*sin 就成了顺时针，瞄准会左右反。',
   ],
-  275: [
+  "ReticuleTargetFn#1+8": [
     '-- ★ 死区用「或」：任一轴超出死区就算有效输入，然后整体归一化。',
     '-- 若用「且」，手柄斜推时两个轴都在死区内会被判为无输入 —— 这是常见 bug。',
   ],
-  285: [
+  "ReticuleTargetFn#1+18": [
     '-- GetHeading()/180 再乘 -PI*(0.5 - angle)：把「0~360 度的相机朝向」转成「弧度角」。',
     '-- ★ 这里的 0.5 偏移与负号是为对齐 DST 相机坐标约定，改动相机系统时必须同步。',
   ],
 
   // ══════════════ 碰撞体开关 ══════════════
-  300: [
+  "EnableBoatItemCollision#1": [
     '-- EnableBoatItemCollision：★ 惰性创建 —— 只在需要时才 SpawnPrefab 碰撞体。',
     '-- 因为船睡着时不需要物品碰撞（第 330 行 OnPhysicsSleep 会关掉它）。',
     '-- ⇒ 【性能范式】「不可见但必要」的辅助实体应当惰性创建 + 用完即销毁，而不是常驻。',
   ],
-  314: [
+  "OnPhysicsWake#1": [
     '-- OnPhysicsWake：★ 注意第 316-319 行用 stopupdatingtask 是否存在来区分「首次唤醒」与「重复唤醒」。',
     '-- 首次唤醒立即 StartUpdating；后续唤醒先取消掉 1 秒延迟的停止任务再 StartUpdating。',
     '-- ⇒ 这是「防抖」的 Lua 实现：用一个待取消的任务句柄代替计时器状态。',
   ],
-  325: [
+  "physicssleep_stopupdating#1": [
     '-- physicssleep_stopupdating：★ 为什么延迟 1 秒才停？',
     '-- 推断：船进入休眠边缘时物理状态可能反复抖动，延迟 1 秒给出稳定期。',
     '-- 源码未写明原因，此为依据代码结构所作的推断，标为【未核实】。',
   ],
-  335: [
+  "StopBoatPhysics#1": [
     '-- ★★ StopBoatPhysics：注释明说 constraints 会导致崩溃，所以设 SetDontRemoveOnSleep(false)。',
     '-- 结合第 235 行的分析：约束关系存活时，实体不能被物理世界移除。',
     '-- ⇒ ★ 这条注释是全文件最有价值的信息之一：它解释了「为什么这里要反直觉地关掉优化」。',
   ],
 
   // ══════════════ 碎片生成 ══════════════
-  345: [
+  "SpawnFragment#1": [
     '-- SpawnFragment：沉船碎片的统一生成器。★ offset_y > 0 时给一个初速向下的「自然落体」手感。',
     '-- ⚠️ 注意条件写的是 offset_y > 0（第 349 行），但施加的速度是 -0.25（向下）。',
     '-- 推断：调用方传的 offset_y 为正表示「从上方生成」，配一个向下的初速加速下落。',
@@ -236,7 +236,7 @@ export default {
   ],
 
   // ══════════════ 网络标识 ══════════════
-  360: [
+  "OnEntityReplicated#1": [
     '-- 【★ OnEntityReplicated：客户端「收到实体」这一刻的钩子】',
     '-- ★★ 关键约束（原注释第 362 行明写）：这个设置只能在 replicated 之后应用，',
     '-- 所以它不能写在 fn() 的 A 段里，必须挂到 inst.OnEntityReplicated 上。',
@@ -245,7 +245,7 @@ export default {
   ],
 
   // ══════════════ ★★★ pre 段 ══════════════
-  366: [
+  "create_common_pre#1": [
     '-- ============================================================',
     '-- ★★★ create_common_pre —— 所有船变体共用的「A 段」装配（两端都跑）。',
     '--',
@@ -270,42 +270,42 @@ export default {
     '-- ⇒ 【判据】需要客户端知道其状态 → 必须在 SetPristine 前挂；纯服务端逻辑 → 放 C 段。',
     '-- ============================================================',
   ],
-  367: [
+  "create_common_pre#1+1": [
     '-- data = data or {}：容错写法，让调用方可以不传。★ 所有 *_BOAT_DATA 表都传了，属冗余但无害。',
   ],
-  375: [
+  "create_common_pre#1+9": [
     '-- ★ 条件挂载 MiniMapEntity：这是「资源清单缺失即降级」的具体实现（见第 14 行 ice_assets）。',
     '-- ⇒ 【可移植模式】与其在运行时报错，不如「没有这个需求就不挂这个组件」。',
   ],
-  377: [
+  "create_common_pre#1+11": [
     '-- SetPriority(-1)：小地图图层优先级。负值 = 画在下面（被地形遮挡）。',
     '-- ★ 船是浮在水面的，为什么要在下面？推断为避免小地图上盖住玩家图标。',
     '-- 源码未说明，此为推断。',
   ],
-  386: [
+  "create_common_pre#1+20": [
     '-- ★ AddPhysics 只在这里出现一次（pre 段）。物理参数是所有变体共性的最纯粹体现：',
     '--   MASS 质量 / FRICTION 摩擦 0（船靠摇橹不靠摩擦）/ DAMPING 阻尼 5（模拟水的阻力）',
     '--   COLLISION.OBSTACLES 碰撞组 / WORLD+OBSTACLES 掩码',
     '--   SetCylinder(radius, 3) 圆柱碰撞体，高 3',
     '-- ⇒ 【移植要点】船类移动平台的物理配方：零摩擦 + 高阻尼 + 圆柱体。',
   ],
-  388: [
+  "create_common_pre#1+22": [
     '-- Friction(0) + Damping(5)：★ 这两个值合起来就是「在水面滑行」的物理表现。',
     '-- 摩擦 0 表示不会自己停，阻尼 5 表示速度按指数衰减。移植时照抄这两个数即可。',
   ],
-  395: [
+  "create_common_pre#1+29": [
     '-- SetCylinder(radius, 3)：高度 3 让船有「体积感」，玩家会被正确挡住而不是从旁边穿过去。',
   ],
-  399: [
+  "create_common_pre#1+33": [
     '-- ★★ SetSortOrder / SetFinalOffset / SetOrientation / SetLayer 四连，',
     '-- 是 DST 2.5D 渲染的「深度 + 朝向」控制组。',
     '-- 对比 pighouse.lua 第 349 行：那里只用 FinalOffset 做两层的相对排序。',
     '-- ⇒ 【移植要点】这四个调用是 DST 伪 3D 的核心，没有它们所有东西会画在同一平面。',
   ],
-  404: [
+  "create_common_pre#1+38": [
     '-- scrapbook_* 又是图鉴元数据（同 treasurechest.lua 第 130 行）。扫源码时可忽略。',
   ],
-  412: [
+  "create_common_pre#1+46": [
     '-- 【★ walkableplatform：船的「移动平台」能力】',
     '-- 这是全文件最核心的组件：它让船上的东西（玩家、物品、漏水口）随船一起移动。',
     '-- ★ platform_radius 设为与物理半径相同（第 413 行），保证「站在甲板上」与「被船撞到」范围一致。',
@@ -313,16 +313,16 @@ export default {
     '--   ① 谁在平台上（实体列表）② 玩家碰撞体（第 770 行单独指定 prefab）',
     '--   ③ 外部实体如何知道自己「上了平台」（第 200 行的显式注册）',
   ],
-  416: [
+  "create_common_pre#1+50": [
     '-- healthsyncer：把血量同步给客户端显示血条。max_health 从 data 取，缺省用 TUNING。',
     '-- ★ 与 C 段的 health 组件（第 582 行）配对：health 管逻辑、healthsyncer 管同步。',
     '-- ⇒ 【DST 组件命名通则】xxxsyncer = 「把 xxx 的状态同步到客户端」。移植时照此命名。',
   ],
-  424: [
+  "create_common_pre#1+58": [
     '-- reticule：手柄瞄准组件（配合第 267 行的 ReticuleTargetFn）。',
     '-- ispassableatallpoints = true：光标不需要额外做通行性检查（船可停任何水面点）。',
   ],
-  433: [
+  "create_common_pre#1+67": [
     '-- ★★★ net_bool：★ 本文件里唯一的网络变量声明，也是「客户端如何知道这个实体是什么」的样本。',
     '-- 三个参数：实体 GUID、网络变量名、同步用的脏标记名。',
     '-- 用法：inst.doplatformcamerazoom = true 之后，客户端会收到并执行「平台相机变焦」。',
@@ -331,15 +331,15 @@ export default {
     '-- ⇒ 【移植要点】网络变量的正确用法是：改这个字段而不是普通字段，改完自动同步。',
     '-- 直接写普通字段只改服务端本地，客户端看不到 —— 这是分布式游戏最常见的 bug 来源。',
   ],
-  435: [
+  "create_common_pre#1+69": [
     '-- ★ not TheNet:IsDedicated()：又一个「有画面才生成」的判断（同 pighouse.lua 第 391 行）。',
     '-- 这里的 boattrail 是纯视觉的尾迹组件。',
   ],
-  447: [
+  "create_common_pre#1+81": [
     '-- ★ boattrail 组件在客户端生成，服务端不需要 → 不参与物理与玩法，纯装饰。',
     '-- 第 1329-1336 行还按冰面半径缩放了尾迹，说明组件参数也支持变体化。',
   ],
-  450: [
+  "create_common_pre#1+84": [
     '-- boatringdata：把船的半径与分段数存成「数据」，供其它系统查询。',
     '-- SetNumSegments(8)：★ 碰撞用 20 段（第 161 行），船体环用 8 段 ——',
     '-- 两者精度需求不同（船体要贴合凸起，环只要大致形状），不必共用常量。',
@@ -347,11 +347,11 @@ export default {
   ],
 
   // ══════════════ post 段 ══════════════
-  518: [
+  "IsBoatEdgeOverLand#1+32": [
     '-- PLANK_EDGE_OFFSET = -0.05：走路板略微内缩，避免和船唇重叠闪烁。',
     '-- ★ 视觉微调常量。数值无公式，靠反复调参 —— 预制体文件里这类硬编码小数值属正常。',
   ],
-  519: [
+  "create_master_pst#1": [
     '-- ============================================================',
     '-- ★★★ create_master_pst —— 所有船变体共用的「C 段」装配（仅服务端）。',
     '--',
@@ -367,66 +367,66 @@ export default {
     '-- ⇒ 【可移植模式】区分「构成实体」与「事件实体」：前者写在工厂里，后者挂在事件上。',
     '-- ============================================================',
   ],
-  531: [
+  "create_master_pst#1+12": [
     '-- ★★ AddPhysicsWaker：服务端专属实体组件。',
     '-- SetTimeBetweenWakeTests(TUNING.BOAT.WAKE_TEST_TIME)：周期性唤醒物理，',
     '-- 因为船要随波起伏，不能真睡着（第 335 行的注释是同一件事的两面）。',
     '-- 原注释明写 server only component —— 它必须放在 C 段。',
   ],
-  534: [
+  "create_master_pst#1+15": [
     '-- hull 组件：船体几何（半径、船唇、走路板、附着实体）。',
     '-- ★ 所有「船身上挂的实体」都由 hull:AttachEntityToBoat 统一管理（第 543、552 行），',
     '-- 这样它们会随船的旋转与位移一起动，不需要各自写跟随逻辑。',
   ],
-  547: [
+  "create_master_pst#1+28": [
     '-- ★ fireproof 分支：ice_fn 传了 fireproof = true（第 1317 行），',
     '-- 所以冰面船跳过整个燃烧感应点装配 —— 冰当然不会烧。',
     '-- ⇒ 一个布尔关掉 20 行代码，是 data 表驱动最直观的收益。',
   ],
-  548: [
+  "create_master_pst#1+29": [
     '-- activefires：★ 普通 Lua 字段，记录当前有几个着火点。',
     '-- 船烧毁时用它决定碎片要不要点着（第 785 行）。既然是服务端逻辑，不需要 net_。',
   ],
-  550: [
+  "create_master_pst#1+31": [
     '-- ★★ 5 个 burnable_locator 按十字形布在船体上（0,0 / ±2.5,0 / 0,±2.5）。',
     '-- 它们不带 burnable 组件，只是「火焰蔓延的感应器」—— 火从这里传到船，而不是从船中心烧。',
     '-- ⇒ 【可移植模式】大型可燃物的火源应该沿表面多点分布，单点会导致「要么秒烧要么烧不着」。',
     '-- 第 551 行 `burnable_locator.boat = inst` 是反向引用，让 locator 能回调船。',
   ],
-  572: [
+  "create_master_pst#1+53": [
     '-- repairable：可修理组件。repairmaterial 决定修理需要什么材料。',
     '-- ★ 各变体覆盖这个字段：草船改 HAY（第 847 行）、海獭巢改 KELP（第 1217 行）、',
     '-- 冰面直接置 nil（第 1358 行，即不可修）。⇒ 变体覆写 pre/post 共用字段的典型。',
   ],
-  576: [
+  "create_master_pst#1+57": [
     '-- ★★ 一次加 5 个组件：boatring / hullhealth / boatphysics / boatdrifter / savedrotation。',
     '-- 每个都是独立能力：船体环（范围查询）、船体耐久（漏与自损）、船物理（摇橹）、',
     '-- 漂流（无人时随波）、旋转记忆（存档用）。',
     '-- ⇒ 【移植要点】这就是「组合优于继承」：船的行为 = 这 5 个组件 + health + 状态机，',
     '-- 没有一个 "Boat" 类。想给船加新能力，加一个组件即可，不影响其它船。',
   ],
-  582: [
+  "create_master_pst#1+63": [
     '-- health 组件（与 pre 段的 healthsyncer 第 416 行配对）。',
     '-- ★ nofadeout = true：血量归零时不淡出消失 —— 船沉没走的是状态机的 sink 状态（第 595 行）。',
     '-- ⇒ 「死亡表现」由状态机负责而非 health 组件，是 DST 生物/载具的通例。',
   ],
-  586: [
+  "create_master_pst#1+67": [
     '-- SetStateGraph(data.stategraph or "SGboat")：★ 状态图名也可由 data 指定（冰面用 SGboat_ice）。',
     '-- 状态图决定船的所有行为（漂浮 / 摇橹 / 沉没 / 放置），是船的「行为大脑」。',
     '-- ⇒ 【预制体与状态图的分工】预制体负责装配组件，状态图负责组件之间的时序协作。',
     '-- 一个状态图可被多个预制体复用，这就是 SGboat 被 4 个船变体共享的原因。',
   ],
-  594: [
+  "create_master_pst#1+75": [
     '-- ★ sinkloot 先给一个空实现（第 461 行 empty_loot_function），各变体再覆盖。',
     '-- 好处：所有调用点（crabking 也会调）不必判空 —— 默认什么都不掉。',
     '-- ⇒ 【可移植模式】「先给默认空实现，再由变体覆盖」比「调用点层层判空」干净得多。',
   ],
-  599: [
+  "create_master_pst#1+80": [
     '-- OnLoadPostPass 挂在 C 段（服务端）—— 见第 165 行的阶段说明。',
   ],
 
   // ══════════════ 碰撞网格生成 ══════════════
-  604: [
+  "build_boat_collision_mesh#1": [
     '-- ★★★ build_boat_collision_mesh：运行时程序化生成三角网格碰撞体。',
     '-- 输入半径与高度，输出一个扁平的三角形顶点数组（每 3 个数一个顶点）。',
     '-- 【为什么程序化】船有 4 种半径（木/草/远古/海獭/冰面共 5 种），',
@@ -434,56 +434,56 @@ export default {
     '-- ⇒ ★【可移植模式】规则形状的碰撞体应当运行时生成，而不是做成美术资源。',
     '-- ⇒ 【移植要点】DST 的碰撞是「网格 vs 实体」而非「形状 vs 实体」，三角形是最低通用形式。',
   ],
-  612: [
+  "build_boat_collision_mesh#1+8": [
     '-- 循环 segement_idx 从 0 到 segment_count（含），比 segment_count 多一圈 ——',
     '-- ★ 闭环技巧：多生成一个重合点把圆环接上，避免接缝处漏碰撞。',
   ],
-  616: [
+  "build_boat_collision_mesh#1+12": [
     '-- 每段生成 2 个三角形（4 个顶点）构成一圈「墙面」，拼成一个 20 面的圆柱壳。',
     '-- ★ 只生成侧面不生成顶面和底面 —— 船上下是可通行的，不需要碰撞面。',
     '-- ⇒ 少画 2×20 = 40 个三角形，碰撞检测也更快。这是「按需生成」的典型优化。',
   ],
-  652: [
+  "boat_player_collision_template#1": [
     '-- boat_player_collision_template：★ 玩家碰撞体模板。',
     '-- 第 658 行 AddTag("CLASSIFIED")：分类子实体标记 —— 它以「命名子槽」的形式挂在船下，',
     '-- 客户端也知道有这个子实体，但内容由客户端各自计算（不同玩家的碰撞形状不同）。',
     '-- ⇒ ★ CLASSIFIED 的含义：「网络知道它存在，但不传输它的状态」。',
     '-- 对比 pighouse 的窗户（无 CLASSIFIED、也不联网）：那是完全私有。',
   ],
-  660: [
+  "boat_player_collision_template#1+8": [
     '-- ★ SetMass(0)：质量 0 ⇒ 不受重力影响、不推动其它物体。玩家碰撞体只是「挡路墙」。',
     '-- 第 664 行 SetRestitution(0)：不弹开。挡人而非弹人。',
   ],
-  670: [
+  "boat_player_collision_template#1+18": [
     '-- ★ 半径 +0.1：比船体略大一圈，保证「玩家脚在船上但身体边缘略微出界」时仍被正确约束。',
     '-- 物理与美术边缘的双保险：宁可多挡一点，也不要出现「站在船沿却没被带着走」。',
   ],
-  675: [
+  "boat_player_collision_template#1+23": [
     '-- ★★★ SetPristine 后立即判 ismastersim 返回 —— 碰撞体是纯服务端逻辑，无客户端状态。',
     '-- 但它 AddNetwork 了（第 658 行是 CLASSIFIED 而非纯私有），',
     '-- ⇒ 因为玩家碰撞体的位置必须两端一致，否则会出现「服务端说被挡、客户端说没挡」。',
     '-- 这是 CLASSIFIED 存在的根本理由：位置要同步，内容各自算。',
   ],
-  685: [
+  "boat_item_collision_template#1": [
     '-- boat_item_collision_template：★ 与玩家碰撞体的三处关键差异：',
     '--   1) SetMass(1000) —— 有质量，会推动物品（对比玩家碰撞体的 0）',
     '--   2) 碰撞掩码含 ITEMS + FLYERS —— 只挡物品与飞行物',
     '--   3) 半径 +0.2 —— 比玩家碰撞体再大一点，因为物品落地时有滚落余量',
     '-- ⇒ 【可移植模式】同一形状按「谁会被挡住」拆成多个碰撞体，用质量与掩码区分。',
   ],
-  707: [
+  "boat_item_collision_template#1+22": [
     '-- ★ 第 704-706 行注释很有意思：明确说这条约束「现在已经正确解除了、可以忽略」，',
     '-- 但仍保留 SetDontRemoveOnSleep(true) 以防万一。',
     '-- ⇒ 【读源码收获】注释会记录「曾经有 bug、现在修好了、为何还没删」。这类信息读代码读不出来。',
   ],
 
   // ══════════════ 部署 ══════════════
-  722: [
+  "ondeploy#1": [
     '-- 【★ ondeploy：部署物品 → 实体结构的转换点】',
     '-- 第 723 行 SpawnPrefab 的三个参数：prefab 名 + 关联皮肤名 + skin_id，',
     '-- ⇒ 皮肤信息在「物品 → 成品」的传递靠这一行，是皮肤系统与部署系统的接口。',
   ],
-  727: [
+  "ondeploy#1+5": [
     '-- ★★★ 皮肤名的「按部位改写」：船有皮肤时，把走路板也换成对应的皮肤。',
     '-- 皮肤名形如 boat_nautical / boat_grass_pirate，而走路板皮肤叫',
     '-- walkingplank_nautical / walkingplank_grass_pirate（见 prefabskins.lua 第 1971-1980 行）。',
@@ -500,19 +500,19 @@ export default {
     '-- ⇒ 【移植建议】改用 `boat.skinname:gsub("^boat_grass_", ""):gsub("^boat_", "")`',
     '-- 或直接由皮肤表给出对应的走路板皮肤名，让命名规则只有一处定义。',
   ],
-  736: [
+  "ondeploy#1+14": [
     '-- ★★ 传送的三段式：先关碰撞 → 传送 → 开碰撞。',
     '-- 缺任何一步都会出问题：直接传送可能被卡在陆地里，关了不开会让船永久无碰撞。',
     '-- ⇒ 【可移植模式】「移动一个带碰撞的实体」的标准做法：临时关碰撞、搬位置、恢复碰撞。',
   ],
-  746: [
+  "ondeploy#1+24": [
     '-- ★ 部署后立即 Remove 掉背包物品 —— 「一物一换」。',
     '-- ⚠️ 但第 748 行 return boat：ondeploy 的返回值被 deployable 组件接收。',
     '-- ⇒ 【移植提示】部署系统的约定是「回调返回新实体，原物品消失」，第 1543 行也用了同一返回值。',
   ],
 
   // ══════════════ 木船 ══════════════
-  751: [
+  "wood_fn#1": [
     '-- ★★★ 木船 fn：全文第一个变体，也是后续 4 个变体的写法范本。',
     '-- 【变体 fn 的标准五步】',
     '--   1) CreateEntity()',
@@ -522,7 +522,7 @@ export default {
     '--   5) SetPristine → 客户端返回 → create_master_pst(inst, DATA) → 变体专属 C 段',
     '-- ⇒ 【移植要点】把「共性」与「差异」在 fn 里分得这么开，是本文件最值得学的东西。',
   ],
-  757: [
+  "wood_fn#1+6": [
     '-- ★★ WOOD_BOAT_DATA 就是「变体配置表」。5 个变体各有一张，字段名完全一致。',
     '-- ⇒ 【可移植模式】把变体差异收敛成一张「同构数据表」，',
     '-- 共性代码只认表、不认具体变体 —— 这比一堆 if/else 分支好维护一个数量级。',
@@ -533,7 +533,7 @@ export default {
     '--   fireproof    —— 仅冰面=true',
     '--   stategraph   —— 仅冰面=SGboat_ice',
   ],
-  770: [
+  "wood_fn#1+19": [
     '-- ★★ player_collision_prefab 是变体专属的 A 段设置，不在 DATA 表里。',
     '-- 因为它在 pre 段之后、SetPristine 之前赋值，第 412 行 AddComponent 已经执行过了，',
     '-- 属于「给已挂好的组件补参数」。',
@@ -541,66 +541,66 @@ export default {
     '-- 判断标准：能不能在 add 之前算出来。radius / scale 能，碰撞 prefab 名也能，',
     '-- 但写代码时作者选择了直接赋值。移植时保持一致更重要，不必强行统一。',
   ],
-  784: [
+  "inst.sinkloot#1": [
     '-- ★ sinkloot 覆盖了 pre/post 段的空实现（第 594 行）。',
     '-- ★★ 第 785 行 ignitefragments = inst.activefires > 0：',
     '-- 沉船时若船上正在着火，掉落的碎片会被点着（第 353-355 行 SpawnFragment 里的 Ignite）。',
     '-- ⇒ 战斗与物理的耦合点之一，通过一个普通过渡的实例字段传递。',
   ],
-  790: [
+  "inst.sinkloot#1+6": [
     '-- ★★ 掉落物位置的均匀圆盘采样：r = sqrt(random) * (R-2) + 1.5。',
     '-- 用 sqrt 保证面积均匀（若直接用 random，半径小的地方会挤成一团）——',
     '-- 这是「极坐标下的均匀圆盘采样」标准公式，任何自研游戏都能用。',
     '-- +1.5 的偏移保证碎片不会掉在船心（会被船体挡住）。',
   ],
-  791: [
+  "inst.sinkloot#1+7": [
     '-- t = (i + 2 * random()) * loot_angle：★ 第 i 个碎片的角度加了最多 ±一格的随机抖动，',
     '-- 避免所有碎片整齐排成一圈。这是「规则布局 + 随机扰动」的典型手法。',
   ],
 
   // ══════════════ 草船 ══════════════
-  806: [
+  "grass_fn#1": [
     '-- 草船 fn：★ 与木船的差异集中在「漏水机制」与「材料」两条线。',
   ],
-  815: [
+  "grass_fn#1+9": [
     '-- ★ scale = 0.75：草船模型小 25%。物理半径不变（第 812 行用 GRASS_BOAT.RADIUS），',
     '-- ⇒ 视觉与物理尺寸不一致是刻意的：草船「看起来小」但判定范围与木船相同。',
     '-- 【移植提示】美术缩放与碰撞体解耦，能让同一套物理服务多种外观。',
   ],
-  823: [
+  "grass_fn#1+17": [
     '-- ★★ leaky = true + leakproof = true（第 845 行）看似矛盾，实际是：',
     '-- 「会漏水」= 会持续掉血（有漏点表现），「防漏」= 不生成可交互的漏水实体。',
     '-- 草船的漏点由第 215 行的 OnSpawnNewBoatLeak_Grass 直接扣血处理。',
     '-- ⇒ 【命名陷阱】leaky 与 leakproof 是两套独立语义，不是一对反义词，命名有误导性。',
   ],
-  843: [
+  "grass_fn#1+37": [
     '-- SetSelfDegrading(5)：★ 草船会「自我劣化」，不漏也会慢慢坏。',
     '-- 海獭巢也用了同一机制（第 1039 行），冰面用 1（第 1355 行）。',
     '-- ⇒ 同一组件参数被三个变体改成三个值，说明这是「船的耐久衰减」通用机制。',
   ],
-  845: [
+  "grass_fn#1+39": [
     '-- ★ leakproof = true 与第 823 行 leaky = true 配对，见上面的说明。',
   ],
-  847: [
+  "grass_fn#1+41": [
     '-- ★ repairmaterial 从 WOOD（第 573 行）覆盖成 HAY —— 草船要用干草修。',
     '-- 覆盖的是 create_master_pst 里已设置的组件字段，属于「变体改共性参数」的标准位置。',
   ],
 
   // ══════════════ 海盗船 ══════════════
-  873: [
+  "pirate_initialize#1": [
     '-- pirate_initialize：★ 延迟一帧初始化（第 943 行 DoTaskInTime(0, ...)）。',
     '-- 原因：需要等所有平台上的实体都就位（GetEntitiesOnPlatform）。',
   ],
-  876: [
+  "oncannonremoved#1": [
     '-- ★ oncannonremoved 用 table.removearrayvalue 而不是 table.remove ——',
     '-- 前者会「按值删除所有相同项」且删除后不会产生空洞（会重排）。',
     '-- ⇒ 【Lua 细节】DST 有大量 table.removearrayvalue 等扩展，标准库没有，写移植时需自己实现。',
   ],
-  898: [
+  "pirate_fn#1+9": [
     '-- scale = nil：★ 显式写 nil 与不写效果相同，写出来是为了「六个变体字段对齐、便于对比」。',
     '-- pirate 船沿用木船的物理参数，只换模型。⇒ 表驱动让「只换皮」成为两行 diff。',
   ],
-  914: [
+  "pirate_fn#1+25": [
     '-- ★ scrapbook_deps（注意与文件头的 scrapbook_adddeps 是不同字段）——',
     '-- 前者声明「本预制体依赖谁」，后者声明「本预制体解锁谁的图鉴」。',
     '-- ⚠️ 字段极多且拼写相近（deps / adddeps / removedeps），扫源码时极易看错归属。',
@@ -608,34 +608,34 @@ export default {
   ],
 
   // ══════════════ 远古船 ══════════════
-  954: [
+  "do_boat_container_offset#1+6": [
     '-- ★ ANCIENT_BOAT_SCALE = 1.334：抽成常量是因为它被用了两次 ——',
     '-- 第 966 行的 data.scale 与第 1626 行 placer 的 SetScale。',
     '-- ⇒ 【可移植模式】同一个数值在「实体」与「放置预览」两处使用时必须抽常量，',
     '-- 否则预览与实体会大小不符，玩家看到的预览不是真实占地。',
   ],
-  986: [
+  "ancient_fn#1+30": [
     '-- ★ not POPULATING：世界生成期间不生成容器。',
     '-- 原因：生成期还没有 shipwrecked 的遗迹布局信息，容器会出现在不该出现的位置。',
     '-- ⇒ 【DST 通则】POPULATING 是个全局标志，凡是「依赖世界已生成完毕」的逻辑都要判它。',
   ],
-  988: [
+  "ancient_fn#1+32": [
     '-- DoTaskInTime(0, do_boat_container_offset, inst._container) 再一次印证：',
     '-- 新生成的子实体要延迟一帧才能读到正确的世界坐标（对比第 242-251 行）。',
   ],
-  991: [
+  "ancient_fn#1+35": [
     '-- ★ 三个阈值全部覆盖：max_health_damage / small_leak_dmg / med_leak_dmg。',
     '-- 远古船漏得更狠但也更耐打 —— 通过覆盖 hullhealth 组件的参数实现，',
     '-- 不需要为它写一套新的耐久逻辑。',
   ],
 
   // ══════════════ 海獭巢 ══════════════
-  1025: [
+  "OnRowed_OtterDen#1": [
     '-- OnRowed_OtterDen：★ 摇橹时惊动船上的敌人（打标签判定，而非写死生物类型）。',
     '-- ⇒ 【可移植模式】用 tag 表达「被摇船会生气」，新增生物时只要打 tag 即可，',
     '-- 不必改船的代码。这是 DST 标签系统最实用的场景之一。',
   ],
-  1037: [
+  "otterden_start_erosion#1": [
     '-- ★★ otterden_start_erosion 的「反向播放」技巧（第 1042-1050 行）：',
     '-- 若当前正播 crack_reverse（正在恢复），算出 54 - 当前帧 作为新动画的起始帧。',
     '-- ⇒ 让 crack 与 crack_reverse 两段动画在视觉上接得上，不会突然跳帧。',
@@ -643,117 +643,117 @@ export default {
     '-- ⚠️ 真实技术债（本人核实过）：第 1044、1058 行两处硬编码 54，',
     '-- 改动画长度需同时改这两个位置。等级低于 CUHIDERFRAMES（那里有注释标记），但同样脆弱。',
   ],
-  1040: [
+  "otterden_start_erosion#1+3": [
     '-- IsCurrentAnimation("crack") 判重：已在播放就什么都不做，避免打断。',
     '-- ★ 这类「幂等 + 脏检查」写法在本文件出现多次（第 1040、1080、1096 行），是 DST 事件处理的通用习惯。',
   ],
-  1067: [
+  "otterden_on_update#1": [
     '-- ★ otterden_on_update：每 0.5 秒检查一次船所在的地块类型。',
     '-- 第 1076-1079 行的判定：不是三个「近岸」地块、但仍是海洋 ⇒ 已漂到深水 ⇒ 开始腐蚀。',
     '-- ⇒ 【可移植模式】用「排除若干特例」的写法而非黑名单，加新地块类型时不易漏。',
   ],
-  1080: [
+  "otterden_on_update#1+13": [
     '-- ★ selfdegradingtime == 0 判重：只有从「没在腐蚀」变成「在腐蚀」的那一刻才触发后续逻辑。',
     '-- 第 1096 行的停止判定用 == TUNING.BOAT_OTTERDEN_ERODE_RATE 做同样的判重。',
     '-- ⇒ 【易踩的坑】用「期望值相等」判重在外部把速率改掉时会失效；',
     '-- 用 > 0 更稳妥。这里两处写法不统一，属可改进点。',
   ],
-  1087: [
+  "otterden_on_update#1+20": [
     '-- 随机挑一个船上的玩家推事件：GetRandomWithVariance 之类的辅助都在 util.lua。',
     '-- ★ 只对一个人说话，避免多人客户端同时收到提示 —— 常见的「本地化通知」处理。',
   ],
-  1102: [
+  "otterden_initialize#1": [
     '-- otterden_initialize：★ 第 1111 行把 inst._on_den_removed 注册在 den 上，',
     '-- 而 _on_den_removed 的定义在第 1252 行 —— 位于函数调用点的后面。',
     '-- Lua 闭包在第 1111 行执行时能读到它，因为第 1252 行已在 fn() 之前跑完。',
     '-- ⇒ 【阅读提示】跨 140 行的前向引用，全靠「第 1261 行 DoTaskInTime(0) 推迟一帧」兜住。',
     '-- 若改成同步调用就会读到 nil。★ 这又是「DoTaskInTime(0) 隐性依赖全局初始化顺序」的例子。',
   ],
-  1114: [
+  "on_dead_otterden_added#1": [
     '-- on_dead_otterden_added：★ 往 hullhealth 的私有数组里插实体（同第 198 行的做法）。',
     '-- 把「已死的巢」也当成一个漏点，让船持续掉血。属于「敌人死后仍施加影响」的设计。',
   ],
-  1140: [
+  "otterden_onloadpostpass#1": [
     '-- otterden_onloadpostpass：★ 又一个 OnLoadPostPass（第 599 行那个是 create_master_pst 里挂的）。',
     '-- 变体可以覆写主干的 OnLoadPostPass —— 这里是追加逻辑，不是替换。',
     '-- ⚠️ 注意与第 165 行的 OnLoadPostPass 是不同函数：那个管碰撞体朝向，这个管巢的漏点重挂。',
   ],
-  1149: [
+  "CLIENT_MakeOtterdenTuft#1": [
     '-- CLIENT_MakeOtterdenTuft：★ 又一个「纯客户端装饰子实体」（对比 pighouse 的窗户）。',
     '-- 同样的三件套：AddTag("FX") / persists = false / 不 AddNetwork / SetParent。',
     '-- ⇒ 【DST 装饰实体的标准配方】本文件与 pighouse.lua、terasurechest.lua 三处一致。',
     '-- 第 1150 行 anim_index = anim_index or math.random(3)：随机 3 种草丛造型之一。',
   ],
-  1188: [
+  "otterden_fn#1+21": [
     '-- ★ 6 丛草按 GetRandomWithVariance(基准角, PI/6) 分布 —— 在均匀分布上叠一层抖动。',
     '-- 偏移半径用 sqrt(random()) 保证圆盘均匀分布（同第 790 行的碎片散布公式）。',
     '-- ⇒ ★ 同一个「均匀圆盘采样」公式在本文件出现 3 次（第 790、855、1194 行），',
     '-- DST 没有把它收进 util —— 属于值得提炼的通用工具函数。',
   ],
-  1218: [
+  "otterden_fn#1+51": [
     '-- leakproof = true：与草船相同，海獭巢也靠持续掉血而非漏水实体。',
   ],
-  1221: [
+  "otterden_fn#1+54": [
     '-- ★ StartRegen(1, 5 * ERODE_RATE)：定时回血，防止船被推到深水后回不回来。',
     '-- 数值 5 与自腐蚀速率挂钩 —— ★ 设计意图是「回血速度 5 倍于掉血速度」，',
     '-- 玩家只要尽快摇橹回来就能救回。',
     '-- ⇒ 【平衡性设计】把「惩罚」做成「可挽回」：设定明确的追赶速率而不是无解死亡。',
   ],
-  1224: [
+  "otterden_fn#1+57": [
     '-- entitytracker 组件：★ 追踪并持久化一个具名子实体（这里是海獭的巢）。',
     '-- ⇒ 组件提供的正是「存档时记住 GUID、读档时还原实体」的能力（第 1103、1108、1114 行）。',
     '-- 【移植要点】需要跨存档保持的子实体关系，用专门的 tracker 组件，',
     '-- 不要自己手写 GUID 映射（对比 crabking.lua 第 537 行的手写版）。',
   ],
-  1227: [
+  "otterden_fn#1+60": [
     '-- DoPeriodicTask(0.5, fn, 初始延迟 0.5*(1+random()))：★ 初次延迟随机化，打散负载。',
     '-- 同 pighouse.lua 第 299 行、deciduoustrees.lua 的处理，是 DST 统一惯例。',
   ],
 
   // ══════════════ 冰面 ══════════════
-  1275: [
+  "ice_floe_deploy_blocker_fn#1": [
     '-- ice_floe_deploy_blocker_fn：★ 一个「无视觉的阻挡体」。',
     '-- 它只有 Transform + Network + SetDeployExtraSpacing，没有任何表现组件。',
     '-- ⇒ 【可移植模式】「限制玩家把东西放哪」这类纯逻辑约束，',
     '-- 可以做成一个看不见的实体，而不是给每块冰各写一段判定。',
   ],
-  1294: [
+  "ice_ondeath#1": [
     '-- ice_ondeath：★ 双重守卫 IsAsleep() 与 HasStateTag("dead")。',
     '-- 双重守卫的原因：状态机的 dead 标签与 health 组件的死亡是两套通知，',
     '-- ★ 靠两个都满足才执行沉没动画，是防御「双重触发」的标准写法。',
   ],
-  1322: [
+  "ice_fn#1+16": [
     '-- ★ RemoveTag("wood") + 原注释 Cookie Cutters should not eat it：',
     '-- 用 tag 表达「不是木头」，让 Cookie Cutters 组件的查询自动跳过。',
     '-- ⇒ 【零修改扩展】新增一个 Cookie Cutters 时只需检查这个 tag，不必改冰面代码。',
   ],
-  1329: [
+  "ice_fn#1+23": [
     '-- ★ boattrail 可能为 nil（第 447 行只在非专服创建）——这里做了判空。',
     '-- 专服上 inst.components.boattrail 为 nil，直接访问会崩。',
     '-- ⇒ 【⚠️ 常见坑】AddComponent 放在 if not IsDedicated() 里（pre 段），',
     '-- 却在 C 段无判空访问 —— 本文件这里处理对了，写新代码时最容易漏。',
   ],
-  1343: [
+  "inst.GetIdleLevel#1": [
     '-- ★ GetIdleLevel：按血量三档返回 "1"/"2"/"3"，供状态图决定用哪套待机动画。',
     '-- ⇒ 【状态图与预制体的接口】预制体提供数据，状态图决定表现。',
     '-- 这种「预制体给函数、状态图调」的分工，避免了状态图里写死血量阈值。',
   ],
-  1358: [
+  "inst.GetIdleLevel#1+15": [
     '-- ★ repairmaterial = nil：冰面船不可修理。覆盖了共性的 WOOD（第 573 行）。',
     '-- ⇒ 用 nil 表达「禁用某能力」比加一个 enabled=false 更简洁，但可读性差一些。',
   ],
-  1363: [
+  "inst.GetIdleLevel#1+20": [
     '-- DoTaskInTime(FRAMES, ...)：延迟一帧生成 deploy_blocker。',
     '-- ★ 为什么用 FRAMES 而不是 0：阻挡体要等船的位置确定后再生成。',
   ],
-  1386: [
+  "inst.sinkloot_asleep#1+1": [
     '-- sinkloot_asleep：★ 冰面沉没时若实体已睡着，只掉 0~2 块（math.random(3) - 1 可能是 0 或负数）。',
     '-- 第 1387 行 `if num_loot > 0` 兜住了负数与 0 的情况。',
     '-- ⇒ 【⚠️ 隐患】math.random(3) 返回 1..3，减 1 得 0..2，不会为负。判空是多余的但无害。',
     '-- 真正需要判空的是 num_loot == 0 的情况（loot_angle = TWOPI/0 = inf）。',
     '-- ★ 好在第 1387 行的 if 挡住了 —— 属于「靠巧合正确」但结论是对的写法。',
   ],
-  1408: [
+  "ice_crabking_fn#1": [
     '-- ★★★ ice_crabking_fn：最极端的变体 —— 直接调用另一个变体的 fn！',
     '-- 第 1409 行 `local inst = ice_fn()`：复用了冰面船的全部装配，',
     '-- 再覆盖三个东西：sinkloot（只掉碎冰渣）、血量设 10、返回。',
@@ -762,20 +762,20 @@ export default {
     '-- ★ 【对照】treasurechest.lua 走的是「工厂 + 钩子」路线，本文件走的是「调用 + 覆盖」路线。',
     '-- 两条路各有适用面：变体数量多且差异正交时用工厂；变体少且高度相似时用覆盖。',
   ],
-  1411: [
+  "ice_crabking_fn#1+3": [
     '-- ★ 覆盖前先判 ismastersim 返回 —— 因为 ice_fn 的 C 段已经执行过了。',
     '-- ⚠️ 【⚠️ 陷阱，务必注意】本函数没有 SetPristine，也没有客户端早返回，',
     '-- 它完全依赖 ice_fn 内部已经做完这一切。',
     '-- ⇒ 读这个函数时必须先确认 ice_fn 做了什么，不能只看本函数体。',
     '-- 【移植建议】派生变体时把「返回前是否已过 SetPristine」写成显式注释，否则极易误改。',
   ],
-  1432: [
+  "sinkloot#1+17": [
     '-- SetVal(10)：★ 蟹王冰面的血量被强制改成 10（因为它不是用来打的，是场地）。',
     '-- ⇒ 这是「复用预制体但语义完全不同」的极端案例：看起来是船，实际是地图的一部分。',
   ],
 
   // ══════════════ 物品与 placer ══════════════
-  1439: [
+  "CLIENT_CanDeployBoat#1": [
     '-- ★★ 注意这里是 `function`（全局）而不是 `local function` —— 全文件唯一一处。',
     '-- 本人已核实：grep 全库，CLIENT_CanDeployBoat 只在本文件定义与使用（第 1459 行），',
     '-- 另有 5 处以注释形式引用它（util.lua:1958、prefabs/yotd_boats.lua:746-747、',
@@ -787,48 +787,48 @@ export default {
     '-- 但仍要注意：Lua 的全局是「无声明的隐式契约」，拼错不会报错。',
     '-- 更好的做法是放进一个具名模块（如 boatutil）再 require。',
   ],
-  1450: [
+  "CLIENT_CanDeployBoat#1+11": [
     '-- ★★ hop_range = FLOATING_HOP_DISTANCE_PLATFORM - 0.01：减 0.01 保证边界内判定。',
     '-- 第 1446 行用平方比较（dsq > max_range * max_range）避免开方 —— 标准的距离优化。',
     '-- ⇒ 【可移植模式】「勾一个玩家站在平台上放船」的手感，靠一个减 0.01 的容差控制。',
     '-- 数值小到看着像 hack，但这是 DST 处理浮点与玩家预期的标准做法。',
   ],
-  1458: [
+  "common_item_fn_pre#1": [
     '-- common_item_fn_pre：★ 建造物品的 pre 段（与船的 create_common_pre 同构但更短）。',
     '-- 第 1459 行把 _custom_candeploy_fn 挂到实例上 —— 部署前的合法性检查函数。',
     '-- ⇒ 【部署系统扩展点】物品自己决定「能不能放在这里」，不需要改 deployable 组件。',
   ],
-  1470: [
+  "common_item_fn_pre#1+12": [
     '-- MakeInventoryPhysics：背包物品专用物理（可被丢、可掉落、有浮空效果）。',
     '-- 与船的 AddPhysics（第 386 行）是两套不同预设，别混用。',
   ],
-  1476: [
+  "common_item_fn_pre#1+18": [
     '-- MakeInventoryFloatable(inst, "med", 0.25, 0.83)：★ 物品浮在水面的参数。',
     '-- "med" 是尺寸档位（还有 small/large），后两个数是高度与缩放。',
     '-- ⇒ 【可移植模式】物品浮水做成统一组件 + 尺寸档位，而不是逐个物品调物理。',
   ],
-  1481: [
+  "common_item_fn_pst#1": [
     '-- common_item_fn_pst：物品的 C 段。★ deployable 组件的 ondeploy 指向第 722 行的 ondeploy。',
     '-- 第 1485 行 SetDeployMode(DEPLOYMODE.CUSTOM)：让放置预览行为完全自定义。',
     '-- 第 1490-1491 行 fuel 组件 + LARGE_FUEL：★ 烧掉船物品释放的燃料量，',
     '-- 是「烧一艘船 = 多少燃料」这一玩法的落点。',
   ],
-  1495: [
+  "common_item_fn_pst#1+14": [
     '-- MakeHauntableLaunch（注意是 Launch 不是 Work，对比 pighouse.lua 第 442 行的 Work）：',
     '-- 两种闹鬼模式的区别：Work = 鬼替你敲一下；Launch = 鬼替你使用一次。',
     '-- ⇒ 同一个 hauntable 组件 + 不同的初始化函数 = 两种玩法。组件的组合性体现于此。',
   ],
-  1500: [
+  "item_fn#1": [
     '-- item_fn：木船物品。★ 全流程只有 5 行有效代码，因为 pre/pst 都复用了。',
     '-- 第 1505 行 deploy_product = "boat"：★ 「这个物品造出什么」由字段声明，',
     '-- 于是第 722 行的 ondeploy 第 723 行直接 SpawnPrefab(inst.deploy_product) 即可通用。',
     '-- ⇒ 【可移植模式】物品与产物通过一个字符串字段解耦，新增船不需要改部署逻辑。',
   ],
-  1517: [
+  "grass_item_fn#1": [
     '-- grass_item_fn：草船物品。★ 注意只改 build 与 deploy_product，pre/pst 照抄。',
     '-- 第 1534 行覆盖 deployspacing（LARGE → PLACER_DEFAULT）：草船更小所以间距更小。',
   ],
-  1539: [
+  "ancient_ondeploy#1": [
     '-- ★★ ancient_ondeploy：覆盖共用的 ondeploy（第 1483 行）。',
     '-- 第 1542 行 Hide 掉容器，第 1543 行 0.5 秒后手动调 boat._container.OnPlaced。',
     '-- ★ 这与 treasurechest.lua 第 750 行「This is called manually in boat.lua」互为镜像 ——',
@@ -838,25 +838,25 @@ export default {
   ],
 
   // ══════════════ 碰撞体预制体 ══════════════
-  1569: [
+  "boat_player_collision_fn#1": [
     '-- ★ 碰撞体预制体就是「模板函数 + 固定半径」的组合：',
     '-- 同一套 build_boat_collision_mesh 代码，5 种船各调一次，得到 10 个碰撞体实体。',
     '-- ⇒ 【可移植模式】模板函数 + 参数 = 廉价派生。比复制粘贴 10 份碰撞代码好得多。',
   ],
-  1610: [
+  "_check_placer_offset#1": [
     '-- ★ _check_placer_offset：让放置预览的偏移量不超过船半径 + 跳跃距离。',
     '-- 第 1613 行原注释直接引用 CLIENT_CanDeployBoat（第 1439 行）—— ★ 跨函数的一致性约束。',
     '-- min 上限保证「预览显示的位置」一定在「实际可放置的范围内」。',
     '-- ⇒ 【可移植模式】UI 预览与合法性判定必须共享同一套边界，否则会出现「看着能放却放不下」。',
   ],
-  1619: [
+  "wood_placer_postinit#1": [
     '-- wood_placer_postinit：placer 的 postinit 钩子，由 MakePlacer（第 1643 行最后两个参数）调用。',
     '-- ★ MakePlacer 支持 postinit_fn 钩子（prefabutil.lua 第 57-59 行），',
     '-- 这是 placer 的「变体机制」—— 本文件三个 placer 各自传不同的 postinit（第 1619、1625、1632 行）。',
   ],
 
   // ══════════════ return ══════════════
-  1639: [
+  "grass_placer_postinit#1+7": [
     '-- ★★★ return —— 23 个预制体，四个族群：',
     '--',
     '-- 【族群一：木船】boat / boat_player_collision / boat_item_collision /',
@@ -877,19 +877,19 @@ export default {
     '-- 这些名字不是「23 个互不相干的实体」，而是「一族共享骨架的实例」。',
     '-- 理解 DST 预制体层，必须把 return 读成「一个注册表」而非「一堆定义」。',
   ],
-  1640: [
+  "grass_placer_postinit#1+8": [
     '-- ★ Prefab("boat_player_collision", boat_player_collision_fn) 的第 3、4 参数省略。',
     '-- Prefab 的签名是 (name, fn, assets, deps)，后两个在 prefabs.lua 里有 `or {}` 兜底（第 10-11 行）。',
     '-- ⇒ 省略是安全的，与本文件其他调用等价。',
   ],
-  1643: [
+  "grass_placer_postinit#1+11": [
     '-- ★ MakePlacer 的 12 个位置参数里，最后两个是 postinit_fn 与 offset。',
     '-- 第 1643 行 offset=6、第 1666 行 offset=4.5 —— 不同船的预览偏移不同。',
     '-- ⚠️ 12 个位置参数：★ 这是本文件最脆弱的调用形式，改动 prefabutil.lua 的参数顺序',
     '-- 会静默地让所有 placer 行为错乱而无任何编译期检查。',
     '-- 【移植建议】MakePlacer 应该收一个 options table。',
   ],
-  1660: [
+  "grass_placer_postinit#1+28": [
     '-- boat_ice_crabking：★ 唯一「同文件内派生」的预制体（见第 1408 行）。',
     '-- 它与 boat_ice 共用 ice_assets 与 ice_prefabs（第 1659、1660 行）——',
     '-- ⇒ ★ 连资源清单都是共享的，这正是「派生变体」的最大收益。',

@@ -36,7 +36,7 @@ export default {
     '--   与 chaseandattack 第 12 行完全相同 —— 这是本目录的固定套路。',
     '--★ 移植要点：凡 ListenForEvent 必存句柄，否则 OnStop 摘不掉。',
   ],
-  9: [
+  "self.onattackfn#1": [
     '--★ 注意本节点的回调签名是 (inst, data)，且把 data.target 传了下去。',
     '--   而 chaseandattack 第 13 行是 (inst) 不取参数。',
     '--⚠️ 差异但无害：OnAttackOther（第 26 行）的 target 形参**在函数体内从未使用**。',
@@ -44,16 +44,16 @@ export default {
     '--   保留它说明作者曾打算用它做「判断打的是不是当前目标」。',
     '--   标注为「已核实」的无用参数 —— 不影响功能，但属于可清理的冗余。',
   ],
-  13: [
+  "self.onattackfn#1+4": [
     '--★★ 同时监听命中与挥空 —— 与 chaseandattack 同理，',
     '--   挥空也代表「出过一次手」，只计命中会让远程单位无限开火。',
   ],
-  17: [
+  "StandAndAttack:__tostring#1": [
     '--★ __tostring：调试时显示当前目标。',
     '--★ 与 chaseandattack 第 21 行的实现逐字相同（同样取 combat.target）。',
     '--   排障时两者输出格式一致，便于横向对比。',
   ],
-  21: [
+  "StandAndAttack:OnStop#1": [
     '--★★ OnStop：摘掉两个事件监听。与 chaseandattack 第 25-28 行完全一致。',
     '--⚠️★ 再强调本目录的通病（已核实）：',
     '--   只有 bt:Stop() 才会调 OnStop；而 BehaviourNode:Reset()（每轮思考后都会调）',
@@ -64,14 +64,14 @@ export default {
   ],
 
   // ══════════════ 攻击事件 ══════════════
-  26: [
+  "StandAndAttack:OnAttackOther#1": [
     '--★ OnAttackOther：计数 + 清空计时器。语义同 chaseandattack 第 30-34 行。',
     '--★ 这里 numattacks **没有任何上限检查** —— 与 chaseandattack 不同。',
     '--   在本节点里它只是纯统计数据，供调试与 DBString 参考。',
     '--★ 移植要点：两个字段同名（numattacks）但语义不同，',
     '--   说明它们是「从同一个模板改出来的」，而非重新设计。',
   ],
-  29: [
+  "StandAndAttack:OnAttackOther#1+3": [
     '--★★★ `self.starttime = nil` —— 把超时计时器清空，而非重置为当前时间。',
     '--★★ 效果：timeout 统计的是「**距上一次攻击的静默时长**」，不是「总攻击时长」。',
     '--   推论：只要目标一直在被打，本节点可以永远不超时。',
@@ -82,19 +82,19 @@ export default {
   ],
 
   // ══════════════ Visit:READY 段 ══════════════
-  32: [
+  "StandAndAttack:Visit#1": [
     '--★★ Visit：三段式结构。READY 段与 chaseandattack 第 38-53 行几乎逐行相同。',
     '--★ 开头缓存 combat 组件，避免每帧多次索引 self.inst.components.combat。',
     '--   ★ 微小但真实的性能优化：组件索引是多次哈希查找，本文件每帧要用 5 次以上。',
   ],
-  34: [
+  "StandAndAttack:Visit#1+2": [
     '--★★ 先 ValidateTarget —— 与 chaseandattack 第 39 行相同，',
     '--   保证从休眠恢复后目标仍有效。',
   ],
-  37: [
+  "StandAndAttack:Visit#1+5": [
     '--★ 没有目标才补索敌。findnewtargetfn 返回 nil 时，第 41 行判定会走 FAILED，安全兜底。',
   ],
-  41: [
+  "StandAndAttack:Visit#1+9": [
     '--★★ 有目标才开打：战吼 + 打起始时间 + 进入 RUNNING。',
     '--★ 注意**没有**重置 numattacks（chaseandattack 第 48 行有）。',
     '--   因为本节点不用它做判定，保留累计值仅供调试看「打了多少次」。',
@@ -102,13 +102,13 @@ export default {
   ],
 
   // ══════════════ Visit:RUNNING 段 ══════════════
-  50: [
+  "StandAndAttack:Visit#1+18": [
     '--★★ RUNNING 段入口。第 51 行是被注释掉的 `local is_attacking = ...`，',
     '--   说明作者曾想区分「正在攻击中」与「攻击间隔中」，最终放弃。',
     '--★ 放弃是合理的：stategraph 已有 attack 状态标签，用 HasStateTag 更直接。',
     '--★ 提醒：被注释掉的代码在本目录不少，读源码时不要误认为「已实现」。',
   ],
-  53: [
+  "StandAndAttack:Visit#1+21": [
     '--★★★ 计时器兜底打点 —— 与 chaseandattack 第 98-100 行同构，是第 29 行的配套消费点。',
     '--   若 starttime 为 nil（刚被第 29 行清空过），重新记为当前时间。',
     '--★★ 注意本节点**不检查状态标签**（chaseandattack 有 longattack 豁免），',
@@ -118,14 +118,14 @@ export default {
   ],
 
   // ══════════════ 三条终止路径 ══════════════
-  57: [
+  "StandAndAttack:Visit#1+25": [
     '--★★【终止一】目标消失 → FAILED + 清目标。',
     '--★ 这里**没有** Stop locomotor —— 与 chaseandattack 第 59 行不同。',
     '--   本节点本来就不移动（每帧 Stop，第 68 行），所以无需清理。',
     '--★ 这说明「节点进入时申请了什么，退出时就清理什么」——',
     '--   StandAndAttack 从不申请移动，自然不用清理。职责对称。',
   ],
-  60: [
+  "StandAndAttack:Visit#1+28": [
     '--★★【终止二】超时 → FAILED + 清目标。',
     '--★ 这是本节点**唯一**的自定义放弃条件（第 65 行还有一个成功条件）。',
     '--   语义是静默超时（第 29 行）：目标一直打不到 → 放弃走人。',
@@ -136,21 +136,21 @@ export default {
     '--   所以第 60 行的 nil 检查在当前代码路径下是冗余的防御。',
     '--   但保留它是对的 —— 顺序一旦被改动（例如把第 53 行挪到后面）就会真的需要。',
   ],
-  63: [
+  "StandAndAttack:Visit#1+31": [
     '--★★【终止三】目标已死 → **SUCCESS** + 清目标。',
     '--★ 与 chaseandattack 第 60 行完全一致的语义：打死敌人 = 意图达成 = SUCCESS。',
     '--★ 成功时同样**没有** Stop locomotor —— 同第 57 行的理由（本节点不移动）。',
     '--★ 三条终止路径互不重叠：无效 → 超时 → 死亡，顺序即优先级，',
     '--   用 if/elseif 链一次判完，语义清晰。',
   ],
-  66: [
+  "StandAndAttack:Visit#1+34": [
     '--★★ 三个终止条件都不成立的 else 分支 —— 「保持站桩开火」的实际执行体。',
     '--★ 结构上是 if/elseif 链，与 leashandavoid 那种链式结构一致；',
     '--   而 READY 段与 RUNNING 段之间是「顺序双 if」。同文件里两种写法并存，属正常风格混用。',
   ],
 
   // ══════════════ 站桩执行 ══════════════
-  67: [
+  "StandAndAttack:Visit#1+35": [
     '--★ `if self.inst.components.locomotor then` —— 防御性判空。',
     '--★ 为什么需要？本节点用于「塔防型/远程单位」，这类实体可能没有 locomotor。',
     '--   ★★ 这是本文件与 chaseandattack 最重要的实用差异之一：',
@@ -159,13 +159,13 @@ export default {
     '--   移植要点：把节点设计成「能力自适配」（有 locomotor 就用，没有就降级），',
     '--     能让同一个行为服务于更广的实体类型。',
   ],
-  70: [
+  "StandAndAttack:Visit#1+38": [
     '--★ 站桩的核心动作：面向目标。只有 canrotate 状态才转，',
     '--   否则会扭到攻击动画的朝向上去（与 chaseandattack 第 91 行同款防护）。',
     '--★ 一个实用细节：站立单位不转身就只能打固定方向的扇形，',
     '--   所以这一步是站桩单位能持续输出的前提。',
   ],
-  74: [
+  "StandAndAttack:Visit#1+42": [
     '--★★ `combat:TryAttack()` —— 返回值被丢弃（对比 chaseandattack 第 96 行至少写了空 then）。',
     '--★ 为什么可以忽略返回值？因为本节点的终止条件里**没有**「攻击次数/距离」判定，',
     '--   只有 timeout 和目标状态。所以攻击成功与否不影响控制流。',
@@ -179,7 +179,7 @@ export default {
   ],
 
   // ══════════════ 休眠 ══════════════
-  76: [
+  "StandAndAttack:Visit#1+44": [
     '--★★ self:Sleep(.125) —— 与 chaseandattack 第 117 行完全相同：每秒 8 次决策。',
     '--★★ 与 follow（.25）/ approach（.25）对照可归纳出一条规律：',
     '--   ★ 决策频率与「行为出错的后果」正相关：',

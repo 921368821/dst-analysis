@@ -2,7 +2,7 @@
 // 重点：事件总线（双向索引 + 防泄漏）/ worldstate / PushEvent / 几何工具
 
 export const BEFORE = {
-  1172: [
+  "AddListener#1": [
     "--★★★ 事件总线（1172–1323）：全游戏最核心的解耦机制 ★ ★ ★",
     "--【★ 数据结构 —— 双向索引是防泄漏的关键】",
     "--   source.event_listeners[event][listener_entity] = { fn1, fn2, ... }",
@@ -20,11 +20,11 @@ export const BEFORE = {
     "--   每次 PushEvent 要做两层哈希查找。但只查 event_listeners 一侧，",
     "--   反向表只在注册/注销时用，所以热路径成本可接受。",
   ],
-  1173: [
+  "AddListener#1+1": [
     "--【★三层懒建】每一层都是「用到才建」。",
     "--   对没有事件的实体（占大多数），event_listeners 保持 nil。",
   ],
-  1179: [
+  "AddListener#1+7": [
     "--【★ 第二层：同一实体对同一事件的多个回调用数组存】",
     "--   同一个 fn 登记两次会被调用两次（不去重）。",
     "--   ★ 这与 WorldState 的处理一致（见 20 行的注释）。",
@@ -34,7 +34,7 @@ export const BEFORE = {
     "--     导致「血量减两次」这类难查的 bug。",
     "--     更安全的做法是登记时检查 fn 是否已存在并跳过。",
   ],
-  1188: [
+  "EntityScript:ListenForEvent#1": [
     "--【★ ListenForEvent(event, fn, source) —— 监听一个事件】",
     "--   source 默认是自己（监听自己的事件，即 PushEvent 会调到自己）。",
     "--【★ 两种用法】",
@@ -43,46 +43,46 @@ export const BEFORE = {
     "--   第② 种是「观察者模式」：A 想在 B 被使用时做反应。",
     "--   ★ 这让实体间可以通信而不必互相持有强引用类型耦合。",
   ],
-  1196: [
+  "EntityScript:ListenForEvent#1+8": [
     "--【★ 写入对方的正向表】source.event_listeners[event][self] = {fn}",
     "--   ★ 注意参数顺序：AddListener(t, event, inst, fn) 的 inst 是「监听者」，",
     "--     所以这里传的是 self（监听者），t 是 source.event_listeners。",
   ],
-  1202: [
+  "EntityScript:ListenForEvent#1+14": [
     "--【★ 写入自己的反向表】AddListener(self.event_listening, event, source, fn)",
     "--   ★ 与 1196 完全镜像：同一个函数，因为结构是对称的。",
     "--   —— 这个对称性是双向索引设计最优雅的地方：",
     "--     一次 AddListener 调用同时建立正反两条边。",
   ],
 
-  1205: [
+  "RemoveListener#1": [
     "--★★ RemoveListener：摘除一条边（同时用于正反两个方向）",
     "--【★ 逐层早退】任何一层不存在就直接返回 —— ",
     "--   这让「注销一个从未注册的监听」是安全的（幂等）。",
   ],
-  1213: [
+  "RemoveListener#1+8": [
     "--【★ 按值删除，与登记时 table.insert 严格配对】",
     "--   ★ 注意 RemoveByValue 只删一个匹配项 —— 若误登记两次，",
     "--     注销一次后还剩一条。这正是「不去重」设计的代价，需在调用侧注意。",
   ],
-  1214: [
+  "RemoveListener#1+9": [
     "--【★ 三级收缩】回调数组空 → listeners[inst] 删→ t[event] 删。",
     "--   与 WorldState 的收缩逻辑完全同构（23–40 行），",
     "--   ★ 说明这是团队内统一的「惰性释放」风格。",
   ],
-  1223: [
+  "EntityScript:RemoveEventCallback#1": [
     "--★★ RemoveEventCallback：取消监听",
     "   --★ assert(type(fn) == \"function\") —— 签名变更的强制校验",
     "--   原注释：\"signature change, fn is new parameter and is required\"",
     "--   ★ 历史上 RemoveEventCallback 只需 event（用于旧式全局监听），",
     "--     现在必须传 fn。断言强制模组适配，是 API 破坏性变更的标准做法。",
   ],
-  1228: [
+  "EntityScript:RemoveEventCallback#1+5": [
     "--【★ 与 ListenForEvent:1196/1202 完全镜像的两条反向摘除】",
     "--   ★ 顺序无所谓（两张表互不依赖）。",
   ],
 
-  1232: [
+  "EntityScript:RemoveAllEventCallbacks#1": [
     "--★★★ RemoveAllEventCallbacks：一次性断开所有事件连接",
     "--【★ 两个方向都要通知，缺一不可】",
     "--   方向①（1233）：「我不再监听别人了」→去每个人的正向表里摘掉我",
@@ -96,24 +96,24 @@ export const BEFORE = {
     "   --★⚠ 前提：如果有人直接手工改 self.event_listeners（比如猴补），",
     "--     就会破坏这个完备性。框架依赖「所有变更都走 API」这个约定。",
   ],
-  1234: [
+  "EntityScript:RemoveAllEventCallbacks#1+2": [
     "--【★ 方向①：遍历我监听的 (event, source, fns)】",
     "--   ★ 注意 fns 变量未被使用 —— 因为反向表只需要「键」即可整条摘除。",
   ],
-  1238: [
+  "EntityScript:RemoveAllEventCallbacks#1+6": [
     "--【★ 三重保护：source.event_listeners 存在 / listeners[event] 存在 / 直接置 nil】",
     "--   置 nil 而非逐个 fn 删除 —— ★ 因为我作为 listener 的**所有**回调都不要了。",
   ],
-  1245: [
+  "EntityScript:RemoveAllEventCallbacks#1+13": [
     "--【★ 整表置 nil】释放反向索引的引用。",
   ],
-  1249: [
+  "EntityScript:RemoveAllEventCallbacks#1+17": [
     "--【★ 方向②：遍历监听我的 (event, listener, fns)】",
     "--   ★ 与方向① 对称。listener.event_listening[event] 里存的是「谁在听这个事件」，",
     "--     摘掉自己这一项。",
   ],
 
-  1264: [
+  "EntityScript:WatchWorldState#1": [
     "--★★ EntityScript:WatchWorldState —— 世界状态观察的实体入口",
     "   --★ 与 42行的 ComponentWatchWorldState 是同一个动作，只是 self 的类型不同：",
     "--     组件版：EntityWatchWorldState(self.inst, var, fn)",
@@ -123,7 +123,7 @@ export const BEFORE = {
     "--   AddWatcher(var, inst, fn, self) 的第四个参数用于区分「实体自己观察」与",
     "--   「组件代实体观察」—— worldstate 组件可能需要据此回调不同的清理路径。",
   ],
-  1274: [
+  "EntityScript:StopAllWatchingWorldStates#1": [
     "--★★★ StopAllWatchingWorldStates：批量注销全部观察者",
     "--【★ 与 RemoveEventCallbacks 的对照 —— 三者结构惊人一致】",
     "--   RemoveAllEventCallbacks  遍历反向表逐个通知对方",
@@ -131,7 +131,7 @@ export const BEFORE = {
     "--   ★ 区别在于：worldstate 组件有独立的批量删除接口（只传 var 与 self，",
     "--     不传 fn），所以不需要逐个 fn 匹配，效率更高。",
   ],
-  1279: [
+  "EntityScript:StopAllWatchingWorldStates#1+5": [
     "--★★ 只遍历 key（变量名），不遍历 fn 列表 —— 依赖 RemoveWatcher 的批量语义】",
     "--   RemoveWatcher(var, self) 删掉该实体在这个变量上的**所有**观察者。",
     "--   ★ 这比逐个 RemoveWatcher(var, self, fn) 快得多，",
@@ -140,7 +140,7 @@ export const BEFORE = {
     "--   ⚠ 但如果将来有「只删特定 fn」的批量需求，这个实现就不适用了。",
   ],
 
-  1286: [
+  "EntityScript:PushEvent_Internal#1": [
     "--★★★ PushEvent_Internal —— 事件分发的三个目的地",
     "--【★ 一次 PushEvent 会把事件送到三个地方，顺序固定】",
     "--   ① 普通监听者（event_listeners）—— 同步调用 fn(self, data)",
@@ -150,12 +150,12 @@ export const BEFORE = {
     "--     这样「组件收到事件后做出的状态改变」能被 AI 看到，",
     "--     AI 决策基于的是事件的最终结果而非中间状态。",
   ],
-  1287: [
+  "EntityScript:PushEvent_Internal#1+1": [
     "--【★ 两级早退：没有监听表 → 无监听者 → 什么都不做】",
     "--   ★ 这是PushEvent 的绝对热路径（每帧可能成百上千次），",
     "--     两级判空把「无监听实体」的开销压到最低。",
   ],
-  1290: [
+  "EntityScript:PushEvent_Internal#1+4": [
     "--★★ 原注释：\"make a copy list of all callbacks first in case listener",
     "--            tables become altered in some handlers\"",
     "--【★ 为什么必须先拷贝？—— 事件系统的经典崩溃点】",
@@ -172,17 +172,17 @@ export const BEFORE = {
     "   --   ⚠ 潜在优化：若监听者数量为 0/1 可跳过拷贝（直接调用），",
     "--     但那会让行为不一致（单回调时仍可能触发同样的问题）。",
   ],
-  1293: [
+  "EntityScript:PushEvent_Internal#1+7": [
     "--【★ 两层扁平化：entity → fns[] → 展平成一维回调数组】",
     "--   ★ 回调被无序展平（pairs 顺序不确定），",
     "--     所以**监听者之间的执行顺序是不确定的**。",
     "--     ★ 这是重要的使用约束：多个监听者时不要依赖彼此的执行顺序。",
   ],
-  1298: [
+  "EntityScript:PushEvent_Internal#1+12": [
     "--【★ 执行快照中的回调】不检查 fn 是否仍有效 —— 见上面的拷贝理由。",
   ],
 
-  1304: [
+  "EntityScript:PushEvent_Internal#1+18": [
     "--★★ 目的地②：StateGraph",
     "--【★ 两条路径：立即 vs 排队】",
     "--   immediate = true  → sg:HandleEvent（立刻在当前调用栈内处理）",
@@ -193,7 +193,7 @@ export const BEFORE = {
     "--     立即模式则是同步的，但**不允许在状态图事件处理中做某些操作**",
     "--     （否则会破坏状态图的内部状态机）。",
   ],
-  1307: [
+  "EntityScript:PushEvent_Internal#1+21": [
     "--★★ 双重短路：先问状态图是否对该事件有反应，再问它此刻能否处理】",
     "--   IsListeningForEvent(event) —— 该事件是否被任何 OnEvent 关注",
     "--   SGManager:OnPushEvent(self.sg) —— ★ 状态图当前是否可接受事件",
@@ -201,15 +201,15 @@ export const BEFORE = {
     "--   ★ 这两个检查把「事件到状态图」的通道开销降到最低。",
     "--     对比 1304 的 `if self.sg then` 只判断存在性。",
   ],
-  1312: [
+  "EntityScript:PushEvent_Internal#1+26": [
     "--【目的地③：Brain】无任何检查，直接转发。",
     "--   ★ 相比状态图的双重短路，brain 没有这么精细的守卫，",
     "--     说明 brain 的事件处理本身就是轻量的（brain.lua 里是个简单的表）。",
   ],
-  1317: [
+  "EntityScript:PushEvent#1": [
     "--【★ PushEvent = 非立即版】这是99% 的调用方用的接口。",
   ],
-  1321: [
+  "EntityScript:PushEventImmediate#1": [
     "--【★ PushEventImmediate = 立即版】",
     "--   何时需要立即？「我 PushEvent 后马上要读状态图的状态」的场景。",
     "--   ★ 典型：玩家在客户端预测执行一个动作，需要立刻看到反馈。",
@@ -217,12 +217,12 @@ export const BEFORE = {
     "--     可能触发协程/事件的重入。",
   ],
 
-  1325: [
+  "EntityScript:SetPhysicsRadiusOverride#1": [
     "--【★ 物理半径覆盖：让实体的逻辑半径与视觉大小解耦】",
     "--   典型：一株「刚种下的树苗」视觉很小但碰撞要按成熟大小算；",
     "--   或者相反—— 大型的装饰物不需要碰撞。",
   ],
-  1329: [
+  "EntityScript:GetPhysicsRadius#1": [
     "--★★ GetPhysicsRadius 的三级回退】",
     "--   ① physicsradiusoverride —— 显式覆盖（1325 行设的）",
     "--   ② Physics:GetRadius() —— 组件的真实半径",
@@ -230,12 +230,12 @@ export const BEFORE = {
     "--   ★ 为什么不用 ② 的返回值作为唯一答案？",
     "--     因为无 Physics 组件的实体（纯视觉物）也需要一个查询半径。",
   ],
-  1333: [
+  "EntityScript:GetPhysicsRadius#1+4": [
     "--【★BOAT_MUST_TAGS：必须带 \"boat\" 标签才算船】",
     "--   FindEntities 的最后一个参数是「标签过滤」，会走 C++ 侧的空间索引，",
     "--   ★ 这是「用空间查询替代全表遍历」的标准优化。",
   ],
-  1334: [
+  "EntityScript:GetBoatIntersectingPhysics#1": [
     "--★★ GetBoatIntersectingPhysics：查询「与我物理重叠的船」",
     "--【用途】玩家在船上时切船、掉落判定、以及「船并靠」时的浮动平台处理。",
     "--【★ 两段式空间查询策略 —— 值得学习的性能范式】",
@@ -246,14 +246,14 @@ export const BEFORE = {
     "--     而船有各种大小，必须逐个精确判断。",
     "--   ★ 若直接遍历 Ents 找所有船（可能几百条），开销会大得多。",
   ],
-  1335: [
+  "EntityScript:GetBoatIntersectingPhysics#1+1": [
     "--★ 原注释：\"Intentionally ignoring physics override radius.\"",
     "--   ★ 刻意不用 GetPhysicsRadius（含 override），只用真实物理半径。",
     "--     理由：船的物理重叠必须反映真实的碰撞体积，",
     "--     而 override 是给逻辑（如攻击判定）用的。",
     "--   ★ 这体现了「同一实体有多套半径语义，各有用途」的常见工程现实。",
   ],
-  1336: [
+  "EntityScript:GetBoatIntersectingPhysics#1+2": [
     "--【★ max_boat_radius = MAX_PHYSICS_RADIUS + 0.18】",
     "--   +0.18 的偏移量注释说是 \"Add a small offset for item overhangs\"",
     "--   ★ 原因：物品可能伸出船体（如栏杆上的花盆），",
@@ -261,10 +261,10 @@ export const BEFORE = {
     "   --   ⚠ 魔法数字 0.18 出现两次（1336 与 1342），",
     "--     应提取为常量，否则调整时容易漏改一处。",
   ],
-  1339: [
+  "EntityScript:GetBoatIntersectingPhysics#1+5": [
     "--★ 注释提醒：大半径查询可能包含小船，所以还要逐个精确判定。",
   ],
-  1342: [
+  "EntityScript:GetBoatIntersectingPhysics#1+8": [
     "--★★ 三级回退取船的半径】",
     "--   ① GetSafePhysicsRadius() —— 船脚本可覆写的安全半径（最优先）",
     "--   ② components.hull:GetRadius() —— 船体组件的半径",
@@ -272,16 +272,16 @@ export const BEFORE = {
     "--   ★ 三级回退保证：无论船用哪种实现（标准船、mod 船、简化的船），",
     "--     都能拿到一个合理半径。",
   ],
-  1346: [
+  "EntityScript:GetBoatIntersectingPhysics#1+12": [
     "--【★ 精确判定：圆心距 ≤ 两半径之和】",
     "--   dist - boat_radius <= self_radius  等价于  dist <= self + boat",
     "--   ★ 只用 x/z（忽略 y）—— 因为 DST 是 2.5D，船的垂直分层不重要。",
   ],
-  1352: [
+  "EntityScript:GetBoatIntersectingPhysics#1+18": [
     "--★ 找到第一个就返回（不排序）—— 「任一船相交」而非「最近的船」。",
   ],
 
-  1355: [
+  "EntityScript:GetPosition#1": [
     "--【★ GetPosition 返回 Point 而非裸三元组】",
     "--   Point 是 DST 的封装类型，带 :Get() / :Distance() 等方法。",
     "--   ★ 为什么不是三元组？因为元组每次都要重新解包，",
@@ -289,25 +289,25 @@ export const BEFORE = {
     "--   ⚠ 需注意：Point/Vector3 都是有引用的可变对象，",
     "--     别把 self:GetPosition() 的结果长期持有。",
   ],
-  1359: [
+  "EntityScript:GetRotation#1": [
     "--【★ GetRotation 返回角度制角度（0–360）】",
     "--   ★ 游戏中朝向以「0 = 正北，顺时针」表示；",
     "--     而 Transform 底层用弧度，故内部到处乘/除 RADIANS（见 1372）。",
   ],
-  1363: [
+  "EntityScript:GetAngleToPoint#1": [
     "--★ GetAngleToPoint：算出「我该转多少度才能面向某点」",
     "--【★ 两种调用形态】",
     "--   ① (x, y, z)     —— 三个数字",
     "--   ② (point)       —— 只有一个参数且 y/z 为 nil",
     "--   ★ 这种「重载式」签名在 Lua 中靠 nil 检查实现，是常见惯用法。",
   ],
-  1367: [
+  "EntityScript:GetAngleToPoint#1+4": [
     "--【形态②：解包 Point】x = point:Get() 返回 x,y,z 三元组。",
   ],
-  1369: [
+  "EntityScript:GetAngleToPoint#1+6": [
     "--【★ 只算水平面朝向】取自身位置 (x1,y1,z1)。",
   ],
-  1370: [
+  "EntityScript:GetAngleToPoint#1+7": [
     "--★★ 退化处理：已经在目标点上则保持当前朝向】",
     "--   若 x1 == x and z1 == z（即已重合），atan2(0,0) 返回 0，",
     "--   ★ 那会让实体突然「面向北方」，视觉上是一次突兀的转身。",
@@ -315,7 +315,7 @@ export const BEFORE = {
     "--   ⚠ 隐患：与「刚好在正北方」的情况无法区分（两者的结果一致，",
     "--     所以无害）—— 这是一个巧妙的容错。",
   ],
-  1372: [
+  "EntityScript:GetAngleToPoint#1+9": [
     "--★ math.atan2(z1 - z, x - x1) * RADIANS",
     "--   ★ atan2 返回弧度，* RADIANS(=180/π) 转成角度。",
     "--   ★ 注意参数顺序是 atan2(dz, dx) 而非 atan2(dy, dx) ——",
@@ -323,28 +323,28 @@ export const BEFORE = {
     "--   ★ 这是全游戏最容易搞错的坐标约定：",
     "--     数学里 atan2(y, x)，这里 atan2(z, x)。",
   ],
-  1375: [
+  "EntityScript:GetPositionAdjacentTo#1": [
     "--【★ GetPositionAdjacentTo：算「离 target 恰好 distance 的、朝向我的点」】",
     "--   用于「站在攻击者旁边」「绕到目标正面」等 AI 计算。",
   ],
-  1381: [
+  "EntityScript:GetPositionAdjacentTo#1+6": [
     "--【★ offset = p1 - p2（我朝目标的方向向量）】",
   ],
-  1382: [
+  "EntityScript:GetPositionAdjacentTo#1+7": [
     "--★ Normalize() —— 若两位置重合则得到零向量（不被正规化）。",
     "   --★⚠ 潜在缺陷：若 p1 == p2，offset 为 (0,0,0)，Normalize 无效果，",
     "--     乘distance 仍为 (0,0,0)，结果就是目标点本身 ——",
     "--     行为退化但不崩溃，属可接受的边界情况。",
   ],
-  1384: [
+  "EntityScript:GetPositionAdjacentTo#1+9": [
     "--【★ p2 + offset = 以目标为圆心、指向我的那个点】",
   ],
-  1387: [
+  "EntityScript:ForceFacePoint#1": [
     "--【ForceFacePoint：无视状态图地转身】",
     "--   ★ 与 FacePoint 的唯一区别是不检查 busy 状态。",
     "--     典型用途：玩家主动交互（如转头看箱子）。",
   ],
-  1391: [
+  "EntityScript:FacePoint#1": [
     "--★★ FacePoint：AI 转向的标准入口",
     "--【★ \"busy\" 状态标签：状态图声明「我正忙」时禁止被外部转向打断】",
     "--   ★ 这是「AI 自主性与外部控制权」的仲裁点：",
@@ -354,8 +354,8 @@ export const BEFORE = {
     "--     行为随「有没有挂 sg」而突变——",
     "--     ★ 所以不能给同一个 prefab 配置两个版本（一个有 sg 一个没有）。",
   ],
-  1398: ["-- consider using IsNear if you're checking if something is inside/outside a certain horizontal distance"],
-  1399: [
+  "EntityScript:FacePoint#1+7": ["-- consider using IsNear if you're checking if something is inside/outside a certain horizontal distance"],
+  "EntityScript:GetDistanceSqToInst#1": [
     "--★ 原注释的建议很实用：调用方若只是「是否在范围内」",
     "--   请直接用 IsNear，少写一次平方。",
     "--【★ 距离计算只取 x/z —— 2D 距离】",
@@ -363,55 +363,55 @@ export const BEFORE = {
     "--     「牛距离你 3 格」指的是水平距离，与高度无关。",
     "--     （连游泳的鸭子「像鸭子一样把水甩掉」判定也只看水平距离。）",
   ],
-  1400: [
+  "EntityScript:GetDistanceSqToInst#1+1": [
     "--★ assert 两个实体都有效——计算需要读它们的 Transform。",
     "   --★⚠ 缺陷：热路径上的断言。GetDistanceSqToInst 在 AI 中可能每帧调数十次，",
     "--     每次两个 IsValid()（都是 FFI 调用）开销不小。",
     "--     生产构建若关闭断言则完全白付这两个调用的开销。",
   ],
-  1406: [
+  "EntityScript:IsNear#1": [
     "--【★IsNear：平方比较，避免开方】",
     "--   `self_radius² > dist²` 等价于 `self_radius > dist`（均非负）",
     "--   ★ 性能技巧：省掉一次 sqrt。",
   ],
-  1410: [
+  "EntityScript:GetDistanceSqToPoint#1": [
     "--★ GetDistanceSqToPoint：与 1399 同构，但目标是点而非实体。",
   ],
-  1411: ["    -- If x is the only input, assume it's a Vector3 or Point"],
-  1412: [
+  "EntityScript:GetDistanceSqToPoint#1+1": ["    -- If x is the only input, assume it's a Vector3 or Point"],
+  "EntityScript:GetDistanceSqToPoint#1+2": [
     "--【★ 形态检测：只有 x、y 和 z 均为 nil 时】",
     "--   若调用方传 (10, nil, nil)（只想算 2D 距离），",
     "--   ★ 条件 `x and not y and not z` 为真 → 会误认为是 Vector3 而崩溃。",
     "--   ⚠ 潜在缺陷：参数校验不严。实际代码中很少这样调用，故未暴露。",
     "--     更稳妥的是检查 type(x) == \"userdata\" 或 x.Get ~= nil。",
   ],
-  1419: [
+  "EntityScript:IsNearPlayer#1": [
     "--【★ IsNearPlayer：范围查询玩家的便利函数】",
     "--   isalive 参数控制是否只算活着的玩家（死掉的幽灵不算）。",
   ],
-  1424: [
+  "EntityScript:GetNearestPlayer#1": [
     "--★ GetNearestPlayer：找到最近玩家实体（可能有多个玩家）。",
   ],
-  1429: [
+  "EntityScript:GetDistanceSqToClosestPlayer#1": [
     "--【★ 找不到玩家时返回 math.huge】",
     "--   ★ 而不是 0 或 nil —— 因为调用方会直接做 `< threshold` 比较，",
     "--     huge 与任何阈值比较都得到 false，语义自然正确。",
     "--   ★ 这是「用哨兵值避免调用方判空」的好范式。",
   ],
-  1435: [
+  "EntityScript:FaceAwayFromPoint#1": [
     "--★ FaceAwayFromPoint：转身背对某点（如被击退时、逃离时）。",
   ],
-  1436: [
+  "EntityScript:FaceAwayFromPoint#1+1": [
     "--【★ 与 FacePoint 同样的 busy 保护，但由 force 参数可覆盖】",
     "--   ★ 设计得比 FacePoint 更好：提供了 force 逃生口，",
     "--     强制行为（如被击退）可以绕开 busy 检查。",
     "--   ⚠ 不对称：FacePoint 没有 force 参数。",
     "   --   → 一致性上应给 FacePoint 也加 force。",
   ],
-  1440: [
+  "EntityScript:FaceAwayFromPoint#1+5": [
     "--【★ 重合位置保护】与 1370 同样的容错。",
   ],
-  1443: [
+  "EntityScript:FaceAwayFromPoint#1+8": [
     "--★★ / DEGREES + 180 —— 注意这里与 GetAngleToPoint:1372 不同！",
     "--   GetAngleToPoint 用 * RADIANS（弧度→角度），",
     "--   ★ 这里用 / DEGREES（角度→弧度）后再+180。",
@@ -421,7 +421,7 @@ export const BEFORE = {
     "--     （DEGREES = 1/RADIANS），但极不一致，增加了理解与移植风险。",
     "--     建议统一为 * RADIANS。",
   ],
-  1446: [
+  "EntityScript:IsEntityInFrontConeSlice#1": [
     "--★★ IsEntityInFrontConeSlice：前方扇形区域判定",
     "--【★ 三层判定（代价递增）】",
     "--   ① 距离粗筛（若传了 max_dist / circle_dist）—— 最便宜",
@@ -429,18 +429,18 @@ export const BEFORE = {
     "--   ③ 扇形精确判定（角度 + 距离）—— 最贵",
     "--   ★ 这种「由廉价到昂贵逐级收紧」的短路结构是热路径的标准写法。",
   ],
-  1449: [
+  "EntityScript:IsEntityInFrontConeSlice#1+3": [
     "--【★ 距离检查可选】注释说 \"Distances are optional.\" ——",
     "--   不传就只做角度判定（如「面前扇形区域里的所有东西」）。",
   ],
-  1451: [
+  "EntityScript:IsEntityInFrontConeSlice#1+5": [
     "--【★ circle_dist：一个围绕自己的小圆，圈内一律算「在前面」】",
     "--   原注释：\"circle_dist lets a small circle around self to be counted",
     "--             regardless of the angle\"",
     "--   ★ 典型用途：玩家手里的物品。近距离时玩家手会遮挡视野，",
     "--     若纯按角度判定会漏掉正下方的物品。",
   ],
-  1461: [
+  "EntityScript:IsEntityInFrontConeSlice#1+15": [
     "--★★ forward_vector：把朝向角转成方向向量】",
     "--   Vector3(cos(-rot/RADIANS), 0, sin(-rot/RADIANS))",
     "--   ★ y 分量固定为 0 —— 再次强调 2D 水平面语义。",
@@ -449,12 +449,12 @@ export const BEFORE = {
     "--   ★⚠ 这里是全文件最容易搞错的坐标变换：",
     "--     两处负号（rotation 的负号与 cos/sin 的参数）缺一不可。",
   ],
-  1462: [
+  "EntityScript:IsEntityInFrontConeSlice#1+16": [
     "--★ IsWithinAngle(pos, dir, angle, targetpos) —— C++ 侧向量运算。",
     "--   ★ 把整个扇形判定交给 C++，避免在 Lua 里手写点积运算。",
     "   --★ 全角与半角：wholearcangle_degrees / RADIANS 传给 C++（它要弧度）。",
   ],
-  1465: [
+  "EntityScript:IsAsleep#1": [
     "--★★★ IsAsleep：睡眠状态查询 —— 全篇最重要的一个函数",
     "--【★ 实现只有一行，但它是「引擎状态」与「Lua 逻辑」的边界】",
     "--   引擎决定实体何时睡眠（远离玩家、未加载 chunk、长时间无活动），",

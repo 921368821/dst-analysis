@@ -3,21 +3,21 @@
 // 锚点范围：6000 ~ 7092
 
 export const BEFORE = {
-  6007: [
+  "ACTIONS.REMOTE_TELEPORT.stroverridefn#1": [
     "--★ REMOTE_TELEPORT.stroverridefn —— 「{物品}」的完整句子。",
   ],
-  6013: [
+  "ACTIONS.REMOTE_TELEPORT.fn#1": [
     "--★ REMOTE_TELEPORT.fn —— 远程传送（韦伯/温蒂）。标准 T2 模板。",
     "--   ★★ 6019 行的 CanActivate 在服务端调 —— 注意命名与 ACTIVATE 的",
     "--     CanActivate 同名但不同组件。",
   ],
-  6027: [
+  "ACTIONS.INCINERATE.fn#1": [
     "--★ INCINERATE.fn —— 焚烧。四行。",
   ],
-  6035: [
+  "ACTIONS.BOTTLE.fn#1": [
     "--★ BOTTLE.fn —— 装瓶。三行。",
   ],
-  6041: [
+  "ACTIONS.CARVEPUMPKIN.fn#1": [
     "--★★★【CARVEPUMPKIN.fn —— 雕刻南瓜（34 行），「先放下再雕」】",
     "--   ★★ 6043 行的双组件：`pumpkincarvable or pumpkinhatcarvable`。",
     "--     ★★★ 「南瓜」与「南瓜帽」用同一套逻辑，但走不同组件。",
@@ -36,7 +36,7 @@ export const BEFORE = {
     "--   ★★ 6058 行的 grandowner 检查：别人拿着就拒绝（6059 行注释",
     "--     「someone else holding it?!」）。",
   ],
-  6076: [
+  "ACTIONS.DECORATESNOWMAN.strfn#1": [
     "--★★ DECORATESNOWMAN.strfn —— 三态（STACK 自重 / STACK 小雪球 / nil）。",
     "--   ★★ 6080 行 `IsHeavyLifting() and \"STACK\" or nil` ——",
     "--     ★★★ 「正在搬运重物」⇒ 显示 STACK（叠大雪球）。",
@@ -45,7 +45,7 @@ export const BEFORE = {
     "--   ★ 6082 行的注释「for small throwable snowballs」说明第二个 STACK",
     "--     变体对应「小雪球道具」。",
   ],
-  6087: [
+  "ACTIONS.DECORATESNOWMAN.fn#1": [
     "--★★★【DECORATESNOWMAN.fn —— 装饰雪人（80 行）】",
     "--   ★★ 这是全文件里**最长的单一 fn**，三种模式：",
     "--     ① 手上没有 snowmandecoratable → 「开始装饰」（戴帽子或用物品）",
@@ -76,19 +76,19 @@ export const BEFORE = {
     "--     全部遵循 §0 第 8 条的统一模式。",
     "--     ★ 一致性极高：装饰类动作的黑暗保护是**强制约定**。",
   ],
-  6168: [
+  "ACTIONS.START_PUSHING.strfn#1": [
     "--★ START_PUSHING.strfn —— ROLL 变体（推雪球）。",
   ],
-  6172: [
+  "ACTIONS.START_PUSHING.fn#1": [
     "--★ START_PUSHING.fn —— 四行。IsPushing 检查防止重复推。",
   ],
-  6179: [
+  "ACTIONS.APPLYELIXIR.stroverridefn#1": [
     "--★★ APPLYELIXIR.stroverridefn —— DRINK / APPLY 两变体。",
     "--   ★★ 6181 行的 `HasTag(\"elixir_drinker\")` 决定是「喝」还是「涂」。",
     "--     ★★★ 同一种物品（灵药），对不同目标用不同动词。",
     "--       ★ 与 DROP.strfn（1186）的 13 个标签是同一手法。",
   ],
-  6189: [
+  "find_elixirable_fn#1": [
     "--★ find_elixirable_fn —— 6190 行前的一个单行谓词函数。",
     "--   ★★★ `local function find_elixirable_fn(item) return item.components.ghostlyelixirable ~= nil end`",
     "--     ★ 三种写法对比（本文件三种谓词风格齐全）：",
@@ -100,7 +100,7 @@ export const BEFORE = {
     "--     再决定给谁涂灵药。",
     "--   ★★ 6202 行 FindItem(find_elixirable_fn) —— 在背包里找「可涂的东西」。",
   ],
-  6212: [
+  "ACTIONS.GRAVEDIG.fn#1": [
     "--★ GRAVEDIG.fn —— 挖坟（14 行）。",
     "--   ★★ 6213 行 `local success, reason = false, nil` ——",
     "--     ★★★ 显式初始化为 false, nil，然后在末尾 return。",
@@ -110,16 +110,16 @@ export const BEFORE = {
     "--     ★ 「先用工具（可能是手），再挖」。",
     "--       ★ 顺序意味着工具的副作用先发生（可能改变目标状态）。",
   ],
-  6228: [
+  "ACTIONS.MUTATE.stroverridefn#1": [
     "--★ MUTATE.stroverridefn —— 「变异成 {目标}」的完整句子。",
     "--   ★★ 6229 行的 `act.target.getghostgestalttarget` ——",
     "--     ★ prefab 实例上的方法（无 components 前缀），",
     "--       与 ACTIVATE 的 GetActivateVerb 同型。",
   ],
-  6234: [
+  "ACTIONS.MUTATE.fn#1": [
     "--★ MUTATE.fn —— 变异。14 行，与 GRAVEDIG 结构相同。",
   ],
-  6245: [
+  "ACTIONS.WOBY_PICKUP.fn#1": [
     "--★★★【WOBY_PICKUP.fn —— 狗捡东西（38 行），几乎复制 PICKUP.fn】",
     "--   ★★ 6249 行的**异常缩进**（多一级）说明这段代码被后来插入。",
     "--   ★★ 6250 行 `act.doer.components.container == nil then return false` ——",
@@ -135,14 +135,14 @@ export const BEFORE = {
     "--       ★ 记为 L 类维护风险（非缺陷）。",
     "--   ★★ 6286 行的 validfn 存疑（见 L10 详解，该行在 WOBY_PICK 而非 PICKUP）。",
   ],
-  6264: [
+  "ACTIONS.WOBY_PICKUP.fn#1+19": [
     "--★ 6264 行的失败原因 \"restriction\" 是**小写** ——",
     "--   ★★★ 全文件其它失败原因都是大写（如 \"INUSE\"、\"FULL\"）。",
     "--     ★ 与 PICKUP.fn 的 902 行同样是 \"restriction\"，",
     "--       说明这是一对复制，错误也一起复制了。",
     "--     ★ 记录为 L 类风格瑕疵（可能影响语言包的查找）。",
   ],
-  6284: [
+  "ACTIONS.WOBY_PICK.validfn#1": [
     "--★★★⚠⚠ 疑似缺陷 L10：WOBY_PICK.validfn 的语义与 validfn 约定相反。",
     "--     `return act.doer:GetForagerTarget() ~= nil or (act.target ~= nil",
     "--        and act.target.components.pickable ~= nil",
@@ -182,7 +182,7 @@ export const BEFORE = {
     "--   ★★★ 结论：**注释与代码严重矛盾，疑似缺陷**。只记录不修改。",
     "--     ★ 若实际游戏里狗能正常采摘，说明这条路径被绕过或另有分支。",
   ],
-  6289: [
+  "ACTIONS.WOBY_PICK.fn#1": [
     "--★★★【WOBY_PICK.fn —— 狗采摘（28 行），一个「临时改字段」的手法】",
     "--   ★★ 6297-6302 行的核心技巧：",
     "--       local _numtoharvest = pickable.numtoharvest",
@@ -205,14 +205,14 @@ export const BEFORE = {
     "--   ★★ 6307-6309 行的 LaunchAt —— 「把采到的东西抛向狗的方向」。",
     "--     ★ 参数 `target:GetPhysicsRadius(0) + .25` 是抛射起点偏移。",
   ],
-  6318: [
+  "ACTIONS.CONTAINER_INSTALL_ITEM.strfn#1": [
     "--★ CONTAINER_INSTALL_ITEM.strfn —— UNINSTALL 变体。",
     "--   ★★ 注释「containerinstallableitem exists on clients too」——",
     "--     ★ 与 3315 行的 socketable 同款注释。",
     "--     ★★ 「组件在客户端也可读」是本文件里反复出现的注释主题，",
     "--       它标记了「哪些判定可以放在客户端做预测」。",
   ],
-  6331: [
+  "ACTIONS.CONTAINER_INSTALL_ITEM.pre_action_cb#1": [
     "--★★ CONTAINER_INSTALL_ITEM.pre_action_cb —— 「即时负反馈」的第三例。",
     "--   ★★ 6332-6348 行的三段音效判断：",
     "--     ① 容器不存在        → click_negative",
@@ -230,7 +230,7 @@ export const BEFORE = {
     "--       ★ 但这是「用 nil 检查顺便做端判断」的写法 —— 隐式且脆弱。",
     "--       ★ 记为 L 类观察点。",
   ],
-  6352: [
+  "ACTIONS.CONTAINER_INSTALL_ITEM.fn#1": [
     "--★★★【CONTAINER_INSTALL_ITEM.fn —— 装卸容器（46 行）】",
     "--   ★★ 三条路径：",
     "--     ① 6356-6371 已装上 → **卸载**",
@@ -256,7 +256,7 @@ export const BEFORE = {
     "--   ★★ 6393 行的 return true 在 `if containerinst then` 内 ——",
     "--     ★ 找不到有效容器时走 6396 行 return false。",
   ],
-  6399: [
+  "ACTIONS.MODSLINGSHOT.fn#1": [
     "--★★★ MODSLINGSHOT.fn —— 改装弹弓（19 行），「三级目标搜索」。",
     "--   ★★ 6401-6411 行的搜索顺序：",
     "--     ① 6401  手持的弹弓（且我能开）",
@@ -267,7 +267,7 @@ export const BEFORE = {
     "--     ★ 唯一一个有明确失败原因的「找不到目标」场景。",
     "--   ★★ 6415 行 `StartModding(target, doer)` 返回值直接透传。",
   ],
-  6420: [
+  "ACTIONS.STOPMODSLINGSHOT.fn#1": [
     "--★ STOPMODSLINGSHOT.fn —— 停止改装。",
     "--   ★★ 6422 行的遍历 `for k in pairs(opencontainers)` ——",
     "--     ★★★ 在**打开的容器**里找 slingshotmodscontainer。",
@@ -276,17 +276,17 @@ export const BEFORE = {
     "--       ★ 这是「用容器 UI 承载复杂交互」的架构选择。",
     "--       ★ 与 CONTAINER_INSTALL_ITEM（6318）同源思路。",
   ],
-  6431: [
+  "ACTIONS.DASH.fn#1": [
     "--★ DASH.fn —— 冲刺。只做「转向」（5 行）。",
     "--   ★★★ 6434 行 `doer:ForceFacePoint(pt)` + return true。",
     "--     ★ 「冲刺」的移动由 SG 状态负责，动作只负责指定方向。",
     "--       ★ 这是 T5 模板的最小形态：动作 = 设定一个状态参数。",
     "--   ★ 6437 行的 return false 无 reason。",
   ],
-  6440: [
+  "ACTIONS.WHISTLE.fn#1": [
     "--★ WHISTLE.fn —— 吹口哨召回狗。四行。",
   ],
-  6448: [
+  "ACTIONS.DRAW_FROM_DECK.fn#1": [
     "--★★★ DRAW_FROM_DECK.fn —— 抽牌（34 行），三处库存满的降级处理。",
     "--   ★★ 6451 行的 `if not top_card_id then return false end` ——",
     "--     ★★ 「牌堆空了」有明确处理（但无 reason）。",
@@ -310,14 +310,14 @@ export const BEFORE = {
     "--     写法正确（GiveItem 返回布尔）。",
     "--   ★ 6475-6477 行的音效在 doer.SoundEmitter（对比 6339 行的 TheFocalPoint）。",
   ],
-  6483: [
+  "ACTIONS.FLIP_DECK.fn#1": [
     "--★ FLIP_DECK.fn —— 翻牌堆。音效 + PushEvent。",
     "--   ★★ 6488 行 `act.invobject:PushEvent(\"flipdeck\")` ——",
     "--     ★★★ 往**物品**推事件（不是往 doer）。",
     "--       ★ 与 TRAVEL（3699）、ACTIVATE（3097）同族：",
     "--         「物品自己处理这件事」。",
   ],
-  6493: [
+  "ACTIONS.ADD_CARD_TO_DECK.fn#1": [
     "--★★★【ADD_CARD_TO_DECK.fn —— 加牌（66 行），四种组合】",
     "--   ★★ 结构：外层按「手上是牌还是牌堆」× 「目标是牌堆还是牌」二分：",
     "--     ① 牌 → 牌堆   （加入牌堆）",
@@ -341,13 +341,13 @@ export const BEFORE = {
     "--     ★ AddCard(cardid, 1) 的第二个参数 1 是「位置」，不是数量。",
     "--     ★★★ 这个参数名极易误解（看起来像「加 1 张」）。",
   ],
-  6560: [
+  "ACTIONS.POUNCECAPTURE.fn#1": [
     "--★ POUNCECAPTURE.fn —— 扑抓。标准守卫 + Capture。",
   ],
-  6574: [
+  "ACTIONS.DIVEGRAB.fn#1": [
     "--★ DIVEGRAB.fn —— 潜水抓取。与 POUNCECAPTURE 结构相同。",
   ],
-  6588: [
+  "ACTIONS.STARTELECTRICLINK.fn#1": [
     "--★★ STARTELECTRICLINK.fn —— 「开始/结束」的切换（10 行）。",
     "--   ★★ 6591-6595 行：",
     "--       if IsLinking() then return EndLinking() else return StartLinking() end",
@@ -358,10 +358,10 @@ export const BEFORE = {
     "--       ★★ 这是「状态驱动的单动作」vs「成对动作」的两种范式并存。",
     "--   ★★ 6598 行的 return false 无 reason。",
   ],
-  6601: [
+  "ACTIONS.ENDELECTRICLINK.fn#1": [
     "--★ ENDELECTRICLINK.fn —— 结束连接。依赖 STARTCELECTRICLINK 的同款假设。",
   ],
-  6610: [
+  "ACTIONS.REMOVELUNARBUILDUP.fn#1": [
     "--★★ REMOVELUNARBUILDUP.fn —— 清除月雹（15 行）。",
     "--   ★★ 6620-6621 行的保留注释「TODO: Quick hack to let Bright-beaks",
     "--     insta-clear」+ 代码：",
@@ -375,7 +375,7 @@ export const BEFORE = {
     "--   ★★ 6612 行的 `not IsBuildupWorkable()` —— 「还没到能清除的程度」。",
     "--     ★ return false 无 reason。",
   ],
-  6627: [
+  "ACTIONS.REMOVELUNARBUILDUP.validfn#1": [
     "--★★ REMOVELUNARBUILDUP.validfn —— 又一个 validfn，且**只有一个条件**。",
     "--   ★★ 6631 行的条件与 ValidToolWork（1739）的**最后一项完全相同**：",
     "--       `invobject == nil or doer == nil",
@@ -388,13 +388,13 @@ export const BEFORE = {
     "--     —— 注意 6611 行用的是 `act.target and ... or nil` 的安全写法，",
     "--     而 validfn 里是直接访问。风格不一致。",
   ],
-  6634: [
+  "ACTIONS.SOAKIN.fn#1": [
     "--★ SOAKIN.fn —— 泡澡。四行。",
   ],
-  6640: [
+  "ACTIONS.SOAKIN.fn#1+6": [
     "--★ HERMITCRAB_MUST_TAGS —— 「找附近的小螃蟹」用的标签表。",
   ],
-  6641: [
+  "ACTIONS.TRANSFER_CRITTER.fn#1": [
     "--★★【TRANSFER_CRITTER.fn —— 转移宠物给螃蟹（21 行），含事务回滚】",
     "--   ★★ 三步：",
     "--     ① 6643-6648  找附近 10 格的小螃蟹（必须有 petleash 组件且没满）",
@@ -409,7 +409,7 @@ export const BEFORE = {
     "--       ★ 作者知道应该返回 \"FULL\" 但没启用（可能因为没有对应字符串）。",
     "--       ★ 保留注释表达了意图，是好习惯。",
   ],
-  6663: [
+  "ACTIONS.JOUST.fn#1": [
     "--★★ JOUST.fn —— 马上决斗（14 行）。",
     "--   ★★ 6675 行 `return joustuser:CanJoust()` ——",
     "--     ★★★ §p5 713 行已指出：**返回「能不能」而非「做了没有」**。",
@@ -424,7 +424,7 @@ export const BEFORE = {
     "--         所以只要不返回 false 就不会有问题。",
     "--   ★★ 6667/6671 行的两个裸 `return`（无值）—— 提前退出，隐式 nil。",
   ],
-  6679: [
+  "ACTIONS.STARTREMOVINGMODULE.pre_action_cb#1": [
     "--★ STARTREMOVINGMODULE.pre_action_cb —— 「清/设手柄状态」的第 3 例。",
     "--   ★★ 6681 行 `doer._controller_start_moduleremover = act.invobject` ——",
     "--     ★★★ 这里**设值**（与 5769 行的清空相对）。",
@@ -436,20 +436,20 @@ export const BEFORE = {
     "--         ★ 没有集中的状态机，也没有注释说明这个字段的完整语义。",
     "--         ★ 记为 L 类观察点（隐式状态难以追踪）。",
   ],
-  6685: [
+  "ACTIONS.STARTREMOVINGMODULE.fn#1": [
     "--★ STARTREMOVINGMODULE.fn —— 「开始检视模块」六行。",
     "--   ★★ 6686 行 `local target = act.target or act.doer` ——",
     "--     ★★★ 行尾注释「back up body or ourselves」——",
     "--       ★ 两种场景：给自己拆 / 给备用身体拆。",
     "--       ★ 与 §p6 6055 行的 grandowner 逻辑呼应（WX78 的核心玩法）。",
   ],
-  6693: [
+  "ACTIONS.REMOVEMODULE.pre_action_cb#1": [
     "--★ REMOVEMODULE.pre_action_cb —— 推「手柄移除模块」事件。",
     "--   ★★ 6695 行 `PushEventImmediate(\"controller_removing_module\", invobject)` ——",
     "--     ★ 与 1721 行 DoToolWork 的 recoil 事件同款「立即事件」。",
     "--     ★★ 这里是客户端预动作 ⇒ 事件会被传到服务端。",
   ],
-  6699: [
+  "ACTIONS.REMOVEMODULE.fn#1": [
     "--★★★【REMOVEMODULE.fn —— 界面内拆模块（19 行），手柄分叉】",
     "--   ★★ 6703 行的手柄分叉（与 p5 2560 行同款）：",
     "--     手柄 ⇒ 不设 activeitem，推事件后 return true",
@@ -461,10 +461,10 @@ export const BEFORE = {
     "--   ★★ 6712 行的 `return true` 表示「只是换到手上，不算完成」。",
     "--     ★ 与 6708 行的 return true 语义相同但触发条件不同。",
   ],
-  6719: [
+  "ACTIONS.STOPREMOVINGMODULE.fn#1": [
     "--★ STOPREMOVINGMODULE.fn —— 停止检视。无条件 return true。",
   ],
-  6727: [
+  "ACTIONS.MAPSCOUTSELECT_MAP.maponly_checkvalidpos_fn#1": [
     "--★★★【MAPSCOUTSELECT_MAP.maponly_checkvalidpos_fn —— 「T9 家族」的规范样本】",
     "--   ★★ 6744-6749 行有**一整段被注释掉的距离检查**（8 行）。",
     "--   ★★★ 注释里的代码是：",
@@ -485,7 +485,7 @@ export const BEFORE = {
     "--       ★ 与 6888 行 SWAPBODIES_MAP 用的同一个函数。",
     "--       ★★★ 这是本文件里少见的「已经抽取好的公共查询」。",
   ],
-  6753: [
+  "ACTIONS.MAPSCOUTSELECT_MAP.pre_action_cb#1": [
     "--★★ MAPSCOUTSELECT_MAP.pre_action_cb —— 「设置地图目标」（8 行）。",
     "--   ★★ 6758 行 `mapscreen:SetNewMapTarget(mapent, ACTIONS.MAPSCOUT_MAP)` ——",
     "--     ★★★ 把「选中的目标」与「按下时执行的动作」**一起交给地图界面**。",
@@ -499,13 +499,13 @@ export const BEFORE = {
     "--       ★ 这是一种**不加类型检查的假设**（假定地图开着）。",
     "--       ★ 由 6754 行的 IsMapScreenOpen() 保证。",
   ],
-  6763: [
+  "ACTIONS.MAPSCOUTSELECT_MAP.fn#1": [
     "--★ MAPSCOUTSELECT_MAP.fn —— `return true --do nothing`（3 行）。",
     "--   ★★★ 「选择」动作的 fn 什么都不做 ——",
     "--     全部逻辑在 pre_action_cb（选择）与 MAPSCOUT_MAP.fn（执行）。",
     "--     ★ 这是「一个玩家意图拆成两个动作」的完整实例。",
   ],
-  6768: [
+  "ACTIONS.MAPSCOUT_MAP.maponly_checkvalidpos_fn#1": [
     "--★★ MAPSCOUT_MAP.maponly_checkvalidpos_fn —— 带**距离钳制**的版本（26 行）。",
     "--   ★★ 6773 行的 `not act.target.GetDroneRange` ——",
     "--     ★ 目标必须实现这个方法（能力探测）。",
@@ -521,10 +521,10 @@ export const BEFORE = {
     "--   ★★ 6788-6790 行的零距离保护：`if dist > 0 then 归一化 end`。",
     "--     ★ 与 p6 4013 行的 `dx = 1` 是同款保护（不同实现）。",
   ],
-  6795: [
+  "ACTIONS.MAPSCOUT_MAP.pre_action_cb#1": [
     "--★ MAPSCOUT_MAP.pre_action_cb —— 清除地图目标（一行）。",
   ],
-  6802: [
+  "ACTIONS.MAPSCOUT_MAP.fn#1": [
     "--★★ MAPSCOUT_MAP.fn —— 「派无人机去某点」（17 行）。",
     "--   ★★ 6808-6811 行的**两层间接**：",
     "--       if target:HasTag(\"globalmapicon\") then target = target._target end",
@@ -534,7 +534,7 @@ export const BEFORE = {
     "--     ★★ 然后 6815 行 SendToPoint 送去新位置。",
     "--     ★ 「先停后送」避免了「无人机同时在两处」的竞态。",
   ],
-  6820: [
+  "ACTIONS.MAPSCOUT_MAP.fn#1+18": [
     "--★★★ MAPSCOUT_MAP_TOOFAR 复用 MAPSCOUT_MAP 的校验函数（影子动作家族）。",
     "--   ★★ 6820 行直接赋值 maponly_checkvalidpos_fn。",
     "--   ★★ 6821-6823 行的 stroverridefn 返回固定的「太远了」串。",
@@ -549,13 +549,13 @@ export const BEFORE = {
     "--   ★★★ 这比「返回 false + reason」复杂得多，但 UX 好得多。",
     "--   ★ 与 p7 5179 行 STOKEFIRE 的「三情况两种反馈」形成对比。",
   ],
-  6833: [
+  "ACTIONS.STARTMAPDELIVER.fn#1": [
     "--★ STARTMAPDELIVER.fn —— 「开始地图投递」六行。",
     "--   ★★ 6835 行 `IsFlyingPermittedFromPoint(...)` ——",
     "--     ★★★ 「从这地方能不能起飞」（可能有禁飞区）。",
     "--       ★ 返回 false 无 reason。",
   ],
-  6842: [
+  "ACTIONS.MAPDELIVER_MAP.maponly_checkvalidpos_fn#1": [
     "--★★ MAPDELIVER_MAP.maponly_checkvalidpos_fn —— 「两点之间能否飞」。",
     "--   ★★ 6855 行用 IsFlyingPermittedFromPointToPoint（**双点**版本）。",
     "--     ★ 与 6835 行的单点版本对照：地图上要考虑「起点与终点都要允许飞」。",
@@ -566,7 +566,7 @@ export const BEFORE = {
     "--       ★★ 但这里是**手动重复**而非调用同一个函数 ——",
     "--         两个函数体一样但没有共用。属 L 类不一致。",
   ],
-  6874: [
+  "ACTIONS.SWAPBODIES_MAP.maponly_checkvalidpos_fn#1": [
     "--★★★【SWAPBODIES_MAP.maponly_checkvalidpos_fn —— 地图换身的 28 行】",
     "--   ★★ 6875-6880 行的三道权限检查（WX78 身份 + 技能激活），写法规范。",
     "--   ★★ 6893 行的保留注释解释了一个重要机制：",
@@ -577,7 +577,7 @@ export const BEFORE = {
     "--     ★★ 这个检查必须在**地图层**做（因为玩家看不见屏障边界）。",
     "--   ★ 6888 行复用 FindClosestMapIconInRange（同 6740 行）。",
   ],
-  6904: [
+  "ACTIONS.SWAPBODIES_MAP.fn#1": [
     "--★ SWAPBODIES_MAP.fn —— 「换身」的执行（22 行）。",
     "--   ★★ 6914-6915 行的四重 nil 检查 + NOTARGET 原因：",
     "--       `not mapent or not mapent._target or not mapent._target:IsValid()`",
@@ -590,7 +590,7 @@ export const BEFORE = {
     "--       nil will be true」这个模式（3086/6918 两处）。",
     "--       ★ 同一注释被复制到两处。属 L 类不一致风险。",
   ],
-  6927: [
+  "ACTIONS.TOGGLEWXSCREECH.strfn#1": [
     "--★★ TOGGLEWXSCREECH/TOGGLEWXSHIELDING —— 「开关型动作」的最简实现。",
     "--   ★★ 两个动作的完整内容：",
     "--       strfn: 有 wx_screeching 标签 → \"TURNOFF\"",
@@ -602,13 +602,13 @@ export const BEFORE = {
     "--     ★★ 对比 CLIMB/JUMPIN（还要检查状态），",
     "--       这两个连状态都不检查 —— 因为「开」和「关」由 sg 的状态区分。",
   ],
-  6945: [
+  "ACTIONS.TOGGLEWXSHIELDING.fn#1+4": [
     "--★★ 保留的英文注释解释 EQUIPONBODY 的存在理由与扩展可能：",
     "--   「For possessed bodies, but maybe we can expand to other ents",
     "--     in the future?」",
     "--   ★★ 疑问句形式的注释 —— 作者自己也不确定这个机制能否泛化。",
   ],
-  6946: [
+  "ACTIONS.EQUIPONBODY.fn#1": [
     "--★★【EQUIPONBODY.fn —— 给被附身身体装备（17 行）】",
     "--   ★★ 6952 行的条件：",
     "--       `(target.inventory:IsOpenedBy(act.target) or HasTag(\"playerghost\"))`",
@@ -631,21 +631,21 @@ export const BEFORE = {
     "--         ★ 但也可能玩家预期就是如此（不想让别人的东西进自己包）。",
     "--         ★ 归类为 L 类可疑点（需要玩家反馈确认）。",
   ],
-  6964: [
+  "ACTIONS.CLIMB.strfn#1": [
     "--★ CLIMB.strfn —— 与 JUMPIN.strfn（2965）完全相同的一行。",
     "--   ★★ 两处重复的一行代码。属 L 类轻微重复。",
   ],
-  6968: [
+  "ACTIONS.CLIMB.fn#1": [
     "--★ CLIMB.fn —— 与 JUMPIN.fn（2969）完全同型（climb_pre → climb）。",
     "--   ★★ 6978 行的 GoToState(\"idle\") 兜底同 2979 行。",
   ],
-  6982: [
+  "ACTIONS.STARTVAULTORBTELEPORT.fn#1": [
     "--★ STARTVAULTORBTELEPORT.fn —— 「开始金库球传送」五行。",
   ],
-  6988: [
+  "ACTIONS.STARTVAULTORBTELEPORT.fn#1+6": [
     "--★ MAP_VAULTORB_MUST —— 三个标签的 must 表（CLASSIFIED + 两种图标）。",
   ],
-  6989: [
+  "ACTIONS.VAULTORBTELEPORT_MAP.maponly_checkvalidpos_fn#1": [
     "--★★★【VAULTORBTELEPORT_MAP.maponly_checkvalidpos_fn —— 26 行】",
     "--   ★★ 7001 行 `FindEntities(...)[1]` —— 直接取第一个，",
     "--     ★★ **不做距离比较**！",
@@ -660,7 +660,7 @@ export const BEFORE = {
     "--     ★ 命名区分：FlyingPermitted（无人机）vs Teleporting（玩家传送）。",
     "--       ★ 三者都是「区域限制」的判定，被放在 world/map 相关文件里。",
   ],
-  7016: [
+  "ACTIONS.VAULTORBTELEPORT_MAP.fn#1": [
     "--★★ VAULTORBTELEPORT_MAP.fn —— 32 行，五重 nil 检查。",
     "--   ★★ 7022-7029 行的双重来源 + 双重组件检查：",
     "--       item = act.invobject or act.target",
@@ -672,24 +672,24 @@ export const BEFORE = {
     "--   ★★ 7031-7033 行的第三次检查：地图图标的目标无效。",
     "--   ★ 7035 行 `Activate(doer, mapent._target)` —— 透传组件结果。",
   ],
-  7038: [
+  "ACTIONS.GOLF_START_AIMING.pre_action_cb#1": [
     "--★ GOLF_START_AIMING.pre_action_cb —— 关法术轮盘（STEER_BOAT 同款）。",
     "--   ★★ 四个 pre_action_cb 关法术轮盘（4903/5049/5964/7038）——",
     "--     ★★★ 「持球类/引导类动作都要先关轮盘」是一条隐式约定，",
     "--       但没有统一实现（4 处重复的三行代码）。",
     "--       ★ 记为 L 类重构建议。",
   ],
-  7044: [
+  "ACTIONS.GOLF_START_AIMING.fn#1": [
     "--★ GOLF_START_AIMING.fn —— 高尔夫瞄准的六条件准入。",
     "--   ★★ 7045-7047 行的三重身份确认：",
     "--       有 golfclub 组件 + equippable:IsEquipped() + inventoryitem:IsHeldBy(doer)",
     "--     ★★★ 三个「持有」相关的检查全做了一遍。",
     "--       ★ 必要性：防止用「别人装备的球杆」瞄准。",
   ],
-  7054: [
+  "ACTIONS.GOLF_STOP_AIMING.fn#1": [
     "--★ GOLF_STOP_AIMING.fn —— 停止瞄准（从手部取球杆）。",
   ],
-  7062: [
+  "ACTIONS.GOLF_START_CHARGING.pre_action_cb#1": [
     "--★★★【GOLF_START_CHARGING.pre_action_cb —— 「双端分别做不同事」的范例（17 行）】",
     "--   ★★ 7068 行的注释「server and predicted clients」与",
     "--     7073 行的「server and local clients」——",
@@ -711,12 +711,12 @@ export const BEFORE = {
     "--       ★★ 于是这一段天然只在客户端执行（服务端没有 playercontroller）。",
     "--         ★ 与 6332 行（用 HUD 隐式过滤）不同，这里是**显式**的。",
   ],
-  7081: [
+  "ACTIONS.GOLF_START_CHARGING.fn#1": [
     "--★ GOLF_START_CHARGING.fn —— `return true`（一行，无操作）。",
     "--   ★★ 蓄力的全部工作在 pre_action_cb（转向 + 准星）与状态图里。",
     "--     ★ 又一个「动作为信号」的例子。",
   ],
-  7086: [
+  "ACTIONS.TERRAFORM_REMOVE.fn#1": [
     "--★★【TERRAFORM_REMOVE.fn —— 移除地形（7 行，全文件最后一个 fn）】",
     "--   ★★ 7088 行的两个否定条件：",
     "--       `invobject.components.terraformer and",
@@ -732,7 +732,7 @@ export const BEFORE = {
     "--   ★★ 7089 行的 TryToRemove —— 注意是「尝试」（Try 前缀）",
     "--     ★ 返回值直接透传。",
   ],
-  7091: [
+  "ACTIONS.TERRAFORM_REMOVE.fn#1+5": [
     "--★ 到此 actions.lua 全文结束（7092 行源文件，7093 行含末尾换行）。",
     "--★★ 全文件结构回顾：",
     "--  §零   8-291     范围/距离函数族（14 个）—— 「够不够近」的所有算法",

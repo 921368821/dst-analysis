@@ -41,7 +41,7 @@ export default {
   ],
 
   // ══════════════ 阈值求值 ══════════════
-  22: [
+  "Approach:EvaluateDistances#1": [
     '--★★ EvaluateDistances：求值时机比 follow 更严格。',
     '--★ 对照 follow 第 88 行 `if targetswitched or self.alwayseval`：',
     '--   follow 有 alwayseval 开关，可选每帧重算；',
@@ -52,13 +52,13 @@ export default {
   ],
 
   // ══════════════ 调试输出 ══════════════
-  28: [
+  "Approach:DBString#1": [
     '--★ DBString：格式比 follow 简（无 action 字段，因为无多态动作）。',
     '--   同样是每帧现算距离，保证调试信息是最新的。',
   ],
 
   // ══════════════ 距离与平台 ══════════════
-  36: [
+  "_distsq#1": [
     '--★★ _distsq：从 follow.lua 第 59-67 行**原样复制**。',
     '--⚠️ 这是一处真实的代码重复（两个文件各自定义同名局部函数，逻辑一致）。',
     '--   我已逐行比对：两处实现完全相同，包括第 42 行的 3D 距离原注释。',
@@ -67,47 +67,47 @@ export default {
     '--   DST 自己的 behaviourutil.lua 就是干这个的，但这两个节点没复用它。',
     '--★ 提醒：复制粘贴的代码是「双份维护成本」的来源，注释出来至少能让后人警觉。',
   ],
-  46: [
+  "Approach:AreDifferentPlatforms#1": [
     '--★★ AreDifferentPlatforms：同样从 follow 第 69-74 行复制。',
     '--★ 条件是 allow_platform_hopping —— 生物不允许跳船时，跨平台问题不存在。',
   ],
 
   // ══════════════ Visit:READY 段 ══════════════
-  53: [
+  "Approach:Visit#1": [
     '--★★ Visit 的三段式结构，与 follow/approach 完全同形。',
     '--   ★★ 与 follow 的一个重要结构差异：approach **两个 status 段都在外层 if 里**，',
     '--     所以 READY 段判定成功后（同帧直接 SUCCESS），第二段仍会被检查 ——',
     '--     但因为 status 已是 SUCCESS 而非 RUNNING，第 79 行不成立，安全跳过。',
     '--   这正是「顺序双 if」写法的健壮之处：状态改动后第二段自动失效。',
   ],
-  55: [
+  "Approach:Visit#1+2": [
     '--★ 三个局部变量缓存：距离、目标点、跨平台标记。',
     '--★ 只在 READY 段算一次，RUNNING 段若为 nil 再补算（第 89 行）——',
     '--   「缓存 + 按需补算」的标准模式，避免每帧重复计算。',
   ],
-  57: [
+  "Approach:Visit#1+4": [
     '--★★ READY 段入口。与 follow 相比少了 `or targetswitched` ——',
     '--   因为 Approach 只有「接近」一个动作，目标切换后进入的是新的一次 Visit',
     '--   （READY 状态），不需要在 RUNNING 中途重做决策。',
     '--★★ 这是 follow 必须处理「RUNNING 期间换目标」而 approach 不需要的原因，',
     '--   根因是 follow 有 APPROACH/BACKOFF 两个互斥动作。',
   ],
-  58: [
+  "Approach:Visit#1+5": [
     '--★ 先存旧目标 —— 仅用于第 63 行判断「是否换目标」，决定要不要重算阈值。',
   ],
-  61: [
+  "Approach:Visit#1+8": [
     '--★ 同 follow：一次调用同时拿到距离平方与目标世界坐标，避免重复取 Transform。',
   ],
-  63: [
+  "Approach:Visit#1+10": [
     '--★★ 仅在目标切换时重算阈值（对比 follow 可选 alwayseval 每帧重算）。',
     '--★ 语义差异的取舍已在第 22 行详述：一次性行为用快照更合理。',
   ],
-  69: [
+  "Approach:Visit#1+16": [
     '--★★ 进入判定：跨平台 或 距离超出 dist。',
     '--   ★ 两个条件的语义与 follow 第 97 行的 APPROACH 完全一致，抄的是同一套判据。',
     '--★ 缺了 follow 的 min_dist 分支 —— 没有内圈，所以不会后退。',
   ],
-  72: [
+  "Approach:Visit#1+19": [
     '--★★ 已经在 dist 范围内 → 直接 SUCCESS（不产生任何移动）。',
     '--★★ 这是与 follow 第 101 行最本质的差异：',
     '--   follow：已在范围内 → FAILED（「不需要做什么」）',
@@ -123,19 +123,19 @@ export default {
   ],
 
   // ══════════════ Visit:RUNNING 段 ══════════════
-  79: [
+  "Approach:Visit#1+26": [
     '--★★ RUNNING 段入口：先做目标有效性复检（nil / 无效 / 已死）。',
     '--★ 跨帧存活的行为必须每帧重新验证外部世界 —— 与 follow 第 114-123 行同理。',
     '--★ 注意此处**没有** inlimbo 检查（follow 有且需显式开启）：',
     '--   Approach 节点构造器根本没有 inlimbo_invalid 参数。',
     '--   这说明「是否把 limbo 当失效」是按节点语义逐个决定的，不是统一策略。',
   ],
-  89: [
+  "Approach:Visit#1+36": [
     '--★★ 距离缓存的补算点。dist_sq 为 nil 说明本次调用是从 RUNNING 直接进入的。',
     '--★ 第 91 行连跨平台标记一起补算 —— 两者在 READY 段是成对产出的，',
     '--   补算时必须成对补，漏一个就会用到 nil 参与比较（第 100 行）而报错。',
   ],
-  94: [
+  "Approach:Visit#1+41": [
     '--★★ RUNNING 中的完成判定：进入 dist 内 → SUCCESS。',
     '--★ 与第 72 行的 READY 判定条件完全相同（not on_different_platforms and dist_sq < dist²），',
     '--   两处重复是有意为之：一个是「首次进入时判断」，一个是「运行途中判断」。',
@@ -143,7 +143,7 @@ export default {
     '--   ★ 移植要点：凡是有「进入 RUNNING → 达成目标」结构的行为，',
     '--     READY 与 RUNNING 两处都必须写完成判定。',
   ],
-  100: [
+  "Approach:Visit#1+47": [
     '--★★ 跑步判定：跨平台 或 太远 或 已在 running 状态。',
     '--★ 第三个条件 `sg:HasStateTag("running")` 是**迟滞（sticky）**：',
     '--   已经开始跑就保持跑，直到进入 dist。',
@@ -152,7 +152,7 @@ export default {
     '--   follow 的做法是「跨平台时 max_dist = 0」（哨兵值法，见 follow 第 139 行）。',
     '--   ★ 两种写法等价，但 approach 更直接。移植时可择其一，别同时用。',
   ],
-  106: [
+  "Approach:Visit#1+53": [
     '--★★ self:Sleep(.25) —— 与 follow 完全相同：每 0.25 秒醒一次。',
     '--★ 「走到位即结束」的节点用 .25 足够；持续性行为（战斗、逃跑）才需要更快的节拍',
     '--  （对比 chaseandattack 的 .125、runaway 的更短值）。',

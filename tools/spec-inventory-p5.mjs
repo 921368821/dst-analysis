@@ -3,7 +3,7 @@
 // 锚点范围：1801 ~ 2258
 
 export const BEFORE = {
-  1801: [
+  "Inventory:DropEverythingWithTag#1": [
     "-- 【§十四】★ DropEverythingWithTag(tag) —— 「丢掉所有带某标签的东西」。",
     "-- ★★★ 用途：玩家死亡时丢任务道具（\"taskitems\"）、",
     "--   被诅咒时丢某些东西（\"curseditem\"）等。",
@@ -29,7 +29,7 @@ export const BEFORE = {
     "--     RemoveItem 删的是同一个键。Lua 允许「遍历时给当前键赋 nil」。",
     "--     ⇒ ★ 实际安全，但脆弱。",
   ],
-  1804: [
+  "Inventory:DropEverythingWithTag#1+3": [
     "-- ★ activeitem 处理 —— 与后面两段结构相同。",
     "-- ★★ ★★ 注意 1807 行：`self:SetActiveItem(nil)` **在** DropItem 之后。",
     "--   ⇒ ★★★ 顺序与 327 行 DropActiveItem 一致（先丢再清状态）。",
@@ -38,7 +38,7 @@ export const BEFORE = {
     "--   ★★ 这意味着：背包（overflow）也会被递归检查。",
     "--   ★★★ ⇒ 「丢光背包里所有任务道具」也会生效。合理。",
   ],
-  1813: [
+  "Inventory:DropEverythingWithTag#1+12": [
     "-- ★★ itemslots 循环 —— **有序 for**（1..maxslots）。",
     "-- ★★ ★★ 注意这里用的是有序 for 而非 pairs：",
     "--   ⇒ ★★★ 因为循环体里 DropItem 会把 itemslots[k] 置 nil，",
@@ -46,7 +46,7 @@ export const BEFORE = {
     "--   ★★ 对比 128/1824 行的 pairs 遍历（会有 L7 的问题）。",
     "-- ★★★ ★ 这里的选择比 1824 行更稳妥！",
   ],
-  1824: [
+  "Inventory:DropEverythingWithTag#1+23": [
     "-- ★★ equipslots 循环 —— **pairs**（与前面两段不同！）。",
     "-- ★★★ ★★★ 这是一个**真实的不一致**（见 L7）：",
     "--   · itemslots 循环（1813 行）用有序 for；",
@@ -59,7 +59,7 @@ export const BEFORE = {
     "--   ⇒ ★★★ 结论：这是「一致的不安全」—— 全文件统一用 pairs，",
     "--     依赖 Lua 的 next 语义。移植时若改成 table.remove 就会全崩。",
   ],
-  1832: [
+  "Inventory:DropEverythingWithTag#1+31": [
     "-- ★★★ 容器递归 —— 循环结束后统一处理。",
     "-- ★★★ ★★ `v.components.container:DropEverythingWithTag(tag)` ——",
     "--   ★★★ ★★★ 这是**跨组件的同名方法递归调用**：",
@@ -73,7 +73,7 @@ export const BEFORE = {
     "--   容器套容器可以无限深，理论上会爆栈。",
     "--   ★ 实践中容器嵌套不超过 2-3 层。",
   ],
-  1837: [
+  "Inventory:DropEverythingByFilter#1": [
     "-- ★★ DropEverythingByFilter(filterfn) —— 「丢掉所有满足谓词的东西」。",
     "-- ★★★★ 与 1801 行 DropEverythingWithTag **完全同构**，只是判定方式不同：",
     "--   · WithTag：`v:HasTag(tag)`；",
@@ -87,7 +87,7 @@ export const BEFORE = {
     "--   ⇒ ★★★ 两个函数可以**完全合并**为「判定函数 + 丢弃」的模板。",
     "--   ★★ 这就是 L14 描述的复制粘贴问题。",
   ],
-  1873: [
+  "Inventory:DropEverything#1": [
     "-- 【§十四】★★★ DropEverything —— 「丢掉所有东西」。最常被调用的清理函数。",
     "-- ★★★★ 三参数：ondeath（是否死亡导致）、keepequip（保留装备）。",
     "-- ★★★★ 六个特判（★ 每个都有存在理由）：",
@@ -108,7 +108,7 @@ export const BEFORE = {
     "--   ★★ 注释解释：某些物品（如 Wanda 的手表）正常情况下留在栏里，",
     "--     但荒野模式强制重开，必须全掉。",
   ],
-  1878: [
+  "Inventory:DropEverything#1+5": [
     "-- ★★★ activeitem 的丢弃判定（1878-1881 行）。",
     "-- ★★ `not (ondeath and self.activeitem.components.inventoryitem.keepondeath)` ——",
     "--   ★★★ ★★ keepondeath 标签的语义：**只在死亡时保留**。",
@@ -119,7 +119,7 @@ export const BEFORE = {
     "-- ★★ 1879 行 `DropItem(self.activeitem, true, true)` —— 整摞、随机方向。",
     "-- ★★ 1880 行 SetActiveItem(nil) —— 在 DropItem **之后**清状态。",
   ],
-  1883: [
+  "Inventory:DropEverything#1+10": [
     "-- ★★ internal_containers —— 收集「锁定但有内容」的容器。",
     "-- ★★★ ★★ 1887-1897 行的四重判定：",
     "--   ① ondeath 和 keepondeath → 跳过（保留）；",
@@ -154,7 +154,7 @@ export const BEFORE = {
     "--   ★★ 这意味着容器里的 keepondeath 物品**不会被保留**。",
     "--   ⚠ 见 L31：一个潜在的不一致。",
   ],
-  1906: [
+  "Inventory:DropEverything#1+33": [
     "-- ★★ `if not keepequip then` —— 是否丢掉装备。",
     "-- ★★ ★ 1907-1909 行：`self.inst.EmptyBeard()` ——",
     "--   ★★★ 威尔逊的胡子是**独立实体**，存在实体字段上而非装备槽。",
@@ -170,7 +170,7 @@ export const BEFORE = {
     "--   ★★ 这可能是有意的（死亡时所有装备都该掉），",
     "--     也可能是遗漏（普通槽保护了，装备槽没有）。见 L32。",
   ],
-  1919: [
+  "Inventory:DropEquipped#1": [
     "-- ★★ DropEquipped(keepBackpack, keepPreventUnequipping) ——",
     "--   「只丢装备」。",
     "-- ★★★ 两个保留条件（1921-1922 行）：",
@@ -189,7 +189,7 @@ export const BEFORE = {
     "-- ★★ 1922 行 `v.components.equippable and ShouldPreventUnequipping()` ——",
     "--   有 equippable 组件才检查（双重保护，参照 172 行的风格）。",
   ],
-  1929: [
+  "Inventory:DestroyContents#1": [
     "-- ★★ DestroyContents —— 「销毁所有物品内容」。",
     "-- ★★★★ 与 DropEverything 的区别：",
     "--   · DropEverything 丢到**地上**（物品还存在）；",
@@ -221,7 +221,7 @@ export const BEFORE = {
     "--     RemoveItem 会走 1426 行的 `Unequip(k, nil, true)`（force），",
     "--     ⇒ ★★★ ★ 强制卸下「粘住」的装备。因为要销毁，没有理由尊重锁。",
   ],
-  1968: [
+  "Inventory:BurnNonpotatableInContainer#1": [
     "-- ★★ BurnNonpotatableInContainer(container) —— 「把不能煮的东西烧成灰」。",
     "-- ★★ 用途：烹饪锅放入 nonpotatable 标签的东西时，把它变 ash。",
     "-- ★★★ 五步（1969-1977 行）：",
@@ -239,7 +239,7 @@ export const BEFORE = {
     "--   ★★ 这是「容器组件作为入参」的例子——",
     "--     参数类型是 container 组件，不是 inventory 组件。",
   ],
-  1980: [
+  "Inventory:ReferenceAllItems#1": [
     "-- ★★ ReferenceAllItems —— 「返回所有物品的引用列表」。",
     "-- ★★★ 三段（1982-1997 行）：itemslots + equipslots + overflow 递归。",
     "-- ★★★ ★★ 与 FindItems（638 行）的对比：",
@@ -254,7 +254,7 @@ export const BEFORE = {
     "--   ⇒ ★★ ★★ **同一个概念的两处遍历用了不同方式**（见 L33）。",
     "--   影响：存档顺序可能与引用顺序不同，但都不依赖顺序。",
   ],
-  2001: [
+  "Inventory:GetDebugString#1": [
     "-- 【§十五】★ GetDebugString —— 「调试用的可读描述」。",
     "-- ★★ 2006 行 `item.prefab or \"prefab\"` —— prefab 兜底。",
     "-- ★★ ★★ ⚠ 见 L12：2012 行的 string.format 有 bug——",
@@ -264,7 +264,7 @@ export const BEFORE = {
     "-- ★★ 2007-2009 行：堆叠物品显示 \" xN\"。",
     "-- ★★ ★ 输出格式：`count: prefab1, prefab2 x5`。",
   ],
-  2015: [
+  "Inventory:IsOpenedBy#1": [
     "-- 【§十五】★★ IsOpenedBy(guy) —— 「这个物品栏是不是正被 guy 打开着」。",
     "-- ★★★ `return self.isopen and self.isvisible and guy == self.inst` ——",
     "-- ★★★★ 三重与条件，★ 每一项都有讲究：",
@@ -279,7 +279,7 @@ export const BEFORE = {
     "--   「这个容器是不是我打开的」（1472 行 ValidateSpecializedContainer）。",
     "--     若不检查 owner，任何人都会被当成「已打开它」。",
   ],
-  2019: [
+  "Inventory:Show#1": [
     "-- 【§十五】★ Show —— 「让 UI 可见（但逻辑上仍开着）」。",
     "-- ★★★★ 与 Open 的区别（★★ 关键设计）：",
     "--   · Open（2037 行）：逻辑开启 + UI 可见 + 打开 overflow；",
@@ -304,7 +304,7 @@ export const BEFORE = {
     "--   ★★★ 这解决了「打开背包时 UI 重建导致滚动跳回顶部」的问题。",
     "--   ★★ 与 inventory_replica.lua:124-126 的同名标记呼应。",
   ],
-  2037: [
+  "Inventory:Open#1": [
     "-- 【§十五】★★ Open —— 「打开物品栏」。",
     "-- ★★★★ 四步（2038-2057 行）：",
     "--   ① 2038 行 replica:OnOpen()（网络同步，见下）；",
@@ -327,7 +327,7 @@ export const BEFORE = {
     "--   ★★ ★★ 这是「穿上背包后格子数增加」的实现。",
     "-- ★★ 2054-2056 行：UI 重建时的吸附标记（同 2055 行）。",
   ],
-  2060: [
+  "Inventory:Hide#1": [
     "-- 【§十五】★★★ Hide —— 「隐藏 UI 但保持逻辑打开」。★★ 精妙设计。",
     "-- ★★★★ 五步（2061-2088 行）：",
     "--   ① 2061-2063 行 幂等守卫（未开则返回）；",
@@ -365,7 +365,7 @@ export const BEFORE = {
     "--   ★★ stay_open_on_hide 标签的语义：",
     "--   「隐藏物品栏时不关闭我」（某些容器希望保持打开状态）。",
   ],
-  2090: [
+  "Inventory:Close#1": [
     "-- 【§十五】★★ Close —— 「完全关闭物品栏」。",
     "-- ★★★★ 与 Hide 的区别（★ 三点，务必分清）：",
     "--   ① Close 置 **isopen = false**（Hide 不动）；",
@@ -391,7 +391,7 @@ export const BEFORE = {
     "--   ★★ 2093-2095 行的守卫在 OnClose 之后，所以即使已关闭也会撤权。",
     "--   ★★ ★ 幂等（重复 Close 无害）。",
   ],
-  2118: [
+  "Inventory:CloseAllChestContainers#1": [
     "-- ★★ CloseAllChestContainers —— 「关闭所有箱子」。",
     "-- ★★★ 用途：玩家切换角色形态、或触发剧情时关闭所有 UI。",
     "-- ★★ ★★ 2120 行 `k.components.container.type == \"chest\"` ——",
@@ -403,7 +403,7 @@ export const BEFORE = {
     "--   ★★ 推理：能进 opencontainers 且需要「关闭」的都应该有 container 组件。",
     "--     参照 1540 行的 or 兜底，这里是不一致的隐含假设。",
   ],
-  2126: [
+  "Inventory:CloseAllChestContainers#1+8": [
     "-- 【§十六】★★ InvSlot 点击动作处理器家族。",
     "-- ★★★★ ★★ 这段的分隔注释（2126-2128 行）用了三个横杠，",
     "--   是 Klei 源码里的「章节标记」风格（本文件只此一处）。",
@@ -421,7 +421,7 @@ export const BEFORE = {
     "-- ★★★★ ★★ stack_mod 参数：区分「整摞」与「一个」，",
     "--   对应 UI 上的「点击」与「shift+点击」。",
   ],
-  2130: [
+  "Inventory:PutOneOfActiveItemInSlot#1": [
     "-- ★★ PutOneOfActiveItemInSlot —— 「把手上的 1 个放进某槽」。",
     "-- ★★★ 五重条件（2132-2136 行）：",
     "--   · activeitem 非 nil；",
@@ -435,7 +435,7 @@ export const BEFORE = {
     "--   这是「玩家主动操作」，不该播「拾取音」。",
     "--   ⇒ ★★ 若 2139 行抛错，ignoresound 泄漏（L9）。",
   ],
-  2144: [
+  "Inventory:PutAllOfActiveItemInSlot#1": [
     "-- ★★ PutAllOfActiveItemInSlot —— 「把手上的全部放进某槽」。",
     "-- ★★★★ 与 2130 行的差异：",
     "--   · 条件是 `AcceptsStacks() or 非堆叠 or 只有1个`（2149-2151）；",
@@ -451,7 +451,7 @@ export const BEFORE = {
     "-- ★★★ ★★ 2153 行的 RemoveItem 依赖 1453 行的兜底（返回原实体）。",
     "-- ★★ ignoresound 包裹（2154/2156）。",
   ],
-  2160: [
+  "Inventory:TakeActiveItemFromHalfOfSlot#1": [
     "-- ★★ TakeActiveItemFromHalfOfSlot —— 「把槽里的一半拿到手上」。",
     "-- ★★★★ 三重条件（2162-2165 行）：槽有物 + 手上为空 + 可堆叠且 >1。",
     "-- ★★★ ★★ 2167 行 `Get(math.floor(StackSize() / 2))` —— 对半分。",
@@ -467,7 +467,7 @@ export const BEFORE = {
     "-- ★★★ ⇒ ★★ 两处都写 prevslot = slot，区别只在 prevcontainer。",
     "--   ★ 这是「位置记忆」在各种操作中的一致应用。",
   ],
-  2174: [
+  "Inventory:TakeActiveItemFromCountOfSlot#1": [
     "-- ★★ TakeActiveItemFromCountOfSlot(slot, count) —— 「从槽里拿 N 个到手上」。",
     "-- ★★★ 条件比 2160 宽松：只要求槽有物 + 手上为空（2176-2177）。",
     "--   ★★★ 不要求「可堆叠且 >1」——因为单件物品也能拿。",
@@ -493,7 +493,7 @@ export const BEFORE = {
     "--     不是「不该走到」，而是「阻止不该发生的事」。",
     "-- ★★ 2189-2190 行：RemoveItemBySlot + GiveActiveItem（整摞拿走）。",
   ],
-  2195: [
+  "Inventory:TakeActiveItemFromAllOfSlot#1": [
     "-- ★★ TakeActiveItemFromAllOfSlot —— 「把槽里的全部拿到手上」。",
     "-- ★★ 条件最宽松：槽有物 + 手上为空（2197-2198）。",
     "-- ★★★ ★★ 2199-2202 行：**先检查锁定**（与 2174 行的顺序相反）。",
@@ -507,7 +507,7 @@ export const BEFORE = {
     "--   ★★★ 推断：2195 行是后来加的（补了 2174 行的漏洞）。",
     "-- ★★★ ★★ 两处 assert 都在 `BRANCH ~= \"dev\"` 下 —— 见 L6。",
   ],
-  2208: [
+  "Inventory:AddOneOfActiveItemToSlot#1": [
     "-- ★★ AddOneOfActiveItemToSlot —— 「把手上 1 个加到槽里已有的摞」。",
     "-- ★★★★ 条件**八重**（2211-2219 行）：槽有物 + 手上非 nil +",
     "--   CanTakeItemInSlot + 槽可堆叠 + CanStackWith + AcceptsStacks +",
@@ -531,7 +531,7 @@ export const BEFORE = {
     "--   ★★ 由于全部是 and 运算，优先级相同，括号省略是安全的。",
     "--   ★★ 但可读性差（对比 528 行的 Combine 有括号）。",
   ],
-  2225: [
+  "Inventory:AddAllOfActiveItemToSlot#1": [
     "-- ★★ AddAllOfActiveItemToSlot —— 「把手上全部加到槽里」。",
     "-- ★★★★ 条件比 2221 行少（2219 行的 IsFull 检查没有）：",
     "--   2211-2233 行只检查「可堆叠 + CanStackWith + AcceptsStacks」。",
@@ -551,7 +551,7 @@ export const BEFORE = {
     "--       gotnewitem 的 new_item 判定（1041 行）本就为 false，无需静音。",
     "--       ⇒ ★★★ 这是**正确的**，不是缺陷。设计很精细。",
   ],
-  2240: [
+  "Inventory:SwapActiveItemWithSlot#1": [
     "-- ★★ SwapActiveItemWithSlot —— 「手上物品与槽内物品交换」。",
     "-- ★★★★ 条件（2243-2250 行）—— ★★★ 三重「不」：",
     "--   · CanTakeItemInSlot；",
@@ -581,40 +581,40 @@ export const BEFORE = {
 };
 
 export const AFTER = {
-  1801: ["-- ↑ DropEverythingWithTag 结束（★ 三段循环 + 延迟递归）。"],
-  1804: ["-- ↑ activeitem 处理。"],
-  1813: ["-- ↑ itemslots 循环（有序 for，★ 比装备循环更稳妥）。"],
-  1824: ["-- ★★ equipslots 循环（pairs，见 L7）。"],
-  1832: ["-- ★★★ 容器递归（延迟到循环结束后）。"],
-  1837: ["-- ↑ DropEverythingByFilter 结束（★ 与 WithTag 完全同构）。"],
-  1873: ["-- ↑ DropEverything 函数头（六个特判）。"],
-  1878: ["-- ↑ activeitem 丢弃（keepondeath 双重否定）。"],
-  1883: ["-- ↑ internal_containers 收集起点。"],
-  1906: ["-- ★★ keepequip 分支。"],
-  1907: ["-- ↑ EmptyBeard（威尔逊的胡子是独立实体）。"],
-  1919: ["-- ↑ DropEquipped 结束（★ backpack 标签 vs 组件判定不一致）。"],
-  1929: ["-- ↑ DestroyContents 结束（★ 先清容器再删本体）。"],
-  1935: ["-- ★★★ IsValid 复查（回调可能已删掉物品）。"],
-  1968: ["-- ↑ BurnNonpotatableInContainer 结束（灰烬继承原名）。"],
-  1980: ["-- ↑ ReferenceAllItems 结束（★ 与 FindItems 范围相同）。"],
-  2001: ["-- ↑ GetDebugString 结束（★ L12：format 缺占位符）。"],
-  2015: ["-- ↑ IsOpenedBy 结束（三重与条件）。"],
-  2019: ["-- ↑ Show 结束（★ 只改 isvisible，不改 isopen）。"],
-  2037: ["-- ↑ Open 结束（★ OnOpen 授予 classified 访问权限）。"],
-  2051: ["-- ★★★ 打开 overflow（穿上背包后格子增加）。"],
-  2060: ["-- ↑ Hide 函数头（★ 只隐藏 UI，保持逻辑打开）。"],
-  2071: ["-- ★★★ ReturnActiveItem（UI 隐藏了要收手）。"],
-  2077: ["-- ★★ 关闭容器（★ 2078 行无 nil 保护 —— 见 L2）。"],
-  2087: ["-- ★★★★★ 只置 isvisible = false（核心设计）。"],
-  2090: ["-- ↑ Close 函数头（★ 置 isopen = false + 关所有容器）。"],
-  2106: ["-- ★★ 无条件关闭所有容器（对比 Hide 的排除逻辑）。"],
-  2118: ["-- ↑ CloseAllChestContainers 结束（★ 2120 行同样无 or 兜底）。"],
-  2130: ["-- ↑ PutOneOfActiveItemInSlot 结束。"],
-  2144: ["-- ↑ PutAllOfActiveItemInSlot 结束（★ 先取出再放入）。"],
-  2160: ["-- ★★ TakeActiveItemFromHalfOfSlot 结束（★ 奇数时拿走少的一半）。"],
-  2174: ["-- ↑ TakeActiveItemFromCountOfSlot 结束（★ overstacked 的上限处理）。"],
-  2195: ["-- ↑ TakeActiveItemFromAllOfSlot 结束（★ 锁定检查顺序与 2174 不同）。"],
-  2208: ["-- ↑ AddOneOfActiveItemToSlot 结束（★ 不走 GiveItem，不发 itemget）。"],
-  2225: ["-- ↑ AddAllOfActiveItemToSlot 结束（★ 与 528 行 Combine 同构）。"],
-  2240: ["-- ↑ SwapActiveItemWithSlot 结束（★ 先清空再放入）。"],
+  "Inventory:DropEverythingWithTag#1": ["-- ↑ DropEverythingWithTag 结束（★ 三段循环 + 延迟递归）。"],
+  "Inventory:DropEverythingWithTag#1+3": ["-- ↑ activeitem 处理。"],
+  "Inventory:DropEverythingWithTag#1+12": ["-- ↑ itemslots 循环（有序 for，★ 比装备循环更稳妥）。"],
+  "Inventory:DropEverythingWithTag#1+23": ["-- ★★ equipslots 循环（pairs，见 L7）。"],
+  "Inventory:DropEverythingWithTag#1+31": ["-- ★★★ 容器递归（延迟到循环结束后）。"],
+  "Inventory:DropEverythingByFilter#1": ["-- ↑ DropEverythingByFilter 结束（★ 与 WithTag 完全同构）。"],
+  "Inventory:DropEverything#1": ["-- ↑ DropEverything 函数头（六个特判）。"],
+  "Inventory:DropEverything#1+5": ["-- ↑ activeitem 丢弃（keepondeath 双重否定）。"],
+  "Inventory:DropEverything#1+10": ["-- ↑ internal_containers 收集起点。"],
+  "Inventory:DropEverything#1+33": ["-- ★★ keepequip 分支。"],
+  "Inventory:DropEverything#1+34": ["-- ↑ EmptyBeard（威尔逊的胡子是独立实体）。"],
+  "Inventory:DropEquipped#1": ["-- ↑ DropEquipped 结束（★ backpack 标签 vs 组件判定不一致）。"],
+  "Inventory:DestroyContents#1": ["-- ↑ DestroyContents 结束（★ 先清容器再删本体）。"],
+  "Inventory:DestroyContents#1+6": ["-- ★★★ IsValid 复查（回调可能已删掉物品）。"],
+  "Inventory:BurnNonpotatableInContainer#1": ["-- ↑ BurnNonpotatableInContainer 结束（灰烬继承原名）。"],
+  "Inventory:ReferenceAllItems#1": ["-- ↑ ReferenceAllItems 结束（★ 与 FindItems 范围相同）。"],
+  "Inventory:GetDebugString#1": ["-- ↑ GetDebugString 结束（★ L12：format 缺占位符）。"],
+  "Inventory:IsOpenedBy#1": ["-- ↑ IsOpenedBy 结束（三重与条件）。"],
+  "Inventory:Show#1": ["-- ↑ Show 结束（★ 只改 isvisible，不改 isopen）。"],
+  "Inventory:Open#1": ["-- ↑ Open 结束（★ OnOpen 授予 classified 访问权限）。"],
+  "Inventory:Open#1+14": ["-- ★★★ 打开 overflow（穿上背包后格子增加）。"],
+  "Inventory:Hide#1": ["-- ↑ Hide 函数头（★ 只隐藏 UI，保持逻辑打开）。"],
+  "Inventory:Hide#1+11": ["-- ★★★ ReturnActiveItem（UI 隐藏了要收手）。"],
+  "Inventory:Hide#1+17": ["-- ★★ 关闭容器（★ 2078 行无 nil 保护 —— 见 L2）。"],
+  "Inventory:Hide#1+27": ["-- ★★★★★ 只置 isvisible = false（核心设计）。"],
+  "Inventory:Close#1": ["-- ↑ Close 函数头（★ 置 isopen = false + 关所有容器）。"],
+  "Inventory:Close#1+16": ["-- ★★ 无条件关闭所有容器（对比 Hide 的排除逻辑）。"],
+  "Inventory:CloseAllChestContainers#1": ["-- ↑ CloseAllChestContainers 结束（★ 2120 行同样无 or 兜底）。"],
+  "Inventory:PutOneOfActiveItemInSlot#1": ["-- ↑ PutOneOfActiveItemInSlot 结束。"],
+  "Inventory:PutAllOfActiveItemInSlot#1": ["-- ↑ PutAllOfActiveItemInSlot 结束（★ 先取出再放入）。"],
+  "Inventory:TakeActiveItemFromHalfOfSlot#1": ["-- ★★ TakeActiveItemFromHalfOfSlot 结束（★ 奇数时拿走少的一半）。"],
+  "Inventory:TakeActiveItemFromCountOfSlot#1": ["-- ↑ TakeActiveItemFromCountOfSlot 结束（★ overstacked 的上限处理）。"],
+  "Inventory:TakeActiveItemFromAllOfSlot#1": ["-- ↑ TakeActiveItemFromAllOfSlot 结束（★ 锁定检查顺序与 2174 不同）。"],
+  "Inventory:AddOneOfActiveItemToSlot#1": ["-- ↑ AddOneOfActiveItemToSlot 结束（★ 不走 GiveItem，不发 itemget）。"],
+  "Inventory:AddAllOfActiveItemToSlot#1": ["-- ↑ AddAllOfActiveItemToSlot 结束（★ 与 528 行 Combine 同构）。"],
+  "Inventory:SwapActiveItemWithSlot#1": ["-- ↑ SwapActiveItemWithSlot 结束（★ 先清空再放入）。"],
 };

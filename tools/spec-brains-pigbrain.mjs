@@ -82,30 +82,30 @@ export default {
   ],
 
   // ══════════════ 交易 ══════════════
-  41: [
+  "ShouldRunAway#1": [
     '-- ★ ShouldRunAway：★ 语义是「不跑」——只有在「对方正在与我交易」时才返回 false。',
     '--   ⚠️ 函数名与返回值的直觉相反，读代码时极易看错：',
     '--     它是「需要逃跑吗」的判定，被当作 RunAway 节点的自定义 shouldRunFn 使用。',
     '--   ★ 这是 RunAway 的第 5 个参数（shouldRunFn）的标准用法，见第 364 行。',
     '--   ★ 设计意图：玩家掏出了交易界面时猪不该跑，否则玩家根本没法交易。',
   ],
-  45: [
+  "GetTraderFn#1": [
     '-- GetTraderFn：在 20 距离内找出「正在与我交易」的玩家。',
     '-- ★ 第 47 行 FindPlayersInRange(..., true) 最后一个参数是 doer 参数，',
     '--   true 表示包含 doer 自身。对比第 191 行 FindClosestPlayerInRange 也是同样用法。',
     '-- ⚠️ 注意这里返回的是玩家实体，而不是 trader 组件 —— 因为 FaceEntity 要的是实体。',
   ],
-  55: [
+  "KeepTraderFn#1": [
     '-- KeepTraderFn：FaceEntity 的「维持」判定。',
     '-- ★ 与 GetTraderFn 的判定完全相同，缺一个就会导致「每帧换目标」的抖动。',
     '--   这是配对函数的通用要求：getfn 与 keepfn 语义必须一致。',
   ],
 
   // ══════════════ 觅食 ══════════════
-  59: [
+  "KeepTraderFn#1+4": [
     '-- outofreach —— 玩家够不到的地方（如小岛另一边），猪不该去抢。',
   ],
-  60: [
+  "IsFoodValid#1": [
     '-- ★★ IsFoodValid 的六重校验，顺序有讲究（便宜的在前）：',
     '--  1) GetTimeAlive() >= 8  —— ★ 至少存在 8 秒。原因见第 123 行同类逻辑：',
     '--     玩家扔下的东西会瞬间被捡走，猪去追只会白跑。',
@@ -116,17 +116,17 @@ export default {
     '--  6) eater:CanEat(item)  —— 自己能不能吃（种族/buff 限制）',
     '-- ★ 第 4 条的 brain_noveggie 是「临时上下文标志」，见第 104/106 行成对设置与清除。',
   ],
-  69: [
+  "IsFoodValid#1+9": [
     '-- 货架系统：食物放在架子上，需要用 TAKEITEM 拿而不是 EAT。',
     '-- ★ 这展示了 DST 的「同一意图，多种获取路径」：先搜地上的（第 105 行），',
     '--   搜不到再搜货架上的（第 113 行）。',
   ],
-  70: [
+  "IsFoodOnShelfValid#1": [
     '-- IsFoodOnShelfValid：比 IsFoodValid 多一层「要通过架子拿」的检查。',
     '-- ⚠️ 第 77 行 item:IsOnPassablePoint() 校验的是【架子】的位置，不是食物的位置。',
     '--   语义正确（猪要走到架子旁），但变量名容易让人误读成在校验食物。',
   ],
-  81: [
+  "FindFoodAction#1": [
     '-- ★★ FindFoodAction 的四段决策（这是整个文件逻辑最密的函数）：',
     '--  1) 第 82-84 行：状态图正忙就别动。★ 这是最重要的前置门。',
     '--  2) 第 86-91 行：先吃背包里已有的（不需要走过去，零成本）',
@@ -143,14 +143,14 @@ export default {
     '--   未核实 FindEntity 是否会 yield，故标疑似。',
     '-- ★ 第 112-114 行对货架做同样的「设标志 - 查询 - 清标志」，模式重复出现两次。',
   ],
-  97: [
+  "FindFoodAction#1+16": [
     '-- TimeSinceLastEating 返回 nil 表示「从来没吃过」，此时不做任何抑制。',
     '-- ★ 这解释了第 102 行 time_since_eat ~= nil and ... 的写法：',
     '--   从没吃过的新猪应该是「最饿」的，不能被抑制。',
   ],
 
   // ══════════════ 家园 ══════════════
-  125: [
+  "HasValidHome#1": [
     '-- ★ HasValidHome 是「家园还能用吗」的四重校验：',
     '--   存在 / 有效 / 没在烧 / 没烧毁',
     '-- ★ 后两条（burnable:IsBurning / burnt 标签）是 DST 的标准组合，',
@@ -158,7 +158,7 @@ export default {
     '--   为什么不用标签统一解决？因为「正在烧」是动态状态，必须查组件；',
     '--   「已烧毁」才是静态状态，用标签。两类状态用两种手段表达。',
   ],
-  133: [
+  "GoHomeAction#1": [
     '-- ★★ GoHomeAction 的三个前置条件，缺一不可：',
     '--  1) not GetLeader(inst) —— ★★ 有主人的猪不回家！',
     '--  2) HasValidHome(inst) —— 家还在',
@@ -170,7 +170,7 @@ export default {
     '--   隐式假定所有用 pigbrain 的实体都挂了 combat。已核对第 397/403 行同样假定，',
     '--   说明这是本大脑的既定契约，不算缺陷，但移植时要确保组件齐全。',
   ],
-  145: [
+  "GetNoLeaderHomePos#1": [
     '-- GetNoLeaderHomePos：有主人时返回 nil。',
     '-- ★ 返回 nil 的语义是「不设锚点」，于是 Leash/Wander 会退回实体自身位置，',
     '--   即「有主人时不再被家的位置约束」。第 349、355 行都依赖这个语义。',
@@ -179,7 +179,7 @@ export default {
   ],
 
   // ══════════════ 光源 ══════════════
-  151: [
+  "GetNearestLightPos#1": [
     '-- ★ GetNearestLightPos 与 GetNearestLightRadius（第 156 行）成对出现，',
     '--   且都各自重新搜一次光源 —— 同一个查询做了两遍。',
     '-- ⚠️ 性能瑕疵：每帧两次 GetClosestInstWithTag。但影响可忽略（夜间才走到这）。',
@@ -187,41 +187,41 @@ export default {
     '-- ★ 这两个函数被第 369 行 Wander 同时用作「锚点」和「半径」参数，',
     '--   说明 Wander 支持「动态半径」—— 不是固定数字，而是每帧现算。',
   ],
-  158: [
+  "GetNearestLightRadius#1+2": [
     '-- 兜底返回 1 —— 找不到光源时半径取 1，而不是报错。',
     '-- ★ 防御性默认值，避免 nil 传给 Wander 导致崩溃。',
   ],
-  161: [
+  "RescueLeaderAction#1": [
     '-- RescueLeaderAction：解除主人身上的约束（如被蜘蛛网粘住）。',
     '-- ⚠️ 第 162 行直接用 GetLeader(inst) 作目标，若 GetLeader 返回 nil，',
     '--   BufferedAction 会拿到 nil 目标。调用处（第 400 行）已用 GetLeader(inst) and 保护，',
     '--   所以实际不会传 nil。这是「调用方保证前置条件」的模式。',
   ],
-  165: [
+  "WantsToGivePlayerPigTokenAction#1": [
     '-- ★ WantsToGivePlayerPigTokenAction：三个条件表示「忠诚满了 + 手里有猪符」。',
     '--   猪符是玩家解锁猪的道具，满忠诚后猪会主动交还。',
     '-- ⚠️ 第 412 行源码自带 TODO "check for death and valid" —— 原作者标注的未完成项。',
     '--   不是我们的判断，是源码原话。',
   ],
-  171: [
+  "GivePlayerPigTokenAction#1": [
     '-- 给猪符：对着主人 DROP。',
     '-- ★ 又一处 BufferedAction 参数易错点：第 2 参 leader 是「目标/位置参照」，',
     '--   真正交出去的物品是第 4 参 note。PICKUP 语义靠「丢在谁旁边」传达。',
   ],
 
   // ══════════════ 危险规避 ══════════════
-  181: [
+  "GetFaceTargetFn#1": [
     '-- ★ GetFaceTargetFn 与 KeepFaceTargetFn（第 185 行）成对，判定都是 GetLeader。',
     '-- ★ 为什么有了 Follow（第 344 行）还要单独 FaceEntity（第 346 行）？',
     '--   因为 Follow 只保证距离，不保证朝向。猪要「看着主人」而不是「贴着主人」。',
     '--   这是「跟随」与「注视」两件事分离的典型。',
   ],
-  189: [
+  "GetFaceTargetNearestPlayerFn#1": [
     '-- 没主人时看最近的玩家 —— 注意半径用 START_RUN_DIST + 1（第 23 行的 3 + 1），',
     '-- ★ 复用逃跑的常量来定「注视半径」是巧合而非设计，读代码时容易误解为耦合。',
     '--   数值上 4 与 START_FACE_DIST 恰好一致，但两个常量互不相干。',
   ],
-  198: [
+  "SafeLightDist#1": [
     '-- ★★ SafeLightDist：走向光源时「保持在多远处」的判定。',
     '--  三种情况算 4：玩家 / 玩家光 / 玩家背包里的灯。',
     '--  其余情况：光源半径 / 3。',
@@ -231,7 +231,7 @@ export default {
     '--   会崩。不过三条 player/playerlight/GrandOwner 分支已先返回，不会走到这。',
     '--   ★ 这里的短路顺序是有意的依赖关系，不是巧合。',
   ],
-  205: [
+  "IsHomeOnFire#1": [
     '-- ★ IsHomeOnFire = 「家着火了」+「我离得够近才管」。',
     '--   第 210 行加了距离限制（20 平方），意味着远处着火不 panic。',
     '--   ★ 这是「关心范围」的设计：不在范围内的危机不触发反应，避免全图 panic。',
@@ -240,18 +240,18 @@ export default {
   ],
 
   // ══════════════ 竞技场小游戏 ══════════════
-  213: [
+  "WatchingMinigame#1": [
     '-- 以下一组是与「猪王争霸赛」（YOTB）小游戏挂钩的逻辑，属于活动专属。',
     '-- ★ 移植参考价值：展示了「同一个大脑如何挂接多种互斥的临时玩法模式」。',
   ],
-  217: [
+  "WatchingMinigame_MinDist#1": [
     '-- ★ 观看距离不是常量，而是从「小游戏实体」的组件里读的。',
     '--   minigame.components.minigame.watchdist_min',
     '--   ★ 设计模式：行为参数由玩法方定义，大脑只负责读取。',
     '--   ⚠️ 代价：本文件对 minigame 组件形成了硬依赖，第 299 行直接访问',
     '--     .components.minigame.gametype 而不判空。',
   ],
-  227: [
+  "WatchingCheaters#1": [
     '-- WatchingCheaters：检测到作弊者就把镜头对准他。',
     '-- ★ 第 232 行 return minigame（返回的是小游戏实体而非作弊者），',
     '--   因为调用方（第 315 行）只是要一个「看谁」的目标。',
@@ -259,11 +259,11 @@ export default {
     '--   已核对第 314-315 行 FaceEntity(self.inst, WatchingCheaters, WatchingCheaters)，',
     '--   确认两端都用它，故行为正确，仅命名易误导。',
   ],
-  238: [
+  "CurrentContestTarget#1": [
     '-- CurrentContestTarget：比赛没有指定目标时，把舞台本身当目标。',
     '-- ★ 降级兜底的典型写法：宁可对着舞台，也不什么都不看。',
   ],
-  253: [
+  "CollctPrize#1": [
     '-- ★ CollctPrize（源码拼写如此，缺 e）拾取奖品前校验 y 坐标接近 0。',
     '--   y 在 -0.1 到 0.1 之间才算数 —— 奖品必须平躺在地面上。',
     '-- ★ 为什么要判高度？防止把「正在空中下落」或「掉进海里」的道具拾起来。',
@@ -271,7 +271,7 @@ export default {
   ],
 
   // ══════════════ 逃跑参数表 ══════════════
-  271: [
+  "GetRunAwayTarget#1+4": [
     '-- ★★ RUN_AWAY_FROM_PIG_PARAMS —— 「只躲开正在攻击我的猪」。',
     '--   tags = { "pig", "_combat" }  同时具备这两个标签',
     '--   fn   —— 且它的战斗目标正是我',
@@ -281,7 +281,7 @@ export default {
   ],
 
   // ══════════════ 类定义 ══════════════
-  279: [
+  "fn#1+5": [
     '-- ★ Class(Brain, ...) 的标准形式：继承 Brain，构造时先调父类构造。',
     '--   真正的「大脑内容」全在下面的 OnStart 里 —— 这个函数体内只有一行。',
     '-- ★★ 移植要点：★ DST 的大脑不是「继承体系」，而是「一个函数返回一棵行为树」。',
@@ -290,14 +290,14 @@ export default {
   ],
 
   // ══════════════ OnStart：比赛 / 观战 ══════════════
-  283: [
+  "PigBrain:OnStart#1": [
     '-- ★★ OnStart 是本文件的心脏（约 140 行全是行为树声明）。',
     '--   结构：先定义若干 local 子树变量，最后 root = PriorityNode({...}) 再 self.bt = BT(...)。',
     '-- ★ 为什么要先拆成 local 变量？因为要用 WhileNode 条件函数去「检查这些子树是否适用」，',
     '--   而条件函数运行在之后。若直接内联，条件里就够不到节点对象。',
     '-- ⚠️ 条件函数里绝不引用 self.bt（还没赋值）—— 这是常见错误，本文件未犯。',
   ],
-  286: [
+  "PigBrain:OnStart#1+3": [
     '-- ★ in_contest：比赛模式。条件是实体带 NPC_contestant 标签。',
     '--   ★ 标签驱动模式的典范：大赛给参赛者打标签，大脑读到标签就切换行为。',
     '--   比赛行为优先级极高（第 295 行 0.1 秒重评估，比全局的 0.5 更快），',
@@ -305,40 +305,40 @@ export default {
     '--   ⚠️ 这也意味着：只要不打这个标签，这些节点就完全不会被执行，',
     '--   也就是说本大脑的大部分「活动逻辑」对普通猪是零成本（仅一次条件求值）。',
   ],
-  288: [
+  "PigBrain:OnStart#1+5": [
     '-- DoAction(..., true) 的最后一个参数是「是否一直重试直到成功」。',
     '-- ★ 这是 DoAction 的重要参数：false 表示只试一次，失败就交给下一个节点。',
     '--   比赛奖品必须拿到，所以 true；第 386 行的 EatFoodAction 没传（第 307 行），',
     '--   走默认值 false。',
   ],
-  293: [
+  "PigBrain:OnStart#1+10": [
     '-- ChattyNode(inst, "台词", 子树, 冷却, 概率) —— 带台词的节点。',
     '--   第 4 参 5 = 最短间隔 5 秒，第 5 参 15 = 最长间隔 15 秒，',
     '--   实际间隔在两者间随机 —— ★ 避免台词以固定节奏重复。',
     '-- ★ 这是 DST 台词系统的「随机化冷却」，全项目大量使用。',
   ],
-  297: [
+  "PigBrain:OnStart#1+14": [
     '-- ★ watch_game：观战小游戏。同样是 WhileNode + 标签/组件驱动。',
     '--   第 302 行 Follow 的目标函数直接是 WatchingMinigame ——',
     '--   ★ 也就是说「观众要跟着比赛场地走」，这是观战行为的核心。',
   ],
-  299: [
+  "PigBrain:OnStart#1+16": [
     '-- 同一个大脑支持多种小游戏类型，这里分派「猪王摔跤」。',
     '-- ⚠️ 第 299 行 .components.minigame.gametype 有两处连续访问且不判空，',
     '--   依赖第 297 行 WhileNode 条件 WatchingMinigame 已确保小游戏实体存在。',
     '--   ★ 这是「靠外层 WhileNode 保证前置条件」的写法，可读性好但耦合紧。',
   ],
-  305: [
+  "PigBrain:OnStart#1+22": [
     '-- RunAway(inst, "标签", 触发距离, 停止距离)：躲比赛参与者。',
     '-- ★ 观众怕参赛者 —— 第 5 行注释说明这是活动设计。',
   ],
-  314: [
+  "PigBrain:OnStart#1+31": [
     '-- 发现作弊者就盯着看（第 227 行 WatchingCheaters）。',
     '-- ★ 与第 316 行的「盯着比赛看」并列，靠优先级决定先反应哪个。',
   ],
 
   // ══════════════ OnStart：白天 ══════════════
-  333: [
+  "PigBrain:OnStart#1+50": [
     '-- ★★★ 白天行为（第 333-356 行）。整棵子树的根条件是 TheWorld.state.isday。',
     '--',
     '-- 【★ 为什么白天夜晚要分成两棵完全独立的子树，而不是一个树里加条件】',
@@ -352,13 +352,13 @@ export default {
     '--   PriorityNode 的重评估间隔 0.5 秒 —— 比夜间的 1 秒快一倍，',
     '--   因为白天要跟人干活，需要更灵敏的响应。',
   ],
-  335: [
+  "PigBrain:OnStart#1+52": [
     '-- 找食物被放在白天最高优先级（第 336 行，紧跟第 335 行的 ChattyNode 包裹）。',
     '-- ★ 注意它在「帮主人砍树」之前 —— 猪先填饱肚子，再帮主人。',
     '--   这是很直白的设计取舍，与第 98 行的饱腹抑制配合：',
     '--   饱腹时这个节点会早退（第 97-100 行），自然让位给砍树。',
   ],
-  337: [
+  "PigBrain:OnStart#1+54": [
     '-- ★ NodeAssistLeaderDoAction：帮主人砍树（第 470 行 braincommon 里的通用实现）。',
     '--   参数含义：',
     '--     action              = "CHOP"  必填，见 braincommon 第 413 行的隐式契约',
@@ -369,16 +369,16 @@ export default {
     '-- ⚠️ 注意 finder_finddist(15) > keepgoing_leaderdist(10) 的不对称，',
     '--   见 braincommon 第 293 行注释：这是有意的迟滞设计。',
   ],
-  343: [
+  "PigBrain:OnStart#1+60": [
     '-- Follow 三段距离，与第 15-17 行的常量一一对应（第 344 行传参）。',
   ],
-  349: [
+  "PigBrain:OnStart#1+66": [
     '-- Leash 到家。锚点用 GetNoLeaderHomePos（有主人则返回 nil，即不牵引）。',
     '-- ★ 优先级在 Follow 之后、RunAway 之前 ——',
     '--   意味着「跟着主人」比「回家」重要，「回家」比「躲玩家」重要。',
     '--   这个优先级排序是本文件最需要理解的部分。',
   ],
-  351: [
+  "PigBrain:OnStart#1+68": [
     '-- ★ 躲玩家。⚠️ 这里没传 shouldRunFn，而第 364 行的夜晚版本传了。',
     '--   第 352 行：RunAway(self.inst, "player", START_RUN_DIST, STOP_RUN_DIST)',
     '--   第 364 行：RunAway(self.inst, "player", ..., function(target) return ShouldRunAway(self.inst, target) end )',
@@ -392,29 +392,29 @@ export default {
 
 
   // ══════════════ OnStart：夜晚 ══════════════
-  358: [
+  "PigBrain:OnStart#1+75": [
     '-- ★★ 夜晚行为。根条件是 not TheWorld.state.isday —— 与白天严格互补。',
     '--   ⚠️ 注意用的是 not isday 而非 isnight：黄昏 isday 为假但 isnight 也为假，',
     '--   所以黄昏时夜晚子树先接管（DST 的黄昏只有一天两次的时刻段）。',
     '--   实际效果：黄昏用夜晚行为（找光、回家），这是合理的。',
     '--   但若想让黄昏有自己的行为，必须显式判断 isnight，不能靠取反。',
   ],
-  360: [
+  "PigBrain:OnStart#1+77": [
     '-- ★ 躲蜘蛛排在夜晚最高优先级（第 361 行），甚至高于觅食。',
     '--   设计：蜘蛛是猪的天敌，夜里第一件事就是跑。',
     '--   ⚠️ 用的是硬编码标签 "spider"，若新增蜘蛛类敌人要改这里。',
     '--   ★ 对比第 271 行用参数表 —— 同文件两种写法并存。',
   ],
-  362: [
+  "PigBrain:OnStart#1+79": [
     '-- 夜晚觅食 —— 和白天同一个 FindFoodAction（第 81 行）。',
     '-- ★ 这说明「找吃的」与时间无关，重复声明只是因为两棵子树独立。',
     '--   微小的代价：多构造一个 DoAction 节点；收益：结构清晰。',
   ],
-  364: [
+  "PigBrain:OnStart#1+81": [
     '-- ★ 与第 352 行对照：这里传了 ShouldRunAway 作为 shouldRunFn，',
     '--   即「正在与该玩家交易时不跑」。第 352 行的白天版本没有。',
   ],
-  365: [
+  "PigBrain:OnStart#1+82": [
     '-- ★ 夜晚回家的条件是「洞穴夜晚 或 自己不在光里」。',
     '--   第 366 行 not TheWorld.state.iscaveday or not self.inst:IsInLight()',
     '--   ⚠️ 用了 or 而不是 and：只要「不是洞穴夜晚」就无条件回家 ——',
@@ -423,7 +423,7 @@ export default {
     '--   说明两处一致，不是笔误。推测本意应是「洞穴夜晚 且 不在光里」，',
     '--   但已核实两处源码都是 or，标为疑似而非确证。',
   ],
-  368: [
+  "PigBrain:OnStart#1+85": [
     '-- ★★ 夜里在光里晃悠（而不是立刻睡觉）。',
     '--   条件：isnight 且 光照 > 0.3（比 COMFORT_LIGHT_LEVEL 更亮一点）。',
     '--   ⚠️ 与第 34 行的常量注释呼应：注释明说猪想「比舒适阈值更亮一点的地方」，',
@@ -435,7 +435,7 @@ export default {
     '--   ★ 停 5-10 秒 >> 走 0.6-0.8 秒，说明它是「大部分时间站着晒太阳/守夜」。',
     '--   这正是注释说的「稍微亮一点就待着」的量化表达。',
   ],
-  376: [
+  "PigBrain:OnStart#1+93": [
     '-- ★ 找不到近处的光 → 主动去找光源（第 198 行 SafeLightDist 决定站位）。',
     '--   这一对（第 368 与 376 行）是夜晚的「两级策略」：',
     '--     有近灯 → 蹲在灯下（省路）',
@@ -443,7 +443,7 @@ export default {
   ],
 
   // ══════════════ OnStart：root ══════════════
-  382: [
+  "PigBrain:OnStart#1+99": [
     '-- ★★★ root —— 全局优先级表（这是全文件最需要反复读的部分）。',
     '--',
     '-- 【优先级自上而下的完整解读】',
@@ -481,23 +481,23 @@ export default {
     '-- 3) 送猪符（第 411 行）排在 in_contest（第 414 行）之前，',
     '--    意味着比赛中猪不会把猪符扔给玩家。属于细节但值得注意。',
   ],
-  396: [
+  "PigBrain:OnStart#1+113": [
     '-- ★ 战斗节点的条件：没有目标，或有目标但冷却好了 → 可以攻击。',
     '-- ChaseAndAttack(inst, 最长追击时间, 最远追击距离)',
     '-- ★ 用 MAX_CHASE_TIME(10) / MAX_CHASE_DIST(30)（第 25-26 行）。',
   ],
-  402: [
+  "PigBrain:OnStart#1+119": [
     '-- ★ 闪避条件：Cool 住了就别打了，拉开距离等 CD。',
     '--   RunAway 的目标用 { getfn = GetRunAwayTarget } 参数表，',
     '--   ★ 因为要躲的是「当前战斗目标」，不是某个标签 —— 所以必须用 getfn。',
     '--   这是 getfn 与标签两种目标指定方式的典型对照（对比第 305 行的 "minigame_participant"）。',
   ],
-  411: [
+  "PigBrain:OnStart#1+128": [
     '-- 送猪符的条件即第 165 行那个函数，此处复用。',
   ],
 
   // ══════════════ 收尾 ══════════════
-  420: [
+  "PigBrain:OnStart#1+137": [
     '-- ★★ self.bt = BT(self.inst, root) —— 全DST 大脑的固定收尾。',
     '--',
     '-- 【★ 至此完成「机制 + 节点」的组装】',

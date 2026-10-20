@@ -3,7 +3,7 @@
 // 锚点范围：2000 ~ 2900
 
 export const BEFORE = {
-  2001: [
+  "ACTIONS.COOK.stroverridefn#1": [
     "--★★ COOK.stroverridefn —— 用「覆盖」而非 strfn 返回 SPICE（§2 375 行已预告）。",
     "--   ★★★ 保留的英文注释解释了动机，这是全文件最重要的一段设计说明：",
     "--     「这样写而不是用 .strfn 加一个 \"SPICE\" 修饰符，是为了避免",
@@ -14,7 +14,7 @@ export const BEFORE = {
     "--   ★★ 这是「一个字段的改变会波及全仓库」的典型记录。",
     "--     ★ 读这类注释时要记住：作者的「怪写法」往往是为了兼容某个外部依赖。",
   ],
-  2007: [
+  "ACTIONS.COOK.fn#1": [
     "--★★★【COOK.fn —— 94 行，三种「烹饪」的完整实现】",
     "--   ★★ 三个主分支：",
     "--     ① 20xx cooker 组件   → 往「灶台」里放材料（锅里煮）",
@@ -25,10 +25,10 @@ export const BEFORE = {
     "--     ② 目标启动长流程，之后用 HARVEST 取",
     "--     ③ 目标（食材）被消耗，产物掉在地上",
   ],
-  2008: [
+  "ACTIONS.COOK.fn#1+1": [
     "--★ 第一分支：往有 cooker 的目标里放材料（营火 + 锅）。",
   ],
-  2010: [
+  "ACTIONS.COOK.fn#1+3": [
     "--★★ 2010 行先 RemoveItem（把材料从背包拿出），2016 行可能还回。",
     "--   ★★★ 这是 T11 事务模板：先拿后试，失败还回。",
     "--     ★★ 与 TOSS/DEPLOY 的差别：COOK 是「拿完立刻可能还回」，",
@@ -36,20 +36,20 @@ export const BEFORE = {
     "--     ★ 关键点：2016 行还回时传了 cook_pos（灶台坐标），",
     "--       让物品从灶台飞回背包，视觉上不出戏。",
   ],
-  2012: [
+  "ACTIONS.COOK.fn#1+5": [
     "--★ 保留的英文注释：位置对 \"killed\" 事件的监听者很重要。",
     "--   ★★★ 为什么要把材料移动到灶台位置？",
     "--     因为 2021 行的 murdered / 2023 行的 killed 事件会被",
     "--     成就系统、任务系统监听，它们会记录「在哪里被烹杀了」。",
     "--     ★ 这是一个「为了下游可观测性而做的额外操作」，很值得学。",
   ],
-  2015: [
+  "ACTIONS.COOK.fn#1+8": [
     "--★★ CanCook 检查失败 → 立刻还回材料并 return false。",
     "--   ★★★ 注意这里 return **false 但没有 reason**（2050 行的 COOL 才有）。",
     "--     ⇒ 玩家看到「通用失败」（不能这么做），而不是具体原因。",
     "--     ★ 推测：因为「不能这样烹饪」的原因太多，逐个给 reason 反而啰嗦。",
   ],
-  2020: [
+  "ACTIONS.COOK.fn#1+13": [
     "--★★ 「烹杀活物」—— 烹饪一个有 health 组件的食材时触发。",
     "--   ★★ 2021 行 `murdered` 事件（JBK 注释 \"Cooking something alive.\"）",
     "--     2023 行 `killed` 事件（只有有 combat 组件时才推）。",
@@ -60,10 +60,10 @@ export const BEFORE = {
     "--     ⇒ 这是「同一件事用两个事件表达不同语义」的样本。",
     "--     ★ 对比 3169-3170 行 MURDER.fn 里两个事件**都**推。",
   ],
-  2027: [
+  "ACTIONS.COOK.fn#1+20": [
     "--★ CookItem 返回产物。返回非 nil 则给玩家（2029 行），否则还回原料。",
   ],
-  2035: [
+  "ACTIONS.COOK.fn#1+28": [
     "--★★ 第二分支：炖锅（stewer）。结构像 COOK 函数的微缩版。",
     "--   ★★ 2036-2038：已在烹饪中 → 直接 return true（不给失败反馈）。",
     "--     ★★★ 为什么不给失败？玩家点炖锅就是想「看看进度」，",
@@ -72,7 +72,7 @@ export const BEFORE = {
     "--   ★★ 2041 行：被别人打开 → INUSE",
     "--   ★★ 2043 行：CanCook 失败 → **返回 false 无 reason**（与 2016 同）。",
   ],
-  2048: [
+  "ACTIONS.COOK.fn#1+41": [
     "--★★★ 第三分支：手持烹调（锅具 + 食材）。三者缺一不可。",
     "--   ★★★ 这个分支与前两个的最大不同：**食材在目标上，锅具在手上**。",
     "--     所以 2062 行要处理「目标是一堆，只取一个」：",
@@ -83,7 +83,7 @@ export const BEFORE = {
     "--   ★★ 2065 行：抽出来的不是目标本身时要单独设置坐标",
     "--     （理由同 2012 行：为事件监听者准备正确的位置）。",
   ],
-  2054: [
+  "ACTIONS.COOK.fn#1+47": [
     "--★★★ 保留的英文注释解释了为什么这里用三维距离：",
     "--   「Intentional use of 3D dist check for birds.」",
     "--   ★★★ 其它地方的「够不够近」几乎都用 distsq（2D，忽略高度），",
@@ -93,17 +93,17 @@ export const BEFORE = {
     "--     ⇒ 用 2D 会允许玩家「隔着一层楼板把鸟烤了」。",
     "--     ★ 这是全文件里唯一一处主动选择 3D 距离的地方，注释及时指出了。",
   ],
-  2059: [
+  "ACTIONS.COOK.fn#1+52": [
     "--★ owner = 食材的 GrandOwner，用于把产物送回原处。",
     "--   ★★ 若食材在玩家的背包里，owner 就是玩家 ⇒ container 是 inventory。",
     "--     若在地上，owner 为 nil ⇒ container 为 nil ⇒ 产物掉在地上。",
     "--   ★ 2060 行的 `owner.components.inventory or owner.components.container`",
     "--     ★★★ 又是「玩家 / AI」的兼容写法（§p4 1619 行同款）。",
   ],
-  2061: [
+  "ACTIONS.COOK.fn#1+54": [
     "--★ stacked 判定 —— 决定后续是「临时抽一个」还是「整个用掉」。",
   ],
-  2072: [
+  "ACTIONS.COOK.fn#1+65": [
     "--★★ 2072-2074 行的「堆叠还原」逻辑：",
     "--     失败时把 stacksize 加回去并 Remove 掉临时抽出的那个。",
     "--   ★★★ 注意顺序：先加回数量再 Remove。若反过来，",
@@ -111,7 +111,7 @@ export const BEFORE = {
     "--   ★★ 这个 pattern 在 2099-2101（第三分支的末尾）重复了一次。",
     "--     两处完全相同 ⇒ 可以抽函数，但作者选择了复制。",
   ],
-  2089: [
+  "ACTIONS.COOK.fn#1+82": [
     "--★★ 产物掉在地上时给一点物理速度（2089-2093 行）。",
     "--   ★★★ 只有堆叠产物才有物理速度（stacked and product.Physics）。",
     "--     为什么堆叠才有？因为堆叠产物是「从一堆里掉出来的」，",
@@ -120,7 +120,7 @@ export const BEFORE = {
     "--     ★★ 向上速度 8±4 而水平只有 0~2 —— 是为了让掉落看起来是「抛出」而非「弹出」。",
     "--     ★ 这类手感参数通常要反复调才能定下来，能保留在代码里值得称赞。",
   ],
-  2108: [
+  "ACTIONS.ACTIVATE_CONTAINER.fn#1": [
     "--★ ACTIVATE_CONTAINER.fn —— 「点容器上的按钮」范式（§2 692 行已预告）。",
     "--   ★★ 2109 行 `if act.target.cookbuttonfn then` ——",
     "--     ★★★ 注意是**实例字段**而不是组件方法。",
@@ -130,7 +130,7 @@ export const BEFORE = {
     "--   ★★ 2111 行先检查 IsOpenedByOthers（别人开着）→ INUSE。",
     "--     ★ 这是「多客户端一致性」的必要检查：不能让两人同时触发同一个按钮。",
   ],
-  2120: [
+  "ACTIONS.FILL.fn#1": [
     "--★★★ FILL.fn —— 「装水」的「双向对象」处理（38 行）。",
     "--   ★★ 2121 行两个变量：source_object（水的来源）、filled_object（被装的容器）。",
     "--   ★★ 2123-2133 的四分支：",
@@ -142,7 +142,7 @@ export const BEFORE = {
     "--     完整实现在 COOK 里也有（2059 行的 owner 双写）。",
     "--   ★★ 2128 与 2131 的镜像结构说明作者是有意做成对称的。",
   ],
-  2135: [
+  "ACTIONS.FILL.fn#1+15": [
     "--★★ 2135-2142 行的两个守卫：",
     "--   ① filled_object 为 nil → false（没有可装的东西）",
     "--   ② 源与目标的 prefab 相同 → false",
@@ -151,7 +151,7 @@ export const BEFORE = {
     "--     ★★★ 全文都用这种 `x.prefab == y.components.X.yprefab` 的比较，",
     "--       而不是查标签。标签系统用于「能力」，prefab 比较用于「精确类型」。",
   ],
-  2144: [
+  "ACTIONS.FILL.fn#1+24": [
     "--★★ 2144-2153：直接对着地面点（海水路径）。",
     "--   ★★ 「从海里接水」不需要 source_object，只需要一个坐标。",
     "--     ★ 检查 `acceptsoceanwater`（容器是否能装海水）+ IsOceanAtPoint。",
@@ -160,17 +160,17 @@ export const BEFORE = {
     "--     ★ 这意味着「为什么不能接海水」由容器自己决定（陶罐可以、玻璃瓶不行…）。",
     "--       很好的扩展设计。",
   ],
-  2160: [
+  "ACTIONS.FILL.fn#1+40": [
     "--★ FILL_OCEAN.fn = FILL.fn —— T12 同构模板（§2 377 行已预告）。",
   ],
-  2161: [
+  "ACTIONS.FILL_OCEAN.stroverridefn#1": [
     "--★ FILL_OCEAN.stroverridefn —— 强制显示 \"FILL\" 串（不加任何后缀）。",
     "--   ★★ 为什么用 stroverridefn 而不是 strfn？",
     "--     因为 strfn 返回的字符串会被拼成 \"FILL <目标名>\"，",
     "--     而「从海里装水」应该显示为「装水」。",
     "--     ★ 与 TELLSTORY（1574 行）同款理由：需要一个「干净的词」。",
   ],
-  2165: [
+  "ACTIONS.DRY.fn#1": [
     "--★★ DRY.fn —— 「晾干」的 T11 事务模板（16 行）。",
     "--   ★★ 与 COOK 的结构完全一致：CanDry → RemoveItem → StartDrying",
     "--     → 失败还回。",
@@ -178,12 +178,12 @@ export const BEFORE = {
     "--     ★★ 注意这里用 `not` 而非 `== false`，",
     "--       所以 StartDrying 返回 nil 也会走还回路径（更安全）。",
   ],
-  2176: [
+  "ACTIONS.DRY.fn#1+11": [
     "--★ CHEVO_starteddrying 事件 —— 与 1817 行的 CHEVO_fertilized 同族。",
     "--   ★★ 这两个事件都是成就钩子，且都是**推给 TheWorld** 而非 doer。",
     "--     ⇒ 成就在服务端订阅世界事件，客户端不需要感知。",
   ],
-  2182: [
+  "ACTIONS.ADDFUEL.fn#1": [
     "--★★ ADDFUEL.fn —— 「加燃料」含一个 stackable 回填技巧（25 行）。",
     "--   ★★ 结构：",
     "--     ① 2183-2200 玩家有 inventory：RemoveItem → TakeFuelItem → 失败还回",
@@ -195,18 +195,18 @@ export const BEFORE = {
     "--     ★ 这是 stackable 的「拆一个出来用，用不掉就放回去」模式，",
     "--       与 REPLATE（5262 行）的处理同源。",
   ],
-  2189: [
+  "ACTIONS.ADDFUEL.fn#1+7": [
     "--★ 2189 行被注释掉的 print(\"False\") —— 调试遗留（L11）。",
     "--   ★★ 作者在关键分支留过调试打印，后来去掉了但忘了删注释行。",
     "--     ★ 无害，但说明这段代码被调试过 —— 「加燃料失败」曾是问题区域。",
   ],
-  2207: [
+  "ACTIONS.ADDFUEL.fn#1+25": [
     "--★ ADDWETFUEL.fn = ADDFUEL.fn —— T12 同构模板（§2 380 行）。",
   ],
-  2209: [
+  "ACTIONS.GIVE.strfn#1": [
     "--★ GIVE.strfn —— 四个 NPC 类标签变体（SOCKET/SHOW/REPAIR/CELESTIAL）。",
   ],
-  2218: [
+  "ACTIONS.GIVE.stroverridefn#1": [
     "--★★★ GIVE.stroverridefn —— 「给」这个词的四种完整改写（33 行）。",
     "--   ★★ 四个分支：",
     "--     ① ghostlyelixirable + ghostlyelixir → \"把{物品}涂在…\"",
@@ -223,12 +223,12 @@ export const BEFORE = {
     "--       ★★ find 找不到时返回 nil，而 Lua 里 `string:find` 返回 nil, nil，",
     "--         代码检查 `if i ~= nil` 是正确的。",
   ],
-  2229: [
+  "ACTIONS.GIVE.stroverridefn#1+11": [
     "--★ nameoverride —— 实体自定义的名字覆盖字段（自定义拼法）。",
     "--   ★★ 用 `string.upper(nameoverride)` 去 STRINGS 里查 ——",
     "--     说明 nameoverride 存的是小写的显示名，STRINGS 里是大写键。",
   ],
-  2252: [
+  "ShouldBlockGiving#1": [
     "--★★【ShouldBlockGiving —— 「这东西不能给出去」的统一规则（24 行）】",
     "--   ★★★ 两条规则（都是「只能放进口袋」类物品）：",
     "--     ① CanOnlyGoInPocket() → 一律禁止给予",
@@ -240,7 +240,7 @@ export const BEFORE = {
     "--   ★★★ 三处共用一个守卫函数是本文件里少见的「提取公共判定」，",
     "--     说明这个规则**足够重要**到不能复制三份。",
   ],
-  2262: [
+  "ShouldBlockGiving#1+10": [
     "--★ 第二条规则的例外逻辑（2263-2271 行），三层嵌套：",
     "--   ① 目标自己也是只能进口袋的物品",
     "--   ② 且目标的容器可以打开",
@@ -249,7 +249,7 @@ export const BEFORE = {
     "--     ★ 注意 2266 行的 IsGrandOwner(act.doer) 用的是**递归**持有者，",
     "--       所以「在你自己背包里的另一个背包里的任务物品」也算。",
   ],
-  2277: [
+  "ACTIONS.GIVE.fn#1": [
     "--★★ GIVE.fn —— 「一个动作服务 7 类接收方」的最大样本（62 行）。",
     "--   ★★ 七个 elseif 分支（按优先级）：",
     "--     ① playbill_lecturn + playbill  → 换戏单",
@@ -266,10 +266,10 @@ export const BEFORE = {
     "--   ★★ 全文件没有第二个动作有这么多分支 ⇒ 「给东西」是 DST 最复杂",
     "--     的交互类型，因为它要兼容所有 NPC。",
   ],
-  2283: [
+  "ACTIONS.GIVE.fn#1+6": [
     "--★ 分支①：换戏单（戏园看板）。标签 + 组件双重判定。",
   ],
-  2290: [
+  "ACTIONS.GIVE.fn#1+13": [
     "--★★ 分支③：商人。20 行的「可堆叠给予」逻辑，是全文件最精细的 NPC 交易。",
     "--   ★★ 2293-2306 行计算「给多少个」：",
     "--     · 商人支持堆叠 → 问 CanAcceptCount（还能收几个）",
@@ -280,12 +280,12 @@ export const BEFORE = {
     "--     ★ 静默失败，无 reason。与 WEIGH_ITEM.fn（4674 行）同款。",
     "--     ★ 而 GiveItem 这类操作给不出有意义的 reason（「背包满了」太笼统）。",
   ],
-  2308: [
+  "ACTIONS.GIVE.fn#1+31": [
     "--★ AbleToAccept 返回 (bool, reason)，reason 直接透传给玩家。",
     "--   ★★★ 透传失败原因是本文件的通例：",
     "--     §0 第 7 条「失败原因字符串是动作契约的一部分」。",
   ],
-  2340: [
+  "ACTIONS.GIVETOPLAYER.fn#1": [
     "--★★ GIVETOPLAYER.fn —— 「给别的玩家」的判定与 GIVE 完全不同。",
     "--   ★★★ 2348 行：",
     "--       (target.components.inventory:IsOpenedBy(act.target)",
@@ -297,13 +297,13 @@ export const BEFORE = {
     "--     ★ 这解释了游戏里为什么「要先让对方开背包」—— 不是限制，是这套规则。",
     "--   ★ 2350 行返回 `\"FULL\"` —— 有明确 reason，好于 GIVE 的静默失败。",
   ],
-  2362: [
+  "ACTIONS.GIVEALLTOPLAYER.fn#1": [
     "--★ GIVEALLTOPLAYER.fn —— 与 GIVETOPLAYER 的差别只有两处：",
     "--   ① 不需要 playerghost 分支（幽灵本来就不需要「全部给」）",
     "--   ② count = CanAcceptCount(act.invobject) 而非 (…, 1)",
     "--   ★★ 2362-2382 共 20 行，与 GIVETOPLAYER 的 2340-2360 几乎逐行对称。",
   ],
-  2384: [
+  "IsFoodSafeToEat#1": [
     "--★★★【IsFoodSafeToEat —— 「这个食物对方敢不敢吃」的联机判定（15 行）】",
     "--   ★★★ 三个「无条件放行」：",
     "--     ① possessedbody —— 附身的身体（你是它，全权控制）",
@@ -320,7 +320,7 @@ export const BEFORE = {
     "--   ★ 2396 行 `not (HasAnyTag(...))` 是「都不沾才算安全」，",
     "--     ★★★ 三层判定里最严格的一层。",
   ],
-  2400: [
+  "ACTIONS.FEEDPLAYER.fn#1": [
     "--★★★【FEEDPLAYER.fn —— 「喂别人吃」的 38 行，含完整状态机操作】",
     "--   ★★ 2401-2408 的七条件准入：",
     "--     ① target 有效",
@@ -337,7 +337,7 @@ export const BEFORE = {
     "--   ★★ ②③ 在客户端也可读（sg 是 replica 的），但 fn 在服务端跑，",
     "--     所以这里用 sg 直接访问没问题。",
   ],
-  2410: [
+  "ACTIONS.FEEDPLAYER.fn#1+10": [
     "--★★ PrefersToEat —— 「这个 NPC 愿不愿意吃这个」的第二层判定。",
     "--   ★★★ 愿意吃 → 走 2412-2431 的完整流程；",
     "--     不愿意 → 2433 推 wonteatfood 事件，**但仍然 return true**。",
@@ -347,13 +347,13 @@ export const BEFORE = {
     "--     动作层成功（玩家正确地尝试了喂食），组件层拒绝（NPC 不饿）。",
     "--     ★ 若 return false，玩家会看到「不能这么做」—— 完全错误的反馈。",
   ],
-  2411: [
+  "ACTIONS.FEEDPLAYER.fn#1+11": [
     "--★ isactive —— 食物是否正拿在手上（要传给状态图决定动画）。",
     "--   ★★★ 这个信息必须**冻结**在动作执行的那一刻，",
     "--     因为状态图播动画时物品已经是目标玩家的子实体了，",
     "--     再去查「原玩家手上有没有它」已经查不到。",
   ],
-  2414: [
+  "ACTIONS.FEEDPLAYER.fn#1+14": [
     "--★★★ 2414-2419 行的「五步转移」—— 把食物交给对方的技术细节：",
     "--   ① RemoveFromOwner() 从原主人背包取出",
     "--   ② act.target:AddChild(food)   → 成为对方的子实体",
@@ -372,7 +372,7 @@ export const BEFORE = {
     "--         食物凭空消失」。",
     "--     ★ 值得在其他注释里也找找类似的 \"keep in sync\" 标注。",
   ],
-  2420: [
+  "ACTIONS.FEEDPLAYER.fn#1+20": [
     "--★★ 保留的英文注释：状态要与 SGwilson.lua 的 ACTIONS.EAT 处理器保持一致。",
     "--   ★★ 2421-2429 行是**在动作层手工选择目标状态**：",
     "--       quickeat（标签）→ quickeat",
@@ -388,18 +388,18 @@ export const BEFORE = {
     "--   ★★ 注意这里读的是 `food:HasTag(...)` 与 `food.components.edible.foodtype`",
     "--     —— 都在 RemoveFromOwner 之后、AddChild 之前，是安全的时刻。",
   ],
-  2439: [
+  "ACTIONS.DECORATEVASE.fn#1": [
     "--★ DECORATEVASE.fn —— 装饰花瓶。检查 vase.enabled（装饰是否被「禁用」）。",
     "--   ★★ enabled 字段说明花瓶上的装饰可以临时失效（万圣节换装饰）。",
   ],
-  2446: [
+  "ACTIONS.CARNIVALGAME_FEED.fn#1": [
     "--★★ CARNIVALGAME_FEED.fn —— 嘉年华喂食，四层有效性检查。",
     "--   ★★ 2447 行的四个 and：invobject 有效 + target 有效 + target 非 nil",
     "--     + carnivalgamefeedable 组件。",
     "--   ★★ 2448 行的 TOO_LATE —— 「太晚了」（游戏已结束）。",
     "--     ★ 这是一个「状态性失败原因」的样本：不是「不能」，而是「晚了」。",
   ],
-  2455: [
+  "ACTIONS.STORE.fn#1": [
     "--★★★ STORE.fn —— 「把东西放进去」，100 行，全文件第二长的动作实现。",
     "--   ★★ 它要处理五种「放进去」的场景：",
     "--     ① 玩家背包 → 容器（主路径）",
@@ -409,11 +409,11 @@ export const BEFORE = {
     "--     ⑤ occupiable（占用槽位，如六格冰箱的固定位）",
     "--   ★★ 五种场景的判定顺序即优先级（2462 行的 constructionsite 最先）。",
   ],
-  2456: [
+  "ACTIONS.STORE.fn#1+1": [
     "--★ islockedinslot —— 「锁定在槽位」的物品不能被移走。",
     "--   ★★ 返回 false 无 reason。玩家会看到「不能这么做」。",
   ],
-  2461: [
+  "ACTIONS.STORE.fn#1+6": [
     "--★★ 2461-2468：往「施工中的建筑」放材料。",
     "--   ★★ 保留的英文注释：「V2C: 为了把物品放到物体上而非建造挂件上」。",
     "--     ★★★ 「V2C」= 韦伯视角到玩家视角（View as Character）的转换注释前缀。",
@@ -424,11 +424,11 @@ export const BEFORE = {
     "--     constructionbuilder 组件，最后看它有没有 constructioninst。",
     "--     ★ 三层 nil 检查用 and/or 链实现，写法紧凑但易读性差。",
   ],
-  2471: [
+  "ACTIONS.STORE.fn#1+16": [
     "--★★ 2471-2478 行：container_proxy 处理（与 RUMMAGE.fn 同构，p3 已详述）。",
     "--   ★★ 再次出现「proxy 用于关闭/交互，master 用于实际数据」的分工。",
   ],
-  2481: [
+  "ACTIONS.STORE.fn#1+26": [
     "--★★★ 分支②：容器 → 容器（2481-2497 行）。",
     "--   ★★★ 条件 `doer.components.inventory == nil and doer.components.container ~= nil`",
     "--     ⇒ 「执行者没有背包但有容器」—— 即 AI（蜘蛛、螃蟹）。",
@@ -440,10 +440,10 @@ export const BEFORE = {
     "--       ★ 这与 2089 行的手持烹调（可部分）策略不同 ——",
     "--         同一个动作的两种路径有**不同的部分成功语义**。",
   ],
-  2498: [
+  "ACTIONS.STORE.fn#1+43": [
     "--★ 分支①：玩家背包 → 容器（2498-2577，80 行，是本 fn 的主体）。",
   ],
-  2509: [
+  "ACTIONS.STORE.fn#1+54": [
     "--★★ 2509-2520：灵魂罐的「 Hack」（JBK 注释）。",
     "--   ★★ 保留的英文注释：",
     "--     「Hack：让罐子更好用 —— 当玩家往罐子里放灵魂时，",
@@ -453,7 +453,7 @@ export const BEFORE = {
     "--   ★ 这是一个纯粹的**体验优化 hack**，用条件（>1 个灵魂）限制以防滥用。",
     "--     ★ 条件判断 souls > 1 说明「只有一个时不加速」，避免被用来卡 CD。",
   ],
-  2522: [
+  "ACTIONS.STORE.fn#1+67": [
     "--★★★ 2522-2537 行：「建造挂件」的特殊槽位分配。",
     "--   ★★ 条件：`constructionbuilderuidata:GetContainer() == target`",
     "--     ⇒ 玩家正在为**这个容器**施工。",
@@ -470,7 +470,7 @@ export const BEFORE = {
     "--     ★ 两个特例：constructionbuilderuidata 与 bundle。",
     "--       ⇒ 凡「动作处于某个忙碌状态里」的场景都要这样处理。",
   ],
-  2539: [
+  "ACTIONS.STORE.fn#1+84": [
     "--★★ quagmire_stewer 强制打开路径（2539-2557）。",
     "--   ★★ forceopen = 目标是 quagmire_stewer 且它自己是个物品。",
     "--     forcedrop = 它当前的主人（grandowner）。",
@@ -478,20 +478,20 @@ export const BEFORE = {
     "--     ★ 作者注明「Silent fail, should not reach here」。",
     "--     ★★ 与 1115 行的 RUMMAGE 同款兜底（见 p3）。",
   ],
-  2546: [
+  "ACTIONS.STORE.fn#1+91": [
     "--★★ RemoveFromOwner(acceptsstacks) —— 拿走物品。",
     "--   ★★ 与 1475 行同款「整堆与否由容器能力决定」的用法。",
   ],
-  2548: [
+  "ACTIONS.STORE.fn#1+93": [
     "--★ forcedrop 分支：先把炖锅从主人手里丢出来，再放入新容器。",
   ],
-  2551: [
+  "ACTIONS.STORE.fn#1+96": [
     "--★★ 2551-2557 行：forceopen 或目标不是物品时才打开容器。",
     "--   ★★ 条件 `forceopen or target.components.inventoryitem == nil`：",
     "--     炖锅（forceopen）或不是物品（本身就开着）。",
     "--     ★★★ 也就是说「把东西放进一个已经打开着的容器里」不会重开它。",
   ],
-  2559: [
+  "ACTIONS.STORE.fn#1+104": [
     "--★★★ 2559-2572 行：放入失败的三级回退（与 CHANGE_TACKLE 的 1494 行同型）。",
     "--   ★★ 2560-2562 行有个联机特有的分支：",
     "--       `playercontroller.isclientcontrollerattached`",
@@ -500,7 +500,7 @@ export const BEFORE = {
     "--       这个差异在 playercontroller.lua:4364 等处也反复出现。",
     "--   ★ 2566-2572：bundle 标签时强制说话（同 2531 的处理）。",
   ],
-  2580: [
+  "ACTIONS.STORE.fn#1+125": [
     "--★ 分支⑤：occupiable —— 「占用型容器」（如六格冰箱的固定位置）。",
     "--   ★★ 2581 行的双重否定很绕：",
     "--     物品有 occupier 组件 **且** 目标有 occupiable 组件",
@@ -509,16 +509,16 @@ export const BEFORE = {
     "--   ★★ 2584 行的 return 直接返回 Occupy 的结果，",
     "--     丢掉了 2583 的 CanOccupy 检查结果（只用它做门槛）。",
   ],
-  2588: [
+  "ACTIONS.BUNDLESTORE.strfn#1": [
     "--★ BUNDLESTORE.strfn —— 建造语境下显示 CONSTRUCT（同 2598 行的 fn 复用配对）。",
   ],
-  2598: [
+  "ACTIONS.BUNDLESTORE.strfn#1+10": [
     "--★ BUNDLESTORE.fn = STORE.fn —— T12 同构模板。",
   ],
-  2600: [
+  "ACTIONS.STORE.strfn#1": [
     "--★ STORE.strfn —— 三个 NPC 类标签变体。",
   ],
-  2609: [
+  "ACTIONS.BUILD.fn#1": [
     "--★★ BUILD.fn —— 三行转发，却承载了建造系统的全部入口。",
     "--   ★★ `DoBuild(recipe, act:GetActionPoint(), act.rotation, act.skin)`",
     "--     四个参数全部来自 BufferedAction：",
@@ -531,10 +531,10 @@ export const BEFORE = {
     "--     ★ 若只用 ActPoints 里某个固定属性，就不需要这些参数。",
     "--   ★ 2610 行的 builder 检查说明「不是所有实体都能建造」。",
   ],
-  2615: [
+  "ACTIONS.PLANT.strfn#1": [
     "--★ PLANT.strfn —— PLANTER 变体（冬季树支架）。",
   ],
-  2619: [
+  "ACTIONS.PLANT.fn#1": [
     "--★★ PLANT.fn —— 三分支：普通种植 / 冬季树支架 / 还回种子。",
     "--   ★★ 2623 行 `grower:PlantItem(seed, doer)` 为真才 return true。",
     "--   ★★ 2625-2630 行的 elseif 链：",
@@ -550,7 +550,7 @@ export const BEFORE = {
     "--         但**结构脆弱** —— 若将来 2629 行改成有条件返回，种子就丢了。",
     "--         ★ 记录为 L 类隐患（结构脆弱，非当前 bug）。",
   ],
-  2638: [
+  "ACTIONS.HARVEST.fn#1": [
     "--★★ HARVEST.fn —— 七分支 if 链（§2 392 行已预告，这里看细节）。",
     "--   ★★ 分支：",
     "--     ① crop      → 收作物（成熟/枯萎都收）",
@@ -569,16 +569,16 @@ export const BEFORE = {
     "--     后两返回值被注释掉了 —— 说明曾想返回 (bool, product) 但没用。",
     "--     ★ 又一处「保留了被注释的返回值」。",
   ],
-  2667: [
+  "ACTIONS.HARVEST.strfn#1": [
     "--★ HARVEST.strfn —— 两个变体（FREE 鸟笼 / WITHERED 枯萎）。",
     "--   ★★ 2671 行 `crop and HasTag(\"withered\")` 用 and 连接，",
     "--     与其它 strfn 用 or 串联不同 —— 这里只处理一种情况。",
   ],
-  2676: [
+  "ACTIONS.LIGHT.fn#1": [
     "--★ LIGHT.fn —— 点火。2679 行先推 onstartedfire 事件再点。",
     "--   ★★★ 事件先行（与 3169 行「先推事件再掉战利品」同源原则）。",
   ],
-  2686: [
+  "ACTIONS.SLEEPIN.fn#1": [
     "--★★ SLEEPIN.fn —— 「睡袋在手上或地上」的双路径（2688-2691 行）。",
     "--   ★★★ `(invobject 有 sleepingbag and invobject) or",
     "--      (target 有 sleepingbag and target) or nil`",
@@ -587,7 +587,7 @@ export const BEFORE = {
     "--     ★ 与 p3 1052 行的 `targ = act.target or act.invobject` 同源，",
     "--       但这里更简洁。",
   ],
-  2699: [
+  "ACTIONS.HITCHUP.fn#1": [
     "--★★ HITCHUP.fn —— 「叫牛来」的四步判定（37 行）。",
     "--   ★★ 判定链：",
     "--     ① 2700-2702  doer/target 必须存在",
@@ -605,13 +605,13 @@ export const BEFORE = {
     "--       「动作范围过了不等于真正可行」。",
     "--   ★★ 400 这个魔数 = 20²，同样是无注释的独立字面量。",
   ],
-  2737: [
+  "ACTIONS.UNHITCH.fn#1": [
     "--★ UNHITCH.fn —— 注意 2741 行 `not act.target:HasTag(\"hitcher\")` 的反直觉条件。",
     "--   ★★★ 2742 行的缩进错误（多一级）暗示这个分支是后加的。",
     "--     语义：目标是「系马桩」时不能解绳（因为桩子本身就是系的地方）。",
     "--     ★ 「hitcher」标签表示「这个实体是拴绳的起点」。",
   ],
-  2747: [
+  "ACTIONS.HITCH.fn#1": [
     "--★★★⚠ 疑似缺陷 L6：HITCH.fn 没有返回值。",
     "--   ★★★ 函数体最后一行是 `end`（2752 行），没有 return。",
     "--     ⇒ Lua 隐式返回 nil ⇒ bufferedaction.lua:26-34：",
@@ -633,11 +633,11 @@ export const BEFORE = {
     "--     ★★ 这个对比很有价值：**两个同类问题的处理方向相反**。",
     "--   ★ 结论：真实的语义瑕疵（当前无实际影响）。只记录不修改。",
   ],
-  2754: [
+  "ACTIONS.MARK.strfn#1": [
     "--★ MARK.strfn —— 「已标记 / 未标记」的双态显示。",
     "--   ★★ 2755 行用 HasMarked(doer) 判断 —— 「自己标记过」才显示 UNMARK。",
   ],
-  2760: [
+  "ACTIONS.MARK.fn#1": [
     "--★★ MARK.fn —— markable 与 markable_proxy 的双写模式。",
     "--   ★★ 2763-2768 行：先试 markable，失败了再试 markable_proxy。",
     "--     ★★★ 与 RUMMAGE.fn 1057 行的 proxy/master 是同一种思路的简化版：",
@@ -649,10 +649,10 @@ export const BEFORE = {
     "--       若 Mark 因别的原因失败（如距离太远），玩家会看到「已标记」。",
     "--       ★ 属于「粗粒度失败原因」的例子。",
   ],
-  2783: [
+  "ACTIONS.CHANGEIN.strfn#1": [
     "--★ CHANGEIN.strfn —— DRESSUP 变体。",
   ],
-  2787: [
+  "ACTIONS.CHANGEIN.fn#1": [
     "--★★★⚠⚠ 疑似缺陷 L2（运算符优先级）：",
     "--     `act.doer ~= nil and act.target ~= nil and",
     "--      act.target.components.wardrobe ~= nil or act.target.components.groomer ~= nil`",
@@ -682,14 +682,14 @@ export const BEFORE = {
     "--       ⇒ 实际触发概率低。但仍是真实的逻辑缺陷。",
     "--     ★★★ 修复只需加一对括号（但本项目要求不改代码，只记录）。",
   ],
-  2792: [
+  "ACTIONS.CHANGEIN.fn#1+5": [
     "--★ 2792-2798 行：组件选择。groomer 优先级更高（会覆盖 wardrobe）。",
     "--   ★★ 写成一个 if 一个 if 而非 if/elseif，",
     "--     结果是「两者都有时用 groomer」。这是刻意的还是笔误？",
     "--     ★ 没有注释说明。按语义推断 wardrobe（衣柜）应该更常用。",
     "--       记为可疑但不足以判定缺陷。",
   ],
-  2805: [
+  "ACTIONS.CHANGEIN.fn#1+18": [
     "--★★ 黑暗中静默失败（§0 第 8 条清单的第 2 处）。",
     "--   ★★ 与 1120 行 RUMMAGE 的处理完全一致：CanEntitySeeTarget 才真的开衣柜。",
     "--   ★★ 但注意 2809 行的 return **true** ——",
@@ -701,20 +701,20 @@ export const BEFORE = {
     "--     ★ 这个区分非常合理：玩家在黑暗中点灯是有意义的，",
     "--       但锁着的箱子点了会白点。",
   ],
-  2813: [
+  "ACTIONS.SHAVE.strfn#1": [
     "--★ SHAVE.strfn —— 「刮自己 vs 刮别人」由输入设备决定。",
     "--   ★★ 2815 行 `TheInput:ControllerAttached()` ——",
     "--     ★★★ strfn 在客户端跑，可以直接问输入设备。",
     "--       这是「strfn 能做 fn 不能做的事」的典型。",
     "--     ★ 手柄玩家没有「点击自己」的操作，所以当 target 为自己时显示 SELF。",
   ],
-  2820: [
+  "ACTIONS.SHAVE.fn#1": [
     "--★★ SHAVE.fn —— 「刮自己」的实现（2822 行 target or doer）。",
     "--   ★★ 两个组件分支：beard（胡子）与 shaveable（毛茸茸的东西如牛）。",
     "--     ★ beard 传两个参数（actor, shaver），shaveable 也传两个 —— ",
     "--       1951 行的写法相同，但签名可能不同。属「看起来一样实则不同」的隐患。",
   ],
-  2833: [
+  "ACTIONS.PLAY.strfn#1": [
     "--★ PLAY.strfn —— 三态：COACH_ON / COACH_OFF / TWEET。",
     "--   ★★★ 2836-2837 行用「标签组合」表达三态：",
     "--       有 wolfgang_coach 标签 且 有 mightiness_normal 标签 → 才能当教练",
@@ -723,13 +723,13 @@ export const BEFORE = {
     "--     ★★★ 「能不能当教练」由**两个标签的组合**决定，不是单个标签。",
     "--       这是标签系统表达「状态组合」的常见手法。",
   ],
-  2850: [
+  "ACTIONS.POLLINATE.fn#1": [
     "--★ POLLINATE.fn —— 「有目标播粉 / 无目标造花」二分。",
   ],
-  2860: [
+  "ACTIONS.TERRAFORM.fn#1": [
     "--★ TERRAFORM.fn —— 转发给 terraformer 组件。",
   ],
-  2866: [
+  "ACTIONS.EXTINGUISH.fn#1": [
     "--★★ EXTINGUISH.fn —— 「灭火」的两种模式。",
     "--   ★★ 模式①（2867-2873）：正在燃烧的 → 有燃料就减少一节，否则直接熄。",
     "--     ★★★ 为什么要「有燃料就 ChangeSection(-1)」？",
@@ -742,7 +742,7 @@ export const BEFORE = {
     "--     是在 fueled 组件上的）。",
     "--   ★★ 函数末尾隐式返回 nil ⇒ 「什么都不满足」时静默失败。",
   ],
-  2879: [
+  "ACTIONS.STOKEFIRE.fn#1": [
     "--★★ STOKEFIRE.fn —— 「拨火」的三条件。",
     "--   ★★ `doer:HasTag(\"controlled_burner\")` ——",
     "--     ★★★ 这是「只有韦伯能做」的实现方式：用标签而非组件。",
@@ -754,7 +754,7 @@ export const BEFORE = {
     "--       而「目标没在烧」→ 落到 2888 行隐式 nil。",
     "--       ★ 三种情况两种反馈，是「反馈不完全」的样本。",
   ],
-  2890: [
+  "ACTIONS.LAYEGG.fn#1": [
     "--★ LAYEGG.fn —— 「现在能不能采蛋」的取反判断。",
     "--   ★★★ `not act.target.components.pickable.canbepicked` ——",
     "--     注意字段名是 **canbepicked**（无 up），与 PICKUP.fn 用的",

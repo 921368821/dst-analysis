@@ -33,13 +33,13 @@ export default {
   ],
 
   // ══════════════ opener 管理 ══════════════
-  64: [
+  "SetOpener#1": [
     '-- SetOpener：记录「谁打开了这个容器」。',
     '-- ⚠️ 这是客户端的**本地状态**，不是权威数据——',
     '--   真正的权威在服务端 container 组件里。客户端记录它只是为了决定',
     '--   「这个容器该不该为我显示界面」。',
   ],
-  111: [
+  "Container:OnRemoveEntity#1": [
     '-- ★ OnRemoveEntity：实体销毁时的清理。',
     '-- ⚠️ 注意开头的 if TheWorld.ismastersim —— 这个函数**只在服务端执行**。',
     '--   它负责把 classified（分类子实体）与所有 opener（开启者）一并 Remove()，',
@@ -60,29 +60,29 @@ export default {
   ],
 
   // ══════════════ 开关容器 ══════════════
-  137: [
+  "OpenContainer#1": [
     '-- ★ OpenContainer：真正打开界面。',
     '-- 注意 snap 参数：是否把界面「吸附」到容器所在位置（跟随移动）。',
     '-- 对应下方 Open 里 doer.HUD:OpenContainer 的第二个参数 IsSideWidget()。',
   ],
-  168: [
+  "Container:AttachOpener#1": [
     '-- AttachOpener / DetachOpener：开启与关闭的对偶操作。',
     '-- ★ 这两个函数是「隐式契约」的典型例子：',
     '--   Attach 里做的每个动作，Detach 必须精确撤销一次。',
     '--   漏掉任何一步，UI 就会残留（对应 bug-patterns CTR9「两个函数构成隐式契约」）。',
     '--   仿写建议：写完 Attach 后立刻写 Detach，逐行对照检查。',
   ],
-  191: [
+  "Container:AddOpener#1": [
     '-- AddOpener / RemoveOpener：多观察者场景（别人也能看你打开的容器）。',
     '-- 与 Attach/Detach 的区别：前者管「界面」，这里管「知情者列表」。',
   ],
-  232: [
+  "Container:WidgetSetup#1": [
     '-- WidgetSetup：由服务端下发的 UI 构建数据。',
     '-- ★ 这是「UI 完全由代码驱动」的具体体现：',
     '--   服务端下发一个 prefab 名 + 参数表，客户端据此实例化控件。',
     '--   没有布局引擎，没有 prefab 编辑器，一切都是数据。',
   ],
-  315: [
+  "RefreshLocalPlayerUI#1": [
     '-- RefreshLocalPlayerUI：本地玩家界面刷新。',
     '-- 注释特别写了 "Call from server handles server is client case"——',
     '-- host 玩家既在服务端又在客户端，需要服务端主动触发客户端 UI 更新。',
@@ -90,7 +90,7 @@ export default {
   ],
 
   // ══════════════ 槽位合法性 ══════════════
-  340: [
+  "Container:CanTakeItemInSlot#1": [
     '-- ★★★ CanTakeItemInSlot —— 判定某物品能否放进某槽位，校验链很长。',
     '-- 【顺序即优先级，任何一步不过就return false】',
     '--  1) item 及其 replica.inventoryitem 必须存在',
@@ -109,28 +109,28 @@ export default {
     '--   正确做法是：客户端判定只用于 UI 即时反馈，**服务端必须独立再校验一次**，',
     '--   绝不能信任客户端传来的合法性结论。',
   ],
-  358: [
+  "Container:CanTakeItemInSlot#1+18": [
     '-- 槽位越界检查。注意是闭区间 [1, numslots]。',
     '-- ⚠️ 这里没做 nil 检查就调GetNumSlots，说明调用方保证 self 有效。',
   ],
-  363: [
+  "Container:CanTakeItemInSlot#1+23": [
     '-- 锁定槽位：已有物品被 IsLockedInSlot 标记时，不允许被替换。',
     '-- 唯一例外是「可堆叠 + 未满 + 同类」——因为堆叠不改变槽位的归属物品。',
     '-- 这个例外条件写得很紧凑，三个 and 缺一不可，抄的时候容易漏。',
   ],
-  373: [
+  "Container:CanTakeItemInSlot#1+33": [
     '-- 自定义校验钩子作为最后一道关口。',
     '-- ★ 移植经验：把「通用规则」与「特例规则」分层——',
     '--   通用规则写死在函数里（如越界、只读），特例交给钩子。',
     '--   反过来做（什么都塞进钩子）会导致调用点散落各处、难以追踪。',
   ],
-  376: [
+  "Container:GetSpecificSlotForItem#1": [
     '-- GetSpecificSlotForItem：找出唯一适合放该物品的槽位。',
     '-- ⚠️ 注意：找不到时**没有 return nil**，Lua 会隐式返回 nil。',
     '--   多数情况下没问题，但若上游用「多个返回值」接收就会踩坑。',
     '--   另外这里的条件用了 itemtestfn 存在性做前置，语义上等价于「启用指定槽位」。',
   ],
-  386: [
+  "Container:ShouldPrioritizeContainer#1": [
     '-- ShouldPrioritizeContainer：物品应优先放进这个容器吗。',
     '-- ★ 关键：它**完整重复了 CanTakeItemInSlot 的一整套前置条件**（第 390-396 行）。',
     '-- 这就是 bug-patterns CTR9 所说的「隐式契约」——',
@@ -138,12 +138,12 @@ export default {
     '-- 就会出现「UI 说该放这里，实际放进去失败」的不一致。',
     '-- 正确解法是抽出一个公共函数让两处共用，或至少加注释互相标注。',
   ],
-  408: [
+  "Container.SetOpener#1": [
     '-- ⚠️ 已废弃的空实现，特意保留给可能仍在调用它的模组。',
     '-- 这是很好的向后兼容做法：删除接口前先留一个 no-op，',
     '-- 让老模组调用时不报错。移植时若要下线接口，可参考这个模式。',
   ],
-  410: [
+  "Container:IsOpenedBy#1": [
     '-- IsOpenedBy：判断是否由此人打开。',
     '-- ⚠️ 两条分支的语义明显不同：',
     '--   有服务端组件 → 转发给权威实现；',
@@ -153,7 +153,7 @@ export default {
   ],
 
   // ══════════════ 开关实现 ══════════════
-  486: [
+  "Container:Open#1": [
     '-- ★★★ Open —— 打开容器。',
     '-- 【结构】同样是「有服务端组件则转发，否则走客户端」的二分支。',
     '--',
@@ -166,25 +166,25 @@ export default {
     '--   移植建议：在 Open 开头补一道 CanBeOpened 检查，',
     '--   或明确文档化「调用方必须自行校验」并把它变成契约。',
   ],
-  493: [
+  "Container:Open#1+7": [
     '-- 客户端分支的四个前置条件：已分类、未在打开中、有操作者、且是本机玩家。',
     '-- ⚠️ doer == ThePlayer 这个判断意味着：客户端只允许「自己」打开界面。',
     '--   多人联机时别人的容器由服务端转发通知，不走这里。',
   ],
-  501: [
+  "Container:Open#1+15": [
     '-- 音效选择：一长串 or 构成优先级链。',
     '--   皮肤专属音效 > 控件自带音效 > 侧边栏专用 > 通用 HUD 音效。',
     '-- ★ 这种「优先级递减的 or 链」是处理「多来源可覆盖默认值」的常用技巧，',
     '--   移植时值得复用。注意每个分支都做了 nil 保护，避免中间项为 nil 时崩。',
   ],
-  515: [
+  "Container:Close#1": [
     '-- Close：与 Open 完全对称。',
     '-- ★ 对照阅读价值很高：',
     '--   Open  里先 Cancel opentask 再走分支，Close 里也是先 Cancel。',
     '--   两者的判空顺序一致，说明这是有意的对称设计。',
     '--   仿写时把 Open/Close 放在一起写，能显著减少不对称 bug。',
   ],
-  539: [
+  "Container:IsBusy#1": [
     '-- IsBusy：容器是否正在被占用（如正在被服务器处理操作）。',
     '-- ⚠️ 这里用了「或」：classified 为空 **或** opener 为空 **或** classified 忙，',
     '--   就算忙。语义偏保守（宁可认为忙）。',
@@ -193,7 +193,7 @@ export default {
   ],
 
   // ══════════════ 槽位操作（全部是发请求，不是真操作） ══════════════
-  549: [
+  "Container:PutOneOfActiveItemInSlot#1": [
     '-- ★★★ 以下所有 Put*/Take*/Add*/Swap*/Move* 方法都是「发 RPC 请求」，',
     '--   而不是在客户端直接改数据。这与普通组件的同名方法语义完全不同。',
     '--',
@@ -212,7 +212,7 @@ export default {
   ],
 
   // ══════════════ 底部 ══════════════
-  78: [
+  "SetOpener#1+14": [
     '-- ⚠️ 注意这里：OnRemoveFromEntity 被整段注释掉了（第 79 行起），',
     '--   源码自己的说明是 "--V2C: OnRemoveFromEntity not supported"。',
     '--',
@@ -231,7 +231,7 @@ export default {
     '--   仿写时务必看清注释掉的代码块——它们记录的是「试过但不行」，',
     '--   而不是「还没写」。',
   ],
-  640: [
+  "Container:MoveItemFromCountOfSlot#1+3": [
     '-- ★ 文件在 return Container 处结束——没有独立的 OnRemoveFromEntity。',
     '-- 结合第 78 行的说明可知：期望的销毁钩子被注释掉了，',
     '-- 实际生效的是第 111 行的 OnRemoveEntity，而它**只跑服务端**。',

@@ -100,7 +100,7 @@ export const BEFORE = {
   // ══════════════════════════════════════════════════════════════
   // 一、SendToList：集合路由的唯一入口
   // ══════════════════════════════════════════════════════════════
-  13: [
+  "StateGraphWrangler:SendToList#1": [
     "--★★★【SendToList：把实例在四张集合表之间搬家 —— 本文件最核心的 12 行】",
     "--   统一签名：SendToList(inst, list)，list 为 nil 表示「注销」。",
     "--   ★★ 它必须同时做**两件事**，缺一不可：",
@@ -116,28 +116,28 @@ export const BEFORE = {
     "--     说明两个文件的这段代码是**独立演化**的，不是同一份复制。",
     "--   参见 brain.lua:39 的对照注释。",
   ],
-  14: [
+  "StateGraphWrangler:SendToList#1+1": [
     "--【★ 反查：拿到这个实例当前在哪张表里】",
     "--   nil = 未注册（已 Stop）。此时 21 行的 list 赋值也不会执行任何事。",
   ],
-  15: [
+  "StateGraphWrangler:SendToList#1+2": [
     "--【从旧集合摘除】键删除，Lua 表长度随之收缩，无内存泄漏。",
   ],
-  16: [
+  "StateGraphWrangler:SendToList#1+3": [
     "--【注意：即使 old_list 就是 list，这两行也只是白做一遍，没有副作用】",
     "--   stategraph.lua 的 SendToList 是**无条件重写**的（无脑补早退），",
     "--   ★ 代价是每次状态切换都要两三次哈希写入，在有上千状态图时是可测量的开销。",
     "--   brain.lua 那边后来补了 `old_list ~= list` 判断，说明这是已知的优化点。",
   ],
-  19: [
+  "StateGraphWrangler:SendToList#1+6": [
     "--【★★ 反查表更新 —— 这一行是整套机制的枢纽】",
     "--   它让后续任何 SendToList 都能立刻知道\"从哪儿挪走\"。",
     "--   ★ 也让所有入口方法的 `if self.instances[inst]` 守卫成为可能。",
   ],
-  21: [
+  "StateGraphWrangler:SendToList#1+8": [
     "--【list 非 nil 才写入 —— 传 nil 表示注销，这是 RemoveInstance 的路径】",
   ],
-  22: [
+  "StateGraphWrangler:SendToList#1+9": [
     "--【★ 值恒为 true：这是\"集合\"的标准编码 —— 键在集合里，值无意义】",
     "--   不用数组是因为数组的 O(1) 删除在 Lua 里不存在（table.remove 会搬移元素）。",
   ],
@@ -145,7 +145,7 @@ export const BEFORE = {
   // ══════════════════════════════════════════════════════════════
   // 二、四种状态迁移的触发入口
   // ══════════════════════════════════════════════════════════════
-  27: [
+  "SGManager:OnEnterNewState#1": [
     "--★★【OnEnterNewState：任何状态切换都会调它 —— 由 GoToState 末尾触发】",
     "--   ★★ 这是「状态机的心跳保证」：进入新状态就保证自己被唤醒到 updaters。",
     "--     因为新状态可能带 timeline / timeout，但旧状态可能已经休眠了。",
@@ -157,13 +157,13 @@ export const BEFORE = {
     "--     所以\"状态被改了却不更新\"是可能的。limbo 期间状态图状态通常无意义，",
     "--     但若有人在 limbo 里切状态并依赖 onenter 的副作用，就会踩坑。",
   ],
-  33: [
+  "StateGraphWrangler:OnSetTimeout#1": [
     "--★【OnSetTimeout：SetTimeout 会先叫醒实例再设 timeout】",
     "--   顺序很关键：先确保自己在 updaters 里，再设 timeout，",
     "--   否则可能在设完 timeout 之后立刻被休眠，永远等不到 ontimeout。",
     "--   参见 641-644 行 SetTimeout 的实现。",
   ],
-  39: [
+  "StateGraphWrangler:OnPushEvent#1": [
     "--★★【OnPushEvent：实体事件路由进状态图的入口 —— 返回值决定是否缓存】",
     "--   返回 true  = 事件会被塞进 bufferedevents，等本帧末统一处理",
     "--   返回 false = 实例已注销，事件被**静默丢弃**（不报错、不打印）",
@@ -176,22 +176,22 @@ export const BEFORE = {
     "--   ★ 这个返回值设计（成功与否即布尔）是 Lua 里很干净的做法，",
     "--     避免了「登记 + 返回句柄」的两步 API。",
   ],
-  41: [
+  "StateGraphWrangler:OnPushEvent#1+2": [
     "--【★ 打标记而非入队：事件本体存在实例自己的 bufferedevents 里】",
     "--   haveEvents 只回答「这个实例有事要办」，不回答「办什么事」。",
     "--   ★ 分工：调度系统管「何时办」，实例自己管「办什么」。",
   ],
-  42: [
+  "StateGraphWrangler:OnPushEvent#1+3": [
     "--【★ 注意这里 return true 的位置在 if 内部】",
     "--   未注册的实例返回 false，让调用方知道事件丢了。",
   ],
-  44: [
+  "StateGraphWrangler:OnPushEvent#1+5": [
     "--【未注册路径：返回 false 静默丢弃】",
     "--   ⚠ 这是一种**设计性吞异常**：实例刚被 Stop 就来了个事件，什么都不发生。",
     "--     实践中这是对的（实体都要没了，响应事件没意义），",
     "--     但排查\"怪物死了却不播死亡音效\"这类问题时要知道有这个静默路径。",
   ],
-  47: [
+  "StateGraphWrangler:Hibernate#1": [
     "--【★ Hibernate：让状态图进入零 CPU 状态】",
     "--   ★ 为什么状态图需要主动休眠？因为 onupdate 是每帧跑的，",
     "--     上千个远处怪物的状态图加起来就是巨大的纯浪费。",
@@ -201,12 +201,12 @@ export const BEFORE = {
     "--     Sleep     = 睡到某个 tick 号，届时自动醒来",
     "--   参见 bug-patterns.md 的 F3「状态图永不休眠」条目。",
   ],
-  53: [
+  "StateGraphWrangler:Wake#1": [
     "--【★ Wake：唤醒一个休眠中的状态图】",
     "--   用法：事件来了、locomotor 报告到位了、被打断了 —— 都需要 Wake。",
     "--   典型：locomotor 抵达目标后调 inst.sg:Wake() 让状态图继续决策。",
   ],
-  59: [
+  "StateGraphWrangler:Sleep#1": [
     "--★★★【Sleep：把「我要睡 N 秒」翻译成「我在第 T 帧醒来」】",
     "--   ★★ 这是本文件最精巧的一处：把时间语义（秒）翻译成帧号，",
     "--     于是调度系统可以完全用整数 tick 做索引，无需每帧比较时间。",
@@ -217,16 +217,16 @@ export const BEFORE = {
     "--   ★ 与 scheduler.lua 的 DoTaskInTime 思路完全一致，",
     "--     区别是那边用协程，这边用集合桶。参见 03-参考架构/02_scheduler。",
   ],
-  61: [
+  "StateGraphWrangler:Sleep#1+2": [
     "--【秒 → 帧】GetTickTime() 是 C++ 侧的固定帧长（FRAMES=1/30）。",
     "--   ★ 用固定帧长换算而非累加真实时间，是为了保证**帧对齐**：",
     "--     同一 tick 内所有 Sleep 的实例会在同一帧一起醒，批量处理，局部性好。",
   ],
-  62: [
+  "StateGraphWrangler:Sleep#1+3": [
     "--【★ 零帧下限保护】睡 0 帧 = 下帧就醒，那不如不睡（省一次搬运）。",
     "--   强制成 1 帧，保证至少有一次真正的休眠。",
   ],
-  64: [
+  "StateGraphWrangler:Sleep#1+5": [
     "--★★★【★ 行号细节：这里的 +1 与 brain.lua:72 不同 —— 值得单独讲】",
     "--   stategraph.lua:  math.floor(GetTick() + sleep_ticks) + 1",
     "--   brain.lua:72:     math.floor(GetTick() + sleep_ticks)",
@@ -241,17 +241,17 @@ export const BEFORE = {
     "--     推理依据：62 行的 `sleep_ticks == 0 → 1` 保护在 brain 里也有（70 行），",
     "--     说明两份代码同源；差异是后续演化中只改了一边。",
   ],
-  65: [
+  "StateGraphWrangler:Sleep#1+6": [
     "--【取出（或新建）目标 tick 的桶】",
   ],
-  67: [
+  "StateGraphWrangler:Sleep#1+8": [
     "--【★ 懒建桶：只有真有实例要睡时才分配，避免给每个 tick 号留空表】",
   ],
-  69: [
+  "StateGraphWrangler:Sleep#1+10": [
     "--【登记到 tickwaiters[target_tick]】",
     "--   ★ SendToList 会自动把实例从 updaters 移出，所以这里不需要额外摘除。",
   ],
-  71: [
+  "StateGraphWrangler:Sleep#1+12": [
     "--【★★ 关键副作用：调用 Sleep 等于把自己从 updaters 摘出去】",
     "--   这就是「休眠」的实现方式——**不在 updaters 里，自然就不会被 Update 到**。",
     "--   没有额外的标志位，没有协程挂起。极简。",
@@ -260,7 +260,7 @@ export const BEFORE = {
   // ══════════════════════════════════════════════════════════════
   // 三、注销与清理
   // ══════════════════════════════════════════════════════════════
-  76: [
+  "StateGraphWrangler:OnRemoveEntity#1": [
     "--★★【OnRemoveEntity：实体被彻底销毁时的清理钩子】",
     "--   ★★ 注意参数语义**在这个文件里是反的**：这里 inst 是 EntityScript，",
     "--     而本文件其他所有方法（RemoveInstance 等）的 inst 是 StateGraphInstance。",
@@ -270,15 +270,15 @@ export const BEFORE = {
     "--     也是阅读本文件时最容易踩的坑。移植时务必区分两个 inst。",
     "--   由 entityscript.lua 的 Remove 流程调用（经 EntityScript:OnRemove）。",
   ],
-  77: [
+  "StateGraphWrangler:OnRemoveEntity#1+1": [
     "--【★ 用 inst.sg 去查反查表 —— 因为反查表的键是 StateGraphInstance】",
     "--   没挂过状态图的实体，inst.sg 为 nil，查表返回 nil，安全跳过。",
   ],
-  78: [
+  "StateGraphWrangler:OnRemoveEntity#1+2": [
     "--【显式写 SGManager 而非 self：与文件里其他地方风格不一致，",
     "--   但两者指向同一单例，无功能差异。纯历史遗留。】",
   ],
-  82: [
+  "StateGraphWrangler:RemoveInstance#1": [
     "--★★★【RemoveInstance：把实例从调度系统的所有视野里彻底抹掉】",
     "--   ★★ 这个函数的结构本身就是一段注释：",
     "--     85-88  按反查表正常摘除",
@@ -291,13 +291,13 @@ export const BEFORE = {
     "--   → 移植建议：把注销写成\"只依赖反查表 + 断言未注册\"，",
     "--     别学这套清扫，否则同样的悬垂引用会在别处复发。",
   ],
-  85: [
+  "StateGraphWrangler:RemoveInstance#1+3": [
     "--【正常路径：反查表说的那张表】",
   ],
-  87: [
+  "StateGraphWrangler:RemoveInstance#1+5": [
     "--【★ 注意 `~= nil` 而非 `if old_list then`：语义等价但风格更明确】",
   ],
-  92: [
+  "StateGraphWrangler:RemoveInstance#1+10": [
     "--★★【★ 丢弃未处理的缓冲事件 —— 这一行防止了一种很难查的崩溃】",
     "--   场景：实体在自己的**事件处理器里**销毁自己（Remove / RemoveFromScene）。",
     "--   此时 UpdateEvents 正在 `for k, event in ipairs(buff_events)` 遍历，",
@@ -309,7 +309,7 @@ export const BEFORE = {
     "--     `buff_events ~= self.bufferedevents` 就知道「表被换了，提前收工」。",
     "--   ⚠ 两者必须成对存在，只改一处会引入遍历中的悬垂。",
   ],
-  94: [
+  "StateGraphWrangler:RemoveInstance#1+12": [
     "--【★★★ 以下四行是「作者自认的维护债」的兜底清扫，移植时应当删掉】",
     "--   ★ 为什么反查表会不准？——因为 AddInstance（第 105 行）之外，",
     "--     还有路径直接写集合表而忘了更新 instances。",
@@ -318,16 +318,16 @@ export const BEFORE = {
     "--   ⚠ 代价：每个实体销毁时都要写 5 次哈希表。",
     "--     高频生成/销毁（刷怪、掉落物）时这项开销是可测量的。",
   ],
-  98: [
+  "StateGraphWrangler:RemoveInstance#1+16": [
     "--【① 清反查表 —— 必须在最前面，后续 SendToList 才会正确跳过】",
   ],
-  99: [
+  "StateGraphWrangler:RemoveInstance#1+17": [
     "--【② 清 updaters。若实例当时在这张表里（比如正被 Update 遍历），",
     "--   这会造成 pairs 遍历中的删键 —— Lua 规范允许删除**当前键**，",
     "--   但删除**尚未访问到的键**是未定义行为。",
     "--   ★ Update 里 123 行的 `not k.stopped` 检查就是为这个场景兜底的。】",
   ],
-  100: [
+  "StateGraphWrangler:RemoveInstance#1+18": [
     "--⚠【★★ 疑似缺陷：`self.tickwaiters[inst] = nil` 是无效的】",
     "--   推理依据：tickwaiters 是**二级表**，键是 tick 号（数字），",
     "--     值是 { 实例 = true } 的集合（见 6 行注释与 65-70 行的构造）。",
@@ -350,15 +350,15 @@ export const BEFORE = {
     "--     正确做法应与 brain.lua 一致：遍历所有 tickwaiters 桶。",
     "--   ⚠ 本条为代码阅读推断，未在运行时验证。",
   ],
-  101: [
+  "StateGraphWrangler:RemoveInstance#1+19": [
     "--【③ 清 hibernaters】",
   ],
-  102: [
+  "StateGraphWrangler:RemoveInstance#1+20": [
     "--【④ 清 haveEvents —— 防止已销毁的实例被 UpdateEvents 捞起来调 HandleEvents】",
     "--   ★ 若不清，473 行的 assert 会通过，但 476 行的 IsValid 会拦下；",
     "--     双保险。",
   ],
-  105: [
+  "StateGraphWrangler:AddInstance#1": [
     "--★★【AddInstance：注册一个状态图实例】",
     "--   hibernate 参数决定初始落在哪张表 —— 通常来自 `inst:IsAsleep()`。",
     "--   ★★ 关键设计：**注册时就已经考虑了休眠态**。",
@@ -370,7 +370,7 @@ export const BEFORE = {
     "--     两种做法性能特征不同：集合法 O(1) 完全不遍历；",
     "--     逐帧过滤法每帧都要遍历一次（即使实体在睡觉）。",
   ],
-  106: [
+  "StateGraphWrangler:AddInstance#1+1": [
     "--【★ 一行完成「选表 + 登记」】",
     "--   hibernate 为真 → 初始就进休眠表（IsAsleep 的实体走这条路）。",
   ],
@@ -378,7 +378,7 @@ export const BEFORE = {
   // ══════════════════════════════════════════════════════════════
   // 四、主循环：Update 与 UpdateEvents
   // ══════════════════════════════════════════════════════════════
-  109: [
+  "StateGraphWrangler:Update#1": [
     "--★★★【Update：整个状态图系统的唯一驱动入口（每帧每 tick 调一次）】",
     "--   调用点：update.lua:288，在 `for i = last_tick_seen + 1, tick do` 循环里。",
     "--   ★★ 为什么要 `for i = ...` 这个循环而不是只调一次？",
@@ -393,13 +393,13 @@ export const BEFORE = {
     "--     ⑤ 处理缓冲事件（145）",
     "--   ★ 参照 bug-patterns.md 的 F3 条目：本函数第 ③ 段是「永不休眠」的源头。",
   ],
-  110: [
+  "StateGraphWrangler:Update#1+1": [
     "--【★ 取本 tick 该醒的桶 —— O(1)，这是 6 行二级索引的全部回报】",
   ],
-  111: [
+  "StateGraphWrangler:Update#1+2": [
     "--【桶可能不存在（没人在这一帧醒），跳过即可】",
   ],
-  113: [
+  "StateGraphWrangler:Update#1+4": [
     "--【★ 只写 updaters，不动 instances 反查表 —— 依赖 SendToList 的搬家语义】",
     "--   ⚠ 这里直接写表而不调 SendToList，于是 self.instances[k] **仍指向旧的桶**。",
     "--     后果：下一次 SendToList 会先 `old_list[inst] = nil`（正确，桶马上被弃），",
@@ -412,13 +412,13 @@ export const BEFORE = {
     "--     拿到的会是过期的桶。目前代码里没有这样的路径，所以没暴露。",
     "--     移植时应采用 brain 的写法（两处都写）。",
   ],
-  115: [
+  "StateGraphWrangler:Update#1+6": [
     "--【★★ 擦除空桶 —— 防止 tickwaiters 无限增长的关键一行】",
     "--   ★ 只在**本 tick**擦除。若某个桶因异常残留，会永久占用内存。",
     "--   对应 100 行那个写错的兜底清扫，本行的存在让内存最终仍能回收，",
     "--   这也是为什么 100 行的缺陷至今没暴露。",
   ],
-  118: [
+  "StateGraphWrangler:Update#1+9": [
     "--★★★【★★ 本文件最重要的性能技巧：换表 = 零成本快照遍历】",
     "--   经典问题：用 pairs 遍历一张表，同时在循环里往里加元素，是**未定义行为**",
     "--     （可能漏遍历、可能报错、可能死循环）。",
@@ -439,22 +439,22 @@ export const BEFORE = {
     "--     · entityscript.lua 的 StopUpdatingComponents（全局待停队列，延迟删）",
     "--   三者动机相同：让「遍历期间的增删」变成良定义行为。",
   ],
-  119: [
+  "StateGraphWrangler:Update#1+10": [
     "--【★★ 核心一行：self.updaters 指向一张全新的空表】",
     "--   循环里（122 行）用的是局部变量 updaters，即旧的表。",
     "--   所以 136 行的 `self.updaters[k] = true` 写的是**新表** ——",
     "--   语义就是「这个实例下一帧继续更新」。",
     "--   ★ 这就是为什么 132-140 段的结果处理必须分三种情况，见那里。",
   ],
-  121: [
+  "StateGraphWrangler:Update#1+12": [
     "--【★ Profiler 区间：整批 updaters 的耗时，挂在 C++ 侧的性能剖析器上】",
     "--   ★ 性能排查时的第一个抓手：`TheSim:ProfilerPush(\"updaters\")` 对应的时间",
     "--     段就是状态图系统的总开销。它与 126 行的 per-prefab 段是嵌套的。",
   ],
-  122: [
+  "StateGraphWrangler:Update#1+13": [
     "--【遍历旧表（= 本帧开始时的活跃集合）】",
   ],
-  123: [
+  "StateGraphWrangler:Update#1+14": [
     "--★★★【★ 两道守卫，每一道都对应一类真实的崩溃场景】",
     "--   ① `not k.stopped` —— 状态图已 Stop（实体进 limbo）就别更了。",
     "--      为什么需要？注释自述：\"The k.stopped check is for the condition of",
@@ -470,16 +470,16 @@ export const BEFORE = {
     "--   ★★★ 两道守卫缺一不可，这是本文件最重要的防御式编程范例：",
     "--     **在「遍历可变全局集合」的循环里，必须假设被遍历者随时会失效。**",
   ],
-  124: [
+  "StateGraphWrangler:Update#1+15": [
     "--【★ 提前抓 prefab 名，只为 profiler 用】",
     "--   ⚠ 性能注意：这行在热路径上每帧每个实例都执行一次 table 索引。",
     "--     虽然便宜，但这类「只为调试存在」的代码在正式构建里是纯开销。",
   ],
-  125: [
+  "StateGraphWrangler:Update#1+16": [
     "--【无 prefab 就不 push profiler —— 保证 129 行的 Pop 也被跳过（129 行同样判断）】",
     "--   ★ push/pop 必须严格配对，这里的双重判断维持了配对不变式。",
   ],
-  128: [
+  "StateGraphWrangler:Update#1+19": [
     "--★★★【★ Update 的返回值决定实例的下一站 —— 全套休眠协议的核心】",
     "--   三种返回值（详见 737-743 行 StateGraphInstance:Update 的实现）：",
     "--     · 返回 > 0  → 一个秒数 → 睡那么久（Sleep）",
@@ -493,18 +493,18 @@ export const BEFORE = {
     "--     737-739 行会直接 return 0，**这个状态图就永远每帧更新**，",
     "--     即使实体在屏幕外。这是「加了音效后性能掉一个数量级」的常见根因。",
   ],
-  132: [
+  "StateGraphWrangler:Update#1+23": [
     "--【★ 分流：返回值非 nil 才有后续处理】",
   ],
-  133: [
+  "StateGraphWrangler:Update#1+24": [
     "--【★ 正数 = 睡一个具体时长 → 走 tickwaiters 分桶路径（59-73 行）】",
     "--   ★ 注意这里没有对 sleep_amount 做上界检查：一个返回 1e9 的状态",
     "--     会把实例送进 10 亿帧后的桶 —— 实际上等于永久休眠（语义正确）。",
   ],
-  134: [
+  "StateGraphWrangler:Update#1+25": [
     "--【送进睡眠队列，注意它同时把自己从旧表摘除（SendToList 的副作用）】",
   ],
-  136: [
+  "StateGraphWrangler:Update#1+27": [
     "--★★【★ 返回 0 → 写进**新**的 self.updaters → 下一帧继续】",
     "--   ★ 这一行是 118-119 换表法的直接受益者：",
     "--     因为循环遍历的是旧表，在旧表上删自己不会破坏遍历；",
@@ -512,7 +512,7 @@ export const BEFORE = {
     "--   ★ 典型使用者：带 onupdate 的状态（见 737 行），",
     "--     以及 682 行 timeline 中途切状态时递归 Update 返回的 0。",
   ],
-  139: [
+  "StateGraphWrangler:Update#1+30": [
     "--★★【★ 返回 nil → Hibernate：完全不更新，直到有人 Wake】",
     "--   ★★ 这是状态图的「默认节能模式」，绝大多数状态都走这条路。",
     "--     典型：进入 attack 状态后，attacktimeline 跑完、onupdate 结束，",
@@ -521,10 +521,10 @@ export const BEFORE = {
     "--   ⚠ 一旦某状态图再也没有事件能 Wake 它，它就永久沉睡。",
     "--     排查「怪物站着不动也不做动作」时应优先怀疑这里。",
   ],
-  143: [
+  "StateGraphWrangler:Update#1+34": [
     "--【Profiler 区间结束】",
   ],
-  145: [
+  "StateGraphWrangler:Update#1+36": [
     "--★★★【★★ 「所有状态更新完之后」才处理事件 —— H3 的结构性解法】",
     "--   ★★★ 这是本文件第二个最重要的设计决策。",
     "--   场景推演：若在 128 行的 Update 里就处理事件，",
@@ -540,7 +540,7 @@ export const BEFORE = {
     "--       绕过缓冲直接 HandleEvent —— 代价是放弃了上面的免疫性。",
     "--   ★ 详见 bug-patterns.md 的 H3 条目（三套事件机制时序对照）。",
   ],
-  148: [
+  "StateGraphWrangler:UpdateEvents#1": [
     "--★★【UpdateEvents：事件总线的「刻末批处理」阶段】",
     "--   ★★ 与 Update 的换表法同构：haveEvents 也用换表法（第 150 行）。",
     "--   同样的收益：事件处理器里新 PushEvent 的事件会落到新表，下一帧才处理。",
@@ -554,32 +554,32 @@ export const BEFORE = {
     "--     但 HandleEvents 里 476 行的 IsValid 会拦住，不会崩 —— 静默浪费一帧。",
     "--     与 Update 里那两道守卫相比，这里的防御明显更弱。",
   ],
-  149: [
+  "StateGraphWrangler:UpdateEvents#1+1": [
     "--【取出待处理集合（局部变量）】",
   ],
-  150: [
+  "StateGraphWrangler:UpdateEvents#1+2": [
     "--【★★ 换表：与 118-119 完全同构的双缓冲】",
   ],
-  152: [
+  "StateGraphWrangler:UpdateEvents#1+4": [
     "--【Profiler：事件处理阶段】",
   ],
-  153: [
+  "StateGraphWrangler:UpdateEvents#1+5": [
     "--【遍历本帧攒下的所有「有事件待处理」的实例】",
   ],
-  154: [
+  "StateGraphWrangler:UpdateEvents#1+6": [
     "--【★ HandleEvents 内部会逐条派发给当前状态/全局处理器，见 473-488 行】",
     "--   ★ 注意 HandleEvent 与 HandleEvents 是两个不同职责的方法：",
     "--     · HandleEvent（463）= 派发**一条**事件",
     "--     · HandleEvents（473）= 派发**缓冲队列里全部**事件",
   ],
-  156: [
+  "StateGraphWrangler:UpdateEvents#1+8": [
     "--【Profiler 结束】",
   ],
 
   // ══════════════════════════════════════════════════════════════
   // 五、三个「事件/时间片」值对象
   // ══════════════════════════════════════════════════════════════
-  159: [
+  "StateGraphWrangler:UpdateEvents#1+11": [
     "--★★★【ActionHandler：动作 → 状态的路由表项】",
     "--   解决的问题：**「玩家挖了一下地面」这件事，该进哪个状态？**",
     "--   这个映射在不同生物之间差异巨大（蝙蝠挖土 = flyaway 逃走，",
@@ -593,10 +593,10 @@ export const BEFORE = {
     "--     EventHandler  由**游戏事件**触发（本地，或网络复制后）",
     "--   ★ 前者必须处理预测（见 441-449 行的 FastForward），后者不需要。",
   ],
-  162: [
+  "StateGraphWrangler:UpdateEvents#1+14": [
     "--【★ action 是发起点（状态图无法决定去哪，得靠调用方给出动作类型）】",
   ],
-  164: [
+  "StateGraphWrangler:UpdateEvents#1+16": [
     "--★★★【★ deststate 的「字符串 or 函数」双形态 —— 一个很实用的设计】",
     "--   写成字符串：ActionHandler(ACTIONS.PICKUP, \"eat_enter\")",
     "--     → 恒定映射，省去写函数的样板代码。见 SGbat.lua:19-20。",
@@ -608,22 +608,22 @@ export const BEFORE = {
     "--     表驱动让「哪些动作归哪个状态」一目了然，加动作只需加一行。",
     "--   ★ 同时兼容两种形态，代价是每次派发多一次 type() 判断（微小开销）。",
   ],
-  166: [
+  "self.deststate#1+1": [
     "--【★ 字符串分支：把常量包成常量函数，抹平两种形态的调用差异】",
     "--   ★★ 这是「适配器模式」的最小实现：让下游（411/435 行）",
     "--     只需要知道 `deststate(inst, bufferedaction)` 返回状态名，",
     "--     完全不需要关心它原本是字符串还是函数。",
     "--   ★ `_` 作为参数名表示「这个位置我不用，但签名必须一致」。",
   ],
-  168: [
+  "self.deststate#1+3": [
     "--【函数分支：原样保留调用者的函数】",
   ],
-  170: [
+  "self.deststate#1+5": [
     "--【★ condition：可选的前置条件函数（返回 false 则动作不被接受）】",
     "--   ⚠⚠ 这个可选条件是 bug-patterns.md **H1 条目**「相邻问题」的根因，",
     "--     详见本文件 430-461 行 StartAction 的详细说明。",
   ],
-  173: [
+  "self.deststate#1+8": [
     "--★★【EventHandler：游戏事件 → 状态图的处理器】",
     "--   与 ActionHandler 的区别：没有 condition，也没有 deststate ——",
     "--   处理器自己决定要不要 GoToState。",
@@ -635,7 +635,7 @@ export const BEFORE = {
     "--     定义在 stategraphs/commonstates.lua。",
     "--     ★ 这就是为什么 300 个状态图文件不需要各自重写「被打断怎么办」。",
   ],
-  175: [
+  "self.deststate#1+10": [
     "--★★【★ defline：记录「这个处理器定义在哪个文件哪一行」】",
     "--   ★ debug.getinfo(3, \"Sl\") 的 3 是**调用栈深度**：",
     "--     1 = getinfo 自身，2 = EventHandler 的 Class 构造器，",
@@ -648,16 +648,16 @@ export const BEFORE = {
     "--   ⚠ 代价：每次构造都调用一次 debug.getinfo —— 反射有成本。",
     "--     但处理器只在状态图加载时构造一次（不是每帧），可以接受。",
   ],
-  176: [
+  "self.deststate#1+11": [
     "--【★ 格式化成 \"文件名:行号\" 字符串，方便直接跳转/搜索】",
   ],
-  177: [
+  "self.deststate#1+12": [
     "--【★ 参数断言：EventHandler 只接受字符串名字】",
   ],
-  178: [
+  "self.deststate#1+13": [
     "--【断言必须是函数 —— 在加载期就拦住拼写错误，而不是运行时 nil 调用崩溃】",
   ],
-  179: [
+  "self.deststate#1+14": [
     "--★★【★ 事件名统一转小写 —— 事件名因此大小写不敏感】",
     "--   ★ 目的：让 `sg:PushEvent(\"OnDeath\")` 与 `PushEvent(\"ondeath\")` 等价，",
     "--     消除一类极难排查的 bug（名字大小写不匹配导致处理器永不触发）。",
@@ -670,7 +670,7 @@ export const BEFORE = {
     "--     实践上原版所有 PushEvent 调用点都用全小写，所以从未暴露。",
     "--     移植时若允许大写事件名，必须两侧都转小写。",
   ],
-  183: [
+  "self.deststate#1+18": [
     "--★★★【TimeEvent：timeline 上的一个「绝对时刻事件」】",
     "--   ★★★ 这是状态图实现「多阶段动作」的核心原语。",
     "--   为什么需要它？看一个真实的攻击 timeline（SGbat.lua:11 帧处）：",
@@ -683,23 +683,23 @@ export const BEFORE = {
     "--     onenter / onexit / ontimeout 是「点」，timeline 是「帧」，onupdate 是「每帧」，",
     "--     **能写成时间点的一律不要写成 onupdate 里的时间比较。**",
   ],
-  185: [
+  "self.deststate#1+20": [
     "--【★ 与 EventHandler 同样的 defline 溯源机制（见 175 行说明）】",
     "--   ★ 注意这里的栈深度 3 也依赖「TimeEvent 在状态图顶层被调用」。",
   ],
-  187: [
+  "self.deststate#1+22": [
     "--【断言 time 必须是数字 —— 单位是**秒**】",
   ],
-  189: [
+  "self.deststate#1+24": [
     "--【★ time 是相对**进入状态那一刻**的秒数，不是绝对时间】",
     "--   进度计算在 UpdateState 的 668 行：`timeline[idx].time <= self.timeinstate`。",
   ],
-  190: [
+  "self.deststate#1+25": [
     "--【fn 的签名统一为 function(inst) —— 无参调用（见 678 行）】",
     "--   ★ 与 EventHandler 的 fn(inst, data) 不同：timeline 不携带数据，",
     "--     因为时间点的语义就是「到这个时刻做这件事」，不需要 payload。",
   ],
-  193: [
+  "FrameEvent#1": [
     "--★★【FrameEvent：以「帧」为单位的 TimeEvent 语法糖】",
     "--   ★ 为什么需要它？因为时间线的绝大多数节点都跟动画帧对齐，",
     "--     用 FRAMES（1/30 秒）表达远比「0.2666667 秒」直观。",
@@ -708,30 +708,30 @@ export const BEFORE = {
     "--   ★ 与美术协作的关键：状态图时间线的帧号必须与动画帧号对齐，",
     "--     否则会出现「伤害帧到了但动画还没张嘴」的经典 desync。",
   ],
-  194: [
+  "FrameEvent#1+1": [
     "--【frame * FRAMES = 帧转秒，交给 TimeEvent 统一处理】",
   ],
-  197: [
+  "SoundTimeEvent#1": [
     "--★★【SoundTimeEvent：播放音效的语法糖，语义是「这个时间点响一次」】",
     "--   ★ 注意没有 loop 参数 —— timeline 里的音效天然是一次性的。",
     "--     需要循环音效的生物（如狼嚎）要用 SoundFrameEvent 或在 onenter 里 PlaySound。",
   ],
-  199: [
+  "SoundTimeEvent#1+2": [
     "--【★ 直接调 SoundEmitter —— 状态图与音频系统的唯一耦合点】",
     "--   ⚠ 因此：静音关掉声音（opts.mute_sfx）时这些声音不会被跳过，",
     "--     仍会走 PlaySound 调用（引擎内部再决定是否发声）。",
     "--     这点与 205 行的 SoundFrameEvent 同理。",
   ],
-  203: [
+  "SoundFrameEvent#1": [
     "--★★【SoundFrameEvent：帧版本的音效语法糖】",
     "--   ★ 与 SoundTimeEvent 的唯一区别是单位（帧 vs 秒）+ 多一个 vol 参数。",
   ],
-  205: [
+  "SoundFrameEvent#1+2": [
     "--【★ 三参数 PlaySound：第三参数是音量，覆盖 SoundEmitter 的默认音量】",
     "--   ★ 为什么需要音量覆盖？因为同一个动画时间点上，",
     "--     不同生物/不同状态的音效强度应该不同（如幼小动物叫得更轻）。",
   ],
-  209: [
+  "Chronological#1": [
     "--★★【Chronological：timeline 的排序比较器】",
     "--   ★★★ 为什么**必须**排序？因为 timeline 是用 ipairs 顺序读的，",
     "--     而开发者在状态图里写 TimeEvent 时未必按时间先后排列。",
@@ -749,7 +749,7 @@ export const BEFORE = {
     "--     实践影响：写「同一时刻先切状态再播音效」这类代码会随机失效。",
     "--     → 规避：把两个事件的时间错开 1 帧，或合并成一个。",
   ],
-  210: [
+  "Chronological#1+1": [
     "--【★ 严格小于 —— 相等时不交换（由 sort 算法决定最终顺序）】",
     "--   ⚠ 若要保证稳定，应写 `a.time < b.time or (a.time == b.time and idx_a < idx_b)`。",
   ],
@@ -757,7 +757,7 @@ export const BEFORE = {
   // ══════════════════════════════════════════════════════════════
   // 六、State 类：单个状态的定义
   // ══════════════════════════════════════════════════════════════
-  213: [
+  "Chronological#1+4": [
     "--★★★【★★ State：状态图的原子单位 —— 「一个动作」的定义】",
     "--   ★★ 关键认知：**State 是数据，不是类层次。**",
     "--     状态之间没有继承关系（「攻击」不是「待机」的子类）。",
@@ -773,20 +773,20 @@ export const BEFORE = {
     "--     ★★ 这是本文件最容易犯的设计错误：",
     "--     在 State 里挂一个 self.mytarget 字段会被所有实体共享！",
   ],
-  215: [
+  "Chronological#1+6": [
     "--【★ 与 EventHandler / TimeEvent 同样的 defline 溯源，见 175 行】",
   ],
-  218: [
+  "Chronological#1+9": [
     "--【★★ name 是唯一必填字段 —— 状态图靠名字查找状态（530 行）】",
     "--   ★ 用名字而非对象引用做键，是为了让 StateGraph 能被序列化、被动态构造，",
     "--     也是 mod 注入（316 行 self.states[v.name] = v）的前提。",
     "--   ⚠ 代价：拼错名字只在 GoToState 时才报错（533 行 print 而非 assert），",
     "--     运行时不易发现。见 529-600 行的详细说明。",
   ],
-  219: [
+  "Chronological#1+10": [
     "--【状态名 —— 全状态图内必须唯一】",
   ],
-  220: [
+  "Chronological#1+11": [
     "--★★【★ onenter：进入状态的那一刻执行一次】",
     "--   ★ 典型职责：PlayAnimation、设目标、起冷却、切 tag。",
     "--   ★★ 参数是 (inst, params)：params 来自 GoToState 的第二个实参（529 行）。",
@@ -794,7 +794,7 @@ export const BEFORE = {
     "--       需要传值时应该用 params。参见 bug-patterns.md 的 H2 条目。",
     "--   ⚠ params 没有类型检查，传错类型只在运行时报错。",
   ],
-  221: [
+  "Chronological#1+12": [
     "--★★★【★ onexit：离开状态的那一刻执行一次】",
     "--   ★★ 命名坑：这个字段叫 onexit 而不是 ondone / onleave。",
     "--     而且它的**第二个参数是下一个状态的名字**（539 行）而不是 params：",
@@ -808,7 +808,7 @@ export const BEFORE = {
     "--     两者能读到的数据范围不同，这是本文件极隐蔽的不对称点。",
     "--   ⚠ 若当前状态没有任何转移路径（比如它是终态），onexit 可能永不执行。",
   ],
-  222: [
+  "Chronological#1+13": [
     "--【★ onupdate：每帧执行 —— ★★ 性能敏感区，见 bug-patterns.md F3】",
     "--   参数 (inst, dt)：dt 是自上次 Update 以来经过的秒数。",
     "--   ★★★ 铁律：**能不用就不用。**",
@@ -816,7 +816,7 @@ export const BEFORE = {
     "--     正确做法是把「持续判断」拆成 onenter（起点）+ timeline（各时刻）+",
     "--     ontimeout（终点）。",
   ],
-  223: [
+  "Chronological#1+14": [
     "--【★ ontimeout：SetTimeout 计时到期时执行一次】",
     "--   ★ 用于「动作持续 N 秒后自动回到待机」这类逻辑。",
     "--   ★★ 与 timeline 的区别：ontimeout 由状态**主动**设置（SetTimeout），",
@@ -824,7 +824,7 @@ export const BEFORE = {
     "--   ★ 两者可以共存：timeline 管中间帧，ontimeout 管兜底退出。",
     "--   ⚠ 忘了 SetTimeout 就不会有 ontimeout —— 不会有任何提醒。",
   ],
-  225: [
+  "Chronological#1+16": [
     "--【★ tags：本状态激活时自动拥有的标签集合】",
     "--   ★★ tag 是状态图对外暴露的「布尔属性」，其他系统靠它提问：",
     "--     · locomotor 检查 tag \"busy\" 决定是否允许移动",
@@ -834,16 +834,16 @@ export const BEFORE = {
     "--     locomotor 不需要知道有哪些状态，只需要问「现在忙不忙」。",
     "--   ★★ tag 的自动同步到实体标签见 551-566 行 —— 这是很少被注意的机制。",
   ],
-  227: [
+  "Chronological#1+18": [
     "--【★ 用 ipairs 遍历 args.tags 数组，转成哈希集合 self.tags】",
     "--   为什么转？状态内部用哈希查（self.tags[k]）是 O(1)，",
     "--   而 AddStateTag（603 行）也是往哈希里写。统一成哈希才能动态增删。",
     "--   ⚠ 注意 k 被丢弃了：args.tags 里的顺序信息不被保留（本来也不需要）。",
   ],
-  228: [
+  "Chronological#1+19": [
     "--【★★ 数组 → 哈希集合的转换：这是 State 内部唯一的 tag 存储形式】",
   ],
-  232: [
+  "Chronological#1+23": [
     "--★★【★★★ client_prediction 分支：State 构造里最容易被忽略的 11 行】",
     "--   ★★ 这段代码处理**客户端预测**的服务端状态校验，",
     "--     是 DST 联机表现一致性的关键，机制在 749-752 行 ServerStateMatches。",
@@ -861,31 +861,31 @@ export const BEFORE = {
     "--     推理依据：它们分别在 if 与 else 两个分支里赋值，没有合并。",
     "--     → 实践约束：一个状态要么是客户端预测态，要么是服务端态，不能兼顾。",
   ],
-  233: [
+  "Chronological#1+24": [
     "--【★ 判定依据：args.server_states 非 nil → 客户端侧使用的状态】",
   ],
-  234: [
+  "Chronological#1+25": [
     "--【--client player only：注释明确标注这一分支只给客户端玩家用】",
   ],
-  235: [
+  "Chronological#1+26": [
     "--【★ 编译成 { [hash(状态名)] = true } 的服务端状态白名单】",
     "--   服务端会把自己的当前状态名 hash 上来，客户端比对是否在白名单里。",
     "--   不在白名单 → 说明客户端的预测跑偏了 → 走纠正流程。",
   ],
-  237: [
+  "Chronological#1+28": [
     "--【★ hash() 是 C++ 侧提供的字符串哈希 —— 与 751 行的 :value() 同源】",
   ],
-  239: [
+  "Chronological#1+30": [
     "--【★ forward_server_states：本次切换时要把**上一个状态**的白名单沿用过来】",
     "--   场景：客户端连续预测了 attack → attackpre → attackpost 三个状态，",
     "--     服务端只发「当前在 attackpost」。若 attackpost 自己的白名单不含",
     "--     attack，服务端就无法确认客户端的预测过程是否合法。",
     "--     于是沿用上一个状态的白名单，把整条预测路径都声明为「服务端认可」。",
   ],
-  241: [
+  "Chronological#1+32": [
     "--【--server player only：服务端玩家分支】",
   ],
-  242: [
+  "Chronological#1+33": [
     "--【★ no_predict_fastforward：标记本状态是否禁止「预测快进」】",
     "--   ★★ 预测快进（FastForward，755 行）指：客户端预测执行了一个动作，",
     "--     于是把状态图时间往前拨，让动画立刻演到位，避免一帧延迟的视觉卡顿。",
@@ -906,7 +906,7 @@ export const BEFORE = {
     "--     → 修复方向应是读 self.no_predict_fastforward（570 行已经拷过来了）。",
     "--   ⚠ 本条为代码阅读推断，未在运行时验证。",
   ],
-  245: [
+  "Chronological#1+36": [
     "--【★★ events：本状态私有的事件处理器表】",
     "--   ★★★ 这是状态图事件路由的**第一优先级**层（见 463-471 行）：",
     "--       先问当前状态的私有处理器；没处理掉，才问状态图全局处理器。",
@@ -918,43 +918,43 @@ export const BEFORE = {
     "--     所以「处理函数」必须能绑定在状态上，而不是全局唯一。",
     "--   ★ 存储形式：哈希表，键是小写事件名（见 179 行与 249 行）。",
   ],
-  248: [
+  "Chronological#1+39": [
     "--【★ 加载期断言：只接受 EventHandler 对象】",
     "--   ⚠ 注意用的是 is_a 而不是类型判断 —— 支持子类（Class 体系的元表继承）。",
   ],
-  249: [
+  "Chronological#1+40": [
     "--【★ 建立「小写事件名 → EventHandler」索引（见 179 行的小写化）】",
     "--   ⚠ 若 State 的 events 与 StateGraph 的 events 里有同名事件，",
     "--     **状态私有优先**（465-470 行的两级派发）。",
   ],
-  253: [
+  "Chronological#1+44": [
     "--★★★【timeline：本状态的时间线表】",
     "--   ★★ 注意这是**每个状态各自持有**的（不是实例级），",
     "--     所以时间线是「状态的固有属性」，所有用这个状态的实体共享同一份定义。",
     "--   ★ StateGraphInstance 上的 timelineindex（337 行）才是实例级的游标。",
     "--   ★★ 二者的关系：定义共享（State.timeline）+ 进度独立（实例的 timelineindex）。",
   ],
-  256: [
+  "Chronological#1+47": [
     "--【★ 加载期断言：只接受 TimeEvent 对象】",
   ],
-  257: [
+  "Chronological#1+48": [
     "--【★ 追加而非赋值：支持 CommonStates 把额外时间点插进来】",
     "--   ★ CommonStates.AddCombatStates 之类会往已有状态的 timeline 里追加节点，",
     "--     所以必须是 table.insert，不能覆盖。",
   ],
-  261: [
+  "Chronological#1+52": [
     "--★★【排序 timeline —— 见 209 行 Chronological 的详细分析】",
     "--   ★★ 排序在**构造期**做一次，不是每帧。这是本文件性能设计的一贯原则：",
     "--     把能提前算的都在加载期算掉，运行期只做查表。",
   ],
-  262: [
+  "Chronological#1+53": [
     "--【State 类构造结束】",
   ],
 
   // ══════════════════════════════════════════════════════════════
   // 七、State:HandleEvent —— 两级事件派发的第一级
   // ══════════════════════════════════════════════════════════════
-  264: [
+  "State:HandleEvent#1": [
     "--★★★【★ State:HandleEvent：事件派发的第一级 —— 「当前状态是否处理这条事件」】",
     "--   ★★★ 那个 `data.state == self.name` 判断是本函数最精妙也最容易忽略的设计：",
     "--   问题：事件是**延迟处理**的（缓冲区，见 145 行）。",
@@ -975,15 +975,15 @@ export const BEFORE = {
     "--     ② data.state == nil       → 外部直接构造的 data 没带状态标记，放行",
     "--     ③ data.state == self.name → 正是入队时所在的状态，放行",
   ],
-  265: [
+  "State:HandleEvent#1+1": [
     "--★★★【★★ 事件归属校验 —— 见上方详细说明】",
     "--   ★ 这行是整个「延迟事件」机制的正确性基石，",
     "--     删掉它会导致难以复现的时序 bug（bug-patterns.md H3 同族）。",
   ],
-  266: [
+  "State:HandleEvent#1+2": [
     "--【查本状态的私有处理器表】",
   ],
-  268: [
+  "State:HandleEvent#1+4": [
     "--★【★ 调用处理器并把返回值透传 —— true 表示「我处理了，别再往下派」】",
     "--   约定：处理器**返回真值**即表示消费了该事件。",
     "--   ★ 看 463-471 行的两级派发正是靠这个返回值决定要不要问全局表。",
@@ -991,14 +991,14 @@ export const BEFORE = {
     "--     表现为「事件同时被状态处理器和全局处理器响应」（重复响应）。",
     "--     例如既播了两遍受击音效，又被 locomotor 响应。",
   ],
-  271: [
+  "State:HandleEvent#1+7": [
     "--【★ 未处理（返回 false），交给 StateGraphInstance 去问全局表（466 行）】",
   ],
 
   // ══════════════════════════════════════════════════════════════
   // 八、StateGraph 类：状态图的组装
   // ══════════════════════════════════════════════════════════════
-  274: [
+  "State:HandleEvent#1+10": [
     "--★★★【★★ StateGraph：一个状态图的完整定义 —— 纯数据，无运行时状态】",
     "--   ★★ 五个构造参数的职责：",
     "--     name           —— 状态图的名字（用于 mod 注入的命名空间，见 289 行）",
@@ -1018,13 +1018,13 @@ export const BEFORE = {
     "--     任务清单里提到的 AddState 在本版本中并不存在（见文件头说明）。",
     "--     状态只能在构造时通过 states 表一次性给出，或由 mod 在 313-318 行注入。",
   ],
-  275: [
+  "State:HandleEvent#1+11": [
     "--【★ 加载期断言：名字必填 —— 因为它同时是 mod 注入的命名空间】",
   ],
-  276: [
+  "State:HandleEvent#1+12": [
     "--【★ StateGraph 也做 defline 溯源，见 175 行说明】",
   ],
-  279: [
+  "State:HandleEvent#1+15": [
     "--【★ defaultstate：构造时只记录，第一次 GoToState 由实体侧触发】",
     "--   调用链：entityscript.lua:1158-1159",
     "--       SGManager:AddInstance(self.sg, self:IsAsleep())",
@@ -1033,24 +1033,24 @@ export const BEFORE = {
     "--     第一个 sg 是 StateGraphInstance，第二个是 StateGraph 定义。",
     "--     本文件里 inst.sg 恒指 StateGraphInstance（见 76 行）。",
   ],
-  282: [
+  "State:HandleEvent#1+18": [
     "--【★ 注释写着 \"reindex the tables\" —— 这三个表都要从数组重建成以名字/动作为键的哈希】",
     "--   因为构造参数里给的是数组（{ActionHandler(...), ActionHandler(...)}），",
     "--   而运行时要用 O(1) 查找，所以必须 reindex。",
   ],
-  283: [
+  "State:HandleEvent#1+19": [
     "--【有 actionhandlers 才处理（允许纯被动状态图）】",
   ],
-  285: [
+  "State:HandleEvent#1+21": [
     "--【★ 加载期类型断言：把写错类型挡在启动期，而不是运行时 nil 调用】",
   ],
-  286: [
+  "State:HandleEvent#1+22": [
     "--【★★ 关键索引：键是 ACTIONS.xxx（动作对象），值是 ActionHandler】",
     "--   ★ 这就是「动作 → 状态」路由表的实现，",
     "--     运行时用 bufferedaction.action 直接查（407/432 行），O(1)。",
     "--   ★ 键是动作对象而非动作名字符串：省一次字符串比较，且动作对象全局唯一。",
   ],
-  289: [
+  "State:HandleEvent#1+25": [
     "--★★★【★ 模组注入点 1：StategraphActionHandler —— 动作路由的扩展】",
     "--   ★★ 三个 mod 注入点构成完整的扩展协议（本文件共 4 处）：",
     "--     ① StategraphActionHandler（289）—— 加动作路由",
@@ -1066,62 +1066,62 @@ export const BEFORE = {
     "--   ⚠ 同名覆盖是**无警告**的：mod 若拼错原版动作名，",
     "--     不会报错，只是默默没生效（或覆盖了别的）。",
   ],
-  291: [
+  "State:HandleEvent#1+27": [
     "--【★ mod 提供的也必须是真 ActionHandler（同 285 行的断言）】",
   ],
-  292: [
+  "State:HandleEvent#1+28": [
     "--【★ 同名覆盖：mod 后注入的赢。原版先注入（原版代码在上），mod 后（此处）】",
     "--   ★ 这就是模组能改写原版行为的技术基础。",
   ],
-  296: [
+  "State:HandleEvent#1+32": [
     "--【events 索引开始】",
   ],
-  298: [
+  "State:HandleEvent#1+34": [
     "--【全局事件处理器的类型断言】",
   ],
-  299: [
+  "State:HandleEvent#1+35": [
     "--【★★ 全局事件表索引：键是小写事件名（见 179 行）】",
     "--   ★ 与状态私有事件表（249 行）结构相同，查询优先级见 465-470 行。",
   ],
-  301: [
+  "State:HandleEvent#1+37": [
     "--【★ 模组注入点 2：StategraphEvent —— 全局事件处理的扩展】",
   ],
-  303: [
+  "State:HandleEvent#1+39": [
     "--【mod 事件也必须是 EventHandler】",
   ],
-  304: [
+  "State:HandleEvent#1+40": [
     "--【同名覆盖事件处理器】",
   ],
-  308: [
+  "State:HandleEvent#1+44": [
     "--【★ states 索引开始 —— 三个索引的最后一个】",
     "--   ★★★ states 是**最重要的索引**：GoToState 全靠它（530 行）。",
     "--     也是三个表里**唯一有运行时遍历需求**的（见下方遍历顺序说明）。",
   ],
-  310: [
+  "State:HandleEvent#1+46": [
     "--【★ 状态对象的类型断言 —— 保证 GoToState 拿到的都是 State】",
   ],
-  311: [
+  "State:HandleEvent#1+47": [
     "--★★【★ 核心索引：状态名 → State 对象。GoToState 的全部查找依据】",
     "--   ★★ 注意这是 pairs 遍历建索引（307 行的表是数组，键是数字）。",
     "--   ⚠ 若 states 表里有两个同名状态，后遍历到的会覆盖先前的 —— 无警告。",
     "--     这在 CommonStates 往已存在的状态表里追加内容时可能发生。",
   ],
-  313: [
+  "State:HandleEvent#1+49": [
     "--【★ 模组注入点 3：StategraphState —— 替换整个状态的扩展】",
     "--   ★★★ 这是最强的扩展点：mod 可以提供一个同名 State，",
     "--     完全替换原版某状态的行为（onenter/onupdate/timeline 全换）。",
     "--   ★ 典型用途：mod 想改狼的攻击前摇时长，",
     "--     只需注入一个同名 attack 状态并给出自己的 timeline。",
   ],
-  315: [
+  "State:HandleEvent#1+51": [
     "--【★ 断言 mod 注入的是 State —— 同 310 行】",
   ],
-  316: [
+  "State:HandleEvent#1+52": [
     "--【★★ 覆盖：mod 的同名状态替换原版状态】",
     "--   ⚠ 由于原版注入在前（307-312 行）、mod 在后，mod 总是赢家。",
     "--     这是有意的，也是模组生态的基础。",
   ],
-  321: [
+  "State:HandleEvent#1+57": [
     "--★★★【★ 模组注入点 4：StategraphPostInit —— 拿到完整 StateGraph 对象随意改造】",
     "--   ★★★ 与前三个的区别：前三只能「加/覆盖某个条目」，",
     "--     这里拿到的是**整个 StateGraph 对象**，可以做任何事",
@@ -1131,10 +1131,10 @@ export const BEFORE = {
     "--     会静默丢掉 mod 自己的注入（顺序依赖）。",
     "--     3/4 号注入点都在 321 行之前执行，所以 4 号里可以安全看到全部注入结果。",
   ],
-  323: [
+  "State:HandleEvent#1+59": [
     "--【★ 回调签名只有 (self)，即整个 StateGraph —— 没有隔离，改坏了就是改坏了】",
   ],
-  325: [
+  "State:HandleEvent#1+61": [
     "--【StateGraph 构造结束】",
   ],
 };

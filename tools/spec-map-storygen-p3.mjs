@@ -3,7 +3,7 @@
 // LinkNodesByKeys 段头与 availableKeys 初始化
 
 export const BEFORE = {
-493: [
+"Story:LinkNodesByKeys#1": [
 "-- ============================================================",
 "-- ★ LinkNodesByKeys —— 锁—钥匙连线的【默认路径】",
 "-- ============================================================",
@@ -23,26 +23,26 @@ export const BEFORE = {
 "--",
 "-- ⚠ 三处与 Restrict 的实质差异见本文件末尾的对照总结（:664 之后）。",
 ],
-497: [
+"Story:LinkNodesByKeys#1+4": [
 "-- 【availableKeys】全函数唯一的「钥匙串」，形态是 key -> {持有该钥匙的节点列表}。",
 "--   注意这是【节点列表】而不是【钥匙计数】——见 :540，候选集语义由此而来。",
 "--   增量维护（只在 :617-623 追加），不重算，这是与 Restrict:326 每轮重算的差异一。",
 ],
-502: [
+"Story:LinkNodesByKeys#1+9": [
 "-- ⚠ 疑似缺陷（死变量）：usedTasks 在本函数内只有这一处赋值（:626），",
 "--   没有任何读取点（grep 核实：LinkNodesByKeys 函数体内无 usedTasks 的读取）。",
 "--   它很可能是早期实现（批量法 RestrictNodesByKey 的遗留写法）的残骸。",
 "--   真正的「已用任务集合」由 :625 把 unusedTasks[key]=nil 的副作用承担。",
 "--   保留它无害，但会误导读者以为存在「回溯已用任务」的逻辑 —— 并不存在。",
 ],
-504: [
+"Story:LinkNodesByKeys#1+11": [
 "-- 【story_depth 的起点】根地块深度 0，首个接入的地块深度 1，单调递增。",
 "--   这是任务级（Graph 级）进度标量，运行时由 components/grottowarmanager.lua:201",
 "--   与 area_trigger.lua:24 消费，用于控制「任务推进到什么阶段」的触发门槛。",
 "--   ⚠ 它被写在【节点对象】上（node.story_depth），但 network.lua:34 的规范位置是",
 "--      Graph.story_depths 数组。见 :566-575 的缺陷说明。",
 ],
-508: [
+"Story:LinkNodesByKeys#1+15": [
 "-- ★ 主循环：只要还有任务没接入，就再摘一个挂到链尾。",
 "--   与 RestrictNodesByKey 的结构性差异二：Restrict 的外层循环遍历的是「锁的种类」，",
 "--   这里是「还没接入的任务」，且每轮只接入【一个】任务。",
@@ -50,27 +50,27 @@ export const BEFORE = {
 "--   代价：接入顺序完全由 :518 的 pairs 遍历顺序决定 ⇒ 依赖 hash 顺序 ⇒",
 "--   这是全库可复现性陷阱的又一处实例（详见文件头「随机数与可复现性」章节）。",
 ],
-511: [
+"Story:LinkNodesByKeys#1+18": [
 "-- 下面是 print_lockandkey_ex 调试输出通道。",
 "--   ⚠ 该通道在 storygen.lua:8-13 被整段留空（函数体只有 -- 注释），",
 "--     所以这些调用全部退化为空函数调用，【不产生任何输出，也不消耗随机数】。",
 "--     这是一个刻意的「编译期关闭调试」手法：保留调用点便于将来恢复。",
 ],
-514: [
+"Story:LinkNodesByKeys#1+21": [
 "-- 遍历 availableKeys 打印钥匙持有情况。debug 通道，同样是空函数。",
 ],
-518: [
+"Story:LinkNodesByKeys#1+25": [
 "-- ★ 逐个试任务：找出第一个「现在就能解锁」的任务。",
 "--   注意这里用的是 pairs 而非有序遍历 ⇒ 第一个被试中的任务 = pairs 顺序里的第一个。",
 "--   ⇒ 结果依赖 Lua 表的 hash 布局，而非任务 id 的大小。",
 "--   与 RestrictNodesByKey:326 相比，这里没有做任何顺序修正。",
 ],
-523: [
+"Story:LinkNodesByKeys#1+30": [
 "-- 【locks 局部表】形态 lock -> {keys={可用钥匙列表}, unlocked=bool}。",
 "--   注意这是每个任务每轮【重建】的局部表，不是缓存 —— 每轮都重新判一次锁。",
 "--   与 RestrictNodesByKey 的 locks 表复用策略不同（差异三，见文件末尾）。",
 ],
-525: [
+"Story:LinkNodesByKeys#1+32": [
 "-- ★ 查表：lockandkey.lua:78-81 GetKeysForLock 的等价展开。",
 "--   LOCKS_KEYS[v] 就是那把锁能被哪些钥匙打开的列表（可能多把，OR 语义）。",
 "--   ⚠ 关键：v 若不在 LOCKS_KEYS 里（比如 E 类缺陷导致的漏配），",
@@ -79,7 +79,7 @@ export const BEFORE = {
 "--     且 :498-510 的 SKIP_THESE_MISSING_KEYS_AND_LOCKS 白名单会剔除这些任务。",
 "--   参见 lockandkey.lua:219 vs :254 —— TREES 锁被重复定义静默覆盖的经典案例。",
 ],
-531: [
+"Story:LinkNodesByKeys#1+38": [
 "-- 【unlockingNodes】形态 nodeId -> Node对象。",
 "--   ★ 与 RestrictNodesByKey:350 的 unlockingTasks 形成对照：",
 "--     Restrict 存【任务对象】（候选集 = 任务），锁解开后拿任务去生成新地块；",
@@ -88,7 +88,7 @@ export const BEFORE = {
 "--   「任务」在这里已经等同于「地块」——【任务即地块】，没有「先有任务后有点」的两阶段。",
 "--   这正是它能串成主链的原因：候选集是现成的点，不必等待生成。",
 ],
-533: [
+"Story:LinkNodesByKeys#1+40": [
 "-- 外层：遍历本任务的每一把锁。",
 "-- 内层（:535）：遍历当前持有的每一种钥匙。",
 "-- 最内层（:536）：遍历那把锁能被哪些钥匙打开。",
@@ -96,7 +96,7 @@ export const BEFORE = {
 "--   多把锁之间则是 AND（:550-557 必须全部 unlocked）。",
 "--   这条规则来自 lockandkey.lua:171-172，与全库一致。",
 ],
-537: [
+"Story:LinkNodesByKeys#1+44": [
 "-- 上面这行 if 上方的整块空白缩进区，是【被注释掉的旧实现】的残留。",
 "-- ⚠ 特别提醒：:537-540 那一段看起来像注释，实际不是 ——",
 "--   真正的代码在 :538-540（for i,node in ipairs(keyNodes)）。",
@@ -105,26 +105,26 @@ export const BEFORE = {
 "--   ⇒ 候选集含义 = 「当前钥匙串能开的锁所对应的全部挂载点」，",
 "--     也就是说：一次解锁会同时把 N 个挂载点变成候选，然后由 :578 随机挑一个。",
 ],
-549: [
+"Story:LinkNodesByKeys#1+56": [
 "-- 【AND 收敛】把各把锁的 unlocked 结果求交。任一把没解开 ⇒ 本任务本轮不可接入。",
 "--   break 后 :555 直接跳出，等下一轮再看（下一轮 availableKeys 可能已变化）。",
 "--   ⚠ 这就是「贪心 + 重试」策略的来源：主循环每轮都要把所有未接入任务重扫一遍。",
 "--     最坏情况 O(任务数² × 锁数 × 钥匙数)，是本函数的性能特征（不是缺陷，但要知道）。",
 ],
-561: [
+"Story:LinkNodesByKeys#1+68": [
 "-- ★ 命中：当前任务此刻可接入。",
 "--   currentNode 就是这个任务的代表地块（任务即地块，见 :531 的对照说明）。",
 "--   ⚠ 注意赋值发生在 :561，而循环末尾的清理在 :628 ——",
 "--     如果后续某步抛错，currentNode 会残留为非 nil，导致 :596 的兜底失效。",
 ],
-564: [
+"Story:LinkNodesByKeys#1+71": [
 "-- 【lowest / highest】记录候选节点里 story_depth 的极值。",
 "--   ★ 用途完全取决于 gen_params.branching 的取值，见 :577-589。",
 "--   ⚠ 哨兵值：i=999 / i=-1 是硬编码魔法数。",
 "--     若真实 story_depth 超过 999（超长任务链），highest 永远停在 999 找不到节点。",
 "--   这类「999 哨兵」在本仓库反复出现（RestrictNodesByKey:336 亦有同款）。",
 ],
-566: [
+"Story:LinkNodesByKeys#1+73": [
 "-- ============================================================",
 "-- ⚠⚠ 疑似缺陷（本段是 storygen.lua 中最可疑的一处，内部编号 E1-B）",
 "-- ============================================================",
@@ -164,7 +164,7 @@ export const BEFORE = {
 "--   正是本处出错的对照证据。",
 "-- ============================================================",
 ],
-577: [
+"Story:LinkNodesByKeys#1+84": [
 "-- 【branching 四分支】决定新地块挂在候选集的哪个点上。",
 "--   default / random ⇒ 随机挑一个候选（:578）—— 绝大多数情况走这里。",
 "--   most             ⇒ 挂 story_depth 最【浅】的候选（:581，对应 lowest）",
@@ -175,7 +175,7 @@ export const BEFORE = {
 "--   ⇒ 只有 never 分支能绕开 E1-B（因为它不走极值结果，但仍会执行 :566 的计算）。",
 "--   严格说：:566 的循环在任何分支下都执行，因此【全条件命中】。",
 ],
-591: [
+"Story:LinkNodesByKeys#1+98": [
 "-- ★ break —— 贪心策略的核心：一旦找到一个可接入的任务，立刻跳出 :518 的遍历。",
 "--   【与 Restrict 的差异】RestrictNodesByKey:559-583 是「全部解锁的都接上」，",
 "--     这里是「只接一个」。",
@@ -185,7 +185,7 @@ export const BEFORE = {
 "--     若某任务只给出很鸡肋的钥匙，可能把整条链带进死胡同。",
 "--     :596-599 的兜底就是为这种情况准备的。",
 ],
-596: [
+"Story:LinkNodesByKeys#1+103": [
 "-- ⚠ 兜底：一轮下来没有任何任务能解锁（贪心走进了死胡同）。",
 "--   做法：从剩余任务里【随机取一个】强行接到链尾。",
 "-- ★ 这就是 storygen.lua:473-475 逃生阀的同构实现（那里是随机接一条边），",
@@ -195,13 +195,13 @@ export const BEFORE = {
 "--   玩家可能在一个不该出现的分支里捡到不该拿的东西。",
 "--   这与 E1 锁—钥匙覆盖缺陷同源：都靠逃生阀活着。",
 ],
-601: [
+"Story:LinkNodesByKeys#1+108": [
 "-- ★ story_depth 单调递增赋值（与 :504 的 0 一起构成 0,1,2,... 的链）。",
 "--   ⚠ 写在 Node 上而非 Graph.story_depths ⇒ 与 E1-B 同源，见 :566 的完整分析。",
 "--   对照 RestrictNodesByKey:440：那里是批量表 depthData[key] = story_depth，",
 "--   结构上更接近正确实现。",
 ],
-604: [
+"Story:LinkNodesByKeys#1+111": [
 "-- ★ 两端各取一个具体节点来连线。",
 "--   lastNodeExit        = 已在图中的链尾地块的【随机出口】",
 "--   currentNodeEntrance = 新地块的【入口】；优先用任务预置的 entrancenode，",
@@ -210,20 +210,20 @@ export const BEFORE = {
 "--     不是无向图的连通性检查，而是「玩家从 A 走到 B」的单向可达。",
 "--     这正是锁—钥匙机制能成立的前提：钥匙决定「有没有这条边」。",
 ],
-607: [
+"Story:LinkNodesByKeys#1+114": [
 "-- 两个断言：确保取到了有效的出入口节点。",
 "--   ⚠ 这两个 assert 是【硬失败】点，一旦触发会向上冒泡到 worldgen_main.lua 的重试。",
 "--     换言之，出入口取不到 ⇒ 整张地图重生成（消耗新的随机数）⇒ 可能得到完全不同的世界。",
 "--   ⚠ 玩家视角的现象：同一个种子偶尔会生成出不同的世界——这就是原因之一。",
 ],
-610: [
+"Story:LinkNodesByKeys#1+117": [
 "-- 【island_percent】孤岛机制：按概率把这次连接变成「断开 + 留白」。",
 "--   概率值来自 gen_params.island_percent（世界设置里的「孤岛」选项）。",
 "--   ⚠ 双重条件缺一不可：既要命中概率，又要 currentNodeEntrance.data.entrance == false",
 "--     （即该地块本身不是入口地块）。这个额外条件在保护 :613 的常规连线不被切断。",
 "--   SeperateStoryByBlanks 见 storygen.lua 的同名实现（在本文件 :9xx 段）。",
 ],
-613: [
+"Story:LinkNodesByKeys#1+120": [
 "-- ★★ LockGraph —— 见 network.lua:454 的详细注释。",
 "--   这是全文件最重要的一行：它【只把边登记进图】，lock.key 参数本身",
 "--   从不被网络层读取（grep 核实：map/ 下无任何读取 lock.key 的代码）。",
@@ -235,7 +235,7 @@ export const BEFORE = {
 "--   这也解释了为什么 E1 类「锁被覆盖」会造成【不可达】而非「锁打不开」：",
 "--   钥匙算不出来 ⇒ 边建不出来 ⇒ 地图缺一块 ⇒ 回不来。",
 ],
-616: [
+"Story:LinkNodesByKeys#1+123": [
 "-- ★ 钥匙增量维护：把本任务给出的钥匙追加到钥匙串。",
 "--   对照 RestrictNodesByKey:457 —— 那里的同类代码被【整段注释掉】了，",
 "--   改为在 :326 每次从 usedTasks 全量重算。",
@@ -245,18 +245,18 @@ export const BEFORE = {
 "--   ⚠ 增量法的风险：:596 的兜底连接虽然也会走到 :617 追加钥匙，",
 "--     所以不会漏；但若将来有人给兜底分支加个 early return，钥匙就会漏算。",
 ],
-625: [
+"Story:LinkNodesByKeys#1+132": [
 "-- 从待接入集合移除本任务（:625），并登记到 usedTasks（:626，本函数内无人读，见 :502）。",
 "--   lastNode 前进到本节点 ⇒ 下一轮的「链尾」就是它。",
 "--   currentNode 清空 ⇒ :596 的兜底判断回到初始态。",
 ],
-631: [
+"Story:LinkNodesByKeys#1+138": [
 "-- ★ 返回最终链尾的随机出口节点。",
 "--   调用方（storygen.lua:491 一带）拿它去接 rootNode 之外的内容，",
 "--   或作为 AddBGNodes / AddCoveNodes 的挂载点。",
 "--   ⚠ 返回的是随机挑的出口 ⇒ 同一个种子下这个选择也受 pairs/math.random 影响。",
 ],
-634: [
+"Story:GetRandomNodeFromTasks#1": [
 "-- ============================================================",
 "-- GetRandomNodeFromTasks —— 兜底取点器",
 "-- ============================================================",
@@ -271,7 +271,7 @@ export const BEFORE = {
 "--   ⚠ 若要保证可复现，应改用有序遍历（先收集 key 列表并排序）。",
 "--   本仓库 widespread 使用这一模式，是既成事实而非孤立疏漏。",
 ],
-653: [
+"Story:AddStartingSetPiece#1": [
 "-- ============================================================",
 "-- AddStartingSetPiece —— 出生点场景件覆盖",
 "-- ============================================================",

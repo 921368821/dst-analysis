@@ -147,7 +147,7 @@ export const BEFORE = {
     "--   · ★ 已废弃但保留：ordered_story_setpieces / override_triggers",
     "--   · ★ 恒为 nil：set_pieces / numoptionaltasks / optionaltasks / valid_start_tasks",
   ],
-  43: [
+  "Level:ApplyModsToTasks#1": [
     "-- ══════════════ ApplyModsToTasks：TaskPreInit 钩子 ══════════════",
     "-- ★★ 对每个任务调 ModManager:GetPostInitFns(\"TaskPreInit\", task.id)，",
     "--   ★★ **按任务 id 精确匹配** ⇒ mod 只能改自己关心的任务。",
@@ -163,8 +163,8 @@ export const BEFORE = {
     "--     LevelPreInitAny    → 全部关卡",
     "--   ⇒ ★ 这是本仓库最完整的扩展点设计，值得单独成篇。",
   ],
-  49: ["-- ★ print 出被改的任务名 ⇒ mod 生效有日志。★ 好实践。"],
-  55: [
+  "Level:ApplyModsToTasks#1+6": ["-- ★ print 出被改的任务名 ⇒ mod 生效有日志。★ 好实践。"],
+  "Level:GetOverridesForTasks#1": [
     "-- ══════════════ ★★ GetOverridesForTasks：资源替换 ══════════════",
     "-- ★★★ 原始注释（:59）本身就是一处「设计意图的自述」：",
     "--   -- WE MAKE ONE SELECTION FOR ALL TASKS or ONE PER TASK",
@@ -173,39 +173,39 @@ export const BEFORE = {
     "--   ⇒ ★★ 注释与实现**不一致**：注释说「二选一」，代码是「每任务一次」。",
     "--     ⚠ 疑似缺陷（注释误导，但代码行为自洽且可用）。",
   ],
-  57: [
+  "Level:GetOverridesForTasks#1+2": [
     "-- ★ resource_substitution.GetSubstitute(name)：查这张替换表。",
     "--   ★★ 映射表本身在别处（★ grep 核实不在 map/ 内）。",
   ],
-  60: [
+  "Level:GetOverridesForTasks#1+5": [
     "-- ★★ 遍历关卡级 substitutes（key = 原资源名）。",
     "--   ★★ 用 pairs ⇒ ★ 顺序不定 ⇒ 若多个替换同时生效，",
     "--     ★★ 最终哪个任务先被写、哪个后被写是随机的。",
     "--   ★ 实务上不同 substitute 作用于不同 prefab，互不冲突 ⇒ 影响可忽略。",
   ],
-  62: [
+  "Level:GetOverridesForTasks#1+7": [
     "-- ★★ 「名字 == 替换名」⇒ 跳过。★ 防自替换的短路。",
   ],
-  65: [
+  "Level:GetOverridesForTasks#1+10": [
     "-- ★★ print 出替换信息 ⇒ 玩家/开发者在日志里能看到资源被换掉了。",
     "--   ★★★ 这是本文件唯一一处「主动暴露资源替换」的日志。",
     "--     ★★ 对 E2 类缺陷排查很有用：玩家说「矿变少了」，这里能看出是不是替换。",
   ],
-  66: [
+  "Level:GetOverridesForTasks#1+11": [
     "-- ★★★ 内层循环：**逐任务**摇随机数。",
     "--   ★★ 一次 ChooseTasks 会消耗 **N 个 math.random()**（N = 任务数）。",
     "--   ★★ ⇒ 这是本文件最大的随机消耗点，★ 直接影响可复现性。",
   ],
-  67: [
+  "Level:GetOverridesForTasks#1+12": [
     "-- ★★ chance = math.random() —— perstory 的随机判定。",
     "--   ★★ 语义：★「这个任务要不要做这次替换」，是个 Bernoulli 采样。",
     "--   ★★ 注意是在循环体内每次重摇 ⇒ **各任务独立**。",
   ],
-  68: [
+  "Level:GetOverridesForTasks#1+13": [
     "-- ★★ if chance < override.perstory —— 命中则准备写 task.substitutes。",
     "--   ★★ perstory ∈ [0,1]：0 = 从不替换，1 = 总是替换。",
   ],
-  73: [
+  "Level:GetOverridesForTasks#1+18": [
     "-- ★★★ 写入点：`tasklist[task_idx].substitutes[name] = {name=substitute,",
     "--   percent=override.pertask}`。",
     "-- ★★★ 这是 substitutes 的**唯一产生点**。★ 注意：",
@@ -221,13 +221,13 @@ export const BEFORE = {
     "--   ★★ 「pertask」这个命名让人以为是「按任务的概率」，★ 实为「按任务的比例」。",
     "--   ⚠ 这是本文件最容易让人做出错误决策的命名。",
   ],
-  85: [
+  "Level:GetTasksForLevel#1": [
     "-- ══════════════ ★★ GetTasksForLevel（极简）══════════════",
     "-- ★ 返回 chosen_tasks。★ forest_map.lua 的 tasks 参数就来自它。",
     "-- ★★ 名字 GetTasksForLevel 与同文件 :152 GetTasksForLevelSetPieces",
     "--   极易混淆：★ 后者是**过滤后**的子集（排除了 level_set_piece_blocker）。",
   ],
-  89: [
+  "Level:ChooseTasks#1": [
     "-- ══════════════ ★★★ ChooseTasks：整个生成流程的任务入口 ══════════════",
     "-- ★★★ 执行顺序本身就是语义（★ 改顺序会改变世界生成结果）：",
     "--   :92   assert(必须声明 task_set)",
@@ -249,17 +249,17 @@ export const BEFORE = {
     "--     ★★ 但 API 长得一模一样（都是 modfn(task_set_data) / modfn(self)），",
     "--     ★★ mod 作者极容易误判。★ 建议文档里明确区分。",
   ],
-  92: [
+  "Level:ChooseTasks#1+3": [
     "-- ★★ assert：level 必须显式声明 overrides[\"task_set\"]。",
     "--   ★★ 没有默认值 ⇒ 漏写直接崩（好设计：宁可崩也不要随机挑一套任务）。",
   ],
-  93: ["-- ★ 取 task_set 名（字符串，如 \"default\" / \"cave\" / \"quagmire\"）。"],
-  94: [
+  "Level:ChooseTasks#1+4": ["-- ★ 取 task_set 名（字符串，如 \"default\" / \"cave\" / \"quagmire\"）。"],
+  "Level:ChooseTasks#1+5": [
     "-- ★★ tasksets.GetGenTasks(task_set) —— 内部 deepcopy（tasksets.lua:12）。",
     "--   ★★ 所以每个 level 拿到的是独立副本，mod 改坏了不会污染全局。",
     "--   ★★ 这一点很重要：★ ChooseTasks 可以被反复调用（换预设时）。",
   ],
-  106: [
+  "Level:ChooseTasks#1+17": [
     "-- ★★ assert(task_set_data ~= nil, …)。",
     "--   ★★★ 错误信息写得非常好（★ 值得学）：",
     "--     \"TaskSet 'X' has no data! If preset 'Y' was created with mods",
@@ -267,7 +267,7 @@ export const BEFORE = {
     "--   ⇒ ★★ 直接给出了**最可能的根因**（预设带 mod 存下来的），",
     "--     ★★★ 而不是干巴巴一句「数据为空」。★ 好的错误信息 = 省下的客服工单。",
   ],
-  108: [
+  "Level:ChooseTasks#1+19": [
     "-- ★★★★★★ 全文件最关键的 3 行：把 task_set 表的**所有字段**拷到 Level 上。",
     "--   ★★ 这意味着 map/tasksets/*.lua 里的表**拥有与 Level 构造同等的权力**：",
     "--     它可以覆盖 location、overrides，甚至 overwrite 任意字段。",
@@ -279,19 +279,19 @@ export const BEFORE = {
     "--     ★★ 对比 :16/:18/:20/:22 的硬 assert 风格，此处完全相反。",
     "--   ★★ 一个 taskset 甚至可以写 `{tasks=…, task_set=…}` 造成自我影响。",
   ],
-  110: ["-- ★ 拷贝结束。★⚠ 无任何日志 ⇒ 覆盖发生时完全静默。"],
-  112: [
+  "Level:ChooseTasks#1+21": ["-- ★ 拷贝结束。★⚠ 无任何日志 ⇒ 覆盖发生时完全静默。"],
+  "Level:ChooseTasks#1+23": [
     "-- ★ LevelPreInit(id)：★ **拷贝之后**的关卡级钩子。",
     "--   ★★ 此时 self 已被 task_set 覆盖 ⇒ mod 若要访问 level 原始值，",
     "--     ★★ 必须自己在钩子里先备份（构造期数据已丢）。",
     "--   ★★ ⚠ 顺序陷阱（见 :89 处汇总说明）。",
   ],
-  117: [
+  "Level:ChooseTasks#1+28": [
     "-- ★ LevelPreInitAny：★ 对**所有**关卡生效的钩子（不限 id）。",
     "--   ★★ 在 :112 之后 ⇒ 顺序上「先具体后通用」，",
     "--     ★★ 也就是说通用钩子能看到特定钩子的修改结果。★ 这个顺序是对的。",
   ],
-  123: [
+  "Level:ChooseTasks#1+34": [
     "-- ★★★ 必需任务入队：★ `for i=1,#self.tasks do` —— 用 **ipairs 语义**。",
     "--   ★★ self.tasks 来自 task_set 拷贝，是**数组** ⇒ 顺序 = 声明顺序。",
     "--   ★★ ⇒ ★★ 这里**没有 pairs 陷阱**（与 storygen.lua 的大量 pairs 对比）。",
@@ -299,36 +299,36 @@ export const BEFORE = {
     "--   ★★★ 顺序稳定性很重要：level.lua:178 与 storygen.lua:861 的",
     "--     math.random(#tasks) 都依赖它才能得到可复现的结果。",
   ],
-  124: ["-- ★ EnqueueATask：查表 + deepcopy（见 :219）。"],
-  127: [
+  "Level:ChooseTasks#1+35": ["-- ★ EnqueueATask：查表 + deepcopy（见 :219）。"],
+  "Level:ChooseTasks#1+38": [
     "-- ★★★ TaskPreInit 钩子：★ 在**全部任务入队后**统一施加。",
     "--   ★★ 顺序理由：★ 只有等所有任务都在 tasklist 里了，",
     "--     ★★ mod 才能「跨任务」做协调（比如把 A 的钥匙改给 B）。",
     "--   ★★ 这就是为什么 TaskPreInit 必须晚于 :123-125。",
   ],
-  129: [
+  "Level:ChooseTasks#1+40": [
     "-- ★★ 可选任务入队：★ 先 shuffle 再取前 N 个。",
     "--   ★★ 即「随机挑 numoptionaltasks 个可选任务塞进队列」。",
     "--   ★★★ 这是世界多样性的一个来源：★ 同 task_set 不同种子 ⇒ 任务列表不同。",
   ],
-  130: [
+  "Level:ChooseTasks#1+41": [
     "-- ★★ shuffleArray（util.lua:864）：原地 Fisher-Yates。",
     "--   ★★ 它**消耗 (#optionaltasks - 1) 个随机数**，",
     "--     ★★ 且 inplace 修改了 self.optionaltasks（= task_set 拷贝的那份）。",
     "--   ⚠ 副作用：★ 若 ChooseTasks 被调用两次，第二次洗的是**已洗过**的数组。",
     "--     ★★ 洗两次不改变「均匀分布」性质，但会多消耗随机数。",
   ],
-  131: ["-- ★ numtoadd = self.numoptionaltasks —— 还要加几个。"],
-  133: [
+  "Level:ChooseTasks#1+42": ["-- ★ numtoadd = self.numoptionaltasks —— 还要加几个。"],
+  "Level:ChooseTasks#1+44": [
     "-- ★★★ ⚠ 疑似缺陷的现场：可选任务**支持嵌套表**（:134）。",
     "--   语义：`optionaltasks = { {\"A\",\"B\",\"C\"}, \"D\", \"E\" }`",
     "--   ⇒ 第一个槽位是「一组任务」，三个都要加。",
     "--   ★★ 设计意图（推测）：让 DLC/主题包能整组出现或整组不出现。",
   ],
-  134: [
+  "Level:ChooseTasks#1+45": [
     "-- ★★ if type(self.optionaltasks[i]) == \"table\" ⇒ 嵌套分支。",
   ],
-  135: [
+  "Level:ChooseTasks#1+46": [
     "-- ★★ 内层 for 遍历嵌套表里的任务名。",
     "--   ⚠★★★ 疑似缺陷（真实）：**numtoadd 在内层按元素数递减（:137），",
     "--     而外层 i 只 +1（:143）**。",
@@ -339,15 +339,15 @@ export const BEFORE = {
     "--   ★★ 正确写法应是内层也检查 numtoadd > 0 后 break。",
     "--   ⚠ 当前不触发，是因为 tasksets/*.lua 里没人用嵌套写法。",
   ],
-  137: [
+  "Level:ChooseTasks#1+48": [
     "-- ★★ numtoadd = numtoadd - 1 —— ★★ 按内层元素个数递减（缺陷点）。",
     "--   ★★ 对比 :142 的外层递减，两者粒度不同 ⇒ 就是问题根源。",
   ],
-  140: ["-- ★★ else 分支：普通单任务名，同样递减。"],
-  143: [
+  "Level:ChooseTasks#1+51": ["-- ★★ else 分支：普通单任务名，同样递减。"],
+  "Level:ChooseTasks#1+54": [
     "-- ★★ i = i + 1 —— ★★ 无论内层加了几个，外层只前进一格（缺陷点）。",
   ],
-  147: [
+  "Level:ChooseTasks#1+58": [
     "-- ★★ 资源替换：★ 必须放在任务全部入队**之后**。",
     "--   ★★ 因为 :73 要写 tasklist[task_idx].substitutes ⇒ tasklist 必须完整。",
     "--   ★★ ⇒ 与 :127 的 TaskPreInit 是同一类顺序约束。",
@@ -355,7 +355,7 @@ export const BEFORE = {
     "--     ★★ ⇒ ★★ mod 在 TaskPreInit 里看不到 substitutes，",
     "--       ★★ 也无法预判哪些资源会被替换。★ 一个真实的扩展盲点。",
   ],
-  149: [
+  "Level:ChooseTasks#1+60": [
     "-- ★★ chosen_tasks 落盘。★ 这是 forest_map.lua:495 的 tasks 参数来源。",
     "--   ★★ 数组顺序 = 必需任务（:123 声明序）+ 可选任务（:130 洗牌序）。",
   ],

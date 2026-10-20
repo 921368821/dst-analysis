@@ -49,7 +49,7 @@ export default {
   ],
 
   // ══════════════ 显灵（Haunt） ══════════════
-  29: [
+  "HauntAction#1": [
     '-- ★★★ HauntAction —— 显灵/附身玩家。',
     '-- 【★ 一个 BufferedAction 上挂了三套回调】',
     '--  第 31 行 AddSuccessAction(inst._OnHauntTargetRemoved)',
@@ -67,14 +67,14 @@ export default {
   ],
 
   // ══════════════ 与其他鬼魂玩耍 ══════════════
-  42: [
+  "haunt_action.validfn#1+9": [
     '-- 玩耍时保持的距离 2。',
   ],
-  44: [
+  "haunt_action.validfn#1+11": [
     '-- 玩耍伙伴的筛选：排除「忙」的，必须是 ghostkid 或 graveghost。',
     '-- ★★ 语义：阿比盖尔只和同类（小孩鬼/坟鬼）玩，不会和人类玩。',
   ],
-  46: [
+  "PlayWithPlaymate#1": [
     '-- ★★ PlayWithPlaymate：★ 关键是把 playfultarget【用完就清】。',
     '--   第 48 行 self.playfultarget = nil',
     '--   ★ 为什么要清？因为 FindPlaymate（第 58 行）靠这个字段做缓存，',
@@ -83,7 +83,7 @@ export default {
     '--   ★ 「有则重置、无则新建」是 StartTimer/SetTimeLeft 的标准配对写法，',
     '--     本文件第 131-140 行（hermitcrabbrain 同款）也用这个模式。',
   ],
-  58: [
+  "FindPlaymate#1": [
     '-- ★★★ FindPlaymate —— ★★ 本文件含真实缺陷的函数。',
     '-- 【第 60-64 行】',
     '--   local max_dist_from_leader = (is_defensive and DEFENSIVE_MAX_FOLLOW)',
@@ -114,13 +114,13 @@ export default {
     '--   ★ 已逐字核对第 63、64、67、68、80、82-85 行，确认逻辑链完整。',
     '--   ⚠️ 另见第 60-61 行的 and/or 陷阱（DEFENSIVE 值为 0 时会错误回落）。',
   ],
-  72: [
+  "FindPlaymate#1+14": [
     '-- ★ 冷却检查：刚玩过就不玩了。played_recently 定时器由第 46 行设置。',
     '-- ★ 这段在第 67-70 行「保持现有伙伴」之后 ——',
     '--   意味着「已有伙伴时可以继续无视冷却」，冷却只阻止【换新伙伴】。',
     '--   语义微妙但合理：玩到一半不打断。',
   ],
-  79: [
+  "FindPlaymate#1+21": [
     '-- ★ 以「队长（若有无队长则自己）」的位置为搜索中心。',
     '--   第 83-84 行 ★ 回调里【又检查一次到队长的距离】，与第 84 行的',
     '--   max_dist_from_leader 比较 —— 即二次过滤。',
@@ -130,22 +130,22 @@ export default {
   ],
 
   // ══════════════ 舞会 ══════════════
-  92: [
+  "ShouldDanceParty#1": [
     '-- ShouldDanceParty：队长在跳舞就跟着跳。与 pigbrain 第 343 行同款。',
   ],
-  104: [
+  "KeepTraderFn#1": [
     '-- KeepTraderFn：与 GetTraderFn（第 97 行）配对，判定一致。',
   ],
 
   // ══════════════ 观战 ══════════════
-  108: [
+  "ShouldWatchMinigame#1": [
     '-- ★ ShouldWatchMinigame 带优先级让位条件（第 112 行）：',
     '--   「我没在打架」或「我的目标也是参赛者」才去看热闹。',
     '--   ★ 与 shadowwaxwellbrain 第 254 行逐字同款 —— 跨文件复用同一手法。',
   ],
 
   // ══════════════ 战斗判定：两种人格 ══════════════
-  124: [
+  "DefensiveCanFight#1": [
     '-- ★★★ DefensiveCanFight —— 防御型「能不能打」的四条判定：',
     '-- 【第 126-129 行】目标不通过 aura 测试 → 放弃（GiveUp）并返回 false',
     '--   ★ inst:auratest(target) —— 「光环测试」，判断目标是否属于它的攻击范围（Aura）。',
@@ -162,7 +162,7 @@ export default {
     '--   这类「条件函数带副作用」在本项目中很常见（brain_noveggie、',
     '--   answerpotcall、return_to_king 等），值得留意但不算缺陷。',
   ],
-  140: [
+  "DefensiveCanFight#1+16": [
     '-- ★★ MAX_AGGRESSIVE_FIGHT_DSQ 用 math.pow 而非乘法：',
     '--   math.pow(TUNING.ABIGAIL_COMBAT_TARGET_DISTANCE + 2, 2)',
     '--   ★ 加 2 是「攻击距离 + 2 格缓冲」，再平方。',
@@ -170,7 +170,7 @@ export default {
     '--     但这里只在模块加载时算一次，不在热路径，无性能问题。',
     '--   ★ 与本文件其他位置的 xx*xx 写法风格不一致，属风格问题非缺陷。',
   ],
-  141: [
+  "AggressiveCanFight#1": [
     '-- ★ AggressiveCanFight 与防御型结构相同，差异在【距离判定】（第 149-155 行）：',
     '--   攻击型看的是「我离玩家（_playerlink）有多远」，而不是「我在不在防御圈内」。',
     '-- ★ 语义：攻击型 Boss 的活动半径由「玩家在哪」决定 —— 它追着玩家打。',
@@ -179,7 +179,7 @@ export default {
     '--     防御型 = 以【自己】为中心；攻击型 = 以【玩家】为中心。',
     '--   一个很清晰的「同结构不同基准」范例。',
   ],
-  160: [
+  "GetBabysitterPos#1": [
     '-- GetBabysitterPos：★ 条件是「有看护对象 且 我不忙」。',
     '--   第 161 行第二个条件 not inst.sg:HasStateTag("busy") ——',
     '--   忙的时候不去「看孩子」，优先级让位。',
@@ -187,31 +187,31 @@ export default {
   ],
 
   // ══════════════ OnStart ══════════════
-  169: [
+  "GetRunAwayTarget#1+4": [
     '-- ★ 统一的重评估间隔 0.25 秒，全文件所有 PriorityNode 都用它。',
     '--   与 knightbrain 第 291 行、mermbrain 第 515 行一致。',
     '-- ★ Boss 的决策频率：0.25 秒一次，比猪（0.5 秒）快一倍。',
   ],
-  170: [
+  "AbigailBrain:OnStart#1": [
     '-- ★★ OnStart：先定义共用节点，再组装两种人格，最后加状态守卫。',
   ],
-  172: [
+  "AbigailBrain:OnStart#1+2": [
     '-- watch_game：观战小游戏。与 pigbrain 第 297 行同款结构。',
   ],
-  179: [
+  "AbigailBrain:OnStart#1+9": [
     '-- ★★ 源码原注释："#1 priority is dancing beside your leader. Obviously."',
     '--   （第一优先级当然是站在队长旁边跳舞）',
     '--   ★ 作者用幽默注释标注了「跳舞」这个纯氛围行为优先级最高。',
     '--   很有 DST 的味道：氛围行为优先级可以极高，因为它提升体验而不影响难度。',
   ],
-  180: [
+  "AbigailBrain:OnStart#1+10": [
     '-- ★ dance：跳舞节点。Leash 距离用同一个值两次（无迟滞）。',
     '--   第 182 行 TUNING.ABIGAIL_DEFENSIVE_MED_FOLLOW 传了两次。',
     '--   ★ 语义：「精确站到队长身边」，与第 349 行 pigbrain 的 10/10 同款。',
     '--   ★ 注意用的是 DEFENSIVE 的距离常量，即使在攻击型人格下也用它 ——',
     '--     因为跳舞时两种人格的距离要求相同。合理的简化。',
   ],
-  186: [
+  "AbigailBrain:OnStart#1+16": [
     '-- ★ transparent_behaviour：透明/隐身时的行为。',
     '--   ★ 第 188 行 Leash 的第 5 参传了 true（对比第 182 行没传），',
     '--   ★ 参数差异有实际含义：true 表示「持续牵引/不可打断」。',
@@ -220,7 +220,7 @@ export default {
     '--     仅记录「两处传参不同」这一客观事实。',
     '-- ★ 第 189 行 StandStill：透明时站着不动（不能乱走暴露自己）。',
   ],
-  193: [
+  "AbigailBrain:OnStart#1+23": [
     '-- ★ haunt_behaviour：显灵（附身玩家）。条件是 _haunt_target 非 nil。',
     '--   第 194 行 DoAction(inst, HauntAction, nil, true, COOLDOWN)',
     '--   ★★ 参数解读：name=nil（不显示调试名），canreorder=true，',
@@ -230,7 +230,7 @@ export default {
     '--   ★ 「名字为 nil」的 DoAction 在本项目中罕见（多数有名字），',
     '--     可能表示该节点不希望在调试字符串里出现。',
   ],
-  197: [
+  "AbigailBrain:OnStart#1+27": [
     '-- ★★★ play_with_ghosts 的条件值得注意（第 197 行）：',
     '--   not self.inst:IsInLimbo() and FindPlaymate(self)',
     '--   ★ FindPlaymate 【直接在条件里调用】，且它有副作用（设 playfultarget）。',
@@ -245,7 +245,7 @@ export default {
     '--   ★ 这是真实的时序风险：条件成立 ≠ 执行时目标仍有效。',
     '--   标为疑似：未核实 Leash 节点是否自行校验目标有效性。',
   ],
-  209: [
+  "AbigailBrain:OnStart#1+39": [
     '-- ★★★ defensive_mode：防御型人格的完整子树（WhileNode 包裹）。',
     '-- 【内部优先级】',
     '--  第 211-212 行：★ gestalt 形态且冷却中 → 躲开自己的目标',
@@ -263,7 +263,7 @@ export default {
     '-- ★ 注意第 226 行 Wander(inst, nil, nil, WANDER_TIMING) ——',
     '--   锚点与半径都传 nil，即「在原地附近游荡」。',
   ],
-  211: [
+  "AbigailBrain:OnStart#1+41": [
     '-- ★★ gestalt 闪避条件在两处重复（第 211 与 232 行），逐字相同。',
     '--   ★ 与防御/攻击两棵树的整体结构不同不同，这里却完全相同，',
     '--     说明这个条件被视为「人格无关」。合理。',
@@ -273,7 +273,7 @@ export default {
     '--     第 212 行 RunAway 的 getfn 又读一次 combat.target —— 同一帧两次读取，',
     '--     中间理论上可能变化（若 combat.target 被清）。未核实调度时序，标为疑似。',
   ],
-  224: [
+  "AbigailBrain:OnStart#1+54": [
     '-- ★ Follow(inst, 取队长函数, MIN, MED, MAX, true)',
     '--   ★★ 传了 6 个参数，第 6 参是 true。',
     '--   ⚠️ 与 mermbrain 第 501 行同样是 6 参（第 6 参 nil、第 7 参 true），',
@@ -281,13 +281,13 @@ export default {
     '--     ★ 未核实 behaviours/follow.lua 的参数表，不下结论。',
     '--     记录此不一致以便后续核实：本文件第 6 参 true，mermbrain 第 6 参 nil。',
   ],
-  226: [
+  "AbigailBrain:OnStart#1+56": [
     '-- ★ Wander(inst, nil, nil, WANDER_TIMING) —— 三个参数都简化了。',
     '--   ★ 对比第 248 行 aggressive_mode 里的 Wander(self.inst) —— 连时机表都没有。',
     '--   ★ 防御型给游荡设了节奏（等 6-12 秒），攻击型完全随机游荡。',
     '--   符合「防御型从容、攻击型急躁」的角色设定。这是刻意的表意设计。',
   ],
-  231: [
+  "AbigailBrain:OnStart#1+61": [
     '-- ★★★ aggressive_mode：攻击型人格。【不是 WhileNode】，是裸 PriorityNode。',
     '-- 【为什么不需要 WhileNode】',
     '--   因为它位于第 265-266 行 defensive_mode 的【后面】，',
@@ -307,14 +307,14 @@ export default {
     '--   ★ 即两棵树用完全相同的小节顺序，只是常量与游荡节奏不同。',
     '--   ★★ 这是「相同骨架 + 换参数」的标准做法，与 knightbrain 的标签化同思路。',
   ],
-  248: [
+  "AbigailBrain:OnStart#1+78": [
     '-- ★ Wander(self.inst) —— 全部用默认值，连时机表都没给。',
     '--   ★ 与第 226 行防御型形成对照：那边等 6-12 秒，这边完全随机。',
     '--   ★ 这不是疏漏，是角色表意（攻击型不停留）。已在第 226 行交叉说明。',
   ],
 
   // ══════════════ root ══════════════
-  252: [
+  "AbigailBrain:OnStart#1+82": [
     '-- ★★★ root：只有一层状态守卫。',
     '-- 【第 253-257 行 守卫】not self.inst.sg:HasStateTag("swoop")',
     '--   ★★「swoop」= 俯冲攻击，是阿比盖尔的招牌技能。',
@@ -332,7 +332,7 @@ export default {
     '-- ★ 前四个是【人格无关】的（两种人格都会执行），',
     '--   后两个才是人格分支。这个分层很清晰。',
   ],
-  272: [
+  "AbigailBrain:OnStart#1+102": [
     '-- ★ self.bt = BT(self.inst, root) —— 第 7 个文件，同样的收尾。',
     '--   ★ 已累计 7 个文件验证同一结论，证据充分。',
   ],

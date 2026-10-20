@@ -86,7 +86,7 @@ export default {
   ],
 
   // ══════════════ 逃跑判定 ══════════════
-  37: [
+  "ShouldRunFn#1": [
     '-- ★★ ShouldRunFn：★ 只有「正在和玩家打架」才逃。',
     '--   第 38-39 行 return (combat.target ~= nil) and hunter.isplayer',
     '--   ★★ 语义：被玩家打就跑，被怪物打【不跑】（反而会反击，见第 338 行）。',
@@ -96,7 +96,7 @@ export default {
   ],
 
   // ══════════════ 捡便便 ══════════════
-  42: [
+  "GetPoop#1": [
     '-- ★★★ GetPoop：★ 战斗前先捡弹药，是很聪明的 AI 优先级设计。',
     '-- 【第 47-56 行的筛选】',
     '--   prefab == "poop"           —— 只捡便便（猴子的武器）',
@@ -113,19 +113,19 @@ export default {
   ],
 
   // ══════════════ 觅食：五级候选 ══════════════
-  61: [
+  "GetPoop#1+19": [
     '-- ★ ValidFoodsToPick：硬编码的 6 种可摘食物（浆果/香蕉/胡萝卜/三种蘑菇）。',
     '--   ★★ 注意是【数组】而非集合，第 71 行的 ItemIsInList 要遍历比较。',
     '--   ⚠️ 对比 beargerbrain 第 22 行用的是【字典】（key = true），',
     '--     查找是 O(1)。★ 同一个项目里两种写法，猴子的稍慢但食物种类少。',
   ],
-  71: [
+  "ItemIsInList#1": [
     '-- ItemIsInList：★ 同时支持数组与字典两种数据结构。',
     '--   第 73 行 if v == item or k == item then',
     '--   ★★ k == item 这一支就是为「字典」准备的（beargerbrain 那种）。',
     '--   ★ 兼容两种结构的通用写法，虽然在本文件只用得上数组那一支。',
   ],
-  79: [
+  "SetCurious#1": [
     '-- ★★★ SetCurious：★ 「好奇心冷却」的复位函数。',
     '--   第 80-81 行：清任务、置 inst.curious = true',
     '--   ★ 配合第 163 行 inst:DoTaskInTime(10, SetCurious)：',
@@ -133,7 +133,7 @@ export default {
     '--   ★★★ 这就是「无意义行为」的限频机制 —— 非常实用的小技巧：',
     '--     任何「随机挑一个目标做点没用的事」的行为都该加个冷却，否则很吵。',
   ],
-  84: [
+  "EatFoodAction#1": [
     '-- ★★★ EatFoodAction 的五级候选阶梯（本文件最值得学的结构）。',
     '-- 【第 85 行】★ 三种情况直接放弃（用 or 短路，顺序即成本）：',
     '--   math.random() < .75    —— ★★★ 75% 概率【什么都不做】！',
@@ -155,13 +155,13 @@ export default {
     '-- ★★ 每级都先取一次 FindEntities（第 103 行一次搜索供 4 级复用），',
     '--   避免重复的空间查询。★ 性能友好的结构。',
   ],
-  85: [
+  "EatFoodAction#1+1": [
     '-- ★★ math.random() < .75 → 75% 概率放弃觅食。',
     '--   ★ 这是「随机闸门」：让同一个行为在不同帧有不同的取舍权重。',
     '--   ★ 与 pigbrain 第 85 行的 0.75 阈值不同用途（那是猴子独有的）。',
     '--   ★★ 注意它在【最前面】，即最先短路，效率最高。',
   ],
-  108: [
+  "EatFoodAction#1+24": [
     '-- ★★ 「找帽子戴」—— 非生存需求，但优先级排在找食物【之后】。',
     '--   第 109 行条件：没有戴帽子',
     '--   第 111-115 行四重筛选：有 equippable 组件 且 槽位是 HEAD 且',
@@ -174,24 +174,24 @@ export default {
   ],
 
   // ══════════════ 骚扰主人 ══════════════
-  169: [
+  "OnLootingCooldown#1": [
     '-- ★ OnLootingCooldown：「翻箱子」冷却复位。',
     '--   ★ 与第 79 行 SetCurious 同一手法：DoTaskInTime 到点后清标志位。',
     '--   ★★ 本文件有两处这种「定时器限频」，都挂在 inst 上。',
   ],
-  174: [
+  "OnLootingCooldown#1+5": [
     '-- ANNOONY_ONE_OF_TAGS 与 ANNOY_ALT_MUST_TAG 是【两套搜索策略】。',
     '--   第 186 行 lootchests 为真 → 搜 ANY of {物品, 容器}',
     '--   第 187 行 否则         → 搜必须是物品（排除容器）',
     '--   ★★ 即「翻箱子功能关掉后，连带也不许碰别人家的东西」。',
     '--   ★ 用两个标签表 + 三元式（and/or）切换搜索策略，简洁。',
   ],
-  176: [
+  "OnLootingCooldown#1+7": [
     '-- CANT_PICKUP_TAGS：抢主人战利品时额外排除的三个标签。',
     '--   ★ 与第 27 行的 NO_LOOTING_TAGS 不同 —— 这是「更严」的第二道过滤。',
     '--   ★ 因为是抢【主人正在要的】东西，所以更谨慎。',
   ],
-  177: [
+  "AnnoyLeader#1": [
     '-- ★★★ AnnoyLeader —— 本文件最长的函数（83 行），三段骚扰策略。',
     '-- 【第 182 行】⚠️ inst.harassplayer 无判空。',
     '--   ★ 但第 348 行 WhileNode 条件 `return self.inst.harassplayer` 保证了它。',
@@ -226,12 +226,12 @@ export default {
     '--     owner 未被持有 且 不在烧 且 容器可开 且 容器未开',
     '--     ★ 与 HauntAction（abigailbrain 第 29 行）同款三重保障。',
   ],
-  182: [
+  "AnnoyLeader#1+5": [
     '-- ★★ 直接访问 inst.harassplayer（实体字段，无判空）。',
     '--   ★ 靠第 348 行 WhileNode 条件保证非 nil。属调用方前置条件保护。',
     '--   ★ 移植提示：这类「隐式前置条件」最好在函数注释里写明，本文件没写。',
   ],
-  190: [
+  "AnnoyLeader#1+13": [
     '-- ★★★ 第一段骚扰：只抢「5 秒内新出现的」物品。',
     '--   第 194 行 v:GetTimeAlive() < 5',
     '--   ★★★ 这是「抢占动作窗口」的实现 —— 精确地在主人刚采集完成的瞬间插手，',
@@ -240,7 +240,7 @@ export default {
     '--     那处要「等东西稳定 8 秒后再吃」，这处要「趁东西新鲜立刻抢」。',
     '--   ★ 同一个 API 在两个需求里用相反的方向，取决于语义。',
   ],
-  214: [
+  "AnnoyLeader#1+37": [
     '-- ★★★ 本文件最巧妙的一行。',
     '--   return distsq(px, pz, tx, tz) > distsq(mx, mz, tx, tz)',
     '--       and BufferedAction(inst, tar, ACTIONS.PICKUP) or nil',
@@ -257,11 +257,11 @@ export default {
   ],
 
   // ══════════════ OnStart ══════════════
-  261: [
+  "GetFaceTargetFn#1": [
     '-- ★ 战斗时注视【当前战斗目标】。',
     '--   对比 pigbrain 第 181 行（注视队长）—— 猴子的优先级随情境变化。',
   ],
-  269: [
+  "GoHome#1": [
     '-- GoHome：★ 判空比 pigbrain 第 125 行更细致（逐层 and 检查）。',
     '--   第 272-273 行 not homeseeker.home.components.burnable or not IsBurning()',
     '--   ⚠️ 这行的结构要注意：用了 or，所以「没有 burnable 组件」也算通过。',
@@ -269,33 +269,33 @@ export default {
     '--   ★ 与 hermitcrabbrain 第 155 行 HasValidHome 的严格版本不同，',
     '--     猴子这版允许「没有燃烧组件」，更宽松也更简洁。两种都正确。',
   ],
-  278: [
+  "EquipWeapon#1": [
     '-- EquipWeapon：★ 装备前先检查是否已装备。',
     '--   第 279 行 if not weapon.components.equippable:IsEquipped() then',
     '--   ★ 幂等操作 —— 避免重复装备带来的额外开销。',
     '--   ⚠️ 第 306、342 行传的 weaponitems.thrower / hitter 由 prefab 提供，',
     '--     若为 nil 则第 279 行会崩。隐式约定，未核实。',
   ],
-  284: [
+  "MonkeyBrain:OnStart#1": [
     '-- ★★ OnStart：★ 本文件的优先级表极长（16 个节点），是「行为种类多」的体现。',
   ],
-  292: [
+  "MonkeyBrain:OnStart#1+8": [
     '-- ★★ EventNode(inst, "gohome", ...) —— ★ 与 penguinbrain 第 381 行同款。',
     '--   ★ 两处同款说明「外部触发回家」是全项目统一的接入口。',
     '--   ★ 源码注释第 291 行："Monkeys go home when quakes start."（地震来时回家）',
     '--   ★ 即地震事件由外部系统广播，猴子接到就回窝。',
   ],
-  294: [
+  "MonkeyBrain:OnStart#1+10": [
     '-- ★ 酸雨时回家。用 WhileNode 而非 EventNode —— 需要持续条件。',
     '--   ★ 与第 292 行的 EventNode 配对：一个是被动触发，一个是主动观察。',
   ],
-  297: [
+  "MonkeyBrain:OnStart#1+13": [
     '-- ★★ 战斗：只躲玩家（第 298-300 行），且带 ShouldRunFn（第 37 行）。',
     '--   第 299 行传函数作为第 5 参 shouldRunFn。',
     '--   ★ 源码注释第 297 行："In combat (with the player)... Should only ever use poop throwing."',
     '--   ★ 说明猴子对玩家只用远程粪球。',
   ],
-  301: [
+  "MonkeyBrain:OnStart#1+17": [
     '-- ★★ 攻击玩家：需三个条件（有目标 + 是玩家 + 有弹药）。',
     '--   第 303 行 self.inst.HasAmmo(self.inst) —— 由 prefab 提供的方法。',
     '--   ★ SequenceNode：先装备投掷器（第 306 行），再追打（第 307 行）。',
@@ -306,7 +306,7 @@ export default {
     '--                  没弹药 → 捡便便（第 311 行）→ 回到上面',
     '--   ★ 这是一个闭环的资源驱动战斗循环，移植价值高。',
   ],
-  311: [
+  "MonkeyBrain:OnStart#1+27": [
     '-- ★★★ 「没弹药就去捡便便」—— 与第 301 行严格互补。',
     '--   条件：有目标 + 是玩家 + ★ 【没弹药】（第 313 行 not HasAmmo）',
     '--   ★ 与第 301 行的 HasAmmo 构成 if/else 关系，靠优先级顺序切换。',
@@ -318,7 +318,7 @@ export default {
     '--     or it will never happen." —— 优先级必须低于捡便便。',
     '--     ★★★ 作者主动写下了这类「顺序敏感」的警告，极有价值的注释。',
   ],
-  324: [
+  "MonkeyBrain:OnStart#1+40": [
     '-- ★★★ 第 324 行的源码注释直接说明了优先级依赖关系 —— 全DST 少见的坦诚。',
     '--   原文："Priority must be lower than poop pick up or it will never happen."',
     '--   （优先级必须低于捡便便，否则永远轮不到它）',
@@ -327,7 +327,7 @@ export default {
     '--   第 330-332 行 Leash 到战斗目标的位置（不是队长）——',
     '--   ★ 没弹药时也保持在主人附近等待，语义合理。',
   ],
-  338: [
+  "MonkeyBrain:OnStart#1+54": [
     '-- ★★ 攻击其他 NPC：用近战（第 342 行 hitter）而非远程。',
     '--   ★★★ 与第 301 行的「攻击玩家用远程」形成对照：',
     '--     对玩家：远程（粪球，因为玩家会跑）',
@@ -335,25 +335,25 @@ export default {
     '--   ★ 这是「按对手类型选武器」的简单但正确的策略。',
     '--   ★ 第 339 行 not isplayer 保证与第 301 行互斥。',
   ],
-  348: [
+  "MonkeyBrain:OnStart#1+64": [
     '-- ★ 骚扰主人。★ 优先级在所有战斗节点【之后】。',
     '--   ★ 语义：先打架，打完（或者没敌人）才去捣蛋。',
     '--   ★★ 第 349 行 DoAction(inst, AnnoyLeader) 不带 run 参数，',
     '--     默认 false（只试一次）。与第 386 行觅食同款。',
   ],
-  350: [
+  "MonkeyBrain:OnStart#1+66": [
     '-- 跟随【骚扰对象】而非队长 —— 两者在本文件是同一个字段 harassplayer。',
     '--   ★ 第 329 行 GetFaceTargetFn 用 combat.target 而这里用 harassplayer，',
     '--     说明「战斗目标」与「骚扰对象」是两个概念，但常常是同一人。',
   ],
-  352: [
+  "MonkeyBrain:OnStart#1+68": [
     '-- ★★ 空闲时在主人附近游荡。',
     '--   ★ 第 356 行 ★ 用了 MAX_FOLLOW_DIST(10) 作为游荡半径，',
     '--     而第 350 行的跟随距离也是 10 —— 疑似复用常量而非笔误。',
     '--   ⚠️ 但语义上「游荡范围 = 跟随距离」勉强合理，属可接受。',
     '--   ★ 值得注意：注释里没有解释为何两者相等。',
   ],
-  357: [
+  "MonkeyBrain:OnStart#1+73": [
     '-- ★ 最后的兜底：没主人也没敌人时在家附近游荡。',
     '--   第 360 行用 knownlocations:GetLocation("home") 作锚点。',
     '--   ★ 与第 199 行 GetHome 用 homeseeker 组件不同 ——',

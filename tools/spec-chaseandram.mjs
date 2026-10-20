@@ -43,13 +43,13 @@ export default {
   10: [
     '--★ 与 chaseandattack 第 12 行逐字相同的注释与做法：存句柄以便反注册。',
   ],
-  11: [
+  "self.onattackfn#1": [
     '--★ 回调签名 (inst, data) 与 standandattack 相同（chaseandattack 是 (inst)）。',
     '--★ 三者不统一，属历史遗留的无害差异。',
   ],
 
   // ══════════════ 平台判定 ══════════════
-  33: [
+  "ChaseAndRam:AreDifferentPlatforms#1": [
     '--★★★ AreDifferentPlatforms —— 与 follow/approach 的同名方法有一处**关键差异**。',
     '--',
     '-- 原注释（保留）：',
@@ -68,16 +68,16 @@ export default {
   ],
 
   // ══════════════ Visit:READY 段 ══════════════
-  40: [
+  "ChaseAndRam:Visit#1": [
     '--★★ Visit：与 chaseandattack 同为「顺序双 if」结构（READY 段可直通 RUNNING 段）。',
   ],
-  42: [
+  "ChaseAndRam:Visit#1+2": [
     '--★★ READY 段的进入条件：target 非 nil 且有效。',
     '--★ 与 chaseandattack 第 41-43 行的差异：本节点**没有 findnewtargetfn**，',
     '--   也没调 ValidateTarget —— 目标必须由外部设好（通常来自 combat 组件的仇恨）。',
     '--   ★ 这让职责更纯粹：只负责「怎么冲」，不负责「打谁」。',
   ],
-  44: [
+  "ChaseAndRam:Visit#1+4": [
     '--★★★【★ 本文件最重要的一段历史注释，务必读懂】',
     '-- 原注释（保留）：',
     '--   --V2C: Removed the Stop() here because it causes a stutter for rook when',
@@ -108,18 +108,18 @@ export default {
     '--   实体可能带着上一段的移动惯性起冲。',
     '--   这是有意的（避免卡顿），但移植时要意识到这个副作用。',
   ],
-  49: [
+  "ChaseAndRam:Visit#1+9": [
     '--★ BattleCry 播放战吼。注意按第 46 行注释，它不保证触发状态。',
     '--★ 第 50/51 行与 chaseandattack 第 47/48 行相同：打点 + 重置计数。',
   ],
-  53: [
+  "ChaseAndRam:Visit#1+13": [
     '--★★★ startloc —— 记录冲锋**起点**，供第 137 行的 max_charge_dist 判定。',
     '--★ 这是一个与 chaseandattack 完全不同的时间/空间基准：',
     '--   chaseandattack 的基准是「距上次攻击的静默时长」（时间）',
     '--   chaseandram   的基准是「离起点的直线距离」（空间）',
     '-- ★★ 空间基准更适合冲锋：它能防止「一直冲锋但只在原地绕圈」。',
   ],
-  55: [
+  "ChaseAndRam:Visit#1+15": [
     '--★★★【冲锋方向在这里被一次性锁定】',
     '--   ram_angle  —— 朝向角（度）',
     '--   ram_vector —— 归一化方向向量',
@@ -129,7 +129,7 @@ export default {
     '--     · ram_vector 给第 94 行的角度比较、以及外部系统查询用',
     '--   预先都算好，避免在热路径上反复开方。',
   ],
-  60: [
+  "ChaseAndRam:Visit#1+20": [
     '--★ 无目标 → FAILED，并且**移除标签**（进场的反操作）。',
     '--★ 第 63 行 ram_vector = nil —— 释放数据，供外部系统用 nil 判断「不在冲锋中」。',
     '--★★★ 注意第 61 行：失败的分支也要 RemoveTag。',
@@ -138,26 +138,26 @@ export default {
   ],
 
   // ══════════════ Visit:RUNNING 段：有效性 ══════════════
-  67: [
+  "ChaseAndRam:Visit#1+27": [
     '--★★ RUNNING 段。与 chaseandattack 第 55 行同构的三分支（失效/死亡/继续）。',
   ],
-  68: [
+  "ChaseAndRam:Visit#1+28": [
     '--★ 目标失效 → FAILED + 释放 ram_vector + 清目标 + 停止 + 移除标签 + **return**。',
     '--★ 第 74 行的 return 很重要：六步清理之后不再执行后续逻辑。',
   ],
-  75: [
+  "ChaseAndRam:Visit#1+35": [
     '--★ 目标已死 → SUCCESS + 同样六步清理（第 76-80 行）。',
     '--★★ SUCCESS 与「冲撞成功」的语义吻合：撞死了就是达成目标。',
   ],
 
   // ══════════════ 核心：角度与冲撞决策 ══════════════
-  81: [
+  "ChaseAndRam:Visit#1+41": [
     '--★★ 正常分支：算出「当前应该怎么冲」。这是本文件的核心决策区。',
   ],
-  84: [
+  "ChaseAndRam:Visit#1+44": [
     '--★ dsq：到目标的距离平方（全程不开方）。',
   ],
-  85: [
+  "ChaseAndRam:Visit#1+45": [
     '--★★★ `angle = math.abs(GetAngleToPoint(hp))` —— 对目标朝向取**绝对值**。',
     '-- ★★★ 这里的 math.abs 不是为了「取正的夹角」这么简单，而是**掩盖了一个坐标歧义**：',
     '--   GetAngleToPoint 返回的可能是负角（如 -30 表示偏左），',
@@ -170,7 +170,7 @@ export default {
     '--   但它隐含了「左右对称」的假设。若某个行为天然不对称',
     '--   （如只能顺时针旋转的炮塔），就不能这么简化。',
   ],
-  87: [
+  "ChaseAndRam:Visit#1+47": [
     '--★★★★ 方向更新的唯一条件：状态图允许转身（canrotate）。',
     '--★ 原注释：Line up charge here —— 「在这里校准冲锋方向」。',
     '--★★ 这是「行为树尊重状态图控制权」的关键一处：',
@@ -181,10 +181,10 @@ export default {
     '--★ ★★ 移植要点：冲锋类 AI 必须让动画系统控制「转向时机」，',
     '--     否则会出现「冲锋动画朝左、实际位移朝右」的穿模。',
   ],
-  93: [
+  "ChaseAndRam:Visit#1+53": [
     '--★ 平台差异（第 33 行的 embarker 版本）。',
   ],
-  94: [
+  "ChaseAndRam:Visit#1+54": [
     '--★★★★★【核心判据】offset_angle = |angle - |ram_angle||',
     '--',
     '-- 两个数学符号的含义要分清：',
@@ -204,19 +204,19 @@ export default {
     '--   实际影响：可能让乌鸦在某些角度上过早判定「冲过头」，',
     '--   从而执行第 112-122 行的提前停止。属于手感类瑕疵，非致命。',
   ],
-  96: [
+  "ChaseAndRam:Visit#1+56": [
     '--★★ 跨平台 → 不冲，改用 GoToPoint 追过去（走路，参数 false）。',
     '--★★ 这一段结构上有瑕疵（下面第 105 行说明）。',
   ],
-  97: [
+  "ChaseAndRam:Visit#1+57": [
     '--★ 跨平台时若正在跑 → 停止并 FAILED。',
     '--★★ 逻辑：跨平台意味着「原本的冲锋方向失效」，',
     '--   若此时还在冲锋动画中就立即放弃（逃跑姿态下不要强冲）。',
   ],
-  101: [
+  "ChaseAndRam:Visit#1+61": [
     '--★ 失败时若允许转身就面向目标 —— 让视觉上「看着追猎者逃走」，更自然。',
   ],
-  105: [
+  "ChaseAndRam:Visit#1+65": [
     '--⚠️【结构瑕疵 · 已核实】第 105-106 行位于第 97-104 行的 if 块**之外**。',
     '--   意味着无论是否在 running，跨平台时都会执行：',
     '--     RemoveTag + GoToPoint(hp, nil, false)',
@@ -228,7 +228,7 @@ export default {
     '--   标注为「疑似缺陷」：功能上表现为「本该放弃冲撞却仍继续走向目标」，',
     '--     不会崩，属于行为偏差。',
   ],
-  109: [
+  "ChaseAndRam:Visit#1+69": [
     '--★★★★【冲锋执行的判定】offset_angle ≤ 60 且 同平台 → 真的冲。',
     '--   ★★★ 60 度的判据是本节点的核心参数（硬编码，无法配置）。',
     '--   含义：目标与锁定方向的夹角在 ±60° 内就认为「还朝着目标」，继续冲。',
@@ -240,12 +240,12 @@ export default {
     '--★★ 这行注释点明了本文件的主次结构：前面所有计算都是准备，',
     '--   第 111 行才是本节点真正要做的事。',
   ],
-  111: [
+  "ChaseAndRam:Visit#1+71": [
     '--★ RunInDirection(ram_angle) —— 用**锁定的角度**冲，而非当前指向。',
     '--★ ★★ 这正是「一次性锁定」的本质：冲撞过程中不管目标转到哪，',
     '--   都沿原定方向直线前进。撞到就算成功，撞不到就落空（第 112 行处理）。',
   ],
-  112: [
+  "ChaseAndRam:Visit#1+72": [
     '--★★★【★ 「冲过头」的判定 —— 本节点与 chaseandattack 最大的行为差异】',
     '--   条件（三者任一）：',
     '--     ① offset_angle > 60（已经不在朝目标冲了）',
@@ -262,7 +262,7 @@ export default {
     '--   ★ 行为设计要点：AI 的动作要有「收尾姿态」，即使失败了也要看起来完成了动作。',
     '--   这直接影响玩家对 AI「智能程度」的主观感受。',
   ],
-  124: [
+  "ChaseAndRam:Visit#1+84": [
     '--★★★【攻击尝试 —— 带一个关键的阶段判断】',
     '--   条件：状态图存在 + 不在 atk_pre（攻击前摇）+ 同平台 + TryAttack 成功。',
     '--★ atk_pre = 「攻击的前摇/预备阶段」。注释写明：',
@@ -283,7 +283,7 @@ export default {
     '--   标注为「已核实的流程细节」：不算 bug（numattacks 会很快达标），',
     '--   但严格说「打中即该结束」的意图没有落实为 return。',
   ],
-  127: [
+  "ChaseAndRam:Visit#1+87": [
     '--★ else 兜底：没打成攻击 → 若计时器为空则打点并战吼。',
     '--★ 与 chaseandattack 第 98-100 行完全同构（静默超时计时的打点处）。',
     '--★ ★ 但语义在本文件里略有不同：chaseandram 的计时器度量的是',
@@ -291,13 +291,13 @@ export default {
   ],
 
   // ══════════════ 终止判定 ══════════════
-  132: [
+  "ChaseAndRam:Visit#1+92": [
     '--★★ 终止一：攻击次数用尽 → SUCCESS（与 chaseandattack 第 104 行相同语义）。',
     '--★ 第 134 行 Stop + 第 135 行 RemoveTag。注意**没有** SetTarget(nil)，',
     '--   与 chaseandattack 第 106 行不同 —— 本节点不负责清 combat.target。',
     '--   ★ 合理：它不是 target 的所有者（进场时就没设过目标）。',
   ],
-  137: [
+  "ChaseAndRam:Visit#1+97": [
     '--★★★ 终止二：两个放弃条件 or 在一起：',
     '--   ① max_charge_dist：离**起点**的距离 >= 阈值（第 53 行记录的 startloc）',
     '--   ② max_chase_time：距上次攻击静默超时',
@@ -309,7 +309,7 @@ export default {
   ],
 
   // ══════════════ 休眠 ══════════════
-  149: [
+  "ChaseAndRam:Visit#1+109": [
     '--★★ self:Sleep(.125) —— 与 chaseandattack/standandattack 完全相同。',
     '--★ 冲锋是「需要持续对准」的行为，用最快的节拍（每秒 8 次）合理：',
     '--   目标在闪避，冲锋角度必须每帧校正，否则根本撞不上。',

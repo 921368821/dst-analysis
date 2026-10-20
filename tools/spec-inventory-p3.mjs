@@ -4,7 +4,7 @@
 // 锚点范围：1011 ~ 1454
 
 export const BEFORE = {
-  1012: [
+  "Inventory:GiveActiveItem#1": [
     "-- 【§十】★ GiveActiveItem —— 「强制把某物设为手上物品」。",
     "-- ★★★ 与 GiveItem 的分工：",
     "--   · GiveActiveItem 无条件塞进手上（不管背包满不满）；",
@@ -16,7 +16,7 @@ export const BEFORE = {
     "-- ★★ 注意：参数是 inst（单个物品），没有 slot / src_pos 参数。",
     "--   ⇒ GiveActiveItem 是「专用路径」，不能指定位置。",
   ],
-  1013: [
+  "Inventory:GiveActiveItem#1+1": [
     "-- ★★ `if inst ~= nil and inst:IsValid()` —— 双重有效性检查。",
     "-- ★★ 注意：这里检查了 IsValid，但 GiveItem（1030 行）也检查。",
     "--   两者都有 ⇒ 这是 Klei 的一致风格（防御式编程）。",
@@ -25,7 +25,7 @@ export const BEFORE = {
     "--   ⇒ 顺序颠倒会崩（对已销毁实体取 .components）。",
     "-- ★ 这是本文件里「防御性顺序」的一个范例。",
   ],
-  1014: [
+  "Inventory:GiveActiveItem#1+2": [
     "-- ★★ self:ReturnActiveItem() —— **先把旧的手上物品放回背包**。",
     "-- ★★★ ★ 这是 GiveActiveItem 的「腾位」动作。",
     "--   如果不先清掉旧的，新的就无处安放（手上只能有一个）。",
@@ -35,7 +35,7 @@ export const BEFORE = {
     "-- ★★ 对比 GiveItem：它**不**调 ReturnActiveItem，",
     "--   而是靠 1178 行的 `if self.activeitem == nil` 判定只在手上为空时才塞。",
   ],
-  1015: [
+  "Inventory:GiveActiveItem#1+3": [
     "-- ★★★ assert —— 「必须带 inventoryitem 组件」。",
     "-- ★★ 这一行是**硬断言**（dev 版会崩，生产版也崩，与 BRANCH 无关）。",
     "-- ★★ 错误信息带 prefab 名便于排查：`inst.entity:GetPrefabName()`。",
@@ -48,7 +48,7 @@ export const BEFORE = {
     "--   · GiveActiveItem（严格，崩）—— 认为是编程错误；",
     "--   · GiveItem（宽松，打印）—— 认为是运行时数据问题。",
   ],
-  1016: [
+  "Inventory:GiveActiveItem#1+4": [
     "-- ★★★ `if not inst.components.inventoryitem:OnPickup(self.inst) then` ——",
     "--   ★★ ★ OnPickup 的返回值语义是**反向**的：",
     "--     · 返回 **false/nil** → 正常，继续放入背包；",
@@ -64,7 +64,7 @@ export const BEFORE = {
     "-- ★★ inventoryitem.lua 的 OnPickup 内部可能：设 owner、",
     "--   触发 buff、处理「物品有跟随主人行为」的逻辑。",
   ],
-  1020: [
+  "Inventory:GiveActiveItem#1+8": [
     "-- ★★★ PushEvent(\"itemget\", { item = inst, slot = nil }) ——",
     "-- ★★ ★ 注意 `slot = nil`：这是「物品进了手上」的联机通知。",
     "--   inventory_replica.lua:23 监听 → SetSlotItem(data.slot, data.item)",
@@ -75,7 +75,7 @@ export const BEFORE = {
     "--     它用一个特殊 slot 编号混在槽位数组里。",
     "-- ★★ 交叉引用：prefabs/inventory_classified.lua:27-40 的 SetSlotItem。",
   ],
-  1022: [
+  "Inventory:GiveActiveItem#1+10": [
     "-- ★★ `if inst.components.equippable ~= nil then ToPocket()` ——",
     "-- ★★★ ToPocket（equippable.lua:109）只调 onpocketfn，不改状态。",
     "-- ★★ 语义：「这件装备现在在背包里（而非穿着）」。",
@@ -84,7 +84,7 @@ export const BEFORE = {
     "-- ★ ★★ 遗漏任何一处都会导致 onpocketfn 少被调一次。",
     "-- ★ 这是「装备物品进出背包」的事件一致性维护。",
   ],
-  1029: [
+  "Inventory:GiveItem#1": [
     "-- 【§十】★★★★★ GiveItem —— 「把物品放进物品栏」。",
     "-- ★★★★★★ 本文件**最重要**的函数。几乎所有物品流转都经过它。",
     "-- ★★★★★ 它有 205 行、约 45 个分支，包含 8 级回退策略。",
@@ -109,7 +109,7 @@ export const BEFORE = {
     "--   `if inv:GiveItem(x) then ... end` 是唯一正确的用法。",
     "--   ★⚠ 若调用方写 `local slot = inv:GiveItem(x)` 然后当槽号用，会出错。",
   ],
-  1030: [
+  "Inventory:GiveItem#1+1": [
     "-- ★★ 资格检查（1030-1033 行）：",
     "--   `if inst.components.inventoryitem == nil or not inst:IsValid()`",
     "-- ★★★ 顺序很关键：**先查组件**（防对已销毁实体取属性），",
@@ -117,7 +117,7 @@ export const BEFORE = {
     "-- ★★ 1031 行 print 警告 + 1032 行 return（不是 assert）。",
     "--   ⇒ 与 1015 行的 assert 形成对比（宽松 vs 严格）。",
   ],
-  1035: [
+  "Inventory:GiveItem#1+6": [
     "-- ★★★ `local eslot = self:IsItemEquipped(inst)` —— 判断是否正穿着。",
     "-- ★★★ ★ 为什么要先查这个？因为「给一件已装备的物品」会状态冲突：",
     "--   它同时在 equipslots 和（可能）activeitem 里。",
@@ -130,7 +130,7 @@ export const BEFORE = {
     "--     然后流程继续，可能在别处又放一份 → **实体在两个槽里**。",
     "--   ★ 正确做法应该是 `if self:Unequip(eslot) == nil then return false end`。",
   ],
-  1041: [
+  "Inventory:GiveItem#1+12": [
     "-- ★★ `local new_item = inst ~= self.activeitem` —— 是否「新物品」。",
     "-- ★★★ ★ 这个布尔决定 1099 行是否播 \"gotnewitem\" 事件（音效）。",
     "-- ★★ 语义：",
@@ -141,7 +141,7 @@ export const BEFORE = {
     "-- ★★★ ★⇒ new_item 的完整定义：**既不在手上、也不在装备槽上**。",
     "--   这就是「拾取音只在真正拾取时响」的精确实现。",
   ],
-  1051: [
+  "Inventory:GiveItem#1+22": [
     "-- ★★★ `if inst.components.inventoryitem.owner and ... ~= self.inst then`",
     "--   RemoveFromOwner(true) —— **强夺**别人的物品。",
     "-- ★★★ ★ wholestack=true 表示「整摞拿走」。",
@@ -155,7 +155,7 @@ export const BEFORE = {
     "-- ★★ ★ 潜在问题：RemoveFromOwner 会触发旧主人的 OnRemoved，",
     "--   可能导致旧主人的 UI 刷新（正确的），但也可能触发其他副作用。",
   ],
-  1055: [
+  "Inventory:GiveItem#1+26": [
     "-- ★★★ `local objectDestroyed = ...:OnPickup(self.inst, src_pos)` ——",
     "-- ★★★ ★ 注意比 GiveActiveItem（1016 行）**多了 src_pos 参数**！",
     "--   src_pos = 物品被拿起的坐标（用于飞行动画起点）。",
@@ -167,7 +167,7 @@ export const BEFORE = {
     "--   ★⇒ 调用方拿到 nil，视为「失败」。语义与 return false 略有差异",
     "--     （nil vs false），但 `if not x` 都为真。",
   ],
-  1060: [
+  "Inventory:GiveItem#1+31": [
     "-- ★★★ 位置记忆机制 —— 本函数第二块核心逻辑（1062-1084 行）。",
     "-- ★★ 概念：每个物品记住了自己「上次在哪个槽/哪个容器」，",
     "--   存在 item.prevslot 和 item.prevcontainer 两个字段上。",
@@ -180,7 +180,7 @@ export const BEFORE = {
     "-- ★★★ ★ 设计意图：物品「回到它离开的地方」，而非乱塞。",
     "--   典型体验：把斧头从第 3 格拖到箱子，再拿回来 → 回到第 3 格。",
   ],
-  1062: [
+  "Inventory:GiveItem#1+33": [
     "-- ★★ `if not slot and inst.prevslot and not inst.prevcontainer then` ——",
     "--   「没有指定槽，但知道上次在哪一格（且不在容器里）」。",
     "-- ★★ ⇒ 直接 `slot = inst.prevslot`，跳过 1086 行的校验？",
@@ -189,7 +189,7 @@ export const BEFORE = {
     "-- ★★★ ★ 这就是「位置记忆」的完整实现：",
     "--   「优先回原位」而非「直接进原位」。",
   ],
-  1066: [
+  "Inventory:GiveItem#1+37": [
     "-- ★★★ 有 prevcontainer 的情况 —— 尝试放回**原来的容器**。",
     "-- ★★★ 四重校验（1067-1079 行）：",
     "--   1067 行 原容器仍有效且仍被自己打开；",
@@ -199,7 +199,7 @@ export const BEFORE = {
     "--   因为已经放好了，不需要槽号。",
     "-- ★★★ ★ 这就是「把物品放回刚才拿出来的箱子」的自动复原。",
   ],
-  1073: [
+  "Inventory:GiveItem#1+44": [
     "-- ★★★ 四重条件的合并判定（1073-1077 行）：",
     "--   ① itemInSlot 可堆叠；",
     "--   ② CanStackWith(inst) —— 同类；",
@@ -215,7 +215,7 @@ export const BEFORE = {
     "--   这意味着 inst 仍在「手上」（如果有的话）或无处可去。",
     "--   后续 1095 行会给它找新位置。行为正确。",
   ],
-  1081: [
+  "Inventory:GiveItem#1+52": [
     "-- ★★★ 放回原容器失败 → **清除记忆并重置槽位**：",
     "--   1081-1082 行 prevcontainer/prevslot 置 nil（记忆失效）；",
     "--   1083 行 slot = nil（强制走自动选槽）。",
@@ -223,7 +223,7 @@ export const BEFORE = {
     "--   当作「第一次见到这个物品」处理。",
     "-- ★★ 这样设计的好处：不会在失败状态上反复重试。",
   ],
-  1086: [
+  "Inventory:GiveItem#1+57": [
     "-- ★★★ 建议槽位的合法性校验（1086-1089 行）。",
     "-- ★★★ `can_use_suggested_slot` 的条件（1088 行）：",
     "--   ① slot <= self.maxslots（在范围内）；",
@@ -236,7 +236,7 @@ export const BEFORE = {
     "-- ★★★ ★ 若 can_use_suggested_slot 为 false，1094-1095 行会重新选槽。",
     "--   ⇒ ★ 记忆槽位只是「建议」，不是「命令」。",
   ],
-  1091: [
+  "Inventory:GiveItem#1+62": [
     "-- ★★★ 三者的取得（1091-1093 行）：",
     "--   · overflow = 背包本体；",
     "--   · specialized = 专用容器（弹药袋等）；",
@@ -245,7 +245,7 @@ export const BEFORE = {
     "--   1095 行若重选会覆盖它。",
     "-- ★★★ ★ 这三个变量在 1098-1166 行的四路分支中被用作「判别式」。",
   ],
-  1094: [
+  "Inventory:GiveItem#1+65": [
     "-- ★★★ `if not can_use_suggested_slot then slot, container = GetNextAvailableSlot(inst) end`",
     "-- ★★★ ★ 这是「记忆失效后的重新选位」。",
     "-- ★★ ★ GetNextAvailableSlot 返回 (slot, container)，",
@@ -256,7 +256,7 @@ export const BEFORE = {
     "-- ★★ 若 can_use_suggested_slot 为 true，container 保持默认值 itemslots，",
     "--   ⇒ 走 1139-1152 行的「普通槽」分支。正确。",
   ],
-  1098: [
+  "Inventory:GiveItem#1+69": [
     "-- ★★★ 找到槽位后的分派（1098-1166 行）—— **四条路**。",
     "-- ★★★ 按 container 的身份分派：",
     "--   ① 1104 行 container == overflow      → 背包本体；",
@@ -266,7 +266,7 @@ export const BEFORE = {
     "-- ★★★ ★ 顺序有意义：overflow 在前，因为 GetNextAvailableSlot",
     "--   可能返回 overflow 的槽；specialized 在第二，因为它有额外逻辑。",
   ],
-  1099: [
+  "Inventory:GiveItem#1+70": [
     "-- ★★ `if new_item and not self.ignoresound then PushEvent(\"gotnewitem\")` ——",
     "-- ★★★ ★ 三重条件：",
     "--   · new_item（1041 行算的）：既不在手上也不在装备槽上；",
@@ -280,14 +280,14 @@ export const BEFORE = {
     "--   ⇒ ★★ gotnewitem 是**纯本地事件**（服务端 PushEvent 给自己听）。",
     "--   ★ 这解释了为什么它不需要 netvar 同步。",
   ],
-  1103: [
+  "Inventory:GiveItem#1+74": [
     "-- ★★ leftovers —— 「没放进去的部分」。初始化为 nil。",
     "-- ★★★ ★ 贯穿整个 1098-1164 行的核心变量：",
     "--   每个分支都可能产生 leftovers（堆叠没装完的情况），",
     "--   最后由 1159 行统一处理（递归 GiveItem）。",
     "-- ★★ leftovers 非 nil 意味着「部分成功」，需要后续补投。",
   ],
-  1104: [
+  "Inventory:GiveItem#1+75": [
     "-- ★★ 分支①：目标是 overflow（背包本体）。",
     "-- ★★ `if itemInSlot then` —— 该槽有东西（可合并）；",
     "--   否则 `overflow:GiveItem(inst, nil, src_pos)` 直接交给容器处理。",
@@ -298,7 +298,7 @@ export const BEFORE = {
     "--   两者的 GiveItem 是同构的（可互相调用）。",
     "-- ★★ 1110 行 return true —— 委托成功即返回。",
   ],
-  1112: [
+  "Inventory:GiveItem#1+83": [
     "-- ★★★ 分支②：目标是专用容器（specialized）—— 本分支最复杂。",
     "-- ★★★ 它包含一个**「自动打开」的子流程**（1113-1119 行）：",
     "--   若容器没被打开、可以打开、且不是「掉落即开」或「可携带」的容器，",
@@ -316,7 +316,7 @@ export const BEFORE = {
     "--   · not (droponopen or portablestorage)：",
     "--     「掉落即开」或「可携带」的容器不该被自动打开。",
   ],
-  1119: [
+  "Inventory:GiveItem#1+90": [
     "-- ★★ receiveitemonopen —— 「正在接收物品」的 UI 代理（可能为 nil）。",
     "-- ★★★ ★ 变量的生命周期：",
     "--   1113 行初始化为 nil（默认不生成）；",
@@ -326,11 +326,11 @@ export const BEFORE = {
     "-- ★★★ 这就是「零成本可选功能」的写法：",
     "--   用 nil 代替布尔标志，简化分支。",
   ],
-  1120: [
+  "Inventory:GiveItem#1+91": [
     "-- ★★ `local itemInSlot = container:GetItemInSlot(slot)` —— 查目标槽。",
     "-- ★★ 与分支①的 1105 行同构，但用的是 container 的方法。",
   ],
-  1121: [
+  "Inventory:GiveItem#1+92": [
     "-- ★★ itemInSlot 存在 → 尝试堆叠合并。",
     "-- ★★★ 1122 行 `leftovers = itemInSlot.components.stackable:Put(inst, src_pos)`",
     "--   ★ 与 1107 行同构：Put 的返回值是「没装进去的」。",
@@ -344,13 +344,13 @@ export const BEFORE = {
     "--     而本分支统一返回 slot（数字）。",
     "--   ★ 这是 1029 行注释里说的「返回值不统一」的又一处证据。",
   ],
-  1127: [
+  "Inventory:GiveItem#1+98": [
     "-- ★★ itemInSlot 为空 → 委托 container:GiveItem。",
     "-- ★★ 1129-1132 行填充 UI 代理（非堆叠状态）。",
     "-- ★★★ 1133 行 `return true` —— **委托成功立即返回**。",
     "-- ★★ 与分支①的 1110 行对称。",
   ],
-  1135: [
+  "Inventory:GiveItem#1+106": [
     "-- ★★ 分支③：目标是装备槽。",
     "-- ★★★ ★ 注意这个分支**没有 else**（空槽的情况）！",
     "--   只有 `if self.equipslots[slot] then` —— 有东西时才 Put 合并。",
@@ -368,7 +368,7 @@ export const BEFORE = {
     "-- ★★★ 这说明 GetNextAvailableSlot 的返回约定（「装备槽只会返回非空槽」）",
     "--   是一个**未被文档化的隐含契约**。",
   ],
-  1139: [
+  "Inventory:GiveItem#1+110": [
     "-- ★★ 分支④：普通槽（itemslots）—— 最常见的情况。",
     "-- ★★★ 三分支（1140-1152 行）：",
     "--   ① 1141-1144 行 槽里有东西且**满了** → leftovers = inst（放不进去）；",
@@ -391,7 +391,7 @@ export const BEFORE = {
     "--   ★ 这解释了为什么合并路径不需要显式事件。",
     "-- ★ ★★ src_pos 也被传递了（用于客户端飞行动画起点）。",
   ],
-  1154: [
+  "Inventory:GiveItem#1+125": [
     "-- ★★ `if inst.components.equippable then ToPocket()` ——",
     "-- ★★★ ★ 注意：分支①（overflow）与分支②（specialized）里",
     "--   **没有**这个调用！只有分支④（普通槽）有。",
@@ -405,7 +405,7 @@ export const BEFORE = {
     "--   ★★ 但分支②（specialized）的委托也可能这样处理 ⇒ 推测无缺陷。",
     "--     记录为「需核实」而非确定缺陷。",
   ],
-  1159: [
+  "Inventory:GiveItem#1+130": [
     "-- ★★★ leftovers 的统一处理（1159-1164 行）。",
     "-- ★★★ `if leftovers then ... self:GiveItem(leftovers)` —— **递归调用**！",
     "-- ★★ ★ 递归深度：理论上可以很深（每层产生一个 leftover）。",
@@ -421,7 +421,7 @@ export const BEFORE = {
     "--   1178 行的兜底处理（塞手上或丢地上）。",
     "--   ⇒ 在搬运场景下：物品可能被丢在地上（见 L4）。",
   ],
-  1166: [
+  "Inventory:GiveItem#1+137": [
     "-- ★★ `return slot` —— ★★★ **返回槽号（数字）而非 true**。",
     "-- ★★★★ 这是「返回值不统一」的核心证据（见 1029 行注释）。",
     "-- ★★ 后果：调用方不能假设返回布尔。",
@@ -430,7 +430,7 @@ export const BEFORE = {
     "-- ★★ 对比 1168 行的 `return true`（overflow 兜底路径）—— 同一函数",
     "--   两种返回风格。这给调用方制造了真实的歧义。",
   ],
-  1167: [
+  "Inventory:GiveItem#1+138": [
     "-- ★★★ 1167-1216 行：**全失败后的六层兜底**。",
     "-- ★★★ 这是 GiveItem 最有价值的部分——它保证了",
     "--   「物品永远不会凭空消失」。",
@@ -446,7 +446,7 @@ export const BEFORE = {
     "--   （背包 / 装备 / 手上 / 地上 / 自定义钩子）。",
     "--   ⇒ ★ 这就是 DST 物品系统「不吞物品」原则的体现。",
   ],
-  1167: [
+  "Inventory:GiveItem#1+138": [
     "-- ★★ `elseif overflow ~= nil and overflow:GiveItem(inst, nil, src_pos, false)` ——",
     "-- ★★★★ 兜底①：再试一次 overflow。",
     "-- ★★★ ★ 注意第四个参数 `false` —— 查 container.lua 的签名：",
@@ -460,7 +460,7 @@ export const BEFORE = {
     "--   若 GetNextAvailableSlot 因为某种原因漏掉了 overflow，这里能救。",
     "-- ★★★ ★ 注意它成功时 `return true`（不是槽号）—— 第三次不一致。",
   ],
-  1171: [
+  "Inventory:GiveItem#1+142": [
     "-- ★★ `if self.ignorefull then return false end` —— 兜底②的提前退出。",
     "-- ★★★ ★ 这就是 ignorefull（42 行）的兑现点：",
     "--   「假装没满」= 满时不走任何兜底，直接失败。",
@@ -472,11 +472,11 @@ export const BEFORE = {
     "--   这在语义上是**正确**的（东西确实没进背包），",
     "--   但对调用方是个陷阱：它需要自己检查物品是否还在。",
   ],
-  1176: [
+  "Inventory:GiveItem#1+147": [
     "-- ★★ `local returnvalue = false` —— 最终返回值（默认失败）。",
     "-- ★★ ★ 它会在 1186（塞手上）或 1205（合并进手上）时被设为 true。",
   ],
-  1177: [
+  "Inventory:GiveItem#1+148": [
     "-- ★★ shouldwisecrack —— 「要不要播『背包满』提示」。",
     "-- ★★★ ★ 它在 1206 行会被置 false（合并路径不播），",
     "--   1213 行据此决定是否 PushEvent(\"inventoryfull\")。",
@@ -487,7 +487,7 @@ export const BEFORE = {
     "--   ③ maxslots > 0：非玩家实体（无背包）不播。",
     "-- ★★ ★⇒ 「背包满」的精确语义：**普通槽满 + 没有兜底成功 + 非内部操作**。",
   ],
-  1178: [
+  "Inventory:GiveItem#1+149": [
     "-- ★★★★ 兜底③：塞进 activeitem（1178-1186 行）—— ★ 最重要的兜底。",
     "-- ★★★ 四重条件：",
     "--   ① self.activeitem == nil —— **手上是空的**；",
@@ -516,7 +516,7 @@ export const BEFORE = {
     "--     但在**玩家操作中**由客户端预测负责。",
     "-- ★★ 交叉引用：playercontroller.lua 的客户端预测逻辑。",
   ],
-  1184: [
+  "Inventory:GiveItem#1+155": [
     "-- ★★ OnPutInInventory —— 与 1150 行同款（放入的回调）。",
     "-- ★★ ★ 注意这里**没有** PushEvent(\"itemget\")！",
     "--   ⇒ ★★ 与 1151 行不同：塞进 activeitem **不发** itemget 事件。",
@@ -532,7 +532,7 @@ export const BEFORE = {
     "-- ★★ 这解释了 1020 行为什么用 slot=nil 发 itemget ——",
     "--   那是「物品从某处进入物品栏」的通用通知。",
   ],
-  1187: [
+  "Inventory:GiveItem#1+158": [
     "-- ★★ 兜底④：HandleLeftoversFn 钩子。",
     "-- ★★★ ★ 这是一个**实例字段上的自定义回调**（构造函数未初始化）。",
     "-- ★★ 语义：「物品放不下时，让容器自己决定怎么办」。",
@@ -542,7 +542,7 @@ export const BEFORE = {
     "-- ★★ ★ 注意：**这个钩子存在时，兜底⑤⑥ 完全不执行**",
     "--   （是 elseif 链）。⇒ 钩子负全部责任。",
   ],
-  1190: [
+  "Inventory:GiveItem#1+161": [
     "-- ★★★ 兜底⑤：合并进现有 activeitem（1190-1206 行）。",
     "-- ★★★ 五重条件：",
     "--   · self.activeitem 存在且**不等于** inst；",
@@ -565,7 +565,7 @@ export const BEFORE = {
     "-- ★★ 1205 行 `returnvalue = true` —— 终于成功。",
     "-- ★★ 1206 行 `shouldwisecrack = false` —— 不播「背包满」。",
   ],
-  1208: [
+  "Inventory:GiveItem#1+179": [
     "-- ★★★ 兜底⑥：丢到地上（1208-1211 行）—— **最后手段**。",
     "-- ★★ `if self.HandleLeftoversShouldDropFn == nil or ...(...) then` ——",
     "--   ★★★ 另一个钩子：决定「**是否应该**丢地上」。",
@@ -580,7 +580,7 @@ export const BEFORE = {
     "-- ★ 1209 行 `self:DropItem(inst, true, true)` —— 整摞、随机方向。",
     "-- ★★ 注意 returnvalue **不设为 true** —— 报告「失败」。",
   ],
-  1213: [
+  "Inventory:GiveItem#1+184": [
     "-- ★★★ 「背包满」提示（1213-1215 行）。",
     "-- ★★ 条件：shouldwisecrack 且 非 loading 且 非 silentfull 且 maxslots > 0。",
     "-- ★★★ ★★ 1214 行 PushEvent(\"inventoryfull\", { item = inst }) ——",
@@ -598,7 +598,7 @@ export const BEFORE = {
     "--   ⚠ 这是一个轻微的不一致（见 L19）：塞手上成功却提示背包满。",
     "--   ★ 玩家体验：东西拿在手上但听到「背包满」—— 其实合理（确实满了）。",
   ],
-  1219: [
+  "Inventory:Unequip#1": [
     "-- 【§十一】★ Unequip —— 「从装备槽取下」。",
     "-- ★★ 三参数：equipslot（槽名）、slip（是否被挤掉）、force（强行）。",
     "-- ★★★ ★ 本函数的核心设计：**总是把槽清空并派发事件**，",
@@ -612,7 +612,7 @@ export const BEFORE = {
     "--   · 无旧物品安置（那是 Equip 负责的）。",
     "--   ⇒ ★ Equip 承担了「换装时旧物品去哪」的复杂逻辑。",
   ],
-  1220: [
+  "Inventory:Unequip#1+1": [
     "-- ★ local item = self.equipslots[equipslot] —— 取该槽的物品。",
     "-- ★★ 1221 行的 print 被注释掉了 —— 「Inventory:Unequip」调试点。",
     "-- ★ ★★ 注意：item 为 nil 时，整个 1222-1238 块被跳过，",
@@ -622,7 +622,7 @@ export const BEFORE = {
     "--   ★ 推断：监听者（inventory_replica:26）只取 data.eslot，忽略 item。",
     "--     所以无害。",
   ],
-  1223: [
+  "Inventory:Unequip#1+4": [
     "-- ★★ `if item.components.equippable ~= nil then` —— 只对有组件的做处理。",
     "-- ★★ ★ 1224 行的 preventunequipping 保护（唯一的提前退出）：",
     "--   `if not force and ShouldPreventUnequipping() then return nil` ——",
@@ -634,7 +634,7 @@ export const BEFORE = {
     "--     · 更新 setbonus（1244）。",
     "--   ★ 这是正确的（什么都没发生）。",
   ],
-  1227: [
+  "Inventory:Unequip#1+8": [
     "-- ★★★ `item.components.equippable:Unequip(self.inst)` —— 触发卸装回调。",
     "-- ★★ ★★★ **⚠ 这里不传 slip**（对比 1219 行接收了 slip 参数）！",
     "--   equippable.lua:115 Unequip(owner) 的签名也只有 owner。",
@@ -649,7 +649,7 @@ export const BEFORE = {
     "--   ⇒ ★★★ 这是一对「设置/清空 overflow」的握手事件。",
     "--   ★ 消费方：inventory_replica 或 HUD（决定是否显示背包 UI）。",
   ],
-  1233: [
+  "Inventory:Unequip#1+14": [
     "-- ★★ BODY 槽的特殊处理（1233-1237 行）：",
     "--   · BODY → heavylifting = false（卸下重物不再负重）；",
     "--   · HANDS → floaterheld = nil（卸下钓鱼竿不再漂浮）。",
@@ -663,7 +663,7 @@ export const BEFORE = {
     "-- ★ ★★ 这两行是「卸下装备的反向副作用」，与 equippable 的 onunequipfn",
     "--   是**并行**机制：一个在 Inventory 层，一个在装备层。",
   ],
-  1240: [
+  "Inventory:Unequip#1+21": [
     "-- ★★★ `self.equipslots[equipslot] = nil` —— 清空槽位。",
     "-- ★★ ★ 无论 item 是否为 nil 都执行（1222 的 if 不控制这行）。",
     "--   ⇒ ★ 空槽 Unequip 也会走到这里（无害）。",
@@ -672,7 +672,7 @@ export const BEFORE = {
     "-- ★★★ 这是**必须的**：如果槽里的东西不认 equippable，",
     "--   也不能永远卡在装备槽里。",
   ],
-  1241: [
+  "Inventory:Unequip#1+22": [
     "-- ★★★ PushEvent(\"unequip\", { item, eslot, slip }) —— 联机同步点。",
     "-- ★★ ★ inventory_replica.lua:26 监听 → `SetSlotEquip(data.eslot)`",
     "--   （**不传 item** = 清空装备槽）。",
@@ -688,7 +688,7 @@ export const BEFORE = {
     "-- ★★★ 事件顺序：unequipped → unequip → setbonus 更新。",
     "--   ⇒ 监听 \"unequip\" 时 setbonus 尚未更新。",
   ],
-  1243: [
+  "Inventory:Unequip#1+24": [
     "-- ★★ setbonus（套装加成）—— 卸下时关闭效果。",
     "-- ★★★ ★ 只有带 setbonus 组件的物品才有（如护甲套装）。",
     "-- ★★ `UpdateSetBonus(self, false)` —— false = 卸下。",
@@ -700,7 +700,7 @@ export const BEFORE = {
     "--   ★★ 推断：setbonus 的实现是「重新计算整个套装」，而非「加/减单项」。",
     "--   ⇒ ★ 这是「幂等重算」而非「增量更新」，更健壮。",
   ],
-  1250: [
+  "Inventory:SetActiveItem#1": [
     "-- 【§十一】★ SetActiveItem —— 「设置手上物品」。",
     "-- ★★★ ★ 四种情形（1250-1263 行）：",
     "--   ① item 有 islockedinslot → assert + 拒绝（1251-1253）；",
@@ -712,7 +712,7 @@ export const BEFORE = {
     "--   **不是静默失败，而是丢地上**。",
     "--   ⇒ ★ 与 GiveItem 的兜底逻辑一致（不吞物品）。",
   ],
-  1251: [
+  "Inventory:SetActiveItem#1+1": [
     "-- ★★ 锁定物品不能设为手上 —— 1252 行 assert（见 L6）。",
     "-- ★★★ ★ 注意：这里 assert 之后是 **return**（不是错误提示）。",
     "--   ⇒ dev 版崩、生产版静默忽略。",
@@ -723,7 +723,7 @@ export const BEFORE = {
     "--     因为 `item == nil` 是第一个条件，短路保护了后半段。",
     "--   ★ 这是「用 == nil 做短路前置」的合法写法（Lua 的 == 不会崩）。",
   ],
-  1255: [
+  "Inventory:SetActiveItem#1+5": [
     "-- ★★ `self.activeitem = item` —— 真正的赋值点。",
     "-- ★★ ★ 不论 item 是 nil 还是实体，都执行这行。",
     "-- ★★★ 1256 行 PushEvent(\"newactiveitem\", {item = item}) ——",
@@ -735,21 +735,21 @@ export const BEFORE = {
     "--   ★★ 与 equippable 的 ToPocket 不同：这里不检查 equippable 组件，",
     "--     而用 inventoryitem 的专属钩子。分层清晰。",
   ],
-  1258: [
+  "Inventory:SetActiveItem#1+8": [
     "-- ★★ onactiveitemfn —— 「成为手上物品」的钩子。",
     "-- ★★★ 三重保护：item 非 nil + 有 inventoryitem + 有 onactiveitemfn。",
     "-- ★★ 这是 inventoryitem 组件的字段（非 equi ppable）。",
     "--   签名 (item, owner) —— 与 equippable 的 onpocketfn 类似的「回传自身」。",
     "-- ★★★ ★ 效果举例：某些物品在手上会显示 UI 指示器。",
   ],
-  1262: [
+  "Inventory:SetActiveItem#1+12": [
     "-- ★★ `else self:DropItem(item, true, true)` —— 不可拿的东西丢地上。",
     "-- ★★★ ★ 注意：**没有 PushEvent(\"newactiveitem\")**。",
     "--   ⇒ activeitem 保持原值（没被改成这个不可拿的物品）。",
     "--   ★ 这是正确的：先检查再赋值，避免「设了又撤销」的闪烁。",
     "-- ★★ wholestack=true, randomdir=true —— 与 GiveItem 的兜底一致。",
   ],
-  1266: [
+  "Inventory:Equip#1": [
     "-- 【§十一】★★★ Equip —— 「装备一件物品」。全文件第二复杂的函数。",
     "-- ★★★ 三参数：item、old_to_active（换下旧装备给手上）、",
     "--   no_animation（不播动画）、force_ui_anim（强制 UI 动画位置）。",
@@ -769,7 +769,7 @@ export const BEFORE = {
     "-- ★★★ ★ 与 Unequip 的对照：Unequip 30 行，Equip 120 行。",
     "--   原因：「穿上去」涉及换装（旧的去哪）、堆叠拆分、溢出、副作用。",
   ],
-  1267: [
+  "Inventory:Equip#1+1": [
     "-- ★★★★★ 准入检查（1267-1274 行）—— 五重 or 条件：",
     "--   ① item == nil；",
     "--   ② 没有 equippable 组件；",
@@ -789,7 +789,7 @@ export const BEFORE = {
     "--   所以默认为 nil（falsy）⇒ 该条件默认不成立。",
     "--   ⇒ ★ 「禁止负重」的实体可以设 self.noheavylifting = true 来禁用 heavy 装备。",
   ],
-  1277: [
+  "Inventory:Equip#1+11": [
     "-- ★★★ `local eslot = item.components.equippable.equipslot` —— 目标槽。",
     "-- ★★ ★ 槽名来自**物品自身**的组件，不是调用方指定。",
     "--   ⇒ ★★★ 「这个物品能穿哪」是**物品的固有属性**。",
@@ -797,7 +797,7 @@ export const BEFORE = {
     "--   （绕过 setter），客户端会显示错位。这里读的是同一个字段。",
     "-- ★★ 1278 行 `local olditem = self.equipslots[eslot]` —— 该槽原有物品。",
   ],
-  1279: [
+  "Inventory:Equip#1+13": [
     "-- ★★ 1279-1281 行：旧装备的「粘住」保护。",
     "-- ★★★ ★ `if olditem ~= nil and ShouldPreventUnequipping() then return` ——",
     "--   ★★★ 这里**没有 force 参数**！Equip 的签名里有 force_ui_anim，",
@@ -810,7 +810,7 @@ export const BEFORE = {
     "--     但它是一个**明确的能力缺口**。",
     "-- ★★ ⚠ 返回 nil（不设返回 true）→ 见 L5。",
   ],
-  1284: [
+  "Inventory:Equip#1+18": [
     "-- ★★ iscontroller —— 「当前是否处于客户端控制器已挂载状态」。",
     "-- ★★★ ★ 与 GiveItem:1181 的同一判定。语义：",
     "--   「这个实体正在被某个客户端操控中」。",
@@ -835,7 +835,7 @@ export const BEFORE = {
     "--   所以把记忆**复制**给旧物品，让它回原位。",
     "--   ★★ 这是「位置记忆」机制在换装场景下的精细处理。",
   ],
-  1286: [
+  "Inventory:Equip#1+20": [
     "-- ★★★ `item.prevslot = self:GetItemSlot(item)` —— 记录原槽位。",
     "-- ★★★ ★ 这是「位置记忆」的**写入点**（GiveItem 时读取）。",
     "-- ★★ ★★ 与 RemoveItem 的 1410 行（`item.prevslot = prevslot`）不同：",
@@ -847,7 +847,7 @@ export const BEFORE = {
     "--   ⇒ ★ 这保证了「位置记忆」是完整的一对（slot + container），",
     "--     不会出现「有槽号但容器指向别处」的矛盾状态。",
   ],
-  1304: [
+  "Inventory:Equip#1+38": [
     "-- ★★★★ 重物互斥（1304-1321 行）—— ★ 本函数最「游戏性」的部分。",
     "-- ★★★ 两个对称分支：",
     "--   · 1305 行：装 HANDS 时，若 BODY 有 heavy → **丢掉 BODY 的 heavy**；",
@@ -870,7 +870,7 @@ export const BEFORE = {
     "-- ★★ ★ 两个分支的不对称（HANDS 直接丢 vs BODY 先尝试放回）",
     "--   值得注意。可能是有意的（HANDS 槽被新物品占据，无处安置）。",
   ],
-  1324: [
+  "Inventory:Equip#1+58": [
     "-- ★★★ 从原位置取出物品（1324-1332 行）。",
     "-- ★★★ 三分支：",
     "--   1325-1326 行 没有 inventoryitem 组件（诡异）→ RemoveItem；",
@@ -891,7 +891,7 @@ export const BEFORE = {
     "--   ★ 「保留过度堆叠」：若这摞超过了标准上限（如 99），保留而不拆分。",
     "--   用于「背包里的堆叠上限临时提高」的场景。",
   ],
-  1334: [
+  "Inventory:Equip#1+68": [
     "-- ★★ `if item == self.activeitem then` —— 装备的正是手上那件。",
     "-- ★★★ leftovers = self.activeitem（**整个**作为 leftovers）；",
     "-- ★★★ ★★★ 然后 SetActiveItem(nil) 清空手上。",
@@ -904,7 +904,7 @@ export const BEFORE = {
     "--   ⚠ 这是一个潜在的逻辑覆盖（见 L21），但实际不冲突",
     "--     （IsHeld 为 true 时 1327 已处理，1334 不成立）。",
   ],
-  1339: [
+  "Inventory:Equip#1+73": [
     "-- ★★★ `if olditem ~= item then` —— 「真的换了东西」。",
     "-- ★★★ ★ 若同一件物品重复 Equip 到同一槽，此条件不成立，",
     "--   直接跳到 1387 行（返回 nil，不做任何事）。",
@@ -912,7 +912,7 @@ export const BEFORE = {
     "-- ★★★ ★ 与 1279 行的 protectunequipping 保护是**两层**：",
     "--   一层挡「粘住的旧装备」，一层挡「重复装备同一件」。",
   ],
-  1340: [
+  "Inventory:Equip#1+74": [
     "-- ★★ 1340-1348 行：安置 leftovers（拆出来的部分）。",
     "-- ★★★ 两个分支：",
     "--   · old_to_active → GiveActiveItem（放到手上，1342 行）；",
@@ -924,7 +924,7 @@ export const BEFORE = {
     "--   传 self.inst:GetPosition() 作为 src_pos，让客户端播「飞入背包」的动画。",
     "-- ★★★ ★ force_ui_anim 只影响 UI 动画，不影响逻辑位置。",
   ],
-  1349: [
+  "Inventory:Equip#1+83": [
     "-- ★★★★ 安置旧装备（1349-1362 行）—— ★★ 本函数最复杂的分支。",
     "-- ★★ 四步：",
     "--   ① 1350 行 Unequip(eslot) —— 把旧装备取下；",
@@ -946,7 +946,7 @@ export const BEFORE = {
     "-- ★★★ ★★★ 这就是「手动换装」的体验：换下的帽子自动拿在手上。",
     "-- ★★ 1358-1360 行的 silentfull 包裹（与 1344 同理）。",
   ],
-  1364: [
+  "Inventory:Equip#1+98": [
     "-- ★★★ `item.components.inventoryitem:OnPutInInventory(self.inst)` ——",
     "--   「正式进入物品栏」的回调。",
     "-- ★★★ ★ 与 Unequip 的顺序对照（这是关键）：",
@@ -967,14 +967,14 @@ export const BEFORE = {
     "--   而新捡的装备「从地上来」（from_ground=true）。",
     "--   ⇒ 音效/动画会不同。",
   ],
-  1366: [
+  "Inventory:Equip#1+100": [
     "-- ★★★ `self.equipslots[eslot] = item` —— ★ 真正的槽位写入点。",
     "-- ★★ ★ 与 1407/1240 行的 `= nil` 对称：**装备槽也是「直接赋值」**。",
     "--   ⇒ 槽位从不压缩/重排。",
     "-- ★★★ ★★ 关键：这是本函数里**唯一**写 equipslots 的地方。",
     "-- ★★★ ★ 1368-1375 行的条件链依赖 eslot（1277 行算的）。",
   ],
-  1368: [
+  "Inventory:Equip#1+102": [
     "-- ★★★ BODY 槽的副作用（1368-1372 行）：",
     "-- ★★ 1369-1371 行：**若新装备有 container 组件 → 派发 setoverflow**。",
     "--   ★★★★★ 这就是「背包 = 穿在身上的物品」的实现：",
@@ -989,7 +989,7 @@ export const BEFORE = {
     "-- ★★ ★ 与 1305-1309 行的「重物互斥」配合：",
     "--     穿上 heavy 到 BODY → heavylifting = true → 客户端过滤动作。",
   ],
-  1373: [
+  "Inventory:Equip#1+107": [
     "-- ★★ HANDS 槽的副作用：floaterheld。",
     "-- ★★ `self.floaterheld = item.components.playerfloater and true` ——",
     "--   ★★★ 「有 playerfloater 组件则为 true，否则为 **false**」（不是 nil）。",
@@ -997,7 +997,7 @@ export const BEFORE = {
     "--     传 nil 也会转 false，所以两等价。写成 `and true` 更明确。",
     "-- ★★ ★ 效果：客户端收到 floaterheld=true → 进入「漂浮」状态图（见 28 行注释）。",
   ],
-  1377: [
+  "Inventory:Equip#1+111": [
     "-- ★★★ PushEvent(\"equip\", { item, eslot, no_animation }) ——",
     "--   ★★★ ★★★ 联机同步的核心事件（inventory_replica.lua:25）：",
     "--     `self.classified:SetSlotEquip(data.eslot, data.item)`",
@@ -1009,7 +1009,7 @@ export const BEFORE = {
     "--   ★ `ProfileStatsAdd(\"equip_\"..item.prefab)` —— 按 prefab 统计装备次数。",
     "--   ★ 只上报，不影响逻辑。",
   ],
-  1382: [
+  "Inventory:Equip#1+116": [
     "-- ★★ setbonus 更新 —— 与 Unequip 的 1243 行配对。",
     "-- ★★★ ★ `UpdateSetBonus(self, true)` —— true = 穿上。",
     "-- ★★ ★★ 注意这里在 1366 行（槽位已写入）**之后**调用：",
@@ -1022,7 +1022,7 @@ export const BEFORE = {
     "-- ★★ ★ 与 L5 对照：失败路径返回 nil，成功返回 true。",
     "--   ⇒ ★★ `if inv:Equip(x) then` 在「同一物品重复装备」时为假。",
   ],
-  1390: [
+  "Inventory:RemoveItem#1": [
     "-- 【§十二】★★★ RemoveItem —— 「从物品栏取出物品」。",
     "-- ★★★ 四参数：item（要取的）、wholestack（整摞还是单个）、",
     "--   checkallcontainers（是否搜索打开的容器）、keepoverstacked（保留过度堆叠）。",
@@ -1042,7 +1042,7 @@ export const BEFORE = {
     "-- ★★ ★★ 顺序的重要性：②③④ 的顺序体现了",
     "--   「先查最可能的」的思路（普通槽 > 手上 > 装备 > 背包 > 容器）。",
   ],
-  1395: [
+  "Inventory:RemoveItem#1+5": [
     "-- ★★ `local prevslot = item.components.inventoryitem and GetSlotNum() or nil` ——",
     "-- ★★★ ★ 「读取物品当前所在槽位」用于写入位置记忆。",
     "-- ★★ 注意用了 `and ... or nil` 的链式：",
@@ -1055,7 +1055,7 @@ export const BEFORE = {
     "--     因为 Equip 会从 equippable.equipslot 知道该穿哪）。",
     "-- ★★ 交叉引用：inventoryitem.lua:315 GetSlotNum。",
   ],
-  1397: [
+  "Inventory:RemoveItem#1+7": [
     "-- ★★★★ 情况①：非整摞 + 是堆叠 → **拆分一个**（1397-1403 行）。",
     "-- ★★★ ★ 这是「拿一个」的语义（wholestack=false 且是堆叠）。",
     "-- ★★ 1398 行 `local dec = item.components.stackable:Get()` ——",
@@ -1076,7 +1076,7 @@ export const BEFORE = {
     "--     必须知道 x 可能不是 item 本身。",
     "-- ★★ ★ 对比 wholesack=true 时（1405 行起）返回的是原实体。",
   ],
-  1405: [
+  "Inventory:RemoveItem#1+15": [
     "-- ★★ 情况②：在 itemslots 里找。",
     "-- ★★ 1407 行 `self.itemslots[k] = nil` —— 直接置 nil（不压缩数组）。",
     "-- ★★★ ★ 1408 行 PushEvent(\"itemlose\") —— 联机同步（与 559 行同款）。",
@@ -1092,7 +1092,7 @@ export const BEFORE = {
     "--     这里就会写入错误的记忆。",
     "-- ★★ 1412 行 `return item` —— 返回**原实体**。",
   ],
-  1416: [
+  "Inventory:RemoveItem#1+26": [
     "-- ★★ 情况③：就是 activeitem（手上那件）。",
     "-- ★★ 1417 行 `self:SetActiveItem()` —— **无参数** = 置 nil（清空手上）。",
     "-- ★★★ ★ 注意这里用 SetActiveItem() 而不是直接 `= nil`：",
@@ -1116,7 +1116,7 @@ export const BEFORE = {
     "--   ⇒ ★★ 两处策略不一致，但各有理由（这里是有意的「保留回滚余地」）。",
     "-- ★★ 注释用了 `--` 前缀（不是 `--[[ ]]`），说明它是给开发者看的说明。",
   ],
-  1424: [
+  "Inventory:RemoveItem#1+34": [
     "-- ★★ 情况④：在 equipslots 里（穿在身上）。",
     "-- ★★★ ★ 1426 行 `self:Unequip(k, nil, true)` —— **第三个参数 force=true**！",
     "-- ★★★★ ★★ 这是本文件里 force 参数的**第二个**使用点（第一个是 168 行）。",
@@ -1134,7 +1134,7 @@ export const BEFORE = {
     "-- ★★ 1427-1429 行：与 1409-1411 行同款（OnRemoved + 位置记忆）。",
     "-- ★★ 1430 行 `return item`。",
   ],
-  1434: [
+  "Inventory:RemoveItem#1+44": [
     "-- ★★ 情况⑤：overflow（背包本体）里 —— **递归调用**。",
     "-- ★★ `overflow:RemoveItem(item, wholestack, nil, keepoverstacked)` ——",
     "--   ★★★ 第三参数传 nil（不是 checkallcontainers）：",
@@ -1144,7 +1144,7 @@ export const BEFORE = {
     "-- ★★ ★ 注意 overflow_item 可能是「拆分出的新实体」（container 版同样语义）。",
     "-- ★★ ★⇒ 调用方拿到的可能不是原 item（同 1397 行的「惊喜」）。",
   ],
-  1440: [
+  "Inventory:RemoveItem#1+50": [
     "-- ★★ 情况⑥：搜索**所有打开的容器**（仅当 checkallcontainers 为真）。",
     "-- ★★ 1441 行 `local containers = self.opencontainers` —— ",
     "--   ★★★ ★★★ ★ 「从打开的箱子等容器里拿东西」的机制。",
@@ -1165,7 +1165,7 @@ export const BEFORE = {
     "--   1444 行有 `container ~= overflow` ✓，但 1435 行的 overflow_item 已处理过。",
     "--   ⇒ 无重复处理。正确。",
   ],
-  1453: [
+  "Inventory:RemoveItem#1+63": [
     "-- ★★★★ `return item` —— ★★★★★ 本函数最重要的兜底。",
     "-- ★★★★★ 「六个位置都没找到 → 把传入的 item 原样返回」。",
     "-- ★★★★ 设计动机：让调用方的链式调用成为可能——",
@@ -1186,91 +1186,91 @@ export const BEFORE = {
 };
 
 export const AFTER = {
-  1012: ["-- ↑ GiveActiveItem 结束（无条件塞进手上）。"],
-  1013: ["-- ↑ 有效性判定。"],
-  1014: ["-- ★★★ 先腾位（ReturnActiveItem 可能丢地上）。"],
-  1015: ["-- ★★★ 硬断言（必带 inventoryitem）。"],
-  1016: ["-- ↑ OnPickup（返回 true = 对象已销毁，中止）。"],
-  1020: ["-- ★★★ itemget 事件（slot=nil 表示「进入手上」）。"],
-  1022: ["-- ↑ ToPocket 通知。"],
-  1029: ["-- ★★★★★★ GiveItem 函数头（45 个分支、8 级回退）。"],
-  1030: ["-- ↑ 资格检查（先组件后 IsValid）。"],
-  1035: ["-- ↑ 查是否已装备。"],
-  1038: ["-- ★★★ Unequip（★ 不传 force —— 见 L15）。"],
-  1041: ["-- ↑ new_item 判定起点。"],
-  1051: ["-- ↑ 强夺他人物品（整摞）。"],
-  1055: ["-- ↑ OnPickup（带 src_pos）。"],
-  1060: ["-- ↑ 位置记忆三级回退起点。"],
-  1062: ["-- ↑ 「无容器 → 直接用 prevslot」。"],
-  1066: ["-- ↑ 「有容器 → 尝试放回原容器」。"],
-  1073: ["-- ↑ 放回原容器的四重条件（含 Put==nil）。"],
-  1081: ["-- ★★★ 失败 → 清记忆 + 重置槽位。"],
-  1086: ["-- ↑ 建议槽位校验。"],
-  1091: ["-- ↑ 三容器取得。"],
-  1094: ["-- ★★★ 记忆失效 → 重新选位（同时覆盖 slot 与 container）。"],
-  1098: ["-- ★★★ 四路分派起点。"],
-  1099: ["-- ★★★ gotnewitem 事件（纯本地，不同步）。"],
-  1103: ["-- ↑ leftovers 初始化。"],
-  1104: ["-- ↑ 分支①：overflow。"],
-  1112: ["-- ↑ 分支②：专用容器（含自动打开流程）。"],
-  1119: ["-- ↑ receiveitemonopen UI 代理（可为 nil）。"],
-  1120: ["-- ↑ 查目标槽。"],
-  1121: ["-- ↑ 槽内有物 → Put 合并。"],
-  1127: ["-- ↑ 槽为空 → 委托 container:GiveItem。"],
-  1135: ["-- ↑ 分支③：装备槽（★ 无 else —— 见 L16）。"],
-  1139: ["-- ↑ 分支④：普通槽（唯一真正放入的地方）。"],
-  1154: ["-- ↑ ToPocket（★ 仅此分支有 —— 见 L17）。"],
-  1159: ["-- ★★★ leftovers 递归处理。"],
-  1166: ["-- ★★ return slot（★ 返回数字不是 true）。"],
-  1167: ["-- ★★★★ 兜底①：再试 overflow（理论上永不成功 —— 见 L10）。"],
-  1171: ["-- ★★★ 兜底②：ignorefull → 明确失败。"],
-  1176: ["-- ↑ returnvalue 初始化。"],
-  1177: ["-- ↑ shouldwisecrack 初始化。"],
-  1178: ["-- ★★★★ 兜底③：塞进 activeitem（四重条件）。"],
-  1184: ["-- ↑ OnPutInInventory。"],
-  1187: ["-- ★★ 兜底④：HandleLeftoversFn 钩子（完全接管）。"],
-  1190: ["-- ★★★ 兜底⑤：合并进现有 activeitem。"],
-  1208: ["-- ★★★ 兜底⑥：丢地上（HandleLeftoversShouldDropFn 可否决）。"],
-  1213: ["-- ★★★ 「背包满」提示（三重排除）。"],
-  1219: ["-- ↑ Unequip 函数头（三参数）。"],
-  1220: ["-- ↑ 取该槽物品。"],
-  1223: ["-- ↑ equippable 分支起点。"],
-  1224: ["-- ★★★ preventunequipping 保护（force 可绕过）。"],
-  1227: ["-- ★★★ Equip 回调（★ 不传 slip —— 接口缺口）。"],
-  1233: ["-- ↑ BODY/HANDS 的副作用清理。"],
-  1240: ["-- ★★★ 清空槽位（在 if 块外）。"],
-  1241: ["-- ★★★ unequip 事件（联机同步点，带 slip）。"],
-  1243: ["-- ↑ setbonus 更新（槽已清空后）。"],
-  1250: ["-- ↑ SetActiveItem 函数头（四种情形）。"],
-  1251: ["-- ↑ 锁定物品 assert。"],
-  1255: ["-- ↑ 真正的赋值点。"],
-  1258: ["-- ↑ onactiveitemfn 钩子。"],
-  1262: ["-- ★★ 不可拿的东西 → 丢地上（不发 newactiveitem）。"],
-  1266: ["-- ★★★★ Equip 函数头（12 个步骤）。"],
-  1267: ["-- ★★★★★ 五重准入检查（含 isloading 双路径）。"],
-  1277: ["-- ↑ 目标槽来自物品自身。"],
-  1279: ["-- ★★★ 旧装备的粘住保护（★ 无 force 参数 —— 能力缺口）。"],
-  1284: ["-- ↑ iscontroller + 位置记忆写入（三层嵌套）。"],
-  1286: ["-- ★★★ 位置记忆写入点。"],
-  1304: ["-- ★★★★ 重物互斥（HANDS 与 BODY）。"],
-  1324: ["-- ↑ 从原位置取出（三分支）。"],
-  1334: ["-- ↑ 若是从手上拿的。"],
-  1339: ["-- ★★★ 幂等保护（同一物品重复装备）。"],
-  1340: ["-- ↑ 安置 leftovers。"],
-  1349: ["-- ★★★★ 安置旧装备（最复杂分支）。"],
-  1364: ["-- ↑ OnPutInInventory（在写入槽位之前！）。"],
-  1366: ["-- ★★★ 槽位写入点（本函数唯一）。"],
-  1368: ["-- ↑ BODY/HANDS 副作用（setoverflow / heavylifting / floaterheld）。"],
-  1373: ["-- ↑ HANDS 的 floaterheld 赋值。"],
-  1377: ["-- ★★★ equip 事件（联机同步核心）。"],
-  1382: ["-- ↑ setbonus 更新（槽已写入后）。"],
-  1390: ["-- ↑ RemoveItem 函数头（六个查找位置）。"],
-  1395: ["-- ↑ prevslot 取得（★ GetSlotNum 不查装备槽/手上）。"],
-  1397: ["-- ★★★★ 情况①：拆分一个（返回新实体！）。"],
-  1405: ["-- ↑ 情况②：itemslots。"],
-  1416: ["-- ↑ 情况③：activeitem（★ 刻意保留位置记忆）。"],
-  1424: ["-- ↑ 情况④：equipslots（★ 传 force=true）。"],
-  1434: ["-- ↑ 情况⑤：overflow（递归，不无限展开）。"],
-  1440: ["-- ↑ 情况⑥：所有打开的容器。"],
-  1453: ["-- ★★★★★ 兜底 return item（让链式调用成为可能）。"],
+  "Inventory:GiveActiveItem#1": ["-- ↑ GiveActiveItem 结束（无条件塞进手上）。"],
+  "Inventory:GiveActiveItem#1+1": ["-- ↑ 有效性判定。"],
+  "Inventory:GiveActiveItem#1+2": ["-- ★★★ 先腾位（ReturnActiveItem 可能丢地上）。"],
+  "Inventory:GiveActiveItem#1+3": ["-- ★★★ 硬断言（必带 inventoryitem）。"],
+  "Inventory:GiveActiveItem#1+4": ["-- ↑ OnPickup（返回 true = 对象已销毁，中止）。"],
+  "Inventory:GiveActiveItem#1+8": ["-- ★★★ itemget 事件（slot=nil 表示「进入手上」）。"],
+  "Inventory:GiveActiveItem#1+10": ["-- ↑ ToPocket 通知。"],
+  "Inventory:GiveItem#1": ["-- ★★★★★★ GiveItem 函数头（45 个分支、8 级回退）。"],
+  "Inventory:GiveItem#1+1": ["-- ↑ 资格检查（先组件后 IsValid）。"],
+  "Inventory:GiveItem#1+6": ["-- ↑ 查是否已装备。"],
+  "Inventory:GiveItem#1+9": ["-- ★★★ Unequip（★ 不传 force —— 见 L15）。"],
+  "Inventory:GiveItem#1+12": ["-- ↑ new_item 判定起点。"],
+  "Inventory:GiveItem#1+22": ["-- ↑ 强夺他人物品（整摞）。"],
+  "Inventory:GiveItem#1+26": ["-- ↑ OnPickup（带 src_pos）。"],
+  "Inventory:GiveItem#1+31": ["-- ↑ 位置记忆三级回退起点。"],
+  "Inventory:GiveItem#1+33": ["-- ↑ 「无容器 → 直接用 prevslot」。"],
+  "Inventory:GiveItem#1+37": ["-- ↑ 「有容器 → 尝试放回原容器」。"],
+  "Inventory:GiveItem#1+44": ["-- ↑ 放回原容器的四重条件（含 Put==nil）。"],
+  "Inventory:GiveItem#1+52": ["-- ★★★ 失败 → 清记忆 + 重置槽位。"],
+  "Inventory:GiveItem#1+57": ["-- ↑ 建议槽位校验。"],
+  "Inventory:GiveItem#1+62": ["-- ↑ 三容器取得。"],
+  "Inventory:GiveItem#1+65": ["-- ★★★ 记忆失效 → 重新选位（同时覆盖 slot 与 container）。"],
+  "Inventory:GiveItem#1+69": ["-- ★★★ 四路分派起点。"],
+  "Inventory:GiveItem#1+70": ["-- ★★★ gotnewitem 事件（纯本地，不同步）。"],
+  "Inventory:GiveItem#1+74": ["-- ↑ leftovers 初始化。"],
+  "Inventory:GiveItem#1+75": ["-- ↑ 分支①：overflow。"],
+  "Inventory:GiveItem#1+83": ["-- ↑ 分支②：专用容器（含自动打开流程）。"],
+  "Inventory:GiveItem#1+90": ["-- ↑ receiveitemonopen UI 代理（可为 nil）。"],
+  "Inventory:GiveItem#1+91": ["-- ↑ 查目标槽。"],
+  "Inventory:GiveItem#1+92": ["-- ↑ 槽内有物 → Put 合并。"],
+  "Inventory:GiveItem#1+98": ["-- ↑ 槽为空 → 委托 container:GiveItem。"],
+  "Inventory:GiveItem#1+106": ["-- ↑ 分支③：装备槽（★ 无 else —— 见 L16）。"],
+  "Inventory:GiveItem#1+110": ["-- ↑ 分支④：普通槽（唯一真正放入的地方）。"],
+  "Inventory:GiveItem#1+125": ["-- ↑ ToPocket（★ 仅此分支有 —— 见 L17）。"],
+  "Inventory:GiveItem#1+130": ["-- ★★★ leftovers 递归处理。"],
+  "Inventory:GiveItem#1+137": ["-- ★★ return slot（★ 返回数字不是 true）。"],
+  "Inventory:GiveItem#1+138": ["-- ★★★★ 兜底①：再试 overflow（理论上永不成功 —— 见 L10）。"],
+  "Inventory:GiveItem#1+142": ["-- ★★★ 兜底②：ignorefull → 明确失败。"],
+  "Inventory:GiveItem#1+147": ["-- ↑ returnvalue 初始化。"],
+  "Inventory:GiveItem#1+148": ["-- ↑ shouldwisecrack 初始化。"],
+  "Inventory:GiveItem#1+149": ["-- ★★★★ 兜底③：塞进 activeitem（四重条件）。"],
+  "Inventory:GiveItem#1+155": ["-- ↑ OnPutInInventory。"],
+  "Inventory:GiveItem#1+158": ["-- ★★ 兜底④：HandleLeftoversFn 钩子（完全接管）。"],
+  "Inventory:GiveItem#1+161": ["-- ★★★ 兜底⑤：合并进现有 activeitem。"],
+  "Inventory:GiveItem#1+179": ["-- ★★★ 兜底⑥：丢地上（HandleLeftoversShouldDropFn 可否决）。"],
+  "Inventory:GiveItem#1+184": ["-- ★★★ 「背包满」提示（三重排除）。"],
+  "Inventory:Unequip#1": ["-- ↑ Unequip 函数头（三参数）。"],
+  "Inventory:Unequip#1+1": ["-- ↑ 取该槽物品。"],
+  "Inventory:Unequip#1+4": ["-- ↑ equippable 分支起点。"],
+  "Inventory:Unequip#1+5": ["-- ★★★ preventunequipping 保护（force 可绕过）。"],
+  "Inventory:Unequip#1+8": ["-- ★★★ Equip 回调（★ 不传 slip —— 接口缺口）。"],
+  "Inventory:Unequip#1+14": ["-- ↑ BODY/HANDS 的副作用清理。"],
+  "Inventory:Unequip#1+21": ["-- ★★★ 清空槽位（在 if 块外）。"],
+  "Inventory:Unequip#1+22": ["-- ★★★ unequip 事件（联机同步点，带 slip）。"],
+  "Inventory:Unequip#1+24": ["-- ↑ setbonus 更新（槽已清空后）。"],
+  "Inventory:SetActiveItem#1": ["-- ↑ SetActiveItem 函数头（四种情形）。"],
+  "Inventory:SetActiveItem#1+1": ["-- ↑ 锁定物品 assert。"],
+  "Inventory:SetActiveItem#1+5": ["-- ↑ 真正的赋值点。"],
+  "Inventory:SetActiveItem#1+8": ["-- ↑ onactiveitemfn 钩子。"],
+  "Inventory:SetActiveItem#1+12": ["-- ★★ 不可拿的东西 → 丢地上（不发 newactiveitem）。"],
+  "Inventory:Equip#1": ["-- ★★★★ Equip 函数头（12 个步骤）。"],
+  "Inventory:Equip#1+1": ["-- ★★★★★ 五重准入检查（含 isloading 双路径）。"],
+  "Inventory:Equip#1+11": ["-- ↑ 目标槽来自物品自身。"],
+  "Inventory:Equip#1+13": ["-- ★★★ 旧装备的粘住保护（★ 无 force 参数 —— 能力缺口）。"],
+  "Inventory:Equip#1+18": ["-- ↑ iscontroller + 位置记忆写入（三层嵌套）。"],
+  "Inventory:Equip#1+20": ["-- ★★★ 位置记忆写入点。"],
+  "Inventory:Equip#1+38": ["-- ★★★★ 重物互斥（HANDS 与 BODY）。"],
+  "Inventory:Equip#1+58": ["-- ↑ 从原位置取出（三分支）。"],
+  "Inventory:Equip#1+68": ["-- ↑ 若是从手上拿的。"],
+  "Inventory:Equip#1+73": ["-- ★★★ 幂等保护（同一物品重复装备）。"],
+  "Inventory:Equip#1+74": ["-- ↑ 安置 leftovers。"],
+  "Inventory:Equip#1+83": ["-- ★★★★ 安置旧装备（最复杂分支）。"],
+  "Inventory:Equip#1+98": ["-- ↑ OnPutInInventory（在写入槽位之前！）。"],
+  "Inventory:Equip#1+100": ["-- ★★★ 槽位写入点（本函数唯一）。"],
+  "Inventory:Equip#1+102": ["-- ↑ BODY/HANDS 副作用（setoverflow / heavylifting / floaterheld）。"],
+  "Inventory:Equip#1+107": ["-- ↑ HANDS 的 floaterheld 赋值。"],
+  "Inventory:Equip#1+111": ["-- ★★★ equip 事件（联机同步核心）。"],
+  "Inventory:Equip#1+116": ["-- ↑ setbonus 更新（槽已写入后）。"],
+  "Inventory:RemoveItem#1": ["-- ↑ RemoveItem 函数头（六个查找位置）。"],
+  "Inventory:RemoveItem#1+5": ["-- ↑ prevslot 取得（★ GetSlotNum 不查装备槽/手上）。"],
+  "Inventory:RemoveItem#1+7": ["-- ★★★★ 情况①：拆分一个（返回新实体！）。"],
+  "Inventory:RemoveItem#1+15": ["-- ↑ 情况②：itemslots。"],
+  "Inventory:RemoveItem#1+26": ["-- ↑ 情况③：activeitem（★ 刻意保留位置记忆）。"],
+  "Inventory:RemoveItem#1+34": ["-- ↑ 情况④：equipslots（★ 传 force=true）。"],
+  "Inventory:RemoveItem#1+44": ["-- ↑ 情况⑤：overflow（递归，不无限展开）。"],
+  "Inventory:RemoveItem#1+50": ["-- ↑ 情况⑥：所有打开的容器。"],
+  "Inventory:RemoveItem#1+63": ["-- ★★★★★ 兜底 return item（让链式调用成为可能）。"],
 };

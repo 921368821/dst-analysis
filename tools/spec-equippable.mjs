@@ -118,7 +118,7 @@ export const HEADER_EXTRA = [
 ].join("\n");
 
 export const BEFORE = {
-  1: [
+  "onequipslot#1": [
     "-- 【§零】双端同步 setter。",
     "-- ★★★ 这四个函数是本文件**唯一**的「服务端 → 客户端」数据出口。",
     "--   它们的共同模式：写到 self.inst.replica.xxx（replica = 客户端镜像），",
@@ -132,7 +132,7 @@ export const BEFORE = {
     "--   是直接赋值，而紧接着的 49 行却要 `equipslot = onequipslot`：",
     "--   前者是构造初值（此时 replica 可能还没准备好），后者是运行期同步。",
   ],
-  2: [
+  "onequipslot#1+1": [
     "-- ★★ SetEquipSlot —— 装备槽名的同步出口。",
     "--   equipslot 是字符串（\"hands\"/\"head\"/\"body\"/\"beard\"，",
     "--   见 constants.lua:652 EQUIPSLOTS），replica 侧会再转成网络整数",
@@ -140,7 +140,7 @@ export const BEFORE = {
     "-- ★ 为什么要同步槽名？客户端要据此决定「物品显示在手还是头上」，",
     "--   即物品的**3D 挂点**由 equipslot 决定。",
   ],
-  5: [
+  "onequipslot#1+4": [
     "-- ★★★ 原英文维护契约（保留）：",
     "--   \"Update inventoryitem_replica constructor if any more properties",
     "--    are added\"",
@@ -152,13 +152,13 @@ export const BEFORE = {
     "--     ③ Class 第三参数表里绑定；④ inventoryitem_replica 加 netvar 与 setter；",
     "--     ⑤ inventoryitem_replica 的构造里初始化。缺任何一步都会静默失效。",
   ],
-  7: [
+  "onwalkspeedmult#1": [
     "-- ★★ onwalkspeedmult —— 移速倍率的同步出口（最复杂的一个）。",
     "--   为什么移速要同步？因为 locomotor 的客户端预测需要它来算移动速度，",
     "--   否则会出现「服务器说你在 0.8 倍速移动，客户端插值按 1.0 倍速」",
     "--   ⇒ 表现为联机时的位置抖动。",
   ],
-  8: [
+  "onwalkspeedmult#1+1": [
     "-- ★★ 8-10 行的 nil 检查：`self.inst.replica.inventoryitem ~= nil` ——",
     "--   为什么会有 nil？服务器刚 SpawnPrefab、replica 尚未复制到客户端时",
     "--   replica.inventoryitem 可能还不存在。",
@@ -168,25 +168,25 @@ export const BEFORE = {
     "--   ⇒ walkspeedmult 借用了 saddler 的网络通道。★ 因此一个 prefab",
     "--     **不能同时**挂 equippable 与 saddler。这是排他性约束，见 §二第 4 条。",
   ],
-  15: [
+  "onrestrictedtag#1": [
     "-- ★★ onrestrictedtag —— 装备限制标签的同步出口。",
     "--   restrictedtag 决定「只有带某个标签的角色能穿」。",
     "--   同步它是为了让客户端能**提前灰掉**不合规的装备（显示为不可用），",
     "--   而不是等服务端拒绝后才反馈。",
   ],
-  21: [
+  "onpreventunequipping#1": [
     "-- ★★ onpreventunequipping —— 禁止卸下状态的同步出口。",
     "--   ★ 注意 22 行的 `prevent == true`：这是**严格布尔化**，",
     "--     非 true 的值（nil / 1 / \"yes\"）一律变成 false。",
     "--     184 行的 SetPreventUnequipping 也是同样的严格判断（177 行）。",
     "--     ⇒ 传 1 不会生效，必须传 true。",
   ],
-  25: [
+  "onpreventunequipping#1+4": [
     "-- 【§一】Equippable 类构造。",
     "-- ★★ 三个参数：ctor / super_ctor(nil) / attr_init（第三参数是 setter 表）。",
     "--   26 行 self.inst = inst 是 Klei 组件的强制约定：所有组件都持有 inst。",
   ],
-  28: [
+  "onpreventunequipping#1+7": [
     "-- ★★ isequipped —— 「是否处于装备中」。",
     "--   ★ 注意它与「在 equipslots 表里」是**两个不同的状态**：",
     "--     · equipslots[slot] == item 是「这个槽被这个物品占着」；",
@@ -194,7 +194,7 @@ export const BEFORE = {
     "--   正常路径二者同步，但 SetPreventUnequipping 场景下会短暂不一致",
     "--   （1224 行 Unequip 被阻止时，isequipped 保持 true）。",
   ],
-  29: [
+  "onpreventunequipping#1+8": [
     "-- ★★ equipslot 默认值是 HANDS —— 即「默认是手持」。",
     "--   ★ 这是全 DST 最常见的情况：绝大多数「装备」其实是「拿在手上」，",
     "--     视觉上挂在角色的手部挂点。",
@@ -206,11 +206,11 @@ export const BEFORE = {
     "--     ⇒ 这是一个很容易踩的坑：写错会得到「服务器认为戴头上、",
     "--       客户端显示拿手上」的物品模型错位。",
   ],
-  30: [
+  "onpreventunequipping#1+9": [
     "-- ★ onequipfn：装备回调。签名 (inst, owner, from_ground)。",
     "--   from_ground 表示「是否从地上捡起来直接穿戴」（影响音效/动画）。",
   ],
-  31: [
+  "onpreventunequipping#1+10": [
     "-- ★ onunequipfn：卸下回调。签名 (inst, owner)。",
     "-- ★★ 注意：没有 from_ground 参数，也**没有 slip** 参数——",
     "--   尽管 Inventory:Unequip（inventory.lua:1219）接收到 slip，",
@@ -220,17 +220,17 @@ export const BEFORE = {
     "--     确实漏传，而 slip 的原意正是「物品是被'滑落'而非主动卸下」。",
     "--     目前无物品使用 slip，故不构成 bug，但它是明确的接口缺口。",
   ],
-  32: [
+  "onpreventunequipping#1+11": [
     "-- ★ onpocketfn：物品「进背包但没装备」时的回调。",
     "--   ★ 语义与 onunequipfn 不同：onpocket 发生在「放进普通槽位」，",
     "--     onunequip 发生在「离开装备槽」。inventory.lua:1351（旧物品换装时）",
     "--     与 1155（GiveItem 时）都会调 ToPocket。",
   ],
-  33: [
+  "onpreventunequipping#1+12": [
     "-- ★ onequiptomodelfn：只有 owner 带 \"equipmentmodel\" 标签时才调用的",
     "--   专属回调（见 104 行）。用途：需要特殊挂点/动画的装备。",
   ],
-  34: [
+  "onpreventunequipping#1+13": [
     "-- ★★ equipstack：装备**整摞堆叠物**的开关。",
     "--   ★ 它是本文件与 stackable 组件的唯一交互点，且影响很大：",
     "--     · false（默认）→ Equip 时只装备 1 个，其余留在背包（inventory.lua:1329-1332）；",
@@ -238,26 +238,26 @@ export const BEFORE = {
     "--   相关：inventory.lua:840 与 1000 行的选位逻辑都会检查 equipstack，",
     "--     这就是「堆叠物也能塞进装备槽」的实现来源。",
   ],
-  35: [
+  "onpreventunequipping#1+14": [
     "-- ★ walkspeedmult：移速倍率。nil 表示「无修正」（等价 1.0，见 128 行）。",
     "--   ★ 小于 1 = 减速（如穿了重甲），大于 1 = 加速（如疾行药水残留）。",
   ],
-  36: [
+  "onpreventunequipping#1+15": [
     "-- ↑ 被注释掉的字段 + 原注释 \"only entities with this tag can equip\" ——",
     "--   ★ 保留被注释的代码是记录「为什么这个命名没启用」（与 recipe.lua 同风格）。",
     "--   实际生效的是 37 行起的 self.restrictedtag（在 restrictedtag setter 里）。",
   ],
-  37: [
+  "onpreventunequipping#1+16": [
     "-- ★ dapperness：基础「清醒度衰减速率」，单位是每游戏分钟的 sanity 点数。",
     "--   ★ 值越大越快掉理智。草帽是 3.0（晴天），冬帽是 0（保暖）。",
     "--   ★★ 重要：**默认 0 不代表无衰减**——sanity 组件另有基础衰减；",
     "--     dapperness 是**叠加项**。见 GetDapperness（196 行）的四层合成。",
   ],
-  38: [
+  "onpreventunequipping#1+17": [
     "-- ★ dapperfn：dapperness 的**全权接管函数**，签名 (inst, owner) → number。",
     "--   优先级高于基础 dapperness（203-205 行）。",
   ],
-  39: [
+  "onpreventunequipping#1+18": [
     "-- ★★ insulated：是否**绝缘**（防触电）。",
     "--   ★ 原注释强调 \"from electricity, not temperature\" ——",
     "--     这是为了与「保暖（insulated 防寒）」区分。二者在中文里都叫「绝缘」，",
@@ -266,24 +266,24 @@ export const BEFORE = {
     "--       · 保暖 → 由 temperature 组件 + TUNING 单独处理，不在本文件。",
     "--   ⚠ 这是本文件最容易误读的一行注释。",
   ],
-  40: [
+  "onpreventunequipping#1+19": [
     "-- ★★ equippedmoisture / maxequippedmoisture：装备携带的湿气。",
     "--   ⚠ 见 HEADER_EXTRA 的 L4：这两个字段在本文件外无人写入，",
     "--     整个「装备湿度」机制目前是**未接线的半成品**——",
     "--     inventory.lua:2692 GetEquippedMoistureRate 会累加它们，但恒为 0。",
   ],
-  41: ["-- ↑ 见 L4。"],
-  43: [
+  "onpreventunequipping#1+20": ["-- ↑ 见 L4。"],
+  "onpreventunequipping#1+22": [
     "-- ↑ 被注释的 preventunequipping 字段 + 原注释 \"Set to true to block",
     "--   unequipping the item.\" —— 实际实现见 184 行的 SetPreventUnequipping。",
   ],
-  45: [
+  "onpreventunequipping#1+24": [
     "-- ↑ 被注释的 is_magic_dapperness + 原注释 \"some survivors are only",
     "--   affected by magic sources\" ——",
     "--   ★ 即「只有部分角色受魔法来源影响」的标记位。当前未启用，",
     "--     说明这是为某个角色的「魔法护佑」类天赋预留的钩子。",
   ],
-  48: [
+  "onpreventunequipping#1+27": [
     "-- ★★ 第三参数（attr_init 表）就是 setter 绑定表：",
     "--   equipslot / walkspeedmult / restrictedtag / preventunequipping",
     "--   → 对应 1-23 行的四个 on* 函数。",
@@ -293,7 +293,7 @@ export const BEFORE = {
     "--     发生在 attr_init 生效**之前**，不会触发 onequipslot。",
     "--     构造期不需要同步（客户端还没有这个实体）。",
   ],
-  55: [
+  "Equippable:OnRemoveFromEntity#1": [
     "-- 【§二】OnRemoveFromEntity —— 实体被移除时的反向清理。",
     "-- ★★ 这是**唯一**的「析构」，且只清两样：",
     "--   ① preventunequipping 复位（56 行）—— 否则物品复用时会带着旧锁；",
@@ -301,43 +301,43 @@ export const BEFORE = {
     "-- ★ 为什么必须复位 walkspeedmult？装备从角色身上 Remove 时，",
     "--   如果客户端还留着 0.8 的倍率，角色的移速会永久变慢。",
   ],
-  56: [
+  "Equippable:OnRemoveFromEntity#1+1": [
     "-- ★★ 56 行调用 SetPreventUnequipping(false) 而不是直接置 nil——",
     "--   因为它需要**成对**执行 RemoveEventCallback（见 191 行）。",
     "--   ⇒ 若只置 nil 而不解绑，OnRemove 回调会残留到实体销毁，",
     "--     形成悬挂监听。这是本文件最容易被简化掉的一处细节。",
   ],
-  57: [
+  "Equippable:OnRemoveFromEntity#1+2": [
     "-- ★ local inventoryitem = self.inst.replica.inventoryitem ——",
     "--   58-61 行的 nil 检查是必要的：实体被移除的瞬间，replica 可能",
     "--   已经 detach（见 inventory_replica.lua:130 DetachClassified 同类问题）。",
   ],
-  59: ["-- ★ SetWalkSpeedMult(1) —— 复位为「无修正」。"],
-  60: ["-- ★ SetEquipRestrictedTag(nil) —— 清空限制标签。"],
-  64: [
+  "Equippable:OnRemoveFromEntity#1+4": ["-- ★ SetWalkSpeedMult(1) —— 复位为「无修正」。"],
+  "Equippable:OnRemoveFromEntity#1+5": ["-- ★ SetEquipRestrictedTag(nil) —— 清空限制标签。"],
+  "Equippable:IsInsulated#1": [
     "-- ★ IsInsulated 的原注释再次强调 \"from electricity, not temperature\"，",
     "--   与 39 行重复强调 —— 说明这个区分非常容易被误解。",
     "-- ★ 消费点：inventory.lua:759 Inventory:IsInsulated 遍历所有装备槽，",
     "--   只要**任一件**绝缘就整体绝缘（短路返回）。",
     "--   ★ 注意它**不做数值累加**——绝缘是布尔或，不是加法。",
   ],
-  68: [
+  "Equippable:SetOnEquip#1": [
     "-- ★★ SetOnEquip 等五个 Set 函数是「回调注册」的统一写法：",
     "--   都是 `self.xxxfn = fn`，即**单槽**（后注册覆盖先注册）。",
     "--   ★ 没有 add/remove 形式 ⇒ 一个 prefab 只能有一个装备回调。",
     "--     需要多个回调的 prefab 应在 fn 内部串联。",
   ],
-  72: ["-- ★ SetOnPocket —— 注册「进背包」回调，语义见 32 行。"],
-  76: ["-- ★ SetOnUnequip —— 注册「卸下」回调。注意拿不到 slip，见 31 行。"],
-  80: ["-- ★ SetDappernessFn —— 注册 dapperness 全权接管函数。"],
-  84: [
+  "Equippable:SetOnPocket#1": ["-- ★ SetOnPocket —— 注册「进背包」回调，语义见 32 行。"],
+  "Equippable:SetOnUnequip#1": ["-- ★ SetOnUnequip —— 注册「卸下」回调。注意拿不到 slip，见 31 行。"],
+  "Equippable:SetDappernessFn#1": ["-- ★ SetDappernessFn —— 注册 dapperness 全权接管函数。"],
+  "Equippable:SetOnEquipToModel#1": [
     "-- ★ SetOnEquipToModel —— 注册「仅对 equipmentmodel 标签的 owner 生效」的回调。",
     "--   ★ 与 SetOnEquip 的区别见 104 行的额外判定。",
   ],
-  88: [
+  "Equippable:IsEquipped#1": [
     "-- 【§三】IsEquipped 是纯查询，与 28 行的字段一一对应。",
   ],
-  92: [
+  "Equippable:Equip#1": [
     "-- ★★★ Equip —— 装备流程。顺序是硬约定，**不可交换**：",
     "--   93  isequipped = true          ← 先置状态",
     "--   95-97 burnable:StopSmoldering ← 灭火（★ 见下方详注）",
@@ -345,12 +345,12 @@ export const BEFORE = {
     "--   102   PushEvent(\"equipped\")    ← 最后发事件",
     "--   104-106 onequiptomodelfn      ← 附加回调",
   ],
-  93: [
+  "Equippable:Equip#1+1": [
     "-- ★ 状态先行：任何在后续回调里读 IsEquipped() 的代码都会得到 true。",
     "--   ⚠ 这意味着 onequipfn 里若反向调Unequip，会产生「刚装备就卸下」的循环。",
     "--     框架不防重入。",
   ],
-  95: [
+  "Equippable:Equip#1+3": [
     "-- ★★ 为什么装备时要灭火？—— 这是一个很有意思的设计。",
     "--   一个还在阴燃（smoldering）的物品（如刚被点燃的干草）穿在身上",
     "--   会烧伤玩家。StopSmoldering 强制熄灭，等价于「穿之前先灭掉火」。",
@@ -358,7 +358,7 @@ export const BEFORE = {
     "--     这不是「暂停燃烧」而是「彻底停止」。所以点燃中的物品一旦穿上，",
     "--     它的剩余燃烧时间就作废了。",
   ],
-  102: [
+  "Equippable:Equip#1+10": [
     "-- ★★ PushEvent(\"equipped\", { owner = owner }) —— 全局事件广播。",
     "--   ★ 消费点举例：components/armor 监听它来重算减伤、",
     "--     components/sanity 监听它刷新 dapperness 总和、",
@@ -366,30 +366,30 @@ export const BEFORE = {
     "--   ★★ 注意事件是**广播**而非定向：所有注册了 \"equipped\" 的组件",
     "--     都会收到，包括那些与该物品无关的（如角色的其他组件）。",
   ],
-  104: [
+  "Equippable:Equip#1+12": [
     "-- ★★ 104 行是三参判定：`onequiptomodelfn ~= nil and owner:HasTag(...)`。",
     "--   ★ owner 为 nil 时会崩 —— 但 92 行的调用方（Inventory:Equip）",
     "--     总是传 self.inst，所以实际安全。",
     "--   ⚠ 但 mod 若直接调 `equip:Equip(nil)` 会崩。属未加保护的边界。",
   ],
-  109: [
+  "Equippable:ToPocket#1": [
     "-- ★★ ToPocket —— 「进背包但没装备」。与 Equip/Unequip 都不同：",
     "--   它**不改变任何状态**，只调 onpocketfn。",
     "--   ⇒ 所以 ToPocket 可以和 isequipped=true 共存。",
     "--   ★ 调用点：inventory.lua:1023（GiveActiveItem）、1155（GiveItem）、",
     "--     1351（旧装备换装）—— 三处都表示「东西回到了身上但没穿」。",
   ],
-  115: [
+  "Equippable:Unequip#1": [
     "-- ★★ Unequip —— 卸下流程。注意它比 Equip **少一步**：",
     "--   没有「灭火」对应物，也没有 from_ground。",
     "--   顺序：isequipped=false → onunequipfn → PushEvent(\"unequipped\")",
     "--   ★★ 与 Equip 的不对称：Equip 有 burnable 处理，Unequip 没有。",
     "--     ⇒ 装备能「灭掉火」，但卸下不能「重新点燃」。这是单向的。",
   ],
-  116: [
+  "Equippable:Unequip#1+1": [
     "-- ★ 先置 false —— 与 93 行对称。⇒ onunequipfn 里读到 false。",
   ],
-  122: [
+  "Equippable:Unequip#1+7": [
     "-- ★ PushEvent(\"unequipped\") 的消费点与 \"equipped\" 对称。",
     "--   ★ 但 inventory.lua:1241 还会额外发一个 \"unequip\" 事件",
     "--     （1241 行）—— 那是 Inventory 层的、带 eslot 与 slip 信息的版本。",
@@ -398,7 +398,7 @@ export const BEFORE = {
     "--       · Inventory 的 \"unequip\"（item + eslot + slip，用于 UI 与音效）。",
     "--     两者在 inventory.lua:1227 前后连续触发。",
   ],
-  125: [
+  "Equippable:Unequip#1+10": [
     "-- ★★★ 原英文注释（保留）：\"Keep logic in sync with",
     "--   inventoryitem_replica::GetWalkSpeedMult()\" ——",
     "--   ★★ 这是本文件第二条硬性耦合契约（第一条是 5 行）。",
@@ -407,7 +407,7 @@ export const BEFORE = {
     "--     表现为角色位置抖动/瞬移。",
     "--   ⇒ 修改本函数时必须同步修改 inventoryitem_replica 的对应函数。",
   ],
-  126: [
+  "Equippable:GetWalkSpeedMult#1": [
     "-- 【§四】GetWalkSpeedMult —— 移速倍率的**服务端权威计算**。",
     "-- ★★ 四步流程（顺序重要）：",
     "--   128  取基础值 self.walkspeedmult 或 1.0（nil 默认 1.0）",
@@ -415,11 +415,11 @@ export const BEFORE = {
     "--   133-135 若减速且 owner 带 vigorbuff → +0.25 补偿（见 L1）",
     "--   137-140 若 owner 有外部修正函数 → 交由它处理",
   ],
-  128: [
+  "Equippable:GetWalkSpeedMult#1+2": [
     "-- ★★ `self.walkspeedmult or 1.0` —— nil 走默认 1.0。",
     "--   ⇒ 「未设置」与「设为 1」在结果上无法区分（设计上不需要区分）。",
   ],
-  130: [
+  "Equippable:GetWalkSpeedMult#1+4": [
     "-- ★★ owner 的取得路径是 `self.inst.components.inventoryitem.owner`，",
     "--   **不是**直接 `self.inst.components.inventory.owner`。",
     "--   为什么多一层？因为「装备所在的位置」由 inventoryitem 记录，",
@@ -427,13 +427,13 @@ export const BEFORE = {
     "--   ⚠ 见 L2：这条链假定 inventoryitem 必然存在，否则整段被 and 短路，",
     "--     返回未加修正的 speed（1.0），静默丢失所有移速属性。",
   ],
-  132: [
+  "Equippable:GetWalkSpeedMult#1+6": [
     "-- ★★ `if owner and self.isequipped then` —— 双重条件。",
     "--   ★ isequipped 的意义：防止「物品还在装备槽里但 Unequip 已被调过」",
     "--     的中间态影响移速计算（例如 SetPreventUnequipping 阻止卸下时）。",
     "--   ★ 即：移速修正**只在真正装备着时**生效。",
   ],
-  133: [
+  "Equippable:GetWalkSpeedMult#1+7": [
     "-- ⚠ 见 L1：vigorbuff 只补偿减速、不处理加速。",
     "-- ★ 这是有意设计：vigorbuff（韦斯勒的「活力」天赋）的语义是",
     "--   「让韦斯勒不被重装备拖慢」，而不是「让韦斯勒跑得更快」。",
@@ -441,7 +441,7 @@ export const BEFORE = {
     "--   walkspeedmult = 0.7 → 有 buff 时是 0.95（+0.25），不是 1.0。",
     "--   ⇒ 补偿是**固定 0.25**，不是「补满到 1.0」。",
   ],
-  137: [
+  "Equippable:GetWalkSpeedMult#1+11": [
     "-- ★★ owner.inventory_EquippableWalkSpeedMultModifier ——",
     "--   这是一个**挂在 owner 实体上的动态函数字段**，不是组件方法。",
     "--   签名：(owner, speed, inst) → speed。",
@@ -449,36 +449,36 @@ export const BEFORE = {
     "--     就能对任何装备的移速做最终修正（含加速）。",
     "--   ★ 这恰好补上了 L1 说的「vigorbuff 不能加速」的限制。",
   ],
-  146: [
+  "Equippable:GetWalkSpeedMult#1+20": [
     "-- ★★★ 原英文注释（保留）：\"V2C: reminder to update replica version",
     "--   as well XD\" —— 作者自己的提醒：改本文件也要改 replica。",
     "--   与 5 行、125 行构成三处耦合声明。",
   ],
-  147: [
+  "Equippable:IsRestricted#1": [
     "-- 【§五】IsRestricted —— 「这个物品 target 能不能穿」。",
     "-- ★★ 三重短路判定：",
     "--   148-151 target 必须是 player 或 possessedbody（其他实体一律放行）",
     "--   152-158 linkeditem 专属装备（只能主人穿）",
     "--   159-161 restrictedtag 标签匹配",
   ],
-  148: [
+  "Equippable:IsRestricted#1+1": [
     "-- ★★ 148-151 行的原注释 \"restricted tags and links only apply to players\"",
     "--   —— 即 AI/NPC 即使没有对应标签也能穿（避免 AI 无法装备）。",
     "--   ★ 这是一个务实的例外：如果要求所有实体都有玩家标签，",
     "--     猪猪、蜜蜂等生物将无法穿戴玩家装备类的物品。",
   ],
-  152: [
+  "Equippable:IsRestricted#1+5": [
     "-- ★ linkeditem：模组/特殊道具的「专属装备」机制。",
     "--   IsEquippableRestrictedToOwner 为 true 时，只有 GetOwnerUserID",
     "--   匹配的角色能穿。",
   ],
-  155: [
+  "Equippable:IsRestricted#1+8": [
     "-- ★ `owneruserid ~= target.userid` —— 主人 ID 不同则拒绝。",
     "--   ★ 注意 155 行的 and 链：`owneruserid and owneruserid ~= target.userid`。",
     "--     若 owneruserid 为 nil（未绑定主人），则**不拒绝** ——",
     "--     即未绑定的专属装备人人可穿。",
   ],
-  159: [
+  "Equippable:IsRestricted#1+12": [
     "-- ★★★ restrictedtag 的三段判定：非 nil + 长度 > 0 + target 无此标签。",
     "--   ★ `self.restrictedtag:len() > 0` 这一段是必要的防御：",
     "--     若某 prefab 把 restrictedtag 设为空串，HasTag(\"\") 的行为不确定",
@@ -486,7 +486,7 @@ export const BEFORE = {
     "--   ★★ 这是「唯一被拒绝才 return true」的判定，",
     "--     所以 IsRestricted 语义是「**被禁止**穿」而非「可以」穿。",
   ],
-  164: [
+  "Equippable:IsRestricted_FromLoad#1": [
     "-- ★★ IsRestricted_FromLoad —— 读档路径的变体。",
     "-- ★★ 165 行原注释给出了**唯一**的语义差异（保留）：",
     "--   \"If a player is resolving equipment from a snapshot load assume the",
@@ -497,7 +497,7 @@ export const BEFORE = {
     "--     升级后读档仍能正确认领自己解锁的装备。",
     "--   ★ 调用点：inventory.lua:1270 Equip 的入口判定（isloading 时走本函数）。",
   ],
-  166: [
+  "Equippable:IsRestricted_FromLoad#1+2": [
     "-- ★★ `type(SKILLTREE_EQUIPPABLE_RESTRICTED_TAGS[...]) == \"table\"` ——",
     "--   这个 type 判断是为了区分两种数据形态：",
     "--     · 单个 prefab 名（字符串）：标签只对某个角色开放；",
@@ -507,28 +507,28 @@ export const BEFORE = {
     "--     而 170 行在 elseif 分支里直接与 target.prefab 比较字符串。",
     "--     两种形态的处理是分开的，逻辑正确但可读性差。",
   ],
-  170: [
+  "Equippable:IsRestricted_FromLoad#1+6": [
     "-- ★ 字符串形态：`SKILLTREE_... [tag] == target.prefab` ——",
     "--   直接比较角色 prefab 名。命中则放行（return false = 不被禁止）。",
   ],
-  173: [
+  "Equippable:IsRestricted_FromLoad#1+9": [
     "-- ★ 非技能树标签 → 走标准判定。",
     "--   ⇒ 两个函数的**唯一**差异就是这一个 if/elseif 分支。",
   ],
-  176: [
+  "Equippable:ShouldPreventUnequipping#1": [
     "-- ★ ShouldPreventUnequipping —— 纯查询。",
     "--   ★★ 177 行的 `== true` 是严格布尔：见 21 行的同步侧也是同一约定。",
     "--     184 行 SetPreventUnequipping 里对非 true 值统一存 false / nil，",
     "--     所以这里不会遇到「1」这类脏值。",
   ],
-  180: [
+  "OnRemove#1": [
     "-- ★★ local function OnRemove(inst) —— 局部函数，无其它引用。",
     "--   ★★ 它的存在**唯一目的**是给 RemoveEventCallback 提供一个可比较的引用，",
     "--     从而在 191 行能精确解绑。",
     "--   ⚠ 若把它改成匿名闭包，191 行的解绑就会失败（Lua 中两个闭包不相等），",
     "--     导致 OnRemove 永久残留。这是一处必须保持写法的细节。",
   ],
-  181: [
+  "OnRemove#1+1": [
     "-- ★★ 181 行在实体移除时**强制解除锁**。",
     "--   ★★★ 这是本文件最巧妙的一处设计，推理链如下：",
     "--     ① SetPreventUnequipping(true) 让物品「不可卸下」；",
@@ -540,32 +540,32 @@ export const BEFORE = {
     "--     但**路径不同**（前者是组件的 OnRemoveFromEntity，",
     "--     此处是监听 inst 的 \"onremove\" 事件）。",
   ],
-  185: [
+  "Equippable:SetPreventUnequipping#1+1": [
     "-- ★★ 185-189 是「加锁」分支：只在**从未锁定**时才加，",
     "--   保证 ListenForEvent 不会被重复注册。",
     "--   ★ 用 `if not self.preventunequipping then` 做幂等保护。",
   ],
-  187: [
+  "Equippable:SetPreventUnequipping#1+3": [
     "-- ★★ 187 行注册回调 —— 注意是**先注册、后赋值**（188 行才置 true）。",
     "--   ⇒ 若 ListenForEvent 内部同步派发了 onremove（不会，但理论上），",
     "--     OnRemove 会看到 preventunequipping 仍为 nil。实践中无影响，",
     "--     但这个顺序是刻意的防御式写法。",
   ],
-  190: [
+  "Equippable:SetPreventUnequipping#1+6": [
     "-- ★★ 190-193 是「解锁」分支，同样幂等（elseif 保证已在锁时才处理）。",
   ],
-  191: [
+  "Equippable:SetPreventUnequipping#1+7": [
     "-- ★★ RemoveEventCallback(\"onremove\", OnRemove) —— 无第三个参数，",
     "--   因为 180 行的 OnRemove 是无 upvalue 的局部函数。",
     "--   ⚠ 若 OnRemove 捕获了变量（闭包），就必须用完全相同的闭包引用，",
     "--     而 Lua 无法做到 ⇒ 这也是 180 行必须写成无捕获局部函数的原因。",
   ],
-  192: [
+  "Equippable:SetPreventUnequipping#1+8": [
     "-- ★ 192 行 `self.preventunequipping = nil` 而不是 false ——",
     "--   nil 让 186 行的 `if not self.preventunequipping` 在下次加锁时成立。",
     "--   ⇒ nil 与 false 在此等价，用 nil 是为了与 55 行的初始化（未定义）一致。",
   ],
-  196: [
+  "Equippable:GetDapperness#1": [
     "-- 【§七】GetDapperness —— ★ 本文件最需要小心顺序的函数。",
     "-- ★★ 四层合成，顺序不可交换：",
     "--   197  local dapperness = self.dapperness      ① 基础值",
@@ -575,29 +575,29 @@ export const BEFORE = {
     "-- ⇒ ★ 关键性质：第④层在第③层**之后**，所以",
     "--     「湿装备的理智惩罚」**永远**能打破 dapperfn 的自定义结果。",
   ],
-  197: [
+  "Equippable:GetDapperness#1+1": [
     "-- ★ 基础值。★ 注意是**拷贝**成局部变量，后续都是改局部。",
     "--   ⇒ 本函数不修改 self.dapperness（纯函数语义），",
     "--     可安全地被多次调用（sanity 每帧都可能调）。",
   ],
-  199: [
+  "Equippable:GetDapperness#1+3": [
     "-- ★★ `self.flipdapperonmerm and owner and owner:HasTag(\"merm\")` ——",
     "--   美人鱼戴帽子会让衰减**反向**（变成回理智）。",
     "--   ★ 三重 and 保护：字段存在 + owner 非 nil + 有标签。",
     "--   ★ flipdapperonmerm 字段在本文件**未初始化**（构造函数没设），",
     "--     属 prefab 自行设置的额外字段。这是本文件唯一「未声明」的字段。",
   ],
-  200: [
+  "Equippable:GetDapperness#1+4": [
     "-- ★ 反转：直接取负。若基础值是 0，-0 == 0 无害。",
   ],
-  204: [
+  "Equippable:GetDapperness#1+8": [
     "-- ★★ dapperfn 覆盖：结果**替换**而非叠加。",
     "--   ⚠ 见 L3：签名 (inst, owner) 中 owner 可能为 nil，",
     "--     自定义 dapperfn 必须自行处理（本函数不保证 owner 存在）。",
     "--   ★ 对比 merm 反转是「取负」（保留），这里是「替换」（丢弃）——",
     "--     所以 dapperfn 会**丢掉** flipdapperonmerm 的反转效果。",
   ],
-  207: [
+  "Equippable:GetDapperness#1+11": [
     "-- ★★ 207 行 `if not ignore_wetness and self.inst:GetIsWet()` ——",
     "--   ★★ 注意是 `not ignore_wetness`（**取反**而非直接判断）——",
     "--     即默认**计入**湿气惩罚，调用方可用 ignore_wetness=true 排除。",
@@ -605,91 +605,91 @@ export const BEFORE = {
     "--   ★ GetIsWet 是 inst 上的方法（来自 moisture 组件），",
     "--     说明湿气是**物品自身的状态**，不是装备槽的状态。",
   ],
-  208: [
+  "Equippable:GetDapperness#1+12": [
     "-- ★ TUNING.WET_ITEM_DAPPERNESS —— 湿装备的额外衰减常量。",
     "--   ★ 因为它在最后无条件追加，所以：",
     "--     即使某物品的 dapperfn 返回了 0（表示「不掉理智」），",
     "--     淋湿后仍然会掉。这就是 HEADER_EXTRA 第 8 条说的「不可交换」。",
   ],
-  214: [
+  "Equippable:GetEquippedMoisture#1": [
     "-- ★★ GetEquippedMoisture 返回一个**新表** { moisture, max }。",
     "--   ★ 每次调用都新建表（热路径上的小 GC 压力），",
     "--     消费点 inventory.lua:2692 GetEquippedMoistureRate 会逐个装备调用一次。",
     "--   ⚠ 见 L4：两个字段恒为 0，该机制目前未接线。",
   ],
-  218: ["-- ↑ 类定义返回。本文件以 return Class 结束（与 recipe.lua 的全局风格不同）。"],
+  "Equippable:GetEquippedMoisture#1+4": ["-- ↑ 类定义返回。本文件以 return Class 结束（与 recipe.lua 的全局风格不同）。"],
 };
 
 export const AFTER = {
-  2: ["-- ↑ SetEquipSlot 结束（一行体）。"],
-  3: ["-- ↑ onequipslot 结束。"],
-  5: ["-- ↑ 耦合契约注释结束。"],
-  11: ["-- ↑ SetWalkSpeedMult 调用之后。"],
-  12: ["-- ↑ onwalkspeedmult 结束。"],
-  14: ["-- ↑ 原注释第二行结束。"],
-  18: ["-- ↑ SetEquipRestrictedTag 调用之后。"],
-  19: ["-- ↑ onrestrictedtag 结束。"],
-  22: ["-- ↑ 严格布尔化转换之后。"],
-  23: ["-- ↑ onpreventunequipping 结束。"],
-  26: ["-- ↑ self.inst 赋值之后。"],
-  30: ["-- ↑ onequipfn 默认 nil。"],
-  36: ["-- ↑ 被注释的 restrictedtag 原字段。"],
-  40: ["-- ↑ equippedmoisture 初始化之后。"],
-  41: ["-- ↑ maxequippedmoisture 初始化之后。"],
-  45: ["-- ↑ 被注释的 is_magic_dapperness。"],
-  46: ["-- ↑ ctor 的最后一个字段。"],
-  47: ["-- ↑ super_ctor 参数（nil = 直接继承 Class）。"],
-  53: ["-- ↑ attr_init 表结束（Class 第三参数）。"],
-  56: ["-- ↑ 解锁复位之后。"],
-  61: ["-- ↑ 客户端镜像复位块结束。"],
-  62: ["-- ↑ OnRemoveFromEntity 结束。"],
-  65: ["-- ↑ 返回 self.insulated。"],
-  66: ["-- ↑ IsInsulated 结束。"],
-  69: ["-- ↑ onequipfn 注册之后。"],
-  70: ["-- ↑ SetOnEquip 结束。"],
-  73: ["-- ↑ onpocketfn 注册之后。"],
-  74: ["-- ↑ SetOnPocket 结束。"],
-  77: ["-- ↑ onunequipfn 注册之后。"],
-  78: ["-- ↑ SetOnUnequip 结束。"],
-  81: ["-- ↑ dapperfn 注册之后。"],
-  82: ["-- ↑ SetDappernessFn 结束。"],
-  85: ["-- ↑ onequiptomodelfn 注册之后。"],
-  86: ["-- ↑ SetOnEquipToModel 结束。"],
-  89: ["-- ↑ 返回 self.isequipped。"],
-  90: ["-- ↑ IsEquipped 结束。"],
-  97: ["-- ↑ 灭火块结束。"],
-  101: ["-- ↑ onequipfn 调用之后。"],
-  106: ["-- ↑ onequiptomodelfn 调用之后。"],
-  107: ["-- ↑ Equip 结束。"],
-  111: ["-- ↑ onpocketfn 调用之后。"],
-  113: ["-- ↑ ToPocket 结束。"],
-  119: ["-- ↑ onunequipfn 调用之后。"],
-  123: ["-- ↑ Unequip 结束。"],
-  129: ["-- ↑ 基础值取得之后。"],
-  134: ["-- ↑ +0.25 补偿。"],
-  135: ["-- ↑ math.min(1, ...) 硬截断。"],
-  136: ["-- ↑ vigorbuff 块结束。"],
-  139: ["-- ↑ 外部修正函数调用。"],
-  141: ["-- ↑ 外部修正块结束。"],
-  143: ["-- ↑ 返回 speed。"],
-  144: ["-- ↑ GetWalkSpeedMult 结束。"],
-  146: ["-- ↑ V2C 提醒注释结束。"],
-  150: ["-- ↑ 原注释「restricted tags and links only apply to players」结束。"],
-  158: ["-- ↑ linkeditem 判定块结束。"],
-  162: ["-- ↑ IsRestricted 结束。"],
-  169: ["-- ↑ table 形态的技能树标签判定。"],
-  172: ["-- ↑ table 形态判定结束。"],
-  174: ["-- ↑ IsRestricted_FromLoad 结束。"],
-  178: ["-- ↑ ShouldPreventUnequipping 结束。"],
-  182: ["-- ↑ OnRemove 函数结束。"],
-  185: ["-- ↑ 加锁分支判定。"],
-  189: ["-- ↑ 加锁块结束。"],
-  194: ["-- ↑ SetPreventUnequipping 结束。"],
-  200: ["-- ↑ merm 反转之后。"],
-  205: ["-- ↑ dapperfn 覆盖块结束。"],
-  209: ["-- ↑ 湿气加成块结束。"],
-  211: ["-- ↑ 返回 dapperness。"],
-  212: ["-- ↑ GetDapperness 结束。"],
-  215: ["-- ↑ 返回 { moisture, max }。"],
-  216: ["-- ↑ GetEquippedMoisture 结束。"],
+  "onequipslot#1+1": ["-- ↑ SetEquipSlot 结束（一行体）。"],
+  "onequipslot#1+2": ["-- ↑ onequipslot 结束。"],
+  "onequipslot#1+4": ["-- ↑ 耦合契约注释结束。"],
+  "onwalkspeedmult#1+4": ["-- ↑ SetWalkSpeedMult 调用之后。"],
+  "onwalkspeedmult#1+5": ["-- ↑ onwalkspeedmult 结束。"],
+  "onwalkspeedmult#1+7": ["-- ↑ 原注释第二行结束。"],
+  "onrestrictedtag#1+3": ["-- ↑ SetEquipRestrictedTag 调用之后。"],
+  "onrestrictedtag#1+4": ["-- ↑ onrestrictedtag 结束。"],
+  "onpreventunequipping#1+1": ["-- ↑ 严格布尔化转换之后。"],
+  "onpreventunequipping#1+2": ["-- ↑ onpreventunequipping 结束。"],
+  "onpreventunequipping#1+5": ["-- ↑ self.inst 赋值之后。"],
+  "onpreventunequipping#1+9": ["-- ↑ onequipfn 默认 nil。"],
+  "onpreventunequipping#1+15": ["-- ↑ 被注释的 restrictedtag 原字段。"],
+  "onpreventunequipping#1+19": ["-- ↑ equippedmoisture 初始化之后。"],
+  "onpreventunequipping#1+20": ["-- ↑ maxequippedmoisture 初始化之后。"],
+  "onpreventunequipping#1+24": ["-- ↑ 被注释的 is_magic_dapperness。"],
+  "onpreventunequipping#1+25": ["-- ↑ ctor 的最后一个字段。"],
+  "onpreventunequipping#1+26": ["-- ↑ super_ctor 参数（nil = 直接继承 Class）。"],
+  "onpreventunequipping#1+32": ["-- ↑ attr_init 表结束（Class 第三参数）。"],
+  "Equippable:OnRemoveFromEntity#1+1": ["-- ↑ 解锁复位之后。"],
+  "Equippable:OnRemoveFromEntity#1+6": ["-- ↑ 客户端镜像复位块结束。"],
+  "Equippable:OnRemoveFromEntity#1+7": ["-- ↑ OnRemoveFromEntity 结束。"],
+  "Equippable:IsInsulated#1+1": ["-- ↑ 返回 self.insulated。"],
+  "Equippable:IsInsulated#1+2": ["-- ↑ IsInsulated 结束。"],
+  "Equippable:SetOnEquip#1+1": ["-- ↑ onequipfn 注册之后。"],
+  "Equippable:SetOnEquip#1+2": ["-- ↑ SetOnEquip 结束。"],
+  "Equippable:SetOnPocket#1+1": ["-- ↑ onpocketfn 注册之后。"],
+  "Equippable:SetOnPocket#1+2": ["-- ↑ SetOnPocket 结束。"],
+  "Equippable:SetOnUnequip#1+1": ["-- ↑ onunequipfn 注册之后。"],
+  "Equippable:SetOnUnequip#1+2": ["-- ↑ SetOnUnequip 结束。"],
+  "Equippable:SetDappernessFn#1+1": ["-- ↑ dapperfn 注册之后。"],
+  "Equippable:SetDappernessFn#1+2": ["-- ↑ SetDappernessFn 结束。"],
+  "Equippable:SetOnEquipToModel#1+1": ["-- ↑ onequiptomodelfn 注册之后。"],
+  "Equippable:SetOnEquipToModel#1+2": ["-- ↑ SetOnEquipToModel 结束。"],
+  "Equippable:IsEquipped#1+1": ["-- ↑ 返回 self.isequipped。"],
+  "Equippable:IsEquipped#1+2": ["-- ↑ IsEquipped 结束。"],
+  "Equippable:Equip#1+5": ["-- ↑ 灭火块结束。"],
+  "Equippable:Equip#1+9": ["-- ↑ onequipfn 调用之后。"],
+  "Equippable:Equip#1+14": ["-- ↑ onequiptomodelfn 调用之后。"],
+  "Equippable:Equip#1+15": ["-- ↑ Equip 结束。"],
+  "Equippable:ToPocket#1+2": ["-- ↑ onpocketfn 调用之后。"],
+  "Equippable:ToPocket#1+4": ["-- ↑ ToPocket 结束。"],
+  "Equippable:Unequip#1+4": ["-- ↑ onunequipfn 调用之后。"],
+  "Equippable:Unequip#1+8": ["-- ↑ Unequip 结束。"],
+  "Equippable:GetWalkSpeedMult#1+3": ["-- ↑ 基础值取得之后。"],
+  "Equippable:GetWalkSpeedMult#1+8": ["-- ↑ +0.25 补偿。"],
+  "Equippable:GetWalkSpeedMult#1+9": ["-- ↑ math.min(1, ...) 硬截断。"],
+  "Equippable:GetWalkSpeedMult#1+10": ["-- ↑ vigorbuff 块结束。"],
+  "Equippable:GetWalkSpeedMult#1+13": ["-- ↑ 外部修正函数调用。"],
+  "Equippable:GetWalkSpeedMult#1+15": ["-- ↑ 外部修正块结束。"],
+  "Equippable:GetWalkSpeedMult#1+17": ["-- ↑ 返回 speed。"],
+  "Equippable:GetWalkSpeedMult#1+18": ["-- ↑ GetWalkSpeedMult 结束。"],
+  "Equippable:GetWalkSpeedMult#1+20": ["-- ↑ V2C 提醒注释结束。"],
+  "Equippable:IsRestricted#1+3": ["-- ↑ 原注释「restricted tags and links only apply to players」结束。"],
+  "Equippable:IsRestricted#1+11": ["-- ↑ linkeditem 判定块结束。"],
+  "Equippable:IsRestricted#1+15": ["-- ↑ IsRestricted 结束。"],
+  "Equippable:IsRestricted_FromLoad#1+5": ["-- ↑ table 形态的技能树标签判定。"],
+  "Equippable:IsRestricted_FromLoad#1+8": ["-- ↑ table 形态判定结束。"],
+  "Equippable:IsRestricted_FromLoad#1+10": ["-- ↑ IsRestricted_FromLoad 结束。"],
+  "Equippable:ShouldPreventUnequipping#1+2": ["-- ↑ ShouldPreventUnequipping 结束。"],
+  "OnRemove#1+2": ["-- ↑ OnRemove 函数结束。"],
+  "Equippable:SetPreventUnequipping#1+1": ["-- ↑ 加锁分支判定。"],
+  "Equippable:SetPreventUnequipping#1+5": ["-- ↑ 加锁块结束。"],
+  "Equippable:SetPreventUnequipping#1+10": ["-- ↑ SetPreventUnequipping 结束。"],
+  "Equippable:GetDapperness#1+4": ["-- ↑ merm 反转之后。"],
+  "Equippable:GetDapperness#1+9": ["-- ↑ dapperfn 覆盖块结束。"],
+  "Equippable:GetDapperness#1+13": ["-- ↑ 湿气加成块结束。"],
+  "Equippable:GetDapperness#1+15": ["-- ↑ 返回 dapperness。"],
+  "Equippable:GetDapperness#1+16": ["-- ↑ GetDapperness 结束。"],
+  "Equippable:GetEquippedMoisture#1+1": ["-- ↑ 返回 { moisture, max }。"],
+  "Equippable:GetEquippedMoisture#1+2": ["-- ↑ GetEquippedMoisture 结束。"],
 };

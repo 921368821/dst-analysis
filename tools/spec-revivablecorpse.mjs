@@ -86,7 +86,7 @@ export default {
     '--   意味着「用别人的尸体做 UI 判定」在客户端是不被支持的用法，',
     '--   只是个「不会崩」的宽松约定。',
   ],
-  24: [
+  "RevivableCorpse:CanBeRevivedBy#1": [
     '-- ★★★ CanBeRevivedBy(reviver) —— 复活资格判定，链路的判定核心。',
     '--   两个条件【与】关系：',
     '--   a) 实体带 "corpse" 标签（第 25 行）；',
@@ -112,7 +112,7 @@ export default {
     '--   但 corpse 标签的具体同步机制（是否经 SetNetTable 或 client prefab 构造）',
     '--   本轮未打开核实，标为未核实。',
   ],
-  32: [
+  "RevivableCorpse:SetReviveSpeedMult#1": [
     '-- SetReviveSpeedMult：设置「全局」复活速度倍率。',
     '-- ★ 服务端守卫的标准写法（is_master_sim 为真才执行）。',
     '-- ⚠️ 注意它【只设一个标量】，而第 38 行是按标签注册多个倍率。',
@@ -121,7 +121,7 @@ export default {
     '--   即当前没有任何 prefab 用它。倍率全靠标签路径（第 38 行）产生。',
     '--    （本人已 grep SetReviveSpeedMult 全库，除本文件定义外无调用。）',
   ],
-  38: [
+  "RevivableCorpse:SetReviveSpeedMultForTag#1": [
     '-- ★★★ SetReviveSpeedMultForTag(tag, mult) —— 「按标签注册倍率」，',
     '--   是本文件最值得学的注册/撤销模式。',
     '',
@@ -161,7 +161,7 @@ export default {
     '--    （本人已对照第 38-51 行核实此方法确无 ismastersim 守卫，',
     '--     并已 grep 全库确认无 SetReviveSpeedMultForTag 的外部调用点。）',
   ],
-  53: [
+  "RevivableCorpse:GetReviveSpeedMult#1": [
     '-- ★★ GetReviveSpeedMult(reviver) —— 把所有命中的标签倍率乘进全局倍率。',
     '',
     '-- 【★ 为什么是「连乘」而不是「取优先级最高的那个」】',
@@ -192,7 +192,7 @@ export default {
     '--   唯一调用点 SGwilson.lua:8023 传的是 inst（玩家自身），恒非 nil，安全。',
     '--    （本人已对照 SGwilson.lua:8023 核实第二个参数为 inst。）',
   ],
-  65: [
+  "RevivableCorpse:SetCorpse#1": [
     '-- ★ SetCorpse(corpse)：把「当前实体是不是尸体」这个事实打成标签。',
     '-- ★ 这是整条链路的【状态源头】—— 上游所有判定（CanBeRevivedBy、',
     '--   playercontroller:2061、inventory_replica:4）都靠这个 "corpse" 标签。',
@@ -205,7 +205,7 @@ export default {
     '--   因为那个是「只读判定」，这个是「写状态」。',
     '--    （本人已对照第 24 行与第 65-73 行核实：只读不加守卫、写状态加守卫。）',
   ],
-  75: [
+  "RevivableCorpse:Revive#1": [
     '-- ★★ Revive(reviver) —— 整个组件唯一「做事」的方法。',
     '--   第 77 行只推了一个事件：respawnfromcorpse，载荷含 source 与 user。',
     '-- ⚠️ 为什么 source 与 user 都填 reviver？',
@@ -222,7 +222,7 @@ export default {
     '--   源码第 4114 行注释写着「Silent fail」—— 即失败也静默。',
     '--    （本人已对照 actions.lua:4112-4120 与 player_common.lua:2670 核实这两处。）',
   ],
-  81: [
+  "RevivableCorpse:SetReviveHealthPercent#1": [
     '-- SetReviveHealthPercent：设「复活后回多少血」。默认值 0.5（第 11 行）。',
     '-- ★ 消费点唯一：player_common_extensions.lua:448',
     '--   `local respawn_health_precent = ... GetReviveHealthPercent() or 1`',
@@ -232,7 +232,7 @@ export default {
     '--   即调用方用 or 兜底来兼容双端差异，而不是组件内部统一返回。',
     '--    （本人已对照本文件第 87-91 行与 player_common_extensions.lua:448 核实。）',
   ],
-  87: [
+  "RevivableCorpse:GetReviveHealthPercent#1": [
     '-- GetReviveHealthPercent：读复活血量百分比。',
     '-- ⚠️ 【无守卫路径返回 nil】：客户端调用直接掉到函数末尾（隐式 return nil）。',
     '--   这不是 bug 而是刻意的双端约定，但要求每个调用方都必须写 or 兜底。',

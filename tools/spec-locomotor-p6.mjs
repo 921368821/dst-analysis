@@ -6,7 +6,7 @@ export const BEFORE = {
   // ══════════════════════════════════════════════════════════════
   // 十六、寻路能力（pathcaps）—— locomotor 与寻路器的接口契约
   // ══════════════════════════════════════════════════════════════
-  1760: [
+  "LocoMotor:IsAquatic#1": [
     "--★★★【四个寻路能力查询函数】",
     "--   这四个函数是 locomotor 声明「自己能走什么地形」的入口。",
     "--   ★★ 它们全部读同一个字段：self.pathcaps（寻路能力表）。",
@@ -15,15 +15,15 @@ export const BEFORE = {
     "--   allowplatformhopping（能跨平台）。",
     "--   ★ 键名是**字符串约定**而非枚举 —— 强类型移植时应收敛为枚举。",
   ],
-  1761: [
+  "LocoMotor:IsAquatic#1+1": [
     "--★★ IsAquatic：完全水生。必须同时满足「能走水面」且「忽略陆地」。",
     "--   ★★ 两个条件都要 —— 只有 allowocean 的话，",
     "--     「陆地上也能走」的水生生物（如鸭子）不满足 IsAquatic。",
   ],
-  1764: [
+  "LocoMotor:CanPathfindOnWater#1": [
     "--★ CanPathfindOnWater：只要 allowocean 即可（鸭子也满足）。",
   ],
-  1768: [
+  "LocoMotor:IsTerrestrial#1": [
     "--★★【IsTerrestrial：陆生。英文原注释解释了双重否定的原因】",
     "--   \"We use 'not' because the pathcaps may be unassigned or assigned false",
     "--    (i.e. if they're changed at runtime)\"",
@@ -32,7 +32,7 @@ export const BEFORE = {
     "--     —— 后者在 nil 时会崩。",
     "--   ★ 这是一条关于「可选配置」的重要防御模式。",
   ],
-  1773: [
+  "LocoMotor:CanPathfindOnLand#1": [
     "--★★ CanPathfindOnLand：默认 true（pathcaps 为 nil 时也返回 true）。",
     "--   ★★ 注意这里与其他三个函数的默认值策略**相反**：",
     "--     · IsAquatic / IsTerrestrial / CanPathfindOnWater —— pathcaps 为 nil 时返回 false",
@@ -42,7 +42,7 @@ export const BEFORE = {
     "--   ★ 但这也造成了一个 API 不一致：四个查询里三个「默认无」，一个「默认有」。",
     "--     使用方必须清楚这个区别，否则会出现「以为能在陆地走却不能」。",
   ],
-  1777: [
+  "LocoMotor:AdjustPathCaps#1": [
     "--★★★【AdjustPathCaps：寻路能力开关】",
     "--   启用 → pathcaps[capname] = true（懒建表）",
     "--   禁用 → pathcaps[capname] = nil；若表空则整体置 nil",
@@ -50,14 +50,14 @@ export const BEFORE = {
     "--   ★★ 禁用时置 nil 而非 false —— 因为判读时用的是 `pathcaps.ignoreLand`",
     "--     的真值性，nil 与 false 等价。用 nil 便于 `next()` 的空表检测。",
   ],
-  1786: [
+  "LocoMotor:AdjustPathCaps#1+9": [
     "--★ 空表则整体置 nil —— 保持「nil = 未设置」的语义（见 1768 行注释）。",
   ],
 
   // ══════════════════════════════════════════════════════════════
   // 十七、FindPath —— 向寻路器提交搜索
   // ══════════════════════════════════════════════════════════════
-  1793: [
+  "LocoMotor:FindPath#1": [
     "--★★★★★【FindPath：向 C++ 寻路器提交一次搜索（或走直线）】",
     "--   ★★★ 这是本文件与「寻路器」的唯一接口。分工非常清晰：",
     "--     · locomotor：提交起点/终点/能力，等结果，**决定往哪转**",
@@ -74,7 +74,7 @@ export const BEFORE = {
     "--   1836 视线通畅检查 → ResetPath（走直线）",
     "--   1845 防抖 → SubmitSearch",
   ],
-  1794: [
+  "LocoMotor:FindPath#1+1": [
     "--★★★【JBK 的注释坦承这是一个 hack —— 非常值得学习】",
     "--   \"This is a hack because of the handling of locomotor.pathcaps has no setter",
     "--    and we do not want a metatable hook for all of every instance of locomotor",
@@ -92,24 +92,24 @@ export const BEFORE = {
     "--   ★ 值得学习的是作者**把权衡的理由完整写了下来**——",
     "--     后来者能理解为什么这里看起来很笨。",
   ],
-  1796: [
+  "LocoMotor:FindPath#1+3": [
     "--★★ `if self.allow_platform_hopping ~= nil` —— 只在「被显式设置过」时才同步。",
     "--   ★ 若从未设置（nil），AdjustPathCaps(nil, ...) 会走「禁用」分支，",
     "--     把 allowplatformhopping 键置 nil —— 对从未配置过的东西是安全的。",
     "--   ⚠ 但注意：若 allow_platform_hopping = false（显式禁用），",
     "--     AdjustPathCaps(false, ...) 也会置 nil —— 结果正确（都是「不允许」）。",
   ],
-  1803: [
+  "LocoMotor:FindPath#1+10": [
     "--★ 目标失效则不寻路（否则会向一个已销毁的实体提交搜索）。",
   ],
-  1807: [
+  "LocoMotor:FindPath#1+14": [
     "--★ Vector3 包装当前位置。Point 只存 3 个 float，Vector3 可能是 Lua 对象。",
   ],
-  1812: [
+  "LocoMotor:FindPath#1+19": [
     "--⚠【被注释掉的距离上限检查】（见文件头 5-6 行的说明）",
     "--   ★ 现在无距离限制 —— 玩家可以要求走到地图任何地方。",
   ],
-  1821: [
+  "LocoMotor:FindPath#1+28": [
     "--★★★【目标地块去重 —— 本函数最重要的性能优化】",
     "--   `GetPathTileIndexFromPoint` 把目标坐标映射到**寻路网格**的索引。",
     "--   ★★ 语义：若「上次搜索的目标地块」与「本次相同」，直接 return —— ",
@@ -123,18 +123,18 @@ export const BEFORE = {
     "--       加上 1619 行的「无条件继续前进」，实际表现是「追着上一格的路径走」，",
     "--       而 1469 行的到达判定用的是**实时**目标坐标 —— 所以不会真的追丢。",
   ],
-  1824: [
+  "LocoMotor:FindPath#1+31": [
     "--★ 双重守卫：本次有索引 且 上次也有记录（lastdesttile）。",
   ],
-  1826: [
+  "LocoMotor:FindPath#1+33": [
     "--★★ 地块索引相同 → 直接返回（不重新寻路）。",
     "--   ★★ 注意这里返回的是「不做事」，而不是「重置路径」——",
     "--     已有路径继续被 OnUpdate 跟随。",
   ],
-  1832: [
+  "LocoMotor:FindPath#1+39": [
     "--★ 记录本次目标地块，供下次去重比较。",
   ],
-  1836: [
+  "LocoMotor:FindPath#1+43": [
     "--★★★【视线通畅检查：寻路的第一道也是最重要的一道优化】",
     "--   `Pathfinder:IsClear(p0, p1, self.pathcaps)` ——",
     "--   ★★ 若起点到终点之间无阻挡，**根本不需要寻路**。",
@@ -147,10 +147,10 @@ export const BEFORE = {
     "--   ★ 对比 1839 行的注释 \"NO LOS - PATHFIND\" ——",
     "--     两分支互斥：一个「走直线」，一个「寻路」。",
   ],
-  1838: [
+  "LocoMotor:FindPath#1+45": [
     "--★★ 视线通畅 → ResetPath（清掉旧路径，后续走直线）。",
   ],
-  1842: [
+  "LocoMotor:FindPath#1+49": [
     "--★★★【英文原注释解释了一个真实的性能问题】",
     "--   \"while chasing a moving target, the path may get reset frequently before any",
     "--    search completes -- only start a new search if we're not already waiting for",
@@ -166,26 +166,26 @@ export const BEFORE = {
     "--   ★★ 这是「异步任务提交」的经典防抖：",
     "--     「要么我有结果可用，要么我没在忙 —— 才发起新任务」。",
   ],
-  1845: [
+  "LocoMotor:FindPath#1+52": [
     "--★★ 防抖条件：`(self.path and self.path.steps) or not self:WaitingForPathSearch()`",
     "--   ★ 注意 self.path.steps 存在即代表「有可跟随的已完成路径」。",
     "--   ★★ 语义：即使「有搜索在跑」，只要「有完成的路径可走」，也提交新的 ——",
     "--     因为旧路径还能用，新搜索只是为将来做准备。",
   ],
-  1847: [
+  "LocoMotor:FindPath#1+54": [
     "--★ KillPathSearch：先杀掉旧搜索再提交新的，避免句柄堆积。",
   ],
-  1849: [
+  "LocoMotor:FindPath#1+56": [
     "--★★ SubmitSearch：真正的 A* 求解请求，返回句柄。",
     "--   ★ pathcaps 作为最后参数传入 —— 寻路器据此决定「水能不能走」「陆地能不能走」。",
     "--   ★★ 这是 pathcaps 的**唯一实际用途**：",
     "--     locomotor 从不自己用 pathcaps 做移动决策（除了那四个查询函数），",
     "--     它只是把这份「能力声明」转交给寻路器。",
   ],
-  1850: [
+  "LocoMotor:FindPath#1+57": [
     "--★ 句柄非 nil 表示提交成功。nil 通常意味着「寻路器满了/拒绝了请求」。",
   ],
-  1853: [
+  "LocoMotor:FindPath#1+60": [
     "--★★★【★ 「新旧路径共存」的设计 —— 极易被误解为 bug】",
     "--   `self.path = self.path or {}` —— ★ 保留已有的 path 表（含 steps 与 currentstep）",
     "--   `self.path.handle = handle` —— ★ 只替换句柄，不动 steps",
@@ -200,15 +200,15 @@ export const BEFORE = {
     "--     ★ 实际不明显的理由：新旧路径的起点相同，",
     "--       前几步通常方向一致，视觉上是平滑的。",
   ],
-  1858: [
+  "LocoMotor:FindPath#1+65": [
     "--★ 提交失败只打调试日志，不做重试 —— 依赖下一帧的 FindPath 再次尝试。",
   ],
-  1863: [
+  "LocoMotor:FindPath#1+70": [
     "--★ 函数结束。注意末尾没有 return —— 无返回值，调用方不依赖返回值。",
     "--   ★ FindPath 的结果通过 self.path 字段传递（副作用式 API），",
     "--     而不是返回值。这是本文件的一贯风格。",
   ],
-  1865: [
+  "LocoMotor:FindPath#1+72": [
     "--★★ 模块出口。LocoMotor 类通过 Class 系统全局可用（不需要模块导出机制）。",
     "--   ★ 与 health.lua:665 的 `return Health` 形式一致。",
   ],

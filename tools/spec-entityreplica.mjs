@@ -63,7 +63,7 @@ export default {
   ],
 
   // ══════════════ ValidateReplicaComponent ══════════════
-  30: [
+  "EntityScript:ValidateReplicaComponent#1": [
     '-- 组件构造前的校验闸门。返回组件实例或 nil。',
     '--',
     '-- 【★这是 lazy 代理真正的把关点，不是 AddComponent 里的一步】',
@@ -88,7 +88,7 @@ export default {
     '-- 也就是说服务端「打算同步」与「已经同步」是两件事，由标签独立表达。',
     '-- 这正是 34-45 行那段「打标签 / 清标签」逻辑存在的意义。',
   ],
-  31: [
+  "EntityScript:ValidateReplicaComponent#1+1": [
     '-- ★标签名由参数拼出："_"..name，例如 _inventory。',
     '-- 【★这就是「服务端决定谁能看到什么」的全部实现】',
     '-- 权限判定最终落在一个字符串标签上。C++ 侧不认识 REPLICATABLE_COMPONENTS，',
@@ -97,18 +97,18 @@ export default {
   ],
 
   // ══════════════ ReplicateComponent 核心 ══════════════
-  34: [
+  "EntityScript:ReplicateComponent#1": [
     '-- ★本文件的主函数。服务端「让一个组件可同步」的正规路径。',
     '-- 三段结构：白名单闸门 → 服务端打标签 → 本地实例化 replica 组件。',
   ],
-  35: [
+  "EntityScript:ReplicateComponent#1+1": [
     '-- 闸门一：不在白名单里直接静默返回。',
     '-- ⚠️ 注意是静默返回而非报错或警告 ——',
     '-- 打错名字（写成 ReplicateComponent("inventory_replica")）不会立刻暴露，',
     '-- 而是悄悄什么也不发生。移植时建议改成至少 modprint 一行，否则极难排查。',
     '-- ★我核实过：确实没有任何告警或日志，是完全静默的失败模式。',
   ],
-  39: [
+  "EntityScript:ReplicateComponent#1+5": [
     '-- ★★ 这是全文件最关键的一行：只有服务端能改变「同步策略」。',
     '--',
     '-- 【★ismastersim 的正交性 —— 必须和 ismastershard 分开理解】',
@@ -127,11 +127,11 @@ export default {
     '-- 进而让 C++ 为它创建一个 replica —— 这是客户端可自行提权的越权路径。',
     '-- 同步策略只能由权威端单方面决定，这是安全约束而非性能优化。',
   ],
-  40: [
+  "EntityScript:ReplicateComponent#1+6": [
     '-- 打「正标签」，宣告此实体需要该组件的同步。',
     '-- ★这一步只改本地状态，标签如何流向客户端由 C++ 负责，本文件不碰。',
   ],
-  41: [
+  "EntityScript:ReplicateComponent#1+7": [
     '-- ★检测「否定标签」__name 是否已存在。存在则说明本组件是被显式关掉的。',
     '-- 【对应的 UnreplicateComponent 会打这个双下划线标签】',
     '-- 命中时：先撤销正标签，再返回。',
@@ -143,37 +143,37 @@ export default {
     '-- 所以 PrereplicateComponent（第 69 行）采用的正是「正打一次 + 负打一次」的顺序，',
     '-- 靠先后顺序而不是靠状态字段来表达「先建后关」，非常微妙但有效。',
   ],
-  47: [
+  "EntityScript:ReplicateComponent#1+13": [
     '-- 重复检测。已有同名 replica 时打印警告但不中断。',
     '-- ★用 rawget 而非直接索引：self.replica 是带元方法的代理表，',
     '--   直接索引会触发元方法并返回包装值；rawget 才是拿到真实槽位、',
     '--   避免「读一个不存在的键」被元方法伪装成存在。',
     '-- 【为什么必须 rawget：见第 89 行同款写法的注释，此处是同一模式】',
   ],
-  48: [
+  "EntityScript:ReplicateComponent#1+14": [
     '-- 打印堆栈（debugstack_oneline 第 3 层，跳过本函数自身）。',
     '-- ⚠️ 这里只 print 不 error，属于「提示级」诊断：程序继续跑，状态可能已经不对。',
   ],
-  51: [
+  "EntityScript:ReplicateComponent#1+17": [
     '-- ★拼出模块名：inventory → components/inventory_replica',
     '-- 【这条约定把「组件基名」与「replica 模块名」绑定死】',
     '-- 所以想给 inventory 加同步，就必须新建 components/inventory_replica.lua，',
     '-- 文件名不能随意改。新增一个可同步组件要改三处：这张表、建文件、调用本函数。',
   ],
-  54: [
+  "EntityScript:ReplicateComponent#1+20": [
     '-- ★require 后写进缓存表。模块级缓存，故只执行一次。',
     '-- 【对比 require 自身的缓存：语义相同，但显式表让 53 行的 if 判断有意义】',
     '-- 若完全依赖 package.loaded，这里可以直接 cmp = require(...)，',
     '-- 少一次哈希查找，差别可忽略。当前写法的好处是「加载过的 replica 集合」可见。',
   ],
-  57: [
+  "EntityScript:ReplicateComponent#1+23": [
     '-- ★失败断言。若白名单里写了一个没有对应 _replica 文件的名字，',
     '-- 就在这里立刻崩掉，而不是等客户端反序列化时静默出错。',
     '-- 【★这是本文件最好的一处防御：把配置错误挡在启动期，而非运行期】',
     '-- 对照第 35 行的静默返回 —— 这里作者选择了严格，白名单是「开发者写死的」，',
     '-- 不像参数那样可能来自模组，故可以放心 fail-fast。',
   ],
-  59: [
+  "EntityScript:ReplicateComponent#1+25": [
     '-- ★★ 真正创建组件实例：cmp(self) —— 把实体自己传进去。',
     '--',
     '-- 【★replica 组件是「以实体为参数的普通组件」】',
@@ -192,22 +192,22 @@ export default {
   ],
 
   // ══════════════ UnreplicateComponent ══════════════
-  62: [
+  "EntityScript:UnreplicateComponent#1": [
     '-- 与 ReplicateComponent 对称的「关闭同步」入口。',
     '-- ★双重条件：必须已存在 replica（否则无意义）且必须在服务端（否则越权）。',
     '-- 【为什么要先判存在】',
     '-- 幂等性保护：重复调用不会叠加 __ 标签，也不会误删别的东西。',
   ],
-  63: [
+  "EntityScript:UnreplicateComponent#1+1": [
     '-- ★注意这里用了 `and` 短路，返回值是布尔而非组件，与 34 行返回实例不对称。',
     '-- 【这是个刻意的语义差异】',
     '-- 「能否复制」需要回答「给你哪个实例」，所以返回实例；',
     '-- 「取消复制」没有实例可给，只需副作用，返回布尔供调用方判断。',
   ],
-  64: [
+  "EntityScript:UnreplicateComponent#1+2": [
     '-- 撤销正标签 —— 必须先撤，否则 C++ 侧可能仍按旧状态分发。',
   ],
-  65: [
+  "EntityScript:UnreplicateComponent#1+3": [
     '-- ★打否定标签。这是「增量同步标签集」里表达「删除」的唯一手段。',
     '-- 【★为什么不能只是 RemoveTag("_"..name) 就完事】',
     '-- 因为标签增量同步只发「新增了什么」。若客户端曾经收到过 _inventory，',
@@ -217,7 +217,7 @@ export default {
   ],
 
   // ══════════════ PrereplicateComponent ══════════════
-  69: [
+  "EntityScript:PrereplicateComponent#1": [
     '-- 「先复制后立刻取消」。两个动作的组合形成一个语义：',
     '-- ★「我走一遍完整创建流程（执行 cmp(self) 及其构造逻辑），但不保留同步」。',
     '-- 【★为什么需要这么绕】',
@@ -232,7 +232,7 @@ export default {
   ],
 
   // ══════════════ ReplicateEntity ══════════════
-  74: [
+  "EntityScript:PrereplicateComponent#1+5": [
     '-- ★★ 客户端侧的入口。上面的函数都是「服务端决定」，这里是「客户端照做」。',
     '-- 原注释：客户端在实体构造完成后、标签反序列化完成之后立刻触发。',
     '--',
@@ -252,7 +252,7 @@ export default {
     '-- 早一步就看不到标签，replica 不会被创建；晚一步则组件已错过构造期。',
     '-- 这个时机依赖是整个分发链路最脆的一环，移植时务必保留该回调时机。',
   ],
-  76: [
+  "EntityScript:ReplicateEntity#1+1": [
     '-- 遍历整张白名单表。注意是 pairs，遍历顺序不确定。',
     '-- ★顺序不确定在这里无害，因为每个 replica 组件各自独立声明 netvar，',
     '--   wire format 对齐靠的是「同一组件内部」的同序，而非「组件之间」的同序。',
@@ -260,20 +260,20 @@ export default {
     '-- netvar 的「声明顺序即 wire format」是按实体粒度的字段序列，',
     '-- 不同组件的 netvar 分属各自的声明组，组件之间不共享一张顺序表。',
   ],
-  77: [
+  "EntityScript:ReplicateEntity#1+2": [
     '-- ★判据是「正标签或否定标签任一存在」。',
     '-- 连 __inventory（否定的）也要处理 —— 因为它同样被同步到了客户端，',
     '-- 客户端必须也走一遍 ReplicateComponent 才能让第 41 行那套正负判定生效，',
     '-- 从而真正不创建组件。若这里漏了否定标签，客户端就会多出不该有的组件。',
   ],
-  78: [
+  "EntityScript:ReplicateEntity#1+3": [
     '-- 复用服务端那同一个创建函数 —— 服务端与客户端走完全相同的代码路径。',
     '-- 【★这是本文件最值得学的工程决策】',
     '-- 常见错误写法是客户端另写一套「简化版创建」。那样两份逻辑必然随时间腐化，',
     '-- 表现为「服务端正常、客户端偶发异常」这类极难定位的问题。',
     '-- 同一份代码 + 由 ismastersim 自然分岔（第 39 行），是唯一可维护的写法。',
   ],
-  82: [
+  "EntityScript:ReplicateEntity#1+7": [
     '-- 可选钩子：实体所有 replica 就绪后的回调。',
     '-- ★用 `if ... ~= nil` 而非直接调用 —— 因为它是可选的，',
     '--   大量实体（尤其是没有可复制组件的）根本没有这个字段。',
@@ -282,7 +282,7 @@ export default {
   ],
 
   // ══════════════ TryAttachClassifiedToReplicaComponent ══════════════
-  87: [
+  "EntityScript:ReplicateEntity#1+12": [
     '-- 把 classified（客户端专属实体）挂到 replica 组件上。',
     '-- 【★classified 是 DST 同步体系里最巧妙的一招，值得单独理解】',
     '-- 玩家身上有些实体只对其本人可见（自己的背光、自己的 UI 道具、特效）。',
@@ -294,19 +294,19 @@ export default {
     '--   classified 靠客户端本地筛选控制可见性；netvar 则是全员同步。',
     '--   player_classified.lua 就是这套机制的最大实例（全文 123 处 net_* 声明）。',
   ],
-  88: [
+  "EntityScript:TryAttachClassifiedToReplicaComponent#1": [
     '-- 原注释说「对 pre/unreplicated 组件同样有效」—— 指 PrereplicateComponent 的结果。',
     '-- 【★注意这个设计与 69-72 行的隐患冲突】',
     '-- PrereplicateComponent 的组件确实存在于 replica._ 中，所以本函数能找到它。',
     '-- 但这依赖「先建后关」的顺序依然成立；一旦该组件被真正删除，本函数就找不到。',
   ],
-  89: [
+  "EntityScript:TryAttachClassifiedToReplicaComponent#1+1": [
     '-- ★同样是 rawget，理由同第 47 行：绕过代理表元方法，判断真实槽位。',
     '-- 【★顺带印证第 63 行的写法】',
     '-- UnreplicateComponent 用 `rawget(...) ~= nil and ismastersim` 判断存在性，',
     '-- 用的正是同一个 rawget 技巧 —— 同一份文件内前后呼应的写法。',
   ],
-  90: [
+  "EntityScript:TryAttachClassifiedToReplicaComponent#1+2": [
     '-- 找到目标组件才挂载；找不到则返回 false 让调用方自行处置。',
     '-- 【★返回布尔而非组件实例，是「查询式」API 的标准形态】',
     '-- 调用方通常写 `if not inst:TryAttach... then ... 降级 ... end`，',
@@ -314,7 +314,7 @@ export default {
   ],
 
   // ══════════════ 模组扩展口 ══════════════
-  97: [
+  "EntityScript:TryAttachClassifiedToReplicaComponent#1+9": [
     '-- ★ 模组专用 API：把新组件加进白名单，从而允许它被同步。',
     '--',
     '-- 【★扩展同步能力的正确方式】',

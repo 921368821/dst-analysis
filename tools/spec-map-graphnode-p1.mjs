@@ -20,20 +20,20 @@ export const BEFORE = {
     "--   ⇒ ★★ 只有 PopulateChildren(:560) 做了 RoundToNearest。",
     "--     ★★ 两处精度不同 ⇒ 同一张地图里的密度记录精度不一致。⚠ 疑似缺陷（极轻微）。",
   ],
-  10: [
+  "getFilteredSpawnWeight#1": [
     "-- ══════════════ ★ getFilteredSpawnWeight：权重归一化 ══════════════",
     "-- ★★ 用途：把「被 prefab 改名机制移除的 prefab」的权重，",
     "--   ★★ **按比例分摊**回剩下的 prefab 上（见 :474-477 的调用）。",
     "-- ★★ 场景：玩家禁用了「草」，草的权重不能凭空消失，",
     "--   ★★ 而要按比例加到其他 prefab 上，否则总密度会下降。",
   ],
-  13: [
+  "getFilteredSpawnWeight#1+3": [
     "-- ★★ for i,weightList in pairs(list) ——★★ pairs（顺序不定）。",
     "--   ★★ 但本函数只求**总和**，与顺序无关。★ 这里是**安全**的。",
     "--   ★★ ⇒ ★★ 值得与 storygen.lua 那些「按遍历顺序取第 k 个」的地方对照：",
     "--     ★★ 只求和 ⇒ 无序无害；依赖顺序取元素 ⇒ 无序致命。",
   ],
-  14: [
+  "getFilteredSpawnWeight#1+4": [
     "-- ★★★ ⚠ 疑似缺陷（死分支）：`if type(weightList) == \"table\" then`",
     "--   ★★★ 这个分支读 `weightList.weight`。",
     "--   ★★★ 但**唯一调用方**（:476）传入的 self.data.terrain_contents",
@@ -42,13 +42,13 @@ export const BEFORE = {
     "--       ★★★ 不是 {weight=…} 表。⇒ ★★ 这个 table 分支永不进入。",
     "--   ⚠ 推理依据：:316-328 全文无 {weight=} 的构造。",
   ],
-  15: [
+  "getFilteredSpawnWeight#1+5": [
     "-- ★★ total = total + weightList.weight ——★ 死分支里的累加。",
   ],
-  17: [
+  "getFilteredSpawnWeight#1+7": [
     "-- ★★ else 分支：普通数字权重。",
   ],
-  19: [
+  "getFilteredSpawnWeight#1+9": [
     "-- ★★ for cat,catdata in pairs(PrefabSwaps.GetBasePrefabSwaps())",
     "--   ★★ 遍历「基础 prefab 替换表」（★ 外部模块，随 DLC/季节变化）。",
     "-- ★★★ ⚠ 性能：★ 这个**双重嵌套循环在权重列表的每个元素上都跑一遍**。",
@@ -59,12 +59,12 @@ export const BEFORE = {
     "--       ★★ 仍在毫秒级，★ 但这是本文件最「重」的一段代码。",
     "--     ★★★ 若世界规模变大（更多胞元），这里会先成为瓶颈。★ 记录以备移植时优化。",
   ],
-  21: [
+  "getFilteredSpawnWeight#1+11": [
     "-- ★★ if swapData.primary and prefab == i then add = false",
     "--   ★★ 语义：★ 若 i 是某个替换组的「主 prefab」，它不该在基础表里出现",
     "--     ★★ （会在后面被更具体的版本替代）。",
   ],
-  24: [
+  "getFilteredSpawnWeight#1+14": [
     "-- ★ if add then ——★ 注意这个 if 包住了内层的 prefab2 循环。",
     "--   ★★★ ⚠ 疑似缺陷（逻辑漏洞）：★ `if add` 一旦为 false，",
     "--     ★★ 整个内层循环被跳过 ⇒ 提前 exit ⇒ 后面 catdata 里的",
@@ -74,19 +74,19 @@ export const BEFORE = {
     "--         ★★★ **pairs 的遍历顺序** ⇒ 不可复现。",
     "--   ⚠ 推理依据：:22 把 add 设为 false 后，:24 的 if 会跳过 :25-29 整段。",
   ],
-  26: [
+  "getFilteredSpawnWeight#1+16": [
     "-- ★★ if not swapData.primary and i == prefab2 then add = false",
     "--   ★★ 语义：★ 若 i 是某个替换组的「替身」，也从基础表剔除。",
     "--   ★★ ⇒ ★★ 最终只保留 primary（主 prefab）。原注释说得更清楚：",
     "--     ★★ \"remove all alternate prefabs, only keep the primaries.\"",
   ],
-  40: [
+  "getFilteredSpawnWeight#1+30": [
     "-- ★★ total = total + weight ——★ 把当前 prefab 自己的权重加进去。",
     "--   ★★ 原注释：-- add the prefabs weight to the total at the end.",
     "--   ★★ 注意它在**循环外**：★ 所以本函数是「给它一个权重，",
     "--     ★★ 返回它在（自己 + 所有未被移除项）里的占比」。",
   ],
-  43: [
+  "getFilteredSpawnWeight#1+33": [
     "-- ★★ return weight / total ——★ 归一化后的权重。",
     "--   ★★★ ⚠ 若 total 为 0 ⇒ **除零**！",
     "--     ★★ 推理依据：若列表里所有 prefab 都被判为 add=false，",
@@ -96,25 +96,25 @@ export const BEFORE = {
     "--             ★★★ 会走完整个循环返回 last_choice（兜底）。",
     "--     ★★ 所以不崩，但结果是「随便挑一个」。★ 静默降级。",
   ],
-  46: [
+  "recurseTable#1": [
     "-- ══════════════ ★★ recurseTable：递归改写 prefab 权重表 ══════════════",
     "-- ★★ 作用：★ 深度遍历一张 {prefab → 权重} 表，对每个叶子键执行 fn，",
     "--   ★★ fn 返回 (新名字, 是否删除)。",
     "-- ★★ 消费：:99-100 的两次调用（先删未启用项，再改名）。",
   ],
-  47: ["-- ★ deleteList：★ 要删掉的键（延后删，避免遍历中改表）。"],
-  48: ["-- ★ addList：★ 要新增的项 {prefab=新名, weight=原权重}。"],
-  50: [
+  "recurseTable#1+1": ["-- ★ deleteList：★ 要删掉的键（延后删，避免遍历中改表）。"],
+  "recurseTable#1+2": ["-- ★ addList：★ 要新增的项 {prefab=新名, weight=原权重}。"],
+  "recurseTable#1+4": [
     "-- ★★ for k,v in pairs(dataTable) ——★★ pairs 遍历 + :68-71 延后删除。",
     "--   ★★★ 正确做法：★ 遍历时**不删**，先收集到 deleteList 再删。",
     "--     ★★ 对比 network.lua:951/:966 的「遍历中直接 entities[x]=nil」，",
     "--       ★★★ 那是**错误**的（未定义行为）。★ 这里做对了。",
     "--       ★★ 同一个仓库里两种写法并存，★ 本文件是正面示范。",
   ],
-  51: [
+  "recurseTable#1+5": [
     "-- ★ if type(v) == \"table\" then ——★ 递归分支（子表）。",
   ],
-  52: [
+  "recurseTable#1+6": [
     "-- ★★★★ 真实缺陷（⚠ 疑似缺陷，需修）：",
     "--   v = recurseTable(v, fn)",
     "-- ★★ 三个问题：",
@@ -131,7 +131,7 @@ export const BEFORE = {
     "--       ★★★ 就会崩。★ 正确写法应为 recurseTable(v, removed, fn)。",
     "-- ⚠ 推理依据：:46 的签名有 3 个形参，:52 只传了 2 个。",
   ],
-  54: [
+  "recurseTable#1+8": [
     "-- ★★★ ⚠ 疑似缺陷（无害但是残留）：`local add, delete = fn(k, fn)`",
     "--   ★★ 把 **fn 自己**当成第二个参数传给了回调。",
     "--   ★★ 而两个回调（:86 / :91）的签名都是 `function(testData)`，",
@@ -139,15 +139,15 @@ export const BEFORE = {
     "--   ★★★ 这是典型的复制粘贴残留：★ 本意大概是 `fn(k, v)`（把值传出去）。",
     "--   ⚠ 记录以便将来若回调要用第二个参数时不会踩坑。",
   ],
-  55: [
+  "recurseTable#1+9": [
     "-- ★ if add then ——★ 回调要改名（或新增）。",
   ],
-  56: [
+  "recurseTable#1+10": [
     "-- ★★ table.insert(addList, {prefab=add, weight=v}) ——★ 记录改名请求。",
     "--   ★★ 注意：**权重沿用 v** ⇒ 改名不改权重。★ 正确。",
   ],
-  58: ["-- ★ if delete then ——★ 回调要删除。"],
-  63: [
+  "recurseTable#1+12": ["-- ★ if delete then ——★ 回调要删除。"],
+  "recurseTable#1+17": [
     "-- ★★ if not add and delete then removed[k] = v end",
     "--   ★★★ 语义：★「删掉但保留权重」的项，★ 权重记进 removed。",
     "--   ★★★ 这是**部分删除**的处理：★ 该 prefab 整体消失，",
@@ -155,10 +155,10 @@ export const BEFORE = {
     "--     ★★★ ⇒ ★★ 这就是「禁用一个 prefab 后地图不该变稀」的机制。",
     "--   ★★ 设计精巧，值得学。",
   ],
-  68: [
+  "recurseTable#1+22": [
     "-- ★★ 延后删除 ——★ 避免「遍历中改表」的未定义行为（同 :50 的说明）。",
   ],
-  73: [
+  "recurseTable#1+27": [
     "-- ★★★ 原注释解释了 addList 的真实用途：",
     "--   -- this isn't really adding a prefab, it's replacing one that may",
     "--      have just been removed with it's actual name. eg: ground_sticks",
@@ -167,24 +167,24 @@ export const BEFORE = {
     "-- ★★★ 即：★ 有些 prefab 名是**代理名**（如 seasonal 变体），",
     "--   ★★★ 被移除后要换回本体名字 ⇒ 权重保留。",
   ],
-  76: [
+  "recurseTable#1+30": [
     "-- ★★ dataTable[v.prefab] = v.weight ——★ 写入实际名字。",
   ],
-  79: [
+  "recurseTable#1+33": [
     "-- ★★ return dataTable, removed ——★ 两个返回值都要用（:99-100 链式接收）。",
     "--   ★★★ 链式写法：`params, removed = recurseTable(params, removed, removeUnused)`",
     "--     ★★ 然后 `params, removed = recurseTable(params, removed, swapToActual)`",
     "--     ★★★ ⇒ 第二次调用**接收第一次的 removed**并继续累加。★ 正确。",
   ],
-  82: [
+  "filterPrefabsForGlobalSwaps#1": [
     "-- ══════════════ ★ filterPrefabsForGlobalSwaps ══════════════",
     "-- ★★ 两步：先删「未启用」的 prefab，再把代理名换成实际名。",
     "-- ★★ 消费：:455（每个胞元的 PopulateVoronoi 都调）。",
   ],
-  85: [
+  "removeUnusedPrefabs#1": [
     "-- ★★ removeUnusedPrefabs(testData, fn)：★ 第二个形参 fn 无人使用（见 :54）。",
   ],
-  86: [
+  "removeUnusedPrefabs#1+1": [
     "-- ★★ return false, PrefabSwaps.IsPrefabInactive(testData)",
     "--   ★★★ 语义：★ 不改名（add=false），★ 但「删不删」由 IsPrefabInactive 决定。",
     "--   ★★★ 「未启用」的来源：★ 玩家在世界里没选某个 prefab，",
@@ -193,17 +193,17 @@ export const BEFORE = {
     "--     ★★★ 因为 IsPrefabInactive 的结果随 PrefabSwaps 的状态变。",
     "--     ★★★ 这就是 DST 「季节影响世界生成」的一条隐蔽路径。",
   ],
-  90: ["-- ★★ swapToActualPrefabs(testData, fn)：★ 同上，第二形参未用。"],
-  91: [
+  "swapToActualPrefabs#1": ["-- ★★ swapToActualPrefabs(testData, fn)：★ 同上，第二形参未用。"],
+  "swapToActualPrefabs#1+1": [
     "-- ★★ PrefabSwaps.ResolvePrefabProxy(testData) ——★ 代理名 → 实际名。",
   ],
-  92: [
+  "swapToActualPrefabs#1+2": [
     "-- ★★ if prefab ~= testData then ——★ 只有「能改名」才返回 add。",
   ],
-  98: [
+  "swapToActualPrefabs#1+8": [
     "-- ★★ if type(params) == \"table\" then ——★ 非表直接跳过（防御）。",
   ],
-  107: [
+  "swapToActualPrefabs#1+17": [
     "-- ══════════════ ★★★ Node 类构造 ══════════════",
     "-- ★★★ 本类的 data 是一大块「房间数据」，构造时不做校验、不做默认，",
     "--   ★★★ 全部由 storygen.lua:1317-1336 组装好后传入。",
@@ -221,8 +221,8 @@ export const BEFORE = {
     "--   entrance        → 是否是入口房（★★★ 决定一切，见 :433 说明）",
     "--   required_prefabs / SafeFromDisconnect / 随机权重",
   ],
-  108: ["-- ★ self.id：房间节点 id（如 \"ForestTask:0:Forest\"）。"],
-  113: [
+  "swapToActualPrefabs#1+18": ["-- ★ self.id：房间节点 id（如 \"ForestTask:0:Forest\"）。"],
+  "swapToActualPrefabs#1+23": [
     "-- ★★★ self.edges{}：★★ **数组**（不是字典）！",
     "--   ★★★ 这是本文件里唯一用数组存边的结构（★ 对比 Graph 的字典）。",
     "--     ★★ 后果：★ graphedge.lua 的构造函数用 table.insert 注册边，",
@@ -230,30 +230,30 @@ export const BEFORE = {
     "--       ★★★ 若改成字典，MakeLoop 会静默失效。★ 隐式契约。",
     "--     ★★ 也因为是数组，★ 遍历 node.edges 顺序稳定（插入序）。✔",
   ],
-  116: [
+  "swapToActualPrefabs#1+26": [
     "-- ★ self.data = data ——★★ **直接引用，不 deepcopy**。",
     "--   ★★ ⚠ 与 Graph:AddNode（network.lua:474）同理：★ 不拷贝。",
     "--     ★★ 而 GetRoom（storygen.lua:108）已经 deepcopy 过房间模板，",
     "--       ★★ 所以「不拷贝」在这里其实是**安全的**。★ 靠上游兜底。",
   ],
-  121: [
+  "swapToActualPrefabs#1+31": [
     "-- ★ colour：★ 调试可视化色，缺省**半透明黄**（a=55）。",
     "--   ★★★ 注意 a=55/255 ≈ 21% 透明度 ⇒ ★ 多个节点叠在一起也能看清边界。",
     "--     ★★ 这是纯调试信息，但会在小地图/调试视图里显示。",
   ],
-  124: [
+  "swapToActualPrefabs#1+34": [
     "-- ★★ ents：★ 本节点要生成的实体列表。",
     "--   ★★ ⚠ 疑似缺陷：★ 整个本文件里 self.ents **从未被使用**",
     "--     ★★ （★ grep 核实）—— 实体实际写进的是外部传入的 entitiesOut。",
     "--   ⚠ 残留字段。",
   ],
-  125: [
+  "swapToActualPrefabs#1+35": [
     "-- ★ populateFn / tileFn：★★ 同样是**从未被使用**的字段",
     "--   ★★ （真正用的是 :281 SetPopulateFunction / :287 SetTilesFunction",
     "--   ★★ 设的 custom_objects_data / custom_tiles_data）。",
     "--   ⚠★★ 残留字段 ×2。★ 说明这里经历过一次重构且没清理干净。",
   ],
-  127: [
+  "swapToActualPrefabs#1+37": [
     "-- ★★ populated / children_populated：★★ 两个幂等标记。",
     "--   ★★ 防重复散布的机制：★ 同一节点被 PopulateVoronoi 调两次时跳过。",
     "--   ★★★ 必要吗？★ network.lua:730 的 GetNodes(false) + :742 的递归",
@@ -264,7 +264,7 @@ export const BEFORE = {
     "--         ★★★ 这可能是有意的（自定义房间不该被通用散布污染），",
     "--           ★★★ 但两处用同一个标记，★ 语义混淆。⚠ 疑似缺陷（设计瑕疵）。",
   ],
-  131: [
+  "swapToActualPrefabs#1+41": [
     "-- ★★ if self.data.custom_tiles ~= nil then ——★ 房间自带「自定义地块」钩子。",
     "--   ★★ custom_tiles = {GeneratorFunction=fn, data={…}} 形态。",
     "--   ★★ 消费：:304 SetTilesViaFunction（forest_map.lua:563 逐节点调用）。",
@@ -273,7 +273,7 @@ export const BEFORE = {
     "--       ★★★ 意义：★ 把「数据字段」转成「可调用钩子」，",
     "--         ★★★ 之后 data.custom_tiles 不再携带信息（避免被误读两次）。",
   ],
-  135: [
+  "swapToActualPrefabs#1+45": [
     "-- ★★ custom_objects 同理：★ 转成 populate 钩子。",
     "--   ★★ 消费：:292 PopulateViaFunction。",
     "--   ★★★ ⚠ 但 grep 核实：**PopulateViaFunction 从未被调用**！",
@@ -283,19 +283,19 @@ export const BEFORE = {
     "--   ⚠ 这与 network.lua:688 Populate 的三处断链是同一类问题：",
     "--     ★★ 「上一代架构的遗留物没清理干净」。",
   ],
-  142: [
+  "Node:SaveEncode#1": [
     "-- ══════════════ ★★ SaveEncode：★ 房间几何序列化 ══════════════",
     "-- ★★ 消费：network.lua:152/:173（★ 每个节点都调）。",
     "-- ★★★ 输出的 poly（多边形）是本文件对存档体积的最大贡献。",
   ],
-  144: [
+  "Node:SaveEncode#1+2": [
     "-- ★★ local pos_x, pos_y = WorldSim:GetSite(self.id) ——★ 站点坐标。",
     "--   ★★★ 这是**唯一**从 C++ 拿坐标的地方。",
     "--     ★★★ ⇒ ★★ Voronoi 阶段（forest_map.lua:499）算出胞元后，",
     "--       ★★★ 坐标就存在 C++ 侧，★ 本文件只是回读。",
     "--       ★★★ ⇒ ★★ Lua 侧完全不知道 Voronoi 是怎么算的。★ 分层清晰。",
   ],
-  145: [
+  "Node:SaveEncode#1+3": [
     "-- ★★ c_x, c_y = WorldSim:GetSiteCentroid(self.id) ——★ 胞元**形心**。",
     "--   ★★ 与 pos 的区别：★ pos 是 Voronoi 站点（= Voronoi 点的位置），",
     "--     ★★ centroid 是胞元内采样点的算术平均。",
@@ -305,7 +305,7 @@ export const BEFORE = {
     "--       ★★★★ · cent → ★★ **物品摆放的参考点**（★ 关键！）",
     "--         ★★★ · ★★ poly → ★★ 判定「某坐标是否属于本房间」",
   ],
-  146: [
+  "Node:SaveEncode#1+4": [
     "-- ★★ 坐标换算：`(c - map.width/2) * TILE_SCALE`，★ 保留 2 位小数。",
     "--   ★★★ 全项目统一的坐标约定（三处精度：",
     "--     ★★★ · graphnode.lua:146-147 → ×100/100（2 位）",
@@ -314,7 +314,7 @@ export const BEFORE = {
     "--     ★★ · forest_map.lua:618-619 → ×100/100（2 位）",
     "--   ★★★ ⇒ 2 位小数是主流；network.lua 的虫洞是 1 位（因为是粗略位置）。",
   ],
-  149: [
+  "Node:SaveEncode#1+7": [
     "-- ★★ poly_x, poly_y = WorldSim:GetSitePolygon(self.id) ——★ 胞元边界顶点。",
     "--   ★★★★ 这是存档里**最占空间**的数据：",
     "--     ★★ 一个 Voronoi 胞元平均 6 个顶点，每顶点 2 个坐标 ⇒ 12 个数字/节点。",
@@ -322,13 +322,13 @@ export const BEFORE = {
     "--     ★★★ 但必须存：★ 因为 100 次 Lloyd 松弛后胞元**不是规则多边形**，",
     "--       ★★★ 无法用「中心 + 半径」还原。★ 只能存顶点。",
   ],
-  152: [
+  "Node:SaveEncode#1+10": [
     "-- ★★ 每个顶点也做 ×TILE_SCALE 并 floor（★ **直接取整，无小数**）。",
     "--   ★★★ 精度策略与坐标不同：★ 顶点只取整数。",
     "--     ★★★ 理由：★ 顶点只用于「点在多边形内」的判定，",
     "--       ★★★ 小数精度无意义 ⇒ 省存档空间。★ 合理的取舍。",
   ],
-  153: [
+  "Node:SaveEncode#1+11": [
     "-- ★★ ⚠ 疑似缺陷（无害）：`current_pos_idx = current_pos_idx + 1` 在循环体内。",
     "--   ★★ for 循环自己会递增 current_pos_idx ⇒ **每轮加了两次**。",
     "--   ★★★ 后果：★ poly_def 的**下标是 1, 3, 5, …**（奇数），",
@@ -343,7 +343,7 @@ export const BEFORE = {
     "--   ⚠★ 这是本次审阅发现的**最隐蔽的一处缺陷**：★ 它不报错、",
     "--     ★★ 只是让存档里的多边形「少了一半顶点」。",
   ],
-  155: [
+  "Node:SaveEncode#1+13": [
     "-- ★★ 返回结构：★ 8 个字段。逐个说明：",
     "--   x, y   → 站点坐标（整数）",
     "--   cent   → 形心（2 位小数）",
@@ -355,7 +355,7 @@ export const BEFORE = {
     "--   ★★★ 「area」是森林_map.lua:599 的面积校验（≥8 格）的数据源。",
     "--     ★★ 而它在 SaveEncode 时就被算好了 ⇒ 校验是 O(1)。★ 设计合理。",
   ],
-  162: [
+  "Node:SaveEncode#1+20": [
     "-- ★★ area = WorldSim:GetSiteArea(self.id) ——★ 胞元面积（格数）。",
     "--   ★★★ 用途（★ 两处）：",
     "--     ★★ ① forest_map.lua:598-599 的校验「area < 8 ⇒ 失败重试」",
@@ -364,7 +364,7 @@ export const BEFORE = {
     "--       ★★★★ ⇒ ★★ 场景件数量可以**按胞元面积缩放**！",
     "--         ★★ 大房间多放几个宝箱，小房间少放。★ 这就是 scratchpad 的用途。",
   ],
-  163: [
+  "Node:SaveEncode#1+21": [
     "-- ★ tags = self.data.tags ——★ 标签原样存进存档。",
     "--   ★★★ 运行时读它做什么？（★ 可查证的行为）：",
     "--     ★★ · components/map.lua 用它做区域的特殊处理",
@@ -372,14 +372,14 @@ export const BEFORE = {
     "--     ★★★ · ★★ 运行时还可以用 TheWorld:topology 给它打标记",
     "--       ★★★   （debugcommands.lua:1189 / caves_retrofit_land.lua:40 就是）",
   ],
-  168: [
+  "Node:SetPosition#1": [
     "-- ══════════════ 位置存取（SetPosition/GetPosition）══════════════",
     "-- ★★★ ⚠ 疑似缺陷：★ 这两个读写 self.data.position，",
     "--   ★★★ 但 ★★ 本文件**从不调用**，且 data.position 从未被初始化",
     "--     ★★★ （storygen.lua:1317-1336 的 next_room_data 里没有 position）。",
     "--   ★★ ⇒ 返回 nil。★ 纯死代码。",
   ],
-  176: [
+  "Node:IsConnectedTo#1": [
     "-- ★★★ IsConnectedTo(node)：★ 判断本节点是否与某节点有边。",
     "--   ★★ 消费：network.lua:601 CrosslinkRandom 判「两节点是否已相连」。",
     "--   ★★★ 它遍历的是 **self.edges**（含 exit 边，因为 graphedge 构造时",
@@ -388,13 +388,13 @@ export const BEFORE = {
     "--     ★★ 对比 Graph:IsConnectedTo（network.lua:293）只看 self.edges（不含 exit）",
     "--       ★★★ ⇒ ★★★ 两者语义不同但名字相同。⚠ 又一处同名异义。",
   ],
-  179: [
+  "Node:IsConnectedTo#1+3": [
     "-- ★★ for k,edge in pairs(self.edges) ——★ 遍历（数组，顺序其实稳定）。",
     "--   ★★★ 注意 self.edges 是**数组**（见 :113 的说明），",
     "--     ★★★ 用 pairs 遍历数组是**不必要的**（ipairs 更好），",
     "--       ★★★ 但由于数组的 pairs 顺序 = 索引序，★ 这里无碍。",
   ],
-  188: [
+  "PopulateWorld_AddEntity#1": [
     "-- ══════════════ ★★★ PopulateWorld_AddEntity：★ 坐标换算核心 ══════════════",
     "-- ★★ 全局函数（非方法）——★ 因为 forest_map.lua:613 的 add_fn 也要用同样的逻辑。",
     "-- ★★★ 参数共 11 个，是本文件最复杂的签名。逐个：",
@@ -407,7 +407,7 @@ export const BEFORE = {
     "--   prefab_data   → 附加数据 {data=, id=, scenario=, skinname=}",
     "--   rand_offset   → ★ 是否加 ±0.5 格的随机偏移",
   ],
-  189: [
+  "PopulateWorld_AddEntity#1+1": [
     "-- ★★ if _G.WorldSim ~= nil then ——★★ 防御性检查。",
     "--   ★★★ 这行暴露了一个重要事实：★ WorldSim 是 C++ 注入的全局，",
     "--     ★★★ 而本文件**假设它存在**（:190/:239 都直接用）。",
@@ -417,7 +417,7 @@ export const BEFORE = {
     "--   ★★★ ⇒ ★★ 防御是不完整的：要么全不防御，要么全防御。",
     "--     ★★ 这里属于「半防御」状态。⚠ 疑似缺陷（一致性）。",
   ],
-  190: [
+  "PopulateWorld_AddEntity#1+2": [
     "-- ★★ WorldSim:ReserveTile(tile_x, tile_y) ——★ 占住这格。",
     "--   ★★★★ 这是散布的**核心副作用**：★ 占了就不能再放别的东西。",
     "--     ★★★ ⇒ ★★ 多个 prefab 的散布是**互相排斥**的，",
@@ -427,7 +427,7 @@ export const BEFORE = {
     "--       ★★★ ⇒ ★★★ 体型大的 prefab 之间可能重叠。",
     "--         ★★ 解决办法在别处（★ obj_layout 的空间预留，:868）。",
   ],
-  193: [
+  "PopulateWorld_AddEntity#1+5": [
     "-- ★★ local x = (tile_x - width/2.0)*TILE_SCALE ——★ 格 → 世界坐标。",
     "--   ★★★ 这是全项目**唯一**的坐标换算公式（乘 TILE_SCALE）。",
     "--     ★★★ TILE_SCALE = 1/FOOT（★ 常量），把「格」变成「世界单位」。",
@@ -435,7 +435,7 @@ export const BEFORE = {
     "--     ★★★ 「减半」是为了让地图**以原点为中心**。",
     "--       ★★ 这就是「出生点在地图中心」的几何基础。",
   ],
-  196: [
+  "PopulateWorld_AddEntity#1+8": [
     "-- ★★★ if rand_offset == nil or rand_offset == true then",
     "--   ★★★ 「省略 == 传 true」——★ 一个容易踩的默认值约定。",
     "--     ★★★ ⇒ ★ 调用方若不传第 11 个参数，会**得到随机偏移**。",
@@ -445,7 +445,7 @@ export const BEFORE = {
     "--       ★★★ 因为它没显式传 rand_offset。",
     "--       ★★★ 这就解释了为什么本文件的注释说「散落实体的位置本身带随机性」。",
   ],
-  197: [
+  "PopulateWorld_AddEntity#1+9": [
     "-- ★★ x = x + math.random()*2-1 ——★ ±1 格的偏移。",
     "--   ★★★ 注意是**±1 个世界单位**，不是 ±0.5 格。",
     "--     ★★★ 因为 x 已经是世界单位（TILE_SCALE 缩放过），",
@@ -453,7 +453,7 @@ export const BEFORE = {
     "--     ★★★ ⇒ 效果：实体不会精确落在格子中心，而是在中心附近浮动。",
     "--     ★★ 目的：★ 避免所有实体排成整齐的格点。★ 视觉必需。",
   ],
-  201: [
+  "PopulateWorld_AddEntity#1+13": [
     "-- ★★ x = math.floor(x*100)/100.0 ——★★ 保留 2 位小数。",
     "--   ★★★★ 为什么要取整到 2 位？★ 因为存档里存的是**字符串化的浮点**，",
     "--     ★★★ 精度位数直接决定存档体积。",
@@ -462,14 +462,14 @@ export const BEFORE = {
     "--     ★★★ 全项目一致使用（:146/:201/forest_map:618）。★ 好实践。",
     "--   ★★★ ⚠ 副作用：★ 极小坐标会被压成 0。地图边缘附近可能出现「堆叠」。",
   ],
-  204: [
+  "PopulateWorld_AddEntity#1+16": [
     "-- ★★ if entitiesOut[prefab] == nil then entitiesOut[prefab] = {} end",
     "--   ★★★ 注意：**没有 deepcopy** ⇒ 每个实体是一张独立的小表。",
     "--     ★★★ 而 entitiesOut 的 key 是 prefab 名 ⇒ ★★ 「按 prefab 分桶」。",
     "--       ★★★ 这个结构一路传到 save.ents（forest_map.lua:976）。",
     "--       ★★★ 运行时读存档时也是这个结构 ⇒ 一致的 schema。",
   ],
-  208: [
+  "PopulateWorld_AddEntity#1+20": [
     "-- ★★ local save_data = {x=x, z=y} ——★★ 注意是 **z** 不是 y！",
     "--   ★★★ 坐标系约定：★ Lua 侧用 (x, y)，",
     "--     ★★★ 而存档/实体侧用 **(x, z)**（3D 引擎的 xz 平面）。",
@@ -477,13 +477,13 @@ export const BEFORE = {
     "--     ★★★ （对照：storygen.lua 的 story_depth 数组、forest_map 的 y 变量名，",
     "--       ★★★ 都遵循「Lua 的 y = 引擎的 z」。）",
   ],
-  209: [
+  "PopulateWorld_AddEntity#1+21": [
     "-- ★ if prefab_data then ——★ 附加数据（★ 可选）。",
   ],
-  211: [
+  "PopulateWorld_AddEntity#1+23": [
     "-- ★★ if prefab_data.data then ——★ 实体初始化数据。",
   ],
-  212: [
+  "PopulateWorld_AddEntity#1+24": [
     "-- ★★★ if type(prefab_data.data) == \"function\" then save_data[\"data\"] = prefab_data.data()",
     "--   ★★★ 「data 可以是函数」——★ 这是**惰性求值**机制：",
     "--     ★★★ 数据只在**真的要生成这个实体时**才计算。",
@@ -492,25 +492,25 @@ export const BEFORE = {
     "--       ★★★ 而且 ★★ 只在用到的那些实体上求值 ⇒ 省 CPU。",
     "--     ★★★ 这是一个很值得学的「声明式 + 惰性」组合。",
   ],
-  224: [
+  "PopulateWorld_AddEntity#1+36": [
     "-- ★ if prefab_data.skinname then ——★ 皮肤名（★ 「换皮」功能的载体）。",
     "--   ★★★ 与 network.lua:936 ResolveCustomizationPrefabs 呼应：",
     "--     ★★★ 生成期用代理 prefab + skinname，★ 最后统一换成真 prefab。",
   ],
-  228: [
+  "PopulateWorld_AddEntity#1+40": [
     "-- ★★ table.insert(entitiesOut[prefab], save_data) ——★ 入桶。",
   ],
-  230: [
+  "PopulateWorld_AddEntity#1+42": [
     "-- ★★ prefab_list[prefab] 计数 ——★ 供 :482/:558 算密度用。",
     "--   ★★★ prefab_list 是**本函数第 9 个参数**，由调用方创建并持有。",
     "--     ★★★ ⇒ ★ 它是「per-site 计数」，:482 拿它算「这格放了多少 X」。",
   ],
-  238: [
+  "Node:AddEntity#1": [
     "-- ══════════════ ★★ AddEntity：Node 方法版（带陆地检查）══════════════",
     "-- ★★ 与 :188 的区别只有一处：★ 先检查该格是否陆地。",
     "-- ★★ 所有 Node 内的散布都走这个函数（★ 而不直接调 PopulateWorld_AddEntity）。",
   ],
-  240: [
+  "Node:AddEntity#1+2": [
     "-- ★★★ if not TileGroupManager:IsLandTile(tile) then return end",
     "--   ★★★★ 「非陆地不放东西」——★ 本文件**最重要的一条散布约束**。",
     "--     ★★★ ⇒ ★★ 水面/道路/人造地板上**不生成任何野外物件**。",
@@ -521,21 +521,21 @@ export const BEFORE = {
     "--       ★★★ ⇒ ★★ 玩家偶尔会看到「两棵树重叠」——★ 这就是根因。",
     "--     ★★★ ⚠ 记录：这需要「N×N 占位」机制才能真正解决。",
   ],
-  247: [
+  "Node:ConvertGround#1": [
     "-- ══════════════ ★★ ConvertGround：★ 静态场景件落位 ══════════════",
     "-- ★★ 消费：network.lua:681 → forest_map.lua:843。",
     "-- ★★ 时机：★ 在 PopulateVoronoi **之前**调用（★ 见该行注释）。",
     "-- ★★ 差异：★ 只处理 countstaticlayouts 与 extra.static_layouts，",
     "--   ★★ **不处理 prefab 散布**。两类内容物在这里是分开的。",
   ],
-  248: [
+  "Node:ConvertGround#1+1": [
     "-- ★★ if not self.data.terrain_contents then return end ——★ 无内容物的房间跳过。",
   ],
-  254: [
+  "Node:ConvertGround#1+7": [
     "-- ★★ local area = WorldSim:GetSiteArea(self.id) ——★ 胞元面积。",
     "--   ★★★ 用途：★ 作为 count 函数的第一参数（:264）。",
   ],
-  259: [
+  "Node:ConvertGround#1+12": [
     "-- ★★★★ scratchpad：★★ 「countstaticlayouts 各条目之间共享的数据」。",
     "--   ★★★ 这是一个很精巧的设计：",
     "--     ★★★ 静态场景件的数量可以是函数 `fn(area, name, scratchpad)`，",
@@ -550,7 +550,7 @@ export const BEFORE = {
     "--       ★★★ 说明作者**有意识地**做了两次独立分配。",
     "--       ★★★ ⇒ 这是刻意设计，不是重复代码。★ 值得肯定。",
   ],
-  260: [
+  "Node:ConvertGround#1+13": [
     "-- ★★★ if self.data.terrain_contents.countstaticlayouts ~= nil then",
     "--   ★★★ 这是房间的「静态场景件计数表」：{房间模板名 → 数量}。",
     "--     ★★★ 两个来源：",
@@ -560,7 +560,7 @@ export const BEFORE = {
     "--       ★★★★ ⇒ ★★ 所以「关卡配置的宝箱」最终会走到这里落位。",
     "--   ★★★ 数量可以是 function（★ 见 :263-264）。",
   ],
-  263: [
+  "Node:ConvertGround#1+16": [
     "-- ★★ if type(count) == \"function\" then count = count(area, k, scratchpad)",
     "--   ★★★ 「数量可以是函数」——★ 世界生成的**惰性/条件化数量**机制。",
     "--     ★★★ 用途：",
@@ -570,7 +570,7 @@ export const BEFORE = {
     "--     ★★★ 对比：★ countprefabs 的函数签名是 (area, prefab, scratchpad)，",
     "--       ★★★ 参数名不同但**第一个是 area、第三个是 scratchpad** ⇒ 结构一致。",
   ],
-  267: [
+  "Node:ConvertGround#1+20": [
     "-- ★★ for i=1, count do obj_layout.Convert(self.id, k, add_fn) end",
     "--   ★★ obj_layout.Convert：★ 把静态布局转成实体并放置。",
     "--     ★★★★ 它是**场景件落位的唯一实现**。",
@@ -580,7 +580,7 @@ export const BEFORE = {
     "--       ★★★ ⚠ 但 bug-patterns.md E2 指出：★ 这里有",
     "--         ★★★ `if rcx == nil then return end` 的静默失败（★ 场景件丢失）。",
   ],
-  273: [
+  "Node:ConvertGround#1+26": [
     "-- ★★★★ if self.data.terrain_contents_extra and .static_layouts then",
     "--   ★★★ 标签展开出来的场景件（★「STATIC」类型的 maptag，见 :1180）。",
     "--     ★★★ 与 countstaticlayouts 的区别：",
@@ -588,26 +588,26 @@ export const BEFORE = {
     "--       ★★★ · extra.static_layouts：**一次性列表**（每个条目放 1 个）",
     "--     ★★★ 两者都在这里落位，但走的是不同的循环结构。",
   ],
-  281: [
+  "Node:SetPopulateFunction#1": [
     "-- ══════════════ 自定义钩子：四个函数 ══════════════",
     "-- ★★ SetPopulateFunction(custom_objects_data) ——★ 注册「自定义实体生成」。",
     "--   ★★ 构造期 :136 调用。★ ⚠ 但 PopulateViaFunction 从未被调用（见 :135）。",
   ],
-  287: [
+  "Node:SetTilesFunction#1": [
     "-- ★★ SetTilesFunction(custom_tiles_data) ——★ 注册「自定义地块生成」。",
     "--   ★★★ 这条路径**是活的**：forest_map.lua:563 的逐节点循环会调",
     "--     ★★★ :304 SetTilesViaFunction。",
     "--   ★★★ 所以「房间自带地形绘制」是**真正可用**的特性",
     "--     ★★★ （竞技场迷宫、月亮遗迹的房间用它画特殊地形）。",
   ],
-  292: [
+  "Node:PopulateViaFunction#1": [
     "-- ★★★ PopulateViaFunction() ——★ 执行自定义实体生成。",
     "--   ★★★★ ⚠★★ 死代码：★ **全项目无调用点**（★ grep 核实）。",
     "--     ★★★ ⇒ custom_objects 这条路径**从未生效**。",
     "--       ★★★ 对比 custom_tiles（活的）⇒ ★ 两个孪生特性只有一个能用。",
     "--   ⚠ 与 network.lua:688 Populate 的三处断链同源：★ 架构迁移残留。",
   ],
-  298: [
+  "Node:PopulateViaFunction#1+6": [
     "-- ★★ data.node = self ——★★ 把节点自己挂进 data 传给用户函数。",
     "--   ★★★★ 这是**给 mod 作者的钩子**：★ 用户的 GeneratorFunction",
     "--     ★★★ 可以通过 data.node 拿到节点的一切（id、data、edges…）。",
@@ -621,13 +621,13 @@ export const BEFORE = {
     "--         ★★★ 是明确的笔误（对照 :309 一看就知道）。",
     "--         ★★★ 后果：① 污染全局 data ② 用户函数从 data 参数拿不到 node。",
   ],
-  304: [
+  "Node:SetTilesViaFunction#1": [
     "-- ★★ SetTilesViaFunction(entities, width, height) ——★★ 活路径。",
     "--   ★★ 消费：forest_map.lua:563（在 ApplyPoisonTag 之后、编码之前）。",
     "--   ★★★ 时机很重要：★ 此时地块已烘焙（WorldGen_Commit 已完成），",
     "--     ★★★ 所以自定义函数可以**直接改已生成的像素**。",
   ],
-  309: [
+  "Node:SetTilesViaFunction#1+5": [
     "-- ★★★ self.custom_objects_data.data.node = self ——★ 写对了（对照 :298）。",
     "--   ★★★ 注意这里用的是 custom_objects_data 而函数名是 SetTilesViaFunction",
     "--     ★★★ 且参数是 custom_tiles_data ——★★ 等等，",
@@ -645,10 +645,10 @@ export const BEFORE = {
     "--     ★★ 但 :309-311 三处一致地错 ⇒ 可能是复制粘贴自 SetPopulateFunction。",
     "--   ⚠ 若竞技场/月亮房间真的用了 custom_tiles，★ 生成会崩或失效。",
   ],
-  310: [
+  "Node:SetTilesViaFunction#1+6": [
     "-- ★★ data.width / data.height ——★ 同样写到了错误的字段（见 :309）。",
   ],
-  312: [
+  "Node:SetTilesViaFunction#1+8": [
     "-- ★★ self.custom_objects_data.GeneratorFunction(self.id, entities, …)",
     "--   ★★ 注意 **entities 是第 2 个参数**（用户函数可以往里写实体），",
     "--   ★★ 且 ★ 它是**第三个参数**的位置（self.custom_objects_data, entities, data）。",

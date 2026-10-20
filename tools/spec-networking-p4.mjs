@@ -3,7 +3,7 @@
 // GetPlayerClientTable / 连接事件 / 好友管理器
 
 export const BEFORE = {
-  884: [
+  "JoinServerFilter#1": [
     "--★★★[JoinServerFilter —— ★ 「过滤器」钩子：★ 目前无条件通过]",
     "--   return true",
     "--   ★★★ 为什么有一个恒返回 true 的函数？",
@@ -13,7 +13,7 @@ export const BEFORE = {
     "--   ★★★ 这类「空钩子」是模组系统的常见手法：",
     "--     ★ 引擎不实现功能，只提供位置，让模组填。",
   ],
-  888: [
+  "CalcQuickJoinServerScore#1": [
     "--★★★★★[CalcQuickJoinServerScore —— ★★ 快速加入的服务器排序算法]",
     "--   ★★★ 签名：CalcQuickJoinServerScore(server) → 分数或 -1",
     "--   ★★★ 第 889-891 行注释（★ 契约说明）：",
@@ -39,7 +39,7 @@ export const BEFORE = {
     "--     · ping（:899）—— ★★ < 200ms 保证基本可玩。",
     "--   ★★★ 不满足任一条 → 第 915 行 return -1（拒绝）。",
   ],
-  901: [
+  "CalcQuickJoinServerScore#1+13": [
     "--★★★[第 901-912 行：★ 评分模型（★ 只在通过了硬性过滤后才计算）]",
     "--   ★★★ 加分项（★ 每条都有明确的意图）：",
     "--     ① :903 friend_playing        +10  ★★★ 最高权重",
@@ -65,7 +65,7 @@ export const BEFORE = {
     "--   ★★★ 全部条件用**同一行的尾随注释**标注（与本文件其他部分风格不同），",
     "--     ★ 说明这部分是「一行一规则」的快速写法。",
   ],
-  918: [
+  "LookupPlayerInstByUserID#1": [
     "--★★★[LookupPlayerInstByUserID —— ★ userid → 玩家实体的查找]",
     "--   ★★★ 签名：LookupPlayerInstByUserID(userid) → 玩家实体或 nil",
     "--   ★★★★ 第 919-923 行：遍历 AllPlayers 找 userid 匹配的。",
@@ -84,7 +84,7 @@ export const BEFORE = {
     "--     ★ ★ 对比 AllPlayers 若是 1000 人就需要索引表，但 DST 最多 8 人。",
     "--     ★→ 移植到 MMO 时必须改为 userid → entity 的哈希索引。",
   ],
-  927: [
+  "GetPlayerClientTable#1": [
     "--★★★[GetPlayerClientTable —— ★★ 客户端表的一个精妙修正]",
     "--   ★★★ 第 926 行原注释：\"returns the client table with only the players in",
     "--   it, removing the dedicate host object if needed\"",
@@ -115,7 +115,7 @@ export const BEFORE = {
     "--   ★★ 对比 networking.lua:936 的 GetPlayerClientTable 与 :918 的",
     "--     LookupPlayerInstByUserID —— 两个「玩家查找」的不同维度。",
   ],
-  945: [
+  "ClientAuthenticationComplete#1": [
     "--★★★[ClientAuthenticationComplete —— ★ 玩家认证完成事件]",
     "--   ★★★ 第 946-948 行：",
     "--     if TheWorld ~= nil and TheWorld:IsValid() then",
@@ -137,13 +137,13 @@ export const BEFORE = {
     "--   ★★★ 对比 :951 ClientDisconnected（同构，事件名不同）。",
     "--   ★ 这两个回调是「连接生命周期的两端」（连上 vs 断开）。",
   ],
-  951: [
+  "ClientDisconnected#1": [
     "--★★[ClientDisconnected —— 玩家断开连接事件]",
     "--   ★★★ 结构与 :945 完全同构，只换事件名 ms_clientdisconnected。",
     "--   ★★ 断连时游戏逻辑关心：「存档」「归还物品」「踢出投票」等清理。",
     "--   ★ ★ 交叉参考：:303 SerializeUserSession（断连前/后的存档时机）。",
   ],
-  958: [
+  "ClientDisconnected#1+7": [
     "--★★★[第 958 行：_friendsmanager —— ★ 本文件唯一的「模块级状态变量」]",
     "--   local _friendsmanager = nil",
     "--   ★★★ 这是本文件**第一个也是唯一一个** local 变量（在函数外）。",
@@ -155,7 +155,7 @@ export const BEFORE = {
     "--   ★★★ 下划线前缀 _ 表示「私有」（模块内可见，不导出为全局）。",
     "--   ★★★ 第 960-962 行的 UnregisterFriendsManager 就是清空它的函数。",
   ],
-  964: [
+  "RegisterFriendsManager#1": [
     "--★★★[RegisterFriendsManager —— ★★ UI 实例的注册与自动注销]",
     "--   function RegisterFriendsManager(widg)",
     "--       if _friendsmanager == nil then",
@@ -179,7 +179,7 @@ export const BEFORE = {
     "--   ★★★ 参见：prefabs/world.lua:944 的同类模式",
     "--     （focalpoint 的创建/销毁对称）。",
   ],
-  971: [
+  "Networking_PartyInvite#1": [
     "--★★★[Networking_PartyInvite —— ★★★ 好友系统的六个全局回调之一]",
     "--   ★★★ 文件末尾共有六个 party/friends 回调（:971/:977/:983/:989/:995/:999）：",
     "--     · Networking_PartyInvite      —— 收到组队邀请",
@@ -193,20 +193,20 @@ export const BEFORE = {
     "--     ★★ 全部先判空 —— 因为 UI 可能没开（回调到达与界面打开无关）。",
     "--   ★★★ 这些是「Steam 好友/组队」功能（C++ 层）向游戏逻辑的转接口。",
   ],
-  977: [
+  "Networking_JoinedParty#1": [
     "--★★ Networking_JoinedParty —— 加入组队后切到「队伍」标签页。",
     "--   ★★ 注意：回调不仅通知 UI，还**指定了 UI 行为**（SwitchToPartyTab）。",
     "--     ★ 即「状态变化 → 界面自动切换」。",
   ],
-  983: [
+  "Networking_LeftParty#1": [
     "--★★ Networking_LeftParty —— 离开组队后切回「好友」标签页。",
     "--   ★★ 与 :977 的 SwitchToPartyTab 配对（★ 切过去再切回来）。",
   ],
-  989: [
+  "Networking_PartyChanged#1": [
     "--★★ Networking_PartyChanged —— 组队变更时刷新队伍标签页。",
     "--   ★★ RefreshPartyTab（刷新而非切换）—— 保持当前标签，只更新内容。",
   ],
-  995: [
+  "Networking_PartyServer#1": [
     "--★★[Networking_PartyServer —— ★★ 唯一不用 friendsmanager 的回调]",
     "--   print(\"Party server: \"..ip..\":\"..tostring(port))",
     "--   ★★★ 为什么不走 _friendsmanager？",
@@ -216,7 +216,7 @@ export const BEFORE = {
     "--     ★★ 也可能是「尚未实现」—— 只有 print 说明功能未完成。",
     "--   ★★ 注意 tostring(port) —— ★ 防御性转字符串（port 可能是数字或字符串）。",
   ],
-  999: [
+  "Networking_PartyChat#1": [
     "--★ Networking_PartyChat —— 组队聊天消息。",
     "--   ★★ 与 :53 Networking_Say（世界聊天）的区别：",
     "--     · :53 是**世界内**聊天（进 ChatHistory，有聊天框）；",
@@ -226,7 +226,7 @@ export const BEFORE = {
 };
 
 export const AFTER = {
-  916: [
+  "CalcQuickJoinServerScore#1+28": [
     "--★★ CalcQuickJoinServerScore 结束（29 行）。★★ 一个「推荐算法」的完整样本：",
     "--   · ★★ 硬过滤（8 条件）→ 拒绝返回 -1；",
     "--   · ★★ 软评分（+10 到 -1）→ 分数越高越优先。",
@@ -235,21 +235,21 @@ export const AFTER = {
     "--     · ★ 硬过滤与软评分分离（「能不能进」vs「哪个更好」）。",
     "--   ★ ★ 房主托管排除（:894）是最反直觉但合理的设计（见 :894 分析）。",
   ],
-  924: [
+  "LookupPlayerInstByUserID#1+6": [
     "--★★ LookupPlayerInstByUserID 结束。★ userid → 实体（O(n) 遍历，DST 规模下可接受）。",
     "--   ★ ★ 与 Ents[guid]（networkclientrpc 大量使用）是不同的索引维度。",
   ],
-  943: [
+  "GetPlayerClientTable#1+16": [
     "--★★ GetPlayerClientTable 结束。★★ 关键：「房主托管 vs 专服托管」决定是否移除主机对象。",
     "--   ★ ★ 与 :918 LookupPlayerInstByUserID 一起构成本文件的两大「玩家查找」入口。",
   ],
-  955: [
+  "ClientDisconnected#1+4": [
     "--★★★ 连接事件区结束（:945/:951）。★★ 两个回调都是「世界事件转发」：",
     "--   · ms_clientauthenticationcomplete —— 认证完成（安全关口通过）；",
     "--   · ms_clientdisconnected —— 断开连接。",
     "--   ★ ★ 都带 TheWorld ~= nil and IsValid() 双重检查（世界可能已销毁）。",
   ],
-  1003: [
+  "Networking_PartyChat#1+4": [
     "--★★★★★ networking.lua 到此结束（1003 行）。★★ 全文件结构回顾（15 节）：",
     "--   §零   依赖与第二实例启动（1-20）—— os.execute 跨进程",
     "--   §一   聊天与公告（23-137）—— 1 基类 + 8 包装 + 1 可覆盖钩子",

@@ -1,14 +1,14 @@
 // spec-ui-frontend-p2.mjs —— frontend.lua 第 417-915 行
 // ★ OnControl 与 G3 补丁 / 淡入淡出系统 / 主 Update 循环
 export const BEFORE = {
-  418: [
+  "FrontEnd:OnFocusMove#1+15": [
     "-- 【ValidateLineNumber(418)】Klei 自研的**源码完整性哨兵**。",
     "-- 展开后是一个运行时断言：确认文件被反混淆/打补丁时行号没有漂移。",
     "-- ★ 本文件有 418/497 两处，正好框住下面这个函数——",
     "--   因为这是历史上被反复修改（V2C 补丁）因而最需要哨兵的位置。",
     "-- 参见 gamelogic.lua 中 ValidateLineNumber 的实现。",
   ],
-  419: [
+  "FrontEnd:OnControl#1": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- ★★★ 【FrontEnd:OnControl】—— 输入仲裁的 UI 侧，缺陷 G3 的核心现场。",
     "--",
@@ -29,7 +29,7 @@ export const BEFORE = {
     "--   详见 439 行处的完整分析。",
     "-- ════════════════════════════════════════════════════════════════",
   ],
-  420: [
+  "FrontEnd:OnControl#1+1": [
     "-- ★★ 421-423 行处理一个具体场景：文本框正在被强制处理输入",
     "--   （textProcessorWidget 见 1176 SetForceProcessTextInput），",
     "--   此时玩家在别处点了左键（CONTROL_PRIMARY 且 !down = 抬起帧），",
@@ -41,7 +41,7 @@ export const BEFORE = {
     "--   用键盘 Tab / 方向键移动焦点出文本框**不会**触发它，",
     "--   只能靠 1193 OnRawKey 里的路径（若 textedit 自己实现了）。",
   ],
-  425: [
+  "FrontEnd:OnControl#1+6": [
     "-- ★★★ self.isprimary —— 「本次输入是否来自主键」。",
     "--   为什么需要这个全局状态？",
     "--   → widgets/button.lua:64 `if control == self.control and (not self.mouseonly",
@@ -61,7 +61,7 @@ export const BEFORE = {
     "--   推理依据：isprimary 是 self 上的共享可变状态，无栈式保存/恢复。",
     "--   参见 widgets/button.lua:64 的消费点。",
   ],
-  426: [
+  "FrontEnd:OnControl#1+7": [
     "-- ★★ 426-428 门禁返回的是 **false**（不是 true），与 404-405 的",
     "--   OnFocusMove 门禁（返回 true）**刻意相反**。",
     "--   推理：这里返回 false 意味着「UI 不吃，让游戏层去处理」。",
@@ -73,14 +73,14 @@ export const BEFORE = {
     "--     · 主键淡出时透传给游戏（OnControl return false）",
     "--   实践后果：淡出时点左键可能触发一次攻击/交互。",
   ],
-  429: [
+  "FrontEnd:OnControl#1+10": [
     "-- ⚠ 429 行原注释 \"--handle focus moves\" 是**错位的旧注释**：",
     "--   它的缩进（4 空格）暗示它属于 428 的 return 之后的分支，",
     "--   但实际上它描述的是「本分支负责焦点移动」——而焦点移动",
     "--   真正由 433-435 的 screen:OnControl 间接完成（由 Screen 遍历焦点链）。",
     "--   ⇒ 注释与代码的对应关系有偏移，读代码时不要被它误导。",
   ],
-  431: [
+  "FrontEnd:OnControl#1+12": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- ★★★ 【CONTROL_PRIMARY → CONTROL_ACCEPT 映射】—— 必须讲清楚。",
     "--",
@@ -117,7 +117,7 @@ export const BEFORE = {
     "--   但这属于「条件顺序耦合」的脆弱写法。",
     "-- ════════════════════════════════════════════════════════════════",
   ],
-  433: [
+  "FrontEnd:OnControl#1+14": [
     "-- ★ 条件换行写法：433 行末尾是 `elseif #self.screenstack > 0`",
     "--   而 434 行才 `and not (...)`。Lua 允许条件跨行，",
     "--   ★ 注意此处**不是**「433 单独构成条件」——",
@@ -125,17 +125,17 @@ export const BEFORE = {
     "-- ⚠ 这种把 `and` 放到下一行缩进里的写法极易误读：",
     "--   视觉上 434-435 像是独立语句。实际不是。",
   ],
-  435: [
+  "FrontEnd:OnControl#1+16": [
     "-- ★★ 435 行：真正的 UI 消费点——把 control 交给栈顶屏幕。",
     "--   screen:OnControl → widget.lua:124 → 逐层下钻有焦点的子节点。",
     "--   ★ 注意这里**每次都做一遍映射**（同样的表达式在 434 也出现一次），",
     "--     属于重复计算；因为映射是廉价的纯函数，无性能问题。",
   ],
-  437: [
+  "FrontEnd:OnControl#1+18": [
     "-- ★ 437 行 isprimary = false —— UI 消费了，所以不再是「主键输入」。",
     "--   配合 425 行，语义完整：isprimary 只在「本次输入会流向 UI 按钮」时为真。",
   ],
-  439: [
+  "FrontEnd:OnControl#1+20": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- ★★★★★ 【缺陷 G3 完整分析】#FIX_LEFT_CLICK_UI_TRIGGERS_AUTO_ATTACK",
     "--",
@@ -204,7 +204,7 @@ export const BEFORE = {
     "--   ⇒ 这是「事后打补丁」vs「前置仲裁」两种架构的教科书对照。",
     "-- ════════════════════════════════════════════════════════════════",
   ],
-  443: [
+  "FrontEnd:OnControl#1+24": [
     "-- ★ 三重守卫 `player and player.sg and player.sg.statemem`：",
     "--   · player 非 nil —— 菜单界面里 ThePlayer 是 nil（主菜单没有角色）",
     "--   · sg 非 nil —— 没有状态图的角色（部分 prefab / 观战模式）",
@@ -215,7 +215,7 @@ export const BEFORE = {
     "--     SGwilson 的某个 onenter 正在设置 retarget（SGwilson.lua:10343），",
     "--     两者执行顺序取决于事件派发次序，无保证。",
   ],
-  444: [
+  "FrontEnd:OnControl#1+25": [
     "-- ★★ 444-445 是补丁里最精细的部分，也是最容易被误改的部分：",
     "--   `not (IsControlPressed(CONTROL_ATTACK) or IsControlPressed(CONTROLLER_ATTACK))`",
     "--   语义：「只有当玩家**没有**在按真正的攻击键时，才清retarget」。",
@@ -227,12 +227,12 @@ export const BEFORE = {
     "--   对 CONTROL_PRIMARY（非虚拟码）直接原样返回（input.lua:348）。",
     "--   ⇒ 逻辑上没有绕过，但这个依赖是隐式的。",
   ],
-  449: [
+  "FrontEnd:OnControl#1+30": [
     "-- 一个孤立的 `--` 行：纯粹为了在视觉上标记补丁结束区。",
     "-- ★ 这是「补丁区标记」的好习惯——后来者一眼能看出",
     "--   哪几行是为了绕 bug 而存在的、不能在重构时丢掉。",
   ],
-  452: [
+  "FrontEnd:OnControl#1+33": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- 段 7/8：调试快捷键（452-488）",
     "-- ★ 四条分支全部 `not down`（只在抬起时触发）——",
@@ -241,14 +241,14 @@ export const BEFORE = {
     "--     误触发代价大，所以要求「明确地按下去再松开」。",
     "--────────────────────────────────────────────────────────────────",
   ],
-  466: [
+  "FrontEnd:OnControl#1+47": [
     "-- ★ 462-469 日志开关：同一分支里做 toggle。",
     "--   464 行 `if self.consoletext.shown` 检查的是 **shown 字段**",
     "--   （widget.lua:24 初始化为 true，但 62 行构造时调了 Hide()置 false），",
     "--   ⇒ 于是初始状态是「日志关」。状态与 widget.lua:311-323 的",
     "--     shown 语义一致。",
   ],
-  471: [
+  "FrontEnd:OnControl#1+52": [
     "-- ★★ 471-488 物理渲染切换。473-479 的原注释是又一处「考古笔记」：",
     "--   \"--V2C: Special logic when text edit has focus, and assuming",
     "--      CONTROL_TOGGLE_DEBUGRENDER will always be BACKSPACE.\"",
@@ -263,7 +263,7 @@ export const BEFORE = {
     "--   ③ 这是「局部重复优于过度抽象」的正确示范，与 D5 的",
     "--      「结构性重复」形成对照（区别在于：触发条件唯一且罕见）。",
   ],
-  481: [
+  "FrontEnd:OnControl#1+62": [
     "-- ★ 481 行 `screenstack[#self.screenstack]:IsEditing()` ——",
     "--   递归检查整棵控件树里有没有处于编辑态的文本框。",
     "--   实现见 widget.lua:145-158（IsEditing 递归 children）。",
@@ -272,14 +272,14 @@ export const BEFORE = {
     "--     前面 476-479 的注释所说的「又遍历一遍」指的是",
     "--     「又自己实现一遍遍历」，而非「重复调用」。",
   ],
-  483: [
+  "FrontEnd:OnControl#1+64": [
     "-- ⚠ 483 行 `elseif TheInput:IsKeyDown(KEY_CTRL)` ——",
     "--   这里的按键状态查询**绕过了 input.lua 的语义层**，",
     "--   直接读 TheSim:IsKeyDown（input.lua:297-299）。",
     "--   ⇒ 与 G3 同源的架构问题：存在两条并行的输入读取路径",
     "--     （事件 vs 状态查询），二者的仲裁无法统一。",
   ],
-  490: [
+  "FrontEnd:OnControl#1+71": [
     "-- ⚠ 490-493 是一段被注释掉的 elseif：",
     "--     elseif control == CONTROL_CANCEL then",
     "--         return screen:OnCancel(down)",
@@ -290,21 +290,21 @@ export const BEFORE = {
     "--   所以即使取消注释也不会工作（会取到全局 screen = nil）。",
     "--   ⇒ 双重失效，说明这段代码早就是纯历史文本了。",
   ],
-  495: [
+  "FrontEnd:OnControl#1+76": [
     "-- ★ 495 行：兜底清零 isprimary 并隐式返回 nil。",
     "--   ⇒ 「UI 没吃掉」= 返回 nil（falsy）→ input.lua:166 的",
     "--     `not TheFrontEnd:OnControl(...)` 为真 → 广播给游戏层。",
     "--   这就是完整的仲裁闭环。",
   ],
-  497: [
+  "FrontEnd:OnControl#1+78": [
     "-- 第二个 ValidateLineNumber——框住 OnControl 函数的结束（497 行 = `end`）。",
   ],
-  499: [
+  "FrontEnd:ShowTitle#1": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- 段 8/8：标题淡入淡出（499-551）",
     "-- ════════════════════════════════════════════════════════════════",
   ],
-  507: [
+  "FrontEnd:ShowTitle#1+8": [
     "-- ★ fade_time = 2 —— 标题淡入淡出的**总时长**（秒）。",
     "-- ★ 用 local 而非 self.fade_time 是刻意的：self.fade_time 是",
     "--   **全屏淡入淡出**（Fade）的计时器（1036行），两者不同源。",
@@ -312,7 +312,7 @@ export const BEFORE = {
     "--   ⚠ 仍是同类问题：两个模块都在做淡入淡出，却各有一套状态字段",
     "--     （fade_title_* vs fadedir/fade_time/fade_type）。",
   ],
-  509: [
+  "FrontEnd:DoTitleFade#1": [
     "-- ★★ DoTitleFade(dt) —— 标题动画的逐帧推进。",
     "-- 511 行 `dt = math.min(dt, 1/30)`：**钳制步长**。",
     "--   ⇒ 防止卡顿（dt 很大）时一帧把动画跳完，导致动画「闪过去」。",
@@ -321,7 +321,7 @@ export const BEFORE = {
     "-- ★ 对比 653 行 `dt = math.min(dt, FRAMES)`：全屏淡出用的是",
     "--   FRAMES（每帧时长），钳制上限更大。⇒ 两种淡出用不同钳制策略。",
   ],
-  518: [
+  "FrontEnd:DoTitleFade#1+9": [
     "-- ★★ easing.inOutCubic(t, from, delta, duration) —— 缓动签名。",
     "--   t 当前时间、from 起点值、delta 变化量、duration 总时长。",
     "--   0→2 秒之间 alpha 从 0 走到 1（delta=1）。",
@@ -335,17 +335,17 @@ export const BEFORE = {
     "--     fade_title_time 停在 0 → alpha = 0 → 标题透明。",
     "--     而 541 行 HideTitle 同时调了 title:Hide()，双保险。",
   ],
-  523: [
+  "FrontEnd:DoTitleFade#1+14": [
     "-- 淡入完成 → 启动全屏 tile 淡出（StartTileFadeOut）。",
     "-- ★ 「标题先淡入，标题稳了才把画面淡掉」——这是一个两段式转场。",
   ],
-  541: [
+  "FrontEnd:HideTitle#1": [
     "-- ★★ HideTitle 同时做三件事：Hide 控件 + 清两个动画标志 + 清计时器。",
     "--   缺任何一个都会留下「淡出还在跑但控件已隐藏」的中间态。",
     "--   ⇒ 这是应对 G4「OnBecomeActive/Inactive 不成对」的正确姿势：",
     "--     把状态收敛集中在一个显式的重置函数里。",
   ],
-  549: [
+  "FrontEnd:LockFocus#1": [
     "-- ★★ LockFocus(lock) —— 焦点总闸。",
     "--   唯一读者是 404 行 OnFocusMove 与 926 行 DoHoverFocusUpdate。",
     "--   ★ 注意它**不影响** OnControl/OnMouseButton——",
@@ -353,12 +353,12 @@ export const BEFORE = {
     "--   ⇒ 语义是「禁止键盘/手柄改焦点」，不是「禁止一切输入」。",
     "--   名字LockFocus 容易被误读为后者。",
   ],
-  553: [
+  "FrontEnd:SendScreenEvent#1": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- 段 9/8：服务转发与淡入淡出系统（553-692）",
     "-- ════════════════════════════════════════════════════════════════",
   ],
-  553: [
+  "FrontEnd:SendScreenEvent#1": [
     "-- SendScreenEvent —— 向栈顶屏幕转发一个自定义事件。",
     "-- ★ 与 widget.lua:401 HookCallback 的区别：",
     "--   HookCallback 挂在**实体事件总线**上（inst:ListenForEvent，",
@@ -366,7 +366,7 @@ export const BEFORE = {
     "--   SendScreenEvent 是**手动转发**给屏幕的 HandleEvent（screen.lua:61）。",
     "--   ⇒ 前者被动（等事件），后者主动（代码显式调用）。",
   ],
-  575: [
+  "FrontEnd:SetFadeLevel#1": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- ★★★ 【SetFadeLevel】—— 淡出强度的唯一写入点。",
     "--",
@@ -385,13 +385,13 @@ export const BEFORE = {
     "--     它在控件禁用时**关闭**自动暂停。所以淡出期间 = 不自动暂停。",
     "--────────────────────────────────────────────────────────────────",
   ],
-  578: [
+  "FrontEnd:SetFadeLevel#1+3": [
     "-- ★★ alpha <= 0 分支：淡出结束，隐藏所有遮罩。",
     "--   578-590 逐一 Hide 四个 bottom + 四个 top 遮罩。",
     "--   ★ 579 行 `if self.blackoverlay ~= nil` 的判空是因为",
     "--     console / 专用服务器上部分遮罩不会被创建（197-208 同理）。",
   ],
-  591: [
+  "FrontEnd:SetFadeLevel#1+16": [
     "-- ★★★ \"alpha\" 模式的收尾：把屏幕子控件的 alpha **强制恢复为 1**。",
     "-- 591-598：`if self.fade_type == \"alpha\" then ... v:SetFadeAlpha(1) end`",
     "-- ★★ 官方在 1029-1031 的原注释正是警告这件事：",
@@ -412,7 +412,7 @@ export const BEFORE = {
     "--   ★ 使用场景被限定为「进入 sim 重置」——即整个世界重建，",
     "--     屏幕状态不复用，所以副作用无害。",
   ],
-  599: [
+  "FrontEnd:SetFadeLevel#1+24": [
     "-- ★ white 分支：白遮罩 + 暗角，四个控件同show。",
     "-- ★ 604-607 的 `if not self.topFadeHidden then` 只包住 Show，",
     "--   而 608-609 的 SetTint 在 if 外——",
@@ -420,7 +420,7 @@ export const BEFORE = {
     "--   这是无害的不对称，但说明 HideTopFade（277）只是「视觉隐藏」，",
     "--   状态仍被维护。",
   ],
-  610: [
+  "FrontEnd:SetFadeLevel#1+35": [
     "-- ★★★ alpha 模式的核心：610-616 逐个设置屏幕子控件的 alpha。",
     "-- 614 行原注释解释了一个容易搞反的方向：",
     "--   `-- \"alpha\" here is the intensity of the fade, 1 is full intensity, so 0 widget alpha`",
@@ -430,7 +430,7 @@ export const BEFORE = {
     "--   而 593 行只有 `screen and screen.children`（children 在 Widget 构造时",
     "--   必定存在，widget.lua:3）——593 的判空其实够用，612 更保守。",
   ],
-  624: [
+  "FrontEnd:SetFadeLevel#1+49": [
     "-- ★ swipe 分支：632-644 是本函数最复杂的部分。",
     "-- 632 行原注释：\"--progress should be a float from 0 to 1 over the whole",
     "-- fade in and out\"",
@@ -449,13 +449,13 @@ export const BEFORE = {
     "--   ★★ phase_1（0/1）是着色器的「方向开关」而非进度的一部分——",
     "--     这就是为什么 top 层与 bottom 层初始 progress 不同（99 vs 111）。",
   ],
-  648: [
+  "FrontEnd:GetFadeLevel#1": [
     "-- GetFadeLevel —— alpha 的唯一读取封装。",
     "-- ★ 三个读者：397 IsControlsDisabled、896 提示条显隐、",
     "--   widgets/button.lua:108 OnGainFocus 里的音效抑制。",
     "--   ⇒ 「淡出中不要播 hover 音效」——一个小但体贴的细节。",
   ],
-  652: [
+  "FrontEnd:DoFadingUpdate#1": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- ★★ 【DoFadingUpdate】—— 全屏淡入淡出的状态机。",
     "--",
@@ -470,17 +470,17 @@ export const BEFORE = {
     "--   delayovercb 是延迟结束时的回调，660 行执行后立刻置 nil（防重入）。",
     "--────────────────────────────────────────────────────────────────",
   ],
-  653: [
+  "FrontEnd:DoFadingUpdate#1+1": [
     "-- ★ dt = math.min(dt, FRAMES) —— 钳制到一帧时长。",
     "--   比 511 行的 1/30 更宽松（FRAMES 通常是 1/30~1/60）。",
     "--   ⇒ 目的相同（防卡顿跳帧），但全屏淡出对时间准确度要求更高，",
     "--     所以钳制上限更大。",
   ],
-  665: [
+  "FrontEnd:DoFadingUpdate#1+13": [
     "-- ★ fade_time 累加 —— 与 1036 行 Fade 的初始化 `self.fade_time = 0` 配对。",
     "--   三个字段（fadedir / total_fade_time / fade_time）构成完整计时状态。",
   ],
-  668: [
+  "FrontEnd:DoFadingUpdate#1+16": [
     "-- ★★ FADE_IN 的 alpha 曲线：easing.inOutCubic(t, 1, -1, total)。",
     "--   from=1, delta=-1 ⇒ alpha 从 1 降到 0。",
     "--   ★ 669-670 的 `total_fade_time == 0` 特判：总时长为0 时",
@@ -491,7 +491,7 @@ export const BEFORE = {
     "--     682 行再 SetFadeLevel(alpha=0)——即**瞬间跳到透明**。",
     "--     total=0 的 Fade 实际就是「瞬切」。",
   ],
-  683: [
+  "FrontEnd:DoFadingUpdate#1+31": [
     "-- ★★★ 过渡结束处理：683-690。",
     "-- 684 行 fadedir = nil → 回到「空闲」状态。",
     "-- 685-689 fadecb 的执行顺序值得注意：",
@@ -501,12 +501,12 @@ export const BEFORE = {
     "--   ⇒ 「先清后调」是事件回调的标准防重入姿势，",
     "--     与 660 行 delayovercb 的处理同构。",
   ],
-  694: [
+  "FrontEnd:UpdateConsoleOutput#1": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- 段 10/8：控制台日志与连发延时（694-709）",
     "-- ════════════════════════════════════════════════════════════════",
   ],
-  694: [
+  "FrontEnd:UpdateConsoleOutput#1": [
     "-- UpdateConsoleOutput —— 把 C++ 控制台缓冲区搬进文本控件。",
     "-- ★⚠ 性能问题（每帧执行，752-754 行无条件调用）：",
     "--   `table.concat(GetConsoleOutputList(), \"\\n\")` 每帧重建整个字符串，",
@@ -517,7 +517,7 @@ export const BEFORE = {
     "--     正确做法应是 C++ 侧推事件（与 730 行 serverpausewidget:UpdateText",
     "--     相反，后者是**推**模式）。",
   ],
-  700: [
+  "FrontEnd:_RefreshRepeatDelay#1": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- ★★ 【_RefreshRepeatDelay】—— 三档连发速度的选择。",
     "--",
@@ -536,7 +536,7 @@ export const BEFORE = {
     "--   ⇒ ★ 两类玩家体验不同，这是**无意**还是有意无法确定。",
     "--────────────────────────────────────────────────────────────────",
   ],
-  710: [
+  "FrontEnd:Update#1": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- ★★★ 【FrontEnd:Update(dt)】—— 前端主循环（710-912）。",
     "--",
@@ -559,19 +559,19 @@ export const BEFORE = {
     "--     被遮挡的屏幕处于「半冻结」状态。",
     "--────────────────────────────────────────────────────────────────",
   ],
-  719: [
+  "FrontEnd:Update#1+9": [
     "-- ★ local controller = TheInput:ControllerAttached() —— 全函数只用一次",
     "--   （817-820/838-850 的 `not controller` 判断）。",
     "--   ★ 这些判断的含义：**手柄玩家与键鼠玩家走不同的导航键集合**。",
     "--     键鼠用 CONTROL_FOCUS_*，手柄用 VIRTUAL_CONTROL_INV_*。",
     "--     ⇒ 这是「同一逻辑、不同物理来源」的第二处映射。",
   ],
-  721: [
+  "FrontEnd:Update#1+11": [
     "-- ★ `saving_indicator ~= nil and saving_indicator.shown` ——",
     "--   PC 上第一个条件永远为 false（主机专属）。",
     "--   721-750 整段在 PC 上是空操作。",
   ],
-  722: [
+  "FrontEnd:Update#1+12": [
     "-- ★ 淡出状态机（722-742）。三个子状态：",
     "--   save_indicator_fade == \"in\"  → 正在淡入（alpha 由剩余时间反算）",
     "--   save_indicator_fade == \"out\" → 正在淡出",
@@ -582,22 +582,22 @@ export const BEFORE = {
     "--     而 726-734 的 if 分支处理「fade_time < 0 即动画结束」。",
     "--     ⇒ 结束判定优先于速率计算，顺序正确。",
   ],
-  731: [
+  "FrontEnd:Update#1+21": [
     "-- ★ 淡出完成 → ForceStopWallUpdating + Hide。",
     "--   ForceStopWallUpdating（widget.lua:222）在主机上会短路",
     "--   （IsConsole() 检查），因为主机上本来就是逐帧更新。",
   ],
-  744: [
+  "FrontEnd:Update#1+34": [
     "-- ★★ 「开始计时淡出」的双条件：745 行",
     "--   `if self.num_pending_saves <= 0 and self.save_indicator_time_left <= 0`。",
     "--   ⇒ **必须所有存档都完成** 且 **至少显示过3 秒**（259 行赋值）。",
     "--   这就是 271-275 只减计数不隐藏的兑现处。",
   ],
-  763: [
+  "FrontEnd:Update#1+53": [
     "-- ★★ `if not self:IsControlsDisabled() then` —— 整个连发逻辑的门禁。",
     "--   ⇒ 淡出中不产生连发。与 404OnFocusMove 的门禁呼应。",
   ],
-  765: [
+  "FrontEnd:Update#1+55": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- ★★ 【三套连发机制】765-871 行。它们结构完全同构，但语义不同：",
     "--",
@@ -634,7 +634,7 @@ export const BEFORE = {
     "--        856 行 self.repeat_time = REPEAT_TIME 在这一分支里被重置。",
     "--────────────────────────────────────────────────────────────────",
   ],
-  772: [
+  "FrontEnd:Update#1+62": [
     "-- ★★ 「首次按下立刻触发」的实现：",
     "--   spinner_repeat_time 初值 -1 → `< 0` 分支把它设成 (0.25 - dt)。",
     "--   ★ 所以首次触发发生在**下一次**Update，而不是本次。",
@@ -642,7 +642,7 @@ export const BEFORE = {
     "--   ⇒ 按下与首次生效之间有 1 帧延迟。这是所有连发机制的共性代价。",
     "--────────────────────────────────────────────────────────────────",
   ],
-  787: [
+  "FrontEnd:Update#1+77": [
     "-- ★★ 788-791 行：滚轮 vs 肩键的不同节流。",
     "--   ⚠ 推理依据：MOUSE_SCROLL_REPEAT_TIME = 0 意味着 793 行",
     "--     `repeat_time > dt` 为假 → 直接走 else 分支（795-796）→ 立即触发。",
@@ -650,13 +650,13 @@ export const BEFORE = {
     "--   ★ 这依赖滚轮硬件自带连发。若玩家把滚轮映射到某个",
     "--     「可连发」的输入源上，会变成疯狂滚动。",
   ],
-  811: [
+  "FrontEnd:Update#1+101": [
     "-- ★ 原注释 \"--Menu nav repeat\" + \"--skip while editing a text box\"",
     "--   两行注释精确概括了 811-871 的两件事：",
     "--   ① 这是菜单导航的连发；",
     "--   ② 文本框编辑时跳过（835 行的条件）。",
   ],
-  816: [
+  "FrontEnd:Update#1+106": [
     "-- ★ crafting_navigation_mode —— 「物品栏导航模式」开关。",
     "--   ★ 由外部（inventorybar 之类）设置。开启后：",
     "--     · 方向键变成「在物品栏格子间移动光标」而非「在菜单间移动焦点」",
@@ -664,7 +664,7 @@ export const BEFORE = {
     "--     · 897 行还禁止了手柄提示条的显示",
     "--   ⇒ 这是一个**UI 模式开关**，与手柄/键鼠无关。",
   ],
-  817: [
+  "FrontEnd:Update#1+107": [
     "-- ★★ 817-820 行的 `not controller and TheInput:IsControlPressed(CONTROL_FOCUS_*)`",
     "--   是全文件最绕的一处：",
     "--   `not controller and X` ≡ `not (controller and X)`",
@@ -674,7 +674,7 @@ export const BEFORE = {
     "--   ★ 这也是「UI 层做输入源仲裁」的典型代价：",
     "--     判定被摊进每个消费点，而不是集中在一处。",
   ],
-  835: [
+  "FrontEnd:Update#1+125": [
     "-- ★★ `elseif not (self.textProcessorWidget ~= nil) then` ——",
     "--   等价于 `elseif self.textProcessorWidget == nil then`，",
     "--   但写成了双重否定。⚠ 这行同时也是 813 的 else：",
@@ -683,7 +683,7 @@ export const BEFORE = {
     "--   ★ 缺一个分支：**不在冷却中** 但 **有文本框** → 什么都不做。",
     "--     这是正确的（文本框独占输入），但隐式依赖 813 的条件为假。",
   ],
-  836: [
+  "FrontEnd:Update#1+126": [
     "-- ★★ `self.repeat_reps and (self.repeat_reps + 1) or 1` ——",
     "--   连发次数自增。初值 227 行是 0，所以第一次走 or 分支取 1。",
     "--   ★ repeat_reps 的消费者是 701-703 的三档选择。",
@@ -691,19 +691,19 @@ export const BEFORE = {
     "--     但 227 行已明确初始化为 0 ⇒ 这里的 nil 保护是多余的。",
     "--     历史遗留。",
   ],
-  873: [
+  "FrontEnd:Update#1+163": [
     "-- ★ DoHoverFocusUpdate —— 鼠标焦点跟随的每帧更新。",
     "--   必须在所有连发逻辑**之后**调用：",
     "--   因为方向键导航（861-865）刚刚把焦点移走，",
     "--   若先跑hover 更新就会立刻把焦点抢回鼠标位置。",
     "--   ⇒ 这是「事件驱动的焦点变化必须晚于状态驱动的焦点同步」的顺序要求。",
   ],
-  876: [
+  "FrontEnd:Update#1+166": [
     "-- OnRenderImGui —— 调试面板渲染（1580 定义）。",
     "-- ★ 放在连发逻辑之后、控件更新之前，保证调试面板看到的是",
     "--   本帧最新的输入状态。",
   ],
-  878: [
+  "FrontEnd:Update#1+168": [
     "-- ════════════════════════════════════════════════════════════════",
     "-- ★★★ 【控件更新循环】878-892 —— DST UI 性能的核心设计。",
     "--",
@@ -728,7 +728,7 @@ export const BEFORE = {
     "--     ⚠ 微小浪费：可以直接看k:IsEnabled()，但那样会多一次递归。",
     "--────────────────────────────────────────────────────────────────",
   ],
-  894: [
+  "FrontEnd:Update#1+184": [
     "-- ★★ 894-909 手柄提示条的显示逻辑。四道门禁：",
     "--   894      先无条件 Hide（保证每帧从干净状态开始）",
     "--   895      controller 或 showhelptextforeverything（调试开关，914-923）",
@@ -740,20 +740,20 @@ export const BEFORE = {
     "--   ⚠ 推理：黑场淡出通常伴随场景切换（进游戏），提示条无意义；",
     "--     白场淡出（亮光）时游戏还在，提示条仍有价值。",
   ],
-  900: [
+  "FrontEnd:Update#1+190": [
     "-- ★★ 901 行 `if str ~= self.helptextstring then` —— 缓存键比较。",
     "--   ★ 只在文本**内容变化**时才重排版（903行很贵）。",
     "--   ⇒ 若焦点在两个文本相同的控件间移动，不重排——",
     "--     正确的优化，因为视觉结果相同。",
   ],
-  903: [
+  "FrontEnd:Update#1+193": [
     "-- ★★ SetMultilineTruncatedString(str, max_lines, max_width, max_chars, ..., \"  \")",
     "--   —— 多行 + 超宽截断，返回**实际行数**。",
     "--   最后那个 \"  \" 是行内分隔符（与 365 行的 table.concat 分隔呼应）。",
     "--   ★ 返回值 num_lines 直接喂给 904 行 UpdateHelpTextSize 决定背景高度。",
     "--   ★ 这是「测量与渲染分离」：Text 负责测量，FrontEnd 负责布局。",
   ],
-  911: [
+  "FrontEnd:Update#1+201": [
     "-- ProfilerPop —— 与 878 行配对。",
     "-- ⚠ 891行从 alt 摘除而883-885 每帧重新拷贝，等于每帧全量搬运一次表。",
     "--   若 updating_widgets 有 N 项，每帧做 N 次插入。",

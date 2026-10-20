@@ -118,7 +118,7 @@ export default {
   ],
 
   // ══════════════ Visit ══════════════
-  43: [
+  "Wander:Visit#1": [
     '--★★ Visit —— 本文件用 if/elseif 链式结构（不是别处的顺序双 if）。',
     '--   READY 段做一次初始化；RUNNING 段是主循环。',
     '--★ 本节点**永不写 SUCCESS / FAILED 终态**，status 会一直是 RUNNING。',
@@ -128,21 +128,21 @@ export default {
     '--   · 「任务型」行为（chaseandattack / approach）有明确完成点，必须写终态',
     '--   ★ 移植要点：先判断你的行为属于哪一类，再决定要不要设计终态。',
   ],
-  45: [
+  "Wander:Visit#1+2": [
     '--★ 先 Stop locomotor 再 Wait —— 进场即静止，不带上一段行为的移动惯性。',
     '--★ 与 chaseandattack 第 24 行的「进入时清场」同一思想。',
   ],
-  46: [
+  "Wander:Visit#1+3": [
     '--★★ 初始等待时长 = minwaittime + random()*randwaittime（默认 1~4 秒）。',
     '--   Wait 内部同时做了两件事（见第 105-108 行）：设 waittime 与调 Sleep。',
     '--★ 所以「进入漫游」的第一个动作是**站着发呆**，而不是立刻走。',
     '--   ★ 观感要点：生物不应在进入状态瞬间就动，先有一个停顿更自然。',
   ],
-  47: [
+  "Wander:Visit#1+4": [
     '--★ walking = false —— 与 waittime 配套，表示「当前处于等待/站立阶段」。',
     '--★ 这就是本文件的**内层二态小状态机**（对比 follow 的三态 action）。',
   ],
-  49: [
+  "Wander:Visit#1+6": [
     '--★★ RUNNING 段入口。四个分支的判断顺序很有讲究：',
     '--   ① 第 50 行 正在站 且 已离家太远 → 立刻选方向回家（最高优先级，打断等待）',
     '--   ② 第 54 行 时间到了 → 决定继续走还是站住',
@@ -150,7 +150,7 @@ export default {
     '--   ④ 第 64 行 没到时间 且 在走 → 检查是否被什么挡住了',
     '--★ 优先级设计：安全约束（不能离家太远）> 时间节拍 > 细节维护。',
   ],
-  50: [
+  "Wander:Visit#1+7": [
     '--★★★ 打断条件：站着 + 已超出活动半径 → 立刻重新选方向。',
     '--★ 这样「离家太远」会**优先于等待时间**生效，生物不会在远处傻站。',
     '--★ 这是「约束打断节拍」的正确写法：约束比节奏更重要。',
@@ -158,7 +158,7 @@ export default {
     '--   与第 55 行的第三个条件相比少了 no_wait_time ——',
     '--   因为第 55 行那种情况「本来就不会 HoldPosition」，无需重复处理。',
   ],
-  54: [
+  "Wander:Visit#1+11": [
     '--★★ 等待时间到 → 该决定下一步了。',
     '--★ 第 55 行的三选一条件：',
     '--   not self.walking            —— 没在走，必然要选新方向（不能站着选方向）',
@@ -167,7 +167,7 @@ export default {
     '--★★ 第 55 行还是这一整段里唯一的 else 分支（HoldPosition）在的 if，',
     '--   所以整段结构是 if(该继续走) then 选方向 else 站住 end。',
   ],
-  64: [
+  "Wander:Visit#1+21": [
     '--★★★ 走在路上但时间没到 → 检查「还打算往前走吗」。',
     '--   WantsToMoveForward 为假 = 被什么东西挡住了（墙、其他生物、到达目标点）。',
     '--★ 此时提前进入 HoldPosition（停下并重置计时），',
@@ -179,7 +179,7 @@ export default {
     '--★ 对照第 5 行的参数文档：「若行走时间太长，到达目标点后只会站着不动」——',
     '--   正是靠第 64-66 行这个检查实现的，文档与实现严格对应。',
   ],
-  62: [
+  "Wander:Visit#1+19": [
     '--★★ self:Sleep(剩余时间) —— 让大脑睡到等待期结束。',
     '--   本文件唯一的 Sleep 调用点。',
     '--★★ 这是比硬编码 .25 更精细的做法（对比 follow/approach 的固定 .25）：',
@@ -193,12 +193,12 @@ export default {
   ],
 
   // ══════════════ 调试输出 ══════════════
-  72: [
+  "tostring_float#1": [
     '--★ 局部辅助函数：安全地把浮点数格式化成两位小数。',
     '--★ `f and ... or tostring(f)` 的双重兜底：nil 时输出 "nil" 而非报错。',
     '--★ 这类「格式化 + 兜底」的小函数是调试输出的标配，抄走即可。',
   ],
-  76: [
+  "Wander:DBString#1": [
     '--★★★ DBString —— 本文件信息密度最高的调试输出，五个字段：',
     '--   阶段(walk/wait) / 剩余秒数 / 家位置 / 距家距离 / 意图(Go Home 或 Go Wherever)',
     '--★ 最后一个字段尤其有用：它直接告诉你 AI 当前的目标模式。',
@@ -209,29 +209,29 @@ export default {
   ],
 
   // ══════════════ 家的相关谓词 ══════════════
-  86: [
+  "Wander:GetHomePos#1": [
     '--★ GetHomePos：家可以是坐标，也可以是函数（每次调用重新求值）。',
     '--   ★ 与 leashandavoid 第 64 行完全同构 —— DST 的「家」是统一的动态概念。',
   ],
-  90: [
+  "Wander:GetDistFromHomeSq#1": [
     '--★ GetDistFromHomeSq：无家时返回 nil（而不是 0 或一个假距离）。',
     '--   ★ nil 的意义是「无法判断」，让第 97 行的 IsFarFromHome 返回 false，',
     '--     即「没有家就不算离家远」—— 这是合理的默认。',
     '--★ 对比 leashandavoid 第 72 行用 and/or 的写法，这里用显式 and ... or nil，',
     '--   同样依赖「0 为真值」，结论一致。',
   ],
-  95: [
+  "Wander:IsFarFromHome#1": [
     '--★ IsFarFromHome：homedistsq 非 nil（有家）且 超出 max_dist。',
     '--★ 第 97 行的 `~= nil and` 是必需的 —— 没有它，无家时 nil > x 会直接报错。',
     '--★ 这是全文件最该注意的 nil 防御：无家是一种合法配置，不是异常。',
   ],
-  100: [
+  "Wander:GetMaxDistSq#1": [
     '--★ GetMaxDistSq：max_dist 也支持「值或函数」，与家的处理一致。',
     '--★ 至此「家」与「活动半径」两个参数都可动态计算，Wander 因此能跟随移动的家（如玩家移动的基地）。',
   ],
 
   // ══════════════ Wait：设时长 + 休眠 ══════════════
-  105: [
+  "Wander:Wait#1": [
     '--★★★ Wait —— 本文件最重要的两行封装，**一个方法做了两件事**：',
     '--   ① 第 106 行 self.waittime = t + GetTime()  —— 设定「阶段结束时刻」（业务状态）',
     '--   ② 第 107 行 self:Sleep(t)                    —— 告知大脑「睡 t 秒」（调度状态）',
@@ -246,7 +246,7 @@ export default {
   ],
 
   // ══════════════ PickNewDirection ══════════════
-  110: [
+  "Wander:PickNewDirection#1": [
     '--★★★ PickNewDirection —— 漫游的核心决策，同样有明确的顺序结构：',
     '--   ① 第 112 行 先判断是否离家远',
     '--   ② 第 116 行 远 → 回家（简单直接）',
@@ -254,16 +254,16 @@ export default {
     '--   ④ 第 191 行 设定本阶段的时长',
     '--★ 先设 walking=true（第 114 行），无论后面走哪条路都算「进入行走阶段」。',
   ],
-  112: [
+  "Wander:PickNewDirection#1+2": [
     '--★ 先算 far_from_home 并缓存到字段（不是每次用到都重算）。',
     '--★ 第 191 行还要用它，所以缓存是必需的。',
   ],
-  116: [
+  "Wander:PickNewDirection#1+6": [
     '--★★ 离家远 → 直接回家。分支极简：GoToPoint(GetHomePos())，不做任何选点优化。',
     '--★ 合理：回家是「有明确目的地」的行为，不需要在途中挑选落脚点。',
     '--★ 第 118 行被注释掉的 print 是调试残留。',
   ],
-  122: [
+  "Wander:PickNewDirection#1+12": [
     '--★★★ getdirectionFn —— 「方向惯性」的入口：优先用它给出的方向，而不是随机。',
     '--   ★★ 这是本文件与 beargeroffscreen 第 230 行同一思想的通用版：',
     '--     上层若实现了「记住上次方向」，Wander 就不会每次都乱转。',
@@ -274,16 +274,16 @@ export default {
     '--     标注为「疑似缺陷」：取决于上层是否会返回 0。',
     '--     更稳妥的写法应是 `if angle == nil then`。',
   ],
-  125: [
+  "Wander:PickNewDirection#1+15": [
     '--★ 随机全向角度：math.random() * PI2（PI2 = 2π，见 constants.lua:7）。',
     '--★ 注意用的是 PI2 而 beargeroffscreen 用 TWOPI —— 二者同值（constants.lua:8 互为别名），',
     '--   属命名不统一，无功能影响。',
   ],
-  133: [
+  "Wander:PickNewDirection#1+23": [
     '--★ wander_dist 也支持「值或函数」（与 max_dist 同构）。',
     '--★ 第 134 行 attempts 取自构造器参数（默认 8）—— 选点时最多尝试几个方向。',
   ],
-  137: [
+  "Wander:PickNewDirection#1+27": [
     '--★★ 原注释：Aquatic means water ONLY (no land)。',
     '--   翻译：「水生的意思是【只能】在水上（不能上陆地）」。',
     '--★★ 这是一个重要的语义约定：IsAquatic 的生物不能靠岸，',
@@ -291,7 +291,7 @@ export default {
     '--   ★ 移植要点：移动能力决定选点算法，两者必须成对，否则会出现',
     '--     「水生生物反复尝试爬上岸」或「陆生生物被塞进水里」。',
   ],
-  138: [
+  "Wander:PickNewDirection#1+28": [
     '--★ 水生分支：先避墙（第 141 行），失败则不避墙（第 144 行）。',
     '--★★ 这就是**两级降级（graceful degradation）**：',
     '--   理想：找到既可游又无墙的方向',
@@ -302,27 +302,27 @@ export default {
     '--★ 这个判据选择很讲究：检查函数回传 check_angle 表示「最终采用了哪个角度」，',
     '--   比检查返回值更准确。对照 beargeroffscreen 第 243 行同一设计。',
   ],
-  149: [
+  "Wander:PickNewDirection#1+39": [
     '--★ 陆生分支先问「能不能在水上寻路」—— 两栖生物（如鸭嘴兽）需要。',
     '--★ 该结果作为参数传给 FindWalkableOffset，是本文件唯一的能力探测。',
   ],
-  150: [
+  "Wander:PickNewDirection#1+40": [
     '--★ ignore_walls 为真时直接不避墙（跳过第一级尝试，节省开销）。',
     '--★ 性能优化：明确知道不需要避墙，就别做那个昂贵的寻路测试。',
     '--★ 三种陆生配置：ignore_walls / 默认避墙 / 降级不避墙。',
   ],
-  160: [
+  "Wander:PickNewDirection#1+50": [
     '--★★ 陆生的第二级降级：与水生第 144 行结构完全对称。',
     '--★ 四处调用（139/144/151/156/162）参数高度相似，',
     '--   说明这是「一个算法 + 几种配置」的复用模式，而非四套逻辑。',
   ],
-  170: [
+  "Wander:PickNewDirection#1+60": [
     '--★ 选点成功 → 用**实际采用的角度**回写（第 171 行），并通知 setdirectionFn。',
     '--★ 第 171 行的赋值让第 230 行之类的「惯性」逻辑能拿到真实方向。',
     '--★ 第 172-175 行：即使这次方向来自随机，也要存回去，',
     '--   保证下一次 getdirectionFn 能读到 —— 惯性链条才闭合。',
   ],
-  176: [
+  "Wander:PickNewDirection#1+66": [
     '--★★ 三级降级的最终 else：连可走点都找不到。',
     '--   原注释：guess we don\'t have a better direction, just go whereever',
     '--   翻译：「猜我们没有更好的方向了，随便走吧」。',
@@ -333,10 +333,10 @@ export default {
     '--   因为找不到新落脚点 → GoToPoint 不发 → 实体停在原地。',
     '--   ★★ 文档与实现在这里闭环，是本文件注释体系最值得学的地方。',
   ],
-  182: [
+  "Wander:PickNewDirection#1+72": [
     '--★ should_run 求值（第 24 行构造器存入）。与 beargeroffscreen 第 252 行同构。',
   ],
-  184: [
+  "Wander:PickNewDirection#1+74": [
     '--★★ 最终二选一：有落脚点 → GoToPoint 到「自己位置 + offset」；',
     '--   无落脚点 → WalkInDirection 按角度硬走。',
     '--★ 第 185 行的写法比 beargeroffscreen 更好：',
@@ -344,7 +344,7 @@ export default {
     '--★ 注意这里**不是**用 FindWalkableOffset 返回的绝对点，而是「自己 + 偏移量」。',
     '--   两者等价，但相对形式在多单位场景下数值更稳（避免大坐标相减）。',
   ],
-  187: [
+  "Wander:PickNewDirection#1+77": [
     '--★★ 第三级降级：WalkInDirection(angle/DEGREES, run) —— 按方向硬走。',
     '--★ **角度单位转换**：angle 是「度」，DEGREES = π/180（constants.lua:14），',
     '--   除以它得到「弧度」。',
@@ -363,7 +363,7 @@ export default {
   ],
 
   // ══════════════ 时长设置 ══════════════
-  191: [
+  "Wander:PickNewDirection#1+81": [
     '--★★★ 走完/走完之后设「行走阶段时长」。条件展开后只有一种情况不设：',
     '--   leashwhengoinghome 为真 **且** 正在回家（far_from_home 为真）。',
     '--   ★★ 即「回家路上不停留」（详见构造器第 26 行的详解）。',
@@ -372,7 +372,7 @@ export default {
     '--   化简后完全等价。作者没化简，属可读性问题，非缺陷。',
     '--★ 时长公式与第 46 行的初始等待同构：minwalktime + random()*randwalktime。',
   ],
-  196: [
+  "Wander:HoldPosition#1": [
     '--★★ HoldPosition：站住阶段。三个动作，缺一不可：',
     '--   ① 第 197 行 walking = false      —— 切换内层状态机',
     '--   ② 第 198 行 locomotor:Stop()      —— 真的停下',

@@ -114,28 +114,28 @@ export default {
     '--   ★ 即「只有为争食才打架」—— 用距离阈值表达「争抢范围」。',
     '--   ★★ 这种「规则里内嵌例外」比堆叠标签优雅得多，移植价值高。',
   ],
-  56: [
+  "Mutated_IsValidThreat#1": [
     '-- Mutated_IsValidThreat：变异体只认「有战斗组件」的。',
     '--   ★ 注释解释了原因：有 scarytoprey 标签但没战斗组件的东西会让它卡住。',
     '--   ★ 即「把打不了的东西从威胁列表剔除」，避免 AI 反复扑向无法交战的敌人。',
   ],
-  60: [
+  "FindThreat#1": [
     '-- FindThreat：普通与变异走不同参数表（第 62-66 行）。',
     '--   ★ 同一个函数、两个分支 —— 比写两个函数简洁，且保证了「只有一个搜索点」。',
   ],
 
   // ══════════════ 通用小工具 ══════════════
-  69: [
+  "IsSgBusy#1": [
     '-- IsSgBusy：睡眠 / 忙 / 飞行中。',
     '-- ★★ 这三个状态都会「暂时放弃决策」，很多判定都先问它。',
     '--   ★ 用一个函数统一表达「暂时别管我」，避免各处重复判断。',
   ],
-  73: [
+  "CanEat#1": [
     '-- CanEat：★ 极简 —— 只能吃在地上的东西。',
     '--   ★ 与文件头注释（第 3 行）吻合：秃鹫只吃地上的食物，不会采集。',
     '--   ★ 判定故意极简，因为变异体根本不用这个函数（第 79 行直接返回 nil）。',
   ],
-  77: [
+  "FindFood#1": [
     '-- FindFood：★ 变异体直接返回 nil —— 「变异秃鹫对食物没兴趣」。',
     '--   ★★★ 用一个 early return 实现「完全换掉一套需求」，非常干净。',
     '--     变异体要的是尸体（第 241 行 FindCorpse），不是食物。',
@@ -143,7 +143,7 @@ export default {
   ],
 
   // ══════════════ 飞走条件 ══════════════
-  95: [
+  "GoHome#1": [
     '-- GoHome：★ 注意它【不检查 shouldGoAway】，只读它 ——',
     '--   return inst.shouldGoAway and BufferedAction(inst, nil, ACTIONS.GOHOME) or nil',
     '--   ★ 即「别人决定要不要走，我只负责执行」。',
@@ -152,7 +152,7 @@ export default {
     '--     root 里的三个 DoAction 节点负责执行。',
     '--   ★ 同一件事有三个入口（第 341、345、348 行），都复用这个执行函数。',
   ],
-  99: [
+  "ShouldFlyAwayFromFire#1": [
     '-- ★ ShouldFlyAwayFromFire：着火了但自己没在烧 → 飞走。',
     '--   第 101 行的 and not (...IsBurning()) 语义：',
     '--   「正在受火焰伤害」且「燃烧组件说自己没在烧」——',
@@ -160,7 +160,7 @@ export default {
     '--   ★ 若自己真的在烧（第 2 项为假），则不飞 —— 因为飞也没用。',
     '--   ★ 条件判断的精度值得学。',
   ],
-  107: [
+  "Mutated_ShouldFlyAway#1": [
     '-- ★★ Mutated_ShouldFlyAway：★ 变异体的「找不到尸体就走」。',
     '-- 【第 110 行】GetTime() - inst.brain.corpse_time > 20',
     '--   ★ corpse_time 由 LoseCorpseOwnership（第 178 行）设置。',
@@ -168,7 +168,7 @@ export default {
     '--   ★ 注意第 109 行 not inst.brain.corpse —— 必须当前没有尸体。',
     '--   ★ 三者与即：没尸体 + 超过时限 + 自己不在烧。',
   ],
-  117: [
+  "GetHomePos#1": [
     '-- GetHomePos：★ 直接返回自己的位置。',
     '--   ★★ 意味着「家」概念对秃鹫不存在 —— 它到处为家。',
     '--   ★ 第 385 行 Wander(self.inst, GetHomePos, 5) 因此就是「在原地附近晃悠」。',
@@ -176,7 +176,7 @@ export default {
   ],
 
   // ══════════════ 尸体占有机制 ★ 本文件核心 ══════════════
-  123: [
+  "GetHomePos#1+6": [
     '-- ★★★ ignorethese —— ★ 文件级共享表，不是局部变量。',
     '--   源码用注释形式示范了它的结构（实体 → { 实体 → true }）。',
     '--   ★★★ 这是【两层字典】：ignorethese[尸体][占有者秃鹫] = true',
@@ -186,7 +186,7 @@ export default {
     '--   ★★★ 移植要点：需要跨 AI 实例协调时，状态表必须放在模块级，',
     '--     而不是放在脑实例或实体上。这是本文件最核心的设计决策。',
   ],
-  125: [
+  "GetHomePos#1+8": [
     '-- ★★★ SIZE_TO_NUM_OWNERS —— 尸体容量表，按尸体尺寸分配占有名额。',
     '--   tiny=1（兔子）small=2（猎犬）med=5（牛）large=10（Boss 如温蒂/独眼巨鹿）',
     '-- ★★ 语义：大尸体能养活更多秃鹫，小尸体只能一只独享。',
@@ -195,7 +195,7 @@ export default {
     '--   ★ 移植价值：适用于任何「可被多个单位采集的资源」。',
     '--   ★ 第 132 行 TODO 承认还有改进空间（满了也应允许「稍微挤一挤」）。',
   ],
-  133: [
+  "BuzzardBrain:OwnCorpse#1": [
     '-- ★★★ OwnCorpse —— 「取得尸体独占权」，本文件最重要的方法。',
     '-- 【第 134 行】★ 先无条件释放旧尸体',
     '--   ★ 即使要占的正是现在占的，也先释放再重新占 ——',
@@ -218,7 +218,7 @@ export default {
     '--   ★★ 第 3 参指定源实体 = 尸体，即「监听这具尸体身上的事件」。',
     '--     与第 130 行 inst:ListenForEvent("epicscare", fn)（不指定源）不同。',
   ],
-  167: [
+  "BuzzardBrain:LoseCorpseOwnership#1": [
     '-- ★★★ LoseCorpseOwnership —— 与 OwnCorpse 严格对称的释放。',
     '-- 【第 169-172 行】★★ 两级清理',
     '--   ignorethese[self.corpse][self.inst] = nil   移除自己',
@@ -233,7 +233,7 @@ export default {
     '--   ⚠️ 耦合度较高：若将来在别处也调用 LoseCorpseOwnership，',
     '--     会意外启动倒计时。当前调用点只有第 134 与 247 行，暂无问题。',
   ],
-  182: [
+  "BuzzardBrain:ShouldIgnoreCorpse#1": [
     '-- ★★ ShouldIgnoreCorpse：★ 「我该不该让开这具尸体」的三段判定。',
     '--  第 183-186 行：没人占 → 不忽略',
     '--  第 189-192 行：★ 还没占满（GetTableSize < 容量）→ 不忽略',
@@ -243,7 +243,7 @@ export default {
     '--   ★ 这是一个很常见的易漏点：容量检查必须给「已占有者」开后门。',
     '-- ★ 与第 206 行的 Buzzard_ShouldIgnoreCorpse 对比：后者【少了第三段】。',
   ],
-  205: [
+  "BuzzardBrain:ShouldIgnoreCorpse#1+23": [
     '-- ★★ Buzzard_ShouldIgnoreCorpse —— 非脑逻辑（管理器组件）用的版本。',
     '-- 【与第 182 行 ShouldIgnoreCorpse 的差异】',
     '--   ★★ 这个函数【少了「我就是占有者」的第三段判定】（第 195-199 行）。',
@@ -257,7 +257,7 @@ export default {
   ],
 
   // ══════════════ 尸体有效性 ══════════════
-  228: [
+  "IsNotBurning#1+4": [
     '-- IsCorpseValid 的六重校验（第 232-238 行），★ 两条与变异有关：',
     '--   第 234 行 (ismutated or IsNotBurning(guy)) —— ★ 变异体【不介意尸体在烧】',
     '--   第 236 行 (not ismutated or not guy:HasGestaltArriving()) ——',
@@ -266,23 +266,23 @@ export default {
     '-- ★ 写法紧凑但可读性下降，移植时建议拆开。',
     '-- ★ 第 238 行注释："for non-entity scans" —— 双重保险（标签已在 MUST_TAGS 里）。',
   ],
-  241: [
+  "BuzzardBrain:FindCorpse#1": [
     '-- ★ FindCorpse：找到就占有，找不到就释放。',
     '--   ★★★ 这就是「目标获取即占有」的封装 —— 找到的瞬间就登记。',
     '--   ★ 与第 247 行的 else 分支对称（找不到 → LoseCorpseOwnership）。',
     '--   ★ 这种「要么占有要么释放」的原子性保证不会留下脏状态。',
   ],
-  251: [
+  "BuzzardBrain:IsCorpseValid#1": [
     '-- IsCorpseValid / GetCorpsePosition：给节点用的轻量包装。',
     '--   ★ GetCorpsePosition 返回 nil 表示「不该靠近了」，Leash 会停下。',
     '--   ★ 与 knightbrain 第 208 行的 nil 语义一致。',
   ],
 
   // ══════════════ 缓存失效 ══════════════
-  261: [
+  "BuzzardBrain:GetCorpsePosition#1+6": [
     '-- GetSeeThreatDist：按形态选感知距离。与第 36-37 行常量呼应。',
   ],
-  267: [
+  "BuzzardBrain:FindThreat#1": [
     '-- ★★★ FindThreat —— 三态缓存的读取逻辑，本文件的核心技巧。',
     '--   第 268-269 行：★ nil → 视为「查过，没有」，直接返回 nil',
     '--   第 270-272 行：★ 非 nil 非 false → 视为实体，直接返回',
@@ -291,7 +291,7 @@ export default {
     '-- ⚠️ 已核实 OnStart（第 330-333 行）未初始化 self.threat = false，',
     '--   故首帧会走第 268 行返回 nil（跳过搜索）。影响仅限第一帧。',
   ],
-  278: [
+  "BuzzardBrain:IsThreatened#1": [
     '-- ★★ IsThreatened：★ 忙的时候【直接返回 nil】而不是 false。',
     '--   return not IsSgBusy(self.inst) and self:FindThreat() or nil',
     '--   ★★★ 注意这是 and/or 惯用法：',
@@ -302,7 +302,7 @@ export default {
     '--     作为 IfNode 条件（第 352 行）用没问题，但函数名有误导性。',
     '--   ★ 属风格问题，不是缺陷（IfNode 只看真假）。',
   ],
-  282: [
+  "BuzzardBrain:DealWithThreat#1": [
     '-- ★★★ DealWithThreat —— 「有食物就守，没食物就跑」的核心决策。',
     '-- 【第 286 行】★ 守卫条件',
     '--   FindFood(inst, 1.5) ~= nil  → 脚边 1.5 格内有食物 → 守',
@@ -325,7 +325,7 @@ export default {
     '--   第 303-305 行 普通秃鹫直接 SetTarget（不需要协调）。',
     '-- ★★ 这是本文件第二处「群体协调」设计（第一处是 ignorethese 表）。',
   ],
-  316: [
+  "BuzzardBrain:DoUpdate#1": [
     '-- ★★★★ DoUpdate —— ★★★ 本文件最值得移植的一段。',
     '-- 【机制】每帧只做一件事：把 threat 缓存标记为「待查」。',
     '-- 【为什么要这个钩子】',
@@ -352,7 +352,7 @@ export default {
   ],
 
   // ══════════════ OnStart ══════════════
-  323: [
+  "BuzzardBrain:DoUpdate#1+7": [
     '-- ★★★ GetCorpseRadius —— 一个很实际的工程细节。',
     '--   第 326 行 return math.max(r, corpse:GetPhysicsRadius(0))',
     '--   ★ 注释说明了原因：「有些生物的物理半径小得离谱（见独眼巨鹿）」。',
@@ -360,12 +360,12 @@ export default {
     '--     ★ 这是「美术/玩法尺寸与碰撞尺寸不一致」时的通用处理办法。',
     '--   ★ 用途：第 370-371 行用它决定 Leash 到尸体的距离（停在嘴够得着的地方）。',
   ],
-  329: [
+  "GetCorpseRadius#1+5": [
     '-- UPDATE_RATE = 0.5 —— 本文件所有 PriorityNode 的重评估间隔。',
     '--   ★ 比 pigbrain 的 0.5 相同，比 knightbrain 的 0.25 宽松。',
     '--   ★ 秃鹫的行为「不需要精确反应」，所以省 CPU。',
   ],
-  330: [
+  "BuzzardBrain:OnStart#1": [
     '-- OnStart：★ ismutated 在【开头】就确定，后续节点直接用闭包捕获。',
     '--   ★★ 关键设计：第 331 行 local ismutated = self.inst:HasTag("lunar_aligned")',
     '--   之后第 339、343、358 行全部用这个局部变量，而不是重新查标签。',
@@ -374,37 +374,37 @@ export default {
     '--   ⚠️ 第 333 行只设了 corpse_time，【没设 self.threat = false】，',
     '--   即文件头注释提到的首帧缓存不严密问题。',
   ],
-  337: [
+  "BuzzardBrain:OnStart#1+7": [
     '-- ★★ 最外层守卫：不在飞行、不在喷火。',
     '--   条件 not sg:HasAnyStateTag("flight", "flamethrowering")',
     '--   ★ 与其他文件的单一 jumping 守卫不同，这里排除了【两个】状态。',
     '--   ★ 喷火（flamethrowering）期间不能做觅食/找尸体 ——',
     '--     否则会在喷火途中跑去找食物。合理的排除。',
   ],
-  339: [
+  "BuzzardBrain:OnStart#1+9": [
     '-- ★ 普通秃鹫的着火逃跑（不适用变异体）。',
     '--   ★ 用 IfNode 包裹而非 WhileNode —— 一次判断即可。',
     '--   ⚠️ 与第 343 行变异体的 IfNode 条件互为否定，',
     '--     但两者之间还有第 347 行的通用 shouldGoAway 节点。',
     '--     ★ 若普通秃鹫着火了，第 339 行已处理；不会走到第 347 行。逻辑自洽。',
   ],
-  343: [
+  "BuzzardBrain:OnStart#1+13": [
     '-- ★ 变异体的「找不到尸体就飞走」。与第 339 行互斥。',
   ],
-  347: [
+  "BuzzardBrain:OnStart#1+17": [
     '-- ★★ shouldGoAway 是三个逃跑入口的【统一标志】：',
     '--   三个节点（第 339、343、347 行）都在自己的条件里设 inst.shouldGoAway = true，',
     '--   而第 347 行负责在标志已设但上面两个条件都不满足时执行离开。',
     '--   ★★★ 「设标志」与「执行」分离 —— 与第 95 行 GoHome 的设计一脉相承。',
     '--   ★ 好处：一个动作函数（第 96 行）服务三种触发原因。',
   ],
-  350: [
+  "BuzzardBrain:OnStart#1+20": [
     '-- ★ StandAndAttack：站着打。behaviours/standandattack.lua。',
     '--   ★ 秃鹫是「守食」型：不追着打，就在原地打走靠近的。',
     '--   ★ 与 ChaseAndAttack（追击型）形成对比，',
     '--     monkeybrain 第 343 行用的是后者。',
   ],
-  352: [
+  "BuzzardBrain:OnStart#1+22": [
     '-- ★★ 「有威胁」的三个入口之一（第 352 行）。',
     '--   第 353 行 ConditionNode(DealWithThreat) ——',
     '--   ★ ConditionNode 只执行条件函数、不产生持续行为，',
@@ -414,7 +414,7 @@ export default {
     '--   ★ 这就是第 300 行那句 "To the next node" 的实际效果。',
     '--   ★ 机制设计得不错：协商失败时优雅降级为「先做别的」。',
   ],
-  355: [
+  "BuzzardBrain:OnStart#1+25": [
     '-- ★★★ 变异体吃尸体的完整子树（本文件最长的节点块）。',
     '-- 【第 358 行条件】★ 三个 or：变异体 且 不忙 且',
     '--   （无战斗目标 或 最后被攻击已超过 TUNING.MUTATEDBUZZARD_FIND_CORPSE_DELAY）',
@@ -439,12 +439,12 @@ export default {
     '--   ★ 与 braincommon 第 651 行的 PossessChassis 同款：',
     '--     需要立刻生效的场景用 Immediate 版本。',
   ],
-  384: [
+  "BuzzardBrain:OnStart#1+54": [
     '-- ★ 觅食（普通秃鹫；变异体在第 79 行已被 FindFood 排除，这里自然不生效）。',
     '--   ★ 第 385 行 Wander(self.inst, GetHomePos, 5) 作为最后兜底。',
     '--   ★ 与其他文件一致，末尾必有永不失败的节点。',
   ],
-  392: [
+  "BuzzardBrain:OnStop#1": [
     '-- ★★★ OnStop —— ★★ 全DST 少见：大脑停止时释放资源。',
     '-- 【为什么要】',
     '--   秃鹫被杀死、卸载、或场景结束时，第 133 行登记的「尸体占有」',

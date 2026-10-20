@@ -56,14 +56,14 @@ export default {
     '-- 因为 Lua 的「方法」只是「以 . 调用的函数」，没有真正的绑定语义。',
     '-- 若写成 _SetTile(x, y, tile, ...) 会丢掉 self，直接崩。',
   ],
-  7: [
+  "Map:SetTile#1+3": [
     '-- ⚠️ 用的是 TheWorld 而非 self（此处 self 是 Map，不是 world）。',
     '-- 隐含前提：全局只存在一个世界。单机/专服成立；',
     '-- 任何多世界并存的场景（如编辑器预览）这行都会指向错误的世界。',
   ],
 
   // ══════════════ 模块级累积量 ══════════════
-  14: [
+  "Map:SetTile#1+10": [
     '-- 【模块级可变状态 —— 典型的「注册表最大值」模式】',
     '-- 实体在加载时调用 RegisterDeployExtraSpacing 上报自己的额外间距，',
     '-- 这里只保留全局最大值，判定时一次比较即可覆盖所有实体。',
@@ -72,14 +72,14 @@ export default {
     '--   模组反复载入卸载时该值只增不减，是隐性泄漏。',
     '-- 好在它是「安全方向」（更严格），不会导致可建造区被错误放开。',
   ],
-  21: [
+  "Map:RegisterDeploySmartRadius#1": [
     '-- 注意这里做了「合并」而非直接 max：',
     '-- deploy_smart_radius 语义是「实体自身的额外外扩量」，',
     '-- 而 DEPLOY_EXTRA_SPACING 语义是「最终间距的一半」，两者量纲不同。',
     '-- 所以要补上 DEPLOYSPACING.LARGE / 2 换算到同一量纲后再取 max。',
     '-- 仿写提醒：把两种不同语义的量直接混进同一个 max 是很容易埋雷的。',
   ],
-  37: [
+  "Map:RegisterGroundTargetBlocker#1+4": [
     '-- TheSim:RegisterFindTags 返回一个「注册句柄」，后续FindEntities_Registered',
     '-- 传这个句柄可以跳过按字符串匹配的过滤，走引擎侧的空间索引 + 标签缓存。',
     '-- ⚠️ 这是性能关键：GetPlatformAtPoint / 各CanDeployBoat* 都在热路径上反复调用，',
@@ -87,7 +87,7 @@ export default {
   ],
 
   // ══════════════ 可通行性判定 ══════════════
-  44: [
+  "Map:IsPassableAtPointWithPlatformRadiusBias#1": [
     '-- ★★★ IsPassableAtPointWithPlatformRadiusBias —— 全文件最重要的判定。',
     '-- 所有「能不能在这里建造/ 站人 / 放船」的根判定都汇到这一个函数。',
     '--',
@@ -110,7 +110,7 @@ export default {
     '--   不参与第 61 行的实际距离比较。也就是说 bias 只「扩大搜索范围」，',
     '--   不「放大判定半径」——真正生效的仍是 platform_radius 本身。',
   ],
-  48: [
+  "Map:IsPassableAtPointWithPlatformRadiusBias#1+4": [
     '-- ⚠️ 陷阱：(not ignore_land_overhang) and ... or false',
     '-- 这是 Lua 的 and/or 惯用法。此处因为末尾补了 false 做兜底，',
     '-- 所以当 ignore_land_overhang 为 true 时表达式求值为 false（正确）；',
@@ -119,7 +119,7 @@ export default {
     '-- 但第 66 行 return valid_tile, is_overhang 的第一个返回值类型就不确定了。',
     '-- 惯用法的通用规则：a and b or c 只有在「b 为真值且不为 false/nil」时才等价于三元。',
   ],
-  55: [
+  "Map:IsPassableAtPointWithPlatformRadiusBias#1+11": [
     '-- ⚠️ 已核实的疑似缺陷（第 55-62 行）：',
     '-- 循环体内第 61 行是【无条件 return】，只判断了 entities 列表里的【第一个】平台。',
     '-- 若该点附近有多个 walkableplatform（船 + 玩家脚下的船 + 别的船），',
@@ -131,12 +131,12 @@ export default {
     '-- 之所以没炸：FindEntities_Registered 的返回顺序通常让最近的那个排在前面，',
     '-- 但这依赖空间索引实现顺序，不是语言保证。标为「疑似」而非「确定」。',
   ],
-  69: [
+  "Map:IsAboveGroundAtPoint#1": [
     '-- 注意 allow_water == true 用的是「严格等于 true」而不是真值判断。',
     '-- 传 1 / "yes" 都不会生效。对比第 53 行的 not allow_water（真值判断），',
     '-- 两处语义不一致——属于「同一文件内风格不统一」，移植时容易踩。',
   ],
-  105: [
+  "Map:IsOceanAtPoint#1": [
     '-- IsOceanAtPoint = 海洋 tile AND 非悬空层 AND（允许船 或 该处无船）。',
     '-- ★ 三个条件是 AND 且顺序经过设计：前两条是静态的（便宜），',
     '--   第三条要查实体（贵），放最后可短路掉大量不合格的查询。',
@@ -147,12 +147,12 @@ export default {
   ],
 
   // ══════════════ 地形改造 ══════════════
-  119: [
+  "Map:CanTerraformAtPoint#1": [
     '-- 【两级过滤】先查静态免疫表 TERRAFORM_IMMUNE + 必须是陆地 tile，',
     '-- 再查动态的 terraformblocker 实体。',
     '-- 静态表查得快且不依赖实体系统，动态查询放后面 —— 同样是成本排序。',
   ],
-  124: [
+  "Map:CanTerraformAtPoint#1+5": [
     '-- 双层半径过滤，移植时容易漏掉第二层：',
     '--  外层 TheSim:FindEntities 的半径用【全局最大值】TERRAFORM_EXTRA_SPACING，',
     '--  内层第 126 行用【每个实体自己的】terraform_extra_spacing 做精确判断。',
@@ -163,12 +163,12 @@ export default {
   ],
 
   // ══════════════ 土壤/耕地 ══════════════
-  167: [
+  "Map:CanPlantAtPoint#1": [
     '-- GROUND_HARD 是「硬地」表：能长草但不能种庄稼的地形（石头、砖等）。',
     '-- 判定分两级：先要陆地 tile，再要非硬地。',
     '-- 名字里的 plant 与 farm 是两个概念，这里管的是「能不能长东西」。',
   ],
-  178: [
+  "Map:CollapseSoilAtPoint#1": [
     '-- ★ 巧妙的双事件分发：同一个「附近土壤」列表，按距离分成两种命运——',
     '--   距离 < till_spacing/2 → collapsesoil（被工具翻开，等价于耕作）',
     '--   否则                 → breaksoil（只是被破坏）',
@@ -177,7 +177,7 @@ export default {
   ],
 
   // ══════════════ 建造忽略标签表 ══════════════
-  189: [
+  "Map:IsFarmableSoilAtPoint#1+4": [
     '-- ★ DEPLOY_IGNORE_TAGS 是全文件的语义基石：建造间距检查的【白名单式排除】。',
     '-- 语义是「带这些标签的实体一律不参与阻挡」，而非「只有带某标签才阻挡」。',
     '-- 每一项的含义：',
@@ -193,13 +193,13 @@ export default {
     '-- ⚠️ 这样做的原因：table.removearrayvalue / table.insert 若直接作用于原表会污染全局。',
     '--   shallowcopy 是浅拷贝，对字符串元素数组完全够用。',
   ],
-  191: [
+  "Map:IsFarmableSoilAtPoint#1+6": [
     '-- DEPLOY_IGNORE_TAGS_NOPLAYER：把 "player" 摘掉，剩下标签照旧。',
     '-- 用途（第 270 行 check_player 分支）：当调用方要求「玩家也不参与阻挡」',
     '-- （例如悬空层上的间距检查）时使用——即「保留排除项，但不再排除玩家」。',
     '-- ⚠️ 名字容易读反：NOPLAYER 指的是「不再忽略 player」，不是「只查 player」。',
   ],
-  201: [
+  "Map:IsFarmableSoilAtPoint#1+16": [
     '-- CAST_DEPLOY_IGNORE_TAGS：额外排除 locomotor / _inventoryitem / allow_casting。',
     '-- 排除 locomotor 与 _inventoryitem 的原因：法术施放时施法者自己带着物品，',
     '-- 若参与间距判定会把自己挡住，导致「站在自己身上放不了技能」。',
@@ -207,7 +207,7 @@ export default {
   ],
 
   // ══════════════ 洞 / 地面目标阻挡 ══════════════
-  214: [
+  "Map:IsPointNearHole#1": [
     '-- 【洞的三段式判定，语义比看上去复杂】',
     '--  1) 外径：_groundhole_outerradius（缺省用物理半径）+ rangeoverride',
     '--  2) 内径：_groundhole_innerradius —— 洞【中心】是可以站/放东西的',
@@ -218,7 +218,7 @@ export default {
     '--   但整个文件其他地方大量使用 deploy_extra_spacing 这类「无下划线分隔」风格，',
     '--   命名不统一容易看错，读的时候以实际拼写为准。',
   ],
-  227: [
+  "Map:IsGroundTargetBlocked#1": [
     '-- 与 IsPointNearHole 几乎同构，差别有三处：',
     '--  1) 搜索半径取 math.max(DEPLOY_EXTRA_SPACING, MAX_GROUND_TARGET_BLOCKER_RADIUS)，',
     '--     即两个「全局最大间距注册表」取大者——因为这里要同时容纳建造与法术阻挡。',
@@ -231,7 +231,7 @@ export default {
   ],
 
   // ══════════════ 间距核心 ══════════════
-  244: [
+  "IsNearOther#1": [
     '-- ★★★ IsNearOther —— 建造间距的单体判定，全文件最需要逐字读的函数。',
     '-- 它是一个「四级 if/elseif 优先级链」，后三者互斥（ elseif ），',
     '-- 只有第一级（structure 特例）可以与后续逻辑共存。',
@@ -255,7 +255,7 @@ export default {
     '-- 见第 21-22 行 RegisterDeploySmartRadius：smart_radius 也要补上默认间距的一半，',
     '-- 这样「默认间距」与「smart_radius」被统一折算成「单边需要让出的距离」。',
   ],
-  252: [
+  "IsNearOther#1+8": [
     '-- ★ math.sqrt(min_spacing_sq) 这行的 (min_spacing or ...) 兜底：',
     '-- 新版调用方（第 277 行）只在「本次没被 fn 改过」时才传 min_spacing，',
     '-- 否则传 nil。此时必须能从 min_spacing_sq 反推出 sqrt。',
@@ -263,14 +263,14 @@ export default {
     '-- 抄这类代码时注意：平方距离和线性距离两个参数是「成对的」，',
     '-- 谁先谁后、能不能互相换算，都要在函数入口处想清楚。',
   ],
-  260: [
+  "IsNearOther#1+16": [
     '-- 用严格小于（<）而注释里说明 FindEntities 用的是 <=：',
     '-- 即「刚好贴在一起」算不算冲突，官方选择【不算冲突】（贴边可以放）。',
     '-- 这个边界语义在第 286、347 行重复出现，是本文件统一的约定。',
   ],
 
   // ══════════════ IsDeployPointClear ══════════════
-  263: [
+  "Map:IsDeployPointClear#1": [
     '-- ★★★ IsDeployPointClear —— 建造/施法间距的总入口。',
     '--',
     '-- 【执行顺序，每一步都有存在理由】',
@@ -296,7 +296,7 @@ export default {
     '--   custom_ignore_tags 优先 > check_player 时用 NOPLAYER 版 > 默认版。',
     '--   写这么长的一行可读性很差，拆成 if/elseif 会更清楚（但行为相同）。',
   ],
-  277: [
+  "Map:IsDeployPointClear#1+14": [
     '-- ⚠️ 已核实的易错点（第 276-277 行）：',
     '-- v_min_spacing_sq 被第 276 行的 fn 改写后，第 277 行用',
     '-- (v_min_spacing_sq == min_spacing_sq and min_spacing) or nil 判断',
@@ -308,7 +308,7 @@ export default {
     '-- ⚠️ 另：min_spacing_sq_fn 若返回 nil，第 277 行 near_other_fn 拿到 nil，',
     '--   会在 IsNearOther 第 246 行 nil <= 0 处报错。属调用方契约，源码未防御。',
   ],
-  285: [
+  "IsNearOther2#1": [
     '-- ★★ IsNearOther2 —— IsDeployPointClear 的「新数学」，第 296 行注释自称改进版。',
     '--【与IsNearOther 的本质差异】',
     '--  IsNearOther  ：先取【对方】的间距（other.deploy_extra_spacing 等），',
@@ -321,12 +321,12 @@ export default {
     '--   所以同时设了 smart_radius 和 extra_spacing 的实体只用 smart_radius。',
     '--   这是「优先级」而非「累加」——想累加必须写加号，不能堆 or。',
   ],
-  293: [
+  "IsNearOther2#1+8": [
     '-- ★ 与 IsNearOther 第 260 行一样用严格 <，贴边不算冲突，保持一致。',
     '-- 另外这里用 VecUtil 的三参数重载写法：distance_sq(pt.x, 0, pt.z)，',
     '-- 显式把 y 归零 → 只算水平距离（与第 817 行 GetPlatformAtPoint 一致）。',
   ],
-  297: [
+  "Map:IsDeployPointClear2#1": [
     '-- IsDeployPointClear2：结构与 IsDeployPointClear 相同，三处不同：',
     '--  1) 第 302 行半径直接 object_size + DEPLOY_EXTRA_SPACING（不加 max）',
     '--     —— 因为 object_size 已是「自己这一侧」的完整半径，语义不同',
@@ -339,7 +339,7 @@ export default {
   ],
 
   // ══════════════ 各建造类型的差异规则 ══════════════
-  316: [
+  "Map:CanDeployAtPoint#1": [
     '-- 【通用建造判定的三段式】',
     '--  1) mouseover 过滤：鼠标下必须是玩家/平台/船边缘，',
     '--     否则点在 UI 或装饰上时也应显示可建——这里反而是「只有这几类才行」。',
@@ -352,7 +352,7 @@ export default {
     '--   没挂 inventoryitem 组件的实体走默认间距。',
     '--   注意这里读replica（客户端数据），见第 256 行同类写法的说明。',
   ],
-  336: [
+  "Map:CanDeployWallAtPoint#1": [
     '-- ★ 墙的判定的特别之处：先【把坐标吸附到格子中心】（第 338 行）。',
     '-- 注释明说 wall 使用 placer.snap_to_meters，所以这里手工模拟同样的吸附，',
     '-- 否则鼠标位置与实际落点差半格，会出现「判定通过但放下去穿模」。',
@@ -362,7 +362,7 @@ export default {
     '--   第 342 行把 is_overhang 当 check_player 传下去（见第 44 行函数的说明）',
     '-- min_spacing 固定 1（墙贴墙刚好合法），且用IsNearOtherWallOrPlayer。',
   ],
-  409: [
+  "Map:CanDeployMastAtPoint#1+7": [
     '-- ⚠️ 已核实的小瑕疵（第 410-413 行）：',
     '-- 循环体里无条件 return false，等价于「只要找到任何桅杆就失败」。',
     '-- 写法上等价于 #entities > 0，但这里 for 一次就返回，',
@@ -371,14 +371,14 @@ export default {
     '--   没有像 CanDeployDockAtPoint 那样检查 walkableplatform（船）。',
     '--   桅杆可以贴着船放，这是设计取舍还是遗漏，源码未说明。',
   ],
-  428: [
+  "IsDockNearOtherOnOcean#1": [
     '-- IsDockNearOtherOnOcean：在通用间距判定之上，额外排除「不在海里的东西」。',
     '-- 第 430 行用 IsVisualGroundAtPoint 排除站在悬崖/陆地上的实体——',
     '-- 因为码头只该考虑海里的障碍，陆地上的建筑不算。',
     '-- ★ 这是「策略注入」的一个好例子：把领域知识（码头看海洋）',
     '--   编码进判定函数，而不是塞进通用函数加 if。移植时值得照抄这个分层。',
   ],
-  473: [
+  "Map:CanDeployDockAtPoint#1": [
     '-- 【码头判定的四层，成本递增】',
     '--  1) tile 必须是海洋且非 INVALID（第 474-477 行）',
     '--  2) 船只避让（第 483-489 行）：min_distance_from_entities = TILE_SCALE/2 + 1.2',
@@ -391,7 +391,7 @@ export default {
     '-- ⚠️ 第 497 行 mouseover 只允许 "player"，比通用建造（还允许平台）更严——',
     '--   因为船边缘不能放码头。',
   ],
-  501: [
+  "Map:CanDeployBridgeAtPointWithFilter#1": [
     '-- ★★ 桥的判定：CanDeployBridgeAtPointWithFilter 是所有桥的公共骨架。',
     '-- 【五个检查点，按「静态→动态」排列】',
     '--  1) tilefilterfn：不同桥对地块要求不同（绳桥只要虚空，藤桥要海+虚空）',
@@ -406,7 +406,7 @@ export default {
     '--  5) dockjammer 逐格检查（第 533 行）',
     '-- ★ 整体是「模板方法」结构：差异全靠 tilefilterfn 注入。',
   ],
-  550: [
+  "Map:CanDeployRopeBridgeAtPoint#1": [
     '-- ★ 第 551 行TheWorld:HasTag("cave") —— 全文件唯一的「洞穴/地表」开关。',
     '-- 注释明确说「比CanDeploy 检查更快」：绳桥只存在于洞穴世界，',
     '-- 所以先用世界标签做一次 O(1) 短路，避免进入昂贵的 tile + 实体查询。',
@@ -417,7 +417,7 @@ export default {
   ],
 
   // ══════════════ 环绕判定 ══════════════
-  645: [
+  "Map:IsSurroundedByWater#1": [
     '-- ★★★ IsSurroundedByWater —— 三层网格采样判定的代表，',
     '--   同构版本还有IsSurroundedByLand（679）、IsSurroundedByLandNoDocks（713）。',
     '--',
@@ -438,14 +438,14 @@ export default {
     '--   对「船需要一圈水」这种要求宽松的场景够用；',
     '--   若移植到需要精确边界的玩法，必须换成逐点或精确几何判定。',
   ],
-  658: [
+  "Map:IsSurroundedByWater#1+13": [
     '-- dist = (radius*2)/(num_edge_points+1) —— 分母 +1 的原因：',
     '-- 采样点在区间【内部】均分，含两端则需 n+1 段才能容纳 n 个内部点。',
     '-- 即 idist 从 dist 递增到 num_edge_points*dist < radius*2，两端不取。',
     '-- 少写这个 +1 会导致最后一个采样点正好落在 radius 上（边界点），',
     '-- 使采样退化。',
   ],
-  664: [
+  "Map:IsSurroundedByWater#1+19": [
     '-- 四条边的坐标表达式各不相同（各有 ±radius 与固定另一轴），',
     '-- 靠 x - radius + idist / z - radius + idist 的旋转对称实现四条边。',
     '-- ⚠️ 这种「用四条不同表达式枚举四条边」的写法极易看错，',
@@ -454,7 +454,7 @@ export default {
   ],
 
   // ══════════════ 螺旋搜索 ══════════════
-  747: [
+  "Map:GetNearbyOceanPointFromXZ#1": [
     '-- ★ GetNearbyOceanPointFromXZ：以方形螺旋向外找最近的水。',
     '-- 【四条边的遍历范围是精心设计的】',
     '--  for dx = -r, r     —— 顶边含两端（因为是首次到达这一层）',
@@ -467,7 +467,7 @@ export default {
     '-- ⚠️ radiusscale 默认 TILE_SCALE，即【按格子步进】而非连续采样。',
     '--   所以返回的坐标必然落在格子中心附近，精度受限于格子大小。',
   ],
-  782: [
+  "Map:GetNearestPointOnWater#1": [
     '-- ★★ GetNearestPointOnWater 已被官方标记 Deprecated（第 782 行行尾注释）：',
     '--   "Deprecated use GetNearbyOceanPointFromXZ this is kept around for mods."',
     '--   即【仅为向后兼容保留】。抄这个文件时不要学它的算法。',
@@ -478,7 +478,7 @@ export default {
   ],
 
   // ══════════════ 平台查询 ══════════════
-  812: [
+  "Map:InternalIsPointOnWater#1": [
     '-- ★★ 第 813-816 行：实参错位兼容。',
     '-- 支持 InternalIsPointOnWater(x, z) 与 (x, y, z) 两种调用：',
     '-- 若第三参为 nil，则把第二参当成 z、y 置 0。',
@@ -486,14 +486,14 @@ export default {
     '-- ⚠️ 危险：若真的想传 y=nil 的 (x, nil, z)，会被误判为两参调用。',
     '-- 第 824 行 GetPlatformAtPoint 有完全相同的兼容代码，可视为一种约定。',
   ],
-  824: [
+  "Map:GetPlatformAtPoint#1": [
     '-- ★ 与第 812 行同款实参错位兼容，第 825-828 行。',
     '-- 第 829 行 extra_radius 只加在【搜索半径】上，与第 44 行的 bias 同理：',
     '--   扩大搜索范围，不放大判定半径。判定仍用 platform_radius 本身（第 832 行）。',
     '-- ⚠️ 第 832 行 GetDistanceSqToPoint(pos_x, 0, pos_z) 强制 y=0，',
     '--   所以「平台判定只看平面距离」。多层平台（船叠船）在此会互相命中。',
   ],
-  840: [
+  "Map:GetNearestPlatformInDirection#1": [
     '-- ★★★ GetNearestPlatformInDirection —— 前方最近可跳上的平台及其落脚点。',
     '-- 【数学部分：这是全文件几何计算最密的一段，逐行拆解】',
     '--  输入 (forward_x, forward_z) 是【已归一化】的方向向量（第 839 行注释强调）。',
@@ -525,7 +525,7 @@ export default {
   ],
 
   // ══════════════ 随机点 ══════════════
-  874: [
+  "Map:FindRandomPointWithFilter#1": [
     '-- 【用拒绝采样（rejection sampling）找满足条件的点】',
     '-- 坐标在 [-w, w] × [-h, h] 上均匀随机，失败就重试，最多 max_tries 次。',
     '-- ★ 权衡：有最大重试次数保证【不会死循环】，但失败时返回 nil。',
@@ -534,7 +534,7 @@ export default {
     '-- ⚠️ 边界：2*math.random()-1 给出 [-1, 1]，math.random() 返回 [0,1)。',
     '--   故 x ∈ [-w, w)，右侧开区间。不影响均匀性，但注意不是闭区间。',
   ],
-  889: [
+  "Map:FindRandomPointInOcean#1": [
     '-- ★ 这两行是「筛选器注入」的最小示范：把 self.IsOceanAtPoint 当函数值传下去。',
     '-- ⚠️ 直接传方法名（不加 self.）会得到 nil，因为 IsOceanAtPoint 需要 self。',
     '--   写成 self.IsOceanAtPoint 是必须的——第 882 行会用 self 调它。',
@@ -543,14 +543,14 @@ export default {
   ],
 
   // ══════════════ 拓扑节点查询 ══════════════
-  897: [
+  "Map:GetTopologyIDAtPoint#1": [
     '-- 【拓扑（topology）是storygen 产出的「区域划分」：',
     '--   TheWorld.topology.nodes[i] —— 第 i 个区域的节点（含 tags 多边形等）',
     '--   TheWorld.topology.ids[i]    —— 第 i 个区域的【字符串 ID】',
     '-- 房间级规则（酸雨/地震/月爆）都靠区域的 tags 来决定。',
     '-- GetNodeIdAtPoint 返回的是索引，GetTileNodeId（第 915 行）则是按格子取。',
   ],
-  902: [
+  "Map:FindNodeAtPoint#1": [
     '-- ★★ FindNodeAtPoint vs FindVisualNodeAtPoint（第 1003 行）—— 必须分清：',
     '--   本函数：按【脚下地块】找区域。点在悬空层边界时返回的是「下方地块」的区域。',
     '--   FindVisualNodeAtPoint：按【眼睛看到的】那一层找区域（考虑 render_layer）。',
@@ -558,20 +558,20 @@ export default {
     '-- ⚠️ 选错的症状：站在悬空层上做区域判定（酸雨/地震/月爆）会判到下面的海域，',
     '--   导致「明明在陆地上却中了地震」。这类 bug 极难定位。',
   ],
-  908: [
+  "Map:NodeAtPointHasTag#1": [
     '-- 三重防御：node 非 nil、node.tags 非 nil、table.contains。',
     '-- ★ 任何来自 TheWorld.topology 的数据都不能假设 tags 一定存在——',
     '--   区域数据来自 mod 提供的 rooms（map/rooms），第三方数据不可信。',
     '--   第 915 行 NodeAtTileHasTag 有完全相同的三重防御，说明这是刻意的。',
   ],
-  921: [
+  "Map:CanAreaTagsHaveAcidRain#1": [
     '-- CanAreaTagsHaveAcidRain：酸雨的区域级开关。',
     '-- lunacyarea —— 癫狂区域内不下酸雨（那里已经有月爆，叠加会超标）',
     '-- nocavein    —— 世界生成的标记，表示该区域「不透洞穴」，同样排除',
     '-- ★ 设计意图：把「哪些区域不下酸雨」变成【数据（房间标签）】而非硬编码坐标，',
     '--   模组新增房间只要打标签即可。这是 mod 友好设计的典范。',
   ],
-  925: [
+  "Map:CanPointHaveAcidRain#1": [
     '-- 点级版：三层过滤，任一不满足即不可下酸雨。',
     '--  1) 不可通行 tile（深渊/虚空）—— 没有地面承接',
     '--  2) Vault 金库内（第 930 行）—— 金库是密封的',
@@ -581,7 +581,7 @@ export default {
   ],
 
   // ══════════════ 视觉节点 ══════════════
-  979: [
+  "FindVisualNodeAtPoint_TestArea#1": [
     '-- ★★ FindVisualNodeAtPoint_TestArea —— 「视觉层归属」的判定算法。',
     '-- 【问题】悬空层（overhang）盖在地面 tile 之上，脚下 tile 与眼睛看到的 tile',
     '--   可能不是同一个。要找「真正属于这一层」的 tile，就必须比较渲染层级。',
@@ -596,7 +596,7 @@ export default {
     '-- ⚠️ 第 989 行的严格 > 而非 >=：同层时保留先遇到的（-x, -z 角先扫）。',
     '--   所以在层级相同的多个候选中，结果依赖遍历顺序 —— 一个隐式的偏好规则。',
   ],
-  1003: [
+  "Map:FindVisualNodeAtPoint#1": [
     '-- ★★★ FindVisualNodeAtPoint —— 源码第 1002 行自己标注了',
     '--   "!! NOTE: This function is fairly expensive!"（相当昂贵）。',
     '--',
@@ -619,11 +619,11 @@ export default {
   ],
 
   // ══════════════ 癫狂区 ══════════════
-  1019: [
+  "Map:FindVisualNodeAtPoint#1+16": [
     '-- LUNACY_TILES：直接按 tile 判定的癫狂地形（月亮裂隙、月亮沼泽）。',
     '-- 少数几种「看脚下的格子就知道是否癫狂」的情况，省去拓扑查询。',
   ],
-  1024: [
+  "Map:FindVisualNodeAtPoint#1+21": [
     '-- ★★★ CHECK_LUNACY_FNS —— 【判定表（rule table）设计】的教科书案例。',
     '-- 五个互不相关的癫狂成因，各写成一个「签名一致」的函数，签名刻意统一为',
     '--  (self, x, y, z)，全部返回布尔。',
@@ -639,7 +639,7 @@ export default {
     '-- ⚠️ 第 1029-1030 行：riftspawner 只做非 nil 检查，未检查 TheWorld.state.isfullmoon',
     '--   是否为 nil；若为 nil 则返回 nil（falsy），行为上安全但语义不严谨。',
   ],
-  1055: [
+  "Map:GetLunacyAreaModifier#1": [
     '-- ★★ GetLunacyAreaModifier：与 IsInLunacyArea 共用同一张判定表，',
     '--   但输出的是【强度】而非布尔。',
     '--',
@@ -655,7 +655,7 @@ export default {
   ],
 
   // ══════════════ 施法/边界/方块过滤 ══════════════
-  1068: [
+  "Map:CanCastAtPoint#1": [
     '-- 【施法判定的短路结构值得学】',
     '--  第 1069 行：alwayspassable 为真时【跳过全部地面检查】直接进第二层。',
     '--    语义是「这个技能不挑地形」（如凭空召唤），用于表新机制的扩展点。',
@@ -664,7 +664,7 @@ export default {
     '--      调用方写 nil 和写 0 都不必特殊处理。',
     '--  两层都过才true ——「不挑地形」与「不挑距离」是两个独立的放宽维度。',
   ],
-  1075: [
+  "Map:IsInMapBounds#1": [
     '-- ★⚠️ 已核实的越界问题（第 1082 行）：',
     '--   if tx > w or tz > h —— 用的是严格大于。',
     '--   GetTileCoordsAtPoint 返回的索引若恰好等于 w（即边界外的第一格），',
@@ -676,14 +676,14 @@ export default {
     '--   标为「疑似」而非「确定」：需确认 GetTileCoordsAtPoint 是否已把点夹到 w-1，',
     '--   我未读该函数（位于 map/terrain.lua）。结论基于索引范围的常规定义。',
   ],
-  1089: [
+  "Map:IsTileLandNoDocks#1": [
     '-- 这两个是【给 filterfn 用的裸函数】而非点查询：',
     '-- 接收 (self, tile) 而非 (x, y, z)，因此能直接塞进 IsAboveGroundInSquare（第 1097 行）。',
     '-- ★ 这是「提高函数签名的一致性以支持注入」的具体做法。',
     '-- 注意 IsTileLandNoDocks 与第 80 行 IsLandTileNoDocksAtPoint 的差别：',
     '--   后者自己调 GetTileAtPoint（点→tile），前者直接收 tile。两者规则相同。',
   ],
-  1097: [
+  "Map:IsAboveGroundInSquare#1": [
     '-- ★ IsAboveGroundInSquare：检查 (2r+1)² 个采样点是否全部满足条件。',
     '-- 【两个分支的历史包袱】',
     '--  有 filterfn：新逻辑，【按 tile 判定】，可传IsTileLandNoDocks / IsTileOcean',
@@ -697,7 +697,7 @@ export default {
   ],
 
   // ══════════════ 竞技场出生点：陆地 ══════════════
-  1122: [
+  "Map:IsAboveGroundInSquare#1+25": [
     '-- 【竞技场出生点系统的三个魔数】',
     '--  GOOD_ARENA_SQUARE_SIZE = 6    —— 判定「够大」的正方形边长（格）',
     '--  IS_CLEAR_AREA_RADIUS = 6*TILE_SCALE —— 查障碍实体的半径',
@@ -707,7 +707,7 @@ export default {
     '-- 第 1129-1131 行的 ITERATIONS_PER_TICK=20 / TIME_PER_TICK=0.1 /',
     '-- SIZE_INTERVAL=50 三者共同决定扫描速度（见 1214 行）。',
   ],
-  1146: [
+  "Map:CheckForBadThingsInArena#1": [
     '-- ★★★ CheckForBadThingsInArena —— 返回值语义【与直觉相反】，务必注意：',
     '--   ★ 返回 true  = 「这里有坏东西 / 不合格」',
     '--   ★ 返回 false = 「这里干净 / 合格」',
@@ -727,14 +727,14 @@ export default {
     '--  ⚠️ 这里用「先加后减」而不是「查询时就不加」，是为了让 badthingsatspawnpoints',
     '--    记录的计数能反映净障碍数（供第 1258 行做best 选择）。',
   ],
-  1159: [
+  "Map:CheckForBadThingsInArena#1+13": [
     '-- 只有【净计数恰好为 0】才算完美点。注意是 == 0 而非 <= 0，',
     '-- 两者等价但 == 更能表达「一个不多一个不少」。',
     '-- ⚠️ 反面情况：若第 1153 行的减法把计数减成负数（普通植物多于障碍），',
     '--   == 0 不成立 → 该点被判为「有坏东西」→ 白白损失一个可用出生点。',
     '--   理论上网格采样内 plant 数量不会压过障碍，但这是脆弱的不变式。',
   ],
-  1166: [
+  "Map:StartFindingGoodArenaPoints#1": [
     '-- ★★★ StartFindingGoodArenaPoints —— 【增量式全图扫描】，本文件最精彩的调度设计。',
     '--',
     '-- 【为什么必须分帧】全图扫描 = (w/50) × (h/50) 个采样点，',
@@ -758,14 +758,14 @@ export default {
     '--  ★ 后者的语义是「至少要扫完一轮」——部分轮次的结果不算数，',
     '--    因为第 1204 行的随机偏移需要轮次累积才有意义。',
   ],
-  1176: [
+  "DoIteration#1": [
     '-- DoIteration 是 DoPeriodicTask 的回调：',
     '-- ⚠️ 它是【协程】—— 若内部 yield 会导致周期漂移（bug-patterns A1）。',
     '--  好在 CheckForBadThingsInArena 是纯查询、无 yield，所以这里是安全的。',
     '-- 每次 tick 固定处理 20 个点（GOODARENAPOINTS_ITERATIONS_PER_TICK），',
     '--  即每秒 200 个采样点 → 覆盖整图约需 数秒，符合「后台慢慢填缓存」的预期。',
   ],
-  1182: [
+  "DoIteration#1+6": [
     '-- ★ Vector3(check_pt:Get()) —— 显式【拷贝】一个新向量。',
     '--  若直接存 check_pt 引用，所有缓存点会指向同一个 Vector3 对象，',
     '--  而第 1197/1199 行在原地修改 check_pt.x/z → 整个缓存全部塌缩成一个点。',
@@ -777,7 +777,7 @@ export default {
     '--   意味着第 1148 行的 13×13 判定基本覆盖不到格与格之间的间隙。',
     '--   这是【有意的性能取舍】：宁可漏点也不能卡帧。',
   ],
-  1214: [
+  "DoIteration#1+38": [
     '-- 任务句柄存在 TheWorld 上（第 1217-1219 行用它来Cancel）。',
     '-- ★ 为什么存 TheWorld 而不是局部 upvalue：',
     '--   因为 Map 的方法之间要能互相 Stop（见第 1167、1192、1208 行），',
@@ -785,7 +785,7 @@ export default {
     '-- ⚠️ 惯例风险：字段名以 _ 开头避免与业务字段冲突，',
     '--   但这也意味着若两个 mod 都用同名会互相Cancel 对方的任务。',
   ],
-  1223: [
+  "Map:FindBestSpawningPointForArena#1": [
     '-- ★★★ FindBestSpawningPointForArena —— 【四级降级策略】，全文件最该精读的算法。',
     '--',
     '-- 【第 0 级：准备】',
@@ -835,7 +835,7 @@ export default {
     '--  ★ 递增半径（5,10,15）配合随机起始角度，是「先小范围试，不行再扩大」的阶梯搜索，',
     '--    比一次性用大范围更快找到近解，且结果更集中（更像正经出生点）。',
   ],
-  1274: [
+  "IsValidSpawningPoint_Bridge#1+4": [
     '-- for r = 5, 15, 5 —— Lua 的三参for：起点5、终点15、步长5 → r 取5/10/15。',
     '-- FindWalkableOffset(点, 随机角度, 半径, 8, false, false, 判定函数)：',
     '--  第 3 参 r 是搜索半径、第 4 参 8 是环上的采样数、最后是自定义合法性回调。',
@@ -843,7 +843,7 @@ export default {
     '-- ⚠️ 只尝试 3 次（r=5/10/15），第 4 次就放弃并落回第 1268 行的原坐标。',
     '--   此时 x/y/z 已非nil → 第 1283 行的 if not x 不成立 → 直接 return 原点。',
   ],
-  1283: [
+  "IsValidSpawningPoint_Bridge#1+13": [
     '-- ⚠️ 已核实的死代码（第 1283 行）：if not x then',
     '--  第 1268 行已执行 x, y, z = pt.x, pt.y, pt.z —— x 必非 nil；',
     '--  且第 1274-1281 行的循环要么 return 要么不改x。',
@@ -857,7 +857,7 @@ export default {
   ],
 
   // ══════════════ 竞技场出生点：海洋 ══════════════
-  1296: [
+  "IsValidSpawningPoint_Bridge#1+26": [
     '-- ★ 海洋版的四个魔数与陆地版（第 1127-1131 行）几乎相同，唯一差异是',
     '--   TIME_PER_TICK = 0.2（陆地 0.1）—— 海洋扫描慢一半，',
     '--   因为海洋判定（IsSurroundedByWater / 找船）成本更高。',
@@ -870,7 +870,7 @@ export default {
     '--   把差异收敛成 { 判定函数, 缓存名, 标签集, 时间参数 } 四个参数，',
     '--   两套实现共用一个骨架。Klei 用复制粘贴，说明这是历史债务而非设计。',
   ],
-  1313: [
+  "Map:GetGoodOceanArenaPoints#1+4": [
     '-- 与陆地版（第 1144-1145 行）对比，海洋版标签集有两处增减：',
     '--  CANT 增加 FX / DECOR / NOCLICK —— 海面上装饰与特效更多，需要排除',
     '--  ONEOF 增加 ignorewalkableplatforms —— ★ 船本身不该算障碍',
@@ -878,14 +878,14 @@ export default {
     '--   那个「普通植物不算障碍」的减法。这是合理的（海里没草），',
     '--   但也说明两版逻辑已产生实质差异，复制粘贴的维护成本是真实的。',
   ],
-  1380: [
+  "Map:FindBestSpawningPointForOceanArena#1": [
     '-- FindBestSpawningPointForOceanArena：与陆地版（第 1223 行）逐行对应，',
     '-- 包括第 1415-1418 行同一个 best_count 缺陷（return 在 if 内、首次迭代即返回）。',
     '-- 第 1385 行的 shuffleArray 同样就地打乱全局缓存 GoodOceanArenaPoints。',
   ],
 
   // ══════════════ DLC 区域查询 ══════════════
-  1453: [
+  "Map:IsPointInSharkBoiArena#1": [
     '-- ★★★ 接下来的 ~110 行是【统一转发模式】，与前面的算法代码风格截然不同。',
     '-- 【七个别名函数（第 1453-1522 行）全部是 WagPunk 竞技场的转发】',
     '--  SharkBoiArena         ——  Shark 控制的竞技场',
@@ -915,7 +915,7 @@ export default {
     '--    而第 264 行 IsDeployPointClear 用的是 AndBarrierIsUp 版本（第 264 行），',
     '--    所以「结界没升时不禁建」正是设计意图，而非疏漏。',
   ],
-  1471: [
+  "Map:IsPointInWagPunkArenaAndBarrierIsUp#1": [
     '-- 禁建判定的实际入口。第 264 行 IsDeployPointClear 与第 298 行',
     '-- IsDeployPointClear2 都以它开头 —— 也就是【所有建造与施法都受它管】。',
     '-- ★ 这是「把一条业务规则埋进最底层通用函数」的典型做法：',
@@ -923,7 +923,7 @@ export default {
     '--   好处是新 DLC 不需要改任何建造代码，加helper 组件即可生效。',
     '-- 对DST 这种重度mod化的游戏，收益明显大于代价。',
   ],
-  1524: [
+  "Map:IsPointInVaultRoom#1": [
     '-- ★★ Vault 相关三个函数的【两级结构】，注释本身就说清了优化意图：',
     '-- 【为什么要有「大厅(lobby)」的廉价预判】',
     '--  IsPointInVaultRoom 走网络组件查询（第 1532 行）；',
@@ -938,7 +938,7 @@ export default {
     '--   最宽松的 IsPointInOrAdjacentToAnyVault（第 1560 行）连这个判断都没有。',
     '--   三个函数是「越来越宽松」的阶梯，选错会误判（太严漏掉 / 太松误伤）。',
   ],
-  1537: [
+  "Map:IsPointInVaultLobby#1": [
     '-- ★ 第 1538 行注释自陈了这个函数的脆弱假设：',
     '--   "makes the assumption for vault tiles being always secluded from anything',
     '--    and covers the entire vault floor"',
@@ -949,7 +949,7 @@ export default {
     '-- 与 IsPointInAnyVault 的区别：后者会继续走网络查询兜底（第 1558 行），',
     '-- 所以更可靠但更贵。安全相关的判定应选后者。',
   ],
-  1560: [
+  "Map:IsPointInOrAdjacentToAnyVault#1": [
     '-- 最宽松的版本：只要邻接 vault tile 就返回 true，连 IsVisualGround 都不查。',
     '-- ★ 用途是【只做否定判定】——第 518 行 CanDeployBridgeAtPointWithFilter',
     '--   用它做「禁建桥」检查。误判方向是「把非金库点当成金库」→ 少放一座桥，',

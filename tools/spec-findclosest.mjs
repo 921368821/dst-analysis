@@ -67,23 +67,23 @@ export default {
   ],
 
   // ══════════════ Visit:READY ══════════════
-  19: [
+  "FindClosest:Visit#1": [
     '--★★ Visit：与同族节点同形的三段式，但这里 READY 段**无条件转 RUNNING**。',
     '--★ 注意与 approach 的区别：approach 在 READY 段就可能直接 SUCCESS（已在范围内）；',
     '--   findclosest 不做这种判断 —— 它刚找到目标，必然需要走过去。',
     '--★★ 移植要点：READY 段允许「直接给终态」，这是让组合节点短路的关键。',
   ],
-  20: [
+  "FindClosest:Visit#1+1": [
     '--★ 立刻选目标并进入 RUNNING。无失败分支 —— 因为第 67 行才做有效性判定。',
     '--★ 设计意图：把「找不到目标」也当作一种 RUNNING 状态来处理，',
     '--   下一帧就会在第 67 行转 FAILED。语义上等价，但代码路径更统一。',
   ],
 
   // ══════════════ RUNNING：周期性复核 ══════════════
-  25: [
+  "FindClosest:Visit#1+6": [
     '--★★ RUNNING 段分成两条路：超过 5 秒就重新选，否则复核当前目标。',
   ],
-  26: [
+  "FindClosest:Visit#1+7": [
     '--★★★ 周期性重选（每 5 秒一次）。这是本节点的性能与正确性平衡点。',
     '--   「重新选」= 再跑一次 FindEntities，可能换成更近的、或换一个目标。',
     '--★ 为什么不每帧重选？FindEntities 是**全半径空间查询**，',
@@ -99,17 +99,17 @@ export default {
     '--   这是一种「低频重活 + 高频轻活」的合理分工，代价是 Visit 的轻活部分',
     '--   （下面 29-77 行的标签检查）每帧都在做。',
   ],
-  28: [
+  "FindClosest:Visit#1+9": [
     '--★ 未到 5 秒 → 走 else 分支：复核已选目标是否仍然合格。',
   ],
 
   // ══════════════ 三种标签过滤 ══════════════
-  29: [
+  "FindClosest:Visit#1+10": [
     '--★ valid_target 是一条「逐层否决」的链：初值有效，任一检查不过就置 false，',
     '--   且后续检查都以 `if valid_target and ...` 为前提（短路）。',
     '--★ 这个结构的好处：一旦判定无效，后面的 HasTag 调用全部跳过，省开销。',
   ],
-  32: [
+  "FindClosest:Visit#1+13": [
     '--★★★【语义一：tags —— AND，全部必须具备】',
     '--   循环里任何一个 tag 缺失就置 false 并 break。',
     '--★ 举例：tags = {"plant","sapling"} 表示「既要是 plant 又要是 sapling」，',
@@ -117,14 +117,14 @@ export default {
     '--⚠️ 移植陷阱：想要 OR 语义必须用 one_of_tags（第 52 行），',
     '--   写进 tags 里会被理解成「两个都要有」，永远筛不出东西。',
   ],
-  42: [
+  "FindClosest:Visit#1+23": [
     '--★★★【语义二：exclude_tags —— NOT ANY，命中任一即淘汰】',
     '--   注意这里是「有 k 就 false」，与 tags 的「没 k 就 false」正好相反。',
     '--★ 举例：exclude_tag = {"shadowcreature"} 排除暗影生物 ——',
     '--   只要目标带这个标签，无论它多近都不要。',
     '--★ 这一层是黑名单式过滤，与 combat.lua 的「白名单式排除」思路互补。',
   ],
-  52: [
+  "FindClosest:Visit#1+33": [
     '--★★★【语义三：one_of_tags —— OR，至少具备一个】',
     '--★ 第 53 行先把 valid_target **强制置 false**，再用循环「找到就翻回 true」。',
     '--   ★★ 这是 OR 语义的正确写法：默认不满足，满足任一才成立。',
@@ -134,29 +134,29 @@ export default {
     '--★ 三层是「与」关系叠加：先 AND 检查 tags，再做黑名单，最后要求 OR 成立。',
     '--   注意第 42/52 行都以 `if valid_target` 为前提，所以顺序有意义。',
   ],
-  62: [
+  "FindClosest:Visit#1+43": [
     '--★ 三层复核都通过才保留目标，否则清空（第 67 行会据此转 FAILED）。',
   ],
 
   // ══════════════ 趋近执行 ══════════════
-  67: [
+  "FindClosest:Visit#1+48": [
     '--★★ 目标无效 → FAILED，交回父节点（Selector 会去试下一个分支）。',
     '--★ 这一步同时覆盖了「找不到任何实体」和「目标中途失效」两种情况 ——',
     '--   因为 PickTarget 把 self.targ 置为 nil（第 84 行允许 ents[2] 为 nil）。',
   ],
-  70: [
+  "FindClosest:Visit#1+51": [
     '--★★ safe_dist 也支持「值或函数」，且**同时传入 inst 和目标实体**。',
     '--   兜底值 `or 5`：safe_dist 为 nil 或函数返回 nil 时用 5。',
     '--★ 移植要点：与外部调用方解耦的节点参数，兜底值比直接报错更实用 ——',
     '--   上层忘配参数时行为退化而不是整棵树崩掉。',
   ],
-  71: [
+  "FindClosest:Visit#1+52": [
     '--★★ 到达判定：站在 safe_dist 之内 → SUCCESS + 停止移动。',
     '--★ 用 inst:IsNear 一次判定「双方距离」，比自己算平方更简洁。',
     '--★ 转 SUCCESS 前先 Stop locomotor —— 成功后就该停下，',
     '--   否则会继续朝目标点走、撞上目标。这与 chaseandattack 的「Stop + return」同理。',
   ],
-  75: [
+  "FindClosest:Visit#1+56": [
     '--★★★ 没到位 → 朝「目标旁边 safe_dist 处」走。三点值得学：',
     '--   ① `safe_dist * 0.98` —— ★★ 乘一个略小于 1 的系数，',
     '--     让目标点比判定边界**略微靠内**。这样到达后一定满足第 71 行的 IsNear，',
@@ -178,7 +178,7 @@ export default {
   ],
 
   // ══════════════ PickTarget ══════════════
-  81: [
+  "FindClosest:PickTarget#1": [
     '--★★ PickTarget：真正的空间查询。整个节点最贵的一步，故由 CHECK_INTERVAL 节流。',
     '--★ 标签参数原样透传给 FindEntities：see_dist / tags / exclude_tag / one_of_tags。',
     '--   ★ 关键发现：**筛选工作在引擎侧一次完成**，第 32-60 行那三层复核是',
@@ -187,7 +187,7 @@ export default {
     '--     本文件第 32-60 行只是防止「5 秒内目标标签发生变化」的少量遍历。',
     '--     移植时若自己写朴素遍历扫描，复杂度会完全不同 —— 必须做空间索引。',
   ],
-  84: [
+  "FindClosest:PickTarget#1+3": [
     '--★★★ `ents[1] ~= self.inst and ents[1] or ents[2]` —— 排除自己。',
     '--   FindEntities 会把 inst 自己也算进去（距离为 0），所以要跳过。',
     '--★ 注意这里只跳过 ents[1]，若 ents[1] 恰是自己则取 ents[2]（第二近的）。',
@@ -199,7 +199,7 @@ export default {
     '--   是因为 a（实体）与 b（实体）比较后结果是布尔值，不会触发 and/or 三元陷阱。',
     '--   ★ 但如果改成 `a == b and c or a` 就必须小心 —— 写法差异决定正确性。',
   ],
-  86: [
+  "FindClosest:PickTarget#1+5": [
     '--★ 无论找到与否都更新时间戳 —— 找不到也会「续期」5 秒。',
     '--★ 这是合理的：找不到时第 67 行同帧就转 FAILED，不会进入下一次复核。',
     '--   真正会进入复核的只有「找到了」的分支。',
