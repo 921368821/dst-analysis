@@ -387,6 +387,145 @@ def u18_slot_change_invalidates_cache():
 
 
 # =============================================================================
+# ws.py：帧编解码（P50 — B26 那条「坏帧: client frame must be masked」就是从这儿冒出来的）
+# =============================================================================
+class _FakeSock(object):
+    """喂字节的假 socket：可以指定「每次最多吐几个字节」来逼出短读。
+
+    ★ 为什么必须能**短读**：`_read_exact` 的全部价值就是「一次 recv 拿不全也要读满」。
+      只喂整帧的假 socket 会让它退化成一个 `recv(n)` 调用，判据也就测不到循环。
+    """
+
+    def __init__(self, data, chunk=None):
+        self.data = bytes(data)
+        self.i = 0
+        self.chunk = chunk            # None = 一次给完
+
+    def recv(self, n):
+        if self.i >= len(self.data):
+            return b""                # 对端关闭
+        take = n if self.chunk is None else min(n, self.chunk)
+        out = self.data[self.i:self.i + take]
+        self.i += len(out)
+        return out
+
+
+def u19_encode_frame_three_lengths():
+    """服务端帧：长度三档（7bit / 16bit / 64bit）的头部必须逐字节对。
+
+    这三档是最容易写错的地方（`126`/`127` 是**标记**，不是长度本身）。
+    """
+    from ws import encode_frame, OP_TEXT
+    cases = [
+        (0, b"\x81\x00"),
+        (125, b"\x81\x7d"),
+        (126, b"\x81\x7e\x00\x7e"),
+        (65535, b"\x81\x7e\xff\xff"),
+        (65536, b"\x81\x7f\x00\x00\x00\x00\x00\x01\x00\x00"),
+    ]
+    bad = []
+    for n, head in cases:
+        got = encode_frame(b"x" * n, OP_TEXT)[: len(head)]
+        if got != head:
+            bad.append((n, got, head))
+    # 反向：服务端帧**不许**带掩码位（带了的客户端会按协议拒绝）
+    masked = encode_frame(b"hello")[1] & 0x80
+    return (not bad and masked == 0), \
+        ("5 档长度头部全对、且第 2 字节掩码位为 0" if not bad else "不符: %r" % (bad,))
+
+
+def u20_read_frame_short_reads():
+    """客户端帧在**每次只到 1 字节**的情况下也必须解对（_read_exact 的循环）。"""
+    from ws import read_frame, encode_frame_masked, OP_TEXT
+    payload = b'{"cmd":"whoami"}' * 3
+    frame = encode_frame_masked(payload, OP_TEXT)
+    out = []
+    for chunk in (None, 1, 3):
+        op, got = read_frame(_FakeSock(frame, chunk=chunk))
+        out.append((chunk, op == OP_TEXT and got == payload))
+    # 反向：不带掩码的客户端帧必须被拒（RFC 6455 §5.1），且理由要说得出
+    from ws import WSError
+    plain = bytes([0x81, len(payload)]) + payload
+    try:
+        read_frame(_FakeSock(plain))
+        rejected = False
+    except WSError as e:
+        rejected = "must be masked" in str(e)
+    allok = all(ok for _, ok in out)
+    return (allok and rejected), \
+        "整帧/1 字节/3 字节三种短读都解对；无掩码帧被拒（理由含 must be masked）"
+
+
+def u21_peer_close_is_not_bad_frame():
+    """★ P49 回归：**对端正常关闭**必须抛 `ConnectionError`，不许抛 `WSError`。
+
+    抛 WSError 的后果是：每个正常退出的客户端都被计一次「坏帧」，
+    `dropped_bad_frames` 与日志被这条噪音占满，真正违反协议的帧反而看不出特别。
+    """
+    from ws import read_frame, WSError
+    s = _FakeSock(b"")                       # 一个字节都没有 = 连上了就走
+    try:
+        read_frame(s)
+        kind = "没抛"
+    except ConnectionError:
+        kind = "ConnectionError"
+    except WSError:
+        kind = "WSError"
+    # 反向对照：读到**半帧**再断开，同样要算「连接结束」而不是「坏帧」
+    s2 = _FakeSock(b"\x81\x7e\x00", chunk=1)
+    try:
+        read_frame(s2)
+        kind2 = "没抛"
+    except ConnectionError:
+        kind2 = "ConnectionError"
+    except WSError:
+        kind2 = "WSError"
+    return (kind == "ConnectionError" and kind2 == "ConnectionError"), \
+        "空连接/半帧断开都抛 ConnectionError（%s / %s）—— 不会被记成坏帧" % (kind, kind2)
+
+
+def u22_read_frame_rejects_bad_shape():
+    """反协议帧必须**明确拒绝**：分片帧、超大长度（且在分配前就拒）。"""
+    from ws import read_frame, encode_frame_masked, WSError
+    # ① fin=0（分片）：替一个 0x01 的 b0（fin 位清零）
+    frag = bytearray(encode_frame_masked(b"ab"))
+    frag[0] &= 0x7F
+    # ② 长度 0x7f 声明的 64 位长度 = 2^40，远超 8MB 上限，且**不该先去读 2^40 字节**
+    huge = bytes([0x81, 0x7F]) + (1 << 40).to_bytes(8, "big")
+    res = {}
+    for tag, data in (("frag", bytes(frag)), ("huge", huge)):
+        try:
+            read_frame(_FakeSock(data))
+            res[tag] = "没抛"
+        except WSError as e:
+            res[tag] = "WSError" if "not supported" in str(e) or "too large" in str(e) else "错理由"
+        except OSError:
+            res[tag] = "OSError"
+    return (res["frag"] == "WSError" and res["huge"] == "WSError"), \
+        "分片帧/超长帧都抛 WSError（%s / %s），不是静默吞掉" % (res["frag"], res["huge"])
+
+
+def u23_accept_key_rfc_vector():
+    """握手 accept 值用 RFC 6455 §1.3 的固定向量 —— 防止有人「顺手优化」这段哈希。"""
+    from ws import accept_key
+    got = accept_key("dGhlIHNhbXBsZSBub25jZQ==")
+    want = "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
+    return (got == want), "accept_key 与 RFC 6455 示例一致"
+
+
+def u24_roundtrip_both_length_scales():
+    """客户端编码 ↔ 服务端解码**互逆**（含 126 档的两字节长度）。"""
+    from ws import read_frame, encode_frame_masked
+    bad = []
+    for n in (0, 1, 125, 126, 300):
+        payload = bytes((i * 7) & 0xFF for i in range(n))
+        op, got = read_frame(_FakeSock(encode_frame_masked(payload), chunk=5))
+        if got != payload:
+            bad.append(n)
+    return (not bad), ("0/1/125/126/300 五档往返一致" if not bad else "不符: %r" % (bad,))
+
+
+# =============================================================================
 # 汇总
 # =============================================================================
 def main():
@@ -419,6 +558,14 @@ def main():
     print("\n── config.py：路径自洽 ──")
     check("U9 ROOT/ENGINE/图集目录彼此自洽", u9_config_paths)
     check("U10 rt/ 在 sys.path 上（ws / protocol_bin 可取）", u10_rt_dir_on_syspath)
+
+    print("\n── ws.py：帧编解码（P50）──")
+    check("U19 服务端帧三档长度头部逐字节对", u19_encode_frame_three_lengths)
+    check("U20 客户端帧短读也能解对（整帧/1/3 字节）", u20_read_frame_short_reads)
+    check("U21 反向：对端关闭抛 ConnectionError，不是 WSError", u21_peer_close_is_not_bad_frame)
+    check("U22 反协议帧明确拒绝（分片/超长）", u22_read_frame_rejects_bad_shape)
+    check("U23 握手 accept 值与 RFC 6455 向量一致", u23_accept_key_rfc_vector)
+    check("U24 编解码往返（含 126 档）", u24_roundtrip_both_length_scales)
 
     print("\n── sim.py：构造期纪律 ──")
     check("U11 反向：Sim() 构造期不建 LuaRuntime", u11_sim_ctor_touches_no_lua)
