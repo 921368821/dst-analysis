@@ -44,6 +44,38 @@ LOG="$ROOT/tests/_run_all.log"
 #     在「两轮同时启动」时会两边都以为自己拿到了锁。锁里记 PID + 起始时间，人为可读、可手删。
 LOCKD="$ROOT/tests/_run_all.lock.d"
 BEAT="$LOCKD/beat"
+# ★★ P50㉓：`600` 原来是**拍的**。这条阈值的含义是「beat 静默多久才算真残留」，
+#   而 beat 只在**每组开头**（hr()）写一次 ⇒ 它的下限由「**最长的一组要跑多久**」决定，
+#   不是由「一轮总共多久」决定。600 秒 = 10 分钟，我当时没有任何一组耗时数据（日志里一组都没记过），
+#   属于「看起来合理」。若某一组真跑到 10 分钟以上，父 shell 一死，beat 会在那一组**中途**变陈旧，
+#   下一轮就会判「残留」⇒ 清锁 ⇒ 清空日志 ⇒ 与孤儿抢端口 —— 正是这把锁要防的事。
+#   ⇒ 阈值改成**由数据推**：上一轮把「最长一组耗时」写进 tests/_run_all.groupmax，
+#     本轮取 2× 该值（留一倍余量）向上取整到分钟，且不低于 600。
+#     没有那个文件（首次运行 / 刚清理过）就退回 600，并**在启动时说明用的是哪个来源**。
+GROUPMAX_F="$ROOT/tests/_run_all.groupmax"
+BEAT_STALE_MAX=600
+BEAT_STALE_SRC="默认值（还没有 tests/_run_all.groupmax ⇒ 首次运行）"
+if [ -f "$GROUPMAX_F" ]; then
+    #   ★ 文件**在**但内容不可用，和「文件不存在」是两回事 —— 原来两种情况都打「不存在」，
+    #     于是一个被写坏的数据文件会看起来像「首次运行」，永远不会被怀疑。
+    BEAT_STALE_SRC="默认值（tests/_run_all.groupmax 存在但值不可用：$(head -c 20 "$GROUPMAX_F" 2>/dev/null | tr -d "
+"))"
+fi
+if [ -f "$GROUPMAX_F" ]; then
+    REC_MAX=$(tr -dc "0-9" < "$GROUPMAX_F" 2>/dev/null)
+    if [ -n "$REC_MAX" ] && [ "$REC_MAX" -gt 0 ] 2>/dev/null; then
+        # 2 倍余量，再向上取整到整分钟
+        NEED=$(( (REC_MAX * 2 + 59) / 60 * 60 ))
+        if [ "$NEED" -gt "$BEAT_STALE_MAX" ]; then BEAT_STALE_MAX=$NEED; fi
+        BEAT_STALE_SRC="上一轮实测最长一组 ${REC_MAX} s × 2 向上取整" 
+    fi
+fi
+# ★ 仅供**反向验证**用：把阈值压到 0 才能让「最长一组 ≥ 阈值」这一支在秒级内变红。
+#   生产路径不要设它 —— 见 tests/run_all.sh 的判据与 开发计划.md §9bc.5。
+if [ -n "${RT_BEAT_STALE_MAX:-}" ]; then
+    BEAT_STALE_MAX=$RT_BEAT_STALE_MAX
+    BEAT_STALE_SRC="环境变量 RT_BEAT_STALE_MAX（反向验证用）"
+fi
 # ★★ P50㉑：锁的存活判据原来只看**父 shell**（`kill -0 $OLD_PID`）—— 这个洞能被孤儿子进程骗过去。
 #   实测证据（当天 16:32 的看护日志，不是假想）：
 #     「锁 PID=1249 已不存在，而 tests/_run_all.log 至 16:32 仍在增长」
@@ -81,9 +113,10 @@ if ! mkdir "$LOCKD" 2>/dev/null; then
         BEAT_MTIME=$(stat -c %Y "$BEAT" 2>/dev/null || echo 0)
         BEAT_AGE=$(( $(date +%s) - BEAT_MTIME ))
     fi
-    if [ "$BEAT_AGE" -lt 600 ]; then
-        printf '✘ 锁里的 PID %s 已不在，但 beat 文件 %s 秒前还在动 —— 那一轮的**子进程多半还活着**\n' "${OLD_PID:-?}" "$BEAT_AGE"
+    if [ "$BEAT_AGE" -lt "$BEAT_STALE_MAX" ]; then
+        printf '✘ 锁里的 PID %s 已不在，但 beat 文件 %s 秒前还在动（阈值 %s s）—— 那一轮的**子进程多半还活着**\n' "${OLD_PID:-?}" "$BEAT_AGE"
         printf '  这不是残留锁，而是「父 shell 走了、子进程还在」：清锁会清空 tests/_run_all.log 并与孤儿抢端口。\n'
+        printf '  阈值来源：%s\n' "$BEAT_STALE_SRC"
         printf '  先确认现场：netstat -ano | grep -E ":(8765|879[0-9]) .*LISTENING"\n'
         printf '  确认真没人了再手删：rm -rf %s\n' "$LOCKD"
         exit 3
@@ -102,6 +135,7 @@ if ! mkdir "$LOCKD" 2>/dev/null; then
 fi
 printf '%s\n%s\n' "$$" "$(date '+%Y-%m-%d %H:%M:%S')" > "$LOCKD/pid"
 date +%s > "$BEAT" 2>/dev/null || true      # ★ 第一拍：拿到锁就算活着
+printf '   （锁的 beat 阈值：%s s，来源：%s）\n' "$BEAT_STALE_MAX" "$BEAT_STALE_SRC" >> "$LOG"
 # ★ P50㉒：**先写 done、再删目录**。顺序不能反：删成功就什么都不需要，删失败（被拦/权限）时 done 必须已经在。
 trap 'date +%s > "$LOCKD/done" 2>/dev/null; rm -rf "$LOCKD"' EXIT INT TERM
 T0=$(date +%s)
@@ -113,7 +147,10 @@ run_step() {
     # ★★ `--dry-run`（2026-10-20 加）：**只数组、不跑**。
     #   为什么需要：组数核对是「运行时」判据，而验它一次要 11 分钟（--fast）——
     #   等于「这条判据自己没法被便宜地验证」，于是我把声明值写错（17 vs 真实的 18）
-    #   也只能在跑完之后才知道。dry-run 把这条路压到 3 秒：改完 run_all 先 dry 一遍。
+    #   也只能在跑完之后才知道。dry-run 把这条路压到秒级：改完 run_all 先 dry 一遍。
+    #   ★ P50㉓ 更正：这行原来写「压到 3 秒」，而 ③ 组**没走 run_step**、dry 时照跑 14 个
+    #     lua 入口（实测 54 s）。现在 ③ 也走 DRY 分支，dry-run 实测 10 s（原来 64 s）。
+    #     剩下的 10 s 里，第一组那 4 s 是 preflight（解析环境 / 查运行时版本），不属任何判据。
     #   ★ 它的结论**不作数**（所有组都算通过），所以末尾会大声说明。
     # ★ 用 `${DRY:-0}`：`set -u` 下未定义会直接退出，而 run_step 第一次被调用
     #   （preflight 那一行）比参数解析还早 ⇒ 第一版在这里报 DRY: unbound variable。
@@ -196,9 +233,33 @@ DECLARED_GROUPS=20          # 全量
 DECLARED_GROUPS_FAST=18     # --fast
 GROUP_N=0
 GROUP_LIST=""
+# ★★ P50㉓：**每组实测耗时**。原来一轮跑完只有一个总数（"实测 1214 s"），
+#   于是「哪一组占了大头」「比上轮慢 8 s 是谁慢了」全靠猜 —— 我在 §9bb 里把时长上涨
+#   归因给「同机还有别的项目的 CPU 密集任务」，那句话当时**没有任何数据支撑**。
+#   现在每组收尾打一行 `⏱ … 用时 N s`，并且记下最长的一组（锁的阈值要用它，见文件头）。
+GROUP_MAX=0
+GROUP_MAX_NAME=""
+GROUP_T0=$T0
+GROUP_LAST=""
+_tally() {
+    # 结算**上一组**：从它开头到现在。第一组之前 GROUP_LAST 为空，跳过。
+    [ -z "$GROUP_LAST" ] && return 0
+    local now dur
+    now=$(date +%s)
+    dur=$(( now - GROUP_T0 ))
+    printf '\033[2m⏱ %s 用时 %d s\033[0m\n' "$GROUP_LAST" "$dur"
+    printf '⏱ %s 用时 %d s\n' "$GROUP_LAST" "$dur" >> "$LOG" 2>/dev/null || true
+    if [ "$dur" -gt "$GROUP_MAX" ]; then
+        GROUP_MAX=$dur
+        GROUP_MAX_NAME=$GROUP_LAST
+    fi
+    GROUP_T0=$now
+}
 hr() {
+    _tally
     GROUP_N=$((GROUP_N + 1))
     GROUP_LIST="$GROUP_LIST|$1"
+    GROUP_LAST=$1
     printf '\n\033[1m══ %s\033[0m\n' "$1"
     printf '\n══ %s\n' "$1" >> "$LOG" 2>/dev/null || true
     # ★ P50㉑：每组开头打一次心跳 —— 锁那边靠它区分「残留」与「父 shell 走了、子进程还活着」。
@@ -356,6 +417,13 @@ hr "③ 宿主回归：06-引擎复刻 14 入口 + tests.lua 断言"
     #   不切目录就会 14 个入口全部「找不到 host」⇒ 全 ✘。
     #   第一版就是这样：手动跑（在 06 下）全绿，脚本里跑全红，白查一轮。
     cd "$ENGINE" || { echo "    ✘ 进不去宿主目录 $ENGINE"; FAIL=1; }
+    # ★★ P50㉓：这里的 14 次调用**原来不走 run_step**，于是 `--dry-run` 拦不住它 ——
+    #   实测 dry-run 仍然跑了 54 s（③ 组 14 个入口），而末尾那句总结写的是「一个判据都没跑」。
+    #   一句话与行为不符，比慢更坏：它会让人以为 dry-run 是免费的，于是不再真跑。
+    #   ⇒ 整段包进 DRY 分支，与 run_step 的语义对齐。
+    if [ "$DRY" = "1" ]; then
+        printf '  (dry-run) 宿主回归 14 入口：run batch player play full render seasons equip burn perish tests mech reachability world\n'
+    else
     for f in run batch player play full render seasons equip burn perish tests mech reachability world; do
         OUT=$("$PY" "$RUNNER" 5.1 "$ENGINE/$f.lua" 2>&1)
         printf '\n--- %s ---\n%s\n' "$f.lua" "$OUT" >> "$LOG"
@@ -365,6 +433,7 @@ hr "③ 宿主回归：06-引擎复刻 14 入口 + tests.lua 断言"
             printf "    ✘ %s\n" "$f.lua"; FAIL=1
         fi
     done
+    fi
 
     # ★★ ⑤ 06 的三件套（audit_fixes + audit_doc_numbers + verify_report）。
     #   为什么放进统一入口：07 的「发布检查单」把「三连结果」写成
@@ -395,8 +464,38 @@ if run_step "$PY" -u "$ROOT/tools/check_leftovers.py" --verify "$ROOT/tests/_lef
 #   只删「pid 已不存在」的：pid 还在就可能是别的进程正在读，一个都不碰。
 if run_step "$PY" -u "$ROOT/tools/check_leftovers.py" --clean-temp; then :; else FAIL=1; fi
 
+_tally
 ELAPSED=$(( $(date +%s) - T0 ))
 printf '\n'
+# ★★ P50㉓：**这一轮自己检查自己用的阈值**。
+#   判据（危险的那一侧）：最长的一组 ≥ 阈值 ⇒ 单组跑得比阈值还久 ⇒ 父 shell 一死，
+#   beat 会在那一组**中途**变陈旧 ⇒ 下一轮把「还在跑」判成「残留」⇒ 清锁、清日志、抢端口。
+#   所以这条一旦越界必须**判红**（不是警告）—— 它是一条安全边界，不是性能指标。
+#   注意 dry-run 不写 groupmax：那时每组 0 s，落盘会把上一轮的真实数据覆盖成 0。
+if [ "$GROUP_MAX" -gt 0 ]; then
+    printf '  最长一组：%s（%d s）；锁的 beat 阈值 %s s，来源：%s\n' \
+        "$GROUP_MAX_NAME" "$GROUP_MAX" "$BEAT_STALE_MAX" "$BEAT_STALE_SRC" | tee -a "$LOG"
+    if [ "$GROUP_MAX" -ge "$BEAT_STALE_MAX" ]; then
+        printf '\n\033[1m✘ 锁的 beat 阈值 %s s 不大于最长一组 %d s（%s）\033[0m\n' \
+            "$BEAT_STALE_MAX" "$GROUP_MAX" "$GROUP_MAX_NAME"
+        printf '  这一组跑到一半，beat 就会被判成陈旧 ⇒ 下一轮会把「还在跑」当成「残留锁」清掉。\n'
+        printf '  ⇒ 阈值必须 > 最长一组（2 倍是设计余量，不是红线；见 开发计划.md §9bc）。\n'
+        printf '✘ 锁的 beat 阈值 %s s 不大于最长一组 %d s（%s）\n' \
+            "$BEAT_STALE_MAX" "$GROUP_MAX" "$GROUP_MAX_NAME" >> "$LOG"
+        FAIL=1
+    elif [ $(( GROUP_MAX * 2 )) -gt "$BEAT_STALE_MAX" ]; then
+        # ★ P50㉓ 量出来的事实：最长一组 542 s，而阈值 600 s —— 只比 1 倍多 58 s（10.7%）。
+        #   「单组比阈值久」这条红线还没踩到，所以不判红；但设计余量（2 倍）并不满足。
+        #   直说，并且把「下一轮自动推到多少」算出来 —— 否则这个缺口什么时候闭合没人知道。
+        NEED2=$(( (GROUP_MAX * 2 + 59) / 60 * 60 ))
+        printf '  ⚠ 余量不足 2×：最长一组 %d s，2× = %d s > 阈值 %s s（还差 %d s）\n' \
+            "$GROUP_MAX" $(( GROUP_MAX * 2 )) "$BEAT_STALE_MAX" $(( GROUP_MAX * 2 - BEAT_STALE_MAX )) | tee -a "$LOG"
+        printf '    按本轮数据，下一轮读 tests/_run_all.groupmax 后阈值会推到 %d s。\n' "$NEED2" | tee -a "$LOG"
+    fi
+    if [ "$DRY" != "1" ]; then
+        printf '%d\n' "$GROUP_MAX" > "$GROUPMAX_F" 2>/dev/null || true
+    fi
+fi
 # ★ 组数核对（见顶部 DECLARED_GROUPS 的注释）。**只在真跑完时**才有意义，
 #   所以放在 ⑥ 之后；判定进 FAIL ⇒ 会体现在总判定里，不会被「个别组全绿」掩盖。
 if [ "$FAST" = "1" ]; then WANT_G=$DECLARED_GROUPS_FAST; else WANT_G=$DECLARED_GROUPS; fi
@@ -420,6 +519,7 @@ fi
 printf '── 总判定：%s（实测 %d s）──\n' "$VERDICT" "$ELAPSED" | tee -a "$LOG"
 if [ "$DRY" = "1" ]; then
     printf '\033[1m★ 注意：本次是 --dry-run，一个判据都没跑 ⇒ 上面的「%s」只表示组数对得上，\033[0m\n' "$VERDICT"
+    printf '\033[1m  （只有 run_step 与宿主回归那一段会空转；组标题 / 组数核对 / 锁判定仍是真的）\033[0m\n'
     printf '\033[1m  不代表代码是好的。真正的结论要跑 bash tests/run_all.sh。\033[0m\n'
 fi
 # ★ 无论红绿都报日志路径：下次出现「某组没输出汇总行」这种偶发时，
