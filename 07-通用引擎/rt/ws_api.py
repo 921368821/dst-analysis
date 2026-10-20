@@ -92,15 +92,18 @@ class WsMixin:
                     win_count += 1
                     if win_count > MAX_WS_MSGS_PER_SEC:
                         # 丢弃这一条（不派发），但仍然继续发帧 —— 客户端不会因此「看起来断线」。
-                        with self.hub.lock:
-                            self.hub.rate_limited += 1
+                        # ★ P50⑱：这里**已经没有外层 main lock** 了 —— 原来那句
+                        #   `with self.hub.lock: self.hub.rate_limited += 1` 是把
+                        #   一个纯计数操作塞进主锁里，而主锁是模拟线程与所有连接线程
+                        #   共用的热点。计数走自己的 stat_lock。
+                        self.hub.bump("rate_limited")
                     else:
                         self._on_frame(op, payload)
                 except socket.timeout:
                     pass
                 except ws.WSError as e:
                     # ★ 坏帧**显式计数**，不静默（本工程纪律）
-                    self.hub.dropped_bad_frames += 1
+                    self.hub.bump("dropped_bad_frames")
                     print("[ws] 客户端 %d 坏帧: %s" % (cid, e))
                     # ★★ 2026-10-20（P49）：退出前**必须把 socket 真正关掉**。
                     #   只 `return` 会留下一条「半开」连接：本线程走了（于是 `finally`
@@ -151,8 +154,8 @@ class WsMixin:
         第一版就是忘了传这个标志，帧的魔数明明写着 'RT'，客户端却拿不到 ArrayBuffer。"""
         self.request.sendall(ws.encode_frame(data, ws.OP_BIN if binary else ws.OP_TEXT))
         with self.hub.lock:
-            self.hub.frames_sent += 1
-            self.hub.bytes_sent += len(data)
+            self.hub.bump("frames_sent")
+            self.hub.bump("bytes_sent", len(data))
 
     def _on_frame(self, op, payload):
         if op == ws.OP_PING:
@@ -165,7 +168,7 @@ class WsMixin:
         try:
             msg = json.loads(payload.decode("utf-8"))
         except Exception:                                        # noqa: BLE001
-            self.hub.dropped_bad_frames += 1
+            self.hub.bump("dropped_bad_frames")
             print("[ws] 坏 JSON 帧（已丢弃并计数）")
             return
         # 前向兼容：未知字段**不崩**
@@ -237,7 +240,7 @@ class WsMixin:
             except Exception as e:                              # noqa: BLE001
                 print("[ws] ✘ 回 me 序列化失败：%s: %s（缓存里是 %s）"
                       % (type(e).__name__, e, type(st).__name__))
-                self.hub.dropped_bad_frames += 1
+                self.hub.bump("dropped_bad_frames")
             return
         if "cmd" in msg and str(msg["cmd"]) == "targets":
             # ★ P22：可交互目标 + 最近一次动作结果（**拉取**，与 whoami 同一个理由）
@@ -257,7 +260,7 @@ class WsMixin:
                 # ★ 序列化失败**必须说清**：否则表现成「客户端莫名断线」
                 print("[ws] ✘ 回 targets 序列化失败：%s: %s（缓存里是 %s）"
                       % (type(e).__name__, e, type(tg).__name__))
-                self.hub.dropped_bad_frames += 1
+                self.hub.bump("dropped_bad_frames")
             return
         if "cmd" in msg and str(msg["cmd"]) == "act":
             sl = getattr(self, "slot", 0)
@@ -265,7 +268,7 @@ class WsMixin:
                 try:
                     self.hub.cmds.put(("act", sl, int(msg.get("v"))))
                 except (TypeError, ValueError):
-                    self.hub.dropped_bad_frames += 1
+                    self.hub.bump("dropped_bad_frames")
             return
         if "cmd" in msg and str(msg["cmd"]) == "unact":
             sl = getattr(self, "slot", 0)
@@ -289,7 +292,7 @@ class WsMixin:
             if cmd == "pause":
                 self.hub.set_paused(bool(msg.get("v", 1)))
             else:
-                self.hub.dropped_bad_frames += 1
+                self.hub.bump("dropped_bad_frames")
                 print("[ws] 未知控制指令（已计数）: %r" % cmd)
         elif "k" in msg:
             # ★ P20：输入**必须带上「是谁按的」** —— 否则四个客户端共用一个玩家
@@ -301,4 +304,4 @@ class WsMixin:
             for k, v in (msg["keys"] or {}).items():
                 self.hub.inputs.put((getattr(self, "slot", 0), str(k), bool(v)))
         else:
-            self.hub.dropped_bad_frames += 1
+            self.hub.bump("dropped_bad_frames")

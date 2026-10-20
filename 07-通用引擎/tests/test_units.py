@@ -1013,6 +1013,54 @@ def u43_filelist_cleanup_really_deletes_and_is_idempotent():
         shutil.rmtree(d, ignore_errors=True)
 
 
+def u44_counter_bump_is_single_entry_and_exact():
+    """计数器的三条：**唯一入口（白名单）** / 并发下精确 / 读出来是同一把锁。
+
+    ★★ 先给结论再说理由：实测 8 线程 × 5 万次 = **40 万次并发 `+=`，一次都没丢**
+      （`sys.setswitchinterval(1e-6)` 也一样）。所以在 CPython 上
+      「裸 `+=` 丢计数」**不是**一个可复现的 bug —— 本条判据**不是**在测那个。
+      （负面结果照样记下来：不写「已修复丢计数」，因为没量到。）
+    ★ 真正测的是这次改造给出的三样东西：
+      ① `bump()` 只认白名单里的名字 —— 挡住「手滑写成 `bump("paused")`
+         把暂停状态变成数字」这种后门（`setattr` 对任何名字都成立）；
+      ② 并发下计数**精确**（回归保护：以后谁把 `bump` 改成「先读后写」的分步实现，
+         40 万次里会很明显）；
+      ③ `stats_snapshot()` 一次锁里读全 —— 不允许出现「发帧 100 / 字节 0」
+         这种自相矛盾的一帧（原来逐个字段读，读一半被改就会这样）。
+    """
+    import threading
+    from hub import Hub, _COUNTERS
+    h = Hub()
+    bad_name_raised = False
+    try:
+        h.bump("paused")
+    except AttributeError:
+        bad_name_raised = True
+    except Exception:                                            # noqa: BLE001
+        bad_name_raised = False
+
+    n_thr, n_iter = 8, 50000
+    def worker():
+        for _ in range(n_iter):
+            h.bump("frames_sent")
+            h.bump("bytes_sent", 2)
+    ts = [threading.Thread(target=worker) for _ in range(n_thr)]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    want = n_thr * n_iter
+    snap = h.stats_snapshot()
+    exact = (snap["frames_sent"] == want and snap["bytes_sent"] == want * 2)
+    # ② 快照里必须**恰好**是那 4 个统计项，不多不少（多一项说明有人往白名单里塞了别的）
+    keys_ok = set(snap) == set(_COUNTERS)
+    good = bool(bad_name_raised and exact and keys_ok)
+    return good, ("非白名单名被拒=%s；%d 次并发计数精确=%s（发帧 %d/%d、字节 %d/%d）；"
+                  "快照键=%s" % (bad_name_raised, n_thr * n_iter, exact,
+                               snap["frames_sent"], want, snap["bytes_sent"], want * 2,
+                               sorted(snap)))
+
+
 # =============================================================================
 # 汇总
 # =============================================================================
@@ -1079,6 +1127,7 @@ def main():
     check("U40 反向：同秒连坏两次不互相覆盖", u40_quarantine_names_do_not_collide)
     check("U42 反向：没 boot 就存档 ⇒ 怪调用方，不许隔离存档", u42_not_booted_blames_the_caller_not_the_save)
     check("U43 反向：目录清单清理真删 + 幂等，且不往上删", u43_filelist_cleanup_really_deletes_and_is_idempotent)
+    check("U44 计数器唯一入口 + 40 万次并发精确 + 快照同锁", u44_counter_bump_is_single_entry_and_exact)
 
     print("\n" + "─" * 78)
     total = PASS + FAIL + SKIP

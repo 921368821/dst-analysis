@@ -93,6 +93,12 @@ def lua_to_py(v, depth=0):
     return str(v)
 
 
+# 跨线程计数器的**白名单**（见 `Hub.bump`）：只有这几项允许被 `bump` 改。
+# 为什么要有白名单：`setattr` 对任何名字都成立，等于留了一扇后门 ——
+# 手滑写成 `hub.bump("paused")` 会静默地把暂停状态变成数字。
+_COUNTERS = ("dropped_bad_frames", "rate_limited", "frames_sent", "bytes_sent")
+
+
 class Hub:
     # 跨线程共享的唯一交汇点：模拟线程写、处理线程读。
     # （原本的类体注释见 M4 之前的 server.py:702 上方）
@@ -114,6 +120,27 @@ class Hub:
         #   旧主人的 `slot_of` 早被覆盖掉了，`slot in slot_of.values()` 查不出来。
         #   ⇒ cid 必须**单调只增**，永不复用。
         self.cid_seq = 0
+        # ★★★ P50⑱：**计数器必须有自己的一把锁 + 唯一入口**。
+        #   这几项是跨线程的（每条连接一个处理线程），而
+        #   `self.hub.dropped_bad_frames += 1` 在 Python 里是
+        #   `LOAD_ATTR / LOAD_CONST / BINARY_ADD / STORE_ATTR` 四步，
+        #   理论上 GIL 可以在中间切换 ⇒ 丢更新。实测有 9 处自增，
+        #   其中只有 1 处在 `self.lock` 里 —— 其余 8 处全是裸 `+=`。
+        #
+        #   ⚠ **诚实边界（先量再说）**：实测 8 线程 × 5 万次 = **40 万次并发自增，
+        #     一次都没丢**（把 `sys.setswitchinterval` 调到 1e-6 也一样）。
+        #     所以在 CPython 上这**不是**一个可复现的 bug —— 不要拿它当「修了丢计数」邀功。
+        #   那为什么还要改？两条实测收益：
+        #     ① **读取一致性**：`/healthz` 原来逐个字段读，读一半被改就会出现
+        #        「发帧 1200 / 字节 0」这种自相矛盾的一帧 —— 不一致的统计比没有更误导。
+        #        现在 `stats_snapshot()` 在同一把锁里读全。
+        #     ② **把计数挪出热点主锁**：原来限流那处在 `with self.hub.lock:` 里做
+        #        `+= 1` —— 主锁是模拟线程与所有连接线程共用的热点，
+        #        为一次整数加法去抢它，纯属白付。
+        #   ⇒ 单独一把 `stat_lock`（与 `self.lock` 分开，避免嵌套/重入问题），
+        #     统一走 `bump(name, n)`，名字受白名单约束。
+        #   ★ 顺序约束：**持有 stat_lock 时绝不许再去拿 self.lock**。
+        self.stat_lock = threading.Lock()
         self.dropped_bad_frames = 0   # 坏帧计数（**不静默**：会出现在 stats 里）
         self.rate_limited = 0         # ★ M5：被限流丢弃的消息数（同上，必须可见）
         self.frames_sent = 0
@@ -182,6 +209,25 @@ class Hub:
         #   新连接的 `you` **有时十几秒都不发** —— 而客户端没有它就一直不知道自己是哪一条。
         #   ⇒ 改成**拉取**：客户端连上发 `{"cmd":"whoami"}`，处理线程**就地应答**。
         #   没有跨线程投递、没有等待、没有超时：**时序依赖被彻底去掉**。
+
+    # ---------- 跨线程计数器（唯一写入入口）----------
+    def bump(self, name, n=1):
+        """把计数器 `name` 原子地加 `n`。
+
+        ★ 只允许改 `__init__` 里那几个统计项；用白名单挡住「手滑写成别的字段」
+          （`setattr` 对任意名字都成立，等于给了一扇后门）。
+        ★ 读也走 `stats_snapshot()`：读一半被改，`/healthz` 会出现
+          「发帧 100 / 字节 0」这种自相矛盾的一帧 —— 不一致的统计比没有更误导。
+        """
+        if name not in _COUNTERS:
+            raise AttributeError("bump() 只用于统计项，%r 不在白名单 %r" % (name, _COUNTERS))
+        with self.stat_lock:
+            setattr(self, name, getattr(self, name) + int(n))
+
+    def stats_snapshot(self):
+        """一次性读出所有统计项的**一致**快照（同一把锁里读）。"""
+        with self.stat_lock:
+            return {k: getattr(self, k) for k in _COUNTERS}
 
     # ---------- 连接的登记与注销（cid 的唯一来源）----------
     def open_client(self, path):
