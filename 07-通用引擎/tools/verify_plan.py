@@ -61,6 +61,12 @@ TEST_FILES = {
     "tests/test_render_batch.js": "批渲染（C2 模块侧）",
     "tests/test_client_batch.js": "批渲染（C2 客户端侧）",
     "tests/test_stall_watchdog.py": "停帧看门狗（C1）",
+    # ★★ 2026-10-20（P50）：`tests/test_units.py` 从 L6 落地起就**没进过这张表** ——
+    #   于是它的 12 条（现 19 条）模块级断言从来没被算进「合计 N 项」，
+    #   而 README 的总数仍然显示「对得上」。这正是上面那条注释说的 C 类形状：
+    #   **缺登记**，不是算错。发现路径也一样：本轮给 hub 补 7 条单测，
+    #   跑 `verify_plan --fast` 总数一动不动（179 还是 179）——「加了东西数字不变」本身就是判据。
+    "tests/test_units.py": "模块级单测（L6，2 秒级）",
 }
 
 

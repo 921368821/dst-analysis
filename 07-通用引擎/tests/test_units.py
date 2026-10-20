@@ -16,6 +16,9 @@
 范围（只测**不需要 LuaRuntime、不需要起服务端**的东西）
     · `net.py`   ：来源校验 / query 解析 / 控制端点清单
     · `hub.py`   ：`lua_to_py`（用 lupa 造真 `_LuaTable`）/ `_slots_html` 空表
+                   ★ P50：**槽位分配与连接号**（U12~U18）—— B26 的根因在 `open_client`
+                   用「在线人数」当 cid，症状却要 6 秒集成测试才偶发一次。
+                   这一段把那条判据压到 1 毫秒，并且配了「旧写法必须红」的变异对照。
     · `config.py`：路径常量彼此自洽（`ENGINE` 在 `ROOT` 旁边、图集两目录不同）
     · `sim.py`   ：`Sim()` 构造**不许**碰 Lua（碰了就等于把线程纪律破在构造期）
 
@@ -189,6 +192,201 @@ def u11_sim_ctor_touches_no_lua():
 
 
 # =============================================================================
+# hub.py：槽位分配与连接号（P50 —— B26 的根因，以前只有 6 秒集成级判据）
+# =============================================================================
+def _hub(grace=0.0, default_player=True):
+    """造一个**不连服务端、不碰 Lua** 的 Hub。
+
+    `default_player=True` 表示「世界已经启动，槽位 0 上的默认玩家存在」——
+    这是**真实**状态（`alloc_slot` 里 `0 not in slot_guid` 这条会因此走另一分支）。
+    不设它的话第一个连接会拿到槽位 0，而槽位 0 **永不回收**（`release_slot` 里
+    `if slot != 0`），回收类判据就会测不到东西 —— 这一点我第一版就踩了：
+    三条「回收」判据对着槽位 0 跑，全是假绿/假红。
+    """
+    from hub import Hub
+    h = Hub()
+    h.reconnect_grace = grace
+    if default_player:
+        h.slot_guid[0] = 9001
+    return h
+
+
+class _OldHub(object):
+    """★ 变异对照：还原 P49 之前的写法 —— 拿「在线人数」当连接号。
+
+    它存在的唯一目的是证明 U12/U13 这两条判据**有牙**：
+    如果它们对旧写法也是绿的，那它们测的就不是这件事。
+    """
+
+    def __new__(cls, grace=0.0):
+        from hub import Hub
+        h = Hub()
+        h.reconnect_grace = grace
+        h.slot_guid[0] = 9001
+
+        def open_client(path):                       # ← 旧写法就长这样
+            with h.lock:
+                h.clients += 1
+                cid = h.clients                      # 「在线人数」当身份
+                h.client_ids[cid] = path
+            return cid
+        h.open_client = open_client
+        return h
+
+
+def u12_cid_never_reused():
+    """A/B/C 连上 → B 走 → D 连：D 的连接号**不许**等于任何活着的连接号。
+
+    这是 B26 的第一环。旧写法下 `clients` 从 3 减到 2，新连接于是又叫 3，
+    而 C 正拿着 3 —— 号码一复用，`slot_of` 的键就开始互相覆盖。
+    """
+    h = _hub()
+    a, b, c = h.open_client("/"), h.open_client("/"), h.open_client("/")
+    h.close_client(b)
+    d = h.open_client("/")
+    live = {a, c, d}
+    ok = (d not in (a, b, c)) and len(live) == 3
+    # 反向：同一个序列喂给旧写法，必须**撞上**
+    o = _OldHub()
+    oa, ob, oc = o.open_client("/"), o.open_client("/"), o.open_client("/")
+    o.close_client(ob)
+    od = o.open_client("/")
+    collided = od in (oa, oc)
+    return (ok and collided), \
+        "新写法 cid=%s（不与 %s 撞）；旧写法 D=%s 撞上了活着的 %s ⇒ 判据有牙" % (
+            d, (a, b, c), od, (oa, oc))
+
+
+def u13_slot_map_invariant():
+    """不变量：**分出去的槽位不许凭空消失** —— 要么由一个活连接持有，要么在空闲表里。
+
+    旧写法下 C 活着，而 D 用同一个号码覆盖了它的条目 ⇒ C 的槽位 2 既不在
+    `slot_of.values()` 也不在 `free_slots`（孤儿）。后果不是「日志难看」，
+    而是 **C 断开时释放的是 D 的槽位** ⇒ 两个人共用一个身体。
+    """
+    def orphans(hh, allocated):
+        held = set(hh.slot_of.values()) | set(hh.free_slots) | set(hh.reserved)
+        return [s for s in allocated if s not in held]
+
+    def run(hh):
+        ids = [hh.open_client("/") for _ in range(3)]
+        allocated = [hh.alloc_slot(c) for c in ids]
+        hh.release_slot(ids[1])
+        hh.close_client(ids[1])
+        d = hh.open_client("/")
+        allocated.append(hh.alloc_slot(d))        # ← 旧写法在这里覆盖别人的条目
+        return ids, allocated, orphans(hh, allocated)
+
+    h = _hub()
+    ids, allocated, orphan_new = run(h)
+    ok_slots = len(set(allocated)) == 3           # 三条连接三个不同槽位
+
+    # 反向：旧写法必须留下孤儿槽位，而且守卫必须**吵出来**（不是静默通过）
+    import contextlib
+    import io
+    o = _OldHub()
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        _, allocated_old, orphan_old = run(o)
+    noise = buf.getvalue()
+    shouted = ("连接号被复用了" in noise)
+    return (ok_slots and not orphan_new and len(orphan_old) == 1 and shouted), \
+        "新写法 0 个孤儿槽位；旧写法留下 %s 孤儿且守卫打印了「连接号被复用了」⇒ 判据有牙" % (
+            orphan_old,)
+
+
+def u14_release_only_own_slot():
+    """`release_slot(cid)` **只**回收它自己的槽位，别人的映射一个都不许动。"""
+    h = _hub()
+    a, b, c = h.open_client("/"), h.open_client("/"), h.open_client("/")
+    sa, sb, sc = h.alloc_slot(a), h.alloc_slot(b), h.alloc_slot(c)
+    h.release_slot(c)
+    ok = (h.slot_of.get(a) == sa and h.slot_of.get(b) == sb
+          and c not in h.slot_of and len(h.slot_of) == 2)
+    # 反向：回收确实发生了（否则「一个都没动」会被「什么都没做」冒充）
+    ok2 = sc in h.free_slots
+    return (ok and ok2), "只摘掉 C（槽 %s）；A/B 的槽 %s/%s 原样；槽 %s 进空闲表" % (
+        sc, sa, sb, sc)
+
+
+def u15_claimed_slot_not_handed_out():
+    """★ P37 回归：**已认领但人还没连回来**的槽位，不许分给任何新连接。
+
+    症状（历史上真发生过）：重启后 `prime_keys` 把 K1→槽位 1 灌进 `by_key`，
+    而 `next_slot` 还是 1 ⇒ 第二个连接也被分到槽位 1 ⇒ 两个客户端指向同一个身体。
+    """
+    h = _hub()
+    n = h.prime_keys({"1": "K1"})
+    # 带别的 key 的连接、以及匿名连接，都不许拿到槽位 1
+    c1 = h.open_client("/?k=K2")
+    s1 = h.alloc_slot(c1, key="K2")
+    c2 = h.open_client("/")
+    s2 = h.alloc_slot(c2)
+    ok = (n == 1 and s1 != 1 and s2 != 1 and s1 != s2)
+    # 而 K1 本人回来时**必须**拿回 1
+    c3 = h.open_client("/?k=K1")
+    s3 = h.alloc_slot(c3, key="K1")
+    return (ok and s3 == 1), "K2/匿名 分到 %s/%s（都避开已认领的 1）；K1 回来拿回 %s" % (
+        s1, s2, s3)
+
+
+def u16_busy_key_rejected():
+    """同一个 key 已经有活连接 ⇒ 第二个连接拿 `-1`，且 `busy_kicks` 计数 +1（不静默）。"""
+    h = _hub()
+    a = h.open_client("/")
+    sa = h.alloc_slot(a, key="K")
+    b = h.open_client("/")
+    sb = h.alloc_slot(b, key="K")
+    ok = (sb == -1 and h.busy_kicks == 1 and h.slot_of.get(a) == sa and b not in h.slot_of)
+    return ok, "第二个连接被拒（-1），第一个仍持有槽 %s，拒绝计数 %d" % (sa, h.busy_kicks)
+
+
+def u17_release_is_atomic_with_remove():
+    """★ 回收槽位与「排进 remove_player」必须在**同一把锁**里 —— 顺序不许反。
+
+    第一版先 release、调用方再 `cmds.put(remove)`，中间那个窗口里新连接可以
+    拿到同一槽位并把 `add_player` 排进队列 ⇒ 队列顺序变成 **add → remove**
+    ⇒ 新角色刚建出来就被删掉（症状：我在帧里找不到自己，且是间歇性的）。
+    """
+    h = _hub()
+    a = h.open_client("/")
+    sa = h.alloc_slot(a)
+    h.release_slot(a)
+    # 两件事要么都发生、要么都没发生：可观测的只有「都发生了」
+    cmds = []
+    while not h.cmds.empty():
+        cmds.append(h.cmds.get_nowait())
+    ok = (sa in h.free_slots) and (("remove_player", sa) in cmds)
+    # 反向：**带 key** 且宽限期 >0 时，两件事都不许发生（玩家要留着等重连）
+    h2 = _hub(grace=60.0)
+    b = h2.open_client("/")
+    sb = h2.alloc_slot(b, key="K")
+    h2.release_slot(b)
+    ok2 = (sb not in h2.free_slots) and h2.cmds.empty() and h2.reserved.get(sb, 0) > 0
+    return (ok and ok2), "无 key：槽 %s 进空闲表且 remove 已入队；带 key：两边都不动、留在保留期" % sa
+
+
+def u18_slot_change_invalidates_cache():
+    """槽位换主人时，**按槽位缓存**的观察结果必须作废（否则新客户端会读到上一任的）。"""
+    h = _hub()
+    a = h.open_client("/")
+    sa = h.alloc_slot(a)
+    h.slot_guid[sa] = 4242
+    h.me_by_slot[sa] = {"health": 111}
+    h.targets_by_slot[sa] = [{"id": 7}]
+    h.act_result[sa] = {"ok": True}
+    h.release_slot(a)
+    # 断开后又把同一个槽位发给别人（空闲表复用路径）—— 只有 slot != 0 才会作废
+    b = h.open_client("/")
+    sb = h.alloc_slot(b)
+    reused = (sb == sa)
+    clean = (sa not in h.slot_guid and sa not in h.me_by_slot
+             and sa not in h.targets_by_slot and sa not in h.act_result)
+    # 骨架：这里不再断言 guid==4242 一定被清 —— 清了才对，没清就会「认一个不存在的角色」
+    return (reused and clean), "槽 %s 被复用；gu/me/targets/act 四处缓存均已作废" % sa
+
+
+# =============================================================================
 # 汇总
 # =============================================================================
 def main():
@@ -208,6 +406,15 @@ def main():
     check("U6 真 _LuaTable → list/dict，且能 json.dumps", u6_lua_to_py_table)
     check("U7 反向：自引用表被深度截断（不爆栈）", u7_lua_to_py_depth_guard)
     check("U8 空槽位摘要给出明确占位", u8_slots_html_empty)
+
+    print("\n── hub.py：槽位与连接号（P50，B26 的根因层）──")
+    check("U12 连接号不复用（旧写法必须撞）", u12_cid_never_reused)
+    check("U13 不变量：slot_of 的键 == 活着的连接", u13_slot_map_invariant)
+    check("U14 release_slot 只回收自己的槽位", u14_release_only_own_slot)
+    check("U15 反向：已认领未连接的槽位不许分发", u15_claimed_slot_not_handed_out)
+    check("U16 同 key 第二连接被拒 + 计数可见", u16_busy_key_rejected)
+    check("U17 回收与 remove 入队原子（含带 key 反向）", u17_release_is_atomic_with_remove)
+    check("U18 槽位换主人时按槽位缓存作废", u18_slot_change_invalidates_cache)
 
     print("\n── config.py：路径自洽 ──")
     check("U9 ROOT/ENGINE/图集目录彼此自洽", u9_config_paths)
