@@ -401,6 +401,11 @@ def check_ids_claim(n=None, plan_text=None):
     """
     total = n if n is not None else len(collect_ids())
     text = plan_text if plan_text is not None else read(PLAN)
+    # ★★ 标了「当时值」的历史行**跳过** —— 与 `check_doc_counts` / `check_test_counts`
+    #   同一条约定。第 8 轮实测：§9au.6 那张「本轮数字」表里写着当时真实的 208，
+    #   而总数涨到 209 之后它立刻被判「过期」。那一行**本来就该停在 208** ——
+    #   报它等于逼人去篡改历史（和当初 `rt_boot/6` 那条一模一样的坑）。
+    text = "\n".join(l for l in text.split("\n") if "当时值" not in l)
     for m in re.finditer(r"测试编号\s*\|\s*\**(\d+)\s*个\**", text):
         if int(m.group(1)) != total:
             hit("开发计划.md", "测试编号总数过期", "%s 个" % m.group(1), "%d 个" % total)
@@ -700,6 +705,60 @@ def check_lua_format_percent(sources=None):
                     "第 %d 行（应改成 string.format）" % i)
 
 
+def scan_urllib_without_no_proxy(sources=None):
+    """找出「用了 `urllib` 连本机、却没设 `no_proxy`」的测试 / 工具文件。
+
+    ★★ 实测事故（第 8 轮全量，② 组 7 条红里最误导人的两条）：
+      环境注入了 `http_proxy=http://127.0.0.1:59817`，而 `no_proxy` 为空。
+      `urllib` 于是把 `http://127.0.0.1:8791/healthz` 也发给代理：
+        · 服务端**在**的时候，代理能转发 ⇒ `B6` 一直绿，看不出任何异常；
+        · 服务端**不在**的时候，拿回来的是 **502 Bad Gateway**。
+      于是 `E8`/`E11` 理直气壮地报「/debug/kill 返回 502 ⇒ **默认关没生效**」，
+      而真因是「那个服务端已经没了」。**一个指错方向的结论比没有结论更贵** ——
+      它会让下一个人去翻 `/debug` 的权限判定，而那里一点问题都没有。
+
+    ★ 这个坑 `tests/test_deploy.py`、`tests/test_stall_watchdog.py` 早就填过，
+      而 `tests/test_rt.py`（35 处 urllib）、`tests/test_stress.py`、
+      `tools/repro_v5.py` 三处漏了 —— 「同一串规则抄几份、漏一份」。
+      ⇒ 变成静态判据：以后新加的文件也跑不掉。
+
+    `sources` 只给规则自检用（{相对路径: 源码}）。
+    """
+    if sources is None:
+        items = []
+        for sub in ("tests", "tools"):
+            d = os.path.join(ROOT, sub)
+            if not os.path.isdir(d):
+                continue
+            for f in sorted(os.listdir(d)):
+                if f.endswith(".py"):
+                    p = os.path.join(d, f)
+                    try:
+                        items.append((os.path.join(sub, f), read(p)))
+                    except OSError:
+                        continue
+    else:
+        items = list(sources.items())
+    bad = []
+    # ★★ 认「**真的赋值**」，不认「提到过」。
+    #   第一版只查 `"no_proxy" not in text.lower()` —— 于是**注释里解释这个坑**
+    #   就能让规则闭嘴（我自己写完注释就当场验出来：把赋值删掉、只留注释，
+    #   规则仍然绿）。判据被文案骗过去，比没有判据更糟。
+    assign = re.compile(r"""os\.environ\[\s*["']no_proxy["']\s*\]\s*=""", re.I)
+    for rel, text in items:
+        if "urllib" not in text:
+            continue
+        if not assign.search(text):
+            bad.append((rel, "用了 urllib 却没**赋值** no_proxy",
+                        "环境里的 http_proxy 会把「连不上本机」翻译成 502"))
+    return bad
+
+
+def check_urllib_needs_no_proxy(sources=None):
+    for rel, why, detail in scan_urllib_without_no_proxy(sources):
+        hit(rel, why, detail, "在第一个 urllib 调用之前设 os.environ['no_proxy']")
+
+
 def check_doc_counts(total=None, docs=None, groups=None, ctxt=None):
     """README / 发布检查单里的 `合计 N 项` 与 `N 项 / M 组` 必须与实测一致。
 
@@ -869,6 +928,10 @@ def selftest():
          dict(n=195, plan_text="| 测试编号 | **195 个** | x |"), 0),
         ("编号总数：过期必须报", check_ids_claim,
          dict(n=195, plan_text="| 测试编号 | **188 个** | x |"), 1),
+        ("编号总数：标了「当时值」的历史行不报", check_ids_claim,
+         dict(n=209, plan_text="| 测试编号 | **208 个**（当时值；新增 A13b/U42） |"), 0),
+        ("编号总数：没标「当时值」就必须报（别拿它当免死金牌）", check_ids_claim,
+         dict(n=209, plan_text="| 测试编号 | **208 个**（新增 A13b/U42） |"), 1),
         # ---- 文档里的命令能不能真跑（`cd E:/...` 这类硬编码路径）----
         ("代码块里 cd 到不存在的盘符路径必须报", check_doc_cd_paths,
          dict(texts={"x.md": "```bash\ncd E:/nope/eng\nbash tests/run_all.sh\n```\n"},
@@ -880,6 +943,17 @@ def selftest():
         ("自解析写法 `cd \"$(git rev-parse …)\"` 不该误报", check_doc_cd_paths,
          dict(texts={"x.md": "```bash\ncd \"$(git rev-parse --show-toplevel)/07-通用引擎\"\n```\n"},
               exists=lambda p: False), 0),
+        # ---- 连本机不该走代理（502 会把「服务端不在」伪装成「端点没关」）----
+        ("用 urllib 却没设 no_proxy 必须报", check_urllib_needs_no_proxy,
+         dict(sources={"tests/x.py": "import urllib.request\nurlopen(u)\n"}), 1),
+        ("设了 no_proxy 不得报", check_urllib_needs_no_proxy,
+         dict(sources={"tests/x.py":
+                       "os.environ['no_proxy'] = '127.0.0.1'\nimport urllib.request\n"}), 0),
+        ("根本不用 urllib 不该误报", check_urllib_needs_no_proxy,
+         dict(sources={"tools/y.py": "import socket\nprint(1)\n"}), 0),
+        ("只在注释里提到 no_proxy 不算（文案骗不过判据）", check_urllib_needs_no_proxy,
+         dict(sources={"tests/z.py":
+                       "# 这里本该设 no_proxy，但忘了\nimport urllib.request\n"}), 1),
     ]
     # ★★★ 自检会产生一堆**假的**记录，必须只清掉这些、**绝不能碰真记录**。
     #   第一版写的是 `del HITS[:]` —— 而当时自检是在 `check_test_counts()` **之后**调的，
@@ -938,6 +1012,7 @@ def main():
     check_rows_present()
     check_registry_alignment()
     check_doc_cd_paths()
+    check_urllib_needs_no_proxy()
     check_lua_format_percent()
     check_artifacts()
     check_host()

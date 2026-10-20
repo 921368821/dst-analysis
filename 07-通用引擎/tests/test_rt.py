@@ -27,6 +27,20 @@ ROOT = os.path.dirname(HERE)                  # 07-通用引擎
 RT = os.path.join(ROOT, "rt")
 sys.path.insert(0, RT)
 
+# ★★ P50⑲：连**本机**起的服务端**不该走代理**。
+#   实测事故（第 8 轮全量的 ② 组 7 条红）：环境注入了
+#   `http_proxy=http://127.0.0.1:59817` 而 `no_proxy` 为空 ⇒ `urllib` 把
+#   `http://127.0.0.1:8791/...` 也发给了代理。服务端**在**的时候它能转发，
+#   所以 B6 一直是绿的；服务端一旦不在，拿回来的**不是**「连接被拒」而是
+#   **502 Bad Gateway** —— 于是 E8/E11 斩钉截铁地报「/debug/kill 返回 502
+#   ⇒ 默认关没生效」，而真因是**那个服务端已经没了**（一个完全指错方向的结论）。
+#   同一个坑 `tests/test_deploy.py`、`tests/test_stall_watchdog.py` 早填过，
+#   唯独这个文件（35 处 urllib）漏了 —— 「同一串规则抄三份、漏一份」。
+#   ⇒ 除了这里补上，`tools/verify_plan.py` 里加了一条静态判据：
+#     凡是用 `urllib.request` 的测试/工具文件，必须设 no_proxy。
+os.environ["no_proxy"] = "127.0.0.1,localhost"
+os.environ["NO_PROXY"] = "127.0.0.1,localhost"
+
 PASS, FAIL = 0, 0
 RESULTS = []
 
@@ -632,6 +646,87 @@ PORT = int(os.environ.get("RT_TEST_PORT", "8791"))
 PROC = {}
 
 
+def _log_text(path):
+    """读（可能还在被写的）子进程日志；读不到就返回空串（不抛）。"""
+    try:
+        with io.open(path, encoding="utf-8", errors="replace") as f:
+            return f.read()
+    except OSError:
+        return ""
+
+
+def _world_time(port, timeout=5):
+    """问 `/healthz` 的世界时间（秒）。**显式绕代理**（环境里注入了 http_proxy）。"""
+    import urllib.request
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open("http://127.0.0.1:%d/healthz" % port, timeout=timeout) as r:
+            d = json.loads(r.read().decode("utf-8"))
+        return float((d.get("stats") or {}).get("time") or 0.0)
+    except Exception:                                            # noqa: BLE001
+        return None
+
+
+def _wait_own_world(proc, logp, port, what, t0, timeout=20.0, logfile=None):
+    """等到「**我起的那个进程**」在自己的端口上监听 —— 挡住两种假绿灯。
+
+    ★★ 2026-10-20 第 8 轮全量实测事故（② 组 7 条红），证据链：
+        · `B0 起服务端` 绿了，用时 **9 ms**；而这个服务端 boot 实测要 3.7~5.2 s；
+        · 紧接着 `B2` 看到的世界时间是 **173 s**（刚起的世界是 **0.27 s**，
+          单独重跑一次即可对照）；
+        · 等"那个东西"消失，B24 起全组 ConnectionRefused，E10 也一样。
+       ⇒ 「端口能连上」证明不了「端口上是我」。原来的判据两头都漏：
+         ① 别人的服务端在听 ⇒ 我的进程启动即退出（端口已被占用），
+            而 `poll()` 还没来得及反映，探测就先连上了**别人**；
+         ② 就算连的是别人，绿得一样漂亮，后面的判据在一份**陌生的世界**上跑。
+       ⇒ 现在要求两件事同时成立：
+         ① **我自己的日志里有 banner**（`[http] http://127.0.0.1:<port>/`）——
+            别人的进程不会写我的日志文件。banner 在 bind **之后**才打印，
+            所以「见到 banner」⇒「端口是我的」。
+         ② **世界年龄不能超出「我这个进程存在了多久」** ——
+            我这进程才活了 0.1 s，世界却跑了 173 s，那只可能是别人的世界。
+            ⚠ 这条只在**没传 `--save-file`** 时成立（读档会让年龄合理地变大）；
+              本文件三个起法都没传，注释写在这里，免得以后有人加了存档又说判据疯了。
+    """
+    deadline = t0 + timeout
+    while time.time() < deadline:
+        if proc.poll() is not None:
+            if logfile is not None:
+                try:
+                    logfile.close()
+                except Exception:                                # noqa: BLE001
+                    pass
+            raise RuntimeError("%s 启动即退出：\n%s" % (what, _log_text(logp)))
+        text = _log_text(logp)
+        mine = ("[http] http://" in text) and (":%d/" % port in text)
+        if mine:
+            try:
+                with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+                    pass
+            except OSError:
+                time.sleep(0.1)
+                continue
+            t_world = _world_time(port)
+            age = time.time() - t0
+            if t_world is not None and t_world > age + 5.0:
+                raise RuntimeError(
+                    "%s 的端口 %d 上，世界已经跑了 %.1f s，而我这个进程才存在 %.1f s "
+                    "—— **连到别人的世界了**（不是我刚起的那个）。日志：%s"
+                    % (what, port, t_world, age, logp))
+            return
+        # banner 还没出现，端口却已经能连上 ⇒ 那不是我的进程
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+                raise RuntimeError(
+                    "端口 %d 上已经有**别人的**服务端在听（我起的那个还没打印 banner，"
+                    "很可能正因「端口已被占用」退出）—— 拒绝在别人的世界上跑这一组。"
+                    "日志：%s" % (port, logp))
+        except OSError:
+            pass
+        time.sleep(0.1)
+    raise RuntimeError("%s %.0f s 内未监听（日志：%s）" % (what, timeout, logp))
+
+
 def _start_server():
     """起跨进程测试用的服务端。
 
@@ -659,6 +754,7 @@ def _start_server():
     print("  [main] 服务端日志：%s" % logp)
     env = dict(os.environ)
     env["PYTHONUNBUFFERED"] = "1"
+    t0 = time.time()
     proc = subprocess.Popen(
         [sys.executable, "-u", os.path.join(RT, "server.py"),
          "--port", str(PORT), "--hz", "30", "--seed", "20261015", "--quiet"],
@@ -666,21 +762,8 @@ def _start_server():
         cwd=RT, text=True)
     PROC["p"] = proc
     PROC["lf"] = lf
-    # 等端口可用
-    for _ in range(200):
-        if proc.poll() is not None:
-            try:
-                lf.close()
-            except Exception:                                    # noqa: BLE001
-                pass
-            with open(logp, "r", encoding="utf-8", errors="replace") as f:
-                raise RuntimeError("服务端启动即退出：\n" + f.read())
-        try:
-            with socket.create_connection(("127.0.0.1", PORT), timeout=0.2):
-                return
-        except OSError:
-            time.sleep(0.1)
-    raise RuntimeError("服务端 20 s 内未监听（日志：%s）" % logp)
+    # ★ 等「**我起的那个**」监听（见 _wait_own_world：端口能连 ≠ 端口是我的）
+    _wait_own_world(proc, logp, PORT, "服务端", t0, timeout=20.0, logfile=lf)
 
 
 def b0_start():
@@ -1732,28 +1815,17 @@ def _start_sess_server(grace=3):
     lf = open(logp, "w", encoding="utf-8")
     print("  [sess] 第 %d 台会话服务端，日志：%s" % (_SESS["n"], logp))
     _SESS["log"] = logp
+    t0 = time.time()
     proc = subprocess.Popen([sys.executable, "-u", os.path.join(RT, "server.py"),
                              "--port", str(port), "--hz", "30"],
                             stdout=lf, stderr=subprocess.STDOUT, cwd=RT, env=env, text=True)
-    for _ in range(300):
-        if proc.poll() is not None:
-            raise RuntimeError("会话服务器启动即退出（日志：%s）" % logp)
-        try:
-            with socket.create_connection(("127.0.0.1", port), timeout=0.2):
-                # ★ 探针连上之后**再确认一次进程还活着**：探针本身会开一条
-                #   「连上就关」的空连接，服务端要处理它（读请求 → 空 → 关）。
-                #   万一它在这条路径上崩了，「探针成功」就会变成一条**假绿灯**。
-                time.sleep(0.05)
-                if proc.poll() is not None:
-                    raise RuntimeError("会话服务器在自检后立刻退出（日志：%s）" % logp)
-                _SESS["p"] = proc
-                _SESS["port"] = port
-                return port
-        except OSError:
-            time.sleep(0.1)
-    raise RuntimeError("会话服务器 30 s 内未监听（日志：%s）" % logp)
-
-
+    # ★ P50⑲：同一个坑 —— 「端口能连上」不等于「是我起的那台」（见 _wait_own_world）。
+    #   这里原来还有一句「探针连上后再确认进程活着」，它只挡得住「我的进程崩了」，
+    #   挡不住「连的是别人」。
+    _wait_own_world(proc, logp, port, "会话服务器", t0, timeout=30.0, logfile=lf)
+    _SESS["p"] = proc
+    _SESS["port"] = port
+    return port
 def _stop_sess_server():
     proc = _SESS.get("p")
     if proc is not None and proc.poll() is None:
@@ -2516,21 +2588,19 @@ def _start_debug_server():
     port = PORT + 7
     env = dict(os.environ)
     env.pop("RT_SPAWN", None)
-    lf = open(os.path.join(tempfile.gettempdir(), "rt_debug_server.log"), "w", encoding="utf-8")
+    logp = os.path.join(tempfile.gettempdir(), "rt_debug_server.log")
+    lf = open(logp, "w", encoding="utf-8")
+    t0 = time.time()
     proc = subprocess.Popen([sys.executable, "-u", os.path.join(RT, "server.py"),
                              "--port", str(port), "--hz", "30", "--allow-debug"],
                             stdout=lf, stderr=subprocess.STDOUT, cwd=RT, env=env, text=True)
-    for _ in range(300):
-        if proc.poll() is not None:
-            raise RuntimeError("调试服务器启动即退出")
-        try:
-            with socket.create_connection(("127.0.0.1", port), timeout=0.2):
-                _DEBUG_SRV["p"] = proc
-                _DEBUG_SRV["port"] = port
-                return port
-        except OSError:
-            time.sleep(0.1)
-    raise RuntimeError("调试服务器 30 s 内未监听")
+    # ★ P50⑲：端口 +7 与 B21（硬杀录像）撞同一个号 —— 一旦 B21 的进程没死透，
+    #   这里原来的「连上就算起来」会直接连到那个**没有 --allow-debug** 的世界，
+    #   于是 E8/E11 会报「debug 端点默认没关掉」（真因是**连错了服务端**）。
+    _wait_own_world(proc, logp, port, "调试服务器", t0, timeout=30.0, logfile=lf)
+    _DEBUG_SRV["p"] = proc
+    _DEBUG_SRV["port"] = port
+    return port
 
 
 def _stop_debug_server():
@@ -3570,6 +3640,86 @@ def b15_terrain_endpoint():
         t["w"], t["h"], t["tile"], len(kinds), "含陆地+阻隔")
 
 
+def b0b_refuses_foreign_listener():
+    """反向：`PORT` 上已经有一个**不是我起的**服务端 ⇒ 起服务端那一步必须红。
+
+    ★★ 为什么必须有这一条（第 8 轮全量的真实现场）：
+       `B0 起服务端` 绿了，用时 **9 ms**；而这个服务端 boot 实测 3.7~5.2 s。
+       紧接着 `B2` 看到世界时间 **173 s**（刚起的世界是 0.27 s）。
+       ⇒ 端口上早就有**别人**在听，B0~B9 在一份**陌生的世界**上跑；
+         等那个"别人"消失，B24 起 7 条 ConnectionRefused。
+       原来「端口能连上」就是这条假绿灯的**全部依据**，没有任何东西挡得住它。
+
+    做法：先在 PORT 上放一个占位服务端（seed=999，跑够 6 s），再调 `_start_server()`——
+    它必须抛错（我们的进程会因「端口已被占用」退出，或者被「世界年龄比我这个进程还大」拦住）。
+    """
+    import tempfile
+    logp = os.path.join(tempfile.gettempdir(), "rt_b0b_decoy_p%d.log" % PORT)
+    lf = open(logp, "w", encoding="utf-8")
+    decoy = subprocess.Popen(
+        [sys.executable, "-u", os.path.join(RT, "server.py"),
+         "--port", str(PORT), "--hz", "30", "--seed", "999", "--quiet"],
+        stdout=lf, stderr=subprocess.STDOUT, cwd=RT, text=True)
+    try:
+        up = False
+        for _ in range(200):
+            if decoy.poll() is not None:
+                return False, "占位服务端起不来（日志：%s）" % logp
+            text = _log_text(logp)
+            if ("[http] http://" in text) and (":%d/" % PORT in text):
+                up = True
+                break
+            time.sleep(0.1)
+        if not up:
+            return False, "占位服务端 20 s 内没打印 banner"
+        # 让它跑 6 s：这样「世界年龄」那条判据有东西可比（> 我们进程的年龄 + 5）
+        time.sleep(6.0)
+        t0 = time.time()
+        try:
+            _start_server()
+        except RuntimeError as e:
+            msg = str(e)
+            dt = (time.time() - t0) * 1000
+            hit = [k for k in ("别人的", "已被占用", "启动即退出", "连到别人的世界")
+                   if k in msg]
+            if not hit:
+                return False, "判红了，但理由指不到真因：%s" % msg[:200]
+            return True, ("端口上已有别人的服务端 ⇒ 判红（命中「%s」），用时 %.0f ms —— "
+                          "不再是 9 ms 的假绿灯" % ("/".join(hit), dt))
+        except Exception as e:                                   # noqa: BLE001
+            return False, "抛的不是 RuntimeError：%s: %s" % (type(e).__name__, e)
+        return False, "端口上明明有别人的服务端，_start_server() 却**绿了**（这就是那 9 ms 假绿灯）"
+    finally:
+        # ★★ 收尾必须**两台都收**：占位的那台，和 `_start_server()` 刚刚尝试起的那台。
+        #   第一版只收了占位的那台 —— 于是 `_start_server()` 里那个进程在「拒绝」之后
+        #   仍然继续 boot（3.9 s），等占位那台被收走，它反倒**绑上了 8791**
+        #   （实测日志里 banner 齐全），紧接着的正向 `B0` 就撞在它身上判红。
+        #   「反向用例也要收自己的尾巴」。
+        for name, p in (("占位服务端", decoy), ("起失败的_服务端", PROC.get("p"))):
+            if p is None or p.poll() is not None:
+                continue
+            try:
+                p.kill()
+                p.wait(timeout=10)
+            except Exception as e:                               # noqa: BLE001
+                print("  ⚠ %s 没停掉：%s: %s" % (name, type(e).__name__, e))
+        lf.close()
+        PROC.pop("p", None)
+        # 等到端口**真的**不再应答；等不到就大声说（别拿它去污染 B0）
+        freed = False
+        for _ in range(100):
+            try:
+                with socket.create_connection(("127.0.0.1", PORT), timeout=0.2):
+                    time.sleep(0.1)
+            except OSError:
+                freed = True
+                break
+        if not freed:
+            raise RuntimeError("占位服务端收不干净，端口 %d 还被占着 —— 不能接着跑 B 组" % PORT)
+
+
+check("B0b 反向：端口上有**别人的**服务端时必须红（B0 的 9 ms 假绿灯）",
+      b0b_refuses_foreign_listener)
 check("B0 起服务端", b0_start)
 check("B1 WebSocket 握手返回 101", b1_handshake)
 check("B2 持续收到帧，且世界时间在走", b2_frames_arrive)

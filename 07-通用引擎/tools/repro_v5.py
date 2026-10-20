@@ -43,6 +43,11 @@ RT = os.path.join(PROJECT, "rt")         # server.py / ws.py 都在这里
 if RT not in sys.path:
     sys.path.insert(0, RT)
 
+# ★★ P50⑲：`/healthz` 走 urllib 连**本机**服务端 —— 不该被环境里的 http_proxy 接管。
+#   否则「服务端不在」会被代理翻译成 **502**，本工具会把「环境错误」报成「复现了」。
+os.environ["no_proxy"] = "127.0.0.1,localhost"
+os.environ["NO_PROXY"] = "127.0.0.1,localhost"
+
 
 # ---------------------------------------------------------------------------
 # WebSocket 最小客户端（与 tests/test_stress.py 同一套做法：手写，不引三方库）

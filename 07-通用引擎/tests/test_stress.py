@@ -23,6 +23,13 @@ ROOT = os.path.dirname(HERE)
 RT = os.path.join(ROOT, "rt")
 sys.path.insert(0, RT)
 
+# ★★ P50⑲：连**本机**服务端不该走代理（环境里注入了 http_proxy、no_proxy 为空）。
+#   否则「服务端不在」会被代理翻译成 **502**，把真因藏起来。
+#   同一个坑 test_deploy / test_stall_watchdog 早填过，这里漏了 ——
+#   `tools/verify_plan.py` 现在有一条静态判据盯着这件事。
+os.environ["no_proxy"] = "127.0.0.1,localhost"
+os.environ["NO_PROXY"] = "127.0.0.1,localhost"
+
 import protocol_bin as PB   # noqa: E402
 
 PASS, FAIL = 0, 0
