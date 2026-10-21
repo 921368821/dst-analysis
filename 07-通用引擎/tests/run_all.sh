@@ -22,6 +22,17 @@ set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)" || exit 1
 cd "$ROOT" || exit 1
 
+# ★★ P50㉘：**脚本真正开始的时刻**（在 ROOT / 锁 / 预检之前）。
+#   为什么需要它：`T0` 是「拿到锁、准备开跑」，而收尾那句「总耗时」用的是
+#   ELAPSED（T0 起算）。墙钟与 ELAPSED 之间那段（bash 启动 + ROOT 解析 +
+#   锁判定 + preflight + env.sh + 变异残留还原 + git 洁净检查 + 端口基线快照）
+#   **一直没人量过** —— 我只在注释里猜过「约 9 s」，而 2026-10-21 实测差 13.6 s。
+#   ⇒ 猜值换成实测：收尾同时打「判据 ELAPSED / 脚本内墙钟 / 启动+锁判定」三个数。
+#   ★ 还有一段**不在脚本测量范围里**的：bash 启动时的环境 shim（`BASH_ENV` 里定义
+#     rm/unlink/rmdir 的那套）与 EXIT trap 的锁清理。dry-run 实测「外部墙钟 24.3 s
+#     vs 脚本内 17.1 s」⇒ 约 7 s 在这两处，**两者各占多少我没有测，所以不写**。
+T_ALL0=$(date +%s)
+
 # ★★ 全量日志留证（2026-10-16 加）。
 #   起因：一次「连跑 3 轮」里第 3 轮的 ② / ②b 两组**没有输出汇总行**（即中途异常退出），
 #     但当时外层用了 `| grep -E "✘|总判定|结果：" | head -12` ⇒ **证据被过滤掉了**，
@@ -162,8 +173,13 @@ run_step() {
     #   也只能在跑完之后才知道。dry-run 把这条路压到秒级：改完 run_all 先 dry 一遍。
     #   ★ P50㉓ 更正：这行原来写「压到 3 秒」，而 ③ 组**没走 run_step**、dry 时照跑 14 个
     #     lua 入口（实测 54 s）。现在 ③ 也走 DRY 分支，dry-run 从 64 s 降到 **约 12 s**（实测 12~13 s，随负载漂）。
-    #     ★ P50㉖ 更正口径：12 s 是**脚本内的 ELAPSED**（T0 起算）；墙钟实测 21 s，
-    #       差的约 9 s 在 preflight / env.sh / bash 启动上，**不进 ELAPSED**。
+    #     ★ P50㉖ 更正口径：12 s 是**脚本内的 ELAPSED**（T0 起算），墙钟比它大。
+    #     ★★ P50㉘ 再更正：㉖ 当时把差额说成「约 9 s，在 preflight / env.sh /
+    #       bash 启动上」——**那是猜的**。2026-10-21 逐项实测：bash 启动 0.34 s、
+    #       `. tools/env.sh` **3.50 s**、`preflight.sh` 1.00 s，合计 4.84 s，
+    #       而当天 dry-run 的差额是 **13.6 s**（ELAPSED 16 / 墙钟 29.6）。
+    #       差额里还有锁判定、`--heal`、`git status`、端口基线快照，且**随负载漂**。
+    #       ⇒ 结论：这段不该在注释里写任何数字，应由收尾的「判据 / 脚本内墙钟」两行给出。
     #       此前这句写的是点值「10 s」，并把这 10 s 里的 4 s 归因给第一组 ——
     #       那个 4 s 其实是「GROUP_T0 用了 T0」造成的错记（见 GROUP_T0 的注释），
     #       而 10 s 本身也会随负载漂（10~12 s 都实测到过）。
@@ -551,6 +567,12 @@ if run_step "$PY" -u "$ROOT/tools/check_leftovers.py" --clean-temp; then :; else
 
 _tally
 ELAPSED=$(( $(date +%s) - T0 ))
+# ★★ P50㉘ 再更正：`T0 - T_ALL0` 只覆盖**启动 + 锁判定**（ROOT 解析 / 拿锁 / 三段判定）。
+#   我第一版把标签写成「启动+预检」——**错的**：`preflight.sh` 在 T0 **之后**跑，它在 ELAPSED 里。
+#   暴露方式：第一轮全量打出来「另含 启动+预检 1 s」，而 preflight 单独实测 1.0 s、
+#   env.sh 3.5 s —— 1 s 装不下它们。**数字对不上 ≠ 数字错了，也可能只是标签错了。**
+PRELUDE=$(( T0 - T_ALL0 ))
+WALL=$(( ELAPSED + PRELUDE ))
 printf '\n'
 # ★★ P50㉓：**这一轮自己检查自己用的阈值**。
 #   判据（危险的那一侧）：最长的一组 ≥ 阈值 ⇒ 单组跑得比阈值还久 ⇒ 父 shell 一死，
@@ -610,7 +632,8 @@ else
 fi
 # ★ 总判定**必须也进日志**：原来只用 echo 打到屏幕，于是打开日志看不到结论；
 #   两轮混写时更是分不清哪行才是最后一句。现在它是日志的最后一行。
-printf '── 总判定：%s（实测 %d s）──\n' "$VERDICT" "$ELAPSED" | tee -a "$LOG"
+printf '── 总判定：%s（判据 %d s｜脚本内墙钟 %d s = 判据 + 启动/锁 %d s｜退出清理不在内）──\n' \
+    "$VERDICT" "$ELAPSED" "$WALL" "$PRELUDE" | tee -a "$LOG"
 if [ "$DRY" = "1" ]; then
     printf '\033[1m★ 注意：本次是 --dry-run，一个判据都没跑 ⇒ 上面的「%s」只表示组数对得上，\033[0m\n' "$VERDICT"
     printf '\033[1m  （只有 run_step 与宿主回归那一段会空转；组标题 / 组数核对 / 锁判定仍是真的）\033[0m\n'
@@ -636,7 +659,8 @@ if [ "$DRY" != "1" ]; then
     printf '  开始      %s（结束 %s）\n' "$T0_STR" "$(date '+%Y-%m-%d %H:%M:%S')"
     printf '  判定      %s\n' "$VERDICT"
     printf '  组数      %s / %s\n' "$GROUP_N" "$WANT_G"
-    printf '  总耗时    %s s（脚本内 ELAPSED）\n' "$ELAPSED"
+    printf '  总耗时    %s s（判据 ELAPSED）\n' "$ELAPSED"
+    printf '  脚本内墙钟 %s s（= 判据 + 启动/锁判定 %s s；退出清理不在内）\n' "$WALL" "$PRELUDE"
     printf '  最长一组  %s（%s s）\n' "${GROUP_MAX_NAME:-（无）}" "$GROUP_MAX"
     printf '  已落盘    %s\n' "$ROUNDS"
 fi
