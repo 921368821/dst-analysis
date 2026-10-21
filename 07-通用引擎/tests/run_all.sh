@@ -256,14 +256,21 @@ run_step() {
 #   现在它变成：1 条判定 + 1 条修复命令 + 退出码 2，**一个入口都不跑**。
 #   判定本身也写进日志（判据可以吵，但现场必须留下）。
 GATE=0
+# ★★ P50㉞：preflight 单独计时。它**在** ELAPSED 里（T0 之后跑），但此前没有任何一行
+#   把它量出来 ⇒ 收尾那句「差额 N s」里它是一份没有名字的时间。
+T_PF0=$(date +%s)
 if run_step bash "$ROOT/../tools/preflight.sh"; then :; else GATE=1; fi
+T_PF=$(( $(date +%s) - T_PF0 ))
 if [ "$GATE" != "0" ]; then
     printf '\n\033[1m✘ 环境自检不过 —— 后面的组一个都没跑（这不是代码失败，是环境缺失）\033[0m\n'
     printf '\n✘ 环境自检不过 —— 后续各组未执行\n' >> "$LOG" 2>/dev/null || true
     exit 2
 fi
 
+# ★★ P50㉞：`. env.sh` 实测 3.5 s（2026-10-21），比 preflight 还贵，此前同样没量。
+T_ENV0=$(date +%s)
 . "$ROOT/../tools/env.sh" || exit 2
+T_ENV=$(( $(date +%s) - T_ENV0 ))
 # ★★ 源码洁净闸门（2026-10-20 实测事故）：
 #   ②f 的变异测试是「**把源码改坏** → 看判据红不红 → 还原」；还原写在 `finally` 里，
 #   而 `finally` 只在进程还活着时执行。任何硬中断（超时 / Ctrl-C / taskkill /F /
@@ -272,6 +279,8 @@ fi
 #   之后每一组都在这份**假源码**上跑，夜间光照 / 饥饿判据**全绿**，日志看着漂亮。
 #   ⇒ 两道：① 先跑 `falsify_server.py --heal`（有标记就按原文写回并大声说明）；
 #          ② 再看 git：`rt/` 与 `06-引擎复刻` 有没有未提交改动，有就要人明确放行。
+# ★★ P50㉞：这一段（还原变异 + git 洁净 + 端口基线快照）也算进 ELAPSED，一并计时。
+T_PREP0=$(date +%s)
 "$PY" -u "$ROOT/tests/falsify_server.py" --heal >/dev/null 2>&1 || \
     printf '  ⚠ 自动还原没成功（可能是旧格式标记），下面按 git 状态判\n'
 DIRTY=$(git -C "$ROOT/.." status --porcelain -- "07-通用引擎/rt" "06-引擎复刻" 2>/dev/null)
@@ -287,6 +296,7 @@ if [ -n "$DIRTY" ]; then
 fi
 # ★ 收尾卫生的基线：**跑之前**就已经在听的端口不算本次的账（人工起的开发服不背锅）
 "$PY" -u "$ROOT/tools/check_leftovers.py" --snapshot "$ROOT/tests/_leftovers.json" >/dev/null 2>&1 || true
+T_PREP=$(( $(date +%s) - T_PREP0 ))
 FAST=0
 DRY=0
 case "${1:-}" in
@@ -321,6 +331,9 @@ GROUP_LIST=""
 #   现在每组收尾打一行 `⏱ … 用时 N s`，并且记下最长的一组（锁的阈值要用它，见文件头）。
 GROUP_MAX=0
 GROUP_MAX_NAME=""
+# ★★ P50㉞：各组耗时之和。只记「最长一组」的话，`ELAPSED - 最长一组` 说明不了任何事；
+#   有了和，才能与 ELAPSED 对账（见收尾的「耗时分解」）。
+GROUP_SUM=0
 #
 # ★★ P50㉖：这里原来写 `GROUP_T0=$T0`，而 `T0` 是**全量起始**（preflight 之前）——
 #   于是**第一组**（① Node 客户端验证）的 ⏱ 里混进了 preflight / env.sh / 变异残留还原 /
@@ -340,6 +353,7 @@ _tally() {
     dur=$(( now - GROUP_T0 ))
     printf '\033[2m⏱ %s 用时 %d s\033[0m\n' "$GROUP_LAST" "$dur"
     printf '⏱ %s 用时 %d s\n' "$GROUP_LAST" "$dur" >> "$LOG" 2>/dev/null || true
+    GROUP_SUM=$(( GROUP_SUM + dur ))
     if [ "$dur" -gt "$GROUP_MAX" ]; then
         GROUP_MAX=$dur
         GROUP_MAX_NAME=$GROUP_LAST
@@ -480,7 +494,11 @@ if [ "$FAST" = "1" ]; then
     #   ★ 表是 gitignore 的（新克隆上没有）⇒ 缺表时**明说跳过**：不许报绿（没验过）也不许报红（不是错）。
     if run_step "$PY" -u tools/check_rounds.py --selftest; then :; else FAIL=1; fi
     if [ -f "$ROOT/tests/_run_all.rounds.tsv" ]; then
-        if run_step "$PY" -u tools/check_rounds.py; then :; else FAIL=1; fi
+        # ★ P50㉝：`--no-log` —— 这里**不能**与日志对账：④ 组跑在半途
+        #   （全量里是第 14 位 / `--fast` 里是第 3 位），那一刻日志只写了前面几行，
+        #   而表的最后一行是**上一轮**的 20/20 ⇒ 必报假红。
+        #   日志对账挪到本轮所有组跑完之后（见收尾的「轮末对账」）。
+        if run_step "$PY" -u tools/check_rounds.py --no-log; then :; else FAIL=1; fi
     else
         printf '    （还没有 tests/_run_all.rounds.tsv —— 首次运行，本检查**跳过**，不是通过）\n'
     fi
@@ -520,7 +538,11 @@ if run_step "$PY" -u tools/verify_plan.py; then :; else FAIL=1; fi
     #   ★ 表是 gitignore 的（新克隆上没有）⇒ 缺表时**明说跳过**：不许报绿（没验过）也不许报红（不是错）。
     if run_step "$PY" -u tools/check_rounds.py --selftest; then :; else FAIL=1; fi
     if [ -f "$ROOT/tests/_run_all.rounds.tsv" ]; then
-        if run_step "$PY" -u tools/check_rounds.py; then :; else FAIL=1; fi
+        # ★ P50㉝：`--no-log` —— 这里**不能**与日志对账：④ 组跑在半途
+        #   （全量里是第 14 位 / `--fast` 里是第 3 位），那一刻日志只写了前面几行，
+        #   而表的最后一行是**上一轮**的 20/20 ⇒ 必报假红。
+        #   日志对账挪到本轮所有组跑完之后（见收尾的「轮末对账」）。
+        if run_step "$PY" -u tools/check_rounds.py --no-log; then :; else FAIL=1; fi
     else
         printf '    （还没有 tests/_run_all.rounds.tsv —— 首次运行，本检查**跳过**，不是通过）\n'
     fi
@@ -595,6 +617,30 @@ ELAPSED=$(( $(date +%s) - T0 ))
 #   env.sh 3.5 s —— 1 s 装不下它们。**数字对不上 ≠ 数字错了，也可能只是标签错了。**
 PRELUDE=$(( T0 - T_ALL0 ))
 WALL=$(( ELAPSED + PRELUDE ))
+# ★★ P50㉞（backlog B2）：`ELAPSED - 各组之和` 那段差额**逐项给名字**。
+#   此前它只被归成一句「另有启动/预检 N s」，而 preflight / env.sh / 变异还原 /
+#   git 洁净检查 / 端口快照 / 参数解析**一个都没单独量过** —— 注释里我写过「约 21 s」，
+#   今早实测 31.8 s（ELAPSED 16 s）：会漂的数字写成点值必然过期。
+#   恒等式：各组 + 各项准备 + **未归因** = ELAPSED。
+#   「未归因」必须显式打印 —— 把它悄悄摊进「准备」里，就等于没有对账。
+PREP_SUM=$(( T_PF + T_ENV + T_PREP ))
+GAP=$(( ELAPSED - GROUP_SUM ))
+UNATTR=$(( GAP - PREP_SUM ))
+printf '  耗时分解    ELAPSED %s s = 各组 %s s（%s 组）+ 准备 %s s + 未归因 %s s\n' \
+    "$ELAPSED" "$GROUP_SUM" "$GROUP_N" "$PREP_SUM" "$UNATTR" | tee -a "$LOG"
+printf '  准备明细    preflight %s s ｜ env.sh %s s ｜ 还原+git 洁净+端口快照 %s s\n' \
+    "$T_PF" "$T_ENV" "$T_PREP" | tee -a "$LOG"
+if [ "$UNATTR" -lt 0 ]; then
+    # 重复计时：某一步被算了两次，或某组的时间被并进了准备里。
+    printf '\n\033[1m✘ 未归因是负数（%s s）：各项准备与各组之和加起来比 ELAPSED 还多 ⇒ 有重复计时\033[0m\n' "$UNATTR"
+    printf '✘ 耗时分解：未归因 %s s < 0（重复计时）\n' "$UNATTR" >> "$LOG"
+    FAIL=1
+elif [ "$UNATTR" -gt 5 ]; then
+    # 漏计：ELAPSED 里有时间没有名字（新加的步骤没量，或某组没走 _tally）。
+    printf '  ⚠ 未归因 %s s > 5 s：ELAPSED 里有 %s 秒没有名字（新加的步骤没量 / 某组没进 _tally）\n' \
+        "$UNATTR" "$UNATTR" | tee -a "$LOG"
+    printf '⚠ 耗时分解：未归因 %s s > 5 s\n' "$UNATTR" >> "$LOG"
+fi
 printf '\n'
 # ★★ P50㉓：**这一轮自己检查自己用的阈值**。
 #   判据（危险的那一侧）：最长的一组 ≥ 阈值 ⇒ 单组跑得比阈值还久 ⇒ 父 shell 一死，
@@ -622,11 +668,16 @@ if [ "$GROUP_MAX" -gt 0 ]; then
         printf '    按本轮数据，下一轮读 tests/_run_all.groupmax 后阈值会推到 %d s。\n' "$NEED2" | tee -a "$LOG"
     fi
     # ★★ P50㉖-b：`--fast` **也不许写**。
-    #   fast 跳过的正是最慢的三组（②f 605 s / ③ 宿主 14 入口 / ⑤ 06 三件套），
-    #   于是它算出的 GROUP_MAX 只有 ~321 s ⇒ 下一轮阈值 ~660 s，
-    #   而**全量**里最长的一组是 605 s —— 阈值低于「最长单组」时，
-    #   父 shell 一死，beat 就在那一组中途变陈旧 ⇒ 下一轮把「还在跑」当成「残留锁」清掉。
-    #   这与 §9bc 记的是同一条安全边界：阈值必须由**全量**的最长单组推。
+    #   ★★ P50㉞ 更正：这一段原来写「fast 跳过的正是最慢的三组（②f 605 s / ③ / ⑤），
+    #      于是 GROUP_MAX 只有 ~321 s」—— **两处数字都是错的**。2026-10-21 实测：
+    #      fast **跑** ②f（本轮 586 s，正是它最长），跳的是 ②c 规模与并发 / ③ 宿主
+    #      14 入口 / ⑤ 06 三件套（三者合成一条 hr 提示 ⇒ 20 - 3 + 1 = 18）。
+    #      所以 fast 的最长一组不是「偏小」，而是**来自另一个组集合**：本轮 fast 586 s、
+    #      全量 575 s —— 谁大谁小取决于当轮负载，两个数不能互相推。
+    #   结论不变，理由换成真的那条：fast 不跑 ②c / ③ / ⑤，那三组里的失败在 fast 下
+    #   根本不存在；它的「最长一组」也只覆盖 18 个组。阈值必须由**全量**的最长单组推
+    #   （§9bc 同一条安全边界：阈值低于最长单组 ⇒ 父 shell 一死，beat 会在那一组中途
+    #   变陈旧 ⇒ 下一轮把「还在跑」当成「残留锁」清掉）。
     if [ "$DRY" != "1" ] && [ "$FAST" != "1" ]; then
         printf '%d\n' "$GROUP_MAX" > "$GROUPMAX_F" 2>/dev/null || true
     elif [ "$FAST" = "1" ]; then
@@ -647,6 +698,19 @@ else
     FAIL=1
 fi
 printf '  本次的组：%s\n' "${GROUP_LIST#|}" | tee -a "$LOG"
+# ★★ P50㉝：**轮末对账** —— 日志里每组一行的 `⏱` ↔ 即将写进 rounds.tsv 的这一行。
+#   为什么不在 ④ 组里做：④ 跑在第 14 位，那一刻日志只有 14 行，而表的最后一行是
+#   **上一轮**的 20/20 ⇒ 必报「14 ≠ 20」。判据没错、位置错了，而一条每轮都误报的
+#   判据，几次之后人就开始忽略它 —— 真正的错账会混在同一句话里被一起忽略。
+#   能对账的时刻只有一个：本轮所有 `⏱` 都写完（⑥ 之后）、本轮的行还没写（在下面）。
+#   ⇒ 拿**即将写入的那三个变量**去撞日志，而不是去读表。
+if [ -f "$ROOT/tests/_run_all.log" ]; then
+    if run_step "$PY" -u "$ROOT/tools/check_rounds.py" --log "$ROOT/tests/_run_all.log" \
+        --wire-groups "$GROUP_N/$WANT_G" --wire-max "$GROUP_MAX" \
+        --wire-name "${GROUP_MAX_NAME:-（无一）}"; then :; else FAIL=1; fi
+else
+    printf '    （没有 tests/_run_all.log —— 轮末对账**没有执行**，不是通过）\n'
+fi
 if [ "$FAIL" = "0" ]; then
     VERDICT="✔ 全部通过"
 else

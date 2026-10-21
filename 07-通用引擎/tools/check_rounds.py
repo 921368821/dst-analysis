@@ -32,6 +32,10 @@
 | ✘ | `_run_all.groupmax` 内容不是正整数秒数 | 阈值来源文件坏了 |
 | ✘ | 表里**没有任何一轮**的最长一组等于 `groupmax` | 这个数不是从表里来的（手改，或上一轮写到一半被中断） |
 | ⚠ | 对得上、但不是**最后一行** | 之后的轮次没写 `groupmax`（`--fast` 不写，属正常） |
+| ✘ | 日志里 `⏱` 行数 ≠ `组数` 的执行数 | 两个落盘点对不上（有一组没打 ⏱ / 打了两次） |
+| ✘ | 日志里最长的一组 ≠ `最长_s` | 同上，且**这个错会直接推出错的阈值** |
+| ⚠ | 最长一组的**名字**与日志不一致 | 数字对得上、标签对不上（组改名了没同步） |
+| ✘ | 日志里一行 `⏱` 都没有 | **无法对账 ≠ 通过**：日志被删/被截断时前三条会空转 |
 
 > ★ 最后三条是**第二批**补的：第一版只查了 TSV 自己内部自洽，**根本没读 `groupmax`**，
 > 而本文件开头把「谁都能手改 groupmax，没人比对」列为要解决的问题之一 ——
@@ -49,6 +53,7 @@
 import argparse
 import io
 import os
+import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -123,6 +128,52 @@ def check_rows(rows):
                             % (ln, limit, prev_longest, want))
         prev_longest = longest
     return bad, warn
+
+
+# ── 日志 ↔ 表：两个独立落盘点必须对上 ──────────────────────────
+LOG = os.path.join(ROOT, "tests", "_run_all.log")
+# ★ 只认「行首 ⏱、中间 用时 N s 结尾」这一种形状（`_tally` 的落盘格式）。
+#   `.+?` 非贪婪 + 固定分隔符：组名里带 `+` / `**` / `：` 都不影响。
+_TIME_RE = re.compile(r"^⏱ (.+?) 用时 (\d+) s\s*$", re.M)
+
+
+def check_log(log_text, n_exec=None, max_s=None, max_name=None):
+    """日志里的组用时 ↔ 表里的「组数 / 最长_s / 最长一组」。
+
+    参数显式传入而不是从表里读，是因为**两个调用点的期望值来源不同**：
+    - 事后复查（本工具默认模式）：期望值取自表的最后一行；
+    - 轮末对账（`run_all.sh` 收尾）：期望值取自**即将写入表的那几个变量**
+      （那时本轮的行还没写，表的最后一行还是上一轮的）。
+    """
+    bad, warn = [], []
+    times = [(m.group(1), int(m.group(2))) for m in _TIME_RE.finditer(log_text or "")]
+    if not times:
+        bad.append("日志里没有任何 `⏱ … 用时 N s` 行 —— 与「组数 / 最长_s」"
+                   "**无法对账**（不是通过）")
+        return bad, warn
+    if n_exec is not None and len(times) != n_exec:
+        bad.append("日志里有 %d 行组用时，而「组数」写的是 %s —— 两个落盘点对不上"
+                   % (len(times), n_exec))
+    name, secs = max(times, key=lambda x: x[1])
+    if max_s is not None and secs != max_s:
+        bad.append("日志里最长的一组是 %d s（%s），而「最长_s」写的是 %d s"
+                   % (secs, name, max_s))
+    elif max_s and max_name is not None and max_name != name:
+        # ★ 只在最长 > 0 时比名字：`--dry-run` 里所有组都是 0 s，
+        #   「谁最长」没有意义（`max()` 只会取第一个），比名字必报假告警。
+        warn.append("最长一组的名字不一致：一处写 %r，日志写 %r" % (max_name, name))
+    return bad, warn
+
+
+def row_expect(last):
+    """从表的一行取 (执行组数, 最长_s, 最长一组)；取不到的那项返回 None。"""
+    g = (last or {}).get("组数", "")
+    n = None
+    if "/" in g:
+        a = g.partition("/")[0].strip()
+        if a.isdigit():
+            n = int(a)
+    return n, _int_or_none((last or {}).get("最长_s")), (last or {}).get("最长一组")
 
 
 # ── 合成违规：证明上面那几条真的会响 ──────────────────────────────
@@ -220,6 +271,26 @@ SELFTEST_GM = [
 ]
 
 
+def _mklog(pairs):
+    return "\n".join("⏱ %s 用时 %d s" % (n, s) for n, s in pairs) + "\n"
+
+
+# 与下面 `_G3` 最后一行（20/20、最长 583 s、名字 "x"）一致 / 各处差一项的日志
+_LOG_SAME = _mklog([("甲", 10)] * 19 + [("x", 583)])
+_LOG_NAME = _mklog([("甲", 10)] * 19 + [("zz", 583)])
+_LOG_SECS = _mklog([("甲", 605)] + [("乙", 10)] * 19)
+_LOG_SHORT = _mklog([("甲", 10)] * 18 + [("x", 583)])
+
+SELFTEST_LOG = [
+    # (说明, 日志文本, 期望 ✘, 期望 ⚠)
+    ("日志：与表一致 ⇒ 不报", _LOG_SAME, 0, 0),
+    ("日志：组数少一行 ⇒ 必须报", _LOG_SHORT, 1, 0),
+    ("日志：最长一组对不上 ⇒ 必须报", _LOG_SECS, 1, 0),
+    ("日志：一行 ⏱ 都没有 ⇒ 必须报（无法对账 ≠ 通过）", "只有别的内容\n", 1, 0),
+    ("日志：最长一组名字不同 ⇒ 只告警", _LOG_NAME, 0, 1),
+]
+
+
 def selftest():
     bad = 0
     for name, lines, want, want_w in SELFTEST:
@@ -257,7 +328,25 @@ def selftest():
                 print("         · ✘ %s" % m)
             for m in w:
                 print("         · ⚠ %s" % m)
-    total = len(SELFTEST) + len(SELFTEST_GM)
+    _G3 = [COLS,
+           _row("2026-10-21 09:00", "✔ 全部通过", "20/20", 1320, 586, 1080),
+           _row("2026-10-21 10:00", "✔ 全部通过", "20/20", 1300, 583, 1200)]
+    for name, log_text, want, want_w in SELFTEST_LOG:
+        _rows, _errs = parse("\n".join("\t".join(l) if isinstance(l, list) else l
+                                        for l in _G3))
+        b, w = check_log(log_text, *row_expect(_rows[-1]))
+        got, got_w = len(b), len(w)
+        ok = (got == want and got_w == want_w)
+        if not ok:
+            bad += 1
+        print("    %s %-28s 期望 ✘%d ⚠%d，实际 ✘%d ⚠%d"
+              % ("✔" if ok else "✘", name, want, want_w, got, got_w))
+        if not ok:
+            for m in b:
+                print("         · ✘ %s" % m)
+            for m in w:
+                print("         · ⚠ %s" % m)
+    total = len(SELFTEST) + len(SELFTEST_GM) + len(SELFTEST_LOG)
     print("  %s %d 条合成用例（✘ 与 ⚠ 都数）" % ("✔" if bad == 0 else "✘", total))
     return 0 if bad == 0 else 1
 
@@ -267,11 +356,45 @@ def main():
     ap.add_argument("--file", default=DEFAULT)
     ap.add_argument("--groupmax", default=GROUPMAX,
                     help="阈值来源文件（`run_all.sh` 每轮全量写一次）")
+    ap.add_argument("--log", default=LOG, help="组用时日志（默认 tests/_run_all.log）")
+    ap.add_argument("--no-log", action="store_true",
+                    help="只查表、不与日志对账（④ 组用：那时日志还没写完）")
+    ap.add_argument("--wire-groups", default=None, help="轮末对账：本次执行组数")
+    ap.add_argument("--wire-max", default=None, help="轮末对账：本轮最长一组秒数")
+    ap.add_argument("--wire-name", default=None, help="轮末对账：本轮最长一组名字")
     ap.add_argument("--selftest", action="store_true", help="合成违规，证明判据会响")
     a = ap.parse_args()
 
     if a.selftest:
         return selftest()
+
+    if a.wire_groups is not None or a.wire_max is not None:
+        # ★★ 轮末对账：表的最后一行还是**上一轮**的，所以期望值只能由调用方给。
+        #   这也是**唯一**能对账的时刻：本轮所有 `⏱` 已写完（⑥ 之后）、本轮的行还没写。
+        if not os.path.isfile(a.log):
+            print("  （没有 %s —— 日志对账**没有执行**，不是通过）"
+                  % os.path.relpath(a.log, ROOT).replace("\\", "/"))
+            return 2
+        n = None
+        if a.wire_groups and "/" in a.wire_groups:
+            a0 = a.wire_groups.partition("/")[0].strip()
+            n = int(a0) if a0.isdigit() else None
+        b, w = check_log(io.open(a.log, encoding="utf-8", errors="replace").read(),
+                         n,
+                         int(a.wire_max) if (a.wire_max or "").strip().isdigit() else None,
+                         a.wire_name)
+        print("  轮末对账：日志 ↔ 即将写入 %s 的这一行（%s 组 / 最长 %s s / %s）"
+              % (os.path.relpath(a.file, ROOT).replace("\\", "/"),
+                 n if n is not None else "?", a.wire_max, a.wire_name))
+        for m in b:
+            print("  ✘ %s" % m)
+        for m in w:
+            print("  ⚠ %s" % m)
+        if not b:
+            print("  ✔ 两个落盘点一致（日志 %d 行 ⏱）"
+                  % len(_TIME_RE.findall(
+                      io.open(a.log, encoding="utf-8", errors="replace").read())))
+        return 1 if b else 0
 
     if not os.path.isfile(a.file):
         # ★ 不许静静返回 0：那会让「本机还没跑过」看起来像「检查通过」。
@@ -294,13 +417,32 @@ def main():
     else:
         print("  （没有 %s —— groupmax 对账**没有执行**，不是通过）"
               % os.path.relpath(a.groupmax, ROOT).replace("\\", "/"))
+    # ★ 日志是**第二个落盘点**：与表的最后一行对账（组数 / 最长_s / 名字）。
+    #   `--no-log` 用于「日志还没写完」的场合（④ 组跑在第 14 位，见 run_all.sh 的注释）。
+    #   `log_ran` 只为了让**通过时那句总结**如实反映「这次到底查了哪几条」——
+    #   通过文案里写了一条没跑过的判据，与「文档承诺了、代码没做」是同一类错。
+    log_ran = False
+    if a.no_log:
+        print("  （--no-log：不与日志对账 —— 只查了表自己）")
+    elif os.path.isfile(a.log):
+        lb, lw = check_log(io.open(a.log, encoding="utf-8", errors="replace").read(),
+                           *row_expect(rows[-1] if rows else None))
+        bad += lb
+        warn += lw
+        log_ran = True
+        print("  组用时日志：%s" % os.path.relpath(a.log, ROOT).replace("\\", "/"))
+    else:
+        print("  （没有 %s —— 日志对账**没有执行**，不是通过）"
+              % os.path.relpath(a.log, ROOT).replace("\\", "/"))
+
     for m in errs + bad:
         print("  ✘ %s" % m)
     for m in warn:
         print("  ⚠ %s" % m)
     if not errs and not bad:
         print("  ✔ 不变量全部成立（最长 ≤ 阈值 / 总耗时 ≥ 最长 / 组数与判定自洽 / "
-              "groupmax 与表对得上）")
+              "groupmax 与表对得上%s）"
+              % ("／日志 ⏱ 行数与最长一组与表对得上" if log_ran else "／**日志未对账**"))
     return 0 if (not errs and not bad) else 1
 
 
