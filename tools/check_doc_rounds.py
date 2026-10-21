@@ -280,13 +280,24 @@ def selftest():
 
 
 def main():
+    # `--doc X.md [Y.md ...]`：换成指定的文档（默认 DOCS）。
+    # ★ 为什么要有：这条判据的三条规则，前两条能用合成用例测，**「账页表格行数」
+    #   只能在真文档上测** —— 它的难点全在真实结构里（多张表、CRLF、小节隔断）。
+    #   没有 `--doc` 就只能改真文档再改回来，那是拿现场做实验。
+    docs = DOCS
+    if "--doc" in sys.argv:
+        i = sys.argv.index("--doc")
+        docs = [os.path.abspath(x) for x in sys.argv[i + 1:] if not x.startswith("--")]
+        if not docs:
+            print("  ✘ --doc 后面没有跟文档路径")
+            return 2
     if not os.path.isfile(TABLE):
         print("  （没有 %s —— 本检查**没有执行**，不是通过）" % TABLE)
         return 2
     table_text = io.open(TABLE, encoding="utf-8", errors="replace").read()
     doc_text = ""
     used = []
-    for d in DOCS:
+    for d in docs:
         if os.path.isfile(d):
             doc_text += io.open(d, encoding="utf-8", errors="replace").read() + "\n"
             used.append(os.path.basename(d))
