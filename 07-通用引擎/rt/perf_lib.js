@@ -102,7 +102,44 @@ class CanvasStub {
     return a.length;
   }
 }
-class ElemStub { constructor() { this.textContent = ''; } }
+class ElemStub {
+  constructor() {
+    this.textContent = ''; this.innerHTML = ''; this.value = '';
+    this.checked = false; this.disabled = false;
+    this.style = {}; this.dataset = {}; this.children = [];
+    this._ls = {};
+    const self = this;
+    const set = new Set();
+    // ★★ 桩要覆盖**客户端实际用到的 DOM 面**，否则「方法缺失」会伪装成
+    //   「客户端崩了」。P62 的编辑器用到 classList / appendChild / value / onclick，
+    //   每缺一个就整页 TypeError —— 而 perf_client 不在闸门里，没人会发现。
+    this.classList = {
+      add: (...c) => c.forEach((x) => set.add(x)),
+      remove: (...c) => c.forEach((x) => set.delete(x)),
+      contains: (c) => set.has(c),
+      toggle: (c, f) => {
+        const want = f === undefined ? !set.has(c) : !!f;
+        if (want) set.add(c); else set.delete(c);
+        return want;
+      },
+      get length() { return set.size; },
+    };
+    void self;
+  }
+  addEventListener(t, fn) { (this._ls[t] = this._ls[t] || []).push(fn); }
+  removeEventListener() {}
+  appendChild(c) { this.children.push(c); return c; }
+  removeChild(c) {
+    const i = this.children.indexOf(c); if (i >= 0) this.children.splice(i, 1);
+    return c;
+  }
+  setAttribute(k, v) { this[k] = v; }
+  getAttribute(k) { return this[k]; }
+  hasAttribute(k) { return Object.prototype.hasOwnProperty.call(this, k); }
+  querySelectorAll() { return []; }
+  querySelector() { return new ElemStub(); }
+  getBoundingClientRect() { return { left: 0, top: 0, width: 1280, height: 720 }; }
+}
 
 /**
  * 造一个跑着 client.html 全部 JS 的沙箱。
@@ -131,6 +168,14 @@ function makeClient(opt) {
       getElementById: (id) => (id === 'cv' ? (sandbox.__cv || (sandbox.__cv = new CanvasStub(1280, 720)))
                                             : new ElemStub()),
       addEventListener() {},
+      // ★★ P63：`querySelectorAll` 必须给。P62 的编辑器在加载时用
+      //   `document.querySelectorAll('#edBar [data-tool]')` 绑工具栏 —— 桩里没有这个方法，
+      //   于是 `perf_client.js` **整个崩掉**（不是「帧率不达标」，是 TypeError）。
+      //   而它不在闸门里 ⇒ 崩了两轮没人知道：文档仍写着「≥55 fps 实测通过」。
+      //   返回空数组是本桩的**诚实选择**：性能测量不需要工具栏处理器，
+      //   但"少一个方法就崩"这件事必须在桩这一层修掉，不能靠客户端写防御绕过。
+      querySelectorAll: () => [],
+      querySelector: () => new ElemStub(),
       // ★ 地形图层会 `document.createElement('canvas')` 做离屏画布（1 像素 = 1 瓦片）。
       //   沙箱必须给 —— 与 location / XHR / Image 缺失是同一类「沙箱比浏览器少东西」。
       // ★★ C2：**必须把创建出来的画布记下来**。批渲染的 GL 上下文挂在
