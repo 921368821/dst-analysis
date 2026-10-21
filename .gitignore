@@ -54,10 +54,13 @@ _*.tmp
 #   _falsify_inprogress.json：变异测试的「改坏了哪几个文件 + 原文」，中断后靠它自动还原
 #   _run_all.groupmax ：上一轮「最长一组耗时」（秒）—— P50㉓ 起用它推锁的 beat 阈值，
 #                        每轮重写、机器相关（同机负载不同就不同），属运行期数据
+#   _run_all.rounds.tsv  ：每轮一行的「判定 / 组数 / 总耗时 / 最长一组 / 阈值 / HEAD」——
+#                        P50㉖ 起落盘，供文档引用；机器相关、纯运行期数据
 /07-通用引擎/tests/_leftovers.json
 /07-通用引擎/tests/_run_all.lock.d/
 /07-通用引擎/tests/_falsify_inprogress.json
 /07-通用引擎/tests/_run_all.groupmax
+/07-通用引擎/tests/_run_all.rounds.tsv
 # preflight 的判定结果（每次自检重写；由 00_paths.lua 引用，不入库）
 /tools/.preflight-state
 

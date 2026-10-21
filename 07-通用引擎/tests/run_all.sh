@@ -147,6 +147,10 @@ printf '   （锁的 beat 阈值：%s s，来源：%s）\n' "$BEAT_STALE_MAX" "$
 # ★ P50㉒：**先写 done、再删目录**。顺序不能反：删成功就什么都不需要，删失败（被拦/权限）时 done 必须已经在。
 trap 'date +%s > "$LOCKD/done" 2>/dev/null; rm -rf "$LOCKD"' EXIT INT TERM
 T0=$(date +%s)
+# ★ P50㉖-b：**起点要现在就记下来**。摘要块和 rounds.tsv 里那栏叫「开始时间」，
+#   而我第一版是在**打印时**才取 date —— 那时已经跑完二十几分钟，于是它写的是结束时刻。
+#   「标签写 A、代码取 B」是本工程出现最多的一类错（§9bg 的 ① 组耗时同形）。
+T0_STR=$(date '+%Y-%m-%d %H:%M:%S')
 printf '══ run_all 开始 %s · PID %s · 参数 %s\n' \
     "$(date '+%Y-%m-%d %H:%M:%S')" "$$" "${1:-（全量）}" >> "$LOG"
 
@@ -157,8 +161,13 @@ run_step() {
     #   等于「这条判据自己没法被便宜地验证」，于是我把声明值写错（17 vs 真实的 18）
     #   也只能在跑完之后才知道。dry-run 把这条路压到秒级：改完 run_all 先 dry 一遍。
     #   ★ P50㉓ 更正：这行原来写「压到 3 秒」，而 ③ 组**没走 run_step**、dry 时照跑 14 个
-    #     lua 入口（实测 54 s）。现在 ③ 也走 DRY 分支，dry-run 实测 10 s（原来 64 s）。
-    #     剩下的 10 s 里，第一组那 4 s 是 preflight（解析环境 / 查运行时版本），不属任何判据。
+    #     lua 入口（实测 54 s）。现在 ③ 也走 DRY 分支，dry-run 从 64 s 降到 **约 12 s**（实测 12~13 s，随负载漂）。
+    #     ★ P50㉖ 更正口径：12 s 是**脚本内的 ELAPSED**（T0 起算）；墙钟实测 21 s，
+    #       差的约 9 s 在 preflight / env.sh / bash 启动上，**不进 ELAPSED**。
+    #       此前这句写的是点值「10 s」，并把这 10 s 里的 4 s 归因给第一组 ——
+    #       那个 4 s 其实是「GROUP_T0 用了 T0」造成的错记（见 GROUP_T0 的注释），
+    #       而 10 s 本身也会随负载漂（10~12 s 都实测到过）。
+    #       ⇒ 会漂的数字写成点值必然过期，要写就写**口径 + 量级**。
     #   ★ 它的结论**不作数**（所有组都算通过），所以末尾会大声说明。
     # ★ 用 `${DRY:-0}`：`set -u` 下未定义会直接退出，而 run_step 第一次被调用
     #   （preflight 那一行）比参数解析还早 ⇒ 第一版在这里报 DRY: unbound variable。
@@ -296,7 +305,16 @@ GROUP_LIST=""
 #   现在每组收尾打一行 `⏱ … 用时 N s`，并且记下最长的一组（锁的阈值要用它，见文件头）。
 GROUP_MAX=0
 GROUP_MAX_NAME=""
-GROUP_T0=$T0
+#
+# ★★ P50㉖：这里原来写 `GROUP_T0=$T0`，而 `T0` 是**全量起始**（preflight 之前）——
+#   于是**第一组**（① Node 客户端验证）的 ⏱ 里混进了 preflight / env.sh / 变异残留还原 /
+#   git 洁净检查 / 端口基线快照，实测报到 6~7 s，而它自己只跑 1 s。
+#   后果不只是数字难看：① 是「最长一组」的候选，`GROUP_MAX` 会被它抬高 ⇒ 写进
+#   `_run_all.groupmax` ⇒ 下一轮的心跳阈值也跟着虚高（余量判定失去意义）。
+#   而且我此前在 run_step 的注释里把那段 preflight **归因给了第一组**（「第一组那 4 s
+#   是 preflight，不属任何判据」）—— 句子对了，位置错了：它就不该记在 ① 头上。
+#   ⇒ 改成第一组开头才置位（见 hr()）。
+GROUP_T0=""
 GROUP_LAST=""
 _tally() {
     # 结算**上一组**：从它开头到现在。第一组之前 GROUP_LAST 为空，跳过。
@@ -317,6 +335,8 @@ hr() {
     GROUP_N=$((GROUP_N + 1))
     GROUP_LIST="$GROUP_LIST|$1"
     GROUP_LAST=$1
+    # ★ P50㉖：第一组从这里开始计时（GROUP_T0 为空 ⇒ 之前什么都没在跑）。
+    [ -n "$GROUP_T0" ] || GROUP_T0=$(date +%s)
     printf '\n\033[1m══ %s\033[0m\n' "$1"
     printf '\n══ %s\n' "$1" >> "$LOG" 2>/dev/null || true
     # ★ P50㉑：每组开头打一次心跳 —— 锁那边靠它区分「残留」与「父 shell 走了、子进程还活着」。
@@ -549,8 +569,17 @@ if [ "$GROUP_MAX" -gt 0 ]; then
             "$GROUP_MAX" $(( GROUP_MAX * 2 )) "$BEAT_STALE_MAX" $(( GROUP_MAX * 2 - BEAT_STALE_MAX )) | tee -a "$LOG"
         printf '    按本轮数据，下一轮读 tests/_run_all.groupmax 后阈值会推到 %d s。\n' "$NEED2" | tee -a "$LOG"
     fi
-    if [ "$DRY" != "1" ]; then
+    # ★★ P50㉖-b：`--fast` **也不许写**。
+    #   fast 跳过的正是最慢的三组（②f 605 s / ③ 宿主 14 入口 / ⑤ 06 三件套），
+    #   于是它算出的 GROUP_MAX 只有 ~321 s ⇒ 下一轮阈值 ~660 s，
+    #   而**全量**里最长的一组是 605 s —— 阈值低于「最长单组」时，
+    #   父 shell 一死，beat 就在那一组中途变陈旧 ⇒ 下一轮把「还在跑」当成「残留锁」清掉。
+    #   这与 §9bc 记的是同一条安全边界：阈值必须由**全量**的最长单组推。
+    if [ "$DRY" != "1" ] && [ "$FAST" != "1" ]; then
         printf '%d\n' "$GROUP_MAX" > "$GROUPMAX_F" 2>/dev/null || true
+    elif [ "$FAST" = "1" ]; then
+        printf '  （--fast：本轮最长一组 %d s 不代表全量，**不写** tests/_run_all.groupmax）\n' \
+            "$GROUP_MAX" | tee -a "$LOG"
     fi
 fi
 # ★ 组数核对（见顶部 DECLARED_GROUPS 的注释）。**只在真跑完时**才有意义，
@@ -578,6 +607,30 @@ if [ "$DRY" = "1" ]; then
     printf '\033[1m★ 注意：本次是 --dry-run，一个判据都没跑 ⇒ 上面的「%s」只表示组数对得上，\033[0m\n' "$VERDICT"
     printf '\033[1m  （只有 run_step 与宿主回归那一段会空转；组标题 / 组数核对 / 锁判定仍是真的）\033[0m\n'
     printf '\033[1m  不代表代码是好的。真正的结论要跑 bash tests/run_all.sh。\033[0m\n'
+fi
+# ★★ P50㉖：**本轮摘要**（给人抄，不用再从几百行里捞）。
+#   起因：§9be / §9bf 里的「实测 1243 s / 534 s / 1193 s」全是我从屏幕上**手抄**进文档的，
+#   而手抄没有任何校验 —— 抄错一位数，文档就永久错一位数（verify_plan 只核对项数/编号，
+#   不核耗时）。这里把这一轮的四个量**一次打全**，并同时落盘成 TSV（追加式，一轮一行），
+#   以后文档直接引用某一行，而不是转述。
+#   ★ 只打到屏幕、**不 tee 进日志**：总判定必须是日志的最后一行（上面那条约定）。
+if [ "$DRY" != "1" ]; then
+    ROUNDS="$ROOT/tests/_run_all.rounds.tsv"
+    if [ ! -f "$ROUNDS" ]; then
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+            "开始时间" "判定" "组数" "总耗时_s" "最长一组" "最长_s" "阈值_s" "HEAD" > "$ROUNDS" 2>/dev/null || true
+    fi
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+        "$T0_STR" "$VERDICT" "$GROUP_N/$WANT_G" "$ELAPSED" \
+        "${GROUP_MAX_NAME:-（无）}" "$GROUP_MAX" "$BEAT_STALE_MAX" \
+        "$(git -C "$ROOT/.." rev-parse --short HEAD 2>/dev/null || echo "?")" >> "$ROUNDS" 2>/dev/null || true
+    printf '\n\033[1m── 本轮摘要（可直接抄进文档）──\033[0m\n'
+    printf '  开始      %s（结束 %s）\n' "$T0_STR" "$(date '+%Y-%m-%d %H:%M:%S')"
+    printf '  判定      %s\n' "$VERDICT"
+    printf '  组数      %s / %s\n' "$GROUP_N" "$WANT_G"
+    printf '  总耗时    %s s（脚本内 ELAPSED）\n' "$ELAPSED"
+    printf '  最长一组  %s（%s s）\n' "${GROUP_MAX_NAME:-（无）}" "$GROUP_MAX"
+    printf '  已落盘    %s\n' "$ROUNDS"
 fi
 # ★ 无论红绿都报日志路径：下次出现「某组没输出汇总行」这种偶发时，
 #   现场在文件里，不必靠重跑猜（重跑往往复现不出来）。
