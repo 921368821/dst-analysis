@@ -56,6 +56,7 @@ python rt/server.py --replay deploy/logs/run.json --seed 20261015
 |---|---|
 | `开发计划.md` | **总文档**：架构 / 模块 / 阶段 P0~P8 / 每阶段实测结果 / 决策与踩坑（含「不做」的理由） |
 | `Unity对标审查与路线图-2026-10-21.md` | **对标与规划**：以 Unity 为基准的 24 模块差距表（功能/性能/工具链/生态，加权 42.8/100）、目标架构、M1~M8 路线图（人月 + 机械验收）。**"能不能给别人做游戏"看这份** |
+| `引擎开发计划-从零到2.5D-2026-10-21.md` | **完整建设计划**：13 域 / **102 个模块** / 57.2 人月（从零口径，本项目剩余 28.3）；优先级判据、硬依赖九条链、软依赖五处、三条泳道八波次、S0~S7 每期退出判据、饥荒基准的能力映射。数字由 `tools/check_engine_plan.py` 对账（**已入闸门第 ⑪ 步**） |
 | `rt/rt_boot.lua` | **常驻** Lua 入口：复用 `06-引擎复刻/host/*`，暴露 `step/set_input/snapshot/save_*/terrain/world_state` |
 | `rt/server.py` | **入口与路由**（M4 拆分后 **313 行**）：`Handler` 按 `Upgrade` 头分流 HTTP / WS + `main`（`require_sources` 已随 M4 移到 `config.py`，这里只转出）。⚠️ 所有 HTTP 端点都是**只读**语义：非 `GET` 一律 `405 + Allow: GET`（**方法校验早于路径匹配**，所以 `POST /debug/kill` 也是 405，不是 404） |
 | `rt/sim.py` | `Sim`：**唯一** LuaRuntime + 固定步长；快照编码 / 指纹 / 存档收集（**只有模拟线程能碰**） |
