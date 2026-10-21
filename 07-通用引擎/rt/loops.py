@@ -194,6 +194,43 @@ def sim_loop(sim: Sim, hub: Hub, stop: threading.Event, quiet=False, save_file=N
                         box.update(ok=False, error="%s: %s" % (type(e).__name__, e))
                     finally:
                         ev.set()
+                elif kind == "debug_entities":
+                    # ★ P62：编辑器基础 —— 「世界里有谁」。同步回话，调用方要真数据。
+                    limit, ev, box = cmd[1], cmd[2], cmd[3]
+                    try:
+                        ok, info = sim.debug_entities(limit)
+                        if ok:
+                            box.update(ok=True, **info)
+                        else:
+                            box.update(ok=False, error=info.get("error"))
+                    except Exception as e:                          # noqa: BLE001
+                        box.update(ok=False, error="%s: %s" % (type(e).__name__, e))
+                    finally:
+                        ev.set()
+                elif kind == "debug_remove":
+                    guid, ev, box = cmd[1], cmd[2], cmd[3]
+                    try:
+                        ok, info = sim.debug_remove(guid)
+                        if ok:
+                            box.update(ok=True, **info)
+                        else:
+                            box.update(ok=False, error=info.get("error"))
+                    except Exception as e:                          # noqa: BLE001
+                        box.update(ok=False, error="%s: %s" % (type(e).__name__, e))
+                    finally:
+                        ev.set()
+                elif kind == "debug_move":
+                    guid, xx, zz, ev, box = cmd[1], cmd[2], cmd[3], cmd[4], cmd[5]
+                    try:
+                        ok, info = sim.debug_move(guid, xx, zz)
+                        if ok:
+                            box.update(ok=True, **info)
+                        else:
+                            box.update(ok=False, error=info.get("error"))
+                    except Exception as e:                          # noqa: BLE001
+                        box.update(ok=False, error="%s: %s" % (type(e).__name__, e))
+                    finally:
+                        ev.set()
                 elif kind == "debug_stats":
                     # 与 `/healthz` 的区别：那个读的是**缓存**（最多落后 0.27 s），
                     # 这个当场在模拟线程里算一次 —— 运维排查「缓存和真实对不上」时用它。

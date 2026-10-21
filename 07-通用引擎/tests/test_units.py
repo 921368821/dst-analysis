@@ -49,7 +49,7 @@ PASS, FAIL, SKIP = 0, 0, 0
 RESULTS = []
 # 自检用例条数（开发计划 §9cd / §9cg）：加/删用例必须同步改这里，
 # 并同步 tools/case_counts.txt —— 否则「删了一半用例、剩下全过」会让闸门照样绿。
-WANT_CASES = 45
+WANT_CASES = 46
 
 
 class Skip(Exception):
@@ -1120,6 +1120,61 @@ def u45_default_bind_is_loopback():
     return True, "默认 --host=127.0.0.1；反向改成 0.0.0.0 会被抓住"
 
 
+def u46_editor_gate_is_loopback_and_orthogonal_to_debug():
+    """★★★ P62 编辑器通道的门槛：**本次请求来自回环**，且**与 --allow-debug 正交**。
+
+    为什么门槛要分成两个（而不是顺手复用 `_debug_allowed`）：
+      · `/debug/*` 是**运维**通道：默认关、要 `--allow-debug`、发布检查单明写「公网别开」；
+      · `/editor/*` 是**本机开发工具**：诉求正相反 —— 打开就要能用。
+      共用一个开关 = 让「想做编辑器」和「不想开运维口子」互相绑死。
+
+    为什么这条必须写成判据（而不是只写在注释里）：
+      最省事的写法是 `_editor_allowed` 直接 `return True`，理由是「反正服务只绑 127.0.0.1」。
+      那一刻本机确实没问题 —— 但「服务只绑回环」和「这个端点只接受回环」是**两层**。
+      把第二层删掉后，第一层一旦被 `--host 0.0.0.0` 打开（想用手机看画面时就会），
+      编辑器就整个暴露了：能删对象、能挪玩家、能刷物品。
+      这条判据把「两层」这个事实钉住，让删掉第二层的人当场红。
+    """
+    import http_api
+
+    class Fake(object):
+        """只要能拿到 client_address 与 allow_debug 就够 —— 不构造真 socket。"""
+        _editor_allowed = http_api.HttpMixin._editor_allowed
+
+        def __init__(self, peer, allow_debug=False):
+            self.client_address = (peer, 12345)
+            self.allow_debug = allow_debug
+
+    # ① 回环的四种写法都要放行。
+    #    `::ffff:127.0.0.1` 是双栈监听下的 IPv4 映射形式 —— 实测出现过，
+    #    只认 `"127.0.0.1"` 的写法会在这类连接上「本机也打不开编辑器」。
+    for peer in ("127.0.0.1", "::1", "::ffff:127.0.0.1", "localhost"):
+        if not Fake(peer)._editor_allowed():
+            return False, "回环来源被拒了：%r" % (peer,)
+
+    # ② 非回环必须拒 —— 这条是整个判据的核心（反向）
+    for peer in ("8.8.8.8", "192.168.1.5", "10.0.0.1", "0.0.0.0", ""):
+        if Fake(peer)._editor_allowed():
+            return False, "非回环来源被放行了：%r" % (peer,)
+
+    # ③ 与 allow_debug 正交。这是最容易静默退化的地方：
+    #    有人会图省事把实现改成 `return self._debug_allowed()` ——
+    #    那一刻「本机还能用」，但外网只要开了 --allow-debug 也一起开了。
+    if not Fake("127.0.0.1", allow_debug=False)._editor_allowed():
+        return False, "--allow-debug 关着时编辑器被连坐关掉了（两个门槛被绑在一起）"
+    if Fake("8.8.8.8", allow_debug=True)._editor_allowed():
+        return False, "--allow-debug 开着就把外网也放进了编辑器 —— 门槛退化成了运维开关"
+
+    # ④ 拿不到 client_address 时必须**拒**（缺信息 ≠ 放行）
+    class NoPeer(object):
+        _editor_allowed = http_api.HttpMixin._editor_allowed
+    if NoPeer()._editor_allowed():
+        return False, "没有 client_address 时被放行了 —— 缺信息不等于许可"
+
+    return True, ("回环 4 种写法放行 / 外网 5 种拒绝 / 缺地址拒绝 / "
+                  "与 --allow-debug 正交（关着能用、开着不放外网）")
+
+
 def main():
     print("═" * 78)
     print("  模块级单测（L6 / M4）：只测不需要 LuaRuntime、不需要起服务端的东西")
@@ -1185,6 +1240,7 @@ def main():
     check("U43 反向：目录清单清理真删 + 幂等，且不往上删", u43_filelist_cleanup_really_deletes_and_is_idempotent)
     check("U44 计数器唯一入口 + 40 万次并发精确 + 快照同锁", u44_counter_bump_is_single_entry_and_exact)
     check("U45 发布决策落地：默认只绑 127.0.0.1；反向：改成 0.0.0.0 必红", u45_default_bind_is_loopback)
+    check("U46 编辑器门槛=来源回环，且与 --allow-debug 正交；反向：外网必拒", u46_editor_gate_is_loopback_and_orthogonal_to_debug)
 
     print("\n" + "─" * 78)
     total = PASS + FAIL + SKIP

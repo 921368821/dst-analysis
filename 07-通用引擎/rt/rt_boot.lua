@@ -1775,7 +1775,7 @@ end
 --     ③ `rt/server.py` 拆成 7 个模块（M4）——**这一条本身不改行为**，但它改了
 --        `tools/boot_version_guard.py` 的指纹输入面，而「把拆分当成免升版的理由」
 --        正是 C8 那类事故的温床：宁可多进一版，也不要让「记录里的 /7」对应两份实现。
-function M.version() return "rt_boot/10" end
+function M.version() return "rt_boot/11" end
 
 if not M.player_ok then
     error("rt_boot: 玩家实体创建失败（SpawnPrefab('wilson') 失败）")
@@ -1956,6 +1956,88 @@ function M.debug_entity(guid)
         dead = dead,
         action = action_for(inst),
     }
+end
+
+-- ★★ P62：编辑器通道（`/editor/*`）—— 让世界**可被看、被选、被改**。
+--   为什么另开一组而不是复用 `/debug/*`：
+--     `/debug/*` 是**运维**通道，默认关、要 `--allow-debug`，发布检查单里明写「公网别开」；
+--     编辑器是**本机开发工具**，诉求是「打开就能用」。两个诉求冲突，不能共用一个开关。
+--   所以判据换成**看来源地址**：`/editor/*` 只在请求来自回环（127.0.0.1 / ::1）时可用。
+--     这比 `--allow-debug` 更硬 —— 即使有人绑了 0.0.0.0，外网也调不动编辑器；
+--     而本机开发者不用改任何启动参数。
+--
+--   ★ 返回格式沿用 `debug_act` 的先例：**压成字符串**，不返回 Lua 表。
+--     理由：lupa 里 Lua table → Python 要逐条迭代取字段，1000 个实体就是几千次
+--     跨语言调用；这里一次取回一大串，解析放在 Python 侧。
+--     字段用 \t 分隔、行用 \n 分隔 —— prefab 名是 ASCII 标识符，不会含这两种字符。
+
+--- 列出世界里的全部实体。`limit` 是**返回条数上限**（默认 500 / 最多 5000），
+--- `count` 是真实总数 —— 两者必须分开报，否则「只看到 500 个」会被误读成「世界只有 500 个」。
+function M.debug_entities(limit)
+    limit = math.floor(tonumber(limit) or 500)
+    if limit < 1 then limit = 1 elseif limit > 5000 then limit = 5000 end
+    local rows, total = {}, 0
+    for guid, inst in pairs(ent_table()) do
+        if inst ~= nil and (inst.IsValid == nil or inst:IsValid()) then
+            total = total + 1
+            local x, z = pos_of(inst)
+            local hp = hp_of(inst)
+            rows[#rows + 1] = string.format("%d\t%s\t%s\t%s\t%s",
+                guid, tostring(inst.prefab or "?"),
+                (x ~= nil) and string.format("%.2f", x) or "",
+                (z ~= nil) and string.format("%.2f", z) or "",
+                (hp ~= nil) and string.format("%.2f", hp) or "")
+        end
+    end
+    -- ★ 按 guid 升序：pairs 的顺序是哈希序，每次调用都可能不同。
+    --   不排序的话，编辑器列表会**自己跳来跳去**，点一下选中就跑了。
+    table.sort(rows, function(a, b)
+        return (tonumber(a:match("^%d+")) or 0) < (tonumber(b:match("^%d+")) or 0)
+    end)
+    local out = {}
+    for i = 1, math.min(#rows, limit) do out[i] = rows[i] end
+    return true, { count = total, listed = #out, rows = table.concat(out, "\n") }
+end
+
+--- 删掉一个实体。**玩家实体拒绝删除** —— 删了会破坏会话身份（key→角色 指向空壳）。
+function M.debug_remove(guid)
+    guid = tonumber(guid)
+    if guid == nil then return false, "guid 必须是数字" end
+    local inst = ent_table()[guid]
+    if inst == nil then return false, "guid " .. tostring(guid) .. " 不在世界表里" end
+    if inst.IsValid ~= nil and not inst:IsValid() then
+        return false, "guid " .. tostring(guid) .. " 已失效"
+    end
+    if inst.HasTag ~= nil and inst:HasTag("player") then
+        return false, "拒绝删除玩家实体：会破坏会话身份（key→角色）"
+    end
+    if inst.Remove == nil then return false, "实体没有 Remove 方法" end
+    local prefab = tostring(inst.prefab or "?")
+    local ok, err = pcall(function() inst:Remove() end)
+    if not ok then return false, "Remove 抛错：" .. tostring(err) end
+    return true, { guid = guid, prefab = prefab, removed = true }
+end
+
+--- 把一个实体挪到 (x, z)。保留原 y —— 只关心水平坐标，生物本来就站在地上。
+function M.debug_move(guid, x, z)
+    guid, x, z = tonumber(guid), tonumber(x), tonumber(z)
+    if guid == nil then return false, "guid 必须是数字" end
+    if x == nil or z == nil then return false, "需要 x 和 z（都必须是数字）" end
+    local inst = ent_table()[guid]
+    if inst == nil then return false, "guid " .. tostring(guid) .. " 不在世界表里" end
+    if inst.Transform == nil or inst.Transform.SetPosition == nil then
+        return false, "实体没有 Transform:SetPosition"
+    end
+    local y = 0
+    if inst.Transform.GetWorldPosition ~= nil then
+        local okp, _, py = pcall(inst.Transform.GetWorldPosition, inst.Transform)
+        if okp and py ~= nil then y = py end
+    end
+    local ok, err = pcall(function() inst.Transform:SetPosition(x, y, z) end)
+    if not ok then return false, "SetPosition 抛错：" .. tostring(err) end
+    -- ★ 回读：SetPosition 不返回值，**挪没挪动只能看位置**。
+    local nx, nz = pos_of(inst)
+    return true, { guid = guid, x = nx or x, z = nz or z }
 end
 
 function M.debug_spawn_count() return DEBUG_SPAWN_N end

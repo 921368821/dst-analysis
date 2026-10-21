@@ -117,6 +117,28 @@ class HttpMixin:
         """
         return bool(getattr(self, "allow_debug", False))
 
+    def _editor_allowed(self) -> bool:
+        """★ P62：编辑器端点（`/editor/*`）的门槛 —— **本次请求来自回环**。
+
+        为什么不复用 `_debug_allowed`：
+          `/debug/*` 是**运维**通道：默认关、要 `--allow-debug`、发布检查单里明写
+          「公网部署别开」。编辑器是**本机开发工具**，诉求正相反：打开就要能用。
+          共用一个开关，等于让「想做编辑器」和「不想开运维口子」互相绑死。
+
+        为什么看来源地址而不是启动参数：
+          来源地址是**每个请求的事实**，启动参数是**启动时的意图**。
+          绑了 `0.0.0.0` 时前者依然正确 —— 外网请求的 peer 不是回环，编辑器自动失效，
+          而本机开发者不用改任何参数。判据贴着它要拦的动作，不贴着配置。
+
+        ⚠️ 这是**纵深防御的一层**，不是唯一一层：服务默认还只绑 127.0.0.1
+          （`U45` 守着这条）。两层都失效才能碰到编辑器。
+        """
+        try:
+            peer = str(self.client_address[0])
+        except Exception:                                        # noqa: BLE001
+            return False
+        return peer in ("127.0.0.1", "::1", "::ffff:127.0.0.1", "localhost")
+
     # ---------- 静态文件 / healthz ----------
     def _serve_http(self, method, path, headers=None):
         headers = headers or {}
@@ -302,6 +324,72 @@ class HttpMixin:
         #   写着「公网部署别开」）。三个都**走 hub.cmds 排队** —— 它们要碰 Lua。
         #   `/debug/spawn` 与 `/debug/give` 是**同步**的（等模拟线程回话），
         #   因为调用方要的是「真的生成了没有 / 为什么没生成」，而不是「已入队」。
+        # ★★ P62：编辑器通道 —— `/editor/entities|remove|move|spawn`
+        #   门槛是**来源回环**（见 `_editor_allowed`），**不是** `--allow-debug`。
+        #   全部走 hub.cmds 排队（要碰 Lua），并且**同步等回话**：
+        #   编辑器要的是「改了没有 / 为什么没改」，不是「已入队」。
+        #   `spawn` 复用 `/debug/spawn` 的同一条 Lua 路径，只是换了个门槛 ——
+        #   同一能力不该有两份实现，否则两处会各自长歪。
+        if path.split("?")[0].startswith("/editor/"):
+            if not self._editor_allowed():
+                try:
+                    peer = str(self.client_address[0])
+                except Exception:                                # noqa: BLE001
+                    peer = "?"
+                body = json.dumps({"ok": False, "error": "编辑器只接受本机（回环）请求",
+                                   "peer": peer}, ensure_ascii=False).encode("utf-8")
+                self._reply(b"HTTP/1.1 403 Forbidden\r\nContent-Type: application/json\r\n"
+                            b"Content-Length: " + str(len(body)).encode() + b"\r\n"
+                            b"\r\n" + body)
+                return
+            sub = path.split("?")[0]
+            q = path.split("?", 1)[1] if "?" in path else ""
+            arg = {}
+            for kv in q.split("&"):
+                if "=" in kv:
+                    k, v = kv.split("=", 1)
+                    arg[k] = v
+
+            def _enum(key, cast=float, default=None):
+                v = arg.get(key)
+                if v is None or v == "":
+                    return default
+                try:
+                    return cast(v)
+                except (TypeError, ValueError):
+                    return default
+
+            ev, box = threading.Event(), {}
+            if sub == "/editor/entities":
+                self.hub.cmds.put(("debug_entities", _enum("limit", int, 500), ev, box))
+            elif sub == "/editor/remove":
+                self.hub.cmds.put(("debug_remove", _enum("guid", int, -1), ev, box))
+            elif sub == "/editor/move":
+                self.hub.cmds.put(("debug_move", _enum("guid", int, -1),
+                                   _enum("x"), _enum("z"), ev, box))
+            elif sub == "/editor/spawn":
+                self.hub.cmds.put(("debug_spawn", arg.get("prefab", ""),
+                                   _enum("x"), _enum("z"), ev, box))
+            else:
+                body = b"unknown editor endpoint\n"
+                self._reply(b"HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\n"
+                            b"Content-Length: " + str(len(body)).encode() + b"\r\n\r\n" + body)
+                return
+
+            if not ev.wait(timeout=10):
+                body = json.dumps({"ok": False, "error": "10 s 内没等到模拟线程（模拟循环卡住？）"},
+                                  ensure_ascii=False).encode("utf-8")
+                self._reply(b"HTTP/1.1 503 Service Unavailable\r\n"
+                            b"Content-Type: application/json\r\n"
+                            b"Content-Length: " + str(len(body)).encode() + b"\r\n\r\n" + body)
+                return
+            code = b"200 OK" if box.get("ok") else b"400 Bad Request"
+            body = json.dumps(box, ensure_ascii=False).encode("utf-8")
+            self._reply(b"HTTP/1.1 " + code + b"\r\nContent-Type: application/json\r\n"
+                        b"Content-Length: " + str(len(body)).encode() + b"\r\n"
+                        b"Cache-Control: no-store\r\n\r\n" + body)
+            return
+
         if path.split("?")[0].startswith("/debug/"):
             if not self._debug_allowed():
                 body = b"debug endpoints disabled (start the server with --allow-debug)\n"

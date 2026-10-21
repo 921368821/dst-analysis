@@ -30,12 +30,100 @@
   #help{position:fixed;left:10px;bottom:10px;background:rgba(13,17,23,.82);
         border:1px solid #30363d;border-radius:6px;padding:8px 11px}
   kbd{background:#21262d;border:1px solid #30363d;border-radius:3px;padding:0 4px}
+
+  /* ★★ P62：编辑器面板（对照 Unity 的「层级 / 视口 / 属性」三栏）
+     布局原则：#ed 是**穿透层**（pointer-events:none），只有它里面的面板接收鼠标，
+     这样打开编辑器时**中间的地图仍然可点可拖** —— 否则每一块空白都会吃掉一次点击。
+     面板统一半透明深色，和 HUD 一致：不做成不透明大白框，因为编辑时最需要看见地图。 */
+  #edBtn{position:fixed;right:10px;top:10px;z-index:30;cursor:pointer;
+         background:rgba(13,17,23,.9);border:1px solid #30363d;border-radius:6px;
+         padding:5px 12px;font-size:12px;color:#c9d1d9}
+  #edBtn:hover{background:#21262d}
+  #edBtn.on{border-color:#58a6ff;color:#58a6ff}
+  #ed{position:fixed;inset:0;pointer-events:none;z-index:20;display:none;
+      font:12px/1.5 ui-monospace,Consolas,monospace}
+  #ed.on{display:block}
+  #ed>*{pointer-events:auto}
+  #edBar{position:absolute;left:50%;transform:translateX(-50%);top:8px;
+         display:flex;gap:6px;align-items:center;white-space:nowrap;
+         background:rgba(13,17,23,.94);border:1px solid #30363d;border-radius:8px;
+         padding:6px 10px;max-width:calc(100vw - 20px);overflow-x:auto}
+  #edBar button{background:#21262d;color:#c9d1d9;border:1px solid #30363d;
+                border-radius:5px;padding:4px 9px;cursor:pointer;font:inherit}
+  #edBar button:hover{background:#30363d}
+  #edBar button.on{background:#1f6feb;border-color:#1f6feb;color:#fff}
+  #edBar button.danger{border-color:#f85149;color:#f85149}
+  #edBar .sep{width:1px;height:18px;background:#30363d;flex:0 0 auto}
+  #edBar label{display:flex;align-items:center;gap:4px;color:#8b949e;cursor:pointer}
+  #edBar select{background:#0d1117;border:1px solid #30363d;border-radius:4px;
+                color:#c9d1d9;padding:3px 4px;font:inherit;max-width:120px}
+  #edStatus{color:#8b949e;max-width:340px;overflow:hidden;text-overflow:ellipsis}
+  #edTree{position:absolute;left:8px;top:56px;bottom:8px;width:248px;
+          display:flex;flex-direction:column;overflow:hidden;
+          background:rgba(13,17,23,.94);border:1px solid #30363d;border-radius:8px}
+  #edTreeHead{padding:6px 8px;border-bottom:1px solid #30363d;flex:0 0 auto}
+  #edSearch{width:100%;box-sizing:border-box;background:#0d1117;border:1px solid #30363d;
+            border-radius:4px;color:#c9d1d9;padding:4px 6px;font:inherit}
+  #edCount{color:#6e7681;margin-top:4px;font-size:11px}
+  #edList{overflow-y:auto;flex:1 1 auto}
+  .edRow{display:flex;gap:6px;padding:3px 8px;cursor:pointer;
+         border-bottom:1px solid #161b22;white-space:nowrap}
+  .edRow:hover{background:#161b22}
+  .edRow.sel{background:rgba(31,111,235,.22);box-shadow:inset 2px 0 0 #58a6ff}
+  .edRow .g{color:#6e7681;min-width:38px}
+  .edRow .p{color:#c9d1d9;flex:1;overflow:hidden;text-overflow:ellipsis}
+  .edRow .c{color:#6e7681}
+  #edProps{position:absolute;right:8px;top:56px;width:248px;padding:10px;
+           background:rgba(13,17,23,.94);border:1px solid #30363d;border-radius:8px}
+  #edProps h4{margin:0 0 8px;font-size:12px;color:#58a6ff;font-weight:600}
+  .edField{display:flex;align-items:center;gap:6px;margin-bottom:6px}
+  .edField label{color:#8b949e;min-width:44px}
+  .edField input{flex:1;min-width:0;background:#0d1117;border:1px solid #30363d;
+                 border-radius:4px;color:#c9d1d9;padding:3px 6px;font:inherit}
+  .edField input[readonly]{color:#8b949e;border-style:dashed}
+  .edBtns{display:flex;gap:6px;margin-top:10px}
+  .edBtns button{flex:1;background:#21262d;color:#c9d1d9;border:1px solid #30363d;
+                 border-radius:5px;padding:5px 3px;cursor:pointer;font:inherit}
+  .edBtns button:hover{background:#30363d}
+  .edBtns button.danger{border-color:#f85149;color:#f85149}
+  .edBtns button.danger:hover{background:rgba(248,81,73,.14)}
+  .edMuted{color:#6e7681}
+  .edHint{color:#6e7681;font-size:11px;margin-top:8px;line-height:1.6}
 </style>
 </head>
 <body>
 <canvas id="cv"></canvas>
 <div id="hud">连接中…</div>
 <div id="help"></div>
+<!-- ★★ P62：编辑器（F1 或点右上角开关）。结构对照 Unity：工具栏 / 层级 / 视口 / 属性。 -->
+<div id="edBtn" title="切换编辑器（F1）">编辑器</div>
+<div id="ed">
+  <div id="edBar">
+    <button data-tool="select" class="on">选择</button>
+    <button data-tool="move">移动</button>
+    <button data-tool="spawn">生成</button>
+    <select id="edPrefab" title="「生成」工具要放的 prefab"></select>
+    <span class="sep"></span>
+    <button id="edSave">存档</button>
+    <button id="edFocus">聚焦</button>
+    <button id="edDel" class="danger">删除</button>
+    <span class="sep"></span>
+    <label><input type="checkbox" id="edHideAnon">隐藏无名</label>
+    <span id="edStatus">按 F1 退出编辑器</span>
+  </div>
+  <div id="edTree">
+    <div id="edTreeHead">
+      <input id="edSearch" placeholder="过滤 prefab…">
+      <div id="edCount">—</div>
+    </div>
+    <div id="edList"></div>
+  </div>
+  <div id="edProps">
+    <h4>属性</h4>
+    <div id="edPropsBody"><span class="edMuted">未选中对象</span></div>
+    <div class="edHint">点击地图对象即可选中；拖动地图是平移相机，不会被误当成点选。</div>
+  </div>
+</div>
 <script src="render_atlas.js"></script>
 <script src="render_batch.js"></script>
 <!-- ★ L1：协议常量单源（由 protocol.schema.json 生成）—— 必须排在 protocol_bin.js 之前 -->
@@ -627,6 +715,16 @@ function stickFromPoint(x, y) {               // 基点取**区域中心**（不
 // —— 指针事件：**鼠标与触摸共用一条路**（pointer events 统一两者）——
 //   role='stick'/'act' 归面板，'cam' 归相机（原来的鼠标拖拽就是它）。
 function ptDown(id, x, y) {
+  // ★★ P62：编辑器开启时**接管指针**，但按下这一下只记账、不判定。
+  //   为什么不在按下时就点选：编辑时最常用的动作是「拖着看地图」。
+  //   若按下即点选，每拖一次都会顺手选中一个对象，连看都看不安稳。
+  //   ⇒ 按下记起点，移动超过阈值算**拖动**（平移相机），松手时位移小才算**点击**。
+  //   这条判据只有一处（见 ptUp），所以「点击」与「拖动」不会各自漂移。
+  if (ED.on) {
+    PTRS.set(id, { x, y, px: x, py: y, role: 'ed', sx: x, sy: y, moved: 0 });
+    PAD.active = PTRS.size;
+    return true;
+  }
   if (PAD.on) {
     const role = padHit(x, y);
     if (role) {
@@ -665,6 +763,14 @@ function ptMove(id, x, y) {
   if (p.role === 'stick') { stickFromPoint(x, y); return true; }
   if (p.role === 'act') return true;     // 动作键按下后手指滑动不改变状态
   if (p.role === 'pick') return true;    // 选中目标的那一下：不拖动相机（见 ptDown 的说明）
+  // ★ P62：编辑器拖动 = 平移相机（位移量累加给 ptUp 判「这是拖动还是点击」）
+  if (p.role === 'ed') {
+    p.moved += Math.abs(dx) + Math.abs(dy);
+    cam.follow = false;
+    cam.x -= dx / cam.zoom;
+    cam.z += dy / cam.zoom;
+    return true;
+  }
   // 相机：双指 ⇒ 捏合缩放（**不平移**，否则两指中点移动会让画面乱窜）；单指 ⇒ 平移
   const cams = [...PTRS.values()].filter(q => q.role === 'cam');
   if (cams.length >= 2) { pinchZoom(cams[0], cams[1]); return true; }
@@ -685,6 +791,14 @@ function ptUp(id) {
   PAD.active = PTRS.size;
   if (p.role === 'act' && PAD.act.id === id) { PAD.act.id = null; actKeyUp(); }
   if (p.role === 'stick' && PAD.stick.id === id) { PAD.stick.id = null; stickKeys(0, 0); }
+  // ★ P62：编辑器的「点击 vs 拖动」判据**只有这一处**。
+  //   阈值 6px：低于它手指没有真的移动（触屏抖动通常 2~4px），高于它就是在拖地图。
+  //   反过来（在 ptDown 里判）会让每次拖动都先选中一个对象，再把它拖走。
+  if (p.role === 'ed') {
+    if (p.moved < 6) edClick(p.sx, p.sy);
+    if (PTRS.size < 2) PAD.pinch = null;
+    return true;
+  }
   if (PTRS.size < 2) PAD.pinch = null;
   return true;
 }
@@ -1192,6 +1306,10 @@ function draw(now) {
   ctx.moveTo(cv.width/2, cv.height/2 - 7); ctx.lineTo(cv.width/2, cv.height/2 + 7);
   ctx.stroke();
 
+  // ★ P62：选中框画在**最上层**（系统球）—— 它要能盖住夜色遮罩和摇杆，
+  //   否则「选中了哪个」在夜里或手机上就看不见了。
+  edDrawOverlay();
+
   requestAnimationFrame(loop);
 }
 
@@ -1239,6 +1357,325 @@ function loop(now) {
     (ACT.lastMsg ? `  <span style="color:${ACT.lastOk ? '#3fb950' : '#f85149'}">${ACT.lastOk ? '' : '✘ '}${ACT.lastMsg}</span>` : '') +
     (TERR.failed ? `  <span class="warn">地形加载失败 ${TERR.failed} 次</span>` : '');
 }
+// ============================================================================
+// ★★ P62：编辑器
+//
+// 为什么要有它：在此之前这个客户端**只有一张地图 + 一行 HUD**。
+//   能走、能砍、能捡，但「世界里有谁、它在哪、能不能改」全靠 `/healthz` 和命令行。
+//   这不是「游戏界面缺失」，是**缺少观察与操作世界的入口** —— 对照 Unity 编辑器，
+//   缺的是四件最基础的事：对象层级、属性面板、工具栏、视口里的选中与编辑。
+//
+// 本版只做**最小可用**那一层，刻意不做：撤销栈、多选、复制粘贴、变换手柄。
+//   理由：先让「看得见 → 选得中 → 改得动 → 存得下」闭环，再谈好用。
+//
+// 与服务器的约定：全部走 `/editor/*`（见 http_api.py 的 `_editor_allowed`）——
+//   门槛是**请求来自回环**，不需要 `--allow-debug`。
+//   ⇒ 若页面是从别的机器访问的，这些按钮会返回 403。这是设计如此，不是 bug。
+// ============================================================================
+const ED = {
+  on: false,
+  tool: 'select',          // select | move | spawn
+  sel: null,               // 选中的实体对象（{guid, prefab, x, z, hp}）
+  ents: [],                // 最近一次拉到的全量实体
+  count: 0,                // 世界真实总数（可能 > ents.length）
+  listed: 0,
+  hideAnon: false,         // 是否隐藏 prefab 为 "?" 的实体（原点死重量很多）
+  q: '',
+  busy: false,
+  timer: null,
+  spawnPrefab: 'sapling',
+};
+
+function edSetStatus(msg, bad) {
+  const el = document.getElementById('edStatus');
+  if (!el) return;
+  el.textContent = msg;
+  el.style.color = bad ? '#f85149' : '#8b949e';
+  el.title = msg;
+}
+function edEsc(s) {
+  return String(s).replace(/[&<>"]/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+function edJson(path) {
+  // cache:no-store 是必须的：这些接口每次都返回**当下**的事实，
+  // 浏览器缓存会让「删了还在列表里」变成一次幽灵故障。
+  return fetch(path, { cache: 'no-store' }).then((r) => r.json());
+}
+
+// ---------------------------------------------------------------- 拉取与列表
+function edRefresh() {
+  if (!ED.on || ED.busy) return;
+  ED.busy = true;
+  edJson('/editor/entities?limit=800').then((d) => {
+    ED.busy = false;
+    if (!d.ok) { edSetStatus('读取失败：' + (d.error || '未知'), true); return; }
+    ED.ents = d.items || [];
+    ED.count = d.count || 0;
+    ED.listed = d.listed || 0;
+    edFillPrefabs();
+    // 选中项跟着刷新（位置可能已经变了）；对象消失就**明确取消选中**，
+    // 不保留一个指向空气的属性面板。
+    if (ED.sel) {
+      const cur = ED.ents.find((e) => e.guid === ED.sel.guid);
+      if (cur) { ED.sel = Object.assign({}, ED.sel, cur); }
+      else { ED.sel = null; }
+      edRenderProps();
+    }
+    edRenderList();
+    edSetStatus('已同步：世界 ' + ED.count + ' 个实体');
+  }).catch((e) => {
+    ED.busy = false;
+    edSetStatus('读取出错：' + e.message, true);
+  });
+}
+function edFillPrefabs() {
+  const sel = document.getElementById('edPrefab');
+  if (!sel) return;
+  // 候选来自两处：世界**真实存在**的 prefab（最不会拼错），加一批常用项打底。
+  // 只给一份硬编码清单的话，刷出来的名字和实际 prefab 名对不上就会「生成失败」。
+  const base = ['sapling', 'evergreen', 'tree', 'rock1', 'rock2', 'flint', 'twigs',
+                'grass', 'berrybush', 'carrot', 'log', 'cutgrass', 'spider', 'rabbit',
+                'pigman', 'campfire', 'firepit', 'torch', 'axe', 'pickaxe'];
+  const names = new Set(base);
+  for (const e of ED.ents) if (e.prefab && e.prefab !== '?') names.add(e.prefab);
+  const cur = sel.value || ED.spawnPrefab;
+  const arr = [...names].sort();
+  sel.innerHTML = arr.map((n) => '<option>' + edEsc(n) + '</option>').join('');
+  if (names.has(cur)) sel.value = cur;
+  ED.spawnPrefab = sel.value;
+}
+function edVisible() {
+  const q = ED.q.trim().toLowerCase();
+  return ED.ents.filter((e) => {
+    if (ED.hideAnon && (!e.prefab || e.prefab === '?')) return false;
+    if (q && (e.prefab || '').toLowerCase().indexOf(q) < 0) return false;
+    return true;
+  });
+}
+function edRenderList() {
+  const list = document.getElementById('edList');
+  if (!list) return;
+  const arr = edVisible();
+  const fmt = (v) => (v == null ? '-' : Math.round(v));
+  // 拼字符串而不是逐条 createElement：实体数以百计，后者会明显更慢。
+  list.innerHTML = arr.length
+    ? arr.map((e) =>
+        '<div class="edRow' + (ED.sel && ED.sel.guid === e.guid ? ' sel' : '') +
+        '" data-g="' + e.guid + '">' +
+        '<span class="g">#' + e.guid + '</span>' +
+        '<span class="p">' + edEsc(e.prefab || '?') + '</span>' +
+        '<span class="c">' + fmt(e.x) + ',' + fmt(e.z) + '</span></div>').join('')
+    : '<div class="edMuted" style="padding:8px">没有匹配的对象</div>';
+  const c = document.getElementById('edCount');
+  if (c) {
+    c.textContent = '显示 ' + arr.length + ' / 共 ' + ED.count +
+      '（已列出 ' + ED.listed + '）' + (ED.count > ED.listed ? ' ⚠ 已达上限' : '');
+  }
+}
+
+// ---------------------------------------------------------------- 选中与属性
+function edSelect(guid, follow) {
+  const e = ED.ents.find((x) => x.guid === guid);
+  if (!e) return;
+  ED.sel = Object.assign({}, e);
+  edRenderList();
+  edRenderProps();
+  if (follow && e.x != null) { cam.x = e.x; cam.z = e.z; cam.follow = false; }
+}
+function edRenderProps() {
+  const box = document.getElementById('edPropsBody');
+  if (!box) return;
+  const s = ED.sel;
+  if (!s) { box.innerHTML = '<span class="edMuted">未选中对象</span>'; return; }
+  const num = (v) => (v == null ? '' : v);
+  box.innerHTML =
+    '<div class="edField"><label>guid</label><input value="' + s.guid + '" readonly></div>' +
+    '<div class="edField"><label>prefab</label><input value="' + edEsc(s.prefab || '?') + '" readonly></div>' +
+    '<div class="edField"><label>x</label><input id="edX" value="' + num(s.x) + '"></div>' +
+    '<div class="edField"><label>z</label><input id="edZ" value="' + num(s.z) + '"></div>' +
+    '<div class="edField"><label>hp</label><input value="' + (s.hp == null ? '—' : s.hp) + '" readonly></div>' +
+    '<div class="edBtns"><button id="edApply">应用坐标</button>' +
+    '<button id="edGoto">聚焦</button>' +
+    '<button id="edKill" class="danger">删除</button></div>';
+  document.getElementById('edApply').onclick = () => {
+    const x = parseFloat(document.getElementById('edX').value);
+    const z = parseFloat(document.getElementById('edZ').value);
+    // ★ 明确校验：`parseFloat("")` 是 NaN，`parseFloat("3abc")` 是 3。
+    //   不校验的话「空着点应用」会发一个 NaN 出去，服务端拒绝，用户只看到失败。
+    if (!isFinite(x) || !isFinite(z)) { edSetStatus('x / z 必须是数字', true); return; }
+    edMove(s.guid, x, z);
+  };
+  document.getElementById('edGoto').onclick = () => {
+    if (s.x == null) { edSetStatus('这个对象没有位置', true); return; }
+    cam.x = s.x; cam.z = s.z; cam.follow = false;
+    edSetStatus('已聚焦 #' + s.guid);
+  };
+  document.getElementById('edKill').onclick = () => edRemove(s.guid);
+}
+
+// ---------------------------------------------------------------- 三个动作
+function edMove(guid, x, z) {
+  edSetStatus('移动 #' + guid + ' → (' + x + ', ' + z + ') …');
+  edJson('/editor/move?guid=' + guid + '&x=' + x + '&z=' + z).then((d) => {
+    if (!d.ok) { edSetStatus('移动失败：' + (d.error || '未知'), true); return; }
+    if (ED.sel && ED.sel.guid === guid) { ED.sel.x = d.x; ED.sel.z = d.z; edRenderProps(); }
+    // ★ 报**回读**的坐标，不报我发出去的那个：SetPosition 不返回值，
+    //   挪没挪动只有回读算数。显示期望值会把「挪失败」伪装成「挪成功」。
+    edSetStatus('已移动 #' + guid + ' → (' + d.x + ', ' + d.z + ')');
+    edRefresh();
+  }).catch((e) => edSetStatus('移动出错：' + e.message, true));
+}
+function edRemove(guid) {
+  edJson('/editor/remove?guid=' + guid).then((d) => {
+    if (!d.ok) { edSetStatus('删除失败：' + (d.error || '未知'), true); return; }
+    if (ED.sel && ED.sel.guid === guid) { ED.sel = null; edRenderProps(); }
+    edSetStatus('已删除 #' + guid + '（' + d.prefab + '）');
+    edRefresh();
+  }).catch((e) => edSetStatus('删除出错：' + e.message, true));
+}
+function edSpawn(prefab, x, z) {
+  edSetStatus('生成 ' + prefab + ' @ (' + x + ', ' + z + ') …');
+  edJson('/editor/spawn?prefab=' + encodeURIComponent(prefab) + '&x=' + x + '&z=' + z)
+    .then((d) => {
+      if (!d.ok) { edSetStatus('生成失败：' + (d.error || '未知'), true); return; }
+      edSetStatus('已生成 ' + prefab + '  #' + d.guid);
+      edRefresh();
+    }).catch((e) => edSetStatus('生成出错：' + e.message, true));
+}
+
+// ---------------------------------------------------------------- 视口交互
+function edScreenToWorld(sx, sy) {
+  return { x: cam.x + (sx - cv.width / 2) / cam.zoom,
+           z: cam.z - (sy - cv.height / 2) / cam.zoom };
+}
+function edHitTest(sx, sy) {
+  // 命中半径用屏幕像素（30px）而不是世界单位：缩放变化时手感才一致。
+  // 取**最近**的那个 —— 叠在一起时（生物的 classified 影子贴着本体）选近的才符合直觉。
+  let best = null, bestD = 30;
+  for (const e of ED.ents) {
+    if (e.x == null || e.z == null) continue;
+    const [ex, ey] = w2s(e.x, e.z);
+    const d = Math.hypot(ex - sx, ey - sy);
+    if (d <= bestD) { best = e; bestD = d; }
+  }
+  return best;
+}
+function edClick(sx, sy) {
+  if (ED.tool === 'select') {
+    const hit = edHitTest(sx, sy);
+    if (hit) {
+      edSelect(hit.guid, false);
+      edSetStatus('选中 #' + hit.guid + ' ' + (hit.prefab || '?'));
+    } else {
+      ED.sel = null; edRenderProps(); edRenderList();
+      edSetStatus('点空了（30px 内没有对象）');
+    }
+  } else if (ED.tool === 'move') {
+    if (!ED.sel) { edSetStatus('先用「选择」点一个对象', true); return; }
+    const w = edScreenToWorld(sx, sy);
+    edMove(ED.sel.guid, Math.round(w.x * 100) / 100, Math.round(w.z * 100) / 100);
+  } else if (ED.tool === 'spawn') {
+    const w = edScreenToWorld(sx, sy);
+    edSpawn(ED.spawnPrefab, Math.round(w.x * 100) / 100, Math.round(w.z * 100) / 100);
+  }
+}
+function edDrawOverlay() {
+  if (!ED.on || !ED.sel) return;
+  const s = ED.sel;
+  if (s.x == null || s.z == null) return;
+  const [sx, sy] = w2s(s.x, s.z);
+  // 屏幕外就别画了（否则缩小后会在边缘留一个假框）
+  if (sx < -50 || sy < -50 || sx > cv.width + 50 || sy > cv.height + 50) return;
+  const r = Math.max(14, cam.zoom * 0.9);
+  ctx.save();
+  ctx.strokeStyle = '#58a6ff';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([5, 4]);
+  ctx.strokeRect(sx - r, sy - r, r * 2, r * 2);
+  ctx.setLineDash([]);
+  ctx.fillStyle = '#58a6ff';
+  ctx.fillRect(sx - r - 1, sy - r - 1, 12, 2);
+  ctx.fillRect(sx - r - 1, sy - r - 1, 2, 12);
+  const label = '#' + s.guid + ' ' + (s.prefab || '?');
+  ctx.font = '11px ui-monospace,Consolas,monospace';
+  const w = ctx.measureText(label).width + 8;
+  ctx.fillStyle = 'rgba(13,17,23,.88)';
+  ctx.fillRect(sx - r, sy - r - 17, w, 15);
+  ctx.fillStyle = '#58a6ff';
+  ctx.fillText(label, sx - r + 4, sy - r - 6);
+  ctx.restore();
+}
+
+// ---------------------------------------------------------------- 开关与绑定
+function edToggle(on) {
+  const want = (on === undefined) ? !ED.on : !!on;
+  if (want === ED.on) return;
+  ED.on = want;
+  document.getElementById('ed').classList.toggle('on', ED.on);
+  document.getElementById('edBtn').classList.toggle('on', ED.on);
+  if (ED.on) {
+    edSetStatus('正在同步世界…');
+    edRefresh();
+    // 1.5 s 一次：比帧率慢得多（人眼只需要知道「有没有变」），
+    // 又比手速快 —— 刚生成的对象立刻能出现在列表里。
+    ED.timer = setInterval(edRefresh, 1500);
+  } else if (ED.timer) {
+    clearInterval(ED.timer);
+    ED.timer = null;
+  }
+}
+document.getElementById('edBtn').onclick = () => edToggle();
+document.getElementById('edHideAnon').checked = ED.hideAnon;
+document.getElementById('edHideAnon').onchange = (e) => {
+  ED.hideAnon = e.target.checked;
+  edRenderList();
+};
+document.getElementById('edSearch').oninput = (e) => {
+  ED.q = e.target.value;
+  edRenderList();
+};
+document.getElementById('edPrefab').onchange = (e) => {
+  ED.spawnPrefab = e.target.value;
+  edSetStatus('「生成」将放置：' + ED.spawnPrefab);
+};
+document.querySelectorAll('#edBar [data-tool]').forEach((b) => {
+  b.onclick = () => {
+    ED.tool = b.dataset.tool;
+    document.querySelectorAll('#edBar [data-tool]')
+      .forEach((x) => x.classList.toggle('on', x === b));
+    const tip = { select: '点地图选中对象', move: '点地图把选中对象挪过去',
+                  spawn: '点地图生成 ' + ED.spawnPrefab }[ED.tool];
+    edSetStatus('工具：' + tip);
+  };
+});
+document.getElementById('edList').addEventListener('click', (e) => {
+  const row = e.target.closest ? e.target.closest('.edRow') : null;
+  if (!row) return;
+  edSelect(parseInt(row.dataset.g, 10), true);   // 点列表项顺便把相机移过去
+});
+document.getElementById('edSave').onclick = () => {
+  edSetStatus('存档中…');
+  fetch('/save').then((r) => r.json()).then((d) => {
+    edSetStatus(d.ok ? ('已存档：' + d.n + ' 实体 / ' + d.sz + ' 字节')
+                     : ('存档失败：' + (d.error || '未知')), !d.ok);
+  }).catch((e) => edSetStatus('存档出错：' + e.message, true));
+};
+document.getElementById('edFocus').onclick = () => {
+  if (!ED.sel) { edSetStatus('未选中对象', true); return; }
+  if (ED.sel.x == null) { edSetStatus('这个对象没有位置', true); return; }
+  cam.x = ED.sel.x; cam.z = ED.sel.z; cam.follow = false;
+  edSetStatus('已聚焦 #' + ED.sel.guid);
+};
+document.getElementById('edDel').onclick = () => {
+  if (!ED.sel) { edSetStatus('未选中对象', true); return; }
+  edRemove(ED.sel.guid);
+};
+addEventListener('keydown', (e) => {
+  // ★ F1 而不是 Tab：Tab 是浏览器/读屏器的焦点键，劫持它会让键盘导航失效。
+  if (e.key === 'F1') { e.preventDefault(); edToggle(); }
+});
+
 requestAnimationFrame(loop);
 </script>
 </body>

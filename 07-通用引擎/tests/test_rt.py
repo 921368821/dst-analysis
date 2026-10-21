@@ -4475,7 +4475,135 @@ check("E9 随身光源：开了就在光里（营火之外）；反向关掉即�
 check("E10 自身状态（血/饿/理智/背包）看得见；反向：饥饿真在掉 · 空槽位不报 0 · 与 /healthz 对账", e10_player_state)
 check("E11 调试通道：spawn/give/stats 有真实副作用；反向：非法 prefab 必失败、默认 404", e11_debug_channel)
 check("E12 交互目标空间索引：与线性实现逐项一致 + 真省扫描 + 单次 ≤12ms；反向：远处实体不混入", e12_act_index)
+def e14_editor_channel():
+    """★★ P62 编辑器通道：列 / 生成 / 移动 / 删除 四件套 + 玩家保护 + 门槛分离。
+
+    这条判据守的是什么：
+      在此之前客户端**只有一张地图 + 一行 HUD** —— 能走能砍，但「世界里有谁、
+      它在哪、能不能改」全靠命令行。P62 加了 `/editor/*` 与前端面板，于是
+      「看得见 → 选得中 → 改得动 → 存得下」这条链必须有一条判据守着。
+
+    三个容易假绿的地方，逐条堵住：
+      ① **只看 HTTP 200 就算过** —— 200 只证明路由存在，不证明世界被改了。
+         所以每一步都**回读**：列表里在不在、坐标真的变了没有。
+      ② **把「列表条数」当成「世界总数」** —— `count` 与 `listed` 必须分开断言，
+         否则 `limit` 会把「世界只有 6 个」伪装成事实。
+      ③ **门槛退化** —— `/editor/*` 与 `/debug/*` 是**两套**门槛。主服务端没开
+         `--allow-debug`，所以 `/debug/stats` 必须 **404**、`/editor/entities` 必须
+         **200**。谁把它们合并成一个开关，这一条当场红。
+
+    副作用：只用**自己 spawn 出来的对象**做增删改，不碰世界原有实体 ——
+      否则后续判据（B25/B26/E9…）会在一个被改过的世界上跑，红得莫名其妙。
+    """
+    import json as _json
+    import urllib.error as _urlerr
+
+    def code_of(path):
+        try:
+            st, _ = _http_get(path, timeout=8)
+            return st
+        except _urlerr.HTTPError as e:
+            return e.code
+        except Exception:                                        # noqa: BLE001
+            return -1
+
+    def jget(path):
+        try:
+            st, body = _http_get(path, timeout=8)
+        except _urlerr.HTTPError as e:
+            try:
+                return e.code, _json.loads(e.read().decode("utf-8"))
+            except Exception:                                    # noqa: BLE001
+                return e.code, {}
+        try:
+            return st, _json.loads(body)
+        except ValueError:
+            return st, {}
+
+    # ---- ① 列表自洽（count / listed / items 三者关系） ----------------------
+    st, d = jget("/editor/entities?limit=6")
+    if st != 200:
+        return False, "/editor/entities 返回 %s（回环来源应当 200）" % st
+    if not d.get("ok"):
+        return False, "/editor/entities 失败：%r" % (d.get("error"),)
+    items = d.get("items") or []
+    if len(items) != d.get("listed"):
+        return False, "listed=%r 与 items 实际长度 %d 不一致" % (d.get("listed"), len(items))
+    if len(items) != 6:
+        return False, "limit=6 却返回了 %d 条" % len(items)
+    if (d.get("count") or 0) < len(items):
+        return False, "count=%r 小于返回条数 %d —— 两个数被写反了" % (d.get("count"), len(items))
+    if not all(isinstance(e.get("guid"), int) for e in items):
+        return False, "items 里有 guid 不是整数的项：%r" % (items[:2],)
+
+    # ---- ② 门槛分离：同一台机器上 /debug/* 仍是 404 -------------------------
+    c_dbg = code_of("/debug/stats")
+    if c_dbg != 404:
+        return False, ("/debug/stats 返回 %s（主服务端没开 --allow-debug，应当是 404）"
+                       "—— 编辑器门槛可能被合并进运维开关了" % c_dbg)
+    c_ed, d_all = jget("/editor/entities?limit=800")
+    if c_ed != 200 or not d_all.get("ok"):
+        return False, "同一台机器上 /editor/entities 返回 %s/%r" % (c_ed, d_all.get("error"))
+    base_count = int(d_all.get("count") or 0)
+
+    # ---- ③ 生成 ⇒ 列表里出现 ----------------------------------------------
+    st, sp = jget("/editor/spawn?prefab=rock1&x=7.5&z=-3.5")
+    if st != 200 or not sp.get("ok"):
+        return False, "生成 rock1 失败：%s/%r" % (st, sp.get("error"))
+    g = int(sp["guid"])
+    st, d2 = jget("/editor/entities?limit=800")
+    found = [e for e in (d2.get("items") or []) if e.get("guid") == g]
+    if len(found) != 1:
+        return False, "新生成的 #%d 没出现在列表里（找到 %d 个）" % (g, len(found))
+    if int(d2.get("count") or 0) != base_count + 1:
+        return False, "世界总数没 +1：%d → %r" % (base_count, d2.get("count"))
+
+    # ---- ④ 移动 ⇒ 回读坐标真的变了 ----------------------------------------
+    st, mv = jget("/editor/move?guid=%d&x=-11.25&z=4.75" % g)
+    if st != 200 or not mv.get("ok"):
+        return False, "移动 #%d 失败：%s/%r" % (g, st, mv.get("error"))
+    if abs(float(mv.get("x", 0)) + 11.25) > 0.02 or abs(float(mv.get("z", 0)) - 4.75) > 0.02:
+        return False, "移动回执不是回读值：%r" % (mv,)
+    st, ent = jget("/editor/entities?limit=800")
+    cur = [e for e in (ent.get("items") or []) if e.get("guid") == g]
+    if not cur:
+        return False, "移动后 #%d 从列表里消失了" % g
+    if abs(cur[0]["x"] + 11.25) > 0.02 or abs(cur[0]["z"] - 4.75) > 0.02:
+        return False, ("列表里 #%d 还在旧位置 (%r, %r) —— 回执说动了，列表说没动"
+                       % (g, cur[0].get("x"), cur[0].get("z")))
+
+    # 反向：不存在的 guid 必须被拒（不能静默成功）
+    st, bad = jget("/editor/move?guid=99999999&x=0&z=0")
+    if bad.get("ok"):
+        return False, "移动不存在的 guid 竟然成功了：%r" % (bad,)
+
+    # ---- ⑤ 删除 ⇒ 列表里没有了 --------------------------------------------
+    st, rm = jget("/editor/remove?guid=%d" % g)
+    if st != 200 or not rm.get("ok"):
+        return False, "删除 #%d 失败：%s/%r" % (g, st, rm.get("error"))
+    st, d3 = jget("/editor/entities?limit=800")
+    if any(e.get("guid") == g for e in (d3.get("items") or [])):
+        return False, "删完之后 #%d 仍在列表里" % g
+    if int(d3.get("count") or 0) != base_count:
+        return False, "删完之后世界总数没回到 %d（实为 %r）" % (base_count, d3.get("count"))
+
+    # ---- ⑥ 玩家实体必须拒绝删除（会破坏会话身份） --------------------------
+    players = [e for e in (d3.get("items") or []) if e.get("prefab") == "wilson"]
+    if not players:
+        return False, "列表里找不到任何 wilson —— 这条反向判据没验到东西"
+    st, pr = jget("/editor/remove?guid=%d" % players[0]["guid"])
+    if pr.get("ok"):
+        return False, "玩家实体 #%d 被删掉了（会破坏 key→角色 的映射）" % players[0]["guid"]
+    if "拒绝" not in str(pr.get("error", "")):
+        return False, "玩家删除被拒了，但理由不对：%r" % (pr.get("error"),)
+
+    return True, ("列/生成/移动/删除四件套全走通且每步**回读**；"
+                  "count 与 listed 分开成立；玩家删除被拒；"
+                  "反向：/debug/stats 仍 404（两套门槛没合并）· 幽灵 guid 被拒")
+
+
 check("E13 战斗闭环：打生物 → 掉血 → 死 → 掉战利品；反向：太远被拒 · 树仍走 CHOP", e13_attack_loop)
+check("E14 编辑器通道：列/生成/移动/删除全回读；反向：玩家删除被拒 · /debug 仍 404", e14_editor_channel)
 check("D4 会话身份挺过重启（槽位/角色/位置都接着上次）；反向：无 key 的存档许不出身份", d4_session_identity_survives_restart)
 check("B25 P20：每个客户端有自己的角色（you 握手 + 槽位回收）", b25_每个客户端有自己的角色)
 check("B26 P20 核心：**A 的输入只能动 A 的角色**", b26_输入互不干扰)

@@ -354,6 +354,62 @@ class Sim:
             out["action"] = None
         return True, out
 
+    def debug_entities(self, limit=500):
+        """列出全部实体 → (ok, {"count", "listed", "items": [...]})。
+
+        ★ 为什么 Lua 侧给的是字符串、这里再解析：
+          lupa 里 Lua table → Python 要逐条迭代，1000 个实体就是几千次跨语言调用。
+          一次取回 `guid\tprefab\tx\tz\thp` 多行文本、在 Python 侧 split，成本低一个量级。
+        """
+        try:
+            ok, info = self.api.debug_entities(int(limit))
+        except Exception as e:                                   # noqa: BLE001
+            return False, {"error": "%s: %s" % (type(e).__name__, e)}
+        if not ok:
+            return False, {"error": str(info)}
+        items = []
+        for line in str(info["rows"] or "").split("\n"):
+            if not line:
+                continue
+            f = line.split("\t")
+            if len(f) < 2:
+                continue
+            try:
+                it = {"guid": int(f[0]), "prefab": f[1] or "?"}
+            except (TypeError, ValueError):
+                continue
+            # ⚠️ 空串 = 取不到，落成 None，**不填 0** —— 0 是个合法位置。
+            for idx, key in ((2, "x"), (3, "z"), (4, "hp")):
+                try:
+                    it[key] = None if f[idx] == "" else round(float(f[idx]), 2)
+                except (IndexError, TypeError, ValueError):
+                    it[key] = None
+            items.append(it)
+        return True, {"count": int(info["count"]), "listed": int(info["listed"]),
+                      "items": items}
+
+    def debug_remove(self, guid):
+        """删掉一个实体 → (ok, dict)。玩家实体会被 Lua 侧拒绝（返回 ok=False）。"""
+        try:
+            ok, info = self.api.debug_remove(int(guid))
+        except Exception as e:                                   # noqa: BLE001
+            return False, {"error": "%s: %s" % (type(e).__name__, e)}
+        if not ok:
+            return False, {"error": str(info)}
+        return True, {"guid": int(info["guid"]), "prefab": str(info["prefab"]),
+                      "removed": True}
+
+    def debug_move(self, guid, x, z):
+        """把实体挪到 (x, z) → (ok, dict)。回读的位置是**事实**（SetPosition 不返回值）。"""
+        try:
+            ok, info = self.api.debug_move(int(guid), float(x), float(z))
+        except Exception as e:                                   # noqa: BLE001
+            return False, {"error": "%s: %s" % (type(e).__name__, e)}
+        if not ok:
+            return False, {"error": str(info)}
+        return True, {"guid": int(info["guid"]),
+                      "x": round(float(info["x"]), 2), "z": round(float(info["z"]), 2)}
+
     def debug_give(self, slot, prefab, n=1):
         """给某槽位发物品 → (ok, dict)。ok=True 时 dict 有 given/items_before/items_after。"""
         try:
