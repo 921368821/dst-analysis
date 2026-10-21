@@ -59,7 +59,16 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT = os.path.join(ROOT, "tests", "_run_all.rounds.tsv")
 GROUPMAX = os.path.join(ROOT, "tests", "_run_all.groupmax")
-COLS = ["开始时间", "判定", "组数", "总耗时_s", "最长一组", "最长_s", "阈值_s", "HEAD"]
+COLS = ["开始时间", "判定", "组数", "总耗时_s", "最长一组", "最长_s", "阈值_s", "HEAD", "参数"]
+# ★★ P50㊷（B4）：第 9 列「参数」= `full` / `fast`。
+#   为什么加：`--fast` 与全量都往同一个 `N/M` 里写自己**声明**的组数
+#   （fast 声明 18、全量声明 20），于是账本上「18/18」这一格有两种来源：
+#     · 一轮 fast（正常），
+#     · 一轮全量少跑了两组（异常，`18/20` 才对）。
+#   今天两次要靠「18/18 还是 20/20」去**猜**这一轮是全量还是 fast ——
+#   猜的成本不只是慢：猜错就会把 fast 的最长一组当成全量的安全边界（§9bc）。
+#   `?` 只留给**加列之前**的历史行（那些行的参数确实无从得知，不编）。
+PARAMS = ("full", "fast", "?")
 
 
 def ceil60(n):
@@ -126,6 +135,17 @@ def check_rows(rows):
                 warn.append("第 %d 行：阈值 %d s ≠ 2×上一条最长 %d s 向上取整（%d s）"
                             "—— 可能是 `--fast` 或 `RT_BEAT_STALE_MAX` 覆盖，请人确认"
                             % (ln, limit, prev_longest, want))
+        # ★ P50㊷（B4）：第 9 列只认 full / fast / ?。
+        #   为什么值域也要守：这一列存在的唯一理由是「别再靠组数猜」，
+        #   而一个能写进任意文本的列，两天后就会有人写 `全量` / `fast (慢)` / 空 ——
+        #   那时它又变回「要人解释」的字段，等于没加（§9bi：标签写 A、代码取 B）。
+        p = (r.get("参数") or "").strip()
+        if p not in PARAMS:
+            bad.append("第 %d 行：参数写的是 %r（只认 %s）"
+                       % (ln, p, " / ".join(PARAMS)))
+        elif p == "?":
+            warn.append("第 %d 行：参数是 `?` —— 加列之前的历史行（那一轮是全量还是 "
+                        "`--fast` 已无从得知，不编）" % ln)
         prev_longest = longest
     return bad, warn
 
@@ -220,8 +240,9 @@ def _int_or_none(v):
         return None
 
 
-def _row(start, verdict, groups, total, longest, limit, name="x"):
-    return "\t".join([start, verdict, groups, str(total), name, str(longest), str(limit), "abc1234"])
+def _row(start, verdict, groups, total, longest, limit, name="x", param="full"):
+    return "\t".join([start, verdict, groups, str(total), name, str(longest),
+                      str(limit), "abc1234", param])
 
 
 SELFTEST = [
@@ -256,6 +277,15 @@ SELFTEST = [
     ("两行各违规必须各报一次（不是只报一次）",
      [COLS, _row("2026-10-21 09:00", "✔ 全部通过", "20/20", 1300, 800, 600),
       _row("2026-10-21 10:00", "✔ 全部通过", "20/20", 1320, 810, 600)], 2, 1),
+    # ↓ P50㊷（B4）：第 9 列「参数」。三条缺一不可 ——
+    #   只有「非法值要报」会漏掉「? 变哑铃」；只有「? 要告警」证不出值域真的在守。
+    ("参数写成了中文『全量』必须报（值域要守）",
+     [COLS, _row("2026-10-21 09:00", "✔ 全部通过", "20/20", 1300, 580, 1200, param="全量")], 1, 0),
+    ("参数是 `?`（加列前的历史行）⇒ 只告警，不判红",
+     [COLS, _row("2026-10-21 09:00", "✔ 全部通过", "20/20", 1300, 580, 1200, param="?")], 0, 1),
+    ("参数是 `fast` 且其余自洽 ⇒ 一行都不报",
+     [COLS, _row("2026-10-21 09:00", "✔ 全部通过", "18/18", 1103, 585, 900,
+                 param="fast")], 0, 0),
 ]
 
 

@@ -45,10 +45,19 @@ T_ALL0=$(date +%s)
 #      外层拿不到管道里的东西。⇒ 改成**每一组显式 tee**（run_step），
 #      行为与原来逐字一致、只是顺手写一份到日志。
 LOG="$ROOT/tests/_run_all.log"
-: > "$LOG" 2>/dev/null || true
+# ★★ P50㊸（B11）：**截断必须挪到拿到锁之后**（原位置就是这行，2026-10-21 移走）。
+#   实测事故（15:48:19）：另一轮正在跑（PID 50445），我起了一轮想看新列，被锁正确地
+#   拒了（rc=3）—— **但截断发生在 `mkdir` 拿锁之前** ⇒ 那一轮**已经写完的组日志被清空**。
+#   后果不是「少几行」：它让那一轮的「轮末对账」判红（日志 15 行 vs 组数 21），
+#   一条**正确地**报出来的红，原因是另一条本该只读的路径。
+#   ⇒ 锁的全部意义就是「保住现场」；一条被拒绝的启动**不许改写任何现场文件**。
+#   ⚠ 它同时说明：`rc=3` 的「拒绝」此前并不是无副作用的。
+#   （渲染之后的截断位置见下面「拿到锁」那一段。）
 
 # ★★★ 运行锁（2026-10-20 实测事故）：两轮**并发**跑过一次，后果是**两轮都不可采信**：
-#   · 后起的一轮 `: > "$LOG"` 把前一轮已经写好的日志**清空**（上面这行本身没有锁保护）；
+#   · 后起的一轮 `: > "$LOG"` 把前一轮已经写好的日志**清空**（**2026-10-21 已修**：
+#     截断挪到拿到锁之后 —— 见下面的 P50㊸。当时那行确实没有锁保护，而且连
+#     「被锁拒绝的启动」也会执行它，于是「拒绝」并不无副作用）；
 #   · 两轮又各自 `tee -a` 追写，于是「⑤ 的组标题」下面跟着「② 的 A1 启动」；
 #   · 端口互撞（8791 两轮都要）⇒ 服务器互相顶掉，跑完留 3 个端口还在 LISTENING。
 #   ⇒ 并发不是「更快」，是**把现场毁掉**。锁用 `mkdir`（**原子**）实现 —— 文件+PID 的写法
@@ -152,6 +161,11 @@ if ! mkdir "$LOCKD" 2>/dev/null; then
     rm -rf "$LOCKD" 2>/dev/null
     mkdir "$LOCKD" 2>/dev/null || { echo "✘ 抢不到锁 $LOCKD"; exit 3; }
 fi
+# ★★ P50㊸（B11）：**拿到锁之后**才截断日志。
+#   放在这里的理由只有一条：在这之前的每一条退出路径（锁被占 / 子进程还活着）都是
+#   「我什么都不该动」。截断写在它们上游，等于让一次**被拒绝**的启动去改别人的现场。
+#   实测代价：15:48:19 那次 rc=3 把在跑那轮已写完的 15 行组日志清空了（见文件头）。
+: > "$LOG" 2>/dev/null || true
 printf '%s\n%s\n' "$$" "$(date '+%Y-%m-%d %H:%M:%S')" > "$LOCKD/pid"
 date +%s > "$BEAT" 2>/dev/null || true      # ★ 第一拍：拿到锁就算活着
 printf '   （锁的 beat 阈值：%s s，来源：%s）\n' "$BEAT_STALE_MAX" "$BEAT_STALE_SRC" >> "$LOG"
@@ -307,6 +321,10 @@ esac
 if [ "$DRY" = "1" ]; then
     printf '\033[1m★ --dry-run：只走组标题、不执行任何判据（结论不作数）\033[0m\n'
 fi
+# ★★ P50㊷（B4）：轮次表第 9 列 = 这一轮跑的是全量还是 `--fast`。
+#   由 FAST **推**出来，不接受外部填 —— 手填的字段两天后就会和实际跑的对不上。
+RUN_PARAM=full
+if [ "$FAST" = "1" ]; then RUN_PARAM=fast; fi
 
 FAIL=0
 # ★★ 组数**运行时**自校验（2026-10-20）。为什么需要第二套口径：
@@ -804,19 +822,26 @@ if [ "$DRY" != "1" ]; then
             | tee -a "$LOG"
     fi
     if [ "${RT_NO_ROUNDS_ROW:-0}" != "1" ] && [ ! -f "$ROUNDS" ]; then
-        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-            "开始时间" "判定" "组数" "总耗时_s" "最长一组" "最长_s" "阈值_s" "HEAD" > "$ROUNDS" 2>/dev/null || true
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+            "开始时间" "判定" "组数" "总耗时_s" "最长一组" "最长_s" "阈值_s" "HEAD" "参数" \
+            > "$ROUNDS" 2>/dev/null || true
     fi
     if [ "${RT_NO_ROUNDS_ROW:-0}" != "1" ]; then
-        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+        # ★★ P50㊷（B4）：第 9 列「参数」。
+        #   为什么加：`--fast` 与全量都往 `组数` 里写自己**声明**的组数，于是「18/18」
+        #   有两种来源（一轮 fast / 一轮全量少跑了两组），今天得靠 18/18 还是 20/20 去**猜**。
+        #   猜错的代价不是难看：把 fast 的最长一组当成全量的安全边界，正是 §9bc 那条红线。
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
             "$T0_STR" "$VERDICT" "$GROUP_N/$WANT_G" "$ELAPSED" \
             "${GROUP_MAX_NAME:-（无）}" "$GROUP_MAX" "$BEAT_STALE_MAX" \
-            "$(git -C "$ROOT/.." rev-parse --short HEAD 2>/dev/null || echo "?")" >> "$ROUNDS" 2>/dev/null || true
+            "$(git -C "$ROOT/.." rev-parse --short HEAD 2>/dev/null || echo "?")" \
+            "$RUN_PARAM" >> "$ROUNDS" 2>/dev/null || true
     fi
     printf '\n\033[1m── 本轮摘要（可直接抄进文档）──\033[0m\n'
     printf '  开始      %s（结束 %s）\n' "$T0_STR" "$(date '+%Y-%m-%d %H:%M:%S')"
     printf '  判定      %s\n' "$VERDICT"
     printf '  组数      %s / %s\n' "$GROUP_N" "$WANT_G"
+    printf '  参数      %s（写进轮次表第 9 列）\n' "$RUN_PARAM"
     printf '  总耗时    %s s（判据 ELAPSED）\n' "$ELAPSED"
     printf '  脚本内墙钟 %s s（= 判据 + 启动/锁判定 %s s；退出清理不在内）\n' "$WALL" "$PRELUDE"
     printf '  最长一组  %s（%s s）\n' "${GROUP_MAX_NAME:-（无）}" "$GROUP_MAX"
