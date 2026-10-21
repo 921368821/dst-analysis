@@ -1029,6 +1029,9 @@ def _selftest_host_entries(engine):
     return _Got(len(HITS) - n0)
 
 
+WANT_CASES = 69                  # 自检用例条数：加/删必须同步改这里（开发计划 §9cd）
+
+
 def selftest():
     """★ 拿**已知答案**去撞这几条新规则：每条都必须「该响时响、不该响时不响」。
 
@@ -1255,10 +1258,17 @@ def selftest():
     del HITS[mark0:]                # 只砍掉自检自己新增的那些
     # ★ 同理，`ENV_MISSING` 也要砍到自检前 —— 它同样是「真证据」列表。
     del ENV_MISSING[env0:]
+    # ★ 自检自己也要守住「用例还在不在」：删掉几条用例、剩下全过，rc 仍是 0，
+    #   而这条自检就在**静默变松**（开发计划 §9cd / ㊾ / ㊿）。
+    if len(cases) != WANT_CASES:
+        bad.append("用例条数")
+        print("  ✘ 自检用例 %d 条，期望 %d 条 —— 加/删用例时必须同步 WANT_CASES，"
+              "否则这条自检会静默变松" % (len(cases), WANT_CASES))
     if bad:
         print("  ✘ 自检不过：%s" % "、".join(bad))
         return 1
-    print("  ✔ %d 条合成用例全部符合预期（规则既不空转也不误报）" % len(cases))
+    print("  ✔ %d 条合成用例全部符合预期（规则既不空转也不误报）（用例 %d 条）"
+          % (len(cases), len(cases)))
     return 0
 
 
