@@ -13,7 +13,7 @@
 tools/check_eol.py	23	行尾（CRLF/LF 混用）
 tools/check_doc_rounds.py	22	账页与轮次表逐行对应
 tools/check_report_ledger.py	9	报告里「从账本抄来的数」是否过期
-tools/check_case_counts.py	16	就是本工具：清单也列自己（它跑自己的 --selftest，不递归）
+tools/check_case_counts.py	18	就是本工具：清单也列自己（它跑自己的 --selftest，不递归）
 tools/audit_root_docs.py	7	根目录三份基线文档里的过期数字
 07-通用引擎/tools/check_rounds.py	28	轮次表与日志/图集的一致性
 07-通用引擎/tools/check_run_all_order.py	5	run_all.sh 里「先拿锁、再清日志」的顺序

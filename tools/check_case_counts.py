@@ -34,7 +34,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MANIFEST = os.path.join(ROOT, "tools", "case_counts.txt")
 
-WANT_CASES = 16         # 本工具自检用例条数：加/删必须同步改这里（否则自检静默变松）
+WANT_CASES = 18         # 本工具自检用例条数：加/删必须同步改这里（否则自检静默变松）
 
 # 各工具统一在末行加「（用例 N 条）」。只认这一种写法 ——
 # 认两种的那一版（`自检：23/23` / `N 条合成用例`）要求每个工具各写一条正则，
@@ -157,6 +157,15 @@ def judge(declared, want, rc, out):
     elif got != want:
         p.append("实跑 %d 条，清单期望 %d 条 —— 用例被增删了就必须改清单"
                  "（这一刻它在提醒你 diff 里多了什么）" % (got, want))
+    # ★ 跳过 ≠ 通过：`test_units.py` 打的是「42 通过 / 0 失败 / 2 跳过（共 44 条）」——
+    #   条数仍是 44，rc 仍是 0，于是**两条没跑的用例被算成了已核验**。
+    #   这正是今天这一整轮在追的形状：数字对得上，但结论不覆盖。
+    m = re.search(r"(\d+)\s*跳过|跳过\s*(\d+)\s*条", out or "")
+    if ran and m:
+        n_skip = int(m.group(1) or m.group(2) or 0)
+        if n_skip > 0:
+            p.append("有 %d 条用例被**跳过** —— 跳过不算通过（本次结论不覆盖它们）"
+                     % n_skip)
     return p
 
 
@@ -187,6 +196,11 @@ def selftest():
     # 而问题在解释器 / 路径 / 超时。今天已经三次被「报错长得像别的问题」耽误。
     case("执行失败（不是用例没过）", 5, 5, 2, "<无法执行：No such file or directory>", 1)
     case("超时（无输出）",          5, 5, 124, "", 1)
+    # 「跳过」不算通过：条数仍是 44、rc 仍是 0，但两条用例从没跑过。
+    case("有 2 条被跳过",          44, 44, 0,
+         "  结果：42 通过 / 0 失败 / 2 跳过（共 44 条）（用例 44 条）", 1)
+    case("零跳过的同款输出",        44, 44, 0,
+         "  结果：44 通过 / 0 失败（共 44 条）（用例 44 条）", 0)
 
     # 清单解析：格式错 / 绝对路径 / 正常行 / 注释空行
     rows, bad = parse_manifest("# c\n\n tools/a.py 9\n")
@@ -314,8 +328,8 @@ def main(argv):
                      ("　" + note) if note else ""))
 
     if nbad:
-        print("✘ %d 处对不上：清单 tools/case_counts.txt 是唯一真源，改完代码要顺手改它"
-              % nbad)
+        print("✘ %d 处不合格（逐条看上面的 ✘）—— 清单 tools/case_counts.txt 是唯一真源，"
+              "但「跳过」「没跑起来」也判不合格：**没核验过就不许报绿**" % nbad)
         return 1
 
     # ---- 覆盖：闸门脚本里调了 --selftest 的，清单里都得有一条 ----
