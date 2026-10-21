@@ -17,6 +17,13 @@
     每一轮的结论必须在下一轮开跑之前已留痕。
   ⚠ 追溯到了，但同一行里没有那一轮的「组数」（如 `20/20`）
       —— 时刻/耗时对得上、标签对不上，正是 §9bi「标签写 A、代码取 B」的形状。
+  ✘ 账页声明的行数 ≠ 表里的轮数（`**N 行全部照抄**` 里的 N）
+      —— 2026-10-21 这个数漂了三次（11→12→13），每次都靠人肉同步；
+         找不到这条声明同样判 ✘（**无法判定 ≠ 通过**，且防止「声明被删掉就永远绿」）。
+  ✘ 账页**表格本身**的数据行数 ≠ 表里的轮数
+      —— 声明只是一个数。只把声明改成 13、表格仍抄 12 行，上面那条是绿的：
+         「人照着账页核」核的正是那张表，不是那个数。所以表自己也要数。
+         声明下面找不到表 ⇒ 同样判 ✘（无法判定 ≠ 通过）。
 
 为什么**不**接受「开始 + ELAPSED = 结束」：
   实测两者不等 —— ELAPSED 是判据累计（1227 s），墙钟到结束是 1228+ s，
@@ -64,6 +71,44 @@ def hms(ts):
     return m.group(0) if m else None
 
 
+DECL = re.compile(r"\*\*(\d+)\s*行全部照抄")
+SEP = re.compile(r"^\s*\|[\s:|-]+\|\s*$")
+
+
+def ledger_data_rows(doc_text):
+    """账页表格的数据行数；找不到「声明句 + 紧跟的表」返回 None。
+
+    为什么从**声明句**往下找、而不是按小节号（`### 6.36`）找：
+      小节号会变（6.36 → 6.37 → …），今天已经改过一次编号；
+      而声明句与表是同一段话里的东西，粘在一起，只要声明在，表就在它下面。
+    越过小节标题（`### `）还没见到表 ⇒ 认为没有表，**不跨节去抓下一张**：
+      文档里另有旧账页（§6.31 那两张），跨节抓会把「别人的表」数进来。
+    """
+    lines = doc_text.splitlines()
+    start = None
+    for i, l in enumerate(lines):
+        if DECL.search(l):
+            start = i
+            break
+    if start is None:
+        return None
+    i = start
+    while i < len(lines) and not lines[i].lstrip().startswith("|"):
+        if lines[i].startswith("### "):
+            return None
+        i += 1
+    if i >= len(lines):
+        return None
+    i += 1                                  # 表头
+    if i < len(lines) and SEP.match(lines[i]):
+        i += 1                              # 分隔行 |---|---|
+    n = 0
+    while i < len(lines) and lines[i].lstrip().startswith("|"):
+        n += 1
+        i += 1
+    return n
+
+
 def check(table_text, doc_text):
     """纯函数：返回 (bad, warn)。便于自检。"""
     bad, warn = [], []
@@ -97,6 +142,27 @@ def check(table_text, doc_text):
         if matched and not any(want in l for l in matched):
             warn.append("%s 在文档里有，但那一行没写这一轮的组数 %s"
                         "（数字对得上、标签对不上）" % (hits[0][0], want))
+    # ★ 账页的行数声明必须等于表里的轮数。
+    #   2026-10-21 这个数漂了三次（11→12→13），每次都靠人肉同步 ——
+    #   而「人肉同步」正是这条判据要替掉的东西。
+    m = DECL.search(doc_text)
+    if not m:
+        bad.append("找不到账页的行数声明（`**N 行全部照抄**`）—— 无法判定，"
+                   "不当作通过（也不许把声明删掉来绕过）")
+    else:
+        claimed = int(m.group(1))
+        if claimed != len(rows):
+            bad.append("账页声明 **%d 行**，而表里是 **%d 轮** —— 账页没跟上表"
+                       % (claimed, len(rows)))
+        # ★ 声明只是一个数。**表自己也要数**：只把声明改成 13、表格仍抄 12 行，
+        #   上面那条是绿的 —— 而人照着账页核的正是那张表。
+        #   找不到声明时上面已判 ✘，这里不再重复报（避免一条毛病两条红）。
+        got = ledger_data_rows(doc_text)
+        if got is None:
+            bad.append("声明句下面找不到账页表格 —— 无法判定，不当作通过")
+        elif got != len(rows):
+            bad.append("账页**表格**实际 **%d 行**，而表里是 **%d 轮** —— 表被少抄/多抄了"
+                       "（只改声明不改表，声明核对那条是过的）" % (got, len(rows)))
     return bad, warn
 
 
@@ -118,10 +184,30 @@ def selftest():
     def add(name, ok, extra=""):
         cases.append((name, bool(ok), extra))
 
-    def run(name, table, doc, nb, nw):
+    def _tbl(n):
+        out = ["| 起跑 | 判定 |", "|---|---|"]
+        for k in range(n):
+            out.append("| 2026-10-21 0%d:00:00 | ✔ |" % (k + 1))
+        return "\n".join(out) + "\n"
+
+    def run(name, table, doc, nb, nw, decl="auto", tbl="auto"):
+        """decl / tbl: "auto" = 跟随表里的轮数；"none" = 不写；int = 写指定数。
+
+        **两个参数分开**，因为「声明错、表对」与「声明对、表少抄」是两条不同的毛病：
+        合成一个参数就只能测前一种，后一种（只改声明不改表）会一直是绿的。
+        """
+        n = max(0, len([l for l in table.splitlines() if l.strip()]) - 1)
+        tn = n if tbl == "auto" else (None if tbl == "none" else tbl)
+        if decl == "auto":
+            doc = doc + ("**%d 行全部照抄**\n" % n)
+        elif decl != "none":
+            doc = doc + ("**%d 行全部照抄**\n" % decl)
+        if tn is not None:
+            doc = doc + _tbl(tn)          # 声明句在上、表在下（与真文档一致）
         bad, warn = check(table, doc)
         add(name, len(bad) == nb and len(warn) == nw,
-            "期望 ✘%d⚠%d 实得 ✘%d⚠%d" % (nb, nw, len(bad), len(warn)))
+            "期望 ✘%d⚠%d 实得 ✘%d⚠%d%s" % (nb, nw, len(bad), len(warn),
+                                          ("｜" + bad[0][:40]) if bad else ""))
 
     T = _tab([_row("2026-10-21 12:56:00")])
     run("① 末行时刻与组数都在文档里 ⇒ 全绿", T,
@@ -162,6 +248,28 @@ def selftest():
     # ⑫ 两种引用方式都追溯不到 ⇒ 报错而不是静默通过
     T4 = _tab([_row("坏时刻")])
     run("⑫ 时刻坏掉且文档里也没有耗时 ⇒ ✘1", T4, "任意\n", 1, 0)
+
+    # ㉑㉒㉓ 账页行数声明（2026-10-21 这个数漂了三次，全靠人肉同步）
+    run("㉑ 声明 1 行、表 1 轮 ⇒ 绿", T, "### 6.30 全量 ✔ 20/20 / 1227 s（12:56:00）\n", 0, 0, decl=1)
+    run("㉒ 声明 1 行、表 2 轮 ⇒ ✘1（账页没跟上表）", T2,
+        "第一轮 09:00:00\n第二轮 12:56:00 20/20\n", 1, 0, decl=1)
+    run("㉓ 找不到行数声明 ⇒ ✘1（无法判定 ≠ 通过）", T,
+        "### 6.30 全量 ✔ 20/20 / 1227 s（12:56:00）\n", 1, 0, decl="none")
+
+    # ㉔㉕㉖㉗ 账页**表格本身**的行数：声明只是一个数，人照着核的是那张表
+    run("㉔ 声明 2 行、表 2 行、轮次表 2 轮 ⇒ 绿", T2,
+        "第一轮 09:00:00\n第二轮 12:56:00 20/20\n", 0, 0)
+    run("㉕ 声明 2 行对、但表只抄了 1 行 ⇒ ✘1（只改声明不改表）", T2,
+        "第一轮 09:00:00\n第二轮 12:56:00 20/20\n", 1, 0, decl=2, tbl=1)
+    run("㉖ 声明 1 行对、声明下面根本没有表 ⇒ ✘1（无法判定 ≠ 通过）", T,
+        "### 6.30 全量 ✔ 20/20 / 1227 s（12:56:00）\n", 1, 0, decl=1, tbl="none")
+    # ㉗ 是**集成**级：走 check() 全程，不只测 ledger_data_rows 这个 helper
+    #    （今天的教训：测了 helper 没测接线，把接线拆掉仍全绿）
+    doc_cross = ("### 6.30 全量 ✔ 20/20 / 1227 s（12:56:00）\n"
+                 "**1 行全部照抄**\n\n### 6.37 别的事\n\n| a | b |\n|---|---|\n| 1 | 2 |\n")
+    _b, _w = check(T, doc_cross)
+    add("㉗ 声明后面先出现小节标题 ⇒ 不跨节去数别人的表（✘1）", len(_b) == 1,
+        "实得 ✘%d：%s" % (len(_b), _b[0][:40] if _b else ""))
 
     good = [n for n, ok, _ in cases if ok]
     bad = [(n, e) for n, ok, e in cases if not ok]
