@@ -25,8 +25,10 @@ import io
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PLAN = os.path.join(ROOT, "开发计划.md")
@@ -961,6 +963,72 @@ def _selftest_classify(text, want):
     return _Got(0 if got == want else 1)
 
 
+def _selftest_artifacts(plan_text, png=120, js=340, atlas=True):
+    """注入式自测：造一个临时 `_demo_atlas` + 临时计划文本，去撞 `check_artifacts`。
+
+    ★★ 为什么这条规则值得注入测试（2026-10-21，§9bl）：
+      它的核心**不是**「比字节数」那两行，而是 `plan` 里那句
+      `if "当时值" not in l` 的过滤 —— 那是它与 `check_test_counts` 共用的
+      「历史行不是当前声明」约定。这条约定**已经咬过一次**：第一版直接全文
+      `re.search`，把 §9e.2 那张 P5 的验收表当成当前声明，加了 3 条动画后
+      工具报红 —— 报得对，但**该改的不是那张历史表**（改它等于篡改历史）。
+      而这条约定此前**零用例**：把过滤整句删掉，自检照样全绿。
+    """
+    d = tempfile.mkdtemp(prefix="vp_art_")
+    try:
+        if atlas:
+            os.makedirs(os.path.join(d, "_demo_atlas", "json"))
+            os.makedirs(os.path.join(d, "_demo_atlas", "anim_data"))
+            for rel, n, ch in ((("_demo_atlas", "json", "wilson.json"), js, b"J"),
+                               (("_demo_atlas", "anim_data",
+                                 "wilson__atlas-0.png"), png, b"P")):
+                with open(os.path.join(d, *rel), "wb") as f:
+                    f.write(ch * n)
+        plan_p = os.path.join(d, "plan.md")
+        io.open(plan_p, "w", encoding="utf-8", newline="").write(plan_text)
+        g = globals()
+        old_root, old_plan = g["ROOT"], g["PLAN"]
+        g["ROOT"], g["PLAN"] = d, plan_p
+        n0 = len(HITS)
+        try:
+            check_artifacts()
+        finally:
+            g["ROOT"], g["PLAN"] = old_root, old_plan
+        return _Got(len(HITS) - n0)
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def _selftest_host_entries(engine):
+    """注入式自测：只撞 `check_host()` 的**入口缺失**那一段。
+
+    ★ 为什么只撞这一段（2026-10-21，§9bl）：`check_host` 后面两段是
+      **拿 PY 去 subprocess 跑真 Lua**（`tests.lua` / `mech.lua`）。要注入它们
+      就得把 `RUNNER` 换成桩 —— 那测的是「桩能不能跑」，不是「真 Lua 能不能跑」，
+      属于**把被测物换掉**的假自检。所以只撞纯文件系统的那一段，
+      并用一个「缺 lupa」的桩把 `_can_import_lupa` 短路掉（否则会真跑 2 秒 Lua）。
+
+    成对使用：真实引擎目录 ⇒ 0 条；空目录 ⇒ 1 条（证明它真的数了）。
+    """
+    g = globals()
+    old_e, old_l = g["ENGINE"], g["_can_import_lupa"]
+    g["ENGINE"] = engine
+    g["_can_import_lupa"] = lambda: (False, "自检桩：不跑 Lua")
+    n0 = len(HITS)
+    # ★★ `check_host()` 走到「缺 lupa」那条分支时会 `_env_hit()` 往 **ENV_MISSING**
+    #   里塞记录 —— 那是**真**证据列表，不是自检的。第一版没管它，于是两条合成用例
+    #   在生产路径里留下 2 条「环境缺失」，④ 组直接判红（rc=2）。
+    #   `--selftest` 单独跑**看不见**这个：它不打印 ENV_MISSING。只有整条生产路径能抓到。
+    old_env = list(ENV_MISSING)
+    try:
+        check_host()
+    finally:
+        del ENV_MISSING[:]
+        ENV_MISSING.extend(old_env)
+        g["ENGINE"], g["_can_import_lupa"] = old_e, old_l
+    return _Got(len(HITS) - n0)
+
+
 def selftest():
     """★ 拿**已知答案**去撞这几条新规则：每条都必须「该响时响、不该响时不响」。
 
@@ -1146,12 +1214,33 @@ def selftest():
          dict(spec={"tests/a.py": "EXPECT_ITEMS = 5\ncheck(1)\ncheck(2)\n"},
               plan_text="合计 2 项测试", want=1), 1),
     ])
+    # ---- 图集字节数 / 宿主入口（P50㉛ 补，此前检查本身的逻辑零用例）----
+    _P = "PNG **%d 字节** + JSON **%d 字节**"
+    cases.extend([
+        ("图集字节：对得上不得报", _selftest_artifacts,
+         dict(plan_text=_P % (120, 340)), 0),
+        ("图集字节：PNG 过期必须报", _selftest_artifacts,
+         dict(plan_text=_P % (99, 340)), 1),
+        ("图集字节：JSON 过期必须报", _selftest_artifacts,
+         dict(plan_text=_P % (120, 99)), 1),
+        # ★ 关键一条：历史行里的旧字节数**不是**当前声明，必须整行跳过。
+        #   把 `if "当时值" not in l` 删掉，这条立刻变 2 条 ⇒ 红。
+        ("图集字节：标了「当时值」的历史行必须跳过", _selftest_artifacts,
+         dict(plan_text=_P % (99, 99) + "（当时值；P5 那次验收）"), 0),
+        ("图集字节：产物缺失必须报", _selftest_artifacts,
+         dict(plan_text=_P % (120, 340), atlas=False), 1),
+        ("宿主入口：真实引擎目录不得报", _selftest_host_entries,
+         dict(engine=ENGINE), 0),
+        ("宿主入口：空目录必须报（证明它真的数了 14 个）", _selftest_host_entries,
+         dict(engine=os.path.join(tempfile.gettempdir(), "vp_no_engine")), 1),
+    ])
     # ★★★ 自检会产生一堆**假的**记录，必须只清掉这些、**绝不能碰真记录**。
     #   第一版写的是 `del HITS[:]` —— 而当时自检是在 `check_test_counts()` **之后**调的，
     #   于是它把**真实**的不一致也一起抹掉了：计划写 79、实测 80，工具却报 ✔。
     #   典型的「**检查把证据销毁了**」—— 比不检查更危险，因为它给出的是虚假的绿。
     #   两道保险：① 调 selftest **之前**先备份/还原；② main 里把 selftest 放在**最前面**。
     mark0 = len(HITS)
+    env0 = len(ENV_MISSING)
     bad = []
     for name, fn, kw, want in cases:
         n0 = len(HITS)
@@ -1164,6 +1253,8 @@ def selftest():
         print("    %s %-34s 期望报 %d 条，实际 %d 条" % (mark, name, want, got))
     assert len(HITS) >= mark0
     del HITS[mark0:]                # 只砍掉自检自己新增的那些
+    # ★ 同理，`ENV_MISSING` 也要砍到自检前 —— 它同样是「真证据」列表。
+    del ENV_MISSING[env0:]
     if bad:
         print("  ✘ 自检不过：%s" % "、".join(bad))
         return 1
