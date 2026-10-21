@@ -350,7 +350,8 @@ def main():
             #   （见 main 开头的自检）。标记里带足够的信息，让没有 git 的人也能手工还原。
             try:
                 io.open(MARK, "w", encoding="utf-8", newline="").write(
-                    json.dumps({"path": paths, "desc": desc, "old": old, "new": new,
+                    json.dumps({"pid": os.getpid(),   # ★ 供 `_src_guard` 判「这个变异还在不在跑」
+                                "path": paths, "desc": desc, "old": old, "new": new,
                                 # ★ 原文一起存：被 kill 时下次能**自动还原**（见 heal_leftover）
                                 "originals": originals},
                                ensure_ascii=False, indent=1))

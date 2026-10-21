@@ -75,6 +75,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)                  # 07-通用引擎
 RT = os.path.join(ROOT, "rt")
 sys.path.insert(0, RT)
+# ★★ P50㉜：源码里若还留着**上一轮被中断的变异**，开跑前就拒绝（§9bm）。
+#   2026-10-20 23:10 的 `--fast` 被掐断在 ②f 中途，`rt/rt_boot.lua` 停在篡改态
+#   **10 小时 3 分**；这期间所有「单独跑一个案子」的结论都是**假绿**。
+#   `run_all.sh` 开头只 heal 一次，别的入口全踩进去了 ⇒ 每个 import rt/ 的入口各加一道闸门。
+sys.path.insert(0, HERE)                     # noqa: E402  （脚本跑时 HERE 已在 path，这行是不靠这个语义）
+from _src_guard import guard                 # noqa: E402
+guard(quiet=True)                            # 干净时不说话；脏就 SystemExit(2) + 打印还原命令
 
 from server import Hub, watchdog_loop        # noqa: E402
 
@@ -461,6 +468,9 @@ print("═" * 78)
 PORT_MUT = int(os.environ.get("RT_STALL_MUT_PORT", "8803"))
 MUT_EDITS = {}        # tag -> [(相对 rt/ 的文件, old, new), ...]
 MUT_BACKUP = {}       # 绝对路径 -> 原文（还原用）
+# ★★ P50㉜：标记文件（pid + 本轮篡改的原文）。不落盘的话，被 kill 时
+#   篡改**永远留在源码里**，而且没有任何东西知道 —— 比 ②f 更糟（②f 至少能 heal）。
+MUT_MARK = os.path.join(HERE, "_mutant_inprogress.json")
 
 
 def _read_raw(p):
@@ -513,6 +523,13 @@ def apply_mutant(tag):
         nn = new.replace("\r\n", "\n").replace("\n", eol)
         assert src.count(o) == 1, "锚点在 apply 时失效：%r" % (o[:60],)
         _write_raw(path, src.replace(o, nn, 1))
+    # ★ 标记落盘（原文已全在 MUT_BACKUP 里；heal 时按它逐字节写回）
+    try:
+        _write_raw(MUT_MARK, json.dumps(
+            {"pid": os.getpid(), "desc": tag, "originals": dict(MUT_BACKUP)},
+            ensure_ascii=False, indent=1))
+    except OSError:
+        pass
     return tag
 
 
@@ -521,6 +538,10 @@ def restore_mutants():
     for path, text in list(MUT_BACKUP.items()):
         _write_raw(path, text)
         del MUT_BACKUP[path]
+    try:
+        os.remove(MUT_MARK)
+    except OSError:
+        pass
 
 
 def cleanup_mutants():

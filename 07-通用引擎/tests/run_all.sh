@@ -439,6 +439,8 @@ hr "②f Python 侧：**服务端/引擎变异测试**（把 rt/ 改坏，看判
 #   永远比不平 ⇒ 写对了却报失败），见 开发计划 §9bh。
 #   5 条用例 / 0.2 s / 沙箱，不碰仓库文件，所以放在真变异之前不拖慢多少。
 if run_step "$PY" -u tests/falsify_server.py --selftest-heal; then :; else FAIL=1; fi
+# ★★ P50㉜：源码闸门自己也要证明会响（9 条合成用例，含「pid 已死 ⇒ 脏」与「heal 逐字节写回」）
+if run_step "$PY" -u tests/_src_guard.py --selftest; then :; else FAIL=1; fi
 if run_step "$PY" -u tests/falsify_server.py --runs 2; then :; else FAIL=1; fi
 
 # ★★ ②i **停帧看门狗**（C1，2026-10-18 接入）。

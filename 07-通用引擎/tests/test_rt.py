@@ -26,6 +26,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)                  # 07-通用引擎
 RT = os.path.join(ROOT, "rt")
 sys.path.insert(0, RT)
+# ★★ P50㉜：源码里若还留着**上一轮被中断的变异**，开跑前就拒绝（§9bm）。
+#   2026-10-20 23:10 的 `--fast` 被掐断在 ②f 中途，`rt/rt_boot.lua` 停在篡改态
+#   **10 小时 3 分**；这期间所有「单独跑一个案子」的结论都是**假绿**。
+#   `run_all.sh` 开头只 heal 一次，别的入口全踩进去了 ⇒ 每个 import rt/ 的入口各加一道闸门。
+sys.path.insert(0, HERE)                     # noqa: E402  （脚本跑时 HERE 已在 path，这行是不靠这个语义）
+from _src_guard import guard                 # noqa: E402
+guard(quiet=True)                            # 干净时不说话；脏就 SystemExit(2) + 打印还原命令
 
 # ★★ P50⑲：连**本机**起的服务端**不该走代理**。
 #   实测事故（第 8 轮全量的 ② 组 7 条红）：环境注入了
