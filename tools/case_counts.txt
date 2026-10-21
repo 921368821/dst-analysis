@@ -5,6 +5,11 @@
 #   但它挡不住「用例和常量一起被改小」。外部锚点只能是这份**进仓库、进 diff、要人看**的清单。
 # 格式：每行 `路径<TAB>期望条数<TAB>说明`；`#` 开头是注释；空行忽略。
 # 改这里的任何一行，都意味着「我知道有个判据的用例数变了」—— 请顺手看一眼 diff。
+#
+# 还有一条**覆盖**规则（§9cg.3）：`tests/run_all.sh` 与 `tools/pre-commit.sh` 里凡是
+# `X --selftest` 的调用，X 的 basename 必须在这份清单里，或在 check_case_counts.ALLOW 里
+# **带理由**豁免（豁免每次都会打印）。新写一个判据、在闸门里调它、却忘了登记 ⇒ 会红。
+# 「清单没记」和「清单记了但松了」是两件事，这条管前者。
 tools/check_eol.py	23	行尾（CRLF/LF 混用）
 tools/check_doc_rounds.py	22	账页与轮次表逐行对应
 tools/check_report_ledger.py	9	报告里「从账本抄来的数」是否过期
