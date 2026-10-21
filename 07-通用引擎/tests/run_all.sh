@@ -543,6 +543,12 @@ if [ "$FAST" = "1" ]; then
     #   第一次跑就红在「12:56:00 那轮文档里一个字都没有」上 —— 抓到的是真事。
     if run_step "$PY" -u "$ROOT/../tools/check_doc_rounds.py" --selftest; then :; else FAIL=1; fi
     if run_step "$PY" -u "$ROOT/../tools/check_doc_rounds.py"; then :; else FAIL=1; fi
+    # ★★ 2026-10-21 19:00（开发计划 §9cg）：**判据变松了，检查它的东西也跟着变松**。
+    #   上面这一串 `--selftest` 一直是「只看 rc」：用例被删掉一半、剩下的一半全过，
+    #   rc 仍是 0，本组照样绿。各工具现在自带 `WANT_CASES` 自守（拦「用例被删、常量没动」），
+    #   但把用例和常量**一起**改小就拦不住 ⇒ 外部锚点是 tools/case_counts.txt。
+    #   三方对账（清单 / 工具自守 / 实跑输出）在这一步一次做完；提交闸门第 ⑨ 步也跑它。
+    if run_step "$PY" -u "$ROOT/../tools/check_case_counts.py"; then :; else FAIL=1; fi
     # ★ M9：注释版**自身**完整性（U+FFFD / 二进制被当文本重写）。
     #   这一条**不需要原版副本**就能判红 —— 原版丢失期间它是唯一还在工作的
     #   「只增注释」守卫（verify-annotated 此时只能报 2＝无法复验）。
@@ -612,6 +618,12 @@ if run_step "$PY" -u tools/verify_plan.py; then :; else FAIL=1; fi
     #   第一次跑就红在「12:56:00 那轮文档里一个字都没有」上 —— 抓到的是真事。
     if run_step "$PY" -u "$ROOT/../tools/check_doc_rounds.py" --selftest; then :; else FAIL=1; fi
     if run_step "$PY" -u "$ROOT/../tools/check_doc_rounds.py"; then :; else FAIL=1; fi
+    # ★★ 2026-10-21 19:00（开发计划 §9cg）：**判据变松了，检查它的东西也跟着变松**。
+    #   上面这一串 `--selftest` 一直是「只看 rc」：用例被删掉一半、剩下的一半全过，
+    #   rc 仍是 0，本组照样绿。各工具现在自带 `WANT_CASES` 自守（拦「用例被删、常量没动」），
+    #   但把用例和常量**一起**改小就拦不住 ⇒ 外部锚点是 tools/case_counts.txt。
+    #   三方对账（清单 / 工具自守 / 实跑输出）在这一步一次做完；提交闸门第 ⑨ 步也跑它。
+    if run_step "$PY" -u "$ROOT/../tools/check_case_counts.py"; then :; else FAIL=1; fi
     # ★ L1：协议常量单源 / ★ M8：注释流水线旧绝对路径绝迹（与 --fast 分支同一组判据）
     if run_step "$NODE" "$ROOT/../tools/gen-protocol-schema.mjs" --check; then :; else FAIL=1; fi
     if run_step "$NODE" "$ROOT/../tools/relocate-paths.mjs" --check; then :; else FAIL=1; fi
