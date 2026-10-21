@@ -521,6 +521,12 @@ if [ "$FAST" = "1" ]; then
     else
         printf '    （还没有 tests/_run_all.rounds.tsv —— 首次运行，本检查**跳过**，不是通过）\n'
     fi
+    # ★★ P50㊸（B11）：守 `run_all.sh` 自己的**顺序** —— `: > "$LOG"` 必须在拿到锁之后。
+    #   为什么需要一条静态判据：修完之后我只用「伪锁 + 哨兵」手验过一次，
+    #   而手工验证不防**退回去**。这条读源码判顺序，零副作用（不碰任何日志/锁）。
+    #   两条都要跑：先证明判据会响（--selftest），再拿真文件撞一遍。
+    if run_step "$PY" -u tools/check_run_all_order.py --selftest; then :; else FAIL=1; fi
+    if run_step "$PY" -u tools/check_run_all_order.py; then :; else FAIL=1; fi
     # ★ H6：根目录三份基线文档的过期数字（verify_plan 只扫 07 目录，扫不到它们）
     # ★ P50㊱：`--selftest` 此前**从来没被调用**（工具里写着用法，run_all 两处都不带它）——
     #   「规则既不空转也不误报」这句话因此没被验证过。顺带抓到自检本身也错：
@@ -585,6 +591,12 @@ if run_step "$PY" -u tools/verify_plan.py; then :; else FAIL=1; fi
     else
         printf '    （还没有 tests/_run_all.rounds.tsv —— 首次运行，本检查**跳过**，不是通过）\n'
     fi
+    # ★★ P50㊸（B11）：守 `run_all.sh` 自己的**顺序** —— `: > "$LOG"` 必须在拿到锁之后。
+    #   为什么需要一条静态判据：修完之后我只用「伪锁 + 哨兵」手验过一次，
+    #   而手工验证不防**退回去**。这条读源码判顺序，零副作用（不碰任何日志/锁）。
+    #   两条都要跑：先证明判据会响（--selftest），再拿真文件撞一遍。
+    if run_step "$PY" -u tools/check_run_all_order.py --selftest; then :; else FAIL=1; fi
+    if run_step "$PY" -u tools/check_run_all_order.py; then :; else FAIL=1; fi
     # ★ P50㊱：`--selftest` 此前**从来没被调用**（工具里写着用法，run_all 两处都不带它）——
     #   「规则既不空转也不误报」这句话因此没被验证过。顺带抓到自检本身也错：
     #   它把「19 组 178 项」当成当前值 ⇒ 给「只认一代过期值」的缺陷盖章。
