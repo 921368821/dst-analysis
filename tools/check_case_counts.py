@@ -34,7 +34,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MANIFEST = os.path.join(ROOT, "tools", "case_counts.txt")
 
-WANT_CASES = 14         # 本工具自检用例条数：加/删必须同步改这里（否则自检静默变松）
+WANT_CASES = 16         # 本工具自检用例条数：加/删必须同步改这里（否则自检静默变松）
 
 # 各工具统一在末行加「（用例 N 条）」。只认这一种写法 ——
 # 认两种的那一版（`自检：23/23` / `N 条合成用例`）要求每个工具各写一条正则，
@@ -135,10 +135,24 @@ def judge(declared, want, rc, out):
     elif declared != want:
         p.append("工具自守 WANT_CASES = %d，清单写 %d —— 同一件事的两处说法必须一致"
                  % (declared, want))
-    if rc != 0:
+    # ★ 分清「有用例没过」和「根本没跑起来」：今天已经三次被
+    #   「报错长得像别的问题」耽误（CRLF 当内容变了、反斜杠当替换写错）。
+    #   rc=2 + `<无法执行：…>` 与 rc=124 + 空输出，都是**没核验过**，
+    #   说成「有用例没过」会让人去查那个工具，而问题在解释器/路径/超时。
+    ran = True
+    if rc == 2 and (out or "").startswith("<无法执行"):
+        p.append("**没跑起来**：%s —— 这条没核验过，所以判红（不是它的用例坏了）"
+                 % (out or "").strip("<>\n "))
+        ran = False
+    elif rc == 124 and not (out or "").strip():
+        p.append("**超时**（300 s，无任何输出）—— 这条没核验过，所以判红")
+        ran = False
+    elif rc != 0:
         p.append("自检 rc=%d —— 有用例没过（条数对不代表全过）" % rc)
     got = actual_cases(out)
-    if got is None:
+    if not ran:
+        pass                      # 上面已经说清「没核验」，不必再抱怨读不出条数
+    elif got is None:
         p.append("rc=%d 但输出里读不出「（用例 N 条）」—— 不当作通过" % rc)
     elif got != want:
         p.append("实跑 %d 条，清单期望 %d 条 —— 用例被增删了就必须改清单"
@@ -169,6 +183,10 @@ def selftest():
     case("rc=1（有用例没过）",  9, 9, 1, "  ✘ check_x 自检：8/9 通过（用例 9 条）", 1)
     case("读不出条数",         9, 9, 0, "  ✔ 全部通过", 1)
     case("条数与 rc 同时坏",    9, 9, 1, "  ✘ 自检不过：用例条数", 2)
+    # 「根本没跑起来」不许说成「有用例没过」—— 那会让人去查那个工具，
+    # 而问题在解释器 / 路径 / 超时。今天已经三次被「报错长得像别的问题」耽误。
+    case("执行失败（不是用例没过）", 5, 5, 2, "<无法执行：No such file or directory>", 1)
+    case("超时（无输出）",          5, 5, 124, "", 1)
 
     # 清单解析：格式错 / 绝对路径 / 正常行 / 注释空行
     rows, bad = parse_manifest("# c\n\n tools/a.py 9\n")
