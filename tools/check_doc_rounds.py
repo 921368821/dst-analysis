@@ -47,6 +47,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TABLE = os.path.join(ROOT, "07-通用引擎", "tests", "_run_all.rounds.tsv")
 DOCS = [os.path.join(ROOT, "阶段进度与后续待办-2026-10-19.md")]
+WANT_CASES = 22                  # 自检用例条数：加/删必须同步改这里（开发计划 §9cd）
 COLS = ["开始时间", "判定", "组数", "总耗时_s", "最长一组", "最长_s", "阈值_s", "HEAD"]
 
 
@@ -273,7 +274,14 @@ def selftest():
 
     good = [n for n, ok, _ in cases if ok]
     bad = [(n, e) for n, ok, e in cases if not ok]
-    print("  check_doc_rounds 自检：%d/%d 通过" % (len(good), len(cases)))
+    # ★ 自检自己也要守住「用例还在不在」：删掉一条用例、剩下几条全过，rc 仍是 0，
+    #   而这条自检就在**静默变松**（开发计划 §9cd / ㊾）。
+    if len(cases) != WANT_CASES:
+        bad.append(("用例条数",
+                    "自检用例 %d 条，期望 %d 条 —— 加/删用例时必须同步 WANT_CASES，"
+                    "否则这条自检会静默变松" % (len(cases), WANT_CASES)))
+    print("  check_doc_rounds 自检：%d/%d 通过（用例 %d 条）"
+          % (len(good), len(cases), len(cases)))
     for n, e in bad:
         print("    ✘ %s%s" % (n, ("  ← " + e) if e else ""))
     return 0 if not bad else 1

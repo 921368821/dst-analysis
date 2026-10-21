@@ -37,6 +37,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # ── 作用域 ────────────────────────────────────────────────────────────────
 EXCLUDE_DIRS = ("02-注释源码/", "06-引擎复刻/")
 EXCLUDE_REASON = ("上游快照源码（行尾由上游决定；改它会让与上游的整份 diff 失真）")
+WANT_CASES = 23                  # 自检用例条数：加/删必须同步改这里（开发计划 §9cd）
 CODE_EXT = (".py", ".sh", ".mjs", ".js")
 MD_DIRS = ("07-通用引擎/", "tools/", "tests/")
 
@@ -277,7 +278,13 @@ def selftest():
 
     good = [n for n, ok, _ in cases if ok]
     badl = [(n, e) for n, ok, e in cases if not ok]
-    print("  check_eol 自检：%d/%d 通过" % (len(good), len(cases)))
+    # ★ 自检自己也要守住「用例还在不在」：删掉一条用例、剩下几条全过，rc 仍是 0，
+    #   而这条自检就在**静默变松**（开发计划 §9cd / ㊾）。加/删用例必须同步 WANT_CASES。
+    if len(cases) != WANT_CASES:
+        badl.append(("用例条数",
+                     "自检用例 %d 条，期望 %d 条 —— 加/删用例时必须同步 WANT_CASES，"
+                     "否则这条自检会静默变松" % (len(cases), WANT_CASES)))
+    print("  check_eol 自检：%d/%d 通过（用例 %d 条）" % (len(good), len(cases), len(cases)))
     for n, e in badl:
         print("    ✘ %s%s" % (n, ("  ← " + e) if e else ""))
     return 0 if not badl else 1
