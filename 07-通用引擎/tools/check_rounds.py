@@ -60,6 +60,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT = os.path.join(ROOT, "tests", "_run_all.rounds.tsv")
 GROUPMAX = os.path.join(ROOT, "tests", "_run_all.groupmax")
 COLS = ["开始时间", "判定", "组数", "总耗时_s", "最长一组", "最长_s", "阈值_s", "HEAD", "参数"]
+WANT_CASES = 28                  # 自检用例条数：加/删必须同步改这里（开发计划 §9cd / ㊿）
 # ★★ P50㊷（B4）：第 9 列「参数」= `full` / `fast`。
 #   为什么加：`--fast` 与全量都往同一个 `N/M` 里写自己**声明**的组数
 #   （fast 声明 18、全量声明 20），于是账本上「18/18」这一格有两种来源：
@@ -422,7 +423,14 @@ def selftest():
         print("    %s %-28s 期望 %r，实际 %r" % ("✔" if ok else "✘", name, want, got))
     total = len(SELFTEST) + len(SELFTEST_GM) + len(SELFTEST_LOG) + 4
 
-    print("  %s %d 条合成用例（✘ 与 ⚠ 都数）" % ("✔" if bad == 0 else "✘", total))
+    # ★ 自检自己也要守住「用例还在不在」：删掉几条用例、剩下全过，rc 仍是 0，
+    #   而这条自检就在**静默变松**（开发计划 §9cd / ㊾ / ㊿）。
+    if total != WANT_CASES:
+        bad += 1
+        print("  ✘ 自检用例 %d 条，期望 %d 条 —— 加/删用例时必须同步 WANT_CASES，"
+              "否则这条自检会静默变松" % (total, WANT_CASES))
+    print("  %s %d 条合成用例（✘ 与 ⚠ 都数）（用例 %d 条）"
+          % ("✔" if bad == 0 else "✘", total, total))
     return 0 if bad == 0 else 1
 
 
