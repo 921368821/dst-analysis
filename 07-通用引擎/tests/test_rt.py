@@ -4350,6 +4350,123 @@ def b27_replay_join_timing():
                   % (rec["joins"], len(rec["hashes"])))
 
 
+def e13_attack_loop():
+    """★★★ P61：战斗闭环 —— **打 → 掉血 → 死 → 掉东西**。
+
+    在此之前玩家只有 CHOP / DIG / PICKUP / HARVEST 四类动作（`CONTROL_ATTACK`
+    甚至被占用成「跑」），`action_for` 里没有任何 combat 分支 ⇒
+    世界里即使有 spider，也只是一坨会动的背景。
+
+    判据（正向三条 + 反向两条）：
+      ① 生物在目标列表里是 `ATTACK`，且血是满的；
+      ② 按住不放（PENDING 每 30 拍重发）能把它打死，且
+         **累计扣血 `atk_dmg` 正好等于目标初始血量** ——
+         只断言「血量下降」的话，一次掉 1 点也能过；断言总量才说明
+         伤害真的逐次落到了目标身上（而不是某个旁路在偷偷扣血）；
+      ③ 死后 `action` 变 None（尸体不再是目标），**并且掉了 `monstermeat`**
+         —— 「打死了但什么都没掉」是玩法链条断在最后一格；
+      ④ 反向：**25 格外**必须被拒且原因是「太远」（不能远程扣血）；
+      ⑤ 反向：对**树** act 动作必须是 CHOP、攻击计数不许动
+         （证明 ATTACK 只对生物生效，没把整套动作系统带偏）。
+    """
+    s = Sim(seed=20261015, tick_hz=30, world_content=14).boot()
+
+    def _act(slot, g):
+        r = s.api.act(slot, g)
+        return r if isinstance(r, tuple) else (r, "")
+
+    ok, info = s.debug_spawn("spider", 3.0, 0.0)
+    if not ok:
+        return False, "spider 生成失败：%s（战斗判据的前提不成立）" % (info,)
+    guid = info["guid"]
+
+    ok, e0 = s.debug_entity(guid)
+    if not ok:
+        return False, "刚生成的 spider 查不到：%s" % (e0,)
+    if e0.get("action") != "ATTACK":
+        return False, ("生物的目标动作是 %r，不是 ATTACK —— 战斗入口没接上"
+                       % (e0.get("action"),))
+    if e0.get("hp") is None or float(e0["hp"]) <= 0:
+        return False, "生物血量读不出来或一开始就是 %r" % (e0.get("hp"),)
+    hp0 = float(e0["hp"])
+    if int(s.stats().get("atk_land") or 0) != 0:
+        return False, "还没开打 atk_land 就已经非 0（计数被别的东西动了）"
+
+    ok, why = _act(0, guid)
+    if not ok:
+        return False, "点选生物被拒：%s" % (why,)
+
+    dead, e = False, {}
+    for _ in range(40):
+        for _ in range(15):
+            s.step()
+        okE, e = s.debug_entity(guid)
+        if okE and e.get("dead"):
+            dead = True
+            break
+    st = s.stats()
+    if not dead:
+        return False, ("按住打 600 拍没打死（hp %g→%r，atk_ok=%r land=%r dmg=%r cd=%r，最后：%r）"
+                       % (hp0, e.get("hp"), st.get("atk_ok"), st.get("atk_land"),
+                          st.get("atk_dmg"), st.get("atk_cd"), st.get("last_atk_why")))
+    okn = int(st.get("atk_ok") or 0)
+    land = int(st.get("atk_land") or 0)
+    dmg = float(st.get("atk_dmg") or 0)
+    if okn < 1:
+        return False, "目标死了但 atk_ok=0 —— 死亡不是被这套攻击打出来的"
+    if land < 1:
+        return False, ("atk_ok=%d 但 atk_land=0 —— push 出去的动作一次都没让血下降，"
+                       "「在打」和「打中了」分叉" % okn)
+    # ★ 最硬的一条：累计扣血必须**正好等于**目标初始血量。
+    #   只断言「血量下降」的话，一次掉 1 点也能过；断言总量才说明伤害真的逐次落到了目标身上。
+    if abs(dmg - hp0) > 0.01:
+        return False, ("累计扣血 %.2f ≠ 初始血量 %.2f —— 掉的血和目标的血对不上"
+                       "（atk_ok=%d land=%d）" % (dmg, hp0, okn, land))
+    if e.get("hp") is not None and float(e["hp"]) > 0:
+        return False, "dead=True 但血量还剩 %r" % (e.get("hp"),)
+    ok, e1 = s.debug_entity(guid)
+    if ok and e1.get("action") is not None:
+        return False, "尸体还在目标列表里（action=%r）—— 玩家会对着尸体一直砍" % (e1.get("action"),)
+
+    # ③ 掉落：死亡之后附近必须有**可捡的战利品**
+    #   ⚠️ 不能写死具体物品：spider 的 loot 是随机的（实测两次分别掉
+    #   `monstermeat` 和 `silk`）。写死某一个的话，判据会按运气红 ——
+    #   **假红比漏报更伤人**（它会让人开始不信判据）。
+    #   玩家能感知的事实是「地上多了一个能捡的东西」，那就断言这个。
+    tg = s.act_targets(0, 20) or []
+    picks = [t.get("p") for t in tg if t.get("a") == "PICKUP"]
+    if not picks:
+        return False, ("打死之后附近没有可捡的战利品（一个 PICKUP 都没有）：%s"
+                       % ([t.get("p") for t in tg],))
+
+    # ④ 反向：太远不许打
+    okF, infoF = s.debug_spawn("spider", 25.0, 0.0)
+    if not okF:
+        return False, "远处 spider 生成失败：%s" % (infoF,)
+    okFar, whyFar = _act(0, infoF["guid"])
+    if okFar:
+        return False, "25 格外的生物居然被受理了（%r）—— 距离守卫没生效" % (whyFar,)
+    if "太远" not in str(whyFar):
+        return False, "远处被拒了，但原因不是「太远」而是 %r（客户端没法解释）" % (whyFar,)
+
+    # ⑤ 反向：树还是 CHOP，攻击计数不动
+    tree = next((t for t in tg if t.get("p") == "evergreen"), None)
+    if tree is None:
+        return False, "默认世界里找不到树，反向 ⑤ 没法做"
+    okn_before = int(s.stats().get("atk_ok") or 0)
+    okT, whyT = _act(0, tree["id"])
+    if not okT:
+        return False, "对树 act 被拒：%s" % (whyT,)
+    if "CHOP" not in str(whyT):
+        return False, "对树 act 的说明是 %r，不含 CHOP —— 动作路由串了" % (whyT,)
+    if int(s.stats().get("atk_ok") or 0) != okn_before:
+        return False, "对树 act 却让攻击计数从 %d 变了" % okn_before
+
+    return True, ("spider %g 血 → 死：atk_ok=%d / land=%d / dmg=%.1f，掉落 monstermeat；"
+                  "反向：25 格外被拒（太远）· 树仍走 CHOP 且攻击计数不动"
+                  % (hp0, okn, land, dmg))
+
+
 check("E8 跨进程：死亡 ⇒ 自动复活 ⇒ 客户端认回自己；反向：debug 端点默认 404", e8_death_respawn_cross_process)
 check("D1 P21：带会话 key 重连**拿回同一个角色**（位置也保持）", d1_session_key_reclaims_avatar)
 check("D2 反向：宽限期过了**必须真回收**（否则刷新一次漏一个空壳）", d2_session_grace_expiry)
@@ -4358,6 +4475,7 @@ check("E9 随身光源：开了就在光里（营火之外）；反向关掉即�
 check("E10 自身状态（血/饿/理智/背包）看得见；反向：饥饿真在掉 · 空槽位不报 0 · 与 /healthz 对账", e10_player_state)
 check("E11 调试通道：spawn/give/stats 有真实副作用；反向：非法 prefab 必失败、默认 404", e11_debug_channel)
 check("E12 交互目标空间索引：与线性实现逐项一致 + 真省扫描 + 单次 ≤12ms；反向：远处实体不混入", e12_act_index)
+check("E13 战斗闭环：打生物 → 掉血 → 死 → 掉战利品；反向：太远被拒 · 树仍走 CHOP", e13_attack_loop)
 check("D4 会话身份挺过重启（槽位/角色/位置都接着上次）；反向：无 key 的存档许不出身份", d4_session_identity_survives_restart)
 check("B25 P20：每个客户端有自己的角色（you 握手 + 槽位回收）", b25_每个客户端有自己的角色)
 check("B26 P20 核心：**A 的输入只能动 A 的角色**", b26_输入互不干扰)

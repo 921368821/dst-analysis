@@ -489,6 +489,19 @@ local function action_for(inst)
         -- ★ 用 workable **自己声明的** action（原版就是这么定的），不猜名字
         return tostring(w.action.id)
     end
+    -- ★★ P61：**能打的**（战斗闭环的第一半：玩家 → 生物）。
+    --   判据是「有 combat + 有 health + 没死 + 不是玩家」，四条缺一不可：
+    --   ① 只有 combat 没有 health —— 打不死，列出来是骗人；
+    --   ② 已经死了 —— 尸体不该出现在目标列表里；
+    --   ③ **其他玩家**也有 combat + health，不排除掉就会变成「互相砍」，
+    --      而本引擎没有 PVP 开关（原版要 `pvp` 标记 + 双方同意），
+    --      默认允许互砍是一种**没人要求过的行为选择**。排除，等有了开关再说。
+    --   位置放在 workable 之后：生物一般没有 workable，但万一有（比如能砍的怪），
+    --   原版规则是 workable 优先 —— 这里跟着原版走。
+    local cb, hp = c.combat, c.health
+    if cb ~= nil and hp ~= nil and not hp:IsDead() and not inst:HasTag("player") then
+        return "ATTACK"
+    end
     if c.pickable ~= nil and c.pickable.canbepicked ~= false then return "PICKUP" end
     if c.harvestable ~= nil then return "HARVEST" end
     -- ★★ 地上的**物品**（2026-10-16 加）：树会掉 log / pinecone，所以「捡起来」是闭环的一半。
@@ -711,6 +724,124 @@ local PENDING = {}              -- slot -> { guid, next_t, until_t }
 ACT_HIT = 1.2                   -- 认为「够得着」的距离（实测 1.5 可行，取小一点更稳）
 ACT_REPEAT = 30                 -- 到范围后每隔这么多 tick 再做一次（= 按住不放的节奏）
 
+--=============================================================================
+-- P61：攻击（战斗闭环：玩家 → 生物）
+--=============================================================================
+-- ★★★ 这里记一段**我判断错、被自己的变异实验抓住**的经过：
+--   我最初认定「ATTACK **不能**走 `push_action`」，理由是「原版 `ACTIONS.ATTACK.fn`
+--   是空的，真正的结算发生在 stategraph 的动画帧事件里，而宿主的兜底动画不产生事件」
+--   （`代理语义总览.md` 第 9 行确实记着这条）。于是写了一个直接调
+--   `combat:DoAttack` 的独立分支。
+--
+--   变异实验（把 ATTACK 退回 `push_action`，看 E13 会不会红）给出的结果是：
+--   **目标照样被打死了**，只有我自己加的计数 `atk_hit` 是 0。
+--   回头读 `dstsrc/scripts/actions.lua:4902` 才发现 —— `ACTIONS.ATTACK.fn`
+--   **有实现**，内容就是 `act.doer.components.combat:DoAttack(act.target)`。
+--   ⇒ 「fn 是空的」是**事实错误**。而错误的前提会让实现绕开原版，
+--     丢掉 `propattack` / `thrusting` / `helmsplitting` 三个分支
+--     和 `BufferedAction` 的到达判定。
+--
+-- ★ 最终实现：**动作仍交给原版**（`push_action` → `ACTIONS.ATTACK.fn` → `DoAttack`），
+--   07 只做三件原版不做的事：
+--     ① 把生物列进目标列表（`action_for` 的 ATTACK 分支，见上面）；
+--     ② 冷却期**不 push**（`CanAttack` 先说不行，就别去占用 locomotor 队列）；
+--     ③ **记账**：这一下到底有没有扣血 —— `DoAttack` 没有返回值，
+--        唯一不依赖实现细节的事实来源是**目标血量前后差**。
+--   伤害公式、护甲、电击倍率、反伤、范围攻击全部仍由原版 `CalcDamage` /
+--   `GetAttacked` 算，这里一行都没重写。
+--
+-- ★ 冷却不是错误。`CanAttack` 在冷却期返回 false —— 那是「这一拍不出手」，
+--   和「太远」「目标非法」不是一回事。混在一起会让客户端一直显示失败，
+--   而用户看到的是「按了没反应」。
+-- ★★ 记账为什么**不能**在 push 之后当场读血量（这条是实测撞出来的）：
+--   `push_action` 只把 `BufferedAction` 交给 locomotor，**执行发生在之后的某拍**
+--   （走到位才执行 fn）。所以「push 前后 `hp_of()` 相等」是正常现象，
+--   不是「没打中」——第一版就是这么写的，判据报的却是
+--   「目标死了但 atk_hit=0」，看起来像攻击没生效，实际是**采样时机错了**。
+--   ⇒ 改成**逐拍采样**（step 里对每个 PENDING 目标比上一拍的血量），
+--     统计口径也跟着改成「观测到几次掉血 + 一共掉多少血」。
+--     其中 `atk_dmg` 是最硬的事实：**打完一只 100 血的蜘蛛，它必须正好等于 100**。
+local atk_ok_n, atk_land_n, atk_dmg_n, atk_cd_n = 0, 0, 0, 0
+local last_atk_why = nil
+function M.attack_stats() return atk_ok_n, atk_land_n, atk_dmg_n, atk_cd_n, last_atk_why end
+
+--- 目标当前血量；拿不到就是 nil（**不是 0** —— 缺字段和「血空了」是两件事）
+local function hp_of(inst)
+    local c = inst ~= nil and inst.components or nil
+    local h = c ~= nil and c.health or nil
+    if h == nil then return nil end
+    local ok, v = pcall(function() return h.currenthealth end)
+    if not ok or type(v) ~= "number" then return nil end
+    return v
+end
+
+--- 出手一次：**走原版动作链**，外面只套一层「冷却判断 + 记账」。
+--- 返回 (受理, 说明, 是否真的出手)。
+---   · 冷却中   → (true, "冷却中", false)：调用方**照常排下一拍**，不要报失败
+---   · 太远/非法 → (false, 原因)：调用方应当拒绝并说明
+local function do_attack(p, target)
+    local pc = p.components and p.components.combat
+    if pc == nil then
+        last_atk_why = "玩家没有 combat 组件"
+        return false, last_atk_why
+    end
+    -- ★ 距离先判：`CanAttack` 返回 false 时**分不清**是「冷却」还是「够不着」，
+    --   而这两者的用户可见后果完全相反（等一等就会打 / 得走过去）。
+    --   先自己判一次距离，剩下的 false 才敢说是冷却。
+    local px, pz = pos_of(p)
+    local tx, tz = pos_of(target)
+    if px == nil or tx == nil then
+        last_atk_why = "取不到位置"
+        return false, last_atk_why
+    end
+    local d = math.sqrt((tx - px) ^ 2 + (tz - pz) ^ 2)
+    if d > ACT_HIT then
+        last_atk_why = string.format("够不着（%.2f > %.2f）", d, ACT_HIT)
+        return false, last_atk_why
+    end
+    local okC, can, invalid = pcall(pc.CanAttack, pc, target)
+    if not okC then
+        last_atk_why = "CanAttack 抛错: " .. tostring(can)
+        return false, last_atk_why
+    end
+    if not can then
+        if invalid then
+            last_atk_why = "目标不可攻击（原版判定为非法目标）"
+            return false, last_atk_why
+        end
+        atk_cd_n = atk_cd_n + 1
+        last_atk_why = "冷却中（这一拍不出手）"
+        return true, last_atk_why, false
+    end
+    -- ★★ 真正出手：交给原版 `ACTIONS.ATTACK.fn`（它内部就是 `combat:DoAttack`）。
+    --   注意 `ACTIONS.ATTACK` 自己**没有** `distance` 字段 ⇒ `push_action` 会替它补
+    --   `arrivedist = ACT_HIT` 并记一次 `arrive_patched`（这条路径对 CHOP/PICKUP
+    --   已经跑了半年，是同一个机制，不是为攻击新开的特例）。
+    --   ⚠️ 这里**不**读血量差：push 只是排队，执行在之后的拍（见上面那段）。
+    local okP, whyP = push_action(p, target, "ATTACK")
+    if not okP then
+        last_atk_why = whyP
+        return false, last_atk_why
+    end
+    atk_ok_n = atk_ok_n + 1
+    last_atk_why = "出手（这一击的结果由下一拍的血量差核）"
+    return true, last_atk_why, true
+end
+
+--- **执行动作的唯一入口**：`M.act` 与 step 里的重发都必须走这里。
+--  为什么抽出来：「走到够得着 → 每 30 拍重发一次」这套逻辑在两个地方
+--  （首次调用 / step 重发）各有一份。ATTACK 需要额外的「冷却判断 + 血量记账」，
+--  分支若只接一处，另一处的攻击就会**记账缺失**（目标死了但 atk_hit = 0）——
+--  变异实验 P61-A 红的就是这个形状。P24 的「连砍」也差点因为只改一处而失效。
+local function perform(p, target, a)
+    if a == "ATTACK" then
+        return do_attack(p, target)
+    end
+    local ok, why = push_action(p, target, a)
+    return ok, why, ok
+end
+
+
 --- 对着某个 guid 做它支持的动作（会**先走过去**）。返回 (ok, 说明 或 拒绝原因)
 function M.act(slot, guid)
     slot = tonumber(slot) or 0
@@ -746,20 +877,26 @@ function M.act(slot, guid)
         return refuse(string.format("太远（%.1f > %d）", d, ACT_REACH))
     end
     -- ★ 记下「待做」：由 step 负责走过去 / 到范围后重复做（松开时由 unact 取消）
-    PENDING[slot] = { guid = guid, next_t = 0, until_t = steps_done + 900 }
+    PENDING[slot] = { guid = guid, next_t = 0, until_t = steps_done + 900,
+                      -- ★ P61：逐拍采样用的「上一拍血量」。对没有 health 的目标
+                      --   它是 nil（植物），采样分支会跳过 —— 不需要为动作类型分支。
+                      hp_watch = hp_of(target) }
     if d > ACT_HIT then
         -- 太远：**不是失败**，而是「正在走过去」——状态要说清楚（否则客户端没法显示）
         last_act_refusal = nil
         return true, "走下去（" .. a .. "，还差 " .. string.format("%.1f", d - ACT_HIT) .. "）"
     end
-    local okD, why = push_action(p, target, a)
+    local okD, why, performed = perform(p, target, a)
     if not okD then return refuse(why) end
     -- ★ 定下一拍的时刻（**不是**「做完这一下就算了」—— 一次 push 只敲一下，
     --   连砍靠的就是这个节拍；见 PENDING 上方的实测记录）。
     PENDING[slot].next_t = steps_done + ACT_REPEAT
-    act_ok_n = act_ok_n + 1
+    -- ★ P61：「受理了」和「真的出手了」不是一回事（攻击冷却期属于前者）。
+    --   `act_ok` 统计的是**真的做了**的次数 —— 否则冷却期也会 +1，
+    --   判据就会看到「出手 30 次、掉血 0」这种自相矛盾的数字。
+    if performed ~= false then act_ok_n = act_ok_n + 1 end
     last_act_refusal = nil
-    return true, a
+    return true, why or a
 end
 
 --- 取消「待做动作」（松开按键时调）
@@ -829,6 +966,23 @@ local function step_one_player(slot)
             if t == nil or steps_done > pend.until_t then
                 PENDING[slot] = nil
             else
+                -- ★★ P61：**逐拍采样血量**，捕捉上一次 push 出去的那一击的结果。
+                --   为什么不在 push 之后当场读：push 只是排队，执行在之后的拍
+                --   （见 do_attack 上方那段实测）。
+                --   为什么每拍都采：一次攻击可能分段掉血，逐拍采样能一次不漏；
+                --   代价是「1 个 PENDING 目标 1 次属性读」，可忽略。
+                if pend.hp_watch ~= nil then
+                    local cur = hp_of(t)
+                    if cur ~= nil then
+                        if cur < pend.hp_watch then
+                            atk_land_n = atk_land_n + 1
+                            atk_dmg_n = atk_dmg_n + (pend.hp_watch - cur)
+                            last_atk_why = string.format("命中 -%.2f（剩 %.1f）",
+                                                         pend.hp_watch - cur, cur)
+                        end
+                        pend.hp_watch = cur
+                    end
+                end
                 local px, pz = pos_of(p)
                 local tx, tz = pos_of(t)
                 if px ~= nil and tx ~= nil then
@@ -839,9 +993,16 @@ local function step_one_player(slot)
                         x, z = dx * inv, dz * inv          -- 朝它走
                     elseif steps_done >= pend.next_t then
                         local a = action_for(t)
-                        if a ~= nil and push_action(p, t, a) then
-                            act_ok_n = act_ok_n + 1
-                            last_act_refusal = nil
+                        if a ~= nil then
+                            -- ★ P61：**必须**走 perform 而不是 push_action ——
+                            --   否则 ATTACK 在「按住不放」这条路上会退回静默无效
+                            --   （首次点击走了 do_attack，后续重发走了 push_action）。
+                            local okA, whyA, performed = perform(p, t, a)
+                            if okA and performed ~= false then
+                                act_ok_n = act_ok_n + 1
+                                last_act_refusal = nil
+                            end
+                            if not okA then last_act_refusal = whyA end
                         end
                         -- ★ 无论这一下**打中没打中**都要排下一拍：够得着的距离是 1.2，
                         --   而动作真正生效的距离更近，所以「打空」是正常现象，
@@ -1546,6 +1707,17 @@ function M.stats()
         act_ok         = act_ok_n,
         act_refused    = act_refused_n,
         last_refusal   = last_act_refusal,
+        -- ★★ P61：攻击的四个数必须分开报，因为它们回答的是不同问题：
+        --   atk_ok   —— push 出去几次（**不等于命中**：动作是异步执行的）
+        --   atk_land —— 逐拍采样到几次「血量下降」（真实落点）
+        --   atk_dmg  —— 累计扣血总量（**最硬的事实**：打完一只 100 血的蜘蛛必须正好 100）
+        --   atk_cd   —— 因冷却被吞掉的拍数（**不是**错误，别当失败读）
+        --   只报一个 `atk_ok` 的话，「出手 30 次、掉血 0」看起来和「打得很好」没区别。
+        atk_ok         = atk_ok_n,
+        atk_land       = atk_land_n,
+        atk_dmg        = atk_dmg_n,
+        atk_cd         = atk_cd_n,
+        last_atk_why   = last_atk_why,
         -- ★ 因「到达距离缺失」被 07 补过参数的次数（见 push_action 的说明）。
         --   放进 stats 是为了**不静默**：这类「替原版补一个参数」如果悄悄做，
         --   下一个人就不知道有这回事（所以它必须出现在 /healthz 上，也有判据守着）。
@@ -1603,7 +1775,7 @@ end
 --     ③ `rt/server.py` 拆成 7 个模块（M4）——**这一条本身不改行为**，但它改了
 --        `tools/boot_version_guard.py` 的指纹输入面，而「把拆分当成免升版的理由」
 --        正是 C8 那类事故的温床：宁可多进一版，也不要让「记录里的 /7」对应两份实现。
-function M.version() return "rt_boot/9" end
+function M.version() return "rt_boot/10" end
 
 if not M.player_ok then
     error("rt_boot: 玩家实体创建失败（SpawnPrefab('wilson') 失败）")
@@ -1763,11 +1935,26 @@ function M.debug_entity(guid)
         return false, "guid " .. tostring(guid) .. " 已失效"
     end
     local x, z = pos_of(inst)
+    -- ★ P61：加上血量与当前可做的动作。
+    --   为什么必须加：战斗闭环上线后，「这个生物还剩多少血」是判断
+    --   「攻击到底有没有生效」的唯一事实来源（DoAttack 没有返回值）。
+    --   以前这个通道只回位置，运维时只能看到「它在动」，看不到「它快死了」。
+    --   ⚠️ hp 拿不到时回 nil，**不回 0** —— 缺字段 ≠ 血空了。
+    local hc = inst.components and inst.components.health or nil
+    local dead = nil
+    if hc ~= nil then
+        local okD, v = pcall(hc.IsDead, hc)
+        if okD then dead = v end
+    end
     return true, {
         guid = guid,
         prefab = tostring(inst.prefab or "?"),
         x = x or 0,
         z = z or 0,
+        hp = hp_of(inst),
+        maxhp = (hc ~= nil) and hc.maxhealth or nil,
+        dead = dead,
+        action = action_for(inst),
     }
 end
 

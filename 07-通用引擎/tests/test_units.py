@@ -49,7 +49,7 @@ PASS, FAIL, SKIP = 0, 0, 0
 RESULTS = []
 # 自检用例条数（开发计划 §9cd / §9cg）：加/删用例必须同步改这里，
 # 并同步 tools/case_counts.txt —— 否则「删了一半用例、剩下全过」会让闸门照样绿。
-WANT_CASES = 44
+WANT_CASES = 45
 
 
 class Skip(Exception):
@@ -1074,6 +1074,52 @@ def u44_counter_bump_is_single_entry_and_exact():
 # =============================================================================
 # 汇总
 # =============================================================================
+def _host_default_problem(src):
+    """从 server.py 源码里读出 `--host` 的默认值；返回问题描述（None = 没问题）。
+
+    抽成函数是为了**让判据能对自己做反向**：把同一份逻辑喂给一份篡改过的源码，
+    它必须报出问题。否则「默认绑回环」只是一句**声明**，没有任何东西守着它。
+    """
+    import re as _re
+    m = _re.search(r'add_argument\("--host",\s*default="([^"]+)"\)', src)
+    if m is None:
+        return "在 server.py 里找不到 `--host` 的默认值声明（锚点变了 ⇒ 判据已失效）"
+    host = m.group(1)
+    if host not in ("127.0.0.1", "localhost"):
+        return "`--host` 默认是 %r，不是回环地址 —— 起服就直接暴露到网络" % (host,)
+    return None
+
+
+def u45_default_bind_is_loopback():
+    """★★★ P61「发布决策」落地：**默认只绑回环**，且这条决策有判据守着。
+
+    决策（2026-10-21 定，取代 `发布检查单.md` §6 原来那个「待用户决定」）：
+      · **形态 A（本机 / 内网）采纳** —— 默认 `127.0.0.1`，同一台机器开浏览器就能玩；
+        要让同网段的人进来，必须**显式** `--host 0.0.0.0`（一次知情动作）。
+      · **形态 B（公网）暂不执行** —— 需要一台能跑 Python 3.13 + lupa 的机器，
+        本机不具备；**不假装发布过**，检查单里如实写着「未执行 + 前置条件」。
+
+    为什么这条要写成判据、而不是只写在文档里：
+      「默认绑定」是最容易被顺手改掉的一行 —— 想用手机看，第一反应就是改默认值；
+      而改错的方向**恰好是危险的**（`0.0.0.0` + `--allow-debug` = 任何人都能 kill 角色）。
+      文档拦不住这种改动，判据能。
+    """
+    path = os.path.join(RT, "server.py")
+    with open(path, encoding="utf-8") as f:
+        src = f.read()
+    p = _host_default_problem(src)
+    if p:
+        return False, p
+    # 反向：把默认改成 0.0.0.0，同一个函数必须报问题
+    bad = src.replace('add_argument("--host", default="127.0.0.1")',
+                      'add_argument("--host", default="0.0.0.0")')
+    if bad == src:
+        return False, "反向用例没改到（锚点已经不是那句话了）—— 这条判据守不住"
+    if _host_default_problem(bad) is None:
+        return False, "把默认改成 0.0.0.0 之后判据**仍然是绿的**"
+    return True, "默认 --host=127.0.0.1；反向改成 0.0.0.0 会被抓住"
+
+
 def main():
     print("═" * 78)
     print("  模块级单测（L6 / M4）：只测不需要 LuaRuntime、不需要起服务端的东西")
@@ -1138,6 +1184,7 @@ def main():
     check("U42 反向：没 boot 就存档 ⇒ 怪调用方，不许隔离存档", u42_not_booted_blames_the_caller_not_the_save)
     check("U43 反向：目录清单清理真删 + 幂等，且不往上删", u43_filelist_cleanup_really_deletes_and_is_idempotent)
     check("U44 计数器唯一入口 + 40 万次并发精确 + 快照同锁", u44_counter_bump_is_single_entry_and_exact)
+    check("U45 发布决策落地：默认只绑 127.0.0.1；反向：改成 0.0.0.0 必红", u45_default_bind_is_loopback)
 
     print("\n" + "─" * 78)
     total = PASS + FAIL + SKIP

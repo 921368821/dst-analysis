@@ -331,8 +331,28 @@ class Sim:
             return False, {"error": "%s: %s" % (type(e).__name__, e)}
         if not ok:
             return False, {"error": str(info)}
-        return True, {"guid": int(info["guid"]), "prefab": str(info["prefab"]),
-                      "x": round(float(info["x"]), 2), "z": round(float(info["z"]), 2)}
+        out = {"guid": int(info["guid"]), "prefab": str(info["prefab"]),
+               "x": round(float(info["x"]), 2), "z": round(float(info["z"]), 2)}
+        # ★★ P61：血量 / 存活 / 当前可做的动作。
+        #   为什么必须有：`Combat:DoAttack` **没有返回值**，判断「这一下到底打中没有」
+        #   唯一不依赖实现细节的办法就是看目标血量差。缺这一项时，
+        #   探针只能看到「atk_ok 在涨」，看不到「血在掉」——两者会分叉。
+        #   ⚠️ 取不到时保持 None，**不填 0**：缺字段和「血空了」是两件事。
+        for k in ("hp", "maxhp"):
+            try:
+                v = info[k]
+                out[k] = None if v is None else round(float(v), 2)
+            except Exception:                                    # noqa: BLE001
+                out[k] = None
+        try:
+            out["dead"] = None if info["dead"] is None else bool(info["dead"])
+        except Exception:                                        # noqa: BLE001
+            out["dead"] = None
+        try:
+            out["action"] = None if info["action"] is None else str(info["action"])
+        except Exception:                                        # noqa: BLE001
+            out["action"] = None
+        return True, out
 
     def debug_give(self, slot, prefab, n=1):
         """给某槽位发物品 → (ok, dict)。ok=True 时 dict 有 given/items_before/items_after。"""
