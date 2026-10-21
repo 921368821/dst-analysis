@@ -494,9 +494,10 @@ if [ "$FAST" = "1" ]; then
     #   ★ 表是 gitignore 的（新克隆上没有）⇒ 缺表时**明说跳过**：不许报绿（没验过）也不许报红（不是错）。
     if run_step "$PY" -u tools/check_rounds.py --selftest; then :; else FAIL=1; fi
     if [ -f "$ROOT/tests/_run_all.rounds.tsv" ]; then
-        # ★ P50㉝：`--no-log` —— 这里**不能**与日志对账：④ 组跑在半途
-        #   （全量里是第 14 位 / `--fast` 里是第 3 位），那一刻日志只写了前面几行，
-        #   而表的最后一行是**上一轮**的 20/20 ⇒ 必报假红。
+        # ★ P50㉝：`--no-log` —— 这里**不能**与日志对账：④ 组跑在中途，
+        #   那一刻日志还没写全，而表的最后一行是**上一轮**的记录 ⇒ 必报假红。
+        #   ★ P50㊶ 不再写位次：`--fast` 里 ④ 其实是第 16 组（它前面有 15 个 hr），
+        #     全量也不是 14 —— 位次会随加组漂，会漂的数字写成点值必然过期（§9be）。
         #   日志对账挪到本轮所有组跑完之后（见收尾的「轮末对账」）。
         if run_step "$PY" -u tools/check_rounds.py --no-log; then :; else FAIL=1; fi
     else
@@ -508,6 +509,16 @@ if [ "$FAST" = "1" ]; then
     #   它把「19 组 178 项」当成当前值 ⇒ 给「只认一代过期值」的缺陷盖章。
     if run_step "$PY" -u "$ROOT/../tools/audit_root_docs.py" --selftest; then :; else FAIL=1; fi
     if run_step "$PY" -u "$ROOT/../tools/audit_root_docs.py"; then :; else FAIL=1; fi
+    # ★ P50㊴：行尾一致性（无 `\r\r\n`、无 CRLF/裸 LF 混排）。
+    #   ㊳ 修的是插入器，判据没有 —— 换个入口就复发。作用域排除上游快照，
+    #   且排除数量会被打印出来（静默白名单比没有更糟，见 §9bq）。
+    if run_step "$PY" -u "$ROOT/../tools/check_eol.py" --selftest; then :; else FAIL=1; fi
+    if run_step "$PY" -u "$ROOT/../tools/check_eol.py"; then :; else FAIL=1; fi
+    # ★ P50㊵：轮次账本的**留痕对账**。④ 跑在写表之前 ⇒ 「最后一行」是上一轮，
+    #   于是这条等于要求：每一轮的结论必须在下一轮开跑前已写进阶段进度文档。
+    #   第一次跑就红在「12:56:00 那轮文档里一个字都没有」上 —— 抓到的是真事。
+    if run_step "$PY" -u "$ROOT/../tools/check_doc_rounds.py" --selftest; then :; else FAIL=1; fi
+    if run_step "$PY" -u "$ROOT/../tools/check_doc_rounds.py"; then :; else FAIL=1; fi
     # ★ M9：注释版**自身**完整性（U+FFFD / 二进制被当文本重写）。
     #   这一条**不需要原版副本**就能判红 —— 原版丢失期间它是唯一还在工作的
     #   「只增注释」守卫（verify-annotated 此时只能报 2＝无法复验）。
@@ -547,9 +558,10 @@ if run_step "$PY" -u tools/verify_plan.py; then :; else FAIL=1; fi
     #   ★ 表是 gitignore 的（新克隆上没有）⇒ 缺表时**明说跳过**：不许报绿（没验过）也不许报红（不是错）。
     if run_step "$PY" -u tools/check_rounds.py --selftest; then :; else FAIL=1; fi
     if [ -f "$ROOT/tests/_run_all.rounds.tsv" ]; then
-        # ★ P50㉝：`--no-log` —— 这里**不能**与日志对账：④ 组跑在半途
-        #   （全量里是第 14 位 / `--fast` 里是第 3 位），那一刻日志只写了前面几行，
-        #   而表的最后一行是**上一轮**的 20/20 ⇒ 必报假红。
+        # ★ P50㉝：`--no-log` —— 这里**不能**与日志对账：④ 组跑在中途，
+        #   那一刻日志还没写全，而表的最后一行是**上一轮**的记录 ⇒ 必报假红。
+        #   ★ P50㊶ 不再写位次：`--fast` 里 ④ 其实是第 16 组（它前面有 15 个 hr），
+        #     全量也不是 14 —— 位次会随加组漂，会漂的数字写成点值必然过期（§9be）。
         #   日志对账挪到本轮所有组跑完之后（见收尾的「轮末对账」）。
         if run_step "$PY" -u tools/check_rounds.py --no-log; then :; else FAIL=1; fi
     else
@@ -560,6 +572,16 @@ if run_step "$PY" -u tools/verify_plan.py; then :; else FAIL=1; fi
     #   它把「19 组 178 项」当成当前值 ⇒ 给「只认一代过期值」的缺陷盖章。
     if run_step "$PY" -u "$ROOT/../tools/audit_root_docs.py" --selftest; then :; else FAIL=1; fi
     if run_step "$PY" -u "$ROOT/../tools/audit_root_docs.py"; then :; else FAIL=1; fi
+    # ★ P50㊴：行尾一致性（无 `\r\r\n`、无 CRLF/裸 LF 混排）。
+    #   ㊳ 修的是插入器，判据没有 —— 换个入口就复发。作用域排除上游快照，
+    #   且排除数量会被打印出来（静默白名单比没有更糟，见 §9bq）。
+    if run_step "$PY" -u "$ROOT/../tools/check_eol.py" --selftest; then :; else FAIL=1; fi
+    if run_step "$PY" -u "$ROOT/../tools/check_eol.py"; then :; else FAIL=1; fi
+    # ★ P50㊵：轮次账本的**留痕对账**。④ 跑在写表之前 ⇒ 「最后一行」是上一轮，
+    #   于是这条等于要求：每一轮的结论必须在下一轮开跑前已写进阶段进度文档。
+    #   第一次跑就红在「12:56:00 那轮文档里一个字都没有」上 —— 抓到的是真事。
+    if run_step "$PY" -u "$ROOT/../tools/check_doc_rounds.py" --selftest; then :; else FAIL=1; fi
+    if run_step "$PY" -u "$ROOT/../tools/check_doc_rounds.py"; then :; else FAIL=1; fi
     # ★ L1：协议常量单源 / ★ M8：注释流水线旧绝对路径绝迹（与 --fast 分支同一组判据）
     if run_step "$NODE" "$ROOT/../tools/gen-protocol-schema.mjs" --check; then :; else FAIL=1; fi
     if run_step "$NODE" "$ROOT/../tools/relocate-paths.mjs" --check; then :; else FAIL=1; fi
