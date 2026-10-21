@@ -12,10 +12,16 @@
     其余文档要写历史数字可以，但必须**明说是历史**，否则读者会当成现状。
 
 判定规则（简单到不会误报）
-    扫根目录 `*.md` 的每一行；命中「过期基线模式」且**该行没有任何历史标记** ⇒ 报红。
-      · 过期模式：`13 组`、`133 项`、`130 项`、`138 编号`、`92 条断言`
-        （都是 P40 前后那一轮的基线值；当前是 19 组 / 178 项 / 162 编号 / 104 条）
-      · 历史标记：`当时值`、`历史`、`快照`、`§9ap`、`已过期`、`那一轮`
+    扫根目录 `*.md` 的每一行；命中「过期基线」且**该行没有任何历史标记** ⇒ 报红。
+      · **动态那条（P50㊱ 加）**：一行里同时出现 `N 组 … M 项` —— 这是「基线声明」的形状 ——
+        且 (N, M) 与**现算**的当前值不同 ⇒ 红。这样它对「第几代」无所谓：
+        下一代过期值不需要谁来加进白名单（硬编码只认识一代，实测漏了 19/178 与 18/177）。
+      · 静态那条（保留作补充）：`13 组`、`133 项`、`130 项`、`138 编号`、`92 条断言`
+      · 历史标记：`当时值`、`历史`、`快照`、`已过期`、`那一轮`
+        ★★ 这里**故意没有** `§9ap`：它不是历史标记，它是**过期基线那一节的章节号**。
+        删它之前，三份根文档里那句「当前基线的唯一出处：§9ap.1（18 组 / 177 项）」
+        因为含 `§9ap` 而被豁免 —— 守卫的白名单正好保护了它该抓的那句话。
+      · 当前值一律**现算**（`_current_numbers()`），本文不留副本。
     ★ 为什么不扫「所有数字」：根目录文档大量出现「15 项」「19 项」这类**任务清单计数**，
       它们不是基线，扫了只会制造假红 —— 假红会训练人忽略工具（本工程已写进纪律）。
 
@@ -25,6 +31,7 @@
 """
 import io
 import os
+import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -38,7 +45,27 @@ ROOT = os.path.dirname(HERE)                 # 工程根（DST-Analysis）
 BASELINE_DOCS = ["引擎审计报告.md", "后续计划单.md", "引擎作用单.md"]
 
 STALE = ["13 组", "133 项", "130 项", "138 编号", "92 条断言"]
-HIST = ["当时值", "历史", "快照", "§9ap", "已过期", "那一轮"]
+HIST = ["当时值", "历史", "快照", "已过期", "那一轮"]
+# 「基线声明」的形状：同一行里 `N 组` 与 `M 项`（中间隔不超过 40 字）。
+# ★ 为什么不扫「任何数字」：根目录文档大量出现「15 项」「19 项」这类任务清单计数，
+#   它们不是基线，扫了只会制造假红。而「N 组 … M 项」一起出现，基本只能是基线。
+BASE_RE = re.compile(r"(\d+)\s*组[^\n]{0,40}?(\d+)\s*项")
+
+
+def _current_numbers():
+    """→ (组数, 项数, 编号数)；算不出来返回 None（**不猜**）。"""
+    try:
+        sys.path.insert(0, os.path.join(ROOT, "07-通用引擎", "tools"))
+        import verify_plan as vp
+        total = 0
+        for f in vp.TEST_FILES:
+            p = os.path.join(vp.ROOT, f)
+            if os.path.isfile(p):
+                total += vp.file_items(p)
+        groups = vp.count_groups(vp.read(os.path.join(vp.ROOT, "tests/run_all.sh")))
+        return groups, total, len(vp.collect_ids())
+    except Exception:                                            # noqa: BLE001
+        return None
 
 
 def _current_baseline():
@@ -53,47 +80,59 @@ def _current_baseline():
         `TEST_FILES`/`file_items`（项数）、`count_groups`（组数）、`collect_ids`（编号数）。
       算不出来（比如 07 目录被移走）就只说路径、不编数字 —— 说不准比说错强。
     """
-    try:
-        sys.path.insert(0, os.path.join(ROOT, "07-通用引擎", "tools"))
-        import verify_plan as vp
-        total = 0
-        for f in vp.TEST_FILES:
-            p = os.path.join(vp.ROOT, f)
-            if os.path.isfile(p):
-                total += vp.file_items(p)
-        groups = vp.count_groups(vp.read(os.path.join(vp.ROOT, "tests/run_all.sh")))
-        ids = len(vp.collect_ids())
-        return "07-通用引擎/开发计划.md §9aq.1（当前：%d 组 / %d 项 / %d 编号）" % (
-            groups, total, ids)
-    except Exception:                                            # noqa: BLE001
+    cur = _current_numbers()
+    if cur is None:
         return "07-通用引擎/开发计划.md §9aq.1（数字现算失败，不显示值）"
+    return "07-通用引擎/开发计划.md §9aq.1（当前：%d 组 / %d 项 / %d 编号）" % cur
 
 
-def scan_text(text):
-    """返回 [(行号, 行内容, 命中的过期串)]。纯函数，便于自检。"""
+def scan_text(text, cur=None):
+    """返回 [(行号, 行内容, 命中的过期串)]。纯函数，便于自检。
+
+    `cur` = (组数, 项数) 的当前值；不传就现算（自检时显式传入，避免依赖工程状态）。
+    """
+    if cur is None:
+        n = _current_numbers()
+        cur = (n[0], n[1]) if n else None
     bad = []
     for i, line in enumerate(text.splitlines(), 1):
-        hit = [p for p in STALE if p in line]
-        if not hit:
-            continue
         if any(h in line for h in HIST):
             continue
-        bad.append((i, line.strip(), hit))
+        hit = [p for p in STALE if p in line]
+        m = BASE_RE.search(line)
+        if m and cur and (int(m.group(1)), int(m.group(2))) != cur:
+            hit.append("基线声明 %s 组 / %s 项 ≠ 当前 %d 组 / %d 项"
+                       % (m.group(1), m.group(2), cur[0], cur[1]))
+        if hit:
+            bad.append((i, line.strip(), hit))
     return bad
 
 
 def selftest():
-    """规则自检：一条该红的、一条不该红的、一条历史标记的。"""
+    """规则自检。★ 用例里的「当前值」一律**现算**，不写死 —— 写死就是第二份副本。
+
+    以前这里第 2 条是 `19 组 178 项 ⇒ 不该红`：自检亲手把**上一代**当成了当前值，
+    等于给「只认一代过期值」这个缺陷盖章（P50㊱ 抓到的）。
+    """
+    n = _current_numbers()
+    if n is None:
+        print("  ✘ 现算不出当前基线（07-通用引擎 被移走了？）⇒ 自检**没有执行**，不是通过")
+        return 2
+    cur = (n[0], n[1])
+    cg, ci = cur
     cases = [
-        ("跑一遍 run_all：13 组 133 项全过\n", 1),                     # 该红
-        ("当前基线：19 组 178 项全过\n", 0),                            # 不该红（没有旧数字）
+        ("跑一遍 run_all：13 组 133 项全过\n", 1),                     # 静态那条
+        ("当前基线：%d 组 %d 项全过\n" % (cg, ci), 0),                  # 现算值 ⇒ 不该红
         ("（当时值）13 组 133 项全过\n", 0),                            # 有历史标记
-        ("见 07-通用引擎/开发计划.md §9aq.1：178 项\n", 0),             # 指向当前基线
         ("任务清单共 19 项，其中 8 项已完成\n", 0),                     # 普通计数，别误伤
+        # ↓ 这两条是 P50㊱ 新增：旧实现会判 0（静默通过）
+        ("当前基线的唯一出处：§9ap.1（18 组 / 177 项 / 161 编号）\n", 1),
+        ("某处写：%d 组 %d 项全过\n" % (cg + 1, ci), 1),                # 组数被改过 ⇒ 该红
+        ("某处写：%d 组 %d 项全过\n" % (cg, ci - 1), 1),                # 项数被改过 ⇒ 该红
     ]
     ok = True
     for text, want in cases:
-        got = len(scan_text(text))
+        got = len(scan_text(text, cur))
         flag = "✔" if got == want else "✘"
         if got != want:
             ok = False

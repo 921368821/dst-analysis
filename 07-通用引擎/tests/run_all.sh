@@ -503,11 +503,20 @@ if [ "$FAST" = "1" ]; then
         printf '    （还没有 tests/_run_all.rounds.tsv —— 首次运行，本检查**跳过**，不是通过）\n'
     fi
     # ★ H6：根目录三份基线文档的过期数字（verify_plan 只扫 07 目录，扫不到它们）
+    # ★ P50㊱：`--selftest` 此前**从来没被调用**（工具里写着用法，run_all 两处都不带它）——
+    #   「规则既不空转也不误报」这句话因此没被验证过。顺带抓到自检本身也错：
+    #   它把「19 组 178 项」当成当前值 ⇒ 给「只认一代过期值」的缺陷盖章。
+    if run_step "$PY" -u "$ROOT/../tools/audit_root_docs.py" --selftest; then :; else FAIL=1; fi
     if run_step "$PY" -u "$ROOT/../tools/audit_root_docs.py"; then :; else FAIL=1; fi
     # ★ M9：注释版**自身**完整性（U+FFFD / 二进制被当文本重写）。
     #   这一条**不需要原版副本**就能判红 —— 原版丢失期间它是唯一还在工作的
     #   「只增注释」守卫（verify-annotated 此时只能报 2＝无法复验）。
     #   （这一行原来**重复出现两次**，等于同一条判据跑两遍、白等 3 秒；已合并）
+    # ★ P50㊱：这两个 `--selftest` 此前**从来没跑过**（用法写在工具里，run_all/pre-commit 都不带）。
+    #   实测 0.27 s + 0.27 s，没理由省。`verify-annotated.mjs` 更彻底 —— 它在 run_all 里
+    #   连正文调用都没有，只在一句注释里被提到。
+    if run_step "$NODE" "$ROOT/../tools/check-annotated-integrity.mjs" --selftest; then :; else FAIL=1; fi
+    if run_step "$NODE" "$ROOT/../tools/verify-annotated.mjs" --selftest; then :; else FAIL=1; fi
     if run_step "$NODE" "$ROOT/../tools/check-annotated-integrity.mjs"; then :; else FAIL=1; fi
     # ★ L1：协议常量单源（protocol.schema.json → protocol_schema.py/.js）
     #   生成物被手改、或改了 schema 没重生成 ⇒ 这里红。
@@ -546,6 +555,10 @@ if run_step "$PY" -u tools/verify_plan.py; then :; else FAIL=1; fi
     else
         printf '    （还没有 tests/_run_all.rounds.tsv —— 首次运行，本检查**跳过**，不是通过）\n'
     fi
+    # ★ P50㊱：`--selftest` 此前**从来没被调用**（工具里写着用法，run_all 两处都不带它）——
+    #   「规则既不空转也不误报」这句话因此没被验证过。顺带抓到自检本身也错：
+    #   它把「19 组 178 项」当成当前值 ⇒ 给「只认一代过期值」的缺陷盖章。
+    if run_step "$PY" -u "$ROOT/../tools/audit_root_docs.py" --selftest; then :; else FAIL=1; fi
     if run_step "$PY" -u "$ROOT/../tools/audit_root_docs.py"; then :; else FAIL=1; fi
     # ★ L1：协议常量单源 / ★ M8：注释流水线旧绝对路径绝迹（与 --fast 分支同一组判据）
     if run_step "$NODE" "$ROOT/../tools/gen-protocol-schema.mjs" --check; then :; else FAIL=1; fi
@@ -555,6 +568,11 @@ if run_step "$PY" -u tools/verify_plan.py; then :; else FAIL=1; fi
     if [ -f "$ROOT/../_baseline/derived-scripts/MANIFEST.json" ]; then
         if run_step "$NODE" "$ROOT/../tools/derive-pristine.mjs" --check; then :; else FAIL=1; fi
     fi
+    # ★★ P50㊱-e：这两个自检原来只接在 `--fast` 分支（那儿有 check-annotated-integrity 的
+    #   正文调用），而**全量才是权威那一轮** —— 12:33 那轮日志里 `5/5` / `10/10` 零命中，
+    #   就是这条的证据。0.5 s 的事，两边都跑。
+    if run_step "$NODE" "$ROOT/../tools/check-annotated-integrity.mjs" --selftest; then :; else FAIL=1; fi
+    if run_step "$NODE" "$ROOT/../tools/verify-annotated.mjs" --selftest; then :; else FAIL=1; fi
 
 hr "③ 宿主回归：06-引擎复刻 14 入口 + tests.lua 断言"
     # ★★ 必须**先 cd 到宿主目录**：入口里的 `require("host.01_core")` 是
@@ -647,6 +665,15 @@ printf '\n'
 #   beat 会在那一组**中途**变陈旧 ⇒ 下一轮把「还在跑」判成「残留」⇒ 清锁、清日志、抢端口。
 #   所以这条一旦越界必须**判红**（不是警告）—— 它是一条安全边界，不是性能指标。
 #   注意 dry-run 不写 groupmax：那时每组 0 s，落盘会把上一轮的真实数据覆盖成 0。
+# ★★ P50㉟：`WANT_G` 原来在**下面**（组数核对那儿，约 40 行之后）才算，
+#   而写 `groupmax` 在它**之前** —— 于是「组数不符」发现得太晚：那一轮的阈值早就写下去了。
+#   阈值是下一轮锁的安全边界（§9bc），它只配由**完整**的一轮推。
+if [ "$FAST" = "1" ]; then WANT_G=$DECLARED_GROUPS_FAST; else WANT_G=$DECLARED_GROUPS; fi
+# 写不写的**决定**在这里算好（执行仍在下面原位），这样中间的余量提示才能说真话。
+GM_MAY=0
+if [ "$DRY" != "1" ] && [ "$FAST" != "1" ] && [ "$GROUP_N" = "$WANT_G" ]; then
+    GM_MAY=1
+fi
 if [ "$GROUP_MAX" -gt 0 ]; then
     printf '  最长一组：%s（%d s）；锁的 beat 阈值 %s s，来源：%s\n' \
         "$GROUP_MAX_NAME" "$GROUP_MAX" "$BEAT_STALE_MAX" "$BEAT_STALE_SRC" | tee -a "$LOG"
@@ -665,7 +692,13 @@ if [ "$GROUP_MAX" -gt 0 ]; then
         NEED2=$(( (GROUP_MAX * 2 + 59) / 60 * 60 ))
         printf '  ⚠ 余量不足 2×：最长一组 %d s，2× = %d s > 阈值 %s s（还差 %d s）\n' \
             "$GROUP_MAX" $(( GROUP_MAX * 2 )) "$BEAT_STALE_MAX" $(( GROUP_MAX * 2 - BEAT_STALE_MAX )) | tee -a "$LOG"
-        printf '    按本轮数据，下一轮读 tests/_run_all.groupmax 后阈值会推到 %d s。\n' "$NEED2" | tee -a "$LOG"
+        # ★ P50㉟：只在**真的写了** groupmax 时才这么承诺。
+        if [ "$GM_MAY" = "1" ]; then
+            printf '    按本轮数据，下一轮读 tests/_run_all.groupmax 后阈值会推到 %d s。\n' \
+                "$NEED2" | tee -a "$LOG"
+        else
+            printf '    （本轮**不写** groupmax —— 见下面那条，下一轮阈值不会变）\n' | tee -a "$LOG"
+        fi
     fi
     # ★★ P50㉖-b：`--fast` **也不许写**。
     #   ★★ P50㉞ 更正：这一段原来写「fast 跳过的正是最慢的三组（②f 605 s / ③ / ⑤），
@@ -678,16 +711,21 @@ if [ "$GROUP_MAX" -gt 0 ]; then
     #   根本不存在；它的「最长一组」也只覆盖 18 个组。阈值必须由**全量**的最长单组推
     #   （§9bc 同一条安全边界：阈值低于最长单组 ⇒ 父 shell 一死，beat 会在那一组中途
     #   变陈旧 ⇒ 下一轮把「还在跑」当成「残留锁」清掉）。
-    if [ "$DRY" != "1" ] && [ "$FAST" != "1" ]; then
+    # ★★ P50㉟：条件是 `GM_MAY`（上面算好的），其中多了 `GROUP_N == WANT_G` 这一半。
+    if [ "$GM_MAY" = "1" ]; then
         printf '%d\n' "$GROUP_MAX" > "$GROUPMAX_F" 2>/dev/null || true
     elif [ "$FAST" = "1" ]; then
         printf '  （--fast：本轮最长一组 %d s 不代表全量，**不写** tests/_run_all.groupmax）\n' \
             "$GROUP_MAX" | tee -a "$LOG"
+    elif [ "$DRY" != "1" ]; then
+        # 组数不符：这一轮不完整，最长一组可能不是真的最长 ⇒ 阈值不许由它推。
+        printf '  ✘ 本轮只跑了 %d/%d 组 ⇒ **不写** tests/_run_all.groupmax（阈值必须由完整的一轮推）\n' \
+            "$GROUP_N" "$WANT_G" | tee -a "$LOG"
     fi
 fi
 # ★ 组数核对（见顶部 DECLARED_GROUPS 的注释）。**只在真跑完时**才有意义，
 #   所以放在 ⑥ 之后；判定进 FAIL ⇒ 会体现在总判定里，不会被「个别组全绿」掩盖。
-if [ "$FAST" = "1" ]; then WANT_G=$DECLARED_GROUPS_FAST; else WANT_G=$DECLARED_GROUPS; fi
+# ★ P50㉟：`WANT_G` 已在写 groupmax 之前算好（见那儿），这里不再重算。
 if [ "$GROUP_N" = "$WANT_G" ]; then
     printf '  组数核对：本次执行 %d 组 / 声明 %d 组 ✔\n' "$GROUP_N" "$WANT_G" | tee -a "$LOG"
 else
@@ -733,14 +771,26 @@ fi
 #   ★ 只打到屏幕、**不 tee 进日志**：总判定必须是日志的最后一行（上面那条约定）。
 if [ "$DRY" != "1" ]; then
     ROUNDS="$ROOT/tests/_run_all.rounds.tsv"
-    if [ ! -f "$ROUNDS" ]; then
+    # ★★ P50㊲：变异 / 反向验证的轮次**不写表**。
+    #   今天实测的坑：㉟ 的反向验证把 `DECLARED_GROUPS` 改成 19 跑了一轮，
+    #   于是表里多了一行「20/19」，而判据（执行数 > 声明数 ⇒ 账目坏了）**必须**判它红
+    #   ⇒ 从此每一轮全量都红在那一行上（12:11 那轮就是这样）。
+    #   错不在判据，在于「实验产物写进了账本」。出口比白名单干净：
+    #   判据不用学会忽略矛盾，变异轮的数字从一开始就不进来。
+    if [ "${RT_NO_ROUNDS_ROW:-0}" = "1" ]; then
+        printf '  （RT_NO_ROUNDS_ROW=1：本轮**不写** rounds.tsv —— 变异/反向验证的数字不是一轮）\n' \
+            | tee -a "$LOG"
+    fi
+    if [ "${RT_NO_ROUNDS_ROW:-0}" != "1" ] && [ ! -f "$ROUNDS" ]; then
         printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
             "开始时间" "判定" "组数" "总耗时_s" "最长一组" "最长_s" "阈值_s" "HEAD" > "$ROUNDS" 2>/dev/null || true
     fi
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-        "$T0_STR" "$VERDICT" "$GROUP_N/$WANT_G" "$ELAPSED" \
-        "${GROUP_MAX_NAME:-（无）}" "$GROUP_MAX" "$BEAT_STALE_MAX" \
-        "$(git -C "$ROOT/.." rev-parse --short HEAD 2>/dev/null || echo "?")" >> "$ROUNDS" 2>/dev/null || true
+    if [ "${RT_NO_ROUNDS_ROW:-0}" != "1" ]; then
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+            "$T0_STR" "$VERDICT" "$GROUP_N/$WANT_G" "$ELAPSED" \
+            "${GROUP_MAX_NAME:-（无）}" "$GROUP_MAX" "$BEAT_STALE_MAX" \
+            "$(git -C "$ROOT/.." rev-parse --short HEAD 2>/dev/null || echo "?")" >> "$ROUNDS" 2>/dev/null || true
+    fi
     printf '\n\033[1m── 本轮摘要（可直接抄进文档）──\033[0m\n'
     printf '  开始      %s（结束 %s）\n' "$T0_STR" "$(date '+%Y-%m-%d %H:%M:%S')"
     printf '  判定      %s\n' "$VERDICT"
