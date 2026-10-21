@@ -34,7 +34,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MANIFEST = os.path.join(ROOT, "tools", "case_counts.txt")
 
-WANT_CASES = 11         # 本工具自检用例条数：加/删必须同步改这里（否则自检静默变松）
+WANT_CASES = 14         # 本工具自检用例条数：加/删必须同步改这里（否则自检静默变松）
 
 # 各工具统一在末行加「（用例 N 条）」。只认这一种写法 ——
 # 认两种的那一版（`自检：23/23` / `N 条合成用例`）要求每个工具各写一条正则，
@@ -49,6 +49,41 @@ def runner_for(path):
     if path.endswith((".mjs", ".js")):
         return [os.environ.get("NODE") or "node"]
     return [sys.executable]
+
+
+# ---- 覆盖：闸门脚本里凡 `X --selftest` 的调用，都必须在这份清单里有一条 ----
+# 为什么需要：清单只保证「记在册的那些」不静默变松。若有人新写一个判据、在
+# run_all/pre-commit 里调了它的 --selftest，却忘了登记，它仍然只被 rc 守着 ——
+# 而这份清单会一声不响地全绿。**「清单没记」和「清单记了但松了」是两件事。**
+GATES = ["07-通用引擎/tests/run_all.sh", "tools/pre-commit.sh"]
+CALL_RE = re.compile(r'([A-Za-z0-9_./-]+\.(?:py|mjs))"?\s+--selftest')
+
+# 白名单**必须带理由**，而且会被打印出来 —— 静默白名单比没有更糟（开发计划 §9bq）。
+ALLOW = {
+    "falsify_server.py":
+        "入口是 --selftest-heal，条数记在实现文件 tests/falsify_heal_selftest.py 名下",
+    "check_leftovers.py":
+        "自检会真的去杀进程，不宜放进每次提交的闸门；只在 run_all ④ 跑，**条数未纳管**（如实登记）",
+}
+
+
+def coverage_problems(gate_texts, covered, allow):
+    """gate_texts = {路径: 内容}；covered = 清单里的 basename 集合。
+
+    返回 (problems, waived)；waived = [(basename, 理由)]。纯函数，便于喂合成用例。
+    """
+    probs, waived = set(), set()
+    for gpath in sorted(gate_texts):
+        for m in CALL_RE.finditer(gate_texts[gpath] or ""):
+            base = os.path.basename(m.group(1))
+            if base in covered:
+                continue
+            if base in allow:
+                waived.add((base, allow[base]))
+                continue
+            probs.add("%s 里调用了 %s --selftest，但清单没有它 —— 它现在只被 rc 守着"
+                      % (gpath, base))
+    return sorted(probs), sorted(waived)
 
 
 def actual_cases(out):
@@ -166,6 +201,26 @@ def selftest():
     else:
         failures.append("runner_for(.mjs) 应选 node，实际 %r" % (r,))
 
+    # ---- 覆盖检查：闸门里调了 --selftest 却没进清单的，必须报 ----
+    # 这三条守的是「清单只保证记在册的那些」这个盲区：新写一个判据、在闸门里调它的
+    # --selftest、忘了登记 ⇒ 它仍然只被 rc 守着，而清单会一声不响地全绿。
+    gate = {'g.sh': 'if run_step "$PY" -u tools/a.py --selftest; then :; fi\n'}
+    p, w = coverage_problems(gate, {"a.py"}, {})
+    if not p and not w:
+        ok += 1
+    else:
+        failures.append("覆盖：已登记的工具不该报问题，实际 问题%s 豁免%s" % (p, w))
+    p, w = coverage_problems(gate, set(), {})
+    if len(p) == 1 and not w:
+        ok += 1
+    else:
+        failures.append("覆盖：未登记的工具应报 1 条问题，实际 %d 条" % len(p))
+    p, w = coverage_problems(gate, set(), {"a.py": "理由"})
+    if not p and len(w) == 1:
+        ok += 1
+    else:
+        failures.append("覆盖：白名单应只产生豁免（问题 %s / 豁免 %s）" % (p, w))
+
     # 用例数自守：按「跑了几条」核，不按「过了几条」核 ——
     # 用 ok 去核会在失败时恰好抵消掉一条（ok=8、期望 8 看着相等），把漏用例盖住。
     attempted = ok + len(failures)
@@ -244,8 +299,31 @@ def main(argv):
         print("✘ %d 处对不上：清单 tools/case_counts.txt 是唯一真源，改完代码要顺手改它"
               % nbad)
         return 1
-    print("✔ %d 个工具、共 %d 条用例：清单 / 工具自守 / 实跑输出 三方一致"
-          % (len(rows), total_cases))
+
+    # ---- 覆盖：闸门脚本里调了 --selftest 的，清单里都得有一条 ----
+    covered = set(os.path.basename(p) for p, _w, _n in rows)
+    gate_texts = {}
+    for g in GATES:
+        fp = os.path.join(ROOT, g)
+        if os.path.isfile(fp):
+            gate_texts[g] = io.open(fp, encoding="utf-8", errors="replace").read()
+        else:
+            print("  ⚠ 闸门脚本不存在：%s（覆盖检查跳过它，不当成通过）" % g)
+    cov, waived = coverage_problems(gate_texts, covered, ALLOW)
+    for base, why in waived:
+        print("  ⊘ 豁免 %-26s %s" % (base, why))
+    if cov:
+        for q in cov:
+            print("  ✘ 覆盖：%s" % q)
+        print("✘ %d 个自检仍只被 rc 守着 —— 要么加进清单，要么写进 ALLOW 并说明理由" % len(cov))
+        return 1
+
+    n_calls = len(set(os.path.basename(m.group(1))
+                      for t in gate_texts.values()
+                      for m in CALL_RE.finditer(t or "")))
+    print("✔ %d 个工具、共 %d 条用例：清单 / 工具自守 / 实跑输出 三方一致；"
+          "闸门里 %d 个自检目标已全部纳入或带理由豁免"
+          % (len(rows), total_cases, n_calls))
     return 0
 
 
