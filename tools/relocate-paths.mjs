@@ -159,7 +159,9 @@ function write() {
 
 function selftest() {
   let bad = 0;
-  const ok = (c, m) => { console.log(`  ${c ? "✔" : "✘"} ${m}`); if (!c) bad++; };
+  let nCase = 0;                        // 用例条数（开发计划 §9cd / §9cg）
+  const WANT_CASES = 8;                 // 加/删用例必须同步改这里，并同步 tools/case_counts.txt
+  const ok = (c, m) => { console.log(`  ${c ? "✔" : "✘"} ${m}`); nCase++; if (!c) bad++; };
   console.log("── R1 tailOf：旧前缀能剥出相对尾巴 ──");
   ok(tailOf(SRC_PREFIXES[0] + "brains/abigail.lua", SRC_PREFIXES) === "brains/abigail.lua",
      "SRC 尾巴 = brains/abigail.lua");
@@ -190,7 +192,13 @@ function selftest() {
   } finally {
     try { unlinkSync(tmp); } catch { /* noop */ }
   }
-  console.log(bad ? `\n结果：${bad} 条失败` : "\n结果：全绿");
+  // ★ 自检也要守住「用例还在不在」：删几条用例、剩下全过，exit code 仍是 0，
+  //   而这条自检就在静默变松（开发计划 §9cd / §9cg）。
+  if (nCase !== WANT_CASES) {
+    console.log(`  ✘ 自检用例 ${nCase} 条，期望 ${WANT_CASES} 条 —— 加/删用例时必须同步 WANT_CASES，否则这条自检会静默变松`);
+    bad++;
+  }
+  console.log(bad ? `\n结果：${bad} 条失败（用例 ${nCase} 条）` : `\n结果：全绿（用例 ${nCase} 条）`);
   return bad ? 1 : 0;
 }
 

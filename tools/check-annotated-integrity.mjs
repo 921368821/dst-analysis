@@ -136,7 +136,14 @@ function selftest() {
     if (!ok) bad++;
     console.log(`${ok ? "✔" : "✘"} ${c.name}${ok ? "" : `  期望 ${c.want} 实际 ${c.got}`}  ${c.detail}`);
   }
-  console.log(`\n自检：${cases.length - bad}/${cases.length} 通过`);
+  // ★ 自检也要守住「用例还在不在」：删几条用例、剩下全过，exit code 仍是 0，
+  //   而这条自检就在静默变松（开发计划 §9cd / §9cg）。
+  const WANT_CASES = 5;               // 加/删用例必须同步改这里，并同步 tools/case_counts.txt
+  if (cases.length !== WANT_CASES) {
+    console.log(`  ✘ 自检用例 ${cases.length} 条，期望 ${WANT_CASES} 条 —— 加/删用例时必须同步 WANT_CASES，否则这条自检会静默变松`);
+    bad++;
+  }
+  console.log(`\n自检：${cases.length - bad}/${cases.length} 通过（用例 ${cases.length} 条）`);
   return bad === 0 ? 0 : 1;
 }
 

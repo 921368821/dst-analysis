@@ -34,13 +34,21 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MANIFEST = os.path.join(ROOT, "tools", "case_counts.txt")
 
-WANT_CASES = 10         # 本工具自检用例条数：加/删必须同步改这里（否则自检静默变松）
+WANT_CASES = 11         # 本工具自检用例条数：加/删必须同步改这里（否则自检静默变松）
 
 # 各工具统一在末行加「（用例 N 条）」。只认这一种写法 ——
 # 认两种的那一版（`自检：23/23` / `N 条合成用例`）要求每个工具各写一条正则，
 # 结果新增工具时很容易漏，漏了就走「读不出」分支，等于白写。统一成一种更稳。
 CASE_RE = re.compile(r"（用例 (\d+) 条）")
-DECL_RE = re.compile(r"^WANT_CASES\s*=\s*(\d+)", re.M)
+# Python 侧写 `WANT_CASES = 7`，JS 侧写 `const WANT_CASES = 4;`（在函数里，有缩进）—— 两种都认。
+DECL_RE = re.compile(r"^\s*(?:const\s+)?WANT_CASES\s*=\s*(\d+)", re.M)
+
+
+def runner_for(path):
+    """按扩展名选解释器：.mjs/.js 用 node（环境变量 NODE 优先，与 tools/env.sh 一致）。"""
+    if path.endswith((".mjs", ".js")):
+        return [os.environ.get("NODE") or "node"]
+    return [sys.executable]
 
 
 def actual_cases(out):
@@ -151,6 +159,13 @@ def selftest():
     else:
         failures.append("清单：第一列带参数应被拒（%d 条问题、%d 行）" % (len(bad), len(rows)))
 
+    # ★ 判据工具一半是 .mjs：按扩展名选解释器，别把「只支持 Python」当成「JS 不用守」。
+    r = runner_for("a/b.mjs")
+    if len(r) == 1 and (r[0] == "node" or r[0].lower().endswith(("node", "node.exe"))):
+        ok += 1
+    else:
+        failures.append("runner_for(.mjs) 应选 node，实际 %r" % (r,))
+
     # 用例数自守：按「跑了几条」核，不按「过了几条」核 ——
     # 用 ok 去核会在失败时恰好抵消掉一条（ok=8、期望 8 看着相等），把漏用例盖住。
     attempted = ok + len(failures)
@@ -204,7 +219,7 @@ def main(argv):
         m = DECL_RE.search(src)
         declared = int(m.group(1)) if m else None
         try:
-            r = subprocess.run([sys.executable, full, "--selftest"],
+            r = subprocess.run(runner_for(full) + [full, "--selftest"],
                                cwd=ROOT, stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT, universal_newlines=True,
                                timeout=300)

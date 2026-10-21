@@ -116,9 +116,11 @@ if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import
     process.exit(2);
   }
   let bad = 0;
+  let nCase = 0;                        // 用例条数（开发计划 §9cd / §9cg）
+  const WANT_CASES = 5;                 // 加/删用例必须同步改这里，并同步 tools/case_counts.txt
   const ok = (cond, msg) => {
     console.log(`  ${cond ? "✔" : "✘"} ${msg}`);
-    if (!cond) bad++;
+    nCase++; if (!cond) bad++;
   };
   console.log("工程根 :", repoRoot);
   ok(existsSync(ANN_SCRIPTS), "注释版 scripts 根存在");
@@ -160,6 +162,12 @@ if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import
     ok(/自己比自己|拒绝/.test(msg) && /archive-pristine/.test(msg),
        "同树候选被拒绝，报错点明了 dstsrc 陷阱与修复命令");
   }
-  console.log(bad ? `\n结果：${bad} 条失败` : "\n结果：全绿");
+  // ★ 自检也要守住「用例还在不在」：删几条用例、剩下全过，exit code 仍是 0，
+  //   而这条自检就在静默变松（开发计划 §9cd / §9cg）。
+  if (nCase !== WANT_CASES) {
+    console.log(`  ✘ 自检用例 ${nCase} 条，期望 ${WANT_CASES} 条 —— 加/删用例时必须同步 WANT_CASES，否则这条自检会静默变松`);
+    bad++;
+  }
+  console.log(bad ? `\n结果：${bad} 条失败（用例 ${nCase} 条）` : `\n结果：全绿（用例 ${nCase} 条）`);
   process.exit(bad ? 1 : 0);
 }

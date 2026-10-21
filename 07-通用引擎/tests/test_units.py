@@ -47,6 +47,9 @@ guard(quiet=True)                            # 干净时不说话；脏就 Syste
 
 PASS, FAIL, SKIP = 0, 0, 0
 RESULTS = []
+# 自检用例条数（开发计划 §9cd / §9cg）：加/删用例必须同步改这里，
+# 并同步 tools/case_counts.txt —— 否则「删了一半用例、剩下全过」会让闸门照样绿。
+WANT_CASES = 44
 
 
 class Skip(Exception):
@@ -1139,13 +1142,19 @@ def main():
     print("\n" + "─" * 78)
     total = PASS + FAIL + SKIP
     if SKIP:
-        print("  结果：%d 通过 / %d 失败 / %d 跳过（共 %d 条）" % (PASS, FAIL, SKIP, total))
+        print("  结果：%d 通过 / %d 失败 / %d 跳过（共 %d 条）（用例 %d 条）"
+              % (PASS, FAIL, SKIP, total, total))
         skipped = [n for (n, ok, _i) in RESULTS if ok is None]
         print("  ⚠ 跳过**不算通过**：本次结论不覆盖 %s" % "、".join(s.split(" ")[0] for s in skipped))
     else:
-        print("  结果：%d 通过 / %d 失败（共 %d 条）" % (PASS, FAIL, total))
+        print("  结果：%d 通过 / %d 失败（共 %d 条）（用例 %d 条）"
+              % (PASS, FAIL, total, total))
+    # ★ 用例数自守：删掉几条用例、剩下全过，rc 仍是 0，而这份单测就在静默变松。
+    if total != WANT_CASES:
+        print("  ✘ 自检用例 %d 条，期望 %d 条 —— 加/删用例时必须同步 WANT_CASES，"
+              "否则这条自检会静默变松" % (total, WANT_CASES))
     print("─" * 78)
-    return 0 if FAIL == 0 else 1
+    return 1 if (FAIL != 0 or total != WANT_CASES) else 0
 
 
 if __name__ == "__main__":
