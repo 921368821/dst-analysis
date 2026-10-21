@@ -44,6 +44,18 @@ def hit(where, kind, found, real, ctx=""):
     HITS.append((where, kind, found, real, ctx))
 
 
+class _Got(int):
+    """自检辅助函数用它把「**实际值**」直接交回自检循环（而不是自己 hit 一条）。
+
+    ★★ 为什么必须这么绕（2026-10-21 实测，§9bk）：
+      原来的写法是「不符就 hit 一条」，而自检循环用 `len(HITS) - n0` 当实际值。
+      于是**规则报 0 条（漏报）**与**规则报 1 条（报对了）**都会让外层看到 1 条：
+      凡是 `want >= 1` 的用例，「少报」永远抓不住。
+      反向验证时把 `check_test_counts` 改成永不比对（`if False:`），
+      62 条用例**全绿** —— 这就是它被发现的现场。
+    """
+
+
 def read(p):
     return io.open(p, encoding="utf-8", errors="replace").read()
 
@@ -122,11 +134,20 @@ def count_checks(path):
     return n
 
 
-def check_test_counts():
-    plan = read(PLAN)
+def check_test_counts(files=None, plan_text=None, root=None):
+    """各测试文件的条数之和 vs 计划里写的「合计 N 项测试」。
+
+    ★ 三个参数**只为规则自检**（`--selftest`）留的注入点，与 `check_test_ids` /
+      `check_counter_direct_access` 的既有做法一致：给合成输入就能证明规则真的会响。
+      没有它们，这条守「合计 225 项」的判据**至今零反向用例** —— 2026-10-21 的
+      AST 审计才发现的（16 条规则里 4 条零自检）。
+    """
+    files = TEST_FILES if files is None else files
+    plan = read(PLAN) if plan_text is None else plan_text
+    base = ROOT if root is None else root
     total = 0
-    for f, name in TEST_FILES.items():
-        p = os.path.join(ROOT, f)
+    for f, name in files.items():
+        p = os.path.join(base, f)
         if not os.path.isfile(p):
             hit(f, "测试文件不存在", f, "缺文件")
             continue
@@ -148,8 +169,8 @@ def check_test_counts():
         claimed = int(m.group(1))
         if claimed != total:
             hit("开发计划.md", "测试总数", "合计 %d 项" % claimed, "实测 %d 项" % total,
-                "各文件: " + " ".join("%s=%d" % (TEST_FILES[f], file_items(os.path.join(ROOT, f)))
-                                     for f in TEST_FILES if os.path.isfile(os.path.join(ROOT, f))))
+                "各文件: " + " ".join("%s=%d" % (files[f], file_items(os.path.join(base, f)))
+                                     for f in files if os.path.isfile(os.path.join(base, f))))
     else:
         hit("开发计划.md", "找不到测试总数声明", "（无）", "实测 %d 项" % total)
     return total
@@ -505,8 +526,8 @@ def _selftest_groups(run_all_text, want):
     而自检的契约是「报了几条」，所以这里把「与期望不符」变成一条记录。
     ⇒ 自检里成对使用：**数对时应当 0 条、故意给错期望时应当 1 条**（后者证明它真的数了）。"""
     got = count_groups(run_all_text)
-    if got != want:
-        hit("<selftest>", "数分组不对", "期望 %d 组" % want, "实测 %d 组" % got)
+    # ★ 返回「本该报几条」而不是自己 hit 一条（见 `_Got` 的注释）
+    return _Got(0 if got == want else 1)
 
 
 # README「分组表」每一行 → 它对应哪个文件（**行里的数字必须与那个文件的实测一致**）
@@ -625,11 +646,38 @@ def check_registry_alignment():
         hit("README.md", kind, f, "两张表必须指向同一批文件")
 
 
+def _selftest_items(spec, plan_text, want):
+    """同 `_selftest_groups` 的套路：临时目录里造测试文件，撞 `check_test_counts`。
+
+    `spec` = {相对路径: 文件内容或 None}；None 表示**故意不创建**（撞「缺文件」分支）。
+    判的是**这条规则报了几条**，不是 total 的值 —— 因为「漏报」和「多报」都只能从
+    hit 的条数看出来。
+    """
+    import shutil
+    import tempfile
+    d = tempfile.mkdtemp(prefix="vp_items_")
+    try:
+        fake = {}
+        for rel, body in spec.items():
+            fake[rel] = "自检"          # 显示名（只出现在 hit 的细节串里）
+            if body is None:
+                continue
+            p = os.path.join(d, rel)
+            parent = os.path.dirname(p)
+            if parent and not os.path.isdir(parent):
+                os.makedirs(parent)
+            io.open(p, "w", encoding="utf-8", newline="").write(body)
+        n0 = len(HITS)
+        check_test_counts(files=fake, plan_text=plan_text, root=d)
+        return _Got(len(HITS) - n0)      # ★ 交回实际值，不自己 hit（见 `_Got`）
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
 def _selftest_crosscheck(test_files, rows, want):
     """同 `_selftest_groups`：把「条数不对」变成一条记录，成对使用才有意义。"""
     got = len(crosscheck_registries(test_files, rows))
-    if got != want:
-        hit("<selftest>", "双表对齐判据条数不对", "期望 %d 条" % want, "实测 %d 条" % got)
+    return _Got(0 if got == want else 1)
 
 
 # ------------------------------------------------- 2b. 文档里的命令能不能真跑
@@ -910,8 +958,7 @@ def _selftest_classify(text, want):
     而自检的契约是「报了几条」⇒ 把「与期望不符」变成一条记录。
     成对使用才有意义：判对时 0 条、**故意给错期望时 1 条**（后者证明它真的判了）。"""
     got = classify_lua_failure(text)
-    if got != want:
-        hit("<selftest>", "Lua 失败归因不对", "期望 %s" % want, "实测 %s" % got)
+    return _Got(0 if got == want else 1)
 
 
 def selftest():
@@ -1076,6 +1123,29 @@ def selftest():
                                      "        return self.frames_sent\n"},
               counters=("frames_sent",)), 1),
     ]
+    # ---- 「合计 N 项测试」这条判据自己（P50㉙ 补，此前零反向用例）----
+    _C3 = "check(1)\ncheck(2)\ncheck(3)\n"
+    cases.extend([
+        ("条数：一致时不得报", _selftest_items,
+         dict(spec={"tests/a.py": _C3}, plan_text="合计 3 项测试", want=0), 0),
+        ("条数：计划写错总数时必须报（证明它真的数了）", _selftest_items,
+         dict(spec={"tests/a.py": _C3}, plan_text="合计 99 项测试", want=1), 1),
+        ("条数：计划里根本没有总数声明也必须报", _selftest_items,
+         dict(spec={"tests/a.py": _C3}, plan_text="（这一版没写总数）", want=1), 1),
+        ("条数：该声明条数的文件缺 EXPECT_ITEMS 必须报", _selftest_items,
+         dict(spec={"tests/test_stall_watchdog.py": _C3},
+              plan_text="合计 3 项测试", want=1), 1),
+        ("条数：测试文件不存在必须报", _selftest_items,
+         dict(spec={"tests/ghost.py": None}, plan_text="合计 0 项测试", want=1), 1),
+        ("条数：有 EXPECT_ITEMS 就按声明算，不按 check( 行数", _selftest_items,
+         dict(spec={"tests/a.py": "EXPECT_ITEMS = 5\ncheck(1)\ncheck(2)\n"},
+              plan_text="合计 5 项测试", want=0), 0),
+        # ★ 这一条是关键：同一份文件、计划写 2（= 静态数）。若判据退化成数 check( 行，
+        #   它会算 2 == 2 ⇒ 0 条 ⇒ 用例红。它证明「用的是声明值」。
+        ("条数：退化成静态数就会被抓住（计划写 2 而声明 5）", _selftest_items,
+         dict(spec={"tests/a.py": "EXPECT_ITEMS = 5\ncheck(1)\ncheck(2)\n"},
+              plan_text="合计 2 项测试", want=1), 1),
+    ])
     # ★★★ 自检会产生一堆**假的**记录，必须只清掉这些、**绝不能碰真记录**。
     #   第一版写的是 `del HITS[:]` —— 而当时自检是在 `check_test_counts()` **之后**调的，
     #   于是它把**真实**的不一致也一起抹掉了：计划写 79、实测 80，工具却报 ✔。
@@ -1085,8 +1155,9 @@ def selftest():
     bad = []
     for name, fn, kw, want in cases:
         n0 = len(HITS)
-        fn(**kw)
-        got = len(HITS) - n0
+        res = fn(**kw)
+        # ★ helper 用 `_Got` 交回「实际值」；普通规则就用它新增了几条 hit。
+        got = int(res) if isinstance(res, _Got) else len(HITS) - n0
         mark = "✔" if got == want else "✘"
         if got != want:
             bad.append(name)
