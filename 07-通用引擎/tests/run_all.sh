@@ -472,6 +472,16 @@ if [ "$FAST" = "1" ]; then
     if run_step "$PY" -u tests/test_units.py; then :; else FAIL=1; fi
     hr "④ 计划数字核对（--fast：跳过进程内实测）"
     if run_step "$PY" -u tools/verify_plan.py --fast; then :; else FAIL=1; fi
+    # ★★ P50㉚：`tests/_run_all.rounds.tsv` 直接决定**下一轮锁阈值**（§9bc），此前零守卫：
+    #   手改 `_run_all.groupmax` 没人比对；表里能出现「最长 800 s 而阈值 600 s」这种自相矛盾的行。
+    #   两条都要跑：先证明判据会响（--selftest），再拿真表撞一遍。
+    #   ★ 表是 gitignore 的（新克隆上没有）⇒ 缺表时**明说跳过**：不许报绿（没验过）也不许报红（不是错）。
+    if run_step "$PY" -u tools/check_rounds.py --selftest; then :; else FAIL=1; fi
+    if [ -f "$ROOT/tests/_run_all.rounds.tsv" ]; then
+        if run_step "$PY" -u tools/check_rounds.py; then :; else FAIL=1; fi
+    else
+        printf '    （还没有 tests/_run_all.rounds.tsv —— 首次运行，本检查**跳过**，不是通过）\n'
+    fi
     # ★ H6：根目录三份基线文档的过期数字（verify_plan 只扫 07 目录，扫不到它们）
     if run_step "$PY" -u "$ROOT/../tools/audit_root_docs.py"; then :; else FAIL=1; fi
     # ★ M9：注释版**自身**完整性（U+FFFD / 二进制被当文本重写）。
@@ -502,6 +512,16 @@ if run_step "$PY" -u tests/test_stress.py; then :; else FAIL=1; fi
 #   **从来没有在统一入口里跑过** —— 工具里有一半功能没人走。
 hr "④ 计划数字核对（含进程内实测 + 规则自检 + 测试编号唯一性）"
 if run_step "$PY" -u tools/verify_plan.py; then :; else FAIL=1; fi
+    # ★★ P50㉚：`tests/_run_all.rounds.tsv` 直接决定**下一轮锁阈值**（§9bc），此前零守卫：
+    #   手改 `_run_all.groupmax` 没人比对；表里能出现「最长 800 s 而阈值 600 s」这种自相矛盾的行。
+    #   两条都要跑：先证明判据会响（--selftest），再拿真表撞一遍。
+    #   ★ 表是 gitignore 的（新克隆上没有）⇒ 缺表时**明说跳过**：不许报绿（没验过）也不许报红（不是错）。
+    if run_step "$PY" -u tools/check_rounds.py --selftest; then :; else FAIL=1; fi
+    if [ -f "$ROOT/tests/_run_all.rounds.tsv" ]; then
+        if run_step "$PY" -u tools/check_rounds.py; then :; else FAIL=1; fi
+    else
+        printf '    （还没有 tests/_run_all.rounds.tsv —— 首次运行，本检查**跳过**，不是通过）\n'
+    fi
     if run_step "$PY" -u "$ROOT/../tools/audit_root_docs.py"; then :; else FAIL=1; fi
     # ★ L1：协议常量单源 / ★ M8：注释流水线旧绝对路径绝迹（与 --fast 分支同一组判据）
     if run_step "$NODE" "$ROOT/../tools/gen-protocol-schema.mjs" --check; then :; else FAIL=1; fi
