@@ -140,6 +140,9 @@ def _rpt(n, hist, thr, pmax):
             % (n, hist, thr, pmax))
 
 
+WANT_CASES = 7                   # 自检用例条数。加/删用例**必须同步改这里**
+
+
 def selftest():
     ok = bad = 0
     cases = [
@@ -162,8 +165,15 @@ def selftest():
         print("%s %-18s 期望 %d 条✘ 实际 %d 条%s"
               % (mark, name, want, len(got),
                  ("：" + got[0][:60]) if got else ("（⚠ %d 条）" % len(warn))))
-    print("%s check_report_ledger 自检：%d/%d"
-          % ("✔" if bad == 0 else "✘", ok, ok + bad))
+    # ★ 自检自己也要守住「用例还在不在」：删掉一条用例、只要剩下几条全过，
+    #   rc 仍是 0 —— 那这条自检就在**静默变松**，而它看起来一直在跑。
+    #   收尾核验里那个「算了却没用」的 want 变量就是这个毛病（开发计划 §9cd）。
+    if len(cases) != WANT_CASES:
+        print("✘ 自检用例 %d 条，期望 %d 条 —— 加/删用例时必须同步 WANT_CASES，"
+              "否则这条自检会静默变松" % (len(cases), WANT_CASES))
+        bad += 1
+    print("%s check_report_ledger 自检：%d/%d（用例 %d 条）"
+          % ("✔" if bad == 0 else "✘", ok, len(cases) + bad, len(cases)))
     return 0 if bad == 0 else 1
 
 
