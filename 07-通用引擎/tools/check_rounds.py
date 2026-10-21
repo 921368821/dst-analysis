@@ -156,6 +156,34 @@ LOG = os.path.join(ROOT, "tests", "_run_all.log")
 #   `.+?` 非贪婪 + 固定分隔符：组名里带 `+` / `**` / `：` 都不影响。
 _TIME_RE = re.compile(r"^⏱ (.+?) 用时 (\d+) s\s*$", re.M)
 
+# ★ B12（2026-10-21 16:25 并发实测）：日志与表末行**可能不是同一轮**。
+#   并发时 `_run_all.log` 被新一轮从开头重写，而表末行还是上一轮的 ——
+#   `check_log` 于是把新一轮的 11 行组用时比给旧轮的 18 组，报出两条**假红**
+#   （实测原文：「日志里有 11 行组用时，而「组数」写的是 18」
+#              「日志里最长的一组是 252 s，而「最长_s」写的是 497 s」）。
+#   ④ 组用 `--no-log` 躲开了，但**人直接跑默认模式就会看到**，然后去修一个
+#   不存在的问题 —— 假红比不报更贵（§9bj.4 的同一条）。
+_ROUND_RE = re.compile(r"run_all 开始 (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})")
+
+
+def log_round(log_text):
+    """日志自己声明的开始时刻；读不到返回 None。"""
+    m = _ROUND_RE.search(log_text or "")
+    return m.group(1) if m else None
+
+
+def same_round(log_text, last_row):
+    """这份日志是不是表末行那一轮写的？**判断不了返回 None，不返回 True。**
+
+    三态而不是布尔：`None`（读不到时刻）与 `False`（确定不是同一轮）必须分开 ——
+    前者只能照旧对账（可能报红），后者必须跳过（一定假红）。
+    """
+    lr = log_round(log_text)
+    tr = ((last_row or {}).get("开始时间") or "").strip()
+    if not lr or not tr:
+        return None
+    return lr == tr
+
 
 def check_log(log_text, n_exec=None, max_s=None, max_name=None):
     """日志里的组用时 ↔ 表里的「组数 / 最长_s / 最长一组」。
@@ -376,7 +404,24 @@ def selftest():
                 print("         · ✘ %s" % m)
             for m in w:
                 print("         · ⚠ %s" % m)
-    total = len(SELFTEST) + len(SELFTEST_GM) + len(SELFTEST_LOG)
+    # ---- B12：日志与表末行是不是同一轮（三态，不是布尔）----
+    _T1 = "══ run_all 开始 2026-10-21 10:00:00 · PID 1 · 参数 （全量）\n" + _LOG_SAME
+    _T2 = "══ run_all 开始 2026-10-21 16:15:09 · PID 2 · 参数 （全量）\n" + _LOG_SHORT
+    _last = {"开始时间": "2026-10-21 10:00:00"}
+    for name, got, want in (
+        ("归属：日志开始时刻与表末行相同 ⇒ True", same_round(_T1, _last), True),
+        ("归属：日志是新一轮、表末行是旧轮 ⇒ False（必须跳过）",
+         same_round(_T2, _last), False),
+        ("归属：日志里没有开始行 ⇒ None（照旧对账，不静默放行）",
+         same_round(_LOG_SAME, _last), None),
+        ("归属：表末行没有开始时间 ⇒ None", same_round(_T1, {}), None),
+    ):
+        ok = (got is want)
+        if not ok:
+            bad += 1
+        print("    %s %-28s 期望 %r，实际 %r" % ("✔" if ok else "✘", name, want, got))
+    total = len(SELFTEST) + len(SELFTEST_GM) + len(SELFTEST_LOG) + 4
+
     print("  %s %d 条合成用例（✘ 与 ⚠ 都数）" % ("✔" if bad == 0 else "✘", total))
     return 0 if bad == 0 else 1
 
@@ -455,12 +500,24 @@ def main():
     if a.no_log:
         print("  （--no-log：不与日志对账 —— 只查了表自己）")
     elif os.path.isfile(a.log):
-        lb, lw = check_log(io.open(a.log, encoding="utf-8", errors="replace").read(),
-                           *row_expect(rows[-1] if rows else None))
-        bad += lb
-        warn += lw
-        log_ran = True
-        print("  组用时日志：%s" % os.path.relpath(a.log, ROOT).replace("\\", "/"))
+        log_text = io.open(a.log, encoding="utf-8", errors="replace").read()
+        last = rows[-1] if rows else None
+        # ★ B12：先问「这份日志是不是表末行那一轮的」，再对账。
+        #   `False` = 确定不是同一轮 ⇒ 跳过（再比下去必是假红）；
+        #   `None`  = 读不到开始时刻 ⇒ 无从判断，照旧对账（宁可报红，也不静默放行）。
+        same = same_round(log_text, last)
+        if same is False:
+            print("  组用时日志：%s" % os.path.relpath(a.log, ROOT).replace("\\", "/"))
+            print("  ⚠ 日志开始于 %s，而表末行是 %r —— **不是同一轮**，跳过日志对账"
+                  % (log_round(log_text), ((last or {}).get("开始时间") or "").strip()))
+            print("    （并发时日志属于新一轮。这一项**不做判定，也不当作通过**；"
+                  "等该轮写完表尾再对账。）")
+        else:
+            lb, lw = check_log(log_text, *row_expect(last))
+            bad += lb
+            warn += lw
+            log_ran = True
+            print("  组用时日志：%s" % os.path.relpath(a.log, ROOT).replace("\\", "/"))
     else:
         print("  （没有 %s —— 日志对账**没有执行**，不是通过）"
               % os.path.relpath(a.log, ROOT).replace("\\", "/"))
