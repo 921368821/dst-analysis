@@ -204,7 +204,8 @@ def heal_leftover():
     for pth, body in orig.items():
         try:
             io.open(pth, "w", encoding="utf-8", newline="").write(body)
-            back = io.open(pth, encoding="utf-8").read()
+            # ★ 读回来也必须 `newline=""`：写是不翻译的，读若翻译就永远比不平。
+            back = io.open(pth, encoding="utf-8", newline="").read()
             if back != body:
                 ok = False
                 print("  ✘ 自动还原后校验不一致：%s" % pth)
@@ -233,7 +234,24 @@ def main():
     ap.add_argument("--heal", action="store_true",
                     help="★ 只做一件事：把「上一次被硬中断」留在源码里的篡改按标记还原掉，"
                          "不跑任何测试。给 run_all 开头用（否则 ①~②e 全在**假源码**上跑）")
+    ap.add_argument("--selftest-heal", action="store_true",
+                    help="★ 只跑「还原路径」的自测（5 条用例 / 约 0.2 s）：证明 "
+                         "heal_leftover() 在无标记 / 正常 / 旧格式 / 标记损坏 / 写不进去"
+                         "五种输入下都按承诺行事。不改任何真实源码")
     a = ap.parse_args()
+
+    # ★★ P50㉗：**先由自己证明「还原路径」是活的，再去改别人的源码。**
+    #   这条放在 `heal_leftover()` 之前：自测用沙箱（临时目录 + 把 MARK 指过去），
+    #   与真实标记无关，所以「有残留要还原」的时候也能照跑。
+    #   为什么值得单独一条：`heal_leftover()` 是「变异被硬中断」之后**唯一**的补救，
+    #   而它此前零测试。2026-10-20 那次中断把 `rt/rt_boot.lua` 停在
+    #   `if true then return true end` 整整 10 小时；今早它确实还原成功了，
+    #   但那是**一次幸运的实测**，不是一条判据 —— 它第一次被当判据用（本自测），
+    #   就抓出了「写用 `newline=""`、读不用」的真缺陷（见 falsify_heal_selftest.py 头注释）。
+    if a.selftest_heal:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import falsify_heal_selftest as _hs
+        return _hs.main()
 
     # ★★ 开机第一件事：把「上一次被掐掉」留下的篡改还原掉（见 heal_leftover 的注释）。
     #   放在 `--check-anchors` 之前 —— 那个闸门本身就是「几秒内确认源码可用」，
@@ -260,7 +278,7 @@ def main():
             paths = path if isinstance(path, list) else [path] * len(pairs)
             if not all(os.path.exists(p_) for p_ in paths):
                 print("  ✘ [%s] 目标文件不存在：%s" % (desc, paths)); bad += 1; continue
-            srcs = {p_: io.open(p_, encoding="utf-8").read() for p_ in paths}
+            srcs = {p_: io.open(p_, encoding="utf-8", newline="").read() for p_ in paths}
             for (o, _nw), p_ in zip(pairs, paths):
                 cnt = srcs[p_].count(o)
                 if cnt != 1:
@@ -303,7 +321,15 @@ def main():
         mutateds = {}           # 路径 -> 当前内容（改后）
         for pth in paths:
             if pth not in originals:
-                originals[pth] = io.open(pth, encoding="utf-8").read()
+                # ★★ 2026-10-21：读原文也必须 `newline=""`。
+                #   默认的 universal-newlines 会把 CRLF 读成 LF ⇒ 存进标记里的「原文」
+                #   已经不是原文了 ⇒ 还原时按它写回，整个文件的 CRLF 被**静默换成 LF**
+                #   （真损坏），而下面那次「读回来比一遍」用的也是 universal 读法，
+                #   于是它会说「一致」—— **一次损坏 + 一次假绿灯**。
+                #   现有的 4 个变异目标恰好都是纯 LF，所以这个洞从没被踩到；
+                #   一旦哪天出现 CRLF 目标（本仓库的 `tests/run_all.sh` 就是 CRLF），
+                #   它会以「还原成功」的样子把文件改掉。
+                originals[pth] = io.open(pth, encoding="utf-8", newline="").read()
                 mutateds[pth] = originals[pth]
         anchor_bad = False
         for (o, nw), pth in zip(pairs, paths):
@@ -338,7 +364,7 @@ def main():
                 io.open(pth, "w", encoding="utf-8", newline="").write(body)
                 # ★ 还原必须**被验证**：写完再读回来比一次。还原不干净的话，
                 #   后面所有结果都建立在脏源码上（这比红更危险，因为它看起来是绿的）。
-                back = io.open(pth, encoding="utf-8").read()
+                back = io.open(pth, encoding="utf-8", newline="").read()
                 if back != body:
                     print("  ✘ [%s] **还原失败**：%s 与改前不一致（后续结论全部不可信）"
                           % (desc, pth))

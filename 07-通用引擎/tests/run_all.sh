@@ -415,6 +415,14 @@ if run_step "$PY" -u tests/test_drawcmd_neg.py; then :; else FAIL=1; fi
 #   每条篡改**连续跑 2 遍都要红**才算数（只红一次可能是抖：砍树那件事今天就抖过）。
 #   ⚠️ 篡改的锚点串找不到时它**报错**（不许静默跳过）——否则「这条判据从此没人守」。
 hr "②f Python 侧：**服务端/引擎变异测试**（把 rt/ 改坏，看判据是否真的变红）"
+# ★★ P50㉗：**先证明「还原路径」是活的，再去改别人的源码。**
+#   ②f 的每条篡改都靠 `finally` 把原文写回；被硬中断时靠 `heal_leftover()`。
+#   而后者此前**零测试** —— 2026-10-20 23:10 那次中断把 `rt/rt_boot.lua` 停在
+#   `if true then return true end`，整整 10 小时 3 分；它今早能还原成功是**运气**。
+#   这条自测第一次当判据用就抓出真缺陷（写用 newline=""、读不用 ⇒ 带 \r 的文件
+#   永远比不平 ⇒ 写对了却报失败），见 开发计划 §9bh。
+#   5 条用例 / 0.2 s / 沙箱，不碰仓库文件，所以放在真变异之前不拖慢多少。
+if run_step "$PY" -u tests/falsify_server.py --selftest-heal; then :; else FAIL=1; fi
 if run_step "$PY" -u tests/falsify_server.py --runs 2; then :; else FAIL=1; fi
 
 # ★★ ②i **停帧看门狗**（C1，2026-10-18 接入）。
