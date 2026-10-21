@@ -196,6 +196,9 @@ def c5_unwritable_target():
         assert "本轮不跑" in sb.text(), "没说明「本轮不跑」：%r" % sb.text()
 
 
+WANT_CASES = 5                   # 自检用例条数：加/删必须同步改这里（开发计划 §9cd / §9cg）
+
+
 def main():
     bad = 0
     for fn in CASES:
@@ -210,7 +213,14 @@ def main():
             print("  ✘ %s：抛了未预期的 %s: %s" % (name, type(e).__name__, e))
         else:
             print("  ✔ %s" % name)
-    print("heal_leftover 自测：%d 条用例，%d 条不通过" % (len(CASES), bad))
+    # ★ 自检也要守住「用例还在不在」：删几条用例、剩下全过，rc 仍是 0，
+    #   而这条自检就在静默变松（开发计划 §9cd / §9cg）。
+    if len(CASES) != WANT_CASES:
+        bad += 1
+        print("  ✘ 自检用例 %d 条，期望 %d 条 —— 加/删用例时必须同步 WANT_CASES，"
+              "否则这条自检会静默变松" % (len(CASES), WANT_CASES))
+    print("heal_leftover 自测：%d 条用例，%d 条不通过（用例 %d 条）"
+          % (len(CASES), bad, len(CASES)))
     return 0 if bad == 0 else 1
 
 

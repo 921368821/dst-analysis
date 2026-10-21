@@ -175,6 +175,8 @@ def heal(marks=None, quiet=False):
 
 
 # ── 合成用例：证明上面那几条真的会响、heal 真的写回 ──────────────
+WANT_CASES = 9                   # 自检用例条数：加/删必须同步改这里（开发计划 §9cd / §9cg）
+
 SELFTEST = [
     # (说明, 标记内容(None=不建文件), 活 pid 集合(None=拿不到), 期望脏?, 期望关键词)
     ("没有标记文件 ⇒ 干净", None, set(), False, "没有"),
@@ -253,7 +255,12 @@ def selftest():
     except OSError:
         pass
     total = len(SELFTEST) + 3
-    print("  %s %d 条合成用例" % ("✔" if bad == 0 else "✘", total))
+    if total != WANT_CASES:
+        bad += 1
+        print("  ✘ 自检用例 %d 条，期望 %d 条 —— 加/删用例时必须同步 WANT_CASES，"
+              "否则这条自检会静默变松" % (total, WANT_CASES))
+    print("  %s %d 条合成用例（用例 %d 条）"
+          % ("✔" if bad == 0 else "✘", total, total))
     return 0 if bad == 0 else 1
 
 

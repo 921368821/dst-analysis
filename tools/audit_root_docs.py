@@ -45,6 +45,7 @@ ROOT = os.path.dirname(HERE)                 # 工程根（DST-Analysis）
 BASELINE_DOCS = ["引擎审计报告.md", "后续计划单.md", "引擎作用单.md"]
 
 STALE = ["13 组", "133 项", "130 项", "138 编号", "92 条断言"]
+WANT_CASES = 7                   # 自检用例条数：加/删必须同步改这里（开发计划 §9cd / §9cg）
 HIST = ["当时值", "历史", "快照", "已过期", "那一轮"]
 # 「基线声明」的形状：同一行里 `N 组` 与 `M 项`（中间隔不超过 40 字）。
 # ★ 为什么不扫「任何数字」：根目录文档大量出现「15 项」「19 项」这类任务清单计数，
@@ -137,7 +138,14 @@ def selftest():
         if got != want:
             ok = False
         print("  %s 期望 %d 处，实测 %d 处：%s" % (flag, want, got, text.strip()[:40]))
-    print("  自检%s" % ("通过" if ok else "**失败**"))
+    # ★ 自检也要守住「用例还在不在」：删几条用例、剩下全过，rc 仍是 0，
+    #   而这条自检就在静默变松（开发计划 §9cd / §9cg）。
+    if len(cases) != WANT_CASES:
+        ok = False
+        print("  ✘ 自检用例 %d 条，期望 %d 条 —— 加/删用例时必须同步 WANT_CASES，"
+              "否则这条自检会静默变松" % (len(cases), WANT_CASES))
+    print("  自检%s（用例 %d 条）"
+          % ("通过" if ok else "**失败**", len(cases)))
     return 0 if ok else 1
 
 

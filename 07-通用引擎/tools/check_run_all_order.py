@@ -102,6 +102,8 @@ LOG="$ROOT/tests/_run_all.log"
 : > "$LOG" 2>/dev/null || true
 """
 
+WANT_CASES = 5                   # 自检用例条数：加/删必须同步改这里（开发计划 §9cd / §9cg）
+
 SELFTEST = [
     # (说明, 源码, 期望 ✘ 条数)
     ("正确顺序（先拿锁、后截断）⇒ 不报", _GOOD, 0),
@@ -126,7 +128,12 @@ def selftest():
         if not ok:
             for m in got:
                 print("         · ✘ %s" % m)
-    print("  %s %d 条合成用例" % ("✔" if bad == 0 else "✘", len(SELFTEST)))
+    if len(SELFTEST) != WANT_CASES:
+        bad += 1
+        print("  ✘ 自检用例 %d 条，期望 %d 条 —— 加/删用例时必须同步 WANT_CASES，"
+              "否则这条自检会静默变松" % (len(SELFTEST), WANT_CASES))
+    print("  %s %d 条合成用例（用例 %d 条）"
+          % ("✔" if bad == 0 else "✘", len(SELFTEST), len(SELFTEST)))
     return 0 if bad == 0 else 1
 
 

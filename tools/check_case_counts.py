@@ -34,7 +34,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MANIFEST = os.path.join(ROOT, "tools", "case_counts.txt")
 
-WANT_CASES = 9          # 本工具自检用例条数：加/删必须同步改这里（否则自检静默变松）
+WANT_CASES = 10         # 本工具自检用例条数：加/删必须同步改这里（否则自检静默变松）
 
 # 各工具统一在末行加「（用例 N 条）」。只认这一种写法 ——
 # 认两种的那一版（`自检：23/23` / `N 条合成用例`）要求每个工具各写一条正则，
@@ -50,7 +50,13 @@ def actual_cases(out):
 
 
 def parse_manifest(text):
-    """返回 (rows, problems)。rows = [(path, want, note)]。"""
+    """返回 (rows, problems)。rows = [(path, want, note)]。
+
+    第一列只写**文件路径**，不写参数：`falsify_server.py` 的入口虽然叫 `--selftest-heal`，
+    但清单指向它的实现文件 `tests/falsify_heal_selftest.py`（同一个 main()）。
+    为什么不做「第一列带参数」：加了就要有 owner 列去指明 WANT_CASES 在哪个文件里，
+    而目前只有一个这样的工具 —— **一个用户都没有的通用能力，就是死代码**（§9cd 那条）。
+    """
     rows, bad = [], []
     for ln, line in enumerate(text.splitlines(), 1):
         s = line.strip()
@@ -66,6 +72,9 @@ def parse_manifest(text):
             continue
         if os.path.isabs(path) or ".." in path.replace("\\", "/").split("/"):
             bad.append("清单第 %d 行必须写仓库内相对路径：%r" % (ln, path))
+            continue
+        if " " in path:
+            bad.append("清单第 %d 行第一列只写路径，不带参数：%r" % (ln, path))
             continue
         rows.append((path, int(num), parts[2] if len(parts) > 2 else ""))
     return rows, bad
@@ -84,7 +93,7 @@ def judge(declared, want, rc, out):
         p.append("工具自守 WANT_CASES = %d，清单写 %d —— 同一件事的两处说法必须一致"
                  % (declared, want))
     if rc != 0:
-        p.append("--selftest rc=%d —— 有用例没过（条数对不代表全过）" % rc)
+        p.append("自检 rc=%d —— 有用例没过（条数对不代表全过）" % rc)
     got = actual_cases(out)
     if got is None:
         p.append("rc=%d 但输出里读不出「（用例 N 条）」—— 不当作通过" % rc)
@@ -131,6 +140,16 @@ def selftest():
         ok += 1
     else:
         failures.append("清单：正常两行应解析成 2 行，实际 %d 行、问题 %s" % (len(rows), bad))
+
+    # ★ 一个「看起来通用」的能力如果没有用户，就是死代码：第一列本来支持带参数
+    #   （`falsify_server.py --selftest-heal`），但那要求再开一列指明 WANT_CASES 在
+    #   哪个文件里，而这样的工具目前只有一个 ⇒ 改成「清单指向自检实现文件」。
+    #   这条用例守的就是这个约定本身：第一列带空格 ⇒ 报「只写路径，不带参数」。
+    rows, bad = parse_manifest("07-通用引擎/tests/falsify_server.py --selftest-heal\t5\tx\n")
+    if len(bad) == 1 and not rows:
+        ok += 1
+    else:
+        failures.append("清单：第一列带参数应被拒（%d 条问题、%d 行）" % (len(bad), len(rows)))
 
     # 用例数自守：按「跑了几条」核，不按「过了几条」核 ——
     # 用 ok 去核会在失败时恰好抵消掉一条（ok=8、期望 8 看着相等），把漏用例盖住。
