@@ -56,7 +56,7 @@ def expect_threshold(prev_max):
 
 
 def claims(text):
-    """从报告里摘出两个声明。返回 (rounds, thresh)；各自可能是 None。
+    """从报告里摘出三个声明。返回 (rounds, thresh, doc_rows)；各自可能是 None。
 
     为什么要求「恰好一处」：写成「找到就替换」，报告里若有两处在说同一件事，
     会安静地只改一处、留下另一处，看起来还挺一致。
@@ -65,12 +65,25 @@ def claims(text):
     import re
     out = []
     for rx in (re.compile(r"\|\s*账本\s*\|\s*\*\*(\d+) 轮\*\*（1 表头 \+ (\d+) 历史 \+ 本轮）"),
-               re.compile(r"阈值 (\d+) s，来源：上一轮最长一组 (\d+) s × 2")):
+               re.compile(r"阈值 (\d+) s，来源：上一轮最长一组 (\d+) s × 2"),
+               # ★ 第三种说法：同一件事在「一页结论」里被写成「账页 N 行与表逐行对应」。
+               #   实测：前两条守住之后，这一处仍写着 14（实际 15）—— 一句话在一个文档里
+               #   有三种说法，只认其中两种，第三种就会一直烂着。
+               re.compile(r"账页 (\d+) 行")):
         hits = rx.findall(text)
         if len(hits) > 1:
             raise ValueError("模式命中 %d 次（要求至多 1 次）：%s" % (len(hits), rx.pattern))
-        out.append(tuple(int(x) for x in hits[0]) if hits else None)
-    return out[0], out[1]
+        if not hits:
+            out.append(None)
+            continue
+        # ★ 只有一个捕获组时 findall 返回的是**字符串**（`"14"`），两个组时返回元组。
+        #   原写法 `tuple(int(x) for x in hits[0])` 会把 `"14"` 拆成 `(1, 4)` ——
+        #   实测就踩了：报告写「账页 14 行」，判据读到 (1, 4)，打印成「账页 1 行」。
+        #   当时它仍判红（(1,4) != 15），属于**碰巧**对；若账本正好是 14 行，
+        #   它会拿 (1,4) 跟 14 比 ⇒ 假红。所以这里必须按「有没有第二个组」分开处理。
+        h = hits[0]
+        out.append(tuple(int(x) for x in h) if isinstance(h, tuple) else (int(h),))
+    return out[0], out[1], out[2]
 
 
 def check(table_text, report_text):
@@ -94,7 +107,7 @@ def check(table_text, report_text):
         return bad, warn
 
     try:
-        c_rounds, c_thresh = claims(report_text)
+        c_rounds, c_thresh, c_doc = claims(report_text)
     except ValueError as e:
         return [str(e)], warn
 
@@ -108,6 +121,11 @@ def check(table_text, report_text):
     elif c_thresh != (thr, prev_max):
         bad.append("报告写「阈值 %d s / 上一轮最长 %d s」，账本是「阈值 %d s / 上一轮最长 %d s」"
                    % (c_thresh[0], c_thresh[1], thr, prev_max))
+    if c_doc is None:
+        warn.append("报告里没有「账页 N 行」这个声明 —— 跳过那一项")
+    elif c_doc[0] != n:
+        bad.append("报告写「账页 %d 行与表逐行对应」，账本是 %d 轮 —— 这一处是同一件事的第三种说法"
+                   % (c_doc[0], n))
     return bad, warn
 
 
@@ -120,6 +138,7 @@ def rewrite(report_text, n, thr, prev_max):
     t = re.sub(r"(阈值 )\d+( s，来源：上一轮最长一组 )\d+( s × 2)",
                lambda m: "%s%d%s%d%s" % (m.group(1), thr, m.group(2), prev_max, m.group(3)),
                t, count=1)
+    t = re.sub(r"(账页 )\d+( 行)", lambda m: "%s%d%s" % (m.group(1), n, m.group(2)), t, count=1)
     return t
 
 
@@ -134,13 +153,16 @@ def _tbl(thr, prev_max, n=3):
     return "\n".join([head] + body) + "\n"
 
 
-def _rpt(n, hist, thr, pmax):
+def _rpt(n, hist, thr, pmax, doc=None):
+    """doc = 「一页结论」里那句「账页 N 行」的数字，默认与轮数一致。"""
+    doc = n if doc is None else doc
     return ("| 账本 | **%d 轮**（1 表头 + %d 历史 + 本轮） | `x.tsv` |\n"
             "| 锁 | 正常释放 | 阈值 %d s，来源：上一轮最长一组 %d s × 2 |\n"
-            % (n, hist, thr, pmax))
+            "| **文档** | 计划数字与实测一致；账页 %d 行与表逐行对应 | ✔ |\n"
+            % (n, hist, thr, pmax, doc))
 
 
-WANT_CASES = 7                   # 自检用例条数。加/删用例**必须同步改这里**
+WANT_CASES = 9                   # 自检用例条数。加/删用例**必须同步改这里**
 
 
 def selftest():
@@ -148,12 +170,18 @@ def selftest():
     cases = [
         # 名字, 账本, 报告, 期望 bad 条数
         ("一致",            _tbl(1020, 499),           _rpt(3, 2, 1020, 499),   0),
-        ("账本多一行",       _tbl(1020, 499, n=4),      _rpt(3, 2, 1020, 499),   1),
+        # 账本多一行 ⇒ 「N 轮」与「账页 N 行」**两处都过期**（同一件事的两种说法）
+        ("账本多一行",       _tbl(1020, 499, n=4),      _rpt(3, 2, 1020, 499),   2),
         ("阈值来源过期",     _tbl(1020, 499),           _rpt(3, 2, 1140, 561),   1),
-        ("两处都过期",       _tbl(1020, 499, n=4),      _rpt(3, 2, 1140, 561),   2),
+        ("三处都过期",       _tbl(1020, 499, n=4),      _rpt(3, 2, 1140, 561),   3),
         ("账本自身不自洽",   _tbl(1140, 499),           _rpt(3, 2, 1020, 499),   1),
         ("报告里没有声明",   _tbl(1020, 499),           "什么都没有\n",           0),   # 只 warn
         ("同一件事写两处",   _tbl(1020, 499),           _rpt(3, 2, 1020, 499) * 2, 1),  # 命中 2 次
+        ("账页行数过期",     _tbl(1020, 499),           _rpt(3, 2, 1020, 499, doc=2), 1),
+        # ★ 两位数不能被拆成 (1, 4)：账本 14 轮、报告也写 14 ⇒ 必须 0 条✘。
+        #   这条是给「单捕获组 findall 返回字符串」那个 bug 立的回归用例 ——
+        #   修之前它会读到 (1, 4) 与 14 比，判成假红。
+        ("账页两位数不错位", _tbl(1020, 499, n=14),      _rpt(14, 13, 1020, 499), 0),
     ]
     for name, t, r, want in cases:
         got, warn = check(t, r)
