@@ -175,6 +175,7 @@
   <div id="craftList"></div>
   <div id="craftMsg">按 F2 关闭 · 点击置灰的配方可以看到缺什么</div>
 </div>
+<script src="audio.js"></script>
 <script src="render_atlas.js"></script>
 <script src="render_batch.js"></script>
 <!-- ★ L1：协议常量单源（由 protocol.schema.json 生成）—— 必须排在 protocol_bin.js 之前 -->
@@ -191,6 +192,14 @@ const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
 const Atlas = (typeof RenderAtlas !== 'undefined')
   ? new RenderAtlas.AtlasRenderer('/atlas', ctx) : null;
 const hud = document.getElementById('hud');
+
+// ---------------------------------------------------------------- 音频（H1）
+// ★ 浏览器的硬规则：AudioContext 在**用户手势**之前是 suspended，resume() 也必须在
+//   手势的同步调用栈里。所以这里只**挂一次**监听，真正的 resume 交给第一个手势。
+//   没有这一步的话，代码全对但永远没声音 —— 那是本工程最讨厌的形态（静默无效）。
+if (typeof AudioEngine !== 'undefined') {
+  try { AudioEngine.hookUnlock(); } catch (e) { /* 无音频环境：静默降级，不拖垮页面 */ }
+}
 
 // ---------------------------------------------------------------- 批渲染（C2）
 // ★★ 为什么要有它：Canvas 2D 路径里**每个符号**都要付一次
@@ -1693,6 +1702,7 @@ function edUndoRedo(which) {
       const msg = (which === 'undo' ? '已撤销 ' : '已重做 ') + d.kind + '#' + d.target + to;
       // ★ 顺序很重要：**先刷新，刷完再写状态**。反过来的话刷新会把它覆盖掉。
       Promise.resolve(edRefresh()).then(() => edSetStatus(msg));
+      if (typeof AudioEngine !== 'undefined') AudioEngine.play(which === 'undo' ? 'ui.click' : 'ui.click');
     } else {
       // 栈空不是错误，是"没什么可做的"—— 但它也不该显示成成功
       edSetStatus((which === 'undo' ? '撤销' : '重做') + '：' + ((d && d.error) || '未知'), true);
@@ -1813,6 +1823,9 @@ function crClick(it) {
   edJson('/editor/craft?slot=0&recipe=' + encodeURIComponent(it.name)).then((d) => {
     if (d && d.ok) {
       crMsg('✔ 造出 ' + it.name + '（世界实体 ' + d.ents_before + ' → ' + d.ents_after + '）', 'good');
+      // ★ H1：合成成功给一声。音频"有没有反应"比"好不好听"重要得多 ——
+      //   一个没有反馈的操作，用户会怀疑自己到底点到了没有。
+      if (typeof AudioEngine !== 'undefined') AudioEngine.play('craft.ok');
       crRefresh();
     } else {
       // ★ 服务端的失败原因要**原样显示**，不要在这里翻译成"合成失败"：

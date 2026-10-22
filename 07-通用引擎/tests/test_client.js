@@ -1132,6 +1132,119 @@ check('F34 编辑器撤销按钮（M1-1）：点撤销/重做真的发请求 · 
   return { ok: true, info: '关着编辑器不发请求且提示按 F1 ✔ / 栈空回显原因且不显示成功 ✔ / 成功回显 kind#target 与落点 ✔ / 重做走对端点 ✔' };
 });
 
+check('F35 音频后端（H1）：懒创建只一次 · 未解锁不发声但记账 · 解锁后真的 start · 音源缓存 · 声部上限', () => {
+  // 为什么这条判据非有不可：这个仓库**一个音频资产都没有**，也就是说
+  // "有没有声音"这件事在 F35 之前完全没有任何证据 —— 代码写了、没写、接没接上，
+  // 三种状态在浏览器里看起来都像"安静"。而"安静"恰恰是最难注意到的失败。
+  //
+  // 判据分两段，因为它们失败的原因完全不同：
+  //   ① 环境不支持（没有 AudioContext）⇒ 必须**静默降级**，不许抛异常拖垮页面；
+  //   ② 环境支持但未解锁 ⇒ 必须**记账**（denied），不许假装播过、也不许排队。
+  const path = require('path');
+  const audioPath = path.join(__dirname, '..', 'rt', 'audio.js');
+  delete require.cache[require.resolve(audioPath)];
+
+  // ---- ① 没有 AudioContext 的环境
+  const savedAC = global.AudioContext;
+  delete global.AudioContext;
+  if (global.webkitAudioContext) delete global.webkitAudioContext;
+  const AE0 = require(audioPath).AudioEngine;
+  AE0._resetForTest();
+  if (AE0.ensure() !== null) return { ok: false, info: '没有 AudioContext 时 ensure() 竟然返回了东西' };
+  if (AE0.play('ui.click') !== null) return { ok: false, info: '没有音频环境时 play() 竟然返回了 id' };
+  if (AE0.stats().denied < 1) return { ok: false, info: '没有音频环境时 play() 没有被记账（denied=0）' };
+
+  // ---- ② 桩一个 AudioContext
+  const calls = { osc: 0, start: 0, stop: 0, connect: 0, gain: 0 };
+  function StubParam(v) {
+    this.value = v;
+    this.setValueAtTime = () => this;
+    this.exponentialRampToValueAtTime = () => this;
+  }
+  function StubCtx() {
+    this.state = 'suspended';
+    this.currentTime = 0;
+    this.destination = { name: 'dest' };
+    this.resume = () => { this.state = 'running'; };
+  }
+  StubCtx.prototype.createGain = function () {
+    calls.gain++;
+    return { gain: new StubParam(1), connect: () => { calls.connect++; } };
+  };
+  StubCtx.prototype.createOscillator = function () {
+    calls.osc++;
+    const self = this;
+    return {
+      type: 'sine',
+      frequency: new StubParam(440),
+      connect: () => { calls.connect++; },
+      start: () => { calls.start++; },
+      stop: () => { calls.stop++; },
+    };
+  };
+  global.AudioContext = StubCtx;
+
+  delete require.cache[require.resolve(audioPath)];
+  const AE = require(audioPath).AudioEngine;
+  AE._resetForTest();
+
+  // 懒创建只一次
+  const c1 = AE.ensure();
+  const c2 = AE.ensure();
+  if (!c1 || c1 !== c2) return { ok: false, info: 'ensure() 两次拿到的不是同一个 ctx' };
+  if (AE.stats().created !== 1) return { ok: false, info: 'created = ' + AE.stats().created + '（应恒为 1）' };
+
+  // 未解锁：不发、记账、不抛
+  const before = AE.stats();
+  const v0 = AE.play('act.chop');
+  if (v0 !== null) return { ok: false, info: '未解锁时 play() 返回了 id' };
+  if (calls.start !== 0) return { ok: false, info: '未解锁时竟然调了 osc.start（浏览器里会被静默忽略，但这里不该发生）' };
+  if (AE.stats().denied !== before.denied + 1) {
+    return { ok: false, info: '未解锁的播放请求没被记账（denied 没 +1）' };
+  }
+
+  // 解锁后：真的发声
+  if (AE.unlock() !== true) return { ok: false, info: 'unlock() 返回 false' };
+  if (!AE.isUnlocked()) return { ok: false, info: 'unlock() 之后 isUnlocked() 仍是 false' };
+  const v1 = AE.play('act.chop');
+  if (v1 === null) return { ok: false, info: '解锁后 play() 仍返回 null' };
+  if (calls.start !== 1) return { ok: false, info: '解锁后 osc.start 被调了 ' + calls.start + ' 次（应 1）' };
+  if (AE.stats().plays !== 1) return { ok: false, info: 'plays = ' + AE.stats().plays + '（应 1）' };
+
+  // 音源缓存：同名字第二次不该再 miss
+  const m1 = AE.stats();
+  AE.play('act.chop');
+  const m2 = AE.stats();
+  if (m2.decodeMisses !== m1.decodeMisses) {
+    return { ok: false, info: '同名音源第二次仍然 decodeMiss（缓存没命中）' };
+  }
+  if (m2.decodeHits !== m1.decodeHits + 1) {
+    return { ok: false, info: '同名音源第二次没有记 decodeHit（hits=' + m2.decodeHits + '）' };
+  }
+
+  // stop
+  const s0 = AE.stats().stops;
+  if (AE.stop(v1) !== true) return { ok: false, info: 'stop() 返回 false' };
+  if (AE.stats().stops !== s0 + 1) return { ok: false, info: 'stop() 没记账' };
+
+  // 声部上限：超了要丢最旧的，不是无限堆
+  for (let i = 0; i < 40; i++) AE.play('ui.click');
+  const st = AE.stats();
+  if (st.voices > 24) return { ok: false, info: '同时声部数 ' + st.voices + '，超过上限 24 没被裁剪' };
+  if (st.dropped <= 0) return { ok: false, info: '超上限却没记 dropped' };
+
+  // 静音：master.gain 归零，但仍允许播放（静音不等于停止）
+  AE.setMuted(true);
+  if (AE.stats().muted !== true) return { ok: false, info: 'setMuted(true) 没生效' };
+  const v2 = AE.play('ui.click');
+  if (v2 === null) return { ok: false, info: '静音状态下 play() 返回 null（静音不等于停止播放）' };
+
+  // 还原全局，免得影响后面的判据
+  if (savedAC === undefined) delete global.AudioContext; else global.AudioContext = savedAC;
+
+  return { ok: true, info: '无环境静默降级 ✔ / 懒创建 1 次 ✔ / 未解锁 accounts denied 且不 start ✔ / 解锁后 start ✔ / 同名音源走缓存 ✔ / stop 记账 ✔ / 声部上限 24 裁剪 ' + st.dropped + ' 个 ✔ / 静音仍可播 ✔' };
+});
+
 (async () => {
   await Promise.all(PENDING);
   console.log('\n  结果：' + pass + ' 通过 / ' + fail + ' 失败');
