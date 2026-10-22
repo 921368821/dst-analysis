@@ -4634,6 +4634,96 @@ def e15_craft_loop():
                   % (int(before), int(after), refused))
 
 
+def e27_animation_advances():
+    """★★★ E2（2026-10-22）：动画要**真的在动** —— 帧号随 tick 前进、循环回绕、换动画重置。
+
+    为什么单独写一条：动画"不动"是一种**没有报错的失败**。
+    精灵照样画得出来、位置照样对、所有功能判据全绿，只是角色像一张纸片。
+    而它最常见的成因不是"没写动画系统"，是 **`_tick` 没人调**
+    （宿主写明"由 Sim.Step 调用"，这种约定最容易在某次重构里丢掉）。
+
+    判据（正向三条 + 反向两条）：
+      ① 60 拍后帧号变大（`fr` 真的在推进）；
+      ② 300 拍内**观察到回绕**（大帧号 → 小帧号，且动画名不变）——
+         不回绕就说明 loop 标记或取模算错了，动画会停在最后一帧；
+      ③ `PlayAnimation('walk_loop')` ⇒ 下一帧 `a == walk_loop` 且 `fr == 1`（切换即重置）；
+      ④ 反向：**不 step 时 fr 不许变**（同一状态两次取帧相同）；
+      ⑤ 帧率一致性：30 拍内出现 ≥20 个不同的帧号 ——
+         rate=30 时是每拍一帧；若 rate 被错设成 1，这里会退化成"只变一次"。
+    """
+    s = Sim(seed=20261015, tick_hz=30, world_content=0).boot()
+    L = s.lua
+    L.globals().RT = s.api
+
+    pid = s.snapshot().get("player", {})
+    if pid is None:
+        return False, "帧里没有 player 字段"
+    player_guid = int(L.eval("(function() return RT.player and RT.player.GUID or -1 end)()"))
+    if player_guid < 0:
+        return False, "拿不到玩家 GUID"
+
+    def fr_of():
+        f = s.snapshot()
+        for e in f["ents"]:
+            if int(e["id"]) == player_guid:
+                return e.get("a"), e.get("fr")
+        return None, None
+
+    a0, f0 = fr_of()
+    if f0 is None:
+        return False, "玩家不在帧里（prefab=%r）" % (a0,)
+
+    # ④ 反向：不 step 两次取帧，帧号必须相同
+    a_same, f_same = fr_of()
+    if f_same != f0:
+        return False, ("没有 step 的情况下帧号从 %r 变成 %r —— 取帧本身在改状态"
+                       % (f0, f_same))
+
+    # ① 推进
+    for _ in range(60):
+        s.step()
+    a1, f1 = fr_of()
+    if f1 is None or f1 == f0:
+        return False, "走了 60 拍，帧号还是 %r（动画没在推进 —— `_tick` 没被调？）" % (f0,)
+
+    # ⑤ 帧率一致性：再走 30 拍，记录不同帧号的个数
+    seen = set()
+    for _ in range(30):
+        s.step()
+        _, fr = fr_of()
+        if fr is not None:
+            seen.add(fr)
+    if len(seen) < 20:
+        return False, ("30 拍里只出现 %d 个不同帧号（期望 ≥20）—— "
+                       "播放速率与 tick 率不一致（rate 被改小了？）" % (len(seen),))
+
+    # ② 回绕（可能在上面 90 拍里就发生过；再走 300 拍专门看）
+    prev = fr_of()
+    wrapped = None
+    for _ in range(300):
+        s.step()
+        cur = fr_of()
+        if cur[1] is not None and prev[1] is not None and cur[1] < prev[1]:
+            wrapped = (prev, cur)
+            break
+        prev = cur
+    if wrapped is None:
+        return False, ("300 拍内没有观察到帧号回绕（当前动画 %r，帧号 %r）—— "
+                       "循环动画会卡在最后一帧" % (fr_of()))
+
+    # ③ 换动画即重置
+    L.eval("(function() local p = RT.player p.AnimState:PlayAnimation('walk_loop') return 1 end)()")
+    a2, f2 = fr_of()
+    if a2 != "walk_loop":
+        return False, "PlayAnimation 之后帧里的动画名还是 %r（服务端没把新动画送出去）" % (a2,)
+    if f2 != 1:
+        return False, "换到 walk_loop 之后帧号是 %r，期望 1（切换没有重置）" % (f2,)
+
+    return True, ("帧号 %r→%r（60 拍）✔ / 30 拍内 %d 个不同帧号 ✔ / 回绕 %r→%r ✔ / "
+                  "换动画后 a=%r fr=%r ✔ / 不 step 时帧号不变 ✔"
+                  % (f0, f1, len(seen), wrapped[0][1], wrapped[1][1], a2, f2))
+
+
 def e26_perf_baseline():
     """★★★ H6（2026-10-22）：性能基线 —— G1「能支撑开发一个简单游戏」的时间预算。
 
@@ -5855,6 +5945,7 @@ def e14_editor_channel():
 
 check("E13 战斗闭环：打生物 → 掉血 → 死 → 掉战利品；反向：太远被拒 · 树仍走 CHOP", e13_attack_loop)
 check("E14 编辑器通道：列/生成/移动/删除全回读；反向：玩家删除被拒 · /debug 仍 404", e14_editor_channel)
+check("E27 动画真的在动(E2)：帧号随 tick 前进 · 30 拍内≥20 个不同帧号 · 循环回绕 · 换动画重置为 1；反向：不 step 时帧号不变", e27_animation_advances)
 check("E26 性能基线(H6)：≈200 实体 step/snapshot 均在 12ms 护栏内 · 实体×3.7 时耗时不许×8（超线性即红）；反向：空世界必须明显更快（测量有效性）", e26_perf_baseline)
 check("E25 生成的能撤、删掉的能回来(M1-2)：spawn→undo→redo · remove→undo 后 prefab/位置/workleft 逐值恢复 · remove→undo→redo 链通；反向：幽灵 guid 被拒且不进栈", e25_undo_spawn_remove)
 check("E24 帧序=深度序(D5)：z 大的先画 · 互换 z 顺序跟着翻 · 同 z 按 id 升序 · 全帧 z 单调不增 · 两帧 id 序列相同", e24_depth_sorted_frame)
