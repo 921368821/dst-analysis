@@ -67,6 +67,26 @@ function M.collect(Core, Sim, meta)
             end
         end
         rec.components = comps
+        -- ★★ 背包归属（2026-10-22 修）：记下「这件东西在谁身上、第几格」。
+        --
+        -- 为什么必须记：重建实体只恢复了 prefab/位置/组件数据，**归属关系不在其中**
+        --   ⇒ 读档之后背包是空的，而东西其实还在世界里（躺在玩家脚下）。
+        --   症状是"读档成功、提示「重建 7 个」，玩家身上却什么都没有" ——
+        --   这类错最坏的地方是**看起来像成功**（实测：`save_apply` 返回 ok，
+        --   `player_state` 的 items 是空数组）。
+        -- 存档里原来**一条 owner 都没有**（实测 0/10 条），所以这是漏，不是损坏。
+        local iic = inst.components and inst.components.inventoryitem
+        if iic ~= nil and iic.owner ~= nil then
+            local og = iic.owner._guid or iic.owner.GUID
+            if og ~= nil then
+                rec.owner_guid = og
+                local oinv = iic.owner.components and iic.owner.components.inventory
+                if oinv ~= nil and type(oinv.GetItemSlot) == "function" then
+                    local oks, sl = pcall(oinv.GetItemSlot, oinv, inst)
+                    if oks and type(sl) == "number" then rec.slot = sl end
+                end
+            end
+        end
         out.ents[#out.ents + 1] = rec
     end
     out.n = n
@@ -156,6 +176,36 @@ function M.apply(Core, Sim, meta, t)
         end
     end
 
+    -- ②b 把「在背包里」的东西放回去（2026-10-22）
+    --   ★ 必须**两遍**：一遍把实体全造出来（上面 ②），再一遍绑归属 ——
+    --     物品的 owner 可能比它自己晚建（谁在 `t.ents` 里靠前不确定）。
+    --   ★ 用原版 `Inventory:GiveItem(item, slot)`，不自己往 `itemslots` 里塞：
+    --     它负责 `_parent`、`inventoryitem.owner`、堆叠合并与"格子被占"的重试。
+    --   ★ 绑完**回读** `inventoryitem.owner == ow || 计失败，不靠"没报错就算成功"。
+    local rebound, lost_items = 0, 0
+    for _, rec in ipairs(t.ents) do
+        if rec.owner_guid ~= nil then
+            local it = by_old_guid[rec.guid]
+            local ow = by_old_guid[rec.owner_guid]
+            if it ~= nil and ow ~= nil then
+                local inv = ow.components and ow.components.inventory
+                if inv ~= nil and type(inv.GiveItem) == "function" then
+                    pcall(inv.GiveItem, inv, it, rec.slot)
+                    local ii2 = it.components and it.components.inventoryitem
+                    if ii2 ~= nil and ii2.owner == ow then
+                        rebound = rebound + 1
+                    else
+                        lost_items = lost_items + 1
+                    end
+                else
+                    lost_items = lost_items + 1
+                end
+            else
+                lost_items = lost_items + 1
+            end
+        end
+    end
+
     -- ③ 恢复世界时间与步数
     Sim.TheSim.time = t.time
     meta.tick = t.tick or meta.tick
@@ -181,8 +231,13 @@ function M.apply(Core, Sim, meta, t)
     end
 
     -- ★ 如实汇报三类：重建成功 / 建不出来 / 跳过（不可重建）
-    local msg = string.format("读档完成：重建 %d 个，跳过 %d 个（%s）",
-        made, #skipped, #skipped > 0 and table.concat(skipped, ",") or "无")
+    local msg = string.format("读档完成：重建 %d 个，跳过 %d 个（%s）；物品归位 %d 个",
+        made, #skipped, #skipped > 0 and table.concat(skipped, ",") or "无", rebound)
+    if lost_items > 0 then
+        -- ★ 丢了的物品**必须报出来**：它们是世界里真实存在的实体，
+        --   只是没回到背包里（躺在原地）。不报的话就是"读档丢装备"。
+        msg = msg .. string.format("，**%d 个物品没能归位**（还在世界里，需要手工捡）", lost_items)
+    end
     if #failed > 0 then
         msg = msg .. string.format("；另有 %d 个建不出来: %s", #failed, table.concat(failed, ","))
     end

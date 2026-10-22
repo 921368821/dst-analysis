@@ -6257,6 +6257,110 @@ def e16_equip_and_tool():
                   % (nlog, inv_n))
 
 
+def e40_save_keeps_inventory():
+    """★★★ G17/C7（2026-10-22）：**读档之后背包还在，而且腐烂进度没被重置**。
+
+    在修之前，`save_collect` 里**一条 `owner` 都没有**（实测 0/10 条）：
+    重建实体只恢复了 prefab / 位置 / 组件数据，**归属关系不在其中**。
+    症状是"读档成功、提示『重建 7 个』，玩家身上却什么都没有" ——
+    而东西其实还在世界里（躺在玩家脚下）。这是最坏的一类错：**看起来像成功**。
+    它还是一个**免费保鲜漏洞**：读档会把腐烂进度重置成满值的话，
+    玩家只要存一次读一次，食物永不腐烂（E36 立刻失去意义）。
+
+    修法（两遍 + 回读）：
+      ① `collect` 记 `owner_guid` 与 `slot`（走原版 `inventoryitem.owner` / `GetItemSlot`）；
+      ② `apply` 先造全部实体，再逐个 `Inventory:GiveItem(item, slot)` 绑回去；
+      ③ 绑完**回读** `inventoryitem.owner == 新 owner`，不靠"没报错就算成功"；
+      ④ 归位失败的物品**在返回消息里报出来**（它们是真实存在的实体，只是没回到背包）。
+
+    判据（正向三条 + 反向两条）：
+      ① 存档里必须**有** `owner_guid`（否则"读档后有东西"只是碰巧）；
+      ② 读档后 `items` 里 berries 仍是 3 个，且 `pr ≈ 0.3`（**腐烂进度没被重置**）；
+      ③ 读档返回的消息里含「物品归位 1 个」（不许沉默地成功）；
+      ④ 反向：**丢在地上的东西不许被吸回背包**（读档不是吸尘器）；
+      ⑤ 反向：没有 inventoryitem 的实体（一棵树）身上不许凭空多出 `owner_guid`。
+    """
+    s = Sim(seed=20261015, tick_hz=30, world_content=0).boot()
+    L = s.lua
+    L.globals().RT = s.api
+
+    ok, r = s.debug_give(0, "berries", 3)
+    if not ok:
+        return False, "给物品失败：%s" % (r,)
+    L.eval("""(function()
+      local inv = RT.player.components.inventory
+      for _, it in pairs(inv.itemslots) do
+        if it ~= nil and it.prefab == "berries" then
+          it.components.perishable:SetPercent(0.3)
+        end
+      end
+      return 1
+    end)()""")
+    ok, r2 = s.debug_spawn("evergreen", 5.0, 0.0)
+    if not ok:
+        return False, "种树失败：%s" % (r2,)
+
+    # ④ 的一半：先把一件东西**丢在地上**（它不该被读档吸回背包）
+    s.debug_give(0, "rocks", 1)
+    L.eval("""(function()
+      local inv = RT.player.components.inventory
+      for slot, it in pairs(inv.itemslots) do
+        if it ~= nil and it.prefab == "rocks" then
+          inv:DropItem(it, false, nil, RT.player:GetPosition())
+          return 1
+        end
+      end
+      return 1
+    end)()""")
+
+    data = s.save_collect()
+    # ① 存档里必须有归属
+    owned = [e for e in data["ents"] if e.get("owner_guid") is not None]
+    if not owned:
+        return False, ("存档里**一条 owner_guid 都没有**（%d 条实体）—— "
+                       "归属关系没被记下来，读档之后背包必然是空的" % (len(data["ents"]),))
+    # ⑤ 反向：树不该有 owner_guid
+    for e in data["ents"]:
+        if e.get("prefab") == "evergreen" and e.get("owner_guid") is not None:
+            return False, "树也被记了 owner_guid=%r（它没有 inventoryitem）" % (e.get("owner_guid"),)
+
+    ok, msg = s.save_apply(data)
+    if not ok:
+        return False, "读档失败：%s" % (msg,)
+    if "物品归位" not in str(msg):
+        return False, ("读档返回里没有「物品归位」计数（%r）—— "
+                       "成功与否不许沉默" % (msg,))
+
+    st = s.player_state(0)
+    items = {x["p"]: x for x in st["items"]}
+    b = items.get("berries")
+    if b is None:
+        return False, ("读档之后背包里没有 berries（%r）—— 东西还在世界里，"
+                       "但玩家拿不到，这就是「读档丢背包」" % (st["items"],))
+    if b.get("n") != 3:
+        return False, "读档后 berries 数量 %r（期望 3）" % (b.get("n"),)
+    # ② 腐烂进度不许被重置
+    if "pr" not in b:
+        return False, "读档后 berries 行没有 pr 字段：%r" % (b,)
+    if abs(b["pr"] - 0.3) > 0.05:
+        return False, ("读档后腐烂进度变成 %r（存档前是 0.3）—— "
+                       "**存一次读一次就能保鲜**，E36 的腐烂被这个漏洞废掉了"
+                       % (b["pr"],))
+
+    # ④ 反向：丢在地上的石头不许被吸回背包
+    if "rocks" in items:
+        return False, ("丢在地上的 rocks 被读档**吸回了背包**（%r）—— "
+                       "读档不是吸尘器：它只该恢复「当时在背包里的」" % (items["rocks"],))
+    ok, d = s.debug_entities(4000)
+    n_rocks_world = len([x for x in d["items"] if x.get("prefab") == "rocks"])
+    if n_rocks_world < 1:
+        return False, "地上的 rocks 在读档之后消失了（世界里的石头数 %d）" % (n_rocks_world,)
+
+    return True, ("存档里 %d 条带 owner_guid ✔ / 读档后 berries×3 且 pr=%.2f（**没被重置**）✔ / "
+                  "返回含「%s」✔ / 地上的石头没被吸回背包且仍在世界里 ✔ / 树没有 owner_guid ✔"
+                  % (len(owned), b["pr"], str(msg).split("；")[-1].strip()))
+
+
 def e39_timer_contract():
     """★★★ G3（2026-10-22）：计时器契约 —— `DoTaskInTime` / `DoPeriodicTask` / `Cancel`。
 
@@ -7281,6 +7385,7 @@ def e14_editor_channel():
 
 
 check("E13 战斗闭环：打生物 → 掉血 → 死 → 掉战利品；反向：太远被拒 · 树仍走 CHOP", e13_attack_loop)
+check("E40 读档不丢背包(G17)：存档里必须有 owner_guid · 读档后物品原数回来且**腐烂进度没被重置** · 返回含「物品归位」；反向：地上的东西不被吸回 · 树没有 owner_guid", e40_save_keeps_inventory)
 check("E39 计时器契约(G3)：0.5s 任务在第 14~19 拍触发恰好一次 · 周期 2s 内 10 次 · NextTime 往后推 · Cancel 后 0 次 · 嵌套 0 延迟不丢 · 不 step 不触发 · 删实体后 0 次", e39_timer_contract)
 check("E38 背包里的腐烂进度上屏(G3b)：新鲜 pr=1.0 · 20%/0% 逐档对上且 0 不是缺失；反向：石头没有 pr 键 · 合并是加权平均", e38_inventory_perish_visible)
 check("E37 被吞掉的错误必须为 0(I2 横切)：60 秒组件/大脑泵真的在跑 · ComponentErrors 为空 · PhysicsErrors=0；阳性对照：注入抛错组件⇒计数增长且 Stop 后冻结", e37_no_swallowed_errors)
