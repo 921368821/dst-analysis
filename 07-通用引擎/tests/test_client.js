@@ -1447,6 +1447,102 @@ check('F37 场景导出/导入（C4）：导出填文本框并展开 · 导入**
   return { ok: true, info: '关着编辑器零请求 ✔ / 导出填文本框+展开+写数量 ✔ / 导入先 clear 后 import 且文本已编码 ✔ / 空文本零请求 ✔ / 失败回显第 1 行原因且不假称成功 ✔' };
 });
 
+check('F38 场景落盘 UI（C3）：空名字零请求 · 存盘回显盘上字节数并刷新列表 · 读取失败要把「已清空 N 个」一起说出来', async () => {
+  // E28 验服务端能存能读，用户按的是按钮。中间那段（空名字拦不拦、回显的是谁的数字、
+  // 读取失败时世界已经空了却只报原因）在 F38 之前没有判据。
+  // ★ 最后一条最要紧：读取失败时世界**已经被清空** —— 只报"场景不存在"会把
+  //   "我把你的世界清空了"藏起来，用户接着存盘就会把空世界覆盖掉唯一的存档。
+  const mod = require('../rt/perf_lib.js');
+  let loadReply = { ok: true, name: 'lv1', made: 14, removed: 14 };
+  const env = mod.makeClient({
+    fetchReply: (u) => {
+      if (u.indexOf('/editor/entities') >= 0) return { ok: true, count: 0, listed: 0, items: [] };
+      if (u.indexOf('/editor/scene_save') >= 0) return { ok: true, name: 'lv1', n: 14, bytes: 529, version: 2 };
+      if (u.indexOf('/editor/scene_load') >= 0) return loadReply;
+      if (u.indexOf('/editor/scene_list') >= 0) return { ok: true, n: 1, names: ['lv1'], dir: 'scenes' };
+      return null;
+    },
+  });
+  // ★ 用 `env.document.getElementById` 而不是直接读 `env.__els[id]`：
+  //   桩是**按需创建**元素的，直接读 `__els` 只能拿到"已经被取过"的那些 ——
+  //   `#edSceneName` 只在点按钮时才被取（`sceneName()` 里），所以直接读会假报"不存在"。
+  //   这是桩的惰性语义带来的第三个坑（前两个是 className 不同步、innerHTML 不清子节点）。
+  const el = (id) => env.document.getElementById(id);
+  const fetched = () => (env.__fetched || []);
+  const rt = env.__rt;
+  if (!rt || !rt.scene || typeof rt.scene.save !== 'function') {
+    return { ok: false, info: '__rt.scene.save 钩子不存在' };
+  }
+  for (const id of ['edSceneSave', 'edSceneLoad', 'edSceneName']) {
+    if (!el(id)) return { ok: false, info: '#' + id + ' 不存在（按钮/输入框没渲染出来）' };
+  }
+
+  // 打开编辑器
+  const edBtn = el('edBtn');
+  if (edBtn && typeof edBtn.onclick === 'function') edBtn.onclick();
+  await tick(4);
+  if (rt.ed && typeof rt.ed.toggle === 'function' && (!rt.ed.state || !rt.ed.state().on)) {
+    rt.ed.toggle(true);
+  }
+  await tick(3);
+
+  // ① 空名字：零请求
+  el('edSceneName').value = '   ';
+  fetched().length = 0;
+  el('edSceneSave').onclick();
+  await tick(4);
+  if (fetched().length !== 0) {
+    return { ok: false, info: '名字为空时仍然发了请求：' + JSON.stringify(fetched()) };
+  }
+  if ((el('edStatus').textContent || '').indexOf('名字') < 0 && (el('edStatus').textContent || '').indexOf('场景名') < 0) {
+    return { ok: false, info: '名字为空时没提示：' + el('edStatus').textContent };
+  }
+
+  // ② 存盘：请求带编码名字，回显盘上字节数，并刷新列表
+  el('edSceneName').value = '关卡 1';
+  fetched().length = 0;
+  el('edSceneSave').onclick();
+  await tick(6);
+  const saveUrl = fetched().find((u) => u.indexOf('/editor/scene_save') >= 0);
+  if (!saveUrl) return { ok: false, info: '点存盘没有发出 scene_save 请求' };
+  if (saveUrl.indexOf('name=') < 0) return { ok: false, info: '存盘请求没带 name：' + saveUrl };
+  if (saveUrl.indexOf('%') < 0 && saveUrl.indexOf(' ') >= 0) {
+    return { ok: false, info: '名字里有空格却没编码：' + saveUrl };
+  }
+  const s2 = el('edStatus').textContent || '';
+  if (s2.indexOf('529') < 0) {
+    return { ok: false, info: '存盘后状态栏没有回显盘上字节数（529）：' + s2 };
+  }
+  if (!fetched().some((u) => u.indexOf('/editor/scene_list') >= 0)) {
+    return { ok: false, info: '存盘之后没有刷新场景列表' };
+  }
+
+  // ③ 读取成功
+  el('edSceneName').value = 'lv1';
+  el('edSceneLoad').onclick();
+  await tick(6);
+  const s3 = el('edStatus').textContent || '';
+  if (s3.indexOf('已读取') < 0) return { ok: false, info: '读取成功后状态栏不对：' + s3 };
+
+  // ④ 读取失败：必须同时说出「已清空 N 个」
+  loadReply = { ok: false, error: '导入失败（世界已被清空）：第 2 行格式不对', removed: 14 };
+  fetched().length = 0;
+  el('edSceneLoad').onclick();
+  await tick(6);
+  const s4 = el('edStatus').textContent || '';
+  if (s4.indexOf('第 2 行') < 0) {
+    return { ok: false, info: '读取失败没有回显服务端原因：' + s4 };
+  }
+  if (s4.indexOf('14') < 0) {
+    return { ok: false, info: '读取失败时没有说出「已清空 14 个实体」—— 用户会以为世界还在：' + s4 };
+  }
+  if (s4.indexOf('已读取') >= 0) {
+    return { ok: false, info: '读取失败却显示「已读取」：' + s4 };
+  }
+
+  return { ok: true, info: '空名字零请求且提示 ✔ / 存盘带编码名字+回显 529 字节+刷新列表 ✔ / 读取成功回显 ✔ / 失败时同时说「已清空 14 个」与原因 ✔' };
+});
+
 (async () => {
   await Promise.all(PENDING);
   console.log('\n  结果：' + pass + ' 通过 / ' + fail + ' 失败');

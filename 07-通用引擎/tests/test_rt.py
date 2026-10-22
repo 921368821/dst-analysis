@@ -4634,6 +4634,108 @@ def e15_craft_loop():
                   % (int(before), int(after), refused))
 
 
+def e28_scene_save_load_files():
+    """★★★ C3（2026-10-22）：场景**落盘** —— 改完能存下来，下次能打开。
+
+    C4 那批只做到"导出成文本"，用户得自己复制粘贴。那不是保存。
+    这一批加 `scene_save / scene_load / scene_list`：写 `scenes/<name>.scene.tsv`。
+
+    判据（正向三条 + 反向三条）：
+      ① `scene_save("t_xxx")` ⇒ 返回的 `bytes` 与文件实际大小一致，`n` 等于导出实体数；
+      ② `scene_load` 之后实体数一致，**再导出与保存前逐字节相同**（往返）；
+      ③ `scene_list` 里能看到这个名字；
+      ④ 反向：`name="../../evil"` ⇒ 被拒，且**工程外确实没有多出文件**
+         （拒绝是"说了不做"，还是"其实做了"，要看落地效果才判得出来）；
+      ⑤ 反向：不存在的名字 ⇒ 拒绝且理由含「不存在」；
+      ⑥ 反向：名字里带点（`a.b`）也拒 —— 点能拼出 `..`，而 `..` 是免费的越界路径。
+
+    ★ 为什么第 ④/⑥ 值得单列：编辑器只绑 127.0.0.1，但**浏览器里任何一个页面**都能
+      对 localhost 发请求（本地端口探测），而 `..` 不需要任何技巧。
+      这类洞不会让程序报错，只会让"保存场景"变成一个任意路径写入原语。
+    """
+    import os
+    from config import ROOT, SCENE_DIR
+
+    name = "t_e28_roundtrip"
+    evil_name = "../../evil_e28"
+    s = Sim(seed=20261015, tick_hz=30, world_content=14).boot()
+
+    ok, exp0 = s.scene_export()
+    if not ok or exp0["n"] <= 0:
+        return False, "导出失败或世界为空：%r" % (exp0,)
+
+    try:
+        # ① 保存
+        ok, sav = s.scene_save(name)
+        if not ok:
+            return False, "保存失败：%s" % (sav,)
+        path = sav["path"]
+        if not os.path.exists(path):
+            return False, "保存说成功但文件不存在：%r" % (path,)
+        real = os.path.getsize(path)
+        if int(sav["bytes"]) != real:
+            return False, ("返回的 bytes=%r，文件实际 %r —— 返回值不是从盘上读的"
+                           % (sav["bytes"], real))
+        if int(sav["n"]) != exp0["n"]:
+            return False, "保存的实体数 %r 与导出 %r 不一致" % (sav["n"], exp0["n"])
+
+        # ③ 列表
+        okl, lst = s.scene_list()
+        if not okl or name not in lst["names"]:
+            return False, "scene_list 里没有刚保存的场景：%r" % (lst,)
+
+        # ② 读回
+        okl, lo = s.scene_load(name)
+        if not okl:
+            return False, "读取失败：%s" % (lo,)
+        ok2, exp1 = s.scene_export()
+        if not ok2:
+            return False, "读取后导出失败：%s" % (exp1,)
+        if exp1["text"] != exp0["text"]:
+            return False, ("保存/读回之后场景文本不一致（往返失败）：\n     存前 %r\n     读后 %r"
+                           % (exp0["text"][:120], exp1["text"][:120]))
+
+        # ④ 反向：越界名字被拒，且**外面确实没有多出文件**
+        outside = os.path.join(os.path.dirname(ROOT), "evil_e28.scene.tsv")
+        outside2 = os.path.join(os.path.dirname(os.path.dirname(ROOT)), "evil_e28.scene.tsv")
+        for p in (outside, outside2):
+            if os.path.exists(p):
+                return False, "判据开始前工程外就已经有 %r（环境不干净）" % (p,)
+        oke, re_ = s.scene_save(evil_name)
+        if oke:
+            return False, "带 ../ 的名字竟然保存成功了：%r" % (re_,)
+        for p in (outside, outside2):
+            if os.path.exists(p):
+                return False, ("越界名字被「拒绝」了，但文件真的写出来了：%r —— "
+                               "说明校验发生在写之后" % (p,))
+
+        # ⑤ 反向：不存在
+        okm, rm = s.scene_load("t_e28_no_such_scene")
+        if okm:
+            return False, "读取不存在的场景竟然成功"
+        if "不存在" not in str(rm.get("error", "")):
+            return False, "不存在的场景，理由不对：%r" % (rm.get("error"),)
+
+        # ⑥ 反向：带点的名字
+        okd, rd = s.scene_save("a.b")
+        if okd:
+            return False, "名字里的点竟然被接受（能拼出 .. 的字符不该放行）"
+        if "不合法" not in str(rd.get("error", "")):
+            return False, "带点名字的拒绝理由不对：%r" % (rd.get("error"),)
+
+    finally:
+        # ★ 清理：判据不该在仓库里留下文件（scene_list 会把它们永久列出来）
+        try:
+            if os.path.exists(os.path.join(SCENE_DIR, name + ".scene.tsv")):
+                os.remove(os.path.join(SCENE_DIR, name + ".scene.tsv"))
+        except OSError:
+            pass
+
+    return True, ("保存 %d 字节 / %d 个实体（回读盘校验）✔ / 读回后逐字节相同 ✔ / "
+                  "list 可见 ✔ / ../ 名字被拒且工程外无文件 ✔ / 不存在给「不存在」✔ / "
+                  "带点名字被拒 ✔" % (real, exp0["n"]))
+
+
 def e27_animation_advances():
     """★★★ E2（2026-10-22）：动画要**真的在动** —— 帧号随 tick 前进、循环回绕、换动画重置。
 
@@ -5945,6 +6047,7 @@ def e14_editor_channel():
 
 check("E13 战斗闭环：打生物 → 掉血 → 死 → 掉战利品；反向：太远被拒 · 树仍走 CHOP", e13_attack_loop)
 check("E14 编辑器通道：列/生成/移动/删除全回读；反向：玩家删除被拒 · /debug 仍 404", e14_editor_channel)
+check("E28 场景落盘(C3)：save 后 bytes 与盘上一致 · load 往返逐字节相同 · list 可见；反向：../ 名字被拒且工程外无文件 · 不存在给原因 · 带点名字被拒", e28_scene_save_load_files)
 check("E27 动画真的在动(E2)：帧号随 tick 前进 · 30 拍内≥20 个不同帧号 · 循环回绕 · 换动画重置为 1；反向：不 step 时帧号不变", e27_animation_advances)
 check("E26 性能基线(H6)：≈200 实体 step/snapshot 均在 12ms 护栏内 · 实体×3.7 时耗时不许×8（超线性即红）；反向：空世界必须明显更快（测量有效性）", e26_perf_baseline)
 check("E25 生成的能撤、删掉的能回来(M1-1b)：spawn→undo→redo · remove→undo 后 prefab/位置/workleft 逐值恢复 · remove→undo→redo 链通；反向：幽灵 guid 被拒且不进栈", e25_undo_spawn_remove)

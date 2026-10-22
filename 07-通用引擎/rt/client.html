@@ -90,6 +90,9 @@
   /* ★ C4：场景文本框（默认收起） */
   #edSceneBox{display:none;padding:6px 8px;border-bottom:1px solid #23262d}
   #edSceneBox.on{display:block}
+  #edSceneRow{display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap}
+  #edSceneName{flex:0 0 200px;background:#0d1117;color:#c9d1d9;border:1px solid #30363d;
+    border-radius:4px;padding:3px 6px;font:11px ui-monospace,Consolas,monospace}
   #edSceneText{width:100%;height:120px;box-sizing:border-box;resize:vertical;
     background:#0d1117;color:#c9d1d9;border:1px solid #30363d;border-radius:4px;
     font:11px/1.5 ui-monospace,Consolas,monospace;padding:6px;white-space:pre;overflow:auto}
@@ -164,6 +167,13 @@
   <!-- ★ C4：场景文本框。**默认收起**：编辑器右下角已经有树和预览，再常驻一个多行框
        会把可视区挤到只剩一条。导出时自动展开 —— 用户按了"场景↓"就是要看内容。 -->
   <div id="edSceneBox" class="off">
+    <!-- ★ C3：落盘。有了这一行，"保存场景"才不是"请你手动复制文本"。 -->
+    <div id="edSceneRow">
+      <input id="edSceneName" placeholder="场景名（字母/数字/下划线/中文）" maxlength="64">
+      <button id="edSceneSave" title="把当前世界存成 scenes/&lt;名字&gt;.scene.tsv">存盘</button>
+      <button id="edSceneLoad" title="读盘 → 清空世界 → 导入（失败时世界已清空）">读取</button>
+      <span id="edSceneList" class="edMuted"></span>
+    </div>
     <textarea id="edSceneText" spellcheck="false"
       placeholder="prefab&#9;x&#9;z   ← 一行一个实体（制表符分隔）"></textarea>
     <div class="edHint">导入会先清空世界里的非玩家实体；坏行会让**整份**被拒（不会摆一半）。</div>
@@ -1490,6 +1500,19 @@ function edSetStatus(msg, bad) {
   el.style.color = bad ? '#f85149' : '#8b949e';
   el.title = msg;
 }
+// ★★★ C3：**先刷新、再写状态**——把它做成一个函数，而不是每次手写顺序。
+//   同一个坑在这一条会话里出现了**三次**：
+//     ① B7 撤销按钮（F34 抓到：状态栏一闪就被「已同步：世界 N 个实体」覆盖）
+//     ② B14 场景导入（F37 抓到：同样的覆盖）
+//     ③ C3 场景读取失败（F38 抓到：连"已清空 14 个"都被覆盖掉）
+//   三次都是"写状态 → 刷新"，而 `edRefresh()` 里会写它自己的状态。
+//   ⇒ 只要还允许手写顺序，就会有第四次。所以这里收成一个入口：
+//       edSetStatusAfterRefresh(msg, bad)
+//   它先等刷新完成，再写状态。**不许**再在别处写「先 set 后 refresh」。
+function edSetStatusAfterRefresh(msg, bad) {
+  return Promise.resolve(edRefresh()).then(() => edSetStatus(msg, bad),
+                                           () => edSetStatus(msg, bad));
+}
 function edEsc(s) {
   return String(s).replace(/[&<>"]/g, (c) =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -1776,8 +1799,7 @@ function sceneImport() {
     //   写在前面的消息一条都看不到。同一个形状在本文件里出现第二次了 ——
     //   所以这条判据（F37 ②）特意断言"状态栏里有『已导入 N』"，
     //   而不是只断言"发了请求"。
-    const msg = '已导入 ' + d.made + ' 个实体（清掉 ' + r.removed + ' 个）';
-    Promise.resolve(edRefresh()).then(() => edSetStatus(msg));
+    edSetStatusAfterRefresh('已导入 ' + d.made + ' 个实体（清掉 ' + r.removed + ' 个）');
   }).catch((e) => edSetStatus('✘ ' + e, true));
 }
 
@@ -1789,9 +1811,52 @@ function sceneClear() {
   if (typeof confirm === 'function' && !confirm('清空世界里所有非玩家实体？这个操作不能撤销。')) return;
   edJson('/editor/scene_clear').then((d) => {
     if (!d || !d.ok) { edSetStatus('清空失败：' + ((d && d.error) || '未知'), true); return; }
-    const msg = '已清空 ' + d.removed + ' 个实体';
-    Promise.resolve(edRefresh()).then(() => edSetStatus(msg));
+    edSetStatusAfterRefresh('已清空 ' + d.removed + ' 个实体');
   }).catch((e) => edSetStatus('请求失败：' + e, true));
+}
+
+// ★ C3：场景落盘。名字由**服务端**校验（白名单，不许点与斜杠）——
+//   客户端只做"看起来像名字"的提示，绝不做唯一校验：客户端的校验只能防手误，防不了越界。
+function sceneName() {
+  const el = document.getElementById('edSceneName');
+  return el ? String(el.value || '').trim() : '';
+}
+
+function sceneSaveFile() {
+  if (!ED.on) { edSetStatus('先按 F1 打开编辑器', true); return; }
+  const name = sceneName();
+  if (!name) { edSetStatus('先填场景名（存到 scenes/<名字>.scene.tsv）', true); return; }
+  edJson('/editor/scene_save?name=' + encodeURIComponent(name)).then((d) => {
+    if (!d || !d.ok) { edSetStatus('✘ 存盘失败：' + ((d && d.error) || '未知'), true); return; }
+    // ★ 回显**盘上真实的字节数**（服务端回读的），不是"我以为写了多少"
+    edSetStatus('已存盘 ' + d.name + '（' + d.n + ' 个实体 / ' + d.bytes + ' 字节）');
+    if (typeof AudioEngine !== 'undefined') AudioEngine.play('ui.click');
+    sceneListRefresh();
+  }).catch((e) => edSetStatus('请求失败：' + e, true));
+}
+
+function sceneLoadFile() {
+  if (!ED.on) { edSetStatus('先按 F1 打开编辑器', true); return; }
+  const name = sceneName();
+  if (!name) { edSetStatus('先填要读取的场景名', true); return; }
+  edJson('/editor/scene_load?name=' + encodeURIComponent(name)).then((d) => {
+    if (!d || !d.ok) {
+      // ★ 失败时世界**可能已经被清空**了 —— 把 removed 说出来，不要让用户自己发现
+      const rm = (d && d.removed !== undefined && d.removed !== null) ? ('，已清空 ' + d.removed + ' 个实体') : '';
+      edSetStatusAfterRefresh('✘ 读取失败' + rm + '：' + ((d && d.error) || '未知'), true);
+      return;
+    }
+    edSetStatusAfterRefresh('已读取 ' + d.name + '（导入 ' + d.made + ' 个，清掉 ' + d.removed + ' 个）');
+  }).catch((e) => edSetStatus('请求失败：' + e, true));
+}
+
+function sceneListRefresh() {
+  const box = document.getElementById('edSceneList');
+  edJson('/editor/scene_list').then((d) => {
+    if (!box) return;
+    if (!d || !d.ok) { box.textContent = '（列表失败）'; return; }
+    box.textContent = d.n ? ('已有：' + d.names.join(' · ')) : '（还没有存过场景）';
+  }).catch(() => { if (box) box.textContent = '（列表失败）'; });
 }
 
 (function wireScene() {
@@ -1801,8 +1866,13 @@ function sceneClear() {
   if (b1) b1.onclick = sceneExport;
   if (b2) b2.onclick = sceneImport;
   if (b3) b3.onclick = sceneClear;
+  const s1 = document.getElementById('edSceneSave');
+  const s2 = document.getElementById('edSceneLoad');
+  if (s1) s1.onclick = sceneSaveFile;
+  if (s2) s2.onclick = sceneLoadFile;
   window.__rt = window.__rt || {};
   window.__rt.scene = { export: sceneExport, import: sceneImport, clear: sceneClear,
+                        save: sceneSaveFile, load: sceneLoadFile, list: sceneListRefresh,
                         box: sceneBox,
                         text: () => { const t = document.getElementById('edSceneText'); return t ? t.value : ''; } };
 })();
@@ -1824,9 +1894,7 @@ function edUndoRedo(which) {
       //   kind 仍然保留在括号里：出问题时要能一眼看出是哪类命令。
       const tgt = (typeof d.target === 'number' && d.target >= 0) ? ('#' + d.target) : '';
       const lbl = d.label ? ('（' + d.label + '）') : '';
-      const msg = (which === 'undo' ? '已撤销 ' : '已重做 ') + d.kind + tgt + to + lbl;
-      // ★ 顺序很重要：**先刷新，刷完再写状态**。反过来的话刷新会把它覆盖掉。
-      Promise.resolve(edRefresh()).then(() => edSetStatus(msg));
+      edSetStatusAfterRefresh((which === 'undo' ? '已撤销 ' : '已重做 ') + d.kind + tgt + to + lbl);
       if (typeof AudioEngine !== 'undefined') AudioEngine.play(which === 'undo' ? 'ui.click' : 'ui.click');
     } else {
       // 栈空不是错误，是"没什么可做的"—— 但它也不该显示成成功

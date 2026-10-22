@@ -393,6 +393,15 @@ class HttpMixin:
                 #   与 /save 的区别写在 rt_boot 的 M.scene_export 注释里：
                 #   存档是"接着上次玩"，场景是"打开一个关卡"。
                 self.hub.cmds.put(("scene_export", ev, box))
+            elif sub == "/editor/scene_save":
+                # ★ C3：导出当前世界并写盘到 `scenes/<name>.scene.tsv`。
+                #   name 由服务端白名单校验（不许点、斜杠）—— 见 sim._check_scene_name。
+                self.hub.cmds.put(("scene_save", ev, box, arg.get("name", "")))
+            elif sub == "/editor/scene_load":
+                # 读盘 → 清空 → 导入。⚠️ 失败时世界**已被清空**，返回里带 removed 以便前端说明。
+                self.hub.cmds.put(("scene_load", ev, box, arg.get("name", "")))
+            elif sub == "/editor/scene_list":
+                self.hub.cmds.put(("scene_list", ev, box))
             elif sub == "/editor/scene_clear":
                 self.hub.cmds.put(("scene_clear", ev, box))
             elif sub == "/editor/scene_import":

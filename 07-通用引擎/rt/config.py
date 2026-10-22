@@ -34,6 +34,11 @@ ATLAS_PNG_DIR = os.path.join(ENGINE, "anim_data")
 #   ⇒ 用 --atlas-dir 指定；给多份时按顺序先命中先用。
 SELF_ATLAS_DIR = os.path.join(ROOT, "_demo_atlas")
 
+# ★★ C3（2026-10-22）：场景（关卡）落盘目录。
+#   在这之前"保存场景"只能把文本塞进浏览器的 textarea 里让用户自己复制 ——
+#   那不是保存，那是"请你手动另存"。落盘之后 `/editor/scene_save?name=` 才算真的存下来。
+SCENE_DIR = os.path.join(ROOT, "scenes")
+
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
@@ -43,7 +48,7 @@ import protocol_bin as PB  # noqa: E402  P5：二进制帧编码（转发导出�
 # ★ 显式声明转发导出：`ws` / `PB` 在本文件里不直接用，
 #   但下游模块统一从这里取 —— 这样「路径与同目录依赖只有一处」才成立。
 __all__ = ["HERE", "ROOT", "ENGINE", "ATLAS_JSON_DIR", "ATLAS_PNG_DIR",
-           "SELF_ATLAS_DIR", "require_sources", "ws", "PB"]
+           "SELF_ATLAS_DIR", "SCENE_DIR", "require_sources", "ws", "PB"]
 
 
 def require_sources():

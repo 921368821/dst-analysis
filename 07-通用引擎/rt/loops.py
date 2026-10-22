@@ -319,6 +319,26 @@ def sim_loop(sim: Sim, hub: Hub, stop: threading.Event, quiet=False, save_file=N
                         box.update(ok=False, error="%s: %s" % (type(e).__name__, e))
                     finally:
                         ev.set()
+                elif kind in ("scene_save", "scene_load", "scene_list"):
+                    # ★ C3：场景落盘/读盘。走模拟线程 —— save 内部要导出世界（遍历实体表），
+                    #   load 内部要清空+导入（SpawnPrefab），都不是 HTTP 线程能碰的。
+                    ev, box = cmd[1], cmd[2]
+                    try:
+                        if kind == "scene_save":
+                            ok, info = sim.scene_save(cmd[3])
+                        elif kind == "scene_load":
+                            ok, info = sim.scene_load(cmd[3])
+                        else:
+                            ok, info = sim.scene_list()
+                        if ok:
+                            box.update(ok=True, **info)
+                        else:
+                            box.update(ok=False, error=info.get("error"),
+                                       removed=info.get("removed"))
+                    except Exception as e:                          # noqa: BLE001
+                        box.update(ok=False, error="%s: %s" % (type(e).__name__, e))
+                    finally:
+                        ev.set()
                 elif kind == "scene_export":
                     # ★ C4：场景导出。**必须走模拟线程** —— 要遍历实体表并读 Transform，
                     #   在 HTTP 线程里直接碰 Lua 会撞上"边遍历边被 step 改表"。

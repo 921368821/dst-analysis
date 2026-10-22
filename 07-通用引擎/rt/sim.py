@@ -17,7 +17,7 @@ import json
 import os
 import time
 
-from config import HERE, ROOT, ENGINE, require_sources
+from config import HERE, ROOT, ENGINE, SCENE_DIR, require_sources
 import commands                       # M1-1：撤销栈（纯 Python，不碰 Lua）
 from hub import lua_to_py
 
@@ -626,6 +626,89 @@ class Sim:
         if not ok:
             return False, {"error": str(info)}
         return True, {"made": int(info)}
+
+    # ---------------------------------------------------------------- C3 场景落盘
+    # ★★ 为什么"名字"必须白名单校验：`/editor/scene_save?name=../../x` 能写到工程外。
+    #   这不是"用户不会这么干"的问题 —— 编辑器跑在 127.0.0.1，但浏览器里任何一个页面
+    #   都能对 localhost 发请求（CSRF 式的本地端口探测），而 `..` 是免费的。
+    #   所以：只允许 字母/数字/下划线/连字符/中文，长度 1~64，**不许出现点与斜杠**。
+    _SCENE_NAME_OK = None      # 延迟编译，避免 import 期就依赖 re 的写法差异
+
+    @staticmethod
+    def _check_scene_name(name):
+        import re
+        if not isinstance(name, str) or name == "":
+            return False, "名字为空"
+        if len(name) > 64:
+            return False, "名字太长（最多 64 个字符）"
+        if not re.fullmatch(r"[A-Za-z0-9_\-\u4e00-\u9fff]+", name):
+            return False, ("名字不合法（只允许字母/数字/下划线/连字符/中文）：%r —— "
+                           "带点或斜杠的名字会被拒绝，因为它能写到工程外面" % (name,))
+        if name in (".", ".."):
+            return False, "名字不合法：%r" % (name,)
+        return True, name
+
+    def scene_path(self, name):
+        ok, why = self._check_scene_name(name)
+        if not ok:
+            return None, why
+        import os
+        return os.path.join(SCENE_DIR, name + ".scene.tsv"), name
+
+    def scene_save(self, name):
+        """导出当前世界并**写盘**。返回 (ok, {name, path, bytes, n})。"""
+        import os
+        path, why = self.scene_path(name)
+        if path is None:
+            return False, {"error": why}
+        ok, exp = self.scene_export()
+        if not ok:
+            return False, {"error": "导出失败：%s" % (exp.get("error"),)}
+        text = exp["text"]
+        try:
+            os.makedirs(SCENE_DIR, exist_ok=True)
+            with open(path, "w", encoding="utf-8", newline="\n") as f:
+                f.write(text)
+        except OSError as e:
+            return False, {"error": "写盘失败：%s: %s" % (type(e).__name__, e)}
+        # 回读：写了多大就算多大，不靠"我以为写了"
+        try:
+            size = os.path.getsize(path)
+        except OSError as e:
+            return False, {"error": "写完之后读不到文件：%s" % (e,)}
+        return True, {"name": why, "path": path, "bytes": size,
+                      "n": exp["n"], "version": exp["version"]}
+
+    def scene_load(self, name):
+        """读盘 → **先清空** → 导入。返回 (ok, {name, made, removed})。"""
+        path, why = self.scene_path(name)
+        if path is None:
+            return False, {"error": why}
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                text = f.read()
+        except FileNotFoundError:
+            return False, {"error": "场景不存在：%s（可用 /editor/scene_list 查看）" % (why,)}
+        except OSError as e:
+            return False, {"error": "读盘失败：%s: %s" % (type(e).__name__, e)}
+        ok, cl = self.scene_clear()
+        if not ok:
+            return False, {"error": "清空失败：%s" % (cl.get("error"),)}
+        ok, imp = self.scene_import(text)
+        if not ok:
+            return False, {"error": "导入失败（世界已被清空）：%s" % (imp.get("error"),),
+                           "removed": cl.get("removed")}
+        return True, {"name": why, "made": imp["made"], "removed": cl.get("removed")}
+
+    def scene_list(self):
+        import os
+        try:
+            os.makedirs(SCENE_DIR, exist_ok=True)
+            names = sorted(n[:-len(".scene.tsv")] for n in os.listdir(SCENE_DIR)
+                           if n.endswith(".scene.tsv"))
+        except OSError as e:
+            return False, {"error": "列目录失败：%s" % (e,)}
+        return True, {"names": names, "n": len(names), "dir": SCENE_DIR}
 
     def collide_pushes(self):
         """碰撞解算挡下了几次（N1）。0 = 从来没挡过（要么没障碍，要么碰撞没接上）。"""
