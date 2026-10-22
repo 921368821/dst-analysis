@@ -6257,6 +6257,68 @@ def e16_equip_and_tool():
                   % (nlog, inv_n))
 
 
+def e41_perish_resumes_after_load():
+    """★★★ G17/G3（2026-10-22）：**读档之后，腐烂还在继续**。
+
+    E40 守的是"读档不重置腐烂进度"（`pr` 还是 0.30）。
+    但只守住这一条还不够：如果读档把 `StartPerishing` 排的那个周期任务**弄丢了**
+    （重建的是新实体，新实体身上没有旧任务），食物就会**永久冻结**在 0.30 ——
+    E40 照样绿（它只看"读档那一刻的值"），而世界已经坏了：
+    所有食物都不会再腐烂，E36 的整条链路在"读一次档"之后就失效。
+
+    实测（修复后）：读档后 0.30 → 80 秒后 0.27，确实在降
+    （前 40 秒不动是原版行为：`StartPerishing` 的首拍用 0~2 秒随机初延迟，
+     而周期本身是 `10 + random()*FRAMES*8` 秒 —— 见 E36 的说明）。
+
+    判据：存档 → 读档 → 走 90 秒 ⇒ `pr` **严格小于**读档时的值，
+    而且降幅落在合理区间（不许"一秒掉光"，那说明 dt 传错了）。
+    """
+    s = Sim(seed=20261015, tick_hz=30, world_content=0).boot()
+    L = s.lua
+    L.globals().RT = s.api
+
+    ok, r = s.debug_give(0, "berries", 3)
+    if not ok:
+        return False, "给物品失败：%s" % (r,)
+    L.eval("""(function()
+      local inv = RT.player.components.inventory
+      for _, it in pairs(inv.itemslots) do
+        if it ~= nil and it.prefab == "berries" then
+          it.components.perishable:SetPercent(0.3)
+        end
+      end
+      return 1
+    end)()""")
+
+    def pr():
+        for x in s.player_state(0)["items"]:
+            if x.get("p") == "berries":
+                return x.get("pr")
+        return None
+
+    data = s.save_collect()
+    ok, msg = s.save_apply(data)
+    if not ok:
+        return False, "读档失败：%s" % (msg,)
+    p0 = pr()
+    if p0 is None:
+        return False, "读档后背包里没有 berries（E40 已经守这个，这里只做前置）"
+    for _ in range(2700):        # 90 s @30 Hz
+        s.step()
+    p1 = pr()
+    if p1 is None:
+        return False, "90 秒后背包里的 berries 消失了（它不该烂完：0.3 × 2880 s 还剩很久）"
+    if not (p1 < p0 - 1e-6):
+        return False, ("读档后 90 秒，腐烂进度一动没动（%r → %r）—— "
+                       "重建出来的新实体身上**没有周期任务**，食物被永久冻结" % (p0, p1))
+    drop = (p0 - p1) * 2880        # 换算成秒（perishtime=2880）
+    if drop > 300:
+        return False, ("读档后 90 秒掉了 %r 秒的腐烂量（0.3→%r）—— 掉得太快，"
+                       "dt 或倍率算错了" % (round(drop, 1), p1))
+    return True, ("读档时 pr=%.2f → 90 秒后 %.2f（约 %.0f 秒腐烂量）—— "
+                  "腐烂在**读档之后仍在继续**，没被冻结" % (p0, p1, drop))
+
+
 def e40_save_keeps_inventory():
     """★★★ G17/C7（2026-10-22）：**读档之后背包还在，而且腐烂进度没被重置**。
 
@@ -7385,6 +7447,7 @@ def e14_editor_channel():
 
 
 check("E13 战斗闭环：打生物 → 掉血 → 死 → 掉战利品；反向：太远被拒 · 树仍走 CHOP", e13_attack_loop)
+check("E41 读档后腐烂仍在继续(G17/G3)：读档 pr 不变(E40) 且 90 秒后**严格下降**、降幅合理（不许冻结也不许一秒掉光）", e41_perish_resumes_after_load)
 check("E40 读档不丢背包(G17)：存档里必须有 owner_guid · 读档后物品原数回来且**腐烂进度没被重置** · 返回含「物品归位」；反向：地上的东西不被吸回 · 树没有 owner_guid", e40_save_keeps_inventory)
 check("E39 计时器契约(G3)：0.5s 任务在第 14~19 拍触发恰好一次 · 周期 2s 内 10 次 · NextTime 往后推 · Cancel 后 0 次 · 嵌套 0 延迟不丢 · 不 step 不触发 · 删实体后 0 次", e39_timer_contract)
 check("E38 背包里的腐烂进度上屏(G3b)：新鲜 pr=1.0 · 20%/0% 逐档对上且 0 不是缺失；反向：石头没有 pr 键 · 合并是加权平均", e38_inventory_perish_visible)
