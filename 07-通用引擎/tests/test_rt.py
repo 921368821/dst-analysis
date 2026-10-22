@@ -6186,6 +6186,139 @@ def e16_equip_and_tool():
                   % (nlog, inv_n))
 
 
+def e36_food_perishes():
+    """★★★ G3（2026-10-22）：食物**真的会烂**，而且烂完**真的变成腐烂物**。
+
+    这条判据在写之前整个仓库**一条都没有**（`perishable` / `spoil` 关键词在
+    tests/ 里出现 0 次）。而"食物不会烂"是本工程最典型的静默失败：
+    世界照常运行、背包照常装、吃下去照常加饱食度 —— 只是**生存压力消失了**，
+    游戏变成一个不会输的沙盒，而没有任何东西会红。
+
+    它靠的是三段真代码串起来，任何一段断掉都只表现为"食物永远新鲜"：
+      ① prefab 里的 `MakeSmallPerishable` → `SetPerishTime(TUNING.PERISH_*)`（有 perishtime）
+      ② `StartPerishing` → `inst:DoPeriodicTask(dt, Update, start_dt, dt)`（任务真的被排上）
+      ③ 任务泵每 tick 跑到期任务 → `Update` 递减 `perishremainingtime` → 到 0 触发
+         `perishfn`（`onperishreplacement` = `spoiled_food`）
+
+    判据（正向三条 + 反向两条）：
+      ① 初始：`perishtime > 0`、`perishremainingtime == perishtime`、`updatetask ~= nil`；
+      ② 走 60 秒：remaining **单调不增**且累计下降 ≥ 40 秒（不是纹丝不动，
+         也不是一 tick 掉光 —— 后者说明 dt 传错了）；
+      ③ 把 perishtime 压到 3 秒再走 40 秒 ⇒ 旧实体**消失**、世界里多出**正好一个**
+         `spoiled_food`（数量守恒：一个换一个，不是"多出来一个"也不是"什么都没了"）；
+      ④ 反向：`StopPerishing()` 之后走 60 秒，remaining **一个数都不变** ——
+         这条是防恒真的关键：它证明 ② 的下降**来自这个任务**，不是别的东西在动；
+      ⑤ 反向：`SetPercent(0.5)` ⇒ remaining ≈ perishtime × 0.5（值可被外部设定；
+         只改数不重排任务的话，下一拍就会被旧进度覆盖回去 —— 那就成了"设了没用"）。
+
+    ⚠️ 不验精确时间：原版 `StartPerishing` 的周期是 `10 + random()*FRAMES*8`（约 10 秒一次），
+       而 `Update` 首拍用的是 `start_dt`（0~2 秒的随机初延迟）。所以"3 秒的食物
+       可能活到 13 秒"是**原版行为**，不是 bug。判据只能验"最终会烂"与"单调"，
+       不能验"第 N 拍烂"—— 那会变成一条靠随机数过的判据。
+    """
+    s = Sim(seed=20261015, tick_hz=30, world_content=0).boot()
+    L = s.lua
+    L.globals().RT = s.api
+
+    def perish_of(guid):
+        """返回 (是否还在, perishtime, remaining, 有无任务)。"""
+        return L.eval("""(function()
+          local C = require("host.01_core")
+          local e = C.Spawned[%d]
+          if e == nil then return false, 0, 0, false end
+          local p = e.components and e.components.perishable
+          if p == nil then return true, 0, 0, false end
+          return true, tonumber(p.perishtime) or 0,
+                 tonumber(p.perishremainingtime) or 0, p.updatetask ~= nil
+        end)()""" % guid)
+
+    def count_prefab(name):
+        ok, d = s.debug_entities(4000)
+        return len([x for x in d["items"] if x.get("prefab") == name])
+
+    # ---------- ① 初始状态：有总时长、满进度、任务已排
+    ok, r = s.debug_spawn("berries", 3.0, 0.0)
+    if not ok:
+        return False, "种不出 berries：%s" % (r,)
+    g = r["guid"]
+    alive, total, rem0, has_task = perish_of(g)
+    if not alive:
+        return False, "刚生成的 berries 立刻消失了"
+    if total <= 0:
+        return False, ("berries 的 perishtime=%r —— prefab 没有调用 SetPerishTime？"
+                       "那它永远不会烂（这就是本条判据要守的东西）" % (total,))
+    if abs(rem0 - total) > 1e-6:
+        return False, "初始 remaining=%r 不等于 perishtime=%r" % (rem0, total)
+    if not has_task:
+        return False, "perishable 有 perishtime 但没有 updatetask —— StartPerishing 没跑"
+
+    # ---------- ② 60 秒：单调不增，且确实降了
+    prev = rem0
+    for _ in range(1800):        # 60 s @30 Hz
+        s.step()
+        pass
+    alive, total2, rem1, has_task2 = perish_of(g)
+    if not alive:
+        return False, "60 秒就烂完了（perishtime=%r）—— 判据前提不成立" % (total,)
+    if rem1 > prev + 1e-6:
+        return False, "60 秒后 remaining 反而变大了：%r → %r" % (prev, rem1)
+    drop = prev - rem1
+    if drop < 40:
+        return False, ("60 秒只掉了 %r 秒（perishtime=%r）—— 腐烂速度远低于名义值，"
+                       "看起来像任务周期算错了" % (round(drop, 2), total))
+
+    # ---------- ④ 反向（先做，因为它会冻结状态）：StopPerishing 之后一个数都不许动
+    L.eval("(function() local C = require('host.01_core') "
+           "C.Spawned[%d].components.perishable:StopPerishing() return 1 end)()" % g)
+    frozen = perish_of(g)[2]
+    for _ in range(1800):
+        s.step()
+    now = perish_of(g)
+    if not now[0]:
+        return False, "StopPerishing 之后实体反而消失了"
+    if abs(now[2] - frozen) > 1e-6:
+        return False, ("StopPerishing 之后 remaining 仍在变：%r → %r —— "
+                       "说明有别的路径在改它（② 的下降不一定是那个任务做的）"
+                       % (frozen, now[2]))
+
+    # ---------- ⑤ 反向：SetPercent 之后值跟着变
+    L.eval("(function() local C = require('host.01_core') "
+           "C.Spawned[%d].components.perishable:SetPercent(0.5) return 1 end)()" % g)
+    half = perish_of(g)
+    if abs(half[2] - total * 0.5) > 1.0:
+        return False, ("SetPercent(0.5) 之后 remaining=%r，期望 ≈ perishtime/2=%r"
+                       % (half[2], total * 0.5))
+
+    # ---------- ③ 压到 3 秒：真的变成 spoiled_food（一个换一个）
+    ok, r2 = s.debug_spawn("berries", 6.0, 0.0)
+    if not ok:
+        return False, "第二次种 berries 失败：%s" % (r2,)
+    g2 = r2["guid"]
+    L.eval("(function() local C = require('host.01_core') "
+           "C.Spawned[%d].components.perishable:SetPerishTime(3) return 1 end)()" % g2)
+    n_berries0 = count_prefab("berries")
+    n_spoil0 = count_prefab("spoiled_food")
+    for _ in range(1500):        # 50 s：够它烂（周期 ~10 s + 初延迟）
+        s.step()
+        if not perish_of(g2)[0]:
+            break
+    if perish_of(g2)[0]:
+        return False, ("50 秒之后那只 perishtime=3 的 berries 还在 —— "
+                       "计数器可能在减，但**没人把它变成腐烂物**")
+    n_berries1 = count_prefab("berries")
+    n_spoil1 = count_prefab("spoiled_food")
+    if n_berries1 != n_berries0 - 1:
+        return False, "腐烂后 berries 数量 %d → %d（期望少一个）" % (n_berries0, n_berries1)
+    if n_spoil1 != n_spoil0 + 1:
+        return False, ("腐烂后 spoiled_food 数量 %d → %d（期望多一个）—— "
+                       "onperishreplacement 没生效，食物只是**凭空消失**" % (n_spoil0, n_spoil1))
+
+    return True, ("berries perishtime=%.0f 且满进度+任务已排 ✔ / 60 秒降 %.1f 秒且单调 ✔ / "
+                  "StopPerishing 后冻结（证明下降来自该任务）✔ / SetPercent(0.5) 生效 ✔ / "
+                  "perishtime=3 的那只 50 秒内**变成 spoiled_food**（一换一）✔"
+                  % (total, drop))
+
+
 def e35_scene_roundtrip_over_http():
     """★★★ C3（2026-10-22）：场景在**真实 HTTP** 上的完整往返。
 
@@ -6706,6 +6839,7 @@ def e14_editor_channel():
 
 
 check("E13 战斗闭环：打生物 → 掉血 → 死 → 掉战利品；反向：太远被拒 · 树仍走 CHOP", e13_attack_loop)
+check("E36 食物真的会烂(G3)：perishtime/满进度/任务已排 · 60 秒单调下降≥40 秒 · 烂完**变成 spoiled_food**（一换一）；反向：StopPerishing 后冻结 · SetPercent 生效", e36_food_perishes)
 check("E35 场景在真实 HTTP 上往返(C3)：POST 导入 → 存盘(bytes/列表) → 换成别的世界 → 读盘 → 与存前逐字节相同；反向：load 后不许还是别的世界", e35_scene_roundtrip_over_http)
 check("E34 每个编辑动词都能一次撤销(J2，表驱动)：move/spawn/remove/scene_import/scene_clear 逐个「执行→文本变→undo→逐字节回原样→栈清空」", e34_every_edit_verb_is_undoable)
 check("E33 删除要说出摘掉几个子实体(C2)：删父回报 detached=2 且子仍在原位、_parent=nil；反向：无子实体报 0 · 直接删孩子报 0（增量不是累计）", e33_remove_reports_detached)
