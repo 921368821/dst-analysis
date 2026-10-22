@@ -962,7 +962,37 @@ end
 -- ---------- 生命周期 ----------
 function Core.EntityMeta:IsValid() return not self._removed end
 function Core.EntityMeta:IsInLimbo() return self._inlimbo == true end
+-- ★★★ C2（2026-10-22）：删除父实体前，必须先把**子实体摘下来**。
+--
+-- 实测（修复前）：A、B 两棵树，`B.entity:SetParent(A.entity)` 之后 `A:Remove()`，
+-- B 的 `_parent` **仍然指向已删除的 A** —— 悬空引用。
+-- 之后任何 `inst._parent.components.xxx` 都会去读一个"半死"的对象：
+-- 有时是 nil 报错，有时是读到残留字段（**静默错**），取决于 Remove 之后哪些字段还留着。
+--
+-- 语义选择（与 DST 不同，写在这里免得后人以为是 bug）：
+--   DST 的 C++ 侧删父会连带删子（实体树递归销毁）。我们**只摘不删**：
+--   子实体保留在原位、`_parent` 置 nil。理由：宿主没有真正的实体树，
+--   而"删容器连带删光里面的东西"在编辑器里是灾难（删一个箱子=删掉里面全部战利品）。
+--   摘下来至少是**可解释的状态**：东西还在原地，只是不再属于谁。
+--   ⇒ 如果将来要做"DESTROY"语义，那是另一个决定，得配自己的判据，不能顺手改这里。
+--
+-- 为什么不做"子实体计数 > 0 才扫"的优化：那个计数会在 `entity:SetParent(nil)`
+-- 与直接赋 nil 两条路径上漂移，而漂移到 0 的后果是**漏摘**（正是这条要修的 bug）。
+-- 删除是低频操作（不是每 tick），全表扫一遍更安全。计数只用于观测。
+Core.DetachedOnRemove = 0
+
 function Core.EntityMeta:Remove()
+    -- 先摘子（必须在 `_removed = true` 之前：摘的过程要读 `child._parent == self`）
+    for _, child in pairs(Core.Spawned) do
+        if child ~= self and child._parent == self then
+            child._parent = nil
+            child._parententity = nil
+            if child.entity ~= nil and child.entity.SetParent ~= nil then
+                pcall(function() child.entity:SetParent(nil) end)
+            end
+            Core.DetachedOnRemove = Core.DetachedOnRemove + 1
+        end
+    end
     self._removed = true
     self:PushEvent("onremove")
     Core.Spawned[self._guid] = nil

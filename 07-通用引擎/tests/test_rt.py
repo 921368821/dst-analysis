@@ -4634,6 +4634,105 @@ def e15_craft_loop():
                   % (int(before), int(after), refused))
 
 
+def e31_no_dangling_parent():
+    """★★★ C2（2026-10-22）：删除父实体之后，子实体**不许悬空**。
+
+    修复前实测：A、B 两棵树，`B.entity:SetParent(A.entity)` 之后 `A:Remove()`，
+    B 的 `_parent` **仍然指向已删除的 A**。之后任何 `inst._parent.components.xxx`
+    都会去读一个"半死"的对象 —— 有时 nil 报错，有时读到残留字段（**静默错**）。
+
+    语义选择（与 DST 不同，写在 `host/01_core.lua` 里）：
+      DST 的 C++ 侧删父会**连带删子**；我们**只摘不删** —— 子实体留在原位、`_parent` 置 nil。
+      理由：宿主没有真正的实体树，而"删容器连带删光里面的东西"在编辑器里是灾难。
+
+    判据（正向三条 + 反向两条）：
+      ① `B.entity:SetParent(A.entity)` ⇒ `B._parent == A`；
+      ② `A:Remove()` ⇒ **`B._parent == nil`**（这是这条判据的全部意义）；
+      ③ 子实体**仍然存在**且位置不变（"不悬空"不等于"被删掉"）；
+      ④ 反向：没有父子关系时删 A，摘子计数**不动**（证明 ② 不是碰巧）；
+      ⑤ 反向：先正常 `SetParent(nil)` 再删父，摘子计数也不动 ——
+         否则说明实现是"删的时候乱摘一通"而不是"按父子关系摘"。
+    """
+    s = Sim(seed=20261015, tick_hz=30, world_content=0).boot()
+    L = s.lua
+    L.globals().RT = s.api
+
+    def detached():
+        return int(L.eval('(function() return require("host.01_core").DetachedOnRemove or 0 end)()'))
+
+    def parent_of(guid):
+        v = L.eval('(function() local t = require("host.01_core").Spawned '
+                   'local e = t[%d] if e == nil then return "__gone__" end '
+                   'return e._parent and tostring(e._parent.prefab) or "" end)()' % guid)
+        return v
+
+    def pos_of(guid):
+        ok, e = s.debug_entity(guid)
+        return (e.get("x"), e.get("z")) if ok else (None, None)
+
+    okA, ra = s.debug_spawn("evergreen", 2.0, 0.0)
+    okB, rb = s.debug_spawn("evergreen", 6.0, 1.0)
+    if not (okA and okB):
+        return False, "spawn 失败"
+    ga, gb = ra["guid"], rb["guid"]
+    b_pos = pos_of(gb)
+
+    # ④ 反向（先验）：没设父子时删 A，计数不动 —— 放到最后做会让状态串味，这里先记基线
+    base = detached()
+
+    # ① 设父子
+    r = L.eval('(function() local t = require("host.01_core").Spawned '
+               'local A, B = t[%d], t[%d] '
+               'if A == nil or B == nil then return "缺实体" end '
+               'B.entity:SetParent(A.entity) '
+               'return (B._parent == A) and "ok" or "mismatch" end)()' % (ga, gb))
+    if r != "ok":
+        return False, "SetParent 之后 B._parent 不等于 A：%r" % (r,)
+
+    # ② 删父 ⇒ 子必须被摘
+    L.eval('(function() require("host.01_core").Spawned[%d]:Remove() return 1 end)()' % ga)
+    p2 = parent_of(gb)
+    if p2 == "__gone__":
+        return False, "删父之后**子实体也没了** —— 我们选的是「只摘不删」，删子会连带删掉容器里的东西"
+    if p2 != "":
+        return False, ("删父之后 B._parent 仍然指向 %r —— 悬空引用。"
+                       "之后任何 `inst._parent.components.x` 都会读一个半死对象" % (p2,))
+
+    # ③ 子还在且位置没动
+    if pos_of(gb) != b_pos:
+        return False, "摘下来之后子实体位置变了：%r → %r" % (b_pos, pos_of(gb))
+
+    # ③b 计数 +1（证明是"摘"而不是"碰巧 nil"）
+    if detached() != base + 1:
+        return False, ("摘子计数 %d → %d（期望 +1）—— 要么没摘，要么摘了别的"
+                       % (base, detached()))
+
+    # ④ 反向：没有父子关系时删一个实体，计数不动
+    okC, rc = s.debug_spawn("evergreen", 9.0, 9.0)
+    g_c = rc["guid"]
+    before = detached()
+    L.eval('(function() require("host.01_core").Spawned[%d]:Remove() return 1 end)()' % g_c)
+    if detached() != before:
+        return False, ("没有父子关系，删实体却摘了 %d 个子 —— 实现是「乱摘」不是「按关系摘」"
+                       % (detached() - before))
+
+    # ⑤ 反向：先解除父子再删父，计数不动
+    okD, rd = s.debug_spawn("evergreen", 12.0, 0.0)
+    okE, re = s.debug_spawn("evergreen", 14.0, 0.0)
+    gd, ge = rd["guid"], re["guid"]
+    L.eval('(function() local t = require("host.01_core").Spawned '
+           't[%d].entity:SetParent(t[%d].entity) '
+           't[%d].entity:SetParent(nil) return 1 end)()' % (ge, gd, ge))
+    before = detached()
+    L.eval('(function() require("host.01_core").Spawned[%d]:Remove() return 1 end)()' % gd)
+    if detached() != before:
+        return False, ("父子已解除，删父仍摘了 %d 个 —— 摘子判定没跟着 SetParent(nil) 走"
+                       % (detached() - before,))
+
+    return True, ("SetParent 后 _parent=A ✔ / 删父后 _parent=nil（子未消失、位置不变）✔ / "
+                  "摘子计数 +1 ✔ / 无父子时删实体不摘 ✔ / 解除父子后删父不摘 ✔")
+
+
 def e30_worldgen_deterministic():
     """★★★ G14（2026-10-22）：**同种子 = 同一个世界**。
 
@@ -6216,6 +6315,7 @@ def e14_editor_channel():
 
 check("E13 战斗闭环：打生物 → 掉血 → 死 → 掉战利品；反向：太远被拒 · 树仍走 CHOP", e13_attack_loop)
 check("E14 编辑器通道：列/生成/移动/删除全回读；反向：玩家删除被拒 · /debug 仍 404", e14_editor_channel)
+check("E31 删父不许悬空(C2)：SetParent 后 _parent=A · 删父后 _parent=nil 且子仍在原位 · 摘子计数+1；反向：无父子不摘 · 解除父子后删父不摘", e31_no_dangling_parent)
 check("E30 同种子=同一世界(G14)：两次 boot 场景文本逐字节相同 · 不同种子不同 · 同种子不同内容不同；防恒真：树必须有≥2种 workleft", e30_worldgen_deterministic)
 check("E29 一次导入=一步撤销(C3b)：导入只占 1 步 · 撤销后文本逐字节回原样 · 重做回导入后 · 清空 1 步且撤销装回；反向：坏文本不占步", e29_scene_import_is_one_undo_step)
 check("E28 场景落盘(C3)：save 后 bytes 与盘上一致 · load 往返逐字节相同 · list 可见；反向：../ 名字被拒且工程外无文件 · 不存在给原因 · 带点名字被拒", e28_scene_save_load_files)
