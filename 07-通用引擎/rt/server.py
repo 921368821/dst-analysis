@@ -93,6 +93,41 @@ class Handler(HttpMixin, WsMixin, socketserver.BaseRequestHandler):
                 return
             method, path, headers = ws.parse_http_headers(raw)
 
+            # ★★ C3c（2026-10-22）：**读请求体**（POST）。
+            #   在这之前服务端只认 GET，于是"导入场景"只能把整份文本塞进 URL query ——
+            #   20 个实体约 400 字符没问题，但上百个实体会撞 URL 长度上限
+            #   （实测 IE/Chrome 约 2 KB 起就不稳），而那时**报错是一句 414/400**，
+            #   与"场景有坏行"完全分不清。
+            #   上限 256 KB：场景文本是纯文本，几百个实体也就几十 KB；
+            #   给足余量但不给无限（一个请求吃光内存是另一种事故）。
+            req_body = b""
+            if method in ("POST", "PUT"):
+                try:
+                    clen = int(headers.get("content-length") or 0)
+                except (TypeError, ValueError):
+                    clen = 0
+                if clen < 0 or clen > 262144:
+                    body = json.dumps({"ok": False,
+                                       "error": "请求体过大（%d 字节，上限 262144）" % clen},
+                                      ensure_ascii=False).encode("utf-8")
+                    self._reply(b"HTTP/1.1 413 Payload Too Large\r\n"
+                                b"Content-Type: application/json; charset=utf-8\r\n"
+                                b"Content-Length: " + str(len(body)).encode() + b"\r\n\r\n" + body)
+                    return
+                head_end = raw.find(b"\r\n\r\n") + 4
+                req_body = raw[head_end:]
+                # 可能已经读进来一部分（与头部同一个 recv），只补剩下的
+                body_deadline = time.time() + 5
+                while len(req_body) < clen and time.time() < body_deadline:
+                    try:
+                        chunk = self.request.recv(min(65536, clen - len(req_body)))
+                    except socket.timeout:
+                        continue
+                    if not chunk:
+                        break
+                    req_body += chunk
+                req_body = req_body[:clen]
+
             # ★★★ M5：**来源校验**（HTTP 与 WS 共用，放在分派之前）。
             #   威胁模型：任意网页都能对 `http://127.0.0.1:8765/...` 发起请求
             #   （`<img>` / `<script>` / form / WebSocket），浏览器**会**带 Origin 或 Referer。
@@ -114,7 +149,7 @@ class Handler(HttpMixin, WsMixin, socketserver.BaseRequestHandler):
             if headers.get("upgrade", "").lower() == "websocket":
                 self._serve_ws(headers, path)
             else:
-                self._serve_http(method, path, headers)
+                self._serve_http(method, path, headers, req_body)
         except Exception as e:                                  # noqa: BLE001
             # ★ 诊断：**不再静默**。之前这里把异常吞掉、只往 wfile 写一句，
             #   结果 /healthz 对客户端表现为「连接直接断」——查了半天。

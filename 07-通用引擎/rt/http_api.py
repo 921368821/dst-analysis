@@ -12,6 +12,7 @@
 import json
 import os
 import threading
+import urllib.parse
 
 from config import ATLAS_JSON_DIR, ATLAS_PNG_DIR, SELF_ATLAS_DIR
 from hub import _slots_html
@@ -140,7 +141,15 @@ class HttpMixin:
         return peer in ("127.0.0.1", "::1", "::ffff:127.0.0.1", "localhost")
 
     # ---------- 静态文件 / healthz ----------
-    def _serve_http(self, method, path, headers=None):
+    def _serve_http(self, method, path, headers=None, body=b""):
+        """HTTP 分派。`body` 是**请求体**（POST/PUT 才有；GET 恒为空）。
+
+        ★ C3c（2026-10-22）：加 `body` 是为了让"导入场景"不必把整份文本塞进 URL。
+          取值优先级（写清楚免得两处打架）：**JSON body 里的键覆盖同名 query** ——
+          body 是"这一次调用真正要传的数据"，query 只该带路由参数。
+          ⚠️ 但 body 只接受**白名单键**：不做白名单的话，一个 POST 就能改 `/editor/*`
+             的任意参数（例如把 `slot` 悄悄换掉），那比 URL 注入更难查。
+        """
         headers = headers or {}
         # ★★ M5：控制端点的 **token 门**（可选，`--control-token` 才启用）。
         #   为什么做成可选：本服务默认只监听 127.0.0.1，部署脚本 `stop.sh` 会调 `/save`；
@@ -180,12 +189,20 @@ class HttpMixin:
         # ★ 放在**所有路由之前**：`/atlas/`、`/status`、`/healthz`、`/debug/*`、
         #   静态文件走的是同一个 `_serve_http`，一处拦住就全拦住 ——
         #   这也避免了「以后新增一个端点忘了校验」的漏网。
-        if method is not None and str(method).upper() != "GET":
+        # ★★ C3c（2026-10-22）：放行 `/editor/*` 的 POST（其余端点仍然只认 GET）。
+        #   为什么只放这一条路：编辑器要传整份场景文本（几十 KB），塞 URL 会撞上限；
+        #   而其他端点（/status、/healthz、/save、静态文件）都是幂等读或
+        #   靠 query 就能表达的短参数，**没有理由**让它们接受 body ——
+        #   每多一条 POST 路由，就多一个"跨源页面能触发写操作"的面。
+        #   同源校验（M5）在分流前已经做过，但"少开一扇门"永远比"多检查一次"可靠。
+        _m = "" if method is None else str(method).upper()
+        _allow_post = _m == "POST" and path.split("?")[0].startswith("/editor/")
+        if _m and _m != "GET" and not _allow_post:
             body = json.dumps({"ok": False,
-                               "error": "只支持 GET（收到 %s）" % str(method).upper()},
+                               "error": "只支持 GET（收到 %s；仅 /editor/* 接受 POST）" % _m},
                               ensure_ascii=False).encode("utf-8")
             self._reply(b"HTTP/1.1 405 Method Not Allowed\r\n"
-                        b"Allow: GET\r\n"
+                        b"Allow: GET, POST (/editor/*)\r\n"
                         b"Content-Type: application/json; charset=utf-8\r\n"
                         b"Content-Length: " + str(len(body)).encode() + b"\r\n\r\n" + body)
             return
@@ -345,10 +362,27 @@ class HttpMixin:
             sub = path.split("?")[0]
             q = path.split("?", 1)[1] if "?" in path else ""
             arg = {}
+            # ★ C3c：POST 的 JSON body（**只收白名单键**，见 _serve_http 的说明）
+            if body:
+                try:
+                    _jb = json.loads(body.decode("utf-8"))
+                except Exception:                                # noqa: BLE001
+                    _jb = None
+                if isinstance(_jb, dict):
+                    for _k in ("text",):
+                        if _k in _jb and isinstance(_jb[_k], str):
+                            arg[_k] = _jb[_k]
             for kv in q.split("&"):
                 if "=" in kv:
                     k, v = kv.split("=", 1)
-                    arg[k] = v
+                    # ★★★ C3c（2026-10-22）：**必须 unquote**。
+                    #   客户端一直在用 `encodeURIComponent`（中文名必然带 %），
+                    #   而服务端原来直接拿原串 ⇒ 「关卡 1」存进来是 `%E5%85%B3...`，
+                    #   然后被名字白名单判成"不合法" —— **客户端和服务端各说各话**，
+                    #   而且症状是"中文名存不了、英文名好好的"，很容易被当成输入限制。
+                    #   （E28 只在 sim 层测了名字校验，F38 只断言"URL 里有 %"，
+                    #     两边都没覆盖"编码 → 解码"这条缝。）
+                    arg[k] = urllib.parse.unquote(v)
 
             def _enum(key, cast=float, default=None):
                 v = arg.get(key)

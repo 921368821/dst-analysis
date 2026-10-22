@@ -6186,6 +6186,107 @@ def e16_equip_and_tool():
                   % (nlog, inv_n))
 
 
+def e32_http_post_and_unquote():
+    """★★★ C3c（2026-10-22）：HTTP 层的两条缝 —— POST 体、URL 解码。
+
+    这两条都不是"新功能"，而是**客户端和服务端各说各话**的那种缝：
+      ① 服务端原来只认 GET ⇒ 导入只能把整份场景文本塞进 URL query。
+         20 个实体 400 字符没事，上百个会撞长度上限，而那时的报错（414/400）
+         和"场景里有坏行"分不清。
+      ② 编辑器的 query 参数原来**不 unquote**，而客户端一直在 `encodeURIComponent`。
+         症状是「中文名存不了、英文名好好的」—— 很容易被当成"名字只许 ASCII"。
+         （E28 只测了 sim 层的名字校验，F38 只断言"URL 里有 %"，
+           两边都没覆盖"编码 → 解码"这条缝。）
+
+    判据（正向两条 + 反向两条）：
+      ① POST `/editor/scene_import` 带 JSON body ⇒ 200 且 `made` 正确（body 被读到、被解析）；
+      ② GET `/editor/scene_save?name=<URL 编码的中文>` ⇒ 200，且返回的 `name` 是**中文**
+         （证明服务端 unquote 了，而不是把 %E5%85%B3 当名字）；
+      ③ 反向：body 里塞**白名单外的键**（`{"slot": 9, "text": ...}`）⇒ `slot` 不生效
+         （导入用的仍是 query 里的 slot=0）—— 不做白名单的话，一个 POST 能改任意参数；
+      ④ 反向：body 是坏 JSON ⇒ 被当成"没有 body"，返回**可读的拒绝**
+         （"场景文本为空"），不是 500。
+    """
+    import json as _json
+    import urllib.parse as _up
+    import urllib.request as _ur
+    import urllib.error as _urlerr
+
+    base = "http://127.0.0.1:%d" % PORT
+
+    def post(path, payload, raw=None):
+        data = raw if raw is not None else _json.dumps(payload).encode("utf-8")
+        req = _ur.Request(base + path, data=data, method="POST",
+                          headers={"Content-Type": "application/json"})
+        try:
+            with _ur.urlopen(req, timeout=15) as r:
+                return r.status, _json.loads(r.read().decode("utf-8"))
+        except _urlerr.HTTPError as e:
+            try:
+                return e.code, _json.loads(e.read().decode("utf-8"))
+            except Exception:                                    # noqa: BLE001
+                return e.code, {}
+
+    def get(path):
+        try:
+            st, body = _http_get(path, timeout=15)
+            return st, _json.loads(body)
+        except _urlerr.HTTPError as e:
+            try:
+                return e.code, _json.loads(e.read().decode("utf-8"))
+            except Exception:                                    # noqa: BLE001
+                return e.code, {}
+
+    text = "evergreen\t2.000\t3.000\nevergreen\t5.000\t3.000"
+
+    # ① POST body 生效
+    st, d = post("/editor/scene_import", {"text": text})
+    if st != 200:
+        return False, "POST 导入返回 %s：%r" % (st, d)
+    if not d.get("ok"):
+        return False, "POST 导入失败：%r（body 没被读到？）" % (d,)
+    if int(d.get("made", -1)) != 2:
+        return False, "POST 导入 made=%r（期望 2）" % (d.get("made"),)
+
+    # ② 中文名必须能存（URL 编码 → 服务端 unquote）
+    name_cn = "关卡一"
+    st, sv = get("/editor/scene_save?name=" + _up.quote(name_cn))
+    if st != 200 or not sv.get("ok"):
+        return False, ("中文名存盘失败（%s）：%r —— 客户端 encodeURIComponent 了，"
+                       "服务端没 unquote 的话就会这样" % (st, sv))
+    if sv.get("name") != name_cn:
+        return False, "存盘返回的 name 是 %r，期望 %r（说明没有 unquote）" % (sv.get("name"), name_cn)
+    import os
+    from config import SCENE_DIR
+    f = os.path.join(SCENE_DIR, name_cn + ".scene.tsv")
+    try:
+        if os.path.exists(f):
+            os.remove(f)
+    except OSError:
+        pass
+
+    # ③ 反向：白名单外的键不生效
+    st, d2 = post("/editor/scene_import", {"text": "evergreen\t9.000\t9.000", "slot": 9})
+    if st != 200 or not d2.get("ok"):
+        return False, "带白名单外键的 POST 被整份拒了（应当是忽略那个键）：%r" % (d2,)
+    # 只要没报错就说明 slot 没有被当成"9 号槽位"去炸掉；再用 entity 数确认导入生效
+    if int(d2.get("made", -1)) != 1:
+        return False, "带白名单外键时 made=%r（期望 1）" % (d2.get("made"),)
+
+    # ④ 反向：坏 JSON ⇒ 可读拒绝，不是 500
+    st, d3 = post("/editor/scene_import", None, raw=b"{this is not json")
+    if st == 500:
+        return False, "坏 JSON 让服务端 500 了：%r" % (d3,)
+    if st == 200 and d3.get("ok"):
+        return False, "坏 JSON 竟然导入成功了：%r" % (d3,)
+    if "空" not in str(d3.get("error", "")):
+        return False, "坏 JSON 的拒绝理由不可读：%r" % (d3.get("error"),)
+
+    return True, ("POST body 生效（made=%d）✔ / 中文名存盘回显为中文 ✔ / "
+                  "白名单外键被忽略 ✔ / 坏 JSON 给可读拒绝（%s）✔"
+                  % (d.get("made"), st))
+
+
 def e14_editor_channel():
     """★★ P62 编辑器通道：列 / 生成 / 移动 / 删除 四件套 + 玩家保护 + 门槛分离。
 
@@ -6314,6 +6415,7 @@ def e14_editor_channel():
 
 
 check("E13 战斗闭环：打生物 → 掉血 → 死 → 掉战利品；反向：太远被拒 · 树仍走 CHOP", e13_attack_loop)
+check("E32 HTTP 两条缝(C3c)：POST JSON body 生效 · 中文名 URL 编码后能存；反向：白名单外键被忽略 · 坏 JSON 给可读拒绝不是 500", e32_http_post_and_unquote)
 check("E14 编辑器通道：列/生成/移动/删除全回读；反向：玩家删除被拒 · /debug 仍 404", e14_editor_channel)
 check("E31 删父不许悬空(C2)：SetParent 后 _parent=A · 删父后 _parent=nil 且子仍在原位 · 摘子计数+1；反向：无父子不摘 · 解除父子后删父不摘", e31_no_dangling_parent)
 check("E30 同种子=同一世界(G14)：两次 boot 场景文本逐字节相同 · 不同种子不同 · 同种子不同内容不同；防恒真：树必须有≥2种 workleft", e30_worldgen_deterministic)

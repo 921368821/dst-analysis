@@ -1517,10 +1517,20 @@ function edEsc(s) {
   return String(s).replace(/[&<>"]/g, (c) =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
-function edJson(path) {
+function edJson(path, opts) {
   // cache:no-store 是必须的：这些接口每次都返回**当下**的事实，
   // 浏览器缓存会让「删了还在列表里」变成一次幽灵故障。
-  return fetch(path, { cache: 'no-store' }).then((r) => r.json());
+  //
+  // ★ C3c：支持 POST（`opts.body` 会被 JSON 序列化）。目前只有"导入场景"用 ——
+  //   因为整份场景文本塞进 URL query 会在上百实体时撞长度上限，
+  //   而那种报错（414/400）与"场景里有坏行"分不清。
+  const init = { cache: 'no-store' };
+  if (opts && opts.body !== undefined) {
+    init.method = 'POST';
+    init.headers = { 'Content-Type': 'application/json' };
+    init.body = JSON.stringify(opts.body);
+  }
+  return fetch(path, init).then((r) => r.json());
 }
 
 // ---------------------------------------------------------------- 拉取与列表
@@ -1785,7 +1795,8 @@ function sceneImport() {
   // ★★ C3b：**只发一个请求**。清空由服务端在导入内部完成（原子），
   //   客户端不再先发 clear —— 两步之间失败会留下一个空世界，
   //   而"清空 + 导入"本来就是一次不可分割的编辑（也因此只占一步撤销）。
-  edJson('/editor/scene_import?text=' + encodeURIComponent(text)).then((d) => {
+  // ★ C3c：走 POST + JSON body（不再把整份文本塞进 URL）。
+  edJson('/editor/scene_import', { body: { text: text } }).then((d) => {
     if (!d || !d.ok) {
       // ★ 失败原因原样显示（它会指出是第几行坏的），不在客户端翻译
       edSetStatusAfterRefresh('✘ 导入失败：' + ((d && d.error) || '未知'), true);

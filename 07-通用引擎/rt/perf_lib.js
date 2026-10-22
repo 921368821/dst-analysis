@@ -260,8 +260,15 @@ function makeClient(opt) {
     //   现在：记录 URL 到 `__fetched`，并按 `O.fetchReply(url)` 返回预设 JSON。
     //   没给 responder 时返回一个空 ok 包，保证不崩（与"图集没加载好"同一个思路：
     //   桩只覆盖要验的那条路，其余保持沉默而不是假装成功）。
-    fetch: (url) => {
+    fetch: (url, opts) => {
       (sandbox.__fetched || (sandbox.__fetched = [])).push(String(url));
+      // ★ C3c：POST 的 body 也要能被判据看到 —— 否则"改走 POST"之后
+      //   判据只能看到 URL，等于对新路径**完全失明**（它只看 URL 就以为什么都没发）。
+      if (opts && opts.body !== undefined) {
+        (sandbox.__posted || (sandbox.__posted = [])).push({
+          url: String(url), method: (opts.method || 'GET'), body: String(opts.body),
+        });
+      }
       let body = { ok: false, error: 'sandbox: 没有为这个 URL 配 fetchReply' };
       if (typeof O.fetchReply === 'function') {
         const r = O.fetchReply(String(url));

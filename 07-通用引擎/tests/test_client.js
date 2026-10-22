@@ -1335,7 +1335,7 @@ check('F36 音效接线（H1）：按目标动作选音 · 掉血与死亡选不
   return { ok: true, info: 'CHOP/PICKUP/ATTACK 各发不同的音 ✔ / 首帧不响 ✔ / 掉血播 hurt ✔ / 回升不响 ✔ / 归零播 die ✔ / byName=' + JSON.stringify(names) };
 });
 
-check('F37 场景导出/导入（C4）：导出填文本框并展开 · 导入**只发一个原子请求**（不许再发 clear）且带编码文本；反向：空文本零请求 · 导入失败要说服务端原因', async () => {
+check('F37 场景导出/导入（C4）：导出填文本框并展开 · 导入**只发一个原子 POST**（不许再发 clear、文本不许进 URL）；反向：空文本零请求 · 导入失败要说服务端原因', async () => {
   // E22 验的是服务端往返，用户按的是**按钮**。中间那段（按钮 → 请求顺序 → 文本框 → 状态栏）
   // 在 F37 之前没有判据。最容易错的一处不是"发不发请求"，而是**顺序**：
   // 先 import 后 clear 的话，导入的实体紧接着被自己清掉，用户看到空世界，
@@ -1412,10 +1412,26 @@ check('F37 场景导出/导入（C4）：导出填文本框并展开 · 导入**
     return { ok: false, info: '导入没有发出 scene_import：' + JSON.stringify(fetched()) };
   }
   const impUrl = fetched()[idxImport];
-  if (impUrl.indexOf('text=') < 0) return { ok: false, info: 'import 请求没带 text：' + impUrl };
-  if (impUrl.indexOf('evergreen') < 0) return { ok: false, info: 'import 请求里的文本不是导出内容：' + impUrl };
-  if (impUrl.indexOf('\n') >= 0 || impUrl.indexOf('\t') >= 0) {
-    return { ok: false, info: 'import 请求里的文本**没有编码**（URL 里出现裸的换行/制表符）：' + impUrl };
+  // ★★ C3c：导入改走 **POST + JSON body**，文本**不该再出现在 URL 里**。
+  //   断言随之从"URL 里带不带 text"改成"body 里有没有、URL 里有没有"——
+  //   两边都要断言：只断 body 会漏掉"URL 里还在塞文本"，只断 URL 会漏掉"body 是空的"。
+  if (impUrl.indexOf('text=') >= 0) {
+    return { ok: false, info: '导入仍然把文本塞在 URL 里（会在上百实体时撞长度上限）：' + impUrl };
+  }
+  const posted = (env.__posted || []).filter((x) => x.url.indexOf('/editor/scene_import') >= 0);
+  if (posted.length !== 1) {
+    return { ok: false, info: '导入没有发出带 body 的 POST（记录到 ' + posted.length + ' 次）' };
+  }
+  if (posted[0].method !== 'POST') {
+    return { ok: false, info: '导入请求的方法不是 POST：' + posted[0].method };
+  }
+  let jb = null;
+  try { jb = JSON.parse(posted[0].body); } catch (e) { jb = null; }
+  if (!jb || typeof jb.text !== 'string') {
+    return { ok: false, info: '导入 body 不是 {"text": string}：' + posted[0].body };
+  }
+  if (jb.text.indexOf('evergreen') < 0) {
+    return { ok: false, info: '导入 body 里的文本不是导出内容：' + jb.text.slice(0, 60) };
   }
   if ((el('edStatus').textContent || '').indexOf('已导入 2') < 0) {
     return { ok: false, info: '导入成功后状态栏不对：' + el('edStatus').textContent };
@@ -1449,7 +1465,7 @@ check('F37 场景导出/导入（C4）：导出填文本框并展开 · 导入**
     return { ok: false, info: '导入失败却显示「已导入」：' + s4 };
   }
 
-  return { ok: true, info: '关着编辑器零请求 ✔ / 导出填文本框+展开+写数量 ✔ / 导入单请求且文本已编码（无 clear）✔ / 空文本零请求 ✔ / 失败回显第 1 行原因且不假称成功 ✔' };
+  return { ok: true, info: '关着编辑器零请求 ✔ / 导出填文本框+展开+写数量 ✔ / 导入单请求 POST，文本在 body 里（URL 无 text、无 clear）✔ / 空文本零请求 ✔ / 失败回显第 1 行原因且不假称成功 ✔' };
 });
 
 check('F38 场景落盘 UI（C3）：空名字零请求 · 存盘回显盘上字节数并刷新列表 · 读取失败要把「已清空 N 个」一起说出来', async () => {
