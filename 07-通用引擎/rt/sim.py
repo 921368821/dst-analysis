@@ -456,7 +456,7 @@ class Sim:
                                    % (state["x"], state["z"], info["x"], info["z"]))
             return
         if kind == "ent":
-            # ★★ M1-2（2026-10-22）：**实体级的增删**。spawn 与 remove 共用一条路径：
+            # ★★ M1-1b（2026-10-22）：**实体级的增删**。spawn 与 remove 共用一条路径：
             #   · spawn：before=None, after={"line": 场景行} ⇒ undo 时 apply(None) 删掉
             #   · remove：before={"line": 场景行}, after=None ⇒ undo 时 apply(before) 重建
             #   一条代码路径处理两件事，因为它们在栈里本来就是同一件事的镜像。

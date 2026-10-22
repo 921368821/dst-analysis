@@ -363,7 +363,7 @@ class HttpMixin:
             if sub == "/editor/entities":
                 self.hub.cmds.put(("debug_entities", _enum("limit", int, 500), ev, box))
             elif sub == "/editor/remove":
-                # ★★ M1-2：删除也走栈 —— 撤销就是把这个实体重建回来。
+                # ★★ M1-1b：删除也走栈 —— 撤销就是把这个实体重建回来。
                 #   ⚠️ 重建得到的是**新 guid**（接口里有 `guid_will_change`），
                 #      只恢复 prefab/位置/白名单覆盖值，不恢复背包与 AI 记忆。
                 self.hub.cmds.put(("remove_undo", _enum("guid", int, -1), ev, box))
@@ -380,7 +380,7 @@ class HttpMixin:
             elif sub == "/editor/undo_stats":
                 self.hub.cmds.put(("undo_stats", ev, box))
             elif sub == "/editor/spawn":
-                # ★★ M1-2：生成走栈（可撤销）。`debug_spawn` 仍留给 /debug 与内部使用。
+                # ★★ M1-1b：生成走栈（可撤销）。`debug_spawn` 仍留给 /debug 与内部使用。
                 self.hub.cmds.put(("spawn_undo", arg.get("prefab", ""),
                                    _enum("x"), _enum("z"), ev, box))
             elif sub == "/editor/recipes":

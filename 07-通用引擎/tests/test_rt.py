@@ -4814,7 +4814,7 @@ def e26_perf_baseline():
 
 
 def e25_undo_spawn_remove():
-    """★★★ M1-2（2026-10-22）：生成的能撤、删掉的能回来。
+    """★★★ M1-1b（2026-10-22）：生成的能撤、删掉的能回来。
 
     B6 只让 `/editor/move` 走栈，spawn/remove 仍是**直接改世界**。后果不是"少个功能"，
     而是**不一致**：用户拖错了能撤，删错了不能撤 —— 而删错比拖错的代价大得多。
@@ -5947,7 +5947,7 @@ check("E13 战斗闭环：打生物 → 掉血 → 死 → 掉战利品；反向
 check("E14 编辑器通道：列/生成/移动/删除全回读；反向：玩家删除被拒 · /debug 仍 404", e14_editor_channel)
 check("E27 动画真的在动(E2)：帧号随 tick 前进 · 30 拍内≥20 个不同帧号 · 循环回绕 · 换动画重置为 1；反向：不 step 时帧号不变", e27_animation_advances)
 check("E26 性能基线(H6)：≈200 实体 step/snapshot 均在 12ms 护栏内 · 实体×3.7 时耗时不许×8（超线性即红）；反向：空世界必须明显更快（测量有效性）", e26_perf_baseline)
-check("E25 生成的能撤、删掉的能回来(M1-2)：spawn→undo→redo · remove→undo 后 prefab/位置/workleft 逐值恢复 · remove→undo→redo 链通；反向：幽灵 guid 被拒且不进栈", e25_undo_spawn_remove)
+check("E25 生成的能撤、删掉的能回来(M1-1b)：spawn→undo→redo · remove→undo 后 prefab/位置/workleft 逐值恢复 · remove→undo→redo 链通；反向：幽灵 guid 被拒且不进栈", e25_undo_spawn_remove)
 check("E24 帧序=深度序(D5)：z 大的先画 · 互换 z 顺序跟着翻 · 同 z 按 id 升序 · 全帧 z 单调不增 · 两帧 id 序列相同", e24_depth_sorted_frame)
 check("E23 场景覆盖值(C5)：砍刀/掉血后导出带 workleft+health · 导入逐值恢复；反向：v1 仍可导入(满值) · 未知字段点名拒绝 · 写不进则回滚", e23_scene_overrides)
 check("E22 场景往返：导出 N 个 · 清空只剩玩家 · 导入 N 个且二次导出字节相同；反向：坏场景整份被拒 · 空文本被拒", e22_scene_roundtrip)
