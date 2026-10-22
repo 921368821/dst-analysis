@@ -19,7 +19,7 @@
 
 ```bash
 npm install
-npm run check            # tsc（strict）+ 180 条判据
+npm run check            # tsc（strict）+ 230 条判据
 npm run sample:headless  # 最小宿主：150 tick / 5 秒 / 脚本驱动 + 存档
 
 # 浏览器（真的能看见画面 + Lua 在跑）
@@ -73,13 +73,17 @@ L0 foundation  Result · math · log · event · memory · time · random
 
 ## 当前状态
 
-- ✅ L0–L3 完整；**9 个后端**（gfx/audio/input/fs/script 各 1–2 个实现）；**180 条判据全绿**
-- ✅ 2D 渲染管线（相机/精灵/程序化图集/批处理）· 2.5D 物理 · 确定性存档 · 跳时间结算
-- ✅ 脚本层：`IScriptRuntime` + Lua 5.4（wasm）+ 每 tick 串行调度 + 异常隔离 + 最小反射表
+- ✅ L0–L3 完整；**9 个后端**（gfx/audio/input/fs/script 各 1–2 个实现）；**230 条判据全绿**（变异 7 组全被抓住）
+- ✅ 2D 渲染管线（相机/精灵/批处理/确定性图集合成）· 2.5D 物理 · 确定性存档 · 跳时间结算
+- ✅ 脚本层：`IScriptRuntime` + Lua 5.4（wasm）+ **Lua 5.1 兼容垫片** + **per-module `_ENV` 隔离**
+  + 每 tick 串行调度 + 异常隔离 + 最小反射表
 - ✅ 资产身份：`.meta` + `AssetId` + 依赖图 + 增量导入 + 产物加载器
-- ✅ 浏览器宿主能跑（WASD + 砍树 + 存读档 + HUD + **Lua 驱动的浆果漂浮**）
-- ⬜ Lua 5.1 兼容层（迁移 153 万行 DST 内容层的前置）· `fs-node` · 像素解码 ·
-  AI · 世界生成 · 编辑器 · 构建发布
+- ✅ **PNG 像素解码**（纯 TS inflate，colorType 0/2/3/4/6 × 位深 1/2/4/8/16 × 5 种滤波；
+  真实语料 3366/3367）
+- ✅ 浏览器宿主能跑，且**画面用真实资产**：`web/assets/*.png` 走完整导入链烘焙成图集
+  （WASD + 砍树 + 存读档 + HUD + Lua 驱动的浆果漂浮）
+- ⬜ `fs-node` · CI · 跨宿主存档比对 · AI · 世界生成 · 编辑器 · 构建发布 ·
+  Adam7/APNG/JPEG（明确不支持，见 §11.2）
 
 未做的项与顺序见 [docs/ARCHITECTURE.md §11–§12](docs/ARCHITECTURE.md)，
 本轮排班表见 [docs/PLAN-2026-10-22-阶段2.md](docs/PLAN-2026-10-22-阶段2.md)。

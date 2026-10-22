@@ -7,7 +7,11 @@
  *   内核不知道它的存在。所以这里出现 `webgl2Backend` / `domInputBackend` 是**正确**的；
  *   同样的 import 出现在 `core/**` 里就是架构崩了（arch 规则 4 会红）。
  *
- * 零外部资产：图集程序化生成（`atlas.ts`），所以打开 index.html 就能跑。
+ * 资产：启动时把 `web/assets/*.png` 走**完整导入链**烘焙成真图集 ——
+ *   `fetch → 内存 fs → AssetImportPipeline（.meta/增量/依赖）→ PNG 解码 → shelf packing`。
+ *   任一步失败（例如用 file:// 直接打开被 CORS 拦住）则降级到程序化图集，
+ *   但 HUD 会显示 `atlas:assets×5` 还是 `atlas:procedural` —— **降级不静默**。
+ *   静默降级的后果是"以为在测真资产，其实在测假贴图"，这正是本轮要消灭的盲区。
  *
  * ★ 装配顺序很重要（第一版写错过）：
  *   物理 → 渲染模块 → 世界模块 → bootGameApp(modules) → 摆世界 → run()
@@ -35,6 +39,18 @@ import { createScriptModule } from "./extensions/script/script-module.ts";
 import { ScriptComponent } from "./extensions/script/script-component.ts";
 import { saveScene, loadScene, sceneToJson, sceneFromJson } from "./core/scene/scene-io.ts";
 import { stableHash } from "./core/serialization/schema.ts";
+import { Logger, LogLevel } from "./foundation/log/logger.ts";
+import { MemoryFileSystem } from "./backends/fs-memory/fs.ts";
+import { AssetDatabase } from "./core/asset/asset.ts";
+import { ImporterRegistry } from "./extensions/asset-import/importer.ts";
+import { AssetImportPipeline } from "./extensions/asset-import/pipeline.ts";
+import { textureImporter } from "./extensions/asset-import/importers/texture.ts";
+import { atlasImporter } from "./extensions/asset-import/importers/atlas.ts";
+import { textImporter } from "./extensions/asset-import/importers/text.ts";
+import { ImportedTexture, createImportLoaders } from "./extensions/asset-import/loaders.ts";
+import { decodePng } from "./extensions/asset-import/decode/png.ts";
+import { buildAtlasFromSources, type AtlasSource } from "./extensions/render/atlas-from-assets.ts";
+import type { AtlasData } from "./extensions/render/atlas.ts";
 
 // ---------------------------------------------------------------- 组件
 
@@ -174,6 +190,93 @@ function onUpdate(selfId, dt, tick)
 end
 `;
 
+// ---------------------------------------------------------------- 资产烘焙
+
+/**
+ * demo 用到的帧名。**顺序即图集排布顺序**（shelf packing 内部还会按高度重排，
+ * 但这里是"按什么顺序读资产/查 id"，固定下来才能保证两次运行产出同一张图集）。
+ */
+const DEMO_FRAMES = ["ground", "tree", "rock", "berry", "player"] as const;
+
+/** 烘焙期的资产根目录。**必须与 `pipeline.run()` / `createImportLoaders()` 用同一个**。 */
+const ASSET_ROOT = "/assets";
+
+interface BakedAtlas {
+  readonly atlas: AtlasData;
+  readonly label: string;
+}
+
+/**
+ * 资产烘焙：`fetch PNG → 内存 fs → 导入管线 → 解码 → 合成图集`。
+ *
+ * ★ 这不是"给 demo 特供的捷径"，而是**编辑器里"导入资产"的同一份代码**
+ *   （`AssetImportPipeline` + `SourceImporter` + `decodePng` + `buildAtlasFromSources`），
+ *   只把两端的存储换成了内存与直接渲染。所以它验证的是整条链：
+ *   文件真的被扫到 → 真的生成 `.meta` → 真的按 hash 增量 → 真的解码成 RGBA8
+ *   → 真的上传给 GPU。
+ *
+ * ★ 为什么在 `bootGameApp` **之前**跑：
+ *   图集是渲染模块 `init` 的输入，而 `init` 发生在 boot 里。所以烘焙必须先完成。
+ *   这也符合现实：资产导入是**构建期**工作，不是每帧工作。
+ *
+ * ★ 失败就降级到程序化图集（`atlas.ts`），但**不静默**：
+ *   返回值是 null 时，HUD 会显示 `atlas:procedural`，`__engine.atlasSource` 也会说明。
+ *   静默降级的后果是"以为在测真资产，其实在测假贴图"—— 这正是本轮要消灭的盲区。
+ */
+async function bakeAtlasFromAssets(): Promise<BakedAtlas | null> {
+  try {
+    const fs = new MemoryFileSystem();
+    const logger = new Logger(() => performance.now());
+    logger.setLevel(LogLevel.Warn);
+    const db = new AssetDatabase(fs, logger.channel("asset"));
+    const importers = new ImporterRegistry();
+    importers.register(textureImporter);
+    importers.register(atlasImporter);
+    importers.register(textImporter);
+    const pipeline = new AssetImportPipeline(fs, db, importers, logger.channel("import"));
+    // ★ 加载器要显式注册，root 必须与下面 run() 的参数一致（产物路径由 root 决定）。
+    //   漏注册的症状是"导入报告完美、db.load 全 NO_LOADER" —— 中间层做完两头没接。
+    for (const l of createImportLoaders({ root: ASSET_ROOT })) db.registerLoader(l);
+
+    for (const name of DEMO_FRAMES) {
+      const res = await fetch(new URL(`assets/${name}.png`, location.href), { cache: "no-cache" });
+      if (!res.ok) return null;
+      const w = await fs.writeBinary(`${ASSET_ROOT}/${name}.png`, new Uint8Array(await res.arrayBuffer()));
+      if (!w.ok) return null;
+    }
+
+    const report = await pipeline.run(ASSET_ROOT);
+    if (!report.ok) return null;
+
+    const sources: AtlasSource[] = [];
+    for (const name of DEMO_FRAMES) {
+      const id = db.idAtPath(`${ASSET_ROOT}/${name}.png`);
+      if (id === undefined) continue;
+      const h = await db.load(id);
+      if (!h.ok) continue;
+      const asset = h.value.asset;
+      try {
+        if (asset instanceof ImportedTexture) {
+          const dec = decodePng(asset.bytes);
+          if (dec.ok) sources.push({ name, png: dec.value });
+        }
+      } finally {
+        h.value.release();
+      }
+    }
+    // 少一张就整体降级：缺帧的图集会让 sprite 指向不存在的帧，画面出现"凭空消失的树"，
+    // 比直接用程序化图集更难排查。
+    if (sources.length !== DEMO_FRAMES.length) return null;
+
+    const built = buildAtlasFromSources(sources, { padding: 2 });
+    if (!built.ok) return null;
+    return { atlas: built.value, label: `assets×${sources.length}` };
+  } catch {
+    // file:// 直接打开（fetch 被 CORS 拦）/ 资产缺失 —— 都是预期内的降级路径
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------- main
 
 export async function main(): Promise<void> {
@@ -215,12 +318,17 @@ export async function main(): Promise<void> {
   let heroId = -1;
   let hudTick = 0;
 
+  // ---- 资产烘焙（必须在渲染模块之前：图集是渲染 init 的输入）
+  const baked = await bakeAtlasFromAssets();
+  const atlasLabel = baked === null ? "procedural" : baked.label;
+
   // ---- 渲染模块（follow 闭包读 heroId，世界建好后才有效）
   const renderMod = createRenderModule({
     viewportWidth: canvas.width,
     viewportHeight: canvas.height,
     zoom: 26 * dpr,
     tiltY: 0.62,
+    atlas: baked?.atlas,
     follow: () => {
       if (heroId < 0) return undefined;
       const n = appRef?.scene.find(heroId);
@@ -431,6 +539,7 @@ export async function main(): Promise<void> {
     hud!.textContent =
       `fps ${fps.toFixed(0)} · tick ${hudTick} · quad ${lf.quads} · draw ${lf.drawCalls} · ` +
       `culled ${lf.culled} · nodes ${st.scene.nodes} · bodies ${physics.stats().bodies} · ` +
+      `atlas:${atlasLabel} · ` +
       `${st.backends.gfx}/${st.backends.audio}/${st.backends.input}/${st.backends.script ?? "-"} · ` +
       `${scriptTxt} · dropped ${st.droppedSteps}`;
     void info;
@@ -478,6 +587,8 @@ export async function main(): Promise<void> {
     save: doSave,
     load: doLoad,
     heroId,
+    /** 图集真实来源：`assets×5` 表示走完了导入链；`procedural` 表示降级了。 */
+    atlasSource: atlasLabel,
     snapshot: () => app.snapshot(),
     lastFrame: () => renderMod.lastFrame,
   };

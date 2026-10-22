@@ -64,6 +64,13 @@ export interface RenderModuleHandle extends IModule {
     readonly atlasSwitches: number;
     readonly culled: number;
   };
+  /**
+   * 图集帧数（init 之前是 0）。
+   * ★ 存在的理由：`drawCalls > 0` 只能证明"画了点东西"，证明不了"画的是真资产的帧"。
+   *   自检页用它区分"5 帧的资产图集"与"5 帧的程序化图集"——两者帧数可能一样，
+   *   所以它必须和 `browser-entry` 的 `atlasSource` 一起看。
+   */
+  readonly atlasFrameCount: number;
 }
 
 export function createRenderModule(opts: RenderModuleOptions): RenderModuleHandle {
@@ -96,6 +103,7 @@ export function createRenderModule(opts: RenderModuleOptions): RenderModuleHandl
       dev = ctx.platform.gfx;
       const d = dev;
 
+      const procedural = opts.atlas === undefined;
       atlas = opts.atlas ?? buildProceduralAtlas();
       const t = d.createTexture(
         {
@@ -104,7 +112,9 @@ export function createRenderModule(opts: RenderModuleOptions): RenderModuleHandl
           format: PixelFormat.RGBA8,
           filter: TextureFilter.Nearest,
           wrap: TextureWrap.Clamp,
-          label: "engine.procedural-atlas",
+          // label 不是装饰：null 后端的 `describe()` 与崩溃报告会原样打印它，
+          // "这张纹理到底是资产图集还是兜底的程序化图集"必须一眼可辨。
+          label: procedural ? "engine.procedural-atlas" : "engine.asset-atlas",
         },
         atlas.pixels,
       );
@@ -224,6 +234,10 @@ export function createRenderModule(opts: RenderModuleOptions): RenderModuleHandl
 
     get lastFrame() {
       return lastFrame;
+    },
+
+    get atlasFrameCount(): number {
+      return atlas?.frames.size ?? 0;
     },
   };
 

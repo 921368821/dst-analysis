@@ -4452,6 +4452,37 @@ var BackendRegistry = class {
   }
 };
 
+// src/foundation/hash.ts
+var FNV_PRIME = 16777619;
+var FNV_BASIS_A = 2166136261;
+var FNV_BASIS_B = 2654435769;
+function hashStateCreate() {
+  return { h1: FNV_BASIS_A, h2: FNV_BASIS_B, bytes: 0 };
+}
+function hashStateUpdate(s, bytes) {
+  let h1 = s.h1;
+  let h2 = s.h2;
+  for (let i = 0; i < bytes.length; i++) {
+    const b = bytes[i];
+    h1 = Math.imul(h1 ^ b, FNV_PRIME) >>> 0;
+    h2 = Math.imul(h2 ^ b, FNV_PRIME) >>> 0;
+  }
+  s.h1 = h1;
+  s.h2 = h2;
+  s.bytes += bytes.length;
+}
+function hex8(n) {
+  return (n >>> 0).toString(16).padStart(8, "0");
+}
+function hashStateHex(s) {
+  return hex8(s.h1) + hex8(s.h2);
+}
+function hashBytes(bytes) {
+  const s = hashStateCreate();
+  hashStateUpdate(s, bytes);
+  return hashStateHex(s);
+}
+
 // src/foundation/math/vec.ts
 var Vec2 = class _Vec2 {
   constructor(x, y) {
@@ -4669,6 +4700,9 @@ function quantize(v, decimals = 3) {
 }
 
 // src/backends/gfx-null/device.ts
+function asBytes(view) {
+  return new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+}
 var NullGraphicsDevice = class {
   caps = {
     backend: "null",
@@ -4769,11 +4803,14 @@ var NullGraphicsDevice = class {
       );
     }
     const h = this.nextHandle++;
+    const hash = hashStateCreate();
+    if (data !== void 0 && data !== null) hashStateUpdate(hash, asBytes(data));
     this.textures.set(h, {
       width: desc.width,
       height: desc.height,
       label: desc.label ?? "",
-      isTarget: desc.renderTarget === true
+      isTarget: desc.renderTarget === true,
+      hash
     });
     return ok(h);
   }
@@ -4794,7 +4831,29 @@ var NullGraphicsDevice = class {
       );
     }
     this._stats = { ...this._stats, bytesUploaded: this._stats.bytesUploaded + data.byteLength };
+    hashStateUpdate(rec.hash, asBytes(data));
     return ok(void 0);
+  }
+  /**
+   * 纹理的"上传字节流"摘要（16 hex），用于断言"解码出的 pixels == GPU 实际收到的字节"。
+   * 句柄不存在 → `undefined`（不抛：这不是程序错误，是查询语气）。
+   * 从未上传过任何字节 → 也返回 `undefined`：空流的摘要看起来像一个真摘要，
+   * 让调用方误以为"上传过了"。
+   */
+  textureDigest(handle) {
+    const rec = this.textures.get(handle);
+    if (rec === void 0 || rec.hash.bytes === 0) return void 0;
+    return hashStateHex(rec.hash);
+  }
+  /**
+   * 已创建且未销毁的纹理句柄（按创建顺序）。
+   *
+   * ★ 判据需要它才能回答"渲染模块到底传了哪张图"：
+   *   `stats.bytesUploaded` 只能说明"传了 65536 字节"，分不清"传对了"
+   *   和"传了同样大小的另一张图"—— 而后者正是"假贴图"在生产环境里的样子。
+   */
+  get textureHandles() {
+    return Array.from(this.textures.keys());
   }
   destroyTexture(handle) {
     if (!this.textures.delete(handle)) {
@@ -5565,6 +5624,262 @@ function registerNullBackends(reg, opts = {}) {
 
 // src/backends/script-lua/runtime.ts
 var import_wasmoon = __toESM(require_dist(), 1);
+
+// src/backends/script-lua/compat-lua51.ts
+var LUA51_COMPAT_SRC = String.raw`
+-- ============================== 内部工具 ==============================
+
+local __type = type
+local __error = error
+local __select = select
+local __tostring = tostring
+local __setmetatable = setmetatable
+local __getmetatable = getmetatable
+local __rawget = rawget
+local __load = load
+local __debug = debug
+
+-- 找到函数的 _ENV upvalue 序号；没有（函数不读全局 / 是 C 函数）返回 nil。
+-- 注意：5.4 里 _ENV 可能不是 1 号（函数先捕获了别的局部变量），必须按名字找。
+local function __engine_compat_envindex(f)
+  if __type(f) ~= "function" then return nil end
+  local i = 1
+  while true do
+    local name = __debug.getupvalue(f, i)
+    if name == nil then return nil end
+    if name == "_ENV" then return i end
+    i = i + 1
+  end
+end
+
+local function __engine_compat_getenv(f)
+  local idx = __engine_compat_envindex(f)
+  if idx == nil then return nil end
+  local _, v = __debug.getupvalue(f, idx)
+  if __type(v) ~= "table" then return nil end
+  return v
+end
+
+local __engine_compat_has_join = __type(__debug.upvaluejoin) == "function"
+
+-- 把 f 的 _ENV 换成 t（私有 upvalue，不牵连兄弟闭包）。返回是否真的换了。
+local function __engine_compat_bind(f, t)
+  local idx = __engine_compat_envindex(f)
+  if idx == nil then
+    -- 函数根本没读过全局 ⇒ 没有可观察差异。5.1 会给它 env，但读了才有意义。
+    return false
+  end
+  if __engine_compat_has_join then
+    local holder = __load("return _ENV", "=__engine_compat_envholder", "t", t)
+    if holder ~= nil then
+      __debug.upvaluejoin(f, idx, holder, 1)
+      return true
+    end
+  end
+  -- 退化路径：upvaluejoin 不可用。语义仍对，但会牵连同 chunk 的兄弟闭包。
+  __debug.setupvalue(f, idx, t)
+  return true
+end
+
+-- ============================== setfenv / getfenv ==============================
+
+function setfenv(f, t)
+  if __type(f) == "number" then
+    __error(
+      "setfenv: Lua 5.4 无法按栈层号(level=" .. __tostring(f) .. ")设置环境；"
+        .. "5.1 的这个用法在 5.4 里没有对应物，请改成传函数本身",
+      2
+    )
+  end
+  if __type(f) ~= "function" then
+    __error("setfenv: 第一个参数必须是函数（收到 " .. __type(f) .. "）", 2)
+  end
+  if __type(t) ~= "table" then
+    __error("setfenv: 第二个参数必须是 table（收到 " .. __type(t) .. "）", 2)
+  end
+  __engine_compat_bind(f, t)
+  return f
+end
+
+function getfenv(f)
+  if f == nil then f = 1 end
+  if __type(f) == "number" then
+    -- 5.1 的 getfenv(level) 只是查询，5.4 能**精确**做到，因此不降级。
+    -- +1 是因为 level 1 在 5.1 里指"调用 getfenv 的那个函数"，
+    -- 而在 debug.getinfo 里 level 1 是 getfenv 自己。
+    local info = __debug.getinfo(f + 1, "f")
+    if info == nil or __type(info.func) ~= "function" then return _G end
+    return __engine_compat_getenv(info.func) or _G
+  end
+  if __type(f) ~= "function" then
+    __error("getfenv: 参数必须是函数或栈层号（收到 " .. __type(f) .. "）", 2)
+  end
+  return __engine_compat_getenv(f) or _G
+end
+
+-- ============================== module / package.seeall ==============================
+
+-- 在真正的 _G 上建（或复用）点号嵌套的表。5.1 的 findtable 就是往全局表里写。
+local function __engine_compat_findtable(name)
+  local cur = _G
+  local created = false
+  for part in string.gmatch(name, "[^.]+") do
+    local nxt = cur[part]
+    if __type(nxt) ~= "table" then
+      nxt = {}
+      cur[part] = nxt
+      created = true
+    end
+    cur = nxt
+  end
+  return cur, created
+end
+
+function module(name, ...)
+  if __type(name) ~= "string" or name == "" then
+    __error("module: 模块名必须是非空字符串", 2)
+  end
+
+  -- ① 建/取模块表，并登记到 package.loaded
+  local mod = package.loaded[name]
+  if __type(mod) ~= "table" then
+    mod = __engine_compat_findtable(name)
+  end
+  package.loaded[name] = mod
+
+  -- ② 取调用者的旧 env（module 之后模块里还要能看见全局，5.1 靠这个兜底链）
+  local caller = __debug.getinfo(2, "f")
+  local caller_fn = nil
+  local caller_env = _G
+  if caller ~= nil and __type(caller.func) == "function" then
+    caller_fn = caller.func
+    caller_env = __engine_compat_getenv(caller_fn) or _G
+  end
+
+  -- ③ 先铺默认 __index（链到调用者旧 env ⇒ 最终到 _G），再跑选项覆盖它。
+  --    ★ 严格的 5.1 没有这条默认（所以才需要 package.seeall），但缺了它，
+  --      任何 module("x") 之后 math/string/engine_* 全部变 nil —— 5.1 生态里
+  --      这条默认被视为"本来就该有"。加上它只会让更多内容层跑得起来。
+  local mt = __getmetatable(mod)
+  if __type(mt) ~= "table" then
+    mt = {}
+    __setmetatable(mod, mt)
+  end
+  if mt.__index == nil then mt.__index = caller_env end
+
+  -- ④ 跑选项（package.seeall 等）。5.1 在 setfenv **之前**跑，顺序会影响
+  --    __index 的最终值，这里保持一致。
+  local n = __select("#", ...)
+  for i = 1, n do
+    local opt = __select(i, ...)
+    if __type(opt) ~= "function" then
+      __error("module: 第 " .. __tostring(i + 1) .. " 个参数不是函数（选项应为 package.seeall 之类）", 2)
+    end
+    opt(mod)
+  end
+
+  -- ⑤ 换调用者的 env。5.1 的 setfenv(2, mod) 就是这一步。
+  if caller_fn ~= nil then
+    __engine_compat_bind(caller_fn, mod)
+  end
+  return mod
+end
+
+function package.seeall(t)
+  if __type(t) ~= "table" then
+    __error("package.seeall: 需要 table（收到 " .. __type(t) .. "）", 2)
+  end
+  local mt = __getmetatable(t)
+  if __type(mt) ~= "table" then
+    __setmetatable(t, { __index = _G })
+  else
+    mt.__index = _G
+  end
+end
+
+-- ============================== require ==============================
+
+-- 5.1 语义：package.loaded → package.preload → 报错。
+-- ★ 不碰文件系统：wasm 里没有 fs，package.preload 才是引擎注册模块的入口。
+function require(name)
+  if __type(name) ~= "string" then
+    __error("require: 模块名必须是字符串（收到 " .. __type(name) .. "）", 2)
+  end
+
+  local loaded = package.loaded[name]
+  if loaded ~= nil then return loaded end
+
+  local loader = package.preload[name]
+  if loader == nil then
+    __error("module '" .. name .. "' not found", 2)
+  end
+  if __type(loader) ~= "function" then
+    __error("module '" .. name .. "': package.preload 里登记的不是函数", 2)
+  end
+
+  local r = loader(name)
+  if r ~= nil then package.loaded[name] = r end
+  local v = package.loaded[name]
+  if v == nil then
+    v = true
+    package.loaded[name] = v
+  end
+  return v
+end
+
+-- ============================== math 补齐 ==============================
+
+function math.pow(x, y) return x ^ y end
+math.mod = math.fmod
+function math.ldexp(x, e) return x * 2.0 ^ e end
+function math.log10(x) return math.log(x, 10) end
+
+-- frexp：x = m * 2^e，要求 0.5 <= |m| < 1（C 库的 frexp 定义）。
+-- 用循环而不是位运算：Lua 5.4 的整数/浮点边界比这里需要的精度更容易出错。
+function math.frexp(x)
+  if x == 0 or x ~= x or x == math.huge or x == -math.huge then return x, 0 end
+  local sign = 1
+  local m = x
+  if m < 0 then sign = -1; m = -m end
+  local e = 0
+  -- 次数上限：极值/非规格化数下也不会转不出来（每步最多把 |x| 缩一半）
+  for _ = 1, 1200 do
+    if m >= 1 then m = m / 2; e = e + 1 else break end
+  end
+  for _ = 1, 1200 do
+    if m < 0.5 and m > 0 then m = m * 2; e = e - 1 else break end
+  end
+  return sign * m, e
+end
+
+-- ============================== table / string 补齐 ==============================
+
+function table.getn(t) return #t end
+function table.setn()
+  __error("table.setn 在 Lua 5.1 已废弃（表长度由 # 决定），5.4 没有对应实现", 2)
+end
+
+string.gfind = string.gmatch
+
+-- ============================== 全局别名 ==============================
+
+unpack = table.unpack
+
+-- 5.1 的 loadstring 与 5.4 的 load 返回值形状一致（成功 fn / 失败 nil, err），
+-- 差别只在"默认 env"：5.1 用**全局表**，这里不传第 4 个参数即同一行为。
+-- 也正因如此，loadstring 出来的 chunk 看不见调用它的模块 env —— 与 5.1 一致。
+function loadstring(s, chunkname)
+  if __type(s) ~= "string" then
+    return nil, "bad argument #1 to 'loadstring' (string expected, got " .. __type(s) .. ")"
+  end
+  return __load(s, chunkname or s, "t")
+end
+
+-- 5.1 的启动参数表。wasm 里没有 argv，但内容层会读 arg[0]/arg[1]（拿到 nil 就行）。
+if __rawget(_G, "arg") == nil then _G.arg = {} end
+`;
+
+// src/backends/script-lua/runtime.ts
 var envGate = Promise.resolve();
 function withSanitizedEnv(fn) {
   const run = envGate.then(
@@ -5619,15 +5934,44 @@ local function __engine_walk(root, path)
   return cur
 end
 
--- \u5DF2\u52A0\u8F7D\u6A21\u5757\u7684"\u51FD\u6570\u8868"\uFF08\u6BCF\u6B21\u52A0\u8F7D\u65F6\u5BF9 _G \u505A\u5DEE\u5F02\u5FEB\u7167\uFF0C\u89C1 __engine_load\uFF09
+-- \u5DF2\u52A0\u8F7D\u6A21\u5757\u7684"\u547D\u540D\u7A7A\u95F4"\uFF08env \u91CC\u6A21\u5757\u81EA\u5DF1\u5B9A\u4E49\u7684\u952E\u7684\u6D45\u62F7\u8D1D\uFF0C\u89C1 __engine_load\uFF09
 __engine_modules = {}
+-- \u6A21\u5757\u540D -> \u8BE5\u6A21\u5757\u7684\u6709\u6548 _ENV \u8868\u3002\u53EA\u7528\u4E8E\u8BCA\u65AD\u4E0E\u5378\u8F7D\uFF08\u70ED\u91CD\u8F7D\u65F6\u6574\u5F20\u4E22\u5F03\uFF09
+__engine_envs = {}
+-- \u52A0\u8F7D\u987A\u5E8F\uFF08\u6700\u8FD1\u52A0\u8F7D\u7684\u5728\u6700\u540E\uFF09\u3002\u88F8\u540D\u89E3\u6790\u7528"\u540E\u6765\u8005\u4F18\u5148"\uFF0C\u4E0E\u5171\u4EAB _G \u65F6\u4EE3\u4E00\u81F4
+__engine_order = {}
+
+local function __engine_drop_order(name)
+  for i = #__engine_order, 1, -1 do
+    if __engine_order[i] == name then table.remove(__engine_order, i) end
+  end
+end
+
+local function __engine_push_order(name)
+  __engine_drop_order(name)
+  __engine_order[#__engine_order + 1] = name
+end
+
+-- \u53D6\u51FD\u6570\u7684 _ENV upvalue \u503C\uFF085.4 \u91CC _ENV \u662F\u666E\u901A upvalue\uFF0C\u4E0D\u4E00\u5B9A\u5728 1 \u53F7\u4F4D\uFF09\u3002
+-- \u8FD4\u56DE nil \u8868\u793A"\u8FD9\u4E2A\u51FD\u6570\u4E0D\u8BFB\u5168\u5C40"\u6216"\u662F C \u51FD\u6570"\u3002
+local function __engine_env_of(f)
+  local i = 1
+  while true do
+    local n = debug.getupvalue(f, i)
+    if n == nil then return nil end
+    if n == "_ENV" then
+      -- \u2605 \u53D6\u7B2C\u4E8C\u4E2A\u8FD4\u56DE\u503C\uFF1Adebug.getupvalue \u8FD4\u56DE (name, value)\uFF0C\u5199\u6210 local v = ...
+      --   \u62FF\u5230\u7684\u662F **name**\uFF0Ctype \u6C38\u8FDC\u4E0D\u662F table\uFF08\u8FD9\u4E2A\u5751\u5403\u8FC7\u4E00\u6B21\uFF0C\u522B\u518D\u6539\u56DE\u53BB\uFF09
+      local _, v = debug.getupvalue(f, i)
+      if type(v) == "table" then return v end
+      return nil
+    end
+    i = i + 1
+  end
+end
 
 local function __engine_resolve(name)
-  -- \u2460 \u5148\u6309\u5168\u5C40\u8DEF\u5F84\u627E\uFF08\u5951\u7EA6 call("greet") \u5C31\u662F\u8FD9\u6761\uFF09
-  local g = __engine_walk(_G, name)
-  if type(g) == "function" then return g end
-
-  -- \u2461 \u518D\u6309"\u6A21\u5757\u9650\u5B9A\u540D"\u627E\uFF1A\u53D6\u6700\u957F\u5339\u914D\u7684\u6A21\u5757\u540D\uFF0C\u907F\u514D a \u4E0E a.b \u4E92\u76F8\u62A2\u5360\u3002
+  -- \u2460 \u6309"\u6A21\u5757\u9650\u5B9A\u540D"\u627E\uFF1A\u53D6\u6700\u957F\u5339\u914D\u7684\u6A21\u5757\u540D\uFF0C\u907F\u514D a \u4E0E a.b \u4E92\u76F8\u62A2\u5360\u3002
   --    ScriptModule \u7528 "<module>.<entry>" \u8C03\u7528\uFF0C\u6240\u4EE5\u4E24\u4E2A\u6A21\u5757\u90FD\u5B9A\u4E49 onUpdate \u65F6
   --    \u4E0D\u4F1A\u4E92\u76F8\u8986\u76D6\uFF08\u6A21\u5757\u540D\u53EF\u4EE5\u5E26\u70B9\uFF0C\u6240\u4EE5\u5FC5\u987B\u7528\u6700\u957F\u5339\u914D\uFF09\u3002
   local best = nil
@@ -5638,10 +5982,22 @@ local function __engine_resolve(name)
   end
   if best ~= nil then
     local fn = __engine_walk(__engine_modules[best], string.sub(name, #best + 2))
-    if fn ~= nil then return fn end
+    if type(fn) == "function" then return fn end
   end
 
-  return g
+  -- \u2461 \u88F8\u540D/\u8DEF\u5F84\uFF1A\u6700\u8FD1\u52A0\u8F7D\u7684\u6A21\u5757\u4F18\u5148\u3002
+  --    \u2605 \u8FD9\u6761\u662F"per-module env"\u7684\u5FC5\u8981\u8865\u507F\uFF1A\u6A21\u5757\u5B9A\u4E49\u7684\u5168\u5C40\u4E0D\u518D\u843D\u5230 _G\uFF0C
+  --      \u4F46\u5951\u7EA6\u8981\u6C42 loadModule("greet", "function greet() ...") \u4E4B\u540E call("greet") \u80FD\u8C03\u5230\u3002
+  for i = #__engine_order, 1, -1 do
+    local ns = __engine_modules[__engine_order[i]]
+    if ns ~= nil then
+      local fn = __engine_walk(ns, name)
+      if type(fn) == "function" then return fn end
+    end
+  end
+
+  -- \u2462 _G\uFF1A\u5BBF\u4E3B expose \u7684\u51FD\u6570\u4E0E\u771F\u6B63\u7684\u5168\u5C40\uFF08\u542B\u517C\u5BB9\u57AB\u7247\u88C5\u7684 unpack/setfenv \u7B49\uFF09
+  return __engine_walk(_G, name)
 end
 
 function __engine_dispatch(name, args, n, timeout_ms)
@@ -5685,45 +6041,55 @@ function __engine_dispatch(name, args, n, timeout_ms)
   return out
 end
 
--- \u5148\u7F16\u8BD1\u540E\u66FF\u6362\uFF1Aload \u53EA\u7F16\u8BD1\uFF1B\u8BED\u6CD5\u9519\u8BEF\u65F6\u65E7\u51FD\u6570\u4E00\u4E2A\u90FD\u6CA1\u52A8\u3002
+-- \u5148\u7F16\u8BD1\u540E\u66FF\u6362\uFF1Aload \u53EA\u7F16\u8BD1\uFF1B\u8BED\u6CD5\u9519\u8BEF\u65F6\u65E7\u6A21\u5757\u4E00\u4E2A\u90FD\u6CA1\u52A8\u3002
 -- \u7F16\u8BD1\u6210\u529F\u540E\u624D\u6267\u884C chunk\uFF0C\u5176\u8FD4\u56DE\u503C\u5199\u5165 package.loaded[name]
 --\uFF08\u6A21\u5757\u540D\u5728 Lua \u4FA7\u53EF\u89C1\uFF0C\u8C03\u8BD5\u65F6 print(package.loaded["ai.brain"]) \u6709\u4E1C\u897F\u770B\uFF09\u3002
 --
--- \u2605 \u6A21\u5757\u51FD\u6570\u8868\uFF1A\u6267\u884C\u524D\u5BF9 _G \u505A\u4E00\u6B21\u6D45\u5FEB\u7167\uFF0C\u6267\u884C\u540E\u628A"\u65B0\u589E/\u88AB\u91CD\u5B9A\u4E49\u4E14\u7C7B\u578B\u662F
---   function"\u7684\u5168\u5C40\u6536\u8FDB __engine_modules[name]\u3002\u8FD9\u6837 "<module>.<entry>" \u80FD\u7CBE\u786E
---   \u6307\u5230\u672C\u6A21\u5757\u7684\u51FD\u6570\uFF0C\u4E24\u4E2A\u6A21\u5757\u90FD\u53EB onUpdate \u4E5F\u4E0D\u4F1A\u4E92\u76F8\u8986\u76D6\u3002
---   \u5DF2\u77E5\u9650\u5236\uFF08\u8BDA\u5B9E\u6807\u6CE8\uFF09\uFF1A\u6A21\u5757**\u5171\u4EAB _G**\uFF0C\u51FD\u6570\u4F53\u91CC\u5BF9\u5168\u5C40\u53D8\u91CF\u7684\u8BFB\u5199\u4ECD\u662F\u5171\u4EAB\u7684\uFF1B
---   \u5B8C\u6574\u9694\u79BB\u9700\u8981\u6BCF\u4E2A\u6A21\u5757\u4E00\u4E2A _ENV\uFF0C\u90A3\u4F1A\u4E0E\u5951\u7EA6\u91CC\u7684 call("greet")\uFF08\u5168\u5C40\u51FD\u6570\uFF09\u51B2\u7A81\uFF0C
---   \u672C\u9636\u6BB5\u4E0D\u505A\u3002
+-- \u2605 \u70ED\u91CD\u8F7D\u8BED\u4E49\uFF1A\u6BCF\u6B21\u52A0\u8F7D\u90FD\u9020\u4E00\u5F20**\u5168\u65B0\u7684** env\u3002\u65E7 env \u8FDE\u540C\u5B83\u91CC\u9762\u7684\u5168\u5C40\u4E00\u8D77
+--   \u53D8\u6210\u5783\u573E\uFF08\u65E7\u7684\u95ED\u5305\u8FD8\u5F15\u7528\u7740\u5B83\uFF0C\u6240\u4EE5\u4E0D\u4F1A\u51FA\u95EE\u9898\uFF0C\u53EA\u662F\u6CA1\u4EBA\u518D\u8BFB\uFF09\u3002\u590D\u7528\u65E7 env
+--   \u4F1A\u8BA9\u4E0A\u4E00\u7248\u7684 "counter = 3" \u6B8B\u7559\u5230\u65B0\u7248\u672C \u2014\u2014 \u8FD9\u6B63\u662F\u70ED\u91CD\u8F7D\u6700\u5178\u578B\u7684\u4E32\u5473\u7F3A\u9677\u3002
+--
+-- \u2605 \u6536\u96C6\u6A21\u5757\u547D\u540D\u7A7A\u95F4\uFF1A\u6A21\u5757\u53EF\u4EE5
+--     \u2460 \u76F4\u63A5\u5199 env\uFF08\u6700\u5E38\u89C1\uFF09\uFF1B
+--     \u2461 \u8C03 module()/setfenv(1, ...) \u628A chunk \u7684 _ENV \u6362\u6389\uFF085.1 \u98CE\u683C\uFF09\u2014\u2014
+--        \u8FD9\u65F6\u6709\u6548 env \u5728**\u6267\u884C\u540E**\u624D\u770B\u5F97\u5230\uFF0C\u6240\u4EE5\u4E24\u4E2A\u8868\u90FD\u8981\u6536\uFF1B
+--     \u2462 "return { onUpdate = ... }"\u3002
+--   \u4E0E _G \u91CC\u540C\u503C\u7684\u952E\u4E0D\u6536\uFF08\u6A21\u5757\u628A env \u6362\u6210\u4E86 _G \u65F6\uFF0C\u90A3\u91CC\u7684\u4E00\u5207\u90FD\u662F\u5168\u5C40\u7684\uFF0C
+--   \u4E0D\u8BE5\u6574\u4F53\u642C\u8FDB\u6A21\u5757\u547D\u540D\u7A7A\u95F4\uFF09\u3002
 function __engine_load(name, source)
-  local chunk, compile_err = load(source, "@" .. name)
+  local env = {}
+  setmetatable(env, { __index = _G })
+
+  local chunk, compile_err = load(source, "@" .. name, "t", env)
   if not chunk then
     return { s = 0, m = tostring(compile_err) }
   end
 
-  local before = {}
-  for k, v in pairs(_G) do before[k] = v end
-
   local ok, result = pcall(chunk)
   if not ok then
-    -- \u7F16\u8BD1\u901A\u8FC7\u4F46\u6267\u884C\u671F\u51FA\u9519\uFF1A\u4E0D\u767B\u8BB0\u65B0\u6A21\u5757\u8868\uFF0C\u65E7\u51FD\u6570\u4FDD\u7559\uFF08\u4E0E\u8BED\u6CD5\u9519\u8BEF\u540C\u4E00\u7B56\u7565\uFF09
+    -- \u7F16\u8BD1\u901A\u8FC7\u4F46\u6267\u884C\u671F\u51FA\u9519\uFF1A\u4E0D\u52A8\u5DF2\u767B\u8BB0\u7684 env/\u547D\u540D\u7A7A\u95F4\uFF08\u65E7\u6A21\u5757\u8FD8\u80FD\u8DD1\uFF09
     return { s = 2, m = tostring(result) }
   end
 
-  local mt = __engine_modules[name]
-  if mt == nil then
-    mt = {}
-    __engine_modules[name] = mt
+  local live = __engine_env_of(chunk) or env
+
+  local ns = {}
+  local function collect(t)
+    if t == nil or t == _G then return end
+    for k, v in pairs(t) do
+      if _G[k] ~= v then ns[k] = v end
+    end
   end
+  collect(env)
+  collect(live)
   -- \u60EF\u7528\u5199\u6CD5 "return { onUpdate = ... }"\uFF1A\u628A\u8FD4\u56DE\u8868\u7684\u6210\u5458\u4E5F\u7EB3\u5165\u6A21\u5757\u547D\u540D\u7A7A\u95F4
   if type(result) == "table" then
-    for k, v in pairs(result) do mt[k] = v end
-  end
-  -- \u518D\u53E0\u52A0\u672C chunk \u5728 _G \u91CC\u65B0\u589E/\u91CD\u5B9A\u4E49\u7684\u51FD\u6570\uFF08\u663E\u5F0F\u5B9A\u4E49\u4F18\u5148\u4E8E\u8FD4\u56DE\u8868\uFF09
-  for k, v in pairs(_G) do
-    if type(v) == "function" and before[k] ~= v then mt[k] = v end
+    for k, v in pairs(result) do ns[k] = v end
   end
 
+  __engine_envs[name] = live
+  __engine_modules[name] = ns
+  __engine_push_order(name)
   package.loaded[name] = result == nil and true or result
   return { s = 1, m = "" }
 end
@@ -5731,8 +6097,27 @@ end
 function __engine_unload(name)
   package.loaded[name] = nil
   __engine_modules[name] = nil
+  __engine_envs[name] = nil
+  __engine_drop_order(name)
   return { s = 1 }
 end
+`;
+var COMPAT_PROBE_SRC = `
+local need = { "unpack", "loadstring", "setfenv", "getfenv", "module", "require", "math.pow", "math.mod", "math.ldexp", "math.frexp", "math.log10", "table.getn", "string.gfind", "arg" }
+local missing = {}
+for i = 1, #need do
+  local name = need[i]
+  local dot = string.find(name, ".", 1, true)
+  local v = _G
+  if dot == nil then
+    v = _G[name]
+  else
+    v = _G[string.sub(name, 1, dot - 1)]
+    if v ~= nil then v = v[string.sub(name, dot + 1)] end
+  end
+  if v == nil then missing[#missing + 1] = name end
+end
+return table.concat(missing, ",")
 `;
 var LuaStatus = {
   Ok: 0,
@@ -5816,6 +6201,11 @@ function statusOf(raw) {
 }
 var LuaScriptRuntime = class {
   id = "lua";
+  /**
+   * ★ `version` 写的是**解释器**的版本（5.4），不是"脚本该按哪版写"。
+   *   5.1 兼容垫片是 API 补齐，不是换运行时；把它写成 "5.1" 会让
+   *   "这段脚本到底按哪个语义能跑"变得不可判定（5.4 的 goto / 整除仍在）。
+   */
   caps = {
     language: "lua",
     version: "5.4",
@@ -5856,6 +6246,29 @@ var LuaScriptRuntime = class {
       if (this.disposed) {
         lua.global.close();
         return this.disposedErr();
+      }
+      try {
+        await lua.doString(LUA51_COMPAT_SRC);
+      } catch (e) {
+        lua.global.close();
+        return err(
+          engineError(
+            ScriptErrorCode.LoadFailed,
+            `Lua 5.1 \u517C\u5BB9\u57AB\u7247\u6267\u884C\u5931\u8D25\uFF1A${e instanceof Error ? e.message : String(e)}`,
+            { backend: this.id }
+          )
+        );
+      }
+      if (this.disposed) {
+        lua.global.close();
+        return this.disposedErr();
+      }
+      const missing = await lua.doString(COMPAT_PROBE_SRC);
+      if (typeof missing === "string" && missing.length > 0) {
+        lua.global.close();
+        return err(
+          engineError(ScriptErrorCode.LoadFailed, `Lua 5.1 \u517C\u5BB9\u57AB\u7247\u6CA1\u6709\u88C5\u4E0A\u8FD9\u4E9B\u51FD\u6570\uFF1A${missing}`)
+        );
       }
       const dispatch = lua.global.get("__engine_dispatch");
       const load = lua.global.get("__engine_load");
@@ -8529,6 +8942,25 @@ var FixedStepScheduler = class {
 };
 
 // src/core/asset/asset.ts
+function stableIdFromPath(path) {
+  let h = 2166136261;
+  for (let i = 0; i < path.length; i++) {
+    h ^= path.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return "p" + h.toString(36).padStart(7, "0");
+}
+var AssetType = {
+  Texture: "texture",
+  Atlas: "atlas",
+  Audio: "audio",
+  Prefab: "prefab",
+  Scene: "scene",
+  Script: "script",
+  Json: "json",
+  Text: "text",
+  Binary: "binary"
+};
 var AssetHandle = class {
   constructor(asset, onRelease) {
     this.asset = asset;
@@ -9478,6 +9910,7 @@ function createRenderModule(opts) {
       ctxRef = ctx;
       dev = ctx.platform.gfx;
       const d = dev;
+      const procedural = opts.atlas === void 0;
       atlas = opts.atlas ?? buildProceduralAtlas();
       const t = d.createTexture(
         {
@@ -9486,7 +9919,9 @@ function createRenderModule(opts) {
           format: PixelFormat.RGBA8,
           filter: TextureFilter.Nearest,
           wrap: TextureWrap.Clamp,
-          label: "engine.procedural-atlas"
+          // label 不是装饰：null 后端的 `describe()` 与崩溃报告会原样打印它，
+          // "这张纹理到底是资产图集还是兜底的程序化图集"必须一眼可辨。
+          label: procedural ? "engine.procedural-atlas" : "engine.asset-atlas"
         },
         atlas.pixels
       );
@@ -9593,6 +10028,9 @@ function createRenderModule(opts) {
     },
     get lastFrame() {
       return lastFrame;
+    },
+    get atlasFrameCount() {
+      return atlas?.frames.size ?? 0;
     }
   };
   function renderFrame(info) {
@@ -10455,6 +10893,1814 @@ var SCENE_SCHEMA = new Schema({
   fields: ["format", "name", "nodes"]
 });
 
+// src/extensions/asset-import/importer.ts
+function normalizeExtension(ext) {
+  const e = ext.toLowerCase();
+  if (!e.startsWith(".") || e.length < 2) {
+    throw new Error(`\u5BFC\u5165\u5668\u6269\u5C55\u540D\u5FC5\u987B\u5F62\u5982 ".png"\uFF08\u5E26\u524D\u5BFC\u70B9\uFF09\uFF0C\u5B9E\u9645\u6536\u5230 "${ext}"`);
+  }
+  return e;
+}
+var ImporterRegistry = class {
+  byExtension = /* @__PURE__ */ new Map();
+  /**
+   * 注册。同扩展名重复注册 → **throw**。
+   * 这是配置错误（两条线各自加了一个 `.json` 导入器），不是运行时状况；
+   * 用 Result 返回只会让它被忽略，然后在运行时表现为"某类文件用了错的导入器"。
+   */
+  register(i) {
+    for (const raw of i.extensions) {
+      const ext = normalizeExtension(raw);
+      const prev = this.byExtension.get(ext);
+      if (prev !== void 0) {
+        throw new Error(
+          `\u6269\u5C55\u540D "${ext}" \u5DF2\u7531\u5BFC\u5165\u5668 ${prev.id} \u6CE8\u518C\uFF0C\u4E0D\u80FD\u518D\u7ED9 ${i.id}\uFF08\u914D\u7F6E\u9519\u8BEF\uFF1A\u540C\u4E00\u6269\u5C55\u540D\u53EA\u80FD\u6709\u4E00\u4E2A\u5BFC\u5165\u5668\uFF09`
+        );
+      }
+      this.byExtension.set(ext, i);
+    }
+  }
+  /**
+   * 找导入器：大小写不敏感，**最长后缀优先**。
+   * `.atlas.json` 必须赢过 `.json` —— 否则图集会先被当作文本导进去，
+   * 依赖永远解析不出来。
+   */
+  find(sourcePath) {
+    const p = sourcePath.toLowerCase();
+    let best;
+    let bestLen = -1;
+    for (const [ext, imp] of this.byExtension) {
+      if (p.endsWith(ext) && ext.length > bestLen) {
+        best = imp;
+        bestLen = ext.length;
+      }
+    }
+    return best;
+  }
+  /** 诊断用：已注册的扩展名（排序后），报 `IMPORT.NO_IMPORTER` 时带上。 */
+  extensions() {
+    return Array.from(this.byExtension.keys()).sort();
+  }
+};
+
+// src/extensions/asset-import/hash.ts
+function contentHash(bytes) {
+  return hashBytes(bytes);
+}
+
+// src/extensions/asset-import/meta.ts
+var ID_RE = /^[a-z0-9]{1,40}$/;
+function metaPathOf(sourcePath) {
+  return sourcePath + ".meta";
+}
+function relativePathOf(sourcePath) {
+  let p = sourcePath.replace(/\\/g, "/");
+  const m = /^[a-zA-Z]+:/.exec(p);
+  if (m !== null) p = p.slice(m[0].length);
+  return p.replace(/^\/+/, "");
+}
+function badMeta(path, message, field) {
+  return engineError("IMPORT.BAD_META", `${path}: ${message}`, {
+    path,
+    ...field === void 0 ? {} : { field }
+  });
+}
+function parseMeta(path, text) {
+  let raw;
+  try {
+    raw = JSON.parse(text);
+  } catch (e) {
+    const why = e instanceof Error ? e.message : String(e);
+    return err(badMeta(path, `JSON \u89E3\u6790\u5931\u8D25\uFF08${why}\uFF09`));
+  }
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return err(badMeta(path, "\u9876\u5C42\u5FC5\u987B\u662F JSON \u5BF9\u8C61"));
+  }
+  const o = raw;
+  const id = o["id"];
+  if (id === void 0) return err(badMeta(path, '\u7F3A\u5B57\u6BB5 "id"', "id"));
+  if (typeof id !== "string") return err(badMeta(path, '\u5B57\u6BB5 "id" \u5FC5\u987B\u662F\u5B57\u7B26\u4E32', "id"));
+  if (!ID_RE.test(id)) {
+    return err(
+      badMeta(path, `\u5B57\u6BB5 "id" \u7684\u503C "${id}" \u4E0D\u5339\u914D /^[a-z0-9]{1,40}$/\uFF08\u8EAB\u4EFD\u5FC5\u987B\u662F\u7A33\u5B9A\u7684\u5C0F\u5199 base36\uFF09`, "id")
+    );
+  }
+  const type = o["type"];
+  if (type === void 0) return err(badMeta(path, '\u7F3A\u5B57\u6BB5 "type"', "type"));
+  if (typeof type !== "string" || type.length === 0) {
+    return err(badMeta(path, '\u5B57\u6BB5 "type" \u5FC5\u987B\u662F\u975E\u7A7A\u5B57\u7B26\u4E32', "type"));
+  }
+  const version = o["importerVersion"];
+  if (version === void 0) return err(badMeta(path, '\u7F3A\u5B57\u6BB5 "importerVersion"', "importerVersion"));
+  if (typeof version !== "number" || !Number.isInteger(version) || version < 0) {
+    return err(badMeta(path, '\u5B57\u6BB5 "importerVersion" \u5FC5\u987B\u662F\u975E\u8D1F\u6574\u6570', "importerVersion"));
+  }
+  const settings = o["settings"];
+  if (settings === void 0) return err(badMeta(path, '\u7F3A\u5B57\u6BB5 "settings"', "settings"));
+  if (typeof settings !== "object" || settings === null || Array.isArray(settings)) {
+    return err(badMeta(path, '\u5B57\u6BB5 "settings" \u5FC5\u987B\u662F JSON \u5BF9\u8C61', "settings"));
+  }
+  return ok({
+    id,
+    type,
+    importerVersion: version,
+    settings
+  });
+}
+async function readMeta(fs, sourcePath) {
+  const mp = metaPathOf(sourcePath);
+  if (!await fs.exists(mp)) return ok(null);
+  const r = await fs.readText(mp);
+  if (!r.ok) {
+    return err(badMeta(mp, `\u8BFB\u53D6\u5931\u8D25\uFF08${r.error.message}\uFF09`));
+  }
+  return parseMeta(mp, r.value);
+}
+async function writeMeta(fs, sourcePath, rec) {
+  const text = `{"id":${JSON.stringify(rec.id)},"type":${JSON.stringify(rec.type)},"importerVersion":${JSON.stringify(rec.importerVersion)},"settings":${JSON.stringify(rec.settings)}}
+`;
+  return fs.writeText(metaPathOf(sourcePath), text);
+}
+async function ensureMeta(fs, sourcePath, type, settings) {
+  const cur = await readMeta(fs, sourcePath);
+  if (!cur.ok) return err(cur.error);
+  if (cur.value !== null) return ok({ record: cur.value, created: false });
+  const record = {
+    id: stableIdFromPath(relativePathOf(sourcePath)),
+    type,
+    importerVersion: 1,
+    settings
+  };
+  const w = await writeMeta(fs, sourcePath, record);
+  if (!w.ok) return err(w.error);
+  return ok({ record, created: true });
+}
+var MetaIdTable = class {
+  byId = /* @__PURE__ */ new Map();
+  claim(id, sourcePath) {
+    const prev = this.byId.get(id);
+    if (prev !== void 0 && prev !== sourcePath) {
+      return err(
+        engineError(
+          "IMPORT.ID_COLLISION",
+          `id \u51B2\u7A81\uFF1A${id} \u540C\u65F6\u88AB ${prev} \u4E0E ${sourcePath} \u4F7F\u7528\uFF08\u4E0D\u81EA\u52A8\u52A0\u540E\u7F00\uFF1A\u90A3\u4F1A\u8BA9\u8EAB\u4EFD\u4E0D\u53EF\u9884\u6D4B\uFF09`,
+          { id, first: prev, second: sourcePath }
+        )
+      );
+    }
+    this.byId.set(id, sourcePath);
+    return ok(void 0);
+  }
+  get size() {
+    return this.byId.size;
+  }
+  /** 这个 id 在本轮扫描结果里是否还存在（增量命中前的依赖存活检查）。 */
+  has(id) {
+    return this.byId.has(id);
+  }
+};
+
+// src/extensions/asset-import/pipeline.ts
+var EMPTY_SETTINGS = Object.freeze({});
+function normalizeSlashes(p) {
+  return p.replace(/\\/g, "/");
+}
+function normalizePath(p) {
+  let s = normalizeSlashes(p);
+  let scheme = "";
+  const m = /^([a-zA-Z]+):/.exec(s);
+  if (m !== null) {
+    scheme = m[1] + ":";
+    s = s.slice(m[0].length);
+  }
+  const absolute = s.startsWith("/");
+  const out = [];
+  for (const seg of s.split("/")) {
+    if (seg === "" || seg === ".") continue;
+    if (seg === "..") {
+      if (out.length > 0) out.pop();
+      else out.push("..");
+      continue;
+    }
+    out.push(seg);
+  }
+  return scheme + (absolute ? "/" : "") + out.join("/");
+}
+function dirOf(file) {
+  const p = normalizeSlashes(file);
+  const i = p.lastIndexOf("/");
+  return i < 0 ? "" : p.slice(0, i);
+}
+function resolveSiblingPath(sourcePath, relPath) {
+  const base = dirOf(sourcePath);
+  const joined = relPath.startsWith("/") ? relPath : `${base}/${relPath}`;
+  return normalizePath(joined);
+}
+function joinPath(a, b) {
+  return normalizePath(`${a}/${b}`);
+}
+function serializeArtifact(a) {
+  const obj = {
+    type: a.type,
+    importerVersion: a.importerVersion,
+    sourceHash: a.sourceHash,
+    byteLength: a.byteLength,
+    dependencies: a.dependencies,
+    data: a.data
+  };
+  return JSON.stringify(obj, null, 2) + "\n";
+}
+function isPlainObject(v) {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+function failureOf(path, e) {
+  return { path, code: e.code, message: e.message };
+}
+var AssetImportPipeline = class {
+  constructor(fs, db, registry, log) {
+    this.fs = fs;
+    this.db = db;
+    this.registry = registry;
+    this.log = log;
+  }
+  artifacts = /* @__PURE__ */ new Map();
+  /** 本轮最近一次导入的产物（失败/跳过的资产不在这里，用 `db.meta` 看身份）。 */
+  artifactOf(id) {
+    return this.artifacts.get(id);
+  }
+  async run(root) {
+    const t0 = Date.now();
+    this.artifacts.clear();
+    const found = [];
+    const walked = await this.walk(root, found);
+    if (!walked.ok) return err(walked.error);
+    found.sort();
+    const failed = [];
+    const idTable = new MetaIdTable();
+    const idByPath = /* @__PURE__ */ new Map();
+    const units = [];
+    let created = 0;
+    for (const p of found) {
+      const importer = this.registry.find(p);
+      if (importer === void 0) {
+        failed.push({
+          path: p,
+          code: "IMPORT.NO_IMPORTER",
+          message: `${p}: \u6CA1\u6709\u5BFC\u5165\u5668\u5904\u7406\u8FD9\u4E2A\u6269\u5C55\u540D\uFF08\u5DF2\u6CE8\u518C\uFF1A${this.registry.extensions().join(", ") || "(\u7A7A)"}\uFF09`
+        });
+        continue;
+      }
+      const em = await ensureMeta(this.fs, p, importer.id, EMPTY_SETTINGS);
+      if (!em.ok) {
+        failed.push(failureOf(p, em.error));
+        continue;
+      }
+      if (em.value.created) created++;
+      const rec = em.value.record;
+      const claim = idTable.claim(rec.id, p);
+      if (!claim.ok) {
+        failed.push(failureOf(p, claim.error));
+        continue;
+      }
+      idByPath.set(p, rec.id);
+      units.push({ path: p, importer, record: rec });
+    }
+    const libraryDir = joinPath(root, "library/imported");
+    let imported = 0;
+    let skipped = 0;
+    let registered = 0;
+    for (const u of units) {
+      const bytesR = await this.fs.readBinary(u.path);
+      if (!bytesR.ok) {
+        failed.push(failureOf(u.path, bytesR.error));
+        continue;
+      }
+      const bytes = bytesR.value;
+      const sourceHash = contentHash(bytes);
+      const cachePath = joinPath(libraryDir, `${u.record.id}.json`);
+      const cached = await this.readCache(cachePath);
+      let artifact;
+      const dependenciesAlive = cached !== void 0 && cached.dependencies.every((dep) => idTable.has(dep));
+      if (cached !== void 0 && dependenciesAlive && cached.sourceHash === sourceHash && cached.importerVersion === u.importer.version) {
+        artifact = cached;
+        skipped++;
+      } else {
+        const ir = await u.importer.import(u.path, bytes, u.record.settings, this.contextFor(u.path, root, idByPath));
+        if (!ir.ok) {
+          failed.push(failureOf(u.path, ir.error));
+          continue;
+        }
+        artifact = {
+          ...ir.value,
+          sourceHash,
+          byteLength: bytes.byteLength,
+          importerVersion: u.importer.version
+        };
+        const mk = await this.fs.ensureDir(libraryDir);
+        if (!mk.ok) {
+          failed.push(failureOf(u.path, mk.error));
+          continue;
+        }
+        const wr = await this.fs.writeText(cachePath, serializeArtifact(artifact));
+        if (!wr.ok) {
+          failed.push(failureOf(u.path, wr.error));
+          continue;
+        }
+        imported++;
+      }
+      this.artifacts.set(u.record.id, artifact);
+      let rec = u.record;
+      if (rec.importerVersion !== artifact.importerVersion) {
+        const updated = {
+          id: rec.id,
+          type: rec.type,
+          importerVersion: artifact.importerVersion,
+          settings: rec.settings
+        };
+        const wm = await writeMeta(this.fs, u.path, updated);
+        if (wm.ok) rec = updated;
+        else this.log.warn("`.meta` \u7248\u672C\u540C\u6B65\u5931\u8D25\uFF08\u4E0D\u5F71\u54CD\u672C\u8F6E\u5BFC\u5165\uFF09", { path: u.path, code: wm.error.code });
+      }
+      const reg = this.db.register({
+        id: rec.id,
+        type: artifact.type,
+        path: u.path,
+        importerVersion: artifact.importerVersion,
+        sourceHash: artifact.sourceHash,
+        dependencies: artifact.dependencies,
+        byteLength: artifact.byteLength
+      });
+      if (!reg.ok) {
+        failed.push(failureOf(u.path, reg.error));
+        continue;
+      }
+      registered++;
+    }
+    const live = /* @__PURE__ */ new Set();
+    for (const u of units) live.add(u.record.id);
+    let removed = 0;
+    if (registered > 0) {
+      for (const d of this.db.describe()) {
+        if (live.has(d.id)) continue;
+        const r = this.db.unregister(d.id);
+        if (r.ok) {
+          removed++;
+          this.artifacts.delete(d.id);
+        } else {
+          failed.push(failureOf(d.path, r.error));
+        }
+      }
+    }
+    return ok({
+      scanned: found.length,
+      created,
+      imported,
+      skipped,
+      removed,
+      failed,
+      registered,
+      durationMs: Date.now() - t0
+    });
+  }
+  // ---------------------------------------------------------------- 内部
+  contextFor(sourcePath, root, ids) {
+    return {
+      fs: this.fs,
+      root,
+      log: this.log,
+      resolveSibling: (rel) => resolveSiblingPath(sourcePath, rel),
+      lookupId: (rel) => ids.get(resolveSiblingPath(sourcePath, rel))
+    };
+  }
+  /** 递归收集源文件。跳过 `.meta`、隐藏文件/目录、`library/`、`node_modules/`。 */
+  async walk(dir, out) {
+    const listed = await this.fs.list(dir);
+    if (!listed.ok) return err(listed.error);
+    for (const e of listed.value) {
+      if (e.isDirectory) {
+        if (this.skipDir(e.name)) continue;
+        const r = await this.walk(e.path, out);
+        if (!r.ok) return r;
+      } else {
+        if (this.skipFile(e.name)) continue;
+        out.push(e.path);
+      }
+    }
+    return ok(void 0);
+  }
+  skipDir(name) {
+    return name.startsWith(".") || name === "library" || name === "node_modules";
+  }
+  skipFile(name) {
+    return name.startsWith(".") || name.toLowerCase().endsWith(".meta");
+  }
+  /**
+   * 读产物缓存。读不出来/格式不对都按"没有缓存"处理并 warn：
+   * 缓存是**派生物**，坏了就重导，不该让整个管线失败。
+   * （与 `.meta` 相反：`.meta` 是身份来源，坏了必须报 BAD_META 而不是重新生成。）
+   */
+  async readCache(path) {
+    if (!await this.fs.exists(path)) return void 0;
+    const r = await this.fs.readText(path);
+    if (!r.ok) {
+      this.log.warn("\u4EA7\u7269\u7F13\u5B58\u8BFB\u4E0D\u51FA\u6765\uFF0C\u6309\u9700\u8981\u91CD\u5BFC\u5904\u7406", { path, code: r.error.code });
+      return void 0;
+    }
+    let raw;
+    try {
+      raw = JSON.parse(r.value);
+    } catch {
+      this.log.warn("\u4EA7\u7269\u7F13\u5B58\u4E0D\u662F\u5408\u6CD5 JSON\uFF0C\u6309\u9700\u8981\u91CD\u5BFC\u5904\u7406", { path });
+      return void 0;
+    }
+    if (!isPlainObject(raw)) {
+      this.log.warn("\u4EA7\u7269\u7F13\u5B58\u9876\u5C42\u4E0D\u662F\u5BF9\u8C61\uFF0C\u6309\u9700\u8981\u91CD\u5BFC\u5904\u7406", { path });
+      return void 0;
+    }
+    const type = raw["type"];
+    const version = raw["importerVersion"];
+    const hash = raw["sourceHash"];
+    const byteLength = raw["byteLength"];
+    const deps = raw["dependencies"];
+    const data = raw["data"];
+    if (typeof type !== "string" || typeof version !== "number" || !Number.isInteger(version) || typeof hash !== "string" || typeof byteLength !== "number" || !Array.isArray(deps) || !deps.every((d) => typeof d === "string") || !isPlainObject(data)) {
+      this.log.warn("\u4EA7\u7269\u7F13\u5B58\u5B57\u6BB5\u4E0D\u5B8C\u6574\uFF0C\u6309\u9700\u8981\u91CD\u5BFC\u5904\u7406", { path });
+      return void 0;
+    }
+    return {
+      type,
+      importerVersion: version,
+      sourceHash: hash,
+      byteLength,
+      dependencies: deps,
+      data
+    };
+  }
+};
+
+// src/extensions/asset-import/importers/texture.ts
+var VERSION = 1;
+var SIGNATURE = [137, 80, 78, 71, 13, 10, 26, 10];
+var MIN_HEADER_BYTES = 33;
+var IHDR_DATA_BYTES = 13;
+function u32be(b, at) {
+  return b[at] * 16777216 + (b[at + 1] << 16) + (b[at + 2] << 8) + b[at + 3] >>> 0;
+}
+function ascii4(b, at) {
+  return String.fromCharCode(b[at], b[at + 1], b[at + 2], b[at + 3]);
+}
+function hexBytes(b, from, to) {
+  return Array.from(b.slice(from, to), (x) => x.toString(16).padStart(2, "0")).join(" ");
+}
+function badSource(sourcePath, why) {
+  return engineError("IMPORT.BAD_SOURCE", `${sourcePath}: ${why}`, { path: sourcePath, importer: "texture" });
+}
+function hasAlphaChannel(colorType) {
+  return colorType === 4 || colorType === 6;
+}
+var textureImporter = {
+  id: AssetType.Texture,
+  version: VERSION,
+  extensions: [".png"],
+  async import(sourcePath, source) {
+    if (source.length < SIGNATURE.length) {
+      return err(badSource(sourcePath, `\u671F\u671B 8 \u5B57\u8282 PNG \u7B7E\u540D\uFF0C\u5B9E\u9645\u53EA\u6709 ${source.length} \u5B57\u8282`));
+    }
+    for (let i = 0; i < SIGNATURE.length; i++) {
+      if (source[i] !== SIGNATURE[i]) {
+        return err(
+          badSource(
+            sourcePath,
+            `\u671F\u671B 8 \u5B57\u8282 PNG \u7B7E\u540D\uFF0889 50 4e 47 0d 0a 1a 0a\uFF09\uFF0C\u5B9E\u9645 ${hexBytes(source, 0, 8)}`
+          )
+        );
+      }
+    }
+    if (source.length < MIN_HEADER_BYTES) {
+      return err(
+        badSource(
+          sourcePath,
+          `PNG \u5934\u622A\u65AD\uFF1A\u8BFB IHDR \u9700\u8981 ${MIN_HEADER_BYTES} \u5B57\u8282\uFF08\u7B7E\u540D 8 + \u5757\u5934 8 + IHDR 13 + CRC 4\uFF09\uFF0C\u5B9E\u9645 ${source.length}`
+        )
+      );
+    }
+    const chunkLength = u32be(source, 8);
+    if (chunkLength !== IHDR_DATA_BYTES) {
+      return err(badSource(sourcePath, `\u7B2C\u4E00\u4E2A\u5757\u4E0D\u662F IHDR\uFF1A\u5757\u957F\u5EA6 ${chunkLength}\uFF08\u671F\u671B 13\uFF09`));
+    }
+    const chunkType = ascii4(source, 12);
+    if (chunkType !== "IHDR") {
+      return err(badSource(sourcePath, `\u7B2C\u4E00\u4E2A\u5757\u5FC5\u987B\u662F IHDR\uFF0C\u5B9E\u9645\u662F "${chunkType}"`));
+    }
+    const width = u32be(source, 16);
+    const height = u32be(source, 20);
+    const bitDepth = source[24];
+    const colorType = source[25];
+    if (width === 0 || height === 0) {
+      return err(badSource(sourcePath, `IHDR \u5BBD\u9AD8\u5FC5\u987B\u975E 0\uFF0C\u5B9E\u9645 ${width}\xD7${height}`));
+    }
+    if (bitDepth === 0) {
+      return err(badSource(sourcePath, "IHDR \u4F4D\u6DF1\u4E3A 0"));
+    }
+    return ok({
+      type: AssetType.Texture,
+      dependencies: [],
+      byteLength: source.byteLength,
+      sourceHash: contentHash(source),
+      importerVersion: VERSION,
+      data: {
+        width,
+        height,
+        bitDepth,
+        colorType,
+        hasAlpha: hasAlphaChannel(colorType)
+      }
+    });
+  }
+};
+
+// src/extensions/asset-import/importers/atlas.ts
+var VERSION2 = 1;
+function badSource2(sourcePath, why) {
+  return engineError("IMPORT.BAD_SOURCE", `${sourcePath}: ${why}`, { path: sourcePath, importer: "atlas" });
+}
+function isPlainObject2(v) {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+var FRAME_KEYS = ["x", "y", "w", "h"];
+var atlasImporter = {
+  id: AssetType.Atlas,
+  version: VERSION2,
+  extensions: [".atlas.json"],
+  async import(sourcePath, source, _settings, ctx) {
+    let text;
+    try {
+      text = new TextDecoder("utf-8", { fatal: true }).decode(source);
+    } catch (e) {
+      const why = e instanceof Error ? e.message : String(e);
+      return err(badSource2(sourcePath, `\u4E0D\u662F\u5408\u6CD5 UTF-8\uFF08${why}\uFF09`));
+    }
+    let raw;
+    try {
+      raw = JSON.parse(text);
+    } catch (e) {
+      const why = e instanceof Error ? e.message : String(e);
+      return err(badSource2(sourcePath, `JSON \u89E3\u6790\u5931\u8D25\uFF08${why}\uFF09`));
+    }
+    if (!isPlainObject2(raw)) {
+      return err(badSource2(sourcePath, "\u9876\u5C42\u5FC5\u987B\u662F JSON \u5BF9\u8C61"));
+    }
+    const texturesRaw = raw["textures"];
+    if (!Array.isArray(texturesRaw)) {
+      return err(badSource2(sourcePath, '\u7F3A\u5C11 "textures" \u6570\u7EC4'));
+    }
+    const dependencies = [];
+    for (const [i, tex] of texturesRaw.entries()) {
+      if (typeof tex !== "string" || tex.length === 0) {
+        return err(badSource2(sourcePath, `textures[${i}] \u5FC5\u987B\u662F\u975E\u7A7A\u5B57\u7B26\u4E32`));
+      }
+      const id = ctx.lookupId(tex);
+      if (id === void 0) {
+        const resolved = ctx.resolveSibling(tex);
+        return err(
+          engineError(
+            "IMPORT.MISSING_DEPENDENCY",
+            `${sourcePath}: \u4F9D\u8D56 "${tex}" \u627E\u4E0D\u5230\uFF08\u76F8\u5BF9\u5F53\u524D\u6587\u4EF6\u89E3\u6790\u4E3A ${resolved}\uFF1B\u672C\u8F6E\u626B\u63CF\u91CC\u6CA1\u6709\u8FD9\u4E2A\u8D44\u4EA7\uFF09`,
+            { source: sourcePath, dependency: tex, resolved }
+          )
+        );
+      }
+      dependencies.push(id);
+    }
+    const framesRaw = raw["frames"];
+    if (!isPlainObject2(framesRaw)) {
+      return err(badSource2(sourcePath, '\u7F3A\u5C11 "frames" \u5BF9\u8C61'));
+    }
+    for (const [name, frame] of Object.entries(framesRaw)) {
+      if (!isPlainObject2(frame)) {
+        return err(badSource2(sourcePath, `\u5E27 "${name}" \u5FC5\u987B\u662F\u5BF9\u8C61`));
+      }
+      for (const k of FRAME_KEYS) {
+        const v = frame[k];
+        if (typeof v !== "number" || !Number.isFinite(v)) {
+          return err(badSource2(sourcePath, `\u5E27 "${name}" \u7684 ${k} \u5FC5\u987B\u662F\u6709\u9650\u6570\u5B57`));
+        }
+      }
+    }
+    return ok({
+      type: AssetType.Atlas,
+      dependencies,
+      byteLength: source.byteLength,
+      sourceHash: contentHash(source),
+      importerVersion: VERSION2,
+      data: {
+        frames: Object.keys(framesRaw).length,
+        textures: dependencies
+      }
+    });
+  }
+};
+
+// src/extensions/asset-import/importers/text.ts
+var VERSION3 = 1;
+function countLines(text) {
+  if (text.length === 0) return 0;
+  const parts = text.split(/\r\n|\r|\n/);
+  if (parts.length > 1 && parts[parts.length - 1] === "") parts.pop();
+  return parts.length;
+}
+function countCodePoints(text) {
+  let n = 0;
+  for (let i = 0; i < text.length; i++) {
+    n++;
+    const c = text.charCodeAt(i);
+    if (c >= 55296 && c <= 56319 && i + 1 < text.length) {
+      const next = text.charCodeAt(i + 1);
+      if (next >= 56320 && next <= 57343) i++;
+    }
+  }
+  return n;
+}
+var textImporter = {
+  id: AssetType.Text,
+  version: VERSION3,
+  extensions: [".txt", ".json", ".lua", ".md"],
+  async import(sourcePath, source) {
+    let text;
+    try {
+      text = new TextDecoder("utf-8", { fatal: true }).decode(source);
+    } catch (e) {
+      const why = e instanceof Error ? e.message : String(e);
+      return err(
+        engineError("IMPORT.BAD_SOURCE", `${sourcePath}: \u4E0D\u662F\u5408\u6CD5 UTF-8\uFF08${why}\uFF09`, {
+          path: sourcePath,
+          importer: "text"
+        })
+      );
+    }
+    return ok({
+      type: AssetType.Text,
+      dependencies: [],
+      byteLength: source.byteLength,
+      // ★ 对**磁盘字节**哈希（与管线增量判定的口径完全一致）。
+      //   用字符串重新编码再哈希会多一次"解码→编码"的往返，虽然对合法 UTF-8
+      //   结果是同一份字节，但依赖这个等价性没有必要。
+      sourceHash: contentHash(source),
+      importerVersion: VERSION3,
+      data: {
+        lines: countLines(text),
+        // 用码点数而不是 UTF-16 长度：中文/emoji 的"字符数"才符合直觉。
+        chars: countCodePoints(text),
+        encoding: "utf-8"
+      }
+    });
+  }
+};
+
+// src/extensions/asset-import/loaders.ts
+var ImportLoadErrorCode = {
+  /** 元数据在库里，但产物文件不在 —— 说明没跑过导入，或 library 被清空。 */
+  NoArtifact: "ASSET.NO_ARTIFACT",
+  /** 产物存在但内容不合约定（被手改过 / 旧版本格式）。 */
+  BadArtifact: "ASSET.BAD_ARTIFACT"
+};
+var ImportedTexture = class {
+  constructor(id, type, meta, bytes, sourcePath) {
+    this.id = id;
+    this.type = type;
+    this.width = meta.width;
+    this.height = meta.height;
+    this.bitDepth = meta.bitDepth;
+    this.colorType = meta.colorType;
+    this.bytes = bytes;
+    this.sourcePath = sourcePath;
+  }
+  width;
+  height;
+  bytes;
+  sourcePath;
+  bitDepth;
+  colorType;
+  dispose() {
+  }
+  get byteLength() {
+    return this.bytes.byteLength;
+  }
+};
+var ImportedAtlas = class {
+  constructor(id, type, frameCount, textureIds) {
+    this.id = id;
+    this.type = type;
+    this.frameCount = frameCount;
+    this.textureIds = textureIds;
+  }
+  dispose() {
+  }
+};
+var ImportedText = class {
+  constructor(id, type, text, lines, sourcePath) {
+    this.id = id;
+    this.type = type;
+    this.text = text;
+    this.lines = lines;
+    this.sourcePath = sourcePath;
+  }
+  dispose() {
+  }
+};
+function numField(data, key, where) {
+  const v = data[key];
+  if (typeof v !== "number" || !Number.isFinite(v) || v < 0) {
+    return err(engineError(ImportLoadErrorCode.BadArtifact, `${where}: \u4EA7\u7269\u5B57\u6BB5 ${key} \u4E0D\u662F\u975E\u8D1F\u6709\u9650\u6570`));
+  }
+  return ok(v);
+}
+async function readArtifact(fs, root, id) {
+  const path = `${root.replace(/\/+$/, "")}/library/imported/${id}.json`;
+  const r = await fs.readText(path);
+  if (!r.ok) {
+    return err(
+      engineError(
+        ImportLoadErrorCode.NoArtifact,
+        `\u8D44\u4EA7 ${id} \u7684\u5BFC\u5165\u4EA7\u7269\u4E0D\u5728\uFF08${path}\uFF09\u2014\u2014 \u5148\u8DD1 AssetImportPipeline.run()\uFF0C\u6216 library \u88AB\u6E05\u7A7A\u4E86`,
+        { id, path }
+      )
+    );
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(r.value);
+  } catch (e) {
+    return err(
+      engineError(ImportLoadErrorCode.BadArtifact, `\u4EA7\u7269 ${path} \u4E0D\u662F\u5408\u6CD5 JSON\uFF1A${e instanceof Error ? e.message : String(e)}`)
+    );
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return err(engineError(ImportLoadErrorCode.BadArtifact, `\u4EA7\u7269 ${path} \u9876\u5C42\u4E0D\u662F\u5BF9\u8C61`));
+  }
+  const o = parsed;
+  const data = o["data"];
+  if (typeof data !== "object" || data === null || Array.isArray(data)) {
+    return err(engineError(ImportLoadErrorCode.BadArtifact, `\u4EA7\u7269 ${path} \u7F3A data \u5BF9\u8C61`));
+  }
+  if (typeof o["type"] !== "string") {
+    return err(engineError(ImportLoadErrorCode.BadArtifact, `\u4EA7\u7269 ${path} \u7F3A type`));
+  }
+  return ok({
+    type: o["type"],
+    importerVersion: typeof o["importerVersion"] === "number" ? o["importerVersion"] : 0,
+    sourceHash: typeof o["sourceHash"] === "string" ? o["sourceHash"] : "",
+    byteLength: typeof o["byteLength"] === "number" ? o["byteLength"] : 0,
+    dependencies: Array.isArray(o["dependencies"]) ? o["dependencies"] : [],
+    data
+  });
+}
+function createImportLoaders(opts) {
+  const root = opts.root;
+  const texture = {
+    types: ["texture"],
+    async load(meta, ctx) {
+      const a = await readArtifact(ctx.fs, root, meta.id);
+      if (!a.ok) return err(a.error);
+      const w = numField(a.value.data, "width", `texture ${meta.id}`);
+      if (!w.ok) return err(w.error);
+      const h = numField(a.value.data, "height", `texture ${meta.id}`);
+      if (!h.ok) return err(h.error);
+      const bytes = await ctx.fs.readBinary(meta.path);
+      if (!bytes.ok) return err(bytes.error);
+      const bitDepth = typeof a.value.data["bitDepth"] === "number" ? a.value.data["bitDepth"] : 8;
+      const colorType = typeof a.value.data["colorType"] === "number" ? a.value.data["colorType"] : 6;
+      return ok(
+        new ImportedTexture(meta.id, meta.type, { width: w.value, height: h.value, bitDepth, colorType }, bytes.value, meta.path)
+      );
+    }
+  };
+  const atlas = {
+    types: ["atlas"],
+    async load(meta, ctx) {
+      const a = await readArtifact(ctx.fs, root, meta.id);
+      if (!a.ok) return err(a.error);
+      const frames = numField(a.value.data, "frames", `atlas ${meta.id}`);
+      if (!frames.ok) return err(frames.error);
+      return ok(new ImportedAtlas(meta.id, meta.type, frames.value, a.value.dependencies));
+    }
+  };
+  const text = {
+    types: ["text"],
+    async load(meta, ctx) {
+      const a = await readArtifact(ctx.fs, root, meta.id);
+      if (!a.ok) return err(a.error);
+      const t = await ctx.fs.readText(meta.path);
+      if (!t.ok) return err(t.error);
+      const lines = numField(a.value.data, "lines", `text ${meta.id}`);
+      if (!lines.ok) return err(lines.error);
+      return ok(new ImportedText(meta.id, meta.type, t.value, lines.value, meta.path));
+    }
+  };
+  return [texture, atlas, text];
+}
+
+// src/extensions/asset-import/decode/inflate.ts
+var InflateErrorCode = {
+  /** zlib 头/流/校验和任何一处不合法。message 带字节偏移，足够定位。 */
+  BadZlib: "ASSET.BAD_ZLIB"
+};
+var DEFAULT_MAX_BYTES = 256 * 1024 * 1024;
+var MAX_BITS = 15;
+var ZlibError = class extends Error {
+};
+function reverseBits(code, len) {
+  let out = 0;
+  for (let i = 0; i < len; i++) {
+    out = out << 1 | code & 1;
+    code >>>= 1;
+  }
+  return out;
+}
+function buildHuffman(lengths) {
+  const counts = new Uint16Array(MAX_BITS + 1);
+  for (let i = 0; i < lengths.length; i++) {
+    const l = lengths[i];
+    if (l > MAX_BITS) throw new ZlibError(`Huffman \u7801\u957F ${l} \u8D85\u8FC7 ${MAX_BITS}`);
+    counts[l] = counts[l] + 1;
+  }
+  counts[0] = 0;
+  let maxLen = MAX_BITS;
+  while (maxLen > 0 && counts[maxLen] === 0) maxLen--;
+  if (maxLen === 0) {
+    return { table: new Uint16Array(1), maxLen: 1 };
+  }
+  let left = 1;
+  for (let len = 1; len <= MAX_BITS; len++) {
+    left = (left << 1) - counts[len];
+    if (left < 0) throw new ZlibError(`Huffman \u7801\u957F\u8868\u8FC7\u8BA2\u9605\uFF08len=${len} \u65F6\u8D85\u51FA ${-left}\uFF09`);
+  }
+  const nextCode = new Uint16Array(MAX_BITS + 1);
+  let code = 0;
+  for (let len = 1; len <= MAX_BITS; len++) {
+    code = code + counts[len - 1] << 1;
+    nextCode[len] = code;
+  }
+  const size = 1 << maxLen;
+  const table = new Uint16Array(size);
+  for (let sym = 0; sym < lengths.length; sym++) {
+    const len = lengths[sym];
+    if (len === 0) continue;
+    const c = nextCode[len];
+    nextCode[len] = c + 1;
+    const rev = reverseBits(c, len);
+    const entry = len << 9 | sym;
+    const step = 1 << len;
+    for (let i = rev; i < size; i += step) table[i] = entry;
+  }
+  return { table, maxLen };
+}
+var fixedLit = null;
+var fixedDist = null;
+function getFixedLit() {
+  if (fixedLit !== null) return fixedLit;
+  const lengths = new Uint8Array(288);
+  for (let i = 0; i < 144; i++) lengths[i] = 8;
+  for (let i = 144; i < 256; i++) lengths[i] = 9;
+  for (let i = 256; i < 280; i++) lengths[i] = 7;
+  for (let i = 280; i < 288; i++) lengths[i] = 8;
+  fixedLit = buildHuffman(lengths);
+  return fixedLit;
+}
+function getFixedDist() {
+  if (fixedDist !== null) return fixedDist;
+  const lengths = new Uint8Array(32).fill(5);
+  fixedDist = buildHuffman(lengths);
+  return fixedDist;
+}
+var LEN_BASE = [
+  3,
+  4,
+  5,
+  6,
+  7,
+  8,
+  9,
+  10,
+  11,
+  13,
+  15,
+  17,
+  19,
+  23,
+  27,
+  31,
+  35,
+  43,
+  51,
+  59,
+  67,
+  83,
+  99,
+  115,
+  131,
+  163,
+  195,
+  227,
+  258
+];
+var LEN_EXTRA = [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0];
+var DIST_BASE = [
+  1,
+  2,
+  3,
+  4,
+  5,
+  7,
+  9,
+  13,
+  17,
+  25,
+  33,
+  49,
+  65,
+  97,
+  129,
+  193,
+  257,
+  385,
+  513,
+  769,
+  1025,
+  1537,
+  2049,
+  3073,
+  4097,
+  6145,
+  8193,
+  12289,
+  16385,
+  24577
+];
+var DIST_EXTRA = [
+  0,
+  0,
+  0,
+  0,
+  1,
+  1,
+  2,
+  2,
+  3,
+  3,
+  4,
+  4,
+  5,
+  5,
+  6,
+  6,
+  7,
+  7,
+  8,
+  8,
+  9,
+  9,
+  10,
+  10,
+  11,
+  11,
+  12,
+  12,
+  13,
+  13
+];
+var CLEN_ORDER = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
+function adler32(data) {
+  let a = 1;
+  let b = 0;
+  let i = 0;
+  while (i < data.length) {
+    const end = Math.min(i + 5552, data.length);
+    for (; i < end; i++) {
+      a += data[i];
+      b += a;
+    }
+    a %= 65521;
+    b %= 65521;
+  }
+  return (b << 16 | a) >>> 0;
+}
+var BitReader = class {
+  constructor(data, start) {
+    this.data = data;
+    this.pos = start;
+  }
+  pos;
+  bitBuf = 0;
+  bitCnt = 0;
+  /** 尽可能补到 n 位（不抛）：流末尾不足时由调用方判断。 */
+  ensure(n) {
+    while (this.bitCnt < n && this.pos < this.data.length) {
+      this.bitBuf |= this.data[this.pos] << this.bitCnt;
+      this.bitCnt += 8;
+      this.pos++;
+    }
+  }
+  readBits(n) {
+    if (n === 0) return 0;
+    this.ensure(n);
+    if (this.bitCnt < n) throw new ZlibError(`\u4F4D\u6D41\u622A\u65AD\uFF1A\u9700\u8981 ${n} \u4F4D\uFF0C\u53EA\u5269 ${this.bitCnt} \u4F4D`);
+    const v = this.bitBuf & (1 << n) - 1;
+    this.bitBuf >>>= n;
+    this.bitCnt -= n;
+    return v;
+  }
+  decode(h) {
+    this.ensure(h.maxLen);
+    if (this.bitCnt === 0) throw new ZlibError("\u4F4D\u6D41\u622A\u65AD\uFF1AHuffman \u89E3\u7801\u65F6\u5DF2\u65E0\u6570\u636E");
+    const entry = h.table[this.bitBuf & (1 << h.maxLen) - 1];
+    if (entry === 0) throw new ZlibError(`\u975E\u6CD5 Huffman \u7801\uFF08peek 0x${(this.bitBuf & (1 << h.maxLen) - 1).toString(16)}\uFF09`);
+    const len = entry >>> 9;
+    if (len > this.bitCnt) throw new ZlibError("\u4F4D\u6D41\u622A\u65AD\uFF1AHuffman \u7801\u5B57\u8DE8\u8D8A\u4E86\u8F93\u5165\u672B\u5C3E");
+    this.bitBuf >>>= len;
+    this.bitCnt -= len;
+    return entry & 511;
+  }
+  /**
+   * 丢弃当前字节里剩余的位，并把"已预读但未消费的整字节"退回 pos。
+   * 之后 `pos` 指向下一个未读字节 —— stored 块和 adler32 都靠它对齐。
+   */
+  alignToByte() {
+    const drop = this.bitCnt & 7;
+    this.bitBuf >>>= drop;
+    this.bitCnt -= drop;
+    this.pos -= this.bitCnt >> 3;
+    this.bitBuf = 0;
+    this.bitCnt = 0;
+  }
+  /** u16 小端（stored 块的 LEN/NLEN）。调用前必须 `alignToByte()`。 */
+  u16le() {
+    if (this.pos + 2 > this.data.length) throw new ZlibError("stored \u5757\u5934\u622A\u65AD");
+    const v = this.data[this.pos] | this.data[this.pos + 1] << 8;
+    this.pos += 2;
+    return v;
+  }
+};
+var ByteSink = class {
+  buf;
+  len = 0;
+  maxBytes;
+  constructor(initial, maxBytes) {
+    this.maxBytes = maxBytes;
+    this.buf = new Uint8Array(Math.max(1, Math.min(initial, maxBytes)));
+  }
+  reserve(n) {
+    const need = this.len + n;
+    if (need > this.maxBytes) {
+      throw new ZlibError(`\u89E3\u538B\u8F93\u51FA\u8D85\u8FC7\u4E0A\u9650 maxBytes=${this.maxBytes}\uFF08\u5DF2\u4EA7\u51FA ${this.len} \u5B57\u8282\uFF0C\u518D\u5199 ${n}\uFF09`);
+    }
+    if (need <= this.buf.length) return;
+    let cap = this.buf.length * 2;
+    if (cap < need) cap = need;
+    if (cap > this.maxBytes) cap = this.maxBytes;
+    const next = new Uint8Array(cap);
+    next.set(this.buf.subarray(0, this.len));
+    this.buf = next;
+  }
+  writeByte(b) {
+    this.reserve(1);
+    this.buf[this.len++] = b;
+  }
+  writeBytes(src, from, count) {
+    this.reserve(count);
+    this.buf.set(src.subarray(from, from + count), this.len);
+    this.len += count;
+  }
+  copyBack(distance, count) {
+    this.reserve(count);
+    const b = this.buf;
+    let src = this.len - distance;
+    let dst = this.len;
+    for (let i = 0; i < count; i++) b[dst + i] = b[src + i];
+    this.len += count;
+  }
+  finish() {
+    return this.buf.slice(0, this.len);
+  }
+};
+function inflateZlib(data, opts) {
+  const maxBytes = opts?.maxBytes ?? DEFAULT_MAX_BYTES;
+  try {
+    if (data.length < 6) {
+      throw new ZlibError(`zlib \u6570\u636E\u8FC7\u77ED\uFF1A${data.length} \u5B57\u8282\uFF08\u81F3\u5C11 6\uFF09`);
+    }
+    const cmf = data[0];
+    const flg = data[1];
+    if ((cmf & 15) !== 8) {
+      throw new ZlibError(`zlib CM=${cmf & 15}\uFF08\u53EA\u652F\u6301 8 = deflate\uFF09`);
+    }
+    if (cmf >> 4 > 7) {
+      throw new ZlibError(`zlib CINFO=${cmf >> 4} \u975E\u6CD5\uFF08\u7A97\u53E3 > 32K\uFF0C\u89C4\u8303\u4E0A\u9650 7\uFF09`);
+    }
+    if ((cmf << 8 | flg) % 31 !== 0) {
+      throw new ZlibError(
+        `zlib \u5934\u6821\u9A8C\u5931\u8D25\uFF1ACMF=0x${cmf.toString(16)} FLG=0x${flg.toString(16)}\uFF0C(CMF*256+FLG)%31 != 0`
+      );
+    }
+    if ((flg & 32) !== 0) {
+      throw new ZlibError("zlib FDICT=1\uFF1A\u4E0D\u652F\u6301\u9884\u7F6E\u5B57\u5178\uFF08PNG \u4E0D\u4F1A\u7528\uFF09");
+    }
+    const br = new BitReader(data, 2);
+    const sink = new ByteSink(opts?.sizeHint !== void 0 ? opts.sizeHint : 64 * 1024, maxBytes);
+    const fail = (msg) => {
+      throw new ZlibError(`${msg} at byte ${br.pos}`);
+    };
+    let isFinal = 0;
+    do {
+      isFinal = br.readBits(1);
+      const type = br.readBits(2);
+      if (type === 0) {
+        br.alignToByte();
+        const len = br.u16le();
+        const nlen = br.u16le();
+        if (((len ^ 65535) & 65535) !== nlen) {
+          fail(`stored \u5757\u7684 LEN/NLEN \u4E0D\u4E92\u8865\uFF1ALEN=${len} NLEN=${nlen}`);
+        }
+        if (br.pos + len > data.length) {
+          fail(`stored \u5757\u622A\u65AD\uFF1A\u9700\u8981 ${len} \u5B57\u8282\uFF0C\u5269\u4F59 ${data.length - br.pos}`);
+        }
+        sink.writeBytes(data, br.pos, len);
+        br.pos += len;
+      } else if (type === 1 || type === 2) {
+        let lit;
+        let dist;
+        if (type === 1) {
+          lit = getFixedLit();
+          dist = getFixedDist();
+        } else {
+          const tables = readDynamicTables(br, fail);
+          lit = tables.lit;
+          dist = tables.dist;
+        }
+        decodeCompressed(br, lit, dist, sink, fail);
+      } else {
+        fail(`invalid block type ${type}\uFF08deflate \u53EA\u6709 0/1/2\uFF09`);
+      }
+    } while (isFinal === 0);
+    br.alignToByte();
+    if (br.pos + 4 > data.length) {
+      throw new ZlibError(`zlib \u6D41\u7F3A\u5C11 adler32 \u5C3E\uFF08pos=${br.pos} \u957F\u5EA6=${data.length}\uFF09`);
+    }
+    const expected = (data[br.pos] << 24 | data[br.pos + 1] << 16 | data[br.pos + 2] << 8 | data[br.pos + 3]) >>> 0;
+    const actual = adler32(sink.buf.subarray(0, sink.len));
+    if (expected !== actual) {
+      throw new ZlibError(
+        `adler32 \u6821\u9A8C\u5931\u8D25\uFF1A\u671F\u671B 0x${expected.toString(16).padStart(8, "0")}\uFF0C\u5B9E\u9645 0x${actual.toString(16).padStart(8, "0")}`
+      );
+    }
+    if (br.pos + 4 !== data.length) {
+      throw new ZlibError(`zlib \u6D41\u540E\u6709 ${data.length - (br.pos + 4)} \u5B57\u8282\u591A\u4F59\u6570\u636E\uFF08pos=${br.pos + 4}\uFF09`);
+    }
+    return ok(sink.finish());
+  } catch (e) {
+    if (e instanceof ZlibError) return err(engineError(InflateErrorCode.BadZlib, e.message));
+    return err(
+      engineError(InflateErrorCode.BadZlib, `inflate \u5185\u90E8\u9519\u8BEF\uFF1A${e instanceof Error ? e.message : String(e)}`)
+    );
+  }
+}
+function readDynamicTables(br, fail) {
+  const hlit = br.readBits(5) + 257;
+  const hdist = br.readBits(5) + 1;
+  const hclen = br.readBits(4) + 4;
+  if (hlit > 286) fail(`HLIT=${hlit - 257} \u975E\u6CD5\uFF08\u6700\u591A 286 \u4E2A\u5B57\u9762\u91CF/\u957F\u5EA6\u7801\uFF09`);
+  if (hdist > 30) fail(`HDIST=${hdist - 1} \u975E\u6CD5\uFF08\u6700\u591A 30 \u4E2A\u8DDD\u79BB\u7801\uFF09`);
+  const clenLengths = new Uint8Array(19);
+  for (let i2 = 0; i2 < hclen; i2++) clenLengths[CLEN_ORDER[i2]] = br.readBits(3);
+  let clen;
+  try {
+    clen = buildHuffman(clenLengths);
+  } catch (e) {
+    fail(`\u7801\u957F\u8868\u7684 Huffman \u6784\u9020\u5931\u8D25\uFF1A${e instanceof Error ? e.message : String(e)}`);
+  }
+  const total = hlit + hdist;
+  const lengths = new Uint8Array(total);
+  let i = 0;
+  while (i < total) {
+    const sym = br.decode(clen);
+    if (sym < 16) {
+      lengths[i++] = sym;
+    } else if (sym === 16) {
+      if (i === 0) fail("\u7801\u957F\u91CD\u590D\u7801 16 \u51FA\u73B0\u5728\u7B2C\u4E00\u4E2A\u7801\u957F\u4E4B\u524D\uFF08\u6CA1\u6709\u53EF\u590D\u5236\u7684\u4E0A\u4E00\u4E2A\u503C\uFF09");
+      const repeat = br.readBits(2) + 3;
+      if (i + repeat > total) fail(`\u7801\u957F\u91CD\u590D\u7801 16 \u8D8A\u754C\uFF1Ai=${i} repeat=${repeat} total=${total}`);
+      const prev = lengths[i - 1];
+      for (let k = 0; k < repeat; k++) lengths[i++] = prev;
+    } else if (sym === 17) {
+      const repeat = br.readBits(3) + 3;
+      if (i + repeat > total) fail(`\u7801\u957F\u91CD\u590D\u7801 17 \u8D8A\u754C\uFF1Ai=${i} repeat=${repeat} total=${total}`);
+      i += repeat;
+    } else if (sym === 18) {
+      const repeat = br.readBits(7) + 11;
+      if (i + repeat > total) fail(`\u7801\u957F\u91CD\u590D\u7801 18 \u8D8A\u754C\uFF1Ai=${i} repeat=${repeat} total=${total}`);
+      i += repeat;
+    } else {
+      fail(`\u975E\u6CD5\u7801\u957F\u7B26\u53F7 ${sym}\uFF08\u53EA\u5141\u8BB8 0..18\uFF09`);
+    }
+  }
+  const litLengths = lengths.subarray(0, hlit);
+  const distLengths = lengths.subarray(hlit);
+  if (litLengths[256] === 0) fail("\u5B57\u9762\u91CF\u8868\u7F3A\u5C11\u5757\u7ED3\u675F\u7B26 256 \u7684\u7801\u5B57");
+  try {
+    return { lit: buildHuffman(litLengths), dist: buildHuffman(distLengths) };
+  } catch (e) {
+    fail(`Huffman \u8868\u6784\u9020\u5931\u8D25\uFF1A${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+function decodeCompressed(br, lit, dist, sink, fail) {
+  for (; ; ) {
+    const sym = br.decode(lit);
+    if (sym < 256) {
+      sink.writeByte(sym);
+      continue;
+    }
+    if (sym === 256) return;
+    if (sym > 285) fail(`\u975E\u6CD5\u957F\u5EA6\u7B26\u53F7 ${sym}\uFF08286/287 \u4FDD\u7559\uFF09`);
+    const li = sym - 257;
+    const length = LEN_BASE[li] + br.readBits(LEN_EXTRA[li]);
+    const dsym = br.decode(dist);
+    if (dsym > 29) fail(`\u975E\u6CD5\u8DDD\u79BB\u7B26\u53F7 ${dsym}\uFF0830/31 \u4FDD\u7559\uFF09`);
+    const distance = DIST_BASE[dsym] + br.readBits(DIST_EXTRA[dsym]);
+    if (distance > sink.len) {
+      fail(`invalid distance ${distance} > \u5DF2\u4EA7\u51FA ${sink.len} \u5B57\u8282`);
+    }
+    sink.copyBack(distance, length);
+  }
+}
+
+// src/extensions/asset-import/decode/png.ts
+var PngErrorCode = {
+  BadPng: "ASSET.BAD_PNG",
+  Unsupported: "ASSET.UNSUPPORTED_PNG",
+  UnsupportedInterlace: "ASSET.UNSUPPORTED_INTERLACE"
+};
+var SIGNATURE2 = [137, 80, 78, 71, 13, 10, 26, 10];
+var DEFAULT_MAX_BYTES2 = 256 * 1024 * 1024;
+var IHDR_BYTES = 13;
+var CHANNELS = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 };
+var LEGAL_DEPTHS = {
+  0: [1, 2, 4, 8, 16],
+  2: [8, 16],
+  3: [1, 2, 4, 8],
+  4: [8, 16],
+  6: [8, 16]
+};
+var CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 3988292384 ^ c >>> 1 : c >>> 1;
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+function crc32(bytes, from, to) {
+  let c = 4294967295;
+  for (let i = from; i < to; i++) c = CRC_TABLE[(c ^ bytes[i]) & 255] ^ c >>> 8;
+  return (c ^ 4294967295) >>> 0;
+}
+function u32be2(b, at) {
+  return (b[at] << 24 | b[at + 1] << 16 | b[at + 2] << 8 | b[at + 3]) >>> 0;
+}
+function ascii42(b, at) {
+  return String.fromCharCode(b[at], b[at + 1], b[at + 2], b[at + 3]);
+}
+function hex32(v) {
+  return `0x${v.toString(16).padStart(8, "0")}`;
+}
+function bad(why, detail) {
+  return detail === void 0 ? engineError(PngErrorCode.BadPng, why) : engineError(PngErrorCode.BadPng, why, detail);
+}
+function walkChunks(bytes) {
+  if (bytes.length < SIGNATURE2.length) {
+    return err(bad(`\u6587\u4EF6\u8FC7\u77ED\uFF1A${bytes.length} \u5B57\u8282\uFF0C\u8FDE PNG \u7B7E\u540D\u90FD\u4E0D\u591F\uFF088 \u5B57\u8282\uFF09`));
+  }
+  for (let i = 0; i < SIGNATURE2.length; i++) {
+    if (bytes[i] !== SIGNATURE2[i]) {
+      return err(
+        bad(
+          `PNG \u7B7E\u540D\u4E0D\u5339\u914D\uFF1A\u671F\u671B 89 50 4e 47 0d 0a 1a 0a\uFF0C\u5B9E\u9645 ${Array.from(
+            bytes.subarray(0, 8),
+            (x) => x.toString(16).padStart(2, "0")
+          ).join(" ")}`
+        )
+      );
+    }
+  }
+  let ihdr;
+  let palette;
+  let trns;
+  const idat = [];
+  let iendEnd = -1;
+  let at = SIGNATURE2.length;
+  while (at < bytes.length) {
+    if (at + 8 > bytes.length) {
+      return err(bad(`\u5757\u5934\u622A\u65AD\uFF1A\u504F\u79FB ${at} \u5904\u53EA\u5269 ${bytes.length - at} \u5B57\u8282\uFF08\u5757\u5934 8 \u5B57\u8282\uFF09`));
+    }
+    const length = u32be2(bytes, at);
+    const type = ascii42(bytes, at + 4);
+    if (length > 2147483647) {
+      return err(bad(`\u5757 "${type}" \u957F\u5EA6 ${length} \u975E\u6CD5\uFF08> 2^31-1\uFF09`, { offset: at }));
+    }
+    const dataStart = at + 8;
+    const crcAt = dataStart + length;
+    if (crcAt + 4 > bytes.length) {
+      return err(
+        bad(
+          `\u5757 "${type}" \u8D8A\u754C\uFF08\u622A\u65AD\uFF09\uFF1A\u504F\u79FB ${at}\uFF0C\u957F\u5EA6 ${length}\uFF0C\u6587\u4EF6\u53EA\u5269 ${bytes.length - dataStart} \u5B57\u8282`,
+          { chunk: type, offset: at }
+        )
+      );
+    }
+    const expectedCrc = u32be2(bytes, crcAt);
+    const actualCrc = crc32(bytes, at + 4, crcAt);
+    if (expectedCrc !== actualCrc) {
+      return err(
+        bad(
+          `\u5757 "${type}" CRC \u6821\u9A8C\u5931\u8D25\uFF1A\u671F\u671B ${hex32(expectedCrc)}\uFF0C\u5B9E\u9645 ${hex32(actualCrc)}\uFF08\u504F\u79FB ${at}\uFF09`,
+          { chunk: type, offset: at }
+        )
+      );
+    }
+    const chunk = { type, start: at, dataStart, length };
+    if (ihdr === void 0) {
+      if (type !== "IHDR") {
+        return err(bad(`\u7B2C\u4E00\u4E2A\u5757\u5FC5\u987B\u662F IHDR\uFF0C\u5B9E\u9645\u662F "${type}"`));
+      }
+      if (length !== IHDR_BYTES) {
+        return err(bad(`IHDR \u6570\u636E\u957F\u5EA6 ${length}\uFF08\u5FC5\u987B 13\uFF09`));
+      }
+      ihdr = chunk;
+    } else if (type === "IHDR") {
+      return err(bad("\u51FA\u73B0\u7B2C\u4E8C\u4E2A IHDR"));
+    } else if (type === "PLTE") {
+      if (palette !== void 0) return err(bad("\u51FA\u73B0\u7B2C\u4E8C\u4E2A PLTE"));
+      if (idat.length > 0) return err(bad("PLTE \u51FA\u73B0\u5728 IDAT \u4E4B\u540E\uFF08\u89C4\u8303\u8981\u6C42\u4E4B\u524D\uFF09"));
+      if (length === 0 || length % 3 !== 0 || length > 768) {
+        return err(bad(`PLTE \u957F\u5EA6 ${length} \u975E\u6CD5\uFF08\u5E94\u4E3A 3 \u7684\u500D\u6570\u4E14 \u2264768\uFF09`));
+      }
+      palette = chunk;
+    } else if (type === "tRNS") {
+      if (trns !== void 0) return err(bad("\u51FA\u73B0\u7B2C\u4E8C\u4E2A tRNS"));
+      if (idat.length > 0) return err(bad("tRNS \u51FA\u73B0\u5728 IDAT \u4E4B\u540E\uFF08\u89C4\u8303\u8981\u6C42\u4E4B\u524D\uFF09"));
+      trns = chunk;
+    } else if (type === "IDAT") {
+      idat.push(chunk);
+    } else if (type === "IEND") {
+      if (length !== 0) return err(bad(`IEND \u6570\u636E\u957F\u5EA6 ${length}\uFF08\u5FC5\u987B 0\uFF09`));
+      iendEnd = crcAt + 4;
+      break;
+    } else if ((bytes[at + 4] & 32) === 0) {
+      return err(
+        engineError(
+          PngErrorCode.Unsupported,
+          `\u672A\u77E5\u5173\u952E\u5757 "${type}"\uFF08\u4FDD\u7559\u4F4D\u5FC5\u987B\u4E3A 0\uFF1B\u672C\u89E3\u7801\u5668\u4E0D\u8BA4\u8BC6\u5B83\uFF0C\u4E0D\u80FD\u731C\u7740\u8DF3\u8FC7\uFF09`,
+          { chunk: type, offset: at }
+        )
+      );
+    }
+    at = crcAt + 4;
+  }
+  if (ihdr === void 0) return err(bad("\u6CA1\u6709 IHDR"));
+  if (iendEnd < 0) {
+    return err(bad("\u7F3A\u5C11 IEND\uFF08\u6587\u4EF6\u5728\u6700\u540E\u4E00\u4E2A\u5757\u4E4B\u540E\u7ED3\u675F\uFF0C\u53EF\u80FD\u88AB\u622A\u65AD\uFF09"));
+  }
+  if (idat.length === 0) return err(bad("\u6CA1\u6709 IDAT\uFF1A\u6587\u4EF6\u91CC\u6CA1\u6709\u4EFB\u4F55\u56FE\u50CF\u6570\u636E"));
+  if (iendEnd !== bytes.length) {
+    return err(bad(`IEND \u4E4B\u540E\u8FD8\u6709 ${bytes.length - iendEnd} \u5B57\u8282\u6570\u636E\uFF08PNG \u4E0D\u5141\u8BB8\u5C3E\u90E8\u9644\u52A0\u5185\u5BB9\uFF09`));
+  }
+  return ok({ ihdr, palette, trns, idat });
+}
+function readHeader(bytes, c) {
+  const width = u32be2(bytes, c.dataStart);
+  const height = u32be2(bytes, c.dataStart + 4);
+  const bitDepth = bytes[c.dataStart + 8];
+  const colorType = bytes[c.dataStart + 9];
+  const compression = bytes[c.dataStart + 10];
+  const filter = bytes[c.dataStart + 11];
+  const interlace = bytes[c.dataStart + 12];
+  if (width === 0 || height === 0) return err(bad(`IHDR \u5BBD\u9AD8\u5FC5\u987B\u975E 0\uFF0C\u5B9E\u9645 ${width}\xD7${height}`));
+  if (compression !== 0) return err(bad(`IHDR compression=${compression}\uFF08\u53EA\u652F\u6301 0\uFF09`));
+  if (filter !== 0) return err(bad(`IHDR filter method=${filter}\uFF08\u53EA\u652F\u6301 0\uFF09`));
+  if (interlace !== 0 && interlace !== 1) {
+    return err(bad(`IHDR interlace=${interlace} \u975E\u6CD5\uFF08\u53EA\u5141\u8BB8 0/1\uFF09`));
+  }
+  return ok({ width, height, bitDepth, colorType, interlace });
+}
+function paeth(a, b, c) {
+  const p = a + b - c;
+  const pa = Math.abs(p - a);
+  const pb = Math.abs(p - b);
+  const pc = Math.abs(p - c);
+  if (pa <= pb && pa <= pc) return a;
+  if (pb <= pc) return b;
+  return c;
+}
+function unfilter(raw, stride, height, bpp) {
+  const out = new Uint8Array(stride * height);
+  for (let y = 0; y < height; y++) {
+    const rowStart = y * (stride + 1);
+    const ft = raw[rowStart];
+    const src = rowStart + 1;
+    const dst = y * stride;
+    if (ft === 0) {
+      out.set(raw.subarray(src, src + stride), dst);
+      continue;
+    }
+    if (ft > 4) return err(bad(`\u7B2C ${y} \u884C\u7684\u6EE4\u6CE2\u7C7B\u578B ${ft} \u975E\u6CD5\uFF08\u53EA\u5141\u8BB8 0..4\uFF09`));
+    for (let x = 0; x < stride; x++) {
+      const cur = raw[src + x];
+      const left = x >= bpp ? out[dst + x - bpp] : 0;
+      const up = y > 0 ? out[dst - stride + x] : 0;
+      const upLeft = y > 0 && x >= bpp ? out[dst - stride + x - bpp] : 0;
+      let v;
+      switch (ft) {
+        case 1:
+          v = cur + left;
+          break;
+        case 2:
+          v = cur + up;
+          break;
+        case 3:
+          v = cur + (left + up >> 1);
+          break;
+        default:
+          v = cur + paeth(left, up, upLeft);
+          break;
+      }
+      out[dst + x] = v & 255;
+    }
+  }
+  return ok(out);
+}
+function sampleU16(row, byteIndex) {
+  return row[byteIndex] << 8 | row[byteIndex + 1];
+}
+function subByteSample(row, x, bitDepth) {
+  const perByte = 8 / bitDepth;
+  const byte = row[Math.floor(x / perByte)];
+  const shift = 8 - bitDepth * (x % perByte + 1);
+  return byte >> shift & (1 << bitDepth) - 1;
+}
+function toRgba(raw, stride, h, palette, trns) {
+  const { width, height, colorType, bitDepth } = h;
+  const out = new Uint8Array(width * height * 4);
+  const maxV = (1 << bitDepth) - 1;
+  const scale = (v) => Math.round(v * 255 / maxV);
+  let trnsGray = -1;
+  let trnsR = -1;
+  let trnsG = -1;
+  let trnsB = -1;
+  if (trns !== void 0) {
+    if (colorType === 0) {
+      if (trns.length !== 2) return err(bad(`\u7070\u5EA6\u56FE\u7684 tRNS \u957F\u5EA6\u5FC5\u987B\u662F 2\uFF0C\u5B9E\u9645 ${trns.length}`));
+      trnsGray = trns[0] << 8 | trns[1];
+    } else if (colorType === 2) {
+      if (trns.length !== 6) return err(bad(`RGB \u56FE\u7684 tRNS \u957F\u5EA6\u5FC5\u987B\u662F 6\uFF0C\u5B9E\u9645 ${trns.length}`));
+      trnsR = trns[0] << 8 | trns[1];
+      trnsG = trns[2] << 8 | trns[3];
+      trnsB = trns[4] << 8 | trns[5];
+    } else if (colorType !== 3) {
+      return err(bad(`colorType=${colorType} \u4E0D\u5141\u8BB8 tRNS\uFF08\u8BE5\u7C7B\u578B\u81EA\u5E26 alpha \u901A\u9053\uFF09`));
+    }
+  }
+  let paletteAlpha = false;
+  for (let y = 0; y < height; y++) {
+    const row = raw.subarray(y * stride, (y + 1) * stride);
+    let o = y * width * 4;
+    for (let x = 0; x < width; x++, o += 4) {
+      if (colorType === 0) {
+        let v;
+        let alpha = 255;
+        if (bitDepth === 16) {
+          v = sampleU16(row, x * 2);
+          out[o] = out[o + 1] = out[o + 2] = v >> 8 & 255;
+          if (v === trnsGray) alpha = 0;
+        } else if (bitDepth === 8) {
+          v = row[x];
+          out[o] = out[o + 1] = out[o + 2] = v;
+          if (v === trnsGray) alpha = 0;
+        } else {
+          v = subByteSample(row, x, bitDepth);
+          const g = scale(v);
+          out[o] = out[o + 1] = out[o + 2] = g;
+          if (v === trnsGray) alpha = 0;
+        }
+        out[o + 3] = alpha;
+      } else if (colorType === 2) {
+        let r;
+        let g;
+        let b;
+        if (bitDepth === 16) {
+          const rv = sampleU16(row, x * 6);
+          const gv = sampleU16(row, x * 6 + 2);
+          const bv = sampleU16(row, x * 6 + 4);
+          r = rv >> 8;
+          g = gv >> 8;
+          b = bv >> 8;
+          out[o] = r;
+          out[o + 1] = g;
+          out[o + 2] = b;
+          out[o + 3] = rv === trnsR && gv === trnsG && bv === trnsB ? 0 : 255;
+        } else {
+          r = row[x * 3];
+          g = row[x * 3 + 1];
+          b = row[x * 3 + 2];
+          out[o] = r;
+          out[o + 1] = g;
+          out[o + 2] = b;
+          out[o + 3] = r === trnsR && g === trnsG && b === trnsB ? 0 : 255;
+        }
+      } else if (colorType === 3) {
+        if (palette === void 0) return err(bad("colorType=3 \u4F46\u7F3A\u5C11 PLTE"));
+        const idx = bitDepth === 8 ? row[x] : subByteSample(row, x, bitDepth);
+        const entries = palette.length / 3;
+        if (idx >= entries) {
+          return err(
+            bad(`\u8C03\u8272\u677F\u7D22\u5F15\u8D8A\u754C\uFF1A\u7B2C (${x},${y}) \u50CF\u7D20\u7D22\u5F15 ${idx}\uFF0CPLTE \u53EA\u6709 ${entries} \u9879`, { x, y, index: idx })
+          );
+        }
+        out[o] = palette[idx * 3];
+        out[o + 1] = palette[idx * 3 + 1];
+        out[o + 2] = palette[idx * 3 + 2];
+        if (trns !== void 0 && idx < trns.length) {
+          out[o + 3] = trns[idx];
+          if (trns[idx] < 255) paletteAlpha = true;
+        } else {
+          out[o + 3] = 255;
+        }
+      } else if (colorType === 4) {
+        if (bitDepth === 16) {
+          const v = sampleU16(row, x * 4);
+          out[o] = out[o + 1] = out[o + 2] = v >> 8;
+          out[o + 3] = sampleU16(row, x * 4 + 2) >> 8;
+        } else {
+          const v = row[x * 2];
+          out[o] = out[o + 1] = out[o + 2] = v;
+          out[o + 3] = row[x * 2 + 1];
+        }
+      } else {
+        if (bitDepth === 16) {
+          for (let k = 0; k < 4; k++) out[o + k] = row[x * 8 + k * 2];
+        } else {
+          out[o] = row[x * 4];
+          out[o + 1] = row[x * 4 + 1];
+          out[o + 2] = row[x * 4 + 2];
+          out[o + 3] = row[x * 4 + 3];
+        }
+      }
+    }
+  }
+  return ok({
+    pixels: out,
+    usedTransparencyKey: colorType === 0 && trnsGray >= 0 || colorType === 2 && trnsR >= 0,
+    paletteAlpha
+  });
+}
+function decodePng(bytes, opts) {
+  const maxBytes = opts?.maxBytes ?? DEFAULT_MAX_BYTES2;
+  const walked = walkChunks(bytes);
+  if (!walked.ok) return err(walked.error);
+  const { ihdr, palette, trns, idat } = walked.value;
+  const hdr = readHeader(bytes, ihdr);
+  if (!hdr.ok) return err(hdr.error);
+  const h = hdr.value;
+  if (h.interlace !== 0) {
+    return err(
+      engineError(
+        PngErrorCode.UnsupportedInterlace,
+        `PNG \u4F7F\u7528\u4E86 Adam7 \u9694\u884C\uFF08interlace=${h.interlace}\uFF09\u2014\u2014 \u672C\u89E3\u7801\u5668\u660E\u786E\u4E0D\u652F\u6301\u3002\u5DE5\u7A0B\u5185\u8BED\u6599\u4E3A 0 \u4E2A\u9694\u884C\u56FE\uFF1B\u672A\u7ECF\u9A8C\u8BC1\u7684\u9694\u884C\u5B9E\u73B0\u4F1A\u5BFC\u81F4\u82B1\u5C4F\uFF0C\u6240\u4EE5\u8FD9\u91CC\u76F4\u63A5\u62A5\u9519\u800C\u4E0D\u662F\u731C\u3002`,
+        { width: h.width, height: h.height }
+      )
+    );
+  }
+  const channels = CHANNELS[h.colorType];
+  if (channels === void 0) {
+    return err(
+      engineError(
+        PngErrorCode.Unsupported,
+        `\u672A\u77E5 colorType=${h.colorType}\uFF08\u5141\u8BB8 0/2/3/4/6\uFF1B7 \u53CA\u4FDD\u7559\u503C\u4E00\u5F8B\u62D2\u7EDD\uFF09`,
+        { colorType: h.colorType }
+      )
+    );
+  }
+  const legal = LEGAL_DEPTHS[h.colorType];
+  if (!legal.includes(h.bitDepth)) {
+    return err(
+      engineError(
+        PngErrorCode.Unsupported,
+        `\u4E0D\u652F\u6301\u7684 colorType/bitDepth \u7EC4\u5408\uFF1AcolorType=${h.colorType} bitDepth=${h.bitDepth}\uFF08\u8BE5 colorType \u5141\u8BB8 ${legal.join("/")}\uFF09`,
+        { colorType: h.colorType, bitDepth: h.bitDepth }
+      )
+    );
+  }
+  if (h.colorType === 3 && palette === void 0) {
+    return err(bad("colorType=3\uFF08\u8C03\u8272\u677F\uFF09\u4F46\u6587\u4EF6\u91CC\u6CA1\u6709 PLTE \u5757"));
+  }
+  const bitsPerPixel = channels * h.bitDepth;
+  const stride = Math.ceil(h.width * bitsPerPixel / 8);
+  const bpp = Math.max(1, Math.ceil(bitsPerPixel / 8));
+  const rowBytes = stride + 1;
+  if (h.height > 0 && h.width > Math.floor(maxBytes / 4 / h.height)) {
+    return err(
+      bad(
+        `PNG \u5C3A\u5BF8 ${h.width}\xD7${h.height} \u7684 RGBA8 \u50CF\u7D20\u6570\u8D85\u8FC7 maxBytes=${maxBytes} \u7684\u4E0A\u9650\uFF08\u89E3\u538B\u70B8\u5F39\u4FDD\u62A4\uFF09`,
+        { width: h.width, height: h.height, maxBytes }
+      )
+    );
+  }
+  if (h.height > 0 && h.width > Math.floor(maxBytes / rowBytes)) {
+    return err(
+      bad(
+        `PNG ${h.width}\xD7${h.height} \u7684\u89E3\u538B\u540E\u626B\u63CF\u7EBF\u7EA6 ${rowBytes * h.height} \u5B57\u8282\uFF0C\u8D85\u8FC7 maxBytes=${maxBytes}`,
+        { width: h.width, height: h.height, maxBytes }
+      )
+    );
+  }
+  const expectedRaw = rowBytes * h.height;
+  const compressed = new Uint8Array(idat.reduce((n, c) => n + c.length, 0));
+  {
+    let o = 0;
+    for (const c of idat) {
+      compressed.set(bytes.subarray(c.dataStart, c.dataStart + c.length), o);
+      o += c.length;
+    }
+  }
+  const inflated = inflateZlib(compressed, { maxBytes: expectedRaw, sizeHint: expectedRaw });
+  if (!inflated.ok) {
+    return err(
+      engineError(
+        PngErrorCode.BadPng,
+        `IDAT \u89E3\u538B\u5931\u8D25\uFF08${idat.length} \u4E2A\u5757\uFF0C\u5171 ${compressed.length} \u5B57\u8282\u89E3\u538B\u51FA\uFF0C\u671F\u671B ${expectedRaw}\uFF09\uFF1A${inflated.error.message}`,
+        { idatChunks: idat.length }
+      )
+    );
+  }
+  const raw = inflated.value;
+  if (raw.length !== expectedRaw) {
+    return err(
+      bad(
+        `\u626B\u63CF\u7EBF\u6570\u636E\u957F\u5EA6\u4E0D\u5BF9\uFF1A\u671F\u671B ${expectedRaw}\uFF08${h.height} \u884C \xD7 (1 \u6EE4\u6CE2\u5B57\u8282 + ${stride})\uFF09\uFF0C\u5B9E\u9645 ${raw.length}\u3002IDAT \u88AB\u622A\u65AD\u6216 IHDR \u4E0E\u5B9E\u9645\u6570\u636E\u4E0D\u7B26 \u2014\u2014 \u62D2\u7EDD\u8FD4\u56DE\u534A\u5F20\u56FE\u3002`,
+        { expectedRaw, actual: raw.length }
+      )
+    );
+  }
+  const unfiltered = unfilter(raw, stride, h.height, bpp);
+  if (!unfiltered.ok) return err(unfiltered.error);
+  const paletteBytes = palette === void 0 ? void 0 : bytes.subarray(palette.dataStart, palette.dataStart + palette.length);
+  const trnsBytes = trns === void 0 ? void 0 : bytes.subarray(trns.dataStart, trns.dataStart + trns.length);
+  const rgba = toRgba(unfiltered.value, stride, h, paletteBytes, trnsBytes);
+  if (!rgba.ok) return err(rgba.error);
+  const hasChannelAlpha = h.colorType === 4 || h.colorType === 6;
+  return ok({
+    width: h.width,
+    height: h.height,
+    pixels: rgba.value.pixels,
+    bitDepth: h.bitDepth,
+    colorType: h.colorType,
+    hasAlpha: hasChannelAlpha || rgba.value.usedTransparencyKey || rgba.value.paletteAlpha,
+    usedTransparencyKey: rgba.value.usedTransparencyKey
+  });
+}
+
+// src/extensions/render/atlas-from-assets.ts
+var DEFAULT_PADDING = 1;
+var DEFAULT_MAX_SIZE = 2048;
+function errAtlas(code, message, detail) {
+  return detail === void 0 ? engineError(code, message) : engineError(code, message, detail);
+}
+function byName(a, b) {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+function nextPowerOfTwo(n) {
+  if (n <= 1) return 1;
+  let p = 1;
+  while (p < n) p *= 2;
+  return p;
+}
+function buildAtlasFromSources(sources, opts) {
+  const padding = opts?.padding ?? DEFAULT_PADDING;
+  const maxSize = opts?.maxSize ?? DEFAULT_MAX_SIZE;
+  if (!Number.isInteger(padding) || padding < 0) {
+    return err(errAtlas("ASSET.BAD_ATLAS_OPTIONS", `padding \u5FC5\u987B\u662F\u975E\u8D1F\u6574\u6570\uFF0C\u6536\u5230 ${padding}`));
+  }
+  if (!Number.isInteger(maxSize) || maxSize < 1) {
+    return err(errAtlas("ASSET.BAD_ATLAS_OPTIONS", `maxSize \u5FC5\u987B\u662F \u22651 \u7684\u6574\u6570\uFF0C\u6536\u5230 ${maxSize}`));
+  }
+  const seen = /* @__PURE__ */ new Set();
+  for (const s of sources) {
+    if (seen.has(s.name)) {
+      return err(
+        errAtlas("ASSET.ATLAS_DUPLICATE_FRAME", `\u5E27\u540D\u91CD\u590D\uFF1A"${s.name}"\uFF08\u56FE\u96C6\u5E27\u540D\u5FC5\u987B\u552F\u4E00\uFF09`, { name: s.name })
+      );
+    }
+    seen.add(s.name);
+  }
+  const ordered = [...sources].sort((a, b) => {
+    const dh = b.png.height - a.png.height;
+    return dh !== 0 ? dh : byName(a.name, b.name);
+  });
+  for (const s of ordered) {
+    if (s.png.width > maxSize || s.png.height > maxSize) {
+      return err(
+        errAtlas(
+          "ASSET.ATLAS_TOO_LARGE",
+          `\u5E27 "${s.name}" \u662F ${s.png.width}\xD7${s.png.height}\uFF0C\u5355\u5E27\u5C31\u8D85\u8FC7 maxSize=${maxSize}`,
+          { frame: s.name, width: s.png.width, height: s.png.height, maxSize }
+        )
+      );
+    }
+  }
+  const placements = [];
+  let x = 0;
+  let y = 0;
+  let rowH = 0;
+  let neededW = 0;
+  let neededH = 0;
+  let widestBy = "";
+  let tallestBy = "";
+  for (const s of ordered) {
+    const w = s.png.width;
+    const h = s.png.height;
+    if (x > 0 && x + w > maxSize) {
+      y += rowH + padding;
+      x = 0;
+      rowH = 0;
+    }
+    placements.push({ name: s.name, x, y, w, h });
+    x += w + padding;
+    if (h > rowH) rowH = h;
+    if (x - padding > neededW) {
+      neededW = x - padding;
+      widestBy = s.name;
+    }
+    if (y + rowH > neededH) {
+      neededH = y + rowH;
+      tallestBy = s.name;
+    }
+  }
+  if (ordered.length === 0) {
+    return ok({ width: 1, height: 1, pixels: new Uint8Array(4), frames: /* @__PURE__ */ new Map() });
+  }
+  if (neededW > maxSize) {
+    return err(
+      errAtlas(
+        "ASSET.ATLAS_TOO_LARGE",
+        `\u56FE\u96C6\u5BBD\u5EA6 ${neededW} \u8D85\u8FC7 maxSize=${maxSize}\uFF08\u6700\u540E\u4E00\u5E27\u6491\u5BBD\u7684\u662F "${widestBy}"\uFF09`,
+        { frame: widestBy, neededWidth: neededW, maxSize }
+      )
+    );
+  }
+  if (neededH > maxSize) {
+    return err(
+      errAtlas(
+        "ASSET.ATLAS_TOO_LARGE",
+        `\u56FE\u96C6\u9AD8\u5EA6 ${neededH} \u8D85\u8FC7 maxSize=${maxSize}\uFF08\u6491\u9AD8\u7684\u662F "${tallestBy}"\uFF09`,
+        { frame: tallestBy, neededHeight: neededH, maxSize }
+      )
+    );
+  }
+  const width = nextPowerOfTwo(neededW);
+  const height = nextPowerOfTwo(neededH);
+  if (width > maxSize || height > maxSize) {
+    return err(
+      errAtlas(
+        "ASSET.ATLAS_TOO_LARGE",
+        `\u5411\u4E0A\u53D6\u6574\u5230 2 \u7684\u5E42\u540E\u5C3A\u5BF8 ${width}\xD7${height} \u8D85\u8FC7 maxSize=${maxSize}`,
+        { width, height, maxSize }
+      )
+    );
+  }
+  const pixels = new Uint8Array(width * height * 4);
+  const byNameSource = /* @__PURE__ */ new Map();
+  for (const s of sources) byNameSource.set(s.name, s.png);
+  for (const p of placements) {
+    const src = byNameSource.get(p.name);
+    for (let row = 0; row < p.h; row++) {
+      const from = row * p.w * 4;
+      const to = ((p.y + row) * width + p.x) * 4;
+      pixels.set(src.pixels.subarray(from, from + p.w * 4), to);
+    }
+  }
+  const frames = /* @__PURE__ */ new Map();
+  for (const p of placements) {
+    frames.set(p.name, {
+      u0: p.x / width,
+      v0: p.y / height,
+      u1: (p.x + p.w) / width,
+      v1: (p.y + p.h) / height,
+      w: p.w,
+      h: p.h
+    });
+  }
+  return ok({ width, height, pixels, frames });
+}
+
 // src/browser-entry.ts
 var PlayerController = class _PlayerController extends Component {
   speed = 4.5;
@@ -10554,6 +12800,52 @@ function onUpdate(selfId, dt, tick)
   end
 end
 `;
+var DEMO_FRAMES = ["ground", "tree", "rock", "berry", "player"];
+var ASSET_ROOT = "/assets";
+async function bakeAtlasFromAssets() {
+  try {
+    const fs = new MemoryFileSystem();
+    const logger = new Logger(() => performance.now());
+    logger.setLevel(LogLevel.Warn);
+    const db = new AssetDatabase(fs, logger.channel("asset"));
+    const importers = new ImporterRegistry();
+    importers.register(textureImporter);
+    importers.register(atlasImporter);
+    importers.register(textImporter);
+    const pipeline = new AssetImportPipeline(fs, db, importers, logger.channel("import"));
+    for (const l of createImportLoaders({ root: ASSET_ROOT })) db.registerLoader(l);
+    for (const name of DEMO_FRAMES) {
+      const res = await fetch(new URL(`assets/${name}.png`, location.href), { cache: "no-cache" });
+      if (!res.ok) return null;
+      const w = await fs.writeBinary(`${ASSET_ROOT}/${name}.png`, new Uint8Array(await res.arrayBuffer()));
+      if (!w.ok) return null;
+    }
+    const report = await pipeline.run(ASSET_ROOT);
+    if (!report.ok) return null;
+    const sources = [];
+    for (const name of DEMO_FRAMES) {
+      const id = db.idAtPath(`${ASSET_ROOT}/${name}.png`);
+      if (id === void 0) continue;
+      const h = await db.load(id);
+      if (!h.ok) continue;
+      const asset = h.value.asset;
+      try {
+        if (asset instanceof ImportedTexture) {
+          const dec = decodePng(asset.bytes);
+          if (dec.ok) sources.push({ name, png: dec.value });
+        }
+      } finally {
+        h.value.release();
+      }
+    }
+    if (sources.length !== DEMO_FRAMES.length) return null;
+    const built = buildAtlasFromSources(sources, { padding: 2 });
+    if (!built.ok) return null;
+    return { atlas: built.value, label: `assets\xD7${sources.length}` };
+  } catch {
+    return null;
+  }
+}
 async function main() {
   const canvas = document.getElementById("cv");
   const hud = document.getElementById("hud");
@@ -10585,11 +12877,14 @@ async function main() {
   );
   let heroId = -1;
   let hudTick = 0;
+  const baked = await bakeAtlasFromAssets();
+  const atlasLabel = baked === null ? "procedural" : baked.label;
   const renderMod = createRenderModule({
     viewportWidth: canvas.width,
     viewportHeight: canvas.height,
     zoom: 26 * dpr,
     tiltY: 0.62,
+    atlas: baked?.atlas,
     follow: () => {
       if (heroId < 0) return void 0;
       const n = appRef?.scene.find(heroId);
@@ -10766,7 +13061,7 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
     const st = app.snapshot();
     const sc = scriptMod.runtime?.stats();
     const scriptTxt = sc === void 0 ? "script off" : `script ${sc.calls}call/${sc.errors}err${sc.timeouts > 0 ? `/${sc.timeouts}to` : ""}`;
-    hud.textContent = `fps ${fps.toFixed(0)} \xB7 tick ${hudTick} \xB7 quad ${lf.quads} \xB7 draw ${lf.drawCalls} \xB7 culled ${lf.culled} \xB7 nodes ${st.scene.nodes} \xB7 bodies ${physics.stats().bodies} \xB7 ${st.backends.gfx}/${st.backends.audio}/${st.backends.input}/${st.backends.script ?? "-"} \xB7 ${scriptTxt} \xB7 dropped ${st.droppedSteps}`;
+    hud.textContent = `fps ${fps.toFixed(0)} \xB7 tick ${hudTick} \xB7 quad ${lf.quads} \xB7 draw ${lf.drawCalls} \xB7 culled ${lf.culled} \xB7 nodes ${st.scene.nodes} \xB7 bodies ${physics.stats().bodies} \xB7 atlas:${atlasLabel} \xB7 ${st.backends.gfx}/${st.backends.audio}/${st.backends.input}/${st.backends.script ?? "-"} \xB7 ${scriptTxt} \xB7 dropped ${st.droppedSteps}`;
   });
   window.addEventListener("keydown", (ev) => {
     if (ev.code === "F5") {
@@ -10804,6 +13099,8 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
     save: doSave,
     load: doLoad,
     heroId,
+    /** 图集真实来源：`assets×5` 表示走完了导入链；`procedural` 表示降级了。 */
+    atlasSource: atlasLabel,
     snapshot: () => app.snapshot(),
     lastFrame: () => renderMod.lastFrame
   };

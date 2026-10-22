@@ -16,6 +16,7 @@
  */
 
 import { ok, err, engineError, type EngineError, type Result } from "../../foundation/result.ts";
+import { hashStateCreate, hashStateHex, hashStateUpdate, type HashState } from "../../foundation/hash.ts";
 import { Color, Rect } from "../../foundation/math/index.ts";
 import type { IGraphicsDevice, ICommandList } from "../../platform/gfx/device.ts";
 import type {
@@ -42,11 +43,41 @@ interface BufRec {
   label: string;
 }
 
+/**
+ * 纹理摘要：FNV-1a 双通道 16 hex。**算法在 L0（`foundation/hash.ts`），这里不自己写。**
+ *
+ * ★ 为什么必须共用 L0 那一份（这是修过的真实缺陷）：
+ *   本文件原先自带一份双 FNV，B 通道 basis 取 `0x84222325`；资产层
+ *   （`extensions/asset-import/hash.ts`）也自带一份，B 通道取 `0x9e3779b9`。
+ *   两边注释都写"FNV-1a 双拼"，各自单测都过，但摘要**永不相等** ——
+ *   于是"资产解码出的像素"和"GPU 收到的像素"无法比对，
+ *   `解码 → 上传` 的最后一环只能靠"我相信它接通了"。这类缺陷靠看代码发现不了。
+ *
+ * ★ 为什么对"上传的字节"算，而不是对描述符算：
+ *   判据要回答的是"解码出的 pixels 与 GPU 实际收到的字节是不是同一份"。
+ *   描述符（宽高/格式/label）相同不代表像素相同 —— 那正是"假贴图"能混过去的原因。
+ *
+ * ★ 为什么不存像素：2048×2048 RGBA8 是 16 MB，几十张就能让判据进程 OOM。
+ *   摘要 + 字节数足以做**相等性**断言，且内存是常数。
+ *
+ * ★ 多次 update 的口径：对"按调用顺序拼接起来的字节流"算（FNV 可流式累加，
+ *   不需要保存历史字节）。因此：
+ *     · 一次 createTexture(整张图) → 摘要 == 对整张图直接算的摘要；
+ *     · 分块 update 两次 → 摘要 == 对两块拼接后的流算的摘要。
+ *   它**不是**"最终像素状态"的摘要（同一区域被覆盖两次时，旧字节也进了流）。
+ *   这是刻意选择：判据关心的是"后端收到了什么"，不是"显存里最后是什么"。
+ */
+function asBytes(view: ArrayBufferView): Uint8Array {
+  return new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+}
+
 interface TexRec {
   width: number;
   height: number;
   label: string;
   isTarget: boolean;
+  /** 累积字节流的哈希状态（可流式累加，不保存字节）。`hash.bytes === 0` 表示从未上传。 */
+  hash: HashState;
 }
 
 export interface NullDrawRecord {
@@ -179,13 +210,15 @@ export class NullGraphicsDevice implements IGraphicsDevice {
       );
     }
     const h = this.nextHandle++;
+    const hash = hashStateCreate();
+    if (data !== undefined && data !== null) hashStateUpdate(hash, asBytes(data));
     this.textures.set(h, {
       width: desc.width,
       height: desc.height,
       label: desc.label ?? "",
       isTarget: desc.renderTarget === true,
+      hash,
     });
-    void data;
     return ok(h as unknown as TextureHandle);
   }
 
@@ -217,7 +250,31 @@ export class NullGraphicsDevice implements IGraphicsDevice {
       );
     }
     this._stats = { ...this._stats, bytesUploaded: this._stats.bytesUploaded + data.byteLength };
+    hashStateUpdate(rec.hash, asBytes(data));
     return ok(undefined);
+  }
+
+  /**
+   * 纹理的"上传字节流"摘要（16 hex），用于断言"解码出的 pixels == GPU 实际收到的字节"。
+   * 句柄不存在 → `undefined`（不抛：这不是程序错误，是查询语气）。
+   * 从未上传过任何字节 → 也返回 `undefined`：空流的摘要看起来像一个真摘要，
+   * 让调用方误以为"上传过了"。
+   */
+  textureDigest(handle: TextureHandle): string | undefined {
+    const rec = this.textures.get(handle as unknown as number);
+    if (rec === undefined || rec.hash.bytes === 0) return undefined;
+    return hashStateHex(rec.hash);
+  }
+
+  /**
+   * 已创建且未销毁的纹理句柄（按创建顺序）。
+   *
+   * ★ 判据需要它才能回答"渲染模块到底传了哪张图"：
+   *   `stats.bytesUploaded` 只能说明"传了 65536 字节"，分不清"传对了"
+   *   和"传了同样大小的另一张图"—— 而后者正是"假贴图"在生产环境里的样子。
+   */
+  get textureHandles(): readonly TextureHandle[] {
+    return Array.from(this.textures.keys()) as TextureHandle[];
   }
 
   destroyTexture(handle: TextureHandle): void {

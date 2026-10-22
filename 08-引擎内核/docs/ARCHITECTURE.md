@@ -230,6 +230,8 @@ step(tick, dt):
 | `physics` | 2.5D 碰撞：空间哈希 + 推出 | 不做刚体积分（饥荒风格的正确选择：卡顿不会穿墙） | `extensions/physics/physics.ts` |
 | `script/script-module` | 每 tick 驱动 `game.script` 组件调 Lua | 内部**串行队列**（上限 4，满了丢弃 + 计数）；异常隔离到单脚本 | `extensions/script/script-module.ts` |
 | `asset-import` | `.meta` 身份 + 导入器 + 增量管线 + 产物加载器 | 身份来自 `.meta`；增量 = hash + importerVersion + 依赖仍活着 | `extensions/asset-import/*` |
+| `asset-import/decode` | PNG 像素解码（inflate + 反滤波 + 调色板） | **纯 TS、同步**：不用 `DecompressionStream`（跨环境字节级一致 + 错误可诊断）；Adam7 明确不支持 | `extensions/asset-import/decode/*` |
+| `render/atlas-from-assets` | 多张贴图 → 一张确定性图集 | 排序 **高度降序 → 名字升序**（`<` 而非 `localeCompare`）；空白填全透明；padding 只做帧间 | `extensions/render/atlas-from-assets.ts` |
 | `scene-io`（在 core） | 确定性存档 | 三遍装配（建节点 → 设父子 → 挂组件）；组件按 type 升序 | `core/scene/scene-io.ts` |
 
 **渲染阶段为什么是独立阶段而不是事件**（`core/frame-host.ts`）：
@@ -490,9 +492,31 @@ engine_nodes_named / engine_tick
 "将来想支持 JS/DSL"变成重写。把 Lua 放在 `IScriptRuntime` 后面，
 内核只认"C 风格调用 + 反射表"，换语言是换实现。
 
-**已知边界**（诚实标注，`§11.2` 有完整列表）：Lua 5.4 ≠ DST 的 5.1
-（`setfenv` / `module()` / `unpack` 缺失）；模块共享 `_G`（函数做了命名空间隔离，
-全局变量没有）；嵌套 `null` 在 Lua 表里无法表示。
+**Lua 5.1 兼容层**（`backends/script-lua/compat-lua51.ts`，300 行 Lua 源码常量）：
+wasmoon 是 5.4，DST 内容层是 5.1。垫片补齐 `unpack` / `loadstring` / `setfenv` /
+`getfenv` / `module()` / `package.seeall` / `math.pow|mod|ldexp|frexp|log10` /
+`table.getn` / `string.gfind` / `arg`，并接管 `require`（只认 `package.loaded` 与
+`package.preload`，**不去读文件系统** —— wasm 里没有 `io`，假装有会得到"require 永远失败"）。
+
+| 垫片 | 5.4 实现 | 关键坑 |
+|---|---|---|
+| `setfenv(f, t)` | `debug.upvaluejoin(f, i, holder, 1)` | **不能用 `debug.setupvalue`**：它改的是 chunk 内**共享**的 `_ENV` upvalue 对象，会把兄弟闭包和调用者一起换掉（实测：`tostring` 立刻变 nil）。`upvaluejoin` 给目标函数一个**私有** upvalue，符合 5.1 的"函数级环境"语义 |
+| `getfenv(f)` | `debug.getupvalue(f, 1)` → 取**第二个**返回值 | `getupvalue` 返回 `(name, value)`；只取第一个会拿到名字，症状是"执行后有效 env 永远是 nil" |
+| `module(name, ...)` | 建表 + `package.loaded` 登记 + 对调用者 `setfenv` | chunk 顶层调 `module()` 会改掉 **chunk 自己的** env ⇒ 收集命名空间必须在**执行后**重新取有效 env，且同时收"加载时给的 env"与"有效 env"两张表的键 |
+| `require(name)` | `package.loaded` → `package.preload` → 明确报错 | 5.1 的 `module.name` 约定由此闭环 |
+
+未支持 `setfenv(level, env)`：内容层真实用法为 **0 处**
+（`grep -rn "setfenv\s*(\s*[0-9]" --include="*.lua"` 只命中注释），
+且 `06-引擎复刻/host/compat52.lua` 做了同样的取舍 —— 这是无证据支持必要性的取舍，不是省事。
+
+**per-module `_ENV` 隔离**：每个模块一张独立 env 表（`__index = _G`）。
+模块内 `x = 1` 写进自己的表，`math` / `string` / `engine_log` 经 `__index` 落到 `_G`。
+函数名解析顺序：`<module>.<entry>`（最长前缀匹配）→ 最近加载模块的裸名 → `_G`。
+同名重载会**丢弃旧 env**（复用旧表会让热重载后残留上一版的全局）。
+
+**残留边界**（诚实标注）：`module()` 按 5.1 语义往**真 `_G`** 写嵌套表，
+`unloadModule` 清不掉它（运行时无法区分"模块建的"与"本来就有的"）；
+`setfenv` 对 C 函数是空操作（5.4 的 C 函数没有 `_ENV` upvalue）。
 
 ---
 
@@ -516,8 +540,32 @@ assets/grass.png.meta   （PNG 头解析）       <id>.json             （元�
 增量判定是三元组：`sourceHash` + `importerVersion` + **依赖仍然活着**。
 少了第三项的症状是"删了一张贴图，构建全绿，运行到加载才崩"。
 
-**边界**：texture importer 只解析 PNG 头（宽/高/位深/色彩类型），不 inflate 像素 ——
-像素解码归 `gfx` 后端（浏览器 `createImageBitmap` / Node `zlib`）。
+**像素解码**（`extensions/asset-import/decode/`，L4）：
+
+| 文件 | 职责 | 取舍 |
+|---|---|---|
+| `inflate.ts` | 纯 TS 的 zlib/deflate：stored / fixed Huffman / dynamic Huffman，校验 adler32 | **不用 `DecompressionStream`**：需要同步、跨 Node/浏览器字节级一致、错误可诊断（`invalid block type 3 at byte 1234`）。代价是自己养一份 ~200 行 |
+| `png.ts` | colorType 0/2/3/4/6 × bitDepth 1/2/4/8/16，`PLTE`/`tRNS`，5 种反滤波，逐块 CRC | 产出 RGBA8，可直接 `createTexture` |
+
+**不支持 Adam7 隔行** → `ASSET.UNSUPPORTED_INTERLACE`。工程内 3367 个 PNG **全部非隔行**，
+没有验证手段就不写"看起来支持"的代码（错解码比报错危险得多）。
+真实语料结果：3366 / 3367 解码成功；唯一失败的是 `_out/_cmp_pair.png`（源文件本身只有一半扫描线），
+解码器**拒绝返回半张图** —— 这正是它该有的行为。
+
+**图集合成**（`extensions/render/atlas-from-assets.ts`）：
+
+- 确定性 shelf packing：高度降序 → 名字升序（用 `<` 而非 `localeCompare`，后者依赖 locale）
+- 输出尺寸向上取整到 2 的幂；空白填**全透明**（填黑会在精灵边缘留下黑边）
+- padding 只做**帧间**、不做外边距（否则单帧的 UV 永远不是 0,0,1,1）
+- `maxSize` 超限报 `ASSET.ATLAS_TOO_LARGE` 并点名帧（2048² 拼成 8192² 会直接 OOM）
+
+**为什么不用 `createImageBitmap`**：颜色空间与预乘 alpha 会与导入期解码不一致。
+两条路径同时存在 ⇒ "编辑器里对、游戏里偏色"。只保留一条，浏览器也走同一份解码器。
+
+**闭环如何被验证**：`tests/core/asset-gpu-roundtrip.test.ts` 把四段接成一根链条 ——
+磁盘真文件 → 导入管线 → `db.load` → `decodePng` → 合成图集 → `createTexture`，
+然后比对 **null 后端收到的字节摘要**与"解码 + 合成产出的 RGBA8 摘要"。
+两条反例（改一个字节摘要必变 / 程序化图集摘要与资产图集不同）保证它不会假绿。
 
 
 ---
@@ -712,7 +760,13 @@ UI 动画、音频、录像在暂停时仍应活动 —— 所以它们是不同
 - L4 扩展：2D 渲染管线（相机/精灵/程序化图集/批处理/渲染模块）、2.5D 物理、
   **脚本模块（每 tick 串行驱动 + 异常隔离 + 最小反射表）**、
   **资产导入（`.meta` 身份 + 增量 + 依赖 + 产物加载器）**、确定性存档、跳时间结算
-- **180 条 Node 判据 + 13 条浏览器自检**，架构守护 7 条，后端契约 22 条（两图形后端）+ 14 条（两脚本后端）
+- 内容层四块（本轮补齐）：
+  **Lua 5.1 兼容垫片**（`unpack`/`loadstring`/`setfenv`/`module()`/`math.*` 等，见 §5.4）、
+  **per-module `_ENV` 隔离**、
+  **PNG 像素解码**（纯 TS inflate + 5 种反滤波 + 调色板/16 位，真实语料 3366/3367）、
+  **真实资产上屏**（导入 → 解码 → 确定性图集合成 → `createTexture`，浏览器已改为读 `web/assets/*.png`）
+- **230 条 Node 判据 + 15 条浏览器自检**，架构守护 7 条，后端契约 22 条（两图形后端）+ 14 条（两脚本后端）
+- 变异验证 **7 组**（异常隔离 / id 空间 / 增量 hash / env 隔离 / Paeth / 像素上传 / 5.1 unpack），全被抓住
 - 最小宿主跑通（150 tick / 5 秒 / 750 次组件更新 / 脚本调用 150 次 / 半径误差 0）
 - 浏览器宿主跑通（`web/index.html`：WASD 移动、H 砍树、F5/F9 存读档、**Lua 驱动浆果漂浮**、HUD 显示脚本统计）
 
@@ -721,9 +775,11 @@ UI 动画、音频、录像在暂停时仍应活动 —— 所以它们是不同
 | 项 | 影响 | 预计落点 |
 |---|---|---|
 | `fs-node` 后端 | Node 侧落盘（存档到真实文件） | 阶段 2.5 |
-| **Lua 5.1 兼容层**（`setfenv` / `module()` / `unpack`） | 不解决就无法真正跑 153 万行 DST 内容层 | 阶段 2.5 |
-| 脚本模块的 per-module `_ENV` 隔离 | 现在函数名隔离了，全局变量仍是共享 `_G` | 阶段 2.5 |
-| 像素解码（PNG inflate → GPU 上传） | 导入器只交付元数据 + 原始字节 | 阶段 3 |
+| 逐字节存档的**跨宿主自动化**比对 | headless 侧已两条实例互证；浏览器侧仍需手工导出（无浏览器自动化能力） | 阶段 2.5 |
+| Adam7 隔行 PNG | 明确报 `UNSUPPORTED_INTERLACE`；工程语料 0 例，无验证手段 | 按需 |
+| APNG（动态帧） | 帧块被当 ancillary 跳过；默认帧尺寸不符会以"扫描线长度不对"报错 | 按需 |
+| 16 位色深 | 输出 RGBA8，低字节丢弃；HDR 贴图需扩展 `PixelFormat` | 阶段 3+ |
+| `unloadModule` 清不掉 `module()` 写进 `_G` 的表 | 运行时无法区分"模块建的"与"本来就有的"；需要 C 侧记录每模块创建的全局键 | 阶段 2.5 |
 | 按类型的导入设置（过滤/打包参数） | `settings` 恒为 `{}` | 阶段 4（编辑器） |
 | `IPhysicsWorld`（2.5D：XZ + AABB/圆 + 空间哈希） | 目前只有"手工碰撞" | 阶段 3 |
 | 编辑器（独立进程 + PIE） | 最大缺口 | 阶段 4 |
@@ -734,7 +790,7 @@ UI 动画、音频、录像在暂停时仍应活动 —— 所以它们是不同
 | 风险 | 说明 | 缓解 |
 |---|---|---|
 | **两套引擎并存** | 仓库里已有 `07-通用引擎`（Python+Lua+JS，32k 行，274 判据） | 明确 `08` 是内核重构目标；`07` 短期内作为**行为参照**与判据来源，不并行演进功能 |
-| **内容层绑定** | 153 万行 Lua 来自 DST（Lua 5.1），而 wasmoon 是 **5.4**：`setfenv` / `module()` / `unpack` / `loadstring` 都不在 5.4 里 | 脚本层已打通"加载 → 调用 → 异常隔离 → 每 tick 调度"；迁移前必须先做 5.1 兼容层（或换 5.1 wasm 构建），这是数据问题不是架构问题 |
+| **内容层绑定** | 153 万行 Lua 来自 DST（Lua 5.1），而 wasmoon 是 **5.4** | 已做 5.1 兼容垫片（§5.4）：`setfenv`/`module()`/`unpack`/`math.*` 均可用。**残留风险**是"垫片覆盖不到的 5.1 行为"——比如 `module()` 写进 `_G` 的表清不掉、`setfenv(level)` 未支持（内容层用法为 0）。真跑内容层时按报错逐条补，不在没有样本前预先实现 |
 | **确定性与浮点** | JS 的 `Math` 跨平台基本一致，但 `Math.pow/exp` 等不保证 | 序列化层已量化；物理与 AI 避免超越函数（用查表/定点） |
 | **单后端长期存在** | 只有一个后端时接口歧义不会被发现 | 契约测试 + Null 后端作为"第一实现"强制覆盖语义 |
 
@@ -751,21 +807,28 @@ UI 动画、音频、录像在暂停时仍应活动 —— 所以它们是不同
 - 出口判据：`runGfxContract("webgl2", …)` 全绿 ✅；`readPixels` 在真实画布上返回非零 ✅；
   一次 draw call 提交 ≤ 1（同一图集的 100 个精灵必须合并）✅（`web/selftest.html` 断言）
 
-### 阶段 2 · 内容可复用（脚本层 + 资产身份）—— **本次完成**
+### 阶段 2 · 内容可复用（脚本层 + 资产身份 + 真资产上屏）—— **已完成**
 
 - `IScriptRuntime`（Lua 5.4 via wasmoon）+ 反射表（`expose`）+ 串行队列 + 异常隔离 ✅
+- **Lua 5.1 兼容垫片** + **per-module `_ENV` 隔离** ✅（`notes`：§5.4）
 - `.meta` 身份 + 源导入器 + 增量管线 + 产物加载器 ✅
+- **PNG 像素解码**（`inflate.ts` + `png.ts`）+ **确定性图集合成** ✅
+- **浏览器改为读真实资产**：`fetch web/assets/*.png` → 导入管线 → 解码 → 合成 → 上传；
+  失败才降级到程序化图集，且 HUD 显示 `atlas:assets×5` / `atlas:procedural`（降级不静默）✅
 - `LongUpdate(elapsed)`：跳时间时按分段结算腐烂/计时器（不是跑 N 次 `OnUpdate`）✅（阶段 1 已做）
-- **出口判据**：
-  - 同一份 Lua 脚本在**两个独立 headless 实例**里产生**逐字节相同**的存档 ✅
-    （`tests/core/script-e2e.test.ts`；这一条红了两次，暴露了"节点 id 全局自增"的真缺陷）
-  - 脚本算出的位置与 JS 独立计算一致（1e-9）✅
-  - 跳 8 小时后腐烂进度与"连续跑 8 小时"的差 ≤ 1 个结算周期 ✅（阶段 1）
-  - headless ↔ **浏览器**逐字节存档：**未自动化**。浏览器侧只断言到
-    "Lua 在浏览器里算得对 + 跨边界日志可见"（`web/selftest.html` 4 条），
-    逐字节比对需要手工导出存档 —— 这条**不算达成**，见 §11.2。
 
-### 阶段 3 · 世界像饥荒（物理 + AI + 世界生成）
+**出口判据**：
+
+| 判据 | 状态 |
+|---|---|
+| 同一份 Lua 脚本在**两个独立 headless 实例**里产生**逐字节相同**存档 | ✅（`script-e2e`；红了两次，暴露"节点 id 全局自增"） |
+| 脚本算出的位置与 JS 独立计算一致（1e-9） | ✅ |
+| 跳 8 小时后腐烂进度与"连续跑 8 小时"的差 ≤ 1 个结算周期 | ✅（阶段 1） |
+| **解码出的 RGBA8 与 GPU 实际收到的字节逐字节一致** | ✅（`asset-gpu-roundtrip`，含 2 条反例防假绿） |
+| 真实语料 3367 个 PNG 结构校验 / 3366 个完整解码 | ✅（`tools/verify-png-corpus.mjs`） |
+| 5.1 风格脚本（`module()` + `setfenv` + `unpack`）能加载并调用 | ✅（`script-lua51`，12 条） |
+| 模块间同名全局互不可见 + 重载丢弃旧 env | ✅（`script-env`，7 条） |
+| headless ↔ **浏览器**逐字节存档 | **✗ 未自动化** —— 浏览器侧只断言到"Lua 算得对 + 跨界日志可见 + 图集来自资产"，逐字节比对需手工导出。**这条不算达成**，见 §11.2 |
 
 - `IPhysicsWorld`：XZ 平面 + AABB/圆 + 空间哈希；`FindEntities(x,z,r)` 与饥荒同签名
 - AI：行为树/状态机作为 `IModule`，决策吃 tick（不是 dt）
@@ -801,17 +864,20 @@ UI 动画、音频、录像在暂停时仍应活动 —— 所以它们是不同
 ```
 08-引擎内核/
 ├── src/
-│   ├── foundation/        L0  result · math · log · event · memory · time · random
+│   ├── foundation/        L0  result · math · log · event · memory · time · random · **hash**
 │   ├── platform/          L1  gfx · audio · input · fs · script · registry · platform
 │   ├── core/              L2  module · scene · scheduler · asset · serialization
 │   ├── runtime/           L3  GameApp · tick-source
-│   ├── extensions/        L4  render · physics · script · asset-import
+│   ├── extensions/        L4  render（含 atlas-from-assets）· physics · script
+│   │                          asset-import（含 decode/inflate · decode/png）
 │   ├── backends/          L5  gfx-null · gfx-webgl2 · audio-null · audio-webaudio
 │   │                          input-null · input-dom · fs-memory · script-null · script-lua
 │   ├── browser-entry.ts   L6  浏览器宿主（宿主层，允许知道一切具体实现）
 │   └── index.ts               对外 API 面（只导出接口/类型/工厂）
-├── tests/                 16 个文件 / 180 条判据（arch · contract · core · backends · extensions）
+├── tests/                 22 个文件 / 230 条判据（arch · contract · core · backends · extensions）
 ├── samples/headless.ts    最小宿主（整条链的证明）
 ├── web/                   浏览器宿主（index.html / selftest.html / bundle.js / glue.wasm）
-└── docs/                  本文档 + 7 个 ADR + 两份任务计划
+│   └── assets/            5 张真 PNG（五种滤波 × RGBA/RGB，走完整导入链后上屏）
+├── tools/                 serve · mutation-check · make-demo-assets · verify-png-corpus
+└── docs/                  本文档 + 7 个 ADR + 两份任务计划 + PROGRESS.md
 ```

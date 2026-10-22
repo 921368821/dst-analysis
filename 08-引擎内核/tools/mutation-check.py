@@ -51,6 +51,48 @@ MUTANTS = [
         )],
         "test": "tests/extensions/asset-import.test.ts",
     },
+    # ---- 内容板块（Lua 5.1 / 隔离 / 解码 / 资产→GPU）----
+    {
+        "name": "M4 模块 env 退化为共享 _G",
+        "file": "src/backends/script-lua/runtime.ts",
+        "pairs": [(
+            "  local env = {}\n  setmetatable(env, { __index = _G })",
+            # 等价于"没做隔离"：所有模块写在同一个全局表里
+            "  local env = _G\n  setmetatable(env, { __index = _G })",
+        )],
+        "test": "tests/backends/script-env.test.ts",
+    },
+    {
+        "name": "M5 PNG Paeth 滤波退化",
+        "file": "src/extensions/asset-import/decode/png.ts",
+        "pairs": [(
+            "  if (pa <= pb && pa <= pc) return a;\n  if (pb <= pc) return b;\n  return c;",
+            # 退化成 Up 滤波的 predictor：None/Sub/Up 的图仍然全对，
+            # 只有用 Paeth 编码的图（demo 的 tree.png）会花 —— 这正是判据要抓的
+            "  if (pa <= pb && pa <= pc) return c;\n  if (pb <= pc) return b;\n  return c;",
+        )],
+        "test": "tests/extensions/png-decode.test.ts",
+    },
+    {
+        "name": "M6 图集像素没传给 GPU",
+        "file": "src/extensions/render/render-module.ts",
+        "pairs": [(
+            "        atlas.pixels,\n      );\n      if (!t.ok) return t as Result<void, EngineError>;",
+            # 尺寸/格式/label 全对，只是没带像素 —— "假贴图"的典型形态：
+            # 所有调用都成功，画面上什么都没有
+            "        null,\n      );\n      if (!t.ok) return t as Result<void, EngineError>;",
+        )],
+        "test": "tests/core/asset-gpu-roundtrip.test.ts",
+    },
+    {
+        "name": "M7 Lua 5.1 缺 unpack",
+        "file": "src/backends/script-lua/compat-lua51.ts",
+        "pairs": [(
+            "unpack = table.unpack",
+            "unpack = nil",
+        )],
+        "test": "tests/backends/script-lua51.test.ts",
+    },
 ]
 
 

@@ -25,6 +25,12 @@
 </div>
 <table id="rows"></table>
 <canvas id="cv"></canvas>
+<div class="sub" style="max-width:900px;margin-top:10px">
+  ★ <b>画面观感需人工确认</b>：上面 15 条都是可机器判定的（后端选择 / 合批 / 资产图集 / 脚本跨界），
+  但"树看起来像树"这件事没有自动判据 —— 原先这里有一条"画布不是纯黑"，它恒返回 true，
+  是个假绿灯（`preserveDrawingBuffer: false` 时帧后 `readPixels` 读不到内容，我宁可删掉它也不留假判据）。
+  真要自动化得走 render target + readback 做 golden image，属于阶段 3。
+</div>
 
 <script type="module">
 // 复用同一个引擎入口（它会启动游戏），然后读它暴露的诊断面
@@ -81,14 +87,16 @@ row("没有未处理的渲染异常（日志里没有 app.render 错误）", (e)
   return [bad.length === 0, bad.length === 0 ? "无" : bad[0].message];
 });
 
-row("画布不是纯黑（真的画了东西）", () => {
-  const src = document.getElementById("cv");
-  // 自检页自己也画一份：把主画布内容缩到这个预览里
-  const main = document.querySelector("canvas") ;
-  void main;
-  const ctx = src.getContext("2d");
-  if (!ctx) return [false, "拿不到 2d context"];
-  return [true, "见下方预览（由主画布拷贝）"];
+row("图集来自真实资产（fetch → 导入 → 解码 → 合成 全走完）", (e) => {
+  const src = e.atlasSource;
+  if (typeof src === "string" && src.startsWith("assets×")) return [true, `atlasSource=${src}`];
+  return [false, `降级成了 ${src} —— 画面用的是程序化假贴图（这是本轮要消灭的盲区）`];
+});
+
+row("图集里有 5 帧（tree/rock/player/berry/ground 都在）", (e) => {
+  const n = e.renderMod && e.renderMod.atlasFrameCount;
+  if (typeof n !== "number") return [false, "渲染模块没有暴露帧数"];
+  return [n === 5, `frames=${n}`];
 });
 
 row("脚本后端真的接的是 Lua（不是静默降级到 null）", (e) => {
