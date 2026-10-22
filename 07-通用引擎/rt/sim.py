@@ -506,6 +506,46 @@ class Sim:
                       "to": cmd.after, "undo_depth": st.depth,
                       "can_redo": st.can_redo(), "version": st.version}
 
+    # ---------------------------------------------------------------- C4 场景
+    def scene_export(self):
+        """导出当前世界为场景 → (ok, {"n", "version", "text"})。
+
+        ★ 与 `save_collect()` 的区别：那个是**游戏存档**（含玩家/背包/时间），
+          这个是**关卡**（只含摆了什么）。编辑器要存的是后者 ——
+          用存档当场景会把"上次玩到哪"一起带过去。
+        """
+        try:
+            res = self.api.scene_export()
+        except Exception as e:                                   # noqa: BLE001
+            return False, {"error": "%s: %s" % (type(e).__name__, e)}
+        if not isinstance(res, tuple):
+            res = (res,)
+        n = int(res[0]) if len(res) > 0 else 0
+        ver = int(res[1]) if len(res) > 1 and res[1] is not None else 0
+        text = str(res[2]) if len(res) > 2 and res[2] is not None else ""
+        return True, {"n": n, "version": ver, "text": text}
+
+    def scene_clear(self):
+        try:
+            return True, {"removed": int(self.api.scene_clear())}
+        except Exception as e:                                   # noqa: BLE001
+            return False, {"error": "%s: %s" % (type(e).__name__, e)}
+
+    def scene_import(self, text):
+        """导入场景 → (ok, {"made"}) 或 (False, {"error"})。
+        ★ 校验在 Lua 侧整份做完才动手 —— 一个坏在第 30 行的场景不该摆了一半。"""
+        try:
+            res = self.api.scene_import(str(text))
+        except Exception as e:                                   # noqa: BLE001
+            return False, {"error": "%s: %s" % (type(e).__name__, e)}
+        if not isinstance(res, tuple):
+            res = (res,)
+        ok = bool(res[0]) if len(res) > 0 else False
+        info = res[1] if len(res) > 1 else None
+        if not ok:
+            return False, {"error": str(info)}
+        return True, {"made": int(info)}
+
     def collide_pushes(self):
         """碰撞解算挡下了几次（N1）。0 = 从来没挡过（要么没障碍，要么碰撞没接上）。"""
         try:

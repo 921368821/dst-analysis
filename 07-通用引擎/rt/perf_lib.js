@@ -109,7 +109,22 @@ class ElemStub {
     this.style = {}; this.dataset = {}; this.children = [];
     this._ls = {};
     const self = this;
+    // ★★ C4（2026-10-22）：`className` 与 `classList` 必须是**同一份状态**。
+    //   桩原来把 className 当普通属性存、classList 用另一个 Set ——
+    //   于是 `classList.toggle('on')` 之后读 `el.className` 读到的还是初始值。
+    //   浏览器里两者当然一致。
+    //   这个差异**不会崩溃**，只会让判据读到"面板没有展开"，而实现明明是对的 ——
+    //   与 B2 的 `getElementById` 不按 id 缓存是同一类错：**桩给出假否定**。
+    //   （假否定会让人去改一个没坏的实现，比假绿灯一样贵。）
     const set = new Set();
+    Object.defineProperty(this, 'className', {
+      get: () => Array.from(set).join(' '),
+      set: (v) => {
+        set.clear();
+        String(v == null ? '' : v).split(/\s+/).filter(Boolean).forEach((c) => set.add(c));
+      },
+      configurable: true,
+    });
     // ★★ 桩要覆盖**客户端实际用到的 DOM 面**，否则「方法缺失」会伪装成
     //   「客户端崩了」。P62 的编辑器用到 classList / appendChild / value / onclick，
     //   每缺一个就整页 TypeError —— 而 perf_client 不在闸门里，没人会发现。

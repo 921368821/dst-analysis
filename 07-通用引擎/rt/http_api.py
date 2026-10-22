@@ -384,6 +384,18 @@ class HttpMixin:
                 #   1122 个配方并逐个查背包 —— 敞开给外网等于一个便宜的 DoS 入口。
                 self.hub.cmds.put(("recipes", _enum("slot", int, 0),
                                    _enum("limit", int, 40), ev, box))
+            elif sub == "/editor/scene_export":
+                # ★ C4：把世界导出成"关卡"文本（prefab\tx\tz 一行一个，不含玩家与附属实体）。
+                #   与 /save 的区别写在 rt_boot 的 M.scene_export 注释里：
+                #   存档是"接着上次玩"，场景是"打开一个关卡"。
+                self.hub.cmds.put(("scene_export", ev, box))
+            elif sub == "/editor/scene_clear":
+                self.hub.cmds.put(("scene_clear", ev, box))
+            elif sub == "/editor/scene_import":
+                # ⚠️ 只能用 query 传文本（这个 HTTP 服务只有 GET，没有 POST）。
+                #   实测 20 个实体约 400 字符，远在限制内；上百个实体的场景会逼近
+                #   URL 长度上限 —— 那时需要加 POST，**现在没加，也不假装支持**。
+                self.hub.cmds.put(("scene_import", ev, box, arg.get("text", "")))
             elif sub == "/editor/craft":
                 # ★ B1：合成/建造。与 spawn 的区别是它**不指定产物**，只给配方名，
                 #   产物是什么、要不要落点、材料够不够，全由原版 `DoBuild` 决定。

@@ -2397,6 +2397,97 @@ function M.equip(slot, guid)
     return true, "ok", detail
 end
 
+--- 场景导出 / 导入（C4，2026-10-22）—— 编辑器"改完能存、下次能开"的最小闭环。
+---
+--- ★ 与 `/save`（world.json）的区别，两者**不能互相替代**：
+---   · `/save` 是**游戏存档**：连玩家、背包、世界时间、种子一起存 —— 打开就是"接着上次玩"；
+---   · 场景是**关卡**：只存"世界里摆了什么"（类型 + 位置），不含任何玩家状态。
+---   编辑器改完布局要存的是后者。用存档当场景会有两个后果：读回来玩家站在上次的位置、
+---   世界时间也接着走 —— 那不是"打开一个关卡"，那是"读档"。
+---
+--- ★ 第一版只存 `prefab / x / z`，**不存组件内部状态**。够用且诚实：
+---   一个"摆位置"的编辑器需要的就是这些；要存"这口锅里有什么"是下一层（C5 Prefab 覆盖）。
+---   格式里留 `v` 版本号，是为了加字段时能拒绝旧文件而不是静默读错。
+
+local SCENE_VERSION = 1
+
+--- 导出当前世界为场景文本。一行一个实体：`prefab\tx\tz`
+--- 跳过玩家（场景不含玩家）与"附属实体"（`*_classified`，它们是网络的镜子，不是内容）。
+function M.scene_export()
+    local lines = {}
+    local n = 0
+    for guid, inst in pairs(ent_table()) do
+        local prefab = tostring(inst.prefab or "")
+        local skip = (prefab == "") or prefab:find("_classified$") ~= nil
+        if not skip and inst.HasTag ~= nil and inst:HasTag("player") then skip = true end
+        if not skip then
+            local x, z = pos_of(inst)
+            if x ~= nil then
+                lines[#lines + 1] = string.format("%s\t%.3f\t%.3f", prefab, x, z)
+                n = n + 1
+            end
+        end
+    end
+    table.sort(lines)          -- 顺序确定：同一世界两次导出字节一致（与 E20 同一条纪律）
+    return n, tostring(SCENE_VERSION), table.concat(lines, "\n")
+end
+
+--- 清空世界里的**非玩家**实体。返回清掉了几个。
+--- 导入前先清，否则"导入场景"会变成"在原世界上再叠一层"。
+function M.scene_clear()
+    local victims = {}
+    for guid, inst in pairs(ent_table()) do
+        local prefab = tostring(inst.prefab or "")
+        local keep = (prefab:find("_classified$") ~= nil)
+                     or (inst.HasTag ~= nil and inst:HasTag("player"))
+        if not keep then victims[#victims + 1] = inst end
+    end
+    local n = 0
+    for _, inst in ipairs(victims) do
+        local ok = pcall(function() inst:Remove() end)
+        if ok then n = n + 1 end
+    end
+    M.act_index_invalidate()
+    return n
+end
+
+--- 导入场景文本。返回 (成功, 生成数 或 拒绝原因)。
+--- ★ 先**整份校验**再动手：一个坏在第 30 行的场景不该在前 29 行已经摆了一半。
+function M.scene_import(text)
+    if type(text) ~= "string" or text == "" then
+        return false, "场景文本为空"
+    end
+    local items = {}
+    local lineno = 0
+    for line in text:gmatch("[^\n]+") do
+        lineno = lineno + 1
+        if line ~= "" then
+            local prefab, xs, zs = line:match("^([^\t]+)\t(-?%d+%.?%d*)\t(-?%d+%.?%d*)$")
+            if prefab == nil then
+                return false, string.format("第 %d 行格式不对（要 prefab\\tx\\tz）：%s",
+                                            lineno, line)
+            end
+            local x, z = tonumber(xs), tonumber(zs)
+            if x == nil or z == nil then
+                return false, string.format("第 %d 行坐标不是数字：%s", lineno, line)
+            end
+            items[#items + 1] = { prefab = prefab, x = x, z = z }
+        end
+    end
+    if #items == 0 then return false, "场景里没有任何实体" end
+
+    local made = 0
+    for _, it in ipairs(items) do
+        local ok, inst = pcall(Core.SpawnPrefab, it.prefab)
+        if ok and inst ~= nil then
+            if inst.Transform ~= nil then inst.Transform:SetPosition(it.x, 0, it.z) end
+            made = made + 1
+        end
+    end
+    M.act_index_invalidate()
+    return true, made
+end
+
 --- 给某个槽位的玩家发 n 个某物品（走真实 `inventory:GiveItem`）。
 --  返回 true, {given, items_before, items_after} | false, 原因
 function M.debug_give(slot, prefab, n)

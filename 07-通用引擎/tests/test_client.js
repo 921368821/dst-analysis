@@ -1335,6 +1335,118 @@ check('F36 音效接线（H1）：按目标动作选音 · 掉血与死亡选不
   return { ok: true, info: 'CHOP/PICKUP/ATTACK 各发不同的音 ✔ / 首帧不响 ✔ / 掉血播 hurt ✔ / 回升不响 ✔ / 归零播 die ✔ / byName=' + JSON.stringify(names) };
 });
 
+check('F37 场景导出/导入（C4）：导出填文本框并展开 · 导入**先清空后生成**且带编码文本；反向：空文本零请求 · 导入失败要说服务端原因', async () => {
+  // E22 验的是服务端往返，用户按的是**按钮**。中间那段（按钮 → 请求顺序 → 文本框 → 状态栏）
+  // 在 F37 之前没有判据。最容易错的一处不是"发不发请求"，而是**顺序**：
+  // 先 import 后 clear 的话，导入的实体紧接着被自己清掉，用户看到空世界，
+  // 而状态栏还会显示"已导入 14 个实体"。
+  const mod = require('../rt/perf_lib.js');
+  const TEXT = 'evergreen\t1.000\t2.000\nrocks\t3.000\t4.000';
+  let importReply = { ok: true, made: 2 };
+  const env = mod.makeClient({
+    fetchReply: (u) => {
+      if (u.indexOf('/editor/entities') >= 0) return { ok: true, count: 0, listed: 0, items: [] };
+      if (u.indexOf('/editor/scene_export') >= 0) return { ok: true, n: 2, version: 1, text: TEXT };
+      if (u.indexOf('/editor/scene_clear') >= 0) return { ok: true, removed: 7 };
+      if (u.indexOf('/editor/scene_import') >= 0) return importReply;
+      return null;
+    },
+  });
+  const el = (id) => (env.__els || {})[id];
+  const fetched = () => (env.__fetched || []);
+  const rt = env.__rt;
+  if (!rt || !rt.scene) return { ok: false, info: '__rt.scene 钩子不存在' };
+
+  // 编辑器关着：三个按钮都不许发请求
+  for (const id of ['edSceneOut', 'edSceneIn', 'edSceneClear']) {
+    const b = el(id);
+    if (!b || typeof b.onclick !== 'function') return { ok: false, info: '#' + id + ' 没绑 onclick' };
+  }
+  const n0 = fetched().length;
+  el('edSceneOut').onclick();
+  await tick(3);
+  if (fetched().length !== n0) return { ok: false, info: '编辑器没打开时按「场景↓」仍然发了请求' };
+
+  // 打开编辑器
+  const edBtn = el('edBtn');
+  if (edBtn && typeof edBtn.onclick === 'function') edBtn.onclick();
+  await tick(4);
+  if (!rt.ed || !rt.ed.state || !rt.ed.state().on) {
+    // 兜底：直接调 toggle
+    if (rt.ed && typeof rt.ed.toggle === 'function') rt.ed.toggle(true);
+  }
+  await tick(3);
+
+  // ① 导出：文本框被填、面板展开、状态栏有数量
+  el('edSceneOut').onclick();
+  await tick(5);
+  if (!fetched().some((u) => u.indexOf('/editor/scene_export') >= 0)) {
+    return { ok: false, info: '按「场景↓」没有请求 /editor/scene_export' };
+  }
+  if (rt.scene.text() !== TEXT) {
+    return { ok: false, info: '导出之后文本框内容是 ' + JSON.stringify(rt.scene.text()) + '，期望与返回的 text 一致' };
+  }
+  const box = el('edSceneBox');
+  if (!box || !/\bon\b/.test(box.className)) {
+    return { ok: false, info: '导出之后场景面板没有展开（class=' + (box && box.className) + '）' };
+  }
+  if ((el('edStatus').textContent || '').indexOf('2') < 0) {
+    return { ok: false, info: '导出后状态栏没写导出了几个：' + el('edStatus').textContent };
+  }
+
+  // ② 导入：**先 clear 后 import**，且 import 带上编码后的文本
+  fetched().length = 0;
+  el('edSceneIn').onclick();
+  await tick(6);
+  const idxClear = fetched().findIndex((u) => u.indexOf('/editor/scene_clear') >= 0);
+  const idxImport = fetched().findIndex((u) => u.indexOf('/editor/scene_import') >= 0);
+  if (idxClear < 0 || idxImport < 0) {
+    return { ok: false, info: '导入没有同时发出 clear 与 import：' + JSON.stringify(fetched()) };
+  }
+  if (!(idxClear < idxImport)) {
+    return { ok: false, info: '顺序反了：先 import（' + idxImport + '）后 clear（' + idxClear + '）—— 导入的东西会被自己清掉' };
+  }
+  const impUrl = fetched()[idxImport];
+  if (impUrl.indexOf('text=') < 0) return { ok: false, info: 'import 请求没带 text：' + impUrl };
+  if (impUrl.indexOf('evergreen') < 0) return { ok: false, info: 'import 请求里的文本不是导出内容：' + impUrl };
+  if (impUrl.indexOf('\n') >= 0 || impUrl.indexOf('\t') >= 0) {
+    return { ok: false, info: 'import 请求里的文本**没有编码**（URL 里出现裸的换行/制表符）：' + impUrl };
+  }
+  if ((el('edStatus').textContent || '').indexOf('已导入 2') < 0) {
+    return { ok: false, info: '导入成功后状态栏不对：' + el('edStatus').textContent };
+  }
+
+  // ③ 反向：空文本 ⇒ 零请求
+  rt.scene.box(true);
+  const ta = el('edSceneText');
+  if (ta) ta.value = '';
+  fetched().length = 0;
+  el('edSceneIn').onclick();
+  await tick(4);
+  if (fetched().length !== 0) {
+    return { ok: false, info: '文本框为空时按导入仍然发了请求：' + JSON.stringify(fetched()) };
+  }
+  if ((el('edStatus').textContent || '').indexOf('空') < 0) {
+    return { ok: false, info: '文本框为空时没提示：' + el('edStatus').textContent };
+  }
+
+  // ④ 反向：导入失败必须显示服务端原因，不许显示"已导入"
+  if (ta) ta.value = 'bad\tline';
+  importReply = { ok: false, error: '第 1 行格式不对（要 prefab\\tx\\tz）：bad' };
+  fetched().length = 0;
+  el('edSceneIn').onclick();
+  await tick(6);
+  const s4 = el('edStatus').textContent || '';
+  if (s4.indexOf('第 1 行') < 0) {
+    return { ok: false, info: '导入失败时没有回显服务端原因：' + s4 };
+  }
+  if (s4.indexOf('已导入') >= 0) {
+    return { ok: false, info: '导入失败却显示「已导入」：' + s4 };
+  }
+
+  return { ok: true, info: '关着编辑器零请求 ✔ / 导出填文本框+展开+写数量 ✔ / 导入先 clear 后 import 且文本已编码 ✔ / 空文本零请求 ✔ / 失败回显第 1 行原因且不假称成功 ✔' };
+});
+
 (async () => {
   await Promise.all(PENDING);
   console.log('\n  结果：' + pass + ' 通过 / ' + fail + ' 失败');

@@ -4603,6 +4603,103 @@ def e15_craft_loop():
                   % (int(before), int(after), refused))
 
 
+def e22_scene_roundtrip():
+    """★★★ C4（2026-10-22）：场景导出/导入 —— 编辑器"改完能存、下次能开"的闭环。
+
+    在这之前，编辑器改完布局**没有任何办法留下来**：
+    `/save` 存的是游戏存档（含玩家、背包、世界时间），拿它当场景会让
+    "打开一个关卡"变成"读档" —— 玩家站在上次的位置、时间也接着走。
+
+    判据（正向三条 + 反向两条）：
+      ① 导出 ⇒ 实体数 n>0，文本每行都是 `prefab\tx\tz`；
+      ② 清空后世界里只剩玩家（`scene_clear` 返回清掉的个数）；
+      ③ 导入 ⇒ 生成数 == 导出的 n，**再导出一次文本与第一次逐字节相同**
+         （往返一致；这条同时锁住"排序确定"与"精度够用"—— 用 %.3f 是为了
+          浮点打印不抖动，与 E20 同一条纪律）；
+      ④ 反向：坏在第 2 行的场景必须**整份被拒**，且世界**一件都没多**
+         （先校验后动手，不许"摆了一半再报错"）；
+      ⑤ 反向：空文本被拒。
+    """
+    s = Sim(seed=20261015, tick_hz=30, world_content=14).boot()
+
+    def non_player_count():
+        # ★ 用**场景导出自己的口径**来数，而不是在判据里另写一份过滤规则。
+        #   首跑就是这里错的：判据排除了 `*_classified` 却忘了玩家本体叫 `wilson`，
+        #   于是"清空后应为 0"永远差 1。判据和被测对象**必须用同一把尺子**，
+        #   否则两边迟早各说各话（本项目的老根因：同一件事两处实现）。
+        ok, e = s.scene_export()
+        return e["n"] if ok else None
+
+    # ① 导出
+    ok, exp = s.scene_export()
+    if not ok:
+        return False, "导出失败：%s" % (exp,)
+    if exp["n"] <= 0:
+        return False, "导出的场景是空的（世界里明明有 14 个内容实体）"
+    lines = [l for l in exp["text"].split("\n") if l]
+    if len(lines) != exp["n"]:
+        return False, "导出说 %d 个，文本里却有 %d 行（两个数必须对得上）" % (exp["n"], len(lines))
+    for l in lines[:3]:
+        f = l.split("\t")
+        if len(f) != 3:
+            return False, "导出行不是三列：%r" % (l,)
+        float(f[1]); float(f[2])
+
+    before = non_player_count()
+    if before is None:
+        return False, "读不到实体列表"
+
+    # ② 清空
+    ok, cl = s.scene_clear()
+    if not ok:
+        return False, "清空失败：%s" % (cl,)
+    after_clear = non_player_count()
+    if after_clear is None:
+        return False, "清空后读不到实体列表"
+    if after_clear != 0:
+        okx, dx = s.debug_entities(999)
+        left = [x.get("prefab") for x in (dx["items"] if okx else [])
+                if not str(x.get("prefab", "")).endswith("_classified")
+                and str(x.get("prefab")) != "player_classified"]
+        return False, ("清空后还剩 %d 个非玩家实体（`scene_clear` 应当只留玩家）：%r"
+                       % (after_clear, left))
+
+    # ④ 反向：坏场景整份被拒，且世界一件都没多
+    bad = "evergreen\t1.0\t1.0\n这一行是坏的\nrocks\t2.0\t2.0"
+    okb, rb = s.scene_import(bad)
+    if okb:
+        return False, "第 2 行是坏的，导入却成功了（说明没做整份校验）"
+    if "第 2 行" not in str(rb.get("error", "")):
+        return False, "坏场景被拒了，但没指出是第几行：%r" % (rb.get("error"),)
+    if non_player_count() != 0:
+        return False, "坏场景被拒之后世界却多了东西 —— 校验没有前置"
+
+    # ⑤ 反向：空文本
+    if s.scene_import("")[0]:
+        return False, "空场景文本竟然导入成功了"
+
+    # ③ 导入并往返
+    oki, ri = s.scene_import(exp["text"])
+    if not oki:
+        return False, "导入自己的场景失败：%s" % (ri,)
+    if ri["made"] != exp["n"]:
+        return False, "导出 %d 个，导入只生成 %d 个" % (exp["n"], ri["made"])
+    ok2, exp2 = s.scene_export()
+    if not ok2:
+        return False, "二次导出失败：%s" % (exp2,)
+    if exp2["text"] != exp["text"]:
+        d1 = exp["text"].split("\n")
+        d2 = exp2["text"].split("\n")
+        diff = next((i for i in range(min(len(d1), len(d2))) if d1[i] != d2[i]), None)
+        return False, ("往返之后场景文本不一致（第 %r 行起）：\n     %r\n     %r"
+                       % (diff, d1[diff] if diff is not None else None,
+                          d2[diff] if diff is not None else None))
+
+    return True, ("导出 %d 个实体 ✔ / 清空后剩 0 ✔ / 坏场景整份被拒且点名第 2 行 ✔ / "
+                  "空文本被拒 ✔ / 导入 %d 个且二次导出逐字节相同 ✔"
+                  % (before, ri["made"]))
+
+
 def e21_no_walking_through_trees():
     """★★★ N1（2026-10-22）：**人不能穿过树** —— G1 最后一个未覆盖点。
 
@@ -5281,6 +5378,7 @@ def e14_editor_channel():
 
 check("E13 战斗闭环：打生物 → 掉血 → 死 → 掉战利品；反向：太远被拒 · 树仍走 CHOP", e13_attack_loop)
 check("E14 编辑器通道：列/生成/移动/删除全回读；反向：玩家删除被拒 · /debug 仍 404", e14_editor_channel)
+check("E22 场景往返：导出 N 个 · 清空只剩玩家 · 导入 N 个且二次导出字节相同；反向：坏场景整份被拒 · 空文本被拒", e22_scene_roundtrip)
 check("E21 碰撞：有树时停在树前（不穿过）· 阻挡计数>0 · 再按3秒仍不过去；反向：空世界能走很远", e21_no_walking_through_trees)
 check("E20 存档字节确定性：同状态三次采集 sha256 全同；反向：挪一个实体必变", e20_save_bytes_deterministic)
 check("E19 死亡掉一半背包：活着一件不掉 · 死后那一拍掉 2/4 · 地上恰好 2 件；反向：不许全掉 · 复活照常", e19_death_drops_half)

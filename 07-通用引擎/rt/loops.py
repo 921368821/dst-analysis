@@ -292,6 +292,45 @@ def sim_loop(sim: Sim, hub: Hub, stop: threading.Event, quiet=False, save_file=N
                         box.update(ok=False, error="%s: %s" % (type(e).__name__, e))
                     finally:
                         ev.set()
+                elif kind == "scene_export":
+                    # ★ C4：场景导出。**必须走模拟线程** —— 要遍历实体表并读 Transform，
+                    #   在 HTTP 线程里直接碰 Lua 会撞上"边遍历边被 step 改表"。
+                    ev, box = cmd[1], cmd[2]
+                    try:
+                        ok, info = sim.scene_export()
+                        if ok:
+                            box.update(ok=True, **info)
+                        else:
+                            box.update(ok=False, error=info.get("error"))
+                    except Exception as e:                          # noqa: BLE001
+                        box.update(ok=False, error="%s: %s" % (type(e).__name__, e))
+                    finally:
+                        ev.set()
+                elif kind == "scene_clear":
+                    ev, box = cmd[1], cmd[2]
+                    try:
+                        ok, info = sim.scene_clear()
+                        if ok:
+                            box.update(ok=True, **info)
+                        else:
+                            box.update(ok=False, error=info.get("error"))
+                    except Exception as e:                          # noqa: BLE001
+                        box.update(ok=False, error="%s: %s" % (type(e).__name__, e))
+                    finally:
+                        ev.set()
+                elif kind == "scene_import":
+                    ev, box = cmd[1], cmd[2]
+                    text = cmd[3]
+                    try:
+                        ok, info = sim.scene_import(text)
+                        if ok:
+                            box.update(ok=True, **info)
+                        else:
+                            box.update(ok=False, error=info.get("error"))
+                    except Exception as e:                          # noqa: BLE001
+                        box.update(ok=False, error="%s: %s" % (type(e).__name__, e))
+                    finally:
+                        ev.set()
                 elif kind == "craft":
                     # ★ B1：合成/建造。**必须走模拟线程**：`Builder:DoBuild` 会 PushEvent、
                     #   会扣材料、会 SpawnPrefab —— 这些都不是线程安全的 Lua 调用。

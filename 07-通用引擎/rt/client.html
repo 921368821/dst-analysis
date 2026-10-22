@@ -87,6 +87,12 @@
   .edBtns button:hover{background:#30363d}
   .edBtns button.danger{border-color:#f85149;color:#f85149}
   .edBtns button.danger:hover{background:rgba(248,81,73,.14)}
+  /* ★ C4：场景文本框（默认收起） */
+  #edSceneBox{display:none;padding:6px 8px;border-bottom:1px solid #23262d}
+  #edSceneBox.on{display:block}
+  #edSceneText{width:100%;height:120px;box-sizing:border-box;resize:vertical;
+    background:#0d1117;color:#c9d1d9;border:1px solid #30363d;border-radius:4px;
+    font:11px/1.5 ui-monospace,Consolas,monospace;padding:6px;white-space:pre;overflow:auto}
   .edMuted{color:#6e7681}
   .edHint{color:#6e7681;font-size:11px;margin-top:8px;line-height:1.6}
 
@@ -144,11 +150,23 @@
     <button id="edRedo" title="重做（Ctrl+Shift+Z）">↷</button>
     <span class="sep"></span>
     <button id="edSave">存档</button>
+    <!-- ★ C4：场景（关卡）导出/导入/清空。与「存档」的区别写在按钮 tooltip 里 ——
+         这是**用户最容易混的一对概念**：按"存档"再按"导出场景"得到的不是同一样东西。 -->
+    <button id="edSceneOut" title="导出为场景文本（只含摆了什么，不含玩家/背包/时间）">场景↓</button>
+    <button id="edSceneIn" title="把文本框里的场景导入（先清空世界，再按文本生成）">场景↑</button>
+    <button id="edSceneClear" class="danger" title="清空世界里所有非玩家实体（玩家与附属实体保留）">清空</button>
     <button id="edFocus">聚焦</button>
     <button id="edDel" class="danger">删除</button>
     <span class="sep"></span>
     <label><input type="checkbox" id="edHideAnon">隐藏无名</label>
     <span id="edStatus">按 F1 退出编辑器</span>
+  </div>
+  <!-- ★ C4：场景文本框。**默认收起**：编辑器右下角已经有树和预览，再常驻一个多行框
+       会把可视区挤到只剩一条。导出时自动展开 —— 用户按了"场景↓"就是要看内容。 -->
+  <div id="edSceneBox" class="off">
+    <textarea id="edSceneText" spellcheck="false"
+      placeholder="prefab&#9;x&#9;z   ← 一行一个实体（制表符分隔）"></textarea>
+    <div class="edHint">导入会先清空世界里的非玩家实体；坏行会让**整份**被拒（不会摆一半）。</div>
   </div>
   <div id="edTree">
     <div id="edTreeHead">
@@ -1707,6 +1725,88 @@ function edToggle(on) {
     ED.timer = null;
   }
 }
+// ---------------------------------------------------------------- 场景导出/导入（C4）
+// ★ 为什么「存档」与「场景」必须是两个按钮而不是一个：
+//   存档 = 接着上次玩（含玩家位置、背包、世界时间）；场景 = 打开一个关卡（只有摆了什么）。
+//   合成一个按钮的话，用户按"保存"之后不确定自己存下了什么 —— 而这正是最难自查的错误
+//   （两个功能都"看起来成功了"）。
+//
+// ★ 导入前**先清空**：否则"导入场景"会变成"在原世界上再叠一层"，
+//   第二次导入同一份场景会得到双份实体。清空与导入是两个请求，中间失败会留下空世界 ——
+//   这是已知的原子性缺口，写在 tooltip 里而不是藏起来。
+function sceneBox(on) {
+  const box = document.getElementById('edSceneBox');
+  if (!box) return;
+  if (on === undefined) box.classList.toggle('on');
+  else box.classList.toggle('on', !!on);
+}
+
+function sceneExport() {
+  if (!ED.on) { edSetStatus('先按 F1 打开编辑器', true); return; }
+  edJson('/editor/scene_export').then((d) => {
+    if (!d || !d.ok) { edSetStatus('导出失败：' + ((d && d.error) || '未知'), true); return; }
+    const ta = document.getElementById('edSceneText');
+    if (ta) ta.value = d.text || '';
+    sceneBox(true);
+    edSetStatus('已导出 ' + d.n + ' 个实体（v' + d.version + '，' + (d.text || '').length + ' 字节）');
+    if (typeof AudioEngine !== 'undefined') AudioEngine.play('ui.click');
+  }).catch((e) => edSetStatus('请求失败：' + e, true));
+}
+
+function sceneImport() {
+  if (!ED.on) { edSetStatus('先按 F1 打开编辑器', true); return; }
+  const ta = document.getElementById('edSceneText');
+  const text = ta ? ta.value : '';
+  if (!text) { edSetStatus('文本框是空的 —— 先按「场景↓」导出，或粘贴场景文本', true); return; }
+  edSetStatus('导入中…');
+  edJson('/editor/scene_clear').then((c) => {
+    if (!c || !c.ok) throw new Error('清空失败：' + ((c && c.error) || '未知'));
+    const removed = c.removed;
+    return edJson('/editor/scene_import?text=' + encodeURIComponent(text))
+      .then((d) => ({ removed: removed, d: d }));
+  }).then((r) => {
+    const d = r.d;
+    if (!d || !d.ok) {
+      // ★ 失败原因原样显示（它会指出是第几行坏的），不在客户端翻译
+      edSetStatus('✘ 导入失败（已清空 ' + r.removed + ' 个）：' + ((d && d.error) || '未知'), true);
+      return;
+    }
+    // ★★ 又是一次 B7 那个坑（F34 抓到过）：**先刷新再写状态**。
+    //   `edRefresh()` 会把状态栏覆盖成「已同步：世界 N 个实体」，
+    //   写在前面的消息一条都看不到。同一个形状在本文件里出现第二次了 ——
+    //   所以这条判据（F37 ②）特意断言"状态栏里有『已导入 N』"，
+    //   而不是只断言"发了请求"。
+    const msg = '已导入 ' + d.made + ' 个实体（清掉 ' + r.removed + ' 个）';
+    Promise.resolve(edRefresh()).then(() => edSetStatus(msg));
+  }).catch((e) => edSetStatus('✘ ' + e, true));
+}
+
+function sceneClear() {
+  if (!ED.on) { edSetStatus('先按 F1 打开编辑器', true); return; }
+  // 清空是不可逆的（撤销栈只覆盖 move）—— 必须问一句。
+  // ⚠️ 用 typeof 检查而不是直接 confirm()：桩环境里没有 confirm，
+  //    直接调会 ReferenceError，而报错会出现在"清空"这条路上。
+  if (typeof confirm === 'function' && !confirm('清空世界里所有非玩家实体？这个操作不能撤销。')) return;
+  edJson('/editor/scene_clear').then((d) => {
+    if (!d || !d.ok) { edSetStatus('清空失败：' + ((d && d.error) || '未知'), true); return; }
+    const msg = '已清空 ' + d.removed + ' 个实体';
+    Promise.resolve(edRefresh()).then(() => edSetStatus(msg));
+  }).catch((e) => edSetStatus('请求失败：' + e, true));
+}
+
+(function wireScene() {
+  const b1 = document.getElementById('edSceneOut');
+  const b2 = document.getElementById('edSceneIn');
+  const b3 = document.getElementById('edSceneClear');
+  if (b1) b1.onclick = sceneExport;
+  if (b2) b2.onclick = sceneImport;
+  if (b3) b3.onclick = sceneClear;
+  window.__rt = window.__rt || {};
+  window.__rt.scene = { export: sceneExport, import: sceneImport, clear: sceneClear,
+                        box: sceneBox,
+                        text: () => { const t = document.getElementById('edSceneText'); return t ? t.value : ''; } };
+})();
+
 // ---------------------------------------------------------------- 撤销/重做（M1-1）
 // ★ 为什么按钮上不显示"还能撤几步"：那需要一个额外的计数接口，而**状态栏一句话**
 //   已经足够（"已撤销 移动#23"）。信息密度不是越高越好 —— 工具栏上每多一个数字，
