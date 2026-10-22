@@ -18,6 +18,7 @@ import os
 import time
 
 from config import HERE, ROOT, ENGINE, require_sources
+import commands                       # M1-1：撤销栈（纯 Python，不碰 Lua）
 from hub import lua_to_py
 
 
@@ -421,6 +422,93 @@ class Sim:
             return False, {"error": str(info)}
         return True, {"guid": int(info["guid"]), "prefab": str(info["prefab"]),
                       "removed": True}
+
+    # ---------------------------------------------------------------- M1-1 撤销栈
+    # ★★★ 栈放在 Python 这一侧，不放进 Lua。三条理由：
+    #   ① `commands.py` 已经用 6 条单测（U47~U52）锁住了语义，Lua 侧再写一遍就是两份实现
+    #      （本工程母题：同一件事两处实现 ⇒ 改一处，另一处悄悄过期）；
+    #   ② 编辑器改的是**服务端世界**，而 `/editor/*` 的请求已经在模拟线程里排队执行
+    #      ⇒ push/undo 天然串行，不需要额外加锁；
+    #   ③ 栈的 `apply` 只需要会调 `debug_move` 这类已有入口，是一层薄适配。
+    #
+    # ⚠️ 第一版**只让 move 走栈**，spawn/remove 仍直接改世界，接口里明确返回
+    #   `reversible: false`。原因：撤销「删除」需要实体完整快照（组件、任务、计时器），
+    #   而 `debug_remove` 走的是 `inst:Remove()` —— 不可逆。宁可如实说不支持，
+    #   也不要给一个"撤销了但状态不对"的半成品（那比没有撤销更难查）。
+    def _ensure_stack(self):
+        if getattr(self, "_cmdstack", None) is None or self._cmdstack_for != id(self):
+            self._cmdstack = commands.CmdStack(self._apply_cmd, max_steps=50, merge_window=1)
+            self._cmdstack_for = id(self)
+        return self._cmdstack
+
+    def _apply_cmd(self, kind, target, state):
+        """栈的执行器：把一份状态写进世界。失败**必须抛**（让事务回滚）。"""
+        if kind == "move":
+            ok, info = self.api.debug_move(int(target), float(state["x"]), float(state["z"]))
+            if not ok:
+                raise RuntimeError("move 失败：%s" % (info,))
+            # 回读校验：SetPosition 不返回值，不验就会出现"撤销了但没生效"
+            if abs(float(info["x"]) - float(state["x"])) > 0.01 \
+               or abs(float(info["z"]) - float(state["z"])) > 0.01:
+                raise RuntimeError("move 之后位置对不上：期望 (%s,%s) 实际 (%s,%s)"
+                                   % (state["x"], state["z"], info["x"], info["z"]))
+            return
+        raise ValueError("命令栈不支持的操作类型：%r" % (kind,))
+
+    def move_via_stack(self, guid, x, z):
+        """带撤销的移动。返回 (ok, dict|错误)。
+
+        ★ 为什么不直接调 debug_move：那样改了回不去。这里先把「移动前的位置」读出来
+          作为 undo 快照，再 push —— push 会立刻执行 do。
+        ★ 合并：同一个实体的连续 move 用 MERGE_ENDS，拖拽 60 帧只留一步。
+        """
+        ok, before = self.debug_entity(guid)
+        if not ok:
+            return False, {"error": "移动前读不到实体：%s" % (before.get("error"),)}
+        b = {"x": float(before["x"]), "z": float(before["z"])}
+        a = {"x": float(x), "z": float(z)}
+        if abs(a["x"] - b["x"]) < 0.001 and abs(a["z"] - b["z"]) < 0.001:
+            return True, {"guid": int(guid), "x": a["x"], "z": a["z"], "moved": False}
+        st = self._ensure_stack()
+        try:
+            st.push("move", int(guid), b, a, merge=commands.MERGE_ENDS, label="移动")
+        except Exception as e:                                   # noqa: BLE001
+            return False, {"error": "%s: %s" % (type(e).__name__, e)}
+        return True, {"guid": int(guid), "x": a["x"], "z": a["z"],
+                      "moved": True,
+                      "undo_depth": st.depth, "version": st.version}
+
+    def undo(self):
+        """撤销一步。返回 (ok, dict)。栈空返回 ok=False 且 error 里写"没有可撤销的"——
+        调用方要把它当成 409，不是"成功但没变化"。"""
+        st = self._ensure_stack()
+        if not st.can_undo():
+            return False, {"error": "没有可撤销的操作", "empty": True,
+                           "undo_depth": 0, "version": st.version}
+        try:
+            cmd = st.undo()
+        except Exception as e:                                   # noqa: BLE001
+            return False, {"error": "撤销失败：%s: %s" % (type(e).__name__, e)}
+        return True, {"kind": cmd.kind, "target": cmd.target,
+                      "to": cmd.before, "undo_depth": st.depth,
+                      "can_redo": st.can_redo(), "version": st.version}
+
+    def redo(self):
+        st = self._ensure_stack()
+        if not st.can_redo():
+            return False, {"error": "没有可重做的操作", "empty": True,
+                           "undo_depth": st.depth, "version": st.version}
+        try:
+            cmd = st.redo()
+        except Exception as e:                                   # noqa: BLE001
+            return False, {"error": "重做失败：%s: %s" % (type(e).__name__, e)}
+        return True, {"kind": cmd.kind, "target": cmd.target,
+                      "to": cmd.after, "undo_depth": st.depth,
+                      "can_redo": st.can_redo(), "version": st.version}
+
+    def undo_stats(self):
+        st = self._ensure_stack()
+        return st.stats()
 
     def debug_move(self, guid, x, z):
         """把实体挪到 (x, z) → (ok, dict)。回读的位置是**事实**（SetPosition 不返回值）。"""

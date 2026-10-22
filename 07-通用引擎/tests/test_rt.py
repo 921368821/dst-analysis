@@ -4596,6 +4596,107 @@ def e15_craft_loop():
                   % (int(before), int(after), refused))
 
 
+def e18_editor_undo_move():
+    """★★★ M1-1（2026-10-22）：编辑器撤销 —— 拖错了能回去。
+
+    在此之前 `/editor/move` 是**直接改世界**：挪走就回不去。没有撤销的编辑器
+    有个隐性代价 —— 用户不敢动大东西，于是编辑器"能用"但"没人敢用"。
+
+    栈本身（`rt/commands.py`）已被 U47~U52 锁住语义，所以这条判据**只验接线**：
+    服务端的 move 是否真的走栈、undo 是否真的把世界恢复、合并是否生效。
+    两层分开测的理由：栈错了是算法问题（单测里 5 秒能复现），接线错了是集成问题
+    （要起引擎 3 秒）；混在一起时，一次红不知道该去改哪边。
+
+    判据（正向三条 + 反向三条）：
+      ① move 之后坐标变了，且 `undo_depth` 增加；
+      ② undo ⇒ 坐标**逐值**回到移动前；redo ⇒ 回到移动后；
+      ③ 同一实体的连续 3 次 move ⇒ 只占 1 步（MERGE_ENDS），一次 undo 回到最初；
+      ④ 反向：栈空时 undo 必须失败且理由含"没有可撤销"（不是"成功但没变化"）；
+      ⑤ 反向：undo 之后做一次新的 move ⇒ redo 必须不可用（分支被清空）；
+      ⑥ 反向：undo 一次之后世界确实停在 before，不是"undo 了但坐标没动"。
+    """
+    def ent(sim, g):
+        ok, x = sim.debug_entity(g)
+        return x if ok else {}
+
+    s = Sim(seed=20261015, tick_hz=30, world_content=14).boot()
+
+    # ④ 先验空栈
+    ok, r = s.undo()
+    if ok:
+        return False, "空栈 undo 竟然成功了（会把「没做事」当成一次操作）"
+    if "没有可撤销" not in str(r.get("error", "")):
+        return False, "空栈 undo 的拒绝理由不对：%r" % (r.get("error"),)
+
+    ok, sp = s.debug_spawn("evergreen", 3.0, 1.0)
+    if not ok:
+        return False, "spawn 失败：%s" % (sp,)
+    g = sp["guid"]
+    x0, z0 = ent(s, g)["x"], ent(s, g)["z"]
+
+    # ① 移动
+    ok, r = s.move_via_stack(g, 8.0, 4.0)
+    if not ok:
+        return False, "带撤销的移动失败：%s" % (r,)
+    if r.get("undo_depth", 0) < 1:
+        return False, "移动成功但 undo_depth = %r（说明没走栈）" % (r.get("undo_depth"),)
+    e = ent(s, g)
+    if abs(e["x"] - 8.0) > 0.01 or abs(e["z"] - 4.0) > 0.01:
+        return False, "移动后坐标是 (%r,%r)，期望 (8.0,4.0)" % (e["x"], e["z"])
+
+    # ② undo / redo
+    ok, r = s.undo()
+    if not ok:
+        return False, "撤销失败：%s" % (r,)
+    e = ent(s, g)
+    if abs(e["x"] - x0) > 0.01 or abs(e["z"] - z0) > 0.01:
+        return False, ("撤销后坐标 (%r,%r)，期望回到 (%r,%r) —— "
+                       "「撤销了但没动」是这条判据最该抓的形态" % (e["x"], e["z"], x0, z0))
+    ok, r = s.redo()
+    if not ok:
+        return False, "重做失败：%s" % (r,)
+    e = ent(s, g)
+    if abs(e["x"] - 8.0) > 0.01 or abs(e["z"] - 4.0) > 0.01:
+        return False, "重做后坐标 (%r,%r)，期望回到 (8.0,4.0)" % (e["x"], e["z"])
+
+    # ③ 连续 move 合并
+    for i, (xx, zz) in enumerate([(9.0, 4.0), (10.0, 5.0), (11.0, 6.0)], 1):
+        ok, r = s.move_via_stack(g, xx, zz)
+        if not ok:
+            return False, "第 %d 次连续移动失败：%s" % (i, r)
+    # ★ 期望 **2** 步而不是 1：上面做过一次 undo→redo，那是一个**切口** ——
+    #   跨过切口之后的移动属于新的一段连续动作，不该并进切口之前那一步里
+    #   （首跑就是按 1 步写的，结果暴露出栈里缺这个屏障，见 commands.py 的 _no_merge）。
+    if r.get("undo_depth") != 2:
+        return False, ("连续 3 次移动之后总步数 %r，期望 2（redo 之前那步 + 之后这一段）"
+                       % (r.get("undo_depth"),))
+    ok, r = s.undo()
+    if not ok:
+        return False, "合并后撤销失败：%s" % (r,)
+    e = ent(s, g)
+    if abs(e["x"] - 8.0) > 0.01:
+        return False, ("合并撤销后 x=%r，期望回到合并**起点** 8.0（不是中途的 10.0）"
+                       % (e["x"],))
+
+    # ⑤ undo 之后做新操作 ⇒ redo 分支必须清空
+    ok, r = s.move_via_stack(g, 1.0, 1.0)
+    if not ok:
+        return False, "撤销后的新移动失败：%s" % (r,)
+    ok, r = s.redo()
+    if ok:
+        return False, ("撤销之后做了新操作，redo 仍然成功 —— "
+                       "redo 分支没被清空，重做会把新操作覆盖掉")
+
+    # ⑥ 再确认一次世界状态与栈一致
+    st = s.undo_stats()
+    if st.get("version", 0) < 5:
+        return False, "version = %r，多次变更后应有 >= 5" % (st.get("version"),)
+
+    return True, ("空栈 undo 被拒且理由正确 ✔ / move→undo→redo 逐值往返 ✔ / "
+                  "连续 4 次移动合并成 1 步且撤销回到合并起点 ✔ / "
+                  "undo 后新操作清空 redo ✔ / version=%r" % (st.get("version"),))
+
+
 def e17_monster_fights_back():
     """★★★ B6（2026-10-22）：**生物会还手** —— P5 的另一半。
 
@@ -4936,6 +5037,7 @@ def e14_editor_channel():
 
 check("E13 战斗闭环：打生物 → 掉血 → 死 → 掉战利品；反向：太远被拒 · 树仍走 CHOP", e13_attack_loop)
 check("E14 编辑器通道：列/生成/移动/删除全回读；反向：玩家删除被拒 · /debug 仍 404", e14_editor_channel)
+check("E18 编辑器撤销：move→undo→redo 逐值往返 · 连续移动合并成 1 步；反向：空栈被拒 · undo 后新操作清空 redo", e18_editor_undo_move)
 check("E17 生物会还手：无操作下 10 秒内玩家掉血且蜘蛛 action=ATTACK；反向：无敌人 / 20 格外都不掉血", e17_monster_fights_back)
 check("E16 装备与工具：合成即上手 · equip 幂等 · 砍伐携带手持物；反向：空手也能砍（0 次携带）· 幽灵 guid 被拒 · 两类跌幅都是 1（斧头不加速）", e16_equip_and_tool)
 check("E15 合成闭环：材料够就造得出（产物真在世界里）· 材料真被扣；反向：不足/配方不存在/空名三类原因必须分得开 · 失败不留残骸", e15_craft_loop)

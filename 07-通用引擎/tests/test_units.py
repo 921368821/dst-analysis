@@ -1290,7 +1290,26 @@ def u49_merge_keeps_first_before_and_last_after():
     st.redo()
     if world[3] != {"x": 5.0}:
         return False, "重做拖拽回到了 %r，不是终点 5.0" % (world[3],)
-    return True, "5 帧合并成 1 步；undo→起点 0.0；redo→终点 5.0"
+    # ★★ 切口语义：undo/redo 之后的下一条命令**不许**与栈顶合并。
+    #   不加屏障的话「拖动 → 撤销 → 再拖动」会被并成一步，第二次撤销直接跳回
+    #   第一次拖动的起点（E18 首跑实测踩到）。
+    #   ⚠️ 构造要讲究：必须先让栈里**还剩一步同类命令**，否则 push 时栈是空的，
+    #   "不合并"是必然的，这条断言就成了恒真（我第一版就是这么写的，红都红不了）。
+    st2 = commands.CmdStack(apply, max_steps=10, merge_window=10)
+    world[3] = {"x": 0.0}
+    st2.push("move", 3, {"x": 0.0}, {"x": 1.0}, merge=commands.MERGE_ENDS)
+    st2.push("edit", 3, {"x": 1.0}, {"x": 1.0}, merge=commands.MERGE_DISABLE)
+    if st2.depth != 2:
+        return False, "准备阶段应该有 2 步，实际 %d" % (st2.depth,)
+    st2.undo()                                   # 弹出 edit；栈顶又变回那条 move；_no_merge=True
+    if st2.depth != 1:
+        return False, "undo 之后应剩 1 步，实际 %d" % (st2.depth,)
+    st2.push("move", 3, {"x": 1.0}, {"x": 9.0}, merge=commands.MERGE_ENDS)
+    if st2.depth != 2:
+        return False, ("undo 之后的移动被并进了栈顶那一步（depth=%d，期望 2）—— "
+                       "撤销/重做是操作序列的切口，不该被跨过去合并" % (st2.depth,))
+    return True, ("5 帧合并成 1 步；undo→起点 0.0；redo→终点 5.0；"
+                  "undo 之后的同类移动另起一步（切口生效）")
 
 
 def u50_max_steps_evicts_oldest():

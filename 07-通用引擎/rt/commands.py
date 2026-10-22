@@ -93,6 +93,12 @@ class CmdStack(object):
         self._version = 1        # 每次**状态变更** +1（客户端预测靠它判断"文档动过没有"）
         self._txn = None         # 事务上下文：{"label", "cmds", "depth"}
         self._applied = 0        # 真正执行过 do 的次数（可观测）
+        # ★★ undo/redo 之后必须**禁止与栈顶合并**。
+        #   实测（E18 首跑）：move→undo→redo→再连续 move，那条新的 move 被合并进了
+        #   一条 already-redone 的命令里，于是「撤销这次拖拽」回到了 redo 之前更早的起点。
+        #   语义上 undo/redo 是一个**切口**：跨过它之后的操作是新的操作序列，
+        #   与切口之前的那一步不是同一次「连续动作」。
+        self._no_merge = False
         self._failed = 0         # 事务回滚次数
 
     # ---------------------------------------------------------------- 只读属性
@@ -130,7 +136,8 @@ class CmdStack(object):
                       merge=merge, seq=self._seq, label=label)
 
         # 合并：与栈顶同 kind 同 target、且在上次 push 的窗口内
-        if self._txn is None and self._undo and merge != MERGE_DISABLE:
+        if (self._txn is None and self._undo and merge != MERGE_DISABLE
+                and not self._no_merge):
             top = self._undo[-1]
             same = (top.kind == kind and top.target == target)
             if MERGE_ALL == merge:
@@ -144,6 +151,7 @@ class CmdStack(object):
                 self._execute(kind, target, after)
                 return top
 
+        self._no_merge = False                     # 已经开过新步，屏障解除
         self._undo.append(cmd)
         self._redo = []                            # 新操作必然清空 redo 分支
         self._trim()
@@ -174,6 +182,7 @@ class CmdStack(object):
         self._apply(cmd.kind, cmd.target, cmd.before)
         self._redo.append(cmd)
         self._version += 1
+        self._no_merge = True      # 切口：下一个 push 不许合并
         return cmd
 
     def redo(self):
@@ -183,12 +192,14 @@ class CmdStack(object):
         self._apply(cmd.kind, cmd.target, cmd.after)
         self._undo.append(cmd)
         self._version += 1
+        self._no_merge = True      # 切口：下一个 push 不许合并
         return cmd
 
     def clear(self):
         """清空（切场景 / PIE 进出时必须调，否则撤销会跨场景恢复实体）。"""
         self._undo = []
         self._redo = []
+        self._no_merge = True
         self._version += 1
 
     # ---------------------------------------------------------------- 事务

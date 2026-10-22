@@ -365,8 +365,17 @@ class HttpMixin:
             elif sub == "/editor/remove":
                 self.hub.cmds.put(("debug_remove", _enum("guid", int, -1), ev, box))
             elif sub == "/editor/move":
-                self.hub.cmds.put(("debug_move", _enum("guid", int, -1),
+                # ★ M1-1：走**带撤销**的那条路。`debug_move` 仍然存在（/debug 通道与内部用），
+                #   但编辑器一律走栈 —— 否则会出现"有的移动能撤销、有的不能"，
+                #   而那种不一致比完全没有撤销更让人不敢用。
+                self.hub.cmds.put(("move_undo", _enum("guid", int, -1),
                                    _enum("x"), _enum("z"), ev, box))
+            elif sub == "/editor/undo":
+                self.hub.cmds.put(("undo", ev, box))
+            elif sub == "/editor/redo":
+                self.hub.cmds.put(("redo", ev, box))
+            elif sub == "/editor/undo_stats":
+                self.hub.cmds.put(("undo_stats", ev, box))
             elif sub == "/editor/spawn":
                 self.hub.cmds.put(("debug_spawn", arg.get("prefab", ""),
                                    _enum("x"), _enum("z"), ev, box))

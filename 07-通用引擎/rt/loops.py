@@ -231,6 +231,53 @@ def sim_loop(sim: Sim, hub: Hub, stop: threading.Event, quiet=False, save_file=N
                         box.update(ok=False, error="%s: %s" % (type(e).__name__, e))
                     finally:
                         ev.set()
+                elif kind == "move_undo":
+                    # ★ M1-1：带撤销的移动（走 Python 侧命令栈；push 会当场执行 do）
+                    guid, xx, zz, ev, box = cmd[1], cmd[2], cmd[3], cmd[4], cmd[5]
+                    try:
+                        ok, info = sim.move_via_stack(guid, xx, zz)
+                        if ok:
+                            box.update(ok=True, **info)
+                        else:
+                            box.update(ok=False, error=info.get("error"))
+                    except Exception as e:                          # noqa: BLE001
+                        box.update(ok=False, error="%s: %s" % (type(e).__name__, e))
+                    finally:
+                        ev.set()
+                elif kind == "undo":
+                    ev, box = cmd[1], cmd[2]
+                    try:
+                        ok, info = sim.undo()
+                        if ok:
+                            box.update(ok=True, **info)
+                        else:
+                            box.update(ok=False, error=info.get("error"),
+                                       empty=info.get("empty", False))
+                    except Exception as e:                          # noqa: BLE001
+                        box.update(ok=False, error="%s: %s" % (type(e).__name__, e))
+                    finally:
+                        ev.set()
+                elif kind == "redo":
+                    ev, box = cmd[1], cmd[2]
+                    try:
+                        ok, info = sim.redo()
+                        if ok:
+                            box.update(ok=True, **info)
+                        else:
+                            box.update(ok=False, error=info.get("error"),
+                                       empty=info.get("empty", False))
+                    except Exception as e:                          # noqa: BLE001
+                        box.update(ok=False, error="%s: %s" % (type(e).__name__, e))
+                    finally:
+                        ev.set()
+                elif kind == "undo_stats":
+                    ev, box = cmd[1], cmd[2]
+                    try:
+                        box.update(ok=True, **sim.undo_stats())
+                    except Exception as e:                          # noqa: BLE001
+                        box.update(ok=False, error="%s: %s" % (type(e).__name__, e))
+                    finally:
+                        ev.set()
                 elif kind == "recipes":
                     # ★ B2：配方列表。走模拟线程 —— AllRecipes 是 Lua 表，且 HasIngredients
                     #   会读背包组件，都不是线程安全的跨线程访问。
