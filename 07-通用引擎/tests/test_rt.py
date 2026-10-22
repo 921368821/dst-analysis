@@ -4634,6 +4634,124 @@ def e15_craft_loop():
                   % (int(before), int(after), refused))
 
 
+def e25_undo_spawn_remove():
+    """★★★ M1-2（2026-10-22）：生成的能撤、删掉的能回来。
+
+    B6 只让 `/editor/move` 走栈，spawn/remove 仍是**直接改世界**。后果不是"少个功能"，
+    而是**不一致**：用户拖错了能撤，删错了不能撤 —— 而删错比拖错的代价大得多。
+    不一致的编辑器比不能撤销的编辑器更危险：用户会以为"这里应该也能撤"。
+
+    判据（正向三条 + 反向三条）：
+      ① `spawn_via_stack` ⇒ 实体在；undo ⇒ 不在；redo ⇒ 又在（guid 允许不同）；
+      ② `remove_via_stack` ⇒ 不在；undo ⇒ 回来，且 **prefab / x / z / workleft 逐值一致**；
+      ③ `remove → undo → redo → undo` 这条链能走通 —— 这一条专门守"重建后 guid 变了"
+         这个坑：不维护 target→实际 guid 的映射，第二次 remove 会去删一个不存在的号；
+      ④ 反向：删不存在的 guid ⇒ 拒绝，且**栈深度不变**（不许留一条幽灵命令）；
+      ⑤ 反向：撤销删除恢复的是"看起来一样的新实体"，接口里必须如实说
+         `guid_will_change=True`（把它写成断言，防止有人悄悄改成"保证同一个 guid"的假承诺）。
+    """
+    s = Sim(seed=20261015, tick_hz=30, world_content=0).boot()
+
+    def has(guid):
+        ok, d = s.debug_entities(4000)
+        if not ok:
+            return None
+        return [e for e in d["items"] if e["guid"] == int(guid)]
+
+    # ① 生成 → 撤销 → 重做
+    ok, r = s.spawn_via_stack("evergreen", 2.0, 1.0)
+    if not ok:
+        return False, "带撤销的生成失败：%s" % (r,)
+    g1 = r.get("guid")
+    if g1 is None:
+        return False, "生成成功但返回里没有 guid：%r" % (r,)
+    if not has(g1):
+        return False, "生成之后世界表里找不到 guid=%r" % (g1,)
+    ok, ru = s.undo()
+    if not ok:
+        return False, "撤销生成失败：%s" % (ru,)
+    if has(g1):
+        return False, "撤销生成之后实体还在（guid=%r）—— 撤销没生效" % (g1,)
+    ok, rr = s.redo()
+    if not ok:
+        return False, "重做生成失败：%s" % (rr,)
+    ok, d1 = s.debug_entities(4000)
+    trees = [e for e in d1["items"] if e.get("prefab") == "evergreen"]
+    if len(trees) != 1:
+        return False, "重做之后 evergreen 有 %d 个（期望 1）" % (len(trees),)
+    g_after = trees[0]["guid"]
+
+    # ② 删除 → 撤销，逐值恢复
+    w0 = s.debug_entity(g_after)[1].get("workleft")
+    s.api.act(0, g_after)
+    for _ in range(200):
+        s.step()
+        w = s.debug_entity(g_after)[1].get("workleft")
+        if w is not None and w != w0:
+            w0 = w
+            break
+    ok, pos = s.debug_entities(4000)
+    node = [e for e in pos["items"] if e["guid"] == g_after][0]
+    px, pz = node["x"], node["z"]
+    ok, rm = s.remove_via_stack(g_after)
+    if not ok:
+        return False, "带撤销的删除失败：%s" % (rm,)
+    if rm.get("guid_will_change") is not True:
+        return False, ("接口没有如实说明 guid 会变（`guid_will_change`=%r）—— "
+                       "这是必须写清楚的限制，不许当承诺" % (rm.get("guid_will_change"),))
+    if has(g_after):
+        return False, "删除之后实体还在"
+    ok, ru2 = s.undo()
+    if not ok:
+        return False, "撤销删除失败：%s" % (ru2,)
+    ok, d2 = s.debug_entities(4000)
+    back = [e for e in d2["items"] if e.get("prefab") == "evergreen"]
+    if not back:
+        return False, "撤销删除之后世界表里没有 evergreen —— 重建没发生"
+    b = back[0]
+    if abs(b["x"] - px) > 0.01 or abs(b["z"] - pz) > 0.01:
+        return False, "撤销删除后位置是 (%r,%r)，期望 (%r,%r)" % (b["x"], b["z"], px, pz)
+    wb = s.debug_entity(b["guid"])[1].get("workleft")
+    if wb is None or abs(wb - w0) > 0.01:
+        return False, ("撤销删除后 workleft=%r，期望 %r —— 覆盖值没跟着恢复"
+                       % (wb, w0))
+    g_back = b["guid"]
+
+    # ③ remove → undo → redo → undo（守"重建后 guid 变了"）
+    ok, r3 = s.remove_via_stack(g_back)
+    if not ok:
+        return False, "第二次删除失败：%s" % (r3,)
+    if has(g_back):
+        return False, "第二次删除之后实体还在"
+    s.undo()
+    ok, d3 = s.debug_entities(4000)
+    if not [e for e in d3["items"] if e.get("prefab") == "evergreen"]:
+        return False, "第二次撤销删除之后没有树"
+    # redo 必须真的把**重建出来的那个**删掉（映射表失效的话会报 remove 失败）
+    ok, r4 = s.redo()
+    if not ok:
+        return False, ("重做删除失败：%s —— 这是「重建后 guid 变了，但命令里还记着旧号」"
+                       "的典型症状" % (r4,))
+    ok, d4 = s.debug_entities(4000)
+    if [e for e in d4["items"] if e.get("prefab") == "evergreen"]:
+        return False, "重做删除之后树还在 —— redo 没生效（映射表没更新？）"
+
+    # ④ 反向：删不存在的 guid ⇒ 拒绝，栈深度不变
+    depth0 = s.undo_stats().get("depth", 0)
+    ok, bad = s.remove_via_stack(99999999)
+    if ok:
+        return False, "删除不存在的 guid 竟然成功了（会往栈里塞一条幽灵命令）"
+    if "不存在" not in str(bad.get("error", "")):
+        return False, "拒绝理由不对：%r" % (bad.get("error"),)
+    if s.undo_stats().get("depth", 0) != depth0:
+        return False, ("被拒的删除改变了栈深度（%r → %r）—— 失败的操作不许进栈"
+                       % (depth0, s.undo_stats().get("depth")))
+
+    return True, ("生成→撤销→重做 ✔ / 删除→撤销后 prefab+位置+workleft 逐值一致 ✔ / "
+                  "remove→undo→redo 链走通（映射表生效）✔ / 幽灵 guid 被拒且不进栈 ✔ / "
+                  "接口如实声明 guid 会变 ✔")
+
+
 def e24_depth_sorted_frame():
     """★★★ D5（2026-10-22）：帧序必须是**深度序** —— 远的先画、近的盖住它。
 
@@ -5648,6 +5766,7 @@ def e14_editor_channel():
 
 check("E13 战斗闭环：打生物 → 掉血 → 死 → 掉战利品；反向：太远被拒 · 树仍走 CHOP", e13_attack_loop)
 check("E14 编辑器通道：列/生成/移动/删除全回读；反向：玩家删除被拒 · /debug 仍 404", e14_editor_channel)
+check("E25 生成的能撤、删掉的能回来(M1-2)：spawn→undo→redo · remove→undo 后 prefab/位置/workleft 逐值恢复 · remove→undo→redo 链通；反向：幽灵 guid 被拒且不进栈", e25_undo_spawn_remove)
 check("E24 帧序=深度序(D5)：z 大的先画 · 互换 z 顺序跟着翻 · 同 z 按 id 升序 · 全帧 z 单调不增 · 两帧 id 序列相同", e24_depth_sorted_frame)
 check("E23 场景覆盖值(C5)：砍刀/掉血后导出带 workleft+health · 导入逐值恢复；反向：v1 仍可导入(满值) · 未知字段点名拒绝 · 写不进则回滚", e23_scene_overrides)
 check("E22 场景往返：导出 N 个 · 清空只剩玩家 · 导入 N 个且二次导出字节相同；反向：坏场景整份被拒 · 空文本被拒", e22_scene_roundtrip)

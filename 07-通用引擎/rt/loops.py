@@ -231,6 +231,33 @@ def sim_loop(sim: Sim, hub: Hub, stop: threading.Event, quiet=False, save_file=N
                         box.update(ok=False, error="%s: %s" % (type(e).__name__, e))
                     finally:
                         ev.set()
+                elif kind == "spawn_undo":
+                    # ★★ M1-2：生成也进栈（撤销就是把它删掉）。
+                    #   为什么不让它留在 debug_spawn 那条路上：那会变成
+                    #   "移动能撤销、生成不能" —— 不一致比没有撤销更让人不敢用。
+                    prefab, xx, zz, ev, box = cmd[1], cmd[2], cmd[3], cmd[4], cmd[5]
+                    try:
+                        ok, info = sim.spawn_via_stack(prefab, xx, zz)
+                        if ok:
+                            box.update(ok=True, **info)
+                        else:
+                            box.update(ok=False, error=info.get("error"))
+                    except Exception as e:                          # noqa: BLE001
+                        box.update(ok=False, error="%s: %s" % (type(e).__name__, e))
+                    finally:
+                        ev.set()
+                elif kind == "remove_undo":
+                    guid, ev, box = cmd[1], cmd[2], cmd[3]
+                    try:
+                        ok, info = sim.remove_via_stack(guid)
+                        if ok:
+                            box.update(ok=True, **info)
+                        else:
+                            box.update(ok=False, error=info.get("error"))
+                    except Exception as e:                          # noqa: BLE001
+                        box.update(ok=False, error="%s: %s" % (type(e).__name__, e))
+                    finally:
+                        ev.set()
                 elif kind == "move_undo":
                     # ★ M1-1：带撤销的移动（走 Python 侧命令栈；push 会当场执行 do）
                     guid, xx, zz, ev, box = cmd[1], cmd[2], cmd[3], cmd[4], cmd[5]

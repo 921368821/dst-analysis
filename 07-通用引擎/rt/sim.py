@@ -439,6 +439,8 @@ class Sim:
         if getattr(self, "_cmdstack", None) is None or self._cmdstack_for != id(self):
             self._cmdstack = commands.CmdStack(self._apply_cmd, max_steps=50, merge_window=1)
             self._cmdstack_for = id(self)
+            # 命令里的 target(guid) → 当前实际 guid（重建会换号，见 _apply_cmd）
+            self._ent_guid = {}
         return self._cmdstack
 
     def _apply_cmd(self, kind, target, state):
@@ -452,6 +454,38 @@ class Sim:
                or abs(float(info["z"]) - float(state["z"])) > 0.01:
                 raise RuntimeError("move 之后位置对不上：期望 (%s,%s) 实际 (%s,%s)"
                                    % (state["x"], state["z"], info["x"], info["z"]))
+            return
+        if kind == "ent":
+            # ★★ M1-2（2026-10-22）：**实体级的增删**。spawn 与 remove 共用一条路径：
+            #   · spawn：before=None, after={"line": 场景行} ⇒ undo 时 apply(None) 删掉
+            #   · remove：before={"line": 场景行}, after=None ⇒ undo 时 apply(before) 重建
+            #   一条代码路径处理两件事，因为它们在栈里本来就是同一件事的镜像。
+            #
+            # ⚠️ **guid 会变**：重建出来的是新实体、新号。所以这里用一张映射表把
+            #   "命令里的 target" 绑到"当前实际 guid"上 —— 不绑的话，
+            #   remove→undo→redo 这条链上第二次 remove 会去删一个早就不存在的号，
+            #   而 `debug_remove` 对不存在的号返回失败 ⇒ 栈会以为执行失败。
+            if state is None:
+                cur = self._ent_guid.get(int(target), int(target))
+                ok, info = self.api.debug_remove(int(cur))
+                if not ok:
+                    raise RuntimeError("remove 失败：%s" % (info,))
+                self._ent_guid.pop(int(target), None)
+                return
+            ok, info = self.scene_import(state["line"])
+            if not ok:
+                raise RuntimeError("重建实体失败：%s" % (info.get("error"),))
+            # 回读：真的造出来了吗？（不验就等于自述）
+            new_guid = None
+            ok2, d = self.debug_entities(4000)
+            if ok2:
+                want = state["line"].split("\t")[0]
+                cands = [e for e in d["items"] if e.get("prefab") == want]
+                if cands:
+                    new_guid = max(e["guid"] for e in cands)
+            if new_guid is None:
+                raise RuntimeError("重建之后找不到新实体（prefab=%r）" % (state["line"].split("\t")[0],))
+            self._ent_guid[int(target)] = int(new_guid)
             return
         raise ValueError("命令栈不支持的操作类型：%r" % (kind,))
 
@@ -478,6 +512,53 @@ class Sim:
                       "moved": True,
                       "undo_depth": st.depth, "version": st.version}
 
+    def spawn_via_stack(self, prefab, x, z):
+        """带撤销的生成。返回 (ok, dict)。
+
+        ★ target 用**负数占位**：push 会立刻执行 apply，而 apply 之后才知道新 guid。
+          （顺序反过来做不到 —— 栈的语义就是"push 即执行"。）
+          占位号与真实 guid 不可能撞：宿主 guid 都是正的。
+        """
+        self._spawn_seq = getattr(self, "_spawn_seq", 0) + 1
+        token = -int(self._spawn_seq)
+        line = "%s\t%.3f\t%.3f" % (prefab, float(x), float(z))
+        st = self._ensure_stack()
+        try:
+            st.push("ent", token, None, {"line": line}, merge=commands.MERGE_DISABLE,
+                    label="生成 " + prefab)
+        except Exception as e:                                   # noqa: BLE001
+            return False, {"error": "%s: %s" % (type(e).__name__, e)}
+        return True, {"guid": self._ent_guid.get(token), "prefab": prefab,
+                      "x": float(x), "z": float(z), "undo_depth": st.depth,
+                      "version": st.version}
+
+    def remove_via_stack(self, guid):
+        """带撤销的删除。返回 (ok, dict)。
+
+        ★ 撤销得到的是**新实体**（新 guid），只恢复 prefab/位置/白名单覆盖值。
+          接口里显式给出 `restores` 与 `guid_will_change`，
+          不让人以为"撤销 = 时间倒流"。
+        """
+        try:
+            line = self.api.entity_describe(int(guid))
+        except Exception as e:                                   # noqa: BLE001
+            return False, {"error": "%s: %s" % (type(e).__name__, e)}
+        if not isinstance(line, tuple):
+            line = (line,)
+        if len(line) < 1 or line[0] is None:
+            return False, {"error": str(line[1]) if len(line) > 1 else "描述失败"}
+        text = str(line[0])
+        st = self._ensure_stack()
+        try:
+            st.push("ent", int(guid), {"line": text}, None,
+                    merge=commands.MERGE_DISABLE, label="删除")
+        except Exception as e:                                   # noqa: BLE001
+            return False, {"error": "%s: %s" % (type(e).__name__, e)}
+        return True, {"guid": int(guid), "described": text,
+                      "restores": "prefab + 位置 + workleft/health（白名单）",
+                      "guid_will_change": True,
+                      "undo_depth": st.depth, "version": st.version}
+
     def undo(self):
         """撤销一步。返回 (ok, dict)。栈空返回 ok=False 且 error 里写"没有可撤销的"——
         调用方要把它当成 409，不是"成功但没变化"。"""
@@ -489,7 +570,7 @@ class Sim:
             cmd = st.undo()
         except Exception as e:                                   # noqa: BLE001
             return False, {"error": "撤销失败：%s: %s" % (type(e).__name__, e)}
-        return True, {"kind": cmd.kind, "target": cmd.target,
+        return True, {"kind": cmd.kind, "target": cmd.target, "label": cmd.label,
                       "to": cmd.before, "undo_depth": st.depth,
                       "can_redo": st.can_redo(), "version": st.version}
 
@@ -502,7 +583,7 @@ class Sim:
             cmd = st.redo()
         except Exception as e:                                   # noqa: BLE001
             return False, {"error": "重做失败：%s: %s" % (type(e).__name__, e)}
-        return True, {"kind": cmd.kind, "target": cmd.target,
+        return True, {"kind": cmd.kind, "target": cmd.target, "label": cmd.label,
                       "to": cmd.after, "undo_depth": st.depth,
                       "can_redo": st.can_redo(), "version": st.version}
 

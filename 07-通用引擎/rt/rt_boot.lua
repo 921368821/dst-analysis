@@ -2495,6 +2495,33 @@ local function scene_override_text(inst)
     return table.concat(parts, ";")
 end
 
+--- 把**一个**实体描述成场景行（M1-2，2026-10-22）：撤销"删除"要用它。
+---
+--- ★ 复用场景格式，不另立一套：`prefab\tx\tz[\t覆盖值]`。
+---   若另写一份"实体快照格式"，就有了两套字段白名单 ——
+---   将来加字段要改两处，漏一处就变成"撤销之后少恢复了一个字段"，
+---   而且不会报错（本工程母题：同一件事两处实现）。
+---
+--- ★ 诚实边界：这只包含 **prefab + 位置 + 白名单覆盖值（workleft/health）**。
+---   背包内容、任务、计时器、AI 记忆**都不在里面** —— 撤销删除得到的是一个
+---   "看起来一样"的新实体，不是原来那个实例。`guid` 也会变（新实体新号）。
+---   这个限制写在返回值里（`guid_will_change = true`），不藏在文档角落。
+function M.entity_describe(guid)
+    guid = tonumber(guid)
+    if guid == nil then return nil, "没给 guid" end
+    local inst = ent_table()[guid]
+    if inst == nil then return nil, "实体不存在（guid " .. tostring(guid) .. "）" end
+    local prefab = tostring(inst.prefab or "")
+    if prefab == "" then return nil, "这个实体没有 prefab，无法描述" end
+    local x, z = pos_of(inst)
+    if x == nil then return nil, "这个实体没有位置，无法描述" end
+    local ov = scene_override_text(inst)
+    if ov ~= "" then
+        return string.format("%s\t%.3f\t%.3f\t%s", prefab, x, z, ov)
+    end
+    return string.format("%s\t%.3f\t%.3f", prefab, x, z)
+end
+
 --- 导出当前世界为场景文本。一行一个实体：`prefab\tx\tz[\toverrides]`
 --- 跳过玩家（场景不含玩家）与"附属实体"（`*_classified`，它们是网络的镜子，不是内容）。
 function M.scene_export()
