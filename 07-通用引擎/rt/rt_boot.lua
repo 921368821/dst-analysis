@@ -2409,9 +2409,79 @@ end
 ---   一个"摆位置"的编辑器需要的就是这些；要存"这口锅里有什么"是下一层（C5 Prefab 覆盖）。
 ---   格式里留 `v` 版本号，是为了加字段时能拒绝旧文件而不是静默读错。
 
-local SCENE_VERSION = 1
+-- ★★ C5（2026-10-22）：v1 → v2，加**每实例覆盖值**（Prefab override）。
+--
+-- v1 只存 `prefab\tx\tz`，于是"砍了 3 下的树"重新导入之后又是满血 ——
+-- 那不是"关卡"，那是"同一批 prefab 重新摆一遍"。编辑器要能表达
+-- 「这棵树我调过了」，就必须有第 4 列。
+--
+-- 格式：`prefab\tx\tz\tkey=value;key=value`（第 4 列可省略 ⇒ 与 v1 兼容）
+--
+-- ★ 为什么只做**白名单字段**、不把整个组件的 OnSave 抄一遍：
+--   组件级序列化是 C7 的活（存档与版本迁移）。这里做的是"关卡里这一棵树的
+--   血量/剩余工作量"，字段少、可读、可校验。抄一份 OnSave 出来就是**两处实现**
+--   （本工程母题），将来 C7 改了组件字段，场景这边会静默读错。
+--   ⇒ 所以白名单是**显式的**、未知键**整份拒绝**（不是静默忽略）：
+--     "看起来存了其实没存"比"存不下"更坏。
+--
+-- ★ 写入方式必须走组件的官方入口，不能赋值字段：
+--   `Health:SetVal` 会触发 `oncurrenthealth`（同步 replica、判死亡）；
+--   直接 `hp.currenthealth = v` 只是改了个数，客户端血量条不动 ——
+--   这是"改对了但下游不知道"那一类。`workable.workleft` 原版 OnLoad 就是直接赋值
+--   （workable.lua:282），所以那边照原版来。
+local SCENE_VERSION = 2
 
---- 导出当前世界为场景文本。一行一个实体：`prefab\tx\tz`
+-- 白名单：键 -> (读, 写)。读返回 nil 表示"这个实体没有这个字段"，不写进文本。
+local SCENE_FIELDS = {
+    workleft = {
+        read = function(inst)
+            local wc = inst.components and inst.components.workable or nil
+            if wc == nil then return nil end
+            local ok, v = pcall(function() return wc.workleft end)
+            if not ok or type(v) ~= "number" then return nil end
+            return v
+        end,
+        write = function(inst, v)
+            local wc = inst.components and inst.components.workable or nil
+            if wc == nil then return false, "这个实体没有 workable（不能写 workleft）" end
+            wc.workleft = v          -- 原版 Workable:OnLoad 就是直接赋值
+            return true
+        end,
+    },
+    health = {
+        read = function(inst)
+            local hc = inst.components and inst.components.health or nil
+            if hc == nil then return nil end
+            local ok, v = pcall(function() return hc.currenthealth end)
+            if not ok or type(v) ~= "number" then return nil end
+            return v
+        end,
+        write = function(inst, v)
+            local hc = inst.components and inst.components.health or nil
+            if hc == nil then return false, "这个实体没有 health（不能写 health）" end
+            local ok, e = pcall(hc.SetVal, hc, v)
+            if not ok then return false, "SetVal 抛错：" .. tostring(e) end
+            return true
+        end,
+    },
+}
+
+-- 顺序固定的键列表：文本要字节确定（E22），遍历 table 的顺序不能靠运气
+local SCENE_FIELD_ORDER = { "health", "workleft" }
+
+local function scene_override_text(inst)
+    local parts = {}
+    for _, k in ipairs(SCENE_FIELD_ORDER) do
+        local f = SCENE_FIELDS[k]
+        local v = f and f.read(inst) or nil
+        if v ~= nil then
+            parts[#parts + 1] = string.format("%s=%.3f", k, v)
+        end
+    end
+    return table.concat(parts, ";")
+end
+
+--- 导出当前世界为场景文本。一行一个实体：`prefab\tx\tz[\toverrides]`
 --- 跳过玩家（场景不含玩家）与"附属实体"（`*_classified`，它们是网络的镜子，不是内容）。
 function M.scene_export()
     local lines = {}
@@ -2423,7 +2493,12 @@ function M.scene_export()
         if not skip then
             local x, z = pos_of(inst)
             if x ~= nil then
-                lines[#lines + 1] = string.format("%s\t%.3f\t%.3f", prefab, x, z)
+                local ov = scene_override_text(inst)
+                if ov ~= "" then
+                    lines[#lines + 1] = string.format("%s\t%.3f\t%.3f\t%s", prefab, x, z, ov)
+                else
+                    lines[#lines + 1] = string.format("%s\t%.3f\t%.3f", prefab, x, z)
+                end
                 n = n + 1
             end
         end
@@ -2462,16 +2537,35 @@ function M.scene_import(text)
     for line in text:gmatch("[^\n]+") do
         lineno = lineno + 1
         if line ~= "" then
-            local prefab, xs, zs = line:match("^([^\t]+)\t(-?%d+%.?%d*)\t(-?%d+%.?%d*)$")
+            -- 三列或四列：第 4 列是覆盖值（v1 没有这一列 ⇒ 兼容旧场景）
+            local prefab, xs, zs, ovs = line:match("^([^\t]+)\t(-?%d+%.?%d*)\t(-?%d+%.?%d*)\t?(.*)$")
             if prefab == nil then
-                return false, string.format("第 %d 行格式不对（要 prefab\\tx\\tz）：%s",
+                return false, string.format("第 %d 行格式不对（要 prefab\\tx\\tz[\\t覆盖值]）：%s",
                                             lineno, line)
             end
             local x, z = tonumber(xs), tonumber(zs)
             if x == nil or z == nil then
                 return false, string.format("第 %d 行坐标不是数字：%s", lineno, line)
             end
-            items[#items + 1] = { prefab = prefab, x = x, z = z }
+            local ov = {}
+            if ovs ~= nil and ovs ~= "" then
+                for pair in ovs:gmatch("[^;]+") do
+                    local k, vs = pair:match("^([%w_]+)=(-?%d+%.?%d*)$")
+                    if k == nil then
+                        return false, string.format("第 %d 行覆盖值格式不对（要 key=数字）：%s",
+                                                    lineno, pair)
+                    end
+                    if SCENE_FIELDS[k] == nil then
+                        -- ★ 未知键**整份拒绝**。静默忽略的话，用户改了个手写字段名
+                        --   会得到"导入成功但状态没变" —— 比直接报错难查十倍。
+                        return false, string.format(
+                            "第 %d 行有未知的覆盖字段 %q（支持的：%s）",
+                            lineno, k, table.concat(SCENE_FIELD_ORDER, ", "))
+                    end
+                    ov[k] = tonumber(vs)
+                end
+            end
+            items[#items + 1] = { prefab = prefab, x = x, z = z, ov = ov }
         end
     end
     if #items == 0 then return false, "场景里没有任何实体" end
@@ -2481,6 +2575,19 @@ function M.scene_import(text)
         local ok, inst = pcall(Core.SpawnPrefab, it.prefab)
         if ok and inst ~= nil then
             if inst.Transform ~= nil then inst.Transform:SetPosition(it.x, 0, it.z) end
+            -- ★ 覆盖值：按固定顺序写，写失败**要算失败**（不许"生成了就算成功"）。
+            for _, k in ipairs(SCENE_FIELD_ORDER) do
+                local v = it.ov[k]
+                if v ~= nil then
+                    local okw, why = SCENE_FIELDS[k].write(inst, v)
+                    if not okw then
+                        -- 回滚：这个实体已经生成了，留着就是一个"半恢复"的现场
+                        pcall(function() inst:Remove() end)
+                        return false, string.format("%s 的 %s 写不进去：%s",
+                                                    it.prefab, k, tostring(why))
+                    end
+                end
+            end
             made = made + 1
         end
     end

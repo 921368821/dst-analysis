@@ -4603,6 +4603,160 @@ def e15_craft_loop():
                   % (int(before), int(after), refused))
 
 
+def e23_scene_overrides():
+    """★★★ C5（2026-10-22）：场景 v2 —— 每实例覆盖值（Prefab override）。
+
+    v1 只存 `prefab\tx\tz`，于是「砍了 3 下的树」重新导入之后又是满血。
+    那不是「关卡」，那是「同一批 prefab 重新摆一遍」。
+
+    判据（正向三条 + 反向三条）：
+      ① 砍树一次 ⇒ 导出里该树带 `workleft=` 且**等于当前值**（不是满值）；
+      ② 清空 → 导入 ⇒ 同一棵树 workleft 等于导出时的值；
+      ③ 血量：把蜘蛛打掉一部分 ⇒ 导出 → 导入 ⇒ 血量恢复
+         （走 `Health:SetVal`，它会触发 `oncurrenthealth`；直接赋值字段的话
+          replica 不会知道 —— 那是「改对了但下游不知道」）；
+      ④ 反向：**v1 三列纯文本**仍能导入，且导入后 workleft 是满值 ——
+         这条同时证明 ② 不是恒真：如果 v2 的写入根本没执行，② 和 ④ 会一样绿；
+      ⑤ 反向：未知覆盖字段 `foo=1` ⇒ 整份被拒，且**点名行号与字段名**；
+      ⑥ 反向：给没有 workable 的实体写 `workleft=` ⇒ 失败且该实体被**回滚掉**
+         （不许留下「半恢复」的现场）。
+    """
+    s = Sim(seed=20261015, tick_hz=30, world_content=0).boot()
+
+    def ent(g):
+        ok, x = s.debug_entity(g)
+        return x if ok else {}
+
+    # 一棵树，砍一刀（workleft 下降）
+    ok, r = s.debug_spawn("evergreen", 4.0, 0.0)
+    if not ok:
+        return False, "种树失败：%s" % (r,)
+    g = r["guid"]
+    w0 = ent(g).get("workleft")
+    if w0 is None:
+        return False, "读不到树的 workleft"
+    s.api.act(0, g)
+    w1 = w0
+    for _ in range(240):
+        s.step()
+        w = ent(g).get("workleft")
+        if w is not None and w != w0:
+            w1 = w
+            break
+    if w1 == w0:
+        return False, "砍了一拍但 workleft 没变（%r）—— 判据前提不成立" % (w0,)
+
+    # ① 导出带 workleft 且等于当前值
+    ok, exp = s.scene_export()
+    if not ok:
+        return False, "导出失败：%s" % (exp,)
+    row = [l for l in exp["text"].split("\n") if l.startswith("evergreen")]
+    if not row:
+        return False, "导出里没有 evergreen 行：%r" % (exp["text"][:200],)
+    line = row[0]
+    if "workleft=" not in line:
+        return False, "导出没有带上 workleft：%r" % (line,)
+    got = float(line.split("workleft=")[1].split(";")[0])
+    if abs(got - w1) > 0.01:
+        return False, "导出写的 workleft=%r，实际是 %r" % (got, w1)
+
+    # ② 清空 → 导入 ⇒ 值恢复
+    s.scene_clear()
+    ok, ri = s.scene_import(exp["text"])
+    if not ok:
+        return False, "导入失败：%s" % (ri,)
+    ok, d = s.debug_entities(999)
+    back = [x for x in d["items"] if x.get("prefab") == "evergreen"]
+    if len(back) != 1:
+        return False, "导入后有 %d 棵树（期望 1）" % (len(back),)
+    w2 = ent(back[0]["guid"]).get("workleft")
+    if w2 is None or abs(w2 - w1) > 0.01:
+        return False, "导入后 workleft=%r，期望 %r —— 覆盖值没被应用" % (w2, w1)
+
+    # ③ 血量覆盖
+    ok, rs = s.debug_spawn("spider", 6.0, 0.0)
+    if not ok:
+        return False, "spawn 蜘蛛失败：%s" % (rs,)
+    sg = rs["guid"]
+    hp0 = ent(sg).get("hp")
+    if hp0 is None:
+        return False, "读不到蜘蛛血量"
+    s.lua.globals().RT = s.api
+    # 走真实组件入口扣血（不是直接改字段）
+    s.lua.eval("""
+      (function()
+        for _, inst in pairs(TheSim:FindEntities(6.0, 0, 0.0, 2.0)) do
+          if inst.prefab == "spider" and inst.components.health then
+            inst.components.health:SetVal(inst.components.health.currenthealth - 20)
+          end
+        end
+        return 1
+      end)()""")
+    hp1 = ent(sg).get("hp")
+    if hp1 is None or hp1 >= hp0:
+        return False, "扣血没生效（%r → %r）—— 血量覆盖的前提不成立" % (hp0, hp1)
+    ok, exp2 = s.scene_export()
+    sline = [l for l in exp2["text"].split("\n") if l.startswith("spider")]
+    if not sline or "health=" not in sline[0]:
+        return False, "导出里蜘蛛行没带 health：%r" % (sline[:1],)
+    if abs(float(sline[0].split("health=")[1].split(";")[0]) - hp1) > 0.01:
+        return False, "导出写的 health 与当前血量不一致：%r vs %r" % (sline[0], hp1)
+    s.scene_clear()
+    ok, _ = s.scene_import(exp2["text"])
+    if not ok:
+        return False, "带 health 覆盖的场景导入失败"
+    ok, d2 = s.debug_entities(999)
+    sp = [x for x in d2["items"] if x.get("prefab") == "spider"]
+    if not sp:
+        return False, "导入后没有蜘蛛"
+    hp2 = ent(sp[0]["guid"]).get("hp")
+    if hp2 is None or abs(hp2 - hp1) > 0.01:
+        return False, "导入后蜘蛛血量 %r，期望 %r（health 覆盖没应用）" % (hp2, hp1)
+
+    # ④ 反向：v1 三列仍能导入，且 workleft 是满值
+    s.scene_clear()
+    ok, rv = s.scene_import("evergreen\t8.000\t0.000")
+    if not ok:
+        return False, "v1 三列场景导入失败（向后兼容破了）：%s" % (rv,)
+    ok, d3 = s.debug_entities(999)
+    t3 = [x for x in d3["items"] if x.get("prefab") == "evergreen"]
+    if not t3:
+        return False, "v1 导入后没有树"
+    wv = ent(t3[0]["guid"]).get("workleft")
+    if wv is None:
+        return False, "v1 导入后读不到 workleft"
+    if abs(wv - w1) < 0.01:
+        return False, ("v1（无覆盖）导入后 workleft 竟然等于被砍过的 %r —— "
+                       "说明 ② 的恢复不是覆盖值做的（判据恒真）" % (w1,))
+
+    # ⑤ 反向：未知字段整份被拒
+    n_before = s.scene_export()[1]["n"]
+    ok, rb = s.scene_import("evergreen\t1.000\t1.000\tfoo=1")
+    if ok:
+        return False, "未知覆盖字段 foo 竟然被接受了（静默忽略最坏）"
+    msg = str(rb.get("error", ""))
+    if "第 1 行" not in msg or "foo" not in msg:
+        return False, "拒绝理由没说清行号与字段名：%r" % (msg,)
+    if s.scene_export()[1]["n"] != n_before:
+        return False, "被拒之后世界反而变了"
+
+    # ⑥ 反向：写不进就回滚（log 没有 workable）
+    n_before = s.scene_export()[1]["n"]
+    ok, rc = s.scene_import("log\t0.000\t0.000\tworkleft=3")
+    if ok:
+        return False, "给 log 写 workleft 竟然成功（它没有 workable）"
+    if "workable" not in str(rc.get("error", "")):
+        return False, "拒绝理由没说是缺 workable：%r" % (rc.get("error"),)
+    after = s.scene_export()[1]["n"]
+    if after != n_before:
+        return False, ("写失败之后世界多了 %d 个实体 —— 已经 spawn 出来的那个没回滚，"
+                       "留下了一个半恢复的现场" % (after - n_before,))
+
+    return True, ("砍刀后导出带 workleft=%.1f ✔ / 导入恢复同一值 ✔ / 血量 SetVal 后导出导入一致（%.0f）✔ / "
+                  "v1 三列仍可导入且是满值 %.1f（证明 ② 不是恒真）✔ / 未知字段点名拒绝 ✔ / "
+                  "写不进时回滚不留现场 ✔" % (w1, hp1, wv))
+
+
 def e22_scene_roundtrip():
     """★★★ C4（2026-10-22）：场景导出/导入 —— 编辑器"改完能存、下次能开"的闭环。
 
@@ -4639,11 +4793,20 @@ def e22_scene_roundtrip():
     lines = [l for l in exp["text"].split("\n") if l]
     if len(lines) != exp["n"]:
         return False, "导出说 %d 个，文本里却有 %d 行（两个数必须对得上）" % (exp["n"], len(lines))
+    # ★ C5 起导出是 3 列或 4 列（第 4 列是每实例覆盖值，v1 场景没有这一列）。
+    #   这条判据只验"能解析"，覆盖值的语义由 E23 负责 —— 两层分工，
+    #   因为"格式对不对"和"值有没有恢复"是两种完全不同的失败。
     for l in lines[:3]:
         f = l.split("\t")
-        if len(f) != 3:
-            return False, "导出行不是三列：%r" % (l,)
+        if len(f) not in (3, 4):
+            return False, "导出行不是 3/4 列：%r" % (l,)
         float(f[1]); float(f[2])
+        if len(f) == 4:
+            for pair in f[3].split(";"):
+                k, v = pair.split("=", 1)
+                if k not in ("health", "workleft"):
+                    return False, "导出里出现未知覆盖字段 %r：%r" % (k, l)
+                float(v)
 
     before = non_player_count()
     if before is None:
@@ -5378,6 +5541,7 @@ def e14_editor_channel():
 
 check("E13 战斗闭环：打生物 → 掉血 → 死 → 掉战利品；反向：太远被拒 · 树仍走 CHOP", e13_attack_loop)
 check("E14 编辑器通道：列/生成/移动/删除全回读；反向：玩家删除被拒 · /debug 仍 404", e14_editor_channel)
+check("E23 场景覆盖值(C5)：砍刀/掉血后导出带 workleft+health · 导入逐值恢复；反向：v1 仍可导入(满值) · 未知字段点名拒绝 · 写不进则回滚", e23_scene_overrides)
 check("E22 场景往返：导出 N 个 · 清空只剩玩家 · 导入 N 个且二次导出字节相同；反向：坏场景整份被拒 · 空文本被拒", e22_scene_roundtrip)
 check("E21 碰撞：有树时停在树前（不穿过）· 阻挡计数>0 · 再按3秒仍不过去；反向：空世界能走很远", e21_no_walking_through_trees)
 check("E20 存档字节确定性：同状态三次采集 sha256 全同；反向：挪一个实体必变", e20_save_bytes_deterministic)
