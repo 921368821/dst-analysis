@@ -727,11 +727,54 @@ def _wait_own_world(proc, logp, port, what, t0, timeout=20.0, logfile=None):
                 raise RuntimeError(
                     "端口 %d 上已经有**别人的**服务端在听（我起的那个还没打印 banner，"
                     "很可能正因「端口已被占用」退出）—— 拒绝在别人的世界上跑这一组。"
-                    "日志：%s" % (port, logp))
+                    "日志：%s%s" % (port, logp, _port_owner_hint(port)))
         except OSError:
             pass
         time.sleep(0.1)
     raise RuntimeError("%s %.0f s 内未监听（日志：%s）" % (what, timeout, logp))
+
+
+def _port_owner_hint(port):
+    """谁在听这个端口 → 一句**能照着修**的话（拿不到就返回空串）。
+
+    ★ 为什么要这个：一次 `sleep` 被中断之后，我起的服务端进程留了下来占着 8791，
+      之后**每一次**全量回归都红在「拒绝在别人的世界上跑」——而那台服务端
+      是我自己 20 分钟前起的，早就该被杀掉了。
+      报错说得没错，但它**没告诉人下一步做什么**：看到的人只会去查"是不是端口冲突"，
+      然后在 5 个 python.exe 里猜哪个是罪魁祸首。
+      ⇒ 判据的红要能直接导向动作：**是哪个 PID，用什么命令收掉它**。
+      ⚠️ 这段跑在**报错路径**上，任何异常都必须被吞掉：
+         为了打印错误信息再抛一个异常，会把真因盖掉。
+    """
+    import subprocess
+    try:
+        # ★ 不能用 `text=True`：Windows 的 netstat 输出是**本地编码（GBK）**，
+        #   Python 默认按 UTF-8 解码 ⇒ UnicodeDecodeError 在子线程里抛出、
+        #   在这里表现为"拿不到提示"（第一次实测就是空串）。
+        #   ⇒ 抓 bytes 再 `decode(errors="replace")`：数字列是 ASCII，坏字节只影响表头。
+        if os.name == "nt":
+            r = subprocess.run(["netstat", "-ano"], capture_output=True, timeout=5)
+            out = (r.stdout or b"").decode("utf-8", "replace")
+            pid = None
+            for line in out.splitlines():
+                f = line.split()
+                if len(f) >= 5 and f[0].upper() == "TCP" and f[1].endswith(":%d" % port) \
+                   and f[3].upper() == "LISTENING":
+                    pid = f[4]
+                    break
+            if pid:
+                return ("\n    占着这个端口的是 PID %s —— 先收掉它再跑：taskkill /PID %s /F"
+                        % (pid, pid))
+        else:
+            r = subprocess.run(["lsof", "-ti", "tcp:%d" % port], capture_output=True, timeout=5)
+            pids = [x.strip() for x in (r.stdout or b"").decode("utf-8", "replace").split()
+                    if x.strip()]
+            if pids:
+                return ("\n    占着这个端口的是 PID %s —— 先收掉它再跑：kill -9 %s"
+                        % (" ".join(pids), " ".join(pids)))
+    except Exception:                                            # noqa: BLE001
+        pass
+    return ""
 
 
 def _start_server():
@@ -1406,9 +1449,37 @@ def b21_record_survives_hard_kill():
                 json.dumps({"k": k, "v": v}).encode("utf-8")))
             time.sleep(ms / 1000.0)
         sock.close()
-        # ★ 再等一个落盘周期（RECORD_FLUSH_SEC=5），确保周期落盘至少跑过一次 ——
-        #   然后**硬杀**（模拟 taskkill /F）
-        time.sleep(6.5)
+        # ★★★ 不能只 `sleep(6.5)` 然后赌"周期落盘跑过了"：
+        #   `RECORD_FLUSH_SEC=5` 是**墙钟**，但服务端的落盘是靠仿真循环推的 ——
+        #   机器一忙（比如同一台机器上还有别的回归在跑），6.5 s 里可能一次 flush
+        #   都没轮到，于是判据红成「硬杀之后录像文件不存在」。
+        #   那不是被测代码的问题，是**判据把"墙钟余量"当成了保证**
+        #   （2026-10-22 实测：并行跑时红过一次，单独跑就绿）。
+        #   ⇒ 改成**轮询**：等到录像第一次**可解析且非空**（最多 20 s），然后才硬杀。
+        #     语义没变（仍然是"周期落盘写过 → 硬杀 → 文件还在"），
+        #     但不再依赖"机器有多闲"。拿不到就明确报"20 s 内一次都没落盘"，
+        #     让下一个人去查 RECORD_FLUSH_SEC，而不是猜进程怎么了。
+        flushed = False
+        deadline = time.time() + 20.0
+        while time.time() < deadline:
+            if proc.poll() is not None:
+                return False, "服务端在等待落盘期间退出了（日志：%s）" % (
+                    (proc.stdout.read() or "")[:300],)
+            try:
+                if os.path.isfile(rec) and os.path.getsize(rec) > 0:
+                    with io.open(rec, encoding="utf-8") as f:
+                        d0 = json.load(f)
+                    if (d0.get("hashes") or []) and (d0.get("events") or []):
+                        flushed = True
+                        break
+            except Exception:                                    # noqa: BLE001
+                pass                     # 正在写（读到半个文件）⇒ 下一轮再试
+            time.sleep(0.3)
+        if not flushed:
+            return False, ("20 s 内录像**一次都没落盘**（周期落盘是 RECORD_FLUSH_SEC=%s s）—— "
+                           "这条判据验的是「周期落盘存在且硬杀后还在」，"
+                           "不是「进程能活多久」。请先确认 flush 周期没被改大、"
+                           "服务端仿真循环没卡住" % (os.environ.get("RECORD_FLUSH_SEC", "5"),))
     finally:
         proc.kill()
         try:
@@ -6186,6 +6257,128 @@ def e16_equip_and_tool():
                   % (nlog, inv_n))
 
 
+def e39_timer_contract():
+    """★★★ G3（2026-10-22）：计时器契约 —— `DoTaskInTime` / `DoPeriodicTask` / `Cancel`。
+
+    这条判据之前整个仓库**一条都没有**（`DoTaskInTime` 在 tests/ 里出现 0 次）。
+    而计时器是全engine 最容易"静默失效"的东西：它不报错、不崩、不影响画面，
+    只是**该发生的事不发生**。腐烂（E36）、AI 决策、状态图的定时跳转全都压在它上面。
+
+    实测（写判据前先探过一遍，四个行为都对）：
+      0.5 s 的任务在第 16 拍（0.533 s）触发一次；0.2 s 的周期任务 40 拍跑 6 次；
+      `Cancel` 之后 0 次；实体删除之后 0 次；任务里再排一个 0 延迟任务，下一拍跑。
+
+    判据（正向四条 + 反向三条）：
+      ① `DoTaskInTime(0.5)` 在 30 Hz 下于第 **15~18** 拍之间触发**恰好一次**
+         （窗口而不是精确拍：离散 tick 的粒度就是 1/30 s，断言"第 16 拍"是断言语义之外的东西）；
+      ② `DoPeriodicTask(0.2)` 走 60 拍（2 s）触发 **9~11** 次（理论 10）；
+      ③ `Cancel()` 之后一次都不触发；
+      ④ **实体被删掉之后，挂在它身上的任务不再触发** —— 这条最要紧：
+         宿主是遍历"快照 + IsValid 过滤"来跑任务的，如果哪天改成遍历全表，
+         删掉的实体上的任务会照样跑，操作半死对象（与 C2 的悬空引用同一个坑）；
+      ⑤ 反向：任务里再排一个 0 延迟任务 ⇒ 外层与内层都跑（共 2 次），不会丢；
+      ⑥ 反向：**不 step 就不许触发**（时间来源必须是 `Sim.Step` 推进的，不是墙钟）；
+      ⑦ 反向：`NextTime()` 报的是绝对时间，且周期任务的 NextTime 会往后推
+         （如果它一直不动，说明周期任务其实只排了一次）。
+
+    ⚠️ 不验精确拍号：窗口 15~18 是给"首个 dt 的累加顺序"留的余量 ——
+       真实引擎里也存在这种 1 拍内的偏移，把它写死会让判据变成"只有当前实现能过"。
+    """
+    s = Sim(seed=20261015, tick_hz=30, world_content=0).boot()
+    L = s.lua
+    L.globals().RT = s.api
+
+    ok, r = s.debug_spawn("evergreen", 3.0, 0.0)
+    if not ok:
+        return False, "种不出树：%s" % (r,)
+    g = r["guid"]
+
+    def setup(lua):
+        L.eval("(function() local C = require('host.01_core') "
+               "local e = C.Spawned[%d] %s return 1 end)()" % (g, lua))
+
+    # ---------- ① DoTaskInTime 在 0.5 s 附近触发恰好一次
+    setup("_G.T1 = 0 e:DoTaskInTime(0.5, function() T1 = T1 + 1 end)")
+    hit = None
+    for i in range(1, 40):
+        s.step()
+        if int(L.eval("T1")) == 1 and hit is None:
+            hit = i
+    n1 = int(L.eval("T1"))
+    if n1 != 1:
+        return False, "0.5 s 的 DoTaskInTime 触发 %d 次（期望恰好 1 次）" % (n1,)
+    if hit is None or not (14 <= hit <= 19):
+        return False, ("0.5 s 的任务在第 %r 拍触发（期望 14~19，30 Hz 下 0.5 s ≈ 15 拍）—— "
+                       "时间基准或 tick 推进有问题" % (hit,))
+
+    # ---------- ② DoPeriodicTask 的次数
+    setup("_G.T2 = 0 e:DoPeriodicTask(0.2, function() T2 = T2 + 1 end)")
+    for _ in range(60):          # 2 s
+        s.step()
+    n2 = int(L.eval("T2"))
+    if not (8 <= n2 <= 12):
+        return False, ("0.2 s 的周期任务在 2 s 内跑了 %d 次（期望 ≈10）—— "
+                       "周期没被遵守（跑太快=每拍都跑，太慢=只排了一次）" % (n2,))
+
+    # ---------- ⑦ 周期任务的 NextTime 会往后推
+    setup("_G.T3 = 0 _G.H3 = e:DoPeriodicTask(0.2, function() T3 = T3 + 1 end)")
+    a = float(L.eval("H3:NextTime()"))
+    for _ in range(12):
+        s.step()
+    b = float(L.eval("H3:NextTime()"))
+    if not (b > a):
+        return False, ("周期任务的 NextTime 没有往后推（%r → %r）—— "
+                       "它其实只排了一次，后面的次数是别的东西在跑" % (a, b))
+
+    # ---------- ③ Cancel 之后不再触发
+    setup("_G.T4 = 0 _G.H4 = e:DoTaskInTime(0.2, function() T4 = T4 + 1 end)")
+    L.eval("(function() H4:Cancel() return 1 end)()")
+    for _ in range(30):
+        s.step()
+    n4 = int(L.eval("T4"))
+    if n4 != 0:
+        return False, "Cancel 之后仍然触发了 %d 次" % (n4,)
+
+    # ---------- ⑤ 任务里再排 0 延迟任务
+    setup("_G.T5 = 0 "
+          "e:DoTaskInTime(0.1, function() T5 = T5 + 1 "
+          "e:DoTaskInTime(0, function() T5 = T5 + 10 end) end)")
+    for _ in range(10):
+        s.step()
+    n5 = int(L.eval("T5"))
+    if n5 != 11:
+        return False, ("任务里再排一个 0 延迟任务后累计 %r（期望 11）—— "
+                       "要么内层被丢了，要么同一拍里被无条件执行" % (n5,))
+
+    # ---------- ⑥ 不 step 就不许触发（时间不能来自墙钟）
+    setup("_G.T6 = 0 e:DoTaskInTime(0.05, function() T6 = T6 + 1 end)")
+    import time as _t
+    _t.sleep(0.35)               # 真实墙钟过 0.35 s，但一拍都没走
+    n6 = int(L.eval("T6"))
+    if n6 != 0:
+        return False, ("没 step 也触发了 %d 次 —— 时间来源是墙钟而不是仿真时钟" % (n6,))
+
+    # ---------- ④ 实体删除之后任务不再触发
+    ok, r2 = s.debug_spawn("evergreen", 6.0, 0.0)
+    if not ok:
+        return False, "第二棵树种不出来：%s" % (r2,)
+    g2 = r2["guid"]
+    L.eval("(function() local C = require('host.01_core') "
+           "_G.T7 = 0 C.Spawned[%d]:DoTaskInTime(0.1, function() T7 = T7 + 1 end) "
+           "return 1 end)()" % g2)
+    s.api.debug_remove(g2)
+    for _ in range(20):
+        s.step()
+    n7 = int(L.eval("T7"))
+    if n7 != 0:
+        return False, ("实体删掉之后挂在它身上的任务仍然触发了 %d 次 —— "
+                       "任务函数会去操作一个半死对象（与 C2 悬空引用同一类）" % (n7,))
+
+    return True, ("0.5 s 任务第 %r 拍触发恰好一次 ✔ / 0.2 s 周期任务 2 s 内 %d 次 ✔ / "
+                  "NextTime 往后推 ✔ / Cancel 后 0 次 ✔ / 嵌套 0 延迟 = 11 ✔ / "
+                  "不 step 不触发 ✔ / 删实体后 0 次 ✔" % (hit, n2))
+
+
 def e38_inventory_perish_visible():
     """★★★ G3b（2026-10-22）：背包里的食物**带着腐烂进度出来**。
 
@@ -7088,6 +7281,7 @@ def e14_editor_channel():
 
 
 check("E13 战斗闭环：打生物 → 掉血 → 死 → 掉战利品；反向：太远被拒 · 树仍走 CHOP", e13_attack_loop)
+check("E39 计时器契约(G3)：0.5s 任务在第 14~19 拍触发恰好一次 · 周期 2s 内 10 次 · NextTime 往后推 · Cancel 后 0 次 · 嵌套 0 延迟不丢 · 不 step 不触发 · 删实体后 0 次", e39_timer_contract)
 check("E38 背包里的腐烂进度上屏(G3b)：新鲜 pr=1.0 · 20%/0% 逐档对上且 0 不是缺失；反向：石头没有 pr 键 · 合并是加权平均", e38_inventory_perish_visible)
 check("E37 被吞掉的错误必须为 0(I2 横切)：60 秒组件/大脑泵真的在跑 · ComponentErrors 为空 · PhysicsErrors=0；阳性对照：注入抛错组件⇒计数增长且 Stop 后冻结", e37_no_swallowed_errors)
 check("E36 食物真的会烂(G3)：perishtime/满进度/任务已排 · 60 秒单调下降≥40 秒 · 烂完**变成 spoiled_food**（一换一）；反向：StopPerishing 后冻结 · SetPercent 生效", e36_food_perishes)
