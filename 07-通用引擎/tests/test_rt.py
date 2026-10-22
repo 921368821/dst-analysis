@@ -6186,6 +6186,98 @@ def e16_equip_and_tool():
                   % (nlog, inv_n))
 
 
+def e34_every_edit_verb_is_undoable():
+    """★★★ J2（2026-10-22）：**每一个编辑动词都能一次撤销回去** —— meta 判据。
+
+    为什么单独写一条"汇总"判据：E18/E25/E29 各自验过 move / spawn / remove /
+    scene_import / scene_clear，但它们**分散在三条判据里、各自造自己的世界**。
+    将来加一个新的编辑动作（比如"原地复制"），只要没人记得给它写判据，
+    它就会**不进栈**——而"不进栈"是静默的：操作成功、界面正常、按 Ctrl+Z 回到更早的状态，
+    用户只会觉得"撤销有时不灵"。
+
+    这条判据的做法：把动词列成一张表，逐个走同一条流水线 ——
+      ① 新世界 + 直接 debug_spawn 把世界摆成已知状态（**不进栈**，保证栈是空的）；
+      ② 记下世界文本 T0；
+      ③ 执行动词；断言世界文本变了（**没变说明这个动作压根没生效，
+         后面"撤销成功"就毫无意义** —— 这是最关键的一条防恒真）；
+      ④ undo 一次；断言世界文本**逐字节**回到 T0；
+      ⑤ 断言栈深回到 0（不许剩下半条）。
+
+    ⚠️ 表里每加一个动词，就等于给未来的编辑动作留了一个必须通过的入口。
+       判据标题里写清"这是表驱动的"：不写的话，下一个人会以为它只测了这五个。
+    """
+    def fresh():
+        sim = Sim(seed=20261015, tick_hz=30, world_content=0).boot()
+        sim.debug_spawn("evergreen", 2.0, 0.0)
+        sim.debug_spawn("evergreen", 6.0, 2.0)
+        return sim
+
+    def txt(sim):
+        ok, e = sim.scene_export()
+        if not ok:
+            raise RuntimeError("导出失败：%s" % (e.get("error"),))
+        return e["text"]
+
+    # 每个动词：给一个"新世界"返回 (动词描述, 执行函数)
+    def _move(s):
+        # ★ 必须挑**有 Transform** 的实体：列表第一个常是 `player_classified`
+        #   这类附属实体（挪它会报「实体没有 Transform」）—— 与 E20 踩的是同一个坑。
+        ok, d = s.debug_entities(999)
+        g = [x for x in d["items"] if x.get("prefab") == "evergreen"][0]["guid"]
+        return s.move_via_stack(g, 12.5, -3.5)
+
+    def _spawn(s):
+        return s.spawn_via_stack("berrybush", 8.0, 8.0)
+
+    def _remove(s):
+        ok, d = s.debug_entities(999)
+        g = [x for x in d["items"] if x.get("prefab") == "evergreen"][0]["guid"]
+        return s.remove_via_stack(g)
+
+    def _import(s):
+        return s.scene_import_stacked("evergreen\t1.000\t1.000\nevergreen\t3.000\t1.000")
+
+    def _clear(s):
+        return s.scene_clear_stacked()
+
+    verbs = [
+        ("移动 move", _move),
+        ("生成 spawn", _spawn),
+        ("删除 remove", _remove),
+        ("导入 scene_import", _import),
+        ("清空 scene_clear", _clear),
+    ]
+
+    report = []
+    for name, fn in verbs:
+        s = fresh()
+        t0 = txt(s)
+        if s.undo_stats().get("undo", -1) != 0:
+            return False, "%s：新世界的栈不是空的（%r）—— 判据前提不成立" % (
+                name, s.undo_stats().get("undo"))
+        ok, info = fn(s)
+        if not ok:
+            return False, "%s：执行失败 %s" % (name, info)
+        t1 = txt(s)
+        if t1 == t0:
+            return False, ("%s：执行之后世界文本**没变** —— 动作没生效，"
+                           "那么后面的「撤销成功」毫无意义（这条断言就是防这个）" % (name,))
+        if s.undo_stats().get("undo", -1) != 1:
+            return False, "%s：执行后栈深 %r（期望 1）—— 没进栈或进了多步" % (
+                name, s.undo_stats().get("undo"))
+        ok, ru = s.undo()
+        if not ok:
+            return False, "%s：撤销失败 %s" % (name, ru)
+        t2 = txt(s)
+        if t2 != t0:
+            return False, ("%s：撤销一次之后世界文本**没有**逐字节回到执行前：\n"
+                           "     前 %r\n     后 %r" % (name, t0[:120], t2[:120]))
+        if s.undo_stats().get("undo", -1) != 0:
+            return False, "%s：撤销后栈深 %r（期望 0）" % (name, s.undo_stats().get("undo"))
+        report.append(name)
+
+    return True, ("表驱动 %d 个编辑动词，逐个「执行 → 文本变 → undo → 逐字节回原样 → 栈清空」：%s"
+                  % (len(report), " / ".join(report)))
 def e33_remove_reports_detached():
     """★★★ C2（2026-10-22）：删除要**说出**它摘掉了几个子实体。
 
@@ -6488,6 +6580,7 @@ def e14_editor_channel():
 
 
 check("E13 战斗闭环：打生物 → 掉血 → 死 → 掉战利品；反向：太远被拒 · 树仍走 CHOP", e13_attack_loop)
+check("E34 每个编辑动词都能一次撤销(J2，表驱动)：move/spawn/remove/scene_import/scene_clear 逐个「执行→文本变→undo→逐字节回原样→栈清空」", e34_every_edit_verb_is_undoable)
 check("E33 删除要说出摘掉几个子实体(C2)：删父回报 detached=2 且子仍在原位、_parent=nil；反向：无子实体报 0 · 直接删孩子报 0（增量不是累计）", e33_remove_reports_detached)
 check("E32 HTTP 两条缝(C3c)：POST JSON body 生效 · 中文名 URL 编码后能存；反向：白名单外键被忽略 · 坏 JSON 给可读拒绝不是 500", e32_http_post_and_unquote)
 check("E14 编辑器通道：列/生成/移动/删除全回读；反向：玩家删除被拒 · /debug 仍 404", e14_editor_channel)
