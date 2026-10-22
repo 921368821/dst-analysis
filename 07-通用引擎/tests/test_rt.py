@@ -6186,6 +6186,255 @@ def e16_equip_and_tool():
                   % (nlog, inv_n))
 
 
+def e38_inventory_perish_visible():
+    """★★★ G3b（2026-10-22）：背包里的食物**带着腐烂进度出来**。
+
+    E36 证明了食物真的会烂；但 HUD 只写 `berries×3` —— 玩家看不到哪堆快坏了，
+    于是"该先吃哪个"这个最基本的生存决策**没有依据**。机制在，玩家无从使用。
+    （同一类病本工程犯过一次：P39，血/饿/理智全在服务端，屏幕上一个字都没有。）
+
+    判据（正向三条 + 反向两条）：
+      ① 新鲜食物：`pr == 1.0`（不是"有这个键"就算过 —— 值必须是真实的满进度）；
+      ② 压到 20% ⇒ `pr == 0.2`；压到 0 ⇒ `pr == 0.0` **且键仍然在**
+         （0 是"已经烂了"，不能因为 0 是假值就变成缺字段 —— 那正是最该警告的情况）；
+      ③ **反向：石头没有 `pr` 键**（`"pr" not in row`）。缺失 ≠ 0：
+         写成 0 会让 HUD 显示 `rocks(0%)`，看起来像"石头烂透了"；
+      ④ 反向：`n` 仍然对（加字段不能把老字段挤掉）；
+      ⑤ 原版行为锁定：20 个压到 20% 再合并 20 个 100% ⇒ 合并后 `pr ≈ 0.6`
+         —— 原版 `inventory:AddItem` 对 perishable 做的是**加权平均**。
+         ★ 这条同时解释了"为什么不需要 `mix` 标志"：同 prefab 会自动并成一格，
+           一格只有**一个**新鲜度（我第一版加了 `mix`，实测发现是死代码，删了）。
+
+    ⚠️ `pr` 是**四舍五入到 1%** 的（HUD 一行放不下小数），断言按 0.01 的精度。
+    """
+    s = Sim(seed=20261015, tick_hz=30, world_content=0).boot()
+    L = s.lua
+    L.globals().RT = s.api
+
+    def rows():
+        return s.player_state(0)["items"]
+
+    def row_of(p):
+        for x in rows():
+            if x.get("p") == p:
+                return x
+        return None
+
+    def set_percent(p, pct):
+        L.eval("""(function()
+          local inv = RT.player.components.inventory
+          for _, it in pairs(inv.itemslots) do
+            if it ~= nil and it.prefab == %r then
+              local pr = it.components and it.components.perishable
+              if pr ~= nil then pr:SetPercent(%s) end
+            end
+          end
+          return 1
+        end)()""" % (p, repr(float(pct))))
+
+    ok, r = s.debug_give(0, "berries", 3)
+    if not ok:
+        return False, "给不了 berries：%s" % (r,)
+    ok, r = s.debug_give(0, "rocks", 2)
+    if not ok:
+        return False, "给不了 rocks：%s" % (r,)
+
+    # ① 新鲜食物 pr == 1.0
+    b = row_of("berries")
+    if b is None:
+        return False, "背包行里没有 berries：%r" % (rows(),)
+    if "pr" not in b:
+        return False, ("berries 行没有 `pr` 字段（%r）—— 腐烂进度没上屏，"
+                       "玩家看不到这堆快坏了" % (b,))
+    if abs(b["pr"] - 1.0) > 0.01:
+        return False, "刚给的 berries pr=%r，期望 1.0" % (b["pr"],)
+    if b.get("n") != 3:
+        return False, "加字段把老字段挤掉了：berries n=%r（期望 3）" % (b.get("n"),)
+
+    # ③ 反向：石头**没有** pr 键
+    rk = row_of("rocks")
+    if rk is None:
+        return False, "背包行里没有 rocks：%r" % (rows(),)
+    if "pr" in rk:
+        return False, ("石头也有 pr=%r —— 「不适用」被写成了数字，"
+                       "HUD 会显示 `rocks(0%)`，看起来像石头烂透了" % (rk["pr"],))
+
+    # ② 20% / 0% 两档
+    set_percent("berries", 0.2)
+    b = row_of("berries")
+    if abs(b["pr"] - 0.2) > 0.01:
+        return False, "压到 20%% 后 pr=%r" % (b["pr"],)
+    set_percent("berries", 0)
+    b = row_of("berries")
+    if "pr" not in b:
+        return False, ("烂到 0 之后 `pr` 键**消失了** —— 0 被当成缺失，"
+                       "最该警告的情况反而看不见")
+    if abs(b["pr"]) > 0.001:
+        return False, "烂到 0 之后 pr=%r，期望 0.0" % (b["pr"],)
+
+    # ⑤ 合并是加权平均（原版行为）
+    s2 = Sim(seed=20261015, tick_hz=30, world_content=0).boot()
+    L2 = s2.lua
+    L2.globals().RT = s2.api
+    s2.debug_give(0, "berries", 20)
+    L2.eval("""(function()
+      local inv = RT.player.components.inventory
+      for _, it in pairs(inv.itemslots) do
+        if it ~= nil and it.prefab == "berries" then it.components.perishable:SetPercent(0.2) end
+      end
+      return 1
+    end)()""")
+    s2.debug_give(0, "berries", 20)
+    rows2 = s2.player_state(0)["items"]
+    bb = [x for x in rows2 if x.get("p") == "berries"]
+    if len(bb) != 1:
+        return False, "两次给 20 个 berries 之后有 %d 行（期望并成 1 行）" % (len(bb),)
+    if abs(bb[0].get("pr", -1) - 0.6) > 0.05:
+        return False, ("20 个 20%% + 20 个 100%% 合并后 pr=%r，期望 ≈0.6（加权平均）—— "
+                       "如果这里是 0.2 或 1.0，说明合并语义变了，"
+                       "那 HUD 上的数字会骗人" % (bb[0].get("pr"),))
+
+    return True, ("新鲜 berries pr=1.0 且 n=3 完好 ✔ / 20%%→0.2、0%%→0.0 且键仍在 ✔ / "
+                  "石头**没有** pr 键（缺失≠0）✔ / 合并是加权平均（20%%+100%%→%r）✔"
+                  % (bb[0].get("pr"),))
+
+
+def e37_no_swallowed_errors():
+    """★★★ I2/G3 横切（2026-10-22）：**被 pcall 吞掉的错误必须为 0**，而且计数器真的在工作。
+
+    宿主有两处"为了保护世界不崩"而把异常吞掉的地方：
+      · `13_update` 的组件泵：`pcall(cmp.OnUpdate, cmp, dt)` —— 失败只记进
+        `ComponentErrors[错误文本] += 1`；
+      · `02_sim` 的物理积分：`pcall(ph._integrate, ph, dt)` —— 失败只记进
+        `Sim.PhysicsErrors`。
+    两处都是**对的**（一个组件抛错不该让整个世界停摆），但它们有一个共同后果：
+    **组件的 bug 从此不再有任何症状**。玩家看到的是"某个东西不动了/不消耗了"，
+    而日志里什么都没有。`ComponentErrors` 这个表存在、在累加，但**没有任何判据读过它**
+    （`grep -c ComponentErrors tests/test_rt.py` 原来是 0）。
+
+    判据（正向三条 + **一条阳性对照**）：
+      ① 泵真的在跑：60 秒内 `ComponentTicks ≥ 1000`、`BrainTicks ≥ 1700` ——
+         否则"零错误"只是"什么都没跑"（这是本条最重要的一条防恒真）；
+      ② 60 秒正常游戏后 `ComponentErrors` **为空**（非空则把前几条错误**原样打出来**，
+         因为它们就是组件 bug 的定位信息）；
+      ③ `Sim.PhysicsErrors` 为 nil 或 0；
+      ④ **阳性对照**：临时给一个实体注册一个"每次 OnUpdate 都抛错"的组件 ⇒
+         `ComponentErrors` 必须增长且键里含我们抛的那句话；`StopUpdatingComponent`
+         之后计数**冻结**。这条证明 ② 的"空"不是因为计数器根本没接线。
+
+    ⚠️ 世界用 `world_content=14`（有草、树、蜘蛛等的正常世界），不是空世界 ——
+       空世界里没几个组件在更新，"零错误"毫无说服力。
+    """
+    s = Sim(seed=20261015, tick_hz=30, world_content=14).boot()
+    L = s.lua
+    L.globals().RT = s.api
+
+    def errs():
+        """ComponentErrors 的快照：{错误文本: 次数}"""
+        # ★ 不在 Lua 里造"数组的数组"：lupa 把内层 table 当序列迭代，
+        #   然后 (k, v) 解包拿到的是元素不是键值 ⇒ 报
+        #   `TypeError: cannot unpack non-iterable int object`。
+        #   ⇒ 用**扁平字符串**传（"次数\t错误文本" 一行一条），Python 侧再 split。
+        raw = str(L.eval(r"""(function()
+          local U = require("host.13_update")
+          local t = {}
+          for k, v in pairs(U.ComponentErrors) do
+            -- ⚠️ 只能替换换行/回车，**不能用 `\s`**：lupa 跑的是 Lua 5.1，
+            --   它对未知转义 `\s` 不报错，而是当成字面 `s` ⇒ 把错误文本里所有
+            --   字母 s 换成空格（实测把 `.../scripts/components/sanity.lua`
+            --   变成了 `.../ cript /component / anity.lua`，路径彻底不可读）。
+            t[#t + 1] = string.format("%d\t%s", tonumber(v) or 0,
+                                      (tostring(k):gsub("[\n\r]+", " ")))
+          end
+          table.sort(t, function(a, b) return tonumber(a:match("^(%d+)")) > tonumber(b:match("^(%d+)")) end)
+          return table.concat(t, "\n")
+        end)()""") or "")
+        out = {}
+        for line in raw.split("\n"):
+            if not line:
+                continue
+            cnt, _, msg = line.partition("\t")
+            out[msg] = int(cnt)
+        return out
+
+    def counter(name):
+        return L.eval("(function() local U = require('host.13_update') return tonumber(U.%s) or 0 end)()"
+                      % name)
+
+    # ---------- ① 泵在跑
+    for _ in range(1800):        # 60 s @30 Hz
+        s.step()
+    ticks = counter("ComponentTicks")
+    brains = counter("BrainTicks")
+    if ticks < 1000:
+        return False, ("60 秒里组件更新只跑了 %d 次（期望 ≥1000）—— "
+                       "泵没在跑的话，「零错误」这条断言毫无意义" % (ticks,))
+    if brains < 1700:
+        return False, "60 秒里大脑只更新了 %d 次（期望 ≥1700，每拍一次）" % (brains,)
+
+    # ---------- ② 没有组件错误
+    e1 = errs()
+    if e1:
+        top = sorted(e1.items(), key=lambda kv: -kv[1])[:3]
+        return False, ("60 秒正常游戏里有 %d 类组件 OnUpdate 抛错（共 %d 次），最频繁的：\n"
+                       "       %s\n     ⇒ 这些异常被 pcall 吞掉了，玩家只看到"
+                       "「某个东西不动了」，日志里什么都没有"
+                       % (len(e1), sum(e1.values()),
+                          "\n       ".join("%d× %s" % (v, k[:110]) for k, v in top)))
+
+    # ---------- ③ 物理积分错误
+    phys = L.eval("(function() local S = require('host.02_sim') "
+                  "return tostring(S.PhysicsErrors or 0) end)()")
+    if str(phys) not in ("0", "nil"):
+        first = L.eval("(function() local S = require('host.02_sim') "
+                       "return tostring(S.PhysicsErrorFirst or '') end)()")
+        return False, ("物理积分抛错 %s 次（首条：%r）—— 被 pcall 吞掉了，"
+                       "表现是「设了速度却不动」" % (phys, first))
+
+    # ---------- ④ 阳性对照：计数器真的会记
+    ok, r = s.debug_spawn("evergreen", 3.0, 0.0)
+    if not ok:
+        return False, "阳性对照：种不出树 %s" % (r,)
+    g = r["guid"]
+    before = sum(errs().values())
+    L.eval("""(function()
+      local C = require("host.01_core")
+      local e = C.Spawned[%d]
+      _G.BOOM = { OnUpdate = function() error("E37 阳性对照：故意抛错") end }
+      e:StartUpdatingComponent(_G.BOOM)
+      return 1
+    end)()""" % g)
+    for _ in range(30):
+        s.step()
+    mid = errs()
+    total_mid = sum(mid.values())
+    if total_mid <= before:
+        return False, ("注册了一个每次 OnUpdate 都抛错的组件，跑了 30 拍，"
+                       "ComponentErrors 一次都没增加 —— 计数器根本没接线，"
+                       "② 的「空」是恒真的")
+    if not any("E37 阳性对照" in k for k in mid):
+        return False, ("错误表里没有我们抛的那句话，实际的键是：%r"
+                       % ([k[:80] for k in list(mid)[:3]],))
+    L.eval("(function() local C = require('host.01_core') "
+           "C.Spawned[%d]:StopUpdatingComponent(_G.BOOM) return 1 end)()" % g)
+    frozen = sum(errs().values())
+    for _ in range(60):
+        s.step()
+    after = sum(errs().values())
+    if after != frozen:
+        return False, ("StopUpdatingComponent 之后错误计数还在涨：%d → %d"
+                       % (frozen, after))
+    # 把阳性对照的痕迹清掉，免得它污染同一进程里后面的判据（`ComponentErrors` 是模块级）
+    L.eval("(function() local U = require('host.13_update') "
+           "for k in pairs(U.ComponentErrors) do if tostring(k):find('E37 阳性对照', 1, true) "
+           "then U.ComponentErrors[k] = nil end end return 1 end)()")
+
+    return True, ("60 秒组件更新 %d 次 / 大脑 %d 次（泵在跑）✔ · ComponentErrors 为空 ✔ · "
+                  "PhysicsErrors=0 ✔ · 阳性对照：注入抛错组件⇒计数 +%d 且键里有原话、"
+                  "Stop 后冻结 ✔（已清理痕迹）"
+                  % (ticks, brains, total_mid - before))
+
+
 def e36_food_perishes():
     """★★★ G3（2026-10-22）：食物**真的会烂**，而且烂完**真的变成腐烂物**。
 
@@ -6839,6 +7088,8 @@ def e14_editor_channel():
 
 
 check("E13 战斗闭环：打生物 → 掉血 → 死 → 掉战利品；反向：太远被拒 · 树仍走 CHOP", e13_attack_loop)
+check("E38 背包里的腐烂进度上屏(G3b)：新鲜 pr=1.0 · 20%/0% 逐档对上且 0 不是缺失；反向：石头没有 pr 键 · 合并是加权平均", e38_inventory_perish_visible)
+check("E37 被吞掉的错误必须为 0(I2 横切)：60 秒组件/大脑泵真的在跑 · ComponentErrors 为空 · PhysicsErrors=0；阳性对照：注入抛错组件⇒计数增长且 Stop 后冻结", e37_no_swallowed_errors)
 check("E36 食物真的会烂(G3)：perishtime/满进度/任务已排 · 60 秒单调下降≥40 秒 · 烂完**变成 spoiled_food**（一换一）；反向：StopPerishing 后冻结 · SetPercent 生效", e36_food_perishes)
 check("E35 场景在真实 HTTP 上往返(C3)：POST 导入 → 存盘(bytes/列表) → 换成别的世界 → 读盘 → 与存前逐字节相同；反向：load 后不许还是别的世界", e35_scene_roundtrip_over_http)
 check("E34 每个编辑动词都能一次撤销(J2，表驱动)：move/spawn/remove/scene_import/scene_clear 逐个「执行→文本变→undo→逐字节回原样→栈清空」", e34_every_edit_verb_is_undoable)

@@ -274,7 +274,17 @@ class Sim:
             t = d["items"]
             for i in range(1, len(t) + 1):
                 e = t[i]
-                items.append({"p": str(e["p"]), "n": int(e["n"])})
+                row = {"p": str(e["p"]), "n": int(e["n"])}
+                # ★★ G3b（2026-10-22）：腐烂进度必须**跟着转出来**。
+                #   这个包装是"跨语言边界显式转换"，只挑 p/n 就等于**把新字段静默丢掉** ——
+                #   Lua 侧算得再对，Python/HTTP 侧拿不到，判据也只能断言"字段不存在"。
+                #   ⇒ 可选字段用 `try` 单独取，取不到就**不加这个键**（缺失 ≠ 0：
+                #     石头没有 pr 键，而不是 pr=0，后者会被客户端显示成 `rocks(0%)`）。
+                try:
+                    row["pr"] = float(e["pr"])
+                except Exception:                                # noqa: BLE001
+                    pass
+                items.append(row)
         except Exception:                                        # noqa: BLE001
             items = []
         out["items"] = items

@@ -1,0 +1,120 @@
+def e39_timer_contract():
+    """★★★ G3（2026-10-22）：计时器契约 —— `DoTaskInTime` / `DoPeriodicTask` / `Cancel`。
+
+    这条判据之前整个仓库**一条都没有**（`DoTaskInTime` 在 tests/ 里出现 0 次）。
+    而计时器是全engine 最容易"静默失效"的东西：它不报错、不崩、不影响画面，
+    只是**该发生的事不发生**。腐烂（E36）、AI 决策、状态图的定时跳转全都压在它上面。
+
+    实测（写判据前先探过一遍，四个行为都对）：
+      0.5 s 的任务在第 16 拍（0.533 s）触发一次；0.2 s 的周期任务 40 拍跑 6 次；
+      `Cancel` 之后 0 次；实体删除之后 0 次；任务里再排一个 0 延迟任务，下一拍跑。
+
+    判据（正向四条 + 反向三条）：
+      ① `DoTaskInTime(0.5)` 在 30 Hz 下于第 **15~18** 拍之间触发**恰好一次**
+         （窗口而不是精确拍：离散 tick 的粒度就是 1/30 s，断言"第 16 拍"是断言语义之外的东西）；
+      ② `DoPeriodicTask(0.2)` 走 60 拍（2 s）触发 **9~11** 次（理论 10）；
+      ③ `Cancel()` 之后一次都不触发；
+      ④ **实体被删掉之后，挂在它身上的任务不再触发** —— 这条最要紧：
+         宿主是遍历"快照 + IsValid 过滤"来跑任务的，如果哪天改成遍历全表，
+         删掉的实体上的任务会照样跑，操作半死对象（与 C2 的悬空引用同一个坑）；
+      ⑤ 反向：任务里再排一个 0 延迟任务 ⇒ 外层与内层都跑（共 2 次），不会丢；
+      ⑥ 反向：**不 step 就不许触发**（时间来源必须是 `Sim.Step` 推进的，不是墙钟）；
+      ⑦ 反向：`NextTime()` 报的是绝对时间，且周期任务的 NextTime 会往后推
+         （如果它一直不动，说明周期任务其实只排了一次）。
+
+    ⚠️ 不验精确拍号：窗口 15~18 是给"首个 dt 的累加顺序"留的余量 ——
+       真实引擎里也存在这种 1 拍内的偏移，把它写死会让判据变成"只有当前实现能过"。
+    """
+    s = Sim(seed=20261015, tick_hz=30, world_content=0).boot()
+    L = s.lua
+    L.globals().RT = s.api
+
+    ok, r = s.debug_spawn("evergreen", 3.0, 0.0)
+    if not ok:
+        return False, "种不出树：%s" % (r,)
+    g = r["guid"]
+
+    def setup(lua):
+        L.eval("(function() local C = require('host.01_core') "
+               "local e = C.Spawned[%d] %s return 1 end)()" % (g, lua))
+
+    # ---------- ① DoTaskInTime 在 0.5 s 附近触发恰好一次
+    setup("_G.T1 = 0 e:DoTaskInTime(0.5, function() T1 = T1 + 1 end)")
+    hit = None
+    for i in range(1, 40):
+        s.step()
+        if int(L.eval("T1")) == 1 and hit is None:
+            hit = i
+    n1 = int(L.eval("T1.n"))
+    if n1 != 1:
+        return False, "0.5 s 的 DoTaskInTime 触发 %d 次（期望恰好 1 次）" % (n1,)
+    if hit is None or not (14 <= hit <= 19):
+        return False, ("0.5 s 的任务在第 %r 拍触发（期望 14~19，30 Hz 下 0.5 s ≈ 15 拍）—— "
+                       "时间基准或 tick 推进有问题" % (hit,))
+
+    # ---------- ② DoPeriodicTask 的次数
+    setup("_G.T2 = 0 e:DoPeriodicTask(0.2, function() T2 = T2 + 1 end)")
+    for _ in range(60):          # 2 s
+        s.step()
+    n2 = int(L.eval("T2"))
+    if not (8 <= n2 <= 12):
+        return False, ("0.2 s 的周期任务在 2 s 内跑了 %d 次（期望 ≈10）—— "
+                       "周期没被遵守（跑太快=每拍都跑，太慢=只排了一次）" % (n2,))
+
+    # ---------- ⑦ 周期任务的 NextTime 会往后推
+    setup("_G.T3 = 0 _G.H3 = e:DoPeriodicTask(0.2, function() T3 = T3 + 1 end)")
+    a = float(L.eval("H3:NextTime()"))
+    for _ in range(12):
+        s.step()
+    b = float(L.eval("H3:NextTime()"))
+    if not (b > a):
+        return False, ("周期任务的 NextTime 没有往后推（%r → %r）—— "
+                       "它其实只排了一次，后面的次数是别的东西在跑" % (a, b))
+
+    # ---------- ③ Cancel 之后不再触发
+    setup("_G.T4 = 0 _G.H4 = e:DoTaskInTime(0.2, function() T4 = T4 + 1 end)")
+    L.eval("(function() H4:Cancel() return 1 end)()")
+    for _ in range(30):
+        s.step()
+    n4 = int(L.eval("T4"))
+    if n4 != 0:
+        return False, "Cancel 之后仍然触发了 %d 次" % (n4,)
+
+    # ---------- ⑤ 任务里再排 0 延迟任务
+    setup("_G.T5 = 0 "
+          "e:DoTaskInTime(0.1, function() T5 = T5 + 1 "
+          "e:DoTaskInTime(0, function() T5 = T5 + 10 end) end)")
+    for _ in range(10):
+        s.step()
+    n5 = int(L.eval("T5"))
+    if n5 != 11:
+        return False, ("任务里再排一个 0 延迟任务后累计 %r（期望 11）—— "
+                       "要么内层被丢了，要么同一拍里被无条件执行" % (n5,))
+
+    # ---------- ⑥ 不 step 就不许触发（时间不能来自墙钟）
+    setup("_G.T6 = 0 e:DoTaskInTime(0.05, function() T6 = T6 + 1 end)")
+    import time as _t
+    _t.sleep(0.35)               # 真实墙钟过 0.35 s，但一拍都没走
+    n6 = int(L.eval("T6"))
+    if n6 != 0:
+        return False, ("没 step 也触发了 %d 次 —— 时间来源是墙钟而不是仿真时钟" % (n6,))
+
+    # ---------- ④ 实体删除之后任务不再触发
+    ok, r2 = s.debug_spawn("evergreen", 6.0, 0.0)
+    if not ok:
+        return False, "第二棵树种不出来：%s" % (r2,)
+    g2 = r2["guid"]
+    L.eval("(function() local C = require('host.01_core') "
+           "_G.T7 = 0 C.Spawned[%d]:DoTaskInTime(0.1, function() T7 = T7 + 1 end) "
+           "return 1 end)()" % g2)
+    s.api.debug_remove(g2)
+    for _ in range(20):
+        s.step()
+    n7 = int(L.eval("T7"))
+    if n7 != 0:
+        return False, ("实体删掉之后挂在它身上的任务仍然触发了 %d 次 —— "
+                       "任务函数会去操作一个半死对象（与 C2 悬空引用同一类）" % (n7,))
+
+    return True, ("0.5 s 任务第 %r 拍触发恰好一次 ✔ / 0.2 s 周期任务 2 s 内 %d 次 ✔ / "
+                  "NextTime 往后推 ✔ / Cancel 后 0 次 ✔ / 嵌套 0 延迟 = 11 ✔ / "
+                  "不 step 不触发 ✔ / 删实体后 0 次 ✔" % (hit, n2))

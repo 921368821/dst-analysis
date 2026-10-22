@@ -1817,7 +1817,52 @@ function M.player_state(slot)
                     items[#items + 1] = row
                 end
                 row.n = row.n + n
+                -- ★★ G3b（2026-10-22）：把**腐烂进度**带出去。
+                --
+                -- 为什么必须带：E36 已经证明食物真的会烂（60 秒掉几十秒、烂完变
+                -- `spoiled_food`）。但**玩家看不见**：HUD 只写 `berries×3`，
+                -- 于是"该先吃哪一堆"这个最基本的生存决策没有依据 ——
+                -- 机制在，但玩家无从使用。这类"做对了但没上屏"本工程已经犯过
+                -- 一次（P39：血/饿/理智全在服务端，屏幕上一个字都没有）。
+                --
+                -- ★ 语义选择（写在返回值里而不是藏起来）：
+                --   背包是**按 prefab 聚合**的一行，而一堆同种食物的新鲜度可能不同。
+                --   `pr` 取这堆里**最不新鲜**的那个（玩家该先吃它），
+                --   `mix` 说明堆里不一致。不做"每堆拆成多行"：那会让 12 格的背包
+                --   变成几十行，HUD 一行放不下 —— 那是**背包界面**该干的事，不是 HUD。
+                --
+                -- ★★ 没有 perishable 的物品**不带 `pr` 键**，而不是 `pr = 0`：
+                --   0 的含义是"已经烂了"。把"不适用"写成 0 会让客户端把石头标成
+                --   `rocks(0%)` —— 缺失 ≠ 0，这条在本工程被反复踩。
+                -- ★ 语义（第一版写错过，留在这里）：一开始我以为"一堆同种食物
+                --   新鲜度可能不同"，于是加了个 `mix` 标志让客户端显示 `42%…`。
+                --   实测才发现**不可能**：同 prefab 的食物会自动并进同一格，
+                --   而原版 `inventory:AddItem` 在合并时对 perishable 做的是
+                --   **加权平均**（实测 20 个 20% + 20 个 100% ⇒ 合并后 60%）。
+                --   ⇒ 一行只有**一个**新鲜度，`mix` 是死代码，删掉。
+                --   （"加一个看起来更周到的字段"和"加一个用不上的字段"只差一次实测。）
+                --
+                -- ★★ 没有 perishable 的物品**不带 `pr` 键**，而不是 `pr = 0`：
+                --   0 的含义是"已经烂了"。把"不适用"写成 0 会让客户端把石头标成
+                --   `rocks(0%)` —— 缺失 ≠ 0，这条在本工程被反复踩。
+                local prc = it.components and it.components.perishable or nil
+                if prc ~= nil then
+                    local okt, total = pcall(function() return prc.perishtime end)
+                    local okr, left  = pcall(function() return prc.perishremainingtime end)
+                    if okt and okr and type(total) == "number" and total > 0
+                       and type(left) == "number" then
+                        local pct = left / total
+                        if pct < 0 then pct = 0 elseif pct > 1 then pct = 1 end
+                        row.pr = pct
+                    end
+                end
             end
+        end
+    end
+    -- ★ 四舍五入到 1%（HUD 一行放不下小数；判据按 0.01 的精度断言）
+    for _, row in ipairs(items) do
+        if row.pr ~= nil then
+            row.pr = math.floor(row.pr * 100 + 0.5) / 100
         end
     end
     -- 数量多的排前面（同数量按名字，保证**顺序稳定**：客户端 HUD 每 0.5 s 刷一次，

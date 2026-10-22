@@ -965,7 +965,20 @@ function meLine(st) {
   } else {
     const parts = items.slice(0, 6).map((it) => {
       const n = num(it.n);
-      return String(it.p) + (n !== null && n > 1 ? '×' + n : '');
+      let lbl = String(it.p) + (n !== null && n > 1 ? '×' + n : '');
+      // ★ G3b：腐烂进度。服务端**只给有 perishable 的物品**这个键，
+      //   所以这里用 `num(it.pr) !== null` 判断"有没有"，而不是 `it.pr > 0`：
+      //   真的烂到 0 时必须显示 `0%`（"这堆不能吃了"），
+      //   因为 0 是假值就把它过滤掉，正好把最该警告的情况藏了。
+      // ★ 为什么没有"这一堆里新鲜度不一致"的分支：同 prefab 的食物会自动并成一格，
+      //   而原版合并时对 perishable 做**加权平均**（实测 20×20% + 20×100% ⇒ 60%）
+      //   ⇒ 一行恒有唯一的新鲜度。第一版加过 `mix`，实测发现是死代码，删了。
+      const pr = num(it.pr);
+      if (pr !== null) {
+        const pct = Math.round(Math.max(0, Math.min(1, pr)) * 100);
+        lbl += '(' + pct + '%)';
+      }
+      return lbl;
     });
     if (items.length > 6) parts.push('…');
     const used = num(st.used), cap = num(st.slots);

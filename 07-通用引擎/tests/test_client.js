@@ -1693,6 +1693,58 @@ check('F40 场景列表可点（C3d）：列出 N 个名字 · 点一下就「�
   return { ok: true, info: '3 个名字 → 3 个 chip ✔ / 点第 2 个：填入「关卡二」并发出 1 次 load ✔ / 空列表 0 chip 且有说明 ✔' };
 });
 
+check('F41 腐烂上屏（G3b）：食物带百分比 · 反向：没有 pr 的石头不带括号 · pr=0 显示 0%（不许被当成缺失）', async () => {
+  // E38 验服务端带出了 `pr`，玩家看到的却是 HUD 那一行文字。
+  // 这条判据走 `stateText()`——**画 HUD 的同一个纯函数**，不是另抄一份期望值。
+  // 最容易错的不是"加不加括号"，而是 `pr=0` 被当作假值过滤掉：
+  //   那正好把"这堆已经烂了、别吃"这个最该警告的情况藏起来。
+  const mod = require('../rt/perf_lib.js');
+  const env = mod.makeClient({ fetchReply: () => null });
+  const rt = env.__rt;
+  if (!rt || typeof rt.stateText !== 'function') {
+    return { ok: false, info: '__rt.stateText 钩子不存在' };
+  }
+  const base = { ok: true, health: 100, maxhealth: 150, hunger: 80, maxhunger: 150,
+                 sanity: 200, maxsanity: 200, used: 3, slots: 12 };
+
+  // ① 42% 的 berries：必须出现 `(42%)`
+  const s1 = rt.stateText(Object.assign({}, base, {
+    items: [{ p: 'berries', n: 3, pr: 0.42 }],
+  }));
+  if (s1.indexOf('berries×3(42%)') < 0) {
+    return { ok: false, info: '食物没有显示腐烂百分比：' + s1 };
+  }
+
+  // ② 反向：没有 pr 的石头**不许**带括号
+  const s2 = rt.stateText(Object.assign({}, base, {
+    items: [{ p: 'berries', n: 3, pr: 1.0 }, { p: 'rocks', n: 2 }],
+  }));
+  if (s2.indexOf('rocks×2(') >= 0 || s2.indexOf('rocks(') >= 0) {
+    return { ok: false, info: '石头没有 perishable 却显示了百分比：' + s2 };
+  }
+  if (s2.indexOf('berries×3(100%)') < 0) {
+    return { ok: false, info: '满新鲜度应显示 100%：' + s2 };
+  }
+
+  // ③ pr=0 必须显示 0%，而不是被当成"没有"
+  const s3 = rt.stateText(Object.assign({}, base, {
+    items: [{ p: 'meat', n: 1, pr: 0 }],
+  }));
+  if (s3.indexOf('meat(0%)') < 0) {
+    return { ok: false, info: 'pr=0（已经烂了）没有显示成 0% —— 最该警告的情况被藏了：' + s3 };
+  }
+
+  // ④ 边界：pr 超范围（1.7 / -0.3）要被夹住，不许出现 `170%` / `-30%`
+  const s4 = rt.stateText(Object.assign({}, base, {
+    items: [{ p: 'a', n: 1, pr: 1.7 }, { p: 'b', n: 1, pr: -0.3 }],
+  }));
+  if (s4.indexOf('170%') >= 0 || /\(-\d+%\)/.test(s4)) {
+    return { ok: false, info: '越界的 pr 没有被夹到 0~100%：' + s4 };
+  }
+
+  return { ok: true, info: '42% 显示 ✔ / 石头不带括号、满新鲜度 100% ✔ / pr=0 显示 0% ✔ / 越界被夹住 ✔' };
+});
+
 (async () => {
   await Promise.all(PENDING);
   console.log('\n  结果：' + pass + ' 通过 / ' + fail + ' 失败');
