@@ -4634,6 +4634,65 @@ def e15_craft_loop():
                   % (int(before), int(after), refused))
 
 
+def e30_worldgen_deterministic():
+    """★★★ G14（2026-10-22）：**同种子 = 同一个世界**。
+
+    修复前实测：同一个 seed 连续 boot 两次，树的位置**完全一样**，
+    但 `workleft` 在 5 / 10 / 15 之间随机跳 —— 同一棵树这次是小的、下次是大的。
+    根因：地图用我们自己的随机（确定），而 prefab 构造函数里那句 `math.random()`
+    （`evergreens.lua` 选 small/normal/large）走的是 **Lua 全局 RNG**，
+    它从来没被播种过（Lua 5.4 启动时用随机种子）。
+    ⇒ 后果是"分享种子没意义、回放不可重复、判据只能靠容差"，而且**不报错** ——
+      世界看起来完全正常，只是每次都不一样。
+
+    判据（正向两条 + 反向两条）：
+      ① 同种子两次 boot ⇒ 场景文本（含 workleft）**逐字节相同**；
+      ② 不同种子 ⇒ 文本不同（证明种子真的进了世界，不是"反正都一样"）；
+      ③ **防恒真**：世界里必须至少有两种 `workleft` 值 ——
+         如果所有树都一样，"两次相同"可能只是因为尺寸根本没随机过，那这条判据就没有守住任何东西；
+      ④ 反向：同种子但 `world_content` 不同 ⇒ 文本不同（种子不是唯一输入）。
+    """
+    def world(seed, content=14):
+        s = Sim(seed=seed, tick_hz=30, world_content=content).boot()
+        ok, exp = s.scene_export()
+        if not ok:
+            raise RuntimeError("导出失败：%s" % (exp.get("error"),))
+        return exp["text"]
+
+    a = world(20261015)
+    b = world(20261015)
+    if a != b:
+        la, lb = a.split("\n"), b.split("\n")
+        diff = next((i for i in range(min(len(la), len(lb))) if la[i] != lb[i]), None)
+        return False, ("同种子两次生成的世界**不同**（第 %r 行起）：\n     A: %r\n     B: %r\n"
+                       "     —— 世界地图是确定的，但 prefab 构造函数里的 math.random() 没播种"
+                       % (diff, la[diff] if diff is not None else None,
+                          lb[diff] if diff is not None else None))
+
+    # ③ 防恒真：必须有多种 workleft
+    wls = set()
+    for line in a.split("\n"):
+        if "workleft=" in line:
+            wls.add(line.split("workleft=")[1].split(";")[0])
+    if len(wls) < 2:
+        return False, ("世界里所有树的 workleft 都是 %r —— 说明尺寸压根没随机过，"
+                       "那么「两次相同」并不能证明播种生效" % (sorted(wls),))
+
+    # ② 不同种子
+    c = world(999)
+    if c == a:
+        return False, "换了种子世界还是一模一样 —— 种子没进世界"
+
+    # ④ 同种子不同内容
+    d = world(20261015, content=6)
+    if d == a:
+        return False, "同种子换了 world_content，世界还是一样 —— 内容参数没生效"
+
+    return True, ("同种子逐字节相同 ✔ / 树有 %d 种 workleft（%s，证明尺寸真的随机过）✔ / "
+                  "不同种子不同 ✔ / 同种子不同内容不同 ✔"
+                  % (len(wls), "/".join(sorted(wls))))
+
+
 def e29_scene_import_is_one_undo_step():
     """★★★ C3b（2026-10-22）：**一次导入 = 一步撤销**。
 
@@ -6157,6 +6216,7 @@ def e14_editor_channel():
 
 check("E13 战斗闭环：打生物 → 掉血 → 死 → 掉战利品；反向：太远被拒 · 树仍走 CHOP", e13_attack_loop)
 check("E14 编辑器通道：列/生成/移动/删除全回读；反向：玩家删除被拒 · /debug 仍 404", e14_editor_channel)
+check("E30 同种子=同一世界(G14)：两次 boot 场景文本逐字节相同 · 不同种子不同 · 同种子不同内容不同；防恒真：树必须有≥2种 workleft", e30_worldgen_deterministic)
 check("E29 一次导入=一步撤销(C3b)：导入只占 1 步 · 撤销后文本逐字节回原样 · 重做回导入后 · 清空 1 步且撤销装回；反向：坏文本不占步", e29_scene_import_is_one_undo_step)
 check("E28 场景落盘(C3)：save 后 bytes 与盘上一致 · load 往返逐字节相同 · list 可见；反向：../ 名字被拒且工程外无文件 · 不存在给原因 · 带点名字被拒", e28_scene_save_load_files)
 check("E27 动画真的在动(E2)：帧号随 tick 前进 · 30 拍内≥20 个不同帧号 · 循环回绕 · 换动画重置为 1；反向：不 step 时帧号不变", e27_animation_advances)
