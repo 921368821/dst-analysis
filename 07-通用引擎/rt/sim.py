@@ -410,6 +410,55 @@ class Sim:
         return True, {"guid": int(info["guid"]),
                       "x": round(float(info["x"]), 2), "z": round(float(info["z"]), 2)}
 
+    def craft(self, slot, recname, x=None, z=None):
+        """合成一个配方 → (ok, dict)。
+
+        ★ B1（2026-10-22）：走原版 `Builder:DoBuild`，所以**成功与否由原版判定**，
+          这里只做跨语言搬运。失败原因原样透出（原版的 "MOUNTED"/"HASPET"/"ITEMMIMIC"
+          是**对外契约**，不在这一层翻译成别的话 —— 翻译一次就多一处会过期的措辞）。
+
+        ★ 为什么返回 `ents_before/ents_after`：`DoBuild` **没有返回值说明产物在哪**
+          （放置类配方产物在地上、制造类配方在背包、委托生成的连产物都没有）。
+          能同时成立的观测只有「世界实体数变多了没有」+「背包里多了什么没有」。
+          少了这一项，判据只能断言 `ok==True`，而 `ok==True` 在没有材料时也可能是真的
+          —— 那就是一条自述结论式的假绿灯。
+        """
+        try:
+            res = self.api.craft(int(slot), recname, x, z)
+        except Exception as e:                                   # noqa: BLE001
+            return False, {"error": "%s: %s" % (type(e).__name__, e)}
+        # ★ 不用 `ok, info, detail = ...` 直接解包：Lua 侧少返回一个值就是 ValueError，
+        #   而这条路径（材料不足）恰好是最常走的。首次实测就踩到过一次，
+        #   报出来的是 "not enough values to unpack"，与真正的原因（材料不够）毫无关系。
+        if not isinstance(res, tuple):
+            res = (res,)
+        ok = bool(res[0]) if len(res) > 0 else False
+        info = res[1] if len(res) > 1 else None
+        detail = res[2] if len(res) > 2 else None
+        if not ok:
+            return False, {"error": str(info)}
+        out = {"recipe": str(recname)}
+        d = detail
+        for k in ("ents_before", "ents_after"):
+            try:
+                out[k] = int(d[k])
+            except Exception:                                    # noqa: BLE001
+                out[k] = None
+        for k in ("x", "z"):
+            try:
+                out[k] = round(float(d[k]), 2)
+            except Exception:                                    # noqa: BLE001
+                out[k] = None
+        return True, out
+
+    def craft_stats(self):
+        """(ok, refused, last_why) —— 与 `act_stats` 同风格：三个数分开报。"""
+        try:
+            ok, refused, why = self.api.craft_stats()
+            return int(ok), int(refused), (None if why is None else str(why))
+        except Exception:                                        # noqa: BLE001
+            return 0, 0, None
+
     def debug_give(self, slot, prefab, n=1):
         """给某槽位发物品 → (ok, dict)。ok=True 时 dict 有 given/items_before/items_after。"""
         try:

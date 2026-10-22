@@ -231,6 +231,20 @@ def sim_loop(sim: Sim, hub: Hub, stop: threading.Event, quiet=False, save_file=N
                         box.update(ok=False, error="%s: %s" % (type(e).__name__, e))
                     finally:
                         ev.set()
+                elif kind == "craft":
+                    # ★ B1：合成/建造。**必须走模拟线程**：`Builder:DoBuild` 会 PushEvent、
+                    #   会扣材料、会 SpawnPrefab —— 这些都不是线程安全的 Lua 调用。
+                    slot, recname, xx, zz, ev, box = cmd[1], cmd[2], cmd[3], cmd[4], cmd[5], cmd[6]
+                    try:
+                        ok, info = sim.craft(slot, recname, xx, zz)
+                        if ok:
+                            box.update(ok=True, **info)
+                        else:
+                            box.update(ok=False, error=info.get("error"))
+                    except Exception as e:                          # noqa: BLE001
+                        box.update(ok=False, error="%s: %s" % (type(e).__name__, e))
+                    finally:
+                        ev.set()
                 elif kind == "debug_stats":
                     # 与 `/healthz` 的区别：那个读的是**缓存**（最多落后 0.27 s），
                     # 这个当场在模拟线程里算一次 —— 运维排查「缓存和真实对不上」时用它。

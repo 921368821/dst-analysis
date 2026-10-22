@@ -1885,6 +1885,135 @@ function M.debug_spawn(prefab, x, z)
     }
 end
 
+--- 合成 / 建造（B1，2026-10-22）—— 走原版 `Builder:DoBuild`，不自己实现扣料与落点。
+---
+--- ★ 为什么必须走原版：`DoBuild`（`components/builder.lua:752`）是原版**唯一**的建造入口，
+---   它内部已经按顺序处理了：配方有效性 → 材料或缓冲建造 → 骑乘/宠物/原型站/皮肤校验 →
+---   `recipe.canbuild` 模组钩子 → 扣材料 → 放置类配方算落点 → 产物进位背包或落地。
+---   自己写一份"查材料、扣材料、生成产物"等于把配方规则复制第二遍 ——
+---   而本工程的母题就是「同一件事两处实现 ⇒ 改一处、另一处悄悄过期」。
+---
+--- ★ 为什么不塞进 `action_for`/`act`：`act` 的语义是「对着**某个目标**做动作」，
+---   需要走过去、需要 PENDING 逐拍重发、需要目标 guid。合成不依赖目标，也不需要靠近，
+---   硬塞进去会让 ACT 那张三态返回表多一个语义完全不同的分支（P61 的教训：
+---   只接一处分支就会有一处记账缺失）。
+---
+--- ★ 已知风险（写在这里，不藏）：`DoBuild` 会走到 `prod:OnBuilt()`、
+---   `NotifyPlayerProgress`、`ProfileStatsAdd`、`Transform:SetPosition(v:Get())` 这些
+---   宿主只做了桩的东西。所以整段用 pcall 包住，**失败要能说出是哪一句崩的**，
+---   而不是让模拟线程静默停摆。
+local craft_ok_n, craft_refused_n, last_craft_why = 0, 0, nil
+function M.craft_stats() return craft_ok_n, craft_refused_n, last_craft_why end
+
+--- 取一个 Vector3。宿主的 `Vector3` 在 `03_globals.lua` 里，不保证在 `_G` 上，
+--- 所以先探再调；造不出来返回 nil（调用方要当作"没有位置"处理，不能当 0）。
+local function mk_vec3(x, y, z)
+    local V = rawget(_G, "Vector3")
+    if type(V) ~= "function" then return nil end
+    local ok, v = pcall(V, x, y, z)
+    if ok then return v end
+    return nil
+end
+
+--- 造一个配方。返回 (成功, 说明或拒绝原因, 详情表|nil)。
+---   · 成功 → (true, "ok", {recipe=..., prefab=..., x=, z=, ents_before=, ents_after=})
+---   · 失败 → (false, 原因, nil)  —— 原因必须能直接显示给玩家
+---   ⚠️ **失败也必须补第三个 nil**：lupa 把多返回值变成 tuple，返回 2 个会让
+---      Python 侧 `ok, info, detail = ...` 直接 ValueError —— 实测首跑就踩到，
+---      而它冒出来的地方是「材料不足」这条**最常见的路径**上。
+function M.craft(slot, recname, x, z)
+    slot = tonumber(slot) or 0
+    if type(recname) ~= "string" or recname == "" then
+        craft_refused_n = craft_refused_n + 1
+        last_craft_why = "配方名必须是非空字符串（收到 " .. type(recname) .. "）"
+        return false, last_craft_why, nil
+    end
+    local p = slot_entity(slot)
+    if p == nil then
+        craft_refused_n = craft_refused_n + 1
+        last_craft_why = "槽位 " .. tostring(slot) .. " 没有玩家"
+        return false, last_craft_why, nil
+    end
+    local b = p.components and p.components.builder or nil
+    if b == nil then
+        craft_refused_n = craft_refused_n + 1
+        last_craft_why = "玩家没有 builder 组件（配方系统没加载？）"
+        return false, last_craft_why, nil
+    end
+
+    -- 落点：默认玩家脚边（沿朝向 1.2 格）—— 放置类配方（营火/墙）必须有合法点，
+    -- 传 nil 会让原版走到「造在自己身上」的分支，那是**看起来成功但位置错**的形态。
+    local px, pz = pos_of(p)
+    if px == nil then
+        craft_refused_n = craft_refused_n + 1
+        last_craft_why = "取不到玩家位置"
+        return false, last_craft_why, nil
+    end
+    local tx, tz = tonumber(x), tonumber(z)
+    if tx == nil or tz == nil then
+        local ang = 0
+        local okr, rot = pcall(function() return p.Transform:GetRotation() end)
+        if okr and type(rot) == "number" then ang = rot end
+        tx = px + math.cos(math.rad(ang)) * 1.2
+        tz = pz - math.sin(math.rad(ang)) * 1.2
+    end
+    local pt = mk_vec3(tx, 0, tz)
+    if pt == nil then
+        craft_refused_n = craft_refused_n + 1
+        last_craft_why = "宿主没有可用的 Vector3，无法给出建造落点"
+        return false, last_craft_why, nil
+    end
+
+    local ents_before = 0
+    for _ in pairs(ent_table()) do ents_before = ents_before + 1 end
+
+    local okC, r1, r2 = pcall(b.DoBuild, b, recname, pt, 0, nil)
+    if not okC then
+        craft_refused_n = craft_refused_n + 1
+        last_craft_why = "DoBuild 抛错：" .. tostring(r1)
+        return false, last_craft_why, nil
+    end
+    if not r1 then
+        craft_refused_n = craft_refused_n + 1
+        -- 原版把失败原因作为**对外契约**返回（"MOUNTED"/"HASPET"/"ITEMMIMIC"/nil）。
+        -- ★ 原版对「配方不存在」和「材料不足」都返回 `false, nil` —— 这两件事对玩家
+        --   的处理动作**完全不同**（一个改输入、一个去采集），所以不能都译成一句
+        --   "失败了"。这里补一次**只读的解释**：判定仍然是 DoBuild 的，这里只解释它。
+        --   ⚠️ 解释不能反过来影响判定 —— 一旦这里"自己决定成功与否"，就会出现
+        --      两套判定规则（本项目母题），所以这段只在失败之后跑。
+        if type(r2) == "string" and r2 ~= "" then
+            last_craft_why = r2
+        else
+            local okR, recipe = pcall(GetValidRecipe, recname)
+            if not okR then
+                last_craft_why = "原版未给原因（GetValidRecipe 抛错：" .. tostring(recipe) .. "）"
+            elseif recipe == nil then
+                last_craft_why = "配方不存在：" .. recname
+            else
+                -- 需求清单直接读 `recipe.ingredients`（权威数据），不自己推算材料表
+                local need = {}
+                for _, v in ipairs(recipe.ingredients or {}) do
+                    if (v.amount or 0) > 0 then
+                        need[#need + 1] = tostring(v.type) .. "×" .. tostring(v.amount)
+                    end
+                end
+                last_craft_why = "材料不足（该配方需要 " .. table.concat(need, "、") .. "）"
+            end
+        end
+        return false, last_craft_why, nil
+    end
+
+    craft_ok_n = craft_ok_n + 1
+    last_craft_why = nil
+    M.act_index_invalidate()      -- 世界多了实体，交互索引立刻作废（与 debug_spawn 同一条纪律）
+    local ents_after = 0
+    for _ in pairs(ent_table()) do ents_after = ents_after + 1 end
+    return true, "ok", {
+        recipe = recname, x = tx, z = tz,
+        ents_before = ents_before, ents_after = ents_after,
+    }
+end
+
 --- 给某个槽位的玩家发 n 个某物品（走真实 `inventory:GiveItem`）。
 --  返回 true, {given, items_before, items_after} | false, 原因
 function M.debug_give(slot, prefab, n)

@@ -4475,6 +4475,127 @@ check("E9 随身光源：开了就在光里（营火之外）；反向关掉即�
 check("E10 自身状态（血/饿/理智/背包）看得见；反向：饥饿真在掉 · 空槽位不报 0 · 与 /healthz 对账", e10_player_state)
 check("E11 调试通道：spawn/give/stats 有真实副作用；反向：非法 prefab 必失败、默认 404", e11_debug_channel)
 check("E12 交互目标空间索引：与线性实现逐项一致 + 真省扫描 + 单次 ≤12ms；反向：远处实体不混入", e12_act_index)
+def e15_craft_loop():
+    """★★★ B1（2026-10-22）：合成闭环 —— **材料够就造得出，不够要说得出缺什么**。
+
+    这是 G1《单夜生存》八条剧本里 P3 的那一条，也是八条里最后一条没有判据的。
+    在此之前，「合成」在本引擎里等于不存在：配方表（`recipes.lua`）确实被
+    `05_bootstrap.lua:447` 加载了（那段注释写明是为了让 `components/builder.lua`
+    能工作），但**没有任何入口**能把它调起来 —— 加载了却调不到，症状就是
+    「看起来什么都有，就是一按没反应」。
+
+    实现上**不自己写扣料与产物生成**，走原版 `Builder:DoBuild`（唯一建造入口）。
+    所以这条用例真正验的是「接线对不对」，而不是「规则对不对」—— 规则是原版的。
+
+    判据（正向四条 + 反向四条）：
+      ① 空背包合成 ⇒ 失败，且原因里**同时**出现"材料不足"与两种材料名
+         （只说"失败"等于没说：玩家分不清该去采集还是该改输入）；
+      ② 配方名不存在 ⇒ 失败，原因里出现"配方不存在" —— 必须与①**分得开**；
+      ③ 空配方名 ⇒ 失败，原因是"必须是非空字符串"；
+      ④ ①②③ 三条失败**一个实体都不许留下**（失败路径不得有半成品副作用）；
+      ⑤ 给 2 log + 3 cutgrass 后合成 ⇒ 成功，且世界实体数变多、真有 `campfire`；
+      ⑥ **材料真被扣**：紧接着原样再合成一次 ⇒ 必须失败。这条同时证明了两件事 ——
+         扣料发生了，且判定不是"只要调了就返回 true"；
+      ⑦ `craft_stats` 三数分开：成功 1 次、拒绝 ≥3 次（拒绝**不是**错误，要能数出来）；
+      ⑧ 反向：失败之后再查世界，`campfire` 的数量不许比成功那次更多。
+    """
+    s = Sim(seed=20261015, tick_hz=30, world_content=14).boot()
+
+    def world_n():
+        ok, info = s.debug_entities(999)
+        if not ok:
+            return None, info
+        return int(info["count"]), info["items"]
+
+    def fires():
+        n, items = world_n()
+        if n is None:
+            return None
+        return [e for e in items if str(e.get("prefab")) == "campfire"]
+
+    n0, _ = world_n()
+    if n0 is None:
+        return False, "实体列表读不出来，合成判据的前提不成立"
+
+    # ① 空背包必须失败，且说得出缺什么
+    ok, info = s.craft(0, "campfire")
+    if ok:
+        return False, ("空背包竟然造出了营火 —— 材料校验没生效"
+                       "（这不是「宽松」，是规则根本不看背包）")
+    why1 = str(info.get("error") or "")
+    if "材料不足" not in why1:
+        return False, "材料不足时的原因不对：%r（玩家看了不知道该干什么）" % (why1,)
+    for need in ("log", "cutgrass"):
+        if need not in why1:
+            return False, ("材料不足的原因里没有列出 %s：%r —— "
+                           "只说「不足」而不说缺什么，等于没说" % (need, why1))
+
+    # ② 配方不存在必须与①分得开
+    ok, info = s.craft(0, "no_such_recipe_zzz")
+    if ok:
+        return False, "不存在的配方名竟然成功了"
+    why2 = str(info.get("error") or "")
+    if "配方不存在" not in why2:
+        return False, ("配方名写错时的原因不对：%r —— 与「材料不足」混成一句，"
+                       "玩家会去采集而真正的问题是名字错了" % (why2,))
+    if why2 == why1:
+        return False, "两种失败的文案完全一样（分不开就等于没有原因）"
+
+    # ③ 空配方名
+    ok, info = s.craft(0, "")
+    if ok:
+        return False, "空配方名竟然成功了"
+    if "非空字符串" not in str(info.get("error") or ""):
+        return False, "空配方名的原因不对：%r" % (info.get("error"),)
+
+    # ④ 三次失败不许留下任何东西
+    n1, _ = world_n()
+    if n1 != n0:
+        return False, "三次失败之后实体数从 %d 变成 %d —— 失败路径留下了副作用" % (n0, n1)
+
+    # ⑤ 给料之后必须造得出
+    for pf, cnt in (("log", 2), ("cutgrass", 3)):
+        okg, g = s.debug_give(0, pf, cnt)
+        if not okg:
+            return False, "给 %s×%d 失败：%s" % (pf, cnt, g)
+    ok, info = s.craft(0, "campfire")
+    if not ok:
+        return False, ("给足材料后仍然造不出营火：%s —— "
+                       "要么配方要的东西不是这两样，要么 DoBuild 走不通" % (info,))
+    before = info.get("ents_before")
+    after = info.get("ents_after")
+    if before is None or after is None:
+        return False, "合成结果缺 ents_before/ents_after（没法证明产物真的出现了）"
+    if int(after) <= int(before):
+        return False, "合成返回成功，但世界实体数没变（%s → %s）—— 产物没落地" % (before, after)
+    f1 = fires()
+    if not f1:
+        return False, "返回成功且实体数变多了，但世界里找不到 campfire —— 增的是别的东西"
+
+    # ⑥ 材料真被扣：原样再来一次必须失败
+    ok, info = s.craft(0, "campfire")
+    if ok:
+        return False, ("材料只够造一个营火，却能连造两个 —— 材料没有被扣掉"
+                       "（这是「产物出现了」与「代价被收了」两件事必须分开验的原因）")
+
+    # ⑦ 三个数分开报
+    okn, refused, _ = s.craft_stats()
+    if okn != 1:
+        return False, "craft 成功计数是 %d，期望正好 1" % (okn,)
+    if refused < 3:
+        return False, "craft 拒绝计数是 %d，期望 ≥3（三类失败都要被数到）" % (refused,)
+
+    # ⑧ 失败没追加新的营火
+    f2 = fires()
+    if f2 is None or len(f2) > len(f1):
+        return False, "最后一次失败之后营火数量从 %d 变成了 %d" % (len(f1), len(f2 or []))
+
+    return True, ("空背包/配方名错/空名三类失败原因**分得开**且都不留残骸；"
+                  "给料后造出 campfire（实体 %d→%d）；"
+                  "材料真被扣（连造两次第二次失败）；成功 1 / 拒绝 %d"
+                  % (int(before), int(after), refused))
+
+
 def e14_editor_channel():
     """★★ P62 编辑器通道：列 / 生成 / 移动 / 删除 四件套 + 玩家保护 + 门槛分离。
 
@@ -4604,6 +4725,7 @@ def e14_editor_channel():
 
 check("E13 战斗闭环：打生物 → 掉血 → 死 → 掉战利品；反向：太远被拒 · 树仍走 CHOP", e13_attack_loop)
 check("E14 编辑器通道：列/生成/移动/删除全回读；反向：玩家删除被拒 · /debug 仍 404", e14_editor_channel)
+check("E15 合成闭环：材料够就造得出（产物真在世界里）· 材料真被扣；反向：不足/配方不存在/空名三类原因必须分得开 · 失败不留残骸", e15_craft_loop)
 check("D4 会话身份挺过重启（槽位/角色/位置都接着上次）；反向：无 key 的存档许不出身份", d4_session_identity_survives_restart)
 check("B25 P20：每个客户端有自己的角色（you 握手 + 槽位回收）", b25_每个客户端有自己的角色)
 check("B26 P20 核心：**A 的输入只能动 A 的角色**", b26_输入互不干扰)
