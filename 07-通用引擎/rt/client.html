@@ -138,6 +138,11 @@
     <button data-tool="spawn">生成</button>
     <select id="edPrefab" title="「生成」工具要放的 prefab"></select>
     <span class="sep"></span>
+    <!-- ★ M1-1：撤销/重做。放在工具栏而不是快捷键里就完事：快捷键是给熟手的，
+         而"这个编辑器能不能撤销"是**新用户第一眼要确认的事**（不能撤销就不敢动大东西）。 -->
+    <button id="edUndo" title="撤销（Ctrl+Z）">↶</button>
+    <button id="edRedo" title="重做（Ctrl+Shift+Z）">↷</button>
+    <span class="sep"></span>
     <button id="edSave">存档</button>
     <button id="edFocus">聚焦</button>
     <button id="edDel" class="danger">删除</button>
@@ -1451,9 +1456,12 @@ function edJson(path) {
 
 // ---------------------------------------------------------------- 拉取与列表
 function edRefresh() {
-  if (!ED.on || ED.busy) return;
+  // ★ M1-1：**返回 promise**。撤销/重做要在刷新**之后**再写状态栏，
+  //   否则调用方先写"已撤销"，紧接着刷新把状态栏覆盖成"已同步：世界 N 个实体" ——
+  //   用户按了撤销却什么都看不到（F34 首跑实测就是这个）。
+  if (!ED.on || ED.busy) return Promise.resolve();
   ED.busy = true;
-  edJson('/editor/entities?limit=800').then((d) => {
+  return edJson('/editor/entities?limit=800').then((d) => {
     ED.busy = false;
     if (!d.ok) { edSetStatus('读取失败：' + (d.error || '未知'), true); return; }
     ED.ents = d.items || [];
@@ -1671,6 +1679,40 @@ function edToggle(on) {
     ED.timer = null;
   }
 }
+// ---------------------------------------------------------------- 撤销/重做（M1-1）
+// ★ 为什么按钮上不显示"还能撤几步"：那需要一个额外的计数接口，而**状态栏一句话**
+//   已经足够（"已撤销 移动#23"）。信息密度不是越高越好 —— 工具栏上每多一个数字，
+//   用户就多一处要理解的东西。
+function edUndoRedo(which) {
+  if (!ED.on) { edSetStatus('先按 F1 打开编辑器', true); return; }
+  edJson('/editor/' + which).then((d) => {
+    if (d && d.ok) {
+      // ★ 服务端返回的是**事实**（kind/target/落到哪个坐标），直接回显它，
+      //   不在客户端自己拼一句"撤销成功"—— 那样两边的话术迟早分叉。
+      const to = d.to ? (' → (' + d.to.x + ',' + d.to.z + ')') : '';
+      const msg = (which === 'undo' ? '已撤销 ' : '已重做 ') + d.kind + '#' + d.target + to;
+      // ★ 顺序很重要：**先刷新，刷完再写状态**。反过来的话刷新会把它覆盖掉。
+      Promise.resolve(edRefresh()).then(() => edSetStatus(msg));
+    } else {
+      // 栈空不是错误，是"没什么可做的"—— 但它也不该显示成成功
+      edSetStatus((which === 'undo' ? '撤销' : '重做') + '：' + ((d && d.error) || '未知'), true);
+    }
+  }).catch((e) => edSetStatus('请求失败：' + e, true));
+}
+document.getElementById('edUndo').onclick = () => edUndoRedo('undo');
+document.getElementById('edRedo').onclick = () => edUndoRedo('redo');
+addEventListener('keydown', (e) => {
+  // Ctrl+Z / Ctrl+Shift+Z。只在编辑器打开时接管 —— 否则会抢浏览器的默认撤销，
+  // 而用户在输入框里打字时，那个默认行为是他要的。
+  if (!ED.on) return;
+  const tag = (e.target && e.target.tagName) || '';
+  if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
+    e.preventDefault();
+    edUndoRedo(e.shiftKey ? 'redo' : 'undo');
+  }
+});
+
 document.getElementById('edBtn').onclick = () => edToggle();
 document.getElementById('edHideAnon').checked = ED.hideAnon;
 document.getElementById('edHideAnon').onchange = (e) => {

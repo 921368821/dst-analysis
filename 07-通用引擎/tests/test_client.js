@@ -1054,6 +1054,84 @@ check('F33 合成面板（B2）：列表真的渲染出来 · 点可造的才发
   return { ok: true, info: '3 行渲染 ✔ / 可造 yes 与置灰 no 分得开 ✔ / 点置灰零请求且说缺 twigs:1 ✔ / 点可造 1 次请求且 recipe=campfire ✔' };
 });
 
+check('F34 编辑器撤销按钮（M1-1）：点撤销/重做真的发请求 · 状态栏回显服务端的事实；反向：栈空显示失败不显示成功', async () => {
+  // 为什么这条必须存在：E18 验的是**服务端**能不能撤销，而用户是按**按钮**的。
+  //   中间那一段（按钮 → 请求 → 状态栏）在 B6 之前完全没有判据 ——
+  //   按钮没绑上、绑错端点、把 400 当成成功，三种错在 E18 里全都看不出来。
+  const mod = require('../rt/perf_lib.js');
+  let undoReply = { ok: false, error: '没有可撤销的操作', empty: true };
+  const env = mod.makeClient({
+    fetchReply: (u) => {
+      if (u.indexOf('/editor/entities') >= 0) return { ok: true, count: 0, listed: 0, items: [] };
+      if (u.indexOf('/editor/undo') >= 0) return undoReply;
+      if (u.indexOf('/editor/redo') >= 0) return { ok: true, kind: 'move', target: 7, to: { x: 9, z: 4 }, undo_depth: 1 };
+      return null;
+    },
+  });
+  const el = (id) => (env.__els || {})[id];
+  const fetched = () => (env.__fetched || []);
+  const rt = env.__rt;
+
+  // 编辑器关着的时候按撤销：不许发请求，要提示先打开
+  const btn = el('edUndo');
+  if (!btn) return { ok: false, info: '拿不到 #edUndo（按钮没渲染出来）' };
+  if (typeof btn.onclick !== 'function') return { ok: false, info: '#edUndo 没绑 onclick' };
+  const n0 = fetched().length;
+  btn.onclick();
+  await tick(3);
+  if (fetched().length !== n0) {
+    return { ok: false, info: '编辑器没打开时按撤销仍然发了请求' };
+  }
+  if (el('edStatus').textContent.indexOf('F1') < 0) {
+    return { ok: false, info: '编辑器没打开时按撤销，状态栏没有提示：' + el('edStatus').textContent };
+  }
+
+  // 打开编辑器
+  const edrt = rt.ed || null;
+  if (edrt && typeof edrt.toggle === 'function') edrt.toggle(true);
+  else {
+    // 没有暴露钩子时退化成"直接派发按钮"—— 用 edBtn 的 onclick 打开
+    const edBtn = el('edBtn');
+    if (edBtn && typeof edBtn.onclick === 'function') edBtn.onclick();
+  }
+  await tick(4);
+
+  // ① 栈空：显示失败，不许显示成功
+  btn.onclick();
+  await tick(4);
+  const s1 = el('edStatus').textContent;
+  if (s1.indexOf('没有可撤销') < 0) {
+    return { ok: false, info: '栈空时状态栏没有回显服务端的原因：' + s1 };
+  }
+  if (s1.indexOf('已撤销') >= 0) {
+    return { ok: false, info: '栈空时状态栏竟然显示「已撤销」：' + s1 };
+  }
+
+  // ② 成功：状态栏要回显**服务端给的事实**（kind/target/落点）
+  undoReply = { ok: true, kind: 'move', target: 23, to: { x: 1, z: 2 }, undo_depth: 0 };
+  btn.onclick();
+  await tick(4);
+  const s2 = el('edStatus').textContent;
+  for (const frag of ['已撤销', 'move', '23', '(1,2)']) {
+    if (s2.indexOf(frag) < 0) {
+      return { ok: false, info: '撤销成功的状态栏缺「' + frag + '」：' + s2 };
+    }
+  }
+
+  // ③ 重做
+  const redo = el('edRedo');
+  if (!redo || typeof redo.onclick !== 'function') return { ok: false, info: '#edRedo 没绑 onclick' };
+  redo.onclick();
+  await tick(4);
+  const s3 = el('edStatus').textContent;
+  if (s3.indexOf('已重做') < 0) return { ok: false, info: '重做之后状态栏不对：' + s3 };
+  if (!fetched().some((u) => u.indexOf('/editor/redo') >= 0)) {
+    return { ok: false, info: '点重做没有发出 /editor/redo' };
+  }
+
+  return { ok: true, info: '关着编辑器不发请求且提示按 F1 ✔ / 栈空回显原因且不显示成功 ✔ / 成功回显 kind#target 与落点 ✔ / 重做走对端点 ✔' };
+});
+
 (async () => {
   await Promise.all(PENDING);
   console.log('\n  结果：' + pass + ' 通过 / ' + fail + ' 失败');
