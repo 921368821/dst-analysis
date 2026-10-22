@@ -3512,8 +3512,24 @@ def b23_frame_only_drawable_and_sorted():
         return False, "帧里有 %d 个**没有 build** 的实体: %s（客户端画不出来，只能画灰点）" % (
             len(nobld), nobld)
     ids = [e["id"] for e in ents]
-    if ids != sorted(ids):
-        return False, "实体 id 不是递增的 ⇒ 绘制顺序不稳定（会闪）: %s" % ids
+    # ★★★ D5（2026-10-22）：这条断言原来写的是「id 必须递增」。
+    #   它编码的是**旧契约**：帧序 = id 序。而 id 序把"谁挡住谁"交给了实体创建顺序
+    #   ⇒ 先种在近处的树、后种在远处的树，画出来是"远的挡住近的"，这是**错**。
+    #   帧序改成"z 降序（远→近），同 z 按 id 升序"之后，这条判据必须**换观测量**，
+    #   否则它守着一个已经被判定为错的规则（要么删掉守护、要么继续错，两者都不行）。
+    #   换成：① 整体 z 单调不增（深度序）；② 同 z 内部 id 升序（确定性兜底）。
+    #   深度序本身由 E24 从"两两交换"角度验，这里验的是**整帧形状**，互补不重复。
+    zs = [e["z"] for e in ents]
+    # ⚠️ 容差用 2e-3 而不是 1e-9：帧里的 z 是**四舍五入到 3 位小数**的
+    #   （`sim.snapshot()` 就是 `round(z, 3)`），两个真值差 0.0003 的实体
+    #   读出来会完全相等。第一版用 1e-9 比较，报的是假红。
+    # ★ 因此这一层**不验 tiebreak**：z 被抹平之后无法区分"同深度"与"差一点点"。
+    #   同 z 按 id 升序那条由 E24 用**完全相同**的 z 去验（那边是精确的）。
+    #   ⇒ 教训：判据读到的是**经过精度损失的数据**时，只能在那个精度上断言。
+    for i in range(1, len(ents)):
+        if zs[i] > zs[i - 1] + 2e-3:
+            return False, ("帧不是深度序：第 %d 个 z=%.3f > 第 %d 个 z=%.3f（远了反而后画）"
+                           % (i, zs[i], i - 1, zs[i - 1]))
     if f1["n"] != len(ents):
         return False, "n=%d 但 ents 有 %d 个（帧不自洽）" % (f1["n"], len(ents))
     # ③ 反向：**内部实体 / 客户端镜像**必须不在帧里。
@@ -3532,14 +3548,29 @@ def b23_frame_only_drawable_and_sorted():
     if leaked:
         return False, "不可绘制的实体（内部登记/客户端镜像，共 %d 个）混进了帧: %s" % (
             len(bad_guids), leaked[:6])
-    # ④ 顺序稳定性
-    for _ in range(10):
-        s.step()
+    # ④ 顺序稳定性 —— **同一世界状态**下取两次，顺序必须完全相同
+    #
+    # ★★★ D5 修正（2026-10-22）：这条原来是「走 10 拍再看，id 序列相同」。
+    #   改成深度序之后它**必然红** —— 而且红得对：实体在动，z 变了顺序就该变。
+    #   ⇒ 「跨帧稳定」这个说法在深度序下本来就不成立，真正要防的闪烁是
+    #     **同一状态下两次取帧给出不同顺序**（`pairs` 顺序未定义带来的那种）。
+    #   所以：世界不动时取两次 ⇒ 必须逐 id 相同；世界动过之后 ⇒ 只要求仍是深度序
+    #     （上面那条已经验了，这里顺手再验一次，因为移动是最容易让排序失效的输入）。
     f2 = s.snapshot()
     if [e["id"] for e in f2["ents"]] != ids:
-        return False, "两帧的实体顺序不同：%s vs %s" % (ids, [e["id"] for e in f2["ents"]])
-    return True, "%d 个实体全部**有 prefab 且有 build**、id 递增且跨帧稳定；宿主内 %d 个不可绘制实体未混入" % (
-        len(ents), len(bad_guids))
+        return False, ("同一世界状态取两次帧，实体顺序不同：%s vs %s "
+                       "（`pairs` 未定义顺序漏进了帧 ⇒ 画面会闪）"
+                       % (ids, [e["id"] for e in f2["ents"]]))
+    for _ in range(10):
+        s.step()
+    f3 = s.snapshot()
+    zs3 = [e["z"] for e in f3["ents"]]
+    for i in range(1, len(zs3)):
+        if zs3[i] > zs3[i - 1] + 2e-3:
+            return False, ("走了 10 拍之后帧不再是深度序：第 %d 个 z=%.3f > 第 %d 个 z=%.3f"
+                           % (i, zs3[i], i - 1, zs3[i - 1]))
+    return True, ("%d 个实体全部**有 prefab 且有 build**、帧为深度序、同状态两次取帧顺序逐 id 相同；"
+                  "宿主内 %d 个不可绘制实体未混入" % (len(ents), len(bad_guids)))
 
 
 def b22_player_anims_exist_and_advance():
@@ -4603,6 +4634,82 @@ def e15_craft_loop():
                   % (int(before), int(after), refused))
 
 
+def e24_depth_sorted_frame():
+    """★★★ D5（2026-10-22）：帧序必须是**深度序** —— 远的先画、近的盖住它。
+
+    修复前：`snapshot()` 只按 **id** 排序。id 排序解决了「帧序每次不一样 ⇒ 前后闪」，
+    但它把**遮挡关系交给了实体创建顺序** —— 先种的那棵树在近处、后种的远处，
+    画出来就是"远的挡住近的"。这不是画质问题，是**错**：
+    玩家站在树后面时，本该看不见自己，却看得见。
+
+    判据（正向三条 + 反向两条）：
+      ① 两个同 prefab、不同 z 的实体 ⇒ 帧里 **z 大的排在前面**（先画）；
+      ② 把两者的 z 互换 ⇒ 顺序**跟着翻**（证明真的在按 z 排，不是碰巧）；
+      ③ 同 z 的一批实体 ⇒ 按 id **升序**（`pairs` 顺序未定义，不给兜底就会闪）；
+      ④ 全帧性质：相邻两两的 z **单调不增**（不是只看我造的那两个）；
+      ⑤ 反向：连取两帧，id 序列**完全相同**（确定性；否则"顺序对了"只是这一次对了）。
+    """
+    def order(sim):
+        # ★ `Sim.snapshot()` 直接返回 dict（不是 (ok, dict) 二元组）——
+        #   一开始按二元组解包，报的错是 "cannot unpack non-sequence dict"，
+        #   看着像"帧接口挂了"，其实只是我记错了签名。
+        f = sim.snapshot()
+        if not f or "ents" not in f:
+            return None
+        return [(e["id"], e["z"]) for e in f["ents"]]
+
+    s = Sim(seed=20261015, tick_hz=30, world_content=0).boot()
+    ok, a = s.debug_spawn("evergreen", 0.0, 0.0)      # 近（z 小）
+    ok2, b = s.debug_spawn("evergreen", 0.0, 5.0)     # 远（z 大）
+    if not (ok and ok2):
+        return False, "spawn 失败"
+
+    seq = order(s)
+    if seq is None:
+        return False, "读不到帧"
+    ids = [g for g, _ in seq]
+    if b["guid"] not in ids or a["guid"] not in ids:
+        return False, "帧里缺实体：%r" % (ids,)
+    if ids.index(b["guid"]) > ids.index(a["guid"]):
+        return False, ("z=5.0 的实体排在了 z=0.0 的后面（帧序 %r）—— "
+                       "远的该先画，否则它会被近的盖住反了" % (ids,))
+
+    # ② 互换 z ⇒ 顺序跟着翻
+    s.debug_move(a["guid"], 0.0, 5.0)
+    s.debug_move(b["guid"], 0.0, 0.0)
+    seq2 = order(s)
+    ids2 = [g for g, _ in seq2]
+    if ids2.index(a["guid"]) > ids2.index(b["guid"]):
+        return False, ("把 z 互换之后顺序没跟着变（%r）—— "
+                       "排序用的不是 z，或者只在某一帧算了一次" % (ids2,))
+
+    # ③ 同 z 一批 ⇒ id 升序
+    s3 = Sim(seed=20261015, tick_hz=30, world_content=0).boot()
+    same = []
+    for i in range(4):
+        ok, r = s3.debug_spawn("evergreen", float(i), 3.0)
+        if ok:
+            same.append(r["guid"])
+    seq3 = order(s3)
+    got = [g for g, z in seq3 if g in same]
+    if got != sorted(got):
+        return False, "同 z 的四个实体没有按 id 升序：%r（期望 %r）" % (got, sorted(got))
+
+    # ④ 全帧相邻对 z 单调不增
+    for i in range(1, len(seq3)):
+        if seq3[i][1] > seq3[i - 1][1] + 1e-9:
+            return False, ("第 %d 与第 %d 个实体的 z 递增了（%.3f → %.3f）—— "
+                           "整体没有按深度排" % (i - 1, i, seq3[i - 1][1], seq3[i][1]))
+
+    # ⑤ 确定性：两次取帧 id 序列相同
+    if [g for g, _ in order(s3)] != [g for g, _ in seq3]:
+        return False, "连续两次取帧的 id 序列不同（排序不稳定 ⇒ 画面会闪）"
+
+    return True, ("z=5 先于 z=0 ✔ / 互换 z 后顺序跟着翻 ✔ / 同 z 按 id 升序（%r）✔ / "
+                  "全帧 z 单调不增（%d 个实体）✔ / 两帧 id 序列相同 ✔"
+                  % (got, len(seq3)))
+
+
 def e23_scene_overrides():
     """★★★ C5（2026-10-22）：场景 v2 —— 每实例覆盖值（Prefab override）。
 
@@ -5541,6 +5648,7 @@ def e14_editor_channel():
 
 check("E13 战斗闭环：打生物 → 掉血 → 死 → 掉战利品；反向：太远被拒 · 树仍走 CHOP", e13_attack_loop)
 check("E14 编辑器通道：列/生成/移动/删除全回读；反向：玩家删除被拒 · /debug 仍 404", e14_editor_channel)
+check("E24 帧序=深度序(D5)：z 大的先画 · 互换 z 顺序跟着翻 · 同 z 按 id 升序 · 全帧 z 单调不增 · 两帧 id 序列相同", e24_depth_sorted_frame)
 check("E23 场景覆盖值(C5)：砍刀/掉血后导出带 workleft+health · 导入逐值恢复；反向：v1 仍可导入(满值) · 未知字段点名拒绝 · 写不进则回滚", e23_scene_overrides)
 check("E22 场景往返：导出 N 个 · 清空只剩玩家 · 导入 N 个且二次导出字节相同；反向：坏场景整份被拒 · 空文本被拒", e22_scene_roundtrip)
 check("E21 碰撞：有树时停在树前（不穿过）· 阻挡计数>0 · 再按3秒仍不过去；反向：空世界能走很远", e21_no_walking_through_trees)
