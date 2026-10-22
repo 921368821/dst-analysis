@@ -4596,6 +4596,149 @@ def e15_craft_loop():
                   % (int(before), int(after), refused))
 
 
+def e16_equip_and_tool():
+    """★★★ B3（2026-10-22）：装备与工具 —— G1 剧本 P4。
+
+    ★ 先说清楚这条判据**推翻了什么**（比它验了什么更重要）：
+      `引擎开发计划` 给 P4 写的验收是「空手 6 下 / 持斧 3 下（workleft 消耗率 1 vs 2）」。
+      实测**两条都错**：
+        ① 树的工作量不是 6 —— `evergreen` 有多个变体，实测见过 workleft = 5 与 15 两种；
+        ② 斧头**不会更快** —— `prefabs/axe.lua:116` 是 `tool:SetAction(ACTIONS.CHOP, 1)`，
+           而 `Tool:GetEffectiveness` 返回 `self.actions[action] or 0`；
+           空手走 `numworks` 的兜底 1 ⇒ **两者都是每次 -1**。
+      所以「装了斧头砍得更快」在 DST 的原版数据里根本不成立。这里如实记录，
+      并把判据改成「装备链路真的通了」，而不是把一个错前提写进判据。
+
+    ★ 另一处必须记住的原版行为：`Builder:DoBuild` 对「产物可装备 + 对应槽位空」
+      **会自动装备**（builder.lua 里的 equippable 分支）。所以 `craft("axe")` 之后
+      斧头**在手上、不在背包** —— 这也让 `equip` 必须具备幂等语义，
+      否则会把"已经装好了"报成"背包里没有"。
+
+    判据（正向四条 + 反向三条）：
+      ① 初始手上是空的；
+      ② 给 1 twigs + 1 flint 合成斧头 ⇒ **hands 变成 axe**（原版自动装备）；
+      ③ 对已装备的物品再 equip 一次 ⇒ **幂等成功**，不报"背包槽=nil"；
+      ④ 装备状态下砍树 ⇒ 树倒下（`waction` 从 CHOP 变 DIG）且世界多了 log，
+         并且这一次动作**携带了手持物品**（`act_invobject_count > 0`）；
+      ⑤ 反向：全新世界、不装备 ⇒ 同样能砍倒，但 `act_invobject_count == 0`
+         （证明工具不是必需品，且"携带手持物"不是恒真的自述）；
+      ⑥ 反向：equip 一个不存在的 guid ⇒ 必须被拒且带原因；
+      ⑦ 记录事实：空手与持斧**每次的 workleft 跌幅都是 1** ——
+         把「斧头不加速」写成断言，防止后人凭直觉去"修"一个本来正确的行为。
+    """
+    def _ent(sim, guid):
+        ok, x = sim.debug_entity(guid)
+        return x if ok else {}
+
+    def _hands(sim):
+        ok, d = sim.debug_entities(999)
+        if not ok or not d["items"]:
+            return None
+        return _ent(sim, d["items"][0]["guid"]).get("hands")
+
+    def _chop(sim, budget=900):
+        """spawn 一棵树 + act，返回 (是否倒下, 跌幅列表, 掉了几个 log, 拍数)"""
+        ok, r = sim.debug_spawn("evergreen", 1.7, 0.0)
+        if not ok:
+            return None, [], 0, 0, "spawn 失败：%s" % (r,)
+        g = r["guid"]
+        logs0 = len([x for x in sim.debug_entities(999)[1]["items"] if x["prefab"] == "log"])
+        if not sim.api.act(0, g)[0]:
+            return None, [], 0, 0, "act 被拒"
+        drops, last, fell = [], _ent(sim, g).get("workleft"), False
+        i = 0
+        for i in range(budget):
+            sim.step()
+            ok, x = sim.debug_entity(g)
+            if not ok:
+                fell = True
+                break
+            w = x.get("workleft")
+            if w != last:
+                if isinstance(last, (int, float)) and isinstance(w, (int, float)):
+                    drops.append(round(last - w, 3))
+                last = w
+            if x.get("waction") == "DIG":
+                fell = True
+                break
+        logs1 = len([x for x in sim.debug_entities(999)[1]["items"] if x["prefab"] == "log"])
+        return fell, drops, logs1 - logs0, i + 1, None
+
+    # ① 初始空手
+    s = Sim(seed=20261015, tick_hz=30, world_content=14).boot()
+    if _hands(s) is not None:
+        return False, "新世界一开始手上就有东西：%r" % (_hands(s),)
+
+    # ② 合成斧头 ⇒ 自动上手
+    for pf, cnt in (("twigs", 1), ("flint", 1)):
+        okg, g = s.debug_give(0, pf, cnt)
+        if not okg:
+            return False, "给 %s 失败：%s" % (pf, g)
+    ok, info = s.craft(0, "axe")
+    if not ok:
+        return False, "合成斧头失败：%s（P4 的前提不成立）" % (info,)
+    if _hands(s) != "axe":
+        return False, ("合成斧头后手上是 %r，不是 axe —— 原版 DoBuild 对可装备产物会自动装备，"
+                       "没有上手说明那条分支没走通" % (_hands(s),))
+
+    ok, d = s.debug_entities(999)
+    axes = [x for x in d["items"] if x["prefab"] == "axe"]
+    if not axes:
+        return False, "斧头既不在手上也不在世界表里（凭空消失了）"
+
+    # ③ equip 幂等
+    ok, r = s.equip(0, axes[0]["guid"])
+    if not ok:
+        return False, ("对已装备的物品再 equip 一次被拒：%s —— "
+                       "真实状态是「已经装好了」，报失败会让调用方去修一个没坏的东西" % (r,))
+
+    # ④ 装备状态砍树
+    fell, drops, nlog, ticks, err = _chop(s)
+    if err:
+        return False, "装备状态下砍树：%s" % (err,)
+    if not fell:
+        return False, "装备状态下砍了 %d 拍树都没倒" % (ticks,)
+    if nlog < 1:
+        return False, "树倒了但没掉 log（掉落链断了）"
+    inv_n = s.api.act_invobject_count()
+    if inv_n <= 0:
+        return False, ("穿装备砍树时 act_invobject_count 还是 0 —— "
+                       "动作没有带手持物品，砍伐的 numworks 会永远走兜底 1")
+    if not drops:
+        return False, "没观察到任何 workleft 变化（砍是砍了，但账没动）"
+
+    # ⑤ 反向：不装备也能砍，且不携带手持物
+    s2 = Sim(seed=20261015, tick_hz=30, world_content=14).boot()
+    fell2, drops2, nlog2, ticks2, err2 = _chop(s2)
+    if err2:
+        return False, "空手砍树：%s" % (err2,)
+    if not fell2:
+        return False, "空手砍了 %d 拍树没倒（工具变成了必需品？原版不是这样）" % (ticks2,)
+    if s2.api.act_invobject_count() != 0:
+        return False, ("空手砍树时 act_invobject_count = %d，应该是 0 —— "
+                       "说明这不是「有没有手持物」的记账，而是个恒真的计数"
+                       % (s2.api.act_invobject_count(),))
+
+    # ⑥ 反向：ghost guid 必须被拒
+    okg, rg = s.equip(0, 999999)
+    if okg:
+        return False, "equip 一个不存在的 guid 竟然成功了"
+    if "不存在" not in str(rg.get("error", "")):
+        return False, "equip 幽灵 guid 被拒了，但理由不对：%r" % (rg.get("error"),)
+
+    # ⑦ 记录事实：两者每次跌幅都是 1
+    if set(drops) != {1.0} or set(drops2) != {1.0}:
+        return False, ("workleft 跌幅 装备时=%r 空手=%r —— 若不是各为 1，说明"
+                       "tool 效率或 numworks 的算法被改过（原版 axe 的 effectiveness 是 1）"
+                       % (drops[:4], drops2[:4]))
+
+    return True, ("合成即上手（原版 DoBuild 自动装备）✔ / equip 幂等 ✔ / "
+                  "装备砍树倒下且掉 %d 个 log，动作携带手持物 %d 次 ✔ / "
+                  "空手照样能砍但携带 0 次 ✔ / 幽灵 guid 被拒 ✔ / "
+                  "两者每次跌幅都是 1（**斧头不加速**，这是原版数据不是缺陷）"
+                  % (nlog, inv_n))
+
+
 def e14_editor_channel():
     """★★ P62 编辑器通道：列 / 生成 / 移动 / 删除 四件套 + 玩家保护 + 门槛分离。
 
@@ -4725,6 +4868,7 @@ def e14_editor_channel():
 
 check("E13 战斗闭环：打生物 → 掉血 → 死 → 掉战利品；反向：太远被拒 · 树仍走 CHOP", e13_attack_loop)
 check("E14 编辑器通道：列/生成/移动/删除全回读；反向：玩家删除被拒 · /debug 仍 404", e14_editor_channel)
+check("E16 装备与工具：合成即上手 · equip 幂等 · 砍伐携带手持物；反向：空手也能砍（0 次携带）· 幽灵 guid 被拒 · 两类跌幅都是 1（斧头不加速）", e16_equip_and_tool)
 check("E15 合成闭环：材料够就造得出（产物真在世界里）· 材料真被扣；反向：不足/配方不存在/空名三类原因必须分得开 · 失败不留残骸", e15_craft_loop)
 check("D4 会话身份挺过重启（槽位/角色/位置都接着上次）；反向：无 key 的存档许不出身份", d4_session_identity_survives_restart)
 check("B25 P20：每个客户端有自己的角色（you 握手 + 槽位回收）", b25_每个客户端有自己的角色)

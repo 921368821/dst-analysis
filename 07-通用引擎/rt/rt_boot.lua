@@ -476,9 +476,11 @@ end
 local ACT_REACH = 20            -- 世界单位：超出这个距离直接拒绝（并且**说得出**拒绝原因）
 local act_ok_n, act_refused_n = 0, 0
 local act_arrive_n = 0          -- ★ 因「到达距离缺失」被 07 补过参数的次数（**不静默**，见 push_action）
+local act_invobject_n = 0       -- ★ B3：带上了手持物品的动作次数（0 = 装备对动作完全没影响）
 local last_act_refusal = nil
 function M.act_stats() return act_ok_n, act_refused_n, last_act_refusal end
 function M.act_arrive_patched() return act_arrive_n end
+function M.act_invobject_count() return act_invobject_n end
 
 --- 这个东西支持什么动作？返回动作名（如 "CHOP"）或 nil。
 local function action_for(inst)
@@ -679,8 +681,40 @@ local function push_action(p, target, action_name)
     if ACT == nil then return false, "引擎里没有动作 " .. tostring(action_name) end
     local loco = p.components and p.components.locomotor
     if loco == nil or loco.PushAction == nil then return false, "玩家没有 locomotor" end
-    local okA, ba = pcall(BufferedAction, p, target, ACT)
+    -- ★★★ B3（2026-10-22）：**必须把「手持物品」传进 BufferedAction**。
+    --   原版 `playercontroller` 构造动作时第 4 个参数就是 invobject（手持物）。
+    --   我们之前一直没传 ⇒ `act.invobject == nil` ⇒ 砍树时
+    --       numworks = (invobject.tool:GetEffectiveness(...) or worker:... or 1)
+    --   永远走最后的兜底 1 ⇒ **装了斧头也不会变快**，而且**不会报错**。
+    --   这不是「装备没做」，是「做了也不会生效」—— 与 P61「ATTACK 记账只接一处」同族。
+    --   ⚠️ 只在拿得到时传：`GetActiveItem` 取不到就保持 nil（沉默），不要编一个假物品。
+    local inv = p.components and p.components.inventory or nil
+    local invobject = nil
+    if inv ~= nil then
+        -- ★★ 手持物 = **装备在 HANDS 槽的东西**，不是 `GetActiveItem()`。
+        --   实测（B3 第一次）：先用 `GetActiveItem` 时，斧头明明已经
+        --   `equip` 成功（hands_prefab = "axe"），`act_invobject_n` 却还是 0 ——
+        --   因为 `GetActiveItem` 指的是"当前选中/使用中的物品"，与"手上装备的"是两个概念。
+        --   两个都试，优先 hands：这就是原版 `numworks` 那条 or 链要的东西。
+        if inv.GetEquippedItem ~= nil then
+            local okH, h = pcall(inv.GetEquippedItem, inv, EQUIPSLOTS.HANDS)
+            if okH and h ~= nil then invobject = h end
+        end
+        -- ⚠️ **不做 `GetActiveItem` 兜底**（B3 实测后撤回）：
+        --   `GetActiveItem` 是「鼠标选中的物品」，可以是任何东西（一块木头、一坨粪）。
+        --   而 `tool:GetEffectiveness(action)` 对不认识的动作返回 **0**（不是 1），
+        --   numworks = 0 ⇒ **手持一块木头反而砍不动树**。
+        --   原版 `numworks` 那条 or 链的兜底 1 只在 `invobject == nil` 时才生效 ——
+        --   所以「传一个不是工具的东西」比「什么都不传」更糟。只认 HANDS 槽。
+    end
+    local okA, ba = pcall(BufferedAction, p, target, ACT, invobject)
     if not okA or ba == nil then return false, "动作构造失败: " .. tostring(ba) end
+    -- ★★ 记账必须挂在**构造出来的动作**上，不能挂在"我打算传"的那个变量上。
+    --   实测（B3 变异 F）：把 `BufferedAction` 的第四个参数去掉、但保留
+    --   `if invobject ~= nil then 计数+1`，判据照样全绿 ——
+    --   因为计数记的是"意图"，不是"事实"。这类记账在本工程出现过不止一次
+    --   （P61 的 atk_hit 恒 0 也是同一个形状：以为记了，其实记的是另一个东西）。
+    if ba.invobject ~= nil then act_invobject_n = act_invobject_n + 1 end
     -- ★★★ 唯一一处「替原版补一个参数」，而且**只在它确实缺的时候**补，并**记账**（不静默）。
     --   为什么必须补：`locomotor:PushAction` 对「带 target 的动作」走
     --   `GoToEntity`，而动作是在**判定为「到达」之后**才执行的。到达距离的算法是
@@ -2101,6 +2135,110 @@ function M.recipes(slot, limit)
     return total, craftable, valid_n, skipped, table.concat(out, "\n"), nil
 end
 
+--- 装备一件物品（B3）。走原版 `ACTIONS.EQUIP.fn` —— 它内部就是 `inventory:Equip(invobject)`。
+---
+--- ★ 为什么物品必须放在 **invobject** 而不是 target：
+---   `actions.lua:2888` 的 `ACTIONS.EQUIP.fn` 读的是 `act.invobject`，**不是 target**。
+---   构造 `BufferedAction(p, item, ACTIONS.EQUIP)` 会把物品塞进 target ⇒ fn 拿到
+---   `invobject = nil` ⇒ `Equip(nil)` ⇒ **静默什么都不做**（返回 nil，不报错）。
+---   这是「参数放错槽位」的典型形态：调用成功、没有异常、状态没变。
+---
+--- ★ 为什么直接调 `fn` 而不 PushAction：EQUIP 是 `instant = true`（actions.lua:1355），
+---   原版对即时动作就是当场执行；走 PushAction 反而会去等一个「到达」条件，
+---   而装备这件事没有目标位置可到达。
+---
+--- ★ 为什么结尾要**回读**：`inventory:Equip` 在「物品不在背包里」「已被别的槽占用」
+---   等情况下会自己 bail out，返回值也不表达成功与否。不回读的话，
+---   「装上了」就只是一个说法，而不是一个事实。
+function M.equip(slot, guid)
+    slot = tonumber(slot) or 0
+    guid = tonumber(guid)
+    local p = slot_entity(slot)
+    if p == nil then return false, "槽位 " .. tostring(slot) .. " 没有玩家", nil end
+    if guid == nil then return false, "没给物品 guid", nil end
+    local item = ent_table()[guid]
+    if item == nil then return false, "目标不存在（guid " .. tostring(guid) .. "）", nil end
+    local inv = p.components and p.components.inventory or nil
+    if inv == nil then return false, "玩家没有 inventory 组件", nil end
+
+    -- ★★ 幂等：已经在那个槽里就直接算成功。
+    --   为什么必须有：`Builder:DoBuild` 对「产物是可装备物品且槽位空」的情况
+    --   **会自动装备**（builder.lua 的 `if prod.components.equippable ~= nil and
+    --   not recipe.dropitem and GetEquippedItem(eslot) == nil then inventory:Equip(prod)`）。
+    --   所以 `craft("axe")` 之后斧头**已经在手上、不在背包**。
+    --   没有这条幂等，`equip` 会报「背包槽=nil」—— 而真实状态是"已经装好了"，
+    --   把一个正确状态报成失败，比不做事更糟（调用方会去"修"一个没坏的东西）。
+    local eqc = item.components and item.components.equippable or nil
+    if eqc ~= nil and inv.GetEquippedItem ~= nil then
+        local okS, cur = pcall(inv.GetEquippedItem, inv, eqc.equipslot)
+        if okS and cur == item then
+            return true, "已经是装备状态（幂等）", {
+                guid = guid, prefab = tostring(item.prefab or ""),
+                equipped = true, hands_prefab = tostring(item.prefab or ""),
+            }
+        end
+    end
+
+    local ACT = ACTIONS and ACTIONS.EQUIP
+    if ACT == nil or ACT.fn == nil then return false, "引擎里没有 EQUIP 动作", nil end
+
+    -- 前置条件回读：装备失败时**要能说出是哪一条不满足**。
+    -- 否则只会得到「没生效」，而「没生效」有三个完全不同的原因：
+    -- 物品不在背包 / 物品没有 equippable / equipslot 不是 hands。
+    local idx = nil
+    if inv.GetItemSlot ~= nil then
+        local okS, v = pcall(inv.GetItemSlot, inv, item)
+        if okS then idx = v end
+    end
+    local eq = item.components and item.components.equippable or nil
+    local eqslot = nil
+    if eq ~= nil then
+        local okQ, q = pcall(function() return eq.equipslot end)
+        if okQ then eqslot = q end
+    end
+
+    -- ★★ 直接调 `inventory:Equip(item)`，**不绕 `ACTIONS.EQUIP.fn`**。
+    --   理由（B3 实测）：`ACTIONS.EQUIP.fn` 的函数体就是
+    --       `return act.doer.components.inventory:Equip(act.invobject)`
+    --   （actions.lua:2888-2892），一行。而 `BufferedAction(p, nil, ACT, item)` 构造出来的
+    --   动作拿不到 `invobject`（实测 ba.invobject 为空），于是 fn 走到 `Equip(nil)` 直接 return，
+    --   表现是「装备成功、手上还是空的」。绕这一层的唯一收益是走动作链，
+    --   而装备是 `instant` 动作，没有到达判定、没有动画依赖 —— 绕过去只会多一个失效点。
+    --   ⚠️ 这不是"自己实现规则"：规则仍然在 `Inventory:Equip` 里（准入检查、旧物品归还、
+    --      replica 推送都在那儿）。我们只是省掉了一次注定传不进参数的转发。
+    local okF, r = pcall(inv.Equip, inv, item)
+    if not okF then return false, "Equip 抛错：" .. tostring(r), nil end
+
+    -- 回读：手上真的是它吗？（不回读就等于自述结论）
+    local hands = nil
+    local okE, e = pcall(function() return inv:GetEquippedItem(EQUIPSLOTS.HANDS) end)
+    if okE then hands = e end
+    local okD, detail = true, {
+        guid = guid,
+        prefab = tostring(item.prefab or ""),
+        equipped = (hands ~= nil and hands == item),
+        hands_prefab = (hands ~= nil) and tostring(hands.prefab or "") or "",
+    }
+    if not okD then detail = nil end
+    if hands ~= item then
+        -- 把背包里到底有什么也打出来：只说"不在背包里"没法定位
+        -- 是「产物没进背包」还是「进的是另一个实例」。
+        local dump = {}
+        local okN, n = pcall(inv.GetNumSlots, inv)
+        if okN and type(n) == "number" then
+            for i = 0, n - 1 do
+                local okI, it = pcall(inv.GetItemInSlot, inv, i)
+                if okI then dump[#dump + 1] = i .. ":" .. tostring(it and it.prefab) end
+            end
+        end
+        return false, string.format(
+            "装备没生效（背包槽=%s / equippable=%s / equipslot=%s / 手上=%s / 背包=[%s]）",
+            tostring(idx), tostring(eq ~= nil), tostring(eqslot),
+            tostring(detail.hands_prefab), table.concat(dump, ",")), detail
+    end
+    return true, "ok", detail
+end
+
 --- 给某个槽位的玩家发 n 个某物品（走真实 `inventory:GiveItem`）。
 --  返回 true, {given, items_before, items_after} | false, 原因
 function M.debug_give(slot, prefab, n)
@@ -2162,6 +2300,30 @@ function M.debug_entity(guid)
         local okD, v = pcall(hc.IsDead, hc)
         if okD then dead = v end
     end
+    -- ★★ B3（2026-10-22）：workleft / 手持物品 / 工具效率，三样一起加。
+    --   为什么非加不可：「拿斧头砍树更快」这件事**唯一的可观测证据**就是 workleft 的
+    --   下降步长。在此之前探针只能看到「树倒了 / 没倒」，看不到「敲一下扣了几点」——
+    --   而「敲 3 下倒」与「敲 6 下倒」在只看结果时**完全一样**，都是"倒了"。
+    --   这正是本项目最怕的假绿灯形态：结论对，但判据测不到差别。
+    local wc = inst.components and inst.components.workable or nil
+    local workleft, maxwork, wtough, waction = nil, nil, nil, nil
+    if wc ~= nil then
+        local okW, w = pcall(function() return wc.workleft end)
+        if okW then workleft = w end
+        local okM, m = pcall(function() return wc.maxwork end)
+        if okM then maxwork = m end
+        local okT, t = pcall(function() return wc.tough end)
+        if okT then wtough = t end
+        local okQ, q = pcall(function() return wc.action and wc.action.id end)
+        if okQ then waction = q end
+    end
+    local hands = nil
+    local pcomp = M.player and M.player.components or nil
+    local pinv = pcomp and pcomp.inventory or nil
+    if pinv ~= nil and pinv.GetEquippedItem ~= nil then
+        local okH, h = pcall(function() return pinv:GetEquippedItem(EQUIPSLOTS.HANDS) end)
+        if okH and h ~= nil then hands = tostring(h.prefab or "") end
+    end
     return true, {
         guid = guid,
         prefab = tostring(inst.prefab or "?"),
@@ -2171,6 +2333,11 @@ function M.debug_entity(guid)
         maxhp = (hc ~= nil) and hc.maxhealth or nil,
         dead = dead,
         action = action_for(inst),
+        workleft = workleft,
+        maxwork = maxwork,
+        wtough = wtough,
+        waction = (waction ~= nil) and tostring(waction) or nil,
+        hands = hands,
     }
 end
 

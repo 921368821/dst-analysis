@@ -352,6 +352,29 @@ class Sim:
             out["action"] = None if info["action"] is None else str(info["action"])
         except Exception:                                        # noqa: BLE001
             out["action"] = None
+        # ★★ B3：workleft / maxwork / hands。
+        #   「装了斧头砍得更快」的唯一可观测证据就是 workleft 的**下降步长**。
+        #   只看「树倒没倒」是分不出来的 —— 6 下倒和 3 下倒，结果都是"倒了"。
+        #   同样地：`hands` 让「装备生效了吗」有一个事实来源，而不是靠调用方自述。
+        for k in ("workleft", "maxwork"):
+            try:
+                v = info[k]
+                out[k] = None if v is None else round(float(v), 3)
+            except Exception:                                    # noqa: BLE001
+                out[k] = None
+        try:
+            out["hands"] = None if info["hands"] is None else str(info["hands"])
+        except Exception:                                        # noqa: BLE001
+            out["hands"] = None
+        for k in ("wtough",):
+            try:
+                out[k] = None if info[k] is None else bool(info[k])
+            except Exception:                                    # noqa: BLE001
+                out[k] = None
+        try:
+            out["waction"] = None if info["waction"] is None else str(info["waction"])
+        except Exception:                                        # noqa: BLE001
+            out["waction"] = None
         return True, out
 
     def debug_entities(self, limit=500):
@@ -462,6 +485,36 @@ class Sim:
                       "n": len(items),
                       "items": items,
                       "ms": round((time.perf_counter() - t0) * 1000, 2)}
+
+    def equip(self, slot, guid):
+        """把某件物品装到手上 → (ok, dict)。
+
+        ★ B3：**回读**由 Lua 侧完成（`M.equip` 结尾查 `GetEquippedItem(HANDS)`），
+          这里只搬 `equipped` 与 `hands_prefab`。装备这件事没有返回值可用
+          （`inventory:Equip` 失败也不报错），所以"成功"只能是"手上真的是它"。
+        """
+        try:
+            res = self.api.equip(int(slot), int(guid))
+        except Exception as e:                                   # noqa: BLE001
+            return False, {"error": "%s: %s" % (type(e).__name__, e)}
+        if not isinstance(res, tuple):
+            res = (res,)
+        ok = bool(res[0]) if len(res) > 0 else False
+        info = res[1] if len(res) > 1 else None
+        detail = res[2] if len(res) > 2 else None
+        if not ok:
+            return False, {"error": str(info)}
+        out = {"equipped": True}
+        for k in ("guid", "prefab", "hands_prefab"):
+            try:
+                out[k] = detail[k]
+            except Exception:                                    # noqa: BLE001
+                out[k] = None
+        try:
+            out["equipped"] = bool(detail["equipped"])
+        except Exception:                                        # noqa: BLE001
+            out["equipped"] = False
+        return True, out
 
     def craft(self, slot, recname, x=None, z=None):
         """合成一个配方 → (ok, dict)。
