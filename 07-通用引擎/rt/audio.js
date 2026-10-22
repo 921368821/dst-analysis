@@ -40,6 +40,7 @@ var AudioEngine = (function () {
     decodeHits: 0,   // 音源描述命中缓存
     decodeMisses: 0, // 首次生成音源描述
     dropped: 0,      // 同时发声数超上限被丢弃的
+    byName: {},      // 每个音名各播了几次（**判据靠它区分"播了"和"播对了"**）
   };
 
   // 同时最多 24 个声部。超了丢最旧的 —— 与渲染层的"帧里只给最近 12 个目标"同一条思路：
@@ -167,6 +168,7 @@ var AudioEngine = (function () {
       osc.start(t0);
       osc.stop(t0 + src.dur + 0.02);
       stats.plays++;
+      stats.byName[name] = (stats.byName[name] || 0) + 1;
     } catch (e) {
       return null;
     }
@@ -203,7 +205,9 @@ var AudioEngine = (function () {
 
   function getStats() {
     var out = {};
-    for (var k in stats) out[k] = stats[k];
+    for (var k in stats) {
+      out[k] = (k === 'byName') ? Object.assign({}, stats.byName) : stats[k];
+    }
     out.voices = Object.keys(voices).length;
     out.unlocked = unlocked;
     out.muted = muted;
@@ -215,7 +219,9 @@ var AudioEngine = (function () {
     for (var k in voices) { try { voices[k].osc.stop(); } catch (e) { /* noop */ } }
     voices = {}; cache = {}; seq = 0; ctx = null; master = null;
     unlocked = false; muted = false; unlocked_hooked = false;
-    for (var s in stats) stats[s] = 0;
+    for (var s in stats) {
+      if (s === 'byName') stats.byName = {}; else stats[s] = 0;
+    }
   }
 
   return {

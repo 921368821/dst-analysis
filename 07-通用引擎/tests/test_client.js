@@ -1245,6 +1245,96 @@ check('F35 音频后端（H1）：懒创建只一次 · 未解锁不发声但记
   return { ok: true, info: '无环境静默降级 ✔ / 懒创建 1 次 ✔ / 未解锁 accounts denied 且不 start ✔ / 解锁后 start ✔ / 同名音源走缓存 ✔ / stop 记账 ✔ / 声部上限 24 裁剪 ' + st.dropped + ' 个 ✔ / 静音仍可播 ✔' };
 });
 
+check('F36 音效接线（H1）：按目标动作选音 · 掉血与死亡选不同的音；反向：首帧不掉血不许响、血量上升不许响', async () => {
+  // F35 验的是 AudioEngine 自己（懒创建/解锁/缓存/上限）。
+  // 这条验**接线**：客户端在什么时候播哪个音。两者失败原因完全不同 ——
+  // 引擎全对但一处都没接上，用户在浏览器里听到的仍然是"安静"。
+  const path = require('path');
+  const audioPath = path.join(__dirname, '..', 'rt', 'audio.js');
+  delete require.cache[require.resolve(audioPath)];
+
+  const calls = { start: 0 };
+  function StubParam(v) { this.value = v; this.setValueAtTime = () => this; this.exponentialRampToValueAtTime = () => this; }
+  function StubCtx() { this.state = 'suspended'; this.currentTime = 0; this.destination = {}; this.resume = () => { this.state = 'running'; }; }
+  StubCtx.prototype.createGain = function () { return { gain: new StubParam(1), connect: () => {} }; };
+  StubCtx.prototype.createOscillator = function () {
+    return { type: 'sine', frequency: new StubParam(440), connect: () => {},
+             start: () => { calls.start++; }, stop: () => {} };
+  };
+  const saved = global.AudioContext;
+  global.AudioContext = StubCtx;
+
+  const AE = require(audioPath).AudioEngine;
+  AE._resetForTest();
+  AE.ensure();
+  AE.unlock();
+  const n0 = AE.stats().plays;
+
+  const mod = require('../rt/perf_lib.js');
+  const mkEnv = () => mod.makeClient({
+    audio: AE,
+    // 每次都用**新的沙箱**：`ACT.pick` 的更新有节流，同一个沙箱里连换三次目标
+    // 拿到的仍是第一个 pick（首跑就是这么错的，报出来却是"音效计数没 +1"）。
+    fetchReply: (u) => (u.indexOf('/editor/entities') >= 0 ? { ok: true, count: 0, listed: 0, items: [] } : { ok: true }),
+  });
+
+  // ① 动作：CHOP / PICKUP / ATTACK 要发不同的音
+  const cases = [
+    [{ id: 1, a: 'CHOP' }, 'act.chop'],
+    [{ id: 2, a: 'PICKUP' }, 'act.pickup'],
+    [{ id: 3, a: 'ATTACK' }, 'act.hit'],
+  ];
+  for (const [tgt, want] of cases) {
+    const before = AE.stats().byName[want] || 0;
+    const e = mkEnv();
+    e.__rt.setTargets([tgt]);
+    e.__rt.actTick(2e9);                       // 让 actPoll 挑出 pick
+    e.__rt.actKey(true);
+    e.__rt.actKey(false);
+    const after = AE.stats().byName[want] || 0;
+    if (after !== before + 1) {
+      return { ok: false, info: '动作 ' + tgt.a + ' 之后 ' + want + ' 的计数没 +1（byName=' + JSON.stringify(AE.stats().byName) + '）' };
+    }
+  }
+  const env = mkEnv();
+  const rt = env.__rt;
+
+  // ② 掉血：150 → 120 要发 player.hurt
+  const h0 = AE.stats().byName['player.hurt'] || 0;
+  // 用 feed 模拟服务端推 me 消息（与真实路径一致）
+  rt.feed({ me: { ok: true, health: 150, maxhealth: 150 } });
+  await tick(2);
+  const hMid = AE.stats().byName['player.hurt'] || 0;
+  if (hMid !== h0) {
+    return { ok: false, info: '首帧（没有旧值可比较）就播了受伤音 —— 会一进游戏就响一下' };
+  }
+  rt.feed({ me: { ok: true, health: 120, maxhealth: 150 } });
+  await tick(2);
+  const h1 = AE.stats().byName['player.hurt'] || 0;
+  if (h1 !== h0 + 1) {
+    return { ok: false, info: '掉血 150→120 没有播 player.hurt（byName=' + JSON.stringify(AE.stats().byName) + '）' };
+  }
+
+  // ③ 反向：血量回升不许响
+  rt.feed({ me: { ok: true, health: 140, maxhealth: 150 } });
+  await tick(2);
+  if ((AE.stats().byName['player.hurt'] || 0) !== h1) {
+    return { ok: false, info: '血量回升也播了受伤音' };
+  }
+
+  // ④ 死亡：归零播 player.die
+  const d0 = AE.stats().byName['player.die'] || 0;
+  rt.feed({ me: { ok: true, health: 0, maxhealth: 150 } });
+  await tick(2);
+  if ((AE.stats().byName['player.die'] || 0) !== d0 + 1) {
+    return { ok: false, info: '血量归零没有播 player.die（byName=' + JSON.stringify(AE.stats().byName) + '）' };
+  }
+
+  if (saved === undefined) delete global.AudioContext; else global.AudioContext = saved;
+  const names = AE.stats().byName;
+  return { ok: true, info: 'CHOP/PICKUP/ATTACK 各发不同的音 ✔ / 首帧不响 ✔ / 掉血播 hurt ✔ / 回升不响 ✔ / 归零播 die ✔ / byName=' + JSON.stringify(names) };
+});
+
 (async () => {
   await Promise.all(PENDING);
   console.log('\n  结果：' + pass + ' 通过 / ' + fail + ' 失败');

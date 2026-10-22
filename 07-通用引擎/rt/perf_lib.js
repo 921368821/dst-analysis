@@ -257,6 +257,11 @@ function makeClient(opt) {
     // ★ P21：给一个**极简 localStorage**（沙箱比浏览器少东西的老问题之一）。
     //   少了它，客户端那句 `localStorage.getItem('rt_key')` 会抛异常 →
     //   被 try/catch 吃掉 → SKEY 恒为 '' → **测试永远走不到「带会话 key」那条路**。
+    // ★★ H1：音频引擎**按需注入**（`opt.audio`），默认不给。
+    //   为什么不默认给：AudioEngine 是模块级单例，默认注入会让 35 条老判据
+    //   共享同一份状态（谁先播了一个音，后面的人看到的 stats 就是脏的）。
+    //   需要验音频接线的判据（F36）自己建一份并 `_resetForTest()`。
+    AudioEngine: (O.audio !== undefined ? O.audio : undefined),
     localStorage: {
       _d: {},
       getItem(k) { return Object.prototype.hasOwnProperty.call(this._d, k) ? this._d[k] : null; },

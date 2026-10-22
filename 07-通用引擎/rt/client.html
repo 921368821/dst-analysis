@@ -397,7 +397,18 @@ function actPoll(now) {
 function actKeyDown() {
   if (ACT.held) return;
   ACT.held = true;
-  if (ACT.pick) { sendCmd({ cmd: 'act', v: ACT.pick.id }); ACT.sent++; }
+  if (ACT.pick) {
+    sendCmd({ cmd: 'act', v: ACT.pick.id }); ACT.sent++;
+    // ★ H1：**按目标动作选音**，而不是一个通用"点击声"。
+    //   声音在这里是**信息**：砍和捡的声音不同，用户不看屏幕也知道自己在干什么。
+    //   ⚠️ 这是**预测性**播放（不等服务端确认就响）—— 游戏音效的常规做法：
+    //     等 100 ms 的往返再响，手感和声音就对不上了。
+    if (typeof AudioEngine !== 'undefined') {
+      const a = String(ACT.pick.a || '').toUpperCase();
+      AudioEngine.play(a === 'ATTACK' ? 'act.hit'
+                     : a === 'PICKUP' ? 'act.pickup' : 'act.chop');
+    }
+  }
 }
 function actKeyUp() {
   if (!ACT.held) return;
@@ -933,6 +944,7 @@ function meLine(st) {
 }
 /** 服务端推来的 me 消息 → 归一化（**只认数值字段，字符串一律拒**） */
 function applyMe(m) {
+  const prevHp = ME_ST.health;                 // ★ H1：要在覆盖之前抓住旧值
   ME_ST.ok = !!(m && m.ok === true);
   ME_ST.health = num(m && m.health);   ME_ST.maxhealth = num(m && m.maxhealth);
   ME_ST.hunger = num(m && m.hunger);   ME_ST.maxhunger = num(m && m.maxhunger);
@@ -940,6 +952,13 @@ function applyMe(m) {
   ME_ST.items = (m && Array.isArray(m.items)) ? m.items : [];
   ME_ST.used = num(m && m.used);       ME_ST.slots = num(m && m.slots);
   ME_ST.at = performance.now();
+  // ★ H1：掉血给一声、归零给另一声。只在**真的下降**时响（首帧 prevHp 为 null 不算）。
+  //   为什么用"下降"而不是"低于某个阈值"：阈值会漏掉"从 150 掉到 140"，
+  //   而那一下正是玩家最需要知道的（有东西在打你）。
+  if (typeof AudioEngine !== 'undefined' && prevHp !== null
+      && ME_ST.health !== null && ME_ST.health < prevHp) {
+    AudioEngine.play(ME_ST.health <= 0 ? 'player.die' : 'player.hurt');
+  }
 }
 function myEnt(f) {
   if (!f || !f.ents) return null;
