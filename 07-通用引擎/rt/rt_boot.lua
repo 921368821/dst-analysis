@@ -1112,6 +1112,58 @@ local DEATH_SINCE = {}          -- slot -> steps_done（第一次观察到该槽
 local respawn_n = 0
 function M.respawn_stats() return respawn_n end
 
+-- ★★ N4（2026-10-22）：死亡代价 —— 背包**掉一半**。
+--   为什么原来一点代价都没有：`M.respawn` 里直接 `p:Remove()` 把尸体连同背包一起删了，
+--   所以「死亡」在玩法上等于「免费回城」——没有紧张感，也就没有生存压力。
+--   DST 原版是「全掉（或按设置不掉）」，这里取**一半**是 07 侧的设计选择：
+--   全掉太惩罚（一次失误清空半小时积累），不掉又没压力。
+--   ⚠️ 确定性而不是随机：隔一个掉一个。随机的话同一个存档重放两次掉的不是同一批，
+--      E19 会变成一条"大多数时候能过"的判据 —— 那种判据比没有更糟。
+local death_drop_total = 0
+local DEATH_DROPPED = {}          -- slot -> 本次死了掉了几个（可观测）
+function M.death_drops() return death_drop_total end
+function M.death_dropped_of(slot) return DEATH_DROPPED[tonumber(slot) or 0] or 0 end
+
+--- 死亡瞬间把一半背包丢到地上。返回丢了几件。
+local function drop_half_on_death(slot, p)
+    local inv = p.components and p.components.inventory or nil
+    if inv == nil or inv.GetNumSlots == nil then return 0 end
+    local okn, n = pcall(inv.GetNumSlots, inv)
+    if not okn or type(n) ~= "number" or n <= 0 then return 0 end
+    local okp, pos = pcall(function() return p:GetPosition() end)
+    if not okp then pos = nil end
+    local dropped = 0
+    -- 从后往前：先掉高位槽位，避免"边删边遍历"导致的索引漂移
+    for i = n - 1, 0, -1 do
+        if i % 2 == 0 then
+            local oki, item = pcall(inv.GetItemInSlot, inv, i)
+            if oki and item ~= nil then
+                pcall(function() inv:DropItem(item, false, nil, pos) end)
+                -- ★★ 记账必须**回读**：`DropItem` 失败时也只是 return（不抛），
+                --   所以 pcall 成功 ≠ 真的掉出来了。判据靠这个数判断"掉了一半"，
+                --   数错就等于没验（本工程已在 invobject 记账上踩过一模一样的坑）。
+                local oks, left = pcall(inv.GetItemSlot, inv, item)
+                if oks and left == nil then dropped = dropped + 1 end
+            end
+        end
+    end
+    -- ★★ 掉完一半，**必须把另一半明确销毁**。
+    --   实测（E19 首跑）：`M.respawn` 里 `p:Remove()` 会把背上剩下的物品**也丢到地上**，
+    --   于是"掉一半"实际变成了"全掉"（复活后世界表里 4 件全在）。
+    --   ⇒ 不写这一步，"一半"就只是注释里的一句话，而世界上发生的是"全掉"。
+    for i = n - 1, 0, -1 do
+        if i % 2 ~= 0 then
+            local oki, item = pcall(inv.GetItemInSlot, inv, i)
+            if oki and item ~= nil then
+                pcall(function() item:Remove() end)
+            end
+        end
+    end
+    death_drop_total = death_drop_total + dropped
+    DEATH_DROPPED[slot] = dropped
+    return dropped
+end
+
 --- 复活一个已经死掉的玩家。返回 (ok, 新 guid 或 拒绝原因)
 --- ★ 拒绝也要说得出原因（「没死就不该复活」是一条正常拒绝，不是错误）
 function M.respawn(slot)
@@ -1147,6 +1199,9 @@ local function auto_respawn()
         if h ~= nil and h:IsDead() then
             if DEATH_SINCE[slot] == nil then
                 DEATH_SINCE[slot] = steps_done
+                -- ★ 死的那一拍就掉，而不是等 3 秒后复活时才掉：
+                --   复活时 `p:Remove()` 会把背包一起删掉，那时再想"掉一半"已经没东西可掉了。
+                drop_half_on_death(slot, p)
             elseif steps_done - DEATH_SINCE[slot] >= RESPAWN_DELAY then
                 M.respawn(slot)          -- 失败就下一拍再试（不静默：stats 里的 respawns 不涨）
             end

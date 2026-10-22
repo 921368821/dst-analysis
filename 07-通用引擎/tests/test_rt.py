@@ -4596,6 +4596,103 @@ def e15_craft_loop():
                   % (int(before), int(after), refused))
 
 
+def e19_death_drops_half():
+    """★★★ N4（2026-10-22）：死亡代价 —— 背包掉**一半**，而且只掉一半。
+
+    修复前的状态：`M.respawn` 里直接 `p:Remove()`，背包跟着尸体一起消失
+    ⇒「死亡」在玩法上等于**免费回城**，没有紧张感，也就没有生存压力。
+    （原版 DST 是全掉或按设置不掉；取一半是 07 侧的设计选择，写在 rt_boot 注释里。）
+
+    判据（正向三条 + 反向两条）：
+      ① 4 件不同物品在背包里 ⇒ 死亡那一刻地上出现**恰好 2 件**；
+      ② `death_drops()` 记账为 2（不是"大概掉了一些"这种自述）；
+      ③ 复活照常发生（新身体、`respawns` 至少 +1）—— 掉落不该破坏复活链；
+      ④ 反向：**不许全掉**（4 件全落地 = "一半"没实现，只是把 Remove 挪了个位置）；
+      ⑤ 反向：**没死的时候**不掉东西（`death_drops()` 一动不动）。
+    """
+    s = Sim(seed=20261015, tick_hz=30).boot()
+    L = s.lua
+    L.globals().RT = s.api
+
+    def ground(names):
+        ok, d = s.debug_entities(999)
+        if not ok:
+            return None
+        return [x for x in d["items"] if str(x.get("prefab")) in names]
+
+    items = ["log", "twigs", "flint", "cutgrass"]
+    for pf in items:
+        ok, r = s.debug_give(0, pf, 1)
+        if not ok:
+            return False, "给 %s 失败：%s" % (pf, r)
+
+    # ⑤ 先确认没死时不掉
+    if s.death_drops() != 0:
+        return False, "还没死就记了掉落数：%r" % (s.death_drops(),)
+    for _ in range(30):
+        s.step()
+    if s.death_drops() != 0:
+        return False, "活着的时候走了 1 秒，掉落数变成了 %r（不该掉东西）" % (s.death_drops(),)
+
+    # ★ 注意：**背包里的物品也在世界表里**（DST 的机制，位置跟随持有者）。
+    #   所以"地上有几件"不能靠"世界表里有没有"来判 —— 死前就是 4 件。
+    #   真正能区分的是**死亡前后的差值**：掉的 2 件留在地上，没掉的 2 件跟着尸体一起消失。
+    g0 = ground(items)
+    if g0 is None:
+        return False, "读不到实体列表"
+    if len(g0) != 4:
+        return False, ("死之前世界表里有 %d 件（期望 4：给了 4 件进背包）—— "
+                       "基线不成立，后面的差值就说明不了问题" % (len(g0),))
+
+    # 扣光血
+    L.eval("(function() RT.player.components.health:DoDelta(-9999) return 1 end)()")
+    st = s.stats()
+    if st.get("player_alive") is not False:
+        return False, "扣光血后 player_alive 仍是 %r" % (st.get("player_alive"),)
+
+    # 死的那一拍就该掉（auto_respawn 第一次观察到死亡）
+    for _ in range(6):
+        s.step()
+    dropped = s.death_dropped_of(0)
+    total = s.death_drops()
+    if dropped != 2:
+        return False, ("死了之后掉了 %r 件，期望 2（4 件里隔一个掉一个）—— "
+                       "0 说明掉落没接上，4 说明是「全掉」不是「一半」" % (dropped,))
+    if total != 2:
+        return False, "death_drops() 总数是 %r，期望 2" % (total,)
+
+    # ★ 语义确认（实测踩过）：死亡 = **一半掉地上可捡回、另一半永久丢失**。
+    #   最初以为"另一半会留在尸体背包里"，但 `Remove()` 会把背包里的东西也丢出来 ——
+    #   所以必须在掉落之后**明确销毁另一半**，否则"掉一半"会静默变成"全掉"。
+    #   这条判据看的是**玩家能挽回的那部分**：地上的 2 件。
+    g_mid = ground(items)
+    if g_mid is None or len(g_mid) != 2:
+        return False, ("死亡那一拍世界表里有 %r 件，期望 2（一半掉出来、另一半销毁）"
+                       % (len(g_mid or []),))
+
+    # ③ 复活照常
+    for _ in range(140):
+        s.step()
+        if s.stats().get("player_alive") is True:
+            break
+    if s.stats().get("player_alive") is not True:
+        return False, "掉了一半之后没有复活（respawns=%r）—— 掉落破坏了复活链" % (s.stats().get("respawns"),)
+    if int(s.stats().get("respawns") or 0) < 1:
+        return False, "复活了但 respawns 没涨"
+
+    # ① 复活之后（尸体已被移除）世界表里只剩掉出来的那 2 件
+    g1 = ground(items)
+    if g1 is None or len(g1) != 2:
+        return False, ("复活后世界表里有 %r 件，期望 2 —— 掉的 2 件留下、"
+                       "没掉的 2 件应随尸体消失" % (len(g1 or []),))
+    # ④ 不许全掉（全掉的话这里会是 4）
+    if len(g1) >= 4:
+        return False, "4 件全留在世界里 —— 那是「全掉」不是「掉一半」"
+
+    return True, ("活着不掉 ✔ / 死后那一拍掉了 %d 件（4 件的一半）✔ / 地上恰好 2 件 ✔ / "
+                  "没全掉 ✔ / 复活照常（respawns=%r）" % (2, s.stats().get("respawns")))
+
+
 def e18_editor_undo_move():
     """★★★ M1-1（2026-10-22）：编辑器撤销 —— 拖错了能回去。
 
@@ -5037,6 +5134,7 @@ def e14_editor_channel():
 
 check("E13 战斗闭环：打生物 → 掉血 → 死 → 掉战利品；反向：太远被拒 · 树仍走 CHOP", e13_attack_loop)
 check("E14 编辑器通道：列/生成/移动/删除全回读；反向：玩家删除被拒 · /debug 仍 404", e14_editor_channel)
+check("E19 死亡掉一半背包：活着一件不掉 · 死后那一拍掉 2/4 · 地上恰好 2 件；反向：不许全掉 · 复活照常", e19_death_drops_half)
 check("E18 编辑器撤销：move→undo→redo 逐值往返 · 连续移动合并成 1 步；反向：空栈被拒 · undo 后新操作清空 redo", e18_editor_undo_move)
 check("E17 生物会还手：无操作下 10 秒内玩家掉血且蜘蛛 action=ATTACK；反向：无敌人 / 20 格外都不掉血", e17_monster_fights_back)
 check("E16 装备与工具：合成即上手 · equip 幂等 · 砍伐携带手持物；反向：空手也能砍（0 次携带）· 幽灵 guid 被拒 · 两类跌幅都是 1（斧头不加速）", e16_equip_and_tool)

@@ -506,6 +506,19 @@ class Sim:
                       "to": cmd.after, "undo_depth": st.depth,
                       "can_redo": st.can_redo(), "version": st.version}
 
+    def death_drops(self):
+        """死亡时一共掉了几件（N4）。**不是**"应该掉几件"——是事实读数。"""
+        try:
+            return int(self.api.death_drops())
+        except Exception:                                        # noqa: BLE001
+            return 0
+
+    def death_dropped_of(self, slot=0):
+        try:
+            return int(self.api.death_dropped_of(int(slot)))
+        except Exception:                                        # noqa: BLE001
+            return 0
+
     def undo_stats(self):
         st = self._ensure_stack()
         return st.stats()
