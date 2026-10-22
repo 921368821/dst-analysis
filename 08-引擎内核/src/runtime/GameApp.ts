@@ -36,6 +36,7 @@ import { Scene } from "../core/scene/scene.ts";
 import { FixedStepScheduler } from "../core/scheduler/scheduler.ts";
 import { AssetDatabase } from "../core/asset/asset.ts";
 import { Services, type EngineEvents } from "../core/tokens.ts";
+import type { FrameInfo, IFrameHost, RenderFn } from "../core/frame-host.ts";
 import { ManualTickSource, type ITickSource } from "./tick-source.ts";
 
 export interface GameAppOptions {
@@ -90,6 +91,8 @@ export class GameApp {
   readonly modules: ModuleRegistry;
   readonly random: IRandom;
   readonly tickSource: ITickSource | null;
+  /** 渲染阶段回调（`onRender` 注册）。按注册顺序执行。 */
+  private readonly renderers: RenderFn[] = [];
 
   private readonly bag = new DisposableBag();
   private frameCount = 0;
@@ -110,6 +113,23 @@ export class GameApp {
     this.scene = new Scene("main", this.components);
     this.assets = new AssetDatabase(fs, log.channel("asset"));
 
+    // ★ getter 里闭包**局部变量**而不是 `this`：对象字面量里的 `this` 不是 GameApp，
+    //   写 `this.renderers` 会拿到 undefined。类型检查会先发现（rendererCount 缺失），
+    //   但即便绕过类型也可能静默错 —— 所以直接闭包局部数组。
+    const renderers = this.renderers;
+    const frameHost: IFrameHost = {
+      onRender: (fn: RenderFn) => {
+        renderers.push(fn);
+        return () => {
+          const i = renderers.indexOf(fn);
+          if (i >= 0) renderers.splice(i, 1);
+        };
+      },
+      get rendererCount(): number {
+        return renderers.length;
+      },
+    };
+    this.services.provide(Services.Frame, frameHost, "core");
     this.services.provide(Services.Scene, this.scene, "core");
     this.services.provide(Services.Scheduler, this.scheduler, "core");
     this.services.provide(Services.Assets, this.assets, "core");
@@ -218,6 +238,28 @@ export class GameApp {
       });
     }
     this.frameCount++;
+
+    // ---- 渲染阶段（每帧一次，与 step 次数无关；用 alpha 做插值）
+    const info: FrameInfo = {
+      frame: this.frameCount,
+      realDtSec,
+      steps,
+      alpha: this.scheduler.alpha,
+      tick: this.scheduler.tick,
+    };
+    for (const fn of this.renderers) {
+      try {
+        fn(info);
+      } catch (e) {
+        // 渲染异常不能让整帧崩（否则一次采样失败会连锁成黑屏），但必须可见
+        this.log.channel("app.render").error(
+          `渲染回调抛错：${e instanceof Error ? e.message : String(e)}`,
+          { frame: this.frameCount },
+          null,
+        );
+      }
+    }
+
     this.events.emit("frame:end", {
       frame: this.frameCount,
       realDtMs: realDtSec * 1000,

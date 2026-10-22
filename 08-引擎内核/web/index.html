@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>引擎内核 · 2.5D 演示</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; overflow: hidden;
+    background: #0b0e13; color: #c9d1d9;
+    font: 12px/1.5 ui-monospace, Consolas, "Courier New", monospace; }
+  #cv { display: block; width: 100vw; height: 100vh; image-rendering: pixelated; }
+  #hud { position: fixed; left: 0; top: 0; padding: 6px 10px;
+    background: rgba(8,11,16,.72); border-bottom-right-radius: 6px;
+    white-space: nowrap; pointer-events: none; }
+  #toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%);
+    padding: 6px 14px; border-radius: 16px; background: rgba(28,38,52,.92);
+    box-shadow: 0 4px 16px rgba(0,0,0,.4); opacity: 0; transition: opacity .18s;
+    pointer-events: none; white-space: nowrap; }
+  #help { position: fixed; right: 8px; bottom: 8px; opacity: .45; font-size: 11px;
+    text-align: right; pointer-events: none; }
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div id="hud">启动中…</div>
+<div id="toast"></div>
+<div id="help">WASD 移动 · H 砍树 · F5 存档 · F9 读档 · R 重载</div>
+<script type="module" src="./bundle.js"></script>
+</body>
+</html>

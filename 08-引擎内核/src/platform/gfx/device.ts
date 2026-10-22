@@ -52,7 +52,14 @@ export interface ICommandList {
   /** `flags` 是 `ClearFlags` 的位或。用 number 而非枚举：后端之间不共享枚举对象。 */
   clear(color: Color, flags: number): void;
   setPipeline(pipeline: PipelineHandle): void;
-  setUniform(name: string, value: UniformValue): void;
+  /**
+   * 设 uniform。
+   * ★ `kind` 必须显式给：GL 里 `uniform1i` 与 `uniform1f` 是两个调用，
+   *   而 JS 的 `1` 无法区分"整型 1"与"浮点 1.0"。设错类型在多数驱动上**静默不生效**
+   *   （值恰好是 0/1 时"看起来能用"，换成 2.5 就出问题）。
+   *   默认 `float`（绝大多数 uniform 是浮点）。
+   */
+  setUniform(name: string, value: UniformValue, kind?: "int" | "float"): void;
   bindTexture(slot: number, texture: TextureHandle): void;
   draw(batch: DrawBatch): void;
   /** 结束录制。之后对同一列表的调用是 bug，设备应当拒绝（返回 false 并计数）。 */

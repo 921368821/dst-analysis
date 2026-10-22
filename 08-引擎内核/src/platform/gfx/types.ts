@@ -184,6 +184,7 @@ export interface GfxStats {
 }
 
 export type UniformValue = number | readonly number[] | Float32Array;
+export type UniformKind = "int" | "float";
 
 export type GfxResult<T> = Result<T, EngineError>;
 export type { Rect, Color };

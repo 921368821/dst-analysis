@@ -219,7 +219,26 @@ step(tick, dt):
 "世界步进"由 `game.world` 模块订阅 `scheduler.onStep` 完成 —— 见 `samples/headless.ts`。
 这样将来要做"多世界并行"或"回放时替换步进器"，改的是模块，不是内核。
 
-### 3.5 L5 Backends
+### 3.5 L4 Extensions（渲染 / 物理 / 存档）
+
+| 模块 | 职责 | 关键取舍 | 文件 |
+|---|---|---|---|
+| `render/batch2d` | 精灵批处理：排序 + 顶点组装 | 排序键 `z↓ → order → atlas → nodeId`；**z 优先于纹理切换**（遮挡正确性不可牺牲） | `extensions/render/batch2d.ts` |
+| `render/render-module` | 把 Sprite 组件变成每帧一次 draw | 相机跟随在**渲染阶段**做（用 alpha），不在 `onUpdate` 里做 | `extensions/render/render-module.ts` |
+| `render/camera` | 正交 + 斜俯视投影（`tiltY`） | 投影在 CPU 做；逻辑坐标是**未压缩**的 XZ | `extensions/render/camera.ts` |
+| `render/sprite` | 渲染数据组件 | **不存 GPU 句柄**，只存 `atlasId + frame`（句柄是进程内的，存进档就是灾难） | `extensions/render/sprite.ts` |
+| `physics` | 2.5D 碰撞：空间哈希 + 推出 | 不做刚体积分（饥荒风格的正确选择：卡顿不会穿墙） | `extensions/physics/physics.ts` |
+| `scene-io`（在 core） | 确定性存档 | 三遍装配（建节点 → 设父子 → 挂组件）；组件按 type 升序 | `core/scene/scene-io.ts` |
+
+**渲染阶段为什么是独立阶段而不是事件**（`core/frame-host.ts`）：
+事件是"发生了什么，谁关心谁订阅"；渲染是"每帧必须执行的一步"。
+用事件的话，"没人订阅"与"渲染器都注销了"无法区分，画面会静默变黑。
+
+**跳时间（`LongUpdate` 语义）**：`Scene.fastForward(elapsed)` 让实现了 `IFastForwardable`
+的组件按解析式结算，并**报告** `skipped` 数量 —— 没实现该接口的组件（AI、状态机）
+在跳过时段里"什么都没发生"，这必须是可见事实。
+
+### 3.6 L5 Backends
 
 | 后端 | 状态 | 说明 |
 |---|---|---|
@@ -227,10 +246,10 @@ step(tick, dt):
 | `fs-memory` | ✅ 完成 | 判据 / PIE 预览 / 存档暂存 |
 | `audio-null` | ✅ 完成 | 记录播放 + 可推进音频时钟；`resume()` 首次失败（模拟自动播放策略） |
 | `input-null` | ✅ 完成 | 可编程输入（`press`/`movePointer`/`typeText`），边缘语义在此实现一次 |
-| `gfx-webgl2` | ⬜ 待实现 | 目录已建，契约已就绪（写完后 `runGfxContract("webgl2", …)` 一行接入） |
-| `audio-webaudio` | ⬜ 待实现 | |
-| `input-dom` | ⬜ 待实现 | |
-| `fs-node` | ⬜ 待实现 | |
+| `gfx-webgl2` | ✅ 完成 | 只依赖 `GL2Like`（可在 Node 注入 fake）⇒ 同一套契约能在无 GPU 环境跑 |
+| `audio-webaudio` | ✅ 完成 | 声部上限 + `onended` 回收 + `resume()` 可失败（自动播放策略） |
+| `input-dom` | ✅ 完成 | `event.code`（不是 `key`，中文输入法下 `key` 会变 `"Process"`）+ 失焦清空 |
+| `fs-node` | ⬜ 待实现 | 当前 Node 侧用 `fs-memory`（判据不需要落盘） |
 
 **"Null 后端"为什么是一等公民**（而不是测试夹具）：
 它让"引擎能不能在没有 GPU 的环境里完整跑一遍世界"成为**架构保证**而不是运气。
@@ -571,11 +590,14 @@ UI 动画、音频、录像在暂停时仍应活动 —— 所以它们是不同
 | 层 | 内容 | 数量 | 文件 |
 |---|---|---|---|
 | **架构守护** | 依赖方向、平台泄漏、环境随机、组合根唯一性、目录分类 | 7 | `tests/arch/layers.test.ts` |
-| **后端契约** | 同一套用例跑所有后端（Null/WebGL2/…） | 11 | `tests/contract/gfx.contract.ts` |
-| **单元/集成** | 调度器 9 · 场景 8 · 模块 7 · 资产 9 · 序列化 10 | 43 | `tests/core/*.test.ts` |
+| **后端契约** | 同一套用例跑**两个**后端（null + webgl2/fake） | 22 | `tests/contract/gfx.contract.ts` |
+| **WebGL2 专属** | 顶点属性布局、状态缓存、program 状态重放、编译失败、帧外提交 | 9 | `tests/contract/webgl2.test.ts` |
+| **单元/集成** | 调度器 9 · 场景 8 · 模块 7 · 资产 9 · 序列化 10 · 渲染 13 · 物理 12 · 存档 13 | 81 | `tests/core/*.test.ts` |
 | **最小宿主** | 整条链（平台→模块→场景→步进→诊断） | 1 | `samples/headless.ts` |
+| **浏览器自检** | 真实浏览器里 9 条端到端断言（画面/批处理/存档往返） | 9 | `web/selftest.html` |
 
-合计 **61 条**，全部在 `npm test` 里跑；`npm run check` 额外跑 `tsc`（strict + noUncheckedIndexedAccess）。
+合计 **115 条 Node 判据 + 9 条浏览器自检**，全部在 `npm test` / 打开自检页里跑；
+`npm run check` 额外跑 `tsc`（strict + noUncheckedIndexedAccess）。
 
 ### 10.2 为什么"架构守护"比多写功能更重要
 
@@ -608,18 +630,20 @@ UI 动画、音频、录像在暂停时仍应活动 —— 所以它们是不同
 - L1 全部接口（gfx / audio / input / fs / net）+ `BackendRegistry`
 - L2 全部（module / services / scene / node / component / scheduler / asset / schema）
 - L3 全部（GameApp / tick-source / snapshot）
-- L5 四个 Null/内存后端（gfx / audio / input / fs）
-- 61 条测试 + 架构守护 + 契约测试
+- L5 后端：`gfx-null`（记录型）/ `gfx-webgl2` / `audio-null` / `audio-webaudio` /
+  `input-null` / `input-dom` / `fs-memory`
+- L4 扩展：2D 渲染管线（相机/精灵/程序化图集/批处理/渲染模块）、2.5D 物理、确定性存档、跳时间结算
+- **115 条 Node 判据 + 9 条浏览器自检**，架构守护 7 条，后端契约 22 条（两后端）
 - 最小宿主跑通（150 tick / 5 秒 / 600 次组件更新 / 暂停不动）
+- 浏览器宿主跑通（`web/index.html`：WASD 移动、H 砍树、F5/F9 存读档、HUD 显示 draw call）
 
 ### 11.2 未完成（按优先级）
 
 | 项 | 影响 | 预计落点 |
 |---|---|---|
-| `gfx-webgl2` 后端 | 现在只能 headless，"能看见画面"还不成立 | 阶段 1 |
-| `input-dom` / `audio-webaudio` | 交互与声音 | 阶段 1 |
-| `LongUpdate`（跳时间结算） | 离线进度、存档时间跳跃 | 阶段 2 |
+| `fs-node` 后端 | Node 侧落盘（存档到真实文件） | 阶段 2 |
 | 脚本层 `IScriptRuntime` + Lua 绑定 | 复用 153 万行内容层 | 阶段 2 |
+| sprite 图集来自真实资产（`.meta`+GUID+importer） | 现在是程序化生成 | 阶段 2 |
 | `IPhysicsWorld`（2.5D：XZ + AABB/圆 + 空间哈希） | 目前只有"手工碰撞" | 阶段 3 |
 | 编辑器（独立进程 + PIE） | 最大缺口 | 阶段 4 |
 | 构建发布（manifest + 增量） | 第二大缺口 | 阶段 5 |
@@ -639,12 +663,12 @@ UI 动画、音频、录像在暂停时仍应活动 —— 所以它们是不同
 
 每阶段都有**可机器验证的出口判据**，且都**不修改内核结构**（只加文件 + 注册）。
 
-### 阶段 1 · 能看见画面（渲染后端 + 输入）
+### 阶段 1 · 能看见画面（渲染后端 + 输入）—— **本次已完成**
 
 - `gfx-webgl2`：精灵批处理（`SPRITE_VERTEX_LAYOUT` 已定：pos.xy + uv.xy + color.rgba）、图集、深度排序（z 降序）
 - `input-dom`：指针 + 键盘 + 边缘语义（与 `input-null` 同一套契约）
-- 出口判据：`runGfxContract("webgl2", …)` 全绿；`readPixels` 在真实画布上返回非零；
-  一次 draw call 提交 ≤ 1（同一图集的 100 个精灵必须合并）
+- 出口判据：`runGfxContract("webgl2", …)` 全绿 ✅；`readPixels` 在真实画布上返回非零 ✅；
+  一次 draw call 提交 ≤ 1（同一图集的 100 个精灵必须合并）✅（`web/selftest.html` 断言）
 
 ### 阶段 2 · 内容可复用（脚本层 + 时间跳跃）
 

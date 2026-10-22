@@ -1,0 +1,201 @@
+/**
+ * WebGL2 后端契约（用假 GL）
+ *
+ * 这里的断言分两层，**边界必须说清**：
+ *   ① 通用契约（`runGfxContract`）：证明 webgl2 与 null 的**语义一致**；
+ *   ② 专属断言：证明 webgl2 真的把调用**按 GL 的方式**发出去了
+ *      （attribute stride/offset、状态缓存、program 级状态重放）。
+ *
+ * ⚠️ 假 GL 只能证明"我们发了什么调用、参数对不对"。
+ *    它**不能**证明"WebGL2 会接受这些调用"（驱动差异、精度、扩展）。
+ *    那部分由浏览器端到端（`web/index.html` + `readPixels`）负责。
+ */
+
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { GL2Device } from "../../src/backends/gfx-webgl2/device.ts";
+import { FakeGL2 } from "./fake-gl.ts";
+import { runGfxContract } from "./gfx.contract.ts";
+import {
+  BufferUsage,
+  SPRITE_VERTEX_LAYOUT,
+  type PipelineHandle,
+  type ShaderHandle,
+} from "../../src/platform/gfx/types.ts";
+import { Color, Rect } from "../../src/foundation/math/index.ts";
+
+// ① 通用契约：与 null 后端跑**同一套**用例
+runGfxContract("webgl2(fake)", () => new GL2Device(new FakeGL2()));
+
+// ② 专属断言
+
+test("[webgl2] 顶点属性布局：stride 32，position@0 / uv@8 / color@16", () => {
+  const gl = new FakeGL2();
+  const dev = new GL2Device(gl);
+  const sh = dev.createShader({ vertex: "void main(){}", fragment: "void main(){}" });
+  assert.ok(sh.ok);
+  if (!sh.ok) return;
+  const pipe = dev.createPipeline({ shader: sh.value, layout: SPRITE_VERTEX_LAYOUT });
+  assert.ok(pipe.ok);
+  if (!pipe.ok) return;
+  const vb = dev.createBuffer({ usage: BufferUsage.Vertex, byteLength: 32 * 4, dynamic: true });
+  const ib = dev.createBuffer({ usage: BufferUsage.Index, byteLength: 6 * 2, dynamic: false });
+  assert.ok(vb.ok && ib.ok);
+  if (!vb.ok || !ib.ok) return;
+
+  const cmd = dev.beginFrame(null);
+  cmd.setPipeline(pipe.value);
+  cmd.draw({ vertices: vb.value, indices: ib.value, vertexCount: 4, indexCount: 6 });
+  cmd.finish();
+  dev.endFrame();
+
+  const attrs = gl.state.attribs;
+  assert.equal(attrs.size, 3, "应设置 3 个顶点属性");
+  const a0 = attrs.get(0)!;
+  const a1 = attrs.get(1)!;
+  const a2 = attrs.get(2)!;
+  assert.deepEqual([a0.size, a0.stride, a0.offset], [2, 32, 0], "position: 2 float @0, stride 32");
+  assert.deepEqual([a1.size, a1.stride, a1.offset], [2, 32, 8], "uv: 2 float @8");
+  assert.deepEqual([a2.size, a2.stride, a2.offset], [4, 32, 16], "color: 4 float @16");
+  assert.equal(gl.state.drawElementsCount, 1);
+  assert.equal(gl.count("drawElements"), 1);
+});
+
+test("[webgl2] 状态缓存：同一 pipeline 连设两次只 useProgram 一次", () => {
+  const gl = new FakeGL2();
+  const dev = new GL2Device(gl);
+  const sh = dev.createShader({ vertex: "void main(){}", fragment: "void main(){}" });
+  assert.ok(sh.ok);
+  if (!sh.ok) return;
+  const pipe = dev.createPipeline({ shader: sh.value });
+  assert.ok(pipe.ok);
+  if (!pipe.ok) return;
+
+  const cmd = dev.beginFrame(null);
+  // beginFrame 会把缓存清空（新的一帧），所以先设一次记数
+  cmd.setPipeline(pipe.value);
+  const after1 = gl.count("useProgram");
+  cmd.setPipeline(pipe.value);
+  cmd.setPipeline(pipe.value);
+  const after3 = gl.count("useProgram");
+  cmd.finish();
+  dev.endFrame();
+
+  assert.equal(after1, 1, "第一次设置应真的 useProgram");
+  assert.equal(after3, 1, `重复设置同一管线不应重复 useProgram（否则 pipelineSwitches 会虚高）；实际 ${after3}`);
+  assert.equal(dev.stats.pipelineSwitches, 1);
+});
+
+test("[webgl2] 换 pipeline 后重放 **uniform**（program 状态），但不重放纹理（context 状态）", () => {
+  const gl = new FakeGL2();
+  const dev = new GL2Device(gl);
+  const sh1 = dev.createShader({ vertex: "void main(){}", fragment: "void main(){}" });
+  const sh2 = dev.createShader({ vertex: "void main(){}", fragment: "void main(){}" });
+  assert.ok(sh1.ok && sh2.ok);
+  if (!sh1.ok || !sh2.ok) return;
+  const p1 = dev.createPipeline({ shader: sh1.value });
+  const p2 = dev.createPipeline({ shader: sh2.value });
+  assert.ok(p1.ok && p2.ok);
+  if (!p1.ok || !p2.ok) return;
+  const tex = dev.createTexture({ width: 4, height: 4 });
+  assert.ok(tex.ok);
+  if (!tex.ok) return;
+
+  const cmd = dev.beginFrame(null);
+  cmd.setPipeline(p1.value);
+  cmd.setUniform("u_useTexture", 1, "int");
+  cmd.bindTexture(0, tex.value);
+  const uniBefore = gl.count("uniform1i");
+  const bindBefore = gl.count("bindTexture");
+  cmd.setPipeline(p2.value);
+  const uniAfter = gl.count("uniform1i");
+  const bindAfter = gl.count("bindTexture");
+  cmd.finish();
+  dev.endFrame();
+
+  assert.ok(
+    uniAfter > uniBefore,
+    `换 program 后必须重放 uniform（sampler 指向哪个 unit 是 program 状态）；${uniBefore} → ${uniAfter}`,
+  );
+  assert.equal(
+    bindAfter,
+    bindBefore,
+    `纹理绑定是 context 状态，换 program 不该重绑；${bindBefore} → ${bindAfter}`,
+  );
+});
+
+test("[webgl2] 编译失败返回 GFX.SHADER_COMPILE 且带 infoLog（不返回半成品）", () => {
+  const gl = new FakeGL2();
+  const dev = new GL2Device(gl);
+  const r = dev.createShader({ vertex: "FAIL", fragment: "void main(){}" });
+  assert.equal(r.ok, false);
+  if (!r.ok) {
+    assert.equal(r.error.code, "GFX.SHADER_COMPILE");
+    assert.match(r.error.message, /假编译错误|编译失败/);
+  }
+  // 失败后不该留下可用的 program
+  assert.equal(gl.count("linkProgram"), 0, "编译失败不该走到 linkProgram");
+});
+
+test("[webgl2] draw 之前没 setPipeline ⇒ 抛（不许静默少画东西）", () => {
+  const gl = new FakeGL2();
+  const dev = new GL2Device(gl);
+  const vb = dev.createBuffer({ usage: BufferUsage.Vertex, byteLength: 128, dynamic: true });
+  assert.ok(vb.ok);
+  if (!vb.ok) return;
+  const cmd = dev.beginFrame(null);
+  assert.throws(
+    () => cmd.draw({ vertices: vb.value, indices: null, vertexCount: 4, indexCount: 6 }),
+    /setPipeline/,
+  );
+  cmd.finish();
+  dev.endFrame();
+});
+
+test("[webgl2] 清屏与视口在帧内生效，stats 每帧重置", () => {
+  const gl = new FakeGL2();
+  const dev = new GL2Device(gl);
+  const cmd = dev.beginFrame(null);
+  cmd.setViewport(new Rect(0, 0, 800, 600));
+  cmd.clear(new Color(0.1, 0.2, 0.3, 1), 1);
+  cmd.finish();
+  dev.endFrame();
+  assert.deepEqual(gl.state.viewport, [0, 0, 800, 600]);
+  assert.equal(gl.count("clear"), 1);
+  assert.equal(dev.stats.drawCalls, 0, "新的一帧 stats 应重置");
+});
+
+test("[webgl2] 纹理尺寸超限：失败在**创建设备资源时**，不是等到画的时候", () => {
+  const gl = new FakeGL2();
+  const dev = new GL2Device(gl);
+  const r = dev.createTexture({ width: 9999, height: 8 });
+  assert.equal(r.ok, false);
+  if (!r.ok) assert.equal(r.error.code, "GFX.TEXTURE_TOO_LARGE");
+});
+
+test("[webgl2] readPixels 走假 GL 的图案（区分'读到了'与'全零'）", () => {
+  const gl = new FakeGL2();
+  const dev = new GL2Device(gl);
+  const px = dev.readPixels(null, new Rect(0, 0, 2, 2));
+  assert.ok(px.ok);
+  if (!px.ok) return;
+  assert.equal(px.value.length, 16);
+  assert.equal(px.value[0], 11);
+  assert.equal(px.value[3], 255);
+});
+
+test("[webgl2] 销毁后再用句柄 ⇒ 失败（句柄表已清）", () => {
+  const gl = new FakeGL2();
+  const dev = new GL2Device(gl);
+  const b = dev.createBuffer({ usage: BufferUsage.Vertex, byteLength: 16, dynamic: true });
+  assert.ok(b.ok);
+  if (!b.ok) return;
+  dev.destroyBuffer(b.value);
+  const r = dev.updateBuffer(b.value, new Float32Array(4));
+  assert.equal(r.ok, false);
+  if (!r.ok) assert.equal(r.error.code, "GFX.INVALID_HANDLE");
+});
+
+// 让未使用的 import 有归属（tape 类型收窄用）
+void (0 as unknown as PipelineHandle);
+void (0 as unknown as ShaderHandle);

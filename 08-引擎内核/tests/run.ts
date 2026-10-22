@@ -12,4 +12,8 @@ import "./core/scene.test.ts";
 import "./core/module.test.ts";
 import "./core/asset.test.ts";
 import "./core/serialization.test.ts";
+import "./core/render.test.ts";
+import "./core/physics.test.ts";
+import "./core/scene-io.test.ts";
 import "./contract/gfx.contract.ts";
+import "./contract/webgl2.test.ts";

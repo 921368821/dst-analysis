@@ -18,8 +18,14 @@
 
 ```bash
 npm install
-npm run check          # tsc（strict）+ 61 条测试
-npm run sample:headless  # 最小宿主：跑 150 tick / 5 秒 / 暂停不推进
+npm run check            # tsc（strict）+ 115 条测试
+npm run sample:headless  # 最小宿主：150 tick / 5 秒 / 暂停不推进
+
+# 浏览器（真的能看见画面）
+npm run build:web        # esbuild 打包 src/browser-entry.ts → web/bundle.js
+npm run serve:web        # http://127.0.0.1:8123/
+#   index.html    演示：WASD 移动 · H 砍树 · F5 存档 · F9 读档
+#   selftest.html 端到端自检：9 条断言（画面/批处理/存档往返）
 ```
 
 `npm run sample:headless` 的输出（实测）：
@@ -60,9 +66,9 @@ L0 foundation  Result · math · log · event · memory · time · random
 
 ## 当前状态
 
-- ✅ L0 / L1 / L2 / L3 完整；四个 Null/内存后端；61 条测试全绿
-- ⬜ `gfx-webgl2`（能看见画面）、`input-dom`、`audio-webaudio`
-- ⬜ `LongUpdate`（跳时间结算）、脚本层（复用 153 万行 Lua 内容层）
-- ⬜ 物理 · AI · 世界生成 · 编辑器 · 构建发布
+- ✅ L0–L3 完整；**6 个后端**（null/webgl2/webaudio/dom/mem）；115 条 Node 判据全绿
+- ✅ 2D 渲染管线（相机/精灵/程序化图集/批处理）· 2.5D 物理 · 确定性存档 · 跳时间结算
+- ✅ 浏览器宿主能跑（WASD + 砍树 + 存读档 + HUD）
+- ⬜ 脚本层（复用 153 万行 Lua 内容层）· `fs-node` · AI · 世界生成 · 编辑器 · 构建发布
 
 未做的项与顺序见 [docs/ARCHITECTURE.md §11–§12](docs/ARCHITECTURE.md)。

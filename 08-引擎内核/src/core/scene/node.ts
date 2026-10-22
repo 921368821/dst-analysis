@@ -122,6 +122,19 @@ export class Node {
     return this;
   }
 
+  /** ★ 一律用 setter：直接赋 `localScale` 字段**不会**推进版本号 ⇒ 世界变换用旧缓存。 */
+  setLocalScale(x: number, y: number): this {
+    this.localScale = new Vec2(x, y);
+    this.markTransformDirty();
+    return this;
+  }
+
+  setLocalRotation(rad: number): this {
+    this.localRotation = rad;
+    this.markTransformDirty();
+    return this;
+  }
+
   /** 标脏：自己 + 整棵子树（子节点的世界变换都依赖我）。 */
   markTransformDirty(): void {
     this.version++;

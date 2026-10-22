@@ -143,6 +143,27 @@ export abstract class Component {
   }
 }
 
+/**
+ * 可"跳时间结算"的组件。
+ *
+ * ★ 为什么用**可选接口 + 类型守卫**，而不是在 `Component` 基类上声明一个
+ *   `onFastForward() {}` 空方法：
+ *   空方法会让"这个组件到底支持不支持跳时间"变得**看不出来** ——
+ *   每个组件都"支持"，但大多数什么都不做，于是 `fastForward` 会静默地漏掉所有状态。
+ *   用接口的话，"不支持"是一个**可观测的事实**，`fastForward` 会把它报出来。
+ *
+ * 语义：`elapsed` 秒内**没有 tick**，组件必须自己按解析式结算
+ * （腐烂按秒扣、计时器按秒减）。做不到解析结算的组件就不要实现它 ——
+ * 那意味着它需要被逐步模拟，调用方应当改用"循环 step"（并承担代价）。
+ */
+export interface IFastForwardable {
+  onFastForward(elapsedSec: number): void;
+}
+
+export function isFastForwardable(c: object): c is IFastForwardable {
+  return typeof (c as { onFastForward?: unknown }).onFastForward === "function";
+}
+
 /** 组件类型注册表：`type → 工厂`。新增组件 = 一次 register，不改 Scene。 */
 export class ComponentRegistry {
   private readonly factories = new Map<string, () => Component>();

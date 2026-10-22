@@ -397,7 +397,7 @@ class NullCommandList implements ICommandList {
     this.dev._pushPipeline();
   }
 
-  setUniform(name: string, value: UniformValue): void {
+  setUniform(name: string, value: UniformValue, _kind: "int" | "float" = "float"): void {
     this.assertOpen("setUniform");
     this.uniforms.set(name, value);
   }

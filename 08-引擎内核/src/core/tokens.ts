@@ -12,12 +12,21 @@
  */
 
 import { defineService } from "./module/services.ts";
+import type { IFrameHost } from "./frame-host.ts";
 import type { Scene } from "./scene/scene.ts";
 import type { AssetDatabase } from "./asset/asset.ts";
 import type { FixedStepScheduler } from "./scheduler/scheduler.ts";
 
 // ------------------------------------------------------------------ 服务
 export const Services = {
+  /**
+   * 帧宿主：提供 `onRender(fn)`。
+   * ★ 为什么渲染不能靠"事件"：事件是"发生了什么，谁关心谁订阅"，
+   *   而渲染是**每个宿主都必须执行的一个阶段**（哪怕没人订阅）。
+   *   用事件的话，"没有任何渲染器订阅"与"渲染器都注销了"无法区分，
+   *   画面会静默变黑。
+   */
+  Frame: defineService<IFrameHost>("core.frame"),
   Scene: defineService<Scene>("core.scene"),
   Assets: defineService<AssetDatabase>("core.assets"),
   Scheduler: defineService<FixedStepScheduler>("core.scheduler"),

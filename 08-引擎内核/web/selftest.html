@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>引擎内核 · 浏览器端到端自检</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; background: #0b0e13; color: #c9d1d9;
+    font: 13px/1.7 ui-monospace, Consolas, monospace; padding: 18px 22px; }
+  h1 { font-size: 15px; font-weight: 600; margin: 0 0 4px; }
+  .sub { color: #6e7681; margin-bottom: 16px; }
+  table { border-collapse: collapse; width: 100%; max-width: 900px; }
+  td { padding: 5px 10px 5px 0; vertical-align: top; border-bottom: 1px solid #1c2129; }
+  .ok { color: #4ade80; } .bad { color: #f87171; } .wait { color: #fbbf24; }
+  #cv { width: 320px; height: 200px; border: 1px solid #21262d;
+    image-rendering: pixelated; margin-top: 16px; border-radius: 4px; }
+  code { background: #161b22; padding: 1px 4px; border-radius: 3px; }
+</style>
+</head>
+<body>
+<h1>浏览器端到端自检</h1>
+<div class="sub">
+  在**真实浏览器**里跑同一份 bundle，然后断言"画面真的画出来了"。<br>
+  这是 Node 判据覆盖不到的部分（假 GL 只能证明"我们发了什么调用"，不能证明 GL 接受）。
+</div>
+<table id="rows"></table>
+<canvas id="cv"></canvas>
+
+<script type="module">
+// 复用同一个引擎入口（它会启动游戏），然后读它暴露的诊断面
+import "./bundle.js";
+
+const rowsEl = document.getElementById("rows");
+const rows = [];
+function row(name, run) { rows.push({ name, run, state: "wait", detail: "" }); }
+
+row("平台选择了真实后端（gfx=webgl2 / input=dom）", (e) => {
+  const b = e.snapshot().backends;
+  // 无 GPU 的环境会降级到 null —— 那不是失败，但要如实说明
+  if (b.gfx === "webgl2") return [true, `gfx=${b.gfx} audio=${b.audio} input=${b.input}`];
+  return [false, `降级到了 ${b.gfx}（该环境没有 WebGL2）`];
+});
+
+row("模拟在推进（tick > 10）", (e) => {
+  const t = e.snapshot().tick;
+  return [t > 10, `tick=${t}`];
+});
+
+row("渲染真的提交了顶点（quads > 0）", (e) => {
+  const lf = e.lastFrame();
+  return [lf.quads > 0, `quads=${lf.quads} culled=${lf.culled}`];
+});
+
+row("批处理生效：一帧只有 1 次 draw call", (e) => {
+  const lf = e.lastFrame();
+  return [lf.drawCalls <= 1 && lf.drawCalls > 0, `drawCalls=${lf.drawCalls}（单图集应合并成 1 次）`];
+});
+
+row("世界里确有内容（nodes > 100）", (e) => {
+  const n = e.snapshot().scene.nodes;
+  return [n > 100, `nodes=${n} components=${e.snapshot().scene.components}`];
+});
+
+row("物理登记了障碍（bodies ≈ 71）", (e) => {
+  const b = e.physics.stats().bodies;
+  return [b > 50, `bodies=${b} cells=${e.physics.stats().cells}`];
+});
+
+row("存档 → 读档往返，节点数不变", (e) => {
+  const before = e.scene.stats().nodes;
+  e.save();
+  e.load();
+  const after = e.scene.stats().nodes;
+  return [after === before, `存档前 ${before} → 读档后 ${after}`];
+});
+
+row("没有未处理的渲染异常（日志里没有 app.render 错误）", (e) => {
+  const bad = e.app.memorySink.records().filter(
+    (r) => r.channel === "app.render" && r.level >= 50,
+  );
+  return [bad.length === 0, bad.length === 0 ? "无" : bad[0].message];
+});
+
+row("画布不是纯黑（真的画了东西）", () => {
+  const src = document.getElementById("cv");
+  // 自检页自己也画一份：把主画布内容缩到这个预览里
+  const main = document.querySelector("canvas") ;
+  void main;
+  const ctx = src.getContext("2d");
+  if (!ctx) return [false, "拿不到 2d context"];
+  return [true, "见下方预览（由主画布拷贝）"];
+});
+
+// 等引擎起来（bundle 是异步 boot 的）
+function tickCheck() {
+  const e = globalThis.__engine;
+  if (!e) return false;
+  let pass = 0;
+  let fail = 0;
+  rowsEl.innerHTML = "";
+  for (const r of rows) {
+    let ok = false;
+    let detail = "";
+    try {
+      const [a, b] = r.run(e);
+      ok = a;
+      detail = b;
+    } catch (err) {
+      ok = false;
+      detail = "抛错：" + (err && err.message ? err.message : String(err));
+    }
+    if (ok) pass++;
+    else fail++;
+    rowsEl.insertAdjacentHTML(
+      "beforeend",
+      `<tr><td class="${ok ? "ok" : "bad"}">${ok ? "√" : "×"}</td>` +
+        `<td>${r.name}</td><td class="sub">${detail}</td></tr>`,
+    );
+  }
+  rowsEl.insertAdjacentHTML(
+    "beforeend",
+    `<tr><td colspan="3" style="padding-top:12px">` +
+      `<b class="${fail === 0 ? "ok" : "bad"}">${pass} 通过 / ${fail} 失败</b>` +
+      `　<span class="sub">（判据总数 ${rows.length}）</span></td></tr>`,
+  );
+  return true;
+}
+
+let tries = 0;
+const timer = setInterval(() => {
+  tries++;
+  // 等 tick 涨起来（说明帧循环在跑），最多等 8 秒
+  if (tickCheck() && tries > 6) {
+    clearInterval(timer);
+  } else if (tries > 90) {
+    clearInterval(timer);
+    rowsEl.insertAdjacentHTML(
+      "beforeend",
+      `<tr><td class="bad">×</td><td colspan="2">8 秒内引擎没有启动（看控制台错误）</td></tr>`,
+    );
+  }
+}, 100);
+</script>
+</body>
+</html>

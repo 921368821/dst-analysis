@@ -24,7 +24,7 @@
 import { Vec2 } from "../../foundation/math/index.ts";
 import type { EngineError, Result } from "../../foundation/result.ts";
 import { err, ok } from "../../foundation/result.ts";
-import { Component, type ComponentRegistry } from "./component.ts";
+import { Component, isFastForwardable, type ComponentRegistry } from "./component.ts";
 import { Node, type NodeId } from "./node.ts";
 
 export type SceneCommand =
@@ -34,6 +34,14 @@ export type SceneCommand =
   | { readonly kind: "detach"; readonly node: NodeId; readonly type: string }
   | { readonly kind: "reparent"; readonly node: NodeId; readonly parent: NodeId | null }
   | { readonly kind: "run"; readonly fn: () => void; readonly label: string };
+
+/** `fastForward` 的结果。`skipped > 0` 不是错误，但**必须被告知**。 */
+export interface FastForwardReport {
+  readonly elapsed: number;
+  readonly handled: number;
+  readonly skipped: number;
+  readonly skippedByType: ReadonlyMap<string, number>;
+}
 
 export interface SceneStats {
   readonly nodes: number;
@@ -55,6 +63,7 @@ export class Scene {
   private pending: SceneCommand[] = [];
   private _steps = 0;
   private _updates = 0;
+  private _fastForwarded = 0;
 
   /** 组件注册表：编辑器"可挂哪些组件"、读档"遇到未知类型找谁"都读它。 */
   readonly components: ComponentRegistry;
@@ -211,6 +220,46 @@ export class Scene {
     this._steps++;
   }
 
+  /**
+   * 跳时间结算（`LongUpdate` 语义）。
+   *
+   * 场景：存档 → 离线 8 小时 → 读档。不能真的跑 864000 个 tick，
+   * 所以让**实现了 `IFastForwardable` 的组件**按解析式结算 elapsed 秒。
+   *
+   * ★ 关键设计：**报告跳过了多少**。没实现该接口的组件（例如 AI、
+   *   状态机）在跳过的时段里"什么都没发生" —— 这必须是一个**可见的事实**，
+   *   而不是"看起来读档成功了"。调用方据此决定"要不要改成循环 step"。
+   */
+  fastForward(elapsedSec: number): FastForwardReport {
+    if (!(elapsedSec >= 0)) {
+      throw new RangeError(`fastForward 不接受负的 elapsed：${elapsedSec}`);
+    }
+    let handled = 0;
+    let skipped = 0;
+    const skippedByType = new Map<string, number>();
+    for (const type of this.typeOrder) {
+      const list = this.byType.get(type);
+      if (list === undefined) continue;
+      for (const c of list) {
+        if (c.node === null) continue;
+        if (isFastForwardable(c)) {
+          c.onFastForward(elapsedSec);
+          handled++;
+        } else {
+          skipped++;
+          skippedByType.set(type, (skippedByType.get(type) ?? 0) + 1);
+        }
+      }
+    }
+    this._fastForwarded += elapsedSec;
+    return { elapsed: elapsedSec, handled, skipped, skippedByType };
+  }
+
+  /** 累计跳过的秒数（诊断：用来判断"这个存档是不是被跳过太多次"）。 */
+  get totalFastForwarded(): number {
+    return this._fastForwarded;
+  }
+
   // ---------------------------------------------------------------- 内部
   private attachNodeTo(node: Node, parentId: NodeId | null): void {
     const parent = parentId === null ? this.root : this.byId.get(parentId);
@@ -236,15 +285,18 @@ export class Scene {
   }
 
   private detachNode(node: Node, recursive: boolean): void {
+    // ★★ 必须**先**从父的 children 数组里摘掉。
+    //   第一版只在 `recursive === false` 的分支里摘，于是：
+    //     · `clear()`（走 recursive=true）之后 `root.children` 还留着旧节点；
+    //     · `root.walk` 会继续遍历这些"已销毁"的节点 ⇒ `saveScene` 把它们写进存档；
+    //     · 紧接着读档时新建同 id 节点 ⇒ children 里出现两个同 id（判据抓到的 2 → 3）。
+    //   教训：`_markDestroyed` 只负责"对象自身失效"，**不负责脱离容器**。
+    node.parent?.removeChild(node);
     node.walk((n) => {
       for (const c of [...n.components]) this.unindexComponent(c);
       this.byId.delete(n.id);
     });
-    if (recursive) {
-      node._markDestroyed();
-    } else {
-      node.parent?.removeChild(node);
-    }
+    if (recursive) node._markDestroyed();
   }
 
   private indexComponent(c: Component): void {
