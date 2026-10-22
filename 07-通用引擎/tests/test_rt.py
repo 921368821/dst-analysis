@@ -4634,6 +4634,95 @@ def e15_craft_loop():
                   % (int(before), int(after), refused))
 
 
+def e26_perf_baseline():
+    """★★★ H6（2026-10-22）：性能基线 —— G1「能支撑开发一个简单游戏」的时间预算。
+
+    为什么这条判据必须存在：**慢不报错**。所有功能判据全绿、所有断言都对，
+    帧率照样可能只有 8 fps —— 而那种情况只有人盯着屏幕才发现，
+    而且"卡"没有阈值，谁都能说"还行"。
+
+    ★ 阈值怎么定（这一步比断言本身重要）：
+      · **不做绝对毫秒断言**（除了一个极宽的护栏）：换台机器就变，那种判据会被
+        当成噪声然后被调宽到永远绿。主判据用**同一台机器上的相对增长率**：
+        实体数 ×3.7 ⇒ 耗时不许超过 ×8（O(n²) 会是 ×13.7）。
+      · 取 3 次里**最快的一次**（min 比 mean 稳：慢的那几次一定是被别的东西抢了 CPU）。
+      · 一条**测量有效性**的反向断言：空世界必须明显快于 400 实体 ——
+        否则说明"测耗时"这件事根本没测到东西（例如被某层缓存短路）。
+
+    实测（本机，2026-10-22）：
+      56 实体 → step 0.31 ms/拍，snapshot 0.20 ms/帧
+      206 实体 → 0.88 / 0.90
+      406 实体 → 1.88 / 2.11
+    30 Hz 的每拍预算 33 ms；判据实际用 56 / 206 实体两档（×3.7），
+    在 206 实体时 step 0.86 ms，还有 ~38 倍余量 —— 所以 12 ms 护栏
+    不参与日常判定，只抓「某次改动让耗时涨了一个数量级」。
+    """
+    import time
+
+    def bench(n_extra, rounds=60):
+        best_step, best_snap, cnt = None, None, None
+        for _ in range(3):
+            s = Sim(seed=20261015, tick_hz=30, world_content=0).boot()
+            for i in range(n_extra):
+                s.debug_spawn("evergreen", (i % 20) * 3.0, (i // 20) * 3.0)
+            for _ in range(10):
+                s.step()                       # 预热：避开首拍的惰性初始化
+            t0 = time.perf_counter()
+            for _ in range(rounds):
+                s.step()
+            dt = (time.perf_counter() - t0) / rounds * 1000.0
+            t1 = time.perf_counter()
+            for _ in range(30):
+                s.snapshot()
+            ds = (time.perf_counter() - t1) / 30 * 1000.0
+            ok, d = s.debug_entities(4000)
+            cnt = d["count"]
+            best_step = dt if best_step is None else min(best_step, dt)
+            best_snap = ds if best_snap is None else min(best_snap, ds)
+            del s
+        return best_step, best_snap, cnt
+
+    small_step, small_snap, small_n = bench(50)
+    big_step, big_snap, big_n = bench(200)
+
+    if big_n <= small_n:
+        return False, "大世界实体数（%d）没有比小世界（%d）多，判据前提不成立" % (big_n, small_n)
+    ratio_n = float(big_n) / float(small_n)
+
+    # ③ 测量有效性：空世界必须明显更快（否则这个"测耗时"的手法没测到东西）
+    empty_step, _, empty_n = bench(0, rounds=60)
+    if empty_n >= small_n:
+        return False, "空世界实体数 %d 不小于小世界 %d（世界内容参数没生效？）" % (empty_n, small_n)
+    if empty_step >= small_step * 0.9:
+        return False, ("空世界 %.3f ms/拍 与小世界(%.3f, %d 实体) 差不多 —— "
+                       "测量手法没有真的量到「每实体开销」（缓存？短路？）"
+                       % (empty_step, small_step, small_n))
+
+    # ① 线性度：实体数 ×ratio_n ⇒ 耗时不许超过 ×8
+    step_growth = big_step / max(small_step, 1e-6)
+    snap_growth = big_snap / max(small_snap, 1e-6)
+    if step_growth > 8.0:
+        return False, ("实体数 ×%.1f（%d→%d）但 step 耗时 ×%.1f（%.2f→%.2f ms）—— "
+                       "增长明显超线性，疑似每拍扫全表 × 全表"
+                       % (ratio_n, small_n, big_n, step_growth, small_step, big_step))
+    if snap_growth > 10.0:
+        return False, ("实体数 ×%.1f 但 snapshot 耗时 ×%.1f（%.2f→%.2f ms）—— "
+                       "帧构造超线性" % (ratio_n, snap_growth, small_snap, big_snap))
+
+    # ② 极宽的绝对护栏：30 Hz 预算 33 ms。206 实体时给 12 ms（实测 0.86），
+    #    只用来抓"某次改动让耗时涨了一个数量级"，不参与日常判定。
+    if big_step > 12.0:
+        return False, ("%d 实体时 step %.2f ms/拍，超过 12 ms 护栏（30 Hz 预算 33 ms，"
+                       "留 2.7 倍给渲染与网络）" % (big_n, big_step))
+    if big_snap > 12.0:
+        return False, "%d 实体时 snapshot %.2f ms/帧，超过 12 ms 护栏" % (big_n, big_snap)
+
+    return True, ("空 %d / 小 %d / 大 %d 实体；step %.2f→%.2f ms（×%.1f，实体 ×%.1f）；"
+                  "snapshot %.2f→%.2f ms（×%.1f）；均在 12 ms 护栏内"
+                  % (empty_n, small_n, big_n, small_step, big_step, step_growth,
+                     ratio_n, small_snap, big_snap, snap_growth))
+
+
 def e25_undo_spawn_remove():
     """★★★ M1-2（2026-10-22）：生成的能撤、删掉的能回来。
 
@@ -5766,6 +5855,7 @@ def e14_editor_channel():
 
 check("E13 战斗闭环：打生物 → 掉血 → 死 → 掉战利品；反向：太远被拒 · 树仍走 CHOP", e13_attack_loop)
 check("E14 编辑器通道：列/生成/移动/删除全回读；反向：玩家删除被拒 · /debug 仍 404", e14_editor_channel)
+check("E26 性能基线(H6)：≈200 实体 step/snapshot 均在 12ms 护栏内 · 实体×3.7 时耗时不许×8（超线性即红）；反向：空世界必须明显更快（测量有效性）", e26_perf_baseline)
 check("E25 生成的能撤、删掉的能回来(M1-2)：spawn→undo→redo · remove→undo 后 prefab/位置/workleft 逐值恢复 · remove→undo→redo 链通；反向：幽灵 guid 被拒且不进栈", e25_undo_spawn_remove)
 check("E24 帧序=深度序(D5)：z 大的先画 · 互换 z 顺序跟着翻 · 同 z 按 id 升序 · 全帧 z 单调不增 · 两帧 id 序列相同", e24_depth_sorted_frame)
 check("E23 场景覆盖值(C5)：砍刀/掉血后导出带 workleft+health · 导入逐值恢复；反向：v1 仍可导入(满值) · 未知字段点名拒绝 · 写不进则回滚", e23_scene_overrides)
