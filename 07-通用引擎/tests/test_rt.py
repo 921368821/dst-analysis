@@ -4596,6 +4596,74 @@ def e15_craft_loop():
                   % (int(before), int(after), refused))
 
 
+def e17_monster_fights_back():
+    """★★★ B6（2026-10-22）：**生物会还手** —— P5 的另一半。
+
+    ★ 这条判据存在的直接原因值得记：`G1剧本验收表` 第一版把 P5 判成
+      「部分覆盖，蜘蛛不还手」，依据是**旧的会话结论**（"brain targetfn 未锁玩家"）。
+      实测 30 秒就打脸：玩家血 150 → 130 → 110 → … → 10 →（死亡复活）。
+      ⇒ 教训：**"某功能缺失"这种结论也会过期**。凡是要写进文档的负面判断，
+        必须当轮实测，否则就会变成一条被反复引用的假缺口（比假绿灯更浪费）。
+
+    判据（正向两条 + 反向两条）：
+      ① 放一只蜘蛛在 1.5 格内、**玩家不做任何操作** ⇒ 玩家血量必须下降 > 0；
+      ② 掉血必须来自「蜘蛛在打」—— 同期蜘蛛的 `action` 是 `ATTACK`；
+      ③ 反向：同样的时间窗内，**没有蜘蛛**时玩家血量不许掉（排除"血自己会掉"）；
+      ④ 反向：蜘蛛放在 20 格外 ⇒ 血量不许掉（排除"远程扣血"）。
+    """
+    def hp(sim):
+        return sim.stats().get("player_health")
+
+    # ③ 基线：没有敌人时血不该掉
+    s0 = Sim(seed=20261015, tick_hz=30, world_content=14).boot()
+    h0 = hp(s0)
+    for _ in range(300):
+        s0.step()
+    if hp(s0) != h0:
+        return False, ("没有敌人时玩家血量从 %r 变成 %r —— 基线不成立，"
+                       "后面的掉血就说不清是谁造成的" % (h0, hp(s0)))
+
+    # ① 近距离：必须被打
+    s = Sim(seed=20261015, tick_hz=30, world_content=14).boot()
+    ok, r = s.debug_spawn("spider", 1.5, 0.0)
+    if not ok:
+        return False, "spider 生成失败：%s" % (r,)
+    g = r["guid"]
+    h_before = hp(s)
+    seen_attack = False
+    for _ in range(300):
+        s.step()
+        ok, e = s.debug_entity(g)
+        if ok and e.get("action") == "ATTACK":
+            seen_attack = True
+        if hp(s) is not None and h_before is not None and hp(s) < h_before:
+            break
+    h_after = hp(s)
+    if h_before is None or h_after is None:
+        return False, "读不到玩家血量（%r → %r）" % (h_before, h_after)
+    if h_after >= h_before:
+        return False, ("10 秒内玩家血量没掉（%r → %r）—— 生物不还手，"
+                       "P5 的「它会反击」这条没实现" % (h_before, h_after))
+    if not seen_attack:
+        return False, ("玩家掉血了，但蜘蛛的 action 从没出现过 ATTACK —— "
+                       "掉血不是它打的（可能是别的旁路在扣血）")
+
+    # ④ 远距离：不许掉
+    s2 = Sim(seed=20261015, tick_hz=30, world_content=14).boot()
+    ok, r2 = s2.debug_spawn("spider", 20.0, 0.0)
+    if not ok:
+        return False, "远处蜘蛛生成失败：%s" % (r2,)
+    h2 = hp(s2)
+    for _ in range(300):
+        s2.step()
+    if hp(s2) != h2:
+        return False, ("蜘蛛在 20 格外，玩家血量却从 %r 掉到 %r —— 有远程扣血"
+                       % (h2, hp(s2)))
+
+    return True, ("无敌人时血不掉（%r 基线）；1.5 格内 10 秒被打 %r → %r 且蜘蛛 action=ATTACK；"
+                  "20 格外不掉血" % (h0, h_before, h_after))
+
+
 def e16_equip_and_tool():
     """★★★ B3（2026-10-22）：装备与工具 —— G1 剧本 P4。
 
@@ -4868,6 +4936,7 @@ def e14_editor_channel():
 
 check("E13 战斗闭环：打生物 → 掉血 → 死 → 掉战利品；反向：太远被拒 · 树仍走 CHOP", e13_attack_loop)
 check("E14 编辑器通道：列/生成/移动/删除全回读；反向：玩家删除被拒 · /debug 仍 404", e14_editor_channel)
+check("E17 生物会还手：无操作下 10 秒内玩家掉血且蜘蛛 action=ATTACK；反向：无敌人 / 20 格外都不掉血", e17_monster_fights_back)
 check("E16 装备与工具：合成即上手 · equip 幂等 · 砍伐携带手持物；反向：空手也能砍（0 次携带）· 幽灵 guid 被拒 · 两类跌幅都是 1（斧头不加速）", e16_equip_and_tool)
 check("E15 合成闭环：材料够就造得出（产物真在世界里）· 材料真被扣；反向：不足/配方不存在/空名三类原因必须分得开 · 失败不留残骸", e15_craft_loop)
 check("D4 会话身份挺过重启（槽位/角色/位置都接着上次）；反向：无 key 的存档许不出身份", d4_session_identity_survives_restart)
