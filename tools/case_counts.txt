@@ -19,7 +19,7 @@ tools/audit_root_docs.py	7	根目录三份基线文档里的过期数字
 07-通用引擎/tools/check_run_all_order.py	5	run_all.sh 里「先拿锁、再清日志」的顺序
 07-通用引擎/tools/verify_plan.py	69	计划文档里的数字与代码对得上
 07-通用引擎/tests/_src_guard.py	9	源码守卫：篡改标记 / 还原（②f 的现场保护）
-07-通用引擎/tests/test_units.py	46	模块级单测（**跳过不算通过**：缺 Lua 环境时 U6/U7 会跳，条数不变）
+07-通用引擎/tests/test_units.py	52	模块级单测（**跳过不算通过**：缺 Lua 环境时 U6/U7 会跳，条数不变）
 07-通用引擎/tests/falsify_heal_selftest.py	5	还原路径的 5 种输入（`falsify_server.py --selftest-heal` 的实现）
 tools/lib/paths.mjs	5	注释流水线：工程根 / relOut / relSrc 的 dstsrc 陷阱
 tools/lib/spec-anchor.mjs	20	注释流水线：锚点解析与展开（坏锚点必须抛）

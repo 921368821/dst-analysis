@@ -49,7 +49,7 @@ PASS, FAIL, SKIP = 0, 0, 0
 RESULTS = []
 # 自检用例条数（开发计划 §9cd / §9cg）：加/删用例必须同步改这里，
 # 并同步 tools/case_counts.txt —— 否则「删了一半用例、剩下全过」会让闸门照样绿。
-WANT_CASES = 46
+WANT_CASES = 52
 
 
 class Skip(Exception):
@@ -1175,6 +1175,192 @@ def u46_editor_gate_is_loopback_and_orthogonal_to_debug():
                   "与 --allow-debug 正交（关着能用、开着不放外网）")
 
 
+# ══════════════════════════════════════════════════════════════════════════
+# M1-1 命令栈（rt/commands.py）—— 纯逻辑，不需要 LuaRuntime / 服务端
+# ══════════════════════════════════════════════════════════════════════════
+# 为什么这批判据值得单独写：
+#   撤销栈是「看起来很简单」的那类东西 —— 写一个能 undo 的栈只要 20 行，
+#   但「合并之后 undo 回到哪」「执行失败要不要留一条幽灵步骤」「事务回滚后栈里还剩不剩」
+#   这三个问题，每一个错了都不会报错，只会在用户按第 3 次撤销时出现一个半截状态。
+#   而那时已经离现场很远了。
+#   ⇒ 这 6 条全部盯「错的时候世界什么样」，不盯「对的时候返回值是多少」。
+
+def _mk_world():
+    """一个最小的「世界」：dict[target] = state，apply 负责写入/删除。"""
+    import copy
+    world = {}
+
+    def apply(kind, target, state):
+        if state is None:
+            world.pop(target, None)
+        else:
+            world[target] = copy.deepcopy(state)
+    return world, apply
+
+
+def u47_undo_restores_every_field():
+    """U47 do 之后 undo，状态必须**逐字段**回到原值（含嵌套与列表）。"""
+    import copy
+    import commands
+    world, apply = _mk_world()
+    world[7] = {"x": 1.0, "z": 2.0, "nested": {"hp": 100, "tags": ["a", "b"]}}
+    origin = copy.deepcopy(world[7])
+    st = commands.CmdStack(apply, max_steps=10)
+
+    new = {"x": 5.5, "z": 2.0, "nested": {"hp": 40, "tags": ["a", "b", "c"]}}
+    st.push("move", 7, origin, new)
+    if world[7] != new:
+        return False, "push 之后世界不是 after：%r" % (world[7],)
+    st.undo()
+    if world[7] != origin:
+        return False, ("undo 之后没回到原值：%r\n     期望 %r\n"
+                       "     （嵌套字段漏恢复是这类栈最常见的一种错）"
+                       % (world[7], origin))
+    st.redo()
+    if world[7] != new:
+        return False, "redo 之后没回到 after：%r" % (world[7],)
+    # 深度拷贝：改 after 不该污染栈里的快照
+    new["nested"]["hp"] = 1
+    st.undo()
+    st.redo()
+    if world[7]["nested"]["hp"] == 1:
+        return False, "栈里存的是**引用**不是快照：外部改 after 影响了 redo 结果"
+    return True, "嵌套 dict/list 都逐字段回原值；redo 回 after；快照与外部对象不共享"
+
+
+def u48_transaction_rolls_back_all_or_nothing():
+    """U48 事务内第二条失败 ⇒ 第一条也必须回滚，且栈里一条都不许留。"""
+    import commands
+    world, apply = _mk_world()
+    world[1] = {"v": 0}
+    world[2] = {"v": 0}
+    origin1, origin2 = dict(world[1]), dict(world[2])
+    boom = {"on": False}
+
+    def apply2(kind, target, state):
+        if boom["on"] and target == 2:
+            raise RuntimeError("模拟第二步写失败")
+        apply(kind, target, state)
+
+    st = commands.CmdStack(apply2, max_steps=10)
+    boom["on"] = True
+    raised = False
+    try:
+        with st.transaction("两步改"):
+            st.push("edit", 1, origin1, {"v": 111})
+            st.push("edit", 2, origin2, {"v": 222})
+    except RuntimeError:
+        raised = True
+    if not raised:
+        return False, "事务内的失败没有往外抛（调用方会以为成功了）"
+    if world[1] != origin1 or world[2] != origin2:
+        return False, ("事务回滚后世界没回到起点：%r / %r" % (world[1], world[2]))
+    if st.depth != 0:
+        return False, ("回滚后栈里还剩 %d 条 —— 撤销会去恢复一个已经回滚过的状态"
+                       % (st.depth,))
+    if st.can_undo():
+        return False, "回滚后仍然可以 undo"
+    return True, "失败向上抛 · 已执行的那步也回滚 · 栈里一条不留 · can_undo=False"
+
+
+def u49_merge_keeps_first_before_and_last_after():
+    """U49 合并之后：undo 必须回到**第一次之前**，redo 必须回到**最后一次之后**。
+
+    这条是本模块最容易做错的地方：合并时只更新 after 不保留 before，撤销会回到
+    「拖拽中途」；只保留 before 不更新 after，重做会回到中途。
+    两个错都不会报错，只会让拖拽的撤销「差一点」。
+    """
+    import commands
+    world, apply = _mk_world()
+    world[3] = {"x": 0.0}
+    st = commands.CmdStack(apply, max_steps=10, merge_window=10)
+
+    st.push("move", 3, {"x": 0.0}, {"x": 1.0}, merge=commands.MERGE_ENDS)
+    for i in range(2, 6):
+        st.push("move", 3, {"x": float(i - 1)}, {"x": float(i)},
+                merge=commands.MERGE_ENDS)
+    if st.depth != 1:
+        return False, "5 次连续拖拽产生了 %d 步（MERGE_ENDS 应该只留 1 步）" % (st.depth,)
+    if world[3] != {"x": 5.0}:
+        return False, "合并后世界不是最后一帧的值：%r" % (world[3],)
+    st.undo()
+    if world[3] != {"x": 0.0}:
+        return False, ("撤销拖拽回到了 %r，不是拖拽**起点** 0.0 —— "
+                       "这是「只更新 after 没保留 before」的典型症状" % (world[3],))
+    st.redo()
+    if world[3] != {"x": 5.0}:
+        return False, "重做拖拽回到了 %r，不是终点 5.0" % (world[3],)
+    return True, "5 帧合并成 1 步；undo→起点 0.0；redo→终点 5.0"
+
+
+def u50_max_steps_evicts_oldest():
+    """U50 超过栈深上限时淘汰**最旧**的，且被淘汰的不能再撤销。"""
+    import commands
+    world, apply = _mk_world()
+    world[9] = {"v": 0}
+    st = commands.CmdStack(apply, max_steps=3)
+    for i in range(1, 6):
+        st.push("edit", 9, {"v": i - 1}, {"v": i})
+    if st.depth != 3:
+        return False, "栈深 %d，上限 3 时应该正好 3" % (st.depth,)
+    for _ in range(10):
+        if not st.undo():
+            break
+    if world[9]["v"] != 2:
+        return False, ("撤到底之后是 v=%r，期望 2（上限 3 ⇒ 只能回到第 3 步之前；"
+                       "淘汰最旧而不是最新）" % (world[9]["v"],))
+    return True, "栈深锁在 3；撤到底回到 v=2（淘汰的是最旧的两步）"
+
+
+def u51_version_advances_on_every_change():
+    """U51 version 只在**状态真的可能变了**时 +1：push / undo / redo；空栈 undo 不动它。"""
+    import commands
+    world, apply = _mk_world()
+    world[5] = {"v": 0}
+    st = commands.CmdStack(apply, max_steps=10)
+    v0 = st.version
+    st.push("edit", 5, {"v": 0}, {"v": 1})
+    v1 = st.version
+    if v1 == v0:
+        return False, "push 之后 version 没变（客户端预测靠它判断文档动过没有）"
+    st.undo()
+    v2 = st.version
+    st.redo()
+    v3 = st.version
+    if not (v0 < v1 < v2 < v3):
+        return False, "version 不单调：%d → %d → %d → %d" % (v0, v1, v2, v3)
+    while st.can_undo():
+        st.undo()
+    v4 = st.version
+    if st.undo() is not None:
+        return False, "空栈 undo 返回了命令"
+    if st.version != v4:
+        return False, "空栈 undo 让 version 变了（说明把「没做事」也记成了一次变更）"
+    return True, "push/undo/redo 各 +1；空栈 undo 不动 version"
+
+
+def u52_undo_redo_20_rounds_is_identity():
+    """U52 交叉 undo/redo 20 轮，状态必须**逐值**回到出发点。"""
+    import copy
+    import commands
+    world, apply = _mk_world()
+    world[11] = {"a": 1, "b": {"c": [1, 2]}}
+    origin = copy.deepcopy(world[11])
+    st = commands.CmdStack(apply, max_steps=50)
+    st.push("edit", 11, origin, {"a": 2, "b": {"c": [1, 2, 3]}})
+    st.push("edit", 11, {"a": 2, "b": {"c": [1, 2, 3]}}, {"a": 3, "b": {"c": []}})
+    for _ in range(20):
+        while st.can_undo():
+            st.undo()
+        while st.can_redo():
+            st.redo()
+    while st.can_undo():
+        st.undo()
+    if world[11] != origin:
+        return False, ("20 轮之后没回到起点：%r\n     期望 %r" % (world[11], origin))
+    return True, "20 轮 undo/redo 交叉后逐值回到起点（栈没有累积漂移）"
+
+
 def main():
     print("═" * 78)
     print("  模块级单测（L6 / M4）：只测不需要 LuaRuntime、不需要起服务端的东西")
@@ -1241,6 +1427,14 @@ def main():
     check("U44 计数器唯一入口 + 40 万次并发精确 + 快照同锁", u44_counter_bump_is_single_entry_and_exact)
     check("U45 发布决策落地：默认只绑 127.0.0.1；反向：改成 0.0.0.0 必红", u45_default_bind_is_loopback)
     check("U46 编辑器门槛=来源回环，且与 --allow-debug 正交；反向：外网必拒", u46_editor_gate_is_loopback_and_orthogonal_to_debug)
+
+    print("\n── rt/commands.py：命令栈（M1-1 / J2：撤销 / 重做 / 合并 / 事务）──")
+    check("U47 do→undo 逐字段回原值（含嵌套）；redo 回 after；快照不共享引用", u47_undo_restores_every_field)
+    check("U48 事务：第二条失败 ⇒ 第一条也回滚，且栈里一条不留", u48_transaction_rolls_back_all_or_nothing)
+    check("U49 合并（MERGE_ENDS）：undo 回第一次之前，redo 回最后一次之后", u49_merge_keeps_first_before_and_last_after)
+    check("U50 栈深上限淘汰最旧，被淘汰的不能再撤", u50_max_steps_evicts_oldest)
+    check("U51 version 在 push/undo/redo 各 +1；空栈 undo 不动它", u51_version_advances_on_every_change)
+    check("U52 undo/redo 交叉 20 轮 ⇒ 状态逐值回到起点（无累积漂移）", u52_undo_redo_20_rounds_is_identity)
 
     print("\n" + "─" * 78)
     total = PASS + FAIL + SKIP
