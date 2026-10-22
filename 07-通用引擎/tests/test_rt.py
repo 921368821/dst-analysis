@@ -4596,6 +4596,72 @@ def e15_craft_loop():
                   % (int(before), int(after), refused))
 
 
+def e20_save_bytes_deterministic():
+    """★★★ N3（2026-10-22）：存档**字节级确定性** —— 同一状态两次落盘必须一模一样。
+
+    为什么这条比"读回来的值相等"更严：值相等只要求 `json.loads(a) == json.loads(b)`，
+    而字典序不稳定、浮点打印不稳定（1.0 vs 1、0.1+0.2）都**不影响**值相等，
+    却会让存档 diff 全是噪音、让"两个档是不是同一个世界"变成肉眼不可判。
+    DST 的存档是给机器比对的（云存档冲突、回放校验），不是给人读的。
+
+    判据（正向两条 + 反向两条）：
+      ① 世界不变时连续两次 `save_collect()` ⇒ JSON 字节的 sha256 **完全相同**；
+      ② 再采一次仍然相同（不是"前两次碰巧"）；
+      ③ 反向：挪动一个实体 ⇒ 字节必须变（否则说明这份"存档"根本没包含位置）；
+      ⚠️ 注意"确定性"的边界：世界时间**在**存档里，所以 step 之后字节变是正常的；
+         要防的是「没 step 字节还在变」（时间戳 / 随机数 / 表遍历顺序）。
+    """
+    import hashlib
+    import json
+
+    def blob(sim):
+        rec = sim.save_collect()
+        return json.dumps(rec, ensure_ascii=False, sort_keys=False).encode("utf-8")
+
+    s = Sim(seed=20261015, tick_hz=30, world_content=14).boot()
+    for _ in range(60):
+        s.step()
+
+    b1 = blob(s)
+    b2 = blob(s)
+    b3 = blob(s)
+    h = [hashlib.sha256(x).hexdigest() for x in (b1, b2, b3)]
+    if h[0] != h[1] or h[1] != h[2]:
+        return False, ("同一状态连续三次采集，sha256 不同：\n     %s\n     %s\n     %s\n"
+                       "     ⇒ 存档里混进了随时间/随机变化的东西（时间戳？表遍历顺序？）"
+                       % (h[0][:16], h[1][:16], h[2][:16]))
+
+    # ★ 曾经在这里写过一条"让时间走 1 秒、字节不许变"的断言 —— **它是错的**，已删。
+    #   世界时间（`time`）本来就在存档里，走 1 秒之后它变了，字节**就该**变；
+    #   把它写成"不许变"等于要求存档不要保存世界时间。
+    #   真正要防的是「**没** step 的情况下字节还在变」（时间戳 / 随机数 / 表遍历顺序），
+    #   那已经由上面三次采集覆盖。写错这条断言会让后人去修一个不该修的东西。
+    #   另外：读档之后**世界时间必须接上**（A10/A11/B13 已覆盖），这里不重复。
+
+    # ③ 反向：挪一个实体，字节必须变
+    ok, d = s.debug_entities(999)
+    if not ok or not d["items"]:
+        return False, "读不到实体，反向用例没法做"
+    # ★ 必须挑一个**有 Transform** 的实体：世界表里第一个往往是
+    #   `player_classified` / `inventory_classified` 这类"附属实体"，它们没有 Transform，
+    #   挪它会报「实体没有 Transform:SetPosition」—— 而那与存档确定性毫无关系。
+    #   （首跑就挑到了那个，报出来的错看起来像"存档不含位置"。）
+    cand = [x for x in d["items"] if x["prefab"] == "evergreen"]
+    if not cand:
+        return False, "世界里没有 evergreen，反向用例没法做"
+    g = cand[0]["guid"]
+    ent = s.debug_entity(g)[1]
+    ok, r = s.debug_move(g, float(ent["x"]) + 3.0, float(ent["z"]) + 1.0)
+    if not ok:
+        return False, "挪动实体失败：%s" % (r,)
+    b5 = blob(s)
+    if hashlib.sha256(b5).hexdigest() == h[0]:
+        return False, "挪了一个实体之后存档字节**没变** —— 这份存档没包含位置"
+
+    return True, ("三次采集 sha256 全同（%s）✔ / 挪一个实体字节必变 ✔ / %d 字节"
+                  % (h[0][:16], len(b1)))
+
+
 def e19_death_drops_half():
     """★★★ N4（2026-10-22）：死亡代价 —— 背包掉**一半**，而且只掉一半。
 
@@ -5134,6 +5200,7 @@ def e14_editor_channel():
 
 check("E13 战斗闭环：打生物 → 掉血 → 死 → 掉战利品；反向：太远被拒 · 树仍走 CHOP", e13_attack_loop)
 check("E14 编辑器通道：列/生成/移动/删除全回读；反向：玩家删除被拒 · /debug 仍 404", e14_editor_channel)
+check("E20 存档字节确定性：同状态三次采集 sha256 全同；反向：挪一个实体必变", e20_save_bytes_deterministic)
 check("E19 死亡掉一半背包：活着一件不掉 · 死后那一拍掉 2/4 · 地上恰好 2 件；反向：不许全掉 · 复活照常", e19_death_drops_half)
 check("E18 编辑器撤销：move→undo→redo 逐值往返 · 连续移动合并成 1 步；反向：空栈被拒 · undo 后新操作清空 redo", e18_editor_undo_move)
 check("E17 生物会还手：无操作下 10 秒内玩家掉血且蜘蛛 action=ATTACK；反向：无敌人 / 20 格外都不掉血", e17_monster_fights_back)
