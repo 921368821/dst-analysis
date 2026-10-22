@@ -14,15 +14,34 @@ const vm = require('vm');
 const { execFileSync } = require('child_process');
 
 let pass = 0, fail = 0;
+// ★★ B2：判据可以是 async（合成面板要等 fetch 的 promise 链才有结果）。
+//   同步判据照旧立即执行并立即打印；async 判据进 PENDING，收尾统一 await 后再汇总。
+//   不这么做的话，异步判据只能"发起请求就断言"，那就永远只能验到"点了一下"，
+//   验不到"列表真的渲染成了 3 行"。
+const PENDING = [];
+function _report(name, ok) {
+  if (ok === true || (ok && ok.ok !== false)) { pass++; console.log('  ✔ ' + name + (ok && ok.info ? '  ' + ok.info : '')); }
+  else { fail++; console.log('  ✘ ' + name + (ok && ok.info ? '  ' + ok.info : '')); }
+}
 function check(name, fn) {
   try {
-    const ok = fn();
-    if (ok === true || (ok && ok.ok !== false)) { pass++; console.log('  ✔ ' + name + (ok && ok.info ? '  ' + ok.info : '')); }
-    else { fail++; console.log('  ✘ ' + name + (ok && ok.info ? '  ' + ok.info : '')); }
+    const r = fn();
+    if (r && typeof r.then === 'function') {
+      PENDING.push(r.then((v) => _report(name, v))
+                    .catch((e) => _report(name, { ok: false, info: '抛异常: ' + e.message })));
+      return;
+    }
+    _report(name, r);
   } catch (e) {
-    fail++; console.log('  ✘ ' + name + '  抛异常: ' + e.message);
+    _report(name, { ok: false, info: '抛异常: ' + e.message });
   }
 }
+// 等 N 轮微任务 + 宏任务：fetch 桩是 Promise.resolve，客户端里还有 .then 套一层
+const tick = (n) => new Promise((res) => {
+  let i = 0;
+  const step = () => { if (++i >= (n || 3)) return res(); setImmediate(step); };
+  setImmediate(step);
+});
 
 console.log('═'.repeat(74));
 console.log('  客户端验证（Node 桩化 canvas / 无浏览器）');
@@ -51,8 +70,19 @@ check('F2 测试钩子 __rt 存在且字段齐', () => {
                 // P23：触屏 / 指针
                 'pad', 'setPad', 'pt', 'padHit',
                 // P39：自身状态（血/饿/理智/背包）
-                'state', 'stateText'];
-  const miss = need.filter((k) => typeof rt[k] !== 'function');
+                'state', 'stateText',
+                // B2：合成面板
+                'craft'];
+  // ★ B2：`craft` 是**对象**（toggle/refresh/click/state 四个入口）不是函数 ——
+  //   一刀切按 `typeof === 'function'` 判会把它误报成「缺」。
+  const miss = need.filter((k) => {
+    if (k === 'craft') {
+      return !(rt.craft && typeof rt.craft.toggle === 'function'
+               && typeof rt.craft.click === 'function'
+               && typeof rt.craft.state === 'function');
+    }
+    return typeof rt[k] !== 'function';
+  });
   return miss.length ? { ok: false, info: '缺: ' + miss.join(',') }
                      : { ok: true, info: '(' + need.length + ' 个)' };
 });
@@ -953,5 +983,79 @@ check('F32 自身状态上 HUD（血量/饥饿/理智/背包）—— 且「没�
   return { ok: true, info: '♥/🍖/🧠/背包 都上屏 ✔ / 缺数据显示 — ✔ / 坏类型不传染 ✔ / 0.5 s 一条 ✔' };
 });
 
-console.log('\n  结果：' + pass + ' 通过 / ' + fail + ' 失败');
-process.exit(fail === 0 ? 0 : 1);
+check('F33 合成面板（B2）：列表真的渲染出来 · 点可造的才发请求；反向：点置灰的零请求且说出缺什么', async () => {
+  // 这条判据存在的理由：B2 之前，客户端**没有任何一处**能走到 `fetch` 那条路
+  // （沙箱里连 fetch 都没有）—— 也就是说「编辑器/合成面板的请求链」在 Node 侧
+  // 从来没被跑过，全靠人眼看浏览器。P62 那次「闸门全绿但 31 条判据红」就是
+  // 同一类缺口：闸门覆盖不到的地方，等于没有守护。
+  const mod = require('../rt/perf_lib.js');
+  const env = mod.makeClient({
+    fetchReply: (u) => {
+      if (u.indexOf('/editor/recipes') >= 0) {
+        return { ok: true, total: 1122, valid: 933, skipped: 35, craftable: 1, n: 3, ms: 4.1,
+                 items: [
+                   { name: 'campfire', product: 'campfire', ingredients: 'cutgrass:3,log:2', can: true },
+                   { name: 'axe', product: 'axe', ingredients: 'twigs:1,flint:1', can: false },
+                   { name: 'torch', product: 'torch', ingredients: 'cutgrass:2,twigs:2', can: false },
+                 ] };
+      }
+      if (u.indexOf('/editor/craft') >= 0) {
+        return { ok: true, recipe: 'campfire', ents_before: 27, ents_after: 31, x: 1.2, z: 0 };
+      }
+      return null;
+    },
+  });
+  const rt = env.__rt;
+  if (!rt || !rt.craft) return { ok: false, info: '__rt.craft 钩子不存在' };
+  const el = (id) => (env.__els || {})[id];
+  const fetched = () => (env.__fetched || []);
+
+  rt.craft.toggle(true);
+  await tick(6);
+
+  if (!fetched().some((u) => u.indexOf('/editor/recipes') >= 0)) {
+    return { ok: false, info: '打开面板没有请求配方列表（请求过：' + JSON.stringify(fetched()) + '）' };
+  }
+  const list = el('craftList');
+  if (!list) return { ok: false, info: '拿不到 #craftList' };
+  if (list.children.length !== 3) {
+    return { ok: false, info: '列表渲染了 ' + list.children.length + ' 行，期望 3 行' };
+  }
+  const row0 = list.children[0], row1 = list.children[1];
+  if (!/\byes\b/.test(row0.className)) return { ok: false, info: '可造那行没有 yes 类：' + row0.className };
+  if (!/\bno\b/.test(row1.className)) return { ok: false, info: '不可造那行没有 no 类：' + row1.className };
+
+  // 反向①：点置灰的**不许发请求**（发了就等于「客户端说不能造、服务端还要试一次」）
+  const n0 = fetched().length;
+  row1.onclick();
+  await tick(3);
+  if (fetched().length !== n0) {
+    return { ok: false, info: '点了置灰配方仍然发了请求：' + fetched()[n0] };
+  }
+  const msg1 = el('craftMsg').textContent;
+  if (msg1.indexOf('材料不足') < 0 || msg1.indexOf('twigs:1') < 0) {
+    return { ok: false, info: '点了置灰配方，提示没说清缺什么：' + msg1 };
+  }
+
+  // 正向：点可造的 ⇒ 恰好一次请求且带对配方名
+  row0.onclick();
+  await tick(6);
+  const craftReq = fetched().filter((u) => u.indexOf('/editor/craft') >= 0);
+  if (craftReq.length !== 1) {
+    return { ok: false, info: '点可造配方发了 ' + craftReq.length + ' 次合成请求（期望 1）' };
+  }
+  if (craftReq[0].indexOf('recipe=campfire') < 0) {
+    return { ok: false, info: '合成请求没带对配方名：' + craftReq[0] };
+  }
+  if (el('craftMsg').textContent.indexOf('造出') < 0) {
+    return { ok: false, info: '合成成功后没有成功提示：' + el('craftMsg').textContent };
+  }
+
+  return { ok: true, info: '3 行渲染 ✔ / 可造 yes 与置灰 no 分得开 ✔ / 点置灰零请求且说缺 twigs:1 ✔ / 点可造 1 次请求且 recipe=campfire ✔' };
+});
+
+(async () => {
+  await Promise.all(PENDING);
+  console.log('\n  结果：' + pass + ' 通过 / ' + fail + ' 失败');
+  process.exit(fail === 0 ? 0 : 1);
+})();

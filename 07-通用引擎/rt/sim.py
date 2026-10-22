@@ -410,6 +410,59 @@ class Sim:
         return True, {"guid": int(info["guid"]),
                       "x": round(float(info["x"]), 2), "z": round(float(info["z"]), 2)}
 
+    def recipes(self, slot, limit=40):
+        """列出配方 → (ok, dict)。dict: total/craftable/n/items/ms。
+
+        ★ B2（2026-10-22）：`items` 在这里由**一个 Lua 字符串**解析出来，不是逐条跨语言取。
+          Lua 侧原版配方 1122 个，逐条转 dict 会是几千次 lupa 调用（P41 的老坑）。
+          代价是格式要约定死：`name\\tproduct\\t材料\\t可造`。
+
+        ★ 返回 `ms` 是**故意**的：这个接口要遍历全部配方并逐个查背包，
+          必须让调用方看得见它有多贵。面板打开时拉一次可以，挂进帧循环会把
+          250 ms 的轮询压垮 —— 没有这个数就没人会去注意。
+        """
+        t0 = time.perf_counter()
+        try:
+            res = self.api.recipes(int(slot), int(limit))
+        except Exception as e:                                   # noqa: BLE001
+            return False, {"error": "%s: %s" % (type(e).__name__, e)}
+        if not isinstance(res, tuple):
+            res = (res,)
+
+        def _i(idx):
+            try:
+                return int(res[idx])
+            except Exception:                                    # noqa: BLE001
+                return 0
+
+        total = _i(0)          # AllRecipes 全表数（1122）—— 与"有效"是两件事，分开报
+        craftable = _i(1)      # 当前背包能造的
+        valid_n = _i(2)        # 过了 GetValidRecipe 且**有材料**的（生存面板里真会显示的）
+        skipped = _i(3)        # 被跳过的空材料配方（活动装饰/建造模式专用）—— 让它可见
+        text = str(res[4]) if len(res) > 4 and res[4] is not None else ""
+        err = res[5] if len(res) > 5 else None
+        if err:
+            return False, {"error": str(err)}
+
+        items = []
+        for line in text.split("\n"):
+            if not line:
+                continue
+            f = line.split("\t")
+            if len(f) < 4:
+                continue
+            items.append({
+                "name": f[0],
+                "product": f[1],
+                "ingredients": f[2],
+                "can": f[3] == "1",
+            })
+        return True, {"total": total, "valid": valid_n, "skipped": skipped,
+                      "craftable": craftable,
+                      "n": len(items),
+                      "items": items,
+                      "ms": round((time.perf_counter() - t0) * 1000, 2)}
+
     def craft(self, slot, recname, x=None, z=None):
         """合成一个配方 → (ok, dict)。
 

@@ -370,6 +370,11 @@ class HttpMixin:
             elif sub == "/editor/spawn":
                 self.hub.cmds.put(("debug_spawn", arg.get("prefab", ""),
                                    _enum("x"), _enum("z"), ev, box))
+            elif sub == "/editor/recipes":
+                # ★ B2：配方列表。**只给回环**（编辑器/本机工具），因为它会遍历全部
+                #   1122 个配方并逐个查背包 —— 敞开给外网等于一个便宜的 DoS 入口。
+                self.hub.cmds.put(("recipes", _enum("slot", int, 0),
+                                   _enum("limit", int, 40), ev, box))
             elif sub == "/editor/craft":
                 # ★ B1：合成/建造。与 spawn 的区别是它**不指定产物**，只给配方名，
                 #   产物是什么、要不要落点、材料够不够，全由原版 `DoBuild` 决定。

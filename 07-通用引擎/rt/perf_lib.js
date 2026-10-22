@@ -104,7 +104,7 @@ class CanvasStub {
 }
 class ElemStub {
   constructor() {
-    this.textContent = ''; this.innerHTML = ''; this.value = '';
+    this.textContent = ''; this.value = '';
     this.checked = false; this.disabled = false;
     this.style = {}; this.dataset = {}; this.children = [];
     this._ls = {};
@@ -113,6 +113,16 @@ class ElemStub {
     // ★★ 桩要覆盖**客户端实际用到的 DOM 面**，否则「方法缺失」会伪装成
     //   「客户端崩了」。P62 的编辑器用到 classList / appendChild / value / onclick，
     //   每缺一个就整页 TypeError —— 而 perf_client 不在闸门里，没人会发现。
+    // ★★ B2：`innerHTML = ''` 在浏览器里**会清空子节点**，桩原来只是存了个字符串。
+    //   于是「先清空再重画」的列表在桩里会**越画越长**（第二次 refresh 之后
+    //   3 行变 6 行），而判据读到的长度就成了"实现越界"的假证据。
+    //   这不是性能问题，是桩与浏览器的语义差 —— 必须补。
+    let _html = '';
+    Object.defineProperty(this, 'innerHTML', {
+      get: () => _html,
+      set: (v) => { _html = String(v); if (_html === '') this.children.length = 0; },
+      configurable: true,
+    });
     this.classList = {
       add: (...c) => c.forEach((x) => set.add(x)),
       remove: (...c) => c.forEach((x) => set.delete(x)),
@@ -165,8 +175,16 @@ function makeClient(opt) {
     Set, Map, Symbol, Error, TypeError, RangeError,
     performance: perf,
     document: {
-      getElementById: (id) => (id === 'cv' ? (sandbox.__cv || (sandbox.__cv = new CanvasStub(1280, 720)))
-                                            : new ElemStub()),
+      // ★★ B2：**必须按 id 缓存**。原来每次调用都 `new ElemStub()` —— 于是
+      //   `getElementById('craftList')` 两次拿到的是**两个不同对象**，
+      //   往其中一个 appendChild 之后，测试从另一个去数 children，永远为 0。
+      //   这种桩不会崩、只会让判据永远读到"空"，比崩溃更难发现。
+      //   （P62 那晚的教训是反方向：桩少一个方法就整组崩。两种都要防。）
+      getElementById: (id) => {
+        if (id === 'cv') return sandbox.__cv || (sandbox.__cv = new CanvasStub(1280, 720));
+        const m = sandbox.__els || (sandbox.__els = {});
+        return m[id] || (m[id] = new ElemStub());
+      },
       addEventListener() {},
       // ★★ P63：`querySelectorAll` 必须给。P62 的编辑器在加载时用
       //   `document.querySelectorAll('#edBar [data-tool]')` 绑工具栏 —— 桩里没有这个方法，
@@ -182,10 +200,16 @@ function makeClient(opt) {
       //   离屏画布上（`SPR` 里 `document.createElement('canvas')`），不是 `#cv`；
       //   不记录就只能去 `__cv._gl` 找 ⇒ 永远为 null ⇒「GL 一次 drawArrays 都没有」
       //   这种假红。测试要能拿到**那个**画布。
-      createElement: () => {
-        const c = new CanvasStub(1, 1);
-        (sandbox.__created || (sandbox.__created = [])).push(c);
-        return c;
+      // ★★ B2：按 tag 分派。原来**任何** tag 都返回 CanvasStub ——
+      //   合成面板 `createElement('div')` 拿到画布，`textContent` / appendChild 全没有，
+      //   一旦判据真的走到渲染那条路就是 TypeError。canvas 保持原样（地形离屏画布靠它）。
+      createElement: (tag) => {
+        if (tag === 'canvas' || tag === undefined) {
+          const c = new CanvasStub(1, 1);
+          (sandbox.__created || (sandbox.__created = [])).push(c);
+          return c;
+        }
+        return new ElemStub();
       },
     },
     // ★★ P23：window 上的监听器要**记下来并真的派发** —— 键盘输入、指针移动/抬起
@@ -211,6 +235,25 @@ function makeClient(opt) {
       this.close = () => { this.readyState = 3; };
     },
     setTimeout: () => 0,
+    // ★★ B2：合成面板用 setInterval 定时刷新，桩里没有 ⇒ ReferenceError。
+    //   故意**不真的定时**：判据要的是"打开时刷一次"，不是"等 8 秒"。
+    setInterval: () => 0,
+    clearInterval: () => {},
+    // ★★ B2：fetch 桩。客户端所有编辑器/合成接口都走 `fetch(...).then(r => r.json())`。
+    //   沙箱原来没有 fetch —— 也就是说**编辑器那批请求路径在 Node 侧从来没跑过**，
+    //   `edJson` 一调就 ReferenceError（被 try/catch 吃掉或直接崩）。
+    //   现在：记录 URL 到 `__fetched`，并按 `O.fetchReply(url)` 返回预设 JSON。
+    //   没给 responder 时返回一个空 ok 包，保证不崩（与"图集没加载好"同一个思路：
+    //   桩只覆盖要验的那条路，其余保持沉默而不是假装成功）。
+    fetch: (url) => {
+      (sandbox.__fetched || (sandbox.__fetched = [])).push(String(url));
+      let body = { ok: false, error: 'sandbox: 没有为这个 URL 配 fetchReply' };
+      if (typeof O.fetchReply === 'function') {
+        const r = O.fetchReply(String(url));
+        if (r !== undefined && r !== null) body = r;
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(body) });
+    },
     // ★ P21：给一个**极简 localStorage**（沙箱比浏览器少东西的老问题之一）。
     //   少了它，客户端那句 `localStorage.getItem('rt_key')` 会抛异常 →
     //   被 try/catch 吃掉 → SKEY 恒为 '' → **测试永远走不到「带会话 key」那条路**。

@@ -2014,6 +2014,93 @@ function M.craft(slot, recname, x, z)
     }
 end
 
+--- 列出配方（B2）。返回 (全表数, 可造数, 有效数, 跳过数, 紧凑文本, 错误)。
+---
+--- ★ 关于"跳过数"：有一类配方 `ingredients` 是**空的**（`carnivalgame_*` 活动装饰、
+---   建造模式专用件）。空材料的配方 `HasIngredients` 天然为真 ⇒ 面板上会出现
+---   一屏"能造"的垃圾，而且它们跟生存玩法毫无关系。
+---   实测（B2 第二跑）：只过 `GetValidRecipe` 时，空背包仍有 **30 条可造**，
+---   全是 `carnivalgame_golf_shape_*` —— 因为宿主里 `IsSpecialEventActive` 把活动当开启。
+---   所以再补一条**结构过滤**：一个 `amount > 0` 的材料都没有的配方不进列表。
+---   这不是"我替原版决定规则"，而是"这个引擎只做生存玩法，不做活动装饰" ——
+---   跳过的条数**单独返回**，让它可被观测，而不是悄悄消失。
+---
+--- 文本格式：每行 `name\tproduct\t材料\t可造`，材料形如 `log:2,cutgrass:3`。
+---
+--- ★ 为什么用**一个字符串**而不是 table：lupa 逐条迭代 Lua table 是几千次跨语言调用
+---   （P41 的教训：`act_targets` 曾因为逐条转换把一次 250 ms 的轮询压到 12 ms 预算边缘）。
+---   原版配方有 **1122 个**，逐个转 dict 会把一次请求变成秒级。
+---
+--- ★ 为什么先排"可造的"再排"不可造的"：`limit` 截断时，玩家最需要看到的是
+---   **现在就能做的东西**。不这样的话，40 条限额会被一堆做不了的配方占满，
+---   面板看起来"全是灰的"。
+---
+--- ★ `HasIngredients` 每个配方要查一次背包（内含若干次 `inventory:Has`），
+---   1122 个配方 ≈ 2 万次槽位比较。**所以这个接口只允许"打开面板时拉一次"，
+---   绝不能挂进每帧/每 250 ms 的帧循环**（实测耗时见下方注释，由 E16 锁住上限）。
+function M.recipes(slot, limit)
+    slot = tonumber(slot) or 0
+    limit = math.floor(tonumber(limit) or 40)
+    if limit < 1 then limit = 1 elseif limit > 200 then limit = 200 end
+
+    local p = slot_entity(slot)
+    if p == nil then return 0, 0, 0, 0, "", "槽位 " .. tostring(slot) .. " 没有玩家" end
+    local all = rawget(_G, "AllRecipes")
+    if type(all) ~= "table" then
+        return 0, 0, 0, 0, "", "配方表 AllRecipes 不存在（recipes.lua 没加载？）"
+    end
+    local b = p.components and p.components.builder or nil
+
+    local yes, no = {}, {}
+    local total, craftable, valid_n, skipped = 0, 0, 0, 0
+    for name, r in pairs(all) do
+        total = total + 1
+        -- ★★ 必须过 `GetValidRecipe` 这一关，不能直接信 `AllRecipes`。
+        --   实测（B2 首跑）：不过滤时**空背包也有 30 条"可造"**，而且全是
+        --   `carnivalgame_golf_shape_*` 这种活动装饰 —— 它们的 `ingredients` 是空的，
+        --   于是 `HasIngredients` 天然为真。面板上会出现一屏"能造"的垃圾。
+        --   `GetValidRecipe`（recipe.lua:1018）做的就是四重过滤：游戏模式 /
+        --   不是拆除配方 / 特殊活动是否开启 / 查表存在。原版合成菜单走的是同一条路，
+        --   所以这里跟着原版走，**不自己写过滤规则**。
+        local okV, vr = pcall(GetValidRecipe, name)
+        if okV and vr ~= nil then
+            local n_ing = 0
+            if type(r) == "table" and type(r.ingredients) == "table" then
+                for _, v in ipairs(r.ingredients) do
+                    if type(v) == "table" and (v.amount or 0) > 0 then n_ing = n_ing + 1 end
+                end
+            end
+            if n_ing == 0 then
+                skipped = skipped + 1        -- 空材料配方：活动装饰 / 建造模式专用，不进生存面板
+            elseif type(r) == "table" and type(r.ingredients) == "table" then
+                valid_n = valid_n + 1
+                local can = false
+                if b ~= nil then
+                    local okH, h = pcall(b.HasIngredients, b, r)
+                    can = (okH and h == true)
+                end
+                if can then craftable = craftable + 1 end
+                local ing = {}
+                for _, v in ipairs(r.ingredients) do
+                    if type(v) == "table" and (v.amount or 0) > 0 then
+                        ing[#ing + 1] = tostring(v.type) .. ":" .. tostring(v.amount)
+                    end
+                end
+                local line = tostring(name) .. "\t" .. tostring(r.product or name) ..
+                             "\t" .. table.concat(ing, ",") .. "\t" .. (can and "1" or "0")
+                if can then yes[#yes + 1] = line else no[#no + 1] = line end
+            end
+        end
+    end
+    -- 排序：`pairs` 的顺序是不确定的，不排的话同一个背包两次请求的列表顺序会变，
+    -- 客户端列表就会「自己跳」。这条和 act_targets 的 guid 兜底是同一个理由。
+    table.sort(yes); table.sort(no)
+    local out = {}
+    for _, l in ipairs(yes) do if #out >= limit then break end; out[#out + 1] = l end
+    for _, l in ipairs(no) do if #out >= limit then break end; out[#out + 1] = l end
+    return total, craftable, valid_n, skipped, table.concat(out, "\n"), nil
+end
+
 --- 给某个槽位的玩家发 n 个某物品（走真实 `inventory:GiveItem`）。
 --  返回 true, {given, items_before, items_after} | false, 原因
 function M.debug_give(slot, prefab, n)

@@ -89,6 +89,40 @@
   .edBtns button.danger:hover{background:rgba(248,81,73,.14)}
   .edMuted{color:#6e7681}
   .edHint{color:#6e7681;font-size:11px;margin-top:8px;line-height:1.6}
+
+  /* ── 合成面板（B2）。放在右下：编辑器占左（层级）与右（属性），
+        合成是「玩」的功能不是「编」的功能，视觉上要和编辑器分开。 ── */
+  #craftBtn{position:fixed;top:8px;right:76px;z-index:30;padding:4px 10px;
+            background:rgba(13,17,23,.9);border:1px solid #30363d;border-radius:6px;
+            color:#c9d1d9;font-size:12px;cursor:pointer;user-select:none}
+  #craftBtn:hover{background:#21262d}
+  #craftBtn.on{border-color:#3fb950;color:#3fb950}
+  #craft{position:fixed;right:8px;bottom:8px;width:320px;max-height:62vh;z-index:30;
+         display:none;flex-direction:column;overflow:hidden;
+         background:rgba(13,17,23,.96);border:1px solid #30363d;border-radius:8px}
+  #craft.on{display:flex}
+  #craftHead{display:flex;align-items:center;gap:8px;padding:7px 10px;
+             border-bottom:1px solid #30363d;flex:0 0 auto;font-size:12px;color:#58a6ff}
+  #craftHead b{font-weight:600}
+  #craftStat{color:#6e7681;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #craftClose{cursor:pointer;color:#8b949e;padding:0 4px}
+  #craftClose:hover{color:#f85149}
+  #craftList{overflow-y:auto;flex:1 1 auto;min-height:60px}
+  .crRow{display:flex;gap:8px;align-items:baseline;padding:5px 10px;cursor:pointer;
+         border-bottom:1px solid #161b22}
+  .crRow:hover{background:#161b22}
+  .crRow .p{color:#c9d1d9;flex:0 0 108px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .crRow .i{color:#8b949e;font-size:11px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  /* 「不能造」不是隐藏，是**置灰 + 保留在列表里**：玩家需要知道「还差什么」才有目标。
+     藏起来的话，面板上永远只有能造的东西，等于没有进度感。 */
+  .crRow.no{opacity:.45}
+  .crRow.no .p{color:#8b949e}
+  .crRow.yes .p::before{content:"● ";color:#3fb950}
+  .crRow.no  .p::before{content:"○ ";color:#6e7681}
+  #craftMsg{padding:6px 10px;border-top:1px solid #30363d;flex:0 0 auto;
+            font-size:11px;color:#8b949e;line-height:1.5;word-break:break-word}
+  #craftMsg.bad{color:#f85149}
+  #craftMsg.good{color:#3fb950}
 </style>
 </head>
 <body>
@@ -123,6 +157,18 @@
     <div id="edPropsBody"><span class="edMuted">未选中对象</span></div>
     <div class="edHint">点击地图对象即可选中；拖动地图是平移相机，不会被误当成点选。</div>
   </div>
+</div>
+<!-- ★★ B2：合成面板。为什么挂在游戏里而不是编辑器里：合成是**玩法**，
+     不是编辑行为 —— 玩家即使不打开编辑器也要能造东西。
+     与编辑器的编辑器通道共用门槛（`/editor/craft` 只接受回环），
+     因为这台机器上的浏览器本身就是回环。 -->
+<div id="craftBtn" title="合成（F2）">合成</div>
+<div id="craft">
+  <div id="craftHead">
+    <b>合成</b><span id="craftStat">—</span><span id="craftClose" title="关闭">×</span>
+  </div>
+  <div id="craftList"></div>
+  <div id="craftMsg">按 F2 关闭 · 点击置灰的配方可以看到缺什么</div>
 </div>
 <script src="render_atlas.js"></script>
 <script src="render_batch.js"></script>
@@ -1671,6 +1717,120 @@ document.getElementById('edDel').onclick = () => {
   if (!ED.sel) { edSetStatus('未选中对象', true); return; }
   edRemove(ED.sel.guid);
 };
+// ---------------------------------------------------------------- 合成面板（B2）
+// ★ 为什么它是**独立面板**而不是并进编辑器：
+//   合成是玩法（玩家不打开编辑器也要能造东西），编辑器是工具。混在一起会让
+//   「这个按钮是玩还是编」变得不可判 —— 而本工程的编辑器面板本来就只放编辑行为。
+//
+// ★ 为什么"不能造的配方"也留在列表里（置灰而不是隐藏）：
+//   藏起来的话面板上永远只有能造的东西，玩家就看不到"再攒 2 个木头就能造营火"
+//   这个进度感。置灰 + 点击时说出缺什么，才是可操作的信息。
+//
+// ★ 为什么只拉 60 条：原版有效配方 900+ 条，全渲染会拖慢第一次打开。
+//   服务端已经**先排可造的**，所以前 60 条里优先是现在能做的事。
+const CR = { on: false, busy: false, items: [], timer: null, limit: 60 };
+
+function crMsg(text, kind) {
+  const el = document.getElementById('craftMsg');
+  if (!el) return;
+  el.textContent = text;
+  el.className = kind || '';
+}
+
+function crRenderList() {
+  const box = document.getElementById('craftList');
+  if (!box) return;
+  box.innerHTML = '';
+  for (let i = 0; i < CR.items.length; i++) {
+    const it = CR.items[i];
+    const row = document.createElement('div');
+    row.className = 'crRow ' + (it.can ? 'yes' : 'no');
+    const p = document.createElement('span');
+    p.className = 'p';
+    p.textContent = it.product || it.name;
+    const g = document.createElement('span');
+    g.className = 'i';
+    g.textContent = it.ingredients || '（无材料）';
+    row.appendChild(p);
+    row.appendChild(g);
+    row.title = it.can ? ('点击合成 ' + it.name) : ('需要 ' + (it.ingredients || '?'));
+    row.onclick = () => crClick(it);
+    box.appendChild(row);
+  }
+}
+
+function crClick(it) {
+  // 置灰的配方**不发请求**：先不说省一次往返，更重要的是「不能造」这件事
+  // 客户端已经知道了（服务端把它标成 can=false），再问一次只会得到同一句话。
+  if (!it.can) {
+    crMsg('✘ 材料不足：' + it.name + ' 需要 ' + (it.ingredients || '?') +
+          '（背包里没有凑齐）', 'bad');
+    return;
+  }
+  crMsg('合成中：' + it.name + ' …');
+  edJson('/editor/craft?slot=0&recipe=' + encodeURIComponent(it.name)).then((d) => {
+    if (d && d.ok) {
+      crMsg('✔ 造出 ' + it.name + '（世界实体 ' + d.ents_before + ' → ' + d.ents_after + '）', 'good');
+      crRefresh();
+    } else {
+      // ★ 服务端的失败原因要**原样显示**，不要在这里翻译成"合成失败"：
+      //   它会区分"材料不足（缺什么）"和"配方不存在"，这两件事玩家要做的事不同。
+      crMsg('✘ ' + ((d && d.error) || '未知错误'), 'bad');
+    }
+  }).catch((e) => crMsg('✘ 请求失败：' + e, 'bad'));
+}
+
+function crRefresh() {
+  if (CR.busy) return;
+  CR.busy = true;
+  edJson('/editor/recipes?slot=0&limit=' + CR.limit).then((d) => {
+    CR.busy = false;
+    if (!d || !d.ok) { crMsg('读取失败：' + ((d && d.error) || '未知'), 'bad'); return; }
+    CR.items = d.items || [];
+    crRenderList();
+    const stat = document.getElementById('craftStat');
+    if (stat) stat.textContent = '可造 ' + d.craftable + '/' + d.valid +
+                                 ' · ' + (d.ms || 0) + 'ms';
+    if (!CR.items.length) crMsg('没有可显示的配方（材料不够，或配方表没加载）', 'bad');
+  }).catch((e) => { CR.busy = false; crMsg('✘ 请求失败：' + e, 'bad'); });
+}
+
+function crToggle(on) {
+  const want = (on === undefined) ? !CR.on : !!on;
+  if (want === CR.on) return;
+  CR.on = want;
+  const panel = document.getElementById('craft');
+  const btn = document.getElementById('craftBtn');
+  if (panel) panel.classList.toggle('on', CR.on);
+  if (btn) btn.classList.toggle('on', CR.on);
+  if (CR.on) {
+    // 打开时刷一次；关闭时停掉 —— 这个接口要遍历 900+ 配方并逐个查背包，
+    // **绝不能像编辑器那样 1.5 s 轮询一次**（实测 4 ms/次，看着不多，
+    // 但那是模拟线程里跑的，挂进轮询就等于每 1.5 s 抽走模拟线程一次）。
+    crRefresh();
+    CR.timer = setInterval(crRefresh, 8000);
+  } else if (CR.timer) {
+    clearInterval(CR.timer);
+    CR.timer = null;
+  }
+}
+
+(function wireCraft() {
+  const btn = document.getElementById('craftBtn');
+  if (btn) btn.onclick = () => crToggle();
+  const close = document.getElementById('craftClose');
+  if (close) close.onclick = () => crToggle(false);
+  addEventListener('keydown', (e) => {
+    // ★ F2 而不是 C：C 在饥荒里是「检查」，把它劫持成开合成面板会让
+    //   动作键在玩家不知情的时候改变含义。F1 已被编辑器占，F2 顺位。
+    if (e.key === 'F2') { e.preventDefault(); crToggle(); }
+  });
+  // 测试钩子：与 __rt.key 同一个思路 —— 让判据能直接驱动面板，不必模拟鼠标
+  window.__rt = window.__rt || {};
+  window.__rt.craft = { toggle: crToggle, refresh: crRefresh, click: crClick,
+                        state: () => ({ on: CR.on, n: CR.items.length }) };
+})();
+
 addEventListener('keydown', (e) => {
   // ★ F1 而不是 Tab：Tab 是浏览器/读屏器的焦点键，劫持它会让键盘导航失效。
   if (e.key === 'F1') { e.preventDefault(); edToggle(); }
