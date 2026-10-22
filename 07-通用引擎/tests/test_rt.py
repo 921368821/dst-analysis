@@ -6186,6 +6186,132 @@ def e16_equip_and_tool():
                   % (nlog, inv_n))
 
 
+def e35_scene_roundtrip_over_http():
+    """★★★ C3（2026-10-22）：场景在**真实 HTTP** 上的完整往返。
+
+    E22/E28/E29 都在 sim 层（进程内）验过；E32 验了 POST 与解码。
+    这一条把它们串起来，走真实网络：
+      导入（POST body）→ 导出 → 存盘 → 再导入别的 → 读盘 → 导出**逐字节比**
+
+    为什么值得单独一条：进程内全绿而"整条链串不起来"是本项目最典型的一类漏。
+    比如：`scene_save` 存的是 A 却返回 B 的字节数、`scene_load` 读到了缓存、
+    导出与导入的**规范形**不一致 —— 每一样都只在"真走一遍"时才暴露。
+
+    判据（正向四条 + 反向一条）：
+      ① 先记下世界原文 T0（结束时还原，**不污染后续判据**）；
+      ② POST 导入 2 个实体 ⇒ `made == 2` 且导出 n == 2；
+      ③ 存盘 ⇒ `bytes` 与盘上文件大小一致；`scene_list` 里能看到它；
+      ④ 再导入一个完全不同的世界 ⇒ 导出 n == 1；`scene_load` 回来 ⇒ 导出与 ② 的文本**逐字节相同**；
+      ⑤ 反向：读回之后**不许**还是"别的那个世界"（n == 1）—— 那说明 load 没生效却报了成功。
+    """
+    import json as _json
+    import urllib.parse as _up
+    import urllib.request as _ur
+    import urllib.error as _urlerr
+
+    base = "http://127.0.0.1:%d" % PORT
+    name = "e35_tmp"
+
+    def getj(path):
+        try:
+            st, body = _http_get(path, timeout=20)
+            return st, _json.loads(body)
+        except _urlerr.HTTPError as e:
+            try:
+                return e.code, _json.loads(e.read().decode("utf-8"))
+            except Exception:                                    # noqa: BLE001
+                return e.code, {}
+
+    def postj(path, payload):
+        data = _json.dumps(payload).encode("utf-8")
+        req = _ur.Request(base + path, data=data, method="POST",
+                          headers={"Content-Type": "application/json"})
+        try:
+            with _ur.urlopen(req, timeout=30) as r:
+                return r.status, _json.loads(r.read().decode("utf-8"))
+        except _urlerr.HTTPError as e:
+            try:
+                return e.code, _json.loads(e.read().decode("utf-8"))
+            except Exception:                                    # noqa: BLE001
+                return e.code, {}
+
+    def export_text():
+        st, d = getj("/editor/scene_export")
+        if st != 200 or not d.get("ok"):
+            raise RuntimeError("导出失败：%s %r" % (st, d))
+        return d["text"], int(d["n"])
+
+    t0, n0 = export_text()
+    text_a = "evergreen\t1.000\t1.000\nevergreen\t5.000\t1.000"
+    try:
+        # ② 导入 A
+        st, imp = postj("/editor/scene_import", {"text": text_a})
+        if st != 200 or not imp.get("ok"):
+            return False, "POST 导入 A 失败（%s）：%r" % (st, imp)
+        if int(imp.get("made", -1)) != 2:
+            return False, "导入 A 的 made=%r（期望 2）" % (imp.get("made"),)
+        ta, na = export_text()
+        if na != 2:
+            return False, "导入 A 之后导出 n=%d（期望 2）" % (na,)
+
+        # ③ 存盘 + 列表
+        st, sv = getj("/editor/scene_save?name=" + _up.quote(name))
+        if st != 200 or not sv.get("ok"):
+            return False, "存盘失败（%s）：%r" % (st, sv)
+        import os
+        from config import SCENE_DIR
+        f = os.path.join(SCENE_DIR, name + ".scene.tsv")
+        if not os.path.exists(f):
+            return False, "存盘说成功但文件不存在：%r" % (f,)
+        if int(sv.get("bytes", -1)) != os.path.getsize(f):
+            return False, ("存盘返回的 bytes=%r，盘上 %r" % (sv.get("bytes"), os.path.getsize(f)))
+        st, ls = getj("/editor/scene_list")
+        if st != 200 or name not in (ls.get("names") or []):
+            return False, "scene_list 里没有刚存的场景：%r" % (ls,)
+
+        # ④ 换成另一个世界，再读回来
+        st, imp2 = postj("/editor/scene_import", {"text": "spider\t9.000\t9.000"})
+        if st != 200 or not imp2.get("ok"):
+            return False, "导入第二个世界失败：%r" % (imp2,)
+        tb, nb = export_text()
+        if nb != 1:
+            return False, "替换成另一个世界之后 n=%d（期望 1）" % (nb,)
+        if tb == ta:
+            return False, "两个不同的世界导出了同一份文本 —— 前面的断言没有意义"
+
+        st, ld = getj("/editor/scene_load?name=" + _up.quote(name))
+        if st != 200 or not ld.get("ok"):
+            return False, "读盘失败（%s）：%r" % (st, ld)
+        tc, nc = export_text()
+        # ⑤ 反向：读回来必须**还是 A**，不是那个蜘蛛世界
+        if nc == 1:
+            return False, ("读盘之后导出 n=1 —— 世界还是那个蜘蛛世界，"
+                           "load 报了成功却没换世界")
+        if tc != ta:
+            return False, ("读盘之后的世界与存盘前**不是逐字节相同**：\n     存 %r\n     读 %r"
+                           % (ta[:120], tc[:120]))
+    finally:
+        # 还原世界（不污染后续判据），并删掉临时场景文件
+        try:
+            if t0 != "":
+                _ur.urlopen(_ur.Request(base + "/editor/scene_import",
+                                        data=_json.dumps({"text": t0}).encode("utf-8"),
+                                        method="POST",
+                                        headers={"Content-Type": "application/json"}),
+                            timeout=30).read()
+        except Exception:                                        # noqa: BLE001
+            pass
+        try:
+            from config import SCENE_DIR as _SD
+            p = os.path.join(_SD, name + ".scene.tsv")
+            if os.path.exists(p):
+                os.remove(p)
+        except OSError:
+            pass
+
+    return True, ("导入 A（made=2, n=2）✔ / 存盘 bytes 与盘上一致 + list 可见 ✔ / "
+                  "换世界后 n=1 ✔ / 读盘后与 A **逐字节相同** ✔ / 世界已还原（原 %d 个实体）✔"
+                  % (n0,))
 def e34_every_edit_verb_is_undoable():
     """★★★ J2（2026-10-22）：**每一个编辑动词都能一次撤销回去** —— meta 判据。
 
@@ -6580,6 +6706,7 @@ def e14_editor_channel():
 
 
 check("E13 战斗闭环：打生物 → 掉血 → 死 → 掉战利品；反向：太远被拒 · 树仍走 CHOP", e13_attack_loop)
+check("E35 场景在真实 HTTP 上往返(C3)：POST 导入 → 存盘(bytes/列表) → 换成别的世界 → 读盘 → 与存前逐字节相同；反向：load 后不许还是别的世界", e35_scene_roundtrip_over_http)
 check("E34 每个编辑动词都能一次撤销(J2，表驱动)：move/spawn/remove/scene_import/scene_clear 逐个「执行→文本变→undo→逐字节回原样→栈清空」", e34_every_edit_verb_is_undoable)
 check("E33 删除要说出摘掉几个子实体(C2)：删父回报 detached=2 且子仍在原位、_parent=nil；反向：无子实体报 0 · 直接删孩子报 0（增量不是累计）", e33_remove_reports_detached)
 check("E32 HTTP 两条缝(C3c)：POST JSON body 生效 · 中文名 URL 编码后能存；反向：白名单外键被忽略 · 坏 JSON 给可读拒绝不是 500", e32_http_post_and_unquote)
