@@ -506,6 +506,13 @@ class Sim:
                       "to": cmd.after, "undo_depth": st.depth,
                       "can_redo": st.can_redo(), "version": st.version}
 
+    def collide_pushes(self):
+        """碰撞解算挡下了几次（N1）。0 = 从来没挡过（要么没障碍，要么碰撞没接上）。"""
+        try:
+            return int(self.api.collide_pushes())
+        except Exception:                                        # noqa: BLE001
+            return 0
+
     def death_drops(self):
         """死亡时一共掉了几件（N4）。**不是**"应该掉几件"——是事实读数。"""
         try:

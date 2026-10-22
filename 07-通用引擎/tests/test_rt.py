@@ -4596,6 +4596,80 @@ def e15_craft_loop():
                   % (int(before), int(after), refused))
 
 
+def e21_no_walking_through_trees():
+    """★★★ N1（2026-10-22）：**人不能穿过树** —— G1 最后一个未覆盖点。
+
+    修复前的实测：空世界 + spawn 一棵树在 (3,0)，按住「右」6 秒，
+    玩家 x 从 0 一路走到 **35.6** —— 直接穿过去。
+    根因：移动走 `locomotor`（原版路径），而原版的碰撞依赖引擎侧物理积分；
+    本宿主没有物理引擎（`stats.used_physics` 恒 0）⇒ 只改坐标、不管撞不撞。
+
+    判据（正向三条 + 反向一条）：
+      ① 走到树前就**停住**：`x < 树.x`（没穿过去），且 `x > 树.x - 1.2`（确实走到了跟前，
+         不是一开始就被什么东西挡住走不动）；
+      ② `collide_pushes() > 0` —— 真的发生过阻挡（不是"碰巧没走到"）；
+      ③ 再按 3 秒也不会过去（不是"慢一点就穿过去了"）；
+      ④ 反向：**没有树的空世界**里同样的输入能走出很远（证明 ① 是树挡的，不是走不动）。
+
+    ★ 实现上踩了两个坑，都留在 rt_boot 注释里：
+      · 第一版用「当前重叠就推开」⇒ collide 记账涨到 159、玩家照样穿过去 ——
+        因为一旦越过树心，"远离树心"的方向就是**继续前进**的方向；
+      · 第二版改连续碰撞检测后仍然蹭过去 ⇒ 因为起点在圆上时 `c≈0`，
+        两根是 0 和"穿出点"，`t>0` 把 0 滤掉就放行到另一侧了。
+      · 还有一次"从第一拍就走不动"：玩家被**自己的 `inventory_classified`** 挡住了。
+    """
+    def player_x(sim):
+        ok, d = sim.debug_entities(999)
+        if not ok:
+            return None
+        me = [x for x in d["items"] if str(x.get("prefab")) == "player_classified"]
+        return me[0]["x"] if me else None
+
+    # ④ 反向：空世界里能走
+    s0 = Sim(seed=20261015, tick_hz=30, world_content=0).boot()
+    s0.set_input("right", True)
+    for _ in range(180):
+        s0.step()
+    s0.set_input("right", False)
+    x_free = player_x(s0)
+    if x_free is None or x_free < 10.0:
+        return False, ("空世界里按 6 秒「右」只走到 x=%r（期望 >10）—— "
+                       "基线不成立，后面「被树挡住」就说不清是谁挡的" % (x_free,))
+
+    # ① 有树时必须停住
+    s = Sim(seed=20261015, tick_hz=30, world_content=0).boot()
+    ok, r = s.debug_spawn("evergreen", 3.0, 0.0)
+    if not ok:
+        return False, "种树失败：%s" % (r,)
+    s.set_input("right", True)
+    for _ in range(180):
+        s.step()
+    x_hit = player_x(s)
+    if x_hit is None:
+        return False, "读不到玩家位置"
+    if x_hit >= 3.0:
+        return False, ("玩家走到 x=%r，越过了 x=3.0 的树 —— 还在穿树" % (x_hit,))
+    if x_hit < 1.0:
+        return False, ("玩家只走到 x=%r，连树前都没到 —— 不是被树挡的，是走不动"
+                       % (x_hit,))
+    pushed = s.collide_pushes()
+    if pushed <= 0:
+        return False, "玩家停住了但 collide_pushes 是 0（不是碰撞挡的，是别的原因）"
+
+    # ③ 再按 3 秒也不许过去
+    for _ in range(90):
+        s.step()
+    s.set_input("right", False)
+    x_more = player_x(s)
+    if x_more is None or x_more >= 3.0:
+        return False, ("又按了 3 秒之后 x=%r，越过了树 —— 挡不住，只是慢一点"
+                       % (x_more,))
+
+    return True, ("空世界能走到 x=%.1f ✔ / 有树时停在 x=%.2f（< 3.0）✔ / "
+                  "阻挡计数 %d ✔ / 再按 3 秒仍是 x=%.2f ✔"
+                  % (x_free, x_hit, pushed, x_more))
+
+
 def e20_save_bytes_deterministic():
     """★★★ N3（2026-10-22）：存档**字节级确定性** —— 同一状态两次落盘必须一模一样。
 
@@ -5200,6 +5274,7 @@ def e14_editor_channel():
 
 check("E13 战斗闭环：打生物 → 掉血 → 死 → 掉战利品；反向：太远被拒 · 树仍走 CHOP", e13_attack_loop)
 check("E14 编辑器通道：列/生成/移动/删除全回读；反向：玩家删除被拒 · /debug 仍 404", e14_editor_channel)
+check("E21 碰撞：有树时停在树前（不穿过）· 阻挡计数>0 · 再按3秒仍不过去；反向：空世界能走很远", e21_no_walking_through_trees)
 check("E20 存档字节确定性：同状态三次采集 sha256 全同；反向：挪一个实体必变", e20_save_bytes_deterministic)
 check("E19 死亡掉一半背包：活着一件不掉 · 死后那一拍掉 2/4 · 地上恰好 2 件；反向：不许全掉 · 复活照常", e19_death_drops_half)
 check("E18 编辑器撤销：move→undo→redo 逐值往返 · 连续移动合并成 1 步；反向：空栈被拒 · undo 后新操作清空 redo", e18_editor_undo_move)

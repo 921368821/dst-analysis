@@ -1429,6 +1429,106 @@ function M.grue_sync_stats()
     return grue_sync_n, (cur == nil and nil or cur.applied)
 end
 
+-- ★★★ N1（2026-10-22）：**碰撞解算** —— 人不能穿过树。
+--
+-- 为什么原来会穿：移动走的是 `locomotor`（`E1/A8` 验过是原版路径），而原版的碰撞
+-- 依赖引擎侧的物理积分 + `CanPathTo`；本宿主**没有物理引擎**（`stats.used_physics` 恒 0），
+-- 于是 `locomotor` 只负责"沿方向改变坐标"，不负责"别撞上东西"。
+-- 实测：spawn 一棵树在 (3,0)，按住「右」6 秒，玩家 x 从 0 一路走到 **35.6** —— 直接穿过去。
+--
+-- 做法：每拍**移动之后**做一次圆形重叠分离（玩家圆 + 障碍圆 ⇒ 推到刚好相切）。
+--   · 只对"有位置、不是玩家、不是背包物品"的实体做 —— 地上的 log 不该挡人；
+--   · 完全重合时沿 +x 推开一点点，**不做随机方向**（随机会让同一份录像重放不出同一世界，
+--     而 B18 的逐 tick 指纹判据会立刻变红）；
+--   · 每次推开记账（`collide_n`），让"到底有没有在挡"变成可观测的数，
+--     而不是靠"看起来没穿过去"。
+local collide_n = 0
+function M.collide_pushes() return collide_n end
+
+local function _radius_of(inst, fallback)
+    if inst == nil then return fallback end
+    if inst.GetPhysicsRadius ~= nil then
+        local ok, r = pcall(inst.GetPhysicsRadius, inst, fallback)
+        if ok and type(r) == "number" and r > 0 then return r end
+    end
+    return fallback
+end
+
+-- ★★★ 修正（同一天，第一次实现是错的）：不能用「当前重叠就推开」。
+--   实测：collide 记账涨到 159，玩家还是走过去了 —— 因为一拍 locomotor 推 0.65 格，
+--   而玩家一旦**越过树心**，"远离树心"的方向就变成了**继续前进**的方向 ⇒ 推开 = 帮他穿模。
+--   正确做法是**连续碰撞检测**：拿上一拍位置与本拍位置连成线段，与障碍圆求交，
+--   把玩家挡在**入射侧**。
+--   （这是本工程第三次遇到同一形状：局部修正看着在工作、实际在放大问题。
+--     前两次是 atk_hit 记在 push 之前、invobject 记在"打算传"的变量上。）
+local prev_pos = {}          -- slot -> {x, z}
+
+local function _seg_hits_circle(x0, z0, x1, z1, cx, cz, r)
+    local dx, dz = x1 - x0, z1 - z0
+    local a = dx * dx + dz * dz
+    if a < 1e-9 then return nil end
+    local fx, fz = x0 - cx, z0 - cz
+    local b = 2 * (fx * dx + fz * dz)
+    local c = fx * fx + fz * fz - r * r
+    -- ★★ 起点已经在圆内/圆上 ⇒ **完全挡住**，返回一个极小的 t。
+    --   不这么写的话：起点在圆上时 c≈0，两个根是 0 和 t2（穿出点），
+    --   而 t>0 过滤掉 0 ⇒ 返回 t2 ⇒ 玩家被"放行到圆另一侧"。
+    --   实测就是这么蹭过去的：x 从 0 → 0.65 → 2.35 → 4.85，看着每次都被挡，
+    --   实际上每拍都在往对面挪一点。**"被挡住"和"没穿过去"是两件事。**
+    if c <= 0 then return 1e-4 end
+    local disc = b * b - 4 * a * c
+    if disc < 0 then return nil end
+    local sq = math.sqrt(disc)
+    local t1 = (-b - sq) / (2 * a)
+    local t2 = (-b + sq) / (2 * a)
+    local best = nil
+    for _, t in ipairs({ t1, t2 }) do
+        if t > 0 and t <= 1 and (best == nil or t < best) then best = t end
+    end
+    return best
+end
+
+local function block_movement(slot, p)
+    local x, z = pos_of(p)
+    if x == nil then return 0 end
+    local pv = prev_pos[slot]
+    prev_pos[slot] = { x = x, z = z }
+    if pv == nil then return 0 end
+    if (x - pv.x) * (x - pv.x) + (z - pv.z) * (z - pv.z) < 1e-8 then return 0 end
+
+    local okF, list = pcall(function() return TheSim:FindEntities(pv.x, 0, pv.z, 6.0) end)
+    if not okF or list == nil then return 0 end
+    local rp = _radius_of(p, 0.35)
+    local best_t = nil
+    for i = 1, #list do
+        local e = list[i]
+        if e ~= p and e.Transform ~= nil
+           -- ★★ 排除**附属实体**：`player_classified` / `inventory_classified` 这些
+           --   "网络镜像实体"跟着玩家走、也有 Transform，但不该参与碰撞。
+           --   不排除的话，玩家会被**自己的背包**挡住 —— 实测表现是"从第一拍就完全走不动"，
+           --   而 collide 记账一直在涨（看着像碰撞在工作）。
+           and not (e.HasTag ~= nil and (e:HasTag("player") or e:HasTag("INLIMBO")
+                                          or e:HasTag("CLASSIFIED")))
+           and not (e.components ~= nil and e.components.inventoryitem ~= nil)
+        then
+            local ex, ez = pos_of(e)
+            if ex ~= nil then
+                local t = _seg_hits_circle(pv.x, pv.z, x, z, ex, ez,
+                                           rp + _radius_of(e, 0.3))
+                if t ~= nil and (best_t == nil or t < best_t) then best_t = t end
+            end
+        end
+    end
+    if best_t == nil then return 0 end
+    -- 退到交点前一点点（0.95），避免下一拍从圆内开始、判定退化成"已经嵌进去了"
+    local nx = pv.x + (x - pv.x) * best_t * 0.95
+    local nz = pv.z + (z - pv.z) * best_t * 0.95
+    pcall(function() p.Transform:SetPosition(nx, 0, nz) end)
+    prev_pos[slot] = { x = nx, z = nz }
+    collide_n = collide_n + 1
+    return 1
+end
+
 function M.step(dt)
     dt = tonumber(dt) or M.dt
     if dt <= 0 then
@@ -1448,6 +1548,9 @@ function M.step(dt)
     --   而那是本工程已经踩过两次的坑（方向/停止各一次）。
     for _, slot in ipairs(M.player_slots()) do
         step_one_player(slot)
+        -- ★ 移动之后做连续碰撞检测：放在驱动之后，才不会把这一拍的输入抵消掉
+        local pp = slot_entity(slot)
+        if pp ~= nil then block_movement(slot, pp) end
     end
 
     Sim.Step(dt)
