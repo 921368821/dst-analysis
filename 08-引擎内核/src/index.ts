@@ -48,6 +48,17 @@ export { BackendKind, BackendRegistry } from "./platform/registry.ts";
 export type { CreateOptions } from "./platform/registry.ts";
 export { createPlatform } from "./platform/platform.ts";
 export type { IPlatform, PlatformCaps, PlatformRequest } from "./platform/platform.ts";
+export type {
+  IScriptRuntime,
+  ScriptBackendFactory,
+  ScriptCaps,
+  ScriptValue,
+  ScriptPrimitive,
+  ScriptCallOptions,
+  ScriptRuntimeStats,
+  HostFunction,
+} from "./platform/script/runtime.ts";
+export { ScriptErrorCode, assertScriptValue } from "./platform/script/runtime.ts";
 
 // ---- L2 引擎内核
 export { ModuleRegistry, ModuleState } from "./core/module/module.ts";
@@ -88,4 +99,30 @@ export {
   NullAudioDevice,
   NullInputDevice,
   MemoryFileSystem,
+  NullScriptRuntime,
 } from "./backends/index.ts";
+
+// ---- L4 扩展：脚本（不含 Lua 实现 —— 见下）
+export { ScriptComponent, SCRIPT_COMPONENT_TYPE } from "./extensions/script/script-component.ts";
+export { createScriptModule } from "./extensions/script/script-module.ts";
+export type { ScriptModuleHandle, ScriptModuleOptions } from "./extensions/script/script-module.ts";
+
+// ---- L4 扩展：资产导入
+export { ImporterRegistry } from "./extensions/asset-import/importer.ts";
+export type { SourceImporter, ImportedArtifact, ImportContext } from "./extensions/asset-import/importer.ts";
+export { AssetImportPipeline, normalizePath, resolveSiblingPath } from "./extensions/asset-import/pipeline.ts";
+export type { ImportReport, ImportFailure } from "./extensions/asset-import/pipeline.ts";
+export {
+  createImportLoaders,
+  ImportedTexture,
+  ImportedAtlas,
+  ImportedText,
+} from "./extensions/asset-import/loaders.ts";
+export { textureImporter } from "./extensions/asset-import/importers/texture.ts";
+export { atlasImporter } from "./extensions/asset-import/importers/atlas.ts";
+export { textImporter } from "./extensions/asset-import/importers/text.ts";
+
+// ★ **不导出** `backends/script-lua`：它会把 wasmoon（~240KB + wasm）拖进任何
+//   import 了公共入口的构建，包括完全不需要脚本的纯渲染宿主。
+//   需要 Lua 的宿主请显式 `import { createLuaScriptBackend } from "@engine/backends/script-lua"`。
+//   这是"公共 API 面不为少数使用者的便利付费"的具体一条。

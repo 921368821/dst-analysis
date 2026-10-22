@@ -91,6 +91,29 @@ row("画布不是纯黑（真的画了东西）", () => {
   return [true, "见下方预览（由主画布拷贝）"];
 });
 
+row("脚本后端真的接的是 Lua（不是静默降级到 null）", (e) => {
+  const rt = e.scriptMod && e.scriptMod.runtime;
+  if (!rt) return [false, "没有脚本运行时（媒体/环境不支持？）"];
+  const caps = rt.caps;
+  return [caps.language === "lua" && caps.executes === true, `language=${caps.language} version=${caps.version}`];
+});
+
+row("脚本在被每 tick 调度（calls > 0）", (e) => {
+  const s = e.scriptMod.runtime.stats();
+  return [s.calls > 0, `calls=${s.calls} modules=${s.modules} errors=${s.errors}`];
+});
+
+row("脚本没有报错（errors == 0 且无 script:error）", (e) => {
+  const s = e.scriptMod.runtime.stats();
+  const bad = e.app.memorySink.records().filter((r) => r.channel === "script" && r.level >= 40);
+  return [s.errors === 0 && bad.length === 0, bad.length === 0 ? `errors=0 calls=${s.calls}` : bad[0].message];
+});
+
+row("脚本真的越过了语言边界（Lua 里 engine_log 的日志出现在宿主日志里）", (e) => {
+  const hit = e.app.memorySink.records().filter((r) => r.message.includes("demo:"));
+  return [hit.length > 0, hit.length > 0 ? hit[hit.length - 1].message : "还没出现（每 60 tick 一条）"];
+});
+
 // 等引擎起来（bundle 是异步 boot 的）
 function tickCheck() {
   const e = globalThis.__engine;

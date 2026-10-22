@@ -16,6 +16,7 @@ import type { IFrameHost } from "./frame-host.ts";
 import type { Scene } from "./scene/scene.ts";
 import type { AssetDatabase } from "./asset/asset.ts";
 import type { FixedStepScheduler } from "./scheduler/scheduler.ts";
+import type { IScriptRuntime } from "../platform/script/runtime.ts";
 
 // ------------------------------------------------------------------ 服务
 export const Services = {
@@ -30,6 +31,13 @@ export const Services = {
   Scene: defineService<Scene>("core.scene"),
   Assets: defineService<AssetDatabase>("core.assets"),
   Scheduler: defineService<FixedStepScheduler>("core.scheduler"),
+  /**
+   * 脚本运行时（可空）。
+   * ★ 为什么作为服务而不是"模块私有字段"：UI/AI/关卡这些上层模块都要调脚本，
+   *   如果各自 new 一个运行时，就会出现"两个 VM 两份全局状态"——
+   *   脚本里的全局变量会莫名其妙地不共享。
+   */
+  Script: defineService<IScriptRuntime | null>("core.script"),
 } as const;
 
 // ------------------------------------------------------------------ 事件
@@ -61,4 +69,18 @@ export interface EngineEvents extends Record<string, unknown> {
 
   /** 模块状态变化（编辑器与 healthz 用同一份）。 */
   "module:failed": { readonly id: string; readonly code: string; readonly message: string };
+
+  /** 脚本模块加载成功（含热重载：同一 name 会再发一次）。 */
+  "script:module-loaded": { readonly name: string; readonly bytes: number };
+  /**
+   * 脚本调用失败。**必须可观测**：脚本 `error()` 不该静默 ——
+   * 饥荒类游戏里"某个行为脚本挂了"的表现是"这个生物不动了"，
+   * 没有这条事件就只能靠肉眼发现。
+   */
+  "script:error": {
+    readonly module: string;
+    readonly fn: string;
+    readonly code: string;
+    readonly message: string;
+  };
 }

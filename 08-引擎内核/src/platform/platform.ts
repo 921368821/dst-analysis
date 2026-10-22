@@ -18,6 +18,7 @@ import type { IGraphicsDevice } from "./gfx/device.ts";
 import type { IAudioDevice } from "./audio/device.ts";
 import type { IInputDevice } from "./input/device.ts";
 import type { IFileSystem, ITransport } from "./fs/fs.ts";
+import type { IScriptRuntime } from "./script/runtime.ts";
 import type { BackendRegistry } from "./registry.ts";
 
 export interface PlatformCaps {
@@ -38,6 +39,12 @@ export interface IPlatform {
   readonly input: IInputDevice;
   readonly fs: IFileSystem;
   readonly net: ITransport | null;
+  /**
+   * 脚本运行时。**可空**：没有脚本层的宿主（纯表现/纯判据）完全正常。
+   * ★ 空不等于"脚本默默不执行"——`ScriptModule` 在拿不到 runtime 时必须报错，
+   *   否则"脚本没跑"会变成最难查的一类 bug（世界不动但不报错）。
+   */
+  readonly script: IScriptRuntime | null;
   readonly clock: IClock;
   /** 实际选中的后端 id —— 打印出来就能回答"到底跑在什么上"。 */
   readonly backends: {
@@ -46,6 +53,7 @@ export interface IPlatform {
     readonly input: string;
     readonly fs: string;
     readonly net: string | null;
+    readonly script: string | null;
   };
   dispose(): void;
 }
@@ -61,6 +69,7 @@ export interface PlatformRequest {
     readonly input?: unknown;
     readonly fs?: unknown;
     readonly net?: unknown;
+    readonly script?: unknown;
   };
   /** 强制使用某些后端（判据/headless）。 */
   readonly prefer?: {
@@ -69,6 +78,7 @@ export interface PlatformRequest {
     readonly input?: string;
     readonly fs?: string;
     readonly net?: string;
+    readonly script?: string;
   };
   /** 允许的后端白名单（例如"这个构建只带 null 后端"）。 */
   readonly allow?: {
@@ -77,6 +87,7 @@ export interface PlatformRequest {
     readonly input?: readonly string[];
     readonly fs?: readonly string[];
     readonly net?: readonly string[];
+    readonly script?: readonly string[];
   };
 }
 
@@ -143,6 +154,28 @@ export function createPlatform(req: PlatformRequest): Result<IPlatform, EngineEr
     }
   }
 
+  // 脚本也是**可选**的：判据/纯表现宿主没有脚本层也该能起。
+  // ★ 但"用户显式 prefer 了 script 却起不来"必须报错 —— 静默降级成 null
+  //   会让"脚本没跑"看起来像"脚本跑了但没效果"。（判据 D-S2 守这条）
+  let script: IScriptRuntime | null = null;
+  let scriptId: string | null = null;
+  if (registry.list("script").length > 0) {
+    const scriptR = registry.create("script", {
+      ...(req.prefer?.script === undefined ? {} : { prefer: req.prefer.script }),
+      ...(req.allow?.script === undefined ? {} : { allow: req.allow.script }),
+      options: req.backendOptions?.script,
+    });
+    if (scriptR.ok) {
+      script = scriptR.value;
+      scriptId = scriptR.value.id;
+    } else if (req.prefer?.script !== undefined) {
+      inputR.value.destroy();
+      audioR.value.destroy();
+      gfxR.value.destroy();
+      return scriptR as Result<IPlatform, EngineError>;
+    }
+  }
+
   const size = gfxR.value.size;
   const caps: PlatformCaps = {
     id: req.id,
@@ -163,6 +196,7 @@ export function createPlatform(req: PlatformRequest): Result<IPlatform, EngineEr
       input: inputR.value,
       fs: fsR.value,
       net,
+      script,
       clock,
       backends: {
         gfx: gfxR.value.caps.backend,
@@ -170,9 +204,12 @@ export function createPlatform(req: PlatformRequest): Result<IPlatform, EngineEr
         input: inputR.value.caps.backend,
         fs: fsR.value.scheme,
         net: netId,
+        script: scriptId,
       },
       dispose(): void {
-        // 逆序：先停表现层，最后停存储（释放过程可能要记日志）
+        // 逆序：脚本先停（它可能在 update 里写存档），再停表现层，最后停存储
+        // （释放过程可能要记日志）。fs 没有 close —— 接口上它无可释放资源。
+        script?.dispose();
         net?.close(1000, "platform dispose");
         inputR.value.destroy();
         audioR.value.destroy();

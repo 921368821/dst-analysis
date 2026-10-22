@@ -29,6 +29,7 @@ import type { GraphicsBackendFactory, IGraphicsDevice } from "./gfx/device.ts";
 import type { AudioBackendFactory, IAudioDevice } from "./audio/device.ts";
 import type { InputBackendFactory, IInputDevice } from "./input/device.ts";
 import type { FsBackendFactory, IFileSystem, NetBackendFactory, ITransport } from "./fs/fs.ts";
+import type { IScriptRuntime, ScriptBackendFactory } from "./script/runtime.ts";
 
 export const BackendKind = {
   Gfx: "gfx",
@@ -36,6 +37,7 @@ export const BackendKind = {
   Input: "input",
   Fs: "fs",
   Net: "net",
+  Script: "script",
 } as const;
 export type BackendKindValue = (typeof BackendKind)[keyof typeof BackendKind];
 
@@ -46,6 +48,7 @@ export interface BackendTypeMap {
   input: IInputDevice;
   fs: IFileSystem;
   net: ITransport;
+  script: IScriptRuntime;
 }
 
 export interface BackendEntry<T> {
@@ -106,6 +109,9 @@ export class BackendRegistry {
   }
   registerNet(f: NetBackendFactory, priority = 100): void {
     this.register("net", { id: f.id, priority, probe: f.probe, create: f.create });
+  }
+  registerScript(f: ScriptBackendFactory, priority = 100): void {
+    this.register("script", { id: f.id, priority, probe: f.probe, create: f.create });
   }
 
   list(kind: BackendKindValue): readonly string[] {

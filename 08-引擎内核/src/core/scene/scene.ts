@@ -65,6 +65,29 @@ export class Scene {
   private _updates = 0;
   private _fastForwarded = 0;
 
+  /**
+   * 本世界的节点 id 分配器（root 固定 1，新节点从 2 起）。
+   *
+   * ★★ 为什么**不能**用模块级全局自增（阶段 2 改的）：
+   *   `Node` 原本有个进程级 `NEXT_NODE_ID`，于是第二个 `Scene` 的第一个节点是 3。
+   *   后果比"id 不好看"严重得多：
+   *     · **存档不可比** —— 同种子同操作的两个世界，存档只差 id，逐字节比对永远失败
+   *       （脚本层出口判据就是这么抓到的）；
+   *     · **PIE 两个世界**（编辑器 + 预览）的 id 交错，粘贴一个 prefab 过去会撞 id；
+   *     · 回放时 id 依赖"这台机器之前跑过什么"。
+   *   每个世界自己的 id 空间反而是**更强**的性质：存档可以跨世界互换。
+   *   `Node` 的全局分配器保留给"游离节点"（判据、编辑器里还没入场景的对象）。
+   */
+  private nextId = 2;
+
+  private allocateId(explicit?: NodeId): NodeId {
+    if (explicit !== undefined) {
+      if (explicit >= this.nextId) this.nextId = explicit + 1;
+      return explicit;
+    }
+    return this.nextId++;
+  }
+
   /** 组件注册表：编辑器"可挂哪些组件"、读档"遇到未知类型找谁"都读它。 */
   readonly components: ComponentRegistry;
 
@@ -95,17 +118,18 @@ export class Scene {
 
   // ---------------------------------------------------------------- 结构性修改（排队）
   spawn(name: string, parent: NodeId | null = this.root.id, id?: NodeId): Result<Node, EngineError> {
-    if (this.byId.has(id ?? -1)) {
-      return err({ code: "SCENE.DUPLICATE_ID", message: `节点 id ${id} 已存在` });
+    const nid = this.allocateId(id);
+    if (this.byId.has(nid)) {
+      return err({ code: "SCENE.DUPLICATE_ID", message: `节点 id ${nid} 已存在` });
     }
-    const node = new Node(name, id);
+    const node = new Node(name, nid);
     this.pending.push({ kind: "spawn", node, parent });
     return ok(node);
   }
 
   /** 立即建好（加载/编辑器用）。**游戏逻辑里请用 spawn（走队列）**。 */
   spawnImmediate(name: string, parent: NodeId | null = this.root.id, id?: NodeId): Node {
-    const node = new Node(name, id);
+    const node = new Node(name, this.allocateId(id));
     this.attachNodeTo(node, parent);
     return node;
   }

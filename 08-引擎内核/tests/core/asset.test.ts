@@ -173,3 +173,61 @@ test("使用中的资产不许重新导入（避免把别人手里的实例换�
   assert.equal(re.ok, false);
   if (!re.ok) assert.equal(re.error.code, "ASSET.REIMPORT_WHILE_IN_USE");
 });
+
+// ------------------------------------------------------------------ 反注册
+
+test("反注册：路径索引与注册表都清掉，之后 load 报 NOT_REGISTERED", async () => {
+  const { db, fs } = setup();
+  await fs.writeText("/a.txt", "A");
+  db.register(meta("a", "/a.txt"));
+  assert.equal(db.idAtPath("/a.txt"), "a");
+
+  const r = db.unregister("a");
+  assert.ok(r.ok);
+  assert.equal(db.idAtPath("/a.txt"), undefined, "路径索引必须一起清 —— 否则 idAtPath 会给出一个不存在的 id");
+  assert.equal(db.meta("a"), undefined);
+  assert.equal(db.describe().length, 0);
+
+  const l = await db.load("a");
+  assert.equal(l.ok, false);
+  if (!l.ok) assert.equal(l.error.code, "ASSET.NOT_REGISTERED");
+});
+
+test("反注册：还有句柄时拒绝（否则句柄指向已释放实例）", async () => {
+  const { db, fs } = setup();
+  await fs.writeText("/a.txt", "A");
+  db.register(meta("a", "/a.txt"));
+  const h = await db.load("a");
+  assert.ok(h.ok);
+
+  const r = db.unregister("a");
+  assert.equal(r.ok, false);
+  if (!r.ok) assert.equal(r.error.code, "ASSET.IN_USE");
+
+  h.value.release();
+  assert.ok(db.unregister("a").ok, "句柄释放后应可反注册");
+});
+
+test("反注册：仍被依赖时拒绝，并点名谁在依赖（删了它依赖方加载会失败在远处）", async () => {
+  const { db, fs } = setup();
+  await fs.writeText("/a.txt", "A");
+  await fs.writeText("/b.txt", "B");
+  db.register(meta("a", "/a.txt"));
+  db.register(meta("b", "/b.txt", ["a"]));
+
+  const r = db.unregister("a");
+  assert.equal(r.ok, false);
+  if (!r.ok) {
+    assert.equal(r.error.code, "ASSET.STILL_REFERENCED");
+    assert.match(r.error.message, /b/, "错误里必须点名依赖方");
+  }
+
+  assert.ok(db.unregister("b").ok);
+  assert.ok(db.unregister("a").ok, "依赖方删掉后应可反注册");
+});
+
+test("反注册：幂等（删两次不报错）", async () => {
+  const { db } = setup();
+  assert.ok(db.unregister("never").ok);
+  assert.ok(db.unregister("never").ok);
+});

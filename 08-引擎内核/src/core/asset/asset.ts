@@ -190,6 +190,43 @@ export class AssetDatabase {
     return this.slots.get(id)?.meta;
   }
 
+  /**
+   * 反注册（源资产被删除）。
+   *
+   * ★ 为什么必须有（阶段 2 补）：导入器要处理"源文件被删了"——这是**正常事件**，
+   *   不是异常。没有反注册时，删除只让文件消失、注册表里留下一条幽灵：
+   *   `describe()` 还看得到它、`dependents()` 还把它算进依赖、`idAtPath` 还能查到，
+   *   于是"这个资产到底还在不在"从可判定退化成了靠猜。
+   *   上一代引擎里同类的债是"prefab 表只增不减"，改一版涨一版。
+   *
+   * 两条拒绝条件都不是保守，而是正确性：
+   *   · `refs > 0`：有句柄在用，删了它句柄就指向已释放实例（随机崩）；
+   *   · 有反向依赖：删了被引用的资产，依赖方下次加载会失败，而失败点离根因很远。
+   * 都不满足才算"真的没人要它了"。
+   */
+  unregister(id: AssetId): Result<void, EngineError> {
+    const slot = this.slots.get(id);
+    if (slot === undefined) return ok(undefined); // 幂等：删两次不该报错
+    if (slot.refs > 0) {
+      return err({
+        code: "ASSET.IN_USE",
+        message: `资产 ${id} 还有 ${slot.refs} 个句柄未释放，不能反注册`,
+      });
+    }
+    const users = this.dependents(id);
+    if (users.length > 0) {
+      return err({
+        code: "ASSET.STILL_REFERENCED",
+        message: `资产 ${id} 仍被 ${users.join(", ")} 依赖，不能反注册（先删依赖方的引用）`,
+        detail: { id, dependents: users },
+      });
+    }
+    this.byPath.delete(slot.meta.path);
+    this.slots.delete(id);
+    slot.asset?.dispose();
+    return ok(undefined);
+  }
+
   idAtPath(path: string): AssetId | undefined {
     return this.byPath.get(path);
   }

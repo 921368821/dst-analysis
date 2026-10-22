@@ -18,6 +18,10 @@ const MIME = {
   ".json": "application/json; charset=utf-8",
   ".png": "image/png",
   ".css": "text/css; charset=utf-8",
+  // ★ 必须给 wasm 正确的 MIME：`WebAssembly.instantiateStreaming` 要求
+  //   `application/wasm`，否则会先失败再回退到 ArrayBuffer 实例化
+  //   （能跑，但多一次请求 + 控制台警告，容易被误判成"加载失败"）。
+  ".wasm": "application/wasm",
 };
 
 createServer(async (req, res) => {

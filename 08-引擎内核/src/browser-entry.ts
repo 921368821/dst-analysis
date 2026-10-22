@@ -17,6 +17,7 @@
 
 import { BackendRegistry } from "./platform/registry.ts";
 import { registerNullBackends } from "./backends/index.ts";
+import { createLuaScriptBackend } from "./backends/script-lua/runtime.ts";
 import { webgl2Backend } from "./backends/gfx-webgl2/device.ts";
 import { domInputBackend } from "./backends/input-dom/device.ts";
 import { webAudioBackend } from "./backends/audio-webaudio/device.ts";
@@ -30,6 +31,8 @@ import type { InputSnapshot } from "./platform/input/device.ts";
 import { createRenderModule } from "./extensions/render/render-module.ts";
 import { Sprite, makeSprite } from "./extensions/render/sprite.ts";
 import { SpatialHashWorld, makeSceneAccessor } from "./extensions/physics/physics.ts";
+import { createScriptModule } from "./extensions/script/script-module.ts";
+import { ScriptComponent } from "./extensions/script/script-component.ts";
 import { saveScene, loadScene, sceneToJson, sceneFromJson } from "./core/scene/scene-io.ts";
 import { stableHash } from "./core/serialization/schema.ts";
 
@@ -94,7 +97,10 @@ class Workable extends Component {
  * ★ 两者在**同一个回调**里，顺序写死。分成两个模块订阅会依赖"注册顺序"这种隐式约定，
  *   而那种约定在重构时会静默失效（物理先于移动解算 = 穿墙一帧）。
  */
-function createWorldModule(physics: SpatialHashWorld, hooks: { onTick: (t: number) => void }): IModule {
+function createWorldModule(
+  physics: SpatialHashWorld,
+  hooks: { onTick: (t: number) => void; onStep?: (tick: number, dt: number) => void },
+): IModule {
   let off: (() => void) | null = null;
   return {
     id: "game.world",
@@ -104,6 +110,9 @@ function createWorldModule(physics: SpatialHashWorld, hooks: { onTick: (t: numbe
       off = sched.onStep((tick, dt) => {
         scene.step(tick, dt);
         physics.resolve();
+        // 脚本在"世界步进之后"跑：脚本读到的是本 tick 的确定状态
+        //（若放在 step 之前，脚本看到的位置会晚一个 tick —— 操作手感会"黏"）
+        hooks.onStep?.(tick, dt);
         hooks.onTick(tick);
       });
     },
@@ -116,6 +125,54 @@ function createWorldModule(physics: SpatialHashWorld, hooks: { onTick: (t: numbe
     },
   };
 }
+
+// ---------------------------------------------------------------- 演示脚本
+
+/**
+ * 内联的 Lua 演示（Lua 5.4）。
+ *
+ * ★ 为什么脚本驱动的是"浆果漂浮"这种小事：它一次用到脚本层全部四件能力
+ *   —— 查节点（`engine_nodes_named`）、读位置、写位置、写日志 ——
+ *   而且**肉眼可见**。脚本层最容易的假完成是"能调通一个 return 1+1"，
+ *   却在真实世界里什么都不做；这一条断言的是"脚本真的改变了世界"。
+ *
+ * ★ 只在首帧收集一次节点 id：`engine_nodes_named` 每个 tick 调一次是 O(N) 遍历，
+ *   而节点集合在游戏里并不会每帧变 —— 把"每帧全表扫描"降成"一次扫描"。
+ */
+const LUA_DEMO = `
+local beans = {}
+local t = 0
+
+local function collect()
+  for i = 0, 13 do
+    local ids = engine_nodes_named("berry" .. tostring(i))
+    if #ids > 0 then
+      beans[#beans + 1] = { id = ids[1] }
+    end
+  end
+end
+
+function onUpdate(selfId, dt, tick)
+  t = t + dt
+  if #beans == 0 then collect() end
+  for i = 1, #beans do
+    local b = beans[i]
+    if b.z0 == nil then
+      local p = engine_get_pos(b.id)
+      if p ~= nil then
+        b.x0 = p.x
+        b.z0 = p.z
+      end
+    end
+    if b.z0 ~= nil then
+      engine_set_pos(b.id, b.x0, b.z0 + math.sin(t * 1.6 + i) * 0.18)
+    end
+  end
+  if tick > 0 and tick % 60 == 0 then
+    engine_log("demo: " .. tostring(#beans) .. " 个浆果在漂浮 (tick " .. tostring(tick) .. ")")
+  end
+end
+`;
 
 // ---------------------------------------------------------------- main
 
@@ -136,6 +193,9 @@ export async function main(): Promise<void> {
   registry.registerGfx(webgl2Backend, 100);
   registry.registerInput(domInputBackend, 100);
   registry.registerAudio(webAudioBackend, 100);
+  // 脚本后端：wasm 从**本目录**取（`web/glue.wasm`），不依赖 unpkg ——
+  // 否则"离线能不能跑"就变成了对 CDN 的依赖。
+  registry.registerScript(createLuaScriptBackend({ wasmPath: new URL("glue.wasm", location.href).href }), 100);
 
   // ---- 先建物理（位置访问器是惰性的：step 时才读 app）
   let appRef: GameApp | null = null;
@@ -171,13 +231,23 @@ export async function main(): Promise<void> {
     },
   });
 
-  const worldMod = createWorldModule(physics, { onTick: (t) => (hudTick = t) });
+  // 脚本模块：单次调用 16ms 预算（≈半个 tick）。不设预算的死循环会挂住整个页面。
+  const scriptMod = createScriptModule({ callTimeoutMs: 16 });
+
+  const worldMod = createWorldModule(physics, {
+    onTick: (t) => (hudTick = t),
+    onStep: (tick, dt) => {
+      // 不 await：宿主在同步的 onStep 里。ScriptModule 内部有串行队列，
+      // 保证 tick N+1 不会插到 tick N 的 Lua 调用中间。
+      void scriptMod.update(tick, dt);
+    },
+  });
 
   const appR = await bootGameApp({
     platformId: "web",
     interactive: true,
     registry,
-    modules: [worldMod, renderMod],
+    modules: [worldMod, renderMod, scriptMod],
     seed: 20261022,
     fixedDt: 1 / 30,
     tickSource: new RafTickSource(() => performance.now()),
@@ -197,6 +267,18 @@ export async function main(): Promise<void> {
   const app = appR.value;
   appRef = app;
   PlayerController.pollInput = () => app.platform.input.poll();
+
+  // ---- 脚本：加载演示模块
+  // ★ 只 loadModule 是**不会执行**的：ScriptModule 遍历的是 `game.script` 组件，
+  //   所以下面还要给 hero 挂一个（见 "挂脚本组件"）。这是"脚本加载了但没跑"
+  //   最常见的原因，因此在两处都写清楚。
+  const scriptRuntime = scriptMod.runtime;
+  if (scriptRuntime === null) {
+    app.log.channel("host").warn("平台没有脚本运行时：演示脚本不会执行");
+  } else {
+    const lr = await scriptRuntime.loadModule("demo", LUA_DEMO);
+    if (!lr.ok) app.log.channel("host").error(`演示脚本加载失败：${lr.error.code} ${lr.error.message}`);
+  }
 
   // ---- 组件注册（新增组件 = 一次 register，不改内核）
   const reg: ComponentRegistry = app.components;
@@ -254,6 +336,13 @@ export async function main(): Promise<void> {
   heroSprite.pivotY = 0;
   scene.attach(heroId, () => heroSprite);
   scene.attach(heroId, () => new PlayerController());
+  // 挂脚本组件（ScriptModule 只驱动挂了 `game.script` 的节点）
+  scene.attach(heroId, () => {
+    const c = new ScriptComponent();
+    c.module = "demo";
+    c.entry = "onUpdate";
+    return c;
+  });
   physics.add({ nodeId: heroId, radius: 0.45, isStatic: false });
   scene.flush();
 
@@ -336,10 +425,14 @@ export async function main(): Promise<void> {
     }
     const lf = renderMod.lastFrame;
     const st = app.snapshot();
+    const sc = scriptMod.runtime?.stats();
+    const scriptTxt =
+      sc === undefined ? "script off" : `script ${sc.calls}call/${sc.errors}err${sc.timeouts > 0 ? `/${sc.timeouts}to` : ""}`;
     hud!.textContent =
       `fps ${fps.toFixed(0)} · tick ${hudTick} · quad ${lf.quads} · draw ${lf.drawCalls} · ` +
       `culled ${lf.culled} · nodes ${st.scene.nodes} · bodies ${physics.stats().bodies} · ` +
-      `${st.backends.gfx}/${st.backends.audio}/${st.backends.input} · dropped ${st.droppedSteps}`;
+      `${st.backends.gfx}/${st.backends.audio}/${st.backends.input}/${st.backends.script ?? "-"} · ` +
+      `${scriptTxt} · dropped ${st.droppedSteps}`;
     void info;
   });
 
@@ -381,6 +474,7 @@ export async function main(): Promise<void> {
     renderMod,
     physics,
     scene,
+    scriptMod,
     save: doSave,
     load: doLoad,
     heroId,

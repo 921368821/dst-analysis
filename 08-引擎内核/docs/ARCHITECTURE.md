@@ -219,7 +219,7 @@ step(tick, dt):
 "世界步进"由 `game.world` 模块订阅 `scheduler.onStep` 完成 —— 见 `samples/headless.ts`。
 这样将来要做"多世界并行"或"回放时替换步进器"，改的是模块，不是内核。
 
-### 3.5 L4 Extensions（渲染 / 物理 / 存档）
+### 3.5 L4 Extensions（渲染 / 物理 / 脚本 / 资产 / 存档）
 
 | 模块 | 职责 | 关键取舍 | 文件 |
 |---|---|---|---|
@@ -228,6 +228,8 @@ step(tick, dt):
 | `render/camera` | 正交 + 斜俯视投影（`tiltY`） | 投影在 CPU 做；逻辑坐标是**未压缩**的 XZ | `extensions/render/camera.ts` |
 | `render/sprite` | 渲染数据组件 | **不存 GPU 句柄**，只存 `atlasId + frame`（句柄是进程内的，存进档就是灾难） | `extensions/render/sprite.ts` |
 | `physics` | 2.5D 碰撞：空间哈希 + 推出 | 不做刚体积分（饥荒风格的正确选择：卡顿不会穿墙） | `extensions/physics/physics.ts` |
+| `script/script-module` | 每 tick 驱动 `game.script` 组件调 Lua | 内部**串行队列**（上限 4，满了丢弃 + 计数）；异常隔离到单脚本 | `extensions/script/script-module.ts` |
+| `asset-import` | `.meta` 身份 + 导入器 + 增量管线 + 产物加载器 | 身份来自 `.meta`；增量 = hash + importerVersion + 依赖仍活着 | `extensions/asset-import/*` |
 | `scene-io`（在 core） | 确定性存档 | 三遍装配（建节点 → 设父子 → 挂组件）；组件按 type 升序 | `core/scene/scene-io.ts` |
 
 **渲染阶段为什么是独立阶段而不是事件**（`core/frame-host.ts`）：
@@ -426,23 +428,97 @@ step:
 其中 `scheduler:steps-dropped` **必须有人订阅并记录** —— 否则"丢时间"是静默的
 （`GameApp` 默认把它接到 `warn` 日志上）。
 
-### 5.4 脚本层通信（L4，待实现）
+### 5.4 脚本层通信（L4，已实现）
 
 ```ts
+// L1 · platform/script/runtime.ts
+export type ScriptValue = null | boolean | number | string
+  | readonly ScriptValue[] | { readonly [key: string]: ScriptValue };
+
 export interface IScriptRuntime {
-  readonly id: string;                                  // 'lua' | 'js' | 'wasm'
-  loadModule(name: string, source: string): Result<void, EngineError>;
-  call(fn: string, args: readonly unknown[]): Result<unknown, EngineError>;
-  /** 暴露给脚本的 API 面（反射表）。脚本只依赖这张表，不依赖实现。 */
-  expose(name: string, value: unknown): void;
+  readonly id: string;                 // 'lua' | 'null'
+  readonly caps: {
+    readonly language: string;         // 'lua'
+    readonly version: string | null;   // '5.4'
+    readonly interruptible: boolean;   // 能打断死循环
+    readonly hostCalls: boolean;       // 能暴露宿主函数
+    readonly executes: boolean;        // 能不能真执行（null 后端为 false）
+  };
+  loadModule(name: string, source: string): Promise<Result<void, EngineError>>;
+  unloadModule(name: string): Promise<Result<void, EngineError>>;
+  hasModule(name: string): boolean;
+  listModules(): readonly string[];
+  call(fn: string, args?: readonly ScriptValue[], opts?: { timeoutMs?: number })
+    : Promise<Result<ScriptValue, EngineError>>;
+  expose(name: string, fn: HostFunction): Result<void, EngineError>;
+  exposed(): readonly string[];
+  ready(): Promise<Result<void, EngineError>>;
+  stats(): { modules: number; calls: number; errors: number; timeouts: number };
   dispose(): void;
 }
 ```
+
+四条语义（决策依据见 ADR-0006）：
+
+| 语义 | 落地 | 为什么 |
+|---|---|---|
+| **只传值** | `assertScriptValue` 在跨界前校验；对象一律 `expose()` 成函数 | 异常隔离与 Worker 隔离的前提；传引用会让脚本持有已销毁节点 |
+| **全异步** | 方法返回 `Promise<Result>`；`create()` 同步、初始化在 `ready()` | 浏览器 WASM 加载必然异步；定成同步后接 Worker 要改所有调用方 |
+| **失败走 Result** | `SCRIPT.NO_FUNCTION` / `CALL_FAILED` / `TIMEOUT` / `LOAD_FAILED` / `BAD_VALUE` / `DISPOSED` | 调用方按 code 分支；脚本 `error()` 是可预期失败，不是运行时崩溃 |
+| **每 tick 串行** | `ScriptModule` 内部队列（上限 4，满了丢弃 + 计数 + 日志） | 宿主在同步 `onStep` 里驱动；不排队会让两个 tick 交替改同一个全局变量 |
+
+**两个实现**：
+
+- `backends/script-lua`（wasmoon / Lua 5.4）：真执行。
+  死循环用 `debug.sethook` 的计数钩子 + `os.clock()` deadline 打断（打断后 state 仍可用）。
+- `backends/script-null`：`executes: false`，`call` 一律 `NOT_SUPPORTED`。
+  **不假装执行** —— 脚本的产物是世界状态，假执行没有可见产物，只会制造静默 bug。
+
+**`ScriptModule`（L4）** 驱动方式：每 tick 遍历 `game.script` 组件，调 `module.entry`
+（默认 `onUpdate`），参数 `(nodeId, dt, tick)`。暴露的最小 API：
+
+```
+engine_log / engine_spawn / engine_destroy / engine_count
+engine_get_pos / engine_set_pos / engine_set_scale
+engine_nodes_named / engine_tick
+```
+
+结构性修改（spawn/destroy）走 `Scene` 的命令队列（ADR-0004），脚本调用期间不改树。
 
 **为什么脚本层必须是接口**：
 已有 153 万行 Lua 内容层（DST 注释源码）要复用，但"引擎内核绑定 Lua"会让
 "将来想支持 JS/DSL"变成重写。把 Lua 放在 `IScriptRuntime` 后面，
 内核只认"C 风格调用 + 反射表"，换语言是换实现。
+
+**已知边界**（诚实标注，`§11.2` 有完整列表）：Lua 5.4 ≠ DST 的 5.1
+（`setfenv` / `module()` / `unpack` 缺失）；模块共享 `_G`（函数做了命名空间隔离，
+全局变量没有）；嵌套 `null` 在 Lua 表里无法表示。
+
+---
+
+### 5.5 资产管线（L4，已实现）
+
+```
+源文件 + .meta          导入器              产物                  加载器
+assets/grass.png   →  textureImporter  →  library/imported/  →  ImportedTexture
+assets/grass.png.meta   （PNG 头解析）       <id>.json             （元数据 + 原始字节）
+```
+
+三层各管一件事（决策依据见 ADR-0007）：
+
+| 层 | 负责 | 不负责 |
+|---|---|---|
+| `.meta` sidecar | **身份**（`AssetId` + type + settings） | 内容、依赖 |
+| `SourceImporter` | 内容 → 产物（含 `dependencies` 解析） | 身份、注册 |
+| `AssetImportPipeline` | 扫描 / 增量 / 注册 / 清理幽灵 | 解码像素、挂 GPU |
+| `IAssetLoader` | 产物 → 运行时对象 | 导入、重导 |
+
+增量判定是三元组：`sourceHash` + `importerVersion` + **依赖仍然活着**。
+少了第三项的症状是"删了一张贴图，构建全绿，运行到加载才崩"。
+
+**边界**：texture importer 只解析 PNG 头（宽/高/位深/色彩类型），不 inflate 像素 ——
+像素解码归 `gfx` 后端（浏览器 `createImageBitmap` / Node `zlib`）。
+
 
 ---
 
@@ -505,9 +581,10 @@ app.dispose()
 | 扩展点 | 接口 | 注册方式 | 加一个需要改哪里 |
 |---|---|---|---|
 | **子系统** | `IModule` | `options.modules.push(m)` | 只加一个新文件 |
-| **后端** | `IGraphicsDevice` / `IAudioDevice` / `IInputDevice` / `IFileSystem` | `registry.registerGfx(...)` | 只加一个新目录 + 一行注册 |
+| **后端** | `IGraphicsDevice` / `IAudioDevice` / `IInputDevice` / `IFileSystem` / `IScriptRuntime` | `registry.registerGfx(...)` / `registerScript(...)` | 只加一个新目录 + 一行注册 |
 | **组件** | `Component` + `ComponentSchema` | `components.register(schema, factory)` | 只加一个新类 |
-| **资产导入器** | `IAssetLoader` | `assets.registerLoader(l)` | 只加一个新类 |
+| **资产源导入器** | `SourceImporter` | `importers.register(i)` | 只加一个新类 |
+| **资产加载器** | `IAssetLoader` | `assets.registerLoader(l)` | 只加一个新类 |
 
 ### 7.2 "新增功能要改哪里"（可扩展性的可检验形式）
 
@@ -562,9 +639,9 @@ UI 动画、音频、录像在暂停时仍应活动 —— 所以它们是不同
 | 世界模型 | GameObject + Component | Node + Component | **Node + Component**（组件按类型集中存储） | 一致 |
 | 变换层级 | Transform（父子 + 世界/局部） | Node（父子 + TRS） | `Node`（局部 TRS + 惰性世界变换 + 版本缓存） | 无脏标记传播到兄弟；够用 |
 | 主循环 | PlayerLoop（可变步长 + FixedUpdate） | 固定步长 director | **固定步长 + 追帧上限 + 幂等 tick** | 一致（且多了幂等保护） |
-| 渲染抽象 | RHI（多后端）+ SRP | `gfx::Device`（多后端） | `IGraphicsDevice`（多后端，当前 1 个实现） | **缺 WebGL2 实现** |
-| 资产身份 | `.meta` + GUID | `.meta` + UUID | `AssetId`（GUID 风格）+ 依赖图 | 一致；**缺导入器与 .meta 落盘** |
-| 脚本 | C#（Mono/IL2CPP） | TS（JSB 原生绑定） | `IScriptRuntime`（先接 Lua） | **未实现** |
+| 渲染抽象 | RHI（多后端）+ SRP | `gfx::Device`（多后端） | `IGraphicsDevice`（多后端，2 个实现：null / WebGL2） | 缺 WebGPU；SRP 级管线自定义未做 |
+| 资产身份 | `.meta` + GUID | `.meta` + UUID | `AssetId` + `.meta` sidecar + 依赖图 + 增量导入 | 一致（缺按类型导入设置 UI） |
+| 脚本 | C#（Mono/IL2CPP） | TS（JSB 原生绑定） | `IScriptRuntime` + Lua 5.4（wasm）+ 最小反射表 | **语言版本是 5.4，DST 内容层是 5.1**；无调试器 |
 | 序列化 | `[SerializeField]` + 反射 | 组件 `_serialize` | `ComponentSchema` 声明式 + 迁移链 | 一致（无反射，更快） |
 | 编辑器 | Editor（独立进程 + PIE） | Creator（独立 + 预览） | 未开始（`src` 里没有编辑器代码） | **最大缺口** |
 | 构建发布 | 多平台打包 | 多平台 + 小游戏 | 未开始 | **最大缺口** |
@@ -627,23 +704,27 @@ UI 动画、音频、录像在暂停时仍应活动 —— 所以它们是不同
 ### 11.1 已完成
 
 - L0 全部（result / math / log / event / memory / time / random）
-- L1 全部接口（gfx / audio / input / fs / net）+ `BackendRegistry`
+- L1 全部接口（gfx / audio / input / fs / net / **script**）+ `BackendRegistry`
 - L2 全部（module / services / scene / node / component / scheduler / asset / schema）
 - L3 全部（GameApp / tick-source / snapshot）
 - L5 后端：`gfx-null`（记录型）/ `gfx-webgl2` / `audio-null` / `audio-webaudio` /
-  `input-null` / `input-dom` / `fs-memory`
-- L4 扩展：2D 渲染管线（相机/精灵/程序化图集/批处理/渲染模块）、2.5D 物理、确定性存档、跳时间结算
-- **115 条 Node 判据 + 9 条浏览器自检**，架构守护 7 条，后端契约 22 条（两后端）
-- 最小宿主跑通（150 tick / 5 秒 / 600 次组件更新 / 暂停不动）
-- 浏览器宿主跑通（`web/index.html`：WASD 移动、H 砍树、F5/F9 存读档、HUD 显示 draw call）
+  `input-null` / `input-dom` / `fs-memory` / **`script-null` / `script-lua`（Lua 5.4 via wasmoon）**
+- L4 扩展：2D 渲染管线（相机/精灵/程序化图集/批处理/渲染模块）、2.5D 物理、
+  **脚本模块（每 tick 串行驱动 + 异常隔离 + 最小反射表）**、
+  **资产导入（`.meta` 身份 + 增量 + 依赖 + 产物加载器）**、确定性存档、跳时间结算
+- **180 条 Node 判据 + 13 条浏览器自检**，架构守护 7 条，后端契约 22 条（两图形后端）+ 14 条（两脚本后端）
+- 最小宿主跑通（150 tick / 5 秒 / 750 次组件更新 / 脚本调用 150 次 / 半径误差 0）
+- 浏览器宿主跑通（`web/index.html`：WASD 移动、H 砍树、F5/F9 存读档、**Lua 驱动浆果漂浮**、HUD 显示脚本统计）
 
 ### 11.2 未完成（按优先级）
 
 | 项 | 影响 | 预计落点 |
 |---|---|---|
-| `fs-node` 后端 | Node 侧落盘（存档到真实文件） | 阶段 2 |
-| 脚本层 `IScriptRuntime` + Lua 绑定 | 复用 153 万行内容层 | 阶段 2 |
-| sprite 图集来自真实资产（`.meta`+GUID+importer） | 现在是程序化生成 | 阶段 2 |
+| `fs-node` 后端 | Node 侧落盘（存档到真实文件） | 阶段 2.5 |
+| **Lua 5.1 兼容层**（`setfenv` / `module()` / `unpack`） | 不解决就无法真正跑 153 万行 DST 内容层 | 阶段 2.5 |
+| 脚本模块的 per-module `_ENV` 隔离 | 现在函数名隔离了，全局变量仍是共享 `_G` | 阶段 2.5 |
+| 像素解码（PNG inflate → GPU 上传） | 导入器只交付元数据 + 原始字节 | 阶段 3 |
+| 按类型的导入设置（过滤/打包参数） | `settings` 恒为 `{}` | 阶段 4（编辑器） |
 | `IPhysicsWorld`（2.5D：XZ + AABB/圆 + 空间哈希） | 目前只有"手工碰撞" | 阶段 3 |
 | 编辑器（独立进程 + PIE） | 最大缺口 | 阶段 4 |
 | 构建发布（manifest + 增量） | 第二大缺口 | 阶段 5 |
@@ -653,7 +734,7 @@ UI 动画、音频、录像在暂停时仍应活动 —— 所以它们是不同
 | 风险 | 说明 | 缓解 |
 |---|---|---|
 | **两套引擎并存** | 仓库里已有 `07-通用引擎`（Python+Lua+JS，32k 行，274 判据） | 明确 `08` 是内核重构目标；`07` 短期内作为**行为参照**与判据来源，不并行演进功能 |
-| **内容层绑定** | 153 万行 Lua 来自 DST，`pack_atlas` 只解决贴图 | 阶段 2 先做 `IScriptRuntime` 的**最小可用**（加载 → 调用 → 异常隔离），再谈迁移 |
+| **内容层绑定** | 153 万行 Lua 来自 DST（Lua 5.1），而 wasmoon 是 **5.4**：`setfenv` / `module()` / `unpack` / `loadstring` 都不在 5.4 里 | 脚本层已打通"加载 → 调用 → 异常隔离 → 每 tick 调度"；迁移前必须先做 5.1 兼容层（或换 5.1 wasm 构建），这是数据问题不是架构问题 |
 | **确定性与浮点** | JS 的 `Math` 跨平台基本一致，但 `Math.pow/exp` 等不保证 | 序列化层已量化；物理与 AI 避免超越函数（用查表/定点） |
 | **单后端长期存在** | 只有一个后端时接口歧义不会被发现 | 契约测试 + Null 后端作为"第一实现"强制覆盖语义 |
 
@@ -670,12 +751,19 @@ UI 动画、音频、录像在暂停时仍应活动 —— 所以它们是不同
 - 出口判据：`runGfxContract("webgl2", …)` 全绿 ✅；`readPixels` 在真实画布上返回非零 ✅；
   一次 draw call 提交 ≤ 1（同一图集的 100 个精灵必须合并）✅（`web/selftest.html` 断言）
 
-### 阶段 2 · 内容可复用（脚本层 + 时间跳跃）
+### 阶段 2 · 内容可复用（脚本层 + 资产身份）—— **本次完成**
 
-- `IScriptRuntime`（Lua via wasm 或 lupa 桥）+ 反射表（`expose`）
-- `LongUpdate(elapsed)`：跳时间时按分段结算腐烂/计时器（不是跑 N 次 `OnUpdate`）
-- 出口判据：同一份 Lua 脚本在 headless 与浏览器里产生**逐字节相同**的存档；
-  跳 8 小时后腐烂进度与"连续跑 8 小时"的差 ≤ 1 个结算周期
+- `IScriptRuntime`（Lua 5.4 via wasmoon）+ 反射表（`expose`）+ 串行队列 + 异常隔离 ✅
+- `.meta` 身份 + 源导入器 + 增量管线 + 产物加载器 ✅
+- `LongUpdate(elapsed)`：跳时间时按分段结算腐烂/计时器（不是跑 N 次 `OnUpdate`）✅（阶段 1 已做）
+- **出口判据**：
+  - 同一份 Lua 脚本在**两个独立 headless 实例**里产生**逐字节相同**的存档 ✅
+    （`tests/core/script-e2e.test.ts`；这一条红了两次，暴露了"节点 id 全局自增"的真缺陷）
+  - 脚本算出的位置与 JS 独立计算一致（1e-9）✅
+  - 跳 8 小时后腐烂进度与"连续跑 8 小时"的差 ≤ 1 个结算周期 ✅（阶段 1）
+  - headless ↔ **浏览器**逐字节存档：**未自动化**。浏览器侧只断言到
+    "Lua 在浏览器里算得对 + 跨边界日志可见"（`web/selftest.html` 4 条），
+    逐字节比对需要手工导出存档 —— 这条**不算达成**，见 §11.2。
 
 ### 阶段 3 · 世界像饥荒（物理 + AI + 世界生成）
 
@@ -714,16 +802,16 @@ UI 动画、音频、录像在暂停时仍应活动 —— 所以它们是不同
 08-引擎内核/
 ├── src/
 │   ├── foundation/        L0  result · math · log · event · memory · time · random
-│   ├── platform/          L1  gfx · audio · input · fs · registry · platform
+│   ├── platform/          L1  gfx · audio · input · fs · script · registry · platform
 │   ├── core/              L2  module · scene · scheduler · asset · serialization
 │   ├── runtime/           L3  GameApp · tick-source
-│   ├── script/            L4  IScriptRuntime（待实现）
-│   ├── backends/          L5  gfx-null · gfx-webgl2 · audio-null · input-null · fs-memory
+│   ├── extensions/        L4  render · physics · script · asset-import
+│   ├── backends/          L5  gfx-null · gfx-webgl2 · audio-null · audio-webaudio
+│   │                          input-null · input-dom · fs-memory · script-null · script-lua
+│   ├── browser-entry.ts   L6  浏览器宿主（宿主层，允许知道一切具体实现）
 │   └── index.ts               对外 API 面（只导出接口/类型/工厂）
-├── tests/
-│   ├── arch/              架构守护（依赖规则）
-│   ├── contract/          后端契约
-│   └── core/              单元/集成
+├── tests/                 16 个文件 / 180 条判据（arch · contract · core · backends · extensions）
 ├── samples/headless.ts    最小宿主（整条链的证明）
-└── docs/                  本文档 + ADR
+├── web/                   浏览器宿主（index.html / selftest.html / bundle.js / glue.wasm）
+└── docs/                  本文档 + 7 个 ADR + 两份任务计划
 ```

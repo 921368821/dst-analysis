@@ -133,6 +133,10 @@ export class GameApp {
     this.services.provide(Services.Scene, this.scene, "core");
     this.services.provide(Services.Scheduler, this.scheduler, "core");
     this.services.provide(Services.Assets, this.assets, "core");
+    // 脚本运行时可能不存在（headless / 纯表现宿主）。**显式提供 null**，
+    // 而不是"不提供"：两者对上层可区分（has() 为真但值是 null = 平台没有脚本能力；
+    // 完全没提供 = 宿主忘了接线）。前者可以给出"这个平台不支持脚本"的准确诊断。
+    this.services.provide(Services.Script, platform.script, "core");
 
     // 丢步必须被记录：这是"卡顿"唯一可见的症状
     this.events.on("scheduler:steps-dropped", (p) => {
@@ -195,7 +199,7 @@ export class GameApp {
 
     log.channel("app").info(
       `平台就绪：${platform.id} gfx=${platform.backends.gfx} audio=${platform.backends.audio} ` +
-        `input=${platform.backends.input} fs=${platform.backends.fs}`,
+        `input=${platform.backends.input} fs=${platform.backends.fs} script=${platform.backends.script ?? "(无)"}`,
       { caps: platform.caps },
     );
 

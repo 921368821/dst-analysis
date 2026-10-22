@@ -10,7 +10,7 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "test": "node --experimental-transform-types --test tests/run.ts",
-    "build:web": "esbuild src/browser-entry.ts --bundle --format=esm --target=es2022 --outfile=web/bundle.js",
+    "build:web": "esbuild src/browser-entry.ts --bundle --format=esm --target=es2022 --external:url --external:module --external:fs --external:path --outfile=web/bundle.js",
     "serve:web": "node tools/serve.mjs 8123",
     "check": "npm run typecheck && npm run test",
     "sample:headless": "node --experimental-transform-types samples/headless.ts"
@@ -19,5 +19,8 @@
     "@types/node": "^22.7.5",
     "esbuild": "^0.24.0",
     "typescript": "^5.6.3"
+  },
+  "dependencies": {
+    "wasmoon": "^1.16.0"
   }
 }

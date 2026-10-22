@@ -12,7 +12,10 @@
 
 import { BackendRegistry } from "../src/platform/registry.ts";
 import { registerNullBackends } from "../src/backends/index.ts";
+import { createLuaScriptBackend } from "../src/backends/script-lua/runtime.ts";
 import { bootGameApp } from "../src/runtime/GameApp.ts";
+import { createScriptModule } from "../src/extensions/script/script-module.ts";
+import { ScriptComponent } from "../src/extensions/script/script-component.ts";
 import {
   Component,
   ComponentRegistry,
@@ -68,7 +71,7 @@ class Walker extends Component {
  *   是一个**模块**做的，不是 GameApp 做的。所以将来想做"多世界并行"或
  *   "回放时换一个步进器"，改的是模块，不是内核。
  */
-function worldModule(): IModule {
+function worldModule(onStep?: (tick: number, dt: number) => void): IModule {
   let off: (() => void) | null = null;
   let steps = 0;
 
@@ -81,6 +84,8 @@ function worldModule(): IModule {
 
       off = sched.onStep((tick, dt) => {
         scene.step(tick, dt);
+        // 脚本在世界步进之后跑（见 browser-entry 的同一条注释）
+        onStep?.(tick, dt);
         steps++;
       });
 
@@ -100,20 +105,43 @@ function worldModule(): IModule {
   };
 }
 
+// ---------------------------------------------------------------- 脚本
+
+/**
+ * 脚本层的示例：让一个节点绕圆心走。
+ * ★ 它故意**不**直接用 `setLocalPosition` 的 JS 版本 —— 同一件事走一遍 Lua，
+ *   证明"脚本能改世界"，而不是"脚本能被调用"。
+ */
+const SAMPLE_LUA = `
+local t = 0
+function onUpdate(selfId, dt, tick)
+  t = t + dt
+  engine_set_pos(selfId, math.cos(t * 1.5) * 4, math.sin(t * 1.5) * 4)
+  if tick > 0 and tick % 90 == 0 then
+    engine_log("sample: tick " .. tostring(tick) .. " pos=" ..
+      string.format("%.2f,%.2f", math.cos(t * 1.5) * 4, math.sin(t * 1.5) * 4))
+  end
+end
+`;
+
 // ---------------------------------------------------------------- main
 
 async function main(): Promise<void> {
   const registry = new BackendRegistry();
   registerNullBackends(registry);
+  // 真 Lua 后端（Node 下 wasmoon 自己定位包内 glue.wasm，不需要给 wasmPath）
+  registry.registerScript(createLuaScriptBackend(), 100);
 
   const clock = new ManualClock();
   const tick = new ManualTickSource();
+
+  const scriptMod = createScriptModule({ callTimeoutMs: 20 });
 
   const appR = await bootGameApp({
     platformId: "headless",
     interactive: false,
     registry,
-    modules: [worldModule()],
+    modules: [worldModule((t, dt) => void scriptMod.update(t, dt)), scriptMod],
     seed: 20261022,
     fixedDt: 1 / 30,
     clock,
@@ -150,7 +178,25 @@ async function main(): Promise<void> {
   const hero = app.scene.spawnAt("hero", 0, 2);
   if (!hero.ok) throw new Error(hero.error.message);
   app.scene.attach(hero.value.id, () => new Walker());
+
+  // 脚本驱动的节点（位置由 Lua 决定）
+  const scriptedNode = app.scene.spawnAt("scripted", 4, 0);
+  if (!scriptedNode.ok) throw new Error(scriptedNode.error.message);
+  app.scene.attach(scriptedNode.value.id, () => {
+    const c = new ScriptComponent();
+    c.module = "sample";
+    c.entry = "onUpdate";
+    return c;
+  });
   app.scene.flush();
+
+  // 加载脚本模块（必须在 boot 之后：ScriptModule.init 里已 await runtime.ready()）
+  const rt = scriptMod.runtime;
+  if (rt === null) throw new Error("脚本运行时没起来：headless 应该能用 Lua 后端");
+  {
+    const lr = await rt.loadModule("sample", SAMPLE_LUA);
+    if (!lr.ok) throw new Error(`脚本加载失败：${lr.error.code} ${lr.error.message}`);
+  }
 
   console.log("初始：", JSON.stringify(app.scene.stats()));
 
@@ -159,7 +205,12 @@ async function main(): Promise<void> {
     clock.advance(dt * 1000);
     app.frame(dt);
   });
-  for (let i = 0; i < 300; i++) tick.pump(1 / 60);
+  for (let i = 0; i < 300; i++) {
+    tick.pump(1 / 60);
+    // ★ 每帧排空脚本队列：同步 for 循环不会让出事件循环，脚本的异步调用
+    //   会一直堆在队列里，到上限后开始丢 tick。这不是脚本慢，是宿主没让出。
+    await scriptMod.drain();
+  }
 
   const snap = app.snapshot();
   console.log("5 秒后：", {
@@ -177,6 +228,20 @@ async function main(): Promise<void> {
   console.log("hero 位置：", hp === undefined ? "(丢失)" : `(${hp.x.toFixed(2)}, ${hp.y.toFixed(2)})`);
   const ttl = app.scene.find(treeIds[0] ?? -1)?.get<Perishable>("demo.perishable")?.ttl;
   console.log("树 0 的 ttl：", ttl?.toFixed(3), "（5 秒后应为 0：已经烂完）");
+
+  // 脚本驱动的结果：位置必须由 Lua 算出来（半径 4 的圆上）
+  const sp = app.scene.find(scriptedNode.value.id)?.worldPosition;
+  const radius = sp === undefined ? -1 : Math.hypot(sp.x, sp.y);
+  console.log("脚本节点位置：", sp === undefined ? "(丢失)" : `(${sp.x.toFixed(3)}, ${sp.y.toFixed(3)})`,
+    `半径=${radius.toFixed(3)}（Lua 里用的是 4）`);
+  const ss = rt.stats();
+  console.log("脚本：", {
+    backend: rt.id,
+    modules: ss.modules,
+    calls: ss.calls,
+    errors: ss.errors,
+    dropped: scriptMod.droppedUpdates,
+  });
 
   // 暂停 2 秒，tick 必须不动
   const before = app.scheduler.tick;
