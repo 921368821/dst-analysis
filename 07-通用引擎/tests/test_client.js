@@ -1624,6 +1624,75 @@ check('F39 删除提示（C2）：摘掉子实体要说出来 · 反向：没摘
   return { ok: true, info: 'detached=2 时说「摘掉 2 个」✔ / detached=0 时不提 ✔ / 失败回显服务端原因且不假称成功 ✔' };
 });
 
+check('F40 场景列表可点（C3d）：列出 N 个名字 · 点一下就「填名字 + 读取」；反向：空列表不画 chip 只说一句', async () => {
+  // 之前是纯文本"已有：a · b" —— 用户看到名字还得手打，等于没有列表。
+  // 这条判据守两件事：① 列表真的渲染成可点的东西；② 点击真的走"填入 + 读取"两步，
+  // 而不是只填名字（那用户还得再点一次「读取」，那就白做了）。
+  const mod = require('../rt/perf_lib.js');
+  let names = ['lv1', '关卡二', 'boss_room'];
+  const env = mod.makeClient({
+    fetchReply: (u) => {
+      if (u.indexOf('/editor/entities') >= 0) return { ok: true, count: 0, listed: 0, items: [] };
+      if (u.indexOf('/editor/scene_list') >= 0) return { ok: true, n: names.length, names: names, dir: 'scenes' };
+      if (u.indexOf('/editor/scene_load') >= 0) return { ok: true, name: 'lv1', made: 3, removed: 2 };
+      return null;
+    },
+  });
+  const el = (id) => env.document.getElementById(id);
+  const rt = env.__rt;
+  const fetched = () => (env.__fetched || []);
+  if (!rt || !rt.scene || typeof rt.scene.list !== 'function') {
+    return { ok: false, info: '__rt.scene.list 钩子不存在' };
+  }
+
+  // 先打开编辑器：`sceneLoadFile` 在编辑器关闭时会直接拒绝（"先按 F1"），
+  // 不打开的话这条判据会红在"没发请求"，而真实原因完全不是列表的问题。
+  const edBtn = el('edBtn');
+  if (edBtn && typeof edBtn.onclick === 'function') edBtn.onclick();
+  await tick(4);
+
+  // ① 三个名字 ⇒ 三个 chip（外加一个"已有："前缀）
+  rt.scene.list();
+  await tick(6);
+  const box = el('edSceneList');
+  const chips = box.children.filter((c) => /\bcrChip\b/.test(c.className));
+  if (chips.length !== 3) {
+    return { ok: false, info: '列表渲染了 ' + chips.length + ' 个 chip（期望 3）' };
+  }
+  if (chips[1].textContent !== '关卡二') {
+    return { ok: false, info: 'chip 文本不对：' + chips[1].textContent };
+  }
+
+  // ② 点第二个 ⇒ 名字填进去 + 真的发出了 load
+  fetched().length = 0;
+  chips[1].onclick();
+  await tick(8);
+  if (el('edSceneName').value !== '关卡二') {
+    return { ok: false, info: '点了 chip 但名字框没填：' + el('edSceneName').value };
+  }
+  const loads = fetched().filter((u) => u.indexOf('/editor/scene_load') >= 0);
+  if (loads.length !== 1) {
+    return { ok: false, info: '点 chip 没有并发起读取（load 请求 ' + loads.length + ' 次）—— 只填名字等于没做' };
+  }
+  if (loads[0].indexOf(encodeURIComponent('关卡二')) < 0) {
+    return { ok: false, info: '读取请求里的名字不对：' + loads[0] };
+  }
+
+  // ③ 反向：空列表
+  names = [];
+  rt.scene.list();
+  await tick(6);
+  const chips2 = box.children.filter((c) => /\bcrChip\b/.test(c.className));
+  if (chips2.length !== 0) {
+    return { ok: false, info: '没有场景时仍然画了 ' + chips2.length + ' 个 chip' };
+  }
+  if ((box.textContent || '').indexOf('没有') < 0) {
+    return { ok: false, info: '空列表没有一句可读的说明：' + box.textContent };
+  }
+
+  return { ok: true, info: '3 个名字 → 3 个 chip ✔ / 点第 2 个：填入「关卡二」并发出 1 次 load ✔ / 空列表 0 chip 且有说明 ✔' };
+});
+
 (async () => {
   await Promise.all(PENDING);
   console.log('\n  结果：' + pass + ' 通过 / ' + fail + ' 失败');

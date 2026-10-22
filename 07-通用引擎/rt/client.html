@@ -96,6 +96,10 @@
   #edSceneText{width:100%;height:120px;box-sizing:border-box;resize:vertical;
     background:#0d1117;color:#c9d1d9;border:1px solid #30363d;border-radius:4px;
     font:11px/1.5 ui-monospace,Consolas,monospace;padding:6px;white-space:pre;overflow:auto}
+  /* ★ C3d：场景列表的可点小片 */
+  .crChip{display:inline-block;margin:0 4px 2px 0;padding:0 5px;border-radius:3px;
+    background:#1f2937;color:#c9d1d9;cursor:pointer;font:11px ui-monospace,Consolas,monospace}
+  .crChip:hover{background:#30363d}
   .edMuted{color:#6e7681}
   .edHint{color:#6e7681;font-size:11px;margin-top:8px;line-height:1.6}
 
@@ -1864,7 +1868,28 @@ function sceneListRefresh() {
   edJson('/editor/scene_list').then((d) => {
     if (!box) return;
     if (!d || !d.ok) { box.textContent = '（列表失败）'; return; }
-    box.textContent = d.n ? ('已有：' + d.names.join(' · ')) : '（还没有存过场景）';
+    // ★ C3d：列表做成**可点的**。之前是一行纯文本（"已有：a · b"）——
+    //   用户看到名字却还要手动打到输入框里，那就等于没有列表。
+    //   点击 = 填进名字框 + 直接读取（两步并一步，且不用记名字拼写）。
+    box.innerHTML = '';
+    if (!d.n) { box.textContent = '（还没有存过场景）'; return; }
+    const head = document.createElement('span');
+    head.className = 'edMuted';
+    head.textContent = '已有：';
+    box.appendChild(head);
+    for (let i = 0; i < d.names.length; i++) {
+      const name = d.names[i];
+      const chip = document.createElement('span');
+      chip.className = 'crChip';
+      chip.textContent = name;
+      chip.title = '点击读取 ' + name;
+      chip.onclick = () => {
+        const inp = document.getElementById('edSceneName');
+        if (inp) inp.value = name;
+        sceneLoadFile();
+      };
+      box.appendChild(chip);
+    }
   }).catch(() => { if (box) box.textContent = '（列表失败）'; });
 }
 
