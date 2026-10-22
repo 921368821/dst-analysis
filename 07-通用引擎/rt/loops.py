@@ -354,9 +354,10 @@ def sim_loop(sim: Sim, hub: Hub, stop: threading.Event, quiet=False, save_file=N
                     finally:
                         ev.set()
                 elif kind == "scene_clear":
+                    # ★ C3b：清空**进栈**（整份文本装回来就是撤销）。
                     ev, box = cmd[1], cmd[2]
                     try:
-                        ok, info = sim.scene_clear()
+                        ok, info = sim.scene_clear_stacked()
                         if ok:
                             box.update(ok=True, **info)
                         else:
@@ -366,10 +367,13 @@ def sim_loop(sim: Sim, hub: Hub, stop: threading.Event, quiet=False, save_file=N
                     finally:
                         ev.set()
                 elif kind == "scene_import":
+                    # ★★ C3b：导入**自己负责清空**，整次导入只占一步撤销。
+                    #   客户端因此**不再**先发 scene_clear —— 两步之间失败会留下空世界，
+                    #   而"清空 + 导入"本来就该是一次不可分割的编辑。
                     ev, box = cmd[1], cmd[2]
                     text = cmd[3]
                     try:
-                        ok, info = sim.scene_import(text)
+                        ok, info = sim.scene_import_stacked(text)
                         if ok:
                             box.update(ok=True, **info)
                         else:

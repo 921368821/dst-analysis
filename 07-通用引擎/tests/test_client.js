@@ -1335,7 +1335,7 @@ check('F36 音效接线（H1）：按目标动作选音 · 掉血与死亡选不
   return { ok: true, info: 'CHOP/PICKUP/ATTACK 各发不同的音 ✔ / 首帧不响 ✔ / 掉血播 hurt ✔ / 回升不响 ✔ / 归零播 die ✔ / byName=' + JSON.stringify(names) };
 });
 
-check('F37 场景导出/导入（C4）：导出填文本框并展开 · 导入**先清空后生成**且带编码文本；反向：空文本零请求 · 导入失败要说服务端原因', async () => {
+check('F37 场景导出/导入（C4）：导出填文本框并展开 · 导入**只发一个原子请求**（不许再发 clear）且带编码文本；反向：空文本零请求 · 导入失败要说服务端原因', async () => {
   // E22 验的是服务端往返，用户按的是**按钮**。中间那段（按钮 → 请求顺序 → 文本框 → 状态栏）
   // 在 F37 之前没有判据。最容易错的一处不是"发不发请求"，而是**顺序**：
   // 先 import 后 clear 的话，导入的实体紧接着被自己清掉，用户看到空世界，
@@ -1394,17 +1394,22 @@ check('F37 场景导出/导入（C4）：导出填文本框并展开 · 导入**
     return { ok: false, info: '导出后状态栏没写导出了几个：' + el('edStatus').textContent };
   }
 
-  // ② 导入：**先 clear 后 import**，且 import 带上编码后的文本
+  // ② 导入：**只发一个 import**，清空交给服务端在导入内部原子完成
+  //
+  // ★★ C3b（2026-10-22）换了契约，这条判据也跟着换：
+  //   原来是「先 clear 后 import」两个请求 —— 那中间失败会留下一个空世界，
+  //   而且占两步撤销。现在服务端 `scene_import` 自己负责清空（原子、一步可撤销），
+  //   客户端再发 clear 就是**多余且危险**的（多发一次 clear = 多一步撤销 + 多一个空窗）。
+  //   ⇒ 断言从"顺序对"改成"**根本不许发 clear**"。判据守的是"一次编辑一次请求"。
   fetched().length = 0;
   el('edSceneIn').onclick();
   await tick(6);
-  const idxClear = fetched().findIndex((u) => u.indexOf('/editor/scene_clear') >= 0);
-  const idxImport = fetched().findIndex((u) => u.indexOf('/editor/scene_import') >= 0);
-  if (idxClear < 0 || idxImport < 0) {
-    return { ok: false, info: '导入没有同时发出 clear 与 import：' + JSON.stringify(fetched()) };
+  if (fetched().some((u) => u.indexOf('/editor/scene_clear') >= 0)) {
+    return { ok: false, info: '导入时仍然先发了 scene_clear（清空已由服务端原子完成，多发一次会多一步撤销）：' + JSON.stringify(fetched()) };
   }
-  if (!(idxClear < idxImport)) {
-    return { ok: false, info: '顺序反了：先 import（' + idxImport + '）后 clear（' + idxClear + '）—— 导入的东西会被自己清掉' };
+  const idxImport = fetched().findIndex((u) => u.indexOf('/editor/scene_import') >= 0);
+  if (idxImport < 0) {
+    return { ok: false, info: '导入没有发出 scene_import：' + JSON.stringify(fetched()) };
   }
   const impUrl = fetched()[idxImport];
   if (impUrl.indexOf('text=') < 0) return { ok: false, info: 'import 请求没带 text：' + impUrl };
@@ -1444,7 +1449,7 @@ check('F37 场景导出/导入（C4）：导出填文本框并展开 · 导入**
     return { ok: false, info: '导入失败却显示「已导入」：' + s4 };
   }
 
-  return { ok: true, info: '关着编辑器零请求 ✔ / 导出填文本框+展开+写数量 ✔ / 导入先 clear 后 import 且文本已编码 ✔ / 空文本零请求 ✔ / 失败回显第 1 行原因且不假称成功 ✔' };
+  return { ok: true, info: '关着编辑器零请求 ✔ / 导出填文本框+展开+写数量 ✔ / 导入单请求且文本已编码（无 clear）✔ / 空文本零请求 ✔ / 失败回显第 1 行原因且不假称成功 ✔' };
 });
 
 check('F38 场景落盘 UI（C3）：空名字零请求 · 存盘回显盘上字节数并刷新列表 · 读取失败要把「已清空 N 个」一起说出来', async () => {

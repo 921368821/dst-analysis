@@ -1782,25 +1782,17 @@ function sceneImport() {
   const text = ta ? ta.value : '';
   if (!text) { edSetStatus('文本框是空的 —— 先按「场景↓」导出，或粘贴场景文本', true); return; }
   edSetStatus('导入中…');
-  edJson('/editor/scene_clear').then((c) => {
-    if (!c || !c.ok) throw new Error('清空失败：' + ((c && c.error) || '未知'));
-    const removed = c.removed;
-    return edJson('/editor/scene_import?text=' + encodeURIComponent(text))
-      .then((d) => ({ removed: removed, d: d }));
-  }).then((r) => {
-    const d = r.d;
+  // ★★ C3b：**只发一个请求**。清空由服务端在导入内部完成（原子），
+  //   客户端不再先发 clear —— 两步之间失败会留下一个空世界，
+  //   而"清空 + 导入"本来就是一次不可分割的编辑（也因此只占一步撤销）。
+  edJson('/editor/scene_import?text=' + encodeURIComponent(text)).then((d) => {
     if (!d || !d.ok) {
       // ★ 失败原因原样显示（它会指出是第几行坏的），不在客户端翻译
-      edSetStatus('✘ 导入失败（已清空 ' + r.removed + ' 个）：' + ((d && d.error) || '未知'), true);
+      edSetStatusAfterRefresh('✘ 导入失败：' + ((d && d.error) || '未知'), true);
       return;
     }
-    // ★★ 又是一次 B7 那个坑（F34 抓到过）：**先刷新再写状态**。
-    //   `edRefresh()` 会把状态栏覆盖成「已同步：世界 N 个实体」，
-    //   写在前面的消息一条都看不到。同一个形状在本文件里出现第二次了 ——
-    //   所以这条判据（F37 ②）特意断言"状态栏里有『已导入 N』"，
-    //   而不是只断言"发了请求"。
-    edSetStatusAfterRefresh('已导入 ' + d.made + ' 个实体（清掉 ' + r.removed + ' 个）');
-  }).catch((e) => edSetStatus('✘ ' + e, true));
+    edSetStatusAfterRefresh('已导入 ' + d.made + ' 个实体（一步可撤销）');
+  }).catch((e) => edSetStatus('请求失败：' + e, true));
 }
 
 function sceneClear() {

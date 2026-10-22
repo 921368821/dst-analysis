@@ -49,7 +49,7 @@ PASS, FAIL, SKIP = 0, 0, 0
 RESULTS = []
 # 自检用例条数（开发计划 §9cd / §9cg）：加/删用例必须同步改这里，
 # 并同步 tools/case_counts.txt —— 否则「删了一半用例、剩下全过」会让闸门照样绿。
-WANT_CASES = 52
+WANT_CASES = 55
 
 
 class Skip(Exception):
@@ -1380,6 +1380,100 @@ def u52_undo_redo_20_rounds_is_identity():
     return True, "20 轮 undo/redo 交叉后逐值回到起点（栈没有累积漂移）"
 
 
+def u53_group_is_one_step_and_undoes_in_reverse():
+    """U53 成组命令占**一步**，撤销时**逆序**应用 before。
+
+    为什么逆序：同一实体在一个组里被改两次（A→B→C）时，只有逆序才对 ——
+    先恢复 B，再恢复 A。顺序应用会让第二次的 before 把第一次的 before 覆盖掉，
+    结果停在 B（"撤销了一半"）。
+    """
+    import commands
+    world, apply = _mk_world()
+    world[1] = {"v": "A"}
+    world[2] = {"v": "A"}
+    st = commands.CmdStack(apply, max_steps=10)
+
+    st.push_group([
+        ("ent", 1, {"v": "A"}, {"v": "B"}),
+        ("ent", 2, {"v": "A"}, {"v": "B"}),
+        ("ent", 1, {"v": "B"}, {"v": "C"}),
+    ], label="导入")
+    if st.depth != 1:
+        return False, "三条变更占了 %d 步（期望 1）—— 导入会把栈深吃光" % (st.depth,)
+    if world[1]["v"] != "C" or world[2]["v"] != "B":
+        return False, "执行后世界是 %r / %r（期望 C / B）" % (world[1], world[2])
+
+    st.undo()
+    if world[1]["v"] != "A" or world[2]["v"] != "A":
+        return False, ("撤销后是 %r / %r（期望都回到 A）—— 逆序没做对时会停在 B"
+                       % (world[1], world[2]))
+    if st.depth != 0 or not st.can_redo():
+        return False, "撤销后 depth=%d can_redo=%r" % (st.depth, st.can_redo())
+
+    st.redo()
+    if world[1]["v"] != "C" or world[2]["v"] != "B":
+        return False, "重做后是 %r / %r（期望 C / B）" % (world[1], world[2])
+    return True, "3 条变更占 1 步；撤销（逆序）回到 A/A；重做回到 C/B"
+
+
+def u54_group_failure_rolls_back_and_leaves_no_step():
+    """U54 组内第 2 条失败 ⇒ 第 1 条也要回滚，且栈里一条都不留。"""
+    import commands
+    world, apply = _mk_world()
+    world[1] = {"v": 0}
+    world[2] = {"v": 0}
+    boom = {"on": True}
+
+    def apply2(kind, target, state):
+        if boom["on"] and target == 2:
+            raise RuntimeError("模拟第二条失败")
+        apply(kind, target, state)
+
+    st = commands.CmdStack(apply2, max_steps=10)
+    raised = False
+    try:
+        st.push_group([
+            ("ent", 1, {"v": 0}, {"v": 1}),
+            ("ent", 2, {"v": 0}, {"v": 1}),
+            ("ent", 1, {"v": 1}, {"v": 2}),
+        ])
+    except RuntimeError:
+        raised = True
+    if not raised:
+        return False, "组内失败没有往上抛（调用方会以为导入成功了）"
+    if world[1]["v"] != 0:
+        return False, "第一条没有回滚：world[1]=%r（期望 0）" % (world[1]["v"],)
+    if st.depth != 0:
+        return False, "失败后栈里还剩 %d 条" % (st.depth,)
+    return True, "失败上抛 · 已执行的第一条回滚 · 栈深 0"
+
+
+def u55_group_redo_is_forward_order():
+    """U55 重做 forward 应用 after（与撤销的逆序成镜像）。
+
+    这条看着是废话，但它守的是"只写了一边"的错误：如果 `_apply_group` 两个方向
+    都用 reversed，撤销对、重做错（停在中间态），而单看撤销是绿的就发现不了。
+    """
+    import commands
+    world, apply = _mk_world()
+    world[9] = {"v": []}
+    st = commands.CmdStack(apply, max_steps=10)
+    st.push_group([
+        ("ent", 9, {"v": []}, {"v": ["a"]}),
+        ("ent", 9, {"v": ["a"]}, {"v": ["a", "b"]}),
+        ("ent", 9, {"v": ["a", "b"]}, {"v": ["a", "b", "c"]}),
+    ])
+    if world[9]["v"] != ["a", "b", "c"]:
+        return False, "执行后 %r（期望 [a,b,c]）" % (world[9]["v"],)
+    st.undo()
+    if world[9]["v"] != []:
+        return False, "撤销后 %r（期望 []）" % (world[9]["v"],)
+    st.redo()
+    if world[9]["v"] != ["a", "b", "c"]:
+        return False, "重做后 %r（期望 [a,b,c]）—— forward 顺序错了会停在 [a,b]" % (world[9]["v"],)
+    return True, "三条链式变更：执行 → [a,b,c]；撤销 → []；重做 → [a,b,c]"
+
+
 def main():
     print("═" * 78)
     print("  模块级单测（L6 / M4）：只测不需要 LuaRuntime、不需要起服务端的东西")
@@ -1454,6 +1548,9 @@ def main():
     check("U50 栈深上限淘汰最旧，被淘汰的不能再撤", u50_max_steps_evicts_oldest)
     check("U51 version 在 push/undo/redo 各 +1；空栈 undo 不动它", u51_version_advances_on_every_change)
     check("U52 undo/redo 交叉 20 轮 ⇒ 状态逐值回到起点（无累积漂移）", u52_undo_redo_20_rounds_is_identity)
+    check("U53 成组命令占 1 步；撤销**逆序**应用 before（同实体改两次也对）", u53_group_is_one_step_and_undoes_in_reverse)
+    check("U54 组内第 2 条失败 ⇒ 第 1 条回滚，且栈里一条不留", u54_group_failure_rolls_back_and_leaves_no_step)
+    check("U55 重做是 **forward** 顺序（与撤销的逆序成镜像）", u55_group_redo_is_forward_order)
 
     print("\n" + "─" * 78)
     total = PASS + FAIL + SKIP

@@ -45,6 +45,13 @@ MERGE_ALL = "all"           # 同 MERGE_ENDS，但允许跨越不同 kind（滑�
 
 DEFAULT_MAX_STEPS = 50      # 与引擎开发计划 J2 的「50 步撤销」一致
 
+# ★★ C3b（2026-10-22）：**成组命令**占**一步**。
+#   为什么需要：一次"导入场景"会改几十个实体。如果每个实体各占一步，栈深 50
+#   立刻被吃掉，用户按一次撤销只退一个实体 —— 那不是撤销，那是逐帧回退。
+#   而如果用事务（`transaction`）包起来，事务的语义是"失败就全回滚"，
+#   **成功后仍然是 N 步**（事务不改栈深）。两件事不一样，别混。
+GROUP_KIND = "__group__"
+
 
 class Command(object):
     """一条命令：一个可序列化的描述 + 两份状态快照。"""
@@ -165,6 +172,52 @@ class CmdStack(object):
             self._txn["cmds"].append(cmd)
         return cmd
 
+    # ---------------------------------------------------------------- 成组命令
+    def push_group(self, steps, label="成组"):
+        """把**一组变更**记成**一步**并立即执行。返回 Command。
+
+        `steps` = `[(kind, target, before, after), ...]`，顺序即执行顺序。
+        撤销时**逆序**应用 before（同一实体被改两次时，逆序才对：
+        先撤销后一次改动，再撤销前一次，否则第二次的 before 会把第一次的 before 覆盖掉）。
+
+        ★ 执行期失败 ⇒ 已执行的那些**逆序回滚**，然后这条命令**不入栈**。
+          与 `push` 的"执行失败就摘掉"同一条纪律：不许出现"栈里有、世界没变"。
+        """
+        self._seq += 1
+        befores = [(k, t, copy.deepcopy(b)) for (k, t, b, _a) in steps]
+        afters = [(k, t, copy.deepcopy(a)) for (k, t, _b, a) in steps]
+        cmd = Command(GROUP_KIND, label, befores, afters,
+                      merge=MERGE_DISABLE, seq=self._seq, label=label)
+        done = []
+        try:
+            for (k, t, a) in afters:
+                self._apply(k, t, a)
+                self._applied += 1
+                done.append((k, t))
+        except Exception:
+            for (k, t, b) in reversed(befores[:len(done)]):
+                try:
+                    self._apply(k, t, b)
+                except Exception:                        # noqa: BLE001
+                    pass                                 # 回滚失败也要把异常抛给调用方
+            self._failed += 1
+            raise
+        self._no_merge = False
+        self._undo.append(cmd)
+        self._redo = []
+        self._trim()
+        self._version += 1
+        if self._txn is not None:
+            self._txn["cmds"].append(cmd)
+        return cmd
+
+    def _apply_group(self, cmd, use_before):
+        steps = cmd.before if use_before else cmd.after
+        seq = iter(steps if not use_before else reversed(steps))
+        for (k, t, st) in seq:
+            self._apply(k, t, st)
+            self._applied += 1
+
     def _execute(self, kind, target, state):
         self._apply(kind, target, state)
         self._applied += 1
@@ -179,7 +232,10 @@ class CmdStack(object):
         if not self._undo:
             return None
         cmd = self._undo.pop()
-        self._apply(cmd.kind, cmd.target, cmd.before)
+        if cmd.kind == GROUP_KIND:
+            self._apply_group(cmd, use_before=True)
+        else:
+            self._apply(cmd.kind, cmd.target, cmd.before)
         self._redo.append(cmd)
         self._version += 1
         self._no_merge = True      # 切口：下一个 push 不许合并
@@ -189,7 +245,10 @@ class CmdStack(object):
         if not self._redo:
             return None
         cmd = self._redo.pop()
-        self._apply(cmd.kind, cmd.target, cmd.after)
+        if cmd.kind == GROUP_KIND:
+            self._apply_group(cmd, use_before=False)
+        else:
+            self._apply(cmd.kind, cmd.target, cmd.after)
         self._undo.append(cmd)
         self._version += 1
         self._no_merge = True      # 切口：下一个 push 不许合并

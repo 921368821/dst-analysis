@@ -487,6 +487,28 @@ class Sim:
                 raise RuntimeError("重建之后找不到新实体（prefab=%r）" % (state["line"].split("\t")[0],))
             self._ent_guid[int(target)] = int(new_guid)
             return
+        if kind == "scene":
+            # ★★ C3b（2026-10-22）：**整个世界当成一步**。
+            #   apply(state) 的语义是"把世界变成 state['text'] 描述的样子"：
+            #   先清空非玩家实体，再按文本导入。`text == ""` 表示"空世界"。
+            #
+            # ★ 为什么用"整份文本"而不是逐实体 push：
+            #   逐实体会让一次导入占几十步（栈深 50），撤销一次只退一个实体 ——
+            #   那不是撤销。而"整份文本"恰好是**可序列化**的（J2 的要求），
+            #   也让恢复走的是同一条场景通路（一处实现，两处消费）。
+            # ⚠️ 代价说清楚：撤销一次导入，实体是**重建出来的新 guid**
+            #   （与删除的撤销同一个限制）。所以判据断言的是"文本逐字节回到原样"，
+            #   不是"guid 不变"。
+            text = state.get("text", "")
+            ok, cl = self.scene_clear()
+            if not ok:
+                raise RuntimeError("清空失败：%s" % (cl.get("error"),))
+            if text == "":
+                return
+            ok, imp = self.scene_import(text)
+            if not ok:
+                raise RuntimeError("导入失败：%s" % (imp.get("error"),))
+            return
         raise ValueError("命令栈不支持的操作类型：%r" % (kind,))
 
     def move_via_stack(self, guid, x, z):
@@ -608,7 +630,9 @@ class Sim:
 
     def scene_clear(self):
         try:
-            return True, {"removed": int(self.api.scene_clear())}
+            n = int(self.api.scene_clear())
+            self.last_cleared = n
+            return True, {"removed": n}
         except Exception as e:                                   # noqa: BLE001
             return False, {"error": "%s: %s" % (type(e).__name__, e)}
 
@@ -691,14 +715,12 @@ class Sim:
             return False, {"error": "场景不存在：%s（可用 /editor/scene_list 查看）" % (why,)}
         except OSError as e:
             return False, {"error": "读盘失败：%s: %s" % (type(e).__name__, e)}
-        ok, cl = self.scene_clear()
+        # ★ C3b：读盘之后的"清空 + 导入"是**一次编辑**，整次只占一步撤销。
+        ok, imp = self.scene_import_stacked(text)
         if not ok:
-            return False, {"error": "清空失败：%s" % (cl.get("error"),)}
-        ok, imp = self.scene_import(text)
-        if not ok:
-            return False, {"error": "导入失败（世界已被清空）：%s" % (imp.get("error"),),
-                           "removed": cl.get("removed")}
-        return True, {"name": why, "made": imp["made"], "removed": cl.get("removed")}
+            return False, {"error": "导入失败（世界已被清空）：%s" % (imp.get("error"),)}
+        return True, {"name": why, "made": imp["made"],
+                      "removed": self.last_cleared or 0, "reversible": True}
 
     def scene_list(self):
         import os
@@ -709,6 +731,42 @@ class Sim:
         except OSError as e:
             return False, {"error": "列目录失败：%s" % (e,)}
         return True, {"names": names, "n": len(names), "dir": SCENE_DIR}
+
+    # ---------------------------------------------------------------- C3b 整世界一步
+    def _scene_text_now(self):
+        ok, exp = self.scene_export()
+        if not ok:
+            raise RuntimeError("导出失败：%s" % (exp.get("error"),))
+        return exp["text"]
+
+    def scene_import_stacked(self, text):
+        """导入场景，但**整次导入只占一步撤销**。返回 (ok, dict)。"""
+        if not isinstance(text, str) or text == "":
+            return False, {"error": "场景文本为空"}
+        before = self._scene_text_now()
+        st = self._ensure_stack()
+        try:
+            st.push("scene", 0, {"text": before}, {"text": text},
+                    merge=commands.MERGE_DISABLE, label="导入场景")
+        except Exception as e:                                   # noqa: BLE001
+            return False, {"error": "%s: %s" % (type(e).__name__, e)}
+        ok, e2 = self.scene_export()
+        return True, {"made": e2["n"], "undo_depth": st.depth, "version": st.version,
+                      "reversible": True}
+
+    last_cleared = 0        # 最近一次 clear 清掉几个（scene_load 的返回要用）
+
+    def scene_clear_stacked(self):
+        """清空场景，整次清空只占一步撤销（撤销就是把整份文本重新装回来）。"""
+        before = self._scene_text_now()
+        st = self._ensure_stack()
+        try:
+            st.push("scene", 0, {"text": before}, {"text": ""},
+                    merge=commands.MERGE_DISABLE, label="清空场景")
+        except Exception as e:                                   # noqa: BLE001
+            return False, {"error": "%s: %s" % (type(e).__name__, e)}
+        return True, {"removed": len([l for l in before.split("\n") if l]),
+                      "undo_depth": st.depth, "version": st.version, "reversible": True}
 
     def collide_pushes(self):
         """碰撞解算挡下了几次（N1）。0 = 从来没挡过（要么没障碍，要么碰撞没接上）。"""

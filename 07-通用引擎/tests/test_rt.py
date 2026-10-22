@@ -4634,6 +4634,110 @@ def e15_craft_loop():
                   % (int(before), int(after), refused))
 
 
+def e29_scene_import_is_one_undo_step():
+    """★★★ C3b（2026-10-22）：**一次导入 = 一步撤销**。
+
+    在此之前，导入是"清空 + 逐个生成"：用户按一次 Ctrl+Z，只退一个实体。
+    那不是撤销，那是逐帧回退 —— 而且栈深 50 会在两次导入之后就被吃光。
+
+    做法：把**整个世界**当成一步（kind `"scene"`，状态是一份场景文本）。
+    `apply(state)` = 清空 + 按文本导入；`text == ""` 表示空世界。
+    为什么用"整份文本"而不是逐实体：文本本身就是可序列化的（J2 的要求），
+    恢复走的也是同一条场景通路（一处实现，两处消费）。
+
+    判据（正向三条 + 反向两条）：
+      ① 导入之后世界文本 == 目标文本，且**栈深只 +1**（不是 +N）；
+      ② 撤销一次 ⇒ 世界文本逐字节回到导入前；
+      ③ 重做一次 ⇒ 回到导入后；
+      ④ 清空同样只占一步：clear 后世界空，撤销一次整份装回来；
+      ⑤ 反向：**坏文本**被拒时栈深不变（不许留一条"失败了的导入"）。
+
+    ⚠️ 已知限制（写在这里也写在 rt/sim.py 里）：撤销导入得到的是**重建的实体**
+    （新 guid），所以判据比的是**场景文本**而不是 guid。这条不能悄悄改：
+    如果哪天要保 guid，得先有实体级序列化（C7），不是改这里一句话的事。
+    """
+    s = Sim(seed=20261015, tick_hz=30, world_content=14).boot()
+
+    def text():
+        ok, e = s.scene_export()
+        if not ok:
+            raise RuntimeError("导出失败：%s" % (e.get("error"),))
+        return e["text"]
+
+    def depth():
+        # ★ 键名是 `undo` 不是 `depth`（`stats()` 返回 {"undo":..,"redo":..,"version":..}）。
+        #   第一版写成 `.get("depth", 0)` ⇒ 永远拿到 0 ⇒ "只占 1 步"这条断言**恒真**。
+        #   这类错很隐蔽：默认值把"读不到"变成了一个合法值（None 不当 0 的反面）。
+        return int(s.undo_stats().get("undo", -1))
+
+    t0 = text()
+    if not t0:
+        return False, "初始世界是空的，判据没有意义"
+
+    # 目标场景：两棵树 + 一只蜘蛛（与初始世界完全不同）
+    t1 = "evergreen\t1.000\t2.000\nevergreen\t5.000\t2.000\tworkleft=7.000\nspider\t3.000\t7.000\thealth=60.000"
+    d0 = depth()
+    ok, r = s.scene_import_stacked(t1)
+    if not ok:
+        return False, "导入失败：%s" % (r,)
+    if depth() != d0 + 1:
+        return False, ("一次导入占了 %d 步（期望 1）—— 撤销一次只能退一个实体，"
+                       "栈深 50 撑不过两次导入" % (depth() - d0,))
+    # ★★ 基准要用**规范化后**的文本，不是"我写的那份"：
+    #   导出会给每个有 workable 的实体补上 `workleft=`（那是它的真实状态），
+    #   所以"导入 t1 → 导出"必然比 t1 更详尽。把 t1 当基准会得到一条**假红**。
+    #   ⇒ 基准 = 导入后立刻导出的文本（t1c），后面的撤销/重做都跟它比。
+    t1c = text()
+    if "spider" not in t1c or t1c.count("evergreen") != 2:
+        return False, "导入后的世界不对（缺实体）：%r" % (t1c[:160],)
+
+    # ② 撤销一次 ⇒ 逐字节回到 t0
+    ok, ru = s.undo()
+    if not ok:
+        return False, "撤销失败：%s" % (ru,)
+    back = text()
+    if back != t0:
+        return False, ("撤销一次之后世界文本**没有**逐字节回到导入前：\n     得 %r\n     期 %r"
+                       % (back[:160], t0[:160]))
+    if depth() != d0:
+        return False, "撤销之后栈深是 %d（期望回到 %d）" % (depth(), d0)
+
+    # ③ 重做一次 ⇒ 回到 t1
+    ok, rr = s.redo()
+    if not ok:
+        return False, "重做失败：%s" % (rr,)
+    if text() != t1c:
+        return False, "重做之后世界文本不对：%r" % (text()[:120],)
+
+    # ④ 清空也只占一步
+    d1 = depth()
+    ok, rc = s.scene_clear_stacked()
+    if not ok:
+        return False, "带撤销的清空失败：%s" % (rc,)
+    if text() != "":
+        return False, "清空之后还有实体：%r" % (text()[:80],)
+    if depth() != d1 + 1:
+        return False, "清空占了 %d 步（期望 1）" % (depth() - d1,)
+    ok, ru2 = s.undo()
+    if not ok:
+        return False, "撤销清空失败：%s" % (ru2,)
+    if text() != t1c:
+        return False, "撤销清空之后世界没有整份装回来：%r" % (text()[:120],)
+
+    # ⑤ 反向：坏文本不占步
+    d2 = depth()
+    ok, rb = s.scene_import_stacked("这一行是坏的")
+    if ok:
+        return False, "坏场景竟然导入成功了"
+    if depth() != d2:
+        return False, ("坏场景被拒之后栈深从 %d 变成 %d —— 留了一条「失败了的导入」，"
+                       "撤销它会去恢复一个从未发生过的状态" % (d2, depth()))
+
+    return True, ("导入只占 1 步 ✔ / 撤销后逐字节回原样 ✔ / 重做回导入后 ✔ / "
+                  "清空 1 步且撤销整份装回 ✔ / 坏文本不占步 ✔（%d→%d 步）"
+                  % (d0, depth()))
+
+
 def e28_scene_save_load_files():
     """★★★ C3（2026-10-22）：场景**落盘** —— 改完能存下来，下次能打开。
 
@@ -5018,15 +5122,21 @@ def e25_undo_spawn_remove():
         return False, "重做删除之后树还在 —— redo 没生效（映射表没更新？）"
 
     # ④ 反向：删不存在的 guid ⇒ 拒绝，栈深度不变
-    depth0 = s.undo_stats().get("depth", 0)
+    #   ★ 先造一步真实命令，把栈深推到 >0 —— 否则 0 == 0 恒真，
+    #     这条"不许留幽灵命令"的断言就永远绿（第一版就是这样，且键名也写错了）。
+    ok, _sp = s.spawn_via_stack("evergreen", 9.0, 9.0)
+    depth0 = int(s.undo_stats().get("undo", -1))
+    if depth0 <= 0:
+        return False, "判据前置失败：栈深应为 >0，实际 %r（键名或实现变了）" % (depth0,)
     ok, bad = s.remove_via_stack(99999999)
     if ok:
         return False, "删除不存在的 guid 竟然成功了（会往栈里塞一条幽灵命令）"
     if "不存在" not in str(bad.get("error", "")):
         return False, "拒绝理由不对：%r" % (bad.get("error"),)
-    if s.undo_stats().get("depth", 0) != depth0:
+    depth1 = int(s.undo_stats().get("undo", -1))
+    if depth1 != depth0:
         return False, ("被拒的删除改变了栈深度（%r → %r）—— 失败的操作不许进栈"
-                       % (depth0, s.undo_stats().get("depth")))
+                       % (depth0, depth1))
 
     return True, ("生成→撤销→重做 ✔ / 删除→撤销后 prefab+位置+workleft 逐值一致 ✔ / "
                   "remove→undo→redo 链走通（映射表生效）✔ / 幽灵 guid 被拒且不进栈 ✔ / "
@@ -6047,6 +6157,7 @@ def e14_editor_channel():
 
 check("E13 战斗闭环：打生物 → 掉血 → 死 → 掉战利品；反向：太远被拒 · 树仍走 CHOP", e13_attack_loop)
 check("E14 编辑器通道：列/生成/移动/删除全回读；反向：玩家删除被拒 · /debug 仍 404", e14_editor_channel)
+check("E29 一次导入=一步撤销(C3b)：导入只占 1 步 · 撤销后文本逐字节回原样 · 重做回导入后 · 清空 1 步且撤销装回；反向：坏文本不占步", e29_scene_import_is_one_undo_step)
 check("E28 场景落盘(C3)：save 后 bytes 与盘上一致 · load 往返逐字节相同 · list 可见；反向：../ 名字被拒且工程外无文件 · 不存在给原因 · 带点名字被拒", e28_scene_save_load_files)
 check("E27 动画真的在动(E2)：帧号随 tick 前进 · 30 拍内≥20 个不同帧号 · 循环回绕 · 换动画重置为 1；反向：不 step 时帧号不变", e27_animation_advances)
 check("E26 性能基线(H6)：≈200 实体 step/snapshot 均在 12ms 护栏内 · 实体×3.7 时耗时不许×8（超线性即红）；反向：空世界必须明显更快（测量有效性）", e26_perf_baseline)
