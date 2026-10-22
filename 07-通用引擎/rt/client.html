@@ -1663,8 +1663,14 @@ function edRemove(guid) {
   edJson('/editor/remove?guid=' + guid).then((d) => {
     if (!d.ok) { edSetStatus('删除失败：' + (d.error || '未知'), true); return; }
     if (ED.sel && ED.sel.guid === guid) { ED.sel = null; edRenderProps(); }
-    edSetStatus('已删除 #' + guid + '（' + d.prefab + '）');
-    edRefresh();
+    // ★★ C2：**摘掉几个子实体要说出来**。
+    //   宿主现在的语义是"删父只摘不删"—— 子实体留在原位、只是不再属于谁。
+    //   不告诉用户的话，删一个容器就等于"东西还在，但你再也不知道它们属于哪"，
+    //   而界面什么都不说 —— 那就是静默。
+    const det = (typeof d.detached === 'number' && d.detached > 0)
+      ? ('，摘掉 ' + d.detached + ' 个子实体（留在原位，只是不再属于它）') : '';
+    // ★ 顺带修掉第四处"先写状态后刷新"（前三次见 edSetStatusAfterRefresh 的注释）。
+    edSetStatusAfterRefresh('已删除 #' + guid + '（' + d.prefab + '）' + det);
   }).catch((e) => edSetStatus('删除出错：' + e.message, true));
 }
 function edSpawn(prefab, x, z) {
@@ -1874,6 +1880,10 @@ function sceneListRefresh() {
   if (s1) s1.onclick = sceneSaveFile;
   if (s2) s2.onclick = sceneLoadFile;
   window.__rt = window.__rt || {};
+  // ★ C2：把删除与刷新也挂出来 —— 判据要能**直接驱动删除**，
+  //   否则只能靠"先选中再点工具栏"去模拟，而那条路依赖选择状态，脆弱且难读。
+  window.__rt.ed = { remove: edRemove, refresh: edRefresh,
+                     status: () => { const el = document.getElementById('edStatus'); return el ? el.textContent : ''; } };
   window.__rt.scene = { export: sceneExport, import: sceneImport, clear: sceneClear,
                         save: sceneSaveFile, load: sceneLoadFile, list: sceneListRefresh,
                         box: sceneBox,

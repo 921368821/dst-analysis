@@ -470,6 +470,12 @@ class Sim:
                 ok, info = self.api.debug_remove(int(cur))
                 if not ok:
                     raise RuntimeError("remove 失败：%s" % (info,))
+                # ★ C2：把"摘掉几个子实体"记下来，供 remove_via_stack 的返回值用
+                #   （`debug_remove` 的 info 是 Lua table，取不到就当 0，不编数字）
+                try:
+                    self._last_detached = int(info["detached"])
+                except Exception:                                # noqa: BLE001
+                    self._last_detached = 0
                 self._ent_guid.pop(int(target), None)
                 return
             ok, info = self.scene_import(state["line"])
@@ -571,12 +577,15 @@ class Sim:
             return False, {"error": str(line[1]) if len(line) > 1 else "描述失败"}
         text = str(line[0])
         st = self._ensure_stack()
+        # 先问一次"这次删除会摘掉几个子实体"是拿不到的（要删了才知道），
+        # 所以从 `_apply_cmd` 记下的上一次删除的读数里取 —— 见下面的 _last_detached。
         try:
             st.push("ent", int(guid), {"line": text}, None,
                     merge=commands.MERGE_DISABLE, label="删除")
         except Exception as e:                                   # noqa: BLE001
             return False, {"error": "%s: %s" % (type(e).__name__, e)}
         return True, {"guid": int(guid), "described": text,
+                      "detached": getattr(self, "_last_detached", 0),
                       "restores": "prefab + 位置 + workleft/health（白名单）",
                       "guid_will_change": True,
                       "undo_depth": st.depth, "version": st.version}

@@ -2808,9 +2808,22 @@ function M.debug_remove(guid)
     end
     if inst.Remove == nil then return false, "实体没有 Remove 方法" end
     local prefab = tostring(inst.prefab or "?")
+    -- ★★ C2（2026-10-22）：把"这一删摘掉了几个子实体"报出去。
+    --   宿主现在会在 Remove 之前把子实体摘下来（`_parent = nil`，子留在原位）。
+    --   但**用户看不见** —— 删一个容器，里面的东西变成了孤儿，界面什么都不说，
+    --   那就是"静默"：东西还在，只是不再属于谁，而没人知道。
+    --   ⇒ 前后各读一次计数，差值就是本次摘掉的个数。
+    local function _detached()
+        local okr, Core = pcall(require, "host.01_core")
+        if not okr or Core == nil then return 0 end
+        return tonumber(Core.DetachedOnRemove) or 0
+    end
+    local before = _detached()
     local ok, err = pcall(function() inst:Remove() end)
     if not ok then return false, "Remove 抛错：" .. tostring(err) end
-    return true, { guid = guid, prefab = prefab, removed = true }
+    local detached = _detached() - before
+    if detached < 0 then detached = 0 end
+    return true, { guid = guid, prefab = prefab, removed = true, detached = detached }
 end
 
 --- 把一个实体挪到 (x, z)。保留原 y —— 只关心水平坐标，生物本来就站在地上。

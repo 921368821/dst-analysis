@@ -6186,6 +6186,79 @@ def e16_equip_and_tool():
                   % (nlog, inv_n))
 
 
+def e33_remove_reports_detached():
+    """★★★ C2（2026-10-22）：删除要**说出**它摘掉了几个子实体。
+
+    B24 让宿主"删父只摘不删"（子实体留在原位、`_parent` 置 nil）。
+    但**用户看不见**：删一个容器，里面的东西变成孤儿，界面什么都不说 —— 那就是静默。
+    "东西还在，只是不再属于谁"和"东西还在，属于谁"在屏幕上完全一样。
+
+    判据（正向两条 + 反向两条）：
+      ① A 下面挂两个子实体（B、C），`remove_via_stack(A)` 的返回里 **`detached == 2`**；
+      ② B、C **仍然存在**且 `_parent == nil`（"摘"不是"删"）；
+      ③ 反向：删一个没有子的实体 ⇒ `detached == 0`（数字不是恒真）；
+      ④ 反向：直接 `debug_remove` 一个孩子（它没有子孙）⇒ 也是 0 ——
+         证明计数是"这次删的增量"，不是"历史上摘过多少"的累计。
+    """
+    s = Sim(seed=20261015, tick_hz=30, world_content=0).boot()
+    L = s.lua
+    L.globals().RT = s.api
+
+    def alive(guid):
+        v = L.eval('(function() local t = require("host.01_core").Spawned '
+                   'return (t[%d] ~= nil) and 1 or 0 end)()' % guid)
+        return int(v) == 1
+
+    def parent_prefab(guid):
+        return L.eval('(function() local t = require("host.01_core").Spawned '
+                      'local e = t[%d] if e == nil then return "__gone__" end '
+                      'return e._parent and tostring(e._parent.prefab) or "" end)()' % guid)
+
+    ga = s.debug_spawn("evergreen", 2.0, 0.0)[1]["guid"]
+    gb = s.debug_spawn("evergreen", 4.0, 0.0)[1]["guid"]
+    gc = s.debug_spawn("evergreen", 6.0, 0.0)[1]["guid"]
+    L.eval('(function() local t = require("host.01_core").Spawned '
+           't[%d].entity:SetParent(t[%d].entity) '
+           't[%d].entity:SetParent(t[%d].entity) return 1 end)()'
+           % (gb, ga, gc, ga))
+
+    # ① 删父 ⇒ detached == 2
+    ok, r = s.remove_via_stack(ga)
+    if not ok:
+        return False, "删除父实体失败：%s" % (r,)
+    if int(r.get("detached", -1)) != 2:
+        return False, ("删除返回的 detached=%r，期望 2 —— 用户看不到"
+                       "「这一删摘掉了两个子实体」" % (r.get("detached"),))
+
+    # ② 子还在，且不再属于任何人
+    for g, name in ((gb, "B"), (gc, "C")):
+        if not alive(g):
+            return False, "子实体 %s 被连带删掉了 —— 我们选的是「只摘不删」" % (name,)
+        if parent_prefab(g) != "":
+            return False, "子实体 %s 的 _parent 仍然指向 %r" % (name, parent_prefab(g))
+
+    # ③ 反向：删一个没子的实体 ⇒ 0
+    gd = s.debug_spawn("evergreen", 8.0, 0.0)[1]["guid"]
+    ok, r2 = s.remove_via_stack(gd)
+    if not ok:
+        return False, "删除无子实体失败：%s" % (r2,)
+    if int(r2.get("detached", -1)) != 0:
+        return False, "没有子实体却报了 detached=%r（数字不是增量？）" % (r2.get("detached"),)
+
+    # ④ 反向：直接 debug_remove 一个孩子 ⇒ 也是 0（不是历史累计）
+    ok, info = s.api.debug_remove(gb)
+    if not ok:
+        return False, "debug_remove 失败：%s" % (info,)
+    try:
+        det = int(info["detached"])
+    except Exception:                                            # noqa: BLE001
+        return False, "debug_remove 的返回里没有 detached：%r" % (info,)
+    if det != 0:
+        return False, ("debug_remove 一个没有子孙的实体报了 detached=%r —— "
+                       "这是「历史累计」而不是「本次增量」" % (det,))
+
+    return True, ("删父回报 detached=2 ✔ / 两个子实体仍在且 _parent=nil ✔ / "
+                  "删无子实体回报 0 ✔ / 直接删孩子回报 0（增量不是累计）✔")
 def e32_http_post_and_unquote():
     """★★★ C3c（2026-10-22）：HTTP 层的两条缝 —— POST 体、URL 解码。
 
@@ -6415,6 +6488,7 @@ def e14_editor_channel():
 
 
 check("E13 战斗闭环：打生物 → 掉血 → 死 → 掉战利品；反向：太远被拒 · 树仍走 CHOP", e13_attack_loop)
+check("E33 删除要说出摘掉几个子实体(C2)：删父回报 detached=2 且子仍在原位、_parent=nil；反向：无子实体报 0 · 直接删孩子报 0（增量不是累计）", e33_remove_reports_detached)
 check("E32 HTTP 两条缝(C3c)：POST JSON body 生效 · 中文名 URL 编码后能存；反向：白名单外键被忽略 · 坏 JSON 给可读拒绝不是 500", e32_http_post_and_unquote)
 check("E14 编辑器通道：列/生成/移动/删除全回读；反向：玩家删除被拒 · /debug 仍 404", e14_editor_channel)
 check("E31 删父不许悬空(C2)：SetParent 后 _parent=A · 删父后 _parent=nil 且子仍在原位 · 摘子计数+1；反向：无父子不摘 · 解除父子后删父不摘", e31_no_dangling_parent)

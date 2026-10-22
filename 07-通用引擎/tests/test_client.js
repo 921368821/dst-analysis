@@ -1564,6 +1564,66 @@ check('F38 场景落盘 UI（C3）：空名字零请求 · 存盘回显盘上字
   return { ok: true, info: '空名字零请求且提示 ✔ / 存盘带编码名字+回显 529 字节+刷新列表 ✔ / 读取成功回显 ✔ / 失败时同时说「已清空 14 个」与原因 ✔' };
 });
 
+check('F39 删除提示（C2）：摘掉子实体要说出来 · 反向：没摘就别说 · 失败要给原因', async () => {
+  // E33 验服务端会回报 detached，用户看到的却是**状态栏**。
+  // 这条判据守的是"说了没有"：数字对了但界面不说，等于没做 ——
+  // 删一个容器后里面的东西变孤儿，屏幕上完全看不出来。
+  const mod = require('../rt/perf_lib.js');
+  let removeReply = { ok: true, guid: 7, prefab: 'chest', removed: true, detached: 2 };
+  const env = mod.makeClient({
+    fetchReply: (u) => {
+      if (u.indexOf('/editor/entities') >= 0) return { ok: true, count: 0, listed: 0, items: [] };
+      if (u.indexOf('/editor/remove') >= 0) return removeReply;
+      return null;
+    },
+  });
+  const el = (id) => env.document.getElementById(id);
+  const rt = env.__rt;
+  if (!rt || !rt.ed || typeof rt.ed.remove !== 'function') {
+    return { ok: false, info: '__rt.ed.remove 钩子不存在（判据没法驱动删除）' };
+  }
+  if (typeof rt.ed.status !== 'function') {
+    return { ok: false, info: '__rt.ed.status 钩子不存在' };
+  }
+
+  // ① detached=2 ⇒ 状态栏必须说"摘掉 2 个"
+  rt.ed.remove(7);
+  await tick(6);
+  const s1 = rt.ed.status();
+  if (s1.indexOf('摘掉 2') < 0) {
+    return { ok: false, info: '删掉一个带 2 个子实体的父实体，状态栏没说摘掉了几个：' + s1 };
+  }
+  if (s1.indexOf('已删除') < 0) {
+    return { ok: false, info: '删除成功的状态栏不对：' + s1 };
+  }
+
+  // ② 反向：detached=0 ⇒ 不许出现"摘掉"
+  removeReply = { ok: true, guid: 8, prefab: 'evergreen', removed: true, detached: 0 };
+  rt.ed.remove(8);
+  await tick(6);
+  const s2 = rt.ed.status();
+  if (s2.indexOf('摘掉') >= 0) {
+    return { ok: false, info: '没有子实体却提示「摘掉」：' + s2 };
+  }
+  if (s2.indexOf('已删除') < 0) {
+    return { ok: false, info: '删除成功但状态栏没有「已删除」：' + s2 };
+  }
+
+  // ③ 反向：失败要原样给原因
+  removeReply = { ok: false, error: '拒绝删除玩家实体：会破坏会话身份（key→角色）' };
+  rt.ed.remove(9);
+  await tick(6);
+  const s3 = rt.ed.status();
+  if (s3.indexOf('拒绝删除玩家实体') < 0) {
+    return { ok: false, info: '删除失败没有回显服务端原因：' + s3 };
+  }
+  if (s3.indexOf('已删除') >= 0) {
+    return { ok: false, info: '删除失败却显示「已删除」：' + s3 };
+  }
+
+  return { ok: true, info: 'detached=2 时说「摘掉 2 个」✔ / detached=0 时不提 ✔ / 失败回显服务端原因且不假称成功 ✔' };
+});
+
 (async () => {
   await Promise.all(PENDING);
   console.log('\n  结果：' + pass + ' 通过 / ' + fail + ' 失败');
