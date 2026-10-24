@@ -169,12 +169,20 @@ for (const s of STEPS) {
   const cleaned = out.replace(/\r\n/g, "\n").replace(/[^\n]*\r/g, "");
   // 只回显尾部：判据输出动辄上千行，全打出来等于什么都看不见
   const tail = cleaned.split(/\r?\n/).slice(-12).join("\n");
+  // ★★ 但**尾部对 `npm test` 是没有信息量的**：node:test 的最后 12 行是
+  //   `1..1413 / # tests / # pass / # fail` 汇总，它说"39 条红"，不说"哪 39 条"。
+  //   所以另外抓失败行本身 —— 判据红了要能直接看到用例名，否则只能靠猜或重跑。
+  const failing = cleaned
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => /^(not ok\b|✗|×|FAIL\b)/.test(l))
+    .slice(0, 25);
   console.log(tail);
   const isSkip = s.skipCode !== undefined && r.status === s.skipCode;
   rows.push({ name: s.name, ok: r.status === 0, ms, skip: isSkip });
   if (isSkip) console.log(`· 跳过（环境缺失，不算通过）：${s.name}`);
   if (r.status !== 0 && !isSkip) {
-    failed = { name: s.name, tail };
+    failed = { name: s.name, tail, failing };
     break;
   }
 }
@@ -213,7 +221,14 @@ if (failed !== null) {
     const done = rows
       .map((r) => `${r.skip === true ? "⊘" : r.ok ? "✔" : "✘"} ${r.name} ${(r.ms / 1000).toFixed(1)}s`)
       .join(" / ");
-    const body = [`已过步骤：${done}`, "", ...tailLines].join("\n");
+    const body = [
+      `已过步骤：${done}`,
+      "",
+      ...(failed.failing !== undefined && failed.failing.length > 0
+        ? ["失败用例（最多 25 条）：", ...failed.failing, ""]
+        : []),
+      ...tailLines,
+    ].join("\n");
     process.stderr.write(`::error title=CI 失败·${failed.name}::${ghEsc(body)}\n`);
     // 同时写进 job summary：网页上看 Actions 摘要时不用展开 20 万行日志
     const summaryFile = process.env.GITHUB_STEP_SUMMARY;
