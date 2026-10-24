@@ -172,17 +172,32 @@ for (const s of STEPS) {
   // ★★ 但**尾部对 `npm test` 是没有信息量的**：node:test 的最后 12 行是
   //   `1..1413 / # tests / # pass / # fail` 汇总，它说"39 条红"，不说"哪 39 条"。
   //   所以另外抓失败行本身 —— 判据红了要能直接看到用例名，否则只能靠猜或重跑。
-  const failing = cleaned
-    .split("\n")
+  const allLines = cleaned.split("\n");
+  const failing = allLines
     .map((l) => l.trim())
     .filter((l) => /^(not ok\b|✗|×|FAIL\b)/.test(l))
     .slice(0, 25);
+  // ★★ 光有用例名还是不够：`not ok N - 名字` 只说"它红了"，不说"为什么红"。
+  //   node:test 的 TAP 会在 `not ok` 之后紧跟一个 `---` 块，里面有 `error:` /
+  //   `expected:` / `actual:` —— 那才是可行动的东西。
+  //   只取**前 3 条**判据的详情：annotation 有长度上限，而且 3 条失败详情
+  //   足以定位一个共同的根因（比 25 条名字有用得多）。
+  const detail = [];
+  for (let i = 0; i < allLines.length && detail.length < 3; i++) {
+    if (!/^\s*not ok\b/.test(allLines[i])) continue;
+    detail.push(allLines[i].trimEnd());
+    for (let j = i + 1; j < Math.min(i + 16, allLines.length); j++) {
+      const line = allLines[j];
+      if (/^\s*(not ok|ok)\b/.test(line)) break;
+      detail.push(line.replace(/\r$/, ""));
+    }
+  }
   console.log(tail);
   const isSkip = s.skipCode !== undefined && r.status === s.skipCode;
   rows.push({ name: s.name, ok: r.status === 0, ms, skip: isSkip });
   if (isSkip) console.log(`· 跳过（环境缺失，不算通过）：${s.name}`);
   if (r.status !== 0 && !isSkip) {
-    failed = { name: s.name, tail, failing };
+    failed = { name: s.name, tail, failing, detail };
     break;
   }
 }
@@ -226,6 +241,9 @@ if (failed !== null) {
       "",
       ...(failed.failing !== undefined && failed.failing.length > 0
         ? ["失败用例（最多 25 条）：", ...failed.failing, ""]
+        : []),
+      ...(failed.detail !== undefined && failed.detail.length > 0
+        ? ["前 3 条判据的失败详情：", ...failed.detail, ""]
         : []),
       ...tailLines,
     ].join("\n");
