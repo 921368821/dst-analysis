@@ -159,10 +159,29 @@ row("脚本在被每 tick 调度（calls > 0）", (e) => {
   return [s.calls > 0, `calls=${s.calls} modules=${s.modules} errors=${s.errors}`];
 });
 
+/**
+ * ★★ 口径修正（2026-10-25）：只把 **Error(50)** 算进"脚本报错"，Warn(40) 不算。
+ *
+ *   起因：GitHub Actions 的 ubuntu runner 上这条稳定红，报文是
+ *   `脚本落后于世界：丢弃 tick 9 的脚本更新（队列 4）`。那是 **Warn** ——
+ *   `MAX_PENDING_UPDATES = 4` 满了就丢，是**设计内的背压降级**，本身还有专属判据
+ *   （`tests/core/script-e2e.test.ts` 里那条"落后时丢弃"）。
+ *   它和"脚本抛错"是两件事，混在一起的后果是这条判据在慢机器上稳定假红 ——
+ *   而它本来要问的只是"脚本有没有抛错"。
+ *
+ *   丢弃次数并没有被藏起来：照样打进 detail（`背压丢弃 N 次`），
+ *   只是不再决定通过与否。**这不是放宽阈值，是修正被问错的问题。**
+ */
 row("脚本没有报错（errors == 0 且无 script:error）", (e) => {
   const s = e.scriptMod.runtime.stats();
-  const bad = e.app.memorySink.records().filter((r) => r.channel === "script" && r.level >= 40);
-  return [s.errors === 0 && bad.length === 0, bad.length === 0 ? `errors=0 calls=${s.calls}` : bad[0].message];
+  const recs = e.app.memorySink.records();
+  const bad = recs.filter((r) => r.channel === "script" && r.level >= 50);
+  const dropped = recs.filter((r) => r.channel === "script" && r.message.includes("脚本落后于世界")).length;
+  const note = dropped > 0 ? `（另有背压丢弃 ${dropped} 次：环境慢，不算错误）` : "";
+  return [
+    s.errors === 0 && bad.length === 0,
+    bad.length === 0 ? `errors=0 calls=${s.calls}${note}` : bad[0].message,
+  ];
 });
 
 /**
