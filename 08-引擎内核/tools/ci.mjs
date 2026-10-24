@@ -182,10 +182,23 @@ for (const s of STEPS) {
   //   `1..1413 / # tests / # pass / # fail` 汇总，它说"39 条红"，不说"哪 39 条"。
   //   所以另外抓失败行本身 —— 判据红了要能直接看到用例名，否则只能靠猜或重跑。
   const allLines = cleaned.split("\n");
-  const failing = allLines
+  // ★★ 语义行**优先**，`not ok` 垫底。
+  //
+  //   2026-10-25 第九轮实测：变异校验跑 278 条会打出**几百行** `not ok` ——
+  //   那是"变异被抓住"的**证据**，不是失败；真正的失败摘要在最后
+  //   （`✗ 未通过 2 条：M12(假绿)、M45(漂移)`）。
+  //   而下面原本的 `.slice(0, 25)` 取的是**前** 25 条 ⇒ annotation 里只剩预期内的
+  //   `not ok`，该看的那一行永远进不去。**不是信息不存在，是取值顺序把它吃掉了。**
+  const matches = allLines
     .map((l) => l.trim())
-    .filter((l) => /^(not ok\b|✗|×|FAIL\b)/.test(l))
-    .slice(0, 25);
+    .filter(
+      (l) =>
+        /^(not ok\b|✗|×|FAIL\b)/.test(l) ||
+        /·\s*\[(判据假绿|靶子漂移|还原不干净)\]/.test(l),
+    );
+  const semantic = matches.filter((l) => !/^not ok\b/.test(l)).slice(0, 12);
+  const plainNotOk = matches.filter((l) => /^not ok\b/.test(l));
+  const failing = [...semantic, ...plainNotOk].slice(0, 25);
   // ★★ 光有用例名还是不够：`not ok N - 名字` 只说"它红了"，不说"为什么红"。
   //   node:test 的 TAP 会在 `not ok` 之后紧跟一个 `---` 块，里面有 `error:` /
   //   `expected:` / `actual:` —— 那才是可行动的东西。

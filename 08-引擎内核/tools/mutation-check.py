@@ -2890,6 +2890,20 @@ else:
     drift = [name for name, d, _n, _a in results if d.startswith("变异点没找到")]
     green = [name for name, d, n, _a in results if not d.startswith("变异点没找到") and n == 0]
     dirty = [name for name, _d, _n, a in results if a and a[0] != 0]
+    # ★★ 紧凑摘要必须**以 ✗ 开头**，而且要打在最前面。
+    #
+    #   2026-10-25 第九轮实测：860 秒跑完 278 条，`tools/ci.mjs` 的 annotation
+    #   提取只认 `not ok|✗|×|FAIL` 开头的行 —— 而下面那些 `· [判据假绿] M12`
+    #   一个都不匹配。结果 annotation 里塞满了**预期内**的 `not ok`（那正是
+    #   "变异被抓住"的证据），真正该看的"哪几条没抓住"一个字都没进去。
+    #   **信息通道要在排障之前建好**，否则每一轮都要重新猜一次。
+    _items = (
+        [(n, "漂移") for n in drift] + [(n, "假绿") for n in green] + [(n, "脏") for n in dirty]
+    )
+    print(
+        f"✗ 未通过 {len(_items)} 条："
+        + "、".join(f"{n.split(' ')[0]}({lab})" for n, lab in _items)
+    )
     print(f"有变异未通过 —— 靶子漂移 {len(drift)} 条 / 判据假绿 {len(green)} 条 / 还原不干净 {len(dirty)} 条：")
     for label, lst in (("靶子漂移", drift), ("判据假绿", green), ("还原不干净", dirty)):
         for name in lst:
