@@ -1,0 +1,86 @@
+# CI —— 执行器只有一层：调用 `08-引擎内核/tools/ci.mjs`
+#
+# ★★ 这个文件**必须**待在仓库根目录的 `.github/workflows/` 下。
+#   2026-10-24 的实测：这份 workflow 原本放在 `08-引擎内核/.github/workflows/ci.yml`
+#   （引擎自己的子目录里），推送之后 `GET /repos/.../actions/runs` 返回
+#   `total_count: 0` —— **一次都没跑过**。GitHub 只扫描仓库根的 `.github/workflows/`，
+#   子目录里的 workflow 不是"配置错了"，而是**根本不被识别**，连报错都没有。
+#   那个 401 的 actions/permissions 接口是另一回事（它需要认证），别把它当原因。
+#   子目录那份已删除：留着等于一份"看起来配好了、实际永不执行"的死配置。
+#
+# ★ 为什么 workflow 里几乎看不到步骤：
+#   步骤定义在 `tools/ci.mjs` 里，**本地能一条命令真跑**。写在 YAML 里的步骤
+#   只能在 GitHub 上验证，本地就是一段没人执行的配置 —— 一旦挂了只能看日志猜。
+#
+# ★ 为什么是双 OS 矩阵：
+#   这个仓库被一条平台差异咬过一次：`fs.rename` 在 Windows 上、目标正被打开时返回
+#   EPERM，而 POSIX 允许覆盖。只有单 OS 的 CI 会把这种差异留到用户机器上。
+#   矩阵的第二格不是为了"看起来专业"，是为了让平台差异在合并前现形。
+name: ci
+
+on:
+  push:
+    # 只有引擎目录（或 workflow 自己）变了才跑。
+    # 不加过滤的后果：改一个 00-07 的文档也会拉起一次 20 分钟的全档 +
+    #   双 OS 矩阵，跑完的结论是"文档改了，引擎没事" —— 没人会看第二次。
+    paths:
+      - "08-引擎内核/**"
+      - ".github/workflows/**"
+  pull_request:
+    paths:
+      - "08-引擎内核/**"
+      - ".github/workflows/**"
+  workflow_dispatch: # 允许手动触发（首次验证/Actions 开关切换后补跑）
+
+# 所有 `run:` 都在引擎目录里执行 —— 与本地 `cd 08-引擎内核 && node tools/ci.mjs` 一致。
+# ★ `uses:` 不受这个默认值影响，所以 checkout 仍然落在**仓库根**
+#   （这是对的：我们要的是整棵树，只是命令要在子目录里跑）。
+defaults:
+  run:
+    working-directory: 08-引擎内核
+
+jobs:
+  fast:
+    name: 快档（${{ matrix.os }}）
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          # ★ 必须指路：package-lock.json 在 `08-引擎内核/`，而 setup-node 默认
+          #   只在仓库根找。不指路时 `cache: npm` 会因为"找不到 lock 文件"直接**失败**，
+          #   而报错信息说的是 cache 而不是 lock —— 很容易被误当成网络问题去重试。
+          cache: npm
+          cache-dependency-path: 08-引擎内核/package-lock.json
+      - run: npm ci
+      # 快档：typecheck + 全量判据 + 覆盖率 + 文档对账
+      - run: node tools/ci.mjs --fast
+
+  full:
+    name: 全档（含外部金标与变异）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: 08-引擎内核/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # Pillow 是 JPEG 金标的生成器；imageio-ffmpeg 提供独立的第三方解码器。
+      # ★ `pip install` 不写 `working-directory` 就去仓库根跑（那里没有 requirements 文件），
+      #   所以这里**显式**指回仓库根：默认的工作目录是 08-引擎内核，而 pip 装的是
+      #   全局环境、与 cwd 无关，指到哪里都对 —— 但显式写出来是为了让读的人不用推。
+      - run: pip install pillow numpy imageio-ffmpeg
+        working-directory: .
+      - run: npm ci
+      - run: node tools/ci.mjs
+        env:
+          PYTHON: python
