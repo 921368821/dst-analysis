@@ -84,7 +84,7 @@ function node(name, script, args = [], opts = {}) {
 function npm(name, script) {
   STEPS.push({ name, cmd: NPM, args: ["run", script] });
 }
-function py(name, script, args = [], needPillow = false) {
+function py(name, script, args = [], needPillow = false, opts = {}) {
   const exe = findPython(needPillow);
   if (exe === null) {
     STEPS.push({
@@ -95,7 +95,7 @@ function py(name, script, args = [], needPillow = false) {
     });
     return;
   }
-  STEPS.push({ name, cmd: exe, args: [script, ...args] });
+  STEPS.push({ name, cmd: exe, args: [script, ...args], ...opts });
 }
 
 npm("类型检查", "typecheck");
@@ -114,7 +114,16 @@ if (!FAST) {
   //   必须**显式登记**而不是"容差"—— 脚本会双向核对：多一个失败就红，
   //   这个缺陷哪天不复现了也红（逼人销账）。
   node("PNG 语料校验", "tools/verify-png-corpus.mjs", ["--all", "--known-defect", "_cmp_pair.png"]);
-  py("JPEG ffmpeg 金标 --check", "tools/jpeg-ffmpeg-gold.py", ["--check"], true);
+  // ★ `skipCode: 2`：金标是**某个具体 ffmpeg 构建**的产物（本地是 gyan.dev 的 7.1
+  //   Windows 构建），而 CI 上 `pip install imageio-ffmpeg` 装的是 Linux 构建 ——
+  //   同一份流、同一个 12 位灰度样本，两家解出来的样本值不同。逐字节比对在异构
+  //   构建上没有判别力，脚本此时退出码 2（不是 0：那不是"通过"）。
+  //   判据本身不用 ffmpeg（读入库金标），覆盖不受影响。
+  py("JPEG ffmpeg 金标 --check", "tools/jpeg-ffmpeg-gold.py", ["--check"], true, { skipCode: 2 });
+  // ★ 上一条的三分退出码**本身**要有人守：否则「构建不同」会变成万能免罪符，
+  //   真把编码器改坏了、恰好又在异构构建上跑，一样被放过去。
+  //   自检显式把版本行设成"当前"或"别的构建"，四种情形（0/1/2/1）在哪个平台都可复现。
+  py("JPEG 金标三分自检", "tools/jpeg-ffmpeg-gold-selftest.py", [], true, { skipCode: 2 });
   // ★ 浏览器自检要最新的 bundle，先构建（200ms，不值得省）
   npm("浏览器包构建", "build:web");
   // ★ `skipCode: 2`：没有浏览器时**跳过并显式标注**，不是"通过"。

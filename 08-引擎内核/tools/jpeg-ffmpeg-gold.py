@@ -201,6 +201,48 @@ def _build(ff: str, out_dir: Path, tmp_src: Path) -> list[dict]:
     return cases_meta
 
 
+def _case_tol(meta0: dict, name: str) -> int:
+    """从 meta 里查这一例的容差（`gray12-odd.ff.u16` → cases 里的 `gray12-odd`）。"""
+    key = name[: -len(".ff.u16")] if name.endswith(".ff.u16") else name
+    for c in meta0.get("cases") or []:
+        if c.get("name") == key:
+            return int(c.get("tolerance") or 0)
+    return 0
+
+
+def _drift_spread(
+    drift: list[str], committed_dir: Path, fresh_dir: Path, meta0: dict
+) -> tuple[int | float, str, bool]:
+    """逐样本比较漂移的 `.ff.u16`：返回（最大绝对差, 最差例名, 是否每例都在自己的容差内）。
+
+    ★ 跨构建时不能只说一句"构建不同"就跳过 —— 那是新的假绿通道：
+      真把编码器改坏了、恰好又在异构构建上跑，就同样被放过去了。
+      所以把"差多少"量化出来，并且只在**差落在该例容差内**时才认作构建差异。
+    """
+    worst: int | float = 0
+    worst_name = ""
+    within = True
+    for name in drift:
+        if not name.endswith(".ff.u16"):
+            continue
+        a, b = committed_dir / name, fresh_dir / name
+        if not (a.exists() and b.exists()):
+            continue
+        va = np.fromfile(a, dtype="<u2").astype(np.int64)
+        vb = np.fromfile(b, dtype="<u2").astype(np.int64)
+        if va.size != vb.size:
+            # 样本数都不一样，绝不可能是取整差 —— 这是真的解错了
+            return float("inf"), name, False
+        if va.size == 0:
+            continue
+        d = int(np.max(np.abs(va - vb)))
+        if d > worst:
+            worst, worst_name = d, name
+        if d > _case_tol(meta0, name):
+            within = False
+    return worst, worst_name, within
+
+
 def main() -> int:
     ff = _ffmpeg()
     version = _ffmpeg_version(ff)
@@ -216,19 +258,59 @@ def main() -> int:
             out = Path(td) / "out"
             cases = _build(ff, out, Path(td))
             fresh = {p.name: p.read_bytes() for p in sorted(out.glob("*")) if p.is_file()}
-        drift = sorted(
-            name
-            for name in set(committed) | set(fresh)
-            if name != "_ffgold.json" and committed.get(name) != fresh.get(name)
-        )
-        if meta0.get("cases") != cases:
-            drift.append("_ffgold.json")
-        if drift:
+            drift = sorted(
+                name
+                for name in set(committed) | set(fresh)
+                if name != "_ffgold.json" and committed.get(name) != fresh.get(name)
+            )
+            if meta0.get("cases") != cases:
+                drift.append("_ffgold.json")
+            if not drift:
+                print(f"✓ {len(cases)} 例金标与仓库一致（{len(committed)} 个文件）")
+                return 0
+            # ★ 先分"是不是同一个 ffmpeg 构建"，再判"是不是漂移"。
+            #
+            #   金标是**某个具体 ffmpeg 构建**的产物：生成它的是
+            #   `7.1-essentials_build-www.gyan.dev`（Windows）。CI 上
+            #   `pip install imageio-ffmpeg` 装的是 **Linux 构建** —— 同一份流、
+            #   同一个 12 位灰度样本（`gray12-*`），两家逐字节不同，但**都与源差 ≤ 容差**
+            #   （2026-10-25 实测：CI 上 5 例 gray12 漂移，gray8 / rgb48 全部逐字节一致，
+            #    且 CI 侧面 gold-vs-src 自检全部 OK）。这不是"编码器变了"。
+            #
+            #   报成失败会训练人忽略红字（"又是那条"），报成通过更糟（假绿）。
+            #   所以走三分退出码：2 = 环境不适用，**显式打印**，并量化"差多少"。
+            #   注意判据本身不用 ffmpeg（读的是入库金标），这条只是
+            #   「金标还能不能重算出来」的自检 —— 它的适用域本来就绑在生成环境上。
+            same_build = (meta0.get("ffmpeg") or "") == version
+            worst, worst_name, within = _drift_spread(drift, FIX_DIR, out, meta0)
+            if not same_build and within:
+                print("⊘ 跳过：ffmpeg 构建与生成金标时不同，逐字节比对没有判别力", file=sys.stderr)
+                print(f"  金标生成时：{meta0.get('ffmpeg')}", file=sys.stderr)
+                print(f"  当前：      {version}", file=sys.stderr)
+                print(f"  不一致的语料：{', '.join(drift)}", file=sys.stderr)
+                spread = (
+                    f"{worst} 级（{worst_name}）" if worst_name else "无（差异只在元数据里）"
+                )
+                print(
+                    f"  逐样本最大差：{spread} —— 落在该例容差内，判为构建差异而非编码器漂移",
+                    file=sys.stderr,
+                )
+                return 2
+            if not same_build:
+                print(
+                    f"✗ 构建不同，但逐样本最大差 {worst} 级（{worst_name}）**超出容差** —— "
+                    "这不是取整差，按真漂移处理",
+                    file=sys.stderr,
+                )
+                print(f"  不一致的语料：{', '.join(drift)}", file=sys.stderr)
+                return 1
             print("✗ 语料漂移：" + ", ".join(drift), file=sys.stderr)
-            print("  说明编码器或 ffmpeg 变了 —— 重跑一次并提交，别让判据对着过期的金标断言。", file=sys.stderr)
+            print(
+                f"  同一 ffmpeg 构建下仍不一致（最大差 {worst} 级 / {worst_name}）—— "
+                "重跑一次并提交，别让判据对着过期的金标断言。",
+                file=sys.stderr,
+            )
             return 1
-        print(f"✓ {len(cases)} 例金标与仓库一致（{len(committed)} 个文件）")
-        return 0
 
     with tempfile.TemporaryDirectory() as td:
         cases = _build(ff, FIX_DIR, Path(td))

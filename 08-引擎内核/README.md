@@ -22,7 +22,7 @@
 npm install
 npm run check            # tsc（strict）+ 1414 条判据 + 覆盖率闸门 <!-- n:tests -->
 npm run audit:errors     # 拒绝路径审计：JPEG 解码器 94 条 fail 分支里哪些真的被触发过
-npm run audit:mutation   # 变异校验：277 组注入，判据必须逐个变红 <!-- n:mutants -->
+npm run audit:mutation   # 变异校验：278 组注入，判据必须逐个变红 <!-- n:mutants -->
 npm run audit:docs       # 文档数字对账：判据/变异/测试文件/浏览器自检/JPEG 金标
 npm run test:browser     # 无头浏览器跑 selftest.html 的 14 条（无浏览器时退出码 2 = 跳过）
 npm run ci               # 全部闸门（10 步，含浏览器自检/外部金标/变异；--fast 跳过慢的那几步）
@@ -104,7 +104,7 @@ L0 foundation  Result · math · log · event · memory · time · random
 
 ## 当前状态
 
-- ✅ L0–L3 完整；**12 个后端** <!-- n:backends -->（gfx×2 / audio×2 / input×2 / fs×4（mem + 真实盘 + 只读 http + localStorage）/ script×2）；**1414 条判据全绿** <!-- n:tests -->（变异 277 组全被抓住 <!-- n:mutants -->）
+- ✅ L0–L3 完整；**12 个后端** <!-- n:backends -->（gfx×2 / audio×2 / input×2 / fs×4（mem + 真实盘 + 只读 http + localStorage）/ script×2）；**1414 条判据全绿** <!-- n:tests -->（变异 278 组全被抓住 <!-- n:mutants -->）
 - ✅ 2D 渲染管线（相机/精灵/批处理/确定性图集合成）· 2.5D 物理 · 确定性存档 · 跳时间结算
 - ✅ 世界生成：整数噪声 → 群系 → 架桥修复 → **世界指纹**（同种子必同指纹）+ 连通性校验
   （校验器用 `repair:false` 主动造出"到不了的陆地"来证明自己会报红，含 6 条变异）
@@ -130,11 +130,11 @@ L0 foundation  Result · math · log · event · memory · time · random
     + 8 例无损 9..16 位（liblj92 编解，**逐样本相等**）+ 8 位灰度（liblj92 与 Pillow 双外部对照）
     + **12 例 ffmpeg 独立金标**（`tests/fixtures/jpeg/ff/`，12 位 DCT 的第三方参照：灰度差 0..2 级、RGB 差 4 级）
   · 仍然没有外部实现的部分（分层、SOF11）用更强的内部判据：
-    四种有损过程解出**逐字节相同**像素、无损回环 max=0、12 位跨精度锚定到 8 位金标；277 组变异全被抓住 <!-- n:mutants -->
+    四种有损过程解出**逐字节相同**像素、无损回环 max=0、12 位跨精度锚定到 8 位金标；278 组变异全被抓住 <!-- n:mutants -->
   · 证据等级与代价见 [ADR-0009](docs/adr/0009-jpeg-decoder.md)
 - ✅ 浏览器宿主能跑，且**画面用真实资产**：`web/assets/` 5 张 PNG + **1 张 JPEG** 走完整导入链
   烘焙成图集（WASD + 砍树 + 存读档 + HUD + Lua 驱动的浆果漂浮 + 4 块 JPEG 立牌）
-- ✅ CI：`node tools/ci.mjs` 本地一条命令跑 13 道闸门 <!-- n:steps -->（类型 / 判据 / 覆盖率 / 文档对账 /
+- ✅ CI：`node tools/ci.mjs` 本地一条命令跑 14 道闸门 <!-- n:steps -->（类型 / 判据 / 覆盖率 / 文档对账 /
   拒绝路径审计 / PNG 语料 / JPEG 金标 / 浏览器包构建 / 浏览器自检 / 变异）；
   `.github/workflows/ci.yml` 只调用它，双 OS 矩阵
 - ✅ 浏览器端自检自动化：`npm run test:browser` 用无头 Chromium 跑那 14 条（无浏览器时**跳过并标注**，不算通过）

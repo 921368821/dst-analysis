@@ -884,7 +884,7 @@ MUTANTS = [
         #   否则它报的是"变异点没找到"（靶子漂移），而不是"文档对账抓住了它"。
         #   这也是"靶子漂移"这个分类存在的意义：它明确告诉你该改的是**变异表**，
         #   不是判据 —— 别去动 docs-check。
-        "pairs": [("### 10.4 13 道闸门", "### 10.4 12 道闸门")],
+        "pairs": [("### 10.4 14 道闸门", "### 10.4 13 道闸门")],
         "test": "docs/ARCHITECTURE.md",
         "cmd": ["node", "tools/docs-check.mjs", "--quick"],
     },
@@ -2575,6 +2575,23 @@ MUTANTS = [
             "      this.realRoot = realpathSync(this.root);",
         )],
         "test": "tests/backends/fs-node.test.ts",
+    },
+    {
+        "name": "M278 ARCHITECTURE 的闸门表漏掉一行（数字对得上，表对不上）",
+        # 2026-10-25 真实发生过：表里写着 10 行、`--list` 是 14 步，漏了整整 4 项，
+        # 而 `n:steps` 那个数字刚好对得上 ⇒ 对账一路绿。
+        # **数字对 ≠ 表对**：可以一边把标题里的数改对、一边留着过期的表格。
+        # 判据就是 docs-check 里那条"表行数必须等于 --list 步数"。
+        #
+        # ★ 靶子用**整行文本**而不是数字：M76 的靶子随闸门数漂移过四次
+        #   （10→11→12→13→14），每次都得改变异表。整行文本只在措辞改动时才需要跟。
+        "file": "docs/ARCHITECTURE.md",
+        "pairs": [(
+            "| 12 | 编辑器页自检 | 编辑器坏而运行时好（或反过来） | 与第 11 步分开，红的时候要一眼看出该谁修 |\n",
+            "",
+        )],
+        "test": "docs/ARCHITECTURE.md",
+        "cmd": ["node", "tools/docs-check.mjs", "--quick"],
     },
 ]
 

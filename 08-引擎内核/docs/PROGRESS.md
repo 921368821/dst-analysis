@@ -315,7 +315,7 @@ T355 遗留的三件事（只有一行 HUD、`amount` 固定 1、无丢弃）一
 | 架构守护 | 7 条依赖规则 | `tests/arch/layers.test.ts` |
 | 后端 | **12 个**（gfx×2 / audio×2 / input×2 / fs×4（mem / node / 只读 http / storage）/ script×2） | `ls src/backends` |
 | 扩展模块 | 9 个（render / physics / script / asset-import（含 decode） / worldgen / ai / build / inventory / input） | `ls src/extensions` |
-| 变异验证 | **277 组注入** <!-- n:mutants -->（全部被抓住且还原干净） | `python tools/mutation-check.py` |
+| 变异验证 | **278 组注入** <!-- n:mutants -->（全部被抓住且还原干净） | `python tools/mutation-check.py` |
 | 真实 PNG 语料 | 结构校验 **3423/3423**；完整解码 **3422/3423**（1 个源文件本身被截半）；其中隔行 18 / 调色板 6 / tRNS 4 / APNG 4 | `node tools/verify-png-corpus.mjs --all` |
 | 浏览器自检 | **40 条** <!-- n:browser -->（含"图集来自真实资产"、"图集 6 帧"含 1 张 JPEG） | `npm run build:web && npm run serve:web` |
 | 包体 | 公共入口 144KB（不含 wasmoon）/ 浏览器 522KB + wasm 266KB + 资产 9.3KB（新增 1 张 JPEG） | `esbuild src/index.ts` 对比 |
@@ -359,7 +359,7 @@ T355 遗留的三件事（只有一行 HUD、`amount` 固定 1、无丢弃）一
 | **headless ↔ 浏览器逐字节存档** | headless 侧两条独立实例已互证；浏览器侧只断言到"Lua 算得对 + 跨界日志可见" | 本机无浏览器自动化能力 ⇒ 阶段 2.5 |
 | ~~浏览器端自动化~~ | ✅ 已消除（2026-10-23）：`tools/browser-selftest.mjs` 走 CDP 无头驱动，40 条 <!-- n:browser --> 全部自动；**当初一接进来就发现这页从来没启动过**（缺 `#hud`/`#toast`） | 已完成 |
 | ~~`fs-node` 后端~~ | ✅ 已消除（2026-10-23）：真实盘落盘 + 沙箱 + 原子写，判据含**子进程重启读档** | 已完成 |
-| ~~无 CI~~ | ✅ 已消除（2026-10-23）：`node tools/ci.mjs` 本地一条命令跑全部 13 道闸门 <!-- n:steps -->；workflow 只负责调用它（双 OS 矩阵）。**注意：workflow 本身未在真 GitHub 上跑过** | 已完成（workflow 待首次真实运行） |
+| ~~无 CI~~ | ✅ 已消除（2026-10-23）：`node tools/ci.mjs` 本地一条命令跑全部 14 道闸门 <!-- n:steps -->；workflow 只负责调用它（双 OS 矩阵）。**注意：workflow 本身未在真 GitHub 上跑过** | 已完成（workflow 待首次真实运行） |
 
 ### P3 · 世界（阶段 3）
 
@@ -403,7 +403,7 @@ T355 遗留的三件事（只有一行 HUD、`amount` 固定 1、无丢弃）一
 |---|---|---|---|---|
 | E1 | `fs-node` 后端（存档落真实文件） | — | ∥ E3 | 重启进程后读回同一存档 |
 | E2 | 跨宿主逐字节存档（浏览器导出 → Node 比对） | E1 | — | 阶段 2 那条红判据转绿 |
-| E3 | ~~CI~~ ✅ 已完成：`tools/ci.mjs`（13 步 <!-- n:steps -->：类型 / 判据 / 覆盖率 / 文档 / 审计 / PNG 语料 / JPEG 金标 / 浏览器包构建 / 浏览器自检 / 变异） | — | ∥ E1 | 本机 `node tools/ci.mjs` 全绿 ✅（GitHub workflow 未验证） |
+| E3 | ~~CI~~ ✅ 已完成：`tools/ci.mjs`（14 步 <!-- n:steps -->：类型 / 判据 / 覆盖率 / 文档 / 审计 / PNG 语料 / JPEG 金标 / 浏览器包构建 / 浏览器自检 / 变异） | — | ∥ E1 | 本机 `node tools/ci.mjs` 全绿 ✅（GitHub workflow 未验证） |
 | E4 | 真跑一段 DST 5.1 脚本（从 `07-通用引擎` 取） | — | ∥ E1/E3 | 按报错逐条补垫片，缺口清单化 |
 | E5 | 文档 + 变异 + 提交 | 全部 | — | tsc 0 / 全绿 / 全部变异被抓住（与 E3 同一口径） |
 

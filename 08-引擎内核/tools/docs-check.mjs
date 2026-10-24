@@ -310,6 +310,40 @@ for (let k = 1; k <= nums.length; k++) {
   }
 }
 
+/**
+ * ★ 「下表与 `ci.mjs --list` 逐行对应」这句话本身要有人守。
+ *
+ *   2026-10-25 实测：ARCHITECTURE 的闸门表写着 **10 行**，而 `--list` 说是 **14 步** ——
+ *   漏了物理性能闸门、编辑器页自检、跨宿主存档比对、JPEG 三分自检整整 4 项。
+ *   而 `n:steps` 那个数字刚好对得上（14 == 14），所以对账一路绿。
+ *   **数字对 ≠ 表对**：可以一边把标题里的数改对、一边留着过期的表格。
+ *   识别这类"写在墙上的判据"只能靠机器数行数。
+ */
+{
+  const lines = readFileSync(join(ROOT, "docs", "ARCHITECTURE.md"), "utf8").split("\n");
+  const anchor = lines.findIndex((l) => l.includes("与 `node tools/ci.mjs --list` 逐行对应"));
+  if (anchor < 0) {
+    problems.push("ARCHITECTURE.md 找不到「与 ci.mjs --list 逐行对应」这句锚点 —— 闸门表被删了？");
+  } else {
+    const rows = [];
+    for (let i = anchor + 1; i < lines.length; i++) {
+      const m = /^\|\s*(\d+)\s*\|/.exec(lines[i]);
+      if (m !== null) rows.push(Number(m[1]));
+      else if (rows.length > 0) break;
+    }
+    if (rows.length !== steps) {
+      problems.push(
+        `ARCHITECTURE.md 的闸门表 ${rows.length} 行，而 ci.mjs --list 是 ${steps} 步 —— 「逐行对应」不成立了`,
+      );
+    } else {
+      const wrong = rows.findIndex((n, i) => n !== i + 1);
+      if (wrong >= 0) {
+        problems.push(`闸门表编号不连续：第 ${wrong + 1} 行写的是 ${rows[wrong]}`);
+      }
+    }
+  }
+}
+
 console.log(
   `实际：判据 ${tests} · 变异 ${mutantIds.length} 组（M1..M${nums[nums.length - 1] ?? 0}）· 测试文件 ${files} · 浏览器自检 ${browser} · JPEG 金标 ${jpegGold} 例 · 后端 ${actual.backends} · CI ${actual.steps} 步`,
 );
