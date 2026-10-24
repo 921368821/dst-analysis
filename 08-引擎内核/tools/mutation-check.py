@@ -16,7 +16,12 @@ import sys
 import pathlib
 from datetime import datetime
 
-ROOT = pathlib.Path(r"E:/game_make/25d/DST-Analysis/08-引擎内核")
+# ★ 不能硬编码本机绝对路径。原先写死 `E:/game_make/.../08-引擎内核`，
+#   在 Linux runner 上**每一条 m["test"] 都不存在**，被报成「判据文件不存在」——
+#   那句话的意思是"配置写错了"，而真相是"这个脚本一次都没在 CI 上跑起来过"。
+#   2026-10-25：修好前它一直排在最后一步，前面总有别的红挡着，所以从没暴露。
+#   从脚本自身位置反推：tools/mutation-check.py → 引擎根。
+ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 MUTANTS = [
     {
