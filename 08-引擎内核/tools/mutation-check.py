@@ -2580,6 +2580,9 @@ MUTANTS = [
             "      this.realRoot = realpathSync(this.root);",
         )],
         "test": "tests/backends/fs-node.test.ts",
+        # 判据本身是 Windows-only（非 Windows 上大写变体指向另一个目录，放行会假绿），
+        # 所以平台域外**不许报成「假绿」** —— 那不是判据没牙齿，是环境不具备。
+        "platforms": ["win32"],
     },
     {
         "name": "M278 ARCHITECTURE 的闸门表漏掉一行（数字对得上，表对不上）",
@@ -2631,6 +2634,8 @@ def run(m: dict) -> tuple[int, str]:
 
 
 results = []
+# 因**平台域**而不适用的条目（判据自身带平台条件，不是"没牙齿"）。单独记账，别混进失败。
+skipped_by_platform: list[str] = []
 
 # ★ 运行期间测试文件被改动 → 本次结论作废。
 #   这条也是踩出来的：一边跑变异、一边往测试文件里加用例，
@@ -2807,6 +2812,22 @@ _take_lock()
 try:
     for m in MUTANTS:
         f = ROOT / m["file"]
+        # ★★ 判据可以有**明确的平台域**，变异校验必须认识它，否则会报假「假绿」。
+        #
+        #   2026-10-25 第十轮实测：`✗ 未通过 1 条：M277(假绿)`。
+        #   M277 的判据（root 大小写与盘上不一致）是 **Windows-only** ——
+        #   非 Windows 上大写变体指向的是另一个目录，放行会假绿，所以判据主动 skip。
+        #   于是变异后 0 失败 ⇒ 被归进「判据假绿」。
+        #   但**判据没有分辨力**和**环境不具备**是两件事，混在一起会让人去改一条
+        #   本来正确的判据（和 `_missing_tests` 那次"配置错被报成判据失效"同一类）。
+        #
+        #   所以：条目声明 `platforms` 后，域外**根本不跑**，并单独列出。
+        #   ★ 这不是逃生门 —— 只有判据自身真的带平台条件时才配声明它，
+        #     否则就是拿平台当借口不测。
+        want = m.get("platforms")
+        if want is not None and sys.platform not in want:
+            skipped_by_platform.append(m["name"])
+            continue
         # ★ 行尾三口径（2026-10-24，一次改对）：
         #   ① **匹配**在归一化 LF 的文本上做 —— 靶子全部按 LF 写，而仓库里
         #      CRLF / LF 文件都有（`git config core.autocrlf` 与编辑器各写各的）；
@@ -2881,6 +2902,11 @@ for name, detail, n_fail, after in results:
 print("=" * 70)
 if all_ok:
     print("全部变异均被抓住且还原干净")
+    if skipped_by_platform:
+        print(
+            f"· {len(skipped_by_platform)} 条因平台不适用而跳过（判据自身带平台域，不是假绿）："
+            + "、".join(n.split(" ")[0] for n in skipped_by_platform)
+        )
 else:
     # ★ 失败清单必须打在**最后几行**：CI 只回显尾部 12 行，
     #   而"有变异未被抓住"这句话本身不含任何可行动信息 ——
@@ -2909,4 +2935,9 @@ else:
         for name in lst:
             print(f"  · [{label}] {name}")
     print("（'靶子漂移' = 代码重构后变异点不存在了，要重新指认，不是放宽标准；'假绿' = 判据对这类改动没有分辨力）")
+    if skipped_by_platform:
+        print(
+            f"· 另有 {len(skipped_by_platform)} 条因平台不适用而跳过（判据自身带平台域，不是假绿）："
+            + "、".join(n.split(" ")[0] for n in skipped_by_platform)
+        )
 sys.exit(0 if all_ok else 1)
