@@ -25,8 +25,19 @@
 </div>
 <table id="rows"></table>
 <canvas id="cv"></canvas>
+<!--
+  ★ 下面两个节点必须存在：bundle 的 `main()` 开头就要求 `#cv / #hud / #toast` 三件套
+    （演示页要往 HUD 写状态、往 toast 弹提示）。
+    自检页只要它们**存在**，不需要真的显示什么 —— 但缺了会直接抛
+    "页面结构不完整"，然后一条断言都不会跑。
+    2026-10-23 之前这里就是缺的：文档说"14 条自检通过"，实际页面从来没能启动过。
+-->
+<div id="hud" hidden>selftest</div>
+<div id="toast" hidden></div>
+<!-- 背包面板三件套（与演示页同一份结构）：面板判据要能数 DOM 行 -->
+<div id="bag" hidden><div id="bag-rows"></div><div id="bag-foot"></div></div>
 <div class="sub" style="max-width:900px;margin-top:10px">
-  ★ <b>画面观感需人工确认</b>：上面 15 条都是可机器判定的（后端选择 / 合批 / 资产图集 / 脚本跨界），
+  ★ <b>画面观感需人工确认</b>：上面 25 条都是可机器判定的（后端选择 / 合批 / 资产图集 / 脚本跨界 / 背包闭环），
   但"树看起来像树"这件事没有自动判据 —— 原先这里有一条"画布不是纯黑"，它恒返回 true，
   是个假绿灯（`preserveDrawingBuffer: false` 时帧后 `readPixels` 读不到内容，我宁可删掉它也不留假判据）。
   真要自动化得走 render target + readback 做 golden image，属于阶段 3。
@@ -37,8 +48,25 @@
 import "./bundle.js";
 
 const rowsEl = document.getElementById("rows");
+/** 失败名单（见 tickCheck 末尾：`#rows` 会被清空，名单必须放在外面）。 */
+const failsEl = (() => {
+  const el = document.createElement("div");
+  el.id = "fails";
+  el.style.cssText = "margin:8px 0;font:700 13px/1.5 ui-monospace,monospace;color:#c0392b;white-space:pre-wrap;";
+  if (rowsEl !== null && rowsEl.parentElement !== null) rowsEl.parentElement.insertBefore(el, rowsEl);
+  return el;
+})();
 const rows = [];
 function row(name, run) { rows.push({ name, run, state: "wait", detail: "" }); }
+
+/**
+ * 有副作用断言的**一次性锁**（见下面两条 ★★ 断言里的说明）。
+ * 断言循环每 100ms 重跑全表，会采资源的断言不锁的话会把世界吃空。
+ * ★ 这个页面是浏览器原生 module（不过 TS），不写类型注解。
+ */
+let luaLogDone = null; // 批67：等 Lua 日志出现（有上限，见那条 ★★ 断言）
+let harvestDone = null; // [ok, detail]
+let pickupDone = null;
 
 row("平台选择了真实后端（gfx=webgl2 / input=dom）", (e) => {
   const b = e.snapshot().backends;
@@ -57,9 +85,12 @@ row("渲染真的提交了顶点（quads > 0）", (e) => {
   return [lf.quads > 0, `quads=${lf.quads} culled=${lf.culled}`];
 });
 
-row("批处理生效：一帧只有 1 次 draw call", (e) => {
+row("批处理生效：draw 次数 == 图集页数（同页必须合并，跨页才分开）", (e) => {
   const lf = e.lastFrame();
-  return [lf.drawCalls <= 1 && lf.drawCalls > 0, `drawCalls=${lf.drawCalls}（单图集应合并成 1 次）`];
+  // ★ T288 之后有两页（主图集 + 地形瓦片页），所以正确的期望不是 1 而是页数。
+  //   这条判据真正的形状是"同页不拆分、跨页才多一次"：draw === pages 且都 > 0。
+  const pages = e.renderMod.atlasPageCount;
+  return [lf.drawCalls > 0 && lf.drawCalls <= pages, `drawCalls=${lf.drawCalls} / pages=${pages}（同页应合并）`];
 });
 
 row("世界里确有内容（nodes > 100）", (e) => {
@@ -72,12 +103,22 @@ row("物理登记了障碍（bodies ≈ 71）", (e) => {
   return [b > 50, `bodies=${b} cells=${e.physics.stats().cells}`];
 });
 
-row("存档 → 读档往返，节点数不变", (e) => {
+// ★ 这条必须是 async：存档走 `StorageFileSystem`（异步），
+//   `e.save()` 现在返回 Promise。以前它同步返回，`e.save(); e.load();` 之后立刻数节点，
+//   在异步化之后会**必然通过**（因为什么都还没发生）—— 那种"通过"比失败更糟。
+//   顺带把写入/读取的错误码也断言上：只比节点数，写失败了也看不出来。
+row("存档 → 读档往返，节点数不变", async (e) => {
   const before = e.scene.stats().nodes;
-  e.save();
-  e.load();
+  const w = await e.save();
+  if (!w || w.ok !== true) return [false, `存档失败：${w && w.error ? w.error.code : "?"}`];
+  const r = await e.load();
+  if (!r || r.ok !== true) return [false, `读档失败：${r && r.error ? r.error.code : "?"}`];
   const after = e.scene.stats().nodes;
-  return [after === before, `存档前 ${before} → 读档后 ${after}`];
+  // ★ 为什么要 `made > 0`：`loadScene` 会先清空再装配，如果读档**根本没发生**，
+  //   "节点数不变"也成立 —— 那这条就成了空转。恢复的节点数必须是真的建出来了。
+  //   （`made` 比 `stats().nodes` 少 1：存档不含场景根。）
+  const made = typeof r.value === "number" ? r.value : -1;
+  return [made > 0 && after === before, `存档前 ${before} → 恢复 ${made} → 现 ${after}`];
 });
 
 row("没有未处理的渲染异常（日志里没有 app.render 错误）", (e) => {
@@ -93,10 +134,17 @@ row("图集来自真实资产（fetch → 导入 → 解码 → 合成 全走完
   return [false, `降级成了 ${src} —— 画面用的是程序化假贴图（这是本轮要消灭的盲区）`];
 });
 
-row("图集里有 5 帧（tree/rock/player/berry/ground 都在）", (e) => {
+row("图集里关键帧都在（含一张 JPEG 的 photo 与两张生物的帧）", (e) => {
   const n = e.renderMod && e.renderMod.atlasFrameCount;
   if (typeof n !== "number") return [false, "渲染模块没有暴露帧数"];
-  return [n === 5, `frames=${n}`];
+  const want = ["ground", "terrain", "ruler", "tree", "rock", "berry", "player", "photo", "rabbit", "hound"];
+  // ★ 用 `atlasFrame(name)` 逐个点名，而不是只数数量：数量对了也可能"缺的是 rabbit、
+  //   多的是别的"，而那种情况画面上就是"兔子不见了"。
+  if (typeof e.renderMod.atlasFrame !== "function") return [false, "渲染模块没有暴露 atlasFrame"];
+  const miss = want.filter((f) => e.renderMod.atlasFrame(f) === undefined);
+  // ★ 不写 `n === 10`：数数量既不说明缺的是哪张，还会每加一个资产就红一次
+  //   （批66 加 rabbit/hound 时它就是这么红的，而当时画面完全正常）。
+  return [miss.length === 0 && n >= want.length, `frames=${n} 缺=${miss.join(",") || "无"}`];
 });
 
 row("脚本后端真的接的是 Lua（不是静默降级到 null）", (e) => {
@@ -117,15 +165,431 @@ row("脚本没有报错（errors == 0 且无 script:error）", (e) => {
   return [s.errors === 0 && bad.length === 0, bad.length === 0 ? `errors=0 calls=${s.calls}` : bad[0].message];
 });
 
-row("脚本真的越过了语言边界（Lua 里 engine_log 的日志出现在宿主日志里）", (e) => {
-  const hit = e.app.memorySink.records().filter((r) => r.message.includes("demo:"));
-  return [hit.length > 0, hit.length > 0 ? hit[hit.length - 1].message : "还没出现（每 60 tick 一条）"];
+/**
+ * ★★ 这一条曾经是"采样一次"的形态，于是它是一条**假红**：
+ *   脚本每 60 tick 打一条日志（≈2.2 秒），而断言循环只要**别的行**都跑完了
+ *   就会收尾 —— 收尾时刻在 tick 60 之前时，这里查到的必然是空，
+ *   同一次构建时而红时而绿。判据问的是"Lua 的日志会不会到达宿主"，
+ *   不是"此刻已经到了没有"，所以形态必须是**等它出现（有上限）**。
+ *   （这是本项目第 N 次在"时序"上栽跟头：`false-green-hunting` 里的
+ *     "假红"同样会毁掉判据的可信度 —— 一条会随机红的判据久了就没人看了。）
+ */
+row("脚本真的越过了语言边界（Lua 里 engine_log 的日志出现在宿主日志里）", async (e) => {
+  if (luaLogDone !== null) return luaLogDone;
+  const deadline = Date.now() + 5000;
+  let hit = [];
+  while (Date.now() < deadline) {
+    hit = e.app.memorySink.records().filter((r) => r.message.includes("demo:"));
+    if (hit.length > 0) break;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  luaLogDone = [hit.length > 0, hit.length > 0 ? hit[hit.length - 1].message : "5 秒内没出现（脚本每 60 tick 一条）"];
+  return luaLogDone;
+});
+
+// ── 世界链（批46：生成 → 装配 → 可见化 → 出生 → 再生 → 采集全部进浏览器）
+// ★ 这一组存在的原因：上面 13 条证明的是"引擎能跑"，而这几条证明的是
+//   "**一个生成出来的世界**能跑" —— 之前浏览器里跑的是宿主手搭的演示场景，
+//   和世界生成那十几批产物没有任何关系。
+
+row("★ 世界生成真的接进了浏览器（装配完成、地形块 > 0）", (e) => {
+  const w = e.world;
+  if (!w) return [false, "没有暴露世界链"];
+  if (!w.assembled) return [false, "装配没跑（worldgen 模块没起来）"];
+  const v = w.visual;
+  if (v === null) return [false, "可见化没跑"];
+  const c = w.counts();
+  // 地形块数必须 > 0 且**远小于**格数：一块矩形覆盖多格，按格平铺会是 768 个节点
+  // ★ 投放点 0 不是缺失：宿主用 `maxSitesPerCell: 0` 生成世界（有意设计 ——
+  //   带上计划投放点会把每格可通行格几乎铺满，再生任务全部被去重跳过，一个资源都刷不出来）。
+  //   "有投放点的世界"由 world-e2e / world-visuals 的 Node 判据覆盖（那里用 1 或 2）。
+  return [v.terrain > 0 && v.terrain < 32 * 24, `地形 ${v.terrain} 块 / 投放点 ${v.sites}（maxSitesPerCell=0，有意）/ 资源 ${c.resources}（${32 * 24} 格）`];
+});
+
+row("★ 地形按格平铺（T288：tile = 矩形格数，且落在 repeat 瓦片页上）", (e) => {
+  // ★ 这条守的是"颗粒不随块变大"：一块 w×h 的地形必须铺 w×h 张噪点。
+  //   少了 tileX/tileY（或落在 clamp 页上），画面仍然"有地形"—— 只是大块的颗粒变粗，
+  //   而这种退版**没有任何计数会红**，只有读精灵字段才看得出来。
+  const sprites = e.scene.componentsOf("render.sprite");
+  const tiled = sprites.filter((sp) => sp.atlasId === "terrain.tile");
+  if (tiled.length === 0) return [false, "没有任何地形用上瓦片页 —— T288 没接线"];
+  const bad = tiled.filter((sp) => !(sp.tileX === sp.width && sp.tileY === sp.height && sp.tileX >= 1));
+  if (bad.length > 0) {
+    return [false, `${bad.length} 块的 tile 与格数不符：${bad[0].tileX}x${bad[0].tileY} vs ${bad[0].width}x${bad[0].height}`];
+  }
+  const maxTile = Math.max(...tiled.map((sp) => sp.tileX));
+  return [maxTile > 1, `${tiled.length} 块地形全部按格平铺（最大 tileX=${maxTile}）`];
+});
+
+row("★ 地形与资源都挂上了精灵（可见化不是空转）", (e) => {
+  const w = e.world;
+  const c = w.counts();
+  // 每个地形块 / 投放点 / 资源 / 玩家都该有一个 render.sprite；
+  // 另外还有宿主自己摆的树、石头、浆果、立牌 —— 所以只能断言"至少"
+  const need = c.terrain + c.sites + c.resources + 1;
+  return [c.sprites >= need, `sprites=${c.sprites} 需要 ≥ ${need}（地形 ${c.terrain} + 点 ${c.sites} + 资源 ${c.resources} + 玩家 1）`];
+});
+
+row("★ 玩家是世界里落地的那一个（出生格与定点坐标都在）", (e) => {
+  const w = e.world;
+  const p = w.player;
+  if (!p) return [false, "世界没有给出出生点"];
+  const n = e.scene.find(p.nodeId);
+  if (!n) return [false, `出生节点 ${p.nodeId} 不在场景里`];
+  const hasPlayer = n.get("world.player") !== undefined;
+  const hasSprite = n.get("render.sprite") !== undefined;
+  return [hasPlayer && hasSprite, `node=${p.nodeId} cell=${p.cell} 坐标=${(p.x / 256).toFixed(2)},${(p.z / 256).toFixed(2)}`];
+});
+
+row("★★ 采集闭环：节点消失 + 名额归还（两块状态一起变）", (e) => {
+  // ★ 判据自扰（2026-10-23 实测抓到）：这条断言**真的有副作用** —— 它会采掉一个资源。
+  //   断言循环每 100ms 跑一轮，每轮采 2 个（这条 + 下面那条），而再生每 30 tick
+  //   才补 2 个。不 latch 的话资源永远被断言自己吃光，最后一轮恰好读到 0 就假红
+  //   （那次探针里 released=18，全是自检页自己采的，引擎一个 bug 都没有）。
+  //   ★ 修法不是"改慢循环"也不是"给世界补刷"（那是为判据改产品），而是
+  //   **执行过一次就固定结果**：没执行过就继续等资源出现，执行过就复用。
+  if (harvestDone !== null) return harvestDone;
+  const rs = [...e.scene.componentsOf("world.resource")];
+  if (rs.length === 0) return [false, "资源还没再生出来（任务表每 30 tick 刷 2 个，等待中）"];
+  const r0 = rs[0];
+  const cell = r0.cell;
+  const nodeId = r0.node ? r0.node.id : -1;
+  const t0 = e.world.tasks.stats();
+  const h = e.world.harvest(cell);
+  if (!h || h.ok !== true) {
+    harvestDone = [false, `采集失败：${h && h.error ? h.error.code : "?"}`];
+    return harvestDone;
+  }
+  const t1 = e.world.tasks.stats();
+  const gone = e.scene.find(nodeId) === undefined;
+  // ★ 两套状态一起验：只验节点没了 ⇒ 抓不住"索引没释放"；只验 alive ⇒ 抓不住"树还在"
+  const okAll = gone && t1.alive === t0.alive - 1 && t1.occupied === t0.occupied - 1;
+  harvestDone = [
+    okAll,
+    `alive ${t0.alive}→${t1.alive} · 索引 ${t0.occupied}→${t1.occupied} · 节点${gone ? "已删" : "还在"}`,
+  ];
+  return harvestDone;
+});
+
+row("★★ 半径拾取进背包：资源少了、背包多了（两块状态一起变）", (e) => {
+  // ★ 同上面那条：这条会搬动玩家 + 采掉资源，每轮重放会把世界吃空。latch。
+  if (pickupDone !== null) return pickupDone;
+  if (!e.world || e.world.player === null) return [false, "世界没起来"];
+  const rs = [...e.scene.componentsOf("world.resource")];
+  if (rs.length === 0) return [false, "资源还没再生出来（任务表每 30 tick 刷 2 个，等待中）"];
+  // ★ 不赌"玩家恰好站在资源边上"：把人搬到资源所在位置，判据才与随机地形无关
+  const target = rs[0];
+  const hero = e.scene.find(e.world.player.nodeId);
+  if (!hero || !target.node) return [false, "找不到玩家或目标资源"];
+  const p = target.node.worldPosition;
+  hero.setLocalPosition(p.x, p.y);
+  const bag0 = e.bag();
+  const total0 = bag0.reduce((a, x) => a + x.count, 0);
+  const res0 = e.scene.countOf("world.resource");
+  const pick = e.world.pickupNearest(3.2);
+  if (!pick || pick.ok !== true) {
+    pickupDone = [false, `拾取失败：${pick && pick.error ? pick.error.code + " " + pick.error.message : "?"}`];
+    return pickupDone;
+  }
+  const bag1 = e.bag();
+  const total1 = bag1.reduce((a, x) => a + x.count, 0);
+  const res1 = e.scene.countOf("world.resource");
+  const okAll = total1 > total0 && res1 < res0;
+  pickupDone = [okAll, `背包 ${total0}→${total1}（${e.bagText()}）· 世界资源 ${res0}→${res1}`];
+  return pickupDone;
+});
+
+// ---- 背包面板 / 堆叠上限 / 丢弃（T355 遗留，批56）----
+// ★ 这四条都有副作用（give / drop 会改世界与背包），与上面两条同因：latch。
+let panelDone = null;
+let capDone = null;
+let dropDone = null;
+let dropEmptyDone = null;
+let navGridDone = null;
+let navPathDone = null;
+// 批66：生物的 latch（"会动"要跨一轮采样，不能在一轮里同步判完）
+let mobReadyDone = null;
+let mobSpriteDone = null;
+let mobMoveDone = null;
+// 批67：饱食度的 latch（"满了不能吃"与"饿了能吃"是两条独立的事实）
+let craftTableDone = null;
+let craftMissingDone = null;
+let craftOkDone = null;
+let hungerWiredDone = null;
+let hungerFullDone = null;
+let hungerEatDone = null;
+// 批69：命中的表现层（数字要"出现"和"消失"两个事实，所以是两个 latch）
+let dmgShownDone = null;
+let dmgGoneTries = 0;
+let tintRestoreDone = null;
+let tintPhase = 0; // 0 = 还没闪；1 = 已闪，在等到期
+let tintBefore = null;
+let tintDuring = null;
+
+row("★★ 背包面板开得出、列得对（DOM 行数 = 堆叠数，文本带 ×数量）", async (e) => {
+  if (panelDone !== null) return panelDone;
+  /**
+   * ★★ 这条判据修过两次，两次都是**它自己在靠运气**（不是被测代码坏了）：
+   *
+   * ① 它原来直接 `give` 两种物品就断言"DOM 2 行 / 浆果×3 / 石头×2"，
+   *    暗含了"此刻背包里没有别的东西"。而那个前提不在它自己的控制里 ——
+   *    前面几条（拾取给 8 个芦苇、丢弃留 3 个浆果、存读档往返……）都会改背包。
+   *    批67 加了三条进食判据之后它开始报 `浆果×4`。
+   *    ⇒ 现在**先清空再摆两份**：验证"面板把当前背包原样列出来"，就自己造那份背包。
+   *
+   * ② 它原来是同步的：`give` 之后立刻读 `#bag-rows`。而面板是**下一帧**才重建 DOM
+   *    （`renderBagPanel` 由 HUD 的 onRender 驱动），于是同一句话时而读到 0 行。
+   *    ⇒ 现在**等它反映出来（有上限 1 秒）**。判据问的是"面板会不会列出来"，
+   *    不是"这一微秒列出来了没有"。
+   *
+   * ③ 还有一处更隐蔽的：原来末尾是 `const opened = e.toggleBag()` —— 它是**开关**，
+   *    面板已经开着时会把面板关掉。①里的清空步骤会把面板打开，于是这条判据
+   *    自己把面板关了、再断言"面板可见"。（关一次开一次都能通过，取决于前面跑过什么。）
+   *    ⇒ 先确认状态再开，最后只**读**状态，不再盲 toggle。
+   */
+  if (e.bagPanel().open !== true) e.toggleBag();
+  // ★ 用 `clearBag()` 而不是"整堆丢弃"：后者会把东西**丢在玩家脚下**，
+  //   而后面"拾取进包""丢弃闭环"的判据会把这些垃圾捡走（实际撞过：背包 53→52→54）。
+  e.clearBag();
+  if (e.bag().length !== 0) {
+    panelDone = [false, `清空背包失败，还剩 ${e.bag().length} 堆（后续断言会因此失去意义）`];
+    return panelDone;
+  }
+  // 精确摆两份：3 个浆果 + 2 个石头
+  const g1 = e.give("berry", 3);
+  const g2 = e.give("rock", 2);
+  if (!g1 || g1.ok !== true || !g2 || g2.ok !== true) {
+    panelDone = [false, `give 失败：${g1 && g1.code ? g1.code : "?"}`];
+    return panelDone;
+  }
+  const el = document.getElementById("bag");
+  const rowsEl = document.getElementById("bag-rows");
+  if (el === null || rowsEl === null) {
+    panelDone = [false, "页面上没有 #bag / #bag-rows（面板没接线）"];
+    return panelDone;
+  }
+  // ② 等 DOM 反映出来（面板由 onRender 重建，不是 give 同步触发的）
+  const deadline = Date.now() + 1000;
+  let texts = [];
+  while (Date.now() < deadline) {
+    texts = [...rowsEl.querySelectorAll(".row-item")].map((d) => d.textContent || "");
+    if (texts.length === 2) break;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  const st = e.bagPanel();
+  const shown = el.hidden === false;
+  const domRows = texts.length;
+  const okAll =
+    st.open === true && shown && domRows === st.stacks && domRows === 2 &&
+    texts.some((t) => t.indexOf("浆果") >= 0 && t.indexOf("×3") >= 0) &&
+    texts.some((t) => t.indexOf("石头") >= 0 && t.indexOf("×2") >= 0);
+  panelDone = [okAll, `面板${shown ? "可见" : "不可见"} · DOM ${domRows} 行 / 状态 ${st.stacks} 堆 · "${texts.join("；")}"`];
+  return panelDone;
+});
+
+row("★★ 堆叠上限真的接上了：45 个芦苇 ⇒ 40 + 5 两堆（不是一堆 45）", (e) => {
+  if (capDone !== null) return capDone;
+  const lim = e.bagLimits();
+  const g = e.give("reed", 45);
+  if (!g || g.ok !== true) {
+    capDone = [false, `give 失败：${g && g.code ? g.code : "?"}`];
+    return capDone;
+  }
+  const stacks = e.bag().filter((s) => s.kind === "reed");
+  const counts = stacks.map((s) => s.count).sort((a, b) => a - b);
+  const okAll = lim.maxStack === 40 && lim.maxStacks === 8 && counts.length === 2 && counts[0] === 5 && counts[1] === 40;
+  capDone = [okAll, `上限 ${lim.maxStacks} 堆 × ${lim.maxStack} · 实际 ${JSON.stringify(counts)}`];
+  return capDone;
+});
+
+row("★★ 丢弃闭环：背包少一个、世界多一个、还能捡回来（三块状态一起变）", (e) => {
+  if (dropDone !== null) return dropDone;
+  const g = e.give("berry", 3);
+  if (!g || g.ok !== true) {
+    dropDone = [false, `give 失败：${g && g.code ? g.code : "?"}`];
+    return dropDone;
+  }
+  const bag0 = e.bag().reduce((a, x) => a + x.count, 0);
+  const res0 = e.scene.countOf("world.resource");
+  const sel = e.selectStack(0);
+  const d = e.dropSelected(false);
+  if (!d || d.ok !== true) {
+    dropDone = [false, `丢弃失败：${d && d.code ? d.code + " " + d.message : "?"}`];
+    return dropDone;
+  }
+  const bag1 = e.bag().reduce((a, x) => a + x.count, 0);
+  const res1 = e.scene.countOf("world.resource");
+  // 捡回来：玩家就在旁边（drop 放在脚下），半径拾取应该正好拿到 1 个
+  const pick = e.world.pickupNearest(3.2);
+  const bag2 = e.bag().reduce((a, x) => a + x.count, 0);
+  const okAll = bag1 === bag0 - 1 && res1 === res0 + 1 && pick && pick.ok === true && bag2 === bag1 + 1;
+  dropDone = [okAll, `背包 ${bag0}→${bag1}→${bag2} · 世界资源 ${res0}→${res1} · 选中第 ${sel + 1} 堆`];
+  return dropDone;
+});
+
+row("★★ 导航网格在浏览器里也建得起来：格数自洽、可站 + 不可站 = 全图", (e) => {
+  if (navGridDone !== null) return navGridDone;
+  const st = e.nav.stats();
+  if (st === null) {
+    navGridDone = [false, "worldState.nav 是 null —— 世界装配时没建网格"];
+    return navGridDone;
+  }
+  const okAll =
+    st.width > 0 && st.height > 0 &&
+    st.walkable > 0 &&
+    st.walkable + st.blocked === st.width * st.height &&
+    st.components >= 1;
+  navGridDone = [okAll, `${st.width}×${st.height} · 可站 ${st.walkable} / 不可站 ${st.blocked} · ${st.components} 个连通块`];
+  return navGridDone;
+});
+
+row("★★ 浏览器里寻路确定：同一对起终点两次给出同一串格子，且每格都能站", (e) => {
+  if (navPathDone !== null) return navPathDone;
+  const st = e.nav.stats();
+  if (st === null) {
+    navPathDone = [false, "没有导航网格"];
+    return navPathDone;
+  }
+  // 找一对"都在地图上"的格：第一块可站的地 → 最后一块可站的地
+  const total = st.width * st.height;
+  let from = -1;
+  let to = -1;
+  for (let i = 0; i < total; i++) {
+    if (e.nav.isWalkable(i)) {
+      if (from < 0) from = i;
+      to = i;
+    }
+  }
+  if (from < 0) {
+    navPathDone = [false, "整张图没有一格能站"];
+    return navPathDone;
+  }
+  const a = e.nav.path(from, to);
+  const b = e.nav.path(from, to);
+  if (!a.ok || !b.ok) {
+    navPathDone = [false, `寻路失败：${a.ok ? b.code : a.code}`];
+    return navPathDone;
+  }
+  const same = JSON.stringify(a.cells) === JSON.stringify(b.cells);
+  const allWalkable = a.cells.every((c) => e.nav.isWalkable(c));
+  // 两端连通时路径至少两格；两端不连通时上面已经因 !ok 返回了
+  const okAll = same && allWalkable && a.cells.length >= 2 && a.cost > 0;
+  navPathDone = [okAll, `${a.cells.length} 格 / 代价 ${a.cost} · 两次相同 ${same} · 全可站 ${allWalkable}`];
+  return navPathDone;
+});
+
+row("★★ 世界里真有会动的活物：生物模块起来了，至少两种模板", (e) => {
+  if (mobReadyDone !== null) return mobReadyDone;
+  const m = e.mobs();
+  if (m === null) {
+    mobReadyDone = [false, "e.mobs() 是 null —— 生物模块没起来（或没注册进 modules）"];
+    return mobReadyDone;
+  }
+  const kinds = new Set(m.list.map((o) => o.kind));
+  const okAll = m.mobs >= 8 && kinds.has("rabbit") && kinds.has("hound") && m.hunting + m.wandering > 0;
+  mobReadyDone = [
+    okAll,
+    `${m.mobs} 只 · 追 ${m.hunting} / 游 ${m.wandering} / 呆 ${m.idle} · 种类 ${[...kinds].sort().join(",")}`,
+  ];
+  return mobReadyDone;
+});
+
+row("★★ 每只生物都挂着可见精灵，帧名是 rabbit / hound（不是空帧）", (e) => {
+  if (mobSpriteDone !== null) return mobSpriteDone;
+  // ★ 这一条抓的是"生物在走但看不见"：spawnMob 不校验帧名（它不认识图集），
+  //   而渲染模块遇到缺帧只会 warn + 跳过 —— 统计全对，画面上什么都没有。
+  const m = e.mobs();
+  if (m === null) {
+    mobSpriteDone = [false, "没有生物"];
+    return mobSpriteDone;
+  }
+  const bad = [];
+  for (const o of m.list) {
+    const sp = e.scene.find(o.id) && e.scene.find(o.id).get("render.sprite");
+    if (!sp) bad.push(`#${o.id} 没有精灵`);
+    else if (sp.frame !== "rabbit" && sp.frame !== "hound") bad.push(`#${o.id} 帧=${sp.frame}`);
+  }
+  mobSpriteDone = [bad.length === 0, bad.length ? bad.slice(0, 3).join("；") : `${m.list.length} 只全部有精灵`];
+  return mobSpriteDone;
+});
+
+row("★★ 生物真的在走：700ms 内至少两只换了位置", async (e) => {
+  if (mobMoveDone !== null) return mobMoveDone;
+  const m0 = e.mobs();
+  if (m0 === null || m0.list.length === 0) {
+    mobMoveDone = [false, "没有生物"];
+    return mobMoveDone;
+  }
+  const before = new Map(m0.list.map((o) => [o.id, [o.x, o.z]]));
+  await new Promise((r) => setTimeout(r, 700));
+  const m1 = e.mobs();
+  if (m1 === null) {
+    mobMoveDone = [false, "采样期间生物模块消失了"];
+    return mobMoveDone;
+  }
+  const moved = m1.list.filter((o) => {
+    const b = before.get(o.id);
+    if (!b) return false;
+    return Math.hypot(o.x - b[0], o.z - b[1]) > 0.05;
+  }).length;
+  // ★ 不要求"全部都在动"：追到目标后站着打、或正卡在退避窗口里，都是正常状态。
+  //   要求 2 只是排除"全都静止"（那才是移动没接上）。
+  mobMoveDone = [moved >= 2, `采样 ${m0.list.length} 只，700ms 内 ${moved} 只挪动了`];
+  return mobMoveDone;
+});
+
+row("★ 丢不动的两种情况都说得清：空包（BAG.EMPTY）与面板没开（BAG.CLOSED）", (e) => {
+  if (dropEmptyDone !== null) return dropEmptyDone;
+  // 先把背包清空（give 1 个再整堆丢掉），再试一次
+  const g = e.give("flint", 1);
+  if (!g || g.ok !== true) {
+    dropEmptyDone = [false, `give 失败：${g && g.code ? g.code.code || g.code : "?"}`];
+    return dropEmptyDone;
+  }
+  e.selectStack(e.bag().length - 1);
+  const whole = e.dropSelected(true);
+  if (!whole || whole.ok !== true) {
+    dropEmptyDone = [false, `整堆丢弃失败：${whole && whole.code ? whole.code : "?"}`];
+    return dropEmptyDone;
+  }
+  // 现在只剩刚刚 give 的种类被丢完 —— 但包里可能还有前面几条 give 的东西，
+  // 所以"空包"这一步要丢到真的空：循环整堆丢到 empty 为止
+  let guard = 0;
+  while (e.bag().length > 0 && guard++ < 16) {
+    const d = e.dropSelected(true);
+    if (!d || d.ok !== true) break;
+  }
+  const onEmpty = e.dropSelected(false);
+  // 关上面板再试 ⇒ 另一种提示
+  e.toggleBag();
+  const onClosed = e.dropSelected(false);
+  const okAll =
+    onEmpty && onEmpty.ok === false && onEmpty.code === "BAG.EMPTY" &&
+    onClosed && onClosed.ok === false && onClosed.code === "BAG.CLOSED";
+  dropEmptyDone = [okAll, `空包 → ${onEmpty ? onEmpty.code : "?"} · 面板关着 → ${onClosed ? onClosed.code : "?"}`];
+  return dropEmptyDone;
+});
+
+row("★ 操作提示与键位**同源**（提示是映射表生成的，不是手写的一段话）", (e) => {
+  const b = e.bindings();
+  const hint = e.helpText();
+  if (typeof hint !== "string" || hint.length === 0) return [false, "提示是空的"];
+  const firstKey = (a) => (b[a] && b[a].keys && b[a].keys[0] ? b[a].keys[0].replace(/^Key/, "") : null);
+  const missing = ["harvest", "save", "chop", "bag", "drop"].filter((a) => {
+    const k = firstKey(a);
+    return k !== null && hint.indexOf(k) < 0;
+  });
+  return [missing.length === 0, `提示="${hint}"${missing.length ? " 缺 " + missing.join(",") : ""}`];
 });
 
 // 等引擎起来（bundle 是异步 boot 的）
-function tickCheck() {
+async function tickCheck() {
   const e = globalThis.__engine;
-  if (!e) return false;
+  if (!e) {
+    // 引擎还没起来：表格先显示"等待"，但**不能算通过**
+    rowsEl.innerHTML = "<tr><td class='wait'>…</td><td colspan='2'>等待引擎启动</td></tr>";
+    return { pass: 0, fail: 1 };
+  }
   let pass = 0;
   let fail = 0;
   rowsEl.innerHTML = "";
@@ -133,13 +597,16 @@ function tickCheck() {
     let ok = false;
     let detail = "";
     try {
-      const [a, b] = r.run(e);
+      // ★ 允许断言返回 Promise：需要等的东西（存档、异步加载）不能靠"同步看一眼"
+      const [a, b] = await r.run(e);
       ok = a;
       detail = b;
     } catch (err) {
       ok = false;
       detail = "抛错：" + (err && err.message ? err.message : String(err));
     }
+    r.state = ok ? "pass" : "fail";
+    r.detail = detail;
     if (ok) pass++;
     else fail++;
     rowsEl.insertAdjacentHTML(
@@ -154,21 +621,228 @@ function tickCheck() {
       `<b class="${fail === 0 ? "ok" : "bad"}">${pass} 通过 / ${fail} 失败</b>` +
       `　<span class="sub">（判据总数 ${rows.length}）</span></td></tr>`,
   );
-  return true;
+  /**
+   * ★★ 失败名单必须写在 `#rows` **外面**。
+   *   `#rows` 每轮都被 `innerHTML = ""` 清空再逐行填 —— 外部工具（CDP）读到的是
+   *   某个瞬间的**半张表**：批69 加完三条断言后，工具打出来 26 行就没了，
+   *   而汇总说 39 条、1 条失败。"哪一条红了"这个信息就丢在清空与填充之间。
+   *   这也是这个页面自己的老教训（失败清单要打在最后几行、且要稳定可见）。
+   */
+  const fails = [];
+  for (const r of rows) if (r.state === "fail") fails.push(r.name);
+  if (failsEl !== null) failsEl.textContent = fails.length === 0 ? "" : `失败 ${fails.length} 条：${fails.join(" · ")}`;
+  return { pass, fail };
 }
 
+// ---- 批68：制作 ----
+// ★ 三条分开：配方表在不在、缺料时动不动背包、材料齐了能不能真做出来。
+//   合成一条的话，红了只知道"制作有问题"，而这三件事的修法完全不同。
+row("★ 配方表建 app 之前就归一化通过了（表写错会在加载期抛，不是按 C 才发现）", (e) => {
+  if (craftTableDone !== null) return craftTableDone;
+  const rs = e.recipes();
+  craftTableDone = [
+    rs.length >= 2 && rs.every((r) => r.id !== "" && r.inputs.length > 0 && r.output.count > 0),
+    `${rs.length} 条配方：${rs.map((r) => `${r.id}(${r.inputs.map((c) => c.kind + "×" + c.count).join("+")}→${r.output.kind})`).join(" · ")}`,
+  ];
+  return craftTableDone;
+});
+
+row("★ 缺料时制作**不动背包**（材料一个都不少）", (e) => {
+  if (craftMissingDone !== null) return craftMissingDone;
+  e.clearBag();
+  // 只给肉、不给草 ⇒ 熟肉做不了；绳子也做不了（没芦苇）
+  const g = e.give("meat", 1);
+  if (!g || g.ok !== true) {
+    craftMissingDone = [false, `give 失败：${g && g.code ? g.code : "?"}`];
+    return craftMissingDone;
+  }
+  const msg = e.craft();
+  const meat = (e.bag().find((s) => s.kind === "meat") || {}).count || 0;
+  craftMissingDone = [
+    meat === 1 && String(msg).includes("缺"),
+    `提示「${msg}」· 肉 ${meat}（必须还是 1）· 背包 ${JSON.stringify(e.bag())}`,
+  ];
+  return craftMissingDone;
+});
+
+row("★★ 材料齐了能做出东西，且**产物真的进了背包**（不是只回了一句提示）", (e) => {
+  if (craftOkDone !== null) return craftOkDone;
+  e.clearBag();
+  const g1 = e.give("meat", 1);
+  const g2 = e.give("grass_tuft", 1);
+  if (!g1 || g1.ok !== true || !g2 || g2.ok !== true) {
+    craftOkDone = [false, `give 失败：${g1 && g1.code ? g1.code : "?"}`];
+    return craftOkDone;
+  }
+  const msg = e.craft();
+  const bag = e.bag();
+  const has = (k) => (bag.find((s) => s.kind === k) || {}).count || 0;
+  craftOkDone = [
+    has("cooked_meat") === 1 && has("meat") === 0 && has("grass_tuft") === 0,
+    `提示「${msg}」· 背包 ${JSON.stringify(bag)}（应为 cooked_meat×1）`,
+  ];
+  return craftOkDone;
+});
+
+// ---- 批67：饱食度 ----
+// ★ 三条分开写而不是合成一条：组件没挂上、满了能吃、饿了不吃 —— 三种坏法，
+//   合成一条的话红了只知道"吃东西有问题"。
+row("★ 玩家的饱食度真的挂上了（game.hunger 注册 + attach，读回来不是 undefined）", (e) => {
+  if (hungerWiredDone !== null) return hungerWiredDone;
+  const h = e.hunger();
+  hungerWiredDone = [
+    h && h.max === 100 && h.value >= 0,
+    h ? `饱食 ${h.value}/${h.max}（HUD：${h.text}），能吃：${h.food.join("/")}，模块追踪 ${h.stats.tracked} 个` : "e.hunger() 是 null —— 诊断面没接",
+  ];
+  return hungerWiredDone;
+});
+
+row("★ 吃饱了再吃：报 FOOD.FULL，且**浆果一个都不少**（顺序不能反）", (e) => {
+  if (hungerFullDone !== null) return hungerFullDone;
+  // ★ 自己造前提：前面的判据（尤其是制作）会往背包里塞东西，而"吃什么"是按营养挑的
+  //   —— 不清空的话这条会吃到熟肉，"浆果 -1"就永远不成立。
+  e.clearBag();
+  e.setHunger(100);
+  const g = e.give("berry", 2);
+  if (!g || g.ok !== true) {
+    hungerFullDone = [false, `give 失败：${g && g.code ? g.code : "?"}`];
+    return hungerFullDone;
+  }
+  const msg = e.eat();
+  const after = (e.bag().find((s) => s.kind === "berry") || {}).count || 0;
+  hungerFullDone = [
+    after === 2 && String(msg).includes("FOOD.FULL"),
+    `提示「${msg}」· 浆果 2 → ${after}（必须还是 2）`,
+  ];
+  return hungerFullDone;
+});
+
+row("★ 饿了就能吃：饱食 +15、浆果 -1（挑的是**营养最高**的那一种）", (e) => {
+  if (hungerEatDone !== null) return hungerEatDone;
+  e.clearBag();
+  e.setHunger(30);
+  const g = e.give("berry", 1);
+  if (!g || g.ok !== true) {
+    hungerEatDone = [false, `give 失败：${g && g.code ? g.code : "?"}`];
+    return hungerEatDone;
+  }
+  const msg = e.eat();
+  const after = (e.bag().find((s) => s.kind === "berry") || {}).count || 0;
+  const h = e.hunger();
+  hungerEatDone = [
+    h.value === 45 && after === 0,
+    `提示「${msg}」· 饱食 → ${h.value}（应 45）· 浆果 1 → ${after}（应 0）`,
+  ];
+  return hungerEatDone;
+});
+
+row("★ 打一下冒出伤害数字：数字是**实际扣血 2**，不是攻击力 3", async (e) => {
+  if (dmgShownDone !== null) return dmgShownDone;
+  // 靶子 2 血、玩家伤害 3 ⇒ applied=2 / overkill=1。用 damage 的实现会显示 -3。
+  const id = e.feedback.dummy(2);
+  if (id < 0) {
+    dmgShownDone = [false, "靶子没造出来（玩家不在场景里？）"];
+    return dmgShownDone;
+  }
+  const msg = e.attack();
+  const nums = e.feedback.numbers();
+  const texts = nums.map((n) => n.text);
+  const dom = e.feedback.domCount();
+  dmgShownDone = [
+    texts.indexOf("-2") >= 0 && dom >= 1,
+    `提示「${msg}」· 屏幕上的数字 ${JSON.stringify(texts)}（应含 -2；显示 -3 就是用错了数）· DOM ${dom} 个`,
+  ];
+  return dmgShownDone;
+});
+
+row("★ 伤害数字会自己消失（1 秒后数组与 DOM 都归零）", async (e) => {
+  // ★ 上限 40 轮（≈4s）：等的是 DOM 生命周期，不是"跑得够不够快"。
+  //   不设上限的话，**数字根本不消失**这条会一直"等下去"，最后被 10 秒总闸判成
+  //   "仍有 N 条不通过" —— 那时已经分不清是它慢还是它坏了。
+  dmgGoneTries++;
+  const nums = e.feedback.numbers().length;
+  const dom = e.feedback.domCount();
+  if (nums === 0 && dom === 0) return [true, "数字已全部消失（数组 0 / DOM 0）"];
+  if (dmgGoneTries > 40) return [false, `等了 4 秒还在：数组 ${nums} / DOM ${dom}（漏删或寿命写错）`];
+  return [false, `等待中：数组 ${nums} / DOM ${dom}`];
+});
+
+row("★ 玩家打一下之后仇恨表里真的记了一条（手动攻击也要被记恨）", (e) => {
+  // ★ 依赖上一行（打靶子）已经发生过 —— 行是按声明顺序执行的，所以这里能读到它的副作用。
+  //   这条判据专门钉住"玩家走 attack()、不经过 combat-module"的那条外侧接线：
+  //   只在 combat-module 上记仇的实现，这条会红而其它判据全绿。
+  const m = e.mobs();
+  if (m === null) return [false, "生物模块没起来"];
+  return [
+    m.threatEntries >= 1,
+    `仇恨表 ${m.threatTargets} 个目标 / ${m.threatEntries} 条记录（打一下之后应 ≥1；0 说明 noteHit 没接上）`,
+  ];
+});
+
+row("★★ 受击闪红之后**还原成原本的颜色**（不是白色）", async (e) => {
+  if (tintRestoreDone !== null) return tintRestoreDone;
+  const id = e.heroId;
+  // ★★ 必须分两阶段：第一版把 `flash()` 写在每轮开头，于是每 100ms 重新闪一次，
+  //    `flashing()` 永远返回同一个剩余数 —— 那条判据会**永远停在"等待"**里，
+  //    最后被 10 秒总闸判红，而红的原因看起来像"还原坏了"。
+  //    会改状态的判据必须自己保证"只做一次"（这是这个页面的老教训，又踩了一次）。
+  if (tintPhase === 0) {
+    const before = e.feedback.tint(id);
+    if (before === null) {
+      tintRestoreDone = [false, "玩家身上没有精灵"];
+      return tintRestoreDone;
+    }
+    tintBefore = before;
+    const r = e.feedback.flash(id, 6);
+    tintDuring = e.feedback.tint(id);
+    tintPhase = 1;
+    return [false, `已闪（返回 ${r}），等它到期`];
+  }
+  const ticks = e.feedback.flashing(id);
+  if (ticks > 0) return [false, `还剩 ${ticks} tick`];
+  const after = e.feedback.tint(id);
+  // 闪的当口必须是"偏红"（g 明显小于 r）；到期必须与闪之前**逐字段相同**
+  const flashed = tintDuring !== null && tintDuring.r > tintDuring.g && tintDuring.g < 1;
+  const back =
+    after !== null &&
+    tintBefore !== null &&
+    after.r === tintBefore.r &&
+    after.g === tintBefore.g &&
+    after.b === tintBefore.b &&
+    after.a === tintBefore.a;
+  tintRestoreDone = [
+    flashed && back,
+    `闪时 ${JSON.stringify(tintDuring)}（g 应 < r）· 还原后 ${JSON.stringify(after)} / 原色 ${JSON.stringify(tintBefore)}`,
+  ];
+  return tintRestoreDone;
+});
+
+// ★ 什么时候停：**全部通过**才停，或者到 10 秒。以前是"引擎起来了 + 跑过 0.7 秒就停"，
+//   于是"tick > 10"和"每 60 tick 一条 Lua 日志"这两条**永远不可能过** ——
+//   而页面会一本正经地显示"12 通过 / 2 失败"，看起来像引擎的问题。
+//   停得太早和判定写错一样，都是假红。
 let tries = 0;
-const timer = setInterval(() => {
-  tries++;
-  // 等 tick 涨起来（说明帧循环在跑），最多等 8 秒
-  if (tickCheck() && tries > 6) {
-    clearInterval(timer);
-  } else if (tries > 90) {
-    clearInterval(timer);
-    rowsEl.insertAdjacentHTML(
-      "beforeend",
-      `<tr><td class="bad">×</td><td colspan="2">8 秒内引擎没有启动（看控制台错误）</td></tr>`,
-    );
+let running = false;
+const MAX_TRIES = 100; // 100 × 100ms = 10 秒
+const timer = setInterval(async () => {
+  // ★ 防重入：断言里现在有 await，一轮可能比 100ms 长。
+  //   不防的话会有两轮同时在写表格（表里出现重复行，计数也不对）。
+  if (running) return;
+  running = true;
+  try {
+    tries++;
+    const res = await tickCheck();
+    if (res.fail === 0) {
+      clearInterval(timer);
+    } else if (tries > MAX_TRIES) {
+      clearInterval(timer);
+      rowsEl.insertAdjacentHTML(
+        "beforeend",
+        `<tr><td class="bad">×</td><td colspan="2">10 秒内仍有 ${res.fail} 条不通过（见上表）</td></tr>`,
+      );
+    }
+  } finally {
+    running = false;
   }
 }, 100);
 </script>

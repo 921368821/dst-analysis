@@ -21,8 +21,16 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const TESTS_ROOT = fileURLToPath(new URL("./", import.meta.url));
 
-/** 低于这个数说明发现逻辑坏了（阶段 1 结束时是 11 个，留余量）。 */
-const MIN_EXPECTED = 16;
+/**
+ * 低于这个数说明发现逻辑坏了。
+ * 阶段 2 结束时 22 个；2026-10-22 补 Adam7 / APNG / 16 位 / 动画时间轴 / JPEG 判据后 31 个；
+ * 2026-10-23 补 `jpeg-modes.test.ts`（模式矩阵 + 分层 + QM 回环）后 32 个。
+ * 2026-10-23 补 `jpeg-ffmpeg-gold.test.ts`（12 位外部金标）与
+ * `jpeg-handwritten.test.ts`（分层手写流）后 34 个。
+ * 下限留 30（余量 3）：合并/重命名测试文件是正常演进，不该每次都改这个数；
+ * 但掉到 30 以下就意味着"少跑了整块内容"，必须当场炸。
+ */
+const MIN_EXPECTED = 32;
 
 function discover(dir: string): string[] {
   const out: string[] = [];

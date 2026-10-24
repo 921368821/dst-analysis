@@ -3,7 +3,8 @@
  *
  * 这里守的是**遮挡正确性**与**像素对齐**，都是"看起来没问题但实际错了"的那类：
  *  · 排序键错一个优先级 ⇒ 远的挡住近的（截图里两个精灵都在，看不出错）
- *  · UV 的 v 没翻转 ⇒ 所有精灵上下颠倒（很像"美术画反了"）
+ *  · UV 的 v 被翻转 ⇒ 采样落到图集的另一半：帧高 < 图集高一半的帧**整帧消失**
+ *    （T330，藏了一整天；旧判据曾把这次翻转写成契约，见下面那条测试的注释）
  *  · pivot 算错 ⇒ 精灵悬空/陷地（很像"锚点没设"）
  */
 
@@ -30,6 +31,7 @@ function item(p: Partial<RenderItem> & { nodeId: number; z: number }): RenderIte
     a: 1,
     order: 0,
     pivotY: 0.5,
+    pivotX: 0.5,
     atlas: 0,
     ...p,
   };
@@ -100,16 +102,77 @@ test("排序是确定的：同一批输入两次排序结果相同（否则画�
   assert.deepEqual(a.map((i) => i.nodeId), [3, 7, 9]);
 });
 
-test("UV 的 v 轴翻转：像素数组原点在左上，GL 的 v=0 在底部", () => {
+/**
+ * ★★ T330：这条判据**曾经把 bug 钉成契约**，是全仓库最贵的假绿灯。
+ *
+ * 旧版本断言"左下顶点 uv.v = 1 − v1"，依据是文件头那句"GL 的 v=0 在底部"。
+ * 但那是"纹理空间的底"，而 `texImage2D` 收 `ArrayBufferView` 时，**数据第一行
+ * 就落在 v=0**（像素数组第一行 = 图片顶）。所以 v 天然与像素数组同向，
+ * `1 − v` 是**多翻了一次**。症状按帧高分布（帧高 < 图集高一半 ⇒ 整帧落到空白
+ * padding ⇒ 消失），而这条断言当时只盯两个数，完全不看"采样落到贴图的哪一行"。
+ *
+ * 新版本换成**行区间**判据：顶点 uv.v 覆盖的贴图行，必须**恰好等于**帧在图集里
+ * 占的行。它不依赖任何约定措辞 —— 谁把坐标扭了，行区间立刻错位。
+ */
+test("★ UV 的 v 不翻转：顶点覆盖的贴图行 == 帧在图集里的行（T330）", () => {
   const cam = new Camera2D({ viewportWidth: 100, viewportHeight: 100, zoom: 10, tiltY: 1 });
+  const atlas = buildProceduralAtlas();
+
+  // 用一张**不在图集顶部**的帧：ground 在 y=96..159（256 高）。
+  // 若 v 被翻过，采样会落到 96..159 的镜像区（256−160..256−96），行区间必然不等。
+  const f = atlas.frames.get("ground")!;
+  const H = atlas.height;
   const batch = new SpriteBatch(4);
-  batch.build([item({ nodeId: 1, z: 0, v0: 0.25, v1: 0.75, pivotY: 0.5 })], cam);
-  // 顶点 0 = 左下；它的 uv.v 应当是 1 - v1
-  const v0 = batch.vertices[3];
-  // 顶点 2 = 右上；它的 uv.v 应当是 1 - v0
-  const v2 = batch.vertices[2 * 8 + 3];
-  assert.ok(Math.abs(v0! - 0.25) < 1e-6, `左下 uv.v 应为 1-0.75=0.25，实际 ${v0}`);
-  assert.ok(Math.abs(v2! - 0.75) < 1e-6, `右上 uv.v 应为 1-0.25=0.75，实际 ${v2}`);
+  batch.build(
+    [{ ...item({ nodeId: 1, z: 0, pivotY: 0.5 }), u0: f.u0, v0: f.v0, u1: f.u1, v1: f.v1, w: f.w, h: f.h }],
+    cam,
+  );
+
+  // 顶点序：0=左下 / 1=右下 / 2=右上 / 3=左上；uv 在第 3、4 个 float
+  const vBottom = batch.vertices[3]!;
+  const vTop = batch.vertices[2 * 8 + 3]!;
+  const rowTop = Math.floor(vTop * H);
+  const rowBottom = Math.ceil(vBottom * H) - 1;
+
+  assert.equal(rowTop, 96, `上边顶点应采样帧的第 96 行（ground 顶行），实际 ${rowTop}（v=${vTop}）`);
+  assert.equal(rowBottom, 159, `下边顶点应采样帧的第 159 行（ground 底行），实际 ${rowBottom}（v=${vBottom}）`);
+  // 方向也要对：上边的行号必须小于下边（v 与行号同向，不是反向）
+  assert.ok(rowTop < rowBottom, `上边行号 ${rowTop} 必须小于下边行号 ${rowBottom}（v 与行号同向）`);
+});
+
+/**
+ * 补充判据（与上一条同源，但抓的是另一种错法）：**帧高 < 图集高一半**时，
+ * 翻转会把采样区间整个推出内容区。这条用"覆盖行里有多少行不透明"来判 ——
+ * 它正是当初那 8 帧里 5 帧消失的量化形状（0 行不透明 ⇒ 画面上什么都没有）。
+ */
+test("★ 矮帧也必须采到不透明像素（帧高 < 图集高一半是当初全灭的那一档）", () => {
+  const atlas = buildProceduralAtlas();
+  const W = atlas.width;
+  const H = atlas.height;
+  for (const name of ["rock", "berry", "player"]) {
+    const f = atlas.frames.get(name)!;
+    assert.ok(f.h < H / 2, `${name} 的帧高 ${f.h} 应当 < 图集高的一半（${H / 2}），否则这条判据失去靶子`);
+    const cam = new Camera2D({ viewportWidth: 100, viewportHeight: 100, zoom: 10, tiltY: 1 });
+    const b = new SpriteBatch(2);
+    b.build([{ ...item({ nodeId: 1, z: 0 }), u0: f.u0, v0: f.v0, u1: f.u1, v1: f.v1, w: f.w, h: f.h }], cam);
+    const vTop = b.vertices[2 * 8 + 3]!;
+    const vBottom = b.vertices[3]!;
+    const x0 = Math.floor(f.u0 * W);
+    const x1 = Math.max(x0, Math.ceil(f.u1 * W) - 1);
+    const y0 = Math.floor(Math.min(vTop, vBottom) * H);
+    const y1 = Math.min(H - 1, Math.ceil(Math.max(vTop, vBottom) * H) - 1);
+    let opaque = 0;
+    for (let y = y0; y <= y1; y++) {
+      for (let x = x0; x <= x1; x++) {
+        if ((atlas.pixels[(y * W + x) * 4 + 3] ?? 0) > 0) {
+          opaque++;
+          break;
+        }
+      }
+    }
+    assert.ok(opaque > 0, `${name}：采样区间落在行 ${y0}..${y1}，其中没有任何不透明像素 ⇒ 这一帧画不出来`);
+    assert.equal(y1 - y0 + 1, f.h, `${name}：采样应覆盖 ${f.h} 行，实际 ${y1 - y0 + 1} 行`);
+  }
 });
 
 test("pivotY：0 = 底边贴地（中心抬高半个高度），0.5 = 中心对齐", () => {
@@ -123,6 +186,36 @@ test("pivotY：0 = 底边贴地（中心抬高半个高度），0.5 = 中心对�
   const cyBottom = (bottom.vertices[1]! + bottom.vertices[3 * 8 + 1]!) / 2;
   assert.ok(Math.abs(cyCenter - 0) < 1e-6, `中心对齐时中心在 y=0，实际 ${cyCenter}`);
   assert.ok(cyBottom > cyCenter, "pivotY=0 时整体上移（底边贴地）");
+});
+
+test("★ pivotX：0 = 左边界贴住节点 x，0.5 = 水平居中（矩形地形靠它才能对上格子）", () => {
+  const cam = new Camera2D({ viewportWidth: 100, viewportHeight: 100, zoom: 10, tiltY: 1 });
+  const center = new SpriteBatch(2);
+  center.build([item({ nodeId: 1, z: 0, x: 0, w: 2, h: 1, pivotX: 0.5 })], cam);
+  const left = new SpriteBatch(2);
+  left.build([item({ nodeId: 1, z: 0, x: 0, w: 2, h: 1, pivotX: 0 })], cam);
+
+  // 顶点 0 = 左下，顶点 2 = 右上（x 在 [0]、[2*8]）
+  const cxCenter = (center.vertices[0]! + center.vertices[2 * 8]!) / 2;
+  const cxLeft = (left.vertices[0]! + left.vertices[2 * 8]!) / 2;
+  assert.ok(Math.abs(cxCenter - 0) < 1e-6, `居中时中心在 x=0，实际 ${cxCenter}`);
+  assert.ok(cxLeft > cxCenter, "pivotX=0 时整体右移（左边界贴住节点 x）");
+  // 位移量必须是**半个宽度**：w=2 ⇒ 半宽 1 世界单位；zoom=10 / 视口 100 ⇒ 1 单位 = 10px = 0.2 NDC
+  // （NDC 的半屏是 50px）。写成 0.1 是第一次算错的地方 —— 半屏不是 100px。
+  assert.ok(Math.abs(cxLeft - cxCenter - 0.2) < 1e-6, `pivotX 的位移不是半个宽度：${cxLeft - cxCenter}`);
+});
+
+test("★ pivotX 与 pivotY 的符号必须同向（0 = 左/底，0.5 = 中心）", () => {
+  // 这条钉的是"照抄 pivotY 那一行时把符号写反"：以 0.5 为对称中心时两轴的错法都看不出来，
+  // 所以只能直接比 0 与 0.5 两种情况的方向。
+  const cam = new Camera2D({ viewportWidth: 100, viewportHeight: 100, zoom: 10, tiltY: 1 });
+  const p0 = new SpriteBatch(2);
+  p0.build([item({ nodeId: 1, z: 0, x: 5, w: 1, h: 1, pivotX: 0, pivotY: 0 })], cam);
+  const p5 = new SpriteBatch(2);
+  p5.build([item({ nodeId: 1, z: 0, x: 5, w: 1, h: 1, pivotX: 0.5, pivotY: 0.5 })], cam);
+  const dx0 = p0.vertices[0]! - p5.vertices[0]!;
+  const dy0 = p0.vertices[1]! - p5.vertices[1]!;
+  assert.ok(dx0 > 0 && dy0 > 0, `pivot=0 应当同时右移与上移，实际 dx=${dx0} dy=${dy0}`);
 });
 
 test("批处理容量：超过 maxQuads 时**明确截断并报告**（不静默丢东西）", () => {

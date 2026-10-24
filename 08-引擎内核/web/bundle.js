@@ -4482,6 +4482,9 @@ function hashBytes(bytes) {
   hashStateUpdate(s, bytes);
   return hashStateHex(s);
 }
+function hashText(s) {
+  return hashBytes(new TextEncoder().encode(s));
+}
 
 // src/foundation/math/vec.ts
 var Vec2 = class _Vec2 {
@@ -4699,6 +4702,57 @@ function quantize(v, decimals = 3) {
   return Math.sign(v) * Math.round(Math.abs(v) * f + 1e-9) / f;
 }
 
+// src/platform/gfx/types.ts
+var BufferUsage = {
+  Vertex: 1,
+  Index: 2,
+  Uniform: 3
+};
+var PixelFormat = {
+  RGBA8: "rgba8",
+  RGB8: "rgb8",
+  R8: "r8",
+  /**
+   * 16 位无符号归一化，每通道 0..65535（8 字节/像素）。
+   * 进 GPU 的类型是 `UNSIGNED_SHORT` + 归一化采样：片元里拿到的仍是 0..1 的 float，
+   * 只是**中间精度**不再被 8 位截断（渐变/法线/高度图不会出带状色块）。
+   *
+   * ★ 字节序边界：`Uint16Array` 的内存布局是宿主字节序；WebGL 的
+   *   `UNSIGNED_SHORT` 纹理同样按宿主字节序解释，所以「值数组 → texImage2D」
+   *   不需要交换字节。反过来说，**不能**把 PNG 里的大端原始字节直接塞进来。
+   */
+  RGBA16: "rgba16",
+  /** 半精度浮点（8 字节/像素）。上传时需要真正的 half 字节流，不能直传 Float32Array。 */
+  RGBA16F: "rgba16f"
+};
+function bytesPerPixel(format) {
+  switch (format) {
+    case PixelFormat.RGBA8:
+      return 4;
+    case PixelFormat.RGB8:
+      return 3;
+    case PixelFormat.R8:
+      return 1;
+    case PixelFormat.RGBA16:
+      return 8;
+    case PixelFormat.RGBA16F:
+      return 8;
+    default:
+      throw new Error(`\u672A\u77E5 PixelFormat\uFF1A${String(format)}\uFF08bytesPerPixel \u6CA1\u6709\u9ED8\u8BA4\u503C\uFF0C\u4E0D\u731C\uFF09`);
+  }
+}
+var TextureFilter = { Nearest: "nearest", Linear: "linear" };
+var TextureWrap = { Clamp: "clamp", Repeat: "repeat" };
+var SPRITE_VERTEX_LAYOUT = {
+  attributes: [
+    { name: "a_position", components: 2 },
+    { name: "a_uv", components: 2 },
+    { name: "a_color", components: 4 }
+  ]
+};
+var BlendMode = { None: 0, Alpha: 1, Additive: 2, Premultiplied: 3 };
+var Topology = { Triangles: 0, TriangleStrip: 1 };
+
 // src/backends/gfx-null/device.ts
 function asBytes(view) {
   return new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
@@ -4803,13 +4857,30 @@ var NullGraphicsDevice = class {
       );
     }
     const h = this.nextHandle++;
+    const format = desc.format ?? PixelFormat.RGBA8;
+    const bpp = bytesPerPixel(format);
+    if (data !== void 0 && data !== null) {
+      const expect = desc.width * desc.height * bpp;
+      if (data.byteLength !== expect) {
+        this.rejectedCalls.push(`createTexture(\u6570\u636E ${data.byteLength} != ${desc.width}x${desc.height}x${bpp})`);
+        return err(
+          engineError(
+            "GFX.SIZE_MISMATCH",
+            `\u7EB9\u7406\u6570\u636E ${data.byteLength} \u5B57\u8282\uFF0C\u4F46 ${desc.width}x${desc.height} \u7684 ${format} \u9700\u8981 ${expect}`,
+            { label: desc.label ?? "", format }
+          )
+        );
+      }
+    }
     const hash = hashStateCreate();
     if (data !== void 0 && data !== null) hashStateUpdate(hash, asBytes(data));
     this.textures.set(h, {
       width: desc.width,
       height: desc.height,
       label: desc.label ?? "",
-      isTarget: desc.renderTarget === true,
+      format,
+      bytesPerPixel: bpp,
+      wrap: desc.wrap ?? TextureWrap.Clamp,
       hash
     });
     return ok(h);
@@ -4824,15 +4895,44 @@ var NullGraphicsDevice = class {
         engineError("GFX.REGION_OUT_OF_BOUNDS", `\u4E0A\u4F20\u533A\u57DF\u8D85\u51FA\u7EB9\u7406\uFF1A${JSON.stringify(region)} vs ${rec.width}x${rec.height}`)
       );
     }
-    const expect = region.width * region.height * 4;
-    if (data.byteLength !== expect && rec.isTarget) {
+    const expect = region.width * region.height * rec.bytesPerPixel;
+    if (data.byteLength !== expect) {
+      this.rejectedCalls.push(
+        `updateTexture(\u6570\u636E ${data.byteLength} != ${region.width}x${region.height}x${rec.bytesPerPixel} ${rec.format})`
+      );
       return err(
-        engineError("GFX.SIZE_MISMATCH", `\u4E0A\u4F20\u5B57\u8282\u6570 ${data.byteLength} \u4E0E\u533A\u57DF\u671F\u671B ${expect} \u4E0D\u7B26`)
+        engineError(
+          "GFX.SIZE_MISMATCH",
+          `\u4E0A\u4F20\u5B57\u8282\u6570 ${data.byteLength} \u4E0E\u533A\u57DF\u671F\u671B ${expect} \u4E0D\u7B26\uFF08${rec.format}\uFF0C${region.width}x${region.height}\uFF09`,
+          { label: rec.label, format: rec.format }
+        )
       );
     }
     this._stats = { ...this._stats, bytesUploaded: this._stats.bytesUploaded + data.byteLength };
     hashStateUpdate(rec.hash, asBytes(data));
     return ok(void 0);
+  }
+  /**
+   * 纹理的像素格式（句柄不存在 → `undefined`，与 `textureDigest` 同语气）。
+   *
+   * ★ 为什么必须有它：`textureDigest` 只能证明"字节到了"，证明不了
+   *   "以什么格式到的"—— 同一份 8 字节/像素的数据，声明成 rgba16 还是
+   *   rgba16f、或者干脆被当成 rgba8 上传，摘要都可能一样（前者一样，后者长度就不同）。
+   *   判据要断言"上传的真的是 16 位"，就必须能把设备记录的格式读出来。
+   */
+  textureFormat(handle) {
+    return this.textures.get(handle)?.format;
+  }
+  /**
+   * 纹理的环绕方式（句柄不存在 → `undefined`，与 `textureFormat` 同语气）。
+   *
+   * ★ 为什么必须有它（T288）：地形平铺要求瓦片页是 `repeat`、主图集是 `clamp`。
+   *   两者传错的表现都**不报错**：主图集开 repeat ⇒ 邻居帧被采进来；
+   *   瓦片页开 clamp ⇒ 接缝被抻成脏边。而字节摘要、格式、帧表全都一样 ——
+   *   没有这个访问器，"哪张页是什么 wrap"在 headless 里根本无法断言。
+   */
+  textureWrap(handle) {
+    return this.textures.get(handle)?.wrap;
   }
   /**
    * 纹理的"上传字节流"摘要（16 hex），用于断言"解码出的 pixels == GPU 实际收到的字节"。
@@ -5017,6 +5117,7 @@ var NullCommandList = class {
     this.dev._pushDraw({
       vertices: batch.vertexCount,
       indices: batch.indexCount,
+      firstIndex: batch.firstIndex ?? 0,
       pipeline: this.pipeline,
       textures: Array.from(this.textures.values())
     });
@@ -5354,6 +5455,8 @@ var MemoryFileSystem = class {
     this.prefix = prefix;
   }
   scheme = "mem";
+  /** 内存盘/真实盘都能列目录。 */
+  canList = true;
   files = /* @__PURE__ */ new Map();
   dirs = /* @__PURE__ */ new Set(["/"]);
   nowCounter = 1;
@@ -5377,6 +5480,9 @@ var MemoryFileSystem = class {
     if (!k.ok) return k;
     const f = this.files.get(k.value);
     if (f === void 0) {
+      if (this.dirs.has(k.value)) {
+        return err(engineError("FS.IS_DIR", `${k.value} \u662F\u76EE\u5F55\uFF08\u8FD9\u4E2A\u63A5\u53E3\u53EA\u8BFB\u6587\u4EF6\uFF09`));
+      }
       return err(
         engineError("FS.NOT_FOUND", `\u6587\u4EF6\u4E0D\u5B58\u5728\uFF1A${k.value}`, {
           known: Array.from(this.files.keys()).sort().slice(0, 20)
@@ -5403,6 +5509,9 @@ var MemoryFileSystem = class {
     const k = this.key(path);
     if (!k.ok) return k;
     if (!this.files.delete(k.value)) {
+      if (this.dirs.has(k.value)) {
+        return err(engineError("FS.IS_DIR", `${k.value} \u662F\u76EE\u5F55\uFF08\u8FD9\u4E2A\u63A5\u53E3\u53EA\u5220\u6587\u4EF6\uFF09`));
+      }
       return err(engineError("FS.NOT_FOUND", `\u8981\u5220\u9664\u7684\u8DEF\u5F84\u4E0D\u5B58\u5728\uFF1A${k.value}`));
     }
     return ok(void 0);
@@ -5415,6 +5524,12 @@ var MemoryFileSystem = class {
   async list(dir) {
     const k = this.key(dir);
     if (!k.ok) return k;
+    if (this.files.has(k.value)) {
+      return err(engineError("FS.NOT_A_DIR", `${k.value} \u662F\u6587\u4EF6\uFF0C\u4E0D\u662F\u76EE\u5F55`));
+    }
+    if (!this.dirs.has(k.value)) {
+      return err(engineError("FS.NOT_FOUND", `\u76EE\u5F55\u4E0D\u5B58\u5728\uFF1A${k.value}`));
+    }
     const base = k.value === "/" ? "/" : k.value + "/";
     const out = [];
     for (const [p, f] of this.files) {
@@ -5605,6 +5720,179 @@ var nullScriptBackend = {
   create: () => ok(new NullScriptRuntime())
 };
 
+// src/platform/fs/virtual-path.ts
+function normalizeVirtualPath(path) {
+  if (typeof path !== "string" || path === "") {
+    return err(engineError("FS.BAD_PATH", "\u8DEF\u5F84\u5FC5\u987B\u662F\u975E\u7A7A\u5B57\u7B26\u4E32"));
+  }
+  if (path.includes("\0")) {
+    return err(engineError("FS.BAD_PATH", "\u8DEF\u5F84\u91CC\u4E0D\u80FD\u6709 NUL\uFF08OS \u4F1A\u9759\u9ED8\u622A\u65AD\uFF0CJS \u4E0D\u4F1A\uFF09"));
+  }
+  if (path.includes("\\")) {
+    return err(engineError("FS.BAD_PATH", `\u8DEF\u5F84\u91CC\u4E0D\u80FD\u6709\u53CD\u659C\u6760\uFF1A${path}`));
+  }
+  const out = [];
+  for (const seg of path.split("/")) {
+    if (seg === "" || seg === ".") continue;
+    if (seg === "..") {
+      return err(engineError("FS.PATH_ESCAPE", `\u8DEF\u5F84\u542B ..\uFF08\u62D2\u7EDD\u8D8A\u754C\uFF09\uFF1A${path}`));
+    }
+    out.push(seg);
+  }
+  return ok(out);
+}
+function virtualPathOf(segs) {
+  return "/" + segs.join("/");
+}
+
+// src/backends/fs-http/fs.ts
+var DEFAULT_TIMEOUT_MS = 15e3;
+var HttpFileSystem = class {
+  scheme = "http";
+  canList = false;
+  base;
+  doFetch;
+  timeoutMs;
+  constructor(opts) {
+    const base = typeof opts.base === "string" ? new URL(opts.base) : new URL(opts.base.href);
+    if (base.protocol !== "http:" && base.protocol !== "https:") {
+      throw new Error(`fs-http\uFF1Abase \u5FC5\u987B\u662F http/https\uFF0C\u5B9E\u9645 ${base.protocol}`);
+    }
+    if (!base.pathname.endsWith("/")) base.pathname += "/";
+    this.base = base;
+    const f = opts.fetch ?? (typeof globalThis.fetch === "function" ? globalThis.fetch.bind(globalThis) : void 0);
+    if (f === void 0) {
+      throw new Error("fs-http\uFF1A\u73AF\u5883\u91CC\u6CA1\u6709 fetch\uFF08\u6D4F\u89C8\u5668\u9700\u8981 polyfill\uFF0CNode < 18 \u8BF7\u663E\u5F0F\u4F20\u5165\uFF09");
+    }
+    this.doFetch = f;
+    this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  }
+  // ---------------------------------------------------------------- 读
+  async readBinary(path) {
+    const url = this.urlOf(path);
+    if (!url.ok) return url;
+    const res = await this.request(url.value, "GET", path);
+    if (!res.ok) return res;
+    try {
+      const buf = await res.value.arrayBuffer();
+      return ok(new Uint8Array(buf));
+    } catch (e) {
+      return err(engineError("FS.IO", `\u8BFB\u54CD\u5E94\u4F53\u5931\u8D25\uFF1A${path}\uFF08${msg(e)}\uFF09`));
+    }
+  }
+  async readText(path) {
+    const b = await this.readBinary(path);
+    if (!b.ok) return b;
+    try {
+      return ok(new TextDecoder("utf-8", { fatal: true }).decode(b.value));
+    } catch (e) {
+      return err(engineError("FS.NOT_UTF8", `\u4E0D\u662F\u5408\u6CD5 UTF-8\uFF1A${path}\uFF08${msg(e)}\uFF09`));
+    }
+  }
+  /**
+   * 用 HEAD 探存在性；有的静态服务器不支持 HEAD（405/501），退回带 `Range` 的 GET。
+   *
+   * ★ 返回 boolean 而不是 Result：`exists` 的签名没有错误通道。
+   *   所以这里对"说不清"的响应（500、超时）一律 false ——
+   *   **保守**是关键：把不确定说成"存在"会让调用方去读一个读不到的东西。
+   */
+  async exists(path) {
+    const url = this.urlOf(path);
+    if (!url.ok) return false;
+    let res = await this.raw(url.value, "HEAD");
+    if (res !== null && (res.status === 405 || res.status === 501)) {
+      res = await this.raw(url.value, "GET", { Range: "bytes=0-0" });
+      res?.body?.cancel();
+    }
+    return res !== null && res.status >= 200 && res.status < 300;
+  }
+  async stat(path) {
+    const url = this.urlOf(path);
+    if (!url.ok) return url;
+    let res = await this.request(url.value, "HEAD", path, { allowBodyless: true });
+    if (!res.ok && res.error.code === "FS.NOT_SUPPORTED") {
+      res = await this.request(url.value, "GET", path, { headers: { Range: "bytes=0-0" } });
+    }
+    if (!res.ok) return res;
+    const lenText = res.value.headers.get("content-length");
+    const len = lenText === null ? NaN : Number(lenText);
+    const lm = res.value.headers.get("last-modified");
+    return ok({
+      // 没有 Content-Length（分块传输）时给 0：**未知 ≠ 非零**，0 是唯一不会撒谎的默认
+      size: Number.isFinite(len) && len >= 0 ? len : 0,
+      mtimeMs: lm === null ? 0 : parseHttpDate(lm),
+      isDirectory: false
+    });
+  }
+  async list(dir) {
+    return err(
+      engineError(
+        "FS.NOT_SUPPORTED",
+        `HTTP \u540E\u7AEF\u6CA1\u6709\u76EE\u5F55\u5217\u4E3E\u80FD\u529B\uFF08\u9759\u6001\u8D44\u6E90\u670D\u52A1\u5668\u4E0D\u63D0\u4F9B\u5217\u76EE\u5F55\uFF09\uFF1A${dir}`
+      )
+    );
+  }
+  // ---------------------------------------------------------------- 内部
+  /** 虚拟路径 → URL。三道防线：归一、编码、前缀核对。 */
+  urlOf(path) {
+    const segs = normalizeVirtualPath(path);
+    if (!segs.ok) return segs;
+    const rel = segs.value.map((s) => encodeURIComponent(s)).join("/");
+    let url;
+    try {
+      url = new URL(rel, this.base);
+    } catch (e) {
+      return err(engineError("FS.BAD_PATH", `\u8DEF\u5F84\u65E0\u6CD5\u62FC\u6210 URL\uFF1A${path}\uFF08${msg(e)}\uFF09`));
+    }
+    if (!url.href.startsWith(this.base.href)) {
+      return err(engineError("FS.PATH_ESCAPE", `\u8DEF\u5F84\u9003\u51FA\u4E86\u8D44\u6E90\u6839\uFF1A${path}`));
+    }
+    return ok(url);
+  }
+  /** 发请求并做状态码映射（唯一一处把 HTTP 状态翻成引擎错误码）。 */
+  async request(url, method, path, opts = {}) {
+    let res;
+    try {
+      res = await this.doFetch(url.href, {
+        method,
+        ...opts.headers === void 0 ? {} : { headers: opts.headers },
+        signal: AbortSignal.timeout(this.timeoutMs)
+      });
+    } catch (e) {
+      return err(engineError("FS.IO", `\u8BF7\u6C42\u5931\u8D25\uFF1A${path}\uFF08${msg(e)}\uFF09`));
+    }
+    const st = res.status;
+    if (st >= 200 && st < 300) return ok(res);
+    if (st === 404 || st === 410) return err(engineError("FS.NOT_FOUND", `\u8D44\u6E90\u4E0D\u5B58\u5728\uFF1A${path}\uFF08HTTP ${st}\uFF09`));
+    if (st === 401 || st === 403) {
+      return err(engineError("FS.PERMISSION", `\u6CA1\u6709\u6743\u9650\u8BFB\u53D6\uFF1A${path}\uFF08HTTP ${st}\uFF09`));
+    }
+    if (st === 405 || st === 501) {
+      return err(engineError("FS.NOT_SUPPORTED", `\u670D\u52A1\u5668\u4E0D\u652F\u6301 ${method}\uFF1A${path}\uFF08HTTP ${st}\uFF09`));
+    }
+    return err(engineError("FS.IO", `HTTP ${st}\uFF1A${path}`));
+  }
+  /** 只要状态码的场景（`exists`）。失败返回 null，不抛。 */
+  async raw(url, method, headers) {
+    try {
+      return await this.doFetch(url.href, {
+        method,
+        ...headers === void 0 ? {} : { headers },
+        signal: AbortSignal.timeout(this.timeoutMs)
+      });
+    } catch {
+      return null;
+    }
+  }
+};
+function parseHttpDate(s) {
+  const t = Date.parse(s);
+  return Number.isFinite(t) ? t : 0;
+}
+function msg(e) {
+  return e instanceof Error ? e.message : String(e);
+}
+
 // src/backends/index.ts
 function registerNullBackends(reg, opts = {}) {
   reg.registerGfx(nullGfxBackend, 0);
@@ -5720,19 +6008,78 @@ end
 -- ============================== module / package.seeall ==============================
 
 -- 在真正的 _G 上建（或复用）点号嵌套的表。5.1 的 findtable 就是往全局表里写。
+-- ★ 返回 tbl, created：created 是"本次真正新建的那几张表"的记录（父表 + 键 + 表本身），
+--   顺序是**从外到内**，最后一条就是模块自己的那张表。卸载时靠它精确摘除。
+--   只记"新建"的：复用的表是别人的，动它就是删别人的数据。
 local function __engine_compat_findtable(name)
   local cur = _G
-  local created = false
+  local created = {}
   for part in string.gmatch(name, "[^.]+") do
     local nxt = cur[part]
     if __type(nxt) ~= "table" then
       nxt = {}
       cur[part] = nxt
-      created = true
+      created[#created + 1] = { parent = cur, key = part, value = nxt }
     end
     cur = nxt
   end
   return cur, created
+end
+
+-- "模块名的点号路径 → 我建过哪些表"。卸载时按记录反向摘除。
+__engine_compat_modtables = {}
+
+-- "当时还不能删的空容器"。例：shared.a 与 shared.b 是两个模块先后建的，
+-- 卸 a 时 shared 里还有 b，不能删 —— 但也不能忘，否则 shared 这张空表会永远留在 _G 里。
+-- 每次卸载都扫一遍待办，谁变空了就摘谁。
+__engine_compat_pending = {}
+
+-- 释放一条"容器"记录：身份还对上、且已经空 ⇒ 摘掉并返回 true；
+-- 身份被换掉（别人接管了这个键）⇒ 记录作废，返回 true（不用再管）；
+-- 还非空 ⇒ false（转入待办）。
+local function __engine_compat_release(e)
+  if e.parent[e.key] ~= e.value then return true end
+  for _ in pairs(e.value) do return false end
+  e.parent[e.key] = nil
+  return true
+end
+
+-- 摘掉 module() 往真 _G 写的表。规则只有一条：**身份必须还是我建的那张**。
+--   · 叶子（模块自己的表）：身份对上就摘，不管里面还有多少函数 —— 那些函数随模块一起作废。
+--   · 中间容器（a.b 里的 a）：只有变成空表才摘。别人往 a 里加过东西就留着并转入待办，
+--     否则会把别人的模块一起摘掉（这是最容易写错的一步）。
+function __engine_compat_unmodule(name)
+  if __type(name) ~= "string" then return false end
+  local removed = 0
+  local rec = __engine_compat_modtables[name]
+  if __type(rec) == "table" then
+    __engine_compat_modtables[name] = nil
+    for i = #rec, 1, -1 do
+      local e = rec[i]
+      if i == #rec then
+        if e.parent[e.key] == e.value then
+          e.parent[e.key] = nil
+          removed = removed + 1
+        end
+      elseif not __engine_compat_release(e) then
+        __engine_compat_pending[#__engine_compat_pending + 1] = e
+      else
+        removed = removed + 1
+      end
+    end
+  end
+  -- 扫待办：随别的模块卸载，之前非空的容器可能已经空了
+  local keep = {}
+  for i = 1, #__engine_compat_pending do
+    local e = __engine_compat_pending[i]
+    if not __engine_compat_release(e) then
+      keep[#keep + 1] = e
+    else
+      removed = removed + 1
+    end
+  end
+  __engine_compat_pending = keep
+  return removed > 0
 end
 
 function module(name, ...)
@@ -5743,7 +6090,16 @@ function module(name, ...)
   -- ① 建/取模块表，并登记到 package.loaded
   local mod = package.loaded[name]
   if __type(mod) ~= "table" then
-    mod = __engine_compat_findtable(name)
+    local created
+    mod, created = __engine_compat_findtable(name)
+    if #created > 0 then
+      local log = __engine_compat_modtables[name]
+      if __type(log) ~= "table" then
+        log = {}
+        __engine_compat_modtables[name] = log
+      end
+      for i = 1, #created do log[#log + 1] = created[i] end
+    end
   end
   package.loaded[name] = mod
 
@@ -6099,6 +6455,11 @@ function __engine_unload(name)
   __engine_modules[name] = nil
   __engine_envs[name] = nil
   __engine_drop_order(name)
+  -- \u2605 5.1 \u7684 module("a.b") \u5F80**\u771F _G** \u5199\u4E86\u5D4C\u5957\u8868\uFF0C\u8FD9\u91CC\u6309"\u521B\u5EFA\u65F6\u7684\u8EAB\u4EFD"\u6458\u6389\u3002
+  --   \u57AB\u7247\u6CA1\u88C5\uFF08\u7EAF 5.4 \u73AF\u5883\uFF09\u65F6\u8FD9\u4E2A\u51FD\u6570\u4E0D\u5B58\u5728\uFF0C\u8DF3\u8FC7 \u2014\u2014 \u4E0D\u5047\u88C5\u6E05\u6389\u4E86\u3002
+  if type(__engine_compat_unmodule) == "function" then
+    __engine_compat_unmodule(name)
+  end
   return { s = 1 }
 end
 `;
@@ -6510,30 +6871,6 @@ function createLuaScriptBackend(opts = {}) {
   };
 }
 
-// src/platform/gfx/types.ts
-var BufferUsage = {
-  Vertex: 1,
-  Index: 2,
-  Uniform: 3
-};
-var PixelFormat = {
-  RGBA8: "rgba8",
-  RGB8: "rgb8",
-  R8: "r8",
-  RGBA16F: "rgba16f"
-};
-var TextureFilter = { Nearest: "nearest", Linear: "linear" };
-var TextureWrap = { Clamp: "clamp", Repeat: "repeat" };
-var SPRITE_VERTEX_LAYOUT = {
-  attributes: [
-    { name: "a_position", components: 2 },
-    { name: "a_uv", components: 2 },
-    { name: "a_color", components: 4 }
-  ]
-};
-var BlendMode = { None: 0, Alpha: 1, Additive: 2, Premultiplied: 3 };
-var Topology = { Triangles: 0, TriangleStrip: 1 };
-
 // src/backends/gfx-webgl2/gl2.ts
 var GL = {
   // buffer
@@ -6711,12 +7048,25 @@ var GL2Device = class {
         )
       );
     }
+    const format = desc.format ?? PixelFormat.RGBA8;
+    const fmt2 = glFormat(format);
+    if (data !== void 0 && data !== null) {
+      const need = desc.width * desc.height * fmt2.bytesPerPixel;
+      if (data.byteLength !== need) {
+        return err(
+          engineError(
+            "GFX.SIZE_MISMATCH",
+            `\u7EB9\u7406\u6570\u636E ${data.byteLength} \u5B57\u8282\uFF0C\u4F46 ${desc.width}x${desc.height} \u7684 ${format} \u9700\u8981 ${need}`,
+            { label: desc.label ?? "", format }
+          )
+        );
+      }
+    }
     const gl = this.gl;
     const tex = gl.createTexture();
     if (tex === null || tex === void 0) {
       return err(engineError("GFX.OUT_OF_MEMORY", "createTexture \u8FD4\u56DE null\uFF08\u663E\u5B58\u4E0D\u8DB3\uFF09"));
     }
-    const fmt2 = glFormat(desc.format ?? PixelFormat.RGBA8);
     gl.bindTexture(GL.TEXTURE_2D, tex);
     gl.texImage2D(
       GL.TEXTURE_2D,
@@ -6726,7 +7076,7 @@ var GL2Device = class {
       desc.height,
       0,
       fmt2.format,
-      GL.UNSIGNED_BYTE,
+      fmt2.type,
       data ?? null
     );
     const filter = desc.filter === TextureFilter.Linear ? GL.LINEAR : GL.NEAREST;
@@ -6742,6 +7092,9 @@ var GL2Device = class {
         width: desc.width,
         height: desc.height,
         isTarget: desc.renderTarget === true,
+        // 记下格式：updateTexture 必须按**同一格式**的字节数校验，
+        // 否则"往 RGBA16 纹理里写 4 字节/像素"会以小图片段的形式静默成功。
+        format,
         label: desc.label ?? ""
       })
     );
@@ -6756,9 +7109,16 @@ var GL2Device = class {
         engineError("GFX.REGION_OUT_OF_BOUNDS", `\u4E0A\u4F20\u533A\u57DF\u8D85\u51FA\u7EB9\u7406\uFF1A${JSON.stringify(region)} vs ${w}x${h}`)
       );
     }
-    const need = region.width * region.height * 4;
+    const format = rec.meta["format"];
+    const fmt2 = glFormat(format);
+    const need = region.width * region.height * fmt2.bytesPerPixel;
     if (data.byteLength !== need) {
-      return err(engineError("GFX.SIZE_MISMATCH", `\u4E0A\u4F20\u5B57\u8282\u6570 ${data.byteLength} \u4E0E\u533A\u57DF\u671F\u671B ${need} \u4E0D\u7B26`));
+      return err(
+        engineError(
+          "GFX.SIZE_MISMATCH",
+          `\u4E0A\u4F20\u5B57\u8282\u6570 ${data.byteLength} \u4E0E\u533A\u57DF\u671F\u671B ${need} \u4E0D\u7B26\uFF08${format}\uFF0C${region.width}x${region.height}\uFF09`
+        )
+      );
     }
     const gl = this.gl;
     gl.bindTexture(GL.TEXTURE_2D, rec.gl);
@@ -6769,8 +7129,8 @@ var GL2Device = class {
       region.y,
       region.width,
       region.height,
-      GL.RGBA,
-      GL.UNSIGNED_BYTE,
+      fmt2.format,
+      fmt2.type,
       data
     );
     gl.bindTexture(GL.TEXTURE_2D, null);
@@ -6990,6 +7350,8 @@ var GL2CommandList = class {
   pipeline = 0;
   uniforms = /* @__PURE__ */ new Map();
   textureSlots = /* @__PURE__ */ new Map();
+  /** 本帧已落到 GL 上的混合方式（`null` = 还没设过）。避免同一帧重复 blendFunc。 */
+  blendMode = null;
   finished = false;
   setViewport(rect) {
     this.gl.viewport(rect.x | 0, rect.y | 0, rect.width | 0, rect.height | 0);
@@ -7013,6 +7375,7 @@ var GL2CommandList = class {
     const rec = this.dev._pipelineRec(pipeline);
     if (rec === void 0) return;
     const changed = this.dev._useProgram(rec.gl);
+    this.applyBlend(rec.meta.blend);
     if (!changed) return;
     for (const [name, u] of this.uniforms) this.applyUniform(rec.gl, name, u.value, u.kind);
   }
@@ -7043,13 +7406,15 @@ var GL2CommandList = class {
     this.gl.vertexAttribPointer(1, 2, GL.FLOAT, false, SPRITE_STRIDE, 8);
     this.gl.enableVertexAttribArray(2);
     this.gl.vertexAttribPointer(2, 4, GL.FLOAT, false, SPRITE_STRIDE, 16);
+    const firstIndex = batch.firstIndex ?? 0;
+    const mode = (pipe.meta.topology ?? Topology.Triangles) === Topology.TriangleStrip ? GL.TRIANGLE_STRIP : GL.TRIANGLES;
     if (batch.indices !== null) {
       const irec = this.dev._bufferRec(batch.indices);
       if (irec === void 0) throw new Error(`draw \u7684\u7D22\u5F15\u7F13\u51B2\u53E5\u67C4 ${batch.indices} \u4E0D\u5B58\u5728`);
       this.gl.bindBuffer(GL.ELEMENT_ARRAY_BUFFER, irec.gl);
-      this.gl.drawElements(GL.TRIANGLES, batch.indexCount, GL.UNSIGNED_SHORT, 0);
+      this.gl.drawElements(mode, batch.indexCount, GL.UNSIGNED_SHORT, firstIndex * 2);
     } else {
-      this.gl.drawArrays(GL.TRIANGLES, 0, batch.vertexCount);
+      this.gl.drawArrays(mode, firstIndex, batch.vertexCount);
     }
     this.dev._countDraw(batch.vertexCount);
   }
@@ -7079,15 +7444,59 @@ var GL2CommandList = class {
       throw new Error(`\u547D\u4EE4\u5217\u8868\u5DF2 finish\uFF0C\u4ECD\u5728\u8C03\u7528 ${what}\uFF08\u4F1A\u753B\u8FDB\u4E0B\u4E00\u5E27\uFF09`);
     }
   }
+  /**
+   * 把管线的 `blend` 落到 GL 上。
+   *
+   * ★ 为什么必须在这里做：混合方式是**管线**的属性（一条不透明管线和一条半透明
+   *   精灵管线可以同帧共存）。设备初始化时写死 `SRC_ALPHA / ONE_MINUS_SRC_ALPHA`
+   *   的版本会让 `None / Additive / Premultiplied` 静默退化成 Alpha ——
+   *   画面"看着还行"，只是叠加不发光、某些特效莫名半透。与 `firstIndex` 同一类：
+   *   字段被存下来，却从没被用。
+   */
+  applyBlend(mode) {
+    const m = mode ?? BlendMode.Alpha;
+    if (this.blendMode === m) return;
+    this.blendMode = m;
+    switch (m) {
+      case BlendMode.None:
+        this.gl.disable(GL.BLEND);
+        break;
+      case BlendMode.Additive:
+        this.gl.enable(GL.BLEND);
+        this.gl.blendFunc(GL.SRC_ALPHA, GL.ONE);
+        break;
+      case BlendMode.Premultiplied:
+        this.gl.enable(GL.BLEND);
+        this.gl.blendFunc(GL.ONE, GL.ONE_MINUS_SRC_ALPHA);
+        break;
+      default:
+        this.gl.enable(GL.BLEND);
+        this.gl.blendFunc(GL.SRC_ALPHA, GL.ONE_MINUS_SRC_ALPHA);
+        break;
+    }
+  }
+};
+var GL_FORMAT = {
+  RGB8: 32849,
+  RGBA16: 32859,
+  RGBA16F: 34842,
+  HALF_FLOAT: 5131
 };
 function glFormat(f) {
+  const bpp = bytesPerPixel(f);
   switch (f) {
     case PixelFormat.RGB8:
-      return { internal: GL.RGB, format: GL.RGB };
+      return { internal: GL_FORMAT.RGB8, format: GL.RGB, type: GL.UNSIGNED_BYTE, bytesPerPixel: bpp };
     case PixelFormat.R8:
-      return { internal: GL.R8, format: GL.R8 };
+      return { internal: GL.R8, format: GL.R8, type: GL.UNSIGNED_BYTE, bytesPerPixel: bpp };
+    case PixelFormat.RGBA16:
+      return { internal: GL_FORMAT.RGBA16, format: GL.RGBA, type: GL.UNSIGNED_SHORT, bytesPerPixel: bpp };
+    case PixelFormat.RGBA16F:
+      return { internal: GL_FORMAT.RGBA16F, format: GL.RGBA, type: GL_FORMAT.HALF_FLOAT, bytesPerPixel: bpp };
+    case PixelFormat.RGBA8:
+      return { internal: GL.RGBA8, format: GL.RGBA, type: GL.UNSIGNED_BYTE, bytesPerPixel: bpp };
     default:
-      return { internal: GL.RGBA8, format: GL.RGBA };
+      throw new Error(`webgl2 \u540E\u7AEF\u4E0D\u8BA4\u8BC6 PixelFormat\uFF1A${String(f)}`);
   }
 }
 var webgl2Backend = {
@@ -7123,12 +7532,31 @@ var webgl2Backend = {
 };
 
 // src/backends/input-dom/device.ts
+var PAD_BUTTONS = [
+  "A",
+  "B",
+  "X",
+  "Y",
+  "LB",
+  "RB",
+  "LT",
+  "RT",
+  "Select",
+  "Start",
+  "L3",
+  "R3",
+  "DPadUp",
+  "DPadDown",
+  "DPadLeft",
+  "DPadRight"
+];
 var PREVENT = /* @__PURE__ */ new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space", "Tab"]);
 var DomInputDevice = class {
   caps = {
     backend: "dom",
     pointer: true,
     touch: true,
+    // 构造时按环境改（有 `navigator.getGamepads` 才是 true）—— 写死 true 就是假能力声明
     gamepad: false,
     textInput: true
   };
@@ -7147,6 +7575,10 @@ var DomInputDevice = class {
   wdy = 0;
   text = "";
   subs = /* @__PURE__ */ new Set();
+  gamepads;
+  deadzone;
+  /** 上一次 poll 时手柄按下的键码（用来算"刚按下 / 刚松开"的边缘）。 */
+  padDown = /* @__PURE__ */ new Set();
   bound = [];
   /** 有输入框聚焦时，键盘不驱动游戏（编辑器输入场景名时不能同时让角色走）。 */
   textFocus = false;
@@ -7156,6 +7588,9 @@ var DomInputDevice = class {
     }
     this.kb = opts.keyboard;
     this.ptr = opts.pointer;
+    this.gamepads = opts.gamepads ?? defaultGamepads();
+    this.deadzone = opts.stickDeadzone ?? 0.35;
+    this.caps = { ...this.caps, gamepad: this.gamepads !== null };
     this.bind();
   }
   bind() {
@@ -7243,10 +7678,22 @@ var DomInputDevice = class {
     }
   }
   poll() {
+    const padNow = this.samplePads();
+    const padPressed = [];
+    const padReleased = [];
+    for (const k of padNow) if (!this.padDown.has(k)) padPressed.push(k);
+    for (const k of this.padDown) if (!padNow.has(k)) padReleased.push(k);
+    this.padDown = padNow;
+    const down = new Set(this.down);
+    const pressedSet = new Set(this.pressed);
+    const releasedSet = new Set(this.released);
+    for (const k of padNow) down.add(k);
+    for (const k of padPressed) pressedSet.add(k);
+    for (const k of padReleased) releasedSet.add(k);
     const snap = {
-      keysDown: new Set(this.down),
-      keysPressed: new Set(this.pressed),
-      keysReleased: new Set(this.released),
+      keysDown: down,
+      keysPressed: pressedSet,
+      keysReleased: releasedSet,
       pointer: {
         x: this.px,
         y: this.py,
@@ -7273,10 +7720,42 @@ var DomInputDevice = class {
   }
   setFocusTarget(target) {
   }
+  /**
+   * 读一次手柄，返回"当前按下的逻辑键码"。
+   *
+   * ★ 只读 `standard` 布局的前 16 个键与两个轴。非标准手柄（`mapping !== "standard"`）
+   *   的键位因厂商而异 —— 假装能读会让"这个手柄不能用"变成"按 A 触发了 B"。
+   *   这里不判断 mapping（结构接口里没有），但**名字按标准布局给**，
+   *   文档里写明"非标准手柄需要在宿主侧做映射表"。
+   */
+  samplePads() {
+    const out = /* @__PURE__ */ new Set();
+    if (this.gamepads === null) return out;
+    const pads = this.gamepads();
+    for (const pad of pads) {
+      if (pad === null || pad === void 0 || pad.connected === false) continue;
+      const prefix = `Gamepad${pad.index ?? 0}.`;
+      const btns = pad.buttons ?? [];
+      for (let i = 0; i < PAD_BUTTONS.length && i < btns.length; i++) {
+        const b = btns[i];
+        if (b === void 0) continue;
+        if (b.pressed === true || (b.value ?? 0) > 0.5) out.add(prefix + PAD_BUTTONS[i]);
+      }
+      const ax = pad.axes ?? [];
+      const lx = ax[0] ?? 0;
+      const ly = ax[1] ?? 0;
+      if (lx < -this.deadzone) out.add(prefix + "LStickLeft");
+      if (lx > this.deadzone) out.add(prefix + "LStickRight");
+      if (ly < -this.deadzone) out.add(prefix + "LStickUp");
+      if (ly > this.deadzone) out.add(prefix + "LStickDown");
+    }
+    return out;
+  }
   reset() {
     this.down.clear();
     this.pressed.clear();
     this.released.clear();
+    this.padDown = /* @__PURE__ */ new Set();
     this.pDown = false;
     this.pPressed = false;
     this.pReleased = false;
@@ -7291,6 +7770,11 @@ var DomInputDevice = class {
     for (const f of this.subs) f(e);
   }
 };
+function defaultGamepads() {
+  const nav = globalThis.navigator;
+  if (typeof nav?.getGamepads !== "function") return null;
+  return () => nav.getGamepads();
+}
 var domInputBackend = {
   id: "dom",
   priority: 100,
@@ -7648,20 +8132,20 @@ var ChannelLogger = class {
     this.root = root;
     this.name = name;
   }
-  trace(msg, fields) {
-    this.root.log(LogLevel.Trace, this.name, msg, fields);
+  trace(msg3, fields) {
+    this.root.log(LogLevel.Trace, this.name, msg3, fields);
   }
-  debug(msg, fields) {
-    this.root.log(LogLevel.Debug, this.name, msg, fields);
+  debug(msg3, fields) {
+    this.root.log(LogLevel.Debug, this.name, msg3, fields);
   }
-  info(msg, fields) {
-    this.root.log(LogLevel.Info, this.name, msg, fields);
+  info(msg3, fields) {
+    this.root.log(LogLevel.Info, this.name, msg3, fields);
   }
-  warn(msg, fields, limit = DEFAULT_LIMIT) {
-    this.root.log(LogLevel.Warn, this.name, msg, fields, limit);
+  warn(msg3, fields, limit = DEFAULT_LIMIT) {
+    this.root.log(LogLevel.Warn, this.name, msg3, fields, limit);
   }
-  error(msg, fields, limit = DEFAULT_LIMIT) {
-    this.root.log(LogLevel.Error, this.name, msg, fields, limit);
+  error(msg3, fields, limit = DEFAULT_LIMIT) {
+    this.root.log(LogLevel.Error, this.name, msg3, fields, limit);
   }
 };
 var ConsoleSink = class {
@@ -8331,15 +8815,29 @@ var Component = class {
     return out;
   }
   /**
-   * 通用读取。**缺字段用默认值而不是跳过**，但要报告（见返回值）。
-   * 返回缺失的字段名：调用方（AssetDatabase / 存档）据此判断"是不是旧版本"。
+   * 通用读取。**缺字段时保留实例上的值**（类初始化器就是这个字段的出生默认值），
+   * 同时把缺失的字段名报告给调用方（AssetDatabase / 存档）判断"是不是旧版本"。
+   *
+   * ★★ 为什么不是"缺字段填类型零值"（这是被一条真判据逼出来的改动）：
+   *   schema 演化时唯一可能正确的默认值写在**类的初始化器**里
+   *   （`pivotX = 0.5`）。压成零值的话，旧存档读回来 `pivotX = 0` ——
+   *   所有已有精灵右移半格，而**新存档完全正常**，所以新写的判据一个都不会红。
+   *   这类错误只在"用户打开旧档"时出现，也就是永远不会在开发机上出现。
+   *   实测：`Sprite.pivotX` 加进来的当天，这一条就抓到了（world-visuals 的旧档判据）。
+   *
+   * 顺序：实例已有值 → `schema.defaults`（显式声明的默认值） → 类型零值（字段压根没声明）。
    */
   load(data) {
     const missing = [];
     const self2 = this;
     for (const [k, t] of Object.entries(this.schema.fields)) {
-      if (data[k] === void 0) missing.push(k);
-      self2[k] = data[k] === void 0 ? zeroValue(t) : data[k];
+      if (data[k] === void 0) {
+        missing.push(k);
+        if (self2[k] !== void 0) continue;
+        self2[k] = this.schema.defaults?.[k] ?? zeroValue(t);
+        continue;
+      }
+      self2[k] = data[k];
     }
     return { missing };
   }
@@ -9587,9 +10085,14 @@ var SpriteBatch = class _SpriteBatch {
    * 排序（原地）。规则见文件头。
    * ★ 用**显式比较函数**而不是 `Array.sort` 的默认行为：默认会把数字转字符串，
    *   而 `[10, 9]` 会排成 `[10, 9]`（字符串 "10" < "9"）—— 这类 bug 极难发现。
+   * ★ `?? 1`：缺 layer 的 RenderItem 当实体。0 是背景，把旧数据默认成背景
+   *   会让所有东西一夜之间消失在地形后面 —— 与 Sprite 的默认值同思路。
    */
   static sort(items) {
     items.sort((a, b) => {
+      const la = a.layer ?? 1;
+      const lb = b.layer ?? 1;
+      if (la !== lb) return la - lb;
       if (a.z !== b.z) return b.z - a.z;
       if (a.order !== b.order) return a.order - b.order;
       if (a.atlas !== b.atlas) return a.atlas - b.atlas;
@@ -9608,33 +10111,45 @@ var SpriteBatch = class _SpriteBatch {
     const n = Math.min(sorted.length, this.maxQuads);
     let atlasSwitches = 0;
     let lastAtlas = -1;
+    const runsMut = [];
     for (let q2 = 0; q2 < n; q2++) {
       const it = sorted[q2];
       if (it.atlas !== lastAtlas) {
         atlasSwitches++;
         lastAtlas = it.atlas;
+        runsMut.push({ atlas: it.atlas, start: q2, count: 1 });
+      } else {
+        const prev = runsMut[runsMut.length - 1];
+        if (prev === void 0) throw new Error("batch2d \u5185\u90E8\u9519\u8BEF\uFF1A\u7B2C\u4E00\u6BB5\u6CA1\u5EFA\u8D77\u6765");
+        prev.count++;
       }
       const c = cam.project(it.x, it.z);
       const e = cam.extents(it.w, it.h);
       const cy = c.y + (0.5 - it.pivotY) * 2 * e.halfH;
-      const x0 = c.x - e.halfW;
-      const x1 = c.x + e.halfW;
+      const cx = c.x + (0.5 - it.pivotX) * 2 * e.halfW;
+      const x0 = cx - e.halfW;
+      const x1 = cx + e.halfW;
       const y0 = cy - e.halfH;
       const y1 = cy + e.halfH;
-      const va = 1 - it.v0;
-      const vb = 1 - it.v1;
+      const tileX = Math.max(1, Math.floor(it.tileX ?? 1));
+      const tileY = Math.max(1, Math.floor(it.tileY ?? 1));
+      const ua = it.u0;
+      const ub = it.u0 + (it.u1 - it.u0) * tileX;
+      const va = it.v0;
+      const vb = it.v0 + (it.v1 - it.v0) * tileY;
       const base = q2 * 4 * FLOATS_PER_VERTEX;
-      writeVert(this.vertices, base, x0, y0, it.u0, vb, it);
-      writeVert(this.vertices, base + FLOATS_PER_VERTEX, x1, y0, it.u1, vb, it);
-      writeVert(this.vertices, base + FLOATS_PER_VERTEX * 2, x1, y1, it.u1, va, it);
-      writeVert(this.vertices, base + FLOATS_PER_VERTEX * 3, x0, y1, it.u0, va, it);
+      writeVert(this.vertices, base, x0, y0, ua, vb, it);
+      writeVert(this.vertices, base + FLOATS_PER_VERTEX, x1, y0, ub, vb, it);
+      writeVert(this.vertices, base + FLOATS_PER_VERTEX * 2, x1, y1, ub, va, it);
+      writeVert(this.vertices, base + FLOATS_PER_VERTEX * 3, x0, y1, ua, va, it);
     }
     return {
       quadCount: n,
       vertexCount: n * 4,
       indexCount: n * 6,
-      drawCalls: n === 0 ? 0 : 1,
-      atlasSwitches
+      drawCalls: runsMut.length,
+      atlasSwitches,
+      runs: runsMut
     };
   }
   /** 零拷贝视图：只把前 `quadCount` 个顶点交给 GPU（避免每帧上传满 buffer）。 */
@@ -9732,6 +10247,7 @@ var Camera2D = class {
 };
 
 // src/extensions/render/sprite.ts
+var SPRITE_TYPE = "render.sprite";
 var Sprite = class extends Component {
   /** 图集资产 id（空 = 用默认图集）。 */
   atlasId = "";
@@ -9747,12 +10263,54 @@ var Sprite = class extends Component {
   a = 1;
   /** 同 z 时的次序（小的先画）。 */
   order = 0;
+  /**
+   * 绘制层：0 = 背景（地面），1 = 实体（默认）。层在 z **之前**比较。
+   *
+   * ★ 默认 1 而不是 0：旧内容/旧存档没有这个字段，它们该保持"实体"行为。
+   *   缺字段拿到 0 会让所有旧精灵掉到地形背后 —— 一帧都不显示，且没有任何报错。
+   *
+   * ★ 用整数而不是枚举：层数由宿主定（背景/实体/UI/ overlay…），引擎不替宿主
+   *   决定有哪些层，只保证"小的先画"。
+   */
+  layer = 1;
   /** 关闭后不参与渲染（但仍更新逻辑）。 */
   visible = true;
   /** 锚点：0 = 底边，0.5 = 中心。饥荒风格通常用 0（脚踩地面）。 */
   pivotY = 0.5;
+  /**
+   * 水平锚点：0 = 左边界，0.5 = 中心。
+   *
+   * ★ 为什么需要它（这是"地形一直画不出来"的根因）：
+   *   地形节点是**矩形**，位置是矩形左上角的格子坐标。只有 `pivotY` 时，
+   *   精灵永远以节点位置为水平中心 —— 一块 8×5 的地形要么整体右移半块，
+   *   要么就得把节点位置改成矩形中心（那会破坏「地形节点位置 = 格子坐标」，
+   *   连带破坏反查与存档往返）。加一个对称的 `pivotX` 是唯一不动代价的解法。
+   *
+   * ★ 默认 0.5 = 与"只有 pivotY"时的行为完全一致：旧内容/旧代码的显示不变。
+   *   也正因为如此，旧存档里没有这个字段时**必须**拿到 0.5（不是 0）——
+   *   见 scene-io 的 `missingFields`：缺字段会走类里的默认值，不会被写成 0。
+   */
+  pivotX = 0.5;
+  /**
+   * 沿精灵宽度重复贴图多少次（T288）。
+   *
+   * ★ 为什么它是"次数"而不是"UV 缩放量"：调用方想的是"这一块 8 格宽的地形，
+   *   每格铺一张 64×64 的噪点"—— 8 次，一个整数。乘出来的 UV 是 8×帧宽，
+   *   那是实现细节。写成"缩放量"会让每个宿主都得自己算 `宽 / 贴图像素宽`，
+   *   而那正是 T288 想消灭的"每处各算一遍"。
+   *
+   * ★ 只能用在 `wrap: repeat` 的**瓦片页**上（见 `buildTilePages`）。
+   *   在 clamp 页上平铺，GPU 会把边缘像素抻出去 —— 画面是一条脏边，
+   *   而精灵的所有数字都对。渲染模块对这种组合**告警**（不静默跳过）。
+   *
+   * ★ 默认 1 = 与旧行为逐字节一致：旧存档没有这个字段时也必须拿到 1
+   *   （`scene-io` 的缺字段走类默认值，不会被写成 0 —— 0 会让精灵整块消失）。
+   */
+  tileX = 1;
+  /** 沿精灵高度重复贴图多少次。语义同 `tileX`。 */
+  tileY = 1;
   schema = {
-    type: "render.sprite",
+    type: SPRITE_TYPE,
     fields: {
       atlasId: FieldType.String,
       frame: FieldType.String,
@@ -9763,8 +10321,12 @@ var Sprite = class extends Component {
       b: FieldType.Float,
       a: FieldType.Float,
       order: FieldType.Int,
+      layer: FieldType.Int,
       visible: FieldType.Bool,
-      pivotY: FieldType.Float
+      pivotY: FieldType.Float,
+      pivotX: FieldType.Float,
+      tileX: FieldType.Float,
+      tileY: FieldType.Float
     }
   };
 };
@@ -9783,9 +10345,26 @@ var Pen = class {
     this.W = W;
     this.H = H;
   }
+  /** 当前绘制原点：**每个帧块都必须先 `origin()` 到自己的矩形左上角**。 */
+  ox = 0;
+  oy = 0;
+  /**
+   * ★ 这个方法是 T330 顺带抓出来的第二个缺陷的解药：
+   *   原来每个帧的绘制用的是**绝对坐标**，而 `layout` 里 rock/player/berry 分别在
+   *   x=64/112/144 —— 于是那三帧的图形全被画进了 tree 的矩形（x 0..64），
+   *   三帧本身**一个不透明像素都没有**。
+   *   症状是"兜底图集里少三类东西"，而所有既有判据（帧在不在、UV 对不对、
+   *   尺寸对不对）都是绿的：它们查的是地图，不是地图上有没有东西。
+   */
+  origin(x, y) {
+    this.ox = x;
+    this.oy = y;
+  }
   put(x, y, r, g, b, a = 255) {
-    if (x < 0 || y < 0 || x >= this.W || y >= this.H) return;
-    const i = (y * this.W + x) * 4;
+    const ax = this.ox + x;
+    const ay = this.oy + y;
+    if (ax < 0 || ay < 0 || ax >= this.W || ay >= this.H) return;
+    const i = (ay * this.W + ax) * 4;
     const src = a / 255;
     const dstA = this.px[i + 3] / 255;
     const outA = src + dstA * (1 - src);
@@ -9844,18 +10423,28 @@ function buildProceduralAtlas() {
     { name: "rock", x: 64, y: 0, w: 48, h: 40 },
     { name: "player", x: 112, y: 0, w: 32, h: 48 },
     { name: "berry", x: 144, y: 0, w: 24, h: 24 },
-    { name: "ground", x: 0, y: 96, w: 64, h: 64 }
+    { name: "ground", x: 0, y: 96, w: 64, h: 64 },
+    { name: "terrain", x: 64, y: 96, w: 64, h: 64 }
   ];
+  const at = (n) => {
+    const l = layout.find((e) => e.name === n);
+    if (l === void 0) throw new Error(`\u5E03\u5C40\u91CC\u6CA1\u6709\u5E27 "${n}"\uFF08\u5185\u90E8\u4E00\u81F4\u6027\u9519\u8BEF\uFF09`);
+    return { x: l.x, y: l.y };
+  };
+  pen.origin(at("tree").x, at("tree").y);
   pen.rect(28, 64, 8, 32, [92, 62, 38]);
   pen.triangle(32, 0, 4, 44, 60, 44, [46, 110, 52]);
   pen.triangle(32, 18, 8, 58, 56, 58, [56, 132, 62]);
   pen.triangle(32, 36, 12, 72, 52, 72, [66, 152, 72]);
+  pen.origin(at("rock").x, at("rock").y);
   pen.disc(24, 26, 16, [98, 100, 106]);
   pen.disc(20, 20, 11, [128, 132, 138]);
+  pen.origin(at("player").x, at("player").y);
   pen.rect(10, 20, 12, 24, [198, 156, 84]);
   pen.disc(16, 14, 9, [232, 198, 140]);
   pen.rect(12, 12, 3, 3, [30, 30, 30]);
   pen.rect(18, 12, 3, 3, [30, 30, 30]);
+  pen.origin(at("berry").x, at("berry").y);
   pen.disc(9, 9, 4, [186, 42, 46]);
   pen.disc(16, 12, 4, [206, 58, 54]);
   pen.disc(11, 17, 3, [168, 34, 40]);
@@ -9864,10 +10453,18 @@ function buildProceduralAtlas() {
     seed = seed * 1103515245 + 12345 & 2147483647;
     return seed / 2147483647;
   };
-  for (let y = 96; y < 160; y++) {
+  pen.origin(at("ground").x, at("ground").y);
+  for (let y = 0; y < 64; y++) {
     for (let x = 0; x < 64; x++) {
       const v = 54 + Math.floor(rnd() * 18);
       pen.rect(x, y, 1, 1, [v, v + 22, v - 6]);
+    }
+  }
+  pen.origin(at("terrain").x, at("terrain").y);
+  for (let y = 0; y < 64; y++) {
+    for (let x = 0; x < 64; x++) {
+      const v = 188 + Math.floor(rnd() * 31);
+      pen.rect(x, y, 1, 1, [v, v, v]);
     }
   }
   const frames = /* @__PURE__ */ new Map();
@@ -9883,8 +10480,101 @@ function buildProceduralAtlas() {
   }
   return { width: W, height: H, pixels: px, frames };
 }
+function buildTilePages(main2, frameNames) {
+  const out = [];
+  for (const name of frameNames) {
+    const f = main2.frames.get(name);
+    if (f === void 0) continue;
+    const x0 = Math.round(f.u0 * main2.width);
+    const y0 = Math.round(f.v0 * main2.height);
+    const w = f.w;
+    const h = f.h;
+    const px = new Uint8Array(w * h * 4);
+    for (let y = 0; y < h; y++) {
+      const from = ((y0 + y) * main2.width + x0) * 4;
+      px.set(main2.pixels.subarray(from, from + w * 4), y * w * 4);
+    }
+    let page = {
+      width: w,
+      height: h,
+      pixels: px,
+      wrap: "repeat",
+      name: tilePageName(name),
+      frames: /* @__PURE__ */ new Map([[name, { u0: 0, v0: 0, u1: 1, v1: 1, w, h }]])
+    };
+    if (main2.pixels16 !== void 0) {
+      const p16 = new Uint16Array(w * h * 4);
+      for (let y = 0; y < h; y++) {
+        const from = ((y0 + y) * main2.width + x0) * 4;
+        p16.set(main2.pixels16.subarray(from, from + w * 4), y * w * 4);
+      }
+      page = { ...page, format: PixelFormat.RGBA16, pixels16: p16 };
+      for (let i = 0; i < px.length; i++) px[i] = Math.round(p16[i] / 257);
+    }
+    out.push(page);
+  }
+  return out;
+}
+function tilePageName(frame) {
+  return `${frame}.tile`;
+}
 
 // src/extensions/render/render-module.ts
+function spriteToRenderItem(s, f, nodeId, x, z, atlas) {
+  return {
+    nodeId,
+    x,
+    z,
+    w: s.width,
+    h: s.height,
+    u0: f.u0,
+    v0: f.v0,
+    u1: f.u1,
+    v1: f.v1,
+    r: s.r,
+    g: s.g,
+    b: s.b,
+    a: s.a,
+    order: s.order,
+    layer: s.layer,
+    pivotY: s.pivotY,
+    pivotX: s.pivotX,
+    atlas,
+    tileX: s.tileX,
+    tileY: s.tileY
+  };
+}
+function frameRect(a, f, name) {
+  const px = Math.min(a.width - 1, Math.max(0, Math.floor((f.u0 + f.u1) / 2 * a.width)));
+  const py = Math.min(a.height - 1, Math.max(0, Math.floor((f.v0 + f.v1) / 2 * a.height)));
+  const i = (py * a.width + px) * 4;
+  const x0 = Math.floor(f.u0 * a.width);
+  const x1 = Math.max(x0, Math.floor(f.u1 * a.width) - 1);
+  const y0 = Math.floor(f.v0 * a.height);
+  const y1 = Math.max(y0, Math.floor(f.v1 * a.height) - 1);
+  const midX = x0 + x1 >> 1;
+  let opaqueRows = 0;
+  for (let y = y0; y <= y1; y++) {
+    if ((a.pixels[(y * a.width + midX) * 4 + 3] ?? 0) > 0) opaqueRows++;
+  }
+  return {
+    u0: f.u0,
+    v0: f.v0,
+    u1: f.u1,
+    v1: f.v1,
+    w: f.w,
+    h: f.h,
+    atlasW: a.width,
+    atlasH: a.height,
+    opaqueRows,
+    sample: {
+      r: a.pixels[i] ?? 0,
+      g: a.pixels[i + 1] ?? 0,
+      b: a.pixels[i + 2] ?? 0,
+      a: a.pixels[i + 3] ?? 0
+    }
+  };
+}
 function createRenderModule(opts) {
   const camera = new Camera2D({
     viewportWidth: opts.viewportWidth,
@@ -9893,15 +10583,18 @@ function createRenderModule(opts) {
     tiltY: opts.tiltY ?? 0.62
   });
   let dev = null;
-  let tex = null;
+  let tex = [];
+  let slotOfName = /* @__PURE__ */ new Map();
   let shader = null;
   let pipeline = null;
   let vbo = null;
   let ibo = null;
   let offRender = null;
   let batch = null;
-  let atlas = null;
+  let pages = [];
+  let atlasFmt = PixelFormat.RGBA8;
   let ctxRef = null;
+  let warnedAtlasIds = /* @__PURE__ */ new Set();
   let lastFrame = { quads: 0, drawCalls: 0, atlasSwitches: 0, culled: 0 };
   const mod = {
     id: opts.id ?? "render.batch2d",
@@ -9911,29 +10604,63 @@ function createRenderModule(opts) {
       dev = ctx.platform.gfx;
       const d = dev;
       const procedural = opts.atlas === void 0;
-      atlas = opts.atlas ?? buildProceduralAtlas();
-      const t = d.createTexture(
-        {
-          width: atlas.width,
-          height: atlas.height,
-          format: PixelFormat.RGBA8,
-          filter: TextureFilter.Nearest,
-          wrap: TextureWrap.Clamp,
-          // label 不是装饰：null 后端的 `describe()` 与崩溃报告会原样打印它，
-          // "这张纹理到底是资产图集还是兜底的程序化图集"必须一眼可辨。
-          label: procedural ? "engine.procedural-atlas" : "engine.asset-atlas"
-        },
-        atlas.pixels
-      );
-      if (!t.ok) return t;
-      tex = t.value;
+      const main2 = opts.atlas ?? buildProceduralAtlas();
+      pages = [main2, ...buildTilePages(main2, opts.tileFrames ?? ["terrain"]), ...opts.extraPages ?? []];
+      const slots = /* @__PURE__ */ new Map();
+      for (const [i, p] of pages.entries()) {
+        const name = p.name;
+        if (name !== void 0 && name !== "") {
+          if (slots.has(name)) {
+            return err(engineError("RENDER.DUP_PAGE", `\u4E24\u4E2A\u56FE\u96C6\u9875\u91CD\u540D\uFF1A${name}\uFF08atlasId \u4F1A\u6307\u5411\u4E0D\u786E\u5B9A\u7684\u90A3\u4E00\u9875\uFF09`));
+          }
+          slots.set(name, i);
+        }
+      }
+      slotOfName = slots;
+      const uploaded = [];
+      for (const [i, page] of pages.entries()) {
+        const fmt2 = page.format ?? PixelFormat.RGBA8;
+        const p16 = page.pixels16;
+        if (fmt2 === PixelFormat.RGBA16 && p16 === void 0) {
+          for (const h of uploaded) d.destroyTexture(h);
+          return err(
+            engineError("RENDER.BAD_ATLAS", `\u56FE\u96C6\u9875 ${i}\uFF08${page.name ?? "main"}\uFF09format \u662F rgba16\uFF0C\u4F46\u6CA1\u7ED9 pixels16\uFF08\u89E3\u7801\u5668\u5077\u5077\u964D\u91C7\u6837\u4E86\uFF1F\uFF09`)
+          );
+        }
+        const upload = fmt2 === PixelFormat.RGBA16 && p16 !== void 0 ? p16 : page.pixels;
+        const t = d.createTexture(
+          {
+            width: page.width,
+            height: page.height,
+            format: fmt2,
+            filter: TextureFilter.Nearest,
+            // ★ wrap 是**页级**的：瓦片页 repeat（平铺），主图集 clamp（不抻边）。
+            //   两页混用同一张 wrap 的两种错法都试过：主图集开 repeat ⇒ 邻居帧被采进来；
+            //   瓦片页开 clamp ⇒ 平铺的接缝处一条脏边。两种都不报错，只难看。
+            wrap: page.wrap ?? TextureWrap.Clamp,
+            // label 不是装饰：null 后端的 `describe()` 与崩溃报告会原样打印它，
+            // "这张纹理到底是资产图集还是兜底的程序化图集"必须一眼可辨；
+            // 精度同理 —— 一个 "atlas:rgba16" 比翻像素快得多。
+            label: (procedural && i === 0 ? "engine.procedural-atlas" : `engine.atlas[${i}]`) + (page.name !== void 0 ? `:${page.name}` : "") + (fmt2 === PixelFormat.RGBA16 ? ":rgba16" : "") + (page.wrap === TextureWrap.Repeat ? ":repeat" : "")
+          },
+          upload
+        );
+        if (!t.ok) {
+          for (const h of uploaded) d.destroyTexture(h);
+          return t;
+        }
+        uploaded.push(t.value);
+      }
+      tex = uploaded;
+      atlasFmt = main2.format ?? PixelFormat.RGBA8;
       const sh = d.createShader({
         vertex: SPRITE_VS,
         fragment: SPRITE_FS,
         label: "engine.sprite"
       });
       if (!sh.ok) {
-        d.destroyTexture(tex);
+        for (const h of uploaded) d.destroyTexture(h);
+        tex = [];
         return sh;
       }
       shader = sh.value;
@@ -9945,7 +10672,8 @@ function createRenderModule(opts) {
       });
       if (!pl.ok) {
         d.destroyShader(shader);
-        d.destroyTexture(tex);
+        for (const h of uploaded) d.destroyTexture(h);
+        tex = [];
         return pl;
       }
       pipeline = pl.value;
@@ -9959,7 +10687,8 @@ function createRenderModule(opts) {
       if (!vb.ok) {
         d.destroyPipeline(pipeline);
         d.destroyShader(shader);
-        d.destroyTexture(tex);
+        for (const h of uploaded) d.destroyTexture(h);
+        tex = [];
         return vb;
       }
       vbo = vb.value;
@@ -9973,7 +10702,8 @@ function createRenderModule(opts) {
         d.destroyBuffer(vbo);
         d.destroyPipeline(pipeline);
         d.destroyShader(shader);
-        d.destroyTexture(tex);
+        for (const h of uploaded) d.destroyTexture(h);
+        tex = [];
         return ib;
       }
       ibo = ib.value;
@@ -9983,11 +10713,12 @@ function createRenderModule(opts) {
         d.destroyBuffer(vbo);
         d.destroyPipeline(pipeline);
         d.destroyShader(shader);
-        d.destroyTexture(tex);
+        for (const h of uploaded) d.destroyTexture(h);
+        tex = [];
         return up;
       }
       ctx.log.channel("render").info(
-        `\u6E32\u67D3\u6A21\u5757\u5C31\u7EEA\uFF1A${atlas.width}x${atlas.height} \u56FE\u96C6 \xB7 ${atlas.frames.size} \u5E27 \xB7 \u6279\u91CF\u4E0A\u9650 ${batch.maxQuads} quad`
+        `\u6E32\u67D3\u6A21\u5757\u5C31\u7EEA\uFF1A${pages.map((p) => `${p.name ?? "main"} ${p.width}x${p.height}`).join(" + ")} \xB7 \u4E3B\u56FE\u96C6 ${main2.frames.size} \u5E27 \xB7 ${atlasFmt} \xB7 \u6279\u91CF\u4E0A\u9650 ${batch.maxQuads} quad`
       );
       return ok(void 0);
     },
@@ -10009,16 +10740,18 @@ function createRenderModule(opts) {
         if (vbo !== null) d.destroyBuffer(vbo);
         if (pipeline !== null) d.destroyPipeline(pipeline);
         if (shader !== null) d.destroyShader(shader);
-        if (tex !== null) d.destroyTexture(tex);
+        for (const h of tex) d.destroyTexture(h);
       }
       ibo = null;
       vbo = null;
       pipeline = null;
       shader = null;
-      tex = null;
+      tex = [];
       dev = null;
       batch = null;
-      atlas = null;
+      pages = [];
+      slotOfName = /* @__PURE__ */ new Map();
+      atlasFmt = PixelFormat.RGBA8;
     },
     describe() {
       return `\u6E32\u67D3\uFF1A${lastFrame.quads} quad / ${lastFrame.drawCalls} draw / ${lastFrame.atlasSwitches} \u7EB9\u7406\u5207\u6362`;
@@ -10030,15 +10763,36 @@ function createRenderModule(opts) {
       return lastFrame;
     },
     get atlasFrameCount() {
-      return atlas?.frames.size ?? 0;
+      return pages[0]?.frames.size ?? 0;
+    },
+    get atlasFormat() {
+      return atlasFmt;
+    },
+    /** 图集页数（主图集 + 瓦片页 + 附加页）。init 之前是 0。 */
+    get atlasPageCount() {
+      return pages.length;
+    },
+    atlasFrame(name) {
+      const main2 = pages[0];
+      const mf = main2?.frames.get(name);
+      if (main2 !== void 0 && mf !== void 0) return frameRect(main2, mf, name);
+      for (const a of pages) {
+        const f = a.frames.get(name);
+        if (f !== void 0) return frameRect(a, f, name);
+      }
+      return void 0;
+    },
+    lastVertices(quads) {
+      const b = batch;
+      if (b === null) return new Float32Array(0);
+      return b.vertexView(Math.max(0, quads)).slice();
     }
   };
   function renderFrame(info) {
     const d = dev;
     const b = batch;
-    const a = atlas;
     const scene = ctxRef?.services.get(Services.Scene);
-    if (d === null || b === null || a === null || scene === void 0) return;
+    if (d === null || b === null || pages.length === 0 || scene === void 0) return;
     const target = opts.follow?.();
     if (target !== void 0) {
       camera.moveTo(target.x, target.z);
@@ -10047,7 +10801,7 @@ function createRenderModule(opts) {
     const items = [];
     const vis = camera.visibleRect();
     let culled = 0;
-    const slotOfAtlas = (atlasId) => atlasId === "" ? 0 : 0;
+    warnedAtlasIds.clear();
     for (const s of sprites) {
       if (!s.visible) continue;
       const node = s.node;
@@ -10058,34 +10812,40 @@ function createRenderModule(opts) {
         culled++;
         continue;
       }
-      const f = a.frames.get(s.frame);
+      let slot = 0;
+      if (s.atlasId !== "") {
+        const found = slotOfName.get(s.atlasId);
+        if (found === void 0) {
+          if (!warnedAtlasIds.has(s.atlasId)) {
+            warnedAtlasIds.add(s.atlasId);
+            ctxRef?.log.channel("render").warn(
+              `Sprite \u7684 atlasId \u6CA1\u6709\u5BF9\u5E94\u56FE\u96C6\u9875\uFF1A${JSON.stringify(s.atlasId)}\uFF08\u5DF2\u56DE\u843D\u5230\u4E3B\u56FE\u96C6\uFF09`,
+              { node: node.id },
+              null
+            );
+          }
+        } else {
+          slot = found;
+        }
+      }
+      const f = frameOf(slot, s.frame);
       if (f === void 0) {
         ctxRef?.log.channel("render").warn(`Sprite \u5E27\u540D\u4E0D\u5B58\u5728\uFF1A${JSON.stringify(s.frame)}`, { node: node.id }, null);
         continue;
       }
-      items.push({
-        nodeId: node.id,
-        x: p.x,
-        z: p.y,
-        w: s.width,
-        h: s.height,
-        u0: f.u0,
-        v0: f.v0,
-        u1: f.u1,
-        v1: f.v1,
-        r: s.r,
-        g: s.g,
-        b: s.b,
-        a: s.a,
-        order: s.order,
-        pivotY: s.pivotY,
-        atlas: slotOfAtlas(s.atlasId)
-      });
+      items.push(spriteToRenderItem(s, f, node.id, p.x, p.y, slot));
+      if ((s.tileX > 1 || s.tileY > 1) && (pages[slot]?.wrap ?? "clamp") !== "repeat") {
+        ctxRef?.log.channel("render").warn(
+          `Sprite \u5728 clamp \u9875\u4E0A\u5E73\u94FA\uFF08tileX=${s.tileX}, tileY=${s.tileY}, atlasId=${JSON.stringify(s.atlasId)}\uFF09\u2014\u2014 \u63A5\u7F1D\u4F1A\u88AB\u62BB\u6210\u810F\u8FB9\uFF1B\u8BF7\u6539\u7528 buildTilePages \u62BD\u51FA\u7684 repeat \u9875`,
+          { node: node.id },
+          null
+        );
+      }
     }
     const built = b.build(items, camera);
     lastFrame = {
       quads: built.quadCount,
-      drawCalls: 0,
+      drawCalls: built.drawCalls,
       atlasSwitches: built.atlasSwitches,
       culled
     };
@@ -10095,48 +10855,143 @@ function createRenderModule(opts) {
     const cmd = d.beginFrame(null);
     cmd.setViewport(new Rect(0, 0, vw, vh));
     cmd.clear(camera.clearColor, 1);
-    if (built.quadCount > 0 && vbo !== null && ibo !== null && pipeline !== null && tex !== null) {
+    if (built.quadCount > 0 && vbo !== null && ibo !== null && pipeline !== null) {
       const up = d.updateBuffer(vbo, b.vertexView(built.quadCount));
       if (!up.ok) {
         ctxRef?.log.channel("render").error(`\u9876\u70B9\u4E0A\u4F20\u5931\u8D25\uFF1A${up.error.message}`, void 0, null);
       } else {
         cmd.setPipeline(pipeline);
-        cmd.bindTexture(0, tex);
-        cmd.setUniform("u_useTexture", 1, "int");
-        cmd.draw({
-          vertices: vbo,
-          indices: ibo,
-          vertexCount: built.vertexCount,
-          indexCount: built.indexCount
-        });
-        lastFrame = { ...lastFrame, drawCalls: 1 };
+        for (const run of built.runs) {
+          const page = tex[run.atlas];
+          if (page === void 0) {
+            ctxRef?.log.channel("render").error(`\u56FE\u96C6\u69FD\u4F4D ${run.atlas} \u6CA1\u6709\u7EB9\u7406\uFF08\u6BB5\u88AB\u8DF3\u8FC7\uFF09`, void 0, null);
+            continue;
+          }
+          cmd.bindTexture(0, page);
+          cmd.setUniform("u_useTexture", 1, "int");
+          cmd.draw({
+            vertices: vbo,
+            indices: ibo,
+            vertexCount: (run.start + run.count) * 4,
+            indexCount: run.count * 6,
+            // ★ 段在索引缓冲里的偏移：顶点是连续排的，索引也是按 quad 顺序生成的，
+            //   所以第 q 个 quad 的索引起点就是 q*6。少了这个偏移，第二段会把
+            //   **第一段的几何**再画一遍（画面重复而不是切换贴图）。
+            firstIndex: run.start * 6
+          });
+        }
       }
     }
     cmd.finish();
     d.endFrame();
   }
+  function frameOf(slot, frame) {
+    return pages[slot]?.frames.get(frame);
+  }
   return mod;
 }
 
 // src/extensions/physics/physics.ts
+var AUTO_CELL_MIN = 0.5;
+var AUTO_CELL_MAX = 16;
+var AUTO_CELL_FALLBACK = 1;
 var EPS = 1e-9;
 var SpatialHashWorld = class {
   cellSize;
+  autoCell;
   maxIterations;
   skin;
   bodies = /* @__PURE__ */ new Map();
   /** cell key → body id 列表 */
   cells = /* @__PURE__ */ new Map();
+  /**
+   * body id → 它现在在哪个格键里。
+   *
+   * ★ 没有它的时候，`reindex` 只能**遍历所有格**去找这个 id（`indexOf`）——
+   *   O(#格) 每次。密集场景里每一步要推几千次，于是 2000 实体 × 250 格 = 几十万次
+   *   `indexOf`，实测把 2.8ms 的解算拖到 21ms。性能闸门（physics-perf.test.ts）
+   *   第一次跑就把这笔账算出来了。
+   */
+  cellOfBody = /* @__PURE__ */ new Map();
+  /**
+   * 全场最大 `rangeOf` 的缓存。
+   *
+   * ★ 它原来是在 `resolve()` 的内层循环里**每个体每次迭代都重算一遍**（O(n)），
+   *   于是整个解算是 O(n²·迭代)。而实体只在 add/remove 时增减 —— 这是个纯缓存问题，
+   *   不是算法问题：`maxRadiusNearby()` 现在 O(1)。
+   *   失效点只有 add / remove / clear 三处（body 的半径是 add 时定的，之后不可变）。
+   */
+  maxRange = 0;
+  /** 工作量计数（见 `PhysicsStats` 的三个同名注释）：只增不减，`clear()` 归零。 */
+  _bodyScans = 0;
+  _maxRangeScans = 0;
+  _cellScans = 0;
+  _settlePasses = 0;
+  _settleStaticPushes = 0;
+  _cellMoves = 0;
+  _pairChecks = 0;
+  _candidateScans = 0;
+  /**
+   * 动态体的 id 集合。
+   *
+   * ★ `resolve()` 原来遍历**所有** body 再 `if (b.isStatic) continue` ——
+   *   于是"加 1900 棵静态树"会让 50 个动态体的解算慢 4.6 倍（实测），
+   *   而静态树本不该影响动态体的成本。维护一个集合就把这一侧的开销从 O(全场)
+   *   变成 O(动态数)。
+   * ★ 不变量：`isStatic` 在 `add` 时确定，之后不可变（要变就先 remove 再 add）。
+   */
+  dynamicIds = /* @__PURE__ */ new Set();
   pos;
   _queries = 0;
   _pushes = 0;
   _unresolved = 0;
   constructor(pos, cfg = {}) {
     this.pos = pos;
-    this.cellSize = cfg.cellSize ?? 4;
+    this.autoCell = cfg.cellSize === void 0;
+    this.cellSize = cfg.cellSize ?? AUTO_CELL_FALLBACK;
     this.maxIterations = cfg.maxIterations ?? 3;
     this.skin = cfg.skin ?? 1e-3;
     if (!(this.cellSize > 0)) throw new RangeError("cellSize \u5FC5\u987B > 0");
+  }
+  /**
+   * ★★ 自动格宽（T338）：`cellSize ≈ 2 × 全场最大 range`。
+   *
+   * 为什么是这个值 —— 一次解算的候选扫描量是
+   *   `(覆盖格数) × (每格占用) ≈ (2r_q / cellSize + 1)² × (cellSize / 间距)²·n`
+   * 其中 `r_q = 自身 range + 最大 range ≤ 2R`。格宽远大于实体尺寸时，"每格占用"
+   * 按平方涨；远小于时，"覆盖格数"按平方涨。实测（2000 体 / 间距 0.5 / R=0.3）：
+   * `cellSize=4`（默认值）**13.8ms** → `cellSize=1.6` 7.4ms → `1.0` 6.7ms → `0.7` **6.3ms**。
+   * 最优点正好落在 `2R = 0.6` 附近。这是**成本模型**，不是"把场景调快"。
+   *
+   * 为什么只在**跨档**时才重建（而不是每次 add 都试）：
+   *   重建是 O(n)。若按半径从小到大的顺序加载，每次 add 都想缩格 ⇒ 退化成 O(n²)。
+   *   所以只有当新尺寸与当前尺寸相差 ≥ 2 倍时才重建 —— 每次重建都至少让尺寸减半/翻倍，
+   *   一次加载里最多重建 O(log) 次。
+   */
+  resizeCellsIfNeeded() {
+    if (!this.autoCell) return;
+    const want = Math.min(AUTO_CELL_MAX, Math.max(AUTO_CELL_MIN, 2 * this.maxRange));
+    if (this.cells.size > 0) {
+      const ratio = want / this.cellSize;
+      if (ratio < 2 && ratio > 0.5) return;
+    }
+    this.cellSize = want;
+    this.cells.clear();
+    this.cellOfBody.clear();
+    for (const [id] of this.bodies) {
+      const p = this.pos.get(id);
+      if (p === void 0) continue;
+      const [cx, cz] = this.cellOf(p.x, p.z);
+      const k = this.key(cx, cz);
+      let list = this.cells.get(k);
+      if (list === void 0) {
+        list = [];
+        this.cells.set(k, list);
+      }
+      list.push(id);
+      this.cellOfBody.set(id, k);
+      this._cellMoves++;
+    }
   }
   key(cx, cz) {
     return cx + "," + cz;
@@ -10161,10 +11016,32 @@ var SpatialHashWorld = class {
       this.cells.set(k, list);
     }
     list.push(body.nodeId);
+    this.cellOfBody.set(body.nodeId, k);
+    if (!body.isStatic) this.dynamicIds.add(body.nodeId);
+    const r = this.rangeOf(body);
+    if (r > this.maxRange) {
+      this.maxRange = r;
+      this.resizeCellsIfNeeded();
+    }
   }
   remove(nodeId) {
+    const k = this.cellOfBody.get(nodeId);
+    const wasMax = this.bodies.get(nodeId) !== void 0 && this.rangeOf(this.bodies.get(nodeId)) >= this.maxRange;
+    if (k !== void 0) {
+      const list = this.cells.get(k);
+      if (list !== void 0) {
+        const i = list.indexOf(nodeId);
+        if (i >= 0) list.splice(i, 1);
+        if (list.length === 0) this.cells.delete(k);
+      }
+      this.cellOfBody.delete(nodeId);
+    }
     this.bodies.delete(nodeId);
-    this.reindex(nodeId);
+    this.dynamicIds.delete(nodeId);
+    if (wasMax) {
+      this.recomputeMaxRange();
+      this.resizeCellsIfNeeded();
+    }
   }
   has(nodeId) {
     return this.bodies.has(nodeId);
@@ -10179,13 +11056,20 @@ var SpatialHashWorld = class {
     const b = this.bodies.get(nodeId);
     if (b === void 0) return;
     const p = this.pos.get(nodeId);
-    for (const [k2, list2] of this.cells) {
-      const i = list2.indexOf(nodeId);
-      if (i >= 0) {
-        list2.splice(i, 1);
-        if (list2.length === 0) this.cells.delete(k2);
-        break;
+    if (p !== void 0) {
+      const [ncx, ncz] = this.cellOf(p.x, p.z);
+      const nk = this.key(ncx, ncz);
+      if (this.cellOfBody.get(nodeId) === nk) return;
+    }
+    const oldKey = this.findCellOf(nodeId);
+    if (oldKey !== void 0) {
+      const old = this.cells.get(oldKey);
+      if (old !== void 0) {
+        const i = old.indexOf(nodeId);
+        if (i >= 0) old.splice(i, 1);
+        if (old.length === 0) this.cells.delete(oldKey);
       }
+      this.cellOfBody.delete(nodeId);
     }
     if (p === void 0) return;
     const [cx, cz] = this.cellOf(p.x, p.z);
@@ -10196,6 +11080,25 @@ var SpatialHashWorld = class {
       this.cells.set(k, list);
     }
     list.push(nodeId);
+    this.cellOfBody.set(nodeId, k);
+    this._cellMoves++;
+  }
+  /**
+   * 这个体现在在哪个格键里。
+   *
+   * ★ 快路径是 `cellOfBody`（O(1)）。慢路径（遍历所有格）是**兜底**：
+   *   表里没有它时（例如有人绕开 `add` 手工往 `cells` 里塞过东西）仍然能找到，
+   *   而且会被 `cellScans` 如实计入 —— 否则"索引没建好"会表现成"偶尔慢一下"，
+   *   没人会去查。慢路径被**频繁走到**就说明索引出了问题。
+   */
+  findCellOf(nodeId) {
+    const fast = this.cellOfBody.get(nodeId);
+    if (fast !== void 0) return fast;
+    for (const [key, list] of this.cells) {
+      this._cellScans++;
+      if (list.includes(nodeId)) return key;
+    }
+    return void 0;
   }
   rangeOf(b) {
     if (b.halfExtents !== void 0) {
@@ -10206,10 +11109,11 @@ var SpatialHashWorld = class {
   query(x, z, r) {
     this._queries++;
     if (!(r >= 0)) return [];
-    const minCx = Math.floor((x - r) / this.cellSize);
-    const maxCx = Math.floor((x + r) / this.cellSize);
-    const minCz = Math.floor((z - r) / this.cellSize);
-    const maxCz = Math.floor((z + r) / this.cellSize);
+    const scanR = r + this.maxRadiusNearby();
+    const minCx = Math.floor((x - scanR) / this.cellSize);
+    const maxCx = Math.floor((x + scanR) / this.cellSize);
+    const minCz = Math.floor((z - scanR) / this.cellSize);
+    const maxCz = Math.floor((z + scanR) / this.cellSize);
     const out = [];
     const seen = /* @__PURE__ */ new Set();
     for (let cx = minCx; cx <= maxCx; cx++) {
@@ -10217,6 +11121,7 @@ var SpatialHashWorld = class {
         const list = this.cells.get(this.key(cx, cz));
         if (list === void 0) continue;
         for (const id of list) {
+          this._candidateScans++;
           if (seen.has(id)) continue;
           seen.add(id);
           const p = this.pos.get(id);
@@ -10233,26 +11138,49 @@ var SpatialHashWorld = class {
     return out;
   }
   /**
+   * `query` 的饥荒同签名别名 —— **同一份实现**，不是转发到另一套逻辑。
+   *
+   * 判据钉的是"两个名字返回完全相同的数组"，不是"看起来一样"：
+   * 一旦有人为了"内容层兼容"另写一遍查询，那条判据立刻红。
+   */
+  findEntities(x, z, r) {
+    return this.query(x, z, r);
+  }
+  /**
    * 解算重叠。对每对 (动态, 其它)，若重叠则把动态体推开。
    *
    * ★ 为什么"逐对独立解算 + 迭代"而不是"一次性求平均位移"：
    *   后者在"三四个实体挤一个角"时会出现互相抵消、抖动。
    *   迭代式（最多 3 轮）在这个规模下更稳，而且实现只有一个循环。
+   *
+   * ★★ T338：每一对**每轮只处理一次**，动态-动态各让一半。
+   *   原来两侧都会看到对方、各自按**全部**重叠量推 —— 于是同一对被推了两遍
+   *   （总位移 2 倍，下一轮又推回来，正是密集场景抖个不停的一半原因）。
+   *   两个后果都实测过：
+   *   ① 工作量翻倍：密集布局 9154 次推动/步，其中一半是重复的；
+   *   ② **结果带有 id 偏差**：先被遍历到的那个体不推、后来的那个被推全程，
+   *      所以"挤在一起时总是同一只怪被弹开"，而判据只看距离，看不出来。
+   *   现在：`otherId < id` 的动态对由**先遍历到的那一侧**处理（它已经在上一轮/本轮
+   *   推过自己这一半），另外半程由对面承担 —— 总位移与原来相同（`overlap + skin`），
+   *   但每对每轮只算一次，且两侧对称。
    */
   resolve() {
     let moved = 0;
     for (let iter = 0; iter < this.maxIterations; iter++) {
       let movedThis = 0;
-      for (const id of this.bodies.keys()) {
+      for (const id of this.dynamicIds) {
+        this._bodyScans++;
         const b = this.bodies.get(id);
-        if (b.isStatic) continue;
+        if (b === void 0) continue;
         const p = this.pos.get(id);
         if (p === void 0) continue;
-        const near = this.query(p.x, p.z, this.rangeOf(b) + this.maxRadiusNearby());
+        const near = this.query(p.x, p.z, this.rangeOf(b));
         for (const otherId of near) {
           if (otherId === id) continue;
+          this._pairChecks++;
           const ob = this.bodies.get(otherId);
           if (ob === void 0) continue;
+          if (ob.isStatic !== true && otherId < id) continue;
           const op = this.pos.get(otherId);
           if (op === void 0) continue;
           const dx = p.x - op.x;
@@ -10282,7 +11210,78 @@ var SpatialHashWorld = class {
       }
       moved += movedThis;
       if (movedThis === 0) break;
-      if (iter === this.maxIterations - 1 && movedThis > 0) this._unresolved++;
+      if (iter === this.maxIterations - 1 && movedThis > 0) {
+        this._unresolved++;
+        moved += this.settleOnce();
+      }
+    }
+    return moved;
+  }
+  /**
+   * 兜底分离：**一次性**把仍然重叠的对按重叠量分开，不再迭代。
+   *
+   * ★ 三条性质必须同时成立，缺一条这个兜底就比抖动更糟：
+   *   ① **确定性**：完全重合时沿 +x 分（不给随机方向）—— 否则同种子同操作的两个世界
+   *      会跑出不同位置，存档比对与回放全部失效；
+   *   ② **静态体不动**：静态体是"墙"，被兜底推动等于物理规则在最后一帧变了；
+   *   ③ **每对只处理一次**：用 `id < otherId` 过滤，否则同一对会被推两遍（双倍位移）。
+   *
+   * 它**不保证**一次分开（三角堆叠仍然需要多帧），但保证"每帧都在往分开的方向走"，
+   * 而不是在两个位置之间来回。重叠是否真的消掉仍由调用方看 `unresolved` 与实测决定。
+   */
+  settleOnce() {
+    let moved = 0;
+    for (const id of this.dynamicIds) {
+      const b = this.bodies.get(id);
+      if (b === void 0) continue;
+      const p = this.pos.get(id);
+      if (p === void 0) continue;
+      const near = this.query(p.x, p.z, this.rangeOf(b));
+      for (const otherId of near) {
+        if (otherId === id) continue;
+        const ob = this.bodies.get(otherId);
+        if (ob === void 0) continue;
+        if (ob.isStatic !== true && otherId < id) continue;
+        const op = this.pos.get(otherId);
+        if (op === void 0) continue;
+        const dx = p.x - op.x;
+        const dz = p.z - op.z;
+        const distSq = dx * dx + dz * dz;
+        const minDist = this.effectiveRadius(b, dx, dz) + this.effectiveRadius(ob, -dx, -dz);
+        if (distSq >= minDist * minDist - EPS) continue;
+        let dist = Math.sqrt(distSq);
+        let nx = 1;
+        let nz = 0;
+        if (dist >= EPS) {
+          nx = dx / dist;
+          nz = dz / dist;
+        } else {
+          dist = 0;
+        }
+        const overlap = minDist - dist + this.skin;
+        const bStatic = b.isStatic === true;
+        const oStatic = ob.isStatic === true;
+        if (bStatic && oStatic) continue;
+        if (oStatic) this._settleStaticPushes++;
+        const shareSelf = bStatic ? 0 : oStatic ? 1 : 0.5;
+        const shareOther = oStatic ? 0 : bStatic ? 1 : 0.5;
+        if (shareSelf > 0) {
+          this.pos.set(id, p.x + nx * overlap * shareSelf, p.z + nz * overlap * shareSelf);
+          p.x += nx * overlap * shareSelf;
+          p.z += nz * overlap * shareSelf;
+        }
+        if (shareOther > 0) {
+          this.pos.set(otherId, op.x - nx * overlap * shareOther, op.z - nz * overlap * shareOther);
+          op.x -= nx * overlap * shareOther;
+          op.z -= nz * overlap * shareOther;
+        }
+        this._pushes++;
+        moved++;
+      }
+    }
+    if (moved > 0) {
+      this._settlePasses++;
+      for (const id of this.dynamicIds) this.reindex(id);
     }
     return moved;
   }
@@ -10293,13 +11292,36 @@ var SpatialHashWorld = class {
     if (l < EPS) return Math.max(b.halfExtents.x, b.halfExtents.z);
     return Math.abs(dx / l * b.halfExtents.x) + Math.abs(dz / l * b.halfExtents.z);
   }
+  /**
+   * O(1)：直接读缓存。
+   *
+   * ★★ 这里曾经是 `for (const b of this.bodies.values())` —— 也就是**注释写着 O(1)，
+   *   代码是 O(n)**，而且被 `resolve()` 的内层循环每个体每次迭代各调一次（O(n²·迭代)）。
+   *   缓存 `maxRange` 当时就已经在维护了（add / remove / clear 三处都更新），
+   *   只是**没有任何地方读它**。批47 引入 `maxRangeScans` 计数后立刻显形：
+   *   一次 2000 体的解算扫了 6000 个 body 去算一个从没变过的数。
+   */
   maxRadiusNearby() {
+    return this.maxRange;
+  }
+  /**
+   * **唯一的**全量扫描入口（自带计数）。
+   *
+   * ★ 为什么要有这个"唯一入口"：`maxRangeScans` 只有在这里加，才可能在
+   *   "有人把缓存换回扫描"时报警。如果扫描能绕过它，计数就是摆设 ——
+   *   而摆设比没有更坏：它会让人以为"扫没扫"这件事已经被守住了。
+   */
+  scanMaxRange() {
     let m = 0;
     for (const b of this.bodies.values()) {
+      this._maxRangeScans++;
       const r = this.rangeOf(b);
       if (r > m) m = r;
     }
     return m;
+  }
+  recomputeMaxRange() {
+    this.maxRange = this.scanMaxRange();
   }
   stats() {
     return {
@@ -10307,15 +11329,34 @@ var SpatialHashWorld = class {
       cells: this.cells.size,
       queries: this._queries,
       pushes: this._pushes,
-      unresolved: this._unresolved
+      unresolved: this._unresolved,
+      bodyScans: this._bodyScans,
+      maxRangeScans: this._maxRangeScans,
+      cellScans: this._cellScans,
+      settlePasses: this._settlePasses,
+      settleStaticPushes: this._settleStaticPushes,
+      cellMoves: this._cellMoves,
+      pairChecks: this._pairChecks,
+      candidateScans: this._candidateScans
     };
   }
   clear() {
     this.bodies.clear();
     this.cells.clear();
+    this.cellOfBody.clear();
+    this.dynamicIds.clear();
+    this.maxRange = 0;
     this._queries = 0;
     this._pushes = 0;
     this._unresolved = 0;
+    this._bodyScans = 0;
+    this._maxRangeScans = 0;
+    this._cellScans = 0;
+    this._settlePasses = 0;
+    this._settleStaticPushes = 0;
+    this._cellMoves = 0;
+    this._pairChecks = 0;
+    this._candidateScans = 0;
   }
 };
 function makeSceneAccessor(lookup) {
@@ -10330,6 +11371,31 @@ function makeSceneAccessor(lookup) {
       const n = lookup(nodeId);
       if (n === void 0) return;
       n.setLocalPosition(x, z);
+    }
+  };
+}
+
+// src/extensions/physics/world-step-module.ts
+function createWorldModule(physics, hooks = {}) {
+  let off = null;
+  return {
+    id: "game.world",
+    init(ctx) {
+      const scene = ctx.services.require(Services.Scene);
+      const sched = ctx.services.require(Services.Scheduler);
+      off = sched.onStep((tick, dt) => {
+        scene.step(tick, dt);
+        physics.resolve();
+        hooks.onStep?.(tick, dt);
+        hooks.onTick?.(tick);
+      });
+    },
+    stop() {
+      off?.();
+      off = null;
+    },
+    describe() {
+      return `\u4E16\u754C\uFF1A${physics.stats().bodies} \u4E2A\u7269\u7406\u4F53`;
     }
   };
 }
@@ -10407,8 +11473,8 @@ function createScriptModule(opts = {}) {
     const fns = [
       [
         "engine_log",
-        (msg) => {
-          ctxRef?.log.channel("script").info(fmt(msg));
+        (msg3) => {
+          ctxRef?.log.channel("script").info(fmt(msg3));
           return void 0;
         }
       ],
@@ -10631,11 +11697,13 @@ function createScriptModule(opts = {}) {
 var Schema = class {
   version;
   fields;
+  versionKey;
   migrations;
   decimals;
   constructor(opts) {
     this.version = opts.version;
     this.fields = opts.fields;
+    this.versionKey = opts.versionKey ?? "__v";
     this.migrations = opts.migrations ?? [];
     this.decimals = opts.decimals ?? 3;
     const froms = this.migrations.map((m) => m.from).sort((a, b) => a - b);
@@ -10646,11 +11714,34 @@ var Schema = class {
         );
       }
     }
+    const need = this.version - 1;
+    if (froms.length !== need) {
+      throw new Error(
+        `v${this.version} \u9700\u8981 ${need} \u6761\u8FC1\u79FB\uFF08v1\u2192v2 \u2026 v${need}\u2192v${this.version}\uFF09\uFF0C\u5B9E\u9645 ${froms.length} \u6761\uFF08\u5DF2\u6709\uFF1A${froms.join(",") || "\u65E0"}\uFF09`
+      );
+    }
   }
   /** 把任意旧版本的记录迁到当前版本。 */
   migrate(data) {
     let cur = { ...data };
-    let v = typeof cur["__v"] === "number" ? cur["__v"] : 1;
+    const raw = cur[this.versionKey];
+    const declared = Object.prototype.hasOwnProperty.call(cur, this.versionKey);
+    let v = 1;
+    if (declared) {
+      if (typeof raw !== "number") {
+        return err({
+          code: "SER.BAD_VERSION",
+          message: `\u7248\u672C\u5B57\u6BB5 ${this.versionKey}=${JSON.stringify(raw)} \u4E0D\u662F\u6570\u5B57\uFF08\u5B58\u6863\u5934\u635F\u574F\uFF09`
+        });
+      }
+      v = raw;
+    }
+    if (!Number.isInteger(v) || v < 1) {
+      return err({
+        code: "SER.BAD_VERSION",
+        message: `\u7248\u672C\u5B57\u6BB5 ${this.versionKey}=${JSON.stringify(raw)} \u4E0D\u662F \u22651 \u7684\u6574\u6570\uFF08\u5B58\u6863\u5934\u635F\u574F\uFF09`
+      });
+    }
     if (v > this.version) {
       return err({
         code: "SER.VERSION_TOO_NEW",
@@ -10667,7 +11758,7 @@ var Schema = class {
       }
       cur = m.migrate(cur);
       v++;
-      cur["__v"] = v;
+      cur[this.versionKey] = v;
     }
     return ok(cur);
   }
@@ -10678,8 +11769,8 @@ var Schema = class {
    * - schema 里没有的键**丢弃并报告**（不静默保留：保留会让"字段名拼错"变成永久脏数据）
    */
   encode(data) {
-    const dropped = Object.keys(data).filter((k) => k !== "__v" && !this.fields.includes(k));
-    const parts = [`"__v":${this.version}`];
+    const dropped = Object.keys(data).filter((k) => k !== this.versionKey && !this.fields.includes(k));
+    const parts = [`${JSON.stringify(this.versionKey)}:${this.version}`];
     for (const k of this.fields) {
       const v = data[k];
       if (v === void 0) continue;
@@ -10852,27 +11943,36 @@ function sceneToJson(snap) {
   return lines.join("");
 }
 function sceneFromJson(text) {
-  let raw;
-  try {
-    raw = JSON.parse(text);
-  } catch (e) {
-    return err(engineError("SCENE.BAD_JSON", `\u4E0D\u662F\u5408\u6CD5 JSON\uFF1A${e instanceof Error ? e.message : String(e)}`));
+  const dec = SCENE_SCHEMA.decode(text);
+  if (!dec.ok) {
+    switch (dec.error.code) {
+      case "SER.VERSION_TOO_NEW":
+        return err(engineError("SCENE.FORMAT_TOO_NEW", dec.error.message));
+      case "SER.NO_MIGRATION":
+        return err(engineError("SCENE.FORMAT_NO_MIGRATION", dec.error.message));
+      case "SER.BAD_VERSION":
+        return err(engineError("SCENE.FORMAT_BAD", dec.error.message));
+      default:
+        return err(engineError("SCENE.BAD_JSON", dec.error.message));
+    }
   }
-  if (raw === null || typeof raw !== "object") {
-    return err(engineError("SCENE.BAD_JSON", "\u9876\u5C42\u4E0D\u662F\u5BF9\u8C61"));
-  }
-  const o = raw;
+  const o = dec.value;
   if (typeof o.format !== "number" || !Array.isArray(o.nodes)) {
     return err(engineError("SCENE.BAD_JSON", "\u7F3A\u5C11 format \u6216 nodes"));
   }
   return ok({
-    format: o.format,
+    // 迁移过的记录已经是当前版本；写 v1 档读回来也是 v1，所以这里恒等于 SCENE_FORMAT_VERSION
+    format: SCENE_FORMAT_VERSION,
     name: typeof o.name === "string" ? o.name : "scene",
     nodes: o.nodes
   });
 }
+var SAVE_SCALE = 1e9;
+var SAVE_SCALE_LIMIT = 1e6;
 function q(v) {
-  return Math.round(v * 1e3) / 1e3;
+  if (!Number.isFinite(v)) return v;
+  if (!(Math.abs(v) < SAVE_SCALE_LIMIT)) return v;
+  return Math.round(v * SAVE_SCALE) / SAVE_SCALE;
 }
 function stringifySorted(o) {
   if (o === null || typeof o !== "object") {
@@ -10890,8 +11990,246 @@ function stringifySorted(o) {
 }
 var SCENE_SCHEMA = new Schema({
   version: SCENE_FORMAT_VERSION,
-  fields: ["format", "name", "nodes"]
+  fields: ["name", "nodes"],
+  versionKey: "format"
 });
+
+// src/backends/fs-storage/fs.ts
+var StorageFileSystem = class {
+  scheme = "storage";
+  canList = true;
+  storage;
+  prefix;
+  clock = 1;
+  constructor(opts) {
+    this.storage = opts.storage;
+    this.prefix = opts.prefix ?? "";
+  }
+  // ---------------------------------------------------------------- 写
+  async writeText(path, text) {
+    return this.writeBinary(path, new TextEncoder().encode(text));
+  }
+  async writeBinary(path, data) {
+    const segs = normalizeVirtualPath(path);
+    if (!segs.ok) return segs;
+    if (segs.value.length === 0) {
+      return err(engineError("FS.IS_DIR", "\u4E0D\u80FD\u5F80\u6839\u8DEF\u5F84\u5199\u6587\u4EF6"));
+    }
+    const vpath = virtualPathOf(segs.value);
+    const dirs = this.dirs();
+    for (let i = 1; i < segs.value.length; i++) {
+      dirs.add(virtualPathOf(segs.value.slice(0, i)));
+    }
+    if (dirs.has(vpath)) {
+      return err(engineError("FS.IS_DIR", `\u76EE\u6807\u662F\u4E00\u4E2A\u76EE\u5F55\uFF1A${vpath}`));
+    }
+    const rec = { t: this.now(), n: data.byteLength, b: toBase64(data) };
+    const w = this.set(this.keyOf(vpath), JSON.stringify(rec));
+    if (!w.ok) return w;
+    return this.writeDirs(dirs);
+  }
+  async remove(path) {
+    const segs = normalizeVirtualPath(path);
+    if (!segs.ok) return segs;
+    const vpath = virtualPathOf(segs.value);
+    const dirs = this.dirs();
+    if (dirs.has(vpath)) {
+      return err(engineError("FS.IS_DIR", `\u8FD9\u662F\u4E00\u4E2A\u76EE\u5F55\uFF0C\u4E0D\u80FD\u5F53\u6587\u4EF6\u5220\uFF1A${vpath}`));
+    }
+    if (this.storage.getItem(this.keyOf(vpath)) === null) {
+      return err(engineError("FS.NOT_FOUND", `\u8981\u5220\u9664\u7684\u8DEF\u5F84\u4E0D\u5B58\u5728\uFF1A${vpath}`));
+    }
+    this.storage.removeItem(this.keyOf(vpath));
+    return ok(void 0);
+  }
+  async ensureDir(dir) {
+    const segs = normalizeVirtualPath(dir);
+    if (!segs.ok) return segs;
+    const dirs = this.dirs();
+    for (let i = 0; i <= segs.value.length; i++) {
+      dirs.add(virtualPathOf(segs.value.slice(0, i)));
+    }
+    return this.writeDirs(dirs);
+  }
+  // ---------------------------------------------------------------- 读
+  async readText(path) {
+    const b = await this.readBinary(path);
+    if (!b.ok) return b;
+    try {
+      return ok(new TextDecoder("utf-8", { fatal: true }).decode(b.value));
+    } catch (e) {
+      return err(engineError("FS.NOT_UTF8", `\u4E0D\u662F\u5408\u6CD5 UTF-8\uFF1A${path}\uFF08${msg2(e)}\uFF09`));
+    }
+  }
+  async readBinary(path) {
+    const segs = normalizeVirtualPath(path);
+    if (!segs.ok) return segs;
+    const vpath = virtualPathOf(segs.value);
+    if (this.dirs().has(vpath)) {
+      return err(engineError("FS.IS_DIR", `\u8DEF\u5F84\u662F\u4E00\u4E2A\u76EE\u5F55\uFF1A${vpath}`));
+    }
+    const rec = this.record(vpath);
+    if (!rec.ok) return rec;
+    try {
+      return ok(fromBase64(rec.value.b));
+    } catch (e) {
+      return err(engineError("FS.IO", `\u5B58\u6863\u8BB0\u5F55\u635F\u574F\uFF08base64 \u89E3\u4E0D\u5F00\uFF09\uFF1A${vpath}\uFF08${msg2(e)}\uFF09`));
+    }
+  }
+  async exists(path) {
+    const segs = normalizeVirtualPath(path);
+    if (!segs.ok) return false;
+    const vpath = virtualPathOf(segs.value);
+    return this.dirs().has(vpath) || this.storage.getItem(this.keyOf(vpath)) !== null;
+  }
+  async stat(path) {
+    const segs = normalizeVirtualPath(path);
+    if (!segs.ok) return segs;
+    const vpath = virtualPathOf(segs.value);
+    if (this.dirs().has(vpath)) return ok({ size: 0, mtimeMs: 0, isDirectory: true });
+    const rec = this.record(vpath);
+    if (!rec.ok) return rec;
+    return ok({ size: rec.value.n, mtimeMs: rec.value.t, isDirectory: false });
+  }
+  async list(dir) {
+    const segs = normalizeVirtualPath(dir);
+    if (!segs.ok) return segs;
+    const base = virtualPathOf(segs.value);
+    const dirs = this.dirs();
+    if (!dirs.has(base)) {
+      return err(engineError("FS.NOT_FOUND", `\u76EE\u5F55\u4E0D\u5B58\u5728\uFF1A${base}`));
+    }
+    const prefix = base === "/" ? "/" : base + "/";
+    const seen = /* @__PURE__ */ new Map();
+    for (const d of dirs) {
+      if (!d.startsWith(prefix) || d === base) continue;
+      const rest = d.slice(prefix.length);
+      if (rest === "" || rest.includes("/")) continue;
+      seen.set(rest, { name: rest, path: prefix + rest, isDirectory: true, size: 0 });
+    }
+    for (const k of this.filePaths()) {
+      if (!k.startsWith(prefix)) continue;
+      const rest = k.slice(prefix.length);
+      if (rest === "" || rest.includes("/")) continue;
+      if (seen.has(rest)) continue;
+      const rec = this.recordRaw(k);
+      seen.set(rest, {
+        name: rest,
+        path: prefix + rest,
+        isDirectory: false,
+        size: rec === null ? 0 : rec.n
+      });
+    }
+    const out = [...seen.values()].sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+    return ok(out);
+  }
+  // ---------------------------------------------------------------- 内部
+  now() {
+    this.clock = Math.max(Date.now(), this.clock + 1);
+    return this.clock;
+  }
+  keyOf(vpath) {
+    return `${this.prefix}f:${vpath}`;
+  }
+  dirsKey() {
+    return `${this.prefix}d`;
+  }
+  set(key, value) {
+    try {
+      this.storage.setItem(key, value);
+      return ok(void 0);
+    } catch (e) {
+      return err(engineError("FS.NO_SPACE", `\u5199\u5165\u5931\u8D25\uFF08storage \u6EE1\u6216\u4E0D\u53EF\u5199\uFF09\uFF1A${msg2(e)}`));
+    }
+  }
+  /** 目录索引。读坏了就当空集（自愈），不把用户卡在"删 storage 才能用"。 */
+  dirs() {
+    const out = /* @__PURE__ */ new Set(["/"]);
+    const raw = this.storage.getItem(this.dirsKey());
+    if (raw === null) return out;
+    try {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) {
+        for (const p of arr) if (typeof p === "string") out.add(p);
+      }
+    } catch {
+      const rebuilt = /* @__PURE__ */ new Set(["/"]);
+      for (const p of this.filePaths()) {
+        const segs = p.split("/").filter((s) => s !== "");
+        for (let i = 0; i < segs.length; i++) rebuilt.add("/" + segs.slice(0, i).join("/"));
+      }
+      return rebuilt;
+    }
+    return out;
+  }
+  writeDirs(dirs) {
+    return this.set(this.dirsKey(), JSON.stringify([...dirs].sort()));
+  }
+  /** 所有以 `prefix + "f:"` 开头的键 → 虚拟路径。 */
+  filePaths() {
+    const out = [];
+    const head = `${this.prefix}f:`;
+    for (let i = 0; i < this.storage.length; i++) {
+      const k = this.storage.key(i);
+      if (k === null || !k.startsWith(head)) continue;
+      out.push(k.slice(head.length));
+    }
+    return out;
+  }
+  recordRaw(vpath) {
+    const raw = this.storage.getItem(this.keyOf(vpath));
+    if (raw === null) return null;
+    try {
+      const o = JSON.parse(raw);
+      if (typeof o.b !== "string" || typeof o.n !== "number" || typeof o.t !== "number") return null;
+      return { t: o.t, n: o.n, b: o.b };
+    } catch {
+      return null;
+    }
+  }
+  record(vpath) {
+    const raw = this.storage.getItem(this.keyOf(vpath));
+    if (raw === null) return err(engineError("FS.NOT_FOUND", `\u6587\u4EF6\u4E0D\u5B58\u5728\uFF1A${vpath}`));
+    const rec = this.recordRaw(vpath);
+    if (rec === null) return err(engineError("FS.IO", `\u5B58\u6863\u8BB0\u5F55\u635F\u574F\uFF08\u4E0D\u662F\u5408\u6CD5\u8BB0\u5F55\uFF09\uFF1A${vpath}`));
+    return ok(rec);
+  }
+};
+var B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+function toBase64(bytes) {
+  let out = "";
+  for (let i = 0; i < bytes.length; i += 3) {
+    const a = bytes[i];
+    const b = i + 1 < bytes.length ? bytes[i + 1] : 0;
+    const c = i + 2 < bytes.length ? bytes[i + 2] : 0;
+    out += B64[a >> 2];
+    out += B64[(a & 3) << 4 | b >> 4];
+    out += i + 1 < bytes.length ? B64[(b & 15) << 2 | c >> 6] : "=";
+    out += i + 2 < bytes.length ? B64[c & 63] : "=";
+  }
+  return out;
+}
+function fromBase64(s) {
+  const clean = s.replace(/=+$/, "");
+  const out = new Uint8Array(Math.floor(clean.length * 3 / 4));
+  let o = 0;
+  let acc = 0;
+  let bits = 0;
+  for (let i = 0; i < clean.length; i++) {
+    const v = B64.indexOf(clean[i]);
+    if (v < 0) throw new Error(`\u975E\u6CD5 base64 \u5B57\u7B26 ${JSON.stringify(clean[i])}\uFF08\u4F4D\u7F6E ${i}\uFF09`);
+    acc = acc << 6 | v;
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      out[o++] = acc >> bits & 255;
+    }
+  }
+  return o === out.length ? out : out.subarray(0, o);
+}
+function msg2(e) {
+  return e instanceof Error ? e.message : String(e);
+}
 
 // src/extensions/asset-import/importer.ts
 function normalizeExtension(ext) {
@@ -11061,6 +12399,7 @@ var MetaIdTable = class {
 };
 
 // src/extensions/asset-import/pipeline.ts
+var IMPORT_LIBRARY_REL = "library/imported";
 var EMPTY_SETTINGS = Object.freeze({});
 function normalizeSlashes(p) {
   return p.replace(/\\/g, "/");
@@ -11165,7 +12504,7 @@ var AssetImportPipeline = class {
       idByPath.set(p, rec.id);
       units.push({ path: p, importer, record: rec });
     }
-    const libraryDir = joinPath(root, "library/imported");
+    const libraryDir = joinPath(root, IMPORT_LIBRARY_REL);
     let imported = 0;
     let skipped = 0;
     let registered = 0;
@@ -11338,13 +12677,418 @@ var AssetImportPipeline = class {
   }
 };
 
+// src/extensions/asset-import/decode/jpeg/types.ts
+var DEFAULT_MAX_PIXELS = 64 * 1024 * 1024;
+var JpegFailure = class extends Error {
+  constructor(code, message, detail) {
+    super(message);
+    this.code = code;
+    this.detail = detail;
+    this.name = "JpegFailure";
+  }
+};
+function fail(code, message, detail) {
+  throw new JpegFailure(code, message, detail);
+}
+
+// src/extensions/asset-import/decode/jpeg/bits.ts
+var BitReader = class {
+  constructor(data, start, end) {
+    this.data = data;
+    this.end = end;
+    this.pos = start;
+  }
+  pos;
+  buf = 0;
+  cnt = 0;
+  /** 区间里意外出现了标记（说明预切分与数据不一致）：之后全部补 0，让解码"跑完"而不是死循环。 */
+  stalled = false;
+  push(b) {
+    this.buf = (this.buf << 8 | b) >>> 0;
+    this.cnt += 8;
+  }
+  fill() {
+    while (this.cnt <= 24) {
+      if (this.stalled || this.pos >= this.end) {
+        this.push(0);
+        continue;
+      }
+      const b = this.data[this.pos];
+      if (b !== 255) {
+        this.pos++;
+        this.push(b);
+        continue;
+      }
+      const next = this.pos + 1 < this.end ? this.data[this.pos + 1] : 0;
+      if (next === 0) {
+        this.pos += 2;
+        this.push(255);
+        continue;
+      }
+      this.stalled = true;
+    }
+  }
+  readBit() {
+    if (this.cnt === 0) this.fill();
+    this.cnt--;
+    return this.buf >>> this.cnt & 1;
+  }
+  /** 读 n 位（n ≤ 16），按 JPEG 的 MSB-first 顺序。 */
+  receive(n) {
+    let v = 0;
+    for (let i = 0; i < n; i++) v = v << 1 | this.readBit();
+    return v;
+  }
+};
+function extend(v, n) {
+  if (n === 0) return 0;
+  return v < 1 << n - 1 ? v - (1 << n) + 1 : v;
+}
+var HuffTable = class {
+  constructor(counts, values) {
+    this.counts = counts;
+    this.values = values;
+    let code = 0;
+    let k = 0;
+    for (let len = 1; len <= 16; len++) {
+      const n = counts[len - 1];
+      this.valptr[len] = k;
+      this.mincode[len] = code;
+      if (n > 0) this.maxcode[len] = code + n - 1;
+      k += n;
+      code = code + n << 1;
+    }
+    if (k !== values.length) {
+      fail("ASSET.BAD_JPEG", `DHT \u8868\u81EA\u76F8\u77DB\u76FE\uFF1Acode length \u8BA1\u6570\u5408\u8BA1 ${k}\uFF0C\u5B9E\u9645\u7ED9\u4E86 ${values.length} \u4E2A\u7B26\u53F7`);
+    }
+  }
+  mincode = new Int32Array(17);
+  maxcode = new Int32Array(18).fill(-1);
+  valptr = new Int32Array(17);
+  decode(r) {
+    let code = 0;
+    for (let len = 1; len <= 16; len++) {
+      code = code << 1 | r.readBit();
+      const mx = this.maxcode[len];
+      if (mx >= 0 && code <= mx) {
+        const at = this.valptr[len] + code - this.mincode[len];
+        const v = this.values[at];
+        if (v === void 0) {
+          fail("ASSET.BAD_JPEG", `DHT \u67E5\u8868\u8D8A\u754C\uFF1Alen=${len} code=${code} at=${at}`);
+        }
+        return v;
+      }
+    }
+    fail("ASSET.BAD_JPEG", "\u54C8\u592B\u66FC\u7801\u6D41\u975E\u6CD5\uFF1A\u8FDE\u7EED 16 \u4F4D\u90FD\u6CA1\u6709\u5339\u914D\u7684\u7801\u5B57\uFF08\u6587\u4EF6\u88AB\u622A\u65AD\u6216\u71B5\u6570\u636E\u9519\u4F4D\uFF09");
+  }
+};
+
+// src/extensions/asset-import/decode/jpeg/tables.ts
+var ZIGZAG = new Uint8Array([
+  0,
+  1,
+  8,
+  16,
+  9,
+  2,
+  3,
+  10,
+  17,
+  24,
+  32,
+  25,
+  18,
+  11,
+  4,
+  5,
+  12,
+  19,
+  26,
+  33,
+  40,
+  48,
+  41,
+  34,
+  27,
+  20,
+  13,
+  6,
+  7,
+  14,
+  21,
+  28,
+  35,
+  42,
+  49,
+  56,
+  57,
+  50,
+  43,
+  36,
+  29,
+  22,
+  15,
+  23,
+  30,
+  37,
+  44,
+  51,
+  58,
+  59,
+  52,
+  45,
+  38,
+  31,
+  39,
+  46,
+  53,
+  60,
+  61,
+  54,
+  47,
+  55,
+  62,
+  63
+]);
+var COS = (() => {
+  const t = new Float64Array(64);
+  for (let u = 0; u < 8; u++) {
+    for (let x = 0; x < 8; x++) {
+      t[u * 8 + x] = (u === 0 ? Math.SQRT1_2 : 1) * Math.cos((2 * x + 1) * u * Math.PI / 16) / 2;
+    }
+  }
+  return t;
+})();
+
+// src/extensions/asset-import/decode/jpeg/frame.ts
+var SOF_NAMES = {
+  192: "SOF0 \u57FA\u7EBF\u987A\u5E8F\uFF08Huffman\uFF09",
+  193: "SOF1 \u6269\u5C55\u987A\u5E8F\uFF08Huffman\uFF09",
+  194: "SOF2 \u6E10\u8FDB\uFF08Huffman\uFF09",
+  195: "SOF3 \u65E0\u635F\uFF08Huffman\uFF09",
+  197: "SOF5 \u5DEE\u5206\u987A\u5E8F\uFF08Huffman\uFF09",
+  198: "SOF6 \u5DEE\u5206\u6E10\u8FDB\uFF08Huffman\uFF09",
+  199: "SOF7 \u5DEE\u5206\u65E0\u635F\uFF08Huffman\uFF09",
+  201: "SOF9 \u6269\u5C55\u987A\u5E8F\uFF08\u7B97\u672F\uFF09",
+  202: "SOF10 \u6E10\u8FDB\uFF08\u7B97\u672F\uFF09",
+  203: "SOF11 \u65E0\u635F\uFF08\u7B97\u672F\uFF09",
+  205: "SOF13 \u5DEE\u5206\u987A\u5E8F\uFF08\u7B97\u672F\uFF09",
+  206: "SOF14 \u5DEE\u5206\u6E10\u8FDB\uFF08\u7B97\u672F\uFF09",
+  207: "SOF15 \u5DEE\u5206\u65E0\u635F\uFF08\u7B97\u672F\uFF09"
+};
+function isArithmeticSof(sof) {
+  return sof === 201 || sof === 202 || sof === 203 || sof === 205 || sof === 206 || sof === 207;
+}
+function isLosslessSof(sof) {
+  return sof === 195 || sof === 199 || sof === 203 || sof === 207;
+}
+function isProgressiveSof(sof) {
+  return sof === 194 || sof === 198 || sof === 202 || sof === 206;
+}
+function isDifferentialSof(sof) {
+  return sof === 197 || sof === 198 || sof === 199 || sof === 205 || sof === 206 || sof === 207;
+}
+function u16be(b, at) {
+  return b[at] << 8 | b[at + 1];
+}
+function readExifOrientation(seg) {
+  if (seg.length < 14) return 1;
+  if (seg[0] !== 69 || seg[1] !== 120 || seg[2] !== 105 || seg[3] !== 102) return 1;
+  const tiff = 6;
+  const le = seg[tiff] === 73 && seg[tiff + 1] === 73;
+  const be = seg[tiff] === 77 && seg[tiff + 1] === 77;
+  if (!le && !be) return 1;
+  const rd16 = (at) => le ? seg[at] | seg[at + 1] << 8 : seg[at] << 8 | seg[at + 1];
+  const rd32 = (at) => le ? (seg[at] | seg[at + 1] << 8 | seg[at + 2] << 16 | seg[at + 3] << 24) >>> 0 : (seg[at] << 24 | seg[at + 1] << 16 | seg[at + 2] << 8 | seg[at + 3]) >>> 0;
+  const ifd0 = tiff + rd32(tiff + 4);
+  if (ifd0 + 2 > seg.length) return 1;
+  const count = rd16(ifd0);
+  for (let i = 0; i < count; i++) {
+    const entry = ifd0 + 2 + i * 12;
+    if (entry + 12 > seg.length) return 1;
+    if (rd16(entry) === 274) {
+      const v = rd16(entry + 8);
+      return v >= 1 && v <= 8 ? v : 1;
+    }
+  }
+  return 1;
+}
+function checkProcessSupport(sof, precision) {
+  const name = SOF_NAMES[sof];
+  if (name === void 0) return { ok: false, reason: `\u672A\u77E5\u7684 SOF \u6807\u8BB0 0x${sof.toString(16)}` };
+  if (isLosslessSof(sof)) {
+    if (precision < 2 || precision > 16) {
+      return { ok: false, reason: `${name}\uFF1A\u6837\u672C\u7CBE\u5EA6\u5FC5\u987B\u662F 2..16\uFF0C\u6587\u4EF6\u58F0\u660E ${precision} bit` };
+    }
+  } else if (precision !== 8 && precision !== 12) {
+    return { ok: false, reason: `${name}\uFF1ADCT \u8FC7\u7A0B\u7684\u6837\u672C\u7CBE\u5EA6\u53EA\u652F\u6301 8 \u6216 12 bit\uFF0C\u6587\u4EF6\u58F0\u660E ${precision} bit` };
+  }
+  return { ok: true };
+}
+function parseSof(seg, sof, index, maxPixels) {
+  if (seg.length < 6) fail("ASSET.BAD_JPEG", "SOF \u6BB5\u957F\u5EA6\u4E0D\u8DB3");
+  const precision = seg[0];
+  const height = u16be(seg, 1);
+  const width = u16be(seg, 3);
+  const n = seg[5];
+  const lossless = isLosslessSof(sof);
+  const support = checkProcessSupport(sof, precision);
+  if (!support.ok) fail("ASSET.UNSUPPORTED_JPEG", support.reason ?? "\u4E0D\u652F\u6301\u7684 JPEG \u8FC7\u7A0B", { precision, sof });
+  if (width === 0 || height === 0) {
+    fail("ASSET.BAD_JPEG", `SOF \u7684\u5BBD\u9AD8\u5FC5\u987B\u975E 0\uFF0C\u5B9E\u9645 ${width}\xD7${height}\uFF08\u9AD8\u5EA6\u5728 DNL \u91CC\u7684\u5199\u6CD5\u4E0D\u652F\u6301\uFF09`);
+  }
+  if (width * height > maxPixels) {
+    fail("ASSET.BAD_JPEG", `\u56FE\u50CF ${width}\xD7${height} \u8D85\u8FC7\u50CF\u7D20\u4E0A\u9650 ${maxPixels}`, { width, height, maxPixels });
+  }
+  if (n !== 1 && n !== 3 && n !== 4) {
+    fail("ASSET.UNSUPPORTED_JPEG", `\u4E0D\u652F\u6301 ${n} \u4E2A\u5206\u91CF\u7684 JPEG\uFF08\u652F\u6301 1 \u7070\u5EA6 / 3 YCbCr-RGB / 4 CMYK-YCCK\uFF09`, {
+      components: n
+    });
+  }
+  if (seg.length < 6 + n * 3) fail("ASSET.BAD_JPEG", `SOF \u58F0\u660E ${n} \u4E2A\u5206\u91CF\uFF0C\u4F46\u6BB5\u91CC\u53EA\u6709 ${seg.length - 6} \u5B57\u8282`);
+  let maxH = 1;
+  let maxV = 1;
+  const raw = [];
+  for (let i = 0; i < n; i++) {
+    const at = 6 + i * 3;
+    const id = seg[at];
+    const hv = seg[at + 1];
+    const h = hv >> 4;
+    const v = hv & 15;
+    const tq = seg[at + 2];
+    if (h < 1 || h > 4 || v < 1 || v > 4) {
+      fail("ASSET.BAD_JPEG", `\u5206\u91CF ${id} \u7684\u91C7\u6837\u56E0\u5B50 ${h}\xD7${v} \u975E\u6CD5\uFF081..4\uFF09`);
+    }
+    if (tq > 3) fail("ASSET.BAD_JPEG", `\u5206\u91CF ${id} \u5F15\u7528\u4E86\u4E0D\u5B58\u5728\u7684\u91CF\u5316\u8868 ${tq}`);
+    raw.push({ id, h, v, tq });
+    if (h > maxH) maxH = h;
+    if (v > maxV) maxV = v;
+  }
+  const mcusX = Math.ceil(width / (8 * maxH));
+  const mcusY = Math.ceil(height / (8 * maxV));
+  const components = raw.map((r) => {
+    const compW = Math.ceil(width * r.h / maxH);
+    const compH = Math.ceil(height * r.v / maxV);
+    const blocksW = Math.ceil(compW / 8);
+    const blocksH = Math.ceil(compH / 8);
+    const strideBlocksW = mcusX * r.h;
+    const strideBlocksH = mcusY * r.v;
+    return {
+      id: r.id,
+      h: r.h,
+      v: r.v,
+      tq: r.tq,
+      blocksW,
+      blocksH,
+      strideBlocksW,
+      strideBlocksH,
+      // 无损帧不分配系数数组（长度 0），省下 64 倍内存
+      coefs: lossless ? new Int16Array(0) : new Int16Array(strideBlocksW * strideBlocksH * 64),
+      pred: 0,
+      compW,
+      compH,
+      td: 0,
+      ta: 0,
+      plane: lossless ? new Uint16Array(compW * compH) : null,
+      qtTable: null
+    };
+  });
+  return {
+    index,
+    sof,
+    precision,
+    width,
+    height,
+    progressive: isProgressiveSof(sof),
+    lossless,
+    arithmetic: isArithmeticSof(sof),
+    differential: isDifferentialSof(sof),
+    components,
+    // 量化表/哈夫曼表由 parse 统一持有（一次文件可以有多张表、多趟扫描），
+    // parseSof 只负责几何与分量，这里先占位，parse 紧接着替换成真实数组。
+    qt: [],
+    dcTables: [],
+    acTables: [],
+    dcCond: [],
+    acCond: [],
+    restartInterval: 0,
+    scanCount: 0,
+    pt: 0,
+    expansions: /* @__PURE__ */ new Map(),
+    expandH: 1,
+    expandV: 1,
+    adobeTransform: null
+  };
+}
+function parseDqt(seg, qt) {
+  let at = 0;
+  while (at < seg.length) {
+    const pq = seg[at] >> 4;
+    const tq = seg[at] & 15;
+    at++;
+    if (tq > 3) fail("ASSET.BAD_JPEG", `DQT \u8868\u53F7 ${tq} \u975E\u6CD5\uFF080..3\uFF09`);
+    const bytesPer = pq === 1 ? 2 : 1;
+    if (at + 64 * bytesPer > seg.length) fail("ASSET.BAD_JPEG", "DQT \u6BB5\u88AB\u622A\u65AD");
+    const t = new Uint16Array(64);
+    for (let i = 0; i < 64; i++) {
+      t[ZIGZAG[i]] = bytesPer === 2 ? u16be(seg, at + i * 2) : seg[at + i];
+    }
+    qt[tq] = t;
+    at += 64 * bytesPer;
+  }
+}
+function parseDht(seg, dc, ac) {
+  let at = 0;
+  while (at < seg.length) {
+    if (at + 17 > seg.length) fail("ASSET.BAD_JPEG", "DHT \u6BB5\u88AB\u622A\u65AD\uFF08\u8868\u5934\u4E0D\u8DB3 17 \u5B57\u8282\uFF09");
+    const tc = seg[at] >> 4;
+    const th = seg[at] & 15;
+    at++;
+    if (tc > 1) fail("ASSET.BAD_JPEG", `DHT \u8868\u7C7B\u578B ${tc} \u975E\u6CD5\uFF080=DC, 1=AC\uFF09`);
+    if (th > 3) fail("ASSET.BAD_JPEG", `DHT \u8868\u53F7 ${th} \u975E\u6CD5\uFF080..3\uFF09`);
+    const counts = seg.subarray(at, at + 16);
+    at += 16;
+    let total = 0;
+    for (let i = 0; i < 16; i++) total += counts[i];
+    if (at + total > seg.length) fail("ASSET.BAD_JPEG", "DHT \u6BB5\u88AB\u622A\u65AD\uFF08\u7B26\u53F7\u6570\u4E0D\u8DB3\uFF09");
+    const values = seg.subarray(at, at + total);
+    at += total;
+    const table = new HuffTable(Uint8Array.from(counts), Uint8Array.from(values));
+    if (tc === 0) dc[th] = table;
+    else ac[th] = table;
+  }
+}
+function parseDac(seg, dcCond, acCond) {
+  let at = 0;
+  while (at + 2 <= seg.length) {
+    const index = seg[at];
+    const val = seg[at + 1];
+    at += 2;
+    if (index >= 16) {
+      const t = index - 16;
+      if (t > 3) fail("ASSET.BAD_JPEG", `DAC \u7684 AC \u8868\u53F7 ${t} \u975E\u6CD5\uFF080..3\uFF09`);
+      acCond[t] = val;
+    } else {
+      if (index > 3) fail("ASSET.BAD_JPEG", `DAC \u7684 DC \u8868\u53F7 ${index} \u975E\u6CD5\uFF080..3\uFF09`);
+      const l = val & 15;
+      const u = val >> 4;
+      if (l > u) fail("ASSET.BAD_JPEG", `DAC \u7684 DC \u6761\u4EF6\u53C2\u6570\u975E\u6CD5\uFF1AL=${l} U=${u}\uFF08\u8981\u6C42 L \u2264 U\uFF09`);
+      dcCond[index] = { l, u };
+    }
+  }
+  if (at !== seg.length) fail("ASSET.BAD_JPEG", "DAC \u6BB5\u957F\u5EA6\u4E0D\u662F 2 \u7684\u500D\u6570\uFF08\u88AB\u622A\u65AD\uFF09");
+}
+
 // src/extensions/asset-import/importers/texture.ts
 var VERSION = 1;
-var SIGNATURE = [137, 80, 78, 71, 13, 10, 26, 10];
-var MIN_HEADER_BYTES = 33;
+var PNG_SIGNATURE = [137, 80, 78, 71, 13, 10, 26, 10];
+var MIN_PNG_HEADER_BYTES = 33;
 var IHDR_DATA_BYTES = 13;
 function u32be(b, at) {
   return b[at] * 16777216 + (b[at + 1] << 16) + (b[at + 2] << 8) + b[at + 3] >>> 0;
+}
+function u16be2(b, at) {
+  return b[at] << 8 | b[at + 1];
 }
 function ascii4(b, at) {
   return String.fromCharCode(b[at], b[at + 1], b[at + 2], b[at + 3]);
@@ -11358,63 +13102,149 @@ function badSource(sourcePath, why) {
 function hasAlphaChannel(colorType) {
   return colorType === 4 || colorType === 6;
 }
+function readPngHeader(sourcePath, source) {
+  if (source.length < MIN_PNG_HEADER_BYTES) {
+    return err(
+      badSource(
+        sourcePath,
+        `PNG \u5934\u622A\u65AD\uFF1A\u8BFB IHDR \u9700\u8981 ${MIN_PNG_HEADER_BYTES} \u5B57\u8282\uFF08\u7B7E\u540D 8 + \u5757\u5934 8 + IHDR 13 + CRC 4\uFF09\uFF0C\u5B9E\u9645 ${source.length}`
+      )
+    );
+  }
+  const chunkLength = u32be(source, 8);
+  if (chunkLength !== IHDR_DATA_BYTES) {
+    return err(badSource(sourcePath, `\u7B2C\u4E00\u4E2A\u5757\u4E0D\u662F IHDR\uFF1A\u5757\u957F\u5EA6 ${chunkLength}\uFF08\u671F\u671B 13\uFF09`));
+  }
+  const chunkType = ascii4(source, 12);
+  if (chunkType !== "IHDR") {
+    return err(badSource(sourcePath, `\u7B2C\u4E00\u4E2A\u5757\u5FC5\u987B\u662F IHDR\uFF0C\u5B9E\u9645\u662F "${chunkType}"`));
+  }
+  const width = u32be(source, 16);
+  const height = u32be(source, 20);
+  const bitDepth = source[24];
+  const colorType = source[25];
+  if (width === 0 || height === 0) {
+    return err(badSource(sourcePath, `IHDR \u5BBD\u9AD8\u5FC5\u987B\u975E 0\uFF0C\u5B9E\u9645 ${width}\xD7${height}`));
+  }
+  if (bitDepth === 0) {
+    return err(badSource(sourcePath, "IHDR \u4F4D\u6DF1\u4E3A 0"));
+  }
+  return ok({ width, height, bitDepth, colorType, hasAlpha: hasAlphaChannel(colorType), format: "png" });
+}
+function readJpegHeader(sourcePath, source) {
+  if (source.length < 4) return err(badSource(sourcePath, "JPEG \u5934\u622A\u65AD\uFF1A\u8FDE SOI \u90FD\u4E0D\u5B8C\u6574"));
+  let dhpWidth = 0;
+  let dhpHeight = 0;
+  let pos = 2;
+  while (pos + 3 < source.length) {
+    if (source[pos] !== 255) {
+      pos++;
+      continue;
+    }
+    const marker = source[pos + 1];
+    if (marker === 255) {
+      pos++;
+      continue;
+    }
+    if (marker === 216 || marker === 1 || marker >= 208 && marker <= 215) {
+      pos += 2;
+      continue;
+    }
+    if (marker === 217) break;
+    const segLen = u16be2(source, pos + 2);
+    if (segLen < 2) return err(badSource(sourcePath, `JPEG \u6BB5 0x${marker.toString(16)} \u957F\u5EA6\u975E\u6CD5\uFF1A${segLen}`));
+    if (marker === 222 && segLen >= 8) {
+      const d = pos + 4;
+      if (d + 6 <= source.length) {
+        dhpHeight = u16be2(source, d + 1);
+        dhpWidth = u16be2(source, d + 3);
+      }
+      pos += 2 + segLen;
+      continue;
+    }
+    const isSof = marker >= 192 && marker <= 207 && marker !== 196 && marker !== 200 && marker !== 204;
+    if (isSof) {
+      const dataStart = pos + 4;
+      if (dataStart + 6 > source.length) return err(badSource(sourcePath, "JPEG SOF \u6BB5\u88AB\u622A\u65AD"));
+      const precision = source[dataStart];
+      const frameHeight = u16be2(source, dataStart + 1);
+      const frameWidth = u16be2(source, dataStart + 3);
+      const components = source[dataStart + 5];
+      const support = checkProcessSupport(marker, precision);
+      if (!support.ok) {
+        return err(
+          engineError("IMPORT.UNSUPPORTED_SOURCE", `${sourcePath}: ${support.reason ?? "\u4E0D\u652F\u6301\u7684 JPEG \u8FC7\u7A0B"}`, {
+            path: sourcePath,
+            marker: `0x${marker.toString(16)}`,
+            precision
+          })
+        );
+      }
+      const hier = dhpWidth > 0 && dhpHeight > 0;
+      const width = hier ? dhpWidth : frameWidth;
+      const height = hier ? dhpHeight : frameHeight;
+      if (width === 0 || height === 0) {
+        return err(badSource(sourcePath, `SOF \u5BBD\u9AD8\u5FC5\u987B\u975E 0\uFF0C\u5B9E\u9645 ${width}\xD7${height}`));
+      }
+      if (components !== 1 && components !== 3 && components !== 4) {
+        return err(
+          engineError("IMPORT.UNSUPPORTED_SOURCE", `${sourcePath}: \u4E0D\u652F\u6301 ${components} \u4E2A\u5206\u91CF\u7684 JPEG`, {
+            path: sourcePath,
+            components
+          })
+        );
+      }
+      return ok({
+        width,
+        height,
+        // 源精度，与 PNG 的 IHDR 位深同义（输出恒为 RGBA8，全精度走 pixels16）
+        bitDepth: precision,
+        // 分层文件报"分层"而不是参考帧的 SOF —— 只报 SOF1 会让元数据说"这是扩展顺序图"，
+        // 而它其实是两帧合成的；同一条流里同时存在参考帧与差分帧两个不同的 SOF。
+        // 这里能看到的只有先出现的**参考帧**（轻量扫头不跨熵数据，看不到末帧）。
+        process: hier ? `\u5206\u5C42\uFF08DHP + \u5DEE\u5206\u5E27\uFF0C\u53C2\u8003\u5E27 ${SOF_NAMES[marker] ?? `SOF 0x${marker.toString(16)}`}\uFF09` : SOF_NAMES[marker] ?? `SOF 0x${marker.toString(16)}`,
+        colorType: components === 1 ? 0 : 2,
+        hasAlpha: false,
+        format: "jpeg",
+        hierarchical: hier
+      });
+    }
+    pos += 2 + segLen;
+  }
+  return err(badSource(sourcePath, "JPEG \u91CC\u6CA1\u6709\u627E\u5230 SOF \u5E27\u5934\uFF08\u53EF\u80FD\u53EA\u6709\u5934\u3001\u6CA1\u6709\u56FE\u50CF\u6570\u636E\uFF09"));
+}
 var textureImporter = {
   id: AssetType.Texture,
   version: VERSION,
-  extensions: [".png"],
+  extensions: [".png", ".jpg", ".jpeg"],
   async import(sourcePath, source) {
-    if (source.length < SIGNATURE.length) {
-      return err(badSource(sourcePath, `\u671F\u671B 8 \u5B57\u8282 PNG \u7B7E\u540D\uFF0C\u5B9E\u9645\u53EA\u6709 ${source.length} \u5B57\u8282`));
-    }
-    for (let i = 0; i < SIGNATURE.length; i++) {
-      if (source[i] !== SIGNATURE[i]) {
-        return err(
-          badSource(
-            sourcePath,
-            `\u671F\u671B 8 \u5B57\u8282 PNG \u7B7E\u540D\uFF0889 50 4e 47 0d 0a 1a 0a\uFF09\uFF0C\u5B9E\u9645 ${hexBytes(source, 0, 8)}`
-          )
-        );
+    let header;
+    if (source.length >= 3 && source[0] === 255 && source[1] === 216 && source[2] === 255) {
+      header = readJpegHeader(sourcePath, source);
+    } else {
+      if (source.length < PNG_SIGNATURE.length) {
+        return err(badSource(sourcePath, `\u671F\u671B 8 \u5B57\u8282 PNG \u7B7E\u540D\u6216 JPEG SOI\uFF0C\u5B9E\u9645\u53EA\u6709 ${source.length} \u5B57\u8282`));
       }
+      for (let i = 0; i < PNG_SIGNATURE.length; i++) {
+        if (source[i] !== PNG_SIGNATURE[i]) {
+          return err(
+            badSource(
+              sourcePath,
+              `\u671F\u671B 8 \u5B57\u8282 PNG \u7B7E\u540D\uFF0889 50 4e 47 0d 0a 1a 0a\uFF09\u6216 JPEG SOI\uFF08ff d8 ff\uFF09\uFF0C\u5B9E\u9645 ${hexBytes(source, 0, 8)}`
+            )
+          );
+        }
+      }
+      header = readPngHeader(sourcePath, source);
     }
-    if (source.length < MIN_HEADER_BYTES) {
-      return err(
-        badSource(
-          sourcePath,
-          `PNG \u5934\u622A\u65AD\uFF1A\u8BFB IHDR \u9700\u8981 ${MIN_HEADER_BYTES} \u5B57\u8282\uFF08\u7B7E\u540D 8 + \u5757\u5934 8 + IHDR 13 + CRC 4\uFF09\uFF0C\u5B9E\u9645 ${source.length}`
-        )
-      );
-    }
-    const chunkLength = u32be(source, 8);
-    if (chunkLength !== IHDR_DATA_BYTES) {
-      return err(badSource(sourcePath, `\u7B2C\u4E00\u4E2A\u5757\u4E0D\u662F IHDR\uFF1A\u5757\u957F\u5EA6 ${chunkLength}\uFF08\u671F\u671B 13\uFF09`));
-    }
-    const chunkType = ascii4(source, 12);
-    if (chunkType !== "IHDR") {
-      return err(badSource(sourcePath, `\u7B2C\u4E00\u4E2A\u5757\u5FC5\u987B\u662F IHDR\uFF0C\u5B9E\u9645\u662F "${chunkType}"`));
-    }
-    const width = u32be(source, 16);
-    const height = u32be(source, 20);
-    const bitDepth = source[24];
-    const colorType = source[25];
-    if (width === 0 || height === 0) {
-      return err(badSource(sourcePath, `IHDR \u5BBD\u9AD8\u5FC5\u987B\u975E 0\uFF0C\u5B9E\u9645 ${width}\xD7${height}`));
-    }
-    if (bitDepth === 0) {
-      return err(badSource(sourcePath, "IHDR \u4F4D\u6DF1\u4E3A 0"));
-    }
+    if (!header.ok) return err(header.error);
     return ok({
       type: AssetType.Texture,
       dependencies: [],
       byteLength: source.byteLength,
       sourceHash: contentHash(source),
       importerVersion: VERSION,
-      data: {
-        width,
-        height,
-        bitDepth,
-        colorType,
-        hasAlpha: hasAlphaChannel(colorType)
-      }
+      data: { ...header.value }
     });
   }
 };
@@ -11885,7 +13715,7 @@ function adler32(data) {
   }
   return (b << 16 | a) >>> 0;
 }
-var BitReader = class {
+var BitReader2 = class {
   constructor(data, start) {
     this.data = data;
     this.pos = start;
@@ -12005,10 +13835,10 @@ function inflateZlib(data, opts) {
     if ((flg & 32) !== 0) {
       throw new ZlibError("zlib FDICT=1\uFF1A\u4E0D\u652F\u6301\u9884\u7F6E\u5B57\u5178\uFF08PNG \u4E0D\u4F1A\u7528\uFF09");
     }
-    const br = new BitReader(data, 2);
+    const br = new BitReader2(data, 2);
     const sink = new ByteSink(opts?.sizeHint !== void 0 ? opts.sizeHint : 64 * 1024, maxBytes);
-    const fail = (msg) => {
-      throw new ZlibError(`${msg} at byte ${br.pos}`);
+    const fail2 = (msg3) => {
+      throw new ZlibError(`${msg3} at byte ${br.pos}`);
     };
     let isFinal = 0;
     do {
@@ -12019,10 +13849,10 @@ function inflateZlib(data, opts) {
         const len = br.u16le();
         const nlen = br.u16le();
         if (((len ^ 65535) & 65535) !== nlen) {
-          fail(`stored \u5757\u7684 LEN/NLEN \u4E0D\u4E92\u8865\uFF1ALEN=${len} NLEN=${nlen}`);
+          fail2(`stored \u5757\u7684 LEN/NLEN \u4E0D\u4E92\u8865\uFF1ALEN=${len} NLEN=${nlen}`);
         }
         if (br.pos + len > data.length) {
-          fail(`stored \u5757\u622A\u65AD\uFF1A\u9700\u8981 ${len} \u5B57\u8282\uFF0C\u5269\u4F59 ${data.length - br.pos}`);
+          fail2(`stored \u5757\u622A\u65AD\uFF1A\u9700\u8981 ${len} \u5B57\u8282\uFF0C\u5269\u4F59 ${data.length - br.pos}`);
         }
         sink.writeBytes(data, br.pos, len);
         br.pos += len;
@@ -12033,13 +13863,13 @@ function inflateZlib(data, opts) {
           lit = getFixedLit();
           dist = getFixedDist();
         } else {
-          const tables = readDynamicTables(br, fail);
+          const tables = readDynamicTables(br, fail2);
           lit = tables.lit;
           dist = tables.dist;
         }
-        decodeCompressed(br, lit, dist, sink, fail);
+        decodeCompressed(br, lit, dist, sink, fail2);
       } else {
-        fail(`invalid block type ${type}\uFF08deflate \u53EA\u6709 0/1/2\uFF09`);
+        fail2(`invalid block type ${type}\uFF08deflate \u53EA\u6709 0/1/2\uFF09`);
       }
     } while (isFinal === 0);
     br.alignToByte();
@@ -12064,19 +13894,19 @@ function inflateZlib(data, opts) {
     );
   }
 }
-function readDynamicTables(br, fail) {
+function readDynamicTables(br, fail2) {
   const hlit = br.readBits(5) + 257;
   const hdist = br.readBits(5) + 1;
   const hclen = br.readBits(4) + 4;
-  if (hlit > 286) fail(`HLIT=${hlit - 257} \u975E\u6CD5\uFF08\u6700\u591A 286 \u4E2A\u5B57\u9762\u91CF/\u957F\u5EA6\u7801\uFF09`);
-  if (hdist > 30) fail(`HDIST=${hdist - 1} \u975E\u6CD5\uFF08\u6700\u591A 30 \u4E2A\u8DDD\u79BB\u7801\uFF09`);
+  if (hlit > 286) fail2(`HLIT=${hlit - 257} \u975E\u6CD5\uFF08\u6700\u591A 286 \u4E2A\u5B57\u9762\u91CF/\u957F\u5EA6\u7801\uFF09`);
+  if (hdist > 30) fail2(`HDIST=${hdist - 1} \u975E\u6CD5\uFF08\u6700\u591A 30 \u4E2A\u8DDD\u79BB\u7801\uFF09`);
   const clenLengths = new Uint8Array(19);
   for (let i2 = 0; i2 < hclen; i2++) clenLengths[CLEN_ORDER[i2]] = br.readBits(3);
   let clen;
   try {
     clen = buildHuffman(clenLengths);
   } catch (e) {
-    fail(`\u7801\u957F\u8868\u7684 Huffman \u6784\u9020\u5931\u8D25\uFF1A${e instanceof Error ? e.message : String(e)}`);
+    fail2(`\u7801\u957F\u8868\u7684 Huffman \u6784\u9020\u5931\u8D25\uFF1A${e instanceof Error ? e.message : String(e)}`);
   }
   const total = hlit + hdist;
   const lengths = new Uint8Array(total);
@@ -12086,33 +13916,33 @@ function readDynamicTables(br, fail) {
     if (sym < 16) {
       lengths[i++] = sym;
     } else if (sym === 16) {
-      if (i === 0) fail("\u7801\u957F\u91CD\u590D\u7801 16 \u51FA\u73B0\u5728\u7B2C\u4E00\u4E2A\u7801\u957F\u4E4B\u524D\uFF08\u6CA1\u6709\u53EF\u590D\u5236\u7684\u4E0A\u4E00\u4E2A\u503C\uFF09");
+      if (i === 0) fail2("\u7801\u957F\u91CD\u590D\u7801 16 \u51FA\u73B0\u5728\u7B2C\u4E00\u4E2A\u7801\u957F\u4E4B\u524D\uFF08\u6CA1\u6709\u53EF\u590D\u5236\u7684\u4E0A\u4E00\u4E2A\u503C\uFF09");
       const repeat = br.readBits(2) + 3;
-      if (i + repeat > total) fail(`\u7801\u957F\u91CD\u590D\u7801 16 \u8D8A\u754C\uFF1Ai=${i} repeat=${repeat} total=${total}`);
+      if (i + repeat > total) fail2(`\u7801\u957F\u91CD\u590D\u7801 16 \u8D8A\u754C\uFF1Ai=${i} repeat=${repeat} total=${total}`);
       const prev = lengths[i - 1];
       for (let k = 0; k < repeat; k++) lengths[i++] = prev;
     } else if (sym === 17) {
       const repeat = br.readBits(3) + 3;
-      if (i + repeat > total) fail(`\u7801\u957F\u91CD\u590D\u7801 17 \u8D8A\u754C\uFF1Ai=${i} repeat=${repeat} total=${total}`);
+      if (i + repeat > total) fail2(`\u7801\u957F\u91CD\u590D\u7801 17 \u8D8A\u754C\uFF1Ai=${i} repeat=${repeat} total=${total}`);
       i += repeat;
     } else if (sym === 18) {
       const repeat = br.readBits(7) + 11;
-      if (i + repeat > total) fail(`\u7801\u957F\u91CD\u590D\u7801 18 \u8D8A\u754C\uFF1Ai=${i} repeat=${repeat} total=${total}`);
+      if (i + repeat > total) fail2(`\u7801\u957F\u91CD\u590D\u7801 18 \u8D8A\u754C\uFF1Ai=${i} repeat=${repeat} total=${total}`);
       i += repeat;
     } else {
-      fail(`\u975E\u6CD5\u7801\u957F\u7B26\u53F7 ${sym}\uFF08\u53EA\u5141\u8BB8 0..18\uFF09`);
+      fail2(`\u975E\u6CD5\u7801\u957F\u7B26\u53F7 ${sym}\uFF08\u53EA\u5141\u8BB8 0..18\uFF09`);
     }
   }
   const litLengths = lengths.subarray(0, hlit);
   const distLengths = lengths.subarray(hlit);
-  if (litLengths[256] === 0) fail("\u5B57\u9762\u91CF\u8868\u7F3A\u5C11\u5757\u7ED3\u675F\u7B26 256 \u7684\u7801\u5B57");
+  if (litLengths[256] === 0) fail2("\u5B57\u9762\u91CF\u8868\u7F3A\u5C11\u5757\u7ED3\u675F\u7B26 256 \u7684\u7801\u5B57");
   try {
     return { lit: buildHuffman(litLengths), dist: buildHuffman(distLengths) };
   } catch (e) {
-    fail(`Huffman \u8868\u6784\u9020\u5931\u8D25\uFF1A${e instanceof Error ? e.message : String(e)}`);
+    fail2(`Huffman \u8868\u6784\u9020\u5931\u8D25\uFF1A${e instanceof Error ? e.message : String(e)}`);
   }
 }
-function decodeCompressed(br, lit, dist, sink, fail) {
+function decodeCompressed(br, lit, dist, sink, fail2) {
   for (; ; ) {
     const sym = br.decode(lit);
     if (sym < 256) {
@@ -12120,14 +13950,14 @@ function decodeCompressed(br, lit, dist, sink, fail) {
       continue;
     }
     if (sym === 256) return;
-    if (sym > 285) fail(`\u975E\u6CD5\u957F\u5EA6\u7B26\u53F7 ${sym}\uFF08286/287 \u4FDD\u7559\uFF09`);
+    if (sym > 285) fail2(`\u975E\u6CD5\u957F\u5EA6\u7B26\u53F7 ${sym}\uFF08286/287 \u4FDD\u7559\uFF09`);
     const li = sym - 257;
     const length = LEN_BASE[li] + br.readBits(LEN_EXTRA[li]);
     const dsym = br.decode(dist);
-    if (dsym > 29) fail(`\u975E\u6CD5\u8DDD\u79BB\u7B26\u53F7 ${dsym}\uFF0830/31 \u4FDD\u7559\uFF09`);
+    if (dsym > 29) fail2(`\u975E\u6CD5\u8DDD\u79BB\u7B26\u53F7 ${dsym}\uFF0830/31 \u4FDD\u7559\uFF09`);
     const distance = DIST_BASE[dsym] + br.readBits(DIST_EXTRA[dsym]);
     if (distance > sink.len) {
-      fail(`invalid distance ${distance} > \u5DF2\u4EA7\u51FA ${sink.len} \u5B57\u8282`);
+      fail2(`invalid distance ${distance} > \u5DF2\u4EA7\u51FA ${sink.len} \u5B57\u8282`);
     }
     sink.copyBack(distance, length);
   }
@@ -12136,10 +13966,14 @@ function decodeCompressed(br, lit, dist, sink, fail) {
 // src/extensions/asset-import/decode/png.ts
 var PngErrorCode = {
   BadPng: "ASSET.BAD_PNG",
+  BadApng: "ASSET.BAD_APNG",
   Unsupported: "ASSET.UNSUPPORTED_PNG",
-  UnsupportedInterlace: "ASSET.UNSUPPORTED_INTERLACE"
+  /** 仅在 `interlace: "reject"` 时出现：解码器有能力，但调用方显式关掉了。 */
+  UnsupportedInterlace: "ASSET.UNSUPPORTED_INTERLACE",
+  /** 仅在 `apng: "reject"` 时出现。 */
+  UnsupportedAnimation: "ASSET.UNSUPPORTED_ANIMATION"
 };
-var SIGNATURE2 = [137, 80, 78, 71, 13, 10, 26, 10];
+var SIGNATURE = [137, 80, 78, 71, 13, 10, 26, 10];
 var DEFAULT_MAX_BYTES2 = 256 * 1024 * 1024;
 var IHDR_BYTES = 13;
 var CHANNELS = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 };
@@ -12150,6 +13984,16 @@ var LEGAL_DEPTHS = {
   4: [8, 16],
   6: [8, 16]
 };
+var ADAM7_PASSES = [
+  { xStart: 0, yStart: 0, xStep: 8, yStep: 8 },
+  { xStart: 4, yStart: 0, xStep: 8, yStep: 8 },
+  { xStart: 0, yStart: 4, xStep: 4, yStep: 8 },
+  { xStart: 2, yStart: 0, xStep: 4, yStep: 4 },
+  { xStart: 0, yStart: 2, xStep: 2, yStep: 4 },
+  { xStart: 1, yStart: 0, xStep: 2, yStep: 2 },
+  { xStart: 0, yStart: 1, xStep: 1, yStep: 2 }
+];
+var SINGLE_PASS = [{ xStart: 0, yStart: 0, xStep: 1, yStep: 1 }];
 var CRC_TABLE = (() => {
   const t = new Uint32Array(256);
   for (let n = 0; n < 256; n++) {
@@ -12176,12 +14020,12 @@ function hex32(v) {
 function bad(why, detail) {
   return detail === void 0 ? engineError(PngErrorCode.BadPng, why) : engineError(PngErrorCode.BadPng, why, detail);
 }
-function walkChunks(bytes) {
-  if (bytes.length < SIGNATURE2.length) {
+function scanPng(bytes) {
+  if (bytes.length < SIGNATURE.length) {
     return err(bad(`\u6587\u4EF6\u8FC7\u77ED\uFF1A${bytes.length} \u5B57\u8282\uFF0C\u8FDE PNG \u7B7E\u540D\u90FD\u4E0D\u591F\uFF088 \u5B57\u8282\uFF09`));
   }
-  for (let i = 0; i < SIGNATURE2.length; i++) {
-    if (bytes[i] !== SIGNATURE2[i]) {
+  for (let i = 0; i < SIGNATURE.length; i++) {
+    if (bytes[i] !== SIGNATURE[i]) {
       return err(
         bad(
           `PNG \u7B7E\u540D\u4E0D\u5339\u914D\uFF1A\u671F\u671B 89 50 4e 47 0d 0a 1a 0a\uFF0C\u5B9E\u9645 ${Array.from(
@@ -12196,8 +14040,9 @@ function walkChunks(bytes) {
   let palette;
   let trns;
   const idat = [];
+  const chunks = [];
   let iendEnd = -1;
-  let at = SIGNATURE2.length;
+  let at = SIGNATURE.length;
   while (at < bytes.length) {
     if (at + 8 > bytes.length) {
       return err(bad(`\u5757\u5934\u622A\u65AD\uFF1A\u504F\u79FB ${at} \u5904\u53EA\u5269 ${bytes.length - at} \u5B57\u8282\uFF08\u5757\u5934 8 \u5B57\u8282\uFF09`));
@@ -12254,6 +14099,7 @@ function walkChunks(bytes) {
     } else if (type === "IEND") {
       if (length !== 0) return err(bad(`IEND \u6570\u636E\u957F\u5EA6 ${length}\uFF08\u5FC5\u987B 0\uFF09`));
       iendEnd = crcAt + 4;
+      chunks.push(chunk);
       break;
     } else if ((bytes[at + 4] & 32) === 0) {
       return err(
@@ -12264,6 +14110,7 @@ function walkChunks(bytes) {
         )
       );
     }
+    chunks.push(chunk);
     at = crcAt + 4;
   }
   if (ihdr === void 0) return err(bad("\u6CA1\u6709 IHDR"));
@@ -12274,7 +14121,9 @@ function walkChunks(bytes) {
   if (iendEnd !== bytes.length) {
     return err(bad(`IEND \u4E4B\u540E\u8FD8\u6709 ${bytes.length - iendEnd} \u5B57\u8282\u6570\u636E\uFF08PNG \u4E0D\u5141\u8BB8\u5C3E\u90E8\u9644\u52A0\u5185\u5BB9\uFF09`));
   }
-  return ok({ ihdr, palette, trns, idat });
+  const header = readHeader(bytes, ihdr);
+  if (!header.ok) return err(header.error);
+  return ok({ header: header.value, ihdr, palette, trns, idat, chunks });
 }
 function readHeader(bytes, c) {
   const width = u32be2(bytes, c.dataStart);
@@ -12291,6 +14140,43 @@ function readHeader(bytes, c) {
     return err(bad(`IHDR interlace=${interlace} \u975E\u6CD5\uFF08\u53EA\u5141\u8BB8 0/1\uFF09`));
   }
   return ok({ width, height, bitDepth, colorType, interlace });
+}
+function validateFormat(header, palette) {
+  const channels = CHANNELS[header.colorType];
+  if (channels === void 0) {
+    return err(
+      engineError(
+        PngErrorCode.Unsupported,
+        `\u672A\u77E5 colorType=${header.colorType}\uFF08\u5141\u8BB8 0/2/3/4/6\uFF1B7 \u53CA\u4FDD\u7559\u503C\u4E00\u5F8B\u62D2\u7EDD\uFF09`,
+        { colorType: header.colorType }
+      )
+    );
+  }
+  const legal = LEGAL_DEPTHS[header.colorType];
+  if (!legal.includes(header.bitDepth)) {
+    return err(
+      engineError(
+        PngErrorCode.Unsupported,
+        `\u4E0D\u652F\u6301\u7684 colorType/bitDepth \u7EC4\u5408\uFF1AcolorType=${header.colorType} bitDepth=${header.bitDepth}\uFF08\u8BE5 colorType \u5141\u8BB8 ${legal.join("/")}\uFF09`,
+        { colorType: header.colorType, bitDepth: header.bitDepth }
+      )
+    );
+  }
+  if (header.colorType === 3 && palette === void 0) {
+    return err(bad("colorType=3\uFF08\u8C03\u8272\u677F\uFF09\u4F46\u6587\u4EF6\u91CC\u6CA1\u6709 PLTE \u5757"));
+  }
+  return ok(channels);
+}
+function planPasses(width, height, bitsPerPixel, interlace) {
+  const defs = interlace === 1 ? ADAM7_PASSES : SINGLE_PASS;
+  const out = [];
+  for (const d of defs) {
+    const w = width > d.xStart ? Math.ceil((width - d.xStart) / d.xStep) : 0;
+    const h = height > d.yStart ? Math.ceil((height - d.yStart) / d.yStep) : 0;
+    if (w === 0 || h === 0) continue;
+    out.push({ ...d, width: w, height: h, stride: Math.ceil(w * bitsPerPixel / 8) });
+  }
+  return out;
 }
 function paeth(a, b, c) {
   const p = a + b - c;
@@ -12347,11 +14233,160 @@ function subByteSample(row, x, bitDepth) {
   const shift = 8 - bitDepth * (x % perByte + 1);
   return byte >> shift & (1 << bitDepth) - 1;
 }
-function toRgba(raw, stride, h, palette, trns) {
-  const { width, height, colorType, bitDepth } = h;
-  const out = new Uint8Array(width * height * 4);
+function narrow16(v) {
+  return Math.round(v / 257);
+}
+function put(ctx, o, r, g, b, a, r16, g16, b16, a16) {
+  ctx.out[o] = r;
+  ctx.out[o + 1] = g;
+  ctx.out[o + 2] = b;
+  ctx.out[o + 3] = a;
+  if (ctx.out16 !== void 0) {
+    ctx.out16[o] = r16;
+    ctx.out16[o + 1] = g16;
+    ctx.out16[o + 2] = b16;
+    ctx.out16[o + 3] = a16;
+  }
+}
+function writeGray(ctx, passes, bitDepth, trnsGray) {
   const maxV = (1 << bitDepth) - 1;
-  const scale = (v) => Math.round(v * 255 / maxV);
+  for (const p of passes) {
+    for (let py = 0; py < p.height; py++) {
+      const row = p.raw.subarray(py * p.stride, (py + 1) * p.stride);
+      const y = p.yStart + py * p.yStep;
+      for (let px = 0; px < p.width; px++) {
+        const x = p.xStart + px * p.xStep;
+        const o = (y * ctx.imageWidth + x) * 4;
+        let v;
+        if (bitDepth === 16) v = sampleU16(row, px * 2);
+        else if (bitDepth === 8) v = row[px];
+        else v = subByteSample(row, px, bitDepth);
+        const a = v === trnsGray ? 0 : 255;
+        if (bitDepth === 16) {
+          put(ctx, o, narrow16(v), narrow16(v), narrow16(v), a, v, v, v, a === 0 ? 0 : 65535);
+        } else {
+          const g = bitDepth === 8 ? v : Math.round(v * 255 / maxV);
+          const g16 = bitDepth === 8 ? v * 257 : Math.round(v * 65535 / maxV);
+          put(ctx, o, g, g, g, a, g16, g16, g16, a === 0 ? 0 : 65535);
+        }
+      }
+    }
+  }
+}
+function writeRgb(ctx, passes, bitDepth, trnsR, trnsG, trnsB) {
+  for (const p of passes) {
+    for (let py = 0; py < p.height; py++) {
+      const row = p.raw.subarray(py * p.stride, (py + 1) * p.stride);
+      const y = p.yStart + py * p.yStep;
+      for (let px = 0; px < p.width; px++) {
+        const x = p.xStart + px * p.xStep;
+        const o = (y * ctx.imageWidth + x) * 4;
+        let r;
+        let g;
+        let b;
+        let r16;
+        let g16;
+        let b16;
+        if (bitDepth === 16) {
+          r16 = sampleU16(row, px * 6);
+          g16 = sampleU16(row, px * 6 + 2);
+          b16 = sampleU16(row, px * 6 + 4);
+          r = narrow16(r16);
+          g = narrow16(g16);
+          b = narrow16(b16);
+        } else {
+          r = r16 = row[px * 3];
+          g = g16 = row[px * 3 + 1];
+          b = b16 = row[px * 3 + 2];
+          r16 *= 257;
+          g16 *= 257;
+          b16 *= 257;
+        }
+        const keyed = bitDepth === 16 ? r16 === trnsR && g16 === trnsG && b16 === trnsB : r === trnsR && g === trnsG && b === trnsB;
+        put(ctx, o, r, g, b, keyed ? 0 : 255, r16, g16, b16, keyed ? 0 : 65535);
+      }
+    }
+  }
+}
+function writePalette(ctx, passes, bitDepth, palette, trns, state) {
+  const entries = palette.length / 3;
+  for (const p of passes) {
+    for (let py = 0; py < p.height; py++) {
+      const row = p.raw.subarray(py * p.stride, (py + 1) * p.stride);
+      const y = p.yStart + py * p.yStep;
+      for (let px = 0; px < p.width; px++) {
+        const x = p.xStart + px * p.xStep;
+        const idx = bitDepth === 8 ? row[px] : subByteSample(row, px, bitDepth);
+        if (idx >= entries) {
+          return err(
+            bad(`\u8C03\u8272\u677F\u7D22\u5F15\u8D8A\u754C\uFF1A\u7B2C (${x},${y}) \u50CF\u7D20\u7D22\u5F15 ${idx}\uFF0CPLTE \u53EA\u6709 ${entries} \u9879`, { x, y, index: idx })
+          );
+        }
+        const o = (y * ctx.imageWidth + x) * 4;
+        const r = palette[idx * 3];
+        const g = palette[idx * 3 + 1];
+        const b = palette[idx * 3 + 2];
+        const a = trns !== void 0 && idx < trns.length ? trns[idx] : 255;
+        if (a < 255) state.paletteAlpha = true;
+        put(ctx, o, r, g, b, a, r * 257, g * 257, b * 257, a * 257);
+      }
+    }
+  }
+  return ok(void 0);
+}
+function writeGrayAlpha(ctx, passes, bitDepth) {
+  for (const p of passes) {
+    for (let py = 0; py < p.height; py++) {
+      const row = p.raw.subarray(py * p.stride, (py + 1) * p.stride);
+      const y = p.yStart + py * p.yStep;
+      for (let px = 0; px < p.width; px++) {
+        const x = p.xStart + px * p.xStep;
+        const o = (y * ctx.imageWidth + x) * 4;
+        if (bitDepth === 16) {
+          const v = sampleU16(row, px * 4);
+          const a = sampleU16(row, px * 4 + 2);
+          const g = narrow16(v);
+          put(ctx, o, g, g, g, narrow16(a), v, v, v, a);
+        } else {
+          const v = row[px * 2];
+          const a = row[px * 2 + 1];
+          put(ctx, o, v, v, v, a, v * 257, v * 257, v * 257, a * 257);
+        }
+      }
+    }
+  }
+}
+function writeRgba(ctx, passes, bitDepth) {
+  for (const p of passes) {
+    for (let py = 0; py < p.height; py++) {
+      const row = p.raw.subarray(py * p.stride, (py + 1) * p.stride);
+      const y = p.yStart + py * p.yStep;
+      for (let px = 0; px < p.width; px++) {
+        const x = p.xStart + px * p.xStep;
+        const o = (y * ctx.imageWidth + x) * 4;
+        if (bitDepth === 16) {
+          const r = sampleU16(row, px * 8);
+          const g = sampleU16(row, px * 8 + 2);
+          const b = sampleU16(row, px * 8 + 4);
+          const a = sampleU16(row, px * 8 + 6);
+          put(ctx, o, narrow16(r), narrow16(g), narrow16(b), narrow16(a), r, g, b, a);
+        } else {
+          const r = row[px * 4];
+          const g = row[px * 4 + 1];
+          const b = row[px * 4 + 2];
+          const a = row[px * 4 + 3];
+          put(ctx, o, r, g, b, a, r * 257, g * 257, b * 257, a * 257);
+        }
+      }
+    }
+  }
+}
+function toRgba(passes, header, palette, trns, keep16) {
+  const { width, height, colorType, bitDepth } = header;
+  const pixels = new Uint8Array(width * height * 4);
+  const pixels16 = keep16 ? new Uint16Array(width * height * 4) : void 0;
+  const ctx = { out: pixels, out16: pixels16, imageWidth: width };
+  const state = { paletteAlpha: false };
   let trnsGray = -1;
   let trnsR = -1;
   let trnsG = -1;
@@ -12369,143 +14404,134 @@ function toRgba(raw, stride, h, palette, trns) {
       return err(bad(`colorType=${colorType} \u4E0D\u5141\u8BB8 tRNS\uFF08\u8BE5\u7C7B\u578B\u81EA\u5E26 alpha \u901A\u9053\uFF09`));
     }
   }
-  let paletteAlpha = false;
-  for (let y = 0; y < height; y++) {
-    const row = raw.subarray(y * stride, (y + 1) * stride);
-    let o = y * width * 4;
-    for (let x = 0; x < width; x++, o += 4) {
-      if (colorType === 0) {
-        let v;
-        let alpha = 255;
-        if (bitDepth === 16) {
-          v = sampleU16(row, x * 2);
-          out[o] = out[o + 1] = out[o + 2] = v >> 8 & 255;
-          if (v === trnsGray) alpha = 0;
-        } else if (bitDepth === 8) {
-          v = row[x];
-          out[o] = out[o + 1] = out[o + 2] = v;
-          if (v === trnsGray) alpha = 0;
-        } else {
-          v = subByteSample(row, x, bitDepth);
-          const g = scale(v);
-          out[o] = out[o + 1] = out[o + 2] = g;
-          if (v === trnsGray) alpha = 0;
-        }
-        out[o + 3] = alpha;
-      } else if (colorType === 2) {
-        let r;
-        let g;
-        let b;
-        if (bitDepth === 16) {
-          const rv = sampleU16(row, x * 6);
-          const gv = sampleU16(row, x * 6 + 2);
-          const bv = sampleU16(row, x * 6 + 4);
-          r = rv >> 8;
-          g = gv >> 8;
-          b = bv >> 8;
-          out[o] = r;
-          out[o + 1] = g;
-          out[o + 2] = b;
-          out[o + 3] = rv === trnsR && gv === trnsG && bv === trnsB ? 0 : 255;
-        } else {
-          r = row[x * 3];
-          g = row[x * 3 + 1];
-          b = row[x * 3 + 2];
-          out[o] = r;
-          out[o + 1] = g;
-          out[o + 2] = b;
-          out[o + 3] = r === trnsR && g === trnsG && b === trnsB ? 0 : 255;
-        }
-      } else if (colorType === 3) {
-        if (palette === void 0) return err(bad("colorType=3 \u4F46\u7F3A\u5C11 PLTE"));
-        const idx = bitDepth === 8 ? row[x] : subByteSample(row, x, bitDepth);
-        const entries = palette.length / 3;
-        if (idx >= entries) {
-          return err(
-            bad(`\u8C03\u8272\u677F\u7D22\u5F15\u8D8A\u754C\uFF1A\u7B2C (${x},${y}) \u50CF\u7D20\u7D22\u5F15 ${idx}\uFF0CPLTE \u53EA\u6709 ${entries} \u9879`, { x, y, index: idx })
-          );
-        }
-        out[o] = palette[idx * 3];
-        out[o + 1] = palette[idx * 3 + 1];
-        out[o + 2] = palette[idx * 3 + 2];
-        if (trns !== void 0 && idx < trns.length) {
-          out[o + 3] = trns[idx];
-          if (trns[idx] < 255) paletteAlpha = true;
-        } else {
-          out[o + 3] = 255;
-        }
-      } else if (colorType === 4) {
-        if (bitDepth === 16) {
-          const v = sampleU16(row, x * 4);
-          out[o] = out[o + 1] = out[o + 2] = v >> 8;
-          out[o + 3] = sampleU16(row, x * 4 + 2) >> 8;
-        } else {
-          const v = row[x * 2];
-          out[o] = out[o + 1] = out[o + 2] = v;
-          out[o + 3] = row[x * 2 + 1];
-        }
-      } else {
-        if (bitDepth === 16) {
-          for (let k = 0; k < 4; k++) out[o + k] = row[x * 8 + k * 2];
-        } else {
-          out[o] = row[x * 4];
-          out[o + 1] = row[x * 4 + 1];
-          out[o + 2] = row[x * 4 + 2];
-          out[o + 3] = row[x * 4 + 3];
-        }
-      }
+  switch (colorType) {
+    case 0:
+      writeGray(ctx, passes, bitDepth, trnsGray);
+      break;
+    case 2:
+      writeRgb(ctx, passes, bitDepth, trnsR, trnsG, trnsB);
+      break;
+    case 3: {
+      const r = writePalette(ctx, passes, bitDepth, palette, trns, state);
+      if (!r.ok) return err(r.error);
+      break;
     }
+    case 4:
+      writeGrayAlpha(ctx, passes, bitDepth);
+      break;
+    default:
+      writeRgba(ctx, passes, bitDepth);
+      break;
   }
   return ok({
-    pixels: out,
+    pixels,
+    pixels16,
     usedTransparencyKey: colorType === 0 && trnsGray >= 0 || colorType === 2 && trnsR >= 0,
-    paletteAlpha
+    paletteAlpha: state.paletteAlpha
   });
+}
+function decodeZlibImage(compressed, header, width, height, palette, trns, opts = {}) {
+  const channels = CHANNELS[header.colorType];
+  if (channels === void 0) {
+    return err(
+      engineError(PngErrorCode.Unsupported, `\u672A\u77E5 colorType=${header.colorType}`, { colorType: header.colorType })
+    );
+  }
+  const bitsPerPixel = channels * header.bitDepth;
+  const bpp = Math.max(1, Math.ceil(bitsPerPixel / 8));
+  const passes = planPasses(width, height, bitsPerPixel, header.interlace);
+  const rawBytes = passes.reduce((n, p) => n + (p.stride + 1) * p.height, 0);
+  const label = opts.label ?? "PNG";
+  const maxBytes = opts.maxBytes ?? DEFAULT_MAX_BYTES2;
+  if (rawBytes > maxBytes) {
+    return err(
+      bad(
+        `${label} \u7684\u626B\u63CF\u7EBF\u7EA6 ${rawBytes} \u5B57\u8282\uFF0C\u8D85\u8FC7 maxBytes=${maxBytes}\uFF08\u89E3\u538B\u70B8\u5F39\u4FDD\u62A4\uFF09`,
+        { width, height, rawBytes, maxBytes }
+      )
+    );
+  }
+  const inflated = inflateZlib(compressed, { maxBytes: rawBytes, sizeHint: rawBytes });
+  if (!inflated.ok) {
+    return err(
+      engineError(
+        PngErrorCode.BadPng,
+        `${label} \u89E3\u538B\u5931\u8D25\uFF08${compressed.length} \u5B57\u8282\u538B\u7F29\u6570\u636E\uFF0C\u671F\u671B ${rawBytes}\uFF09\uFF1A${inflated.error.message}`
+      )
+    );
+  }
+  const raw = inflated.value;
+  if (raw.length !== rawBytes) {
+    return err(
+      bad(
+        `${label} \u626B\u63CF\u7EBF\u6570\u636E\u957F\u5EA6\u4E0D\u5BF9\uFF1A\u671F\u671B ${rawBytes}${header.interlace === 1 ? `\uFF08Adam7 \u4E03\u4E2A pass \u4E4B\u548C\uFF0C\u975E\u9694\u884C\u5E94\u4E3A ${height * (Math.ceil(width * bitsPerPixel / 8) + 1)}\uFF09` : ""}\uFF0C\u5B9E\u9645 ${raw.length}\u3002IDAT \u88AB\u622A\u65AD\u6216 IHDR \u4E0E\u5B9E\u9645\u6570\u636E\u4E0D\u7B26 \u2014\u2014 \u62D2\u7EDD\u8FD4\u56DE\u534A\u5F20\u56FE\u3002`,
+        { expectedRaw: rawBytes, actual: raw.length, interlace: header.interlace }
+      )
+    );
+  }
+  const filled = [];
+  let at = 0;
+  for (const p of passes) {
+    const bytes = (p.stride + 1) * p.height;
+    const slice = raw.subarray(at, at + bytes);
+    at += bytes;
+    const u = unfilter(slice, p.stride, p.height, bpp);
+    if (!u.ok) return err(u.error);
+    filled.push({ ...p, raw: u.value });
+  }
+  const rgba = toRgba(filled, { ...header, width, height }, palette, trns, opts.keep16 === true);
+  if (!rgba.ok) return err(rgba.error);
+  return ok({ ...rgba.value, bitDepth: header.bitDepth, colorType: header.colorType });
+}
+function readAnimationInfo(bytes, chunks) {
+  const actl = chunks.find((c) => c.type === "acTL");
+  if (actl === void 0) return ok(void 0);
+  if (actl.length !== 8) {
+    return err(
+      engineError(PngErrorCode.BadApng, `acTL \u6570\u636E\u957F\u5EA6 ${actl.length}\uFF08\u5FC5\u987B 8\uFF09`, { chunk: "acTL" })
+    );
+  }
+  const frameCount = u32be2(bytes, actl.dataStart);
+  const loopCount = u32be2(bytes, actl.dataStart + 4);
+  if (frameCount === 0) {
+    return err(engineError(PngErrorCode.BadApng, "acTL.num_frames=0\uFF08\u52A8\u56FE\u81F3\u5C11\u8981\u6709\u4E00\u5E27\uFF09", { chunk: "acTL" }));
+  }
+  const firstIdat = chunks.find((c) => c.type === "IDAT");
+  if (firstIdat !== void 0 && actl.start > firstIdat.start) {
+    return err(
+      engineError(PngErrorCode.BadApng, "acTL \u51FA\u73B0\u5728 IDAT \u4E4B\u540E\uFF08APNG \u89C4\u8303\u8981\u6C42\u4E4B\u524D\uFF09", { chunk: "acTL" })
+    );
+  }
+  return ok({ frameCount, loopCount });
 }
 function decodePng(bytes, opts) {
   const maxBytes = opts?.maxBytes ?? DEFAULT_MAX_BYTES2;
-  const walked = walkChunks(bytes);
-  if (!walked.ok) return err(walked.error);
-  const { ihdr, palette, trns, idat } = walked.value;
-  const hdr = readHeader(bytes, ihdr);
-  if (!hdr.ok) return err(hdr.error);
-  const h = hdr.value;
-  if (h.interlace !== 0) {
+  const scanned = scanPng(bytes);
+  if (!scanned.ok) return err(scanned.error);
+  const { header: h, palette, trns, idat, chunks } = scanned.value;
+  if (h.interlace !== 0 && opts?.interlace === "reject") {
     return err(
       engineError(
         PngErrorCode.UnsupportedInterlace,
-        `PNG \u4F7F\u7528\u4E86 Adam7 \u9694\u884C\uFF08interlace=${h.interlace}\uFF09\u2014\u2014 \u672C\u89E3\u7801\u5668\u660E\u786E\u4E0D\u652F\u6301\u3002\u5DE5\u7A0B\u5185\u8BED\u6599\u4E3A 0 \u4E2A\u9694\u884C\u56FE\uFF1B\u672A\u7ECF\u9A8C\u8BC1\u7684\u9694\u884C\u5B9E\u73B0\u4F1A\u5BFC\u81F4\u82B1\u5C4F\uFF0C\u6240\u4EE5\u8FD9\u91CC\u76F4\u63A5\u62A5\u9519\u800C\u4E0D\u662F\u731C\u3002`,
+        `PNG \u4F7F\u7528\u4E86 Adam7 \u9694\u884C\uFF08interlace=${h.interlace}\uFF09\uFF0C\u4F46\u8C03\u7528\u65B9\u8981\u6C42 reject\u3002\u672C\u89E3\u7801\u5668\u652F\u6301\u9694\u884C\uFF0C\u53BB\u6389 interlace:"reject" \u5373\u53EF\u89E3\u51FA\u50CF\u7D20\u3002`,
         { width: h.width, height: h.height }
       )
     );
   }
-  const channels = CHANNELS[h.colorType];
-  if (channels === void 0) {
+  const channels = validateFormat(h, palette);
+  if (!channels.ok) return err(channels.error);
+  const animation = readAnimationInfo(bytes, chunks);
+  if (!animation.ok) return err(animation.error);
+  if (animation.value !== void 0 && opts?.apng === "reject") {
     return err(
       engineError(
-        PngErrorCode.Unsupported,
-        `\u672A\u77E5 colorType=${h.colorType}\uFF08\u5141\u8BB8 0/2/3/4/6\uFF1B7 \u53CA\u4FDD\u7559\u503C\u4E00\u5F8B\u62D2\u7EDD\uFF09`,
-        { colorType: h.colorType }
+        PngErrorCode.UnsupportedAnimation,
+        `\u8FD9\u662F APNG \u52A8\u56FE\uFF08${animation.value.frameCount} \u5E27\uFF09\uFF0C\u4F46\u8C03\u7528\u65B9\u8981\u6C42 reject\u3002\u8981\u5355\u5E27\u8BF7\u7528\u9ED8\u8BA4\u7684 apng:"first-frame"\uFF0C\u8981\u5168\u90E8\u5E27\u8BF7\u7528 decodeApng()\u3002`,
+        { frameCount: animation.value.frameCount }
       )
     );
   }
-  const legal = LEGAL_DEPTHS[h.colorType];
-  if (!legal.includes(h.bitDepth)) {
-    return err(
-      engineError(
-        PngErrorCode.Unsupported,
-        `\u4E0D\u652F\u6301\u7684 colorType/bitDepth \u7EC4\u5408\uFF1AcolorType=${h.colorType} bitDepth=${h.bitDepth}\uFF08\u8BE5 colorType \u5141\u8BB8 ${legal.join("/")}\uFF09`,
-        { colorType: h.colorType, bitDepth: h.bitDepth }
-      )
-    );
-  }
-  if (h.colorType === 3 && palette === void 0) {
-    return err(bad("colorType=3\uFF08\u8C03\u8272\u677F\uFF09\u4F46\u6587\u4EF6\u91CC\u6CA1\u6709 PLTE \u5757"));
-  }
-  const bitsPerPixel = channels * h.bitDepth;
-  const stride = Math.ceil(h.width * bitsPerPixel / 8);
-  const bpp = Math.max(1, Math.ceil(bitsPerPixel / 8));
-  const rowBytes = stride + 1;
+  const bitsPerPixel = channels.value * h.bitDepth;
   if (h.height > 0 && h.width > Math.floor(maxBytes / 4 / h.height)) {
     return err(
       bad(
@@ -12514,15 +14540,18 @@ function decodePng(bytes, opts) {
       )
     );
   }
-  if (h.height > 0 && h.width > Math.floor(maxBytes / rowBytes)) {
+  const rawBytes = planPasses(h.width, h.height, bitsPerPixel, h.interlace).reduce(
+    (n, p) => n + (p.stride + 1) * p.height,
+    0
+  );
+  if (rawBytes > maxBytes) {
     return err(
       bad(
-        `PNG ${h.width}\xD7${h.height} \u7684\u89E3\u538B\u540E\u626B\u63CF\u7EBF\u7EA6 ${rowBytes * h.height} \u5B57\u8282\uFF0C\u8D85\u8FC7 maxBytes=${maxBytes}`,
+        `PNG ${h.width}\xD7${h.height} \u7684\u89E3\u538B\u540E\u626B\u63CF\u7EBF\u7EA6 ${rawBytes} \u5B57\u8282\uFF0C\u8D85\u8FC7 maxBytes=${maxBytes}`,
         { width: h.width, height: h.height, maxBytes }
       )
     );
   }
-  const expectedRaw = rowBytes * h.height;
   const compressed = new Uint8Array(idat.reduce((n, c) => n + c.length, 0));
   {
     let o = 0;
@@ -12531,41 +14560,1873 @@ function decodePng(bytes, opts) {
       o += c.length;
     }
   }
-  const inflated = inflateZlib(compressed, { maxBytes: expectedRaw, sizeHint: expectedRaw });
-  if (!inflated.ok) {
-    return err(
-      engineError(
-        PngErrorCode.BadPng,
-        `IDAT \u89E3\u538B\u5931\u8D25\uFF08${idat.length} \u4E2A\u5757\uFF0C\u5171 ${compressed.length} \u5B57\u8282\u89E3\u538B\u51FA\uFF0C\u671F\u671B ${expectedRaw}\uFF09\uFF1A${inflated.error.message}`,
-        { idatChunks: idat.length }
-      )
-    );
-  }
-  const raw = inflated.value;
-  if (raw.length !== expectedRaw) {
-    return err(
-      bad(
-        `\u626B\u63CF\u7EBF\u6570\u636E\u957F\u5EA6\u4E0D\u5BF9\uFF1A\u671F\u671B ${expectedRaw}\uFF08${h.height} \u884C \xD7 (1 \u6EE4\u6CE2\u5B57\u8282 + ${stride})\uFF09\uFF0C\u5B9E\u9645 ${raw.length}\u3002IDAT \u88AB\u622A\u65AD\u6216 IHDR \u4E0E\u5B9E\u9645\u6570\u636E\u4E0D\u7B26 \u2014\u2014 \u62D2\u7EDD\u8FD4\u56DE\u534A\u5F20\u56FE\u3002`,
-        { expectedRaw, actual: raw.length }
-      )
-    );
-  }
-  const unfiltered = unfilter(raw, stride, h.height, bpp);
-  if (!unfiltered.ok) return err(unfiltered.error);
   const paletteBytes = palette === void 0 ? void 0 : bytes.subarray(palette.dataStart, palette.dataStart + palette.length);
   const trnsBytes = trns === void 0 ? void 0 : bytes.subarray(trns.dataStart, trns.dataStart + trns.length);
-  const rgba = toRgba(unfiltered.value, stride, h, paletteBytes, trnsBytes);
-  if (!rgba.ok) return err(rgba.error);
+  const decoded = decodeZlibImage(compressed, h, h.width, h.height, paletteBytes, trnsBytes, {
+    keep16: opts?.keep16,
+    maxBytes,
+    label: `PNG ${h.width}\xD7${h.height}`
+  });
+  if (!decoded.ok) return err(decoded.error);
   const hasChannelAlpha = h.colorType === 4 || h.colorType === 6;
   return ok({
     width: h.width,
     height: h.height,
-    pixels: rgba.value.pixels,
+    pixels: decoded.value.pixels,
+    pixels16: decoded.value.pixels16,
     bitDepth: h.bitDepth,
     colorType: h.colorType,
-    hasAlpha: hasChannelAlpha || rgba.value.usedTransparencyKey || rgba.value.paletteAlpha,
-    usedTransparencyKey: rgba.value.usedTransparencyKey
+    hasAlpha: hasChannelAlpha || decoded.value.usedTransparencyKey || decoded.value.paletteAlpha,
+    usedTransparencyKey: decoded.value.usedTransparencyKey,
+    interlaced: h.interlace === 1,
+    isApng: animation.value !== void 0,
+    animation: animation.value
   });
+}
+
+// src/extensions/asset-import/decode/jpeg/reconstruct.ts
+function clampSample(v, maxval) {
+  return v < 0 ? 0 : v > maxval ? maxval : v;
+}
+function maxValueOf(precision) {
+  return (1 << precision) - 1;
+}
+function idctBlock(coefs, bo, qt, plane, planeW, planeH, originX, originY, offset, maxval) {
+  const block = new Float64Array(64);
+  for (let i = 0; i < 64; i++) block[i] = coefs[bo + i] * qt[i];
+  const tmp = new Float64Array(64);
+  for (let y = 0; y < 8; y++) {
+    const o = y * 8;
+    for (let x = 0; x < 8; x++) {
+      let s = 0;
+      for (let u = 0; u < 8; u++) s += block[o + u] * COS[u * 8 + x];
+      tmp[o + x] = s;
+    }
+  }
+  for (let y = 0; y < 8; y++) {
+    const py = originY + y;
+    if (py >= planeH) break;
+    for (let x = 0; x < 8; x++) {
+      const px = originX + x;
+      if (px >= planeW) continue;
+      let s = 0;
+      for (let v = 0; v < 8; v++) s += tmp[v * 8 + x] * COS[v * 8 + y];
+      plane[py * planeW + px] = clampSample(Math.round(s + offset), maxval);
+    }
+  }
+}
+function buildPlane(c, qt, precision) {
+  const offset = 1 << precision - 1;
+  const maxval = maxValueOf(precision);
+  const plane = new Uint16Array(c.compW * c.compH);
+  for (let by = 0; by < c.blocksH; by++) {
+    for (let bx = 0; bx < c.blocksW; bx++) {
+      const bo = (by * c.strideBlocksW + bx) * 64;
+      idctBlock(c.coefs, bo, qt, plane, c.compW, c.compH, bx * 8, by * 8, offset, maxval);
+    }
+  }
+  return plane;
+}
+function buildFramePlanes(frame) {
+  if (frame.lossless) {
+    if (frame.pt > 0) {
+      for (const c of frame.components) {
+        const p = c.plane;
+        for (let i = 0; i < p.length; i++) p[i] = p[i] << frame.pt;
+      }
+    }
+    return;
+  }
+  for (const c of frame.components) {
+    const q2 = c.qtTable ?? frame.qt[c.tq] ?? null;
+    if (q2 === null) {
+      fail("ASSET.BAD_JPEG", `\u5206\u91CF ${c.id} \u5F15\u7528\u7684\u91CF\u5316\u8868 ${c.tq} \u6CA1\u6709\u5728\u6587\u4EF6\u91CC\u5B9A\u4E49\uFF08DQT \u7F3A\u5931\uFF09`);
+    }
+    c.plane = buildPlane(c, q2, frame.precision);
+  }
+}
+function sampleComponent(plane, w, h, factorH, factorV, x, y) {
+  const axis = (pos, factor, n, fancy) => {
+    if (factor === 1) {
+      const p2 = pos < n ? pos : n - 1;
+      return [p2, p2, 0, 1];
+    }
+    if (factor === 2) {
+      if (!fancy) {
+        const p2 = pos >> 1 < n ? pos >> 1 : n - 1;
+        return [p2, p2, 0, 1];
+      }
+      const i = pos >> 1;
+      if (i >= n) return [n - 1, n - 1, 0, 1];
+      if ((pos & 1) === 1) {
+        const j2 = i + 1 < n ? i + 1 : i;
+        return [i, j2, 0.75, 0.25];
+      }
+      const j = i - 1 >= 0 ? i - 1 : i;
+      return [j, i, 0.25, 0.75];
+    }
+    const p = Math.floor(pos / factor);
+    const q2 = p < n ? p : n - 1;
+    return [q2, q2, 0, 1];
+  };
+  const fancyH = factorH === 2 && w > 2;
+  const fancyV = factorV === 2 && (factorH === 2 ? w > 2 : h > 2);
+  const [x0, x1, wx0, wx1] = axis(x, factorH, w, fancyH);
+  const [y0, y1, wy0, wy1] = axis(y, factorV, h, fancyV);
+  const a = plane[y0 * w + x0];
+  const b = plane[y0 * w + x1];
+  const c = plane[y1 * w + x0];
+  const d = plane[y1 * w + x1];
+  const top = a * wx0 + b * wx1;
+  const bottom = c * wx0 + d * wx1;
+  return top * wy0 + bottom * wy1;
+}
+function subsamplingName(c0, maxH, maxV, components) {
+  if (components === 1) return "none";
+  const hs = c0.h;
+  const vs = c0.v;
+  if (hs === maxH && vs === maxV) {
+    if (maxH === 1 && maxV === 1) return "4:4:4";
+    if (maxH === 2 && maxV === 1) return "4:2:2";
+    if (maxH === 2 && maxV === 2) return "4:2:0";
+    if (maxH === 4 && maxV === 1) return "4:1:1";
+    if (maxH === 4 && maxV === 2) return "4:1:0";
+    if (maxH === 1 && maxV === 2) return "4:4:0";
+    return `${maxH}x${maxV}`;
+  }
+  return `${hs}x${vs}/${maxH}x${maxV}`;
+}
+function applyOrientation(src, w, h, orientation) {
+  if (orientation <= 1 || orientation > 8) return { data: src, width: w, height: h };
+  const swap = orientation >= 5;
+  const outW = swap ? h : w;
+  const outH = swap ? w : h;
+  const Ctor = src.constructor;
+  const out = new Ctor(outW * outH * 4);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let ox = x;
+      let oy = y;
+      switch (orientation) {
+        case 2:
+          ox = w - 1 - x;
+          break;
+        case 3:
+          ox = w - 1 - x;
+          oy = h - 1 - y;
+          break;
+        case 4:
+          oy = h - 1 - y;
+          break;
+        case 5:
+          ox = y;
+          oy = x;
+          break;
+        case 6:
+          ox = h - 1 - y;
+          oy = x;
+          break;
+        case 7:
+          ox = h - 1 - y;
+          oy = w - 1 - x;
+          break;
+        case 8:
+          ox = y;
+          oy = w - 1 - x;
+          break;
+        default:
+          break;
+      }
+      const s = (y * w + x) * 4;
+      const d = (oy * outW + ox) * 4;
+      out[d] = src[s];
+      out[d + 1] = src[s + 1];
+      out[d + 2] = src[s + 2];
+      out[d + 3] = src[s + 3];
+    }
+  }
+  return { data: out, width: outW, height: outH };
+}
+function planesToRgba(frame, opts) {
+  const { width, height, components, precision } = frame;
+  const maxH = Math.max(...components.map((c) => c.h));
+  const maxV = Math.max(...components.map((c) => c.v));
+  const maxval = maxValueOf(precision);
+  const offset = 1 << precision - 1;
+  const n = components.length;
+  const planes = [];
+  for (const c of components) {
+    if (c.plane === null) {
+      fail("ASSET.BAD_JPEG", `\u5206\u91CF ${c.id} \u7684\u5E73\u9762\u8FD8\u6CA1\u6709\u89E3\u7801\u51FA\u6765\uFF08\u5185\u90E8\u9519\u8BEF\uFF1A\u91CD\u5EFA\u987A\u5E8F\u9519\u4E86\uFF09`);
+    }
+    planes.push(c.plane);
+  }
+  const keep16 = opts.keep16 === true;
+  const pixels = new Uint8Array(width * height * 4);
+  const pixels16 = keep16 ? new Uint16Array(width * height * 4) : void 0;
+  const rgbDirect = n === 3 && (frame.adobeTransform === 0 || components[0].id === 82 && components[1].id === 71 && components[2].id === 66);
+  const ycck = n === 4 && frame.adobeTransform === 2;
+  const toFull16 = (v) => {
+    if (precision === 16) return v;
+    if (precision === 8) return v * 257;
+    return Math.round(v * 65535 / maxval);
+  };
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const o = (y * width + x) * 4;
+      if (n === 1) {
+        const g2 = sampleComponent(
+          planes[0],
+          components[0].compW,
+          components[0].compH,
+          maxH / components[0].h,
+          maxV / components[0].v,
+          x,
+          y
+        );
+        const v = clampSample(Math.round(g2), maxval);
+        writePixel(o, v, v, v);
+        continue;
+      }
+      const s0 = sampleComponent(planes[0], components[0].compW, components[0].compH, maxH / components[0].h, maxV / components[0].v, x, y);
+      const s1 = sampleComponent(planes[1], components[1].compW, components[1].compH, maxH / components[1].h, maxV / components[1].v, x, y);
+      const s2 = sampleComponent(planes[2], components[2].compW, components[2].compH, maxH / components[2].h, maxV / components[2].v, x, y);
+      let r;
+      let g;
+      let b;
+      if (n === 4) {
+        const k = sampleComponent(
+          planes[3],
+          components[3].compW,
+          components[3].compH,
+          maxH / components[3].h,
+          maxV / components[3].v,
+          x,
+          y
+        );
+        let c0;
+        let c1;
+        let c2;
+        if (ycck) {
+          const cb = s1 - offset;
+          const cr = s2 - offset;
+          c0 = maxval - (s0 + 1.402 * cr);
+          c1 = maxval - (s0 - 0.344136 * cb - 0.714136 * cr);
+          c2 = maxval - (s0 + 1.772 * cb);
+        } else {
+          c0 = s0;
+          c1 = s1;
+          c2 = s2;
+        }
+        r = c0 * k / maxval;
+        g = c1 * k / maxval;
+        b = c2 * k / maxval;
+      } else if (rgbDirect) {
+        r = s0;
+        g = s1;
+        b = s2;
+      } else {
+        const cb = s1 - offset;
+        const cr = s2 - offset;
+        r = s0 + 1.402 * cr;
+        g = s0 - 0.344136 * cb - 0.714136 * cr;
+        b = s0 + 1.772 * cb;
+      }
+      writePixel(o, r, g, b);
+    }
+  }
+  function writePixel(o, r, g, b) {
+    const rv = clampSample(Math.round(r), maxval);
+    const gv = clampSample(Math.round(g), maxval);
+    const bv = clampSample(Math.round(b), maxval);
+    if (pixels16 !== void 0) {
+      pixels16[o] = toFull16(rv);
+      pixels16[o + 1] = toFull16(gv);
+      pixels16[o + 2] = toFull16(bv);
+      pixels16[o + 3] = 65535;
+      pixels[o] = Math.round(pixels16[o] / 257);
+      pixels[o + 1] = Math.round(pixels16[o + 1] / 257);
+      pixels[o + 2] = Math.round(pixels16[o + 2] / 257);
+      pixels[o + 3] = 255;
+      return;
+    }
+    pixels[o] = Math.round(toFull16(rv) / 257);
+    pixels[o + 1] = Math.round(toFull16(gv) / 257);
+    pixels[o + 2] = Math.round(toFull16(bv) / 257);
+    pixels[o + 3] = 255;
+  }
+  return { pixels, pixels16, width, height };
+}
+function toDecodedJpeg(frame, meta, opts) {
+  const rgba = planesToRgba(frame, opts);
+  const apply = opts.orientation === "apply";
+  const o8 = apply ? applyOrientation(rgba.pixels, rgba.width, rgba.height, meta.orientation) : null;
+  const o16 = apply && rgba.pixels16 !== void 0 ? applyOrientation(rgba.pixels16, rgba.width, rgba.height, meta.orientation) : null;
+  const maxH = Math.max(...frame.components.map((c) => c.h));
+  const maxV = Math.max(...frame.components.map((c) => c.v));
+  const c0 = frame.components[0];
+  const n = frame.components.length;
+  return {
+    width: o8?.width ?? rgba.width,
+    height: o8?.height ?? rgba.height,
+    pixels: o8?.data ?? rgba.pixels,
+    ...o16 !== null ? { pixels16: o16.data } : rgba.pixels16 !== void 0 ? { pixels16: rgba.pixels16 } : {},
+    bitDepth: frame.precision,
+    // 4 分量（CMYK/YCCK）也还原成 RGB，alpha 恒不透明；
+    // colorType 用 2（RGB）而不是 6（RGBA）—— JPEG 没有 alpha 通道，写 6 就是撒谎。
+    colorType: 2,
+    hasAlpha: false,
+    usedTransparencyKey: false,
+    interlaced: false,
+    isApng: false,
+    jpeg: {
+      process: processName(frame),
+      sof: frame.sof,
+      progressive: frame.progressive,
+      arithmetic: frame.arithmetic,
+      lossless: frame.lossless,
+      differential: frame.differential,
+      precision: frame.precision,
+      pointTransform: frame.pt,
+      subsampling: subsamplingName(c0, maxH, maxV, n),
+      components: n,
+      restartInterval: frame.restartInterval,
+      orientation: meta.orientation,
+      adobeTransform: frame.adobeTransform,
+      truncated: meta.truncated,
+      frames: meta.frames,
+      hierarchical: meta.hierarchical
+    }
+  };
+}
+function processName(frame) {
+  const huff = frame.arithmetic ? "\u7B97\u672F" : "Huffman";
+  const kind = frame.lossless ? "\u65E0\u635F" : frame.progressive ? "\u6E10\u8FDB" : "\u987A\u5E8F";
+  const diff = frame.differential ? "\u5DEE\u5206" : "";
+  return `SOF${frame.sof & 15} ${diff}${kind}\uFF08${huff}\uFF09`;
+}
+
+// src/extensions/asset-import/decode/jpeg/hierarchy.ts
+function upsamplePlane(src, sw, sh, dw, dh) {
+  const out = new Uint16Array(dw * dh);
+  const cx = (x) => x < 0 ? 0 : x >= sw ? sw - 1 : x;
+  const cy = (y) => y < 0 ? 0 : y >= sh ? sh - 1 : y;
+  const at = (x, y) => src[cy(y) * sw + cx(x)];
+  for (let y = 0; y < dh; y++) {
+    const y0 = Math.floor(y / 2);
+    const yc = y % 2 === 0 ? y0 - 1 : y0 + 1;
+    for (let x = 0; x < dw; x++) {
+      const x0 = Math.floor(x / 2);
+      const xc = x % 2 === 0 ? x0 - 1 : x0 + 1;
+      const v = at(x0, y0) * 9 + at(xc, y0) * 3 + at(x0, yc) * 3 + at(xc, yc);
+      out[y * dw + x] = Math.floor((v + 8) / 16);
+    }
+  }
+  return out;
+}
+function pairComponent(cur, prev, ci) {
+  const c = cur.components[ci];
+  const p = prev.components.find((x) => x.id === c.id) ?? prev.components[ci];
+  if (p === void 0) {
+    fail("ASSET.BAD_JPEG", `\u5206\u5C42 JPEG \u7684\u5DEE\u5206\u5E27\u627E\u4E0D\u5230\u5206\u91CF ${c.id} \u7684\u53C2\u8003\u5206\u91CF`);
+  }
+  return { c, p };
+}
+function checkPairing(cur, prev) {
+  if (cur.components.length !== prev.components.length) {
+    fail(
+      "ASSET.BAD_JPEG",
+      `\u5206\u5C42 JPEG \u7684\u5DEE\u5206\u5E27\u6709 ${cur.components.length} \u4E2A\u5206\u91CF\uFF0C\u53C2\u8003\u5E27\u6709 ${prev.components.length} \u4E2A\uFF08\u5206\u91CF\u6570\u4E0D\u4E00\u81F4\u5C31\u65E0\u6CD5\u9010\u5206\u91CF\u505A\u9884\u6D4B\uFF09`
+    );
+  }
+  if (cur.precision !== prev.precision) {
+    fail(
+      "ASSET.BAD_JPEG",
+      `\u5206\u5C42 JPEG \u7684\u5DEE\u5206\u5E27\u7CBE\u5EA6 ${cur.precision} \u4E0E\u53C2\u8003\u5E27 ${prev.precision} \u4E0D\u4E00\u81F4\uFF08\u4E0D\u540C\u4F4D\u6DF1\u7684\u5DEE\u6CA1\u6709\u5B9A\u4E49\uFF0C\u53EA\u80FD\u62A5\u9519\u800C\u4E0D\u662F\u731C\uFF09`
+    );
+  }
+}
+function addReferencePlanes(cur, prev) {
+  checkPairing(cur, prev);
+  const maxval = maxValueOf(cur.precision);
+  const shift = cur.lossless ? 0 : 1 << cur.precision - 1;
+  for (let ci = 0; ci < cur.components.length; ci++) {
+    const { c, p } = pairComponent(cur, prev, ci);
+    const dst = c.plane;
+    const src = p.plane;
+    if (dst === null || src === null) {
+      fail("ASSET.BAD_JPEG", `\u5206\u91CF ${c.id} \u7684\u5E73\u9762\u8FD8\u6CA1\u89E3\u51FA\u6765\uFF08\u5185\u90E8\u9519\u8BEF\uFF1A\u5206\u5C42\u5408\u6210\u7684\u987A\u5E8F\u9519\u4E86\uFF09`);
+    }
+    const w = c.compW;
+    const h = c.compH;
+    const up = p.compW === w && p.compH === h ? src : upsamplePlane(src, p.compW, p.compH, w, h);
+    for (let y = 0; y < h; y++) {
+      const row = y * w;
+      for (let x = 0; x < w; x++) {
+        const sum = dst[row + x] - shift + up[row + x];
+        dst[row + x] = cur.lossless ? sum & maxval : clampSample(sum, maxval);
+      }
+    }
+  }
+}
+function expansionMatchesGeometry(prev, cur) {
+  for (let ci = 0; ci < prev.components.length; ci++) {
+    const c = prev.components[ci];
+    const e = cur.expansions.get(c.id);
+    if (e === void 0) continue;
+    const n = cur.components.find((x) => x.id === c.id) ?? cur.components[ci];
+    if (n === void 0) return false;
+    if (Math.abs(n.compW / c.compW - e.eh) > 1e-9) return false;
+    if (Math.abs(n.compH / c.compH - e.ev) > 1e-9) return false;
+  }
+  return true;
+}
+
+// src/extensions/asset-import/decode/jpeg/lossless-pred.ts
+function predictLossless(psv, ra, rb, rc) {
+  switch (psv) {
+    case 1:
+      return ra;
+    case 2:
+      return rb;
+    case 3:
+      return rc;
+    case 4:
+      return ra + rb - rc;
+    case 5:
+      return ra + (rb - rc >> 1);
+    case 6:
+      return rb + (ra - rc >> 1);
+    case 7:
+      return ra + rb >> 1;
+    default:
+      return fail("ASSET.BAD_JPEG", `\u65E0\u635F\u9884\u6D4B\u5668\u9009\u62E9\u503C\u5FC5\u987B\u662F 1..7\uFF0C\u5B9E\u9645 ${psv}`);
+  }
+}
+var LosslessSampleWriter = class {
+  constructor(precision, pt, psv, comps) {
+    this.psv = psv;
+    this.comps = comps;
+    this.initial = 1 << precision - pt - 1;
+  }
+  initial;
+  /** 每个分量在当前区间里"第一行"的行号；-1 = 该区间还没落过样本。 */
+  firstRow = /* @__PURE__ */ new Map();
+  beginInterval() {
+    for (const c of this.comps) this.firstRow.set(c, -1);
+  }
+  /** `diff` 是解出的差分；`x/y` 是分量平面坐标。 */
+  write(c, x, y, diff) {
+    const plane = c.plane;
+    const w = c.compW;
+    let rt = this.firstRow.get(c);
+    if (rt === -1) {
+      rt = y;
+      this.firstRow.set(c, y);
+    }
+    let pred;
+    if (y === rt) {
+      pred = x === 0 ? this.initial : plane[y * w + x - 1];
+    } else if (x === 0) {
+      pred = plane[(y - 1) * w + x];
+    } else {
+      pred = predictLossless(this.psv, plane[y * w + x - 1], plane[(y - 1) * w + x], plane[(y - 1) * w + x - 1]);
+    }
+    plane[y * w + x] = pred + diff & 65535;
+  }
+};
+
+// src/extensions/asset-import/decode/jpeg/qm.ts
+var QM_QE = new Uint16Array([
+  23069,
+  9606,
+  4372,
+  2059,
+  984,
+  474,
+  229,
+  111,
+  54,
+  26,
+  13,
+  6,
+  3,
+  1,
+  23167,
+  16165,
+  11506,
+  8316,
+  6073,
+  4482,
+  3311,
+  2465,
+  1839,
+  1372,
+  1030,
+  771,
+  576,
+  433,
+  324,
+  245,
+  183,
+  138,
+  104,
+  78,
+  59,
+  44,
+  23265,
+  18508,
+  14861,
+  12017,
+  9759,
+  7987,
+  6568,
+  5400,
+  4471,
+  3700,
+  3067,
+  2552,
+  2145,
+  1798,
+  1485,
+  1246,
+  1039,
+  867,
+  724,
+  604,
+  504,
+  420,
+  352,
+  293,
+  246,
+  203,
+  171,
+  143,
+  23314,
+  19716,
+  16684,
+  14296,
+  12264,
+  10556,
+  9081,
+  7903,
+  6825,
+  5966,
+  5156,
+  4508,
+  3947,
+  3409,
+  2998,
+  2624,
+  22578,
+  19740,
+  17294,
+  15325,
+  13550,
+  11950,
+  10650,
+  9494,
+  21872,
+  19625,
+  17625,
+  15906,
+  14372,
+  12980,
+  11799,
+  22184,
+  20294,
+  18405,
+  16847,
+  15421,
+  14174,
+  21041,
+  19471,
+  17977,
+  16734,
+  22055,
+  20711,
+  19333,
+  21911,
+  20559,
+  23056,
+  21794,
+  23019,
+  23069
+]);
+var QM_NLPS_RAW = [
+  1,
+  14,
+  16,
+  18,
+  20,
+  23,
+  25,
+  28,
+  30,
+  33,
+  35,
+  9,
+  10,
+  12,
+  15,
+  36,
+  38,
+  39,
+  40,
+  42,
+  43,
+  45,
+  46,
+  48,
+  49,
+  51,
+  52,
+  54,
+  56,
+  57,
+  59,
+  60,
+  62,
+  63,
+  32,
+  33,
+  37,
+  64,
+  65,
+  67,
+  68,
+  69,
+  70,
+  72,
+  73,
+  74,
+  75,
+  77,
+  78,
+  79,
+  48,
+  50,
+  50,
+  51,
+  52,
+  53,
+  54,
+  55,
+  56,
+  57,
+  58,
+  59,
+  61,
+  61,
+  65,
+  80,
+  81,
+  82,
+  83,
+  84,
+  86,
+  87,
+  87,
+  72,
+  72,
+  74,
+  74,
+  75,
+  77,
+  77,
+  80,
+  88,
+  89,
+  90,
+  91,
+  92,
+  93,
+  86,
+  88,
+  95,
+  96,
+  97,
+  99,
+  99,
+  93,
+  95,
+  101,
+  102,
+  103,
+  104,
+  99,
+  105,
+  106,
+  107,
+  103,
+  105,
+  108,
+  109,
+  110,
+  111,
+  110,
+  112,
+  112,
+  113
+];
+var QM_SWITCH_STATES = [0, 14, 36, 64, 80, 88, 95, 105, 110, 112];
+var QM_NLPS = new Uint8Array(114);
+for (let i = 0; i < 114; i++) {
+  QM_NLPS[i] = QM_NLPS_RAW[i] | (QM_SWITCH_STATES.includes(i) ? 128 : 0);
+}
+var QM_NMPS = new Uint8Array([
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7,
+  8,
+  9,
+  10,
+  11,
+  12,
+  13,
+  13,
+  15,
+  16,
+  17,
+  18,
+  19,
+  20,
+  21,
+  22,
+  23,
+  24,
+  25,
+  26,
+  27,
+  28,
+  29,
+  30,
+  31,
+  32,
+  33,
+  34,
+  35,
+  9,
+  37,
+  38,
+  39,
+  40,
+  41,
+  42,
+  43,
+  44,
+  45,
+  46,
+  47,
+  48,
+  49,
+  50,
+  51,
+  52,
+  53,
+  54,
+  55,
+  56,
+  57,
+  58,
+  59,
+  60,
+  61,
+  62,
+  63,
+  32,
+  65,
+  66,
+  67,
+  68,
+  69,
+  70,
+  71,
+  72,
+  73,
+  74,
+  75,
+  76,
+  77,
+  78,
+  79,
+  48,
+  81,
+  82,
+  83,
+  84,
+  85,
+  86,
+  87,
+  71,
+  89,
+  90,
+  91,
+  92,
+  93,
+  94,
+  86,
+  96,
+  97,
+  98,
+  99,
+  100,
+  93,
+  102,
+  103,
+  104,
+  99,
+  106,
+  107,
+  103,
+  109,
+  107,
+  111,
+  109,
+  111,
+  113
+]);
+var FIXED_BIN_STATE = 113;
+var DC_STAT_BINS = 64;
+var AC_STAT_BINS = 256;
+function newStats(size) {
+  return new Uint8Array(size);
+}
+var QmDecoder = class {
+  constructor(data, start, end) {
+    this.data = data;
+    this.end = end;
+    this.pos = start;
+  }
+  c = 0;
+  a = 0;
+  ct = -16;
+  // -16 ⇒ 先读 2 个字节把 C 填满
+  pos;
+  stalled = false;
+  /** 熵数据里是否撞到了标记（预切分与数据不一致 / 扫描提前结束）。 */
+  get hitMarker() {
+    return this.stalled;
+  }
+  nextByte() {
+    if (this.stalled || this.pos >= this.end) {
+      this.stalled = true;
+      return 0;
+    }
+    let data = this.data[this.pos++];
+    if (data === 255) {
+      do {
+        if (this.pos >= this.end) {
+          this.stalled = true;
+          return 0;
+        }
+        data = this.data[this.pos++];
+      } while (data === 255);
+      if (data === 0) {
+        data = 255;
+      } else {
+        this.stalled = true;
+        return 0;
+      }
+    }
+    return data;
+  }
+  /**
+   * 解一位。
+   *
+   * ★ 重归一化必须**在**解码之前跑（Annex D.2.6 / 图 D.2）：A 小于 0x8000 时
+   *   先把 A、C 左移并补入新字节，再拿 A 与 Qe 比。写成"解码后再归一化"也能跑，
+   *   但 `ct` 的进位时机差一个字节，整条流会从某个符号起全错。
+   */
+  decode(stats, at) {
+    while (this.a < 32768) {
+      if (--this.ct < 0) {
+        const data = this.nextByte();
+        this.c = (this.c << 8 | data) >>> 0;
+        this.ct += 8;
+        if (this.ct < 0) {
+          this.ct++;
+          if (this.ct === 0) this.a = 32768;
+        }
+      }
+      this.a <<= 1;
+    }
+    let sv = stats[at];
+    const qe = QM_QE[sv & 127];
+    const nl = QM_NLPS[sv & 127];
+    const nm = QM_NMPS[sv & 127];
+    const temp = this.a - qe;
+    this.a = temp;
+    const shifted = this.ct >= 0 ? temp << this.ct >>> 0 : temp >>> -this.ct >>> 0;
+    if (this.c >= shifted) {
+      this.c = this.c - shifted >>> 0;
+      if (this.a < qe) {
+        this.a = qe;
+        stats[at] = sv & 128 ^ nm;
+      } else {
+        this.a = qe;
+        stats[at] = sv & 128 ^ nl;
+        sv ^= 128;
+      }
+    } else if (this.a < 32768) {
+      if (this.a < qe) {
+        stats[at] = sv & 128 ^ nl;
+        sv ^= 128;
+      } else {
+        stats[at] = sv & 128 ^ nm;
+      }
+    }
+    return sv >> 7;
+  }
+};
+
+// src/extensions/asset-import/decode/jpeg/scan-common.ts
+function readScanHeader(bytes, dataStart, dataLen, frame) {
+  if (dataLen < 1) fail("ASSET.BAD_JPEG", "SOS \u6BB5\u4E3A\u7A7A");
+  const ns = bytes[dataStart];
+  if (ns < 1 || ns > 4) fail("ASSET.BAD_JPEG", `SOS \u58F0\u660E\u4E86 ${ns} \u4E2A\u5206\u91CF\uFF081..4\uFF09`);
+  if (dataLen < 1 + ns * 2 + 3) fail("ASSET.BAD_JPEG", "SOS \u6BB5\u88AB\u622A\u65AD");
+  const comps = [];
+  for (let i = 0; i < ns; i++) {
+    const at2 = dataStart + 1 + i * 2;
+    const id = bytes[at2];
+    const tables = bytes[at2 + 1];
+    const c = frame.components.find((x) => x.id === id);
+    if (c === void 0) {
+      fail(
+        "ASSET.BAD_JPEG",
+        `SOS \u5F15\u7528\u4E86\u5E27\u91CC\u4E0D\u5B58\u5728\u7684\u5206\u91CF id=${id}\uFF08\u5E27\u91CC\u662F ${frame.components.map((x) => x.id).join(",")}\uFF09`
+      );
+    }
+    c.td = tables >> 4;
+    c.ta = tables & 15;
+    if (c.td > 3 || c.ta > 3) fail("ASSET.BAD_JPEG", `\u5206\u91CF ${id} \u7684\u8868\u53F7\u975E\u6CD5`);
+    if (!comps.includes(c)) comps.push(c);
+  }
+  const at = dataStart + 1 + ns * 2;
+  return {
+    comps,
+    ss: bytes[at],
+    se: bytes[at + 1],
+    ah: bytes[at + 2] >> 4,
+    al: bytes[at + 2] & 15,
+    entropyStart: dataStart + dataLen
+  };
+}
+function splitEntropy(bytes, start) {
+  const ranges = [];
+  let segStart = start;
+  let i = start;
+  while (i + 1 < bytes.length) {
+    if (bytes[i] !== 255) {
+      i++;
+      continue;
+    }
+    const m = bytes[i + 1];
+    if (m === 0) {
+      i += 2;
+      continue;
+    }
+    if (m === 255) {
+      i += 1;
+      continue;
+    }
+    if (m >= 208 && m <= 215) {
+      ranges.push([segStart, i]);
+      i += 2;
+      segStart = i;
+      continue;
+    }
+    break;
+  }
+  ranges.push([segStart, i]);
+  return { ranges, next: i };
+}
+function expectIntervals(found, restartInterval, totalMcus) {
+  const expected = restartInterval > 0 ? Math.ceil(totalMcus / restartInterval) : 1;
+  if (found !== expected) {
+    fail(
+      "ASSET.BAD_JPEG",
+      `\u91CD\u542F\u533A\u95F4\u6570\u4E0D\u7B26\uFF1A\u71B5\u6570\u636E\u91CC\u627E\u5230 ${found} \u6BB5\uFF0C\u6309 DRI=${restartInterval} \u4E0E ${totalMcus} \u4E2A MCU \u5E94\u4E3A ${expected} \u6BB5\uFF08RST \u6807\u8BB0\u7F3A\u5931/\u591A\u4F59\u4F1A\u8BA9 DC \u9884\u6D4B\u5668\u9519\u4F4D\uFF0C\u89E3\u51FA\u7684\u56FE\u4E0D\u4F1A\u62A5\u9519\u4F46\u4F1A\u82B1\uFF09`
+    );
+  }
+}
+function scanGeometry(frame, comps, interleaved) {
+  if (interleaved) {
+    const maxH = Math.max(...frame.components.map((c2) => c2.h));
+    const maxV = Math.max(...frame.components.map((c2) => c2.v));
+    if (frame.lossless) {
+      const mcusX2 = Math.ceil(frame.width / maxH);
+      const mcusY2 = Math.ceil(frame.height / maxV);
+      return { interleaved, mcusX: mcusX2, mcusY: mcusY2, totalMcus: mcusX2 * mcusY2 };
+    }
+    const mcusX = Math.ceil(frame.width / (8 * maxH));
+    const mcusY = Math.ceil(frame.height / (8 * maxV));
+    return { interleaved, mcusX, mcusY, totalMcus: mcusX * mcusY };
+  }
+  const c = comps[0];
+  return {
+    interleaved,
+    mcusX: c.blocksW,
+    mcusY: c.blocksH,
+    // 非交错扫描按"数据单元"遍历：有损是 8×8 块，无损是单个样本
+    totalMcus: frame.lossless ? c.compW * c.compH : c.blocksW * c.blocksH
+  };
+}
+
+// src/extensions/asset-import/decode/jpeg/scan-arith.ts
+function decodeArithScan(bytes, dataStart, dataLen, frame, restartInterval) {
+  const head = readScanHeader(bytes, dataStart, dataLen, frame);
+  const { ss, se, ah, al } = head;
+  const progressive = frame.progressive;
+  const lossless = frame.lossless;
+  if (lossless) {
+    if (ss < 1 || ss > 7) fail("ASSET.BAD_JPEG", `\u65E0\u635F\u626B\u63CF\u7684\u9884\u6D4B\u5668\u9009\u62E9\u503C\u5FC5\u987B\u662F 1..7\uFF08Ss\uFF09\uFF0C\u5B9E\u9645 ${ss}`);
+    if (se !== 0) fail("ASSET.BAD_JPEG", `\u65E0\u635F\u626B\u63CF\u7684 Se \u5FC5\u987B\u662F 0\uFF0C\u5B9E\u9645 ${se}`);
+    if (ah !== 0) fail("ASSET.BAD_JPEG", `\u65E0\u635F\u626B\u63CF\u7684 Ah \u5FC5\u987B\u662F 0\uFF0C\u5B9E\u9645 ${ah}`);
+    if (al >= frame.precision) {
+      fail("ASSET.BAD_JPEG", `\u65E0\u635F\u626B\u63CF\u7684\u70B9\u53D8\u6362 Pt=${al} \u5FC5\u987B\u5C0F\u4E8E\u7CBE\u5EA6 ${frame.precision}`);
+    }
+    frame.pt = al;
+  } else if (progressive) {
+    if (ss > se || se > 63) fail("ASSET.BAD_JPEG", `\u6E10\u8FDB\u5F0F\u626B\u63CF\u7684\u8C31\u6BB5\u975E\u6CD5\uFF1ASs=${ss} Se=${se}`);
+    if (ss === 0 && se !== 0) fail("ASSET.BAD_JPEG", "DC \u626B\u63CF\uFF08Ss=0\uFF09\u5FC5\u987B Se=0");
+    if (ss > 0 && head.comps.length !== 1) fail("ASSET.BAD_JPEG", "AC \u626B\u63CF\uFF08Ss>0\uFF09\u5FC5\u987B\u662F\u5355\u5206\u91CF\u626B\u63CF");
+    if (al > 13 || ah > 13) fail("ASSET.BAD_JPEG", `\u6E10\u8FDB\u5F0F\u9010\u6B21\u903C\u8FD1\u4F4D\u6570\u975E\u6CD5\uFF1AAl=${al} Ah=${ah}`);
+    if (ah !== 0 && ah !== al + 1) {
+      fail("ASSET.BAD_JPEG", `\u6E10\u8FDB\u5F0F\u903C\u8FD1\u53C2\u6570\u4E0D\u8FDE\u7EED\uFF1AAh=${ah} Al=${al}\uFF08\u8981\u6C42 Ah = Al+1\uFF09`);
+    }
+  } else {
+    if (ss !== 0 || se !== 63) fail("ASSET.BAD_JPEG", `\u987A\u5E8F\u5F0F\u626B\u63CF\u7684 Ss/Se \u5FC5\u987B\u662F 0/63\uFF0C\u5B9E\u9645 ${ss}/${se}`);
+    if (ah !== 0 || al !== 0) fail("ASSET.BAD_JPEG", `\u987A\u5E8F\u5F0F\u626B\u63CF\u7684 Ah/Al \u5FC5\u987B\u662F 0/0\uFF0C\u5B9E\u9645 ${ah}/${al}`);
+  }
+  const interleaved = head.comps.length > 1;
+  const geo = scanGeometry(frame, head.comps, interleaved);
+  const split = splitEntropy(bytes, head.entropyStart);
+  expectIntervals(split.ranges.length, restartInterval, geo.totalMcus);
+  const fixed = new Uint8Array([FIXED_BIN_STATE]);
+  let dcStats = [null, null, null, null];
+  let acStats = [null, null, null, null];
+  const lastDc = /* @__PURE__ */ new Map();
+  const dcContext = /* @__PURE__ */ new Map();
+  let reader = null;
+  let currentInterval = -1;
+  const writer = lossless ? new LosslessSampleWriter(frame.precision, al, ss, head.comps) : null;
+  const beginInterval = (idx) => {
+    const r = split.ranges[idx];
+    reader = new QmDecoder(bytes, r[0], r[1]);
+    dcStats = [null, null, null, null];
+    acStats = [null, null, null, null];
+    for (const c of head.comps) {
+      if (!progressive || ss === 0 && ah === 0) {
+        dcStats[c.td] = newStats(DC_STAT_BINS);
+        lastDc.set(c, 0);
+        dcContext.set(c, 0);
+      }
+      if (!progressive || se !== 0) {
+        acStats[c.ta] = newStats(AC_STAT_BINS);
+      }
+    }
+    writer?.beginInterval();
+  };
+  const dec = (stats, at) => reader.decode(stats, at);
+  const dcStatsOf = (c) => {
+    const s = dcStats[c.td];
+    if (s === null || s === void 0) {
+      fail("ASSET.BAD_JPEG", `\u5206\u91CF ${c.id} \u9700\u8981\u7B97\u672F DC \u8868 ${c.td}\uFF0C\u4F46\u7EDF\u8BA1\u533A\u6CA1\u6709\u5EFA\u7ACB\uFF08\u626B\u63CF\u53C2\u6570\u81EA\u76F8\u77DB\u76FE\uFF09`);
+    }
+    return s;
+  };
+  const acStatsOf = (c) => {
+    const s = acStats[c.ta];
+    if (s === null || s === void 0) {
+      fail("ASSET.BAD_JPEG", `\u5206\u91CF ${c.id} \u9700\u8981\u7B97\u672F AC \u8868 ${c.ta}\uFF0C\u4F46\u7EDF\u8BA1\u533A\u6CA1\u6709\u5EFA\u7ACB\uFF08\u626B\u63CF\u53C2\u6570\u81EA\u76F8\u77DB\u76FE\uFF09`);
+    }
+    return s;
+  };
+  const decodeDiff = (c, st, ctx) => {
+    if (dec(st, ctx) === 0) return { diff: 0, ctx: 0 };
+    const sign = dec(st, ctx + 1);
+    let at = ctx + 2 + sign;
+    let m = dec(st, at);
+    if (m !== 0) {
+      at = 20;
+      while (dec(st, at) !== 0) {
+        m <<= 1;
+        if (m === 32768) fail("ASSET.BAD_JPEG", "\u7B97\u672F\u7F16\u7801\u7684 DC \u5E45\u5EA6\u7C7B\u522B\u6EA2\u51FA\uFF08\u2265 0x8000\uFF09");
+        at += 1;
+      }
+    }
+    const cond = frame.dcCond[c.td] ?? { l: 0, u: 1 };
+    const nextCtx = m < 1 << cond.l >> 1 ? 0 : m > 1 << cond.u >> 1 ? 12 + sign * 4 : 4 + sign * 4;
+    let v = m;
+    at += 14;
+    while ((m >>= 1) !== 0) {
+      if (dec(st, at) !== 0) v |= m;
+    }
+    v += 1;
+    return { diff: sign !== 0 ? -v : v, ctx: nextCtx };
+  };
+  const decodeSequentialBlock = (c, bo) => {
+    const st = dcStatsOf(c);
+    const r = decodeDiff(c, st, dcContext.get(c));
+    dcContext.set(c, r.ctx);
+    lastDc.set(c, lastDc.get(c) + r.diff);
+    c.coefs[bo] = lastDc.get(c) << 16 >> 16;
+    const ac = acStatsOf(c);
+    const K = frame.acCond[c.ta] ?? 5;
+    for (let k = 1; k <= 63; k++) {
+      let at = 3 * (k - 1);
+      if (dec(ac, at) !== 0) break;
+      while (dec(ac, at + 1) === 0) {
+        at += 3;
+        k++;
+        if (k > 63) fail("ASSET.BAD_JPEG", "\u7B97\u672F AC \u7CFB\u6570\u8D8A\u8FC7\u5757\u5C3E\uFF08\u9891\u8C31\u6EA2\u51FA\uFF09");
+      }
+      const sign = dec(fixed, 0);
+      at += 2;
+      let m = dec(ac, at);
+      if (m !== 0) {
+        if (dec(ac, at) !== 0) {
+          m <<= 1;
+          at = k <= K ? 189 : 217;
+          while (dec(ac, at) !== 0) {
+            m <<= 1;
+            if (m === 32768) fail("ASSET.BAD_JPEG", "\u7B97\u672F\u7F16\u7801\u7684 AC \u5E45\u5EA6\u7C7B\u522B\u6EA2\u51FA\uFF08\u2265 0x8000\uFF09");
+            at += 1;
+          }
+        }
+      }
+      let v = m;
+      at += 14;
+      while ((m >>= 1) !== 0) {
+        if (dec(ac, at) !== 0) v |= m;
+      }
+      v += 1;
+      c.coefs[bo + ZIGZAG[k]] = sign !== 0 ? -v : v;
+    }
+  };
+  const decodeDcFirst = (c, bo) => {
+    const st = dcStatsOf(c);
+    const r = decodeDiff(c, st, dcContext.get(c));
+    dcContext.set(c, r.ctx);
+    lastDc.set(c, lastDc.get(c) + r.diff);
+    c.coefs[bo] = lastDc.get(c) << 16 >> 16 << al;
+  };
+  const decodeDcRefine = (c, bo) => {
+    if (dec(fixed, 0) !== 0) c.coefs[bo] = c.coefs[bo] | 1 << al;
+  };
+  const decodeAcFirst = (c, bo) => {
+    const ac = acStatsOf(c);
+    const K = frame.acCond[c.ta] ?? 5;
+    for (let k = ss; k <= se; k++) {
+      let at = 3 * (k - 1);
+      if (dec(ac, at) !== 0) break;
+      while (dec(ac, at + 1) === 0) {
+        at += 3;
+        k++;
+        if (k > se) fail("ASSET.BAD_JPEG", `\u7B97\u672F\u6E10\u8FDB AC \u8D8A\u8FC7\u8C31\u6BB5\u672B\u7AEF\uFF08k>Se=${se}\uFF09`);
+      }
+      const sign = dec(fixed, 0);
+      at += 2;
+      let m = dec(ac, at);
+      if (m !== 0) {
+        if (dec(ac, at) !== 0) {
+          m <<= 1;
+          at = k <= K ? 189 : 217;
+          while (dec(ac, at) !== 0) {
+            m <<= 1;
+            if (m === 32768) fail("ASSET.BAD_JPEG", "\u7B97\u672F\u7F16\u7801\u7684 AC \u5E45\u5EA6\u7C7B\u522B\u6EA2\u51FA\uFF08\u2265 0x8000\uFF09");
+            at += 1;
+          }
+        }
+      }
+      let v = m;
+      at += 14;
+      while ((m >>= 1) !== 0) {
+        if (dec(ac, at) !== 0) v |= m;
+      }
+      v += 1;
+      c.coefs[bo + ZIGZAG[k]] = (sign !== 0 ? -v : v) << al;
+    }
+  };
+  const decodeAcRefine = (c, bo) => {
+    const ac = acStatsOf(c);
+    const p1 = 1 << al;
+    const m1 = -p1;
+    let kex = se;
+    while (kex > 0 && c.coefs[bo + ZIGZAG[kex]] === 0) kex--;
+    for (let k = ss; k <= se; k++) {
+      let at = 3 * (k - 1);
+      if (k > kex && dec(ac, at) !== 0) break;
+      for (; ; ) {
+        const pos = bo + ZIGZAG[k];
+        const cur = c.coefs[pos];
+        if (cur !== 0) {
+          if (dec(ac, at + 2) !== 0) c.coefs[pos] = cur + (cur < 0 ? m1 : p1);
+          break;
+        }
+        if (dec(ac, at + 1) !== 0) {
+          c.coefs[pos] = dec(fixed, 0) !== 0 ? m1 : p1;
+          break;
+        }
+        at += 3;
+        k++;
+        if (k > se) fail("ASSET.BAD_JPEG", `\u7B97\u672F AC \u7CBE\u4FEE\u8D8A\u8FC7\u8C31\u6BB5\u672B\u7AEF\uFF08k>Se=${se}\uFF09`);
+      }
+    }
+  };
+  for (let mcu = 0; mcu < geo.totalMcus; mcu++) {
+    const intervalIdx = restartInterval > 0 ? Math.floor(mcu / restartInterval) : 0;
+    if (reader === null || intervalIdx !== currentInterval) {
+      currentInterval = intervalIdx;
+      beginInterval(intervalIdx);
+    }
+    if (lossless) {
+      if (interleaved) {
+        const mcuX = mcu % geo.mcusX;
+        const mcuY = Math.floor(mcu / geo.mcusX);
+        for (const c of head.comps) {
+          for (let vy = 0; vy < c.v; vy++) {
+            const y = mcuY * c.v + vy;
+            if (y >= c.compH) continue;
+            for (let hx = 0; hx < c.h; hx++) {
+              const x = mcuX * c.h + hx;
+              if (x >= c.compW) continue;
+              const st = dcStatsOf(c);
+              const r = decodeDiff(c, st, dcContext.get(c));
+              dcContext.set(c, r.ctx);
+              writer.write(c, x, y, r.diff);
+            }
+          }
+        }
+      } else {
+        const c = head.comps[0];
+        const st = dcStatsOf(c);
+        const r = decodeDiff(c, st, dcContext.get(c));
+        dcContext.set(c, r.ctx);
+        writer.write(c, mcu % c.compW, Math.floor(mcu / c.compW), r.diff);
+      }
+      continue;
+    }
+    const blockAt = (c, blockX, blockY) => (blockY * c.strideBlocksW + blockX) * 64;
+    const decodeBlock = (c, bo) => {
+      if (!progressive) decodeSequentialBlock(c, bo);
+      else if (ss === 0) {
+        if (ah === 0) decodeDcFirst(c, bo);
+        else decodeDcRefine(c, bo);
+      } else if (ah === 0) decodeAcFirst(c, bo);
+      else decodeAcRefine(c, bo);
+    };
+    if (interleaved) {
+      const mcuX = mcu % geo.mcusX;
+      const mcuY = Math.floor(mcu / geo.mcusX);
+      for (const c of head.comps) {
+        for (let by = 0; by < c.v; by++) {
+          for (let bx = 0; bx < c.h; bx++) {
+            decodeBlock(c, blockAt(c, mcuX * c.h + bx, mcuY * c.v + by));
+          }
+        }
+      }
+    } else {
+      const c = head.comps[0];
+      decodeBlock(c, blockAt(c, mcu % c.blocksW, Math.floor(mcu / c.blocksW)));
+    }
+  }
+  return split.next;
+}
+
+// src/extensions/asset-import/decode/jpeg/scan-lossless.ts
+function decodeLosslessScan(bytes, dataStart, dataLen, frame, dcTables, restartInterval) {
+  const head = readScanHeader(bytes, dataStart, dataLen, frame);
+  const psv = head.ss;
+  if (psv < 1 || psv > 7) {
+    fail("ASSET.BAD_JPEG", `\u65E0\u635F\u626B\u63CF\u7684\u9884\u6D4B\u5668\u9009\u62E9\u503C\u5FC5\u987B\u662F 1..7\uFF08Ss\uFF09\uFF0C\u5B9E\u9645 ${psv}`);
+  }
+  if (head.se !== 0) fail("ASSET.BAD_JPEG", `\u65E0\u635F\u626B\u63CF\u7684 Se \u5FC5\u987B\u662F 0\uFF0C\u5B9E\u9645 ${head.se}`);
+  if (head.ah !== 0) fail("ASSET.BAD_JPEG", `\u65E0\u635F\u626B\u63CF\u7684 Ah \u5FC5\u987B\u662F 0\uFF0C\u5B9E\u9645 ${head.ah}`);
+  const al = head.al;
+  if (al >= frame.precision) {
+    fail("ASSET.BAD_JPEG", `\u65E0\u635F\u626B\u63CF\u7684\u70B9\u53D8\u6362 Pt=${al} \u5FC5\u987B\u5C0F\u4E8E\u7CBE\u5EA6 ${frame.precision}`);
+  }
+  frame.pt = al;
+  const interleaved = head.comps.length > 1;
+  const geo = scanGeometry(frame, head.comps, interleaved);
+  const split = splitEntropy(bytes, head.entropyStart);
+  expectIntervals(split.ranges.length, restartInterval, geo.totalMcus);
+  const writer = new LosslessSampleWriter(frame.precision, al, psv, head.comps);
+  let reader = null;
+  let currentInterval = -1;
+  const beginInterval = (idx) => {
+    const r = split.ranges[idx];
+    reader = new BitReader(bytes, r[0], r[1]);
+    writer.beginInterval();
+  };
+  const dcTable = (c) => {
+    const t = dcTables[c.td] ?? null;
+    if (t === null) fail("ASSET.BAD_JPEG", `\u5206\u91CF ${c.id} \u9700\u8981 DC \u54C8\u592B\u66FC\u8868 ${c.td}\uFF0C\u4F46\u6587\u4EF6\u91CC\u6CA1\u6709\u5B9A\u4E49\uFF08DHT \u7F3A\u5931\uFF09`);
+    return t;
+  };
+  const writeSample = (c, x, y) => {
+    const r = reader;
+    const s = dcTable(c).decode(r);
+    if (s > 16) fail("ASSET.BAD_JPEG", `\u65E0\u635F\u5DEE\u5206\u7684\u7C7B\u522B\u4F4D\u6570 ${s} \u8D85\u8FC7 16`);
+    writer.write(c, x, y, extend(r.receive(s), s));
+  };
+  for (let mcu = 0; mcu < geo.totalMcus; mcu++) {
+    const intervalIdx = restartInterval > 0 ? Math.floor(mcu / restartInterval) : 0;
+    if (reader === null || intervalIdx !== currentInterval) {
+      currentInterval = intervalIdx;
+      beginInterval(intervalIdx);
+    }
+    if (interleaved) {
+      const mcuX = mcu % geo.mcusX;
+      const mcuY = Math.floor(mcu / geo.mcusX);
+      for (const c of head.comps) {
+        for (let vy = 0; vy < c.v; vy++) {
+          const y = mcuY * c.v + vy;
+          if (y >= c.compH) continue;
+          for (let hx = 0; hx < c.h; hx++) {
+            const x = mcuX * c.h + hx;
+            if (x >= c.compW) continue;
+            writeSample(c, x, y);
+          }
+        }
+      }
+    } else {
+      const c = head.comps[0];
+      writeSample(c, mcu % c.compW, Math.floor(mcu / c.compW));
+    }
+  }
+  return split.next;
+}
+
+// src/extensions/asset-import/decode/jpeg/scan-huffman.ts
+function decodeScan(bytes, dataStart, dataLen, frame, dcTables, acTables, restartInterval) {
+  const head = readScanHeader(bytes, dataStart, dataLen, frame);
+  const scanComps = head.comps;
+  const { ss, se, ah, al } = head;
+  const progressive = frame.progressive;
+  if (!progressive) {
+    if (ss !== 0 || se !== 63) {
+      fail("ASSET.BAD_JPEG", `\u987A\u5E8F\u5F0F\u626B\u63CF\u7684 Ss/Se \u5FC5\u987B\u662F 0/63\uFF0C\u5B9E\u9645 ${ss}/${se}`);
+    }
+    if (ah !== 0 || al !== 0) {
+      fail("ASSET.BAD_JPEG", `\u987A\u5E8F\u5F0F\u626B\u63CF\u7684 Ah/Al \u5FC5\u987B\u662F 0/0\uFF0C\u5B9E\u9645 ${ah}/${al}`);
+    }
+  } else {
+    if (ss > se || se > 63) fail("ASSET.BAD_JPEG", `\u6E10\u8FDB\u5F0F\u626B\u63CF\u7684\u8C31\u6BB5\u975E\u6CD5\uFF1ASs=${ss} Se=${se}`);
+    if (ss === 0 && se !== 0) fail("ASSET.BAD_JPEG", "DC \u626B\u63CF\uFF08Ss=0\uFF09\u5FC5\u987B Se=0");
+    if (ss > 0 && scanComps.length !== 1) fail("ASSET.BAD_JPEG", "AC \u626B\u63CF\uFF08Ss>0\uFF09\u5FC5\u987B\u662F\u5355\u5206\u91CF\u626B\u63CF");
+    if (al > 13 || ah > 13) fail("ASSET.BAD_JPEG", `\u6E10\u8FDB\u5F0F\u9010\u6B21\u903C\u8FD1\u4F4D\u6570\u975E\u6CD5\uFF1AAl=${al} Ah=${ah}`);
+    if (ah !== 0 && ah !== al + 1) {
+      fail("ASSET.BAD_JPEG", `\u6E10\u8FDB\u5F0F\u903C\u8FD1\u53C2\u6570\u4E0D\u8FDE\u7EED\uFF1AAh=${ah} Al=${al}\uFF08\u8981\u6C42 Ah = Al+1\uFF09`);
+    }
+  }
+  const interleaved = scanComps.length > 1;
+  const geo = scanGeometry(frame, scanComps, interleaved);
+  const split = splitEntropy(bytes, head.entropyStart);
+  expectIntervals(split.ranges.length, restartInterval, geo.totalMcus);
+  const maxDcCategory = frame.precision > 8 ? 15 : 11;
+  let reader = null;
+  let currentInterval = -1;
+  const state = { eobrun: 0 };
+  const refine = { state: 0, next: 0, eobrun: 0 };
+  const beginInterval = (idx) => {
+    const r = split.ranges[idx];
+    reader = new BitReader(bytes, r[0], r[1]);
+    state.eobrun = 0;
+    refine.state = 0;
+    refine.next = 0;
+    refine.eobrun = 0;
+    for (const c of scanComps) c.pred = 0;
+  };
+  const huff = (table, kind, compId) => {
+    if (table === null) {
+      fail("ASSET.BAD_JPEG", `\u5206\u91CF ${compId} \u9700\u8981 ${kind} \u54C8\u592B\u66FC\u8868\uFF0C\u4F46\u6587\u4EF6\u91CC\u6CA1\u6709\u5B9A\u4E49\uFF08DHT \u7F3A\u5931\uFF09`);
+    }
+    return table;
+  };
+  const decodeSequentialBlock = (c, bo) => {
+    const r = reader;
+    const dc = huff(dcTables[c.td] ?? null, "DC", c.id);
+    const ac = huff(acTables[c.ta] ?? null, "AC", c.id);
+    const s = dc.decode(r);
+    if (s > maxDcCategory) {
+      fail("ASSET.BAD_JPEG", `DC \u5DEE\u5206\u4F4D\u6570 ${s} \u8D85\u8FC7 ${maxDcCategory}\uFF08${frame.precision} \u4F4D\u6837\u672C\u7684\u4E0A\u9650\uFF09`);
+    }
+    c.pred += extend(r.receive(s), s);
+    c.coefs[bo] = c.pred;
+    let k = 1;
+    while (k < 64) {
+      const rs = ac.decode(r);
+      const run = rs >> 4;
+      const size = rs & 15;
+      if (size === 0) {
+        if (run === 15) {
+          k += 16;
+          continue;
+        }
+        break;
+      }
+      k += run;
+      if (k > 63) fail("ASSET.BAD_JPEG", `AC \u7CFB\u6570\u8D8A\u8FC7\u5757\u5C3E\uFF1Ak=${k}\uFF08run=${run}\uFF09`);
+      c.coefs[bo + ZIGZAG[k]] = extend(r.receive(size), size);
+      k++;
+    }
+  };
+  const decodeProgressiveDc = (c, bo) => {
+    const r = reader;
+    if (ah === 0) {
+      const dc = huff(dcTables[c.td] ?? null, "DC", c.id);
+      const s = dc.decode(r);
+      if (s > maxDcCategory) {
+        fail("ASSET.BAD_JPEG", `DC \u5DEE\u5206\u4F4D\u6570 ${s} \u8D85\u8FC7 ${maxDcCategory}\uFF08${frame.precision} \u4F4D\u6837\u672C\u7684\u4E0A\u9650\uFF09`);
+      }
+      c.pred += extend(r.receive(s), s);
+      c.coefs[bo] = c.pred << al;
+    } else {
+      if (r.readBit() === 1) c.coefs[bo] = c.coefs[bo] | 1 << al;
+    }
+  };
+  const decodeProgressiveAcFirst = (c, bo) => {
+    const r = reader;
+    if (state.eobrun > 0) {
+      state.eobrun--;
+      return;
+    }
+    const ac = huff(acTables[c.ta] ?? null, "AC", c.id);
+    let k = ss;
+    while (k <= se) {
+      const rs = ac.decode(r);
+      const run = rs >> 4;
+      const size = rs & 15;
+      if (size === 0) {
+        if (run < 15) {
+          state.eobrun = (1 << run) - 1;
+          if (run > 0) state.eobrun += r.receive(run);
+          break;
+        }
+        k += 16;
+        continue;
+      }
+      k += run;
+      if (k > 63) fail("ASSET.BAD_JPEG", `\u6E10\u8FDB AC \u7CFB\u6570\u8D8A\u8FC7\u5757\u5C3E\uFF1Ak=${k}`);
+      c.coefs[bo + ZIGZAG[k]] = extend(r.receive(size), size) << al;
+      k++;
+    }
+  };
+  const decodeProgressiveAcRefine = (c, bo) => {
+    const r = reader;
+    const p1 = 1 << al;
+    const st = refine;
+    let k = ss;
+    let run = 0;
+    while (k <= se) {
+      const pos = bo + ZIGZAG[k];
+      const cur = c.coefs[pos];
+      const dir = cur < 0 ? -1 : 1;
+      switch (st.state) {
+        case 0: {
+          const rs = huff(acTables[c.ta] ?? null, "AC", c.id).decode(r);
+          const size = rs & 15;
+          run = rs >> 4;
+          if (size === 0) {
+            if (run < 15) {
+              st.eobrun = (1 << run) + (run > 0 ? r.receive(run) : 0);
+              st.state = 4;
+            } else {
+              run = 16;
+              st.state = 1;
+            }
+          } else {
+            if (size !== 1) fail("ASSET.BAD_JPEG", `\u6E10\u8FDB AC \u7CBE\u4FEE\u91CC\u51FA\u73B0\u4E86 size=${size}\uFF08\u89C4\u8303\u53EA\u5141\u8BB8 1\uFF09`);
+            st.next = r.readBit() === 1 ? 1 : -1;
+            st.state = run > 0 ? 2 : 3;
+          }
+          continue;
+        }
+        case 1:
+        case 2:
+          if (cur !== 0) {
+            if (r.readBit() === 1 && (cur & p1) === 0) c.coefs[pos] = cur + p1 * dir;
+          } else {
+            run--;
+            if (run === 0) st.state = st.state === 2 ? 3 : 0;
+          }
+          break;
+        case 3:
+          if (cur !== 0) {
+            if (r.readBit() === 1 && (cur & p1) === 0) c.coefs[pos] = cur + p1 * dir;
+          } else {
+            c.coefs[pos] = st.next * p1;
+            st.state = 0;
+          }
+          break;
+        default:
+          if (cur !== 0 && r.readBit() === 1 && (cur & p1) === 0) c.coefs[pos] = cur + p1 * dir;
+          break;
+      }
+      k++;
+    }
+    if (st.state === 4) {
+      st.eobrun--;
+      if (st.eobrun <= 0) st.state = 0;
+    }
+  };
+  for (let mcu = 0; mcu < geo.totalMcus; mcu++) {
+    const intervalIdx = restartInterval > 0 ? Math.floor(mcu / restartInterval) : 0;
+    if (intervalIdx !== currentInterval) {
+      currentInterval = intervalIdx;
+      beginInterval(intervalIdx);
+    }
+    if (interleaved) {
+      const mcuX = mcu % geo.mcusX;
+      const mcuY = Math.floor(mcu / geo.mcusX);
+      for (const c of scanComps) {
+        for (let by = 0; by < c.v; by++) {
+          for (let bx = 0; bx < c.h; bx++) {
+            const blockX = mcuX * c.h + bx;
+            const blockY = mcuY * c.v + by;
+            const bo = (blockY * c.strideBlocksW + blockX) * 64;
+            if (progressive) {
+              if (ss === 0) decodeProgressiveDc(c, bo);
+              else if (ah === 0) decodeProgressiveAcFirst(c, bo);
+              else decodeProgressiveAcRefine(c, bo);
+            } else {
+              decodeSequentialBlock(c, bo);
+            }
+          }
+        }
+      }
+    } else {
+      const c = scanComps[0];
+      const bx = mcu % c.blocksW;
+      const by = Math.floor(mcu / c.blocksW);
+      const bo = (by * c.strideBlocksW + bx) * 64;
+      if (progressive) {
+        if (ss === 0) decodeProgressiveDc(c, bo);
+        else if (ah === 0) decodeProgressiveAcFirst(c, bo);
+        else decodeProgressiveAcRefine(c, bo);
+      } else {
+        decodeSequentialBlock(c, bo);
+      }
+    }
+  }
+  return split.next;
+}
+
+// src/extensions/asset-import/decode/jpeg/parse.ts
+var MARKER_DHT = 196;
+var MARKER_SOI = 216;
+var MARKER_EOI = 217;
+var MARKER_SOS = 218;
+var MARKER_DQT = 219;
+var MARKER_DRI = 221;
+var MARKER_DHP = 222;
+var MARKER_EXP = 223;
+var MARKER_APP0 = 224;
+var MARKER_APP1 = 225;
+var MARKER_APP14 = 238;
+var MARKER_DAC = 204;
+function parse(bytes, maxPixels) {
+  if (bytes.length < 2 || bytes[0] !== 255 || bytes[1] !== MARKER_SOI) {
+    fail("ASSET.BAD_JPEG", `\u7F3A\u5C11 SOI\uFF08FF D8\uFF09\uFF0C\u5B9E\u9645\u5F00\u5934 ${hex(bytes, 0, Math.min(4, bytes.length))}`);
+  }
+  const frames = [];
+  let current = null;
+  const qt = [null, null, null, null];
+  const dcTables = [null, null, null, null];
+  const acTables = [null, null, null, null];
+  const dcCond = [
+    { l: 0, u: 1 },
+    { l: 0, u: 1 },
+    { l: 0, u: 1 },
+    { l: 0, u: 1 }
+  ];
+  const acCond = [5, 5, 5, 5];
+  let restartInterval = 0;
+  let adobeTransform = null;
+  let orientation = 1;
+  let scanCount = 0;
+  let sawEoi = false;
+  let hierarchical = false;
+  let pendingExp = /* @__PURE__ */ new Map();
+  let sequenceHeader = null;
+  const finishFrame = () => {
+    if (current === null) return;
+    if (current.scanCount === 0) {
+      fail("ASSET.BAD_JPEG", `\u7B2C ${current.index + 1} \u5E27\u6CA1\u6709\u4EFB\u4F55\u626B\u63CF\uFF08\u53EA\u6709 SOF \u6CA1\u6709 SOS\uFF09`);
+    }
+    current.restartInterval = restartInterval;
+    current.adobeTransform = adobeTransform;
+    const prev = frames.length > 0 ? frames[frames.length - 1] : null;
+    if (current.differential && prev === null) {
+      fail("ASSET.BAD_JPEG", `\u7B2C 1 \u5E27\u5C31\u662F\u5DEE\u5206\u5E27\uFF08SOF0x${current.sof.toString(16)}\uFF09\uFF0C\u6CA1\u6709\u53C2\u8003\u5E27\u53EF\u4EE5\u76F8\u51CF`);
+    }
+    const cur = current;
+    if (cur.differential && prev !== null && cur.expansions.size > 0) {
+      if (!expansionMatchesGeometry(prev, cur)) {
+        const detail = [...cur.expansions].map(([id, e]) => {
+          const c = cur.components.find((x) => x.id === id);
+          const p = prev.components.find((x) => x.id === id) ?? prev.components[0];
+          const rw = c === void 0 ? 0 : c.compW / p.compW;
+          const rh = c === void 0 ? 0 : c.compH / p.compH;
+          return `${id}: EXP ${e.eh}\xD7${e.ev} vs \u51E0\u4F55 ${rw.toFixed(2)}\xD7${rh.toFixed(2)}`;
+        }).join("\uFF0C");
+        fail(
+          "ASSET.BAD_JPEG",
+          `\u5206\u5C42 JPEG \u7684 EXP \u653E\u5927\u56E0\u5B50\u4E0E\u5B9E\u9645\u51E0\u4F55\u4E0D\u4E00\u81F4\uFF08${detail}\uFF09\uFF1A\u6309 T.81 B.3.3\uFF0CEh/Ev \u5FC5\u987B\u7B49\u4E8E\u53C2\u8003\u5E27\u5230\u672C\u5E27\u7684\u5C3A\u5BF8\u6BD4`
+        );
+      }
+    }
+    buildFramePlanes(current);
+    if (current.differential && prev !== null) {
+      addReferencePlanes(current, prev);
+    }
+    frames.push(current);
+    current = null;
+  };
+  let pos = 2;
+  while (pos + 1 < bytes.length) {
+    if (bytes[pos] !== 255) {
+      pos++;
+      continue;
+    }
+    const marker = bytes[pos + 1];
+    if (marker === 255) {
+      pos++;
+      continue;
+    }
+    if (marker === MARKER_EOI) {
+      sawEoi = true;
+      break;
+    }
+    if (marker === 1 || marker >= 208 && marker <= 216) {
+      pos += 2;
+      continue;
+    }
+    if (pos + 4 > bytes.length) {
+      fail("ASSET.BAD_JPEG", `\u6BB5 0x${marker.toString(16)} \u7684\u5934\u88AB\u622A\u65AD\uFF08\u504F\u79FB ${pos}\uFF09`);
+    }
+    const segLen = u16be(bytes, pos + 2);
+    if (segLen < 2) fail("ASSET.BAD_JPEG", `\u6BB5 0x${marker.toString(16)} \u957F\u5EA6\u975E\u6CD5\uFF1A${segLen}`);
+    const dataStart = pos + 4;
+    const dataLen = segLen - 2;
+    if (dataStart + dataLen > bytes.length) {
+      fail(
+        "ASSET.BAD_JPEG",
+        `\u6BB5 0x${marker.toString(16)} \u58F0\u660E ${dataLen} \u5B57\u8282\u6570\u636E\uFF0C\u4F46\u6587\u4EF6\u53EA\u5269 ${bytes.length - dataStart} \u5B57\u8282`
+      );
+    }
+    const seg = bytes.subarray(dataStart, dataStart + dataLen);
+    if (marker >= 192 && marker <= 207 && marker !== MARKER_DHT && marker !== 200 && marker !== MARKER_DAC) {
+      finishFrame();
+      current = parseSof(seg, marker, frames.length, maxPixels);
+      if (pendingExp.size > 0) {
+        current.expansions = pendingExp;
+        const first = pendingExp.values().next();
+        if (!first.done) {
+          current.expandH = first.value.eh;
+          current.expandV = first.value.ev;
+        }
+        pendingExp = /* @__PURE__ */ new Map();
+      }
+      if (sequenceHeader !== null) {
+        if (current.precision !== sequenceHeader.precision) {
+          fail(
+            "ASSET.BAD_JPEG",
+            `\u5206\u5C42\u5E8F\u5217\u7684\u7CBE\u5EA6\u4E0D\u4E00\u81F4\uFF1ADHP \u58F0\u660E ${sequenceHeader.precision} \u4F4D\uFF0C\u7B2C ${frames.length + 1} \u5E27\u662F ${current.precision} \u4F4D\uFF08T.81 B.3.1 \u8981\u6C42\u6240\u6709\u5E27\u7684\u7CBE\u5EA6\u4E0E DHP \u76F8\u540C\uFF09`
+          );
+        }
+        if (current.width > sequenceHeader.width || current.height > sequenceHeader.height) {
+          fail(
+            "ASSET.BAD_JPEG",
+            `\u7B2C ${frames.length + 1} \u5E27\u5C3A\u5BF8 ${current.width}x${current.height} \u8D85\u8FC7 DHP \u58F0\u660E\u7684 ${sequenceHeader.width}x${sequenceHeader.height}\uFF08DHP \u662F\u5B8C\u6210\u6001\u56FE\u50CF\u5C3A\u5BF8\uFF0C\u5404\u5E27\u4E0D\u5F97\u8D85\u51FA\uFF09`
+          );
+        }
+      }
+      current.qt = qt;
+      current.dcTables = dcTables;
+      current.acTables = acTables;
+      current.dcCond = dcCond;
+      current.acCond = acCond;
+      pos = dataStart + dataLen;
+      continue;
+    }
+    switch (marker) {
+      case MARKER_DQT:
+        parseDqt(seg, qt);
+        break;
+      case MARKER_DHT:
+        parseDht(seg, dcTables, acTables);
+        break;
+      case MARKER_DAC:
+        parseDac(seg, dcCond, acCond);
+        break;
+      case MARKER_DRI:
+        if (seg.length < 2) fail("ASSET.BAD_JPEG", "DRI \u6BB5\u957F\u5EA6\u4E0D\u8DB3");
+        restartInterval = u16be(seg, 0);
+        break;
+      case MARKER_DHP: {
+        if (seg.length < 6) fail("ASSET.BAD_JPEG", "DHP \u6BB5\u957F\u5EA6\u4E0D\u8DB3\uFF08\u81F3\u5C11 6 \u5B57\u8282\uFF1AP/Y/X/Nf\uFF09");
+        const nf = seg[5];
+        if (nf < 1 || nf > 4) fail("ASSET.BAD_JPEG", `DHP \u58F0\u660E\u4E86 ${nf} \u4E2A\u5206\u91CF\uFF081..4\uFF09`);
+        if (seg.length < 6 + nf * 3) fail("ASSET.BAD_JPEG", "DHP \u6BB5\u88AB\u622A\u65AD\uFF08\u5206\u91CF\u5217\u8868\u4E0D\u5B8C\u6574\uFF09");
+        for (let i = 0; i < nf; i++) {
+          const tq = seg[6 + i * 3 + 2];
+          if (tq !== 0) fail("ASSET.BAD_JPEG", `DHP \u7B2C ${i + 1} \u4E2A\u5206\u91CF\u7684\u91CF\u5316\u8868\u9009\u62E9\u5668\u5E94\u4E3A 0\uFF0C\u5B9E\u9645 ${tq}`);
+        }
+        sequenceHeader = { precision: seg[0], width: u16be(seg, 3), height: u16be(seg, 1) };
+        hierarchical = true;
+        if (frames.length > 0 || current !== null) {
+          fail("ASSET.BAD_JPEG", "DHP \u53EA\u80FD\u51FA\u73B0\u5728\u7B2C\u4E00\u5E27\u4E4B\u524D\uFF08T.81 B.3.2 \u8981\u6C42\u5355\u4E2A DHP \u4E14\u5728\u6700\u524D\uFF09");
+        }
+        break;
+      }
+      case MARKER_EXP: {
+        if (seg.length < 2) fail("ASSET.BAD_JPEG", "EXP \u6BB5\u957F\u5EA6\u4E0D\u8DB3\uFF08\u81F3\u5C11\u8981 Ci \u4E0E Eh/Ev \u4E24\u4E2A\u5B57\u8282\uFF09");
+        if (seg.length % 2 !== 0) {
+          fail("ASSET.BAD_JPEG", `EXP \u6BB5\u4F53\u5FC5\u987B\u662F (\u5206\u91CF id, Eh/Ev) \u7684\u6574\u7EC4\uFF0C\u5B9E\u9645 ${seg.length} \u5B57\u8282`);
+        }
+        if (sequenceHeader === null) {
+          fail("ASSET.BAD_JPEG", "EXP \u51FA\u73B0\u5728 DHP \u4E4B\u524D\uFF1AEXP \u53EA\u5BF9\u5206\u5C42\u5E8F\u5217\u7684\u4E0B\u4E00\u5E27\u751F\u6548\uFF0C\u6CA1\u6709 DHP \u5C31\u65E0\u4ECE\u653E\u5927");
+        }
+        for (let i = 0; i + 1 < seg.length; i += 2) {
+          const ci = seg[i];
+          const eh = seg[i + 1] >> 4;
+          const ev = seg[i + 1] & 15;
+          if (eh < 1 || ev < 1 || eh > 4 || ev > 4) {
+            fail("ASSET.BAD_JPEG", `\u5206\u91CF ${ci} \u7684 EXP \u653E\u5927\u56E0\u5B50\u975E\u6CD5\uFF1A${eh}\xD7${ev}\uFF08\u89C4\u8303\u8303\u56F4 1..4\uFF09`);
+          }
+          pendingExp.set(ci, { eh, ev });
+        }
+        break;
+      }
+      case MARKER_APP0:
+        break;
+      case MARKER_APP1:
+        orientation = readExifOrientation(seg);
+        break;
+      case MARKER_APP14:
+        if (seg.length >= 12 && seg[0] === 65 && seg[1] === 100 && seg[2] === 111 && seg[3] === 98) {
+          adobeTransform = seg[11];
+        }
+        break;
+      case MARKER_SOS: {
+        if (current === null) fail("ASSET.BAD_JPEG", "SOS \u51FA\u73B0\u5728 SOF \u4E4B\u524D\uFF08\u6CA1\u6709\u5E27\u5934\u5C31\u65E0\u4ECE\u89E3\u7801\uFF09");
+        for (const c of current.components) {
+          if (!current.lossless) c.qtTable = qt[c.tq] ?? null;
+        }
+        const next = decodeScanByMode(bytes, dataStart, dataLen, current, dcTables, acTables, restartInterval);
+        current.scanCount++;
+        scanCount++;
+        pos = next;
+        continue;
+      }
+      default:
+        break;
+    }
+    pos = dataStart + dataLen;
+  }
+  finishFrame();
+  if (frames.length === 0) fail("ASSET.BAD_JPEG", "\u6CA1\u6709\u627E\u5230 SOF \u5E27\u5934");
+  if (scanCount === 0) fail("ASSET.BAD_JPEG", "\u6CA1\u6709\u627E\u5230 SOS \u626B\u63CF\uFF08\u6587\u4EF6\u53EA\u6709\u5934\u3001\u6CA1\u6709\u50CF\u7D20\u6570\u636E\uFF09");
+  if (pendingExp.size > 0) {
+    fail("ASSET.BAD_JPEG", "EXP \u6BB5\u4E4B\u540E\u6CA1\u6709\u5E27\u5934\uFF1A\u653E\u5927\u56E0\u5B50\u65E0\u5904\u751F\u6548\uFF08EXP \u53EA\u5BF9\u4E0B\u4E00\u4E2A\u5E27\u5934\u751F\u6548\uFF09");
+  }
+  const last = frames[frames.length - 1];
+  return {
+    frames,
+    width: last.width,
+    height: last.height,
+    precision: last.precision,
+    adobeTransform,
+    orientation,
+    sawEoi,
+    scanCount,
+    hierarchical: hierarchical || frames.length > 1
+  };
+}
+function decodeScanByMode(bytes, dataStart, dataLen, frame, dcTables, acTables, restartInterval) {
+  if (frame.arithmetic) return decodeArithScan(bytes, dataStart, dataLen, frame, restartInterval);
+  if (frame.lossless) return decodeLosslessScan(bytes, dataStart, dataLen, frame, dcTables, restartInterval);
+  return decodeScan(bytes, dataStart, dataLen, frame, dcTables, acTables, restartInterval);
+}
+function hex(b, from, to) {
+  return Array.from(b.subarray(from, to), (x) => x.toString(16).padStart(2, "0")).join(" ");
+}
+
+// src/extensions/asset-import/decode/jpeg/index.ts
+function decodeJpeg(bytes, opts) {
+  const o = opts ?? {};
+  try {
+    const file = parse(bytes, o.maxPixels ?? DEFAULT_MAX_PIXELS);
+    if (o.strict === true && !file.sawEoi) {
+      return err(
+        engineError(
+          "ASSET.BAD_JPEG",
+          `JPEG \u4E0D\u5B8C\u6574\uFF1A\u71B5\u6570\u636E\u5728\u504F\u79FB ${bytes.length} \u5904\u5C31\u7ED3\u675F\u4E86\uFF0C\u6CA1\u6709 EOI\uFF08FF D9\uFF09\u3002\u5DF2\u89E3\u7801\u7684\u50CF\u7D20\u6765\u81EA\u8865 0 \u7684\u6570\u636E\uFF0Cstrict \u6A21\u5F0F\u4E0B\u4E0D\u8FD4\u56DE`,
+          { byteLength: bytes.length }
+        )
+      );
+    }
+    const last = file.frames[file.frames.length - 1];
+    return ok(
+      toDecodedJpeg(
+        last,
+        {
+          orientation: file.orientation,
+          truncated: !file.sawEoi,
+          frames: file.frames.length,
+          hierarchical: file.hierarchical
+        },
+        o
+      )
+    );
+  } catch (e) {
+    if (e instanceof JpegFailure) {
+      return err(engineError(e.code, e.message, e.detail));
+    }
+    return err(
+      engineError("ASSET.BAD_JPEG", `JPEG \u89E3\u7801\u5185\u90E8\u9519\u8BEF\uFF1A${e instanceof Error ? e.message : String(e)}`)
+    );
+  }
+}
+function isJpeg(bytes) {
+  return bytes.length >= 3 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255;
+}
+
+// src/extensions/asset-import/decode/image.ts
+var PNG_SIGNATURE2 = [137, 80, 78, 71, 13, 10, 26, 10];
+function isPng(bytes) {
+  if (bytes.length < PNG_SIGNATURE2.length) return false;
+  for (let i = 0; i < PNG_SIGNATURE2.length; i++) {
+    if (bytes[i] !== PNG_SIGNATURE2[i]) return false;
+  }
+  return true;
+}
+function sniffImageFormat(bytes) {
+  if (isPng(bytes)) return "png";
+  if (isJpeg(bytes)) return "jpeg";
+  return null;
+}
+function decodeImage(bytes, opts) {
+  const fmt2 = sniffImageFormat(bytes);
+  if (fmt2 === "png") return decodePng(bytes, opts?.png);
+  if (fmt2 === "jpeg") return decodeJpeg(bytes, opts?.jpeg);
+  const head = Array.from(bytes.subarray(0, Math.min(4, bytes.length)), (x) => x.toString(16).padStart(2, "0"));
+  return err(
+    engineError(
+      "ASSET.UNKNOWN_FORMAT",
+      `\u65E0\u6CD5\u8BC6\u522B\u7684\u56FE\u7247\u683C\u5F0F\uFF1A\u5F00\u5934\u5B57\u8282 ${head.join(" ") || "(\u7A7A)"}\uFF08\u652F\u6301 PNG 89 50 4e 47 / JPEG ff d8 ff\uFF09`,
+      { head: head.join(" "), byteLength: bytes.length }
+    )
+  );
 }
 
 // src/extensions/render/atlas-from-assets.ts
@@ -12586,11 +16447,20 @@ function nextPowerOfTwo(n) {
 function buildAtlasFromSources(sources, opts) {
   const padding = opts?.padding ?? DEFAULT_PADDING;
   const maxSize = opts?.maxSize ?? DEFAULT_MAX_SIZE;
+  const precision = opts?.precision ?? "auto";
   if (!Number.isInteger(padding) || padding < 0) {
     return err(errAtlas("ASSET.BAD_ATLAS_OPTIONS", `padding \u5FC5\u987B\u662F\u975E\u8D1F\u6574\u6570\uFF0C\u6536\u5230 ${padding}`));
   }
   if (!Number.isInteger(maxSize) || maxSize < 1) {
     return err(errAtlas("ASSET.BAD_ATLAS_OPTIONS", `maxSize \u5FC5\u987B\u662F \u22651 \u7684\u6574\u6570\uFF0C\u6536\u5230 ${maxSize}`));
+  }
+  if (precision !== "auto" && precision !== 8 && precision !== 16) {
+    return err(
+      errAtlas(
+        "ASSET.BAD_ATLAS_OPTIONS",
+        `precision \u53EA\u80FD\u662F "auto" | 8 | 16\uFF0C\u6536\u5230 ${JSON.stringify(precision)}`
+      )
+    );
   }
   const seen = /* @__PURE__ */ new Set();
   for (const s of sources) {
@@ -12601,6 +16471,7 @@ function buildAtlasFromSources(sources, opts) {
     }
     seen.add(s.name);
   }
+  const use16 = precision === 16 || precision === "auto" && sources.some((s) => s.png.pixels16 !== void 0);
   const ordered = [...sources].sort((a, b) => {
     const dh = b.png.height - a.png.height;
     return dh !== 0 ? dh : byName(a.name, b.name);
@@ -12645,7 +16516,16 @@ function buildAtlasFromSources(sources, opts) {
     }
   }
   if (ordered.length === 0) {
-    return ok({ width: 1, height: 1, pixels: new Uint8Array(4), frames: /* @__PURE__ */ new Map() });
+    return ok(
+      use16 ? {
+        width: 1,
+        height: 1,
+        pixels: new Uint8Array(4),
+        format: PixelFormat.RGBA16,
+        pixels16: new Uint16Array(4),
+        frames: /* @__PURE__ */ new Map()
+      } : { width: 1, height: 1, pixels: new Uint8Array(4), frames: /* @__PURE__ */ new Map() }
+    );
   }
   if (neededW > maxSize) {
     return err(
@@ -12677,6 +16557,7 @@ function buildAtlasFromSources(sources, opts) {
     );
   }
   const pixels = new Uint8Array(width * height * 4);
+  const pixels16 = use16 ? new Uint16Array(width * height * 4) : void 0;
   const byNameSource = /* @__PURE__ */ new Map();
   for (const s of sources) byNameSource.set(s.name, s.png);
   for (const p of placements) {
@@ -12684,8 +16565,21 @@ function buildAtlasFromSources(sources, opts) {
     for (let row = 0; row < p.h; row++) {
       const from = row * p.w * 4;
       const to = ((p.y + row) * width + p.x) * 4;
-      pixels.set(src.pixels.subarray(from, from + p.w * 4), to);
+      if (pixels16 !== void 0) {
+        if (src.pixels16 !== void 0) {
+          pixels16.set(src.pixels16.subarray(from, from + p.w * 4), to);
+        } else {
+          for (let i = 0; i < p.w * 4; i++) pixels16[to + i] = src.pixels[from + i] * 257;
+        }
+      } else if (src.pixels16 !== void 0) {
+        for (let i = 0; i < p.w * 4; i++) pixels[to + i] = Math.round(src.pixels16[from + i] / 257);
+      } else {
+        pixels.set(src.pixels.subarray(from, from + p.w * 4), to);
+      }
     }
+  }
+  if (pixels16 !== void 0) {
+    for (let i = 0; i < pixels.length; i++) pixels[i] = Math.round(pixels16[i] / 257);
   }
   const frames = /* @__PURE__ */ new Map();
   for (const p of placements) {
@@ -12698,43 +16592,4179 @@ function buildAtlasFromSources(sources, opts) {
       h: p.h
     });
   }
-  return ok({ width, height, pixels, frames });
+  return ok(
+    pixels16 === void 0 ? { width, height, pixels, frames } : (
+      // 16 位时**同时**给 8 位视图（见 atlas.ts 的不变量说明）
+      { width, height, pixels, format: PixelFormat.RGBA16, pixels16, frames }
+    )
+  );
+}
+
+// src/extensions/inventory/inventory.ts
+var ITEM_TYPE = "game.item";
+var INVENTORY_TYPE = "game.inventory";
+var INVENTORY_NO_OWNER = "INVENTORY.NO_OWNER";
+var INVENTORY_FULL = "INVENTORY.FULL";
+var INVENTORY_BAD_COUNT = "INVENTORY.BAD_COUNT";
+var INVENTORY_NOT_ENOUGH = "INVENTORY.NOT_ENOUGH";
+var ItemStack = class extends Component {
+  /** 物品种类（与 `SiteKind` 同名，但不强绑：背包不认识"世界"）。 */
+  kind = "";
+  count = 0;
+  schema = {
+    type: ITEM_TYPE,
+    fields: { kind: FieldType.String, count: FieldType.Int }
+  };
+};
+var Inventory = class extends Component {
+  /** 最多几堆（不是"最多几个"）。到上限再加"新种类"就报 `INVENTORY.FULL`。 */
+  maxStacks = 8;
+  /**
+   * 单堆上限（饥荒默认 40）。**不是**"最多几个"：到顶会自动开新堆（有名额时），
+   * 没有名额才报 `INVENTORY.FULL`。
+   *
+   * ★ 为什么需要它：`maxStacks` 管的是**格子数**，单堆无上限时"1 堆 × 9999"与
+   *   "250 堆 × 40"都合法 —— 前者让背包面板一行写不下，后者让 `maxStacks` 形同虚设。
+   *   两者都管，才是"几格、每格多少"的完整形状。
+   */
+  maxStack = 40;
+  schema = {
+    type: INVENTORY_TYPE,
+    fields: { maxStacks: FieldType.Int, maxStack: FieldType.Int }
+  };
+};
+function registerInventoryComponents(registry) {
+  if (!registry.has(ITEM_TYPE)) registry.register(ITEM_SCHEMA, () => new ItemStack());
+  if (!registry.has(INVENTORY_TYPE)) registry.register(INVENTORY_SCHEMA, () => new Inventory());
+}
+var ITEM_SCHEMA = { type: ITEM_TYPE, fields: { kind: FieldType.String, count: FieldType.Int } };
+var INVENTORY_SCHEMA = {
+  type: INVENTORY_TYPE,
+  fields: { maxStacks: FieldType.Int, maxStack: FieldType.Int }
+};
+function makeInventory(scene, ownerId, maxStacks = 8, maxStack = 40) {
+  const owner = scene.find(ownerId);
+  if (owner === void 0) return err(engineError(INVENTORY_NO_OWNER, `\u8282\u70B9 ${String(ownerId)} \u4E0D\u5728\u573A\u666F\u91CC`));
+  const existing = owner.get(INVENTORY_TYPE);
+  if (existing !== void 0) return ok(existing);
+  const made = scene.attach(ownerId, () => {
+    const inv2 = new Inventory();
+    inv2.maxStacks = maxStacks;
+    inv2.maxStack = maxStack;
+    return inv2;
+  });
+  if (!made.ok) return made;
+  scene.flush();
+  const inv = owner.get(INVENTORY_TYPE);
+  if (inv === void 0) return err(engineError(INVENTORY_NO_OWNER, "\u80CC\u5305\u7EC4\u4EF6\u6302\u4E0A\u4E4B\u540E\u53C8\u8BFB\u4E0D\u5230"));
+  return ok(inv);
+}
+function stacksOf(scene, ownerId) {
+  const owner = scene.find(ownerId);
+  if (owner === void 0) return [];
+  const out = [];
+  owner.walk((n) => {
+    if (n.id === ownerId) return;
+    const it = n.get(ITEM_TYPE);
+    if (it !== void 0) out.push(it);
+  });
+  out.sort((a, b) => (a.node?.id ?? 0) - (b.node?.id ?? 0));
+  return out;
+}
+function countItem(scene, ownerId, kind) {
+  let n = 0;
+  for (const s of stacksOf(scene, ownerId)) if (s.kind === kind) n += s.count;
+  return n;
+}
+function isPositiveInt(v) {
+  return Number.isInteger(v) && v > 0;
+}
+function stackCapOf(inv) {
+  const v = inv.maxStack;
+  if (!Number.isInteger(v) || v < 1) return 1;
+  return v;
+}
+function stacksNeeded(total, cap) {
+  return Math.max(1, Math.ceil(total / cap));
+}
+function addItem(scene, ownerId, kind, n) {
+  if (!isPositiveInt(n)) {
+    return err(engineError(INVENTORY_BAD_COUNT, `\u6570\u91CF\u5FC5\u987B\u662F\u6B63\u6574\u6570\uFF0C\u6536\u5230 ${String(n)}`));
+  }
+  const owner = scene.find(ownerId);
+  if (owner === void 0) return err(engineError(INVENTORY_NO_OWNER, `\u8282\u70B9 ${String(ownerId)} \u4E0D\u5728\u573A\u666F\u91CC`));
+  const inv = owner.get(INVENTORY_TYPE);
+  if (inv === void 0) return err(engineError(INVENTORY_NO_OWNER, `\u8282\u70B9 ${String(ownerId)} \u6CA1\u6709\u80CC\u5305\u7EC4\u4EF6`));
+  const cap = stackCapOf(inv);
+  const stacks = stacksOf(scene, ownerId);
+  const free = Math.max(0, inv.maxStacks - stacks.length);
+  const same = stacks.filter((s) => s.kind === kind);
+  const total = n + same.reduce((a, s) => a + s.count, 0);
+  const needNew = Math.max(0, stacksNeeded(total, cap) - same.length);
+  if (needNew > free) {
+    return err(
+      engineError(
+        INVENTORY_FULL,
+        `\u80CC\u5305\u5DF2\u6EE1\uFF08${String(inv.maxStacks)} \u5806 \xD7 ${String(cap)}\uFF09\uFF0C${kind} \u6EA2\u51FA ${String(needNew - free)} \u5806\u653E\u4E0D\u4E0B`
+      )
+    );
+  }
+  let left = n;
+  for (const s of same) {
+    if (left === 0) break;
+    const put2 = Math.min(cap - s.count, left);
+    s.count += put2;
+    left -= put2;
+  }
+  while (left > 0) {
+    const put2 = Math.min(cap, left);
+    const spawned = scene.spawn(`item/${kind}`, ownerId);
+    if (!spawned.ok) return spawned;
+    scene.flush();
+    const nodeId = spawned.value.id;
+    const made = scene.attach(nodeId, () => {
+      const s = new ItemStack();
+      s.kind = kind;
+      s.count = put2;
+      return s;
+    });
+    if (!made.ok) {
+      scene.destroy(nodeId);
+      scene.flush();
+      return made;
+    }
+    left -= put2;
+  }
+  scene.flush();
+  return ok(countItem(scene, ownerId, kind));
+}
+function takeItem(scene, ownerId, kind, n) {
+  if (!isPositiveInt(n)) {
+    return err(engineError(INVENTORY_BAD_COUNT, `\u6570\u91CF\u5FC5\u987B\u662F\u6B63\u6574\u6570\uFF0C\u6536\u5230 ${String(n)}`));
+  }
+  const has = countItem(scene, ownerId, kind);
+  if (has < n) {
+    return err(engineError(INVENTORY_NOT_ENOUGH, `\u53EA\u6709 ${String(has)} \u4E2A ${kind}\uFF0C\u8981\u53D6 ${String(n)} \u4E2A`));
+  }
+  let left = n;
+  for (const s of stacksOf(scene, ownerId)) {
+    if (left === 0) break;
+    if (s.kind !== kind) continue;
+    const take = Math.min(s.count, left);
+    s.count -= take;
+    left -= take;
+    if (s.count === 0) {
+      const id = s.node?.id;
+      if (id !== void 0) scene.destroy(id);
+    }
+  }
+  scene.flush();
+  return ok(n);
+}
+
+// src/foundation/canonical.ts
+var CANON_NOT_INTEGER = "CANON.NOT_INTEGER";
+var CANON_NOT_FINITE = "CANON.NOT_FINITE";
+var CANON_TOO_LARGE = "CANON.TOO_LARGE";
+var CANON_NULL = "CANON.NULL";
+var CANON_UNSUPPORTED = "CANON.UNSUPPORTED";
+function bad2(code, path, extra) {
+  return err({
+    code,
+    message: `${path} ${extra} \u2014\u2014 \u5185\u5BB9\u6307\u7EB9\u8981\u6C42"\u540C\u503C\u540C\u4E32"\uFF0C\u8FD9\u7C7B\u503C\u6CA1\u6CD5\u4FDD\u8BC1`,
+    detail: { path }
+  });
+}
+function canonicalize(value) {
+  return canon(value, "$");
+}
+function canon(value, path) {
+  if (value === null) {
+    return bad2(CANON_NULL, path, "\u662F null\uFF08\u7F3A\u5B57\u6BB5\u5C31\u522B\u5199\u8FD9\u4E2A\u952E\uFF0C\u4E0D\u8981\u5199 null\uFF09");
+  }
+  if (value === void 0) {
+    return bad2(CANON_UNSUPPORTED, path, "\u662F undefined\uFF08JSON \u4F1A\u628A\u5B83\u9759\u9ED8\u4E22\u6389\uFF0C\u6570\u7EC4\u91CC\u8FD8\u4F1A\u53D8 null\uFF09");
+  }
+  switch (typeof value) {
+    case "string":
+      return ok(JSON.stringify(value));
+    case "boolean":
+      return ok(value ? "true" : "false");
+    case "number": {
+      if (!Number.isFinite(value)) {
+        return bad2(CANON_NOT_FINITE, path, `\u662F ${String(value)}`);
+      }
+      if (!Number.isInteger(value)) {
+        return bad2(CANON_NOT_INTEGER, path, `\u662F\u5C0F\u6570 ${String(value)}\uFF08\u9700\u8981\u5C0F\u6570\u8BF7\u6539\u7528\u5B9A\u70B9\u6574\u6570\uFF09`);
+      }
+      if (Math.abs(value) > Number.MAX_SAFE_INTEGER) {
+        return bad2(CANON_TOO_LARGE, path, `\u662F ${String(value)}\uFF0C\u8D85\u51FA\u5B89\u5168\u6574\u6570\u8303\u56F4\uFF08\u6574\u6570\u5DF2\u4E0D\u7CBE\u786E\uFF09`);
+      }
+      return ok(String(value));
+    }
+    case "bigint":
+    case "function":
+    case "symbol":
+      return bad2(CANON_UNSUPPORTED, path, `\u662F ${typeof value}`);
+    default:
+      break;
+  }
+  if (Array.isArray(value)) {
+    const parts2 = [];
+    for (let i = 0; i < value.length; i++) {
+      const r = canon(value[i], `${path}[${String(i)}]`);
+      if (!r.ok) return r;
+      parts2.push(r.value);
+    }
+    return ok(`[${parts2.join(",")}]`);
+  }
+  const proto = Object.getPrototypeOf(value);
+  if (proto !== Object.prototype && proto !== null) {
+    const name = proto?.constructor?.name;
+    return bad2(CANON_UNSUPPORTED, path, `\u4E0D\u662F\u7EAF\u5BF9\u8C61\uFF08\u539F\u578B ${String(name)}\uFF09`);
+  }
+  const rec = value;
+  const keys = Object.keys(rec).sort();
+  const parts = [];
+  for (const k of keys) {
+    const r = canon(rec[k], `${path}.${k}`);
+    if (!r.ok) return r;
+    parts.push(`${JSON.stringify(k)}:${r.value}`);
+  }
+  return ok(`{${parts.join(",")}}`);
+}
+function fingerprintOf(value) {
+  const c = canonicalize(value);
+  if (!c.ok) return c;
+  return ok(hashText(c.value));
+}
+
+// src/extensions/worldgen/worldgen.ts
+var FIXED_UNITS = 256;
+var WORLD_PLAN_SCHEMA = 1;
+var SITE_KINDS = ["tree", "berry", "rock", "flint", "grass_tuft", "reed"];
+function isSiteKind(k) {
+  return SITE_KINDS.includes(k);
+}
+var BIOMES = {
+  ocean: { passable: false, sites: [] },
+  cliff: { passable: false, sites: [] },
+  beach: { passable: true, sites: ["flint", "grass_tuft"] },
+  grass: { passable: true, sites: ["tree", "berry", "grass_tuft"] },
+  forest: { passable: true, sites: ["tree", "tree", "berry"] },
+  savanna: { passable: true, sites: ["grass_tuft", "rock"] },
+  marsh: { passable: true, sites: ["reed", "berry"] },
+  rocky: { passable: true, sites: ["rock", "flint"] }
+};
+function isPassable(kind) {
+  return BIOMES[kind].passable;
+}
+function isBiomeKind(value) {
+  return typeof value === "string" && Object.prototype.hasOwnProperty.call(BIOMES, value);
+}
+var WORLD_BAD_PARAMS = "WORLD.BAD_PARAMS";
+var NOISE_PERIOD = 8;
+function mix32(a) {
+  let x = a | 0;
+  x = Math.imul(x ^ x >>> 16, 2246822507);
+  x = Math.imul(x ^ x >>> 13, 3266489909);
+  return (x ^ x >>> 16) >>> 0;
+}
+function latticeValue(seed, lx, lz, channel) {
+  const h = mix32(
+    (seed | 0) ^ Math.imul(lx, 668265261) ^ Math.imul(lz, 374761393) ^ Math.imul(channel, 2654435761)
+  );
+  return h % 1024;
+}
+function noise2(seed, x, z, channel) {
+  const g = NOISE_PERIOD;
+  const lx = Math.floor(x / g);
+  const lz = Math.floor(z / g);
+  const dx = x - lx * g;
+  const dz = z - lz * g;
+  const a = latticeValue(seed, lx, lz, channel);
+  const b = latticeValue(seed, lx + 1, lz, channel);
+  const c = latticeValue(seed, lx, lz + 1, channel);
+  const d = latticeValue(seed, lx + 1, lz + 1, channel);
+  const top = a * (g - dx) + b * dx;
+  const bot = c * (g - dx) + d * dx;
+  return Math.floor((top * (g - dz) + bot * dz) / (g * g));
+}
+function pickBiome(elevation, moisture) {
+  if (elevation < 280) return "ocean";
+  if (elevation < 340) return "beach";
+  if (elevation >= 900) return "cliff";
+  if (elevation >= 780) return "rocky";
+  if (moisture < 300) return "savanna";
+  if (moisture < 700) return "grass";
+  if (moisture < 850) return "forest";
+  return "marsh";
+}
+function cellSeed(seed, cellIndex) {
+  return mix32((seed | 0) ^ Math.imul(cellIndex + 1, 2654435761));
+}
+var NEIGHBORS = [
+  [1, 0],
+  [-1, 0],
+  [0, 1],
+  [0, -1]
+];
+function findComponents(width, height, kinds) {
+  const total = width * height;
+  const regionOf = new Int32Array(total).fill(-1);
+  const groups = [];
+  const queue = [];
+  for (let start = 0; start < total; start++) {
+    if (regionOf[start] !== -1) continue;
+    if (!isPassable(kinds[start])) continue;
+    const id = groups.length;
+    const group = [];
+    regionOf[start] = id;
+    queue.length = 0;
+    queue.push(start);
+    for (let head = 0; head < queue.length; head++) {
+      const cur = queue[head];
+      group.push(cur);
+      const cx = cur % width;
+      const cz = (cur - cx) / width;
+      for (const [ox, oz] of NEIGHBORS) {
+        const nx = cx + ox;
+        const nz = cz + oz;
+        if (nx < 0 || nz < 0 || nx >= width || nz >= height) continue;
+        const ni = nz * width + nx;
+        if (regionOf[ni] !== -1) continue;
+        if (!isPassable(kinds[ni])) continue;
+        regionOf[ni] = id;
+        queue.push(ni);
+      }
+    }
+    group.sort((p, q2) => p - q2);
+    groups.push(group);
+  }
+  return { regionOf, groups };
+}
+function lineCells(width, x0, z0, x1, z1) {
+  const out = [];
+  const dx = Math.abs(x1 - x0);
+  const dz = Math.abs(z1 - z0);
+  const sx = x0 < x1 ? 1 : -1;
+  const sz = z0 < z1 ? 1 : -1;
+  let e = dx - dz;
+  let x = x0;
+  let z = z0;
+  for (; ; ) {
+    out.push(z * width + x);
+    if (x === x1 && z === z1) break;
+    const e2 = 2 * e;
+    if (e2 > -dz) {
+      e -= dz;
+      x += sx;
+    }
+    if (e2 < dx) {
+      e += dx;
+      z += sz;
+    }
+  }
+  return out;
+}
+function repairConnectivity(width, height, kinds, bridges) {
+  let carved = 0;
+  let rounds = 0;
+  for (let round = 0; round < 4; round++) {
+    const { groups } = findComponents(width, height, kinds);
+    if (groups.length <= 1) break;
+    rounds++;
+    let mainIdx = 0;
+    for (let i = 1; i < groups.length; i++) {
+      if (groups[i].length > groups[mainIdx].length) mainIdx = i;
+    }
+    const main2 = groups[mainIdx];
+    let carvedThisRound = 0;
+    for (let gi = 0; gi < groups.length; gi++) {
+      if (gi === mainIdx) continue;
+      const group = groups[gi];
+      const source = group[0];
+      const sx = source % width;
+      const sz = (source - sx) / width;
+      let best = -1;
+      let bestD = Number.POSITIVE_INFINITY;
+      for (const target of main2) {
+        const tx2 = target % width;
+        const tz2 = (target - tx2) / width;
+        const d = Math.abs(tx2 - sx) + Math.abs(tz2 - sz);
+        if (d < bestD) {
+          bestD = d;
+          best = target;
+        }
+      }
+      if (best < 0) continue;
+      const tx = best % width;
+      const tz = (best - tx) / width;
+      let carvedHere = 0;
+      for (const cell of lineCells(width, sx, sz, tx, tz)) {
+        if (isPassable(kinds[cell])) continue;
+        kinds[cell] = "beach";
+        carvedHere++;
+      }
+      if (carvedHere > 0) {
+        bridges.push({ fromCell: source, toCell: best });
+        carvedThisRound += carvedHere;
+      }
+    }
+    carved += carvedThisRound;
+    if (carvedThisRound === 0) break;
+  }
+  return { carved, rounds };
+}
+function generateWorld(params) {
+  const { seed, width, height } = params;
+  if (!Number.isInteger(seed)) {
+    return err({ code: WORLD_BAD_PARAMS, message: `seed \u5FC5\u987B\u662F\u6574\u6570\uFF0C\u5F97\u5230 ${String(seed)}` });
+  }
+  if (!Number.isInteger(width) || width < 8 || width > 128) {
+    return err({ code: WORLD_BAD_PARAMS, message: `width \u5FC5\u987B\u662F 8..128 \u7684\u6574\u6570\uFF0C\u5F97\u5230 ${String(width)}` });
+  }
+  if (!Number.isInteger(height) || height < 8 || height > 128) {
+    return err({ code: WORLD_BAD_PARAMS, message: `height \u5FC5\u987B\u662F 8..128 \u7684\u6574\u6570\uFF0C\u5F97\u5230 ${String(height)}` });
+  }
+  const maxSites = params.maxSitesPerCell ?? 2;
+  if (!Number.isInteger(maxSites) || maxSites < 0 || maxSites > 8) {
+    return err({ code: WORLD_BAD_PARAMS, message: `maxSitesPerCell \u5FC5\u987B\u662F 0..8 \u7684\u6574\u6570\uFF0C\u5F97\u5230 ${String(maxSites)}` });
+  }
+  const total = width * height;
+  const kinds = new Array(total);
+  for (let z = 0; z < height; z++) {
+    for (let x = 0; x < width; x++) {
+      const isBorder = x === 0 || z === 0 || x === width - 1 || z === height - 1;
+      if (isBorder) {
+        kinds[z * width + x] = "ocean";
+        continue;
+      }
+      const elevation = noise2(seed, x, z, 1);
+      const moisture = noise2(seed, x, z, 2);
+      kinds[z * width + x] = pickBiome(elevation, moisture);
+    }
+  }
+  const bridges = [];
+  if (params.repair !== false) {
+    repairConnectivity(width, height, kinds, bridges);
+  }
+  const sites = [];
+  for (let cell = 0; cell < total; cell++) {
+    const kind = kinds[cell];
+    const def = BIOMES[kind];
+    if (!def.passable || def.sites.length === 0 || maxSites === 0) continue;
+    const rng = new XorShift128(cellSeed(seed, cell));
+    const n = rng.int(1, maxSites + 1);
+    const cx = cell % width;
+    const cz = (cell - cx) / width;
+    for (let k = 0; k < n; k++) {
+      const siteKind = rng.pick(def.sites);
+      if (siteKind === void 0) continue;
+      sites.push({
+        id: cell * maxSites + k,
+        kind: siteKind,
+        x: cx * FIXED_UNITS + rng.int(0, FIXED_UNITS),
+        z: cz * FIXED_UNITS + rng.int(0, FIXED_UNITS),
+        cell
+      });
+    }
+  }
+  const partial = {
+    schema: WORLD_PLAN_SCHEMA,
+    seed,
+    width,
+    height,
+    kinds,
+    sites,
+    bridges
+  };
+  const fp = fingerprintOf(partial);
+  if (!fp.ok) return fp;
+  return ok({
+    seed,
+    width,
+    height,
+    kinds,
+    sites,
+    bridges,
+    fingerprint: fp.value
+  });
+}
+function planDigest(plan) {
+  return fingerprintOf({
+    schema: WORLD_PLAN_SCHEMA,
+    seed: plan.seed,
+    width: plan.width,
+    height: plan.height,
+    kinds: plan.kinds,
+    sites: plan.sites,
+    bridges: plan.bridges
+  });
+}
+var WORLD_NO_SPAWN = "WORLD.NO_SPAWN";
+function pickSpawn(plan) {
+  const { width, height, kinds } = plan;
+  const total = width * height;
+  const { regionOf, groups } = findComponents(width, height, kinds);
+  let mainIdx = -1;
+  let largest = 0;
+  for (let i = 0; i < groups.length; i++) {
+    const n = groups[i].length;
+    if (n > largest) {
+      largest = n;
+      mainIdx = i;
+    }
+  }
+  if (mainIdx < 0) {
+    return err({ code: WORLD_NO_SPAWN, message: "\u6574\u5F20\u56FE\u6CA1\u6709\u53EF\u901A\u884C\u7684\u9646\u5730\uFF08\u5168\u662F\u6D77/\u60AC\u5D16\uFF09\uFF0C\u65E0\u6CD5\u9009\u51FA\u751F\u70B9" });
+  }
+  const dist = new Int32Array(total).fill(-1);
+  const queue = [];
+  for (let i = 0; i < total; i++) {
+    if (!isPassable(kinds[i])) {
+      dist[i] = 0;
+      queue.push(i);
+    }
+  }
+  for (let z = 0; z < height; z++) {
+    for (let x = 0; x < width; x++) {
+      if (x !== 0 && z !== 0 && x !== width - 1 && z !== height - 1) continue;
+      const i = z * width + x;
+      if (dist[i] !== -1) continue;
+      dist[i] = 1;
+      queue.push(i);
+    }
+  }
+  for (let head = 0; head < queue.length; head++) {
+    const cur = queue[head];
+    const cx = cur % width;
+    const cz = (cur - cx) / width;
+    const d = dist[cur];
+    for (const [ox, oz] of NEIGHBORS) {
+      const nx = cx + ox;
+      const nz = cz + oz;
+      if (nx < 0 || nz < 0 || nx >= width || nz >= height) continue;
+      const ni = nz * width + nx;
+      if (dist[ni] !== -1) continue;
+      dist[ni] = d + 1;
+      queue.push(ni);
+    }
+  }
+  let best = -1;
+  let bestDist = -1;
+  for (let i = 0; i < total; i++) {
+    if (regionOf[i] !== mainIdx) continue;
+    const d = dist[i];
+    if (d > bestDist) {
+      bestDist = d;
+      best = i;
+    }
+  }
+  if (best < 0) {
+    return err({ code: WORLD_NO_SPAWN, message: `\u4E3B\u5206\u91CF\uFF08${largest} \u683C\uFF09\u91CC\u6CA1\u6709\u53EF\u901A\u884C\u683C` });
+  }
+  const bx = best % width;
+  const bz = (best - bx) / width;
+  return ok({
+    cell: best,
+    x: bx * FIXED_UNITS + FIXED_UNITS / 2,
+    z: bz * FIXED_UNITS + FIXED_UNITS / 2,
+    clearance: bestDist
+  });
+}
+
+// src/extensions/worldgen/assemble.ts
+var WORLD_BAD_PLAN = "WORLD.BAD_PLAN";
+var WORLD_SCENE_NOT_EMPTY = "WORLD.SCENE_NOT_EMPTY";
+var WORLD_COMPONENTS_UNREGISTERED = "WORLD.COMPONENTS_UNREGISTERED";
+var TERRAIN_TYPE = "world.terrain";
+var SITE_TYPE = "world.site";
+var TERRAIN_SCHEMA = {
+  type: TERRAIN_TYPE,
+  fields: {
+    kind: FieldType.String,
+    /** 矩形左上角格子坐标与尺寸 —— 存的是**格子**，不是世界单位（不引入浮点）。 */
+    cx: FieldType.Int,
+    cz: FieldType.Int,
+    w: FieldType.Int,
+    h: FieldType.Int,
+    /** 冗余但必要：`passable` 是"能不能走"的**运行时事实**，不只由 kind 推。 */
+    passable: FieldType.Bool
+  }
+};
+var SITE_SCHEMA = {
+  type: SITE_TYPE,
+  fields: {
+    siteId: FieldType.Int,
+    kind: FieldType.String,
+    cell: FieldType.Int
+  }
+};
+var TerrainArea = class extends Component {
+  schema = TERRAIN_SCHEMA;
+  kind = "ocean";
+  cx = 0;
+  cz = 0;
+  w = 0;
+  h = 0;
+  passable = false;
+};
+var SiteMarker = class extends Component {
+  schema = SITE_SCHEMA;
+  siteId = 0;
+  kind = "tree";
+  cell = 0;
+};
+function registerWorldComponents(registry) {
+  if (!registry.has(TERRAIN_TYPE)) registry.register(TERRAIN_SCHEMA, () => new TerrainArea());
+  if (!registry.has(SITE_TYPE)) registry.register(SITE_SCHEMA, () => new SiteMarker());
+}
+function mergeTerrain(width, height, kinds) {
+  const visited = new Uint8Array(width * height);
+  const rects = [];
+  for (let cz = 0; cz < height; cz++) {
+    for (let cx = 0; cx < width; cx++) {
+      const start = cz * width + cx;
+      if (visited[start] === 1) continue;
+      const kind = kinds[start];
+      let w = 1;
+      while (cx + w < width) {
+        const i = start + w;
+        if (visited[i] === 1 || kinds[i] !== kind) break;
+        w++;
+      }
+      let h = 1;
+      while (cz + h < height) {
+        let sameRow = true;
+        for (let dx = 0; dx < w; dx++) {
+          const i = (cz + h) * width + cx + dx;
+          if (visited[i] === 1 || kinds[i] !== kind) {
+            sameRow = false;
+            break;
+          }
+        }
+        if (!sameRow) break;
+        h++;
+      }
+      for (let dz = 0; dz < h; dz++) {
+        for (let dx = 0; dx < w; dx++) visited[(cz + dz) * width + cx + dx] = 1;
+      }
+      rects.push({ cx, cz, w, h, kind });
+    }
+  }
+  return rects;
+}
+function assembleWorld(plan, scene) {
+  const { width, height, kinds } = plan;
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1) {
+    return err({ code: WORLD_BAD_PLAN, message: `\u5C3A\u5BF8\u4E0D\u5408\u6CD5\uFF1A${String(width)}x${String(height)}` });
+  }
+  if (kinds.length !== width * height) {
+    return err({
+      code: WORLD_BAD_PLAN,
+      message: `kinds \u957F\u5EA6 ${kinds.length} \u4E0E\u5C3A\u5BF8 ${width}x${height}\uFF08${width * height}\uFF09\u4E0D\u7B26`
+    });
+  }
+  for (let i = 0; i < kinds.length; i++) {
+    if (!isBiomeKind(kinds[i])) {
+      return err({
+        code: WORLD_BAD_PLAN,
+        message: `\u7B2C ${i} \u683C\u7684\u7FA4\u7CFB\u540D\u672A\u77E5\uFF1A${String(kinds[i])}\uFF08\u53EF\u80FD\u662F\u65E7 schema \u6216\u624B\u6539\u7684\u8BA1\u5212\uFF09`
+      });
+    }
+  }
+  const digest = planDigest(plan);
+  if (!digest.ok) return digest;
+  if (digest.value !== plan.fingerprint) {
+    return err({
+      code: WORLD_BAD_PLAN,
+      message: `\u8BA1\u5212\u6307\u7EB9\u4E0E\u5185\u5BB9\u4E0D\u7B26\uFF08\u8BA1\u5212\u91CC\u5B58 ${plan.fingerprint}\uFF0C\u91CD\u7B97\u5F97 ${digest.value}\uFF09\u2014\u2014 \u5185\u5BB9\u88AB\u6539\u8FC7\u6216\u6765\u81EA\u65E7 schema`
+    });
+  }
+  if (scene.stats().nodes !== 1) {
+    return err({
+      code: WORLD_SCENE_NOT_EMPTY,
+      message: `\u76EE\u6807\u573A\u666F\u5DF2\u6709 ${scene.stats().nodes - 1} \u4E2A\u8282\u70B9\uFF08\u88C5\u914D\u8981\u6C42\u7A7A\u573A\u666F\uFF0C\u5148 scene.clear()\uFF09`
+    });
+  }
+  const missing = [TERRAIN_TYPE, SITE_TYPE].filter((t) => !scene.components.has(t));
+  if (missing.length > 0) {
+    return err({
+      code: WORLD_COMPONENTS_UNREGISTERED,
+      message: `\u7EC4\u4EF6\u7C7B\u578B\u672A\u6CE8\u518C\uFF1A${missing.join(", ")} \u2014\u2014 \u5148 registerWorldComponents(scene.components)`
+    });
+  }
+  const rects = mergeTerrain(width, height, kinds);
+  const terrainRoot = scene.spawnImmediate("terrain");
+  const siteRoot = scene.spawnImmediate("sites");
+  for (const r of rects) {
+    const node = scene.spawnImmediate(`terrain/${r.kind}`, terrainRoot.id);
+    node.setLocalPosition(r.cx, r.cz);
+    const made = scene.attach(node.id, () => new TerrainArea());
+    if (!made.ok) return made;
+    made.value.kind = r.kind;
+    made.value.cx = r.cx;
+    made.value.cz = r.cz;
+    made.value.w = r.w;
+    made.value.h = r.h;
+    made.value.passable = isPassable(r.kind);
+  }
+  for (const s of plan.sites) {
+    const node = scene.spawnImmediate(`site/${s.kind}`, siteRoot.id);
+    node.setLocalPosition(s.x / FIXED_UNITS, s.z / FIXED_UNITS);
+    const made = scene.attach(node.id, () => new SiteMarker());
+    if (!made.ok) return made;
+    made.value.siteId = s.id;
+    made.value.kind = s.kind;
+    made.value.cell = s.cell;
+  }
+  scene.flush();
+  return ok({
+    terrainNodes: rects.length,
+    siteNodes: plan.sites.length,
+    sceneNodes: scene.stats().nodes,
+    cells: width * height,
+    rects: rects.length,
+    fingerprint: plan.fingerprint
+  });
+}
+
+// src/extensions/worldgen/tasks.ts
+var WORLD_TASK_SCHEMA = 1;
+var TASK_BAD_TABLE = "TASK.BAD_TABLE";
+var TASK_BAD_TICK = "TASK.BAD_TICK";
+function hashString(s) {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+function dueRange(period, phase, from, to) {
+  if (to <= from) return { first: -1, count: 0 };
+  const rem = ((phase - from % period) % period + period) % period;
+  const first = from + (rem === 0 ? period : rem);
+  if (first > to) return { first: -1, count: 0 };
+  return { first, count: Math.floor((to - first) / period) + 1 };
+}
+function validateTaskTable(table) {
+  if (table.schema !== WORLD_TASK_SCHEMA) {
+    return err({
+      code: TASK_BAD_TABLE,
+      message: `\u8868\u7ED3\u6784\u7248\u672C ${String(table.schema)} \u4E0D\u662F ${WORLD_TASK_SCHEMA}\uFF08\u65E7\u8868\u5FC5\u987B\u88AB\u62D2\u7EDD\uFF0C\u800C\u4E0D\u662F\u52C9\u5F3A\u80FD\u7528\uFF09`
+    });
+  }
+  const seen = /* @__PURE__ */ new Set();
+  const out = [];
+  for (let i = 0; i < table.tasks.length; i++) {
+    const t = table.tasks[i];
+    if (typeof t.id !== "string" || t.id.length === 0) {
+      return err({ code: TASK_BAD_TABLE, message: `\u7B2C ${i} \u6761\u4EFB\u52A1\u6CA1\u6709 id` });
+    }
+    if (seen.has(t.id)) {
+      return err({ code: TASK_BAD_TABLE, message: `\u4EFB\u52A1 id \u91CD\u590D\uFF1A${t.id}` });
+    }
+    seen.add(t.id);
+    if (!Number.isInteger(t.periodTicks) || t.periodTicks < 1) {
+      return err({
+        code: TASK_BAD_TABLE,
+        message: `\u4EFB\u52A1 ${t.id} \u7684 periodTicks \u5FC5\u987B\u662F \u22651 \u7684\u6574\u6570\uFF0C\u5F97\u5230 ${String(t.periodTicks)}`
+      });
+    }
+    const phase = t.phase ?? 0;
+    if (!Number.isInteger(phase) || phase < 0 || phase >= t.periodTicks) {
+      return err({
+        code: TASK_BAD_TABLE,
+        message: `\u4EFB\u52A1 ${t.id} \u7684 phase \u5FC5\u987B\u843D\u5728 [0, ${t.periodTicks})\uFF0C\u5F97\u5230 ${String(phase)} \u2014\u2014 \u8D8A\u754C\u4F1A\u8BA9\u5B83\u6C38\u4E0D\u89E6\u53D1`
+      });
+    }
+    const picks = t.picksPerRun ?? 0;
+    if (!Number.isInteger(picks) || picks < 0 || picks > 64) {
+      return err({
+        code: TASK_BAD_TABLE,
+        message: `\u4EFB\u52A1 ${t.id} \u7684 picksPerRun \u5FC5\u987B\u662F 0..64 \u7684\u6574\u6570\uFF0C\u5F97\u5230 ${String(picks)}`
+      });
+    }
+    if (t.biomes !== void 0) {
+      for (const b of t.biomes) {
+        if (!isBiomeKind(b)) {
+          return err({ code: TASK_BAD_TABLE, message: `\u4EFB\u52A1 ${t.id} \u7684\u7FA4\u7CFB\u540D\u672A\u77E5\uFF1A${String(b)}` });
+        }
+      }
+    }
+    out.push(t);
+  }
+  return ok(out);
+}
+var WorldTasks = class _WorldTasks {
+  states;
+  plan;
+  _lastTick = 0;
+  _runs = 0;
+  _missed = 0;
+  constructor(states, plan) {
+    this.states = states;
+    this.plan = plan;
+  }
+  static create(table, plan) {
+    const valid = validateTaskTable(table);
+    if (!valid.ok) return valid;
+    const needsPlan = valid.value.some((t) => (t.picksPerRun ?? 0) > 0 && (t.biomes?.length ?? 0) > 0);
+    if (needsPlan && plan === void 0) {
+      return err({
+        code: TASK_BAD_TABLE,
+        message: "\u8868\u91CC\u6709\u4EFB\u52A1\u8981\u6309\u7FA4\u7CFB\u9009\u683C\uFF0C\u4F46\u6CA1\u6709\u7ED9 WorldPlan \u2014\u2014 \u9759\u9ED8\u8FD4\u56DE\u7A7A\u6570\u7EC4\u4F1A\u8BA9\u300C\u6CA1\u5237\u51FA\u6765\u300D\u770B\u8D77\u6765\u50CF\u300C\u6CA1\u8DD1\u5230\u300D"
+      });
+    }
+    return ok(
+      new _WorldTasks(
+        valid.value.map((task) => ({ task, runs: 0, missed: 0 })),
+        plan
+      )
+    );
+  }
+  get lastTick() {
+    return this._lastTick;
+  }
+  /**
+   * 推进到 `tick`（含），返回本次推进触发的执行。
+   *
+   * ★ 只能前进：倒退会让同一个 tick 被执行两次（读档回档时的经典坑），必须报错。
+   * ★ 顺序：先按 `tick` 升序（区间内各任务的首次命中），再按表内声明顺序 ——
+   *   "按 tick 再按声明序"是确定的；只按声明序会让同一 tick 内多任务的先后
+   *   依赖表里谁写在前，而这个顺序会进 seed 之外的副作用（日志、事件）。
+   */
+  advanceTo(tick) {
+    if (!Number.isInteger(tick)) {
+      return err({ code: TASK_BAD_TICK, message: `tick \u5FC5\u987B\u662F\u6574\u6570\uFF0C\u5F97\u5230 ${String(tick)}` });
+    }
+    if (tick < this._lastTick) {
+      return err({
+        code: TASK_BAD_TICK,
+        message: `\u65F6\u95F4\u4E0D\u80FD\u5012\u9000\uFF1A\u4E0A\u6B21 ${this._lastTick}\uFF0C\u8FD9\u6B21 ${tick}\uFF08\u56DE\u6863\u8BF7\u91CD\u5EFA\u4EFB\u52A1\u8868\uFF09`
+      });
+    }
+    const due = [];
+    for (let i = 0; i < this.states.length; i++) {
+      const st = this.states[i];
+      const period = st.task.periodTicks;
+      const phase = st.task.phase ?? 0;
+      const { first, count } = dueRange(period, phase, this._lastTick, tick);
+      if (first < 0) continue;
+      st.runs += 1;
+      st.missed += count - 1;
+      this._runs += 1;
+      this._missed += count - 1;
+      due.push({
+        order: i,
+        fire: {
+          taskId: st.task.id,
+          tick: first,
+          run: st.runs,
+          missed: count - 1,
+          cells: this.pickCells(st.task, first, st.runs)
+        }
+      });
+    }
+    this._lastTick = tick;
+    due.sort((a, b) => a.fire.tick !== b.fire.tick ? a.fire.tick - b.fire.tick : a.order - b.order);
+    return ok(due.map((d) => d.fire));
+  }
+  /**
+   * 按群系确定性选格：候选 = 计划里"群系属于 biomes 且可通行"的格子（升序）。
+   *
+   * ★★ seed 只由 **(任务 id, 首次到期 tick)** 决定，**不含 `run`**。
+   *   第一版把 `run` 也混了进去，写变异时才发现两个问题：
+   *   ① 它让"同一 tick 的产出"依赖**执行历史** —— 读档后重建实例、推进到同一个 tick，
+   *      会得到另一批格子（`run` 从 1 重新数），可重放性当场失效；
+   *   ② `firstTick` 严格单调递增，`run` 在它之外不带来任何新信息 ——
+   *      删掉 `run` 也无法被任何判据抓住。**一条抓不住对应变异的判据等于没写**，
+   *      反过来说：一个无法被区分的设计元素也不该留在关键路径上。
+   *   所以 `run` 降级为纯诊断字段（`runCounts()` 用）。
+   */
+  pickCells(task, firstTick, _run) {
+    const want = task.picksPerRun ?? 0;
+    const biomes = task.biomes ?? [];
+    if (want === 0 || biomes.length === 0 || this.plan === void 0) return [];
+    const allow = new Set(biomes);
+    const candidates = [];
+    for (let i = 0; i < this.plan.kinds.length; i++) {
+      const k = this.plan.kinds[i];
+      if (!allow.has(k)) continue;
+      if (!isPassable(k)) continue;
+      candidates.push(i);
+    }
+    if (candidates.length === 0) return [];
+    const seed = hashString(task.id) ^ Math.imul(firstTick, 2654435761) | 0;
+    const rng = new XorShift128(seed);
+    rng.shuffle(candidates);
+    return candidates.slice(0, Math.min(want, candidates.length)).sort((a, b) => a - b);
+  }
+  stats() {
+    return {
+      tasks: this.states.length,
+      runs: this._runs,
+      missed: this._missed,
+      lastTick: this._lastTick
+    };
+  }
+  /** 每条任务跑了多少次（诊断/编辑器面板用）。 */
+  runCounts() {
+    const out = /* @__PURE__ */ new Map();
+    for (const st of this.states) out.set(st.task.id, st.runs);
+    return out;
+  }
+};
+
+// src/extensions/worldgen/task-module.ts
+var RESOURCE_TYPE = "world.resource";
+var TASK_NO_SCENE = "TASK.NO_SCENE";
+var TASK_BAD_CELL = "TASK.BAD_CELL";
+var TASK_BAD_TERRAIN = "TASK.BAD_TERRAIN";
+var TASK_CELL_TAKEN = "TASK.CELL_TAKEN";
+var TASK_CAP = "TASK.CAP";
+var RESOURCE_SCHEMA = {
+  type: RESOURCE_TYPE,
+  fields: {
+    cell: FieldType.Int,
+    kind: FieldType.String,
+    /** 哪一次触发刷出来的（= `TaskFire.tick`）。诊断用，也用来验"重复触发没被合并"。 */
+    bornTick: FieldType.Int
+  }
+};
+var ResourceMarker = class extends Component {
+  schema = RESOURCE_SCHEMA;
+  cell = 0;
+  kind = "tree";
+  bornTick = 0;
+};
+function registerResourceComponent(registry) {
+  if (!registry.has(RESOURCE_TYPE)) registry.register(RESOURCE_SCHEMA, () => new ResourceMarker());
+}
+var DEFAULT_MAX_RESOURCES = 4096;
+function createWorldTaskModule(opts) {
+  const maxResources = opts.maxResources ?? DEFAULT_MAX_RESOURCES;
+  let scene = opts.scene ?? null;
+  let ctxRef = null;
+  let started = false;
+  const tasks = (() => {
+    const r = WorldTasks.create(opts.tasks, opts.plan);
+    if (!r.ok) {
+      throw new Error(`\u4E16\u754C\u4EFB\u52A1\u8868\u4E0D\u5408\u6CD5\uFF1A${r.error.code} ${r.error.message}`);
+    }
+    return r.value;
+  })();
+  let occupied = null;
+  let fires = 0;
+  let spawned = 0;
+  let alive = 0;
+  let released = 0;
+  let skippedExisting = 0;
+  let skippedCap = 0;
+  let lastFires = [];
+  function ensureIndex(s) {
+    if (occupied !== null) return occupied;
+    const set = /* @__PURE__ */ new Set();
+    for (const marker of s.componentsOf(SITE_TYPE)) set.add(marker.cell);
+    for (const res of s.componentsOf(RESOURCE_TYPE)) set.add(res.cell);
+    occupied = set;
+    return set;
+  }
+  const mod = {
+    id: "world.tasks",
+    deps: [],
+    tasks,
+    init(ctx) {
+      ctxRef = ctx;
+      if (scene === null) {
+        const got = ctx.services.get(Services.Scene);
+        if (got === void 0) {
+          return err(
+            engineError(
+              TASK_NO_SCENE,
+              "\u4E16\u754C\u4EFB\u52A1\u6A21\u5757\u9700\u8981\u4E00\u4E2A Scene\uFF1A\u8981\u4E48\u5728 options \u91CC\u4F20\uFF0C\u8981\u4E48\u5148\u7531\u5BBF\u4E3B\u6CE8\u518C Services.Scene"
+            )
+          );
+        }
+        scene = got;
+      }
+      if (!scene.components.has(RESOURCE_TYPE)) {
+        return err(
+          engineError(
+            TASK_NO_SCENE,
+            `\u573A\u666F\u7684\u7EC4\u4EF6\u6CE8\u518C\u8868\u91CC\u6CA1\u6709 ${RESOURCE_TYPE} \u2014\u2014 \u5148 registerResourceComponent(scene.components)`
+          )
+        );
+      }
+      return ok(void 0);
+    },
+    start() {
+      started = true;
+    },
+    stop() {
+      started = false;
+    },
+    update(tick, dt) {
+      const s = scene;
+      if (s === null || !started) return;
+      const advanced = tasks.advanceTo(tick);
+      if (!advanced.ok) {
+        ctxRef?.log.channel("world").warn(`\u4E16\u754C\u4EFB\u52A1\u63A8\u8FDB\u5931\u8D25\uFF1A${advanced.error.code} ${advanced.error.message}`);
+        lastFires = [];
+        return;
+      }
+      lastFires = advanced.value;
+      if (advanced.value.length === 0) return;
+      const taken = ensureIndex(s);
+      let touched = false;
+      for (const fire of advanced.value) {
+        fires++;
+        for (const cell of fire.cells) {
+          if (taken.has(cell)) {
+            skippedExisting++;
+            continue;
+          }
+          if (alive >= maxResources) {
+            skippedCap++;
+            continue;
+          }
+          const width = opts.plan.width;
+          const cx = cell % width;
+          const cz = (cell - cx) / width;
+          const node = s.spawn(`resource/${kindOf(fire, opts.plan, cell)}`, null);
+          if (!node.ok) {
+            ctxRef?.log.channel("world").warn(`\u8D44\u6E90\u8282\u70B9\u521B\u5EFA\u5931\u8D25\uFF1A${node.error.code}`);
+            continue;
+          }
+          node.value.setLocalPosition(cx + 0.5, cz + 0.5);
+          const made = s.attach(node.value.id, () => new ResourceMarker());
+          if (!made.ok) continue;
+          made.value.cell = cell;
+          made.value.kind = kindOf(fire, opts.plan, cell);
+          made.value.bornTick = fire.tick;
+          taken.add(cell);
+          spawned++;
+          alive++;
+          touched = true;
+        }
+      }
+      if (touched) s.flush();
+    },
+    stats() {
+      return {
+        fires,
+        spawned,
+        alive,
+        released,
+        skippedExisting,
+        skippedCap,
+        occupied: occupied === null ? 0 : occupied.size,
+        lastTick: tasks.lastTick
+      };
+    },
+    releaseCell(cell) {
+      const s = scene;
+      if (s === null) return false;
+      const taken = ensureIndex(s);
+      if (!taken.delete(cell)) return false;
+      if (alive > 0) alive--;
+      released++;
+      return true;
+    },
+    isOccupied(cell) {
+      const s = scene;
+      if (s === null) return false;
+      return ensureIndex(s).has(cell);
+    },
+    placeResource(cell, kind, bornTick) {
+      const s = scene;
+      if (s === null) {
+        return err(engineError(TASK_NO_SCENE, "\u4E16\u754C\u4EFB\u52A1\u6A21\u5757\u6CA1\u6709\u573A\u666F\uFF0C\u653E\u4E0D\u4E86\u8D44\u6E90"));
+      }
+      const width = opts.plan.width;
+      const size = width * opts.plan.height;
+      if (!Number.isInteger(cell) || cell < 0 || cell >= size) {
+        return err(engineError(TASK_BAD_CELL, `\u683C\u5B50 ${String(cell)} \u8D8A\u754C\uFF08\u4E16\u754C\u662F ${String(width)}\xD7${String(opts.plan.height)}\uFF09`));
+      }
+      if (!isPassable(opts.plan.kinds[cell])) {
+        return err(engineError(TASK_BAD_TERRAIN, `\u683C\u5B50 ${String(cell)} \u662F\u4E0D\u53EF\u901A\u884C\u5730\u5F62\uFF0C\u4E0D\u80FD\u653E\u8D44\u6E90`));
+      }
+      const taken = ensureIndex(s);
+      if (taken.has(cell)) {
+        return err(engineError(TASK_CELL_TAKEN, `\u683C\u5B50 ${String(cell)} \u4E0A\u5DF2\u7ECF\u6709\u8D44\u6E90\u4E86`));
+      }
+      if (alive >= maxResources) {
+        return err(engineError(TASK_CAP, `\u4E16\u754C\u8D44\u6E90\u5DF2\u5230\u5168\u5C40\u4E0A\u9650\uFF08${String(maxResources)}\uFF09\uFF0C\u653E\u4E0D\u4E0B\u66F4\u591A`));
+      }
+      const cx = cell % width;
+      const cz = (cell - cx) / width;
+      const node = s.spawn(`resource/${kind}`, null);
+      if (!node.ok) return node;
+      node.value.setLocalPosition(cx + 0.5, cz + 0.5);
+      const made = s.attach(node.value.id, () => new ResourceMarker());
+      if (!made.ok) {
+        s.destroy(node.value.id);
+        s.flush();
+        return made;
+      }
+      made.value.cell = cell;
+      made.value.kind = kind;
+      made.value.bornTick = bornTick;
+      taken.add(cell);
+      spawned++;
+      alive++;
+      s.flush();
+      return ok(node.value.id);
+    },
+    lastFires() {
+      return lastFires;
+    },
+    describe() {
+      return `world.tasks\uFF1A${String(tasks.stats().tasks)} \u6761\u4EFB\u52A1 / \u5DF2\u5237 ${String(spawned)} / \u8DF3\u8FC7\u53BB\u91CD ${String(skippedExisting)} / \u4E0A\u9650 ${String(skippedCap)}`;
+    }
+  };
+  return mod;
+}
+function kindOf(fire, plan, cell) {
+  const kind = plan.kinds[cell];
+  if (!isPassable(kind)) return "grass_tuft";
+  switch (kind) {
+    case "forest":
+      return "tree";
+    case "grass":
+      return "berry";
+    case "beach":
+      return "flint";
+    case "rocky":
+      return "rock";
+    case "savanna":
+      return "grass_tuft";
+    case "marsh":
+      return "reed";
+    default:
+      return "grass_tuft";
+  }
+}
+
+// src/extensions/worldgen/harvest.ts
+var HARVEST_NOTHING = "HARVEST.NOTHING";
+var HARVEST_BAD_CELL = "HARVEST.BAD_CELL";
+function isCellIndex(v) {
+  return Number.isInteger(v) && v >= 0;
+}
+function peekResourceAt(scene, cell) {
+  for (const r of scene.componentsOf(RESOURCE_TYPE)) {
+    if (r.cell === cell && r.node !== null) return { kind: r.kind, source: "resource" };
+  }
+  for (const m of scene.componentsOf(SITE_TYPE)) {
+    if (m.cell === cell && m.node !== null) return { kind: m.kind, source: "site" };
+  }
+  return null;
+}
+function harvestAt(scene, cell, opts = {}) {
+  if (!isCellIndex(cell)) {
+    return err(engineError(HARVEST_BAD_CELL, `\u683C\u5B50\u4E0B\u6807\u5FC5\u987B\u662F \u2265 0 \u7684\u6574\u6570\uFF0C\u6536\u5230 ${String(cell)}`));
+  }
+  for (const r of scene.componentsOf(RESOURCE_TYPE)) {
+    if (r.cell !== cell || r.node === null) continue;
+    const nodeId = r.node.id;
+    const kind = r.kind;
+    scene.destroy(nodeId);
+    scene.flush();
+    opts.onRelease?.(cell);
+    return ok({ cell, kind, nodeId, source: "resource" });
+  }
+  for (const m of scene.componentsOf(SITE_TYPE)) {
+    if (m.cell !== cell || m.node === null) continue;
+    const nodeId = m.node.id;
+    const kind = m.kind;
+    scene.destroy(nodeId);
+    scene.flush();
+    opts.onRelease?.(cell);
+    return ok({ cell, kind, nodeId, source: "site" });
+  }
+  return err(
+    engineError(
+      HARVEST_NOTHING,
+      `\u683C\u5B50 ${String(cell)} \u4E0A\u6CA1\u6709\u8D44\u6E90\uFF08\u518D\u751F ${String(scene.countOf(RESOURCE_TYPE))} \u4E2A / \u6295\u653E\u70B9 ${String(scene.countOf(SITE_TYPE))} \u4E2A\uFF09`
+    )
+  );
+}
+
+// src/extensions/inventory/harvest-into.ts
+function harvestInto(scene, cell, ownerId, opts = {}) {
+  const amount = opts.amount ?? 1;
+  const peek = peekResourceAt(scene, cell);
+  if (peek === null) {
+    return err(engineError(HARVEST_NOTHING, `\u683C\u5B50 ${String(cell)} \u4E0A\u6CA1\u6709\u8D44\u6E90`));
+  }
+  const added = addItem(scene, ownerId, peek.kind, amount);
+  if (!added.ok) return added;
+  const took = harvestAt(scene, cell, { onRelease: opts.onRelease });
+  if (!took.ok) {
+    return took;
+  }
+  return ok({ cell, kind: peek.kind, total: added.value });
+}
+
+// src/extensions/inventory/pickup.ts
+var DEFAULT_MAX = 8;
+function pickupNearby(scene, x, z, radius, ownerId, opts = {}) {
+  if (!(radius >= 0)) return err(engineError("PICKUP.BAD_RADIUS", `\u62FE\u53D6\u534A\u5F84\u5FC5\u987B \u2265 0\uFF0C\u6536\u5230 ${radius}`));
+  const max = Math.max(1, Math.floor(opts.max ?? DEFAULT_MAX));
+  const amountOpt = opts.amount;
+  const amountOf = typeof amountOpt === "function" ? amountOpt : () => amountOpt ?? 1;
+  const cand = [];
+  for (const m of scene.componentsOf(RESOURCE_TYPE)) {
+    const node = m.node;
+    if (node === null) continue;
+    const p = node.worldPosition;
+    const dx = p.x - x;
+    const dz = p.y - z;
+    const d2 = dx * dx + dz * dz;
+    if (d2 > radius * radius) continue;
+    const peek = peekResourceAt(scene, m.cell);
+    if (peek === null) continue;
+    cand.push({ nodeId: node.id, cell: m.cell, d2, kind: peek.kind });
+  }
+  cand.sort((a, b) => a.d2 !== b.d2 ? a.d2 - b.d2 : a.nodeId - b.nodeId);
+  const seenCell = /* @__PURE__ */ new Set();
+  const picked = [];
+  let failed = null;
+  let skippedSameCell = 0;
+  for (const c of cand) {
+    if (picked.length >= max) break;
+    if (seenCell.has(c.cell)) {
+      skippedSameCell++;
+      continue;
+    }
+    seenCell.add(c.cell);
+    const r = harvestInto(scene, c.cell, ownerId, { amount: amountOf(c.kind), onRelease: opts.onRelease });
+    if (!r.ok) {
+      if (r.error.code === HARVEST_NOTHING) continue;
+      failed = { cell: c.cell, code: r.error.code, message: r.error.message };
+      break;
+    }
+    picked.push({ cell: r.value.cell, kind: r.value.kind, total: r.value.total });
+  }
+  return ok({
+    picked,
+    failed,
+    remaining: Math.max(0, cand.length - picked.length),
+    inRange: cand.length
+  });
+}
+
+// src/extensions/inventory/drop-to-world.ts
+var DROP_NO_SPACE = "DROP.NO_SPACE";
+var DROP_UNKNOWN_KIND = "DROP.UNKNOWN_KIND";
+function findFreeCells(plan, tasks, x, z, n, searchCells = 3) {
+  if (n <= 0) return [];
+  const width = plan.width;
+  const height = plan.height;
+  const cx = Math.floor(x);
+  const cz = Math.floor(z);
+  const base = Math.max(0, Math.floor(searchCells));
+  const out = [];
+  for (let r = 0; r <= base + 2 && out.length < n; r++) {
+    for (let dz = -r; dz <= r && out.length < n; dz++) {
+      for (let dx = -r; dx <= r && out.length < n; dx++) {
+        if (r > 0 && Math.abs(dx) !== r && Math.abs(dz) !== r) continue;
+        const gx = cx + dx;
+        const gz = cz + dz;
+        if (gx < 0 || gx >= width || gz < 0 || gz >= height) continue;
+        const cell = gz * width + gx;
+        if (!isPassable(plan.kinds[cell])) continue;
+        if (tasks.isOccupied(cell)) continue;
+        out.push(cell);
+      }
+    }
+  }
+  return out.length >= n ? out : null;
+}
+function dropIntoWorld(scene, ownerId, kind, n, opts) {
+  if (!Number.isInteger(n) || n <= 0) {
+    return err(engineError("INVENTORY.BAD_COUNT", `\u4E22\u5F03\u6570\u91CF\u5FC5\u987B\u662F\u6B63\u6574\u6570\uFF0C\u6536\u5230 ${String(n)}`));
+  }
+  if (!isSiteKind(kind)) {
+    return err(engineError(DROP_UNKNOWN_KIND, `\u8FD9\u4E2A\u4E16\u754C\u4E0D\u8BA4\u8BC6\u300C${kind}\u300D\uFF0C\u653E\u4E0D\u4E0B\u53BB`));
+  }
+  const owner = scene.find(ownerId);
+  if (owner === void 0) {
+    return err(engineError("INVENTORY.NO_OWNER", `\u8282\u70B9 ${String(ownerId)} \u4E0D\u5728\u573A\u666F\u91CC`));
+  }
+  if (owner.get(INVENTORY_TYPE) === void 0) {
+    return err(engineError("INVENTORY.NO_OWNER", `\u8282\u70B9 ${String(ownerId)} \u6CA1\u6709\u80CC\u5305\u7EC4\u4EF6`));
+  }
+  const has = countItem(scene, ownerId, kind);
+  if (has < n) {
+    return err(engineError("INVENTORY.NOT_ENOUGH", `\u53EA\u6709 ${String(has)} \u4E2A ${kind}\uFF0C\u8981\u4E22 ${String(n)} \u4E2A`));
+  }
+  const cells = findFreeCells(opts.plan, opts.tasks, opts.x, opts.z, n, opts.searchCells);
+  if (cells === null) {
+    return err(
+      engineError(
+        DROP_NO_SPACE,
+        `\u9644\u8FD1\u6CA1\u6709\u8DB3\u591F\u591A\u7684\u7A7A\u5730\u653E\u4E0B ${String(n)} \u4E2A${kind}\uFF08\u5DF2\u5916\u6269\u5230 ${String(Math.max(0, Math.floor(opts.searchCells ?? 3)) + 2)} \u683C\uFF09`
+      )
+    );
+  }
+  const nodeIds = [];
+  for (const cell of cells) {
+    const placed = opts.tasks.placeResource(cell, kind, opts.bornTick);
+    if (!placed.ok) {
+      for (let i = 0; i < nodeIds.length; i++) {
+        scene.destroy(nodeIds[i]);
+        opts.tasks.releaseCell(cells[i]);
+      }
+      scene.flush();
+      return placed;
+    }
+    nodeIds.push(placed.value);
+  }
+  const took = takeItem(scene, ownerId, kind, n);
+  if (!took.ok) return took;
+  return ok({ cells, nodeIds, dropped: n });
+}
+
+// src/extensions/worldgen/spawn.ts
+var PLAYER_TYPE = "world.player";
+var PLAYER_FRAME = "player";
+var SPAWN_NO_SPRITE_COMPONENT = "SPAWN.NO_SPRITE_COMPONENT";
+var SPAWN_ALREADY_SPAWNED = "SPAWN.ALREADY_SPAWNED";
+var PLAYER_SCHEMA = {
+  type: PLAYER_TYPE,
+  fields: {
+    /** 出生格（升序下标）。玩家走开之后这个字段仍然是"他是从哪开始的"。 */
+    cell: FieldType.Int
+  }
+};
+var PlayerSpawn = class extends Component {
+  schema = PLAYER_SCHEMA;
+  cell = 0;
+};
+function registerPlayerComponent(registry) {
+  if (!registry.has(PLAYER_TYPE)) registry.register(PLAYER_SCHEMA, () => new PlayerSpawn());
+}
+function spawnPlayer(scene, plan) {
+  if (!scene.components.has(SPRITE_TYPE)) {
+    return err(
+      engineError(
+        SPAWN_NO_SPRITE_COMPONENT,
+        "\u7EC4\u4EF6\u7C7B\u578B render.sprite \u672A\u6CE8\u518C \u2014\u2014 \u73A9\u5BB6\u4F1A\u6CA1\u6709\u8EAB\u4F53\uFF08\u6E32\u67D3\u6A21\u5757\u542F\u52A8\u65F6\u4F1A\u6CE8\u518C\uFF09"
+      )
+    );
+  }
+  if (!scene.components.has(PLAYER_TYPE)) {
+    return err(
+      engineError(SPAWN_NO_SPRITE_COMPONENT, "\u7EC4\u4EF6\u7C7B\u578B world.player \u672A\u6CE8\u518C \u2014\u2014 \u5148 registerPlayerComponent(...)")
+    );
+  }
+  const existing = [...scene.componentsOf(PLAYER_TYPE)];
+  if (existing.length > 0) {
+    return err(
+      engineError(SPAWN_ALREADY_SPAWNED, "\u573A\u666F\u91CC\u5DF2\u7ECF\u6709\u73A9\u5BB6\u4E86 \u2014\u2014 \u91CD\u590D\u51FA\u751F\u4F1A\u8BA9\u4E24\u4E2A\u63A7\u5236\u5668\u62A2\u540C\u4E00\u4E2A\u4F4D\u7F6E")
+    );
+  }
+  const pick = pickSpawn(plan);
+  if (!pick.ok) return pick;
+  const sp = pick.value;
+  const made = scene.spawnAt("player", sp.x / FIXED_UNITS, sp.z / FIXED_UNITS);
+  if (!made.ok) return made;
+  const nodeId = made.value.id;
+  scene.attach(nodeId, () => {
+    const s = new Sprite();
+    s.frame = PLAYER_FRAME;
+    s.width = 1;
+    s.height = 1;
+    s.pivotY = 0;
+    return s;
+  });
+  scene.attach(nodeId, () => {
+    const marker = new PlayerSpawn();
+    marker.cell = sp.cell;
+    return marker;
+  });
+  scene.flush();
+  return ok({ nodeId, cell: sp.cell, x: sp.x, z: sp.z });
+}
+
+// src/extensions/render/world-visuals.ts
+var VISUAL_MISSING_FRAME = "VISUAL.MISSING_FRAME";
+var VISUAL_NO_SPRITE_COMPONENT = "VISUAL.NO_SPRITE_COMPONENT";
+var UNMAPPED_LABEL = "\uFF08\u672A\u6620\u5C04\u7684\u79CD\u7C7B\uFF09";
+var SITE_FRAMES = {
+  tree: "tree",
+  rock: "rock",
+  berry: "berry",
+  flint: "rock",
+  grass_tuft: "berry",
+  reed: "berry"
+};
+var TERRAIN_FRAME = "terrain";
+var TERRAIN_TILE_PAGE = "terrain.tile";
+var BIOME_TINT = {
+  ocean: [0.16, 0.32, 0.55],
+  beach: [0.85, 0.78, 0.55],
+  grass: [0.42, 0.62, 0.3],
+  forest: [0.24, 0.46, 0.26],
+  rocky: [0.52, 0.5, 0.48],
+  cliff: [0.38, 0.36, 0.4],
+  savanna: [0.72, 0.66, 0.36],
+  marsh: [0.36, 0.44, 0.38]
+};
+function hasSprite(s, nodeId) {
+  const node = s.find(nodeId);
+  return node?.get(SPRITE_TYPE) !== void 0;
+}
+function attachWorldVisuals(scene, availableFrames) {
+  const plans = [];
+  for (const area of scene.componentsOf(TERRAIN_TYPE)) {
+    if (area.node === null) continue;
+    const tint = BIOME_TINT[area.kind];
+    plans.push({
+      nodeId: area.node.id,
+      frame: TERRAIN_FRAME,
+      atlasId: TERRAIN_TILE_PAGE,
+      kind: `terrain:${area.kind}`,
+      width: area.w,
+      height: area.h,
+      // ★ 背景层：地面永远先画、永远被实体盖住。地形的 z 是矩形左上角的格子坐标，
+      //   与实体（格子中心）必然交错 —— 不分层会被一块地形盖住站在它上面的角色，
+      //   而且 draw 会被 z 序打散成几十段（T288 之后实测 29 段）。
+      layer: 0,
+      // ★ T288：按格平铺 —— 一块 w×h 的地形铺 w×h 张噪点，颗粒不随块变大。
+      //   必须是整数：0.5 次平铺在 GPU 上就是"半张被裁掉的贴图"，
+      //   而矩形格数天生是整数（`TerrainArea` 的 w/h 是格子数）。
+      tileX: Math.max(1, Math.floor(area.w)),
+      tileY: Math.max(1, Math.floor(area.h)),
+      // ★ (0,0)：矩形左上角 = 节点位置。用 0.5 会让整块地形右移半块、上移半块 ——
+      //   相邻块之间于是出现缝隙，而"缝隙"在 2.5D 斜视角下看起来像地表裂开了。
+      pivotX: 0,
+      pivotY: 0,
+      r: tint[0],
+      g: tint[1],
+      b: tint[2]
+    });
+  }
+  for (const m of scene.componentsOf(SITE_TYPE)) {
+    if (m.node === null) continue;
+    plans.push({
+      nodeId: m.node.id,
+      frame: SITE_FRAMES[m.kind] ?? null,
+      atlasId: "",
+      kind: `site:${m.kind}`,
+      tileX: 1,
+      tileY: 1,
+      width: 1,
+      height: 1,
+      layer: 1,
+      pivotX: 0.5,
+      // 脚踩地面：2.5D 里精灵的底边贴住它所在的格
+      pivotY: 0,
+      r: 1,
+      g: 1,
+      b: 1
+    });
+  }
+  for (const res of scene.componentsOf(RESOURCE_TYPE)) {
+    if (res.node === null) continue;
+    plans.push({
+      nodeId: res.node.id,
+      frame: SITE_FRAMES[res.kind] ?? null,
+      atlasId: "",
+      kind: `resource:${res.kind}`,
+      tileX: 1,
+      tileY: 1,
+      width: 1,
+      height: 1,
+      layer: 1,
+      pivotX: 0.5,
+      pivotY: 0,
+      r: 1,
+      g: 1,
+      b: 1
+    });
+  }
+  const available = new Set(availableFrames);
+  const missing = /* @__PURE__ */ new Map();
+  for (const p of plans) {
+    if (p.frame !== null && available.has(p.frame)) continue;
+    const key = p.frame ?? UNMAPPED_LABEL;
+    const set = missing.get(key) ?? /* @__PURE__ */ new Set();
+    set.add(p.kind);
+    missing.set(key, set);
+  }
+  if (missing.size > 0) {
+    const detail = [...missing.entries()].sort((a, b) => a[0] < b[0] ? -1 : 1).map(([frame, kinds]) => `${frame}\uFF08\u88AB ${[...kinds].sort().join(", ")} \u7528\u5230\uFF09`).join("\uFF1B");
+    return err(
+      engineError(
+        VISUAL_MISSING_FRAME,
+        `\u56FE\u96C6\u91CC\u6CA1\u6709\u8FD9\u4E9B\u5E27\uFF1A${detail} \u2014\u2014 \u7F3A\u5E27\u7684\u8D44\u6E90\u4F1A**\u9759\u9ED8\u4E0D\u663E\u793A**\uFF08\u6E32\u67D3\u6A21\u5757\u53EA warn \u4E00\u6B21\uFF09\uFF0C\u6240\u4EE5\u5728\u8FD9\u91CC\u62A5\u9519`
+      )
+    );
+  }
+  if (!scene.components.has(SPRITE_TYPE)) {
+    return err(
+      engineError(
+        VISUAL_NO_SPRITE_COMPONENT,
+        "\u7EC4\u4EF6\u7C7B\u578B render.sprite \u672A\u6CE8\u518C \u2014\u2014 \u5148 components.register(...)\uFF08\u6E32\u67D3\u6A21\u5757\u542F\u52A8\u65F6\u4F1A\u6CE8\u518C\uFF09"
+      )
+    );
+  }
+  let terrain = 0;
+  let sites = 0;
+  let resources = 0;
+  let skipped = 0;
+  const used = /* @__PURE__ */ new Set();
+  for (const p of plans) {
+    if (hasSprite(scene, p.nodeId)) {
+      skipped++;
+      continue;
+    }
+    const frame = p.frame;
+    if (frame === null) throw new Error(`world-visuals \u5185\u90E8\u9519\u8BEF\uFF1A${p.kind} \u7684\u5E27\u6620\u5C04\u5728\u68C0\u67E5\u4E4B\u540E\u53D8\u6210\u4E86 null`);
+    const made = scene.attach(p.nodeId, () => {
+      const sp = new Sprite();
+      sp.frame = frame;
+      sp.atlasId = p.atlasId;
+      sp.tileX = p.tileX;
+      sp.tileY = p.tileY;
+      sp.layer = p.layer;
+      sp.width = p.width;
+      sp.height = p.height;
+      sp.pivotX = p.pivotX;
+      sp.pivotY = p.pivotY;
+      sp.r = p.r;
+      sp.g = p.g;
+      sp.b = p.b;
+      return sp;
+    });
+    if (!made.ok) return made;
+    used.add(frame);
+    if (p.kind.startsWith("terrain:")) terrain++;
+    else if (p.kind.startsWith("site:")) sites++;
+    else resources++;
+  }
+  scene.flush();
+  return ok({
+    terrain,
+    sites,
+    resources,
+    frames: [...used].sort(),
+    skipped
+  });
+}
+
+// src/extensions/input/input-map.ts
+var INPUT_MAP_VERSION = 1;
+var DEFAULT_GROUP = "default";
+function badMap(message, detail) {
+  return detail === void 0 ? engineError("INPUT.BAD_MAP", message) : engineError("INPUT.BAD_MAP", message, detail);
+}
+function createInputMap(data) {
+  if (typeof data !== "object" || data === null) return err(badMap(`\u6620\u5C04\u8868\u5FC5\u987B\u662F\u5BF9\u8C61\uFF0C\u6536\u5230 ${typeof data}`));
+  const d = data;
+  if (d.version !== INPUT_MAP_VERSION) {
+    return err(
+      badMap(`\u6620\u5C04\u8868\u7248\u672C\u5FC5\u987B\u662F ${INPUT_MAP_VERSION}\uFF0C\u6536\u5230 ${JSON.stringify(d.version)}\uFF08\u4E0D\u505A"\u731C\u683C\u5F0F"\u7684\u517C\u5BB9\uFF09`, {
+        version: d.version
+      })
+    );
+  }
+  if (typeof d.actions !== "object" || d.actions === null || Array.isArray(d.actions)) {
+    return err(badMap("actions \u5FC5\u987B\u662F\u300C\u52A8\u4F5C\u540D \u2192 \u7ED1\u5B9A\u300D\u7684\u5BF9\u8C61"));
+  }
+  const actions = /* @__PURE__ */ new Map();
+  for (const [name, rawSpec] of Object.entries(d.actions)) {
+    if (name.trim() === "") return err(badMap("\u52A8\u4F5C\u540D\u4E0D\u80FD\u4E3A\u7A7A\u5B57\u7B26\u4E32"));
+    if (typeof rawSpec !== "object" || rawSpec === null) {
+      return err(badMap(`\u52A8\u4F5C "${name}" \u7684\u7ED1\u5B9A\u5FC5\u987B\u662F\u5BF9\u8C61`, { action: name }));
+    }
+    const spec = rawSpec;
+    if (!Array.isArray(spec.keys)) {
+      return err(badMap(`\u52A8\u4F5C "${name}" \u7684 keys \u5FC5\u987B\u662F\u5B57\u7B26\u4E32\u6570\u7EC4`, { action: name }));
+    }
+    if (spec.group !== void 0 && (typeof spec.group !== "string" || spec.group.trim() === "")) {
+      return err(badMap(`\u52A8\u4F5C "${name}" \u7684 group \u5FC5\u987B\u662F\u975E\u7A7A\u5B57\u7B26\u4E32`, { action: name }));
+    }
+    const seen = /* @__PURE__ */ new Set();
+    const keys = [];
+    for (const k of spec.keys) {
+      if (typeof k !== "string" || k.trim() === "") {
+        return err(badMap(`\u52A8\u4F5C "${name}" \u91CC\u6709\u975E\u5B57\u7B26\u4E32\u6216\u7A7A\u7684\u952E\u7801\uFF1A${JSON.stringify(k)}`, { action: name }));
+      }
+      if (seen.has(k)) {
+        return err(
+          engineError("INPUT.DUPLICATE_KEY", `\u52A8\u4F5C "${name}" \u91CC\u952E\u7801 "${k}" \u51FA\u73B0\u4E86\u4E24\u6B21`, { action: name, key: k })
+        );
+      }
+      seen.add(k);
+      keys.push(k);
+    }
+    actions.set(name, { keys, group: spec.group ?? DEFAULT_GROUP });
+  }
+  const owner = /* @__PURE__ */ new Map();
+  for (const [name, spec] of actions) {
+    for (const k of spec.keys) {
+      const prev = owner.get(k);
+      if (prev === void 0) {
+        owner.set(k, { group: spec.group, action: name });
+        continue;
+      }
+      if (prev.group !== spec.group) continue;
+      return err(
+        engineError(
+          "INPUT.KEY_CONFLICT",
+          `\u952E "${k}" \u540C\u65F6\u7ED1\u5728 "${prev.action}" \u4E0E "${name}" \u4E0A\uFF08\u4E24\u8005\u90FD\u5728\u4E92\u65A5\u7EC4 "${prev.group}" \u91CC\uFF09 \u2014\u2014 \u8981\u4E48\u5220\u6389\u4E00\u4E2A\uFF0C\u8981\u4E48\u628A\u5B83\u4EEC\u58F0\u660E\u663E\u5F0F\u5206\u5230\u4E0D\u540C\u7EC4`,
+          { key: k, a: prev.action, b: name, group: prev.group }
+        )
+      );
+    }
+  }
+  const names = [...actions.keys()].sort();
+  const require2 = (action, who) => {
+    const a = actions.get(action);
+    if (a === void 0) {
+      throw new Error(
+        `${who}\uFF1A\u6620\u5C04\u8868\u91CC\u6CA1\u6709\u52A8\u4F5C "${action}"\uFF08\u73B0\u6709\uFF1A${names.join(", ")}\uFF09\u2014\u2014 \u62FC\u9519\u4E86\uFF1F`
+      );
+    }
+    return a;
+  };
+  const anyDown = (snap, action) => {
+    for (const k of require2(action, "isDown").keys) if (snap.keysDown.has(k)) return true;
+    return false;
+  };
+  return ok({
+    names,
+    keysOf(action) {
+      return require2(action, "keysOf").keys;
+    },
+    isDown(snap, action) {
+      return anyDown(snap, action);
+    },
+    justPressed(snap, action) {
+      for (const k of require2(action, "justPressed").keys) if (snap.keysPressed.has(k)) return true;
+      return false;
+    },
+    axis(snap, neg, pos) {
+      const lo = neg === null ? 0 : anyDown(snap, neg) ? 1 : 0;
+      const hi = pos === null ? 0 : anyDown(snap, pos) ? 1 : 0;
+      return hi - lo;
+    },
+    toData() {
+      const out = {};
+      for (const [name, spec] of actions) out[name] = { keys: [...spec.keys], group: spec.group };
+      return { version: INPUT_MAP_VERSION, actions: out };
+    }
+  });
+}
+var DEFAULT_INPUT_MAP_DATA = {
+  version: INPUT_MAP_VERSION,
+  actions: {
+    move_left: { keys: ["KeyA", "ArrowLeft", "Gamepad0.LStickLeft", "Gamepad0.DPadLeft"], group: "move" },
+    move_right: { keys: ["KeyD", "ArrowRight", "Gamepad0.LStickRight", "Gamepad0.DPadRight"], group: "move" },
+    move_forward: { keys: ["KeyW", "ArrowUp", "Gamepad0.LStickUp", "Gamepad0.DPadUp"], group: "move" },
+    move_back: { keys: ["KeyS", "ArrowDown", "Gamepad0.LStickDown", "Gamepad0.DPadDown"], group: "move" },
+    // 下面这些动作同属一个组：它们的键**互相不能共用**，否则"按一下砍树也存了档"
+    harvest: { keys: ["KeyG", "Gamepad0.A"], group: "action" },
+    chop: { keys: ["KeyH", "Gamepad0.B"], group: "action" },
+    /**
+     * 打一下（批66）。`Space` 在这个组里是空的；手柄用 RT ——
+     * `Gamepad0.RT` 由输入后端合成（映射表不知道 getGamepads 长什么样）。
+     */
+    attack: { keys: ["Space", "Gamepad0.RT"], group: "action" },
+    /**
+     * 吃一口（批67）。**自动挑最有营养的那一种** —— 不为"吃哪个"再开一个面板：
+     * 背包里能吃的东西通常只有一两样，而"先选再吃"会把一次按键变成三步操作。
+     */
+    eat: { keys: ["KeyE", "Gamepad0.LT"], group: "action" },
+    /**
+     * 做一件（批68）。做**表里第一条现在就能做的** —— 不弹面板，理由见
+     * `craftSomething`：能否做完全由背包决定，一次按键 + 一句提示就够。
+     */
+    craft: { keys: ["KeyC", "Gamepad0.RB"], group: "action" },
+    // 背包面板开关（饥荒同款键位）与丢弃选中堆。Tab 由宿主 preventDefault
+    // （否则焦点会跳到浏览器 UI 上，"打开背包"变成"跳出页面"）
+    bag: { keys: ["Tab", "Gamepad0.Y"], group: "action" },
+    drop: { keys: ["KeyQ", "Gamepad0.X"], group: "action" },
+    save: { keys: ["F5", "Gamepad0.Start"], group: "system" },
+    load: { keys: ["F9", "Gamepad0.Select"], group: "system" },
+    restart: { keys: ["KeyR"], group: "system" }
+  }
+};
+var DEFAULT_INPUT_MAP = (() => {
+  const r = createInputMap(DEFAULT_INPUT_MAP_DATA);
+  if (!r.ok) throw new Error(`\u9ED8\u8BA4\u6620\u5C04\u8868\u672C\u8EAB\u4E0D\u5408\u6CD5\uFF1A${r.error.message}`);
+  return r.value;
+})();
+
+// src/extensions/input/player-controller.ts
+var CONTROLLER_TYPE = "game.controller";
+var PlayerController = class extends Component {
+  /** 每秒移动多少个世界单位。 */
+  speed = 4.5;
+  /** 去重用的"上次 poll 是哪个 tick"（不进 schema：它是运行期状态，不该进存档）。 */
+  lastTick = -1;
+  snapshot = null;
+  schema = {
+    type: CONTROLLER_TYPE,
+    fields: { speed: FieldType.Float }
+  };
+};
+function registerControllerComponent(registry) {
+  if (!registry.has(CONTROLLER_TYPE)) registry.register(SCHEMA, () => new PlayerController());
+}
+var SCHEMA = { type: CONTROLLER_TYPE, fields: { speed: FieldType.Float } };
+function directionFromMap(map, snap) {
+  return {
+    dx: map.axis(snap, "move_left", "move_right"),
+    dz: map.axis(snap, "move_back", "move_forward")
+  };
+}
+var EMPTY_KEYS = /* @__PURE__ */ new Set();
+function stepOf(snap, speed, dt, map = DEFAULT_INPUT_MAP) {
+  const d = directionFromMap(map, snap);
+  const len = Math.hypot(d.dx, d.dz);
+  if (len === 0) return { dx: 0, dz: 0 };
+  return { dx: d.dx / len * speed * dt, dz: d.dz / len * speed * dt };
+}
+function createControllerModule(opts) {
+  let scene = null;
+  let driven = 0;
+  let lastTick = -1;
+  const map = opts.map ?? DEFAULT_INPUT_MAP;
+  let snapshot = {
+    keysDown: EMPTY_KEYS,
+    keysPressed: EMPTY_KEYS,
+    keysReleased: EMPTY_KEYS,
+    pointer: { x: 0, y: 0, down: false, pressed: false, released: false, button: 0 },
+    wheel: { dx: 0, dy: 0 },
+    text: ""
+  };
+  const mod = {
+    id: opts.id ?? "game.controller",
+    get driven() {
+      return driven;
+    },
+    get snapshot() {
+      return snapshot;
+    },
+    get map() {
+      return map;
+    },
+    init(ctx) {
+      const got = ctx.services.get(Services.Scene);
+      if (got === void 0) {
+        return err(engineError("CONTROLLER.NO_SCENE", "\u63A7\u5236\u5668\u6A21\u5757\u9700\u8981\u4E00\u4E2A Scene\uFF08\u5148\u6CE8\u518C Services.Scene\uFF09"));
+      }
+      scene = got;
+      return ok(void 0);
+    },
+    update(tick, dt) {
+      const s = scene;
+      if (s === null) return;
+      if (tick === lastTick) return;
+      lastTick = tick;
+      snapshot = opts.poll();
+      let n = 0;
+      for (const c of s.componentsOf(CONTROLLER_TYPE)) {
+        const node = c.node;
+        if (node === null) continue;
+        const step = stepOf(snapshot, c.speed, dt, map);
+        if (step.dx !== 0 || step.dz !== 0) {
+          node.setLocalPosition(node.localPosition.x + step.dx, node.localPosition.y + step.dz);
+        }
+        n++;
+      }
+      driven = n;
+    },
+    describe() {
+      return `\u63A7\u5236\u5668\uFF1A\u6BCF tick \u9A71\u52A8 ${String(driven)} \u4E2A\u73A9\u5BB6`;
+    }
+  };
+  return mod;
+}
+
+// src/extensions/nav/nav-grid.ts
+var NAV_BAD_GRID = "NAV.BAD_GRID";
+var NAV_OUT_OF_RANGE = "NAV.OUT_OF_RANGE";
+var NAV_BLOCKED = "NAV.BLOCKED";
+var NAV_NO_PATH = "NAV.NO_PATH";
+var NAV_TOO_COMPLEX = "NAV.TOO_COMPLEX";
+var STRAIGHT_COST = 10;
+var DIAGONAL_COST = 14;
+var DIRS = [
+  [1, 0, STRAIGHT_COST],
+  [-1, 0, STRAIGHT_COST],
+  [0, 1, STRAIGHT_COST],
+  [0, -1, STRAIGHT_COST],
+  [1, 1, DIAGONAL_COST],
+  [1, -1, DIAGONAL_COST],
+  [-1, 1, DIAGONAL_COST],
+  [-1, -1, DIAGONAL_COST]
+];
+var OpenHeap = class {
+  f = [];
+  h = [];
+  c = [];
+  get size() {
+    return this.c.length;
+  }
+  push(f, h, c) {
+    this.f.push(f);
+    this.h.push(h);
+    this.c.push(c);
+    let i = this.c.length - 1;
+    while (i > 0) {
+      const p = i - 1 >> 1;
+      if (!this.less(i, p)) break;
+      this.swap(i, p);
+      i = p;
+    }
+  }
+  pop() {
+    const top = this.c[0];
+    const lastIdx = this.c.length - 1;
+    this.swap(0, lastIdx);
+    this.f.pop();
+    this.h.pop();
+    this.c.pop();
+    let i = 0;
+    for (; ; ) {
+      const l = i * 2 + 1;
+      const r = l + 1;
+      let best = i;
+      if (l < this.c.length && this.less(l, best)) best = l;
+      if (r < this.c.length && this.less(r, best)) best = r;
+      if (best === i) break;
+      this.swap(i, best);
+      i = best;
+    }
+    return top;
+  }
+  less(i, j) {
+    const fi = this.f[i];
+    const fj = this.f[j];
+    if (fi !== fj) return fi < fj;
+    const hi = this.h[i];
+    const hj = this.h[j];
+    if (hi !== hj) return hi < hj;
+    return this.c[i] < this.c[j];
+  }
+  swap(i, j) {
+    const f = this.f[i];
+    this.f[i] = this.f[j];
+    this.f[j] = f;
+    const h = this.h[i];
+    this.h[i] = this.h[j];
+    this.h[j] = h;
+    const c = this.c[i];
+    this.c[i] = this.c[j];
+    this.c[j] = c;
+  }
+};
+var NavGrid = class _NavGrid {
+  width;
+  height;
+  mask;
+  /** 连通分量标号；-1 = 未标。惰性填充，见 `componentOf`。 */
+  labels;
+  labelCount = 0;
+  /** ★ 单独一个布尔：全图不可站时 `labelCount` 也是 0，用它区分"没算过"和"算出来是 0 个"。 */
+  labeled = false;
+  constructor(width, height, walkable) {
+    if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
+      throw new RangeError(`\u5BFC\u822A\u7F51\u683C\u5C3A\u5BF8\u5FC5\u987B\u662F\u6B63\u6574\u6570\uFF0C\u5F97\u5230 ${String(width)}x${String(height)}`);
+    }
+    if (walkable.length !== width * height) {
+      throw new RangeError(`\u63A9\u7801\u957F\u5EA6 ${String(walkable.length)} \u4E0E ${String(width)}x${String(height)} \u4E0D\u7B26`);
+    }
+    this.width = width;
+    this.height = height;
+    this.mask = walkable;
+    this.labels = new Int32Array(width * height).fill(-1);
+  }
+  /** 由生成计划构造（`kinds` 走群系表）。 */
+  static fromPlan(plan) {
+    const total = plan.width * plan.height;
+    if (plan.kinds.length !== total) {
+      return err(
+        engineError(
+          NAV_BAD_GRID,
+          `\u8BA1\u5212\u7684 kinds \u957F\u5EA6 ${String(plan.kinds.length)} \u4E0E ${String(plan.width)}x${String(plan.height)} \u4E0D\u7B26`
+        )
+      );
+    }
+    const mask = new Uint8Array(total);
+    for (let i = 0; i < total; i++) mask[i] = isPassable(plan.kinds[i]) ? 1 : 0;
+    return ok(new _NavGrid(plan.width, plan.height, mask));
+  }
+  /**
+   * 由**装配后的场景**构造。
+   *
+   * ★ 只读组件里的 `passable` 字段，不再查群系表。
+   *   这正是 `assemble.ts` 里 `sceneComponents` 踩过的坑：两条输入源混在一起时，
+   *   "某块地形的 passable 写错了"会被另一条源抹平，判据全绿而地图是错的。
+   *   漏格（没有任何地形覆盖）直接报错 —— 缺失不等于"不能走"。
+   */
+  static fromScene(scene, width, height) {
+    const total = width * height;
+    const mask = new Int8Array(total).fill(-1);
+    for (const area of scene.componentsOf(TERRAIN_TYPE)) {
+      for (let dz = 0; dz < area.h; dz++) {
+        for (let dx = 0; dx < area.w; dx++) {
+          const x = area.cx + dx;
+          const z = area.cz + dz;
+          if (x < 0 || z < 0 || x >= width || z >= height) {
+            return err(
+              engineError(
+                NAV_BAD_GRID,
+                `\u5730\u5F62\u8282\u70B9\u8D8A\u754C\uFF1A(${String(x)}, ${String(z)}) \u8D85\u51FA ${String(width)}x${String(height)}`
+              )
+            );
+          }
+          mask[z * width + x] = area.passable ? 1 : 0;
+        }
+      }
+    }
+    for (let i = 0; i < total; i++) {
+      if (mask[i] === -1) {
+        return err(engineError(NAV_BAD_GRID, `\u7B2C ${String(i)} \u683C\u6CA1\u6709\u5730\u5F62\u8986\u76D6\uFF0C\u65E0\u6CD5\u5EFA\u5BFC\u822A\u7F51\u683C`));
+      }
+    }
+    const out = new Uint8Array(total);
+    for (let i = 0; i < total; i++) out[i] = mask[i] === 1 ? 1 : 0;
+    return ok(new _NavGrid(width, height, out));
+  }
+  get total() {
+    return this.width * this.height;
+  }
+  /** 格子坐标 → 下标；越界返回 -1。 */
+  indexOf(cx, cz) {
+    if (!Number.isInteger(cx) || !Number.isInteger(cz)) return -1;
+    if (cx < 0 || cz < 0 || cx >= this.width || cz >= this.height) return -1;
+    return cz * this.width + cx;
+  }
+  cellX(index) {
+    return index % this.width;
+  }
+  cellZ(index) {
+    return (index - index % this.width) / this.width;
+  }
+  /** 格子中心的世界坐标（`+0.5` 与 `spawn.ts` 的出生点同源）。 */
+  centerOf(index) {
+    return { x: this.cellX(index) + 0.5, z: this.cellZ(index) + 0.5 };
+  }
+  /** 世界坐标 → 格子下标。1 世界单位 = 1 格（`FIXED_UNITS` 除下来正好）。 */
+  cellAt(x, z) {
+    return this.indexOf(Math.floor(x), Math.floor(z));
+  }
+  isWalkableIndex(index) {
+    return index >= 0 && index < this.mask.length && this.mask[index] === 1;
+  }
+  isWalkable(cx, cz) {
+    return this.isWalkableIndex(this.indexOf(cx, cz));
+  }
+  /**
+   * 找离 `(cx, cz)` 最近的可站立格；找不到返回 -1。
+   *
+   * ★ 同一圈内取**距离平方最小**、平手取**下标最小**，不是"环上第一个遇到的"。
+   *   后者取决于扫描方向，于是"被推到海里的怪该回到哪块岸"取决于遍历序 ——
+   *   回放里就是另一条路。
+   */
+  nearestWalkable(cx, cz, maxRadius = 6) {
+    if (this.isWalkable(cx, cz)) return this.indexOf(cx, cz);
+    for (let r = 1; r <= maxRadius; r++) {
+      let best = -1;
+      let bestD2 = Infinity;
+      for (let dz = -r; dz <= r; dz++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+          const x = cx + dx;
+          const z = cz + dz;
+          const i = this.indexOf(x, z);
+          if (i < 0 || this.mask[i] !== 1) continue;
+          const d2 = dx * dx + dz * dz;
+          if (d2 < bestD2 || d2 === bestD2 && i < best) {
+            best = i;
+            bestD2 = d2;
+          }
+        }
+      }
+      if (best >= 0) return best;
+    }
+    return -1;
+  }
+  /**
+   * 连通分量标号（惰性全图标注一次）。
+   *
+   * ★ 与 A* 共用同一套邻居规则（见文件头 ④），否则会出现
+   *   "分量说是通的、寻路说没路"这种自相矛盾的报告。
+   */
+  componentOf(index) {
+    if (index < 0 || index >= this.mask.length) return -1;
+    if (this.labels[index] >= 0) return this.labels[index];
+    if (this.mask[index] !== 1) return -1;
+    this.labelAll();
+    return this.labels[index];
+  }
+  get componentCount() {
+    if (!this.labeled) this.labelAll();
+    return this.labelCount;
+  }
+  labelAll() {
+    if (this.labeled) return;
+    this.labeled = true;
+    const labels = this.labels;
+    const stack = [];
+    let next = 0;
+    for (let start = 0; start < this.mask.length; start++) {
+      if (this.mask[start] !== 1 || labels[start] >= 0) continue;
+      labels[start] = next;
+      stack.push(start);
+      while (stack.length > 0) {
+        const cur = stack.pop();
+        const cx = this.cellX(cur);
+        const cz = this.cellZ(cur);
+        for (const [dx, dz] of DIRS) {
+          const n = this.neighborOf(cx, cz, dx, dz);
+          if (n < 0 || labels[n] >= 0) continue;
+          labels[n] = next;
+          stack.push(n);
+        }
+      }
+      next++;
+    }
+    this.labelCount = next;
+  }
+  /**
+   * 邻居判定：越界/不可走/切角 → -1。
+   *
+   * ★ 这是全类唯一一处定义"相邻"的地方，`labelAll` 与 `findPath` 都走它。
+   *   抄两份的后果是"分量连通但寻不到路"，而两边的判据各自都绿。
+   */
+  neighborOf(cx, cz, dx, dz) {
+    const n = this.indexOf(cx + dx, cz + dz);
+    if (n < 0 || this.mask[n] !== 1) return -1;
+    if (dx !== 0 && dz !== 0) {
+      if (!this.isWalkable(cx + dx, cz) || !this.isWalkable(cx, cz + dz)) return -1;
+    }
+    return n;
+  }
+  /**
+   * A*。`from` / `to` 是格子下标。
+   *
+   * 起点或终点不可站时先吸附到附近空格（`snapped: true` 会写在结果里）——
+   * 静默吸附是危险的，调用方需要知道"它其实走不到你指的那一格"。
+   */
+  findPath(from, to, opts = {}) {
+    if (from < 0 || from >= this.total || to < 0 || to >= this.total) {
+      return err(
+        engineError(
+          NAV_OUT_OF_RANGE,
+          `\u5BFB\u8DEF\u4E0B\u6807\u8D8A\u754C\uFF1A${String(from)} \u2192 ${String(to)}\uFF08\u5171 ${String(this.total)} \u683C\uFF09`
+        )
+      );
+    }
+    const maxExpanded = opts.maxExpanded ?? 2e5;
+    const snapRadius = opts.snapRadius ?? 6;
+    let start = from;
+    let goal = to;
+    let snapped = false;
+    if (this.mask[start] !== 1) {
+      const s = this.nearestWalkable(this.cellX(from), this.cellZ(from), snapRadius);
+      if (s < 0) {
+        return err(engineError(NAV_BLOCKED, `\u8D77\u70B9 ${String(from)} \u4E0D\u53EF\u7AD9\uFF0C\u9644\u8FD1 ${String(snapRadius)} \u683C\u5185\u6CA1\u6709\u843D\u811A\u70B9`));
+      }
+      start = s;
+      snapped = true;
+    }
+    if (this.mask[goal] !== 1) {
+      const g = this.nearestWalkable(this.cellX(to), this.cellZ(to), snapRadius);
+      if (g < 0) {
+        return err(engineError(NAV_BLOCKED, `\u7EC8\u70B9 ${String(to)} \u4E0D\u53EF\u7AD9\uFF0C\u9644\u8FD1 ${String(snapRadius)} \u683C\u5185\u6CA1\u6709\u843D\u811A\u70B9`));
+      }
+      goal = g;
+      snapped = true;
+    }
+    if (start === goal) {
+      return ok({ cells: [start], cost: 0, expanded: 0, snapped, from: start, to: goal });
+    }
+    const total = this.total;
+    const width = this.width;
+    const gScore = new Int32Array(total).fill(-1);
+    const back = new Int32Array(total).fill(-1);
+    const closed = new Uint8Array(total);
+    const heap = new OpenHeap();
+    const gx = this.cellX(goal);
+    const gz = this.cellZ(goal);
+    const guess = (cell) => {
+      const dx = Math.abs(this.cellX(cell) - gx);
+      const dz = Math.abs(this.cellZ(cell) - gz);
+      return STRAIGHT_COST * (dx + dz) + (DIAGONAL_COST - 2 * STRAIGHT_COST) * Math.min(dx, dz);
+    };
+    gScore[start] = 0;
+    heap.push(guess(start), guess(start), start);
+    let expanded = 0;
+    let reached = false;
+    while (heap.size > 0) {
+      const cur = heap.pop();
+      if (closed[cur] === 1) continue;
+      closed[cur] = 1;
+      expanded++;
+      if (cur === goal) {
+        reached = true;
+        break;
+      }
+      if (expanded > maxExpanded) {
+        return err(
+          engineError(
+            NAV_TOO_COMPLEX,
+            `A* \u5C55\u5F00\u8D85\u8FC7 ${String(maxExpanded)} \u4E2A\u8282\u70B9\u4ECD\u672A\u5230\u8FBE ${String(goal)}\uFF08\u8D77\u70B9 ${String(start)}\uFF09`
+          )
+        );
+      }
+      const cx = cur % width;
+      const cz = (cur - cx) / width;
+      for (const [dx, dz, stepCost] of DIRS) {
+        const n = this.neighborOf(cx, cz, dx, dz);
+        if (n < 0 || closed[n] === 1) continue;
+        const ng = gScore[cur] + stepCost;
+        const old = gScore[n];
+        if (old >= 0 && ng >= old) continue;
+        gScore[n] = ng;
+        back[n] = cur;
+        const h = guess(n);
+        heap.push(ng + h, h, n);
+      }
+    }
+    if (!reached) {
+      return err(
+        engineError(
+          NAV_NO_PATH,
+          `\u4ECE ${String(start)} \u5230 ${String(goal)} \u6CA1\u6709\u53EF\u8D70\u7684\u8DEF\uFF08\u5C55\u5F00 ${String(expanded)} \u683C\uFF1B\u68C0\u67E5\u662F\u5426\u88AB\u6C34/\u60AC\u5D16\u9694\u65AD\uFF09`
+        )
+      );
+    }
+    const cells = [];
+    let walk = goal;
+    while (walk !== -1) {
+      cells.push(walk);
+      if (walk === start) break;
+      walk = back[walk];
+    }
+    cells.reverse();
+    return ok({ cells, cost: gScore[goal], expanded, snapped, from: start, to: goal });
+  }
+  stats() {
+    let walkable = 0;
+    for (let i = 0; i < this.mask.length; i++) if (this.mask[i] === 1) walkable++;
+    return {
+      width: this.width,
+      height: this.height,
+      walkable,
+      blocked: this.total - walkable,
+      components: this.labeled ? this.labelCount : -1
+    };
+  }
+  /** 导出掩码副本（存档/诊断用）。改动返回值不影响网格。 */
+  toMask() {
+    return this.mask.slice();
+  }
+};
+
+// src/extensions/combat/health.ts
+var HEALTH_TYPE = "combat.health";
+var COMBAT_NO_TARGET = "COMBAT.NO_TARGET";
+var COMBAT_NO_HEALTH = "COMBAT.NO_HEALTH";
+var COMBAT_BAD_AMOUNT = "COMBAT.BAD_AMOUNT";
+var COMBAT_TARGET_DEAD = "COMBAT.TARGET_DEAD";
+var COMBAT_INVULNERABLE = "COMBAT.INVULNERABLE";
+var Health = class extends Component {
+  /** 当前血量（整数，>= 0）。 */
+  hp = 10;
+  /** 上限（整数，> 0）。 */
+  maxHp = 10;
+  schema = {
+    type: HEALTH_TYPE,
+    fields: { hp: FieldType.Int, maxHp: FieldType.Int }
+  };
+  /**
+   * 无敌截止 tick（运行期，见文件头 ④）：`tick < invulnUntil` 时不受伤害。
+   * `-1` = 从来不无敌。
+   */
+  invulnUntil = -1;
+};
+function registerHealthComponent(registry) {
+  if (!registry.has(HEALTH_TYPE)) registry.register(new Health().schema, () => new Health());
+}
+function isDead(h) {
+  return h.hp <= 0;
+}
+function damage(scene, targetId, amount, opts = {}) {
+  if (!Number.isInteger(amount) || amount <= 0) {
+    return err(
+      engineError(COMBAT_BAD_AMOUNT, `\u4F24\u5BB3\u5FC5\u987B\u662F\u6B63\u6574\u6570\uFF0C\u6536\u5230 ${String(amount)}\uFF08\u5C0F\u6570\u4F1A\u8BA9"\u6B7B\u4E86\u6CA1\u6709"\u53D6\u51B3\u4E8E\u7D2F\u52A0\u6B21\u5E8F\uFF09`)
+    );
+  }
+  const node = scene.find(targetId);
+  if (node === void 0 || node === null) {
+    return err(engineError(COMBAT_NO_TARGET, `\u8282\u70B9 ${String(targetId)} \u4E0D\u5728\u573A\u666F\u91CC`));
+  }
+  const h = node.get(HEALTH_TYPE);
+  if (h === void 0) {
+    return err(engineError(COMBAT_NO_HEALTH, `\u8282\u70B9 ${String(targetId)} \u6CA1\u6709 ${HEALTH_TYPE}\uFF08\u5148 attach \u4E00\u4E2A Health\uFF09`));
+  }
+  if (isDead(h)) {
+    return err(
+      engineError(COMBAT_TARGET_DEAD, `\u8282\u70B9 ${String(targetId)} \u5DF2\u7ECF\u5F52\u96F6\uFF08hp=${String(h.hp)}\uFF09\u2014\u2014 \u6253\u5C38\u4F53\u901A\u5E38\u662F\u76EE\u6807\u9009\u62E9\u51FA\u9519`)
+    );
+  }
+  if (opts.tick !== void 0 && Number.isInteger(opts.tick) && opts.tick < h.invulnUntil) {
+    return err(
+      engineError(
+        COMBAT_INVULNERABLE,
+        `\u8282\u70B9 ${String(targetId)} \u8FD8\u5728\u65E0\u654C\u5E27\u91CC\uFF08tick ${String(opts.tick)} < ${String(h.invulnUntil)}\uFF09`
+      )
+    );
+  }
+  const before = h.hp;
+  const after = Math.max(0, before - amount);
+  h.hp = after;
+  if (opts.invulnTicks !== void 0 && opts.invulnTicks > 0 && opts.tick !== void 0) {
+    h.invulnUntil = opts.tick + opts.invulnTicks;
+  }
+  return ok({
+    nodeId: targetId,
+    before,
+    after,
+    applied: before - after,
+    overkill: Math.max(0, amount - before),
+    dead: after === 0
+  });
+}
+function heal(scene, targetId, amount) {
+  if (!Number.isInteger(amount) || amount <= 0) {
+    return err(engineError(COMBAT_BAD_AMOUNT, `\u56DE\u8840\u91CF\u5FC5\u987B\u662F\u6B63\u6574\u6570\uFF0C\u6536\u5230 ${String(amount)}`));
+  }
+  const node = scene.find(targetId);
+  if (node === void 0 || node === null) {
+    return err(engineError(COMBAT_NO_TARGET, `\u8282\u70B9 ${String(targetId)} \u4E0D\u5728\u573A\u666F\u91CC`));
+  }
+  const h = node.get(HEALTH_TYPE);
+  if (h === void 0) {
+    return err(engineError(COMBAT_NO_HEALTH, `\u8282\u70B9 ${String(targetId)} \u6CA1\u6709 ${HEALTH_TYPE}`));
+  }
+  if (isDead(h)) {
+    return err(engineError(COMBAT_TARGET_DEAD, `\u8282\u70B9 ${String(targetId)} \u5DF2\u7ECF\u5F52\u96F6 \u2014\u2014 \u56DE\u8840\u4E0D\u590D\u6D3B\uFF08\u590D\u6D3B\u8981\u6709\u5355\u72EC\u7684\u8BED\u4E49\uFF09`));
+  }
+  const before = h.hp;
+  h.hp = Math.min(h.maxHp, before + amount);
+  return ok(h.hp - before);
+}
+
+// src/extensions/combat/faction.ts
+var FACTION_TYPE = "combat.faction";
+var FACTION_BAD_INPUT = "FACTION.BAD_INPUT";
+var STANCES = ["ally", "foe", "neutral"];
+function isStance(v) {
+  return STANCES.includes(v);
+}
+var FactionMember = class extends Component {
+  /** 阵营名。**空串 = 中立**（在场但没编队）。 */
+  team = "";
+  schema = {
+    type: FACTION_TYPE,
+    fields: { team: FieldType.String }
+  };
+};
+function registerFactionComponent(registry) {
+  if (!registry.has(FACTION_TYPE)) registry.register(new FactionMember().schema, () => new FactionMember());
+}
+function teamOf(scene, nodeId) {
+  const node = scene.find(nodeId);
+  if (node === void 0 || node === null) return { team: "", hasComponent: false };
+  const m = node.get(FACTION_TYPE);
+  if (m === void 0) return { team: "", hasComponent: false };
+  return { team: m.team, hasComponent: true };
+}
+var Factions = class {
+  /** a → (b → stance)，**恒定对称**写入，见文件头 ③。 */
+  table = /* @__PURE__ */ new Map();
+  /**
+   * 设置两个阵营的关系（**双向**）。
+   *
+   * 报错而非覆盖的三种情况（见文件头 ②④）：
+   *  · `a`/`b` 为空串 —— 中立不是一个能用关系表编址的组（否则一次调用
+   *    就把"世界上所有中立单位"变成某人的敌人，而调用方以为自己只设了一对）；
+   *  · `a === b` —— 同队关系是不变量；
+   *  · `stance` 不在 `STANCES` 里 —— 拼错的 `"foe "` 会被当成未知关系。
+   */
+  setStance(a, b, stance) {
+    if (a.length === 0 || b.length === 0) {
+      return err(engineError(FACTION_BAD_INPUT, `\u9635\u8425\u540D\u4E0D\u80FD\u4E3A\u7A7A\u4E32\uFF08\u7A7A\u4E32 = \u4E2D\u7ACB\uFF0C\u4E2D\u7ACB\u4E0D\u53C2\u4E0E\u5173\u7CFB\u8868\uFF09\uFF1A\u6536\u5230\u300C${a}\u300D/\u300C${b}\u300D`));
+    }
+    if (a === b) {
+      return err(
+        engineError(FACTION_BAD_INPUT, `\u4E0D\u80FD\u7ED9\u300C${a}\u300D\u548C\u5B83\u81EA\u5DF1\u8BBE\u5173\u7CFB \u2014\u2014 \u540C\u961F\u6052\u4E3A ally\uFF08\u8981\u961F\u53CB\u4E92\u780D\u8BF7\u7528 attack({friendlyFire:true})\uFF09`)
+      );
+    }
+    if (!isStance(stance)) {
+      return err(engineError(FACTION_BAD_INPUT, `\u672A\u77E5\u5173\u7CFB\u300C${String(stance)}\u300D\uFF08\u53EA\u63A5\u53D7 ${STANCES.join(" / ")}\uFF09`));
+    }
+    this.put(a, b, stance);
+    this.put(b, a, stance);
+    return ok(true);
+  }
+  put(a, b, stance) {
+    let row = this.table.get(a);
+    if (row === void 0) {
+      row = /* @__PURE__ */ new Map();
+      this.table.set(a, row);
+    }
+    row.set(b, stance);
+  }
+  /**
+   * 判两方的立场。
+   *
+   * 顺序（判据按这个顺序写）：
+   *  1. 同名且非空 → `ally`（不查表）；
+   *  2. 表里有 → 表里的值；
+   *  3. 其余（含任一方为空串、含两方都空串）→ `neutral`。
+   */
+  stanceOf(a, b) {
+    if (a.length > 0 && a === b) return "ally";
+    const got = this.table.get(a)?.get(b);
+    return got ?? "neutral";
+  }
+  /** 是不是盟友（`attack()` 默认只拦这个）。 */
+  isAlly(a, b) {
+    return this.stanceOf(a, b) === "ally";
+  }
+  /** 关系的只读快照（按 `a` 再按 `b` 升序）—— 日志与判据读它不会因插入序而变。 */
+  pairs() {
+    const out = [];
+    for (const [a, row] of this.table) {
+      for (const [b, stance] of row) out.push({ a, b, stance });
+    }
+    out.sort((x, y) => x.a !== y.a ? x.a < y.a ? -1 : 1 : x.b < y.b ? -1 : x.b > y.b ? 1 : 0);
+    return out;
+  }
+};
+function createFactions() {
+  return new Factions();
+}
+
+// src/extensions/combat/attack.ts
+var ATTACKER_TYPE = "combat.attacker";
+var COMBAT_NO_ATTACKER = "COMBAT.NO_ATTACKER";
+var COMBAT_SELF = "COMBAT.SELF";
+var COMBAT_OUT_OF_RANGE = "COMBAT.OUT_OF_RANGE";
+var COMBAT_COOLDOWN = "COMBAT.COOLDOWN";
+var COMBAT_FRIENDLY_FIRE = "COMBAT.FRIENDLY_FIRE";
+var Attacker = class extends Component {
+  /** 每下多少伤害（整数，见 `health.ts` 文件头 ①）。 */
+  damage = 1;
+  /** 射程（世界单位）。 */
+  range = 1.6;
+  /** 两下之间至少隔多少 tick（0 = 每 tick 都能打）。 */
+  cooldownTicks = 20;
+  schema = {
+    type: ATTACKER_TYPE,
+    fields: { damage: FieldType.Int, range: FieldType.Float, cooldownTicks: FieldType.Int }
+  };
+  /** 上次成功命中的 tick（运行期，不进存档 —— 读档后的第一下不该"欠一次冷却"）。 */
+  lastHitTick = Number.NEGATIVE_INFINITY;
+};
+function registerAttackerComponent(registry) {
+  if (!registry.has(ATTACKER_TYPE)) registry.register(new Attacker().schema, () => new Attacker());
+}
+function attack(scene, attackerId, targetId, opts = {}) {
+  if (attackerId === targetId) {
+    return err(engineError(COMBAT_SELF, `\u8282\u70B9 ${String(attackerId)} \u60F3\u6253\u81EA\u5DF1 \u2014\u2014 \u901A\u5E38\u662F\u76EE\u6807\u9009\u62E9\u586B\u9519\u4E86`));
+  }
+  const attackerNode = scene.find(attackerId);
+  if (attackerNode === void 0 || attackerNode === null) {
+    return err(engineError(COMBAT_NO_ATTACKER, `\u653B\u51FB\u8005 ${String(attackerId)} \u4E0D\u5728\u573A\u666F\u91CC`));
+  }
+  const atk = attackerNode.get(ATTACKER_TYPE);
+  if (atk === void 0) {
+    return err(engineError(COMBAT_NO_ATTACKER, `\u8282\u70B9 ${String(attackerId)} \u6CA1\u6709 ${ATTACKER_TYPE}`));
+  }
+  if (!Number.isInteger(atk.damage) || atk.damage <= 0) {
+    return err(
+      engineError(COMBAT_NO_ATTACKER, `\u8282\u70B9 ${String(attackerId)} \u7684\u4F24\u5BB3\u914D\u7F6E\u4E0D\u5408\u6CD5\uFF1A${String(atk.damage)}\uFF08\u5FC5\u987B\u662F\u6B63\u6574\u6570\uFF09`)
+    );
+  }
+  if (!(atk.range > 0) || !Number.isFinite(atk.range)) {
+    return err(
+      engineError(COMBAT_NO_ATTACKER, `\u8282\u70B9 ${String(attackerId)} \u7684\u5C04\u7A0B\u914D\u7F6E\u4E0D\u5408\u6CD5\uFF1A${String(atk.range)}`)
+    );
+  }
+  if (!Number.isInteger(atk.cooldownTicks) || atk.cooldownTicks < 0) {
+    return err(
+      engineError(COMBAT_NO_ATTACKER, `\u8282\u70B9 ${String(attackerId)} \u7684\u51B7\u5374\u914D\u7F6E\u4E0D\u5408\u6CD5\uFF1A${String(atk.cooldownTicks)}`)
+    );
+  }
+  const targetNode = scene.find(targetId);
+  if (targetNode === void 0 || targetNode === null) {
+    return err(engineError(COMBAT_NO_TARGET, `\u76EE\u6807 ${String(targetId)} \u4E0D\u5728\u573A\u666F\u91CC`));
+  }
+  const hp = targetNode.get(HEALTH_TYPE);
+  if (hp === void 0) {
+    return err(engineError(COMBAT_NO_HEALTH, `\u76EE\u6807 ${String(targetId)} \u6CA1\u6709 ${HEALTH_TYPE}`));
+  }
+  if (isDead(hp)) {
+    return err(engineError(COMBAT_TARGET_DEAD, `\u76EE\u6807 ${String(targetId)} \u5DF2\u7ECF\u5F52\u96F6\uFF08hp=${String(hp.hp)}\uFF09`));
+  }
+  const factions = opts.factions;
+  let stance = "neutral";
+  if (factions !== void 0) {
+    const mine = teamOf(scene, attackerId).team;
+    const theirs = teamOf(scene, targetId).team;
+    stance = factions.stanceOf(mine, theirs);
+    if (stance === "ally" && opts.friendlyFire !== true) {
+      return err(
+        engineError(
+          COMBAT_FRIENDLY_FIRE,
+          `\u76EE\u6807 ${String(targetId)} \u662F\u53CB\u519B\uFF08\u9635\u8425\u300C${mine}\u300D\uFF09\u2014\u2014 \u8981\u5141\u8BB8\u53CB\u4F24\u8BF7\u663E\u5F0F\u4F20 friendlyFire: true`
+        )
+      );
+    }
+  }
+  const a = attackerNode.worldPosition;
+  const t = targetNode.worldPosition;
+  const dx = t.x - a.x;
+  const dz = t.y - a.y;
+  const dist2 = dx * dx + dz * dz;
+  if (dist2 > atk.range * atk.range) {
+    return err(
+      engineError(
+        COMBAT_OUT_OF_RANGE,
+        `\u76EE\u6807 ${String(targetId)} \u8DDD\u79BB ${Math.sqrt(dist2).toFixed(3)} \u8D85\u51FA\u5C04\u7A0B ${String(atk.range)}`
+      )
+    );
+  }
+  const tick = opts.tick;
+  const checkCd = tick !== void 0 && Number.isInteger(tick);
+  if (checkCd && tick - atk.lastHitTick < atk.cooldownTicks) {
+    return err(
+      engineError(
+        COMBAT_COOLDOWN,
+        `\u51B7\u5374\u672A\u597D\uFF1Atick ${String(tick)} \u8DDD\u4E0A\u6B21\u547D\u4E2D ${String(atk.lastHitTick)} \u53EA\u9694 ${String(tick - atk.lastHitTick)}\uFF08\u9700\u8981 ${String(atk.cooldownTicks)}\uFF09`
+      )
+    );
+  }
+  const dmg = damage(scene, targetId, atk.damage, {
+    tick: checkCd ? tick : void 0,
+    invulnTicks: opts.invulnTicks
+  });
+  if (!dmg.ok) return dmg;
+  if (checkCd) atk.lastHitTick = tick;
+  return ok({
+    attackerId,
+    targetId,
+    distance: Math.sqrt(dist2),
+    cooldownChecked: checkCd,
+    stance,
+    stanceChecked: factions !== void 0,
+    report: dmg.value
+  });
+}
+
+// src/extensions/nav/move-along.ts
+var ARRIVE_EPS = 1e-6;
+function stepAlong(grid, path, cursor, x, z, speed, dt) {
+  let i = Math.max(0, Math.min(cursor, path.length));
+  let px = x;
+  let pz = z;
+  let moved = 0;
+  let budget = speed * dt;
+  if (!Number.isFinite(px) || !Number.isFinite(pz)) {
+    return { x, z, cursor: i, done: i >= path.length, moved: 0 };
+  }
+  if (!(budget > 0) || !Number.isFinite(budget)) {
+    return { x: px, z: pz, cursor: i, done: i >= path.length, moved: 0 };
+  }
+  while (budget > 0 && i < path.length) {
+    const c = grid.centerOf(path[i]);
+    const dx = c.x - px;
+    const dz = c.z - pz;
+    const d = Math.hypot(dx, dz);
+    if (d <= ARRIVE_EPS) {
+      px = c.x;
+      pz = c.z;
+      i++;
+      continue;
+    }
+    if (d <= budget) {
+      px = c.x;
+      pz = c.z;
+      moved += d;
+      budget -= d;
+      i++;
+      continue;
+    }
+    px += dx / d * budget;
+    pz += dz / d * budget;
+    moved += budget;
+    budget = 0;
+  }
+  return { x: px, z: pz, cursor: i, done: i >= path.length, moved };
+}
+
+// src/extensions/ai/move.ts
+var MOVER_TYPE = "ai.mover";
+var AI_BAD_MOVE = "AI.BAD_MOVE";
+var Mover = class extends Component {
+  /** 每秒走多少世界单位。 */
+  speed = 2.2;
+  schema = {
+    type: MOVER_TYPE,
+    fields: { speed: FieldType.Float }
+  };
+  // ---- 以下全部是**运行期状态**，不进 schema、不进存档、不进指纹。
+  //      理由：路径是"从当前局面推出来的"，存档再读回来时局面已经变了；
+  //      把它存进去反而会让读档后的第一 tick 沿一条过期的路走。
+  /** 当前路径（格子下标序列）。 */
+  path = [];
+  /** 下一个要去的路点下标。 */
+  cursor = 0;
+  /** 当前路径对应的目标格；-1 = 没有目标。 */
+  goalCell = -1;
+  /** 已经走到目标上了（等目标变化再重算）。 */
+  arrived = false;
+  /** 上次算路失败的目标格与退避截止 tick（见文件头 ①）。 */
+  failCell = -1;
+  retryTick = 0;
+  /** 连续没挪动的 tick 数（见文件头 ③）。 */
+  stuckTicks = 0;
+};
+function registerMoverComponent(registry) {
+  if (!registry.has(MOVER_TYPE)) registry.register(new Mover().schema, () => new Mover());
+}
+function createMoveModule(opts) {
+  const { grid } = opts;
+  const stuckLimit = opts.stuckTicks ?? 12;
+  const stuckEps = opts.stuckEps ?? 1e-3;
+  const retryTicks = opts.retryTicks ?? 30;
+  let scene = null;
+  let paths = 0;
+  let unreachable = 0;
+  let stuck = 0;
+  let moving = 0;
+  let arrived = 0;
+  let idle = 0;
+  const handle = {
+    id: opts.id ?? "ai.move",
+    get stats() {
+      const s = scene;
+      return {
+        agents: s === null ? 0 : [...s.componentsOf(MOVER_TYPE)].length,
+        moving,
+        arrived,
+        idle,
+        paths,
+        unreachable,
+        stuck
+      };
+    },
+    pathOf(nodeId) {
+      const s = scene;
+      if (s === null) return [];
+      for (const m of s.componentsOf(MOVER_TYPE)) {
+        if (m.node?.id === nodeId) return m.path.slice();
+      }
+      return [];
+    },
+    init(ctx) {
+      const got = ctx.services.get(Services.Scene);
+      if (got === void 0) {
+        return err(engineError(AI_BAD_MOVE, "\u79FB\u52A8\u6A21\u5757\u9700\u8981\u4E00\u4E2A Scene\uFF08\u5148\u6CE8\u518C Services.Scene\uFF09"));
+      }
+      scene = got;
+      return ok(void 0);
+    },
+    update(tick, dt) {
+      const s = scene;
+      if (s === null) return;
+      moving = 0;
+      arrived = 0;
+      idle = 0;
+      const agents = [...s.componentsOf(MOVER_TYPE)];
+      agents.sort((a, b) => (a.node?.id ?? -1) - (b.node?.id ?? -1));
+      for (const m of agents) {
+        const node = m.node;
+        if (node === null || !node.activeInHierarchy) continue;
+        if (!(m.speed > 0) || !Number.isFinite(m.speed)) {
+          idle++;
+          continue;
+        }
+        const goal = opts.decide(node.id, tick);
+        if (goal === null) {
+          m.path.length = 0;
+          m.cursor = 0;
+          m.goalCell = -1;
+          m.arrived = false;
+          idle++;
+          continue;
+        }
+        if (m.arrived && goal === m.goalCell) {
+          idle++;
+          continue;
+        }
+        if (goal === m.failCell && tick < m.retryTick) {
+          idle++;
+          continue;
+        }
+        if (goal !== m.goalCell || m.path.length === 0) {
+          if (!plan(m, node, goal, tick)) {
+            idle++;
+            continue;
+          }
+        }
+        const wp = node.worldPosition;
+        const r = stepAlong(grid, m.path, m.cursor, wp.x, wp.y, m.speed, dt);
+        m.cursor = r.cursor;
+        if (r.moved > 0) {
+          const lp = node.localPosition;
+          node.setLocalPosition(lp.x + (r.x - wp.x), lp.y + (r.z - wp.y));
+          moving++;
+        }
+        if (r.done) {
+          m.arrived = true;
+          m.stuckTicks = 0;
+          arrived++;
+          continue;
+        }
+        if (r.moved <= stuckEps) {
+          m.stuckTicks++;
+          if (m.stuckTicks >= stuckLimit) {
+            m.path.length = 0;
+            m.cursor = 0;
+            m.goalCell = -1;
+            m.arrived = false;
+            m.stuckTicks = 0;
+            stuck++;
+          }
+        } else {
+          m.stuckTicks = 0;
+        }
+      }
+    },
+    describe() {
+      return `AI \u79FB\u52A8\uFF1A${String(moving)} \u4E2A\u4EE3\u7406\u5728\u8D70\uFF0C\u7D2F\u8BA1\u7B97\u8DEF ${String(paths)} \u6B21 / \u4E0D\u53EF\u8FBE ${String(unreachable)} \u6B21`;
+    }
+  };
+  function plan(m, node, goal, tick) {
+    const wp = node.worldPosition;
+    const from = grid.cellAt(wp.x, wp.y);
+    if (from < 0) {
+      m.failCell = goal;
+      m.retryTick = tick + retryTicks;
+      unreachable++;
+      return false;
+    }
+    const res = grid.findPath(from, goal);
+    if (!res.ok) {
+      m.failCell = goal;
+      m.retryTick = tick + retryTicks;
+      m.path.length = 0;
+      m.cursor = 0;
+      m.goalCell = -1;
+      m.arrived = false;
+      unreachable++;
+      return false;
+    }
+    const p = res.value;
+    m.path = p.cells.slice();
+    m.cursor = p.cells.length > 0 && p.cells[0] === from ? 1 : 0;
+    m.goalCell = goal;
+    m.arrived = false;
+    m.stuckTicks = 0;
+    m.failCell = -1;
+    m.retryTick = 0;
+    paths++;
+    return true;
+  }
+  return handle;
+}
+
+// src/extensions/combat/combat-module.ts
+var COMBAT_BAD_MODULE = "COMBAT.BAD_MODULE";
+function createCombatModule(opts) {
+  const destroyOnKill = opts.destroyOnKill ?? true;
+  let scene = null;
+  let hits = 0;
+  let kills = 0;
+  let outOfRange = 0;
+  let cooldown = 0;
+  let friendlyFire = 0;
+  let errors = 0;
+  let lastError = "";
+  const handle = {
+    id: opts.id ?? "combat",
+    get stats() {
+      const s = scene;
+      return {
+        attackers: s === null ? 0 : [...s.componentsOf(ATTACKER_TYPE)].length,
+        hits,
+        kills,
+        outOfRange,
+        cooldown,
+        friendlyFire,
+        errors,
+        lastError
+      };
+    },
+    init(ctx) {
+      const got = ctx.services.get(Services.Scene);
+      if (got === void 0) {
+        return err(engineError(COMBAT_BAD_MODULE, "\u6218\u6597\u6A21\u5757\u9700\u8981\u4E00\u4E2A Scene\uFF08\u5148\u6CE8\u518C Services.Scene\uFF09"));
+      }
+      scene = got;
+      return ok(void 0);
+    },
+    update(tick) {
+      const s = scene;
+      if (s === null) return;
+      const attackers = [...s.componentsOf(ATTACKER_TYPE)];
+      attackers.sort((a, b) => (a.node?.id ?? -1) - (b.node?.id ?? -1));
+      for (const atk of attackers) {
+        const node = atk.node;
+        if (node === null || !node.activeInHierarchy) continue;
+        const target = opts.decide(node.id, tick);
+        if (target === null) continue;
+        const r = attack(s, node.id, target, { tick, factions: opts.factions, friendlyFire: opts.friendlyFire });
+        if (!r.ok) {
+          switch (r.error.code) {
+            case "COMBAT.OUT_OF_RANGE":
+              outOfRange++;
+              break;
+            case "COMBAT.COOLDOWN":
+              cooldown++;
+              break;
+            case "COMBAT.FRIENDLY_FIRE":
+              friendlyFire++;
+              break;
+            default:
+              errors++;
+              lastError = r.error.code;
+              break;
+          }
+          continue;
+        }
+        hits++;
+        opts.onHit?.({
+          attackerId: node.id,
+          targetId: target,
+          before: r.value.report.before,
+          after: r.value.report.after,
+          applied: r.value.report.applied,
+          overkill: r.value.report.overkill,
+          dead: r.value.report.dead,
+          tick
+        });
+        if (!r.value.report.dead) continue;
+        kills++;
+        opts.onKill?.(target, node.id, tick);
+        if (destroyOnKill) {
+          s.destroy(target);
+          s.flush();
+        }
+      }
+    },
+    describe() {
+      return `\u6218\u6597\uFF1A\u547D\u4E2D ${String(hits)} / \u51FB\u6740 ${String(kills)}`;
+    }
+  };
+  return handle;
+}
+
+// src/extensions/combat/threat.ts
+var THREAT_BAD_OPTIONS = "THREAT.BAD_OPTIONS";
+var THREAT_BAD_AMOUNT = "THREAT.BAD_AMOUNT";
+var ThreatTable = class {
+  decayTicks;
+  maxPerTarget;
+  /** `目标 → (攻击者 → 记录)`。用嵌套 Map 而不是"扁平 key 字符串"：键是数字，不该被拼成字符串。 */
+  table = /* @__PURE__ */ new Map();
+  expired = 0;
+  evicted = 0;
+  constructor(options) {
+    const d = options.decayTicks;
+    if (!Number.isInteger(d) || d <= 0) {
+      throw new RangeError(`${THREAT_BAD_OPTIONS}: decayTicks \u5FC5\u987B\u662F\u6B63\u6574\u6570\uFF0C\u5F97\u5230 ${String(d)}`);
+    }
+    const m = options.maxPerTarget ?? 8;
+    if (!Number.isInteger(m) || m <= 0) {
+      throw new RangeError(`${THREAT_BAD_OPTIONS}: maxPerTarget \u5FC5\u987B\u662F\u6B63\u6574\u6570\uFF0C\u5F97\u5230 ${String(m)}`);
+    }
+    this.decayTicks = d;
+    this.maxPerTarget = m;
+  }
+  get decay() {
+    return this.decayTicks;
+  }
+  /**
+   * 记一笔：`attackerId` 在 `tick` 这一刻对 `targetId` 造成了 `amount` 点伤害。
+   *
+   * 校验顺序：数量 → 自己打自己。**都失败在"一点状态都不动"之前**。
+   */
+  add(targetId, attackerId, amount, tick) {
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return { ok: false, code: THREAT_BAD_AMOUNT };
+    }
+    if (targetId === attackerId) {
+      return { ok: false, code: THREAT_BAD_AMOUNT };
+    }
+    let row = this.table.get(targetId);
+    if (row === void 0) {
+      row = /* @__PURE__ */ new Map();
+      this.table.set(targetId, row);
+    }
+    const prev = row.get(attackerId);
+    if (prev === void 0) {
+      if (row.size >= this.maxPerTarget) this.evictWeakest(row);
+    }
+    row.set(attackerId, { amount: (prev?.amount ?? 0) + amount, since: tick });
+    return { ok: true };
+  }
+  /**
+   * 最恨谁（`null` = 谁也不恨）。顺手剔除过期的（见文件头 ③）。
+   *
+   * `alive` 是**可选的过滤器**：传进来时，被它否掉的人不算 ——
+   * 但**不会**因此删除记录（"暂时打不到"与"已经不恨了"是两件事）。
+   */
+  best(targetId, tick, alive) {
+    const row = this.table.get(targetId);
+    if (row === void 0) return null;
+    this.sweep(targetId, row, tick);
+    let bestId = null;
+    let bestAmount = -1;
+    for (const [attackerId, r] of row) {
+      if (alive !== void 0 && !alive(attackerId)) continue;
+      if (r.amount > bestAmount || r.amount === bestAmount && bestId !== null && attackerId < bestId) {
+        bestAmount = r.amount;
+        bestId = attackerId;
+      }
+    }
+    return bestId;
+  }
+  /** 某人对某目标的仇恨值（过期即 0）。 */
+  amountOf(targetId, attackerId, tick) {
+    const row = this.table.get(targetId);
+    if (row === void 0) return 0;
+    this.sweep(targetId, row, tick);
+    return row.get(attackerId)?.amount ?? 0;
+  }
+  /** 这个目标记了几条（自检/判据用）。 */
+  sizeOf(targetId, tick) {
+    const row = this.table.get(targetId);
+    if (row === void 0) return 0;
+    this.sweep(targetId, row, tick);
+    return row.size;
+  }
+  /** 忘掉某个攻击者（他死了 / 离开世界了）。返回真的删掉了几条。 */
+  forget(attackerId) {
+    let n = 0;
+    for (const [targetId, row] of [...this.table]) {
+      if (row.delete(attackerId)) n++;
+      if (row.size === 0) this.table.delete(targetId);
+    }
+    return n;
+  }
+  /** 只忘掉"某人对某目标"这一条。 */
+  forgetOne(targetId, attackerId) {
+    const row = this.table.get(targetId);
+    if (row === void 0) return false;
+    const had = row.delete(attackerId);
+    if (row.size === 0) this.table.delete(targetId);
+    return had;
+  }
+  stats() {
+    let entries = 0;
+    for (const row of this.table.values()) entries += row.size;
+    return { targets: this.table.size, entries, expired: this.expired, evicted: this.evicted };
+  }
+  /** 剔除过期项；顺手把空的目标删掉（否则 `targets` 会只涨不跌）。 */
+  sweep(targetId, row, tick) {
+    for (const [attackerId, r] of [...row]) {
+      if (tick - r.since >= this.decayTicks) {
+        row.delete(attackerId);
+        this.expired++;
+      }
+    }
+    if (row.size === 0) this.table.delete(targetId);
+  }
+  /** 丢掉最不恨的那一条（平手丢 id 最大的：让结果只取决于数值与 id）。 */
+  evictWeakest(row) {
+    let weakId = null;
+    let weakAmount = Number.POSITIVE_INFINITY;
+    for (const [attackerId, r] of row) {
+      if (r.amount < weakAmount || r.amount === weakAmount && weakId !== null && attackerId > weakId) {
+        weakAmount = r.amount;
+        weakId = attackerId;
+      }
+    }
+    if (weakId !== null) {
+      row.delete(weakId);
+      this.evicted++;
+    }
+  }
+};
+function createThreatTable(options) {
+  return new ThreatTable(options);
+}
+
+// src/extensions/combat/loot.ts
+var LOOT_BAD_TABLE = "LOOT.BAD_TABLE";
+var LOOT_NO_OWNER = "LOOT.NO_OWNER";
+function isPositiveInt2(n) {
+  return typeof n === "number" && Number.isInteger(n) && n > 0;
+}
+function normalizeLoot(table) {
+  if (!Array.isArray(table)) {
+    return err(engineError(LOOT_BAD_TABLE, `\u6218\u5229\u54C1\u8868\u5FC5\u987B\u662F\u6570\u7EC4\uFF0C\u6536\u5230 ${typeof table}`));
+  }
+  const merged = /* @__PURE__ */ new Map();
+  for (let i = 0; i < table.length; i++) {
+    const e = table[i];
+    if (e === void 0 || typeof e !== "object") {
+      return err(engineError(LOOT_BAD_TABLE, `\u7B2C ${String(i)} \u9879\u4E0D\u662F\u5BF9\u8C61`));
+    }
+    if (typeof e.kind !== "string" || e.kind.length === 0) {
+      return err(engineError(LOOT_BAD_TABLE, `\u7B2C ${String(i)} \u9879\u7684 kind \u5FC5\u987B\u662F\u975E\u7A7A\u5B57\u7B26\u4E32\uFF0C\u6536\u5230 ${JSON.stringify(e.kind)}`));
+    }
+    if (!isPositiveInt2(e.count)) {
+      return err(
+        engineError(LOOT_BAD_TABLE, `\u7B2C ${String(i)} \u9879\u300C${e.kind}\u300D\u7684 count \u5FC5\u987B\u662F\u6B63\u6574\u6570\uFF0C\u6536\u5230 ${String(e.count)}`)
+      );
+    }
+    merged.set(e.kind, (merged.get(e.kind) ?? 0) + e.count);
+  }
+  const out = [...merged.entries()].map(([kind, count]) => ({ kind, count }));
+  out.sort((x, y) => x.kind < y.kind ? -1 : x.kind > y.kind ? 1 : 0);
+  return ok(out);
+}
+function lootTotal(table) {
+  let n = 0;
+  for (const e of table) n += e.count;
+  return n;
+}
+function grantLoot(scene, ownerId, table) {
+  const norm2 = normalizeLoot(table);
+  if (!norm2.ok) return norm2;
+  const entries = norm2.value;
+  const owner = scene.find(ownerId);
+  if (owner === void 0 || owner === null) {
+    return err(engineError(LOOT_NO_OWNER, `\u51FB\u6740\u8005 ${String(ownerId)} \u4E0D\u5728\u573A\u666F\u91CC\uFF08\u6218\u5229\u54C1\u6CA1\u6709\u53BB\u5904\uFF09`));
+  }
+  if (owner.get(INVENTORY_TYPE) === void 0) {
+    return err(engineError(LOOT_NO_OWNER, `\u51FB\u6740\u8005 ${String(ownerId)} \u6CA1\u6709\u80CC\u5305\u7EC4\u4EF6 \u2014\u2014 \u5148 makeInventory()`));
+  }
+  const granted = [];
+  const lost = [];
+  let stoppedAt = null;
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i];
+    if (stoppedAt !== null) {
+      lost.push({ kind: e.kind, count: e.count, code: "LOOT.SKIPPED" });
+      continue;
+    }
+    const r = addItem(scene, ownerId, e.kind, e.count);
+    if (r.ok) {
+      granted.push({ kind: e.kind, count: e.count });
+      continue;
+    }
+    stoppedAt = e.kind;
+    lost.push({ kind: e.kind, count: e.count, code: r.error.code });
+  }
+  return ok({
+    granted,
+    grantedCount: lootTotal(granted),
+    lost,
+    lostCount: lootTotal(lost),
+    stoppedAt
+  });
+}
+
+// src/extensions/mobs/mob-template.ts
+var MOB_BAD_TEMPLATE = "MOB.BAD_TEMPLATE";
+function bad3(field, message) {
+  return err(engineError(MOB_BAD_TEMPLATE, message, { field }));
+}
+function isPosInt(v) {
+  return typeof v === "number" && Number.isInteger(v) && v > 0;
+}
+function isPosFinite(v) {
+  return typeof v === "number" && Number.isFinite(v) && v > 0;
+}
+function validateTemplate(raw) {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return bad3("", `\u751F\u7269\u6A21\u677F\u5FC5\u987B\u662F\u5BF9\u8C61\uFF0C\u6536\u5230 ${Array.isArray(raw) ? "\u6570\u7EC4" : typeof raw}`);
+  }
+  const t = raw;
+  if (typeof t.kind !== "string" || t.kind.length === 0) {
+    return bad3("kind", `kind \u5FC5\u987B\u662F\u975E\u7A7A\u5B57\u7B26\u4E32\uFF0C\u6536\u5230 ${JSON.stringify(t.kind)}`);
+  }
+  if (typeof t.frame !== "string" || t.frame.length === 0) {
+    return bad3("frame", `\u300C${t.kind}\u300D\u7684 frame \u5FC5\u987B\u662F\u975E\u7A7A\u5B57\u7B26\u4E32\uFF08\u7F3A\u5E27 \u21D2 \u751F\u7269\u80FD\u8D70\u4F46\u770B\u4E0D\u89C1\uFF09`);
+  }
+  if (!isPosFinite(t.width)) return bad3("width", `\u300C${t.kind}\u300D\u7684 width \u5FC5\u987B\u662F > 0 \u7684\u6709\u9650\u6570\uFF0C\u6536\u5230 ${String(t.width)}`);
+  if (!isPosFinite(t.height)) {
+    return bad3("height", `\u300C${t.kind}\u300D\u7684 height \u5FC5\u987B\u662F > 0 \u7684\u6709\u9650\u6570\uFF0C\u6536\u5230 ${String(t.height)}`);
+  }
+  if (!isPosFinite(t.radius)) return bad3("radius", `\u300C${t.kind}\u300D\u7684 radius \u5FC5\u987B\u662F > 0 \u7684\u6709\u9650\u6570\uFF0C\u6536\u5230 ${String(t.radius)}`);
+  if (!isPosInt(t.maxHp)) return bad3("maxHp", `\u300C${t.kind}\u300D\u7684 maxHp \u5FC5\u987B\u662F\u6B63\u6574\u6570\uFF0C\u6536\u5230 ${String(t.maxHp)}`);
+  if (typeof t.damage !== "number" || !Number.isInteger(t.damage) || t.damage < 0) {
+    return bad3("damage", `\u300C${t.kind}\u300D\u7684 damage \u5FC5\u987B\u662F >= 0 \u7684\u6574\u6570\uFF080 = \u548C\u5E73\u751F\u7269\uFF09\uFF0C\u6536\u5230 ${String(t.damage)}`);
+  }
+  if (!isPosFinite(t.range)) return bad3("range", `\u300C${t.kind}\u300D\u7684 range \u5FC5\u987B\u662F > 0 \u7684\u6709\u9650\u6570\uFF0C\u6536\u5230 ${String(t.range)}`);
+  if (typeof t.cooldownTicks !== "number" || !Number.isInteger(t.cooldownTicks) || t.cooldownTicks < 0) {
+    return bad3("cooldownTicks", `\u300C${t.kind}\u300D\u7684 cooldownTicks \u5FC5\u987B\u662F >= 0 \u7684\u6574\u6570\uFF0C\u6536\u5230 ${String(t.cooldownTicks)}`);
+  }
+  if (!isPosFinite(t.speed)) return bad3("speed", `\u300C${t.kind}\u300D\u7684 speed \u5FC5\u987B\u662F > 0 \u7684\u6709\u9650\u6570\uFF0C\u6536\u5230 ${String(t.speed)}`);
+  if (typeof t.team !== "string") return bad3("team", `\u300C${t.kind}\u300D\u7684 team \u5FC5\u987B\u662F\u5B57\u7B26\u4E32\uFF0C\u6536\u5230 ${typeof t.team}`);
+  if (t.team.length > 0 && t.team.trim().length === 0) {
+    return bad3("team", `\u300C${t.kind}\u300D\u7684 team \u662F\u7EAF\u7A7A\u767D \u2014\u2014 \u7A7A\u4E32\u8868\u793A\u4E2D\u7ACB\uFF0C\u7EAF\u7A7A\u767D\u662F\u4E00\u4E2A\u770B\u4E0D\u89C1\u7684\u9635\u8425\u540D`);
+  }
+  const loot = normalizeLoot(t.loot ?? []);
+  if (!loot.ok) return bad3("loot", `\u300C${t.kind}\u300D\u7684\u6218\u5229\u54C1\u8868\u4E0D\u5408\u6CD5\uFF1A${loot.error.message}`);
+  return ok({
+    kind: t.kind,
+    frame: t.frame,
+    width: t.width,
+    height: t.height,
+    radius: t.radius,
+    maxHp: t.maxHp,
+    damage: t.damage,
+    range: t.range,
+    cooldownTicks: t.cooldownTicks,
+    speed: t.speed,
+    team: t.team,
+    loot: loot.value
+  });
+}
+
+// src/extensions/mobs/spawn-mob.ts
+var MOB_SPAWN_FAILED = "MOB.SPAWN_FAILED";
+function spawnMob(scene, template, x, z, opts = {}) {
+  const tplR = validateTemplate(template);
+  if (!tplR.ok) return tplR;
+  const tpl = tplR.value;
+  const name = opts.name ?? tpl.kind;
+  const spawned = scene.spawnAt(name, x, z);
+  if (!spawned.ok) return spawned;
+  const nodeId = spawned.value.id;
+  const sprite = makeSprite(tpl.frame, tpl.width, tpl.height);
+  sprite.pivotY = opts.pivotY ?? 0;
+  const health = new Health();
+  health.hp = tpl.maxHp;
+  health.maxHp = tpl.maxHp;
+  const attacker = new Attacker();
+  attacker.damage = tpl.damage;
+  attacker.range = tpl.range;
+  attacker.cooldownTicks = tpl.cooldownTicks;
+  const mover = new Mover();
+  mover.speed = tpl.speed;
+  const faction = new FactionMember();
+  faction.team = tpl.team;
+  const attached = [
+    [SPRITE_TYPE, sprite],
+    [HEALTH_TYPE, health],
+    [MOVER_TYPE, mover],
+    [FACTION_TYPE, faction]
+  ];
+  if (tpl.damage > 0) attached.push([ATTACKER_TYPE, attacker]);
+  for (const [type, c] of attached) {
+    const a = scene.attach(nodeId, () => c);
+    if (!a.ok) {
+      scene.destroy(nodeId);
+      scene.flush();
+      return err(
+        engineError(MOB_SPAWN_FAILED, `\u300C${tpl.kind}\u300D\u9700\u8981 ${type}\uFF0C\u4F46\u5B83\u6CA1\u6CE8\u518C\uFF1A${a.error.message}`, {
+          nodeId,
+          type,
+          cause: a.error.code
+        })
+      );
+    }
+  }
+  scene.flush();
+  const back = scene.find(nodeId);
+  if (back === void 0) {
+    return err(engineError(MOB_SPAWN_FAILED, `\u300C${tpl.kind}\u300D\u7684\u8282\u70B9 ${String(nodeId)} \u5EFA\u5B8C\u5C31\u627E\u4E0D\u5230\u4E86`));
+  }
+  for (const [type] of attached) {
+    if (back.get(type) === void 0) {
+      scene.destroy(nodeId);
+      scene.flush();
+      return err(
+        engineError(MOB_SPAWN_FAILED, `\u300C${tpl.kind}\u300D\u7684 ${type} \u6302\u4E0A\u4E4B\u540E\u8BFB\u4E0D\u5230\uFF08\u7C7B\u578B\u540D\u4E0E\u6CE8\u518C\u540D\u4E0D\u4E00\u81F4\uFF1F\uFF09`, {
+          nodeId,
+          type
+        })
+      );
+    }
+  }
+  return ok({ nodeId, template: tpl, sprite, health, attacker: tpl.damage > 0 ? attacker : null, mover });
+}
+
+// src/extensions/ai/perception.ts
+var AI_NO_SELF = "AI.NO_SELF";
+var AI_BAD_SENSE = "AI.BAD_SENSE";
+var DEG = Math.PI / 180;
+function byDistance(a, b) {
+  if (a.dist2 !== b.dist2) return a.dist2 - b.dist2;
+  return a.nodeId - b.nodeId;
+}
+var Perception = class {
+  cfg;
+  memory = /* @__PURE__ */ new Map();
+  /** 上一轮真的看见的节点 id 集合（`stale` 判定用它，不用再扫一遍场景）。 */
+  visibleNow = /* @__PURE__ */ new Set();
+  constructor(config) {
+    if (!(config.range > 0) || !Number.isFinite(config.range)) {
+      throw new RangeError(`\u611F\u77E5\u534A\u5F84\u5FC5\u987B\u662F > 0 \u7684\u6709\u9650\u6570\uFF0C\u5F97\u5230 ${String(config.range)}`);
+    }
+    if (config.watch.length === 0) {
+      throw new RangeError("watch \u4E0D\u80FD\u4E3A\u7A7A \u2014\u2014 \u4E00\u4E2A\u4EC0\u4E48\u90FD\u770B\u4E0D\u89C1\u7684\u611F\u77E5\u5668\u548C\u6CA1\u6709\u611F\u77E5\u662F\u4E00\u56DE\u4E8B");
+    }
+    if (config.halfAngleDeg !== void 0 && !(config.halfAngleDeg > 0 && config.halfAngleDeg <= 180)) {
+      throw new RangeError(`halfAngleDeg \u5FC5\u987B\u5728 (0, 180] \u5185\uFF0C\u5F97\u5230 ${String(config.halfAngleDeg)}`);
+    }
+    if (config.memoryTicks !== void 0 && (!Number.isInteger(config.memoryTicks) || config.memoryTicks < 0)) {
+      throw new RangeError(`memoryTicks \u5FC5\u987B\u662F >= 0 \u7684\u6574\u6570\uFF0C\u5F97\u5230 ${String(config.memoryTicks)}`);
+    }
+    this.cfg = {
+      range: config.range,
+      watch: [...config.watch],
+      memoryTicks: config.memoryTicks ?? 0,
+      halfAngleDeg: config.halfAngleDeg
+    };
+  }
+  /** 当前记忆条数（判据用它证"会忘"，也用来兜"记忆无限增长"）。 */
+  memorySize() {
+    return this.memory.size;
+  }
+  forgetAll() {
+    this.memory.clear();
+    this.visibleNow.clear();
+  }
+  /**
+   * 感知一次。
+   *
+   * @param facingRad 朝向（弧度）。给了 `halfAngleDeg` 就必须给朝向 ——
+   *                  否则"前方"没有定义，只能报错，不能默默当全向。
+   */
+  sense(scene, selfId, tick, facingRad) {
+    const self2 = scene.find(selfId);
+    if (self2 === void 0) {
+      return err(engineError(AI_NO_SELF, `\u611F\u77E5\u8005 ${String(selfId)} \u4E0D\u5728\u573A\u666F\u91CC`));
+    }
+    if (this.cfg.halfAngleDeg !== void 0 && (facingRad === void 0 || !Number.isFinite(facingRad))) {
+      return err(
+        engineError(AI_BAD_SENSE, "\u914D\u7F6E\u4E86\u89C6\u91CE\u534A\u89D2\uFF0C\u4F46\u6CA1\u7ED9\u671D\u5411 \u2014\u2014 \u300C\u524D\u65B9\u300D\u6CA1\u6709\u5B9A\u4E49\uFF0C\u4E0D\u80FD\u5F53\u5168\u5411\u5904\u7406", {
+          selfId
+        })
+      );
+    }
+    const range2 = this.cfg.range * this.cfg.range;
+    const halfDeg = this.cfg.halfAngleDeg;
+    const sp = self2.worldPosition;
+    const visibleNow = /* @__PURE__ */ new Set();
+    const out = [];
+    scene.root.walk((n) => {
+      if (n.id === selfId) return;
+      let type;
+      for (const t of this.cfg.watch) {
+        if (n.get(t) !== void 0) {
+          type = t;
+          break;
+        }
+      }
+      if (type === void 0) return;
+      const p = n.worldPosition;
+      const dx = p.x - sp.x;
+      const dz = p.y - sp.y;
+      const d2 = dx * dx + dz * dz;
+      if (d2 > range2) return;
+      if (halfDeg !== void 0) {
+        const angDeg = (Math.atan2(dz, dx) / DEG + 360) % 360;
+        const faceDeg = (facingRad / DEG % 360 + 360) % 360;
+        let diff = Math.abs(angDeg - faceDeg);
+        if (diff > 180) diff = 360 - diff;
+        if (diff > halfDeg) return;
+      }
+      visibleNow.add(n.id);
+      out.push({ nodeId: n.id, type, x: p.x, z: p.y, dist2: d2, seenTick: tick, stale: false });
+    });
+    if (this.cfg.memoryTicks > 0) {
+      for (const s of out) this.memory.set(s.nodeId, { x: s.x, z: s.z, type: s.type, seenTick: tick });
+      for (const [id, m] of [...this.memory]) {
+        if (visibleNow.has(id)) continue;
+        if (tick - m.seenTick > this.cfg.memoryTicks) this.memory.delete(id);
+      }
+      for (const [id, m] of this.memory) {
+        if (visibleNow.has(id)) continue;
+        const p = scene.find(id)?.worldPosition;
+        const x = p?.x ?? m.x;
+        const z = p?.y ?? m.z;
+        const dx = x - sp.x;
+        const dz = z - sp.y;
+        out.push({ nodeId: id, type: m.type, x, z, dist2: dx * dx + dz * dz, seenTick: m.seenTick, stale: true });
+      }
+    } else {
+      this.memory.clear();
+    }
+    this.visibleNow = visibleNow;
+    out.sort(byDistance);
+    return ok(out);
+  }
+  /** 这一轮真的看见的节点 id（升序）。判据用它区分"看见"与"记得"。 */
+  visibleIds() {
+    return [...this.visibleNow].sort((a, b) => a - b);
+  }
+};
+
+// src/extensions/mobs/mob-brain.ts
+var MOB_BAD_BRAIN = "MOB.BAD_BRAIN";
+function mix322(a, b, c) {
+  let h = (a ^ 2654435769) >>> 0;
+  h = Math.imul(h ^ b + 2246822507, 3432918353) >>> 0 ^ h >>> 13;
+  h = Math.imul(h ^ c + 3266489909, 461845907) >>> 0 ^ h >>> 15;
+  return h >>> 0;
+}
+var MobBrain = class {
+  o;
+  perception;
+  /**
+   * 见文件头 ④。**按 `id → 决定` 存一整张表**，不是只存"上一次"：
+   * `move` 与 `combat` 是两个模块，它们各自遍历全部生物 ——
+   * 只记最后一条的话，第二次遍历的第一只就已经把缓存冲掉了
+   *（于是"缓存"实际只对同一只生物连续问两次才生效，而这几乎不发生）。
+   */
+  cacheTick = Number.NaN;
+  cache = /* @__PURE__ */ new Map();
+  senses = 0;
+  constructor(options) {
+    if (!(options.range > 0) || !Number.isFinite(options.range)) {
+      throw new RangeError(`${MOB_BAD_BRAIN}: \u611F\u77E5\u534A\u5F84\u5FC5\u987B\u662F > 0 \u7684\u6709\u9650\u6570\uFF0C\u5F97\u5230 ${String(options.range)}`);
+    }
+    const wr = options.wanderRadiusCells ?? 4;
+    if (!Number.isInteger(wr) || wr <= 0) {
+      throw new RangeError(`${MOB_BAD_BRAIN}: wanderRadiusCells \u5FC5\u987B\u662F\u6B63\u6574\u6570\uFF0C\u5F97\u5230 ${String(wr)}`);
+    }
+    const we = options.wanderEvery ?? 24;
+    if (!Number.isInteger(we) || we <= 0) {
+      throw new RangeError(`${MOB_BAD_BRAIN}: wanderEvery \u5FC5\u987B\u662F\u6B63\u6574\u6570\uFF0C\u5F97\u5230 ${String(we)}`);
+    }
+    const leash = options.leashCells ?? 0;
+    if (!Number.isInteger(leash) || leash < 0) {
+      throw new RangeError(`${MOB_BAD_BRAIN}: leashCells \u5FC5\u987B\u662F >= 0 \u7684\u6574\u6570\uFF0C\u5F97\u5230 ${String(leash)}`);
+    }
+    const aggro = options.aggroCells ?? leash;
+    if (!Number.isInteger(aggro) || aggro < 0) {
+      throw new RangeError(`${MOB_BAD_BRAIN}: aggroCells \u5FC5\u987B\u662F >= 0 \u7684\u6574\u6570\uFF0C\u5F97\u5230 ${String(aggro)}`);
+    }
+    this.o = {
+      factions: options.factions,
+      range: options.range,
+      wanderRadiusCells: wr,
+      wanderEvery: we,
+      leashCells: leash,
+      aggroCells: aggro,
+      threat: options.threat ?? null,
+      watch: options.watch ?? [HEALTH_TYPE],
+      seed: options.seed ?? 1
+    };
+    this.perception = new Perception({ range: this.o.range, watch: this.o.watch });
+  }
+  /** 感知调用次数（判据用它证"同一 tick 只算一次"）。 */
+  get senseCount() {
+    return this.senses;
+  }
+  /**
+   * 决定这一 tick 干什么。
+   *
+   * @returns `null` = 什么都不用做（找不到自己 / 没有可走的漫游格）。
+   */
+  decide(scene, agentId, tick, grid) {
+    if (this.cacheTick !== tick) {
+      this.cacheTick = tick;
+      this.cache.clear();
+    }
+    const hit = this.cache.get(agentId);
+    if (hit !== void 0 || this.cache.has(agentId)) return hit ?? null;
+    const self2 = scene.find(agentId);
+    if (self2 === void 0) {
+      this.remember(agentId, tick, null);
+      return null;
+    }
+    const homeCell = grid.cellAt(self2.worldPosition.x, self2.worldPosition.y);
+    const me = teamOf(scene, agentId).team;
+    if (self2.get(ATTACKER_TYPE) !== void 0) {
+      const grudge = this.avenge(scene, agentId, tick, grid, me);
+      if (grudge !== null) {
+        this.remember(agentId, tick, grudge);
+        return grudge;
+      }
+      this.senses++;
+      const sensed = this.perception.sense(scene, agentId, tick);
+      if (sensed.ok) {
+        for (const s of sensed.value) {
+          const other = teamOf(scene, s.nodeId).team;
+          if (this.o.factions.stanceOf(me, other) === "ally") continue;
+          if (this.o.leashCells > 0 && s.dist2 > this.o.leashCells * this.o.leashCells) continue;
+          const cell2 = grid.cellAt(s.x, s.z);
+          if (cell2 < 0) continue;
+          const d2 = { kind: "hunt", targetNodeId: s.nodeId, cell: cell2 };
+          this.remember(agentId, tick, d2);
+          return d2;
+        }
+      }
+    }
+    const cell = this.wanderCell(grid, agentId, tick, homeCell);
+    const d = cell < 0 ? null : { kind: "wander", targetNodeId: -1, cell };
+    this.remember(agentId, tick, d);
+    return d;
+  }
+  /**
+   * 从仇恨表里挑出"要追的那个人"（`null` = 没有人打过我 / 都忘了 / 都够不着）。
+   *
+   * ★ 三个过滤都必须有：
+   *   · 已经没有血量组件（被销毁/从没活过）→ 不追。否则会朝一个不存在的 id 走一辈子；
+   *   · 已经死了但节点还在（`hp === 0`）→ 不追。否则尸体会把一群生物钉在原地；
+   *   · 友军 → 不追。否则"打错人"会让整队人内讧（批65 的阵营就白做了）。
+   * ★ 距离用**格**（与 leash 同一套坐标），不是世界单位：
+   *   记仇的追击半径是"跑出几个格子就放弃"，那是地图概念。
+   */
+  avenge(scene, agentId, tick, grid, me) {
+    const t = this.o.threat;
+    if (t === null) return null;
+    const targetId = t.best(agentId, tick, (id) => {
+      const n = scene.find(id);
+      if (n === void 0 || n === null || !n.activeInHierarchy) return false;
+      const hp = n.get(HEALTH_TYPE);
+      if (hp === void 0 || isDead(hp)) return false;
+      return this.o.factions.stanceOf(me, teamOf(scene, id).team) !== "ally";
+    });
+    if (targetId === null) return null;
+    const target = scene.find(targetId);
+    if (target === void 0 || target === null) return null;
+    const cell = grid.cellAt(target.worldPosition.x, target.worldPosition.y);
+    if (cell < 0) return null;
+    if (this.o.aggroCells > 0) {
+      const self2 = scene.find(agentId);
+      if (self2 === void 0) return null;
+      const dx = target.worldPosition.x - self2.worldPosition.x;
+      const dz = target.worldPosition.y - self2.worldPosition.y;
+      if (dx * dx + dz * dz > this.o.aggroCells * this.o.aggroCells) return null;
+    }
+    return { kind: "hunt", targetNodeId: targetId, cell };
+  }
+  /**
+   * 漫游目标格（见文件头 ②：纯函数）。
+   *
+   * ★ 取**第一个可走**的候选而不是"取最近的/最远的"：后者会让所有生物
+   *   挤向同一片空地（同一个 epoch 的候选序是同一个函数），画面上像一队人。
+   */
+  wanderCell(grid, agentId, tick, homeCell) {
+    if (homeCell < 0) return -1;
+    const cx = grid.cellX(homeCell);
+    const cz = grid.cellZ(homeCell);
+    const r = this.o.wanderRadiusCells;
+    const epoch = Math.floor(tick / this.o.wanderEvery);
+    let h = mix322(this.o.seed, agentId, epoch);
+    for (let k = 0; k < 6; k++) {
+      h = Math.imul(h, 1664525) + 1013904223 >>> 0;
+      const span = 2 * r + 1;
+      const dx = h % span - r;
+      const dz = Math.floor(h / span) % span - r;
+      if (dx === 0 && dz === 0) continue;
+      if (grid.isWalkable(cx + dx, cz + dz)) return this.cellIndex(grid, cx + dx, cz + dz);
+    }
+    return -1;
+  }
+  /** 用 `cellAt` 反查下标（避免再引入一个 `indexOf` 依赖）。 */
+  cellIndex(grid, cx, cz) {
+    return grid.cellAt(cx + 0.5, cz + 0.5);
+  }
+  remember(agentId, tick, d) {
+    if (this.cacheTick !== tick) {
+      this.cacheTick = tick;
+      this.cache.clear();
+    }
+    this.cache.set(agentId, d);
+  }
+};
+function createMobBrain(options) {
+  return new MobBrain(options);
+}
+
+// src/extensions/mobs/mob-world.ts
+var MOB_WORLD_BAD_MODULE = "MOB_WORLD.BAD_MODULE";
+function createMobWorldModule(options) {
+  let scene = null;
+  let brain = null;
+  let threat = null;
+  let moveMod = null;
+  let combatMod = null;
+  const lootOf = /* @__PURE__ */ new Map();
+  const kindOf2 = /* @__PURE__ */ new Map();
+  let ids = [];
+  let mobs = 0;
+  let hunting = 0;
+  let wandering = 0;
+  let idle = 0;
+  let lootGranted = 0;
+  let lootLost = 0;
+  let lootNoRecipient = 0;
+  let lastLootError = "";
+  function prune() {
+    const s = scene;
+    if (s === null || ids.length === 0) {
+      mobs = 0;
+      return;
+    }
+    const alive = ids.filter((id) => s.find(id) !== void 0);
+    if (alive.length !== ids.length) ids = alive;
+    mobs = ids.length;
+  }
+  const handle = {
+    id: options.id ?? "world.mobs",
+    get stats() {
+      return {
+        mobs,
+        hunting,
+        wandering,
+        idle,
+        kills: combatMod?.stats.kills ?? 0,
+        lootGranted,
+        lootLost,
+        lootNoRecipient,
+        threatTargets: threat?.stats().targets ?? 0,
+        threatEntries: threat?.stats().entries ?? 0,
+        lastLootError
+      };
+    },
+    get nodeIds() {
+      return [...ids].sort((a, b) => a - b);
+    },
+    templateOf(nodeId) {
+      return kindOf2.get(nodeId) ?? null;
+    },
+    noteHit(info) {
+      if (threat === null) return false;
+      return threat.add(info.targetId, info.attackerId, info.applied, info.tick).ok;
+    },
+    init(ctx) {
+      const got = ctx.services.get(Services.Scene);
+      if (got === void 0) {
+        return err(engineError(MOB_WORLD_BAD_MODULE, "\u751F\u7269\u7FA4\u9700\u8981\u4E00\u4E2A Scene\uFF08\u5148\u6CE8\u518C Services.Scene\uFF09"));
+      }
+      scene = got;
+      const grid = options.grid;
+      const decay = options.threatDecayTicks ?? 150;
+      if (!Number.isInteger(decay) || decay < 0) {
+        return err(engineError(MOB_WORLD_BAD_MODULE, `threatDecayTicks \u5FC5\u987B\u662F >= 0 \u7684\u6574\u6570\uFF0C\u6536\u5230 ${String(decay)}`));
+      }
+      threat = decay === 0 ? null : createThreatTable({ decayTicks: decay });
+      brain = createMobBrain({
+        factions: options.factions,
+        range: options.range,
+        ...options.seed === void 0 ? {} : { seed: options.seed },
+        ...options.wanderEvery === void 0 ? {} : { wanderEvery: options.wanderEvery },
+        ...options.leashCells === void 0 ? {} : { leashCells: options.leashCells },
+        ...options.aggroCells === void 0 ? {} : { aggroCells: options.aggroCells },
+        ...threat === null ? {} : { threat }
+      });
+      const placed = [];
+      for (let i = 0; i < options.spots.length; i++) {
+        const spot = options.spots[i];
+        const tpl = options.templates[spot.template];
+        if (tpl === void 0) {
+          return err(
+            engineError(MOB_WORLD_BAD_MODULE, `\u7B2C ${String(i)} \u4E2A\u51FA\u751F\u70B9\u5F15\u7528\u4E86\u4E0D\u5B58\u5728\u7684\u6A21\u677F ${String(spot.template)}`, {
+              index: i,
+              template: spot.template
+            })
+          );
+        }
+        const c = grid.centerOf(spot.cell);
+        const r = spawnMob(got, tpl, c.x, c.z, { name: `mob#${String(i)}` });
+        if (!r.ok) return r;
+        placed.push(r.value);
+      }
+      for (const m of placed) {
+        ids.push(m.nodeId);
+        lootOf.set(m.nodeId, m.template.loot);
+        kindOf2.set(m.nodeId, m.template.kind);
+      }
+      mobs = ids.length;
+      const b = brain;
+      moveMod = createMoveModule({
+        grid,
+        decide: (agentId, tick) => b.decide(got, agentId, tick, grid)?.cell ?? null,
+        id: "world.mobs.move"
+      });
+      combatMod = createCombatModule({
+        // 表现层的输入：原样转发（见 `MobWorldOptions.onHit`）
+        onHit: (info) => {
+          threat?.add(info.targetId, info.attackerId, info.applied, info.tick);
+          options.onHit?.(info);
+        },
+        decide: (agentId, tick) => {
+          const d = b.decide(got, agentId, tick, grid);
+          return d !== null && d.kind === "hunt" ? d.targetNodeId : null;
+        },
+        factions: options.factions,
+        id: "world.mobs.combat",
+        // ---- ③ 战利品：发给击杀者（见文件头 ②）
+        onKill: (targetId, killerId) => {
+          if (threat !== null) {
+            threat.forgetOne(targetId, killerId);
+            threat.forget(targetId);
+          }
+          const loot = lootOf.get(targetId);
+          if (loot === void 0 || loot.length === 0) return;
+          const g = grantLoot(got, killerId, loot);
+          if (!g.ok) {
+            lootNoRecipient++;
+            lastLootError = g.error.code;
+            return;
+          }
+          lootGranted += g.value.grantedCount;
+          if (g.value.lostCount > 0) {
+            lootLost += g.value.lostCount;
+            lastLootError = g.value.stoppedAt === null ? "" : `INVENTORY.FULL@${g.value.stoppedAt}`;
+          }
+        }
+      });
+      const im = moveMod.init(ctx);
+      if (im !== void 0 && !im.ok) return err(engineError(MOB_WORLD_BAD_MODULE, "\u79FB\u52A8\u5B50\u6A21\u5757\u521D\u59CB\u5316\u5931\u8D25"));
+      const ic = combatMod.init(ctx);
+      if (ic !== void 0 && !ic.ok) return err(engineError(MOB_WORLD_BAD_MODULE, "\u6218\u6597\u5B50\u6A21\u5757\u521D\u59CB\u5316\u5931\u8D25"));
+      return ok(void 0);
+    },
+    update(tick, dt) {
+      const s = scene;
+      const b = brain;
+      if (s === null || b === null || moveMod === null || combatMod === null) return;
+      let h = 0;
+      let w = 0;
+      let i0 = 0;
+      for (const id of ids) {
+        const d = b.decide(s, id, tick, options.grid);
+        if (d === null) i0++;
+        else if (d.kind === "hunt") h++;
+        else w++;
+      }
+      hunting = h;
+      wandering = w;
+      idle = i0;
+      moveMod.update(tick, dt);
+      combatMod.update(tick, dt);
+      prune();
+    },
+    stop() {
+      moveMod?.stop?.();
+      combatMod?.stop?.();
+    },
+    describe() {
+      return `\u751F\u7269\uFF1A${String(mobs)} \u53EA\uFF08\u8FFD ${String(hunting)} / \u6E38 ${String(wandering)}\uFF09\uFF0C\u51FB\u6740 ${String(
+        combatMod?.stats.kills ?? 0
+      )}`;
+    }
+  };
+  return handle;
+}
+
+// src/extensions/render/feedback.ts
+var FEEDBACK_TYPE = "render.feedback";
+var FX_NO_NODE = "FX.NO_NODE";
+var FX_NO_SPRITE = "FX.NO_SPRITE";
+var FX_BAD_TICKS = "FX.BAD_TICKS";
+var FX_BAD_MODULE = "FX.BAD_MODULE";
+var FLASH_R = 1;
+var FLASH_G = 0.35;
+var FLASH_B = 0.4;
+var PUNCH_W = 1.3;
+var PUNCH_H = 0.72;
+var Feedback = class extends Component {
+  /** 还剩几 tick 闪（0 = 没在闪，见文件头 ②③）。 */
+  flashTicks = 0;
+  /** 这一段闪的总时长（诊断用，不参与判定）。 */
+  flashTotal = 0;
+  /** 受击**之前**的颜色（见文件头 ①②）。 */
+  baseR = 1;
+  baseG = 1;
+  baseB = 1;
+  baseA = 1;
+  /** 还剩几 tick 挤压。 */
+  punchTicks = 0;
+  punchTotal = 0;
+  /** 挤压**之前**的尺寸。 */
+  baseW = 1;
+  baseH = 1;
+  schema = {
+    type: FEEDBACK_TYPE,
+    fields: {
+      flashTicks: FieldType.Int,
+      flashTotal: FieldType.Int,
+      baseR: FieldType.Float,
+      baseG: FieldType.Float,
+      baseB: FieldType.Float,
+      baseA: FieldType.Float,
+      punchTicks: FieldType.Int,
+      punchTotal: FieldType.Int,
+      baseW: FieldType.Float,
+      baseH: FieldType.Float
+    }
+  };
+};
+function registerFeedbackComponent(registry) {
+  if (!registry.has(FEEDBACK_TYPE)) registry.register(new Feedback().schema, () => new Feedback());
+}
+function ensure(scene, nodeId) {
+  const node = scene.find(nodeId);
+  if (node === void 0 || node === null) {
+    return engineError(FX_NO_NODE, `\u8282\u70B9 ${String(nodeId)} \u4E0D\u5728\u573A\u666F\u91CC`);
+  }
+  const existing = node.get(FEEDBACK_TYPE);
+  if (existing !== void 0) return existing;
+  const made = scene.attach(nodeId, () => new Feedback());
+  if (!made.ok) return made.error;
+  scene.flush();
+  const got = node.get(FEEDBACK_TYPE);
+  if (got === void 0) {
+    return engineError(FEEDBACK_TYPE + ".ATTACH_LOST", `\u53CD\u9988\u7EC4\u4EF6\u6302\u4E0A\u4E4B\u540E\u53C8\u8BFB\u4E0D\u5230\uFF08\u8282\u70B9 ${String(nodeId)}\uFF09`);
+  }
+  return got;
+}
+function spriteOf(scene, nodeId) {
+  const node = scene.find(nodeId);
+  if (node === void 0 || node === null) {
+    return engineError(FX_NO_NODE, `\u8282\u70B9 ${String(nodeId)} \u4E0D\u5728\u573A\u666F\u91CC`);
+  }
+  const sp = node.get(SPRITE_TYPE);
+  if (sp === void 0) {
+    return engineError(FX_NO_SPRITE, `\u8282\u70B9 ${String(nodeId)} \u6CA1\u6709 ${SPRITE_TYPE}\uFF08\u95EA\u4E00\u4E2A\u770B\u4E0D\u89C1\u7684\u4E1C\u897F\u6CA1\u6709\u610F\u4E49\uFF09`);
+  }
+  return sp;
+}
+function positiveTicks(ticks) {
+  if (!Number.isInteger(ticks) || ticks <= 0) {
+    return engineError(
+      FX_BAD_TICKS,
+      `\u65F6\u957F\u5FC5\u987B\u662F\u6B63\u6574\u6570 tick\uFF0C\u6536\u5230 ${String(ticks)}\uFF080 \u60F3\u8868\u8FBE"\u53D6\u6D88"\u7684\u8BDD\u8BF7\u7528 clear()\uFF09`
+    );
+  }
+  return null;
+}
+function flash(scene, nodeId, ticks) {
+  const bad4 = positiveTicks(ticks);
+  if (bad4 !== null) return err(bad4);
+  const sp = spriteOf(scene, nodeId);
+  if ("code" in sp) return err(sp);
+  const sprite = sp;
+  const fb = ensure(scene, nodeId);
+  if ("code" in fb) return err(fb);
+  const feed2 = fb;
+  const extended = feed2.flashTicks > 0;
+  if (!extended) {
+    feed2.baseR = sprite.r;
+    feed2.baseG = sprite.g;
+    feed2.baseB = sprite.b;
+    feed2.baseA = sprite.a;
+    feed2.flashTotal = ticks;
+  } else if (ticks > feed2.flashTotal) {
+    feed2.flashTotal = ticks;
+  }
+  feed2.flashTicks = Math.max(feed2.flashTicks, ticks);
+  sprite.r = FLASH_R;
+  sprite.g = FLASH_G;
+  sprite.b = FLASH_B;
+  return ok({ nodeId, ticks, remaining: feed2.flashTicks, extended });
+}
+function punch(scene, nodeId, ticks) {
+  const bad4 = positiveTicks(ticks);
+  if (bad4 !== null) return err(bad4);
+  const sp = spriteOf(scene, nodeId);
+  if ("code" in sp) return err(sp);
+  const sprite = sp;
+  const fb = ensure(scene, nodeId);
+  if ("code" in fb) return err(fb);
+  const feed2 = fb;
+  const extended = feed2.punchTicks > 0;
+  if (!extended) {
+    feed2.baseW = sprite.width;
+    feed2.baseH = sprite.height;
+    feed2.punchTotal = ticks;
+  } else if (ticks > feed2.punchTotal) {
+    feed2.punchTotal = ticks;
+  }
+  feed2.punchTicks = Math.max(feed2.punchTicks, ticks);
+  sprite.width = feed2.baseW * PUNCH_W;
+  sprite.height = feed2.baseH * PUNCH_H;
+  return ok({ nodeId, ticks, remaining: feed2.punchTicks, extended });
+}
+function restoreTint(scene, nodeId) {
+  const node = scene.find(nodeId);
+  if (node === void 0 || node === null) return false;
+  const feed2 = node.get(FEEDBACK_TYPE);
+  if (feed2 === void 0 || feed2.flashTicks > 0) return false;
+  const sprite = node.get(SPRITE_TYPE);
+  if (sprite === void 0) return false;
+  if (sprite.r !== FLASH_R || sprite.g !== FLASH_G || sprite.b !== FLASH_B) return false;
+  sprite.r = feed2.baseR;
+  sprite.g = feed2.baseG;
+  sprite.b = feed2.baseB;
+  sprite.a = feed2.baseA;
+  return true;
+}
+function restoreSize(scene, nodeId) {
+  const node = scene.find(nodeId);
+  if (node === void 0 || node === null) return false;
+  const feed2 = node.get(FEEDBACK_TYPE);
+  if (feed2 === void 0 || feed2.punchTicks > 0) return false;
+  const sprite = node.get(SPRITE_TYPE);
+  if (sprite === void 0) return false;
+  if (sprite.width !== feed2.baseW * PUNCH_W || sprite.height !== feed2.baseH * PUNCH_H) return false;
+  sprite.width = feed2.baseW;
+  sprite.height = feed2.baseH;
+  return true;
+}
+function createFeedbackModule(options = {}) {
+  let scene = null;
+  let flashing = 0;
+  let punching = 0;
+  let restored = 0;
+  let orphaned = 0;
+  let overridden = 0;
+  const handle = {
+    id: options.id ?? "render.feedback",
+    deps: [],
+    get stats() {
+      return { flashing, punching, restored, orphaned, overridden };
+    },
+    init(ctx) {
+      const got = ctx.services.get(Services.Scene);
+      if (got === void 0) {
+        return err(engineError(FX_BAD_MODULE, "\u53CD\u9988\u6A21\u5757\u9700\u8981\u4E00\u4E2A Scene\uFF08\u5148\u6CE8\u518C Services.Scene\uFF09"));
+      }
+      scene = got;
+      return ok(void 0);
+    },
+    stop() {
+    },
+    describe() {
+      return `\u53CD\u9988\uFF1A\u95EA ${String(flashing)} / \u6324 ${String(punching)} / \u8FD8\u539F ${String(restored)}`;
+    },
+    update() {
+      const s = scene;
+      if (s === null) return;
+      flashing = 0;
+      punching = 0;
+      const list = [...s.componentsOf(FEEDBACK_TYPE)].sort(
+        (a, b) => (a.node?.id ?? -1) - (b.node?.id ?? -1)
+      );
+      for (const fb of list) {
+        const node = fb.node;
+        if (node === null) continue;
+        if (fb.flashTicks > 0) {
+          fb.flashTicks--;
+          if (fb.flashTicks === 0) {
+            if (node.get(SPRITE_TYPE) === void 0) orphaned++;
+            else if (restoreTint(s, node.id)) restored++;
+            else overridden++;
+          } else {
+            flashing++;
+          }
+        }
+        if (fb.punchTicks > 0) {
+          fb.punchTicks--;
+          if (fb.punchTicks === 0) {
+            if (node.get(SPRITE_TYPE) === void 0) orphaned++;
+            else if (restoreSize(s, node.id)) restored++;
+            else overridden++;
+          } else {
+            punching++;
+          }
+        }
+      }
+    }
+  };
+  return handle;
+}
+
+// src/extensions/survival/hunger.ts
+var HUNGER_TYPE = "game.hunger";
+var HUNGER_NO_OWNER = "HUNGER.NO_OWNER";
+var HUNGER_NO_COMPONENT = "HUNGER.NO_COMPONENT";
+var HUNGER_BAD_AMOUNT = "HUNGER.BAD_AMOUNT";
+var Hunger = class extends Component {
+  /** 当前饱食度（整数，>= 0）。0 = 饿着（见文件头 ②）。 */
+  value = 100;
+  /** 上限（整数，> 0）。 */
+  max = 100;
+  schema = {
+    type: HUNGER_TYPE,
+    fields: { value: FieldType.Int, max: FieldType.Int }
+  };
+};
+function registerHungerComponent(registry) {
+  if (!registry.has(HUNGER_TYPE)) registry.register(new Hunger().schema, () => new Hunger());
+}
+function isStarving(h) {
+  return h.value <= 0;
+}
+function feed(scene, ownerId, nutrition) {
+  if (!Number.isInteger(nutrition) || nutrition <= 0) {
+    return err(
+      engineError(HUNGER_BAD_AMOUNT, `\u8425\u517B\u503C\u5FC5\u987B\u662F\u6B63\u6574\u6570\uFF0C\u6536\u5230 ${String(nutrition)}\uFF08\u5C0F\u6570\u4F1A\u8BA9"\u997F\u4E86\u6CA1\u6709"\u53D6\u51B3\u4E8E\u7D2F\u52A0\u6B21\u5E8F\uFF09`)
+    );
+  }
+  const node = scene.find(ownerId);
+  if (node === void 0 || node === null) {
+    return err(engineError(HUNGER_NO_OWNER, `\u8282\u70B9 ${String(ownerId)} \u4E0D\u5728\u573A\u666F\u91CC`));
+  }
+  const h = node.get(HUNGER_TYPE);
+  if (h === void 0) {
+    return err(
+      engineError(HUNGER_NO_COMPONENT, `\u8282\u70B9 ${String(ownerId)} \u6CA1\u6709 ${HUNGER_TYPE}\uFF08\u5148 attach \u4E00\u4E2A Hunger\uFF09`)
+    );
+  }
+  const before = h.value;
+  const after = Math.min(h.max, before + nutrition);
+  h.value = after;
+  return ok({
+    nodeId: ownerId,
+    before,
+    after,
+    applied: after - before,
+    wasted: nutrition - (after - before)
+  });
+}
+
+// src/extensions/survival/food.ts
+var FOOD_BAD_TABLE = "FOOD.BAD_TABLE";
+var FOOD_UNKNOWN_KIND = "FOOD.UNKNOWN_KIND";
+var FOOD_NOT_HELD = "FOOD.NOT_HELD";
+var FOOD_FULL = "FOOD.FULL";
+var FOOD_DEAD = "FOOD.DEAD";
+function normalizeFoodTable(raw) {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return err(engineError(FOOD_BAD_TABLE, "\u98DF\u7269\u8868\u5FC5\u987B\u662F\u5BF9\u8C61\uFF08kind \u2192 {nutrition, health?}\uFF09"));
+  }
+  const src = raw;
+  const kinds = Object.keys(src).sort();
+  if (kinds.length === 0) {
+    return err(engineError(FOOD_BAD_TABLE, "\u98DF\u7269\u8868\u662F\u7A7A\u7684 \u2014\u2014 \u591A\u534A\u662F\u5FD8\u4E86\u586B\uFF0C\u800C\u4E0D\u662F\u771F\u7684\u60F3\u8BA9\u6240\u6709\u4E1C\u897F\u90FD\u4E0D\u80FD\u5403"));
+  }
+  const out = {};
+  for (const kind of kinds) {
+    if (kind === "") {
+      return err(engineError(FOOD_BAD_TABLE, "\u98DF\u7269\u8868\u91CC\u6709\u4E00\u4E2A\u7A7A\u5B57\u7B26\u4E32 kind"));
+    }
+    const e = src[kind];
+    if (typeof e !== "object" || e === null || Array.isArray(e)) {
+      return err(engineError(FOOD_BAD_TABLE, `\u98DF\u7269\u8868\u9879 ${kind} \u5FC5\u987B\u662F\u5BF9\u8C61`, { field: kind, kind }));
+    }
+    const n = e.nutrition;
+    if (!Number.isInteger(n) || n <= 0) {
+      return err(
+        engineError(FOOD_BAD_TABLE, `\u98DF\u7269\u8868\u9879 ${kind}.nutrition \u5FC5\u987B\u662F\u6B63\u6574\u6570\uFF0C\u6536\u5230 ${String(n)}`, {
+          field: `${kind}.nutrition`,
+          kind
+        })
+      );
+    }
+    const hp = e.health;
+    if (hp !== void 0 && (!Number.isInteger(hp) || hp <= 0)) {
+      return err(
+        engineError(FOOD_BAD_TABLE, `\u98DF\u7269\u8868\u9879 ${kind}.health \u5FC5\u987B\u662F\u6B63\u6574\u6570\uFF0C\u6536\u5230 ${String(hp)}\uFF08\u7701\u7565 = \u4E0D\u56DE\u8840\uFF09`, {
+          field: `${kind}.health`,
+          kind
+        })
+      );
+    }
+    out[kind] = hp === void 0 ? { nutrition: n } : { nutrition: n, health: hp };
+  }
+  return ok(out);
+}
+function eat(scene, ownerId, kind, table) {
+  const entry = table[kind];
+  if (entry === void 0) {
+    return err(
+      engineError(FOOD_UNKNOWN_KIND, `"${kind}" \u4E0D\u5728\u98DF\u7269\u8868\u91CC\uFF08\u80FD\u5403\u7684\u53EA\u6709\uFF1A${Object.keys(table).sort().join(" / ")}\uFF09`)
+    );
+  }
+  const node = scene.find(ownerId);
+  if (node === void 0 || node === null) {
+    return err(engineError(HUNGER_NO_OWNER, `\u8282\u70B9 ${String(ownerId)} \u4E0D\u5728\u573A\u666F\u91CC`));
+  }
+  const h = node.get(HUNGER_TYPE);
+  if (h === void 0) {
+    return err(engineError(HUNGER_NO_COMPONENT, `\u8282\u70B9 ${String(ownerId)} \u6CA1\u6709 ${HUNGER_TYPE}`));
+  }
+  const health = node.get(HEALTH_TYPE);
+  if (health !== void 0 && isDead(health)) {
+    return err(engineError(FOOD_DEAD, `\u8282\u70B9 ${String(ownerId)} \u5DF2\u7ECF\u6B7B\u4E86 \u2014\u2014 \u5C38\u4F53\u4E0D\u4F1A\u5403\u4E1C\u897F`));
+  }
+  if (h.value >= h.max) {
+    return err(
+      engineError(FOOD_FULL, `\u5DF2\u7ECF\u5403\u9971\u4E86\uFF08${String(h.value)}/${String(h.max)}\uFF09\u2014\u2014 \u4E0D\u8BE5\u5728\u8FD9\u65F6\u5019\u6D88\u8017\u4E00\u4E2A\u300C${kind}\u300D`)
+    );
+  }
+  if (countItem(scene, ownerId, kind) < 1) {
+    return err(engineError(FOOD_NOT_HELD, `\u8EAB\u4E0A\u6CA1\u6709\u300C${kind}\u300D\uFF08\u80CC\u5305\u91CC\u6709\uFF1A${Object.keys(table).sort().join(" / ")}\uFF09`));
+  }
+  const taken = takeItem(scene, ownerId, kind, 1);
+  if (!taken.ok) return taken;
+  const fed = feed(scene, ownerId, entry.nutrition);
+  if (!fed.ok) {
+    return fed;
+  }
+  let healed = 0;
+  if (entry.health !== void 0 && health !== void 0) {
+    const r = heal(scene, ownerId, entry.health);
+    if (r.ok) healed = r.value;
+  }
+  return ok({
+    nodeId: ownerId,
+    kind,
+    nutrition: entry.nutrition,
+    hungerBefore: fed.value.before,
+    hungerAfter: fed.value.after,
+    healed
+  });
+}
+
+// src/extensions/survival/survival-module.ts
+var SURVIVAL_BAD_MODULE = "SURVIVAL.BAD_MODULE";
+function positive(name, v, dflt) {
+  const n = v ?? dflt;
+  if (!Number.isInteger(n) || n <= 0) {
+    throw new RangeError(`${name} \u5FC5\u987B\u662F\u6B63\u6574\u6570\uFF0C\u6536\u5230 ${String(v)}`);
+  }
+  return n;
+}
+function createSurvivalModule(options = {}) {
+  const decayEvery = positive("decayEveryTicks", options.decayEveryTicks, 30);
+  const starveEvery = positive("starveEveryTicks", options.starveEveryTicks, 30);
+  const starveDmg = positive("starveDamage", options.starveDamage, 1);
+  let scene = null;
+  let tracked = 0;
+  let starving = 0;
+  let starveTicks = 0;
+  let starveDeaths = 0;
+  let lastError = "";
+  const handle = {
+    id: options.id ?? "game.survival",
+    deps: [],
+    get stats() {
+      return { tracked, starving, starveTicks, starveDeaths, lastError };
+    },
+    init(ctx) {
+      const got = ctx.services.get(Services.Scene);
+      if (got === void 0) {
+        return err(engineError(SURVIVAL_BAD_MODULE, "\u751F\u5B58\u6A21\u5757\u9700\u8981\u4E00\u4E2A Scene\uFF08\u5148\u6CE8\u518C Services.Scene\uFF09"));
+      }
+      scene = got;
+      return ok(void 0);
+    },
+    update(tick) {
+      handle.tick(tick);
+    },
+    stop() {
+    },
+    describe() {
+      return `\u751F\u5B58\uFF1A\u8FFD\u8E2A ${String(tracked)} / \u997F\u7740 ${String(starving)} / \u997F\u6B7B ${String(starveDeaths)}`;
+    },
+    tick(tick) {
+      const s = scene;
+      if (s === null) return;
+      const list = [...s.componentsOf(HUNGER_TYPE)].sort(
+        (a, b) => (a.node?.id ?? -1) - (b.node?.id ?? -1)
+      );
+      tracked = list.length;
+      let stillStarving = 0;
+      for (const h of list) {
+        const node = h.node;
+        if (node === null || !node.activeInHierarchy) continue;
+        if (tick > 0 && tick % decayEvery === 0 && h.value > 0) {
+          h.value--;
+        }
+        if (!isStarving(h)) continue;
+        stillStarving++;
+        if (tick <= 0 || tick % starveEvery !== 0) continue;
+        const health = node.get(HEALTH_TYPE);
+        if (health === void 0 || isDead(health)) continue;
+        const r = damage(s, node.id, starveDmg, { tick });
+        if (!r.ok) {
+          lastError = r.error.code;
+          continue;
+        }
+        starveTicks++;
+        options.onStarve?.(node.id, tick);
+        if (r.value.dead) {
+          starveDeaths++;
+          options.onStarveDeath?.(node.id, tick);
+        }
+      }
+      starving = stillStarving;
+    }
+  };
+  return handle;
+}
+
+// src/extensions/crafting/recipe.ts
+var RECIPE_BAD_TABLE = "CRAFT.BAD_TABLE";
+var RECIPE_MISSING = "CRAFT.MISSING";
+var RECIPE_NO_SPACE = "CRAFT.NO_SPACE";
+var RECIPE_NO_OWNER = "CRAFT.NO_OWNER";
+function normalizeRecipes(raw) {
+  if (!Array.isArray(raw)) {
+    return err(engineError(RECIPE_BAD_TABLE, "\u914D\u65B9\u8868\u5FC5\u987B\u662F\u6570\u7EC4"));
+  }
+  if (raw.length === 0) {
+    return err(engineError(RECIPE_BAD_TABLE, "\u914D\u65B9\u8868\u662F\u7A7A\u7684 \u2014\u2014 \u591A\u534A\u662F\u5FD8\u4E86\u586B\uFF0C\u800C\u4E0D\u662F\u771F\u7684\u4E0D\u60F3\u8BA9\u4EBA\u505A\u4E1C\u897F"));
+  }
+  const seen = /* @__PURE__ */ new Set();
+  const out = [];
+  for (const [i, item] of raw.entries()) {
+    const at = `[${i}]`;
+    if (typeof item !== "object" || item === null || Array.isArray(item)) {
+      return err(engineError(RECIPE_BAD_TABLE, `\u914D\u65B9${at} \u5FC5\u987B\u662F\u5BF9\u8C61`, { field: at }));
+    }
+    const r = item;
+    const id = r.id;
+    if (typeof id !== "string" || id === "") {
+      return err(engineError(RECIPE_BAD_TABLE, `\u914D\u65B9${at}.id \u5FC5\u987B\u662F\u975E\u7A7A\u5B57\u7B26\u4E32`, { field: `${at}.id` }));
+    }
+    if (seen.has(id)) {
+      return err(engineError(RECIPE_BAD_TABLE, `\u914D\u65B9 id \u91CD\u590D\uFF1A"${id}"`, { field: `${at}.id`, id }));
+    }
+    seen.add(id);
+    const name = r.name;
+    if (typeof name !== "string" || name === "") {
+      return err(engineError(RECIPE_BAD_TABLE, `\u914D\u65B9 ${id}.name \u5FC5\u987B\u662F\u975E\u7A7A\u5B57\u7B26\u4E32`, { field: `${id}.name`, id }));
+    }
+    const rawIn = r.inputs;
+    if (!Array.isArray(rawIn) || rawIn.length === 0) {
+      return err(
+        engineError(RECIPE_BAD_TABLE, `\u914D\u65B9 ${id}.inputs \u5FC5\u987B\u662F\u975E\u7A7A\u6570\u7EC4\uFF08\u6CA1\u6709\u6750\u6599\u7684\u914D\u65B9\u7B49\u4E8E\u767D\u9001\uFF09`, {
+          field: `${id}.inputs`,
+          id
+        })
+      );
+    }
+    const inputs = [];
+    for (const [k, c] of rawIn.entries()) {
+      const cost = asCost(c);
+      if (typeof cost === "string") {
+        return err(
+          engineError(RECIPE_BAD_TABLE, `\u914D\u65B9 ${id}.inputs[${k}] \u5199\u9519\u4E86\uFF1A${cost}`, {
+            field: `${id}.inputs[${k}]`,
+            id
+          })
+        );
+      }
+      inputs.push(cost);
+    }
+    const output = asCost(r.output);
+    if (typeof output === "string") {
+      return err(engineError(RECIPE_BAD_TABLE, `\u914D\u65B9 ${id}.output \u5199\u9519\u4E86\uFF1A${output}`, { field: `${id}.output`, id }));
+    }
+    out.push({ id, name, inputs, output });
+  }
+  return ok(out);
+}
+function asCost(v) {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return "\u5FC5\u987B\u662F {kind, count} \u5BF9\u8C61";
+  const o = v;
+  if (typeof o.kind !== "string" || o.kind === "") return "kind \u5FC5\u987B\u662F\u975E\u7A7A\u5B57\u7B26\u4E32";
+  if (!Number.isInteger(o.count) || o.count <= 0) {
+    return `count \u5FC5\u987B\u662F\u6B63\u6574\u6570\uFF0C\u6536\u5230 ${String(o.count)}\uFF080 \u4F1A\u505A\u51FA"\u4E0D\u9700\u8981\u6750\u6599"\u7684\u914D\u65B9\uFF09`;
+  }
+  return { kind: o.kind, count: o.count };
+}
+function missingFor(scene, ownerId, recipe) {
+  const out = [];
+  for (const cost of recipe.inputs) {
+    const have = countItem(scene, ownerId, cost.kind);
+    if (have < cost.count) out.push({ kind: cost.kind, count: cost.count, have });
+  }
+  return out;
+}
+function craft(scene, ownerId, recipe) {
+  const node = scene.find(ownerId);
+  if (node === void 0 || node === null) {
+    return err(engineError(RECIPE_NO_OWNER, `\u8282\u70B9 ${String(ownerId)} \u4E0D\u5728\u573A\u666F\u91CC`));
+  }
+  const missing = missingFor(scene, ownerId, recipe);
+  if (missing.length > 0) {
+    const desc = missing.map((m) => `${m.kind} ${String(m.have)}/${String(m.count)}`).join("\u3001");
+    return err(
+      engineError(RECIPE_MISSING, `\u6750\u6599\u4E0D\u8DB3\uFF1A${desc}`, {
+        recipeId: recipe.id,
+        missing: missing.map((m) => ({ kind: m.kind, need: m.count, have: m.have }))
+      })
+    );
+  }
+  const consumed = [];
+  for (const cost of recipe.inputs) {
+    const r = takeItem(scene, ownerId, cost.kind, cost.count);
+    if (!r.ok) {
+      for (const back of consumed) addItem(scene, ownerId, back.kind, back.count);
+      return err(
+        engineError(RECIPE_MISSING, `\u6263\u6750\u6599\u65F6 ${cost.kind} \u4E0D\u591F\uFF08${r.error.message}\uFF09\u2014\u2014 \u5DF2\u56DE\u6EDA`, {
+          recipeId: recipe.id,
+          rolledBack: consumed.map((c) => ({ kind: c.kind, count: c.count }))
+        })
+      );
+    }
+    consumed.push(cost);
+  }
+  const added = addItem(scene, ownerId, recipe.output.kind, recipe.output.count);
+  if (!added.ok) {
+    for (const back of consumed) addItem(scene, ownerId, back.kind, back.count);
+    return err(
+      engineError(
+        RECIPE_NO_SPACE,
+        `\u4EA7\u7269\u300C${recipe.output.kind}\xD7${String(recipe.output.count)}\u300D\u653E\u4E0D\u8FDB\u80CC\u5305\uFF08${added.error.code}\uFF09\u2014\u2014 \u6750\u6599\u5DF2\u9000\u56DE`,
+        { recipeId: recipe.id, rolledBack: consumed.map((c) => ({ kind: c.kind, count: c.count })) }
+      )
+    );
+  }
+  return ok({
+    recipeId: recipe.id,
+    consumed,
+    output: recipe.output,
+    added: added.value
+  });
+}
+function firstCraftable(scene, ownerId, recipes) {
+  for (const r of recipes) {
+    if (missingFor(scene, ownerId, r).length === 0) return r;
+  }
+  return void 0;
 }
 
 // src/browser-entry.ts
-var PlayerController = class _PlayerController extends Component {
-  speed = 4.5;
-  lastTick = -1;
-  snap = null;
-  static pollInput = null;
-  schema = {
-    type: "game.player",
-    fields: { speed: FieldType.Float }
-  };
-  onUpdate(tick, dt) {
-    const poll = _PlayerController.pollInput;
-    if (poll === null) return;
-    if (tick !== this.lastTick) {
-      this.snap = poll();
-      this.lastTick = tick;
-    }
-    const s = this.snap;
-    if (s === null) return;
-    let dx = 0;
-    let dz = 0;
-    if (s.keysDown.has("KeyA") || s.keysDown.has("ArrowLeft")) dx -= 1;
-    if (s.keysDown.has("KeyD") || s.keysDown.has("ArrowRight")) dx += 1;
-    if (s.keysDown.has("KeyW") || s.keysDown.has("ArrowUp")) dz += 1;
-    if (s.keysDown.has("KeyS") || s.keysDown.has("ArrowDown")) dz -= 1;
-    const len = Math.hypot(dx, dz);
-    if (len === 0) return;
-    const n = this.node;
-    if (n === null) return;
-    n.setLocalPosition(
-      n.localPosition.x + dx / len * this.speed * dt,
-      n.localPosition.y + dz / len * this.speed * dt
-    );
-  }
+var EMPTY_INPUT = {
+  keysDown: /* @__PURE__ */ new Set(),
+  keysPressed: /* @__PURE__ */ new Set(),
+  keysReleased: /* @__PURE__ */ new Set(),
+  pointer: { x: 0, y: 0, dx: 0, dy: 0, buttonsDown: /* @__PURE__ */ new Set(), buttonsPressed: /* @__PURE__ */ new Set(), buttonsReleased: /* @__PURE__ */ new Set() },
+  wheel: { dx: 0, dy: 0 },
+  text: ""
 };
 var Workable = class extends Component {
   workleft = 3;
@@ -12743,29 +20773,6 @@ var Workable = class extends Component {
     fields: { workleft: FieldType.Int }
   };
 };
-function createWorldModule(physics, hooks) {
-  let off = null;
-  return {
-    id: "game.world",
-    init(ctx) {
-      const scene = ctx.services.require(Services.Scene);
-      const sched = ctx.services.require(Services.Scheduler);
-      off = sched.onStep((tick, dt) => {
-        scene.step(tick, dt);
-        physics.resolve();
-        hooks.onStep?.(tick, dt);
-        hooks.onTick(tick);
-      });
-    },
-    stop() {
-      off?.();
-      off = null;
-    },
-    describe() {
-      return `\u4E16\u754C\uFF1A${physics.stats().bodies} \u4E2A\u7269\u7406\u4F53`;
-    }
-  };
-}
 var LUA_DEMO = `
 local beans = {}
 local t = 0
@@ -12800,7 +20807,23 @@ function onUpdate(selfId, dt, tick)
   end
 end
 `;
-var DEMO_FRAMES = ["ground", "tree", "rock", "berry", "player"];
+var DEMO_FRAMES = [
+  { name: "ground", file: "ground.png" },
+  // ★ terrain 是**中性灰噪点**，不是草绿：地形块用「灰度帧 × 群系色」着色
+  //   （一张灰度图 × 8 个群系色 = 8 种地貌）。底色若是草绿，海会变成墨绿。
+  { name: "terrain", file: "terrain.png" },
+  // 2×2 走向标尺（左上红/右上绿/左下蓝/右下白）：诊断 UV 与裁剪用，平时不挂
+  { name: "ruler", file: "ruler.png" },
+  { name: "tree", file: "tree.png" },
+  { name: "rock", file: "rock.png" },
+  { name: "berry", file: "berry.png" },
+  { name: "player", file: "player.png" },
+  // 批66：世界的活物。★ 名字要与 `MOB_TEMPLATES` 里的 `frame` 一致 ——
+  //   两边写错一个字的症状是「生物在走但看不见」，而渲染模块只会 warn。
+  { name: "rabbit", file: "rabbit.png" },
+  { name: "hound", file: "hound.png" },
+  { name: "photo", file: "photo.jpg" }
+];
 var ASSET_ROOT = "/assets";
 async function bakeAtlasFromAssets() {
   try {
@@ -12814,24 +20837,28 @@ async function bakeAtlasFromAssets() {
     importers.register(textImporter);
     const pipeline = new AssetImportPipeline(fs, db, importers, logger.channel("import"));
     for (const l of createImportLoaders({ root: ASSET_ROOT })) db.registerLoader(l);
-    for (const name of DEMO_FRAMES) {
-      const res = await fetch(new URL(`assets/${name}.png`, location.href), { cache: "no-cache" });
-      if (!res.ok) return null;
-      const w = await fs.writeBinary(`${ASSET_ROOT}/${name}.png`, new Uint8Array(await res.arrayBuffer()));
+    const remote = new HttpFileSystem({ base: new URL("./assets/", location.href) });
+    for (const { file } of DEMO_FRAMES) {
+      const r = await remote.readBinary(file);
+      if (!r.ok) {
+        console.warn(`[asset] \u8BFB\u4E0D\u5230 ${file}\uFF1A${r.error.code} ${r.error.message}`);
+        return null;
+      }
+      const w = await fs.writeBinary(`${ASSET_ROOT}/${file}`, r.value);
       if (!w.ok) return null;
     }
     const report = await pipeline.run(ASSET_ROOT);
     if (!report.ok) return null;
     const sources = [];
-    for (const name of DEMO_FRAMES) {
-      const id = db.idAtPath(`${ASSET_ROOT}/${name}.png`);
+    for (const { name, file } of DEMO_FRAMES) {
+      const id = db.idAtPath(`${ASSET_ROOT}/${file}`);
       if (id === void 0) continue;
       const h = await db.load(id);
       if (!h.ok) continue;
       const asset = h.value.asset;
       try {
         if (asset instanceof ImportedTexture) {
-          const dec = decodePng(asset.bytes);
+          const dec = decodeImage(asset.bytes);
           if (dec.ok) sources.push({ name, png: dec.value });
         }
       } finally {
@@ -12873,7 +20900,10 @@ async function main() {
         setLocalPosition: (x, y) => n.setLocalPosition(x, y)
       };
     }),
-    { cellSize: 4, maxIterations: 3 }
+    // ★ 不写死 cellSize：格宽由引擎按实体尺寸定（`2 × 全场最大 range`，这里的世界是 1.4）。
+    //   写死 4 的时候，0.45~0.7 半径的实体被塞进"每格能装几十个"的粗桶里，
+    //   每次查询白扫上百个候选 —— 2000 体规模下实测差 2.3 倍（见 T338）。
+    { maxIterations: 3 }
   );
   let heroId = -1;
   let hudTick = 0;
@@ -12894,17 +20924,294 @@ async function main() {
     }
   });
   const scriptMod = createScriptModule({ callTimeoutMs: 16 });
+  const controllerMod = createControllerModule({
+    poll: () => appRef === null ? EMPTY_INPUT : appRef.platform.input.poll()
+  });
   const worldMod = createWorldModule(physics, {
     onTick: (t) => hudTick = t,
     onStep: (tick, dt) => {
+      controllerMod.update(tick, dt);
+      dispatchActions();
+      worldState.tasks?.update(tick, dt);
+      mobsHandle?.update(tick, dt);
+      survivalMod.update(tick, dt);
+      feedbackMod.update(tick);
       void scriptMod.update(tick, dt);
     }
   });
+  const WORLD_SEED = 20261023;
+  const WORLD_W = 32;
+  const WORLD_H = 24;
+  const planR = generateWorld({ seed: WORLD_SEED, width: WORLD_W, height: WORLD_H, maxSitesPerCell: 0 });
+  const plan = planR.ok ? planR.value : null;
+  if (!planR.ok) console.error(`[worldgen] \u751F\u6210\u5931\u8D25\uFF1A${planR.error.code} ${planR.error.message}`);
+  const worldState = {
+    plan,
+    player: null,
+    visual: null,
+    tasks: null,
+    /** 导航网格（批60）：从生成计划建一次，之后不再变（地图要变就整张重建）。 */
+    nav: null,
+    /** 生物群（批66）：世界里会走、会打、会掉东西的活物。 */
+    mobs: null,
+    assembled: false
+  };
+  const atlasFrames = baked === null ? [...buildProceduralAtlas().frames.keys()] : [...baked.atlas.frames.keys()];
+  const worldgenMod = {
+    id: "world.worldgen",
+    init(ctx) {
+      const scene2 = ctx.services.require(Services.Scene);
+      const p = worldState.plan;
+      if (p === null) {
+        return err(engineError("WORLD.GEN_FAILED", "\u4E16\u754C\u8BA1\u5212\u6CA1\u6709\u751F\u6210\u51FA\u6765\uFF0C\u88C5\u914D\u65E0\u6CD5\u8FDB\u884C"));
+      }
+      registerWorldComponents(scene2.components);
+      registerResourceComponent(scene2.components);
+      registerPlayerComponent(scene2.components);
+      registerInventoryComponents(scene2.components);
+      registerHealthComponent(scene2.components);
+      registerAttackerComponent(scene2.components);
+      registerFactionComponent(scene2.components);
+      registerMoverComponent(scene2.components);
+      registerHungerComponent(scene2.components);
+      registerFeedbackComponent(scene2.components);
+      if (!scene2.components.has(SPRITE_TYPE)) {
+        scene2.components.register(new Sprite().schema, () => new Sprite());
+      }
+      const a = assembleWorld(p, scene2);
+      if (!a.ok) return a;
+      worldState.assembled = true;
+      const v = attachWorldVisuals(scene2, atlasFrames);
+      if (!v.ok) return v;
+      worldState.visual = v.value;
+      const sp2 = spawnPlayer(scene2, p);
+      if (!sp2.ok) return sp2;
+      worldState.player = sp2.value;
+      const nav = NavGrid.fromPlan(p);
+      if (!nav.ok) return nav;
+      worldState.nav = nav.value;
+      return ok(void 0);
+    },
+    describe() {
+      const v = worldState.visual;
+      return v === null ? "\u4E16\u754C\uFF1A\u672A\u88C5\u914D" : `\u4E16\u754C\uFF1A${v.terrain} \u5757\u5730\u5F62 / ${v.sites} \u4E2A\u6295\u653E\u70B9`;
+    }
+  };
+  const tasksHandle = plan === null ? null : createWorldTaskModule({
+    tasks: {
+      schema: WORLD_TASK_SCHEMA,
+      tasks: [{ id: "regen", periodTicks: 30, phase: 0, picksPerRun: 2, biomes: ["grass", "forest"] }]
+    },
+    plan,
+    maxResources: 96
+  });
+  const tasksMod = {
+    id: "world.tasks",
+    deps: [worldgenMod.id],
+    init(ctx) {
+      if (tasksHandle === null) return ok(void 0);
+      const r = tasksHandle.init(ctx);
+      if (r === void 0) return ok(void 0);
+      if (!r.ok) return r;
+      worldState.tasks = tasksHandle;
+      return ok(void 0);
+    },
+    start() {
+      tasksHandle?.start?.();
+    },
+    stop() {
+      tasksHandle?.stop?.();
+    },
+    describe() {
+      const s = worldState.tasks?.stats();
+      return s === void 0 ? "\u4E16\u754C\u4EFB\u52A1\uFF1A\u672A\u542F\u52A8" : `\u4E16\u754C\u4EFB\u52A1\uFF1A\u6D3B ${s.alive} / \u7D2F\u8BA1 ${s.spawned}`;
+    }
+  };
+  const MOB_TEMPLATES = [
+    {
+      kind: "rabbit",
+      frame: "rabbit",
+      width: 0.9,
+      height: 0.9,
+      radius: 0.28,
+      maxHp: 4,
+      damage: 0,
+      range: 1.4,
+      cooldownTicks: 20,
+      speed: 1.1,
+      team: "prey",
+      loot: [{ kind: "meat", count: 2 }]
+    },
+    {
+      kind: "hound",
+      frame: "hound",
+      width: 1.1,
+      height: 1.1,
+      radius: 0.34,
+      maxHp: 8,
+      damage: 2,
+      range: 1.7,
+      cooldownTicks: 15,
+      speed: 2.3,
+      team: "hunter",
+      loot: [{ kind: "hide", count: 1 }]
+    }
+  ];
+  const MOB_FACTIONS = createFactions();
+  MOB_FACTIONS.setStance("hunter", "prey", "foe");
+  function pickMobSpots(grid, hounds, rabbits, avoidCell) {
+    const walk = [];
+    const ax = grid.cellX(avoidCell);
+    const az = grid.cellZ(avoidCell);
+    for (let i = 0; i < grid.total; i++) {
+      if (!grid.isWalkableIndex(i)) continue;
+      const cx = grid.cellX(i);
+      const cz = grid.cellZ(i);
+      if (Math.abs(cx - ax) <= 2 && Math.abs(cz - az) <= 2) continue;
+      walk.push(i);
+    }
+    const total = hounds + rabbits;
+    const out = [];
+    if (walk.length === 0) return out;
+    const stride = Math.max(1, Math.floor(walk.length / total));
+    for (let k = 0; k < total; k++) {
+      const cell = walk[Math.min(walk.length - 1, k * stride)];
+      if (cell === void 0) continue;
+      out.push({ template: k < hounds ? 1 : 0, cell });
+    }
+    return out;
+  }
+  let mobsHandle = null;
+  const feedbackMod = createFeedbackModule({ id: "render.feedback.demo" });
+  const HIT_FLASH_TICKS = 12;
+  const HIT_PUNCH_TICKS = 6;
+  const DMG_LIFE_MS = 900;
+  const feedbackErrors = [];
+  const damageNumbers = [];
+  const fxLayer = document.createElement("div");
+  fxLayer.id = "fx";
+  fxLayer.style.cssText = "position:fixed;left:0;top:0;width:100%;height:100%;pointer-events:none;overflow:hidden;z-index:20;";
+  document.body.appendChild(fxLayer);
+  function spawnDamageNumber(x, z, text, dead) {
+    const el = document.createElement("div");
+    el.className = "dmg";
+    el.dataset.dmg = text;
+    el.textContent = text;
+    el.style.cssText = `position:absolute;left:0;top:0;font:700 14px/1 ui-monospace,monospace;color:${dead ? "#ffd54a" : "#ff6b5a"};text-shadow:0 1px 2px rgba(0,0,0,.55);pointer-events:none;will-change:transform,opacity;`;
+    fxLayer.appendChild(el);
+    damageNumbers.push({ el, x, z, bornMs: performance.now(), lifeMs: DMG_LIFE_MS, text, dead });
+  }
+  function updateDamageNumbers(now) {
+    if (damageNumbers.length === 0) return;
+    if (canvas === null) return;
+    const rect = canvas.getBoundingClientRect();
+    const cam = renderMod.camera;
+    for (let i = damageNumbers.length - 1; i >= 0; i--) {
+      const d = damageNumbers[i];
+      if (d === void 0) continue;
+      const t = (now - d.bornMs) / d.lifeMs;
+      if (t >= 1) {
+        d.el.remove();
+        damageNumbers.splice(i, 1);
+        continue;
+      }
+      const c = cam.project(d.x, d.z);
+      const px = rect.left + (c.x + 1) / 2 * rect.width;
+      const py = rect.top + (1 - c.y) / 2 * rect.height - t * 28;
+      const op = t < 0.7 ? 1 : 1 - (t - 0.7) / 0.3;
+      d.el.style.transform = `translate(${px.toFixed(1)}px, ${py.toFixed(1)}px)`;
+      d.el.style.opacity = op.toFixed(2);
+    }
+  }
+  function showHit(info) {
+    worldState.mobs?.noteHit({
+      attackerId: info.attackerId,
+      targetId: info.targetId,
+      applied: info.applied,
+      tick: hudTick
+    });
+    const target = scene.find(info.targetId);
+    if (target !== void 0) {
+      const p = target.worldPosition;
+      spawnDamageNumber(p.x, p.y, `-${String(info.applied)}`, info.dead);
+      const f = flash(scene, info.targetId, HIT_FLASH_TICKS);
+      if (!f.ok) feedbackErrors.push(f.error.code);
+    }
+    const pn = punch(scene, info.attackerId, HIT_PUNCH_TICKS);
+    if (!pn.ok) feedbackErrors.push(pn.error.code);
+  }
+  const mobsMod = {
+    id: "world.mobs",
+    deps: [worldgenMod.id],
+    init(ctx) {
+      const g = worldState.nav;
+      const player = worldState.player;
+      if (g === null || player === null) {
+        return err(engineError("MOBS.NO_WORLD", "\u5BFC\u822A\u7F51\u683C\u6216\u73A9\u5BB6\u8FD8\u6CA1\u5EFA\u597D\uFF0C\u751F\u7269\u65E0\u5904\u843D\u811A"));
+      }
+      const spots = pickMobSpots(g, 3, 10, player.cell);
+      if (spots.length === 0) {
+        return err(engineError("MOBS.NO_SPOT", "\u4E16\u754C\u91CC\u627E\u4E0D\u5230\u53EF\u8D70\u7684\u51FA\u751F\u70B9\uFF08\u5730\u5F62\u5168\u662F\u6C34/\u5D16\uFF1F\uFF09"));
+      }
+      const h = createMobWorldModule({
+        grid: g,
+        factions: MOB_FACTIONS,
+        templates: MOB_TEMPLATES,
+        spots,
+        range: 14,
+        seed: WORLD_SEED,
+        wanderEvery: 18,
+        // 记仇：5 秒记忆、追 16 格（跑出 16 格才能甩掉）。这两个值是**玩法参数**，
+        // 所以显式写在这里，而不是靠库里的默认值 —— 调平衡的人该在这里调。
+        threatDecayTicks: 150,
+        aggroCells: 16,
+        // 生物打人：与玩家打怪走**同一个** showHit（否则会出现"我打的看得见、
+        // 我挨打看不见"，而两边的代码都对）
+        onHit: (info) => showHit(info)
+      });
+      const r = h.init(ctx);
+      if (r !== void 0 && !r.ok) return r;
+      mobsHandle = h;
+      worldState.mobs = h;
+      return ok(void 0);
+    },
+    describe() {
+      const m = worldState.mobs;
+      if (m === null) return "\u751F\u7269\uFF1A\u672A\u542F\u52A8";
+      const st = m.stats;
+      return `\u751F\u7269\uFF1A${String(st.mobs)} \u53EA\uFF08\u8FFD ${String(st.hunting)} / \u6E38 ${String(st.wandering)}\uFF09\uFF0C\u51FB\u6740 ${String(st.kills)}`;
+    }
+  };
+  const survivalMod = createSurvivalModule({
+    id: "game.survival.demo",
+    // 60 tick（2 秒）掉 1 点 ⇒ 满值 100 点能撑 200 秒。演示里"看得见它在掉"，
+    // 但不至于让人一直在吃东西。
+    decayEveryTicks: 60,
+    // 饿着之后每 30 tick（1 秒）掉 1 血：20 血能撑 20 秒才死 —— 够人反应。
+    starveEveryTicks: 30,
+    starveDamage: 1
+  });
+  const FOOD_TABLE_R = normalizeFoodTable({
+    berry: { nutrition: 15 },
+    meat: { nutrition: 25, health: 5 },
+    // 批68：熟肉是"制作"的产物 —— 比生肉更顶饱、回血更多。
+    // ★ 这条让「采草 + 打猎 → 做 → 吃」成为一个**有比价关系**的循环：
+    //   生肉直接吃是 25/5，花一份草做成熟肉是 40/10。
+    cooked_meat: { nutrition: 40, health: 10 }
+  });
+  if (!FOOD_TABLE_R.ok) throw new Error(`\u98DF\u7269\u8868\u4E0D\u5408\u6CD5\uFF1A${FOOD_TABLE_R.error.message}`);
+  const FOOD_TABLE = FOOD_TABLE_R.value;
+  const RECIPES_R = normalizeRecipes([
+    { id: "cooked_meat", name: "\u719F\u8089", inputs: [{ kind: "meat", count: 1 }, { kind: "grass_tuft", count: 1 }], output: { kind: "cooked_meat", count: 1 } },
+    { id: "rope", name: "\u7EF3\u5B50", inputs: [{ kind: "reed", count: 2 }], output: { kind: "rope", count: 1 } }
+  ]);
+  if (!RECIPES_R.ok) throw new Error(`\u914D\u65B9\u8868\u4E0D\u5408\u6CD5\uFF1A${RECIPES_R.error.message}`);
+  const RECIPES = RECIPES_R.value;
   const appR = await bootGameApp({
     platformId: "web",
     interactive: true,
     registry,
-    modules: [worldMod, renderMod, scriptMod],
+    modules: [worldMod, renderMod, scriptMod, worldgenMod, tasksMod, mobsMod, survivalMod, feedbackMod, controllerMod],
     seed: 20261022,
     fixedDt: 1 / 30,
     tickSource: new RafTickSource(() => performance.now()),
@@ -12923,7 +21230,6 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
   }
   const app = appR.value;
   appRef = app;
-  PlayerController.pollInput = () => app.platform.input.poll();
   const scriptRuntime = scriptMod.runtime;
   if (scriptRuntime === null) {
     app.log.channel("host").warn("\u5E73\u53F0\u6CA1\u6709\u811A\u672C\u8FD0\u884C\u65F6\uFF1A\u6F14\u793A\u811A\u672C\u4E0D\u4F1A\u6267\u884C");
@@ -12932,30 +21238,29 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
     if (!lr.ok) app.log.channel("host").error(`\u6F14\u793A\u811A\u672C\u52A0\u8F7D\u5931\u8D25\uFF1A${lr.error.code} ${lr.error.message}`);
   }
   const reg = app.components;
-  reg.register(new Sprite().schema, () => new Sprite());
-  reg.register({ type: "game.player", fields: { speed: FieldType.Float } }, () => new PlayerController());
+  registerControllerComponent(reg);
   reg.register({ type: "game.workable", fields: { workleft: FieldType.Int } }, () => new Workable());
   const scene = app.scene;
   const rnd = app.random;
-  for (let gz = -8; gz <= 8; gz++) {
-    for (let gx = -14; gx <= 14; gx++) {
-      const r = scene.spawnAt(`ground_${gx}_${gz}`, gx * 2, gz * 2);
-      if (!r.ok) continue;
-      const s = makeSprite("ground", 2.05, 2.05);
-      s.pivotY = 0.5;
-      s.r = 0.62 + rnd.range(0, 0.06);
-      s.g = 0.72 + rnd.range(0, 0.06);
-      s.b = 0.66;
-      s.order = -100;
-      scene.attach(r.value.id, () => s);
+  const worldPlan = worldState.plan;
+  const W = worldPlan?.width ?? WORLD_W;
+  const H = worldPlan?.height ?? WORLD_H;
+  function walkableSpot(margin = 1) {
+    for (let tries = 0; tries < 64 && worldPlan !== null; tries++) {
+      const cx = Math.floor(rnd.range(margin, W - margin));
+      const cz = Math.floor(rnd.range(margin, H - margin));
+      const kind = worldPlan.kinds[cz * W + cx];
+      if (kind === void 0) continue;
+      if (kind === "ocean" || kind === "cliff") continue;
+      return { x: cx + 0.5, z: cz + 0.5 };
     }
+    return { x: W / 2, z: H / 2 };
   }
   const obstacleIds = [];
   for (let i = 0; i < 70; i++) {
     const isTree = i % 3 !== 0;
-    const x = rnd.range(-26, 26);
-    const z = rnd.range(-16, 16);
-    const r = scene.spawnAt(isTree ? `tree${i}` : `rock${i}`, x, z);
+    const spot = walkableSpot();
+    const r = scene.spawnAt(isTree ? `tree${i}` : `rock${i}`, spot.x, spot.z);
     if (!r.ok) continue;
     const node = r.value;
     const s = makeSprite(isTree ? "tree" : "rock", isTree ? 2 : 1.6, isTree ? 3 : 1.4);
@@ -12963,60 +21268,190 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
     scene.attach(node.id, () => s);
     if (isTree) scene.attach(node.id, () => new Workable());
     obstacleIds.push(node.id);
-    physics.add({ nodeId: node.id, radius: isTree ? 0.55 : 0.7, isStatic: true });
+    scene.enqueue(() => physics.add({ nodeId: node.id, radius: isTree ? 0.55 : 0.7, isStatic: true }), "physics-add");
   }
   for (let i = 0; i < 14; i++) {
-    const r = scene.spawnAt(`berry${i}`, rnd.range(-24, 24), rnd.range(-14, 14));
+    const spot = walkableSpot();
+    const r = scene.spawnAt(`berry${i}`, spot.x, spot.z);
     if (!r.ok) continue;
     const s = makeSprite("berry", 0.8, 0.8);
     s.pivotY = 0;
     scene.attach(r.value.id, () => s);
   }
-  const hero = scene.spawnAt("hero", 0, 0);
-  if (!hero.ok) throw new Error(hero.error.message);
-  heroId = hero.value.id;
-  const heroSprite = makeSprite("player", 1.1, 1.7);
-  heroSprite.pivotY = 0;
-  scene.attach(heroId, () => heroSprite);
+  for (let i = 0; i < 4; i++) {
+    const cellX = 6 + i * 5;
+    const cx = Math.min(W - 2, cellX);
+    const r = scene.spawnAt(`poster${i}`, cx + 0.5, 3.5);
+    if (!r.ok) continue;
+    const s = makeSprite("photo", 1.6, 1.6);
+    s.pivotY = 0;
+    s.order = -50;
+    scene.attach(r.value.id, () => s);
+    obstacleIds.push(r.value.id);
+    scene.enqueue(() => physics.add({ nodeId: r.value.id, radius: 0.6, isStatic: true }), "physics-add");
+  }
+  const sp = worldState.player;
+  if (sp === null) throw new Error("\u4E16\u754C\u6CA1\u6709\u7ED9\u51FA\u51FA\u751F\u70B9\uFF08worldgen \u6A21\u5757\u6CA1\u8DD1\u6210\uFF09");
+  heroId = sp.nodeId;
+  const heroNode = scene.find(heroId);
+  if (heroNode === void 0) throw new Error(`\u51FA\u751F\u8282\u70B9 ${heroId} \u4E0D\u5728\u573A\u666F\u91CC`);
   scene.attach(heroId, () => new PlayerController());
+  scene.attach(heroId, () => {
+    const h = new Health();
+    h.hp = 20;
+    h.maxHp = 20;
+    return h;
+  });
+  scene.attach(heroId, () => {
+    const a = new Attacker();
+    a.damage = 3;
+    a.range = 1.8;
+    a.cooldownTicks = 12;
+    return a;
+  });
+  scene.attach(heroId, () => {
+    const f = new FactionMember();
+    f.team = "hunter";
+    return f;
+  });
+  scene.attach(heroId, () => {
+    const g = new Hunger();
+    g.max = 100;
+    g.value = 100;
+    return g;
+  });
   scene.attach(heroId, () => {
     const c = new ScriptComponent();
     c.module = "demo";
     c.entry = "onUpdate";
     return c;
   });
-  physics.add({ nodeId: heroId, radius: 0.45, isStatic: false });
+  scene.enqueue(() => physics.add({ nodeId: heroId, radius: 0.45, isStatic: false }), "physics-add");
   scene.flush();
-  const SAVE_KEY = "engine08.save.v1";
+  const bag = makeInventory(scene, heroId, 8);
+  if (!bag.ok) toast(`\u80CC\u5305\u5EFA\u4E0D\u8D77\u6765\uFF1A${bag.error.code}`);
+  const saves = new StorageFileSystem({ storage: window.localStorage, prefix: "engine08.fs." });
+  const SAVE_PATH = "/saves/slot1.json";
   let toastTimer = 0;
-  function toast(msg) {
-    toastEl.textContent = msg;
+  function toast(msg3) {
+    toastEl.textContent = msg3;
     toastEl.style.opacity = "1";
     if (toastTimer !== 0) clearTimeout(toastTimer);
     toastTimer = window.setTimeout(() => {
       toastEl.style.opacity = "0";
     }, 2e3);
   }
-  function doSave() {
-    const json = sceneToJson(saveScene(scene));
-    localStorage.setItem(SAVE_KEY, json);
-    toast(`\u5DF2\u5B58\u6863\uFF1A${json.length} \u5B57\u8282 \xB7 hash ${stableHash(json)}`);
-  }
-  function doLoad() {
-    const json = localStorage.getItem(SAVE_KEY);
-    if (json === null) {
-      toast("\u8FD8\u6CA1\u6709\u5B58\u6863\uFF08\u5148\u6309 F5\uFF09");
-      return;
+  function attackNearest() {
+    if (heroId < 0) return "\u8FD8\u6CA1\u6709\u73A9\u5BB6";
+    const hero = scene.find(heroId);
+    if (hero === void 0) return "\u73A9\u5BB6\u4E0D\u5728\u573A\u666F\u91CC";
+    if (hero.get(ATTACKER_TYPE) === void 0) return `\u73A9\u5BB6\u6CA1\u6709 ${ATTACKER_TYPE}`;
+    const me = hero.worldPosition;
+    const myTeam = teamOf(scene, heroId).team;
+    let bestId = -1;
+    let bestD2 = Number.POSITIVE_INFINITY;
+    for (const h of scene.componentsOf(HEALTH_TYPE)) {
+      const n = h.node;
+      if (n === null || n.id === heroId || !n.activeInHierarchy) continue;
+      if (MOB_FACTIONS.stanceOf(myTeam, teamOf(scene, n.id).team) === "ally") continue;
+      const p = n.worldPosition;
+      const dx = p.x - me.x;
+      const dz = p.y - me.y;
+      const d2 = dx * dx + dz * dz;
+      if (d2 < bestD2) {
+        bestD2 = d2;
+        bestId = n.id;
+      }
     }
+    if (bestId < 0) return "\u9644\u8FD1\u6CA1\u6709\u53EF\u6253\u7684";
+    const r = attack(scene, heroId, bestId, { tick: hudTick, factions: MOB_FACTIONS });
+    if (!r.ok) return `${r.error.code}\uFF1A${r.error.message}`;
+    const rep = r.value.report;
+    showHit({ attackerId: heroId, targetId: bestId, applied: rep.applied, dead: rep.dead });
+    return rep.dead ? `\u51FB\u6740\uFF01` : `\u547D\u4E2D ${String(rep.applied)}\uFF0C\u5269 ${String(rep.after)}`;
+  }
+  function eatSomething() {
+    if (heroId < 0) return "\u8FD8\u6CA1\u6709\u73A9\u5BB6";
+    const held = stacksOf(scene, heroId).filter((s) => FOOD_TABLE[s.kind] !== void 0 && s.count > 0).sort((a, b) => {
+      const na = FOOD_TABLE[a.kind]?.nutrition ?? 0;
+      const nb = FOOD_TABLE[b.kind]?.nutrition ?? 0;
+      if (na !== nb) return nb - na;
+      return a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : 0;
+    });
+    const best = held[0];
+    if (best === void 0) {
+      return `\u80CC\u5305\u91CC\u6CA1\u6709\u80FD\u5403\u7684\u4E1C\u897F\uFF08\u80FD\u5403\u7684\uFF1A${Object.keys(FOOD_TABLE).sort().join(" / ")}\uFF09`;
+    }
+    const r = eat(scene, heroId, best.kind, FOOD_TABLE);
+    if (!r.ok) return `${r.error.code}\uFF1A${r.error.message}`;
+    const rep = r.value;
+    return `\u5403\u4E86\u300C${rep.kind}\u300D\uFF1A\u9971\u98DF ${String(rep.hungerBefore)}\u2192${String(rep.hungerAfter)}` + (rep.healed > 0 ? `\uFF0C\u56DE\u8840 ${String(rep.healed)}` : "");
+  }
+  function craftSomething() {
+    if (heroId < 0) return "\u8FD8\u6CA1\u6709\u73A9\u5BB6";
+    const pick = firstCraftable(scene, heroId, RECIPES);
+    if (pick !== void 0) {
+      const r = craft(scene, heroId, pick);
+      if (!r.ok) return `${r.error.code}\uFF1A${r.error.message}`;
+      return `\u505A\u597D\u4E86\u300C${pick.name}\u300D\uFF1A${pick.inputs.map((c) => `${ITEM_LABEL[c.kind] ?? c.kind}\xD7${String(c.count)}`).join(" + ")} \u2192 ${ITEM_LABEL[r.value.output.kind] ?? r.value.output.kind}\xD7${String(r.value.added)}`;
+    }
+    let best = null;
+    for (const r of RECIPES) {
+      const missing = missingFor(scene, heroId, r);
+      if (missing.length === 0) continue;
+      if (best === null || missing.length < best.missing.length) best = { id: r.id, name: r.name, missing };
+    }
+    if (best === null) return "\u6CA1\u6709\u53EF\u505A\u7684\u914D\u65B9";
+    const desc = best.missing.map((m) => `${ITEM_LABEL[m.kind] ?? m.kind} ${String(m.have)}/${String(m.count)}`).join("\u3001");
+    return `${best.id} \u7F3A\uFF1A${desc}`;
+  }
+  function dispatchActions() {
+    const snap = controllerMod.snapshot;
+    const map = controllerMod.map;
+    if (map.justPressed(snap, "save")) void doSave();
+    else if (map.justPressed(snap, "load")) void doLoad();
+    else if (map.justPressed(snap, "restart")) location.reload();
+    else if (map.justPressed(snap, "bag")) {
+      bagOpen = !bagOpen;
+      if (bagOpen) bagSel = 0;
+      renderBagPanel(true);
+      toast(bagOpen ? "\u80CC\u5305\u5DF2\u6253\u5F00" : "\u80CC\u5305\u5DF2\u5173\u4E0A");
+    } else if (map.justPressed(snap, "drop")) {
+      const d = dropSelected(shiftDown);
+      toast(d.ok ? d.value : `${d.error.code}\uFF1A${d.error.message}`);
+    } else if (map.justPressed(snap, "attack")) toast(attackNearest());
+    else if (map.justPressed(snap, "eat")) toast(eatSomething());
+    else if (map.justPressed(snap, "craft")) toast(craftSomething());
+    else if (map.justPressed(snap, "chop")) chopNearest();
+    else if (map.justPressed(snap, "harvest")) {
+      const h = pickupNearest();
+      toast(h.ok ? h.value : `${h.error.code}\uFF1A${h.error.message}`);
+    }
+  }
+  async function doSave() {
+    const json = sceneToJson(saveScene(scene));
+    const w = await saves.writeText(SAVE_PATH, json);
+    toast(w.ok ? `\u5DF2\u5B58\u6863\uFF1A${json.length} \u5B57\u8282 \xB7 hash ${stableHash(json)}` : `\u5B58\u6863\u5931\u8D25\uFF1A${w.error.code} ${w.error.message}`);
+    return w;
+  }
+  async function doLoad() {
+    const res = await saves.readText(SAVE_PATH);
+    if (!res.ok) {
+      toast(res.error.code === "FS.NOT_FOUND" ? "\u8FD8\u6CA1\u6709\u5B58\u6863\uFF08\u5148\u6309 F5\uFF09" : `\u8BFB\u6863\u5931\u8D25\uFF1A${res.error.code}`);
+      return res;
+    }
+    return applyLoad(res.value);
+  }
+  function applyLoad(json) {
     const snap = sceneFromJson(json);
     if (!snap.ok) {
       toast("\u5B58\u6863\u635F\u574F\uFF1A" + snap.error.message);
-      return;
+      return snap;
     }
     const r = loadScene(scene, snap.value, reg);
     if (!r.ok) {
       toast("\u8BFB\u6863\u5931\u8D25\uFF1A" + r.error.message);
-      return;
+      return r;
     }
     physics.clear();
     for (const id of obstacleIds) {
@@ -13025,11 +21460,43 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
     if (scene.find(heroId) !== void 0) physics.add({ nodeId: heroId, radius: 0.45, isStatic: false });
     const extra = r.value.skipped.length > 0 ? `\uFF0C\u8DF3\u8FC7 ${r.value.skipped.length} \u9879` : "";
     toast(`\u5DF2\u8BFB\u6863\uFF1A${r.value.made} \u4E2A\u8282\u70B9${extra}`);
+    return ok(r.value.made);
+  }
+  function pickupNearest(range = 3.2) {
+    const heroNode2 = scene.find(heroId);
+    if (heroNode2 === void 0) return err(engineError("HARVEST.NO_PLAYER", "\u73A9\u5BB6\u4E0D\u5728\u573A\u666F\u91CC"));
+    const tasks = worldState.tasks;
+    if (tasks === null) return err(engineError("HARVEST.NO_TASKS", "\u4E16\u754C\u4EFB\u52A1\u6A21\u5757\u6CA1\u8D77\u6765"));
+    const hp = heroNode2.worldPosition;
+    const r = pickupNearby(scene, hp.x, hp.y, range, heroId, {
+      max: 4,
+      // ★ 产出按种类走（T355 遗留的"amount 固定 1"）：芦苇成片长，一次攥一把；
+      //   石头燧石一块是一块。**这是产品决定，留在宿主** —— 引擎只认"给几个"。
+      amount: (kind) => RESOURCE_YIELD[kind] ?? 1,
+      onRelease: (c) => tasks.releaseCell(c)
+    });
+    if (!r.ok) return r;
+    const out = r.value;
+    if (out.inRange === 0) {
+      return err(engineError("HARVEST.FAR", "\u9644\u8FD1\u6CA1\u6709\u4E16\u754C\u8D44\u6E90\uFF08\u8D44\u6E90\u4F1A\u81EA\u5DF1\u957F\u51FA\u6765\uFF0C\u7B49\u51E0\u79D2\uFF09"));
+    }
+    if (out.picked.length === 0) {
+      const f = out.failed;
+      return err(
+        engineError(
+          f?.code ?? "PICKUP.NONE",
+          `\u62FF\u5230\u4E86 0 \u4E2A\uFF08\u534A\u5F84\u5185 ${out.inRange} \u4E2A\uFF09\uFF1A${f === null ? "\u539F\u56E0\u4E0D\u660E" : f.message}`
+        )
+      );
+    }
+    const got = out.picked.map((p) => `${ITEM_LABEL[p.kind] ?? p.kind}\xD7${countItem(scene, heroId, p.kind)}`);
+    const tail = out.failed === null ? "" : `\uFF1B\u80CC\u5305\u6EE1\u4E86\uFF0C\u8FD8\u5269 ${out.remaining} \u4E2A\u6CA1\u62FF`;
+    return ok(`\u62FE\u53D6\uFF1A${got.join(" ")}${tail}`);
   }
   function chopNearest() {
-    const heroNode = scene.find(heroId);
-    if (heroNode === void 0) return;
-    const hp = heroNode.worldPosition;
+    const heroNode2 = scene.find(heroId);
+    if (heroNode2 === void 0) return;
+    const hp = heroNode2.worldPosition;
     for (const id of physics.query(hp.x, hp.y, 2.4)) {
       if (id === heroId) continue;
       const w = scene.find(id)?.get("game.workable");
@@ -13046,6 +21513,119 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
     }
     toast("\u9644\u8FD1\u6CA1\u6709\u53EF\u780D\u7684\u4E1C\u897F");
   }
+  function helpText() {
+    const m = controllerMod.map;
+    const k = (a) => (m.keysOf(a)[0] ?? "?").replace(/^Key/, "");
+    return `${k("move_forward")}${k("move_left")}${k("move_back")}${k("move_right")} \u79FB\u52A8 \xB7 ${k("harvest")} \u62FE\u53D6 \xB7 ${k("chop")} \u780D\u6811 \xB7 ${k("attack")} \u6253 \xB7 ${k("eat")} \u5403 \xB7 ${k("craft")} \u5236\u4F5C \xB7 ${k("bag")} \u80CC\u5305 \xB7 ${k("drop")} \u4E22\u5F03 \xB7 ${k("save")} \u5B58\u6863 \xB7 ${k("load")} \u8BFB\u6863 \xB7 ${k("restart")} \u91CD\u8F7D`;
+  }
+  const ITEM_LABEL = {
+    tree: "\u6728\u5934",
+    rock: "\u77F3\u5934",
+    berry: "\u6D46\u679C",
+    flint: "\u71E7\u77F3",
+    grass_tuft: "\u8349",
+    reed: "\u82A6\u82C7",
+    // 批65 起战利品会进包；批67 起肉还能吃 —— 没有标签的话 HUD 里显示的是英文 kind
+    meat: "\u8089",
+    hide: "\u76AE",
+    cooked_meat: "\u719F\u8089",
+    rope: "\u7EF3\u5B50"
+  };
+  const RESOURCE_YIELD = {
+    berry: 1,
+    reed: 2,
+    tree: 1,
+    rock: 1,
+    flint: 1,
+    grass_tuft: 1
+  };
+  function bagText() {
+    if (heroId < 0) return "\u65E0\u4E3B";
+    const stacks = stacksOf(scene, heroId);
+    if (stacks.length === 0) return "\u7A7A";
+    return stacks.map((s) => `${ITEM_LABEL[s.kind] ?? s.kind}\xD7${s.count}`).join(" ");
+  }
+  function hungerText() {
+    if (heroId < 0) return "\u65E0\u4E3B";
+    const h = scene.find(heroId)?.get(HUNGER_TYPE);
+    if (h === void 0) return "\u65E0";
+    return `${String(h.value)}/${String(h.max)}${h.value <= 0 ? " \u997F\uFF01" : ""}`;
+  }
+  let bagOpen = false;
+  let bagSel = 0;
+  let shiftDown = false;
+  let bagSig = "";
+  function keyLabel(a) {
+    return (controllerMod.map.keysOf(a)[0] ?? "?").replace(/^Key/, "");
+  }
+  function renderBagPanel(force = false) {
+    const el = document.getElementById("bag");
+    const rowsEl = document.getElementById("bag-rows");
+    const footEl = document.getElementById("bag-foot");
+    if (el === null || rowsEl === null || footEl === null) return;
+    el.hidden = !bagOpen;
+    if (!bagOpen) {
+      bagSig = "";
+      return;
+    }
+    const stacks = heroId < 0 ? [] : stacksOf(scene, heroId);
+    const sel = Math.min(Math.max(0, bagSel), Math.max(0, stacks.length - 1));
+    const sig = stacks.map((s) => `${s.kind}:${s.count}`).join("|") + `#${sel}`;
+    if (!force && sig === bagSig) return;
+    bagSig = sig;
+    rowsEl.textContent = "";
+    if (stacks.length === 0) {
+      const d = document.createElement("div");
+      d.className = "empty";
+      d.textContent = "\uFF08\u7A7A\u7684\uFF09\u6309 G \u62FE\u53D6\u70B9\u4EC0\u4E48";
+      rowsEl.appendChild(d);
+    } else {
+      stacks.forEach((s, i) => {
+        const d = document.createElement("div");
+        d.className = i === sel ? "row-item sel" : "row-item";
+        const k = document.createElement("span");
+        k.className = "k";
+        k.textContent = `${String(i + 1)}. ${ITEM_LABEL[s.kind] ?? s.kind}`;
+        const n = document.createElement("span");
+        n.className = "n";
+        n.textContent = `\xD7${String(s.count)}`;
+        d.appendChild(k);
+        d.appendChild(n);
+        d.addEventListener("click", () => {
+          bagSel = i;
+          renderBagPanel(true);
+        });
+        rowsEl.appendChild(d);
+      });
+    }
+    footEl.textContent = `\u70B9\u51FB\u9009\u4E2D \xB7 ${keyLabel("drop")} \u4E22 1 \u4E2A \xB7 Shift+${keyLabel("drop")} \u4E22\u6574\u5806 \xB7 ${keyLabel("bag")} \u5173\u95ED`;
+  }
+  function dropSelected(whole) {
+    if (heroId < 0) return err(engineError("BAG.NO_OWNER", "\u6CA1\u6709\u73A9\u5BB6"));
+    if (!bagOpen) return err(engineError("BAG.CLOSED", `\u5148\u6309 ${keyLabel("bag")} \u6253\u5F00\u80CC\u5305`));
+    const stacks = stacksOf(scene, heroId);
+    if (stacks.length === 0) return err(engineError("BAG.EMPTY", "\u80CC\u5305\u662F\u7A7A\u7684\uFF0C\u6CA1\u4EC0\u4E48\u53EF\u4E22"));
+    const plan2 = worldState.plan;
+    const tasks = worldState.tasks;
+    if (plan2 === null || tasks === null) return err(engineError("BAG.NO_WORLD", "\u4E16\u754C\u6CA1\u8D77\u6765\uFF0C\u6CA1\u5730\u65B9\u4E22"));
+    const heroNode3 = scene.find(heroId);
+    if (heroNode3 === void 0) return err(engineError("HARVEST.NO_PLAYER", "\u73A9\u5BB6\u4E0D\u5728\u573A\u666F\u91CC"));
+    const sel = Math.min(Math.max(0, bagSel), stacks.length - 1);
+    const s = stacks[sel];
+    const n = whole ? s.count : 1;
+    const hp = heroNode3.worldPosition;
+    const r = dropIntoWorld(scene, heroId, s.kind, n, {
+      x: hp.x,
+      z: hp.y,
+      plan: plan2,
+      tasks,
+      bornTick: app.snapshot().tick
+    });
+    if (!r.ok) return r;
+    renderBagPanel(true);
+    const label = ITEM_LABEL[s.kind] ?? s.kind;
+    return ok(`\u4E22\u4E0B ${label}\xD7${String(n)}\uFF08\u6563\u843D\u5728 ${String(r.value.cells.length)} \u683C\uFF0C\u6309 G \u8FD8\u80FD\u6361\u56DE\u6765\uFF09`);
+  }
   let fps = 0;
   let frames = 0;
   let lastFpsAt = performance.now();
@@ -13057,24 +21637,30 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
       frames = 0;
       lastFpsAt = now;
     }
+    updateDamageNumbers(now);
     const lf = renderMod.lastFrame;
     const st = app.snapshot();
     const sc = scriptMod.runtime?.stats();
+    const ws = worldState.tasks?.stats();
+    const wv = worldState.visual;
     const scriptTxt = sc === void 0 ? "script off" : `script ${sc.calls}call/${sc.errors}err${sc.timeouts > 0 ? `/${sc.timeouts}to` : ""}`;
-    hud.textContent = `fps ${fps.toFixed(0)} \xB7 tick ${hudTick} \xB7 quad ${lf.quads} \xB7 draw ${lf.drawCalls} \xB7 culled ${lf.culled} \xB7 nodes ${st.scene.nodes} \xB7 bodies ${physics.stats().bodies} \xB7 atlas:${atlasLabel} \xB7 ${st.backends.gfx}/${st.backends.audio}/${st.backends.input}/${st.backends.script ?? "-"} \xB7 ${scriptTxt} \xB7 dropped ${st.droppedSteps}`;
+    hud.textContent = `fps ${fps.toFixed(0)} \xB7 tick ${hudTick} \xB7 quad ${lf.quads} \xB7 draw ${lf.drawCalls} \xB7 culled ${lf.culled} \xB7 nodes ${st.scene.nodes} \xB7 bodies ${physics.stats().bodies} \xB7 atlas:${atlasLabel} \xB7 \u4E16\u754C ${wv === null ? "\u672A\u88C5\u914D" : `${wv.terrain}\u5757/${wv.sites}\u70B9`} \xB7 \u8D44\u6E90 \u6D3B${ws?.alive ?? 0}/\u5237${ws?.spawned ?? 0}/\u91C7${ws?.released ?? 0} \xB7 \u80CC\u5305 ${bagText()} \xB7 \u9971\u98DF ${hungerText()} \xB7 ${st.backends.gfx}/${st.backends.audio}/${st.backends.input}/${st.backends.script ?? "-"} \xB7 ${scriptTxt} \xB7 dropped ${st.droppedSteps}`;
+    if (bagOpen) renderBagPanel();
   });
+  const RESERVED = /* @__PURE__ */ new Set(["F5", "F9", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space", "Tab"]);
   window.addEventListener("keydown", (ev) => {
-    if (ev.code === "F5") {
-      ev.preventDefault();
-      doSave();
-    } else if (ev.code === "F9") {
-      ev.preventDefault();
-      doLoad();
-    } else if (ev.code === "KeyR") {
-      location.reload();
-    } else if (ev.code === "KeyH") {
-      chopNearest();
+    if (RESERVED.has(ev.code)) ev.preventDefault();
+    if (ev.code === "ShiftLeft" || ev.code === "ShiftRight") shiftDown = true;
+    if (bagOpen && /^Digit[1-8]$/.test(ev.code)) {
+      bagSel = Number(ev.code.slice(5)) - 1;
+      renderBagPanel(true);
     }
+  });
+  window.addEventListener("keyup", (ev) => {
+    if (ev.code === "ShiftLeft" || ev.code === "ShiftRight") shiftDown = false;
+  });
+  window.addEventListener("blur", () => {
+    shiftDown = false;
   });
   window.addEventListener(
     "pointerdown",
@@ -13088,7 +21674,9 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
     app.log.channel("host").error(`\u5E27\u5FAA\u73AF\u542F\u52A8\u5931\u8D25\uFF1A${runR.error.message}`);
     toast("\u5E27\u5FAA\u73AF\u542F\u52A8\u5931\u8D25\uFF1A" + runR.error.message);
   } else {
-    toast("WASD \u79FB\u52A8 \xB7 H \u780D\u6811 \xB7 F5 \u5B58\u6863 \xB7 F9 \u8BFB\u6863 \xB7 R \u91CD\u8F7D");
+    const helpEl = document.getElementById("help");
+    if (helpEl !== null) helpEl.textContent = helpText();
+    toast(helpText());
   }
   globalThis.__engine = {
     app,
@@ -13099,10 +21687,247 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
     save: doSave,
     load: doLoad,
     heroId,
-    /** 图集真实来源：`assets×5` 表示走完了导入链；`procedural` 表示降级了。 */
+    /** 打一下最近的敌人（自检页用：它要走**玩家这条真实路径**，见 `attackNearest`）。 */
+    attack: () => attackNearest(),
+    /** 图集真实来源：`assets×7`（6 PNG + 1 JPEG）表示走完了导入链；`procedural` 表示降级了。 */
     atlasSource: atlasLabel,
+    /** 世界链的产物：生成计划 / 装配结果 / 可见化报告 / 再生任务句柄。 */
+    world: {
+      plan: worldState.plan,
+      player: worldState.player,
+      visual: worldState.visual,
+      tasks: worldState.tasks,
+      assembled: worldState.assembled,
+      /** 半径拾取（自检页用；**会进背包**）。 */
+      pickupNearest,
+      /**
+       * 按格子采一次（自检页用）。目标是确定的格子 —— 判据不该依赖"玩家恰好站在哪"。
+       * ★ 注意它**不进背包**（走 `harvestAt`）：它验的是"世界这一侧"，背包那一侧用
+       *   `pickup` / `bag` 验。两条判据分开，才不会一条红了两边都要查。
+       */
+      harvest: (cell) => {
+        const t = worldState.tasks;
+        if (t === null) return err(engineError("HARVEST.NO_TASKS", "\u4E16\u754C\u4EFB\u52A1\u6A21\u5757\u6CA1\u8D77\u6765"));
+        return harvestAt(scene, cell, { onRelease: (c) => t.releaseCell(c) });
+      },
+      /** 世界里还剩多少可见的东西（地形 / 投放点 / 资源）。 */
+      counts: () => ({
+        terrain: scene.countOf(TERRAIN_TYPE),
+        sites: scene.countOf(SITE_TYPE),
+        resources: scene.countOf(RESOURCE_TYPE),
+        sprites: scene.countOf(SPRITE_TYPE)
+      })
+    },
+    /**
+     * 生物群（批66）。自检页要用它证三件**只有浏览器里才可能坏**的事：
+     * ① 世界里真有生物（不是只有配表）；② 它们会动；③ 玩家打得到并拿到战利品。
+     * 位置直接给出来（而不是只给统计）："会动"必须能被逐次采样比对。
+     */
+    mobs: () => {
+      const m = worldState.mobs;
+      if (m === null) return null;
+      return {
+        ...m.stats,
+        list: m.nodeIds.map((id) => {
+          const n = scene.find(id);
+          return {
+            id,
+            kind: m.templateOf(id),
+            x: n === void 0 ? -1 : n.worldPosition.x,
+            z: n === void 0 ? -1 : n.worldPosition.y
+          };
+        })
+      };
+    },
     snapshot: () => app.snapshot(),
-    lastFrame: () => renderMod.lastFrame
+    lastFrame: () => renderMod.lastFrame,
+    /**
+     * 饱食度（批67）。自检页要用它证两件**只有浏览器里才可能坏**的事：
+     * ① 玩家的 `game.hunger` 真的挂上了（组件没注册/没 attach ⇒ 读回来 undefined）；
+     * ② 它会掉（模块被 `onStep` 驱动了 ⇒ 停在那里不动就是没接上）。
+     * ★ 顺带把"能吃的东西"和"当前能不能吃"给出去：判据不必自己抄一份食物表。
+     */
+    hunger: () => {
+      const h = heroId < 0 ? void 0 : scene.find(heroId)?.get(HUNGER_TYPE);
+      return {
+        value: h?.value ?? -1,
+        max: h?.max ?? -1,
+        text: hungerText(),
+        food: Object.keys(FOOD_TABLE).sort(),
+        edible: heroId < 0 ? [] : stacksOf(scene, heroId).filter((s) => FOOD_TABLE[s.kind] !== void 0 && s.count > 0).map((s) => ({ kind: s.kind, count: s.count })),
+        stats: survivalMod.stats
+      };
+    },
+    /** 吃一口（自检页驱动；等价于按 E）。返回提示文本，与 toast 同一句。 */
+    eat: () => eatSomething(),
+    /**
+     * 制作（批68）。自检页要证三件**只有浏览器里才可能坏**的事：
+     * ① 配方表在建 app 之前就归一化通过了（表写错会在加载期抛）；
+     * ② 缺料时制作**不动背包**；
+     * ③ 材料齐了能做出东西，且**产物真的进了背包**。
+     * 返回提示文本（与 toast 同一句）+ 当前配方清单。
+     */
+    craft: () => craftSomething(),
+    recipes: () => RECIPES.map((r) => ({ id: r.id, name: r.name, inputs: r.inputs, output: r.output })),
+    /**
+     * **调试/自检专用**：把玩家的饱食度设成某个值。
+     * ★ 为什么允许这个后门（与 `give` 同一个理由）：验"饿了能吃、满了不能吃"
+     *   要么等 200 秒让它自然掉到 30，要么直接设。后门只改一个数字，不碰世界，
+     *   所以它证的仍然是"进食这一侧"。
+     */
+    setHunger: (v) => {
+      const h = heroId < 0 ? void 0 : scene.find(heroId)?.get(HUNGER_TYPE);
+      if (h === void 0) return -1;
+      h.value = Math.max(0, Math.min(h.max, Math.floor(v)));
+      return h.value;
+    },
+    /** 背包内容（自检页与截图工具读它：`[{kind,count}]`，空数组 = 真空）。 */
+    bag: () => heroId < 0 ? [] : stacksOf(scene, heroId).map((s) => ({ kind: s.kind, count: s.count })),
+    /** 背包文本（HUD 里那一行，判据直接比对它就不用抄一份格式化逻辑）。 */
+    bagText: () => bagText(),
+    /** 背包的两层上限（自检页验"上限真的接上了"，不是只写在文档里）。 */
+    bagLimits: () => {
+      const inv = heroId < 0 ? void 0 : scene.find(heroId)?.get("game.inventory");
+      return { maxStacks: inv?.maxStacks ?? 0, maxStack: inv?.maxStack ?? 0 };
+    },
+    /**
+     * **调试/自检专用**：直接往包里放 n 个（绕过世界采集）。
+     * ★ 为什么允许这个后门：堆叠上限的判据需要"采 45 次芦苇"才能撞到 40，
+     *   而一次采集要等资源再生（30 tick）—— 判据会慢到没法每轮跑。
+     *   后门只加物品、不碰世界，所以它证的仍是"背包这一侧"。
+     */
+    give: (kind, n) => heroId < 0 ? err(engineError("BAG.NO_OWNER", "\u6CA1\u6709\u73A9\u5BB6")) : addItem(scene, heroId, kind, n),
+    /**
+     * **调试/自检专用**：清空背包，**但不往世界里丢**。
+     *
+     * ★ 为什么不能直接用"整堆丢弃"来清空：`dropIntoWorld` 会把东西丢在玩家脚下，
+     *   而后面还有"拾取进包"的判据 —— 清空产生的 5 堆垃圾会被它们捡走，
+     *   于是"背包 53→52→54"（多捡了一份）。判据之间的**共享可变世界**就是靠
+     *   "别留下副作用"来隔离的；需要副作用的地方，就该给一个没有副作用的入口。
+     * ★ 只删物品节点，不碰世界、不碰玩家。
+     */
+    clearBag: () => {
+      if (heroId < 0) return 0;
+      const stacks = stacksOf(scene, heroId);
+      let n = 0;
+      for (const s of stacks) {
+        const node = s.node;
+        if (node === null || node === void 0) continue;
+        scene.destroy(node.id);
+        n++;
+      }
+      scene.flush();
+      return n;
+    },
+    /**
+     * 表现层（批69，自检页用）。
+     *
+     * ★ 这里返回的是**屏幕上的事实**（DOM 里几个数字、精灵现在什么颜色），
+     *   不是"我调过 flash 所以应该闪了"。前者能抓住"调了但没接到渲染"，
+     *   后者只能证明函数被调用过（批66 的 `firstIndex` 就是这么假绿的）。
+     */
+    feedback: {
+      /** 屏幕上还活着的伤害数字（`[{text, dead, opacity}]`，空数组 = 都消失了）。 */
+      numbers: () => damageNumbers.map((d) => ({ text: d.text, dead: d.dead, opacity: d.el.style.opacity })),
+      /** DOM 里真的有这么多 `.dmg` 元素（与上面的数组**分开**：一个对、一个错就是漏删）。 */
+      domCount: () => fxLayer.querySelectorAll(".dmg").length,
+      /** 某个节点现在是不是在闪（读组件字段，不是读"我记得调过"）。 */
+      flashing: (id) => {
+        const fb = scene.find(id)?.get(FEEDBACK_TYPE);
+        return fb === void 0 ? -1 : fb.flashTicks;
+      },
+      /** 累计：表现层自己吞掉的错误码（正常时为空数组）。 */
+      errors: () => [...feedbackErrors],
+      /** 闪一下（自检页需要在**不打架**的情况下验"闪完会还原"）。 */
+      flash: (id, ticks) => {
+        const r = flash(scene, id, ticks);
+        return r.ok ? r.value.remaining : `${r.error.code}\uFF1A${r.error.message}`;
+      },
+      /** 精灵现在乘的是什么色（验"闪的是红、还原回原色"）。 */
+      tint: (id) => {
+        const sp2 = scene.find(id)?.get(SPRITE_TYPE);
+        return sp2 === void 0 ? null : { r: sp2.r, g: sp2.g, b: sp2.b, a: sp2.a };
+      },
+      /** 模块统计（闪几个/挤几个/还原几次/覆盖几次）。 */
+      stats: () => feedbackMod.stats,
+      /**
+       * **调试/自检专用**：在玩家旁边放一个 2 血的靶子（有血量、有精灵、无 AI）。
+       *
+       * ★ 为什么需要它：验"屏幕上的数字是不是**实际扣血**"必须让
+       *   `applied ≠ attacker.damage`（玩家伤害 3、靶子 2 血 ⇒ 应该显示 -2）。
+       *   而世界里的生物血量都是满的，那两条数永远相等 —— 那种语料下
+       *   "用 damage 还是 applied"是分不出来的。
+       * ★ 它不改玩家状态、不碰背包，所以它证的仍然是"命中这一侧"。
+       */
+      dummy: (hp = 2) => {
+        if (heroId < 0) return -1;
+        const hero = scene.find(heroId);
+        if (hero === void 0) return -1;
+        const p = hero.worldPosition;
+        const n = scene.spawnAt(`\u9776\u5B50\xD7${String(hp)}\u8840`, p.x + 1, p.y);
+        if (!n.ok) return -1;
+        const id = n.value.id;
+        const h = new Health();
+        h.maxHp = hp;
+        h.hp = hp;
+        scene.attach(id, () => h);
+        scene.attach(id, () => makeSprite("rabbit", 1, 1));
+        scene.flush();
+        return id;
+      }
+    },
+    /**
+     * 导航网格（批60，自检页用）。
+     * ★ 自检只验两件**浏览器里才可能坏**的事：网格真的建起来了、两次寻路逐格相同。
+     *   寻路算法本身对不对由 Node 判据 + 变异管，这里不重复。
+     */
+    nav: {
+      stats: () => {
+        const g = worldState.nav;
+        if (g === null) return null;
+        const st = g.stats();
+        return {
+          width: st.width,
+          height: st.height,
+          walkable: st.walkable,
+          blocked: st.blocked,
+          components: g.componentCount
+        };
+      },
+      isWalkable: (cell) => worldState.nav?.isWalkableIndex(cell) ?? false,
+      /** 不抛：返回 `{ok:true,cells,cost}` 或 `{ok:false,code}`。 */
+      path: (from, to) => {
+        const g = worldState.nav;
+        if (g === null) return { ok: false, code: "NAV.NO_GRID" };
+        const r = g.findPath(from, to);
+        if (!r.ok) return { ok: false, code: r.error.code };
+        return { ok: true, cells: r.value.cells.slice(), cost: r.value.cost };
+      }
+    },
+    /** 背包面板状态（自检页读 DOM 之前先读它：开着没有、选中第几堆）。 */
+    bagPanel: () => ({ open: bagOpen, selected: bagSel, stacks: stacksOf(scene, heroId).length }),
+    /** 开关面板（自检页驱动；等价于按 Tab）。 */
+    toggleBag: () => {
+      bagOpen = !bagOpen;
+      if (bagOpen) bagSel = 0;
+      renderBagPanel(true);
+      return bagOpen;
+    },
+    /** 选中第 i 堆（自检页驱动；等价于按数字键）。 */
+    selectStack: (i) => {
+      bagSel = i;
+      renderBagPanel(true);
+      return bagSel;
+    },
+    /** 丢弃选中堆（自检页驱动；等价于按 Q，`whole` = 按住 Shift）。 */
+    dropSelected: (whole = false) => {
+      const r = dropSelected(whole);
+      return r.ok ? { ok: true, value: r.value } : { ok: false, code: r.error.code, message: r.error.message };
+    },
+    /** 当前操作提示（**从映射表生成**，改键后它自己会变）。 */
+    helpText: () => helpText(),
+    /** 动作名 → 键位（改键界面的数据源，也是"提示与键位同源"的证据）。 */
+    bindings: () => ({ ...controllerMod.map.toData().actions })
   };
 }
 void main();

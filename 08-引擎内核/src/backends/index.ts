@@ -19,6 +19,8 @@ export { NullAudioDevice, nullAudioBackend } from "./audio-null/device.ts";
 export type { PlayRecord } from "./audio-null/device.ts";
 export { NullInputDevice, nullInputBackend } from "./input-null/device.ts";
 export { MemoryFileSystem, memFsBackend } from "./fs-memory/fs.ts";
+export { HttpFileSystem, httpFsBackend } from "./fs-http/fs.ts";
+export type { FetchLike, HttpFsOptions } from "./fs-http/fs.ts";
 export { NullScriptRuntime, nullScriptBackend } from "./script-null/runtime.ts";
 export type { NullScriptRecord } from "./script-null/runtime.ts";
 

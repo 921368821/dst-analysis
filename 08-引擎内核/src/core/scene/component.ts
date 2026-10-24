@@ -117,15 +117,29 @@ export abstract class Component {
   }
 
   /**
-   * 通用读取。**缺字段用默认值而不是跳过**，但要报告（见返回值）。
-   * 返回缺失的字段名：调用方（AssetDatabase / 存档）据此判断"是不是旧版本"。
+   * 通用读取。**缺字段时保留实例上的值**（类初始化器就是这个字段的出生默认值），
+   * 同时把缺失的字段名报告给调用方（AssetDatabase / 存档）判断"是不是旧版本"。
+   *
+   * ★★ 为什么不是"缺字段填类型零值"（这是被一条真判据逼出来的改动）：
+   *   schema 演化时唯一可能正确的默认值写在**类的初始化器**里
+   *   （`pivotX = 0.5`）。压成零值的话，旧存档读回来 `pivotX = 0` ——
+   *   所有已有精灵右移半格，而**新存档完全正常**，所以新写的判据一个都不会红。
+   *   这类错误只在"用户打开旧档"时出现，也就是永远不会在开发机上出现。
+   *   实测：`Sprite.pivotX` 加进来的当天，这一条就抓到了（world-visuals 的旧档判据）。
+   *
+   * 顺序：实例已有值 → `schema.defaults`（显式声明的默认值） → 类型零值（字段压根没声明）。
    */
   load(data: Readonly<Record<string, unknown>>): { missing: string[] } {
     const missing: string[] = [];
     const self = this as unknown as Record<string, unknown>;
     for (const [k, t] of Object.entries(this.schema.fields)) {
-      if (data[k] === undefined) missing.push(k);
-      self[k] = data[k] === undefined ? zeroValue(t) : data[k];
+      if (data[k] === undefined) {
+        missing.push(k);
+        if (self[k] !== undefined) continue; // 保留类里声明的出生默认值
+        self[k] = this.schema.defaults?.[k] ?? zeroValue(t);
+        continue;
+      }
+      self[k] = data[k];
     }
     return { missing };
   }

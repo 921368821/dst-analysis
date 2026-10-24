@@ -17,6 +17,39 @@ export interface GL2Call {
   readonly args: readonly unknown[];
 }
 
+/** 一次 `texImage2D` 的结构化记录（判据要断言"上传的是 RGBA16 而不是 RGBA8"）。 */
+export interface TexImageRecord {
+  readonly internal: number;
+  readonly format: number;
+  readonly type: number;
+  readonly width: number;
+  readonly height: number;
+  readonly bytes: number;
+}
+
+/** `HALF_FLOAT`（WebGL2 规范值）。fake 需要它来算 RGBA16F 的每像素字节数。 */
+const HALF_FLOAT = 0x140b;
+
+/**
+ * 由 (format, type) 推每像素字节数。
+ * 不认识的组合返回 `null` ⇒ **不做字节数断言**（fake 不该假装懂它没实现的格式）。
+ *
+ * ★ 这个映射是刻意写在 fake 里的"第二份知识"：它模拟的是 GL 对
+ *   `format/type` 的解释。如果设备层把 RGBA16 的 `type` 发成 `UNSIGNED_BYTE`，
+ *   fake 会按 4 字节/像素算 → 立刻记 badCall。这正是它能抓住"格式表写错"的方式。
+ */
+function bppOf(format: number, type: number): number | null {
+  if (type === GL.UNSIGNED_BYTE) {
+    if (format === GL.RGBA) return 4;
+    if (format === GL.RGB) return 3;
+    if (format === GL.R8) return 1;
+    return null;
+  }
+  if (type === GL.UNSIGNED_SHORT && format === GL.RGBA) return 8; // RGBA16
+  if (type === HALF_FLOAT && format === GL.RGBA) return 8; // RGBA16F
+  return null;
+}
+
 export class FakeGL2 implements GL2Like {
   readonly canvas = { width: 800, height: 600 };
   readonly calls: GL2Call[] = [];
@@ -35,6 +68,8 @@ export class FakeGL2 implements GL2Like {
     blends: 0,
     drawElementsCount: 0,
     drawArraysCount: 0,
+    /** 每次 `texImage2D` 的格式/长度记录（供判据断言"上传的是 16 位"）。 */
+    texImages: [] as TexImageRecord[],
   };
 
   private nextObj = 1;
@@ -133,9 +168,15 @@ export class FakeGL2 implements GL2Like {
     pixels: ArrayBufferView | null,
   ): void {
     this.rec("texImage2D", target, level, internalformat, width, height, border, format, type, pixels === null ? 0 : pixels.byteLength);
-    const bytes = width * height * 4;
-    if (pixels !== null && pixels.byteLength !== bytes) {
-      this.badCalls.push(`texImage2D 字节数不符：${pixels.byteLength} != ${width}x${height}x4=${bytes}`);
+    const bytes = pixels === null ? 0 : pixels.byteLength;
+    this.state.texImages.push({ internal: internalformat, format, type, width, height, bytes });
+    if (pixels !== null) {
+      const bpp = bppOf(format, type);
+      const expect = width * height * (bpp ?? 0);
+      // bpp 为 null（fake 不识别的组合）时不断言：假装懂它没实现的格式就是假绿灯。
+      if (bpp !== null && pixels.byteLength !== expect) {
+        this.badCalls.push(`texImage2D 字节数不符：${pixels.byteLength} != ${width}x${height}x${bpp}=${expect}`);
+      }
     }
   }
 

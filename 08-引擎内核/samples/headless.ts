@@ -12,7 +12,13 @@
 
 import { BackendRegistry } from "../src/platform/registry.ts";
 import { registerNullBackends } from "../src/backends/index.ts";
+import { MemoryFileSystem } from "../src/backends/fs-memory/fs.ts";
+import { nodeFsBackend } from "../src/backends/fs-node/fs.ts";
+import type { IFileSystem } from "../src/platform/fs/fs.ts";
 import { createLuaScriptBackend } from "../src/backends/script-lua/runtime.ts";
+import { sceneFromJson, sceneToJson, saveScene } from "../src/core/scene/scene-io.ts";
+import { createHash } from "node:crypto";
+import { join } from "node:path";
 import { bootGameApp } from "../src/runtime/GameApp.ts";
 import { createScriptModule } from "../src/extensions/script/script-module.ts";
 import { ScriptComponent } from "../src/extensions/script/script-component.ts";
@@ -126,6 +132,13 @@ end
 
 // ---------------------------------------------------------------- main
 
+/** 取 `--flag value` 的值；没有这个 flag 就返回 undefined。 */
+function argValue(flag: string): string | undefined {
+  const i = process.argv.indexOf(flag);
+  if (i < 0 || i + 1 >= process.argv.length) return undefined;
+  return process.argv[i + 1];
+}
+
 async function main(): Promise<void> {
   const registry = new BackendRegistry();
   registerNullBackends(registry);
@@ -137,6 +150,24 @@ async function main(): Promise<void> {
 
   const scriptMod = createScriptModule({ callTimeoutMs: 20 });
 
+  // ---------------------------------------------------------------- 存档落在哪
+  // ★ 这是**宿主**的决定，不是内核的决定：同一个内核，判据跑 mem、服务端跑真实盘。
+  //   不给 --save-dir 就用内存盘（不污染工作区，跑完即丢）；给了就落真实文件，
+  //   并打印 sha256 —— 存档"能不能活过重启"从此由一条命令就能验证。
+  const saveDir = argValue("--save-dir");
+  let saveFs: IFileSystem;
+  if (saveDir === undefined) {
+    saveFs = new MemoryFileSystem();
+  } else {
+    const made = nodeFsBackend.create({ root: saveDir });
+    if (!made.ok) {
+      console.error("存档目录不可用：", made.error.code, made.error.message);
+      process.exitCode = 1;
+      return;
+    }
+    saveFs = made.value;
+  }
+
   const appR = await bootGameApp({
     platformId: "headless",
     interactive: false,
@@ -146,6 +177,7 @@ async function main(): Promise<void> {
     fixedDt: 1 / 30,
     clock,
     tickSource: tick,
+    fs: saveFs,
     logLevel: LogLevel.Info,
   });
 
@@ -253,6 +285,28 @@ async function main(): Promise<void> {
 
   console.log("模块：", snap.modules.map((m) => `${m.id}=${m.state}`).join(", "));
   console.log("事件统计：", snap.eventStats);
+
+  // ---------------------------------------------------------------- 存 → 读 → 再存
+  const saveText = sceneToJson(saveScene(app.scene));
+  const wrote = await saveFs.writeText("/saves/slot1.json", saveText);
+  if (!wrote.ok) {
+    console.error("存档写入失败：", wrote.error.code, wrote.error.message);
+    process.exitCode = 1;
+  } else {
+    const back = await saveFs.readText("/saves/slot1.json");
+    const parsed = back.ok ? sceneFromJson(back.value) : null;
+    const again = parsed !== null && parsed.ok ? sceneToJson(parsed.value) : "";
+    const bytes = new TextEncoder().encode(saveText);
+    console.log("存档：", {
+      where: `${saveFs.scheme}:/saves/slot1.json`,
+      bytes: bytes.byteLength,
+      sha256: createHash("sha256").update(bytes).digest("hex").slice(0, 16),
+      // ★ "存→读→再存逐字节相同"是存档格式的唯一硬承诺；不相等就说明有非确定性字段
+      再次存相同: again === saveText,
+      节点数: parsed !== null && parsed.ok ? parsed.value.nodes.length : -1,
+    });
+    if (saveDir !== undefined) console.log("存档落在：", join(saveDir, "saves", "slot1.json"));
+  }
 
   await app.dispose();
   console.log("已释放。");

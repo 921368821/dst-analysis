@@ -41,6 +41,16 @@ export interface ImportFailure {
   readonly message: string;
 }
 
+/**
+ * 导入产物缓存目录（相对资产根）。
+ *
+ * ★ 为什么把它导出：构建发布要**跳过**这个目录。
+ *   它是"导入器的输出"，不是"资产"。构建时把它当资产扫，会得到
+ *   `BUILD.UNREGISTERED_ASSET`（一次性把整个构建卡住），或者更糟 ——
+ *   有人顺手给缓存文件也建个 id，于是**缓存进产物**，包会随缓存命中情况变。
+ */
+export const IMPORT_LIBRARY_REL = "library/imported";
+
 export interface ImportReport {
   readonly scanned: number;
   /** 新建 `.meta` 的个数。 */
@@ -205,7 +215,7 @@ export class AssetImportPipeline {
     }
 
     // ---- 第二遍：导入 + 注册 ----
-    const libraryDir = joinPath(root, "library/imported");
+    const libraryDir = joinPath(root, IMPORT_LIBRARY_REL);
     let imported = 0;
     let skipped = 0;
     let registered = 0;

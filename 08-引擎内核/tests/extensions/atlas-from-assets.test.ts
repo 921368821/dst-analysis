@@ -45,6 +45,8 @@ function tex(name: string, w: number, h: number, rgba: readonly [number, number,
     colorType: 6,
     hasAlpha: true,
     usedTransparencyKey: false,
+    interlaced: false,
+    isApng: false,
   };
   return { name, png };
 }
@@ -202,6 +204,8 @@ test("图集：从图集帧矩形裁切重排（buildAtlasFromImported）", () =
       colorType: 6,
       hasAlpha: true,
       usedTransparencyKey: false,
+      interlaced: false,
+      isApng: false,
     },
   };
   const frames = new Map<string, ImportedFrameRect>([

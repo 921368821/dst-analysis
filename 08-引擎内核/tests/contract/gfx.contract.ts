@@ -107,6 +107,55 @@ export const GFX_CASES: readonly GfxCase[] = [
     },
   },
   {
+    name: "RGBA16：合法长度能创建/上传，长度差 1 字节必须 GFX.SIZE_MISMATCH",
+    run(dev) {
+      const w = 4;
+      const h = 4;
+      // RGBA16 = 8 字节/像素 ⇒ 4×4 需要 128 字节
+      const good = new Uint16Array(w * h * 4);
+      for (let i = 0; i < good.length; i++) good[i] = (i * 4099) & 0xffff;
+
+      const tex = dev.createTexture({ width: w, height: h, format: PixelFormat.RGBA16 }, good);
+      assert.ok(tex.ok, "RGBA16 的合法长度必须能创建：" + (tex.ok ? "" : tex.error.code + " " + tex.error.message));
+      if (!tex.ok) return;
+
+      const up = dev.updateTexture(tex.value, { x: 0, y: 0, width: w, height: h }, good);
+      assert.ok(up.ok, "RGBA16 整图上传必须成功：" + (up.ok ? "" : up.error.code + " " + up.error.message));
+
+      // 差 1 字节 = "长度口径错了"的最小可辨识改动。
+      // 旧行为（webgl2 不校验 / null 只校验渲染目标）在这里会**静默成功**，
+      // 于是"16 位图集上传了半张"在 headless 里全绿。
+      const short = new Uint8Array(w * h * 8 - 1);
+      const created = dev.createTexture({ width: w, height: h, format: PixelFormat.RGBA16 }, short);
+      assert.equal(created.ok, false, "长度差 1 字节的 RGBA16 创建必须失败（不许静默截断）");
+      if (!created.ok) assert.equal(created.error.code, "GFX.SIZE_MISMATCH");
+
+      const updated = dev.updateTexture(tex.value, { x: 0, y: 0, width: w, height: h }, short);
+      assert.equal(updated.ok, false, "长度差 1 字节的 RGBA16 上传必须失败");
+      if (!updated.ok) assert.equal(updated.error.code, "GFX.SIZE_MISMATCH");
+    },
+  },
+  {
+    name: "RGBA16F：按 8 字节/像素校验（不再被静默当成 RGBA8）",
+    run(dev) {
+      const w = 2;
+      const h = 2;
+      const half = new Uint8Array(w * h * 8);
+      const okOne = dev.createTexture({ width: w, height: h, format: PixelFormat.RGBA16F }, half);
+      assert.ok(
+        okOne.ok,
+        "RGBA16F 的合法长度必须能创建：" + (okOne.ok ? "" : okOne.error.code + " " + okOne.error.message),
+      );
+
+      // 4 字节/像素（RGBA8 的长度）必须被拒：如果后端把 RGBA16F 当 RGBA8，
+      // 这一条就会**通过**，而这正是"格式表写错却没人发现"的样子。
+      const asIfRgba8 = new Uint8Array(w * h * 4);
+      const r = dev.createTexture({ width: w, height: h, format: PixelFormat.RGBA16F }, asIfRgba8);
+      assert.equal(r.ok, false, "RGBA16F 收到 4 字节/像素必须失败");
+      if (!r.ok) assert.equal(r.error.code, "GFX.SIZE_MISMATCH");
+    },
+  },
+  {
     name: "createShader：空源码与无 main 必须失败（不许创建一个'能绑定但画不出'的着色器）",
     run(dev) {
       assert.equal(dev.createShader({ vertex: "", fragment: FS }).ok, false, "空源码应失败");

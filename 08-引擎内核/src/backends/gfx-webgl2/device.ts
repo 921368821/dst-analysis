@@ -32,6 +32,7 @@ import {
   TextureFilter,
   TextureWrap,
   Topology,
+  bytesPerPixel,
   type BufferDesc,
   type BufferHandle,
   type DeviceCaps,
@@ -39,6 +40,7 @@ import {
   type GfxStats,
   type PipelineDesc,
   type PipelineHandle,
+  type PixelFormatValue,
   type RenderTargetDesc,
   type RenderTargetHandle,
   type ShaderDesc,
@@ -189,12 +191,28 @@ export class GL2Device implements IGraphicsDevice {
         ),
       );
     }
+    const format = desc.format ?? PixelFormat.RGBA8;
+    const fmt = glFormat(format);
+    // ★ 早失败：真 WebGL 对"字节数与 w*h*format 不符"的 texImage2D 只置一个
+    //   INVALID_VALUE 错误码（不抛、不返回），结果是**一张空纹理**被当成上传成功。
+    //   在 JS 侧算一次乘法就能把这件事变成明确的错误，没有理由不做。
+    if (data !== undefined && data !== null) {
+      const need = desc.width * desc.height * fmt.bytesPerPixel;
+      if (data.byteLength !== need) {
+        return err(
+          engineError(
+            "GFX.SIZE_MISMATCH",
+            `纹理数据 ${data.byteLength} 字节，但 ${desc.width}x${desc.height} 的 ${format} 需要 ${need}`,
+            { label: desc.label ?? "", format },
+          ),
+        );
+      }
+    }
     const gl = this.gl;
     const tex = gl.createTexture();
     if (tex === null || tex === undefined) {
       return err(engineError("GFX.OUT_OF_MEMORY", "createTexture 返回 null（显存不足）"));
     }
-    const fmt = glFormat(desc.format ?? PixelFormat.RGBA8);
     gl.bindTexture(GL.TEXTURE_2D, tex);
     gl.texImage2D(
       GL.TEXTURE_2D,
@@ -204,7 +222,7 @@ export class GL2Device implements IGraphicsDevice {
       desc.height,
       0,
       fmt.format,
-      GL.UNSIGNED_BYTE,
+      fmt.type,
       data ?? null,
     );
     const filter = desc.filter === TextureFilter.Linear ? GL.LINEAR : GL.NEAREST;
@@ -220,6 +238,9 @@ export class GL2Device implements IGraphicsDevice {
         width: desc.width,
         height: desc.height,
         isTarget: desc.renderTarget === true,
+        // 记下格式：updateTexture 必须按**同一格式**的字节数校验，
+        // 否则"往 RGBA16 纹理里写 4 字节/像素"会以小图片段的形式静默成功。
+        format,
         label: desc.label ?? "",
       }) as unknown as TextureHandle,
     );
@@ -239,9 +260,16 @@ export class GL2Device implements IGraphicsDevice {
         engineError("GFX.REGION_OUT_OF_BOUNDS", `上传区域超出纹理：${JSON.stringify(region)} vs ${w}x${h}`),
       );
     }
-    const need = region.width * region.height * 4;
+    const format = rec.meta["format"] as PixelFormatValue;
+    const fmt = glFormat(format);
+    const need = region.width * region.height * fmt.bytesPerPixel;
     if (data.byteLength !== need) {
-      return err(engineError("GFX.SIZE_MISMATCH", `上传字节数 ${data.byteLength} 与区域期望 ${need} 不符`));
+      return err(
+        engineError(
+          "GFX.SIZE_MISMATCH",
+          `上传字节数 ${data.byteLength} 与区域期望 ${need} 不符（${format}，${region.width}x${region.height}）`,
+        ),
+      );
     }
     const gl = this.gl;
     gl.bindTexture(GL.TEXTURE_2D, rec.gl);
@@ -252,8 +280,8 @@ export class GL2Device implements IGraphicsDevice {
       region.y,
       region.width,
       region.height,
-      GL.RGBA,
-      GL.UNSIGNED_BYTE,
+      fmt.format,
+      fmt.type,
       data,
     );
     gl.bindTexture(GL.TEXTURE_2D, null);
@@ -490,6 +518,8 @@ class GL2CommandList implements ICommandList {
   private pipeline: PipelineHandle = 0 as PipelineHandle;
   private readonly uniforms = new Map<string, { value: UniformValue; kind: "int" | "float" }>();
   private readonly textureSlots = new Map<number, TextureHandle>();
+  /** 本帧已落到 GL 上的混合方式（`null` = 还没设过）。避免同一帧重复 blendFunc。 */
+  private blendMode: number | null = null;
   private finished = false;
 
   constructor(
@@ -524,6 +554,12 @@ class GL2CommandList implements ICommandList {
     const rec = this.dev._pipelineRec(pipeline);
     if (rec === undefined) return;
     const changed = this.dev._useProgram(rec.gl);
+    // ★ 混合方式是**管线**的属性，必须在设管线时落到 GL 上（而不是在设备初始化时
+    //   一次性写死 `SRC_ALPHA / ONE_MINUS_SRC_ALPHA`）。写死的版本会让
+    //   `BlendMode.None / Additive / Premultiplied` 全部**静默退化成 Alpha** ——
+    //   与 `firstIndex` 同一类缺陷：字段被存下来、却从没被用（批66 的系统性排查）。
+    //   放在 `_useProgram` 之后、且不受 `changed` 影响：同一条管线重复设也要保持一致。
+    this.applyBlend(rec.meta.blend as number | undefined);
     if (!changed) return;
     // ★ 只重放 **uniform**，不重放纹理绑定。理由（这是 GL 的状态模型，不是风格）：
     //   · `bindTexture` 改的是 **context 级** 的 texture unit 绑定，换 program 不影响它；
@@ -567,13 +603,29 @@ class GL2CommandList implements ICommandList {
     this.gl.enableVertexAttribArray(2);
     this.gl.vertexAttribPointer(2, 4, GL.FLOAT, false, SPRITE_STRIDE, 16);
 
+    // ★★ `firstIndex` 是**索引个数**的起点，不是字节数（与 null 后端同一口径）。
+    //   WebGL 的 `drawElements` 要的是**字节**偏移，所以要乘 `UNSIGNED_SHORT` 的 2。
+    //
+    //   ★ 这一行曾经写死成 0，代价是"整块地形盖住所有实体"：渲染模块把 215 个 quad
+    //     分成两段（地形 116 / 实体 101），两段都从索引 0 开始画 ⇒ 第二段绑着主图集
+    //     把**第一段的地形几何**又画了一遍（地形在主图集里 UV 被 clamp 到边缘色），
+    //     结果是一整块纯色盖住画面。draw 次数、顶点数、纹理绑定、`firstIndex` 的
+    //     传参**全都对**，只有真后端把它丢了 —— 所以 `render-tile.test.ts` 是绿的。
+    //     判据在"我们传了什么"，缺陷在"我们用了没"；两者之间曾有一个洞（见 M238）。
+    const firstIndex = batch.firstIndex ?? 0;
+    // ★ 拓扑同理：`PipelineDesc.topology` 被存进管线记录却从没被读 ⇒ 三角带会被
+    //   当成独立三角画（顶点数对、draw 数对，画面是错的）。这里按管线取 GL 的 mode。
+    const mode = (pipe.meta.topology ?? Topology.Triangles) === Topology.TriangleStrip
+      ? GL.TRIANGLE_STRIP
+      : GL.TRIANGLES;
     if (batch.indices !== null) {
       const irec = this.dev._bufferRec(batch.indices);
       if (irec === undefined) throw new Error(`draw 的索引缓冲句柄 ${batch.indices} 不存在`);
       this.gl.bindBuffer(GL.ELEMENT_ARRAY_BUFFER, irec.gl);
-      this.gl.drawElements(GL.TRIANGLES, batch.indexCount, GL.UNSIGNED_SHORT, 0);
+      this.gl.drawElements(mode, batch.indexCount, GL.UNSIGNED_SHORT, firstIndex * 2);
     } else {
-      this.gl.drawArrays(GL.TRIANGLES, 0, batch.vertexCount);
+      // 无索引时 `firstIndex` 只能解释成**顶点**起点；忽略它等于静默重画开头。
+      this.gl.drawArrays(mode, firstIndex, batch.vertexCount);
     }
     this.dev._countDraw(batch.vertexCount);
   }
@@ -613,16 +665,93 @@ class GL2CommandList implements ICommandList {
       throw new Error(`命令列表已 finish，仍在调用 ${what}（会画进下一帧）`);
     }
   }
+
+  /**
+   * 把管线的 `blend` 落到 GL 上。
+   *
+   * ★ 为什么必须在这里做：混合方式是**管线**的属性（一条不透明管线和一条半透明
+   *   精灵管线可以同帧共存）。设备初始化时写死 `SRC_ALPHA / ONE_MINUS_SRC_ALPHA`
+   *   的版本会让 `None / Additive / Premultiplied` 静默退化成 Alpha ——
+   *   画面"看着还行"，只是叠加不发光、某些特效莫名半透。与 `firstIndex` 同一类：
+   *   字段被存下来，却从没被用。
+   */
+  private applyBlend(mode: number | undefined): void {
+    const m = mode ?? BlendMode.Alpha;
+    if (this.blendMode === m) return;
+    this.blendMode = m;
+    switch (m) {
+      case BlendMode.None:
+        // 不透明：关混合（不是"把 blendFunc 设成 1:0" —— 那样仍然会读 dst）
+        this.gl.disable(GL.BLEND);
+        break;
+      case BlendMode.Additive:
+        this.gl.enable(GL.BLEND);
+        this.gl.blendFunc(GL.SRC_ALPHA, GL.ONE);
+        break;
+      case BlendMode.Premultiplied:
+        this.gl.enable(GL.BLEND);
+        this.gl.blendFunc(GL.ONE, GL.ONE_MINUS_SRC_ALPHA);
+        break;
+      default:
+        this.gl.enable(GL.BLEND);
+        this.gl.blendFunc(GL.SRC_ALPHA, GL.ONE_MINUS_SRC_ALPHA);
+        break;
+    }
+  }
 }
 
-function glFormat(f: string): { internal: number; format: number } {
+/**
+ * `gl2.ts` 的 `GL` 只收录「本后端真正用到」的常量，下面四个格式常量到今天为止
+ * 只在这里出现，所以就地声明（值取自 WebGL2 规范，与 `gl2.ts` 的硬编码策略一致）。
+ */
+const GL_FORMAT = {
+  RGB8: 0x8051,
+  RGBA16: 0x805b,
+  RGBA16F: 0x881a,
+  HALF_FLOAT: 0x140b,
+} as const;
+
+interface GLFormat {
+  /** `texImage2D` 的 internalformat（决定显存里的真实格式）。 */
+  readonly internal: number;
+  /** 上传数据的通道布局。 */
+  readonly format: number;
+  /** 上传数据的通道类型（决定每个分量几字节）。 */
+  readonly type: number;
+  /** 每像素字节数，供 create/update 校验长度。来自 L1 的共享映射。 */
+  readonly bytesPerPixel: number;
+}
+
+/**
+ * 引擎格式 → GL 三元组。
+ *
+ * ★ 这里**返回** `bytesPerPixel` 而不是让调用方再算一次：格式表与字节数是同一件事的
+ *   两个侧面，分开放就会出现"表里是 RGBA16、校验按 4 字节"的半对状态。
+ *
+ * ★ `RGBA16F` 的边界（明确写出来，别当它和 RGBA16 一样）：
+ *   它的 `type` 是 `HALF_FLOAT`，上传数据必须是**真的** half 字节流（每通道 2 字节，
+ *   由 JS 侧手工量化）—— WebGL 不接受 `Float32Array` 直接传给 HALF_FLOAT。
+ *   当前仓库没有任何调用点传 RGBA16F 的 `data`（它只作为渲染目标格式出现的可能性更大），
+ *   所以这里只保证格式与长度校验正确，不提供 float32→half 的转换。
+ */
+function glFormat(f: PixelFormatValue): GLFormat {
+  const bpp = bytesPerPixel(f);
   switch (f) {
     case PixelFormat.RGB8:
-      return { internal: GL.RGB, format: GL.RGB };
+      return { internal: GL_FORMAT.RGB8, format: GL.RGB, type: GL.UNSIGNED_BYTE, bytesPerPixel: bpp };
     case PixelFormat.R8:
-      return { internal: GL.R8, format: GL.R8 };
+      return { internal: GL.R8, format: GL.R8, type: GL.UNSIGNED_BYTE, bytesPerPixel: bpp };
+    case PixelFormat.RGBA16:
+      return { internal: GL_FORMAT.RGBA16, format: GL.RGBA, type: GL.UNSIGNED_SHORT, bytesPerPixel: bpp };
+    case PixelFormat.RGBA16F:
+      return { internal: GL_FORMAT.RGBA16F, format: GL.RGBA, type: GL_FORMAT.HALF_FLOAT, bytesPerPixel: bpp };
+    case PixelFormat.RGBA8:
+      return { internal: GL.RGBA8, format: GL.RGBA, type: GL.UNSIGNED_BYTE, bytesPerPixel: bpp };
     default:
-      return { internal: GL.RGBA8, format: GL.RGBA };
+      // 旧实现把 RGBA16F（以及任何未知格式）静默落到 RGBA8 —— 于是"16 位图集"能上传成功、
+      // 判据全绿，画面上却是 8 位。这里不再有兜底：不认识就报错
+      // （`bytesPerPixel` 已经先一步抛了，这个分支只为让 switch 穷尽）。
+      throw new Error(`webgl2 后端不认识 PixelFormat：${String(f)}`);
   }
 }
 

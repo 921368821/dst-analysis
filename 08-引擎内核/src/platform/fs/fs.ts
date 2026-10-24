@@ -26,17 +26,36 @@ export interface FileEntry {
   readonly size: number;
 }
 
-export interface IFileSystem {
+/**
+ * **只读**文件系统：读、探测、列举（可选）。
+ *
+ * ★ 为什么要把接口拆成读/写两层，而不是让只读后端把写方法实现成"返回错误"：
+ *   资产读取（浏览器里 `fetch` 静态资源）只需要读。如果它实现的是完整的 `IFileSystem`，
+ *   编译器就允许把"只能读的资源源"传给 `AssetImportPipeline`（会写 .meta 与缓存），
+ *   而错误要到**运行时**才出现 —— 那时候通常是在用户机器上。
+ *   类型上分开，这个错误就变成编译错误。
+ *
+ * ★ `canList` 必须**显式声明**：静态资源服务器没有"列出目录"这个操作。
+ *   `canList === false` 时 `list` 必须返回 `FS.NOT_SUPPORTED` ——
+ *   **不能返回空数组**：空数组的含义是"这个目录是空的"，会让导入管线以为没资产。
+ */
+export interface IReadableFileSystem {
   /** 这个实例负责的 scheme（`mem` / `node` / `http`）。 */
   readonly scheme: string;
+  /** 能否列举目录。false 时 `list` 必须报 `FS.NOT_SUPPORTED`。 */
+  readonly canList: boolean;
   readText(path: string): Promise<Result<string, EngineError>>;
   readBinary(path: string): Promise<Result<Uint8Array, EngineError>>;
-  writeText(path: string, text: string): Promise<Result<void, EngineError>>;
-  writeBinary(path: string, data: Uint8Array): Promise<Result<void, EngineError>>;
-  remove(path: string): Promise<Result<void, EngineError>>;
   exists(path: string): Promise<boolean>;
   list(dir: string): Promise<Result<readonly FileEntry[], EngineError>>;
   stat(path: string): Promise<Result<FileStat, EngineError>>;
+}
+
+/** 可写文件系统（宿主存档、编辑器工程）。只读资源源不该实现它。 */
+export interface IFileSystem extends IReadableFileSystem {
+  writeText(path: string, text: string): Promise<Result<void, EngineError>>;
+  writeBinary(path: string, data: Uint8Array): Promise<Result<void, EngineError>>;
+  remove(path: string): Promise<Result<void, EngineError>>;
   /** 创建目录（递归）。已存在视为成功。 */
   ensureDir(dir: string): Promise<Result<void, EngineError>>;
 }

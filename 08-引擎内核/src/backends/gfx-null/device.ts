@@ -19,21 +19,26 @@ import { ok, err, engineError, type EngineError, type Result } from "../../found
 import { hashStateCreate, hashStateHex, hashStateUpdate, type HashState } from "../../foundation/hash.ts";
 import { Color, Rect } from "../../foundation/math/index.ts";
 import type { IGraphicsDevice, ICommandList } from "../../platform/gfx/device.ts";
-import type {
-  BufferDesc,
-  BufferHandle,
-  DeviceCaps,
-  DrawBatch,
-  GfxStats,
-  PipelineDesc,
-  PipelineHandle,
-  RenderTargetDesc,
-  RenderTargetHandle,
-  ShaderDesc,
-  ShaderHandle,
-  TextureDesc,
-  TextureHandle,
-  UniformValue,
+import {
+  TextureWrap,
+  PixelFormat,
+  bytesPerPixel,
+  type BufferDesc,
+  type BufferHandle,
+  type DeviceCaps,
+  type DrawBatch,
+  type GfxStats,
+  type PipelineDesc,
+  type PipelineHandle,
+  type PixelFormatValue,
+  type RenderTargetDesc,
+  type RenderTargetHandle,
+  type ShaderDesc,
+  type ShaderHandle,
+  type TextureDesc,
+  type TextureHandle,
+  type TextureWrapValue,
+  type UniformValue,
 } from "../../platform/gfx/types.ts";
 
 interface BufRec {
@@ -75,7 +80,12 @@ interface TexRec {
   width: number;
   height: number;
   label: string;
-  isTarget: boolean;
+  /** 创建时声明的像素格式（缺省 rgba8）。上传字节数按它校验。 */
+  format: PixelFormatValue;
+  /** 每像素字节数，来自 L1 的共享映射（不在这里另写一份 switch）。 */
+  bytesPerPixel: number;
+  /** 创建时声明的环绕方式（缺省 clamp）。T288：瓦片页必须是 repeat。 */
+  wrap: TextureWrapValue;
   /** 累积字节流的哈希状态（可流式累加，不保存字节）。`hash.bytes === 0` 表示从未上传。 */
   hash: HashState;
 }
@@ -83,6 +93,14 @@ interface TexRec {
 export interface NullDrawRecord {
   readonly vertices: number;
   readonly indices: number;
+  /**
+   * 这次 draw 在索引缓冲里的起点（T288）。
+   *
+   * ★ 为什么必须记它：多页渲染时"第 N 段"要靠 `firstIndex` 才能取到自己的几何。
+   *   忘了传（传 0）的表现是**第二段把第一段的几何再画一遍** —— 画面是"东西重复"，
+   *   而 draw 次数、纹理绑定、顶点数全都对。没有这个字段，headless 判据看不见它。
+   */
+  readonly firstIndex: number;
   readonly pipeline: PipelineHandle;
   readonly textures: readonly TextureHandle[];
 }
@@ -210,13 +228,33 @@ export class NullGraphicsDevice implements IGraphicsDevice {
       );
     }
     const h = this.nextHandle++;
+    const format = desc.format ?? PixelFormat.RGBA8;
+    const bpp = bytesPerPixel(format);
+    if (data !== undefined && data !== null) {
+      const expect = desc.width * desc.height * bpp;
+      if (data.byteLength !== expect) {
+        // ★ 与 webgl2 后端同一判据：真 GL 对长度不符的 texImage2D 只置错误码，
+        //   于是"上传了一张空纹理"会一路绿到线上。Null 后端更该在这里拦住它 ——
+        //   它就是 headless 判据的唯一目击者。
+        this.rejectedCalls.push(`createTexture(数据 ${data.byteLength} != ${desc.width}x${desc.height}x${bpp})`);
+        return err(
+          engineError(
+            "GFX.SIZE_MISMATCH",
+            `纹理数据 ${data.byteLength} 字节，但 ${desc.width}x${desc.height} 的 ${format} 需要 ${expect}`,
+            { label: desc.label ?? "", format },
+          ),
+        );
+      }
+    }
     const hash = hashStateCreate();
     if (data !== undefined && data !== null) hashStateUpdate(hash, asBytes(data));
     this.textures.set(h, {
       width: desc.width,
       height: desc.height,
       label: desc.label ?? "",
-      isTarget: desc.renderTarget === true,
+      format,
+      bytesPerPixel: bpp,
+      wrap: desc.wrap ?? TextureWrap.Clamp,
       hash,
     });
     return ok(h as unknown as TextureHandle);
@@ -241,17 +279,48 @@ export class NullGraphicsDevice implements IGraphicsDevice {
         engineError("GFX.REGION_OUT_OF_BOUNDS", `上传区域超出纹理：${JSON.stringify(region)} vs ${rec.width}x${rec.height}`),
       );
     }
-    // 4 字节/像素（RGBA8）是唯一严格校验的格式；其他格式只记字节数
-    const expect = region.width * region.height * 4;
-    if (data.byteLength !== expect && rec.isTarget) {
-      // 渲染目标的上传必须是完整 RGBA8 —— 少一个字节就会错位
+    // 所有格式一律按 bpp 严格校验（旧实现只对渲染目标查 4 字节/像素，
+    // 于是"把 RGBA16 的字节当 RGBA8 传"在 headless 里永远绿、在真后端上错图）。
+    const expect = region.width * region.height * rec.bytesPerPixel;
+    if (data.byteLength !== expect) {
+      this.rejectedCalls.push(
+        `updateTexture(数据 ${data.byteLength} != ${region.width}x${region.height}x${rec.bytesPerPixel} ${rec.format})`,
+      );
       return err(
-        engineError("GFX.SIZE_MISMATCH", `上传字节数 ${data.byteLength} 与区域期望 ${expect} 不符`),
+        engineError(
+          "GFX.SIZE_MISMATCH",
+          `上传字节数 ${data.byteLength} 与区域期望 ${expect} 不符（${rec.format}，${region.width}x${region.height}）`,
+          { label: rec.label, format: rec.format },
+        ),
       );
     }
     this._stats = { ...this._stats, bytesUploaded: this._stats.bytesUploaded + data.byteLength };
     hashStateUpdate(rec.hash, asBytes(data));
     return ok(undefined);
+  }
+
+  /**
+   * 纹理的像素格式（句柄不存在 → `undefined`，与 `textureDigest` 同语气）。
+   *
+   * ★ 为什么必须有它：`textureDigest` 只能证明"字节到了"，证明不了
+   *   "以什么格式到的"—— 同一份 8 字节/像素的数据，声明成 rgba16 还是
+   *   rgba16f、或者干脆被当成 rgba8 上传，摘要都可能一样（前者一样，后者长度就不同）。
+   *   判据要断言"上传的真的是 16 位"，就必须能把设备记录的格式读出来。
+   */
+  textureFormat(handle: TextureHandle): PixelFormatValue | undefined {
+    return this.textures.get(handle as unknown as number)?.format;
+  }
+
+  /**
+   * 纹理的环绕方式（句柄不存在 → `undefined`，与 `textureFormat` 同语气）。
+   *
+   * ★ 为什么必须有它（T288）：地形平铺要求瓦片页是 `repeat`、主图集是 `clamp`。
+   *   两者传错的表现都**不报错**：主图集开 repeat ⇒ 邻居帧被采进来；
+   *   瓦片页开 clamp ⇒ 接缝被抻成脏边。而字节摘要、格式、帧表全都一样 ——
+   *   没有这个访问器，"哪张页是什么 wrap"在 headless 里根本无法断言。
+   */
+  textureWrap(handle: TextureHandle): TextureWrapValue | undefined {
+    return this.textures.get(handle as unknown as number)?.wrap;
   }
 
   /**
@@ -469,6 +538,7 @@ class NullCommandList implements ICommandList {
     this.dev._pushDraw({
       vertices: batch.vertexCount,
       indices: batch.indexCount,
+      firstIndex: batch.firstIndex ?? 0,
       pipeline: this.pipeline,
       textures: Array.from(this.textures.values()),
     });

@@ -1,0 +1,290 @@
+/**
+ * L4 · AI 移动（阶段 3：**从"盯着"到"走过去"**）
+ *
+ * 链条的前三段已经有了：看见什么（`perception.ts`）、盯谁（`targeting.ts`）、谁去（`team.ts`）。
+ * 这一段把它们接到真实位移上：**目标格 → 路径 → 每 tick 挪一点**。
+ *
+ * ★ 为什么 `decide` 是回调而不是内建策略：
+ *   引擎不该规定"怪物先追谁、追不到怎么办"。本文件只负责
+ *   "给定想去哪一格，把它走过去，并且不要做蠢事"。策略留在调用方
+ *   （未来的怪物 AI / 编辑器 PIE / 测试语料），于是三块逻辑可以分别演进。
+ *
+ * ★★ 五个刻意的设计决定（每条都对应一类"看起来在动、其实坏了"的失效）：
+ *
+ * ① **不可达要退避**。目标在海对面时 `findPath` 每 tick 都失败 ——
+ *    一次 A* 可能展开上万格，二十只怪就是二十倍的每帧开销，
+ *    而画面上只是"它们站着不动"。所以失败记 `(goalCell, retryTick)`，
+ *    退避窗口内不再算路。**退避不是放弃**：窗口过了会重试（目标可能被桥接通了）。
+ *
+ * ② **到达后不重算**。目标没变、路已走完 ⇒ 这一 tick 什么都不做。
+ *    不这样写的话，站在目标上会每 tick 跑一次 A*，得到一条长度为 1 的路径再走 0 距离。
+ *    这个 bug 不会让任何位置判据变红，只会让 CPU 在无事可做时最忙。
+ *
+ * ③ **卡住要有出口**。物理挤在一起、路点被占、速度被改小 —— 都会表现成
+ *    "`moved` 一直是 0 而路径还没走完"。连续 `stuckTicks` 次没挪动就**丢弃当前路径重算**，
+ *    否则这只怪会永远停在原地等一个不会变的路点。
+ *
+ * ④ **决定谁先动要排序**。`componentsOf` 的遍历序是存储序，虽然同一份存档下稳定，
+ *    但"谁先占位、谁被挤开"会让最终位置有细微差别。按节点 id 升序驱动，
+ *    再加一层写死的顺序 —— 回放只认字节。
+ *
+ * ⑤ **坐标用世界坐标读、用增量写**。见 `step()` 里的注释：直接写 `localPosition`
+ *    在"代理挂在有位移的父节点下"时会走错方向，而世界坐标读出来是对的，
+ *    所以取"世界坐标的增量"回写到 local —— 父级只有平移（最常见）时两者等价。
+ */
+
+import { Component, FieldType, type ComponentSchema } from "../../core/scene/component.ts";
+import type { IModule, ModuleContext } from "../../core/module/module.ts";
+import type { Scene } from "../../core/scene/scene.ts";
+import type { Node } from "../../core/scene/node.ts";
+import { Services } from "../../core/tokens.ts";
+import { engineError, err, ok, type EngineError, type Result } from "../../foundation/result.ts";
+import type { NavGrid } from "../nav/nav-grid.ts";
+import { stepAlong } from "../nav/move-along.ts";
+
+/** 会自己走路的代理。 */
+export const MOVER_TYPE = "ai.mover";
+/** 配置非法。 */
+export const AI_BAD_MOVE = "AI.BAD_MOVE";
+
+export class Mover extends Component {
+  /** 每秒走多少世界单位。 */
+  speed = 2.2;
+
+  readonly schema: ComponentSchema = {
+    type: MOVER_TYPE,
+    fields: { speed: FieldType.Float },
+  };
+
+  // ---- 以下全部是**运行期状态**，不进 schema、不进存档、不进指纹。
+  //      理由：路径是"从当前局面推出来的"，存档再读回来时局面已经变了；
+  //      把它存进去反而会让读档后的第一 tick 沿一条过期的路走。
+  /** 当前路径（格子下标序列）。 */
+  path: number[] = [];
+  /** 下一个要去的路点下标。 */
+  cursor = 0;
+  /** 当前路径对应的目标格；-1 = 没有目标。 */
+  goalCell = -1;
+  /** 已经走到目标上了（等目标变化再重算）。 */
+  arrived = false;
+  /** 上次算路失败的目标格与退避截止 tick（见文件头 ①）。 */
+  failCell = -1;
+  retryTick = 0;
+  /** 连续没挪动的 tick 数（见文件头 ③）。 */
+  stuckTicks = 0;
+}
+
+export function registerMoverComponent(registry: {
+  has(t: string): boolean;
+  register(s: ComponentSchema, f: () => Component): void;
+}): void {
+  if (!registry.has(MOVER_TYPE)) registry.register(new Mover().schema, () => new Mover());
+}
+
+export interface MoveStats {
+  /** 带 `ai.mover` 的代理数。 */
+  readonly agents: number;
+  /** 这一 tick 真的挪动了的代理数。 */
+  readonly moving: number;
+  /** 这一 tick 走到目标上的代理数。 */
+  readonly arrived: number;
+  /** 没有目标（`decide` 返回 null）的代理数。 */
+  readonly idle: number;
+  /** 累计：算路成功次数（诊断"是不是每 tick 都在算"）。 */
+  readonly paths: number;
+  /** 累计：算路失败次数。 */
+  readonly unreachable: number;
+  /** 累计：因卡住而丢弃路径的次数。 */
+  readonly stuck: number;
+}
+
+export interface MoveModuleOptions {
+  readonly grid: NavGrid;
+  /**
+   * 返回"想去哪一格"（格子下标）；`null` = 这一 tick 不动。
+   * 越界/不可站的返回值按"不可达"处理（会退避，不会崩）。
+   */
+  readonly decide: (agentNodeId: number, tick: number) => number | null;
+  readonly id?: string;
+  /** 连续多少 tick 没挪动算卡住（默认 12）。 */
+  readonly stuckTicks?: number;
+  /** 一 tick 挪动小于这个距离算"没动"（默认 1e-3）。 */
+  readonly stuckEps?: number;
+  /** 算路失败后多少 tick 内不重试（默认 30）。 */
+  readonly retryTicks?: number;
+}
+
+export interface MoveModuleHandle extends IModule {
+  update(tick: number, dt: number): void;
+  readonly stats: MoveStats;
+  /** 诊断：某个代理当前的路径（副本）。 */
+  pathOf(nodeId: number): readonly number[];
+}
+
+export function createMoveModule(opts: MoveModuleOptions): MoveModuleHandle {
+  const { grid } = opts;
+  const stuckLimit = opts.stuckTicks ?? 12;
+  const stuckEps = opts.stuckEps ?? 1e-3;
+  const retryTicks = opts.retryTicks ?? 30;
+
+  let scene: Scene | null = null;
+  let paths = 0;
+  let unreachable = 0;
+  let stuck = 0;
+  let moving = 0;
+  let arrived = 0;
+  let idle = 0;
+
+  const handle: MoveModuleHandle = {
+    id: opts.id ?? "ai.move",
+    get stats(): MoveStats {
+      const s = scene;
+      return {
+        agents: s === null ? 0 : [...s.componentsOf<Mover>(MOVER_TYPE)].length,
+        moving,
+        arrived,
+        idle,
+        paths,
+        unreachable,
+        stuck,
+      };
+    },
+    pathOf(nodeId: number): readonly number[] {
+      const s = scene;
+      if (s === null) return [];
+      for (const m of s.componentsOf<Mover>(MOVER_TYPE)) {
+        if (m.node?.id === nodeId) return m.path.slice();
+      }
+      return [];
+    },
+    init(ctx: ModuleContext): Result<void, EngineError> {
+      const got = ctx.services.get(Services.Scene);
+      if (got === undefined) {
+        return err(engineError(AI_BAD_MOVE, "移动模块需要一个 Scene（先注册 Services.Scene）"));
+      }
+      scene = got;
+      return ok(undefined);
+    },
+    update(tick: number, dt: number): void {
+      const s = scene;
+      if (s === null) return;
+      moving = 0;
+      arrived = 0;
+      idle = 0;
+
+      const agents = [...s.componentsOf<Mover>(MOVER_TYPE)];
+      // 见文件头 ④：按节点 id 升序驱动
+      agents.sort((a, b) => (a.node?.id ?? -1) - (b.node?.id ?? -1));
+
+      for (const m of agents) {
+        const node = m.node;
+        if (node === null || !node.activeInHierarchy) continue;
+        if (!(m.speed > 0) || !Number.isFinite(m.speed)) {
+          // 速度没配好：不动、也不算卡住（卡住是"该动却动不了"）
+          idle++;
+          continue;
+        }
+
+        const goal = opts.decide(node.id, tick);
+        if (goal === null) {
+          m.path.length = 0;
+          m.cursor = 0;
+          m.goalCell = -1;
+          m.arrived = false;
+          idle++;
+          continue;
+        }
+
+        // ---- 目标没变且已到达：什么都不做（见文件头 ②）
+        if (m.arrived && goal === m.goalCell) {
+          idle++;
+          continue;
+        }
+        // ---- 退避窗口内不重算（见文件头 ①）
+        if (goal === m.failCell && tick < m.retryTick) {
+          idle++;
+          continue;
+        }
+        // ---- 目标变了（或还没算过路）⇒ 重算
+        if (goal !== m.goalCell || m.path.length === 0) {
+          if (!plan(m, node, goal, tick)) {
+            idle++;
+            continue;
+          }
+        }
+
+        const wp = node.worldPosition;
+        const r = stepAlong(grid, m.path, m.cursor, wp.x, wp.y, m.speed, dt);
+        m.cursor = r.cursor;
+        if (r.moved > 0) {
+          // 见文件头 ⑤：把世界坐标的增量回写到 local
+          const lp = node.localPosition;
+          node.setLocalPosition(lp.x + (r.x - wp.x), lp.y + (r.z - wp.y));
+          moving++;
+        }
+
+        if (r.done) {
+          m.arrived = true;
+          m.stuckTicks = 0;
+          arrived++;
+          continue;
+        }
+
+        // ---- 卡住检测（见文件头 ③）
+        if (r.moved <= stuckEps) {
+          m.stuckTicks++;
+          if (m.stuckTicks >= stuckLimit) {
+            m.path.length = 0;
+            m.cursor = 0;
+            m.goalCell = -1;
+            m.arrived = false;
+            m.stuckTicks = 0;
+            stuck++;
+          }
+        } else {
+          m.stuckTicks = 0;
+        }
+      }
+    },
+    describe(): string {
+      return `AI 移动：${String(moving)} 个代理在走，累计算路 ${String(paths)} 次 / 不可达 ${String(unreachable)} 次`;
+    },
+  };
+
+  /** 算一次路并写进代理状态；失败写退避窗口。返回是否成功。 */
+  function plan(m: Mover, node: Node, goal: number, tick: number): boolean {
+    const wp = node.worldPosition;
+    const from = grid.cellAt(wp.x, wp.y);
+    if (from < 0) {
+      // 代理跑到地图外了（传送/坐标 bug）：按不可达处理，不要静默吸附到别处
+      m.failCell = goal;
+      m.retryTick = tick + retryTicks;
+      unreachable++;
+      return false;
+    }
+    const res = grid.findPath(from, goal);
+    if (!res.ok) {
+      m.failCell = goal;
+      m.retryTick = tick + retryTicks;
+      m.path.length = 0;
+      m.cursor = 0;
+      m.goalCell = -1;
+      m.arrived = false;
+      unreachable++;
+      return false;
+    }
+    const p = res.value;
+    m.path = p.cells.slice();
+    // 路径第一格就是当前格时，游标从 1 开始（否则会"先走回格子中心"）
+    m.cursor = p.cells.length > 0 && p.cells[0] === from ? 1 : 0;
+    m.goalCell = goal;
+    m.arrived = false;
+    m.stuckTicks = 0;
+    m.failCell = -1;
+    m.retryTick = 0;
+    paths++;
+    return true;
+  }
+
+  return handle;
+}

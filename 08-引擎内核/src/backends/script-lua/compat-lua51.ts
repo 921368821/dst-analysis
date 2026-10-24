@@ -35,6 +35,10 @@
  *      但 C 函数在 5.4 里没有 `_ENV` upvalue）。返回值仍是那个函数，不报错。
  *   ③ `module()` 会往**真正的 `_G`** 写嵌套表（5.1 就这么干），这部分不参与
  *      模块级隔离 —— 它是 5.1 语义里"全局"的本义，见 runtime.ts 的 `__engine_load`。
+ *      **但卸载时会摘掉**：`__engine_compat_findtable` 记下"我建了哪几张表"，
+ *      `__engine_compat_unmodule` 按**创建时的身份**（`parent[key] == 记录的表`）删除。
+ *      身份不匹配就不删 —— 别人后来换掉的、或别人也往里加过东西的容器，一律不动。
+ *      这条以前写作"已知且未修"，是 2026-10-23 修掉的：能修的不该留在"已知问题"里。
  *   ④ `require` **不读文件系统**（wasm 里没有 fs）：只查 `package.loaded` 与
  *      `package.preload`。`package.preload` 是引擎注册模块的唯一入口。
  */
@@ -140,19 +144,78 @@ end
 -- ============================== module / package.seeall ==============================
 
 -- 在真正的 _G 上建（或复用）点号嵌套的表。5.1 的 findtable 就是往全局表里写。
+-- ★ 返回 tbl, created：created 是"本次真正新建的那几张表"的记录（父表 + 键 + 表本身），
+--   顺序是**从外到内**，最后一条就是模块自己的那张表。卸载时靠它精确摘除。
+--   只记"新建"的：复用的表是别人的，动它就是删别人的数据。
 local function __engine_compat_findtable(name)
   local cur = _G
-  local created = false
+  local created = {}
   for part in string.gmatch(name, "[^.]+") do
     local nxt = cur[part]
     if __type(nxt) ~= "table" then
       nxt = {}
       cur[part] = nxt
-      created = true
+      created[#created + 1] = { parent = cur, key = part, value = nxt }
     end
     cur = nxt
   end
   return cur, created
+end
+
+-- "模块名的点号路径 → 我建过哪些表"。卸载时按记录反向摘除。
+__engine_compat_modtables = {}
+
+-- "当时还不能删的空容器"。例：shared.a 与 shared.b 是两个模块先后建的，
+-- 卸 a 时 shared 里还有 b，不能删 —— 但也不能忘，否则 shared 这张空表会永远留在 _G 里。
+-- 每次卸载都扫一遍待办，谁变空了就摘谁。
+__engine_compat_pending = {}
+
+-- 释放一条"容器"记录：身份还对上、且已经空 ⇒ 摘掉并返回 true；
+-- 身份被换掉（别人接管了这个键）⇒ 记录作废，返回 true（不用再管）；
+-- 还非空 ⇒ false（转入待办）。
+local function __engine_compat_release(e)
+  if e.parent[e.key] ~= e.value then return true end
+  for _ in pairs(e.value) do return false end
+  e.parent[e.key] = nil
+  return true
+end
+
+-- 摘掉 module() 往真 _G 写的表。规则只有一条：**身份必须还是我建的那张**。
+--   · 叶子（模块自己的表）：身份对上就摘，不管里面还有多少函数 —— 那些函数随模块一起作废。
+--   · 中间容器（a.b 里的 a）：只有变成空表才摘。别人往 a 里加过东西就留着并转入待办，
+--     否则会把别人的模块一起摘掉（这是最容易写错的一步）。
+function __engine_compat_unmodule(name)
+  if __type(name) ~= "string" then return false end
+  local removed = 0
+  local rec = __engine_compat_modtables[name]
+  if __type(rec) == "table" then
+    __engine_compat_modtables[name] = nil
+    for i = #rec, 1, -1 do
+      local e = rec[i]
+      if i == #rec then
+        if e.parent[e.key] == e.value then
+          e.parent[e.key] = nil
+          removed = removed + 1
+        end
+      elseif not __engine_compat_release(e) then
+        __engine_compat_pending[#__engine_compat_pending + 1] = e
+      else
+        removed = removed + 1
+      end
+    end
+  end
+  -- 扫待办：随别的模块卸载，之前非空的容器可能已经空了
+  local keep = {}
+  for i = 1, #__engine_compat_pending do
+    local e = __engine_compat_pending[i]
+    if not __engine_compat_release(e) then
+      keep[#keep + 1] = e
+    else
+      removed = removed + 1
+    end
+  end
+  __engine_compat_pending = keep
+  return removed > 0
 end
 
 function module(name, ...)
@@ -163,7 +226,16 @@ function module(name, ...)
   -- ① 建/取模块表，并登记到 package.loaded
   local mod = package.loaded[name]
   if __type(mod) ~= "table" then
-    mod = __engine_compat_findtable(name)
+    local created
+    mod, created = __engine_compat_findtable(name)
+    if #created > 0 then
+      local log = __engine_compat_modtables[name]
+      if __type(log) ~= "table" then
+        log = {}
+        __engine_compat_modtables[name] = log
+      end
+      for i = 1, #created do log[#log + 1] = created[i] end
+    end
   end
   package.loaded[name] = mod
 

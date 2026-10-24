@@ -354,3 +354,81 @@ test("[lua51] 垫片不破坏 5.4 语义：table.unpack 仍在、goto 仍可用"
     assert.equal(await value(rt, "intdiv"), 3, "5.4 的整除运算符不能被垫片影响");
   });
 });
+
+// ------------------------------------------------------------------ module() 的 _G 清理
+//
+// ★ 这三条守的是"卸载之后 _G 里不留垃圾"。
+//   5.1 的 `module("a.b")` 会往**真正的 _G** 写 `a` 和 `a.b` 两张表，
+//   而卸载时如果只把名字从登记表里划掉，这两张表会永久留在 _G 里 ——
+//   下一次加载同名模块会**复用**那张脏表（旧字段还在），表现为"改了代码没生效"。
+//   这类 bug 只在"卸载 → 重新加载"这条路径上出现，正常单次加载看不见。
+
+test("[lua51] unload 摘掉 module('a.b') 写进真 _G 的嵌套表", async () => {
+  await withLua(async (rt) => {
+    await load(rt, "probe", `function deepType() return type(deep) end
+                             function nestedType()
+                               if type(deep) ~= "table" then return "nil" end
+                               return type(deep.nested)
+                             end`);
+    assert.equal(await value(rt, "probe.deepType"), "nil", "前置：deep 一开始不存在");
+
+    await load(rt, "deep.nested", `module("deep.nested")\nfunction hi() return 1 end`);
+    assert.equal(await value(rt, "probe.deepType"), "table", "module() 应该在 _G 里建出 deep");
+    assert.equal(await value(rt, "probe.nestedType"), "table");
+
+    const un = await rt.unloadModule("deep.nested");
+    assert.ok(un.ok, "unload 应成功：" + (un.ok ? "" : un.error.message));
+    // 中间容器 deep 里只有 nested 一个键，卸完就空了 ⇒ 必须一起摘掉
+    assert.equal(await value(rt, "probe.deepType"), "nil", "卸载后 _G.deep 仍在（空表泄漏）");
+    assert.equal(await value(rt, "probe.nestedType"), "nil");
+  });
+});
+
+test("[lua51] 两个模块共用容器：卸一个不能把另一个的表一起摘掉", async () => {
+  await withLua(async (rt) => {
+    await load(rt, "probe", `function kind(k)
+                               local t = shared
+                               if type(t) ~= "table" then return "nil" end
+                               if t[k] == nil then return "nil" end
+                               return type(t[k])
+                             end`);
+    await load(rt, "shared.a", `module("shared.a")\nfunction fa() return 1 end`);
+    await load(rt, "shared.b", `module("shared.b")\nfunction fb() return 2 end`);
+    assert.equal(await value(rt, "probe.kind", ["a"]), "table");
+    assert.equal(await value(rt, "probe.kind", ["b"]), "table");
+
+    // ① 卸 a：shared 里还有 b，不能删；a 必须没
+    assert.ok((await rt.unloadModule("shared.a")).ok);
+    assert.equal(await value(rt, "probe.kind", ["a"]), "nil", "a 应该被摘掉");
+    assert.equal(await value(rt, "probe.kind", ["b"]), "table", "把别人的 b 一起摘掉了");
+
+    // ② 再卸 b：现在 shared 空了，连容器一起摘（这一步靠"待办列表"补刀）
+    assert.ok((await rt.unloadModule("shared.b")).ok);
+    assert.equal(await value(rt, "probe.kind", ["b"]), "nil");
+    assert.equal(await value(rt, "probe.kind", ["a"]), "nil");
+    // 容器本身也必须消失：探针里 shared 若是空表，"kind" 会返回 "nil"，所以直接查根
+    await load(rt, "probe2", `function sharedType() return type(shared) end`);
+    assert.equal(await value(rt, "probe2.sharedType"), "nil", "空的 shared 容器泄漏在 _G 里");
+  });
+});
+
+test("[lua51] 身份被替换后 unload 不删：别人接管的键不是我的", async () => {
+  await withLua(async (rt) => {
+    await load(rt, "swapme", `module("swapme")\nfunction f() return 1 end`);
+    // 另一个模块把 _G.swapme 换成自己的表（内容层里"打补丁覆盖"很常见）
+    await load(rt, "hijack", `_G.swapme = { replaced = true }`);
+
+    assert.ok((await rt.unloadModule("swapme")).ok);
+    await load(rt, "probe", `function check()
+                               local t = swapme
+                               if type(t) ~= "table" then return "gone" end
+                               if t.replaced then return "replaced" end
+                               return "mine"
+                             end`);
+    assert.equal(
+      await value(rt, "probe.check"),
+      "replaced",
+      "unload 把别人替换过的键删掉了 —— 身份检查失效",
+    );
+  });
+});

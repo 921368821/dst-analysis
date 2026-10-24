@@ -1,0 +1,409 @@
+{
+  "note": "自动生成，勿手改。由 tools/make-png-fixtures.mjs 生成，金标来自 pngjs 7.0.0，并已用 Pillow 13.0.0 交叉验证（tools/verify-fixtures-pillow.py）。",
+  "pngjs": "7.0.0",
+  "cases": [
+    {
+      "name": "rgba8-13x11",
+      "width": 13,
+      "height": 11,
+      "colorType": 6,
+      "bitDepth": 8,
+      "plain": "rgba8-13x11.plain.png",
+      "interlaced": "rgba8-13x11.interlaced.png",
+      "golden": "rgba8-13x11.rgba",
+      "goldenSha256": "99cae8e110c42864a77130995947d8b7139a12580e383ba912345253ed227972"
+    },
+    {
+      "name": "rgb8-13x11",
+      "width": 13,
+      "height": 11,
+      "colorType": 2,
+      "bitDepth": 8,
+      "plain": "rgb8-13x11.plain.png",
+      "interlaced": "rgb8-13x11.interlaced.png",
+      "golden": "rgb8-13x11.rgba",
+      "goldenSha256": "427f2587bcc9180b518cb448b932fb7a781df5b3956cbf41cea0e7174de23078"
+    },
+    {
+      "name": "gray8-13x11",
+      "width": 13,
+      "height": 11,
+      "colorType": 0,
+      "bitDepth": 8,
+      "plain": "gray8-13x11.plain.png",
+      "interlaced": "gray8-13x11.interlaced.png",
+      "golden": "gray8-13x11.rgba",
+      "goldenSha256": "a5218c308bb338d4b53aeceafc7b017408200aaa346ead5826db5ef7eec4bff9"
+    },
+    {
+      "name": "gray-alpha8-13x11",
+      "width": 13,
+      "height": 11,
+      "colorType": 4,
+      "bitDepth": 8,
+      "plain": "gray-alpha8-13x11.plain.png",
+      "interlaced": "gray-alpha8-13x11.interlaced.png",
+      "golden": "gray-alpha8-13x11.rgba",
+      "goldenSha256": "a3d839001d3b940b40db7bc7690586a285ae4764d23d81f115923234445ce189"
+    },
+    {
+      "name": "palette8-13x11",
+      "width": 13,
+      "height": 11,
+      "colorType": 3,
+      "bitDepth": 8,
+      "plain": "palette8-13x11.plain.png",
+      "interlaced": "palette8-13x11.interlaced.png",
+      "golden": "palette8-13x11.rgba",
+      "goldenSha256": "b6f2929d67b30d6dfe057c5cdf379cee5ad817b9c6f23c813114375e0c65d409"
+    },
+    {
+      "name": "gray4-13x11",
+      "width": 13,
+      "height": 11,
+      "colorType": 0,
+      "bitDepth": 4,
+      "plain": "gray4-13x11.plain.png",
+      "interlaced": "gray4-13x11.interlaced.png",
+      "golden": "gray4-13x11.rgba",
+      "goldenSha256": "010f79b1bd990b40d8b303fafc435a77dce0708152f56043a87bc3a43aba2c32"
+    },
+    {
+      "name": "gray2-9x7",
+      "width": 9,
+      "height": 7,
+      "colorType": 0,
+      "bitDepth": 2,
+      "plain": "gray2-9x7.plain.png",
+      "interlaced": "gray2-9x7.interlaced.png",
+      "golden": "gray2-9x7.rgba",
+      "goldenSha256": "5d1f4ec7b1367d6a3020a364171a540ca60561d8ea0a5cbdd06b5048486b5973"
+    },
+    {
+      "name": "gray1-17x9",
+      "width": 17,
+      "height": 9,
+      "colorType": 0,
+      "bitDepth": 1,
+      "plain": "gray1-17x9.plain.png",
+      "interlaced": "gray1-17x9.interlaced.png",
+      "golden": "gray1-17x9.rgba",
+      "goldenSha256": "2adcac20e110890d6930a0404d22b4d38f5c7010e1faf1aef11e72fe93f4c1c6"
+    },
+    {
+      "name": "palette4-11x9",
+      "width": 11,
+      "height": 9,
+      "colorType": 3,
+      "bitDepth": 4,
+      "plain": "palette4-11x9.plain.png",
+      "interlaced": "palette4-11x9.interlaced.png",
+      "golden": "palette4-11x9.rgba",
+      "goldenSha256": "72274d03227bf035fe6e5ce4ba22e53b1b44a3d8b8512dabd1f50fa495e3773f"
+    },
+    {
+      "name": "palette2-9x7",
+      "width": 9,
+      "height": 7,
+      "colorType": 3,
+      "bitDepth": 2,
+      "plain": "palette2-9x7.plain.png",
+      "interlaced": "palette2-9x7.interlaced.png",
+      "golden": "palette2-9x7.rgba",
+      "goldenSha256": "c7d1614bd18a5c0721571c52049032e8ddf9717e8fa2ac6fba6c96625bf83dba"
+    },
+    {
+      "name": "rgba16-7x5",
+      "width": 7,
+      "height": 5,
+      "colorType": 6,
+      "bitDepth": 16,
+      "plain": "rgba16-7x5.plain.png",
+      "interlaced": "rgba16-7x5.interlaced.png",
+      "golden": "rgba16-7x5.rgba",
+      "goldenSha256": "128bc701705ee6cbc3c013849626716205b8ebe3483b5dbfdd54d4a41debcc6e",
+      "samples16": "rgba16-7x5.rgba16"
+    },
+    {
+      "name": "gray16-5x3",
+      "width": 5,
+      "height": 3,
+      "colorType": 0,
+      "bitDepth": 16,
+      "plain": "gray16-5x3.plain.png",
+      "interlaced": "gray16-5x3.interlaced.png",
+      "golden": "gray16-5x3.rgba",
+      "goldenSha256": "f8f4995ad506ad02989a8b318867ae2c469caaa142b39bed23c979619dc0fba4",
+      "samples16": "gray16-5x3.rgba16"
+    },
+    {
+      "name": "rgba8-1x1",
+      "width": 1,
+      "height": 1,
+      "colorType": 6,
+      "bitDepth": 8,
+      "plain": "rgba8-1x1.plain.png",
+      "interlaced": "rgba8-1x1.interlaced.png",
+      "golden": "rgba8-1x1.rgba",
+      "goldenSha256": "ace3d63a630a22fd8c23a4db565986e1f560113e6eeb0e08ea38ea9d4407941c"
+    },
+    {
+      "name": "rgba8-2x2",
+      "width": 2,
+      "height": 2,
+      "colorType": 6,
+      "bitDepth": 8,
+      "plain": "rgba8-2x2.plain.png",
+      "interlaced": "rgba8-2x2.interlaced.png",
+      "golden": "rgba8-2x2.rgba",
+      "goldenSha256": "08e9aaacd37c6d984d5f4079fe7ab14c3372393940fe50f441f60a4ffd059f18"
+    },
+    {
+      "name": "rgba8-3x3",
+      "width": 3,
+      "height": 3,
+      "colorType": 6,
+      "bitDepth": 8,
+      "plain": "rgba8-3x3.plain.png",
+      "interlaced": "rgba8-3x3.interlaced.png",
+      "golden": "rgba8-3x3.rgba",
+      "goldenSha256": "30bbb3b3dce2e99c48f3d47fcc2c979f422da276f1088f439e6eeef20e516950"
+    },
+    {
+      "name": "rgba8-9x1",
+      "width": 9,
+      "height": 1,
+      "colorType": 6,
+      "bitDepth": 8,
+      "plain": "rgba8-9x1.plain.png",
+      "interlaced": "rgba8-9x1.interlaced.png",
+      "golden": "rgba8-9x1.rgba",
+      "goldenSha256": "30bbb3b3dce2e99c48f3d47fcc2c979f422da276f1088f439e6eeef20e516950"
+    },
+    {
+      "name": "rgba8-1x9",
+      "width": 1,
+      "height": 9,
+      "colorType": 6,
+      "bitDepth": 8,
+      "plain": "rgba8-1x9.plain.png",
+      "interlaced": "rgba8-1x9.interlaced.png",
+      "golden": "rgba8-1x9.rgba",
+      "goldenSha256": "30bbb3b3dce2e99c48f3d47fcc2c979f422da276f1088f439e6eeef20e516950"
+    },
+    {
+      "name": "gray1-33x2",
+      "width": 33,
+      "height": 2,
+      "colorType": 0,
+      "bitDepth": 1,
+      "plain": "gray1-33x2.plain.png",
+      "interlaced": "gray1-33x2.interlaced.png",
+      "golden": "gray1-33x2.rgba",
+      "goldenSha256": "31b8833efdbb0cb1e61c67162ad4bc827acec7761610004d4c2c4ed34aa79e19"
+    },
+    {
+      "name": "apng-none-source",
+      "kind": "apng",
+      "width": 8,
+      "height": 6,
+      "frameCount": 3,
+      "loopCount": 0,
+      "file": "apng-none-source.png",
+      "delays": [
+        100,
+        200,
+        500
+      ],
+      "frames": [
+        {
+          "rect": {
+            "x": 0,
+            "y": 0,
+            "width": 8,
+            "height": 6
+          },
+          "dispose": 0,
+          "blend": 0,
+          "delayMs": 100,
+          "png": "apng-none-source.frame0.png"
+        },
+        {
+          "rect": {
+            "x": 2,
+            "y": 1,
+            "width": 4,
+            "height": 3
+          },
+          "dispose": 0,
+          "blend": 0,
+          "delayMs": 200,
+          "png": "apng-none-source.frame1.png"
+        },
+        {
+          "rect": {
+            "x": 1,
+            "y": 2,
+            "width": 3,
+            "height": 2
+          },
+          "dispose": 0,
+          "blend": 0,
+          "delayMs": 500,
+          "png": "apng-none-source.frame2.png"
+        }
+      ],
+      "idatFirstFrame": true,
+      "golden": "apng-none-source.frames.rgba"
+    },
+    {
+      "name": "apng-background-over",
+      "kind": "apng",
+      "width": 8,
+      "height": 6,
+      "frameCount": 3,
+      "loopCount": 3,
+      "file": "apng-background-over.png",
+      "delays": [
+        100,
+        100,
+        100
+      ],
+      "frames": [
+        {
+          "rect": {
+            "x": 0,
+            "y": 0,
+            "width": 8,
+            "height": 6
+          },
+          "dispose": 1,
+          "blend": 1,
+          "delayMs": 100,
+          "png": "apng-background-over.frame0.png"
+        },
+        {
+          "rect": {
+            "x": 2,
+            "y": 1,
+            "width": 4,
+            "height": 4
+          },
+          "dispose": 1,
+          "blend": 1,
+          "delayMs": 100,
+          "png": "apng-background-over.frame1.png"
+        },
+        {
+          "rect": {
+            "x": 0,
+            "y": 0,
+            "width": 3,
+            "height": 3
+          },
+          "dispose": 0,
+          "blend": 1,
+          "delayMs": 100,
+          "png": "apng-background-over.frame2.png"
+        }
+      ],
+      "idatFirstFrame": true,
+      "golden": "apng-background-over.frames.rgba"
+    },
+    {
+      "name": "apng-previous-over",
+      "kind": "apng",
+      "width": 6,
+      "height": 6,
+      "frameCount": 3,
+      "loopCount": 0,
+      "file": "apng-previous-over.png",
+      "delays": [
+        80,
+        80,
+        80
+      ],
+      "frames": [
+        {
+          "rect": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 6
+          },
+          "dispose": 0,
+          "blend": 0,
+          "delayMs": 80,
+          "png": "apng-previous-over.frame0.png"
+        },
+        {
+          "rect": {
+            "x": 1,
+            "y": 1,
+            "width": 3,
+            "height": 3
+          },
+          "dispose": 2,
+          "blend": 1,
+          "delayMs": 80,
+          "png": "apng-previous-over.frame1.png"
+        },
+        {
+          "rect": {
+            "x": 2,
+            "y": 0,
+            "width": 2,
+            "height": 2
+          },
+          "dispose": 0,
+          "blend": 0,
+          "delayMs": 80,
+          "png": "apng-previous-over.frame2.png"
+        }
+      ],
+      "idatFirstFrame": true,
+      "golden": "apng-previous-over.frames.rgba"
+    },
+    {
+      "name": "apng-default-image",
+      "kind": "apng",
+      "width": 5,
+      "height": 5,
+      "frameCount": 2,
+      "loopCount": 1,
+      "file": "apng-default-image.png",
+      "delays": [
+        50,
+        50
+      ],
+      "frames": [
+        {
+          "rect": {
+            "x": 0,
+            "y": 0,
+            "width": 5,
+            "height": 5
+          },
+          "dispose": 0,
+          "blend": 0,
+          "delayMs": 50,
+          "png": "apng-default-image.frame0.png"
+        },
+        {
+          "rect": {
+            "x": 1,
+            "y": 1,
+            "width": 2,
+            "height": 2
+          },
+          "dispose": 0,
+          "blend": 1,
+          "delayMs": 50,
+          "png": "apng-default-image.frame1.png"
+        }
+      ],
+      "idatFirstFrame": false,
+      "golden": "apng-default-image.frames.rgba"
+    }
+  ]
+}

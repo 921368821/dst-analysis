@@ -9,7 +9,14 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Component, ComponentRegistry, FieldType, type ComponentSchema } from "../../src/core/scene/component.ts";
 import { Scene } from "../../src/core/scene/scene.ts";
-import { saveScene, loadScene, sceneToJson, sceneFromJson, SCENE_FORMAT_VERSION } from "../../src/core/scene/scene-io.ts";
+import {
+  saveScene,
+  loadScene,
+  sceneToJson,
+  sceneFromJson,
+  SCENE_FORMAT_VERSION,
+  SCENE_SCHEMA,
+} from "../../src/core/scene/scene-io.ts";
 
 class Ttl extends Component {
   ttl = 10;
@@ -199,4 +206,54 @@ test("存档里不含 GPU 句柄之类的进程内 id（只存字符串/数字�
   const json = sceneToJson(saveScene(scene));
   assert.ok(!json.includes("Handle"), "不该出现句柄");
   assert.ok(!/"(texture|pipeline|vbo|ibo)"/.test(json), "不该出现 GPU 资源字段");
+});
+
+// ------------------------------------------------------------------ 存档头（版本闸门）
+//
+// ★ 以前 `sceneFromJson` 只 `JSON.parse` + 查 `format`/`nodes` 存在，**从不看版本上下限**。
+//   后果分两种，都很安静：
+//   ① `format: 0` 的旧档 → 当成当前版本读进来（组件按今天的字段解释旧数据）；
+//   ② `format: 99`（新引擎写的）→ 也读进来，直到 `loadScene` 才炸 ——
+//      而调用方完全可能只解析不加载（编辑器列表、存档预览）。
+//   现在版本闸门在**解析这一步**就生效，且错误码说的是场景域的话。
+
+test("存档头：比当前版本旧（format:0）→ FORMAT_BAD，不再静默当当前版本", () => {
+  const r = sceneFromJson('{"format":0,"name":"old","nodes":[]}');
+  assert.equal(r.ok, false, "format:0 必须被拒绝");
+  if (!r.ok) assert.equal(r.error.code, "SCENE.FORMAT_BAD");
+});
+
+test("存档头：非整数版本（format:1.5）→ FORMAT_BAD（以前两个比较都不成立，原样返回）", () => {
+  const r = sceneFromJson('{"format":1.5,"name":"x","nodes":[]}');
+  assert.equal(r.ok, false);
+  if (!r.ok) assert.equal(r.error.code, "SCENE.FORMAT_BAD");
+});
+
+test("存档头：版本过新（format:99）→ 解析就报 FORMAT_TOO_NEW，不等 loadScene", () => {
+  const r = sceneFromJson('{"format":99,"name":"future","nodes":[]}');
+  assert.equal(r.ok, false, "新引擎写的档，旧引擎读解析阶段就该拒绝");
+  if (!r.ok) assert.equal(r.error.code, "SCENE.FORMAT_TOO_NEW");
+});
+
+test("存档头：缺 format → BAD_JSON（'没写版本'不等于'版本是 1'）", () => {
+  const r = sceneFromJson('{"name":"x","nodes":[]}');
+  assert.equal(r.ok, false);
+  if (!r.ok) assert.equal(r.error.code, "SCENE.BAD_JSON");
+});
+
+test("存档头：版本闸门用的键必须就是 format（不是 __v）", () => {
+  // 这条是"接线检查"：`SCENE_SCHEMA` 一旦丢掉 versionKey，上面四条会全部变绿 ——
+  // 因为 Schema 会按 `__v` 读、读不到就当 v1，于是任何 format 值都被放行。
+  assert.equal(SCENE_SCHEMA.versionKey, "format");
+  assert.equal(SCENE_SCHEMA.version, SCENE_FORMAT_VERSION);
+  // 而且 fields 里不能再有 format：否则 encode 会写出两个 "format" 键
+  assert.equal(SCENE_SCHEMA.fields.includes("format"), false);
+});
+
+test("存档头：我们自己的档读回来版本恒等于当前版本", () => {
+  const { scene } = build();
+  const r = sceneFromJson(sceneToJson(saveScene(scene)));
+  assert.ok(r.ok);
+  if (!r.ok) return;
+  assert.equal(r.value.format, SCENE_FORMAT_VERSION);
 });

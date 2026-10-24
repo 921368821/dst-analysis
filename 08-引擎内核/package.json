@@ -10,10 +10,19 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "test": "node --experimental-transform-types --test tests/run.ts",
-    "build:web": "esbuild src/browser-entry.ts --bundle --format=esm --target=es2022 --external:url --external:module --external:fs --external:path --outfile=web/bundle.js",
+    "build:web": "esbuild src/browser-entry.ts --bundle --format=esm --target=es2022 --external:url --external:module --external:fs --external:path --outfile=web/bundle.js && esbuild src/editor-entry.ts --bundle --format=esm --target=es2022 --external:url --external:module --external:fs --external:path --outfile=web/editor.js",
     "serve:web": "node tools/serve.mjs 8123",
-    "check": "npm run typecheck && npm run test",
-    "sample:headless": "node --experimental-transform-types samples/headless.ts"
+    "check": "npm run typecheck && npm run test && npm run coverage:gate && node tools/docs-check.mjs --quick",
+    "coverage:gate": "node tools/coverage-gate.mjs",
+    "audit:errors": "python tools/audit-error-paths.py",
+    "audit:mutation": "python tools/mutation-check.py",
+    "audit:docs": "node tools/docs-check.mjs",
+    "ci": "node tools/ci.mjs",
+    "ci:fast": "node tools/ci.mjs --fast",
+    "sample:headless": "node --experimental-transform-types samples/headless.ts",
+    "test:browser": "node tools/browser-selftest.mjs",
+    "test:cross-host": "node tools/cross-host-save.mjs",
+    "build:assets": "node --experimental-transform-types tools/build.ts"
   },
   "devDependencies": {
     "@types/node": "^22.7.5",

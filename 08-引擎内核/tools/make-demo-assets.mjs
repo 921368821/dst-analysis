@@ -7,13 +7,17 @@
  *   素材解码能力已由 `tools/verify-png-corpus.mjs` 在 3367 个真实文件上证明过
  *   （3366 成功 / 1 个源文件本身被截半），不需要在 demo 里再证一次。
  *
- * ★ 这个脚本其实在证另一件更关键的事：**五张图故意用五种不同的行滤波编码**
+ * ★ 这个脚本其实在证另一件更关键的事：**图里故意覆盖了五种行滤波编码**
  *   （None / Sub / Up / Average / Paeth），并混用 RGBA8 与 RGB8 两种色彩类型。
  *   浏览器 demo 一旦跑起来，就等于把 PNG 解码器的五条滤波路径 + 两条通道路径
  *   全部真机验证了一遍 —— 而不是靠自造字节在单测里"看起来支持"。
  *
  * 用法：node tools/make-demo-assets.mjs
- * 产物：web/assets/{tree,rock,player,berry,ground}.png
+ * 产物：web/assets/{tree,rock,player,berry,ground,rabbit,hound}.png
+ *
+ * ★ `rabbit` / `hound` 是批66 加的：世界的"活物"必须有贴图，
+ *   复用 `player` 或 `berry` 会让画面上分不清哪只是兔子 ——
+ *   而"看得见会走路的生物"正是那一批要证明的东西。
  */
 
 import { deflateSync } from "node:zlib";
@@ -239,6 +243,37 @@ function makeGround() {
   return c;
 }
 
+/**
+ * 兔子：白身 + 两只长耳 + 粉耳内。Sub 滤波。
+ * ★ 它必须一眼是"猎物"而不是"又一棵树"：demo 里玩家要能分清该打谁。
+ */
+function makeRabbit() {
+  const c = new Canvas(28, 30, 4);
+  c.rect(8, 2, 3, 11, [236, 232, 226]);
+  c.rect(13, 1, 3, 12, [236, 232, 226]);
+  c.rect(9, 4, 1, 6, [226, 170, 176]);
+  c.rect(14, 3, 1, 7, [226, 170, 176]);
+  c.disc(13, 21, 9, [242, 238, 232]);
+  c.disc(13, 13, 6, [250, 246, 240]);
+  c.rect(10, 12, 2, 2, [40, 40, 44]);
+  c.rect(16, 12, 2, 2, [40, 40, 44]);
+  c.disc(22, 25, 3, [255, 255, 255]);
+  return c;
+}
+
+/** 猎狗：深棕身 + 尖耳 + 黄眼。Paeth 滤波（与 tree 同，但尺寸不同）。 */
+function makeHound() {
+  const c = new Canvas(34, 36, 4);
+  c.triangle(9, 5, 3, 3, 11, 16, [78, 58, 42]);
+  c.triangle(25, 5, 31, 3, 23, 16, [78, 58, 42]);
+  c.disc(17, 23, 11, [96, 74, 56]);
+  c.disc(17, 13, 8, [112, 88, 66]);
+  c.rect(12, 11, 2, 3, [240, 210, 90]);
+  c.rect(20, 11, 2, 3, [240, 210, 90]);
+  c.disc(17, 18, 3, [40, 32, 28]);
+  return c;
+}
+
 // ------------------------------------------------------------------ main
 
 const SPEC = [
@@ -247,6 +282,8 @@ const SPEC = [
   { name: "player", make: makePlayer, filter: 2 },
   { name: "berry", make: makeBerry, filter: 3 },
   { name: "ground", make: makeGround, filter: 0 },
+  { name: "rabbit", make: makeRabbit, filter: 1 },
+  { name: "hound", make: makeHound, filter: 4 },
 ];
 
 mkdirSync(OUT, { recursive: true });

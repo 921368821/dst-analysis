@@ -82,9 +82,49 @@ export const PixelFormat = {
   RGBA8: "rgba8",
   RGB8: "rgb8",
   R8: "r8",
+  /**
+   * 16 位无符号归一化，每通道 0..65535（8 字节/像素）。
+   * 进 GPU 的类型是 `UNSIGNED_SHORT` + 归一化采样：片元里拿到的仍是 0..1 的 float，
+   * 只是**中间精度**不再被 8 位截断（渐变/法线/高度图不会出带状色块）。
+   *
+   * ★ 字节序边界：`Uint16Array` 的内存布局是宿主字节序；WebGL 的
+   *   `UNSIGNED_SHORT` 纹理同样按宿主字节序解释，所以「值数组 → texImage2D」
+   *   不需要交换字节。反过来说，**不能**把 PNG 里的大端原始字节直接塞进来。
+   */
+  RGBA16: "rgba16",
+  /** 半精度浮点（8 字节/像素）。上传时需要真正的 half 字节流，不能直传 Float32Array。 */
   RGBA16F: "rgba16f",
 } as const;
 export type PixelFormatValue = (typeof PixelFormat)[keyof typeof PixelFormat];
+
+/**
+ * 每像素字节数。**全仓库唯一一份映射**，所有后端都从这里取。
+ *
+ * ★ 为什么必须共享：这个仓库被"两份 FNV 实现各自漂移"坑过一次
+ *   （见 `foundation/hash.ts` 文件头）。格式→字节数 是同一形状的东西：
+ *   两份映射单看都没错，只在某个格式上分叉，而"格式/长度错了"在真后端上的
+ *   表现是**静默错图**，不是报错。所以这里宁可让后端多一次函数调用。
+ *
+ * ★ 未知值抛错，不回落 4：回落会让"新加了格式却忘了登记"变成"按 RGBA8 上传"——
+ *   那正是 webgl2 的 `glFormat()` 曾把 `RGBA16F` 静默当 RGBA8 的缺陷形状。
+ *   类型上 `PixelFormatValue` 已穷尽，这里只拦运行时（外部字符串）穿透。
+ */
+export function bytesPerPixel(format: PixelFormatValue): number {
+  switch (format) {
+    case PixelFormat.RGBA8:
+      return 4;
+    case PixelFormat.RGB8:
+      return 3;
+    case PixelFormat.R8:
+      return 1;
+    case PixelFormat.RGBA16:
+      return 8;
+    case PixelFormat.RGBA16F:
+      return 8;
+    default:
+      throw new Error(`未知 PixelFormat：${String(format)}（bytesPerPixel 没有默认值，不猜）`);
+  }
+}
 
 export const TextureFilter = { Nearest: "nearest", Linear: "linear" } as const;
 export type TextureFilterValue = (typeof TextureFilter)[keyof typeof TextureFilter];

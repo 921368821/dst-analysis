@@ -8,9 +8,9 @@
  *   同样的 import 出现在 `core/**` 里就是架构崩了（arch 规则 4 会红）。
  *
  * 资产：启动时把 `web/assets/*.png` 走**完整导入链**烘焙成真图集 ——
- *   `fetch → 内存 fs → AssetImportPipeline（.meta/增量/依赖）→ PNG 解码 → shelf packing`。
+ *   `fs-http（只读）→ 内存 fs → AssetImportPipeline（.meta/增量/依赖）→ PNG 解码 → shelf packing`。
  *   任一步失败（例如用 file:// 直接打开被 CORS 拦住）则降级到程序化图集，
- *   但 HUD 会显示 `atlas:assets×5` 还是 `atlas:procedural` —— **降级不静默**。
+ *   但 HUD 会显示 `atlas:assets×6` 还是 `atlas:procedural` —— **降级不静默**。
  *   静默降级的后果是"以为在测真资产，其实在测假贴图"，这正是本轮要消灭的盲区。
  *
  * ★ 装配顺序很重要（第一版写错过）：
@@ -19,6 +19,7 @@
  *   手动调会绕过拓扑排序与失败回滚，而且很容易漏掉 stop/dispose。
  */
 
+import { ok, err, engineError, type EngineError, type Result } from "./foundation/result.ts";
 import { BackendRegistry } from "./platform/registry.ts";
 import { registerNullBackends } from "./backends/index.ts";
 import { createLuaScriptBackend } from "./backends/script-lua/runtime.ts";
@@ -30,17 +31,18 @@ import { RafTickSource } from "./runtime/tick-source.ts";
 import { Services } from "./core/tokens.ts";
 import { Component, type ComponentRegistry, FieldType, type ComponentSchema } from "./core/scene/component.ts";
 import type { IModule, ModuleContext } from "./core/module/module.ts";
-import type { FixedStepScheduler } from "./core/scheduler/scheduler.ts";
-import type { InputSnapshot } from "./platform/input/device.ts";
 import { createRenderModule } from "./extensions/render/render-module.ts";
-import { Sprite, makeSprite } from "./extensions/render/sprite.ts";
+import { Sprite, makeSprite, SPRITE_TYPE } from "./extensions/render/sprite.ts";
 import { SpatialHashWorld, makeSceneAccessor } from "./extensions/physics/physics.ts";
+import { createWorldModule } from "./extensions/physics/world-step-module.ts";
 import { createScriptModule } from "./extensions/script/script-module.ts";
 import { ScriptComponent } from "./extensions/script/script-component.ts";
 import { saveScene, loadScene, sceneToJson, sceneFromJson } from "./core/scene/scene-io.ts";
 import { stableHash } from "./core/serialization/schema.ts";
 import { Logger, LogLevel } from "./foundation/log/logger.ts";
 import { MemoryFileSystem } from "./backends/fs-memory/fs.ts";
+import { HttpFileSystem } from "./backends/fs-http/fs.ts";
+import { StorageFileSystem } from "./backends/fs-storage/fs.ts";
 import { AssetDatabase } from "./core/asset/asset.ts";
 import { ImporterRegistry } from "./extensions/asset-import/importer.ts";
 import { AssetImportPipeline } from "./extensions/asset-import/pipeline.ts";
@@ -48,54 +50,70 @@ import { textureImporter } from "./extensions/asset-import/importers/texture.ts"
 import { atlasImporter } from "./extensions/asset-import/importers/atlas.ts";
 import { textImporter } from "./extensions/asset-import/importers/text.ts";
 import { ImportedTexture, createImportLoaders } from "./extensions/asset-import/loaders.ts";
-import { decodePng } from "./extensions/asset-import/decode/png.ts";
+import { decodeImage } from "./extensions/asset-import/decode/image.ts";
 import { buildAtlasFromSources, type AtlasSource } from "./extensions/render/atlas-from-assets.ts";
-import type { AtlasData } from "./extensions/render/atlas.ts";
+import {
+  addItem,
+  countItem,
+  makeInventory,
+  registerInventoryComponents,
+  stacksOf,
+  type Inventory,
+} from "./extensions/inventory/inventory.ts";
+import { pickupNearby } from "./extensions/inventory/pickup.ts";
+import { dropIntoWorld } from "./extensions/inventory/drop-to-world.ts";
+import { buildProceduralAtlas, type AtlasData } from "./extensions/render/atlas.ts";
+import { generateWorld, type WorldPlan } from "./extensions/worldgen/worldgen.ts";
+import {
+  SITE_TYPE,
+  TERRAIN_TYPE,
+  assembleWorld,
+  registerWorldComponents,
+} from "./extensions/worldgen/assemble.ts";
+import { RESOURCE_TYPE, createWorldTaskModule, registerResourceComponent } from "./extensions/worldgen/task-module.ts";
+import type { WorldTaskModuleHandle } from "./extensions/worldgen/task-module.ts";
+import { WORLD_TASK_SCHEMA } from "./extensions/worldgen/tasks.ts";
+import { spawnPlayer, registerPlayerComponent, type PlayerHandle } from "./extensions/worldgen/spawn.ts";
+import { attachWorldVisuals, type WorldVisualReport } from "./extensions/render/world-visuals.ts";
+import { harvestAt } from "./extensions/worldgen/harvest.ts";
+import {
+  PlayerController,
+  createControllerModule,
+  registerControllerComponent,
+} from "./extensions/input/player-controller.ts";
+import { NavGrid } from "./extensions/nav/nav-grid.ts";
+import { HEALTH_TYPE, Health, registerHealthComponent } from "./extensions/combat/health.ts";
+import { ATTACKER_TYPE, Attacker, attack, registerAttackerComponent } from "./extensions/combat/attack.ts";
+import { FactionMember, createFactions, registerFactionComponent, teamOf } from "./extensions/combat/faction.ts";
+import { createMobWorldModule, type MobSpot, type MobWorldHandle } from "./extensions/mobs/mob-world.ts";
+// 批69：命中反馈（受击闪色 / 挥击挤压 / 伤害数字）。引擎侧只负责"让状态可见"，
+// 数字的排布属于宿主（贴在屏幕上的东西，引擎不该规定它长什么样）。
+import {
+  createFeedbackModule,
+  flash as flashNode,
+  punch as punchNode,
+  registerFeedbackComponent,
+  FEEDBACK_TYPE,
+  type Feedback,
+  type FeedbackHandle,
+} from "./extensions/render/feedback.ts";
+import { registerMoverComponent } from "./extensions/ai/move.ts";
+import { HUNGER_TYPE, Hunger, registerHungerComponent } from "./extensions/survival/hunger.ts";
+import { eat as eatKind, normalizeFoodTable } from "./extensions/survival/food.ts";
+import { createSurvivalModule } from "./extensions/survival/survival-module.ts";
+import { craft as craftRecipe, firstCraftable, missingFor, normalizeRecipes } from "./extensions/crafting/recipe.ts";
+
+/** `appRef` 还没就绪时的空输入（控制器模块在 boot 之后才会被驱动，这里只是兜底）。 */
+const EMPTY_INPUT = {
+  keysDown: new Set<string>(),
+  keysPressed: new Set<string>(),
+  keysReleased: new Set<string>(),
+  pointer: { x: 0, y: 0, dx: 0, dy: 0, buttonsDown: new Set<number>(), buttonsPressed: new Set<number>(), buttonsReleased: new Set<number>() },
+  wheel: { dx: 0, dy: 0 },
+  text: "",
+} as unknown as import("./platform/input/device.ts").InputSnapshot;
 
 // ---------------------------------------------------------------- 组件
-
-/**
- * 玩家控制器：WASD 移动。
- * ★ 用 `tick` 去重 poll：一帧可能跑多个固定步，poll 多次会吞掉"按下"边缘，
- *   表现为"按一下走两步"或"点一下没反应"。
- */
-class PlayerController extends Component {
-  speed = 4.5;
-  private lastTick = -1;
-  private snap: InputSnapshot | null = null;
-  static pollInput: (() => InputSnapshot) | null = null;
-
-  readonly schema: ComponentSchema = {
-    type: "game.player",
-    fields: { speed: FieldType.Float },
-  };
-
-  override onUpdate(tick: number, dt: number): void {
-    const poll = PlayerController.pollInput;
-    if (poll === null) return;
-    if (tick !== this.lastTick) {
-      this.snap = poll();
-      this.lastTick = tick;
-    }
-    const s = this.snap;
-    if (s === null) return;
-
-    let dx = 0;
-    let dz = 0;
-    if (s.keysDown.has("KeyA") || s.keysDown.has("ArrowLeft")) dx -= 1;
-    if (s.keysDown.has("KeyD") || s.keysDown.has("ArrowRight")) dx += 1;
-    if (s.keysDown.has("KeyW") || s.keysDown.has("ArrowUp")) dz += 1;
-    if (s.keysDown.has("KeyS") || s.keysDown.has("ArrowDown")) dz -= 1;
-    const len = Math.hypot(dx, dz);
-    if (len === 0) return;
-    const n = this.node;
-    if (n === null) return;
-    n.setLocalPosition(
-      n.localPosition.x + (dx / len) * this.speed * dt,
-      n.localPosition.y + (dz / len) * this.speed * dt,
-    );
-  }
-}
 
 /** 可被砍：砍到 0 就倒（演示组件数据随存档往返）。 */
 class Workable extends Component {
@@ -106,41 +124,6 @@ class Workable extends Component {
   };
 }
 
-// ---------------------------------------------------------------- 世界模块
-
-/**
- * 世界步进模块：`scene.step` + `physics.resolve`。
- * ★ 两者在**同一个回调**里，顺序写死。分成两个模块订阅会依赖"注册顺序"这种隐式约定，
- *   而那种约定在重构时会静默失效（物理先于移动解算 = 穿墙一帧）。
- */
-function createWorldModule(
-  physics: SpatialHashWorld,
-  hooks: { onTick: (t: number) => void; onStep?: (tick: number, dt: number) => void },
-): IModule {
-  let off: (() => void) | null = null;
-  return {
-    id: "game.world",
-    init(ctx: ModuleContext): void {
-      const scene = ctx.services.require(Services.Scene);
-      const sched = ctx.services.require<FixedStepScheduler>(Services.Scheduler);
-      off = sched.onStep((tick, dt) => {
-        scene.step(tick, dt);
-        physics.resolve();
-        // 脚本在"世界步进之后"跑：脚本读到的是本 tick 的确定状态
-        //（若放在 step 之前，脚本看到的位置会晚一个 tick —— 操作手感会"黏"）
-        hooks.onStep?.(tick, dt);
-        hooks.onTick(tick);
-      });
-    },
-    stop(): void {
-      off?.();
-      off = null;
-    },
-    describe(): string {
-      return `世界：${physics.stats().bodies} 个物理体`;
-    },
-  };
-}
 
 // ---------------------------------------------------------------- 演示脚本
 
@@ -193,10 +176,31 @@ end
 // ---------------------------------------------------------------- 资产烘焙
 
 /**
- * demo 用到的帧名。**顺序即图集排布顺序**（shelf packing 内部还会按高度重排，
+ * demo 用到的帧。**顺序即图集排布顺序**（shelf packing 内部还会按高度重排，
  * 但这里是"按什么顺序读资产/查 id"，固定下来才能保证两次运行产出同一张图集）。
+ *
+ * ★ 为什么这里带文件名而不是裸帧名：`photo.jpg` 是**故意**混进来的。
+ *   全 PNG 的资产表只能证明 PNG 解码器在跑；要证明"JPEG 也能进引擎"，
+ *   就必须让同一份烘焙代码真的走一次有损格式（`decodeImage` 按魔数分发）。
+ *   帧名仍叫 `photo`，渲染层不关心它的源格式。
  */
-const DEMO_FRAMES = ["ground", "tree", "rock", "berry", "player"] as const;
+const DEMO_FRAMES = [
+  { name: "ground", file: "ground.png" },
+  // ★ terrain 是**中性灰噪点**，不是草绿：地形块用「灰度帧 × 群系色」着色
+  //   （一张灰度图 × 8 个群系色 = 8 种地貌）。底色若是草绿，海会变成墨绿。
+  { name: "terrain", file: "terrain.png" },
+  // 2×2 走向标尺（左上红/右上绿/左下蓝/右下白）：诊断 UV 与裁剪用，平时不挂
+  { name: "ruler", file: "ruler.png" },
+  { name: "tree", file: "tree.png" },
+  { name: "rock", file: "rock.png" },
+  { name: "berry", file: "berry.png" },
+  { name: "player", file: "player.png" },
+  // 批66：世界的活物。★ 名字要与 `MOB_TEMPLATES` 里的 `frame` 一致 ——
+  //   两边写错一个字的症状是「生物在走但看不见」，而渲染模块只会 warn。
+  { name: "rabbit", file: "rabbit.png" },
+  { name: "hound", file: "hound.png" },
+  { name: "photo", file: "photo.jpg" },
+] as const;
 
 /** 烘焙期的资产根目录。**必须与 `pipeline.run()` / `createImportLoaders()` 用同一个**。 */
 const ASSET_ROOT = "/assets";
@@ -207,10 +211,10 @@ interface BakedAtlas {
 }
 
 /**
- * 资产烘焙：`fetch PNG → 内存 fs → 导入管线 → 解码 → 合成图集`。
+ * 资产烘焙：`fetch 位图 → 内存 fs → 导入管线 → 解码 → 合成图集`。
  *
  * ★ 这不是"给 demo 特供的捷径"，而是**编辑器里"导入资产"的同一份代码**
- *   （`AssetImportPipeline` + `SourceImporter` + `decodePng` + `buildAtlasFromSources`），
+ *   （`AssetImportPipeline` + `SourceImporter` + `decodeImage` + `buildAtlasFromSources`），
  *   只把两端的存储换成了内存与直接渲染。所以它验证的是整条链：
  *   文件真的被扫到 → 真的生成 `.meta` → 真的按 hash 增量 → 真的解码成 RGBA8
  *   → 真的上传给 GPU。
@@ -238,10 +242,19 @@ async function bakeAtlasFromAssets(): Promise<BakedAtlas | null> {
     //   漏注册的症状是"导入报告完美、db.load 全 NO_LOADER" —— 中间层做完两头没接。
     for (const l of createImportLoaders({ root: ASSET_ROOT })) db.registerLoader(l);
 
-    for (const name of DEMO_FRAMES) {
-      const res = await fetch(new URL(`assets/${name}.png`, location.href), { cache: "no-cache" });
-      if (!res.ok) return null;
-      const w = await fs.writeBinary(`${ASSET_ROOT}/${name}.png`, new Uint8Array(await res.arrayBuffer()));
+    // ★ 资源读取走 `HttpFileSystem`（只读），不再内联 `fetch`：
+    //   路径归一、`..` 拒绝、404→`FS.NOT_FOUND`、断网→`FS.IO` 全在**一个地方**，
+    //   与 Node 侧 `fs-node` 的失败形状一致。宿主里各写一份 fetch 的后果是
+    //   "资产读不到"在浏览器和 Node 下长得不一样，而导入管线只认识后者。
+    const remote = new HttpFileSystem({ base: new URL("./assets/", location.href) });
+    for (const { file } of DEMO_FRAMES) {
+      const r = await remote.readBinary(file);
+      if (!r.ok) {
+        // 降级要留痕：静默降级会让"以为在测真资产"变成长期的假象
+        console.warn(`[asset] 读不到 ${file}：${r.error.code} ${r.error.message}`);
+        return null;
+      }
+      const w = await fs.writeBinary(`${ASSET_ROOT}/${file}`, r.value);
       if (!w.ok) return null;
     }
 
@@ -249,15 +262,17 @@ async function bakeAtlasFromAssets(): Promise<BakedAtlas | null> {
     if (!report.ok) return null;
 
     const sources: AtlasSource[] = [];
-    for (const name of DEMO_FRAMES) {
-      const id = db.idAtPath(`${ASSET_ROOT}/${name}.png`);
+    for (const { name, file } of DEMO_FRAMES) {
+      const id = db.idAtPath(`${ASSET_ROOT}/${file}`);
       if (id === undefined) continue;
       const h = await db.load(id);
       if (!h.ok) continue;
       const asset = h.value.asset;
       try {
         if (asset instanceof ImportedTexture) {
-          const dec = decodePng(asset.bytes);
+          // 按**魔数**分发（PNG/JPEG），不看扩展名：导入器已经按 SOF/IHDR 校验过，
+          // 这里若自己写 if 分支，新增格式时必然有某个入口忘了改。
+          const dec = decodeImage(asset.bytes);
           if (dec.ok) sources.push({ name, png: dec.value });
         }
       } finally {
@@ -312,7 +327,10 @@ export async function main(): Promise<void> {
         setLocalPosition: (x: number, y: number) => n.setLocalPosition(x, y),
       };
     }),
-    { cellSize: 4, maxIterations: 3 },
+    // ★ 不写死 cellSize：格宽由引擎按实体尺寸定（`2 × 全场最大 range`，这里的世界是 1.4）。
+    //   写死 4 的时候，0.45~0.7 半径的实体被塞进"每格能装几十个"的粗桶里，
+    //   每次查询白扫上百个候选 —— 2000 体规模下实测差 2.3 倍（见 T338）。
+    { maxIterations: 3 },
   );
 
   let heroId = -1;
@@ -342,20 +360,455 @@ export async function main(): Promise<void> {
   // 脚本模块：单次调用 16ms 预算（≈半个 tick）。不设预算的死循环会挂住整个页面。
   const scriptMod = createScriptModule({ callTimeoutMs: 16 });
 
+  // 玩家移动控制：**下沉成扩展**（原来这段在宿主里，第二宿主就得抄一遍）。
+  // ★ 模块不会被框架自动 update —— 由下面的 onStep 手动驱动（脚本模块也是这么做的）。
+  const controllerMod = createControllerModule({
+    poll: () => (appRef === null ? EMPTY_INPUT : appRef.platform.input.poll()),
+  });
+
   const worldMod = createWorldModule(physics, {
     onTick: (t) => (hudTick = t),
     onStep: (tick, dt) => {
+      // 控制器 / 再生任务 / 脚本：都由宿主在**同一个** onStep 里驱动（模块不会被自动 update）
+      // ★ 控制器必须在物理之前：位置先变，再解算重叠
+      controllerMod.update(tick, dt);
+      // ---- 动作分发：**只认动作名**，不认物理键码（键位在 InputMap 里，见 input-map.ts）
+      // ★ 读的是 controllerMod.snapshot（这一 tick 已经 poll 过的那一份）：
+      //   再 poll 一次会把"刚按下"的边缘吞掉 —— M168 那个 bug 的另一种写法。
+      // ★ 为什么放在固定步里而不是 keydown 里：一帧跑多个 tick 时，keydown 会
+      //   在"帧"的粒度上触发，固定步在"tick"的粒度上消费 —— 后者才是可回放的。
+      dispatchActions();
+      worldState.tasks?.update(tick, dt);
+      // 生物：在玩家控制器之后、物理之前（它读的是本 tick 的位置，改的也是位置）
+      mobsHandle?.update(tick, dt);
+      // 生存：在场所有带 `game.hunger` 的实体（目前只有玩家）各推进一 tick。
+      // ★ 放在生物之后：饿死是"这一 tick 的最后一件事"，免得同一 tick 里
+      //   "先被判定饿死、再被打"这种顺序歧义。
+      survivalMod.update(tick, dt);
+      // 表现层：倒计时推进与到点还原。**必须在渲染之前**（onStep 天然早于 onRender），
+      // 放在渲染之后会让"最后一帧闪色"多显示一帧（看起来闪得比配置久）。
+      feedbackMod.update(tick);
       // 不 await：宿主在同步的 onStep 里。ScriptModule 内部有串行队列，
       // 保证 tick N+1 不会插到 tick N 的 Lua 调用中间。
       void scriptMod.update(tick, dt);
     },
   });
 
+  // ---- 世界生成（批46）：把"生成 → 装配 → 可见化 → 出生 → 再生 → 采集"接进浏览器
+  //
+  // ★ 顺序是硬约束，不是风格：
+  //   ① 生成是**纯数据**，可以在 boot 之前跑（它不需要 Scene）；
+  //   ② 装配要求**空场景**（`WORLD.SCENE_NOT_EMPTY`）—— 所以必须发生在任何宿主摆件之前；
+  //   ③ 组件注册要在装配之前（装配要按类型挂组件、读档要按类型重建）。
+  //   宿主自己的摆件（树/石头/立牌）放在最后，它们只是"世界里的装饰"。
+  const WORLD_SEED = 20261023;
+  const WORLD_W = 32;
+  const WORLD_H = 24;
+  const planR = generateWorld({ seed: WORLD_SEED, width: WORLD_W, height: WORLD_H, maxSitesPerCell: 0 });
+  const plan: WorldPlan | null = planR.ok ? planR.value : null;
+  if (!planR.ok) console.error(`[worldgen] 生成失败：${planR.error.code} ${planR.error.message}`);
+
+  /** 世界链的产物（宿主与自检页都要读它；`__engine.world` 就是它的投影）。 */
+  const worldState = {
+    plan,
+    player: null as PlayerHandle | null,
+    visual: null as WorldVisualReport | null,
+    tasks: null as WorldTaskModuleHandle | null,
+    /** 导航网格（批60）：从生成计划建一次，之后不再变（地图要变就整张重建）。 */
+    nav: null as NavGrid | null,
+    /** 生物群（批66）：世界里会走、会打、会掉东西的活物。 */
+    mobs: null as MobWorldHandle | null,
+    assembled: false,
+  };
+
+  /** 可用帧：图集来自资产就用资产的帧名，降级则用程序化图集的帧名 —— 两者必须一致。 */
+  const atlasFrames: readonly string[] =
+    baked === null ? [...buildProceduralAtlas().frames.keys()] : [...baked.atlas.frames.keys()];
+
+  const worldgenMod: IModule = {
+    id: "world.worldgen",
+    init(ctx: ModuleContext): Result<void, EngineError> {
+      const scene = ctx.services.require(Services.Scene);
+      const p = worldState.plan;
+      if (p === null) {
+        return err(engineError("WORLD.GEN_FAILED", "世界计划没有生成出来，装配无法进行"));
+      }
+      // 组件注册（幂等）：装配与读档都按类型重建组件，漏一个就是"读档少一半东西"
+      registerWorldComponents(scene.components);
+      registerResourceComponent(scene.components);
+      registerPlayerComponent(scene.components);
+      // ★ 背包也要注册：`game.item` / `game.inventory` 不注册的话，
+      //   存档里这两类组件的字段会在读档时**静默丢失**（"读档后背包空了"）。
+      registerInventoryComponents(scene.components);
+      // 批66：玩家与生物都要血量/攻击/阵营（玩家的那三个在下面 hero 装配处挂上）
+      registerHealthComponent(scene.components);
+      registerAttackerComponent(scene.components);
+      registerFactionComponent(scene.components);
+      registerMoverComponent(scene.components);
+      // 批67：饱食度。**不注册的后果是 READ 档里这一项静默丢失**（读回来 100，
+      // 玩家以为自己没饿过）—— 与背包那一条同一个坑。
+      registerHungerComponent(scene.components);
+      // 批69：受击反馈。**基色存在组件里**（还原要用），所以不注册就等于
+      // "读档回来正在闪的怪永远停在闪色上"（基色丢了）。
+      registerFeedbackComponent(scene.components);
+      if (!scene.components.has(SPRITE_TYPE)) {
+        scene.components.register(new Sprite().schema, () => new Sprite());
+      }
+      const a = assembleWorld(p, scene);
+      if (!a.ok) return a;
+      worldState.assembled = true;
+      // ★ 缺帧在这里是**错误**（渲染模块自己只会 warn + 跳过，于是一类东西静默消失）
+      const v = attachWorldVisuals(scene, atlasFrames);
+      if (!v.ok) return v;
+      worldState.visual = v.value;
+      const sp = spawnPlayer(scene, p);
+      if (!sp.ok) return sp;
+      worldState.player = sp.value;
+      // 导航网格：源的唯一性是**生成计划**（不是场景字段），于是它与渲染出来的地形必然同源。
+      // 场景字段与计划的一致性由 Node 判据交叉验证（`NavGrid.fromScene` vs `fromPlan`，
+      // 见 nav-grid.test.ts）—— 这里只建一次，失败就当成世界没装配好。
+      const nav = NavGrid.fromPlan(p);
+      if (!nav.ok) return nav;
+      worldState.nav = nav.value;
+      return ok(undefined);
+    },
+    describe(): string {
+      const v = worldState.visual;
+      return v === null ? "世界：未装配" : `世界：${v.terrain} 块地形 / ${v.sites} 个投放点`;
+    },
+  };
+
+  // 再生任务：每 30 tick（约 1 秒 @30Hz）在可通行群系里抽 2 格长出新资源
+  const tasksHandle: WorldTaskModuleHandle | null =
+    plan === null
+      ? null
+      : createWorldTaskModule({
+          tasks: {
+            schema: WORLD_TASK_SCHEMA,
+            tasks: [{ id: "regen", periodTicks: 30, phase: 0, picksPerRun: 2, biomes: ["grass", "forest"] }],
+          },
+          plan,
+          maxResources: 96,
+        });
+
+  /**
+   * 任务模块的**包装**：只为了一件事 —— 让它 `deps` 上 `world.worldgen`。
+   *
+   * ★ 为什么不能直接把 `createWorldTaskModule()` 的句柄塞进 modules：
+   *   它的 `init` 会检查场景里有没有注册 `world.resource`，而组件是 worldgen 模块注册的。
+   *   两个模块都声明"无依赖"时，谁先 init 就成了注册顺序的隐式约定 ——
+   *   那种约定在重构时会静默失效（这里表现为启动直接失败，还算好的）。
+   */
+  const tasksMod: IModule = {
+    id: "world.tasks",
+    deps: [worldgenMod.id],
+    init(ctx: ModuleContext): Result<void, EngineError> {
+      if (tasksHandle === null) return ok(undefined);
+      // 世界任务模块的 init 是**同步**的（只查场景有没有注册 world.resource）——
+      // 这里显式断言这一点，而不是把 Promise 分支混进来：异步 init 会让"模块起没起来"
+      // 变成一个时序问题，而这一步没有异步的必要。
+      const r = tasksHandle.init(ctx) as Result<void, EngineError> | undefined;
+      if (r === undefined) return ok(undefined);
+      if (!r.ok) return r;
+      worldState.tasks = tasksHandle;
+      return ok(undefined);
+    },
+    start(): void {
+      tasksHandle?.start?.();
+    },
+    stop(): void {
+      tasksHandle?.stop?.();
+    },
+    describe(): string {
+      const s = worldState.tasks?.stats();
+      return s === undefined ? "世界任务：未启动" : `世界任务：活 ${s.alive} / 累计 ${s.spawned}`;
+    },
+  };
+
+  // ---- 生物群（批66）：世界里**终于有活物了**
+  //
+  // ★ 模板只写数字，不写"兔子应该跑多快"这种判断 —— 那是配表，不是引擎。
+  // ★ `damage: 0` 的兔子不挂攻击组件（见 spawn-mob.ts）：它只跑不打，
+  //   而"凶不凶"由**组件有没有**决定，不额外加一个布尔开关。
+  const MOB_TEMPLATES = [
+    {
+      kind: "rabbit",
+      frame: "rabbit",
+      width: 0.9,
+      height: 0.9,
+      radius: 0.28,
+      maxHp: 4,
+      damage: 0,
+      range: 1.4,
+      cooldownTicks: 20,
+      speed: 1.1,
+      team: "prey",
+      loot: [{ kind: "meat", count: 2 }],
+    },
+    {
+      kind: "hound",
+      frame: "hound",
+      width: 1.1,
+      height: 1.1,
+      radius: 0.34,
+      maxHp: 8,
+      damage: 2,
+      range: 1.7,
+      cooldownTicks: 15,
+      speed: 2.3,
+      team: "hunter",
+      loot: [{ kind: "hide", count: 1 }],
+    },
+  ] as const;
+
+  // ★ 关系表是**宿主**的配置（引擎不认识"猎人"）：玩家与猎狗同队，兔子是猎物。
+  //   于是猎狗会追兔子、玩家能打兔子，而玩家与猎狗之间是友军（互不攻击）。
+  const MOB_FACTIONS = createFactions();
+  MOB_FACTIONS.setStance("hunter", "prey", "foe");
+
+  /**
+   * 挑出生点：**等距抽样** + 避开采摘点。
+   *
+   * ★ 不用随机：同一个种子要跑出同一批位置（回放与截图比对都依赖这条）。
+   * ★ 避开玩家出生点 2 格内：出生就贴脸会让"第一次看见怪物"变成"被怪物淹没"。
+   */
+  function pickMobSpots(grid: NavGrid, hounds: number, rabbits: number, avoidCell: number): MobSpot[] {
+    const walk: number[] = [];
+    const ax = grid.cellX(avoidCell);
+    const az = grid.cellZ(avoidCell);
+    for (let i = 0; i < grid.total; i++) {
+      if (!grid.isWalkableIndex(i)) continue;
+      const cx = grid.cellX(i);
+      const cz = grid.cellZ(i);
+      if (Math.abs(cx - ax) <= 2 && Math.abs(cz - az) <= 2) continue;
+      walk.push(i);
+    }
+    const total = hounds + rabbits;
+    const out: MobSpot[] = [];
+    if (walk.length === 0) return out;
+    const stride = Math.max(1, Math.floor(walk.length / total));
+    for (let k = 0; k < total; k++) {
+      const cell = walk[Math.min(walk.length - 1, k * stride)];
+      if (cell === undefined) continue;
+      out.push({ template: k < hounds ? 1 : 0, cell });
+    }
+    return out;
+  }
+
+  let mobsHandle: MobWorldHandle | null = null;
+
+  // ---------------------------------------------------------------- 表现层（批69）
+  //
+  // ★ 分工：**闪色与挤压是引擎的**（`feedback.ts` 直接改 `Sprite`，判据能读），
+  //   **伤害数字是宿主的**（它是贴在屏幕上的 DOM，引擎不该规定字体与排布）。
+  //   把数字也塞进引擎的后果：引擎要么带一个字体资源，要么得规定字形——
+  //   而"数字在屏幕上往上飘 0.9 秒"是**表现决定**，不是世界规则。
+  const feedbackMod: FeedbackHandle = createFeedbackModule({ id: "render.feedback.demo" });
+
+  /** 受击闪多久（tick，30Hz ⇒ 12 ≈ 0.4s：够看见，又不会糊住下一次攻击）。 */
+  const HIT_FLASH_TICKS = 12;
+  /** 挥击挤压多久（比闪烁短：它是"动作"，不是"状态"）。 */
+  const HIT_PUNCH_TICKS = 6;
+  /** 伤害数字活多久（毫秒：它是**画面**，跟着渲染时钟走，与 tick 无关）。 */
+  const DMG_LIFE_MS = 900;
+  /** 表现层自己吞掉的错误（不打断游戏，但要能在诊断面看到）。 */
+  const feedbackErrors: string[] = [];
+
+  interface DamageNumber {
+    readonly el: HTMLDivElement;
+    readonly x: number;
+    readonly z: number;
+    readonly bornMs: number;
+    readonly lifeMs: number;
+    readonly text: string;
+    readonly dead: boolean;
+  }
+  const damageNumbers: DamageNumber[] = [];
+
+  /**
+   * 数字挂在这一层上（`position: fixed` + `pointer-events: none`）：
+   * ★ 必须是 fixed 而不是 absolute：`getBoundingClientRect()` 给的是**视口**坐标，
+   *   页面一旦滚动（或 HUD 在布局里挪位置），absolute 的数字会整体偏掉。
+   */
+  const fxLayer = document.createElement("div");
+  fxLayer.id = "fx";
+  fxLayer.style.cssText =
+    "position:fixed;left:0;top:0;width:100%;height:100%;pointer-events:none;overflow:hidden;z-index:20;";
+  document.body.appendChild(fxLayer);
+
+  /** 冒一个伤害数字（世界坐标 → 屏幕，跟着相机走）。 */
+  function spawnDamageNumber(x: number, z: number, text: string, dead: boolean): void {
+    const el = document.createElement("div");
+    el.className = "dmg";
+    // ★ 带 `data-dmg`：自检页要能**读到**屏幕上显示的是几，而不是只数元素个数
+    //   （"冒了一个数字"与"冒的是 3 还是 10"是两件事，后者才是玩家看到的）。
+    el.dataset.dmg = text;
+    el.textContent = text;
+    el.style.cssText =
+      "position:absolute;left:0;top:0;font:700 14px/1 ui-monospace,monospace;" +
+      `color:${dead ? "#ffd54a" : "#ff6b5a"};text-shadow:0 1px 2px rgba(0,0,0,.55);` +
+      "pointer-events:none;will-change:transform,opacity;";
+    fxLayer.appendChild(el);
+    damageNumbers.push({ el, x, z, bornMs: performance.now(), lifeMs: DMG_LIFE_MS, text, dead });
+  }
+
+  /**
+   * 每帧把数字挪到对应世界位置（并上浮/淡出/到期删除）。
+   *
+   * ★ 到期必须**真的从 DOM 里删掉**：只把 opacity 设成 0 的话，
+   *   打一场之后页面上会堆着几百个不可见 div，而自检页"数元素"永远数得到 ——
+   *   于是"数字会消失"这条判据永远不会失败。
+   */
+  function updateDamageNumbers(now: number): void {
+    if (damageNumbers.length === 0) return;
+    if (canvas === null) return;
+    const rect = canvas.getBoundingClientRect();
+    const cam = renderMod.camera;
+    for (let i = damageNumbers.length - 1; i >= 0; i--) {
+      const d = damageNumbers[i];
+      if (d === undefined) continue;
+      const t = (now - d.bornMs) / d.lifeMs;
+      if (t >= 1) {
+        d.el.remove();
+        damageNumbers.splice(i, 1);
+        continue;
+      }
+      const c = cam.project(d.x, d.z);
+      const px = rect.left + ((c.x + 1) / 2) * rect.width;
+      const py = rect.top + ((1 - c.y) / 2) * rect.height - t * 28;
+      const op = t < 0.7 ? 1 : 1 - (t - 0.7) / 0.3;
+      d.el.style.transform = `translate(${px.toFixed(1)}px, ${py.toFixed(1)}px)`;
+      d.el.style.opacity = op.toFixed(2);
+    }
+  }
+
+  /**
+   * 一次命中的全部表现：数字 + 受击闪 + 挥击挤压。
+   *
+   * ★ 位置在**这里**取（而不是在回调里取）：`onKill` 之后目标可能已经被销毁，
+   *   而回调顺序保证 `onHit` 在前 —— 但这个函数也会被 `attackNearest()` 直接调用，
+   *   两条路径走同一段代码才不会"玩家打的看得见、怪打玩家的看不见"。
+   */
+  function showHit(info: { attackerId: number; targetId: number; applied: number; dead: boolean }): void {
+    // ★ 记仇放在这里，而不是放在 `attackNearest()` 里：这是**所有**命中都要经过的
+    //   唯一一段代码（玩家手动打 / 生物按 decide 打）。放在任一边都会漏掉另一边，
+    //   而漏掉的那一边恰好是玩家最常走的那条。
+    worldState.mobs?.noteHit({
+      attackerId: info.attackerId,
+      targetId: info.targetId,
+      applied: info.applied,
+      tick: hudTick,
+    });
+    const target = scene.find(info.targetId);
+    if (target !== undefined) {
+      const p = target.worldPosition;
+      spawnDamageNumber(p.x, p.y, `-${String(info.applied)}`, info.dead);
+      const f = flashNode(scene, info.targetId, HIT_FLASH_TICKS);
+      if (!f.ok) feedbackErrors.push(f.error.code);
+    }
+    const pn = punchNode(scene, info.attackerId, HIT_PUNCH_TICKS);
+    if (!pn.ok) feedbackErrors.push(pn.error.code);
+  }
+
+  /**
+   * 生物模块：`deps` 上 `world.worldgen`（它要用导航网格，而网格在那边建）。
+   *
+   * ★ 与 `tasksMod` 同一个形状：句柄在 init 里拿到，`update` 由宿主在 `onStep` 里调。
+   *   不能让模块自己订阅调度器 —— 那样"生物先动还是玩家先动"就成了注册顺序的隐式约定。
+   */
+  const mobsMod: IModule = {
+    id: "world.mobs",
+    deps: [worldgenMod.id],
+    init(ctx: ModuleContext): Result<void, EngineError> {
+      const g = worldState.nav;
+      const player = worldState.player;
+      if (g === null || player === null) {
+        return err(engineError("MOBS.NO_WORLD", "导航网格或玩家还没建好，生物无处落脚"));
+      }
+      const spots = pickMobSpots(g, 3, 10, player.cell);
+      if (spots.length === 0) {
+        return err(engineError("MOBS.NO_SPOT", "世界里找不到可走的出生点（地形全是水/崖？）"));
+      }
+      const h = createMobWorldModule({
+        grid: g,
+        factions: MOB_FACTIONS,
+        templates: MOB_TEMPLATES,
+        spots,
+        range: 14,
+        seed: WORLD_SEED,
+        wanderEvery: 18,
+        // 记仇：5 秒记忆、追 16 格（跑出 16 格才能甩掉）。这两个值是**玩法参数**，
+        // 所以显式写在这里，而不是靠库里的默认值 —— 调平衡的人该在这里调。
+        threatDecayTicks: 150,
+        aggroCells: 16,
+        // 生物打人：与玩家打怪走**同一个** showHit（否则会出现"我打的看得见、
+        // 我挨打看不见"，而两边的代码都对）
+        onHit: (info) => showHit(info),
+      });
+      const r = h.init(ctx) as Result<void, EngineError> | undefined;
+      if (r !== undefined && !r.ok) return r;
+      mobsHandle = h;
+      worldState.mobs = h;
+      return ok(undefined);
+    },
+    describe(): string {
+      const m = worldState.mobs;
+      if (m === null) return "生物：未启动";
+      const st = m.stats;
+      return `生物：${String(st.mobs)} 只（追 ${String(st.hunting)} / 游 ${String(st.wandering)}），击杀 ${String(st.kills)}`;
+    },
+  };
+
+  const survivalMod = createSurvivalModule({
+    id: "game.survival.demo",
+    // 60 tick（2 秒）掉 1 点 ⇒ 满值 100 点能撑 200 秒。演示里"看得见它在掉"，
+    // 但不至于让人一直在吃东西。
+    decayEveryTicks: 60,
+    // 饿着之后每 30 tick（1 秒）掉 1 血：20 血能撑 20 秒才死 —— 够人反应。
+    starveEveryTicks: 30,
+    starveDamage: 1,
+  });
+
+  /**
+   * 演示用的食物表（批67）。
+   *
+   * ★ 浆果能吃：**采集链第一次接上了用途**（原来采了只能占格子）。
+   * ★ 肉更好，且顺带回 5 血 —— 于是"打猎"比"采浆果"划算，"追→打→拾→吃"闭环成立。
+   * ★ 皮/木头/石头/燧石/草丛/芦苇都**不在表里**：不能吃的东西不该有一条"营养值 0"的
+   *   记录（那会让 `eat` 成功、然后什么也没发生）。
+   * ★ 归一化失败在加载期就抛：配表写错不该等到"玩家按 E 没反应"才发现。
+   */
+  const FOOD_TABLE_R = normalizeFoodTable({
+    berry: { nutrition: 15 },
+    meat: { nutrition: 25, health: 5 },
+    // 批68：熟肉是"制作"的产物 —— 比生肉更顶饱、回血更多。
+    // ★ 这条让「采草 + 打猎 → 做 → 吃」成为一个**有比价关系**的循环：
+    //   生肉直接吃是 25/5，花一份草做成熟肉是 40/10。
+    cooked_meat: { nutrition: 40, health: 10 },
+  });
+  if (!FOOD_TABLE_R.ok) throw new Error(`食物表不合法：${FOOD_TABLE_R.error.message}`);
+  const FOOD_TABLE = FOOD_TABLE_R.value;
+
+  /**
+   * 演示用的配方表（批68）。
+   *
+   * ★ **表序即优先级**：`C` 键做"第一条现在就能做的"。所以把贵的放前面，
+   *   这样材料够的时候优先做更值钱的东西，不够才往下退。
+   * ★ `rope` 目前没有用途（还没有"用绳子做别的"的配方），它的存在是为了让
+   *   判据与变异有一个**非食物**的产物 —— 否则"制作"会被误认为"烹饪"。
+   */
+  const RECIPES_R = normalizeRecipes([
+    { id: "cooked_meat", name: "熟肉", inputs: [{ kind: "meat", count: 1 }, { kind: "grass_tuft", count: 1 }], output: { kind: "cooked_meat", count: 1 } },
+    { id: "rope", name: "绳子", inputs: [{ kind: "reed", count: 2 }], output: { kind: "rope", count: 1 } },
+  ]);
+  if (!RECIPES_R.ok) throw new Error(`配方表不合法：${RECIPES_R.error.message}`);
+  const RECIPES = RECIPES_R.value;
+
   const appR = await bootGameApp({
     platformId: "web",
     interactive: true,
     registry,
-    modules: [worldMod, renderMod, scriptMod],
+    modules: [worldMod, renderMod, scriptMod, worldgenMod, tasksMod, mobsMod, survivalMod, feedbackMod, controllerMod],
     seed: 20261022,
     fixedDt: 1 / 30,
     tickSource: new RafTickSource(() => performance.now()),
@@ -374,7 +827,6 @@ export async function main(): Promise<void> {
   }
   const app = appR.value;
   appRef = app;
-  PlayerController.pollInput = () => app.platform.input.poll();
 
   // ---- 脚本：加载演示模块
   // ★ 只 loadModule 是**不会执行**的：ScriptModule 遍历的是 `game.script` 组件，
@@ -389,36 +841,37 @@ export async function main(): Promise<void> {
   }
 
   // ---- 组件注册（新增组件 = 一次 register，不改内核）
+  // ★ world.terrain / world.site / world.resource / world.player / render.sprite
+  //   已经由 `world.worldgen` 模块注册过了（它必须早于装配）；这里只补演示用的两个。
   const reg: ComponentRegistry = app.components;
-  reg.register(new Sprite().schema, () => new Sprite());
-  reg.register({ type: "game.player", fields: { speed: FieldType.Float } }, () => new PlayerController());
+  registerControllerComponent(reg);
   reg.register({ type: "game.workable", fields: { workleft: FieldType.Int } }, () => new Workable());
 
-  // ---- 摆世界
+  // ---- 在世界之上摆装饰
   const scene = app.scene;
   const rnd = app.random;
+  const worldPlan = worldState.plan;
+  const W = worldPlan?.width ?? WORLD_W;
+  const H = worldPlan?.height ?? WORLD_H;
 
-  // 地面（视觉底，不参与物理）
-  for (let gz = -8; gz <= 8; gz++) {
-    for (let gx = -14; gx <= 14; gx++) {
-      const r = scene.spawnAt(`ground_${gx}_${gz}`, gx * 2, gz * 2);
-      if (!r.ok) continue;
-      const s = makeSprite("ground", 2.05, 2.05);
-      s.pivotY = 0.5;
-      s.r = 0.62 + rnd.range(0, 0.06);
-      s.g = 0.72 + rnd.range(0, 0.06);
-      s.b = 0.66;
-      s.order = -100;
-      scene.attach(r.value.id, () => s);
+  /** 抽一个可通行格的中心点（抽不到就退回地图中心，别把整段摆件卡死）。 */
+  function walkableSpot(margin = 1): { x: number; z: number } {
+    for (let tries = 0; tries < 64 && worldPlan !== null; tries++) {
+      const cx = Math.floor(rnd.range(margin, W - margin));
+      const cz = Math.floor(rnd.range(margin, H - margin));
+      const kind = worldPlan.kinds[cz * W + cx];
+      if (kind === undefined) continue;
+      if (kind === "ocean" || kind === "cliff") continue;
+      return { x: cx + 0.5, z: cz + 0.5 };
     }
+    return { x: W / 2, z: H / 2 };
   }
 
   const obstacleIds: number[] = [];
   for (let i = 0; i < 70; i++) {
     const isTree = i % 3 !== 0;
-    const x = rnd.range(-26, 26);
-    const z = rnd.range(-16, 16);
-    const r = scene.spawnAt(isTree ? `tree${i}` : `rock${i}`, x, z);
+    const spot = walkableSpot();
+    const r = scene.spawnAt(isTree ? `tree${i}` : `rock${i}`, spot.x, spot.z);
     if (!r.ok) continue;
     const node = r.value;
     const s = makeSprite(isTree ? "tree" : "rock", isTree ? 2 : 1.6, isTree ? 3 : 1.4);
@@ -426,36 +879,94 @@ export async function main(): Promise<void> {
     scene.attach(node.id, () => s);
     if (isTree) scene.attach(node.id, () => new Workable());
     obstacleIds.push(node.id);
-    physics.add({ nodeId: node.id, radius: isTree ? 0.55 : 0.7, isStatic: true });
+    // ★ 物理体要跟着节点**同批**建：`spawn` 只是入队，节点在 `flush()` 之前不在 `byId` 里，
+    //   而 `SpatialHashWorld.add` 会立刻读位置（读不到就抛"没有位置"）。
+    //   用 `scene.enqueue` 把它排在同一批里，顺序由投递序保证 —— 这时节点已经挂上了。
+    scene.enqueue(() => physics.add({ nodeId: node.id, radius: isTree ? 0.55 : 0.7, isStatic: true }), "physics-add");
   }
 
+  // 14 个浆果：Lua 演示脚本按名字找它们（`berry0..berry13`），所以名字必须稳定
   for (let i = 0; i < 14; i++) {
-    const r = scene.spawnAt(`berry${i}`, rnd.range(-24, 24), rnd.range(-14, 14));
+    const spot = walkableSpot();
+    const r = scene.spawnAt(`berry${i}`, spot.x, spot.z);
     if (!r.ok) continue;
     const s = makeSprite("berry", 0.8, 0.8);
     s.pivotY = 0;
     scene.attach(r.value.id, () => s);
   }
 
-  const hero = scene.spawnAt("hero", 0, 0);
-  if (!hero.ok) throw new Error(hero.error.message);
-  heroId = hero.value.id;
-  const heroSprite = makeSprite("player", 1.1, 1.7);
-  heroSprite.pivotY = 0;
-  scene.attach(heroId, () => heroSprite);
+  // 几张立牌，用的就是那张 **JPEG** 帧。
+  // ★ 存在的意义是让"JPEG 支持"在画面上可见：如果解码器只对 PNG 有效，
+  //   这四块牌子会是空的/花屏 —— 而只跑判据是看不到这一点的。
+  for (let i = 0; i < 4; i++) {
+    const cellX = 6 + i * 5;
+    const cx = Math.min(W - 2, cellX);
+    const r = scene.spawnAt(`poster${i}`, cx + 0.5, 3.5);
+    if (!r.ok) continue;
+    const s = makeSprite("photo", 1.6, 1.6);
+    s.pivotY = 0;
+    s.order = -50;
+    scene.attach(r.value.id, () => s);
+    obstacleIds.push(r.value.id);
+    scene.enqueue(() => physics.add({ nodeId: r.value.id, radius: 0.6, isStatic: true }), "physics-add");
+  }
+
+  // ---- 玩家：就是世界生成里落地的那个（不再是另造一个 hero）
+  const sp = worldState.player;
+  if (sp === null) throw new Error("世界没有给出出生点（worldgen 模块没跑成）");
+  heroId = sp.nodeId;
+  const heroNode = scene.find(heroId);
+  if (heroNode === undefined) throw new Error(`出生节点 ${heroId} 不在场景里`);
+  // 控制、脚本、物理都挂在**同一个**节点上 —— 换一个人就等于换一个坐标基准
   scene.attach(heroId, () => new PlayerController());
-  // 挂脚本组件（ScriptModule 只驱动挂了 `game.script` 的节点）
+  // 批66：玩家也要能打、能被打。阵营写 "hunter" —— 与猎狗同队（互不攻击），
+  // 兔子是 "prey"（敌对）⇒ 空格键打得到兔子，打不到猎狗。
+  scene.attach(heroId, () => {
+    const h = new Health();
+    h.hp = 20;
+    h.maxHp = 20;
+    return h;
+  });
+  scene.attach(heroId, () => {
+    const a = new Attacker();
+    a.damage = 3;
+    a.range = 1.8;
+    a.cooldownTicks = 12;
+    return a;
+  });
+  scene.attach(heroId, () => {
+    const f = new FactionMember();
+    f.team = "hunter";
+    return f;
+  });
+  // 批67：饱食度。**满值起步**（默认值站在安全的一侧）：一进游戏就在饿死倒计时里
+  // 只会让人以为"这游戏有 bug"。
+  scene.attach(heroId, () => {
+    const g = new Hunger();
+    g.max = 100;
+    g.value = 100;
+    return g;
+  });
   scene.attach(heroId, () => {
     const c = new ScriptComponent();
     c.module = "demo";
     c.entry = "onUpdate";
     return c;
   });
-  physics.add({ nodeId: heroId, radius: 0.45, isStatic: false });
+  scene.enqueue(() => physics.add({ nodeId: heroId, radius: 0.45, isStatic: false }), "physics-add");
   scene.flush();
+  // 背包：8 堆（`game.inventory` 挂在玩家身上，物品是**独立节点** —— 见 inventory.ts 的理由）
+  const bag = makeInventory(scene, heroId, 8);
+  if (!bag.ok) toast(`背包建不起来：${bag.error.code}`);
 
-  // ---- 存档（localStorage）
-  const SAVE_KEY = "engine08.save.v1";
+  // ---- 存档
+  // ★ 不再直接 `localStorage.setItem(key, json)`：走 `StorageFileSystem`，
+  //   于是"存档写不进去/读不出来"有了错误码（`FS.NO_SPACE` / `FS.NOT_FOUND` / `FS.IO`），
+  //   和 Node 侧同一套。旁路 localStorage 的后果是：浏览器遇到配额满只会弹一个
+  //   冒泡的 `QuotaExceededError`，而宿主的 toast 只显示"已存档"。
+  //   `saves` 用 `engine08.fs.` 前缀，避免与旧版本那个裸 key 混在一起。
+  const saves = new StorageFileSystem({ storage: window.localStorage, prefix: "engine08.fs." });
+  const SAVE_PATH = "/saves/slot1.json";
   let toastTimer = 0;
   function toast(msg: string): void {
     toastEl!.textContent = msg;
@@ -466,27 +977,169 @@ export async function main(): Promise<void> {
     }, 2000);
   }
 
-  function doSave(): void {
-    const json = sceneToJson(saveScene(scene));
-    localStorage.setItem(SAVE_KEY, json);
-    toast(`已存档：${json.length} 字节 · hash ${stableHash(json)}`);
+  /**
+   * 存档。**返回 Promise**：存储是异步接口，判据必须能等到写完。
+   * ★ 这一点以前是错的：`doSave()` 同步返回，自检页 `e.save(); e.load();` 之后立刻
+   *   数节点 —— 现在改成异步以后，那个断言会"必然通过"（什么都没发生）。
+   *   所以诊断面把 Promise 交出去，断言也改成 `await`。
+   */
+  /**
+   * 把"这一 tick 刚按下的动作"变成游戏行为。
+   *
+   * ★ 全部走 `InputMap.justPressed`：动作名在映射表里，改键不需要动这里一行。
+   * ★ 动作与键位解耦之后，"手柄的 A 键能不能采集"就不再是一个需要单独写的分支。
+   */
+  /**
+   * 打最近的一个**敌对**目标（空格键）。返回给 toast 的一句话。
+   *
+   * ★ 用 `componentsOf(HEALTH_TYPE)` 找候选而不是"找最近的一切"：
+   *   能被打的东西一定有血量，而树/石头没有 —— 于是"站在树边上按空格"不会报
+   *   `NO_HEALTH`，而是老老实实说"附近没有可打的"。
+   * ★ 友军过滤走 `MOB_FACTIONS`（与生物同一个关系表）：只在攻击入口处判一次，
+   *   而不是靠"距离太远所以打不到"去蒙。
+   */
+  function attackNearest(): string {
+    if (heroId < 0) return "还没有玩家";
+    const hero = scene.find(heroId);
+    if (hero === undefined) return "玩家不在场景里";
+    if (hero.get(ATTACKER_TYPE) === undefined) return `玩家没有 ${ATTACKER_TYPE}`;
+    const me = hero.worldPosition;
+    const myTeam = teamOf(scene, heroId).team;
+    let bestId = -1;
+    let bestD2 = Number.POSITIVE_INFINITY;
+    for (const h of scene.componentsOf<Health>(HEALTH_TYPE)) {
+      const n = h.node;
+      if (n === null || n.id === heroId || !n.activeInHierarchy) continue;
+      if (MOB_FACTIONS.stanceOf(myTeam, teamOf(scene, n.id).team) === "ally") continue;
+      const p = n.worldPosition;
+      const dx = p.x - me.x;
+      const dz = p.y - me.y;
+      const d2 = dx * dx + dz * dz;
+      if (d2 < bestD2) {
+        bestD2 = d2;
+        bestId = n.id;
+      }
+    }
+    if (bestId < 0) return "附近没有可打的";
+    const r = attack(scene, heroId, bestId, { tick: hudTick, factions: MOB_FACTIONS });
+    if (!r.ok) return `${r.error.code}：${r.error.message}`;
+    const rep = r.value.report;
+    // ★ 玩家这条路径**不经过** `combat-module`（它是"按一下打一下"，
+    //   没有每 tick 的 decide），所以表现要在这里补一次 —— 且必须是**同一个** showHit：
+    //   分头写两份的那天，就是"怪打我冒数字、我打怪不冒"的那天。
+    showHit({ attackerId: heroId, targetId: bestId, applied: rep.applied, dead: rep.dead });
+    return rep.dead ? `击杀！` : `命中 ${String(rep.applied)}，剩 ${String(rep.after)}`;
   }
 
-  function doLoad(): void {
-    const json = localStorage.getItem(SAVE_KEY);
-    if (json === null) {
-      toast("还没有存档（先按 F5）");
-      return;
+  /**
+   * 吃一口（批67）：从背包里挑**最有营养**的那一种吃。
+   *
+   * ★ 为什么自动挑而不是让玩家选：能吃的东西通常只有一两样，"先选再吃"会把
+   *   一次按键变成三步操作。挑的规则是确定的（营养降序 → kind 升序），
+   *   所以同一个背包每次按 E 吃到的东西是一样的。
+   * ★ 背包里一样能吃的都没有 ⇒ 返回一句能看懂的话，而不是静默什么都不做。
+   */
+  function eatSomething(): string {
+    if (heroId < 0) return "还没有玩家";
+    const held = stacksOf(scene, heroId)
+      .filter((s) => FOOD_TABLE[s.kind] !== undefined && s.count > 0)
+      .sort((a, b) => {
+        const na = FOOD_TABLE[a.kind]?.nutrition ?? 0;
+        const nb = FOOD_TABLE[b.kind]?.nutrition ?? 0;
+        if (na !== nb) return nb - na; // 营养高的先吃
+        return a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : 0; // 同营养时按 kind 定序（可回放）
+      });
+    const best = held[0];
+    if (best === undefined) {
+      return `背包里没有能吃的东西（能吃的：${Object.keys(FOOD_TABLE).sort().join(" / ")}）`;
     }
+    const r = eatKind(scene, heroId, best.kind, FOOD_TABLE);
+    if (!r.ok) return `${r.error.code}：${r.error.message}`;
+    const rep = r.value;
+    return `吃了「${rep.kind}」：饱食 ${String(rep.hungerBefore)}→${String(rep.hungerAfter)}` +
+      (rep.healed > 0 ? `，回血 ${String(rep.healed)}` : "");
+  }
+
+  /**
+   * 制作一件（批68）：做**表里第一条现在就能做的**。
+   *
+   * ★ 为什么不给"选配方"的面板：现在只有两条配方，而"能否做"完全由背包决定。
+   *   一条按键 + 一句提示足够了；等配方多到需要分类时再做面板（那时才有人知道该分几类）。
+   * ★ 一条都做不了的时候，报**最接近的那一条**缺什么 —— 只说"材料不足"等于让人
+   *   挨个去数背包，而"缺什么、缺几个"是已知的。
+   */
+  function craftSomething(): string {
+    if (heroId < 0) return "还没有玩家";
+    const pick = firstCraftable(scene, heroId, RECIPES);
+    if (pick !== undefined) {
+      const r = craftRecipe(scene, heroId, pick);
+      if (!r.ok) return `${r.error.code}：${r.error.message}`;
+      return `做好了「${pick.name}」：${pick.inputs.map((c) => `${ITEM_LABEL[c.kind] ?? c.kind}×${String(c.count)}`).join(" + ")}` +
+        ` → ${ITEM_LABEL[r.value.output.kind] ?? r.value.output.kind}×${String(r.value.added)}`;
+    }
+    // 一条都做不了：报"最接近"的那一条（缺料项最少）
+    let best: { id: string; name: string; missing: ReturnType<typeof missingFor> } | null = null;
+    for (const r of RECIPES) {
+      const missing = missingFor(scene, heroId, r);
+      if (missing.length === 0) continue;
+      if (best === null || missing.length < best.missing.length) best = { id: r.id, name: r.name, missing };
+    }
+    if (best === null) return "没有可做的配方";
+    const desc = best.missing.map((m) => `${ITEM_LABEL[m.kind] ?? m.kind} ${String(m.have)}/${String(m.count)}`).join("、");
+    return `${best.id} 缺：${desc}`;
+  }
+
+  function dispatchActions(): void {
+    const snap = controllerMod.snapshot;
+    const map = controllerMod.map;
+    if (map.justPressed(snap, "save")) void doSave();
+    else if (map.justPressed(snap, "load")) void doLoad();
+    else if (map.justPressed(snap, "restart")) location.reload();
+    else if (map.justPressed(snap, "bag")) {
+      bagOpen = !bagOpen;
+      if (bagOpen) bagSel = 0;
+      renderBagPanel(true);
+      toast(bagOpen ? "背包已打开" : "背包已关上");
+    } else if (map.justPressed(snap, "drop")) {
+      const d = dropSelected(shiftDown);
+      toast(d.ok ? d.value : `${d.error.code}：${d.error.message}`);
+    } else if (map.justPressed(snap, "attack")) toast(attackNearest());
+    else if (map.justPressed(snap, "eat")) toast(eatSomething());
+    else if (map.justPressed(snap, "craft")) toast(craftSomething());
+    else if (map.justPressed(snap, "chop")) chopNearest();
+    else if (map.justPressed(snap, "harvest")) {
+      const h = pickupNearest();
+      toast(h.ok ? h.value : `${h.error.code}：${h.error.message}`);
+    }
+  }
+
+  async function doSave(): Promise<Result<void, EngineError>> {
+    const json = sceneToJson(saveScene(scene));
+    const w = await saves.writeText(SAVE_PATH, json);
+    // ★ 失败必须说出来：以前无论写没写成都会提示"已存档"
+    toast(w.ok ? `已存档：${json.length} 字节 · hash ${stableHash(json)}` : `存档失败：${w.error.code} ${w.error.message}`);
+    return w;
+  }
+
+  async function doLoad(): Promise<Result<number, EngineError>> {
+    const res = await saves.readText(SAVE_PATH);
+    if (!res.ok) {
+      toast(res.error.code === "FS.NOT_FOUND" ? "还没有存档（先按 F5）" : `读档失败：${res.error.code}`);
+      return res;
+    }
+    return applyLoad(res.value);
+  }
+
+  function applyLoad(json: string): Result<number, EngineError> {
     const snap = sceneFromJson(json);
     if (!snap.ok) {
       toast("存档损坏：" + snap.error.message);
-      return;
+      return snap;
     }
     const r = loadScene(scene, snap.value, reg);
     if (!r.ok) {
       toast("读档失败：" + r.error.message);
-      return;
+      return r;
     }
     // 物理登记表重建（节点 id 不变，但 body 已被 clear）
     physics.clear();
@@ -496,6 +1149,49 @@ export async function main(): Promise<void> {
     if (scene.find(heroId) !== undefined) physics.add({ nodeId: heroId, radius: 0.45, isStatic: false });
     const extra = r.value.skipped.length > 0 ? `，跳过 ${r.value.skipped.length} 项` : "";
     toast(`已读档：${r.value.made} 个节点${extra}`);
+    return ok(r.value.made);
+  }
+
+  /**
+   * **半径拾取**：把脚下 `range` 内的世界资源按"最近优先"收进背包。
+   *
+   * ★ 以前这里只摘**一格**、而且**不进背包**（直接调 `harvestAt`）——
+   *   于是"采了 6 次"与"背包里有什么"是两个互不相干的数字。现在走 `pickupNearby`：
+   *   顺序是"先进包、后摘"（`harvestInto` 保证），背包满了就停，并且**说出来**。
+   * ★ 老演示区的树走的是 `Workable` 那条路（砍三下倒，`chopNearest`），两条路并存是
+   *   故意的：一条演示"世界自己的资源"，一条演示"宿主自定义的可交互物"。
+   */
+  function pickupNearest(range = 3.2): Result<string, EngineError> {
+    const heroNode2 = scene.find(heroId);
+    if (heroNode2 === undefined) return err(engineError("HARVEST.NO_PLAYER", "玩家不在场景里"));
+    const tasks = worldState.tasks;
+    if (tasks === null) return err(engineError("HARVEST.NO_TASKS", "世界任务模块没起来"));
+    const hp = heroNode2.worldPosition;
+  const r = pickupNearby(scene, hp.x, hp.y, range, heroId, {
+    max: 4,
+    // ★ 产出按种类走（T355 遗留的"amount 固定 1"）：芦苇成片长，一次攥一把；
+    //   石头燧石一块是一块。**这是产品决定，留在宿主** —— 引擎只认"给几个"。
+    amount: (kind) => RESOURCE_YIELD[kind] ?? 1,
+    onRelease: (c) => tasks.releaseCell(c),
+  });
+    if (!r.ok) return r;
+    const out = r.value;
+    if (out.inRange === 0) {
+      return err(engineError("HARVEST.FAR", "附近没有世界资源（资源会自己长出来，等几秒）"));
+    }
+    if (out.picked.length === 0) {
+      // 找到了东西却一个都没拿到 ⇒ 一定是失败那次（背包满最常见）。必须点名，否则玩家只看到"没反应"
+      const f = out.failed;
+      return err(
+        engineError(
+          f?.code ?? "PICKUP.NONE",
+          `拿到了 0 个（半径内 ${out.inRange} 个）：${f === null ? "原因不明" : f.message}`,
+        ),
+      );
+    }
+    const got = out.picked.map((p) => `${ITEM_LABEL[p.kind] ?? p.kind}×${countItem(scene, heroId, p.kind)}`);
+    const tail = out.failed === null ? "" : `；背包满了，还剩 ${out.remaining} 个没拿`;
+    return ok(`拾取：${got.join(" ")}${tail}`);
   }
 
   function chopNearest(): void {
@@ -519,6 +1215,178 @@ export async function main(): Promise<void> {
     toast("附近没有可砍的东西");
   }
 
+  /**
+   * 操作提示**从映射表生成**（不是手写一段话）。
+   * ★ 手写的提示与键位是两份数据，改键之后必然分叉 —— 而"提示里写着 G、实际要按 L"
+   *   这种错，玩家会认为是游戏坏了。这里取每个动作的**第一个键**（键盘优先）。
+   */
+  function helpText(): string {
+    const m = controllerMod.map;
+    const k = (a: string): string => (m.keysOf(a)[0] ?? "?").replace(/^Key/, "");
+    // ★ 每一个**玩家会按**的动作都必须在这句里（它是从映射表生成的，所以改键会自动跟着变；
+    //   但**新增一个动作**不会自动出现 —— 漏了就等于这个功能对玩家不存在）。
+    //   批66 加了 attack、批67 加了 eat、批68 加了 craft，三处都补在这里。
+    return (
+      `${k("move_forward")}${k("move_left")}${k("move_back")}${k("move_right")} 移动 · ` +
+      `${k("harvest")} 拾取 · ${k("chop")} 砍树 · ${k("attack")} 打 · ${k("eat")} 吃 · ${k("craft")} 制作 · ` +
+      `${k("bag")} 背包 · ${k("drop")} 丢弃 · ` +
+      `${k("save")} 存档 · ${k("load")} 读档 · ${k("restart")} 重载`
+    );
+  }
+
+  /** 物品种类 → 显示名。**呈现决定**，所以留在宿主（引擎只认 `kind` 字符串）。 */
+  const ITEM_LABEL: Record<string, string> = {
+    tree: "木头",
+    rock: "石头",
+    berry: "浆果",
+    flint: "燧石",
+    grass_tuft: "草",
+    reed: "芦苇",
+    // 批65 起战利品会进包；批67 起肉还能吃 —— 没有标签的话 HUD 里显示的是英文 kind
+    meat: "肉",
+    hide: "皮",
+    cooked_meat: "熟肉",
+    rope: "绳子",
+  };
+
+  /**
+   * 每采集一个资源点给几个物品。**产品决定，留在宿主** —— 引擎的 `pickupNearby`
+   * 接受 `amount: (kind) => number`，为的就是让这张表不需要改引擎。
+   * ★ 这张表同时是"堆叠上限"的存在意义：单次产出 > 1 时，`maxStack`（每堆 40）
+   *   才会真的被撞到（采 25 次芦苇 = 50 个 ⇒ 自动开第二堆）。
+   */
+  const RESOURCE_YIELD: Record<string, number> = {
+    berry: 1,
+    reed: 2,
+    tree: 1,
+    rock: 1,
+    flint: 1,
+    grass_tuft: 1,
+  };
+
+  /**
+   * 背包一行文本。**空背包要显示"空"，不是空白** ——
+   * 空字符串会让人分不清"背包是空的"与"背包功能没接上"。
+   */
+  function bagText(): string {
+    if (heroId < 0) return "无主";
+    const stacks = stacksOf(scene, heroId);
+    if (stacks.length === 0) return "空";
+    return stacks
+      .map((s) => `${ITEM_LABEL[s.kind] ?? s.kind}×${s.count}`)
+      .join(" ");
+  }
+
+  /**
+   * HUD 里的饱食度（批67）。
+   *
+   * ★ 饿着的时候要**看起来不一样**（`饿！`）：一个"0/100"和"100/100"在同一条
+   *   长文本里长得一样，而前者意味着每秒在掉血。
+   */
+  function hungerText(): string {
+    if (heroId < 0) return "无主";
+    const h = scene.find(heroId)?.get<Hunger>(HUNGER_TYPE);
+    if (h === undefined) return "无";
+    return `${String(h.value)}/${String(h.max)}${h.value <= 0 ? " 饿！" : ""}`;
+  }
+
+
+  // ---- 背包面板（T355 遗留：从"一行文本"到"能选中、能丢"）
+  let bagOpen = false;
+  /** 选中的堆叠下标（关闭时归 0；越界时按最后一堆算，见 dropSelected）。 */
+  let bagSel = 0;
+  /** Shift 状态：DOM 是唯一事实源（InputSnapshot 不带修饰键），"丢整堆"要用。 */
+  let shiftDown = false;
+  /** 面板内容的签名：内容没变就不重建 DOM（60fps 重建面板是白烧 CPU）。 */
+  let bagSig = "";
+
+  function keyLabel(a: string): string {
+    return (controllerMod.map.keysOf(a)[0] ?? "?").replace(/^Key/, "");
+  }
+
+  /**
+   * 重建面板。**内容没变就跳过**（签名比对）—— 面板开着的时候每帧都会走到这儿，
+   * 无脑 `innerHTML = ""` 会把点击选中立刻冲掉（鼠标点下去的那一帧正好在重建）。
+   */
+  function renderBagPanel(force = false): void {
+    const el = document.getElementById("bag");
+    const rowsEl = document.getElementById("bag-rows");
+    const footEl = document.getElementById("bag-foot");
+    if (el === null || rowsEl === null || footEl === null) return;
+    el.hidden = !bagOpen;
+    if (!bagOpen) {
+      bagSig = "";
+      return;
+    }
+    const stacks = heroId < 0 ? [] : stacksOf(scene, heroId);
+    const sel = Math.min(Math.max(0, bagSel), Math.max(0, stacks.length - 1));
+    const sig = stacks.map((s) => `${s.kind}:${s.count}`).join("|") + `#${sel}`;
+    if (!force && sig === bagSig) return;
+    bagSig = sig;
+    rowsEl.textContent = "";
+    if (stacks.length === 0) {
+      const d = document.createElement("div");
+      d.className = "empty";
+      d.textContent = "（空的）按 G 拾取点什么";
+      rowsEl.appendChild(d);
+    } else {
+      stacks.forEach((s, i) => {
+        const d = document.createElement("div");
+        d.className = i === sel ? "row-item sel" : "row-item";
+        const k = document.createElement("span");
+        k.className = "k";
+        k.textContent = `${String(i + 1)}. ${ITEM_LABEL[s.kind] ?? s.kind}`;
+        const n = document.createElement("span");
+        n.className = "n";
+        n.textContent = `×${String(s.count)}`;
+        d.appendChild(k);
+        d.appendChild(n);
+        // 点选：DOM 事件直接改选中（不需要经过 InputMap —— 那是键位的事）
+        d.addEventListener("click", () => {
+          bagSel = i;
+          renderBagPanel(true);
+        });
+        rowsEl.appendChild(d);
+      });
+    }
+    footEl.textContent =
+      `点击选中 · ${keyLabel("drop")} 丢 1 个 · Shift+${keyLabel("drop")} 丢整堆 · ${keyLabel("bag")} 关闭`;
+  }
+
+  /**
+   * 丢弃选中堆（`whole` = 整堆，否则 1 个）到脚下的世界里。
+   *
+   * ★ 顺序由 `dropIntoWorld` 保证：先找格放下、再从包里出 —— 失败时物品还在包里。
+   * ★ "面板没开"与"背包是空的"是**两种**提示：前者是操作顺序，后者是世界状态，
+   *   合成一条"什么都没发生"会让玩家以为按键坏了。
+   */
+  function dropSelected(whole: boolean): Result<string, EngineError> {
+    if (heroId < 0) return err(engineError("BAG.NO_OWNER", "没有玩家"));
+    if (!bagOpen) return err(engineError("BAG.CLOSED", `先按 ${keyLabel("bag")} 打开背包`));
+    const stacks = stacksOf(scene, heroId);
+    if (stacks.length === 0) return err(engineError("BAG.EMPTY", "背包是空的，没什么可丢"));
+    const plan = worldState.plan;
+    const tasks = worldState.tasks;
+    if (plan === null || tasks === null) return err(engineError("BAG.NO_WORLD", "世界没起来，没地方丢"));
+    const heroNode3 = scene.find(heroId);
+    if (heroNode3 === undefined) return err(engineError("HARVEST.NO_PLAYER", "玩家不在场景里"));
+    const sel = Math.min(Math.max(0, bagSel), stacks.length - 1);
+    const s = stacks[sel]!;
+    const n = whole ? s.count : 1;
+    const hp = heroNode3.worldPosition;
+    const r = dropIntoWorld(scene, heroId, s.kind, n, {
+      x: hp.x,
+      z: hp.y,
+      plan,
+      tasks,
+      bornTick: app.snapshot().tick,
+    });
+    if (!r.ok) return r;
+    renderBagPanel(true);
+    const label = ITEM_LABEL[s.kind] ?? s.kind;
+    return ok(`丢下 ${label}×${String(n)}（散落在 ${String(r.value.cells.length)} 格，按 G 还能捡回来）`);
+  }
+
   // ---- HUD（每帧一次；字段都是"可解释的事实"，不是装饰）
   let fps = 0;
   let frames = 0;
@@ -531,33 +1399,53 @@ export async function main(): Promise<void> {
       frames = 0;
       lastFpsAt = now;
     }
+    // 表现层：伤害数字跟着相机走（每帧一次 —— 它没有逻辑，只有位置）
+    updateDamageNumbers(now);
     const lf = renderMod.lastFrame;
     const st = app.snapshot();
     const sc = scriptMod.runtime?.stats();
+    const ws = worldState.tasks?.stats();
+    const wv = worldState.visual;
     const scriptTxt =
       sc === undefined ? "script off" : `script ${sc.calls}call/${sc.errors}err${sc.timeouts > 0 ? `/${sc.timeouts}to` : ""}`;
     hud!.textContent =
       `fps ${fps.toFixed(0)} · tick ${hudTick} · quad ${lf.quads} · draw ${lf.drawCalls} · ` +
       `culled ${lf.culled} · nodes ${st.scene.nodes} · bodies ${physics.stats().bodies} · ` +
       `atlas:${atlasLabel} · ` +
+      `世界 ${wv === null ? "未装配" : `${wv.terrain}块/${wv.sites}点`} · ` +
+      `资源 活${ws?.alive ?? 0}/刷${ws?.spawned ?? 0}/采${ws?.released ?? 0} · ` +
+      `背包 ${bagText()} · ` +
+      `饱食 ${hungerText()} · ` +
       `${st.backends.gfx}/${st.backends.audio}/${st.backends.input}/${st.backends.script ?? "-"} · ` +
       `${scriptTxt} · dropped ${st.droppedSteps}`;
+    // 面板开着的时候跟着内容走（内部有签名比对，没变不重建 —— 见 renderBagPanel）
+    if (bagOpen) renderBagPanel();
     void info;
   });
 
   // ---- 输入
+  // ★ 这里**只处理浏览器的默认行为**，不做动作分发（那件事在 tick 里，见 dispatchActions）。
+  //   不拦的话 F5 会刷新页面、方向键会滚动、Tab 会把焦点移出画布 ——
+  //   "按背包键顺手把页面焦点跳了"这种 bug 只会在真按下去的那一刻出现，
+  //   而且看起来像"背包打不开"。
+  const RESERVED = new Set(["F5", "F9", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space", "Tab"]);
   window.addEventListener("keydown", (ev) => {
-    if (ev.code === "F5") {
-      ev.preventDefault();
-      doSave();
-    } else if (ev.code === "F9") {
-      ev.preventDefault();
-      doLoad();
-    } else if (ev.code === "KeyR") {
-      location.reload();
-    } else if (ev.code === "KeyH") {
-      chopNearest();
+    if (RESERVED.has(ev.code)) ev.preventDefault();
+    // Shift 状态：DOM 是唯一事实源（InputSnapshot 不带修饰键）—— "丢整堆"要用
+    if (ev.code === "ShiftLeft" || ev.code === "ShiftRight") shiftDown = true;
+    // 数字键直接选中对应堆叠（面板开着时）。不走 InputMap：那是"动作→键"的表，
+    // 而"选第 n 堆"是带参数的，塞进映射表会炸出 8 个动作。
+    if (bagOpen && /^Digit[1-8]$/.test(ev.code)) {
+      bagSel = Number(ev.code.slice(5)) - 1;
+      renderBagPanel(true);
     }
+  });
+  window.addEventListener("keyup", (ev) => {
+    if (ev.code === "ShiftLeft" || ev.code === "ShiftRight") shiftDown = false;
+  });
+  // 焦点离开页面时 Shift 可能卡在"按下"状态（keyup 没送到）—— 失焦一律清零
+  window.addEventListener("blur", () => {
+    shiftDown = false;
   });
 
   // 首次真实手势时解锁音频（浏览器要求）
@@ -574,7 +1462,10 @@ export async function main(): Promise<void> {
     app.log.channel("host").error(`帧循环启动失败：${runR.error.message}`);
     toast("帧循环启动失败：" + runR.error.message);
   } else {
-    toast("WASD 移动 · H 砍树 · F5 存档 · F9 读档 · R 重载");
+    // 提示写进页面底栏（**同一份** helpText：改键之后底栏自己会跟着变）
+    const helpEl = document.getElementById("help");
+    if (helpEl !== null) helpEl.textContent = helpText();
+    toast(helpText());
   }
 
   // 供浏览器端到端判据读取（自动化时用；不影响正常游玩）
@@ -587,10 +1478,251 @@ export async function main(): Promise<void> {
     save: doSave,
     load: doLoad,
     heroId,
-    /** 图集真实来源：`assets×5` 表示走完了导入链；`procedural` 表示降级了。 */
+    /** 打一下最近的敌人（自检页用：它要走**玩家这条真实路径**，见 `attackNearest`）。 */
+    attack: () => attackNearest(),
+    /** 图集真实来源：`assets×7`（6 PNG + 1 JPEG）表示走完了导入链；`procedural` 表示降级了。 */
     atlasSource: atlasLabel,
+    /** 世界链的产物：生成计划 / 装配结果 / 可见化报告 / 再生任务句柄。 */
+    world: {
+      plan: worldState.plan,
+      player: worldState.player,
+      visual: worldState.visual,
+      tasks: worldState.tasks,
+      assembled: worldState.assembled,
+      /** 半径拾取（自检页用；**会进背包**）。 */
+      pickupNearest,
+      /**
+       * 按格子采一次（自检页用）。目标是确定的格子 —— 判据不该依赖"玩家恰好站在哪"。
+       * ★ 注意它**不进背包**（走 `harvestAt`）：它验的是"世界这一侧"，背包那一侧用
+       *   `pickup` / `bag` 验。两条判据分开，才不会一条红了两边都要查。
+       */
+      harvest: (cell: number) => {
+        const t = worldState.tasks;
+        if (t === null) return err(engineError("HARVEST.NO_TASKS", "世界任务模块没起来"));
+        return harvestAt(scene, cell, { onRelease: (c) => t.releaseCell(c) });
+      },
+      /** 世界里还剩多少可见的东西（地形 / 投放点 / 资源）。 */
+      counts: () => ({
+        terrain: scene.countOf(TERRAIN_TYPE),
+        sites: scene.countOf(SITE_TYPE),
+        resources: scene.countOf(RESOURCE_TYPE),
+        sprites: scene.countOf(SPRITE_TYPE),
+      }),
+    },
+    /**
+     * 生物群（批66）。自检页要用它证三件**只有浏览器里才可能坏**的事：
+     * ① 世界里真有生物（不是只有配表）；② 它们会动；③ 玩家打得到并拿到战利品。
+     * 位置直接给出来（而不是只给统计）："会动"必须能被逐次采样比对。
+     */
+    mobs: () => {
+      const m = worldState.mobs;
+      if (m === null) return null;
+      return {
+        ...m.stats,
+        list: m.nodeIds.map((id) => {
+          const n = scene.find(id);
+          return {
+            id,
+            kind: m.templateOf(id),
+            x: n === undefined ? -1 : n.worldPosition.x,
+            z: n === undefined ? -1 : n.worldPosition.y,
+          };
+        }),
+      };
+    },
     snapshot: () => app.snapshot(),
     lastFrame: () => renderMod.lastFrame,
+    /**
+     * 饱食度（批67）。自检页要用它证两件**只有浏览器里才可能坏**的事：
+     * ① 玩家的 `game.hunger` 真的挂上了（组件没注册/没 attach ⇒ 读回来 undefined）；
+     * ② 它会掉（模块被 `onStep` 驱动了 ⇒ 停在那里不动就是没接上）。
+     * ★ 顺带把"能吃的东西"和"当前能不能吃"给出去：判据不必自己抄一份食物表。
+     */
+    hunger: () => {
+      const h = heroId < 0 ? undefined : scene.find(heroId)?.get<Hunger>(HUNGER_TYPE);
+      return {
+        value: h?.value ?? -1,
+        max: h?.max ?? -1,
+        text: hungerText(),
+        food: Object.keys(FOOD_TABLE).sort(),
+        edible: heroId < 0
+          ? []
+          : stacksOf(scene, heroId)
+              .filter((s) => FOOD_TABLE[s.kind] !== undefined && s.count > 0)
+              .map((s) => ({ kind: s.kind, count: s.count })),
+        stats: survivalMod.stats,
+      };
+    },
+    /** 吃一口（自检页驱动；等价于按 E）。返回提示文本，与 toast 同一句。 */
+    eat: () => eatSomething(),
+    /**
+     * 制作（批68）。自检页要证三件**只有浏览器里才可能坏**的事：
+     * ① 配方表在建 app 之前就归一化通过了（表写错会在加载期抛）；
+     * ② 缺料时制作**不动背包**；
+     * ③ 材料齐了能做出东西，且**产物真的进了背包**。
+     * 返回提示文本（与 toast 同一句）+ 当前配方清单。
+     */
+    craft: () => craftSomething(),
+    recipes: () => RECIPES.map((r) => ({ id: r.id, name: r.name, inputs: r.inputs, output: r.output })),
+    /**
+     * **调试/自检专用**：把玩家的饱食度设成某个值。
+     * ★ 为什么允许这个后门（与 `give` 同一个理由）：验"饿了能吃、满了不能吃"
+     *   要么等 200 秒让它自然掉到 30，要么直接设。后门只改一个数字，不碰世界，
+     *   所以它证的仍然是"进食这一侧"。
+     */
+    setHunger: (v: number) => {
+      const h = heroId < 0 ? undefined : scene.find(heroId)?.get<Hunger>(HUNGER_TYPE);
+      if (h === undefined) return -1;
+      h.value = Math.max(0, Math.min(h.max, Math.floor(v)));
+      return h.value;
+    },
+    /** 背包内容（自检页与截图工具读它：`[{kind,count}]`，空数组 = 真空）。 */
+    bag: () => (heroId < 0 ? [] : stacksOf(scene, heroId).map((s) => ({ kind: s.kind, count: s.count }))),
+    /** 背包文本（HUD 里那一行，判据直接比对它就不用抄一份格式化逻辑）。 */
+    bagText: () => bagText(),
+    /** 背包的两层上限（自检页验"上限真的接上了"，不是只写在文档里）。 */
+    bagLimits: () => {
+      const inv = heroId < 0 ? undefined : scene.find(heroId)?.get<Inventory>("game.inventory");
+      return { maxStacks: inv?.maxStacks ?? 0, maxStack: inv?.maxStack ?? 0 };
+    },
+    /**
+     * **调试/自检专用**：直接往包里放 n 个（绕过世界采集）。
+     * ★ 为什么允许这个后门：堆叠上限的判据需要"采 45 次芦苇"才能撞到 40，
+     *   而一次采集要等资源再生（30 tick）—— 判据会慢到没法每轮跑。
+     *   后门只加物品、不碰世界，所以它证的仍是"背包这一侧"。
+     */
+    give: (kind: string, n: number) => (heroId < 0 ? err(engineError("BAG.NO_OWNER", "没有玩家")) : addItem(scene, heroId, kind, n)),
+    /**
+     * **调试/自检专用**：清空背包，**但不往世界里丢**。
+     *
+     * ★ 为什么不能直接用"整堆丢弃"来清空：`dropIntoWorld` 会把东西丢在玩家脚下，
+     *   而后面还有"拾取进包"的判据 —— 清空产生的 5 堆垃圾会被它们捡走，
+     *   于是"背包 53→52→54"（多捡了一份）。判据之间的**共享可变世界**就是靠
+     *   "别留下副作用"来隔离的；需要副作用的地方，就该给一个没有副作用的入口。
+     * ★ 只删物品节点，不碰世界、不碰玩家。
+     */
+    clearBag: () => {
+      if (heroId < 0) return 0;
+      const stacks = stacksOf(scene, heroId);
+      let n = 0;
+      for (const s of stacks) {
+        const node = s.node;
+        if (node === null || node === undefined) continue;
+        scene.destroy(node.id);
+        n++;
+      }
+      scene.flush();
+      return n;
+    },
+    /**
+     * 表现层（批69，自检页用）。
+     *
+     * ★ 这里返回的是**屏幕上的事实**（DOM 里几个数字、精灵现在什么颜色），
+     *   不是"我调过 flash 所以应该闪了"。前者能抓住"调了但没接到渲染"，
+     *   后者只能证明函数被调用过（批66 的 `firstIndex` 就是这么假绿的）。
+     */
+    feedback: {
+      /** 屏幕上还活着的伤害数字（`[{text, dead, opacity}]`，空数组 = 都消失了）。 */
+      numbers: () => damageNumbers.map((d) => ({ text: d.text, dead: d.dead, opacity: d.el.style.opacity })),
+      /** DOM 里真的有这么多 `.dmg` 元素（与上面的数组**分开**：一个对、一个错就是漏删）。 */
+      domCount: () => fxLayer.querySelectorAll(".dmg").length,
+      /** 某个节点现在是不是在闪（读组件字段，不是读"我记得调过"）。 */
+      flashing: (id: number) => {
+        const fb = scene.find(id)?.get<Feedback>(FEEDBACK_TYPE);
+        return fb === undefined ? -1 : fb.flashTicks;
+      },
+      /** 累计：表现层自己吞掉的错误码（正常时为空数组）。 */
+      errors: () => [...feedbackErrors],
+      /** 闪一下（自检页需要在**不打架**的情况下验"闪完会还原"）。 */
+      flash: (id: number, ticks: number) => {
+        const r = flashNode(scene, id, ticks);
+        return r.ok ? r.value.remaining : `${r.error.code}：${r.error.message}`;
+      },
+      /** 精灵现在乘的是什么色（验"闪的是红、还原回原色"）。 */
+      tint: (id: number) => {
+        const sp = scene.find(id)?.get<Sprite>(SPRITE_TYPE);
+        return sp === undefined ? null : { r: sp.r, g: sp.g, b: sp.b, a: sp.a };
+      },
+      /** 模块统计（闪几个/挤几个/还原几次/覆盖几次）。 */
+      stats: () => feedbackMod.stats,
+      /**
+       * **调试/自检专用**：在玩家旁边放一个 2 血的靶子（有血量、有精灵、无 AI）。
+       *
+       * ★ 为什么需要它：验"屏幕上的数字是不是**实际扣血**"必须让
+       *   `applied ≠ attacker.damage`（玩家伤害 3、靶子 2 血 ⇒ 应该显示 -2）。
+       *   而世界里的生物血量都是满的，那两条数永远相等 —— 那种语料下
+       *   "用 damage 还是 applied"是分不出来的。
+       * ★ 它不改玩家状态、不碰背包，所以它证的仍然是"命中这一侧"。
+       */
+      dummy: (hp = 2) => {
+        if (heroId < 0) return -1;
+        const hero = scene.find(heroId);
+        if (hero === undefined) return -1;
+        const p = hero.worldPosition;
+        const n = scene.spawnAt(`靶子×${String(hp)}血`, p.x + 1, p.y);
+        if (!n.ok) return -1;
+        const id = n.value.id;
+        const h = new Health();
+        h.maxHp = hp;
+        h.hp = hp;
+        scene.attach(id, () => h);
+        scene.attach(id, () => makeSprite("rabbit", 1, 1));
+        scene.flush();
+        return id;
+      },
+    },
+    /**
+     * 导航网格（批60，自检页用）。
+     * ★ 自检只验两件**浏览器里才可能坏**的事：网格真的建起来了、两次寻路逐格相同。
+     *   寻路算法本身对不对由 Node 判据 + 变异管，这里不重复。
+     */
+    nav: {
+      stats: () => {
+        const g = worldState.nav;
+        if (g === null) return null;
+        const st = g.stats();
+        return {
+          width: st.width,
+          height: st.height,
+          walkable: st.walkable,
+          blocked: st.blocked,
+          components: g.componentCount,
+        };
+      },
+      isWalkable: (cell: number) => worldState.nav?.isWalkableIndex(cell) ?? false,
+      /** 不抛：返回 `{ok:true,cells,cost}` 或 `{ok:false,code}`。 */
+      path: (from: number, to: number) => {
+        const g = worldState.nav;
+        if (g === null) return { ok: false as const, code: "NAV.NO_GRID" };
+        const r = g.findPath(from, to);
+        if (!r.ok) return { ok: false as const, code: r.error.code };
+        return { ok: true as const, cells: r.value.cells.slice(), cost: r.value.cost };
+      },
+    },
+    /** 背包面板状态（自检页读 DOM 之前先读它：开着没有、选中第几堆）。 */
+    bagPanel: () => ({ open: bagOpen, selected: bagSel, stacks: stacksOf(scene, heroId).length }),
+    /** 开关面板（自检页驱动；等价于按 Tab）。 */
+    toggleBag: () => {
+      bagOpen = !bagOpen;
+      if (bagOpen) bagSel = 0;
+      renderBagPanel(true);
+      return bagOpen;
+    },
+    /** 选中第 i 堆（自检页驱动；等价于按数字键）。 */
+    selectStack: (i: number) => {
+      bagSel = i;
+      renderBagPanel(true);
+      return bagSel;
+    },
+    /** 丢弃选中堆（自检页驱动；等价于按 Q，`whole` = 按住 Shift）。 */
+    dropSelected: (whole = false) => {
+      const r = dropSelected(whole);
+      return r.ok ? { ok: true as const, value: r.value } : { ok: false as const, code: r.error.code, message: r.error.message };
+    },
+    /** 当前操作提示（**从映射表生成**，改键后它自己会变）。 */
+    helpText: () => helpText(),
+    /** 动作名 → 键位（改键界面的数据源，也是"提示与键位同源"的证据）。 */
+    bindings: () => ({ ...controllerMod.map.toData().actions }),
   };
 }
 

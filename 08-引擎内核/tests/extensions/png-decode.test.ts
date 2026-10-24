@@ -274,11 +274,17 @@ test("PNG：灰度 bitDepth 1/2/4 展开成 8 位（v*255/max）", () => {
   );
 });
 
-test("PNG：16 位降采样到 8 位（取高字节）", () => {
+test("PNG：16 位降采样到 8 位用 round(v/257)（不是取高字节）", () => {
+  // 0x1234/257 = 18.18 → 18；0xdef0/257 = 222.07 → 222。
+  // ★ 特意包含 0x12FF：取高字节（floor）给 0x12=18，round 给 19 —— 这一位就是判定点。
   const row = new Uint8Array([0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0]);
   const d = must(decodePng(encodePng({ width: 1, height: 1, bitDepth: 16, colorType: 6, rows: [row] })));
   assert.deepEqual(Array.from(d.pixels), [0x12, 0x56, 0x9a, 0xde]);
   assert.equal(d.bitDepth, 16);
+
+  const edge = new Uint8Array([0x12, 0xff, 0, 0, 0, 0, 0, 0]);
+  const d2 = must(decodePng(encodePng({ width: 1, height: 1, bitDepth: 16, colorType: 6, rows: [edge] })));
+  assert.equal(d2.pixels[0], 19, "0x12FF 必须四舍五入到 19；给 18 说明还在用取高字节");
 });
 
 test("PNG：多 IDAT 块拼接后与单块结果一致", () => {
@@ -331,7 +337,10 @@ test("PNG：CRC 错误 → ASSET.BAD_PNG 且点名块类型", () => {
   assert.match(e.message, /CRC/);
 });
 
-test("PNG：Adam7 隔行 → ASSET.UNSUPPORTED_INTERLACE（不是花屏）", () => {
+test("PNG：IHDR 标了 Adam7 但数据是非隔行布局 → ASSET.BAD_PNG（不返回半张图）", () => {
+  // 本文件的 encodePng 只会按"整幅行"写数据，interlace 字段只是个标记。
+  // 所以这里验的是**布局校验**：声明隔行、数据却按非隔行写，解压长度必然不符。
+  // （隔行正向判据在 png-adam7.test.ts 的尺寸矩阵与 png-fixtures.test.ts 的外部金标里。）
   const png = encodePng({
     width: 4,
     height: 4,
@@ -341,8 +350,8 @@ test("PNG：Adam7 隔行 → ASSET.UNSUPPORTED_INTERLACE（不是花屏）", () 
     interlace: 1,
   });
   const e = mustFail(decodePng(png));
-  assert.equal(e.code, "ASSET.UNSUPPORTED_INTERLACE");
-  assert.match(e.message, /隔行|interlace/i);
+  assert.equal(e.code, "ASSET.BAD_PNG");
+  assert.match(e.message, /扫描线|长度不对|Adam7/);
 });
 
 test("PNG：未知 colorType=7 → ASSET.UNSUPPORTED_PNG", () => {

@@ -34,6 +34,8 @@ function norm(path: string): Result<string, EngineError> {
 
 export class MemoryFileSystem implements IFileSystem {
   readonly scheme = "mem";
+  /** 内存盘/真实盘都能列目录。 */
+  readonly canList = true;
   private readonly files = new Map<string, { data: Uint8Array; mtimeMs: number }>();
   private readonly dirs = new Set<string>(["/"]);
   private nowCounter = 1;
@@ -63,6 +65,11 @@ export class MemoryFileSystem implements IFileSystem {
     if (!k.ok) return k;
     const f = this.files.get(k.value);
     if (f === undefined) {
+      // ★ 指向目录时说"它是目录"，而不是"不存在"：这两件事对调用方是**不同的决策**
+      //   （一个是"路径拼错了"，一个是"我该换个接口"）。契约要求两个后端一致。
+      if (this.dirs.has(k.value)) {
+        return err(engineError("FS.IS_DIR", `${k.value} 是目录（这个接口只读文件）`));
+      }
       return err(
         engineError("FS.NOT_FOUND", `文件不存在：${k.value}`, {
           known: Array.from(this.files.keys()).sort().slice(0, 20),
@@ -93,6 +100,10 @@ export class MemoryFileSystem implements IFileSystem {
     const k = this.key(path);
     if (!k.ok) return k;
     if (!this.files.delete(k.value)) {
+      // 与 fs-node 对齐：目录不是"不存在"，而是"这个接口不删目录"
+      if (this.dirs.has(k.value)) {
+        return err(engineError("FS.IS_DIR", `${k.value} 是目录（这个接口只删文件）`));
+      }
       return err(engineError("FS.NOT_FOUND", `要删除的路径不存在：${k.value}`));
     }
     return ok(undefined);
@@ -107,6 +118,14 @@ export class MemoryFileSystem implements IFileSystem {
   async list(dir: string): Promise<Result<readonly FileEntry[], EngineError>> {
     const k = this.key(dir);
     if (!k.ok) return k;
+    // "空目录"和"目录不存在"必须区分：前者返回 []，后者报错。
+    // 混成一件事的后果是调用方永远发现不了路径拼错（契约要求两个后端一致）
+    if (this.files.has(k.value)) {
+      return err(engineError("FS.NOT_A_DIR", `${k.value} 是文件，不是目录`));
+    }
+    if (!this.dirs.has(k.value)) {
+      return err(engineError("FS.NOT_FOUND", `目录不存在：${k.value}`));
+    }
     const base = k.value === "/" ? "/" : k.value + "/";
     const out: FileEntry[] = [];
     for (const [p, f] of this.files) {

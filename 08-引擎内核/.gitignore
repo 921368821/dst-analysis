@@ -4,3 +4,14 @@ node_modules/
 dist/
 coverage/
 .tsbuildinfo
+.cache/
+
+# ---- 可再生的东西（判据同根 .gitignore ①：能用 tools/ 里的脚本重新造出来的就不入库）----
+# 截图探针的输出（`tools/*.mjs` 跑一次就重新生成，单张 40-220 KB，攒起来是纯噪音）
+/tools/out/
+# 一次性调试脚本（`dbg*.ts` 之类，验完就该删；留在库里会让人以为它是接口的一部分）
+/tools/_tmp/
+# 开发期的**第二份副本**（同根 .gitignore 判据③）。批67 的 `.scratch/batch67/` 里
+# 三个文件与 `src/extensions/survival/` 下的正本重复，其中 `survival-module.ts`
+# 已经落后 9 行 —— 这种"看起来能改、改了没效果"的文件比不存在更贵。
+/.scratch/

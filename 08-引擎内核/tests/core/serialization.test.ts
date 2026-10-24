@@ -105,3 +105,73 @@ test("stableHash 对同内容稳定、对单字节差异敏感", () => {
   assert.equal(a, b);
   assert.notEqual(a, c);
 });
+
+// ------------------------------------------------------------------ 版本键与迁移链
+//
+// ★ 这四条守的是"迁移链是不是真的接上了"。以前 `Schema` 写死读 `__v`，
+//   而场景存档写的是 `format` —— 于是"接上了迁移链"只是文件里的一句话：
+//   `{"format":0,...}` 读不到版本，按 v1 静默放行，比"没接"更危险。
+
+test("versionKey：迁移读的是声明的键，不是写死的 __v", () => {
+  const s = new Schema({
+    version: 2,
+    fields: ["a"],
+    versionKey: "format",
+    migrations: [{ from: 1, migrate: (d) => ({ ...d, a: 42 }) }],
+  });
+  const r = s.decode('{"format":1,"a":1}');
+  assert.ok(r.ok, "旧档必须能读：" + (r.ok ? "" : r.error.message));
+  if (!r.ok) return;
+  assert.equal(r.value["a"], 42, "迁移函数没跑 —— versionKey 被忽略了");
+  assert.equal(r.value["format"], 2, "迁移后版本号必须写成当前版本");
+  assert.equal(r.value["__v"], undefined, "不该凭空写出 __v");
+});
+
+test("升版本却忘了写迁移：构造 Schema 时就抛，不等用户拿旧档来读", () => {
+  // 以前的校验是"遍历已有的迁移函数检查编号连续" —— 一条都没有时循环一次都不跑，
+  // 于是 version:2 且无迁移能构造成功，把架构错误降级成用户遇到的运行时错误。
+  assert.throws(
+    () => new Schema({ version: 2, fields: ["a"] }),
+    /需要 1 条迁移/,
+    "version:2 没有迁移必须构造失败",
+  );
+  assert.throws(
+    () =>
+      new Schema({
+        version: 3,
+        fields: ["a"],
+        migrations: [{ from: 1, migrate: (d) => d }],
+      }),
+    /需要 2 条迁移/,
+  );
+  // 反过来：条数对但编号不连续（1,3 缺 2）仍要抛
+  assert.throws(
+    () =>
+      new Schema({
+        version: 3,
+        fields: ["a"],
+        migrations: [
+          { from: 1, migrate: (d) => d },
+          { from: 3, migrate: (d) => d },
+        ],
+      }),
+  );
+});
+
+test("版本号不是 ≥1 的整数：报 BAD_VERSION，不许'看起来像当前版本'就放行", () => {
+  const s = new Schema({ version: 1, fields: ["a"] });
+  for (const bad of ['{"__v":1.5,"a":1}', '{"__v":0,"a":1}', '{"__v":-2,"a":1}', '{"__v":"1","a":1}']) {
+    const r = s.decode(bad);
+    // 1.5 以前会同时躲过 `v > version` 与 `v < version`（两个都不成立）原样返回
+    assert.equal(r.ok, false, `${bad} 必须被拒绝`);
+    if (!r.ok) assert.equal(r.error.code, "SER.BAD_VERSION", bad);
+  }
+});
+
+test("缺版本字段按 v1 处理（最早那批存档没写 __v）—— 但仍是显式规则", () => {
+  const s = new Schema({ version: 2, fields: ["a"], migrations: [{ from: 1, migrate: (d) => ({ ...d, a: 9 }) }] });
+  const r = s.decode('{"a":1}');
+  assert.ok(r.ok);
+  if (!r.ok) return;
+  assert.equal(r.value["a"], 9, "无版本号的记录按 v1 迁移");
+});

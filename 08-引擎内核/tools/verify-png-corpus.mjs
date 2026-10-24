@@ -112,6 +112,9 @@ function checkStructure(bytes) {
   let at = 8;
   let header = null;
   let idat = 0;
+  let palette = false;
+  let trns = false;
+  let apng = false;
   let iend = false;
   let iendEnd = -1;
   let first = true;
@@ -146,6 +149,17 @@ function checkStructure(bytes) {
       }
       header = { width, height, bitDepth, colorType, interlace };
       first = false;
+    } else if (type === "PLTE") {
+      // ★ 之前这里没有 PLTE：语料里 0 个调色板图，所以"未知关键块"这条从没被触发过。
+      //   加进调色板语料（tests/fixtures/png）后立刻红了 —— 工具缺能力，不是图有问题。
+      if (idat > 0) return { ok: false, error: "PLTE 出现在 IDAT 之后" };
+      if (len === 0 || len % 3 !== 0 || len > 768) return { ok: false, error: `PLTE 长度 ${len}` };
+      palette = true;
+    } else if (type === "tRNS") {
+      if (idat > 0) return { ok: false, error: "tRNS 出现在 IDAT 之后" };
+      trns = true;
+    } else if (type === "acTL") {
+      apng = true;
     } else if (type === "IDAT") {
       idat++;
     } else if (type === "IEND") {
@@ -163,7 +177,7 @@ function checkStructure(bytes) {
   if (!iend) return { ok: false, error: "缺少 IEND" };
   if (iendEnd !== bytes.length) return { ok: false, error: `IEND 之后有 ${bytes.length - iendEnd} 字节` };
   if (idat === 0) return { ok: false, error: "没有 IDAT" };
-  return { ok: true, header, idat };
+  return { ok: true, header, idat, palette, trns, apng };
 }
 
 // ------------------------------------------------------------------ 主流程
@@ -176,6 +190,9 @@ let structOk = 0;
 const structFails = [];
 const colors = new Map();
 const interlace = new Map();
+let paletteCount = 0;
+let trnsCount = 0;
+let apngCount = 0;
 let maxW = 0;
 let maxH = 0;
 let maxPath = "";
@@ -198,6 +215,9 @@ for (const p of files) {
   const key = `colorType=${h.colorType}/bitDepth=${h.bitDepth}`;
   colors.set(key, (colors.get(key) ?? 0) + 1);
   interlace.set(h.interlace, (interlace.get(h.interlace) ?? 0) + 1);
+  if (r.palette) paletteCount++;
+  if (r.trns) trnsCount++;
+  if (r.apng) apngCount++;
   if (h.width * h.height > maxW * maxH) {
     maxW = h.width;
     maxH = h.height;
@@ -209,8 +229,9 @@ console.log(`结构校验（签名/块序列/CRC/IHDR）：通过 ${structOk}，
 console.log(`分布：${Array.from(colors.entries()).map(([k, v]) => `${k}×${v}`).join("  ")}`);
 console.log(
   `隔行：${Array.from(interlace.entries()).map(([k, v]) => `interlace=${k}×${v}`).join("  ")}；` +
-    `最大尺寸：${maxW}×${maxH}（${maxPath === "" ? "-" : relative(ROOT, maxPath)}）`,
+    `调色板 ${paletteCount}；带 tRNS ${trnsCount}；APNG(acTL) ${apngCount}`,
 );
+console.log(`最大尺寸：${maxW}×${maxH}（${maxPath === "" ? "-" : relative(ROOT, maxPath)}）`);
 
 // ---- 抽样解码 ----
 let order = 0;
@@ -277,4 +298,37 @@ show(decodeFails, "解码失败样本");
 
 console.log(`耗时：${((Date.now() - t0) / 1000).toFixed(1)}s`);
 
-if (structFails.length > 0 || decodeFails.length > 0) process.exit(1);
+/**
+ * ★ 已知缺陷要**双向**核对，不能只是"允许它红"。
+ *
+ * 语料里有一个源文件本身就只有一半扫描线（`_cmp_pair.png`）—— 我们的解码器
+ * 正确地对它报 `ASSET.BAD_PNG`。如果把它当成"允许的失败"写在 CI 里，
+ * 那个闸门就会同时放过"另外还有 5 个文件坏了"这类真正的问题。
+ *
+ * 所以口径是三条一起成立：
+ *   ① 失败的样本**恰好**是登记过的这些（多一个就红）；
+ *   ② 登记过的必须**真的**在失败（修好了却没销账 ⇒ 红，逼你更新登记）；
+ *   ③ 没登记任何缺陷时，只要有失败就红。
+ * 这就是"已知缺陷"与"被忽略的缺陷"的区别。
+ */
+const KNOWN = args.filter((a, i) => args[i - 1] === "--known-defect").filter((a) => !a.startsWith("--"));
+const allFails = [...structFails, ...decodeFails];
+const unexpected = allFails.filter((f) => !KNOWN.some((k) => relative(ROOT, f.path).includes(k)));
+const notReproduced = KNOWN.filter((k) => !allFails.some((f) => relative(ROOT, f.path).includes(k)));
+
+let bad = false;
+if (unexpected.length > 0) {
+  console.error(`\n✗ 有 ${unexpected.length} 个**没登记**的失败样本：`);
+  for (const f of unexpected.slice(0, 5)) console.error(`  - ${relative(ROOT, f.path)}：${f.error}`);
+  bad = true;
+}
+if (notReproduced.length > 0) {
+  console.error(
+    `\n✗ 登记的已知缺陷没有复现：${notReproduced.join(", ")} —— 要么文件修好了（请从 --known-defect 里删掉），` +
+      "要么它已经不在这份语料里了（登记过期同样会让闸门失去意义）",
+  );
+  bad = true;
+}
+if (bad) process.exit(1);
+if (KNOWN.length > 0) console.log(`已知缺陷 ${KNOWN.length} 个，均已复现：${KNOWN.join(", ")}`);
+

@@ -1,0 +1,52 @@
+# CI —— 执行器只有一层：调用 `node tools/ci.mjs`
+#
+# ★ 为什么 workflow 里几乎看不到步骤：
+#   步骤定义在 `tools/ci.mjs` 里，**本地能一条命令真跑**。写在 YAML 里的步骤
+#   只能在 GitHub 上验证，本地就是一段没人执行的配置 —— 一旦挂了只能看日志猜。
+#
+# ★ 为什么是双 OS 矩阵：
+#   这个仓库今天就被一条平台差异咬过一次：`fs.rename` 在 Windows 上、
+#   目标正被打开时返回 EPERM，而 POSIX 允许覆盖。只有单 OS 的 CI 会把这种差异
+#   留到用户机器上。矩阵的第二格不是为了"看起来专业"，是为了让平台差异在合并前现形。
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  fast:
+    name: 快档（${{ matrix.os }}）
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      # 快档：typecheck + 全量判据 + 覆盖率 + 文档对账
+      - run: node tools/ci.mjs --fast
+
+  full:
+    name: 全档（含外部金标与变异）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # Pillow 是 JPEG 金标的生成器；imageio-ffmpeg 提供独立的第三方解码器
+      - run: pip install pillow numpy imageio-ffmpeg
+      - run: npm ci
+      - run: node tools/ci.mjs
+        env:
+          PYTHON: python

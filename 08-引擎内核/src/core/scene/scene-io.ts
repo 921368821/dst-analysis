@@ -206,29 +206,77 @@ export function sceneToJson(snap: SceneSnapshot): string {
   return lines.join("");
 }
 
+/**
+ * 读存档：**先过 Schema 的版本闸门**，再做结构校验。
+ *
+ * ★ 修掉的两个静默缺陷（都是"看着接上了、其实没接"）：
+ *  ① 以前这里只 `JSON.parse` + 手查 `format`/`nodes`，**从不看版本上下限** ——
+ *     一份 `format: 0` 的旧档会被当成当前版本读进来（然后组件按今天的字段解释旧数据，
+ *     错得很安静）。版本闸门只写在 `loadScene` 里，而调用方完全可能只解析不加载。
+ *  ② `SCENE_SCHEMA` 早就声明了迁移链入口，但没人调用它；而且 `Schema` 读的是 `__v`，
+ *     场景写的却是 `format`。于是"迁移入口"既没被调用、调用了也读不到版本。
+ * 现在两件事合成一件：`SCENE_SCHEMA.decode` 既解析又迁移，`format` 通过 `versionKey` 声明。
+ *
+ * 错误码仍按场景域返回（调用方按 `SCENE.*` 分支，不需要知道 `Schema` 的存在）。
+ */
 export function sceneFromJson(text: string): Result<SceneSnapshot, EngineError> {
-  let raw: unknown;
-  try {
-    raw = JSON.parse(text);
-  } catch (e) {
-    return err(engineError("SCENE.BAD_JSON", `不是合法 JSON：${e instanceof Error ? e.message : String(e)}`));
+  const dec = SCENE_SCHEMA.decode(text);
+  if (!dec.ok) {
+    switch (dec.error.code) {
+      case "SER.VERSION_TOO_NEW":
+        return err(engineError("SCENE.FORMAT_TOO_NEW", dec.error.message));
+      case "SER.NO_MIGRATION":
+        return err(engineError("SCENE.FORMAT_NO_MIGRATION", dec.error.message));
+      case "SER.BAD_VERSION":
+        return err(engineError("SCENE.FORMAT_BAD", dec.error.message));
+      default:
+        return err(engineError("SCENE.BAD_JSON", dec.error.message));
+    }
   }
-  if (raw === null || typeof raw !== "object") {
-    return err(engineError("SCENE.BAD_JSON", "顶层不是对象"));
-  }
-  const o = raw as { format?: unknown; name?: unknown; nodes?: unknown };
+  const o = dec.value as { format?: unknown; name?: unknown; nodes?: unknown };
   if (typeof o.format !== "number" || !Array.isArray(o.nodes)) {
     return err(engineError("SCENE.BAD_JSON", "缺少 format 或 nodes"));
   }
   return ok({
-    format: o.format,
+    // 迁移过的记录已经是当前版本；写 v1 档读回来也是 v1，所以这里恒等于 SCENE_FORMAT_VERSION
+    format: SCENE_FORMAT_VERSION,
     name: typeof o.name === "string" ? o.name : "scene",
     nodes: o.nodes as NodeRecord[],
   });
 }
 
+/**
+ * 存档里的数值量化：**1e-9**（9 位小数）。
+ *
+ * ★★ 这里原本是 `Math.round(v * 1000) / 1000`（3 位）。2026-10-23 抓到真 bug：
+ *   世界坐标的定点单位是 `FIXED_UNITS = 256`，即 `1/256 = 0.00390625` —— **8 位十进制小数**。
+ *   3 位装不下它：装配出来的 `7.26953125` 存成 `7.27`，反推 `7.27 * 256 = 1861.12`（原本 1861）。
+ *   症状隐蔽到极点：挪了 1/2000 格，肉眼看不出、玩起来看不出，
+ *   只有 `sceneDigest()`（它要求整数）或两个世界的逐字节比对才看得见。
+ *
+ * 为什么是 9 位：
+ *   ① 必须能**精确**表示 `1/256`（8 位）⇒ 至少 8 位，取 9 位留一位余量；
+ *   ② 必须粗于 double 在游戏坐标量级的 ulp（2^-52），否则等于没量化 —— 1e-9 远粗于它，
+ *      于是"累加出来的 9.999999999999984"会被收成 `10`、"5 秒后剩的 7.7e-15"会被收成 `0`。
+ *      存档是**快照**，不是累加过程的日志：把 ulp 级噪声写进存档只会让逐字节比对变脆；
+ *   ③ 十进制量化不会给十进制写出来的值留尾巴（`1.387` 还是 `1.387`）——
+ *      若改成"2 的幂量化"，`1.387` 会变成 `1.3870086669921875`，存档立刻不可读。
+ *
+ * ★★ 这条量化有一个**跨层约束**：它只对 `FIXED_UNITS ≤ 512` 的定点精确
+ *   （`1/512 = 0.001953125` 仍是 9 位；`1/1024` 就是 10 位了）。
+ *   分层规则不许 L2 依赖 L4，所以这条约束**没法用类型表达** ——
+ *   它由 `tests/extensions/assemble-io.test.ts` 里的一条守卫判据钉住：
+ *   谁把 `FIXED_UNITS` 改大，那条会先红，提示改成 2 的幂量化。
+ *   （这类"只能靠判据表达的跨层约束"在本项目里不止一处，见 `§11.3`。）
+ */
+const SAVE_SCALE = 1e9;
+/** |v| 超过这个值时 v * 1e9 会越过安全整数，此时不量化（宁可原样写，也不要算错）。 */
+const SAVE_SCALE_LIMIT = 1e6;
+
 function q(v: number): number {
-  return Math.round(v * 1000) / 1000;
+  if (!Number.isFinite(v)) return v;
+  if (!(Math.abs(v) < SAVE_SCALE_LIMIT)) return v;
+  return Math.round(v * SAVE_SCALE) / SAVE_SCALE;
 }
 
 /** 键排序的对象序列化（嵌套也排）。 */
@@ -248,12 +296,21 @@ function stringifySorted(o: unknown): string {
 }
 
 /**
- * 把"整棵树"也纳入 Schema 的版本迁移链（将来加字段时用）。
- * 目前只有 v1，所以没有迁移函数 —— 但入口留好，避免"以后再说"变成"直接改格式"。
+ * 整棵树的版本闸门（**真的在用**，不是"入口留好"）。
+ *
+ * 目前只有 v1，所以迁移链是空的 —— 但空链不等于空转：
+ *   · `version < 当前` 的档会走迁移；没有对应函数时报 `SCENE.FORMAT_NO_MIGRATION`
+ *     （以前是静默当当前版本读）；
+ *   · 将来把 `SCENE_FORMAT_VERSION` 改成 2 而忘了写迁移，`Schema` 构造时就会抛
+ *     （而不是等用户拿旧档来读时才炸）。
+ *
+ * ★ `fields` 里**不含** `format`：版本键由 `versionKey` 负责，写进 fields 会让
+ *   `encode` 输出两个 `"format"` 键（后者覆盖前者，看起来还对，json 解析也接受）。
  */
 export const SCENE_SCHEMA = new Schema({
   version: SCENE_FORMAT_VERSION,
-  fields: ["format", "name", "nodes"],
+  fields: ["name", "nodes"],
+  versionKey: "format",
 });
 
 export type { Scene };

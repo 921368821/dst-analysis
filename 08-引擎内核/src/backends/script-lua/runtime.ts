@@ -342,6 +342,11 @@ function __engine_unload(name)
   __engine_modules[name] = nil
   __engine_envs[name] = nil
   __engine_drop_order(name)
+  -- ★ 5.1 的 module("a.b") 往**真 _G** 写了嵌套表，这里按"创建时的身份"摘掉。
+  --   垫片没装（纯 5.4 环境）时这个函数不存在，跳过 —— 不假装清掉了。
+  if type(__engine_compat_unmodule) == "function" then
+    __engine_compat_unmodule(name)
+  end
   return { s = 1 }
 end
 `;
@@ -681,8 +686,11 @@ export class LuaScriptRuntime implements IScriptRuntime {
     if (this.disposed) return this.disposedErr();
     this.modules.delete(name);
     // ★ 现在连模块的 env 一起丢：它里面的全局变量是真的没了（不再是"只摘名字、
-    //   变量留在 _G 里"）。唯一清不掉的是模块自己 `module("x")` 往真 `_G` 写的
-    //   嵌套表 —— 那是 5.1 语义下的"全局"，运行时无法区分"它写的"和"本来就有的"。
+    //   变量留在 _G 里"）。
+    //   `module("a.b")` 往**真 _G** 写的嵌套表也一并摘掉（见兼容垫片的
+    //   `__engine_compat_unmodule`）：按创建时的身份删除，容器只在变空时才删。
+    //   这条曾经写作"运行时无法区分它写的和本来就有的"—— 那是放弃得太早了：
+    //   区分不了"谁写的"，但能区分"这张表是不是我新建的那一张"。
     try {
       this.unloadFn?.(name);
     } catch (e) {

@@ -1,0 +1,15 @@
+{
+  "assetRoot": "/web/assets",
+  "outDir": "/dist",
+  "entries": [
+    "/web/assets/berry.png",
+    "/web/assets/ground.png",
+    "/web/assets/photo.jpg",
+    "/web/assets/player.png",
+    "/web/assets/rock.png",
+    "/web/assets/ruler.png",
+    "/web/assets/terrain.png",
+    "/web/assets/tree.png"
+  ],
+  "maxBundleBytes": 8192
+}

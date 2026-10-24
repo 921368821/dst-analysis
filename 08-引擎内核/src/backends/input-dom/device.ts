@@ -12,6 +12,12 @@
  *  ③ 指针坐标**归一化到 CSS 像素的相对坐标**（`offsetX/offsetY`），
  *     不用 `clientX` —— 后者包含页面滚动，会让"点在哪"与"看到在哪"不一致。
  *
+ * ★ 手柄（T362）也在这里合成成**逻辑键码**（`Gamepad0.A` / `Gamepad0.LStickLeft`）：
+ *   映射表那一层就完全不需要知道 `navigator.getGamepads()` 长什么样，
+ *   "换个手柄还能不能玩"于是退化成"后端有没有吐出那几个键码"——**这是可以在 headless 判的**。
+ *   摇杆按死区折算成 4 个虚拟方向键（不是轴值）：因为 `InputSnapshot` 的模型是"按键集合"，
+ *   把轴塞进去会让每个读输入的地方都要处理"连续值"，而那正是映射表想避免的分叉。
+ *
  * ★ 键用 `event.code`（物理键位，`KeyW`）而不是 `event.key`（字符，`w`/`W`）。
  *   用 `key` 的话，中文输入法激活时 `key` 会变成 `"Process"`，整个控制失效 ——
  *   这是中文环境下最容易漏的一条。
@@ -48,12 +54,35 @@ export interface DomEventLike {
   preventDefault?(): void;
 }
 
+/** 手柄的结构接口（只取用得到的字段，与 W3C Gamepad 兼容）。 */
+export interface GamepadLike {
+  readonly connected?: boolean;
+  readonly index?: number;
+  readonly axes?: readonly number[];
+  readonly buttons?: readonly { readonly pressed?: boolean; readonly value?: number }[];
+}
+
 export interface DomInputOptions {
   /** 键盘监听目标（通常是 window）。 */
   readonly keyboard?: DomEventTarget;
   /** 指针/滚轮监听目标（通常是 canvas）。 */
   readonly pointer?: DomEventTarget;
+  /**
+   * 手柄来源。缺省读 `navigator.getGamepads()`。
+   * ★ 之所以做成**可注入**：手柄是硬件，CI 上没有。判据要能注入一个假手柄，
+   *   验证"按下 A → 吐 `Gamepad0.A`"整条链，而不是"等哪天有人插上手柄看看"。
+   */
+  readonly gamepads?: () => readonly (GamepadLike | null | undefined)[];
+  /** 摇杆死区（0..1）。缺省 0.35：太小会被漂移触发，太大推不动。 */
+  readonly stickDeadzone?: number;
 }
+
+/** 标准布局的按键名（W3C "standard" mapping 的前 16 个）。 */
+const PAD_BUTTONS = [
+  "A", "B", "X", "Y", "LB", "RB", "LT", "RT",
+  "Select", "Start", "L3", "R3",
+  "DPadUp", "DPadDown", "DPadLeft", "DPadRight",
+] as const;
 
 /** 这些按键在用于游戏时应该 preventDefault，避免页面滚动。 */
 const PREVENT = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space", "Tab"]);
@@ -63,6 +92,7 @@ export class DomInputDevice implements IInputDevice {
     backend: "dom",
     pointer: true,
     touch: true,
+    // 构造时按环境改（有 `navigator.getGamepads` 才是 true）—— 写死 true 就是假能力声明
     gamepad: false,
     textInput: true,
   };
@@ -82,6 +112,10 @@ export class DomInputDevice implements IInputDevice {
   private wdy = 0;
   private text = "";
   private readonly subs = new Set<(e: RawInputEvent) => void>();
+  private readonly gamepads: (() => readonly (GamepadLike | null | undefined)[]) | null;
+  private readonly deadzone: number;
+  /** 上一次 poll 时手柄按下的键码（用来算"刚按下 / 刚松开"的边缘）。 */
+  private padDown = new Set<string>();
   private readonly bound: Array<[DomEventTarget, string, (ev: DomEventLike) => void]> = [];
   /** 有输入框聚焦时，键盘不驱动游戏（编辑器输入场景名时不能同时让角色走）。 */
   private textFocus = false;
@@ -92,6 +126,9 @@ export class DomInputDevice implements IInputDevice {
     }
     this.kb = opts.keyboard;
     this.ptr = opts.pointer;
+    this.gamepads = opts.gamepads ?? defaultGamepads();
+    this.deadzone = opts.stickDeadzone ?? 0.35;
+    this.caps = { ...this.caps, gamepad: this.gamepads !== null };
     this.bind();
   }
 
@@ -194,10 +231,25 @@ export class DomInputDevice implements IInputDevice {
   }
 
   poll(): InputSnapshot {
+    // ---- 手柄：先采一次，再与上一次的集合做差（键盘的边缘由事件驱动，手柄只能靠轮询）
+    const padNow = this.samplePads();
+    const padPressed: string[] = [];
+    const padReleased: string[] = [];
+    for (const k of padNow) if (!this.padDown.has(k)) padPressed.push(k);
+    for (const k of this.padDown) if (!padNow.has(k)) padReleased.push(k);
+    this.padDown = padNow;
+
+    const down = new Set(this.down);
+    const pressedSet = new Set(this.pressed);
+    const releasedSet = new Set(this.released);
+    for (const k of padNow) down.add(k);
+    for (const k of padPressed) pressedSet.add(k);
+    for (const k of padReleased) releasedSet.add(k);
+
     const snap: InputSnapshot = {
-      keysDown: new Set(this.down),
-      keysPressed: new Set(this.pressed),
-      keysReleased: new Set(this.released),
+      keysDown: down,
+      keysPressed: pressedSet,
+      keysReleased: releasedSet,
       pointer: {
         x: this.px,
         y: this.py,
@@ -228,10 +280,45 @@ export class DomInputDevice implements IInputDevice {
     void target;
   }
 
+  /**
+   * 读一次手柄，返回"当前按下的逻辑键码"。
+   *
+   * ★ 只读 `standard` 布局的前 16 个键与两个轴。非标准手柄（`mapping !== "standard"`）
+   *   的键位因厂商而异 —— 假装能读会让"这个手柄不能用"变成"按 A 触发了 B"。
+   *   这里不判断 mapping（结构接口里没有），但**名字按标准布局给**，
+   *   文档里写明"非标准手柄需要在宿主侧做映射表"。
+   */
+  private samplePads(): Set<string> {
+    const out = new Set<string>();
+    if (this.gamepads === null) return out;
+    const pads = this.gamepads();
+    for (const pad of pads) {
+      if (pad === null || pad === undefined || pad.connected === false) continue;
+      const prefix = `Gamepad${pad.index ?? 0}.`;
+      const btns = pad.buttons ?? [];
+      for (let i = 0; i < PAD_BUTTONS.length && i < btns.length; i++) {
+        const b = btns[i];
+        if (b === undefined) continue;
+        // `pressed` 与 `value` 都算：扳机键在多数浏览器上只有 value，pressed 要过阈值才 true
+        if (b.pressed === true || (b.value ?? 0) > 0.5) out.add(prefix + PAD_BUTTONS[i]!);
+      }
+      const ax = pad.axes ?? [];
+      const lx = ax[0] ?? 0;
+      const ly = ax[1] ?? 0;
+      if (lx < -this.deadzone) out.add(prefix + "LStickLeft");
+      if (lx > this.deadzone) out.add(prefix + "LStickRight");
+      // W3C：摇杆向上是**负值**。写反的症状是"上下颠倒"，而且只在真手柄上出现。
+      if (ly < -this.deadzone) out.add(prefix + "LStickUp");
+      if (ly > this.deadzone) out.add(prefix + "LStickDown");
+    }
+    return out;
+  }
+
   reset(): void {
     this.down.clear();
     this.pressed.clear();
     this.released.clear();
+    this.padDown = new Set<string>();
     this.pDown = false;
     this.pPressed = false;
     this.pReleased = false;
@@ -247,6 +334,13 @@ export class DomInputDevice implements IInputDevice {
   private emit(e: RawInputEvent): void {
     for (const f of this.subs) f(e);
   }
+}
+
+/** 环境里有没有手柄 API。没有就返回 null（caps.gamepad 随之为 false）。 */
+function defaultGamepads(): (() => readonly (GamepadLike | null | undefined)[]) | null {
+  const nav = (globalThis as { navigator?: { getGamepads?: () => readonly (GamepadLike | null)[] } }).navigator;
+  if (typeof nav?.getGamepads !== "function") return null;
+  return () => nav.getGamepads!();
 }
 
 export const domInputBackend = {

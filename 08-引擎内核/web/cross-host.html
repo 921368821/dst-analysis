@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>跨宿主存档语料（自动比对用）</title>
+    <style>
+      body {
+        font: 13px/1.6 ui-monospace, Consolas, monospace;
+        background: #14161a;
+        color: #e6e6e6;
+        margin: 24px;
+      }
+      h1 {
+        font-size: 15px;
+        font-weight: 600;
+      }
+      .muted {
+        color: #8a919c;
+      }
+      #out {
+        white-space: pre-wrap;
+        word-break: break-all;
+      }
+    </style>
+  </head>
+  <body>
+    <!--
+      ★ 这个页面**只做一件事**：在浏览器里跑一遍跨宿主存档语料，把字节的 base64 挂到
+        `window.__crossHost` 上。没有 canvas、没有资产、没有帧循环 —— 它不会因为
+        WebGL 起不来而红（判据挂在会因环境降级的地方，是这个项目修过一次的老毛病）。
+
+      ★ 结果同时写进 DOM：人在浏览器里手动打开也能看见自己这份的字节数，
+        不必开 DevTools 才知道"到底跑没跑"。
+    -->
+    <h1>跨宿主存档语料</h1>
+    <p class="muted">
+      本页由 <code>tools/cross-host-save.mjs</code> 自动驱动；<code>window.__crossHost</code> 里是
+      UTF-8 字节的 base64，Node 侧用同一份语料算出来与之逐字节比对。
+    </p>
+    <div id="out">正在生成…</div>
+
+    <script type="module">
+      import "./cross-host.js";
+      const p = globalThis.__crossHost;
+      const el = document.getElementById("out");
+      el.textContent = p?.ok
+        ? `ok · ${p.bytes} 字节 · 节点 ${p.nodes} · 资源 ${p.resources} · 堆叠 ${p.stacks} · 采集 ${p.released}`
+        : `失败：${p?.error ?? "没有结果（bundle 没加载？）"}`;
+    </script>
+  </body>
+</html>

@@ -1,0 +1,82 @@
+[
+ {
+  "name": "arith-seq-gray",
+  "mode": "arith-sequential",
+  "components": 1
+ },
+ {
+  "name": "arith-seq-rgb",
+  "mode": "arith-sequential",
+  "components": 3
+ },
+ {
+  "name": "arith-prog-gray",
+  "mode": "arith-progressive",
+  "components": 1
+ },
+ {
+  "name": "arith-prog-rgb",
+  "mode": "arith-progressive",
+  "components": 3
+ },
+ {
+  "name": "arith-seq-gray-dac",
+  "mode": "arith-sequential",
+  "components": 1
+ },
+ {
+  "name": "arith-seq-gray-rst",
+  "mode": "arith-sequential",
+  "components": 1
+ },
+ {
+  "name": "cmyk-baseline",
+  "mode": "baseline",
+  "components": 4
+ },
+ {
+  "name": "ycck-baseline",
+  "mode": "baseline",
+  "components": 4
+ },
+ {
+  "name": "cmyk-arith",
+  "mode": "arith-sequential",
+  "components": 4
+ },
+ {
+  "name": "ycck-arith",
+  "mode": "arith-sequential",
+  "components": 4
+ },
+ {
+  "name": "selfenc-444",
+  "mode": "baseline",
+  "components": 3
+ },
+ {
+  "name": "selfenc-420",
+  "mode": "baseline",
+  "components": 3
+ },
+ {
+  "name": "selfenc-422",
+  "mode": "baseline",
+  "components": 3
+ },
+ {
+  "name": "selfenc-prog-420",
+  "mode": "progressive",
+  "components": 3
+ },
+ {
+  "name": "selfenc-rst-420",
+  "mode": "baseline",
+  "components": 3
+ },
+ {
+  "name": "selfenc-gray",
+  "mode": "baseline",
+  "components": 1
+ }
+]

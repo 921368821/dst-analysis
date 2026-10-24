@@ -191,3 +191,30 @@ test("makeSceneAccessor：把 Node 的 (x,y) 映射成世界的 (x,z)", () => {
   acc.set(1, -2, 4);
   assert.deepEqual(acc.get(1), { x: -2, z: 4 });
 });
+
+test("★ findEntities 与 query 是同一份实现（饥荒同签名别名，不许另写一遍）", () => {
+  const { w, pos } = world([]);
+  let seed = 999;
+  const rnd = (): number => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return seed / 0x7fffffff;
+  };
+  // 混入圆与 AABB（halfExtents）两种体，半径也混
+  for (let i = 1; i <= 120; i++) {
+    const p = { x: rnd() * 60 - 30, z: rnd() * 60 - 30 };
+    pos.set(i, p);
+    const box = i % 3 === 0;
+    w.add(box ? { nodeId: i, radius: 0.4, isStatic: true, halfExtents: { x: 0.6, z: 1.4 } }
+              : { nodeId: i, radius: 0.5, isStatic: true });
+  }
+  for (let k = 0; k < 15; k++) {
+    const qx = rnd() * 60 - 30;
+    const qz = rnd() * 60 - 30;
+    const r = 0.5 + rnd() * 6;
+    assert.deepEqual(w.findEntities(qx, qz, r), w.query(qx, qz, r),
+      `别名与真身必须在同一点 (${qx.toFixed(2)}, ${qz.toFixed(2)}) r=${r.toFixed(2)} 给出同一数组`);
+  }
+  // 边界输入同样要一致（负半径 / 0 半径）
+  assert.deepEqual(w.findEntities(0, 0, -1), w.query(0, 0, -1));
+  assert.deepEqual(w.findEntities(0, 0, 0), w.query(0, 0, 0));
+});

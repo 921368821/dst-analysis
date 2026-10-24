@@ -22,6 +22,7 @@
 
 import type { EngineError, Result } from "../../foundation/result.ts";
 import { engineError, err, ok } from "../../foundation/result.ts";
+import { PixelFormat } from "../../platform/gfx/types.ts";
 import type { AtlasData, AtlasFrame } from "./atlas.ts";
 import type { DecodedPng } from "../asset-import/decode/png.ts";
 
@@ -30,6 +31,18 @@ export interface AtlasBuildOptions {
   readonly padding?: number;
   /** 超过这个尺寸就报错（防 2048×2048 拼成 8192×8192 直接 OOM）。默认 2048。 */
   readonly maxSize?: number;
+  /**
+   * 图集的像素精度。
+   *   · `"auto"`（默认）：**只要有一个源带 `pixels16`，整张图集就是 16 位**；
+   *   · `8`：显式降采样（16 位源按 `round(v/257)`，与 `png.ts` 同口径）；
+   *   · `16`：全部上转（8 位源按 `v*257`，0..255 → 0..65535 均匀且无损）。
+   *
+   * ★ 为什么"一个 16 位源就把整张图集拉成 16 位"而不是逐帧各自保留：
+   *   一张纹理只有**一个**格式。混精度图集必然要在某处重采样一次；
+   *   在合成期显式做（并把 8 位源无损上转）比"按 rgba8 上传、靠肉眼看不出"要诚实。
+   *   代价是 8 位源也占 8 字节/像素 —— 要省显存请显式传 `precision: 8`。
+   */
+  readonly precision?: "auto" | 8 | 16;
 }
 
 export interface AtlasSource {
@@ -80,11 +93,21 @@ export function buildAtlasFromSources(
 ): Result<AtlasData, EngineError> {
   const padding = opts?.padding ?? DEFAULT_PADDING;
   const maxSize = opts?.maxSize ?? DEFAULT_MAX_SIZE;
+  const precision = opts?.precision ?? "auto";
   if (!Number.isInteger(padding) || padding < 0) {
     return err(errAtlas("ASSET.BAD_ATLAS_OPTIONS", `padding 必须是非负整数，收到 ${padding}`));
   }
   if (!Number.isInteger(maxSize) || maxSize < 1) {
     return err(errAtlas("ASSET.BAD_ATLAS_OPTIONS", `maxSize 必须是 ≥1 的整数，收到 ${maxSize}`));
+  }
+  if (precision !== "auto" && precision !== 8 && precision !== 16) {
+    // 静默当成 auto 会让"我明明传了 precision:12"变成"跑出来是 8 位"，而且没人报错
+    return err(
+      errAtlas(
+        "ASSET.BAD_ATLAS_OPTIONS",
+        `precision 只能是 "auto" | 8 | 16，收到 ${JSON.stringify(precision)}`,
+      ),
+    );
   }
 
   const seen = new Set<string>();
@@ -97,6 +120,9 @@ export function buildAtlasFromSources(
     }
     seen.add(s.name);
   }
+
+  // ---- 精度决策（必须在拼像素之前定：它决定分配哪种缓冲） ----
+  const use16 = precision === 16 || (precision === "auto" && sources.some((s) => s.png.pixels16 !== undefined));
 
   // ---- 排序（拷贝，不改调用方数组） ----
   const ordered = [...sources].sort((a, b) => {
@@ -152,7 +178,20 @@ export function buildAtlasFromSources(
   if (ordered.length === 0) {
     // 空输入：给 1×1 全透明 + 空帧表。不报错 —— "还没导入任何图"不是错误，
     // 渲染模块拿到它只会画不出东西，而不会崩。
-    return ok({ width: 1, height: 1, pixels: new Uint8Array(4), frames: new Map<string, AtlasFrame>() });
+    // 精度仍然跟着请求走（precision:16 就返回 rgba16 的 1×1），否则"空图集"会是
+    // 唯一一个不遵守 precision 的返回值。
+    return ok(
+      use16
+        ? {
+            width: 1,
+            height: 1,
+            pixels: new Uint8Array(4),
+            format: PixelFormat.RGBA16,
+            pixels16: new Uint16Array(4),
+            frames: new Map<string, AtlasFrame>(),
+          }
+        : { width: 1, height: 1, pixels: new Uint8Array(4), frames: new Map<string, AtlasFrame>() },
+    );
   }
   if (neededW > maxSize) {
     return err(
@@ -185,8 +224,9 @@ export function buildAtlasFromSources(
     );
   }
 
-  // ---- 拼像素（空白保持 0,0,0,0） ----
+  // ---- 拼像素（空白保持 0,0,0,0：16 位图集里就是 0，仍是全透明） ----
   const pixels = new Uint8Array(width * height * 4);
+  const pixels16 = use16 ? new Uint16Array(width * height * 4) : undefined;
   const byNameSource = new Map<string, DecodedPng>();
   for (const s of sources) byNameSource.set(s.name, s.png);
 
@@ -195,8 +235,30 @@ export function buildAtlasFromSources(
     for (let row = 0; row < p.h; row++) {
       const from = row * p.w * 4;
       const to = ((p.y + row) * width + p.x) * 4;
-      pixels.set(src.pixels.subarray(from, from + p.w * 4), to);
+      if (pixels16 !== undefined) {
+        if (src.pixels16 !== undefined) {
+          pixels16.set(src.pixels16.subarray(from, from + p.w * 4), to);
+        } else {
+          // 8 位源上转：`v*257` 把 0..255 均匀铺到 0..65535，
+          // 且 `round(v*257/257) === v` —— 所以"上转"对 8 位源是**无损**的，
+          // 图集变 16 位不会让 8 位素材出现任何偏差。
+          for (let i = 0; i < p.w * 4; i++) pixels16[to + i] = src.pixels[from + i]! * 257;
+        }
+      } else if (src.pixels16 !== undefined) {
+        // precision: 8 的显式降采样，口径与 `png.ts` / pngjs 相同：`round(v/257)`。
+        // ★ 刻意从 `pixels16` 重算，而不是复制 `src.pixels`：后者是解码器"顺手给出"的
+        //   8 位视图，复制它等于把降采样决策偷偷留在解码器里 —— 那正是本任务要拆掉的东西。
+        for (let i = 0; i < p.w * 4; i++) pixels[to + i] = Math.round(src.pixels16[from + i]! / 257);
+      } else {
+        pixels.set(src.pixels.subarray(from, from + p.w * 4), to);
+      }
     }
+  }
+
+  if (pixels16 !== undefined) {
+    // 由 16 位**派生** 8 位视图（不是各拼一份）：这样 `pixels[i] === round(pixels16[i]/257)`
+    // 是构造出来的性质，而不是靠两条代码路径"碰巧一致"。padding 的 0 也满足。
+    for (let i = 0; i < pixels.length; i++) pixels[i] = Math.round(pixels16[i]! / 257);
   }
 
   // ---- UV 按最终图集尺寸归一化 ----
@@ -212,7 +274,12 @@ export function buildAtlasFromSources(
     });
   }
 
-  return ok({ width, height, pixels, frames });
+  return ok(
+    pixels16 === undefined
+      ? { width, height, pixels, frames }
+      : // 16 位时**同时**给 8 位视图（见 atlas.ts 的不变量说明）
+        { width, height, pixels, format: PixelFormat.RGBA16, pixels16, frames },
+  );
 }
 
 // ------------------------------------------------------------------ 从导入产物构建
@@ -307,20 +374,35 @@ export function buildAtlasFromImported(
   return buildAtlasFromSources(cropped, opts);
 }
 
-/** 从一张已解码 PNG 里裁一块（保持 RGBA8，不复制多余字段）。 */
+/**
+ * 从一张已解码 PNG 里裁一块（不复制多余字段）。
+ *
+ * ★ 必须**一起裁 `pixels16`**：否则 16 位源走 `buildAtlasFromImported` 时会静默退回 8 位
+ *   （裁剪只带 RGBA8 ⇒ 后续 precision:auto 认不出它是 16 位源）。
+ *   这是"链路上某一段悄悄降采样"的典型形态：裁剪、重排看起来都成功，精度没了。
+ */
 function cropPng(src: DecodedPng, x: number, y: number, w: number, h: number): DecodedPng {
   const pixels = new Uint8Array(w * h * 4);
+  const src16 = src.pixels16;
+  const pixels16 = src16 === undefined ? undefined : new Uint16Array(w * h * 4);
   for (let row = 0; row < h; row++) {
     const from = ((y + row) * src.width + x) * 4;
     pixels.set(src.pixels.subarray(from, from + w * 4), row * w * 4);
+    if (pixels16 !== undefined) pixels16.set(src16!.subarray(from, from + w * 4), row * w * 4);
   }
   return {
     width: w,
     height: h,
     pixels,
-    bitDepth: 8,
+    pixels16,
+    // bitDepth 描述的是"这份解码结果的精度"（本函数本来就统一报 8，因为输出是 RGBA8）；
+    // 带 pixels16 时它就不是 8 位了，继续写 8 会误导下游按 8 位处理。
+    bitDepth: pixels16 === undefined ? 8 : 16,
     colorType: 6,
     hasAlpha: true,
     usedTransparencyKey: false,
+    // 裁剪改的是像素布局，不改"文件从哪来"：隔行/动图标记照搬，避免裁剪后被误判成普通静态图
+    interlaced: src.interlaced,
+    isApng: src.isApng,
   };
 }

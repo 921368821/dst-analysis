@@ -9,7 +9,7 @@
  * 这条判据把四段接成一根链条，每段都必须真的发生：
  *   ① `web/assets/*.png` 是**磁盘上的真文件**（不是自造字节）
  *   ② 它们被导入管线扫到、生成 `.meta`、按路径派生 id
- *   ③ `db.load` 交回的 `ImportedTexture.bytes` 被 `decodePng` 解成 RGBA8
+ *   ③ `db.load` 交回的 `ImportedTexture.bytes` 被 `decodeImage` 解成 RGBA8
  *   ④ 合成出的 `AtlasData.pixels` **逐字节**到达 GPU（用 null 后端的摘要比对）
  *
  * ★ 为什么第 ④ 步用摘要而不是像素：2048² 一张就 16 MB。
@@ -36,20 +36,35 @@ import { textureImporter } from "../../src/extensions/asset-import/importers/tex
 import { atlasImporter } from "../../src/extensions/asset-import/importers/atlas.ts";
 import { textImporter } from "../../src/extensions/asset-import/importers/text.ts";
 import { ImportedTexture, createImportLoaders } from "../../src/extensions/asset-import/loaders.ts";
-import { decodePng } from "../../src/extensions/asset-import/decode/png.ts";
+import { decodeImage } from "../../src/extensions/asset-import/decode/image.ts";
 import { buildAtlasFromSources, type AtlasSource } from "../../src/extensions/render/atlas-from-assets.ts";
 import { createRenderModule } from "../../src/extensions/render/render-module.ts";
 import type { AtlasData } from "../../src/extensions/render/atlas.ts";
 
-/** 与 `browser-entry.ts` 的 `DEMO_FRAMES` 保持一致（那边是宿主，这边是判据）。 */
-const ASSET_NAMES = ["ground", "tree", "rock", "berry", "player"] as const;
+/**
+ * 与 `browser-entry.ts` 的 `DEMO_FRAMES` 保持一致（那边是宿主，这边是判据）。
+ *
+ * ★ 这里必须**混有 JPEG**：全 PNG 的清单只能证明 PNG 通路在跑，
+ *   而"JPEG 能导入、能解码、能进图集、能上传"是四条独立的事实。
+ *   文件名带扩展名，正因为两种格式同时在场。
+ */
+const ASSET_FILES = [
+  { name: "ground", file: "ground.png" },
+  { name: "tree", file: "tree.png" },
+  { name: "rock", file: "rock.png" },
+  { name: "berry", file: "berry.png" },
+  { name: "player", file: "player.png" },
+  { name: "photo", file: "photo.jpg" },
+] as const;
 
-function assetUrl(name: string): URL {
-  return new URL(`../../web/assets/${name}.png`, import.meta.url);
+const ASSET_NAMES = ASSET_FILES.map((a) => a.name);
+
+function assetUrl(file: string): URL {
+  return new URL(`../../web/assets/${file}`, import.meta.url);
 }
 
-async function readAsset(name: string): Promise<Uint8Array> {
-  const buf = await readFile(fileURLToPath(assetUrl(name)));
+async function readAsset(file: string): Promise<Uint8Array> {
+  const buf = await readFile(fileURLToPath(assetUrl(file)));
   return new Uint8Array(buf);
 }
 
@@ -76,9 +91,9 @@ async function importRealAssets(): Promise<AssetRig> {
   //   `db.load` 会报"产物不在"——症状是"导入全绿、运行时全空"，很难从报错看出根因。
   for (const l of createImportLoaders({ root: "/assets" })) db.registerLoader(l);
 
-  for (const name of ASSET_NAMES) {
-    const w = await fs.writeBinary(`/assets/${name}.png`, await readAsset(name));
-    assert.ok(w.ok, `写入 ${name}.png 失败`);
+  for (const { file } of ASSET_FILES) {
+    const w = await fs.writeBinary(`/assets/${file}`, await readAsset(file));
+    assert.ok(w.ok, `写入 ${file} 失败`);
   }
   const rep = await pipeline.run("/assets");
   assert.ok(rep.ok, `导入管线失败：${rep.ok ? "" : rep.error.code + " " + rep.error.message}`);
@@ -88,9 +103,9 @@ async function importRealAssets(): Promise<AssetRig> {
 /** 从已导入的资产解出图集。 */
 async function buildRealAtlas(rig: AssetRig): Promise<AtlasData> {
   const sources: AtlasSource[] = [];
-  for (const name of ASSET_NAMES) {
-    const id = rig.db.idAtPath(`/assets/${name}.png`);
-    assert.ok(id !== undefined, `${name}.png 导入后应能按路径查到 id`);
+  for (const { name, file } of ASSET_FILES) {
+    const id = rig.db.idAtPath(`/assets/${file}`);
+    assert.ok(id !== undefined, `${file} 导入后应能按路径查到 id`);
     const h = await rig.db.load(id);
     assert.ok(h.ok, `${name} 加载失败：${h.ok ? "" : h.error.code + " " + h.error.message}`);
     try {
@@ -99,7 +114,7 @@ async function buildRealAtlas(rig: AssetRig): Promise<AtlasData> {
         asset instanceof ImportedTexture,
         `${name} 应加载成 ImportedTexture，实际 ${asset.constructor.name}（缺加载器时会退化成别的类型）`,
       );
-      const dec = decodePng(asset.bytes);
+      const dec = decodeImage(asset.bytes);
       assert.ok(dec.ok, `${name} 解码失败：${dec.ok ? "" : dec.error.code + " " + dec.error.message}`);
       sources.push({ name, png: dec.value });
     } finally {
@@ -129,33 +144,33 @@ async function bootWithAtlas(atlas: AtlasData): Promise<{ dev: NullGraphicsDevic
 
 // ---------------------------------------------------------------- ① 导入
 
-test("资产链：web/assets 的 5 张真 PNG 被扫到、生成 .meta、按路径拿到 id", async () => {
+test("资产链：web/assets 的 6 张真位图（5 PNG + 1 JPEG）被扫到、生成 .meta、按路径拿到 id", async () => {
   const rig = await importRealAssets();
 
-  assert.equal(rig.report.scanned, ASSET_NAMES.length, `应扫到 ${ASSET_NAMES.length} 个源文件`);
+  assert.equal(rig.report.scanned, ASSET_FILES.length, `应扫到 ${ASSET_FILES.length} 个源文件`);
   assert.equal(rig.report.created, ASSET_NAMES.length, "首次导入应为每个源文件生成 .meta");
   assert.equal(rig.report.imported, ASSET_NAMES.length);
   assert.deepEqual(rig.report.failed, [], "不应有导入失败");
 
-  for (const name of ASSET_NAMES) {
+  for (const { file } of ASSET_FILES) {
     assert.ok(
-      (await rig.fs.exists(`/assets/${name}.png.meta`)),
-      `${name}.png.meta 必须落盘 —— 没有它 id 就只能靠路径派生，改名即断引用`,
+      (await rig.fs.exists(`/assets/${file}.meta`)),
+      `${file}.meta 必须落盘 —— 没有它 id 就只能靠路径派生，改名即断引用`,
     );
-    assert.ok(rig.db.idAtPath(`/assets/${name}.png`) !== undefined);
+    assert.ok(rig.db.idAtPath(`/assets/${file}`) !== undefined);
   }
 });
 
-test("资产链：第二次导入是增量的（skipped=5 / imported=0），id 不变", async () => {
+test("资产链：第二次导入是增量的（skipped=6 / imported=0），id 不变", async () => {
   const rig = await importRealAssets();
-  const before = ASSET_NAMES.map((n) => rig.db.idAtPath(`/assets/${n}.png`));
+  const before = ASSET_FILES.map((a) => rig.db.idAtPath(`/assets/${a.file}`));
 
   const again = await rig.pipeline.run("/assets");
   assert.ok(again.ok);
   assert.equal(again.value.imported, 0, "源没变、importerVersion 没变 ⇒ 一个都不该重导");
-  assert.equal(again.value.skipped, ASSET_NAMES.length);
+  assert.equal(again.value.skipped, ASSET_FILES.length);
 
-  const after = ASSET_NAMES.map((n) => rig.db.idAtPath(`/assets/${n}.png`));
+  const after = ASSET_FILES.map((a) => rig.db.idAtPath(`/assets/${a.file}`));
   assert.deepEqual(after, before, "增量导入不许改 id");
 });
 
@@ -164,14 +179,14 @@ test("资产链：第二次导入是增量的（skipped=5 / imported=0），id �
 test("资产链：解码出的尺寸与导入产物记录的头信息一致（不是'解出来就行'）", async () => {
   const rig = await importRealAssets();
 
-  for (const name of ASSET_NAMES) {
-    const id = rig.db.idAtPath(`/assets/${name}.png`);
+  for (const { name, file } of ASSET_FILES) {
+    const id = rig.db.idAtPath(`/assets/${file}`);
     assert.ok(id !== undefined);
     const h = await rig.db.load(id);
     assert.ok(h.ok);
     try {
       const tex = h.value.asset as ImportedTexture;
-      const dec = decodePng(tex.bytes);
+      const dec = decodeImage(tex.bytes);
       assert.ok(dec.ok);
       assert.equal(dec.value.width, tex.width, `${name} 解码宽度应等于 IHDR 声明值`);
       assert.equal(dec.value.height, tex.height, `${name} 解码高度应等于 IHDR 声明值`);
@@ -212,6 +227,31 @@ test("闭环：合成的图集上传到 GPU 的字节，与解码结果逐字节
     hashBytes(atlas.pixels),
     "GPU 收到的字节必须与'解码 + 合成'产出的 RGBA8 完全相同",
   );
+});
+
+test("闭环：JPEG 帧的像素真的进了图集（不是只有帧表没有内容）", async () => {
+  const rig = await importRealAssets();
+  const atlas = await buildRealAtlas(rig);
+
+  const frame = atlas.frames.get("photo");
+  assert.ok(frame !== undefined, "JPEG 资产必须在图集里占一帧 —— 只有 PNG 能进图集就说明分发/导入有一处没接");
+
+  // 帧矩形内不能整块是黑的：解出全 0 或"只写了帧表"时，画面上一块空，但摘要判据照样绿
+  const x0 = Math.max(0, Math.min(atlas.width - 1, Math.round(frame.u0 * atlas.width)));
+  const y0 = Math.max(0, Math.min(atlas.height - 1, Math.round(frame.v0 * atlas.height)));
+  const x1 = Math.max(x0 + 1, Math.min(atlas.width, Math.round(frame.u1 * atlas.width)));
+  const y1 = Math.max(y0 + 1, Math.min(atlas.height, Math.round(frame.v1 * atlas.height)));
+  let sum = 0;
+  let n = 0;
+  for (let y = y0; y < y1; y++) {
+    for (let x = x0; x < x1; x++) {
+      const i = (y * atlas.width + x) * 4;
+      sum += atlas.pixels[i]! + atlas.pixels[i + 1]! + atlas.pixels[i + 2]!;
+      n += 3;
+    }
+  }
+  assert.ok(n > 0, "帧矩形算成了空的（UV 归一化错了）");
+  assert.ok(sum / n > 8, `JPEG 帧区域平均亮度只有 ${(sum / n).toFixed(1)} —— 像素没被拷进图集`);
 });
 
 test("闭环反例：改一个像素，摘要必须变（否则上一条是恒绿的）", async () => {

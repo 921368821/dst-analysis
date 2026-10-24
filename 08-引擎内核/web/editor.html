@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>引擎内核 · 编辑器（最小闭环）</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; overflow: hidden;
+    background: #0b0e13; color: #c9d1d9;
+    font: 12px/1.5 ui-monospace, Consolas, "Courier New", monospace; }
+  #grid { display: grid; height: 100vh;
+    grid-template-columns: 240px 1fr 260px;
+    grid-template-rows: 34px 1fr 40px;
+    grid-template-areas: "top top top" "tree view props" "pie pie pie"; }
+  #top { grid-area: top; display: flex; align-items: center; gap: 12px;
+    padding: 0 10px; background: #10151d; border-bottom: 1px solid #1d2530; }
+  #top b { color: #e6c07b; font-weight: 600; }
+  #top .dim { color: #6a7684; }
+  #tree { grid-area: tree; overflow: auto; padding: 6px 4px;
+    background: #0d1219; border-right: 1px solid #1d2530; }
+  #view { grid-area: view; position: relative; overflow: hidden; background: #0b0e13; }
+  #cv { display: block; width: 100%; height: 100%; image-rendering: pixelated; }
+  #props { grid-area: props; overflow: auto; padding: 8px 10px;
+    background: #0d1219; border-left: 1px solid #1d2530; }
+  #pie { grid-area: pie; display: flex; align-items: center; gap: 8px;
+    padding: 0 10px; background: #10151d; border-top: 1px solid #1d2530; }
+
+  .row { padding: 2px 6px; border-radius: 4px; cursor: pointer; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; }
+  .row:hover { background: rgba(255,255,255,.06); }
+  .row.sel { background: rgba(88,140,220,.28); outline: 1px solid rgba(120,170,255,.5); }
+  .row .id { color: #4d5866; }
+  .row.dead { color: #6a7684; text-decoration: line-through; }
+
+  #props h2 { margin: 0 0 6px; font-size: 12px; color: #8b98a8; font-weight: 600; }
+  #props h3 { margin: 12px 0 4px; font-size: 11px; color: #6a7684; font-weight: 600;
+    border-bottom: 1px solid #1d2530; padding-bottom: 3px; }
+  #props .empty { color: #6a7684; }
+  .f { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+  .f label { flex: 0 0 74px; color: #9fb4d0; overflow: hidden; text-overflow: ellipsis; }
+  .f input[type=text], .f input[type=number] { flex: 1 1 auto; min-width: 0;
+    background: #0a0e14; color: #e6edf3; border: 1px solid #263140; border-radius: 3px;
+    padding: 2px 5px; font: inherit; }
+  .f input.bad { border-color: #b3564f; outline: 1px solid rgba(200,90,80,.45); }
+  .f .ty { color: #4d5866; font-size: 10px; }
+
+  button { background: #1b2431; color: #c9d1d9; border: 1px solid #2a3340;
+    border-radius: 4px; padding: 3px 10px; font: inherit; cursor: pointer; }
+  button:hover { background: #23303f; }
+  button.on { background: rgba(88,140,220,.35); border-color: rgba(120,170,255,.6); color: #fff; }
+  #err { color: #e06c60; }
+  #tick { color: #9fb4d0; }
+</style>
+</head>
+<body>
+<div id="grid">
+  <div id="top">
+    <b>编辑器</b>
+    <span class="dim" id="status">启动中…</span>
+    <span id="err"></span>
+  </div>
+  <div id="tree"></div>
+  <div id="view"><canvas id="cv"></canvas></div>
+  <div id="props"><div class="empty">未选中</div></div>
+  <div id="pie">
+    <button id="btn-play">播放</button>
+    <button id="btn-pause">暂停</button>
+    <button id="btn-step">单步</button>
+    <button id="btn-step10">单步×10</button>
+    <span id="tick">tick 0</span>
+    <span class="dim" id="pieinfo"></span>
+  </div>
+</div>
+<script type="module" src="./editor.js"></script>
+</body>
+</html>
