@@ -22,7 +22,7 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { appendFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -189,6 +189,45 @@ if (failed !== null) {
   console.error(`\n✘ 失败步骤：${failed.name}`);
   console.error("---- 输出尾部 ----");
   console.error(failed.tail);
+  // ★★ 把失败摘要写进 GitHub 的 **annotation**，而不是只打在 stdout。
+  //
+  //   原因很具体：job 日志（GET /actions/jobs/{id}/logs）**需要仓库 admin 权限**，
+  //   公开仓库也一样（实测 403 "Must have admin rights"）。而 annotations
+  //   （GET /repos/{o}/{r}/check-runs/{id}/annotations）**匿名可读**。
+  //
+  //   没有这一行时，一次 CI 失败在外部只能看到一句
+  //   "Process completed with exit code 1." —— 它不说哪个判据红、红在哪。
+  //   2026-10-24 首次真实运行就是这样：三个 job 两个红，而"为什么红"完全不可见。
+  //
+  //   `::error::` 是 Actions 的工作流命令，由 runner 从输出里解析。只在
+  //   `GITHUB_ACTIONS=true` 时才写，免得污染本地终端。
+  if (process.env.GITHUB_ACTIONS === "true") {
+    const ghEsc = (s) =>
+      String(s).replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
+    // ★ 保留换行（不压成一行）：多行尾巴直接可读，压成 "a ⏎ b" 后
+    //   人眼要在一条长串里找红行，而这条 annotation 的全部价值就是那一行。
+    const tailLines = failed.tail.split(/\r?\n/).filter((l) => l.trim() !== "").slice(-12);
+    // ★ 把**已经跑过的步骤**也带上：只看"哪步挂了"不够，还要知道
+    //   "它前面那些步在这台机器上花了几秒" —— 否则分不清
+    //   "真的坏了"与"这台机器太慢"（8ms 性能闸门就是靠这个判的）。
+    const done = rows
+      .map((r) => `${r.skip === true ? "⊘" : r.ok ? "✔" : "✘"} ${r.name} ${(r.ms / 1000).toFixed(1)}s`)
+      .join(" / ");
+    const body = [`已过步骤：${done}`, "", ...tailLines].join("\n");
+    process.stderr.write(`::error title=CI 失败·${failed.name}::${ghEsc(body)}\n`);
+    // 同时写进 job summary：网页上看 Actions 摘要时不用展开 20 万行日志
+    const summaryFile = process.env.GITHUB_STEP_SUMMARY;
+    if (typeof summaryFile === "string" && summaryFile !== "") {
+      try {
+        appendFileSync(
+          summaryFile,
+          `## ✘ CI 失败：${failed.name}\n\n**已过步骤**：${done}\n\n<details><summary>输出尾部</summary>\n\n\`\`\`\n${failed.tail}\n\`\`\`\n\n</details>\n`,
+        );
+      } catch {
+        // summary 写不进去不该影响退出码（它只是给人看的）
+      }
+    }
+  }
   process.exit(1);
 }
 const skipped = STEPS.length - rows.length;
