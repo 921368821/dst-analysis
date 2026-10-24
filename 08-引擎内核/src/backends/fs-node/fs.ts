@@ -90,7 +90,15 @@ export class NodeFileSystem implements IFileSystem {
   readonly canList = true;
   /** 绝对且已 resolve 的根目录。构造后不再变。 */
   readonly root: string;
-  /** 根的 realpath（解掉符号链接），越界判定用这个做前缀。 */
+  /**
+   * 根的 realpath（解掉符号链接），越界判定用这个做前缀。
+   *
+   * **必须用 `.native`**：`realpathSync`（JS 版）会**保留输入的大小写形式**，
+   * 而 `contained()` 里用的 `fsp.realpath` 走 native、返回盘上的真实形式。
+   * 两者不同源时，Windows 上（盘不区分大小写，runner 的 `RUNNER~1` 短名还会被展开）
+   * 前缀比较永远不等 ⇒ 每一次读写都误报 `FS.PATH_ESCAPE`。
+   * `.native` 与 `fsp.realpath` 是同一个实现，这一点由 tests 里那条大小写判据守着。
+   */
   private readonly realRoot: string;
   private tmpSeq = 0;
   /** 写入次数（判据可以断言"没有多余的落盘"）。 */
@@ -100,7 +108,7 @@ export class NodeFileSystem implements IFileSystem {
     this.root = resolve(root);
     if (opts.createRoot !== false) mkdirSync(this.root, { recursive: true });
     try {
-      this.realRoot = realpathSync(this.root);
+      this.realRoot = realpathSync.native(this.root);
     } catch (e) {
       // 根目录不存在且 createRoot=false 是**调用方的配置错误**，不是可预期失败
       throw new Error(`NodeFileSystem 的 root 不可用：${this.root}（${mapFsError(e, root).message}）`);

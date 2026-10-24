@@ -2557,6 +2557,25 @@ MUTANTS = [
         ],
         "test": "tests/extensions/mob-world.test.ts",
     },
+    {
+        "name": "M277 越界判定改用 JS 版 realpathSync 存 root（与 fsp.realpath 不同源）",
+        # ★ 编号按**追加顺序**排，所以这条挂在末尾而不是紧跟 M55–M57 那组 fs-node 条目。
+        #
+        # 缺陷原型（GitHub Actions windows-latest 上 39 条契约测试全红，2026-10-25）：
+        # `realpathSync`（JS 版）**保留输入的大小写形式**，`fsp.realpath` 走 native、
+        # 返回盘上的真实形式。用前者存 realRoot、用后者比较 ⇒ 前缀永远不等。
+        # Windows 的盘不区分大小写（runner 上 `C:\Users\RUNNER~1` 还会被 native 展开成
+        # `C:\Users\runneradmin`），于是**每一次**读写都报 FS.PATH_ESCAPE。
+        #
+        # 判据造的是"输入形式 ≠ 盘上形式"的最小样本：root 全大写。
+        # 这条变异把修复回退成 JS 版 realpathSync —— 判据必须立刻红。
+        "file": "src/backends/fs-node/fs.ts",
+        "pairs": [(
+            "      this.realRoot = realpathSync.native(this.root);",
+            "      this.realRoot = realpathSync(this.root);",
+        )],
+        "test": "tests/backends/fs-node.test.ts",
+    },
 ]
 
 

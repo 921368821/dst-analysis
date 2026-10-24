@@ -135,6 +135,50 @@ test("[node] 符号链接把路径引到 root 之外 → FS.PATH_ESCAPE", async 
   }
 });
 
+/**
+ * 缺陷来源（GitHub Actions windows-latest 上 39 条契约测试全红）：
+ * `NodeFileSystem` 用 `realpathSync` 存 `realRoot`、用 `fsp.realpath` 做比较。
+ * 这两个不是同一个实现 —— JS 版 `realpathSync` **保留输入的大小写形式**，
+ * 而 `fsp.realpath` 走 native、返回**盘上的真实形式**：
+ *   realpathSync('…/fsnode-case-83fhln')         → '…/fsnode-case-83fhln'   ← 输入形式
+ *   realpathSync.native('…/fsnode-case-83fhln')  → '…/fsnode-case-83FHLN'   ← 盘上形式
+ *   await fsp.realpath('…/fsnode-case-83fhln')   → '…/fsnode-case-83FHLN'
+ * Windows 的盘不区分大小写（runner 上更极端：`C:\Users\RUNNER~1` 短名会被 native 展开成
+ * `C:\Users\runneradmin`），于是前缀比较永远不等，**每一次**读写都报 FS.PATH_ESCAPE。
+ *
+ * 判据造的是"输入形式与盘上形式不同"的最小样本：把 root 全大写。
+ * 只比较大小写不同这一件事，符号链接/短名只是它的另外两种表象。
+ */
+test("[node] root 的大小写与盘上不一致时，读写不该报 FS.PATH_ESCAPE", async (t) => {
+  if (process.platform !== "win32") {
+    t.diagnostic("跳过：只有 Windows 的盘不区分大小写，其他平台上大写变体指向的是另一个目录（不存在）");
+    return;
+  }
+  const root = tempRoot("case");
+  const variant = root.toUpperCase();
+  // 前提检查：变体得真的不同、且真的指向同一个空目录，否则这条判据什么都没测
+  assert.notEqual(variant, root, "构造失败：大写变体与原名相同，测不到 case 差异");
+  let seen: string[];
+  try {
+    seen = readdirSync(variant);
+  } catch (e) {
+    assert.fail(`构造失败：大写变体不是同一个目录（${e instanceof Error ? e.message : ""}）`);
+  }
+  assert.deepEqual(seen!, [], "构造失败：大写变体不是那个空目录");
+  try {
+    const fs = new NodeFileSystem(variant);
+    const w = await fs.writeBinary("/save.bin", new Uint8Array([7, 8]));
+    assert.equal(w.ok, true, `写入被拒：${w.ok ? "" : w.error.message}`);
+    const r = await fs.readBinary("/save.bin");
+    assert.equal(r.ok, true, `读回被拒：${r.ok ? "" : r.error.message}`);
+    if (r.ok) assert.deepEqual([...r.value], [7, 8]);
+    // 字节必须落在**同一个**目录里，不是另建了一个大写的新目录
+    assert.deepEqual(readdirSync(root), ["save.bin"], "文件没落在这个 root 里");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("[node] 后端工厂：没给 root 就拒绝（不拿当前工作目录当根）", () => {
   assert.equal(nodeFsBackend.scheme, "node");
   assert.equal(nodeFsBackend.probe(), true, "在 Node 里 probe 必须是 true");

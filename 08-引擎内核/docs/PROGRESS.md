@@ -308,14 +308,14 @@ T355 遗留的三件事（只有一行 HUD、`amount` 固定 1、无丢弃）一
 
 | 指标 | 数值 | 复现命令 |
 |---|---|---|
-| 源码 | **138 个文件** <!-- n:srcfiles --> / **33149 行** <!-- n:srclines --> | `find src -name "*.ts" \| xargs wc -l \| tail -1` |
-| 判据 | **1413 条** <!-- n:tests -->（全部通过 / 0 失败） | `npm test` |
+| 源码 | **138 个文件** <!-- n:srcfiles --> / **33157 行** <!-- n:srclines --> | `find src -name "*.ts" \| xargs wc -l \| tail -1` |
+| 判据 | **1414 条** <!-- n:tests -->（全部通过 / 0 失败） | `npm test` |
 | 类型检查 | **0 错误**（strict + `noUncheckedIndexedAccess` + `noUnusedLocals`） | `npm run typecheck` |
 | 测试文件 | 95 个 <!-- n:files --> | `find tests -name "*.test.ts"` |
 | 架构守护 | 7 条依赖规则 | `tests/arch/layers.test.ts` |
 | 后端 | **12 个**（gfx×2 / audio×2 / input×2 / fs×4（mem / node / 只读 http / storage）/ script×2） | `ls src/backends` |
 | 扩展模块 | 9 个（render / physics / script / asset-import（含 decode） / worldgen / ai / build / inventory / input） | `ls src/extensions` |
-| 变异验证 | **276 组注入** <!-- n:mutants -->（全部被抓住且还原干净） | `python tools/mutation-check.py` |
+| 变异验证 | **277 组注入** <!-- n:mutants -->（全部被抓住且还原干净） | `python tools/mutation-check.py` |
 | 真实 PNG 语料 | 结构校验 **3423/3423**；完整解码 **3422/3423**（1 个源文件本身被截半）；其中隔行 18 / 调色板 6 / tRNS 4 / APNG 4 | `node tools/verify-png-corpus.mjs --all` |
 | 浏览器自检 | **40 条** <!-- n:browser -->（含"图集来自真实资产"、"图集 6 帧"含 1 张 JPEG） | `npm run build:web && npm run serve:web` |
 | 包体 | 公共入口 144KB（不含 wasmoon）/ 浏览器 522KB + wasm 266KB + 资产 9.3KB（新增 1 张 JPEG） | `esbuild src/index.ts` 对比 |
