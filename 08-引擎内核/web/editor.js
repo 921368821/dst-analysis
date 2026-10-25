@@ -3,6 +3,10 @@ var TAU = Math.PI * 2;
 function clamp(v, lo, hi) {
   return v < lo ? lo : v > hi ? hi : v;
 }
+function quantize(v, decimals = 3) {
+  const f = Math.pow(10, decimals);
+  return Math.sign(v) * Math.round(Math.abs(v) * f + 1e-9) / f;
+}
 
 // src/foundation/log/logger.ts
 var LogLevel = {
@@ -6995,6 +6999,25 @@ function coerce(type, raw) {
       return bad2(type, raw, "\u5DF2\u77E5\u7684\u5B57\u6BB5\u7C7B\u578B");
   }
 }
+function valuesEqual(a, b) {
+  if (a === b) return true;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b)) return false;
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) if (!valuesEqual(a[i], b[i])) return false;
+    return true;
+  }
+  if (typeof a === "object" && a !== null && typeof b === "object" && b !== null) {
+    const ka = Object.keys(a);
+    const kb = Object.keys(b);
+    if (ka.length !== kb.length) return false;
+    for (const k of ka) {
+      if (!valuesEqual(a[k], b[k])) return false;
+    }
+    return true;
+  }
+  return false;
+}
 function setField(scene, nodeId, type, key, raw) {
   const node = scene.find(nodeId);
   if (node === void 0) return err(engineError(EDIT_BAD_FIELD, `\u8282\u70B9 ${String(nodeId)} \u4E0D\u5728\u573A\u666F\u91CC`));
@@ -7011,7 +7034,7 @@ function setField(scene, nodeId, type, key, raw) {
   const bag = comp;
   const before = bag[key];
   bag[key] = c.value;
-  return ok({ before, after: c.value });
+  return ok({ before, after: c.value, changed: !valuesEqual(before, c.value) });
 }
 
 // src/extensions/editor/pie.ts
@@ -7093,6 +7116,560 @@ function createPie(opts = {}) {
   return new Pie(opts);
 }
 
+// src/extensions/editor/undo-stack.ts
+var UNDO_BUSY = "UNDO.BUSY";
+var UNDO_OP_FAILED = "UNDO.OP_FAILED";
+var DEFAULT_LIMIT2 = 200;
+var BatchOp = class {
+  label;
+  ops;
+  // ★ 不用构造函数参数属性（`constructor(readonly ...)`）：本项目直接用
+  //   Node 跑 `.ts`，strip-only 模式下参数属性会直接抛
+  //   `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`。全仓统一显式声明 + 显式赋值。
+  constructor(label, ops) {
+    this.label = label;
+    this.ops = ops;
+  }
+  apply() {
+    for (const o of this.ops) {
+      const r = o.apply();
+      if (!r.ok) return r;
+    }
+    return ok(void 0);
+  }
+  revert() {
+    for (let i = this.ops.length - 1; i >= 0; i--) {
+      const r = this.ops[i].revert();
+      if (!r.ok) return r;
+    }
+    return ok(void 0);
+  }
+};
+var UndoStack = class {
+  /** 尾部 = 栈顶 = 下一次撤销的那条。 */
+  done = [];
+  /** 尾部 = 下一次重做的那条。 */
+  redoSide = [];
+  limit;
+  droppedCount = 0;
+  /** 反向操作进行中（防止重入）。 */
+  busy = false;
+  /** `runWithoutRecording` 的嵌套层数。 */
+  muted = 0;
+  /** 正在累积的批量（`null` = 不在批量里）。 */
+  batch = null;
+  constructor(opts = {}) {
+    const l = opts.limit ?? DEFAULT_LIMIT2;
+    this.limit = Number.isFinite(l) && l >= 1 ? Math.floor(l) : 1;
+  }
+  get canUndo() {
+    return this.done.length > 0;
+  }
+  get canRedo() {
+    return this.redoSide.length > 0;
+  }
+  /** 撤销侧深度（不含重做侧）。 */
+  get depth() {
+    return this.done.length;
+  }
+  get droppedTotal() {
+    return this.droppedCount;
+  }
+  /** 是否正在攒批量（UI 可以在批量期间把撤销按钮置灰）。 */
+  get inBatch() {
+    return this.batch !== null;
+  }
+  /** 下一次撤销会退掉哪一条（没有则 `null`）。 */
+  get nextUndoLabel() {
+    const t = this.done[this.done.length - 1];
+    return t === void 0 ? null : t.label;
+  }
+  get nextRedoLabel() {
+    const t = this.redoSide[this.redoSide.length - 1];
+    return t === void 0 ? null : t.label;
+  }
+  /** 压一条**已经生效**的操作。批量进行中则进批量，不直接进历史。 */
+  push(op) {
+    if (this.busy) {
+      return err(engineError(UNDO_BUSY, `\u6B63\u5728\u6267\u884C\u300C${op.label}\u300D\u7684\u53CD\u5411\u64CD\u4F5C\uFF0C\u4E0D\u80FD\u540C\u65F6\u538B\u6808`));
+    }
+    if (this.muted > 0) return ok(void 0);
+    if (this.batch !== null) {
+      this.batch.ops.push(op);
+      return ok(void 0);
+    }
+    this.done.push(op);
+    this.redoSide = [];
+    while (this.done.length > this.limit) {
+      this.done.shift();
+      this.droppedCount++;
+    }
+    return ok(void 0);
+  }
+  /** 开始一个批量。不嵌套（批量里再开批量会让「谁是原子的」变得说不清）。 */
+  beginBatch(label) {
+    if (this.busy) return err(engineError(UNDO_BUSY, "\u6B63\u5728\u6267\u884C\u53CD\u5411\u64CD\u4F5C\uFF0C\u4E0D\u80FD\u5F00\u59CB\u6279\u91CF"));
+    if (this.batch !== null) {
+      return err(engineError(UNDO_BUSY, `\u5DF2\u5728\u6279\u91CF\u300C${this.batch.label}\u300D\u91CC\uFF0C\u4E0D\u652F\u6301\u5D4C\u5957`));
+    }
+    this.batch = { label, ops: [] };
+    return ok(void 0);
+  }
+  /**
+   * 结束批量：先把已收集的操作合成**一个**条目压进历史。
+   *
+   * 一条都没收集到时**不产生空历史**（返回 `pushed: false`）——
+   * 「删了 0 个」不该在历史里留一行让人按了没反应的记录。
+   */
+  commitBatch() {
+    const b = this.batch;
+    if (b === null) return err(engineError(UNDO_BUSY, "\u5F53\u524D\u6CA1\u6709\u8FDB\u884C\u4E2D\u7684\u6279\u91CF"));
+    this.batch = null;
+    if (b.ops.length === 0) return ok({ pushed: false, count: 0 });
+    const r = this.push(new BatchOp(b.label, b.ops));
+    return r.ok ? ok({ pushed: true, count: b.ops.length }) : r;
+  }
+  /**
+   * 丢弃批量并**反向执行已经做掉的那几条**（倒序）。
+   *
+   * 用在「批量中途出错」：前 3 个删掉了、第 4 个失败 ⇒ 把前 3 个退回去，
+   * 世界回到批量之前，历史里不留任何痕迹。
+   */
+  rollbackBatch() {
+    const b = this.batch;
+    if (b === null) return { kind: "empty" };
+    this.batch = null;
+    if (b.ops.length === 0) return { kind: "empty" };
+    this.busy = true;
+    try {
+      for (let i = b.ops.length - 1; i >= 0; i--) {
+        const op = b.ops[i];
+        const r = op.revert();
+        if (!r.ok) return { kind: "failed", label: op.label, error: r.error };
+      }
+    } finally {
+      this.busy = false;
+    }
+    return { kind: "done", label: `\u56DE\u6EDA\u300C${b.label}\u300D\uFF08${String(b.ops.length)} \u6761\uFF09` };
+  }
+  /** 撤销一步。失败时**栈不动**（见文件头 ②）。 */
+  undo() {
+    if (this.busy) return this.busyOutcome();
+    const op = this.done[this.done.length - 1];
+    if (op === void 0) return { kind: "empty" };
+    const r = this.runBusy(() => op.revert());
+    if (!r.ok) return { kind: "failed", label: op.label, error: r.error };
+    this.done.pop();
+    this.redoSide.push(op);
+    return { kind: "done", label: op.label };
+  }
+  /** 重做一步。失败时**栈不动**。 */
+  redo() {
+    if (this.busy) return this.busyOutcome();
+    const op = this.redoSide[this.redoSide.length - 1];
+    if (op === void 0) return { kind: "empty" };
+    const r = this.runBusy(() => op.apply());
+    if (!r.ok) return { kind: "failed", label: op.label, error: r.error };
+    this.redoSide.pop();
+    this.done.push(op);
+    return { kind: "done", label: op.label };
+  }
+  /**
+   * 丢弃全部历史（切换场景 / 读档之后必须调）。
+   *
+   * ★ 读档后不能留着历史：条目里记着 `nodeId` 与旧值，而读档把所有节点都换了
+   *   —— 撤销一条「改 zIndex」会写到别人的节点上。
+   */
+  clear() {
+    this.done.length = 0;
+    this.redoSide.length = 0;
+    this.droppedCount = 0;
+    this.batch = null;
+  }
+  /** 历史快照（给 UI 的历史列表 / 判据用；内部数组不外泄）。 */
+  history() {
+    const undo = this.done.map((o) => o.label).reverse();
+    const redo = this.redoSide.map((o) => o.label).reverse();
+    return { undo, redo, dropped: this.droppedCount };
+  }
+  /**
+   * 在**不被记录**的情况下跑一段（读档、PIE 回灌、初始化装配）。
+   *
+   * 注意它只挡「压栈」，不挡撤销 —— 所以别在里面调 `undo()`。
+   * 嵌套调用叠加层数，`finally` 里减回来，中途抛错也不会让栈永久静音。
+   */
+  runWithoutRecording(fn) {
+    this.muted++;
+    try {
+      return fn();
+    } finally {
+      this.muted--;
+    }
+  }
+  runBusy(fn) {
+    this.busy = true;
+    try {
+      return fn();
+    } finally {
+      this.busy = false;
+    }
+  }
+  busyOutcome() {
+    return {
+      kind: "failed",
+      label: "\uFF08\u91CD\u5165\uFF09",
+      error: engineError(UNDO_BUSY, "\u6B63\u5728\u6267\u884C\u53E6\u4E00\u6761\u5386\u53F2\u7684\u53CD\u5411\u64CD\u4F5C\uFF0C\u4E0D\u80FD\u518D\u8FDB\u5165\u4E00\u6B21")
+    };
+  }
+};
+function createUndoStack(opts) {
+  return new UndoStack(opts);
+}
+
+// src/core/serialization/schema.ts
+var Schema = class {
+  version;
+  fields;
+  versionKey;
+  migrations;
+  decimals;
+  constructor(opts) {
+    this.version = opts.version;
+    this.fields = opts.fields;
+    this.versionKey = opts.versionKey ?? "__v";
+    this.migrations = opts.migrations ?? [];
+    this.decimals = opts.decimals ?? 3;
+    const froms = this.migrations.map((m) => m.from).sort((a, b) => a - b);
+    for (let i = 0; i < froms.length; i++) {
+      if (froms[i] !== i + 1) {
+        throw new Error(
+          `\u8FC1\u79FB\u94FE\u5FC5\u987B\u4ECE v1 \u8FDE\u7EED\u8986\u76D6\u5230 v${this.version}\uFF0C\u5B9E\u9645\u7F3A v${i + 1}\uFF08\u5DF2\u6709\uFF1A${froms.join(",") || "\u65E0"}\uFF09`
+        );
+      }
+    }
+    const need2 = this.version - 1;
+    if (froms.length !== need2) {
+      throw new Error(
+        `v${this.version} \u9700\u8981 ${need2} \u6761\u8FC1\u79FB\uFF08v1\u2192v2 \u2026 v${need2}\u2192v${this.version}\uFF09\uFF0C\u5B9E\u9645 ${froms.length} \u6761\uFF08\u5DF2\u6709\uFF1A${froms.join(",") || "\u65E0"}\uFF09`
+      );
+    }
+  }
+  /** 把任意旧版本的记录迁到当前版本。 */
+  migrate(data) {
+    let cur = { ...data };
+    const raw = cur[this.versionKey];
+    const declared = Object.prototype.hasOwnProperty.call(cur, this.versionKey);
+    let v = 1;
+    if (declared) {
+      if (typeof raw !== "number") {
+        return err({
+          code: "SER.BAD_VERSION",
+          message: `\u7248\u672C\u5B57\u6BB5 ${this.versionKey}=${JSON.stringify(raw)} \u4E0D\u662F\u6570\u5B57\uFF08\u5B58\u6863\u5934\u635F\u574F\uFF09`
+        });
+      }
+      v = raw;
+    }
+    if (!Number.isInteger(v) || v < 1) {
+      return err({
+        code: "SER.BAD_VERSION",
+        message: `\u7248\u672C\u5B57\u6BB5 ${this.versionKey}=${JSON.stringify(raw)} \u4E0D\u662F \u22651 \u7684\u6574\u6570\uFF08\u5B58\u6863\u5934\u635F\u574F\uFF09`
+      });
+    }
+    if (v > this.version) {
+      return err({
+        code: "SER.VERSION_TOO_NEW",
+        message: `\u8BB0\u5F55\u7248\u672C v${v} \u9AD8\u4E8E\u5F15\u64CE\u652F\u6301\u7684 v${this.version}\uFF08\u7528\u65B0\u5F15\u64CE\u5199\u7684\u6863\uFF0C\u65E7\u5F15\u64CE\u4E0D\u80FD\u8BFB\uFF09`
+      });
+    }
+    while (v < this.version) {
+      const m = this.migrations.find((x) => x.from === v);
+      if (m === void 0) {
+        return err({
+          code: "SER.NO_MIGRATION",
+          message: `\u7F3A\u5C11 v${v} \u2192 v${v + 1} \u7684\u8FC1\u79FB\u51FD\u6570`
+        });
+      }
+      cur = m.migrate(cur);
+      v++;
+      cur[this.versionKey] = v;
+    }
+    return ok(cur);
+  }
+  /**
+   * 确定性序列化：`{ "__v": 2, "name": "abc", "hp": 12.346 }`
+   * - 字段顺序 = schema 顺序（**不是**对象键顺序）
+   * - 数字量化到 decimals
+   * - schema 里没有的键**丢弃并报告**（不静默保留：保留会让"字段名拼错"变成永久脏数据）
+   */
+  encode(data) {
+    const dropped = Object.keys(data).filter((k) => k !== this.versionKey && !this.fields.includes(k));
+    const parts = [`${JSON.stringify(this.versionKey)}:${this.version}`];
+    for (const k of this.fields) {
+      const v = data[k];
+      if (v === void 0) continue;
+      parts.push(`${JSON.stringify(k)}:${encodeValue(v, this.decimals)}`);
+    }
+    return { text: `{${parts.join(",")}}`, dropped };
+  }
+  decode(text) {
+    let raw;
+    try {
+      raw = JSON.parse(text);
+    } catch (e) {
+      return err({
+        code: "SER.BAD_JSON",
+        message: `\u4E0D\u662F\u5408\u6CD5 JSON\uFF1A${e instanceof Error ? e.message : String(e)}`
+      });
+    }
+    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+      return err({ code: "SER.NOT_OBJECT", message: "\u9876\u5C42\u5FC5\u987B\u662F\u5BF9\u8C61" });
+    }
+    return this.migrate(raw);
+  }
+};
+function encodeValue(v, decimals) {
+  if (typeof v === "number") {
+    if (!Number.isFinite(v)) {
+      return JSON.stringify(`__num__:${String(v)}`);
+    }
+    return String(quantize(v, decimals));
+  }
+  if (typeof v === "string" || typeof v === "boolean") return JSON.stringify(v);
+  if (v === null) return "null";
+  if (Array.isArray(v)) return "[" + v.map((x) => encodeValue(x, decimals)).join(",") + "]";
+  if (typeof v === "object") {
+    const o = v;
+    const keys = Object.keys(o).sort();
+    const body = [];
+    for (const k of keys) {
+      if (o[k] === void 0) continue;
+      body.push(`${JSON.stringify(k)}:${encodeValue(o[k], decimals)}`);
+    }
+    return "{" + body.join(",") + "}";
+  }
+  return JSON.stringify(String(v));
+}
+
+// src/core/scene/scene-io.ts
+var SCENE_FORMAT_VERSION = 1;
+function recordOf(scene, n) {
+  const comps = [];
+  for (const c of [...n.components].sort((a, b) => a.type < b.type ? -1 : a.type > b.type ? 1 : 0)) {
+    const saved = c.save();
+    const { type: _t, ...rest } = saved;
+    comps.push({ type: c.type, data: rest });
+  }
+  return {
+    id: n.id,
+    name: n.name,
+    parent: n.parent === null || n.parent.id === scene.rootId ? null : n.parent.id,
+    x: n.localPosition.x,
+    y: n.localPosition.y,
+    rot: n.localRotation,
+    sx: n.localScale.x,
+    sy: n.localScale.y,
+    zIndex: n.zIndex,
+    active: n.active,
+    layer: n.layer,
+    components: comps
+  };
+}
+var SCENE_SCHEMA = new Schema({
+  version: SCENE_FORMAT_VERSION,
+  fields: ["name", "nodes"],
+  versionKey: "format"
+});
+
+// src/extensions/editor/undo-ops.ts
+var EDIT_BAD_NODE = "EDIT.BAD_NODE";
+var EDIT_BAD_NAME = "EDIT.BAD_NAME";
+function snapshotSubtree(scene, rootId) {
+  const node = scene.find(rootId);
+  if (node === void 0) return void 0;
+  const records = [];
+  node.walk((n) => records.push(recordOf(scene, n)));
+  records.sort((a, b) => a.id - b.id);
+  return {
+    rootId: node.id,
+    name: node.name,
+    parent: node.parent === null || node.parent.id === scene.rootId ? null : node.parent.id,
+    records
+  };
+}
+function restoreRecords(scene, records, fallbackParent) {
+  const warnings = [];
+  const built = /* @__PURE__ */ new Map();
+  const sorted = [...records].sort((a, b) => a.id - b.id);
+  for (const r of sorted) {
+    if (scene.find(r.id) !== void 0) {
+      warnings.push(`\u8282\u70B9 #${r.id} \u5DF2\u7ECF\u5728\u573A\u666F\u91CC\uFF08\u8DF3\u8FC7\u91CD\u5EFA\uFF0C\u6CBF\u7528\u5B83\uFF09`);
+      continue;
+    }
+    const n = scene.spawnImmediate(r.name, scene.rootId, r.id);
+    n.setLocalPosition(r.x, r.y);
+    n.setLocalRotation(r.rot);
+    n.setLocalScale(r.sx, r.sy);
+    n.zIndex = r.zIndex;
+    n.active = r.active;
+    n.layer = r.layer;
+    n.markTransformDirty();
+    built.set(r.id, n);
+  }
+  for (const r of sorted) {
+    const n = built.get(r.id);
+    if (n === void 0) continue;
+    if (r.parent === null) {
+      const p2 = fallbackParent === null ? scene.root : scene.find(fallbackParent);
+      (p2 ?? scene.root).addChild(n);
+      continue;
+    }
+    const p = built.get(r.parent) ?? scene.find(r.parent);
+    if (p === void 0) {
+      warnings.push(`\u8282\u70B9 #${r.id} \u7684\u539F\u7236\u8282\u70B9 #${r.parent} \u4E0D\u5728\u4E86\uFF08\u6302\u5230\u6839\u4E0B\uFF09`);
+      scene.root.addChild(n);
+      continue;
+    }
+    p.addChild(n);
+  }
+  for (const r of sorted) {
+    const n = built.get(r.id) ?? scene.find(r.id);
+    if (n === void 0) continue;
+    for (const cr of r.components) {
+      if (!scene.components.has(cr.type)) {
+        warnings.push(`\u8282\u70B9 #${r.id} \u7684\u7EC4\u4EF6 ${cr.type} \u672A\u6CE8\u518C\uFF08\u6CA1\u8FD8\u539F\uFF09`);
+        continue;
+      }
+      const c = scene.components.create(cr.type);
+      if (c === void 0) {
+        warnings.push(`\u8282\u70B9 #${r.id} \u7684\u7EC4\u4EF6 ${cr.type} \u5DE5\u5382\u8FD4\u56DE\u7A7A\uFF08\u6CA1\u8FD8\u539F\uFF09`);
+        continue;
+      }
+      const res = c.load(cr.data);
+      for (const f of res.missing) warnings.push(`#${r.id}.${cr.type}.${f} \u7F3A\u5931\uFF08\u7528\u4E86\u9ED8\u8BA4\u503C\uFF09`);
+      scene.attach(n.id, () => c);
+    }
+  }
+  scene.flush();
+  return { made: built.size, warnings };
+}
+var FieldOp = class {
+  nodeId;
+  type;
+  key;
+  before;
+  after;
+  scene;
+  constructor(scene, nodeId, type, key, before, after) {
+    this.scene = scene;
+    this.nodeId = nodeId;
+    this.type = type;
+    this.key = key;
+    this.before = before;
+    this.after = after;
+  }
+  get label() {
+    return `\u6539 ${this.type}.${this.key}`;
+  }
+  apply() {
+    return this.write(this.after);
+  }
+  revert() {
+    return this.write(this.before);
+  }
+  write(v) {
+    const r = setField(this.scene, this.nodeId, this.type, this.key, v);
+    if (!r.ok) {
+      return err(engineError(UNDO_OP_FAILED, `\u5199\u56DE ${this.type}.${this.key} \u5931\u8D25\uFF1A${r.error.message}`));
+    }
+    return ok(void 0);
+  }
+};
+function makeFieldOp(scene, nodeId, type, key, before, after) {
+  return new FieldOp(scene, nodeId, type, key, before, after);
+}
+var SubtreeOp = class {
+  label;
+  report;
+  scene;
+  snap;
+  restoreOnRevert;
+  constructor(scene, label, snap, restoreOnRevert, report = () => void 0) {
+    this.scene = scene;
+    this.label = label;
+    this.snap = snap;
+    this.restoreOnRevert = restoreOnRevert;
+    this.report = report;
+  }
+  apply() {
+    return this.restoreOnRevert ? this.destroy() : this.restore();
+  }
+  revert() {
+    return this.restoreOnRevert ? this.restore() : this.destroy();
+  }
+  destroy() {
+    if (this.scene.find(this.snap.rootId) === void 0) {
+      return err(
+        engineError(UNDO_OP_FAILED, `\u8282\u70B9 #${String(this.snap.rootId)}\uFF08${this.snap.name}\uFF09\u5DF2\u7ECF\u4E0D\u5728\u4E86`)
+      );
+    }
+    this.scene.destroy(this.snap.rootId);
+    this.scene.flush();
+    return ok(void 0);
+  }
+  restore() {
+    const rep = restoreRecords(this.scene, this.snap.records, this.snap.parent);
+    this.report(rep);
+    if (rep.made === 0) {
+      return err(engineError(UNDO_OP_FAILED, `${this.snap.name} \u4E00\u4E2A\u8282\u70B9\u90FD\u6CA1\u5EFA\u51FA\u6765`));
+    }
+    return ok(void 0);
+  }
+};
+function topmostIds(scene, ids) {
+  const picked = new Set(ids);
+  return ids.filter((id) => {
+    let cur = scene.find(id)?.parent ?? null;
+    while (cur !== null) {
+      if (picked.has(cur.id)) return false;
+      cur = cur.parent;
+    }
+    return true;
+  });
+}
+function createNodeWithUndo(scene, name, parent = null) {
+  const trimmed = name.trim();
+  if (trimmed === "") return err(engineError(EDIT_BAD_NAME, "\u8282\u70B9\u540D\u4E0D\u80FD\u4E3A\u7A7A"));
+  if (parent !== null && scene.find(parent) === void 0) {
+    return err(engineError(EDIT_BAD_NODE, `\u7236\u8282\u70B9 #${String(parent)} \u4E0D\u5728\u573A\u666F\u91CC`));
+  }
+  const p = parent ?? scene.rootId;
+  const node = scene.spawnImmediate(trimmed, p);
+  scene.flush();
+  const snap = snapshotSubtree(scene, node.id);
+  if (snap === void 0) return err(engineError(EDIT_BAD_NODE, "\u65B0\u5EFA\u4E4B\u540E\u7ACB\u523B\u627E\u4E0D\u5230\u8BE5\u8282\u70B9"));
+  let warnings = [];
+  const op = new SubtreeOp(scene, `\u65B0\u5EFA ${trimmed}`, snap, false, (rep) => {
+    warnings = rep.warnings;
+  });
+  return ok({ op, nodeId: node.id, warnings: () => warnings });
+}
+function deleteNodeWithUndo(scene, nodeId) {
+  if (nodeId === scene.rootId) {
+    return err(engineError(EDIT_BAD_NODE, "\u4E0D\u80FD\u5220\u9664\u573A\u666F\u6839\u8282\u70B9"));
+  }
+  const node = scene.find(nodeId);
+  if (node === void 0) return err(engineError(EDIT_BAD_NODE, `\u8282\u70B9 #${String(nodeId)} \u4E0D\u5728\u573A\u666F\u91CC`));
+  const snap = snapshotSubtree(scene, nodeId);
+  if (snap === void 0) return err(engineError(EDIT_BAD_NODE, `\u8282\u70B9 #${String(nodeId)} \u62CD\u4E0D\u5230\u5FEB\u7167`));
+  scene.destroy(nodeId);
+  scene.flush();
+  let warnings = [];
+  const op = new SubtreeOp(scene, `\u5220\u9664 ${node.name}`, snap, true, (rep) => {
+    warnings = rep.warnings;
+  });
+  return ok({ op, nodeId, warnings: () => warnings });
+}
+
 // src/editor-entry.ts
 var WORLD_SEED = 20261025;
 var WORLD_W = 26;
@@ -7115,11 +7692,17 @@ var btnPlay = need("btn-play");
 var btnPause = need("btn-pause");
 var btnStep = need("btn-step");
 var btnStep10 = need("btn-step10");
+var btnUndo = need("btn-undo");
+var btnRedo = need("btn-redo");
+var btnAdd = need("btn-add");
+var btnDel = need("btn-del");
+var histEl = need("hist");
 var dpr = Math.min(2, window.devicePixelRatio || 1);
 canvas.width = Math.floor((canvas.clientWidth || 640) * dpr);
 canvas.height = Math.floor((canvas.clientHeight || 420) * dpr);
 var selection = createSelection();
 var pie = createPie({ hz: HZ, maxStepTicks: 4 });
+var history = createUndoStack();
 var appRef = null;
 var heroId = -1;
 var booted = false;
@@ -7277,7 +7860,7 @@ function propRow(nodeId, type, key, control, value) {
   ty.textContent = control;
   const commit = () => {
     const raw = control === "checkbox" ? input.checked : input.value;
-    const r = setField(appRef.scene, nodeId, type, key, raw);
+    const r = commitField(nodeId, type, key, raw);
     if (r.ok) {
       input.classList.remove("bad");
       errEl.textContent = "";
@@ -7289,6 +7872,98 @@ function propRow(nodeId, type, key, control, value) {
   input.addEventListener("change", commit);
   row.append(label, input, ty);
   return row;
+}
+function commitField(nodeId, type, key, raw) {
+  const app = appRef;
+  if (app === null) return err(engineError("EDIT.NOT_READY", "\u7F16\u8F91\u5668\u8FD8\u6CA1\u542F\u52A8"));
+  const r = setField(app.scene, nodeId, type, key, raw);
+  if (!r.ok) return r;
+  if (r.value.changed) {
+    history.push(makeFieldOp(app.scene, nodeId, type, key, r.value.before, r.value.after));
+    refreshHistory();
+  }
+  return r;
+}
+function refreshHistory() {
+  btnUndo.disabled = !history.canUndo;
+  btnRedo.disabled = !history.canRedo;
+  const h = history.history();
+  const parts = [`\u5386\u53F2 ${String(h.undo.length)} \u6B65\u53EF\u64A4\u9500 \xB7 ${String(h.redo.length)} \u6B65\u53EF\u91CD\u505A`];
+  if (h.dropped > 0) parts.push(`\u66F4\u65E9\u7684 ${String(h.dropped)} \u6761\u5DF2\u4E22\u5F03`);
+  if (history.nextUndoLabel !== null) parts.push(`\u5F85\u64A4\u9500\uFF1A${history.nextUndoLabel}`);
+  if (history.nextRedoLabel !== null) parts.push(`\u5F85\u91CD\u505A\uFF1A${history.nextRedoLabel}`);
+  histEl.textContent = parts.join(" \xB7 ");
+}
+function afterHistoryChange() {
+  const app = appRef;
+  if (app !== null) {
+    const gone = selection.prune((id) => app.scene.find(id) !== void 0);
+    if (gone.length > 0) {
+      errEl.textContent = `\u9009\u4E2D\u9879\u5DF2\u4E0D\u5B58\u5728\uFF1A${gone.map((id) => `#${String(id)}`).join("\u3001")}`;
+    }
+  }
+  refreshTree();
+  refreshProps();
+  refreshHistory();
+}
+function reportOutcome(out, verb) {
+  if (out.kind === "failed") {
+    errEl.textContent = `${verb}\u300C${out.label}\u300D\u5931\u8D25 ${out.error.code}\uFF1A${out.error.message}`;
+  } else if (out.kind === "done") {
+    errEl.textContent = "";
+  }
+}
+function doUndo() {
+  const out = history.undo();
+  reportOutcome(out, "\u64A4\u9500");
+  afterHistoryChange();
+  return out;
+}
+function doRedo() {
+  const out = history.redo();
+  reportOutcome(out, "\u91CD\u505A");
+  afterHistoryChange();
+  return out;
+}
+function addNode(name) {
+  const app = appRef;
+  if (app === null) return err(engineError("EDIT.NOT_READY", "\u7F16\u8F91\u5668\u8FD8\u6CA1\u542F\u52A8"));
+  const parent = selection.primary;
+  const label = name ?? `\u65B0\u8282\u70B9 ${String(app.scene.stats().nodes)}`;
+  const r = createNodeWithUndo(app.scene, label, parent);
+  if (!r.ok) return r;
+  history.push(r.value.op);
+  selection.select(r.value.nodeId);
+  afterHistoryChange();
+  return ok(r.value.nodeId);
+}
+function deleteSelected() {
+  const app = appRef;
+  if (app === null) return err(engineError("EDIT.NOT_READY", "\u7F16\u8F91\u5668\u8FD8\u6CA1\u542F\u52A8"));
+  const all = selection.ids();
+  if (all.length === 0) return err(engineError("EDIT.BAD_NODE", "\u6CA1\u6709\u9009\u4E2D\u4EFB\u4F55\u8282\u70B9"));
+  const ids = topmostIds(app.scene, all);
+  const began = history.beginBatch(`\u5220\u9664\u9009\u4E2D ${String(ids.length)} \u4E2A`);
+  if (!began.ok) return began;
+  for (const id of ids) {
+    const r = deleteNodeWithUndo(app.scene, id);
+    if (!r.ok) {
+      const rb = history.rollbackBatch();
+      afterHistoryChange();
+      return err(
+        engineError(
+          r.error.code,
+          `\u5220\u9664 #${String(id)} \u5931\u8D25\uFF1A${r.error.message}` + (rb.kind === "failed" ? `\uFF1B\u56DE\u6EDA\u4E5F\u5931\u8D25\uFF1A${rb.error.message}` : "\uFF08\u5DF2\u56DE\u6EDA\u5230\u5220\u9664\u524D\uFF09")
+        )
+      );
+    }
+    history.push(r.value.op);
+  }
+  const c = history.commitBatch();
+  if (!c.ok) return c;
+  selection.clear();
+  afterHistoryChange();
+  return ok(ids.length);
 }
 var last = performance.now();
 var uiClock = 0;
@@ -7354,7 +8029,7 @@ function installApi(app) {
       };
     },
     setField(node, type, key, raw) {
-      const r = setField(app.scene, node, type, key, raw);
+      const r = commitField(node, type, key, raw);
       if (!r.ok) return { ok: false, code: r.error.code };
       refreshProps();
       return { ok: true, value: r.value.after };
@@ -7373,6 +8048,40 @@ function installApi(app) {
     pie() {
       const s = pie.stats();
       return { tick: s.tick, playing: s.playing, pending: s.pending, clampedFrames: s.clampedFrames };
+    },
+    undo() {
+      const out = doUndo();
+      if (out.kind === "failed") {
+        return { kind: out.kind, label: out.label, code: out.error.code, message: out.error.message };
+      }
+      return out.kind === "done" ? { kind: out.kind, label: out.label } : { kind: out.kind };
+    },
+    redo() {
+      const out = doRedo();
+      if (out.kind === "failed") {
+        return { kind: out.kind, label: out.label, code: out.error.code, message: out.error.message };
+      }
+      return out.kind === "done" ? { kind: out.kind, label: out.label } : { kind: out.kind };
+    },
+    history() {
+      const h = history.history();
+      return {
+        undo: [...h.undo],
+        redo: [...h.redo],
+        dropped: h.dropped,
+        canUndo: history.canUndo,
+        canRedo: history.canRedo
+      };
+    },
+    addNode(name) {
+      const r = addNode(name);
+      if (!r.ok) return { ok: false, code: r.error.code };
+      return { ok: true, id: r.value };
+    },
+    deleteSelected() {
+      const r = deleteSelected();
+      if (!r.ok) return { ok: false, code: r.error.code, message: r.error.message };
+      return { ok: true, deleted: r.value };
     }
   };
   window.__editor = api;
@@ -7407,6 +8116,32 @@ async function main() {
   btnPause.addEventListener("click", () => pie.pause());
   btnStep.addEventListener("click", () => pie.step(1));
   btnStep10.addEventListener("click", () => pie.step(10));
+  btnUndo.addEventListener("click", () => void doUndo());
+  btnRedo.addEventListener("click", () => void doRedo());
+  btnAdd.addEventListener("click", () => void addNode());
+  btnDel.addEventListener("click", () => void deleteSelected());
+  window.addEventListener("keydown", (e) => {
+    const mod = e.ctrlKey || e.metaKey;
+    const k = e.key.toLowerCase();
+    if (mod && k === "z") {
+      e.preventDefault();
+      if (e.shiftKey) void doRedo();
+      else void doUndo();
+      return;
+    }
+    if (mod && k === "y") {
+      e.preventDefault();
+      void doRedo();
+      return;
+    }
+    if (!mod && (e.key === "Delete" || e.key === "Backspace")) {
+      const t = e.target;
+      if (t !== null && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
+      e.preventDefault();
+      void deleteSelected();
+    }
+  });
+  refreshHistory();
   requestAnimationFrame(loop);
 }
 void main();

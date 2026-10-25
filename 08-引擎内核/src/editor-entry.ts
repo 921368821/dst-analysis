@@ -45,8 +45,15 @@ import { err, engineError, ok, type Result } from "./foundation/result.ts";
 import type { NodeId } from "./core/scene/node.ts";
 import { buildOutline, flattenOutline, type OutlineRow } from "./extensions/editor/outline.ts";
 import { createSelection } from "./extensions/editor/selection.ts";
-import { fieldsOf, setField } from "./extensions/editor/property-model.ts";
+import { fieldsOf, setField, type FieldChange } from "./extensions/editor/property-model.ts";
 import { createPie } from "./extensions/editor/pie.ts";
+import { createUndoStack, type UndoOutcome } from "./extensions/editor/undo-stack.ts";
+import {
+  createNodeWithUndo,
+  deleteNodeWithUndo,
+  makeFieldOp,
+  topmostIds,
+} from "./extensions/editor/undo-ops.ts";
 
 const WORLD_SEED = 20261025;
 const WORLD_W = 26;
@@ -71,6 +78,11 @@ const btnPlay = need<HTMLButtonElement>("btn-play");
 const btnPause = need<HTMLButtonElement>("btn-pause");
 const btnStep = need<HTMLButtonElement>("btn-step");
 const btnStep10 = need<HTMLButtonElement>("btn-step10");
+const btnUndo = need<HTMLButtonElement>("btn-undo");
+const btnRedo = need<HTMLButtonElement>("btn-redo");
+const btnAdd = need<HTMLButtonElement>("btn-add");
+const btnDel = need<HTMLButtonElement>("btn-del");
+const histEl = need<HTMLSpanElement>("hist");
 
 const dpr = Math.min(2, window.devicePixelRatio || 1);
 canvas.width = Math.floor((canvas.clientWidth || 640) * dpr);
@@ -78,6 +90,7 @@ canvas.height = Math.floor((canvas.clientHeight || 420) * dpr);
 
 const selection = createSelection();
 const pie = createPie({ hz: HZ, maxStepTicks: 4 });
+const history = createUndoStack();
 
 let appRef: GameApp | null = null;
 let heroId: NodeId = -1;
@@ -259,7 +272,7 @@ function propRow(
 
   const commit = (): void => {
     const raw = control === "checkbox" ? input.checked : input.value;
-    const r = setField(appRef!.scene, nodeId, type, key, raw);
+    const r = commitField(nodeId, type, key, raw);
     if (r.ok) {
       input.classList.remove("bad");
       errEl.textContent = "";
@@ -273,6 +286,125 @@ function propRow(
   input.addEventListener("change", commit);
   row.append(label, input, ty);
   return row;
+}
+
+// ---------------------------------------------------------------- 历史（撤销 / 重做）
+
+/**
+ * 改一个字段，并把这次改动记进历史。
+ *
+ * ★ 面板的输入框与命令面（自检页）**共用这一个入口**。分成两条路的话，
+ *   自检验证的就不是用户点的那条代码 —— 那种判据最容易绿得毫无意义。
+ */
+function commitField(nodeId: NodeId, type: string, key: string, raw: unknown): Result<FieldChange, EngineError> {
+  const app = appRef;
+  if (app === null) return err(engineError("EDIT.NOT_READY", "编辑器还没启动"));
+  const r = setField(app.scene, nodeId, type, key, raw);
+  if (!r.ok) return r;
+  // 值没变就不进历史（见 `FieldChange.changed` 的注释：否则历史被空改动填满）
+  if (r.value.changed) {
+    history.push(makeFieldOp(app.scene, nodeId, type, key, r.value.before, r.value.after));
+    refreshHistory();
+  }
+  return r;
+}
+
+function refreshHistory(): void {
+  btnUndo.disabled = !history.canUndo;
+  btnRedo.disabled = !history.canRedo;
+  const h = history.history();
+  const parts = [`历史 ${String(h.undo.length)} 步可撤销 · ${String(h.redo.length)} 步可重做`];
+  if (h.dropped > 0) parts.push(`更早的 ${String(h.dropped)} 条已丢弃`);
+  if (history.nextUndoLabel !== null) parts.push(`待撤销：${history.nextUndoLabel}`);
+  if (history.nextRedoLabel !== null) parts.push(`待重做：${history.nextRedoLabel}`);
+  histEl.textContent = parts.join(" · ");
+}
+
+/** 历史动过之后统一收尾：选中项可能要 prune（子树被删/被恢复），树与面板都要重画。 */
+function afterHistoryChange(): void {
+  const app = appRef;
+  if (app !== null) {
+    const gone = selection.prune((id) => app.scene.find(id) !== undefined);
+    if (gone.length > 0) {
+      errEl.textContent = `选中项已不存在：${gone.map((id) => `#${String(id)}`).join("、")}`;
+    }
+  }
+  refreshTree();
+  refreshProps();
+  refreshHistory();
+}
+
+function reportOutcome(out: UndoOutcome, verb: string): void {
+  if (out.kind === "failed") {
+    errEl.textContent = `${verb}「${out.label}」失败 ${out.error.code}：${out.error.message}`;
+  } else if (out.kind === "done") {
+    errEl.textContent = "";
+  }
+}
+
+function doUndo(): UndoOutcome {
+  const out = history.undo();
+  reportOutcome(out, "撤销");
+  afterHistoryChange();
+  return out;
+}
+
+function doRedo(): UndoOutcome {
+  const out = history.redo();
+  reportOutcome(out, "重做");
+  afterHistoryChange();
+  return out;
+}
+
+function addNode(name?: string): Result<NodeId, EngineError> {
+  const app = appRef;
+  if (app === null) return err(engineError("EDIT.NOT_READY", "编辑器还没启动"));
+  // 挂在当前选中项下面（没选中就挂根）—— 这是人点「新建」时的预期
+  const parent = selection.primary;
+  const label = name ?? `新节点 ${String(app.scene.stats().nodes)}`;
+  const r = createNodeWithUndo(app.scene, label, parent);
+  if (!r.ok) return r;
+  history.push(r.value.op);
+  selection.select(r.value.nodeId);
+  afterHistoryChange();
+  return ok(r.value.nodeId);
+}
+
+/**
+ * 删除选中（可能是多个）。
+ *
+ * ★ 多选用一个**批量**：撤销一次全部回来。逐个压历史的话，删 5 个要按 5 次撤销，
+ *   而且中途按一次撤销会让世界停在「删了一半」的状态 —— 那不是任何人心里的模型。
+ */
+function deleteSelected(): Result<number, EngineError> {
+  const app = appRef;
+  if (app === null) return err(engineError("EDIT.NOT_READY", "编辑器还没启动"));
+  const all = selection.ids();
+  if (all.length === 0) return err(engineError("EDIT.BAD_NODE", "没有选中任何节点"));
+  // 去掉「祖先也被选中」的子孙：删父已经把它们一起删了，再删一次会失败并整批回滚
+  const ids = topmostIds(app.scene, all);
+  const began = history.beginBatch(`删除选中 ${String(ids.length)} 个`);
+  if (!began.ok) return began;
+  for (const id of ids) {
+    const r = deleteNodeWithUndo(app.scene, id);
+    if (!r.ok) {
+      const rb = history.rollbackBatch();
+      afterHistoryChange();
+      return err(
+        engineError(
+          r.error.code,
+          `删除 #${String(id)} 失败：${r.error.message}` +
+            (rb.kind === "failed" ? `；回滚也失败：${rb.error.message}` : "（已回滚到删除前）"),
+        ),
+      );
+    }
+    history.push(r.value.op);
+  }
+  const c = history.commitBatch();
+  if (!c.ok) return c;
+  selection.clear();
+  afterHistoryChange();
+  return ok(ids.length);
 }
 
 // ---------------------------------------------------------------- 帧循环
@@ -323,6 +455,18 @@ interface EditorApi {
   play(): void;
   pause(): void;
   pie(): { tick: number; playing: boolean; pending: number; clampedFrames: number };
+  /** 撤销一步。`kind` 区分「本来就没历史」和「反向执行失败」。 */
+  undo(): { kind: string; label?: string; code?: string; message?: string };
+  redo(): { kind: string; label?: string; code?: string; message?: string };
+  history(): {
+    undo: string[];
+    redo: string[];
+    dropped: number;
+    canUndo: boolean;
+    canRedo: boolean;
+  };
+  addNode(name?: string): { ok: boolean; id?: number; code?: string };
+  deleteSelected(): { ok: boolean; deleted?: number; code?: string; message?: string };
 }
 
 function installApi(app: GameApp): void {
@@ -370,7 +514,7 @@ function installApi(app: GameApp): void {
       };
     },
     setField(node, type, key, raw) {
-      const r = setField(app.scene, node, type, key, raw);
+      const r = commitField(node, type, key, raw);
       if (!r.ok) return { ok: false, code: r.error.code };
       refreshProps();
       return { ok: true, value: r.value.after };
@@ -389,6 +533,40 @@ function installApi(app: GameApp): void {
     pie() {
       const s = pie.stats();
       return { tick: s.tick, playing: s.playing, pending: s.pending, clampedFrames: s.clampedFrames };
+    },
+    undo() {
+      const out = doUndo();
+      if (out.kind === "failed") {
+        return { kind: out.kind, label: out.label, code: out.error.code, message: out.error.message };
+      }
+      return out.kind === "done" ? { kind: out.kind, label: out.label } : { kind: out.kind };
+    },
+    redo() {
+      const out = doRedo();
+      if (out.kind === "failed") {
+        return { kind: out.kind, label: out.label, code: out.error.code, message: out.error.message };
+      }
+      return out.kind === "done" ? { kind: out.kind, label: out.label } : { kind: out.kind };
+    },
+    history() {
+      const h = history.history();
+      return {
+        undo: [...h.undo],
+        redo: [...h.redo],
+        dropped: h.dropped,
+        canUndo: history.canUndo,
+        canRedo: history.canRedo,
+      };
+    },
+    addNode(name?: string) {
+      const r = addNode(name);
+      if (!r.ok) return { ok: false, code: r.error.code };
+      return { ok: true, id: r.value };
+    },
+    deleteSelected() {
+      const r = deleteSelected();
+      if (!r.ok) return { ok: false, code: r.error.code, message: r.error.message };
+      return { ok: true, deleted: r.value };
     },
   };
   (window as unknown as { __editor?: EditorApi }).__editor = api;
@@ -430,7 +608,38 @@ async function main(): Promise<void> {
   btnPause.addEventListener("click", () => pie.pause());
   btnStep.addEventListener("click", () => pie.step(1));
   btnStep10.addEventListener("click", () => pie.step(10));
+  btnUndo.addEventListener("click", () => void doUndo());
+  btnRedo.addEventListener("click", () => void doRedo());
+  btnAdd.addEventListener("click", () => void addNode());
+  btnDel.addEventListener("click", () => void deleteSelected());
 
+  // 快捷键：Ctrl/Cmd+Z 撤销、Ctrl/Cmd+Shift+Z 或 Ctrl+Y 重做、Delete 删选中。
+  // ★ 用 `key.toLowerCase()` 判断字母：大写锁定时 `key` 是 "Z" 而不是 "z"，
+  //   只比小写会让人「开了大写锁之后撤销失效」，而这是最难联想到快捷键 bug 的场景。
+  window.addEventListener("keydown", (e) => {
+    const mod = e.ctrlKey || e.metaKey;
+    const k = e.key.toLowerCase();
+    if (mod && k === "z") {
+      e.preventDefault();
+      if (e.shiftKey) void doRedo();
+      else void doUndo();
+      return;
+    }
+    if (mod && k === "y") {
+      e.preventDefault();
+      void doRedo();
+      return;
+    }
+    if (!mod && (e.key === "Delete" || e.key === "Backspace")) {
+      // 焦点在输入框里时不许删节点 —— 否则人想删一个字符，整棵树少了一个节点
+      const t = e.target as HTMLElement | null;
+      if (t !== null && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
+      e.preventDefault();
+      void deleteSelected();
+    }
+  });
+
+  refreshHistory();
   requestAnimationFrame(loop);
 }
 

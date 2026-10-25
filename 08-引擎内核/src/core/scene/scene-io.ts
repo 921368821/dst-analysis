@@ -66,32 +66,42 @@ export function collectNodes(scene: Scene): Array<import("./node.ts").Node> {
   return out;
 }
 
+/**
+ * 单个节点 → 记录。
+ *
+ * ★ 抽出来是为了让**编辑器撤销**能只拍一棵子树的快照，而不用为了一个节点
+ *   把整个场景序列化一遍（`saveScene` 在 500 节点的场景里是 O(n) 加全部组件
+ *   `save()`）。两处共用同一份字段表，加字段不必改两个地方 —— 否则一定会有一处
+ *   被漏掉，症状是「撤销删除之后 `layer` 回到了默认值」这种很难查的偏差。
+ */
+export function recordOf(scene: Scene, n: import("./node.ts").Node): NodeRecord {
+  const comps: ComponentRecord[] = [];
+  for (const c of [...n.components].sort((a, b) => (a.type < b.type ? -1 : a.type > b.type ? 1 : 0))) {
+    const saved = c.save();
+    // save() 里带着 type（便于人读），记录里 type 已单独存，data 去掉它避免重复
+    const { type: _t, ...rest } = saved as { type?: unknown } & Record<string, unknown>;
+    void _t;
+    comps.push({ type: c.type, data: rest });
+  }
+  return {
+    id: n.id,
+    name: n.name,
+    parent: n.parent === null || n.parent.id === scene.rootId ? null : n.parent.id,
+    x: n.localPosition.x,
+    y: n.localPosition.y,
+    rot: n.localRotation,
+    sx: n.localScale.x,
+    sy: n.localScale.y,
+    zIndex: n.zIndex,
+    active: n.active,
+    layer: n.layer,
+    components: comps,
+  };
+}
+
 export function saveScene(scene: Scene): SceneSnapshot {
   const nodes: NodeRecord[] = [];
-  for (const n of collectNodes(scene)) {
-    const comps: ComponentRecord[] = [];
-    for (const c of [...n.components].sort((a, b) => (a.type < b.type ? -1 : a.type > b.type ? 1 : 0))) {
-      const saved = c.save();
-      // save() 里带着 type（便于人读），记录里 type 已单独存，data 去掉它避免重复
-      const { type: _t, ...rest } = saved as { type?: unknown } & Record<string, unknown>;
-      void _t;
-      comps.push({ type: c.type, data: rest });
-    }
-    nodes.push({
-      id: n.id,
-      name: n.name,
-      parent: n.parent === null || n.parent.id === scene.rootId ? null : n.parent.id,
-      x: n.localPosition.x,
-      y: n.localPosition.y,
-      rot: n.localRotation,
-      sx: n.localScale.x,
-      sy: n.localScale.y,
-      zIndex: n.zIndex,
-      active: n.active,
-      layer: n.layer,
-      components: comps,
-    });
-  }
+  for (const n of collectNodes(scene)) nodes.push(recordOf(scene, n));
   return { format: SCENE_FORMAT_VERSION, name: scene.name, nodes };
 }
 

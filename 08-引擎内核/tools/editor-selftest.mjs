@@ -2,7 +2,7 @@
  * 编辑器自检的**自动化**：无头浏览器打开 `web/editor.html`，用 `window.__editor` 命令面
  * 走一遍"树 → 选中 → 改属性 → 单步 → 播放/暂停"，逐条比对。
  *
- * ★ 为什么不能只跑 Node 判据：`extensions/editor/*` 的 37 条判据证明的是
+ * ★ 为什么不能只跑 Node 判据：`extensions/editor/*` 的 76 条判据证明的是
  *   「模型算得对」，证明不了「面板真的连上了世界」——
  *   `select()` 之后 DOM 里有没有输入框、`step(3)` 之后场景 tick 有没有真的走 3 格，
  *   这两件事只有把页面开起来才知道。
@@ -46,6 +46,15 @@ const DECLARED = [
   "★ Int 字段拒绝 3.5（不静默取整）",
   "★ 非法输入没有写进组件",
   "合法整数写进去了",
+  "改字段进了历史（换目标与 label 都对）",
+  "★ 撤销一次：字段回到改之前的值",
+  "重做一次：字段回到改之后的值",
+  "新建节点：树里真的多了一个",
+  "★ 撤销新建：节点数退回",
+  "新建之后自动选中它（否则「新建」之后无处可操作）",
+  "删除选中：节点真的没了",
+  "★ 撤销删除：同一个 id 的节点回来了（id 变了等于场景里所有引用都断了）",
+  "★ 历史走空之后撤销是 empty，不是失败（两者在 UI 上都只表现为按钮变灰）",
   "step(3) 推进 3 个 tick",
   "播放后 tick 会涨",
   "暂停后 tick 不再涨",
@@ -107,6 +116,57 @@ const PROBE = `
   const afterGood = findField(E.panel(), target.comp, target.key);
   add("合法整数写进去了", good.ok === true && afterGood !== null && afterGood.value === target.value + 1,
       JSON.stringify(good) + " now=" + JSON.stringify(afterGood ? afterGood.value : null));
+
+  // ---------------------------------------------------------------- 撤销栈
+  // ★ 这里验的是「反向操作在**真场景**里真的把值退回去了」，不是「栈的计数对不对」
+  //   （后者在 Node 判据里）。两层都要有：Node 证不到接线，浏览器证不到顺序。
+  const h1 = E.history();
+  add("改字段进了历史（换目标与 label 都对）", h1.undo.length === 1 && String(h1.undo[0]).indexOf(target.comp) >= 0,
+      JSON.stringify(h1));
+
+  const u1 = E.undo();
+  const afterUndo = findField(E.panel(), target.comp, target.key);
+  add("★ 撤销一次：字段回到改之前的值", u1.kind === "done" && afterUndo !== null && afterUndo.value === target.value,
+      JSON.stringify(u1) + " now=" + JSON.stringify(afterUndo ? afterUndo.value : null) + " 期望=" + target.value);
+
+  const r1 = E.redo();
+  const afterRedo = findField(E.panel(), target.comp, target.key);
+  add("重做一次：字段回到改之后的值", r1.kind === "done" && afterRedo !== null && afterRedo.value === target.value + 1,
+      JSON.stringify(r1) + " now=" + JSON.stringify(afterRedo ? afterRedo.value : null));
+
+  const nodesA = E.stats().nodes;
+  const made = E.addNode("自检新建");
+  const nodesB = E.stats().nodes;
+  add("新建节点：树里真的多了一个", made.ok === true && nodesB === nodesA + 1,
+      JSON.stringify(made) + " " + nodesA + "->" + nodesB);
+
+  const u2 = E.undo();
+  const nodesC = E.stats().nodes;
+  add("★ 撤销新建：节点数退回", u2.kind === "done" && nodesC === nodesA, JSON.stringify(u2) + " nodes=" + nodesC);
+
+  const victim = E.addNode("待删");
+  add("新建之后自动选中它（否则「新建」之后无处可操作）",
+      victim.ok === true && E.stats().primary === victim.id,
+      JSON.stringify(victim) + " primary=" + E.stats().primary);
+
+  const beforeDel = E.stats().nodes;
+  const del = E.deleteSelected();
+  const afterDel = E.stats().nodes;
+  add("删除选中：节点真的没了", del.ok === true && afterDel === beforeDel - 1,
+      JSON.stringify(del) + " " + beforeDel + "->" + afterDel);
+
+  const u3 = E.undo();
+  const back = E.outline().find((r) => r.id === victim.id);
+  add("★ 撤销删除：同一个 id 的节点回来了（id 变了等于场景里所有引用都断了）",
+      u3.kind === "done" && back !== undefined && back.name === "待删",
+      JSON.stringify(u3) + " 找到=" + JSON.stringify(back || null));
+
+  let guard = 0;
+  while (E.history().canUndo && guard < 60) { E.undo(); guard++; }
+  const emptyOut = E.undo();
+  add("★ 历史走空之后撤销是 empty，不是失败（两者在 UI 上都只表现为按钮变灰）",
+      emptyOut.kind === "empty" && E.history().canUndo === false,
+      JSON.stringify(emptyOut) + " guard=" + guard);
 
   E.pause();
   const t0 = E.stats().tick;

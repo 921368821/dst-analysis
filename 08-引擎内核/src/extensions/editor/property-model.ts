@@ -215,6 +215,44 @@ export function coerce(type: FieldTypeValue, raw: unknown): Result<unknown, Engi
 export interface FieldChange {
   readonly before: unknown;
   readonly after: unknown;
+  /**
+   * 值是否**真的**变了。
+   *
+   * ★ 为什么要这一位：面板用 `change` 事件提交，人可能把 12 改成 120 又改回 12，
+   *   或者直接聚了个焦又失焦。这些提交在数值上没变，但 `Vec2` / `Color` 是**对象**——
+   *   重新 coerce 一次拿到的是新对象，`before !== after` 恒成立。
+   *   撤销栈要是照着 `!==` 压，历史会被一堆「改了什么都没改」的条目填满，
+   *   人按五次撤销都看不见场景变化，会以为撤销坏了。
+   */
+  readonly changed: boolean;
+}
+
+/**
+ * 按字段类型的口径比较两个值（标量、字符串数组、`{x,y}`、`{r,g,b,a}`）。
+ *
+ * ★ 不用 `JSON.stringify` 比较：键序不同的两个同值对象（`{x,y}` 与 `{y,x}`）
+ *   会判成不同，于是「没变」被判成「变了」。而键序在 coerce 之后是稳定的，
+ *   一旦有人换个顺序构造对象，撤销栈就会凭空多出历史 —— 这类 bug 只在
+ *   用户抱怨「撤销要点两下」时才暴露。
+ */
+export function valuesEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b)) return false;
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) if (!valuesEqual(a[i], b[i])) return false;
+    return true;
+  }
+  if (typeof a === "object" && a !== null && typeof b === "object" && b !== null) {
+    const ka = Object.keys(a);
+    const kb = Object.keys(b);
+    if (ka.length !== kb.length) return false;
+    for (const k of ka) {
+      if (!valuesEqual((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k])) return false;
+    }
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -243,5 +281,5 @@ export function setField(
   const bag = comp as unknown as Record<string, unknown>;
   const before = bag[key];
   bag[key] = c.value;
-  return ok({ before, after: c.value });
+  return ok({ before, after: c.value, changed: !valuesEqual(before, c.value) });
 }

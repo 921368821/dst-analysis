@@ -20,6 +20,7 @@ import {
   controlOf,
   fieldsOf,
   setField,
+  valuesEqual,
 } from "../../src/extensions/editor/property-model.ts";
 
 /** ★ 字段声明顺序**故意不是字母序**：alpha 在 zeta 后面。 */
@@ -216,4 +217,38 @@ test("[编辑器·属性] 实例上缺字段时用类型零值（schema 与实�
   assert.ok(c !== undefined, "组件要先真的挂上去，否则这条判据测的是空指针");
   const fields = fieldsOf(c);
   assert.deepEqual(fields.map((f) => f.value), [0, ""], "缺字段给 zeroValue，不是 undefined");
+});
+
+// ---------------------------------------------------------------- 值真的变了吗
+
+test("[编辑器·属性] ★ 值没变时 changed=false（撤销栈不该被空改动填满）", () => {
+  const { scene, id } = makeScene();
+  const same = setField(scene, id, "test.widget", "alpha", 7); // 出生值就是 7
+  assert.equal(same.ok, true, same.ok ? "" : same.error.code);
+  assert.equal(same.ok ? same.value.changed : true, false, "写了个一样的值，历史里不该多一条");
+  assert.equal(same.ok ? same.value.before : 0, 7, "before 仍然要给出来（调用方可能还要用）");
+});
+
+test("[编辑器·属性] ★ Vec2 传一个同值的新对象也算「没变」（对象身份不等于值）", () => {
+  const { scene, id } = makeScene();
+  // coerce 每次都会造一个新对象，所以 `before !== after` 在这里恒成立 ——
+  // 撤销栈要是照着 `!==` 判断，每敲一次回车都会多一条历史
+  const r = setField(scene, id, "test.widget", "pos", { x: 1, y: 2 });
+  assert.equal(r.ok, true, r.ok ? "" : r.error.code);
+  assert.equal(r.ok ? r.value.changed : true, false, "出生值就是 {x:1,y:2}，写回去不该算改动");
+  assert.notEqual(r.ok ? r.value.before : null, r.ok ? r.value.after : undefined, "两个对象不是同一个引用");
+
+  const r2 = setField(scene, id, "test.widget", "pos", "1, 3");
+  assert.equal(r2.ok ? r2.value.changed : false, true, "y 变了就是变了");
+});
+
+test("[编辑器·属性] valuesEqual 按值比较，不受键序影响", () => {
+  assert.equal(valuesEqual({ x: 1, y: 2 }, { y: 2, x: 1 }), true, "键序不同不等于值不同");
+  assert.equal(valuesEqual({ x: 1, y: 2 }, { x: 1, y: 3 }), false);
+  assert.equal(valuesEqual(["a", "b"], ["a", "b"]), true);
+  assert.equal(valuesEqual(["a", "b"], ["b", "a"]), false, "数组顺序是信息，不是噪声");
+  assert.equal(valuesEqual(1, 1), true);
+  assert.equal(valuesEqual(1, "1"), false, "不跨类型相等 —— 否则 Int 字段收到字符串会被判成没改");
+  assert.equal(valuesEqual(null, undefined), false);
+  assert.equal(valuesEqual({ x: 1 }, { x: 1, y: 2 }), false, "键数量不同就是不同");
 });

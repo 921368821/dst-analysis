@@ -3036,6 +3036,137 @@ MUTANTS = [
         "pairs": [("      arrange(c, new Rect(p.x, p.y, c.measured.w, c.measured.h), s, ox, oy);", "      arrange(c, new Rect(p.x, p.y, c.measured.w, c.measured.h), 1, 0, 0);")],
         "test": "tests/extensions/ui-transition.test.ts",
     },
+    # ---------------------------------------------------------------- 批77 编辑器撤销栈
+    {
+        "name": "M322 撤销之后不 pop（再按一次撤销退的还是同一条，历史永远退不完）",
+        "file": "src/extensions/editor/undo-stack.ts",
+        "pairs": [
+            (
+                """    this.done.pop();
+    this.redoSide.push(op);
+    return { kind: "done", label: op.label };""",
+                """    this.redoSide.push(op);
+    return { kind: "done", label: op.label };""",
+            )
+        ],
+        "test": "tests/extensions/undo-stack.test.ts",
+    },
+    {
+        "name": "M323 撤销失败也弹栈（这条历史被吃掉：状态没退，历史里也没有它了）",
+        "file": "src/extensions/editor/undo-stack.ts",
+        "pairs": [
+            (
+                """    if (!r.ok) return { kind: "failed", label: op.label, error: r.error };
+    this.done.pop();""",
+                """    if (!r.ok) {
+      this.done.pop();
+      return { kind: "failed", label: op.label, error: r.error };
+    }
+    this.done.pop();""",
+            )
+        ],
+        "test": "tests/extensions/undo-stack.test.ts",
+    },
+    {
+        "name": "M324 压新操作不清空重做侧（重做会跳到另一条分支的状态）",
+        "file": "src/extensions/editor/undo-stack.ts",
+        "pairs": [("    this.done.push(op);\n    this.redoSide = [];", "    this.done.push(op);")],
+        "test": "tests/extensions/undo-stack.test.ts",
+    },
+    {
+        "name": "M325 上限不生效（历史无限增长，也不报丢弃条数）",
+        "file": "src/extensions/editor/undo-stack.ts",
+        "pairs": [("    while (this.done.length > this.limit) {", "    while (this.done.length > 1000000000) {")],
+        "test": "tests/extensions/undo-stack.test.ts",
+    },
+    {
+        "name": "M326 批量撤销按正序（去动一个已经被前面那条删掉的节点）",
+        "file": "src/extensions/editor/undo-stack.ts",
+        "pairs": [("    for (let i = this.ops.length - 1; i >= 0; i--) {", "    for (let i = 0; i < this.ops.length; i++) {")],
+        "test": "tests/extensions/undo-stack.test.ts",
+    },
+    {
+        "name": "M327 空批量也压进历史（历史里出现一条按了什么都不做的记录）",
+        "file": "src/extensions/editor/undo-stack.ts",
+        "pairs": [("    if (b.ops.length === 0) return ok({ pushed: false, count: 0 });", "    if (false) return ok({ pushed: false, count: 0 });")],
+        "test": "tests/extensions/undo-stack.test.ts",
+    },
+    {
+        "name": "M328 valuesEqual 退化成引用相等（Vec2 写回同值也判成改了，历史被空改动填满）",
+        "file": "src/extensions/editor/property-model.ts",
+        "pairs": [("  if (a === b) return true;", "  return a === b;")],
+        "test": "tests/extensions/editor-props.test.ts",
+    },
+    {
+        "name": "M329 changed 恒 true（每次失焦都算一次改动）",
+        "file": "src/extensions/editor/property-model.ts",
+        "pairs": [("changed: !valuesEqual(before, c.value) });", "changed: true });")],
+        "test": "tests/extensions/editor-props.test.ts",
+    },
+    {
+        "name": "M330 先删再快照（撤销删除什么都回不来，而代码看起来仍在工作）",
+        "file": "src/extensions/editor/undo-ops.ts",
+        "pairs": [
+            (
+                """  const snap = snapshotSubtree(scene, nodeId);
+  if (snap === undefined) return err(engineError(EDIT_BAD_NODE, `节点 #${String(nodeId)} 拍不到快照`));
+  scene.destroy(nodeId);
+  scene.flush();""",
+                """  scene.destroy(nodeId);
+  scene.flush();
+  const snap = snapshotSubtree(scene, nodeId);
+  if (snap === undefined) return err(engineError(EDIT_BAD_NODE, `节点 #${String(nodeId)} 拍不到快照`));""",
+            )
+        ],
+        "test": "tests/extensions/editor-undo.test.ts",
+    },
+    {
+        "name": "M331 还原不用显式 id（撤销之后 id 变了，场景里所有引用全断）",
+        "file": "src/extensions/editor/undo-ops.ts",
+        "pairs": [("    const n = scene.spawnImmediate(r.name, scene.rootId, r.id);", "    const n = scene.spawnImmediate(r.name, scene.rootId);")],
+        "test": "tests/extensions/editor-undo.test.ts",
+    },
+    {
+        "name": "M332 还原不读组件数据（节点回来了但字段是默认值，看着像撤销只做了一半）",
+        "file": "src/extensions/editor/undo-ops.ts",
+        "pairs": [("      const res = c.load(cr.data);", "      const res = c.load({});")],
+        "test": "tests/extensions/editor-undo.test.ts",
+    },
+    {
+        "name": "M333 多选删除不过滤后代（删父之后再删已消失的子，整批回滚）",
+        "file": "src/extensions/editor/undo-ops.ts",
+        "pairs": [("      if (picked.has(cur.id)) return false;", "      if (false) return false;")],
+        "test": "tests/extensions/editor-undo.test.ts",
+    },
+    {
+        "name": "M334 换父不做环检查（把节点挂进自己的后代，之后 walk 直接爆栈）",
+        "file": "src/extensions/editor/undo-ops.ts",
+        "pairs": [("    if (cur.id === nodeId) {", "    if (false) {")],
+        "test": "tests/extensions/editor-undo.test.ts",
+    },
+    {
+        "name": "M335 换父的撤销用错方向（撤销之后还在新父下，按钮说退了但没退）",
+        "file": "src/extensions/editor/undo-ops.ts",
+        "pairs": [("    return this.move(this.from);", "    return this.move(this.to);")],
+        "test": "tests/extensions/editor-undo.test.ts",
+    },
+    {
+        "name": "M336 旁路跑完之后不恢复录制（此后所有编辑都不进历史，按钮一直是灰的）",
+        "file": "src/extensions/editor/undo-stack.ts",
+        "pairs": [
+            (
+                """    this.muted++;
+    try {
+      return fn();
+    } finally {
+      this.muted--;
+    }""",
+                """    this.muted++;
+    return fn();""",
+            )
+        ],
+        "test": "tests/extensions/undo-stack.test.ts",
+    },
 ]
 
 

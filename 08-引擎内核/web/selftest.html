@@ -1053,18 +1053,32 @@ row("★★ 打开背包时面板真的淡入（不透明度 0→1、位移 −8
   e.toggleBag();
   // 同步读起点：这一句与上一句在同一个任务里，中间不会有 tick
   const first = e.ui.anim("bag.panel");
-  const deadline = Date.now() + 1000;
+  // ★★ 等的是**逻辑步**，不是墙钟（批77 修）。
+  //   过渡的时长按逻辑步配置（6 步），推进发生在 `onStep` 里 ⇒ 顿帧期间
+  //   逻辑钟根本不动（见上面那条「冻住期间 tick 保持」），过渡也就**该**停在那里。
+  //   原来的写法是「1 秒内必须到 1」：本地 100ms 就走完了，CI 的 2 核 runner 上
+  //   正好在过渡中途吃了一次命中顿帧，于是停在 opacity 0.555（= 4 步 / 12 步），
+  //   报出来像「补间没接上」，实际是**判据用错了时间单位**（M304 那个教训的同族）。
+  const t0 = Date.now();
+  const k0 = e.snapshot().tick;
+  const hardDeadline = t0 + 5000; // 看门狗：真的不推进就退出并如实报出来
   let last = first;
-  while (Date.now() < deadline) {
+  let steps = 0;
+  while (Date.now() < hardDeadline) {
     last = e.ui.anim("bag.panel");
+    steps = e.snapshot().tick - k0;
     if (last !== null && last.opacity >= 0.999 && last.y === 0) break;
     await new Promise((r) => setTimeout(r, 50));
   }
   const startedAtZero = first !== null && first.opacity === 0 && first.y === -8;
   const ended = last !== null && last.opacity === 1 && last.y === 0;
+  // 断言仍是严格的「终点必须是 1 / 0」；只是**等多久**换成逻辑步来算。
+  // detail 里带上步数、墙钟与冻住状态 —— 下次红了不用再猜是哪一种。
+  const hs = e.hitstop();
   uiFadeDone = [
     startedAtZero && ended,
-    `起点 ${JSON.stringify(first)}（应为 opacity 0 / y −8）· 终点 ${JSON.stringify(last)}（应为 1 / 0）`,
+    `起点 ${JSON.stringify(first)}（应为 opacity 0 / y −8）· 终点 ${JSON.stringify(last)}（应为 1 / 0）` +
+      ` · ${steps} 逻辑步 / ${Date.now() - t0}ms · 冻住=${hs.frozen} 顿帧触发 ${hs.triggers} 次`,
   ];
   return uiFadeDone;
 });

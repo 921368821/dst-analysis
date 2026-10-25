@@ -11905,30 +11905,31 @@ function collectNodes(scene) {
   out.sort((a, b) => a.id - b.id);
   return out;
 }
+function recordOf(scene, n) {
+  const comps = [];
+  for (const c of [...n.components].sort((a, b) => a.type < b.type ? -1 : a.type > b.type ? 1 : 0)) {
+    const saved = c.save();
+    const { type: _t, ...rest } = saved;
+    comps.push({ type: c.type, data: rest });
+  }
+  return {
+    id: n.id,
+    name: n.name,
+    parent: n.parent === null || n.parent.id === scene.rootId ? null : n.parent.id,
+    x: n.localPosition.x,
+    y: n.localPosition.y,
+    rot: n.localRotation,
+    sx: n.localScale.x,
+    sy: n.localScale.y,
+    zIndex: n.zIndex,
+    active: n.active,
+    layer: n.layer,
+    components: comps
+  };
+}
 function saveScene(scene) {
   const nodes = [];
-  for (const n of collectNodes(scene)) {
-    const comps = [];
-    for (const c of [...n.components].sort((a, b) => a.type < b.type ? -1 : a.type > b.type ? 1 : 0)) {
-      const saved = c.save();
-      const { type: _t, ...rest } = saved;
-      comps.push({ type: c.type, data: rest });
-    }
-    nodes.push({
-      id: n.id,
-      name: n.name,
-      parent: n.parent === null || n.parent.id === scene.rootId ? null : n.parent.id,
-      x: n.localPosition.x,
-      y: n.localPosition.y,
-      rot: n.localRotation,
-      sx: n.localScale.x,
-      sy: n.localScale.y,
-      zIndex: n.zIndex,
-      active: n.active,
-      layer: n.layer,
-      components: comps
-    });
-  }
+  for (const n of collectNodes(scene)) nodes.push(recordOf(scene, n));
   return { format: SCENE_FORMAT_VERSION, name: scene.name, nodes };
 }
 function loadScene(scene, snap, registry) {
