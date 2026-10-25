@@ -1028,8 +1028,48 @@ row("★★ 受击闪红之后**还原成原本的颜色**（不是白色）", a
   return tintRestoreDone;
 });
 
-// ★ 什么时候停：**全部通过**才停，或者到 10 秒。以前是"引擎起来了 + 跑过 0.7 秒就停"，
-//   于是"tick > 10"和"每 60 tick 一条 Lua 日志"这两条**永远不可能过** ——
+/**
+ * 批76 · UI 过渡（`TweenPlayer` + 属性轨道）真的驱动了 UI。
+ *
+ * ★ 这条证的是**只有浏览器里才可能坏**的最后一环：值算对了、写进节点了，
+ *   但"每帧推进"没接上 / `invalidate` 没调 —— 那两种情况下屏幕完全不动，
+ *   而 Node 判据全绿（它们直接调 `advancePlayer`，不经过宿主的循环）。
+ *
+ * ★ 起点必须是 0：`setBagOpen` 在**同一个任务**里把起点写进节点，
+ *   所以 `toggleBag()` 之后立刻读，读到的就是过渡的起点。
+ *   如果补间没接上，这里读到的是节点默认值 1（面板一直是全不透明）——
+ *   "有没有过渡"被这一条直接区分开。
+ */
+let uiFadeDone = null;
+row("★★ 打开背包时面板真的淡入（不透明度 0→1、位移 −8→0，由补间驱动）", async (e) => {
+  if (uiFadeDone !== null) return uiFadeDone;
+  if (e.ui === null) {
+    uiFadeDone = [false, "没有 UI 模块（降到 DOM 路径了）"];
+    return uiFadeDone;
+  }
+  // 先确保是关着的，再打开 —— 只有从关到开才会重置轨道
+  if (e.bagPanel().open === true) e.toggleBag();
+  await new Promise((r) => setTimeout(r, 120));
+  e.toggleBag();
+  // 同步读起点：这一句与上一句在同一个任务里，中间不会有 tick
+  const first = e.ui.anim("bag.panel");
+  const deadline = Date.now() + 1000;
+  let last = first;
+  while (Date.now() < deadline) {
+    last = e.ui.anim("bag.panel");
+    if (last !== null && last.opacity >= 0.999 && last.y === 0) break;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  const startedAtZero = first !== null && first.opacity === 0 && first.y === -8;
+  const ended = last !== null && last.opacity === 1 && last.y === 0;
+  uiFadeDone = [
+    startedAtZero && ended,
+    `起点 ${JSON.stringify(first)}（应为 opacity 0 / y −8）· 终点 ${JSON.stringify(last)}（应为 1 / 0）`,
+  ];
+  return uiFadeDone;
+});
+
+// ★ 什么时候停：**全部通过**才停，或者到 10 秒。以前是"引擎起来了 + 跑过 0.7 秒就停"，//   于是"tick > 10"和"每 60 tick 一条 Lua 日志"这两条**永远不可能过** ——
 //   而页面会一本正经地显示"12 通过 / 2 失败"，看起来像引擎的问题。
 //   停得太早和判定写错一样，都是假红。
 let tries = 0;

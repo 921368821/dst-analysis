@@ -163,3 +163,16 @@ export { UiInputRouter, UiEvent, bubble } from "./extensions/ui/events.ts";
 export type { UiPointer, UiEventType, UiEventSink, UiInputRouterOptions } from "./extensions/ui/events.ts";
 export { createUiModule, rectOf, RENDER_MODULE_ID } from "./extensions/ui/ui-module.ts";
 export type { UiModuleHandle, UiModuleOptions, UiFrameStats } from "./extensions/ui/ui-module.ts";
+// 批76：UI 过渡的应用侧（补间采样 → UiNode 字段 + 值域收口）
+export { UI_TWEEN_PROP, applyUiTween, applyUiSamples, isUiTweenProp } from "./extensions/ui/ui-transition.ts";
+export type { UiTweenProp, UiTransitionResult } from "./extensions/ui/ui-transition.ts";
+
+// ---- L4 扩展：补间（缓动 + 标量采样 + 组件化推进）
+//   批72 只交付了纯函数层（没有消费者，所以没进公共 API）；
+//   批73 顿帧是**时间**的消费者，批76 `TweenPlayer` 才是**值**的消费者。
+export { EASINGS, getEasing } from "./extensions/tween/easing.ts";
+export type { EasingFn } from "./extensions/tween/easing.ts";
+export { makeTween, sampleTween, tweenDurationMs, tweenIsDone, TWEEN_ERR } from "./extensions/tween/tween.ts";
+export type { TweenSpec, TweenSpecInput, TweenSample } from "./extensions/tween/tween.ts";
+export { TweenPlayer, TweenTrack, advancePlayer, ticksToMs, TWEEN_PLAYER_TYPE, TWEEN_PLAYER_ERR } from "./extensions/tween/tween-player.ts";
+export type { TweenTrackInput, TrackSample } from "./extensions/tween/tween-player.ts";

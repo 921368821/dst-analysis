@@ -13645,8 +13645,8 @@ function buildHuffman(lengths) {
     nextCode[len] = c + 1;
     const rev = reverseBits(c, len);
     const entry = len << 9 | sym;
-    const step = 1 << len;
-    for (let i = rev; i < size; i += step) table[i] = entry;
+    const step2 = 1 << len;
+    for (let i = rev; i < size; i += step2) table[i] = entry;
   }
   return { table, maxLen };
 }
@@ -18590,6 +18590,27 @@ var UiNode = class _UiNode {
   columns;
   cell;
   visible;
+  /**
+   * 自身不透明度 0..1（默认 1）。
+   *
+   * ★ 为什么是"自身"而不是"最终"：过渡动画（批76 `tween.player`）要能把父节点淡到 0.5、
+   *   子节点淡到 0.5 而得到 0.25。若这里存的是最终值，动画一改父节点就得遍历子树重算 ——
+   *   而"遍历子树"与"每帧"叠在一起就是 O(节点数) 的隐式成本，且父子谁覆盖谁说不清。
+   *   最终值在**画的时候**乘出来（`widgets.ts` 的 `alphaOf`），是纯粹的读取。
+   *
+   * ★ 语义边界：`opacity` **不参与布局**（不透明的东西和透明的占一样的位置）。
+   *   要"不占位"用 `visible=false` —— 两者是两件事（见文件头 ★）。
+   */
+  opacity;
+  /**
+   * 自身缩放 1 = 原尺寸，绕 `pivot` 缩放。
+   *
+   * ★ **不改 `measured`**：改 measured 会让父容器的流式布局把"放大到 1.2 倍"算进尺寸，
+   *   于是弹一下的按钮会把它后面的按钮挤开。过渡要的是"原地变大"，不是"重新排版"。
+   * ★ **沿父链组合**（见 `arrange` 的注释）：父 2 倍、子再 2 倍 ⇒ 子看到的是 4 倍，
+   *   位置也一起放大 —— 一组 UI 弹出时是整体放大，不是各自从自己的左上角长。
+   */
+  scale;
   interactive;
   opaque;
   contentSize;
@@ -18627,6 +18648,8 @@ var UiNode = class _UiNode {
     this.columns = Math.max(1, Math.floor(cfg.columns ?? 1));
     this.cell = cfg.cell === void 0 ? null : { w: cfg.cell.w, h: cfg.cell.h };
     this.visible = cfg.visible ?? true;
+    this.opacity = clampOpacity(cfg.opacity ?? 1);
+    this.scale = clampScale(cfg.scale ?? 1);
     this.interactive = cfg.interactive ?? false;
     this.opaque = cfg.opaque ?? false;
     this.contentSize = { w: cfg.contentSize?.w ?? 0, h: cfg.contentSize?.h ?? 0 };
@@ -18667,7 +18690,7 @@ var UiNode = class _UiNode {
 function layoutTree(root, bounds) {
   root.rect = bounds;
   measure(root, bounds.width, bounds.height);
-  arrange(root, bounds);
+  arrange(root, bounds, 1, 0, 0);
   const out = /* @__PURE__ */ new Map();
   for (const n of root.walk()) {
     if (n === root) continue;
@@ -18756,6 +18779,14 @@ function clampSize(v) {
   if (!Number.isFinite(v) || v < 0) return 0;
   return v;
 }
+function clampOpacity(v) {
+  if (!Number.isFinite(v)) return 1;
+  return v < 0 ? 0 : v > 1 ? 1 : v;
+}
+function clampScale(v) {
+  if (!Number.isFinite(v)) return 1;
+  return v < 0 ? 0 : v;
+}
 function anchoredPos(node, parentInner) {
   const w = node.measured.w;
   const h = node.measured.h;
@@ -18763,15 +18794,27 @@ function anchoredPos(node, parentInner) {
   const y = parentInner.y + node.margin.top + node.anchor.y * parentInner.height - node.pivot.y * h + node.offset.y;
   return { x, y };
 }
-function arrange(node, rect) {
+function arrange(node, slot, sIn, oxIn, oyIn) {
   if (!node.visible) return;
-  node.rect = rect;
-  const inner = node.inner(rect);
+  let s = sIn;
+  let ox = oxIn;
+  let oy = oyIn;
+  if (node.scale !== 1) {
+    const px = slot.x + node.pivot.x * slot.width;
+    const py = slot.y + node.pivot.y * slot.height;
+    const offX = px * (1 - node.scale);
+    const offY = py * (1 - node.scale);
+    s = sIn * node.scale;
+    ox = sIn * offX + oxIn;
+    oy = sIn * offY + oyIn;
+  }
+  node.rect = s === 1 ? slot : new Rect(s * slot.x + ox, s * slot.y + oy, slot.width * s, slot.height * s);
+  const inner = node.inner(slot);
   if (node.kind === UiLayoutKind.Free) {
     for (const c of node.children) {
       if (!c.visible) continue;
       const p = anchoredPos(c, inner);
-      arrange(c, new Rect(p.x, p.y, c.measured.w, c.measured.h));
+      arrange(c, new Rect(p.x, p.y, c.measured.w, c.measured.h), s, ox, oy);
     }
     return;
   }
@@ -18798,7 +18841,7 @@ function arrange(node, rect) {
       const y = isRow ? inner.y + c.margin.top : inner.y + cursor + c.margin.top;
       const w = isRow ? Math.max(0, mainSize - c.margin.left - c.margin.right) : Math.max(0, crossSize - c.margin.left - c.margin.right);
       const h = isRow ? Math.max(0, crossSize - c.margin.top - c.margin.bottom) : Math.max(0, mainSize - c.margin.top - c.margin.bottom);
-      arrange(c, new Rect(x, y, w, h));
+      arrange(c, new Rect(x, y, w, h), s, ox, oy);
       cursor += mainSize + node.gap;
     }
     return;
@@ -18813,7 +18856,7 @@ function arrange(node, rect) {
     const row = Math.floor(i / cols);
     const x = inner.x + col * (cw + node.gap) + c.margin.left;
     const y = inner.y + row * (ch + node.gap) + c.margin.top;
-    arrange(c, new Rect(x, y, Math.max(0, cw - c.margin.left - c.margin.right), Math.max(0, ch - c.margin.top - c.margin.bottom)));
+    arrange(c, new Rect(x, y, Math.max(0, cw - c.margin.left - c.margin.right), Math.max(0, ch - c.margin.top - c.margin.bottom)), s, ox, oy);
     i++;
   }
 }
@@ -18880,6 +18923,13 @@ function cacheKey(fontId, text, style) {
     c === void 0 ? "-" : `${c.r},${c.g},${c.b},${c.a}`
   ].join("");
 }
+function alphaOf(node) {
+  let a = 1;
+  for (let cur = node; cur !== null; cur = cur.parent) {
+    a *= cur.opacity;
+  }
+  return a;
+}
 function buildUiQuads(root, fonts, skin, cache) {
   const quads = [];
   let order = 0;
@@ -18887,8 +18937,10 @@ function buildUiQuads(root, fonts, skin, cache) {
   let labels = 0;
   const missingGlyphs = /* @__PURE__ */ new Set();
   const missingFrames = /* @__PURE__ */ new Set();
-  const emit = (rect, page, uv, tint, ord) => {
+  const emit = (rect, page, uv, tint, ord, alpha = 1) => {
     if (rect.width <= 0 || rect.height <= 0) return;
+    const a = (tint?.a ?? 1) * alpha;
+    if (a <= 0) return;
     quads.push({
       nodeId: order,
       // ★ UI 用 z=0 恒定：排序第一键 layer 恒为 UI_LAYER，绘制顺序全靠 order。
@@ -18904,7 +18956,7 @@ function buildUiQuads(root, fonts, skin, cache) {
       r: tint?.r ?? 1,
       g: tint?.g ?? 1,
       b: tint?.b ?? 1,
-      a: tint?.a ?? 1,
+      a,
       order: ord,
       layer: UI_LAYER,
       pivotX: 0,
@@ -18912,7 +18964,7 @@ function buildUiQuads(root, fonts, skin, cache) {
       atlas: page
     });
   };
-  const drawFrame = (rect, frameName, slice, tint, ord) => {
+  const drawFrame = (rect, frameName, slice, tint, ord, alpha) => {
     if (frameName === void 0) return;
     const f = skin.frames.get(frameName);
     if (f === void 0) {
@@ -18920,12 +18972,12 @@ function buildUiQuads(root, fonts, skin, cache) {
       return;
     }
     if (slice > 0) {
-      for (const q2 of nineSlice(rect, f, slice)) emit(q2.rect, f.page, q2.uv, tint, ord);
+      for (const q2 of nineSlice(rect, f, slice)) emit(q2.rect, f.page, q2.uv, tint, ord, alpha);
     } else {
-      emit(rect, f.page, { u0: f.u0, v0: f.v0, u1: f.u1, v1: f.v1 }, tint, ord);
+      emit(rect, f.page, { u0: f.u0, v0: f.v0, u1: f.u1, v1: f.v1 }, tint, ord, alpha);
     }
   };
-  const emitText = (node, p, box, style, ord) => {
+  const emitText = (node, p, box, style, ord, alpha) => {
     const text = p.text ?? "";
     if (text === "") return;
     const layout = cache.get(node.uid, fonts, p.fontId ?? defaultFontId(fonts), text, style);
@@ -18934,7 +18986,7 @@ function buildUiQuads(root, fonts, skin, cache) {
     const y = box.y + (box.height - layout.height) / 2;
     for (const g of layout.quads) {
       glyphs++;
-      emit(new Rect(box.x + g.x, y + g.y, g.w, g.h), g.page, g, { r: g.r, g: g.g, b: g.b, a: g.a }, ord);
+      emit(new Rect(box.x + g.x, y + g.y, g.w, g.h), g.page, g, { r: g.r, g: g.g, b: g.b, a: g.a }, ord, alpha);
     }
     for (const m of layout.missing) missingGlyphs.add(m);
   };
@@ -18943,33 +18995,34 @@ function buildUiQuads(root, fonts, skin, cache) {
     if (node.widget === UiWidget.Group || node.widget === UiWidget.Spacer) continue;
     const ord = order++;
     const p = node.props;
+    const alpha = alphaOf(node);
     if (node.widget === UiWidget.Panel) {
-      drawFrame(node.rect, p.frame, p.slice ?? 0, p.tint, ord);
+      drawFrame(node.rect, p.frame, p.slice ?? 0, p.tint, ord, alpha);
       continue;
     }
     if (node.widget === UiWidget.Image) {
-      drawFrame(node.rect, p.frame, 0, p.tint, ord);
+      drawFrame(node.rect, p.frame, 0, p.tint, ord, alpha);
       continue;
     }
     if (node.widget === UiWidget.Button) {
-      drawFrame(node.rect, p.frame, p.slice ?? 0, p.tint, ord);
+      drawFrame(node.rect, p.frame, p.slice ?? 0, p.tint, ord, alpha);
       const inner = new Rect(node.rect.x + 4, node.rect.y, Math.max(0, node.rect.width - 8), node.rect.height);
       emitText(node, p, inner, {
         ...p.style,
         maxWidth: inner.width,
         align: p.style?.align ?? "center",
         color: p.textColor ?? p.style?.color
-      }, ord);
+      }, ord, alpha);
       continue;
     }
     if (node.widget === UiWidget.Progress) {
-      drawFrame(node.rect, p.frame, p.slice ?? 0, p.tint, ord);
+      drawFrame(node.rect, p.frame, p.slice ?? 0, p.tint, ord, alpha);
       const v = Math.max(0, Math.min(1, p.value ?? 0));
       const f = p.frame === void 0 ? void 0 : skin.frames.get(p.frame);
       if (v > 0 && f !== void 0) {
         const r = new Rect(node.rect.x, node.rect.y, node.rect.width * v, node.rect.height);
         const u1 = f.u0 + (f.u1 - f.u0) * v;
-        emit(r, f.page, { u0: f.u0, v0: f.v0, u1, v1: f.v1 }, p.activeTint ?? { r: 0.5, g: 0.85, b: 0.4, a: 1 }, ord);
+        emit(r, f.page, { u0: f.u0, v0: f.v0, u1, v1: f.v1 }, p.activeTint ?? { r: 0.5, g: 0.85, b: 0.4, a: 1 }, ord, alpha);
       }
       continue;
     }
@@ -18979,7 +19032,7 @@ function buildUiQuads(root, fonts, skin, cache) {
         maxWidth: node.rect.width,
         align: p.style?.align ?? "left",
         color: p.textColor ?? p.style?.color
-      }, ord);
+      }, ord, alpha);
     }
   }
   return {
@@ -19703,6 +19756,483 @@ function rectOfId(handle, id) {
   return handle.module.layout.get(id);
 }
 
+// src/extensions/tween/easing.ts
+var EASING_ERR = {
+  UNKNOWN: "TWEEN.UNKNOWN_EASING"
+};
+function quadIn(t) {
+  return t * t;
+}
+function quadOut(t) {
+  return t * (2 - t);
+}
+function quadInOut(t) {
+  return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+}
+function cubicIn(t) {
+  return t * t * t;
+}
+function cubicOut(t) {
+  const u = t - 1;
+  return u * u * u + 1;
+}
+function cubicInOut(t) {
+  return t < 0.5 ? 4 * t * t * t : (t - 1) * (2 * t - 2) * (2 * t - 2) + 1;
+}
+function quartIn(t) {
+  return t * t * t * t;
+}
+function quartOut(t) {
+  const u = t - 1;
+  return 1 - u * u * u * u;
+}
+function quartInOut(t) {
+  return t < 0.5 ? 8 * t * t * t * t : 1 - 8 * (t - 1) * (t - 1) * (t - 1) * (t - 1);
+}
+function quintIn(t) {
+  return t * t * t * t * t;
+}
+function quintOut(t) {
+  const u = t - 1;
+  return 1 + u * u * u * u * u;
+}
+function quintInOut(t) {
+  return t < 0.5 ? 16 * t * t * t * t * t : 1 + 16 * (t - 1) * (t - 1) * (t - 1) * (t - 1) * (t - 1);
+}
+function sineIn(t) {
+  if (t === 1) return 1;
+  return 1 - Math.cos(t * Math.PI / 2);
+}
+function sineOut(t) {
+  return Math.sin(t * Math.PI / 2);
+}
+function sineInOut(t) {
+  return 0.5 * (1 - Math.cos(Math.PI * t));
+}
+function expoIn(t) {
+  return t === 0 ? 0 : Math.pow(2, 10 * (t - 1));
+}
+function expoOut(t) {
+  return t === 1 ? 1 : 1 - Math.pow(2, -10 * t);
+}
+function expoInOut(t) {
+  if (t === 0) return 0;
+  if (t === 1) return 1;
+  return t < 0.5 ? 0.5 * Math.pow(2, 10 * (2 * t - 1)) : 1 - 0.5 * Math.pow(2, -10 * (2 * t - 1));
+}
+function circIn(t) {
+  return 1 - Math.sqrt(1 - t * t);
+}
+function circOut(t) {
+  const u = t - 1;
+  return Math.sqrt(1 - u * u);
+}
+function circInOut(t) {
+  return t < 0.5 ? 0.5 * (1 - Math.sqrt(1 - 4 * t * t)) : 0.5 * (Math.sqrt(1 - (2 * t - 2) * (2 * t - 2)) + 1);
+}
+var BACK_S = 1.70158;
+function backIn(t) {
+  if (t === 0) return 0;
+  if (t === 1) return 1;
+  return t * t * ((BACK_S + 1) * t - BACK_S);
+}
+function backOut(t) {
+  if (t === 0) return 0;
+  const u = t - 1;
+  return u * u * ((BACK_S + 1) * u + BACK_S) + 1;
+}
+function backInOut(t) {
+  if (t === 0) return 0;
+  const s = BACK_S * 1.525;
+  if (t < 0.5) {
+    const u2 = 2 * t;
+    return 0.5 * (u2 * u2 * ((s + 1) * u2 - s));
+  }
+  const u = 2 * t - 2;
+  return 0.5 * (u * u * ((s + 1) * u + s) + 2);
+}
+var ELASTIC_P = 0.3;
+var ELASTIC_S = ELASTIC_P / 4;
+function elasticIn(t) {
+  if (t === 0) return 0;
+  if (t === 1) return 1;
+  return -Math.pow(2, 10 * (t - 1)) * Math.sin((t - 1 - ELASTIC_S) * 2 * Math.PI / ELASTIC_P);
+}
+function elasticOut(t) {
+  if (t === 0) return 0;
+  if (t === 1) return 1;
+  return Math.pow(2, -10 * t) * Math.sin((t - ELASTIC_S) * 2 * Math.PI / ELASTIC_P) + 1;
+}
+function elasticInOut(t) {
+  if (t === 0) return 0;
+  if (t === 1) return 1;
+  return t < 0.5 ? elasticIn(2 * t) / 2 : elasticOut(2 * t - 1) / 2 + 0.5;
+}
+var BOUNCE_N = 7.5625;
+var BOUNCE_D = 2.75;
+function bounceOut(t) {
+  if (t < 1 / BOUNCE_D) return BOUNCE_N * t * t;
+  if (t < 2 / BOUNCE_D) {
+    const u2 = t - 1.5 / BOUNCE_D;
+    return BOUNCE_N * u2 * u2 + 0.75;
+  }
+  if (t < 2.5 / BOUNCE_D) {
+    const u2 = t - 2.25 / BOUNCE_D;
+    return BOUNCE_N * u2 * u2 + 0.9375;
+  }
+  const u = t - 2.625 / BOUNCE_D;
+  return BOUNCE_N * u * u + 0.984375;
+}
+function bounceIn(t) {
+  return 1 - bounceOut(1 - t);
+}
+function bounceInOut(t) {
+  return t < 0.5 ? 0.5 * (1 - bounceOut(1 - 2 * t)) : 0.5 * bounceOut(2 * t - 1) + 0.5;
+}
+function step(t) {
+  return t < 1 ? 0 : 1;
+}
+var EASINGS = Object.freeze({
+  linear: (t) => t,
+  quadIn,
+  quadOut,
+  quadInOut,
+  cubicIn,
+  cubicOut,
+  cubicInOut,
+  quartIn,
+  quartOut,
+  quartInOut,
+  quintIn,
+  quintOut,
+  quintInOut,
+  sineIn,
+  sineOut,
+  sineInOut,
+  expoIn,
+  expoOut,
+  expoInOut,
+  circIn,
+  circOut,
+  circInOut,
+  backIn,
+  backOut,
+  backInOut,
+  elasticIn,
+  elasticOut,
+  elasticInOut,
+  bounceIn,
+  bounceOut,
+  bounceInOut,
+  step
+});
+var EASING_NAMES = Object.freeze(Object.keys(EASINGS));
+function getEasing(name) {
+  const fn = EASINGS[name];
+  if (fn === void 0) {
+    return err(
+      engineError(
+        EASING_ERR.UNKNOWN,
+        `\u672A\u77E5\u7F13\u52A8 ${JSON.stringify(name)}\uFF1B\u53EF\u7528\uFF1A${EASING_NAMES.join(", ")}`,
+        { name }
+      )
+    );
+  }
+  return ok(fn);
+}
+
+// src/extensions/tween/tween.ts
+var TWEEN_ERR = {
+  BAD_DURATION: "TWEEN.BAD_DURATION",
+  BAD_DELAY: "TWEEN.BAD_DELAY",
+  BAD_SPEED: "TWEEN.BAD_SPEED",
+  BAD_LOOP: "TWEEN.BAD_LOOP",
+  BAD_ENDPOINT: "TWEEN.BAD_ENDPOINT",
+  UNKNOWN_EASING: "TWEEN.UNKNOWN_EASING",
+  NON_FINITE_TIME: "TWEEN.NON_FINITE_TIME"
+};
+function makeTween(input) {
+  if (!Number.isFinite(input.from) || !Number.isFinite(input.to)) {
+    return err(
+      engineError(TWEEN_ERR.BAD_ENDPOINT, `\u8865\u95F4\u4E24\u7AEF\u5FC5\u987B\u662F\u6709\u9650\u6570\uFF1Afrom=${String(input.from)} to=${String(input.to)}`, {
+        id: input.id
+      })
+    );
+  }
+  if (!Number.isFinite(input.durationMs) || input.durationMs <= 0) {
+    return err(
+      engineError(TWEEN_ERR.BAD_DURATION, `durationMs \u5FC5\u987B\u662F > 0 \u7684\u6709\u9650\u6570\uFF1A${String(input.durationMs)}`, {
+        id: input.id
+      })
+    );
+  }
+  const delayMs = input.delayMs ?? 0;
+  if (!Number.isFinite(delayMs) || delayMs < 0) {
+    return err(engineError(TWEEN_ERR.BAD_DELAY, `delayMs \u5FC5\u987B\u662F\u975E\u8D1F\u6709\u9650\u6570\uFF1A${String(delayMs)}`, { id: input.id }));
+  }
+  const speed = input.speed ?? 1;
+  if (!Number.isFinite(speed)) {
+    return err(engineError(TWEEN_ERR.BAD_SPEED, `speed \u5FC5\u987B\u662F\u6709\u9650\u6570\uFF1A${String(speed)}`, { id: input.id }));
+  }
+  const loopCount = input.loopCount ?? 0;
+  if (!Number.isInteger(loopCount) || loopCount < 0) {
+    return err(
+      engineError(TWEEN_ERR.BAD_LOOP, `loopCount \u5FC5\u987B\u662F\u975E\u8D1F\u6574\u6570\uFF1A${String(loopCount)}\uFF080 = \u65E0\u9650\u5FAA\u73AF\uFF09`, {
+        id: input.id
+      })
+    );
+  }
+  const easing = input.easing ?? "quadInOut";
+  const e = getEasing(easing);
+  if (!e.ok) {
+    return err(engineError(TWEEN_ERR.UNKNOWN_EASING, e.error.message, { id: input.id, easing }));
+  }
+  return ok(
+    Object.freeze({
+      id: input.id,
+      from: input.from,
+      to: input.to,
+      durationMs: input.durationMs,
+      easing,
+      delayMs,
+      speed,
+      loopCount,
+      yoyo: input.yoyo ?? false
+    })
+  );
+}
+function effectiveDuration(spec) {
+  const s = Math.abs(spec.speed);
+  return spec.durationMs / (s === 0 ? 1 : s);
+}
+function sampleTween(spec, timeMs) {
+  if (!Number.isFinite(timeMs)) {
+    throw new TypeError(`sampleTween \u7684 timeMs \u5FC5\u987B\u662F\u6709\u9650\u6570\uFF08\u6536\u5230 ${String(timeMs)}\uFF09`);
+  }
+  const t = timeMs < 0 ? 0 : timeMs;
+  if (t < spec.delayMs) {
+    return { value: spec.from, progress: 0, loop: 0, done: false, waiting: true };
+  }
+  const local0 = t - spec.delayMs;
+  const perLoop = effectiveDuration(spec);
+  if (spec.loopCount > 0 && local0 >= perLoop * spec.loopCount) {
+    const lastIsReverse = spec.yoyo && (spec.loopCount - 1) % 2 === 1;
+    return {
+      value: lastIsReverse ? spec.from : spec.to,
+      progress: 1,
+      loop: spec.loopCount - 1,
+      done: true,
+      waiting: false
+    };
+  }
+  const loop = spec.loopCount === 0 ? Math.floor(local0 / perLoop) : Math.min(Math.floor(local0 / perLoop), spec.loopCount - 1);
+  const local = local0 - loop * perLoop;
+  const atLoopStart = local === 0 && loop > 0;
+  const effectiveLoop = atLoopStart ? loop - 1 : loop;
+  const p = atLoopStart ? 1 : local / perLoop;
+  const reversed = spec.speed < 0 !== (spec.yoyo && effectiveLoop % 2 === 1);
+  const progress = reversed ? 1 - p : p;
+  const ease = EASINGS[spec.easing];
+  const value = spec.from + (spec.to - spec.from) * ease(progress);
+  return { value, progress: p, loop, done: false, waiting: false };
+}
+
+// src/extensions/tween/tween-player.ts
+var TWEEN_PLAYER_TYPE = "tween.player";
+var TWEEN_PLAYER_ERR = {
+  /** 同一 player 里轨道 id 重复（后加的那条永远不会被单独找到）。 */
+  DUPLICATE_TRACK: "TWEEN.DUPLICATE_TRACK",
+  /** 轨道不存在。 */
+  NO_TRACK: "TWEEN.NO_TRACK"
+};
+var TweenTrack = class {
+  id;
+  targetId;
+  prop;
+  spec;
+  /** 本轨道自己的进度（毫秒，可被 `seek` 直接改）。 */
+  timeMs = 0;
+  /** 是否推进时间。false 时仍可按当前 `timeMs` 采样（`seek` 之后能立刻看到结果）。 */
+  playing;
+  autoplay;
+  /** 上一次采样出来的值（判断"这一步真的变了吗"）。`NaN` = 还没采过。 */
+  lastValue = Number.NaN;
+  constructor(id, targetId, prop, spec, playing, autoplay) {
+    this.id = id;
+    this.targetId = targetId;
+    this.prop = prop;
+    this.spec = spec;
+    this.playing = playing;
+    this.autoplay = autoplay;
+  }
+  /** 回到起点，并按 `autoplay` 决定是否继续播。 */
+  reset() {
+    this.timeMs = 0;
+    this.lastValue = Number.NaN;
+    this.playing = this.autoplay;
+  }
+  /**
+   * 跳到指定毫秒。
+   * ★ 负数夹到 0（与 `sampleTween` 的"负时间 = 还没开始"一致）；
+   *   非有限数直接抛 —— 那是调用方的编程错误，不是可配置字段。
+   */
+  seek(ms) {
+    if (!Number.isFinite(ms)) {
+      throw new TypeError(`TweenTrack.seek \u7684 ms \u5FC5\u987B\u662F\u6709\u9650\u6570\uFF08\u6536\u5230 ${String(ms)}\uFF09`);
+    }
+    this.timeMs = ms < 0 ? 0 : ms;
+  }
+};
+var TweenPlayer = class extends Component {
+  /**
+   * 整组开关。
+   * ★ 它单独存在于 schema 里，是为了让存档能表达"这组过渡停在暂停态"——
+   *   而轨道本身不进 schema（见文件头 ★★）。
+   */
+  playing = true;
+  /** 运行时轨道（顺序 = 添加顺序，推进也按这个序）。 */
+  tracks = [];
+  schema = {
+    type: TWEEN_PLAYER_TYPE,
+    fields: {
+      playing: FieldType.Bool
+    },
+    defaults: {
+      playing: true
+    }
+  };
+  /**
+   * 加一条轨道。构造期就把 spec 校验掉（坏配置不许留到采样期）。
+   *
+   * ★ 重复 id 直接拒绝：`track(id)` 只能返回第一条，第二条就成了
+   *   "加进去了但永远停不下来"的幽灵 —— 而它的症状是"关掉界面后还有东西在动"。
+   */
+  addTrack(input) {
+    if (this.tracks.some((t) => t.id === input.id)) {
+      return err(
+        engineError(TWEEN_PLAYER_ERR.DUPLICATE_TRACK, `\u8F68\u9053 id \u91CD\u590D\uFF1A${input.id}\uFF08\u540C\u4E00 player \u5185\u5FC5\u987B\u552F\u4E00\uFF09`, {
+          id: input.id
+        })
+      );
+    }
+    const made = makeTween(input.spec);
+    if (!made.ok) return made;
+    const track = new TweenTrack(
+      input.id,
+      input.targetId,
+      input.prop,
+      made.value,
+      input.playing ?? true,
+      input.autoplay ?? true
+    );
+    this.tracks.push(track);
+    return ok(track);
+  }
+  track(id) {
+    return this.tracks.find((t) => t.id === id);
+  }
+  /** 按 id 停一条轨道（界面收起时用：进度留着，只是不再推进）。 */
+  pause(id) {
+    const t = this.track(id);
+    if (t === void 0) return err(engineError(TWEEN_PLAYER_ERR.NO_TRACK, `\u6CA1\u6709\u8F68\u9053 ${id}`));
+    t.playing = false;
+    return ok(void 0);
+  }
+  play(id) {
+    const t = this.track(id);
+    if (t === void 0) return err(engineError(TWEEN_PLAYER_ERR.NO_TRACK, `\u6CA1\u6709\u8F68\u9053 ${id}`));
+    t.playing = true;
+    return ok(void 0);
+  }
+  /** 清空所有轨道（换界面时用）。 */
+  clear() {
+    this.tracks.length = 0;
+  }
+  /** 所有轨道回到起点。 */
+  reset() {
+    for (const t of this.tracks) t.reset();
+  }
+  /** 是否还有轨道在推进（诊断/性能用：全静止就不必每帧走一遍）。 */
+  get moving() {
+    return this.playing && this.tracks.some((t) => t.playing && !sampleTween(t.spec, t.timeMs).done);
+  }
+};
+function ticksToMs(ticks, fixedDtMs) {
+  if (!Number.isInteger(ticks) || ticks <= 0) {
+    throw new TypeError(`ticksToMs \u7684 ticks \u5FC5\u987B\u662F\u6B63\u6574\u6570\uFF08\u6536\u5230 ${String(ticks)}\uFF09`);
+  }
+  if (!Number.isFinite(fixedDtMs) || fixedDtMs <= 0) {
+    throw new TypeError(`ticksToMs \u7684 fixedDtMs \u5FC5\u987B\u662F\u6B63\u7684\u6709\u9650\u6570\uFF08\u6536\u5230 ${String(fixedDtMs)}\uFF09`);
+  }
+  return ticks * fixedDtMs;
+}
+function advancePlayer(player, dtMs) {
+  if (!Number.isFinite(dtMs) || dtMs < 0) {
+    throw new TypeError(`advancePlayer \u7684 dtMs \u5FC5\u987B\u662F\u975E\u8D1F\u6709\u9650\u6570\uFF08\u6536\u5230 ${String(dtMs)}\uFF09`);
+  }
+  const out = [];
+  for (const t of player.tracks) {
+    const wasDone = sampleTween(t.spec, t.timeMs).done;
+    if (player.playing && t.playing && !wasDone && t.spec.speed !== 0) {
+      t.timeMs += dtMs;
+      if (t.timeMs < 0) t.timeMs = 0;
+    }
+    const s = sampleTween(t.spec, t.timeMs);
+    const changed = Number.isNaN(t.lastValue) || s.value !== t.lastValue;
+    t.lastValue = s.value;
+    out.push({ id: t.id, targetId: t.targetId, prop: t.prop, value: s.value, done: s.done, changed });
+  }
+  return out;
+}
+
+// src/extensions/ui/ui-transition.ts
+var UI_TWEEN_PROP = {
+  Opacity: "opacity",
+  Scale: "scale",
+  OffsetX: "offsetX",
+  OffsetY: "offsetY"
+};
+var KNOWN = new Set(Object.values(UI_TWEEN_PROP));
+function applyUiTween(node, prop, value) {
+  if (!Number.isFinite(value)) return false;
+  switch (prop) {
+    case UI_TWEEN_PROP.Opacity:
+      node.opacity = value < 0 ? 0 : value > 1 ? 1 : value;
+      return true;
+    case UI_TWEEN_PROP.Scale:
+      node.scale = value < 0 ? 0 : value;
+      return true;
+    case UI_TWEEN_PROP.OffsetX:
+      node.offset = { x: value, y: node.offset.y };
+      return true;
+    case UI_TWEEN_PROP.OffsetY:
+      node.offset = { x: node.offset.x, y: value };
+      return true;
+    default:
+      return false;
+  }
+}
+function applyUiSamples(samples, index) {
+  let applied = 0;
+  let changed = 0;
+  let unknownProp = 0;
+  let missingNode = 0;
+  for (const s of samples) {
+    const node = index(s.targetId);
+    if (node === void 0) {
+      missingNode++;
+      continue;
+    }
+    if (!applyUiTween(node, s.prop, s.value)) {
+      unknownProp++;
+      continue;
+    }
+    applied++;
+    if (s.changed) changed++;
+  }
+  return { applied, changed, unknownProp, missingNode };
+}
+
 // src/host/hitstop-policy.ts
 var HITSTOP_HIT_TICKS = 3;
 var HITSTOP_KILL_TICKS = 12;
@@ -20156,9 +20686,9 @@ function createControllerModule(opts) {
       for (const c of s.componentsOf(CONTROLLER_TYPE)) {
         const node = c.node;
         if (node === null) continue;
-        const step = stepOf(snapshot, c.speed, dt, map);
-        if (step.dx !== 0 || step.dz !== 0) {
-          node.setLocalPosition(node.localPosition.x + step.dx, node.localPosition.y + step.dz);
+        const step2 = stepOf(snapshot, c.speed, dt, map);
+        if (step2.dx !== 0 || step2.dz !== 0) {
+          node.setLocalPosition(node.localPosition.x + step2.dx, node.localPosition.y + step2.dz);
         }
         n++;
       }
@@ -22877,9 +23407,32 @@ async function main() {
     else console.warn(`[ui] UI \u6A21\u5757\u6CA1\u5EFA\u8D77\u6765\uFF1A${r.error.code} ${r.error.message}\uFF08HUD \u9000\u56DE DOM\uFF09`);
   }
   hud.hidden = hudUi !== null;
+  const BAG_FADE_TICKS = 6;
+  const BAG_SLIDE_FROM = -8;
+  let bagTween = null;
+  const uiNodeById = (id) => hudUi?.module.root.find(id);
+  function setBagOpen(next) {
+    bagOpen = next;
+    if (next) bagSel = 0;
+    syncBagUi();
+    const t = bagTween;
+    if (t === null) return;
+    if (next) {
+      t.playing = true;
+      t.reset();
+      applyUiSamples(advancePlayer(t, 0), uiNodeById);
+      hudUi?.module.invalidate();
+    } else {
+      t.playing = false;
+    }
+  }
   const worldMod = createWorldModule(physics, {
     onTick: (t) => hudTick = t,
     onStep: (tick, dt) => {
+      if (bagTween !== null) {
+        const applied = applyUiSamples(advancePlayer(bagTween, dt * 1e3), uiNodeById);
+        if (applied.changed > 0) hudUi?.module.invalidate();
+      }
       controllerMod.update(tick, dt);
       dispatchActions();
       worldState.tasks?.update(tick, dt);
@@ -23200,6 +23753,24 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
   }
   const app = appR.value;
   appRef = app;
+  if (hudUi !== null) {
+    const fadeMs = ticksToMs(BAG_FADE_TICKS, app.scheduler.fixedDt * 1e3);
+    const player = new TweenPlayer();
+    const fade = player.addTrack({
+      id: "bag.fadeIn",
+      targetId: "bag.panel",
+      prop: UI_TWEEN_PROP.Opacity,
+      spec: { id: "bag.fadeIn", from: 0, to: 1, durationMs: fadeMs, easing: "quadOut" }
+    });
+    const slide = player.addTrack({
+      id: "bag.slideIn",
+      targetId: "bag.panel",
+      prop: UI_TWEEN_PROP.OffsetY,
+      spec: { id: "bag.slideIn", from: BAG_SLIDE_FROM, to: 0, durationMs: fadeMs, easing: "quadOut" }
+    });
+    if (fade.ok && slide.ok) bagTween = player;
+    else app.log.channel("host").warn("\u80CC\u5305\u8FC7\u6E21\u8F68\u9053\u6CA1\u5EFA\u8D77\u6765\uFF1A\u5C5E\u6027\u540D\u6216 spec \u5199\u9519\u4E86");
+  }
   const scriptRuntime = scriptMod.runtime;
   if (scriptRuntime === null) {
     app.log.channel("host").warn("\u5E73\u53F0\u6CA1\u6709\u811A\u672C\u8FD0\u884C\u65F6\uFF1A\u6F14\u793A\u811A\u672C\u4E0D\u4F1A\u6267\u884C");
@@ -23392,9 +23963,7 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
     else if (map.justPressed(snap, "load")) void doLoad();
     else if (map.justPressed(snap, "restart")) location.reload();
     else if (map.justPressed(snap, "bag")) {
-      bagOpen = !bagOpen;
-      if (bagOpen) bagSel = 0;
-      syncBagUi();
+      setBagOpen(!bagOpen);
       toast(bagOpen ? "\u80CC\u5305\u5DF2\u6253\u5F00" : "\u80CC\u5305\u5DF2\u5173\u4E0A");
     } else if (map.justPressed(snap, "drop")) {
       const d = dropSelected(shiftDown);
@@ -23900,9 +24469,7 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
     bagPanel: () => ({ open: bagOpen, selected: bagSel, stacks: stacksOf(scene, heroId).length }),
     /** 开关面板（自检页驱动；等价于按 Tab）。 */
     toggleBag: () => {
-      bagOpen = !bagOpen;
-      if (bagOpen) bagSel = 0;
-      syncBagUi();
+      setBagOpen(!bagOpen);
       return bagOpen;
     },
     /** 选中第 i 堆（自检页驱动；等价于按数字键）。 */
@@ -23939,6 +24506,15 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
       lastFrame: () => hudUi.module.lastFrame,
       /** 设计坐标里的节点矩形（`null` = 不可见/没这个 id）。 */
       rect: (id) => rectOfId(hudUi, id) ?? null,
+      /**
+       * 节点的动画属性（批76 判据用）：过渡到底有没有真的改到节点上。
+       * ★ 只暴露"节点自己存的值"，不在这里乘父链 —— 判据读到的东西
+       *   必须与 `applyUiTween` 写进去的是同一个量，否则断言的是另一个数。
+       */
+      anim: (id) => {
+        const n = hudUi.module.root.find(id);
+        return n === void 0 ? null : { opacity: n.opacity, scale: n.scale, x: n.offset.x, y: n.offset.y };
+      },
       /** 面板里**画出来的**行文本（不是重新算一遍的那份）。 */
       bagRows: () => hudUi.bagRowTexts.slice(),
       bagOpen: () => hudUi.bagOpen,

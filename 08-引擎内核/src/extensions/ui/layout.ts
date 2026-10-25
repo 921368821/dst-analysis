@@ -92,6 +92,14 @@ export interface UiNodeConfig {
   readonly columns?: number;
   readonly cell?: { readonly w: number; readonly h: number };
   readonly visible?: boolean;
+  /**
+   * 自身不透明度（0..1，默认 1）。**会与父节点的相乘**（见 `UiNode.opacity`）。
+   */
+  readonly opacity?: number;
+  /**
+   * 自身缩放（默认 1，绕 `pivot` 缩放）。**会与父节点的相乘**。
+   */
+  readonly scale?: number;
   /** 参与命中测试。false = 点击穿透到下层。 */
   readonly interactive?: boolean;
   /** 命中后是否阻断下层（面板/按钮必须 true，否则点按钮会同时点到背后）。 */
@@ -121,6 +129,27 @@ export class UiNode {
   columns: number;
   cell: { w: number; h: number } | null;
   visible: boolean;
+  /**
+   * 自身不透明度 0..1（默认 1）。
+   *
+   * ★ 为什么是"自身"而不是"最终"：过渡动画（批76 `tween.player`）要能把父节点淡到 0.5、
+   *   子节点淡到 0.5 而得到 0.25。若这里存的是最终值，动画一改父节点就得遍历子树重算 ——
+   *   而"遍历子树"与"每帧"叠在一起就是 O(节点数) 的隐式成本，且父子谁覆盖谁说不清。
+   *   最终值在**画的时候**乘出来（`widgets.ts` 的 `alphaOf`），是纯粹的读取。
+   *
+   * ★ 语义边界：`opacity` **不参与布局**（不透明的东西和透明的占一样的位置）。
+   *   要"不占位"用 `visible=false` —— 两者是两件事（见文件头 ★）。
+   */
+  opacity: number;
+  /**
+   * 自身缩放 1 = 原尺寸，绕 `pivot` 缩放。
+   *
+   * ★ **不改 `measured`**：改 measured 会让父容器的流式布局把"放大到 1.2 倍"算进尺寸，
+   *   于是弹一下的按钮会把它后面的按钮挤开。过渡要的是"原地变大"，不是"重新排版"。
+   * ★ **沿父链组合**（见 `arrange` 的注释）：父 2 倍、子再 2 倍 ⇒ 子看到的是 4 倍，
+   *   位置也一起放大 —— 一组 UI 弹出时是整体放大，不是各自从自己的左上角长。
+   */
+  scale: number;
   interactive: boolean;
   opaque: boolean;
   contentSize: { w: number; h: number };
@@ -159,6 +188,8 @@ export class UiNode {
     this.columns = Math.max(1, Math.floor(cfg.columns ?? 1));
     this.cell = cfg.cell === undefined ? null : { w: cfg.cell.w, h: cfg.cell.h };
     this.visible = cfg.visible ?? true;
+    this.opacity = clampOpacity(cfg.opacity ?? 1);
+    this.scale = clampScale(cfg.scale ?? 1);
     this.interactive = cfg.interactive ?? false;
     this.opaque = cfg.opaque ?? false;
     this.contentSize = { w: cfg.contentSize?.w ?? 0, h: cfg.contentSize?.h ?? 0 };
@@ -218,7 +249,7 @@ export type UiLayoutResult = ReadonlyMap<string, Rect>;
 export function layoutTree(root: UiNode, bounds: Rect): UiLayoutResult {
   root.rect = bounds;
   measure(root, bounds.width, bounds.height);
-  arrange(root, bounds);
+  arrange(root, bounds, 1, 0, 0);
   const out = new Map<string, Rect>();
   for (const n of root.walk()) {
     if (n === root) continue;
@@ -333,6 +364,24 @@ function clampSize(v: number): number {
   return v;
 }
 
+/**
+ * 不透明度夹到 0..1。
+ *
+ * ★ NaN 退回 1（"当作没有动画"）而不是 0：非有限值在这里只是**防御**，
+ *   真正的拦截在写入侧（`applyUiTween` 对非有限值拒绝写入）。若这里退回 0，
+ *   一次写坏就会让**整棵子树**消失 —— 那是全项目最难查的症状之一。
+ */
+function clampOpacity(v: number): number {
+  if (!Number.isFinite(v)) return 1;
+  return v < 0 ? 0 : v > 1 ? 1 : v;
+}
+
+/** 缩放夹到 >= 0（负缩放是镜像，UI 过渡不需要，且会让命中测试的矩形反向）。 */
+function clampScale(v: number): number {
+  if (!Number.isFinite(v)) return 1;
+  return v < 0 ? 0 : v;
+}
+
 /** 锚点定位：父内区 + 锚点比例 − 自身枢轴 + 偏移 + margin。 */
 function anchoredPos(node: UiNode, parentInner: Rect): { x: number; y: number } {
   const w = node.measured.w;
@@ -352,17 +401,46 @@ function anchoredPos(node: UiNode, parentInner: Rect): { x: number; y: number } 
   return { x, y };
 }
 
-/** 摆放：把绝对矩形写进子节点。 */
-function arrange(node: UiNode, rect: Rect): void {
+/** 摆放：把绝对矩形写进子节点。
+ *
+ * ★★ 缩放是**沿父链组合的仿射变换** `p → s·p + o`，不是"每个节点各自绕自己枢轴缩一下"。
+ *
+ *   为什么必须组合：一组 UI 弹出时，父容器 2 倍、里面的按钮应当既变大**也外移**。
+ *   如果每个节点只缩自己那一块，子节点会保持原尺寸（因为它的 `measured` 没变），
+ *   于是"盒子变大了但里面的东西没变" —— 看起来像布局错位，不像动画。
+ *
+ *   组合公式（两次缩放关于不同点的复合，仍是缩放）：
+ *     子变换：`p → sc·p + P·(1−sc)`（P = 本节点枢轴，未缩放绝对坐标）
+ *     再套父变换：`p → s'·p + o'`  ⇒  `s = s'·sc`，`o = s'·o_c + o'`
+ *   于是只需要往下传 `(s, o)` 两个量。
+ *
+ * ★ 布局计算仍在**未缩放空间**里做（`inner` 用的是入参 `slot` 而不是缩放后的矩形）：
+ *   否则子节点会先按父的缩放算一遍位置、再被继承的缩放乘第二遍。
+ */
+function arrange(node: UiNode, slot: Rect, sIn: number, oxIn: number, oyIn: number): void {
   if (!node.visible) return;
-  node.rect = rect;
-  const inner = node.inner(rect);
+  let s = sIn;
+  let ox = oxIn;
+  let oy = oyIn;
+  if (node.scale !== 1) {
+    // 本节点枢轴在**未缩放**绝对坐标里的位置
+    const px = slot.x + node.pivot.x * slot.width;
+    const py = slot.y + node.pivot.y * slot.height;
+    const offX = px * (1 - node.scale);
+    const offY = py * (1 - node.scale);
+    s = sIn * node.scale;
+    ox = sIn * offX + oxIn;
+    oy = sIn * offY + oyIn;
+  }
+  node.rect = s === 1 ? slot : new Rect(s * slot.x + ox, s * slot.y + oy, slot.width * s, slot.height * s);
+  // ★ 内区用入参 `slot`（未缩放）：布局数学只在未缩放空间里成立一次
+  const inner = node.inner(slot);
 
   if (node.kind === UiLayoutKind.Free) {
     for (const c of node.children) {
       if (!c.visible) continue;
       const p = anchoredPos(c, inner);
-      arrange(c, new Rect(p.x, p.y, c.measured.w, c.measured.h));
+      arrange(c, new Rect(p.x, p.y, c.measured.w, c.measured.h), s, ox, oy);
     }
     return;
   }
@@ -395,7 +473,7 @@ function arrange(node: UiNode, rect: Rect): void {
       const y = isRow ? inner.y + c.margin.top : inner.y + cursor + c.margin.top;
       const w = isRow ? Math.max(0, mainSize - c.margin.left - c.margin.right) : Math.max(0, crossSize - c.margin.left - c.margin.right);
       const h = isRow ? Math.max(0, crossSize - c.margin.top - c.margin.bottom) : Math.max(0, mainSize - c.margin.top - c.margin.bottom);
-      arrange(c, new Rect(x, y, w, h));
+      arrange(c, new Rect(x, y, w, h), s, ox, oy);
       cursor += mainSize + node.gap;
     }
     return;
@@ -412,7 +490,7 @@ function arrange(node: UiNode, rect: Rect): void {
     const row = Math.floor(i / cols);
     const x = inner.x + col * (cw + node.gap) + c.margin.left;
     const y = inner.y + row * (ch + node.gap) + c.margin.top;
-    arrange(c, new Rect(x, y, Math.max(0, cw - c.margin.left - c.margin.right), Math.max(0, ch - c.margin.top - c.margin.bottom)));
+    arrange(c, new Rect(x, y, Math.max(0, cw - c.margin.left - c.margin.right), Math.max(0, ch - c.margin.top - c.margin.bottom)), s, ox, oy);
     i++;
   }
 }

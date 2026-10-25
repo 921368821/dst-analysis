@@ -2994,6 +2994,48 @@ MUTANTS = [
         "cmd": ["node", "tools/browser-selftest.mjs"],
         "env_exit": 2,
     },
+    # ---- 批76：UI 过渡（TweenPlayer + 属性轨道）
+    {
+        "name": "M317 重开背包时只重置轨道、不恢复整组开关（第一次关过之后再也不推进）",
+        # ★ 这是批76 真实踩到的 bug：`setBagOpen(false)` 把 `player.playing` 置 false，
+        #   而 `reset()` 只重置轨道（进度 + autoplay），不动整组开关 ——
+        #   于是"关一次再开"之后面板永远停在 opacity 0（起点值完全正确，只是不再前进）。
+        #   Node 判据抓不到：它们直接调 `advancePlayer`，不经过宿主这条状态路径。
+        "file": "src/browser-entry.ts",
+        "pairs": [("      t.playing = true;\n      t.reset();", "      t.reset();")],
+        "cmd": ["node", "tools/browser-selftest.mjs", "--build"],
+        "env_exit": 2,
+    },
+    {
+        "name": "M318 speed=0 也推进时间（冻结失效，过渡在「暂停」时照跑）",
+        "file": "src/extensions/tween/tween-player.ts",
+        "pairs": [("!wasDone && t.spec.speed !== 0", "!wasDone")],
+        "test": "tests/extensions/tween-player.test.ts",
+    },
+    {
+        "name": "M319 不透明度不乘父节点（父 0.5 × 子 0.5 变成 0.5，整块面板淡不下去）",
+        "file": "src/extensions/ui/widgets.ts",
+        "pairs": [
+            (
+                "  for (let cur: UiNode | null = node; cur !== null; cur = cur.parent) {\n    a *= cur.opacity;\n  }",
+                "  a *= node.opacity;",
+            )
+        ],
+        "test": "tests/extensions/ui-transition.test.ts",
+    },
+    {
+        "name": "M320 不透明度不钳位（动画过冲直接写进节点，alpha 超过 1）",
+        "file": "src/extensions/ui/ui-transition.ts",
+        "pairs": [("      node.opacity = value < 0 ? 0 : value > 1 ? 1 : value;", "      node.opacity = value;")],
+        "test": "tests/extensions/ui-transition.test.ts",
+    },
+    {
+        "name": "M321 缩放不沿父链组合（子节点不跟着父放大，整体弹出变成散开）",
+        # 变异点：往下传的子节点变换本该是 (s, ox, oy)，退化成"无变换"
+        "file": "src/extensions/ui/layout.ts",
+        "pairs": [("      arrange(c, new Rect(p.x, p.y, c.measured.w, c.measured.h), s, ox, oy);", "      arrange(c, new Rect(p.x, p.y, c.measured.w, c.measured.h), 1, 0, 0);")],
+        "test": "tests/extensions/ui-transition.test.ts",
+    },
 ]
 
 

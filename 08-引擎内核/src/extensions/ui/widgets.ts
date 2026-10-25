@@ -114,6 +114,25 @@ function cacheKey(fontId: string, text: string, style: TextStyle): string {
   ].join("\u0001");
 }
 
+/**
+ * 一个节点的**有效**不透明度：沿父链连乘。
+ *
+ * ★ 为什么连乘而不是取父节点的最终值：`UiNode.opacity` 存的是**自身**值
+ *   （理由见那里的注释）。父断言"整块面板 0.5"、子断言"这个字 0.5"时，
+ *   视觉上应当是 0.25 —— 取最终值会让子的 0.5 静默覆盖父的 0.5。
+ *
+ * ★ 为什么每次都重算（O(深度)）：过渡动画期间几乎每个节点每帧都在变，
+ *   缓存要么每帧全废（等于没缓存），要么就得维护"哪些后代受影响"的脏标记 ——
+ *   那是 UI 树里最容易写错的机制之一。树深通常 < 10，重算比维护便宜。
+ */
+function alphaOf(node: UiNode): number {
+  let a = 1;
+  for (let cur: UiNode | null = node; cur !== null; cur = cur.parent) {
+    a *= cur.opacity;
+  }
+  return a;
+}
+
 /** 把一整棵树画成一串四边形（前序：父先、子后、兄弟按数组顺序）。 */
 export function buildUiQuads(root: UiNode, fonts: FontRegistry, skin: UiSkin, cache: TextCache): UiDrawResult {
   const quads: RenderItem[] = [];
@@ -129,8 +148,13 @@ export function buildUiQuads(root: UiNode, fonts: FontRegistry, skin: UiSkin, ca
     uv: { u0: number; v0: number; u1: number; v1: number },
     tint: Rgba | undefined,
     ord: number,
+    alpha = 1,
   ): void => {
     if (rect.width <= 0 || rect.height <= 0) return;
+    // ★ 有效不透明度在**画的时候**乘（`alphaOf` 沿父链连乘），节点上存的是"自身"值。
+    //   存最终值的话，动画每改一次父节点就得遍历子树重算 —— 谁也不该为读一个数付出遍历。
+    const a = (tint?.a ?? 1) * alpha;
+    if (a <= 0) return; // 全透明不必入批（否则白白占一次顶点/绘制）
     quads.push({
       nodeId: order,
       // ★ UI 用 z=0 恒定：排序第一键 layer 恒为 UI_LAYER，绘制顺序全靠 order。
@@ -146,7 +170,7 @@ export function buildUiQuads(root: UiNode, fonts: FontRegistry, skin: UiSkin, ca
       r: tint?.r ?? 1,
       g: tint?.g ?? 1,
       b: tint?.b ?? 1,
-      a: tint?.a ?? 1,
+      a,
       order: ord,
       layer: UI_LAYER,
       pivotX: 0,
@@ -161,6 +185,7 @@ export function buildUiQuads(root: UiNode, fonts: FontRegistry, skin: UiSkin, ca
     slice: number,
     tint: Rgba | undefined,
     ord: number,
+    alpha: number,
   ): void => {
     if (frameName === undefined) return;
     const f = skin.frames.get(frameName);
@@ -170,9 +195,9 @@ export function buildUiQuads(root: UiNode, fonts: FontRegistry, skin: UiSkin, ca
       return;
     }
     if (slice > 0) {
-      for (const q of nineSlice(rect, f, slice)) emit(q.rect, f.page, q.uv, tint, ord);
+      for (const q of nineSlice(rect, f, slice)) emit(q.rect, f.page, q.uv, tint, ord, alpha);
     } else {
-      emit(rect, f.page, { u0: f.u0, v0: f.v0, u1: f.u1, v1: f.v1 }, tint, ord);
+      emit(rect, f.page, { u0: f.u0, v0: f.v0, u1: f.u1, v1: f.v1 }, tint, ord, alpha);
     }
   };
 
@@ -182,6 +207,7 @@ export function buildUiQuads(root: UiNode, fonts: FontRegistry, skin: UiSkin, ca
     box: Rect,
     style: TextStyle,
     ord: number,
+    alpha: number,
   ): void => {
     const text = p.text ?? "";
     if (text === "") return;
@@ -191,7 +217,7 @@ export function buildUiQuads(root: UiNode, fonts: FontRegistry, skin: UiSkin, ca
     const y = box.y + (box.height - layout.height) / 2;
     for (const g of layout.quads) {
       glyphs++;
-      emit(new Rect(box.x + g.x, y + g.y, g.w, g.h), g.page, g, { r: g.r, g: g.g, b: g.b, a: g.a }, ord);
+      emit(new Rect(box.x + g.x, y + g.y, g.w, g.h), g.page, g, { r: g.r, g: g.g, b: g.b, a: g.a }, ord, alpha);
     }
     for (const m of layout.missing) missingGlyphs.add(m);
   };
@@ -201,19 +227,23 @@ export function buildUiQuads(root: UiNode, fonts: FontRegistry, skin: UiSkin, ca
     if (node.widget === UiWidget.Group || node.widget === UiWidget.Spacer) continue;
     const ord = order++;
     const p: UiProps = node.props;
+    // ★ 沿父链连乘：父节点淡到 0.5、子节点 0.5 ⇒ 子节点实际 0.25。
+    //   Group/Spacer 不画东西但也可能带 opacity（它们是"容器"），
+    //   所以这个值必须在 `continue` **之前**算好。
+    const alpha = alphaOf(node);
 
     if (node.widget === UiWidget.Panel) {
-      drawFrame(node.rect, p.frame, p.slice ?? 0, p.tint, ord);
+      drawFrame(node.rect, p.frame, p.slice ?? 0, p.tint, ord, alpha);
       continue;
     }
 
     if (node.widget === UiWidget.Image) {
-      drawFrame(node.rect, p.frame, 0, p.tint, ord);
+      drawFrame(node.rect, p.frame, 0, p.tint, ord, alpha);
       continue;
     }
 
     if (node.widget === UiWidget.Button) {
-      drawFrame(node.rect, p.frame, p.slice ?? 0, p.tint, ord);
+      drawFrame(node.rect, p.frame, p.slice ?? 0, p.tint, ord, alpha);
       // ★ 按钮不自己记"按下"状态：状态由调用方改 props 表达。
       //   控件偷偷持有交互状态，会让"两个地方都能设置它"变成必然的漂移源。
       const inner = new Rect(node.rect.x + 4, node.rect.y, Math.max(0, node.rect.width - 8), node.rect.height);
@@ -222,12 +252,12 @@ export function buildUiQuads(root: UiNode, fonts: FontRegistry, skin: UiSkin, ca
         maxWidth: inner.width,
         align: p.style?.align ?? "center",
         color: p.textColor ?? p.style?.color,
-      }, ord);
+      }, ord, alpha);
       continue;
     }
 
     if (node.widget === UiWidget.Progress) {
-      drawFrame(node.rect, p.frame, p.slice ?? 0, p.tint, ord);
+      drawFrame(node.rect, p.frame, p.slice ?? 0, p.tint, ord, alpha);
       const v = Math.max(0, Math.min(1, p.value ?? 0));
       const f = p.frame === undefined ? undefined : skin.frames.get(p.frame);
       if (v > 0 && f !== undefined) {
@@ -235,7 +265,7 @@ export function buildUiQuads(root: UiNode, fonts: FontRegistry, skin: UiSkin, ca
         // ★ 填充按比例**裁切 UV**，而不是缩放整张图：
         //   缩放会把描边一起拉细，进度 20% 时看起来像"另一张图"。
         const u1 = f.u0 + (f.u1 - f.u0) * v;
-        emit(r, f.page, { u0: f.u0, v0: f.v0, u1, v1: f.v1 }, p.activeTint ?? { r: 0.5, g: 0.85, b: 0.4, a: 1 }, ord);
+        emit(r, f.page, { u0: f.u0, v0: f.v0, u1, v1: f.v1 }, p.activeTint ?? { r: 0.5, g: 0.85, b: 0.4, a: 1 }, ord, alpha);
       }
       continue;
     }
@@ -246,7 +276,7 @@ export function buildUiQuads(root: UiNode, fonts: FontRegistry, skin: UiSkin, ca
         maxWidth: node.rect.width,
         align: p.style?.align ?? "left",
         color: p.textColor ?? p.style?.color,
-      }, ord);
+      }, ord, alpha);
     }
   }
 

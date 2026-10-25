@@ -66,6 +66,9 @@ import { buildProceduralAtlas, type AtlasData } from "./extensions/render/atlas.
 import { parseBmFont, type BitmapFont } from "./extensions/ui/font.ts";
 import { UiScaleMode } from "./extensions/ui/viewport.ts";
 import { createHudUi, rectOfId, type HudUiHandle, type UiSkinJson } from "./host/hud-ui.ts";
+// 批76：UI 过渡 —— `TweenPlayer` 的第一个真实消费者（顿帧消费"时间"，它消费"值"）
+import { advancePlayer, ticksToMs, TweenPlayer } from "./extensions/tween/tween-player.ts";
+import { applyUiSamples, UI_TWEEN_PROP } from "./extensions/ui/ui-transition.ts";
 import { hudLine, hudRows, type HudFacts } from "./host/hud-model.ts";
 import { demoHitstopPolicy } from "./host/hitstop-policy.ts";
 import { generateWorld, type WorldPlan } from "./extensions/worldgen/worldgen.ts";
@@ -532,9 +535,65 @@ export async function main(): Promise<void> {
   // 否则屏幕上会有两份 HUD（一份引擎画的、一份 DOM 的），而两边数字可能不同步。
   hud.hidden = hudUi !== null;
 
+  /**
+   * 背包面板的过渡（批76）：两条属性轨道 —— 不透明度 0→1、位移 −8→0。
+   *
+   * ★★ 为什么这是一个"真实消费者"而不是示例代码：`tween.ts` 只回答
+   *   "时间 → 值"，没有任何东西持有进度、也没人把值写回 UI。这里补上后半段：
+   *   `advancePlayer`（推进）→ `applyUiSamples`（写进节点）→ `invalidate`（重排重画）。
+   *   少了最后一步，值算得再对屏幕也不动 —— 而这正是"接口齐全但没接线"的典型。
+   *
+   * ★ 时长按**逻辑步**（`BAG_FADE_TICKS`）指定，再用调度器的 `fixedDt` 换成毫秒：
+   *   写死 200ms 的话，30Hz 与 144Hz 上看到的帧数差近 5 倍（见 `ticksToMs` 注释）。
+   *
+   * ★ 关闭不做淡出（v1 限制）：`setBag(null)` 会把面板 `visible=false`，
+   *   而不可见节点**不进布局**（`layoutTree` 的约定），先淡出再藏需要宿主维护
+   *   "正在淡出"的第三态。记在缺口里，不在这一批硬塞。
+   */
+  const BAG_FADE_TICKS = 6;
+  /** 滑入的起始位移（设计像素，向上 8px）。终点恒为 0 —— 过渡不该留下偏移。 */
+  const BAG_SLIDE_FROM = -8;
+  let bagTween: TweenPlayer | null = null;
+  /** 过渡目标查询：按 id 在 UI 树里找节点。 */
+  const uiNodeById = (id: string) => hudUi?.module.root.find(id);
+
+  /** 开/关背包（两个入口 —— 键盘与自检页 —— 都走这里，否则两边的过渡会不一样）。 */
+  function setBagOpen(next: boolean): void {
+    bagOpen = next;
+    if (next) bagSel = 0;
+    syncBagUi();
+    const t = bagTween;
+    if (t === null) return;
+    if (next) {
+      // 回到起点（两条轨道都从 from 开始），立刻把起点值写进去：
+      // 不先写的话，第一帧会看到"上一轮结束时的 opacity=1"，闪一下。
+      // ★★ `player.playing` 也必须恢复：关背包时把它置了 false（整组停），
+      //   `reset()` 只重置**轨道**的进度与 autoplay，不动整组开关 ——
+      //   只 reset 不恢复的话，第一次关过之后再打开就再也不会推进
+      //   （症状：面板一直是全透明，而 `anim()` 读出来的起点 0 完全正确）。
+      //   这条是浏览器判据抓出来的：Node 判据直接调 `advancePlayer`，
+      //   不会经过"关闭 → 重开"这条宿主状态路径。
+      t.playing = true;
+      t.reset();
+      applyUiSamples(advancePlayer(t, 0), uiNodeById);
+      hudUi?.module.invalidate();
+    } else {
+      t.playing = false;
+    }
+  }
+
   const worldMod = createWorldModule(physics, {
     onTick: (t) => (hudTick = t),
     onStep: (tick, dt) => {
+      // 批76：UI 过渡推进（时间 → 值 → 节点 → 重排）。
+      // ★ 放在逻辑步里而不是渲染帧里：时长按 tick 配置，只有这里才知道"一步有多长"；
+      //   放在渲染帧里的话，同一段过渡在 60fps 与 144fps 上会走不同的进度。
+      // ★ 只有 `changed > 0` 才标脏：静止的过渡每帧标脏会让整棵 UI 每帧重排，
+      //   文本缓存跟着全废，症状是"UI 一直卡但看不出在动什么"。
+      if (bagTween !== null) {
+        const applied = applyUiSamples(advancePlayer(bagTween, dt * 1000), uiNodeById);
+        if (applied.changed > 0) hudUi?.module.invalidate();
+      }
       // 控制器 / 再生任务 / 脚本：都由宿主在**同一个** onStep 里驱动（模块不会被自动 update）
       // ★ 控制器必须在物理之前：位置先变，再解算重叠
       controllerMod.update(tick, dt);
@@ -1045,6 +1104,28 @@ export async function main(): Promise<void> {
   const app = appR.value;
   appRef = app;
 
+  // ---- UI 过渡的轨道（批76）：到这一步才有 `fixedDt`，所以在这里建
+  //   ★ 时长换算的唯一入口是 `ticksToMs`：轨道按**逻辑步**配置，调度器按 fixedDt
+  //     收真实时间。写死毫秒会让 30Hz 与 144Hz 上的观感差出几倍。
+  if (hudUi !== null) {
+    const fadeMs = ticksToMs(BAG_FADE_TICKS, app.scheduler.fixedDt * 1000);
+    const player = new TweenPlayer();
+    const fade = player.addTrack({
+      id: "bag.fadeIn",
+      targetId: "bag.panel",
+      prop: UI_TWEEN_PROP.Opacity,
+      spec: { id: "bag.fadeIn", from: 0, to: 1, durationMs: fadeMs, easing: "quadOut" },
+    });
+    const slide = player.addTrack({
+      id: "bag.slideIn",
+      targetId: "bag.panel",
+      prop: UI_TWEEN_PROP.OffsetY,
+      spec: { id: "bag.slideIn", from: BAG_SLIDE_FROM, to: 0, durationMs: fadeMs, easing: "quadOut" },
+    });
+    if (fade.ok && slide.ok) bagTween = player;
+    else app.log.channel("host").warn("背包过渡轨道没建起来：属性名或 spec 写错了");
+  }
+
   // ---- 脚本：加载演示模块
   // ★ 只 loadModule 是**不会执行**的：ScriptModule 遍历的是 `game.script` 组件，
   //   所以下面还要给 hero 挂一个（见 "挂脚本组件"）。这是"脚本加载了但没跑"
@@ -1331,9 +1412,7 @@ export async function main(): Promise<void> {
     else if (map.justPressed(snap, "load")) void doLoad();
     else if (map.justPressed(snap, "restart")) location.reload();
     else if (map.justPressed(snap, "bag")) {
-      bagOpen = !bagOpen;
-      if (bagOpen) bagSel = 0;
-      syncBagUi();
+      setBagOpen(!bagOpen);
       toast(bagOpen ? "背包已打开" : "背包已关上");
     } else if (map.justPressed(snap, "drop")) {
       const d = dropSelected(shiftDown);
@@ -1966,9 +2045,7 @@ export async function main(): Promise<void> {
     bagPanel: () => ({ open: bagOpen, selected: bagSel, stacks: stacksOf(scene, heroId).length }),
     /** 开关面板（自检页驱动；等价于按 Tab）。 */
     toggleBag: () => {
-      bagOpen = !bagOpen;
-      if (bagOpen) bagSel = 0;
-      syncBagUi();
+      setBagOpen(!bagOpen);
       return bagOpen;
     },
     /** 选中第 i 堆（自检页驱动；等价于按数字键）。 */
@@ -2008,6 +2085,17 @@ export async function main(): Promise<void> {
             lastFrame: () => hudUi.module.lastFrame,
             /** 设计坐标里的节点矩形（`null` = 不可见/没这个 id）。 */
             rect: (id: string) => rectOfId(hudUi, id) ?? null,
+            /**
+             * 节点的动画属性（批76 判据用）：过渡到底有没有真的改到节点上。
+             * ★ 只暴露"节点自己存的值"，不在这里乘父链 —— 判据读到的东西
+             *   必须与 `applyUiTween` 写进去的是同一个量，否则断言的是另一个数。
+             */
+            anim: (id: string) => {
+              const n = hudUi.module.root.find(id);
+              return n === undefined
+                ? null
+                : { opacity: n.opacity, scale: n.scale, x: n.offset.x, y: n.offset.y };
+            },
             /** 面板里**画出来的**行文本（不是重新算一遍的那份）。 */
             bagRows: () => hudUi.bagRowTexts.slice(),
             bagOpen: () => hudUi.bagOpen,
