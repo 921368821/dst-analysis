@@ -1058,27 +1058,60 @@ row("★★ 打开背包时面板真的淡入（不透明度 0→1、位移 −8
   //   逻辑钟根本不动（见上面那条「冻住期间 tick 保持」），过渡也就**该**停在那里。
   //   原来的写法是「1 秒内必须到 1」：本地 100ms 就走完了，CI 的 2 核 runner 上
   //   正好在过渡中途吃了一次命中顿帧，于是停在 opacity 0.555（= 4 步 / 12 步），
-  //   报出来像「补间没接上」，实际是**判据用错了时间单位**（M304 那个教训的同族）。
+  //   报出来像「补间没接上」，实际是判据用错了时间单位（M304 那个教训的同族）。
+  //
+  // ★★★ 批79 的教训（这条比上面那条重要）：光断言「**到过** 1」是不够的。
+  //   批76 报 0.5555、批78 报 0.75，两次都是**不同的相位**，同一条判据时红时绿 ——
+  //   因为 `TweenSpec.loopCount` 缺省 `0` 等于**无限循环**，面板其实一直在 0→1 反复淡入，
+  //   判据只要撞上某一个循环的末帧就会绿。所以现在断言两件事：
+  //     ① 到达 1 / 0；② **到达之后至少一个循环周期内不许再掉下去**。
+  //   「到达」与「停住」分开验，这是唯一能把"脉冲"和"淡入"分开的写法。
   const t0 = Date.now();
   const k0 = e.snapshot().tick;
   const hardDeadline = t0 + 5000; // 看门狗：真的不推进就退出并如实报出来
+  const HOLD_STEPS = 8; // > 过渡时长（6 步）：任何"又播了一遍"都会在这里露出来
   let last = first;
   let steps = 0;
+  let prevOp = first === null ? null : first.opacity;
+  let peak = prevOp ?? 0;
+  let backTracks = 0;
+  let firstBackAt = -1;
+  let closedCount = 0;
+  let reachedAt = -1; // 到达终点的逻辑步（-1 = 没到过）
+  let droppedAfterReach = 0; // 到达之后又掉下去的采样次数（>0 就是"又播了一遍"）
   while (Date.now() < hardDeadline) {
     last = e.ui.anim("bag.panel");
     steps = e.snapshot().tick - k0;
-    if (last !== null && last.opacity >= 0.999 && last.y === 0) break;
+    if (last !== null) {
+      if (prevOp !== null && last.opacity < prevOp - 1e-6) {
+        if (firstBackAt < 0) firstBackAt = steps;
+        backTracks++;
+      }
+      prevOp = last.opacity;
+      if (last.opacity > peak) peak = last.opacity;
+    }
+    if (e.bagPanel().open !== true) closedCount++;
+    const atEnd = last !== null && last.opacity >= 0.999 && last.y === 0;
+    if (atEnd && reachedAt < 0) reachedAt = steps;
+    else if (!atEnd && reachedAt >= 0) droppedAfterReach++;
+    // 到过终点之后还要**稳住**一个周期才算过；掉了回去就继续等（看门狗兜底）
+    if (reachedAt >= 0 && steps - reachedAt >= HOLD_STEPS) break;
     await new Promise((r) => setTimeout(r, 50));
   }
   const startedAtZero = first !== null && first.opacity === 0 && first.y === -8;
   const ended = last !== null && last.opacity === 1 && last.y === 0;
-  // 断言仍是严格的「终点必须是 1 / 0」；只是**等多久**换成逻辑步来算。
-  // detail 里带上步数、墙钟与冻住状态 —— 下次红了不用再猜是哪一种。
+  // ★ 「停住」= 到达之后到 HOLD_STEPS 步之间，**一次都没有**低于终点值。
+  //   只看到过 1 不算 —— 脉冲的每一轮都会经过 1（批76/78 两次 CI 红就是这么来的）。
+  const watched = reachedAt >= 0 ? steps - reachedAt : 0;
+  const heldStill = reachedAt >= 0 && watched >= HOLD_STEPS && droppedAfterReach === 0;
   const hs = e.hitstop();
   uiFadeDone = [
-    startedAtZero && ended,
+    startedAtZero && ended && heldStill,
     `起点 ${JSON.stringify(first)}（应为 opacity 0 / y −8）· 终点 ${JSON.stringify(last)}（应为 1 / 0）` +
-      ` · ${steps} 逻辑步 / ${Date.now() - t0}ms · 冻住=${hs.frozen} 顿帧触发 ${hs.triggers} 次`,
+      ` · ${steps} 逻辑步 / ${Date.now() - t0}ms · 冻住=${hs.frozen} 顿帧触发 ${hs.triggers} 次` +
+      ` · 峰值 ${peak.toFixed(4)} · 进度回退 ${backTracks} 次${firstBackAt < 0 ? "" : `（首次在第 ${firstBackAt} 步）`}` +
+      ` · 期间面板被关掉 ${closedCount} 次` +
+      ` · ${reachedAt < 0 ? "从来没到过终点" : `第 ${reachedAt} 步到达，之后盯了 ${watched} 步、掉下去 ${droppedAfterReach} 次`}`,
   ];
   return uiFadeDone;
 });

@@ -1110,17 +1110,25 @@ export async function main(): Promise<void> {
   if (hudUi !== null) {
     const fadeMs = ticksToMs(BAG_FADE_TICKS, app.scheduler.fixedDt * 1000);
     const player = new TweenPlayer();
+    // ★★ `loopCount: 1` **必须显式写**：`TweenSpec.loopCount` 的缺省值是 `0`，
+    //   而 `0` 的语义是**无限循环**（见 `makeTween` 的 `BAD_LOOP` 报错文案）。
+    //   漏掉它的症状不是"播完停在终点"，而是**面板一直 0→1 反复淡入**：
+    //   每 6 个逻辑步重置一次，`sampleTween` 的 `done` 永远不为 true，
+    //   于是 `advancePlayer` 的 `wasDone` 夹不住 `timeMs`，时间无界增长。
+    //   这件事是被浏览器判据抓到的，而且抓了两次（批76 报 0.5555、批78 报 0.75）——
+    //   两次都是"某个瞬间的相位"，因为判据只断言"到过 1"。判据的薄弱之处见
+    //   `web/selftest.html` 里那条「到达终点后必须停住」。
     const fade = player.addTrack({
       id: "bag.fadeIn",
       targetId: "bag.panel",
       prop: UI_TWEEN_PROP.Opacity,
-      spec: { id: "bag.fadeIn", from: 0, to: 1, durationMs: fadeMs, easing: "quadOut" },
+      spec: { id: "bag.fadeIn", from: 0, to: 1, durationMs: fadeMs, easing: "quadOut", loopCount: 1 },
     });
     const slide = player.addTrack({
       id: "bag.slideIn",
       targetId: "bag.panel",
       prop: UI_TWEEN_PROP.OffsetY,
-      spec: { id: "bag.slideIn", from: BAG_SLIDE_FROM, to: 0, durationMs: fadeMs, easing: "quadOut" },
+      spec: { id: "bag.slideIn", from: BAG_SLIDE_FROM, to: 0, durationMs: fadeMs, easing: "quadOut", loopCount: 1 },
     });
     if (fade.ok && slide.ok) bagTween = player;
     else app.log.channel("host").warn("背包过渡轨道没建起来：属性名或 spec 写错了");

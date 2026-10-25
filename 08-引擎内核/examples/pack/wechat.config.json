@@ -1,0 +1,8 @@
+{
+  "deviceOrientation": "landscape",
+  "main": ["*.js", "*.json", "*.wasm", "*.png"],
+  "subpackages": [
+    { "name": "terrain", "match": ["subpackage/terrain/"] },
+    { "name": "audio", "match": ["subpackage/audio/"] }
+  ]
+}

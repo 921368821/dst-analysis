@@ -1,0 +1,7 @@
+{
+  "appId": 480,
+  "desc": "DST Analysis 内测构建",
+  "buildOutput": "dist/steam_output",
+  "preview": 1,
+  "depots": [{ "depotId": 481 }, { "depotId": 482 }]
+}

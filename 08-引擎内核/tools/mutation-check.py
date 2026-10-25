@@ -3167,6 +3167,113 @@ MUTANTS = [
         ],
         "test": "tests/extensions/undo-stack.test.ts",
     },
+    # ---------------------------------------------------------------- 批79 平台分包
+    {
+        "name": "M337 分包不再优先于主包（命中分包的文件掉进主包，分包变空包而规划说成功）",
+        "file": "src/publish/pack-plan.ts",
+        "pairs": [("    if (hits.length === 1) {", "    if (false) {")],
+        "test": "tests/publish/pack-plan.test.ts",
+    },
+    {
+        "name": "M338 主包预算边界从 > 改成 >=（正好 4MB 被拒，差一字节是唯一会错的地方）",
+        "file": "src/publish/pack-plan.ts",
+        "pairs": [("  if (mainPkg.bytes > WECHAT_LIMITS.mainPackage) {", "  if (mainPkg.bytes >= WECHAT_LIMITS.mainPackage) {")],
+        "test": "tests/publish/pack-plan.test.ts",
+    },
+    {
+        "name": "M339 没有归属的文件不报错（它们静默地从包里消失，包看起来是完整的）",
+        "file": "src/publish/pack-plan.ts",
+        "pairs": [("  if (unmatched.length > 0) {", "  if (false) {")],
+        "test": "tests/publish/pack-plan.test.ts",
+    },
+    {
+        "name": "M340 后缀白名单不检查（微信不收的 .md 混进包，上传时才失败且信息在很后面）",
+        "file": "src/publish/pack-plan.ts",
+        "pairs": [('    if (e !== "" && !WECHAT_EXT_WHITELIST.includes(e)) {', "    if (false) {")],
+        "test": "tests/publish/pack-plan.test.ts",
+    },
+    {
+        "name": "M341 不检查分包文件是否落在自己的 root 下（game.json 指的目录里没有它）",
+        "file": "src/publish/pack-plan.ts",
+        "pairs": [("      if (!f.path.startsWith(`${root}/`)) {", "      if (false) {")],
+        "test": "tests/publish/pack-plan.test.ts",
+    },
+    {
+        "name": "M342 不检查分包 root 互相嵌套（内层文件被外层吃掉，两个分包都声明得通）",
+        "file": "src/publish/pack-plan.ts",
+        "pairs": [("      } else if (a.root.startsWith(`${b.root}/`) || b.root.startsWith(`${a.root}/`)) {", "      } else if (false) {")],
+        "test": "tests/publish/pack-plan.test.ts",
+    },
+    {
+        "name": "M343 game.json 的分包 root 按名字猜（与包里实际落的目录脱钩）",
+        "file": "src/publish/pack-plan.ts",
+        "pairs": [("    subpackages: plan.subpackages.map((p) => ({ name: p.name, root: p.root })),",
+                   "    subpackages: plan.subpackages.map((p) => ({ name: p.name, root: `subpackage/${p.name}` })),")],
+        "test": "tests/publish/pack-plan.test.ts",
+    },
+    {
+        "name": "M344 无条件写 setlive（`undefined` 变成一个真键，等于对 default 分支自动发布）",
+        "file": "src/publish/pack-plan.ts",
+        "pairs": [('  if (o.setLive !== undefined) lines.push(q("setlive", o.setLive));',
+                   '  lines.push(q("setlive", String(o.setLive)));')],
+        "test": "tests/publish/pack-plan.test.ts",
+    },
+    {
+        "name": "M345 扫描行号从 0 起（报的位置差一行，跳过去是上一行）",
+        "file": "src/publish/pack-plan.ts",
+        "pairs": [("      if (line.includes(api)) hits.push({ api, line: i + 1 });",
+                   "      if (line.includes(api)) hits.push({ api, line: i });")],
+        "test": "tests/publish/pack-plan.test.ts",
+    },
+    {
+        "name": "M346 打包恒重写（内容没变也写，重复打包把整个产物目录的 mtime 全刷新）",
+        "file": "tools/pack.ts",
+        "pairs": [("    if (readFileSync(path).equals(buf)) {", "    if (false) {")],
+        "test": "tests/publish/pack-cli.test.ts",
+    },
+    {
+        "name": "M347 空 staging 不拒绝（Steam 上推一个空 depot，微信上传一个打不开的包）",
+        "file": "tools/pack.ts",
+        "pairs": [("if (files.length === 0) {", "if (false) {")],
+        "test": "tests/publish/pack-cli.test.ts",
+    },
+    {
+        "name": "M348 规划失败仍退出 0（打包坏了 CI 还是绿的）",
+        "file": "tools/pack.ts",
+        "pairs": [("    console.error(`\\n✗ 分包规划失败（${String(planR.error.length)} 个问题）—— 没有写出任何东西`);\n    process.exit(EXIT_FAIL);",
+                   "    console.error(`\\n✗ 分包规划失败（${String(planR.error.length)} 个问题）—— 没有写出任何东西`);\n    process.exit(EXIT_PASS);")],
+        "test": "tests/publish/pack-cli.test.ts",
+    },
+    {
+        "name": "M349 --check 不再提前退出（说好只检查，结果把整个产物目录写了一遍）",
+        "file": "tools/pack.ts",
+        "pairs": [('  if (checkOnly) {\n    console.log("✓ 分包规划通过（--check 未写文件）");\n    process.exit(EXIT_PASS);\n  }',
+                   '  if (false) {\n    console.log("✓ 分包规划通过（--check 未写文件）");\n    process.exit(EXIT_PASS);\n  }')],
+        "test": "tests/publish/pack-cli.test.ts",
+    },
+    {
+        "name": "M350 淡入轨道回到缺省的无限循环（面板打开后一直 0→1 反复闪，判据只要撞上末帧就绿）",
+        # ★ 这条是被 CI 教出来的：批76 报 0.5555、批78 报 0.75，两次都是**不同相位**，
+        #   同一条判据时红时绿。根因是 `TweenSpec.loopCount` 缺省 `0` = 无限循环。
+        #   它只能靠浏览器判据抓（Node 侧没有这条宿主 spec），所以走 `cmd`。
+        #   判据本身也跟着改了：从「到过 1」改成「到达后一个周期内不许再掉下去」——
+        #   只看到过 1 的判据对脉冲无能为力，因为每一轮都会经过 1。
+        "file": "src/browser-entry.ts",
+        "pairs": [('      spec: { id: "bag.fadeIn", from: 0, to: 1, durationMs: fadeMs, easing: "quadOut", loopCount: 1 },',
+                   '      spec: { id: "bag.fadeIn", from: 0, to: 1, durationMs: fadeMs, easing: "quadOut", loopCount: 0 },')],
+        "cmd": ["node", "tools/browser-selftest.mjs", "--build"],
+        "env_exit": 2,
+    },
+    {
+        "name": "M351 补间缺省循环数从 0（无限）改成 1 —— 这条约定没人钉住就会被人顺手改掉",
+        # ★ M350 抓的是「调用方漏传 loopCount」，这条抓的是「**缺省值本身**被改」。
+        #   两者是不同的失效：前者改回去还会再犯，后者会让所有依赖无限循环的玩法
+        #   （待机浮动、呼吸光效）悄悄只播一次。缺省 0 = 无限与 APNG 的 num_plays = 0 同义。
+        "file": "src/extensions/tween/tween.ts",
+        "pairs": [("  const loopCount = input.loopCount ?? 0;",
+                   "  const loopCount = input.loopCount ?? 1;")],
+        "test": "tests/extensions/tween-player.test.ts",
+    },
 ]
 
 

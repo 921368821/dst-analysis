@@ -23761,13 +23761,13 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
       id: "bag.fadeIn",
       targetId: "bag.panel",
       prop: UI_TWEEN_PROP.Opacity,
-      spec: { id: "bag.fadeIn", from: 0, to: 1, durationMs: fadeMs, easing: "quadOut" }
+      spec: { id: "bag.fadeIn", from: 0, to: 1, durationMs: fadeMs, easing: "quadOut", loopCount: 1 }
     });
     const slide = player.addTrack({
       id: "bag.slideIn",
       targetId: "bag.panel",
       prop: UI_TWEEN_PROP.OffsetY,
-      spec: { id: "bag.slideIn", from: BAG_SLIDE_FROM, to: 0, durationMs: fadeMs, easing: "quadOut" }
+      spec: { id: "bag.slideIn", from: BAG_SLIDE_FROM, to: 0, durationMs: fadeMs, easing: "quadOut", loopCount: 1 }
     });
     if (fade.ok && slide.ok) bagTween = player;
     else app.log.channel("host").warn("\u80CC\u5305\u8FC7\u6E21\u8F68\u9053\u6CA1\u5EFA\u8D77\u6765\uFF1A\u5C5E\u6027\u540D\u6216 spec \u5199\u9519\u4E86");

@@ -82,6 +82,36 @@ test("★★ 有限循环播完后不再累加时间（浮点不会无界增长�
   assert.equal(at, 100, "恰好停在终点，不该过冲");
 });
 
+test("★★ 缺省 loopCount = 0 = **无限循环**（一次性的过渡必须显式写 1）", () => {
+  // ★ 这条是补出来的：批76/78 两次 CI 红（opacity 停在 0.5555 / 0.75，两个不同相位）
+  //   根因就是这个缺省值 —— 背包淡入的两条轨道都没传 loopCount，面板打开后一直在
+  //   0→1 反复淡入，判据撞上哪一帧全看运气。而在此之前 Node 侧**没有任何一条**
+  //   判据钉住"缺省是无限"这件事，只有 `loopCount: 1` 的用例。
+  //
+  //   0 = 无限不是笔误：它与 APNG 的 `num_plays = 0` 同义（`src/extensions/render/animation.ts`
+  //   的 `loopCount ?? 0` 也是这个口径）。所以**不改缺省值**，而是把它钉成显式约定：
+  //   谁想改这个缺省，必须同时改这条判据，也就没法"顺手"改掉。
+  const p = playerWith({ from: 0, to: 10, durationMs: 100 });
+  assert.equal(p.track("t0")?.spec.loopCount, 0, "缺省不是 0 = 无限循环的话，这条约定就变了");
+
+  // 逐轮验行为，而不是只读字段：走到终点**不算完**（done=false），
+  // 再走半程要回到**第二轮的中点**（值 5），证明它真的从头又播了一遍。
+  const atEnd = advancePlayer(p, 100);
+  assert.equal(atEnd[0]?.value, 10, "第一轮终点应该是 to");
+  assert.equal(atEnd[0]?.done, false, "无限循环在终点不许报 done");
+  const next = advancePlayer(p, 50);
+  assert.equal(next[0]?.value, 5, `没有回到第二轮（拿到 ${String(next[0]?.value)}）`);
+  assert.equal(next[0]?.done, false);
+
+  // 反面对照：显式 loopCount: 1 的同一条轨道，同样推进 150ms 必须停在终点。
+  // 没有这一段，上面那条用"根本不推进"也能通过。
+  const once = playerWith({ from: 0, to: 10, durationMs: 100, loopCount: 1 });
+  advancePlayer(once, 150);
+  const s = advancePlayer(once, 0);
+  assert.equal(s[0]?.value, 10, "loopCount: 1 走 150ms 应该停在终点，不该又播一轮");
+  assert.equal(s[0]?.done, true);
+});
+
 test("★★ changed 只在值真的变了时为 true（宿主靠它决定要不要重排）", () => {
   const p = playerWith({ from: 0, to: 100, durationMs: 100, loopCount: 1 });
   assert.equal(advancePlayer(p, 10)[0]?.changed, true, "第一次采样一定是「变了」");

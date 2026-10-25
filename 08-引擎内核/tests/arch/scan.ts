@@ -20,6 +20,7 @@ export type Layer =
   | "L4-ext"
   | "L5-backend"
   | "L6-host"
+  | "L7-tool"
   | "root";
 
 /** 目录 → 层。新增顶层目录必须在这里登记，否则扫描会报"未分类"。 */
@@ -36,6 +37,12 @@ const LAYER_BY_DIR: Readonly<Record<string, Layer>> = {
   //   root 层可以 import 一切，把宿主放进 root 等于给它发了通行证，
   //   而"引擎里冒出一句 demo 文案"正是这类腐化最常见的形状。
   host: "L6-host",
+  // ★ L7 是**离线工具层**：打包/分包规划这类只在构建期跑、运行期根本不存在的逻辑。
+  //   它必须单独成层，因为两条性质都要机器守住：
+  //     ① 它只许依赖 L0（一份纯数据 + Result），碰 runtime/backends 就说明它在偷偷跑引擎；
+  //     ② **引擎不许 import 它**（其余各层的 ALLOWED 里都没有 L7）——
+  //        "打包脚本的逻辑漏进运行时代码"是这类腐化最常见的形状，而且体积会跟着进包。
+  publish: "L7-tool",
 };
 
 export interface SourceFile {
@@ -183,6 +190,9 @@ export const ALLOWED: Readonly<Record<Layer, readonly Layer[]>> = {
   // 宿主可以依赖一切（它就是组装者），并且**只能被自己依赖** ——
   //   其余任何一层的 ALLOWED 里都没有 L6-host，所以引擎 import 宿主会直接红。
   "L6-host": ["L0-foundation", "L1-platform", "L2-core", "L3-runtime", "L4-ext", "L5-backend", "L6-host", "root"],
+  // ★ 离线工具层只许碰 L0：它要在没有引擎、没有平台、没有 GPU 的地方跑得起来
+  //   （打包是在 CI 的一个空容器里发生的），顺手依赖 runtime 就说明它有别的意图。
+  "L7-tool": ["L0-foundation", "L7-tool"],
   // 根文件（index.ts 等）是聚合导出，豁免
   root: ["L0-foundation", "L1-platform", "L2-core", "L3-runtime", "L4-ext", "L5-backend", "L6-host", "root"],
 };

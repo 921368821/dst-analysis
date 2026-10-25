@@ -22,7 +22,8 @@
     "sample:headless": "node --experimental-transform-types samples/headless.ts",
     "test:browser": "node tools/browser-selftest.mjs",
     "test:cross-host": "node tools/cross-host-save.mjs",
-    "build:assets": "node --experimental-transform-types tools/build.ts"
+    "build:assets": "node --experimental-transform-types tools/build.ts",
+    "pack": "node --experimental-transform-types tools/pack.ts"
   },
   "devDependencies": {
     "@types/node": "^22.7.5",
