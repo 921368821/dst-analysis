@@ -878,6 +878,72 @@ row("★ 玩家打一下之后仇恨表里真的记了一条（手动攻击也�
   ];
 });
 
+/**
+ * 批73 · 顿帧（hitstop）两条。
+ *
+ * ★ 这两条证的是**只有浏览器里才可能坏**的事：命中让世界停下来（Node 判据只能证
+ *   "trigger 调了 freeze"），以及停的时候**画面还在走**。后者是顿帧的全部意义 ——
+ *   如果实现成"整个 frame 都不跑"，屏幕会连闪色一起定住，看起来像卡了。
+ * ★ 语料用**击杀**（靶子 2 血、玩家伤害 3 ⇒ dead）：击杀冻 12 步 ≈ 0.4s，
+ *   比普通命中的 3 步（0.1s）好观测 —— 而 0.1s 在两个 100ms 轮次之间可能整个漏掉。
+ */
+let hsPhase = 0;
+let hsA = null;
+let hsDone = null;
+row("★★ 命中真的顿帧：世界当场冻住，而渲染帧还在涨", async (e) => {
+  if (hsDone !== null) return hsDone;
+  if (hsPhase === 0) {
+    const id = e.feedback.dummy(2);
+    if (id < 0) {
+      hsDone = [false, "靶子没造出来（玩家不在场景里？）"];
+      return hsDone;
+    }
+    e.attack(); // 击杀 ⇒ 策略给 12 步冻结
+    const h = e.hitstop();
+    if (!h.frozen || h.triggers < 1) {
+      hsDone = [false, `打完没冻住：frozen=${h.frozen} triggers=${h.triggers} rejected=${h.rejected}（onHit 没接上？）`];
+      return hsDone;
+    }
+    hsA = { tick: e.snapshot().tick, frame: e.renderFrames(), freeze: h.freezeTicks };
+    hsPhase = 1;
+    return [false, `已冻住：剩余 ${hsA.freeze} 步 · tick=${hsA.tick} · 渲染帧=${hsA.frame}（等下一轮对比）`];
+  }
+  const now = { tick: e.snapshot().tick, frame: e.renderFrames() };
+  const still = e.hitstop().frozen;
+  if (still) {
+    // ★ 冻结期间的两件事必须同时成立：tick 一步不走、渲染帧一直在涨。
+    //   只验"tick 不动"会漏掉"整个 frame 停了"（那种实现连闪色一起定住，像卡了）；
+    //   只验"帧在涨"会漏掉"世界照常跑、只是记了个标志位"。
+    const worldStopped = now.tick === hsA.tick;
+    const framesMoving = now.frame > hsA.frame;
+    if (!worldStopped || !framesMoving) {
+      hsDone = [false, `冻结中 tick ${hsA.tick}→${now.tick}（应不动）· 渲染帧 ${hsA.frame}→${now.frame}（应涨）`];
+      return hsDone;
+    }
+    return [false, `冻结中：tick 保持 ${now.tick} · 渲染帧 ${hsA.frame}→${now.frame}`];
+  }
+  // 冻结结束：世界必须恢复推进（否则"冻住"其实是"卡死"）
+  if (now.tick <= hsA.tick) {
+    hsDone = [false, `冻结结束了但 tick 没动（${hsA.tick}→${now.tick}）—— 那不是顿帧，是卡死`];
+    return hsDone;
+  }
+  hsDone = [true, `冻住期间 tick 保持 ${hsA.tick}、渲染帧 ${hsA.frame}→${now.frame}（+${now.frame - hsA.frame}）· 解冻后 tick ${hsA.tick}→${now.tick}`];
+  return hsDone;
+});
+
+row("★ 顿帧按步数收：解冻后总账里记的是消耗掉的步数", (e) => {
+  // 冻结步数按**逻辑步**指定、按真实时间消耗。这里验"账上有数"：
+  // 0 说明冻结从没被收过（策略通了但调度器没在冻），
+  // 而数字大于 0 且 frozen 已结束 ⇒ 整个生命周期走完了。
+  if (hsDone === null) return [false, "等上一条（顿帧）跑完再读账"];
+  const h = e.hitstop();
+  const st = e.snapshot();
+  return [
+    st.totalFreezeTicks > 0 && !st.frozen,
+    `调度器账：已收 ${st.totalFreezeTicks} 步冻结 · 剩余 ${st.freezeTicks} · 顿帧模块触发 ${h.triggers} 次（跳过 ${h.skipped} / 拒绝 ${h.rejected}）`,
+  ];
+});
+
 row("★★ 受击闪红之后**还原成原本的颜色**（不是白色）", async (e) => {
   if (tintRestoreDone !== null) return tintRestoreDone;
   const id = e.heroId;

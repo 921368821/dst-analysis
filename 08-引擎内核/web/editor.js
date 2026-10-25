@@ -1616,6 +1616,12 @@ var FixedStepScheduler = class {
   _alpha = 0;
   /** 记录"已经回调过的最大 tick"，幂等保护用。 */
   _served = -1;
+  /** 剩余冻结步数（hitstop，见文件头 ★★）。 */
+  _freeze = 0;
+  /** 冻结期间累计的真实时间（秒），够一个 `fixedDt` 就收一步。 */
+  _freezeAcc = 0;
+  /** 累计消耗的冻结步数。 */
+  _totalFreeze = 0;
   steps = [];
   constructor(cfg) {
     if (!(cfg.fixedDt > 0)) throw new RangeError("fixedDt \u5FC5\u987B > 0");
@@ -1641,6 +1647,17 @@ var FixedStepScheduler = class {
       return 0;
     }
     if (this._paused) {
+      this._lastSteps = 0;
+      return 0;
+    }
+    if (this._freeze > 0) {
+      this._freezeAcc += Math.min(realDtSec, this.maxFrameDt);
+      while (this._freezeAcc >= this.fixedDt && this._freeze > 0) {
+        this._freezeAcc -= this.fixedDt;
+        this._freeze--;
+        this._totalFreeze++;
+      }
+      if (this._freeze === 0) this._freezeAcc = 0;
       this._lastSteps = 0;
       return 0;
     }
@@ -1705,6 +1722,27 @@ var FixedStepScheduler = class {
   get timeScale() {
     return this._timeScale;
   }
+  /**
+   * 请求冻结 `ticks` 个逻辑步（hitstop）。重复触发取**最长剩余**，不累加 ——
+   * 与 `feedback.ts` 的闪色同一条理由：累加会让连击时冻结越来越久，
+   * 而"冻多久"变成取决于历史的东西，回放对不上。
+   *
+   * @throws RangeError 步数不是正整数（0 想表达"取消"没有意义 —— 不请求就不会冻）。
+   */
+  freeze(ticks) {
+    if (!Number.isInteger(ticks) || ticks <= 0) {
+      throw new RangeError(`\u51BB\u7ED3\u6B65\u6570\u5FC5\u987B\u662F\u6B63\u6574\u6570\uFF0C\u6536\u5230 ${String(ticks)}`);
+    }
+    this._freeze = Math.max(this._freeze, ticks);
+  }
+  /** 当前是否在冻结。 */
+  get frozen() {
+    return this._freeze > 0;
+  }
+  /** 剩余冻结步数。 */
+  get freezeTicks() {
+    return this._freeze;
+  }
   get tick() {
     return this._tick;
   }
@@ -1722,6 +1760,8 @@ var FixedStepScheduler = class {
     this._accumulator = 0;
     this._alpha = 0;
     this._lastSteps = 0;
+    this._freeze = 0;
+    this._freezeAcc = 0;
   }
   stats() {
     return {
@@ -1732,7 +1772,10 @@ var FixedStepScheduler = class {
       totalSteps: this._total,
       timeScale: this._timeScale,
       paused: this._paused,
-      alpha: this._alpha
+      alpha: this._alpha,
+      frozen: this._freeze > 0,
+      freezeTicks: this._freeze,
+      totalFreezeTicks: this._totalFreeze
     };
   }
 };
@@ -2237,6 +2280,9 @@ var GameApp = class _GameApp {
       time: this.scheduler.time,
       paused: this.scheduler.paused,
       timeScale: this.scheduler.timeScale,
+      frozen: this.scheduler.frozen,
+      freezeTicks: this.scheduler.freezeTicks,
+      totalFreezeTicks: this.scheduler.stats().totalFreezeTicks,
       droppedSteps: this.scheduler.stats().droppedSteps,
       scene: this.scene.stats(),
       assets: this.assets.stats(),

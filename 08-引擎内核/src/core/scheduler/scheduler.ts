@@ -22,6 +22,29 @@
  *    解耦之后，重复调用一定会发生，没有这个保护会重复推进世界。
  * ③ **alpha 用于渲染插值**：渲染在两次固定步之间用 `alpha` 插值，
  *    这样 30Hz 模拟在 60Hz 屏幕上不抖。alpha 与 tick 无关，**不参与逻辑**。
+ *
+ * ★★ 三条时间通道，**互不混用**（批73 补第三条）：
+ *
+ *    `paused`     用户的意图（编辑器暂停、玩家按了暂停）。恢复时清累积。
+ *    `timeScale`  一个刻度盘（慢动作/加速）。0 被拒绝：见 setter 注释。
+ *    `freeze`     **特效的意图**（hitstop 顿帧）：命中的一瞬间把世界冻住
+ *                 几个逻辑步，而画面继续走。
+ *
+ * 为什么冻结不能借用 `paused`：顿帧到期时要"解除冻结"，而 `paused = false`
+ * 的语义是**恢复用户的运行**。两者共用一个布尔的话，玩家在顿帧期间手动暂停、
+ * 顿帧一到就会把他的暂停解除掉 —— 而"暂停被谁解除"在画面上完全看不出来。
+ * 共用一个布尔还会让"用户暂停了几秒"和"顿帧冻了几帧"在统计上变成同一个数。
+ *
+ * 为什么冻结不能借用 `timeScale`：setter 把 0 夹到 0.01，世界只是**变慢**，
+ *  tick 照走 —— AI 照决策、冷却照消耗，只是慢。顿帧要的是 tick **不走**。
+ *
+ * ★ 冻结时长按**逻辑步**指定、按**真实时间**消耗（每步收 `fixedDt` 秒）：
+ *   60Hz 与 144Hz 上冻的一样久，不会出现"高刷新屏顿帧更短".
+ *   按毫秒指定就会这样（和 `feedback.ts` 文件头 ★ 同一条理由）。
+ * ★ 到期时剩余的真实时间**丢弃**，不补跑（与 `paused` 恢复同一条纪律）：
+ *   补跑会让"顿帧结束后的第一帧"突然多跑几步，看起来像世界跳了一下。
+ * ★ `stepTo` / `stepOnce` **旁路**冻结：它们是逻辑跳转（编辑器"运行到此处"、
+ *   回放快进），不消耗真实时间；跳完之后剩余冻结照旧按真实时间收。
  */
 
 import { clamp } from "../../foundation/math/scalar.ts";
@@ -51,6 +74,12 @@ export interface SchedulerStats {
   readonly paused: boolean;
   /** 渲染插值系数 [0,1)。 */
   readonly alpha: number;
+  /** 当前是否在冻结（hitstop）。与 `paused` 独立：可以同时成立。 */
+  readonly frozen: boolean;
+  /** 剩余冻结（逻辑步数）。 */
+  readonly freezeTicks: number;
+  /** 累计消耗的冻结步数（诊断：战斗打了多久的顿帧）。 */
+  readonly totalFreezeTicks: number;
 }
 
 export type StepFn = (tick: number, dt: number) => void;
@@ -71,6 +100,12 @@ export class FixedStepScheduler {
   private _alpha = 0;
   /** 记录"已经回调过的最大 tick"，幂等保护用。 */
   private _served = -1;
+  /** 剩余冻结步数（hitstop，见文件头 ★★）。 */
+  private _freeze = 0;
+  /** 冻结期间累计的真实时间（秒），够一个 `fixedDt` 就收一步。 */
+  private _freezeAcc = 0;
+  /** 累计消耗的冻结步数。 */
+  private _totalFreeze = 0;
 
   private readonly steps: StepFn[] = [];
 
@@ -104,6 +139,23 @@ export class FixedStepScheduler {
     if (this._paused) {
       this._lastSteps = 0;
       // 暂停时 alpha 不变：恢复后不会出现"角色往前跳一下"
+      return 0;
+    }
+
+    // ---- 冻结（hitstop）：真实时间照走、逻辑步一步不走。
+    //      放在 paused 之后：暂停期间时间不算，冻结也跟着一起冻住
+    //      （否则"暂停中顿帧到期"会让恢复瞬间少冻一会儿，而没人说得清该多少）。
+    if (this._freeze > 0) {
+      this._freezeAcc += Math.min(realDtSec, this.maxFrameDt);
+      while (this._freezeAcc >= this.fixedDt && this._freeze > 0) {
+        this._freezeAcc -= this.fixedDt;
+        this._freeze--;
+        this._totalFreeze++;
+      }
+      // 到期不补跑：剩余的真实时间丢弃（与 paused 恢复同一条纪律）
+      if (this._freeze === 0) this._freezeAcc = 0;
+      this._lastSteps = 0;
+      // alpha 不动：冻结前后世界没有移动，插值系数保持原值才不会跳
       return 0;
     }
 
@@ -182,6 +234,29 @@ export class FixedStepScheduler {
     return this._timeScale;
   }
 
+  /**
+   * 请求冻结 `ticks` 个逻辑步（hitstop）。重复触发取**最长剩余**，不累加 ——
+   * 与 `feedback.ts` 的闪色同一条理由：累加会让连击时冻结越来越久，
+   * 而"冻多久"变成取决于历史的东西，回放对不上。
+   *
+   * @throws RangeError 步数不是正整数（0 想表达"取消"没有意义 —— 不请求就不会冻）。
+   */
+  freeze(ticks: number): void {
+    if (!Number.isInteger(ticks) || ticks <= 0) {
+      throw new RangeError(`冻结步数必须是正整数，收到 ${String(ticks)}`);
+    }
+    this._freeze = Math.max(this._freeze, ticks);
+  }
+
+  /** 当前是否在冻结。 */
+  get frozen(): boolean {
+    return this._freeze > 0;
+  }
+  /** 剩余冻结步数。 */
+  get freezeTicks(): number {
+    return this._freeze;
+  }
+
   get tick(): number {
     return this._tick;
   }
@@ -200,6 +275,9 @@ export class FixedStepScheduler {
     this._accumulator = 0;
     this._alpha = 0;
     this._lastSteps = 0;
+    // 冻结一起清：它是**瞬态**（读档不该让人物保持在被冻住的那一瞬间）
+    this._freeze = 0;
+    this._freezeAcc = 0;
   }
 
   stats(): SchedulerStats {
@@ -212,6 +290,9 @@ export class FixedStepScheduler {
       timeScale: this._timeScale,
       paused: this._paused,
       alpha: this._alpha,
+      frozen: this._freeze > 0,
+      freezeTicks: this._freeze,
+      totalFreezeTicks: this._totalFreeze,
     };
   }
 }

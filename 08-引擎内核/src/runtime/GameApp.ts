@@ -71,6 +71,12 @@ export interface AppSnapshot {
   readonly time: number;
   readonly paused: boolean;
   readonly timeScale: number;
+  /** hitstop 冻结中（批73）。与 `paused` 独立：玩家暂停时也可以处于冻结。 */
+  readonly frozen: boolean;
+  /** 剩余冻结步数（诊断/自检读它，避免直接摸调度器）。 */
+  readonly freezeTicks: number;
+  /** 累计消耗的冻结步数（诊断："这一场打了多久的顿帧"）。 */
+  readonly totalFreezeTicks: number;
   readonly droppedSteps: number;
   readonly scene: ReturnType<Scene["stats"]>;
   readonly assets: ReturnType<AssetDatabase["stats"]>;
@@ -311,6 +317,9 @@ export class GameApp {
       time: this.scheduler.time,
       paused: this.scheduler.paused,
       timeScale: this.scheduler.timeScale,
+      frozen: this.scheduler.frozen,
+      freezeTicks: this.scheduler.freezeTicks,
+      totalFreezeTicks: this.scheduler.stats().totalFreezeTicks,
       droppedSteps: this.scheduler.stats().droppedSteps,
       scene: this.scene.stats(),
       assets: this.assets.stats(),

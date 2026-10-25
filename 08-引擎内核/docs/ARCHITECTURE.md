@@ -184,7 +184,7 @@
 | `Scene` | 节点树 + 按类型索引的组件 + 确定性步进入口 + 命令队列 | 不做渲染、不做物理 | `core/scene/scene.ts` |
 | `Node` | 变换层级（局部 TRS + 惰性世界变换 + 版本缓存） | 不做"节点即实体"的额外语义 | `core/scene/node.ts` |
 | `Component` | 生命周期四段 + schema 声明式序列化 | 不做反射式自动注册（显式 `register`） | `core/scene/component.ts` |
-| `FixedStepScheduler` | 固定步长、追帧上限、幂等 tick、暂停/缩放、alpha | **不做"游戏时间"以外的任何事** | `core/scheduler/scheduler.ts` |
+| `FixedStepScheduler` | 固定步长、追帧上限、幂等 tick、暂停/缩放/**冻结**、alpha | **不做"游戏时间"以外的任何事** | `core/scheduler/scheduler.ts` |
 | `AssetDatabase` | AssetId（GUID）、依赖图、引用计数、卸载反拓扑、并发去重 | 不做导入（那是 importer 的职责） | `core/asset/asset.ts` |
 | `Schema` | 确定性编码（字段序 + 量化）+ 版本迁移链 | 不做二进制格式（先要可读可 diff） | `core/serialization/schema.ts` |
 
@@ -398,13 +398,19 @@ export interface SchedulerConfig {
   readonly timeScale?: number;
 }
 advance(realDtSec): number;   // 返回本帧步数；超出预算的部分**丢弃并记账**
-stepTo(targetTick): number;   // 幂等：target ≤ 当前 则返回 0
+stepTo(targetTick): number;   // 幂等：target ≤ 当前 则返回 0（旁路冻结，见 ADR-0011 ④）
 stepOnce(): number;           // 单帧调试
-resetTo(tick): void;          // 读档：不执行中间步
-stats(): SchedulerStats;      // 含 droppedSteps（卡顿唯一可见的症状）
+resetTo(tick): void;          // 读档：不执行中间步；**连冻结一起清**（瞬态不跨存档）
+freeze(ticks): void;          // 顿帧：冻 ticks 个逻辑步（批73，与 paused/timeScale 平级）
+stats(): SchedulerStats;      // 含 droppedSteps（卡顿唯一可见的症状）/ frozen / freezeTicks
 ```
 
 三条边界规则（每条都有测试）：**上限 + 记账**、**幂等**、**alpha 只给渲染用**。
+
+**三条时间通道，互不混用**（批73 起）：`paused` 是用户的意图、`timeScale` 是玩法刻度、
+`freeze` 是特效的意图（hitstop）。冻结不能借 `paused`（到期会解除用户的暂停），
+也不能借 `timeScale`（那只是变慢、tick 照走）。时长按**逻辑步**指定、按**真实时间**
+消耗 ⇒ 帧率无关。详见 `docs/adr/0011-hitstop.md`。
 
 ---
 
@@ -784,7 +790,7 @@ UI 动画、音频、录像在暂停时仍应活动 —— 所以它们是不同
 | **浏览器自检** | 真实浏览器里 9 条端到端断言（画面/批处理/存档往返） | 9 | `web/selftest.html` |
 
 本表只统计 **L0–L3 核心子集**，行内数字相加为 **120 条 Node 判据 + 9 条浏览器自检**；
-含扩展解码器（PNG/JPEG/资产导入）与文件系统的全量是 1559 条 <!-- n:tests -->，全部在 `npm test` / 打开自检页里跑；
+含扩展解码器（PNG/JPEG/资产导入）与文件系统的全量是 1578 条 <!-- n:tests -->，全部在 `npm test` / 打开自检页里跑；
 `npm run check` 额外跑 `tsc`（strict + noUncheckedIndexedAccess）。
 
 ### 10.2 为什么"架构守护"比多写功能更重要
@@ -818,7 +824,7 @@ UI 动画、音频、录像在暂停时仍应活动 —— 所以它们是不同
 | # | 闸门 | 挡住什么 | 为什么必须自动化 |
 |---|---|---|---|
 | 1 | 类型检查 `tsc`（strict + `noUncheckedIndexedAccess`） | 类型层的不可能状态 | 人眼看不见"这里可能是 undefined" |
-| 2 | 判据（全量，1559 条 <!-- n:tests -->） | 行为退化 | 上一代引擎的判据从未被一次跑完过 |
+| 2 | 判据（全量，1578 条 <!-- n:tests -->） | 行为退化 | 上一代引擎的判据从未被一次跑完过 |
 | 3 | 物理性能闸门（**独占**跑） | 解算耗时退化 | 并行跑时测到的是"机器多忙"，不是"代码多慢"（阈值仍是 8ms，一个字没动） |
 | 4 | 覆盖率闸门 | "新代码没有任何判据走过" | 百分比能被平凡代码堆出来，所以守的是**未覆盖行清单**不许变多 |
 | 5 | 文档对账 | 判据数、变异数、后端数、步数写成过期值 | **实测：这一批一次喊出 14 处漂移，人眼一处都没发现** |
@@ -827,10 +833,10 @@ UI 动画、音频、录像在暂停时仍应活动 —— 所以它们是不同
 | 8 | JPEG ffmpeg 金标 `--check` | 与参考解码器逐像素的偏差 | "看着像"不是判据，**逐像素**才是；金标存在文件里才能被 diff。**三分退出码**：0 一致 / 1 真漂移 / 2 异构构建（见下） |
 | 9 | JPEG 金标三分自检（4 种情形） | 第 8 步把"构建不同"当万能免罪符 | 没有它，真把编码器改坏了、恰好又在异构构建上跑，一样被放过去 |
 | 10 | 浏览器包构建 | 打包/`--experimental-transform-types` 在浏览器目标上失效 | Node 里跑得通不等于能进浏览器 |
-| 11 | 浏览器端自检（无头 CDP 驱动，43 条 <!-- n:browser -->） | 页面级问题（DOM 缺节点、`fetch` 绑定、GL 拒绝） | Node 判据只能证明"我们发了什么调用"，不能证明浏览器接受；**缺浏览器时标 ⊘ 跳过，不算通过** |
+| 11 | 浏览器端自检（无头 CDP 驱动，45 条 <!-- n:browser -->） | 页面级问题（DOM 缺节点、`fetch` 绑定、GL 拒绝） | Node 判据只能证明"我们发了什么调用"，不能证明浏览器接受；**缺浏览器时标 ⊘ 跳过，不算通过** |
 | 12 | 编辑器页自检 | 编辑器坏而运行时好（或反过来） | 与第 11 步分开，红的时候要一眼看出该谁修 |
 | 13 | 跨宿主存档比对 | Node 与浏览器写出的存档字节不同 | 存档要能在两个宿主之间迁，字节不同就悄悄迁移失败 |
-| 14 | 变异校验（302 组 <!-- n:mutants -->） | **判据本身失效**（改坏了还是绿的） | 这是唯一能证明"判据有牙齿"的手段 |
+| 14 | 变异校验（312 组 <!-- n:mutants -->） | **判据本身失效**（改坏了还是绿的） | 这是唯一能证明"判据有牙齿"的手段 |
 
 ★ 第 8 步的**适用域**（2026-10-25 实测，写清楚免得下次又当 bug 查）：
 金标是**某个具体 ffmpeg 构建**的产物 —— 本机生成它的是 `7.1-essentials_build-www.gyan.dev`。
@@ -883,9 +889,9 @@ CI 上 `pip install imageio-ffmpeg` 装的是 Linux 构建，对 12 位灰度（
   **16 位进 GPU**（`PixelFormat.RGBA16` + 图集 `precision` + WebGL2 `RGBA16/UNSIGNED_SHORT`）、
   **动画时间轴**（`AnimationClip` 只读数据 + 组件持时间 + 纯采样，图集不持计时器）、
   **真实资产上屏**（导入 → 解码 → 确定性图集合成 → `createTexture`，浏览器读 `web/assets/` 5 PNG + 1 JPEG）
-- **1559 条 Node 判据** <!-- n:tests -->（105 个测试文件 <!-- n:files -->）+ 43 条浏览器自检 <!-- n:browser -->，架构守护 7 条，
+- **1578 条 Node 判据** <!-- n:tests -->（106 个测试文件 <!-- n:files -->）+ 45 条浏览器自检 <!-- n:browser -->，架构守护 7 条，
   后端契约 22 条（两图形后端）+ 14 条（两脚本后端）
-- 变异验证 **302 组** <!-- n:mutants -->（异常隔离 / id 空间 / 增量 hash / env 隔离 / Paeth / 像素上传 / 5.1 unpack /
+- 变异验证 **312 组** <!-- n:mutants -->（异常隔离 / id 空间 / 增量 hash / env 隔离 / Paeth / 像素上传 / 5.1 unpack /
   Adam7 pass 表 / pass 宽度 / APNG blend / APNG dispose / 16 位取整 / APNG 帧数校验 /
   渐进 AC 精修 EOBRUN / 重启区间 DC 复位 / 三角上采样 / 截断标记 / EXIF 旋转 /
   QM 的 Switch_MPS / 双线性单侧钳位 / 无损差分取模 / DC 类别上限 / 精度规则 / EXP 位置 /
@@ -1558,7 +1564,7 @@ HUD 文案混入非 ASCII、背包行不切 `visible`、选中不换底色、皮
 │   │                          input-null · input-dom · fs-memory · fs-node · script-null · script-lua
 │   ├── browser-entry.ts   L6  浏览器宿主（宿主层，允许知道一切具体实现）
 │   └── index.ts               对外 API 面（只导出接口/类型/工厂）
-├── tests/                 105 个文件 <!-- n:files --> / 1559 条判据 <!-- n:tests -->（arch · contract · core · backends · extensions）
+├── tests/                 106 个文件 <!-- n:files --> / 1578 条判据 <!-- n:tests -->（arch · contract · core · backends · extensions）
 │   └── fixtures/png/      外部金标语料（隔行/16 位/APNG，pngjs + Pillow 双实现产出）
 │   └── fixtures/jpeg/     外部金标语料（**54 例** <!-- n:jpeggold -->，三份清单按案例名去重：Pillow 解 17 + 算术 6
 │                          + CMYK/YCCK 4 + "我们编码→libjpeg 解" 6 + liblj92 无损 8..16 位 9 + ffmpeg 12，

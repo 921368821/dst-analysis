@@ -2775,6 +2775,89 @@ MUTANTS = [
         "pairs": [("  const fn = EASINGS[name];", "  const fn = EASINGS[name] ?? EASINGS[\"linear\"];")],
         "test": "tests/extensions/tween.test.ts",
     },
+    {
+        "name": "M303 冻结只记标志位、不拦推进（hitstop 变成了纯装饰）",
+        # 症状：frozen 一直是 true、freezeTicks 在涨，可世界照常跑 ——
+        # 画面上"该停的时候没停"，而所有冻结相关的计数都是对的。
+        # 这是把 advance 的冻结分支写空的形态，也是唯一能让 Node 与浏览器两侧
+        # 同时抓住的一条（Node 抓 tick 动了，浏览器抓渲染帧与 tick 的关系）。
+        "file": "src/core/scheduler/scheduler.ts",
+        "pairs": [("    if (this._freeze > 0) {", "    if (false && this._freeze > 0) {")],
+        "test": "tests/core/scheduler.test.ts",
+    },
+    {
+        "name": "M304 冻结按帧数消耗而不是按 fixedDt 对齐（高刷新屏顿帧更短）",
+        # 把"每帧收 fixedDt"改成"每帧就收一步"：60Hz 上冻 2 步 = 33ms（应 67ms），
+        # 144Hz 上只有 14ms。单看 60Hz 只是"顿帧短了点"，两种帧率放一起才暴露。
+        "file": "src/core/scheduler/scheduler.ts",
+        "pairs": [("      this._freezeAcc += Math.min(realDtSec, this.maxFrameDt);", "      this._freezeAcc += this.fixedDt;")],
+        "test": "tests/core/scheduler.test.ts",
+    },
+    {
+        "name": "M305 到期时剩余真实时间留给下一次冻结（第二次顿帧莫名短一截）",
+        # 症状：连击时第一下顿帧正常，后面几下越来越短直到不冻 ——
+        # 因为每次的剩余都被下一次"预支"了。单次触发完全看不出来。
+        "file": "src/core/scheduler/scheduler.ts",
+        "pairs": [("      if (this._freeze === 0) this._freezeAcc = 0;", "      if (this._freeze < 0) this._freezeAcc = 0;")],
+        "test": "tests/core/scheduler.test.ts",
+    },
+    {
+        "name": "M306 重复触发累加而不是取最长（连击越冻越久，回放对不上）",
+        "file": "src/core/scheduler/scheduler.ts",
+        "pairs": [("    this._freeze = Math.max(this._freeze, ticks);", "    this._freeze += ticks;")],
+        "test": "tests/core/scheduler.test.ts",
+    },
+    {
+        "name": "M307 冻结在暂停期间也消耗（paused 与 freeze 两条通道被写反）",
+        # 把 paused 检查写成"只在没冻结时生效 ⇒ 冻结分支漏过去：
+        # 玩家暂停中顿帧照收，恢复瞬间发现顿帧已经结束了。
+        "file": "src/core/scheduler/scheduler.ts",
+        "pairs": [("    if (this._paused) {", "    if (this._paused && this._freeze === 0) {")],
+        "test": "tests/core/scheduler.test.ts",
+    },
+    {
+        "name": "M308 resetTo 不清冻结（读档后人物保持被冻住的那一瞬间）",
+        "file": "src/core/scheduler/scheduler.ts",
+        "pairs": [("    this._freeze = 0;", "    if (false) this._freeze = 0;")],
+        "test": "tests/core/scheduler.test.ts",
+    },
+    {
+        "name": "M309 非法冻结步数被放行（0 / 小数 / NaN 静默通过）",
+        # 夹取或放行的症状：freeze(0) 不抛、freeze(1.5) 照收 ——
+        # 而调用方（顿帧层）会以为校验过了。
+        "file": "src/core/scheduler/scheduler.ts",
+        "pairs": [("    if (!Number.isInteger(ticks) || ticks <= 0) {", "    if (false) {")],
+        "test": "tests/core/scheduler.test.ts",
+    },
+    {
+        "name": "M310 顿帧策略的非法值记进「跳过」而不是「拒绝」（配表错被当成正常）",
+        # 分桶错了比不记账更糟：skipped 涨说明"策略主动说不冻"，
+        # 于是填了 3.5 步的配表看起来像一个深思熟虑的决定。
+        "file": "src/extensions/combat/hitstop.ts",
+        "pairs": [("        rejected++;", "        skipped++;")],
+        "test": "tests/extensions/combat-hitstop.test.ts",
+    },
+    {
+        "name": "M311 顿帧模块 init 不校验调度器（缺依赖时静默成功）",
+        # 症状：模块起来了、init 返回 ok，可第一次命中就报 BAD_MODULE ——
+        # 而"缺依赖"本该在 init 时就炸，而不是等玩家打第一下。
+        "file": "src/extensions/combat/hitstop.ts",
+        "pairs": [("        return err(engineError(HITSTOP_BAD_MODULE, \"顿帧模块需要一个调度器（先提供 Services.Scheduler）\"));", "        return ok(undefined);")],
+        "test": "tests/extensions/combat-hitstop.test.ts",
+    },
+    {
+        "name": "M312 命中不触发顿帧（showHit 的接线断了，世界该停的时候不停）",
+        # ★ 这条只能靠浏览器判据抓：Node 侧 `createHitstopModule` 是好的，
+        #   坏的是"宿主的 onHit 有没有调它"。症状是完全没有顿帧，
+        #   而闪色/伤害数字/仇恨全都正常 —— 每一项单独看都对。
+        # 用 `--build`：不重建的话页面读的还是旧 bundle，会得到"变异没被抓住"的假结论。
+        "file": "src/browser-entry.ts",
+        "pairs": [("    const hs = hitstopMod.trigger(info);", "    const hs = { ok: true as const, value: { ticks: 0, remaining: 0, extended: false } };")],
+        "cmd": ["node", "tools/browser-selftest.mjs", "--build"],
+        "env_exit": 2,
+        # 还原后重建：`web/bundle.js` 是构建产物，不重建就会停在"变异后的包"上
+        "rebuild": True,
+    },
 
 ]
 

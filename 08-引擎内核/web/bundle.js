@@ -9318,6 +9318,12 @@ var FixedStepScheduler = class {
   _alpha = 0;
   /** 记录"已经回调过的最大 tick"，幂等保护用。 */
   _served = -1;
+  /** 剩余冻结步数（hitstop，见文件头 ★★）。 */
+  _freeze = 0;
+  /** 冻结期间累计的真实时间（秒），够一个 `fixedDt` 就收一步。 */
+  _freezeAcc = 0;
+  /** 累计消耗的冻结步数。 */
+  _totalFreeze = 0;
   steps = [];
   constructor(cfg) {
     if (!(cfg.fixedDt > 0)) throw new RangeError("fixedDt \u5FC5\u987B > 0");
@@ -9343,6 +9349,17 @@ var FixedStepScheduler = class {
       return 0;
     }
     if (this._paused) {
+      this._lastSteps = 0;
+      return 0;
+    }
+    if (this._freeze > 0) {
+      this._freezeAcc += Math.min(realDtSec, this.maxFrameDt);
+      while (this._freezeAcc >= this.fixedDt && this._freeze > 0) {
+        this._freezeAcc -= this.fixedDt;
+        this._freeze--;
+        this._totalFreeze++;
+      }
+      if (this._freeze === 0) this._freezeAcc = 0;
       this._lastSteps = 0;
       return 0;
     }
@@ -9407,6 +9424,27 @@ var FixedStepScheduler = class {
   get timeScale() {
     return this._timeScale;
   }
+  /**
+   * 请求冻结 `ticks` 个逻辑步（hitstop）。重复触发取**最长剩余**，不累加 ——
+   * 与 `feedback.ts` 的闪色同一条理由：累加会让连击时冻结越来越久，
+   * 而"冻多久"变成取决于历史的东西，回放对不上。
+   *
+   * @throws RangeError 步数不是正整数（0 想表达"取消"没有意义 —— 不请求就不会冻）。
+   */
+  freeze(ticks) {
+    if (!Number.isInteger(ticks) || ticks <= 0) {
+      throw new RangeError(`\u51BB\u7ED3\u6B65\u6570\u5FC5\u987B\u662F\u6B63\u6574\u6570\uFF0C\u6536\u5230 ${String(ticks)}`);
+    }
+    this._freeze = Math.max(this._freeze, ticks);
+  }
+  /** 当前是否在冻结。 */
+  get frozen() {
+    return this._freeze > 0;
+  }
+  /** 剩余冻结步数。 */
+  get freezeTicks() {
+    return this._freeze;
+  }
   get tick() {
     return this._tick;
   }
@@ -9424,6 +9462,8 @@ var FixedStepScheduler = class {
     this._accumulator = 0;
     this._alpha = 0;
     this._lastSteps = 0;
+    this._freeze = 0;
+    this._freezeAcc = 0;
   }
   stats() {
     return {
@@ -9434,7 +9474,10 @@ var FixedStepScheduler = class {
       totalSteps: this._total,
       timeScale: this._timeScale,
       paused: this._paused,
-      alpha: this._alpha
+      alpha: this._alpha,
+      frozen: this._freeze > 0,
+      freezeTicks: this._freeze,
+      totalFreezeTicks: this._totalFreeze
     };
   }
 };
@@ -9996,6 +10039,9 @@ var GameApp = class _GameApp {
       time: this.scheduler.time,
       paused: this.scheduler.paused,
       timeScale: this.scheduler.timeScale,
+      frozen: this.scheduler.frozen,
+      freezeTicks: this.scheduler.freezeTicks,
+      totalFreezeTicks: this.scheduler.stats().totalFreezeTicks,
       droppedSteps: this.scheduler.stats().droppedSteps,
       scene: this.scene.stats(),
       assets: this.assets.stats(),
@@ -20804,6 +20850,74 @@ function attack(scene, attackerId, targetId, opts = {}) {
   });
 }
 
+// src/extensions/combat/hitstop.ts
+var HITSTOP_BAD_MODULE = "HITSTOP.BAD_MODULE";
+var HITSTOP_BAD_TICKS = "HITSTOP.BAD_TICKS";
+function createHitstopModule(opts) {
+  let sched = null;
+  let triggers = 0;
+  let extended = 0;
+  let skipped = 0;
+  let rejected = 0;
+  let lastTicks = 0;
+  const handle = {
+    id: opts.id ?? "combat.hitstop",
+    deps: [],
+    get stats() {
+      return {
+        triggers,
+        extended,
+        skipped,
+        rejected,
+        lastTicks,
+        frozen: sched === null ? false : sched.frozen,
+        freezeTicks: sched === null ? 0 : sched.freezeTicks
+      };
+    },
+    init(ctx) {
+      const got = ctx.services.get(Services.Scheduler);
+      if (got === void 0) {
+        return err(engineError(HITSTOP_BAD_MODULE, "\u987F\u5E27\u6A21\u5757\u9700\u8981\u4E00\u4E2A\u8C03\u5EA6\u5668\uFF08\u5148\u63D0\u4F9B Services.Scheduler\uFF09"));
+      }
+      sched = got;
+      return ok(void 0);
+    },
+    stop() {
+    },
+    describe() {
+      return `\u987F\u5E27\uFF1A\u89E6\u53D1 ${String(triggers)} / \u5EF6\u957F ${String(extended)} / \u8DF3\u8FC7 ${String(skipped)} / \u62D2\u7EDD ${String(rejected)}`;
+    },
+    trigger(info) {
+      const s = sched;
+      if (s === null) {
+        return err(engineError(HITSTOP_BAD_MODULE, "\u987F\u5E27\u6A21\u5757\u8FD8\u6CA1 init\uFF08\u62FF\u4E0D\u5230\u8C03\u5EA6\u5668\uFF09\u5C31\u6536\u5230\u4E86\u547D\u4E2D"));
+      }
+      const ticks = opts.policy(info);
+      if (!Number.isInteger(ticks) || ticks < 0) {
+        rejected++;
+        return err(
+          engineError(
+            HITSTOP_BAD_TICKS,
+            `\u987F\u5E27\u7B56\u7565\u8FD4\u56DE\u4E86 ${String(ticks)}\uFF08\u5FC5\u987B\u662F \u22650 \u7684\u6574\u6570\uFF1B0 = \u4E0D\u51BB\uFF09`
+          )
+        );
+      }
+      if (ticks === 0) {
+        skipped++;
+        lastTicks = 0;
+        return ok({ ticks: 0, remaining: s.freezeTicks, extended: false });
+      }
+      const wasFrozen = s.frozen;
+      s.freeze(ticks);
+      triggers++;
+      if (wasFrozen) extended++;
+      lastTicks = ticks;
+      return ok({ ticks, remaining: s.freezeTicks, extended: wasFrozen });
+    }
+  };
+  return handle;
+}
+
 // src/extensions/nav/move-along.ts
 var ARRIVE_EPS = 1e-6;
 function stepAlong(grid, path, cursor, x, z, speed, dt) {
@@ -22911,7 +23025,13 @@ async function main() {
   }
   let mobsHandle = null;
   const feedbackMod = createFeedbackModule({ id: "render.feedback.demo" });
+  const hitstopMod = createHitstopModule({
+    id: "combat.hitstop.demo",
+    policy: (info) => info.dead ? HITSTOP_KILL_TICKS : info.attackerId === heroId ? HITSTOP_HIT_TICKS : 0
+  });
   const HIT_FLASH_TICKS = 12;
+  const HITSTOP_HIT_TICKS = 3;
+  const HITSTOP_KILL_TICKS = 12;
   const HIT_PUNCH_TICKS = 6;
   const DMG_LIFE_MS = 900;
   const feedbackErrors = [];
@@ -22958,6 +23078,8 @@ async function main() {
       applied: info.applied,
       tick: hudTick
     });
+    const hs = hitstopMod.trigger(info);
+    if (!hs.ok) feedbackErrors.push(hs.error.code);
     const target = scene.find(info.targetId);
     if (target !== void 0) {
       const p = target.worldPosition;
@@ -23044,6 +23166,7 @@ async function main() {
     mobsMod,
     survivalMod,
     feedbackMod,
+    hitstopMod,
     controllerMod
   ];
   if (hudUi !== null) modules.push(hudUi.module);
@@ -23207,7 +23330,16 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
     const r = attack(scene, heroId, bestId, { tick: hudTick, factions: MOB_FACTIONS });
     if (!r.ok) return `${r.error.code}\uFF1A${r.error.message}`;
     const rep = r.value.report;
-    showHit({ attackerId: heroId, targetId: bestId, applied: rep.applied, dead: rep.dead });
+    showHit({
+      attackerId: heroId,
+      targetId: bestId,
+      before: rep.before,
+      after: rep.after,
+      applied: rep.applied,
+      overkill: rep.overkill,
+      dead: rep.dead,
+      tick: hudTick
+    });
     return rep.dead ? `\u51FB\u6740\uFF01` : `\u547D\u4E2D ${String(rep.applied)}\uFF0C\u5269 ${String(rep.after)}`;
   }
   function eatSomething() {
@@ -23531,6 +23663,12 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
     heroId,
     /** 打一下最近的敌人（自检页用：它要走**玩家这条真实路径**，见 `attackNearest`）。 */
     attack: () => attackNearest(),
+    /**
+     * 顿帧状态（批73）。自检页用它证两件只有浏览器里才可能坏的事：
+     * ① 命中真的让世界停下来（`frozen` / `freezeTicks` / `triggers`）；
+     * ② 停的时候画面还在走 —— 这条要配 `renderFrames()` 与 `snapshot().tick` 读。
+     */
+    hitstop: () => ({ ...hitstopMod.stats }),
     /** 图集真实来源：`assets*7`（6 PNG + 1 JPEG）表示走完了导入链；`procedural` 表示降级了。 */
     atlasSource: atlasLabel,
     /** 世界链的产物：生成计划 / 装配结果 / 可见化报告 / 再生任务句柄。 */

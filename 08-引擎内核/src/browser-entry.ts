@@ -89,6 +89,9 @@ import { NavGrid } from "./extensions/nav/nav-grid.ts";
 import { HEALTH_TYPE, Health, registerHealthComponent } from "./extensions/combat/health.ts";
 import { ATTACKER_TYPE, Attacker, attack, registerAttackerComponent } from "./extensions/combat/attack.ts";
 import { FactionMember, createFactions, registerFactionComponent, teamOf } from "./extensions/combat/faction.ts";
+// 批73：顿帧（hitstop）。命中的一瞬间把世界冻住几个逻辑步，画面继续走。
+import { createHitstopModule, type HitstopHandle } from "./extensions/combat/hitstop.ts";
+import type { HitInfo } from "./extensions/combat/combat-module.ts";
 import { createMobWorldModule, type MobSpot, type MobWorldHandle } from "./extensions/mobs/mob-world.ts";
 // 批69：命中反馈（受击闪色 / 挥击挤压 / 伤害数字）。引擎侧只负责"让状态可见"，
 // 数字的排布属于宿主（贴在屏幕上的东西，引擎不该规定它长什么样）。
@@ -767,8 +770,24 @@ export async function main(): Promise<void> {
   //   而"数字在屏幕上往上飘 0.9 秒"是**表现决定**，不是世界规则。
   const feedbackMod: FeedbackHandle = createFeedbackModule({ id: "render.feedback.demo" });
 
+  // ---------------------------------------------------------------- 顿帧（批73）
+  //
+  // ★ 策略写在这里，不写进库里：「什么命中值得冻」是玩法判断。
+  //   演示页的取舍：玩家打中冻 3 步（≈0.1s，够看见"这一下是实的"）、
+  //   击杀冻 12 步（≈0.4s，和闪色同长，让"打死了一个东西"有分量）、
+  //   **怪打玩家不冻** —— 群战里每个怪都冻会让画面一帧一停，
+  //   而冻结本身不报错，只是手感变怪，所以这条必须显式写出来。
+  const hitstopMod: HitstopHandle = createHitstopModule({
+    id: "combat.hitstop.demo",
+    policy: (info) => (info.dead ? HITSTOP_KILL_TICKS : info.attackerId === heroId ? HITSTOP_HIT_TICKS : 0),
+  });
+
   /** 受击闪多久（tick，30Hz ⇒ 12 ≈ 0.4s：够看见，又不会糊住下一次攻击）。 */
   const HIT_FLASH_TICKS = 12;
+  /** 玩家打中时冻几步（30Hz ⇒ 3 ≈ 0.1s：刚好够"看见"世界顿了一下）。 */
+  const HITSTOP_HIT_TICKS = 3;
+  /** 击杀时冻几步（≈0.4s，与闪色同长：让"打死了一个东西"有分量）。 */
+  const HITSTOP_KILL_TICKS = 12;
   /** 挥击挤压多久（比闪烁短：它是"动作"，不是"状态"）。 */
   const HIT_PUNCH_TICKS = 6;
   /** 伤害数字活多久（毫秒：它是**画面**，跟着渲染时钟走，与 tick 无关）。 */
@@ -851,7 +870,17 @@ export async function main(): Promise<void> {
    *   而回调顺序保证 `onHit` 在前 —— 但这个函数也会被 `attackNearest()` 直接调用，
    *   两条路径走同一段代码才不会"玩家打的看得见、怪打玩家的看不见"。
    */
-  function showHit(info: { attackerId: number; targetId: number; applied: number; dead: boolean }): void {
+  /**
+   * 一次命中的全部表现：数字 + 受击闪 + 挥击挤压 + 顿帧。
+   *
+   * ★ 位置在**这里**取（而不是在回调里取）：`onKill` 之后目标可能已经被销毁，
+   *   而回调顺序保证 `onHit` 在前 —— 但这个函数也会被 `attackNearest()` 直接调用，
+   *   两条路径走同一段代码才不会"玩家打的看得见、怪打玩家的看不见"。
+   * ★ 收**完整的** `HitInfo`（含 before/after/overkill），不收裁剪版：
+   *   顿帧策略要按 overkill 判断"这一下有多重"时，裁剪版只能让它拿到 0 ——
+   *   而 0 是个看起来完全正常的假值（批65：回调少给一个参数，调用方就得猜）。
+   */
+  function showHit(info: HitInfo): void {
     // ★ 记仇放在这里，而不是放在 `attackNearest()` 里：这是**所有**命中都要经过的
     //   唯一一段代码（玩家手动打 / 生物按 decide 打）。放在任一边都会漏掉另一边，
     //   而漏掉的那一边恰好是玩家最常走的那条。
@@ -861,6 +890,10 @@ export async function main(): Promise<void> {
       applied: info.applied,
       tick: hudTick,
     });
+    // ★ 顿帧与记仇同理：放在任一边都会让另一边没有顿帧。策略决定冻不冻
+    //   （怪打玩家不冻，见上面的 `createHitstopModule`）。
+    const hs = hitstopMod.trigger(info);
+    if (!hs.ok) feedbackErrors.push(hs.error.code);
     const target = scene.find(info.targetId);
     if (target !== undefined) {
       const p = target.worldPosition;
@@ -977,6 +1010,7 @@ export async function main(): Promise<void> {
     mobsMod,
     survivalMod,
     feedbackMod,
+    hitstopMod,
     controllerMod,
   ];
   if (hudUi !== null) modules.push(hudUi.module);
@@ -1204,7 +1238,18 @@ export async function main(): Promise<void> {
     // ★ 玩家这条路径**不经过** `combat-module`（它是"按一下打一下"，
     //   没有每 tick 的 decide），所以表现要在这里补一次 —— 且必须是**同一个** showHit：
     //   分头写两份的那天，就是"怪打我冒数字、我打怪不冒"的那天。
-    showHit({ attackerId: heroId, targetId: bestId, applied: rep.applied, dead: rep.dead });
+    // ★ 这里拼**完整的** HitInfo（rep 里什么都有），而不是裁剪版：
+    //   顿帧策略要按 overkill 判断"这一下有多重"，裁剪版会给它一个 0。
+    showHit({
+      attackerId: heroId,
+      targetId: bestId,
+      before: rep.before,
+      after: rep.after,
+      applied: rep.applied,
+      overkill: rep.overkill,
+      dead: rep.dead,
+      tick: hudTick,
+    });
     return rep.dead ? `击杀！` : `命中 ${String(rep.applied)}，剩 ${String(rep.after)}`;
   }
 
@@ -1672,6 +1717,12 @@ export async function main(): Promise<void> {
     heroId,
     /** 打一下最近的敌人（自检页用：它要走**玩家这条真实路径**，见 `attackNearest`）。 */
     attack: () => attackNearest(),
+    /**
+     * 顿帧状态（批73）。自检页用它证两件只有浏览器里才可能坏的事：
+     * ① 命中真的让世界停下来（`frozen` / `freezeTicks` / `triggers`）；
+     * ② 停的时候画面还在走 —— 这条要配 `renderFrames()` 与 `snapshot().tick` 读。
+     */
+    hitstop: () => ({ ...hitstopMod.stats }),
     /** 图集真实来源：`assets*7`（6 PNG + 1 JPEG）表示走完了导入链；`procedural` 表示降级了。 */
     atlasSource: atlasLabel,
     /** 世界链的产物：生成计划 / 装配结果 / 可见化报告 / 再生任务句柄。 */
