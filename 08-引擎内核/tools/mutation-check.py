@@ -1889,6 +1889,7 @@ MUTANTS = [
             )
         ],
         "cmd": ["node", "tools/cross-host-save.mjs"],
+        "env_exit": 2,
     },
     {
         # 感知输出不排序：决策"取第一个"就会随 scene.root.walk 的遍历序变
@@ -2201,12 +2202,14 @@ MUTANTS = [
         "file": "src/extensions/editor/pie.ts",
         "pairs": [("  pause(): void {\n    this.playing = false;", "  pause(): void {")],
         "cmd": ["node", "tools/editor-selftest.mjs", "--build"],
+        "env_exit": 2,
     },
     {
         "name": "M230 编辑器单步每个 tick 跑两次（单步按钮翻倍）",
         "file": "src/editor-entry.ts",
         "pairs": [("      for (let i = 0; i < k; i++) app.frame(FIXED_DT);", "      for (let i = 0; i < k * 2; i++) app.frame(FIXED_DT);")],
         "cmd": ["node", "tools/editor-selftest.mjs", "--build"],
+        "env_exit": 2,
     },
     # ---- 批65：阵营与友伤 + 击杀战利品
     {
@@ -2649,6 +2652,57 @@ MUTANTS = [
         "pairs": [("    if (this.scaleMode === UiScaleMode.Expand) return this.screenRect;", "    if (this.scaleMode === UiScaleMode.Expand) return this.designRect;")],
         "test": "tests/extensions/ui-viewport.test.ts",
     },
+    {
+        "name": "M287 HUD 文案里混进非 ASCII（字体画不出来 ⇒ 那一段静默变空白）",
+        # 换成中文而不是换成 `·`：这两个都是真实会发生的写法（"背包"是旧 DOM 版的标签，
+        # "·" 是旧 DOM 版的分隔符），而 5×7 位图字体里两者都没有。
+        # 症状：不报错、不崩、`xadvance` 照旧推进，只是那块地方是空的。
+        "file": "src/host/hud-model.ts",
+        "pairs": [("      `bag ${r(f.bagStacks)}`,", "      `背包 ${r(f.bagStacks)}`,")],
+        "test": "tests/host/hud-model.test.ts",
+    },
+    {
+        "name": "M288 背包行不切 visible（面板永远列出 8 行空格子）",
+        # 症状：背包里只有 1 堆，面板上却有 8 个格子，后 7 个点得到但什么都不代表。
+        "file": "src/host/hud-ui.ts",
+        "pairs": [("        n.visible = r !== undefined;", "        n.visible = true;")],
+        "test": "tests/host/hud-ui.test.ts",
+    },
+    {
+        "name": "M289 选中行不换底色（点了没反馈，玩家不知道丢的是哪一堆）",
+        "file": "src/host/hud-ui.ts",
+        "pairs": [("          tint: r.selected ? selTint : rowTint,", "          tint: rowTint,")],
+        "test": "tests/host/hud-ui.test.ts",
+    },
+    {
+        "name": "M290 皮肤帧全落在页 0（手头两张页接反 ⇒ UI 画出来是错图）",
+        # 页 0 是字形、页 1 是皮肤。接反的症状不是"UI 不见了"，而是"UI 长得不对"——
+        # 面板上出现一堆字模碎片，而所有计数（quad/draw/glyph）都是对的。
+        "file": "src/host/hud-ui.ts",
+        "pairs": [("      page,", "      page: 0,")],
+        "test": "tests/host/hud-ui.test.ts",
+    },
+    {
+        "name": "M291 HUD 面板做窄（三行文本溢出到屏幕外，静默裁剪）",
+        # 判据量的是"排版宽度 ≤ HUD_LAYOUT.width - pad*2"，而宽度取自实现导出的常量。
+        # 把 640 改成 240 之后，第 1 行必然放不下 ⇒ 判据必须红。
+        "file": "src/host/hud-ui.ts",
+        "pairs": [("  width: 640,", "  width: 240,")],
+        "test": "tests/host/hud-ui.test.ts",
+    },
+    {
+        "name": "M292 面板行的点击回调没接上（面板列得对，但点不动）",
+        # ★ 这条只能靠浏览器判据抓：Node 侧 `createHudUi` 的 `onSelectRow` 是好用的，
+        #   坏的是"UI 模块有没有把它接成事件接收器"。`UiInputRouter` 走通了、
+        #   点击事件也产生了，只是没人接 —— 屏幕上完全看不出区别。
+        # 用 `--build`：不重建的话页面读的还是旧 bundle，会得到"变异没被抓住"的假结论。
+        "file": "src/host/hud-ui.ts",
+        "pairs": [("    onEvent,\n", "    onEvent: undefined,\n")],
+        "cmd": ["node", "tools/browser-selftest.mjs", "--build"],
+        "env_exit": 2,
+        # 还原后重建：`web/bundle.js` 是构建产物，不重建就会停在"变异后的包"上
+        "rebuild": True,
+    },
 
 ]
 
@@ -2668,11 +2722,29 @@ def run(m: dict) -> tuple[int, str]:
     cmd = m.get("cmd")
     if cmd:
         p = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, timeout=600)
+        out = (p.stdout or "") + (p.stderr or "")
+        tail = "\n".join([ln for ln in out.splitlines() if ln.strip()][-4:])
+        # ★★ `env_exit`：这个命令把退出码 2 用来表示**环境缺失**（无浏览器），
+        #   此时"变异被抓住"没有证据 —— 那台机器上判据根本没跑起来。
+        #   不加这条的话，无浏览器的 CI 上 M229/M230/M78/M292 会一致假绿。
+        #
+        #   ★ 为什么必须**逐条声明**、不能对所有 cmd 型判据一律这么判：
+        #     退出码 2 在这两个位置上含义正好相反 ——
+        #     `browser-selftest` 用 2 表示"没有浏览器"（前提缺失），
+        #     而 `docs-check` 用 2 表示"实测值取不到"，**那正是 M74 要抓住的东西**
+        #     （把 backends 的实测值摘掉 ⇒ 对账读不到数 ⇒ 退出码 2）。
+        #     第一次修这条时按"一律 2 = 环境"处理，当场把 M74 判成环境问题。
+        #     同一个数字，两种语义 —— 只有变异表知道自己在调哪个脚本。
+        if p.returncode == 2 and m.get("env_exit") == 2:
+            print(f"✗ 判据命令以退出码 2 结束（该脚本用 2 表示环境缺失，不是判据结论）：{' '.join(cmd)}")
+            print(f"  ← {m['name']}")
+            print("  把它记成「变异被抓住」是假绿：这台机器上那条判据根本没跑起来。")
+            for ln in tail.splitlines():
+                print(f"    {ln}")
+            raise SystemExit(2)
         if p.returncode == 0:
             return 0, ""
-        out = (p.stdout or "") + (p.stderr or "")
-        tail = [ln for ln in out.splitlines() if ln.strip()][-4:]
-        return 1, "\n".join(tail)
+        return 1, tail
     # ★ `--test-reporter=tap` 必须显式写死。
     #   2026-10-25 事故：默认 reporter 在 Node 22 下是 TAP（`not ok 3 - ...`），
     #   在 Node 24 下变成 spec（`✖ 名字 (1.2ms)`）。本工具数的是 `not ok` 行，
@@ -2925,6 +2997,19 @@ try:
         finally:
             f.write_bytes(original_bytes)
             _ACTIVE.pop(str(f), None)
+            # ★ 带 `rebuild` 的条目（浏览器判据）必须**还原后重建一次**。
+            #   否则 `web/bundle.js` 会停在被变异后的构建上，而它不是源码：
+            #   下一个人直接跑 `node tools/browser-selftest.mjs`（不带 --build）
+            #   就会拿一个脏包去自检，得到一条**假红**，还查不到是哪来的。
+            if m.get("rebuild"):
+                subprocess.run(
+                    ["npm", "run", "build:web"],
+                    cwd=ROOT,
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=300,
+                )
 
         # 还原后必须重新变绿，否则说明的还原不干净
         if _test_fingerprint() != _FP0:

@@ -1,0 +1,39 @@
+{
+  "image": "ui-skin.png",
+  "width": 64,
+  "height": 16,
+  "frames": [
+    {
+      "name": "panel",
+      "x": 0,
+      "y": 0,
+      "w": 16,
+      "h": 16,
+      "slice": 6
+    },
+    {
+      "name": "button",
+      "x": 16,
+      "y": 0,
+      "w": 16,
+      "h": 16,
+      "slice": 5
+    },
+    {
+      "name": "bar",
+      "x": 32,
+      "y": 0,
+      "w": 16,
+      "h": 8,
+      "slice": 0
+    },
+    {
+      "name": "slot",
+      "x": 48,
+      "y": 0,
+      "w": 16,
+      "h": 8,
+      "slice": 3
+    }
+  ]
+}

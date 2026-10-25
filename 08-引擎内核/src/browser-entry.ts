@@ -10,7 +10,7 @@
  * 资产：启动时把 `web/assets/*.png` 走**完整导入链**烘焙成真图集 ——
  *   `fs-http（只读）→ 内存 fs → AssetImportPipeline（.meta/增量/依赖）→ PNG 解码 → shelf packing`。
  *   任一步失败（例如用 file:// 直接打开被 CORS 拦住）则降级到程序化图集，
- *   但 HUD 会显示 `atlas:assets×6` 还是 `atlas:procedural` —— **降级不静默**。
+ *   但 HUD 会显示 `atlas:assets*6` 还是 `atlas:procedural` —— **降级不静默**。
  *   静默降级的后果是"以为在测真资产，其实在测假贴图"，这正是本轮要消灭的盲区。
  *
  * ★ 装配顺序很重要（第一版写错过）：
@@ -49,7 +49,7 @@ import { AssetImportPipeline } from "./extensions/asset-import/pipeline.ts";
 import { textureImporter } from "./extensions/asset-import/importers/texture.ts";
 import { atlasImporter } from "./extensions/asset-import/importers/atlas.ts";
 import { textImporter } from "./extensions/asset-import/importers/text.ts";
-import { ImportedTexture, createImportLoaders } from "./extensions/asset-import/loaders.ts";
+import { ImportedTexture, ImportedText, createImportLoaders } from "./extensions/asset-import/loaders.ts";
 import { decodeImage } from "./extensions/asset-import/decode/image.ts";
 import { buildAtlasFromSources, type AtlasSource } from "./extensions/render/atlas-from-assets.ts";
 import {
@@ -63,6 +63,10 @@ import {
 import { pickupNearby } from "./extensions/inventory/pickup.ts";
 import { dropIntoWorld } from "./extensions/inventory/drop-to-world.ts";
 import { buildProceduralAtlas, type AtlasData } from "./extensions/render/atlas.ts";
+import { parseBmFont, type BitmapFont } from "./extensions/ui/font.ts";
+import { UiScaleMode } from "./extensions/ui/viewport.ts";
+import { createHudUi, rectOfId, type HudUiHandle, type UiSkinJson } from "./host/hud-ui.ts";
+import { hudLine, hudRows, type HudFacts } from "./host/hud-model.ts";
 import { generateWorld, type WorldPlan } from "./extensions/worldgen/worldgen.ts";
 import {
   SITE_TYPE,
@@ -205,9 +209,35 @@ const DEMO_FRAMES = [
 /** 烘焙期的资产根目录。**必须与 `pipeline.run()` / `createImportLoaders()` 用同一个**。 */
 const ASSET_ROOT = "/assets";
 
+/**
+ * UI 的四个资产。它们与 `DEMO_FRAMES` **分开读**，但走**同一条导入管线**：
+ *  · `DEMO_FRAMES` 全部合成**一张**图集（世界的纹理页 0）；
+ *  · UI 要的是**两页**：字形一页、皮肤一页（`UiModuleOptions.pageSources` 的下标就是页号）。
+ *    把字体塞进世界图集会让 BMFont 里的 UV 全部错位 —— 那些 UV 是相对
+ *    **字体图自己**算的，不是相对合成图集的。
+ *  · 所以它们必须**显式列出来**（`UI_FILES`），并且用 `ui` 字段单独返回。
+ *    靠"扫目录把所有 png 都合成一张"会在加第二个 UI 资产时静默把字挤歪。
+ */
+const UI_FILES = ["ui-font.fnt", "ui-font.png", "ui-skin.png", "ui-skin.json"] as const;
+
+/** 字体在图集/注册表里的 id。写死一个常量：节点 props 若不写 `fontId` 也会落到它（唯一字体）。 */
+const UI_FONT_ID = "ui5x7";
+
 interface BakedAtlas {
   readonly atlas: AtlasData;
   readonly label: string;
+  /** UI 资产（读不到就是 null，调用方决定怎么降级）。 */
+  readonly ui: BakedUi | null;
+}
+
+interface BakedUi {
+  readonly font: BitmapFont;
+  /** 字形图（页 0）。 */
+  readonly fontPage: { name: string; width: number; height: number; pixels: Uint8Array };
+  /** 皮肤图（页 1）。 */
+  readonly skinPage: { name: string; width: number; height: number; pixels: Uint8Array };
+  /** 皮肤 json 的原文（换算成 `UiSkin` 在 `host/hud-ui.ts`，那里能被 Node 判据覆盖）。 */
+  readonly skinJson: UiSkinJson;
 }
 
 /**
@@ -257,6 +287,19 @@ async function bakeAtlasFromAssets(): Promise<BakedAtlas | null> {
       const w = await fs.writeBinary(`${ASSET_ROOT}/${file}`, r.value);
       if (!w.ok) return null;
     }
+    // UI 的四个文件走同一条管线：`.fnt` / `.json` 归 textImporter、两张 png 归 textureImporter。
+    // ★ 读不到**不整体降级**（世界照样能跑），但要留痕 —— 那条痕迹是 `ui: off` 与一条 warn。
+    let uiFilesOk = true;
+    for (const file of UI_FILES) {
+      const r = await remote.readBinary(file);
+      if (!r.ok) {
+        console.warn(`[ui] 读不到 ${file}：${r.error.code} ${r.error.message}（HUD 会退回 DOM）`);
+        uiFilesOk = false;
+        continue;
+      }
+      const w = await fs.writeBinary(`${ASSET_ROOT}/${file}`, r.value);
+      if (!w.ok) uiFilesOk = false;
+    }
 
     const report = await pipeline.run(ASSET_ROOT);
     if (!report.ok) return null;
@@ -285,11 +328,95 @@ async function bakeAtlasFromAssets(): Promise<BakedAtlas | null> {
 
     const built = buildAtlasFromSources(sources, { padding: 2 });
     if (!built.ok) return null;
-    return { atlas: built.value, label: `assets×${sources.length}` };
+    const ui = uiFilesOk ? await loadUiAssets(db, logger) : null;
+    return { atlas: built.value, label: `assets*${String(sources.length)}`, ui };
   } catch {
     // file:// 直接打开（fetch 被 CORS 拦）/ 资产缺失 —— 都是预期内的降级路径
     return null;
   }
+}
+
+/**
+ * 取一份**文本**产物（`.fnt` / `.json` 都归 `textImporter`）。找不到返回 null。
+ *
+ * ★ `release` 必须在 finally 里：资产是引用计数的，漏一次就永远不会被回收 ——
+ *   而"漏了"在浏览器里表现为内存缓慢增长，几小时后才像"页面卡了"。
+ */
+async function loadText(db: AssetDatabase, file: string): Promise<string | null> {
+  const id = db.idAtPath(`${ASSET_ROOT}/${file}`);
+  if (id === undefined) return null;
+  const h = await db.load(id);
+  if (!h.ok) return null;
+  try {
+    return h.value.asset instanceof ImportedText ? h.value.asset.text : null;
+  } finally {
+    h.value.release();
+  }
+}
+
+/** 取一份纹理产物的**原始字节**（解码交给调用方：`decodeImage` 按魔数分发）。 */
+async function loadTextureBytes(db: AssetDatabase, file: string): Promise<Uint8Array | null> {
+  const id = db.idAtPath(`${ASSET_ROOT}/${file}`);
+  if (id === undefined) return null;
+  const h = await db.load(id);
+  if (!h.ok) return null;
+  try {
+    return h.value.asset instanceof ImportedTexture ? h.value.asset.bytes : null;
+  } finally {
+    h.value.release();
+  }
+}
+
+/**
+ * 读 UI 的四个产物并组装成 `BakedUi`。
+ *
+ * ★ 为什么这里每一步都返回 null 而不是抛：UI 是**可降级的**（退回 DOM HUD）。
+ *   但降级必须留痕（调用方拿到 null 会写一条 warn 并让 HUD 显示 `ui:-`），
+ *   否则"UI 不见了"会变成一个没人查的现象。
+ * ★ 字体 id 显式给：`parseBmFont` 默认 id 是 `font`，而节点/判据都按 `UI_FONT_ID` 找，
+ *   默认值会让"字体注册了但找不到"变成谜。
+ */
+async function loadUiAssets(db: AssetDatabase, logger: Logger): Promise<BakedUi | null> {
+  const [fnt, skin, fontPngBytes, skinPngBytes] = await Promise.all([
+    loadText(db, "ui-font.fnt"),
+    loadText(db, "ui-skin.json"),
+    loadTextureBytes(db, "ui-font.png"),
+    loadTextureBytes(db, "ui-skin.png"),
+  ]);
+  if (fnt === null || skin === null || fontPngBytes === null || skinPngBytes === null) {
+    logger.channel("ui").warn("UI 资产不齐（.fnt/.json/两张 png），HUD 会退回 DOM");
+    return null;
+  }
+  const fontR = parseBmFont(fnt, { id: UI_FONT_ID });
+  if (!fontR.ok) {
+    logger.channel("ui").warn(`字体解析失败：${fontR.error.code} ${fontR.error.message}（HUD 会退回 DOM）`);
+    return null;
+  }
+  const fontDec = decodeImage(fontPngBytes);
+  const skinDec = decodeImage(skinPngBytes);
+  if (!fontDec.ok || !skinDec.ok) {
+    logger.channel("ui").warn("UI 图解码失败（HUD 会退回 DOM）");
+    return null;
+  }
+  let json: UiSkinJson;
+  try {
+    json = JSON.parse(skin) as UiSkinJson;
+  } catch {
+    logger.channel("ui").warn("ui-skin.json 不是合法 JSON（HUD 会退回 DOM）");
+    return null;
+  }
+  const page = (name: string, w: number, h: number, pixels: Uint8Array): BakedUi["fontPage"] => ({
+    name,
+    width: w,
+    height: h,
+    pixels,
+  });
+  return {
+    font: fontR.value,
+    fontPage: page("ui-font.png", fontDec.value.width, fontDec.value.height, fontDec.value.pixels),
+    skinPage: page("ui-skin.png", skinDec.value.width, skinDec.value.height, skinDec.value.pixels),
+    skinJson: json,
+  };
 }
 
 // ---------------------------------------------------------------- main
@@ -365,6 +492,41 @@ export async function main(): Promise<void> {
   const controllerMod = createControllerModule({
     poll: () => (appRef === null ? EMPTY_INPUT : appRef.platform.input.poll()),
   });
+
+  // ---- HUD / 背包（批71）：从手写 DOM 迁到引擎的 UI 模块
+  //
+  // ★ 顺序约束：`createUiModule` 必须在 `bootGameApp` **之前**（它是个 module，
+  //   init/start 要交给 ModuleRegistry 排序），而那时 `platform.gfx` 还不存在 ——
+  //   所以纹理走 `pageSources`（数据，不是句柄），由模块在自己的 init 里建。
+  //   这与渲染模块接受 `atlas` 数据是同一条路：宿主不必为了"先建两张贴图"把 boot 拆成两段。
+  //
+  // ★ 降级：UI 资产读不到时 `baked.ui === null`，此时**不建 UI 模块**，
+  //   HUD 退回 DOM 一行（`hud.textContent = hudLine(...)`）。降级路径只保留一行文本 ——
+  //   保留一整套 DOM 面板等于两份实现同时维护，而"两份实现"迟早会给出两个答案。
+  const bakedUi = baked?.ui ?? null;
+  let hudUi: HudUiHandle | null = null;
+  if (bakedUi !== null) {
+    const r = createHudUi({
+      font: bakedUi.font,
+      skinJson: bakedUi.skinJson,
+      fontPage: bakedUi.fontPage,
+      skinPage: bakedUi.skinPage,
+      // 设计分辨率与画布默认尺寸一致（960×600）；`expand` 让 HUD 贴屏幕边而不是贴设计框，
+      // 于是超宽屏上左上角的那块不会跑到黑边里。
+      viewport: { designWidth: 960, designHeight: 600, scaleMode: UiScaleMode.Expand },
+      dpr,
+      hints: { drop: keyLabel("drop"), bag: keyLabel("bag"), pick: keyLabel("harvest") },
+      // 点中背包行 = 选中（走的是**真实指针路径**：命中测试 → click 事件 → 这里）
+      onSelectRow: (i) => {
+        selectBagRow(i);
+      },
+    });
+    if (r.ok) hudUi = r.value;
+    else console.warn(`[ui] UI 模块没建起来：${r.error.code} ${r.error.message}（HUD 退回 DOM）`);
+  }
+  // UI 画出来之后，DOM 的 #hud 就只剩诊断用途 —— 它必须是 hidden，
+  // 否则屏幕上会有两份 HUD（一份引擎画的、一份 DOM 的），而两边数字可能不同步。
+  hud.hidden = hudUi !== null;
 
   const worldMod = createWorldModule(physics, {
     onTick: (t) => (hudTick = t),
@@ -804,11 +966,26 @@ export async function main(): Promise<void> {
   if (!RECIPES_R.ok) throw new Error(`配方表不合法：${RECIPES_R.error.message}`);
   const RECIPES = RECIPES_R.value;
 
+  // 模块顺序由 ModuleRegistry 按 deps 拓扑排序（UI 依赖 `render.batch2d`），
+  // 这里只决定"谁在列表里"—— 漏加的症状是"HUD 不画"，而 UI 模块自己没有任何报错。
+  const modules: IModule[] = [
+    worldMod,
+    renderMod,
+    scriptMod,
+    worldgenMod,
+    tasksMod,
+    mobsMod,
+    survivalMod,
+    feedbackMod,
+    controllerMod,
+  ];
+  if (hudUi !== null) modules.push(hudUi.module);
+
   const appR = await bootGameApp({
     platformId: "web",
     interactive: true,
     registry,
-    modules: [worldMod, renderMod, scriptMod, worldgenMod, tasksMod, mobsMod, survivalMod, feedbackMod, controllerMod],
+    modules,
     seed: 20261022,
     fixedDt: 1 / 30,
     tickSource: new RafTickSource(() => performance.now()),
@@ -1098,7 +1275,7 @@ export async function main(): Promise<void> {
     else if (map.justPressed(snap, "bag")) {
       bagOpen = !bagOpen;
       if (bagOpen) bagSel = 0;
-      renderBagPanel(true);
+      syncBagUi();
       toast(bagOpen ? "背包已打开" : "背包已关上");
     } else if (map.justPressed(snap, "drop")) {
       const d = dropSelected(shiftDown);
@@ -1292,65 +1469,42 @@ export async function main(): Promise<void> {
 
 
   // ---- 背包面板（T355 遗留：从"一行文本"到"能选中、能丢"）
+  //
+  // ★ 批71 起它**不再是 DOM**：面板是 UI 树里常驻的 8 行（`host/hud-ui.ts`），
+  //   这里的 `bagOpen` / `bagSel` 只表示**状态**，每帧由 `syncBagUi()` 写进节点 props。
+  //   DOM 版每帧重建面板，靠"签名比对"躲开"重建打到点击"的时序问题；
+  //   UI 版没有重建这一步，那类问题因此不存在 —— 但状态仍然只有一份（就是这两个变量）。
   let bagOpen = false;
   /** 选中的堆叠下标（关闭时归 0；越界时按最后一堆算，见 dropSelected）。 */
   let bagSel = 0;
   /** Shift 状态：DOM 是唯一事实源（InputSnapshot 不带修饰键），"丢整堆"要用。 */
   let shiftDown = false;
-  /** 面板内容的签名：内容没变就不重建 DOM（60fps 重建面板是白烧 CPU）。 */
-  let bagSig = "";
 
   function keyLabel(a: string): string {
     return (controllerMod.map.keysOf(a)[0] ?? "?").replace(/^Key/, "");
   }
 
   /**
-   * 重建面板。**内容没变就跳过**（签名比对）—— 面板开着的时候每帧都会走到这儿，
-   * 无脑 `innerHTML = ""` 会把点击选中立刻冲掉（鼠标点下去的那一帧正好在重建）。
+   * 把"背包状态"写进 UI 树（没开 UI 时什么也不做）。
+   * ★ 每帧都调是**安全**的：`setBag` 内部比签名，没变就直接返回，不会重排。
+   * ★ 收一个可选的 `stacks`：`onRender` 里已经为了 `bagStacks` 遍历过一次，
+   *   再序遍历一次是白花的（而且两处遍历同一个可变场景，句柄还会不一致）。
    */
-  function renderBagPanel(force = false): void {
-    const el = document.getElementById("bag");
-    const rowsEl = document.getElementById("bag-rows");
-    const footEl = document.getElementById("bag-foot");
-    if (el === null || rowsEl === null || footEl === null) return;
-    el.hidden = !bagOpen;
-    if (!bagOpen) {
-      bagSig = "";
+  function syncBagUi(stacks?: readonly { readonly kind: string; readonly count: number }[]): void {
+    if (hudUi === null) return;
+    if (!bagOpen || heroId < 0) {
+      hudUi.setBag(null, bagSel);
       return;
     }
-    const stacks = heroId < 0 ? [] : stacksOf(scene, heroId);
-    const sel = Math.min(Math.max(0, bagSel), Math.max(0, stacks.length - 1));
-    const sig = stacks.map((s) => `${s.kind}:${s.count}`).join("|") + `#${sel}`;
-    if (!force && sig === bagSig) return;
-    bagSig = sig;
-    rowsEl.textContent = "";
-    if (stacks.length === 0) {
-      const d = document.createElement("div");
-      d.className = "empty";
-      d.textContent = "（空的）按 G 拾取点什么";
-      rowsEl.appendChild(d);
-    } else {
-      stacks.forEach((s, i) => {
-        const d = document.createElement("div");
-        d.className = i === sel ? "row-item sel" : "row-item";
-        const k = document.createElement("span");
-        k.className = "k";
-        k.textContent = `${String(i + 1)}. ${ITEM_LABEL[s.kind] ?? s.kind}`;
-        const n = document.createElement("span");
-        n.className = "n";
-        n.textContent = `×${String(s.count)}`;
-        d.appendChild(k);
-        d.appendChild(n);
-        // 点选：DOM 事件直接改选中（不需要经过 InputMap —— 那是键位的事）
-        d.addEventListener("click", () => {
-          bagSel = i;
-          renderBagPanel(true);
-        });
-        rowsEl.appendChild(d);
-      });
-    }
-    footEl.textContent =
-      `点击选中 · ${keyLabel("drop")} 丢 1 个 · Shift+${keyLabel("drop")} 丢整堆 · ${keyLabel("bag")} 关闭`;
+    hudUi.setBag(stacks ?? stacksOf(scene, heroId), bagSel);
+  }
+
+  /** 选中第 i 堆（键盘数字键 / 点击面板行 / 自检页都走这里）。 */
+  function selectBagRow(i: number): number {
+    const n = heroId < 0 ? 0 : stacksOf(scene, heroId).length;
+    bagSel = n === 0 ? 0 : Math.min(Math.max(0, Math.floor(i)), n - 1);
+    syncBagUi();
+    return bagSel;
   }
 
   /**
@@ -1382,17 +1536,28 @@ export async function main(): Promise<void> {
       bornTick: app.snapshot().tick,
     });
     if (!r.ok) return r;
-    renderBagPanel(true);
+    syncBagUi();
     const label = ITEM_LABEL[s.kind] ?? s.kind;
     return ok(`丢下 ${label}×${String(n)}（散落在 ${String(r.value.cells.length)} 格，按 G 还能捡回来）`);
   }
 
   // ---- HUD（每帧一次；字段都是"可解释的事实"，不是装饰）
+  //
+  // ★ 两条路径**同一份事实**（`HudFacts`），不是两套格式化：
+  //   · UI 路径：`hudRows(facts)` → 三个 Label 节点（就地改 props，不重建树）
+  //   · 降级路径：`hudLine(facts)` → 一行 DOM 文本
+  //   两句话同源（`hudLine === hudRows.join`，判据盯着），所以"UI 里少了一个字段"
+  //   和"DOM 里少了一个字段"不可能是同一批代码的两种表现。
   let fps = 0;
   let frames = 0;
   let lastFpsAt = performance.now();
+  /** 累计渲染帧数（**不随 fps 窗口清零**）。自检页用它和 `gfx.stats.frameIndex` 对账。 */
+  let renderFrames = 0;
+  /** 最近一帧的 HUD 文本（诊断用；UI 路径下 DOM 不再更新，但这句话还在）。 */
+  let lastHudText = "";
   app.services.require(Services.Frame).onRender((info) => {
     frames++;
+    renderFrames++;
     const now = performance.now();
     if (now - lastFpsAt > 500) {
       fps = frames / ((now - lastFpsAt) / 1000);
@@ -1406,22 +1571,52 @@ export async function main(): Promise<void> {
     const sc = scriptMod.runtime?.stats();
     const ws = worldState.tasks?.stats();
     const wv = worldState.visual;
-    const scriptTxt =
-      sc === undefined ? "script off" : `script ${sc.calls}call/${sc.errors}err${sc.timeouts > 0 ? `/${sc.timeouts}to` : ""}`;
-    hud!.textContent =
-      `fps ${fps.toFixed(0)} · tick ${hudTick} · quad ${lf.quads} · draw ${lf.drawCalls} · ` +
-      `culled ${lf.culled} · nodes ${st.scene.nodes} · bodies ${physics.stats().bodies} · ` +
-      `atlas:${atlasLabel} · ` +
-      `世界 ${wv === null ? "未装配" : `${wv.terrain}块/${wv.sites}点`} · ` +
-      `资源 活${ws?.alive ?? 0}/刷${ws?.spawned ?? 0}/采${ws?.released ?? 0} · ` +
-      `背包 ${bagText()} · ` +
-      `饱食 ${hungerText()} · ` +
-      `${st.backends.gfx}/${st.backends.audio}/${st.backends.input}/${st.backends.script ?? "-"} · ` +
-      `${scriptTxt} · dropped ${st.droppedSteps}`;
-    // 面板开着的时候跟着内容走（内部有签名比对，没变不重建 —— 见 renderBagPanel）
-    if (bagOpen) renderBagPanel();
+    const stacks = heroId < 0 ? [] : stacksOf(scene, heroId);
+    const hungerC = heroId < 0 ? undefined : scene.find(heroId)?.get<Hunger>(HUNGER_TYPE);
+    const facts: HudFacts = {
+      fps,
+      tick: hudTick,
+      quads: lf.quads,
+      drawCalls: lf.drawCalls,
+      culled: lf.culled,
+      nodes: st.scene.nodes,
+      bodies: physics.stats().bodies,
+      atlas: atlasLabel,
+      world: wv === null ? null : { terrain: wv.terrain, sites: wv.sites },
+      resources: { alive: ws?.alive ?? 0, spawned: ws?.spawned ?? 0, released: ws?.released ?? 0 },
+      bagStacks: stacks.length,
+      hunger: hungerC === undefined ? null : { value: hungerC.value, max: hungerC.max },
+      backends: { gfx: st.backends.gfx, audio: st.backends.audio, input: st.backends.input, script: st.backends.script },
+      script: sc === undefined ? null : { calls: sc.calls, errors: sc.errors, timeouts: sc.timeouts },
+      droppedSteps: st.droppedSteps,
+    };
+    lastHudText = hudLine(facts);
+    if (hudUi !== null) {
+      hudUi.setHud(hudRows(facts), hungerC === undefined || hungerC.max <= 0 ? null : hungerC.value / hungerC.max);
+      // 复用上面为 `bagStacks` 已经取过的那一份，不再遍历第二次
+      syncBagUi(stacks);
+    } else {
+      hud!.textContent = lastHudText;
+    }
     void info;
   });
+
+  // ---- 指针 → UI（**只认原始事件流**，不调 poll）
+  //
+  // ★ 为什么不能用 `platform.input.poll()`：边缘是"自上次 poll 以来"，
+  //   而 controller 模块已经在 onStep 里 poll 过一次 —— 第二次 poll 会把
+  //   `pressed` 边缘吃掉（宿主里"点一下没反应"，而 keydown 明明到了）。
+  //   原始事件流就是给 UI/编辑器用的（见 `IInputDevice.subscribe` 的注释）。
+  // ★ 坐标是**画布相对 CSS 像素**：`screenToDesign` 要的就是这个，
+  //   传设备像素会让点击位置差一个 dpr（高分屏上"点不中"）。
+  if (hudUi !== null) {
+    const ui = hudUi;
+    app.platform.input.subscribe((e) => {
+      if (e.kind !== "pointer") return;
+      if (e.x === undefined || e.y === undefined) return;
+      ui.pointer(e.x, e.y, e.down === true);
+    });
+  }
 
   // ---- 输入
   // ★ 这里**只处理浏览器的默认行为**，不做动作分发（那件事在 tick 里，见 dispatchActions）。
@@ -1435,10 +1630,7 @@ export async function main(): Promise<void> {
     if (ev.code === "ShiftLeft" || ev.code === "ShiftRight") shiftDown = true;
     // 数字键直接选中对应堆叠（面板开着时）。不走 InputMap：那是"动作→键"的表，
     // 而"选第 n 堆"是带参数的，塞进映射表会炸出 8 个动作。
-    if (bagOpen && /^Digit[1-8]$/.test(ev.code)) {
-      bagSel = Number(ev.code.slice(5)) - 1;
-      renderBagPanel(true);
-    }
+    if (bagOpen && /^Digit[1-8]$/.test(ev.code)) selectBagRow(Number(ev.code.slice(5)) - 1);
   });
   window.addEventListener("keyup", (ev) => {
     if (ev.code === "ShiftLeft" || ev.code === "ShiftRight") shiftDown = false;
@@ -1480,7 +1672,7 @@ export async function main(): Promise<void> {
     heroId,
     /** 打一下最近的敌人（自检页用：它要走**玩家这条真实路径**，见 `attackNearest`）。 */
     attack: () => attackNearest(),
-    /** 图集真实来源：`assets×7`（6 PNG + 1 JPEG）表示走完了导入链；`procedural` 表示降级了。 */
+    /** 图集真实来源：`assets*7`（6 PNG + 1 JPEG）表示走完了导入链；`procedural` 表示降级了。 */
     atlasSource: atlasLabel,
     /** 世界链的产物：生成计划 / 装配结果 / 可见化报告 / 再生任务句柄。 */
     world: {
@@ -1699,21 +1891,17 @@ export async function main(): Promise<void> {
         return { ok: true as const, cells: r.value.cells.slice(), cost: r.value.cost };
       },
     },
-    /** 背包面板状态（自检页读 DOM 之前先读它：开着没有、选中第几堆）。 */
+    /** 背包面板状态（自检页读 UI 之前先读它：开着没有、选中第几堆）。 */
     bagPanel: () => ({ open: bagOpen, selected: bagSel, stacks: stacksOf(scene, heroId).length }),
     /** 开关面板（自检页驱动；等价于按 Tab）。 */
     toggleBag: () => {
       bagOpen = !bagOpen;
       if (bagOpen) bagSel = 0;
-      renderBagPanel(true);
+      syncBagUi();
       return bagOpen;
     },
     /** 选中第 i 堆（自检页驱动；等价于按数字键）。 */
-    selectStack: (i: number) => {
-      bagSel = i;
-      renderBagPanel(true);
-      return bagSel;
-    },
+    selectStack: (i: number) => selectBagRow(i),
     /** 丢弃选中堆（自检页驱动；等价于按 Q，`whole` = 按住 Shift）。 */
     dropSelected: (whole = false) => {
       const r = dropSelected(whole);
@@ -1723,6 +1911,56 @@ export async function main(): Promise<void> {
     helpText: () => helpText(),
     /** 动作名 → 键位（改键界面的数据源，也是"提示与键位同源"的证据）。 */
     bindings: () => ({ ...controllerMod.map.toData().actions }),
+    /** 最近一帧的 HUD 一行文本（**UI 路径下 DOM 不再更新**，诊断与降级都读这里）。 */
+    hudText: () => lastHudText,
+    /**
+     * 图形后端的帧计数（`frameIndex` **每次 `endFrame` 加一**）。
+     *
+     * ★★ 自检页用它证"UI 与世界在**同一个 pass**"：一帧里若 UI 自己开了第二个
+     *   `beginFrame/endFrame`，`frameIndex` 会跳 2。这是这条集成约定**唯一**
+     *   能从外部观测到的证据 —— 顶点和 draw call 都看不出"在不在同一个 pass 里"。
+     */
+    gfxStats: () => app.platform.gfx.stats,
+    /** 累计渲染帧数（引擎侧计数）。与 `gfxStats().frameIndex` 对账 ⇒ 一帧几个 pass。 */
+    renderFrames: () => renderFrames,
+    /**
+     * UI（批71）。`null` = UI 资产不可用，HUD 已退回 DOM。
+     *
+     * ★ 这里给的必须是**屏幕上的事实**：这一帧真画了多少 quad/字形、
+     *   有没有画不出来的字、面板的行文本是什么、点一下会发生什么。
+     *   "我建了 UI 模块"不能当证据 —— 它和"UI 真的画出来了"是两件事。
+     */
+    ui:
+      hudUi === null
+        ? null
+        : {
+            lastFrame: () => hudUi.module.lastFrame,
+            /** 设计坐标里的节点矩形（`null` = 不可见/没这个 id）。 */
+            rect: (id: string) => rectOfId(hudUi, id) ?? null,
+            /** 面板里**画出来的**行文本（不是重新算一遍的那份）。 */
+            bagRows: () => hudUi.bagRowTexts.slice(),
+            bagOpen: () => hudUi.bagOpen,
+            hudRowIds: hudUi.hudRowIds,
+            /** 设计坐标（自检页验"点击命中真实矩形"时用）。 */
+            designSize: () => ({ w: hudUi.module.viewport.designWidth, h: hudUi.module.viewport.designHeight }),
+            /**
+             * 点一下某个节点：走**真实指针路径**（设计坐标 → CSS 像素 → 命中测试 → click）。
+             * 直接改 `bagSel` 只能证明"赋值有效"，证明不了"面板上的行点得到"。
+             */
+            clickNode: (id: string) => {
+              hudUi.module.relayout();
+              const r = rectOfId(hudUi, id);
+              if (r === undefined) return { ok: false as const, reason: "NO_RECT", clicks: [] as string[] };
+              const s = hudUi.module.viewport.designToScreen(r.x + r.width / 2, r.y + r.height / 2);
+              hudUi.pointer(s.x, s.y, true);
+              const evs = hudUi.pointer(s.x, s.y, false);
+              return {
+                ok: true as const,
+                reason: "",
+                clicks: evs.filter((e) => e.type === "click").map((e) => e.target.id),
+              };
+            },
+          },
   };
 }
 

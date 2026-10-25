@@ -20,11 +20,11 @@
 
 ```bash
 npm install
-npm run check            # tsc（strict）+ 1494 条判据 + 覆盖率闸门 <!-- n:tests -->
+npm run check            # tsc（strict）+ 1521 条判据 + 覆盖率闸门 <!-- n:tests -->
 npm run audit:errors     # 拒绝路径审计：JPEG 解码器 94 条 fail 分支里哪些真的被触发过
-npm run audit:mutation   # 变异校验：286 组注入，判据必须逐个变红 <!-- n:mutants -->
+npm run audit:mutation   # 变异校验：292 组注入，判据必须逐个变红 <!-- n:mutants -->
 npm run audit:docs       # 文档数字对账：判据/变异/测试文件/浏览器自检/JPEG 金标
-npm run test:browser     # 无头浏览器跑 selftest.html 的 40 条 <!-- n:browser -->（无浏览器时退出码 2 = 跳过）
+npm run test:browser     # 无头浏览器跑 selftest.html 的 43 条 <!-- n:browser -->（无浏览器时退出码 2 = 跳过）
 npm run ci               # 全部 14 道闸门 <!-- n:steps -->（含浏览器自检/外部金标/变异；--fast 跳过慢的那几步）
 npm run sample:headless  # 最小宿主：150 tick / 5 秒 / 脚本驱动 + 存档
 
@@ -32,7 +32,7 @@ npm run sample:headless  # 最小宿主：150 tick / 5 秒 / 脚本驱动 + 存�
 npm run build:web        # esbuild → web/bundle.js（wasm 从 web/glue.wasm 取，不依赖 CDN）
 npm run serve:web        # http://127.0.0.1:8123/
 #   index.html    演示：WASD 移动 · H 砍树 · F5 存档 · F9 读档 · 浆果在漂（Lua 驱动）
-#   selftest.html 端到端自检：40 条断言 <!-- n:browser -->（画面/批处理/存档往返/Lua 跨边界）
+#   selftest.html 端到端自检：43 条断言 <!-- n:browser -->（画面/批处理/存档往返/Lua 跨边界）
 ```
 
 `npm run sample:headless` 的输出（实测，节选；加 `-- --save-dir <目录>` 则存档落真实盘）：
@@ -107,12 +107,14 @@ L0 foundation  Result · math · log · event · memory · time · random
 
 ## 当前状态
 
-- ✅ L0–L3 完整；**12 个后端** <!-- n:backends -->（gfx×2 / audio×2 / input×2 / fs×4（mem + 真实盘 + 只读 http + localStorage）/ script×2）；**1494 条判据全绿** <!-- n:tests -->（变异 286 组全被抓住 <!-- n:mutants -->）
+- ✅ L0–L3 完整；**12 个后端** <!-- n:backends -->（gfx×2 / audio×2 / input×2 / fs×4（mem + 真实盘 + 只读 http + localStorage）/ script×2）；**1521 条判据全绿** <!-- n:tests -->（变异 292 组全被抓住 <!-- n:mutants -->）
 - ✅ 2D 渲染管线（相机/精灵/批处理/确定性图集合成）· 2.5D 物理 · 确定性存档 · 跳时间结算
 - ✅ **UI + 位图字体**：BMFont 解析 → 纯函数排版（量宽与画宽同源）→ 三模式视口（fit/fill/expand）
   → 锚点 + Row/Column/Grid → 九宫格控件（Group/Panel/Image/Label/Button/Progress）→ 捕获 + 冒泡。
-  **与 2.5D 世界共用一次 pass、同一个批处理器、只换一个相机** ⇒ UI 盖住世界靠同 pass 内后画，不靠调 z
-  （79 条判据 + 8 组变异；缺富文本/避头尾/RTL/滚动容器/拖拽/动画过渡）
+  **与 2.5D 世界共用一次 pass、同一个批处理器、只换一个相机** ⇒ UI 盖住世界靠同 pass 内后画，不靠调 z。
+  **宿主真的在用**：HUD 三行 + 饱食度条 + 背包面板都是 UI 节点（批71），点行走真实指针路由；
+  字体资产由 `tools/make-ui-assets.mjs` 生成（96 个手写 5×7 位图字形，`--check` 可复现）
+  （107 条判据 + 14 组变异；字体只有 ASCII；缺富文本/避头尾/RTL/滚动容器/拖拽/动画过渡）
 - ✅ 世界生成：整数噪声 → 群系 → 架桥修复 → **世界指纹**（同种子必同指纹）+ 连通性校验
   （校验器用 `repair:false` 主动造出"到不了的陆地"来证明自己会报红，含 6 条变异）
 - ✅ AI：**纯数据树**（可 JSON 往返/进指纹）+ 注册表行为 + **tick 计数不吃 dt**
@@ -137,14 +139,14 @@ L0 foundation  Result · math · log · event · memory · time · random
     + 8 例无损 9..16 位（liblj92 编解，**逐样本相等**）+ 8 位灰度（liblj92 与 Pillow 双外部对照）
     + **12 例 ffmpeg 独立金标**（`tests/fixtures/jpeg/ff/`，12 位 DCT 的第三方参照：灰度差 0..2 级、RGB 差 4 级）
   · 仍然没有外部实现的部分（分层、SOF11）用更强的内部判据：
-    四种有损过程解出**逐字节相同**像素、无损回环 max=0、12 位跨精度锚定到 8 位金标；286 组变异全被抓住 <!-- n:mutants -->
+    四种有损过程解出**逐字节相同**像素、无损回环 max=0、12 位跨精度锚定到 8 位金标；292 组变异全被抓住 <!-- n:mutants -->
   · 证据等级与代价见 [ADR-0009](docs/adr/0009-jpeg-decoder.md)
 - ✅ 浏览器宿主能跑，且**画面用真实资产**：`web/assets/` 5 张 PNG + **1 张 JPEG** 走完整导入链
   烘焙成图集（WASD + 砍树 + 存读档 + HUD + Lua 驱动的浆果漂浮 + 4 块 JPEG 立牌）
 - ✅ CI：`node tools/ci.mjs` 本地一条命令跑 14 道闸门 <!-- n:steps -->（类型 / 判据 / 覆盖率 / 文档对账 /
   拒绝路径审计 / PNG 语料 / JPEG 金标 / 浏览器包构建 / 浏览器自检 / 变异）；
   `.github/workflows/ci.yml` 只调用它，双 OS 矩阵
-- ✅ 浏览器端自检自动化：`npm run test:browser` 用无头 Chromium 跑那 14 条（无浏览器时**跳过并标注**，不算通过）
+- ✅ 浏览器端自检自动化：`npm run test:browser` 用无头 Chromium 跑那 43 条（无浏览器时以退出码 2 **跳过并标注**，不算通过）
 - ⬜ AI · 世界生成 · 编辑器 · 构建发布
 
 未做的项与顺序见 [docs/ARCHITECTURE.md §11–§12](docs/ARCHITECTURE.md)，

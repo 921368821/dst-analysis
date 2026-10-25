@@ -27,6 +27,8 @@ import {
   BlendMode,
   BufferUsage,
   SPRITE_VERTEX_LAYOUT,
+  TextureFilter,
+  TextureWrap,
   type BufferHandle,
   type PipelineHandle,
   type ShaderHandle,
@@ -45,15 +47,35 @@ import { UiInputRouter, type UiEvent, type UiEventSink, type UiPointer } from ".
 /** 默认依赖的渲染模块 id（`createRenderModule` 的默认 id）。 */
 export const RENDER_MODULE_ID = "render.batch2d";
 
+/**
+ * 一页 UI 纹理的**数据**（不是句柄）。
+ *
+ * ★ 为什么需要这条路：`createUiModule` 发生在 `bootGameApp` **之前** ——
+ *   那时 `platform.gfx` 还不存在，宿主拿不到 `TextureHandle`。
+ *   渲染模块的图集就是同样的处境（它接受 `atlas` 数据、在自己的 `init` 里建纹理），
+ *   UI 走同一条路，宿主就不必为了"先建两张贴图"把 boot 拆成两段。
+ *   给了 `pageSources` 时纹理归**模块**所有，`dispose` 会销毁；
+ *   给 `pages`（现成句柄）时归宿主所有，`dispose` 不碰它们。
+ */
+export interface UiPageSource {
+  readonly name: string;
+  readonly width: number;
+  readonly height: number;
+  /** RGBA8 行主序，原点左上（与 `DecodedPng.pixels` 同格式）。 */
+  readonly pixels: Uint8Array;
+}
+
 export interface UiModuleOptions {
   readonly id?: string;
   readonly viewport: UiViewportConfig;
   readonly skin: UiSkin;
   /**
-   * 页 → 纹理，下标必须与 `skin.frames[].page` 和字形 `glyph.page` 一致。
-   * 所有权归宿主：本模块 dispose 时**不销毁**它们。
+   * 现成的页 → 纹理，下标必须与 `skin.frames[].page` 和字形 `glyph.page` 一致。
+   * 所有权归宿主：本模块 dispose 时**不销毁**它们。与 `pageSources` 二选一。
    */
-  readonly pages: readonly TextureHandle[];
+  readonly pages?: readonly TextureHandle[];
+  /** 由模块自己建纹理的页数据（boot 之前没有 device 时用这条）。与 `pages` 二选一。 */
+  readonly pageSources?: readonly UiPageSource[];
   /** 至少一个字。 */
   readonly fonts: readonly BitmapFont[];
   readonly root?: UiNode;
@@ -100,7 +122,11 @@ export function createUiModule(opts: UiModuleOptions): UiModuleHandle {
   for (const f of opts.fonts) fonts.register(f);
   const cache = new TextCache();
   const skin = opts.skin;
-  const pages = opts.pages;
+  const hostPages = opts.pages;
+  const pageSources = opts.pageSources;
+  /** init 里由本模块创建的纹理（dispose 时销毁）；宿主传句柄时这里恒为空。 */
+  let ownPages: TextureHandle[] = [];
+  let pages: readonly TextureHandle[] = hostPages ?? [];
 
   let root: UiNode = opts.root ?? new UiNode({ id: "ui.root" });
   let router = new UiInputRouter(root, { dragThreshold: opts.dragThreshold });
@@ -216,12 +242,56 @@ export function createUiModule(opts: UiModuleOptions): UiModuleHandle {
       if (opts.fonts.length === 0) {
         return err(engineError("UI.NO_FONT", "UI 模块至少需要一个位图字体"));
       }
+      if (hostPages !== undefined && pageSources !== undefined) {
+        // 两条都给时**没法知道该由谁销毁** —— 猜错的后果是"换 UI 图集把世界的纹理带走了"。
+        return err(engineError("UI.PAGE_AMBIGUOUS", "pages 与 pageSources 只能给一个（纹理所有权必须唯一）"));
+      }
+      if (hostPages === undefined && pageSources === undefined) {
+        return err(engineError("UI.NO_PAGE", "UI 模块至少需要一个纹理页（pages 或 pageSources）"));
+      }
+      if (pageSources !== undefined) {
+        if (pageSources.length === 0) return err(engineError("UI.NO_PAGE", "UI 模块至少需要一个纹理页"));
+        const made: TextureHandle[] = [];
+        for (const [i, src] of pageSources.entries()) {
+          // Nearest：像素字体与非整数倍缩放时，线性过滤会把 1px 的笔画抹成灰边。
+          // Clamp：UI 图集的帧可以贴边，repeat 会把邻居帧采进来。
+          const t = d.createTexture(
+            {
+              width: src.width,
+              height: src.height,
+              filter: TextureFilter.Nearest,
+              wrap: TextureWrap.Clamp,
+              label: `engine.ui.page[${String(i)}]:${src.name}`,
+            },
+            src.pixels,
+          );
+          if (!t.ok) {
+            for (const h of made) d.destroyTexture(h);
+            return t as Result<void, EngineError>;
+          }
+          made.push(t.value);
+        }
+        ownPages = made;
+        pages = made;
+      }
+
+      // `pages: []` 与"没给"是同一个意思：**没有可采样的纹理**。
+      // 只判 undefined 会让空数组一路走到渲染，然后在 drawOverlay 里被
+      // "纹理页不存在（该段被跳过）"吞掉 —— 那时已经看不出是配置错了。
       if (pages.length === 0) {
         return err(engineError("UI.NO_PAGE", "UI 模块至少需要一个纹理页"));
       }
 
+      // init 中途失败时，模块系统的约定是**不保证**再调 dispose（它连"初始化成功"都没看到）。
+      // 所以自己建的纹理要在这里就地清掉；靠 dispose 兜底会漏掉"init 失败"这一整类泄漏。
+      const bail = (e: Result<never, EngineError>): Result<void, EngineError> => {
+        for (const h of ownPages) d.destroyTexture(h);
+        ownPages = [];
+        return e as Result<void, EngineError>;
+      };
+
       const sh = d.createShader({ vertex: SPRITE_VS, fragment: SPRITE_FS, label: "engine.ui" });
-      if (!sh.ok) return sh as Result<void, EngineError>;
+      if (!sh.ok) return bail(sh);
       const pl = d.createPipeline({
         shader: sh.value,
         layout: SPRITE_VERTEX_LAYOUT,
@@ -230,7 +300,7 @@ export function createUiModule(opts: UiModuleOptions): UiModuleHandle {
       });
       if (!pl.ok) {
         d.destroyShader(sh.value);
-        return pl as Result<void, EngineError>;
+        return bail(pl);
       }
       const b = new SpriteBatch(opts.maxQuads ?? 2048);
       const vb = d.createBuffer({
@@ -242,7 +312,7 @@ export function createUiModule(opts: UiModuleOptions): UiModuleHandle {
       if (!vb.ok) {
         d.destroyPipeline(pl.value);
         d.destroyShader(sh.value);
-        return vb as Result<void, EngineError>;
+        return bail(vb);
       }
       const ib = d.createBuffer({
         usage: BufferUsage.Index,
@@ -254,7 +324,7 @@ export function createUiModule(opts: UiModuleOptions): UiModuleHandle {
         d.destroyBuffer(vb.value);
         d.destroyPipeline(pl.value);
         d.destroyShader(sh.value);
-        return ib as Result<void, EngineError>;
+        return bail(ib);
       }
       const up = d.updateBuffer(ib.value, b.indices);
       if (!up.ok) {
@@ -262,7 +332,7 @@ export function createUiModule(opts: UiModuleOptions): UiModuleHandle {
         d.destroyBuffer(vb.value);
         d.destroyPipeline(pl.value);
         d.destroyShader(sh.value);
-        return up as Result<void, EngineError>;
+        return bail(up);
       }
 
       shader = sh.value;
@@ -299,12 +369,16 @@ export function createUiModule(opts: UiModuleOptions): UiModuleHandle {
     dispose(): void {
       const d = dev;
       if (d !== null) {
-        // 只销毁自己创建的东西（纹理是宿主的，见文件头）。
+        // 只销毁自己创建的：纹理是宿主的（hostPages），销毁它会在"换皮 / 重载 UI 图集"时
+        // 把世界的纹理一起带走 —— 而错误发生在很久以后（下一次用那张纹理时），追不回来。
+        for (const h of ownPages) d.destroyTexture(h);
         if (ibo !== null) d.destroyBuffer(ibo);
         if (vbo !== null) d.destroyBuffer(vbo);
         if (pipeline !== null) d.destroyPipeline(pipeline);
         if (shader !== null) d.destroyShader(shader);
       }
+      ownPages = [];
+      pages = hostPages ?? [];
       ibo = null;
       vbo = null;
       pipeline = null;

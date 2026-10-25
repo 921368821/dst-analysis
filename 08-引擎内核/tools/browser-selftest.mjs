@@ -20,8 +20,13 @@
  *   0 = 通过；1 = 真的有断言失败；2 = 环境里没有浏览器 / 起不来。
  *   把 2 混进 0 就是假绿灯（CI 在没有浏览器的机器上一路绿）；
  *   把 2 混进 1 就是假红（人去查一个不存在的 bug）。
+ *
+ * ★ `--build`：先跑 `npm run build:web` 再自检（与 `editor-selftest.mjs` 同一口径）。
+ *   变异校验要用它 —— 改了 `src/**.ts` 之后页面读的还是上一次的 `web/bundle.js`，
+ *   不重建就会得到"变异没被抓住"的**假结论**（其实改的东西根本没上页面）。
  */
 
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -44,6 +49,17 @@ function declaredRows() {
 }
 
 async function main() {
+  if (process.argv.includes("--build")) {
+    const b = spawnSync(process.platform === "win32" ? "npm.cmd" : "npm", ["run", "build:web"], {
+      stdio: "inherit",
+      shell: process.platform === "win32",
+    });
+    if (b.status !== 0) {
+      console.error("✗ 构建失败 —— 自检没有意义（页面读的还是旧包）");
+      process.exit(EXIT_FAIL);
+    }
+  }
+
   const browser = findBrowser();
   if (browser === null) {
     console.error(

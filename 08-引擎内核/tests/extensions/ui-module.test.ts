@@ -406,3 +406,66 @@ test("布局结果可按 id 取绝对矩形（编辑器/自动化用）", () => 
   assert.equal(r.x, 12);
   assert.equal(r.y, 16);
 });
+
+// ── ⑤ 纹理所有权：pageSources（boot 之前没有 device 的那条路） ─────────
+
+test("★ pageSources：模块自己建纹理，dispose 时自己销毁（不漏也不越界）", () => {
+  const dev = new NullGraphicsDevice(800, 600);
+  const logger = new Logger(() => 0);
+  const services = new ServiceRegistry();
+  services.provide(Services.Frame, { onRender: () => () => undefined } as never, "test.ui");
+  services.provide(Services.Scene, new Scene("t", new ComponentRegistry()), "test.ui");
+  const ctx: ModuleContext = {
+    log: logger,
+    events: new EventBus<Record<string, unknown>>(),
+    services,
+    platform: { gfx: dev } as unknown as IPlatform,
+    random: new XorShift128(1),
+    module: () => undefined as never,
+  };
+
+  const pixels = new Uint8Array(8 * 8 * 4).fill(255);
+  const before = dev.textureHandles.length;
+  const ui = createUiModule({
+    viewport: { designWidth: 800, designHeight: 600, scaleMode: "expand" },
+    skin: smallSkin(),
+    pageSources: [
+      { name: "font", width: 8, height: 8, pixels },
+      { name: "skin", width: 8, height: 8, pixels },
+    ],
+    fonts: [makeTestFont()],
+    root: buildUiTree({ id: "root" }),
+  });
+  const r = ui.init(ctx);
+  assert.ok(!(r instanceof Promise) && (r === undefined || r.ok), "pageSources 路径 init 失败");
+  assert.equal(dev.textureHandles.length, before + 2, "两页应该建两张纹理");
+  ui.dispose?.();
+  assert.equal(dev.textureHandles.length, before, "dispose 之后自己建的纹理必须销毁干净");
+});
+
+test("★ pageSources 与 pages 同时给 ⇒ 直接拒绝（所有权不能猜）", () => {
+  const dev = new NullGraphicsDevice(800, 600);
+  const logger = new Logger(() => 0);
+  const services = new ServiceRegistry();
+  services.provide(Services.Frame, { onRender: () => () => undefined } as never, "test.ui");
+  services.provide(Services.Scene, new Scene("t", new ComponentRegistry()), "test.ui");
+  const ctx: ModuleContext = {
+    log: logger,
+    events: new EventBus<Record<string, unknown>>(),
+    services,
+    platform: { gfx: dev } as unknown as IPlatform,
+    random: new XorShift128(1),
+    module: () => undefined as never,
+  };
+  const tex = unwrap(dev.createTexture({ width: 8, height: 8, format: PixelFormat.RGBA8, label: "host" }));
+  const ui = createUiModule({
+    viewport: { designWidth: 800, designHeight: 600, scaleMode: "expand" },
+    skin: smallSkin(),
+    pages: [tex],
+    pageSources: [{ name: "dup", width: 8, height: 8, pixels: new Uint8Array(8 * 8 * 4) }],
+    fonts: [makeTestFont()],
+  });
+  const r = ui.init(ctx);
+  assert.ok(!(r instanceof Promise) && r !== undefined && !r.ok, "两条都给时必须失败，而不是静默选一条");
+  assert.equal(r.error.code, "UI.PAGE_AMBIGUOUS");
+});

@@ -784,7 +784,7 @@ UI 动画、音频、录像在暂停时仍应活动 —— 所以它们是不同
 | **浏览器自检** | 真实浏览器里 9 条端到端断言（画面/批处理/存档往返） | 9 | `web/selftest.html` |
 
 本表只统计 **L0–L3 核心子集**，行内数字相加为 **120 条 Node 判据 + 9 条浏览器自检**；
-含扩展解码器（PNG/JPEG/资产导入）与文件系统的全量是 1494 条 <!-- n:tests -->，全部在 `npm test` / 打开自检页里跑；
+含扩展解码器（PNG/JPEG/资产导入）与文件系统的全量是 1521 条 <!-- n:tests -->，全部在 `npm test` / 打开自检页里跑；
 `npm run check` 额外跑 `tsc`（strict + noUncheckedIndexedAccess）。
 
 ### 10.2 为什么"架构守护"比多写功能更重要
@@ -818,7 +818,7 @@ UI 动画、音频、录像在暂停时仍应活动 —— 所以它们是不同
 | # | 闸门 | 挡住什么 | 为什么必须自动化 |
 |---|---|---|---|
 | 1 | 类型检查 `tsc`（strict + `noUncheckedIndexedAccess`） | 类型层的不可能状态 | 人眼看不见"这里可能是 undefined" |
-| 2 | 判据（全量，1494 条 <!-- n:tests -->） | 行为退化 | 上一代引擎的判据从未被一次跑完过 |
+| 2 | 判据（全量，1521 条 <!-- n:tests -->） | 行为退化 | 上一代引擎的判据从未被一次跑完过 |
 | 3 | 物理性能闸门（**独占**跑） | 解算耗时退化 | 并行跑时测到的是"机器多忙"，不是"代码多慢"（阈值仍是 8ms，一个字没动） |
 | 4 | 覆盖率闸门 | "新代码没有任何判据走过" | 百分比能被平凡代码堆出来，所以守的是**未覆盖行清单**不许变多 |
 | 5 | 文档对账 | 判据数、变异数、后端数、步数写成过期值 | **实测：这一批一次喊出 14 处漂移，人眼一处都没发现** |
@@ -827,10 +827,10 @@ UI 动画、音频、录像在暂停时仍应活动 —— 所以它们是不同
 | 8 | JPEG ffmpeg 金标 `--check` | 与参考解码器逐像素的偏差 | "看着像"不是判据，**逐像素**才是；金标存在文件里才能被 diff。**三分退出码**：0 一致 / 1 真漂移 / 2 异构构建（见下） |
 | 9 | JPEG 金标三分自检（4 种情形） | 第 8 步把"构建不同"当万能免罪符 | 没有它，真把编码器改坏了、恰好又在异构构建上跑，一样被放过去 |
 | 10 | 浏览器包构建 | 打包/`--experimental-transform-types` 在浏览器目标上失效 | Node 里跑得通不等于能进浏览器 |
-| 11 | 浏览器端自检（无头 CDP 驱动，40 条 <!-- n:browser -->） | 页面级问题（DOM 缺节点、`fetch` 绑定、GL 拒绝） | Node 判据只能证明"我们发了什么调用"，不能证明浏览器接受；**缺浏览器时标 ⊘ 跳过，不算通过** |
+| 11 | 浏览器端自检（无头 CDP 驱动，43 条 <!-- n:browser -->） | 页面级问题（DOM 缺节点、`fetch` 绑定、GL 拒绝） | Node 判据只能证明"我们发了什么调用"，不能证明浏览器接受；**缺浏览器时标 ⊘ 跳过，不算通过** |
 | 12 | 编辑器页自检 | 编辑器坏而运行时好（或反过来） | 与第 11 步分开，红的时候要一眼看出该谁修 |
 | 13 | 跨宿主存档比对 | Node 与浏览器写出的存档字节不同 | 存档要能在两个宿主之间迁，字节不同就悄悄迁移失败 |
-| 14 | 变异校验（286 组 <!-- n:mutants -->） | **判据本身失效**（改坏了还是绿的） | 这是唯一能证明"判据有牙齿"的手段 |
+| 14 | 变异校验（292 组 <!-- n:mutants -->） | **判据本身失效**（改坏了还是绿的） | 这是唯一能证明"判据有牙齿"的手段 |
 
 ★ 第 8 步的**适用域**（2026-10-25 实测，写清楚免得下次又当 bug 查）：
 金标是**某个具体 ffmpeg 构建**的产物 —— 本机生成它的是 `7.1-essentials_build-www.gyan.dev`。
@@ -883,9 +883,9 @@ CI 上 `pip install imageio-ffmpeg` 装的是 Linux 构建，对 12 位灰度（
   **16 位进 GPU**（`PixelFormat.RGBA16` + 图集 `precision` + WebGL2 `RGBA16/UNSIGNED_SHORT`）、
   **动画时间轴**（`AnimationClip` 只读数据 + 组件持时间 + 纯采样，图集不持计时器）、
   **真实资产上屏**（导入 → 解码 → 确定性图集合成 → `createTexture`，浏览器读 `web/assets/` 5 PNG + 1 JPEG）
-- **1494 条 Node 判据** <!-- n:tests -->（101 个测试文件 <!-- n:files -->）+ 40 条浏览器自检 <!-- n:browser -->，架构守护 7 条，
+- **1521 条 Node 判据** <!-- n:tests -->（104 个测试文件 <!-- n:files -->）+ 43 条浏览器自检 <!-- n:browser -->，架构守护 7 条，
   后端契约 22 条（两图形后端）+ 14 条（两脚本后端）
-- 变异验证 **286 组** <!-- n:mutants -->（异常隔离 / id 空间 / 增量 hash / env 隔离 / Paeth / 像素上传 / 5.1 unpack /
+- 变异验证 **292 组** <!-- n:mutants -->（异常隔离 / id 空间 / 增量 hash / env 隔离 / Paeth / 像素上传 / 5.1 unpack /
   Adam7 pass 表 / pass 宽度 / APNG blend / APNG dispose / 16 位取整 / APNG 帧数校验 /
   渐进 AC 精修 EOBRUN / 重启区间 DC 复位 / 三角上采样 / 截断标记 / EXIF 旋转 /
   QM 的 Switch_MPS / 双线性单侧钳位 / 无损差分取模 / DC 类别上限 / 精度规则 / EXP 位置 /
@@ -1310,7 +1310,7 @@ CI 上 `pip install imageio-ffmpeg` 装的是 Linux 构建，对 12 位灰度（
 - 没有"增量发布"：每次都全量重建。判据只证明"改一个资产只重打一个包"，
   没证明"只上传一个包"（那需要远端状态）。
 
-### 11.7 UI 与位图字体（`src/extensions/ui/`，7 文件 2237 行）
+### 11.7 UI 与位图字体（`src/extensions/ui/` 7 文件 2237 行 + `src/host/` 2 文件 546 行）
 
 起因是一次自检发现的反常：这个引擎**一处文本渲染都没有**
 （`grep -rn "fillText\|BitmapFont\|drawText" src/` 0 命中），而宿主的 HUD 与背包面板是**手写 DOM**。
@@ -1389,16 +1389,81 @@ UV 用**恒等映射**（`u0 = x/scaleW, v0 = y/scaleH`），与 T330 那条教�
 滚动容器、拖拽、输入框这类**需要跨帧状态**的控件，得先在 `UiNode` 上开状态位，
 不能靠"每帧重建 quads"糊过去。
 
-**判据与变异**：79 条（排版 16 / 布局 17 / 模块 14 / 字体 12 / 视口 10 / 事件 10），
-8 组变异（M279–M286）分别钉：UV 恒等映射、`xadvance` 用法、九宫格 UV 占比、进度条裁 UV、
-click 的同目标判定、`opaque` 阻断、`expand` 用 `min`、overlay 在 `finish` 之前。
+**⑦ 宿主迁移：HUD 与背包从手写 DOM 搬到 UI 树（批71）。**
+
+"引擎能画 UI"和"游戏在用引擎的 UI"是两件事。批69 结束时是前者：`extensions/ui` 六层齐了、
+判据全绿，而 `browser-entry.ts` 里的 HUD 仍然是 `hud.textContent = ...`、背包面板仍然
+每帧重建 `<div>`。这一步把后者接上，顺手暴露了三个只有"真用起来"才会碰到的问题：
+
+- **字体资产是硬前置**。仓库里没有任何 `.fnt`，所以先有 `tools/make-ui-assets.mjs`：
+  96 个**手写位图表**（ASCII 32..126 + `…`）→ 5×7 字形、128×46 图集、`ui-skin.png` 4 帧，
+  产出 `.fnt` + 两张 PNG + 一份 json。选位图表而不是"渲染系统字体"，理由是**可复现**：
+  Linux runner 上多半没有中文/等宽字体，`fillText` 会静默产出另一张图，那次构建的判据就全是假的。
+  `--check` 模式比对磁盘产物与生成器，不一致直接退出码 1。
+- **`createUiModule` 发生在 `bootGameApp` 之前**，那时 `platform.gfx` 还不存在、拿不到 `TextureHandle`。
+  于是给 `UiModuleOptions` 加了 `pageSources`（**数据**，不是句柄）：模块在自己的 `init` 里建纹理并持有，
+  `dispose` 时销毁；给 `pages`（现成句柄）时归宿主所有。两条同时给报 `UI.PAGE_AMBIGUOUS` ——
+  "该由谁销毁"猜错的后果是**换 UI 图集把世界的纹理一起带走**，而错误在很久以后才发生。
+- **UI 的资产与世界图集必须分开**。世界的 10 张帧合成一张图集（页 0），UI 需要**两页**
+  （字形页 0 + 皮肤页 1）。把字体塞进世界图集会让 BMFont 的 UV 全部错位 —— 那些 UV 相对
+  **字体图自己**算。所以 `UI_FILES` 显式列出来、走**同一条导入管线**（`.fnt`/`.json` → `textImporter`，
+  两张 PNG → `textureImporter`），但单独组装成 `BakedUi`。
+
+宿主侧因此多出一个分层：**L6 `src/host/`**（宿主是用引擎的那一侧，但它必须能被 Node 判据覆盖，
+所以不能再堆在 1967 行的 `browser-entry.ts` 里）。`LAYER_BY_DIR` 里登记 `host → L6-host`，
+且**其余各层的 `ALLOWED` 里都没有它** —— 引擎 import 宿主会直接红。
+
+| 文件 | 内容 | 为什么在这儿 |
+|---|---|---|
+| `host/hud-model.ts` | `hudRows` / `bagRows` / `bagFooter` / `missingGlyphsIn` | 全是**纯函数**：文案能喂给判据逐字查字体画不画得出来 |
+| `host/hud-ui.ts` | `buildSkin`（json→`UiSkin`）+ `createHudUi`（节点树 + `setHud`/`setBag`） | 只建对象、不 `init`，所以整棵树的形状与 props 在 Node 里就能验 |
+
+**⑧ HUD 一行装不下 —— 这不是排版问题，是信息分层问题。**
+
+15 个字段拼一行约 190 字符，5×7 字体每字前进 6px ⇒ 约 1140px，而设计分辨率是 960 宽。
+**溢出是静默的**：`missingGlyphs` 是空的、`quads` 照样在涨，只是最后几个字段画到了屏幕外。
+所以 `hudRows()` 把它切成三行，切法就是"什么时候会去看它"（每帧变的 / 世界状态的 / 出问题才看的），
+并且有一条判据拿**真字体**量每一行的排版宽度 ≤ `HUD_LAYOUT.width - pad*2`
+（宽度取自实现导出的常量 —— 判据里抄一份 640 的话，实现改成 320 时两边谁都不会红）。
+
+**⑨ 位图字体只有 ASCII：这是一条硬约束，不是取舍。**
+
+HUD 里的每个字符都可能变成空白（`xadvance` 照旧推进，于是那里留个空档）。
+这种错只有两种抓法：截图给人看，或者把文案交给判据。所以：
+
+- HUD / 背包面板的文案全部收进 `host/hud-model.ts`，由判据拿**真字体**逐字查；
+- 物品名用 `kind` 的 ASCII 形式（`grass tuft`），**不用** `ITEM_LABEL` 里的中文；
+- `bagFooter` 的分隔符用 ` | ` 而不是 `·`（U+00B7 字体里没有），`atlas` 标签用 `*` 而不是 `×`；
+- `missingGlyphsIn` 这个守门函数**自己也有一条判据**（喂中文必须报出 ≥2 个码点）——
+  它对任何输入都返回空数组的话，所有"文案全绿"的结论都是假绿。
+
+**⑩ "同一个 pass"怎么被证明：数 `frameIndex`。**
+
+`GfxStats.frameIndex` 每次 `endFrame` 加一，宿主侧另有 `renderFrames`（每次 `onRender` 加一）。
+自检页取两个时间点，断言 **ΔframeIndex === ΔrenderFrames** 且**世界的 quad 与 UI 的 quad 同时 > 0**。
+UI 若自己 `beginFrame/endFrame`，一帧会加 2 —— 顶点数、draw call 数、纹理切换数全都看不出来，
+这是这条集成约定**唯一**能从外部观测到的证据。
+
+**判据与变异**：引擎侧 82 条（排版 16 / 布局 17 / 模块 16 / 字体 12 / 视口 10 / 事件 11）
++ UI 资产 8 条（`tests/extensions/ui-assets.test.ts`：每个字形在图集里至少有一个不透明像素、
+基线语义、`xadvance = width + 1`、`--check` 与磁盘产物一致）
++ 宿主 17 条（`tests/host/`：皮肤 json→UV、越界报错、行数/选中/开合、点击回调、HUD 行宽）。
+14 组变异（M279–M292）分别钉：UV 恒等映射、`xadvance` 用法、九宫格 UV 占比、进度条裁 UV、
+click 的同目标判定、`opaque` 阻断、`expand` 用 `min`、overlay 在 `finish` 之前、
+HUD 文案混入非 ASCII、背包行不切 `visible`、选中不换底色、皮肤帧落错页、HUD 面板做窄、
+**面板行的点击回调没接上**（最后这条只能用浏览器判据抓：Node 侧回调是好用的，
+坏的是"UI 模块有没有把它接成事件接收器"）。
 
 **已知缺口（写进文件尾，不藏）**：
 
 - 排版：避头尾（行首不留 `，。）`）、RTL、富文本（同行混字号/颜色）；
 - 控件：滚动容器、拖拽换位、输入框、过渡动画；
-- 集成：宿主的 HUD / 背包面板仍是手写 DOM，**还没迁到这个模块上** ——
-  这是 P0-1 的验收口径之一，也是"引擎与游戏的边界"没划开的证据（见 §11.2）。
+- **字体只有 ASCII**：`toast` 仍是 DOM（它的文案是中文，走的是宿主调试通道，不是游戏界面）。
+  要真正解决得配一张 CJK 位图字体 —— 那是资产问题，不是代码问题；
+- **UI 两页的代价**：皮肤页与字形页分开 ⇒ 每个"图 + 字"组合都要切一次页，
+  当前 HUD+背包是 15 段 draw（世界只要 2 段）。控制方法只有一个：把字体页与皮肤页打同一张图集；
+- 控件层不写 `contentSize`：标签的自然尺寸目前靠节点显式 `size`，`contentSize` 只有配置入口、
+  没有写入方 —— 于是"按文字自动撑开面板"这件事还做不到。
 
 
 ---
@@ -1421,7 +1486,7 @@ click 的同目标判定、`opaque` 阻断、`expand` 用 `min`、overlay 在 `f
 - `.meta` 身份 + 源导入器 + 增量管线 + 产物加载器 ✅
 - **PNG 像素解码**（`inflate.ts` + `png.ts`）+ **确定性图集合成** ✅
 - **浏览器改为读真实资产**：`fetch web/assets/*.png` → 导入管线 → 解码 → 合成 → 上传；
-  失败才降级到程序化图集，且 HUD 显示 `atlas:assets×5` / `atlas:procedural`（降级不静默）✅
+  失败才降级到程序化图集，且 HUD 显示 `atlas:assets*5` / `atlas:procedural`（降级不静默）✅
 - `LongUpdate(elapsed)`：跳时间时按分段结算腐烂/计时器（不是跑 N 次 `OnUpdate`）✅（阶段 1 已做）
 
 **出口判据**：
@@ -1493,7 +1558,7 @@ click 的同目标判定、`opaque` 阻断、`expand` 用 `min`、overlay 在 `f
 │   │                          input-null · input-dom · fs-memory · fs-node · script-null · script-lua
 │   ├── browser-entry.ts   L6  浏览器宿主（宿主层，允许知道一切具体实现）
 │   └── index.ts               对外 API 面（只导出接口/类型/工厂）
-├── tests/                 101 个文件 <!-- n:files --> / 1494 条判据 <!-- n:tests -->（arch · contract · core · backends · extensions）
+├── tests/                 104 个文件 <!-- n:files --> / 1521 条判据 <!-- n:tests -->（arch · contract · core · backends · extensions）
 │   └── fixtures/png/      外部金标语料（隔行/16 位/APNG，pngjs + Pillow 双实现产出）
 │   └── fixtures/jpeg/     外部金标语料（**54 例** <!-- n:jpeggold -->，三份清单按案例名去重：Pillow 解 17 + 算术 6
 │                          + CMYK/YCCK 4 + "我们编码→libjpeg 解" 6 + liblj92 无损 8..16 位 9 + ffmpeg 12，

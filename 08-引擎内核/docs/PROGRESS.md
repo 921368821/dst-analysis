@@ -3,7 +3,7 @@
 > 口径：**对标 Unity / Cocos Creator 的架构水准**，开发周期不优先，架构标准性与工程质量优先。
 > 本表滚动更新，每次阶段收尾重算；所有数字都可用末尾命令复现，不凭印象。
 
-**最后更新：2026-10-25 · 批56 背包面板、批57 跨宿主存档、批58 AI 三件、批59 构建发布 CLI、批60 导航与 AI 移动、批61 战斗、批65 阵营与战利品、批66 UI 系统与位图字体**
+**最后更新：2026-10-25 · 批57 跨宿主存档、批58 AI 三件、批59 构建发布 CLI、批60 导航与 AI 移动、批61 战斗、批65 阵营与战利品、批66 UI 系统与位图字体、批67 饥饿与进食、批68 制作、批69 攻击表现层、批70 仇恨、批71 HUD/背包迁到 UI 模块**
 
 ---
 
@@ -33,9 +33,34 @@
 > 因此"UI 盖住世界"不是靠调 z，而是靠**同一个 pass 里后画**；也就不用开第二个 pass，
 > 不会因为第二个 pass 的 `clear` 把世界擦掉。为此在渲染模块上加了一个 `setOverlay` 钩子，
 > 挂在 `cmd.finish()` 之前，异常被吞进日志（UI 画崩不该让整帧丢）。
-> 79 条判据（排版 16 / 布局 17 / 模块 14 / 字体 12 / 视口 10 / 事件 10）+ 8 组变异。
+> 引擎侧 82 条判据（排版 16 / 布局 17 / 模块 16 / 字体 12 / 视口 10 / 事件 11）+ 8 组变异。
 > **还没做**（已写进对应文件尾部，不藏）：避头尾、RTL、富文本换行、滚动容器、拖拽、
-> 输入框、过渡动画；宿主那套手写 DOM 也还没迁过来。
+> 输入框、过渡动画。
+>
+> **批71（10-25）· P0-1 验收口径：把 HUD 与背包迁到 UIModule** ——
+> 批66 结束时引擎**能**画 UI，而游戏**没用上**：`browser-entry.ts` 的 HUD 仍是
+> `hud.textContent = ...`、背包面板仍是每帧重建 `<div>`。三件按依赖顺序做的事：
+> ① **补字体资产**（`tools/make-ui-assets.mjs`）：96 个**手写位图表** → 5×7 字形、
+>    128×46 图集、`ui-skin.png` 4 帧，产出 `.fnt` + 两张 PNG + json，并走**既有导入管线**
+>    （`.fnt`/`.json` → `textImporter`，PNG → `textureImporter`）。选位图表而不是渲染系统字体，
+>    理由是**可复现**：Linux runner 上 `fillText` 会因为没有字体静默产出另一张图。
+>    `--check` 比对磁盘产物与生成器；`ui-assets.test.ts` 8 条判据里最要紧的一条是
+>    **每个字形在图集里至少有一个不透明像素**（用 UV 反算像素坐标）——
+>    "字形漏了一个"在屏幕上就是一处空白，而所有计数都对。
+> ② **宿主多一层 L6 `src/host/`**：`hud-model.ts`（纯函数文案模型）+ `hud-ui.ts`（json→`UiSkin`、
+>    节点树、`setHud`/`setBag`）。拆出来的理由不是"整洁"：宿主文案必须能被 Node 判据逐字喂给
+>    真字体查一遍，堆在 1967 行的 `browser-entry.ts` 里就查不了。架构守护同步加了第 7 层，
+>    其余各层的 `ALLOWED` 里都没有它 —— 引擎 import 宿主会直接红。
+> ③ **接上并删掉 DOM**：`createUiModule` 发生在 `bootGameApp` 之前（那时没有 `platform.gfx`），
+>    所以给它加了 `pageSources`（数据而非句柄，模块自己建纹理、自己销毁）；HUD 从"一行 1140px
+>    必然溢出"改成三行（**溢出是静默的**，所以有一条判据拿真字体量每行宽度）；背包面板改成
+>    8 个常驻行节点，只切 `visible`/`text`/`tint`，不再重建；点击走 `subscribe` 的**原始指针流**
+>    （不能调 `poll()`：controller 已经 poll 过一次，第二次会吞掉按下边缘）。
+>    页面侧的 `#bag/#bag-rows/#bag-foot` 与那套 CSS **全部删除** —— 留着就有两份"面板长什么样"。
+> 浏览器判据 +3 条，其中"**UI 与世界在同一个 pass**"用的是唯一可从外部观测的证据：
+> `ΔGfxStats.frameIndex === Δ宿主渲染帧数`（UI 若自己开 pass，一帧会加 2）。
+> 顺手修掉变异工具的一个假绿：`cmd` 型判据退出码 **2 = 环境缺失**（无浏览器），
+> 原先被当成"变异被抓住"—— M229/M230/M78 在无浏览器的机器上一直这么假绿着。
 >
 > **批56–57（10-24）** 两笔"能看见、能量化"的欠账：
 > ① **背包从"HUD 一行文本"变成能操作的界面** —— Tab 开合、点击/数字键选堆、Q 丢 1、
@@ -144,7 +169,7 @@
 | **内容** 脚本层 + 资产管线 + 解码 + 图集 | 20% | **96%** | 19.2 | 四大缺口全补；剩 3 个已记录的小边界（见 §六 P4） |
 | **世界** 物理 + AI + 世界生成 | 25% | **88%** | 22.0 | 空间哈希 + 自动格宽 + 圆推出（0.29ms/4.97ms 双闸门）+ AABB + `findEntities`（饥荒同签名）、行为树接调度器、世界生成与全链路 E2E、地形瓦片页按格平铺 + 分层渲染（T288 收尾：draw 29→2）；批56 补背包面板（Tab 开、点击/数字选、Q 丢 1、Shift+Q 丢整堆、两层上限 8×40、`dropIntoWorld` 丢 n 放 n）；批58 补 AI 三件（感知：半径/视野/TTL 记忆、空间排序确定；目标：nearest/farthest/preferred + **迟滞**防抖动；队伍：目标占位先到先得 + 角色配额确定性分配 + 共享黑板），并在**真实生成的世界**上接线验证；批60 补导航（`NavGrid`：可通行栅格 + 整数代价 A* + 禁止切角 + 连通分量与寻路同一套邻居规则）与移动（`stepAlong` 结转剩余距离、`ai/move` 目标格→路径→位移，含不可达退避与卡住重算），真世界接线判据「走完全程、每 tick 都不踩水」；批61 补战斗（整数血量、射程与 tick 冷却、击杀销毁，真世界里追上并 3 下打死猎物）；**批65 补阵营与友伤**（关系表双向写、同队恒 ally、空串＝中立且中立不是免战牌、友伤默认拦截并单独计数）+ **击杀战利品**（配表校验/合并/按 kind 升序、`lost` 如实回报、`onKill` 补上 killer 参数），于是「追→打→拾」闭环；仍无连续碰撞、攻击表现层、动态障碍、地面堆叠 |
 | **工具链** 编辑器 + 构建发布 | 25% | **24%** | 6.0 | 批59：构建发布 CLI 真跑起来（导入管线→入口闭包→内容寻址分包→增量写盘→清理死包）；批62：产物有运行时消费方（`build/loader.ts` 三道 hash + 严格 framing + 同包只取一次）；**批63–64：编辑器最小闭环通了**（`extensions/editor/`：选中集 / 场景树快照 / 属性模型（schema→控件 + 无损强转）/ PIE 时钟；`web/editor.html` + `editor-entry.ts`：树→选中→改属性→单步/播放，12 条浏览器端断言进 CI 第 13 步）；仍缺：拖拽换父与 gizmo、撤销栈、多场景存/读、资产浏览器、部署上传与平台分包 |
-| **工程** 判据 / 文档 / ADR / 双宿主 | 10% | **97%** | 9.7 | 1494 条判据 <!-- n:tests -->、286 组变异 <!-- n:mutants -->、9 ADR、CI 14 步 <!-- n:steps -->、浏览器自动化；**跨宿主逐字节存档已接线**（批57：同一份语料在 Node 与 Chromium 各跑一遍，193081 字节 sha256 相同）；仍差 workflow 未在真 GitHub 跑过 |
+| **工程** 判据 / 文档 / ADR / 双宿主 | 10% | **97%** | 9.7 | 1521 条判据 <!-- n:tests -->、292 组变异 <!-- n:mutants -->、9 ADR、CI 14 步 <!-- n:steps -->、浏览器自动化；**跨宿主逐字节存档已接线**（批57：同一份语料在 Node 与 Chromium 各跑一遍，193081 字节 sha256 相同）；仍差 workflow 未在真 GitHub 跑过 |
 | **合计** | 100% | | **77.0%** | |
 
 > ⚠ **这张表少一个板块：表现层（UI / 字体 / 动画）。** 它一直缺，只是以前 UI 和动画都是 0，
@@ -244,7 +269,7 @@
 | 1 | **Lua 5.1 兼容层** | √ | `backends/script-lua/compat-lua51.ts`（300 行 Lua 源码常量）：`unpack`/`loadstring`/`setfenv`/`getfenv`/`module()`/`package.seeall`/`math.pow\|mod\|ldexp\|frexp\|log10`/`table.getn`/`string.gfind`/`arg`/`require` | `tests/backends/script-lua51.test.ts` **12 条** |
 | 2 | **per-module `_ENV` 隔离** | √ | 每模块一张独立 env（`__index = _G`）；同名重载丢弃旧 env；函数名解析 `<module>.<entry>` → 裸名 → `_G` | `tests/backends/script-env.test.ts` **7 条** |
 | 3 | **PNG 全格式解码** | √ | `decode/inflate.ts`（479 行，纯 TS：stored/fixed/dynamic Huffman + adler32）、`decode/png.ts`（947 行，colorType 0/2/3/4/6 × bitDepth 1/2/4/8/16 × **Adam7 七 pass**、5 种反滤波、逐块 CRC、`pixels16` 全精度）、`decode/apng.ts`（416 行，acTL/fcTL/fdAT + dispose/blend 合成）、`render/atlas-from-apng.ts`（帧 → sprite sheet） | `png-decode` 13 + `png-fixtures` 44 + `png-adam7` 9 + `png-16bit` 7 + `apng` 20 + `atlas-from-apng` 7 = **100 条**；真实语料 **3422/3423** |
-| 4 | **资产 → sprite 接线** | √ | `render/atlas-from-assets.ts`（确定性 shelf packing）；`browser-entry` 改为 fetch 真位图 → 导入管线 → `decodeImage` → 合成 → `createTexture`；失败才降级且 HUD 显示 `atlas:assets×6`/`atlas:procedural` | `tests/core/asset-gpu-roundtrip.test.ts` **7 条**（含 2 条反例防假绿）+ 浏览器自检 2 条 |
+| 4 | **资产 → sprite 接线** | √ | `render/atlas-from-assets.ts`（确定性 shelf packing）；`browser-entry` 改为 fetch 真位图 → 导入管线 → `decodeImage` → 合成 → `createTexture`；失败才降级且 HUD 显示 `atlas:assets*6`/`atlas:procedural` | `tests/core/asset-gpu-roundtrip.test.ts` **7 条**（含 2 条反例防假绿）+ 浏览器自检 2 条 |
 
 ### 同日第二轮：三块"能做但没做到底"的地方
 
@@ -317,20 +342,20 @@ T355 遗留的三件事（只有一行 HUD、`amount` 固定 1、无丢弃）一
 | 脚本隔离 | 有 | 有 | 单脚本异常不断帧；**模块级 `_ENV` 隔离** | **持平** |
 | 物理 | PhysX/Box2D | box2d | 空间哈希 + 圆推出 | **落后一代**（无 AABB、无连续碰撞） |
 | 动画 | Mecanim | Animation | 无 | **缺** |
-| UI | UGUI/UI Toolkit | cc.UITransform | 六层自研：BMFont 解析 / **纯函数排版** / 三模式视口适配 / 锚点+流式布局+命中 / 九宫格控件绘制 / 捕获+冒泡路由；与 2.5D 世界**共用一次 pass** | **接口达标，控件集最小**（缺富文本、避头尾、RTL、滚动容器、拖拽、输入框、过渡动画） |
+| UI | UGUI/UI Toolkit | cc.UITransform | 六层自研：BMFont 解析 / **纯函数排版** / 三模式视口适配 / 锚点+流式布局+命中 / 九宫格控件绘制 / 捕获+冒泡路由；与 2.5D 世界**共用一次 pass**；**宿主已接入（批71）**：HUD 三行 + 饱食度条 + 背包面板都是 UI 节点，点击走真实指针路由 | **达标且在用**（字体只有 ASCII；缺富文本、避头尾、RTL、滚动容器、拖拽、输入框、过渡动画） |
 | 音频 | FMOD 级 | AudioSource | `IAudioDevice` + WebAudio | 接口达标，功能最少 |
 | 场景/序列化 | YAML + Prefab | JSON + Prefab | 三遍装配确定性 JSON | 缺 Prefab 继承/变体 |
 | **编辑器 + PIE** | 核心产品 | 核心产品 | **无** | **最大缺口** |
 | **构建发布** | 全平台 | 全平台 | **无** | **第二大缺口** |
 | 跨平台同码 | IL2CPP | 多平台 | Node headless + 浏览器 | **持平**（仅两宿主） |
-| 自动化判据 | 内部 | 内部 | 1494 条 <!-- n:tests --> + 286 组变异 <!-- n:mutants --> | **持平** |
+| 自动化判据 | 内部 | 内部 | 1521 条 <!-- n:tests --> + 292 组变异 <!-- n:mutants --> | **持平** |
 
 ### 三套评分
 
 | 维度 | 阶段 1 后 | 阶段 2 后 | 现在 | 变化原因 |
 |---|---|---|---|---|
 | **运行时**（能不能跑对） | 67 | 78 | **81** | PNG 真解码、图集确定性合成、资产→GPU 闭环判据、Lua 5.1 垫片、`_ENV` 隔离 |
-| **产品**（能不能做游戏） | 20 | 21 | **22** | 原先四件"0"里已有三件起步：构建 CLI（批59/62）、编辑器最小闭环（批63–64）、UI + 位图字体（批66）；动画、gizmo/撤销、部署上传仍为 0 |
+| **产品**（能不能做游戏） | 20 | 21 | **22** | 原先四件"0"里已有三件起步：构建 CLI（批59/62）、编辑器最小闭环（批63–64）、UI + 位图字体（批66，批71 起宿主的 HUD/背包真的走它）；动画、gizmo/撤销、部署上传仍为 0 |
 | **生态**（能不能被采用） | 13 | 13 | **13** | 无变化：无包管理、无文档站、无插件市场 |
 
 ### 六条硬门槛
@@ -351,27 +376,29 @@ T355 遗留的三件事（只有一行 HUD、`amount` 固定 1、无丢弃）一
 
 | 指标 | 数值 | 复现命令 |
 |---|---|---|
-| 源码 | **145 个文件** <!-- n:srcfiles --> / **35460 行** <!-- n:srclines --> | `find src -name "*.ts" \| xargs wc -l \| tail -1` |
-| 判据 | **1494 条** <!-- n:tests -->（全部通过 / 0 失败） | `npm test` |
+| 源码 | **147 个文件** <!-- n:srcfiles --> / **36322 行** <!-- n:srclines --> | `find src -name "*.ts" \| xargs wc -l \| tail -1` |
+| 判据 | **1521 条** <!-- n:tests -->（全部通过 / 0 失败） | `npm test` |
 | 类型检查 | **0 错误**（strict + `noUncheckedIndexedAccess` + `noUnusedLocals`） | `npm run typecheck` |
-| 测试文件 | 101 个 <!-- n:files --> | `find tests -name "*.test.ts"` |
+| 测试文件 | 104 个 <!-- n:files --> | `find tests -name "*.test.ts"` |
 | 架构守护 | 7 条依赖规则 | `tests/arch/layers.test.ts` |
 | 后端 | **12 个**（gfx×2 / audio×2 / input×2 / fs×4（mem / node / 只读 http / storage）/ script×2） | `ls src/backends` |
 | 扩展模块 | 16 个（render / physics / script / asset-import（含 decode） / worldgen / ai / build / inventory / input / combat / crafting / mobs / nav / survival / editor / **ui**） | `ls src/extensions` |
-| 变异验证 | **286 组注入** <!-- n:mutants -->（全部被抓住且还原干净） | `python tools/mutation-check.py` |
+| 变异验证 | **292 组注入** <!-- n:mutants -->（全部被抓住且还原干净） | `python tools/mutation-check.py` |
 | 真实 PNG 语料 | 结构校验 **3423/3423**；完整解码 **3422/3423**（1 个源文件本身被截半）；其中隔行 18 / 调色板 6 / tRNS 4 / APNG 4 | `node tools/verify-png-corpus.mjs --all` |
-| 浏览器自检 | **40 条** <!-- n:browser -->（含"图集来自真实资产"、"图集 6 帧"含 1 张 JPEG） | `npm run build:web && npm run serve:web` |
+| 浏览器自检 | **43 条** <!-- n:browser -->（含"图集来自真实资产"、"图集 6 帧"含 1 张 JPEG） | `npm run build:web && npm run serve:web` |
 | 包体 | 公共入口 144KB（不含 wasmoon）/ 浏览器 522KB + wasm 266KB + 资产 9.3KB（新增 1 张 JPEG） | `esbuild src/index.ts` 对比 |
 
 ### 分层规模
 
-> 2026-10-25 批66 末重新实测（第七版）。这张表**没有闸门盯着** —— 每次动结构都要手抄一遍，
-> 数字由 `find src/<层> -name "*.ts"` 得来。七版之间的差值本身就是信息：
+> 2026-10-25 批71 末重新实测（第八版）。这张表**没有闸门盯着** —— 每次动结构都要手抄一遍，
+> 数字由 `find src/<层> -name "*.ts"` 得来。八版之间的差值本身就是信息：
 > 第一版（停在旧数）98/22358 → 批34 100/23254 → 批43 102/23601 → 批45 103/23744 →
 > 批51 106/24547（新增 `inventory/`、`input/`，宿主从 787 涨到 961 行）→
 > 批53 108/25294（`input-map.ts` + `pickup.ts`；宿主 961 → 1054 行：动作分发与半径拾取接线）→
-> **批66 145/35460**（+37 文件 / +10166 行：世界侧的 `nav`/`mobs`/`combat`/`crafting`/`survival`、
-> 工具侧的 `editor`、以及本轮 P0-1 的 `ui` 7 文件 2237 行；宿主 1054 → 1729 行）。
+> 批66 145/35460（+37 文件 / +10166 行：世界侧的 `nav`/`mobs`/`combat`/`crafting`/`survival`、
+> 工具侧的 `editor`、以及本轮 P0-1 的 `ui` 7 文件 2237 行；宿主 1054 → 1729 行）→
+> **批71 147/36322**（+2 文件 / +862 行：**新增 L6 宿主层** `host/`（`hud-model` 175 + `hud-ui` 371），
+> 宿主 1729 → 1967 行（HUD/背包迁到 UI 树，同时**删掉**整套 DOM 面板与它的 CSS））。
 > 三笔"还账"型改动（T330 / T338 / T172）**没有新增文件**，只改实现与判据。
 
 | 层 | 文件 | 行数 | 说明 |
@@ -380,10 +407,11 @@ T355 遗留的三件事（只有一行 HUD、`amount` 固定 1、无丢弃）一
 | L1 platform | 9 | 1,252 | 接口层，不含任何平台专有类型 |
 | L2 core | 11 | 2,548 | 场景 / 节点 / 组件 / 序列化（批40 改了 `Component.load` 的缺字段语义） |
 | L3 runtime | 2 | 477 | `GameApp` + `FixedStepScheduler` |
-| L4 extensions + script | 93 | 22,242 | render 13 / asset-import 27（含 decode） / worldgen 7 / ai 6 / combat 6 / ui 7 / mobs 4 / editor 4 / inventory 4 / build 3 / survival 3 / input 2 / nav 2 / physics 2 / script 2 / crafting 1 |
+| L4 extensions + script | 93 | 22,320 | render 13 / asset-import 27（含 decode） / worldgen 7 / ai 6 / combat 6 / ui 7 / mobs 4 / editor 4 / inventory 4 / build 3 / survival 3 / input 2 / nav 2 / physics 2 / script 2 / crafting 1 |
 | L5 backends | 15 | 5,273 | gfx×2 / audio×2 / input×2 / fs×4 / script×2 + 契约与 Null |
-| root | 3 | 2,331 | `index.ts` 聚合导出（165）+ `browser-entry.ts` 宿主（1729）+ `editor-entry.ts` 编辑器页（437） |
-| **合计** | **145** | **35,460** | 与上表"源码 145 个文件 / 35460 行"一致 |
+| **L6 host** | **2** | **546** | `hud-model.ts`（HUD/背包的**文案模型**，纯函数）+ `hud-ui.ts`（UI 树 + 皮肤 json → `UiSkin`）。批71 新增：宿主是"用引擎的那一侧"，它必须能被 Node 判据覆盖，所以从 1967 行的 `browser-entry.ts` 里拆出来 |
+| root | 3 | 2,569 | `index.ts` 聚合导出（165）+ `browser-entry.ts` 宿主（1967）+ `editor-entry.ts` 编辑器页（437） |
+| **合计** | **147** | **36,322** | 与上表"源码 147 个文件 / 36322 行"一致 |
 
 ---
 
@@ -402,7 +430,7 @@ T355 遗留的三件事（只有一行 HUD、`amount` 固定 1、无丢弃）一
 | 缺口 | 现状 | 在等什么 |
 |---|---|---|
 | **headless ↔ 浏览器逐字节存档** | headless 侧两条独立实例已互证；浏览器侧只断言到"Lua 算得对 + 跨界日志可见" | 本机无浏览器自动化能力 ⇒ 阶段 2.5 |
-| ~~浏览器端自动化~~ | ✅ 已消除（2026-10-23）：`tools/browser-selftest.mjs` 走 CDP 无头驱动，40 条 <!-- n:browser --> 全部自动；**当初一接进来就发现这页从来没启动过**（缺 `#hud`/`#toast`） | 已完成 |
+| ~~浏览器端自动化~~ | ✅ 已消除（2026-10-23）：`tools/browser-selftest.mjs` 走 CDP 无头驱动，43 条 <!-- n:browser --> 全部自动；**当初一接进来就发现这页从来没启动过**（缺 `#hud`/`#toast`） | 已完成 |
 | ~~`fs-node` 后端~~ | ✅ 已消除（2026-10-23）：真实盘落盘 + 沙箱 + 原子写，判据含**子进程重启读档** | 已完成 |
 | ~~无 CI~~ | ✅ 已消除（2026-10-23）：`node tools/ci.mjs` 本地一条命令跑全部 14 道闸门 <!-- n:steps -->；workflow 只负责调用它（双 OS 矩阵）。**注意：workflow 本身未在真 GitHub 上跑过** | 已完成（workflow 待首次真实运行） |
 
@@ -444,9 +472,12 @@ T355 遗留的三件事（只有一行 HUD、`amount` 固定 1、无丢弃）一
 
 | 缺口 | 现在的行为 | 为什么先不做 |
 |---|---|---|
-| **宿主的 HUD / 背包面板仍是手写 DOM** | 引擎已经有 UI 了，但演示页那两块界面还没迁过来 —— 于是"引擎能画 UI"与"游戏在用引擎的 UI"是两件事 | 迁移会改动 `browser-entry.ts` 的 1729 行编排，应单独一批做，并顺手把"引擎 / 游戏"的边界划开 |
+| ~~**宿主的 HUD / 背包面板仍是手写 DOM**~~ | ✅ 已消除（批71）：HUD 三行 + 饱食度条 + 背包面板全部是 UI 节点，页面上的 `#bag` 与那套 CSS 已删除；`toast` 仍走 DOM（它的文案是中文，字体只有 ASCII —— 那是资产问题，不是代码问题） | — |
+| **字体只有 ASCII** | `toast`、`ITEM_LABEL` 这类中文文案进不了 UI；HUD/背包一律用 `kind` 的英文形式，且由判据拿真字体逐字守 | 需要一张 CJK 位图字体（几 MB 的图集 + 许可证）。当前 demo 界面不需要中文；引擎侧已经支持多字体注册，接进来只是加资产 |
+| **UI 画得比世界"碎"** | 字形页与皮肤页分开 ⇒ 每个"图 + 字"组合切一次页，HUD+背包是 15 段 draw（世界只要 2 段） | 把字体页与皮肤页打同一张图集即可（两者都进了同一条导入管线）。当前 15 段 draw 对桌面端不值得优化，等 UI 规模再起来 |
 | 富文本（同行混字号/颜色）、避头尾、RTL | 一行只有一种样式；中文标点可能出现在行首；只有 LTR | 都需要 `TextLayout` 从"一串 quads"升级成"分段 + 双向"模型，是排版层的重构，不是加分支 |
 | 滚动容器 / 拖拽换位 / 输入框 | 控件集是 Group/Panel/Image/Label/Button/Progress/Spacer | 这三个都需要**跨帧状态**，得先在 `UiNode` 上开状态位（`§11.7 ⑥`），不能靠每帧重建 quads 糊过去 |
+| 标签不会自己撑开面板 | 标签的自然尺寸靠节点显式 `size`；`UiNode.contentSize` 只有配置入口、**没有写入方** | 要它生效得让布局层在 `measure` 之前问一次排版层（量文字），而那是"测量两次"的经典分叉点。真要做应该把 `layoutText` 的结果缓存进节点，而不是各量各的 |
 | 过渡动画 | 没有：控件状态一变立刻生效 | 依赖 P0-2 的动画系统（同一个时间轴），单独做会变成第二套计时器 |
 
 ---

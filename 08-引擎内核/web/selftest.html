@@ -34,10 +34,14 @@
 -->
 <div id="hud" hidden>selftest</div>
 <div id="toast" hidden></div>
-<!-- 背包面板三件套（与演示页同一份结构）：面板判据要能数 DOM 行 -->
-<div id="bag" hidden><div id="bag-rows"></div><div id="bag-foot"></div></div>
+<!--
+  ★ 批71 起背包面板由**引擎 UI 模块**画（`host/hud-ui.ts`），页面上不再需要
+    `#bag / #bag-rows / #bag-foot`。删掉它们不是为了省三个 div：
+    留着的话"面板画出来了"这件事就有两种可能的来源（DOM 还是 UI），
+    而判据读错一边会变成假绿。
+-->
 <div class="sub" style="max-width:900px;margin-top:10px">
-  ★ <b>画面观感需人工确认</b>：上面 25 条都是可机器判定的（后端选择 / 合批 / 资产图集 / 脚本跨界 / 背包闭环），
+  ★ <b>画面观感需人工确认</b>：上面 43 条都是可机器判定的（后端选择 / 合批 / 资产图集 / 脚本跨界 / 背包闭环 / UI 同 pass），
   但"树看起来像树"这件事没有自动判据 —— 原先这里有一条"画布不是纯黑"，它恒返回 true，
   是个假绿灯（`preserveDrawingBuffer: false` 时帧后 `readPixels` 读不到内容，我宁可删掉它也不留假判据）。
   真要自动化得走 render target + readback 做 golden image，属于阶段 3。
@@ -130,7 +134,7 @@ row("没有未处理的渲染异常（日志里没有 app.render 错误）", (e)
 
 row("图集来自真实资产（fetch → 导入 → 解码 → 合成 全走完）", (e) => {
   const src = e.atlasSource;
-  if (typeof src === "string" && src.startsWith("assets×")) return [true, `atlasSource=${src}`];
+  if (typeof src === "string" && src.startsWith("assets*")) return [true, `atlasSource=${src}`];
   return [false, `降级成了 ${src} —— 画面用的是程序化假贴图（这是本轮要消灭的盲区）`];
 });
 
@@ -345,26 +349,26 @@ let tintPhase = 0; // 0 = 还没闪；1 = 已闪，在等到期
 let tintBefore = null;
 let tintDuring = null;
 
-row("★★ 背包面板开得出、列得对（DOM 行数 = 堆叠数，文本带 ×数量）", async (e) => {
+row("★★ 背包面板开得出、列得对（UI 面板行文本 = 堆叠数，且第 1 行真的在选中态）", async (e) => {
   if (panelDone !== null) return panelDone;
   /**
-   * ★★ 这条判据修过两次，两次都是**它自己在靠运气**（不是被测代码坏了）：
+   * ★★ 这条判据修过**三次**，每次都是"它自己在靠运气"，不是被测代码坏了：
    *
-   * ① 它原来直接 `give` 两种物品就断言"DOM 2 行 / 浆果×3 / 石头×2"，
+   * ① 它原来直接 `give` 两种物品就断言"2 行 / 浆果×3 / 石头×2"，
    *    暗含了"此刻背包里没有别的东西"。而那个前提不在它自己的控制里 ——
    *    前面几条（拾取给 8 个芦苇、丢弃留 3 个浆果、存读档往返……）都会改背包。
-   *    批67 加了三条进食判据之后它开始报 `浆果×4`。
    *    ⇒ 现在**先清空再摆两份**：验证"面板把当前背包原样列出来"，就自己造那份背包。
    *
-   * ② 它原来是同步的：`give` 之后立刻读 `#bag-rows`。而面板是**下一帧**才重建 DOM
-   *    （`renderBagPanel` 由 HUD 的 onRender 驱动），于是同一句话时而读到 0 行。
-   *    ⇒ 现在**等它反映出来（有上限 1 秒）**。判据问的是"面板会不会列出来"，
-   *    不是"这一微秒列出来了没有"。
+   * ② 它原来是同步的：`give` 之后立刻读面板。而面板由 `onRender` 驱动，
+   *    于是同一句话时而读到 0 行。⇒ 现在**等它反映出来（上限 1 秒）**。
    *
-   * ③ 还有一处更隐蔽的：原来末尾是 `const opened = e.toggleBag()` —— 它是**开关**，
-   *    面板已经开着时会把面板关掉。①里的清空步骤会把面板打开，于是这条判据
-   *    自己把面板关了、再断言"面板可见"。（关一次开一次都能通过，取决于前面跑过什么。）
-   *    ⇒ 先确认状态再开，最后只**读**状态，不再盲 toggle。
+   * ③ 末尾原来是 `const opened = e.toggleBag()` —— 它是**开关**，面板已经开着时
+   *    会把面板关掉。⇒ 先确认状态再开，最后只**读**状态，不再盲 toggle。
+   *
+   * ★ 批71 起面板不再是 DOM：行文本从 `e.ui.bagRows()` 读（**画出来的那份**），
+   *   而不是 `querySelectorAll(".row-item")`。这条判据的语义因此变得更硬：
+   *   它现在读的是"引擎打算画什么"，而"画没画出来"由下面两条 UI 判据负责。
+   *   物品名也从中文变成了 `kind` 的 ASCII 形式（位图字体只有 ASCII，见 ARCHITECTURE §11.7）。
    */
   if (e.bagPanel().open !== true) e.toggleBag();
   // ★ 用 `clearBag()` 而不是"整堆丢弃"：后者会把东西**丢在玩家脚下**，
@@ -381,29 +385,105 @@ row("★★ 背包面板开得出、列得对（DOM 行数 = 堆叠数，文本�
     panelDone = [false, `give 失败：${g1 && g1.code ? g1.code : "?"}`];
     return panelDone;
   }
-  const el = document.getElementById("bag");
-  const rowsEl = document.getElementById("bag-rows");
-  if (el === null || rowsEl === null) {
-    panelDone = [false, "页面上没有 #bag / #bag-rows（面板没接线）"];
-    return panelDone;
-  }
-  // ② 等 DOM 反映出来（面板由 onRender 重建，不是 give 同步触发的）
+  // ② 等面板反映出来（面板由 onRender 写节点 props，不是 give 同步触发的）
   const deadline = Date.now() + 1000;
   let texts = [];
   while (Date.now() < deadline) {
-    texts = [...rowsEl.querySelectorAll(".row-item")].map((d) => d.textContent || "");
+    texts = e.ui === null ? [] : e.ui.bagRows();
     if (texts.length === 2) break;
     await new Promise((r) => setTimeout(r, 50));
   }
   const st = e.bagPanel();
-  const shown = el.hidden === false;
-  const domRows = texts.length;
+  const panelRect = e.ui === null ? null : e.ui.rect("bag.panel");
+  const shown = e.ui !== null && e.ui.bagOpen() === true && panelRect !== null && panelRect.width > 0;
   const okAll =
-    st.open === true && shown && domRows === st.stacks && domRows === 2 &&
-    texts.some((t) => t.indexOf("浆果") >= 0 && t.indexOf("×3") >= 0) &&
-    texts.some((t) => t.indexOf("石头") >= 0 && t.indexOf("×2") >= 0);
-  panelDone = [okAll, `面板${shown ? "可见" : "不可见"} · DOM ${domRows} 行 / 状态 ${st.stacks} 堆 · "${texts.join("；")}"`];
+    st.open === true && shown && texts.length === st.stacks && texts.length === 2 &&
+    texts[0].indexOf("berry x3") >= 0 && texts[1].indexOf("rock x2") >= 0;
+  panelDone = [
+    okAll,
+    `面板${shown ? "可见" : "不可见"} · UI ${texts.length} 行 / 状态 ${st.stacks} 堆 · "${texts.join("；")}"`,
+  ];
   return panelDone;
+});
+
+/**
+ * 批71 · UI 集成三条。
+ *
+ * ★ 这三条证的是**只有浏览器里才可能坏**的事：
+ *   ① 这一帧真的画了字（资产/管线/字体注册全链路都通）；
+ *   ② UI 与世界在**同一个 pass**（不是自己又开了个 pass 把世界擦了）；
+ *   ③ 面板上的行**点得到**（设计坐标 ↔ 屏幕坐标 ↔ 命中测试接对了）。
+ *   Node 判据只能证"树长对了、props 写对了"，证不了这三条。
+ */
+let uiLatch = null;
+row("★★ UI 真的画在当前帧：quad/字形都在涨，且没有一个画不出来的字", (e) => {
+  if (uiLatch !== null) return uiLatch;
+  const u = e.ui;
+  if (u === null) return [false, "UI 模块没建起来（UI 资产读不到？HUD 退回 DOM 了）"];
+  const f = u.lastFrame();
+  // ★ `labels >= 3` 一起看：quad>0 可能只是 HUD 底板（一张九宫格），
+  //   字一个都没画出来时 quad 照样是 9。只断言 quad 会漏掉"字体没接上"。
+  const okAll =
+    f.quads > 0 && f.glyphs > 0 && f.labels >= 3 &&
+    f.missingGlyphs.length === 0 && f.missingFrames.length === 0;
+  if (!okAll) return [false, `quad=${f.quads} glyph=${f.glyphs} label=${f.labels} 缺字=${JSON.stringify(f.missingGlyphs)} 缺帧=${JSON.stringify(f.missingFrames)}`];
+  uiLatch = [true, `quad=${f.quads} glyph=${f.glyphs} label=${f.labels} draw=${f.drawCalls} · 缺字/缺帧都为空`];
+  return uiLatch;
+});
+
+let passPhase = 0;
+let passA = null;
+let passDone = null;
+row("★★ UI 与世界在**同一个 pass**：帧数只 +1（UI 若自己开 pass，会 +2）", (e) => {
+  if (passDone !== null) return passDone;
+  if (e.ui === null) {
+    passDone = [false, "没有 UI 模块"];
+    return passDone;
+  }
+  const now = {
+    fi: e.gfxStats().frameIndex,
+    rf: e.renderFrames(),
+    wq: e.lastFrame().quads,
+    uq: e.ui.lastFrame().quads,
+  };
+  if (passPhase === 0) {
+    passA = now;
+    passPhase = 1;
+    return [false, `已取样 frameIndex=${now.fi} · 渲染帧=${now.rf}（等下一轮对比）`];
+  }
+  const dfi = now.fi - passA.fi;
+  const drf = now.rf - passA.rf;
+  // ★ 这就是"同一个 pass"的**唯一外部证据**：`frameIndex` 每次 `endFrame` 加一。
+  //   UI 若自己 `beginFrame/endFrame`，一帧会加 2 —— 而顶点数、draw call 数都看不出来。
+  const samePass = dfi === drf && dfi >= 2;
+  const bothDrawn = passA.wq > 0 && now.wq > 0 && passA.uq > 0 && now.uq > 0;
+  passDone = [
+    samePass && bothDrawn,
+    `ΔframeIndex=${dfi} / Δ渲染帧=${drf}（相等 ⇒ 一帧一个 pass）· 世界 quad ${passA.wq}→${now.wq} · UI quad ${passA.uq}→${now.uq}`,
+  ];
+  return passDone;
+});
+
+let clickDone = null;
+row("★★ 面板上的行真的点得到：点第 2 行 ⇒ 选中变成第 2 堆（设计坐标→命中→click）", (e) => {
+  if (clickDone !== null) return clickDone;
+  // 依赖上一条面板判据先摆好背包：它自己也会造 2 堆，两条同时改背包会互相踩
+  if (panelDone === null) return [false, "等「面板列得对」跑完再点（否则两条判据会互相清空背包）"];
+  if (e.ui === null) {
+    clickDone = [false, "没有 UI 模块"];
+    return clickDone;
+  }
+  const before = e.bagPanel().selected;
+  const r = e.ui.clickNode("bag.row1");
+  if (!r.ok) {
+    clickDone = [false, `第 2 行没有矩形（${r.reason}）—— 面板没布局？`];
+    return clickDone;
+  }
+  const after = e.bagPanel().selected;
+  const selRow = e.ui.bagRows()[1] || "";
+  const okAll = r.clicks.indexOf("bag.row1") >= 0 && after === 1 && selRow.indexOf("rock") >= 0;
+  clickDone = [okAll, `click 事件=${JSON.stringify(r.clicks)} · 选中 ${before}→${after} · 第 2 行="${selRow}"`];
+  return clickDone;
 });
 
 row("★★ 堆叠上限真的接上了：45 个芦苇 ⇒ 40 + 5 两堆（不是一堆 45）", (e) => {

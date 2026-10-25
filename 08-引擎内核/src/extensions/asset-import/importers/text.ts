@@ -49,7 +49,11 @@ function countCodePoints(text: string): number {
 export const textImporter: SourceImporter = {
   id: AssetType.Text,
   version: VERSION,
-  extensions: [".txt", ".json", ".lua", ".md"],
+  // ★ `.fnt` 是 BMFont 的**文本**格式（`parseBmFont` 的输入），本质就是文本资产：
+  //   它的 `chars` / `common` 行要按行解析，走文本导入器才有增量哈希与 .meta 身份。
+  //   不加这一条的症状是"字体文件在资产目录里、导入报告里却没有它"，
+  //   于是加载期报"字体未注册" —— 而文件明明在那儿。
+  extensions: [".txt", ".json", ".lua", ".md", ".fnt"],
 
   async import(sourcePath, source): Promise<Result<ImportedArtifact, EngineError>> {
     let text: string;

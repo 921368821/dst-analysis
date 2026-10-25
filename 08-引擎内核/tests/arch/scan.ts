@@ -12,7 +12,15 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
 
-export type Layer = "L0-foundation" | "L1-platform" | "L2-core" | "L3-runtime" | "L4-ext" | "L5-backend" | "root";
+export type Layer =
+  | "L0-foundation"
+  | "L1-platform"
+  | "L2-core"
+  | "L3-runtime"
+  | "L4-ext"
+  | "L5-backend"
+  | "L6-host"
+  | "root";
 
 /** 目录 → 层。新增顶层目录必须在这里登记，否则扫描会报"未分类"。 */
 const LAYER_BY_DIR: Readonly<Record<string, Layer>> = {
@@ -23,6 +31,11 @@ const LAYER_BY_DIR: Readonly<Record<string, Layer>> = {
   script: "L4-ext",
   extensions: "L4-ext",
   backends: "L5-backend",
+  // ★ L6 是**宿主**：演示页的 HUD 文案模型、编辑器页的模型层住这里。
+  //   它必须是一个独立的层，否则"引擎不许 import 宿主"这件事没有机器守护 ——
+  //   root 层可以 import 一切，把宿主放进 root 等于给它发了通行证，
+  //   而"引擎里冒出一句 demo 文案"正是这类腐化最常见的形状。
+  host: "L6-host",
 };
 
 export interface SourceFile {
@@ -167,8 +180,11 @@ export const ALLOWED: Readonly<Record<Layer, readonly Layer[]>> = {
   "L4-ext": ["L0-foundation", "L1-platform", "L2-core", "L3-runtime", "L4-ext"],
   // ★ 后端只实现接口，**不许 import 引擎内核**（否则后端会开始依赖内核的实现细节）
   "L5-backend": ["L0-foundation", "L1-platform", "L5-backend"],
+  // 宿主可以依赖一切（它就是组装者），并且**只能被自己依赖** ——
+  //   其余任何一层的 ALLOWED 里都没有 L6-host，所以引擎 import 宿主会直接红。
+  "L6-host": ["L0-foundation", "L1-platform", "L2-core", "L3-runtime", "L4-ext", "L5-backend", "L6-host", "root"],
   // 根文件（index.ts 等）是聚合导出，豁免
-  root: ["L0-foundation", "L1-platform", "L2-core", "L3-runtime", "L4-ext", "L5-backend", "root"],
+  root: ["L0-foundation", "L1-platform", "L2-core", "L3-runtime", "L4-ext", "L5-backend", "L6-host", "root"],
 };
 
 export interface Violation {

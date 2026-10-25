@@ -13369,7 +13369,11 @@ function countCodePoints(text) {
 var textImporter = {
   id: AssetType.Text,
   version: VERSION3,
-  extensions: [".txt", ".json", ".lua", ".md"],
+  // ★ `.fnt` 是 BMFont 的**文本**格式（`parseBmFont` 的输入），本质就是文本资产：
+  //   它的 `chars` / `common` 行要按行解析，走文本导入器才有增量哈希与 .meta 身份。
+  //   不加这一条的症状是"字体文件在资产目录里、导入报告里却没有它"，
+  //   于是加载期报"字体未注册" —— 而文件明明在那儿。
+  extensions: [".txt", ".json", ".lua", ".md", ".fnt"],
   async import(sourcePath, source) {
     let text;
     try {
@@ -17944,6 +17948,1715 @@ function dropIntoWorld(scene, ownerId, kind, n, opts) {
   return ok({ cells, nodeIds, dropped: n });
 }
 
+// src/extensions/ui/font.ts
+function kerningKey(first, second) {
+  return first * 2097152 + second;
+}
+var FONT_ERR = {
+  NO_COMMON: "UI.FONT_NO_COMMON",
+  BAD_SCALE: "UI.FONT_BAD_SCALE",
+  BAD_LINE_HEIGHT: "UI.FONT_BAD_LINE_HEIGHT",
+  BAD_BASE: "UI.FONT_BAD_BASE",
+  NO_GLYPHS: "UI.FONT_NO_GLYPHS",
+  DUP_GLYPH: "UI.FONT_DUP_GLYPH",
+  GLYPH_OOB: "UI.FONT_GLYPH_OOB",
+  BAD_ADVANCE: "UI.FONT_BAD_ADVANCE",
+  BAD_NUMBER: "UI.FONT_BAD_NUMBER",
+  UNSUPPORTED_FORMAT: "UI.FONT_UNSUPPORTED_FORMAT"
+};
+function parseBmFont(text, opts = {}) {
+  const id = opts.id ?? "font";
+  const head = text.slice(0, 4);
+  if (head.startsWith("BMF")) {
+    return err(
+      engineError(FONT_ERR.UNSUPPORTED_FORMAT, "\u8FD9\u662F BMFont \u4E8C\u8FDB\u5236\u683C\u5F0F\uFF0C\u5F53\u524D\u53EA\u652F\u6301\u6587\u672C\u683C\u5F0F\uFF08.fnt\uFF09")
+    );
+  }
+  if (head.trimStart().startsWith("<")) {
+    return err(engineError(FONT_ERR.UNSUPPORTED_FORMAT, "\u8FD9\u662F BMFont XML \u683C\u5F0F\uFF0C\u5F53\u524D\u53EA\u652F\u6301\u6587\u672C\u683C\u5F0F\uFF08.fnt\uFF09"));
+  }
+  let size = 0;
+  let lineHeight = 0;
+  let base = 0;
+  let scaleW = 0;
+  let scaleH = 0;
+  let sawCommon = false;
+  const pages = [];
+  const rawChars = [];
+  const kernings = /* @__PURE__ */ new Map();
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (line === "") continue;
+    const sp = line.indexOf(" ");
+    const tag = sp < 0 ? line : line.slice(0, sp);
+    const rest = sp < 0 ? "" : line.slice(sp + 1);
+    if (tag === "info") {
+      const kv = parseKeyValues(rest);
+      const s = num(kv, "size");
+      if (s === void 0) return err(engineError(FONT_ERR.BAD_NUMBER, `info \u884C\u7F3A\u5C11 size\uFF1A${line}`));
+      size = s;
+    } else if (tag === "common") {
+      const kv = parseKeyValues(rest);
+      const lh = num(kv, "lineHeight");
+      const bs = num(kv, "base");
+      const sw = num(kv, "scaleW");
+      const sh = num(kv, "scaleH");
+      if (lh === void 0 || bs === void 0 || sw === void 0 || sh === void 0) {
+        return err(engineError(FONT_ERR.BAD_NUMBER, `common \u884C\u7F3A\u5B57\u6BB5\uFF1A${line}`));
+      }
+      lineHeight = lh;
+      base = bs;
+      scaleW = sw;
+      scaleH = sh;
+      sawCommon = true;
+    } else if (tag === "page") {
+      const kv = parseKeyValues(rest);
+      const pid = num(kv, "id");
+      if (pid === void 0) return err(engineError(FONT_ERR.BAD_NUMBER, `page \u884C\u7F3A\u5C11 id\uFF1A${line}`));
+      pages.push({ id: pid, file: kv.get("file") ?? "" });
+    } else if (tag === "char") {
+      const kv = parseKeyValues(rest);
+      const code = num(kv, "id");
+      const x = num(kv, "x");
+      const y = num(kv, "y");
+      const w = num(kv, "width");
+      const h = num(kv, "height");
+      const xa = num(kv, "xadvance");
+      if (code === void 0 || x === void 0 || y === void 0 || w === void 0 || h === void 0 || xa === void 0) {
+        return err(engineError(FONT_ERR.BAD_NUMBER, `char \u884C\u7F3A\u5B57\u6BB5\uFF1A${line}`));
+      }
+      rawChars.push({
+        code,
+        x,
+        y,
+        w,
+        h,
+        xo: num(kv, "xoffset") ?? 0,
+        yo: num(kv, "yoffset") ?? 0,
+        xa,
+        pg: num(kv, "page") ?? 0
+      });
+    } else if (tag === "kerning") {
+      const kv = parseKeyValues(rest);
+      const first = num(kv, "first");
+      const second = num(kv, "second");
+      const amount = num(kv, "amount");
+      if (first === void 0 || second === void 0 || amount === void 0) {
+        return err(engineError(FONT_ERR.BAD_NUMBER, `kerning \u884C\u7F3A\u5B57\u6BB5\uFF1A${line}`));
+      }
+      kernings.set(kerningKey(first, second), amount);
+    }
+  }
+  if (!sawCommon) {
+    return err(engineError(FONT_ERR.NO_COMMON, "\u7F3A\u5C11 common \u884C\uFF08\u62FF\u4E0D\u5230 lineHeight / scaleW / scaleH\uFF09"));
+  }
+  if (!(scaleW > 0) || !(scaleH > 0)) {
+    return err(engineError(FONT_ERR.BAD_SCALE, `\u7EB9\u7406\u9875\u5C3A\u5BF8\u5FC5\u987B > 0\uFF1A${scaleW}x${scaleH}`, { scaleW, scaleH }));
+  }
+  if (!(lineHeight > 0)) {
+    return err(engineError(FONT_ERR.BAD_LINE_HEIGHT, `lineHeight \u5FC5\u987B > 0\uFF1A${lineHeight}`));
+  }
+  if (!Number.isFinite(base) || base < 0) {
+    return err(engineError(FONT_ERR.BAD_BASE, `base \u5FC5\u987B \u2265 0\uFF1A${base}`));
+  }
+  if (rawChars.length === 0) return err(engineError(FONT_ERR.NO_GLYPHS, "\u6CA1\u6709\u4EFB\u4F55 char \u884C"));
+  if (pages.length === 0) pages.push({ id: 0, file: "" });
+  const glyphs = /* @__PURE__ */ new Map();
+  for (const c of rawChars) {
+    if (glyphs.has(c.code)) {
+      return err(engineError(FONT_ERR.DUP_GLYPH, `\u5B57\u7B26 ${c.code} \u91CD\u590D\u5B9A\u4E49`, { code: c.code }));
+    }
+    if (!Number.isFinite(c.xa) || c.xa < 0) {
+      return err(engineError(FONT_ERR.BAD_ADVANCE, `\u5B57\u7B26 ${c.code} \u7684 xadvance \u975E\u6CD5\uFF1A${c.xa}`, { code: c.code }));
+    }
+    if (c.x < 0 || c.y < 0 || c.w < 0 || c.h < 0 || c.x + c.w > scaleW || c.y + c.h > scaleH) {
+      return err(
+        engineError(
+          FONT_ERR.GLYPH_OOB,
+          `\u5B57\u7B26 ${c.code} \u7684\u77E9\u5F62\u8D85\u51FA\u7EB9\u7406\u9875 ${scaleW}x${scaleH}\uFF1Ax=${c.x} y=${c.y} w=${c.w} h=${c.h}`,
+          { code: c.code }
+        )
+      );
+    }
+    if (c.pg < 0 || c.pg >= pages.length) {
+      return err(
+        engineError(FONT_ERR.BAD_NUMBER, `\u5B57\u7B26 ${c.code} \u5F15\u7528\u4E0D\u5B58\u5728\u7684\u9875 ${c.pg}\uFF08\u5171 ${pages.length} \u9875\uFF09`, {
+          code: c.code
+        })
+      );
+    }
+    const w = c.w;
+    const h = c.h;
+    glyphs.set(c.code, {
+      code: c.code,
+      page: c.pg,
+      // ★ 恒等映射，理由见文件头。
+      u0: c.x / scaleW,
+      v0: c.y / scaleH,
+      u1: (c.x + w) / scaleW,
+      v1: (c.y + h) / scaleH,
+      width: w,
+      height: h,
+      xoffset: c.xo,
+      yoffset: c.yo,
+      xadvance: c.xa
+    });
+  }
+  return ok({
+    id,
+    size,
+    lineHeight,
+    base,
+    scaleW,
+    scaleH,
+    pages,
+    glyphs,
+    kernings,
+    // 缺字占位：半个字号是"看得见有个东西缺了、但不会把行撑开"的折中。
+    missingAdvance: size > 0 ? size / 2 : lineHeight / 2
+  });
+}
+function kerningOf(font, first, second) {
+  return font.kernings.get(kerningKey(first, second)) ?? 0;
+}
+var FontRegistry = class {
+  fonts = /* @__PURE__ */ new Map();
+  register(font) {
+    if (this.fonts.has(font.id)) {
+      this.fonts.delete(font.id);
+    }
+    this.fonts.set(font.id, font);
+  }
+  get(id) {
+    return this.fonts.get(id);
+  }
+  require(id) {
+    const f = this.fonts.get(id);
+    if (f === void 0) {
+      throw new Error(`\u5B57\u4F53\u672A\u6CE8\u518C\uFF1A${id}\uFF08\u5DF2\u6CE8\u518C\uFF1A${Array.from(this.fonts.keys()).sort().join(", ") || "\u65E0"}\uFF09`);
+    }
+    return f;
+  }
+  ids() {
+    return Array.from(this.fonts.keys()).sort();
+  }
+};
+function parseKeyValues(rest) {
+  const out = /* @__PURE__ */ new Map();
+  let i = 0;
+  const n = rest.length;
+  while (i < n) {
+    while (i < n && rest[i] === " ") i++;
+    const eq = rest.indexOf("=", i);
+    if (eq < 0) break;
+    const key = rest.slice(i, eq).trim();
+    i = eq + 1;
+    let value;
+    if (rest[i] === '"') {
+      const close = rest.indexOf('"', i + 1);
+      if (close < 0) {
+        value = rest.slice(i + 1);
+        i = n;
+      } else {
+        value = rest.slice(i + 1, close);
+        i = close + 1;
+      }
+    } else {
+      const next = rest.indexOf(" ", i);
+      if (next < 0) {
+        value = rest.slice(i);
+        i = n;
+      } else {
+        value = rest.slice(i, next);
+        i = next;
+      }
+    }
+    if (key !== "") out.set(key, value);
+  }
+  return out;
+}
+function num(kv, key) {
+  const raw = kv.get(key);
+  if (raw === void 0) return void 0;
+  const v = Number(raw);
+  return Number.isFinite(v) ? v : void 0;
+}
+
+// src/extensions/ui/viewport.ts
+var UiScaleMode = { Fit: "fit", Fill: "fill", Expand: "expand" };
+var ZERO_INSETS = { top: 0, right: 0, bottom: 0, left: 0 };
+var UiViewport = class {
+  designWidth;
+  designHeight;
+  scaleMode;
+  cssW = 1;
+  cssH = 1;
+  dpr = 1;
+  scaleValue = 1;
+  safe = ZERO_INSETS;
+  /** 复用同一个相机实例：每帧 new 一个会白白产生垃圾，而且外部持有的引用会失效。 */
+  cam;
+  constructor(cfg) {
+    if (!(cfg.designWidth > 0) || !(cfg.designHeight > 0)) {
+      throw new RangeError(`\u8BBE\u8BA1\u5206\u8FA8\u7387\u5FC5\u987B > 0\uFF1A${cfg.designWidth}x${cfg.designHeight}`);
+    }
+    this.designWidth = cfg.designWidth;
+    this.designHeight = cfg.designHeight;
+    this.scaleMode = cfg.scaleMode ?? UiScaleMode.Expand;
+    this.safe = cfg.safeArea ?? ZERO_INSETS;
+    this.cam = new Camera2D({
+      viewportWidth: 1,
+      viewportHeight: 1,
+      zoom: 1,
+      // ★ 1 = 无俯视压缩。UI 是纯 2D，任何 tiltY 都会把字压扁。
+      tiltY: 1,
+      x: cfg.designWidth / 2,
+      z: cfg.designHeight / 2
+    });
+    this.apply();
+  }
+  /** 宿主每帧（或窗口变化时）推进来。尺寸非正时忽略（与 Camera2D.setViewport 一致）。 */
+  setScreen(cssWidth, cssHeight, dpr = 1) {
+    if (!(cssWidth > 0) || !(cssHeight > 0)) return;
+    if (!(dpr > 0) || !Number.isFinite(dpr)) return;
+    this.cssW = cssWidth;
+    this.cssH = cssHeight;
+    this.dpr = dpr;
+    this.apply();
+  }
+  setScaleMode(m) {
+    this.scaleMode = m;
+    this.apply();
+  }
+  setSafeArea(insets) {
+    this.safe = insets;
+  }
+  /** 绘制像素尺寸（= CSS 像素 × dpr）。`makeCamera` 用它设 viewport。 */
+  get pixelWidth() {
+    return this.cssW * this.dpr;
+  }
+  get pixelHeight() {
+    return this.cssH * this.dpr;
+  }
+  /** 一个设计像素对应多少**绘制**像素。 */
+  get scale() {
+    return this.scaleValue;
+  }
+  /** 设计框本身（恒为原点起始）。 */
+  get designRect() {
+    return new Rect(0, 0, this.designWidth, this.designHeight);
+  }
+  /**
+   * 屏幕在设计坐标系里覆盖的范围。
+   * `fit` 时比设计框**大**（每边留黑边），`fill`/`expand` 时可能比设计框小（裁边）。
+   */
+  get screenRect() {
+    const w = this.cssW / this.scaleValue;
+    const h = this.cssH / this.scaleValue;
+    return new Rect((this.designWidth - w) / 2, (this.designHeight - h) / 2, w, h);
+  }
+  /**
+   * **锚点参考矩形**：`anchor` 为 0/0.5/1 时贴的是这条边。
+   *
+   * · `fit` / `fill` 贴**设计框**（内容不越界，这是"设计分辨率"的语义）
+   * · `expand`       贴**屏幕范围**（多出来的区域也算可用，HUD 贴屏幕边）
+   *
+   * ★ 只有 `expand` 的参考区比设计框**大**（因为它用 min 缩放，另一个轴必然多出来），
+   *   所以"贴屏幕左上的血条在超宽屏上不会被裁出屏幕"这条只有它成立。
+   */
+  get anchorRect() {
+    if (this.scaleMode === UiScaleMode.Expand) return this.screenRect;
+    return this.designRect;
+  }
+  /** 锚点参考矩形扣掉安全区。刘海屏上的可点区域用它。 */
+  get safeRect() {
+    const r = this.anchorRect;
+    const top = Math.min(this.safe.top, r.height / 2);
+    const bottom = Math.min(this.safe.bottom, r.height / 2 - top);
+    const left = Math.min(this.safe.left, r.width / 2);
+    const right = Math.min(this.safe.right, r.width / 2 - left);
+    return new Rect(r.x + left, r.y + top, r.width - left - right, r.height - top - bottom);
+  }
+  /** CSS 像素 → 设计坐标。 */
+  screenToDesign(px, py) {
+    return {
+      x: this.designWidth / 2 + (px - this.cssW / 2) / this.scaleValue,
+      y: this.designHeight / 2 + (py - this.cssH / 2) / this.scaleValue
+    };
+  }
+  /** 设计坐标 → CSS 像素。 */
+  designToScreen(x, y) {
+    return {
+      x: this.cssW / 2 + (x - this.designWidth / 2) * this.scaleValue,
+      y: this.cssH / 2 + (y - this.designHeight / 2) * this.scaleValue
+    };
+  }
+  /**
+   * 与 2.5D 场景**共用**的相机对象（`Camera2D` 只是一条投影函数，谁都能拿一个）。
+   * UI 相机的世界单位 = 设计像素，所以 `zoom = scale`、`tiltY = 1`。
+   */
+  get camera() {
+    return this.cam;
+  }
+  apply() {
+    const pw = this.pixelWidth;
+    const ph = this.pixelHeight;
+    const sx = pw / this.designWidth;
+    const sy = ph / this.designHeight;
+    this.scaleValue = this.scaleMode === UiScaleMode.Fill ? Math.max(sx, sy) : Math.min(sx, sy);
+    if (!(this.scaleValue > 0) || !Number.isFinite(this.scaleValue)) this.scaleValue = 1;
+    this.cam.setViewport(pw, ph);
+    this.cam.zoom = this.scaleValue;
+    this.cam.tiltY = 1;
+    this.cam.moveTo(this.designWidth / 2, this.designHeight / 2);
+  }
+};
+
+// src/extensions/ui/text-layout.ts
+var DEFAULT_ELLIPSIS = "\u2026";
+function normalizeCodes(text) {
+  const paragraphs = [];
+  let cur = [];
+  for (const ch of Array.from(text)) {
+    const code = ch.codePointAt(0) ?? 0;
+    if (ch === "\n") {
+      paragraphs.push(cur);
+      cur = [];
+      continue;
+    }
+    if (ch === "\r") continue;
+    if (ch === "	") {
+      cur.push(32);
+      continue;
+    }
+    if (code < 32 || code === 127) continue;
+    cur.push(code);
+  }
+  paragraphs.push(cur);
+  return paragraphs;
+}
+function breakAfter(code) {
+  return code >= 11904 && code <= 40959 || code >= 63744 && code <= 64255 || code >= 12288 && code <= 12351 || code >= 65280 && code <= 65519;
+}
+function advanceOf(font, code, scale, letterSpacing) {
+  const g = font.glyphs.get(code);
+  const base = g === void 0 ? font.missingAdvance : g.xadvance;
+  return base * scale + letterSpacing;
+}
+function tokenize(font, codes, scale, letterSpacing) {
+  const out = [];
+  let buf = [];
+  let bufW = 0;
+  const flush = (isSpace) => {
+    if (buf.length === 0) return;
+    out.push({ codes: buf, width: bufW + (isSpace ? 0 : 0), isSpace });
+    buf = [];
+    bufW = 0;
+  };
+  for (let i = 0; i < codes.length; i++) {
+    const code = codes[i];
+    if (code === 32) {
+      flush(false);
+      out.push({ codes: [code], width: advanceOf(font, code, scale, letterSpacing), isSpace: true });
+      continue;
+    }
+    buf.push(code);
+    bufW += advanceOf(font, code, scale, letterSpacing);
+    const prev = codes[i - 1];
+    if (prev !== void 0) bufW += kerningOf(font, prev, code) * scale;
+    if (breakAfter(code)) flush(false);
+  }
+  flush(false);
+  return out;
+}
+function lineWidthOf(font, codes, scale, letterSpacing) {
+  let w = 0;
+  for (let i = 0; i < codes.length; i++) {
+    const code = codes[i];
+    w += advanceOf(font, code, scale, letterSpacing);
+    const prev = codes[i - 1];
+    if (prev !== void 0) w += kerningOf(font, prev, code) * scale;
+  }
+  return w;
+}
+function trimTrailingSpaces(codes) {
+  let end = codes.length;
+  while (end > 0 && codes[end - 1] === 32) end--;
+  return codes.slice(0, end);
+}
+function breakParagraph(font, codes, scale, letterSpacing, maxWidth) {
+  if (maxWidth <= 0) return [trimTrailingSpaces(codes.slice())];
+  const lines = [];
+  let cur = [];
+  let curW = 0;
+  const pushLine = () => {
+    lines.push(trimTrailingSpaces(cur));
+    cur = [];
+    curW = 0;
+  };
+  for (const tk of tokenize(font, codes, scale, letterSpacing)) {
+    if (tk.isSpace) {
+      if (cur.length === 0) continue;
+      cur.push(...tk.codes);
+      curW += tk.width;
+      continue;
+    }
+    if (curW + tk.width <= maxWidth) {
+      cur.push(...tk.codes);
+      curW += tk.width;
+      continue;
+    }
+    if (cur.length > 0) pushLine();
+    if (tk.width <= maxWidth) {
+      cur.push(...tk.codes);
+      curW = tk.width;
+      continue;
+    }
+    for (const code of tk.codes) {
+      const cw = advanceOf(font, code, scale, letterSpacing);
+      if (curW + cw > maxWidth && cur.length > 0) pushLine();
+      cur.push(code);
+      curW += cw;
+    }
+  }
+  if (cur.length > 0 || lines.length === 0) lines.push(trimTrailingSpaces(cur));
+  return lines;
+}
+function layoutText(font, text, style = {}) {
+  const scale = style.scale ?? 1;
+  const ls = style.letterSpacing ?? 0;
+  const maxWidth = style.maxWidth ?? 0;
+  const maxLines = style.maxLines ?? 0;
+  const ellipsis = style.ellipsis ?? DEFAULT_ELLIPSIS;
+  const align = style.align ?? "left";
+  if (!(scale > 0)) throw new RangeError(`\u6587\u672C scale \u5FC5\u987B > 0\uFF1A${scale}`);
+  const lineHeightPx = font.lineHeight * scale + (style.lineSpacing ?? 0);
+  const paragraphs = normalizeCodes(text);
+  const lines = [];
+  for (const p of paragraphs) {
+    const broken = breakParagraph(font, p, scale, ls, maxWidth);
+    for (const l of broken) lines.push(l);
+  }
+  if (lines.length === 1 && lines[0].length === 0 && text.trim() === "") {
+    lines.length = 0;
+  }
+  let truncated = false;
+  if (maxLines > 0 && lines.length > maxLines) {
+    lines.length = maxLines;
+    truncated = true;
+    if (lines.length === 0) lines.push([]);
+    const last = lines[lines.length - 1];
+    const ellCodes = Array.from(ellipsis).map((c) => c.codePointAt(0) ?? 0);
+    if (maxWidth > 0) {
+      const ellW = lineWidthOf(font, ellCodes, scale, ls);
+      while (last.length > 0 && lineWidthOf(font, last, scale, ls) + ellW > maxWidth) last.pop();
+      if (last.length === 0 && ellW > maxWidth) {
+        lines[lines.length - 1] = [];
+      } else {
+        last.push(...ellCodes);
+      }
+    } else {
+      last.push(...ellCodes);
+    }
+  }
+  const lineWidths = lines.map((l) => lineWidthOf(font, l, scale, ls));
+  const naturalWidth = lineWidths.reduce((m, w) => w > m ? w : m, 0);
+  const boxWidth = maxWidth > 0 ? maxWidth : naturalWidth;
+  const color = style.color;
+  const quads = [];
+  const missingSet = /* @__PURE__ */ new Set();
+  for (let li = 0; li < lines.length; li++) {
+    const codes = lines[li];
+    const lw = lineWidths[li];
+    let penX = 0;
+    if (align === "center") penX = (boxWidth - lw) / 2;
+    else if (align === "right") penX = boxWidth - lw;
+    const lineTop = li * lineHeightPx;
+    const baseline = lineTop + font.base * scale;
+    for (let i = 0; i < codes.length; i++) {
+      const code = codes[i];
+      const g = font.glyphs.get(code);
+      if (g === void 0) {
+        missingSet.add(code);
+        penX += font.missingAdvance * scale + ls;
+        continue;
+      }
+      if (g.width > 0 && g.height > 0) {
+        quads.push({
+          page: g.page,
+          x: penX + g.xoffset * scale,
+          y: baseline + g.yoffset * scale,
+          w: g.width * scale,
+          h: g.height * scale,
+          u0: g.u0,
+          v0: g.v0,
+          u1: g.u1,
+          v1: g.v1,
+          r: color?.r ?? 1,
+          g: color?.g ?? 1,
+          b: color?.b ?? 1,
+          a: color?.a ?? 1
+        });
+      }
+      penX += g.xadvance * scale + ls;
+      const prev = codes[i - 1];
+      if (prev !== void 0) penX += kerningOf(font, prev, code) * scale;
+    }
+  }
+  return {
+    quads,
+    width: boxWidth,
+    height: lines.length === 0 ? 0 : lines.length * lineHeightPx,
+    lineCount: lines.length,
+    truncated,
+    missing: Array.from(missingSet).sort((a, b) => a - b)
+  };
+}
+
+// src/extensions/ui/layout.ts
+var UiLayoutKind = { Free: "free", Row: "row", Column: "column", Grid: "grid" };
+var UiWidget = {
+  Group: "group",
+  Panel: "panel",
+  Image: "image",
+  Label: "label",
+  Button: "button",
+  Progress: "progress",
+  Spacer: "spacer"
+};
+var ANCHOR_TOP_LEFT = { x: 0, y: 0 };
+var ANCHOR_CENTER = { x: 0.5, y: 0.5 };
+var nextNodeId = 1;
+var UiNode = class _UiNode {
+  uid;
+  id;
+  widget;
+  kind;
+  anchor;
+  pivot;
+  offset;
+  size;
+  percent;
+  grow;
+  padding;
+  margin;
+  gap;
+  columns;
+  cell;
+  visible;
+  interactive;
+  opaque;
+  contentSize;
+  props;
+  children = [];
+  parent = null;
+  /** 布局结果（设计坐标，绝对值）。 */
+  rect = Rect.zero;
+  /** 测量阶段的自然尺寸。 */
+  measured = { w: 0, h: 0 };
+  constructor(cfg = {}) {
+    this.uid = nextNodeId++;
+    this.id = cfg.id ?? `#${this.uid}`;
+    this.widget = cfg.widget ?? UiWidget.Group;
+    this.kind = cfg.kind ?? UiLayoutKind.Free;
+    this.anchor = cfg.anchor ?? ANCHOR_TOP_LEFT;
+    this.pivot = cfg.pivot ?? ANCHOR_TOP_LEFT;
+    this.offset = cfg.offset ?? { x: 0, y: 0 };
+    this.size = { ...cfg.size ?? {} };
+    this.percent = { ...cfg.percent ?? {} };
+    this.grow = cfg.grow ?? 0;
+    this.padding = {
+      top: cfg.padding?.top ?? 0,
+      right: cfg.padding?.right ?? 0,
+      bottom: cfg.padding?.bottom ?? 0,
+      left: cfg.padding?.left ?? 0
+    };
+    this.margin = {
+      top: cfg.margin?.top ?? 0,
+      right: cfg.margin?.right ?? 0,
+      bottom: cfg.margin?.bottom ?? 0,
+      left: cfg.margin?.left ?? 0
+    };
+    this.gap = cfg.gap ?? 0;
+    this.columns = Math.max(1, Math.floor(cfg.columns ?? 1));
+    this.cell = cfg.cell === void 0 ? null : { w: cfg.cell.w, h: cfg.cell.h };
+    this.visible = cfg.visible ?? true;
+    this.interactive = cfg.interactive ?? false;
+    this.opaque = cfg.opaque ?? false;
+    this.contentSize = { w: cfg.contentSize?.w ?? 0, h: cfg.contentSize?.h ?? 0 };
+    this.props = cfg.props ?? {};
+    for (const c of cfg.children ?? []) this.add(new _UiNode(c));
+  }
+  add(child) {
+    child.parent = this;
+    this.children.push(child);
+  }
+  /** 从前序（绘制顺序）里取所有节点。 */
+  *walk() {
+    yield this;
+    for (const c of this.children) yield* c.walk();
+  }
+  find(id) {
+    for (const n of this.walk()) if (n.id === id) return n;
+    return void 0;
+  }
+  /**
+   * 内区（只扣 padding）。流式布局摆放子节点用它。
+   * ★ 这里**不扣 margin**：margin 是"节点相对父容器"的外边距，作用于自身被摆放的位置，
+   *   扣进内区会让它同时影响"自己占多大"和"子节点从哪开始"——两处都少一点，叠加起来偏得很隐蔽。
+   */
+  inner(rect) {
+    const l = this.padding.left;
+    const t = this.padding.top;
+    const r = this.padding.right;
+    const b = this.padding.bottom;
+    return new Rect(
+      rect.x + l,
+      rect.y + t,
+      Math.max(0, rect.width - l - r),
+      Math.max(0, rect.height - t - b)
+    );
+  }
+};
+function layoutTree(root, bounds) {
+  root.rect = bounds;
+  measure(root, bounds.width, bounds.height);
+  arrange(root, bounds);
+  const out = /* @__PURE__ */ new Map();
+  for (const n of root.walk()) {
+    if (n === root) continue;
+    if (!n.visible) continue;
+    if (out.has(n.id)) {
+      throw new Error(`UI \u8282\u70B9 id \u91CD\u590D\uFF1A${n.id}\uFF08\u540C\u4E00\u68F5\u6811\u91CC id \u5FC5\u987B\u552F\u4E00\uFF0C\u5426\u5219\u547D\u4E2D\u6D4B\u8BD5\u4F1A\u6253\u5230\u9519\u7684\u90A3\u4E2A\uFF09`);
+    }
+    out.set(n.id, n.rect);
+  }
+  return out;
+}
+function measure(node, availW, availH) {
+  if (!node.visible) {
+    node.measured = { w: 0, h: 0 };
+    return;
+  }
+  const fixedW = node.size.w;
+  const fixedH = node.size.h;
+  const pctW = node.percent.w;
+  const pctH = node.percent.h;
+  const innerW = fixedW ?? (pctW !== void 0 ? availW * pctW : availW);
+  const innerH = fixedH ?? (pctH !== void 0 ? availH * pctH : availH);
+  const padW = Math.max(0, innerW - node.padding.left - node.padding.right);
+  const padH = Math.max(0, innerH - node.padding.top - node.padding.bottom);
+  let contentW = 0;
+  let contentH = 0;
+  if (node.kind === UiLayoutKind.Row || node.kind === UiLayoutKind.Column) {
+    let mainTotal = 0;
+    let crossMax = 0;
+    let count = 0;
+    for (const c of node.children) {
+      if (!c.visible) continue;
+      measure(c, padW, padH);
+      count++;
+      const w2 = c.measured.w + c.margin.left + c.margin.right;
+      const h2 = c.measured.h + c.margin.top + c.margin.bottom;
+      if (node.kind === UiLayoutKind.Row) {
+        mainTotal += w2;
+        crossMax = Math.max(crossMax, h2);
+      } else {
+        mainTotal += h2;
+        crossMax = Math.max(crossMax, w2);
+      }
+    }
+    if (count > 0) mainTotal += node.gap * (count - 1);
+    if (node.kind === UiLayoutKind.Row) {
+      contentW = mainTotal;
+      contentH = crossMax;
+    } else {
+      contentW = crossMax;
+      contentH = mainTotal;
+    }
+  } else if (node.kind === UiLayoutKind.Grid) {
+    const cols = node.columns;
+    let cw = node.cell?.w ?? 0;
+    let ch = node.cell?.h ?? 0;
+    let maxCellW = 0;
+    let maxCellH = 0;
+    let n = 0;
+    for (const c of node.children) {
+      if (!c.visible) continue;
+      measure(c, padW, padH);
+      maxCellW = Math.max(maxCellW, c.measured.w + c.margin.left + c.margin.right);
+      maxCellH = Math.max(maxCellH, c.measured.h + c.margin.top + c.margin.bottom);
+      n++;
+    }
+    if (cw === 0) cw = maxCellW;
+    if (ch === 0) ch = maxCellH;
+    const rows = Math.ceil(n / cols);
+    contentW = rows === 0 ? 0 : cols * cw + node.gap * (cols - 1);
+    contentH = rows === 0 ? 0 : rows * ch + node.gap * (rows - 1);
+    node.cell = { w: cw, h: ch };
+  } else {
+    for (const c of node.children) {
+      if (!c.visible) continue;
+      measure(c, padW, padH);
+    }
+    contentW = 0;
+    contentH = 0;
+  }
+  const w = fixedW ?? (pctW !== void 0 ? availW * pctW : Math.max(contentW, node.contentSize.w));
+  const h = fixedH ?? (pctH !== void 0 ? availH * pctH : Math.max(contentH, node.contentSize.h));
+  node.measured = { w: clampSize(w), h: clampSize(h) };
+}
+function clampSize(v) {
+  if (!Number.isFinite(v) || v < 0) return 0;
+  return v;
+}
+function anchoredPos(node, parentInner) {
+  const w = node.measured.w;
+  const h = node.measured.h;
+  const x = parentInner.x + node.margin.left + node.anchor.x * parentInner.width - node.pivot.x * w + node.offset.x;
+  const y = parentInner.y + node.margin.top + node.anchor.y * parentInner.height - node.pivot.y * h + node.offset.y;
+  return { x, y };
+}
+function arrange(node, rect) {
+  if (!node.visible) return;
+  node.rect = rect;
+  const inner = node.inner(rect);
+  if (node.kind === UiLayoutKind.Free) {
+    for (const c of node.children) {
+      if (!c.visible) continue;
+      const p = anchoredPos(c, inner);
+      arrange(c, new Rect(p.x, p.y, c.measured.w, c.measured.h));
+    }
+    return;
+  }
+  if (node.kind === UiLayoutKind.Row || node.kind === UiLayoutKind.Column) {
+    const isRow = node.kind === UiLayoutKind.Row;
+    const mainLen = isRow ? inner.width : inner.height;
+    const visibles = node.children.filter((c) => c.visible);
+    const gaps = node.gap * Math.max(0, visibles.length - 1);
+    let used = 0;
+    let growTotal = 0;
+    for (const c of visibles) {
+      const m = isRow ? c.measured.w + c.margin.left + c.margin.right : c.measured.h + c.margin.top + c.margin.bottom;
+      used += m;
+      growTotal += Math.max(0, c.grow);
+    }
+    const remain = Math.max(0, mainLen - used - gaps);
+    let cursor = 0;
+    for (const c of visibles) {
+      const baseMain = isRow ? c.measured.w + c.margin.left + c.margin.right : c.measured.h + c.margin.top + c.margin.bottom;
+      const extra = growTotal > 0 ? remain * Math.max(0, c.grow) / growTotal : 0;
+      const mainSize = baseMain + extra;
+      const crossSize = isRow ? c.measured.h + c.margin.top + c.margin.bottom : c.measured.w + c.margin.left + c.margin.right;
+      const x = isRow ? inner.x + cursor + c.margin.left : inner.x + c.margin.left;
+      const y = isRow ? inner.y + c.margin.top : inner.y + cursor + c.margin.top;
+      const w = isRow ? Math.max(0, mainSize - c.margin.left - c.margin.right) : Math.max(0, crossSize - c.margin.left - c.margin.right);
+      const h = isRow ? Math.max(0, crossSize - c.margin.top - c.margin.bottom) : Math.max(0, mainSize - c.margin.top - c.margin.bottom);
+      arrange(c, new Rect(x, y, w, h));
+      cursor += mainSize + node.gap;
+    }
+    return;
+  }
+  const cols = Math.max(1, node.columns);
+  const cw = node.cell?.w ?? 0;
+  const ch = node.cell?.h ?? 0;
+  let i = 0;
+  for (const c of node.children) {
+    if (!c.visible) continue;
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const x = inner.x + col * (cw + node.gap) + c.margin.left;
+    const y = inner.y + row * (ch + node.gap) + c.margin.top;
+    arrange(c, new Rect(x, y, Math.max(0, cw - c.margin.left - c.margin.right), Math.max(0, ch - c.margin.top - c.margin.bottom)));
+    i++;
+  }
+}
+function hitTest(root, x, y) {
+  const stack = [];
+  for (const n of root.walk()) if (n.visible) stack.push(n);
+  for (let i = stack.length - 1; i >= 0; i--) {
+    const n = stack[i];
+    const r = n.rect;
+    if (x < r.x || x > r.xMax || y < r.y || y > r.yMax) continue;
+    if (n.interactive) return n;
+    if (n.opaque) return null;
+  }
+  return null;
+}
+function hitChain(node) {
+  const chain = [];
+  let cur = node;
+  while (cur !== null) {
+    chain.push(cur);
+    cur = cur.parent;
+  }
+  return chain;
+}
+
+// src/extensions/ui/widgets.ts
+var UI_LAYER = 2;
+var TextCache = class {
+  map = /* @__PURE__ */ new Map();
+  hits = 0;
+  misses = 0;
+  get(uid, fonts, fontId, text, style) {
+    const f = fonts.get(fontId);
+    if (f === void 0) return null;
+    const key = cacheKey(fontId, text, style);
+    const hit = this.map.get(uid);
+    if (hit !== void 0 && hit.key === key) {
+      this.hits++;
+      return hit.layout;
+    }
+    this.misses++;
+    const layout = layoutText(f, text, style);
+    if (this.map.size > 1024) this.map.clear();
+    this.map.set(uid, { key, layout });
+    return layout;
+  }
+  invalidate(uid) {
+    if (uid === void 0) this.map.clear();
+    else this.map.delete(uid);
+  }
+};
+function cacheKey(fontId, text, style) {
+  const c = style.color;
+  return [
+    fontId,
+    text,
+    style.scale ?? 1,
+    style.align ?? "left",
+    style.lineSpacing ?? 0,
+    style.letterSpacing ?? 0,
+    style.maxWidth ?? 0,
+    style.maxLines ?? 0,
+    style.ellipsis ?? "",
+    c === void 0 ? "-" : `${c.r},${c.g},${c.b},${c.a}`
+  ].join("");
+}
+function buildUiQuads(root, fonts, skin, cache) {
+  const quads = [];
+  let order = 0;
+  let glyphs = 0;
+  let labels = 0;
+  const missingGlyphs = /* @__PURE__ */ new Set();
+  const missingFrames = /* @__PURE__ */ new Set();
+  const emit = (rect, page, uv, tint, ord) => {
+    if (rect.width <= 0 || rect.height <= 0) return;
+    quads.push({
+      nodeId: order,
+      // ★ UI 用 z=0 恒定：排序第一键 layer 恒为 UI_LAYER，绘制顺序全靠 order。
+      //   给 UI 编假的 z 会让"同 order 的兄弟"按 z 乱序 —— 那是最难查的一类重叠。
+      x: rect.x,
+      z: rect.y,
+      w: rect.width,
+      h: rect.height,
+      u0: uv.u0,
+      v0: uv.v0,
+      u1: uv.u1,
+      v1: uv.v1,
+      r: tint?.r ?? 1,
+      g: tint?.g ?? 1,
+      b: tint?.b ?? 1,
+      a: tint?.a ?? 1,
+      order: ord,
+      layer: UI_LAYER,
+      pivotX: 0,
+      pivotY: 0,
+      atlas: page
+    });
+  };
+  const drawFrame = (rect, frameName, slice, tint, ord) => {
+    if (frameName === void 0) return;
+    const f = skin.frames.get(frameName);
+    if (f === void 0) {
+      missingFrames.add(frameName);
+      return;
+    }
+    if (slice > 0) {
+      for (const q2 of nineSlice(rect, f, slice)) emit(q2.rect, f.page, q2.uv, tint, ord);
+    } else {
+      emit(rect, f.page, { u0: f.u0, v0: f.v0, u1: f.u1, v1: f.v1 }, tint, ord);
+    }
+  };
+  const emitText = (node, p, box, style, ord) => {
+    const text = p.text ?? "";
+    if (text === "") return;
+    const layout = cache.get(node.uid, fonts, p.fontId ?? defaultFontId(fonts), text, style);
+    if (layout === null) return;
+    labels++;
+    const y = box.y + (box.height - layout.height) / 2;
+    for (const g of layout.quads) {
+      glyphs++;
+      emit(new Rect(box.x + g.x, y + g.y, g.w, g.h), g.page, g, { r: g.r, g: g.g, b: g.b, a: g.a }, ord);
+    }
+    for (const m of layout.missing) missingGlyphs.add(m);
+  };
+  for (const node of root.walk()) {
+    if (!node.visible) continue;
+    if (node.widget === UiWidget.Group || node.widget === UiWidget.Spacer) continue;
+    const ord = order++;
+    const p = node.props;
+    if (node.widget === UiWidget.Panel) {
+      drawFrame(node.rect, p.frame, p.slice ?? 0, p.tint, ord);
+      continue;
+    }
+    if (node.widget === UiWidget.Image) {
+      drawFrame(node.rect, p.frame, 0, p.tint, ord);
+      continue;
+    }
+    if (node.widget === UiWidget.Button) {
+      drawFrame(node.rect, p.frame, p.slice ?? 0, p.tint, ord);
+      const inner = new Rect(node.rect.x + 4, node.rect.y, Math.max(0, node.rect.width - 8), node.rect.height);
+      emitText(node, p, inner, {
+        ...p.style,
+        maxWidth: inner.width,
+        align: p.style?.align ?? "center",
+        color: p.textColor ?? p.style?.color
+      }, ord);
+      continue;
+    }
+    if (node.widget === UiWidget.Progress) {
+      drawFrame(node.rect, p.frame, p.slice ?? 0, p.tint, ord);
+      const v = Math.max(0, Math.min(1, p.value ?? 0));
+      const f = p.frame === void 0 ? void 0 : skin.frames.get(p.frame);
+      if (v > 0 && f !== void 0) {
+        const r = new Rect(node.rect.x, node.rect.y, node.rect.width * v, node.rect.height);
+        const u1 = f.u0 + (f.u1 - f.u0) * v;
+        emit(r, f.page, { u0: f.u0, v0: f.v0, u1, v1: f.v1 }, p.activeTint ?? { r: 0.5, g: 0.85, b: 0.4, a: 1 }, ord);
+      }
+      continue;
+    }
+    if (node.widget === UiWidget.Label) {
+      emitText(node, p, node.rect, {
+        ...p.style,
+        maxWidth: node.rect.width,
+        align: p.style?.align ?? "left",
+        color: p.textColor ?? p.style?.color
+      }, ord);
+    }
+  }
+  return {
+    quads,
+    stats: {
+      quads: quads.length,
+      glyphs,
+      labels,
+      cacheHits: cache.hits,
+      missingGlyphs: Array.from(missingGlyphs).sort((a, b) => a - b),
+      missingFrames: Array.from(missingFrames).sort()
+    }
+  };
+}
+function defaultFontId(fonts) {
+  const ids = fonts.ids();
+  return ids.length === 0 ? "" : ids[0];
+}
+function nineSlice(rect, f, slice) {
+  const b = Math.max(0, Math.min(slice, f.width / 2, f.height / 2, rect.width / 2, rect.height / 2));
+  if (b <= 0) {
+    return [{ rect, uv: { u0: f.u0, v0: f.v0, u1: f.u1, v1: f.v1 } }];
+  }
+  const sv = b / f.height * (f.v1 - f.v0);
+  const su = b / f.width * (f.u1 - f.u0);
+  const ux = [f.u0, f.u0 + su, f.u1 - su, f.u1];
+  const vy = [f.v0, f.v0 + sv, f.v1 - sv, f.v1];
+  const dx = [rect.x, rect.x + b, rect.xMax - b, rect.xMax];
+  const dy = [rect.y, rect.y + b, rect.yMax - b, rect.yMax];
+  const out = [];
+  for (let r = 0; r < 3; r++) {
+    for (let c = 0; c < 3; c++) {
+      const w = dx[c + 1] - dx[c];
+      const h = dy[r + 1] - dy[r];
+      if (w <= 0 || h <= 0) continue;
+      out.push({
+        rect: new Rect(dx[c], dy[r], w, h),
+        uv: { u0: ux[c], v0: vy[r], u1: ux[c + 1], v1: vy[r + 1] }
+      });
+    }
+  }
+  return out;
+}
+
+// src/extensions/ui/events.ts
+var UiEvent = class {
+  type;
+  /** 事件产生的原始目标（不随冒泡变化）。 */
+  target;
+  /** 当前冒泡到的节点（投递时才有意义）。 */
+  currentTarget;
+  x;
+  y;
+  stopped = false;
+  constructor(type, target, x, y) {
+    this.type = type;
+    this.target = target;
+    this.currentTarget = target;
+    this.x = x;
+    this.y = y;
+  }
+  stopPropagation() {
+    this.stopped = true;
+  }
+  get propagationStopped() {
+    return this.stopped;
+  }
+};
+var UiInputRouter = class {
+  root;
+  dragThreshold;
+  lastDown = false;
+  lastX = Number.NaN;
+  lastY = Number.NaN;
+  downTarget = null;
+  downX = 0;
+  downY = 0;
+  hover = null;
+  /** 最近一次命中的节点（诊断与测试用）。 */
+  hit = null;
+  constructor(root, opts = {}) {
+    this.root = root;
+    this.dragThreshold = opts.dragThreshold ?? 8;
+  }
+  get hovered() {
+    return this.hover;
+  }
+  /** 正在被捕获的目标（按下未抬起）。 */
+  get captured() {
+    return this.downTarget;
+  }
+  /**
+   * 推进一帧。返回本帧产生的事件（已冒泡投递到 `sink`，若提供）。
+   * ★ 返回值是给判据用的：断言"这一刻产生了 click"不需要监听器。
+   */
+  update(p, sink) {
+    const events = [];
+    const hit = hitTest(this.root, p.x, p.y);
+    this.hit = hit;
+    const push = (type, target) => {
+      events.push(new UiEvent(type, target, p.x, p.y));
+    };
+    if (hit !== this.hover) {
+      const prev = this.hover;
+      this.hover = hit;
+      if (prev !== null) push("pointerleave", prev);
+      if (hit !== null) push("pointerenter", hit);
+    }
+    const moved = !(p.x === this.lastX && p.y === this.lastY);
+    if (moved && hit !== null) push("pointermove", hit);
+    if (p.down && !this.lastDown) {
+      this.downTarget = hit;
+      this.downX = p.x;
+      this.downY = p.y;
+      if (hit !== null) push("pointerdown", hit);
+    }
+    if (!p.down && this.lastDown) {
+      const target = this.downTarget;
+      if (target !== null) {
+        push("pointerup", target);
+        const chain = hit === null ? [] : hitChain(hit);
+        const sameTarget = chain.includes(target);
+        const dx = p.x - this.downX;
+        const dy = p.y - this.downY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (sameTarget && dist <= this.dragThreshold) push("click", target);
+      }
+      this.downTarget = null;
+    }
+    this.lastDown = p.down;
+    this.lastX = p.x;
+    this.lastY = p.y;
+    if (sink !== void 0) {
+      for (const ev of events) bubble(ev, sink);
+    }
+    return events;
+  }
+  /** 强制释放捕获（例如页面失焦）。不发事件 —— 失焦不是用户的点击意图。 */
+  release() {
+    this.downTarget = null;
+    this.lastDown = false;
+  }
+};
+function bubble(ev, sink) {
+  let cur = ev.target;
+  while (cur !== null) {
+    if (ev.propagationStopped) return;
+    ev.currentTarget = cur;
+    sink(ev);
+    cur = cur.parent;
+  }
+}
+
+// src/extensions/ui/ui-module.ts
+var RENDER_MODULE_ID = "render.batch2d";
+function createUiModule(opts) {
+  const dpr = opts.dpr ?? 1;
+  const viewport = new UiViewport(opts.viewport);
+  const fonts = new FontRegistry();
+  for (const f of opts.fonts) fonts.register(f);
+  const cache = new TextCache();
+  const skin = opts.skin;
+  const hostPages = opts.pages;
+  const pageSources = opts.pageSources;
+  let ownPages = [];
+  let pages = hostPages ?? [];
+  let root = opts.root ?? new UiNode({ id: "ui.root" });
+  let router = new UiInputRouter(root, { dragThreshold: opts.dragThreshold });
+  let dev = null;
+  let ctxRef = null;
+  let shader = null;
+  let pipeline = null;
+  let batch = null;
+  let vbo = null;
+  let ibo = null;
+  let offRender = null;
+  let dirty = true;
+  let lastPw = -1;
+  let lastPh = -1;
+  let quads = [];
+  let drawStats = {
+    quads: 0,
+    glyphs: 0,
+    labels: 0,
+    cacheHits: 0,
+    missingGlyphs: [],
+    missingFrames: []
+  };
+  let layoutResult = /* @__PURE__ */ new Map();
+  let lastFrame = {
+    quads: 0,
+    drawCalls: 0,
+    glyphs: 0,
+    labels: 0,
+    cacheHits: 0,
+    missingGlyphs: [],
+    missingFrames: [],
+    relaid: false
+  };
+  function sync() {
+    const d = dev;
+    if (d === null) return;
+    const pw = d.size.width;
+    const ph = d.size.height;
+    if (pw > 0 && ph > 0) viewport.setScreen(pw / dpr, ph / dpr, dpr);
+    if (!dirty && pw === lastPw && ph === lastPh) {
+      lastFrame = { ...lastFrame, relaid: false };
+      return;
+    }
+    layoutResult = layoutTree(root, viewport.safeRect);
+    const res = buildUiQuads(root, fonts, skin, cache);
+    quads = res.quads;
+    drawStats = res.stats;
+    dirty = false;
+    lastPw = pw;
+    lastPh = ph;
+    lastFrame = {
+      ...lastFrame,
+      quads: quads.length,
+      glyphs: drawStats.glyphs,
+      labels: drawStats.labels,
+      cacheHits: drawStats.cacheHits,
+      missingGlyphs: drawStats.missingGlyphs,
+      missingFrames: drawStats.missingFrames,
+      relaid: true
+    };
+  }
+  function drawOverlay(cmd) {
+    sync();
+    const d = dev;
+    const b = batch;
+    if (d === null || b === null || pipeline === null || vbo === null || ibo === null) return;
+    if (quads.length === 0) {
+      lastFrame = { ...lastFrame, quads: 0, drawCalls: 0 };
+      return;
+    }
+    const built = b.build(quads, viewport.camera);
+    const up = d.updateBuffer(vbo, b.vertexView(built.quadCount));
+    if (!up.ok) {
+      ctxRef?.log.channel("ui").error(`UI \u9876\u70B9\u4E0A\u4F20\u5931\u8D25\uFF1A${up.error.message}`, void 0, null);
+      return;
+    }
+    cmd.setPipeline(pipeline);
+    for (const run of built.runs) {
+      const page = pages[run.atlas];
+      if (page === void 0) {
+        ctxRef?.log.channel("ui").warn(`UI \u7EB9\u7406\u9875 ${run.atlas} \u4E0D\u5B58\u5728\uFF08\u8BE5\u6BB5\u88AB\u8DF3\u8FC7\uFF09`, void 0, null);
+        continue;
+      }
+      cmd.bindTexture(0, page);
+      cmd.setUniform("u_useTexture", 1, "int");
+      cmd.draw({
+        vertices: vbo,
+        indices: ibo,
+        vertexCount: (run.start + run.count) * 4,
+        indexCount: run.count * 6,
+        firstIndex: run.start * 6
+      });
+    }
+    lastFrame = { ...lastFrame, quads: built.quadCount, drawCalls: built.drawCalls };
+  }
+  const mod = {
+    id: opts.id ?? "ui",
+    deps: [RENDER_MODULE_ID],
+    init(ctx) {
+      ctxRef = ctx;
+      dev = ctx.platform.gfx;
+      const d = dev;
+      if (opts.fonts.length === 0) {
+        return err(engineError("UI.NO_FONT", "UI \u6A21\u5757\u81F3\u5C11\u9700\u8981\u4E00\u4E2A\u4F4D\u56FE\u5B57\u4F53"));
+      }
+      if (hostPages !== void 0 && pageSources !== void 0) {
+        return err(engineError("UI.PAGE_AMBIGUOUS", "pages \u4E0E pageSources \u53EA\u80FD\u7ED9\u4E00\u4E2A\uFF08\u7EB9\u7406\u6240\u6709\u6743\u5FC5\u987B\u552F\u4E00\uFF09"));
+      }
+      if (hostPages === void 0 && pageSources === void 0) {
+        return err(engineError("UI.NO_PAGE", "UI \u6A21\u5757\u81F3\u5C11\u9700\u8981\u4E00\u4E2A\u7EB9\u7406\u9875\uFF08pages \u6216 pageSources\uFF09"));
+      }
+      if (pageSources !== void 0) {
+        if (pageSources.length === 0) return err(engineError("UI.NO_PAGE", "UI \u6A21\u5757\u81F3\u5C11\u9700\u8981\u4E00\u4E2A\u7EB9\u7406\u9875"));
+        const made = [];
+        for (const [i, src] of pageSources.entries()) {
+          const t = d.createTexture(
+            {
+              width: src.width,
+              height: src.height,
+              filter: TextureFilter.Nearest,
+              wrap: TextureWrap.Clamp,
+              label: `engine.ui.page[${String(i)}]:${src.name}`
+            },
+            src.pixels
+          );
+          if (!t.ok) {
+            for (const h of made) d.destroyTexture(h);
+            return t;
+          }
+          made.push(t.value);
+        }
+        ownPages = made;
+        pages = made;
+      }
+      if (pages.length === 0) {
+        return err(engineError("UI.NO_PAGE", "UI \u6A21\u5757\u81F3\u5C11\u9700\u8981\u4E00\u4E2A\u7EB9\u7406\u9875"));
+      }
+      const bail = (e) => {
+        for (const h of ownPages) d.destroyTexture(h);
+        ownPages = [];
+        return e;
+      };
+      const sh = d.createShader({ vertex: SPRITE_VS, fragment: SPRITE_FS, label: "engine.ui" });
+      if (!sh.ok) return bail(sh);
+      const pl = d.createPipeline({
+        shader: sh.value,
+        layout: SPRITE_VERTEX_LAYOUT,
+        blend: BlendMode.Alpha,
+        label: "engine.ui"
+      });
+      if (!pl.ok) {
+        d.destroyShader(sh.value);
+        return bail(pl);
+      }
+      const b = new SpriteBatch(opts.maxQuads ?? 2048);
+      const vb = d.createBuffer({
+        usage: BufferUsage.Vertex,
+        byteLength: b.vertices.byteLength,
+        dynamic: true,
+        label: "engine.ui.vbo"
+      });
+      if (!vb.ok) {
+        d.destroyPipeline(pl.value);
+        d.destroyShader(sh.value);
+        return bail(vb);
+      }
+      const ib = d.createBuffer({
+        usage: BufferUsage.Index,
+        byteLength: b.indices.byteLength,
+        dynamic: false,
+        label: "engine.ui.ibo"
+      });
+      if (!ib.ok) {
+        d.destroyBuffer(vb.value);
+        d.destroyPipeline(pl.value);
+        d.destroyShader(sh.value);
+        return bail(ib);
+      }
+      const up = d.updateBuffer(ib.value, b.indices);
+      if (!up.ok) {
+        d.destroyBuffer(ib.value);
+        d.destroyBuffer(vb.value);
+        d.destroyPipeline(pl.value);
+        d.destroyShader(sh.value);
+        return bail(up);
+      }
+      shader = sh.value;
+      pipeline = pl.value;
+      batch = b;
+      vbo = vb.value;
+      ibo = ib.value;
+      ctx.log.channel("ui").info(
+        `UI \u6A21\u5757\u5C31\u7EEA\uFF1A${opts.fonts.length} \u4E2A\u5B57\u4F53 \xB7 ${skin.frames.size} \u4E2A\u76AE\u80A4\u5E27 \xB7 ${pages.length} \u9875 \xB7 \u8BBE\u8BA1\u5206\u8FA8\u7387 ${viewport.designWidth}x${viewport.designHeight}\uFF08${viewport.scaleMode}\uFF09`
+      );
+      return ok(void 0);
+    },
+    start() {
+      const ctx = ctxRef;
+      if (ctx === null) return err(engineError("UI.NOT_INIT", "start \u4E4B\u524D\u6CA1\u6709 init"));
+      const render = ctx.module(RENDER_MODULE_ID);
+      if (render === void 0) {
+        return err(
+          engineError("UI.NO_RENDER", `\u627E\u4E0D\u5230\u6E32\u67D3\u6A21\u5757 ${RENDER_MODULE_ID}\uFF08UI \u5FC5\u987B\u6302\u5728\u5B83\u7684 pass \u5C3E\u90E8\uFF09`)
+        );
+      }
+      render.setOverlay(drawOverlay);
+      offRender = () => render.setOverlay(null);
+      return ok(void 0);
+    },
+    stop() {
+      offRender?.();
+      offRender = null;
+    },
+    dispose() {
+      const d = dev;
+      if (d !== null) {
+        for (const h of ownPages) d.destroyTexture(h);
+        if (ibo !== null) d.destroyBuffer(ibo);
+        if (vbo !== null) d.destroyBuffer(vbo);
+        if (pipeline !== null) d.destroyPipeline(pipeline);
+        if (shader !== null) d.destroyShader(shader);
+      }
+      ownPages = [];
+      pages = hostPages ?? [];
+      ibo = null;
+      vbo = null;
+      pipeline = null;
+      shader = null;
+      batch = null;
+      dev = null;
+      quads = [];
+      cache.invalidate();
+      dirty = true;
+    },
+    describe() {
+      return `UI\uFF1A${lastFrame.quads} quad / ${lastFrame.drawCalls} draw / ${lastFrame.glyphs} \u5B57\u5F62 / ${lastFrame.labels} \u6807\u7B7E`;
+    },
+    get viewport() {
+      return viewport;
+    },
+    get fonts() {
+      return fonts;
+    },
+    get root() {
+      return root;
+    },
+    setRoot(node) {
+      root = node;
+      router = new UiInputRouter(root, { dragThreshold: opts.dragThreshold });
+      cache.invalidate();
+      dirty = true;
+    },
+    pointer(p) {
+      sync();
+      return router.update(p, opts.onEvent);
+    },
+    invalidate() {
+      dirty = true;
+    },
+    relayout() {
+      dirty = true;
+      sync();
+    },
+    get lastFrame() {
+      return lastFrame;
+    },
+    get layout() {
+      return layoutResult;
+    }
+  };
+  return mod;
+}
+
+// src/host/hud-model.ts
+function hudRows(f) {
+  const r = (n) => String(Math.round(n));
+  const world = f.world === null ? "world -" : `world ${r(f.world.terrain)}/${r(f.world.sites)}`;
+  const script = f.script === null ? "script off" : `script ${r(f.script.calls)}c/${r(f.script.errors)}e${f.script.timeouts > 0 ? `/${r(f.script.timeouts)}to` : ""}`;
+  const hunger = f.hunger === null ? "fed -" : `fed ${r(f.hunger.value)}/${r(f.hunger.max)}`;
+  return [
+    [
+      `fps ${r(f.fps)}`,
+      `tick ${r(f.tick)}`,
+      `quad ${r(f.quads)}`,
+      `draw ${r(f.drawCalls)}`,
+      `cull ${r(f.culled)}`,
+      `nodes ${r(f.nodes)}`,
+      `bodies ${r(f.bodies)}`
+    ].join(" | "),
+    [
+      `atlas:${f.atlas}`,
+      world,
+      `res ${r(f.resources.alive)}/${r(f.resources.spawned)}/${r(f.resources.released)}`,
+      `bag ${r(f.bagStacks)}`,
+      hunger
+    ].join(" | "),
+    [
+      `${f.backends.gfx}/${f.backends.audio}/${f.backends.input}/${f.backends.script ?? "-"}`,
+      script,
+      `drop ${r(f.droppedSteps)}`
+    ].join(" | ")
+  ];
+}
+function hudLine(f) {
+  return hudRows(f).join(" | ");
+}
+function bagRows(stacks, selected) {
+  const sel = stacks.length === 0 ? 0 : Math.min(Math.max(0, selected), stacks.length - 1);
+  return stacks.map((s, i) => ({
+    index: i + 1,
+    // 下划线换空格：`grass_tuft` 读作 "grass tuft"，比原文更好看，且不需要第二张表
+    text: `${String(i + 1)}. ${s.kind.replace(/_/g, " ")} x${String(s.count)}`,
+    selected: i === sel
+  }));
+}
+function bagFooter(hints) {
+  return `click row to select | ${hints.drop} drop 1 | shift+${hints.drop} drop all | ${hints.bag} close`;
+}
+function bagEmptyLine(pickKey) {
+  return `empty - press ${pickKey} to pick something up`;
+}
+
+// src/host/hud-ui.ts
+function buildSkin(json, page = 1) {
+  if (json.width <= 0 || json.height <= 0) {
+    return err(engineError("UI.SKIN_BAD_SIZE", `\u76AE\u80A4\u56FE\u5C3A\u5BF8\u975E\u6CD5\uFF1A${String(json.width)}x${String(json.height)}`));
+  }
+  if (json.frames.length === 0) {
+    return err(engineError("UI.SKIN_NO_FRAME", "\u76AE\u80A4\u91CC\u4E00\u5E27\u90FD\u6CA1\u6709\uFF08\u9762\u677F/\u6309\u94AE\u5168\u90FD\u4F1A\u53D8\u6210\u7A7A\u767D\uFF09"));
+  }
+  const frames = /* @__PURE__ */ new Map();
+  const slice = /* @__PURE__ */ new Map();
+  const W = json.width;
+  const H = json.height;
+  for (const f of json.frames) {
+    if (f.w <= 0 || f.h <= 0) {
+      return err(engineError("UI.SKIN_BAD_FRAME", `\u5E27 ${f.name} \u7684\u5C3A\u5BF8\u975E\u6CD5\uFF1A${String(f.w)}x${String(f.h)}`));
+    }
+    if (f.x < 0 || f.y < 0 || f.x + f.w > W || f.y + f.h > H) {
+      return err(
+        engineError(
+          "UI.SKIN_FRAME_OOB",
+          `\u5E27 ${f.name} \u8D85\u51FA\u76AE\u80A4\u56FE\uFF08${String(f.x)},${String(f.y)} ${String(f.w)}x${String(f.h)} \u4E0D\u5728 ${String(W)}x${String(H)} \u5185\uFF09`
+        )
+      );
+    }
+    if (frames.has(f.name)) {
+      return err(engineError("UI.SKIN_DUP_FRAME", `\u5E27\u540D\u91CD\u590D\uFF1A${f.name}`));
+    }
+    frames.set(f.name, {
+      page,
+      u0: f.x / W,
+      v0: f.y / H,
+      u1: (f.x + f.w) / W,
+      v1: (f.y + f.h) / H,
+      width: f.w,
+      height: f.h
+    });
+    slice.set(f.name, Math.max(0, f.slice));
+  }
+  return ok({ skin: { frames }, slice });
+}
+var DEFAULT_MAX_ROWS = 8;
+var HUD_LAYOUT = {
+  /** 面板总宽（设计 px）。960 设计宽下留出两侧各 160 给世界。 */
+  width: 640,
+  /** 内边距（四边）。 */
+  pad: 6,
+  /** 行间距。 */
+  gap: 2,
+  /** 饱食度条高度。 */
+  bar: 6
+};
+function createHudUi(opts) {
+  const builtR = buildSkin(opts.skinJson, 1);
+  if (!builtR.ok) return builtR;
+  const built = builtR.value;
+  const font = opts.font;
+  const lineH = Math.max(1, font.lineHeight);
+  const pad = HUD_LAYOUT.pad;
+  const gap = HUD_LAYOUT.gap;
+  const rowH = lineH + 4;
+  const maxRows = Math.max(1, opts.maxRows ?? DEFAULT_MAX_ROWS);
+  const hudW = HUD_LAYOUT.width;
+  const bagW = 268;
+  const innerW = bagW - pad * 2;
+  const bagH = pad * 2 + lineH + gap + maxRows * rowH + (maxRows - 1) * gap + gap + lineH * 2;
+  const hudH = pad * 2 + lineH * 3 + gap * 3 + HUD_LAYOUT.bar;
+  const white = new Color(1, 1, 1, 1);
+  const dim = new Color(0.72, 0.76, 0.82, 1);
+  const selTint = new Color(0.42, 0.38, 0.22, 1);
+  const rowTint = new Color(0.26, 0.28, 0.34, 0.85);
+  const barTint = new Color(0.55, 0.86, 0.45, 1);
+  const sliceOf = (name) => built.slice.get(name) ?? 0;
+  const hudRowNodes = [0, 1, 2].map(
+    (i) => new UiNode({
+      id: `hud.row${String(i)}`,
+      widget: UiWidget.Label,
+      size: { w: hudW - pad * 2, h: lineH },
+      props: { text: "", style: { color: dim } }
+    })
+  );
+  const fedBar = new UiNode({
+    id: "hud.fed",
+    widget: UiWidget.Progress,
+    size: { w: hudW - pad * 2, h: HUD_LAYOUT.bar },
+    props: { frame: "bar", slice: 0, value: 1, activeTint: barTint },
+    visible: false
+  });
+  const hudPanel = new UiNode({
+    id: "hud.panel",
+    widget: UiWidget.Panel,
+    kind: UiLayoutKind.Column,
+    anchor: ANCHOR_TOP_LEFT,
+    offset: { x: 8, y: 8 },
+    size: { w: hudW, h: hudH },
+    padding: { top: pad, right: pad, bottom: pad, left: pad },
+    gap,
+    props: { frame: "panel", slice: sliceOf("panel"), tint: new Color(1, 1, 1, 0.55) }
+  });
+  for (const c of [...hudRowNodes, fedBar]) hudPanel.add(c);
+  const bagRowsNodes = Array.from({ length: maxRows }, (_, i) => {
+    const n = new UiNode({
+      id: `bag.row${String(i)}`,
+      widget: UiWidget.Button,
+      size: { w: innerW, h: rowH },
+      interactive: true,
+      opaque: true,
+      visible: false,
+      props: { frame: "slot", slice: sliceOf("slot"), text: "", tint: rowTint, style: { align: "left", color: white } }
+    });
+    return n;
+  });
+  const bagEmpty = new UiNode({
+    id: "bag.empty",
+    widget: UiWidget.Label,
+    size: { w: innerW, h: rowH },
+    visible: false,
+    props: { text: bagEmptyLine(opts.hints.pick), style: { color: dim } }
+  });
+  const bagFoot = new UiNode({
+    id: "bag.foot",
+    widget: UiWidget.Label,
+    size: { w: innerW, h: lineH * 2 },
+    props: { text: bagFooter(opts.hints), style: { color: dim } }
+  });
+  const bagPanel = new UiNode({
+    id: "bag.panel",
+    widget: UiWidget.Panel,
+    kind: UiLayoutKind.Column,
+    anchor: ANCHOR_CENTER,
+    pivot: ANCHOR_CENTER,
+    size: { w: bagW, h: bagH },
+    padding: { top: pad, right: pad, bottom: pad, left: pad },
+    gap,
+    visible: false,
+    // ★ `opaque`：面板底色上的一次点击**不该**穿透到背后的东西。
+    //   现在面板后面没有可点的节点（HUD 是显示层），但这条语义必须现在就对 ——
+    //   等哪天世界里有了"点地面移动"，漏掉它就会变成"点背包面板把角色派出去了"。
+    opaque: true,
+    props: { frame: "panel", slice: sliceOf("panel"), tint: new Color(1, 1, 1, 0.92) }
+  });
+  bagPanel.add(bagEmpty);
+  for (const n of bagRowsNodes) bagPanel.add(n);
+  bagPanel.add(bagFoot);
+  const root = new UiNode({ id: "ui.root" });
+  root.add(hudPanel);
+  root.add(bagPanel);
+  const onEvent = (ev) => {
+    if (ev.type !== "click") return;
+    if (ev.currentTarget !== ev.target) return;
+    const m = /^bag\.row(\d+)$/.exec(ev.target.id);
+    if (m === null) return;
+    opts.onSelectRow(Number(m[1]));
+  };
+  const module = createUiModule({
+    id: "ui.hud",
+    viewport: opts.viewport,
+    skin: built.skin,
+    pageSources: [opts.fontPage, opts.skinPage],
+    fonts: [font],
+    root,
+    dpr: opts.dpr ?? 1,
+    onEvent
+  });
+  let hudSig = "";
+  let bagSig = "";
+  let bagOpenState = false;
+  let bagTexts = [];
+  const api = {
+    module,
+    built,
+    hudRowIds: hudRowNodes.map((n) => n.id),
+    get bagRowTexts() {
+      return bagTexts;
+    },
+    get bagOpen() {
+      return bagOpenState;
+    },
+    setHud(rows, hunger) {
+      const text0 = rows[0] ?? "";
+      const text1 = rows[1] ?? "";
+      const text2 = rows[2] ?? "";
+      const sig = `${text0}${text1}${text2}${hunger === null ? "-" : hunger.toFixed(2)}`;
+      if (sig === hudSig) return;
+      hudSig = sig;
+      const texts = [text0, text1, text2];
+      hudRowNodes.forEach((n, i) => {
+        n.props = { ...n.props, text: texts[i] ?? "" };
+      });
+      fedBar.visible = hunger !== null;
+      fedBar.props = { ...fedBar.props, value: hunger === null ? 0 : Math.max(0, Math.min(1, hunger)) };
+      module.invalidate();
+    },
+    setBag(stacks, selected) {
+      const open = stacks !== null;
+      const list = stacks ?? [];
+      const rows = bagRows(list, selected);
+      const sig = open ? `${rows.map((r) => `${r.text}#${r.selected ? 1 : 0}`).join("|")}` : "#closed";
+      if (sig === bagSig) return;
+      bagSig = sig;
+      bagOpenState = open;
+      bagPanel.visible = open;
+      if (!open) {
+        bagTexts = [];
+        module.invalidate();
+        return;
+      }
+      const shown = Math.min(rows.length, maxRows);
+      for (let i = 0; i < maxRows; i++) {
+        const n = bagRowsNodes[i];
+        const r = i < shown ? rows[i] : void 0;
+        n.visible = r !== void 0;
+        if (r === void 0) continue;
+        n.props = {
+          ...n.props,
+          text: r.text,
+          tint: r.selected ? selTint : rowTint,
+          textColor: white
+        };
+      }
+      bagEmpty.visible = rows.length === 0;
+      bagTexts = rows.map((r) => r.text);
+      module.invalidate();
+    },
+    pointer(cssX, cssY, down) {
+      const p = module.viewport.screenToDesign(cssX, cssY);
+      const ptr = { x: p.x, y: p.y, down };
+      return module.pointer(ptr);
+    }
+  };
+  return ok(api);
+}
+function rectOfId(handle, id) {
+  return handle.module.layout.get(id);
+}
+
 // src/extensions/worldgen/spawn.ts
 var PLAYER_TYPE = "world.player";
 var PLAYER_FRAME = "player";
@@ -20840,6 +22553,8 @@ var DEMO_FRAMES = [
   { name: "photo", file: "photo.jpg" }
 ];
 var ASSET_ROOT = "/assets";
+var UI_FILES = ["ui-font.fnt", "ui-font.png", "ui-skin.png", "ui-skin.json"];
+var UI_FONT_ID = "ui5x7";
 async function bakeAtlasFromAssets() {
   try {
     const fs = new MemoryFileSystem();
@@ -20862,6 +22577,17 @@ async function bakeAtlasFromAssets() {
       const w = await fs.writeBinary(`${ASSET_ROOT}/${file}`, r.value);
       if (!w.ok) return null;
     }
+    let uiFilesOk = true;
+    for (const file of UI_FILES) {
+      const r = await remote.readBinary(file);
+      if (!r.ok) {
+        console.warn(`[ui] \u8BFB\u4E0D\u5230 ${file}\uFF1A${r.error.code} ${r.error.message}\uFF08HUD \u4F1A\u9000\u56DE DOM\uFF09`);
+        uiFilesOk = false;
+        continue;
+      }
+      const w = await fs.writeBinary(`${ASSET_ROOT}/${file}`, r.value);
+      if (!w.ok) uiFilesOk = false;
+    }
     const report = await pipeline.run(ASSET_ROOT);
     if (!report.ok) return null;
     const sources = [];
@@ -20883,10 +22609,75 @@ async function bakeAtlasFromAssets() {
     if (sources.length !== DEMO_FRAMES.length) return null;
     const built = buildAtlasFromSources(sources, { padding: 2 });
     if (!built.ok) return null;
-    return { atlas: built.value, label: `assets\xD7${sources.length}` };
+    const ui = uiFilesOk ? await loadUiAssets(db, logger) : null;
+    return { atlas: built.value, label: `assets*${String(sources.length)}`, ui };
   } catch {
     return null;
   }
+}
+async function loadText(db, file) {
+  const id = db.idAtPath(`${ASSET_ROOT}/${file}`);
+  if (id === void 0) return null;
+  const h = await db.load(id);
+  if (!h.ok) return null;
+  try {
+    return h.value.asset instanceof ImportedText ? h.value.asset.text : null;
+  } finally {
+    h.value.release();
+  }
+}
+async function loadTextureBytes(db, file) {
+  const id = db.idAtPath(`${ASSET_ROOT}/${file}`);
+  if (id === void 0) return null;
+  const h = await db.load(id);
+  if (!h.ok) return null;
+  try {
+    return h.value.asset instanceof ImportedTexture ? h.value.asset.bytes : null;
+  } finally {
+    h.value.release();
+  }
+}
+async function loadUiAssets(db, logger) {
+  const [fnt, skin, fontPngBytes, skinPngBytes] = await Promise.all([
+    loadText(db, "ui-font.fnt"),
+    loadText(db, "ui-skin.json"),
+    loadTextureBytes(db, "ui-font.png"),
+    loadTextureBytes(db, "ui-skin.png")
+  ]);
+  if (fnt === null || skin === null || fontPngBytes === null || skinPngBytes === null) {
+    logger.channel("ui").warn("UI \u8D44\u4EA7\u4E0D\u9F50\uFF08.fnt/.json/\u4E24\u5F20 png\uFF09\uFF0CHUD \u4F1A\u9000\u56DE DOM");
+    return null;
+  }
+  const fontR = parseBmFont(fnt, { id: UI_FONT_ID });
+  if (!fontR.ok) {
+    logger.channel("ui").warn(`\u5B57\u4F53\u89E3\u6790\u5931\u8D25\uFF1A${fontR.error.code} ${fontR.error.message}\uFF08HUD \u4F1A\u9000\u56DE DOM\uFF09`);
+    return null;
+  }
+  const fontDec = decodeImage(fontPngBytes);
+  const skinDec = decodeImage(skinPngBytes);
+  if (!fontDec.ok || !skinDec.ok) {
+    logger.channel("ui").warn("UI \u56FE\u89E3\u7801\u5931\u8D25\uFF08HUD \u4F1A\u9000\u56DE DOM\uFF09");
+    return null;
+  }
+  let json;
+  try {
+    json = JSON.parse(skin);
+  } catch {
+    logger.channel("ui").warn("ui-skin.json \u4E0D\u662F\u5408\u6CD5 JSON\uFF08HUD \u4F1A\u9000\u56DE DOM\uFF09");
+    return null;
+  }
+  const page = (name, w, h, pixels) => ({
+    name,
+    width: w,
+    height: h,
+    pixels
+  });
+  return {
+    font: fontR.value,
+    fontPage: page("ui-font.png", fontDec.value.width, fontDec.value.height, fontDec.value.pixels),
+    skinPage: page("ui-skin.png", skinDec.value.width, skinDec.value.height, skinDec.value.pixels),
+    skinJson: json
+  };
 }
 async function main() {
   const canvas = document.getElementById("cv");
@@ -20942,6 +22733,28 @@ async function main() {
   const controllerMod = createControllerModule({
     poll: () => appRef === null ? EMPTY_INPUT : appRef.platform.input.poll()
   });
+  const bakedUi = baked?.ui ?? null;
+  let hudUi = null;
+  if (bakedUi !== null) {
+    const r = createHudUi({
+      font: bakedUi.font,
+      skinJson: bakedUi.skinJson,
+      fontPage: bakedUi.fontPage,
+      skinPage: bakedUi.skinPage,
+      // 设计分辨率与画布默认尺寸一致（960×600）；`expand` 让 HUD 贴屏幕边而不是贴设计框，
+      // 于是超宽屏上左上角的那块不会跑到黑边里。
+      viewport: { designWidth: 960, designHeight: 600, scaleMode: UiScaleMode.Expand },
+      dpr,
+      hints: { drop: keyLabel("drop"), bag: keyLabel("bag"), pick: keyLabel("harvest") },
+      // 点中背包行 = 选中（走的是**真实指针路径**：命中测试 → click 事件 → 这里）
+      onSelectRow: (i) => {
+        selectBagRow(i);
+      }
+    });
+    if (r.ok) hudUi = r.value;
+    else console.warn(`[ui] UI \u6A21\u5757\u6CA1\u5EFA\u8D77\u6765\uFF1A${r.error.code} ${r.error.message}\uFF08HUD \u9000\u56DE DOM\uFF09`);
+  }
+  hud.hidden = hudUi !== null;
   const worldMod = createWorldModule(physics, {
     onTick: (t) => hudTick = t,
     onStep: (tick, dt) => {
@@ -21222,11 +23035,23 @@ async function main() {
   ]);
   if (!RECIPES_R.ok) throw new Error(`\u914D\u65B9\u8868\u4E0D\u5408\u6CD5\uFF1A${RECIPES_R.error.message}`);
   const RECIPES = RECIPES_R.value;
+  const modules = [
+    worldMod,
+    renderMod,
+    scriptMod,
+    worldgenMod,
+    tasksMod,
+    mobsMod,
+    survivalMod,
+    feedbackMod,
+    controllerMod
+  ];
+  if (hudUi !== null) modules.push(hudUi.module);
   const appR = await bootGameApp({
     platformId: "web",
     interactive: true,
     registry,
-    modules: [worldMod, renderMod, scriptMod, worldgenMod, tasksMod, mobsMod, survivalMod, feedbackMod, controllerMod],
+    modules,
     seed: 20261022,
     fixedDt: 1 / 30,
     tickSource: new RafTickSource(() => performance.now()),
@@ -21429,7 +23254,7 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
     else if (map.justPressed(snap, "bag")) {
       bagOpen = !bagOpen;
       if (bagOpen) bagSel = 0;
-      renderBagPanel(true);
+      syncBagUi();
       toast(bagOpen ? "\u80CC\u5305\u5DF2\u6253\u5F00" : "\u80CC\u5305\u5DF2\u5173\u4E0A");
     } else if (map.justPressed(snap, "drop")) {
       const d = dropSelected(shiftDown);
@@ -21569,51 +23394,22 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
   let bagOpen = false;
   let bagSel = 0;
   let shiftDown = false;
-  let bagSig = "";
   function keyLabel(a) {
     return (controllerMod.map.keysOf(a)[0] ?? "?").replace(/^Key/, "");
   }
-  function renderBagPanel(force = false) {
-    const el = document.getElementById("bag");
-    const rowsEl = document.getElementById("bag-rows");
-    const footEl = document.getElementById("bag-foot");
-    if (el === null || rowsEl === null || footEl === null) return;
-    el.hidden = !bagOpen;
-    if (!bagOpen) {
-      bagSig = "";
+  function syncBagUi(stacks) {
+    if (hudUi === null) return;
+    if (!bagOpen || heroId < 0) {
+      hudUi.setBag(null, bagSel);
       return;
     }
-    const stacks = heroId < 0 ? [] : stacksOf(scene, heroId);
-    const sel = Math.min(Math.max(0, bagSel), Math.max(0, stacks.length - 1));
-    const sig = stacks.map((s) => `${s.kind}:${s.count}`).join("|") + `#${sel}`;
-    if (!force && sig === bagSig) return;
-    bagSig = sig;
-    rowsEl.textContent = "";
-    if (stacks.length === 0) {
-      const d = document.createElement("div");
-      d.className = "empty";
-      d.textContent = "\uFF08\u7A7A\u7684\uFF09\u6309 G \u62FE\u53D6\u70B9\u4EC0\u4E48";
-      rowsEl.appendChild(d);
-    } else {
-      stacks.forEach((s, i) => {
-        const d = document.createElement("div");
-        d.className = i === sel ? "row-item sel" : "row-item";
-        const k = document.createElement("span");
-        k.className = "k";
-        k.textContent = `${String(i + 1)}. ${ITEM_LABEL[s.kind] ?? s.kind}`;
-        const n = document.createElement("span");
-        n.className = "n";
-        n.textContent = `\xD7${String(s.count)}`;
-        d.appendChild(k);
-        d.appendChild(n);
-        d.addEventListener("click", () => {
-          bagSel = i;
-          renderBagPanel(true);
-        });
-        rowsEl.appendChild(d);
-      });
-    }
-    footEl.textContent = `\u70B9\u51FB\u9009\u4E2D \xB7 ${keyLabel("drop")} \u4E22 1 \u4E2A \xB7 Shift+${keyLabel("drop")} \u4E22\u6574\u5806 \xB7 ${keyLabel("bag")} \u5173\u95ED`;
+    hudUi.setBag(stacks ?? stacksOf(scene, heroId), bagSel);
+  }
+  function selectBagRow(i) {
+    const n = heroId < 0 ? 0 : stacksOf(scene, heroId).length;
+    bagSel = n === 0 ? 0 : Math.min(Math.max(0, Math.floor(i)), n - 1);
+    syncBagUi();
+    return bagSel;
   }
   function dropSelected(whole) {
     if (heroId < 0) return err(engineError("BAG.NO_OWNER", "\u6CA1\u6709\u73A9\u5BB6"));
@@ -21637,15 +23433,18 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
       bornTick: app.snapshot().tick
     });
     if (!r.ok) return r;
-    renderBagPanel(true);
+    syncBagUi();
     const label = ITEM_LABEL[s.kind] ?? s.kind;
     return ok(`\u4E22\u4E0B ${label}\xD7${String(n)}\uFF08\u6563\u843D\u5728 ${String(r.value.cells.length)} \u683C\uFF0C\u6309 G \u8FD8\u80FD\u6361\u56DE\u6765\uFF09`);
   }
   let fps = 0;
   let frames = 0;
   let lastFpsAt = performance.now();
+  let renderFrames = 0;
+  let lastHudText = "";
   app.services.require(Services.Frame).onRender((info) => {
     frames++;
+    renderFrames++;
     const now = performance.now();
     if (now - lastFpsAt > 500) {
       fps = frames / ((now - lastFpsAt) / 1e3);
@@ -21658,18 +23457,46 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
     const sc = scriptMod.runtime?.stats();
     const ws = worldState.tasks?.stats();
     const wv = worldState.visual;
-    const scriptTxt = sc === void 0 ? "script off" : `script ${sc.calls}call/${sc.errors}err${sc.timeouts > 0 ? `/${sc.timeouts}to` : ""}`;
-    hud.textContent = `fps ${fps.toFixed(0)} \xB7 tick ${hudTick} \xB7 quad ${lf.quads} \xB7 draw ${lf.drawCalls} \xB7 culled ${lf.culled} \xB7 nodes ${st.scene.nodes} \xB7 bodies ${physics.stats().bodies} \xB7 atlas:${atlasLabel} \xB7 \u4E16\u754C ${wv === null ? "\u672A\u88C5\u914D" : `${wv.terrain}\u5757/${wv.sites}\u70B9`} \xB7 \u8D44\u6E90 \u6D3B${ws?.alive ?? 0}/\u5237${ws?.spawned ?? 0}/\u91C7${ws?.released ?? 0} \xB7 \u80CC\u5305 ${bagText()} \xB7 \u9971\u98DF ${hungerText()} \xB7 ${st.backends.gfx}/${st.backends.audio}/${st.backends.input}/${st.backends.script ?? "-"} \xB7 ${scriptTxt} \xB7 dropped ${st.droppedSteps}`;
-    if (bagOpen) renderBagPanel();
+    const stacks = heroId < 0 ? [] : stacksOf(scene, heroId);
+    const hungerC = heroId < 0 ? void 0 : scene.find(heroId)?.get(HUNGER_TYPE);
+    const facts = {
+      fps,
+      tick: hudTick,
+      quads: lf.quads,
+      drawCalls: lf.drawCalls,
+      culled: lf.culled,
+      nodes: st.scene.nodes,
+      bodies: physics.stats().bodies,
+      atlas: atlasLabel,
+      world: wv === null ? null : { terrain: wv.terrain, sites: wv.sites },
+      resources: { alive: ws?.alive ?? 0, spawned: ws?.spawned ?? 0, released: ws?.released ?? 0 },
+      bagStacks: stacks.length,
+      hunger: hungerC === void 0 ? null : { value: hungerC.value, max: hungerC.max },
+      backends: { gfx: st.backends.gfx, audio: st.backends.audio, input: st.backends.input, script: st.backends.script },
+      script: sc === void 0 ? null : { calls: sc.calls, errors: sc.errors, timeouts: sc.timeouts },
+      droppedSteps: st.droppedSteps
+    };
+    lastHudText = hudLine(facts);
+    if (hudUi !== null) {
+      hudUi.setHud(hudRows(facts), hungerC === void 0 || hungerC.max <= 0 ? null : hungerC.value / hungerC.max);
+      syncBagUi(stacks);
+    } else {
+      hud.textContent = lastHudText;
+    }
   });
+  if (hudUi !== null) {
+    const ui = hudUi;
+    app.platform.input.subscribe((e) => {
+      if (e.kind !== "pointer") return;
+      if (e.x === void 0 || e.y === void 0) return;
+      ui.pointer(e.x, e.y, e.down === true);
+    });
+  }
   const RESERVED = /* @__PURE__ */ new Set(["F5", "F9", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space", "Tab"]);
   window.addEventListener("keydown", (ev) => {
     if (RESERVED.has(ev.code)) ev.preventDefault();
     if (ev.code === "ShiftLeft" || ev.code === "ShiftRight") shiftDown = true;
-    if (bagOpen && /^Digit[1-8]$/.test(ev.code)) {
-      bagSel = Number(ev.code.slice(5)) - 1;
-      renderBagPanel(true);
-    }
+    if (bagOpen && /^Digit[1-8]$/.test(ev.code)) selectBagRow(Number(ev.code.slice(5)) - 1);
   });
   window.addEventListener("keyup", (ev) => {
     if (ev.code === "ShiftLeft" || ev.code === "ShiftRight") shiftDown = false;
@@ -21704,7 +23531,7 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
     heroId,
     /** 打一下最近的敌人（自检页用：它要走**玩家这条真实路径**，见 `attackNearest`）。 */
     attack: () => attackNearest(),
-    /** 图集真实来源：`assets×7`（6 PNG + 1 JPEG）表示走完了导入链；`procedural` 表示降级了。 */
+    /** 图集真实来源：`assets*7`（6 PNG + 1 JPEG）表示走完了导入链；`procedural` 表示降级了。 */
     atlasSource: atlasLabel,
     /** 世界链的产物：生成计划 / 装配结果 / 可见化报告 / 再生任务句柄。 */
     world: {
@@ -21919,21 +23746,17 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
         return { ok: true, cells: r.value.cells.slice(), cost: r.value.cost };
       }
     },
-    /** 背包面板状态（自检页读 DOM 之前先读它：开着没有、选中第几堆）。 */
+    /** 背包面板状态（自检页读 UI 之前先读它：开着没有、选中第几堆）。 */
     bagPanel: () => ({ open: bagOpen, selected: bagSel, stacks: stacksOf(scene, heroId).length }),
     /** 开关面板（自检页驱动；等价于按 Tab）。 */
     toggleBag: () => {
       bagOpen = !bagOpen;
       if (bagOpen) bagSel = 0;
-      renderBagPanel(true);
+      syncBagUi();
       return bagOpen;
     },
     /** 选中第 i 堆（自检页驱动；等价于按数字键）。 */
-    selectStack: (i) => {
-      bagSel = i;
-      renderBagPanel(true);
-      return bagSel;
-    },
+    selectStack: (i) => selectBagRow(i),
     /** 丢弃选中堆（自检页驱动；等价于按 Q，`whole` = 按住 Shift）。 */
     dropSelected: (whole = false) => {
       const r = dropSelected(whole);
@@ -21942,7 +23765,54 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
     /** 当前操作提示（**从映射表生成**，改键后它自己会变）。 */
     helpText: () => helpText(),
     /** 动作名 → 键位（改键界面的数据源，也是"提示与键位同源"的证据）。 */
-    bindings: () => ({ ...controllerMod.map.toData().actions })
+    bindings: () => ({ ...controllerMod.map.toData().actions }),
+    /** 最近一帧的 HUD 一行文本（**UI 路径下 DOM 不再更新**，诊断与降级都读这里）。 */
+    hudText: () => lastHudText,
+    /**
+     * 图形后端的帧计数（`frameIndex` **每次 `endFrame` 加一**）。
+     *
+     * ★★ 自检页用它证"UI 与世界在**同一个 pass**"：一帧里若 UI 自己开了第二个
+     *   `beginFrame/endFrame`，`frameIndex` 会跳 2。这是这条集成约定**唯一**
+     *   能从外部观测到的证据 —— 顶点和 draw call 都看不出"在不在同一个 pass 里"。
+     */
+    gfxStats: () => app.platform.gfx.stats,
+    /** 累计渲染帧数（引擎侧计数）。与 `gfxStats().frameIndex` 对账 ⇒ 一帧几个 pass。 */
+    renderFrames: () => renderFrames,
+    /**
+     * UI（批71）。`null` = UI 资产不可用，HUD 已退回 DOM。
+     *
+     * ★ 这里给的必须是**屏幕上的事实**：这一帧真画了多少 quad/字形、
+     *   有没有画不出来的字、面板的行文本是什么、点一下会发生什么。
+     *   "我建了 UI 模块"不能当证据 —— 它和"UI 真的画出来了"是两件事。
+     */
+    ui: hudUi === null ? null : {
+      lastFrame: () => hudUi.module.lastFrame,
+      /** 设计坐标里的节点矩形（`null` = 不可见/没这个 id）。 */
+      rect: (id) => rectOfId(hudUi, id) ?? null,
+      /** 面板里**画出来的**行文本（不是重新算一遍的那份）。 */
+      bagRows: () => hudUi.bagRowTexts.slice(),
+      bagOpen: () => hudUi.bagOpen,
+      hudRowIds: hudUi.hudRowIds,
+      /** 设计坐标（自检页验"点击命中真实矩形"时用）。 */
+      designSize: () => ({ w: hudUi.module.viewport.designWidth, h: hudUi.module.viewport.designHeight }),
+      /**
+       * 点一下某个节点：走**真实指针路径**（设计坐标 → CSS 像素 → 命中测试 → click）。
+       * 直接改 `bagSel` 只能证明"赋值有效"，证明不了"面板上的行点得到"。
+       */
+      clickNode: (id) => {
+        hudUi.module.relayout();
+        const r = rectOfId(hudUi, id);
+        if (r === void 0) return { ok: false, reason: "NO_RECT", clicks: [] };
+        const s = hudUi.module.viewport.designToScreen(r.x + r.width / 2, r.y + r.height / 2);
+        hudUi.pointer(s.x, s.y, true);
+        const evs = hudUi.pointer(s.x, s.y, false);
+        return {
+          ok: true,
+          reason: "",
+          clicks: evs.filter((e) => e.type === "click").map((e) => e.target.id)
+        };
+      }
+    }
   };
 }
 void main();

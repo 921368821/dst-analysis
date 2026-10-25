@@ -109,6 +109,7 @@ test("规则 5 · 每个顶层目录都必须登记层级（新增目录不许'�
     "script",
     "extensions",
     "backends",
+    "host",
   ]);
   const tops = new Set<string>();
   for (const f of files) {

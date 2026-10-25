@@ -19,22 +19,9 @@
     pointer-events: none; white-space: nowrap; }
   #help { position: fixed; right: 8px; bottom: 8px; opacity: .45; font-size: 11px;
     text-align: right; pointer-events: none; }
-  /* 背包面板：与 HUD 不同，它要能吃鼠标事件（点选堆叠） */
-  #bag { position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%);
-    min-width: 220px; padding: 10px 12px; border-radius: 8px;
-    background: rgba(10,14,20,.94); border: 1px solid #2a3340;
-    box-shadow: 0 8px 32px rgba(0,0,0,.5); pointer-events: auto; }
-  #bag[hidden] { display: none; }
-  #bag h2 { margin: 0 0 8px; font-size: 12px; font-weight: 600; color: #8b98a8; }
-  #bag .row-item { display: flex; justify-content: space-between; gap: 12px;
-    padding: 3px 6px; border-radius: 4px; cursor: pointer; white-space: nowrap; }
-  #bag .row-item:hover { background: rgba(255,255,255,.06); }
-  #bag .row-item.sel { background: rgba(88,140,220,.28); outline: 1px solid rgba(120,170,255,.5); }
-  #bag .row-item .k { color: #9fb4d0; }
-  #bag .row-item .n { color: #e6c07b; }
-  #bag .empty { color: #6a7684; padding: 4px 6px; }
-  #bag .foot { margin-top: 8px; padding-top: 6px; border-top: 1px solid #222a35;
-    font-size: 11px; color: #6a7684; white-space: nowrap; }
+  /* 背包面板的样式在批71 搬进了引擎：它现在是 UI 节点（九宫格皮肤 + 位图字体），
+     不再是 DOM。这里删掉的 .row-item / .empty / .foot 一套 CSS 若留着，
+     "面板长什么样"就会有两处定义 —— 改一处另一处悄悄失效。 */
 </style>
 </head>
 <body>
@@ -42,11 +29,11 @@
 <div id="hud">启动中…</div>
 <div id="toast"></div>
 <div id="help">键位由映射表生成（启动后写入）</div>
-<div id="bag" hidden>
-  <h2>背包</h2>
-  <div id="bag-rows"></div>
-  <div class="foot" id="bag-foot"></div>
-</div>
+<!--
+  背包面板**没有 DOM**：它是引擎 UI 树里的一块（`host/hud-ui.ts`），
+  所以这里既没有 #bag，也没有 #bag-rows。
+  `#hud` 留着只是为了"UI 资产缺失时退回一行文本"这条降级路径 —— UI 起来之后它会被隐藏。
+-->
 <script type="module" src="./bundle.js"></script>
 </body>
 </html>
