@@ -20,9 +20,9 @@
 
 ```bash
 npm install
-npm run check            # tsc（strict）+ 1697 条判据 + 覆盖率闸门 <!-- n:tests -->
+npm run check            # tsc（strict）+ 1717 条判据 + 覆盖率闸门 <!-- n:tests -->
 npm run audit:errors     # 拒绝路径审计：JPEG 解码器 94 条 fail 分支里哪些真的被触发过
-npm run audit:mutation   # 变异校验：351 组注入，判据必须逐个变红 <!-- n:mutants -->
+npm run audit:mutation   # 变异校验：360 组注入，判据必须逐个变红 <!-- n:mutants -->
 npm run audit:docs       # 文档数字对账：判据/变异/测试文件/浏览器自检/JPEG 金标
 npm run test:browser     # 无头浏览器跑 selftest.html 的 46 条 <!-- n:browser -->（无浏览器时退出码 2 = 跳过）
 npm run ci               # 全部 14 道闸门 <!-- n:steps -->（含浏览器自检/外部金标/变异；--fast 跳过慢的那几步）
@@ -42,8 +42,12 @@ npm run serve:web        # http://127.0.0.1:8123/
 npm run pack -- --platform wechat --staging <产物目录> --out <输出目录> --config examples/pack/wechat.config.json
 # Steam：生成 app_build_<appId>.vdf 与每个 depot 的 depot_build_<id>.vdf
 npm run pack -- --platform steam  --staging <产物目录> --out <输出目录> --config examples/pack/steam.config.json
+# Steam 直接上传（本机要装有 steamcmd 并在 PATH 里；账号可省，缺省 anonymous 只能下专用服务器）
+npm run pack -- --platform steam  --staging <产物目录> --out <输出目录> --config examples/pack/steam.config.json \
+  --upload --login <你的账号>
 
-# 退出码三分：0 通过 / 1 真有打包问题（超预算·文件没归属·配置错）/ 2 用法或环境错误
+# 退出码三分：0 通过 / 1 真有打包问题（超预算·文件没归属·配置错·上传失败）/ 2 用法或环境错误
+#   （「PATH 里没有 steamcmd」是 2 不是 1 —— 那是环境缺失，不是包打坏了）
 # --check 只判断不写盘；--strict-api 把小游戏里不存在的浏览器 API 从告警升级为失败
 ```
 
@@ -119,7 +123,7 @@ L0 foundation  Result · math · log · event · memory · time · random
 
 ## 当前状态
 
-- ✅ L0–L3 完整；**12 个后端** <!-- n:backends -->（gfx×2 / audio×2 / input×2 / fs×4（mem + 真实盘 + 只读 http + localStorage）/ script×2）；**1697 条判据全绿** <!-- n:tests -->（变异 351 组全被抓住 <!-- n:mutants -->）
+- ✅ L0–L3 完整；**12 个后端** <!-- n:backends -->（gfx×2 / audio×2 / input×2 / fs×4（mem + 真实盘 + 只读 http + localStorage）/ script×2）；**1717 条判据全绿** <!-- n:tests -->（变异 360 组全被抓住 <!-- n:mutants -->）
 - ✅ 2D 渲染管线（相机/精灵/批处理/确定性图集合成）· 2.5D 物理 · 确定性存档 · 跳时间结算
 - ✅ **UI + 位图字体**：BMFont 解析 → 纯函数排版（量宽与画宽同源）→ 三模式视口（fit/fill/expand）
   → 锚点 + Row/Column/Grid → 九宫格控件（Group/Panel/Image/Label/Button/Progress）→ 捕获 + 冒泡。
@@ -159,7 +163,7 @@ L0 foundation  Result · math · log · event · memory · time · random
     + 8 例无损 9..16 位（liblj92 编解，**逐样本相等**）+ 8 位灰度（liblj92 与 Pillow 双外部对照）
     + **12 例 ffmpeg 独立金标**（`tests/fixtures/jpeg/ff/`，12 位 DCT 的第三方参照：灰度差 0..2 级、RGB 差 4 级）
   · 仍然没有外部实现的部分（分层、SOF11）用更强的内部判据：
-    四种有损过程解出**逐字节相同**像素、无损回环 max=0、12 位跨精度锚定到 8 位金标；351 组变异全被抓住 <!-- n:mutants -->
+    四种有损过程解出**逐字节相同**像素、无损回环 max=0、12 位跨精度锚定到 8 位金标；360 组变异全被抓住 <!-- n:mutants -->
   · 证据等级与代价见 [ADR-0009](docs/adr/0009-jpeg-decoder.md)
 - ✅ 浏览器宿主能跑，且**画面用真实资产**：`web/assets/` 5 张 PNG + **1 张 JPEG** 走完整导入链
   烘焙成图集（WASD + 砍树 + 存读档 + HUD + Lua 驱动的浆果漂浮 + 4 块 JPEG 立牌）

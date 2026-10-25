@@ -3274,6 +3274,67 @@ MUTANTS = [
                    "  const loopCount = input.loopCount ?? 1;")],
         "test": "tests/extensions/tween-player.test.ts",
     },
+    {
+        "name": "M352 Steam 命令末尾漏掉 +quit（steamcmd 停在提示符上，CI 挂到超时且日志无错）",
+        # ★ 这类错误最贵：没有异常、没有栈，只是"不结束"。所以 +quit 由构造器追加，
+        #   判据同时验"最后一个"和"只出现一次"。
+        "file": "src/publish/steam-upload.ts",
+        "pairs": [('argv: ["+login", login, "+run_app_build", o.appBuildVdf, "+quit"],',
+                   'argv: ["+login", login, "+run_app_build", o.appBuildVdf],')],
+        "test": "tests/publish/steam-upload.test.ts",
+    },
+    {
+        "name": "M353 +quit 挪到最前面（参数顺序错：登录/上传都没执行就退出）",
+        "file": "src/publish/steam-upload.ts",
+        "pairs": [('argv: ["+login", login, "+run_app_build", o.appBuildVdf, "+quit"],',
+                   'argv: ["+quit", "+login", login, "+run_app_build", o.appBuildVdf],')],
+        "test": "tests/publish/steam-upload.test.ts",
+    },
+    {
+        "name": "M354 登录名含空格不再拒绝（steamcmd 把后半截当密码，报「登录失败」）",
+        "file": "src/publish/steam-upload.ts",
+        "pairs": [("  } else if (needsQuoting(login)) {", "  } else if (false) {")],
+        "test": "tests/publish/steam-upload.test.ts",
+    },
+    {
+        "name": "M355 相对路径的 vdf 放行（steamcmd chdir 之后找不到文件）",
+        "file": "src/publish/steam-upload.ts",
+        "pairs": [("  if (!isAbsolutePathLike(o.appBuildVdf)) {", "  if (false) {")],
+        "test": "tests/publish/steam-upload.test.ts",
+    },
+    {
+        "name": "M356 给含空格的路径预先加引号（spawn 不经 shell，引号成了路径的一部分）",
+        "file": "src/publish/steam-upload.ts",
+        "pairs": [('argv: ["+login", login, "+run_app_build", o.appBuildVdf, "+quit"],',
+                   'argv: ["+login", login, "+run_app_build", needsQuoting(o.appBuildVdf) ? `"${o.appBuildVdf}"` : o.appBuildVdf, "+quit"],')],
+        "test": "tests/publish/steam-upload.test.ts",
+    },
+    {
+        "name": "M357 PATH 里的空条目不再跳过（朴素拼出根下的 /steamcmd —— 执行到错的那个文件）",
+        "file": "src/publish/steam-upload.ts",
+        "pairs": [('    if (dir === "") continue;', "    if (dir === \"\") { /* 不跳过 */ }")],
+        "test": "tests/publish/steam-upload.test.ts",
+    },
+    {
+        "name": "M358 Windows 后缀表去掉 .exe（装了 steamcmd.exe 也找不到）",
+        "file": "src/publish/steam-upload.ts",
+        "pairs": [('exts: win ? ["", ".exe", ".bat", ".cmd"] : [""]', 'exts: win ? ["", ".bat", ".cmd"] : [""]')],
+        "test": "tests/publish/steam-upload.test.ts",
+    },
+    {
+        "name": "M359 --check 与 --upload 互斥检查写反（说好只检查，结果照传）",
+        "file": "tools/pack.ts",
+        "pairs": [('if (checkOnly && wantUpload) usage("--check 只做判断，不能同时 --upload");',
+                   'if (checkOnly && !wantUpload) usage("--check 只做判断，不能同时 --upload");')],
+        "test": "tests/publish/pack-cli.test.ts",
+    },
+    {
+        "name": "M360 找不到 steamcmd 时退 1（把环境缺失说成打包坏了，人去查预算）",
+        "file": "tools/pack.ts",
+        "pairs": [('  console.error(`  VDF 已经写好，也可以手工执行：${renderSteamCommandLine(steamCmd.argv)}`);\n  process.exit(EXIT_USAGE);',
+                   '  console.error(`  VDF 已经写好，也可以手工执行：${renderSteamCommandLine(steamCmd.argv)}`);\n  process.exit(EXIT_FAIL);')],
+        "test": "tests/publish/pack-cli.test.ts",
+    },
 ]
 
 

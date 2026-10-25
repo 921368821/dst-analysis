@@ -5,7 +5,7 @@
  *   node --experimental-transform-types tools/pack.ts --platform wechat --staging <dir> --out <dir> \
  *        [--config <json>] [--check] [--strict-api]
  *   node --experimental-transform-types tools/pack.ts --platform steam  --staging <dir> --out <dir> \
- *        --config <json> [--check]
+ *        --config <json> [--check] [--upload [--login <账号>]]
  *
  * ★ 这一层只做 IO：读目录、写文件、报大小。所有**判断**（预算 / 归属 / 后缀 / VDF 形状）
  *   都在 `src/publish/pack-plan.ts` 里 —— 那里的逻辑能被 Node 判据逐条钉住，
@@ -19,10 +19,12 @@
  *   否则每次打包都会在产物目录里留下几百个"改了但内容一样"的文件。
  */
 
-import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 
 import {
+  PACK_FORBIDDEN_API,
   WECHAT_LIMITS,
   checkVdf,
   planWechat,
@@ -33,6 +35,14 @@ import {
   type StagedFile,
   type WechatPackConfig,
 } from "../src/publish/pack-plan.ts";
+import {
+  STEAM_UPLOAD_ERR,
+  STEAMCMD_NAMES,
+  buildSteamCmdArgv,
+  defaultPathLookup,
+  renderSteamCommandLine,
+  resolveExecutable,
+} from "../src/publish/steam-upload.ts";
 import type { EngineError } from "../src/foundation/result.ts";
 
 const EXIT_PASS = 0;
@@ -46,6 +56,7 @@ interface Staged extends StagedFile {
 function usage(msg: string): never {
   console.error(`✗ ${msg}`);
   console.error("  用法：--platform wechat|steam --staging <dir> --out <dir> [--config <json>] [--check] [--strict-api]");
+  console.error("        （Steam 追加）[--upload [--login <账号>]]");
   process.exit(EXIT_USAGE);
 }
 
@@ -69,10 +80,20 @@ const out = arg("out");
 const configPath = arg("config");
 const checkOnly = process.argv.includes("--check");
 const strictApi = process.argv.includes("--strict-api");
+const wantUpload = process.argv.includes("--upload");
+const login = arg("login");
 
 if (platform !== "wechat" && platform !== "steam") usage("--platform 必须是 wechat 或 steam");
 if (staging === undefined) usage("缺少 --staging <dir>");
 if (out === undefined) usage("缺少 --out <dir>");
+// ★ 这两个组合不许"猜用户想要哪个"：
+//   `--check --upload` 是自相矛盾的（检查完顺手传上去，比什么都不做危险得多）；
+//   微信的上传要 appid + 私钥、走开发者工具，本批没接 —— 假装支持会让人以为传成功了。
+if (checkOnly && wantUpload) usage("--check 只做判断，不能同时 --upload");
+if (platform === "wechat" && wantUpload) {
+  usage("--upload 目前只支持 Steam（微信上传要 appid/私钥，走开发者工具，本批未接）");
+}
+if (login !== undefined && !wantUpload) usage("--login 只在 --upload 时有意义（省得以为它改了别的东西）");
 const stagingAbs = resolve(staging);
 const outAbs = resolve(out);
 
@@ -177,7 +198,10 @@ if (platform === "wechat") {
     console.log(`\n⚠ 小游戏环境里没有的 API：${String(hits.length)} 处（${list}）`);
     console.log(`  首个命中：${hits[0]!.file}:${String(hits[0]!.line)}（${hits[0]!.api}）`);
     if (strictApi) {
-      console.error("✗ --strict-api：存在小游戏不可用的浏览器 API，需要 host-wx 适配层");
+      console.error(
+        `✗ ${PACK_FORBIDDEN_API}：存在小游戏不可用的浏览器 API（--strict-api 把它从告警升级为失败），` +
+          "需要一个 host-wx 适配层",
+      );
       process.exit(EXIT_FAIL);
     }
   }
@@ -259,5 +283,47 @@ if (checkOnly) {
 }
 for (const [name, text] of texts) writeIfChanged(join(outAbs, name), Buffer.from(text, "utf8"));
 console.log(`✓ 已写出 ${String(texts.length)} 个 VDF（新建/更新 ${String(wrote)} 个，${String(same)} 个未变）`);
-console.log(`  下一步：steamcmd +login <账号> +run_app_build ${join(outAbs, appFile)}`);
+
+// ---------------------------------------------------------------- 上传（steamcmd）
+
+if (!wantUpload) {
+  console.log(`  下一步：steamcmd +login <账号> +run_app_build ${join(outAbs, appFile)}`);
+  process.exit(EXIT_PASS);
+}
+
+const argvR = buildSteamCmdArgv({ appBuildVdf: join(outAbs, appFile), ...(login === undefined ? {} : { login }) });
+if (!argvR.ok) {
+  report(argvR.error);
+  console.error("\n✗ 命令参数不合法 —— 没有上传（VDF 已经写好了，改完参数可以只重跑上传）");
+  process.exit(EXIT_FAIL);
+}
+const steamCmd = argvR.value;
+
+const exe = resolveExecutable(
+  STEAMCMD_NAMES,
+  defaultPathLookup(process.env["PATH"] ?? "", process.platform),
+  existsSync,
+);
+if (exe === null) {
+  // ★ 环境缺失走 2，不走 1：这不是"包打坏了"，人去查预算/归属只会白查。
+  console.error(`✗ ${STEAM_UPLOAD_ERR.NO_STEAMCMD}：PATH 里找不到 steamcmd —— 装一个，或把它加进 PATH 再跑`);
+  console.error(`  VDF 已经写好，也可以手工执行：${renderSteamCommandLine(steamCmd.argv)}`);
+  process.exit(EXIT_USAGE);
+}
+
+console.log(`\n▸ 上传：${renderSteamCommandLine(steamCmd.argv, exe)}`);
+const child = spawnSync(exe, [...steamCmd.argv], { stdio: "inherit" });
+if (child.error !== undefined) {
+  console.error(`✗ 起不了 ${exe}：${child.error.message}`);
+  process.exit(EXIT_USAGE);
+}
+if (child.status !== 0) {
+  // steamcmd 自己的输出已经由 stdio:inherit 打到终端了，这里只补一句结论
+  console.error(`✗ steamcmd 退出码 ${String(child.status)} —— 上传失败（原因看上面 steamcmd 自己的输出）`);
+  process.exit(EXIT_FAIL);
+}
+console.log("✓ steamcmd 报成功");
+// ★ 这句必须打：setlive 只对 beta 分支自动生效，default 分支要人工点发布。
+//   漏掉这一步的现象是「上传成功、日志全绿、玩家那边没更新」。
+console.log("  注意：setlive 只对 beta 分支自动生效，default 分支仍需人工在后台点发布");
 process.exit(EXIT_PASS);

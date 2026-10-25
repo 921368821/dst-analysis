@@ -40,10 +40,11 @@ interface CliResult {
   readonly stderr: string;
 }
 
-function cli(args: readonly string[]): CliResult {
+function cli(args: readonly string[], env?: NodeJS.ProcessEnv): CliResult {
   const r = spawnSync(process.execPath, ["--experimental-transform-types", "tools/pack.ts", ...args], {
     cwd: ROOT,
     encoding: "utf8",
+    ...(env === undefined ? {} : { env }),
   });
   return { status: r.status ?? -1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
 }
@@ -308,6 +309,8 @@ test("[打包CLI] 浏览器专有 API：默认只告警（退出 0），--strict
     const strict = cli(["--platform", "wechat", "--staging", staging, "--out", out, "--config", WECHAT_CFG, "--strict-api"]);
     assert.equal(strict.status, 1, strict.stdout);
     assert.match(strict.stderr, /--strict-api/);
+    // 报错要带错误码：CI 里能直接 grep，人也能对上文档
+    assert.match(strict.stderr, /PACK\.FORBIDDEN_API/);
   } finally {
     for (const d of [staging, out]) rmSync(d, { recursive: true, force: true });
   }
@@ -401,5 +404,80 @@ test("[打包CLI] Steam 配置缺 appId / depots → 退出码 2", () => {
     assert.equal(cli(["--platform", "steam", "--staging", staging, "--out", out, "--config", cfg]).status, 2);
   } finally {
     for (const d of [staging, out, dir]) rmSync(d, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------- 上传（steamcmd）
+
+/** 把 PATH 清空的环境：用来验「找不到 steamcmd」这条环境分支，不需要真的装它。 */
+function envWithoutPath(): NodeJS.ProcessEnv {
+  const e: NodeJS.ProcessEnv = { ...process.env };
+  // Windows 上 PATH 的大小写不固定，两个都清掉才真的找不到
+  e["PATH"] = "";
+  e["Path"] = "";
+  return e;
+}
+
+test("[打包CLI] --upload 只支持 Steam：微信上传要给 appid/私钥走开发者工具", () => {
+  const staging = sampleStaging("upwx");
+  const out = tmp("upwx-out");
+  try {
+    const r = cli(["--platform", "wechat", "--staging", staging, "--out", out, "--config", WECHAT_CFG, "--upload"]);
+    // 退出 2（用法/环境），不是 1：这不是"包打坏了"
+    assert.equal(r.status, 2, `${r.stdout}${r.stderr}`);
+    assert.match(r.stderr, /开发者工具/, "要说清微信上传该走哪条路，而不是只说「不支持」");
+  } finally {
+    for (const d of [staging, out]) rmSync(d, { recursive: true, force: true });
+  }
+});
+
+test("[打包CLI] --check 与 --upload 不许同时给（说好只检查，顺手就传上去最危险）", () => {
+  const staging = sampleStaging("ckup");
+  const base = tmp("ckup-out");
+  // ★ 必须用**不存在的子路径**：`mkdtempSync` 自己就建了目录，
+  //   直接断言那个目录不存在会恒假（这条判据自己踩过）。
+  const out = join(base, "never", "created");
+  try {
+    const r = cli(["--platform", "steam", "--staging", staging, "--out", out, "--config", STEAM_CFG, "--check", "--upload"]);
+    assert.equal(r.status, 2, `${r.stdout}${r.stderr}`);
+    assert.equal(existsSync(out), false, "既说 --check 就一个文件都不该写");
+  } finally {
+    for (const d of [staging, base]) rmSync(d, { recursive: true, force: true });
+  }
+});
+
+test("[打包CLI] --login 单独给（没有 --upload）→ 退出码 2，不让它悄悄无效", () => {
+  const staging = sampleStaging("loginonly");
+  const out = tmp("loginonly-out");
+  try {
+    const r = cli(["--platform", "steam", "--staging", staging, "--out", out, "--config", STEAM_CFG, "--login", "builder"]);
+    assert.equal(r.status, 2, `${r.stdout}${r.stderr}`);
+    assert.match(r.stderr, /--upload/);
+  } finally {
+    for (const d of [staging, out]) rmSync(d, { recursive: true, force: true });
+  }
+});
+
+test("[打包CLI] ★★ PATH 里没有 steamcmd：退出 2、但仍把 VDF 写好并给出可手抄的命令", () => {
+  const staging = sampleStaging("nosteamcmd");
+  const out = tmp("nosteamcmd-out");
+  try {
+    const r = cli(["--platform", "steam", "--staging", staging, "--out", out, "--config", STEAM_CFG, "--upload"], envWithoutPath());
+    // 环境缺失 = 2（不是 1）：人去查预算/归属只会白查
+    assert.equal(r.status, 2, `${r.stdout}${r.stderr}`);
+    assert.match(r.stderr, /STEAM\.NO_STEAMCMD/);
+
+    // ★ 这条最重要：上传这一步失败，**不许把已经打好的东西丢掉** ——
+    //   VDF 是上一步的产物，重跑一次要重扫整个 staging。
+    assert.ok(listFiles(out).length > 0, "上传失败时连 VDF 都没写出来");
+    const names = listFiles(out);
+    assert.ok(names.some((n) => n.startsWith("app_build_")), `没写 app_build：${names.join(",")}`);
+
+    // 报错里要给出能直接抄去执行的完整命令（含 +quit —— 少了它 steamcmd 会挂住）
+    const hint = `${r.stdout}${r.stderr}`;
+    assert.ok(hint.includes("+run_app_build"), "没有给出可手抄的命令");
+    assert.ok(hint.includes("+quit"), "手抄的命令里没有 +quit —— 贴进去 steamcmd 会停在提示符上");
+  } finally {
+    for (const d of [staging, out]) rmSync(d, { recursive: true, force: true });
   }
 });
