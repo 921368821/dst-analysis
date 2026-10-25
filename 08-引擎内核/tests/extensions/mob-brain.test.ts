@@ -162,15 +162,23 @@ test("[生物·本能] ★ 同一 tick 跨模块各问一次，只感知一次",
 });
 
 test("[生物·本能] 漫游是 (seed,id,epoch) 的纯函数：两个实例给出同一格", () => {
+  // ★ 为什么比 20 轮而不是 2 轮：改成 `Math.random()` 之后，两次调用映射到
+  //   **同一格**的概率约 1/80（span = 2*4+1 = 9 ⇒ 80 个有效偏移）。
+  //   只比两次 ⇒ 1.25% 的概率让变异「看起来没被抓住」—— M243 在全量跑里
+  //   就这么假绿过一次：单跑必过、全量偶发，是最难查的那一类。
+  //   这正是 M188（单点断言恰好落在陆地）的**随机版**：判据的通过与
+  //   实现无关，只取决于这一次的运气。比 20 轮后假绿概率降到 (1/80)^19。
   const scene = mkScene();
   const me = unit(scene, "rabbit", 20.5, 20.5, "prey", { armed: false });
   const grid = rectGrid();
-  const b1 = createMobBrain({ factions: FOE_TABLE(), range: 5, seed: 4242 });
-  const b2 = createMobBrain({ factions: FOE_TABLE(), range: 5, seed: 4242 });
-  const c1 = b1.decide(scene, me.id, 100, grid)?.cell;
-  const c2 = b2.decide(scene, me.id, 100, grid)?.cell;
-  assert.equal(c1, c2, "同种子同 id 同 epoch 必须走同一格（回放依赖这条）");
-  assert.equal(typeof c1, "number");
+  for (let round = 0; round < 20; round++) {
+    const b1 = createMobBrain({ factions: FOE_TABLE(), range: 5, seed: 4242 });
+    const b2 = createMobBrain({ factions: FOE_TABLE(), range: 5, seed: 4242 });
+    const c1 = b1.decide(scene, me.id, 100, grid)?.cell;
+    const c2 = b2.decide(scene, me.id, 100, grid)?.cell;
+    assert.equal(c1, c2, `第 ${String(round)} 轮：同种子同 id 同 epoch 必须走同一格（回放依赖这条）`);
+    assert.equal(typeof c1, "number");
+  }
 });
 
 test("[生物·本能] 漫游：不同个体不会挤向同一格", () => {

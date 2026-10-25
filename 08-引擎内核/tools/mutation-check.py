@@ -2703,6 +2703,78 @@ MUTANTS = [
         # 还原后重建：`web/bundle.js` 是构建产物，不重建就会停在"变异后的包"上
         "rebuild": True,
     },
+    {
+        "name": "M293 quadIn 退化成 linear（缓动名还在，曲线没了）",
+        # 症状：配了 quadIn 与配 linear 完全一样，而"有没有缓动"在画面上只是手感差异。
+        # 抓它的是方向判据（in 类 f(t) < t 严格小于），linear 恒等于 t ⇒ 红。
+        "file": "src/extensions/tween/easing.ts",
+        "pairs": [("function quadIn(t: number): number {\n  return t * t;\n}", "function quadIn(t: number): number {\n  return t;\n}")],
+        "test": "tests/extensions/tween.test.ts",
+    },
+    {
+        "name": "M294 sineIn 的端点特判删掉（浮点差 1e-16 让「播完」边界抖动）",
+        "file": "src/extensions/tween/easing.ts",
+        "pairs": [("function sineIn(t: number): number {\n  if (t === 1) return 1;\n  return 1 - Math.cos((t * Math.PI) / 2);\n}", "function sineIn(t: number): number {\n  return 1 - Math.cos((t * Math.PI) / 2);\n}")],
+        "test": "tests/extensions/tween.test.ts",
+    },
+    {
+        "name": "M295 elastic 的相位偏移写回 0.1（端点特判会把它全盖住）",
+        # ★ 这条是本批最值得留的一条：第一版 elastic 用的就是 0.1，而 t=0/t=1 都有
+        #   特判 ⇒ 端点判据全绿，只有 inOut 的中点/中心对称判据把它咬出来（0.567）。
+        # 它证明"端点特判"与"公式正确"是两条独立的保证，少一条另一条看不见。
+        "file": "src/extensions/tween/easing.ts",
+        "pairs": [("const ELASTIC_S = ELASTIC_P / 4;", "const ELASTIC_S = 0.1;")],
+        "test": "tests/extensions/tween.test.ts",
+    },
+    {
+        "name": "M296 backIn 的 t===0 特判删掉（0 乘负数得 -0）",
+        # `0 * ((S+1)*0 - S)` 在 IEEE 下是 **-0**，而 assert.equal(-0, 0) 不相等。
+        # 没有端点判据的话，-0 会一路流进坐标，只留下一个难看的数。
+        "file": "src/extensions/tween/easing.ts",
+        "pairs": [("function backIn(t: number): number {\n  if (t === 0) return 0;\n  if (t === 1) return 1;\n  return t * t * ((BACK_S + 1) * t - BACK_S);\n}", "function backIn(t: number): number {\n  if (t === 1) return 1;\n  return t * t * ((BACK_S + 1) * t - BACK_S);\n}")],
+        "test": "tests/extensions/tween.test.ts",
+    },
+    {
+        "name": "M297 循环边界不取 p=1（动画每到整秒闪一下起点）",
+        # t 恰为 duration 的整数倍时，"上一轮刚结束"被算成"新一轮的第 0%"。
+        # 帧时间轴没这个问题（回到第 0 帧是它要的），补间有，因为 from≠to。
+        "file": "src/extensions/tween/tween.ts",
+        "pairs": [("  const p = atLoopStart ? 1 : local / perLoop;", "  const p = local / perLoop;")],
+        "test": "tests/extensions/tween.test.ts",
+    },
+    {
+        "name": "M298 循环边界不按上一轮定方向（yoyo 在整秒处给出 from 而不是 to）",
+        # t=duration 时轮号已经 +1，若 yoyo 开着就被判成反向轮 ⇒ 给 from。
+        # 与 M297 是同一处的两个半条：一个管进度、一个管方向。
+        "file": "src/extensions/tween/tween.ts",
+        "pairs": [("  const effectiveLoop = atLoopStart ? loop - 1 : loop;", "  const effectiveLoop = loop;")],
+        "test": "tests/extensions/tween.test.ts",
+    },
+    {
+        "name": "M299 有限循环播完一律停 to（yoyo 的最后一轮是反向，该停 from）",
+        "file": "src/extensions/tween/tween.ts",
+        "pairs": [("      value: lastIsReverse ? spec.from : spec.to,", "      value: spec.to,")],
+        "test": "tests/extensions/tween.test.ts",
+    },
+    {
+        "name": "M300 speed<0 与 yoyo 从异或改成叠加（倒放的往返轮方向反了）",
+        # 异或：同时成立时抵消（倒着走的往返 = 正向）。写成 || 会让轮1 也判成反向。
+        "file": "src/extensions/tween/tween.ts",
+        "pairs": [("  const reversed = spec.speed < 0 !== (spec.yoyo && effectiveLoop % 2 === 1);", "  const reversed = spec.speed < 0 || (spec.yoyo && effectiveLoop % 2 === 1);")],
+        "test": "tests/extensions/tween.test.ts",
+    },
+    {
+        "name": "M301 零时长补间被放行（采样要除以它 ⇒ NaN 帧）",
+        "file": "src/extensions/tween/tween.ts",
+        "pairs": [("  if (!Number.isFinite(input.durationMs) || input.durationMs <= 0) {", "  if (!Number.isFinite(input.durationMs) || input.durationMs < 0) {")],
+        "test": "tests/extensions/tween.test.ts",
+    },
+    {
+        "name": "M302 拼错的缓动名静默回落 linear（配了 elastic 却像 linear）",
+        "file": "src/extensions/tween/easing.ts",
+        "pairs": [("  const fn = EASINGS[name];", "  const fn = EASINGS[name] ?? EASINGS[\"linear\"];")],
+        "test": "tests/extensions/tween.test.ts",
+    },
 
 ]
 
