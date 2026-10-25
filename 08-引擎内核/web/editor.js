@@ -5009,6 +5009,7 @@ function createRenderModule(opts) {
   let vbo = null;
   let ibo = null;
   let offRender = null;
+  let overlay = null;
   let batch = null;
   let pages = [];
   let atlasFmt = PixelFormat.RGBA8;
@@ -5205,6 +5206,9 @@ function createRenderModule(opts) {
       const b = batch;
       if (b === null) return new Float32Array(0);
       return b.vertexView(Math.max(0, quads)).slice();
+    },
+    setOverlay(fn) {
+      overlay = fn;
     }
   };
   function renderFrame(info) {
@@ -5299,6 +5303,17 @@ function createRenderModule(opts) {
             firstIndex: run.start * 6
           });
         }
+      }
+    }
+    if (overlay !== null) {
+      try {
+        overlay(cmd);
+      } catch (e) {
+        ctxRef?.log.channel("render").error(
+          `\u8986\u76D6\u5C42\u7ED8\u5236\u629B\u9519\uFF08\u672C\u5E27\u4ECD\u63D0\u4EA4\uFF0C\u753B\u9762\u53EF\u80FD\u7F3A UI\uFF09\uFF1A${e instanceof Error ? e.message : String(e)}`,
+          void 0,
+          null
+        );
       }
     }
     cmd.finish();

@@ -134,9 +134,12 @@ function resolveRanges(rel, spec) {
 
 const TESTS = ["tests/extensions/jpeg-modes.test.ts", "tests/extensions/jpeg.test.ts"];
 
+// ★ reporter 显式写死 TAP：这条闸门在输出里找 `#` 前缀的覆盖率表，
+//   报错行也要归到"哪条判据红了"。默认 reporter 在 Node 22 是 TAP、Node 24 是 spec，
+//   靠默认值会让同一条命令在两个解释器下给出不同的可解析性。
 const run = spawnSync(
   process.execPath,
-  ["--experimental-transform-types", "--experimental-test-coverage", "--test", ...TESTS],
+  ["--experimental-transform-types", "--test-reporter=tap", "--experimental-test-coverage", "--test", ...TESTS],
   { cwd: ROOT, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
 );
 if (run.error) {

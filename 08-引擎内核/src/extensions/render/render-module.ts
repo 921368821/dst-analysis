@@ -34,7 +34,7 @@ import {
   type ShaderHandle,
   type TextureHandle,
 } from "../../platform/gfx/types.ts";
-import type { IGraphicsDevice } from "../../platform/gfx/device.ts";
+import type { ICommandList, IGraphicsDevice } from "../../platform/gfx/device.ts";
 import { SPRITE_FS, SPRITE_VS } from "./shaders-glsl.ts";
 import { SpriteBatch, type RenderItem } from "./batch2d.ts";
 import { Camera2D } from "./camera.ts";
@@ -150,6 +150,23 @@ export interface RenderModuleHandle extends IModule {
    *   而错误只在**顶点坐标**里。没有这个视图就只能靠改代码猜（批46 卡了两小时）。
    */
   lastVertices(quads: number): Float32Array;
+
+  /**
+   * 注册「世界画完、`endFrame` 之前」的绘制回调（UI 用）。
+   *
+   * ★ 为什么需要这个钩子，而不是让 UI 自己 `beginFrame`：
+   *   `beginFrame/endFrame` 是一次完整的 pass，而 pass 开头会 `clear`。
+   *   第二个渲染器自己开 pass 会把世界擦掉；不 clear 又要依赖后端的隐式状态
+   *   （"上一帧的 clear 还在不在"），那是靠后端实现细节碰运气。
+   *   把 UI 放进**同一个 pass 的尾部**，是唯一既正确又不依赖后端的选择。
+   *
+   * ★ 回调抛错不静默：记 `render` 通道的 error，并继续 `endFrame`
+   *   （否则一帧异常会让整帧不提交，画面冻结在上一帧，症状像"卡死"）。
+   *
+   * ★ 只允许一个（后注册的覆盖先注册的）：多个 overlay 之间的顺序没有语义，
+   *   而"谁先谁后"在 UI 上就是"谁盖住谁"。真需要多层就自己在回调里排。
+   */
+  setOverlay(fn: ((cmd: ICommandList) => void) | null): void;
 }
 
 /** `atlasFrame()` 的返回形状（单独命名：它要进公共签名，不该是一坨匿名对象类型）。 */
@@ -233,6 +250,7 @@ export function createRenderModule(opts: RenderModuleOptions): RenderModuleHandl
   let vbo: BufferHandle | null = null;
   let ibo: BufferHandle | null = null;
   let offRender: (() => void) | null = null;
+  let overlay: ((cmd: ICommandList) => void) | null = null;
   let batch: SpriteBatch | null = null;
   /** 所有页（下标 = 槽位）。诊断与 `atlasFrame()` 跨页查。 */
   let pages: AtlasData[] = [];
@@ -471,6 +489,10 @@ export function createRenderModule(opts: RenderModuleOptions): RenderModuleHandl
       if (b === null) return new Float32Array(0);
       return b.vertexView(Math.max(0, quads)).slice();
     },
+
+    setOverlay(fn: ((cmd: ICommandList) => void) | null): void {
+      overlay = fn;
+    },
   };
 
   function renderFrame(info: FrameInfo): void {
@@ -589,6 +611,21 @@ export function createRenderModule(opts: RenderModuleOptions): RenderModuleHandl
             firstIndex: run.start * 6,
           });
         }
+      }
+    }
+    // ---- 覆盖层（UI）：同一个 pass 的尾部，世界之后（见 `setOverlay` 的理由）。
+    //   ★ 放在 `if (quadCount > 0)` 之外：世界空（比如加载中）时 UI 仍要画。
+    if (overlay !== null) {
+      try {
+        overlay(cmd);
+      } catch (e) {
+        // 抛错不静默，也不让整帧不提交 —— 前者会让"UI 不见了"变成谜，
+        // 后者会让画面冻结在上一帧，症状像卡死。
+        ctxRef?.log.channel("render").error(
+          `覆盖层绘制抛错（本帧仍提交，画面可能缺 UI）：${e instanceof Error ? e.message : String(e)}`,
+          undefined,
+          null,
+        );
       }
     }
     cmd.finish();

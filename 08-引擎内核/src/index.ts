@@ -134,3 +134,32 @@ export { textImporter } from "./extensions/asset-import/importers/text.ts";
 //   import 了公共入口的构建，包括完全不需要脚本的纯渲染宿主。
 //   需要 Lua 的宿主请显式 `import { createLuaScriptBackend } from "@engine/backends/script-lua"`。
 //   这是"公共 API 面不为少数使用者的便利付费"的具体一条。
+
+// ---- L4 扩展：UI（位图字体 + 布局 + 控件 + 事件）
+export { parseBmFont, glyphOf, kerningOf, kerningKey, FontRegistry, FONT_ERR } from "./extensions/ui/font.ts";
+export type { BitmapFont, FontGlyph, FontPage } from "./extensions/ui/font.ts";
+export { layoutText } from "./extensions/ui/text-layout.ts";
+export type { TextLayout, TextQuad, TextStyle, TextAlign } from "./extensions/ui/text-layout.ts";
+export { UiViewport, UiScaleMode, ZERO_INSETS } from "./extensions/ui/viewport.ts";
+export type { UiViewportConfig, Insets, UiScaleModeValue } from "./extensions/ui/viewport.ts";
+export {
+  UiNode,
+  UiLayoutKind,
+  UiWidget,
+  buildUiTree,
+  layoutTree,
+  hitTest,
+  hitChain,
+  ANCHOR_TOP_LEFT,
+  ANCHOR_TOP_CENTER,
+  ANCHOR_CENTER,
+  ANCHOR_BOTTOM_LEFT,
+  ANCHOR_BOTTOM_CENTER,
+} from "./extensions/ui/layout.ts";
+export type { UiNodeConfig, UiPoint, UiProps, UiPadding, UiLayoutResult, UiWidgetValue, UiLayoutKindValue } from "./extensions/ui/layout.ts";
+export { buildUiQuads, nineSlice, TextCache, UI_LAYER } from "./extensions/ui/widgets.ts";
+export type { UiSkin, UiSkinFrame, UiDrawStats, UiDrawResult, Rgba } from "./extensions/ui/widgets.ts";
+export { UiInputRouter, UiEvent, bubble } from "./extensions/ui/events.ts";
+export type { UiPointer, UiEventType, UiEventSink, UiInputRouterOptions } from "./extensions/ui/events.ts";
+export { createUiModule, rectOf, RENDER_MODULE_ID } from "./extensions/ui/ui-module.ts";
+export type { UiModuleHandle, UiModuleOptions, UiFrameStats } from "./extensions/ui/ui-module.ts";

@@ -193,11 +193,15 @@ for (const s of STEPS) {
     .map((l) => l.trim())
     .filter(
       (l) =>
-        /^(not ok\b|✗|×|FAIL\b)/.test(l) ||
+        /^(not ok\b|[✗✖×]|FAIL\b)/.test(l) ||
         /·\s*\[(判据假绿|靶子漂移|还原不干净)\]/.test(l),
     );
-  const semantic = matches.filter((l) => !/^not ok\b/.test(l)).slice(0, 12);
-  const plainNotOk = matches.filter((l) => /^not ok\b/.test(l));
+  // ★ 判据失败行的两种形态：TAP 的 `not ok N - 名字`，spec reporter 的 `✖ 名字 (1.2ms)`。
+  //   2026-10-25 只认前者 ⇒ 在 Node 24 下 annotation 里只剩"✗ ..."这类工具自己的话，
+  //   **一条用例名都没有**（闸门照样红，但红得不可行动）。两种都认。
+  const isFailLine = (l) => /^not ok\b/.test(l) || /^✖\s/.test(l);
+  const semantic = matches.filter((l) => !isFailLine(l)).slice(0, 12);
+  const plainNotOk = matches.filter(isFailLine);
   const failing = [...semantic, ...plainNotOk].slice(0, 25);
   // ★★ 光有用例名还是不够：`not ok N - 名字` 只说"它红了"，不说"为什么红"。
   //   node:test 的 TAP 会在 `not ok` 之后紧跟一个 `---` 块，里面有 `error:` /
@@ -206,11 +210,11 @@ for (const s of STEPS) {
   //   足以定位一个共同的根因（比 25 条名字有用得多）。
   const detail = [];
   for (let i = 0; i < allLines.length && detail.length < 3; i++) {
-    if (!/^\s*not ok\b/.test(allLines[i])) continue;
+    if (!isFailLine(allLines[i].trim())) continue;
     detail.push(allLines[i].trimEnd());
     for (let j = i + 1; j < Math.min(i + 16, allLines.length); j++) {
       const line = allLines[j];
-      if (/^\s*(not ok|ok)\b/.test(line)) break;
+      if (/^\s*(not ok|ok)\b/.test(line) || /^\s*[✔✖✗×]\s/.test(line)) break;
       detail.push(line.replace(/\r$/, ""));
     }
   }

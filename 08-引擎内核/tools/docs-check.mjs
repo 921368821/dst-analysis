@@ -75,16 +75,26 @@ function testsStamp() {
 }
 
 function runSuite() {
-  const r = spawnSync(process.execPath, ["--experimental-transform-types", "--test", "tests/run.ts"], {
+  // ★ `--test-reporter=tap` 是**必须显式指定**的，不能靠默认值。
+  //   2026-10-25 踩过：默认 reporter 在 Node 22 下是 TAP（`# tests 1493`），
+  //   在 Node 24 下变成 spec（`ℹ tests 1493`）。于是同一个仓库、同一份代码，
+  //   只因为 PATH 里的 node 从 22 换到 24，这个闸门就从"全绿"变成
+  //   "✗ 测试输出里没有 `# tests N` —— 测试根本没跑起来"。
+  //   而它其实是**跑了且全过**的。这类"结论随环境变"的闸门比没有闸门更危险：
+  //   它的红字指向的是解释器，不是被测对象，照着红字改只会越改越远。
+  const args = ["--experimental-transform-types", "--test-reporter=tap", "--test", "tests/run.ts"];
+  const r = spawnSync(process.execPath, args, {
     cwd: ROOT,
     encoding: "utf8",
     maxBuffer: 64 * 1024 * 1024,
   });
   const out = `${r.stdout ?? ""}\n${r.stderr ?? ""}`;
-  const t = /^# tests (\d+)$/m.exec(out);
-  const f = /^# fail (\d+)$/m.exec(out);
+  // 仍然两种前缀都认：万一将来 `--test-reporter=tap` 被重命名/忽略，
+  // 也不至于把"跑了 1493 条全过"误判成"根本没跑"。
+  const t = /^[#ℹ]\s*tests (\d+)$/m.exec(out);
+  const f = /^[#ℹ]\s*fail (\d+)$/m.exec(out);
   if (t === null) {
-    console.error("✗ 测试输出里没有 `# tests N` —— 测试根本没跑起来");
+    console.error("✗ 测试输出里既没有 `# tests N` 也没有 `ℹ tests N` —— 测试根本没跑起来");
     process.exit(2);
   }
   if (f !== null && Number(f[1]) !== 0) {

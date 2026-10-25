@@ -20,12 +20,12 @@
 
 ```bash
 npm install
-npm run check            # tsc（strict）+ 1414 条判据 + 覆盖率闸门 <!-- n:tests -->
+npm run check            # tsc（strict）+ 1494 条判据 + 覆盖率闸门 <!-- n:tests -->
 npm run audit:errors     # 拒绝路径审计：JPEG 解码器 94 条 fail 分支里哪些真的被触发过
-npm run audit:mutation   # 变异校验：278 组注入，判据必须逐个变红 <!-- n:mutants -->
+npm run audit:mutation   # 变异校验：286 组注入，判据必须逐个变红 <!-- n:mutants -->
 npm run audit:docs       # 文档数字对账：判据/变异/测试文件/浏览器自检/JPEG 金标
-npm run test:browser     # 无头浏览器跑 selftest.html 的 14 条（无浏览器时退出码 2 = 跳过）
-npm run ci               # 全部闸门（10 步，含浏览器自检/外部金标/变异；--fast 跳过慢的那几步）
+npm run test:browser     # 无头浏览器跑 selftest.html 的 40 条 <!-- n:browser -->（无浏览器时退出码 2 = 跳过）
+npm run ci               # 全部 14 道闸门 <!-- n:steps -->（含浏览器自检/外部金标/变异；--fast 跳过慢的那几步）
 npm run sample:headless  # 最小宿主：150 tick / 5 秒 / 脚本驱动 + 存档
 
 # 浏览器（真的能看见画面 + Lua 在跑）
@@ -79,10 +79,12 @@ hero 位置： (10.00, 2.00)
 ## 分层
 
 ```
-L6 hosts       browser-entry · headless sample · (editor ⬜)
+L6 hosts       browser-entry · editor-entry · headless sample
 L5 backends    gfx-null ✅ · gfx-webgl2 ✅ · audio-null ✅ · audio-webaudio ✅
                input-null ✅ · input-dom ✅ · fs-memory ✅ · fs-node ✅ · script-null ✅ · script-lua ✅
-L4 extensions  render ✅ · physics ✅ · script ✅ · asset-import ✅ · (ai ⬜ · ui ⬜ · worldgen ⬜)
+L4 extensions  render ✅ · asset-import（含 PNG/JPEG 解码）✅ · script ✅ · worldgen ✅ · ai ✅
+               physics ✅ · nav ✅ · combat ✅ · crafting ✅ · survival ✅ · mobs ✅ · inventory ✅
+               input ✅ · build ✅ · ui ✅ · editor ✅   （共 16 个模块目录，`ls src/extensions`）
 L3 runtime     GameApp · ITickSource
 L2 core        Module · Scene/Node/Component · Scheduler · Asset · Schema
 L1 platform    IGraphicsDevice · IAudioDevice · IInputDevice · IFileSystem · ITransport · IScriptRuntime
@@ -100,12 +102,17 @@ L0 foundation  Result · math · log · event · memory · time · random
 | 一个新渲染后端 | 1 个目录 + 1 行注册 | `src/core/**` 全部 |
 | 一种新脚本语言 | 1 个 `IScriptRuntime` 实现 | 内核 / 脚本模块 / 契约 |
 | 一种新资产类型 | 1 个 `SourceImporter` + 1 个 `IAssetLoader` | AssetDatabase / 管线 |
+| 一种新 UI 控件 | 1 个绘制分支 + 1 个 skin 帧名 | 字体 / 排版 / 视口 / 布局 / 事件（它们只认 `Rect` 与 `UiNode`） |
 | 一个存档新字段 | schema 加一行 + 一条 migration | 序列化器 |
 
 ## 当前状态
 
-- ✅ L0–L3 完整；**12 个后端** <!-- n:backends -->（gfx×2 / audio×2 / input×2 / fs×4（mem + 真实盘 + 只读 http + localStorage）/ script×2）；**1414 条判据全绿** <!-- n:tests -->（变异 278 组全被抓住 <!-- n:mutants -->）
+- ✅ L0–L3 完整；**12 个后端** <!-- n:backends -->（gfx×2 / audio×2 / input×2 / fs×4（mem + 真实盘 + 只读 http + localStorage）/ script×2）；**1494 条判据全绿** <!-- n:tests -->（变异 286 组全被抓住 <!-- n:mutants -->）
 - ✅ 2D 渲染管线（相机/精灵/批处理/确定性图集合成）· 2.5D 物理 · 确定性存档 · 跳时间结算
+- ✅ **UI + 位图字体**：BMFont 解析 → 纯函数排版（量宽与画宽同源）→ 三模式视口（fit/fill/expand）
+  → 锚点 + Row/Column/Grid → 九宫格控件（Group/Panel/Image/Label/Button/Progress）→ 捕获 + 冒泡。
+  **与 2.5D 世界共用一次 pass、同一个批处理器、只换一个相机** ⇒ UI 盖住世界靠同 pass 内后画，不靠调 z
+  （79 条判据 + 8 组变异；缺富文本/避头尾/RTL/滚动容器/拖拽/动画过渡）
 - ✅ 世界生成：整数噪声 → 群系 → 架桥修复 → **世界指纹**（同种子必同指纹）+ 连通性校验
   （校验器用 `repair:false` 主动造出"到不了的陆地"来证明自己会报红，含 6 条变异）
 - ✅ AI：**纯数据树**（可 JSON 往返/进指纹）+ 注册表行为 + **tick 计数不吃 dt**
@@ -130,7 +137,7 @@ L0 foundation  Result · math · log · event · memory · time · random
     + 8 例无损 9..16 位（liblj92 编解，**逐样本相等**）+ 8 位灰度（liblj92 与 Pillow 双外部对照）
     + **12 例 ffmpeg 独立金标**（`tests/fixtures/jpeg/ff/`，12 位 DCT 的第三方参照：灰度差 0..2 级、RGB 差 4 级）
   · 仍然没有外部实现的部分（分层、SOF11）用更强的内部判据：
-    四种有损过程解出**逐字节相同**像素、无损回环 max=0、12 位跨精度锚定到 8 位金标；278 组变异全被抓住 <!-- n:mutants -->
+    四种有损过程解出**逐字节相同**像素、无损回环 max=0、12 位跨精度锚定到 8 位金标；286 组变异全被抓住 <!-- n:mutants -->
   · 证据等级与代价见 [ADR-0009](docs/adr/0009-jpeg-decoder.md)
 - ✅ 浏览器宿主能跑，且**画面用真实资产**：`web/assets/` 5 张 PNG + **1 张 JPEG** 走完整导入链
   烘焙成图集（WASD + 砍树 + 存读档 + HUD + Lua 驱动的浆果漂浮 + 4 块 JPEG 立牌）

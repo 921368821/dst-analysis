@@ -83,8 +83,11 @@ def main() -> int:
     sites = collect_sites()
     original = patch()
     try:
+        # ★ `--test-reporter=tap` 显式写死：下面按 `not ok` / `# pass` 取值，
+        #   而默认 reporter 在 Node 22 是 TAP、Node 24 是 spec。
+        #   靠默认值的后果不是报错，是**静默读到 0 条通过**（"审计全绿"其实是没数据）。
         proc = subprocess.run(
-            ["node", "--experimental-transform-types", "--test", "tests/run.ts"],
+            ["node", "--experimental-transform-types", "--test-reporter=tap", "--test", "tests/run.ts"],
             cwd=ROOT,
             capture_output=True,
             text=True,

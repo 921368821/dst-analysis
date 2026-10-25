@@ -14,6 +14,7 @@ import signal
 import subprocess
 import sys
 import pathlib
+import re
 from datetime import datetime
 
 # ★ 不能硬编码本机绝对路径。原先写死 `E:/game_make/.../08-引擎内核`，
@@ -2600,7 +2601,55 @@ MUTANTS = [
         )],
         "test": "docs/ARCHITECTURE.md",
         "cmd": ["node", "tools/docs-check.mjs", "--quick"],
+    },    {
+        "name": "M279 字形 UV 的 v 轴翻转（T330 同族：镜像后仍然像字）",
+        "file": "src/extensions/ui/font.ts",
+        "pairs": [("      v0: c.y / scaleH,", "      v0: 1 - c.y / scaleH,")],
+        "test": "tests/extensions/ui-font.test.ts",
     },
+    {
+        "name": "M280 文本推进用字形宽度而不是 advance（右侧空隙消失）",
+        "file": "src/extensions/ui/text-layout.ts",
+        "pairs": [("  const base = g === undefined ? font.missingAdvance : g.xadvance;", "  const base = g === undefined ? font.missingAdvance : g.width;")],
+        "test": "tests/extensions/ui-text.test.ts",
+    },
+    {
+        "name": "M281 省略号不裁字（尾部溢出容器，truncated 仍是 true）",
+        "file": "src/extensions/ui/text-layout.ts",
+        "pairs": [("      while (last.length > 0 && lineWidthOf(font, last, scale, ls) + ellW > maxWidth) last.pop();", "      while (false && last.length > 0) last.pop();")],
+        "test": "tests/extensions/ui-text.test.ts",
+    },
+    {
+        "name": "M282 九宫格边距不乘帧在图集里的比例（切片点落到帧外）",
+        "file": "src/extensions/ui/widgets.ts",
+        "pairs": [("  const su = (b / f.width) * (f.u1 - f.u0);", "  const su = b / f.width;")],
+        "test": "tests/extensions/ui-module.test.ts",
+    },
+    {
+        "name": "M283 进度条不裁 UV（把整张图拉进一半宽度）",
+        "file": "src/extensions/ui/widgets.ts",
+        "pairs": [("        const u1 = f.u0 + (f.u1 - f.u0) * v;", "        const u1 = f.u1;")],
+        "test": "tests/extensions/ui-module.test.ts",
+    },
+    {
+        "name": "M284 不透明层不再遮挡（模态对话框点穿到底下的按钮）",
+        "file": "src/extensions/ui/layout.ts",
+        "pairs": [("    if (n.opaque) return null;", "    if (false) return null;")],
+        "test": "tests/extensions/ui-layout.test.ts",
+    },
+    {
+        "name": "M285 点击不校验同目标（拖出去松手也算点击）",
+        "file": "src/extensions/ui/events.ts",
+        "pairs": [("        if (sameTarget && dist <= this.dragThreshold) push(\"click\", target);", "        if (dist <= this.dragThreshold) push(\"click\", target);")],
+        "test": "tests/extensions/ui-events.test.ts",
+    },
+    {
+        "name": "M286 expand 模式的锚点贴回设计框（超宽屏上 HUD 被留在黑边里）",
+        "file": "src/extensions/ui/viewport.ts",
+        "pairs": [("    if (this.scaleMode === UiScaleMode.Expand) return this.screenRect;", "    if (this.scaleMode === UiScaleMode.Expand) return this.designRect;")],
+        "test": "tests/extensions/ui-viewport.test.ts",
+    },
+
 ]
 
 
@@ -2624,12 +2673,28 @@ def run(m: dict) -> tuple[int, str]:
         out = (p.stdout or "") + (p.stderr or "")
         tail = [ln for ln in out.splitlines() if ln.strip()][-4:]
         return 1, "\n".join(tail)
+    # ★ `--test-reporter=tap` 必须显式写死。
+    #   2026-10-25 事故：默认 reporter 在 Node 22 下是 TAP（`not ok 3 - ...`），
+    #   在 Node 24 下变成 spec（`✖ 名字 (1.2ms)`）。本工具数的是 `not ok` 行，
+    #   于是**在 Node 24 下每条变异都返回"失败 0 条"** —— 八条刚写好的 UI 变异
+    #   齐刷刷报"判据是假绿"，而实际上把代码改坏之后测试是全红的。
+    #   这类故障最坏的地方在于它**看起来像结论**：报的是"你的判据不行"，
+    #   而不是"我的解析器不行"，照着它去补判据只会越补越远。
     p = subprocess.run(
-        ["node", "--experimental-transform-types", "--test", m["test"]],
+        ["node", "--experimental-transform-types", "--test-reporter=tap", "--test", m["test"]],
         cwd=ROOT, capture_output=True, text=True, timeout=600,
     )
     out = p.stdout + p.stderr
     fails = [ln for ln in out.splitlines() if ln.startswith("not ok")]
+    # 认不出 TAP 汇总行 ⇒ 不是"判据不行"，是**测试根本没按 TAP 输出**（解释器/参数问题）。
+    # 这两种情况必须分开报：混在一起就会把环境问题写成判据结论（上面那条事故的同款）。
+    if not fails and not re.search(r"^# (tests|fail) \d+", out, re.M):
+        print(f"✗ 判据输出里没有 TAP 汇总行（`# tests N`）—— 测试没按预期跑起来，不是判据的问题。")
+        print(f"  命令：node --experimental-transform-types --test-reporter=tap --test {m['test']}")
+        print(f"  退出码 {p.returncode}；输出末尾：")
+        for ln in [x for x in out.splitlines() if x.strip()][-6:]:
+            print(f"    {ln}")
+        raise SystemExit(2)
     return len(fails), "\n".join(fails[:6])
 
 

@@ -24,7 +24,9 @@ import { fileURLToPath } from "node:url";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const FILE = "tests/core/physics-perf.test.ts";
 
-const r = spawnSync(process.execPath, ["--experimental-transform-types", "--test", FILE], {
+// ★ reporter 显式写死 TAP：默认 reporter 在 Node 22 是 TAP、Node 24 是 spec，
+//   而下面按 `not ok` / `# pass` 取值 —— 靠默认值就等于让闸门随 PATH 里的 node 变形。
+const r = spawnSync(process.execPath, ["--experimental-transform-types", "--test-reporter=tap", "--test", FILE], {
   cwd: ROOT,
   encoding: "utf8",
   env: { ...process.env, ENGINE_PERF_STRICT: "1", NODE_NO_WARNINGS: "1" },
