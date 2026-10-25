@@ -3140,8 +3140,13 @@ MUTANTS = [
     },
     {
         "name": "M334 换父不做环检查（把节点挂进自己的后代，之后 walk 直接爆栈）",
+        # ★ 批81：这一段原来是一份手写的上溯循环（`while (cur !== null) { if (cur.id === nodeId) ... }`），
+        #   抽成 `Node.isAncestorOf` 之后旧靶子不存在了 —— 变异报告的是「靶子漂移」，
+        #   意思是**重新指认**，不是放宽标准。核心层那道守卫（M361）抓不到这条：
+        #   编辑器这里必须在崩之前把它变成错误码，所以它值得单独一条。
         "file": "src/extensions/editor/undo-ops.ts",
-        "pairs": [("    if (cur.id === nodeId) {", "    if (false) {")],
+        "pairs": [("  if (target !== undefined && (target.id === nodeId || node.isAncestorOf(target))) {",
+                   "  if (false) {")],
         "test": "tests/extensions/editor-undo.test.ts",
     },
     {
@@ -3334,6 +3339,35 @@ MUTANTS = [
         "pairs": [('  console.error(`  VDF 已经写好，也可以手工执行：${renderSteamCommandLine(steamCmd.argv)}`);\n  process.exit(EXIT_USAGE);',
                    '  console.error(`  VDF 已经写好，也可以手工执行：${renderSteamCommandLine(steamCmd.argv)}`);\n  process.exit(EXIT_FAIL);')],
         "test": "tests/publish/pack-cli.test.ts",
+    },
+    {
+        "name": "M361 addChild 不做环检查（挂进自己的后代 ⇒ walk 栈溢出，崩在很远的地方）",
+        # ★ 这条是批81 补核心层缺口的证据：删掉守卫后，判据里的 `walk` 会真的栈溢出
+        #   （RangeError），而不是断言失败 —— 判据本身就是那场事故的复现。
+        "file": "src/core/scene/node.ts",
+        "pairs": [("    if (child === this || child.isAncestorOf(this)) {", "    if (false) {")],
+        "test": "tests/core/scene.test.ts",
+    },
+    {
+        "name": "M362 isAncestorOf 把自己也算成祖先（addChild 的幂等分支被抢走，重复挂会抛）",
+        "file": "src/core/scene/node.ts",
+        "pairs": [("    let p: Node | null = other.parent;", "    let p: Node | null = other;")],
+        "test": "tests/core/scene.test.ts",
+    },
+    {
+        "name": "M363 isAncestorOf 只查直接父（隔代换父漏检 ⇒ 真造出环）",
+        "file": "src/core/scene/node.ts",
+        "pairs": [("      p = p.parent;\n", "      p = null;\n")],
+        "test": "tests/core/scene.test.ts",
+    },
+    {
+        "name": "M364 读档时不接住 addChild 的环异常（坏存档把宿主进程炸掉，Result 变成假的）",
+        "file": "src/core/scene/scene-io.ts",
+        # ★ 变异必须**语义**上坏，不能把文件改成语法错 —— 语法错也会让判据"红"，
+        #   但那是编译失败，等于没验到行为（第一次写成了多插一个 `{`，就是这样）。
+        "pairs": [("    } catch (e) {\n      // ★ 存档里如果有环",
+                   "    } catch (e) {\n      throw e;\n      // ★ 存档里如果有环")],
+        "test": "tests/core/scene-io.test.ts",
     },
 ]
 

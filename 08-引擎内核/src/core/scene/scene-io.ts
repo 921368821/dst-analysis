@@ -166,7 +166,14 @@ export function loadScene(
       skipped.push(`节点 #${r.id} 的父节点 #${r.parent} 不存在（该节点被挂到根下）`);
       continue;
     }
-    parent.addChild(child);
+    try {
+      parent.addChild(child);
+    } catch (e) {
+      // ★ 存档里如果有环（手改过、或某版引擎写坏了），核心层的环检查会抛。
+      //   读档是**不可抛**的边界（它返回 Result）：一次读档不该把宿主进程炸掉，
+      //   而且"只跳过坏的那条父子关系"比"整档读失败"更接近用户想要的结果。
+      skipped.push(`节点 #${r.id} 的父子关系不成立：${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   // 第 3 遍：组件

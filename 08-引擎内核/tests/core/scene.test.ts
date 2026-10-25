@@ -11,6 +11,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Component, ComponentRegistry, FieldType, type ComponentSchema } from "../../src/core/scene/component.ts";
 import { Scene } from "../../src/core/scene/scene.ts";
+import type { NodeId } from "../../src/core/scene/node.ts";
 import { Vec2 } from "../../src/foundation/math/index.ts";
 
 class Health extends Component {
@@ -159,12 +160,12 @@ test("activeInHierarchy：父失活时子组件不更新（不只看自己的 en
 
 test("节点 id 不复用（销毁后新实体拿新 id，避免旧引用指向新对象）", () => {
   const { scene } = makeScene();
-  const a = scene.spawnImmediate("a");
-  const b = scene.spawnImmediate("b");
+  const a = scene.spawnImmediate("a", scene.rootId);
+  const b = scene.spawnImmediate("b", scene.rootId);
   const idA = a.id;
   scene.destroy(b.id);
   scene.flush();
-  const c = scene.spawnImmediate("c");
+  const c = scene.spawnImmediate("c", scene.rootId);
   assert.ok(c.id > b.id, `新 id ${c.id} 应大于已销毁的 ${b.id}`);
   assert.notEqual(c.id, idA);
 });
@@ -191,4 +192,66 @@ test("未注册的组件类型被拒绝（不是静默成功）", () => {
   });
   assert.equal(r.ok, false);
   if (!r.ok) assert.equal(r.error.code, "SCENE.UNKNOWN_COMPONENT");
+});
+
+// ---------------------------------------------------------------- 层级环（批81）
+
+test("★★ 不能把节点挂进自己的子树（否则 walk 无限递归 ⇒ 栈溢出）", () => {
+  const scene = new Scene("cycle", new ComponentRegistry());
+  // ★ `spawn` 返回 NodeId（不是 Node），要拿对象得走 `find`
+  const a = scene.spawnImmediate("a", scene.rootId);
+  const b = scene.spawnImmediate("b", scene.rootId);
+  const c = scene.spawnImmediate("c", scene.rootId);
+  a.addChild(b);
+  b.addChild(c);
+
+  // ① 自己挂自己
+  assert.throws(() => a.addChild(a), /子树/, "自己挂自己应该抛");
+  // ② 把祖先挂到自己的后代下面
+  assert.throws(() => c.addChild(a), /子树/, "把祖先挂到后代下面应该抛");
+  // ③ 把根挂到后代下面也要拦（root 是所有节点的祖先）
+  assert.throws(() => c.addChild(scene.root), /子树/);
+
+  // ★ 关键：抛完之后层级必须**一点没变** —— 半途改坏再抛，比不抛更糟。
+  //   这里真的走一遍 walk：如果环已经形成，这一行是栈溢出（RangeError），
+  //   而不是断言失败 —— 判据本身就是那场事故的复现。
+  const seen: NodeId[] = [];
+  scene.root.walk((n) => seen.push(n.id));
+  assert.deepEqual(seen, [scene.rootId, a.id, b.id, c.id], "抛异常时层级已经被改坏了");
+  assert.equal(b.parent, a);
+  assert.equal(c.parent, b);
+});
+
+test("★ 正常的换父仍然可以（新父不是自己的后代）", () => {
+  const scene = new Scene("cycle", new ComponentRegistry());
+  const a = scene.spawnImmediate("a", scene.rootId);
+  const b = scene.spawnImmediate("b", scene.rootId);
+  const c = scene.spawnImmediate("c", scene.rootId);
+  a.addChild(c);
+  b.addChild(c); // c 从 a 移到 b：合法
+  assert.equal(c.parent, b, "换父不该被环检查误伤");
+  assert.equal(a.children.includes(c), false, "旧父还留着它");
+  assert.equal(b.children.filter((n) => n === c).length, 1, "新父里重复了");
+});
+
+test("★ 重复 addChild 同一个父是幂等的（不重复入 children，也不抛）", () => {
+  const scene = new Scene("cycle", new ComponentRegistry());
+  const a = scene.spawnImmediate("a", scene.rootId);
+  const b = scene.spawnImmediate("b", scene.rootId);
+  a.addChild(b);
+  assert.doesNotThrow(() => a.addChild(b), "同一个父重复挂不该抛");
+  assert.equal(a.children.filter((n) => n === b).length, 1);
+});
+
+test("★ isAncestorOf：只认严格祖先（自己不算自己的祖先）", () => {
+  const scene = new Scene("cycle", new ComponentRegistry());
+  const a = scene.spawnImmediate("a", scene.rootId);
+  const b = scene.spawnImmediate("b", scene.rootId);
+  const c = scene.spawnImmediate("c", scene.rootId);
+  a.addChild(b);
+  b.addChild(c);
+  assert.equal(a.isAncestorOf(c), true);
+  assert.equal(a.isAncestorOf(b), true);
+  assert.equal(c.isAncestorOf(a), false, "方向反了");
+  assert.equal(a.isAncestorOf(a), false, "自己不该算自己的祖先（否则 addChild 的幂等分支会被它抢走）");
 });

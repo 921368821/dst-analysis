@@ -61,8 +61,34 @@ export class Node {
     return this.destroyed;
   }
 
+  /**
+   * `other` 是不是自己的**祖先**（含父、祖父……直到根）。
+   *
+   * ★ 单独抽出来是因为它有两个消费者：`addChild` 的环检查（批81）与编辑器的
+   *   `ReparentOp`（批77 里手写过一份同样的上溯循环）。两份会在"根节点算不算祖先"
+   *   这类边界上漂开，而漂开的表现是"编辑器允许、核心拒绝"或反过来。
+   */
+  isAncestorOf(other: Node): boolean {
+    let p: Node | null = other.parent;
+    while (p !== null) {
+      if (p === this) return true;
+      p = p.parent;
+    }
+    return false;
+  }
+
   addChild(child: Node): this {
     if (child.parent === this) return this;
+    // ★ 环检查（批81）。挂进自己的子树里会让 `walk` 无限递归 ⇒ 栈溢出，
+    //   而症状是「某次遍历时整个引擎崩了」，离「谁挂错了」很远。
+    //   这里**抛**而不是返回 Result：这是调用方的编程错误，不是可恢复的运行期状况
+    //   （与 `ComponentRegistry.register` 重复注册同一个口径）。
+    if (child === this || child.isAncestorOf(this)) {
+      throw new Error(
+        `不能把节点 #${String(child.id)}（${child.name}）挂到它自己的子树里：` +
+          `#${String(this.id)}（${this.name}）是它的后代之一`,
+      );
+    }
     child.parent?.removeChild(child);
     child.parent = this;
     this.children.push(child);

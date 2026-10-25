@@ -386,8 +386,28 @@ var Node = class {
   get isDestroyed() {
     return this.destroyed;
   }
+  /**
+   * `other` 是不是自己的**祖先**（含父、祖父……直到根）。
+   *
+   * ★ 单独抽出来是因为它有两个消费者：`addChild` 的环检查（批81）与编辑器的
+   *   `ReparentOp`（批77 里手写过一份同样的上溯循环）。两份会在"根节点算不算祖先"
+   *   这类边界上漂开，而漂开的表现是"编辑器允许、核心拒绝"或反过来。
+   */
+  isAncestorOf(other) {
+    let p = other.parent;
+    while (p !== null) {
+      if (p === this) return true;
+      p = p.parent;
+    }
+    return false;
+  }
   addChild(child) {
     if (child.parent === this) return this;
+    if (child === this || child.isAncestorOf(this)) {
+      throw new Error(
+        `\u4E0D\u80FD\u628A\u8282\u70B9 #${String(child.id)}\uFF08${child.name}\uFF09\u6302\u5230\u5B83\u81EA\u5DF1\u7684\u5B50\u6811\u91CC\uFF1A#${String(this.id)}\uFF08${this.name}\uFF09\u662F\u5B83\u7684\u540E\u4EE3\u4E4B\u4E00`
+      );
+    }
     child.parent?.removeChild(child);
     child.parent = this;
     this.children.push(child);

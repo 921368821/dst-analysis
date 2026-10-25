@@ -368,15 +368,15 @@ export function reparentWithUndo(
   if ((from ?? scene.rootId) === p) {
     return err(engineError(EDIT_BAD_PARENT, `${node.name} 已经挂在 #${String(p)} 下面了`));
   }
-  // ★ 环形检查：`Node.addChild` **没有**这个守卫，把节点挂进自己的后代里
-  //   会造出一个环，之后 `walk` 直接栈溢出（而那时离出事的地方已经很远了）。
-  //   核心层该补的地方记在 PROGRESS 里；这一层先挡住编辑器这条路径。
-  let cur: Node | null = scene.find(p) ?? null;
-  while (cur !== null) {
-    if (cur.id === nodeId) {
-      return err(engineError(EDIT_BAD_PARENT, `不能把 ${node.name} 挂到它自己或它的后代下面`));
-    }
-    cur = cur.parent;
+  // ★ 环形检查分两层，职责不同：
+  //   核心层 `Node.addChild` 现在会**抛**（批81 补的）—— 那是最后一道防线，
+  //   因为它是编程错误、抛出来只会崩掉调用方；
+  //   编辑器这一层要在**崩之前**把它变成一条可以显示给人看的错误码，
+  //   所以仍然自己查一次。判断复用 `Node.isAncestorOf`，免得两份上溯逻辑在
+  //   「根节点算不算祖先」这种边界上漂开。
+  const target = scene.find(p);
+  if (target !== undefined && (target.id === nodeId || node.isAncestorOf(target))) {
+    return err(engineError(EDIT_BAD_PARENT, `不能把 ${node.name} 挂到它自己或它的后代下面`));
   }
 
   scene.reparent(nodeId, newParent);

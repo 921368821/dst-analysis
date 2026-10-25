@@ -257,3 +257,38 @@ test("存档头：我们自己的档读回来版本恒等于当前版本", () =>
   if (!r.ok) return;
   assert.equal(r.value.format, SCENE_FORMAT_VERSION);
 });
+
+test("★★ 存档里有环（手改过 / 某版写坏了）：报告并跳过那条父子关系，**不抛**", () => {
+  // ★ 读档是"不可抛"的边界：它返回 Result。一次坏存档不该把宿主进程炸掉。
+  //   核心层的环检查（批81）会抛，这里必须接住 —— 否则这个 Result 就是假的。
+  const { scene, reg } = build();
+  // `build()` 只有根 + 1 个节点，造环至少要 2 个非根节点
+  scene.spawnImmediate("cycle-x");
+  scene.spawnImmediate("cycle-y");
+  scene.flush();
+  const snap = saveScene(scene);
+  const ids = snap.nodes.map((n) => n.id).sort((a, b) => a - b);
+  assert.ok(ids.length >= 3, `这条判据需要至少 3 个节点，实际 ${String(ids.length)}`);
+
+  // 挑两个非根节点互相指认（a 的父是 b、b 的父是 a）—— 这是最纯粹的环。
+  const a = ids[1]!;
+  const b = ids[2]!;
+  const cyclic = {
+    ...snap,
+    nodes: snap.nodes.map((n) => (n.id === a ? { ...n, parent: b } : n.id === b ? { ...n, parent: a } : n)),
+  };
+
+  const { scene: fresh } = makeScene();
+  const r = loadScene(fresh, cyclic, reg);
+  // ① 不抛、且仍然是 ok（读档不因为一条坏关系整体失败）
+  assert.equal(r.ok, true, `读档不该因为环而失败：${r.ok ? "" : r.error.code}`);
+  // ② 问题被**点名**（不能静默跳过）
+  assert.ok(
+    r.ok && r.value.skipped.some((s) => s.includes("父子关系不成立")),
+    `环没有被报告出来：${r.ok ? JSON.stringify(r.value.skipped) : ""}`,
+  );
+  // ③ 场景仍然可用：真的遍历一遍（如果环形成了，这一行是栈溢出）
+  const seen: number[] = [];
+  fresh.root.walk((n) => seen.push(n.id));
+  assert.ok(seen.includes(fresh.rootId), "遍历连根都没走到");
+});
