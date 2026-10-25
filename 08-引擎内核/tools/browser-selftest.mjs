@@ -90,7 +90,13 @@ async function main() {
     client = page.client;
 
     // ★ 主动等：页面自己会在一帧循环里反复重写结果表，我们轮询那句汇总文字
-    const deadline = Date.now() + 30_000;
+    // ★★ 上限 60 秒（批75 从 30 秒抬上来）：runner 实测一次**提前通过**的自检
+    //   就要 23.2 秒 —— 其中大半是 SwiftShader 软件渲染下的引擎启动，
+    //   而失败轮要跑满页面自己的 10 秒总闸，两者叠起来贴着 30 秒的边。
+    //   这个上限是**工具等页面开口**的预算，不是判据口径：页面内部的
+    //   `MAX_TRIES = 100 × 100ms = 10 秒`（selftest.html）才是判据的预算，没动。
+    //   M316 守着这里：改成 ~0 会让整条自检变成"页面挂了"的假红。
+    const deadline = Date.now() + 60_000;
     let text = "";
     let done = false;
     while (Date.now() < deadline) {
@@ -122,7 +128,7 @@ async function main() {
       await sleep(250);
     }
     if (!done) {
-      console.error("✗ 30 秒内页面没有产出可用结果 —— 页面在跑到断言之前就挂了。");
+      console.error("✗ 60 秒内页面没有产出可用结果 —— 页面在跑到断言之前就挂了。");
       console.error(`  页面文字（截断）：\n${text.slice(0, 800)}`);
       // ★ 这种失败最需要控制台：没启动的原因只在那里
       const early = client.events

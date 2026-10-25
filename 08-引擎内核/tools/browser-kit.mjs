@@ -106,6 +106,26 @@ export function waitForDevTools(child, timeoutMs) {
   });
 }
 
+/**
+ * 起浏览器进程。
+ *
+ * ★★ POSIX 上必须 `detached: true`：不给子进程自己的进程组，
+ *   `killTree` 的 `process.kill(-pid)` 就打不到它 —— 那个负数 pid 要的是
+ *   "以 child.pid 为组长的进程组"，而没 detached 的孩子在**父进程的组**里，
+ *   于是 kill(-pid) 落 ESRCH、退回 `child.kill()` 只杀主进程，
+ *   Chrome 的 zygote / renderer / GPU 子进程整棵留在机器上。
+ *   症状不是报错，是**越来越慢**：一轮变异校验要起二十几次浏览器，
+ *   残留进程把 2 核 runner 拖到页面 10 秒总闸都跑不完，
+ *   最后以 M314/M315「还原不干净」的形式爆出来（2026-10-25 批75）。
+ *   Windows 上不 detached（taskkill /T 自己管树），避免多出一个控制台窗口。
+ */
+export function spawnBrowser(browser, args) {
+  return spawn(browser, args, {
+    stdio: ["ignore", "pipe", "pipe"],
+    detached: process.platform !== "win32",
+  });
+}
+
 export function killTree(child) {
   if (child.pid === undefined) return;
   if (process.platform === "win32") {
@@ -129,26 +149,22 @@ export function killTree(child) {
  * @param {string} pageHint 用于在 target 列表里认出"我们那个页面"的片段
  */
 export async function openPage(browser, url, profile, pageHint, windowSize = "960,700") {
-  const child = spawn(
-    browser,
-    [
-      "--headless",
-      "--no-sandbox",
-      "--disable-dev-shm-usage",
-      "--no-first-run",
-      // ★ 无头环境没有真 GPU。Chromium 122+ 里软件 WebGL（SwiftShader）默认被关掉，
-      //   必须显式打开，否则 WebGL2 探测失败 → 页面只剩降级路径 → "引擎没启动"。
-      //   `--disable-gpu` 与这几个参数是**互相矛盾**的：禁了 GPU 就一个绘图层都没有。
-      "--enable-unsafe-swiftshader",
-      "--use-gl=angle",
-      "--use-angle=swiftshader",
-      "--remote-debugging-port=0",
-      `--user-data-dir=${profile}`,
-      `--window-size=${windowSize}`,
-      url,
-    ],
-    { stdio: ["ignore", "pipe", "pipe"] },
-  );
+  const child = spawnBrowser(browser, [
+    "--headless",
+    "--no-sandbox",
+    "--disable-dev-shm-usage",
+    "--no-first-run",
+    // ★ 无头环境没有真 GPU。Chromium 122+ 里软件 WebGL（SwiftShader）默认被关掉，
+    //   必须显式打开，否则 WebGL2 探测失败 → 页面只剩降级路径 → "引擎没启动"。
+    //   `--disable-gpu` 与这几个参数是**互相矛盾**的：禁了 GPU 就一个绘图层都没有。
+    "--enable-unsafe-swiftshader",
+    "--use-gl=angle",
+    "--use-angle=swiftshader",
+    "--remote-debugging-port=0",
+    `--user-data-dir=${profile}`,
+    `--window-size=${windowSize}`,
+    url,
+  ]);
 
   const devtools = await waitForDevTools(child, 30_000);
   // ws://127.0.0.1:PORT/devtools/browser/<id> → 取页面 target 的 ws 地址

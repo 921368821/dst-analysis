@@ -162,6 +162,13 @@ async function main() {
     console.error("✗ 构建 web/cross-host.js 之后仍然找不到产物");
     process.exit(EXIT_FAIL);
   }
+  // ★ `--build-only`：只构建、不比。给变异校验在"还原后"把产物重建回干净态用
+  //   （2026-10-25：M189 的变异产物曾静默留在 web/cross-host.js 上，因为整条
+  //   工具是"构建 + 开浏览器比对"，还原时没人愿意为了重建再开一次浏览器）。
+  if (process.argv.includes("--build-only")) {
+    console.log("✓ web/cross-host.js 已构建（--build-only，未比对）");
+    process.exit(EXIT_PASS);
+  }
   const browser = findBrowser();
   if (browser === null) {
     console.error(

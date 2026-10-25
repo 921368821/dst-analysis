@@ -6,6 +6,35 @@
   M1 脚本异常隔离被破坏（throw 替代 report ⇒ 同帧后续脚本不再执行）
   M2 节点 id 分配退回全局（两个世界共享 id 空间 ⇒ 存档不可比）
   M3 资产增量忽略 sourceHash（改源不重导 ⇒ 幂等判据其实没守东西）
+
+★★ 「还原后」这一段的验证口径（2026-10-25 批75 改，改之前误报过三次）：
+   还原是**字节级写回**（`f.write_bytes(original_bytes)`），所以"仓库被留脏"
+   是一件可以直接看的事实，不需要靠重跑判据去推断。而浏览器判据跑一轮
+   要 20+ 秒、且对机器速度敏感（软件渲染下页面 10 秒总闸会贴边），
+   拿它当"还原干净"的推断器，抖动就会被写成一句很重的指控：
+     · M31：并发编辑测试文件 ⇒ 被误报「还原不干净」（判据自己还没写完）
+     · M292：判据本身时红时绿 ⇒ 同上
+     · M314/M315：Linux runner 上**还原后重跑**偶发不过，本地连跑四次全绿、
+       CI 同一机器上「浏览器端自检」闸门 45/45 通过 —— 两次误报的形状完全一样
+   所以现在分两种口径：
+     · cmd 型（浏览器/编辑器判据）：**确定性字节验证** —— 源文件字节回到原位、
+       重建退出码为 0（需要时）、构建产物哈希回到变异前（esbuild 同输入同输出，
+       已实测两次构建逐字节相同）。判据的牙齿在**变异后那一轮**（必须红），
+       不在还原后这一轮。
+     · node:test 型：还原后重跑一次（毫秒级、确定性），失败时把明细打出来
+       （以前 `n_fail_after, _ = run(m)` 把输出丢了，只剩一个数字）。
+
+★★ 第五种误报形状：**脏产物嫁祸给下一条**（2026-10-25 实测两次）。
+   ① M229/M230 的 `cmd` 带 `--build` 却没声明 `rebuild`：变异态被构建进
+      `web/editor.js` 后没人再建一次，脏包留在盘上；接着 M292 把它当"正确基线"，
+      于是报出「M292 产物没回到干净基线」—— 看起来像 M292 停在了变异态。
+   ② M189 更彻底地绕过了声明体系：它的构建藏在 `cross-host-save.mjs` 内部
+      （整条工具是"构建 + 开浏览器比对"），`web/cross-host.js` 因此从未被纳入检查，
+      脏包里多着一个 `performance.now()` 躺了一整天都没人发现。
+   结论：**不靠条目声明，按结果验证** ——
+     · 产物基线**开跑前统一建一次**（`_ARTIFACTS_CLEAN`），不用"上一条的遗留状态"；
+     · 任何 `cmd` 型条目还原后**一律重建**（`build:web` + `cross-host.js` 两路），
+       再拿三个产物的哈希对回基线。代价约 2 秒/条，换"谁都不可能忘记"。
 """
 import hashlib
 import json
@@ -23,6 +52,69 @@ from datetime import datetime
 #   2026-10-25：修好前它一直排在最后一步，前面总有别的红挡着，所以从没暴露。
 #   从脚本自身位置反推：tools/mutation-check.py → 引擎根。
 ROOT = pathlib.Path(__file__).resolve().parent.parent
+
+# ★ 跨平台的 npm 入口（2026-10-25 批75）：
+#   Windows 上是 npm.cmd，且必须经 shell 才能跑 .cmd；POSIX 上是 npm，直接 exec。
+#   原先写成 `subprocess.run(["npm", "run", "build:web"], shell=True)`——
+#   POSIX 上 list + shell=True **只有第一个元素是命令**，整行退化成裸 `npm`
+#   （打印帮助就退出），重建静默空转；Windows 上 cmd /c 反而会把 list 连成
+#   命令串正常跑。同一个坑只在 Linux 上发作，而症状（包停在变异态）离这里很远。
+_NPM = "npm.cmd" if sys.platform == "win32" else "npm"
+
+# build:web 的产物：浏览器/编辑器判据读的就是它们，变异还原后必须回到原位。
+# ★ cross-host.js 也算：它由 `tools/cross-host-save.mjs` 单独 esbuild 出来，
+#   曾被 M189 的变异悄悄留在盘上（那份脏包里多写了一个 `performance.now()`）——
+#   只盯 bundle/editor 两个文件就看不见它。
+_ARTIFACTS = ("web/bundle.js", "web/editor.js", "web/cross-host.js")
+
+
+def _artifacts_hash() -> str:
+    """构建产物的组合哈希。
+
+    ★ 为什么能用它证明"还原干净"：esbuild 同输入同输出（本地实测两次构建
+      逐字节相同），所以"还原后重建"有没有真的发生，看哈希就够 —— 不需要再跑
+      一轮 20+ 秒的浏览器判据去推断（那正是 M314/M315 误报「还原不干净」的来历）。
+    """
+    h = hashlib.sha256()
+    for rel in _ARTIFACTS:
+        p = ROOT / rel
+        h.update(rel.encode("utf-8"))
+        h.update(p.read_bytes() if p.exists() else b"<missing>")
+    return h.hexdigest()
+
+
+def _run_build() -> int:
+    """把所有 web/ 产物重建一遍，返回第一个非零退出码（全成功返回 0）。
+
+    ★ 两个构建者，缺一不可：
+      · `npm run build:web` → `web/bundle.js` + `web/editor.js`
+      · `node tools/cross-host-save.mjs --build-only` → `web/cross-host.js`
+      （最后这个由跨宿主工具自己 esbuild，`build:web` 不管它。M189 的脏包
+       就是漏了这一路 —— 只重建 build:web 的话，它永远留在变异态。）
+
+    ★ 不用 `shell=True`：
+      · POSIX 上 list + shell=True 只有第一个元素是命令（原 bug，见文件头）；
+      · Windows 上 .cmd 由系统自己经 shell 拉起，**不需要** shell=True ——
+        加了反而触发 DEP0190（"args 与 shell=True 一起用不安全"）。
+      两头都不用，代码就只有一条路径，不会再有"哪个平台走哪个分支"的差异。
+    """
+    r = subprocess.run(
+        [_NPM, "run", "build:web"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=600,
+    )
+    if r.returncode != 0:
+        return r.returncode
+    r2 = subprocess.run(
+        ["node", "tools/cross-host-save.mjs", "--build-only"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=600,
+    )
+    return r2.returncode
 
 MUTANTS = [
     {
@@ -2700,8 +2792,6 @@ MUTANTS = [
         "pairs": [("    onEvent,\n", "    onEvent: undefined,\n")],
         "cmd": ["node", "tools/browser-selftest.mjs", "--build"],
         "env_exit": 2,
-        # 还原后重建：`web/bundle.js` 是构建产物，不重建就会停在"变异后的包"上
-        "rebuild": True,
     },
     {
         "name": "M293 quadIn 退化成 linear（缓动名还在，曲线没了）",
@@ -2855,8 +2945,6 @@ MUTANTS = [
         "pairs": [("    const hs = hitstopMod.trigger(info);", "    const hs = { ok: true as const, value: { ticks: 0, remaining: 0, extended: false } };")],
         "cmd": ["node", "tools/browser-selftest.mjs", "--build"],
         "env_exit": 2,
-        # 还原后重建：`web/bundle.js` 是构建产物，不重建就会停在"变异后的包"上
-        "rebuild": True,
     },
     {
         "name": "M313 顿帧策略的分支顺序写反（怪杀怪也冻世界，群战画面一帧一停）",
@@ -2882,7 +2970,6 @@ MUTANTS = [
         "pairs": [("      if (isDead(h)) continue; // 尸体不当候选：见文件头 ★\n", "")],
         "cmd": ["node", "tools/browser-selftest.mjs", "--build"],
         "env_exit": 2,
-        "rebuild": True,
     },
     {
         "name": "M315 伤害数字不记攻击者（判据分不清谁冒的数字，被怪的数字带着通过）",
@@ -2894,7 +2981,18 @@ MUTANTS = [
         "pairs": [("    damageNumbers.push({ el, x, z, bornMs: performance.now(), lifeMs: DMG_LIFE_MS, text, dead, by });", "    damageNumbers.push({ el, x, z, bornMs: performance.now(), lifeMs: DMG_LIFE_MS, text, dead, by: -1 });")],
         "cmd": ["node", "tools/browser-selftest.mjs", "--build"],
         "env_exit": 2,
-        "rebuild": True,
+    },
+    {
+        "name": "M316 自检脚本等页面上限改成 1 毫秒（判据还没开口就判挂）",
+        # ★ 批75：runner 实测一次自检要 23.2 秒（软件渲染下启动占大头），
+        #   工具等页面开口的上限从 30 秒抬到 60 秒。这条守的是那个上限**还在管事**：
+        #   改成 1ms 时页面任何结果都读不到，自检必须以"页面挂了"退出（非 0）。
+        #   没有它，"把上限写坏"和"把判据写坏"在 CI 上长得一模一样。
+        # 不带 `--build`：变异点在工具自己身上，产物包里没有它。
+        "file": "tools/browser-selftest.mjs",
+        "pairs": [("    const deadline = Date.now() + 60_000;", "    const deadline = Date.now() + 1;")],
+        "cmd": ["node", "tools/browser-selftest.mjs"],
+        "env_exit": 2,
     },
 ]
 
@@ -3137,6 +3235,25 @@ if _warm.returncode != 0:
     sys.exit(2)
 print("[warm] 文档对账缓存已刷新（变异期间不再重算判据数）", flush=True)
 
+# ★★ 产物基线：**开跑前统一建一次**，之后每条 cmd 型变异都拿这一个值当对照。
+#
+#   第一版用的是"这一条变异开始之前那一刻盘上的包"当基线。那种基线会把
+#   **上一条变异留下的脏包**当成本条的正确参照 —— 实测就是 M229/M230：
+#   它们的 cmd 带 `--build` 却漏了 `rebuild`，跑完把 `web/editor.js` 留在变异态，
+#   接着 M292 报「产物没回到干净基线」，看起来像 M292 的毛病，真凶在前一条。
+#   开跑前建一次，基线就恒等于"当前源码的正确产物"：谁把包弄脏，都会在
+#   **它自己那一轮**暴露，不会嫁祸给下一条。
+_ARTIFACTS_CLEAN: str | None = None
+if any(m.get("cmd") for m in MUTANTS):
+    if _run_build() != 0:
+        print("✗ 基线构建失败 —— 产物不能当参照，还原验证就退化成猜。")
+        sys.exit(2)
+    _ARTIFACTS_CLEAN = _artifacts_hash()
+    print(
+        f"[warm] 产物基线 {_ARTIFACTS_CLEAN[:12]}（{len(_ARTIFACTS)} 个文件，开跑前建一次）",
+        flush=True,
+    )
+
 _take_lock()
 try:
     for m in MUTANTS:
@@ -3178,7 +3295,7 @@ try:
                 break
             mutated = mutated.replace(old, new, 1)
         if not ok_apply:
-            results.append((m["name"], "变异点没找到（判据可能已过期）", 0, []))
+            results.append((m["name"], "变异点没找到（判据可能已过期）", 0, [], ""))
             continue
 
         _ACTIVE[str(f)] = (f, original_bytes)
@@ -3189,19 +3306,15 @@ try:
         finally:
             f.write_bytes(original_bytes)
             _ACTIVE.pop(str(f), None)
-            # ★ 带 `rebuild` 的条目（浏览器判据）必须**还原后重建一次**。
-            #   否则 `web/bundle.js` 会停在被变异后的构建上，而它不是源码：
-            #   下一个人直接跑 `node tools/browser-selftest.mjs`（不带 --build）
-            #   就会拿一个脏包去自检，得到一条**假红**，还查不到是哪来的。
-            if m.get("rebuild"):
-                subprocess.run(
-                    ["npm", "run", "build:web"],
-                    cwd=ROOT,
-                    shell=True,
-                    capture_output=True,
-                    text=True,
-                    timeout=300,
-                )
+            # ★★ **cmd 型一律重建**（不再靠条目声明 `rebuild`）。
+            #   教训：靠人手声明就有漏的时候，而且漏了会**嫁祸给下一条**
+            #   （M229/M230 漏了 ⇒ M292 顶锅；M189 干脆不在声明体系里，
+            #   因为它的构建藏在 `cross-host-save.mjs` 内部）。
+            #   按结果验证：还原后无条件重建一次，再拿产物哈希和干净基线比。
+            #   代价约 2 秒/条，换来"任何人都无法忘记"。
+            rebuild_rc = None
+            if m.get("cmd"):
+                rebuild_rc = _run_build()
 
         # 还原后必须重新变绿，否则说明的还原不干净
         if _test_fingerprint() != _FP0:
@@ -3216,15 +3329,42 @@ try:
                 if d != _FP0["files"].get(tf):
                     print(f"  · 变了：{tf}", flush=True)
             sys.exit(2)
-        n_fail_after, _ = run(m)
-        results.append((m["name"], detail, n_fail, [n_fail_after]))
+        if m.get("cmd"):
+            # ★★ 确定性还原验证（口径说明见文件头）：**不重跑浏览器判据**。
+            #   还原是字节级写回，"仓库脏不脏"是能直接看的事实；而浏览器判据跑一轮
+            #   20+ 秒且对机器速度敏感（软件渲染下页面 10 秒总闸贴边），拿它的抖动
+            #   去指控"还原不干净"已经误报过三次（M31 / M292 / M314+M315）。
+            #   判据的牙齿在**变异后那一轮**（必须红），那一轮照跑、照算失败条数。
+            problems = []
+            if f.read_bytes() != original_bytes:
+                problems.append("源文件字节与变异前不一致")
+            if rebuild_rc is not None and rebuild_rc != 0:
+                problems.append(f"还原后重建退出码 {rebuild_rc}")
+            if rebuild_rc == 0 and _ARTIFACTS_CLEAN is not None:
+                artifacts_now = _artifacts_hash()
+                if artifacts_now != _ARTIFACTS_CLEAN:
+                    # ★ 两个短哈希都要打：只报"不一致"的话，下一个人没法判断
+                    #   是"包停在被变异态"还是"包本来就没跟上源码"。
+                    problems.append(
+                        "构建产物没回到干净基线（包可能停在变异态）"
+                        f" [{_ARTIFACTS_CLEAN[:12]} → {artifacts_now[:12]}]"
+                    )
+            n_fail_after = len(problems)
+            detail_after = "；".join(problems)
+        else:
+            n_fail_after, detail_after = run(m)
+            if n_fail_after and detail_after:
+                # 还原后的失败明细以前被整段丢掉（`n_fail_after, _ = run(m)`），
+                # 只剩一个数字 —— 而"还原不干净"是需要证据的指控。
+                print(f"   还原后仍失败：{detail_after.splitlines()[0]}", flush=True)
+        results.append((m["name"], detail, n_fail, [n_fail_after], detail_after))
 finally:
     _restore_all()
     _drop_lock()
 
 print("=" * 70)
 all_ok = True
-for name, detail, n_fail, after in results:
+for name, detail, n_fail, after, detail_after in results:
     # ★ 三种失败必须分开说，混为一谈会指错方向：
     #   ① 变异点没找到 ⇒ 靶子漂移（重构挪走了代码），判据**一条都没跑**，
     #      说它"假绿"是误判 —— 2026-10-24 M6/M169 就这么被误打印过；
@@ -3238,9 +3378,11 @@ for name, detail, n_fail, after in results:
         verdict = "× 变异没被抓住（判据是假绿）"
     if n_fail == 0 or (after and after[0] != 0):
         all_ok = False
-    print(f"{name}: {verdict}  变异后失败 {n_fail} 条；还原后失败 {after[0] if after else '?'} 条")
+    print(f"{name}: {verdict}  变异后失败 {n_fail} 条；还原后校验失败 {after[0] if after else '?'} 项")
     if detail:
         print("   " + detail.replace("\n", "\n   "))
+    if after and after[0] != 0 and detail_after:
+        print("   还原后：" + detail_after)
 print("=" * 70)
 if all_ok:
     print("全部变异均被抓住且还原干净")
@@ -3255,9 +3397,9 @@ else:
     #   第一次跑就吃了这个亏：只看到结论，看不到是哪一条（M65 的变异点在重构后消失了）。
     #   ★ 三类失败分开列（2026-10-24：M6/M169 是靶子漂移，却被归进"未被抓住"，
     #     害我去查假绿，而真相是重构挪走了代码 —— 错误分类比没有分类更贵）。
-    drift = [name for name, d, _n, _a in results if d.startswith("变异点没找到")]
-    green = [name for name, d, n, _a in results if not d.startswith("变异点没找到") and n == 0]
-    dirty = [name for name, _d, _n, a in results if a and a[0] != 0]
+    drift = [name for name, d, _n, _a, _da in results if d.startswith("变异点没找到")]
+    green = [name for name, d, n, _a, _da in results if not d.startswith("变异点没找到") and n == 0]
+    dirty = [name for name, _d, _n, a, _da in results if a and a[0] != 0]
     # ★★ 紧凑摘要必须**以 ✗ 开头**，而且要打在最前面。
     #
     #   2026-10-25 第九轮实测：860 秒跑完 278 条，`tools/ci.mjs` 的 annotation
