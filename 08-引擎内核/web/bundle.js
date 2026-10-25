@@ -19703,6 +19703,14 @@ function rectOfId(handle, id) {
   return handle.module.layout.get(id);
 }
 
+// src/host/hitstop-policy.ts
+var HITSTOP_HIT_TICKS = 3;
+var HITSTOP_KILL_TICKS = 12;
+function demoHitstopPolicy(info, heroId) {
+  if (info.attackerId !== heroId) return 0;
+  return info.dead ? HITSTOP_KILL_TICKS : HITSTOP_HIT_TICKS;
+}
+
 // src/extensions/worldgen/spawn.ts
 var PLAYER_TYPE = "world.player";
 var PLAYER_FRAME = "player";
@@ -23027,11 +23035,9 @@ async function main() {
   const feedbackMod = createFeedbackModule({ id: "render.feedback.demo" });
   const hitstopMod = createHitstopModule({
     id: "combat.hitstop.demo",
-    policy: (info) => info.dead ? HITSTOP_KILL_TICKS : info.attackerId === heroId ? HITSTOP_HIT_TICKS : 0
+    policy: (info) => demoHitstopPolicy(info, heroId)
   });
   const HIT_FLASH_TICKS = 12;
-  const HITSTOP_HIT_TICKS = 3;
-  const HITSTOP_KILL_TICKS = 12;
   const HIT_PUNCH_TICKS = 6;
   const DMG_LIFE_MS = 900;
   const feedbackErrors = [];
@@ -23040,14 +23046,15 @@ async function main() {
   fxLayer.id = "fx";
   fxLayer.style.cssText = "position:fixed;left:0;top:0;width:100%;height:100%;pointer-events:none;overflow:hidden;z-index:20;";
   document.body.appendChild(fxLayer);
-  function spawnDamageNumber(x, z, text, dead) {
+  function spawnDamageNumber(x, z, text, dead, by) {
     const el = document.createElement("div");
     el.className = "dmg";
     el.dataset.dmg = text;
+    el.dataset.dmgBy = String(by);
     el.textContent = text;
     el.style.cssText = `position:absolute;left:0;top:0;font:700 14px/1 ui-monospace,monospace;color:${dead ? "#ffd54a" : "#ff6b5a"};text-shadow:0 1px 2px rgba(0,0,0,.55);pointer-events:none;will-change:transform,opacity;`;
     fxLayer.appendChild(el);
-    damageNumbers.push({ el, x, z, bornMs: performance.now(), lifeMs: DMG_LIFE_MS, text, dead });
+    damageNumbers.push({ el, x, z, bornMs: performance.now(), lifeMs: DMG_LIFE_MS, text, dead, by });
   }
   function updateDamageNumbers(now) {
     if (damageNumbers.length === 0) return;
@@ -23083,7 +23090,7 @@ async function main() {
     const target = scene.find(info.targetId);
     if (target !== void 0) {
       const p = target.worldPosition;
-      spawnDamageNumber(p.x, p.y, `-${String(info.applied)}`, info.dead);
+      spawnDamageNumber(p.x, p.y, `-${String(info.applied)}`, info.dead, info.attackerId);
       const f = flash(scene, info.targetId, HIT_FLASH_TICKS);
       if (!f.ok) feedbackErrors.push(f.error.code);
     }
@@ -23316,6 +23323,7 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
     for (const h of scene.componentsOf(HEALTH_TYPE)) {
       const n = h.node;
       if (n === null || n.id === heroId || !n.activeInHierarchy) continue;
+      if (isDead(h)) continue;
       if (MOB_FACTIONS.stanceOf(myTeam, teamOf(scene, n.id).team) === "ally") continue;
       const p = n.worldPosition;
       const dx = p.x - me.x;
@@ -23807,10 +23815,14 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
      *   后者只能证明函数被调用过（批66 的 `firstIndex` 就是这么假绿的）。
      */
     feedback: {
-      /** 屏幕上还活着的伤害数字（`[{text, dead, opacity}]`，空数组 = 都消失了）。 */
-      numbers: () => damageNumbers.map((d) => ({ text: d.text, dead: d.dead, opacity: d.el.style.opacity })),
-      /** DOM 里真的有这么多 `.dmg` 元素（与上面的数组**分开**：一个对、一个错就是漏删）。 */
-      domCount: () => fxLayer.querySelectorAll(".dmg").length,
+      /** 屏幕上还活着的伤害数字（`[{text, dead, opacity, by}]`，空数组 = 都消失了）。 */
+      numbers: () => damageNumbers.map((d) => ({ text: d.text, dead: d.dead, opacity: d.el.style.opacity, by: d.by })),
+      /**
+       * DOM 里真的有这么多 `.dmg` 元素（与上面的数组**分开**：一个对、一个错就是漏删）。
+       * ★ `by` 可选（批74）：只数某个攻击者冒的数字。生物打斗也在冒数字，
+       *   不区分来源的话"数字会消失"在打斗窗口里永远等不到 0。
+       */
+      domCount: (by) => by === void 0 ? fxLayer.querySelectorAll(".dmg").length : fxLayer.querySelectorAll(`.dmg[data-dmg-by="${String(by)}"]`).length,
       /** 某个节点现在是不是在闪（读组件字段，不是读"我记得调过"）。 */
       flashing: (id) => {
         const fb = scene.find(id)?.get(FEEDBACK_TYPE);

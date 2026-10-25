@@ -342,6 +342,8 @@ let hungerWiredDone = null;
 let hungerFullDone = null;
 let hungerEatDone = null;
 // 批69：命中的表现层（数字要"出现"和"消失"两个事实，所以是两个 latch）
+// 批74：靶子只造一次（两条都会重试攻击，每轮造会攒靶子）；"没打出击杀就不记账"
+let dmgDummy = -1;
 let dmgShownDone = null;
 let dmgGoneTries = 0;
 let tintRestoreDone = null;
@@ -838,32 +840,50 @@ row("★ 饿了就能吃：饱食 +15、浆果 -1（挑的是**营养最高**的
 row("★ 打一下冒出伤害数字：数字是**实际扣血 2**，不是攻击力 3", async (e) => {
   if (dmgShownDone !== null) return dmgShownDone;
   // 靶子 2 血、玩家伤害 3 ⇒ applied=2 / overkill=1。用 damage 的实现会显示 -3。
-  const id = e.feedback.dummy(2);
-  if (id < 0) {
-    dmgShownDone = [false, "靶子没造出来（玩家不在场景里？）"];
-    return dmgShownDone;
+  // ★ 批74：靶子只造一次 + 没打出击杀就下一轮再打。第一版第一轮打完就记账，
+  //   而那一枪可能被漫游的怪抢走（兔子 4 血一下打不死，屏幕上只有 -3），
+  //   也可能撞冷却 —— 两种都会把"没打中"记成这条的失败，而它与本条的语义
+  //   （数字显示的是实际扣血）无关。兔子 4 血保证"击杀"只可能来自 2 血靶子。
+  if (dmgDummy < 0) {
+    dmgDummy = e.feedback.dummy(2);
+    if (dmgDummy < 0) {
+      dmgShownDone = [false, "靶子没造出来（玩家不在场景里？）"];
+      return dmgShownDone;
+    }
   }
   const msg = e.attack();
-  const nums = e.feedback.numbers();
+  // ★ 只数**玩家自己**冒的数字（批74）：猎狗伤害也是 2，屏幕上随时可能有
+  //   怪冒的 "-2" —— 不区分来源的话，这一条会在完全没打中的情况下靠怪的数字"通过"。
+  const nums = e.feedback.numbers().filter((n) => n.by === e.heroId);
   const texts = nums.map((n) => n.text);
-  const dom = e.feedback.domCount();
+  if (msg.indexOf("击杀") < 0 || texts.indexOf("-2") < 0) {
+    return [false, `等自己这一下命中靶子（${msg} · 我的数字 ${JSON.stringify(texts)}）`];
+  }
+  const dom = e.feedback.domCount(e.heroId);
   dmgShownDone = [
-    texts.indexOf("-2") >= 0 && dom >= 1,
-    `提示「${msg}」· 屏幕上的数字 ${JSON.stringify(texts)}（应含 -2；显示 -3 就是用错了数）· DOM ${dom} 个`,
+    dom >= 1,
+    `提示「${msg}」· 我的数字 ${JSON.stringify(texts)}（应含 -2；显示 -3 就是用错了数）· DOM ${dom} 个`,
   ];
   return dmgShownDone;
 });
 
 row("★ 伤害数字会自己消失（1 秒后数组与 DOM 都归零）", async (e) => {
+  // ★ 批74：必须等上一条真的打出数字再开始等。上一条改成重试之后，它没打完的
+  //   轮次里这条会看到"数组 0 / DOM 0"而**空过** —— 没出现过就没有消失，
+  //   那才是假绿（与 838 修的是同一族问题：判据不能拿上游的中间态当通过依据）。
+  if (dmgShownDone === null) return [false, "等「打出伤害数字」跑完再等消失（否则没出现过就没有消失）"];
   // ★ 上限 40 轮（≈4s）：等的是 DOM 生命周期，不是"跑得够不够快"。
   //   不设上限的话，**数字根本不消失**这条会一直"等下去"，最后被 10 秒总闸判成
   //   "仍有 N 条不通过" —— 那时已经分不清是它慢还是它坏了。
   dmgGoneTries++;
-  const nums = e.feedback.numbers().length;
-  const dom = e.feedback.domCount();
-  if (nums === 0 && dom === 0) return [true, "数字已全部消失（数组 0 / DOM 0）"];
-  if (dmgGoneTries > 40) return [false, `等了 4 秒还在：数组 ${nums} / DOM ${dom}（漏删或寿命写错）`];
-  return [false, `等待中：数组 ${nums} / DOM ${dom}`];
+  // ★ 只数玩家自己冒的（批74）：猎狗追杀兔子时屏幕上一直有怪的数字，
+  //   数全部的话这条在打斗窗口里永远等不到 0 —— 而"玩家的数字会不会消失"
+  //   才是这条要证的事（生物的数字归生物的表现层管，同一条代码路径）。
+  const mine = e.feedback.numbers().filter((n) => n.by === e.heroId);
+  const dom = e.feedback.domCount(e.heroId);
+  if (mine.length === 0 && dom === 0) return [true, "我的数字已全部消失（数组 0 / DOM 0）"];
+  if (dmgGoneTries > 40) return [false, `等了 4 秒还在：我的数组 ${mine.length} / DOM ${dom}（漏删或寿命写错）`];
+  return [false, `等待中：我的数组 ${mine.length} / DOM ${dom}`];
 });
 
 row("★ 玩家打一下之后仇恨表里真的记了一条（手动攻击也要被记恨）", (e) => {
@@ -879,26 +899,45 @@ row("★ 玩家打一下之后仇恨表里真的记了一条（手动攻击也�
 });
 
 /**
- * 批73 · 顿帧（hitstop）两条。
+ * 批73 · 顿帧（hitstop）两条。批74 修掉一条**结构性假绿**（见下）。
  *
  * ★ 这两条证的是**只有浏览器里才可能坏**的事：命中让世界停下来（Node 判据只能证
  *   "trigger 调了 freeze"），以及停的时候**画面还在走**。后者是顿帧的全部意义 ——
  *   如果实现成"整个 frame 都不跑"，屏幕会连闪色一起定住，看起来像卡了。
  * ★ 语料用**击杀**（靶子 2 血、玩家伤害 3 ⇒ dead）：击杀冻 12 步 ≈ 0.4s，
  *   比普通命中的 3 步（0.1s）好观测 —— 而 0.1s 在两个 100ms 轮次之间可能整个漏掉。
+ *
+ * ★★ 批74 实测到的假绿（第一版的形态）：打完一枪立刻读 `frozen`，而那一枪有三种落空 ——
+ *   ① 撞上冷却（上一条判据刚在同一轮里打完，冷却 12 tick）；
+ *   ② 最近的候选是上一条判据留下的**尸体**（`attack()` 原样上抛 TARGET_DEAD）；
+ *   ③ 被漫游的怪抢走目标（兔子 4 血，一下打不死）。
+ *   三种落空都让这一条读到**上一条判据残留的冻结**而通过 —— 探针打出来的原文是
+ *   `atkMsg=COMBAT.TARGET_DEAD：目标 293 已经归零` 而 frozen=true。也就是说：
+ *   它从来没有验证过"自己这一下命中会冻住世界"，删掉顿帧它照样绿。
+ *   ⇒ 现在：靶子只造一次；**没打出"击杀"就下一轮再打**（重试上限由 10 秒总闸兜底）；
+ *     打中了才进入观测。配套的根因修在 `attackNearest`：尸体不进候选。
  */
+let hsDummy = -1;
 let hsPhase = 0;
 let hsA = null;
 let hsDone = null;
+/** 解冻后等世界恢复推进的宽限轮数（批74，见下面 ★）。 */
+let hsGraceTries = 0;
 row("★★ 命中真的顿帧：世界当场冻住，而渲染帧还在涨", async (e) => {
   if (hsDone !== null) return hsDone;
   if (hsPhase === 0) {
-    const id = e.feedback.dummy(2);
-    if (id < 0) {
-      hsDone = [false, "靶子没造出来（玩家不在场景里？）"];
-      return hsDone;
+    if (hsDummy < 0) {
+      hsDummy = e.feedback.dummy(2);
+      if (hsDummy < 0) {
+        hsDone = [false, "靶子没造出来（玩家不在场景里？）"];
+        return hsDone;
+      }
     }
-    e.attack(); // 击杀 ⇒ 策略给 12 步冻结
+    const msg = e.attack();
+    if (msg.indexOf("击杀") < 0) {
+      // 冷却没好 / 打中的不是能一击死的靶子：下一轮再打，**不记账**
+      return [false, `等自己这一下命中（${msg}）`];
+    }
     const h = e.hitstop();
     if (!h.frozen || h.triggers < 1) {
       hsDone = [false, `打完没冻住：frozen=${h.frozen} triggers=${h.triggers} rejected=${h.rejected}（onHit 没接上？）`];
@@ -923,11 +962,18 @@ row("★★ 命中真的顿帧：世界当场冻住，而渲染帧还在涨", as
     return [false, `冻结中：tick 保持 ${now.tick} · 渲染帧 ${hsA.frame}→${now.frame}`];
   }
   // 冻结结束：世界必须恢复推进（否则"冻住"其实是"卡死"）
+  // ★ 宽限 5 轮（批74）：冻结按**真实时间**收（12 tick = 0.4s），而轮次是 100ms
+  //   一格 —— 解冻的那一格可能正好采在"冻结刚结束、世界还没攒满一个固定步"上，
+  //   那一瞬 tick 不动是正常的，不等于卡死。宽限有上限，真卡死仍然会红。
   if (now.tick <= hsA.tick) {
-    hsDone = [false, `冻结结束了但 tick 没动（${hsA.tick}→${now.tick}）—— 那不是顿帧，是卡死`];
-    return hsDone;
+    hsGraceTries++;
+    if (hsGraceTries > 5) {
+      hsDone = [false, `冻结结束了但 tick 没动（${hsA.tick}→${now.tick}）—— 那不是顿帧，是卡死`];
+      return hsDone;
+    }
+    return [false, `解冻后等世界恢复推进（tick 仍 ${now.tick}，第 ${hsGraceTries} 次）`];
   }
-  hsDone = [true, `冻住期间 tick 保持 ${hsA.tick}、渲染帧 ${hsA.frame}→${now.frame}（+${now.frame - hsA.frame}）· 解冻后 tick ${hsA.tick}→${now.tick}`];
+  hsDone = [true, `冻住期间 tick 保持 ${hsA.tick}、渲染帧 ${hsA.frame}→${now.frame}（+${now.frame - hsA.frame}）· 解冻后 tick ${hsA.tick}→${now.tick} · 冻结 ${hsA.freeze} 步`];
   return hsDone;
 });
 

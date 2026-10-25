@@ -2858,7 +2858,44 @@ MUTANTS = [
         # 还原后重建：`web/bundle.js` 是构建产物，不重建就会停在"变异后的包"上
         "rebuild": True,
     },
-
+    {
+        "name": "M313 顿帧策略的分支顺序写反（怪杀怪也冻世界，群战画面一帧一停）",
+        # ★ 批74 修的就是这个：第一版写成 `dead ? 12 : attacker===hero ? 3 : 0`，
+        #   "任何死亡都冻 12 步" ⇒ 猎狗咬死兔子也冻。演示世界 3 猎狗追 10 兔子，
+        #   世界被冻得一顿一顿，而冻结不报错、只是手感变怪 —— 浏览器两条顿帧
+        #   判据因此时红时绿，最后以 CI 上 M292「还原不干净」的形式爆出来。
+        #   策略抽成纯函数后，这条错误在毫秒级就能被 Node 判据抓住。
+        "file": "src/host/hitstop-policy.ts",
+        "pairs": [("  if (info.attackerId !== heroId) return 0;\n  return info.dead ? HITSTOP_KILL_TICKS : HITSTOP_HIT_TICKS;", "  return info.dead ? HITSTOP_KILL_TICKS : info.attackerId === heroId ? HITSTOP_HIT_TICKS : 0;")],
+        "test": "tests/host/hitstop-policy.test.ts",
+    },
+    {
+        "name": "M314 攻击选择不跳过尸体（贴着尸体打不到活人，浏览器判据永远等不到自己的击杀）",
+        # ★ 批74 修的根因：`damage()` 不销毁节点，归零的靶子一直留在场景里。
+        #   不跳的话最近的候选是尸体 ⇒ `attack()` 上抛 TARGET_DEAD ⇒ 空格键
+        #   对着一个还能打的活人**就是没反应**（health.ts 的文案自己说了
+        #   "打尸体通常是目标选择出错"：选择侧的问题要在选择侧修）。
+        #   浏览器侧的症状：顿帧判据那一枪打中上一条判据留下的尸体，
+        #   却读到上一条残留的冻结而假绿 —— 变异后它永远等不到"击杀"，
+        #   10 秒总闸判红。
+        "file": "src/browser-entry.ts",
+        "pairs": [("      if (isDead(h)) continue; // 尸体不当候选：见文件头 ★\n", "")],
+        "cmd": ["node", "tools/browser-selftest.mjs", "--build"],
+        "env_exit": 2,
+        "rebuild": True,
+    },
+    {
+        "name": "M315 伤害数字不记攻击者（判据分不清谁冒的数字，被怪的数字带着通过）",
+        # ★ 批74：猎狗伤害也是 2，屏幕上随时可能有怪冒的 "-2" —— 不记攻击者的话，
+        #   "打出 -2"这条能在完全没打中的情况下靠怪的数字通过；而"数字会消失"
+        #   在生物打斗窗口里永远等不到一个空数组。by 恒为 -1 时，
+        #   顿帧/伤害两条判据都等不到自己的数字 ⇒ 10 秒总闸判红。
+        "file": "src/browser-entry.ts",
+        "pairs": [("    damageNumbers.push({ el, x, z, bornMs: performance.now(), lifeMs: DMG_LIFE_MS, text, dead, by });", "    damageNumbers.push({ el, x, z, bornMs: performance.now(), lifeMs: DMG_LIFE_MS, text, dead, by: -1 });")],
+        "cmd": ["node", "tools/browser-selftest.mjs", "--build"],
+        "env_exit": 2,
+        "rebuild": True,
+    },
 ]
 
 

@@ -67,6 +67,7 @@ import { parseBmFont, type BitmapFont } from "./extensions/ui/font.ts";
 import { UiScaleMode } from "./extensions/ui/viewport.ts";
 import { createHudUi, rectOfId, type HudUiHandle, type UiSkinJson } from "./host/hud-ui.ts";
 import { hudLine, hudRows, type HudFacts } from "./host/hud-model.ts";
+import { demoHitstopPolicy } from "./host/hitstop-policy.ts";
 import { generateWorld, type WorldPlan } from "./extensions/worldgen/worldgen.ts";
 import {
   SITE_TYPE,
@@ -86,7 +87,7 @@ import {
   registerControllerComponent,
 } from "./extensions/input/player-controller.ts";
 import { NavGrid } from "./extensions/nav/nav-grid.ts";
-import { HEALTH_TYPE, Health, registerHealthComponent } from "./extensions/combat/health.ts";
+import { HEALTH_TYPE, Health, isDead, registerHealthComponent } from "./extensions/combat/health.ts";
 import { ATTACKER_TYPE, Attacker, attack, registerAttackerComponent } from "./extensions/combat/attack.ts";
 import { FactionMember, createFactions, registerFactionComponent, teamOf } from "./extensions/combat/faction.ts";
 // 批73：顿帧（hitstop）。命中的一瞬间把世界冻住几个逻辑步，画面继续走。
@@ -772,22 +773,21 @@ export async function main(): Promise<void> {
 
   // ---------------------------------------------------------------- 顿帧（批73）
   //
-  // ★ 策略写在这里，不写进库里：「什么命中值得冻」是玩法判断。
+  // ★ 策略抽到 `host/hitstop-policy.ts`（批74）：它是玩法判断，而玩法判断要被
+  //   单测钉住。第一版内联在这里，分支顺序写反了（"任何死亡都冻 12 步" ⇒
+  //   猎狗咬死兔子也冻），只有浏览器里看得出来 —— 两条顿帧判据时红时绿跑了
+  //   很久，最后以 CI 上 M292「还原不干净」的形式爆出来。
   //   演示页的取舍：玩家打中冻 3 步（≈0.1s，够看见"这一下是实的"）、
   //   击杀冻 12 步（≈0.4s，和闪色同长，让"打死了一个东西"有分量）、
   //   **怪打玩家不冻** —— 群战里每个怪都冻会让画面一帧一停，
   //   而冻结本身不报错，只是手感变怪，所以这条必须显式写出来。
   const hitstopMod: HitstopHandle = createHitstopModule({
     id: "combat.hitstop.demo",
-    policy: (info) => (info.dead ? HITSTOP_KILL_TICKS : info.attackerId === heroId ? HITSTOP_HIT_TICKS : 0),
+    policy: (info) => demoHitstopPolicy(info, heroId),
   });
 
   /** 受击闪多久（tick，30Hz ⇒ 12 ≈ 0.4s：够看见，又不会糊住下一次攻击）。 */
   const HIT_FLASH_TICKS = 12;
-  /** 玩家打中时冻几步（30Hz ⇒ 3 ≈ 0.1s：刚好够"看见"世界顿了一下）。 */
-  const HITSTOP_HIT_TICKS = 3;
-  /** 击杀时冻几步（≈0.4s，与闪色同长：让"打死了一个东西"有分量）。 */
-  const HITSTOP_KILL_TICKS = 12;
   /** 挥击挤压多久（比闪烁短：它是"动作"，不是"状态"）。 */
   const HIT_PUNCH_TICKS = 6;
   /** 伤害数字活多久（毫秒：它是**画面**，跟着渲染时钟走，与 tick 无关）。 */
@@ -803,6 +803,8 @@ export async function main(): Promise<void> {
     readonly lifeMs: number;
     readonly text: string;
     readonly dead: boolean;
+    /** 谁打的（批74：判据要能只数自己的数字 —— 生物打斗也在冒数字）。 */
+    readonly by: number;
   }
   const damageNumbers: DamageNumber[] = [];
 
@@ -818,19 +820,23 @@ export async function main(): Promise<void> {
   document.body.appendChild(fxLayer);
 
   /** 冒一个伤害数字（世界坐标 → 屏幕，跟着相机走）。 */
-  function spawnDamageNumber(x: number, z: number, text: string, dead: boolean): void {
+  function spawnDamageNumber(x: number, z: number, text: string, dead: boolean, by: number): void {
     const el = document.createElement("div");
     el.className = "dmg";
     // ★ 带 `data-dmg`：自检页要能**读到**屏幕上显示的是几，而不是只数元素个数
     //   （"冒了一个数字"与"冒的是 3 还是 10"是两件事，后者才是玩家看到的）。
     el.dataset.dmg = text;
+    // ★ 带 `data-dmg-by`（批74）：判据要能只数**自己的**数字。演示世界里
+    //   猎狗常年追杀兔子，生物打斗也在冒数字 —— 不区分来源的话，
+    //   "数字会消失"这条判据在打斗窗口里永远等不到一个空数组。
+    el.dataset.dmgBy = String(by);
     el.textContent = text;
     el.style.cssText =
       "position:absolute;left:0;top:0;font:700 14px/1 ui-monospace,monospace;" +
       `color:${dead ? "#ffd54a" : "#ff6b5a"};text-shadow:0 1px 2px rgba(0,0,0,.55);` +
       "pointer-events:none;will-change:transform,opacity;";
     fxLayer.appendChild(el);
-    damageNumbers.push({ el, x, z, bornMs: performance.now(), lifeMs: DMG_LIFE_MS, text, dead });
+    damageNumbers.push({ el, x, z, bornMs: performance.now(), lifeMs: DMG_LIFE_MS, text, dead, by });
   }
 
   /**
@@ -897,7 +903,7 @@ export async function main(): Promise<void> {
     const target = scene.find(info.targetId);
     if (target !== undefined) {
       const p = target.worldPosition;
-      spawnDamageNumber(p.x, p.y, `-${String(info.applied)}`, info.dead);
+      spawnDamageNumber(p.x, p.y, `-${String(info.applied)}`, info.dead, info.attackerId);
       const f = flashNode(scene, info.targetId, HIT_FLASH_TICKS);
       if (!f.ok) feedbackErrors.push(f.error.code);
     }
@@ -1206,6 +1212,12 @@ export async function main(): Promise<void> {
    * ★ 用 `componentsOf(HEALTH_TYPE)` 找候选而不是"找最近的一切"：
    *   能被打的东西一定有血量，而树/石头没有 —— 于是"站在树边上按空格"不会报
    *   `NO_HEALTH`，而是老老实实说"附近没有可打的"。
+   * ★ **尸体不是候选**（批74 修）：`damage()` 不销毁节点，归零的靶子会一直留在
+   *   场景里。不跳的话，贴着尸体站 ⇔ 最近的候选是尸体 ⇔ `attack()` 报
+   *   `COMBAT.TARGET_DEAD` 原样上抛 —— 空格键对着一个还能打的活人**就是没反应**。
+   *   而 `health.ts` 的文案自己说了"打尸体通常是目标选择出错"：选择侧的问题
+   *   要在选择侧修，不能等攻击时报错。（浏览器自检的顿帧判据原来就绕在这上面：
+   *   它那一枪打中上一条判据留下的尸体，却读到上一条残留的冻结而假绿。）
    * ★ 友军过滤走 `MOB_FACTIONS`（与生物同一个关系表）：只在攻击入口处判一次，
    *   而不是靠"距离太远所以打不到"去蒙。
    */
@@ -1221,6 +1233,7 @@ export async function main(): Promise<void> {
     for (const h of scene.componentsOf<Health>(HEALTH_TYPE)) {
       const n = h.node;
       if (n === null || n.id === heroId || !n.activeInHierarchy) continue;
+      if (isDead(h)) continue; // 尸体不当候选：见文件头 ★
       if (MOB_FACTIONS.stanceOf(myTeam, teamOf(scene, n.id).team) === "ally") continue;
       const p = n.worldPosition;
       const dx = p.x - me.x;
@@ -1865,10 +1878,17 @@ export async function main(): Promise<void> {
      *   后者只能证明函数被调用过（批66 的 `firstIndex` 就是这么假绿的）。
      */
     feedback: {
-      /** 屏幕上还活着的伤害数字（`[{text, dead, opacity}]`，空数组 = 都消失了）。 */
-      numbers: () => damageNumbers.map((d) => ({ text: d.text, dead: d.dead, opacity: d.el.style.opacity })),
-      /** DOM 里真的有这么多 `.dmg` 元素（与上面的数组**分开**：一个对、一个错就是漏删）。 */
-      domCount: () => fxLayer.querySelectorAll(".dmg").length,
+      /** 屏幕上还活着的伤害数字（`[{text, dead, opacity, by}]`，空数组 = 都消失了）。 */
+      numbers: () => damageNumbers.map((d) => ({ text: d.text, dead: d.dead, opacity: d.el.style.opacity, by: d.by })),
+      /**
+       * DOM 里真的有这么多 `.dmg` 元素（与上面的数组**分开**：一个对、一个错就是漏删）。
+       * ★ `by` 可选（批74）：只数某个攻击者冒的数字。生物打斗也在冒数字，
+       *   不区分来源的话"数字会消失"在打斗窗口里永远等不到 0。
+       */
+      domCount: (by?: number) =>
+        by === undefined
+          ? fxLayer.querySelectorAll(".dmg").length
+          : fxLayer.querySelectorAll(`.dmg[data-dmg-by="${String(by)}"]`).length,
       /** 某个节点现在是不是在闪（读组件字段，不是读"我记得调过"）。 */
       flashing: (id: number) => {
         const fb = scene.find(id)?.get<Feedback>(FEEDBACK_TYPE);
