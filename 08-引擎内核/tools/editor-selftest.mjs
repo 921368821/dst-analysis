@@ -793,9 +793,196 @@ const PROBE = `
       " list=" + E.scenes().list.length + " 面板行数=" + srows(),
   );
 
+  // ================================================================ 存档（落盘）
+  // ★ 上面那些验的都是**模型层**（工程对象里多了一份、当前项换了）。这一段验的是
+  //   "存档媒介里真的有东西" —— 面板上写着「已存 1234 字节」而 localStorage 是空的，
+  //   是最典型的一类假绿：判据全绿，关掉页面什么都没了。
+  const PKEY = "dst.editor.project.v1";
+  const archText = () => localStorage.getItem(PKEY);
+  const archParsed = () => {
+    try {
+      return JSON.parse(archText() || "null");
+    } catch (e) {
+      return null;
+    }
+  };
+  const sInfo0 = E.saveInfo();
+  const archRaw = archText();
+  const sp0 = archParsed();
+  add(
+    "★★ 存档真的落在 localStorage 里（键在、字节数与面板一致、内容是一份工程）",
+    archRaw !== null && sInfo0.storedBytes > 0 &&
+      new TextEncoder().encode(archRaw).length === sInfo0.storedBytes &&
+      sp0 !== null && sp0.format === "dst.editor.project" && sp0.current === "main" &&
+      Array.isArray(sp0.scenes) && sp0.scenes.length === 1 && sp0.scenes[0].name === "main",
+    "bytes=" + sInfo0.storedBytes + " note=" + sInfo0.note + " 解析=" +
+      (sp0 === null ? "失败" : sp0.scenes.length + " 场景 / current=" + sp0.current),
+  );
+
+  const persistNode = E.addNode("落盘之后才加的");
+  const sp1 = archParsed();
+  add(
+    "★★ 加一个节点之后存档里有它（存的是**当前**内容，不是上次切场景时那份）",
+    persistNode.ok === true && sp1 !== null &&
+      sp1.scenes.some((r) => r.name === "main" && r.text.indexOf("落盘之后才加的") >= 0),
+    "node=" + JSON.stringify(persistNode) + " 存档里有=" +
+      (sp1 === null ? "解析失败" : String(sp1.scenes.some((r) => r.text.indexOf("落盘之后才加的") >= 0))),
+  );
+
+  const bytesBeforePlay = E.saveInfo().storedBytes;
+  const nodesBeforePlay = E.stats().nodes;
+  E.step(1); // 开一个试玩会话
+  const inPlayNode = E.addNode("试玩中加的");
+  const nodesInPlay = E.stats().nodes;
+  const noteInPlay = E.saveInfo().note;
+  const bytesInPlay = E.saveInfo().storedBytes;
+  E.stop(); // 停播 ⇒ 回滚，那个节点会消失
+  add(
+    "★★ 试玩期间不写存档（世界被控制器跑过、被临时改过，那不是文档）",
+    inPlayNode.ok === true && nodesInPlay === nodesBeforePlay + 1 &&
+      bytesInPlay === bytesBeforePlay && noteInPlay.indexOf("试玩") >= 0,
+    "节点 " + nodesBeforePlay + "->" + nodesInPlay + " 存档 " + bytesBeforePlay + "->" + bytesInPlay +
+      " note=" + noteInPlay,
+  );
+
+  const madeD = E.sceneNew("落盘场景");
+  const markD = E.addNode("落盘标记");
+  const sp2 = archParsed();
+  add(
+    "★★ 新建的场景连内容一起进存档（2 个场景、当前是新场景、两份文本各归各的）",
+    madeD.ok === true && markD.ok === true && sp2 !== null && sp2.scenes.length === 2 &&
+      sp2.current === "落盘场景" &&
+      sp2.scenes.some((r) => r.name === "落盘场景" && r.text.indexOf("落盘标记") >= 0) &&
+      sp2.scenes.some((r) => r.name === "main" && r.text.indexOf("落盘之后才加的") >= 0),
+    "made=" + JSON.stringify(madeD) + " 存档=" +
+      (sp2 === null ? "解析失败" : sp2.scenes.length + " 场景 / current=" + sp2.current),
+  );
+
+  const backD = E.sceneSwitch("main");
+  const sp3 = archParsed();
+  add(
+    "★ 切回 main 之后存档的当前项也跟着变（存档与工程说的是同一件事）",
+    backD.ok === true && sp3 !== null && sp3.current === "main" && sp3.scenes.length === 2,
+    "back=" + JSON.stringify(backD) + " 存档 current=" + (sp3 === null ? "解析失败" : sp3.current) +
+      " 场景数=" + (sp3 === null ? "?" : sp3.scenes.length),
+  );
+
   return rows;
 })()
 `;
+
+/**
+ * 刷新之后的探针（阶段 2）。
+ *
+ * ★ 必须**换一张页面**才能验"关掉再打开还在"：同一个 JS 上下文里的 `project` 变量
+ *   本来就在，刷新才真的走一遍"读存档 → 装世界"。
+ *   这一段的每一条都同时在验"启动时没有把默认世界写进存档"—— 真那么做了的话，
+ *   刷新后只剩 1 个场景（默认世界的名字），而其余判据全绿。
+ */
+const PROBE2 = `
+(async () => {
+  const rows = [];
+  const add = (name, ok, detail) => {
+    rows.push({ name, ok: ok === true, detail: String(detail) });
+  };
+  const E = window.__editor;
+  const PKEY = "dst.editor.project.v1";
+  const raw = localStorage.getItem(PKEY);
+  let parsed = null;
+  try {
+    parsed = JSON.parse(raw || "null");
+  } catch (e) {
+    parsed = null;
+  }
+  const sc = E.scenes();
+  const want = ["main", "落盘场景"].sort().join(",");
+  add(
+    "★★ 刷新之后工程还在（2 个场景 / 当前是 main）—— 启动没有拿默认世界覆盖存档",
+    raw !== null && parsed !== null && parsed.scenes.length === 2 &&
+      sc.list.length === 2 && sc.list.slice().sort().join(",") === want && sc.current === "main",
+    "list=" + JSON.stringify(sc.list) + " current=" + sc.current +
+      " 存档场景数=" + (parsed === null ? "解析失败" : parsed.scenes.length),
+  );
+
+  const info = E.saveInfo();
+  add(
+    "★ 打开页面会说出「已恢复」（恢复这件事在界面上有痕迹，不是悄悄发生的）",
+    info.note.indexOf("已恢复") >= 0 && info.storedBytes > 0,
+    "note=" + info.note + " bytes=" + info.storedBytes,
+  );
+
+  // ★★ 这一条是 M421 逼出来的：原先只验"切过去能看到标记"，而**切场景本身**就会
+  //   从槽位装载目标内容 ⇒ 就算启动时压根没装当前场景，那一条照样绿（假绿）。
+  //   要验"打开页面装的是存档里 current 的那份"，只能在**不切场景**的前提下看当前场景里
+  //   有没有那个只存在于存档的节点 —— 刚 boot 出来的世界根本没有它。
+  const hasBoot = E.outline().some((r) => r.name === "落盘之后才加的");
+  add(
+    "★★ 打开页面装的是存档里**当前场景**的内容（不是刚 boot 出来那个世界）",
+    hasBoot === true,
+    "当前场景里有「落盘之后才加的」=" + String(hasBoot) +
+      " 节点数=" + E.stats().nodes + " current=" + E.scenes().current,
+  );
+
+  const sw = E.sceneSwitch("落盘场景");
+  const has = E.outline().some((r) => r.name === "落盘标记");
+  add(
+    "★★ 恢复出来的是**内容**不只是名字：切到「落盘场景」能看到刷新前加的那个节点",
+    sw.ok === true && has === true && E.scenes().current === "落盘场景",
+    JSON.stringify(sw) + " 有落盘标记=" + String(has) + " current=" + E.scenes().current,
+  );
+
+  return rows;
+})()
+`;
+
+/**
+ * 刷新同一张页面，再跑一遍 `PROBE2`。
+ *
+ * ★ 返回 `null` 表示"这一段没验到"（刷新失败 / 探针抛了），调用方必须把它当失败：
+ *   把"没验"当成"验过了"，正是这个仓库最忌讳的那类假绿。
+ */
+async function reloadAndProbe(client) {
+  try {
+    await client.send("Page.enable");
+    await client.send("Page.reload", { ignoreCache: true });
+  } catch (e) {
+    console.error(`  ! 刷新失败：${e instanceof Error ? e.message : String(e)}`);
+    return null;
+  }
+  // 刷新会换掉 JS 上下文：`__editor` 要等新的一份 boot 完才出现。
+  const deadline = Date.now() + 30_000;
+  let ready = false;
+  while (Date.now() < deadline) {
+    await sleep(250);
+    try {
+      const r = await client.send("Runtime.evaluate", {
+        expression: "!!(window.__editor && window.__editor.ready())",
+        returnByValue: true,
+      });
+      if (r?.result?.value === true) {
+        ready = true;
+        break;
+      }
+    } catch {
+      // 刷新瞬间旧上下文已经没了 —— 继续等，这不是失败。
+    }
+  }
+  if (!ready) {
+    console.error("  ! 刷新之后 30 秒内编辑器没有就绪");
+    return null;
+  }
+  const r = await client.send("Runtime.evaluate", {
+    expression: PROBE2,
+    awaitPromise: true,
+    returnByValue: true,
+  });
+  if (r?.exceptionDetails !== undefined) {
+    console.error(`  ! 刷新后的探针抛异常：${r.exceptionDetails.exception?.description ?? r.exceptionDetails.text}`);
+    return null;
+  }
+  const v = r?.result?.value;
+  return Array.isArray(v) ? v : null;
+}
 
 async function main() {
   if (process.argv.includes("--build")) {
@@ -863,10 +1050,21 @@ async function main() {
       console.error(`✗ 探针抛异常：${r.exceptionDetails.exception?.description ?? r.exceptionDetails.text}`);
       process.exit(EXIT_FAIL);
     }
-    const rows = r?.result?.value ?? [];
+    let rows = r?.result?.value ?? [];
     if (!Array.isArray(rows) || rows.length === 0) {
       console.error("✗ 探针没有返回任何断言结果");
       process.exit(EXIT_FAIL);
+    }
+
+    // ---------------- 阶段 2：刷新页面，验"关掉再打开还在"
+    // ★ 只在阶段 1 全绿时才跑：阶段 1 已经红了的话，刷新只会把现场搅得更难读。
+    if (rows.every((x) => x.ok === true)) {
+      const more = await reloadAndProbe(client);
+      if (more === null) {
+        console.error("✗ 刷新之后的那一段没有跑起来 —— 存档恢复等于没验（不许拿阶段 1 全绿顶替）");
+        process.exit(EXIT_FAIL);
+      }
+      rows = rows.concat(more);
     }
 
     const pass = rows.filter((x) => x.ok === true).length;

@@ -3867,6 +3867,75 @@ MUTANTS = [
         "cmd": ["node", "tools/editor-selftest.mjs", "--build"],
         "env_exit": 2,
     },
+    {
+        "name": "M418 存盘前不导出当前场景（存档停在上一次切场景的内容）",
+        # 面板上照样写着「已存 N 字节」，而人刚才的改动一个字都没进去 ——
+        # 只有关掉页面重开才看得出来，那时已经晚了。
+        "file": "src/editor-entry.ts",
+        "pairs": [("  const saved = saveCurrent(docDeps(app), p);",
+                   "  const saved = { ok: true as const, value: { text: \"\", changed: false } };")],
+        "cmd": ["node", "tools/editor-selftest.mjs", "--build"],
+        "env_exit": 2,
+    },
+    {
+        "name": "M419 试玩期间照样写存档（把试玩跑出来的世界当成文档）",
+        "file": "src/editor-entry.ts",
+        "pairs": [("  if (app === null || p === null) return;\n  if (playSession !== null) {",
+                   "  if (app === null || p === null) return;\n  if (false) {")],
+        "cmd": ["node", "tools/editor-selftest.mjs", "--build"],
+        "env_exit": 2,
+    },
+    {
+        "name": "M420 启动就用默认世界覆盖存档（用户的几个场景被一份新世界顶掉）",
+        # 这是落盘最贵的一种错：不报错、界面正常，只是"我上次做的场景没了"。
+        "file": "src/editor-entry.ts",
+        "pairs": [("  project = adoptStoredProject(app, t0.value);",
+                   "  project = createProject(app.scene.name, t0.value);\n  persistProject();")],
+        "cmd": ["node", "tools/editor-selftest.mjs", "--build"],
+        "env_exit": 2,
+    },
+    {
+        "name": "M421 恢复了场景列表但不装内容（切过去是个空场景）",
+        # 与 M420 互补：M420 让"列表都不对"，这条让"列表对、内容空" ——
+        # 只有"切过去看节点在不在"能咬住它。
+        "file": "src/editor-entry.ts",
+        "pairs": [("  if (cur.text !== freshText) {", "  if (false) {")],
+        "cmd": ["node", "tools/editor-selftest.mjs", "--build"],
+        "env_exit": 2,
+    },
+    {
+        "name": "M422 存档写到别的键上（写完就再也读不回来）",
+        "file": "src/extensions/editor/project-file.ts",
+        "pairs": [("export const PROJECT_STORAGE_KEY = \"dst.editor.project.v1\";",
+                   "export const PROJECT_STORAGE_KEY = \"dst.editor.project.v1.wrong\";")],
+        "cmd": ["node", "tools/editor-selftest.mjs", "--build"],
+        "env_exit": 2,
+    },
+    {
+        "name": "M423 解析不校验 current 在列表里（打开之后在错的场景上编辑）",
+        "file": "src/extensions/editor/project-file.ts",
+        "pairs": [("  if (typeof current !== \"string\" || !seen.has(current)) {", "  if (false) {")],
+        "test": "tests/extensions/editor-project-file.test.ts",
+    },
+    {
+        "name": "M424 解析不拦重名场景（切换只会命中第一份）",
+        "file": "src/extensions/editor/project-file.ts",
+        "pairs": [("    if (seen.has(name)) {", "    if (false) {")],
+        "test": "tests/extensions/editor-project-file.test.ts",
+    },
+    {
+        "name": "M425 解析不拦空场景表（空工程顶着一份不存在的文档）",
+        "file": "src/extensions/editor/project-file.ts",
+        "pairs": [("  if (o.scenes.length === 0) {", "  if (false) {")],
+        "test": "tests/extensions/editor-project-file.test.ts",
+    },
+    {
+        "name": "M426 存档写不进去也报成功（配额满了还说已存）",
+        "file": "src/extensions/editor/project-file.ts",
+        "pairs": [("    return err(engineError(EDIT_PROJECT_STORE, `工程写不进去：${errText(e)}`));",
+                   "    return ok({ bytes: 0, scenes: 0 });")],
+        "test": "tests/extensions/editor-project-file.test.ts",
+    },
 ]
 
 

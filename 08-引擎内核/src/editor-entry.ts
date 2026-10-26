@@ -57,11 +57,18 @@ import {
   createScene,
   currentSceneText,
   deleteScene,
+  saveCurrent,
   sceneNames,
   switchScene,
   type Project,
   type SwitchReport,
 } from "./extensions/editor/project.ts";
+import {
+  PROJECT_STORAGE_KEY,
+  loadProject,
+  saveProject,
+  type ProjectStore,
+} from "./extensions/editor/project-file.ts";
 import { fieldsOf, setField, type FieldChange } from "./extensions/editor/property-model.ts";
 import { beginDrag, dragTarget, endDrag, pickAt, type DragState } from "./extensions/editor/gizmo.ts";
 import { createPie } from "./extensions/editor/pie.ts";
@@ -134,6 +141,7 @@ const assetCountEl = need<HTMLSpanElement>("assetcount");
 const btnAssetAdd = need<HTMLButtonElement>("asset-add");
 const sceneListEl = need<HTMLDivElement>("scenelist");
 const sceneCountEl = need<HTMLSpanElement>("scenecount");
+const saveNoteEl = need<HTMLSpanElement>("savenote");
 const btnSceneNew = need<HTMLButtonElement>("scene-new");
 const btnSceneDel = need<HTMLButtonElement>("scene-del");
 
@@ -168,6 +176,95 @@ let booted = false;
  * 会让"启动时看到的世界"和"工程里记的场景"从第一秒起就不是同一份。
  */
 let project: Project | null = null;
+
+/**
+ * 存档介质：浏览器的 localStorage。
+ *
+ * ★ 这里**不 try/catch**：`saveProject` / `loadProject` 各自把异常翻译成
+ *   `EDIT.PROJECT_STORE`。在这里兜一次的话，"写不进去"（配额满、隐私模式）就变成
+ *   一次静默失败 —— 面板上照旧写着「已存」，人关掉页面才发现什么都没了。
+ */
+const projectStore: ProjectStore = {
+  read: () => window.localStorage.getItem(PROJECT_STORAGE_KEY),
+  write: (text) => {
+    window.localStorage.setItem(PROJECT_STORAGE_KEY, text);
+  },
+};
+
+/**
+ * 把工程写进存档。
+ *
+ * ★ 顺序是「先把当前场景导出进槽位，再序列化」。反过来存的是**上一次**导出时的那一份
+ *   —— 人刚才的改动全丢，而面板上"已保存"照样亮着，这是最难自己发现的一种丢数据。
+ *
+ * ★ 试玩期间**不写**：此刻世界被控制器跑过、被脚本临时改过，那些都不是文档。
+ *   写下去的后果是"试玩跑了两步，把跑到的地方当成文档存了"。
+ */
+function persistProject(): void {
+  const app = appRef;
+  const p = project;
+  if (app === null || p === null) return;
+  if (playSession !== null) {
+    saveNoteEl.textContent = "试玩中：不写存档";
+    return;
+  }
+  const saved = saveCurrent(docDeps(app), p);
+  if (!saved.ok) {
+    saveNoteEl.textContent = `未存盘：${saved.error.code}`;
+    return;
+  }
+  const w = saveProject(projectStore, p);
+  if (!w.ok) {
+    // 静默失败在这里是致命的：人以为一直在存，其实一条都没写进去。
+    saveNoteEl.textContent = `未存盘：${w.error.code}`;
+    errEl.textContent = `${w.error.code}：${w.error.message}`;
+    return;
+  }
+  saveNoteEl.textContent = `已存 ${String(w.value.bytes)} 字节 · ${String(w.value.scenes)} 个场景`;
+}
+
+/**
+ * 启动时把存档装回来（没有就来一个新工程）。
+ *
+ * ★ 调用时机钉死在「默认世界已经装好、工程还没建」那一刻，而且**恢复失败就退回新工程**：
+ *   先建默认工程再恢复的话，第一次 `persistProject()` 会把默认世界写进存档 ——
+ *   用户的几个场景就这么被一份新世界覆盖掉，而界面上一切正常。
+ *
+ * ★ 恢复成功但当前场景的内容与刚 boot 出来的世界**逐字节相同**时不装载：
+ *   `openDocument` 会把整棵树换成新实例（撤销栈、选中集、`heroId` 指的东西全变），
+ *   而内容一样 —— 与批88「停播时文本一样就不重建」是同一条规则。
+ */
+function adoptStoredProject(app: GameApp, freshText: string): Project {
+  const fallback = createProject(app.scene.name, freshText);
+  const r = loadProject(projectStore);
+  if (!r.ok) {
+    // 存档在，但坏 / 打不开。**不清档**：人还得靠它把东西抠出来。
+    saveNoteEl.textContent = `存档读不出来（${r.error.code}）`;
+    errEl.textContent = `${r.error.code}：${r.error.message} · 存档原样保留，未覆盖`;
+    return fallback;
+  }
+  if (r.value === null) {
+    saveNoteEl.textContent = "新工程（还没有存档）";
+    return fallback;
+  }
+  const rp = r.value.project;
+  const cur = rp.scenes.find((s) => s.name === rp.current);
+  if (cur === undefined) {
+    // 解析器已保证 `current` 在列表里。真破了就**响亮地抛**，不写一条返回兜底值的
+    // 防御分支 —— 那种分支会把真正的守卫遮成假绿（批90 M414 的实测结果）。
+    throw new Error(`工程不变量被破坏：current=${rp.current} 不在 ${String(rp.scenes.length)} 个场景里`);
+  }
+  if (cur.text !== freshText) {
+    const opened = openDocument(docDeps(app), cur.text);
+    if (!opened.ok) {
+      saveNoteEl.textContent = `存档装不进去（${opened.error.code}）`;
+      errEl.textContent = `${opened.error.code}：${opened.error.message} · 存档原样保留`;
+      return fallback;
+    }
+  }
+  saveNoteEl.textContent = `已恢复 ${String(r.value.bytes)} 字节 · ${String(rp.scenes.length)} 个场景`;
+  return rp;
+}
 
 /**
  * 每个 `Node` **实例**一个只在本进程内有效的序号。
@@ -576,8 +673,12 @@ function stopPlay(): StopOutcome {
   if (!r.ok) {
     // 回滚失败时**不清空 playSession 的结论**：面板必须留着"工作区不可信"这句话，
     // 否则人只会看到一条一闪而过的错误，然后接着在半个世界里编辑。
+    //
+    // ★ 这里用 `refreshAll` 而**不是** `afterHistoryChange`：后者会落盘，而这个时刻
+    //   场景是"半个世界"（回滚中途失败）。把不可信的世界写进存档 = 把用户的文档换掉，
+    //   比"这次没存上"糟糕得多 —— 下次打开就只剩这半份了。
     errEl.textContent = `${r.error.code}：${r.error.message}`;
-    afterHistoryChange();
+    refreshAll();
     return { ok: false, code: r.error.code, message: r.error.message, edits: s.edits };
   }
   lastStop = r.value;
@@ -619,6 +720,10 @@ function commitField(nodeId: NodeId, type: string, key: string, raw: unknown): R
   if (r.value.changed) {
     history.push(makeFieldOp(app.scene, nodeId, type, key, r.value.before, r.value.after));
     refreshHistory();
+    // ★ 属性面板的改动**不走** `afterHistoryChange`（那会重画面板，把正在输入的
+    //   输入框换掉），所以这里必须自己落盘一次 —— 否则"在属性面板里改的东西"
+    //   会是唯一存不进存档的一类改动。
+    persistProject();
   }
   return r;
 }
@@ -651,15 +756,18 @@ function doSaveDoc(): boolean {
   docText.value = r.value;
   docInfoEl.textContent = `已导出 ${String(r.value.length)} 字节`;
   errEl.textContent = "";
+  // "保存到文本"之后场景内容没变，但人按了保存 ⇒ 顺手也把工程存一次
+  // （存的是同一份内容，只是让存档与文本同步，不至于"我保存了但它没存"）。
+  persistProject();
   return true;
 }
 
 function afterDocChange(): void {
-  // 打开/新建都不进历史，所以这里不走 `afterHistoryChange` 的撤销收尾，
+  // 打开/新建/切场景都不进历史，所以这里不走 `afterHistoryChange` 的撤销收尾，
   // 但**必须**重画：树、面板、历史三处都变了。
-  refreshTree();
-  refreshProps();
-  refreshHistory();
+  refreshAll();
+  // 这三件事都改了"工程里的当前场景"，所以都要落盘。
+  persistProject();
 }
 
 function doOpenDoc(text?: string): { ok: boolean; made?: number; code?: string; message?: string } {
@@ -1472,6 +1580,16 @@ function afterHistoryChange(): void {
       errEl.textContent = `选中项已不存在：${gone.map((id) => `#${String(id)}`).join("、")}`;
     }
   }
+  refreshAll();
+  // ★ 这里是**所有真实改动**的汇聚点（新建 / 删除 / 换父 / 撤销 / 重做 / 挂组件…），
+  //   所以自动保存挂在这里，而不是在每个动作后面各调一次 —— 那种写法一定会漏一处，
+  //   而漏一处等于"这个动作存不进去"。
+  //   唯一的例外是"回滚失败"：那时世界不可信，不写盘（见 `stopPlay` 里对 `refreshAll` 的使用）。
+  persistProject();
+}
+
+/** 只重画，不落盘（世界不可信的时候用它）。 */
+function refreshAll(): void {
   refreshTree();
   refreshProps();
   refreshHistory();
@@ -1671,6 +1789,13 @@ interface EditorApi {
   sceneNew(name?: string): { ok: boolean; name?: string; code?: string; message?: string };
   /** 删一个场景（缺省 = 当前）。删当前时会先切到邻居；只剩一个时会被拒。 */
   sceneDelete(name?: string): { ok: boolean; name?: string; kind?: string; code?: string; message?: string };
+  /**
+   * 存档现状（面板上那句话 + 存档键里现在有多少字节，没存过是 -1）。
+   *
+   * ★ 判据不满足于"面板说了已存"：它必须能对着**存档媒介**核（`localStorage` 里
+   *   到底有没有、多少字节），否则"存了"和"面板上写着存了"分不开。
+   */
+  saveInfo(): { note: string; storedBytes: number };
   /**
    * 节点**实例**的序号（`-1` = 节点不在）。
    *
@@ -1888,6 +2013,18 @@ function installApi(app: GameApp): void {
     sceneDelete(name) {
       return doSceneDelete(name);
     },
+    saveInfo() {
+      // ★ 字节数直接问存档媒介（不是问我们自己记的变量）：`-1` = 键不存在。
+      //   问变量的话，"写失败但变量改了"这种实现会一路绿到底。
+      let storedBytes = -1;
+      try {
+        const t = window.localStorage.getItem(PROJECT_STORAGE_KEY);
+        storedBytes = t === null ? -1 : new TextEncoder().encode(t).length;
+      } catch {
+        storedBytes = -2;
+      }
+      return { note: saveNoteEl.textContent ?? "", storedBytes };
+    },
     nodeSerial(id) {
       const n = app.scene.find(id);
       return n === undefined ? -1 : serialOf(n);
@@ -2041,9 +2178,12 @@ async function main(): Promise<void> {
     errEl.textContent = `工程初始化失败：${t0.error.code}：${t0.error.message}`;
     return;
   }
-  project = createProject(app.scene.name, t0.value);
-  docText.value = t0.value;
-  docInfoEl.textContent = `工程：1 个场景 · 已导出 ${String(t0.value.length)} 字节`;
+  // ★ 有存档就用存档（`adoptStoredProject` 内部保证：读不出来时不清档、退回新工程）。
+  //   这一步必须在**任何一次 persistProject 之前** —— 反过来的话，第一次自动保存
+  //   就把默认世界写进存档，用户的几个场景被一份新世界覆盖，界面上还一切正常。
+  project = adoptStoredProject(app, t0.value);
+  docText.value = currentSceneText(project);
+  docInfoEl.textContent = `工程：${String(project.scenes.length)} 个场景 · 当前「${project.current}」`;
   refreshScenes();
   btnSceneNew.addEventListener("click", () => {
     doSceneNew();

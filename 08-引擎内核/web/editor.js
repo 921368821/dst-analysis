@@ -7746,6 +7746,107 @@ function deleteScene(deps, p, name) {
   return ok(report("switched", from, next.name, false, opened.value));
 }
 
+// src/extensions/editor/project-file.ts
+var PROJECT_FORMAT = "dst.editor.project";
+var PROJECT_VERSION = 1;
+var PROJECT_STORAGE_KEY = "dst.editor.project.v1";
+var EDIT_PROJECT_JSON = "EDIT.PROJECT_JSON";
+var EDIT_PROJECT_FORMAT = "EDIT.PROJECT_FORMAT";
+var EDIT_PROJECT_VERSION = "EDIT.PROJECT_VERSION";
+var EDIT_PROJECT_SHAPE = "EDIT.PROJECT_SHAPE";
+var EDIT_PROJECT_CURRENT = "EDIT.PROJECT_CURRENT";
+var EDIT_PROJECT_DUP = "EDIT.PROJECT_DUP";
+var EDIT_PROJECT_STORE = "EDIT.PROJECT_STORE";
+function errText(e) {
+  return e instanceof Error ? e.message : String(e);
+}
+function serializeProject(p) {
+  return JSON.stringify({
+    format: PROJECT_FORMAT,
+    version: PROJECT_VERSION,
+    current: p.current,
+    scenes: p.scenes.map((s) => ({ name: s.name, text: s.text }))
+  });
+}
+function parseProject(text) {
+  let raw;
+  try {
+    raw = JSON.parse(text);
+  } catch (e) {
+    return err(engineError(EDIT_PROJECT_JSON, `\u5DE5\u7A0B\u6587\u4EF6\u4E0D\u662F\u5408\u6CD5 JSON\uFF1A${errText(e)}`));
+  }
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return err(engineError(EDIT_PROJECT_FORMAT, "\u5DE5\u7A0B\u6587\u4EF6\u7684\u6700\u5916\u5C42\u5FC5\u987B\u662F\u4E00\u4E2A\u5BF9\u8C61"));
+  }
+  const o = raw;
+  if (o.format !== PROJECT_FORMAT) {
+    return err(
+      engineError(EDIT_PROJECT_FORMAT, `\u8FD9\u4E0D\u662F\u7F16\u8F91\u5668\u7684\u5DE5\u7A0B\u6587\u4EF6\uFF08format=${JSON.stringify(o.format)}\uFF09`)
+    );
+  }
+  if (o.version !== PROJECT_VERSION) {
+    return err(
+      engineError(
+        EDIT_PROJECT_VERSION,
+        `\u5DE5\u7A0B\u6587\u4EF6\u7248\u672C ${JSON.stringify(o.version)} \u8FD9\u4E00\u7248\u4E0D\u8BA4\u8BC6\uFF08\u53EA\u8BA4 ${String(PROJECT_VERSION)}\uFF09`
+      )
+    );
+  }
+  if (!Array.isArray(o.scenes)) {
+    return err(engineError(EDIT_PROJECT_SHAPE, "\u5DE5\u7A0B\u6587\u4EF6\u7684 scenes \u5FC5\u987B\u662F\u6570\u7EC4"));
+  }
+  if (o.scenes.length === 0) {
+    return err(engineError(EDIT_PROJECT_SHAPE, "\u5DE5\u7A0B\u91CC\u4E00\u4E2A\u573A\u666F\u90FD\u6CA1\u6709 \u2014\u2014 \u6CA1\u6709\u6587\u6863\u53EF\u7F16\u8F91"));
+  }
+  const scenes = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const [i, it] of o.scenes.entries()) {
+    if (typeof it !== "object" || it === null) {
+      return err(engineError(EDIT_PROJECT_SHAPE, `\u7B2C ${String(i + 1)} \u4E2A\u573A\u666F\u4E0D\u662F\u5BF9\u8C61`));
+    }
+    const { name, text: text2 } = it;
+    if (typeof name !== "string" || name.length === 0) {
+      return err(engineError(EDIT_PROJECT_SHAPE, `\u7B2C ${String(i + 1)} \u4E2A\u573A\u666F\u6CA1\u6709\u540D\u5B57`));
+    }
+    if (typeof text2 !== "string") {
+      return err(engineError(EDIT_PROJECT_SHAPE, `\u573A\u666F\u300C${name}\u300D\u6CA1\u6709\u6587\u6863\u6587\u672C\uFF08text \u5FC5\u987B\u662F\u5B57\u7B26\u4E32\uFF09`));
+    }
+    if (seen.has(name)) {
+      return err(engineError(EDIT_PROJECT_DUP, `\u573A\u666F\u540D\u300C${name}\u300D\u51FA\u73B0\u4E86\u4E24\u6B21 \u2014\u2014 \u91CD\u540D\u4E4B\u540E\u5207\u6362\u53EA\u4F1A\u547D\u4E2D\u7B2C\u4E00\u4EFD`));
+    }
+    seen.add(name);
+    scenes.push({ name, text: text2 });
+  }
+  const current = o.current;
+  if (typeof current !== "string" || !seen.has(current)) {
+    return err(
+      engineError(EDIT_PROJECT_CURRENT, `\u5DE5\u7A0B\u7684\u5F53\u524D\u9879 ${JSON.stringify(current)} \u4E0D\u5728\u573A\u666F\u5217\u8868\u91CC`)
+    );
+  }
+  return ok({ scenes, current });
+}
+function saveProject(store, p) {
+  const text = serializeProject(p);
+  try {
+    store.write(text);
+  } catch (e) {
+    return err(engineError(EDIT_PROJECT_STORE, `\u5DE5\u7A0B\u5199\u4E0D\u8FDB\u53BB\uFF1A${errText(e)}`));
+  }
+  return ok({ bytes: new TextEncoder().encode(text).length, scenes: p.scenes.length });
+}
+function loadProject(store) {
+  let text;
+  try {
+    text = store.read();
+  } catch (e) {
+    return err(engineError(EDIT_PROJECT_STORE, `\u5DE5\u7A0B\u8BFB\u4E0D\u51FA\u6765\uFF1A${errText(e)}`));
+  }
+  if (text === null) return ok(null);
+  const parsed = parseProject(text);
+  if (!parsed.ok) return err(parsed.error);
+  return ok({ project: parsed.value, bytes: new TextEncoder().encode(text).length });
+}
+
 // src/extensions/editor/property-model.ts
 var EDIT_BAD_FIELD = "EDIT.BAD_FIELD";
 var EDIT_BAD_VALUE = "EDIT.BAD_VALUE";
@@ -12482,6 +12583,7 @@ var assetCountEl = need("assetcount");
 var btnAssetAdd = need("asset-add");
 var sceneListEl = need("scenelist");
 var sceneCountEl = need("scenecount");
+var saveNoteEl = need("savenote");
 var btnSceneNew = need("scene-new");
 var btnSceneDel = need("scene-del");
 var dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -12496,6 +12598,61 @@ var appRef = null;
 var heroId = -1;
 var booted = false;
 var project = null;
+var projectStore = {
+  read: () => window.localStorage.getItem(PROJECT_STORAGE_KEY),
+  write: (text) => {
+    window.localStorage.setItem(PROJECT_STORAGE_KEY, text);
+  }
+};
+function persistProject() {
+  const app = appRef;
+  const p = project;
+  if (app === null || p === null) return;
+  if (playSession !== null) {
+    saveNoteEl.textContent = "\u8BD5\u73A9\u4E2D\uFF1A\u4E0D\u5199\u5B58\u6863";
+    return;
+  }
+  const saved = saveCurrent(docDeps(app), p);
+  if (!saved.ok) {
+    saveNoteEl.textContent = `\u672A\u5B58\u76D8\uFF1A${saved.error.code}`;
+    return;
+  }
+  const w = saveProject(projectStore, p);
+  if (!w.ok) {
+    saveNoteEl.textContent = `\u672A\u5B58\u76D8\uFF1A${w.error.code}`;
+    errEl.textContent = `${w.error.code}\uFF1A${w.error.message}`;
+    return;
+  }
+  saveNoteEl.textContent = `\u5DF2\u5B58 ${String(w.value.bytes)} \u5B57\u8282 \xB7 ${String(w.value.scenes)} \u4E2A\u573A\u666F`;
+}
+function adoptStoredProject(app, freshText) {
+  const fallback = createProject(app.scene.name, freshText);
+  const r = loadProject(projectStore);
+  if (!r.ok) {
+    saveNoteEl.textContent = `\u5B58\u6863\u8BFB\u4E0D\u51FA\u6765\uFF08${r.error.code}\uFF09`;
+    errEl.textContent = `${r.error.code}\uFF1A${r.error.message} \xB7 \u5B58\u6863\u539F\u6837\u4FDD\u7559\uFF0C\u672A\u8986\u76D6`;
+    return fallback;
+  }
+  if (r.value === null) {
+    saveNoteEl.textContent = "\u65B0\u5DE5\u7A0B\uFF08\u8FD8\u6CA1\u6709\u5B58\u6863\uFF09";
+    return fallback;
+  }
+  const rp = r.value.project;
+  const cur = rp.scenes.find((s) => s.name === rp.current);
+  if (cur === void 0) {
+    throw new Error(`\u5DE5\u7A0B\u4E0D\u53D8\u91CF\u88AB\u7834\u574F\uFF1Acurrent=${rp.current} \u4E0D\u5728 ${String(rp.scenes.length)} \u4E2A\u573A\u666F\u91CC`);
+  }
+  if (cur.text !== freshText) {
+    const opened = openDocument(docDeps(app), cur.text);
+    if (!opened.ok) {
+      saveNoteEl.textContent = `\u5B58\u6863\u88C5\u4E0D\u8FDB\u53BB\uFF08${opened.error.code}\uFF09`;
+      errEl.textContent = `${opened.error.code}\uFF1A${opened.error.message} \xB7 \u5B58\u6863\u539F\u6837\u4FDD\u7559`;
+      return fallback;
+    }
+  }
+  saveNoteEl.textContent = `\u5DF2\u6062\u590D ${String(r.value.bytes)} \u5B57\u8282 \xB7 ${String(rp.scenes.length)} \u4E2A\u573A\u666F`;
+  return rp;
+}
 var nodeSerials = /* @__PURE__ */ new WeakMap();
 var nodeSerialNext = 1;
 function serialOf(n) {
@@ -12765,7 +12922,7 @@ function stopPlay() {
   playSession = null;
   if (!r.ok) {
     errEl.textContent = `${r.error.code}\uFF1A${r.error.message}`;
-    afterHistoryChange();
+    refreshAll();
     return { ok: false, code: r.error.code, message: r.error.message, edits: s.edits };
   }
   lastStop = r.value;
@@ -12789,6 +12946,7 @@ function commitField(nodeId, type, key, raw) {
   if (r.value.changed) {
     history.push(makeFieldOp(app.scene, nodeId, type, key, r.value.before, r.value.after));
     refreshHistory();
+    persistProject();
   }
   return r;
 }
@@ -12813,12 +12971,12 @@ function doSaveDoc() {
   docText.value = r.value;
   docInfoEl.textContent = `\u5DF2\u5BFC\u51FA ${String(r.value.length)} \u5B57\u8282`;
   errEl.textContent = "";
+  persistProject();
   return true;
 }
 function afterDocChange() {
-  refreshTree();
-  refreshProps();
-  refreshHistory();
+  refreshAll();
+  persistProject();
 }
 function doOpenDoc(text) {
   const app = appRef;
@@ -13374,6 +13532,10 @@ function afterHistoryChange() {
       errEl.textContent = `\u9009\u4E2D\u9879\u5DF2\u4E0D\u5B58\u5728\uFF1A${gone.map((id) => `#${String(id)}`).join("\u3001")}`;
     }
   }
+  refreshAll();
+  persistProject();
+}
+function refreshAll() {
   refreshTree();
   refreshProps();
   refreshHistory();
@@ -13616,6 +13778,16 @@ function installApi(app) {
     sceneDelete(name) {
       return doSceneDelete(name);
     },
+    saveInfo() {
+      let storedBytes = -1;
+      try {
+        const t = window.localStorage.getItem(PROJECT_STORAGE_KEY);
+        storedBytes = t === null ? -1 : new TextEncoder().encode(t).length;
+      } catch {
+        storedBytes = -2;
+      }
+      return { note: saveNoteEl.textContent ?? "", storedBytes };
+    },
     nodeSerial(id) {
       const n = app.scene.find(id);
       return n === void 0 ? -1 : serialOf(n);
@@ -13751,9 +13923,9 @@ async function main() {
     errEl.textContent = `\u5DE5\u7A0B\u521D\u59CB\u5316\u5931\u8D25\uFF1A${t0.error.code}\uFF1A${t0.error.message}`;
     return;
   }
-  project = createProject(app.scene.name, t0.value);
-  docText.value = t0.value;
-  docInfoEl.textContent = `\u5DE5\u7A0B\uFF1A1 \u4E2A\u573A\u666F \xB7 \u5DF2\u5BFC\u51FA ${String(t0.value.length)} \u5B57\u8282`;
+  project = adoptStoredProject(app, t0.value);
+  docText.value = currentSceneText(project);
+  docInfoEl.textContent = `\u5DE5\u7A0B\uFF1A${String(project.scenes.length)} \u4E2A\u573A\u666F \xB7 \u5F53\u524D\u300C${project.current}\u300D`;
   refreshScenes();
   btnSceneNew.addEventListener("click", () => {
     doSceneNew();
