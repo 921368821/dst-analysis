@@ -19,12 +19,11 @@
  *
  * ③ **不做「相邻操作合并」**。属性面板用 `change` 事件提交，每次提交都是
  *    人有意的一次改动 ⇒ 本来就该一次退一步。真正需要合并的是画布拖拽
- *    （一帧一条），而拖拽还没做 —— 到那时正确的做法是**批量**
- *    （`beginBatch` / `commitBatch`，按下鼠标到松开算一个原子条目），
- *    而不是引入一层「按 mergeKey 猜哪两条是一伙的」。
+ *    （一帧一条），而拖拽在批84 接上时发现**连批量都不需要**：过程只改位置、
+ *    松手才产出一条 op（见 `gizmo.ts` 的 `endDrag`），天然就是一个原子条目。
  *
- * ★ 已知缺口（写在 `docs/PROGRESS.md`，这里留一行指针）：画布拖拽（gizmo）还没接。
- *   组件挂载/卸载的历史在批83 补上了（本文件末尾那一节）。
+ * ★ 已知缺口（写在 `docs/PROGRESS.md`，这里留一行指针）：画布拖拽（gizmo）批84 已接；
+ *   组件挂载/卸载的历史在批83 补上（本文件末尾那一节）；换父在批85 接了场景树拖放。
  */
 
 import { engineError, err, ok, type EngineError, type Result } from "../../foundation/result.ts";
@@ -32,6 +31,7 @@ import type { Component, ComponentRegistry } from "../../core/scene/component.ts
 import type { Node, NodeId } from "../../core/scene/node.ts";
 import type { Scene } from "../../core/scene/scene.ts";
 import { recordOf, type NodeRecord } from "../../core/scene/scene-io.ts";
+import { worldToLocal } from "./gizmo.ts";
 import { setField } from "./property-model.ts";
 import { UNDO_OP_FAILED, type EditorOp } from "./undo-stack.ts";
 
@@ -350,7 +350,24 @@ export function deleteNodeWithUndo(scene: Scene, nodeId: NodeId): Result<StructO
   return ok({ op, nodeId, warnings: () => warnings });
 }
 
-/** 换父。合法性与「无变化」都在这里挡住，不让历史里出现空动作。 */
+/**
+ * 换父。合法性与「无变化」都在这里挡住，不让历史里出现空动作。
+ *
+ * ★★ **换父要保住世界位置**（批85）。`scene.reparent` 只改父子关系，
+ *   `localPosition` 原样不动 —— 那意味着父一换，节点在画面上的位置就跳了：
+ *   拖到别的节点下面本来只是"改层级"，结果它飞走了。编辑器的通行做法是
+ *   「保留世界位置，重算局部位置」，这也与批84 的画布拖拽同一套换算。
+ *
+ * ★ 换算**先算再改结构**，不是改完再补救：
+ *   一旦新父把某一轴压成 0 缩放，`worldToLocal` 无解，这时场景还一个字节没动，
+ *   直接报错就是干净的。反过来（先 `reparent` 再算）会留下"父改了、位置没跟上"的半截状态，
+ *   而它事后只能靠 undo 一条内部命令来收拾 —— 那是最难查的一类。
+ *
+ * ★ 只保**位置**，不保朝向与尺寸：2.5D 场景里节点有 `localRotation`/`localScale`，
+ *   要完整保持世界变换就得做极分解，代价远大于收益。这条限制被写成判据
+ *   （"父带旋转时位置保持、朝向被新父带偏"），而不是藏在注释里 ——
+ *   否则下一个人会以为它保住了整个世界变换。
+ */
 export function reparentWithUndo(
   scene: Scene,
   nodeId: NodeId,
@@ -362,7 +379,8 @@ export function reparentWithUndo(
   const node = scene.find(nodeId);
   if (node === undefined) return err(engineError(EDIT_BAD_NODE, `节点 #${String(nodeId)} 不在场景里`));
   const p = newParent ?? scene.rootId;
-  if (scene.find(p) === undefined) {
+  const target = scene.find(p);
+  if (target === undefined) {
     return err(engineError(EDIT_BAD_PARENT, `目标父节点 #${String(p)} 不在场景里`));
   }
   const from = node.parent === null || node.parent.id === scene.rootId ? null : node.parent.id;
@@ -375,34 +393,73 @@ export function reparentWithUndo(
   //   编辑器这一层要在**崩之前**把它变成一条可以显示给人看的错误码，
   //   所以仍然自己查一次。判断复用 `Node.isAncestorOf`，免得两份上溯逻辑在
   //   「根节点算不算祖先」这种边界上漂开。
-  const target = scene.find(p);
-  if (target !== undefined && (target.id === nodeId || node.isAncestorOf(target))) {
+  if (target.id === nodeId || node.isAncestorOf(target)) {
     return err(engineError(EDIT_BAD_PARENT, `不能把 ${node.name} 挂到它自己或它的后代下面`));
   }
 
+  // 世界位置在**改结构之前**取：改完再取就已经是"跳过去之后"的位置了。
+  const world = node.worldPosition;
+  const local = worldToLocal(target.worldTransform, world.x, world.y);
+  if (local === undefined) {
+    return err(
+      engineError(
+        EDIT_BAD_PARENT,
+        `目标父节点 #${String(p)} 把坐标轴压成了 0，换父之后无法保持 ${node.name} 的世界位置`,
+      ),
+    );
+  }
+  const fromLocal = { x: node.localPosition.x, y: node.localPosition.y };
+  const toLocal = { x: local.u, y: local.v };
+
   scene.reparent(nodeId, newParent);
   scene.flush();
+  // ★ 用 `setLocalPosition`：直接赋 `localPosition` 不推进版本号，世界变换会继续用旧缓存 ——
+  //   症状是"父换了、世界位置还是老的值"，而这正好是本函数要保证的那件事。
+  const moved = scene.find(nodeId);
+  if (moved === undefined) {
+    return err(engineError(EDIT_BAD_NODE, `换父途中节点 #${String(nodeId)} 不见了`));
+  }
+  moved.setLocalPosition(toLocal.x, toLocal.y);
   return ok({
-    op: new ReparentOp(scene, nodeId, node.name, from, newParent),
+    op: new ReparentOp(scene, nodeId, node.name, from, newParent, fromLocal, toLocal),
     nodeId,
     warnings: () => [],
   });
 }
 
-/** 换父。`from`/`to` 都按「`null` = 场景根」记录，与 `NodeRecord.parent` 同口径。 */
+/**
+ * 换父。`from`/`to` 都按「`null` = 场景根」记录，与 `NodeRecord.parent` 同口径。
+ *
+ * ★ 位置也要记：换父会**重算** `localPosition`（为了保住世界位置），
+ *   所以只记父子关系的话，撤销回来的是"原父 + 为新父算出来的局部坐标" ——
+ *   层级对了、位置错了，而且错得很像"当初就是这样"。这与批83 组件那条
+ *   「重做拿回同一个实例」是同一类：**状态要么一起回，要么别回**。
+ */
 class ReparentOp implements EditorOp {
   private readonly scene: Scene;
   private readonly nodeId: NodeId;
   private readonly name: string;
   private readonly from: NodeId | null;
   private readonly to: NodeId | null;
+  private readonly fromLocal: { readonly x: number; readonly y: number };
+  private readonly toLocal: { readonly x: number; readonly y: number };
 
-  constructor(scene: Scene, nodeId: NodeId, name: string, from: NodeId | null, to: NodeId | null) {
+  constructor(
+    scene: Scene,
+    nodeId: NodeId,
+    name: string,
+    from: NodeId | null,
+    to: NodeId | null,
+    fromLocal: { readonly x: number; readonly y: number },
+    toLocal: { readonly x: number; readonly y: number },
+  ) {
     this.scene = scene;
     this.nodeId = nodeId;
     this.name = name;
     this.from = from;
     this.to = to;
+    this.fromLocal = fromLocal;
+    this.toLocal = toLocal;
   }
 
   get label(): string {
@@ -410,14 +467,14 @@ class ReparentOp implements EditorOp {
   }
 
   apply(): Result<void, EngineError> {
-    return this.move(this.to);
+    return this.move(this.to, this.toLocal);
   }
 
   revert(): Result<void, EngineError> {
-    return this.move(this.from);
+    return this.move(this.from, this.fromLocal);
   }
 
-  private move(p: NodeId | null): Result<void, EngineError> {
+  private move(p: NodeId | null, local: { readonly x: number; readonly y: number }): Result<void, EngineError> {
     if (this.scene.find(this.nodeId) === undefined) {
       return err(engineError(UNDO_OP_FAILED, `节点 #${String(this.nodeId)}（${this.name}）不在了`));
     }
@@ -428,6 +485,12 @@ class ReparentOp implements EditorOp {
     }
     this.scene.reparent(this.nodeId, p);
     this.scene.flush();
+    const node = this.scene.find(this.nodeId);
+    if (node === undefined) {
+      return err(engineError(UNDO_OP_FAILED, `节点 #${String(this.nodeId)}（${this.name}）不在了`));
+    }
+    // 父换回去之后局部坐标也要换回去 —— 见类注释最后一段。
+    node.setLocalPosition(local.x, local.y);
     return ok(undefined);
   }
 }

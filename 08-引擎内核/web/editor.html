@@ -42,6 +42,9 @@
   .row.sel { background: rgba(88,140,220,.28); outline: 1px solid rgba(120,170,255,.5); }
   .row .id { color: #4d5866; }
   .row.dead { color: #6a7684; text-decoration: line-through; }
+  /* 拖放换父：源行淡出、落点行高亮。两者都只在拖动期间存在（pointerup 一定清掉）。 */
+  .row.dragging { opacity: .45; }
+  .row.drop { background: rgba(120,200,140,.22); outline: 1px solid rgba(120,220,150,.65); }
 
   #props h2 { margin: 0 0 6px; font-size: 12px; color: #8b98a8; font-weight: 600; }
   #props h3 { margin: 12px 0 4px; font-size: 11px; color: #6a7684; font-weight: 600;

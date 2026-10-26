@@ -3151,14 +3151,20 @@ MUTANTS = [
         #   意思是**重新指认**，不是放宽标准。核心层那道守卫（M361）抓不到这条：
         #   编辑器这里必须在崩之前把它变成错误码，所以它值得单独一条。
         "file": "src/extensions/editor/undo-ops.ts",
-        "pairs": [("  if (target !== undefined && (target.id === nodeId || node.isAncestorOf(target))) {",
+        # ★ 批85：这个靶子又漂了一次 —— 换父改成"先算世界位置"之后，
+        #   `target` 在更早的地方就已经判过 undefined（顺便 return 了错误码），
+        #   于是条件里的 `target !== undefined &&` 整段消失。**每次给函数加前置检查，
+        #   都要顺手看一遍指向它的变异靶子。**
+        "pairs": [("  if (target.id === nodeId || node.isAncestorOf(target)) {",
                    "  if (false) {")],
         "test": "tests/extensions/editor-undo.test.ts",
     },
     {
         "name": "M335 换父的撤销用错方向（撤销之后还在新父下，按钮说退了但没退）",
         "file": "src/extensions/editor/undo-ops.ts",
-        "pairs": [("    return this.move(this.from);", "    return this.move(this.to);")],
+        # 批85：`move` 多了一个局部坐标参数（撤销要把父子关系与坐标一起回），靶子随之改变。
+        "pairs": [("    return this.move(this.from, this.fromLocal);",
+                   "    return this.move(this.to, this.toLocal);")],
         "test": "tests/extensions/editor-undo.test.ts",
     },
     {
@@ -3507,6 +3513,55 @@ MUTANTS = [
         "pairs": [("function actualEditor() {\n  return EDITOR_DECLARED.length;\n}",
                    "function actualEditor() {\n  return 0;\n}")],
         "cmd": ["node", "tools/docs-check.mjs", "--quick"],
+    },
+    # ---- 批85：换父保住世界位置（模型层）+ 场景树拖放（页面层）
+    {
+        # 只改父子关系、不重算局部坐标 —— 这正是 `scene.reparent` 的原始行为。
+        # 症状：「拖到别的节点下面」变成「节点飞走了」，而层级、历史、面板全对。
+        "name": "M381 换父不重算局部坐标（世界位置跟着跳，层级却对了）",
+        "file": "src/extensions/editor/undo-ops.ts",
+        "pairs": [("  const toLocal = { x: local.u, y: local.v };",
+                   "  const toLocal = { x: node.localPosition.x, y: node.localPosition.y };")],
+        "test": "tests/extensions/editor-reparent-world.test.ts",
+    },
+    {
+        # 撤销/重做只把父挂回去、局部坐标留在上一次算出来的值上 ——
+        # 父对了、位置错了，而且错得很像「当初就是这样」。
+        "name": "M382 换父 op 只管父子关系、不管局部坐标（撤销后位置不回来）",
+        "file": "src/extensions/editor/undo-ops.ts",
+        "pairs": [("    node.setLocalPosition(local.x, local.y);\n    return ok(undefined);",
+                   "    return ok(undefined);")],
+        "test": "tests/extensions/editor-reparent-world.test.ts",
+    },
+    {
+        # 拿节点自己的**局部**坐标去当世界坐标换算：父是恒等时完全正确，
+        # 于是在大部分测试场景里都是绿的 —— 本批的夹具特意让父带偏移才咬得住。
+        "name": "M383 用局部坐标当世界坐标去换算（父不是恒等时位置就错）",
+        "file": "src/extensions/editor/undo-ops.ts",
+        "pairs": [("  const local = worldToLocal(target.worldTransform, world.x, world.y);",
+                   "  const local = worldToLocal(target.worldTransform, node.localPosition.x, node.localPosition.y);")],
+        "test": "tests/extensions/editor-reparent-world.test.ts",
+    },
+    {
+        # 页面级：拖到自己身上是「中途改主意」，必须两边都不动。
+        # 不判的话会走一遍换父 —— 模型层报「已经挂在 #N 下面了」，
+        # 于是人拖回原处就看到一行红字，以为操作坏了。
+        "name": "M384 拖到自己身上不再算取消（拖回原处反而报错）",
+        "file": "src/editor-entry.ts",
+        "pairs": [("  if (!Number.isFinite(dst) || dst === src) return { ok: true, changed: false };",
+                   "  if (!Number.isFinite(dst)) return { ok: true, changed: false };")],
+        "cmd": ["node", "tools/editor-selftest.mjs", "--build"],
+        "env_exit": 2,
+    },
+    {
+        # 页面级：换父成功但不进历史 ⇒ 节点真的换了父，撤销按钮却不亮。
+        # 纯模型层判据证不到这一条（`reparentWithUndo` 本身没问题）。
+        "name": "M385 换父不压进历史（层级变了、撤销按钮不亮）",
+        "file": "src/editor-entry.ts",
+        "pairs": [("  return commitOp(r.value.op);\n}\n\n/**\n * 松手。",
+                   "  afterHistoryChange();\n  return { ok: true };\n}\n\n/**\n * 松手。")],
+        "cmd": ["node", "tools/editor-selftest.mjs", "--build"],
+        "env_exit": 2,
     },
 ]
 

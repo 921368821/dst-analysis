@@ -7815,6 +7815,7 @@ function createPie(opts = {}) {
 // src/extensions/editor/undo-ops.ts
 var EDIT_BAD_NODE = "EDIT.BAD_NODE";
 var EDIT_BAD_NAME = "EDIT.BAD_NAME";
+var EDIT_BAD_PARENT = "EDIT.BAD_PARENT";
 function snapshotSubtree(scene, rootId) {
   const node = scene.find(rootId);
   if (node === void 0) return void 0;
@@ -8001,6 +8002,92 @@ function deleteNodeWithUndo(scene, nodeId) {
   });
   return ok({ op, nodeId, warnings: () => warnings });
 }
+function reparentWithUndo(scene, nodeId, newParent) {
+  if (nodeId === scene.rootId) {
+    return err(engineError(EDIT_BAD_NODE, "\u4E0D\u80FD\u79FB\u52A8\u573A\u666F\u6839\u8282\u70B9"));
+  }
+  const node = scene.find(nodeId);
+  if (node === void 0) return err(engineError(EDIT_BAD_NODE, `\u8282\u70B9 #${String(nodeId)} \u4E0D\u5728\u573A\u666F\u91CC`));
+  const p = newParent ?? scene.rootId;
+  const target = scene.find(p);
+  if (target === void 0) {
+    return err(engineError(EDIT_BAD_PARENT, `\u76EE\u6807\u7236\u8282\u70B9 #${String(p)} \u4E0D\u5728\u573A\u666F\u91CC`));
+  }
+  const from = node.parent === null || node.parent.id === scene.rootId ? null : node.parent.id;
+  if ((from ?? scene.rootId) === p) {
+    return err(engineError(EDIT_BAD_PARENT, `${node.name} \u5DF2\u7ECF\u6302\u5728 #${String(p)} \u4E0B\u9762\u4E86`));
+  }
+  if (target.id === nodeId || node.isAncestorOf(target)) {
+    return err(engineError(EDIT_BAD_PARENT, `\u4E0D\u80FD\u628A ${node.name} \u6302\u5230\u5B83\u81EA\u5DF1\u6216\u5B83\u7684\u540E\u4EE3\u4E0B\u9762`));
+  }
+  const world = node.worldPosition;
+  const local = worldToLocal(target.worldTransform, world.x, world.y);
+  if (local === void 0) {
+    return err(
+      engineError(
+        EDIT_BAD_PARENT,
+        `\u76EE\u6807\u7236\u8282\u70B9 #${String(p)} \u628A\u5750\u6807\u8F74\u538B\u6210\u4E86 0\uFF0C\u6362\u7236\u4E4B\u540E\u65E0\u6CD5\u4FDD\u6301 ${node.name} \u7684\u4E16\u754C\u4F4D\u7F6E`
+      )
+    );
+  }
+  const fromLocal = { x: node.localPosition.x, y: node.localPosition.y };
+  const toLocal = { x: local.u, y: local.v };
+  scene.reparent(nodeId, newParent);
+  scene.flush();
+  const moved = scene.find(nodeId);
+  if (moved === void 0) {
+    return err(engineError(EDIT_BAD_NODE, `\u6362\u7236\u9014\u4E2D\u8282\u70B9 #${String(nodeId)} \u4E0D\u89C1\u4E86`));
+  }
+  moved.setLocalPosition(toLocal.x, toLocal.y);
+  return ok({
+    op: new ReparentOp(scene, nodeId, node.name, from, newParent, fromLocal, toLocal),
+    nodeId,
+    warnings: () => []
+  });
+}
+var ReparentOp = class {
+  scene;
+  nodeId;
+  name;
+  from;
+  to;
+  fromLocal;
+  toLocal;
+  constructor(scene, nodeId, name, from, to, fromLocal, toLocal) {
+    this.scene = scene;
+    this.nodeId = nodeId;
+    this.name = name;
+    this.from = from;
+    this.to = to;
+    this.fromLocal = fromLocal;
+    this.toLocal = toLocal;
+  }
+  get label() {
+    return `\u79FB\u52A8 ${this.name}`;
+  }
+  apply() {
+    return this.move(this.to, this.toLocal);
+  }
+  revert() {
+    return this.move(this.from, this.fromLocal);
+  }
+  move(p, local) {
+    if (this.scene.find(this.nodeId) === void 0) {
+      return err(engineError(UNDO_OP_FAILED, `\u8282\u70B9 #${String(this.nodeId)}\uFF08${this.name}\uFF09\u4E0D\u5728\u4E86`));
+    }
+    if (p !== null && this.scene.find(p) === void 0) {
+      return err(engineError(UNDO_OP_FAILED, `\u76EE\u6807\u7236\u8282\u70B9 #${String(p)} \u4E0D\u5728\u4E86\uFF0C\u65E0\u6CD5\u8FD8\u539F ${this.name} \u7684\u4F4D\u7F6E`));
+    }
+    this.scene.reparent(this.nodeId, p);
+    this.scene.flush();
+    const node = this.scene.find(this.nodeId);
+    if (node === void 0) {
+      return err(engineError(UNDO_OP_FAILED, `\u8282\u70B9 #${String(this.nodeId)}\uFF08${this.name}\uFF09\u4E0D\u5728\u4E86`));
+    }
+    node.setLocalPosition(local.x, local.y);
+    return ok(void 0);
+  }
+};
 var EDIT_BAD_COMP = "EDIT.BAD_COMP";
 var ComponentOp = class {
   scene;
@@ -8447,9 +8534,9 @@ function doAttachComp(type, nodeId) {
     errEl.textContent = `${r.error.code}\uFF1A${r.error.message}`;
     return { ok: false, code: r.error.code, message: r.error.message };
   }
-  return commitCompOp(r.value.op);
+  return commitOp(r.value.op);
 }
-function commitCompOp(op) {
+function commitOp(op) {
   const pushed = history.push(op);
   if (!pushed.ok) {
     errEl.textContent = `${pushed.error.code}\uFF1A${pushed.error.message}`;
@@ -8469,7 +8556,7 @@ function doDetachComp(type, nodeId) {
     errEl.textContent = `${r.error.code}\uFF1A${r.error.message}`;
     return { ok: false, code: r.error.code, message: r.error.message };
   }
-  return commitCompOp(r.value.op);
+  return commitOp(r.value.op);
 }
 var DRAG_SNAP = 0;
 var dragRef = null;
@@ -8568,6 +8655,81 @@ function bindCanvasDrag() {
   };
   canvas.addEventListener("pointerup", finish);
   canvas.addEventListener("pointercancel", finish);
+}
+var treeDragSrc = null;
+var treeDropEl = null;
+function rowAt(x, y) {
+  const el = document.elementFromPoint(x, y);
+  const row = el === null ? null : el.closest(".row");
+  return row instanceof HTMLElement ? row : null;
+}
+function rowOf(target) {
+  if (!(target instanceof Element)) return null;
+  const row = target.closest(".row");
+  return row instanceof HTMLElement ? row : null;
+}
+function clearTreeDragMarks() {
+  treeEl.querySelectorAll(".row.dragging, .row.drop").forEach((el) => {
+    el.classList.remove("dragging", "drop");
+  });
+  treeDropEl = null;
+}
+function beginTreeDrag(id) {
+  treeDragSrc = id;
+  const el = treeEl.querySelector(`.row[data-id="${String(id)}"]`);
+  if (el instanceof HTMLElement) el.classList.add("dragging");
+}
+function moveTreeDrag(x, y) {
+  if (treeDragSrc === null) return;
+  const over = rowAt(x, y);
+  if (over === treeDropEl) return;
+  if (treeDropEl !== null) treeDropEl.classList.remove("drop");
+  treeDropEl = over;
+  if (over !== null) over.classList.add("drop");
+}
+function doReparent(nodeId, newParent) {
+  const app = appRef;
+  if (app === null) return { ok: false, code: "EDIT.NOT_READY", message: "\u7F16\u8F91\u5668\u8FD8\u6CA1\u542F\u52A8" };
+  const r = reparentWithUndo(app.scene, nodeId, newParent);
+  if (!r.ok) {
+    errEl.textContent = `${r.error.code}\uFF1A${r.error.message}`;
+    afterHistoryChange();
+    return { ok: false, code: r.error.code, message: r.error.message };
+  }
+  return commitOp(r.value.op);
+}
+function finishTreeDrag(x, y) {
+  const src = treeDragSrc;
+  treeDragSrc = null;
+  const over = rowAt(x, y);
+  clearTreeDragMarks();
+  if (src === null) return { ok: false, code: "EDIT.BAD_DRAG", message: "\u6CA1\u6709\u6B63\u5728\u8FDB\u884C\u7684\u62D6\u62FD" };
+  if (over === null) return { ok: true, changed: false };
+  const dst = Number(over.dataset["id"]);
+  if (!Number.isFinite(dst) || dst === src) return { ok: true, changed: false };
+  const r = doReparent(src, dst);
+  return { ...r, changed: r.ok };
+}
+function bindTreeDrag() {
+  treeEl.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    const row = rowOf(e.target);
+    if (row === null) return;
+    const id = Number(row.dataset["id"]);
+    if (!Number.isFinite(id)) return;
+    beginTreeDrag(id);
+    e.preventDefault();
+  });
+  document.addEventListener("pointermove", (e) => {
+    moveTreeDrag(e.clientX, e.clientY);
+  });
+  document.addEventListener("pointerup", (e) => {
+    finishTreeDrag(e.clientX, e.clientY);
+  });
+  document.addEventListener("pointercancel", () => {
+    treeDragSrc = null;
+    clearTreeDragMarks();
+  });
 }
 function afterHistoryChange() {
   const app = appRef;
@@ -8822,6 +8984,15 @@ function installApi(app) {
     },
     dragEnd() {
       return dragEndNow();
+    },
+    reparent(from, to) {
+      return doReparent(from, to);
+    },
+    parentOf(id) {
+      const n = app.scene.find(id);
+      if (n === void 0) return void 0;
+      const p = n.parent;
+      return p === null || p.id === app.scene.rootId ? null : p.id;
     }
   };
   window.__editor = api;
@@ -8853,6 +9024,7 @@ async function main() {
   refreshProps();
   tickEl.textContent = `tick ${String(app.scheduler.stats().tick)}`;
   bindCanvasDrag();
+  bindTreeDrag();
   btnPlay.addEventListener("click", () => pie.play());
   btnPause.addEventListener("click", () => pie.pause());
   btnStep.addEventListener("click", () => pie.step(1));

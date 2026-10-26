@@ -304,6 +304,103 @@ const PROBE = `
     JSON.stringify(undoDrag) + " back=" + JSON.stringify(dw2),
   );
 
+  // ---- 场景树拖放换父（批85）
+  // ★ 用**合成 pointer 事件**而不是直接调命令面：这一组要证明的正是"拖拽这条线接上了"。
+  //   直接调 E.reparent 只能证明"那个函数本身能用"，而函数本身由
+  //   tests/extensions/editor-reparent-world.test.ts 的 6 条判据管。
+  //   合成事件能走通，是因为页面把 pointermove/up 挂在 document 上、落点用
+  //   elementFromPoint 自己算 —— 不依赖 setPointerCapture（合成事件下 capture 会抛）。
+  const rowOf = (id) => document.querySelector('#tree .row[data-id="' + String(id) + '"]');
+  const centerOf = (el) => {
+    el.scrollIntoView({ block: "center" });
+    const r = el.getBoundingClientRect();
+    return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+  };
+  const pev = (type, el, pt) =>
+    el.dispatchEvent(
+      new PointerEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        clientX: pt.x,
+        clientY: pt.y,
+        pointerId: 1,
+        isPrimary: true,
+        button: 0,
+        buttons: type === "pointerup" ? 0 : 1,
+      }),
+    );
+  // 按下用事件目标（不看坐标），移动/松手才看坐标 —— 与页面的实现一致。
+  const dragRows = (fromId, toId) => {
+    const a = rowOf(fromId);
+    const b = rowOf(toId);
+    if (a === null || b === null) return false;
+    const pa = centerOf(a);
+    pev("pointerdown", a, pa);
+    const pb = centerOf(b); // ★ 要在按下之后再取：scrollIntoView 会移动行
+    pev("pointermove", document, pb);
+    pev("pointerup", document, pb);
+    return true;
+  };
+  const movesIn = () => E.history().undo.filter((l) => l.indexOf("移动 ") === 0).length;
+
+  // ★ 夹具用**已在场景里的两个根级节点**，不用 E.addNode 造两个：
+  //   addNode 把新节点挂在**当前选中项**下面（那是人点「新建」的预期），
+  //   于是第二个新节点天生就是第一个的子 —— 拖它到第一个上面会直接报
+  //   「已经挂在 #N 下面了」，而断言里"父子关系对上了"照样成立（假绿）。
+  //   这条差一点就混过去了，靠的是把 err 一起打进 detail 才看见。
+  const rootRows = E.outline().filter((r) => r.depth === 1).map((r) => r.id);
+  const dParent = rootRows.length > 0 ? rootRows[0] : null;
+  const dChild = rootRows.length > 1 ? rootRows[1] : null;
+  const childWorld0 = dChild === null ? null : E.nodeWorld(dChild);
+  const moves0 = movesIn();
+  const dragged = dParent !== null && dChild !== null ? dragRows(dChild, dParent) : false;
+  add(
+    "★★ 拖放换父：拖到另一行上，父子关系真的变了，历史多一条「移动」",
+    dragged === true && E.parentOf(dChild) === dParent && movesIn() === moves0 + 1,
+    "dragged=" + String(dragged) + " parent=" + String(E.parentOf(dChild)) + " 期望 " + String(dParent) +
+      " 移动条数 " + String(movesIn()) + "（之前 " + String(moves0) + "）",
+  );
+
+  // 拖到自己身上 = 取消。它必须**既不报错也不压历史** ——
+  // 报错的话人以为操作坏了；压历史的话按一次撤销什么都没发生。
+  const errEl = document.querySelector("#err");
+  const errBeforeSelf = errEl === null ? "" : errEl.textContent;
+  const selfDrag = dParent !== null ? dragRows(dParent, dParent) : false;
+  add(
+    "★ 拖到自己身上：算取消（不报错、不压历史）",
+    selfDrag === true && errEl !== null && errEl.textContent === errBeforeSelf && movesIn() === moves0 + 1,
+    "selfDrag=" + String(selfDrag) + " err=" + String(errEl === null ? "?" : errEl.textContent) +
+      " 移动条数 " + String(movesIn()),
+  );
+
+  // 拖到自己 now-后代身上 = 环：必须报错，且父子关系一个都没动。
+  const cycleDrag = dParent !== null && dChild !== null ? dragRows(dParent, dChild) : false;
+  add(
+    "★ 拖到自己的后代上被拒：报错 EDIT.BAD_PARENT，父子关系不变",
+    cycleDrag === true &&
+      E.parentOf(dParent) === null &&
+      E.parentOf(dChild) === dParent &&
+      errEl !== null &&
+      errEl.textContent.indexOf("EDIT.BAD_PARENT") >= 0 &&
+      movesIn() === moves0 + 1,
+    "cycleDrag=" + String(cycleDrag) + " parentOfParent=" + String(E.parentOf(dParent)) +
+      " parentOfChild=" + String(E.parentOf(dChild)) + " err=" + String(errEl === null ? "?" : errEl.textContent),
+  );
+
+  const undoReparent = E.undo();
+  const childWorld1 = dChild === null ? null : E.nodeWorld(dChild);
+  add(
+    "★★ 撤销拖放：回到原来的父，世界位置也回到原处",
+    undoReparent.kind === "done" &&
+      E.parentOf(dChild) === null &&
+      childWorld0 !== null &&
+      childWorld1 !== null &&
+      Math.abs(childWorld1.x - childWorld0.x) < 1e-6 &&
+      Math.abs(childWorld1.y - childWorld0.y) < 1e-6,
+    JSON.stringify(undoReparent) + " parent=" + String(E.parentOf(dChild)) +
+      " world=" + JSON.stringify(childWorld1) + "（拖之前 " + JSON.stringify(childWorld0) + "）",
+  );
+
   // ---- 文档：保存 / 打开 / 新建（批82）
   // ★ 放在最后：这一组会把场景整体替换掉，放前面会让别的断言面对另一份世界。
   const saved = E.docSave();

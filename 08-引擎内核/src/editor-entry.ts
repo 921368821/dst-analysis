@@ -62,6 +62,7 @@ import {
   deleteNodeWithUndo,
   detachComponentWithUndo,
   makeFieldOp,
+  reparentWithUndo,
   topmostIds,
 } from "./extensions/editor/undo-ops.ts";
 
@@ -502,17 +503,17 @@ function doAttachComp(type: string, nodeId?: NodeId): { ok: boolean; code?: stri
     errEl.textContent = `${r.error.code}：${r.error.message}`;
     return { ok: false, code: r.error.code, message: r.error.message };
   }
-  return commitCompOp(r.value.op);
+  return commitOp(r.value.op);
 }
 
 /**
- * 一次组件操作的收尾：压历史 → 清错误行 → 重画三处。
+ * 一次编辑器操作的收尾：压历史 → 清错误行 → 重画三处。
  *
- * ★ 抽出来不只是为了少两行：挂与卸如果各写一份，两处**必须**都调 `history.push`，
+ * ★ 抽出来不只是为了少两行：挂、卸、换父如果各写一份，三处**必须**都调 `history.push`，
  *   而漏掉任何一处都只表现为「撤销按钮没亮」，看起来像撤销栈坏了。
- *   共用一份之后，变异校验只要打这一行就能同时覆盖两个方向。
+ *   共用一份之后，变异校验只要打这一行就能同时覆盖三个方向。
  */
-function commitCompOp(op: EditorOp): { ok: boolean; code?: string; message?: string } {
+function commitOp(op: EditorOp): { ok: boolean; code?: string; message?: string } {
   const pushed = history.push(op);
   if (!pushed.ok) {
     errEl.textContent = `${pushed.error.code}：${pushed.error.message}`;
@@ -534,7 +535,7 @@ function doDetachComp(type: string, nodeId?: NodeId): { ok: boolean; code?: stri
     errEl.textContent = `${r.error.code}：${r.error.message}`;
     return { ok: false, code: r.error.code, message: r.error.message };
   }
-  return commitCompOp(r.value.op);
+  return commitOp(r.value.op);
 }
 
 // ---------------------------------------------------------------- 画布拖拽（gizmo）
@@ -667,6 +668,120 @@ function bindCanvasDrag(): void {
   // `pointercancel` 也要收尾：系统手势打断时不收的话，下一次 pointerdown 会被
   // 上一轮的 dragRef 抢走（两个节点一起动）。
   canvas.addEventListener("pointercancel", finish);
+}
+
+// ---------------------------------------------------------------- 场景树拖放换父
+
+/**
+ * 拖放换父（批85）。拖一行到另一行上 ⇒ 前者成为后者的子节点。
+ *
+ * ★ 为什么用 pointer 事件而不是 HTML5 拖放（`draggable` + `dragstart`/`drop`）：
+ *   ① 那一套要合成出**可信**的 `DragEvent` 才会走 `drop`，无头浏览器里基本做不出来 ——
+ *      于是"拖拽接线"这块就只能人工点，而本仓库最不想要的就是只有人能验的接线；
+ *   ② pointer 与画布拖拽（gizmo）是同一套模型，落点用 `elementFromPoint` 自己算，
+ *      "拖到了哪一行上"因此变成可断言的事实。
+ *
+ * ★ 监听器挂在 `document` 上、不用 `setPointerCapture`：
+ *   capture 对**合成事件**会抛（没有活动指针），而真实指针被系统手势抢走时也会丢 ——
+ *   两条都不影响逻辑，因为我们自己按坐标找落点。挂在 document 上的另一个好处是：
+ *   真实鼠标与判据里的合成事件走**完全同一条**代码路径。
+ */
+let treeDragSrc: NodeId | null = null;
+let treeDropEl: HTMLElement | null = null;
+
+function rowAt(x: number, y: number): HTMLElement | null {
+  const el = document.elementFromPoint(x, y);
+  const row = el === null ? null : el.closest(".row");
+  return row instanceof HTMLElement ? row : null;
+}
+
+function rowOf(target: EventTarget | null): HTMLElement | null {
+  if (!(target instanceof Element)) return null;
+  const row = target.closest(".row");
+  return row instanceof HTMLElement ? row : null;
+}
+
+function clearTreeDragMarks(): void {
+  treeEl.querySelectorAll(".row.dragging, .row.drop").forEach((el) => {
+    el.classList.remove("dragging", "drop");
+  });
+  treeDropEl = null;
+}
+
+function beginTreeDrag(id: NodeId): void {
+  treeDragSrc = id;
+  const el = treeEl.querySelector(`.row[data-id="${String(id)}"]`);
+  if (el instanceof HTMLElement) el.classList.add("dragging");
+}
+
+function moveTreeDrag(x: number, y: number): void {
+  if (treeDragSrc === null) return;
+  const over = rowAt(x, y);
+  if (over === treeDropEl) return;
+  if (treeDropEl !== null) treeDropEl.classList.remove("drop");
+  treeDropEl = over;
+  if (over !== null) over.classList.add("drop");
+}
+
+/** 换父（进历史）。`newParent = null` 表示挂回场景根。 */
+function doReparent(nodeId: NodeId, newParent: NodeId | null): { ok: boolean; code?: string; message?: string } {
+  const app = appRef;
+  if (app === null) return { ok: false, code: "EDIT.NOT_READY", message: "编辑器还没启动" };
+  const r = reparentWithUndo(app.scene, nodeId, newParent);
+  if (!r.ok) {
+    errEl.textContent = `${r.error.code}：${r.error.message}`;
+    // 失败也要重画：拖拽过程里 `.dragging` / `.drop` 是直接加在 DOM 上的，
+    // 而失败路径不走 `commitOp` ⇒ 不重画就留着一个"看起来还挂着"的高亮。
+    afterHistoryChange();
+    return { ok: false, code: r.error.code, message: r.error.message };
+  }
+  return commitOp(r.value.op);
+}
+
+/**
+ * 松手。
+ *
+ * ★ 「拖回自己身上」与「拖到树的空白处」都算**取消**，不是失败：
+ *   这两种都是人在中途改主意，报一行红字只会让人以为操作坏了。
+ *   代价是判据不能靠错误码来验"拒绝" —— 所以那条判据验的是
+ *   「历史没涨、父子关系没变」，而不是「返回了错误」。
+ */
+function finishTreeDrag(x: number, y: number): { ok: boolean; changed?: boolean; code?: string; message?: string } {
+  const src = treeDragSrc;
+  treeDragSrc = null;
+  const over = rowAt(x, y);
+  clearTreeDragMarks();
+  if (src === null) return { ok: false, code: "EDIT.BAD_DRAG", message: "没有正在进行的拖拽" };
+  if (over === null) return { ok: true, changed: false };
+  const dst = Number(over.dataset["id"]);
+  if (!Number.isFinite(dst) || dst === src) return { ok: true, changed: false };
+  const r = doReparent(src, dst);
+  return { ...r, changed: r.ok };
+}
+
+/** 把 pointer 事件接到场景树上（真实鼠标走这条路；判据用合成事件，同一套内部函数）。 */
+function bindTreeDrag(): void {
+  treeEl.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    const row = rowOf(e.target);
+    if (row === null) return;
+    const id = Number(row.dataset["id"]);
+    if (!Number.isFinite(id)) return;
+    beginTreeDrag(id);
+    // 防止浏览器把拖动变成"拖选文字"：那会选中一堆行内文本，松手后选区还在。
+    e.preventDefault();
+  });
+  document.addEventListener("pointermove", (e) => {
+    moveTreeDrag(e.clientX, e.clientY);
+  });
+  document.addEventListener("pointerup", (e) => {
+    finishTreeDrag(e.clientX, e.clientY);
+  });
+  // 系统手势打断（或鼠标被拽出窗口）时清干净，否则下一轮 pointerdown 会被上一轮的源抢走。
+  document.addEventListener("pointercancel", () => {
+    treeDragSrc = null;
+    clearTreeDragMarks();
+  });
 }
 
 /** 历史动过之后统一收尾：选中项可能要 prune（子树被删/被恢复），树与面板都要重画。 */
@@ -846,6 +961,10 @@ interface EditorApi {
   dragMove(wx: number, wz: number): { ok: boolean; x?: number; y?: number };
   /** 松手：位移非 0 才压一条历史。 */
   dragEnd(): { ok: boolean; moved?: boolean; label?: string; code?: string; message?: string };
+  /** 换父（进历史）；`to = null` = 挂回场景根。世界位置会被保住。 */
+  reparent(from: number, to: number | null): { ok: boolean; code?: string; message?: string };
+  /** 节点当前的父（`null` = 挂在场景根下；`undefined` = 节点不存在）。 */
+  parentOf(id: number): number | null | undefined;
 }
 
 function installApi(app: GameApp): void {
@@ -1012,6 +1131,18 @@ function installApi(app: GameApp): void {
     dragEnd() {
       return dragEndNow();
     },
+    reparent(from, to) {
+      return doReparent(from, to);
+    },
+    parentOf(id) {
+      const n = app.scene.find(id);
+      // ★ 三种情况必须区分：根下是 `null`、父是某个 id、节点不在是 `undefined`。
+      //   把"节点不在"也返回 `null` 的话，判据里"拖放没生效"和"挂回了根"就分不开 ——
+      //   那正是本仓库反复踩的那类假绿。
+      if (n === undefined) return undefined;
+      const p = n.parent;
+      return p === null || p.id === app.scene.rootId ? null : p.id;
+    },
   };
   (window as unknown as { __editor?: EditorApi }).__editor = api;
 }
@@ -1049,6 +1180,7 @@ async function main(): Promise<void> {
   tickEl.textContent = `tick ${String(app.scheduler.stats().tick)}`;
 
   bindCanvasDrag();
+  bindTreeDrag();
   btnPlay.addEventListener("click", () => pie.play());
   btnPause.addEventListener("click", () => pie.pause());
   btnStep.addEventListener("click", () => pie.step(1));
