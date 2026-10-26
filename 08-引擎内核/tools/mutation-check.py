@@ -3599,8 +3599,11 @@ MUTANTS = [
         # 与 M385 同一类，但这条打的是"资产面板"这条线（两条线各接一次 `commitOp`）。
         "name": "M388 加入场景不压历史（节点在、撤销退不回去）",
         "file": "src/editor-entry.ts",
-        "pairs": [("  const out = commitOp(r.value.op);\n  if (!out.ok) return out;\n  return { ok: true, id: r.value.nodeId };",
-                   "  afterHistoryChange();\n  return { ok: true, id: r.value.nodeId };")],
+        # ★ 靶子随批89 改过一次：`doAddAsset` 现在返回值多一个 `at`（落点），
+        #   这是**函数契约的一部分**，不是顺手加的字段 —— 判据要靠它断言"落在指针处"。
+        #   靶子要跟着改，否则报「靶子漂移」；漂移不等于放宽，去重新指认。
+        "pairs": [("  const out = commitOp(r.value.op);\n  if (!out.ok) return out;\n  return { ok: true, id: r.value.nodeId, at: pos };",
+                   "  afterHistoryChange();\n  return { ok: true, id: r.value.nodeId, at: pos };")],
         "cmd": ["node", "tools/editor-selftest.mjs", "--build"],
         "env_exit": 2,
     },
@@ -3741,6 +3744,54 @@ MUTANTS = [
                    "  playSession = beginPlaySession(app.scene);")],
         "cmd": ["node", "tools/editor-selftest.mjs", "--build"],
         "env_exit": 2,
+    },
+    {
+        "name": "M404 拖资产落在视图中心（拖到哪儿都跑到中间去）",
+        # 批89 唯一真正的语义就在这一行：点按钮落中心是对的（人没指定位置），
+        # 拖动再落中心就是「我明明拖到那儿，它跑到中间去了」。
+        "file": "src/editor-entry.ts",
+        "pairs": [("  const pos = at ?? viewCenterLocal();", "  const pos = viewCenterLocal();")],
+        "cmd": ["node", "tools/editor-selftest.mjs", "--build"],
+        "env_exit": 2,
+    },
+    {
+        "name": "M405 落点没减去画布原点（拖到画布右下，落在别处）",
+        # 少了这一步，落点会整体偏掉 canvas 在页面里的偏移量 —— 看起来「差一点」，
+        # 而"差一点"最容易被人当成自己的手抖。
+        "file": "src/editor-entry.ts",
+        "pairs": [("  const cx = clientX - r.left;", "  const cx = clientX;")],
+        "cmd": ["node", "tools/editor-selftest.mjs", "--build"],
+        "env_exit": 2,
+    },
+    {
+        "name": "M406 世界坐标 XZ 互换（2.5D 里 y 就是 z，这一步很容易写反）",
+        "file": "src/editor-entry.ts",
+        "pairs": [("  const w = canvasToWorld(cx, cy);\n  return { x: w.x, y: w.z };",
+                   "  const w = canvasToWorld(cx, cy);\n  return { x: w.z, y: w.x };")],
+        "cmd": ["node", "tools/editor-selftest.mjs", "--build"],
+        "env_exit": 2,
+    },
+    {
+        "name": "M407 松手在画布外也照样加节点（随手一拖就多一个）",
+        "file": "src/editor-entry.ts",
+        "pairs": [("  if (at === null) {", "  if (false) {")],
+        "cmd": ["node", "tools/editor-selftest.mjs", "--build"],
+        "env_exit": 2,
+    },
+    {
+        # ★ 这条打的是 `tools/worktree_guard.py`（工作区守护）。它必须住在**另一个文件**里：
+        #   靶子是写在本表里的字符串字面量，而替换命中"第一次出现"——
+        #   同处一文件时第一次出现就是靶子自己，变异会把自己的靶子改掉、实现纹丝不动，
+        #   于是"没被抓住"，而自检照样通过。第一版就这么假绿了一轮。
+        #   归一之后：守护恒空与"一切都干净"在输出上完全一致（报告照旧说还原干净），
+        #   只能靠 `--selftest` 里那几条自造情形来分辨。
+        "name": "M408 工作区守护的差异比较恒空（残留永远报不出来）",
+        "file": "tools/worktree_guard.py",
+        "pairs": [("        elif before[name] != after[name]:", "        elif False:")],
+        # ★ `sys.executable` 而不是字面量 `python`：runner 上常常只有 `python3`，
+        #   而"找不到解释器"会以"命令跑不起来 ⇒ 退出码非 0 ⇒ 被判成变异被抓住"
+        #   的形式**假绿**（判据根本没执行）。用正在跑本脚本的那个解释器，两边一致。
+        "cmd": [sys.executable, "tools/worktree_guard.py", "--selftest"],
     },
 ]
 
@@ -3963,6 +4014,31 @@ if _missing_tests:
         print(f"✗ 判据文件不存在：{_tf}  ← {_name}")
     sys.exit("变异表里的 test 路径写错了（是配置错，不是判据失效）")
 
+
+# ---------------------------------------------------------------- 工作区守护（批89）
+#
+# ★★ 为什么需要它：上面那两套「还原后校验」各自只看**自己这一条**变异的文件 ——
+#   cmd 型验"这个源文件的字节 + 三个产物哈希"，node:test 型"重跑这一条判据"。
+#   它们看不见 **别的文件被留在了变异态**。
+#
+#   2026-10-26 批89 实测：全量跑完 407 条，工具通篇报「全部变异均被抓住且还原干净」，
+#   但 `src/extensions/asset-import/decode/jpeg/lossless-pred.ts` 被留成了变异体
+#   （`1 << (precision - pt - 1)` → `1 << (precision - 1)`）。
+#   后果不是"红一下"：`ci.mjs` 的判据步排在变异步**之前**，所以当次全绿，
+#   红要等到**下一次**有人跑判据才爆 —— 而那时红的是两条 JPEG 判据，
+#   跟眼前正在改的东西毫无关系。**我照着那条红去查了一个不存在的 bug。**
+#   更糟的路径是它被 `git add -A` 一并提交：diff 长成"把真缺陷改回去"，
+#   而提交信息写着别的事。
+#
+# ★★ 实现在 `tools/worktree_guard.py`，**不能住在变异表所在的文件里**：
+#   变异靶子是写在变异表里的字符串字面量，而 `replace(old, new, 1)` 命中的是
+#   文件中第一次出现 —— 实现与靶子同处一文件时，第一次出现就是靶子自己。
+#   M408 第一版就是这么假绿了一轮：它把自己的靶子改掉了、实现纹丝不动，
+#   于是"没被抓住"，而自检照样通过（因为逻辑真的没变）。
+#   抽出去之后，靶子在这边、实现在那边，两边不可能撞上。
+sys.path.insert(0, str(ROOT / "tools"))
+import worktree_guard  # noqa: E402  （路径要先插进 sys.path）
+
 # ★ 变异轮**开始前**先把文档对账的缓存刷成新鲜状态（必须在拿锁之前）。
 #
 #   为什么：M74–M76 的判据是 `node tools/docs-check.mjs --quick`，而 quick 模式一旦发现
@@ -4001,6 +4077,14 @@ if any(m.get("cmd") for m in MUTANTS):
         f"[warm] 产物基线 {_ARTIFACTS_CLEAN[:12]}（{len(_ARTIFACTS)} 个文件，开跑前建一次）",
         flush=True,
     )
+
+# ★ 工作区基线：取在产物基线**之后**（基线构建会重写三个产物，落在基线之内才不误报）。
+HASH_BEFORE = worktree_guard.tracked_hashes(ROOT)
+print(
+    f"[guard] 工作区基线 {hashlib.sha256(''.join(sorted(HASH_BEFORE)).encode()).hexdigest()[:12]}"
+    f"（{len(HASH_BEFORE)} 个 tracked 文件）",
+    flush=True,
+)
 
 _take_lock()
 try:
@@ -4110,6 +4194,23 @@ finally:
     _restore_all()
     _drop_lock()
 
+# ★★ 工作区守护的**收尾**：残留可能来自任何一条变异（不一定是最后一条，也不一定是
+#   刚刚报出问题的那条），所以只能在全部结束后整体比一次。
+HASH_AFTER = worktree_guard.tracked_hashes(ROOT)
+LEFTOVER = worktree_guard.hash_diff(HASH_BEFORE, HASH_AFTER)
+if LEFTOVER:
+    print(
+        "\n✗ 变异跑完工作区不干净 —— 有文件被留在了变异态（或反过来被改了）：",
+        flush=True,
+    )
+    for _line in LEFTOVER:
+        print(f"  · {_line}", flush=True)
+    print(
+        "  这些改动**不是**本次任务的产物；`git add -A` 会把它们一起提交。"
+        "逐个人工看过后 `git checkout -- <path>` 丢掉，不要直接提交。",
+        flush=True,
+    )
+
 print("=" * 70)
 all_ok = True
 for name, detail, n_fail, after, detail_after in results:
@@ -4132,6 +4233,9 @@ for name, detail, n_fail, after, detail_after in results:
     if after and after[0] != 0 and detail_after:
         print("   还原后：" + detail_after)
 print("=" * 70)
+# ★ 工作区残留也进 all_ok：只报"变异被抓住"而留下脏文件，结论同样是不可信的。
+if LEFTOVER:
+    all_ok = False
 if all_ok:
     print("全部变异均被抓住且还原干净")
     if skipped_by_platform:
@@ -4156,16 +4260,26 @@ else:
     #   "变异被抓住"的证据），真正该看的"哪几条没抓住"一个字都没进去。
     #   **信息通道要在排障之前建好**，否则每一轮都要重新猜一次。
     _items = (
-        [(n, "漂移") for n in drift] + [(n, "假绿") for n in green] + [(n, "脏") for n in dirty]
+        [(n, "漂移") for n in drift]
+        + [(n, "假绿") for n in green]
+        + [(n, "脏") for n in dirty]
+        # ★ 第四类：**工作区残留**。它不是某一条变异的事（可能根本没有哪条报错），
+        #   但后果比"某条没抓住"更重 —— 脏文件会被下一次提交带走。
+        + [(p, "残留") for p in LEFTOVER]
     )
     print(
         f"✗ 未通过 {len(_items)} 条："
         + "、".join(f"{n.split(' ')[0]}({lab})" for n, lab in _items)
     )
-    print(f"有变异未通过 —— 靶子漂移 {len(drift)} 条 / 判据假绿 {len(green)} 条 / 还原不干净 {len(dirty)} 条：")
+    print(
+        f"有变异未通过 —— 靶子漂移 {len(drift)} 条 / 判据假绿 {len(green)} 条 /"
+        f" 还原不干净 {len(dirty)} 条 / 工作区残留 {len(LEFTOVER)} 处："
+    )
     for label, lst in (("靶子漂移", drift), ("判据假绿", green), ("还原不干净", dirty)):
         for name in lst:
             print(f"  · [{label}] {name}")
+    for _p in LEFTOVER:
+        print(f"  · [工作区残留] {_p}")
     print("（'靶子漂移' = 代码重构后变异点不存在了，要重新指认，不是放宽标准；'假绿' = 判据对这类改动没有分辨力）")
     if skipped_by_platform:
         print(

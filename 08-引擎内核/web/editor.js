@@ -12980,6 +12980,14 @@ function assetRow(e) {
   el.addEventListener("click", () => {
     pickAsset(e.path);
   });
+  if (e.inAtlas) {
+    el.addEventListener("pointerdown", (ev) => {
+      if (ev.button !== 0) return;
+      pickAsset(e.path);
+      beginAssetDrag(e.path, ev.clientX, ev.clientY);
+      ev.preventDefault();
+    });
+  }
   el.addEventListener("dblclick", () => {
     pickAsset(e.path);
     doAddAsset(e.path);
@@ -13052,7 +13060,7 @@ function viewCenterLocal() {
   const w = canvasToWorld(canvas.clientWidth / 2, canvas.clientHeight / 2);
   return { x: w.x, y: w.z };
 }
-function doAddAsset(path) {
+function doAddAsset(path, at) {
   const app = appRef;
   if (app === null) return { ok: false, code: "EDIT.NOT_READY", message: "\u7F16\u8F91\u5668\u8FD8\u6CA1\u542F\u52A8" };
   const entry = path === null || catalog === null ? void 0 : catalog.entries.find((e) => e.path === path);
@@ -13066,7 +13074,7 @@ function doAddAsset(path) {
     errEl.textContent = msg2;
     return { ok: false, code: EDIT_NO_FRAME, message: msg2 };
   }
-  const pos = viewCenterLocal();
+  const pos = at ?? viewCenterLocal();
   const r = addSpriteNodeWithUndo(app.scene, app.scene.components, {
     name: entry.name,
     frame: entry.name,
@@ -13080,7 +13088,60 @@ function doAddAsset(path) {
   selection.select(r.value.nodeId);
   const out = commitOp(r.value.op);
   if (!out.ok) return out;
-  return { ok: true, id: r.value.nodeId };
+  return { ok: true, id: r.value.nodeId, at: pos };
+}
+var assetDrag = null;
+var ASSET_DRAG_SLOP = 4;
+function canvasDropPoint(clientX, clientY) {
+  const r = canvas.getBoundingClientRect();
+  if (r.width <= 0 || r.height <= 0) return null;
+  const cx = clientX - r.left;
+  const cy = clientY - r.top;
+  if (cx < 0 || cy < 0 || cx >= r.width || cy >= r.height) return null;
+  const w = canvasToWorld(cx, cy);
+  return { x: w.x, y: w.z };
+}
+function beginAssetDrag(path, clientX, clientY) {
+  assetDrag = { path, fromX: clientX, fromY: clientY, armed: false };
+}
+function moveAssetDrag(clientX, clientY) {
+  const d = assetDrag;
+  if (d === null) return;
+  if (!d.armed) {
+    if (Math.hypot(clientX - d.fromX, clientY - d.fromY) < ASSET_DRAG_SLOP) return;
+    d.armed = true;
+    assetCountEl.textContent = `\u62D6\u52A8 ${d.path} \u2026\u2026 \u677E\u624B\u843D\u5728\u6307\u9488\u5904`;
+  }
+  canvas.classList.toggle("drop", canvasDropPoint(clientX, clientY) !== null);
+}
+function finishAssetDrag(clientX, clientY) {
+  const d = assetDrag;
+  if (d === null) return { ok: true, dropped: false };
+  assetDrag = null;
+  canvas.classList.remove("drop");
+  if (!d.armed) return { ok: true, dropped: false };
+  const at = canvasDropPoint(clientX, clientY);
+  if (at === null) {
+    assetCountEl.textContent = "\u6CA1\u843D\u5728\u753B\u5E03\u4E0A\uFF1A\u8D44\u4EA7\u6CA1\u6709\u52A0\u8FDB\u573A\u666F";
+    return { ok: true, dropped: false };
+  }
+  const r = doAddAsset(d.path, at);
+  refreshAssets();
+  return { ok: r.ok, id: r.id, dropped: true, code: r.code };
+}
+function bindAssetDrag() {
+  document.addEventListener("pointermove", (e) => {
+    moveAssetDrag(e.clientX, e.clientY);
+  });
+  document.addEventListener("pointerup", (e) => {
+    if (assetDrag !== null) finishAssetDrag(e.clientX, e.clientY);
+  });
+  document.addEventListener("pointercancel", () => {
+    if (assetDrag === null) return;
+    assetDrag = null;
+    canvas.classList.remove("drop");
+    refreshAssets();
+  });
 }
 function afterHistoryChange() {
   const app = appRef;
@@ -13444,6 +13505,7 @@ async function main() {
   tickEl.textContent = `tick ${String(app.scheduler.stats().tick)}`;
   bindCanvasDrag();
   bindTreeDrag();
+  bindAssetDrag();
   btnAssetAdd.addEventListener("click", () => {
     doAddAsset(assetPicked);
   });

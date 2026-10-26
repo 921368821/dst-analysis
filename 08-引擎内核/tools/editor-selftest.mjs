@@ -516,6 +516,77 @@ const PROBE = `
     JSON.stringify(rejected) + " nodes=" + E.stats().nodes + " err=" + errText.slice(0, 60),
   );
 
+  // ---------------- 拖资产到画布（批89）：落点必须是指针，不是视图中心
+  //
+  // ★ 用合成 PointerEvent 走**真实**那条接线（与场景树拖放同一个理由）：
+  //   命令面直接传坐标只能验"落点算得对"，验不到"拖拽有没有接上"。
+  const cvRect = document.getElementById("cv").getBoundingClientRect();
+  const dragAssetTo = (path, clientX, clientY) => {
+    const row = document.querySelector('.arow[data-path="' + path + '"]');
+    if (!row) return false;
+    const rr = row.getBoundingClientRect();
+    const sx = rr.left + 4;
+    const sy = rr.top + rr.height / 2;
+    row.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, clientX: sx, clientY: sy }));
+    // 先动几像素越过阈值（否则按"这只是一次点击"处理，与双击加资产打架）
+    document.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: sx + 10, clientY: sy + 4 }));
+    document.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: clientX, clientY: clientY }));
+    document.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, clientX: clientX, clientY: clientY }));
+    return true;
+  };
+  const P1 = { x: Math.round(cvRect.width * 0.32), y: Math.round(cvRect.height * 0.66) };
+  const P2 = { x: Math.round(cvRect.width * 0.72), y: Math.round(cvRect.height * 0.28) };
+  const W1 = E.screenToWorld(P1.x, P1.y);
+  const W2 = E.screenToWorld(P2.x, P2.y);
+  const WCenter = E.screenToWorld(cvRect.width / 2, cvRect.height / 2);
+
+  const nDrop0 = E.stats().nodes;
+  const okDrag1 = dragAssetTo("rock.png", cvRect.left + P1.x, cvRect.top + P1.y);
+  const prim1 = E.stats().primary;
+  const drop1 = prim1 === null ? null : E.pos(prim1);
+  const nearCenter1 =
+    drop1 === null ? true : Math.abs(drop1.x - WCenter.x) < 1e-4 && Math.abs(drop1.z - WCenter.z) < 1e-4;
+  add(
+    "★★ 拖资产到画布：节点 +1，且落在**指针**那个世界点上（不是视图中心）",
+    okDrag1 && E.stats().nodes === nDrop0 + 1 && drop1 !== null &&
+      Math.abs(drop1.x - W1.x) < 1e-4 && Math.abs(drop1.z - W1.z) < 1e-4 && !nearCenter1,
+    "nodes " + nDrop0 + "->" + E.stats().nodes + " pos=" + JSON.stringify(drop1) +
+      " 期望 " + JSON.stringify(W1) + " 中心=" + JSON.stringify(WCenter),
+  );
+
+  // 换个落点再拖一个：位置差必须等于世界点之差（常数偏移的实现会在这里露馅）
+  const okDrag2 = dragAssetTo("tree.png", cvRect.left + P2.x, cvRect.top + P2.y);
+  const prim2 = E.stats().primary;
+  const drop2 = prim2 === null ? null : E.pos(prim2);
+  add(
+    "★ 换个落点：两个节点的位置差 = 两个世界点的差（落点真的跟着指针走）",
+    okDrag2 && drop1 !== null && drop2 !== null &&
+      Math.abs(drop2.x - drop1.x - (W2.x - W1.x)) < 1e-4 &&
+      Math.abs(drop2.z - drop1.z - (W2.z - W1.z)) < 1e-4,
+    "Δpos=" + JSON.stringify(drop1 !== null && drop2 !== null ? { x: drop2.x - drop1.x, z: drop2.z - drop1.z } : null) +
+      " Δworld=" + JSON.stringify({ x: W2.x - W1.x, z: W2.z - W1.z }),
+  );
+
+  // 松手在画布外（属性面板上）：一个节点都不该多出来，而且要留一句人话
+  const nOutside0 = E.stats().nodes;
+  const propsRect = document.getElementById("props").getBoundingClientRect();
+  const okDrag3 = dragAssetTo("berry.png", propsRect.left + 8, propsRect.top + 8);
+  const cntText = document.getElementById("assetcount").textContent || "";
+  add(
+    "★ 松手在画布外：不加节点，并且留一句说明（不是静默丢掉）",
+    okDrag3 && E.stats().nodes === nOutside0 && cntText.indexOf("没落") >= 0,
+    "nodes=" + E.stats().nodes + " count=" + cntText.slice(0, 40),
+  );
+
+  // 无帧的资产拖不动：与按钮同一个条件（inAtlas），松开之后场景里什么都不该多
+  const nNoFrame0 = E.stats().nodes;
+  const okDrag4 = dragAssetTo("ui-font.fnt", cvRect.left + P1.x, cvRect.top + P1.y);
+  add(
+    "★ 无帧的资产拖不动（拖动与按钮受同一个条件约束）",
+    okDrag4 && E.stats().nodes === nNoFrame0,
+    "nodes=" + E.stats().nodes,
+  );
+
   // ---------------- 试玩（PIE）：世界真的会动，而且试玩改的东西会回滚
   //
   // ★ 这一组盯的是一个**整整漏掉的接线**：控制器模块两个宿主都装了、都每 tick 驱动，

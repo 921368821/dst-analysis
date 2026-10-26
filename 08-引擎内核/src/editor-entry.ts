@@ -1026,6 +1026,19 @@ function assetRow(e: AssetEntry): HTMLElement {
   el.addEventListener("click", () => {
     pickAsset(e.path);
   });
+  // ★ 拖到画布（批89）：只有「有帧」的资产能拖 —— 与按钮同一个条件，
+  //   而 `doAddAsset` 里还会再查一次（按钮/拖拽都是 UI 约束，命令面能绕过去）。
+  if (e.inAtlas) {
+    el.addEventListener("pointerdown", (ev) => {
+      if (ev.button !== 0) return;
+      pickAsset(e.path);
+      // ★ 顺序：先 `pickAsset`（它会重建整列 DOM），再开拖 ——
+      //   反过来的话刚设好的"拖动…"提示会被 `refreshAssets` 覆盖掉。
+      beginAssetDrag(e.path, ev.clientX, ev.clientY);
+      // 防止浏览器把拖动变成"拖选文字"：松手之后选区还在，下一次点行会变成改选区。
+      ev.preventDefault();
+    });
+  }
   // 双击直接加入：与场景树双击换父相反，这里的双击是"最常用那个动作"的快捷方式。
   el.addEventListener("dblclick", () => {
     pickAsset(e.path);
@@ -1145,8 +1158,17 @@ function viewCenterLocal(): { x: number; y: number } {
   return { x: w.x, y: w.z };
 }
 
-/** 把一个资产加成带精灵的节点（进历史，一条）。 */
-function doAddAsset(path: string | null): { ok: boolean; id?: number; code?: string; message?: string } {
+/**
+ * 把一个资产加成带精灵的节点（进历史，一条）。
+ *
+ * `at` 是**落点**（世界坐标 XZ）：拖到画布上就用指针那个点，点按钮就用视图中心。
+ * ★ 语义差别不是"顺手"：点按钮时人没指定位置，落在中心最好找；拖动时人已经指定了位置，
+ *   再落在中心就是"我明明拖到那儿，它跑到中间去了"。
+ */
+function doAddAsset(
+  path: string | null,
+  at?: { x: number; y: number },
+): { ok: boolean; id?: number; code?: string; message?: string; at?: { x: number; y: number } } {
   const app = appRef;
   if (app === null) return { ok: false, code: "EDIT.NOT_READY", message: "编辑器还没启动" };
   const entry = path === null || catalog === null ? undefined : catalog.entries.find((e) => e.path === path);
@@ -1165,7 +1187,7 @@ function doAddAsset(path: string | null): { ok: boolean; id?: number; code?: str
     errEl.textContent = msg;
     return { ok: false, code: EDIT_NO_FRAME, message: msg };
   }
-  const pos = viewCenterLocal();
+  const pos = at ?? viewCenterLocal();
   const r = addSpriteNodeWithUndo(app.scene, app.scene.components, {
     name: entry.name,
     frame: entry.name,
@@ -1181,7 +1203,93 @@ function doAddAsset(path: string | null): { ok: boolean; id?: number; code?: str
   selection.select(r.value.nodeId);
   const out = commitOp(r.value.op);
   if (!out.ok) return out;
-  return { ok: true, id: r.value.nodeId };
+  return { ok: true, id: r.value.nodeId, at: pos };
+}
+
+// ---------------------------------------------------------------- 拖资产到画布（批89）
+
+/**
+ * 把资产行拖到画布上 ⇒ 落在**指针所在的世界坐标**（而不是视图中心）。
+ *
+ * ★ 与场景树拖放（批85）同一套模型：`pointerdown` 在行上开拖、`document` 上收
+ *   move/up、落点用坐标自己算。理由写在那一段注释里 —— 合成 `DragEvent` 在无头浏览器里
+ *   基本做不出来，而"只有人能验的接线"是本仓库最不想要的东西。
+ *
+ * ★★ 这一批唯一真正的语义是**落点必须是指针**：
+ *   点按钮落在视图中心是对的（人没指定位置），拖动再落中心就是
+ *   「我明明拖到那儿，它跑到中间去了」。所以判据不能只验"多了一个节点"，
+ *   必须验"它在那个世界点上"。
+ */
+let assetDrag: { path: string; fromX: number; fromY: number; armed: boolean } | null = null;
+
+/** 判定"真的在拖"的位移阈值（CSS px）。 */
+const ASSET_DRAG_SLOP = 4;
+
+/** 客户端坐标 → 世界 XZ。返回 `null` = 不在画布范围内（松手在别处不算投放）。 */
+function canvasDropPoint(clientX: number, clientY: number): { x: number; y: number } | null {
+  const r = canvas.getBoundingClientRect();
+  if (r.width <= 0 || r.height <= 0) return null;
+  const cx = clientX - r.left;
+  const cy = clientY - r.top;
+  if (cx < 0 || cy < 0 || cx >= r.width || cy >= r.height) return null;
+  const w = canvasToWorld(cx, cy);
+  return { x: w.x, y: w.z };
+}
+
+function beginAssetDrag(path: string, clientX: number, clientY: number): void {
+  assetDrag = { path, fromX: clientX, fromY: clientY, armed: false };
+}
+
+function moveAssetDrag(clientX: number, clientY: number): void {
+  const d = assetDrag;
+  if (d === null) return;
+  // ★ 位移阈值：没有它，单击与双击也会开一场"拖拽"，然后以"没落在画布上"收尾 ——
+  //   双击加资产的那条路会被这句提示语盖掉，人看到的是"加了但报了个错"。
+  if (!d.armed) {
+    if (Math.hypot(clientX - d.fromX, clientY - d.fromY) < ASSET_DRAG_SLOP) return;
+    d.armed = true;
+    assetCountEl.textContent = `拖动 ${d.path} …… 松手落在指针处`;
+  }
+  // 高亮：不亮的话人不知道"这里能不能放"，只能试一次。
+  canvas.classList.toggle("drop", canvasDropPoint(clientX, clientY) !== null);
+}
+
+/** 松手。`dropped` 区分"放上了画布"与"松在别处" —— 后者要说一句，否则像拖丢了。 */
+function finishAssetDrag(
+  clientX: number,
+  clientY: number,
+): { ok: boolean; id?: number; dropped: boolean; code?: string } {
+  const d = assetDrag;
+  if (d === null) return { ok: true, dropped: false };
+  assetDrag = null;
+  canvas.classList.remove("drop");
+  // 没超过阈值 = 这只是一次点击，不是投放：一个字都不许改（别盖掉双击的提示）。
+  if (!d.armed) return { ok: true, dropped: false };
+  const at = canvasDropPoint(clientX, clientY);
+  if (at === null) {
+    assetCountEl.textContent = "没落在画布上：资产没有加进场景";
+    return { ok: true, dropped: false };
+  }
+  const r = doAddAsset(d.path, at);
+  // 把计数行恢复成条数（拖的时候被提示语占了）
+  refreshAssets();
+  return { ok: r.ok, id: r.id, dropped: true, code: r.code };
+}
+
+/** 接线（在 `main()` 里调一次）。监听器挂在 document 上，与场景树拖放同一个理由。 */
+function bindAssetDrag(): void {
+  document.addEventListener("pointermove", (e) => {
+    moveAssetDrag(e.clientX, e.clientY);
+  });
+  document.addEventListener("pointerup", (e) => {
+    if (assetDrag !== null) finishAssetDrag(e.clientX, e.clientY);
+  });
+  document.addEventListener("pointercancel", () => {
+    if (assetDrag === null) return;
+    assetDrag = null;
+    canvas.classList.remove("drop");
+    refreshAssets();
+  });
 }
 
 /** 历史动过之后统一收尾：选中项可能要 prune（子树被删/被恢复），树与面板都要重画。 */
@@ -1708,6 +1816,7 @@ async function main(): Promise<void> {
 
   bindCanvasDrag();
   bindTreeDrag();
+  bindAssetDrag();
   // 清单与图集在 `main()` 开头就已经准备好（启动顺序见那里的说明）。
   btnAssetAdd.addEventListener("click", () => {
     doAddAsset(assetPicked);

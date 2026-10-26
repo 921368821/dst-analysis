@@ -66,6 +66,11 @@
   .arow .nof { flex: 0 0 auto; font-size: 10px; color: #c98a5a; }
   .arow.noframe .p { color: #6a7684; }
   #assets .empty { color: #6a7684; padding: 0 4px; }
+  /* 拖到画布：无帧的资产不允许拖（cursor 就说明白了，不用等松手才报错）。 */
+  .arow.noframe { cursor: default; }
+  .arow:not(.noframe) { cursor: grab; }
+  /* 画布高亮：拖动中指针在画布上时亮一圈 —— 否则人只能试一次才知道能不能放。 */
+  #cv.drop { outline: 2px dashed rgba(120,170,255,.75); outline-offset: -3px; }
   /* 拖放换父：源行淡出、落点行高亮。两者都只在拖动期间存在（pointerup 一定清掉）。 */
   .row.dragging { opacity: .45; }
   .row.drop { background: rgba(120,200,140,.22); outline: 1px solid rgba(120,220,150,.65); }
