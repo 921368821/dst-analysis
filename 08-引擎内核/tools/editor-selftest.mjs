@@ -439,6 +439,60 @@ const PROBE = `
     JSON.stringify(fresh) + " nodes=" + E.stats().nodes + " undo=" + h2.undo.length,
   );
 
+  // ---- 资产浏览器（批86）
+  // 清单是一次 HTTP 读、在启动时发起 ⇒ 这里等一下（最多 3 秒）。
+  // 不等的话会读到空目录，而这批新加的判据会红在一个与资产无关的地方。
+  for (let i = 0; i < 60 && E.assetInfo().count === 0; i++) await sleep(50);
+  const ai = E.assetInfo();
+  const aRows = document.querySelectorAll("#assetlist .arow").length;
+  add(
+    "资产面板列出了清单里的文件（条数、DOM 行数、可加入数三者对得上）",
+    ai.count === 14 && aRows === 14 && ai.usable === 6,
+    "count=" + ai.count + " rows=" + aRows + " usable=" + ai.usable + " problem=" + String(ai.problem),
+  );
+
+  // ★ 这一条是「别让人点了没反应」的前半：无帧的资产要在**列表里**就看得出来，
+  //   而不是等他点完「加入场景」再读一行红字。
+  const noFrame = E.assets().filter((a) => !a.inAtlas).map((a) => a.path);
+  const pickPhoto = E.assetPick("photo.jpg");
+  const addBtn = document.getElementById("asset-add");
+  add(
+    "★ 无帧的资产被标出来（photo.jpg 没有帧，按钮也就不可用）",
+    noFrame.indexOf("photo.jpg") >= 0 && pickPhoto === false && addBtn.disabled === true,
+    "noFrame=" + noFrame.join(",") + " pickable=" + String(pickPhoto) + " btnDisabled=" + String(addBtn.disabled),
+  );
+
+  const nodesBefore = E.stats().nodes;
+  const pickTree = E.assetPick("tree.png");
+  const added = E.assetAdd("tree.png");
+  const pTree = E.panel();
+  const frameField = findField(pTree, "render.sprite", "frame");
+  add(
+    "★★ 加入场景：节点 +1、精灵挂上、帧也写进去了",
+    pickTree === true && added.ok === true && E.stats().nodes === nodesBefore + 1 &&
+      frameField !== null && frameField.value === "tree",
+    JSON.stringify(added) + " nodes=" + E.stats().nodes + " frame=" +
+      JSON.stringify(frameField ? frameField.value : null),
+  );
+
+  // ★ 一次撤销要退掉**整件事**：节点 + 精灵。压两条历史的话这里只剩一个空节点，
+  //   而画面上什么都没少（那个节点没精灵）。
+  const undoAdd = E.undo();
+  add(
+    "★★ 撤销一次：节点退回（加资产是一条历史，不是两条）",
+    undoAdd.kind === "done" && E.stats().nodes === nodesBefore,
+    JSON.stringify(undoAdd) + " nodes=" + E.stats().nodes,
+  );
+
+  const rejected = E.assetAdd("photo.jpg");
+  const errText = document.getElementById("err").textContent || "";
+  add(
+    "★ 无帧的资产被拒：错误码对、节点数不变、错误行有字",
+    rejected.ok === false && rejected.code === "EDIT.NO_FRAME" && E.stats().nodes === nodesBefore &&
+      errText.length > 0,
+    JSON.stringify(rejected) + " nodes=" + E.stats().nodes + " err=" + errText.slice(0, 60),
+  );
+
   return rows;
 })()
 `;

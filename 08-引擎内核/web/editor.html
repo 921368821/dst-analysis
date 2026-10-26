@@ -17,8 +17,12 @@
     padding: 0 10px; background: #10151d; border-bottom: 1px solid #1d2530; }
   #top b { color: #e6c07b; font-weight: 600; }
   #top .dim { color: #6a7684; }
-  #tree { grid-area: tree; overflow: auto; padding: 6px 4px;
-    background: #0d1219; border-right: 1px solid #1d2530; }
+  /* 左列 = 场景树（上）+ 资产（下）。用一层 #left 而不是再加一列网格：
+     资产列表与场景树是同一件事（"世界上有什么"）的两种视角，挤在一列里
+     才不会把中间那块画布再压窄。 */
+  #left { grid-area: tree; display: grid; grid-template-rows: 1fr auto;
+    min-height: 0; background: #0d1219; border-right: 1px solid #1d2530; }
+  #tree { overflow: auto; padding: 6px 4px; min-height: 0; }
   #view { grid-area: view; position: relative; overflow: hidden; background: #0b0e13; }
   #cv { display: block; width: 100%; height: 100%; image-rendering: pixelated; }
   #props { grid-area: props; overflow: auto; padding: 8px 10px;
@@ -42,6 +46,26 @@
   .row.sel { background: rgba(88,140,220,.28); outline: 1px solid rgba(120,170,255,.5); }
   .row .id { color: #4d5866; }
   .row.dead { color: #6a7684; text-decoration: line-through; }
+
+  /* 资产面板：底部固定高度、自己滚。标题行放条数与「加入场景」按钮 ——
+     按钮在标题上而不是每行尾部，是因为一行里塞两个可点区域会让"拖行"和"点按钮"
+     混在一起（场景树那边刚被这个问题咬过）。 */
+  #assets { max-height: 42%; overflow: auto; padding: 4px 4px 6px;
+    border-top: 1px solid #1d2530; }
+  #assets h2 { display: flex; align-items: center; gap: 6px; margin: 0 0 4px;
+    padding: 0 2px; font-size: 11px; color: #6a7684; font-weight: 600; }
+  #assets h2 .grow { flex: 1 1 auto; }
+  #assets button { font-size: 10px; padding: 1px 6px; line-height: 15px; }
+  .arow { display: flex; align-items: center; gap: 6px; padding: 1px 6px;
+    border-radius: 4px; cursor: pointer; white-space: nowrap; overflow: hidden; }
+  .arow:hover { background: rgba(255,255,255,.06); }
+  .arow.sel { background: rgba(88,140,220,.28); outline: 1px solid rgba(120,170,255,.5); }
+  .arow .k { flex: 0 0 auto; font-size: 10px; color: #4d5866; }
+  .arow .p { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; }
+  /* 无帧 = 点「加入场景」也画不出来。做成可见的弱化色，而不是点了才报错。 */
+  .arow .nof { flex: 0 0 auto; font-size: 10px; color: #c98a5a; }
+  .arow.noframe .p { color: #6a7684; }
+  #assets .empty { color: #6a7684; padding: 0 4px; }
   /* 拖放换父：源行淡出、落点行高亮。两者都只在拖动期间存在（pointerup 一定清掉）。 */
   .row.dragging { opacity: .45; }
   .row.drop { background: rgba(120,200,140,.22); outline: 1px solid rgba(120,220,150,.65); }
@@ -84,7 +108,15 @@
     <span class="dim" id="status">启动中…</span>
     <span id="err"></span>
   </div>
-  <div id="tree"></div>
+  <div id="left">
+    <div id="tree"></div>
+    <div id="assets">
+      <h2><span>资产</span><span class="dim" id="assetcount">—</span>
+        <span class="grow"></span>
+        <button id="asset-add" disabled>加入场景</button></h2>
+      <div id="assetlist"><div class="empty">读取清单…</div></div>
+    </div>
+  </div>
   <div id="view"><canvas id="cv"></canvas></div>
   <div id="props"><div class="empty">未选中</div></div>
   <div id="doc">

@@ -56,7 +56,15 @@ import { fieldsOf, setField, type FieldChange } from "./extensions/editor/proper
 import { beginDrag, dragTarget, endDrag, pickAt, type DragState } from "./extensions/editor/gizmo.ts";
 import { createPie } from "./extensions/editor/pie.ts";
 import { createUndoStack, type EditorOp, type UndoOutcome } from "./extensions/editor/undo-stack.ts";
+import { HttpFileSystem } from "./backends/fs-http/fs.ts";
 import {
+  EDIT_BAD_ASSET_LIST,
+  catalogFromManifest,
+  type AssetCatalog,
+  type AssetEntry,
+} from "./extensions/editor/asset-list.ts";
+import {
+  addSpriteNodeWithUndo,
   attachComponentWithUndo,
   createNodeWithUndo,
   deleteNodeWithUndo,
@@ -99,6 +107,9 @@ const btnOpen = need<HTMLButtonElement>("btn-open");
 const btnNew = need<HTMLButtonElement>("btn-new");
 const docText = need<HTMLTextAreaElement>("doctext");
 const docInfoEl = need<HTMLSpanElement>("docinfo");
+const assetListEl = need<HTMLDivElement>("assetlist");
+const assetCountEl = need<HTMLSpanElement>("assetcount");
+const btnAssetAdd = need<HTMLButtonElement>("asset-add");
 
 const dpr = Math.min(2, window.devicePixelRatio || 1);
 // 首次位图尺寸：必须在 `createRenderModule` **之前**定好，它用这个值建初始视口。
@@ -784,6 +795,152 @@ function bindTreeDrag(): void {
   });
 }
 
+// ---------------------------------------------------------------- 资产面板（批86）
+
+/**
+ * 资产清单与面板。
+ *
+ * ★ **清单是唯一来源**：浏览器端的资源后端是 `HttpFileSystem`，它的
+ *   `canList = false`（HTTP 没有「列出目录」这个操作），所以页面**没法**自己
+ *   去列 `web/assets`。代价是清单会过期 —— 于是 `tests/extensions/editor-assets.test.ts`
+ *   里有一条拿真磁盘**双向**对账（加了 png 忘了写清单就红）。
+ *
+ * ★ 读清单走 `HttpFileSystem` 而不是裸 `fetch`：404 → `FS.NOT_FOUND`、路径归一、
+ *   前缀校验都在那一层，与 Node 侧的失败形状一致。宿主里各写一份 fetch 的后果是
+ *   "资产读不到"在浏览器和 Node 下长得不一样。
+ *
+ * ★ **读不到要看得见**：面板里写一行字，而不是留一个空列表 ——
+ *   空列表的含义是"这个工程里没有资产"，那是完全不同的一件事。
+ */
+let catalog: AssetCatalog | null = null;
+let assetPicked: string | null = null;
+/** 清单的问题（读不到 / 坏了）。面板与 `assetInfo()` 都从这里取，不各存一份。 */
+let assetProblem: string | null = null;
+
+function mkAssetEmpty(text: string): HTMLElement {
+  const el = document.createElement("div");
+  el.className = "empty";
+  el.textContent = text;
+  return el;
+}
+
+function assetUsable(path: string | null): boolean {
+  if (path === null || catalog === null) return false;
+  const e = catalog.entries.find((x) => x.path === path);
+  return e !== undefined && e.inAtlas;
+}
+
+function assetRow(e: AssetEntry): HTMLElement {
+  const el = document.createElement("div");
+  el.className = `arow${e.inAtlas ? "" : " noframe"}${e.path === assetPicked ? " sel" : ""}`;
+  el.dataset["path"] = e.path;
+  const k = document.createElement("span");
+  k.className = "k";
+  k.textContent = e.kind;
+  const p = document.createElement("span");
+  p.className = "p";
+  p.textContent = e.path;
+  el.append(k, p);
+  if (!e.inAtlas) {
+    const nof = document.createElement("span");
+    nof.className = "nof";
+    nof.textContent = "无帧";
+    nof.title = "图集里没有同名帧（编辑器还没接图片导入）—— 加进场景也画不出来";
+    el.appendChild(nof);
+  }
+  el.addEventListener("click", () => {
+    pickAsset(e.path);
+  });
+  // 双击直接加入：与场景树双击换父相反，这里的双击是"最常用那个动作"的快捷方式。
+  el.addEventListener("dblclick", () => {
+    pickAsset(e.path);
+    doAddAsset(e.path);
+  });
+  return el;
+}
+
+function refreshAssets(): void {
+  const cat = catalog;
+  if (cat === null) return;
+  const frag = document.createDocumentFragment();
+  for (const e of cat.entries) frag.appendChild(assetRow(e));
+  if (cat.entries.length === 0) frag.appendChild(mkAssetEmpty("清单里没有可用资产"));
+  assetListEl.replaceChildren(frag);
+  const usable = cat.entries.filter((e) => e.inAtlas).length;
+  assetCountEl.textContent = `${String(cat.entries.length)} 个 · ${String(usable)} 可加入`;
+  btnAssetAdd.disabled = !assetUsable(assetPicked);
+}
+
+/** 选中清单里的一项。返回「它能不能加入场景」（按钮的可用状态就是它）。 */
+function pickAsset(path: string | null): boolean {
+  assetPicked = path;
+  refreshAssets();
+  return assetUsable(path);
+}
+
+/** 读清单并建目录。启动时调一次；失败不抛（面板上留痕）。 */
+async function loadAssets(): Promise<void> {
+  const fs = new HttpFileSystem({ base: new URL("./", location.href) });
+  const text = await fs.readText("assets-manifest.json");
+  catalog = null;
+  assetPicked = null;
+  if (!text.ok) {
+    assetProblem = `${text.error.code}：${text.error.message}`;
+    assetListEl.replaceChildren(mkAssetEmpty(`资产清单读不到（${text.error.code}）`));
+    assetCountEl.textContent = "—";
+    btnAssetAdd.disabled = true;
+    return;
+  }
+  // 帧名取自编辑器实际挂的那张图集（`atlasFrames`），不是另抄一份 ——
+  // 抄一份的后果是「面板说有帧」而渲染说没有，两边各自都"对"。
+  const cat = catalogFromManifest(text.value, { frameNames: atlasFrames });
+  if (!cat.ok) {
+    assetProblem = `${cat.error.code}：${cat.error.message}`;
+    assetListEl.replaceChildren(mkAssetEmpty(`资产清单坏了（${cat.error.code}）`));
+    assetCountEl.textContent = "—";
+    btnAssetAdd.disabled = true;
+    return;
+  }
+  assetProblem = null;
+  catalog = cat.value;
+  refreshAssets();
+}
+
+/** 视图中心对应的**根坐标系**位置。与 gizmo 用同一个换算式，不另算一套。 */
+function viewCenterLocal(): { x: number; y: number } {
+  const w = canvasToWorld(canvas.clientWidth / 2, canvas.clientHeight / 2);
+  return { x: w.x, y: w.z };
+}
+
+/** 把一个资产加成带精灵的节点（进历史，一条）。 */
+function doAddAsset(path: string | null): { ok: boolean; id?: number; code?: string; message?: string } {
+  const app = appRef;
+  if (app === null) return { ok: false, code: "EDIT.NOT_READY", message: "编辑器还没启动" };
+  const entry = path === null || catalog === null ? undefined : catalog.entries.find((e) => e.path === path);
+  if (entry === undefined) {
+    const msg = path === null ? "没有选中资产" : `清单里没有 ${path}`;
+    errEl.textContent = msg;
+    return { ok: false, code: EDIT_BAD_ASSET_LIST, message: msg };
+  }
+  const pos = viewCenterLocal();
+  const r = addSpriteNodeWithUndo(app.scene, app.scene.components, {
+    name: entry.name,
+    frame: entry.name,
+    position: pos,
+    hasFrame: (f) => atlasFrames.includes(f),
+  });
+  if (!r.ok) {
+    errEl.textContent = `${r.error.code}：${r.error.message}`;
+    return { ok: false, code: r.error.code, message: r.error.message };
+  }
+  // 加进来就选中：否则「加入场景」之后属性面板还停在别人身上，
+  // 而视图中心可能正好叠着另一个 —— 人根本找不到刚加的那个。
+  selection.select(r.value.nodeId);
+  const out = commitOp(r.value.op);
+  if (!out.ok) return out;
+  return { ok: true, id: r.value.nodeId };
+}
+
 /** 历史动过之后统一收尾：选中项可能要 prune（子树被删/被恢复），树与面板都要重画。 */
 function afterHistoryChange(): void {
   const app = appRef;
@@ -965,6 +1122,16 @@ interface EditorApi {
   reparent(from: number, to: number | null): { ok: boolean; code?: string; message?: string };
   /** 节点当前的父（`null` = 挂在场景根下；`undefined` = 节点不存在）。 */
   parentOf(id: number): number | null | undefined;
+  /** 资产清单（清单读不到时为空数组 —— 原因看 `assetInfo().problem`）。 */
+  assets(): Array<{ path: string; name: string; kind: string; inAtlas: boolean }>;
+  /** 资产面板里当前选中的路径（没选 = `null`）。 */
+  assetPicked(): string | null;
+  /** 选中清单里的一项；返回「它能不能加入场景」（按钮可用状态就是它）。 */
+  assetPick(path: string | null): boolean;
+  /** 把一个资产加成场景里的节点（进历史，一条）。 */
+  assetAdd(path: string | null): { ok: boolean; id?: number; code?: string; message?: string };
+  /** 面板标题与清单健康状况（条数 / 可加入数 / 出问题的原因）。 */
+  assetInfo(): { count: number; usable: number; title: string; problem: string | null };
 }
 
 function installApi(app: GameApp): void {
@@ -1143,6 +1310,27 @@ function installApi(app: GameApp): void {
       const p = n.parent;
       return p === null || p.id === app.scene.rootId ? null : p.id;
     },
+    assets() {
+      const cat = catalog;
+      if (cat === null) return [];
+      // 拷一份普通对象：判据拿到的是**当时的**快照，不是活的引用。
+      return cat.entries.map((e) => ({ path: e.path, name: e.name, kind: e.kind, inAtlas: e.inAtlas }));
+    },
+    assetPicked() {
+      return assetPicked;
+    },
+    assetPick(path) {
+      return pickAsset(path);
+    },
+    assetAdd(path) {
+      return doAddAsset(path);
+    },
+    assetInfo() {
+      const cat = catalog;
+      const count = cat === null ? 0 : cat.entries.length;
+      const usable = cat === null ? 0 : cat.entries.filter((e) => e.inAtlas).length;
+      return { count, usable, title: assetCountEl.textContent ?? "", problem: assetProblem };
+    },
   };
   (window as unknown as { __editor?: EditorApi }).__editor = api;
 }
@@ -1181,6 +1369,11 @@ async function main(): Promise<void> {
 
   bindCanvasDrag();
   bindTreeDrag();
+  // 资产清单是异步的（一次 HTTP）：先画空态，读到再刷新。
+  void loadAssets();
+  btnAssetAdd.addEventListener("click", () => {
+    doAddAsset(assetPicked);
+  });
   btnPlay.addEventListener("click", () => pie.play());
   btnPause.addEventListener("click", () => pie.pause());
   btnStep.addEventListener("click", () => pie.step(1));

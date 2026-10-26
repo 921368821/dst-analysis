@@ -116,20 +116,20 @@ var ChannelLogger = class {
     this.root = root;
     this.name = name;
   }
-  trace(msg, fields) {
-    this.root.log(LogLevel.Trace, this.name, msg, fields);
+  trace(msg2, fields) {
+    this.root.log(LogLevel.Trace, this.name, msg2, fields);
   }
-  debug(msg, fields) {
-    this.root.log(LogLevel.Debug, this.name, msg, fields);
+  debug(msg2, fields) {
+    this.root.log(LogLevel.Debug, this.name, msg2, fields);
   }
-  info(msg, fields) {
-    this.root.log(LogLevel.Info, this.name, msg, fields);
+  info(msg2, fields) {
+    this.root.log(LogLevel.Info, this.name, msg2, fields);
   }
-  warn(msg, fields, limit = DEFAULT_LIMIT) {
-    this.root.log(LogLevel.Warn, this.name, msg, fields, limit);
+  warn(msg2, fields, limit = DEFAULT_LIMIT) {
+    this.root.log(LogLevel.Warn, this.name, msg2, fields, limit);
   }
-  error(msg, fields, limit = DEFAULT_LIMIT) {
-    this.root.log(LogLevel.Error, this.name, msg, fields, limit);
+  error(msg2, fields, limit = DEFAULT_LIMIT) {
+    this.root.log(LogLevel.Error, this.name, msg2, fields, limit);
   }
 };
 var ConsoleSink = class {
@@ -1805,6 +1805,14 @@ var FixedStepScheduler = class {
 };
 
 // src/core/asset/asset.ts
+function stableIdFromPath(path) {
+  let h = 2166136261;
+  for (let i = 0; i < path.length; i++) {
+    h ^= path.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return "p" + h.toString(36).padStart(7, "0");
+}
 var AssetHandle = class {
   constructor(asset, onRelease) {
     this.asset = asset;
@@ -3355,6 +3363,176 @@ var nullScriptBackend = {
   probe: () => true,
   create: () => ok(new NullScriptRuntime())
 };
+
+// src/platform/fs/virtual-path.ts
+function normalizeVirtualPath(path) {
+  if (typeof path !== "string" || path === "") {
+    return err(engineError("FS.BAD_PATH", "\u8DEF\u5F84\u5FC5\u987B\u662F\u975E\u7A7A\u5B57\u7B26\u4E32"));
+  }
+  if (path.includes("\0")) {
+    return err(engineError("FS.BAD_PATH", "\u8DEF\u5F84\u91CC\u4E0D\u80FD\u6709 NUL\uFF08OS \u4F1A\u9759\u9ED8\u622A\u65AD\uFF0CJS \u4E0D\u4F1A\uFF09"));
+  }
+  if (path.includes("\\")) {
+    return err(engineError("FS.BAD_PATH", `\u8DEF\u5F84\u91CC\u4E0D\u80FD\u6709\u53CD\u659C\u6760\uFF1A${path}`));
+  }
+  const out = [];
+  for (const seg of path.split("/")) {
+    if (seg === "" || seg === ".") continue;
+    if (seg === "..") {
+      return err(engineError("FS.PATH_ESCAPE", `\u8DEF\u5F84\u542B ..\uFF08\u62D2\u7EDD\u8D8A\u754C\uFF09\uFF1A${path}`));
+    }
+    out.push(seg);
+  }
+  return ok(out);
+}
+
+// src/backends/fs-http/fs.ts
+var DEFAULT_TIMEOUT_MS = 15e3;
+var HttpFileSystem = class {
+  scheme = "http";
+  canList = false;
+  base;
+  doFetch;
+  timeoutMs;
+  constructor(opts) {
+    const base = typeof opts.base === "string" ? new URL(opts.base) : new URL(opts.base.href);
+    if (base.protocol !== "http:" && base.protocol !== "https:") {
+      throw new Error(`fs-http\uFF1Abase \u5FC5\u987B\u662F http/https\uFF0C\u5B9E\u9645 ${base.protocol}`);
+    }
+    if (!base.pathname.endsWith("/")) base.pathname += "/";
+    this.base = base;
+    const f = opts.fetch ?? (typeof globalThis.fetch === "function" ? globalThis.fetch.bind(globalThis) : void 0);
+    if (f === void 0) {
+      throw new Error("fs-http\uFF1A\u73AF\u5883\u91CC\u6CA1\u6709 fetch\uFF08\u6D4F\u89C8\u5668\u9700\u8981 polyfill\uFF0CNode < 18 \u8BF7\u663E\u5F0F\u4F20\u5165\uFF09");
+    }
+    this.doFetch = f;
+    this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  }
+  // ---------------------------------------------------------------- 读
+  async readBinary(path) {
+    const url = this.urlOf(path);
+    if (!url.ok) return url;
+    const res = await this.request(url.value, "GET", path);
+    if (!res.ok) return res;
+    try {
+      const buf = await res.value.arrayBuffer();
+      return ok(new Uint8Array(buf));
+    } catch (e) {
+      return err(engineError("FS.IO", `\u8BFB\u54CD\u5E94\u4F53\u5931\u8D25\uFF1A${path}\uFF08${msg(e)}\uFF09`));
+    }
+  }
+  async readText(path) {
+    const b = await this.readBinary(path);
+    if (!b.ok) return b;
+    try {
+      return ok(new TextDecoder("utf-8", { fatal: true }).decode(b.value));
+    } catch (e) {
+      return err(engineError("FS.NOT_UTF8", `\u4E0D\u662F\u5408\u6CD5 UTF-8\uFF1A${path}\uFF08${msg(e)}\uFF09`));
+    }
+  }
+  /**
+   * 用 HEAD 探存在性；有的静态服务器不支持 HEAD（405/501），退回带 `Range` 的 GET。
+   *
+   * ★ 返回 boolean 而不是 Result：`exists` 的签名没有错误通道。
+   *   所以这里对"说不清"的响应（500、超时）一律 false ——
+   *   **保守**是关键：把不确定说成"存在"会让调用方去读一个读不到的东西。
+   */
+  async exists(path) {
+    const url = this.urlOf(path);
+    if (!url.ok) return false;
+    let res = await this.raw(url.value, "HEAD");
+    if (res !== null && (res.status === 405 || res.status === 501)) {
+      res = await this.raw(url.value, "GET", { Range: "bytes=0-0" });
+      res?.body?.cancel();
+    }
+    return res !== null && res.status >= 200 && res.status < 300;
+  }
+  async stat(path) {
+    const url = this.urlOf(path);
+    if (!url.ok) return url;
+    let res = await this.request(url.value, "HEAD", path, { allowBodyless: true });
+    if (!res.ok && res.error.code === "FS.NOT_SUPPORTED") {
+      res = await this.request(url.value, "GET", path, { headers: { Range: "bytes=0-0" } });
+    }
+    if (!res.ok) return res;
+    const lenText = res.value.headers.get("content-length");
+    const len = lenText === null ? NaN : Number(lenText);
+    const lm = res.value.headers.get("last-modified");
+    return ok({
+      // 没有 Content-Length（分块传输）时给 0：**未知 ≠ 非零**，0 是唯一不会撒谎的默认
+      size: Number.isFinite(len) && len >= 0 ? len : 0,
+      mtimeMs: lm === null ? 0 : parseHttpDate(lm),
+      isDirectory: false
+    });
+  }
+  async list(dir) {
+    return err(
+      engineError(
+        "FS.NOT_SUPPORTED",
+        `HTTP \u540E\u7AEF\u6CA1\u6709\u76EE\u5F55\u5217\u4E3E\u80FD\u529B\uFF08\u9759\u6001\u8D44\u6E90\u670D\u52A1\u5668\u4E0D\u63D0\u4F9B\u5217\u76EE\u5F55\uFF09\uFF1A${dir}`
+      )
+    );
+  }
+  // ---------------------------------------------------------------- 内部
+  /** 虚拟路径 → URL。三道防线：归一、编码、前缀核对。 */
+  urlOf(path) {
+    const segs = normalizeVirtualPath(path);
+    if (!segs.ok) return segs;
+    const rel = segs.value.map((s) => encodeURIComponent(s)).join("/");
+    let url;
+    try {
+      url = new URL(rel, this.base);
+    } catch (e) {
+      return err(engineError("FS.BAD_PATH", `\u8DEF\u5F84\u65E0\u6CD5\u62FC\u6210 URL\uFF1A${path}\uFF08${msg(e)}\uFF09`));
+    }
+    if (!url.href.startsWith(this.base.href)) {
+      return err(engineError("FS.PATH_ESCAPE", `\u8DEF\u5F84\u9003\u51FA\u4E86\u8D44\u6E90\u6839\uFF1A${path}`));
+    }
+    return ok(url);
+  }
+  /** 发请求并做状态码映射（唯一一处把 HTTP 状态翻成引擎错误码）。 */
+  async request(url, method, path, opts = {}) {
+    let res;
+    try {
+      res = await this.doFetch(url.href, {
+        method,
+        ...opts.headers === void 0 ? {} : { headers: opts.headers },
+        signal: AbortSignal.timeout(this.timeoutMs)
+      });
+    } catch (e) {
+      return err(engineError("FS.IO", `\u8BF7\u6C42\u5931\u8D25\uFF1A${path}\uFF08${msg(e)}\uFF09`));
+    }
+    const st = res.status;
+    if (st >= 200 && st < 300) return ok(res);
+    if (st === 404 || st === 410) return err(engineError("FS.NOT_FOUND", `\u8D44\u6E90\u4E0D\u5B58\u5728\uFF1A${path}\uFF08HTTP ${st}\uFF09`));
+    if (st === 401 || st === 403) {
+      return err(engineError("FS.PERMISSION", `\u6CA1\u6709\u6743\u9650\u8BFB\u53D6\uFF1A${path}\uFF08HTTP ${st}\uFF09`));
+    }
+    if (st === 405 || st === 501) {
+      return err(engineError("FS.NOT_SUPPORTED", `\u670D\u52A1\u5668\u4E0D\u652F\u6301 ${method}\uFF1A${path}\uFF08HTTP ${st}\uFF09`));
+    }
+    return err(engineError("FS.IO", `HTTP ${st}\uFF1A${path}`));
+  }
+  /** 只要状态码的场景（`exists`）。失败返回 null，不抛。 */
+  async raw(url, method, headers) {
+    try {
+      return await this.doFetch(url.href, {
+        method,
+        ...headers === void 0 ? {} : { headers },
+        signal: AbortSignal.timeout(this.timeoutMs)
+      });
+    } catch {
+      return null;
+    }
+  }
+};
+function parseHttpDate(s) {
+  const t = Date.parse(s);
+  return Number.isFinite(t) ? t : 0;
+}
+function msg(e) {
+  return e instanceof Error ? e.message : String(e);
+}
 
 // src/backends/index.ts
 function registerNullBackends(reg, opts = {}) {
@@ -7812,6 +7990,133 @@ function createPie(opts = {}) {
   return new Pie(opts);
 }
 
+// src/extensions/editor/asset-list.ts
+var EDIT_BAD_ASSET_LIST = "EDIT.BAD_ASSET_LIST";
+var ASSET_MANIFEST_VERSION = 1;
+var KIND_BY_EXT = /* @__PURE__ */ new Map([
+  [".png", "texture"],
+  [".jpg", "texture"],
+  [".jpeg", "texture"],
+  [".fnt", "font"],
+  [".txt", "text"],
+  [".json", "text"],
+  [".lua", "text"],
+  [".md", "text"],
+  [".atlas.json", "atlas"]
+]);
+function classifyExtension(path) {
+  const p = path.toLowerCase();
+  let best;
+  for (const ext of KIND_BY_EXT.keys()) {
+    if (p.endsWith(ext) && (best === void 0 || ext.length > best.length)) best = ext;
+  }
+  if (best === void 0) return void 0;
+  const kind = KIND_BY_EXT.get(best);
+  return kind === void 0 ? void 0 : { kind, ext: best };
+}
+function baseOf(path) {
+  const i = path.lastIndexOf("/");
+  return i < 0 ? path : path.slice(i + 1);
+}
+function assetNameOf(path) {
+  const kind = classifyExtension(path);
+  if (kind === void 0) return baseOf(path);
+  const base = baseOf(path);
+  const trimmed = base.slice(0, base.length - kind.ext.length);
+  return trimmed === "" ? base : trimmed;
+}
+function pathProblem(path) {
+  if (path.trim() === "") return "\u7A7A\u8DEF\u5F84";
+  if (path.startsWith("/")) return "\u4E0D\u8BB8\u662F\u7EDD\u5BF9\u8DEF\u5F84";
+  if (/^[a-zA-Z]:/.test(path)) return "\u4E0D\u8BB8\u5E26\u76D8\u7B26";
+  for (const seg of path.split("/")) {
+    if (seg === "..") return "\u4E0D\u8BB8\u542B .. \u6BB5";
+  }
+  return null;
+}
+function buildAssetCatalog(paths, opts = {}) {
+  const frames = opts.frameNames === void 0 ? void 0 : new Set(opts.frameNames);
+  const skipped = [];
+  const seenPath = /* @__PURE__ */ new Set();
+  const entries = [];
+  for (const raw of paths) {
+    const path = raw.replace(/\\/g, "/");
+    const problem = pathProblem(path);
+    if (problem !== null) {
+      skipped.push({ path: raw, reason: "bad-path" });
+      continue;
+    }
+    if (path.toLowerCase().endsWith(".meta")) {
+      skipped.push({ path, reason: "sidecar" });
+      continue;
+    }
+    const cls = classifyExtension(path);
+    if (cls === void 0) {
+      skipped.push({ path, reason: "unknown-ext" });
+      continue;
+    }
+    if (seenPath.has(path)) {
+      skipped.push({ path, reason: "duplicate-path" });
+      continue;
+    }
+    seenPath.add(path);
+    const id = stableIdFromPath(path);
+    const name = assetNameOf(path);
+    entries.push({ id, path, name, kind: cls.kind, inAtlas: frames === void 0 ? false : frames.has(name) });
+  }
+  entries.sort((a, b) => {
+    const ap = a.path.toLowerCase();
+    const bp = b.path.toLowerCase();
+    if (ap !== bp) return ap < bp ? -1 : 1;
+    return a.path < b.path ? -1 : a.path > b.path ? 1 : 0;
+  });
+  return { entries, skipped };
+}
+function parseAssetManifest(text) {
+  const clean = text.charCodeAt(0) === 65279 ? text.slice(1) : text;
+  let raw;
+  try {
+    raw = JSON.parse(clean);
+  } catch (e) {
+    const why = e instanceof Error ? e.message : String(e);
+    return err(engineError(EDIT_BAD_ASSET_LIST, `\u8D44\u4EA7\u6E05\u5355\u4E0D\u662F\u5408\u6CD5 JSON\uFF1A${why}`));
+  }
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return err(engineError(EDIT_BAD_ASSET_LIST, "\u8D44\u4EA7\u6E05\u5355\u5FC5\u987B\u662F\u4E00\u4E2A\u5BF9\u8C61"));
+  }
+  const obj = raw;
+  const version = obj["version"];
+  if (typeof version !== "number" || !Number.isInteger(version)) {
+    return err(engineError(EDIT_BAD_ASSET_LIST, "\u8D44\u4EA7\u6E05\u5355\u7F3A version\uFF08\u6216\u4E0D\u662F\u6574\u6570\uFF09"));
+  }
+  if (version !== ASSET_MANIFEST_VERSION) {
+    return err(
+      engineError(
+        EDIT_BAD_ASSET_LIST,
+        `\u8D44\u4EA7\u6E05\u5355\u7248\u672C ${String(version)} \u4E0E\u7F16\u8F91\u5668\u8BA4\u8BC6\u7684 ${String(ASSET_MANIFEST_VERSION)} \u4E0D\u4E00\u81F4` + (version > ASSET_MANIFEST_VERSION ? "\uFF08\u6E05\u5355\u6BD4\u7F16\u8F91\u5668\u65B0\uFF0C\u62D2\u7EDD\u6309\u65E7\u89C4\u5219\u8BFB\uFF09" : "\uFF08\u6E05\u5355\u592A\u65E7\uFF0C\u8BF7\u91CD\u65B0\u751F\u6210\uFF09")
+      )
+    );
+  }
+  const assets = obj["assets"];
+  if (!Array.isArray(assets)) {
+    return err(engineError(EDIT_BAD_ASSET_LIST, "\u8D44\u4EA7\u6E05\u5355\u7F3A assets \u6570\u7EC4"));
+  }
+  const out = [];
+  for (let i = 0; i < assets.length; i++) {
+    const v = assets[i];
+    if (typeof v !== "string") {
+      return err(engineError(EDIT_BAD_ASSET_LIST, `assets[${String(i)}] \u4E0D\u662F\u5B57\u7B26\u4E32\uFF08${typeof v}\uFF09`));
+    }
+    out.push(v);
+  }
+  return ok(out);
+}
+function catalogFromManifest(text, opts = {}) {
+  const paths = parseAssetManifest(text);
+  if (!paths.ok) return paths;
+  return ok(buildAssetCatalog(paths.value, opts));
+}
+
 // src/extensions/editor/undo-ops.ts
 var EDIT_BAD_NODE = "EDIT.BAD_NODE";
 var EDIT_BAD_NAME = "EDIT.BAD_NAME";
@@ -8183,6 +8488,55 @@ function detachComponentWithUndo(scene, nodeId, type) {
   }
   return ok({ op: new ComponentOp(scene, nodeId, comp, false), nodeId, warnings: () => [] });
 }
+var EDIT_NO_FRAME = "EDIT.NO_FRAME";
+function addSpriteNodeWithUndo(scene, registry2, spec) {
+  const trimmed = spec.name.trim();
+  if (trimmed === "") return err(engineError(EDIT_BAD_NAME, "\u8282\u70B9\u540D\u4E0D\u80FD\u4E3A\u7A7A"));
+  const frame = spec.frame.trim();
+  if (frame === "") {
+    return err(engineError(EDIT_NO_FRAME, `${trimmed} \u6CA1\u6709\u5E27\u540D\uFF08\u8D44\u4EA7\u8DEF\u5F84\u89E3\u6790\u4E0D\u51FA\u540D\u5B57\uFF09`));
+  }
+  if (!spec.hasFrame(frame)) {
+    return err(
+      engineError(
+        EDIT_NO_FRAME,
+        `\u56FE\u96C6\u91CC\u6CA1\u6709\u5E27 "${frame}" \u2014\u2014 ${trimmed} \u52A0\u8FDB\u53BB\u4E5F\u753B\u4E0D\u51FA\u6765\uFF08\u7F16\u8F91\u5668\u8FD8\u6CA1\u63A5\u56FE\u7247\u5BFC\u5165\uFF0C\u89C1 docs/PROGRESS.md \xA7\u4E94\uFF09`
+      )
+    );
+  }
+  const parent = spec.parent ?? null;
+  if (parent !== null && scene.find(parent) === void 0) {
+    return err(engineError(EDIT_BAD_NODE, `\u7236\u8282\u70B9 #${String(parent)} \u4E0D\u5728\u573A\u666F\u91CC`));
+  }
+  const node = scene.spawnImmediate(trimmed, parent ?? scene.rootId);
+  if (spec.position !== void 0) node.setLocalPosition(spec.position.x, spec.position.y);
+  const comp = registry2.create(SPRITE_TYPE);
+  if (comp === void 0) {
+    scene.destroy(node.id);
+    scene.flush();
+    return err(engineError(EDIT_BAD_COMP, `\u7EC4\u4EF6\u7C7B\u578B ${SPRITE_TYPE} \u6CA1\u6709\u6CE8\u518C`));
+  }
+  comp.frame = frame;
+  scene.attach(node.id, () => comp);
+  scene.flush();
+  const sprite = node.get(SPRITE_TYPE);
+  if (sprite === void 0 || sprite.frame !== frame) {
+    scene.destroy(node.id);
+    scene.flush();
+    return err(engineError(UNDO_OP_FAILED, `\u6302\u4E0A ${SPRITE_TYPE} \u6CA1\u6709\u751F\u6548`));
+  }
+  const snap = snapshotSubtree(scene, node.id);
+  if (snap === void 0) {
+    scene.destroy(node.id);
+    scene.flush();
+    return err(engineError(EDIT_BAD_NODE, "\u65B0\u5EFA\u4E4B\u540E\u7ACB\u523B\u627E\u4E0D\u5230\u8BE5\u8282\u70B9"));
+  }
+  let warnings = [];
+  const op = new SubtreeOp(scene, `\u52A0\u5165 ${trimmed}`, snap, false, (rep) => {
+    warnings = rep.warnings;
+  });
+  return ok({ op, nodeId: node.id, warnings: () => warnings });
+}
 
 // src/editor-entry.ts
 var WORLD_SEED = 20261025;
@@ -8216,6 +8570,9 @@ var btnOpen = need("btn-open");
 var btnNew = need("btn-new");
 var docText = need("doctext");
 var docInfoEl = need("docinfo");
+var assetListEl = need("assetlist");
+var assetCountEl = need("assetcount");
+var btnAssetAdd = need("asset-add");
 var dpr = Math.min(2, window.devicePixelRatio || 1);
 canvas.width = Math.max(1, Math.floor((canvas.clientWidth || 640) * dpr));
 canvas.height = Math.max(1, Math.floor((canvas.clientHeight || 420) * dpr));
@@ -8525,10 +8882,10 @@ function doAttachComp(type, nodeId) {
   } catch (e) {
     app.scene.detach(id, type);
     app.scene.flush();
-    const msg = `\u6302 ${type} \u65F6\u7EC4\u4EF6\u81EA\u5DF1\u629B\u4E86\uFF1A${e instanceof Error ? e.message : String(e)}\uFF08\u5DF2\u56DE\u6EDA\uFF09`;
-    errEl.textContent = msg;
+    const msg2 = `\u6302 ${type} \u65F6\u7EC4\u4EF6\u81EA\u5DF1\u629B\u4E86\uFF1A${e instanceof Error ? e.message : String(e)}\uFF08\u5DF2\u56DE\u6EDA\uFF09`;
+    errEl.textContent = msg2;
     afterHistoryChange();
-    return { ok: false, code: "EDIT.BAD_COMP", message: msg };
+    return { ok: false, code: "EDIT.BAD_COMP", message: msg2 };
   }
   if (!r.ok) {
     errEl.textContent = `${r.error.code}\uFF1A${r.error.message}`;
@@ -8572,9 +8929,9 @@ function dragBeginWorld(wx, wz) {
   const app = appRef;
   if (app === null) return { ok: false, code: "EDIT.NOT_READY", message: "\u7F16\u8F91\u5668\u8FD8\u6CA1\u542F\u52A8" };
   if (pie.isPlaying) {
-    const msg = "\u64AD\u653E\u4E2D\u4E0D\u80FD\u62D6\u62FD\uFF08\u5148\u70B9\u6682\u505C\uFF09\u2014\u2014 \u5426\u5219\u79FB\u52A8\u7CFB\u7EDF\u6BCF\u5E27\u90FD\u4F1A\u628A\u4F4D\u7F6E\u6539\u56DE\u53BB";
-    errEl.textContent = msg;
-    return { ok: false, code: "EDIT.BAD_DRAG", message: msg };
+    const msg2 = "\u64AD\u653E\u4E2D\u4E0D\u80FD\u62D6\u62FD\uFF08\u5148\u70B9\u6682\u505C\uFF09\u2014\u2014 \u5426\u5219\u79FB\u52A8\u7CFB\u7EDF\u6BCF\u5E27\u90FD\u4F1A\u628A\u4F4D\u7F6E\u6539\u56DE\u53BB";
+    errEl.textContent = msg2;
+    return { ok: false, code: "EDIT.BAD_DRAG", message: msg2 };
   }
   const id = pickAt(app.scene, wx, wz);
   if (id === void 0) {
@@ -8730,6 +9087,116 @@ function bindTreeDrag() {
     treeDragSrc = null;
     clearTreeDragMarks();
   });
+}
+var catalog = null;
+var assetPicked = null;
+var assetProblem = null;
+function mkAssetEmpty(text) {
+  const el = document.createElement("div");
+  el.className = "empty";
+  el.textContent = text;
+  return el;
+}
+function assetUsable(path) {
+  if (path === null || catalog === null) return false;
+  const e = catalog.entries.find((x) => x.path === path);
+  return e !== void 0 && e.inAtlas;
+}
+function assetRow(e) {
+  const el = document.createElement("div");
+  el.className = `arow${e.inAtlas ? "" : " noframe"}${e.path === assetPicked ? " sel" : ""}`;
+  el.dataset["path"] = e.path;
+  const k = document.createElement("span");
+  k.className = "k";
+  k.textContent = e.kind;
+  const p = document.createElement("span");
+  p.className = "p";
+  p.textContent = e.path;
+  el.append(k, p);
+  if (!e.inAtlas) {
+    const nof = document.createElement("span");
+    nof.className = "nof";
+    nof.textContent = "\u65E0\u5E27";
+    nof.title = "\u56FE\u96C6\u91CC\u6CA1\u6709\u540C\u540D\u5E27\uFF08\u7F16\u8F91\u5668\u8FD8\u6CA1\u63A5\u56FE\u7247\u5BFC\u5165\uFF09\u2014\u2014 \u52A0\u8FDB\u573A\u666F\u4E5F\u753B\u4E0D\u51FA\u6765";
+    el.appendChild(nof);
+  }
+  el.addEventListener("click", () => {
+    pickAsset(e.path);
+  });
+  el.addEventListener("dblclick", () => {
+    pickAsset(e.path);
+    doAddAsset(e.path);
+  });
+  return el;
+}
+function refreshAssets() {
+  const cat = catalog;
+  if (cat === null) return;
+  const frag = document.createDocumentFragment();
+  for (const e of cat.entries) frag.appendChild(assetRow(e));
+  if (cat.entries.length === 0) frag.appendChild(mkAssetEmpty("\u6E05\u5355\u91CC\u6CA1\u6709\u53EF\u7528\u8D44\u4EA7"));
+  assetListEl.replaceChildren(frag);
+  const usable = cat.entries.filter((e) => e.inAtlas).length;
+  assetCountEl.textContent = `${String(cat.entries.length)} \u4E2A \xB7 ${String(usable)} \u53EF\u52A0\u5165`;
+  btnAssetAdd.disabled = !assetUsable(assetPicked);
+}
+function pickAsset(path) {
+  assetPicked = path;
+  refreshAssets();
+  return assetUsable(path);
+}
+async function loadAssets() {
+  const fs = new HttpFileSystem({ base: new URL("./", location.href) });
+  const text = await fs.readText("assets-manifest.json");
+  catalog = null;
+  assetPicked = null;
+  if (!text.ok) {
+    assetProblem = `${text.error.code}\uFF1A${text.error.message}`;
+    assetListEl.replaceChildren(mkAssetEmpty(`\u8D44\u4EA7\u6E05\u5355\u8BFB\u4E0D\u5230\uFF08${text.error.code}\uFF09`));
+    assetCountEl.textContent = "\u2014";
+    btnAssetAdd.disabled = true;
+    return;
+  }
+  const cat = catalogFromManifest(text.value, { frameNames: atlasFrames });
+  if (!cat.ok) {
+    assetProblem = `${cat.error.code}\uFF1A${cat.error.message}`;
+    assetListEl.replaceChildren(mkAssetEmpty(`\u8D44\u4EA7\u6E05\u5355\u574F\u4E86\uFF08${cat.error.code}\uFF09`));
+    assetCountEl.textContent = "\u2014";
+    btnAssetAdd.disabled = true;
+    return;
+  }
+  assetProblem = null;
+  catalog = cat.value;
+  refreshAssets();
+}
+function viewCenterLocal() {
+  const w = canvasToWorld(canvas.clientWidth / 2, canvas.clientHeight / 2);
+  return { x: w.x, y: w.z };
+}
+function doAddAsset(path) {
+  const app = appRef;
+  if (app === null) return { ok: false, code: "EDIT.NOT_READY", message: "\u7F16\u8F91\u5668\u8FD8\u6CA1\u542F\u52A8" };
+  const entry = path === null || catalog === null ? void 0 : catalog.entries.find((e) => e.path === path);
+  if (entry === void 0) {
+    const msg2 = path === null ? "\u6CA1\u6709\u9009\u4E2D\u8D44\u4EA7" : `\u6E05\u5355\u91CC\u6CA1\u6709 ${path}`;
+    errEl.textContent = msg2;
+    return { ok: false, code: EDIT_BAD_ASSET_LIST, message: msg2 };
+  }
+  const pos = viewCenterLocal();
+  const r = addSpriteNodeWithUndo(app.scene, app.scene.components, {
+    name: entry.name,
+    frame: entry.name,
+    position: pos,
+    hasFrame: (f) => atlasFrames.includes(f)
+  });
+  if (!r.ok) {
+    errEl.textContent = `${r.error.code}\uFF1A${r.error.message}`;
+    return { ok: false, code: r.error.code, message: r.error.message };
+  }
+  selection.select(r.value.nodeId);
+  const out = commitOp(r.value.op);
+  if (!out.ok) return out;
+  return { ok: true, id: r.value.nodeId };
 }
 function afterHistoryChange() {
   const app = appRef;
@@ -8993,6 +9460,26 @@ function installApi(app) {
       if (n === void 0) return void 0;
       const p = n.parent;
       return p === null || p.id === app.scene.rootId ? null : p.id;
+    },
+    assets() {
+      const cat = catalog;
+      if (cat === null) return [];
+      return cat.entries.map((e) => ({ path: e.path, name: e.name, kind: e.kind, inAtlas: e.inAtlas }));
+    },
+    assetPicked() {
+      return assetPicked;
+    },
+    assetPick(path) {
+      return pickAsset(path);
+    },
+    assetAdd(path) {
+      return doAddAsset(path);
+    },
+    assetInfo() {
+      const cat = catalog;
+      const count = cat === null ? 0 : cat.entries.length;
+      const usable = cat === null ? 0 : cat.entries.filter((e) => e.inAtlas).length;
+      return { count, usable, title: assetCountEl.textContent ?? "", problem: assetProblem };
     }
   };
   window.__editor = api;
@@ -9025,6 +9512,10 @@ async function main() {
   tickEl.textContent = `tick ${String(app.scheduler.stats().tick)}`;
   bindCanvasDrag();
   bindTreeDrag();
+  void loadAssets();
+  btnAssetAdd.addEventListener("click", () => {
+    doAddAsset(assetPicked);
+  });
   btnPlay.addEventListener("click", () => pie.play());
   btnPause.addEventListener("click", () => pie.pause());
   btnStep.addEventListener("click", () => pie.step(1));

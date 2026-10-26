@@ -3563,6 +3563,64 @@ MUTANTS = [
         "cmd": ["node", "tools/editor-selftest.mjs", "--build"],
         "env_exit": 2,
     },
+    # ---- 批86：资产浏览器（清单 → 面板 → 加入场景）
+    {
+        # 清单读的时候不传帧名 ⇒ 所有资产都被当成"无帧"。
+        # 这一条同时打红两个地方：面板的可加入数（6 变 0）与"无帧标记"那条
+        # （photo 本来就无帧，于是它不再是**唯一**被标出来的那个）。
+        "name": "M386 清单不传图集帧名（所有资产都变成『无帧』）",
+        "file": "src/editor-entry.ts",
+        "pairs": [("  const cat = catalogFromManifest(text.value, { frameNames: atlasFrames });",
+                   "  const cat = catalogFromManifest(text.value);")],
+        "cmd": ["node", "tools/editor-selftest.mjs", "--build"],
+        "env_exit": 2,
+    },
+    {
+        # 页面级：「加入场景」之后不选中新节点 —— 节点确实加进去了，
+        # 但属性面板还停在别人身上（或空空如也），人找不到刚加的那个。
+        "name": "M387 加入场景后不选中新节点（属性面板还停在别人身上）",
+        "file": "src/editor-entry.ts",
+        "pairs": [("  selection.select(r.value.nodeId);\n  const out = commitOp(r.value.op);",
+                   "  const out = commitOp(r.value.op);")],
+        "cmd": ["node", "tools/editor-selftest.mjs", "--build"],
+        "env_exit": 2,
+    },
+    {
+        # 页面级：加进了场景却不压历史 ⇒ 节点在那儿、撤销按钮不亮。
+        # 与 M385 同一类，但这条打的是"资产面板"这条线（两条线各接一次 `commitOp`）。
+        "name": "M388 加入场景不压历史（节点在、撤销退不回去）",
+        "file": "src/editor-entry.ts",
+        "pairs": [("  const out = commitOp(r.value.op);\n  if (!out.ok) return out;\n  return { ok: true, id: r.value.nodeId };",
+                   "  afterHistoryChange();\n  return { ok: true, id: r.value.nodeId };")],
+        "cmd": ["node", "tools/editor-selftest.mjs", "--build"],
+        "env_exit": 2,
+    },
+    {
+        # 快照拍在挂精灵**之前** ⇒ 重做回来的是个没精灵的空节点。
+        # 画面上与"资产没加载"完全一样，只有查组件（或读帧名）才分得出来。
+        "name": "M389 加资产时在挂精灵之前拍快照（重做回来是个空节点）",
+        "file": "src/extensions/editor/undo-ops.ts",
+        "pairs": [("  scene.attach(node.id, () => comp);\n  scene.flush();\n  const sprite = node.get<Sprite>(SPRITE_TYPE);",
+                   "  const sprite = node.get<Sprite>(SPRITE_TYPE);")],
+        "test": "tests/extensions/editor-asset-node.test.ts",
+    },
+    {
+        # 把 `.meta` sidecar 当普通文件处理 ⇒ 每张图在面板里出现两次，
+        # 其中一条（.meta）点下去什么都不会发生。
+        "name": "M390 .meta sidecar 被当成资产列出来（每张图出现两次）",
+        "file": "src/extensions/editor/asset-list.ts",
+        "pairs": [('    if (path.toLowerCase().endsWith(".meta")) {',
+                   "    if (false) {")],
+        "test": "tests/extensions/editor-assets.test.ts",
+    },
+    {
+        # 清单过期：删掉一项。这条变异打在**数据文件**上，语义就是真实事故
+        # （加了 png 忘了写清单 / 删了文件没销账），不是把代码改坏。
+        "name": "M391 资产清单漏了一项（面板少一行，且不会有任何报错）",
+        "file": "web/assets-manifest.json",
+        "pairs": [('    "ruler.png",\n', "")],
+        "test": "tests/extensions/editor-assets.test.ts",
+    },
 ]
 
 

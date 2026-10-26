@@ -31,6 +31,7 @@ import type { Component, ComponentRegistry } from "../../core/scene/component.ts
 import type { Node, NodeId } from "../../core/scene/node.ts";
 import type { Scene } from "../../core/scene/scene.ts";
 import { recordOf, type NodeRecord } from "../../core/scene/scene-io.ts";
+import { Sprite, SPRITE_TYPE } from "../render/sprite.ts";
 import { worldToLocal } from "./gizmo.ts";
 import { setField } from "./property-model.ts";
 import { UNDO_OP_FAILED, type EditorOp } from "./undo-stack.ts";
@@ -648,4 +649,95 @@ export function detachComponentWithUndo(
     return err(engineError(UNDO_OP_FAILED, `卸下 ${type} 没有生效`));
   }
   return ok({ op: new ComponentOp(scene, nodeId, comp, false), nodeId, warnings: () => [] });
+}
+
+// ---------------------------------------------------------------- 资产 → 节点（批86）
+
+/** 资产在图集里没有对应帧 —— 「点了没反应」的那一类，必须变成一条看得见的错误。 */
+export const EDIT_NO_FRAME = "EDIT.NO_FRAME";
+
+export interface SpriteNodeSpec {
+  /** 节点名（通常就是资产名）。 */
+  readonly name: string;
+  /** 图集里的帧名。 */
+  readonly frame: string;
+  /** 父节点，`null` = 场景根。 */
+  readonly parent?: NodeId | null;
+  /** 落在哪个局部坐标上。省略 = 原点。 */
+  readonly position?: { readonly x: number; readonly y: number };
+  /**
+   * 当前图集里有没有这一帧。**必填**。
+   *
+   * ★ 不给默认值（比如「默认认为有」）：那样"图集没接上"就会静默造出一个
+   *   永远画不出来的节点 —— 世界树里看得见、画布上什么都没有，
+   *   而渲染模块只会 warn 一次（还可能被日志级别吞掉）。
+   */
+  readonly hasFrame: (frame: string) => boolean;
+}
+
+/**
+ * 从一个资产建一个带精灵的节点，**一条**历史。
+ *
+ * ★ 为什么不是「先 `createNodeWithUndo` 再 `attachComponentWithUndo`」：
+ *   那样是**两条**历史，撤销一次只退掉组件、留下一个空节点 ——
+ *   而人看到的操作是「加了一个图标」，他按一次撤销时期望的是它整个消失。
+ *   所以这里自己拍快照：建节点 → 挂精灵 → 设帧 → **然后**拍子树快照，
+ *   一条 `SubtreeOp` 管两头（撤销删树、重做连帧一起回来）。
+ *
+ * ★ 顺序不能反：快照必须在挂完组件之后拍，否则重做回来的是一个没精灵的空节点
+ *   （画面症状与"资产没加载"完全一样）。
+ */
+export function addSpriteNodeWithUndo(
+  scene: Scene,
+  registry: ComponentRegistry,
+  spec: SpriteNodeSpec,
+): Result<StructOpBundle, EngineError> {
+  const trimmed = spec.name.trim();
+  if (trimmed === "") return err(engineError(EDIT_BAD_NAME, "节点名不能为空"));
+  const frame = spec.frame.trim();
+  if (frame === "") {
+    return err(engineError(EDIT_NO_FRAME, `${trimmed} 没有帧名（资产路径解析不出名字）`));
+  }
+  if (!spec.hasFrame(frame)) {
+    return err(
+      engineError(
+        EDIT_NO_FRAME,
+        `图集里没有帧 "${frame}" —— ${trimmed} 加进去也画不出来（编辑器还没接图片导入，见 docs/PROGRESS.md §五）`,
+      ),
+    );
+  }
+  const parent = spec.parent ?? null;
+  if (parent !== null && scene.find(parent) === undefined) {
+    return err(engineError(EDIT_BAD_NODE, `父节点 #${String(parent)} 不在场景里`));
+  }
+
+  const node = scene.spawnImmediate(trimmed, parent ?? scene.rootId);
+  if (spec.position !== undefined) node.setLocalPosition(spec.position.x, spec.position.y);
+  const comp: Component | undefined = registry.create(SPRITE_TYPE);
+  if (comp === undefined) {
+    scene.destroy(node.id);
+    scene.flush();
+    return err(engineError(EDIT_BAD_COMP, `组件类型 ${SPRITE_TYPE} 没有注册`));
+  }
+  (comp as Sprite).frame = frame;
+  scene.attach(node.id, () => comp);
+  scene.flush();
+  const sprite = node.get<Sprite>(SPRITE_TYPE);
+  if (sprite === undefined || sprite.frame !== frame) {
+    scene.destroy(node.id);
+    scene.flush();
+    return err(engineError(UNDO_OP_FAILED, `挂上 ${SPRITE_TYPE} 没有生效`));
+  }
+
+  const snap = snapshotSubtree(scene, node.id);
+  if (snap === undefined) {
+    scene.destroy(node.id);
+    scene.flush();
+    return err(engineError(EDIT_BAD_NODE, "新建之后立刻找不到该节点"));
+  }
+  let warnings: readonly string[] = [];
+  const op = new SubtreeOp(scene, `加入 ${trimmed}`, snap, false, (rep) => {
+    warnings = rep.warnings;
+  });
+  return ok({ op, nodeId: node.id, warnings: () => warnings });
 }
