@@ -30,8 +30,8 @@ import { domInputBackend } from "./backends/input-dom/device.ts";
 import { webAudioBackend } from "./backends/audio-webaudio/device.ts";
 import { Services } from "./core/tokens.ts";
 import { Sprite, SPRITE_TYPE } from "./extensions/render/sprite.ts";
-import { buildProceduralAtlas } from "./extensions/render/atlas.ts";
-import { createRenderModule } from "./extensions/render/render-module.ts";
+import { buildProceduralAtlas, type AtlasData } from "./extensions/render/atlas.ts";
+import { createRenderModule, type RenderModuleHandle } from "./extensions/render/render-module.ts";
 import { SpatialHashWorld, makeSceneAccessor } from "./extensions/physics/physics.ts";
 import { createWorldModule } from "./extensions/physics/world-step-module.ts";
 import { generateWorld } from "./extensions/worldgen/worldgen.ts";
@@ -57,6 +57,7 @@ import { beginDrag, dragTarget, endDrag, pickAt, type DragState } from "./extens
 import { createPie } from "./extensions/editor/pie.ts";
 import { createUndoStack, type EditorOp, type UndoOutcome } from "./extensions/editor/undo-stack.ts";
 import { HttpFileSystem } from "./backends/fs-http/fs.ts";
+import { bakeAtlasFromImages, type BakeImage } from "./extensions/editor/asset-bake.ts";
 import {
   EDIT_BAD_ASSET_LIST,
   catalogFromManifest,
@@ -64,6 +65,7 @@ import {
   type AssetEntry,
 } from "./extensions/editor/asset-list.ts";
 import {
+  EDIT_NO_FRAME,
   addSpriteNodeWithUndo,
   attachComponentWithUndo,
   createNodeWithUndo,
@@ -144,19 +146,42 @@ const physics = new SpatialHashWorld(
   { maxIterations: 3 },
 );
 
-const renderMod = createRenderModule({
-  viewportWidth: canvas.width,
-  viewportHeight: canvas.height,
-  zoom: 24 * dpr,
-  tiltY: 0.62,
-  follow: () => {
-    if (heroId < 0) return undefined;
-    const n = appRef?.scene.find(heroId);
-    if (n === undefined) return undefined;
-    const p = n.worldPosition;
-    return { x: p.x, z: p.y };
-  },
-});
+/**
+ * 渲染模块**在 `main()` 里建**，不在这里。
+ *
+ * ★ 原因是批87：图集现在是"从 `web/assets` 烘出来的真图"，而烘图必须先把图读完
+ *   （异步 HTTP）。而 `createRenderModule({atlas})` 会在 `init` 时按图集建页表、
+ *   上传纹理 —— 图集晚到就等于页表是错的。
+ *   所以顺序被钉死成：读清单 → 读图 → 烘图集 → 建渲染模块 → 启动。
+ *   想"建完再换图集"就得有一条运行时换页的通道（纹理要重传、批次要重建），
+ *   那是另一个量级的改动，而且失败时画面会停在一个半新半旧的状态。
+ *
+ * 于是这里留一个可空引用 + `requireRender()`：`syncViewport` / `canvasToWorld`
+ * 这些都在启动之后才会被调到（拖拽、加资产、视口回调），拿不到就是启动没跑完。
+ */
+let renderMod: RenderModuleHandle | null = null;
+
+function requireRender(): RenderModuleHandle {
+  if (renderMod === null) throw new Error("编辑器还没启动完：渲染模块未创建");
+  return renderMod;
+}
+
+function makeRenderModule(atlas: AtlasData): RenderModuleHandle {
+  return createRenderModule({
+    atlas,
+    viewportWidth: canvas.width,
+    viewportHeight: canvas.height,
+    zoom: 24 * dpr,
+    tiltY: 0.62,
+    follow: () => {
+      if (heroId < 0) return undefined;
+      const n = appRef?.scene.find(heroId);
+      if (n === undefined) return undefined;
+      const p = n.worldPosition;
+      return { x: p.x, z: p.y };
+    },
+  });
+}
 
 /**
  * 位图尺寸跟着 CSS 尺寸走。
@@ -177,16 +202,31 @@ function syncViewport(): void {
   const w = Math.max(1, Math.floor((canvas.clientWidth || 640) * dpr));
   const h = Math.max(1, Math.floor((canvas.clientHeight || 420) * dpr));
   if (canvas.width === w && canvas.height === h) return;
-  renderMod.resize(w, h);
+  requireRender().resize(w, h);
 }
-syncViewport();
-if (typeof ResizeObserver !== "undefined") new ResizeObserver(syncViewport).observe(canvas);
-else window.addEventListener("resize", syncViewport);
+
+/** 视口跟随。**必须在渲染模块建好之后**调（它在 `main()` 里调）。 */
+function watchViewport(): void {
+  syncViewport();
+  if (typeof ResizeObserver !== "undefined") new ResizeObserver(syncViewport).observe(canvas);
+  else window.addEventListener("resize", syncViewport);
+}
 
 const worldMod = createWorldModule(physics, {});
 
 // ---------------------------------------------------------------- 世界装配模块
-const atlasFrames: readonly string[] = [...buildProceduralAtlas().frames.keys()];
+/**
+ * 当前图集里的帧名。**默认是程序化图集那 6 帧，启动时会被真实图集替换掉**（批87）。
+ *
+ * ★ 为什么留程序化兜底：编辑器打不开比"资产是假的"更糟。资产读不到（离线、
+ *   静态服务器没起、清单坏了）时要退回到一张能画的世界，并且**在面板上留痕** ——
+ *   静默回落会让人以为自己在看真资产。
+ */
+let atlasFrames: readonly string[] = [...buildProceduralAtlas().frames.keys()];
+/** 这次实际用的是哪张图集（`assetInfo()` 会把它交出去，判据据此分辨真假）。 */
+let atlasSource: "assets" | "procedural" = "procedural";
+let atlasNote = "还没启动";
+
 let planRef: ReturnType<typeof generateWorld> | null = null;
 
 const worldgenMod: IModule = {
@@ -572,7 +612,7 @@ let dragRef: DragState | null = null;
  *   就是这条时序问题的表征；改成反推之后连跑多次稳定。
  */
 function canvasToWorld(cssX: number, cssY: number): { x: number; z: number } {
-  const c = renderMod.camera;
+  const c = requireRender().camera;
   const cw = canvas.clientWidth;
   const ch = canvas.clientHeight;
   const sx = cw > 0 ? c.vw / cw : dpr;
@@ -878,32 +918,90 @@ function pickAsset(path: string | null): boolean {
   return assetUsable(path);
 }
 
-/** 读清单并建目录。启动时调一次；失败不抛（面板上留痕）。 */
-async function loadAssets(): Promise<void> {
+/** "这次用哪张图集" —— 启动时定一次，之后只读。 */
+interface AtlasChoice {
+  readonly atlas: AtlasData;
+  readonly frames: readonly string[];
+  readonly source: "assets" | "procedural";
+  readonly note: string;
+}
+
+/** 兜底：程序化图集 + 一句说明（说明会被显示出来，静默回落会让人以为在看真资产）。 */
+function proceduralChoice(note: string): AtlasChoice {
+  const p = buildProceduralAtlas();
+  return { atlas: p, frames: [...p.frames.keys()], source: "procedural", note };
+}
+
+/**
+ * 启动前把资产相关的事全做完：读清单 → 建目录 → 逐张读图 → 烘图集。
+ *
+ * ★ 为什么这一步在 `main()` 的最前面而不是 `bootGameApp` 之后：
+ *   图集决定渲染模块的页表与纹理（见 `makeRenderModule` 的说明）。
+ *
+ * ★ 为什么清单要解析**两次**：烘图集需要 `name`/`kind`（只有目录知道），
+ *   而 `inAtlas` 要等烘完才知道帧名。两次解析很便宜（14 项），
+ *   比"先塞一个假帧表、之后再改"要诚实 —— 后者会让面板在中间态显示错的可加入数。
+ */
+async function prepareAssets(): Promise<AtlasChoice> {
+  // ★ 两个 base，别合成一个：清单在 `web/assets-manifest.json`（页面同级），
+  //   而清单里的路径是**相对 `web/assets/`** 的（`tree.png`）。
+  //   合成一个 base 的后果是本批第一次跑自检时的那一幕：10 张图全都 404，
+  //   烘焙空手而归、静默退回程序化图集，而画面上照样有树有石头 ——
+  //   只有「可加入 0」这个数字对不上。
   const fs = new HttpFileSystem({ base: new URL("./", location.href) });
+  const assetsFs = new HttpFileSystem({ base: new URL("./assets/", location.href) });
   const text = await fs.readText("assets-manifest.json");
   catalog = null;
   assetPicked = null;
-  if (!text.ok) {
-    assetProblem = `${text.error.code}：${text.error.message}`;
-    assetListEl.replaceChildren(mkAssetEmpty(`资产清单读不到（${text.error.code}）`));
-    assetCountEl.textContent = "—";
-    btnAssetAdd.disabled = true;
-    return;
-  }
-  // 帧名取自编辑器实际挂的那张图集（`atlasFrames`），不是另抄一份 ——
-  // 抄一份的后果是「面板说有帧」而渲染说没有，两边各自都"对"。
-  const cat = catalogFromManifest(text.value, { frameNames: atlasFrames });
-  if (!cat.ok) {
-    assetProblem = `${cat.error.code}：${cat.error.message}`;
-    assetListEl.replaceChildren(mkAssetEmpty(`资产清单坏了（${cat.error.code}）`));
-    assetCountEl.textContent = "—";
-    btnAssetAdd.disabled = true;
-    return;
-  }
   assetProblem = null;
-  catalog = cat.value;
+  const fail = (why: string): AtlasChoice => {
+    assetProblem = why;
+    assetListEl.replaceChildren(mkAssetEmpty(`资产清单读不到：${why}`));
+    assetCountEl.textContent = "—";
+    btnAssetAdd.disabled = true;
+    return proceduralChoice(why);
+  };
+
+  if (!text.ok) return fail(`${text.error.code} ${text.error.message}`);
+  const bare = catalogFromManifest(text.value);
+  if (!bare.ok) return fail(`${bare.error.code} ${bare.error.message}`);
+
+  const textures = bare.value.entries.filter((e) => e.kind === "texture");
+  const images: BakeImage[] = [];
+  const io: string[] = [];
+  for (const e of textures) {
+    const r = await assetsFs.readBinary(e.path);
+    if (!r.ok) {
+      io.push(`${e.path}(${r.error.code})`);
+      continue;
+    }
+    images.push({ name: e.name, bytes: r.value });
+  }
+
+  const baked = bakeAtlasFromImages(images);
+  if (!baked.ok) {
+    // 一张都没解出来：面板照样能看（全是「无帧」），但世界要退回程序化图集。
+    // ★ 这里**必须**把原因写进 `assetProblem`：否则面板上 14 行全是「无帧」、
+    //   没有任何一句话解释为什么 —— 与"清单里本来就没有位图"长得一模一样。
+    const why =
+      `${baked.error.code}：${baked.error.message}` +
+      (io.length > 0 ? `（读不到：${io.join("、")}）` : "");
+    assetProblem = why;
+    catalog = bare.value;
+    refreshAssets();
+    return proceduralChoice(why);
+  }
+
+  const cat = catalogFromManifest(text.value, { frameNames: baked.value.frames });
+  catalog = cat.ok ? cat.value : bare.value;
   refreshAssets();
+
+  const note =
+    `${String(baked.value.frames.length)} 帧（${String(images.length)} 张图` +
+    (io.length > 0 ? `，${String(io.length)} 张读不到：${io.join("、")}` : "") +
+    (baked.value.skipped.length > 0 ? `，跳过 ${String(baked.value.skipped.length)} 张` : "") +
+    "）";
+  return { atlas: baked.value.atlas, frames: baked.value.frames, source: "assets", note };
 }
 
 /** 视图中心对应的**根坐标系**位置。与 gizmo 用同一个换算式，不另算一套。 */
@@ -921,6 +1019,16 @@ function doAddAsset(path: string | null): { ok: boolean; id?: number; code?: str
     const msg = path === null ? "没有选中资产" : `清单里没有 ${path}`;
     errEl.textContent = msg;
     return { ok: false, code: EDIT_BAD_ASSET_LIST, message: msg };
+  }
+  // ★ 这里必须**自己**再查一次 `inAtlas`，不能只靠按钮禁用。
+  //   「按钮 disabled」是 UI 约束，命令面（以及双击、键盘）都能绕过去；
+  //   而绕过去之后 `hasFrame` 会因为**名字撞车**放行 —— `ui-font.fnt` 的名字
+  //   正好等于烘进来的 `ui-font.png` 的帧名，于是会造出一个指向字体图的精灵。
+  //   这条洞是批87 的页面自检咬出来的（"无帧被拒"那条返回了 ok:true）。
+  if (!entry.inAtlas) {
+    const msg = `${entry.path} 不能加进场景：它不是位图，或图集里没有帧 "${entry.name}"`;
+    errEl.textContent = msg;
+    return { ok: false, code: EDIT_NO_FRAME, message: msg };
   }
   const pos = viewCenterLocal();
   const r = addSpriteNodeWithUndo(app.scene, app.scene.components, {
@@ -1130,8 +1238,21 @@ interface EditorApi {
   assetPick(path: string | null): boolean;
   /** 把一个资产加成场景里的节点（进历史，一条）。 */
   assetAdd(path: string | null): { ok: boolean; id?: number; code?: string; message?: string };
-  /** 面板标题与清单健康状况（条数 / 可加入数 / 出问题的原因）。 */
-  assetInfo(): { count: number; usable: number; title: string; problem: string | null };
+  /**
+   * 面板标题与清单健康状况（条数 / 可加入数 / 出问题的原因 / 图集来源）。
+   *
+   * `atlasSource` 是这批最要紧的一个观测点：`"procedural"` 意味着资产没读进来、
+   * 世界在用 6 帧假贴图 —— 而这在画面上**看不出来**（照样有树有石头）。
+   */
+  assetInfo(): {
+    count: number;
+    usable: number;
+    title: string;
+    problem: string | null;
+    atlasSource: "assets" | "procedural";
+    atlasNote: string;
+    frames: number;
+  };
 }
 
 function installApi(app: GameApp): void {
@@ -1283,7 +1404,7 @@ function installApi(app: GameApp): void {
       return { x: n.localPosition.x, y: n.localPosition.y };
     },
     camInfo() {
-      const c = renderMod.camera;
+      const c = requireRender().camera;
       return { x: c.x, z: c.z, zoom: c.zoom, tiltY: c.tiltY, vw: c.vw, vh: c.vh };
     },
     screenToWorld(cssX, cssY) {
@@ -1329,7 +1450,15 @@ function installApi(app: GameApp): void {
       const cat = catalog;
       const count = cat === null ? 0 : cat.entries.length;
       const usable = cat === null ? 0 : cat.entries.filter((e) => e.inAtlas).length;
-      return { count, usable, title: assetCountEl.textContent ?? "", problem: assetProblem };
+      return {
+        count,
+        usable,
+        title: assetCountEl.textContent ?? "",
+        problem: assetProblem,
+        atlasSource,
+        atlasNote,
+        frames: atlasFrames.length,
+      };
     },
   };
   (window as unknown as { __editor?: EditorApi }).__editor = api;
@@ -1339,11 +1468,22 @@ function installApi(app: GameApp): void {
 async function main(): Promise<void> {
   planRef = generateWorld({ seed: WORLD_SEED, width: WORLD_W, height: WORLD_H, maxSitesPerCell: 1 });
 
+  // ★ 顺序钉死：读清单 → 读图 → 烘图集 → 建渲染模块 → 启动。
+  //   图集决定页表与纹理，所以它必须在渲染模块之前定好（见 `makeRenderModule`）。
+  const choice = await prepareAssets();
+  atlasFrames = choice.frames;
+  atlasSource = choice.source;
+  atlasNote = choice.note;
+  const rm = makeRenderModule(choice.atlas);
+  renderMod = rm;
+  watchViewport();
+  statusEl.textContent = `图集 ${choice.source === "assets" ? "资产" : "程序化"} · ${choice.note}`;
+
   const appR = await bootGameApp({
     platformId: "editor",
     interactive: true,
     registry,
-    modules: [worldMod, renderMod, worldgenMod],
+    modules: [worldMod, rm, worldgenMod],
     seed: WORLD_SEED,
     fixedDt: FIXED_DT,
     backendOptions: {
@@ -1369,8 +1509,7 @@ async function main(): Promise<void> {
 
   bindCanvasDrag();
   bindTreeDrag();
-  // 资产清单是异步的（一次 HTTP）：先画空态，读到再刷新。
-  void loadAssets();
+  // 清单与图集在 `main()` 开头就已经准备好（启动顺序见那里的说明）。
   btnAssetAdd.addEventListener("click", () => {
     doAddAsset(assetPicked);
   });

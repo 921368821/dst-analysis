@@ -3570,7 +3570,12 @@ MUTANTS = [
         # （photo 本来就无帧，于是它不再是**唯一**被标出来的那个）。
         "name": "M386 清单不传图集帧名（所有资产都变成『无帧』）",
         "file": "src/editor-entry.ts",
-        "pairs": [("  const cat = catalogFromManifest(text.value, { frameNames: atlasFrames });",
+        # 靶子随批87 挪过位置：`.frameNames` 的值从 `atlasFrames` 变成了烘出来的
+        # `baked.value.frames`（图集不再来自顶层常量，而是"读清单 → 读图 → 烘"的产物）。
+        # **这不是放宽标准**，是同一条语义在新结构下的同一条靶子；
+        # 同文件里那个不带 second 参的调用（`bare`，行 966）不能拿来当靶子 ——
+        # 它只用来筛位图，`inAtlas` 根本不经过它，改了没有可观察差异。
+        "pairs": [("  const cat = catalogFromManifest(text.value, { frameNames: baked.value.frames });",
                    "  const cat = catalogFromManifest(text.value);")],
         "cmd": ["node", "tools/editor-selftest.mjs", "--build"],
         "env_exit": 2,
@@ -3620,6 +3625,62 @@ MUTANTS = [
         "file": "web/assets-manifest.json",
         "pairs": [('    "ruler.png",\n', "")],
         "test": "tests/extensions/editor-assets.test.ts",
+    },
+    # ---- 批87：把真实图片烘进图集（半条链接上）
+    {
+        # 一张坏图就整体失败 ⇒ 编辑器直接开不起来（人看到的只是白屏）。
+        "name": "M392 有一张图解不开就整体失败（一张坏图毁掉整个编辑器）",
+        "file": "src/extensions/editor/asset-bake.ts",
+        "pairs": [("      skipped.push({ name, reason: dec.error.code });\n      continue;",
+                   "      return err(dec.error);")],
+        "test": "tests/extensions/editor-asset-bake.test.ts",
+    },
+    {
+        # 不挡重名 ⇒ 两个同名源一起交给合成器，它报 DUPLICATE_FRAME。
+        # 症状是"我加了一张图，整个世界都烘不出来"。
+        "name": "M393 不挡重名（两个同名源一起交给合成器，整锅失败）",
+        "file": "src/extensions/editor/asset-bake.ts",
+        "pairs": [("    if (seen.has(name)) {", "    if (seen.has(name) && false) {")],
+        "test": "tests/extensions/editor-asset-bake.test.ts",
+    },
+    {
+        # 帧名不排序 ⇒ 面板顺序随 Map 插入序（也就是随清单顺序）变，
+        # 判据靠顺序就变成碰运气。
+        "name": "M394 帧名不排序（顺序随清单变，面板每次不一样）",
+        "file": "src/extensions/editor/asset-bake.ts",
+        "pairs": [("    frames: Array.from(built.value.frames.keys()).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),",
+                   "    frames: Array.from(built.value.frames.keys()),")],
+        "test": "tests/extensions/editor-asset-bake.test.ts",
+    },
+    {
+        # 「有帧」只看帧名、不看是不是位图 ⇒ 名字撞上 png 的**文本**资产
+        # （ui-font.fnt）被判成可加入，点下去造出一个指向字体图的精灵。
+        "name": "M395 「有帧」只看帧名（文本资产因名字撞车被当成可渲染）",
+        "file": "src/extensions/editor/asset-list.ts",
+        "pairs": [("    const inAtlas = raster && frames !== undefined && frames.has(name);",
+                   "    const inAtlas = frames !== undefined && frames.has(name);")],
+        "test": "tests/extensions/editor-assets.test.ts",
+    },
+    {
+        # 页面级：清单与图片用同一个 base 读 ⇒ 图片路径少一层 assets/，
+        # 10 张全 404、静默退回程序化图集，而画面上照样有树有石头。
+        # 这就是批87 第一次跑自检时真实发生的那一幕。
+        "name": "M396 读图用错 base（10 张全 404，静默退回程序化图集）",
+        "file": "src/editor-entry.ts",
+        "pairs": [("    const r = await assetsFs.readBinary(e.path);",
+                   "    const r = await fs.readBinary(e.path);")],
+        "cmd": ["node", "tools/editor-selftest.mjs", "--build"],
+        "env_exit": 2,
+    },
+    {
+        # 页面级：命令面不查 inAtlas，只靠按钮禁用 ⇒ 双击/命令面能绕过，
+        # 而 `hasFrame` 会因名字撞车放行（ui-font.fnt 的名字 == ui-font.png 的帧名）。
+        # 与 M395 是两层：那条在模型层算错，这条在命令面不查。
+        "name": "M397 加入场景不查 inAtlas（禁用的按钮被命令面绕过去）",
+        "file": "src/editor-entry.ts",
+        "pairs": [("  if (!entry.inAtlas) {", "  if (false) {")],
+        "cmd": ["node", "tools/editor-selftest.mjs", "--build"],
+        "env_exit": 2,
     },
 ]
 

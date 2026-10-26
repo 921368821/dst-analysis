@@ -183,6 +183,21 @@ test("★ inAtlas：图集里没有的帧要标出来（否则『加入场景』
   assert.equal(blind.entries[0]?.inAtlas, false);
 });
 
+test("★ 文本资产即便名字撞上帧名也不算「有帧」（ui-font.fnt vs ui-font.png）", () => {
+  // 这一条是批87 接上真实图集之后补的：`ui-font.fnt` 与 `ui-font.png` 派生出的
+  // 名字都是 `ui-font`，而图集里真有 `ui-font` 这一帧（来自那个 png）。
+  // 只看帧名的话，字体的**文本**文件会被判成"可加入场景" ——
+  // 点下去会造出一个精灵，指向字体图集的一块。页面自检当时就栽在这儿：
+  // 「无帧被拒」那条返回了 ok:true。
+  const cat = buildAssetCatalog(["ui-font.png", "ui-font.fnt", "ui-skin.json"], {
+    frameNames: ["ui-font", "ui-skin"],
+  });
+  const byPath = new Map(cat.entries.map((e) => [e.path, e]));
+  assert.equal(byPath.get("ui-font.png")?.inAtlas, true, "位图且帧在 ⇒ 可加入");
+  assert.equal(byPath.get("ui-font.fnt")?.inAtlas, false, "同名帧的文本资产不能算可加入");
+  assert.equal(byPath.get("ui-skin.json")?.inAtlas, false, "同上");
+});
+
 // ------------------------------------------------------------ 清单
 
 test("清单：合法输入返回路径数组（容忍 BOM 与 CRLF）", () => {

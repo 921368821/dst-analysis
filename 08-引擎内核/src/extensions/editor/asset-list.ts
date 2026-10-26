@@ -114,7 +114,10 @@ export interface AssetEntry {
   /** 名字，同时是帧名。 */
   readonly name: string;
   readonly kind: AssetKind;
-  /** 当前图集里有没有同名帧。`false` = 加不进场景（这一层就把话说清楚）。 */
+  /**
+   * 这张资产能不能当精灵画出来（**位图** ∧ 图集里有同名帧）。
+   * `false` = 加不进场景（这一层就把话说清楚，别留到渲染时才 warn）。
+   */
   readonly inAtlas: boolean;
 }
 
@@ -185,7 +188,14 @@ export function buildAssetCatalog(paths: readonly string[], opts: CatalogOptions
 
     const id = stableIdFromPath(path);
     const name = assetNameOf(path);
-    entries.push({ id, path, name, kind: cls.kind, inAtlas: frames === undefined ? false : frames.has(name) });
+    // ★ 「有帧」= **位图** ∧ 图集里有同名帧。只看帧名是不够的：
+    //   `ui-font.fnt` 与 `ui-font.png` 派生出的名字都是 `ui-font`，于是字体的
+    //   文本文件会"有帧" —— 点「加入场景」就会造出一个精灵，指向字体图集的一块。
+    //   这个洞是批87 接上真实图集后，由页面自检的「无帧资产」那条断言咬出来的
+    //   （面板上 14 个全都显示可加入，而其中两个根本不是图）。
+    const raster = cls.kind === "texture";
+    const inAtlas = raster && frames !== undefined && frames.has(name);
+    entries.push({ id, path, name, kind: cls.kind, inAtlas });
   }
 
   // ⑤ 确定性排序：按路径（不区分大小写），再按原文兜底（大小写不同才用到）。

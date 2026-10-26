@@ -447,30 +447,53 @@ const PROBE = `
   const aRows = document.querySelectorAll("#assetlist .arow").length;
   add(
     "资产面板列出了清单里的文件（条数、DOM 行数、可加入数三者对得上）",
-    ai.count === 14 && aRows === 14 && ai.usable === 6,
+    // 12 = 14 个文件里除掉两个非位图（ui-font.fnt / ui-skin.json）
+    ai.count === 14 && aRows === 14 && ai.usable === 12,
     "count=" + ai.count + " rows=" + aRows + " usable=" + ai.usable + " problem=" + String(ai.problem),
+  );
+
+  // ★★ 这一批的核心观测点：图集是**从 web/assets 烘出来的**，不是程序化假贴图。
+  //   两者在画面上**长得一样**（都有树有石头），只有这个数字分得开 ——
+  //   来源是「procedural」意味着 10 张真图全都没读到，而没人会报错。
+  add(
+    "★★ 图集来自真实资产（不是程序化兜底），且帧数对得上",
+    ai.atlasSource === "assets" && ai.frames === 12 && String(ai.atlasNote).length > 0,
+    "source=" + ai.atlasSource + " frames=" + ai.frames + " note=" + ai.atlasNote,
+  );
+
+  // ★★ 生物帧：程序化图集里**没有** rabbit / hound ⇒ 编辑器世界里
+  //   "生物在走但看不见"（渲染只 warn 一次）。这条钉的就是那个缺陷不再回来。
+  const names = E.assets().map((a) => a.name);
+  add(
+    "★★ 生物用的帧真的在图集里（rabbit / hound —— 否则有东西在动却看不见）",
+    names.indexOf("rabbit") >= 0 && names.indexOf("hound") >= 0 &&
+      E.assetPick("hound.png") === true,
+    "names=" + names.join(","),
   );
 
   // ★ 这一条是「别让人点了没反应」的前半：无帧的资产要在**列表里**就看得出来，
   //   而不是等他点完「加入场景」再读一行红字。
+  //   语料用 ui-font.fnt：它是**文本**资产，名字与 ui-font.png 撞了 ——
+  //   只看帧名的话它会被算成「有帧」，点下去就造出一个指向字体图的精灵。
   const noFrame = E.assets().filter((a) => !a.inAtlas).map((a) => a.path);
-  const pickPhoto = E.assetPick("photo.jpg");
+  const pickFnt = E.assetPick("ui-font.fnt");
   const addBtn = document.getElementById("asset-add");
   add(
-    "★ 无帧的资产被标出来（photo.jpg 没有帧，按钮也就不可用）",
-    noFrame.indexOf("photo.jpg") >= 0 && pickPhoto === false && addBtn.disabled === true,
-    "noFrame=" + noFrame.join(",") + " pickable=" + String(pickPhoto) + " btnDisabled=" + String(addBtn.disabled),
+    "★ 无帧的资产被标出来（ui-font.fnt 是文本，按钮也就不可用）",
+    noFrame.length === 2 && noFrame.indexOf("ui-font.fnt") >= 0 && pickFnt === false &&
+      addBtn.disabled === true,
+    "noFrame=" + noFrame.join(",") + " pickable=" + String(pickFnt) + " btnDisabled=" + String(addBtn.disabled),
   );
 
   const nodesBefore = E.stats().nodes;
-  const pickTree = E.assetPick("tree.png");
-  const added = E.assetAdd("tree.png");
+  const pickHound = E.assetPick("hound.png");
+  const added = E.assetAdd("hound.png");
   const pTree = E.panel();
   const frameField = findField(pTree, "render.sprite", "frame");
   add(
     "★★ 加入场景：节点 +1、精灵挂上、帧也写进去了",
-    pickTree === true && added.ok === true && E.stats().nodes === nodesBefore + 1 &&
-      frameField !== null && frameField.value === "tree",
+    pickHound === true && added.ok === true && E.stats().nodes === nodesBefore + 1 &&
+      frameField !== null && frameField.value === "hound",
     JSON.stringify(added) + " nodes=" + E.stats().nodes + " frame=" +
       JSON.stringify(frameField ? frameField.value : null),
   );
@@ -484,7 +507,7 @@ const PROBE = `
     JSON.stringify(undoAdd) + " nodes=" + E.stats().nodes,
   );
 
-  const rejected = E.assetAdd("photo.jpg");
+  const rejected = E.assetAdd("ui-font.fnt");
   const errText = document.getElementById("err").textContent || "";
   add(
     "★ 无帧的资产被拒：错误码对、节点数不变、错误行有字",

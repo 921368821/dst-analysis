@@ -7990,6 +7990,3520 @@ function createPie(opts = {}) {
   return new Pie(opts);
 }
 
+// src/extensions/render/atlas-from-assets.ts
+var DEFAULT_PADDING = 1;
+var DEFAULT_MAX_SIZE = 2048;
+function errAtlas(code, message, detail) {
+  return detail === void 0 ? engineError(code, message) : engineError(code, message, detail);
+}
+function byName(a, b) {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+function nextPowerOfTwo(n) {
+  if (n <= 1) return 1;
+  let p = 1;
+  while (p < n) p *= 2;
+  return p;
+}
+function buildAtlasFromSources(sources, opts) {
+  const padding = opts?.padding ?? DEFAULT_PADDING;
+  const maxSize = opts?.maxSize ?? DEFAULT_MAX_SIZE;
+  const precision = opts?.precision ?? "auto";
+  if (!Number.isInteger(padding) || padding < 0) {
+    return err(errAtlas("ASSET.BAD_ATLAS_OPTIONS", `padding \u5FC5\u987B\u662F\u975E\u8D1F\u6574\u6570\uFF0C\u6536\u5230 ${padding}`));
+  }
+  if (!Number.isInteger(maxSize) || maxSize < 1) {
+    return err(errAtlas("ASSET.BAD_ATLAS_OPTIONS", `maxSize \u5FC5\u987B\u662F \u22651 \u7684\u6574\u6570\uFF0C\u6536\u5230 ${maxSize}`));
+  }
+  if (precision !== "auto" && precision !== 8 && precision !== 16) {
+    return err(
+      errAtlas(
+        "ASSET.BAD_ATLAS_OPTIONS",
+        `precision \u53EA\u80FD\u662F "auto" | 8 | 16\uFF0C\u6536\u5230 ${JSON.stringify(precision)}`
+      )
+    );
+  }
+  const seen = /* @__PURE__ */ new Set();
+  for (const s of sources) {
+    if (seen.has(s.name)) {
+      return err(
+        errAtlas("ASSET.ATLAS_DUPLICATE_FRAME", `\u5E27\u540D\u91CD\u590D\uFF1A"${s.name}"\uFF08\u56FE\u96C6\u5E27\u540D\u5FC5\u987B\u552F\u4E00\uFF09`, { name: s.name })
+      );
+    }
+    seen.add(s.name);
+  }
+  const use16 = precision === 16 || precision === "auto" && sources.some((s) => s.png.pixels16 !== void 0);
+  const ordered = [...sources].sort((a, b) => {
+    const dh = b.png.height - a.png.height;
+    return dh !== 0 ? dh : byName(a.name, b.name);
+  });
+  for (const s of ordered) {
+    if (s.png.width > maxSize || s.png.height > maxSize) {
+      return err(
+        errAtlas(
+          "ASSET.ATLAS_TOO_LARGE",
+          `\u5E27 "${s.name}" \u662F ${s.png.width}\xD7${s.png.height}\uFF0C\u5355\u5E27\u5C31\u8D85\u8FC7 maxSize=${maxSize}`,
+          { frame: s.name, width: s.png.width, height: s.png.height, maxSize }
+        )
+      );
+    }
+  }
+  const placements = [];
+  let x = 0;
+  let y = 0;
+  let rowH = 0;
+  let neededW = 0;
+  let neededH = 0;
+  let widestBy = "";
+  let tallestBy = "";
+  for (const s of ordered) {
+    const w = s.png.width;
+    const h = s.png.height;
+    if (x > 0 && x + w > maxSize) {
+      y += rowH + padding;
+      x = 0;
+      rowH = 0;
+    }
+    placements.push({ name: s.name, x, y, w, h });
+    x += w + padding;
+    if (h > rowH) rowH = h;
+    if (x - padding > neededW) {
+      neededW = x - padding;
+      widestBy = s.name;
+    }
+    if (y + rowH > neededH) {
+      neededH = y + rowH;
+      tallestBy = s.name;
+    }
+  }
+  if (ordered.length === 0) {
+    return ok(
+      use16 ? {
+        width: 1,
+        height: 1,
+        pixels: new Uint8Array(4),
+        format: PixelFormat.RGBA16,
+        pixels16: new Uint16Array(4),
+        frames: /* @__PURE__ */ new Map()
+      } : { width: 1, height: 1, pixels: new Uint8Array(4), frames: /* @__PURE__ */ new Map() }
+    );
+  }
+  if (neededW > maxSize) {
+    return err(
+      errAtlas(
+        "ASSET.ATLAS_TOO_LARGE",
+        `\u56FE\u96C6\u5BBD\u5EA6 ${neededW} \u8D85\u8FC7 maxSize=${maxSize}\uFF08\u6700\u540E\u4E00\u5E27\u6491\u5BBD\u7684\u662F "${widestBy}"\uFF09`,
+        { frame: widestBy, neededWidth: neededW, maxSize }
+      )
+    );
+  }
+  if (neededH > maxSize) {
+    return err(
+      errAtlas(
+        "ASSET.ATLAS_TOO_LARGE",
+        `\u56FE\u96C6\u9AD8\u5EA6 ${neededH} \u8D85\u8FC7 maxSize=${maxSize}\uFF08\u6491\u9AD8\u7684\u662F "${tallestBy}"\uFF09`,
+        { frame: tallestBy, neededHeight: neededH, maxSize }
+      )
+    );
+  }
+  const width = nextPowerOfTwo(neededW);
+  const height = nextPowerOfTwo(neededH);
+  if (width > maxSize || height > maxSize) {
+    return err(
+      errAtlas(
+        "ASSET.ATLAS_TOO_LARGE",
+        `\u5411\u4E0A\u53D6\u6574\u5230 2 \u7684\u5E42\u540E\u5C3A\u5BF8 ${width}\xD7${height} \u8D85\u8FC7 maxSize=${maxSize}`,
+        { width, height, maxSize }
+      )
+    );
+  }
+  const pixels = new Uint8Array(width * height * 4);
+  const pixels16 = use16 ? new Uint16Array(width * height * 4) : void 0;
+  const byNameSource = /* @__PURE__ */ new Map();
+  for (const s of sources) byNameSource.set(s.name, s.png);
+  for (const p of placements) {
+    const src = byNameSource.get(p.name);
+    for (let row = 0; row < p.h; row++) {
+      const from = row * p.w * 4;
+      const to = ((p.y + row) * width + p.x) * 4;
+      if (pixels16 !== void 0) {
+        if (src.pixels16 !== void 0) {
+          pixels16.set(src.pixels16.subarray(from, from + p.w * 4), to);
+        } else {
+          for (let i = 0; i < p.w * 4; i++) pixels16[to + i] = src.pixels[from + i] * 257;
+        }
+      } else if (src.pixels16 !== void 0) {
+        for (let i = 0; i < p.w * 4; i++) pixels[to + i] = Math.round(src.pixels16[from + i] / 257);
+      } else {
+        pixels.set(src.pixels.subarray(from, from + p.w * 4), to);
+      }
+    }
+  }
+  if (pixels16 !== void 0) {
+    for (let i = 0; i < pixels.length; i++) pixels[i] = Math.round(pixels16[i] / 257);
+  }
+  const frames = /* @__PURE__ */ new Map();
+  for (const p of placements) {
+    frames.set(p.name, {
+      u0: p.x / width,
+      v0: p.y / height,
+      u1: (p.x + p.w) / width,
+      v1: (p.y + p.h) / height,
+      w: p.w,
+      h: p.h
+    });
+  }
+  return ok(
+    pixels16 === void 0 ? { width, height, pixels, frames } : (
+      // 16 位时**同时**给 8 位视图（见 atlas.ts 的不变量说明）
+      { width, height, pixels, format: PixelFormat.RGBA16, pixels16, frames }
+    )
+  );
+}
+
+// src/extensions/asset-import/decode/inflate.ts
+var InflateErrorCode = {
+  /** zlib 头/流/校验和任何一处不合法。message 带字节偏移，足够定位。 */
+  BadZlib: "ASSET.BAD_ZLIB"
+};
+var DEFAULT_MAX_BYTES = 256 * 1024 * 1024;
+var MAX_BITS = 15;
+var ZlibError = class extends Error {
+};
+function reverseBits(code, len) {
+  let out = 0;
+  for (let i = 0; i < len; i++) {
+    out = out << 1 | code & 1;
+    code >>>= 1;
+  }
+  return out;
+}
+function buildHuffman(lengths) {
+  const counts = new Uint16Array(MAX_BITS + 1);
+  for (let i = 0; i < lengths.length; i++) {
+    const l = lengths[i];
+    if (l > MAX_BITS) throw new ZlibError(`Huffman \u7801\u957F ${l} \u8D85\u8FC7 ${MAX_BITS}`);
+    counts[l] = counts[l] + 1;
+  }
+  counts[0] = 0;
+  let maxLen = MAX_BITS;
+  while (maxLen > 0 && counts[maxLen] === 0) maxLen--;
+  if (maxLen === 0) {
+    return { table: new Uint16Array(1), maxLen: 1 };
+  }
+  let left = 1;
+  for (let len = 1; len <= MAX_BITS; len++) {
+    left = (left << 1) - counts[len];
+    if (left < 0) throw new ZlibError(`Huffman \u7801\u957F\u8868\u8FC7\u8BA2\u9605\uFF08len=${len} \u65F6\u8D85\u51FA ${-left}\uFF09`);
+  }
+  const nextCode = new Uint16Array(MAX_BITS + 1);
+  let code = 0;
+  for (let len = 1; len <= MAX_BITS; len++) {
+    code = code + counts[len - 1] << 1;
+    nextCode[len] = code;
+  }
+  const size = 1 << maxLen;
+  const table = new Uint16Array(size);
+  for (let sym = 0; sym < lengths.length; sym++) {
+    const len = lengths[sym];
+    if (len === 0) continue;
+    const c = nextCode[len];
+    nextCode[len] = c + 1;
+    const rev = reverseBits(c, len);
+    const entry = len << 9 | sym;
+    const step = 1 << len;
+    for (let i = rev; i < size; i += step) table[i] = entry;
+  }
+  return { table, maxLen };
+}
+var fixedLit = null;
+var fixedDist = null;
+function getFixedLit() {
+  if (fixedLit !== null) return fixedLit;
+  const lengths = new Uint8Array(288);
+  for (let i = 0; i < 144; i++) lengths[i] = 8;
+  for (let i = 144; i < 256; i++) lengths[i] = 9;
+  for (let i = 256; i < 280; i++) lengths[i] = 7;
+  for (let i = 280; i < 288; i++) lengths[i] = 8;
+  fixedLit = buildHuffman(lengths);
+  return fixedLit;
+}
+function getFixedDist() {
+  if (fixedDist !== null) return fixedDist;
+  const lengths = new Uint8Array(32).fill(5);
+  fixedDist = buildHuffman(lengths);
+  return fixedDist;
+}
+var LEN_BASE = [
+  3,
+  4,
+  5,
+  6,
+  7,
+  8,
+  9,
+  10,
+  11,
+  13,
+  15,
+  17,
+  19,
+  23,
+  27,
+  31,
+  35,
+  43,
+  51,
+  59,
+  67,
+  83,
+  99,
+  115,
+  131,
+  163,
+  195,
+  227,
+  258
+];
+var LEN_EXTRA = [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0];
+var DIST_BASE = [
+  1,
+  2,
+  3,
+  4,
+  5,
+  7,
+  9,
+  13,
+  17,
+  25,
+  33,
+  49,
+  65,
+  97,
+  129,
+  193,
+  257,
+  385,
+  513,
+  769,
+  1025,
+  1537,
+  2049,
+  3073,
+  4097,
+  6145,
+  8193,
+  12289,
+  16385,
+  24577
+];
+var DIST_EXTRA = [
+  0,
+  0,
+  0,
+  0,
+  1,
+  1,
+  2,
+  2,
+  3,
+  3,
+  4,
+  4,
+  5,
+  5,
+  6,
+  6,
+  7,
+  7,
+  8,
+  8,
+  9,
+  9,
+  10,
+  10,
+  11,
+  11,
+  12,
+  12,
+  13,
+  13
+];
+var CLEN_ORDER = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
+function adler32(data) {
+  let a = 1;
+  let b = 0;
+  let i = 0;
+  while (i < data.length) {
+    const end = Math.min(i + 5552, data.length);
+    for (; i < end; i++) {
+      a += data[i];
+      b += a;
+    }
+    a %= 65521;
+    b %= 65521;
+  }
+  return (b << 16 | a) >>> 0;
+}
+var BitReader = class {
+  constructor(data, start) {
+    this.data = data;
+    this.pos = start;
+  }
+  pos;
+  bitBuf = 0;
+  bitCnt = 0;
+  /** 尽可能补到 n 位（不抛）：流末尾不足时由调用方判断。 */
+  ensure(n) {
+    while (this.bitCnt < n && this.pos < this.data.length) {
+      this.bitBuf |= this.data[this.pos] << this.bitCnt;
+      this.bitCnt += 8;
+      this.pos++;
+    }
+  }
+  readBits(n) {
+    if (n === 0) return 0;
+    this.ensure(n);
+    if (this.bitCnt < n) throw new ZlibError(`\u4F4D\u6D41\u622A\u65AD\uFF1A\u9700\u8981 ${n} \u4F4D\uFF0C\u53EA\u5269 ${this.bitCnt} \u4F4D`);
+    const v = this.bitBuf & (1 << n) - 1;
+    this.bitBuf >>>= n;
+    this.bitCnt -= n;
+    return v;
+  }
+  decode(h) {
+    this.ensure(h.maxLen);
+    if (this.bitCnt === 0) throw new ZlibError("\u4F4D\u6D41\u622A\u65AD\uFF1AHuffman \u89E3\u7801\u65F6\u5DF2\u65E0\u6570\u636E");
+    const entry = h.table[this.bitBuf & (1 << h.maxLen) - 1];
+    if (entry === 0) throw new ZlibError(`\u975E\u6CD5 Huffman \u7801\uFF08peek 0x${(this.bitBuf & (1 << h.maxLen) - 1).toString(16)}\uFF09`);
+    const len = entry >>> 9;
+    if (len > this.bitCnt) throw new ZlibError("\u4F4D\u6D41\u622A\u65AD\uFF1AHuffman \u7801\u5B57\u8DE8\u8D8A\u4E86\u8F93\u5165\u672B\u5C3E");
+    this.bitBuf >>>= len;
+    this.bitCnt -= len;
+    return entry & 511;
+  }
+  /**
+   * 丢弃当前字节里剩余的位，并把"已预读但未消费的整字节"退回 pos。
+   * 之后 `pos` 指向下一个未读字节 —— stored 块和 adler32 都靠它对齐。
+   */
+  alignToByte() {
+    const drop = this.bitCnt & 7;
+    this.bitBuf >>>= drop;
+    this.bitCnt -= drop;
+    this.pos -= this.bitCnt >> 3;
+    this.bitBuf = 0;
+    this.bitCnt = 0;
+  }
+  /** u16 小端（stored 块的 LEN/NLEN）。调用前必须 `alignToByte()`。 */
+  u16le() {
+    if (this.pos + 2 > this.data.length) throw new ZlibError("stored \u5757\u5934\u622A\u65AD");
+    const v = this.data[this.pos] | this.data[this.pos + 1] << 8;
+    this.pos += 2;
+    return v;
+  }
+};
+var ByteSink = class {
+  buf;
+  len = 0;
+  maxBytes;
+  constructor(initial, maxBytes) {
+    this.maxBytes = maxBytes;
+    this.buf = new Uint8Array(Math.max(1, Math.min(initial, maxBytes)));
+  }
+  reserve(n) {
+    const need2 = this.len + n;
+    if (need2 > this.maxBytes) {
+      throw new ZlibError(`\u89E3\u538B\u8F93\u51FA\u8D85\u8FC7\u4E0A\u9650 maxBytes=${this.maxBytes}\uFF08\u5DF2\u4EA7\u51FA ${this.len} \u5B57\u8282\uFF0C\u518D\u5199 ${n}\uFF09`);
+    }
+    if (need2 <= this.buf.length) return;
+    let cap = this.buf.length * 2;
+    if (cap < need2) cap = need2;
+    if (cap > this.maxBytes) cap = this.maxBytes;
+    const next = new Uint8Array(cap);
+    next.set(this.buf.subarray(0, this.len));
+    this.buf = next;
+  }
+  writeByte(b) {
+    this.reserve(1);
+    this.buf[this.len++] = b;
+  }
+  writeBytes(src, from, count) {
+    this.reserve(count);
+    this.buf.set(src.subarray(from, from + count), this.len);
+    this.len += count;
+  }
+  copyBack(distance, count) {
+    this.reserve(count);
+    const b = this.buf;
+    let src = this.len - distance;
+    let dst = this.len;
+    for (let i = 0; i < count; i++) b[dst + i] = b[src + i];
+    this.len += count;
+  }
+  finish() {
+    return this.buf.slice(0, this.len);
+  }
+};
+function inflateZlib(data, opts) {
+  const maxBytes = opts?.maxBytes ?? DEFAULT_MAX_BYTES;
+  try {
+    if (data.length < 6) {
+      throw new ZlibError(`zlib \u6570\u636E\u8FC7\u77ED\uFF1A${data.length} \u5B57\u8282\uFF08\u81F3\u5C11 6\uFF09`);
+    }
+    const cmf = data[0];
+    const flg = data[1];
+    if ((cmf & 15) !== 8) {
+      throw new ZlibError(`zlib CM=${cmf & 15}\uFF08\u53EA\u652F\u6301 8 = deflate\uFF09`);
+    }
+    if (cmf >> 4 > 7) {
+      throw new ZlibError(`zlib CINFO=${cmf >> 4} \u975E\u6CD5\uFF08\u7A97\u53E3 > 32K\uFF0C\u89C4\u8303\u4E0A\u9650 7\uFF09`);
+    }
+    if ((cmf << 8 | flg) % 31 !== 0) {
+      throw new ZlibError(
+        `zlib \u5934\u6821\u9A8C\u5931\u8D25\uFF1ACMF=0x${cmf.toString(16)} FLG=0x${flg.toString(16)}\uFF0C(CMF*256+FLG)%31 != 0`
+      );
+    }
+    if ((flg & 32) !== 0) {
+      throw new ZlibError("zlib FDICT=1\uFF1A\u4E0D\u652F\u6301\u9884\u7F6E\u5B57\u5178\uFF08PNG \u4E0D\u4F1A\u7528\uFF09");
+    }
+    const br = new BitReader(data, 2);
+    const sink = new ByteSink(opts?.sizeHint !== void 0 ? opts.sizeHint : 64 * 1024, maxBytes);
+    const fail2 = (msg2) => {
+      throw new ZlibError(`${msg2} at byte ${br.pos}`);
+    };
+    let isFinal = 0;
+    do {
+      isFinal = br.readBits(1);
+      const type = br.readBits(2);
+      if (type === 0) {
+        br.alignToByte();
+        const len = br.u16le();
+        const nlen = br.u16le();
+        if (((len ^ 65535) & 65535) !== nlen) {
+          fail2(`stored \u5757\u7684 LEN/NLEN \u4E0D\u4E92\u8865\uFF1ALEN=${len} NLEN=${nlen}`);
+        }
+        if (br.pos + len > data.length) {
+          fail2(`stored \u5757\u622A\u65AD\uFF1A\u9700\u8981 ${len} \u5B57\u8282\uFF0C\u5269\u4F59 ${data.length - br.pos}`);
+        }
+        sink.writeBytes(data, br.pos, len);
+        br.pos += len;
+      } else if (type === 1 || type === 2) {
+        let lit;
+        let dist;
+        if (type === 1) {
+          lit = getFixedLit();
+          dist = getFixedDist();
+        } else {
+          const tables = readDynamicTables(br, fail2);
+          lit = tables.lit;
+          dist = tables.dist;
+        }
+        decodeCompressed(br, lit, dist, sink, fail2);
+      } else {
+        fail2(`invalid block type ${type}\uFF08deflate \u53EA\u6709 0/1/2\uFF09`);
+      }
+    } while (isFinal === 0);
+    br.alignToByte();
+    if (br.pos + 4 > data.length) {
+      throw new ZlibError(`zlib \u6D41\u7F3A\u5C11 adler32 \u5C3E\uFF08pos=${br.pos} \u957F\u5EA6=${data.length}\uFF09`);
+    }
+    const expected = (data[br.pos] << 24 | data[br.pos + 1] << 16 | data[br.pos + 2] << 8 | data[br.pos + 3]) >>> 0;
+    const actual = adler32(sink.buf.subarray(0, sink.len));
+    if (expected !== actual) {
+      throw new ZlibError(
+        `adler32 \u6821\u9A8C\u5931\u8D25\uFF1A\u671F\u671B 0x${expected.toString(16).padStart(8, "0")}\uFF0C\u5B9E\u9645 0x${actual.toString(16).padStart(8, "0")}`
+      );
+    }
+    if (br.pos + 4 !== data.length) {
+      throw new ZlibError(`zlib \u6D41\u540E\u6709 ${data.length - (br.pos + 4)} \u5B57\u8282\u591A\u4F59\u6570\u636E\uFF08pos=${br.pos + 4}\uFF09`);
+    }
+    return ok(sink.finish());
+  } catch (e) {
+    if (e instanceof ZlibError) return err(engineError(InflateErrorCode.BadZlib, e.message));
+    return err(
+      engineError(InflateErrorCode.BadZlib, `inflate \u5185\u90E8\u9519\u8BEF\uFF1A${e instanceof Error ? e.message : String(e)}`)
+    );
+  }
+}
+function readDynamicTables(br, fail2) {
+  const hlit = br.readBits(5) + 257;
+  const hdist = br.readBits(5) + 1;
+  const hclen = br.readBits(4) + 4;
+  if (hlit > 286) fail2(`HLIT=${hlit - 257} \u975E\u6CD5\uFF08\u6700\u591A 286 \u4E2A\u5B57\u9762\u91CF/\u957F\u5EA6\u7801\uFF09`);
+  if (hdist > 30) fail2(`HDIST=${hdist - 1} \u975E\u6CD5\uFF08\u6700\u591A 30 \u4E2A\u8DDD\u79BB\u7801\uFF09`);
+  const clenLengths = new Uint8Array(19);
+  for (let i2 = 0; i2 < hclen; i2++) clenLengths[CLEN_ORDER[i2]] = br.readBits(3);
+  let clen;
+  try {
+    clen = buildHuffman(clenLengths);
+  } catch (e) {
+    fail2(`\u7801\u957F\u8868\u7684 Huffman \u6784\u9020\u5931\u8D25\uFF1A${e instanceof Error ? e.message : String(e)}`);
+  }
+  const total = hlit + hdist;
+  const lengths = new Uint8Array(total);
+  let i = 0;
+  while (i < total) {
+    const sym = br.decode(clen);
+    if (sym < 16) {
+      lengths[i++] = sym;
+    } else if (sym === 16) {
+      if (i === 0) fail2("\u7801\u957F\u91CD\u590D\u7801 16 \u51FA\u73B0\u5728\u7B2C\u4E00\u4E2A\u7801\u957F\u4E4B\u524D\uFF08\u6CA1\u6709\u53EF\u590D\u5236\u7684\u4E0A\u4E00\u4E2A\u503C\uFF09");
+      const repeat = br.readBits(2) + 3;
+      if (i + repeat > total) fail2(`\u7801\u957F\u91CD\u590D\u7801 16 \u8D8A\u754C\uFF1Ai=${i} repeat=${repeat} total=${total}`);
+      const prev = lengths[i - 1];
+      for (let k = 0; k < repeat; k++) lengths[i++] = prev;
+    } else if (sym === 17) {
+      const repeat = br.readBits(3) + 3;
+      if (i + repeat > total) fail2(`\u7801\u957F\u91CD\u590D\u7801 17 \u8D8A\u754C\uFF1Ai=${i} repeat=${repeat} total=${total}`);
+      i += repeat;
+    } else if (sym === 18) {
+      const repeat = br.readBits(7) + 11;
+      if (i + repeat > total) fail2(`\u7801\u957F\u91CD\u590D\u7801 18 \u8D8A\u754C\uFF1Ai=${i} repeat=${repeat} total=${total}`);
+      i += repeat;
+    } else {
+      fail2(`\u975E\u6CD5\u7801\u957F\u7B26\u53F7 ${sym}\uFF08\u53EA\u5141\u8BB8 0..18\uFF09`);
+    }
+  }
+  const litLengths = lengths.subarray(0, hlit);
+  const distLengths = lengths.subarray(hlit);
+  if (litLengths[256] === 0) fail2("\u5B57\u9762\u91CF\u8868\u7F3A\u5C11\u5757\u7ED3\u675F\u7B26 256 \u7684\u7801\u5B57");
+  try {
+    return { lit: buildHuffman(litLengths), dist: buildHuffman(distLengths) };
+  } catch (e) {
+    fail2(`Huffman \u8868\u6784\u9020\u5931\u8D25\uFF1A${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+function decodeCompressed(br, lit, dist, sink, fail2) {
+  for (; ; ) {
+    const sym = br.decode(lit);
+    if (sym < 256) {
+      sink.writeByte(sym);
+      continue;
+    }
+    if (sym === 256) return;
+    if (sym > 285) fail2(`\u975E\u6CD5\u957F\u5EA6\u7B26\u53F7 ${sym}\uFF08286/287 \u4FDD\u7559\uFF09`);
+    const li = sym - 257;
+    const length = LEN_BASE[li] + br.readBits(LEN_EXTRA[li]);
+    const dsym = br.decode(dist);
+    if (dsym > 29) fail2(`\u975E\u6CD5\u8DDD\u79BB\u7B26\u53F7 ${dsym}\uFF0830/31 \u4FDD\u7559\uFF09`);
+    const distance = DIST_BASE[dsym] + br.readBits(DIST_EXTRA[dsym]);
+    if (distance > sink.len) {
+      fail2(`invalid distance ${distance} > \u5DF2\u4EA7\u51FA ${sink.len} \u5B57\u8282`);
+    }
+    sink.copyBack(distance, length);
+  }
+}
+
+// src/extensions/asset-import/decode/png.ts
+var PngErrorCode = {
+  BadPng: "ASSET.BAD_PNG",
+  BadApng: "ASSET.BAD_APNG",
+  Unsupported: "ASSET.UNSUPPORTED_PNG",
+  /** 仅在 `interlace: "reject"` 时出现：解码器有能力，但调用方显式关掉了。 */
+  UnsupportedInterlace: "ASSET.UNSUPPORTED_INTERLACE",
+  /** 仅在 `apng: "reject"` 时出现。 */
+  UnsupportedAnimation: "ASSET.UNSUPPORTED_ANIMATION"
+};
+var SIGNATURE = [137, 80, 78, 71, 13, 10, 26, 10];
+var DEFAULT_MAX_BYTES2 = 256 * 1024 * 1024;
+var IHDR_BYTES = 13;
+var CHANNELS = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 };
+var LEGAL_DEPTHS = {
+  0: [1, 2, 4, 8, 16],
+  2: [8, 16],
+  3: [1, 2, 4, 8],
+  4: [8, 16],
+  6: [8, 16]
+};
+var ADAM7_PASSES = [
+  { xStart: 0, yStart: 0, xStep: 8, yStep: 8 },
+  { xStart: 4, yStart: 0, xStep: 8, yStep: 8 },
+  { xStart: 0, yStart: 4, xStep: 4, yStep: 8 },
+  { xStart: 2, yStart: 0, xStep: 4, yStep: 4 },
+  { xStart: 0, yStart: 2, xStep: 2, yStep: 4 },
+  { xStart: 1, yStart: 0, xStep: 2, yStep: 2 },
+  { xStart: 0, yStart: 1, xStep: 1, yStep: 2 }
+];
+var SINGLE_PASS = [{ xStart: 0, yStart: 0, xStep: 1, yStep: 1 }];
+var CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 3988292384 ^ c >>> 1 : c >>> 1;
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+function crc32(bytes, from, to) {
+  let c = 4294967295;
+  for (let i = from; i < to; i++) c = CRC_TABLE[(c ^ bytes[i]) & 255] ^ c >>> 8;
+  return (c ^ 4294967295) >>> 0;
+}
+function u32be(b, at) {
+  return (b[at] << 24 | b[at + 1] << 16 | b[at + 2] << 8 | b[at + 3]) >>> 0;
+}
+function ascii4(b, at) {
+  return String.fromCharCode(b[at], b[at + 1], b[at + 2], b[at + 3]);
+}
+function hex32(v) {
+  return `0x${v.toString(16).padStart(8, "0")}`;
+}
+function bad3(why, detail) {
+  return detail === void 0 ? engineError(PngErrorCode.BadPng, why) : engineError(PngErrorCode.BadPng, why, detail);
+}
+function scanPng(bytes) {
+  if (bytes.length < SIGNATURE.length) {
+    return err(bad3(`\u6587\u4EF6\u8FC7\u77ED\uFF1A${bytes.length} \u5B57\u8282\uFF0C\u8FDE PNG \u7B7E\u540D\u90FD\u4E0D\u591F\uFF088 \u5B57\u8282\uFF09`));
+  }
+  for (let i = 0; i < SIGNATURE.length; i++) {
+    if (bytes[i] !== SIGNATURE[i]) {
+      return err(
+        bad3(
+          `PNG \u7B7E\u540D\u4E0D\u5339\u914D\uFF1A\u671F\u671B 89 50 4e 47 0d 0a 1a 0a\uFF0C\u5B9E\u9645 ${Array.from(
+            bytes.subarray(0, 8),
+            (x) => x.toString(16).padStart(2, "0")
+          ).join(" ")}`
+        )
+      );
+    }
+  }
+  let ihdr;
+  let palette;
+  let trns;
+  const idat = [];
+  const chunks = [];
+  let iendEnd = -1;
+  let at = SIGNATURE.length;
+  while (at < bytes.length) {
+    if (at + 8 > bytes.length) {
+      return err(bad3(`\u5757\u5934\u622A\u65AD\uFF1A\u504F\u79FB ${at} \u5904\u53EA\u5269 ${bytes.length - at} \u5B57\u8282\uFF08\u5757\u5934 8 \u5B57\u8282\uFF09`));
+    }
+    const length = u32be(bytes, at);
+    const type = ascii4(bytes, at + 4);
+    if (length > 2147483647) {
+      return err(bad3(`\u5757 "${type}" \u957F\u5EA6 ${length} \u975E\u6CD5\uFF08> 2^31-1\uFF09`, { offset: at }));
+    }
+    const dataStart = at + 8;
+    const crcAt = dataStart + length;
+    if (crcAt + 4 > bytes.length) {
+      return err(
+        bad3(
+          `\u5757 "${type}" \u8D8A\u754C\uFF08\u622A\u65AD\uFF09\uFF1A\u504F\u79FB ${at}\uFF0C\u957F\u5EA6 ${length}\uFF0C\u6587\u4EF6\u53EA\u5269 ${bytes.length - dataStart} \u5B57\u8282`,
+          { chunk: type, offset: at }
+        )
+      );
+    }
+    const expectedCrc = u32be(bytes, crcAt);
+    const actualCrc = crc32(bytes, at + 4, crcAt);
+    if (expectedCrc !== actualCrc) {
+      return err(
+        bad3(
+          `\u5757 "${type}" CRC \u6821\u9A8C\u5931\u8D25\uFF1A\u671F\u671B ${hex32(expectedCrc)}\uFF0C\u5B9E\u9645 ${hex32(actualCrc)}\uFF08\u504F\u79FB ${at}\uFF09`,
+          { chunk: type, offset: at }
+        )
+      );
+    }
+    const chunk = { type, start: at, dataStart, length };
+    if (ihdr === void 0) {
+      if (type !== "IHDR") {
+        return err(bad3(`\u7B2C\u4E00\u4E2A\u5757\u5FC5\u987B\u662F IHDR\uFF0C\u5B9E\u9645\u662F "${type}"`));
+      }
+      if (length !== IHDR_BYTES) {
+        return err(bad3(`IHDR \u6570\u636E\u957F\u5EA6 ${length}\uFF08\u5FC5\u987B 13\uFF09`));
+      }
+      ihdr = chunk;
+    } else if (type === "IHDR") {
+      return err(bad3("\u51FA\u73B0\u7B2C\u4E8C\u4E2A IHDR"));
+    } else if (type === "PLTE") {
+      if (palette !== void 0) return err(bad3("\u51FA\u73B0\u7B2C\u4E8C\u4E2A PLTE"));
+      if (idat.length > 0) return err(bad3("PLTE \u51FA\u73B0\u5728 IDAT \u4E4B\u540E\uFF08\u89C4\u8303\u8981\u6C42\u4E4B\u524D\uFF09"));
+      if (length === 0 || length % 3 !== 0 || length > 768) {
+        return err(bad3(`PLTE \u957F\u5EA6 ${length} \u975E\u6CD5\uFF08\u5E94\u4E3A 3 \u7684\u500D\u6570\u4E14 \u2264768\uFF09`));
+      }
+      palette = chunk;
+    } else if (type === "tRNS") {
+      if (trns !== void 0) return err(bad3("\u51FA\u73B0\u7B2C\u4E8C\u4E2A tRNS"));
+      if (idat.length > 0) return err(bad3("tRNS \u51FA\u73B0\u5728 IDAT \u4E4B\u540E\uFF08\u89C4\u8303\u8981\u6C42\u4E4B\u524D\uFF09"));
+      trns = chunk;
+    } else if (type === "IDAT") {
+      idat.push(chunk);
+    } else if (type === "IEND") {
+      if (length !== 0) return err(bad3(`IEND \u6570\u636E\u957F\u5EA6 ${length}\uFF08\u5FC5\u987B 0\uFF09`));
+      iendEnd = crcAt + 4;
+      chunks.push(chunk);
+      break;
+    } else if ((bytes[at + 4] & 32) === 0) {
+      return err(
+        engineError(
+          PngErrorCode.Unsupported,
+          `\u672A\u77E5\u5173\u952E\u5757 "${type}"\uFF08\u4FDD\u7559\u4F4D\u5FC5\u987B\u4E3A 0\uFF1B\u672C\u89E3\u7801\u5668\u4E0D\u8BA4\u8BC6\u5B83\uFF0C\u4E0D\u80FD\u731C\u7740\u8DF3\u8FC7\uFF09`,
+          { chunk: type, offset: at }
+        )
+      );
+    }
+    chunks.push(chunk);
+    at = crcAt + 4;
+  }
+  if (ihdr === void 0) return err(bad3("\u6CA1\u6709 IHDR"));
+  if (iendEnd < 0) {
+    return err(bad3("\u7F3A\u5C11 IEND\uFF08\u6587\u4EF6\u5728\u6700\u540E\u4E00\u4E2A\u5757\u4E4B\u540E\u7ED3\u675F\uFF0C\u53EF\u80FD\u88AB\u622A\u65AD\uFF09"));
+  }
+  if (idat.length === 0) return err(bad3("\u6CA1\u6709 IDAT\uFF1A\u6587\u4EF6\u91CC\u6CA1\u6709\u4EFB\u4F55\u56FE\u50CF\u6570\u636E"));
+  if (iendEnd !== bytes.length) {
+    return err(bad3(`IEND \u4E4B\u540E\u8FD8\u6709 ${bytes.length - iendEnd} \u5B57\u8282\u6570\u636E\uFF08PNG \u4E0D\u5141\u8BB8\u5C3E\u90E8\u9644\u52A0\u5185\u5BB9\uFF09`));
+  }
+  const header = readHeader(bytes, ihdr);
+  if (!header.ok) return err(header.error);
+  return ok({ header: header.value, ihdr, palette, trns, idat, chunks });
+}
+function readHeader(bytes, c) {
+  const width = u32be(bytes, c.dataStart);
+  const height = u32be(bytes, c.dataStart + 4);
+  const bitDepth = bytes[c.dataStart + 8];
+  const colorType = bytes[c.dataStart + 9];
+  const compression = bytes[c.dataStart + 10];
+  const filter = bytes[c.dataStart + 11];
+  const interlace = bytes[c.dataStart + 12];
+  if (width === 0 || height === 0) return err(bad3(`IHDR \u5BBD\u9AD8\u5FC5\u987B\u975E 0\uFF0C\u5B9E\u9645 ${width}\xD7${height}`));
+  if (compression !== 0) return err(bad3(`IHDR compression=${compression}\uFF08\u53EA\u652F\u6301 0\uFF09`));
+  if (filter !== 0) return err(bad3(`IHDR filter method=${filter}\uFF08\u53EA\u652F\u6301 0\uFF09`));
+  if (interlace !== 0 && interlace !== 1) {
+    return err(bad3(`IHDR interlace=${interlace} \u975E\u6CD5\uFF08\u53EA\u5141\u8BB8 0/1\uFF09`));
+  }
+  return ok({ width, height, bitDepth, colorType, interlace });
+}
+function validateFormat(header, palette) {
+  const channels = CHANNELS[header.colorType];
+  if (channels === void 0) {
+    return err(
+      engineError(
+        PngErrorCode.Unsupported,
+        `\u672A\u77E5 colorType=${header.colorType}\uFF08\u5141\u8BB8 0/2/3/4/6\uFF1B7 \u53CA\u4FDD\u7559\u503C\u4E00\u5F8B\u62D2\u7EDD\uFF09`,
+        { colorType: header.colorType }
+      )
+    );
+  }
+  const legal = LEGAL_DEPTHS[header.colorType];
+  if (!legal.includes(header.bitDepth)) {
+    return err(
+      engineError(
+        PngErrorCode.Unsupported,
+        `\u4E0D\u652F\u6301\u7684 colorType/bitDepth \u7EC4\u5408\uFF1AcolorType=${header.colorType} bitDepth=${header.bitDepth}\uFF08\u8BE5 colorType \u5141\u8BB8 ${legal.join("/")}\uFF09`,
+        { colorType: header.colorType, bitDepth: header.bitDepth }
+      )
+    );
+  }
+  if (header.colorType === 3 && palette === void 0) {
+    return err(bad3("colorType=3\uFF08\u8C03\u8272\u677F\uFF09\u4F46\u6587\u4EF6\u91CC\u6CA1\u6709 PLTE \u5757"));
+  }
+  return ok(channels);
+}
+function planPasses(width, height, bitsPerPixel, interlace) {
+  const defs = interlace === 1 ? ADAM7_PASSES : SINGLE_PASS;
+  const out = [];
+  for (const d of defs) {
+    const w = width > d.xStart ? Math.ceil((width - d.xStart) / d.xStep) : 0;
+    const h = height > d.yStart ? Math.ceil((height - d.yStart) / d.yStep) : 0;
+    if (w === 0 || h === 0) continue;
+    out.push({ ...d, width: w, height: h, stride: Math.ceil(w * bitsPerPixel / 8) });
+  }
+  return out;
+}
+function paeth(a, b, c) {
+  const p = a + b - c;
+  const pa = Math.abs(p - a);
+  const pb = Math.abs(p - b);
+  const pc = Math.abs(p - c);
+  if (pa <= pb && pa <= pc) return a;
+  if (pb <= pc) return b;
+  return c;
+}
+function unfilter(raw, stride, height, bpp) {
+  const out = new Uint8Array(stride * height);
+  for (let y = 0; y < height; y++) {
+    const rowStart = y * (stride + 1);
+    const ft = raw[rowStart];
+    const src = rowStart + 1;
+    const dst = y * stride;
+    if (ft === 0) {
+      out.set(raw.subarray(src, src + stride), dst);
+      continue;
+    }
+    if (ft > 4) return err(bad3(`\u7B2C ${y} \u884C\u7684\u6EE4\u6CE2\u7C7B\u578B ${ft} \u975E\u6CD5\uFF08\u53EA\u5141\u8BB8 0..4\uFF09`));
+    for (let x = 0; x < stride; x++) {
+      const cur = raw[src + x];
+      const left = x >= bpp ? out[dst + x - bpp] : 0;
+      const up = y > 0 ? out[dst - stride + x] : 0;
+      const upLeft = y > 0 && x >= bpp ? out[dst - stride + x - bpp] : 0;
+      let v;
+      switch (ft) {
+        case 1:
+          v = cur + left;
+          break;
+        case 2:
+          v = cur + up;
+          break;
+        case 3:
+          v = cur + (left + up >> 1);
+          break;
+        default:
+          v = cur + paeth(left, up, upLeft);
+          break;
+      }
+      out[dst + x] = v & 255;
+    }
+  }
+  return ok(out);
+}
+function sampleU16(row, byteIndex) {
+  return row[byteIndex] << 8 | row[byteIndex + 1];
+}
+function subByteSample(row, x, bitDepth) {
+  const perByte = 8 / bitDepth;
+  const byte = row[Math.floor(x / perByte)];
+  const shift = 8 - bitDepth * (x % perByte + 1);
+  return byte >> shift & (1 << bitDepth) - 1;
+}
+function narrow16(v) {
+  return Math.round(v / 257);
+}
+function put(ctx, o, r, g, b, a, r16, g16, b16, a16) {
+  ctx.out[o] = r;
+  ctx.out[o + 1] = g;
+  ctx.out[o + 2] = b;
+  ctx.out[o + 3] = a;
+  if (ctx.out16 !== void 0) {
+    ctx.out16[o] = r16;
+    ctx.out16[o + 1] = g16;
+    ctx.out16[o + 2] = b16;
+    ctx.out16[o + 3] = a16;
+  }
+}
+function writeGray(ctx, passes, bitDepth, trnsGray) {
+  const maxV = (1 << bitDepth) - 1;
+  for (const p of passes) {
+    for (let py = 0; py < p.height; py++) {
+      const row = p.raw.subarray(py * p.stride, (py + 1) * p.stride);
+      const y = p.yStart + py * p.yStep;
+      for (let px = 0; px < p.width; px++) {
+        const x = p.xStart + px * p.xStep;
+        const o = (y * ctx.imageWidth + x) * 4;
+        let v;
+        if (bitDepth === 16) v = sampleU16(row, px * 2);
+        else if (bitDepth === 8) v = row[px];
+        else v = subByteSample(row, px, bitDepth);
+        const a = v === trnsGray ? 0 : 255;
+        if (bitDepth === 16) {
+          put(ctx, o, narrow16(v), narrow16(v), narrow16(v), a, v, v, v, a === 0 ? 0 : 65535);
+        } else {
+          const g = bitDepth === 8 ? v : Math.round(v * 255 / maxV);
+          const g16 = bitDepth === 8 ? v * 257 : Math.round(v * 65535 / maxV);
+          put(ctx, o, g, g, g, a, g16, g16, g16, a === 0 ? 0 : 65535);
+        }
+      }
+    }
+  }
+}
+function writeRgb(ctx, passes, bitDepth, trnsR, trnsG, trnsB) {
+  for (const p of passes) {
+    for (let py = 0; py < p.height; py++) {
+      const row = p.raw.subarray(py * p.stride, (py + 1) * p.stride);
+      const y = p.yStart + py * p.yStep;
+      for (let px = 0; px < p.width; px++) {
+        const x = p.xStart + px * p.xStep;
+        const o = (y * ctx.imageWidth + x) * 4;
+        let r;
+        let g;
+        let b;
+        let r16;
+        let g16;
+        let b16;
+        if (bitDepth === 16) {
+          r16 = sampleU16(row, px * 6);
+          g16 = sampleU16(row, px * 6 + 2);
+          b16 = sampleU16(row, px * 6 + 4);
+          r = narrow16(r16);
+          g = narrow16(g16);
+          b = narrow16(b16);
+        } else {
+          r = r16 = row[px * 3];
+          g = g16 = row[px * 3 + 1];
+          b = b16 = row[px * 3 + 2];
+          r16 *= 257;
+          g16 *= 257;
+          b16 *= 257;
+        }
+        const keyed = bitDepth === 16 ? r16 === trnsR && g16 === trnsG && b16 === trnsB : r === trnsR && g === trnsG && b === trnsB;
+        put(ctx, o, r, g, b, keyed ? 0 : 255, r16, g16, b16, keyed ? 0 : 65535);
+      }
+    }
+  }
+}
+function writePalette(ctx, passes, bitDepth, palette, trns, state) {
+  const entries = palette.length / 3;
+  for (const p of passes) {
+    for (let py = 0; py < p.height; py++) {
+      const row = p.raw.subarray(py * p.stride, (py + 1) * p.stride);
+      const y = p.yStart + py * p.yStep;
+      for (let px = 0; px < p.width; px++) {
+        const x = p.xStart + px * p.xStep;
+        const idx = bitDepth === 8 ? row[px] : subByteSample(row, px, bitDepth);
+        if (idx >= entries) {
+          return err(
+            bad3(`\u8C03\u8272\u677F\u7D22\u5F15\u8D8A\u754C\uFF1A\u7B2C (${x},${y}) \u50CF\u7D20\u7D22\u5F15 ${idx}\uFF0CPLTE \u53EA\u6709 ${entries} \u9879`, { x, y, index: idx })
+          );
+        }
+        const o = (y * ctx.imageWidth + x) * 4;
+        const r = palette[idx * 3];
+        const g = palette[idx * 3 + 1];
+        const b = palette[idx * 3 + 2];
+        const a = trns !== void 0 && idx < trns.length ? trns[idx] : 255;
+        if (a < 255) state.paletteAlpha = true;
+        put(ctx, o, r, g, b, a, r * 257, g * 257, b * 257, a * 257);
+      }
+    }
+  }
+  return ok(void 0);
+}
+function writeGrayAlpha(ctx, passes, bitDepth) {
+  for (const p of passes) {
+    for (let py = 0; py < p.height; py++) {
+      const row = p.raw.subarray(py * p.stride, (py + 1) * p.stride);
+      const y = p.yStart + py * p.yStep;
+      for (let px = 0; px < p.width; px++) {
+        const x = p.xStart + px * p.xStep;
+        const o = (y * ctx.imageWidth + x) * 4;
+        if (bitDepth === 16) {
+          const v = sampleU16(row, px * 4);
+          const a = sampleU16(row, px * 4 + 2);
+          const g = narrow16(v);
+          put(ctx, o, g, g, g, narrow16(a), v, v, v, a);
+        } else {
+          const v = row[px * 2];
+          const a = row[px * 2 + 1];
+          put(ctx, o, v, v, v, a, v * 257, v * 257, v * 257, a * 257);
+        }
+      }
+    }
+  }
+}
+function writeRgba(ctx, passes, bitDepth) {
+  for (const p of passes) {
+    for (let py = 0; py < p.height; py++) {
+      const row = p.raw.subarray(py * p.stride, (py + 1) * p.stride);
+      const y = p.yStart + py * p.yStep;
+      for (let px = 0; px < p.width; px++) {
+        const x = p.xStart + px * p.xStep;
+        const o = (y * ctx.imageWidth + x) * 4;
+        if (bitDepth === 16) {
+          const r = sampleU16(row, px * 8);
+          const g = sampleU16(row, px * 8 + 2);
+          const b = sampleU16(row, px * 8 + 4);
+          const a = sampleU16(row, px * 8 + 6);
+          put(ctx, o, narrow16(r), narrow16(g), narrow16(b), narrow16(a), r, g, b, a);
+        } else {
+          const r = row[px * 4];
+          const g = row[px * 4 + 1];
+          const b = row[px * 4 + 2];
+          const a = row[px * 4 + 3];
+          put(ctx, o, r, g, b, a, r * 257, g * 257, b * 257, a * 257);
+        }
+      }
+    }
+  }
+}
+function toRgba(passes, header, palette, trns, keep16) {
+  const { width, height, colorType, bitDepth } = header;
+  const pixels = new Uint8Array(width * height * 4);
+  const pixels16 = keep16 ? new Uint16Array(width * height * 4) : void 0;
+  const ctx = { out: pixels, out16: pixels16, imageWidth: width };
+  const state = { paletteAlpha: false };
+  let trnsGray = -1;
+  let trnsR = -1;
+  let trnsG = -1;
+  let trnsB = -1;
+  if (trns !== void 0) {
+    if (colorType === 0) {
+      if (trns.length !== 2) return err(bad3(`\u7070\u5EA6\u56FE\u7684 tRNS \u957F\u5EA6\u5FC5\u987B\u662F 2\uFF0C\u5B9E\u9645 ${trns.length}`));
+      trnsGray = trns[0] << 8 | trns[1];
+    } else if (colorType === 2) {
+      if (trns.length !== 6) return err(bad3(`RGB \u56FE\u7684 tRNS \u957F\u5EA6\u5FC5\u987B\u662F 6\uFF0C\u5B9E\u9645 ${trns.length}`));
+      trnsR = trns[0] << 8 | trns[1];
+      trnsG = trns[2] << 8 | trns[3];
+      trnsB = trns[4] << 8 | trns[5];
+    } else if (colorType !== 3) {
+      return err(bad3(`colorType=${colorType} \u4E0D\u5141\u8BB8 tRNS\uFF08\u8BE5\u7C7B\u578B\u81EA\u5E26 alpha \u901A\u9053\uFF09`));
+    }
+  }
+  switch (colorType) {
+    case 0:
+      writeGray(ctx, passes, bitDepth, trnsGray);
+      break;
+    case 2:
+      writeRgb(ctx, passes, bitDepth, trnsR, trnsG, trnsB);
+      break;
+    case 3: {
+      const r = writePalette(ctx, passes, bitDepth, palette, trns, state);
+      if (!r.ok) return err(r.error);
+      break;
+    }
+    case 4:
+      writeGrayAlpha(ctx, passes, bitDepth);
+      break;
+    default:
+      writeRgba(ctx, passes, bitDepth);
+      break;
+  }
+  return ok({
+    pixels,
+    pixels16,
+    usedTransparencyKey: colorType === 0 && trnsGray >= 0 || colorType === 2 && trnsR >= 0,
+    paletteAlpha: state.paletteAlpha
+  });
+}
+function decodeZlibImage(compressed, header, width, height, palette, trns, opts = {}) {
+  const channels = CHANNELS[header.colorType];
+  if (channels === void 0) {
+    return err(
+      engineError(PngErrorCode.Unsupported, `\u672A\u77E5 colorType=${header.colorType}`, { colorType: header.colorType })
+    );
+  }
+  const bitsPerPixel = channels * header.bitDepth;
+  const bpp = Math.max(1, Math.ceil(bitsPerPixel / 8));
+  const passes = planPasses(width, height, bitsPerPixel, header.interlace);
+  const rawBytes = passes.reduce((n, p) => n + (p.stride + 1) * p.height, 0);
+  const label = opts.label ?? "PNG";
+  const maxBytes = opts.maxBytes ?? DEFAULT_MAX_BYTES2;
+  if (rawBytes > maxBytes) {
+    return err(
+      bad3(
+        `${label} \u7684\u626B\u63CF\u7EBF\u7EA6 ${rawBytes} \u5B57\u8282\uFF0C\u8D85\u8FC7 maxBytes=${maxBytes}\uFF08\u89E3\u538B\u70B8\u5F39\u4FDD\u62A4\uFF09`,
+        { width, height, rawBytes, maxBytes }
+      )
+    );
+  }
+  const inflated = inflateZlib(compressed, { maxBytes: rawBytes, sizeHint: rawBytes });
+  if (!inflated.ok) {
+    return err(
+      engineError(
+        PngErrorCode.BadPng,
+        `${label} \u89E3\u538B\u5931\u8D25\uFF08${compressed.length} \u5B57\u8282\u538B\u7F29\u6570\u636E\uFF0C\u671F\u671B ${rawBytes}\uFF09\uFF1A${inflated.error.message}`
+      )
+    );
+  }
+  const raw = inflated.value;
+  if (raw.length !== rawBytes) {
+    return err(
+      bad3(
+        `${label} \u626B\u63CF\u7EBF\u6570\u636E\u957F\u5EA6\u4E0D\u5BF9\uFF1A\u671F\u671B ${rawBytes}${header.interlace === 1 ? `\uFF08Adam7 \u4E03\u4E2A pass \u4E4B\u548C\uFF0C\u975E\u9694\u884C\u5E94\u4E3A ${height * (Math.ceil(width * bitsPerPixel / 8) + 1)}\uFF09` : ""}\uFF0C\u5B9E\u9645 ${raw.length}\u3002IDAT \u88AB\u622A\u65AD\u6216 IHDR \u4E0E\u5B9E\u9645\u6570\u636E\u4E0D\u7B26 \u2014\u2014 \u62D2\u7EDD\u8FD4\u56DE\u534A\u5F20\u56FE\u3002`,
+        { expectedRaw: rawBytes, actual: raw.length, interlace: header.interlace }
+      )
+    );
+  }
+  const filled = [];
+  let at = 0;
+  for (const p of passes) {
+    const bytes = (p.stride + 1) * p.height;
+    const slice = raw.subarray(at, at + bytes);
+    at += bytes;
+    const u = unfilter(slice, p.stride, p.height, bpp);
+    if (!u.ok) return err(u.error);
+    filled.push({ ...p, raw: u.value });
+  }
+  const rgba = toRgba(filled, { ...header, width, height }, palette, trns, opts.keep16 === true);
+  if (!rgba.ok) return err(rgba.error);
+  return ok({ ...rgba.value, bitDepth: header.bitDepth, colorType: header.colorType });
+}
+function readAnimationInfo(bytes, chunks) {
+  const actl = chunks.find((c) => c.type === "acTL");
+  if (actl === void 0) return ok(void 0);
+  if (actl.length !== 8) {
+    return err(
+      engineError(PngErrorCode.BadApng, `acTL \u6570\u636E\u957F\u5EA6 ${actl.length}\uFF08\u5FC5\u987B 8\uFF09`, { chunk: "acTL" })
+    );
+  }
+  const frameCount = u32be(bytes, actl.dataStart);
+  const loopCount = u32be(bytes, actl.dataStart + 4);
+  if (frameCount === 0) {
+    return err(engineError(PngErrorCode.BadApng, "acTL.num_frames=0\uFF08\u52A8\u56FE\u81F3\u5C11\u8981\u6709\u4E00\u5E27\uFF09", { chunk: "acTL" }));
+  }
+  const firstIdat = chunks.find((c) => c.type === "IDAT");
+  if (firstIdat !== void 0 && actl.start > firstIdat.start) {
+    return err(
+      engineError(PngErrorCode.BadApng, "acTL \u51FA\u73B0\u5728 IDAT \u4E4B\u540E\uFF08APNG \u89C4\u8303\u8981\u6C42\u4E4B\u524D\uFF09", { chunk: "acTL" })
+    );
+  }
+  return ok({ frameCount, loopCount });
+}
+function decodePng(bytes, opts) {
+  const maxBytes = opts?.maxBytes ?? DEFAULT_MAX_BYTES2;
+  const scanned = scanPng(bytes);
+  if (!scanned.ok) return err(scanned.error);
+  const { header: h, palette, trns, idat, chunks } = scanned.value;
+  if (h.interlace !== 0 && opts?.interlace === "reject") {
+    return err(
+      engineError(
+        PngErrorCode.UnsupportedInterlace,
+        `PNG \u4F7F\u7528\u4E86 Adam7 \u9694\u884C\uFF08interlace=${h.interlace}\uFF09\uFF0C\u4F46\u8C03\u7528\u65B9\u8981\u6C42 reject\u3002\u672C\u89E3\u7801\u5668\u652F\u6301\u9694\u884C\uFF0C\u53BB\u6389 interlace:"reject" \u5373\u53EF\u89E3\u51FA\u50CF\u7D20\u3002`,
+        { width: h.width, height: h.height }
+      )
+    );
+  }
+  const channels = validateFormat(h, palette);
+  if (!channels.ok) return err(channels.error);
+  const animation = readAnimationInfo(bytes, chunks);
+  if (!animation.ok) return err(animation.error);
+  if (animation.value !== void 0 && opts?.apng === "reject") {
+    return err(
+      engineError(
+        PngErrorCode.UnsupportedAnimation,
+        `\u8FD9\u662F APNG \u52A8\u56FE\uFF08${animation.value.frameCount} \u5E27\uFF09\uFF0C\u4F46\u8C03\u7528\u65B9\u8981\u6C42 reject\u3002\u8981\u5355\u5E27\u8BF7\u7528\u9ED8\u8BA4\u7684 apng:"first-frame"\uFF0C\u8981\u5168\u90E8\u5E27\u8BF7\u7528 decodeApng()\u3002`,
+        { frameCount: animation.value.frameCount }
+      )
+    );
+  }
+  const bitsPerPixel = channels.value * h.bitDepth;
+  if (h.height > 0 && h.width > Math.floor(maxBytes / 4 / h.height)) {
+    return err(
+      bad3(
+        `PNG \u5C3A\u5BF8 ${h.width}\xD7${h.height} \u7684 RGBA8 \u50CF\u7D20\u6570\u8D85\u8FC7 maxBytes=${maxBytes} \u7684\u4E0A\u9650\uFF08\u89E3\u538B\u70B8\u5F39\u4FDD\u62A4\uFF09`,
+        { width: h.width, height: h.height, maxBytes }
+      )
+    );
+  }
+  const rawBytes = planPasses(h.width, h.height, bitsPerPixel, h.interlace).reduce(
+    (n, p) => n + (p.stride + 1) * p.height,
+    0
+  );
+  if (rawBytes > maxBytes) {
+    return err(
+      bad3(
+        `PNG ${h.width}\xD7${h.height} \u7684\u89E3\u538B\u540E\u626B\u63CF\u7EBF\u7EA6 ${rawBytes} \u5B57\u8282\uFF0C\u8D85\u8FC7 maxBytes=${maxBytes}`,
+        { width: h.width, height: h.height, maxBytes }
+      )
+    );
+  }
+  const compressed = new Uint8Array(idat.reduce((n, c) => n + c.length, 0));
+  {
+    let o = 0;
+    for (const c of idat) {
+      compressed.set(bytes.subarray(c.dataStart, c.dataStart + c.length), o);
+      o += c.length;
+    }
+  }
+  const paletteBytes = palette === void 0 ? void 0 : bytes.subarray(palette.dataStart, palette.dataStart + palette.length);
+  const trnsBytes = trns === void 0 ? void 0 : bytes.subarray(trns.dataStart, trns.dataStart + trns.length);
+  const decoded = decodeZlibImage(compressed, h, h.width, h.height, paletteBytes, trnsBytes, {
+    keep16: opts?.keep16,
+    maxBytes,
+    label: `PNG ${h.width}\xD7${h.height}`
+  });
+  if (!decoded.ok) return err(decoded.error);
+  const hasChannelAlpha = h.colorType === 4 || h.colorType === 6;
+  return ok({
+    width: h.width,
+    height: h.height,
+    pixels: decoded.value.pixels,
+    pixels16: decoded.value.pixels16,
+    bitDepth: h.bitDepth,
+    colorType: h.colorType,
+    hasAlpha: hasChannelAlpha || decoded.value.usedTransparencyKey || decoded.value.paletteAlpha,
+    usedTransparencyKey: decoded.value.usedTransparencyKey,
+    interlaced: h.interlace === 1,
+    isApng: animation.value !== void 0,
+    animation: animation.value
+  });
+}
+
+// src/extensions/asset-import/decode/jpeg/types.ts
+var DEFAULT_MAX_PIXELS = 64 * 1024 * 1024;
+var JpegFailure = class extends Error {
+  constructor(code, message, detail) {
+    super(message);
+    this.code = code;
+    this.detail = detail;
+    this.name = "JpegFailure";
+  }
+};
+function fail(code, message, detail) {
+  throw new JpegFailure(code, message, detail);
+}
+
+// src/extensions/asset-import/decode/jpeg/bits.ts
+var BitReader2 = class {
+  constructor(data, start, end) {
+    this.data = data;
+    this.end = end;
+    this.pos = start;
+  }
+  pos;
+  buf = 0;
+  cnt = 0;
+  /** 区间里意外出现了标记（说明预切分与数据不一致）：之后全部补 0，让解码"跑完"而不是死循环。 */
+  stalled = false;
+  push(b) {
+    this.buf = (this.buf << 8 | b) >>> 0;
+    this.cnt += 8;
+  }
+  fill() {
+    while (this.cnt <= 24) {
+      if (this.stalled || this.pos >= this.end) {
+        this.push(0);
+        continue;
+      }
+      const b = this.data[this.pos];
+      if (b !== 255) {
+        this.pos++;
+        this.push(b);
+        continue;
+      }
+      const next = this.pos + 1 < this.end ? this.data[this.pos + 1] : 0;
+      if (next === 0) {
+        this.pos += 2;
+        this.push(255);
+        continue;
+      }
+      this.stalled = true;
+    }
+  }
+  readBit() {
+    if (this.cnt === 0) this.fill();
+    this.cnt--;
+    return this.buf >>> this.cnt & 1;
+  }
+  /** 读 n 位（n ≤ 16），按 JPEG 的 MSB-first 顺序。 */
+  receive(n) {
+    let v = 0;
+    for (let i = 0; i < n; i++) v = v << 1 | this.readBit();
+    return v;
+  }
+};
+function extend(v, n) {
+  if (n === 0) return 0;
+  return v < 1 << n - 1 ? v - (1 << n) + 1 : v;
+}
+var HuffTable = class {
+  constructor(counts, values) {
+    this.counts = counts;
+    this.values = values;
+    let code = 0;
+    let k = 0;
+    for (let len = 1; len <= 16; len++) {
+      const n = counts[len - 1];
+      this.valptr[len] = k;
+      this.mincode[len] = code;
+      if (n > 0) this.maxcode[len] = code + n - 1;
+      k += n;
+      code = code + n << 1;
+    }
+    if (k !== values.length) {
+      fail("ASSET.BAD_JPEG", `DHT \u8868\u81EA\u76F8\u77DB\u76FE\uFF1Acode length \u8BA1\u6570\u5408\u8BA1 ${k}\uFF0C\u5B9E\u9645\u7ED9\u4E86 ${values.length} \u4E2A\u7B26\u53F7`);
+    }
+  }
+  mincode = new Int32Array(17);
+  maxcode = new Int32Array(18).fill(-1);
+  valptr = new Int32Array(17);
+  decode(r) {
+    let code = 0;
+    for (let len = 1; len <= 16; len++) {
+      code = code << 1 | r.readBit();
+      const mx = this.maxcode[len];
+      if (mx >= 0 && code <= mx) {
+        const at = this.valptr[len] + code - this.mincode[len];
+        const v = this.values[at];
+        if (v === void 0) {
+          fail("ASSET.BAD_JPEG", `DHT \u67E5\u8868\u8D8A\u754C\uFF1Alen=${len} code=${code} at=${at}`);
+        }
+        return v;
+      }
+    }
+    fail("ASSET.BAD_JPEG", "\u54C8\u592B\u66FC\u7801\u6D41\u975E\u6CD5\uFF1A\u8FDE\u7EED 16 \u4F4D\u90FD\u6CA1\u6709\u5339\u914D\u7684\u7801\u5B57\uFF08\u6587\u4EF6\u88AB\u622A\u65AD\u6216\u71B5\u6570\u636E\u9519\u4F4D\uFF09");
+  }
+};
+
+// src/extensions/asset-import/decode/jpeg/tables.ts
+var ZIGZAG = new Uint8Array([
+  0,
+  1,
+  8,
+  16,
+  9,
+  2,
+  3,
+  10,
+  17,
+  24,
+  32,
+  25,
+  18,
+  11,
+  4,
+  5,
+  12,
+  19,
+  26,
+  33,
+  40,
+  48,
+  41,
+  34,
+  27,
+  20,
+  13,
+  6,
+  7,
+  14,
+  21,
+  28,
+  35,
+  42,
+  49,
+  56,
+  57,
+  50,
+  43,
+  36,
+  29,
+  22,
+  15,
+  23,
+  30,
+  37,
+  44,
+  51,
+  58,
+  59,
+  52,
+  45,
+  38,
+  31,
+  39,
+  46,
+  53,
+  60,
+  61,
+  54,
+  47,
+  55,
+  62,
+  63
+]);
+var COS = (() => {
+  const t = new Float64Array(64);
+  for (let u = 0; u < 8; u++) {
+    for (let x = 0; x < 8; x++) {
+      t[u * 8 + x] = (u === 0 ? Math.SQRT1_2 : 1) * Math.cos((2 * x + 1) * u * Math.PI / 16) / 2;
+    }
+  }
+  return t;
+})();
+
+// src/extensions/asset-import/decode/jpeg/frame.ts
+var SOF_NAMES = {
+  192: "SOF0 \u57FA\u7EBF\u987A\u5E8F\uFF08Huffman\uFF09",
+  193: "SOF1 \u6269\u5C55\u987A\u5E8F\uFF08Huffman\uFF09",
+  194: "SOF2 \u6E10\u8FDB\uFF08Huffman\uFF09",
+  195: "SOF3 \u65E0\u635F\uFF08Huffman\uFF09",
+  197: "SOF5 \u5DEE\u5206\u987A\u5E8F\uFF08Huffman\uFF09",
+  198: "SOF6 \u5DEE\u5206\u6E10\u8FDB\uFF08Huffman\uFF09",
+  199: "SOF7 \u5DEE\u5206\u65E0\u635F\uFF08Huffman\uFF09",
+  201: "SOF9 \u6269\u5C55\u987A\u5E8F\uFF08\u7B97\u672F\uFF09",
+  202: "SOF10 \u6E10\u8FDB\uFF08\u7B97\u672F\uFF09",
+  203: "SOF11 \u65E0\u635F\uFF08\u7B97\u672F\uFF09",
+  205: "SOF13 \u5DEE\u5206\u987A\u5E8F\uFF08\u7B97\u672F\uFF09",
+  206: "SOF14 \u5DEE\u5206\u6E10\u8FDB\uFF08\u7B97\u672F\uFF09",
+  207: "SOF15 \u5DEE\u5206\u65E0\u635F\uFF08\u7B97\u672F\uFF09"
+};
+function isArithmeticSof(sof) {
+  return sof === 201 || sof === 202 || sof === 203 || sof === 205 || sof === 206 || sof === 207;
+}
+function isLosslessSof(sof) {
+  return sof === 195 || sof === 199 || sof === 203 || sof === 207;
+}
+function isProgressiveSof(sof) {
+  return sof === 194 || sof === 198 || sof === 202 || sof === 206;
+}
+function isDifferentialSof(sof) {
+  return sof === 197 || sof === 198 || sof === 199 || sof === 205 || sof === 206 || sof === 207;
+}
+function u16be(b, at) {
+  return b[at] << 8 | b[at + 1];
+}
+function readExifOrientation(seg) {
+  if (seg.length < 14) return 1;
+  if (seg[0] !== 69 || seg[1] !== 120 || seg[2] !== 105 || seg[3] !== 102) return 1;
+  const tiff = 6;
+  const le = seg[tiff] === 73 && seg[tiff + 1] === 73;
+  const be = seg[tiff] === 77 && seg[tiff + 1] === 77;
+  if (!le && !be) return 1;
+  const rd16 = (at) => le ? seg[at] | seg[at + 1] << 8 : seg[at] << 8 | seg[at + 1];
+  const rd32 = (at) => le ? (seg[at] | seg[at + 1] << 8 | seg[at + 2] << 16 | seg[at + 3] << 24) >>> 0 : (seg[at] << 24 | seg[at + 1] << 16 | seg[at + 2] << 8 | seg[at + 3]) >>> 0;
+  const ifd0 = tiff + rd32(tiff + 4);
+  if (ifd0 + 2 > seg.length) return 1;
+  const count = rd16(ifd0);
+  for (let i = 0; i < count; i++) {
+    const entry = ifd0 + 2 + i * 12;
+    if (entry + 12 > seg.length) return 1;
+    if (rd16(entry) === 274) {
+      const v = rd16(entry + 8);
+      return v >= 1 && v <= 8 ? v : 1;
+    }
+  }
+  return 1;
+}
+function checkProcessSupport(sof, precision) {
+  const name = SOF_NAMES[sof];
+  if (name === void 0) return { ok: false, reason: `\u672A\u77E5\u7684 SOF \u6807\u8BB0 0x${sof.toString(16)}` };
+  if (isLosslessSof(sof)) {
+    if (precision < 2 || precision > 16) {
+      return { ok: false, reason: `${name}\uFF1A\u6837\u672C\u7CBE\u5EA6\u5FC5\u987B\u662F 2..16\uFF0C\u6587\u4EF6\u58F0\u660E ${precision} bit` };
+    }
+  } else if (precision !== 8 && precision !== 12) {
+    return { ok: false, reason: `${name}\uFF1ADCT \u8FC7\u7A0B\u7684\u6837\u672C\u7CBE\u5EA6\u53EA\u652F\u6301 8 \u6216 12 bit\uFF0C\u6587\u4EF6\u58F0\u660E ${precision} bit` };
+  }
+  return { ok: true };
+}
+function parseSof(seg, sof, index, maxPixels) {
+  if (seg.length < 6) fail("ASSET.BAD_JPEG", "SOF \u6BB5\u957F\u5EA6\u4E0D\u8DB3");
+  const precision = seg[0];
+  const height = u16be(seg, 1);
+  const width = u16be(seg, 3);
+  const n = seg[5];
+  const lossless = isLosslessSof(sof);
+  const support = checkProcessSupport(sof, precision);
+  if (!support.ok) fail("ASSET.UNSUPPORTED_JPEG", support.reason ?? "\u4E0D\u652F\u6301\u7684 JPEG \u8FC7\u7A0B", { precision, sof });
+  if (width === 0 || height === 0) {
+    fail("ASSET.BAD_JPEG", `SOF \u7684\u5BBD\u9AD8\u5FC5\u987B\u975E 0\uFF0C\u5B9E\u9645 ${width}\xD7${height}\uFF08\u9AD8\u5EA6\u5728 DNL \u91CC\u7684\u5199\u6CD5\u4E0D\u652F\u6301\uFF09`);
+  }
+  if (width * height > maxPixels) {
+    fail("ASSET.BAD_JPEG", `\u56FE\u50CF ${width}\xD7${height} \u8D85\u8FC7\u50CF\u7D20\u4E0A\u9650 ${maxPixels}`, { width, height, maxPixels });
+  }
+  if (n !== 1 && n !== 3 && n !== 4) {
+    fail("ASSET.UNSUPPORTED_JPEG", `\u4E0D\u652F\u6301 ${n} \u4E2A\u5206\u91CF\u7684 JPEG\uFF08\u652F\u6301 1 \u7070\u5EA6 / 3 YCbCr-RGB / 4 CMYK-YCCK\uFF09`, {
+      components: n
+    });
+  }
+  if (seg.length < 6 + n * 3) fail("ASSET.BAD_JPEG", `SOF \u58F0\u660E ${n} \u4E2A\u5206\u91CF\uFF0C\u4F46\u6BB5\u91CC\u53EA\u6709 ${seg.length - 6} \u5B57\u8282`);
+  let maxH = 1;
+  let maxV = 1;
+  const raw = [];
+  for (let i = 0; i < n; i++) {
+    const at = 6 + i * 3;
+    const id = seg[at];
+    const hv = seg[at + 1];
+    const h = hv >> 4;
+    const v = hv & 15;
+    const tq = seg[at + 2];
+    if (h < 1 || h > 4 || v < 1 || v > 4) {
+      fail("ASSET.BAD_JPEG", `\u5206\u91CF ${id} \u7684\u91C7\u6837\u56E0\u5B50 ${h}\xD7${v} \u975E\u6CD5\uFF081..4\uFF09`);
+    }
+    if (tq > 3) fail("ASSET.BAD_JPEG", `\u5206\u91CF ${id} \u5F15\u7528\u4E86\u4E0D\u5B58\u5728\u7684\u91CF\u5316\u8868 ${tq}`);
+    raw.push({ id, h, v, tq });
+    if (h > maxH) maxH = h;
+    if (v > maxV) maxV = v;
+  }
+  const mcusX = Math.ceil(width / (8 * maxH));
+  const mcusY = Math.ceil(height / (8 * maxV));
+  const components = raw.map((r) => {
+    const compW = Math.ceil(width * r.h / maxH);
+    const compH = Math.ceil(height * r.v / maxV);
+    const blocksW = Math.ceil(compW / 8);
+    const blocksH = Math.ceil(compH / 8);
+    const strideBlocksW = mcusX * r.h;
+    const strideBlocksH = mcusY * r.v;
+    return {
+      id: r.id,
+      h: r.h,
+      v: r.v,
+      tq: r.tq,
+      blocksW,
+      blocksH,
+      strideBlocksW,
+      strideBlocksH,
+      // 无损帧不分配系数数组（长度 0），省下 64 倍内存
+      coefs: lossless ? new Int16Array(0) : new Int16Array(strideBlocksW * strideBlocksH * 64),
+      pred: 0,
+      compW,
+      compH,
+      td: 0,
+      ta: 0,
+      plane: lossless ? new Uint16Array(compW * compH) : null,
+      qtTable: null
+    };
+  });
+  return {
+    index,
+    sof,
+    precision,
+    width,
+    height,
+    progressive: isProgressiveSof(sof),
+    lossless,
+    arithmetic: isArithmeticSof(sof),
+    differential: isDifferentialSof(sof),
+    components,
+    // 量化表/哈夫曼表由 parse 统一持有（一次文件可以有多张表、多趟扫描），
+    // parseSof 只负责几何与分量，这里先占位，parse 紧接着替换成真实数组。
+    qt: [],
+    dcTables: [],
+    acTables: [],
+    dcCond: [],
+    acCond: [],
+    restartInterval: 0,
+    scanCount: 0,
+    pt: 0,
+    expansions: /* @__PURE__ */ new Map(),
+    expandH: 1,
+    expandV: 1,
+    adobeTransform: null
+  };
+}
+function parseDqt(seg, qt) {
+  let at = 0;
+  while (at < seg.length) {
+    const pq = seg[at] >> 4;
+    const tq = seg[at] & 15;
+    at++;
+    if (tq > 3) fail("ASSET.BAD_JPEG", `DQT \u8868\u53F7 ${tq} \u975E\u6CD5\uFF080..3\uFF09`);
+    const bytesPer = pq === 1 ? 2 : 1;
+    if (at + 64 * bytesPer > seg.length) fail("ASSET.BAD_JPEG", "DQT \u6BB5\u88AB\u622A\u65AD");
+    const t = new Uint16Array(64);
+    for (let i = 0; i < 64; i++) {
+      t[ZIGZAG[i]] = bytesPer === 2 ? u16be(seg, at + i * 2) : seg[at + i];
+    }
+    qt[tq] = t;
+    at += 64 * bytesPer;
+  }
+}
+function parseDht(seg, dc, ac) {
+  let at = 0;
+  while (at < seg.length) {
+    if (at + 17 > seg.length) fail("ASSET.BAD_JPEG", "DHT \u6BB5\u88AB\u622A\u65AD\uFF08\u8868\u5934\u4E0D\u8DB3 17 \u5B57\u8282\uFF09");
+    const tc = seg[at] >> 4;
+    const th = seg[at] & 15;
+    at++;
+    if (tc > 1) fail("ASSET.BAD_JPEG", `DHT \u8868\u7C7B\u578B ${tc} \u975E\u6CD5\uFF080=DC, 1=AC\uFF09`);
+    if (th > 3) fail("ASSET.BAD_JPEG", `DHT \u8868\u53F7 ${th} \u975E\u6CD5\uFF080..3\uFF09`);
+    const counts = seg.subarray(at, at + 16);
+    at += 16;
+    let total = 0;
+    for (let i = 0; i < 16; i++) total += counts[i];
+    if (at + total > seg.length) fail("ASSET.BAD_JPEG", "DHT \u6BB5\u88AB\u622A\u65AD\uFF08\u7B26\u53F7\u6570\u4E0D\u8DB3\uFF09");
+    const values = seg.subarray(at, at + total);
+    at += total;
+    const table = new HuffTable(Uint8Array.from(counts), Uint8Array.from(values));
+    if (tc === 0) dc[th] = table;
+    else ac[th] = table;
+  }
+}
+function parseDac(seg, dcCond, acCond) {
+  let at = 0;
+  while (at + 2 <= seg.length) {
+    const index = seg[at];
+    const val = seg[at + 1];
+    at += 2;
+    if (index >= 16) {
+      const t = index - 16;
+      if (t > 3) fail("ASSET.BAD_JPEG", `DAC \u7684 AC \u8868\u53F7 ${t} \u975E\u6CD5\uFF080..3\uFF09`);
+      acCond[t] = val;
+    } else {
+      if (index > 3) fail("ASSET.BAD_JPEG", `DAC \u7684 DC \u8868\u53F7 ${index} \u975E\u6CD5\uFF080..3\uFF09`);
+      const l = val & 15;
+      const u = val >> 4;
+      if (l > u) fail("ASSET.BAD_JPEG", `DAC \u7684 DC \u6761\u4EF6\u53C2\u6570\u975E\u6CD5\uFF1AL=${l} U=${u}\uFF08\u8981\u6C42 L \u2264 U\uFF09`);
+      dcCond[index] = { l, u };
+    }
+  }
+  if (at !== seg.length) fail("ASSET.BAD_JPEG", "DAC \u6BB5\u957F\u5EA6\u4E0D\u662F 2 \u7684\u500D\u6570\uFF08\u88AB\u622A\u65AD\uFF09");
+}
+
+// src/extensions/asset-import/decode/jpeg/reconstruct.ts
+function clampSample(v, maxval) {
+  return v < 0 ? 0 : v > maxval ? maxval : v;
+}
+function maxValueOf(precision) {
+  return (1 << precision) - 1;
+}
+function idctBlock(coefs, bo, qt, plane, planeW, planeH, originX, originY, offset, maxval) {
+  const block = new Float64Array(64);
+  for (let i = 0; i < 64; i++) block[i] = coefs[bo + i] * qt[i];
+  const tmp = new Float64Array(64);
+  for (let y = 0; y < 8; y++) {
+    const o = y * 8;
+    for (let x = 0; x < 8; x++) {
+      let s = 0;
+      for (let u = 0; u < 8; u++) s += block[o + u] * COS[u * 8 + x];
+      tmp[o + x] = s;
+    }
+  }
+  for (let y = 0; y < 8; y++) {
+    const py = originY + y;
+    if (py >= planeH) break;
+    for (let x = 0; x < 8; x++) {
+      const px = originX + x;
+      if (px >= planeW) continue;
+      let s = 0;
+      for (let v = 0; v < 8; v++) s += tmp[v * 8 + x] * COS[v * 8 + y];
+      plane[py * planeW + px] = clampSample(Math.round(s + offset), maxval);
+    }
+  }
+}
+function buildPlane(c, qt, precision) {
+  const offset = 1 << precision - 1;
+  const maxval = maxValueOf(precision);
+  const plane = new Uint16Array(c.compW * c.compH);
+  for (let by = 0; by < c.blocksH; by++) {
+    for (let bx = 0; bx < c.blocksW; bx++) {
+      const bo = (by * c.strideBlocksW + bx) * 64;
+      idctBlock(c.coefs, bo, qt, plane, c.compW, c.compH, bx * 8, by * 8, offset, maxval);
+    }
+  }
+  return plane;
+}
+function buildFramePlanes(frame) {
+  if (frame.lossless) {
+    if (frame.pt > 0) {
+      for (const c of frame.components) {
+        const p = c.plane;
+        for (let i = 0; i < p.length; i++) p[i] = p[i] << frame.pt;
+      }
+    }
+    return;
+  }
+  for (const c of frame.components) {
+    const q2 = c.qtTable ?? frame.qt[c.tq] ?? null;
+    if (q2 === null) {
+      fail("ASSET.BAD_JPEG", `\u5206\u91CF ${c.id} \u5F15\u7528\u7684\u91CF\u5316\u8868 ${c.tq} \u6CA1\u6709\u5728\u6587\u4EF6\u91CC\u5B9A\u4E49\uFF08DQT \u7F3A\u5931\uFF09`);
+    }
+    c.plane = buildPlane(c, q2, frame.precision);
+  }
+}
+function sampleComponent(plane, w, h, factorH, factorV, x, y) {
+  const axis = (pos, factor, n, fancy) => {
+    if (factor === 1) {
+      const p2 = pos < n ? pos : n - 1;
+      return [p2, p2, 0, 1];
+    }
+    if (factor === 2) {
+      if (!fancy) {
+        const p2 = pos >> 1 < n ? pos >> 1 : n - 1;
+        return [p2, p2, 0, 1];
+      }
+      const i = pos >> 1;
+      if (i >= n) return [n - 1, n - 1, 0, 1];
+      if ((pos & 1) === 1) {
+        const j2 = i + 1 < n ? i + 1 : i;
+        return [i, j2, 0.75, 0.25];
+      }
+      const j = i - 1 >= 0 ? i - 1 : i;
+      return [j, i, 0.25, 0.75];
+    }
+    const p = Math.floor(pos / factor);
+    const q2 = p < n ? p : n - 1;
+    return [q2, q2, 0, 1];
+  };
+  const fancyH = factorH === 2 && w > 2;
+  const fancyV = factorV === 2 && (factorH === 2 ? w > 2 : h > 2);
+  const [x0, x1, wx0, wx1] = axis(x, factorH, w, fancyH);
+  const [y0, y1, wy0, wy1] = axis(y, factorV, h, fancyV);
+  const a = plane[y0 * w + x0];
+  const b = plane[y0 * w + x1];
+  const c = plane[y1 * w + x0];
+  const d = plane[y1 * w + x1];
+  const top = a * wx0 + b * wx1;
+  const bottom = c * wx0 + d * wx1;
+  return top * wy0 + bottom * wy1;
+}
+function subsamplingName(c0, maxH, maxV, components) {
+  if (components === 1) return "none";
+  const hs = c0.h;
+  const vs = c0.v;
+  if (hs === maxH && vs === maxV) {
+    if (maxH === 1 && maxV === 1) return "4:4:4";
+    if (maxH === 2 && maxV === 1) return "4:2:2";
+    if (maxH === 2 && maxV === 2) return "4:2:0";
+    if (maxH === 4 && maxV === 1) return "4:1:1";
+    if (maxH === 4 && maxV === 2) return "4:1:0";
+    if (maxH === 1 && maxV === 2) return "4:4:0";
+    return `${maxH}x${maxV}`;
+  }
+  return `${hs}x${vs}/${maxH}x${maxV}`;
+}
+function applyOrientation(src, w, h, orientation) {
+  if (orientation <= 1 || orientation > 8) return { data: src, width: w, height: h };
+  const swap = orientation >= 5;
+  const outW = swap ? h : w;
+  const outH = swap ? w : h;
+  const Ctor = src.constructor;
+  const out = new Ctor(outW * outH * 4);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let ox = x;
+      let oy = y;
+      switch (orientation) {
+        case 2:
+          ox = w - 1 - x;
+          break;
+        case 3:
+          ox = w - 1 - x;
+          oy = h - 1 - y;
+          break;
+        case 4:
+          oy = h - 1 - y;
+          break;
+        case 5:
+          ox = y;
+          oy = x;
+          break;
+        case 6:
+          ox = h - 1 - y;
+          oy = x;
+          break;
+        case 7:
+          ox = h - 1 - y;
+          oy = w - 1 - x;
+          break;
+        case 8:
+          ox = y;
+          oy = w - 1 - x;
+          break;
+        default:
+          break;
+      }
+      const s = (y * w + x) * 4;
+      const d = (oy * outW + ox) * 4;
+      out[d] = src[s];
+      out[d + 1] = src[s + 1];
+      out[d + 2] = src[s + 2];
+      out[d + 3] = src[s + 3];
+    }
+  }
+  return { data: out, width: outW, height: outH };
+}
+function planesToRgba(frame, opts) {
+  const { width, height, components, precision } = frame;
+  const maxH = Math.max(...components.map((c) => c.h));
+  const maxV = Math.max(...components.map((c) => c.v));
+  const maxval = maxValueOf(precision);
+  const offset = 1 << precision - 1;
+  const n = components.length;
+  const planes = [];
+  for (const c of components) {
+    if (c.plane === null) {
+      fail("ASSET.BAD_JPEG", `\u5206\u91CF ${c.id} \u7684\u5E73\u9762\u8FD8\u6CA1\u6709\u89E3\u7801\u51FA\u6765\uFF08\u5185\u90E8\u9519\u8BEF\uFF1A\u91CD\u5EFA\u987A\u5E8F\u9519\u4E86\uFF09`);
+    }
+    planes.push(c.plane);
+  }
+  const keep16 = opts.keep16 === true;
+  const pixels = new Uint8Array(width * height * 4);
+  const pixels16 = keep16 ? new Uint16Array(width * height * 4) : void 0;
+  const rgbDirect = n === 3 && (frame.adobeTransform === 0 || components[0].id === 82 && components[1].id === 71 && components[2].id === 66);
+  const ycck = n === 4 && frame.adobeTransform === 2;
+  const toFull16 = (v) => {
+    if (precision === 16) return v;
+    if (precision === 8) return v * 257;
+    return Math.round(v * 65535 / maxval);
+  };
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const o = (y * width + x) * 4;
+      if (n === 1) {
+        const g2 = sampleComponent(
+          planes[0],
+          components[0].compW,
+          components[0].compH,
+          maxH / components[0].h,
+          maxV / components[0].v,
+          x,
+          y
+        );
+        const v = clampSample(Math.round(g2), maxval);
+        writePixel(o, v, v, v);
+        continue;
+      }
+      const s0 = sampleComponent(planes[0], components[0].compW, components[0].compH, maxH / components[0].h, maxV / components[0].v, x, y);
+      const s1 = sampleComponent(planes[1], components[1].compW, components[1].compH, maxH / components[1].h, maxV / components[1].v, x, y);
+      const s2 = sampleComponent(planes[2], components[2].compW, components[2].compH, maxH / components[2].h, maxV / components[2].v, x, y);
+      let r;
+      let g;
+      let b;
+      if (n === 4) {
+        const k = sampleComponent(
+          planes[3],
+          components[3].compW,
+          components[3].compH,
+          maxH / components[3].h,
+          maxV / components[3].v,
+          x,
+          y
+        );
+        let c0;
+        let c1;
+        let c2;
+        if (ycck) {
+          const cb = s1 - offset;
+          const cr = s2 - offset;
+          c0 = maxval - (s0 + 1.402 * cr);
+          c1 = maxval - (s0 - 0.344136 * cb - 0.714136 * cr);
+          c2 = maxval - (s0 + 1.772 * cb);
+        } else {
+          c0 = s0;
+          c1 = s1;
+          c2 = s2;
+        }
+        r = c0 * k / maxval;
+        g = c1 * k / maxval;
+        b = c2 * k / maxval;
+      } else if (rgbDirect) {
+        r = s0;
+        g = s1;
+        b = s2;
+      } else {
+        const cb = s1 - offset;
+        const cr = s2 - offset;
+        r = s0 + 1.402 * cr;
+        g = s0 - 0.344136 * cb - 0.714136 * cr;
+        b = s0 + 1.772 * cb;
+      }
+      writePixel(o, r, g, b);
+    }
+  }
+  function writePixel(o, r, g, b) {
+    const rv = clampSample(Math.round(r), maxval);
+    const gv = clampSample(Math.round(g), maxval);
+    const bv = clampSample(Math.round(b), maxval);
+    if (pixels16 !== void 0) {
+      pixels16[o] = toFull16(rv);
+      pixels16[o + 1] = toFull16(gv);
+      pixels16[o + 2] = toFull16(bv);
+      pixels16[o + 3] = 65535;
+      pixels[o] = Math.round(pixels16[o] / 257);
+      pixels[o + 1] = Math.round(pixels16[o + 1] / 257);
+      pixels[o + 2] = Math.round(pixels16[o + 2] / 257);
+      pixels[o + 3] = 255;
+      return;
+    }
+    pixels[o] = Math.round(toFull16(rv) / 257);
+    pixels[o + 1] = Math.round(toFull16(gv) / 257);
+    pixels[o + 2] = Math.round(toFull16(bv) / 257);
+    pixels[o + 3] = 255;
+  }
+  return { pixels, pixels16, width, height };
+}
+function toDecodedJpeg(frame, meta, opts) {
+  const rgba = planesToRgba(frame, opts);
+  const apply = opts.orientation === "apply";
+  const o8 = apply ? applyOrientation(rgba.pixels, rgba.width, rgba.height, meta.orientation) : null;
+  const o16 = apply && rgba.pixels16 !== void 0 ? applyOrientation(rgba.pixels16, rgba.width, rgba.height, meta.orientation) : null;
+  const maxH = Math.max(...frame.components.map((c) => c.h));
+  const maxV = Math.max(...frame.components.map((c) => c.v));
+  const c0 = frame.components[0];
+  const n = frame.components.length;
+  return {
+    width: o8?.width ?? rgba.width,
+    height: o8?.height ?? rgba.height,
+    pixels: o8?.data ?? rgba.pixels,
+    ...o16 !== null ? { pixels16: o16.data } : rgba.pixels16 !== void 0 ? { pixels16: rgba.pixels16 } : {},
+    bitDepth: frame.precision,
+    // 4 分量（CMYK/YCCK）也还原成 RGB，alpha 恒不透明；
+    // colorType 用 2（RGB）而不是 6（RGBA）—— JPEG 没有 alpha 通道，写 6 就是撒谎。
+    colorType: 2,
+    hasAlpha: false,
+    usedTransparencyKey: false,
+    interlaced: false,
+    isApng: false,
+    jpeg: {
+      process: processName(frame),
+      sof: frame.sof,
+      progressive: frame.progressive,
+      arithmetic: frame.arithmetic,
+      lossless: frame.lossless,
+      differential: frame.differential,
+      precision: frame.precision,
+      pointTransform: frame.pt,
+      subsampling: subsamplingName(c0, maxH, maxV, n),
+      components: n,
+      restartInterval: frame.restartInterval,
+      orientation: meta.orientation,
+      adobeTransform: frame.adobeTransform,
+      truncated: meta.truncated,
+      frames: meta.frames,
+      hierarchical: meta.hierarchical
+    }
+  };
+}
+function processName(frame) {
+  const huff = frame.arithmetic ? "\u7B97\u672F" : "Huffman";
+  const kind = frame.lossless ? "\u65E0\u635F" : frame.progressive ? "\u6E10\u8FDB" : "\u987A\u5E8F";
+  const diff = frame.differential ? "\u5DEE\u5206" : "";
+  return `SOF${frame.sof & 15} ${diff}${kind}\uFF08${huff}\uFF09`;
+}
+
+// src/extensions/asset-import/decode/jpeg/hierarchy.ts
+function upsamplePlane(src, sw, sh, dw, dh) {
+  const out = new Uint16Array(dw * dh);
+  const cx = (x) => x < 0 ? 0 : x >= sw ? sw - 1 : x;
+  const cy = (y) => y < 0 ? 0 : y >= sh ? sh - 1 : y;
+  const at = (x, y) => src[cy(y) * sw + cx(x)];
+  for (let y = 0; y < dh; y++) {
+    const y0 = Math.floor(y / 2);
+    const yc = y % 2 === 0 ? y0 - 1 : y0 + 1;
+    for (let x = 0; x < dw; x++) {
+      const x0 = Math.floor(x / 2);
+      const xc = x % 2 === 0 ? x0 - 1 : x0 + 1;
+      const v = at(x0, y0) * 9 + at(xc, y0) * 3 + at(x0, yc) * 3 + at(xc, yc);
+      out[y * dw + x] = Math.floor((v + 8) / 16);
+    }
+  }
+  return out;
+}
+function pairComponent(cur, prev, ci) {
+  const c = cur.components[ci];
+  const p = prev.components.find((x) => x.id === c.id) ?? prev.components[ci];
+  if (p === void 0) {
+    fail("ASSET.BAD_JPEG", `\u5206\u5C42 JPEG \u7684\u5DEE\u5206\u5E27\u627E\u4E0D\u5230\u5206\u91CF ${c.id} \u7684\u53C2\u8003\u5206\u91CF`);
+  }
+  return { c, p };
+}
+function checkPairing(cur, prev) {
+  if (cur.components.length !== prev.components.length) {
+    fail(
+      "ASSET.BAD_JPEG",
+      `\u5206\u5C42 JPEG \u7684\u5DEE\u5206\u5E27\u6709 ${cur.components.length} \u4E2A\u5206\u91CF\uFF0C\u53C2\u8003\u5E27\u6709 ${prev.components.length} \u4E2A\uFF08\u5206\u91CF\u6570\u4E0D\u4E00\u81F4\u5C31\u65E0\u6CD5\u9010\u5206\u91CF\u505A\u9884\u6D4B\uFF09`
+    );
+  }
+  if (cur.precision !== prev.precision) {
+    fail(
+      "ASSET.BAD_JPEG",
+      `\u5206\u5C42 JPEG \u7684\u5DEE\u5206\u5E27\u7CBE\u5EA6 ${cur.precision} \u4E0E\u53C2\u8003\u5E27 ${prev.precision} \u4E0D\u4E00\u81F4\uFF08\u4E0D\u540C\u4F4D\u6DF1\u7684\u5DEE\u6CA1\u6709\u5B9A\u4E49\uFF0C\u53EA\u80FD\u62A5\u9519\u800C\u4E0D\u662F\u731C\uFF09`
+    );
+  }
+}
+function addReferencePlanes(cur, prev) {
+  checkPairing(cur, prev);
+  const maxval = maxValueOf(cur.precision);
+  const shift = cur.lossless ? 0 : 1 << cur.precision - 1;
+  for (let ci = 0; ci < cur.components.length; ci++) {
+    const { c, p } = pairComponent(cur, prev, ci);
+    const dst = c.plane;
+    const src = p.plane;
+    if (dst === null || src === null) {
+      fail("ASSET.BAD_JPEG", `\u5206\u91CF ${c.id} \u7684\u5E73\u9762\u8FD8\u6CA1\u89E3\u51FA\u6765\uFF08\u5185\u90E8\u9519\u8BEF\uFF1A\u5206\u5C42\u5408\u6210\u7684\u987A\u5E8F\u9519\u4E86\uFF09`);
+    }
+    const w = c.compW;
+    const h = c.compH;
+    const up = p.compW === w && p.compH === h ? src : upsamplePlane(src, p.compW, p.compH, w, h);
+    for (let y = 0; y < h; y++) {
+      const row = y * w;
+      for (let x = 0; x < w; x++) {
+        const sum = dst[row + x] - shift + up[row + x];
+        dst[row + x] = cur.lossless ? sum & maxval : clampSample(sum, maxval);
+      }
+    }
+  }
+}
+function expansionMatchesGeometry(prev, cur) {
+  for (let ci = 0; ci < prev.components.length; ci++) {
+    const c = prev.components[ci];
+    const e = cur.expansions.get(c.id);
+    if (e === void 0) continue;
+    const n = cur.components.find((x) => x.id === c.id) ?? cur.components[ci];
+    if (n === void 0) return false;
+    if (Math.abs(n.compW / c.compW - e.eh) > 1e-9) return false;
+    if (Math.abs(n.compH / c.compH - e.ev) > 1e-9) return false;
+  }
+  return true;
+}
+
+// src/extensions/asset-import/decode/jpeg/lossless-pred.ts
+function predictLossless(psv, ra, rb, rc) {
+  switch (psv) {
+    case 1:
+      return ra;
+    case 2:
+      return rb;
+    case 3:
+      return rc;
+    case 4:
+      return ra + rb - rc;
+    case 5:
+      return ra + (rb - rc >> 1);
+    case 6:
+      return rb + (ra - rc >> 1);
+    case 7:
+      return ra + rb >> 1;
+    default:
+      return fail("ASSET.BAD_JPEG", `\u65E0\u635F\u9884\u6D4B\u5668\u9009\u62E9\u503C\u5FC5\u987B\u662F 1..7\uFF0C\u5B9E\u9645 ${psv}`);
+  }
+}
+var LosslessSampleWriter = class {
+  constructor(precision, pt, psv, comps) {
+    this.psv = psv;
+    this.comps = comps;
+    this.initial = 1 << precision - pt - 1;
+  }
+  initial;
+  /** 每个分量在当前区间里"第一行"的行号；-1 = 该区间还没落过样本。 */
+  firstRow = /* @__PURE__ */ new Map();
+  beginInterval() {
+    for (const c of this.comps) this.firstRow.set(c, -1);
+  }
+  /** `diff` 是解出的差分；`x/y` 是分量平面坐标。 */
+  write(c, x, y, diff) {
+    const plane = c.plane;
+    const w = c.compW;
+    let rt = this.firstRow.get(c);
+    if (rt === -1) {
+      rt = y;
+      this.firstRow.set(c, y);
+    }
+    let pred;
+    if (y === rt) {
+      pred = x === 0 ? this.initial : plane[y * w + x - 1];
+    } else if (x === 0) {
+      pred = plane[(y - 1) * w + x];
+    } else {
+      pred = predictLossless(this.psv, plane[y * w + x - 1], plane[(y - 1) * w + x], plane[(y - 1) * w + x - 1]);
+    }
+    plane[y * w + x] = pred + diff & 65535;
+  }
+};
+
+// src/extensions/asset-import/decode/jpeg/qm.ts
+var QM_QE = new Uint16Array([
+  23069,
+  9606,
+  4372,
+  2059,
+  984,
+  474,
+  229,
+  111,
+  54,
+  26,
+  13,
+  6,
+  3,
+  1,
+  23167,
+  16165,
+  11506,
+  8316,
+  6073,
+  4482,
+  3311,
+  2465,
+  1839,
+  1372,
+  1030,
+  771,
+  576,
+  433,
+  324,
+  245,
+  183,
+  138,
+  104,
+  78,
+  59,
+  44,
+  23265,
+  18508,
+  14861,
+  12017,
+  9759,
+  7987,
+  6568,
+  5400,
+  4471,
+  3700,
+  3067,
+  2552,
+  2145,
+  1798,
+  1485,
+  1246,
+  1039,
+  867,
+  724,
+  604,
+  504,
+  420,
+  352,
+  293,
+  246,
+  203,
+  171,
+  143,
+  23314,
+  19716,
+  16684,
+  14296,
+  12264,
+  10556,
+  9081,
+  7903,
+  6825,
+  5966,
+  5156,
+  4508,
+  3947,
+  3409,
+  2998,
+  2624,
+  22578,
+  19740,
+  17294,
+  15325,
+  13550,
+  11950,
+  10650,
+  9494,
+  21872,
+  19625,
+  17625,
+  15906,
+  14372,
+  12980,
+  11799,
+  22184,
+  20294,
+  18405,
+  16847,
+  15421,
+  14174,
+  21041,
+  19471,
+  17977,
+  16734,
+  22055,
+  20711,
+  19333,
+  21911,
+  20559,
+  23056,
+  21794,
+  23019,
+  23069
+]);
+var QM_NLPS_RAW = [
+  1,
+  14,
+  16,
+  18,
+  20,
+  23,
+  25,
+  28,
+  30,
+  33,
+  35,
+  9,
+  10,
+  12,
+  15,
+  36,
+  38,
+  39,
+  40,
+  42,
+  43,
+  45,
+  46,
+  48,
+  49,
+  51,
+  52,
+  54,
+  56,
+  57,
+  59,
+  60,
+  62,
+  63,
+  32,
+  33,
+  37,
+  64,
+  65,
+  67,
+  68,
+  69,
+  70,
+  72,
+  73,
+  74,
+  75,
+  77,
+  78,
+  79,
+  48,
+  50,
+  50,
+  51,
+  52,
+  53,
+  54,
+  55,
+  56,
+  57,
+  58,
+  59,
+  61,
+  61,
+  65,
+  80,
+  81,
+  82,
+  83,
+  84,
+  86,
+  87,
+  87,
+  72,
+  72,
+  74,
+  74,
+  75,
+  77,
+  77,
+  80,
+  88,
+  89,
+  90,
+  91,
+  92,
+  93,
+  86,
+  88,
+  95,
+  96,
+  97,
+  99,
+  99,
+  93,
+  95,
+  101,
+  102,
+  103,
+  104,
+  99,
+  105,
+  106,
+  107,
+  103,
+  105,
+  108,
+  109,
+  110,
+  111,
+  110,
+  112,
+  112,
+  113
+];
+var QM_SWITCH_STATES = [0, 14, 36, 64, 80, 88, 95, 105, 110, 112];
+var QM_NLPS = new Uint8Array(114);
+for (let i = 0; i < 114; i++) {
+  QM_NLPS[i] = QM_NLPS_RAW[i] | (QM_SWITCH_STATES.includes(i) ? 128 : 0);
+}
+var QM_NMPS = new Uint8Array([
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7,
+  8,
+  9,
+  10,
+  11,
+  12,
+  13,
+  13,
+  15,
+  16,
+  17,
+  18,
+  19,
+  20,
+  21,
+  22,
+  23,
+  24,
+  25,
+  26,
+  27,
+  28,
+  29,
+  30,
+  31,
+  32,
+  33,
+  34,
+  35,
+  9,
+  37,
+  38,
+  39,
+  40,
+  41,
+  42,
+  43,
+  44,
+  45,
+  46,
+  47,
+  48,
+  49,
+  50,
+  51,
+  52,
+  53,
+  54,
+  55,
+  56,
+  57,
+  58,
+  59,
+  60,
+  61,
+  62,
+  63,
+  32,
+  65,
+  66,
+  67,
+  68,
+  69,
+  70,
+  71,
+  72,
+  73,
+  74,
+  75,
+  76,
+  77,
+  78,
+  79,
+  48,
+  81,
+  82,
+  83,
+  84,
+  85,
+  86,
+  87,
+  71,
+  89,
+  90,
+  91,
+  92,
+  93,
+  94,
+  86,
+  96,
+  97,
+  98,
+  99,
+  100,
+  93,
+  102,
+  103,
+  104,
+  99,
+  106,
+  107,
+  103,
+  109,
+  107,
+  111,
+  109,
+  111,
+  113
+]);
+var FIXED_BIN_STATE = 113;
+var DC_STAT_BINS = 64;
+var AC_STAT_BINS = 256;
+function newStats(size) {
+  return new Uint8Array(size);
+}
+var QmDecoder = class {
+  constructor(data, start, end) {
+    this.data = data;
+    this.end = end;
+    this.pos = start;
+  }
+  c = 0;
+  a = 0;
+  ct = -16;
+  // -16 ⇒ 先读 2 个字节把 C 填满
+  pos;
+  stalled = false;
+  /** 熵数据里是否撞到了标记（预切分与数据不一致 / 扫描提前结束）。 */
+  get hitMarker() {
+    return this.stalled;
+  }
+  nextByte() {
+    if (this.stalled || this.pos >= this.end) {
+      this.stalled = true;
+      return 0;
+    }
+    let data = this.data[this.pos++];
+    if (data === 255) {
+      do {
+        if (this.pos >= this.end) {
+          this.stalled = true;
+          return 0;
+        }
+        data = this.data[this.pos++];
+      } while (data === 255);
+      if (data === 0) {
+        data = 255;
+      } else {
+        this.stalled = true;
+        return 0;
+      }
+    }
+    return data;
+  }
+  /**
+   * 解一位。
+   *
+   * ★ 重归一化必须**在**解码之前跑（Annex D.2.6 / 图 D.2）：A 小于 0x8000 时
+   *   先把 A、C 左移并补入新字节，再拿 A 与 Qe 比。写成"解码后再归一化"也能跑，
+   *   但 `ct` 的进位时机差一个字节，整条流会从某个符号起全错。
+   */
+  decode(stats, at) {
+    while (this.a < 32768) {
+      if (--this.ct < 0) {
+        const data = this.nextByte();
+        this.c = (this.c << 8 | data) >>> 0;
+        this.ct += 8;
+        if (this.ct < 0) {
+          this.ct++;
+          if (this.ct === 0) this.a = 32768;
+        }
+      }
+      this.a <<= 1;
+    }
+    let sv = stats[at];
+    const qe = QM_QE[sv & 127];
+    const nl = QM_NLPS[sv & 127];
+    const nm = QM_NMPS[sv & 127];
+    const temp = this.a - qe;
+    this.a = temp;
+    const shifted = this.ct >= 0 ? temp << this.ct >>> 0 : temp >>> -this.ct >>> 0;
+    if (this.c >= shifted) {
+      this.c = this.c - shifted >>> 0;
+      if (this.a < qe) {
+        this.a = qe;
+        stats[at] = sv & 128 ^ nm;
+      } else {
+        this.a = qe;
+        stats[at] = sv & 128 ^ nl;
+        sv ^= 128;
+      }
+    } else if (this.a < 32768) {
+      if (this.a < qe) {
+        stats[at] = sv & 128 ^ nl;
+        sv ^= 128;
+      } else {
+        stats[at] = sv & 128 ^ nm;
+      }
+    }
+    return sv >> 7;
+  }
+};
+
+// src/extensions/asset-import/decode/jpeg/scan-common.ts
+function readScanHeader(bytes, dataStart, dataLen, frame) {
+  if (dataLen < 1) fail("ASSET.BAD_JPEG", "SOS \u6BB5\u4E3A\u7A7A");
+  const ns = bytes[dataStart];
+  if (ns < 1 || ns > 4) fail("ASSET.BAD_JPEG", `SOS \u58F0\u660E\u4E86 ${ns} \u4E2A\u5206\u91CF\uFF081..4\uFF09`);
+  if (dataLen < 1 + ns * 2 + 3) fail("ASSET.BAD_JPEG", "SOS \u6BB5\u88AB\u622A\u65AD");
+  const comps = [];
+  for (let i = 0; i < ns; i++) {
+    const at2 = dataStart + 1 + i * 2;
+    const id = bytes[at2];
+    const tables = bytes[at2 + 1];
+    const c = frame.components.find((x) => x.id === id);
+    if (c === void 0) {
+      fail(
+        "ASSET.BAD_JPEG",
+        `SOS \u5F15\u7528\u4E86\u5E27\u91CC\u4E0D\u5B58\u5728\u7684\u5206\u91CF id=${id}\uFF08\u5E27\u91CC\u662F ${frame.components.map((x) => x.id).join(",")}\uFF09`
+      );
+    }
+    c.td = tables >> 4;
+    c.ta = tables & 15;
+    if (c.td > 3 || c.ta > 3) fail("ASSET.BAD_JPEG", `\u5206\u91CF ${id} \u7684\u8868\u53F7\u975E\u6CD5`);
+    if (!comps.includes(c)) comps.push(c);
+  }
+  const at = dataStart + 1 + ns * 2;
+  return {
+    comps,
+    ss: bytes[at],
+    se: bytes[at + 1],
+    ah: bytes[at + 2] >> 4,
+    al: bytes[at + 2] & 15,
+    entropyStart: dataStart + dataLen
+  };
+}
+function splitEntropy(bytes, start) {
+  const ranges = [];
+  let segStart = start;
+  let i = start;
+  while (i + 1 < bytes.length) {
+    if (bytes[i] !== 255) {
+      i++;
+      continue;
+    }
+    const m = bytes[i + 1];
+    if (m === 0) {
+      i += 2;
+      continue;
+    }
+    if (m === 255) {
+      i += 1;
+      continue;
+    }
+    if (m >= 208 && m <= 215) {
+      ranges.push([segStart, i]);
+      i += 2;
+      segStart = i;
+      continue;
+    }
+    break;
+  }
+  ranges.push([segStart, i]);
+  return { ranges, next: i };
+}
+function expectIntervals(found, restartInterval, totalMcus) {
+  const expected = restartInterval > 0 ? Math.ceil(totalMcus / restartInterval) : 1;
+  if (found !== expected) {
+    fail(
+      "ASSET.BAD_JPEG",
+      `\u91CD\u542F\u533A\u95F4\u6570\u4E0D\u7B26\uFF1A\u71B5\u6570\u636E\u91CC\u627E\u5230 ${found} \u6BB5\uFF0C\u6309 DRI=${restartInterval} \u4E0E ${totalMcus} \u4E2A MCU \u5E94\u4E3A ${expected} \u6BB5\uFF08RST \u6807\u8BB0\u7F3A\u5931/\u591A\u4F59\u4F1A\u8BA9 DC \u9884\u6D4B\u5668\u9519\u4F4D\uFF0C\u89E3\u51FA\u7684\u56FE\u4E0D\u4F1A\u62A5\u9519\u4F46\u4F1A\u82B1\uFF09`
+    );
+  }
+}
+function scanGeometry(frame, comps, interleaved) {
+  if (interleaved) {
+    const maxH = Math.max(...frame.components.map((c2) => c2.h));
+    const maxV = Math.max(...frame.components.map((c2) => c2.v));
+    if (frame.lossless) {
+      const mcusX2 = Math.ceil(frame.width / maxH);
+      const mcusY2 = Math.ceil(frame.height / maxV);
+      return { interleaved, mcusX: mcusX2, mcusY: mcusY2, totalMcus: mcusX2 * mcusY2 };
+    }
+    const mcusX = Math.ceil(frame.width / (8 * maxH));
+    const mcusY = Math.ceil(frame.height / (8 * maxV));
+    return { interleaved, mcusX, mcusY, totalMcus: mcusX * mcusY };
+  }
+  const c = comps[0];
+  return {
+    interleaved,
+    mcusX: c.blocksW,
+    mcusY: c.blocksH,
+    // 非交错扫描按"数据单元"遍历：有损是 8×8 块，无损是单个样本
+    totalMcus: frame.lossless ? c.compW * c.compH : c.blocksW * c.blocksH
+  };
+}
+
+// src/extensions/asset-import/decode/jpeg/scan-arith.ts
+function decodeArithScan(bytes, dataStart, dataLen, frame, restartInterval) {
+  const head = readScanHeader(bytes, dataStart, dataLen, frame);
+  const { ss, se, ah, al } = head;
+  const progressive = frame.progressive;
+  const lossless = frame.lossless;
+  if (lossless) {
+    if (ss < 1 || ss > 7) fail("ASSET.BAD_JPEG", `\u65E0\u635F\u626B\u63CF\u7684\u9884\u6D4B\u5668\u9009\u62E9\u503C\u5FC5\u987B\u662F 1..7\uFF08Ss\uFF09\uFF0C\u5B9E\u9645 ${ss}`);
+    if (se !== 0) fail("ASSET.BAD_JPEG", `\u65E0\u635F\u626B\u63CF\u7684 Se \u5FC5\u987B\u662F 0\uFF0C\u5B9E\u9645 ${se}`);
+    if (ah !== 0) fail("ASSET.BAD_JPEG", `\u65E0\u635F\u626B\u63CF\u7684 Ah \u5FC5\u987B\u662F 0\uFF0C\u5B9E\u9645 ${ah}`);
+    if (al >= frame.precision) {
+      fail("ASSET.BAD_JPEG", `\u65E0\u635F\u626B\u63CF\u7684\u70B9\u53D8\u6362 Pt=${al} \u5FC5\u987B\u5C0F\u4E8E\u7CBE\u5EA6 ${frame.precision}`);
+    }
+    frame.pt = al;
+  } else if (progressive) {
+    if (ss > se || se > 63) fail("ASSET.BAD_JPEG", `\u6E10\u8FDB\u5F0F\u626B\u63CF\u7684\u8C31\u6BB5\u975E\u6CD5\uFF1ASs=${ss} Se=${se}`);
+    if (ss === 0 && se !== 0) fail("ASSET.BAD_JPEG", "DC \u626B\u63CF\uFF08Ss=0\uFF09\u5FC5\u987B Se=0");
+    if (ss > 0 && head.comps.length !== 1) fail("ASSET.BAD_JPEG", "AC \u626B\u63CF\uFF08Ss>0\uFF09\u5FC5\u987B\u662F\u5355\u5206\u91CF\u626B\u63CF");
+    if (al > 13 || ah > 13) fail("ASSET.BAD_JPEG", `\u6E10\u8FDB\u5F0F\u9010\u6B21\u903C\u8FD1\u4F4D\u6570\u975E\u6CD5\uFF1AAl=${al} Ah=${ah}`);
+    if (ah !== 0 && ah !== al + 1) {
+      fail("ASSET.BAD_JPEG", `\u6E10\u8FDB\u5F0F\u903C\u8FD1\u53C2\u6570\u4E0D\u8FDE\u7EED\uFF1AAh=${ah} Al=${al}\uFF08\u8981\u6C42 Ah = Al+1\uFF09`);
+    }
+  } else {
+    if (ss !== 0 || se !== 63) fail("ASSET.BAD_JPEG", `\u987A\u5E8F\u5F0F\u626B\u63CF\u7684 Ss/Se \u5FC5\u987B\u662F 0/63\uFF0C\u5B9E\u9645 ${ss}/${se}`);
+    if (ah !== 0 || al !== 0) fail("ASSET.BAD_JPEG", `\u987A\u5E8F\u5F0F\u626B\u63CF\u7684 Ah/Al \u5FC5\u987B\u662F 0/0\uFF0C\u5B9E\u9645 ${ah}/${al}`);
+  }
+  const interleaved = head.comps.length > 1;
+  const geo = scanGeometry(frame, head.comps, interleaved);
+  const split = splitEntropy(bytes, head.entropyStart);
+  expectIntervals(split.ranges.length, restartInterval, geo.totalMcus);
+  const fixed = new Uint8Array([FIXED_BIN_STATE]);
+  let dcStats = [null, null, null, null];
+  let acStats = [null, null, null, null];
+  const lastDc = /* @__PURE__ */ new Map();
+  const dcContext = /* @__PURE__ */ new Map();
+  let reader = null;
+  let currentInterval = -1;
+  const writer = lossless ? new LosslessSampleWriter(frame.precision, al, ss, head.comps) : null;
+  const beginInterval = (idx) => {
+    const r = split.ranges[idx];
+    reader = new QmDecoder(bytes, r[0], r[1]);
+    dcStats = [null, null, null, null];
+    acStats = [null, null, null, null];
+    for (const c of head.comps) {
+      if (!progressive || ss === 0 && ah === 0) {
+        dcStats[c.td] = newStats(DC_STAT_BINS);
+        lastDc.set(c, 0);
+        dcContext.set(c, 0);
+      }
+      if (!progressive || se !== 0) {
+        acStats[c.ta] = newStats(AC_STAT_BINS);
+      }
+    }
+    writer?.beginInterval();
+  };
+  const dec = (stats, at) => reader.decode(stats, at);
+  const dcStatsOf = (c) => {
+    const s = dcStats[c.td];
+    if (s === null || s === void 0) {
+      fail("ASSET.BAD_JPEG", `\u5206\u91CF ${c.id} \u9700\u8981\u7B97\u672F DC \u8868 ${c.td}\uFF0C\u4F46\u7EDF\u8BA1\u533A\u6CA1\u6709\u5EFA\u7ACB\uFF08\u626B\u63CF\u53C2\u6570\u81EA\u76F8\u77DB\u76FE\uFF09`);
+    }
+    return s;
+  };
+  const acStatsOf = (c) => {
+    const s = acStats[c.ta];
+    if (s === null || s === void 0) {
+      fail("ASSET.BAD_JPEG", `\u5206\u91CF ${c.id} \u9700\u8981\u7B97\u672F AC \u8868 ${c.ta}\uFF0C\u4F46\u7EDF\u8BA1\u533A\u6CA1\u6709\u5EFA\u7ACB\uFF08\u626B\u63CF\u53C2\u6570\u81EA\u76F8\u77DB\u76FE\uFF09`);
+    }
+    return s;
+  };
+  const decodeDiff = (c, st, ctx) => {
+    if (dec(st, ctx) === 0) return { diff: 0, ctx: 0 };
+    const sign = dec(st, ctx + 1);
+    let at = ctx + 2 + sign;
+    let m = dec(st, at);
+    if (m !== 0) {
+      at = 20;
+      while (dec(st, at) !== 0) {
+        m <<= 1;
+        if (m === 32768) fail("ASSET.BAD_JPEG", "\u7B97\u672F\u7F16\u7801\u7684 DC \u5E45\u5EA6\u7C7B\u522B\u6EA2\u51FA\uFF08\u2265 0x8000\uFF09");
+        at += 1;
+      }
+    }
+    const cond = frame.dcCond[c.td] ?? { l: 0, u: 1 };
+    const nextCtx = m < 1 << cond.l >> 1 ? 0 : m > 1 << cond.u >> 1 ? 12 + sign * 4 : 4 + sign * 4;
+    let v = m;
+    at += 14;
+    while ((m >>= 1) !== 0) {
+      if (dec(st, at) !== 0) v |= m;
+    }
+    v += 1;
+    return { diff: sign !== 0 ? -v : v, ctx: nextCtx };
+  };
+  const decodeSequentialBlock = (c, bo) => {
+    const st = dcStatsOf(c);
+    const r = decodeDiff(c, st, dcContext.get(c));
+    dcContext.set(c, r.ctx);
+    lastDc.set(c, lastDc.get(c) + r.diff);
+    c.coefs[bo] = lastDc.get(c) << 16 >> 16;
+    const ac = acStatsOf(c);
+    const K = frame.acCond[c.ta] ?? 5;
+    for (let k = 1; k <= 63; k++) {
+      let at = 3 * (k - 1);
+      if (dec(ac, at) !== 0) break;
+      while (dec(ac, at + 1) === 0) {
+        at += 3;
+        k++;
+        if (k > 63) fail("ASSET.BAD_JPEG", "\u7B97\u672F AC \u7CFB\u6570\u8D8A\u8FC7\u5757\u5C3E\uFF08\u9891\u8C31\u6EA2\u51FA\uFF09");
+      }
+      const sign = dec(fixed, 0);
+      at += 2;
+      let m = dec(ac, at);
+      if (m !== 0) {
+        if (dec(ac, at) !== 0) {
+          m <<= 1;
+          at = k <= K ? 189 : 217;
+          while (dec(ac, at) !== 0) {
+            m <<= 1;
+            if (m === 32768) fail("ASSET.BAD_JPEG", "\u7B97\u672F\u7F16\u7801\u7684 AC \u5E45\u5EA6\u7C7B\u522B\u6EA2\u51FA\uFF08\u2265 0x8000\uFF09");
+            at += 1;
+          }
+        }
+      }
+      let v = m;
+      at += 14;
+      while ((m >>= 1) !== 0) {
+        if (dec(ac, at) !== 0) v |= m;
+      }
+      v += 1;
+      c.coefs[bo + ZIGZAG[k]] = sign !== 0 ? -v : v;
+    }
+  };
+  const decodeDcFirst = (c, bo) => {
+    const st = dcStatsOf(c);
+    const r = decodeDiff(c, st, dcContext.get(c));
+    dcContext.set(c, r.ctx);
+    lastDc.set(c, lastDc.get(c) + r.diff);
+    c.coefs[bo] = lastDc.get(c) << 16 >> 16 << al;
+  };
+  const decodeDcRefine = (c, bo) => {
+    if (dec(fixed, 0) !== 0) c.coefs[bo] = c.coefs[bo] | 1 << al;
+  };
+  const decodeAcFirst = (c, bo) => {
+    const ac = acStatsOf(c);
+    const K = frame.acCond[c.ta] ?? 5;
+    for (let k = ss; k <= se; k++) {
+      let at = 3 * (k - 1);
+      if (dec(ac, at) !== 0) break;
+      while (dec(ac, at + 1) === 0) {
+        at += 3;
+        k++;
+        if (k > se) fail("ASSET.BAD_JPEG", `\u7B97\u672F\u6E10\u8FDB AC \u8D8A\u8FC7\u8C31\u6BB5\u672B\u7AEF\uFF08k>Se=${se}\uFF09`);
+      }
+      const sign = dec(fixed, 0);
+      at += 2;
+      let m = dec(ac, at);
+      if (m !== 0) {
+        if (dec(ac, at) !== 0) {
+          m <<= 1;
+          at = k <= K ? 189 : 217;
+          while (dec(ac, at) !== 0) {
+            m <<= 1;
+            if (m === 32768) fail("ASSET.BAD_JPEG", "\u7B97\u672F\u7F16\u7801\u7684 AC \u5E45\u5EA6\u7C7B\u522B\u6EA2\u51FA\uFF08\u2265 0x8000\uFF09");
+            at += 1;
+          }
+        }
+      }
+      let v = m;
+      at += 14;
+      while ((m >>= 1) !== 0) {
+        if (dec(ac, at) !== 0) v |= m;
+      }
+      v += 1;
+      c.coefs[bo + ZIGZAG[k]] = (sign !== 0 ? -v : v) << al;
+    }
+  };
+  const decodeAcRefine = (c, bo) => {
+    const ac = acStatsOf(c);
+    const p1 = 1 << al;
+    const m1 = -p1;
+    let kex = se;
+    while (kex > 0 && c.coefs[bo + ZIGZAG[kex]] === 0) kex--;
+    for (let k = ss; k <= se; k++) {
+      let at = 3 * (k - 1);
+      if (k > kex && dec(ac, at) !== 0) break;
+      for (; ; ) {
+        const pos = bo + ZIGZAG[k];
+        const cur = c.coefs[pos];
+        if (cur !== 0) {
+          if (dec(ac, at + 2) !== 0) c.coefs[pos] = cur + (cur < 0 ? m1 : p1);
+          break;
+        }
+        if (dec(ac, at + 1) !== 0) {
+          c.coefs[pos] = dec(fixed, 0) !== 0 ? m1 : p1;
+          break;
+        }
+        at += 3;
+        k++;
+        if (k > se) fail("ASSET.BAD_JPEG", `\u7B97\u672F AC \u7CBE\u4FEE\u8D8A\u8FC7\u8C31\u6BB5\u672B\u7AEF\uFF08k>Se=${se}\uFF09`);
+      }
+    }
+  };
+  for (let mcu = 0; mcu < geo.totalMcus; mcu++) {
+    const intervalIdx = restartInterval > 0 ? Math.floor(mcu / restartInterval) : 0;
+    if (reader === null || intervalIdx !== currentInterval) {
+      currentInterval = intervalIdx;
+      beginInterval(intervalIdx);
+    }
+    if (lossless) {
+      if (interleaved) {
+        const mcuX = mcu % geo.mcusX;
+        const mcuY = Math.floor(mcu / geo.mcusX);
+        for (const c of head.comps) {
+          for (let vy = 0; vy < c.v; vy++) {
+            const y = mcuY * c.v + vy;
+            if (y >= c.compH) continue;
+            for (let hx = 0; hx < c.h; hx++) {
+              const x = mcuX * c.h + hx;
+              if (x >= c.compW) continue;
+              const st = dcStatsOf(c);
+              const r = decodeDiff(c, st, dcContext.get(c));
+              dcContext.set(c, r.ctx);
+              writer.write(c, x, y, r.diff);
+            }
+          }
+        }
+      } else {
+        const c = head.comps[0];
+        const st = dcStatsOf(c);
+        const r = decodeDiff(c, st, dcContext.get(c));
+        dcContext.set(c, r.ctx);
+        writer.write(c, mcu % c.compW, Math.floor(mcu / c.compW), r.diff);
+      }
+      continue;
+    }
+    const blockAt = (c, blockX, blockY) => (blockY * c.strideBlocksW + blockX) * 64;
+    const decodeBlock = (c, bo) => {
+      if (!progressive) decodeSequentialBlock(c, bo);
+      else if (ss === 0) {
+        if (ah === 0) decodeDcFirst(c, bo);
+        else decodeDcRefine(c, bo);
+      } else if (ah === 0) decodeAcFirst(c, bo);
+      else decodeAcRefine(c, bo);
+    };
+    if (interleaved) {
+      const mcuX = mcu % geo.mcusX;
+      const mcuY = Math.floor(mcu / geo.mcusX);
+      for (const c of head.comps) {
+        for (let by = 0; by < c.v; by++) {
+          for (let bx = 0; bx < c.h; bx++) {
+            decodeBlock(c, blockAt(c, mcuX * c.h + bx, mcuY * c.v + by));
+          }
+        }
+      }
+    } else {
+      const c = head.comps[0];
+      decodeBlock(c, blockAt(c, mcu % c.blocksW, Math.floor(mcu / c.blocksW)));
+    }
+  }
+  return split.next;
+}
+
+// src/extensions/asset-import/decode/jpeg/scan-lossless.ts
+function decodeLosslessScan(bytes, dataStart, dataLen, frame, dcTables, restartInterval) {
+  const head = readScanHeader(bytes, dataStart, dataLen, frame);
+  const psv = head.ss;
+  if (psv < 1 || psv > 7) {
+    fail("ASSET.BAD_JPEG", `\u65E0\u635F\u626B\u63CF\u7684\u9884\u6D4B\u5668\u9009\u62E9\u503C\u5FC5\u987B\u662F 1..7\uFF08Ss\uFF09\uFF0C\u5B9E\u9645 ${psv}`);
+  }
+  if (head.se !== 0) fail("ASSET.BAD_JPEG", `\u65E0\u635F\u626B\u63CF\u7684 Se \u5FC5\u987B\u662F 0\uFF0C\u5B9E\u9645 ${head.se}`);
+  if (head.ah !== 0) fail("ASSET.BAD_JPEG", `\u65E0\u635F\u626B\u63CF\u7684 Ah \u5FC5\u987B\u662F 0\uFF0C\u5B9E\u9645 ${head.ah}`);
+  const al = head.al;
+  if (al >= frame.precision) {
+    fail("ASSET.BAD_JPEG", `\u65E0\u635F\u626B\u63CF\u7684\u70B9\u53D8\u6362 Pt=${al} \u5FC5\u987B\u5C0F\u4E8E\u7CBE\u5EA6 ${frame.precision}`);
+  }
+  frame.pt = al;
+  const interleaved = head.comps.length > 1;
+  const geo = scanGeometry(frame, head.comps, interleaved);
+  const split = splitEntropy(bytes, head.entropyStart);
+  expectIntervals(split.ranges.length, restartInterval, geo.totalMcus);
+  const writer = new LosslessSampleWriter(frame.precision, al, psv, head.comps);
+  let reader = null;
+  let currentInterval = -1;
+  const beginInterval = (idx) => {
+    const r = split.ranges[idx];
+    reader = new BitReader2(bytes, r[0], r[1]);
+    writer.beginInterval();
+  };
+  const dcTable = (c) => {
+    const t = dcTables[c.td] ?? null;
+    if (t === null) fail("ASSET.BAD_JPEG", `\u5206\u91CF ${c.id} \u9700\u8981 DC \u54C8\u592B\u66FC\u8868 ${c.td}\uFF0C\u4F46\u6587\u4EF6\u91CC\u6CA1\u6709\u5B9A\u4E49\uFF08DHT \u7F3A\u5931\uFF09`);
+    return t;
+  };
+  const writeSample = (c, x, y) => {
+    const r = reader;
+    const s = dcTable(c).decode(r);
+    if (s > 16) fail("ASSET.BAD_JPEG", `\u65E0\u635F\u5DEE\u5206\u7684\u7C7B\u522B\u4F4D\u6570 ${s} \u8D85\u8FC7 16`);
+    writer.write(c, x, y, extend(r.receive(s), s));
+  };
+  for (let mcu = 0; mcu < geo.totalMcus; mcu++) {
+    const intervalIdx = restartInterval > 0 ? Math.floor(mcu / restartInterval) : 0;
+    if (reader === null || intervalIdx !== currentInterval) {
+      currentInterval = intervalIdx;
+      beginInterval(intervalIdx);
+    }
+    if (interleaved) {
+      const mcuX = mcu % geo.mcusX;
+      const mcuY = Math.floor(mcu / geo.mcusX);
+      for (const c of head.comps) {
+        for (let vy = 0; vy < c.v; vy++) {
+          const y = mcuY * c.v + vy;
+          if (y >= c.compH) continue;
+          for (let hx = 0; hx < c.h; hx++) {
+            const x = mcuX * c.h + hx;
+            if (x >= c.compW) continue;
+            writeSample(c, x, y);
+          }
+        }
+      }
+    } else {
+      const c = head.comps[0];
+      writeSample(c, mcu % c.compW, Math.floor(mcu / c.compW));
+    }
+  }
+  return split.next;
+}
+
+// src/extensions/asset-import/decode/jpeg/scan-huffman.ts
+function decodeScan(bytes, dataStart, dataLen, frame, dcTables, acTables, restartInterval) {
+  const head = readScanHeader(bytes, dataStart, dataLen, frame);
+  const scanComps = head.comps;
+  const { ss, se, ah, al } = head;
+  const progressive = frame.progressive;
+  if (!progressive) {
+    if (ss !== 0 || se !== 63) {
+      fail("ASSET.BAD_JPEG", `\u987A\u5E8F\u5F0F\u626B\u63CF\u7684 Ss/Se \u5FC5\u987B\u662F 0/63\uFF0C\u5B9E\u9645 ${ss}/${se}`);
+    }
+    if (ah !== 0 || al !== 0) {
+      fail("ASSET.BAD_JPEG", `\u987A\u5E8F\u5F0F\u626B\u63CF\u7684 Ah/Al \u5FC5\u987B\u662F 0/0\uFF0C\u5B9E\u9645 ${ah}/${al}`);
+    }
+  } else {
+    if (ss > se || se > 63) fail("ASSET.BAD_JPEG", `\u6E10\u8FDB\u5F0F\u626B\u63CF\u7684\u8C31\u6BB5\u975E\u6CD5\uFF1ASs=${ss} Se=${se}`);
+    if (ss === 0 && se !== 0) fail("ASSET.BAD_JPEG", "DC \u626B\u63CF\uFF08Ss=0\uFF09\u5FC5\u987B Se=0");
+    if (ss > 0 && scanComps.length !== 1) fail("ASSET.BAD_JPEG", "AC \u626B\u63CF\uFF08Ss>0\uFF09\u5FC5\u987B\u662F\u5355\u5206\u91CF\u626B\u63CF");
+    if (al > 13 || ah > 13) fail("ASSET.BAD_JPEG", `\u6E10\u8FDB\u5F0F\u9010\u6B21\u903C\u8FD1\u4F4D\u6570\u975E\u6CD5\uFF1AAl=${al} Ah=${ah}`);
+    if (ah !== 0 && ah !== al + 1) {
+      fail("ASSET.BAD_JPEG", `\u6E10\u8FDB\u5F0F\u903C\u8FD1\u53C2\u6570\u4E0D\u8FDE\u7EED\uFF1AAh=${ah} Al=${al}\uFF08\u8981\u6C42 Ah = Al+1\uFF09`);
+    }
+  }
+  const interleaved = scanComps.length > 1;
+  const geo = scanGeometry(frame, scanComps, interleaved);
+  const split = splitEntropy(bytes, head.entropyStart);
+  expectIntervals(split.ranges.length, restartInterval, geo.totalMcus);
+  const maxDcCategory = frame.precision > 8 ? 15 : 11;
+  let reader = null;
+  let currentInterval = -1;
+  const state = { eobrun: 0 };
+  const refine = { state: 0, next: 0, eobrun: 0 };
+  const beginInterval = (idx) => {
+    const r = split.ranges[idx];
+    reader = new BitReader2(bytes, r[0], r[1]);
+    state.eobrun = 0;
+    refine.state = 0;
+    refine.next = 0;
+    refine.eobrun = 0;
+    for (const c of scanComps) c.pred = 0;
+  };
+  const huff = (table, kind, compId) => {
+    if (table === null) {
+      fail("ASSET.BAD_JPEG", `\u5206\u91CF ${compId} \u9700\u8981 ${kind} \u54C8\u592B\u66FC\u8868\uFF0C\u4F46\u6587\u4EF6\u91CC\u6CA1\u6709\u5B9A\u4E49\uFF08DHT \u7F3A\u5931\uFF09`);
+    }
+    return table;
+  };
+  const decodeSequentialBlock = (c, bo) => {
+    const r = reader;
+    const dc = huff(dcTables[c.td] ?? null, "DC", c.id);
+    const ac = huff(acTables[c.ta] ?? null, "AC", c.id);
+    const s = dc.decode(r);
+    if (s > maxDcCategory) {
+      fail("ASSET.BAD_JPEG", `DC \u5DEE\u5206\u4F4D\u6570 ${s} \u8D85\u8FC7 ${maxDcCategory}\uFF08${frame.precision} \u4F4D\u6837\u672C\u7684\u4E0A\u9650\uFF09`);
+    }
+    c.pred += extend(r.receive(s), s);
+    c.coefs[bo] = c.pred;
+    let k = 1;
+    while (k < 64) {
+      const rs = ac.decode(r);
+      const run = rs >> 4;
+      const size = rs & 15;
+      if (size === 0) {
+        if (run === 15) {
+          k += 16;
+          continue;
+        }
+        break;
+      }
+      k += run;
+      if (k > 63) fail("ASSET.BAD_JPEG", `AC \u7CFB\u6570\u8D8A\u8FC7\u5757\u5C3E\uFF1Ak=${k}\uFF08run=${run}\uFF09`);
+      c.coefs[bo + ZIGZAG[k]] = extend(r.receive(size), size);
+      k++;
+    }
+  };
+  const decodeProgressiveDc = (c, bo) => {
+    const r = reader;
+    if (ah === 0) {
+      const dc = huff(dcTables[c.td] ?? null, "DC", c.id);
+      const s = dc.decode(r);
+      if (s > maxDcCategory) {
+        fail("ASSET.BAD_JPEG", `DC \u5DEE\u5206\u4F4D\u6570 ${s} \u8D85\u8FC7 ${maxDcCategory}\uFF08${frame.precision} \u4F4D\u6837\u672C\u7684\u4E0A\u9650\uFF09`);
+      }
+      c.pred += extend(r.receive(s), s);
+      c.coefs[bo] = c.pred << al;
+    } else {
+      if (r.readBit() === 1) c.coefs[bo] = c.coefs[bo] | 1 << al;
+    }
+  };
+  const decodeProgressiveAcFirst = (c, bo) => {
+    const r = reader;
+    if (state.eobrun > 0) {
+      state.eobrun--;
+      return;
+    }
+    const ac = huff(acTables[c.ta] ?? null, "AC", c.id);
+    let k = ss;
+    while (k <= se) {
+      const rs = ac.decode(r);
+      const run = rs >> 4;
+      const size = rs & 15;
+      if (size === 0) {
+        if (run < 15) {
+          state.eobrun = (1 << run) - 1;
+          if (run > 0) state.eobrun += r.receive(run);
+          break;
+        }
+        k += 16;
+        continue;
+      }
+      k += run;
+      if (k > 63) fail("ASSET.BAD_JPEG", `\u6E10\u8FDB AC \u7CFB\u6570\u8D8A\u8FC7\u5757\u5C3E\uFF1Ak=${k}`);
+      c.coefs[bo + ZIGZAG[k]] = extend(r.receive(size), size) << al;
+      k++;
+    }
+  };
+  const decodeProgressiveAcRefine = (c, bo) => {
+    const r = reader;
+    const p1 = 1 << al;
+    const st = refine;
+    let k = ss;
+    let run = 0;
+    while (k <= se) {
+      const pos = bo + ZIGZAG[k];
+      const cur = c.coefs[pos];
+      const dir = cur < 0 ? -1 : 1;
+      switch (st.state) {
+        case 0: {
+          const rs = huff(acTables[c.ta] ?? null, "AC", c.id).decode(r);
+          const size = rs & 15;
+          run = rs >> 4;
+          if (size === 0) {
+            if (run < 15) {
+              st.eobrun = (1 << run) + (run > 0 ? r.receive(run) : 0);
+              st.state = 4;
+            } else {
+              run = 16;
+              st.state = 1;
+            }
+          } else {
+            if (size !== 1) fail("ASSET.BAD_JPEG", `\u6E10\u8FDB AC \u7CBE\u4FEE\u91CC\u51FA\u73B0\u4E86 size=${size}\uFF08\u89C4\u8303\u53EA\u5141\u8BB8 1\uFF09`);
+            st.next = r.readBit() === 1 ? 1 : -1;
+            st.state = run > 0 ? 2 : 3;
+          }
+          continue;
+        }
+        case 1:
+        case 2:
+          if (cur !== 0) {
+            if (r.readBit() === 1 && (cur & p1) === 0) c.coefs[pos] = cur + p1 * dir;
+          } else {
+            run--;
+            if (run === 0) st.state = st.state === 2 ? 3 : 0;
+          }
+          break;
+        case 3:
+          if (cur !== 0) {
+            if (r.readBit() === 1 && (cur & p1) === 0) c.coefs[pos] = cur + p1 * dir;
+          } else {
+            c.coefs[pos] = st.next * p1;
+            st.state = 0;
+          }
+          break;
+        default:
+          if (cur !== 0 && r.readBit() === 1 && (cur & p1) === 0) c.coefs[pos] = cur + p1 * dir;
+          break;
+      }
+      k++;
+    }
+    if (st.state === 4) {
+      st.eobrun--;
+      if (st.eobrun <= 0) st.state = 0;
+    }
+  };
+  for (let mcu = 0; mcu < geo.totalMcus; mcu++) {
+    const intervalIdx = restartInterval > 0 ? Math.floor(mcu / restartInterval) : 0;
+    if (intervalIdx !== currentInterval) {
+      currentInterval = intervalIdx;
+      beginInterval(intervalIdx);
+    }
+    if (interleaved) {
+      const mcuX = mcu % geo.mcusX;
+      const mcuY = Math.floor(mcu / geo.mcusX);
+      for (const c of scanComps) {
+        for (let by = 0; by < c.v; by++) {
+          for (let bx = 0; bx < c.h; bx++) {
+            const blockX = mcuX * c.h + bx;
+            const blockY = mcuY * c.v + by;
+            const bo = (blockY * c.strideBlocksW + blockX) * 64;
+            if (progressive) {
+              if (ss === 0) decodeProgressiveDc(c, bo);
+              else if (ah === 0) decodeProgressiveAcFirst(c, bo);
+              else decodeProgressiveAcRefine(c, bo);
+            } else {
+              decodeSequentialBlock(c, bo);
+            }
+          }
+        }
+      }
+    } else {
+      const c = scanComps[0];
+      const bx = mcu % c.blocksW;
+      const by = Math.floor(mcu / c.blocksW);
+      const bo = (by * c.strideBlocksW + bx) * 64;
+      if (progressive) {
+        if (ss === 0) decodeProgressiveDc(c, bo);
+        else if (ah === 0) decodeProgressiveAcFirst(c, bo);
+        else decodeProgressiveAcRefine(c, bo);
+      } else {
+        decodeSequentialBlock(c, bo);
+      }
+    }
+  }
+  return split.next;
+}
+
+// src/extensions/asset-import/decode/jpeg/parse.ts
+var MARKER_DHT = 196;
+var MARKER_SOI = 216;
+var MARKER_EOI = 217;
+var MARKER_SOS = 218;
+var MARKER_DQT = 219;
+var MARKER_DRI = 221;
+var MARKER_DHP = 222;
+var MARKER_EXP = 223;
+var MARKER_APP0 = 224;
+var MARKER_APP1 = 225;
+var MARKER_APP14 = 238;
+var MARKER_DAC = 204;
+function parse(bytes, maxPixels) {
+  if (bytes.length < 2 || bytes[0] !== 255 || bytes[1] !== MARKER_SOI) {
+    fail("ASSET.BAD_JPEG", `\u7F3A\u5C11 SOI\uFF08FF D8\uFF09\uFF0C\u5B9E\u9645\u5F00\u5934 ${hex(bytes, 0, Math.min(4, bytes.length))}`);
+  }
+  const frames = [];
+  let current = null;
+  const qt = [null, null, null, null];
+  const dcTables = [null, null, null, null];
+  const acTables = [null, null, null, null];
+  const dcCond = [
+    { l: 0, u: 1 },
+    { l: 0, u: 1 },
+    { l: 0, u: 1 },
+    { l: 0, u: 1 }
+  ];
+  const acCond = [5, 5, 5, 5];
+  let restartInterval = 0;
+  let adobeTransform = null;
+  let orientation = 1;
+  let scanCount = 0;
+  let sawEoi = false;
+  let hierarchical = false;
+  let pendingExp = /* @__PURE__ */ new Map();
+  let sequenceHeader = null;
+  const finishFrame = () => {
+    if (current === null) return;
+    if (current.scanCount === 0) {
+      fail("ASSET.BAD_JPEG", `\u7B2C ${current.index + 1} \u5E27\u6CA1\u6709\u4EFB\u4F55\u626B\u63CF\uFF08\u53EA\u6709 SOF \u6CA1\u6709 SOS\uFF09`);
+    }
+    current.restartInterval = restartInterval;
+    current.adobeTransform = adobeTransform;
+    const prev = frames.length > 0 ? frames[frames.length - 1] : null;
+    if (current.differential && prev === null) {
+      fail("ASSET.BAD_JPEG", `\u7B2C 1 \u5E27\u5C31\u662F\u5DEE\u5206\u5E27\uFF08SOF0x${current.sof.toString(16)}\uFF09\uFF0C\u6CA1\u6709\u53C2\u8003\u5E27\u53EF\u4EE5\u76F8\u51CF`);
+    }
+    const cur = current;
+    if (cur.differential && prev !== null && cur.expansions.size > 0) {
+      if (!expansionMatchesGeometry(prev, cur)) {
+        const detail = [...cur.expansions].map(([id, e]) => {
+          const c = cur.components.find((x) => x.id === id);
+          const p = prev.components.find((x) => x.id === id) ?? prev.components[0];
+          const rw = c === void 0 ? 0 : c.compW / p.compW;
+          const rh = c === void 0 ? 0 : c.compH / p.compH;
+          return `${id}: EXP ${e.eh}\xD7${e.ev} vs \u51E0\u4F55 ${rw.toFixed(2)}\xD7${rh.toFixed(2)}`;
+        }).join("\uFF0C");
+        fail(
+          "ASSET.BAD_JPEG",
+          `\u5206\u5C42 JPEG \u7684 EXP \u653E\u5927\u56E0\u5B50\u4E0E\u5B9E\u9645\u51E0\u4F55\u4E0D\u4E00\u81F4\uFF08${detail}\uFF09\uFF1A\u6309 T.81 B.3.3\uFF0CEh/Ev \u5FC5\u987B\u7B49\u4E8E\u53C2\u8003\u5E27\u5230\u672C\u5E27\u7684\u5C3A\u5BF8\u6BD4`
+        );
+      }
+    }
+    buildFramePlanes(current);
+    if (current.differential && prev !== null) {
+      addReferencePlanes(current, prev);
+    }
+    frames.push(current);
+    current = null;
+  };
+  let pos = 2;
+  while (pos + 1 < bytes.length) {
+    if (bytes[pos] !== 255) {
+      pos++;
+      continue;
+    }
+    const marker = bytes[pos + 1];
+    if (marker === 255) {
+      pos++;
+      continue;
+    }
+    if (marker === MARKER_EOI) {
+      sawEoi = true;
+      break;
+    }
+    if (marker === 1 || marker >= 208 && marker <= 216) {
+      pos += 2;
+      continue;
+    }
+    if (pos + 4 > bytes.length) {
+      fail("ASSET.BAD_JPEG", `\u6BB5 0x${marker.toString(16)} \u7684\u5934\u88AB\u622A\u65AD\uFF08\u504F\u79FB ${pos}\uFF09`);
+    }
+    const segLen = u16be(bytes, pos + 2);
+    if (segLen < 2) fail("ASSET.BAD_JPEG", `\u6BB5 0x${marker.toString(16)} \u957F\u5EA6\u975E\u6CD5\uFF1A${segLen}`);
+    const dataStart = pos + 4;
+    const dataLen = segLen - 2;
+    if (dataStart + dataLen > bytes.length) {
+      fail(
+        "ASSET.BAD_JPEG",
+        `\u6BB5 0x${marker.toString(16)} \u58F0\u660E ${dataLen} \u5B57\u8282\u6570\u636E\uFF0C\u4F46\u6587\u4EF6\u53EA\u5269 ${bytes.length - dataStart} \u5B57\u8282`
+      );
+    }
+    const seg = bytes.subarray(dataStart, dataStart + dataLen);
+    if (marker >= 192 && marker <= 207 && marker !== MARKER_DHT && marker !== 200 && marker !== MARKER_DAC) {
+      finishFrame();
+      current = parseSof(seg, marker, frames.length, maxPixels);
+      if (pendingExp.size > 0) {
+        current.expansions = pendingExp;
+        const first = pendingExp.values().next();
+        if (!first.done) {
+          current.expandH = first.value.eh;
+          current.expandV = first.value.ev;
+        }
+        pendingExp = /* @__PURE__ */ new Map();
+      }
+      if (sequenceHeader !== null) {
+        if (current.precision !== sequenceHeader.precision) {
+          fail(
+            "ASSET.BAD_JPEG",
+            `\u5206\u5C42\u5E8F\u5217\u7684\u7CBE\u5EA6\u4E0D\u4E00\u81F4\uFF1ADHP \u58F0\u660E ${sequenceHeader.precision} \u4F4D\uFF0C\u7B2C ${frames.length + 1} \u5E27\u662F ${current.precision} \u4F4D\uFF08T.81 B.3.1 \u8981\u6C42\u6240\u6709\u5E27\u7684\u7CBE\u5EA6\u4E0E DHP \u76F8\u540C\uFF09`
+          );
+        }
+        if (current.width > sequenceHeader.width || current.height > sequenceHeader.height) {
+          fail(
+            "ASSET.BAD_JPEG",
+            `\u7B2C ${frames.length + 1} \u5E27\u5C3A\u5BF8 ${current.width}x${current.height} \u8D85\u8FC7 DHP \u58F0\u660E\u7684 ${sequenceHeader.width}x${sequenceHeader.height}\uFF08DHP \u662F\u5B8C\u6210\u6001\u56FE\u50CF\u5C3A\u5BF8\uFF0C\u5404\u5E27\u4E0D\u5F97\u8D85\u51FA\uFF09`
+          );
+        }
+      }
+      current.qt = qt;
+      current.dcTables = dcTables;
+      current.acTables = acTables;
+      current.dcCond = dcCond;
+      current.acCond = acCond;
+      pos = dataStart + dataLen;
+      continue;
+    }
+    switch (marker) {
+      case MARKER_DQT:
+        parseDqt(seg, qt);
+        break;
+      case MARKER_DHT:
+        parseDht(seg, dcTables, acTables);
+        break;
+      case MARKER_DAC:
+        parseDac(seg, dcCond, acCond);
+        break;
+      case MARKER_DRI:
+        if (seg.length < 2) fail("ASSET.BAD_JPEG", "DRI \u6BB5\u957F\u5EA6\u4E0D\u8DB3");
+        restartInterval = u16be(seg, 0);
+        break;
+      case MARKER_DHP: {
+        if (seg.length < 6) fail("ASSET.BAD_JPEG", "DHP \u6BB5\u957F\u5EA6\u4E0D\u8DB3\uFF08\u81F3\u5C11 6 \u5B57\u8282\uFF1AP/Y/X/Nf\uFF09");
+        const nf = seg[5];
+        if (nf < 1 || nf > 4) fail("ASSET.BAD_JPEG", `DHP \u58F0\u660E\u4E86 ${nf} \u4E2A\u5206\u91CF\uFF081..4\uFF09`);
+        if (seg.length < 6 + nf * 3) fail("ASSET.BAD_JPEG", "DHP \u6BB5\u88AB\u622A\u65AD\uFF08\u5206\u91CF\u5217\u8868\u4E0D\u5B8C\u6574\uFF09");
+        for (let i = 0; i < nf; i++) {
+          const tq = seg[6 + i * 3 + 2];
+          if (tq !== 0) fail("ASSET.BAD_JPEG", `DHP \u7B2C ${i + 1} \u4E2A\u5206\u91CF\u7684\u91CF\u5316\u8868\u9009\u62E9\u5668\u5E94\u4E3A 0\uFF0C\u5B9E\u9645 ${tq}`);
+        }
+        sequenceHeader = { precision: seg[0], width: u16be(seg, 3), height: u16be(seg, 1) };
+        hierarchical = true;
+        if (frames.length > 0 || current !== null) {
+          fail("ASSET.BAD_JPEG", "DHP \u53EA\u80FD\u51FA\u73B0\u5728\u7B2C\u4E00\u5E27\u4E4B\u524D\uFF08T.81 B.3.2 \u8981\u6C42\u5355\u4E2A DHP \u4E14\u5728\u6700\u524D\uFF09");
+        }
+        break;
+      }
+      case MARKER_EXP: {
+        if (seg.length < 2) fail("ASSET.BAD_JPEG", "EXP \u6BB5\u957F\u5EA6\u4E0D\u8DB3\uFF08\u81F3\u5C11\u8981 Ci \u4E0E Eh/Ev \u4E24\u4E2A\u5B57\u8282\uFF09");
+        if (seg.length % 2 !== 0) {
+          fail("ASSET.BAD_JPEG", `EXP \u6BB5\u4F53\u5FC5\u987B\u662F (\u5206\u91CF id, Eh/Ev) \u7684\u6574\u7EC4\uFF0C\u5B9E\u9645 ${seg.length} \u5B57\u8282`);
+        }
+        if (sequenceHeader === null) {
+          fail("ASSET.BAD_JPEG", "EXP \u51FA\u73B0\u5728 DHP \u4E4B\u524D\uFF1AEXP \u53EA\u5BF9\u5206\u5C42\u5E8F\u5217\u7684\u4E0B\u4E00\u5E27\u751F\u6548\uFF0C\u6CA1\u6709 DHP \u5C31\u65E0\u4ECE\u653E\u5927");
+        }
+        for (let i = 0; i + 1 < seg.length; i += 2) {
+          const ci = seg[i];
+          const eh = seg[i + 1] >> 4;
+          const ev = seg[i + 1] & 15;
+          if (eh < 1 || ev < 1 || eh > 4 || ev > 4) {
+            fail("ASSET.BAD_JPEG", `\u5206\u91CF ${ci} \u7684 EXP \u653E\u5927\u56E0\u5B50\u975E\u6CD5\uFF1A${eh}\xD7${ev}\uFF08\u89C4\u8303\u8303\u56F4 1..4\uFF09`);
+          }
+          pendingExp.set(ci, { eh, ev });
+        }
+        break;
+      }
+      case MARKER_APP0:
+        break;
+      case MARKER_APP1:
+        orientation = readExifOrientation(seg);
+        break;
+      case MARKER_APP14:
+        if (seg.length >= 12 && seg[0] === 65 && seg[1] === 100 && seg[2] === 111 && seg[3] === 98) {
+          adobeTransform = seg[11];
+        }
+        break;
+      case MARKER_SOS: {
+        if (current === null) fail("ASSET.BAD_JPEG", "SOS \u51FA\u73B0\u5728 SOF \u4E4B\u524D\uFF08\u6CA1\u6709\u5E27\u5934\u5C31\u65E0\u4ECE\u89E3\u7801\uFF09");
+        for (const c of current.components) {
+          if (!current.lossless) c.qtTable = qt[c.tq] ?? null;
+        }
+        const next = decodeScanByMode(bytes, dataStart, dataLen, current, dcTables, acTables, restartInterval);
+        current.scanCount++;
+        scanCount++;
+        pos = next;
+        continue;
+      }
+      default:
+        break;
+    }
+    pos = dataStart + dataLen;
+  }
+  finishFrame();
+  if (frames.length === 0) fail("ASSET.BAD_JPEG", "\u6CA1\u6709\u627E\u5230 SOF \u5E27\u5934");
+  if (scanCount === 0) fail("ASSET.BAD_JPEG", "\u6CA1\u6709\u627E\u5230 SOS \u626B\u63CF\uFF08\u6587\u4EF6\u53EA\u6709\u5934\u3001\u6CA1\u6709\u50CF\u7D20\u6570\u636E\uFF09");
+  if (pendingExp.size > 0) {
+    fail("ASSET.BAD_JPEG", "EXP \u6BB5\u4E4B\u540E\u6CA1\u6709\u5E27\u5934\uFF1A\u653E\u5927\u56E0\u5B50\u65E0\u5904\u751F\u6548\uFF08EXP \u53EA\u5BF9\u4E0B\u4E00\u4E2A\u5E27\u5934\u751F\u6548\uFF09");
+  }
+  const last2 = frames[frames.length - 1];
+  return {
+    frames,
+    width: last2.width,
+    height: last2.height,
+    precision: last2.precision,
+    adobeTransform,
+    orientation,
+    sawEoi,
+    scanCount,
+    hierarchical: hierarchical || frames.length > 1
+  };
+}
+function decodeScanByMode(bytes, dataStart, dataLen, frame, dcTables, acTables, restartInterval) {
+  if (frame.arithmetic) return decodeArithScan(bytes, dataStart, dataLen, frame, restartInterval);
+  if (frame.lossless) return decodeLosslessScan(bytes, dataStart, dataLen, frame, dcTables, restartInterval);
+  return decodeScan(bytes, dataStart, dataLen, frame, dcTables, acTables, restartInterval);
+}
+function hex(b, from, to) {
+  return Array.from(b.subarray(from, to), (x) => x.toString(16).padStart(2, "0")).join(" ");
+}
+
+// src/extensions/asset-import/decode/jpeg/index.ts
+function decodeJpeg(bytes, opts) {
+  const o = opts ?? {};
+  try {
+    const file = parse(bytes, o.maxPixels ?? DEFAULT_MAX_PIXELS);
+    if (o.strict === true && !file.sawEoi) {
+      return err(
+        engineError(
+          "ASSET.BAD_JPEG",
+          `JPEG \u4E0D\u5B8C\u6574\uFF1A\u71B5\u6570\u636E\u5728\u504F\u79FB ${bytes.length} \u5904\u5C31\u7ED3\u675F\u4E86\uFF0C\u6CA1\u6709 EOI\uFF08FF D9\uFF09\u3002\u5DF2\u89E3\u7801\u7684\u50CF\u7D20\u6765\u81EA\u8865 0 \u7684\u6570\u636E\uFF0Cstrict \u6A21\u5F0F\u4E0B\u4E0D\u8FD4\u56DE`,
+          { byteLength: bytes.length }
+        )
+      );
+    }
+    const last2 = file.frames[file.frames.length - 1];
+    return ok(
+      toDecodedJpeg(
+        last2,
+        {
+          orientation: file.orientation,
+          truncated: !file.sawEoi,
+          frames: file.frames.length,
+          hierarchical: file.hierarchical
+        },
+        o
+      )
+    );
+  } catch (e) {
+    if (e instanceof JpegFailure) {
+      return err(engineError(e.code, e.message, e.detail));
+    }
+    return err(
+      engineError("ASSET.BAD_JPEG", `JPEG \u89E3\u7801\u5185\u90E8\u9519\u8BEF\uFF1A${e instanceof Error ? e.message : String(e)}`)
+    );
+  }
+}
+function isJpeg(bytes) {
+  return bytes.length >= 3 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255;
+}
+
+// src/extensions/asset-import/decode/image.ts
+var PNG_SIGNATURE = [137, 80, 78, 71, 13, 10, 26, 10];
+function isPng(bytes) {
+  if (bytes.length < PNG_SIGNATURE.length) return false;
+  for (let i = 0; i < PNG_SIGNATURE.length; i++) {
+    if (bytes[i] !== PNG_SIGNATURE[i]) return false;
+  }
+  return true;
+}
+function sniffImageFormat(bytes) {
+  if (isPng(bytes)) return "png";
+  if (isJpeg(bytes)) return "jpeg";
+  return null;
+}
+function decodeImage(bytes, opts) {
+  const fmt = sniffImageFormat(bytes);
+  if (fmt === "png") return decodePng(bytes, opts?.png);
+  if (fmt === "jpeg") return decodeJpeg(bytes, opts?.jpeg);
+  const head = Array.from(bytes.subarray(0, Math.min(4, bytes.length)), (x) => x.toString(16).padStart(2, "0"));
+  return err(
+    engineError(
+      "ASSET.UNKNOWN_FORMAT",
+      `\u65E0\u6CD5\u8BC6\u522B\u7684\u56FE\u7247\u683C\u5F0F\uFF1A\u5F00\u5934\u5B57\u8282 ${head.join(" ") || "(\u7A7A)"}\uFF08\u652F\u6301 PNG 89 50 4e 47 / JPEG ff d8 ff\uFF09`,
+      { head: head.join(" "), byteLength: bytes.length }
+    )
+  );
+}
+
+// src/extensions/editor/asset-bake.ts
+var EDIT_BAKE_EMPTY = "EDIT.BAKE_EMPTY";
+function bakeAtlasFromImages(images, opts = {}) {
+  const skipped = [];
+  const sources = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const img of images) {
+    const name = img.name.trim();
+    if (name === "") {
+      skipped.push({ name: img.name, reason: "EDIT.EMPTY_NAME" });
+      continue;
+    }
+    if (seen.has(name)) {
+      skipped.push({ name, reason: "EDIT.DUPLICATE_NAME" });
+      continue;
+    }
+    const dec = decodeImage(img.bytes);
+    if (!dec.ok) {
+      skipped.push({ name, reason: dec.error.code });
+      continue;
+    }
+    seen.add(name);
+    sources.push({ name, png: dec.value });
+  }
+  if (sources.length === 0) {
+    return err(
+      engineError(
+        EDIT_BAKE_EMPTY,
+        `\u4E00\u5F20\u56FE\u90FD\u6CA1\u89E3\u51FA\u6765\uFF08\u8BD5\u4E86 ${String(images.length)} \u5F20\uFF0C\u5931\u8D25 ${String(skipped.length)} \u5F20\uFF09` + (skipped.length > 0 ? `\uFF1A${skipped[0]?.name ?? ""} ${skipped[0]?.reason ?? ""}` : "")
+      )
+    );
+  }
+  const built = buildAtlasFromSources(sources, opts);
+  if (!built.ok) return built;
+  return ok({
+    atlas: built.value,
+    // 排序用 `<` 而不是 `localeCompare`：后者依赖 locale，CI 与开发机可能给出不同顺序。
+    frames: Array.from(built.value.frames.keys()).sort((a, b) => a < b ? -1 : a > b ? 1 : 0),
+    skipped
+  });
+}
+
 // src/extensions/editor/asset-list.ts
 var EDIT_BAD_ASSET_LIST = "EDIT.BAD_ASSET_LIST";
 var ASSET_MANIFEST_VERSION = 1;
@@ -8062,7 +11576,9 @@ function buildAssetCatalog(paths, opts = {}) {
     seenPath.add(path);
     const id = stableIdFromPath(path);
     const name = assetNameOf(path);
-    entries.push({ id, path, name, kind: cls.kind, inAtlas: frames === void 0 ? false : frames.has(name) });
+    const raster = cls.kind === "texture";
+    const inAtlas = raster && frames !== void 0 && frames.has(name);
+    entries.push({ id, path, name, kind: cls.kind, inAtlas });
   }
   entries.sort((a, b) => {
     const ap = a.path.toLowerCase();
@@ -8599,30 +12115,42 @@ var physics = new SpatialHashWorld(
   }),
   { maxIterations: 3 }
 );
-var renderMod = createRenderModule({
-  viewportWidth: canvas.width,
-  viewportHeight: canvas.height,
-  zoom: 24 * dpr,
-  tiltY: 0.62,
-  follow: () => {
-    if (heroId < 0) return void 0;
-    const n = appRef?.scene.find(heroId);
-    if (n === void 0) return void 0;
-    const p = n.worldPosition;
-    return { x: p.x, z: p.y };
-  }
-});
+var renderMod = null;
+function requireRender() {
+  if (renderMod === null) throw new Error("\u7F16\u8F91\u5668\u8FD8\u6CA1\u542F\u52A8\u5B8C\uFF1A\u6E32\u67D3\u6A21\u5757\u672A\u521B\u5EFA");
+  return renderMod;
+}
+function makeRenderModule(atlas) {
+  return createRenderModule({
+    atlas,
+    viewportWidth: canvas.width,
+    viewportHeight: canvas.height,
+    zoom: 24 * dpr,
+    tiltY: 0.62,
+    follow: () => {
+      if (heroId < 0) return void 0;
+      const n = appRef?.scene.find(heroId);
+      if (n === void 0) return void 0;
+      const p = n.worldPosition;
+      return { x: p.x, z: p.y };
+    }
+  });
+}
 function syncViewport() {
   const w = Math.max(1, Math.floor((canvas.clientWidth || 640) * dpr));
   const h = Math.max(1, Math.floor((canvas.clientHeight || 420) * dpr));
   if (canvas.width === w && canvas.height === h) return;
-  renderMod.resize(w, h);
+  requireRender().resize(w, h);
 }
-syncViewport();
-if (typeof ResizeObserver !== "undefined") new ResizeObserver(syncViewport).observe(canvas);
-else window.addEventListener("resize", syncViewport);
+function watchViewport() {
+  syncViewport();
+  if (typeof ResizeObserver !== "undefined") new ResizeObserver(syncViewport).observe(canvas);
+  else window.addEventListener("resize", syncViewport);
+}
 var worldMod = createWorldModule(physics, {});
 var atlasFrames = [...buildProceduralAtlas().frames.keys()];
+var atlasSource = "procedural";
+var atlasNote = "\u8FD8\u6CA1\u542F\u52A8";
 var planRef = null;
 var worldgenMod = {
   id: "editor.worldgen",
@@ -8761,8 +12289,8 @@ function displayValue(control, v) {
   }
   if (control === "color") {
     const o = v;
-    const hex = (n) => Math.round(Math.max(0, Math.min(1, n)) * 255).toString(16).padStart(2, "0");
-    return `#${hex(o.r ?? 1)}${hex(o.g ?? 1)}${hex(o.b ?? 1)}${hex(o.a ?? 1)}`;
+    const hex2 = (n) => Math.round(Math.max(0, Math.min(1, n)) * 255).toString(16).padStart(2, "0");
+    return `#${hex2(o.r ?? 1)}${hex2(o.g ?? 1)}${hex2(o.b ?? 1)}${hex2(o.a ?? 1)}`;
   }
   if (control === "tags") return Array.isArray(v) ? v.join(", ") : String(v);
   return String(v);
@@ -8918,7 +12446,7 @@ function doDetachComp(type, nodeId) {
 var DRAG_SNAP = 0;
 var dragRef = null;
 function canvasToWorld(cssX, cssY) {
-  const c = renderMod.camera;
+  const c = requireRender().camera;
   const cw = canvas.clientWidth;
   const ch = canvas.clientHeight;
   const sx = cw > 0 ? c.vw / cw : dpr;
@@ -9145,29 +12673,51 @@ function pickAsset(path) {
   refreshAssets();
   return assetUsable(path);
 }
-async function loadAssets() {
+function proceduralChoice(note) {
+  const p = buildProceduralAtlas();
+  return { atlas: p, frames: [...p.frames.keys()], source: "procedural", note };
+}
+async function prepareAssets() {
   const fs = new HttpFileSystem({ base: new URL("./", location.href) });
+  const assetsFs = new HttpFileSystem({ base: new URL("./assets/", location.href) });
   const text = await fs.readText("assets-manifest.json");
   catalog = null;
   assetPicked = null;
-  if (!text.ok) {
-    assetProblem = `${text.error.code}\uFF1A${text.error.message}`;
-    assetListEl.replaceChildren(mkAssetEmpty(`\u8D44\u4EA7\u6E05\u5355\u8BFB\u4E0D\u5230\uFF08${text.error.code}\uFF09`));
-    assetCountEl.textContent = "\u2014";
-    btnAssetAdd.disabled = true;
-    return;
-  }
-  const cat = catalogFromManifest(text.value, { frameNames: atlasFrames });
-  if (!cat.ok) {
-    assetProblem = `${cat.error.code}\uFF1A${cat.error.message}`;
-    assetListEl.replaceChildren(mkAssetEmpty(`\u8D44\u4EA7\u6E05\u5355\u574F\u4E86\uFF08${cat.error.code}\uFF09`));
-    assetCountEl.textContent = "\u2014";
-    btnAssetAdd.disabled = true;
-    return;
-  }
   assetProblem = null;
-  catalog = cat.value;
+  const fail2 = (why) => {
+    assetProblem = why;
+    assetListEl.replaceChildren(mkAssetEmpty(`\u8D44\u4EA7\u6E05\u5355\u8BFB\u4E0D\u5230\uFF1A${why}`));
+    assetCountEl.textContent = "\u2014";
+    btnAssetAdd.disabled = true;
+    return proceduralChoice(why);
+  };
+  if (!text.ok) return fail2(`${text.error.code} ${text.error.message}`);
+  const bare = catalogFromManifest(text.value);
+  if (!bare.ok) return fail2(`${bare.error.code} ${bare.error.message}`);
+  const textures = bare.value.entries.filter((e) => e.kind === "texture");
+  const images = [];
+  const io = [];
+  for (const e of textures) {
+    const r = await assetsFs.readBinary(e.path);
+    if (!r.ok) {
+      io.push(`${e.path}(${r.error.code})`);
+      continue;
+    }
+    images.push({ name: e.name, bytes: r.value });
+  }
+  const baked = bakeAtlasFromImages(images);
+  if (!baked.ok) {
+    const why = `${baked.error.code}\uFF1A${baked.error.message}` + (io.length > 0 ? `\uFF08\u8BFB\u4E0D\u5230\uFF1A${io.join("\u3001")}\uFF09` : "");
+    assetProblem = why;
+    catalog = bare.value;
+    refreshAssets();
+    return proceduralChoice(why);
+  }
+  const cat = catalogFromManifest(text.value, { frameNames: baked.value.frames });
+  catalog = cat.ok ? cat.value : bare.value;
   refreshAssets();
+  const note = `${String(baked.value.frames.length)} \u5E27\uFF08${String(images.length)} \u5F20\u56FE` + (io.length > 0 ? `\uFF0C${String(io.length)} \u5F20\u8BFB\u4E0D\u5230\uFF1A${io.join("\u3001")}` : "") + (baked.value.skipped.length > 0 ? `\uFF0C\u8DF3\u8FC7 ${String(baked.value.skipped.length)} \u5F20` : "") + "\uFF09";
+  return { atlas: baked.value.atlas, frames: baked.value.frames, source: "assets", note };
 }
 function viewCenterLocal() {
   const w = canvasToWorld(canvas.clientWidth / 2, canvas.clientHeight / 2);
@@ -9181,6 +12731,11 @@ function doAddAsset(path) {
     const msg2 = path === null ? "\u6CA1\u6709\u9009\u4E2D\u8D44\u4EA7" : `\u6E05\u5355\u91CC\u6CA1\u6709 ${path}`;
     errEl.textContent = msg2;
     return { ok: false, code: EDIT_BAD_ASSET_LIST, message: msg2 };
+  }
+  if (!entry.inAtlas) {
+    const msg2 = `${entry.path} \u4E0D\u80FD\u52A0\u8FDB\u573A\u666F\uFF1A\u5B83\u4E0D\u662F\u4F4D\u56FE\uFF0C\u6216\u56FE\u96C6\u91CC\u6CA1\u6709\u5E27 "${entry.name}"`;
+    errEl.textContent = msg2;
+    return { ok: false, code: EDIT_NO_FRAME, message: msg2 };
   }
   const pos = viewCenterLocal();
   const r = addSpriteNodeWithUndo(app.scene, app.scene.components, {
@@ -9437,7 +12992,7 @@ function installApi(app) {
       return { x: n.localPosition.x, y: n.localPosition.y };
     },
     camInfo() {
-      const c = renderMod.camera;
+      const c = requireRender().camera;
       return { x: c.x, z: c.z, zoom: c.zoom, tiltY: c.tiltY, vw: c.vw, vh: c.vh };
     },
     screenToWorld(cssX, cssY) {
@@ -9479,18 +13034,34 @@ function installApi(app) {
       const cat = catalog;
       const count = cat === null ? 0 : cat.entries.length;
       const usable = cat === null ? 0 : cat.entries.filter((e) => e.inAtlas).length;
-      return { count, usable, title: assetCountEl.textContent ?? "", problem: assetProblem };
+      return {
+        count,
+        usable,
+        title: assetCountEl.textContent ?? "",
+        problem: assetProblem,
+        atlasSource,
+        atlasNote,
+        frames: atlasFrames.length
+      };
     }
   };
   window.__editor = api;
 }
 async function main() {
   planRef = generateWorld({ seed: WORLD_SEED, width: WORLD_W, height: WORLD_H, maxSitesPerCell: 1 });
+  const choice = await prepareAssets();
+  atlasFrames = choice.frames;
+  atlasSource = choice.source;
+  atlasNote = choice.note;
+  const rm = makeRenderModule(choice.atlas);
+  renderMod = rm;
+  watchViewport();
+  statusEl.textContent = `\u56FE\u96C6 ${choice.source === "assets" ? "\u8D44\u4EA7" : "\u7A0B\u5E8F\u5316"} \xB7 ${choice.note}`;
   const appR = await bootGameApp({
     platformId: "editor",
     interactive: true,
     registry,
-    modules: [worldMod, renderMod, worldgenMod],
+    modules: [worldMod, rm, worldgenMod],
     seed: WORLD_SEED,
     fixedDt: FIXED_DT,
     backendOptions: {
@@ -9512,7 +13083,6 @@ async function main() {
   tickEl.textContent = `tick ${String(app.scheduler.stats().tick)}`;
   bindCanvasDrag();
   bindTreeDrag();
-  void loadAssets();
   btnAssetAdd.addEventListener("click", () => {
     doAddAsset(assetPicked);
   });
