@@ -52,6 +52,16 @@ import {
   type OpenReport,
   type SessionDeps,
 } from "./extensions/editor/session.ts";
+import {
+  createProject,
+  createScene,
+  currentSceneText,
+  deleteScene,
+  sceneNames,
+  switchScene,
+  type Project,
+  type SwitchReport,
+} from "./extensions/editor/project.ts";
 import { fieldsOf, setField, type FieldChange } from "./extensions/editor/property-model.ts";
 import { beginDrag, dragTarget, endDrag, pickAt, type DragState } from "./extensions/editor/gizmo.ts";
 import { createPie } from "./extensions/editor/pie.ts";
@@ -122,6 +132,10 @@ const docInfoEl = need<HTMLSpanElement>("docinfo");
 const assetListEl = need<HTMLDivElement>("assetlist");
 const assetCountEl = need<HTMLSpanElement>("assetcount");
 const btnAssetAdd = need<HTMLButtonElement>("asset-add");
+const sceneListEl = need<HTMLDivElement>("scenelist");
+const sceneCountEl = need<HTMLSpanElement>("scenecount");
+const btnSceneNew = need<HTMLButtonElement>("scene-new");
+const btnSceneDel = need<HTMLButtonElement>("scene-del");
 
 const dpr = Math.min(2, window.devicePixelRatio || 1);
 // 首次位图尺寸：必须在 `createRenderModule` **之前**定好，它用这个值建初始视口。
@@ -147,6 +161,34 @@ let lastStop: PlayStopReport | null = null;
 let appRef: GameApp | null = null;
 let heroId: NodeId = -1;
 let booted = false;
+
+/**
+ * 工程（多场景）。**启动装完世界之后**才建（第一个槽位就是那份世界的导出，
+ * 见 `createProject` 的注释）；在那之前它必须是 `null` —— 拿一个空工程顶着，
+ * 会让"启动时看到的世界"和"工程里记的场景"从第一秒起就不是同一份。
+ */
+let project: Project | null = null;
+
+/**
+ * 每个 `Node` **实例**一个只在本进程内有效的序号。
+ *
+ * ★ 为什么需要它：`nodeId` 是文档里的东西 —— 场景切走再切回来，id 一模一样，
+ *   但那棵树上的 `Node` 已经被 `scene.clear()` 换成新实例了。于是"实例有没有被换掉"
+ *   这件事**在 id 上看不出来**，而它恰恰是「切到同一份不该重建」这条保证的判据。
+ *   没有它，判据只能验"节点数没变 / 名字没变"，那在重建之后照样成立 —— 假绿。
+ *
+ * ★ 用 `WeakMap`：节点被销毁之后序号跟着回收，不会因为反复开关场景而一直涨。
+ */
+const nodeSerials = new WeakMap<object, number>();
+let nodeSerialNext = 1;
+
+function serialOf(n: object): number {
+  const had = nodeSerials.get(n);
+  if (had !== undefined) return had;
+  const s = nodeSerialNext++;
+  nodeSerials.set(n, s);
+  return s;
+}
 
 // ---------------------------------------------------------------- 后端
 const registry = new BackendRegistry();
@@ -647,6 +689,135 @@ function doNewDoc(): { ok: boolean; made?: number; code?: string; message?: stri
   errEl.textContent = "";
   afterDocChange();
   return { ok: true, made: r.value.made };
+}
+
+// ---------------------------------------------------------------- 工程（多场景）
+
+/**
+ * 试玩期间不许切场景。
+ *
+ * ★ 这不是"顺手加个限制"。`endPlaySession` 的回滚是 `loadDocument(s.text)` ——
+ *   那句 `s.text` 是**进试玩那一刻的场景文档**。切走之后场景已经是另一份了，
+ *   再停播就会把旧场景的文档装进新场景：人看到的是"我明明没动，这个场景被换了"，
+ *   而且工程那边已经把新场景存好了 ⇒ 下次切走还会把旧文档写进新槽位。
+ *   静默数据错乱比"切不动"糟糕得多，所以这里宁可拒绝。
+ */
+const EDIT_PLAYING = "EDIT.PLAYING";
+
+function refreshScenes(): void {
+  const p = project;
+  if (p === null) return;
+  sceneCountEl.textContent = `${String(p.scenes.length)} 个`;
+  sceneListEl.textContent = "";
+  for (const name of sceneNames(p)) {
+    const row = document.createElement("div");
+    // 当前项高亮：名字列表里"哪一行是正在编辑的"必须一眼看出来，
+    // 否则点一下当前行会得到一句"已经在它上面"，而人以为按钮坏了。
+    row.className = name === p.current ? "srow sel" : "srow";
+    row.dataset.name = name;
+    row.textContent = name;
+    row.addEventListener("click", () => {
+      doSceneSwitch(name);
+    });
+    sceneListEl.appendChild(row);
+  }
+  // 只剩一个时禁用删除（模型层还会再拒一次：按钮挡不住命令面）。
+  btnSceneDel.disabled = p.scenes.length <= 1;
+  btnSceneDel.title = p.scenes.length <= 1 ? "工程里至少得留一个场景" : "删掉当前场景";
+}
+
+function describeSwitch(r: SwitchReport): string {
+  if (r.kind === "noop") return `已经在「${r.to}」上（没有重建任何节点）`;
+  const parts = [`切到「${r.to}」：${String(r.made)} 个节点`];
+  parts.push(r.savedFrom ? "切走前已保存原场景" : "原场景没有改动，未重写");
+  if (r.droppedHistory > 0) parts.push(`清掉 ${String(r.droppedHistory)} 条历史`);
+  if (r.droppedSelection > 0) parts.push(`清掉 ${String(r.droppedSelection)} 项选中`);
+  if (r.skipped.length > 0) parts.push(`${String(r.skipped.length)} 条被跳过`);
+  return parts.join(" · ");
+}
+
+/** 切完之后要重画的东西：树、面板、历史、场景列表，以及文本框里的"当前文档"。 */
+function afterSceneSwitch(p: Project): void {
+  docText.value = currentSceneText(p);
+  afterDocChange();
+  refreshScenes();
+}
+
+function doSceneSwitch(name: string): {
+  ok: boolean;
+  kind?: string;
+  nodes?: number;
+  savedFrom?: boolean;
+  code?: string;
+  message?: string;
+} {
+  const app = appRef;
+  const p = project;
+  if (app === null || p === null) return { ok: false, code: "EDIT.NOT_READY" };
+  if (playSession !== null) {
+    const msg = "试玩还没停：先点「停止」再切场景（否则回滚会把旧场景的文档装进新场景）";
+    errEl.textContent = `${EDIT_PLAYING}：${msg}`;
+    return { ok: false, code: EDIT_PLAYING, message: msg };
+  }
+  const r = switchScene(docDeps(app), p, name);
+  if (!r.ok) {
+    errEl.textContent = `${r.error.code}：${r.error.message}`;
+    return { ok: false, code: r.error.code, message: r.error.message };
+  }
+  // ★ noop 也必须把列表重画一遍：人点了当前那一行，界面上要留一句话
+  //   （"已经在它上面"），否则看起来是点了没反应。
+  if (r.value.kind === "switched") afterSceneSwitch(p);
+  docInfoEl.textContent = describeSwitch(r.value);
+  errEl.textContent = r.value.skipped.length > 0 ? `有 ${String(r.value.skipped.length)} 处被跳过（见控制台）` : "";
+  if (r.value.skipped.length > 0) console.warn("切换场景时跳过：", r.value.skipped);
+  refreshScenes();
+  return { ok: true, kind: r.value.kind, nodes: r.value.made, savedFrom: r.value.savedFrom };
+}
+
+function doSceneNew(name?: string): { ok: boolean; name?: string; code?: string; message?: string } {
+  const app = appRef;
+  const p = project;
+  if (app === null || p === null) return { ok: false, code: "EDIT.NOT_READY" };
+  if (playSession !== null) {
+    const msg = "试玩还没停：先点「停止」再新建场景";
+    errEl.textContent = `${EDIT_PLAYING}：${msg}`;
+    return { ok: false, code: EDIT_PLAYING, message: msg };
+  }
+  const r = createScene(docDeps(app), p, name);
+  if (!r.ok) {
+    errEl.textContent = `${r.error.code}：${r.error.message}`;
+    return { ok: false, code: r.error.code, message: r.error.message };
+  }
+  afterSceneSwitch(p);
+  docInfoEl.textContent = `新建「${r.value.to}」（空场景）· ${r.value.savedFrom ? "原场景已保存" : "原场景没有改动"}`;
+  errEl.textContent = "";
+  return { ok: true, name: r.value.to };
+}
+
+function doSceneDelete(name?: string): { ok: boolean; name?: string; kind?: string; code?: string; message?: string } {
+  const app = appRef;
+  const p = project;
+  if (app === null || p === null) return { ok: false, code: "EDIT.NOT_READY" };
+  if (playSession !== null) {
+    const msg = "试玩还没停：先点「停止」再删场景";
+    errEl.textContent = `${EDIT_PLAYING}：${msg}`;
+    return { ok: false, code: EDIT_PLAYING, message: msg };
+  }
+  const gone = name ?? p.current;
+  const r = deleteScene(docDeps(app), p, name);
+  if (!r.ok) {
+    errEl.textContent = `${r.error.code}：${r.error.message}`;
+    return { ok: false, code: r.error.code, message: r.error.message };
+  }
+  // 删的不是当前项时 `kind` 是 noop，场景一个字节都没动 ⇒ 不该重画树。
+  if (r.value.kind === "switched") afterSceneSwitch(p);
+  else refreshScenes();
+  docInfoEl.textContent =
+    r.value.kind === "switched"
+      ? `删掉「${gone}」· 现在编辑「${r.value.to}」`
+      : `删掉「${gone}」（不是当前场景，当前仍是「${r.value.to}」）`;
+  errEl.textContent = "";
+  return { ok: true, name: r.value.to, kind: r.value.kind };
 }
 
 function refreshHistory(): void {
@@ -1481,6 +1652,33 @@ interface EditorApi {
   docNew(): { ok: boolean; made?: number; code?: string; message?: string };
   /** 文本框里的当前内容（判据用来验「保存真的写进去了」）。 */
   docText(): string;
+  /** 工程里的场景列表 + 当前项（顺序即列表顺序）。 */
+  scenes(): { list: string[]; current: string };
+  /**
+   * 切到某个场景。`kind === "noop"` = 目标就是当前场景，**一个节点实例都没换**。
+   *
+   * 试玩期间会被拒（`EDIT.PLAYING`）—— 理由见 `EDIT_PLAYING` 的注释。
+   */
+  sceneSwitch(name: string): {
+    ok: boolean;
+    kind?: string;
+    nodes?: number;
+    savedFrom?: boolean;
+    code?: string;
+    message?: string;
+  };
+  /** 新建一个空场景并切过去；`name` 缺省时自动取一个没被占用的编号。 */
+  sceneNew(name?: string): { ok: boolean; name?: string; code?: string; message?: string };
+  /** 删一个场景（缺省 = 当前）。删当前时会先切到邻居；只剩一个时会被拒。 */
+  sceneDelete(name?: string): { ok: boolean; name?: string; kind?: string; code?: string; message?: string };
+  /**
+   * 节点**实例**的序号（`-1` = 节点不在）。
+   *
+   * ★ 这是「切到同一份场景不该重建」这条保证唯一的可观察形态：
+   *   `nodeId` 写在文档里，切走再切回来 id 不变，但 `Node` 实例已经换了 ——
+   *   只看 id / 名字 / 节点数，重建与不重建**完全一样**（那就是假绿）。
+   */
+  nodeSerial(id: number): number;
   /** 选中节点（缺省）上还能挂哪些组件类型：注册表减去已挂的。 */
   compAvailable(node?: number): string[];
   /** 挂一个组件（进历史）。`node` 缺省 = 当前选中项。 */
@@ -1677,6 +1875,23 @@ function installApi(app: GameApp): void {
     docText() {
       return docText.value;
     },
+    scenes() {
+      const p = project;
+      return p === null ? { list: [], current: "" } : { list: sceneNames(p), current: p.current };
+    },
+    sceneSwitch(name) {
+      return doSceneSwitch(name);
+    },
+    sceneNew(name) {
+      return doSceneNew(name);
+    },
+    sceneDelete(name) {
+      return doSceneDelete(name);
+    },
+    nodeSerial(id) {
+      const n = app.scene.find(id);
+      return n === undefined ? -1 : serialOf(n);
+    },
     compAvailable(node) {
       const id = node ?? selection.primary;
       if (id === null) return [];
@@ -1817,6 +2032,26 @@ async function main(): Promise<void> {
   bindCanvasDrag();
   bindTreeDrag();
   bindAssetDrag();
+
+  // ★ 工程在**世界装好之后**才建：第一个槽位就是刚装上来的这个世界。
+  //   先建工程再装世界的话，第一个槽位要么是空文档、要么得靠后面补一次导出 ——
+  //   而"补一次"这种事,后面一定会有人忘。
+  const t0 = exportDocument(docDeps(app));
+  if (!t0.ok) {
+    errEl.textContent = `工程初始化失败：${t0.error.code}：${t0.error.message}`;
+    return;
+  }
+  project = createProject(app.scene.name, t0.value);
+  docText.value = t0.value;
+  docInfoEl.textContent = `工程：1 个场景 · 已导出 ${String(t0.value.length)} 字节`;
+  refreshScenes();
+  btnSceneNew.addEventListener("click", () => {
+    doSceneNew();
+  });
+  btnSceneDel.addEventListener("click", () => {
+    doSceneDelete();
+  });
+
   // 清单与图集在 `main()` 开头就已经准备好（启动顺序见那里的说明）。
   btnAssetAdd.addEventListener("click", () => {
     doAddAsset(assetPicked);

@@ -686,6 +686,102 @@ const PROBE = `
     JSON.stringify(stopClean),
   );
 
+  // ---------------- 工程（多场景，批90）
+  //
+  // ★ 放在**最后**：这一组会真的把整个场景换掉，放前面会让后面的判据面对另一份世界。
+  // ★ 也必须在 E.stop() 之后：试玩会话还开着时切场景会被拒（那本身就是最后一条判据）。
+  //
+  // ★★ 这一组最要紧的观测点是 nodeSerial：节点 id 写在文档里，切走再切回**id 一模一样**，
+  //   但 Node 实例已经被 scene.clear() 换成新的了。只看 id / 名字 / 节点数，
+  //   「重建了」和「没重建」是同一个结果 —— 那就是假绿。
+  const hasNodeNamed = (nm) => E.outline().some((r) => r.name === nm);
+  const sc0 = E.scenes();
+  add(
+    "工程里已经有一份场景（列表非空，当前项就是列表里那个）",
+    sc0.list.length === 1 && sc0.current === sc0.list[0] && sc0.current.length > 0,
+    JSON.stringify(sc0),
+  );
+
+  const heroSerial0 = heroId >= 0 ? E.nodeSerial(heroId) : -1;
+  E.select(heroId);
+  const undoN0 = E.history().undo.length;
+  const selfSwitch = E.sceneSwitch(sc0.current);
+  add(
+    "★★ 切到当前场景：noop（节点实例一个都没换，历史与选中也都还在）",
+    selfSwitch.ok === true && selfSwitch.kind === "noop" &&
+      heroSerial0 > 0 && E.nodeSerial(heroId) === heroSerial0 &&
+      E.history().undo.length === undoN0 && E.stats().selected.length === 1,
+    JSON.stringify(selfSwitch) + " serial " + heroSerial0 + "->" + E.nodeSerial(heroId) +
+      " undo=" + E.history().undo.length + "（期望 " + undoN0 + "）sel=" + E.stats().selected.length,
+  );
+
+  // 在 main 里留一处**没有保存**的改动：切走时若不保存它，切回来就没了
+  const addM = E.addNode("只属于 main");
+  const created = E.sceneNew();
+  const sc1 = E.scenes();
+  add(
+    "★★ 新建场景：列表 +1、当前切到新场景，而且新场景是空的（只剩根）",
+    addM.ok === true && created.ok === true && sc1.list.length === 2 && sc1.current === created.name &&
+      E.stats().nodes === 1 && E.outline().length === 1,
+    JSON.stringify(created) + " list=" + JSON.stringify(sc1.list) + " current=" + sc1.current +
+      " nodes=" + E.stats().nodes,
+  );
+
+  // 新场景里也放一个自己的节点（用来验两边不会互相覆盖）
+  const addS = E.addNode("只属于新场景");
+
+  const backM = E.sceneSwitch("main");
+  add(
+    "★★ 切回 main：切走时自动保存了，那个没保存的节点还在；新场景的节点没有跟过来",
+    addS.ok === true && backM.ok === true && backM.kind === "switched" &&
+      hasNodeNamed("只属于 main") && !hasNodeNamed("只属于新场景") &&
+      E.nodeSerial(heroId) !== heroSerial0,
+    JSON.stringify(backM) + " main=" + String(hasNodeNamed("只属于 main")) +
+      " 串场=" + String(hasNodeNamed("只属于新场景")) +
+      " serial " + heroSerial0 + "->" + E.nodeSerial(heroId),
+  );
+
+  const backS = E.sceneSwitch(created.name);
+  add(
+    "★★ 再切回新场景：它自己的节点也还在（两份文档谁也不会覆盖谁）",
+    backS.ok === true && hasNodeNamed("只属于新场景") && !hasNodeNamed("只属于 main"),
+    JSON.stringify(backS) + " 新场景=" + String(hasNodeNamed("只属于新场景")) +
+      " 串场=" + String(hasNodeNamed("只属于 main")),
+  );
+
+  const dropped = E.sceneDelete();
+  add(
+    "★★ 删掉当前场景：切到邻居（main），列表回到 1 项，场景里是 main 的内容",
+    dropped.ok === true && E.scenes().list.length === 1 && E.scenes().current === "main" &&
+      hasNodeNamed("只属于 main") && !hasNodeNamed("只属于新场景"),
+    JSON.stringify(dropped) + " list=" + JSON.stringify(E.scenes().list) +
+      " current=" + E.scenes().current,
+  );
+
+  const droppedLast = E.sceneDelete();
+  add(
+    "★ 只剩一个场景时删除被拒（EDIT.LAST_SCENE），列表一个字节都没动",
+    droppedLast.ok === false && droppedLast.code === "EDIT.LAST_SCENE" &&
+      E.scenes().list.length === 1 && E.scenes().current === "main",
+    JSON.stringify(droppedLast) + " list=" + JSON.stringify(E.scenes().list),
+  );
+
+  // ★★ 试玩期间切场景必须被拒：endPlaySession 的回滚会把**进试玩那一刻**的文档装回去，
+  //   而那时场景已经是另一份了 —— 静默数据错乱。所以宁可"切不动"。
+  const serialBeforeBusy = E.nodeSerial(heroId);
+  E.step(1); // 开一个试玩会话（这一步一定会让它存在）
+  const busy = E.sceneNew();
+  const serialBusy = E.nodeSerial(heroId);
+  const toStop = E.scenes().list.length;
+  E.stop();
+  add(
+    "★★ 试玩期间切场景被拒（EDIT.PLAYING），场景一个节点实例都没动",
+    busy.ok === false && busy.code === "EDIT.PLAYING" && serialBusy === serialBeforeBusy &&
+      toStop === 1 && E.scenes().list.length === 1,
+    JSON.stringify(busy) + " serial " + serialBeforeBusy + "->" + serialBusy +
+      " list=" + E.scenes().list.length,
+  );
+
   return rows;
 })()
 `;

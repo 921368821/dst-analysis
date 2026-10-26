@@ -17,14 +17,29 @@
     padding: 0 10px; background: #10151d; border-bottom: 1px solid #1d2530; }
   #top b { color: #e6c07b; font-weight: 600; }
   #top .dim { color: #6a7684; }
-  /* 左列 = 场景树（上）+ 资产（下）。用一层 #left 而不是再加一列网格：
-     资产列表与场景树是同一件事（"世界上有什么"）的两种视角，挤在一列里
-     才不会把中间那块画布再压窄。 */
-  #left { grid-area: tree; display: grid; grid-template-rows: 1fr auto;
+  /* 左列 = 工程场景（上）+ 场景树（中）+ 资产（下）。
+     「工程场景」与「场景树」是两个不同的轴：前者是**文档**（工程里有几份世界），
+     后者是**当前那份世界里的节点**。它们挤在同一列，所以各自的标题必须写清楚，
+     否则"点一行换世界"和"点一行选节点"看起来是同一件事。 */
+  #left { grid-area: tree; display: grid; grid-template-rows: auto 1fr auto;
     min-height: 0; background: #0d1219; border-right: 1px solid #1d2530; }
   #tree { overflow: auto; padding: 6px 4px; min-height: 0; }
   #view { grid-area: view; position: relative; overflow: hidden; background: #0b0e13; }
   #cv { display: block; width: 100%; height: 100%; image-rendering: pixelated; }
+  /* 工程场景列表：最多几行、自己滚。行样式与场景树刻意不同（圆角块 + 当前项加粗），
+     免得人以为那是"另一种节点"。 */
+  #scenes { max-height: 30%; overflow: auto; padding: 4px 4px 6px;
+    border-bottom: 1px solid #1d2530; }
+  #scenes h2 { display: flex; align-items: center; gap: 6px; margin: 0 0 4px;
+    padding: 0 2px; font-size: 11px; color: #6a7684; font-weight: 600; }
+  #scenes h2 .grow { flex: 1 1 auto; }
+  #scenes button { font-size: 10px; padding: 1px 6px; line-height: 15px; }
+  .srow { padding: 2px 6px; border-radius: 4px; cursor: pointer; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; color: #9fb4d0; }
+  .srow:hover { background: rgba(255,255,255,.06); }
+  .srow.sel { background: rgba(226,192,123,.2); outline: 1px solid rgba(230,192,123,.55);
+    color: #e6c07b; font-weight: 600; }
+
   #props { grid-area: props; overflow: auto; padding: 8px 10px;
     background: #0d1219; border-left: 1px solid #1d2530; }
   #pie { grid-area: pie; display: flex; align-items: center; gap: 8px;
@@ -114,6 +129,13 @@
     <span id="err"></span>
   </div>
   <div id="left">
+    <div id="scenes">
+      <h2><span>工程场景</span><span class="dim" id="scenecount">—</span>
+        <span class="grow"></span>
+        <button id="scene-new" title="新建一个空场景并切过去（当前场景会先被保存）">新建</button>
+        <button id="scene-del" title="删掉当前场景">删除</button></h2>
+      <div id="scenelist"><div class="empty">—</div></div>
+    </div>
     <div id="tree"></div>
     <div id="assets">
       <h2><span>资产</span><span class="dim" id="assetcount">—</span>
@@ -131,7 +153,7 @@
     </div>
     <textarea id="doctext" spellcheck="false" placeholder="场景 JSON：点「保存到文本」导出；改完（或粘贴一份存档）点「从文本打开」"></textarea>
     <div class="col">
-      <button id="btn-new">新建空场景</button>
+      <button id="btn-new" title="把当前场景清空成一个空文档（工程里的场景列表不变；想要多一份场景用左上角的「新建」）">清空当前场景</button>
       <span class="dim" id="docinfo">—</span>
     </div>
   </div>

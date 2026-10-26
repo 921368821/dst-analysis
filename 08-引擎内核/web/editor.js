@@ -7631,6 +7631,121 @@ function newDocument(deps) {
   return ok(adopt(deps, 0, []));
 }
 
+// src/extensions/editor/project.ts
+var EDIT_NO_SUCH_SCENE = "EDIT.NO_SUCH_SCENE";
+var EDIT_SCENE_EXISTS = "EDIT.SCENE_EXISTS";
+var EDIT_LAST_SCENE = "EDIT.LAST_SCENE";
+var EDIT_SAVE_FAILED = "EDIT.SAVE_FAILED";
+function createProject(name, text) {
+  return { scenes: [{ name, text }], current: name };
+}
+function sceneNames(p) {
+  return p.scenes.map((s) => s.name);
+}
+function currentSceneText(p) {
+  return slotOf(p, p.current)?.text ?? "";
+}
+function slotOf(p, name) {
+  return p.scenes.find((s) => s.name === name);
+}
+function freeSceneName(p, want) {
+  const trimmed = (want ?? "").trim();
+  if (trimmed.length > 0) return trimmed;
+  for (let i = 1; i < 1e4; i++) {
+    const candidate = `\u573A\u666F ${String(i)}`;
+    if (slotOf(p, candidate) === void 0) return candidate;
+  }
+  return `\u573A\u666F ${String(p.scenes.length + 1)}`;
+}
+function saveCurrent(deps, p) {
+  const r = exportDocument(deps);
+  if (!r.ok) return err(r.error);
+  const slot = slotOf(p, p.current);
+  if (slot === void 0) {
+    return err(engineError(EDIT_NO_SUCH_SCENE, `\u5DE5\u7A0B\u7684\u5F53\u524D\u9879\u300C${p.current}\u300D\u4E0D\u5728\u573A\u666F\u5217\u8868\u91CC`));
+  }
+  const changed = slot.text !== r.value;
+  if (changed) slot.text = r.value;
+  return ok({ text: r.value, changed });
+}
+function report(kind, from, to, savedFrom, r) {
+  return {
+    kind,
+    from,
+    to,
+    savedFrom,
+    made: r === null ? 0 : r.made,
+    skipped: r === null ? [] : r.skipped,
+    droppedHistory: r === null ? 0 : r.droppedHistory,
+    droppedSelection: r === null ? 0 : r.droppedSelection
+  };
+}
+function switchScene(deps, p, name) {
+  if (name === p.current) return ok(report("noop", p.current, name, false, null));
+  const target = slotOf(p, name);
+  if (target === void 0) {
+    return err(engineError(EDIT_NO_SUCH_SCENE, `\u5DE5\u7A0B\u91CC\u6CA1\u6709\u53EB\u300C${name}\u300D\u7684\u573A\u666F`));
+  }
+  const from = p.current;
+  const saved = saveCurrent(deps, p);
+  if (!saved.ok) {
+    return err(
+      engineError(EDIT_SAVE_FAILED, `\u5207\u8D70\u524D\u4FDD\u5B58\u300C${from}\u300D\u5931\u8D25\uFF1A${saved.error.message}`, {
+        cause: saved.error.code
+      })
+    );
+  }
+  const opened = openDocument(deps, target.text);
+  if (!opened.ok) {
+    return err(opened.error);
+  }
+  p.current = name;
+  return ok(report("switched", from, name, saved.value.changed, opened.value));
+}
+function createScene(deps, p, want) {
+  const name = freeSceneName(p, want);
+  if (slotOf(p, name) !== void 0) {
+    return err(engineError(EDIT_SCENE_EXISTS, `\u5DF2\u7ECF\u6709\u4E00\u4E2A\u53EB\u300C${name}\u300D\u7684\u573A\u666F\u4E86`));
+  }
+  const from = p.current;
+  const saved = saveCurrent(deps, p);
+  if (!saved.ok) {
+    return err(
+      engineError(EDIT_SAVE_FAILED, `\u65B0\u5EFA\u524D\u4FDD\u5B58\u300C${from}\u300D\u5931\u8D25\uFF1A${saved.error.message}`, {
+        cause: saved.error.code
+      })
+    );
+  }
+  const fresh = newDocument(deps);
+  if (!fresh.ok) return err(fresh.error);
+  const text = exportDocument(deps);
+  if (!text.ok) {
+    return err(engineError(EDIT_SAVE_FAILED, `\u65B0\u573A\u666F\u5BFC\u51FA\u5931\u8D25\uFF1A${text.error.message}`, { cause: text.error.code }));
+  }
+  p.scenes.push({ name, text: text.value });
+  p.current = name;
+  return ok(report("switched", from, name, saved.value.changed, fresh.value));
+}
+function deleteScene(deps, p, name) {
+  const target = name ?? p.current;
+  const idx = p.scenes.findIndex((s) => s.name === target);
+  if (idx < 0) return err(engineError(EDIT_NO_SUCH_SCENE, `\u5DE5\u7A0B\u91CC\u6CA1\u6709\u53EB\u300C${target}\u300D\u7684\u573A\u666F`));
+  if (p.scenes.length <= 1) {
+    return err(engineError(EDIT_LAST_SCENE, "\u5DE5\u7A0B\u91CC\u53EA\u5269\u8FD9\u4E00\u4E2A\u573A\u666F\u4E86\uFF0C\u5220\u6389\u5C31\u6CA1\u6709\u6587\u6863\u53EF\u7F16\u8F91"));
+  }
+  if (target !== p.current) {
+    p.scenes.splice(idx, 1);
+    return ok(report("noop", p.current, p.current, false, null));
+  }
+  const from = p.current;
+  const next = p.scenes[idx + 1] ?? p.scenes[idx - 1];
+  const opened = openDocument(deps, next.text);
+  if (!opened.ok) return err(opened.error);
+  p.scenes.splice(idx, 1);
+  p.current = next.name;
+  return ok(report("switched", from, next.name, false, opened.value));
+}
+
 // src/extensions/editor/property-model.ts
 var EDIT_BAD_FIELD = "EDIT.BAD_FIELD";
 var EDIT_BAD_VALUE = "EDIT.BAD_VALUE";
@@ -12021,12 +12136,12 @@ var SubtreeOp = class {
   scene;
   snap;
   restoreOnRevert;
-  constructor(scene, label, snap, restoreOnRevert, report = () => void 0) {
+  constructor(scene, label, snap, restoreOnRevert, report2 = () => void 0) {
     this.scene = scene;
     this.label = label;
     this.snap = snap;
     this.restoreOnRevert = restoreOnRevert;
-    this.report = report;
+    this.report = report2;
   }
   apply() {
     return this.restoreOnRevert ? this.destroy() : this.restore();
@@ -12365,6 +12480,10 @@ var docInfoEl = need("docinfo");
 var assetListEl = need("assetlist");
 var assetCountEl = need("assetcount");
 var btnAssetAdd = need("asset-add");
+var sceneListEl = need("scenelist");
+var sceneCountEl = need("scenecount");
+var btnSceneNew = need("scene-new");
+var btnSceneDel = need("scene-del");
 var dpr = Math.min(2, window.devicePixelRatio || 1);
 canvas.width = Math.max(1, Math.floor((canvas.clientWidth || 640) * dpr));
 canvas.height = Math.max(1, Math.floor((canvas.clientHeight || 420) * dpr));
@@ -12376,6 +12495,16 @@ var lastStop = null;
 var appRef = null;
 var heroId = -1;
 var booted = false;
+var project = null;
+var nodeSerials = /* @__PURE__ */ new WeakMap();
+var nodeSerialNext = 1;
+function serialOf(n) {
+  const had = nodeSerials.get(n);
+  if (had !== void 0) return had;
+  const s = nodeSerialNext++;
+  nodeSerials.set(n, s);
+  return s;
+}
 var registry = new BackendRegistry();
 registerNullBackends(registry);
 registry.registerGfx(webgl2Backend, 100);
@@ -12717,6 +12846,100 @@ function doNewDoc() {
   errEl.textContent = "";
   afterDocChange();
   return { ok: true, made: r.value.made };
+}
+var EDIT_PLAYING = "EDIT.PLAYING";
+function refreshScenes() {
+  const p = project;
+  if (p === null) return;
+  sceneCountEl.textContent = `${String(p.scenes.length)} \u4E2A`;
+  sceneListEl.textContent = "";
+  for (const name of sceneNames(p)) {
+    const row = document.createElement("div");
+    row.className = name === p.current ? "srow sel" : "srow";
+    row.dataset.name = name;
+    row.textContent = name;
+    row.addEventListener("click", () => {
+      doSceneSwitch(name);
+    });
+    sceneListEl.appendChild(row);
+  }
+  btnSceneDel.disabled = p.scenes.length <= 1;
+  btnSceneDel.title = p.scenes.length <= 1 ? "\u5DE5\u7A0B\u91CC\u81F3\u5C11\u5F97\u7559\u4E00\u4E2A\u573A\u666F" : "\u5220\u6389\u5F53\u524D\u573A\u666F";
+}
+function describeSwitch(r) {
+  if (r.kind === "noop") return `\u5DF2\u7ECF\u5728\u300C${r.to}\u300D\u4E0A\uFF08\u6CA1\u6709\u91CD\u5EFA\u4EFB\u4F55\u8282\u70B9\uFF09`;
+  const parts = [`\u5207\u5230\u300C${r.to}\u300D\uFF1A${String(r.made)} \u4E2A\u8282\u70B9`];
+  parts.push(r.savedFrom ? "\u5207\u8D70\u524D\u5DF2\u4FDD\u5B58\u539F\u573A\u666F" : "\u539F\u573A\u666F\u6CA1\u6709\u6539\u52A8\uFF0C\u672A\u91CD\u5199");
+  if (r.droppedHistory > 0) parts.push(`\u6E05\u6389 ${String(r.droppedHistory)} \u6761\u5386\u53F2`);
+  if (r.droppedSelection > 0) parts.push(`\u6E05\u6389 ${String(r.droppedSelection)} \u9879\u9009\u4E2D`);
+  if (r.skipped.length > 0) parts.push(`${String(r.skipped.length)} \u6761\u88AB\u8DF3\u8FC7`);
+  return parts.join(" \xB7 ");
+}
+function afterSceneSwitch(p) {
+  docText.value = currentSceneText(p);
+  afterDocChange();
+  refreshScenes();
+}
+function doSceneSwitch(name) {
+  const app = appRef;
+  const p = project;
+  if (app === null || p === null) return { ok: false, code: "EDIT.NOT_READY" };
+  if (playSession !== null) {
+    const msg2 = "\u8BD5\u73A9\u8FD8\u6CA1\u505C\uFF1A\u5148\u70B9\u300C\u505C\u6B62\u300D\u518D\u5207\u573A\u666F\uFF08\u5426\u5219\u56DE\u6EDA\u4F1A\u628A\u65E7\u573A\u666F\u7684\u6587\u6863\u88C5\u8FDB\u65B0\u573A\u666F\uFF09";
+    errEl.textContent = `${EDIT_PLAYING}\uFF1A${msg2}`;
+    return { ok: false, code: EDIT_PLAYING, message: msg2 };
+  }
+  const r = switchScene(docDeps(app), p, name);
+  if (!r.ok) {
+    errEl.textContent = `${r.error.code}\uFF1A${r.error.message}`;
+    return { ok: false, code: r.error.code, message: r.error.message };
+  }
+  if (r.value.kind === "switched") afterSceneSwitch(p);
+  docInfoEl.textContent = describeSwitch(r.value);
+  errEl.textContent = r.value.skipped.length > 0 ? `\u6709 ${String(r.value.skipped.length)} \u5904\u88AB\u8DF3\u8FC7\uFF08\u89C1\u63A7\u5236\u53F0\uFF09` : "";
+  if (r.value.skipped.length > 0) console.warn("\u5207\u6362\u573A\u666F\u65F6\u8DF3\u8FC7\uFF1A", r.value.skipped);
+  refreshScenes();
+  return { ok: true, kind: r.value.kind, nodes: r.value.made, savedFrom: r.value.savedFrom };
+}
+function doSceneNew(name) {
+  const app = appRef;
+  const p = project;
+  if (app === null || p === null) return { ok: false, code: "EDIT.NOT_READY" };
+  if (playSession !== null) {
+    const msg2 = "\u8BD5\u73A9\u8FD8\u6CA1\u505C\uFF1A\u5148\u70B9\u300C\u505C\u6B62\u300D\u518D\u65B0\u5EFA\u573A\u666F";
+    errEl.textContent = `${EDIT_PLAYING}\uFF1A${msg2}`;
+    return { ok: false, code: EDIT_PLAYING, message: msg2 };
+  }
+  const r = createScene(docDeps(app), p, name);
+  if (!r.ok) {
+    errEl.textContent = `${r.error.code}\uFF1A${r.error.message}`;
+    return { ok: false, code: r.error.code, message: r.error.message };
+  }
+  afterSceneSwitch(p);
+  docInfoEl.textContent = `\u65B0\u5EFA\u300C${r.value.to}\u300D\uFF08\u7A7A\u573A\u666F\uFF09\xB7 ${r.value.savedFrom ? "\u539F\u573A\u666F\u5DF2\u4FDD\u5B58" : "\u539F\u573A\u666F\u6CA1\u6709\u6539\u52A8"}`;
+  errEl.textContent = "";
+  return { ok: true, name: r.value.to };
+}
+function doSceneDelete(name) {
+  const app = appRef;
+  const p = project;
+  if (app === null || p === null) return { ok: false, code: "EDIT.NOT_READY" };
+  if (playSession !== null) {
+    const msg2 = "\u8BD5\u73A9\u8FD8\u6CA1\u505C\uFF1A\u5148\u70B9\u300C\u505C\u6B62\u300D\u518D\u5220\u573A\u666F";
+    errEl.textContent = `${EDIT_PLAYING}\uFF1A${msg2}`;
+    return { ok: false, code: EDIT_PLAYING, message: msg2 };
+  }
+  const gone = name ?? p.current;
+  const r = deleteScene(docDeps(app), p, name);
+  if (!r.ok) {
+    errEl.textContent = `${r.error.code}\uFF1A${r.error.message}`;
+    return { ok: false, code: r.error.code, message: r.error.message };
+  }
+  if (r.value.kind === "switched") afterSceneSwitch(p);
+  else refreshScenes();
+  docInfoEl.textContent = r.value.kind === "switched" ? `\u5220\u6389\u300C${gone}\u300D\xB7 \u73B0\u5728\u7F16\u8F91\u300C${r.value.to}\u300D` : `\u5220\u6389\u300C${gone}\u300D\uFF08\u4E0D\u662F\u5F53\u524D\u573A\u666F\uFF0C\u5F53\u524D\u4ECD\u662F\u300C${r.value.to}\u300D\uFF09`;
+  errEl.textContent = "";
+  return { ok: true, name: r.value.to, kind: r.value.kind };
 }
 function refreshHistory() {
   btnUndo.disabled = !history.canUndo;
@@ -13380,6 +13603,23 @@ function installApi(app) {
     docText() {
       return docText.value;
     },
+    scenes() {
+      const p = project;
+      return p === null ? { list: [], current: "" } : { list: sceneNames(p), current: p.current };
+    },
+    sceneSwitch(name) {
+      return doSceneSwitch(name);
+    },
+    sceneNew(name) {
+      return doSceneNew(name);
+    },
+    sceneDelete(name) {
+      return doSceneDelete(name);
+    },
+    nodeSerial(id) {
+      const n = app.scene.find(id);
+      return n === void 0 ? -1 : serialOf(n);
+    },
     compAvailable(node) {
       const id = node ?? selection.primary;
       if (id === null) return [];
@@ -13506,6 +13746,21 @@ async function main() {
   bindCanvasDrag();
   bindTreeDrag();
   bindAssetDrag();
+  const t0 = exportDocument(docDeps(app));
+  if (!t0.ok) {
+    errEl.textContent = `\u5DE5\u7A0B\u521D\u59CB\u5316\u5931\u8D25\uFF1A${t0.error.code}\uFF1A${t0.error.message}`;
+    return;
+  }
+  project = createProject(app.scene.name, t0.value);
+  docText.value = t0.value;
+  docInfoEl.textContent = `\u5DE5\u7A0B\uFF1A1 \u4E2A\u573A\u666F \xB7 \u5DF2\u5BFC\u51FA ${String(t0.value.length)} \u5B57\u8282`;
+  refreshScenes();
+  btnSceneNew.addEventListener("click", () => {
+    doSceneNew();
+  });
+  btnSceneDel.addEventListener("click", () => {
+    doSceneDelete();
+  });
   btnAssetAdd.addEventListener("click", () => {
     doAddAsset(assetPicked);
   });

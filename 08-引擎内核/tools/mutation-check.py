@@ -3793,6 +3793,70 @@ MUTANTS = [
         #   的形式**假绿**（判据根本没执行）。用正在跑本脚本的那个解释器，两边一致。
         "cmd": [sys.executable, "tools/worktree_guard.py", "--selftest"],
     },
+    {
+        "name": "M409 切走前不保存源场景（切回来刚加的节点就没了）",
+        # 这是「多场景」最典型的静默数据丢失：切换成功、目标场景也对，
+        # 只有切回来时才发现少了东西 —— 而人会以为是引擎把节点弄丢了。
+        "file": "src/extensions/editor/project.ts",
+        "pairs": [("  const saved = saveCurrent(deps, p);\n  if (!saved.ok) {\n    return err(\n      engineError(EDIT_SAVE_FAILED, `切走前保存「${from}」失败：${saved.error.message}`, {",
+                   "  const saved = ok({ text: \"\", changed: false });\n  if (!saved.ok) {\n    return err(\n      engineError(EDIT_SAVE_FAILED, `切走前保存「${from}」失败：${saved.error.message}`, {")],
+        "test": "tests/extensions/editor-project.test.ts",
+    },
+    {
+        "name": "M410 切到当前场景也走装载（整棵树被换成新实例）",
+        # 症状：点一下当前那一行，撤销栈/选中集/组件运行时状态全没了，
+        # 而节点数、名字、id 全都一样 —— 界面上看不出发生过什么。
+        "file": "src/extensions/editor/project.ts",
+        "pairs": [("  if (name === p.current) return ok(report(\"noop\", p.current, name, false, null));",
+                   "  if (false) return ok(report(\"noop\", p.current, name, false, null));")],
+        "cmd": ["node", "tools/editor-selftest.mjs", "--build"],
+        "env_exit": 2,
+    },
+    {
+        "name": "M411 目标文档坏了也把 current 改过去（之后每次切走都写错槽位）",
+        "file": "src/extensions/editor/project.ts",
+        "pairs": [("  const opened = openDocument(deps, target.text);\n  if (!opened.ok) {",
+                   "  const opened = openDocument(deps, target.text);\n  if (false) {")],
+        "test": "tests/extensions/editor-project.test.ts",
+    },
+    {
+        "name": "M412 新建场景不查名字占用（第二次「新建」变成切到已有场景）",
+        "file": "src/extensions/editor/project.ts",
+        "pairs": [("    if (slotOf(p, candidate) === undefined) return candidate;",
+                   "    return candidate;")],
+        "test": "tests/extensions/editor-project.test.ts",
+    },
+    {
+        "name": "M413 删当前场景不装载邻居（列表说切了，场景里还是被删的那份）",
+        "file": "src/extensions/editor/project.ts",
+        "pairs": [("  const opened = openDocument(deps, next.text);",
+                   "  const opened = ok({ made: 0, skipped: [], droppedHistory: 0, droppedSelection: 0 });")],
+        "test": "tests/extensions/editor-project.test.ts",
+    },
+    {
+        "name": "M414 不挡「删到只剩一个」（工程里可以一份文档都不剩）",
+        "file": "src/extensions/editor/project.ts",
+        "pairs": [("  if (p.scenes.length <= 1) {", "  if (p.scenes.length <= 0) {")],
+        "test": "tests/extensions/editor-project.test.ts",
+    },
+    {
+        "name": "M415 试玩期间照样新建/切场景（停播会把旧场景的文档装进新场景）",
+        "file": "src/editor-entry.ts",
+        "pairs": [("  if (playSession !== null) {\n    const msg = \"试玩还没停：先点「停止」再新建场景\";",
+                   "  if (false) {\n    const msg = \"试玩还没停：先点「停止」再新建场景\";")],
+        "cmd": ["node", "tools/editor-selftest.mjs", "--build"],
+        "env_exit": 2,
+    },
+    {
+        "name": "M416 nodeSerial 用 id 冒充实例（「没重建」这条保证立刻失去观测）",
+        # 这是**判据自己**的靶子：一旦用 id 冒充实例，跨场景往返（实例必然被换）
+        # 与 noop（实例没换）就再也分不开了 —— 而那也是本批唯一能分辨两者的观测量。
+        "file": "src/editor-entry.ts",
+        "pairs": [("      const n = app.scene.find(id);\n      return n === undefined ? -1 : serialOf(n);",
+                   "      const n = app.scene.find(id);\n      return n === undefined ? -1 : n.id;")],
+        "cmd": ["node", "tools/editor-selftest.mjs", "--build"],
+        "env_exit": 2,
+    },
 ]
 
 
