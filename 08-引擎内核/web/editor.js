@@ -5249,6 +5249,10 @@ function createRenderModule(opts) {
     get camera() {
       return camera;
     },
+    resize(width, height) {
+      if (!(width > 0) || !(height > 0)) return;
+      dev?.resize(width, height);
+    },
     get lastFrame() {
       return lastFrame;
     },
@@ -7403,85 +7407,6 @@ function setField(scene, nodeId, type, key, raw) {
   return ok({ before, after: c.value, changed: !valuesEqual(before, c.value) });
 }
 
-// src/extensions/editor/pie.ts
-var EPS2 = 1e-9;
-var MAX_PENDING = 600;
-var Pie = class {
-  hz;
-  maxStepTicks;
-  playing = false;
-  accTicks = 0;
-  pendingTicks = 0;
-  tickCount = 0;
-  clamped = 0;
-  constructor(opts = {}) {
-    const hz = opts.hz ?? 30;
-    this.hz = hz > 0 ? hz : 30;
-    const m = opts.maxStepTicks ?? 4;
-    this.maxStepTicks = m >= 1 ? Math.floor(m) : 1;
-  }
-  get isPlaying() {
-    return this.playing;
-  }
-  play() {
-    this.playing = true;
-  }
-  pause() {
-    this.playing = false;
-    this.accTicks = 0;
-  }
-  toggle() {
-    if (this.playing) this.pause();
-    else this.play();
-    return this.playing;
-  }
-  /** 排队单步（默认 1 tick）。**单步 = 暂停着走**，见 ②。 */
-  step(n = 1) {
-    const k = Math.max(0, Math.floor(n));
-    this.pendingTicks = Math.min(this.pendingTicks + k, MAX_PENDING);
-    this.playing = false;
-    this.accTicks = 0;
-  }
-  /**
-   * 推进一帧，返回**本次应该跑几个 tick**（0..maxStepTicks）。
-   * 约定：宿主必须把这个数字**原样**交给 `scene.step`，否则 `stats().tick` 与场景不同步。
-   */
-  advance(dtSec) {
-    let ticks = 0;
-    if (this.pendingTicks > 0) {
-      ticks = this.pendingTicks;
-      this.pendingTicks = 0;
-    } else if (this.playing) {
-      const dt = dtSec > 0 ? dtSec : 0;
-      this.accTicks += dt * this.hz;
-      const due = Math.floor(this.accTicks + EPS2);
-      this.accTicks -= due;
-      ticks = due;
-      if (due > this.maxStepTicks) {
-        ticks = this.maxStepTicks;
-        this.clamped++;
-        this.accTicks = 0;
-      }
-    } else {
-      this.accTicks = 0;
-    }
-    this.tickCount += ticks;
-    return ticks;
-  }
-  stats() {
-    return {
-      playing: this.playing,
-      tick: this.tickCount,
-      pending: this.pendingTicks,
-      clampedFrames: this.clamped,
-      backlog: this.accTicks
-    };
-  }
-};
-function createPie(opts = {}) {
-  return new Pie(opts);
-}
-
 // src/extensions/editor/undo-stack.ts
 var UNDO_BUSY = "UNDO.BUSY";
 var UNDO_OP_FAILED = "UNDO.OP_FAILED";
@@ -7690,6 +7615,201 @@ var UndoStack = class {
 };
 function createUndoStack(opts) {
   return new UndoStack(opts);
+}
+
+// src/extensions/editor/gizmo.ts
+var EDIT_BAD_DRAG = "EDIT.BAD_DRAG";
+var DEFAULT_PICK_RADIUS = 0.55;
+function pickAt(scene, wx, wz, opts = {}) {
+  const r = opts.radius ?? DEFAULT_PICK_RADIUS;
+  const r2 = r * r;
+  const hits = [];
+  scene.root.walk((n) => {
+    if (n.id === scene.rootId || !n.active) return;
+    const p = n.worldPosition;
+    const dx = p.x - wx;
+    const dy = p.y - wz;
+    const d2 = dx * dx + dy * dy;
+    if (d2 <= r2) hits.push({ id: n.id, z: n.zIndex, d2 });
+  });
+  if (hits.length === 0) return void 0;
+  hits.sort((a, b) => b.z !== a.z ? b.z - a.z : a.d2 !== b.d2 ? a.d2 - b.d2 : a.id - b.id);
+  return hits[0]?.id;
+}
+function parentTransformOf(scene, nodeId) {
+  const n = scene.find(nodeId);
+  if (n === void 0) return void 0;
+  const p = n.parent;
+  if (p === null) return { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 0 };
+  const t = p.worldTransform;
+  return { m00: t.m00, m01: t.m01, m02: t.m02, m10: t.m10, m11: t.m11, m12: t.m12 };
+}
+function worldToLocal(basis, wx, wz) {
+  const det = basis.m00 * basis.m11 - basis.m01 * basis.m10;
+  if (!Number.isFinite(det) || Math.abs(det) < 1e-12) return void 0;
+  const dx = wx - basis.m02;
+  const dy = wz - basis.m12;
+  return {
+    u: (basis.m11 * dx - basis.m01 * dy) / det,
+    v: (-basis.m10 * dx + basis.m00 * dy) / det
+  };
+}
+function beginDrag(scene, nodeId, wx, wz) {
+  if (nodeId === scene.rootId) return err(engineError(EDIT_BAD_DRAG, "\u4E0D\u80FD\u62D6\u52A8\u573A\u666F\u6839\u8282\u70B9"));
+  const n = scene.find(nodeId);
+  if (n === void 0) return err(engineError(EDIT_BAD_DRAG, `\u8282\u70B9 #${String(nodeId)} \u4E0D\u5728\u573A\u666F\u91CC`));
+  const basis = parentTransformOf(scene, nodeId);
+  if (basis === void 0) return err(engineError(EDIT_BAD_DRAG, `\u8282\u70B9 #${String(nodeId)} \u7684\u7236\u53D8\u6362\u53D6\u4E0D\u5230`));
+  const det = basis.m00 * basis.m11 - basis.m01 * basis.m10;
+  const local = worldToLocal(basis, wx, wz);
+  if (local === void 0) {
+    return err(
+      engineError(EDIT_BAD_DRAG, `\u8282\u70B9 #${String(nodeId)} \u7684\u7236\u8282\u70B9\u628A\u5750\u6807\u8F74\u538B\u6210\u4E86 0\uFF08det=${String(det)}\uFF09\uFF0C\u6CA1\u6CD5\u6362\u7B97`)
+    );
+  }
+  return ok({
+    nodeId,
+    grabU: local.u - n.localPosition.x,
+    grabV: local.v - n.localPosition.y,
+    fromX: n.localPosition.x,
+    fromY: n.localPosition.y,
+    ...basis,
+    det
+  });
+}
+function dragTarget(state, wx, wz, snap = 0) {
+  const local = worldToLocal(state, wx, wz);
+  if (local === void 0) return { x: state.fromX, y: state.fromY };
+  let x = local.u - state.grabU;
+  let y = local.v - state.grabV;
+  if (snap > 0) {
+    x = Math.round(x / snap) * snap;
+    y = Math.round(y / snap) * snap;
+  }
+  return { x, y };
+}
+function endDrag(scene, state, x, y) {
+  const n = scene.find(state.nodeId);
+  if (n === void 0) {
+    return err(engineError(EDIT_BAD_DRAG, `\u62D6\u62FD\u8FC7\u7A0B\u4E2D\u8282\u70B9 #${String(state.nodeId)} \u88AB\u5220\u6389\u4E86`));
+  }
+  if (x === state.fromX && y === state.fromY) return ok(void 0);
+  const label = `\u79FB\u52A8 ${n.name}`;
+  return ok(new MoveOp(scene, state.nodeId, label, state.fromX, state.fromY, x, y));
+}
+var MoveOp = class {
+  scene;
+  nodeId;
+  fromX;
+  fromY;
+  toX;
+  toY;
+  name;
+  constructor(scene, nodeId, label, fromX, fromY, toX, toY) {
+    this.scene = scene;
+    this.nodeId = nodeId;
+    this.name = label;
+    this.fromX = fromX;
+    this.fromY = fromY;
+    this.toX = toX;
+    this.toY = toY;
+  }
+  get label() {
+    return this.name;
+  }
+  apply() {
+    return this.move(this.toX, this.toY);
+  }
+  revert() {
+    return this.move(this.fromX, this.fromY);
+  }
+  move(x, y) {
+    const n = this.scene.find(this.nodeId);
+    if (n === void 0) {
+      return err(engineError(UNDO_OP_FAILED, `\u8282\u70B9 #${String(this.nodeId)} \u4E0D\u5728\u4E86\uFF0C\u4F4D\u7F6E\u6539\u4E0D\u56DE\u53BB`));
+    }
+    n.setLocalPosition(x, y);
+    return ok(void 0);
+  }
+};
+
+// src/extensions/editor/pie.ts
+var EPS2 = 1e-9;
+var MAX_PENDING = 600;
+var Pie = class {
+  hz;
+  maxStepTicks;
+  playing = false;
+  accTicks = 0;
+  pendingTicks = 0;
+  tickCount = 0;
+  clamped = 0;
+  constructor(opts = {}) {
+    const hz = opts.hz ?? 30;
+    this.hz = hz > 0 ? hz : 30;
+    const m = opts.maxStepTicks ?? 4;
+    this.maxStepTicks = m >= 1 ? Math.floor(m) : 1;
+  }
+  get isPlaying() {
+    return this.playing;
+  }
+  play() {
+    this.playing = true;
+  }
+  pause() {
+    this.playing = false;
+    this.accTicks = 0;
+  }
+  toggle() {
+    if (this.playing) this.pause();
+    else this.play();
+    return this.playing;
+  }
+  /** 排队单步（默认 1 tick）。**单步 = 暂停着走**，见 ②。 */
+  step(n = 1) {
+    const k = Math.max(0, Math.floor(n));
+    this.pendingTicks = Math.min(this.pendingTicks + k, MAX_PENDING);
+    this.playing = false;
+    this.accTicks = 0;
+  }
+  /**
+   * 推进一帧，返回**本次应该跑几个 tick**（0..maxStepTicks）。
+   * 约定：宿主必须把这个数字**原样**交给 `scene.step`，否则 `stats().tick` 与场景不同步。
+   */
+  advance(dtSec) {
+    let ticks = 0;
+    if (this.pendingTicks > 0) {
+      ticks = this.pendingTicks;
+      this.pendingTicks = 0;
+    } else if (this.playing) {
+      const dt = dtSec > 0 ? dtSec : 0;
+      this.accTicks += dt * this.hz;
+      const due = Math.floor(this.accTicks + EPS2);
+      this.accTicks -= due;
+      ticks = due;
+      if (due > this.maxStepTicks) {
+        ticks = this.maxStepTicks;
+        this.clamped++;
+        this.accTicks = 0;
+      }
+    } else {
+      this.accTicks = 0;
+    }
+    this.tickCount += ticks;
+    return ticks;
+  }
+  stats() {
+    return {
+      playing: this.playing,
+      tick: this.tickCount,
+      pending: this.pendingTicks,
+      clampedFrames: this.clamped,
+      backlog: this.accTicks
+    };
+  }
+};
+function createPie(opts = {}) {
+  return new Pie(opts);
 }
 
 // src/extensions/editor/undo-ops.ts
@@ -8010,8 +8130,8 @@ var btnNew = need("btn-new");
 var docText = need("doctext");
 var docInfoEl = need("docinfo");
 var dpr = Math.min(2, window.devicePixelRatio || 1);
-canvas.width = Math.floor((canvas.clientWidth || 640) * dpr);
-canvas.height = Math.floor((canvas.clientHeight || 420) * dpr);
+canvas.width = Math.max(1, Math.floor((canvas.clientWidth || 640) * dpr));
+canvas.height = Math.max(1, Math.floor((canvas.clientHeight || 420) * dpr));
 var selection = createSelection();
 var pie = createPie({ hz: HZ, maxStepTicks: 4 });
 var history = createUndoStack();
@@ -8048,6 +8168,15 @@ var renderMod = createRenderModule({
     return { x: p.x, z: p.y };
   }
 });
+function syncViewport() {
+  const w = Math.max(1, Math.floor((canvas.clientWidth || 640) * dpr));
+  const h = Math.max(1, Math.floor((canvas.clientHeight || 420) * dpr));
+  if (canvas.width === w && canvas.height === h) return;
+  renderMod.resize(w, h);
+}
+syncViewport();
+if (typeof ResizeObserver !== "undefined") new ResizeObserver(syncViewport).observe(canvas);
+else window.addEventListener("resize", syncViewport);
 var worldMod = createWorldModule(physics, {});
 var atlasFrames = [...buildProceduralAtlas().frames.keys()];
 var planRef = null;
@@ -8342,6 +8471,104 @@ function doDetachComp(type, nodeId) {
   }
   return commitCompOp(r.value.op);
 }
+var DRAG_SNAP = 0;
+var dragRef = null;
+function canvasToWorld(cssX, cssY) {
+  const c = renderMod.camera;
+  const cw = canvas.clientWidth;
+  const ch = canvas.clientHeight;
+  const sx = cw > 0 ? c.vw / cw : dpr;
+  const sy = ch > 0 ? c.vh / ch : dpr;
+  return c.unproject(cssX * sx, cssY * sy);
+}
+function dragBeginWorld(wx, wz) {
+  const app = appRef;
+  if (app === null) return { ok: false, code: "EDIT.NOT_READY", message: "\u7F16\u8F91\u5668\u8FD8\u6CA1\u542F\u52A8" };
+  if (pie.isPlaying) {
+    const msg = "\u64AD\u653E\u4E2D\u4E0D\u80FD\u62D6\u62FD\uFF08\u5148\u70B9\u6682\u505C\uFF09\u2014\u2014 \u5426\u5219\u79FB\u52A8\u7CFB\u7EDF\u6BCF\u5E27\u90FD\u4F1A\u628A\u4F4D\u7F6E\u6539\u56DE\u53BB";
+    errEl.textContent = msg;
+    return { ok: false, code: "EDIT.BAD_DRAG", message: msg };
+  }
+  const id = pickAt(app.scene, wx, wz);
+  if (id === void 0) {
+    return { ok: false, code: "EDIT.BAD_DRAG", message: "\u8FD9\u4E2A\u4F4D\u7F6E\u6CA1\u6709\u8282\u70B9" };
+  }
+  const r = beginDrag(app.scene, id, wx, wz);
+  if (!r.ok) {
+    errEl.textContent = `${r.error.code}\uFF1A${r.error.message}`;
+    return { ok: false, code: r.error.code, message: r.error.message };
+  }
+  dragRef = r.value;
+  selection.select(id);
+  errEl.textContent = "";
+  refreshTree();
+  refreshProps();
+  return { ok: true, node: id };
+}
+function dragMoveWorld(wx, wz) {
+  const app = appRef;
+  if (app === null || dragRef === null) return { ok: false };
+  const t = dragTarget(dragRef, wx, wz, DRAG_SNAP);
+  const n = app.scene.find(dragRef.nodeId);
+  if (n === void 0) return { ok: false };
+  n.setLocalPosition(t.x, t.y);
+  return { ok: true, x: t.x, y: t.y };
+}
+function dragEndNow() {
+  const app = appRef;
+  const st = dragRef;
+  dragRef = null;
+  if (app === null || st === null) {
+    return { ok: false, code: "EDIT.BAD_DRAG", message: "\u6CA1\u6709\u6B63\u5728\u8FDB\u884C\u7684\u62D6\u62FD" };
+  }
+  const n = app.scene.find(st.nodeId);
+  const r = endDrag(app.scene, st, n?.localPosition.x ?? st.fromX, n?.localPosition.y ?? st.fromY);
+  if (!r.ok) {
+    errEl.textContent = `${r.error.code}\uFF1A${r.error.message}`;
+    afterHistoryChange();
+    return { ok: false, code: r.error.code, message: r.error.message };
+  }
+  if (r.value === void 0) {
+    afterHistoryChange();
+    return { ok: true, moved: false };
+  }
+  const pushed = history.push(r.value);
+  if (!pushed.ok) {
+    errEl.textContent = `${pushed.error.code}\uFF1A${pushed.error.message}`;
+    afterHistoryChange();
+    return { ok: false, code: pushed.error.code, message: pushed.error.message };
+  }
+  errEl.textContent = "";
+  afterHistoryChange();
+  return { ok: true, moved: true, label: r.value.label };
+}
+function bindCanvasDrag() {
+  const at = (e) => {
+    const rect = canvas.getBoundingClientRect();
+    return canvasToWorld(e.clientX - rect.left, e.clientY - rect.top);
+  };
+  canvas.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    const w = at(e);
+    const r = dragBeginWorld(w.x, w.z);
+    if (r.ok) {
+      canvas.setPointerCapture(e.pointerId);
+      e.preventDefault();
+    }
+  });
+  canvas.addEventListener("pointermove", (e) => {
+    if (dragRef === null) return;
+    const w = at(e);
+    dragMoveWorld(w.x, w.z);
+  });
+  const finish = (e) => {
+    if (dragRef === null) return;
+    if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
+    dragEndNow();
+  };
+  canvas.addEventListener("pointerup", finish);
+  canvas.addEventListener("pointercancel", finish);
+}
 function afterHistoryChange() {
   const app = appRef;
   if (app !== null) {
@@ -8568,6 +8795,33 @@ function installApi(app) {
       const n = app.scene.find(id);
       if (n === void 0) return -1;
       return n.components.filter((c) => c.type === type).length;
+    },
+    nodeWorld(id) {
+      const n = app.scene.find(id);
+      if (n === void 0) return null;
+      const p = n.worldPosition;
+      return { x: p.x, y: p.y };
+    },
+    nodeLocal(id) {
+      const n = app.scene.find(id);
+      if (n === void 0) return null;
+      return { x: n.localPosition.x, y: n.localPosition.y };
+    },
+    camInfo() {
+      const c = renderMod.camera;
+      return { x: c.x, z: c.z, zoom: c.zoom, tiltY: c.tiltY, vw: c.vw, vh: c.vh };
+    },
+    screenToWorld(cssX, cssY) {
+      return canvasToWorld(cssX, cssY);
+    },
+    dragBegin(wx, wz) {
+      return dragBeginWorld(wx, wz);
+    },
+    dragMove(wx, wz) {
+      return dragMoveWorld(wx, wz);
+    },
+    dragEnd() {
+      return dragEndNow();
     }
   };
   window.__editor = api;
@@ -8598,6 +8852,7 @@ async function main() {
   refreshTree();
   refreshProps();
   tickEl.textContent = `tick ${String(app.scheduler.stats().tick)}`;
+  bindCanvasDrag();
   btnPlay.addEventListener("click", () => pie.play());
   btnPause.addEventListener("click", () => pie.pause());
   btnStep.addEventListener("click", () => pie.step(1));

@@ -10826,6 +10826,10 @@ function createRenderModule(opts) {
     get camera() {
       return camera;
     },
+    resize(width, height) {
+      if (!(width > 0) || !(height > 0)) return;
+      dev?.resize(width, height);
+    },
     get lastFrame() {
       return lastFrame;
     },

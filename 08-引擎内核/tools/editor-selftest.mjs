@@ -34,41 +34,12 @@ import {
   sleep,
 } from "./browser-kit.mjs";
 import { startStaticServer } from "./static-server.mjs";
-
-/** 与页面里 `add(...)` 的名字逐条对应：少跑一条也要红。 */
-const DECLARED = [
-  "场景树建起来了（>50 个节点）",
-  "树真的画到了 DOM 上",
-  "outline 行数与 stats().nodes 一致",
-  "找到一个 Int 字段用于改属性",
-  "选中后属性面板出字段",
-  "DOM 里出现了输入框",
-  "★ Int 字段拒绝 3.5（不静默取整）",
-  "★ 非法输入没有写进组件",
-  "合法整数写进去了",
-  "改字段进了历史（换目标与 label 都对）",
-  "★ 撤销一次：字段回到改之前的值",
-  "重做一次：字段回到改之后的值",
-  "新建节点：树里真的多了一个",
-  "★ 撤销新建：节点数退回",
-  "新建之后自动选中它（否则「新建」之后无处可操作）",
-  "删除选中：节点真的没了",
-  "★ 撤销删除：同一个 id 的节点回来了（id 变了等于场景里所有引用都断了）",
-  "★ 历史走空之后撤销是 empty，不是失败（两者在 UI 上都只表现为按钮变灰）",
-  "step(3) 推进 3 个 tick",
-  "播放后 tick 会涨",
-  "暂停后 tick 不再涨",
-  "★ 选中项上有一个可卸的组件（拿不到的话下面三条都是废话）",
-  "★★ 卸下组件：节点上没了、面板里也没了，历史里有一条「卸下」",
-  "★★ 撤销卸下：组件回到节点上，字段也回来了（同类型仍然只有一个）",
-  "★ 同类型不许挂第二个：被拒，且节点上仍然只有一个",
-  "★ 挂上组件也进历史（卸了再挂回，历史里出现「挂上」）",
-  "★ 撤销挂上：组件又没了（挂上确实是一条可撤销的操作，不是只压了个标签）",
-  "文档保存到文本（长度 > 0，且真的写进了文本框）",
-  "★★ 打开坏文档：报错，且场景原样还在",
-  "★★ 打开合法文档：节点数回到保存时，且历史被清空",
-  "新建空场景：只剩根，历史清空",
-];
+/**
+ * 与页面里 `add(...)` 的名字逐条对应：少跑一条也要红。
+ * **清单本体在 `editor-declared.mjs`**（零副作用的纯数据模块）—— 这样 `tools/docs-check.mjs`
+ * 能 import 同一个数组去对账文档里的条数，而不必把无头浏览器拉起来。
+ */
+import { EDITOR_DECLARED as DECLARED } from "./editor-declared.mjs";
 
 /** 页面里跑的脚本。**不引用外部变量**：它是被 CDP 求值的字符串。 */
 const PROBE = `
@@ -255,6 +226,82 @@ const PROBE = `
     "★ 撤销挂上：组件又没了（挂上确实是一条可撤销的操作，不是只压了个标签）",
     undoAttach.kind === "done" && E.compCount(String(picked)) === 0,
     JSON.stringify(undoAttach) + " count=" + String(E.compCount(String(picked))),
+  );
+
+  // ---- 画布拖拽（批84）
+  // ★ 靶子的选法：**找一个"点下去命中自己"的节点**。
+  //   一开始我造了个新节点拖，结果它在原点、和地形重合 —— pickAt 按 zIndex/id
+  //   选了地形（这是正确行为），于是"拖的是 A、动的是 B"。
+  //   改成从世界现有的节点里挑独占一个位置的，顺便验证了「点中即选中」。
+  const cam = E.camInfo();
+  const cvEl = document.getElementById("cv");
+  const midW = E.screenToWorld(cvEl.clientWidth / 2, cvEl.clientHeight / 2);
+  add(
+    "★ 画布中心映射到相机中心（dpr 乘错时这条必红）",
+    Math.abs(midW.x - cam.x) < 1e-6 && Math.abs(midW.z - cam.z) < 1e-6,
+    "mid=(" + String(midW.x) + "," + String(midW.z) + ") cam=(" + String(cam.x) + "," + String(cam.z) +
+      ") vw=" + String(cam.vw) + " vh=" + String(cam.vh) +
+      " css=" + String(cvEl.clientWidth) + "x" + String(cvEl.clientHeight) +
+      " bmp=" + String(cvEl.width) + "x" + String(cvEl.height) +
+      " dpr=" + String(window.devicePixelRatio) +
+      // ★ 从两次换算反解出**实际用的**缩放比：sx = dx/dcss * zoom，
+      //   sy = -dz/dcss * zoom * tiltY。这样就不用猜"到底乘了什么"。
+      " 反解sx=" + String(((E.screenToWorld(cvEl.clientWidth, 0).x - E.screenToWorld(0, 0).x) / cvEl.clientWidth) * cam.zoom) +
+      " 反解sy=" + String(((E.screenToWorld(0, 0).z - E.screenToWorld(0, cvEl.clientHeight).z) / cvEl.clientHeight) * cam.zoom * cam.tiltY) +
+      " 期望sx=" + String(cam.vw / cvEl.clientWidth) + " 期望sy=" + String(cam.vh / cvEl.clientHeight),
+  );
+
+  let dragNode = null;
+  for (const r of E.outline()) {
+    if (r.depth === 0) continue;
+    const w0 = E.nodeWorld(r.id);
+    if (w0 === null) continue;
+    const b0 = E.dragBegin(w0.x, w0.y);
+    if (!b0.ok) continue;
+    if (b0.node === r.id) {
+      dragNode = r.id;
+      break;
+    }
+    // 命中了别人：当场取消（没动过 ⇒ 不压历史），换下一个
+    E.dragEnd();
+  }
+  add(
+    "★ 点中即开始拖、并把它选中（命中的必须是自己，不是压在上面的邻居）",
+    dragNode !== null && E.stats().primary === dragNode,
+    "dragNode=" + String(dragNode) + " primary=" + String(E.stats().primary),
+  );
+  const dw0 = dragNode === null ? null : E.nodeWorld(dragNode);
+  const histBefore = E.history().undo.length;
+  const mid = dw0 === null ? { ok: false } : E.dragMove(dw0.x + 1, dw0.y + 2);
+  add(
+    "★ 拖拽中途**不压历史**（一帧一条的话，撤销只退一个像素）",
+    mid.ok === true && E.history().undo.length === histBefore,
+    JSON.stringify(mid) + " undo=" + String(E.history().undo.length) + "（按下时 " + String(histBefore) + "）",
+  );
+  const done = E.dragEnd();
+  const dw1 = dragNode === null ? null : E.nodeWorld(dragNode);
+  add(
+    "★★ 松手：位置真的挪了 (+1,+2)，历史里多了一条「移动」",
+    done.ok === true &&
+      done.moved === true &&
+      dw0 !== null &&
+      dw1 !== null &&
+      Math.abs(dw1.x - dw0.x - 1) < 1e-6 &&
+      Math.abs(dw1.y - dw0.y - 2) < 1e-6 &&
+      E.history().undo.some((l) => l.indexOf("移动 ") === 0),
+    JSON.stringify(done) + " after=" + JSON.stringify(dw1) + " from=" + JSON.stringify(dw0) +
+      " undo=" + E.history().undo.join("/"),
+  );
+  const undoDrag = E.undo();
+  const dw2 = dragNode === null ? null : E.nodeWorld(dragNode);
+  add(
+    "★★ 撤销拖拽：回到按下时的位置",
+    undoDrag.kind === "done" &&
+      dw0 !== null &&
+      dw2 !== null &&
+      Math.abs(dw2.x - dw0.x) < 1e-6 &&
+      Math.abs(dw2.y - dw0.y) < 1e-6,
+    JSON.stringify(undoDrag) + " back=" + JSON.stringify(dw2),
   );
 
   // ---- 文档：保存 / 打开 / 新建（批82）

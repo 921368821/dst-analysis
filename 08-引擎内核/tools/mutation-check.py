@@ -2689,9 +2689,15 @@ MUTANTS = [
         #
         # ★ 靶子用**整行文本**而不是数字：M76 的靶子随闸门数漂移过四次
         #   （10→11→12→13→14），每次都得改变异表。整行文本只在措辞改动时才需要跟。
+        #
+        # ★★ 但**别挑带 `n:` 标记的行**（2026-10-25 批84 实测：靶子是第 12 行，
+        #   而这一批给第 12 行加上 `36 条 <!-- n:editor -->` ⇒ 整行文本变了 ⇒
+        #   M278 报"变异点没找到"）。带标记的行等于**带派生数字**，
+        #   它每一批都在变 —— 那正是上一段想避免的那件事，只是换了个地方复发。
+        #   所以改挑第 3 行：它没有标记、也不含任何会被对账改写的数字。
         "file": "docs/ARCHITECTURE.md",
         "pairs": [(
-            "| 12 | 编辑器页自检 | 编辑器坏而运行时好（或反过来） | 与第 11 步分开，红的时候要一眼看出该谁修 |\n",
+            "| 3 | 物理性能闸门（**独占**跑） | 解算耗时退化 | 并行跑时测到的是\"机器多忙\"，不是\"代码多慢\"（阈值仍是 8ms，一个字没动） |\n",
             "",
         )],
         "test": "docs/ARCHITECTURE.md",
@@ -3449,6 +3455,58 @@ MUTANTS = [
                    "  const pushed: { ok: boolean; error?: { code: string; message: string } } = { ok: true };")],
         "cmd": ["node", "tools/editor-selftest.mjs", "--build"],
         "env_exit": 2,
+    },
+    # ---- 批84：画布拖拽（gizmo）
+    {
+        "name": "M375 世界→局部换算直接当恒等（父带旋转时拖动方向错，纯平移的场景看不出来）",
+        "file": "src/extensions/editor/gizmo.ts",
+        "pairs": [("    u: (basis.m11 * dx - basis.m01 * dy) / det,\n    v: (-basis.m10 * dx + basis.m00 * dy) / det,",
+                   "    u: dx,\n    v: dy,")],
+        "test": "tests/extensions/editor-gizmo.test.ts",
+    },
+    {
+        "name": "M376 按下点的偏移用世界坐标（父一有偏移，节点就跳到父的位置附近）",
+        "file": "src/extensions/editor/gizmo.ts",
+        "pairs": [("    grabU: local.u - n.localPosition.x,\n    grabV: local.v - n.localPosition.y,",
+                   "    grabU: wx - n.localPosition.x,\n    grabV: wz - n.localPosition.y,")],
+        "test": "tests/extensions/editor-gizmo.test.ts",
+    },
+    {
+        "name": "M377 命中测试不按 zIndex 排序（重叠时选中先创建的那个，不是画面上压着的那个）",
+        "file": "src/extensions/editor/gizmo.ts",
+        "pairs": [("  hits.sort((a, b) => (b.z !== a.z ? b.z - a.z : a.d2 !== b.d2 ? a.d2 - b.d2 : a.id - b.id));",
+                   "  hits.sort((a, b) => (a.d2 !== b.d2 ? a.d2 - b.d2 : a.id - b.id));")],
+        "test": "tests/extensions/editor-gizmo.test.ts",
+    },
+    {
+        "name": "M378 位移为 0 也压一条历史（按一次撤销什么都没发生）",
+        "file": "src/extensions/editor/gizmo.ts",
+        "pairs": [("  if (x === state.fromX && y === state.fromY) return ok(undefined);",
+                   "  if (false) return ok(undefined);")],
+        "test": "tests/extensions/editor-gizmo.test.ts",
+    },
+    {
+        "name": "M379 位置 op 改 Vec2 字段而不是 setLocalPosition（不推进版本号：逻辑坐标回去、画面还在原地）",
+        "file": "src/extensions/editor/gizmo.ts",
+        # ★ 用「就地改 Vec2 的字段」而不是 `new Vec2(...)`：后者要额外 import，
+        #   漏了就是 ReferenceError —— 判据会红，但那是"代码跑不起来"，等于没验行为。
+        "pairs": [("    n.setLocalPosition(x, y);\n    return ok(undefined);",
+                   "    n.localPosition.x = x;\n    n.localPosition.y = y;\n    return ok(undefined);")],
+        "test": "tests/extensions/editor-gizmo.test.ts",
+    },
+    # ---- 批84：文档对账的 n:editor 标记要真的读到清单（不是"接上了却读不到"）
+    {
+        # 这一条打的不是业务代码，而是**闸门自己**：docs-check 早就为同类问题写过注释
+        # （"加了标记却忘了把实测值塞进 actual ⇒ 正则认得、值却是 undefined ⇒ 报绿"）。
+        # 让 actualEditor 返回 0，等价于"编辑器自检的条数没接上"：
+        # 三份文档里声明的 36 与 0 对不上，必须红。
+        # ★ 用 `--quick` 而不是全量：这条变异不碰 tests/，缓存仍然新鲜，
+        #   跑整套 npm test 只会让 14 步里的第 14 步多花几分钟，不多抓任何东西。
+        "name": "M380 文档对账的编辑器条数没接上（返回 0：标记认得、值却是假的）",
+        "file": "tools/docs-check.mjs",
+        "pairs": [("function actualEditor() {\n  return EDITOR_DECLARED.length;\n}",
+                   "function actualEditor() {\n  return 0;\n}")],
+        "cmd": ["node", "tools/docs-check.mjs", "--quick"],
     },
 ]
 

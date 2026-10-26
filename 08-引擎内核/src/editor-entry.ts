@@ -53,6 +53,7 @@ import {
   type SessionDeps,
 } from "./extensions/editor/session.ts";
 import { fieldsOf, setField, type FieldChange } from "./extensions/editor/property-model.ts";
+import { beginDrag, dragTarget, endDrag, pickAt, type DragState } from "./extensions/editor/gizmo.ts";
 import { createPie } from "./extensions/editor/pie.ts";
 import { createUndoStack, type EditorOp, type UndoOutcome } from "./extensions/editor/undo-stack.ts";
 import {
@@ -99,8 +100,9 @@ const docText = need<HTMLTextAreaElement>("doctext");
 const docInfoEl = need<HTMLSpanElement>("docinfo");
 
 const dpr = Math.min(2, window.devicePixelRatio || 1);
-canvas.width = Math.floor((canvas.clientWidth || 640) * dpr);
-canvas.height = Math.floor((canvas.clientHeight || 420) * dpr);
+// 首次位图尺寸：必须在 `createRenderModule` **之前**定好，它用这个值建初始视口。
+canvas.width = Math.max(1, Math.floor((canvas.clientWidth || 640) * dpr));
+canvas.height = Math.max(1, Math.floor((canvas.clientHeight || 420) * dpr));
 
 const selection = createSelection();
 const pie = createPie({ hz: HZ, maxStepTicks: 4 });
@@ -143,6 +145,31 @@ const renderMod = createRenderModule({
     return { x: p.x, z: p.y };
   },
 });
+
+/**
+ * 位图尺寸跟着 CSS 尺寸走。
+ *
+ * ★ 只在启动时算一次是**不够**的，而且错了不容易捉：布局一变（属性面板多一行、
+ *   文档区展开、窗口缩放），canvas 的 CSS 尺寸变了而位图没变 ⇒ 画面被拉伸，
+ *   **点击位置也跟着偏**（相机按位图算投影，pointer 给的是 CSS px）。
+ *   批84 的判据「画布中心 → 相机中心」先红后绿，就是这条的表征。
+ *
+ * ★ 改尺寸必须走 `renderMod.resize()`，不能直接设 `canvas.width/height` ——
+ *   后端把尺寸缓存在 `device.size` 里（构造时读一次），绕过后端改 canvas
+ *   会让它的视口与真实 backing store 脱节（画面压扁、`camera.vw/vh` 也跟着错）。
+ *
+ * ★ 用 `ResizeObserver` 而不是 `window.onresize`：后者只听窗口，而这次的原因
+ *   恰恰是"窗口没动、只是面板撑高了"。
+ */
+function syncViewport(): void {
+  const w = Math.max(1, Math.floor((canvas.clientWidth || 640) * dpr));
+  const h = Math.max(1, Math.floor((canvas.clientHeight || 420) * dpr));
+  if (canvas.width === w && canvas.height === h) return;
+  renderMod.resize(w, h);
+}
+syncViewport();
+if (typeof ResizeObserver !== "undefined") new ResizeObserver(syncViewport).observe(canvas);
+else window.addEventListener("resize", syncViewport);
 
 const worldMod = createWorldModule(physics, {});
 
@@ -510,6 +537,138 @@ function doDetachComp(type: string, nodeId?: NodeId): { ok: boolean; code?: stri
   return commitCompOp(r.value.op);
 }
 
+// ---------------------------------------------------------------- 画布拖拽（gizmo）
+
+/** 拖拽时是否吸附到格。0 = 自由拖。 */
+const DRAG_SNAP = 0;
+
+let dragRef: DragState | null = null;
+
+/**
+ * 画布内坐标（CSS px，左上为 0）→ 世界 XZ。
+ *
+ * ★★ 缩放比**从相机视口反推**，不要假设它等于 `dpr`。理由有两条，都是实测来的：
+ *
+ *   ① 相机是按**位图**尺寸算投影的（`camera.vw/vh` 来自后端的 drawable 尺寸），
+ *      而 pointer 给的是 CSS px，所以两者之间要除一个比例 —— 那个比例是
+ *      `位图 / CSS`，它与 `dpr` 相等**只在位图已经跟 CSS 同步时**成立；
+ *   ② `ResizeObserver` 的回调是**异步**的（可能晚一帧）。布局一变（属性面板多一行、
+ *      文档区展开），就会有一小段时间"CSS 已变、位图未变"。此时用 `dpr` 换算会偏，
+ *      而用 `camera.vw / clientWidth` 换算**永远准** —— 因为它是从同一个视口反推的。
+ *
+ *   批84 的判据「画布中心 → 相机中心」先红后绿（同一份代码两次不同结果），
+ *   就是这条时序问题的表征；改成反推之后连跑多次稳定。
+ */
+function canvasToWorld(cssX: number, cssY: number): { x: number; z: number } {
+  const c = renderMod.camera;
+  const cw = canvas.clientWidth;
+  const ch = canvas.clientHeight;
+  const sx = cw > 0 ? c.vw / cw : dpr;
+  const sy = ch > 0 ? c.vh / ch : dpr;
+  return c.unproject(cssX * sx, cssY * sy);
+}
+
+function dragBeginWorld(wx: number, wz: number): { ok: boolean; node?: number; code?: string; message?: string } {
+  const app = appRef;
+  if (app === null) return { ok: false, code: "EDIT.NOT_READY", message: "编辑器还没启动" };
+  // ★ 播放中拒绝拖拽：移动系统每帧都会按导航改位置，拖完立刻被改回去 ——
+  //   人看到的是「拖了但没动」，比明确拒绝更让人困惑。
+  if (pie.isPlaying) {
+    const msg = "播放中不能拖拽（先点暂停）—— 否则移动系统每帧都会把位置改回去";
+    errEl.textContent = msg;
+    return { ok: false, code: "EDIT.BAD_DRAG", message: msg };
+  }
+  const id = pickAt(app.scene, wx, wz);
+  if (id === undefined) {
+    return { ok: false, code: "EDIT.BAD_DRAG", message: "这个位置没有节点" };
+  }
+  const r = beginDrag(app.scene, id, wx, wz);
+  if (!r.ok) {
+    errEl.textContent = `${r.error.code}：${r.error.message}`;
+    return { ok: false, code: r.error.code, message: r.error.message };
+  }
+  dragRef = r.value;
+  // 点中就选中：否则拖完一个节点，属性面板还停在别人身上。
+  selection.select(id);
+  errEl.textContent = "";
+  refreshTree();
+  refreshProps();
+  return { ok: true, node: id };
+}
+
+function dragMoveWorld(wx: number, wz: number): { ok: boolean; x?: number; y?: number } {
+  const app = appRef;
+  if (app === null || dragRef === null) return { ok: false };
+  const t = dragTarget(dragRef, wx, wz, DRAG_SNAP);
+  const n = app.scene.find(dragRef.nodeId);
+  if (n === undefined) return { ok: false };
+  // 拖拽期间**只改场景、不压历史**：一帧一条的话，按一次撤销只退一个像素。
+  n.setLocalPosition(t.x, t.y);
+  return { ok: true, x: t.x, y: t.y };
+}
+
+function dragEndNow(): { ok: boolean; moved?: boolean; label?: string; code?: string; message?: string } {
+  const app = appRef;
+  const st = dragRef;
+  dragRef = null;
+  if (app === null || st === null) {
+    return { ok: false, code: "EDIT.BAD_DRAG", message: "没有正在进行的拖拽" };
+  }
+  const n = app.scene.find(st.nodeId);
+  const r = endDrag(app.scene, st, n?.localPosition.x ?? st.fromX, n?.localPosition.y ?? st.fromY);
+  if (!r.ok) {
+    errEl.textContent = `${r.error.code}：${r.error.message}`;
+    afterHistoryChange();
+    return { ok: false, code: r.error.code, message: r.error.message };
+  }
+  // 原地松手 ⇒ 没有 op ⇒ 不压历史（否则撤销按钮亮了，按一次什么都没发生）。
+  if (r.value === undefined) {
+    afterHistoryChange();
+    return { ok: true, moved: false };
+  }
+  const pushed = history.push(r.value);
+  if (!pushed.ok) {
+    errEl.textContent = `${pushed.error.code}：${pushed.error.message}`;
+    afterHistoryChange();
+    return { ok: false, code: pushed.error.code, message: pushed.error.message };
+  }
+  errEl.textContent = "";
+  afterHistoryChange();
+  return { ok: true, moved: true, label: r.value.label };
+}
+
+/** 把 pointer 事件接到拖拽上（真实鼠标走这条路；判据走 `dragXxxWorld`，同一套内部函数）。 */
+function bindCanvasDrag(): void {
+  const at = (e: PointerEvent): { x: number; z: number } => {
+    const rect = canvas.getBoundingClientRect();
+    return canvasToWorld(e.clientX - rect.left, e.clientY - rect.top);
+  };
+  canvas.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    const w = at(e);
+    const r = dragBeginWorld(w.x, w.z);
+    if (r.ok) {
+      // 捕获指针：鼠标拖出画布再松手也能收到 pointerup，否则会永远停在"拖拽中"。
+      canvas.setPointerCapture(e.pointerId);
+      e.preventDefault();
+    }
+  });
+  canvas.addEventListener("pointermove", (e) => {
+    if (dragRef === null) return;
+    const w = at(e);
+    dragMoveWorld(w.x, w.z);
+  });
+  const finish = (e: PointerEvent): void => {
+    if (dragRef === null) return;
+    if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
+    dragEndNow();
+  };
+  canvas.addEventListener("pointerup", finish);
+  // `pointercancel` 也要收尾：系统手势打断时不收的话，下一次 pointerdown 会被
+  // 上一轮的 dragRef 抢走（两个节点一起动）。
+  canvas.addEventListener("pointercancel", finish);
+}
+
 /** 历史动过之后统一收尾：选中项可能要 prune（子树被删/被恢复），树与面板都要重画。 */
 function afterHistoryChange(): void {
   const app = appRef;
@@ -673,6 +832,20 @@ interface EditorApi {
   compDetach(type: string, node?: number): { ok: boolean; code?: string; message?: string };
   /** 节点上某类型的组件**个数**（`get` 只返回第一个，数不了重复）。 */
   compCount(type: string, node?: number): number;
+  /** 节点的世界坐标（判据要它来算"该拖多少"）。`null` = 节点不在。 */
+  nodeWorld(id: number): { x: number; y: number } | null;
+  /** 节点的局部坐标（拖拽改的是这个）。 */
+  nodeLocal(id: number): { x: number; y: number } | null;
+  /** 相机状态（判据用来验屏幕↔世界的换算：给画布中心应得相机中心）。 */
+  camInfo(): { x: number; z: number; zoom: number; tiltY: number; vw: number; vh: number };
+  /** 画布内坐标（CSS px，左上为 0）→ 世界 XZ。 */
+  screenToWorld(cssX: number, cssY: number): { x: number; z: number };
+  /** 在世界点按下开始拖（点中即选中）。 */
+  dragBegin(wx: number, wz: number): { ok: boolean; node?: number; code?: string; message?: string };
+  /** 拖到世界点（只改场景，不压历史）。 */
+  dragMove(wx: number, wz: number): { ok: boolean; x?: number; y?: number };
+  /** 松手：位移非 0 才压一条历史。 */
+  dragEnd(): { ok: boolean; moved?: boolean; label?: string; code?: string; message?: string };
 }
 
 function installApi(app: GameApp): void {
@@ -812,6 +985,33 @@ function installApi(app: GameApp): void {
       if (n === undefined) return -1;
       return n.components.filter((c) => c.type === type).length;
     },
+    nodeWorld(id) {
+      const n = app.scene.find(id);
+      if (n === undefined) return null;
+      const p = n.worldPosition;
+      return { x: p.x, y: p.y };
+    },
+    nodeLocal(id) {
+      const n = app.scene.find(id);
+      if (n === undefined) return null;
+      return { x: n.localPosition.x, y: n.localPosition.y };
+    },
+    camInfo() {
+      const c = renderMod.camera;
+      return { x: c.x, z: c.z, zoom: c.zoom, tiltY: c.tiltY, vw: c.vw, vh: c.vh };
+    },
+    screenToWorld(cssX, cssY) {
+      return canvasToWorld(cssX, cssY);
+    },
+    dragBegin(wx, wz) {
+      return dragBeginWorld(wx, wz);
+    },
+    dragMove(wx, wz) {
+      return dragMoveWorld(wx, wz);
+    },
+    dragEnd() {
+      return dragEndNow();
+    },
   };
   (window as unknown as { __editor?: EditorApi }).__editor = api;
 }
@@ -848,6 +1048,7 @@ async function main(): Promise<void> {
   refreshProps();
   tickEl.textContent = `tick ${String(app.scheduler.stats().tick)}`;
 
+  bindCanvasDrag();
   btnPlay.addEventListener("click", () => pie.play());
   btnPause.addEventListener("click", () => pie.pause());
   btnStep.addEventListener("click", () => pie.step(1));

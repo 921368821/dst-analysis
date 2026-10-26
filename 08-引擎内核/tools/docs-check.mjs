@@ -32,7 +32,7 @@
  * 标记写法（数字在前，标记紧跟）：
  *   - **636 条判据全绿** <!-- n:tests -->
  *     npm run audit:mutation  # 变异校验：54 组注入 <!-- n:mutants -->
- *   支持：n:tests / n:mutants / n:files / n:browser / n:jpeggold / n:srcfiles / n:srclines
+ *   支持：n:tests / n:mutants / n:files / n:browser / n:editor / n:jpeggold / n:srcfiles / n:srclines
  */
 
 import { spawnSync } from "node:child_process";
@@ -40,6 +40,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { EDITOR_DECLARED } from "./editor-declared.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const QUICK = process.argv.includes("--quick");
@@ -164,6 +165,16 @@ function actualBrowser() {
 }
 
 /**
+ * 编辑器页自检的条数。
+ * ★ 直接 import 清单本身，**不数源码里的行**：`grep -c '^  "'` 这类计数器一旦数错，
+ *   `--fix` 会把文档"修"成错误的值并报绿 —— 会改文档的假绿灯比漂移更贵。
+ *   清单在 `editor-declared.mjs` 里，零副作用，import 它不会起浏览器。
+ */
+function actualEditor() {
+  return EDITOR_DECLARED.length;
+}
+
+/**
  * JPEG 外部金标语料总例数（去重口径：三份清单里同名案例只算一次）。
  * ★ 为什么要去重：`_selfenc.json` 的 16 个案例名与主清单**完全重合**（它们是同一批文件，
  *   只是"谁来解"不同）。直接相加会把 54 说成 70 —— 这种"多重计数"是最难自查的一类漂移：
@@ -224,6 +235,7 @@ const tests = actualTests();
 const mutantIds = actualMutants();
 const files = actualFiles();
 const browser = actualBrowser();
+const editor = actualEditor();
 const jpegGold = actualJpegGold();
 const src = actualSrc();
 const backends = actualBackends();
@@ -235,9 +247,9 @@ const steps = actualCiSteps();
  *   正则认得这两个标记、值却是 undefined，而文档当时还没有标记 ⇒ 闸门报「全部一致」。
  *   「工具自己没接上却报绿」和「工具喊狼」一样是假信号，所以这里把清单收成一份并当场校验。
  */
-const MARKER_KEYS = ["tests", "mutants", "files", "browser", "jpeggold", "srcfiles", "srclines", "backends", "steps"];
+const MARKER_KEYS = ["tests", "mutants", "files", "browser", "editor", "jpeggold", "srcfiles", "srclines", "backends", "steps"];
 
-const actual = { tests, mutants: mutantIds.length, files, browser, jpeggold: jpegGold, backends, steps, ...src };
+const actual = { tests, mutants: mutantIds.length, files, browser, editor, jpeggold: jpegGold, backends, steps, ...src };
 
 const missingKeys = MARKER_KEYS.filter((k) => !(k in actual));
 if (missingKeys.length > 0) {
@@ -355,7 +367,7 @@ for (let k = 1; k <= nums.length; k++) {
 }
 
 console.log(
-  `实际：判据 ${tests} · 变异 ${mutantIds.length} 组（M1..M${nums[nums.length - 1] ?? 0}）· 测试文件 ${files} · 浏览器自检 ${browser} · JPEG 金标 ${jpegGold} 例 · 后端 ${actual.backends} · CI ${actual.steps} 步`,
+  `实际：判据 ${tests} · 变异 ${mutantIds.length} 组（M1..M${nums[nums.length - 1] ?? 0}）· 测试文件 ${files} · 浏览器自检 ${browser} · 编辑器自检 ${editor} · JPEG 金标 ${jpegGold} 例 · 后端 ${actual.backends} · CI ${actual.steps} 步`,
 );
 console.log(`标记：${markers} 处，核对 ${checked} 处`);
 if (markers === 0) {

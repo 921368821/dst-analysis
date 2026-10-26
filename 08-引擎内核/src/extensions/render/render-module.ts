@@ -107,6 +107,16 @@ export interface RenderModuleOptions {
 
 export interface RenderModuleHandle extends IModule {
   readonly camera: Camera2D;
+  /**
+   * 改绘制缓冲尺寸（位图尺寸）。
+   *
+   * ★ 必须走这里，不要直接设 `canvas.width/height`：后端在构造时把
+   *   canvas 尺寸存进 `device.size` 缓存，之后每帧都用缓存值算视口与投影。
+   *   绕过后端直接改 canvas ⇒ `device.size` 与实际 backing store 脱节
+   *   ⇒ 画面被压扁、`camera.vw/vh` 也跟着错（点选位置偏）。
+   *   init 之前调用是空操作（还没有后端），尺寸由 `init` 时读到的 canvas 决定。
+   */
+  resize(width: number, height: number): void;
   /** 最近一帧的渲染统计（判据与 HUD 读它）。 */
   readonly lastFrame: {
     readonly quads: number;
@@ -448,6 +458,12 @@ export function createRenderModule(opts: RenderModuleOptions): RenderModuleHandl
 
     get camera(): Camera2D {
       return camera;
+    },
+
+    resize(width: number, height: number): void {
+      if (!(width > 0) || !(height > 0)) return;
+      // init 之前没有后端：什么都不做（首次尺寸由 init 读到的那份 canvas 决定）。
+      dev?.resize(width, height);
     },
 
     get lastFrame() {
