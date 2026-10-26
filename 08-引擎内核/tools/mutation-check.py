@@ -3857,6 +3857,16 @@ MUTANTS = [
         "cmd": ["node", "tools/editor-selftest.mjs", "--build"],
         "env_exit": 2,
     },
+    {
+        "name": "M417 场景面板只清不画（模型全对、面板空着）",
+        # 这一条打的是**接线**：所有场景判据走的都是命令面（读模型），
+        # 面板没画出来时它们全绿 —— 而人打开页面看到的是一块空列表。
+        # 所以判据必须读 DOM（#scenelist 的行数 / 高亮），这条变异就是它的靶子。
+        "file": "src/editor-entry.ts",
+        "pairs": [("    sceneListEl.appendChild(row);", "    void row;")],
+        "cmd": ["node", "tools/editor-selftest.mjs", "--build"],
+        "env_exit": 2,
+    },
 ]
 
 

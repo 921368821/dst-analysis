@@ -695,11 +695,17 @@ const PROBE = `
   //   但 Node 实例已经被 scene.clear() 换成新的了。只看 id / 名字 / 节点数，
   //   「重建了」和「没重建」是同一个结果 —— 那就是假绿。
   const hasNodeNamed = (nm) => E.outline().some((r) => r.name === nm);
+  // ★★ 面板必须**真的画出来**。上面所有断言走的都是命令面（E.scenes()），
+  //   而命令面读的是模型 —— 面板没接上（refreshScenes 忘了调、少了某一行 DOM）
+  //   时它们**全绿**，而人打开页面看到的是一块空列表。所以这里读 DOM。
+  const srows = () => document.querySelectorAll("#scenelist .srow").length;
+  const selNames = () => [...document.querySelectorAll("#scenelist .srow.sel")].map((e) => e.dataset.name);
   const sc0 = E.scenes();
   add(
     "工程里已经有一份场景（列表非空，当前项就是列表里那个）",
-    sc0.list.length === 1 && sc0.current === sc0.list[0] && sc0.current.length > 0,
-    JSON.stringify(sc0),
+    sc0.list.length === 1 && sc0.current === sc0.list[0] && sc0.current.length > 0 &&
+      srows() === 1 && selNames().length === 1 && selNames()[0] === sc0.current,
+    JSON.stringify(sc0) + " 面板行数=" + srows() + " 高亮=" + JSON.stringify(selNames()),
   );
 
   const heroSerial0 = heroId >= 0 ? E.nodeSerial(heroId) : -1;
@@ -722,9 +728,10 @@ const PROBE = `
   add(
     "★★ 新建场景：列表 +1、当前切到新场景，而且新场景是空的（只剩根）",
     addM.ok === true && created.ok === true && sc1.list.length === 2 && sc1.current === created.name &&
-      E.stats().nodes === 1 && E.outline().length === 1,
+      E.stats().nodes === 1 && E.outline().length === 1 &&
+      srows() === 2 && selNames().length === 1 && selNames()[0] === created.name,
     JSON.stringify(created) + " list=" + JSON.stringify(sc1.list) + " current=" + sc1.current +
-      " nodes=" + E.stats().nodes,
+      " nodes=" + E.stats().nodes + " 面板行数=" + srows() + " 高亮=" + JSON.stringify(selNames()),
   );
 
   // 新场景里也放一个自己的节点（用来验两边不会互相覆盖）
@@ -753,17 +760,21 @@ const PROBE = `
   add(
     "★★ 删掉当前场景：切到邻居（main），列表回到 1 项，场景里是 main 的内容",
     dropped.ok === true && E.scenes().list.length === 1 && E.scenes().current === "main" &&
-      hasNodeNamed("只属于 main") && !hasNodeNamed("只属于新场景"),
+      hasNodeNamed("只属于 main") && !hasNodeNamed("只属于新场景") &&
+      srows() === 1 && selNames()[0] === "main",
     JSON.stringify(dropped) + " list=" + JSON.stringify(E.scenes().list) +
-      " current=" + E.scenes().current,
+      " current=" + E.scenes().current + " 面板行数=" + srows() + " 高亮=" + JSON.stringify(selNames()),
   );
 
   const droppedLast = E.sceneDelete();
   add(
     "★ 只剩一个场景时删除被拒（EDIT.LAST_SCENE），列表一个字节都没动",
     droppedLast.ok === false && droppedLast.code === "EDIT.LAST_SCENE" &&
-      E.scenes().list.length === 1 && E.scenes().current === "main",
-    JSON.stringify(droppedLast) + " list=" + JSON.stringify(E.scenes().list),
+      E.scenes().list.length === 1 && E.scenes().current === "main" &&
+      srows() === 1 &&
+      document.getElementById("scene-del").disabled === true,
+    JSON.stringify(droppedLast) + " list=" + JSON.stringify(E.scenes().list) +
+      " 面板行数=" + srows() + " 删除按钮 disabled=" + String(document.getElementById("scene-del").disabled),
   );
 
   // ★★ 试玩期间切场景必须被拒：endPlaySession 的回滚会把**进试玩那一刻**的文档装回去，
@@ -777,9 +788,9 @@ const PROBE = `
   add(
     "★★ 试玩期间切场景被拒（EDIT.PLAYING），场景一个节点实例都没动",
     busy.ok === false && busy.code === "EDIT.PLAYING" && serialBusy === serialBeforeBusy &&
-      toStop === 1 && E.scenes().list.length === 1,
+      toStop === 1 && E.scenes().list.length === 1 && srows() === 1,
     JSON.stringify(busy) + " serial " + serialBeforeBusy + "->" + serialBusy +
-      " list=" + E.scenes().list.length,
+      " list=" + E.scenes().list.length + " 面板行数=" + srows(),
   );
 
   return rows;
