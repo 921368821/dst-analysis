@@ -45,6 +45,13 @@ import { err, engineError, ok, type Result } from "./foundation/result.ts";
 import type { NodeId } from "./core/scene/node.ts";
 import { buildOutline, flattenOutline, type OutlineRow } from "./extensions/editor/outline.ts";
 import { createSelection } from "./extensions/editor/selection.ts";
+import {
+  exportDocument,
+  newDocument,
+  openDocument,
+  type OpenReport,
+  type SessionDeps,
+} from "./extensions/editor/session.ts";
 import { fieldsOf, setField, type FieldChange } from "./extensions/editor/property-model.ts";
 import { createPie } from "./extensions/editor/pie.ts";
 import { createUndoStack, type UndoOutcome } from "./extensions/editor/undo-stack.ts";
@@ -83,6 +90,11 @@ const btnRedo = need<HTMLButtonElement>("btn-redo");
 const btnAdd = need<HTMLButtonElement>("btn-add");
 const btnDel = need<HTMLButtonElement>("btn-del");
 const histEl = need<HTMLSpanElement>("hist");
+const btnSave = need<HTMLButtonElement>("btn-save");
+const btnOpen = need<HTMLButtonElement>("btn-open");
+const btnNew = need<HTMLButtonElement>("btn-new");
+const docText = need<HTMLTextAreaElement>("doctext");
+const docInfoEl = need<HTMLSpanElement>("docinfo");
 
 const dpr = Math.min(2, window.devicePixelRatio || 1);
 canvas.width = Math.floor((canvas.clientWidth || 640) * dpr);
@@ -309,6 +321,74 @@ function commitField(nodeId: NodeId, type: string, key: string, raw: unknown): R
   return r;
 }
 
+// ---------------------------------------------------------------- 文档（保存 / 打开 / 新建）
+
+function docDeps(app: GameApp): SessionDeps {
+  // ★ 注册表从场景上取（它就是场景的组件注册表），不要再传一份 ——
+  //   两份注册表会让"打开后组件能不能装配"取决于编辑器当时拿的是哪一份。
+  return { scene: app.scene, registry: app.scene.components, history, selection };
+}
+
+function describeDoc(r: OpenReport): string {
+  const parts = [`${String(r.made)} 个节点`];
+  if (r.droppedHistory > 0) parts.push(`清掉 ${String(r.droppedHistory)} 条历史`);
+  if (r.droppedSelection > 0) parts.push(`清掉 ${String(r.droppedSelection)} 项选中`);
+  if (r.skipped.length > 0) parts.push(`${String(r.skipped.length)} 条被跳过`);
+  return parts.join(" · ");
+}
+
+/** 导出的文本同时写进文本框（能看见、能选中、能贴到别处）。 */
+function doSaveDoc(): boolean {
+  const app = appRef;
+  if (app === null) return false;
+  const r = exportDocument(docDeps(app));
+  if (!r.ok) {
+    errEl.textContent = `${r.error.code}：${r.error.message}`;
+    return false;
+  }
+  docText.value = r.value;
+  docInfoEl.textContent = `已导出 ${String(r.value.length)} 字节`;
+  errEl.textContent = "";
+  return true;
+}
+
+function afterDocChange(): void {
+  // 打开/新建都不进历史，所以这里不走 `afterHistoryChange` 的撤销收尾，
+  // 但**必须**重画：树、面板、历史三处都变了。
+  refreshTree();
+  refreshProps();
+  refreshHistory();
+}
+
+function doOpenDoc(text?: string): { ok: boolean; made?: number; code?: string; message?: string } {
+  const app = appRef;
+  if (app === null) return { ok: false, code: "EDIT.NOT_READY" };
+  const r = openDocument(docDeps(app), text ?? docText.value);
+  if (!r.ok) {
+    errEl.textContent = `${r.error.code}：${r.error.message}`;
+    return { ok: false, code: r.error.code, message: r.error.message };
+  }
+  docInfoEl.textContent = describeDoc(r.value);
+  errEl.textContent = r.value.skipped.length > 0 ? `有 ${String(r.value.skipped.length)} 处被跳过（见控制台）` : "";
+  if (r.value.skipped.length > 0) console.warn("打开文档时跳过：", r.value.skipped);
+  afterDocChange();
+  return { ok: true, made: r.value.made };
+}
+
+function doNewDoc(): { ok: boolean; made?: number; code?: string; message?: string } {
+  const app = appRef;
+  if (app === null) return { ok: false, code: "EDIT.NOT_READY" };
+  const r = newDocument(docDeps(app));
+  if (!r.ok) {
+    errEl.textContent = `${r.error.code}：${r.error.message}`;
+    return { ok: false, code: r.error.code, message: r.error.message };
+  }
+  docInfoEl.textContent = describeDoc(r.value);
+  errEl.textContent = "";
+  afterDocChange();
+  return { ok: true, made: r.value.made };
+}
+
 function refreshHistory(): void {
   btnUndo.disabled = !history.canUndo;
   btnRedo.disabled = !history.canRedo;
@@ -467,6 +547,14 @@ interface EditorApi {
   };
   addNode(name?: string): { ok: boolean; id?: number; code?: string };
   deleteSelected(): { ok: boolean; deleted?: number; code?: string; message?: string };
+  /** 导出当前场景到文本框，并返回文本（判据直接用返回值，不去读 DOM）。 */
+  docSave(): { ok: boolean; text?: string; code?: string; message?: string };
+  /** 打开一份文档文本（省参数时读文本框）。失败时场景应原样还在。 */
+  docOpen(text?: string): { ok: boolean; made?: number; code?: string; message?: string };
+  /** 新建空场景（只留根）。 */
+  docNew(): { ok: boolean; made?: number; code?: string; message?: string };
+  /** 文本框里的当前内容（判据用来验「保存真的写进去了」）。 */
+  docText(): string;
 }
 
 function installApi(app: GameApp): void {
@@ -568,6 +656,25 @@ function installApi(app: GameApp): void {
       if (!r.ok) return { ok: false, code: r.error.code, message: r.error.message };
       return { ok: true, deleted: r.value };
     },
+    docSave() {
+      const app = appRef;
+      if (app === null) return { ok: false, code: "EDIT.NOT_READY" };
+      const r = exportDocument(docDeps(app));
+      if (!r.ok) return { ok: false, code: r.error.code, message: r.error.message };
+      docText.value = r.value;
+      docInfoEl.textContent = `已导出 ${String(r.value.length)} 字节`;
+      errEl.textContent = "";
+      return { ok: true, text: r.value };
+    },
+    docOpen(text?: string) {
+      return doOpenDoc(text);
+    },
+    docNew() {
+      return doNewDoc();
+    },
+    docText() {
+      return docText.value;
+    },
   };
   (window as unknown as { __editor?: EditorApi }).__editor = api;
 }
@@ -611,6 +718,15 @@ async function main(): Promise<void> {
   btnUndo.addEventListener("click", () => void doUndo());
   btnRedo.addEventListener("click", () => void doRedo());
   btnAdd.addEventListener("click", () => void addNode());
+  btnSave.addEventListener("click", () => {
+    doSaveDoc();
+  });
+  btnOpen.addEventListener("click", () => {
+    doOpenDoc();
+  });
+  btnNew.addEventListener("click", () => {
+    doNewDoc();
+  });
   btnDel.addEventListener("click", () => void deleteSelected());
 
   // 快捷键：Ctrl/Cmd+Z 撤销、Ctrl/Cmd+Shift+Z 或 Ctrl+Y 重做、Delete 删选中。

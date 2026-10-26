@@ -4832,9 +4832,9 @@ var SpriteBatch = class _SpriteBatch {
     this.maxQuads = maxQuads;
     this.vertices = new Float32Array(maxQuads * 4 * FLOATS_PER_VERTEX);
     this.indices = new Uint16Array(maxQuads * 6);
-    for (let q = 0; q < maxQuads; q++) {
-      const v = q * 4;
-      const i = q * 6;
+    for (let q2 = 0; q2 < maxQuads; q2++) {
+      const v = q2 * 4;
+      const i = q2 * 6;
       this.indices[i] = v;
       this.indices[i + 1] = v + 1;
       this.indices[i + 2] = v + 2;
@@ -4874,12 +4874,12 @@ var SpriteBatch = class _SpriteBatch {
     let atlasSwitches = 0;
     let lastAtlas = -1;
     const runsMut = [];
-    for (let q = 0; q < n; q++) {
-      const it = sorted[q];
+    for (let q2 = 0; q2 < n; q2++) {
+      const it = sorted[q2];
       if (it.atlas !== lastAtlas) {
         atlasSwitches++;
         lastAtlas = it.atlas;
-        runsMut.push({ atlas: it.atlas, start: q, count: 1 });
+        runsMut.push({ atlas: it.atlas, start: q2, count: 1 });
       } else {
         const prev = runsMut[runsMut.length - 1];
         if (prev === void 0) throw new Error("batch2d \u5185\u90E8\u9519\u8BEF\uFF1A\u7B2C\u4E00\u6BB5\u6CA1\u5EFA\u8D77\u6765");
@@ -4899,7 +4899,7 @@ var SpriteBatch = class _SpriteBatch {
       const ub = it.u0 + (it.u1 - it.u0) * tileX;
       const va = it.v0;
       const vb = it.v0 + (it.v1 - it.v0) * tileY;
-      const base = q * 4 * FLOATS_PER_VERTEX;
+      const base = q2 * 4 * FLOATS_PER_VERTEX;
       writeVert(this.vertices, base, x0, y0, ua, vb, it);
       writeVert(this.vertices, base + FLOATS_PER_VERTEX, x1, y0, ub, vb, it);
       writeVert(this.vertices, base + FLOATS_PER_VERTEX * 2, x1, y1, ub, va, it);
@@ -6076,7 +6076,7 @@ function findComponents(width, height, kinds) {
         queue.push(ni);
       }
     }
-    group.sort((p, q) => p - q);
+    group.sort((p, q2) => p - q2);
     groups.push(group);
   }
   return { regionOf, groups };
@@ -6861,6 +6861,352 @@ function createSelection() {
   return new Selection();
 }
 
+// src/core/serialization/schema.ts
+var Schema = class {
+  version;
+  fields;
+  versionKey;
+  migrations;
+  decimals;
+  constructor(opts) {
+    this.version = opts.version;
+    this.fields = opts.fields;
+    this.versionKey = opts.versionKey ?? "__v";
+    this.migrations = opts.migrations ?? [];
+    this.decimals = opts.decimals ?? 3;
+    const froms = this.migrations.map((m) => m.from).sort((a, b) => a - b);
+    for (let i = 0; i < froms.length; i++) {
+      if (froms[i] !== i + 1) {
+        throw new Error(
+          `\u8FC1\u79FB\u94FE\u5FC5\u987B\u4ECE v1 \u8FDE\u7EED\u8986\u76D6\u5230 v${this.version}\uFF0C\u5B9E\u9645\u7F3A v${i + 1}\uFF08\u5DF2\u6709\uFF1A${froms.join(",") || "\u65E0"}\uFF09`
+        );
+      }
+    }
+    const need2 = this.version - 1;
+    if (froms.length !== need2) {
+      throw new Error(
+        `v${this.version} \u9700\u8981 ${need2} \u6761\u8FC1\u79FB\uFF08v1\u2192v2 \u2026 v${need2}\u2192v${this.version}\uFF09\uFF0C\u5B9E\u9645 ${froms.length} \u6761\uFF08\u5DF2\u6709\uFF1A${froms.join(",") || "\u65E0"}\uFF09`
+      );
+    }
+  }
+  /** 把任意旧版本的记录迁到当前版本。 */
+  migrate(data) {
+    let cur = { ...data };
+    const raw = cur[this.versionKey];
+    const declared = Object.prototype.hasOwnProperty.call(cur, this.versionKey);
+    let v = 1;
+    if (declared) {
+      if (typeof raw !== "number") {
+        return err({
+          code: "SER.BAD_VERSION",
+          message: `\u7248\u672C\u5B57\u6BB5 ${this.versionKey}=${JSON.stringify(raw)} \u4E0D\u662F\u6570\u5B57\uFF08\u5B58\u6863\u5934\u635F\u574F\uFF09`
+        });
+      }
+      v = raw;
+    }
+    if (!Number.isInteger(v) || v < 1) {
+      return err({
+        code: "SER.BAD_VERSION",
+        message: `\u7248\u672C\u5B57\u6BB5 ${this.versionKey}=${JSON.stringify(raw)} \u4E0D\u662F \u22651 \u7684\u6574\u6570\uFF08\u5B58\u6863\u5934\u635F\u574F\uFF09`
+      });
+    }
+    if (v > this.version) {
+      return err({
+        code: "SER.VERSION_TOO_NEW",
+        message: `\u8BB0\u5F55\u7248\u672C v${v} \u9AD8\u4E8E\u5F15\u64CE\u652F\u6301\u7684 v${this.version}\uFF08\u7528\u65B0\u5F15\u64CE\u5199\u7684\u6863\uFF0C\u65E7\u5F15\u64CE\u4E0D\u80FD\u8BFB\uFF09`
+      });
+    }
+    while (v < this.version) {
+      const m = this.migrations.find((x) => x.from === v);
+      if (m === void 0) {
+        return err({
+          code: "SER.NO_MIGRATION",
+          message: `\u7F3A\u5C11 v${v} \u2192 v${v + 1} \u7684\u8FC1\u79FB\u51FD\u6570`
+        });
+      }
+      cur = m.migrate(cur);
+      v++;
+      cur[this.versionKey] = v;
+    }
+    return ok(cur);
+  }
+  /**
+   * 确定性序列化：`{ "__v": 2, "name": "abc", "hp": 12.346 }`
+   * - 字段顺序 = schema 顺序（**不是**对象键顺序）
+   * - 数字量化到 decimals
+   * - schema 里没有的键**丢弃并报告**（不静默保留：保留会让"字段名拼错"变成永久脏数据）
+   */
+  encode(data) {
+    const dropped = Object.keys(data).filter((k) => k !== this.versionKey && !this.fields.includes(k));
+    const parts = [`${JSON.stringify(this.versionKey)}:${this.version}`];
+    for (const k of this.fields) {
+      const v = data[k];
+      if (v === void 0) continue;
+      parts.push(`${JSON.stringify(k)}:${encodeValue(v, this.decimals)}`);
+    }
+    return { text: `{${parts.join(",")}}`, dropped };
+  }
+  decode(text) {
+    let raw;
+    try {
+      raw = JSON.parse(text);
+    } catch (e) {
+      return err({
+        code: "SER.BAD_JSON",
+        message: `\u4E0D\u662F\u5408\u6CD5 JSON\uFF1A${e instanceof Error ? e.message : String(e)}`
+      });
+    }
+    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+      return err({ code: "SER.NOT_OBJECT", message: "\u9876\u5C42\u5FC5\u987B\u662F\u5BF9\u8C61" });
+    }
+    return this.migrate(raw);
+  }
+};
+function encodeValue(v, decimals) {
+  if (typeof v === "number") {
+    if (!Number.isFinite(v)) {
+      return JSON.stringify(`__num__:${String(v)}`);
+    }
+    return String(quantize(v, decimals));
+  }
+  if (typeof v === "string" || typeof v === "boolean") return JSON.stringify(v);
+  if (v === null) return "null";
+  if (Array.isArray(v)) return "[" + v.map((x) => encodeValue(x, decimals)).join(",") + "]";
+  if (typeof v === "object") {
+    const o = v;
+    const keys = Object.keys(o).sort();
+    const body = [];
+    for (const k of keys) {
+      if (o[k] === void 0) continue;
+      body.push(`${JSON.stringify(k)}:${encodeValue(o[k], decimals)}`);
+    }
+    return "{" + body.join(",") + "}";
+  }
+  return JSON.stringify(String(v));
+}
+
+// src/core/scene/scene-io.ts
+var SCENE_FORMAT_VERSION = 1;
+function collectNodes(scene) {
+  const out = [];
+  scene.root.walk((n) => {
+    if (n.id !== scene.rootId) out.push(n);
+  });
+  out.sort((a, b) => a.id - b.id);
+  return out;
+}
+function recordOf(scene, n) {
+  const comps = [];
+  for (const c of [...n.components].sort((a, b) => a.type < b.type ? -1 : a.type > b.type ? 1 : 0)) {
+    const saved = c.save();
+    const { type: _t, ...rest } = saved;
+    comps.push({ type: c.type, data: rest });
+  }
+  return {
+    id: n.id,
+    name: n.name,
+    parent: n.parent === null || n.parent.id === scene.rootId ? null : n.parent.id,
+    x: n.localPosition.x,
+    y: n.localPosition.y,
+    rot: n.localRotation,
+    sx: n.localScale.x,
+    sy: n.localScale.y,
+    zIndex: n.zIndex,
+    active: n.active,
+    layer: n.layer,
+    components: comps
+  };
+}
+function saveScene(scene) {
+  const nodes = [];
+  for (const n of collectNodes(scene)) nodes.push(recordOf(scene, n));
+  return { format: SCENE_FORMAT_VERSION, name: scene.name, nodes };
+}
+function loadScene(scene, snap, registry2) {
+  if (snap.format > SCENE_FORMAT_VERSION) {
+    return err(
+      engineError(
+        "SCENE.FORMAT_TOO_NEW",
+        `\u5B58\u6863\u683C\u5F0F v${snap.format} \u9AD8\u4E8E\u5F15\u64CE\u652F\u6301\u7684 v${SCENE_FORMAT_VERSION}\uFF08\u7528\u65B0\u5F15\u64CE\u5199\u7684\u6863\uFF0C\u65E7\u5F15\u64CE\u4E0D\u80FD\u8BFB\uFF09`
+      )
+    );
+  }
+  const skipped = [];
+  const missingFields = [];
+  scene.clear();
+  const built = /* @__PURE__ */ new Map();
+  const records = [...snap.nodes].sort((a, b) => a.id - b.id);
+  for (const r of records) {
+    try {
+      const n = scene.spawnImmediate(r.name, r.id === 0 ? null : scene.rootId, r.id);
+      n.setLocalPosition(r.x, r.y);
+      n.setLocalRotation(r.rot);
+      n.setLocalScale(r.sx, r.sy);
+      n.zIndex = r.zIndex;
+      n.active = r.active;
+      n.layer = r.layer;
+      n.markTransformDirty();
+      built.set(r.id, n);
+    } catch (e) {
+      skipped.push(`\u8282\u70B9 #${r.id}\uFF08${r.name}\uFF09\uFF1A${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  for (const r of records) {
+    if (r.parent === null) continue;
+    const child = built.get(r.id);
+    const parent = built.get(r.parent);
+    if (child === void 0) continue;
+    if (parent === void 0) {
+      skipped.push(`\u8282\u70B9 #${r.id} \u7684\u7236\u8282\u70B9 #${r.parent} \u4E0D\u5B58\u5728\uFF08\u8BE5\u8282\u70B9\u88AB\u6302\u5230\u6839\u4E0B\uFF09`);
+      continue;
+    }
+    try {
+      parent.addChild(child);
+    } catch (e) {
+      skipped.push(`\u8282\u70B9 #${r.id} \u7684\u7236\u5B50\u5173\u7CFB\u4E0D\u6210\u7ACB\uFF1A${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  for (const r of records) {
+    const n = built.get(r.id);
+    if (n === void 0) continue;
+    for (const cr of r.components) {
+      if (!registry2.has(cr.type)) {
+        skipped.push(`\u8282\u70B9 #${r.id} \u7684\u7EC4\u4EF6 ${cr.type} \u672A\u6CE8\u518C\uFF08\u8DF3\u8FC7\uFF09`);
+        continue;
+      }
+      const c = registry2.create(cr.type);
+      if (c === void 0) {
+        skipped.push(`\u8282\u70B9 #${r.id} \u7684\u7EC4\u4EF6 ${cr.type} \u5DE5\u5382\u8FD4\u56DE undefined\uFF08\u8DF3\u8FC7\uFF09`);
+        continue;
+      }
+      const res = c.load(cr.data);
+      for (const f of res.missing) missingFields.push(`#${r.id}.${cr.type}.${f}`);
+      scene.attach(n.id, () => c);
+    }
+  }
+  scene.flush();
+  return ok({ made: built.size, skipped, missingFields });
+}
+function sceneToJson(snap) {
+  const lines = [];
+  lines.push(`{"format":${snap.format},"name":${JSON.stringify(snap.name)},"nodes":[`);
+  snap.nodes.forEach((n, i) => {
+    const comps = n.components.map((c) => `{"type":${JSON.stringify(c.type)},"data":${stringifySorted(c.data)}}`).join(",");
+    const rec = `{"id":${n.id},"name":${JSON.stringify(n.name)},"parent":${n.parent === null ? "null" : n.parent},"x":${q(n.x)},"y":${q(n.y)},"rot":${q(n.rot)},"sx":${q(n.sx)},"sy":${q(n.sy)},"zIndex":${n.zIndex},"active":${n.active},"layer":${n.layer},"components":[${comps}]}`;
+    lines.push(rec + (i === snap.nodes.length - 1 ? "" : ","));
+  });
+  lines.push("]}");
+  return lines.join("");
+}
+function sceneFromJson(text) {
+  const dec = SCENE_SCHEMA.decode(text);
+  if (!dec.ok) {
+    switch (dec.error.code) {
+      case "SER.VERSION_TOO_NEW":
+        return err(engineError("SCENE.FORMAT_TOO_NEW", dec.error.message));
+      case "SER.NO_MIGRATION":
+        return err(engineError("SCENE.FORMAT_NO_MIGRATION", dec.error.message));
+      case "SER.BAD_VERSION":
+        return err(engineError("SCENE.FORMAT_BAD", dec.error.message));
+      default:
+        return err(engineError("SCENE.BAD_JSON", dec.error.message));
+    }
+  }
+  const o = dec.value;
+  if (typeof o.format !== "number" || !Array.isArray(o.nodes)) {
+    return err(engineError("SCENE.BAD_JSON", "\u7F3A\u5C11 format \u6216 nodes"));
+  }
+  return ok({
+    // 迁移过的记录已经是当前版本；写 v1 档读回来也是 v1，所以这里恒等于 SCENE_FORMAT_VERSION
+    format: SCENE_FORMAT_VERSION,
+    name: typeof o.name === "string" ? o.name : "scene",
+    nodes: o.nodes
+  });
+}
+var SAVE_SCALE = 1e9;
+var SAVE_SCALE_LIMIT = 1e6;
+function q(v) {
+  if (!Number.isFinite(v)) return v;
+  if (!(Math.abs(v) < SAVE_SCALE_LIMIT)) return v;
+  return Math.round(v * SAVE_SCALE) / SAVE_SCALE;
+}
+function stringifySorted(o) {
+  if (o === null || typeof o !== "object") {
+    return typeof o === "number" ? String(q(o)) : JSON.stringify(o);
+  }
+  if (Array.isArray(o)) return "[" + o.map(stringifySorted).join(",") + "]";
+  const rec = o;
+  const keys = Object.keys(rec).sort();
+  const parts = [];
+  for (const k of keys) {
+    if (rec[k] === void 0) continue;
+    parts.push(`${JSON.stringify(k)}:${stringifySorted(rec[k])}`);
+  }
+  return "{" + parts.join(",") + "}";
+}
+var SCENE_SCHEMA = new Schema({
+  version: SCENE_FORMAT_VERSION,
+  fields: ["name", "nodes"],
+  versionKey: "format"
+});
+
+// src/extensions/editor/session.ts
+var EDIT_BAD_DOC = "EDIT.BAD_DOC";
+var EDIT_LOAD_FAILED = "EDIT.LOAD_FAILED";
+function exportDocument(deps) {
+  try {
+    return ok(sceneToJson(saveScene(deps.scene)));
+  } catch (e) {
+    return err(engineError(EDIT_BAD_DOC, `\u5BFC\u51FA\u5F53\u524D\u573A\u666F\u5931\u8D25\uFF1A${e instanceof Error ? e.message : String(e)}`));
+  }
+}
+function adopt(deps, made, skipped) {
+  const droppedHistory = deps.history.history().undo.length;
+  deps.history.clear();
+  const droppedSelection = deps.selection.size;
+  deps.selection.clear();
+  return { made, skipped, droppedHistory, droppedSelection };
+}
+function restore(deps, before) {
+  const back = loadScene(deps.scene, before, deps.registry);
+  return back.ok ? "\u5DF2\u6062\u590D\u5230\u6253\u5F00\u524D\u7684\u573A\u666F" : `\u6062\u590D\u4E5F\u5931\u8D25\u4E86\uFF08${back.error.code}\uFF09\uFF0C\u5DE5\u4F5C\u533A\u4E0D\u53EF\u4FE1`;
+}
+function loadDocument(deps, snap) {
+  const before = saveScene(deps.scene);
+  let loaded;
+  try {
+    loaded = loadScene(deps.scene, snap, deps.registry);
+  } catch (e) {
+    const why = e instanceof Error ? e.message : String(e);
+    return err(engineError(EDIT_LOAD_FAILED, `\u88C5\u8F7D\u4E2D\u9014\u629B\u5F02\u5E38\uFF1A${why} \u2014\u2014 ${restore(deps, before)}`));
+  }
+  if (!loaded.ok) {
+    const tail = restore(deps, before);
+    return err(
+      engineError(EDIT_LOAD_FAILED, `\u88C5\u8F7D\u5931\u8D25\uFF1A${loaded.error.message} \u2014\u2014 ${tail}`, { cause: loaded.error.code })
+    );
+  }
+  return ok(adopt(deps, loaded.value.made, loaded.value.skipped));
+}
+function openDocument(deps, text) {
+  const parsed = sceneFromJson(text);
+  if (!parsed.ok) {
+    return err(engineError(EDIT_BAD_DOC, `\u8FD9\u4EFD\u6587\u6863\u6253\u4E0D\u5F00\uFF1A${parsed.error.message}`, { cause: parsed.error.code }));
+  }
+  return loadDocument(deps, parsed.value);
+}
+function newDocument(deps) {
+  const before = saveScene(deps.scene);
+  try {
+    deps.scene.clear();
+  } catch (e) {
+    const back = loadScene(deps.scene, before, deps.registry);
+    const tail = back.ok ? "\u5DF2\u6062\u590D\u539F\u573A\u666F" : `\u6062\u590D\u4E5F\u5931\u8D25\u4E86\uFF08${back.error.code}\uFF09`;
+    return err(engineError(EDIT_LOAD_FAILED, `\u65B0\u5EFA\u5931\u8D25\uFF1A${e instanceof Error ? e.message : String(e)} \u2014\u2014 ${tail}`));
+  }
+  return ok(adopt(deps, 0, []));
+}
+
 // src/extensions/editor/property-model.ts
 var EDIT_BAD_FIELD = "EDIT.BAD_FIELD";
 var EDIT_BAD_VALUE = "EDIT.BAD_VALUE";
@@ -7346,160 +7692,6 @@ function createUndoStack(opts) {
   return new UndoStack(opts);
 }
 
-// src/core/serialization/schema.ts
-var Schema = class {
-  version;
-  fields;
-  versionKey;
-  migrations;
-  decimals;
-  constructor(opts) {
-    this.version = opts.version;
-    this.fields = opts.fields;
-    this.versionKey = opts.versionKey ?? "__v";
-    this.migrations = opts.migrations ?? [];
-    this.decimals = opts.decimals ?? 3;
-    const froms = this.migrations.map((m) => m.from).sort((a, b) => a - b);
-    for (let i = 0; i < froms.length; i++) {
-      if (froms[i] !== i + 1) {
-        throw new Error(
-          `\u8FC1\u79FB\u94FE\u5FC5\u987B\u4ECE v1 \u8FDE\u7EED\u8986\u76D6\u5230 v${this.version}\uFF0C\u5B9E\u9645\u7F3A v${i + 1}\uFF08\u5DF2\u6709\uFF1A${froms.join(",") || "\u65E0"}\uFF09`
-        );
-      }
-    }
-    const need2 = this.version - 1;
-    if (froms.length !== need2) {
-      throw new Error(
-        `v${this.version} \u9700\u8981 ${need2} \u6761\u8FC1\u79FB\uFF08v1\u2192v2 \u2026 v${need2}\u2192v${this.version}\uFF09\uFF0C\u5B9E\u9645 ${froms.length} \u6761\uFF08\u5DF2\u6709\uFF1A${froms.join(",") || "\u65E0"}\uFF09`
-      );
-    }
-  }
-  /** 把任意旧版本的记录迁到当前版本。 */
-  migrate(data) {
-    let cur = { ...data };
-    const raw = cur[this.versionKey];
-    const declared = Object.prototype.hasOwnProperty.call(cur, this.versionKey);
-    let v = 1;
-    if (declared) {
-      if (typeof raw !== "number") {
-        return err({
-          code: "SER.BAD_VERSION",
-          message: `\u7248\u672C\u5B57\u6BB5 ${this.versionKey}=${JSON.stringify(raw)} \u4E0D\u662F\u6570\u5B57\uFF08\u5B58\u6863\u5934\u635F\u574F\uFF09`
-        });
-      }
-      v = raw;
-    }
-    if (!Number.isInteger(v) || v < 1) {
-      return err({
-        code: "SER.BAD_VERSION",
-        message: `\u7248\u672C\u5B57\u6BB5 ${this.versionKey}=${JSON.stringify(raw)} \u4E0D\u662F \u22651 \u7684\u6574\u6570\uFF08\u5B58\u6863\u5934\u635F\u574F\uFF09`
-      });
-    }
-    if (v > this.version) {
-      return err({
-        code: "SER.VERSION_TOO_NEW",
-        message: `\u8BB0\u5F55\u7248\u672C v${v} \u9AD8\u4E8E\u5F15\u64CE\u652F\u6301\u7684 v${this.version}\uFF08\u7528\u65B0\u5F15\u64CE\u5199\u7684\u6863\uFF0C\u65E7\u5F15\u64CE\u4E0D\u80FD\u8BFB\uFF09`
-      });
-    }
-    while (v < this.version) {
-      const m = this.migrations.find((x) => x.from === v);
-      if (m === void 0) {
-        return err({
-          code: "SER.NO_MIGRATION",
-          message: `\u7F3A\u5C11 v${v} \u2192 v${v + 1} \u7684\u8FC1\u79FB\u51FD\u6570`
-        });
-      }
-      cur = m.migrate(cur);
-      v++;
-      cur[this.versionKey] = v;
-    }
-    return ok(cur);
-  }
-  /**
-   * 确定性序列化：`{ "__v": 2, "name": "abc", "hp": 12.346 }`
-   * - 字段顺序 = schema 顺序（**不是**对象键顺序）
-   * - 数字量化到 decimals
-   * - schema 里没有的键**丢弃并报告**（不静默保留：保留会让"字段名拼错"变成永久脏数据）
-   */
-  encode(data) {
-    const dropped = Object.keys(data).filter((k) => k !== this.versionKey && !this.fields.includes(k));
-    const parts = [`${JSON.stringify(this.versionKey)}:${this.version}`];
-    for (const k of this.fields) {
-      const v = data[k];
-      if (v === void 0) continue;
-      parts.push(`${JSON.stringify(k)}:${encodeValue(v, this.decimals)}`);
-    }
-    return { text: `{${parts.join(",")}}`, dropped };
-  }
-  decode(text) {
-    let raw;
-    try {
-      raw = JSON.parse(text);
-    } catch (e) {
-      return err({
-        code: "SER.BAD_JSON",
-        message: `\u4E0D\u662F\u5408\u6CD5 JSON\uFF1A${e instanceof Error ? e.message : String(e)}`
-      });
-    }
-    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
-      return err({ code: "SER.NOT_OBJECT", message: "\u9876\u5C42\u5FC5\u987B\u662F\u5BF9\u8C61" });
-    }
-    return this.migrate(raw);
-  }
-};
-function encodeValue(v, decimals) {
-  if (typeof v === "number") {
-    if (!Number.isFinite(v)) {
-      return JSON.stringify(`__num__:${String(v)}`);
-    }
-    return String(quantize(v, decimals));
-  }
-  if (typeof v === "string" || typeof v === "boolean") return JSON.stringify(v);
-  if (v === null) return "null";
-  if (Array.isArray(v)) return "[" + v.map((x) => encodeValue(x, decimals)).join(",") + "]";
-  if (typeof v === "object") {
-    const o = v;
-    const keys = Object.keys(o).sort();
-    const body = [];
-    for (const k of keys) {
-      if (o[k] === void 0) continue;
-      body.push(`${JSON.stringify(k)}:${encodeValue(o[k], decimals)}`);
-    }
-    return "{" + body.join(",") + "}";
-  }
-  return JSON.stringify(String(v));
-}
-
-// src/core/scene/scene-io.ts
-var SCENE_FORMAT_VERSION = 1;
-function recordOf(scene, n) {
-  const comps = [];
-  for (const c of [...n.components].sort((a, b) => a.type < b.type ? -1 : a.type > b.type ? 1 : 0)) {
-    const saved = c.save();
-    const { type: _t, ...rest } = saved;
-    comps.push({ type: c.type, data: rest });
-  }
-  return {
-    id: n.id,
-    name: n.name,
-    parent: n.parent === null || n.parent.id === scene.rootId ? null : n.parent.id,
-    x: n.localPosition.x,
-    y: n.localPosition.y,
-    rot: n.localRotation,
-    sx: n.localScale.x,
-    sy: n.localScale.y,
-    zIndex: n.zIndex,
-    active: n.active,
-    layer: n.layer,
-    components: comps
-  };
-}
-var SCENE_SCHEMA = new Schema({
-  version: SCENE_FORMAT_VERSION,
-  fields: ["name", "nodes"],
-  versionKey: "format"
-});
-
 // src/extensions/editor/undo-ops.ts
 var EDIT_BAD_NODE = "EDIT.BAD_NODE";
 var EDIT_BAD_NAME = "EDIT.BAD_NAME";
@@ -7717,6 +7909,11 @@ var btnRedo = need("btn-redo");
 var btnAdd = need("btn-add");
 var btnDel = need("btn-del");
 var histEl = need("hist");
+var btnSave = need("btn-save");
+var btnOpen = need("btn-open");
+var btnNew = need("btn-new");
+var docText = need("doctext");
+var docInfoEl = need("docinfo");
 var dpr = Math.min(2, window.devicePixelRatio || 1);
 canvas.width = Math.floor((canvas.clientWidth || 640) * dpr);
 canvas.height = Math.floor((canvas.clientHeight || 420) * dpr);
@@ -7903,6 +8100,61 @@ function commitField(nodeId, type, key, raw) {
     refreshHistory();
   }
   return r;
+}
+function docDeps(app) {
+  return { scene: app.scene, registry: app.scene.components, history, selection };
+}
+function describeDoc(r) {
+  const parts = [`${String(r.made)} \u4E2A\u8282\u70B9`];
+  if (r.droppedHistory > 0) parts.push(`\u6E05\u6389 ${String(r.droppedHistory)} \u6761\u5386\u53F2`);
+  if (r.droppedSelection > 0) parts.push(`\u6E05\u6389 ${String(r.droppedSelection)} \u9879\u9009\u4E2D`);
+  if (r.skipped.length > 0) parts.push(`${String(r.skipped.length)} \u6761\u88AB\u8DF3\u8FC7`);
+  return parts.join(" \xB7 ");
+}
+function doSaveDoc() {
+  const app = appRef;
+  if (app === null) return false;
+  const r = exportDocument(docDeps(app));
+  if (!r.ok) {
+    errEl.textContent = `${r.error.code}\uFF1A${r.error.message}`;
+    return false;
+  }
+  docText.value = r.value;
+  docInfoEl.textContent = `\u5DF2\u5BFC\u51FA ${String(r.value.length)} \u5B57\u8282`;
+  errEl.textContent = "";
+  return true;
+}
+function afterDocChange() {
+  refreshTree();
+  refreshProps();
+  refreshHistory();
+}
+function doOpenDoc(text) {
+  const app = appRef;
+  if (app === null) return { ok: false, code: "EDIT.NOT_READY" };
+  const r = openDocument(docDeps(app), text ?? docText.value);
+  if (!r.ok) {
+    errEl.textContent = `${r.error.code}\uFF1A${r.error.message}`;
+    return { ok: false, code: r.error.code, message: r.error.message };
+  }
+  docInfoEl.textContent = describeDoc(r.value);
+  errEl.textContent = r.value.skipped.length > 0 ? `\u6709 ${String(r.value.skipped.length)} \u5904\u88AB\u8DF3\u8FC7\uFF08\u89C1\u63A7\u5236\u53F0\uFF09` : "";
+  if (r.value.skipped.length > 0) console.warn("\u6253\u5F00\u6587\u6863\u65F6\u8DF3\u8FC7\uFF1A", r.value.skipped);
+  afterDocChange();
+  return { ok: true, made: r.value.made };
+}
+function doNewDoc() {
+  const app = appRef;
+  if (app === null) return { ok: false, code: "EDIT.NOT_READY" };
+  const r = newDocument(docDeps(app));
+  if (!r.ok) {
+    errEl.textContent = `${r.error.code}\uFF1A${r.error.message}`;
+    return { ok: false, code: r.error.code, message: r.error.message };
+  }
+  docInfoEl.textContent = describeDoc(r.value);
+  errEl.textContent = "";
+  afterDocChange();
+  return { ok: true, made: r.value.made };
 }
 function refreshHistory() {
   btnUndo.disabled = !history.canUndo;
@@ -8102,6 +8354,25 @@ function installApi(app) {
       const r = deleteSelected();
       if (!r.ok) return { ok: false, code: r.error.code, message: r.error.message };
       return { ok: true, deleted: r.value };
+    },
+    docSave() {
+      const app2 = appRef;
+      if (app2 === null) return { ok: false, code: "EDIT.NOT_READY" };
+      const r = exportDocument(docDeps(app2));
+      if (!r.ok) return { ok: false, code: r.error.code, message: r.error.message };
+      docText.value = r.value;
+      docInfoEl.textContent = `\u5DF2\u5BFC\u51FA ${String(r.value.length)} \u5B57\u8282`;
+      errEl.textContent = "";
+      return { ok: true, text: r.value };
+    },
+    docOpen(text) {
+      return doOpenDoc(text);
+    },
+    docNew() {
+      return doNewDoc();
+    },
+    docText() {
+      return docText.value;
     }
   };
   window.__editor = api;
@@ -8139,6 +8410,15 @@ async function main() {
   btnUndo.addEventListener("click", () => void doUndo());
   btnRedo.addEventListener("click", () => void doRedo());
   btnAdd.addEventListener("click", () => void addNode());
+  btnSave.addEventListener("click", () => {
+    doSaveDoc();
+  });
+  btnOpen.addEventListener("click", () => {
+    doOpenDoc();
+  });
+  btnNew.addEventListener("click", () => {
+    doNewDoc();
+  });
   btnDel.addEventListener("click", () => void deleteSelected());
   window.addEventListener("keydown", (e) => {
     const mod = e.ctrlKey || e.metaKey;

@@ -58,6 +58,10 @@ const DECLARED = [
   "step(3) 推进 3 个 tick",
   "播放后 tick 会涨",
   "暂停后 tick 不再涨",
+  "文档保存到文本（长度 > 0，且真的写进了文本框）",
+  "★★ 打开坏文档：报错，且场景原样还在",
+  "★★ 打开合法文档：节点数回到保存时，且历史被清空",
+  "新建空场景：只剩根，历史清空",
 ];
 
 /** 页面里跑的脚本。**不引用外部变量**：它是被 CDP 求值的字符串。 */
@@ -189,6 +193,45 @@ const PROBE = `
   // ★ a > c：暂停测之前世界必须真的在跑，否则"不涨"是废话
   add("暂停后 tick 不再涨", b === a && a > c, "a=" + a + " b=" + b + " c=" + c);
   E.pause();
+
+  // ---- 文档：保存 / 打开 / 新建（批82）
+  // ★ 放在最后：这一组会把场景整体替换掉，放前面会让别的断言面对另一份世界。
+  const saved = E.docSave();
+  add(
+    "文档保存到文本（长度 > 0，且真的写进了文本框）",
+    saved.ok === true && (saved.text || "").length > 100 && E.docText() === saved.text,
+    "ok=" + saved.ok + " len=" + (saved.text || "").length,
+  );
+  const nodesAtSave = E.stats().nodes;
+
+  // 制造一处未保存的改动（进历史），然后拿坏文本去打开
+  E.addNode("doc-probe");
+  const nodesAfterAdd = E.stats().nodes;
+  const badDoc = E.docOpen("{ 这不是 JSON");
+  add(
+    "★★ 打开坏文档：报错，且场景原样还在",
+    badDoc.ok === false && badDoc.code === "EDIT.BAD_DOC" && E.stats().nodes === nodesAfterAdd,
+    JSON.stringify(badDoc) + " nodes=" + E.stats().nodes + "（打开前 " + nodesAfterAdd + "）",
+  );
+
+  const opened = E.docOpen(saved.text);
+  const h = E.history();
+  add(
+    "★★ 打开合法文档：节点数回到保存时，且历史被清空",
+    opened.ok === true && E.stats().nodes === nodesAtSave && h.canUndo === false && h.undo.length === 0,
+    JSON.stringify(opened) + " nodes=" + E.stats().nodes + "（保存时 " + nodesAtSave + "）undo=" + h.undo.length,
+  );
+
+  const fresh = E.docNew();
+  const h2 = E.history();
+  // ★ stats().nodes 是**含根**的（buildOutline 把根算一个），所以「只剩根」= 1。
+  //   存档记录里根是不出现的（collectNodes 排除它），两个口径不同 —— 这里量的是 tree。
+  add(
+    "新建空场景：只剩根，历史清空",
+    fresh.ok === true && E.stats().nodes === 1 && h2.canUndo === false && E.outline().length === 1,
+    JSON.stringify(fresh) + " nodes=" + E.stats().nodes + " undo=" + h2.undo.length,
+  );
+
   return rows;
 })()
 `;

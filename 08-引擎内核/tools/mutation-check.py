@@ -3369,6 +3369,49 @@ MUTANTS = [
                    "    } catch (e) {\n      throw e;\n      // ★ 存档里如果有环")],
         "test": "tests/core/scene-io.test.ts",
     },
+    {
+        "name": "M365 打开文档后不清撤销栈（撤销会改到新文档里同 id 的另一个节点）",
+        "file": "src/extensions/editor/session.ts",
+        # ★ 中文判据名里一律用「」，不要嵌 ASCII 双引号（这个仓库踩过 5 次）。
+        "pairs": [("  deps.history.clear();\n", "  void deps.history;\n")],
+        "test": "tests/extensions/editor-session.test.ts",
+    },
+    {
+        "name": "M366 打开文档后不清选中集（选中项指向已被替换掉的旧节点）",
+        "file": "src/extensions/editor/session.ts",
+        "pairs": [("  deps.selection.clear();\n", "  void deps.selection;\n")],
+        "test": "tests/extensions/editor-session.test.ts",
+    },
+    {
+        "name": "M367 装载失败时不回灌（报错说「已恢复」，工作区其实已经空了）",
+        "file": "src/extensions/editor/session.ts",
+        # ★ 回灌成**空场景**而不是删掉那行：删掉会让 `back.error` 类型不成立。
+        #   这个变异同时覆盖两种事故 —— 没回灌、回灌错了东西。
+        "pairs": [("  const back = loadScene(deps.scene, before, deps.registry);",
+                   "  const back = loadScene(deps.scene, { format: 1, name: \"\", nodes: [] }, deps.registry);")],
+        "test": "tests/extensions/editor-session.test.ts",
+    },
+    {
+        "name": "M368 快照拍成空场景（等价于拍在 loadScene 之后：回灌装回来的是一份空白）",
+        "file": "src/extensions/editor/session.ts",
+        # ★ 第一版写的是「交换两行」，实测是**假绿**：`loadScene` 唯一的 `err` 面（版本过新）
+        #   在 `scene.clear()` **之前**就返回了，那时场景还没被清，先拍后拍拿到的一样。
+        #   真正要覆盖的是 clear 之后才发生的失败（组件 onAttach 抛），而它能观察到的
+        #   差别只有一个：回灌的 `before` 是不是空的。所以直接让 `before` 空掉。
+        # ★ 锚要带下一行：`const before = saveScene(deps.scene);` 在 `newDocument` 里也有一处，
+        #   而替换器只打第一处（`replace(..., 1)`）—— 不带上下文就是"靠行号顺序碰运气"。
+        "pairs": [("  const before = saveScene(deps.scene);\n  let loaded: ReturnType<typeof loadScene>;",
+                   "  const before: SceneSnapshot = { format: 1, name: \"\", nodes: [] };\n"
+                   "  let loaded: ReturnType<typeof loadScene>;")],
+        "test": "tests/extensions/editor-session.test.ts",
+    },
+    {
+        "name": "M369 打开时先 clear 再解析（打不开的档把正在编辑的工程吃掉）",
+        "file": "src/extensions/editor/session.ts",
+        "pairs": [("  const parsed = sceneFromJson(text);\n  if (!parsed.ok) {",
+                   "  deps.scene.clear();\n  const parsed = sceneFromJson(text);\n  if (!parsed.ok) {")],
+        "test": "tests/extensions/editor-session.test.ts",
+    },
 ]
 
 

@@ -11,8 +11,8 @@
     font: 12px/1.5 ui-monospace, Consolas, "Courier New", monospace; }
   #grid { display: grid; height: 100vh;
     grid-template-columns: 240px 1fr 260px;
-    grid-template-rows: 34px 1fr 40px;
-    grid-template-areas: "top top top" "tree view props" "pie pie pie"; }
+    grid-template-rows: 34px 1fr 78px 40px;
+    grid-template-areas: "top top top" "tree view props" "doc doc doc" "pie pie pie"; }
   #top { grid-area: top; display: flex; align-items: center; gap: 12px;
     padding: 0 10px; background: #10151d; border-bottom: 1px solid #1d2530; }
   #top b { color: #e6c07b; font-weight: 600; }
@@ -25,6 +25,16 @@
     background: #0d1219; border-left: 1px solid #1d2530; }
   #pie { grid-area: pie; display: flex; align-items: center; gap: 8px;
     padding: 0 10px; background: #10151d; border-top: 1px solid #1d2530; }
+
+  /* 文档区：导出/打开的文本框。单独一行而不是塞进工具栏 —— 场景 JSON 有几百行，
+     挤在 40px 的条里既看不清也没法选中一段复制。 */
+  #doc { grid-area: doc; display: flex; gap: 8px; padding: 6px 10px;
+    background: #0d1219; border-top: 1px solid #1d2530; }
+  #doc .col { display: flex; flex-direction: column; gap: 4px; flex: 0 0 auto; }
+  #doc textarea { flex: 1 1 auto; min-width: 0; resize: none;
+    background: #0a0e14; color: #e6edf3; border: 1px solid #263140; border-radius: 3px;
+    padding: 3px 6px; font: inherit; white-space: pre; overflow: auto; }
+  #doc .dim { color: #6a7684; }
 
   .row { padding: 2px 6px; border-radius: 4px; cursor: pointer; white-space: nowrap;
     overflow: hidden; text-overflow: ellipsis; }
@@ -68,6 +78,17 @@
   <div id="tree"></div>
   <div id="view"><canvas id="cv"></canvas></div>
   <div id="props"><div class="empty">未选中</div></div>
+  <div id="doc">
+    <div class="col">
+      <button id="btn-save">保存到文本</button>
+      <button id="btn-open">从文本打开</button>
+    </div>
+    <textarea id="doctext" spellcheck="false" placeholder="场景 JSON：点「保存到文本」导出；改完（或粘贴一份存档）点「从文本打开」"></textarea>
+    <div class="col">
+      <button id="btn-new">新建空场景</button>
+      <span class="dim" id="docinfo">—</span>
+    </div>
+  </div>
   <div id="pie">
     <button id="btn-play">播放</button>
     <button id="btn-pause">暂停</button>
