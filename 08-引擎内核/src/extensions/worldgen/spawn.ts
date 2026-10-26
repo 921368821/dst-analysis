@@ -13,12 +13,22 @@
  *
  * ★ 重复出生报错而不是静默再建一个：两套"玩家"叠在一起的表现是
  *   输入被两个控制器同时改位置，而两边的判据各自都绿。
+ *
+ * ★★ 「玩家」是**一个概念、两个组件**：标记（`world.player`，回答"他是谁"）
+ *   与控制器（`game.controller`，回答"他怎么动"）。批88 之前它们被拆成两处注册，
+ *   结果**控制器那一半从来没被挂到任何节点上** —— `src/` 里搜不到一处 attach
+ *   `game.controller`，于是两个宿主的控制器模块每 tick 都在驱动 0 个节点：
+ *   按 WASD 谁也不动，而 Node 单测是绿的（它自己造了带控制器的节点）。
+ *   这是一类**接线问题**：模块本身对、注册也有，就是没人把它挂上去。
+ *   现在 `registerPlayerComponents` 一次注册两半，`spawnPlayer` 两半一起挂 ——
+ *   "只注册一半"不再是一种能写出来的状态。
  */
 
 import { Component, FieldType, type ComponentRegistry, type ComponentSchema } from "../../core/scene/component.ts";
 import type { Scene } from "../../core/scene/scene.ts";
 import { engineError, err, ok, type EngineError, type Result } from "../../foundation/result.ts";
 import { SPRITE_TYPE, Sprite } from "../render/sprite.ts";
+import { CONTROLLER_TYPE, PlayerController, registerControllerComponent } from "../input/player-controller.ts";
 import { FIXED_UNITS, pickSpawn, type WorldPlan } from "./worldgen.ts";
 
 /** 场景里代表"玩家"的标记组件。 */
@@ -27,6 +37,8 @@ export const PLAYER_TYPE = "world.player";
 export const PLAYER_FRAME = "player";
 /** 组件注册表里没有 `render.sprite`（渲染模块没启动 / 没注册）。 */
 export const SPAWN_NO_SPRITE_COMPONENT = "SPAWN.NO_SPRITE_COMPONENT";
+/** 组件注册表里没有 `game.controller` —— 挂上去也是个走不动的木桩，所以直接报错。 */
+export const SPAWN_NO_CONTROLLER_COMPONENT = "SPAWN.NO_CONTROLLER_COMPONENT";
 /** 场景里已经有玩家了。 */
 export const SPAWN_ALREADY_SPAWNED = "SPAWN.ALREADY_SPAWNED";
 
@@ -43,8 +55,15 @@ export class PlayerSpawn extends Component {
   cell = 0;
 }
 
-export function registerPlayerComponent(registry: ComponentRegistry): void {
+/**
+ * 注册「玩家」这个概念需要的**全部**组件：标记 + 控制器。
+ *
+ * ★ 名字是复数，因为它一次注册两半（见文件头 ★★）。调用点因此不可能只拿到一半：
+ *   旧名字 `registerPlayerComponent` 单数、只注册标记，正是"玩家走不动"这个 bug 的形状。
+ */
+export function registerPlayerComponents(registry: ComponentRegistry): void {
   if (!registry.has(PLAYER_TYPE)) registry.register(PLAYER_SCHEMA, () => new PlayerSpawn());
+  registerControllerComponent(registry);
 }
 
 export interface PlayerHandle {
@@ -58,7 +77,7 @@ export interface PlayerHandle {
 /**
  * 在场景里造出玩家节点。返回节点 id 与出生格。
  *
- * 调用方要保证 `registerWorldComponents` / `registerPlayerComponent` /
+ * 调用方要保证 `registerWorldComponents` / `registerPlayerComponents` /
  * `render.sprite` 都注册过 —— 缺一就报错，不静默挂半个玩家。
  */
 export function spawnPlayer(scene: Scene, plan: WorldPlan): Result<PlayerHandle, EngineError> {
@@ -72,7 +91,18 @@ export function spawnPlayer(scene: Scene, plan: WorldPlan): Result<PlayerHandle,
   }
   if (!scene.components.has(PLAYER_TYPE)) {
     return err(
-      engineError(SPAWN_NO_SPRITE_COMPONENT, "组件类型 world.player 未注册 —— 先 registerPlayerComponent(...)"),
+      engineError(SPAWN_NO_SPRITE_COMPONENT, "组件类型 world.player 未注册 —— 先 registerPlayerComponents(...)"),
+    );
+  }
+  // ★ 控制器缺失在这里是**硬错误**而不是"挂个标记凑合"：少挂这个组件的表现
+  //   是"按 WASD 谁都动不了"，而它看起来像输入坏了、又像物理坏了，
+  //   查一圈才会想到"玩家身上根本没有控制器"。
+  if (!scene.components.has(CONTROLLER_TYPE)) {
+    return err(
+      engineError(
+        SPAWN_NO_CONTROLLER_COMPONENT,
+        "组件类型 game.controller 未注册 —— 玩家会站着不动（先 registerPlayerComponents(...)）",
+      ),
     );
   }
   const existing = [...scene.componentsOf<PlayerSpawn>(PLAYER_TYPE)];
@@ -105,6 +135,10 @@ export function spawnPlayer(scene: Scene, plan: WorldPlan): Result<PlayerHandle,
     marker.cell = sp.cell;
     return marker;
   });
+  // ★ 见文件头 ★★：这一行是"玩家真的能动"的全部所在。
+  //   一个 Controller 组件 + 宿主的控制器模块每 tick 驱动 = 走得动；
+  //   少了这一行，模块照样每 tick 空转，`driven` 恒为 0，而没有任何东西会报警。
+  scene.attach(nodeId, () => new PlayerController());
   scene.flush();
 
   return ok({ nodeId, cell: sp.cell, x: sp.x, z: sp.z });

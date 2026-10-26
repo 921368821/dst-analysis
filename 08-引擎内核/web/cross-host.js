@@ -2387,10 +2387,173 @@ var Sprite = class extends Component {
   };
 };
 
+// src/extensions/input/input-map.ts
+var INPUT_MAP_VERSION = 1;
+var DEFAULT_GROUP = "default";
+function badMap(message, detail) {
+  return detail === void 0 ? engineError("INPUT.BAD_MAP", message) : engineError("INPUT.BAD_MAP", message, detail);
+}
+function createInputMap(data) {
+  if (typeof data !== "object" || data === null) return err(badMap(`\u6620\u5C04\u8868\u5FC5\u987B\u662F\u5BF9\u8C61\uFF0C\u6536\u5230 ${typeof data}`));
+  const d = data;
+  if (d.version !== INPUT_MAP_VERSION) {
+    return err(
+      badMap(`\u6620\u5C04\u8868\u7248\u672C\u5FC5\u987B\u662F ${INPUT_MAP_VERSION}\uFF0C\u6536\u5230 ${JSON.stringify(d.version)}\uFF08\u4E0D\u505A"\u731C\u683C\u5F0F"\u7684\u517C\u5BB9\uFF09`, {
+        version: d.version
+      })
+    );
+  }
+  if (typeof d.actions !== "object" || d.actions === null || Array.isArray(d.actions)) {
+    return err(badMap("actions \u5FC5\u987B\u662F\u300C\u52A8\u4F5C\u540D \u2192 \u7ED1\u5B9A\u300D\u7684\u5BF9\u8C61"));
+  }
+  const actions = /* @__PURE__ */ new Map();
+  for (const [name, rawSpec] of Object.entries(d.actions)) {
+    if (name.trim() === "") return err(badMap("\u52A8\u4F5C\u540D\u4E0D\u80FD\u4E3A\u7A7A\u5B57\u7B26\u4E32"));
+    if (typeof rawSpec !== "object" || rawSpec === null) {
+      return err(badMap(`\u52A8\u4F5C "${name}" \u7684\u7ED1\u5B9A\u5FC5\u987B\u662F\u5BF9\u8C61`, { action: name }));
+    }
+    const spec = rawSpec;
+    if (!Array.isArray(spec.keys)) {
+      return err(badMap(`\u52A8\u4F5C "${name}" \u7684 keys \u5FC5\u987B\u662F\u5B57\u7B26\u4E32\u6570\u7EC4`, { action: name }));
+    }
+    if (spec.group !== void 0 && (typeof spec.group !== "string" || spec.group.trim() === "")) {
+      return err(badMap(`\u52A8\u4F5C "${name}" \u7684 group \u5FC5\u987B\u662F\u975E\u7A7A\u5B57\u7B26\u4E32`, { action: name }));
+    }
+    const seen = /* @__PURE__ */ new Set();
+    const keys = [];
+    for (const k of spec.keys) {
+      if (typeof k !== "string" || k.trim() === "") {
+        return err(badMap(`\u52A8\u4F5C "${name}" \u91CC\u6709\u975E\u5B57\u7B26\u4E32\u6216\u7A7A\u7684\u952E\u7801\uFF1A${JSON.stringify(k)}`, { action: name }));
+      }
+      if (seen.has(k)) {
+        return err(
+          engineError("INPUT.DUPLICATE_KEY", `\u52A8\u4F5C "${name}" \u91CC\u952E\u7801 "${k}" \u51FA\u73B0\u4E86\u4E24\u6B21`, { action: name, key: k })
+        );
+      }
+      seen.add(k);
+      keys.push(k);
+    }
+    actions.set(name, { keys, group: spec.group ?? DEFAULT_GROUP });
+  }
+  const owner = /* @__PURE__ */ new Map();
+  for (const [name, spec] of actions) {
+    for (const k of spec.keys) {
+      const prev = owner.get(k);
+      if (prev === void 0) {
+        owner.set(k, { group: spec.group, action: name });
+        continue;
+      }
+      if (prev.group !== spec.group) continue;
+      return err(
+        engineError(
+          "INPUT.KEY_CONFLICT",
+          `\u952E "${k}" \u540C\u65F6\u7ED1\u5728 "${prev.action}" \u4E0E "${name}" \u4E0A\uFF08\u4E24\u8005\u90FD\u5728\u4E92\u65A5\u7EC4 "${prev.group}" \u91CC\uFF09 \u2014\u2014 \u8981\u4E48\u5220\u6389\u4E00\u4E2A\uFF0C\u8981\u4E48\u628A\u5B83\u4EEC\u58F0\u660E\u663E\u5F0F\u5206\u5230\u4E0D\u540C\u7EC4`,
+          { key: k, a: prev.action, b: name, group: prev.group }
+        )
+      );
+    }
+  }
+  const names = [...actions.keys()].sort();
+  const require2 = (action, who) => {
+    const a = actions.get(action);
+    if (a === void 0) {
+      throw new Error(
+        `${who}\uFF1A\u6620\u5C04\u8868\u91CC\u6CA1\u6709\u52A8\u4F5C "${action}"\uFF08\u73B0\u6709\uFF1A${names.join(", ")}\uFF09\u2014\u2014 \u62FC\u9519\u4E86\uFF1F`
+      );
+    }
+    return a;
+  };
+  const anyDown = (snap, action) => {
+    for (const k of require2(action, "isDown").keys) if (snap.keysDown.has(k)) return true;
+    return false;
+  };
+  return ok({
+    names,
+    keysOf(action) {
+      return require2(action, "keysOf").keys;
+    },
+    isDown(snap, action) {
+      return anyDown(snap, action);
+    },
+    justPressed(snap, action) {
+      for (const k of require2(action, "justPressed").keys) if (snap.keysPressed.has(k)) return true;
+      return false;
+    },
+    axis(snap, neg, pos) {
+      const lo = neg === null ? 0 : anyDown(snap, neg) ? 1 : 0;
+      const hi = pos === null ? 0 : anyDown(snap, pos) ? 1 : 0;
+      return hi - lo;
+    },
+    toData() {
+      const out = {};
+      for (const [name, spec] of actions) out[name] = { keys: [...spec.keys], group: spec.group };
+      return { version: INPUT_MAP_VERSION, actions: out };
+    }
+  });
+}
+var DEFAULT_INPUT_MAP_DATA = {
+  version: INPUT_MAP_VERSION,
+  actions: {
+    move_left: { keys: ["KeyA", "ArrowLeft", "Gamepad0.LStickLeft", "Gamepad0.DPadLeft"], group: "move" },
+    move_right: { keys: ["KeyD", "ArrowRight", "Gamepad0.LStickRight", "Gamepad0.DPadRight"], group: "move" },
+    move_forward: { keys: ["KeyW", "ArrowUp", "Gamepad0.LStickUp", "Gamepad0.DPadUp"], group: "move" },
+    move_back: { keys: ["KeyS", "ArrowDown", "Gamepad0.LStickDown", "Gamepad0.DPadDown"], group: "move" },
+    // 下面这些动作同属一个组：它们的键**互相不能共用**，否则"按一下砍树也存了档"
+    harvest: { keys: ["KeyG", "Gamepad0.A"], group: "action" },
+    chop: { keys: ["KeyH", "Gamepad0.B"], group: "action" },
+    /**
+     * 打一下（批66）。`Space` 在这个组里是空的；手柄用 RT ——
+     * `Gamepad0.RT` 由输入后端合成（映射表不知道 getGamepads 长什么样）。
+     */
+    attack: { keys: ["Space", "Gamepad0.RT"], group: "action" },
+    /**
+     * 吃一口（批67）。**自动挑最有营养的那一种** —— 不为"吃哪个"再开一个面板：
+     * 背包里能吃的东西通常只有一两样，而"先选再吃"会把一次按键变成三步操作。
+     */
+    eat: { keys: ["KeyE", "Gamepad0.LT"], group: "action" },
+    /**
+     * 做一件（批68）。做**表里第一条现在就能做的** —— 不弹面板，理由见
+     * `craftSomething`：能否做完全由背包决定，一次按键 + 一句提示就够。
+     */
+    craft: { keys: ["KeyC", "Gamepad0.RB"], group: "action" },
+    // 背包面板开关（饥荒同款键位）与丢弃选中堆。Tab 由宿主 preventDefault
+    // （否则焦点会跳到浏览器 UI 上，"打开背包"变成"跳出页面"）
+    bag: { keys: ["Tab", "Gamepad0.Y"], group: "action" },
+    drop: { keys: ["KeyQ", "Gamepad0.X"], group: "action" },
+    save: { keys: ["F5", "Gamepad0.Start"], group: "system" },
+    load: { keys: ["F9", "Gamepad0.Select"], group: "system" },
+    restart: { keys: ["KeyR"], group: "system" }
+  }
+};
+var DEFAULT_INPUT_MAP = (() => {
+  const r = createInputMap(DEFAULT_INPUT_MAP_DATA);
+  if (!r.ok) throw new Error(`\u9ED8\u8BA4\u6620\u5C04\u8868\u672C\u8EAB\u4E0D\u5408\u6CD5\uFF1A${r.error.message}`);
+  return r.value;
+})();
+
+// src/extensions/input/player-controller.ts
+var CONTROLLER_TYPE = "game.controller";
+var PlayerController = class extends Component {
+  /** 每秒移动多少个世界单位。 */
+  speed = 4.5;
+  /** 去重用的"上次 poll 是哪个 tick"（不进 schema：它是运行期状态，不该进存档）。 */
+  lastTick = -1;
+  snapshot = null;
+  schema = {
+    type: CONTROLLER_TYPE,
+    fields: { speed: FieldType.Float }
+  };
+};
+function registerControllerComponent(registry) {
+  if (!registry.has(CONTROLLER_TYPE)) registry.register(SCHEMA, () => new PlayerController());
+}
+var SCHEMA = { type: CONTROLLER_TYPE, fields: { speed: FieldType.Float } };
+
 // src/extensions/worldgen/spawn.ts
 var PLAYER_TYPE = "world.player";
 var PLAYER_FRAME = "player";
 var SPAWN_NO_SPRITE_COMPONENT = "SPAWN.NO_SPRITE_COMPONENT";
+var SPAWN_NO_CONTROLLER_COMPONENT = "SPAWN.NO_CONTROLLER_COMPONENT";
 var SPAWN_ALREADY_SPAWNED = "SPAWN.ALREADY_SPAWNED";
 var PLAYER_SCHEMA = {
   type: PLAYER_TYPE,
@@ -2403,8 +2566,9 @@ var PlayerSpawn = class extends Component {
   schema = PLAYER_SCHEMA;
   cell = 0;
 };
-function registerPlayerComponent(registry) {
+function registerPlayerComponents(registry) {
   if (!registry.has(PLAYER_TYPE)) registry.register(PLAYER_SCHEMA, () => new PlayerSpawn());
+  registerControllerComponent(registry);
 }
 function spawnPlayer(scene, plan) {
   if (!scene.components.has(SPRITE_TYPE)) {
@@ -2417,7 +2581,15 @@ function spawnPlayer(scene, plan) {
   }
   if (!scene.components.has(PLAYER_TYPE)) {
     return err(
-      engineError(SPAWN_NO_SPRITE_COMPONENT, "\u7EC4\u4EF6\u7C7B\u578B world.player \u672A\u6CE8\u518C \u2014\u2014 \u5148 registerPlayerComponent(...)")
+      engineError(SPAWN_NO_SPRITE_COMPONENT, "\u7EC4\u4EF6\u7C7B\u578B world.player \u672A\u6CE8\u518C \u2014\u2014 \u5148 registerPlayerComponents(...)")
+    );
+  }
+  if (!scene.components.has(CONTROLLER_TYPE)) {
+    return err(
+      engineError(
+        SPAWN_NO_CONTROLLER_COMPONENT,
+        "\u7EC4\u4EF6\u7C7B\u578B game.controller \u672A\u6CE8\u518C \u2014\u2014 \u73A9\u5BB6\u4F1A\u7AD9\u7740\u4E0D\u52A8\uFF08\u5148 registerPlayerComponents(...)\uFF09"
+      )
     );
   }
   const existing = [...scene.componentsOf(PLAYER_TYPE)];
@@ -2445,6 +2617,7 @@ function spawnPlayer(scene, plan) {
     marker.cell = sp.cell;
     return marker;
   });
+  scene.attach(nodeId, () => new PlayerController());
   scene.flush();
   return ok({ nodeId, cell: sp.cell, x: sp.x, z: sp.z });
 }
@@ -2940,7 +3113,7 @@ function makeRegistry() {
   const reg = new ComponentRegistry();
   registerWorldComponents(reg);
   registerResourceComponent(reg);
-  registerPlayerComponent(reg);
+  registerPlayerComponents(reg);
   registerInventoryComponents(reg);
   reg.register(new Sprite().schema, () => new Sprite());
   return reg;

@@ -25,7 +25,7 @@ import { generateWorld } from "../../src/extensions/worldgen/worldgen.ts";
 import { SITE_TYPE, assembleWorld, registerWorldComponents } from "../../src/extensions/worldgen/assemble.ts";
 import { WORLD_TASK_SCHEMA } from "../../src/extensions/worldgen/tasks.ts";
 import { createWorldTaskModule, registerResourceComponent } from "../../src/extensions/worldgen/task-module.ts";
-import { PLAYER_TYPE, registerPlayerComponent, spawnPlayer } from "../../src/extensions/worldgen/spawn.ts";
+import { PLAYER_TYPE, registerPlayerComponents, spawnPlayer } from "../../src/extensions/worldgen/spawn.ts";
 import { Sprite } from "../../src/extensions/render/sprite.ts";
 import { Perception, type Sensed } from "../../src/extensions/ai/perception.ts";
 import { TargetTracker } from "../../src/extensions/ai/targeting.ts";
@@ -46,7 +46,7 @@ function buildWorld() {
   const reg = new ComponentRegistry();
   registerWorldComponents(reg);
   registerResourceComponent(reg);
-  registerPlayerComponent(reg);
+  registerPlayerComponents(reg);
   // ★ 玩家必须"有身体"（`spawnPlayer` 会检查 render.sprite 注册过）——
   //   渲染模块启动时会注册，判据里得自己补，否则拿到的是 SPAWN.NO_SPRITE_COMPONENT
   reg.register(new Sprite().schema, () => new Sprite());

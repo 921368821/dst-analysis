@@ -19,19 +19,22 @@ import { FIXED_UNITS, generateWorld, isPassable, pickSpawn, type WorldPlan } fro
 import { assembleWorld, registerWorldComponents } from "../../src/extensions/worldgen/assemble.ts";
 import {
   PLAYER_FRAME,
+  PLAYER_SCHEMA,
   PLAYER_TYPE,
   SPAWN_ALREADY_SPAWNED,
+  SPAWN_NO_CONTROLLER_COMPONENT,
   SPAWN_NO_SPRITE_COMPONENT,
   PlayerSpawn,
-  registerPlayerComponent,
+  registerPlayerComponents,
   spawnPlayer,
 } from "../../src/extensions/worldgen/spawn.ts";
+import { CONTROLLER_TYPE } from "../../src/extensions/input/player-controller.ts";
 import { SPRITE_TYPE, Sprite } from "../../src/extensions/render/sprite.ts";
 
 function makeWorld(seed = 7, width = 32, height = 24): { scene: Scene; plan: WorldPlan } {
   const reg = new ComponentRegistry();
   registerWorldComponents(reg);
-  registerPlayerComponent(reg);
+  registerPlayerComponents(reg);
   reg.register(new Sprite().schema, () => new Sprite());
   const scene = new Scene("world", reg);
   const g = generateWorld({ seed, width, height, maxSitesPerCell: 1 });
@@ -73,7 +76,7 @@ test("出生格可通行、在主大陆上（走不到的小岛上开局等于�
   assert.ok(isPassable(plan.kinds[r.value.cell]!), `出生格是 ${plan.kinds[r.value.cell]}`);
 });
 
-test("玩家节点挂了两样东西：`render.sprite`（帧 player、脚踩地面）与 `world.player`（带出生格）", () => {
+test("玩家节点挂了三样东西：`render.sprite`（帧 player、脚踩地面）· `world.player`（带出生格）· `game.controller`", () => {
   const { scene, plan } = makeWorld();
   const r = spawnPlayer(scene, plan);
   assert.ok(r.ok);
@@ -108,7 +111,7 @@ test("组件没注册 ⇒ 报错且不建节点（不静默造一个「看不见
   // 情形一：没有 render.sprite
   const reg = new ComponentRegistry();
   registerWorldComponents(reg);
-  registerPlayerComponent(reg);
+  registerPlayerComponents(reg);
   const scene = new Scene("world", reg);
   const g = generateWorld({ seed: 7, width: 16, height: 12 });
   assert.ok(g.ok);
@@ -142,4 +145,45 @@ test("确定性：两张独立装配的场景里，玩家节点 id / 名字 / �
   assert.equal(ra.value.nodeId, rb.value.nodeId, "节点 id 依赖了执行历史");
   assert.equal(a.scene.find(ra.value.nodeId)!.name, b.scene.find(rb.value.nodeId)!.name);
   assert.equal(ra.value.cell, rb.value.cell);
+});
+
+/**
+ * ★★ 批88：玩家身上**必须**挂着控制器。
+ *
+ * 这一条打的是一个整整漏掉的接线：`createControllerModule` 两个宿主都装了、都每 tick
+ * 驱动，但 `src/` 里没有任何一处 attach `game.controller` ⇒ `driven` 恒为 0 ⇒
+ * 按 WASD 谁也不动。而 `player-controller.test.ts` 是绿的（它自己造了带控制器的节点）。
+ * **模块单测证不到接线**，所以这条必须落在"造玩家的那个函数"上。
+ */
+test("★★ 玩家节点上真的挂着控制器（不是只挂了个标记）", () => {
+  const { scene, plan } = makeWorld();
+  const r = spawnPlayer(scene, plan);
+  assert.ok(r.ok, r.ok ? "" : `${r.error.code} ${r.error.message}`);
+  if (!r.ok) return;
+
+  assert.equal(scene.countOf(CONTROLLER_TYPE), 1, "场景里没有控制器 —— 按 WASD 玩家不会动");
+  const node = scene.find(r.value.nodeId);
+  assert.ok(node !== undefined);
+  const types = node.components.map((c) => c.type);
+  assert.ok(types.includes(CONTROLLER_TYPE), `玩家节点上没挂 ${CONTROLLER_TYPE}（现有：${types.join(",")}）`);
+});
+
+/** 情形三：控制器没注册 ⇒ 报错。造一个走不动的木桩比报错更糟（看起来能玩）。 */
+test("★ 没有 game.controller 注册 ⇒ 报 SPAWN.NO_CONTROLLER_COMPONENT", () => {
+  const reg = new ComponentRegistry();
+  registerWorldComponents(reg);
+  // 只注册标记，不注册控制器 —— 这正是批88 之前"两个宿主"的真实状态
+  reg.register(PLAYER_SCHEMA, () => new PlayerSpawn());
+  reg.register(new Sprite().schema, () => new Sprite());
+  const scene = new Scene("world", reg);
+  const g = generateWorld({ seed: 7, width: 16, height: 12 });
+  assert.ok(g.ok);
+  assert.ok(assembleWorld(g.value, scene).ok);
+  const r = spawnPlayer(scene, g.value);
+  assert.ok(!r.ok, "控制器没注册却出生成功了 —— 会得到一个站着不动的玩家");
+  if (!r.ok) {
+    assert.equal(r.error.code, SPAWN_NO_CONTROLLER_COMPONENT);
+    assert.match(r.error.message, /站着不动/);
+  }
+  assert.equal(scene.countOf(PLAYER_TYPE), 0, "报错之后还是留下了玩家");
 });

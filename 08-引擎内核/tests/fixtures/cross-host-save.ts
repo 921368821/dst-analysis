@@ -36,7 +36,7 @@ import { generateWorld } from "../../src/extensions/worldgen/worldgen.ts";
 import { SITE_TYPE, type SiteMarker, assembleWorld, registerWorldComponents } from "../../src/extensions/worldgen/assemble.ts";
 import { WORLD_TASK_SCHEMA } from "../../src/extensions/worldgen/tasks.ts";
 import { RESOURCE_TYPE, createWorldTaskModule, registerResourceComponent } from "../../src/extensions/worldgen/task-module.ts";
-import { registerPlayerComponent, spawnPlayer } from "../../src/extensions/worldgen/spawn.ts";
+import { registerPlayerComponents, spawnPlayer } from "../../src/extensions/worldgen/spawn.ts";
 import { harvestAt } from "../../src/extensions/worldgen/harvest.ts";
 import { addItem, makeInventory, registerInventoryComponents, stacksOf } from "../../src/extensions/inventory/inventory.ts";
 import { Sprite } from "../../src/extensions/render/sprite.ts";
@@ -65,7 +65,7 @@ function makeRegistry(): ComponentRegistry {
   const reg = new ComponentRegistry();
   registerWorldComponents(reg);
   registerResourceComponent(reg);
-  registerPlayerComponent(reg);
+  registerPlayerComponents(reg);
   // ★ 背包组件也要注册：否则 `game.inventory` / `game.item` 在存档里**静默丢失**，
   //   而"跨宿主比对"会拿两份都没有背包的存档比 —— 绿，但少了要验的东西。
   registerInventoryComponents(reg);

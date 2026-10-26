@@ -81,7 +81,7 @@ import {
 import { RESOURCE_TYPE, createWorldTaskModule, registerResourceComponent } from "./extensions/worldgen/task-module.ts";
 import type { WorldTaskModuleHandle } from "./extensions/worldgen/task-module.ts";
 import { WORLD_TASK_SCHEMA } from "./extensions/worldgen/tasks.ts";
-import { spawnPlayer, registerPlayerComponent, type PlayerHandle } from "./extensions/worldgen/spawn.ts";
+import { spawnPlayer, registerPlayerComponents, type PlayerHandle } from "./extensions/worldgen/spawn.ts";
 import { attachWorldVisuals, type WorldVisualReport } from "./extensions/render/world-visuals.ts";
 import { harvestAt } from "./extensions/worldgen/harvest.ts";
 import {
@@ -661,7 +661,7 @@ export async function main(): Promise<void> {
       // 组件注册（幂等）：装配与读档都按类型重建组件，漏一个就是"读档少一半东西"
       registerWorldComponents(scene.components);
       registerResourceComponent(scene.components);
-      registerPlayerComponent(scene.components);
+      registerPlayerComponents(scene.components);
       // ★ 背包也要注册：`game.item` / `game.inventory` 不注册的话，
       //   存档里这两类组件的字段会在读档时**静默丢失**（"读档后背包空了"）。
       registerInventoryComponents(scene.components);

@@ -20270,235 +20270,6 @@ function demoHitstopPolicy(info, heroId) {
   return info.dead ? HITSTOP_KILL_TICKS : HITSTOP_HIT_TICKS;
 }
 
-// src/extensions/worldgen/spawn.ts
-var PLAYER_TYPE = "world.player";
-var PLAYER_FRAME = "player";
-var SPAWN_NO_SPRITE_COMPONENT = "SPAWN.NO_SPRITE_COMPONENT";
-var SPAWN_ALREADY_SPAWNED = "SPAWN.ALREADY_SPAWNED";
-var PLAYER_SCHEMA = {
-  type: PLAYER_TYPE,
-  fields: {
-    /** 出生格（升序下标）。玩家走开之后这个字段仍然是"他是从哪开始的"。 */
-    cell: FieldType.Int
-  }
-};
-var PlayerSpawn = class extends Component {
-  schema = PLAYER_SCHEMA;
-  cell = 0;
-};
-function registerPlayerComponent(registry) {
-  if (!registry.has(PLAYER_TYPE)) registry.register(PLAYER_SCHEMA, () => new PlayerSpawn());
-}
-function spawnPlayer(scene, plan) {
-  if (!scene.components.has(SPRITE_TYPE)) {
-    return err(
-      engineError(
-        SPAWN_NO_SPRITE_COMPONENT,
-        "\u7EC4\u4EF6\u7C7B\u578B render.sprite \u672A\u6CE8\u518C \u2014\u2014 \u73A9\u5BB6\u4F1A\u6CA1\u6709\u8EAB\u4F53\uFF08\u6E32\u67D3\u6A21\u5757\u542F\u52A8\u65F6\u4F1A\u6CE8\u518C\uFF09"
-      )
-    );
-  }
-  if (!scene.components.has(PLAYER_TYPE)) {
-    return err(
-      engineError(SPAWN_NO_SPRITE_COMPONENT, "\u7EC4\u4EF6\u7C7B\u578B world.player \u672A\u6CE8\u518C \u2014\u2014 \u5148 registerPlayerComponent(...)")
-    );
-  }
-  const existing = [...scene.componentsOf(PLAYER_TYPE)];
-  if (existing.length > 0) {
-    return err(
-      engineError(SPAWN_ALREADY_SPAWNED, "\u573A\u666F\u91CC\u5DF2\u7ECF\u6709\u73A9\u5BB6\u4E86 \u2014\u2014 \u91CD\u590D\u51FA\u751F\u4F1A\u8BA9\u4E24\u4E2A\u63A7\u5236\u5668\u62A2\u540C\u4E00\u4E2A\u4F4D\u7F6E")
-    );
-  }
-  const pick = pickSpawn(plan);
-  if (!pick.ok) return pick;
-  const sp = pick.value;
-  const made = scene.spawnAt("player", sp.x / FIXED_UNITS, sp.z / FIXED_UNITS);
-  if (!made.ok) return made;
-  const nodeId = made.value.id;
-  scene.attach(nodeId, () => {
-    const s = new Sprite();
-    s.frame = PLAYER_FRAME;
-    s.width = 1;
-    s.height = 1;
-    s.pivotY = 0;
-    return s;
-  });
-  scene.attach(nodeId, () => {
-    const marker = new PlayerSpawn();
-    marker.cell = sp.cell;
-    return marker;
-  });
-  scene.flush();
-  return ok({ nodeId, cell: sp.cell, x: sp.x, z: sp.z });
-}
-
-// src/extensions/render/world-visuals.ts
-var VISUAL_MISSING_FRAME = "VISUAL.MISSING_FRAME";
-var VISUAL_NO_SPRITE_COMPONENT = "VISUAL.NO_SPRITE_COMPONENT";
-var UNMAPPED_LABEL = "\uFF08\u672A\u6620\u5C04\u7684\u79CD\u7C7B\uFF09";
-var SITE_FRAMES = {
-  tree: "tree",
-  rock: "rock",
-  berry: "berry",
-  flint: "rock",
-  grass_tuft: "berry",
-  reed: "berry"
-};
-var TERRAIN_FRAME = "terrain";
-var TERRAIN_TILE_PAGE = "terrain.tile";
-var BIOME_TINT = {
-  ocean: [0.16, 0.32, 0.55],
-  beach: [0.85, 0.78, 0.55],
-  grass: [0.42, 0.62, 0.3],
-  forest: [0.24, 0.46, 0.26],
-  rocky: [0.52, 0.5, 0.48],
-  cliff: [0.38, 0.36, 0.4],
-  savanna: [0.72, 0.66, 0.36],
-  marsh: [0.36, 0.44, 0.38]
-};
-function hasSprite(s, nodeId) {
-  const node = s.find(nodeId);
-  return node?.get(SPRITE_TYPE) !== void 0;
-}
-function attachWorldVisuals(scene, availableFrames) {
-  const plans = [];
-  for (const area of scene.componentsOf(TERRAIN_TYPE)) {
-    if (area.node === null) continue;
-    const tint = BIOME_TINT[area.kind];
-    plans.push({
-      nodeId: area.node.id,
-      frame: TERRAIN_FRAME,
-      atlasId: TERRAIN_TILE_PAGE,
-      kind: `terrain:${area.kind}`,
-      width: area.w,
-      height: area.h,
-      // ★ 背景层：地面永远先画、永远被实体盖住。地形的 z 是矩形左上角的格子坐标，
-      //   与实体（格子中心）必然交错 —— 不分层会被一块地形盖住站在它上面的角色，
-      //   而且 draw 会被 z 序打散成几十段（T288 之后实测 29 段）。
-      layer: 0,
-      // ★ T288：按格平铺 —— 一块 w×h 的地形铺 w×h 张噪点，颗粒不随块变大。
-      //   必须是整数：0.5 次平铺在 GPU 上就是"半张被裁掉的贴图"，
-      //   而矩形格数天生是整数（`TerrainArea` 的 w/h 是格子数）。
-      tileX: Math.max(1, Math.floor(area.w)),
-      tileY: Math.max(1, Math.floor(area.h)),
-      // ★ (0,0)：矩形左上角 = 节点位置。用 0.5 会让整块地形右移半块、上移半块 ——
-      //   相邻块之间于是出现缝隙，而"缝隙"在 2.5D 斜视角下看起来像地表裂开了。
-      pivotX: 0,
-      pivotY: 0,
-      r: tint[0],
-      g: tint[1],
-      b: tint[2]
-    });
-  }
-  for (const m of scene.componentsOf(SITE_TYPE)) {
-    if (m.node === null) continue;
-    plans.push({
-      nodeId: m.node.id,
-      frame: SITE_FRAMES[m.kind] ?? null,
-      atlasId: "",
-      kind: `site:${m.kind}`,
-      tileX: 1,
-      tileY: 1,
-      width: 1,
-      height: 1,
-      layer: 1,
-      pivotX: 0.5,
-      // 脚踩地面：2.5D 里精灵的底边贴住它所在的格
-      pivotY: 0,
-      r: 1,
-      g: 1,
-      b: 1
-    });
-  }
-  for (const res of scene.componentsOf(RESOURCE_TYPE)) {
-    if (res.node === null) continue;
-    plans.push({
-      nodeId: res.node.id,
-      frame: SITE_FRAMES[res.kind] ?? null,
-      atlasId: "",
-      kind: `resource:${res.kind}`,
-      tileX: 1,
-      tileY: 1,
-      width: 1,
-      height: 1,
-      layer: 1,
-      pivotX: 0.5,
-      pivotY: 0,
-      r: 1,
-      g: 1,
-      b: 1
-    });
-  }
-  const available = new Set(availableFrames);
-  const missing = /* @__PURE__ */ new Map();
-  for (const p of plans) {
-    if (p.frame !== null && available.has(p.frame)) continue;
-    const key = p.frame ?? UNMAPPED_LABEL;
-    const set = missing.get(key) ?? /* @__PURE__ */ new Set();
-    set.add(p.kind);
-    missing.set(key, set);
-  }
-  if (missing.size > 0) {
-    const detail = [...missing.entries()].sort((a, b) => a[0] < b[0] ? -1 : 1).map(([frame, kinds]) => `${frame}\uFF08\u88AB ${[...kinds].sort().join(", ")} \u7528\u5230\uFF09`).join("\uFF1B");
-    return err(
-      engineError(
-        VISUAL_MISSING_FRAME,
-        `\u56FE\u96C6\u91CC\u6CA1\u6709\u8FD9\u4E9B\u5E27\uFF1A${detail} \u2014\u2014 \u7F3A\u5E27\u7684\u8D44\u6E90\u4F1A**\u9759\u9ED8\u4E0D\u663E\u793A**\uFF08\u6E32\u67D3\u6A21\u5757\u53EA warn \u4E00\u6B21\uFF09\uFF0C\u6240\u4EE5\u5728\u8FD9\u91CC\u62A5\u9519`
-      )
-    );
-  }
-  if (!scene.components.has(SPRITE_TYPE)) {
-    return err(
-      engineError(
-        VISUAL_NO_SPRITE_COMPONENT,
-        "\u7EC4\u4EF6\u7C7B\u578B render.sprite \u672A\u6CE8\u518C \u2014\u2014 \u5148 components.register(...)\uFF08\u6E32\u67D3\u6A21\u5757\u542F\u52A8\u65F6\u4F1A\u6CE8\u518C\uFF09"
-      )
-    );
-  }
-  let terrain = 0;
-  let sites = 0;
-  let resources = 0;
-  let skipped = 0;
-  const used = /* @__PURE__ */ new Set();
-  for (const p of plans) {
-    if (hasSprite(scene, p.nodeId)) {
-      skipped++;
-      continue;
-    }
-    const frame = p.frame;
-    if (frame === null) throw new Error(`world-visuals \u5185\u90E8\u9519\u8BEF\uFF1A${p.kind} \u7684\u5E27\u6620\u5C04\u5728\u68C0\u67E5\u4E4B\u540E\u53D8\u6210\u4E86 null`);
-    const made = scene.attach(p.nodeId, () => {
-      const sp = new Sprite();
-      sp.frame = frame;
-      sp.atlasId = p.atlasId;
-      sp.tileX = p.tileX;
-      sp.tileY = p.tileY;
-      sp.layer = p.layer;
-      sp.width = p.width;
-      sp.height = p.height;
-      sp.pivotX = p.pivotX;
-      sp.pivotY = p.pivotY;
-      sp.r = p.r;
-      sp.g = p.g;
-      sp.b = p.b;
-      return sp;
-    });
-    if (!made.ok) return made;
-    used.add(frame);
-    if (p.kind.startsWith("terrain:")) terrain++;
-    else if (p.kind.startsWith("site:")) sites++;
-    else resources++;
-  }
-  scene.flush();
-  return ok({
-    terrain,
-    sites,
-    resources,
-    frames: [...used].sort(),
-    skipped
-  });
-}
-
 // src/extensions/input/input-map.ts
 var INPUT_MAP_VERSION = 1;
 var DEFAULT_GROUP = "default";
@@ -20728,6 +20499,246 @@ function createControllerModule(opts) {
     }
   };
   return mod;
+}
+
+// src/extensions/worldgen/spawn.ts
+var PLAYER_TYPE = "world.player";
+var PLAYER_FRAME = "player";
+var SPAWN_NO_SPRITE_COMPONENT = "SPAWN.NO_SPRITE_COMPONENT";
+var SPAWN_NO_CONTROLLER_COMPONENT = "SPAWN.NO_CONTROLLER_COMPONENT";
+var SPAWN_ALREADY_SPAWNED = "SPAWN.ALREADY_SPAWNED";
+var PLAYER_SCHEMA = {
+  type: PLAYER_TYPE,
+  fields: {
+    /** 出生格（升序下标）。玩家走开之后这个字段仍然是"他是从哪开始的"。 */
+    cell: FieldType.Int
+  }
+};
+var PlayerSpawn = class extends Component {
+  schema = PLAYER_SCHEMA;
+  cell = 0;
+};
+function registerPlayerComponents(registry) {
+  if (!registry.has(PLAYER_TYPE)) registry.register(PLAYER_SCHEMA, () => new PlayerSpawn());
+  registerControllerComponent(registry);
+}
+function spawnPlayer(scene, plan) {
+  if (!scene.components.has(SPRITE_TYPE)) {
+    return err(
+      engineError(
+        SPAWN_NO_SPRITE_COMPONENT,
+        "\u7EC4\u4EF6\u7C7B\u578B render.sprite \u672A\u6CE8\u518C \u2014\u2014 \u73A9\u5BB6\u4F1A\u6CA1\u6709\u8EAB\u4F53\uFF08\u6E32\u67D3\u6A21\u5757\u542F\u52A8\u65F6\u4F1A\u6CE8\u518C\uFF09"
+      )
+    );
+  }
+  if (!scene.components.has(PLAYER_TYPE)) {
+    return err(
+      engineError(SPAWN_NO_SPRITE_COMPONENT, "\u7EC4\u4EF6\u7C7B\u578B world.player \u672A\u6CE8\u518C \u2014\u2014 \u5148 registerPlayerComponents(...)")
+    );
+  }
+  if (!scene.components.has(CONTROLLER_TYPE)) {
+    return err(
+      engineError(
+        SPAWN_NO_CONTROLLER_COMPONENT,
+        "\u7EC4\u4EF6\u7C7B\u578B game.controller \u672A\u6CE8\u518C \u2014\u2014 \u73A9\u5BB6\u4F1A\u7AD9\u7740\u4E0D\u52A8\uFF08\u5148 registerPlayerComponents(...)\uFF09"
+      )
+    );
+  }
+  const existing = [...scene.componentsOf(PLAYER_TYPE)];
+  if (existing.length > 0) {
+    return err(
+      engineError(SPAWN_ALREADY_SPAWNED, "\u573A\u666F\u91CC\u5DF2\u7ECF\u6709\u73A9\u5BB6\u4E86 \u2014\u2014 \u91CD\u590D\u51FA\u751F\u4F1A\u8BA9\u4E24\u4E2A\u63A7\u5236\u5668\u62A2\u540C\u4E00\u4E2A\u4F4D\u7F6E")
+    );
+  }
+  const pick = pickSpawn(plan);
+  if (!pick.ok) return pick;
+  const sp = pick.value;
+  const made = scene.spawnAt("player", sp.x / FIXED_UNITS, sp.z / FIXED_UNITS);
+  if (!made.ok) return made;
+  const nodeId = made.value.id;
+  scene.attach(nodeId, () => {
+    const s = new Sprite();
+    s.frame = PLAYER_FRAME;
+    s.width = 1;
+    s.height = 1;
+    s.pivotY = 0;
+    return s;
+  });
+  scene.attach(nodeId, () => {
+    const marker = new PlayerSpawn();
+    marker.cell = sp.cell;
+    return marker;
+  });
+  scene.attach(nodeId, () => new PlayerController());
+  scene.flush();
+  return ok({ nodeId, cell: sp.cell, x: sp.x, z: sp.z });
+}
+
+// src/extensions/render/world-visuals.ts
+var VISUAL_MISSING_FRAME = "VISUAL.MISSING_FRAME";
+var VISUAL_NO_SPRITE_COMPONENT = "VISUAL.NO_SPRITE_COMPONENT";
+var UNMAPPED_LABEL = "\uFF08\u672A\u6620\u5C04\u7684\u79CD\u7C7B\uFF09";
+var SITE_FRAMES = {
+  tree: "tree",
+  rock: "rock",
+  berry: "berry",
+  flint: "rock",
+  grass_tuft: "berry",
+  reed: "berry"
+};
+var TERRAIN_FRAME = "terrain";
+var TERRAIN_TILE_PAGE = "terrain.tile";
+var BIOME_TINT = {
+  ocean: [0.16, 0.32, 0.55],
+  beach: [0.85, 0.78, 0.55],
+  grass: [0.42, 0.62, 0.3],
+  forest: [0.24, 0.46, 0.26],
+  rocky: [0.52, 0.5, 0.48],
+  cliff: [0.38, 0.36, 0.4],
+  savanna: [0.72, 0.66, 0.36],
+  marsh: [0.36, 0.44, 0.38]
+};
+function hasSprite(s, nodeId) {
+  const node = s.find(nodeId);
+  return node?.get(SPRITE_TYPE) !== void 0;
+}
+function attachWorldVisuals(scene, availableFrames) {
+  const plans = [];
+  for (const area of scene.componentsOf(TERRAIN_TYPE)) {
+    if (area.node === null) continue;
+    const tint = BIOME_TINT[area.kind];
+    plans.push({
+      nodeId: area.node.id,
+      frame: TERRAIN_FRAME,
+      atlasId: TERRAIN_TILE_PAGE,
+      kind: `terrain:${area.kind}`,
+      width: area.w,
+      height: area.h,
+      // ★ 背景层：地面永远先画、永远被实体盖住。地形的 z 是矩形左上角的格子坐标，
+      //   与实体（格子中心）必然交错 —— 不分层会被一块地形盖住站在它上面的角色，
+      //   而且 draw 会被 z 序打散成几十段（T288 之后实测 29 段）。
+      layer: 0,
+      // ★ T288：按格平铺 —— 一块 w×h 的地形铺 w×h 张噪点，颗粒不随块变大。
+      //   必须是整数：0.5 次平铺在 GPU 上就是"半张被裁掉的贴图"，
+      //   而矩形格数天生是整数（`TerrainArea` 的 w/h 是格子数）。
+      tileX: Math.max(1, Math.floor(area.w)),
+      tileY: Math.max(1, Math.floor(area.h)),
+      // ★ (0,0)：矩形左上角 = 节点位置。用 0.5 会让整块地形右移半块、上移半块 ——
+      //   相邻块之间于是出现缝隙，而"缝隙"在 2.5D 斜视角下看起来像地表裂开了。
+      pivotX: 0,
+      pivotY: 0,
+      r: tint[0],
+      g: tint[1],
+      b: tint[2]
+    });
+  }
+  for (const m of scene.componentsOf(SITE_TYPE)) {
+    if (m.node === null) continue;
+    plans.push({
+      nodeId: m.node.id,
+      frame: SITE_FRAMES[m.kind] ?? null,
+      atlasId: "",
+      kind: `site:${m.kind}`,
+      tileX: 1,
+      tileY: 1,
+      width: 1,
+      height: 1,
+      layer: 1,
+      pivotX: 0.5,
+      // 脚踩地面：2.5D 里精灵的底边贴住它所在的格
+      pivotY: 0,
+      r: 1,
+      g: 1,
+      b: 1
+    });
+  }
+  for (const res of scene.componentsOf(RESOURCE_TYPE)) {
+    if (res.node === null) continue;
+    plans.push({
+      nodeId: res.node.id,
+      frame: SITE_FRAMES[res.kind] ?? null,
+      atlasId: "",
+      kind: `resource:${res.kind}`,
+      tileX: 1,
+      tileY: 1,
+      width: 1,
+      height: 1,
+      layer: 1,
+      pivotX: 0.5,
+      pivotY: 0,
+      r: 1,
+      g: 1,
+      b: 1
+    });
+  }
+  const available = new Set(availableFrames);
+  const missing = /* @__PURE__ */ new Map();
+  for (const p of plans) {
+    if (p.frame !== null && available.has(p.frame)) continue;
+    const key = p.frame ?? UNMAPPED_LABEL;
+    const set = missing.get(key) ?? /* @__PURE__ */ new Set();
+    set.add(p.kind);
+    missing.set(key, set);
+  }
+  if (missing.size > 0) {
+    const detail = [...missing.entries()].sort((a, b) => a[0] < b[0] ? -1 : 1).map(([frame, kinds]) => `${frame}\uFF08\u88AB ${[...kinds].sort().join(", ")} \u7528\u5230\uFF09`).join("\uFF1B");
+    return err(
+      engineError(
+        VISUAL_MISSING_FRAME,
+        `\u56FE\u96C6\u91CC\u6CA1\u6709\u8FD9\u4E9B\u5E27\uFF1A${detail} \u2014\u2014 \u7F3A\u5E27\u7684\u8D44\u6E90\u4F1A**\u9759\u9ED8\u4E0D\u663E\u793A**\uFF08\u6E32\u67D3\u6A21\u5757\u53EA warn \u4E00\u6B21\uFF09\uFF0C\u6240\u4EE5\u5728\u8FD9\u91CC\u62A5\u9519`
+      )
+    );
+  }
+  if (!scene.components.has(SPRITE_TYPE)) {
+    return err(
+      engineError(
+        VISUAL_NO_SPRITE_COMPONENT,
+        "\u7EC4\u4EF6\u7C7B\u578B render.sprite \u672A\u6CE8\u518C \u2014\u2014 \u5148 components.register(...)\uFF08\u6E32\u67D3\u6A21\u5757\u542F\u52A8\u65F6\u4F1A\u6CE8\u518C\uFF09"
+      )
+    );
+  }
+  let terrain = 0;
+  let sites = 0;
+  let resources = 0;
+  let skipped = 0;
+  const used = /* @__PURE__ */ new Set();
+  for (const p of plans) {
+    if (hasSprite(scene, p.nodeId)) {
+      skipped++;
+      continue;
+    }
+    const frame = p.frame;
+    if (frame === null) throw new Error(`world-visuals \u5185\u90E8\u9519\u8BEF\uFF1A${p.kind} \u7684\u5E27\u6620\u5C04\u5728\u68C0\u67E5\u4E4B\u540E\u53D8\u6210\u4E86 null`);
+    const made = scene.attach(p.nodeId, () => {
+      const sp = new Sprite();
+      sp.frame = frame;
+      sp.atlasId = p.atlasId;
+      sp.tileX = p.tileX;
+      sp.tileY = p.tileY;
+      sp.layer = p.layer;
+      sp.width = p.width;
+      sp.height = p.height;
+      sp.pivotX = p.pivotX;
+      sp.pivotY = p.pivotY;
+      sp.r = p.r;
+      sp.g = p.g;
+      sp.b = p.b;
+      return sp;
+    });
+    if (!made.ok) return made;
+    used.add(frame);
+    if (p.kind.startsWith("terrain:")) terrain++;
+    else if (p.kind.startsWith("site:")) sites++;
+    else resources++;
+  }
+  scene.flush();
+  return ok({
+    terrain,
+    sites,
+    resources,
+    frames: [...used].sort(),
+    skipped
+  });
 }
 
 // src/extensions/nav/nav-grid.ts
@@ -23499,7 +23510,7 @@ async function main() {
       }
       registerWorldComponents(scene2.components);
       registerResourceComponent(scene2.components);
-      registerPlayerComponent(scene2.components);
+      registerPlayerComponents(scene2.components);
       registerInventoryComponents(scene2.components);
       registerHealthComponent(scene2.components);
       registerAttackerComponent(scene2.components);

@@ -516,6 +516,105 @@ const PROBE = `
     JSON.stringify(rejected) + " nodes=" + E.stats().nodes + " err=" + errText.slice(0, 60),
   );
 
+  // ---------------- 试玩（PIE）：世界真的会动，而且试玩改的东西会回滚
+  //
+  // ★ 这一组盯的是一个**整整漏掉的接线**：控制器模块两个宿主都装了、都每 tick 驱动，
+  //   但 src/ 里没有任何一处把 game.controller 挂到节点上 ⇒ driven 恒为 0 ⇒
+  //   按 WASD 谁也不动。模块单测是绿的（它自己造了带控制器的节点），
+  //   **接线问题 Node 证不到**，只能在这里证。
+  //
+  // ★ 整段是同步的（中间没有 await sleep）：requestAnimationFrame 不会插进来，
+  //   于是"走几步"就是真的只走了这几步，判据不会因为机器快慢而时红时绿。
+  E.stop(); // 先把可能残留的会话关掉（前一节加资产/撤销都不该留下会话）
+  const heroId = E.hero();
+  const heroPos0 = heroId >= 0 ? E.pos(heroId) : null;
+  add(
+    "玩家节点存在（试玩要靠它验证『世界真的会动』）",
+    heroId >= 0 && heroPos0 !== null,
+    "hero=#" + heroId + " pos=" + JSON.stringify(heroPos0),
+  );
+
+  const docBeforePlay = E.docSave();
+  const t0Play = docBeforePlay.text;
+  const undoLen0 = E.history().undo.length;
+  // ★ 基线现读，不写魔法数字：控制器默认速度是 4.5（见 PlayerController.speed），
+  //   把它硬编码进判据的话，改一次默认值就会红，而红的原因跟回滚毫无关系 ——
+  //   "期望值写错"和"功能坏了"必须能一眼分开。
+  E.select(heroId);
+  const speed0 = findField(E.panel(), "game.controller", "speed");
+  add(
+    "玩家身上有 game.controller.speed（运行时改属性的靶子）",
+    speed0 !== null,
+    JSON.stringify(speed0 ? speed0.value : null),
+  );
+
+  // ★★ **先按住键再单步第一帧**，顺序不能反。
+  //   反过来的话第一帧没按键 ⇒ 世界一个字节都没变 ⇒ "会话快照拍在哪一刻"这件事
+  //   在这条判据里**没有可观察差异**（变异 M403 就是在这一步假绿的）：
+  //   把 beginPlay 改成"每次 step 都重拍"照样绿，因为它拍到的和原来一样。
+  //   先按键，第一帧就把世界弄脏 ⇒ 重拍快照的人会把基准拍在脏之后 ⇒ 红。
+  const KEY = "KeyD";
+  window.dispatchEvent(new KeyboardEvent("keydown", { code: KEY, bubbles: true }));
+  E.step(1); // 开会话（快照在这一帧之前）→ 走一帧（这一帧就挪了）⇒ 控制器真的被驱动过
+  const info1 = E.playInfo();
+  add(
+    "★★ 试玩里控制器真的驱动到了节点（driven > 0 —— 玩家不是只挂了个标记）",
+    info1.driven > 0 && info1.active === true,
+    "driven=" + info1.driven + " active=" + String(info1.active),
+  );
+
+  // 再单步 10 帧 ⇒ 玩家位置必须变。
+  // ★ 这条同时证三件事：控制器挂上了、按键接到了输入后端、位移真的写回了节点。
+  E.step(10);
+  window.dispatchEvent(new KeyboardEvent("keyup", { code: KEY, bubbles: true }));
+  const heroPos1 = E.pos(heroId);
+  add(
+    "★★ 按住方向键单步：玩家真的挪了（不是只有 tick 在涨）",
+    heroPos0 !== null && heroPos1 !== null && Math.abs(heroPos1.x - heroPos0.x) > 0.05,
+    "x " + (heroPos0 ? heroPos0.x.toFixed(3) : "?") + " -> " + (heroPos1 ? heroPos1.x.toFixed(3) : "?"),
+  );
+
+  // 试玩期间改一个字段：立刻生效（这就是「运行时改属性」的一半）
+  const speedSet = E.setField(heroId, "game.controller", "speed", 9);
+  const editsLive = E.playInfo().edits;
+  add(
+    "★ 试玩期间改组件字段：立刻写进世界，并且记在会话账上",
+    speedSet.ok === true && speedSet.value === 9 && editsLive === 1,
+    JSON.stringify(speedSet) + " edits=" + editsLive,
+  );
+
+  // 停止试玩 ⇒ 世界回滚到进播放那一刻，文档逐字节回去
+  const stop1 = E.stop();
+  const docAfterStop = E.docSave().text;
+  E.select(heroId);
+  const speedAfter = findField(E.panel(), "game.controller", "speed");
+  add(
+    "★★ 停止试玩：试玩期间改的字段被回滚，文档逐字节回到进播放前",
+    stop1.ok === true && stop1.rolledBack === true && docAfterStop === t0Play &&
+      speedAfter !== null && speed0 !== null && speedAfter.value === speed0.value,
+    JSON.stringify(stop1) + " docSame=" + String(docAfterStop === t0Play) +
+      " speed=" + JSON.stringify(speedAfter ? speedAfter.value : null) +
+      " 期望 " + JSON.stringify(speed0 ? speed0.value : null),
+  );
+
+  // ★ 试玩期间的改动不该进撤销栈：历史记的是**文档**，而试玩没改文档。
+  //   塞进去的后果不是"多一条"，而是下一次撤销会把一个已经不存在的变化重放一遍。
+  add(
+    "★ 试玩期间的改动没进撤销栈（历史条数不变）",
+    E.history().undo.length === undoLen0,
+    "undo " + undoLen0 + " -> " + E.history().undo.length,
+  );
+
+  // ★ 没让世界跑就停止 ⇒ 不重建场景。重建那一步是 loadScene：它先 clear 再重建所有节点，
+  //   "点一下播放又立刻停"却把整个工程换一遍实例，画面上完全看不出来。
+  E.step(0);
+  const stopClean = E.stop();
+  add(
+    "★ 世界没变时停止试玩：不重建场景（rolledBack=false）",
+    stopClean.ok === true && stopClean.rolledBack === false && stopClean.edits === 0,
+    JSON.stringify(stopClean),
+  );
+
   return rows;
 })()
 `;

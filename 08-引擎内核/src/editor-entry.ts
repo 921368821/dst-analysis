@@ -36,7 +36,7 @@ import { SpatialHashWorld, makeSceneAccessor } from "./extensions/physics/physic
 import { createWorldModule } from "./extensions/physics/world-step-module.ts";
 import { generateWorld } from "./extensions/worldgen/worldgen.ts";
 import { assembleWorld, registerWorldComponents } from "./extensions/worldgen/assemble.ts";
-import { registerPlayerComponent, spawnPlayer } from "./extensions/worldgen/spawn.ts";
+import { registerPlayerComponents, spawnPlayer } from "./extensions/worldgen/spawn.ts";
 import { attachWorldVisuals } from "./extensions/render/world-visuals.ts";
 import { registerInventoryComponents } from "./extensions/inventory/inventory.ts";
 import type { IModule, ModuleContext } from "./core/module/module.ts";
@@ -55,6 +55,14 @@ import {
 import { fieldsOf, setField, type FieldChange } from "./extensions/editor/property-model.ts";
 import { beginDrag, dragTarget, endDrag, pickAt, type DragState } from "./extensions/editor/gizmo.ts";
 import { createPie } from "./extensions/editor/pie.ts";
+import {
+  beginPlaySession,
+  endPlaySession,
+  type PlaySession,
+  type PlayStopReport,
+} from "./extensions/editor/play-session.ts";
+import { createControllerModule } from "./extensions/input/player-controller.ts";
+import type { InputSnapshot } from "./platform/input/device.ts";
 import { createUndoStack, type EditorOp, type UndoOutcome } from "./extensions/editor/undo-stack.ts";
 import { HttpFileSystem } from "./backends/fs-http/fs.ts";
 import { bakeAtlasFromImages, type BakeImage } from "./extensions/editor/asset-bake.ts";
@@ -95,8 +103,10 @@ const statusEl = need<HTMLSpanElement>("status");
 const errEl = need<HTMLSpanElement>("err");
 const tickEl = need<HTMLSpanElement>("tick");
 const pieInfoEl = need<HTMLSpanElement>("pieinfo");
+const pieNoteEl = need<HTMLSpanElement>("pienote");
 const btnPlay = need<HTMLButtonElement>("btn-play");
 const btnPause = need<HTMLButtonElement>("btn-pause");
+const btnStop = need<HTMLButtonElement>("btn-stop");
 const btnStep = need<HTMLButtonElement>("btn-step");
 const btnStep10 = need<HTMLButtonElement>("btn-step10");
 const btnUndo = need<HTMLButtonElement>("btn-undo");
@@ -121,6 +131,18 @@ canvas.height = Math.max(1, Math.floor((canvas.clientHeight || 420) * dpr));
 const selection = createSelection();
 const pie = createPie({ hz: HZ, maxStepTicks: 4 });
 const history = createUndoStack();
+
+/**
+ * 当前这场试玩（`null` = 没在试玩）。
+ *
+ * ★ 它同时是三个东西的开关：① 播放/单步之前必须先有它（否则回滚没有基准）；
+ *   ② 有它的时候字段改动**不进历史**（试玩改的不是文档，见 `play-session.ts`）；
+ *   ③ 停播时按它判断"要不要重建整个场景"。
+ *   三处用同一个东西，就不会出现"某处忘了先开会话"。
+ */
+let playSession: PlaySession | null = null;
+/** 上一次停播的结论（面板上要说出来：回滚了没有、为什么）。 */
+let lastStop: PlayStopReport | null = null;
 
 let appRef: GameApp | null = null;
 let heroId: NodeId = -1;
@@ -212,7 +234,44 @@ function watchViewport(): void {
   else window.addEventListener("resize", syncViewport);
 }
 
-const worldMod = createWorldModule(physics, {});
+// ---------------------------------------------------------------- 试玩：控制器
+/**
+ * 把输入喂给场景里带 `game.controller` 的节点（也就是玩家）。
+ *
+ * ★★ 没有这一段的时候，「试玩」只是一个会走字的时钟：世界纹丝不动。
+ *   原因不是模块坏了，而是**没有任何东西驱动它** —— `createControllerModule`
+ *   明确写着"模块不会被框架自动 update，由宿主在固定步回调里调"（与脚本模块同款），
+ *   而编辑器这边一直没调，`driven` 就一直是 0。
+ *
+ * ★ 一个 tick 只 poll 一次，多调会吞掉"刚按下"的边缘事件（见模块自己的注释）；
+ *   所以这里只在 `worldMod` 的 `onStep` 里调一次，别处一律读 `.snapshot`。
+ */
+const EMPTY_INPUT: InputSnapshot = {
+  keysDown: new Set<string>(),
+  keysPressed: new Set<string>(),
+  keysReleased: new Set<string>(),
+  pointer: { x: 0, y: 0, down: false, pressed: false, released: false, button: 0 },
+  wheel: { dx: 0, dy: 0 },
+  text: "",
+};
+
+const controllerMod = createControllerModule({
+  poll: () => (appRef === null ? EMPTY_INPUT : appRef.platform.input.poll()),
+  id: "editor.controller",
+});
+
+/**
+ * 世界步进模块。`onStep` 是**唯一**驱动控制器的地方（见上面那段注释）。
+ *
+ * ★ 顺序：`scene.step` 先把所有组件的 `onUpdate` 跑一遍，控制器再由这里挪玩家 ——
+ *   两者都在同一个 tick 内、且都在 `physics.resolve()` 之前，所以本 tick 挪出来的
+ *   位置当 tick 就参与碰撞，不会拖到下一帧。
+ */
+const worldMod = createWorldModule(physics, {
+  onStep: (tick, dt) => {
+    controllerMod.update(tick, dt);
+  },
+});
 
 // ---------------------------------------------------------------- 世界装配模块
 /**
@@ -238,7 +297,7 @@ const worldgenMod: IModule = {
       return err(engineError("EDITOR.NO_PLAN", "世界计划没有生成出来"));
     }
     registerWorldComponents(scene.components);
-    registerPlayerComponent(scene.components);
+    registerPlayerComponents(scene.components);
     registerInventoryComponents(scene.components);
     if (!scene.components.has(SPRITE_TYPE)) {
       scene.components.register(new Sprite().schema, () => new Sprite());
@@ -425,6 +484,72 @@ function propRow(
   return row;
 }
 
+// ---------------------------------------------------------------- 试玩会话（PIE）
+
+/**
+ * 开始试玩（幂等）。**播放与单步都必须先过这里** —— 单步也是让世界自己跑，
+ * 也会把控制器推动过的位置写进场景，所以它同样需要一份回滚基准。
+ *
+ * ★ 快照拍在 `pie.play()` 之前：拍在后面的第一帧就已经跑过了，
+ *   回滚回去的是"已经脏了"的世界（见 `play-session.ts` ①）。
+ */
+function beginPlay(): PlaySession | null {
+  const app = appRef;
+  if (app === null) return null;
+  if (playSession === null) playSession = beginPlaySession(app.scene);
+  return playSession;
+}
+
+/** 一次停播的结果（命令面与按钮共用）。 */
+interface StopOutcome {
+  readonly ok: boolean;
+  readonly code?: string;
+  readonly message?: string;
+  /** 世界变了、已经回滚。`false` = 一个字节都没变，场景没被重建。 */
+  readonly rolledBack?: boolean;
+  /** 回滚重建出来的节点数。 */
+  readonly made?: number;
+  /** 这次试玩里改了几个字段（会被一起回滚）。 */
+  readonly edits?: number;
+}
+
+/**
+ * 停止试玩：先暂停时钟 → 再回滚 → 最后重画。
+ *
+ * ★ 顺序不能换：先回滚再暂停的话，回滚后的下一帧又会推进一次 tick，
+ *   于是"刚回滚干净的世界"立刻又被控制器挪一下，下一次停播才发现还是脏的。
+ */
+function stopPlay(): StopOutcome {
+  const app = appRef;
+  if (app === null) return { ok: false, code: "EDIT.NOT_READY", message: "编辑器还没启动" };
+  pie.pause();
+  const s = playSession;
+  if (s === null) {
+    // 没在试玩时点"停止"不是错误：世界本来就没被改过，说清楚就行。
+    pieNoteEl.textContent = "没在试玩";
+    return { ok: true, rolledBack: false, made: 0, edits: 0 };
+  }
+  const r = endPlaySession(docDeps(app), s);
+  playSession = null;
+  if (!r.ok) {
+    // 回滚失败时**不清空 playSession 的结论**：面板必须留着"工作区不可信"这句话，
+    // 否则人只会看到一条一闪而过的错误，然后接着在半个世界里编辑。
+    errEl.textContent = `${r.error.code}：${r.error.message}`;
+    afterHistoryChange();
+    return { ok: false, code: r.error.code, message: r.error.message, edits: s.edits };
+  }
+  lastStop = r.value;
+  pieNoteEl.textContent = r.value.rolledBack
+    ? `试玩结束：回滚 ${String(s.edits)} 处改动（重建 ${String(r.value.made)} 个节点）`
+    : "试玩结束：世界没变，场景没有重建";
+  errEl.textContent = "";
+  if (r.value.skipped.length > 0) {
+    errEl.textContent = `回滚时跳过 ${String(r.value.skipped.length)} 条：${r.value.skipped[0] ?? ""}`;
+  }
+  afterHistoryChange();
+  return { ok: true, rolledBack: r.value.rolledBack, made: r.value.made, edits: s.edits };
+}
+
 // ---------------------------------------------------------------- 历史（撤销 / 重做）
 
 /**
@@ -432,12 +557,22 @@ function propRow(
  *
  * ★ 面板的输入框与命令面（自检页）**共用这一个入口**。分成两条路的话，
  *   自检验证的就不是用户点的那条代码 —— 那种判据最容易绿得毫无意义。
+ *
+ * ★★ 试玩期间**不进历史**。理由不是"省一条记录"，而是历史与文档必须指同一个世界：
+ *   试玩改的值在停播时会被回滚（`play-session.ts` ②），历史里却留着
+ *   "before → 试玩时的值"这一对，于是下一次撤销会把一个**已经不存在的变化**
+ *   重放一遍 —— 人会看到"撤销把值改成了我没设过的数"。
+ *   这条也顺带解释了为什么不在停播时清历史：历史记的是文档，试玩没改文档。
  */
 function commitField(nodeId: NodeId, type: string, key: string, raw: unknown): Result<FieldChange, EngineError> {
   const app = appRef;
   if (app === null) return err(engineError("EDIT.NOT_READY", "编辑器还没启动"));
   const r = setField(app.scene, nodeId, type, key, raw);
   if (!r.ok) return r;
+  if (playSession !== null) {
+    if (r.value.changed) playSession.edits++;
+    return r;
+  }
   // 值没变就不进历史（见 `FieldChange.changed` 的注释：否则历史被空改动填满）
   if (r.value.changed) {
     history.push(makeFieldOp(app.scene, nodeId, type, key, r.value.before, r.value.after));
@@ -1151,12 +1286,23 @@ function loop(now: number): void {
     if (now - uiClock > 500) {
       uiClock = now;
       refreshTree();
+      // ★ 试玩中回显实时值。
+      //   不回显的表现是：世界已经跑到别处去了，面板还停在"点选中那一刻"的数字上，
+      //   于是"运行时改属性"看起来完全没用（改完值又跳回去 —— 其实是面板自己旧了）。
+      //   闸门是 `propsFocused()`：正在框里打字时重建 DOM 会把焦点和光标一起清掉。
+      if (playSession !== null && !propsFocused()) refreshProps();
       const st = pie.stats();
       tickEl.textContent = `tick ${String(app.scheduler.stats().tick)}`;
       pieInfoEl.textContent = st.playing ? "播放中" : st.pending > 0 ? `待跑 ${String(st.pending)}` : "暂停";
     }
   }
   requestAnimationFrame(loop);
+}
+
+/** 有人正在面板里输入吗（重建 DOM 会抢走焦点）。 */
+function propsFocused(): boolean {
+  const a = document.activeElement;
+  return a !== null && propsEl.contains(a);
 }
 
 // ---------------------------------------------------------------- 命令面（UI 与自检共用）
@@ -1179,10 +1325,33 @@ interface EditorApi {
       fields: Array<{ key: string; type: string; control: string; value: unknown }>;
     }>;
   } | null;
+  /**
+   * 某个节点的位置（XZ，`localPosition.y` 就是世界 Z —— 引擎是 2.5D，Y 是高度、不进这里）。
+   *
+   * ★ 存在的理由：试玩判据要回答"玩家**真的**挪了没有"。面板只暴露组件字段，
+   *   位置不在里面，于是"按下方向键之后世界变了"这件事在命令面上根本读不到 ——
+   *   读不到就只能去比截图，那种判据又慢又抖。
+   */
+  pos(id: number): { x: number; z: number } | null;
+  /** 玩家节点 id（`-1` = 世界还没装配好）。 */
+  hero(): number;
   setField(node: number, type: string, key: string, raw: unknown): { ok: boolean; code?: string; value?: unknown };
   step(n: number): number;
   play(): void;
   pause(): void;
+  /** 结束试玩并回滚（`rolledBack` 为 false = 世界没变、场景没重建）。 */
+  stop(): { ok: boolean; code?: string; message?: string; rolledBack?: boolean; made?: number; edits?: number };
+  /**
+   * 试玩会话的状态。`driven` 是控制器模块这一 tick 驱动到的节点数 ——
+   * 它是「玩家到底有没有控制器」这件事**唯一**的接线判据。
+   */
+  playInfo(): {
+    active: boolean;
+    playing: boolean;
+    edits: number;
+    driven: number;
+    lastStop: { rolledBack: boolean; made: number } | null;
+  };
   pie(): { tick: number; playing: boolean; pending: number; clampedFrames: number };
   /** 撤销一步。`kind` 区分「本来就没历史」和「反向执行失败」。 */
   undo(): { kind: string; label?: string; code?: string; message?: string };
@@ -1299,6 +1468,14 @@ function installApi(app: GameApp): void {
         })),
       };
     },
+    pos(id) {
+      const n = app.scene.find(id);
+      if (n === undefined) return null;
+      return { x: n.localPosition.x, z: n.localPosition.y };
+    },
+    hero() {
+      return heroId;
+    },
     setField(node, type, key, raw) {
       const r = commitField(node, type, key, raw);
       if (!r.ok) return { ok: false, code: r.error.code };
@@ -1306,15 +1483,34 @@ function installApi(app: GameApp): void {
       return { ok: true, value: r.value.after };
     },
     step(n) {
+      // ★ 命令面这里是**直接推帧**，不经过 `pie.advance` —— 所以它也必须自己开会话，
+      //   否则自检/命令面走的那条路是"能跑但停不下来"的，而按钮那条路是好的。
+      beginPlay();
       const k = Math.max(0, Math.floor(n));
       for (let i = 0; i < k; i++) app.frame(FIXED_DT);
       return app.scheduler.stats().tick;
     },
     play() {
-      pie.play();
+      if (beginPlay() !== null) pie.play();
     },
     pause() {
       pie.pause();
+    },
+    stop() {
+      return stopPlay();
+    },
+    playInfo() {
+      const st = pie.stats();
+      return {
+        active: playSession !== null,
+        playing: st.playing,
+        edits: playSession === null ? 0 : playSession.edits,
+        // ★ 这条是"控制器真的挂上了没有"的接线判据：模块每 tick 都在驱动，
+        //   但没有任何节点带 `game.controller` 时它恒为 0，而世界看起来只是"很安静"。
+        driven: controllerMod.driven,
+        lastStop:
+          lastStop === null ? null : { rolledBack: lastStop.rolledBack, made: lastStop.made },
+      };
     },
     pie() {
       const s = pie.stats();
@@ -1483,7 +1679,10 @@ async function main(): Promise<void> {
     platformId: "editor",
     interactive: true,
     registry,
-    modules: [worldMod, rm, worldgenMod],
+    // `controllerMod` 必须在这个列表里：它的 `init` 要从 services 拿到 Scene
+    // （拿不到就永远不会驱动任何节点），而它自己不会被框架 update —— 由 `worldMod`
+    // 的 `onStep` 调（见上面那段注释）。
+    modules: [worldMod, rm, worldgenMod, controllerMod],
     seed: WORLD_SEED,
     fixedDt: FIXED_DT,
     backendOptions: {
@@ -1513,10 +1712,19 @@ async function main(): Promise<void> {
   btnAssetAdd.addEventListener("click", () => {
     doAddAsset(assetPicked);
   });
-  btnPlay.addEventListener("click", () => pie.play());
+  // ★ 播放与单步都要先开会话（见 `beginPlay`）：漏了的话这些动作产生的改动
+  //   会**没有回滚基准**，停播时只能干看着世界停在试玩后的样子。
+  btnPlay.addEventListener("click", () => {
+    if (beginPlay() !== null) pie.play();
+  });
   btnPause.addEventListener("click", () => pie.pause());
-  btnStep.addEventListener("click", () => pie.step(1));
-  btnStep10.addEventListener("click", () => pie.step(10));
+  btnStop.addEventListener("click", () => void stopPlay());
+  btnStep.addEventListener("click", () => {
+    if (beginPlay() !== null) pie.step(1);
+  });
+  btnStep10.addEventListener("click", () => {
+    if (beginPlay() !== null) pie.step(10);
+  });
   btnUndo.addEventListener("click", () => void doUndo());
   btnRedo.addEventListener("click", () => void doRedo());
   btnAdd.addEventListener("click", () => void addNode());

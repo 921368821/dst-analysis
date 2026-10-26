@@ -34,7 +34,7 @@ import {
   registerResourceComponent,
   type WorldTaskModuleHandle,
 } from "../../src/extensions/worldgen/task-module.ts";
-import { registerPlayerComponent, spawnPlayer } from "../../src/extensions/worldgen/spawn.ts";
+import { registerPlayerComponents, spawnPlayer } from "../../src/extensions/worldgen/spawn.ts";
 import { Sprite } from "../../src/extensions/render/sprite.ts";
 import { addItem, countItem, makeInventory, registerInventoryComponents, stacksOf } from "../../src/extensions/inventory/inventory.ts";
 import { DROP_NO_SPACE, DROP_UNKNOWN_KIND, dropIntoWorld, findFreeCells } from "../../src/extensions/inventory/drop-to-world.ts";
@@ -46,7 +46,7 @@ function makeRegistry(): ComponentRegistry {
   const reg = new ComponentRegistry();
   registerWorldComponents(reg);
   registerResourceComponent(reg);
-  registerPlayerComponent(reg);
+  registerPlayerComponents(reg);
   registerInventoryComponents(reg);
   // 出生节点带 Sprite（spawnPlayer 会挂）—— 不注册的话"玩家没有身体"
   reg.register(new Sprite().schema, () => new Sprite());

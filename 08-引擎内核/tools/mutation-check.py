@@ -1610,8 +1610,12 @@ MUTANTS = [
         "name": "M150 内容指纹的排除前缀写错（排掉 world.* 而不是 render.*）",
         # 两个方向都坏：世界内容不再进指纹（内容 id 会撞），而呈现浮点进了指纹（算不出来）。
         # ★ 这条只有"全链路"判据抓得住 —— 装配那一段自己跑得好好的。
+        # ★ 靶子随批88 从常量变成了**列表里的第一项**（同一条 if 的判据没变）：
+        #   `game.controller` 的 4.5 也要排掉，所以单个前缀装不下了。
+        #   这里只改 `render.` 那一项，语义与原来完全一致（把世界内容误排掉、把呈现浮点放回来）。
         "file": "src/extensions/worldgen/assemble.ts",
-        "pairs": [('const DIGEST_EXCLUDE_PREFIX = "render.";', 'const DIGEST_EXCLUDE_PREFIX = "world.";')],
+        "pairs": [('const DIGEST_EXCLUDE_PREFIXES: readonly string[] = ["render.", "game.controller"];',
+                   'const DIGEST_EXCLUDE_PREFIXES: readonly string[] = ["world.", "game.controller"];')],
         "test": "tests/extensions/world-e2e.test.ts",
     },
     {
@@ -3679,6 +3683,62 @@ MUTANTS = [
         "name": "M397 加入场景不查 inAtlas（禁用的按钮被命令面绕过去）",
         "file": "src/editor-entry.ts",
         "pairs": [("  if (!entry.inAtlas) {", "  if (false) {")],
+        "cmd": ["node", "tools/editor-selftest.mjs", "--build"],
+        "env_exit": 2,
+    },
+    {
+        # 「世界没变就不重建」这条一旦去掉，代价是**每次**点播放再停止都会把整个工程
+        # 换一遍节点实例（`loadScene` 先 clear 再重建），而画面上完全看不出来。
+        # 判据靠 `scene.find(id)` 的恒等来分，值相等是分不开的。
+        "name": "M398 停止试玩一律重建场景（世界一个字节都没变也重建）",
+        "file": "src/extensions/editor/play-session.ts",
+        "pairs": [("  if (now === s.text) return ok({ rolledBack: false, made: 0, skipped: [] });",
+                   "  if (false) return ok({ rolledBack: false, made: 0, skipped: [] });")],
+        "test": "tests/extensions/editor-play-session.test.ts",
+    },
+    {
+        # 同一条 if 的另一种写错方向：永远当"没变" ⇒ 从不回滚 ⇒ 试玩一次工程就永久变样。
+        # 两个方向都要钉，因为它们的**症状完全不同**（这个是"世界脏了"，上一个是"实例换了"）。
+        "name": "M399 停止试玩从不回滚（试玩一次工程就永久变样）",
+        "file": "src/extensions/editor/play-session.ts",
+        "pairs": [("  if (now === s.text) return ok({ rolledBack: false, made: 0, skipped: [] });",
+                   "  if (true) return ok({ rolledBack: false, made: 0, skipped: [] });")],
+        "test": "tests/extensions/editor-play-session.test.ts",
+    },
+    {
+        # ★ 这条是批88 那个真缺陷本身：玩家节点只挂了标记、没挂控制器。
+        #   模块单测（`player-controller.test.ts`）自己造带控制器的节点，永远是绿的；
+        #   只有"造玩家的那个函数"上的判据能抓住。
+        "name": "M400 玩家节点不挂控制器（两个宿主按 WASD 谁也不动）",
+        "file": "src/extensions/worldgen/spawn.ts",
+        "pairs": [("  scene.attach(nodeId, () => new PlayerController());\n", "")],
+        "test": "tests/extensions/spawn.test.ts",
+    },
+    {
+        # 页面级：编辑器不驱动控制器模块 ⇒ 世界真的一动不动，`driven` 恒为 0。
+        # 与 M400 是两个方向（一个不挂、一个不驱动），缺哪个都"看起来能玩"。
+        "name": "M401 编辑器不驱动控制器（模块在，但每 tick 白转）",
+        "file": "src/editor-entry.ts",
+        "pairs": [("    controllerMod.update(tick, dt);\n", "")],
+        "cmd": ["node", "tools/editor-selftest.mjs", "--build"],
+        "env_exit": 2,
+    },
+    {
+        # 试玩期间的字段改动进了撤销栈 ⇒ 停播回滚之后，历史里那条 op 的 after 指向
+        # 一个已经不存在的变化：下一次撤销会"把值改成人没设过的数"。
+        "name": "M402 试玩期间的改动也进撤销栈（撤销时重放一个不存在的变化）",
+        "file": "src/editor-entry.ts",
+        "pairs": [("  if (playSession !== null) {", "  if (false) {")],
+        "cmd": ["node", "tools/editor-selftest.mjs", "--build"],
+        "env_exit": 2,
+    },
+    {
+        # 快照拍晚了/拍重了：每次 play/step 都重拍 ⇒ 回滚基准变成"已经跑过之后"，
+        # 于是停了试玩世界仍然是脏的，而"回滚成功"照样报 true。
+        "name": "M403 每次播放/单步都重拍快照（回滚基准被拍在世界变脏之后）",
+        "file": "src/editor-entry.ts",
+        "pairs": [("  if (playSession === null) playSession = beginPlaySession(app.scene);",
+                   "  playSession = beginPlaySession(app.scene);")],
         "cmd": ["node", "tools/editor-selftest.mjs", "--build"],
         "env_exit": 2,
     },

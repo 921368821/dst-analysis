@@ -18,7 +18,7 @@ import { Scene } from "../../src/core/scene/scene.ts";
 import { loadScene, saveScene, sceneFromJson, sceneToJson } from "../../src/core/scene/scene-io.ts";
 import { SITE_TYPE, TERRAIN_TYPE, registerWorldComponents } from "../../src/extensions/worldgen/assemble.ts";
 import { RESOURCE_TYPE, registerResourceComponent } from "../../src/extensions/worldgen/task-module.ts";
-import { registerPlayerComponent } from "../../src/extensions/worldgen/spawn.ts";
+import { registerPlayerComponents } from "../../src/extensions/worldgen/spawn.ts";
 import { registerInventoryComponents } from "../../src/extensions/inventory/inventory.ts";
 import { SPRITE_TYPE, Sprite } from "../../src/extensions/render/sprite.ts";
 import { ComponentRegistry } from "../../src/core/scene/component.ts";
@@ -52,7 +52,7 @@ test("[跨宿主语料] 存档能解析、能读档、读档后再存**逐字节
   const reg = new ComponentRegistry();
   registerWorldComponents(reg);
   registerResourceComponent(reg);
-  registerPlayerComponent(reg);
+  registerPlayerComponents(reg);
   registerInventoryComponents(reg);
   reg.register(new Sprite().schema, () => new Sprite());
   const scene2 = new Scene("跨宿主存档", reg);

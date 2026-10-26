@@ -44,7 +44,7 @@ import {
   createWorldTaskModule,
   registerResourceComponent,
 } from "../../src/extensions/worldgen/task-module.ts";
-import { PLAYER_TYPE, PlayerSpawn, registerPlayerComponent, spawnPlayer } from "../../src/extensions/worldgen/spawn.ts";
+import { PLAYER_TYPE, PlayerSpawn, registerPlayerComponents, spawnPlayer } from "../../src/extensions/worldgen/spawn.ts";
 import { SPRITE_TYPE, Sprite } from "../../src/extensions/render/sprite.ts";
 import { buildProceduralAtlas } from "../../src/extensions/render/atlas.ts";
 import { attachWorldVisuals } from "../../src/extensions/render/world-visuals.ts";
@@ -55,7 +55,7 @@ function makeRegistry(): ComponentRegistry {
   const reg = new ComponentRegistry();
   registerWorldComponents(reg);
   registerResourceComponent(reg);
-  registerPlayerComponent(reg);
+  registerPlayerComponents(reg);
   reg.register(new Sprite().schema, () => new Sprite());
   return reg;
 }

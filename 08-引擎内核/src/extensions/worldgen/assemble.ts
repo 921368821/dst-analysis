@@ -434,7 +434,7 @@ export function sceneComponents(
  *   而不是变成"两个指纹碰巧不同"（后者看不出原因）。
  */
 /**
- * 内容指纹**排除**的组件前缀：呈现层。
+ * 内容指纹**排除**的组件前缀。
  *
  * ★★ 为什么（全链路判据逼出来的）：`render.sprite` 里有 `r/g/b` 这种 0..1 的浮点
  *   （群系着色就有 `0.55`），而内容指纹要求"同值同串"，浮点进不去（`CANON.NOT_INTEGER`）。
@@ -443,13 +443,20 @@ export function sceneComponents(
  *
  * ★ 排除它不只是"绕过报错"，而是**语义上正确**：世界指纹回答的是"这一局的世界长什么样"，
  *   换个美术风格不该让所有内容 id 失效。呈现参数（帧名/颜色/锚点）属于资产与风格。
+ *
+ * ★★ 批88 又加了一条 `game.controller`，同一个原因：它的 `speed` 默认 **4.5**，
+ *   也是浮点 ⇒ 场景一旦有玩家，指纹就算不出来（全链路两条判据当场红）。
+ *   语义上同样站得住：这一层回答的是"世界长什么样"，而移动速度是**手感参数**
+ *   （改一下不该让内容 id 全部失效），与呈现参数同类。
+ *   代价说清楚：`game.controller.speed` 存档往返丢了不会被这条指纹判据抓住 ——
+ *   但 `missingFields` 的断言与 `spawn.test.ts`（玩家身上必须有控制器）各自兜一层。
  */
-const DIGEST_EXCLUDE_PREFIX = "render.";
+const DIGEST_EXCLUDE_PREFIXES: readonly string[] = ["render.", "game.controller"];
 
 export function sceneDigest(scene: Scene): Result<string, EngineError> {
   const canon = (n: Node): unknown => {
     const comps = [...n.components]
-      .filter((c) => !c.type.startsWith(DIGEST_EXCLUDE_PREFIX))
+      .filter((c) => !DIGEST_EXCLUDE_PREFIXES.some((p) => c.type.startsWith(p)))
       .map((c) => c.save())
       .sort((a, b) => String(a.type).localeCompare(String(b.type)));
     return {
