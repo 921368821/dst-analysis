@@ -34,11 +34,13 @@ import { buildProceduralAtlas, type AtlasData } from "./extensions/render/atlas.
 import { createRenderModule, type RenderModuleHandle } from "./extensions/render/render-module.ts";
 import { SpatialHashWorld, makeSceneAccessor } from "./extensions/physics/physics.ts";
 import { createWorldModule } from "./extensions/physics/world-step-module.ts";
-import { generateWorld } from "./extensions/worldgen/worldgen.ts";
+import { FIXED_UNITS, generateWorld } from "./extensions/worldgen/worldgen.ts";
 import { assembleWorld, registerWorldComponents } from "./extensions/worldgen/assemble.ts";
 import { registerPlayerComponents, spawnPlayer } from "./extensions/worldgen/spawn.ts";
 import { attachWorldVisuals } from "./extensions/render/world-visuals.ts";
 import { registerInventoryComponents } from "./extensions/inventory/inventory.ts";
+import { registerHealthComponent } from "./extensions/combat/health.ts";
+import { registerHungerComponent } from "./extensions/survival/hunger.ts";
 import type { IModule, ModuleContext } from "./core/module/module.ts";
 import type { EngineError } from "./foundation/result.ts";
 import { err, engineError, ok, type Result } from "./foundation/result.ts";
@@ -78,6 +80,10 @@ import {
   type PlaySession,
   type PlayStopReport,
 } from "./extensions/editor/play-session.ts";
+// 批92：关卡流程（试玩里走进门 → 换场景）。这一层是纯模型，编辑器只负责
+// "什么时候喂位置"和"跳完重画什么"。
+import { PortalWatcher, collectPortals, registerPortalComponent } from "./extensions/flow/portal.ts";
+import { SceneFlow, findPlayerId, type JumpReport } from "./extensions/flow/scene-flow.ts";
 import { createControllerModule } from "./extensions/input/player-controller.ts";
 import type { InputSnapshot } from "./platform/input/device.ts";
 import { createUndoStack, type EditorOp, type UndoOutcome } from "./extensions/editor/undo-stack.ts";
@@ -165,6 +171,22 @@ const history = createUndoStack();
 let playSession: PlaySession | null = null;
 /** 上一次停播的结论（面板上要说出来：回滚了没有、为什么）。 */
 let lastStop: PlayStopReport | null = null;
+
+/**
+ * 试玩期间的场景流程（批92）。`null` = 没在试玩。
+ *
+ * ★ 它只在试玩里存在，因为**试玩中的跳转是沙盒的**：跳到另一个场景不改工程里任何槽位，
+ *   停播时按会话快照回滚到进试玩那一刻。这正好复用了 `play-session.ts` 已有的保证，
+ *   不需要为"跳转"再造一套回滚。
+ */
+let flow: SceneFlow | null = null;
+/**
+ * 走进门的边沿检测。**跨场景生存**（它是"这一次行走"的状态，不属于场景）——
+ * 所以它建在模块级，每次进试玩 `reset()` 一次。
+ */
+const portalWatcher = new PortalWatcher();
+/** 最近一次跳转/门出错的说明（面板上留痕：静默跳走会让人以为点了没反应）。 */
+let flowNote = "";
 
 let appRef: GameApp | null = null;
 let heroId: NodeId = -1;
@@ -438,6 +460,16 @@ const worldgenMod: IModule = {
     registerWorldComponents(scene.components);
     registerPlayerComponents(scene.components);
     registerInventoryComponents(scene.components);
+    // ★ 血 / 饱食在**编辑器**里也要能挂（批92 顺手补上的一处欠账）：
+    //   批66/67 只在演示宿主里注册了这两个，于是编辑器里做出来的怪与玩家
+    //   **没有血量、不会饿**，而面板上根本选不到这两个类型 ——
+    //   "在编辑器里做的游戏能不能打"这个问题就永远没有答案。
+    //   注册只让类型可用，不改变任何已有世界。
+    registerHealthComponent(scene.components);
+    registerHungerComponent(scene.components);
+    // 批92：传送门组件必须进注册表，否则属性面板的「加组件」里看不到它（人就没法摆门），
+    // 而且读档时 `flow.portal` 会被当成未知组件**静默跳过**（"我摆的门不见了"）。
+    registerPortalComponent(scene.components);
     if (!scene.components.has(SPRITE_TYPE)) {
       scene.components.register(new Sprite().schema, () => new Sprite());
     }
@@ -635,8 +667,37 @@ function propRow(
 function beginPlay(): PlaySession | null {
   const app = appRef;
   if (app === null) return null;
-  if (playSession === null) playSession = beginPlaySession(app.scene);
+  if (playSession === null) {
+    playSession = beginPlaySession(app.scene);
+    // 批92：试玩一开始就把流程层建起来，并把"我在哪扇门里"忘掉 ——
+    // 上一次试玩结束时世界被回滚过，留着旧位置会让第一帧凭空触发一次跳转。
+    flow = makeFlow(app);
+    portalWatcher.reset();
+    flowNote = "";
+  }
   return playSession;
+}
+
+/**
+ * 建流程层：场景来源是**工程槽位**（只读）。
+ *
+ * ★ `source` 每次调用都现读 `project`，不闭包捕获构造时那个对象：
+ * 工程会在新建/删除场景时被改写，捕获旧引用会让"刚新建的场景"跳不过去。
+ */
+function makeFlow(app: GameApp): SceneFlow | null {
+  if (project === null) return null;
+  return new SceneFlow(
+    {
+      scene: app.scene,
+      registry: app.scene.components,
+      source: (name) => {
+        const p = project;
+        if (p === null) return null;
+        return p.scenes.find((s) => s.name === name)?.text ?? null;
+      },
+    },
+    project.current,
+  );
 }
 
 /** 一次停播的结果（命令面与按钮共用）。 */
@@ -670,6 +731,11 @@ function stopPlay(): StopOutcome {
   }
   const r = endPlaySession(docDeps(app), s);
   playSession = null;
+  // 批92：流程层跟着会话一起结束。回滚失败时也要清 —— 世界已经不可信，
+  // 留着一个指向"半个世界"的流程层，下一次进试玩会从错误的位置开始。
+  flow = null;
+  portalWatcher.reset();
+  flowNote = "";
   if (!r.ok) {
     // 回滚失败时**不清空 playSession 的结论**：面板必须留着"工作区不可信"这句话，
     // 否则人只会看到一条一闪而过的错误，然后接着在半个世界里编辑。
@@ -693,8 +759,128 @@ function stopPlay(): StopOutcome {
   return { ok: true, rolledBack: r.value.rolledBack, made: r.value.made, edits: s.edits };
 }
 
-// ---------------------------------------------------------------- 历史（撤销 / 重做）
+// ---------------------------------------------------------------- 试玩中的跳转（批92）
 
+/** 不在试玩中却想"跳场景"（那是编辑器的切换，规则不同：它要先保存）。 */
+const EDIT_NOT_PLAYING = "EDIT.NOT_PLAYING";
+
+interface PlayJumpOutcome {
+  readonly ok: boolean;
+  readonly kind?: "noop" | "jumped";
+  readonly from?: string;
+  readonly to?: string;
+  readonly carried?: boolean;
+  readonly dropped?: readonly string[];
+  readonly code?: string;
+  readonly message?: string;
+}
+
+/**
+ * 试玩中跳到工程里的另一个场景。
+ *
+ * ★★ 与"编辑器的切换场景"是**两件不同的事**，不许合并：
+ *   - `doSceneSwitch` 会**先把当前场景写回槽位**，因为它改的是文档；
+ *   - 这里**一个槽位都不写**（试玩是沙盒），停播时按会话快照回滚。
+ *   合并的后果是"试玩里走过一扇门，工程里那份场景被改成了跑过两步的样子"。
+ */
+function doPlayJump(name: string): PlayJumpOutcome {
+  const app = appRef;
+  if (app === null) return { ok: false, code: "EDIT.NOT_READY", message: "编辑器还没启动" };
+  if (playSession === null) {
+    return {
+      ok: false,
+      code: EDIT_NOT_PLAYING,
+      message: "不在试玩中：切场景请点场景面板（那条路会先保存当前场景）",
+    };
+  }
+  const f = flow;
+  if (f === null) return { ok: false, code: "EDIT.NOT_READY", message: "流程层没起来（工程还没就绪）" };
+
+  const r = f.jump(name);
+  if (!r.ok) {
+    errEl.textContent = `${r.error.code}：${r.error.message}`;
+    flowNote = `跳转被拒：${r.error.code}`;
+    docInfoEl.textContent = flowNote;
+    return { ok: false, code: r.error.code, message: r.error.message };
+  }
+  // 落地 reseed：目标场景的落点上如果正好有一扇门，不许立刻弹回去（见 portal.ts ②）
+  const portals = collectPortals(app.scene);
+  if (r.value.landing !== null && portals.ok) {
+    portalWatcher.reseed(r.value.landing.x, r.value.landing.z, portals.value);
+  } else {
+    portalWatcher.reset();
+  }
+
+  flowNote = describePlayJump(r.value);
+  docInfoEl.textContent = flowNote;
+  // ★ `heroId` 是"编辑器认为的玩家"，它必须跟着人跳过去：目标场景的玩家节点
+  //   在文档里是另一个 id。不更新的话，所有按 heroId 取节点的命令（选中、gizmo 判据、
+  //   `E.hero()`）在跳转之后都指向一个不存在的节点 —— 而画面上世界是好的。
+  const np = findPlayerId(app.scene);
+  if (np !== null) heroId = np;
+  errEl.textContent =
+    r.value.dropped.length > 0 ? `跳转丢下了：${r.value.dropped.join("；")}` : "";
+  // 世界换了 ⇒ 树/属性/历史/场景面板都要重画（场景面板要标出"试玩现在在哪一份"）
+  refreshTree();
+  refreshProps();
+  refreshHistory();
+  refreshScenes();
+  return {
+    ok: true,
+    kind: r.value.kind,
+    from: r.value.from,
+    to: r.value.to,
+    carried: r.value.carried,
+    dropped: r.value.dropped,
+  };
+}
+
+function describePlayJump(r: JumpReport): string {
+  if (r.kind === "noop") return `已经在「${r.to}」里（试玩中的跳转不改工程）`;
+  const parts = [`试玩跳到「${r.to}」：${String(r.made)} 个节点`];
+  parts.push(r.carried ? "背包/血量/饱食已带过去" : "没有可携带的状态");
+  if (r.clamped.length > 0) parts.push(`${String(r.clamped.length)} 项被上限夹住`);
+  if (r.skipped.length > 0) parts.push(`${String(r.skipped.length)} 条被跳过`);
+  return parts.join(" · ");
+}
+
+/**
+ * 每个逻辑步之后喂一次玩家位置：走进门就跳。
+ *
+ * ★ 为什么在 tick 循环里而不是每帧一次：门是**玩法事件**，判据要按 tick 复现。
+ *   每帧一次的话，帧率不同触发时刻就不同（144Hz 与 60Hz 差一倍）。
+ *
+ * ★ 门写坏（没填 to / 半径非法）时**说一次就够**：错误行是给人看的，
+ *   每 tick 刷一遍会把别的消息挤掉，而且看起来像"卡住了"。
+ */
+function autoPortal(): void {
+  const app = appRef;
+  const f = flow;
+  if (app === null || f === null) return;
+  const pid = findPlayerId(app.scene);
+  if (pid === null) return;
+  const w = app.scene.worldPositionOf(pid);
+  if (w === undefined) return;
+  const portals = collectPortals(app.scene);
+  if (!portals.ok) {
+    const line = `${portals.error.code}：${portals.error.message}`;
+    if (flowNote !== line) {
+      flowNote = line;
+      errEl.textContent = line;
+      docInfoEl.textContent = line;
+    }
+    return;
+  }
+  const hit = portalWatcher.enter(
+    Math.round(w.x * FIXED_UNITS),
+    Math.round(w.y * FIXED_UNITS),
+    portals.value,
+  );
+  if (hit === null) return;
+  doPlayJump(hit.portal.to);
+}
+
+// ---------------------------------------------------------------- 历史（撤销 / 重做）
 /**
  * 改一个字段，并把这次改动记进历史。
  *
@@ -817,15 +1003,27 @@ function refreshScenes(): void {
   if (p === null) return;
   sceneCountEl.textContent = `${String(p.scenes.length)} 个`;
   sceneListEl.textContent = "";
+  // ★ 试玩中高亮的是「试玩现在所在的那一份」（`flow.sceneName`），不是工程在编辑的那一份：
+  //   跳过去之后世界已经换成另一份，还高亮原来那行会让人以为跳失败了。
+  const playing = playSession !== null && flow !== null;
+  const active = playing && flow !== null ? flow.sceneName : p.current;
   for (const name of sceneNames(p)) {
     const row = document.createElement("div");
     // 当前项高亮：名字列表里"哪一行是正在编辑的"必须一眼看出来，
     // 否则点一下当前行会得到一句"已经在它上面"，而人以为按钮坏了。
-    row.className = name === p.current ? "srow sel" : "srow";
+    row.className = name === active ? "srow sel" : "srow";
     row.dataset.name = name;
-    row.textContent = name;
+    row.textContent = playing && name === active ? `${name} ▶` : name;
+    // ★ 同一个手势两种语义，界面上必须说清楚是哪一种 —— 否则"试玩中点了一下场景行"
+    //   会被理解成"切换文档"（那是停播之后的行为），而人不会有第二个线索。
+    row.title = playing
+      ? "试玩中：跳到这个场景（沙盒 —— 不改工程，停播回滚）"
+      : "切换到这个场景（当前场景会先保存）";
     row.addEventListener("click", () => {
-      doSceneSwitch(name);
+      // 同一个手势两种语义，因为上下文本来不同：试玩中点行 = **跳过去**（沙盒内，
+      // 不改任何槽位）；不在试玩中 = 编辑器切换（那条路会先把当前场景写回槽位）。
+      if (playSession !== null) doPlayJump(name);
+      else doSceneSwitch(name);
     });
     sceneListEl.appendChild(row);
   }
@@ -1678,7 +1876,11 @@ function loop(now: number): void {
   const app = appRef;
   if (app !== null) {
     const ticks = pie.advance(dt);
-    for (let i = 0; i < ticks; i++) app.frame(FIXED_DT);
+    for (let i = 0; i < ticks; i++) {
+      app.frame(FIXED_DT);
+      // 每个逻辑步之后喂一次玩家位置（门是玩法事件，触发时刻按 tick 算 —— 见 autoPortal）
+      if (playSession !== null) autoPortal();
+    }
     // 每 0.5 秒刷一次树（每帧重建 DOM 在 500 节点上会掉到个位数帧率）
     if (now - uiClock > 500) {
       uiClock = now;
@@ -1789,6 +1991,24 @@ interface EditorApi {
   sceneNew(name?: string): { ok: boolean; name?: string; code?: string; message?: string };
   /** 删一个场景（缺省 = 当前）。删当前时会先切到邻居；只剩一个时会被拒。 */
   sceneDelete(name?: string): { ok: boolean; name?: string; kind?: string; code?: string; message?: string };
+  /**
+   * **试玩中**跳到工程里的另一个场景（沙盒内，不改任何槽位）。
+   *
+   * ★ 与 `sceneSwitch` 是两件事：后者会先把当前场景写回槽位（它改的是文档）。
+   *   不在试玩中调这里会被拒（`EDIT.NOT_PLAYING`）—— 那时候该走 `sceneSwitch`。
+   */
+  playJump(name: string): {
+    ok: boolean;
+    kind?: string;
+    from?: string;
+    to?: string;
+    carried?: boolean;
+    dropped?: readonly string[];
+    code?: string;
+    message?: string;
+  };
+  /** 试玩现在装的是哪一份场景（不在试玩中是 `null`）。 */
+  playScene(): string | null;
   /**
    * 存档现状（面板上那句话 + 存档键里现在有多少字节，没存过是 -1）。
    *
@@ -1918,7 +2138,11 @@ function installApi(app: GameApp): void {
       //   否则自检/命令面走的那条路是"能跑但停不下来"的，而按钮那条路是好的。
       beginPlay();
       const k = Math.max(0, Math.floor(n));
-      for (let i = 0; i < k; i++) app.frame(FIXED_DT);
+      for (let i = 0; i < k; i++) {
+        app.frame(FIXED_DT);
+        // 命令面这条路也要喂：否则"按键走过去进门"只有按钮那条路能触发
+        if (playSession !== null) autoPortal();
+      }
       return app.scheduler.stats().tick;
     },
     play() {
@@ -2012,6 +2236,12 @@ function installApi(app: GameApp): void {
     },
     sceneDelete(name) {
       return doSceneDelete(name);
+    },
+    playJump(name) {
+      return doPlayJump(name);
+    },
+    playScene() {
+      return flow === null ? null : flow.sceneName;
     },
     saveInfo() {
       // ★ 字节数直接问存档媒介（不是问我们自己记的变量）：`-1` = 键不存在。

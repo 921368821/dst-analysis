@@ -2303,7 +2303,9 @@ MUTANTS = [
     {
         "name": "M230 编辑器单步每个 tick 跑两次（单步按钮翻倍）",
         "file": "src/editor-entry.ts",
-        "pairs": [("      for (let i = 0; i < k; i++) app.frame(FIXED_DT);", "      for (let i = 0; i < k * 2; i++) app.frame(FIXED_DT);")],
+        # 批92：靶子从单行 for 改成块首 —— 循环体里多了一句"喂一次位置"（autoPortal），
+        # 语义没变（单步仍然每个 tick 跑一次 frame），所以指认到 `for` 那一行即可。
+        "pairs": [("      for (let i = 0; i < k; i++) {", "      for (let i = 0; i < k * 2; i++) {")],
         "cmd": ["node", "tools/editor-selftest.mjs", "--build"],
         "env_exit": 2,
     },
@@ -3740,8 +3742,10 @@ MUTANTS = [
         # 于是停了试玩世界仍然是脏的，而"回滚成功"照样报 true。
         "name": "M403 每次播放/单步都重拍快照（回滚基准被拍在世界变脏之后）",
         "file": "src/editor-entry.ts",
-        "pairs": [("  if (playSession === null) playSession = beginPlaySession(app.scene);",
-                   "  playSession = beginPlaySession(app.scene);")],
+        # 批92：`beginPlay` 里那句被包进了一个 if 块（里面还要建流程层、重置边走边看的门状态），
+        # 所以靶子从"单行 if"改成"块首 + 第一句"，仍然钉住"守卫不许去掉"这一件事。
+        "pairs": [("  if (playSession === null) {\n    playSession = beginPlaySession(app.scene);",
+                   "  if (true) {\n    playSession = beginPlaySession(app.scene);")],
         "cmd": ["node", "tools/editor-selftest.mjs", "--build"],
         "env_exit": 2,
     },
@@ -3935,6 +3939,87 @@ MUTANTS = [
         "pairs": [("    return err(engineError(EDIT_PROJECT_STORE, `工程写不进去：${errText(e)}`));",
                    "    return ok({ bytes: 0, scenes: 0 });")],
         "test": "tests/extensions/editor-project-file.test.ts",
+    },
+    # ---------------- 批92：关卡流程（传送门 / 跳转）
+    #
+    # ★ 这一组的靶子全在**新文件**里（flow/），所以不会撞上既有判据的断言 ——
+    #   但 M433 是例外：它打在**接线**上（loop 里那一句 autoPortal），
+    #   只能由浏览器自检抓（Node 侧证不到"每 tick 有没有喂位置"），所以它走 cmd。
+    {
+        "name": "M427 站在门里每 tick 都触发（把边沿写成电平）",
+        # 症状：进门跳走 → 目标场景又把人放在门里 → 再跳…… 画面抖一下回到原地，
+        # 而日志里是一串成功的跳转。只有"连续喂 10 次只该触发 1 次"这条能分开。
+        "file": "src/extensions/flow/portal.ts",
+        "pairs": [("    if (key === this.key) return null;",
+                   "    if (key === null && this.key === null) return null;")],
+        "test": "tests/extensions/flow-portal.test.ts",
+    },
+    {
+        "name": "M428 reseed 什么都不记（落地就站在另一扇门里 ⇒ 立刻弹回去）",
+        "file": "src/extensions/flow/portal.ts",
+        "pairs": [("    this.key = keyOf(hitTestPortals(x, z, portals));",
+                   "    void x; void z; void portals;")],
+        "test": "tests/extensions/flow-portal.test.ts",
+    },
+    {
+        "name": "M429 触发半径写成开区间（恰好踩在边界上的门进不去）",
+        "file": "src/extensions/flow/portal.ts",
+        "pairs": [("    if (d2 <= p.radius * p.radius) hits.push({ portal: p, distance2: d2 });",
+                   "    if (d2 < p.radius * p.radius) hits.push({ portal: p, distance2: d2 });")],
+        "test": "tests/extensions/flow-portal.test.ts",
+    },
+    {
+        "name": "M430 重叠时取最远的那扇门（两次运行可能跳向不同场景）",
+        "file": "src/extensions/flow/portal.ts",
+        "pairs": [("  return hits.length === 0 ? null : hits[0]!.portal.name;",
+                   "  return hits.length === 0 ? null : hits[hits.length - 1]!.portal.name;")],
+        "test": "tests/extensions/flow-portal.test.ts",
+    },
+    {
+        "name": "M431 跳场景不携带状态（换了个人：血满、饱食 100、背包空）",
+        # 这是"少了点什么但日志干净"的典型：跳转成功、世界对，只有人不是原来那个人。
+        "file": "src/extensions/flow/scene-flow.ts",
+        "pairs": [("    const carry = srcPlayer === null ? null : readCarry(scene, srcPlayer);",
+                   "    const carry = null;")],
+        "test": "tests/extensions/flow-jump.test.ts",
+    },
+    {
+        "name": "M432 目标场景没有玩家也照跳（人站在空地里按 WASD 谁也不动）",
+        "file": "src/extensions/flow/scene-flow.ts",
+        "pairs": [("    if (!snapshotHasPlayer(snap)) {",
+                   "    if (false && snapshotHasPlayer(snap)) {")],
+        "test": "tests/extensions/flow-jump.test.ts",
+    },
+    {
+        "name": "M433 帧循环里不喂玩家位置（门在场景里画着，走过去毫无反应）",
+        # ★ 这条只打**接线**：flow 的三层模型全对、判据全绿，但没有人每 tick 问一次
+        #   "玩家现在在哪"。Node 侧永远看不见这种缺失（没有宿主），只能靠浏览器自检。
+        "file": "src/editor-entry.ts",
+        "pairs": [("      if (playSession !== null) autoPortal();",
+                   "      if (false && playSession !== null) autoPortal();")],
+        "cmd": ["node", "tools/editor-selftest.mjs", "--build"],
+        "env_exit": 2,
+    },
+    {
+        "name": "M434 装不下就整份丢掉（目标背包只小一格，一整车木头全没了）",
+        "file": "src/extensions/flow/carry.ts",
+        "pairs": [("  while (left > 0) {",
+                   "  while (false && left > 0) {")],
+        "test": "tests/extensions/flow-jump.test.ts",
+    },
+    {
+        "name": "M435 血量不夹上限（20 血带进上限 5 的世界，血条溢出）",
+        "file": "src/extensions/flow/carry.ts",
+        "pairs": [("      if (want > hp.maxHp) {",
+                   "      if (false) {")],
+        "test": "tests/extensions/flow-jump.test.ts",
+    },
+    {
+        "name": "M436 跳到当前场景也走装载（点回当前行把整棵树的实例换掉）",
+        "file": "src/extensions/flow/scene-flow.ts",
+        "pairs": [("    if (to === this.current) {",
+                   "    if (to === this.current && false) {")],
+        "test": "tests/extensions/flow-jump.test.ts",
     },
 ]
 

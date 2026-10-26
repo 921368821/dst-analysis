@@ -7136,6 +7136,9 @@ function attachWorldVisuals(scene, availableFrames) {
 // src/extensions/inventory/inventory.ts
 var ITEM_TYPE = "game.item";
 var INVENTORY_TYPE = "game.inventory";
+var INVENTORY_NO_OWNER = "INVENTORY.NO_OWNER";
+var INVENTORY_FULL = "INVENTORY.FULL";
+var INVENTORY_BAD_COUNT = "INVENTORY.BAD_COUNT";
 var ItemStack = class extends Component {
   /** 物品种类（与 `SiteKind` 同名，但不强绑：背包不认识"世界"）。 */
   kind = "";
@@ -7171,6 +7174,122 @@ var INVENTORY_SCHEMA = {
   type: INVENTORY_TYPE,
   fields: { maxStacks: FieldType.Int, maxStack: FieldType.Int }
 };
+function stacksOf(scene, ownerId) {
+  const owner = scene.find(ownerId);
+  if (owner === void 0) return [];
+  const out = [];
+  owner.walk((n) => {
+    if (n.id === ownerId) return;
+    const it = n.get(ITEM_TYPE);
+    if (it !== void 0) out.push(it);
+  });
+  out.sort((a, b) => (a.node?.id ?? 0) - (b.node?.id ?? 0));
+  return out;
+}
+function countItem(scene, ownerId, kind) {
+  let n = 0;
+  for (const s of stacksOf(scene, ownerId)) if (s.kind === kind) n += s.count;
+  return n;
+}
+function isPositiveInt(v) {
+  return Number.isInteger(v) && v > 0;
+}
+function stackCapOf(inv) {
+  const v = inv.maxStack;
+  if (!Number.isInteger(v) || v < 1) return 1;
+  return v;
+}
+function stacksNeeded(total, cap) {
+  return Math.max(1, Math.ceil(total / cap));
+}
+function addItem(scene, ownerId, kind, n) {
+  if (!isPositiveInt(n)) {
+    return err(engineError(INVENTORY_BAD_COUNT, `\u6570\u91CF\u5FC5\u987B\u662F\u6B63\u6574\u6570\uFF0C\u6536\u5230 ${String(n)}`));
+  }
+  const owner = scene.find(ownerId);
+  if (owner === void 0) return err(engineError(INVENTORY_NO_OWNER, `\u8282\u70B9 ${String(ownerId)} \u4E0D\u5728\u573A\u666F\u91CC`));
+  const inv = owner.get(INVENTORY_TYPE);
+  if (inv === void 0) return err(engineError(INVENTORY_NO_OWNER, `\u8282\u70B9 ${String(ownerId)} \u6CA1\u6709\u80CC\u5305\u7EC4\u4EF6`));
+  const cap = stackCapOf(inv);
+  const stacks = stacksOf(scene, ownerId);
+  const free = Math.max(0, inv.maxStacks - stacks.length);
+  const same = stacks.filter((s) => s.kind === kind);
+  const total = n + same.reduce((a, s) => a + s.count, 0);
+  const needNew = Math.max(0, stacksNeeded(total, cap) - same.length);
+  if (needNew > free) {
+    return err(
+      engineError(
+        INVENTORY_FULL,
+        `\u80CC\u5305\u5DF2\u6EE1\uFF08${String(inv.maxStacks)} \u5806 \xD7 ${String(cap)}\uFF09\uFF0C${kind} \u6EA2\u51FA ${String(needNew - free)} \u5806\u653E\u4E0D\u4E0B`
+      )
+    );
+  }
+  let left = n;
+  for (const s of same) {
+    if (left === 0) break;
+    const put2 = Math.min(cap - s.count, left);
+    s.count += put2;
+    left -= put2;
+  }
+  while (left > 0) {
+    const put2 = Math.min(cap, left);
+    const spawned = scene.spawn(`item/${kind}`, ownerId);
+    if (!spawned.ok) return spawned;
+    scene.flush();
+    const nodeId = spawned.value.id;
+    const made = scene.attach(nodeId, () => {
+      const s = new ItemStack();
+      s.kind = kind;
+      s.count = put2;
+      return s;
+    });
+    if (!made.ok) {
+      scene.destroy(nodeId);
+      scene.flush();
+      return made;
+    }
+    left -= put2;
+  }
+  scene.flush();
+  return ok(countItem(scene, ownerId, kind));
+}
+
+// src/extensions/combat/health.ts
+var HEALTH_TYPE = "combat.health";
+var Health = class extends Component {
+  /** 当前血量（整数，>= 0）。 */
+  hp = 10;
+  /** 上限（整数，> 0）。 */
+  maxHp = 10;
+  schema = {
+    type: HEALTH_TYPE,
+    fields: { hp: FieldType.Int, maxHp: FieldType.Int }
+  };
+  /**
+   * 无敌截止 tick（运行期，见文件头 ④）：`tick < invulnUntil` 时不受伤害。
+   * `-1` = 从来不无敌。
+   */
+  invulnUntil = -1;
+};
+function registerHealthComponent(registry2) {
+  if (!registry2.has(HEALTH_TYPE)) registry2.register(new Health().schema, () => new Health());
+}
+
+// src/extensions/survival/hunger.ts
+var HUNGER_TYPE = "game.hunger";
+var Hunger = class extends Component {
+  /** 当前饱食度（整数，>= 0）。0 = 饿着（见文件头 ②）。 */
+  value = 100;
+  /** 上限（整数，> 0）。 */
+  max = 100;
+  schema = {
+    type: HUNGER_TYPE,
+    fields: { value: FieldType.Int, max: FieldType.Int }
+  };
+};
+function registerHungerComponent(registry2) {
+  if (!registry2.has(HUNGER_TYPE)) registry2.register(new Hunger().schema, () => new Hunger());
+}
 
 // src/extensions/editor/outline.ts
 var DEFAULT_MAX_NODES = 2048;
@@ -8479,6 +8598,332 @@ function endPlaySession(deps, s) {
   }
   return ok({ rolledBack: true, made: back.value.made, skipped: back.value.skipped });
 }
+
+// src/extensions/flow/portal.ts
+var PORTAL_TYPE = "flow.portal";
+var PORTAL_DEFAULT_RADIUS = FIXED_UNITS * 3 / 2;
+var FLOW_PORTAL_NO_TARGET = "FLOW.PORTAL_NO_TARGET";
+var FLOW_PORTAL_BAD_RADIUS = "FLOW.PORTAL.BAD_RADIUS";
+var FLOW_PORTAL_DUPLICATE = "FLOW.PORTAL_DUPLICATE";
+var PORTAL_SCHEMA = {
+  type: PORTAL_TYPE,
+  fields: {
+    /** 目标场景名（工程里的槽位名）。空串 = 作者还没填，见 `FLOW_PORTAL_NO_TARGET`。 */
+    to: FieldType.String,
+    /** 触发半径（定点单位，> 0）。见文件头 ④。 */
+    radius: FieldType.Int
+  },
+  defaults: { to: "", radius: PORTAL_DEFAULT_RADIUS }
+};
+var Portal = class extends Component {
+  to = "";
+  radius = PORTAL_DEFAULT_RADIUS;
+  schema = PORTAL_SCHEMA;
+};
+function registerPortalComponent(registry2) {
+  if (!registry2.has(PORTAL_TYPE)) registry2.register(PORTAL_SCHEMA, () => new Portal());
+}
+function collectPortals(scene) {
+  const specs = [];
+  for (const p of scene.componentsOf(PORTAL_TYPE)) {
+    const node = p.node;
+    if (p.to === "") {
+      return err(
+        engineError(FLOW_PORTAL_NO_TARGET, `\u8282\u70B9\u300C${node.name}\u300D\u4E0A\u7684\u4F20\u9001\u95E8\u6CA1\u5199\u76EE\u6807\u573A\u666F\uFF08to \u662F\u7A7A\u4E32\uFF09`)
+      );
+    }
+    if (!Number.isInteger(p.radius) || p.radius <= 0) {
+      return err(
+        engineError(
+          FLOW_PORTAL_BAD_RADIUS,
+          `\u8282\u70B9\u300C${node.name}\u300D\u7684\u4F20\u9001\u95E8\u534A\u5F84\u662F ${String(p.radius)} \u2014\u2014 \u5FC5\u987B\u662F\u6B63\u6574\u6570\uFF08\u5B9A\u70B9\u5355\u4F4D\uFF0C256 = 1 \u683C\uFF09`
+        )
+      );
+    }
+    const w = scene.worldPositionOf(node.id);
+    if (w === void 0) {
+      return err(
+        engineError(FLOW_PORTAL_NO_TARGET, `\u8282\u70B9\u300C${node.name}\u300D\u4E0D\u5728\u573A\u666F\u91CC\uFF08\u53D6\u4E0D\u5230\u4E16\u754C\u5750\u6807\uFF09`)
+      );
+    }
+    specs.push({
+      name: node.name,
+      to: p.to,
+      radius: p.radius,
+      x: Math.round(w.x * FIXED_UNITS),
+      z: Math.round(w.y * FIXED_UNITS)
+    });
+  }
+  specs.sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+  for (let i = 1; i < specs.length; i++) {
+    if (specs[i].name === specs[i - 1].name) {
+      return err(
+        engineError(
+          FLOW_PORTAL_DUPLICATE,
+          `\u6709\u4E24\u6247\u4F20\u9001\u95E8\u90FD\u53EB\u300C${specs[i].name}\u300D\u2014\u2014 \u540D\u5B57\u7528\u6765\u8BB0"\u4E0A\u4E00\u523B\u5728\u54EA\u6247\u95E8\u91CC"\uFF0C\u5FC5\u987B\u552F\u4E00`
+        )
+      );
+    }
+  }
+  return ok(specs);
+}
+function hitTestPortals(x, z, portals) {
+  const hits = [];
+  for (const p of portals) {
+    const dx = x - p.x;
+    const dz = z - p.z;
+    const d2 = dx * dx + dz * dz;
+    if (d2 <= p.radius * p.radius) hits.push({ portal: p, distance2: d2 });
+  }
+  hits.sort((a, b) => {
+    if (a.distance2 !== b.distance2) return a.distance2 - b.distance2;
+    return a.portal.name < b.portal.name ? -1 : a.portal.name > b.portal.name ? 1 : 0;
+  });
+  return hits;
+}
+function keyOf(hits) {
+  return hits.length === 0 ? null : hits[0].portal.name;
+}
+var PortalWatcher = class {
+  key = null;
+  /** 当前所在的门名（诊断/自检读它，不直接摸私有状态）。 */
+  get insideKey() {
+    return this.key;
+  }
+  /**
+   * 重设"我现在站在哪儿" —— **跳转落地后必须调**（文件头 ②）。
+   *
+   * 语义：把"现在这扇门"记成"本来就该在这"，于是下一次 `enter` 不会因为
+   * "刚刚莫名从外面进来了"而触发。
+   */
+  reseed(x, z, portals) {
+    this.key = keyOf(hitTestPortals(x, z, portals));
+  }
+  /**
+   * 喂一个位置。返回"这一次真的跨进了一扇门"，否则 `null`。
+   *
+   * 三种情形**不是**跨越：集合没变（站着不动 / 在门里挪）；集合变成空（走出门）；
+   * 从没门的地方走到没门的地方。
+   */
+  enter(x, z, portals) {
+    const hits = hitTestPortals(x, z, portals);
+    const key = keyOf(hits);
+    if (key === this.key) return null;
+    this.key = key;
+    if (hits.length === 0) return null;
+    return hits[0];
+  }
+  /** 世界被换掉了（读档 / 停播回滚）：忘掉"我以前在哪儿"。 */
+  reset() {
+    this.key = null;
+  }
+};
+
+// src/extensions/flow/carry.ts
+var EMPTY_CARRY = { items: [], health: null, hunger: null };
+function readCarry(scene, nodeId) {
+  const node = scene.find(nodeId);
+  if (node === void 0) return EMPTY_CARRY;
+  const byKind = /* @__PURE__ */ new Map();
+  for (const s of stacksOf(scene, nodeId)) {
+    if (s.count <= 0) continue;
+    byKind.set(s.kind, (byKind.get(s.kind) ?? 0) + s.count);
+  }
+  const items = [...byKind.entries()].map(([kind, count]) => ({ kind, count })).sort((a, b) => a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : 0);
+  const hp = node.get(HEALTH_TYPE);
+  const hg = node.get(HUNGER_TYPE);
+  return {
+    items,
+    health: hp === void 0 ? null : { hp: hp.hp, maxHp: hp.maxHp },
+    hunger: hg === void 0 ? null : { value: hg.value, max: hg.max }
+  };
+}
+function applyCarry(scene, nodeId, carry) {
+  const applied = [];
+  const dropped = [];
+  const clamped = [];
+  const node = scene.find(nodeId);
+  if (node === void 0) {
+    return {
+      applied,
+      dropped: [`\u8282\u70B9 ${String(nodeId)} \u4E0D\u5728\u573A\u666F\u91CC\uFF08\u643A\u5E26\u5185\u5BB9\u5168\u90E8\u4E22\u6389\uFF09`],
+      clamped
+    };
+  }
+  if (carry.health !== null) {
+    const hp = node.get(HEALTH_TYPE);
+    if (hp === void 0) {
+      dropped.push(`\u8840\u91CF\uFF08\u76EE\u6807\u573A\u666F\u7684\u73A9\u5BB6\u8EAB\u4E0A\u6CA1\u6709 ${HEALTH_TYPE}\uFF09`);
+    } else {
+      const want = Math.max(0, carry.health.hp);
+      if (want > hp.maxHp) {
+        clamped.push(`\u8840\u91CF ${String(want)} \u2192 ${String(hp.maxHp)}\uFF08\u76EE\u6807\u4E0A\u9650\u66F4\u4F4E\uFF09`);
+        hp.hp = hp.maxHp;
+      } else {
+        hp.hp = want;
+      }
+      applied.push("health");
+    }
+  }
+  if (carry.hunger !== null) {
+    const hg = node.get(HUNGER_TYPE);
+    if (hg === void 0) {
+      dropped.push(`\u9971\u98DF\u5EA6\uFF08\u76EE\u6807\u573A\u666F\u7684\u73A9\u5BB6\u8EAB\u4E0A\u6CA1\u6709 ${HUNGER_TYPE}\uFF09`);
+    } else {
+      const want = Math.max(0, carry.hunger.value);
+      if (want > hg.max) {
+        clamped.push(`\u9971\u98DF\u5EA6 ${String(want)} \u2192 ${String(hg.max)}\uFF08\u76EE\u6807\u4E0A\u9650\u66F4\u4F4E\uFF09`);
+        hg.value = hg.max;
+      } else {
+        hg.value = want;
+      }
+      applied.push("hunger");
+    }
+  }
+  if (carry.items.length > 0) {
+    const inv = node.get(INVENTORY_TYPE);
+    if (inv === void 0) {
+      const total = carry.items.reduce((a, it) => a + it.count, 0);
+      dropped.push(`\u80CC\u5305 ${String(total)} \u4EF6\uFF08\u76EE\u6807\u573A\u666F\u7684\u73A9\u5BB6\u8EAB\u4E0A\u6CA1\u6709 ${INVENTORY_TYPE}\uFF09`);
+    } else {
+      let moved = 0;
+      for (const it of carry.items) {
+        moved += addUpTo(scene, nodeId, it.kind, it.count, inv.maxStack, dropped);
+      }
+      if (moved > 0) applied.push("items");
+    }
+  }
+  scene.flush();
+  return { applied, dropped, clamped };
+}
+function addUpTo(scene, ownerId, kind, count, cap, dropped) {
+  const step = Math.max(1, cap);
+  let left = count;
+  let moved = 0;
+  while (left > 0) {
+    const put2 = Math.min(left, step);
+    const r = addItem(scene, ownerId, kind, put2);
+    if (!r.ok) break;
+    left -= put2;
+    moved += put2;
+  }
+  if (left > 0) dropped.push(`\u80CC\u5305\u91CC\u7684 ${kind}\xD7${String(left)}\uFF08\u76EE\u6807\u80CC\u5305\u88C5\u4E0D\u4E0B\uFF09`);
+  return moved;
+}
+
+// src/extensions/flow/scene-flow.ts
+var FLOW_NO_SUCH_SCENE = "FLOW.NO_SUCH_SCENE";
+var FLOW_BAD_TARGET = "FLOW.BAD_TARGET";
+var FLOW_NO_SPAWN = "FLOW.NO_SPAWN";
+var FLOW_LOAD_FAILED = "FLOW.LOAD_FAILED";
+function findPlayerId(scene) {
+  let best = null;
+  for (const c of scene.componentsOf(PLAYER_TYPE)) {
+    const id = c.node?.id;
+    if (id === void 0) continue;
+    if (best === null || id < best) best = id;
+  }
+  return best;
+}
+function snapshotHasPlayer(snap) {
+  for (const n of snap.nodes) {
+    for (const c of n.components) if (c.type === PLAYER_TYPE) return true;
+  }
+  return false;
+}
+var SceneFlow = class {
+  current;
+  deps;
+  constructor(deps, startScene) {
+    this.deps = deps;
+    this.current = startScene;
+  }
+  /** 现在装的是哪一份场景。 */
+  get sceneName() {
+    return this.current;
+  }
+  /** 当前场景里的玩家节点 id（没有就是 `null`）。 */
+  playerId() {
+    return findPlayerId(this.deps.scene);
+  }
+  /**
+   * 跳到另一份场景。
+   *
+   * 失败语义分两类，调用方必须能分辨：
+   * - `NO_SUCH_SCENE` / `BAD_TARGET` / `NO_SPAWN`：**世界没动**，`current` 没动，
+   *   可以原样重试或让玩家继续玩；
+   * - `LOAD_FAILED`：世界**已经变过**，回滚是否成功写在消息里。这类之后不该继续跑。
+   */
+  jump(to) {
+    const { scene, registry: registry2, source } = this.deps;
+    if (to === this.current) {
+      return ok({
+        kind: "noop",
+        from: this.current,
+        to,
+        made: 0,
+        skipped: [],
+        carried: false,
+        dropped: [],
+        clamped: [],
+        landing: null
+      });
+    }
+    const text = source(to);
+    if (text === null) {
+      return err(engineError(FLOW_NO_SUCH_SCENE, `\u5DE5\u7A0B\u91CC\u6CA1\u6709\u540D\u4E3A\u300C${to}\u300D\u7684\u573A\u666F`));
+    }
+    const parsed = sceneFromJson(text);
+    if (!parsed.ok) {
+      return err(
+        engineError(FLOW_BAD_TARGET, `\u573A\u666F\u300C${to}\u300D\u7684\u6587\u6863\u8BFB\u4E0D\u4E86\uFF1A${parsed.error.message}`, {
+          cause: parsed.error.code
+        })
+      );
+    }
+    const snap = parsed.value;
+    if (!snapshotHasPlayer(snap)) {
+      return err(
+        engineError(
+          FLOW_NO_SPAWN,
+          `\u573A\u666F\u300C${to}\u300D\u91CC\u6CA1\u6709\u73A9\u5BB6\u8282\u70B9\uFF08${PLAYER_TYPE}\uFF09\u2014\u2014 \u8DF3\u8FC7\u53BB\u6CA1\u4EBA\u53EF\u64CD\u63A7\uFF1B\u5148\u5728\u90A3\u4E2A\u573A\u666F\u91CC\u653E\u4E00\u4E2A\u73A9\u5BB6\uFF08\u5B83\u7684\u4F4D\u7F6E\u5C31\u662F\u5165\u53E3\uFF09`
+        )
+      );
+    }
+    const from = this.current;
+    const srcPlayer = findPlayerId(scene);
+    const carry = srcPlayer === null ? null : readCarry(scene, srcPlayer);
+    const before = saveScene(scene);
+    const loaded = loadScene(scene, snap, registry2);
+    if (!loaded.ok) {
+      const back = loadScene(scene, before, registry2);
+      const tail = back.ok ? "\u5DF2\u56DE\u6EDA\u5230\u8DF3\u8F6C\u524D\u7684\u573A\u666F" : `\u56DE\u6EDA\u4E5F\u5931\u8D25\u4E86\uFF1A${back.error.message} \u2014\u2014 \u5DE5\u4F5C\u533A\u4E0D\u53EF\u4FE1`;
+      return err(
+        engineError(FLOW_LOAD_FAILED, `\u88C5\u8F7D\u573A\u666F\u300C${to}\u300D\u5931\u8D25\uFF1A${loaded.error.message}\uFF1B${tail}`, {
+          cause: loaded.error.code
+        })
+      );
+    }
+    const dstPlayer = findPlayerId(scene);
+    if (dstPlayer === null) {
+      throw new Error(`\u573A\u666F\u300C${to}\u300D\u88C5\u8F7D\u540E\u627E\u4E0D\u5230\u73A9\u5BB6\u8282\u70B9 \u2014\u2014 \u4E0E\u88C5\u8F7D\u524D\u7684\u9759\u6001\u68C0\u67E5\u77DB\u76FE`);
+    }
+    const applied = carry === null ? null : applyCarry(scene, dstPlayer, carry);
+    const w = scene.worldPositionOf(dstPlayer);
+    this.current = to;
+    return ok({
+      kind: "jumped",
+      from,
+      to,
+      made: loaded.value.made,
+      skipped: loaded.value.skipped,
+      carried: applied !== null && applied.applied.length > 0,
+      dropped: applied === null ? [] : applied.dropped,
+      clamped: applied === null ? [] : applied.clamped,
+      landing: w === void 0 ? null : { x: Math.round(w.x * FIXED_UNITS), z: Math.round(w.y * FIXED_UNITS) }
+    });
+  }
+};
 
 // src/extensions/render/atlas-from-assets.ts
 var DEFAULT_PADDING = 1;
@@ -12594,6 +13039,9 @@ var pie = createPie({ hz: HZ, maxStepTicks: 4 });
 var history = createUndoStack();
 var playSession = null;
 var lastStop = null;
+var flow = null;
+var portalWatcher = new PortalWatcher();
+var flowNote = "";
 var appRef = null;
 var heroId = -1;
 var booted = false;
@@ -12743,6 +13191,9 @@ var worldgenMod = {
     registerWorldComponents(scene.components);
     registerPlayerComponents(scene.components);
     registerInventoryComponents(scene.components);
+    registerHealthComponent(scene.components);
+    registerHungerComponent(scene.components);
+    registerPortalComponent(scene.components);
     if (!scene.components.has(SPRITE_TYPE)) {
       scene.components.register(new Sprite().schema, () => new Sprite());
     }
@@ -12906,8 +13357,28 @@ function propRow(nodeId, type, key, control, value) {
 function beginPlay() {
   const app = appRef;
   if (app === null) return null;
-  if (playSession === null) playSession = beginPlaySession(app.scene);
+  if (playSession === null) {
+    playSession = beginPlaySession(app.scene);
+    flow = makeFlow(app);
+    portalWatcher.reset();
+    flowNote = "";
+  }
   return playSession;
+}
+function makeFlow(app) {
+  if (project === null) return null;
+  return new SceneFlow(
+    {
+      scene: app.scene,
+      registry: app.scene.components,
+      source: (name) => {
+        const p = project;
+        if (p === null) return null;
+        return p.scenes.find((s) => s.name === name)?.text ?? null;
+      }
+    },
+    project.current
+  );
 }
 function stopPlay() {
   const app = appRef;
@@ -12920,6 +13391,9 @@ function stopPlay() {
   }
   const r = endPlaySession(docDeps(app), s);
   playSession = null;
+  flow = null;
+  portalWatcher.reset();
+  flowNote = "";
   if (!r.ok) {
     errEl.textContent = `${r.error.code}\uFF1A${r.error.message}`;
     refreshAll();
@@ -12933,6 +13407,84 @@ function stopPlay() {
   }
   afterHistoryChange();
   return { ok: true, rolledBack: r.value.rolledBack, made: r.value.made, edits: s.edits };
+}
+var EDIT_NOT_PLAYING = "EDIT.NOT_PLAYING";
+function doPlayJump(name) {
+  const app = appRef;
+  if (app === null) return { ok: false, code: "EDIT.NOT_READY", message: "\u7F16\u8F91\u5668\u8FD8\u6CA1\u542F\u52A8" };
+  if (playSession === null) {
+    return {
+      ok: false,
+      code: EDIT_NOT_PLAYING,
+      message: "\u4E0D\u5728\u8BD5\u73A9\u4E2D\uFF1A\u5207\u573A\u666F\u8BF7\u70B9\u573A\u666F\u9762\u677F\uFF08\u90A3\u6761\u8DEF\u4F1A\u5148\u4FDD\u5B58\u5F53\u524D\u573A\u666F\uFF09"
+    };
+  }
+  const f = flow;
+  if (f === null) return { ok: false, code: "EDIT.NOT_READY", message: "\u6D41\u7A0B\u5C42\u6CA1\u8D77\u6765\uFF08\u5DE5\u7A0B\u8FD8\u6CA1\u5C31\u7EEA\uFF09" };
+  const r = f.jump(name);
+  if (!r.ok) {
+    errEl.textContent = `${r.error.code}\uFF1A${r.error.message}`;
+    flowNote = `\u8DF3\u8F6C\u88AB\u62D2\uFF1A${r.error.code}`;
+    docInfoEl.textContent = flowNote;
+    return { ok: false, code: r.error.code, message: r.error.message };
+  }
+  const portals = collectPortals(app.scene);
+  if (r.value.landing !== null && portals.ok) {
+    portalWatcher.reseed(r.value.landing.x, r.value.landing.z, portals.value);
+  } else {
+    portalWatcher.reset();
+  }
+  flowNote = describePlayJump(r.value);
+  docInfoEl.textContent = flowNote;
+  const np = findPlayerId(app.scene);
+  if (np !== null) heroId = np;
+  errEl.textContent = r.value.dropped.length > 0 ? `\u8DF3\u8F6C\u4E22\u4E0B\u4E86\uFF1A${r.value.dropped.join("\uFF1B")}` : "";
+  refreshTree();
+  refreshProps();
+  refreshHistory();
+  refreshScenes();
+  return {
+    ok: true,
+    kind: r.value.kind,
+    from: r.value.from,
+    to: r.value.to,
+    carried: r.value.carried,
+    dropped: r.value.dropped
+  };
+}
+function describePlayJump(r) {
+  if (r.kind === "noop") return `\u5DF2\u7ECF\u5728\u300C${r.to}\u300D\u91CC\uFF08\u8BD5\u73A9\u4E2D\u7684\u8DF3\u8F6C\u4E0D\u6539\u5DE5\u7A0B\uFF09`;
+  const parts = [`\u8BD5\u73A9\u8DF3\u5230\u300C${r.to}\u300D\uFF1A${String(r.made)} \u4E2A\u8282\u70B9`];
+  parts.push(r.carried ? "\u80CC\u5305/\u8840\u91CF/\u9971\u98DF\u5DF2\u5E26\u8FC7\u53BB" : "\u6CA1\u6709\u53EF\u643A\u5E26\u7684\u72B6\u6001");
+  if (r.clamped.length > 0) parts.push(`${String(r.clamped.length)} \u9879\u88AB\u4E0A\u9650\u5939\u4F4F`);
+  if (r.skipped.length > 0) parts.push(`${String(r.skipped.length)} \u6761\u88AB\u8DF3\u8FC7`);
+  return parts.join(" \xB7 ");
+}
+function autoPortal() {
+  const app = appRef;
+  const f = flow;
+  if (app === null || f === null) return;
+  const pid = findPlayerId(app.scene);
+  if (pid === null) return;
+  const w = app.scene.worldPositionOf(pid);
+  if (w === void 0) return;
+  const portals = collectPortals(app.scene);
+  if (!portals.ok) {
+    const line = `${portals.error.code}\uFF1A${portals.error.message}`;
+    if (flowNote !== line) {
+      flowNote = line;
+      errEl.textContent = line;
+      docInfoEl.textContent = line;
+    }
+    return;
+  }
+  const hit = portalWatcher.enter(
+    Math.round(w.x * FIXED_UNITS),
+    Math.round(w.y * FIXED_UNITS),
+    portals.value
+  );
+  if (hit === null) return;
+  doPlayJump(hit.portal.to);
 }
 function commitField(nodeId, type, key, raw) {
   const app = appRef;
@@ -13011,13 +13563,17 @@ function refreshScenes() {
   if (p === null) return;
   sceneCountEl.textContent = `${String(p.scenes.length)} \u4E2A`;
   sceneListEl.textContent = "";
+  const playing = playSession !== null && flow !== null;
+  const active = playing && flow !== null ? flow.sceneName : p.current;
   for (const name of sceneNames(p)) {
     const row = document.createElement("div");
-    row.className = name === p.current ? "srow sel" : "srow";
+    row.className = name === active ? "srow sel" : "srow";
     row.dataset.name = name;
-    row.textContent = name;
+    row.textContent = playing && name === active ? `${name} \u25B6` : name;
+    row.title = playing ? "\u8BD5\u73A9\u4E2D\uFF1A\u8DF3\u5230\u8FD9\u4E2A\u573A\u666F\uFF08\u6C99\u76D2 \u2014\u2014 \u4E0D\u6539\u5DE5\u7A0B\uFF0C\u505C\u64AD\u56DE\u6EDA\uFF09" : "\u5207\u6362\u5230\u8FD9\u4E2A\u573A\u666F\uFF08\u5F53\u524D\u573A\u666F\u4F1A\u5148\u4FDD\u5B58\uFF09";
     row.addEventListener("click", () => {
-      doSceneSwitch(name);
+      if (playSession !== null) doPlayJump(name);
+      else doSceneSwitch(name);
     });
     sceneListEl.appendChild(row);
   }
@@ -13607,7 +14163,10 @@ function loop(now) {
   const app = appRef;
   if (app !== null) {
     const ticks = pie.advance(dt);
-    for (let i = 0; i < ticks; i++) app.frame(FIXED_DT);
+    for (let i = 0; i < ticks; i++) {
+      app.frame(FIXED_DT);
+      if (playSession !== null) autoPortal();
+    }
     if (now - uiClock > 500) {
       uiClock = now;
       refreshTree();
@@ -13684,7 +14243,10 @@ function installApi(app) {
     step(n) {
       beginPlay();
       const k = Math.max(0, Math.floor(n));
-      for (let i = 0; i < k; i++) app.frame(FIXED_DT);
+      for (let i = 0; i < k; i++) {
+        app.frame(FIXED_DT);
+        if (playSession !== null) autoPortal();
+      }
       return app.scheduler.stats().tick;
     },
     play() {
@@ -13777,6 +14339,12 @@ function installApi(app) {
     },
     sceneDelete(name) {
       return doSceneDelete(name);
+    },
+    playJump(name) {
+      return doPlayJump(name);
+    },
+    playScene() {
+      return flow === null ? null : flow.sceneName;
     },
     saveInfo() {
       let storedBytes = -1;

@@ -867,6 +867,146 @@ const PROBE = `
       " 场景数=" + (sp3 === null ? "?" : sp3.scenes.length),
   );
 
+  // ---------------- 试玩中的跳转（批92）
+  //
+  // ★ 三条各验一件事，不许互相顶替：
+  //   ① 不在试玩里调 playJump 要被拒（"试玩是沙盒"这个前提本身要能验）；
+  //   ② 命令面跳转 + 携带 + 停播回滚（跳转一个槽位都不写）；
+  //   ③ ★★ 玩家脚下有门 ⇒ 推进一步就自动跳。只验 ② 的话，门这一整套
+  //      （collectPortals / PortalWatcher / autoPortal）可以一行都没接上而判据全绿。
+  //
+  // ★ 目标用已有的「落盘场景」而不是新建一个：这一段结束时工程必须还是 2 个场景
+  //   （刷新之后那个探针就按这个数验），为了夹具再造一个场景会让后面的判据红在一个
+  //   与它无关的数字上。
+  const notPlaying = E.playJump("main");
+  add(
+    "★ 不在试玩中调 playJump 被拒（EDIT.NOT_PLAYING）—— 那时候该走场景面板",
+    notPlaying.ok === false && notPlaying.code === "EDIT.NOT_PLAYING",
+    JSON.stringify(notPlaying),
+  );
+
+  // 目标场景里造一个"像样"的玩家（标记 + 控制器 + 血 + 饥饿 + 背包）
+  const inTgt = E.sceneSwitch("落盘场景");
+  const tPlayer = E.addNode("player");
+  const attached = ["world.player", "game.controller", "combat.health", "game.hunger", "game.inventory"]
+    .map((t) => E.compAttach(t, tPlayer.id).ok);
+  const tOnly = E.addNode("只在目标场景里");
+  const backMain0 = E.sceneSwitch("main");
+  add(
+    "★ 目标场景里备好一个玩家（否则跳过去会 NO_SPAWN）",
+    inTgt.ok === true && tPlayer.ok === true && attached.every((x) => x === true) &&
+      tOnly.ok === true && backMain0.ok === true,
+    "player=" + JSON.stringify(tPlayer) + " 组件=" + JSON.stringify(attached) +
+      " tOnly=" + JSON.stringify(tOnly) + " back=" + JSON.stringify(backMain0),
+  );
+
+  // main 这边的玩家：血 7/10、饱食 50、背包里 5 个木头，脚下还有一扇通往目标的门
+  const heroM = E.hero();
+  E.select(heroM);
+  E.compAttach("combat.health", heroM);
+  E.setField(heroM, "combat.health", "hp", "7");
+  E.setField(heroM, "combat.health", "maxHp", "10");
+  E.compAttach("game.hunger", heroM);
+  E.setField(heroM, "game.hunger", "value", "50");
+  E.compAttach("game.inventory", heroM);
+  const wood = E.addNode("item/wood");
+  E.compAttach("game.item", wood.id);
+  E.setField(wood.id, "game.item", "kind", "wood");
+  E.setField(wood.id, "game.item", "count", "5");
+  const door = E.compAttach("flow.portal", heroM);
+  E.setField(heroM, "flow.portal", "to", "落盘场景");
+  E.setField(heroM, "flow.portal", "radius", "1024");
+  add(
+    "★ 夹具：main 的玩家有血 / 饱食 / 背包，脚下有一扇通往「落盘场景」的门",
+    wood.ok === true && door.ok === true && E.compCount("flow.portal", heroM) === 1,
+    JSON.stringify({ wood, door }) + " portal=" + E.compCount("flow.portal", heroM),
+  );
+
+  E.step(1);
+  const jumpedTo = E.playScene();
+  const heroT = E.hero();
+  E.select(heroT);
+  const pnl = E.panel();
+  const valOf = (type, key) => {
+    const g = pnl.groups.find((x) => x.type === type);
+    const f = g === undefined ? undefined : g.fields.find((x) => x.key === key);
+    return f === undefined ? null : f.value;
+  };
+  const namesJump = E.outline().map((r) => r.name);
+  const selRow = document.querySelector("#scenelist .srow.sel");
+  add(
+    "★★ 玩家脚下有一扇门：推进一步就自动跳过去（「每 tick 喂一次位置」这条接线真的接上了）",
+    jumpedTo === "落盘场景" && namesJump.includes("只在目标场景里") &&
+      !namesJump.includes("只属于 main"),
+    "playScene=" + JSON.stringify(jumpedTo) + " 节点=" + JSON.stringify(namesJump),
+  );
+  add(
+    "★★ 跳过去之后血 / 饱食 / 背包都跟着人走（不是「换了个人」）",
+    valOf("combat.health", "hp") === 7 && valOf("game.hunger", "value") === 50 &&
+      namesJump.includes("item/wood"),
+    "hp=" + JSON.stringify(valOf("combat.health", "hp")) +
+      " 饱食=" + JSON.stringify(valOf("game.hunger", "value")) +
+      " 节点=" + JSON.stringify(namesJump),
+  );
+  add(
+    "★★ 场景面板高亮「试玩现在在哪一份」并标着 ▶（世界换了，面板不能还停在原来那行）",
+    selNames().length === 1 && selNames()[0] === "落盘场景" &&
+      (selRow === null ? "" : selRow.textContent).indexOf("▶") > 0,
+    "高亮=" + JSON.stringify(selNames()) + " 文案=" +
+      JSON.stringify(selRow === null ? null : selRow.textContent),
+  );
+
+  const stoppedJ = E.stop();
+  const namesBack = E.outline().map((r) => r.name);
+  add(
+    "★★ 停播回滚：工程回到进试玩那一刻（试玩里跳过的场景一个槽位都没被改写）",
+    stoppedJ.ok === true && stoppedJ.rolledBack === true &&
+      E.scenes().current === "main" && namesBack.includes("只属于 main") &&
+      !namesBack.includes("只在目标场景里"),
+    JSON.stringify(stoppedJ) + " current=" + E.scenes().current +
+      " 节点=" + JSON.stringify(namesBack),
+  );
+
+  // ---- 路径 B：真实播放（requestAnimationFrame 驱动 loop）
+  //
+  // ★★ 为什么必须再来一遍：上面那次跳转走的是**命令面 E.step()**（直接推帧），
+  //   而"人点播放按钮"走的是 loop() 里的 rAF 分支。这两条路**各自**要喂一次玩家位置，
+  //   只验 step 那条的话，把 loop 里那一句删掉判据照样全绿 —— 而那正是人真正会用的那条路。
+  //   （批89 的教训是"命令面判据 ≠ 接线判据"，这里是它的另一面：命令面判据只覆盖命令面。）
+  E.play();
+  const tPlay0 = Date.now();
+  while (Date.now() - tPlay0 < 1500 && E.playScene() !== "落盘场景") {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  const jumpedByPlay = E.playScene();
+  E.pause();
+  const stoppedP = E.stop();
+  add(
+    "★★ 点「播放」走进门也会跳（loop 那条帧路径与命令面 step 各喂一次）",
+    jumpedByPlay === "落盘场景" && stoppedP.ok === true && stoppedP.rolledBack === true,
+    "playScene=" + JSON.stringify(jumpedByPlay) + " stop=" + JSON.stringify(stoppedP) +
+      " current=" + E.scenes().current,
+  );
+
+  const backT = E.sceneSwitch("落盘场景");
+  const hasOnly = E.outline().some((r) => r.name === "只在目标场景里");
+  const backM2 = E.sceneSwitch("main");
+  add(
+    "★★ 跳转没有污染目标场景的槽位（切过去它自己的节点还在，当前项也回得来）",
+    backT.ok === true && hasOnly === true && backM2.ok === true &&
+      E.scenes().current === "main",
+    JSON.stringify({ backT, backM2 }) + " 有只在目标里=" + String(hasOnly) +
+      " current=" + E.scenes().current,
+  );
+
+  // ★ 清理：门是这一段的夹具，留在工程里会让「之后每次试玩一进去就跳」。
+  const unDoor = E.compDetach("flow.portal", heroM);
+  add(
+    "★ 收尾：把夹具那扇门卸掉（否则之后每次试玩一进去就跳）",
+    unDoor.ok === true && E.compCount("flow.portal", heroM) === 0,
+    JSON.stringify(unDoor) + " 剩余门=" + E.compCount("flow.portal", heroM),
+  );
+
   return rows;
 })()
 `;
