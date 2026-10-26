@@ -45,8 +45,14 @@
 
   #props h2 { margin: 0 0 6px; font-size: 12px; color: #8b98a8; font-weight: 600; }
   #props h3 { margin: 12px 0 4px; font-size: 11px; color: #6a7684; font-weight: 600;
-    border-bottom: 1px solid #1d2530; padding-bottom: 3px; }
+    border-bottom: 1px solid #1d2530; padding-bottom: 3px; display: flex;
+    align-items: center; justify-content: space-between; gap: 6px; }
   #props .empty { color: #6a7684; }
+  /* 挂组件那一行 / 每个组件标题右侧的「卸下」：同一套小按钮口径，
+     免得「卸下」比「挂上」大一圈，看起来像是另一种操作。 */
+  .comp-add { display: flex; gap: 6px; align-items: center; margin: 2px 0 6px; }
+  .comp-add select { flex: 1 1 auto; min-width: 0; font-size: 11px; }
+  .comp-add button, .comp-off { font-size: 10px; padding: 1px 6px; line-height: 15px; }
   .f { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
   .f label { flex: 0 0 74px; color: #9fb4d0; overflow: hidden; text-overflow: ellipsis; }
   .f input[type=text], .f input[type=number] { flex: 1 1 auto; min-width: 0;

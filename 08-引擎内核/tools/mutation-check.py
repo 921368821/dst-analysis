@@ -3412,6 +3412,44 @@ MUTANTS = [
                    "  deps.scene.clear();\n  const parsed = sceneFromJson(text);\n  if (!parsed.ok) {")],
         "test": "tests/extensions/editor-session.test.ts",
     },
+    {
+        "name": "M370 撤销卸载时不检查「节点上那个还是不是它」（按类型摘会摘掉别人新挂的）",
+        "file": "src/extensions/editor/undo-ops.ts",
+        # ★ 这一条对应的事故：撤销栈里记的是**实例**，而 `scene.detach` 是**按类型**找的。
+        #   不比对就把别人刚挂的同类组件摘掉了 —— 界面上「撤销成功」，活干错了。
+        "pairs": [("    if (current !== this.comp) {", "    if (false) {")],
+        "test": "tests/extensions/editor-component-ops.test.ts",
+    },
+    {
+        "name": "M371 重做挂上时覆盖别人的同类组件（应当报错，而不是把新的换掉）",
+        "file": "src/extensions/editor/undo-ops.ts",
+        "pairs": [("    if (existing !== undefined) {", "    if (false) {")],
+        "test": "tests/extensions/editor-component-ops.test.ts",
+    },
+    {
+        "name": "M372 允许同一节点挂两个同类组件（面板会出现两段一模一样的字段）",
+        "file": "src/extensions/editor/undo-ops.ts",
+        "pairs": [("  if (already !== undefined) {", "  if (false) {")],
+        "test": "tests/extensions/editor-component-ops.test.ts",
+    },
+    {
+        "name": "M373 卸一个本来就没挂的组件也当成功（历史里多一条什么都没做的动作）",
+        "file": "src/extensions/editor/undo-ops.ts",
+        "pairs": [("  if (comp === undefined) {\n    return err(engineError(EDIT_BAD_COMP, `节点 #${String(nodeId)} 上没有 ${type}`));",
+                   "  if (false) {\n    return err(engineError(EDIT_BAD_COMP, `节点 #${String(nodeId)} 上没有 ${type}`));")],
+        "test": "tests/extensions/editor-component-ops.test.ts",
+    },
+    {
+        # 页面级判据（走 cmd，看退出码）：组件操作的收尾若不压历史，
+        # 纯函数层全绿（undo-ops 的 op 本身没问题），只有页面上「撤销按钮没亮」。
+        # 这正是「纯模型层判据证不到接线」的那一类，必须用浏览器那条判据。
+        "name": "M374 组件挂/卸不压进历史（撤销按钮不亮，而 op 本身是对的）",
+        "file": "src/editor-entry.ts",
+        "pairs": [("  const pushed = history.push(op);",
+                   "  const pushed: { ok: boolean; error?: { code: string; message: string } } = { ok: true };")],
+        "cmd": ["node", "tools/editor-selftest.mjs", "--build"],
+        "env_exit": 2,
+    },
 ]
 
 

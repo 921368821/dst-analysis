@@ -7881,6 +7881,101 @@ function deleteNodeWithUndo(scene, nodeId) {
   });
   return ok({ op, nodeId, warnings: () => warnings });
 }
+var EDIT_BAD_COMP = "EDIT.BAD_COMP";
+var ComponentOp = class {
+  scene;
+  nodeId;
+  comp;
+  /** `true` = 这条历史是「挂上」（apply 挂、revert 卸）；`false` 反过来。 */
+  attachFirst;
+  constructor(scene, nodeId, comp, attachFirst) {
+    this.scene = scene;
+    this.nodeId = nodeId;
+    this.comp = comp;
+    this.attachFirst = attachFirst;
+  }
+  get label() {
+    return `${this.attachFirst ? "\u6302\u4E0A" : "\u5378\u4E0B"} ${this.comp.type}`;
+  }
+  apply() {
+    return this.attachFirst ? this.doAttach() : this.doDetach();
+  }
+  revert() {
+    return this.attachFirst ? this.doDetach() : this.doAttach();
+  }
+  doAttach() {
+    const node = this.scene.find(this.nodeId);
+    if (node === void 0) {
+      return err(
+        engineError(EDIT_BAD_NODE, `\u8282\u70B9 #${String(this.nodeId)} \u5DF2\u7ECF\u4E0D\u5728\u4E86\uFF0C${this.comp.type} \u6302\u4E0D\u56DE\u53BB`)
+      );
+    }
+    const existing = node.get(this.comp.type);
+    if (existing === this.comp) return ok(void 0);
+    if (existing !== void 0) {
+      return err(
+        engineError(
+          EDIT_BAD_COMP,
+          `\u8282\u70B9 #${String(this.nodeId)} \u4E0A\u5DF2\u7ECF\u6709\u4E00\u4E2A ${this.comp.type} \u4E86\uFF08\u540C\u7C7B\u578B\u53EA\u5141\u8BB8\u4E00\u4E2A\uFF09`
+        )
+      );
+    }
+    this.scene.attach(this.nodeId, () => this.comp);
+    this.scene.flush();
+    if (this.scene.find(this.nodeId)?.get(this.comp.type) !== this.comp) {
+      return err(engineError(UNDO_OP_FAILED, `\u628A ${this.comp.type} \u6302\u56DE\u53BB\u6CA1\u6709\u751F\u6548`));
+    }
+    return ok(void 0);
+  }
+  doDetach() {
+    const node = this.scene.find(this.nodeId);
+    if (node === void 0) {
+      return err(engineError(EDIT_BAD_NODE, `\u8282\u70B9 #${String(this.nodeId)} \u5DF2\u7ECF\u4E0D\u5728\u4E86\uFF0C\u6CA1\u6709 ${this.comp.type} \u53EF\u5378`));
+    }
+    const current = node.get(this.comp.type);
+    if (current !== this.comp) {
+      return err(
+        engineError(EDIT_BAD_COMP, `\u8282\u70B9 #${String(this.nodeId)} \u4E0A\u7684 ${this.comp.type} \u4E0D\u662F\u8FD9\u6761\u5386\u53F2\u91CC\u7684\u90A3\u4E00\u4E2A`)
+      );
+    }
+    this.scene.detach(this.nodeId, this.comp.type);
+    this.scene.flush();
+    if (this.scene.find(this.nodeId)?.get(this.comp.type) !== void 0) {
+      return err(engineError(UNDO_OP_FAILED, `\u628A ${this.comp.type} \u5378\u4E0B\u6765\u6CA1\u6709\u751F\u6548`));
+    }
+    return ok(void 0);
+  }
+};
+function attachComponentWithUndo(scene, registry2, nodeId, type) {
+  const node = scene.find(nodeId);
+  if (node === void 0) return err(engineError(EDIT_BAD_NODE, `\u8282\u70B9 #${String(nodeId)} \u4E0D\u5728\u573A\u666F\u91CC`));
+  const already = node.get(type);
+  if (already !== void 0) {
+    return err(engineError(EDIT_BAD_COMP, `\u8282\u70B9 #${String(nodeId)} \u4E0A\u5DF2\u7ECF\u6709\u4E00\u4E2A ${type} \u4E86`));
+  }
+  const comp = registry2.create(type);
+  if (comp === void 0) return err(engineError(EDIT_BAD_COMP, `\u7EC4\u4EF6\u7C7B\u578B ${type} \u6CA1\u6709\u6CE8\u518C`));
+  scene.attach(nodeId, () => comp);
+  scene.flush();
+  if (node.get(type) !== comp) {
+    return err(engineError(UNDO_OP_FAILED, `\u6302\u4E0A ${type} \u6CA1\u6709\u751F\u6548\uFF08\u8282\u70B9\u53EF\u80FD\u521A\u88AB\u9500\u6BC1\uFF09`));
+  }
+  return ok({ op: new ComponentOp(scene, nodeId, comp, true), nodeId, warnings: () => [] });
+}
+function detachComponentWithUndo(scene, nodeId, type) {
+  const node = scene.find(nodeId);
+  if (node === void 0) return err(engineError(EDIT_BAD_NODE, `\u8282\u70B9 #${String(nodeId)} \u4E0D\u5728\u573A\u666F\u91CC`));
+  const comp = node.get(type);
+  if (comp === void 0) {
+    return err(engineError(EDIT_BAD_COMP, `\u8282\u70B9 #${String(nodeId)} \u4E0A\u6CA1\u6709 ${type}`));
+  }
+  scene.detach(nodeId, type);
+  scene.flush();
+  if (node.get(type) !== void 0) {
+    return err(engineError(UNDO_OP_FAILED, `\u5378\u4E0B ${type} \u6CA1\u6709\u751F\u6548`));
+  }
+  return ok({ op: new ComponentOp(scene, nodeId, comp, false), nodeId, warnings: () => [] });
+}
 
 // src/editor-entry.ts
 var WORLD_SEED = 20261025;
@@ -8027,6 +8122,7 @@ function refreshProps() {
   const h = document.createElement("h2");
   h.textContent = `${node.name}  #${String(node.id)}`;
   frag.appendChild(h);
+  frag.appendChild(mkCompAdd(primary, node));
   if (node.components.length === 0) {
     const e = document.createElement("div");
     e.className = "empty";
@@ -8036,12 +8132,48 @@ function refreshProps() {
   for (const comp of node.components) {
     const t = document.createElement("h3");
     t.textContent = comp.type;
+    const off = document.createElement("button");
+    off.className = "comp-off";
+    off.dataset["detach"] = comp.type;
+    off.textContent = "\u5378\u4E0B";
+    off.addEventListener("click", () => {
+      doDetachComp(comp.type);
+    });
+    t.appendChild(off);
     frag.appendChild(t);
     for (const f of fieldsOf(comp)) {
       frag.appendChild(propRow(primary, comp.type, f.key, f.control, f.value));
     }
   }
   propsEl.replaceChildren(frag);
+}
+function availableTypes(node) {
+  const app = appRef;
+  if (app === null) return [];
+  const has = new Set(node.components.map((c) => c.type));
+  return app.scene.components.types().filter((t) => !has.has(t));
+}
+function mkCompAdd(nodeId, node) {
+  const row = document.createElement("div");
+  row.className = "comp-add";
+  const types = availableTypes(node);
+  const sel = document.createElement("select");
+  sel.id = "comp-pick";
+  for (const t of types) {
+    const o = document.createElement("option");
+    o.value = t;
+    o.textContent = t;
+    sel.appendChild(o);
+  }
+  const btn = document.createElement("button");
+  btn.id = "btn-comp-add";
+  btn.textContent = "\u6302\u4E0A\u7EC4\u4EF6";
+  btn.disabled = types.length === 0;
+  btn.addEventListener("click", () => {
+    if (sel.value !== "") doAttachComp(sel.value, nodeId);
+  });
+  row.append(sel, btn);
+  return row;
 }
 function mkEmpty(text) {
   const d = document.createElement("div");
@@ -8165,6 +8297,50 @@ function refreshHistory() {
   if (history.nextUndoLabel !== null) parts.push(`\u5F85\u64A4\u9500\uFF1A${history.nextUndoLabel}`);
   if (history.nextRedoLabel !== null) parts.push(`\u5F85\u91CD\u505A\uFF1A${history.nextRedoLabel}`);
   histEl.textContent = parts.join(" \xB7 ");
+}
+function doAttachComp(type, nodeId) {
+  const app = appRef;
+  if (app === null) return { ok: false, code: "EDIT.NOT_READY", message: "\u7F16\u8F91\u5668\u8FD8\u6CA1\u542F\u52A8" };
+  const id = nodeId ?? selection.primary;
+  if (id === null) return { ok: false, code: "EDIT.BAD_NODE", message: "\u6CA1\u6709\u9009\u4E2D\u4EFB\u4F55\u8282\u70B9" };
+  let r;
+  try {
+    r = attachComponentWithUndo(app.scene, app.scene.components, id, type);
+  } catch (e) {
+    app.scene.detach(id, type);
+    app.scene.flush();
+    const msg = `\u6302 ${type} \u65F6\u7EC4\u4EF6\u81EA\u5DF1\u629B\u4E86\uFF1A${e instanceof Error ? e.message : String(e)}\uFF08\u5DF2\u56DE\u6EDA\uFF09`;
+    errEl.textContent = msg;
+    afterHistoryChange();
+    return { ok: false, code: "EDIT.BAD_COMP", message: msg };
+  }
+  if (!r.ok) {
+    errEl.textContent = `${r.error.code}\uFF1A${r.error.message}`;
+    return { ok: false, code: r.error.code, message: r.error.message };
+  }
+  return commitCompOp(r.value.op);
+}
+function commitCompOp(op) {
+  const pushed = history.push(op);
+  if (!pushed.ok) {
+    errEl.textContent = `${pushed.error.code}\uFF1A${pushed.error.message}`;
+    return { ok: false, code: pushed.error.code, message: pushed.error.message };
+  }
+  errEl.textContent = "";
+  afterHistoryChange();
+  return { ok: true };
+}
+function doDetachComp(type, nodeId) {
+  const app = appRef;
+  if (app === null) return { ok: false, code: "EDIT.NOT_READY", message: "\u7F16\u8F91\u5668\u8FD8\u6CA1\u542F\u52A8" };
+  const id = nodeId ?? selection.primary;
+  if (id === null) return { ok: false, code: "EDIT.BAD_NODE", message: "\u6CA1\u6709\u9009\u4E2D\u4EFB\u4F55\u8282\u70B9" };
+  const r = detachComponentWithUndo(app.scene, id, type);
+  if (!r.ok) {
+    errEl.textContent = `${r.error.code}\uFF1A${r.error.message}`;
+    return { ok: false, code: r.error.code, message: r.error.message };
+  }
+  return commitCompOp(r.value.op);
 }
 function afterHistoryChange() {
   const app = appRef;
@@ -8373,6 +8549,25 @@ function installApi(app) {
     },
     docText() {
       return docText.value;
+    },
+    compAvailable(node) {
+      const id = node ?? selection.primary;
+      if (id === null) return [];
+      const n = app.scene.find(id);
+      return n === void 0 ? [] : availableTypes(n);
+    },
+    compAttach(type, node) {
+      return doAttachComp(type, node);
+    },
+    compDetach(type, node) {
+      return doDetachComp(type, node);
+    },
+    compCount(type, node) {
+      const id = node ?? selection.primary;
+      if (id === null) return -1;
+      const n = app.scene.find(id);
+      if (n === void 0) return -1;
+      return n.components.filter((c) => c.type === type).length;
     }
   };
   window.__editor = api;

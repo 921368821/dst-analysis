@@ -58,6 +58,12 @@ const DECLARED = [
   "step(3) 推进 3 个 tick",
   "播放后 tick 会涨",
   "暂停后 tick 不再涨",
+  "★ 选中项上有一个可卸的组件（拿不到的话下面三条都是废话）",
+  "★★ 卸下组件：节点上没了、面板里也没了，历史里有一条「卸下」",
+  "★★ 撤销卸下：组件回到节点上，字段也回来了（同类型仍然只有一个）",
+  "★ 同类型不许挂第二个：被拒，且节点上仍然只有一个",
+  "★ 挂上组件也进历史（卸了再挂回，历史里出现「挂上」）",
+  "★ 撤销挂上：组件又没了（挂上确实是一条可撤销的操作，不是只压了个标签）",
   "文档保存到文本（长度 > 0，且真的写进了文本框）",
   "★★ 打开坏文档：报错，且场景原样还在",
   "★★ 打开合法文档：节点数回到保存时，且历史被清空",
@@ -193,6 +199,63 @@ const PROBE = `
   // ★ a > c：暂停测之前世界必须真的在跑，否则"不涨"是废话
   add("暂停后 tick 不再涨", b === a && a > c, "a=" + a + " b=" + b + " c=" + c);
   E.pause();
+
+  // ---- 组件挂载 / 卸载（批83）
+  // ★ 放在文档那一段之前：文档会把场景整体替换掉，之后就没有"已知带组件的节点"了。
+  // ★ 先重新选一个**带组件**的节点：上面那几段（删除 / 撤销 / 播放）会把选中清掉或换掉，
+  //   直接读 panel() 会拿到 null，四条断言就全变成"什么都没测"。
+  const hostForComp = E.outline().find((r) => r.types.length > 0);
+  if (hostForComp !== undefined) E.select(hostForComp.id);
+  const picked = (() => {
+    const p = E.panel();
+    if (p === null || p.groups.length === 0) return null;
+    return p.groups[0].type;
+  })();
+  add(
+    "★ 选中项上有一个可卸的组件（拿不到的话下面三条都是废话）",
+    typeof picked === "string" && picked.length > 0,
+    "picked=" + String(picked) + " groups=" + String(E.panel() === null ? -1 : E.panel().groups.length),
+  );
+  const off = E.compDetach(String(picked));
+  add(
+    "★★ 卸下组件：节点上没了、面板里也没了，历史里有一条「卸下」",
+    off.ok === true &&
+      E.compCount(String(picked)) === 0 &&
+      E.panel().groups.every((g) => g.type !== picked) &&
+      E.history().undo.indexOf("卸下 " + String(picked)) >= 0,
+    JSON.stringify(off) + " count=" + String(E.compCount(String(picked))) + " undo=" + E.history().undo.join("/"),
+  );
+  const undoOff = E.undo();
+  add(
+    "★★ 撤销卸下：组件回到节点上，字段也回来了（同类型仍然只有一个）",
+    undoOff.kind === "done" &&
+      E.compCount(String(picked)) === 1 &&
+      E.panel().groups.some((g) => g.type === picked),
+    JSON.stringify(undoOff) + " count=" + String(E.compCount(String(picked))),
+  );
+  const dup = E.compAttach(String(picked));
+  add(
+    "★ 同类型不许挂第二个：被拒，且节点上仍然只有一个",
+    dup.ok === false && dup.code === "EDIT.BAD_COMP" && E.compCount(String(picked)) === 1,
+    JSON.stringify(dup) + " count=" + String(E.compCount(String(picked))),
+  );
+  // ★ 反方向也要验：上一条只证明「卸下」进了历史。挂与卸是两条接线，
+  //   漏掉任何一条的表现都是「撤销按钮没亮」，看起来像撤销栈坏了。
+  E.compDetach(String(picked));
+  const reattach = E.compAttach(String(picked));
+  add(
+    "★ 挂上组件也进历史（卸了再挂回，历史里出现「挂上」）",
+    reattach.ok === true &&
+      E.compCount(String(picked)) === 1 &&
+      E.history().undo.indexOf("挂上 " + String(picked)) >= 0,
+    JSON.stringify(reattach) + " count=" + String(E.compCount(String(picked))) + " undo=" + E.history().undo.join("/"),
+  );
+  const undoAttach = E.undo();
+  add(
+    "★ 撤销挂上：组件又没了（挂上确实是一条可撤销的操作，不是只压了个标签）",
+    undoAttach.kind === "done" && E.compCount(String(picked)) === 0,
+    JSON.stringify(undoAttach) + " count=" + String(E.compCount(String(picked))),
+  );
 
   // ---- 文档：保存 / 打开 / 新建（批82）
   // ★ 放在最后：这一组会把场景整体替换掉，放前面会让别的断言面对另一份世界。

@@ -23,11 +23,12 @@
  *    （`beginBatch` / `commitBatch`，按下鼠标到松开算一个原子条目），
  *    而不是引入一层「按 mergeKey 猜哪两条是一伙的」。
  *
- * ★ 已知缺口（写在 `docs/PROGRESS.md`，这里留一行指针）：组件的挂载/卸载
- *   还没有反向实现；画布拖拽（gizmo）与多场景存读也还没接。
+ * ★ 已知缺口（写在 `docs/PROGRESS.md`，这里留一行指针）：画布拖拽（gizmo）还没接。
+ *   组件挂载/卸载的历史在批83 补上了（本文件末尾那一节）。
  */
 
 import { engineError, err, ok, type EngineError, type Result } from "../../foundation/result.ts";
+import type { Component, ComponentRegistry } from "../../core/scene/component.ts";
 import type { Node, NodeId } from "../../core/scene/node.ts";
 import type { Scene } from "../../core/scene/scene.ts";
 import { recordOf, type NodeRecord } from "../../core/scene/scene-io.ts";
@@ -429,4 +430,159 @@ class ReparentOp implements EditorOp {
     this.scene.flush();
     return ok(undefined);
   }
+}
+
+// ---------------------------------------------------------------- 组件挂载 / 卸载
+
+/** 组件类型未注册 / 工厂返回 undefined / 同类型已挂着一个 / 那个类型本来就没挂。 */
+export const EDIT_BAD_COMP = "EDIT.BAD_COMP";
+
+/**
+ * 组件挂/卸的共享实现（**实例由 op 持有**）。
+ *
+ * ★★ 这一节只有一条真正容易写错的事：**重做必须拿回同一个实例**。
+ *   如果重做时 `registry.create(type)` 新建一个，组件的状态（血量、计时器、
+ *   指向别的实体的引用）全部回到出厂值 —— 而 UI 上「组件回来了」、字段也都在，
+ *   所以从界面完全看不出问题。所以 op 持着实例，
+ *   `scene.attach(nodeId, () => this.comp)` 把**这一个**挂回去。
+ *
+ * ★ 连带的一条组件约定：`onAttach` 会**跑第二次**（卸下再挂回）。
+ *   所以它只能做「接入」，不能当「初始化」用 —— 在 `onAttach` 里写
+ *   `this.hp = this.maxHp` 的组件，撤销一次卸载就把血量治好了。
+ *   这不归撤销层管（它不该替组件决定哪些字段算状态），但必须写在这里，
+ *   否则下一个人会以为是撤销"没保住状态"。
+ */
+class ComponentOp implements EditorOp {
+  private readonly scene: Scene;
+  private readonly nodeId: NodeId;
+  private readonly comp: Component;
+  /** `true` = 这条历史是「挂上」（apply 挂、revert 卸）；`false` 反过来。 */
+  private readonly attachFirst: boolean;
+
+  constructor(scene: Scene, nodeId: NodeId, comp: Component, attachFirst: boolean) {
+    this.scene = scene;
+    this.nodeId = nodeId;
+    this.comp = comp;
+    this.attachFirst = attachFirst;
+  }
+
+  get label(): string {
+    return `${this.attachFirst ? "挂上" : "卸下"} ${this.comp.type}`;
+  }
+
+  apply(): Result<void, EngineError> {
+    return this.attachFirst ? this.doAttach() : this.doDetach();
+  }
+
+  revert(): Result<void, EngineError> {
+    return this.attachFirst ? this.doDetach() : this.doAttach();
+  }
+
+  private doAttach(): Result<void, EngineError> {
+    const node = this.scene.find(this.nodeId);
+    if (node === undefined) {
+      return err(
+        engineError(EDIT_BAD_NODE, `节点 #${String(this.nodeId)} 已经不在了，${this.comp.type} 挂不回去`),
+      );
+    }
+    const existing = node.get(this.comp.type);
+    // 幂等：已经就是这个实例，什么都不用做。**是别的实例**则拒绝 ——
+    // 覆盖掉它等于悄悄销毁了一个不属于这条历史的组件。
+    if (existing === this.comp) return ok(undefined);
+    if (existing !== undefined) {
+      return err(
+        engineError(
+          EDIT_BAD_COMP,
+          `节点 #${String(this.nodeId)} 上已经有一个 ${this.comp.type} 了（同类型只允许一个）`,
+        ),
+      );
+    }
+    // ★ 传工厂而不是实例：这是内核留的口子，让「重新挂同一个实例」成为可能。
+    this.scene.attach(this.nodeId, () => this.comp);
+    this.scene.flush();
+    // ★ 命令是排队执行的，失败也不抛 —— 唯一可靠的判法是回头看一眼。
+    if (this.scene.find(this.nodeId)?.get(this.comp.type) !== this.comp) {
+      return err(engineError(UNDO_OP_FAILED, `把 ${this.comp.type} 挂回去没有生效`));
+    }
+    return ok(undefined);
+  }
+
+  private doDetach(): Result<void, EngineError> {
+    const node = this.scene.find(this.nodeId);
+    if (node === undefined) {
+      return err(engineError(EDIT_BAD_NODE, `节点 #${String(this.nodeId)} 已经不在了，没有 ${this.comp.type} 可卸`));
+    }
+    const current = node.get(this.comp.type);
+    // ★ 节点上那个同类型的组件**不是**这条历史记的那一个 ⇒ 历史已失效。
+    //   此时按类型去摘会摘掉别人（`scene.detach` 就是按类型找的），
+    //   症状是「撤销一个卸载，结果卸掉了另一个组件」。
+    if (current !== this.comp) {
+      return err(
+        engineError(EDIT_BAD_COMP, `节点 #${String(this.nodeId)} 上的 ${this.comp.type} 不是这条历史里的那一个`),
+      );
+    }
+    this.scene.detach(this.nodeId, this.comp.type);
+    this.scene.flush();
+    if (this.scene.find(this.nodeId)?.get(this.comp.type) !== undefined) {
+      return err(engineError(UNDO_OP_FAILED, `把 ${this.comp.type} 卸下来没有生效`));
+    }
+    return ok(undefined);
+  }
+}
+
+/**
+ * 给节点挂一个组件（并压进历史）。
+ *
+ * 为什么先查 `register / create` 再动场景：`scene.attach` 是排队命令，
+ * 命令在 `flush()` 时执行，而那里**不返回错误**。类型没注册时它只会
+ * 「什么都没发生」—— 人看到的是一行什么都没多出来的面板。
+ */
+export function attachComponentWithUndo(
+  scene: Scene,
+  registry: ComponentRegistry,
+  nodeId: NodeId,
+  type: string,
+): Result<StructOpBundle, EngineError> {
+  const node = scene.find(nodeId);
+  if (node === undefined) return err(engineError(EDIT_BAD_NODE, `节点 #${String(nodeId)} 不在场景里`));
+  const already = node.get(type);
+  if (already !== undefined) {
+    return err(engineError(EDIT_BAD_COMP, `节点 #${String(nodeId)} 上已经有一个 ${type} 了`));
+  }
+  // ★ 这里**不**单独查 `registry.has(type)`：`create` 对未注册类型返回 `undefined`，
+  //   两种原因的可观察结果完全一样，多一个分支就多一处会漂的措辞。
+  //   （批83 先写了那行，M374 跑出来是**假绿** —— 删掉它才是对的修法。）
+  const comp = registry.create(type);
+  if (comp === undefined) return err(engineError(EDIT_BAD_COMP, `组件类型 ${type} 没有注册`));
+  scene.attach(nodeId, () => comp);
+  scene.flush();
+  if (node.get(type) !== comp) {
+    return err(engineError(UNDO_OP_FAILED, `挂上 ${type} 没有生效（节点可能刚被销毁）`));
+  }
+  return ok({ op: new ComponentOp(scene, nodeId, comp, true), nodeId, warnings: () => [] });
+}
+
+/**
+ * 从节点上卸一个组件（并压进历史）。
+ *
+ * ★ 卸载**不销毁实例**：op 持有它，撤销就是把它原样挂回去。
+ *   这正是「撤销卸载之后血量还是刚才那么多」唯一可能的实现方式。
+ */
+export function detachComponentWithUndo(
+  scene: Scene,
+  nodeId: NodeId,
+  type: string,
+): Result<StructOpBundle, EngineError> {
+  const node = scene.find(nodeId);
+  if (node === undefined) return err(engineError(EDIT_BAD_NODE, `节点 #${String(nodeId)} 不在场景里`));
+  const comp = node.get(type);
+  if (comp === undefined) {
+    return err(engineError(EDIT_BAD_COMP, `节点 #${String(nodeId)} 上没有 ${type}`));
+  }
+  scene.detach(nodeId, type);
+  scene.flush();
+  if (node.get(type) !== undefined) {
+    return err(engineError(UNDO_OP_FAILED, `卸下 ${type} 没有生效`));
+  }
+  return ok({ op: new ComponentOp(scene, nodeId, comp, false), nodeId, warnings: () => [] });
 }

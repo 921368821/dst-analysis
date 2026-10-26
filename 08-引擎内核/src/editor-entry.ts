@@ -54,10 +54,12 @@ import {
 } from "./extensions/editor/session.ts";
 import { fieldsOf, setField, type FieldChange } from "./extensions/editor/property-model.ts";
 import { createPie } from "./extensions/editor/pie.ts";
-import { createUndoStack, type UndoOutcome } from "./extensions/editor/undo-stack.ts";
+import { createUndoStack, type EditorOp, type UndoOutcome } from "./extensions/editor/undo-stack.ts";
 import {
+  attachComponentWithUndo,
   createNodeWithUndo,
   deleteNodeWithUndo,
+  detachComponentWithUndo,
   makeFieldOp,
   topmostIds,
 } from "./extensions/editor/undo-ops.ts";
@@ -224,6 +226,8 @@ function refreshProps(): void {
   const h = document.createElement("h2");
   h.textContent = `${node.name}  #${String(node.id)}`;
   frag.appendChild(h);
+  // ★ 「挂组件」放在字段上面：先有组件才有字段，人往下读的顺序要和因果一致。
+  frag.appendChild(mkCompAdd(primary, node));
   if (node.components.length === 0) {
     const e = document.createElement("div");
     e.className = "empty";
@@ -233,12 +237,54 @@ function refreshProps(): void {
   for (const comp of node.components) {
     const t = document.createElement("h3");
     t.textContent = comp.type;
+    const off = document.createElement("button");
+    off.className = "comp-off";
+    off.dataset["detach"] = comp.type;
+    off.textContent = "卸下";
+    // ★ 不传实例、只传类型：卸下是"这个节点上的这一类"，而实例归属由撤销层判断
+    //   （它会比对"节点上那个还是不是历史记的那个"，不是就拒绝 —— 见 undo-ops）。
+    off.addEventListener("click", () => {
+      doDetachComp(comp.type);
+    });
+    t.appendChild(off);
     frag.appendChild(t);
     for (const f of fieldsOf(comp)) {
       frag.appendChild(propRow(primary, comp.type, f.key, f.control, f.value));
     }
   }
   propsEl.replaceChildren(frag);
+}
+
+/** 这个节点还能挂哪些类型（注册表里有、且它还没挂的）。 */
+function availableTypes(node: { components: readonly { type: string }[] }): string[] {
+  const app = appRef;
+  if (app === null) return [];
+  const has = new Set(node.components.map((c) => c.type));
+  return app.scene.components.types().filter((t) => !has.has(t));
+}
+
+function mkCompAdd(nodeId: NodeId, node: { components: readonly { type: string }[] }): HTMLElement {
+  const row = document.createElement("div");
+  row.className = "comp-add";
+  const types = availableTypes(node);
+  const sel = document.createElement("select");
+  sel.id = "comp-pick";
+  for (const t of types) {
+    const o = document.createElement("option");
+    o.value = t;
+    o.textContent = t;
+    sel.appendChild(o);
+  }
+  const btn = document.createElement("button");
+  btn.id = "btn-comp-add";
+  btn.textContent = "挂上组件";
+  // 全都挂满了 ⇒ 没有可选项。按钮置灰而不是"点了没反应"。
+  btn.disabled = types.length === 0;
+  btn.addEventListener("click", () => {
+    if (sel.value !== "") doAttachComp(sel.value, nodeId);
+  });
+  row.append(sel, btn);
+  return row;
 }
 
 function mkEmpty(text: string): HTMLElement {
@@ -400,6 +446,70 @@ function refreshHistory(): void {
   histEl.textContent = parts.join(" · ");
 }
 
+/**
+ * 挂一个组件（进历史）。`nodeId` 缺省用当前选中项。
+ *
+ * ★ 这里必须 `try/catch`：`onAttach` 抛出去的时候，组件**已经**被 push 进
+ *   `node.components` 了（`Node.attach` 的顺序是「改归属 → push → onAttach」）。
+ *   不管的话，节点上会留一个挂了一半、面板上看得见、又不在任何历史里的组件。
+ *   所以失败时按类型把它卸掉，再报错。
+ */
+function doAttachComp(type: string, nodeId?: NodeId): { ok: boolean; code?: string; message?: string } {
+  const app = appRef;
+  if (app === null) return { ok: false, code: "EDIT.NOT_READY", message: "编辑器还没启动" };
+  const id = nodeId ?? selection.primary;
+  if (id === null) return { ok: false, code: "EDIT.BAD_NODE", message: "没有选中任何节点" };
+  let r: ReturnType<typeof attachComponentWithUndo>;
+  try {
+    r = attachComponentWithUndo(app.scene, app.scene.components, id, type);
+  } catch (e) {
+    // 半个组件留在节点上了 —— 先清干净再说失败。
+    app.scene.detach(id, type);
+    app.scene.flush();
+    const msg = `挂 ${type} 时组件自己抛了：${e instanceof Error ? e.message : String(e)}（已回滚）`;
+    errEl.textContent = msg;
+    afterHistoryChange();
+    return { ok: false, code: "EDIT.BAD_COMP", message: msg };
+  }
+  if (!r.ok) {
+    errEl.textContent = `${r.error.code}：${r.error.message}`;
+    return { ok: false, code: r.error.code, message: r.error.message };
+  }
+  return commitCompOp(r.value.op);
+}
+
+/**
+ * 一次组件操作的收尾：压历史 → 清错误行 → 重画三处。
+ *
+ * ★ 抽出来不只是为了少两行：挂与卸如果各写一份，两处**必须**都调 `history.push`，
+ *   而漏掉任何一处都只表现为「撤销按钮没亮」，看起来像撤销栈坏了。
+ *   共用一份之后，变异校验只要打这一行就能同时覆盖两个方向。
+ */
+function commitCompOp(op: EditorOp): { ok: boolean; code?: string; message?: string } {
+  const pushed = history.push(op);
+  if (!pushed.ok) {
+    errEl.textContent = `${pushed.error.code}：${pushed.error.message}`;
+    return { ok: false, code: pushed.error.code, message: pushed.error.message };
+  }
+  errEl.textContent = "";
+  afterHistoryChange();
+  return { ok: true };
+}
+
+/** 卸一个组件（进历史）。实例不会丢：撤销就是把它原样挂回去。 */
+function doDetachComp(type: string, nodeId?: NodeId): { ok: boolean; code?: string; message?: string } {
+  const app = appRef;
+  if (app === null) return { ok: false, code: "EDIT.NOT_READY", message: "编辑器还没启动" };
+  const id = nodeId ?? selection.primary;
+  if (id === null) return { ok: false, code: "EDIT.BAD_NODE", message: "没有选中任何节点" };
+  const r = detachComponentWithUndo(app.scene, id, type);
+  if (!r.ok) {
+    errEl.textContent = `${r.error.code}：${r.error.message}`;
+    return { ok: false, code: r.error.code, message: r.error.message };
+  }
+  return commitCompOp(r.value.op);
+}
+
 /** 历史动过之后统一收尾：选中项可能要 prune（子树被删/被恢复），树与面板都要重画。 */
 function afterHistoryChange(): void {
   const app = appRef;
@@ -555,6 +665,14 @@ interface EditorApi {
   docNew(): { ok: boolean; made?: number; code?: string; message?: string };
   /** 文本框里的当前内容（判据用来验「保存真的写进去了」）。 */
   docText(): string;
+  /** 选中节点（缺省）上还能挂哪些组件类型：注册表减去已挂的。 */
+  compAvailable(node?: number): string[];
+  /** 挂一个组件（进历史）。`node` 缺省 = 当前选中项。 */
+  compAttach(type: string, node?: number): { ok: boolean; code?: string; message?: string };
+  /** 卸一个组件（进历史；实例留着给撤销用）。 */
+  compDetach(type: string, node?: number): { ok: boolean; code?: string; message?: string };
+  /** 节点上某类型的组件**个数**（`get` 只返回第一个，数不了重复）。 */
+  compCount(type: string, node?: number): number;
 }
 
 function installApi(app: GameApp): void {
@@ -674,6 +792,25 @@ function installApi(app: GameApp): void {
     },
     docText() {
       return docText.value;
+    },
+    compAvailable(node) {
+      const id = node ?? selection.primary;
+      if (id === null) return [];
+      const n = app.scene.find(id);
+      return n === undefined ? [] : availableTypes(n);
+    },
+    compAttach(type, node) {
+      return doAttachComp(type, node as NodeId | undefined);
+    },
+    compDetach(type, node) {
+      return doDetachComp(type, node as NodeId | undefined);
+    },
+    compCount(type, node) {
+      const id = node ?? selection.primary;
+      if (id === null) return -1;
+      const n = app.scene.find(id);
+      if (n === undefined) return -1;
+      return n.components.filter((c) => c.type === type).length;
     },
   };
   (window as unknown as { __editor?: EditorApi }).__editor = api;
