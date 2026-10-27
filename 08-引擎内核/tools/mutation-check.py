@@ -46,6 +46,19 @@ import pathlib
 import re
 from datetime import datetime
 
+# ★★ 这个文件是**脚本**：全篇顶层代码，末尾 `sys.exit()`，没有 `main()`。
+#   所以一旦有人 import / `runpy.run_path` 执行它，就会**直接启动整轮变异**
+#   （在 src/ 里逐条注入 400 多次），然后大概率被工具超时杀掉，
+#   把某个文件留在变异态。2026-10-27 我就这么误触发过一次 —— 想读变异表统计
+#   "哪些条目指向我改过的文件"，代价是 `lossless-pred.ts` 被留脏、两条 JPEG 判据红。
+#   在**任何副作用之前**拦住非脚本执行；要读变异表请用 `ast` 解析（`docs-check.mjs`
+#   就是直接读文本数的），要跑就 `python tools/mutation-check.py`。
+if __name__ != "__main__":
+    raise SystemExit(
+        "tools/mutation-check.py 是脚本，不能 import（导入即启动整轮变异）；"
+        "要读变异表请用 ast 解析文本，要跑就 `python tools/mutation-check.py`"
+    )
+
 # ★ 不能硬编码本机绝对路径。原先写死 `E:/game_make/.../08-引擎内核`，
 #   在 Linux runner 上**每一条 m["test"] 都不存在**，被报成「判据文件不存在」——
 #   那句话的意思是"配置写错了"，而真相是"这个脚本一次都没在 CI 上跑起来过"。
@@ -4088,6 +4101,37 @@ MUTANTS = [
         "cmd": ["node", "tools/editor-selftest.mjs", "--build"],
         "env_exit": 2,
     },
+    {
+        "name": "M447 变异日志恢复了名字、不写回字节（被强杀之后源码仍是变异体）",
+        "file": "tools/mutation_journal.py",
+        "pairs": [("        (root / rel).write_bytes(original)", "        (root / rel).read_bytes()")],
+        "cmd": [sys.executable, "tools/mutation_journal.py", "--selftest"],
+    },
+    {
+        "name": "M448 变异日志只写标记不写原文（要恢复的时候没有原文可写）",
+        "file": "tools/mutation_journal.py",
+        "pairs": [("    _fsync_write(d / \"active.bin\", original)", "    pass")],
+        "cmd": [sys.executable, "tools/mutation_journal.py", "--selftest"],
+    },
+    {
+        "name": "M449 还原完不删标记（下一次启动误报「上次被强杀」并把文件再写一遍）",
+        "file": "tools/mutation_journal.py",
+        "pairs": [("    \"\"\"扫尾：原文已经写回去了，忘掉它。**先删标记**（否则崩在中间会误恢复）。\"\"\"\n    d = journal_dir(root)\n    _unlink(d / \"active.json\")",
+                   "    \"\"\"扫尾：原文已经写回去了，忘掉它。**先删标记**（否则崩在中间会误恢复）。\"\"\"\n    d = journal_dir(root)\n    pass")],
+        "cmd": [sys.executable, "tools/mutation_journal.py", "--selftest"],
+    },
+    {
+        "name": "M450 原文哈希对不上也照写（把一个文件写成既非原文也非变异体的第三种东西）",
+        "file": "tools/mutation_journal.py",
+        "pairs": [("    if want and got != want:", "    if False:")],
+        "cmd": [sys.executable, "tools/mutation_journal.py", "--selftest"],
+    },
+    {
+        "name": "M451 没有标记也去恢复（无日志时凭空改动文件）",
+        "file": "tools/mutation_journal.py",
+        "pairs": [("    if not mark.exists():", "    if False:")],
+        "cmd": [sys.executable, "tools/mutation_journal.py", "--selftest"],
+    },
 ]
 
 
@@ -4201,6 +4245,11 @@ def _restore_all(signum=None, _frame=None) -> None:
         except OSError:
             pass
     _ACTIVE.clear()
+    # ★ 还原完了就把日志也扫掉，否则下一次启动会再恢复一遍并误报"上次被强杀"。
+    #   `globals()` 判断是因为处理器注册在 import 之前：那时 `_ACTIVE` 必然为空
+    #   （没有任何文件被改），但直接引用名字会抛 NameError、把一次干净的退出变成异常。
+    if "mutation_journal" in globals():
+        mutation_journal.commit(ROOT)
     if signum is not None:
         print(f"\n✗ 收到信号 {signum}：已还原 {restored} 个被变异的文件后退出", flush=True)
         sys.exit(130)
@@ -4258,6 +4307,18 @@ def _pid_alive(pid: int) -> bool:
     except Exception:
         return True
     return True
+
+
+def _other_alive() -> int:
+    """另一个**还活着**的变异轮的 pid（没有则 0）。只探测，不动锁。"""
+    if not LOCK.exists():
+        return 0
+    try:
+        held = json.loads(LOCK.read_text(encoding="utf-8"))
+    except Exception:
+        return 0
+    pid = int(held.get("pid", 0) or 0)
+    return pid if pid != os.getpid() and _pid_alive(pid) else 0
 
 
 def _take_lock() -> None:
@@ -4334,6 +4395,16 @@ if _missing_tests:
 sys.path.insert(0, str(ROOT / "tools"))
 import worktree_guard  # noqa: E402  （路径要先插进 sys.path）
 
+# ★★ 落盘日志：**进程被强杀之后**还能把源码还原。
+#
+#   光靠内存里的 `_ACTIVE` + 信号处理器不够 —— 处理器只在能收到信号时执行。
+#   Windows 上结束子进程走 `TerminateProcess`，Unix 上 `kill -9`，两者都
+#   **不可捕获**，处理器一次都不会跑。这就是为什么 2026-10-26（批89）和
+#   2026-10-27（我 runpy 误触发被工具超时杀掉）两次都把 `lossless-pred.ts`
+#   留在了变异态，而第一次还通篇报"还原干净"。
+#   与 `worktree_guard` 同一个理由抽成独立模块：靶子在这里、实现在那里。
+import mutation_journal  # noqa: E402
+
 # ★ 变异轮**开始前**先把文档对账的缓存刷成新鲜状态（必须在拿锁之前）。
 #
 #   为什么：M74–M76 的判据是 `node tools/docs-check.mjs --quick`，而 quick 模式一旦发现
@@ -4344,6 +4415,32 @@ import worktree_guard  # noqa: E402  （路径要先插进 sys.path）
 #
 #   顺带把「基线必须绿」变成硬前置：基线红的时候，「变异被抓住」根本没有证据价值
 #   （M74 第一次跑就是这样：变异数 73→76 没同步，文档对账本来就红）。
+#
+# ★★ 恢复必须排在这次对账**之前**（2026-10-27 实测）：
+#   第一次接线时我把恢复放在 warm 之后，结果伪造一份"上一轮被强杀"的残留再跑，
+#   工具报的是「基线不绿：有 4 条判据失败」—— 那 4 条正是被残留改坏的判据。
+#   于是**真正该说的那句话**（"上一次没正常结束，我已把文件写回去"）一个字都没出现，
+#   而看到的人会去查那 4 条判据。恢复与被诊断，恢复必须在前。
+#   锁仍然只能在这之后拿：`docs-check` 看到锁会拒绝启动。
+_other = _other_alive()
+if _other:
+    sys.exit(
+        f"已经有一轮变异在跑（pid {_other}）—— 它正在改 src/ 里的源码，"
+        "两轮并行会让两边的结论都不可信；也不能先替它还原（那会改掉它正在测的文件）"
+    )
+_restored, _journal_problems = mutation_journal.recover(ROOT)
+if _restored:
+    print(
+        f"[journal] 上一次运行没有正常结束：已把 {len(_restored)} 个文件写回原文"
+        f"（{', '.join(_restored)}）—— 那是被强杀的那一轮留下的，不是这次改的",
+        flush=True,
+    )
+if _journal_problems:
+    print("✗ 变异日志里有恢复不了的东西 —— 此时工作区不可信，先人工核对：")
+    for _p in _journal_problems:
+        print(f"  · {_p}")
+    sys.exit(2)
+
 _warm = subprocess.run(
     ["node", "tools/docs-check.mjs"], cwd=ROOT, capture_output=True, text=True, timeout=600
 )
@@ -4353,6 +4450,12 @@ if _warm.returncode != 0:
     print((_warm.stdout or "") + (_warm.stderr or ""))
     sys.exit(2)
 print("[warm] 文档对账缓存已刷新（变异期间不再重算判据数）", flush=True)
+
+# ★★ 取锁必须排在**产物基线之前**：基线构建会写三个产物，两轮并行时后一轮
+#   会把前一轮的产物当参照。原先取锁在工作区基线之后、产物基线之后 ——
+#   那时"两轮并行"的口子已经开过了（虽然很快会被拒，但基线已经错）。
+#   也不能更早：`docs-check` 看到锁会拒绝启动，而上面那次 warm 正是跑它。
+_take_lock()
 
 # ★★ 产物基线：**开跑前统一建一次**，之后每条 cmd 型变异都拿这一个值当对照。
 #
@@ -4381,7 +4484,6 @@ print(
     flush=True,
 )
 
-_take_lock()
 try:
     for m in MUTANTS:
         f = ROOT / m["file"]
@@ -4426,6 +4528,9 @@ try:
             continue
 
         _ACTIVE[str(f)] = (f, original_bytes)
+        # ★★ 先落盘日志，**再**改文件。顺序反过来的话，崩在这两步之间就是
+        #   "文件已经坏了、日志却没有" —— 正是这套东西唯一要防的那种状态。
+        mutation_journal.begin(ROOT, f, original_bytes)
         out_text = mutated.replace("\n", "\r\n") if crlf else mutated
         f.write_bytes(out_text.encode("utf-8"))
         try:
@@ -4433,6 +4538,10 @@ try:
         finally:
             f.write_bytes(original_bytes)
             _ACTIVE.pop(str(f), None)
+            # ★ 原文已经写回去了 ⇒ 告诉日志"这件事完了"。
+            #   少了这一句，下一次启动会把**已经还原**的文件再写一遍，
+            #   并误报一次"上一次被强杀" —— 假警报会训练人忽略真警报。
+            mutation_journal.commit(ROOT)
             # ★★ **cmd 型一律重建**（不再靠条目声明 `rebuild`）。
             #   教训：靠人手声明就有漏的时候，而且漏了会**嫁祸给下一条**
             #   （M229/M230 漏了 ⇒ M292 顶锅；M189 干脆不在声明体系里，
