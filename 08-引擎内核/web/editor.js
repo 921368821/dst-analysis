@@ -8824,6 +8824,7 @@ var FLOW_PORTAL_NO_TARGET = "FLOW.PORTAL_NO_TARGET";
 var FLOW_PORTAL_BAD_RADIUS = "FLOW.PORTAL.BAD_RADIUS";
 var FLOW_PORTAL_DUPLICATE = "FLOW.PORTAL_DUPLICATE";
 var FLOW_PORTAL_BAD_REQUIRES = "FLOW.PORTAL.BAD_REQUIRES";
+var FLOW_PORTAL_BAD_SCENE = "FLOW.PORTAL.BAD_SCENE";
 var PORTAL_SCHEMA = {
   type: PORTAL_TYPE,
   fields: {
@@ -8857,7 +8858,24 @@ var PORTAL_SCHEMA = {
      * ★ 缺省 `false`：钥匙是"资格"还是"消耗品"，只有作者知道。
      *   同一扇门扣不扣，决定"能不能反复来回"，而这是关卡设计，不是引擎该替他定的。
      */
-    consume: FieldType.Bool
+    consume: FieldType.Bool,
+    /**
+     * 「先去过这个场景」才通（空串 = 不设剧情门槛）。
+     *
+     * ★ 与 `requires` 是**两件事**，别合并（批103）：
+     *   `requires` = 要钥匙，缺了要报「缺哪把、还差几个」—— 因为钥匙确实存在，玩家能去弄；
+     *   这里 = **剧情没到**，一扇根本没该出现的门不该被提示"缺某把钥匙"，
+     *   否则玩家会满世界找一把不存在的钥匙。
+     *
+     * ★ 门槛取自**本局进度**（`SceneFlow.visited`），不是背包：
+     *   「去过第 2 关」与「身上有 3 个木头」是两种不同的进度，前者跟着存档走、后者跟着携带走。
+     *   也正因为门槛是 `visited`，它天然进存档 —— 不需要给存档格式加字段。
+     *
+     * ★ 与目标场景同名是**允许**的：那是"你从别处到过 B，这里才给你一条回 B 的近路"。
+     *   而与**当前这一场**同名则是死锁（`visited` 永远不含当前场景），
+     *   在 `SceneFlow.jump` 里报 `FLOW.STORY_SELF`，不是永远锁着不说原因。
+     */
+    requiresScene: FieldType.String
   },
   defaults: {
     to: "",
@@ -8865,7 +8883,8 @@ var PORTAL_SCHEMA = {
     open: true,
     requires: "",
     requiresCount: 1,
-    consume: false
+    consume: false,
+    requiresScene: ""
   }
 };
 var Portal = class extends Component {
@@ -8875,6 +8894,7 @@ var Portal = class extends Component {
   requires = "";
   requiresCount = 1;
   consume = false;
+  requiresScene = "";
   schema = PORTAL_SCHEMA;
 };
 function registerPortalComponent(registry2) {
@@ -8911,6 +8931,14 @@ function collectPortals(scene) {
         )
       );
     }
+    if (p.requiresScene !== "" && p.requiresScene.trim() === "") {
+      return err(
+        engineError(
+          FLOW_PORTAL_BAD_SCENE,
+          `\u8282\u70B9\u300C${node.name}\u300D\u7684\u4F20\u9001\u95E8\u5199\u4E86\u4E00\u4E2A\u7A7A\u767D\u7684\u300C\u8981\u5148\u53BB\u8FC7\u7684\u573A\u666F\u300D\uFF08${JSON.stringify(p.requiresScene)}\uFF09 \u2014\u2014 \u5B83\u6C38\u8FDC\u5339\u914D\u4E0D\u4E0A\u4EFB\u4F55\u573A\u666F\u540D\uFF0C\u8FD9\u6247\u95E8\u4F1A\u6C38\u8FDC\u9501\u7740`
+        )
+      );
+    }
     specs.push({
       name: node.name,
       to: p.to,
@@ -8919,6 +8947,7 @@ function collectPortals(scene) {
       requires: p.requires,
       requiresCount: p.requiresCount,
       consume: p.consume,
+      requiresScene: p.requiresScene,
       x: Math.round(w.x * FIXED_UNITS),
       z: Math.round(w.y * FIXED_UNITS)
     });
@@ -9191,6 +9220,8 @@ var FLOW_NO_SUCH_SCENE = "FLOW.NO_SUCH_SCENE";
 var FLOW_BAD_TARGET = "FLOW.BAD_TARGET";
 var FLOW_NO_SPAWN = "FLOW.NO_SPAWN";
 var FLOW_LOCKED = "FLOW.LOCKED";
+var FLOW_LOCKED_STORY = "FLOW.LOCKED_STORY";
+var FLOW_STORY_SELF = "FLOW.STORY_SELF";
 var FLOW_LOAD_FAILED = "FLOW.LOAD_FAILED";
 var FLOW_SAVE_BAD_SCENE = "FLOW.SAVE_BAD_SCENE";
 var FLOW_SAVE_NO_SPAWN = "FLOW.SAVE_NO_SPAWN";
@@ -9259,6 +9290,15 @@ var SceneFlow = class {
   get visitedCount() {
     return this.visited.size + 1;
   }
+  /**
+   * 这一局是否去过某个场景（**当前场景不算** —— 它就在世界里，不在册上）。
+   *
+   * 宿主拿它判"剧情门要不要提示"，`jump` 拿它判剧情门槛，两处共用一个答案：
+   * 各写一遍就会有两套语义（`visited` 是否含当前场景，两种都说得通）。
+   */
+  hasVisited(name) {
+    return this.visited.has(name);
+  }
   /** 当前场景里的玩家节点 id（没有就是 `null`）。 */
   playerId() {
     return findPlayerId(this.deps.scene);
@@ -9322,6 +9362,24 @@ var SceneFlow = class {
     const from = this.current;
     const srcPlayer = findPlayerId(scene);
     const carry0 = srcPlayer === null ? null : readCarry(scene, srcPlayer);
+    if (via !== null && via.requiresScene !== "") {
+      if (via.requiresScene === this.current) {
+        return err(
+          engineError(
+            FLOW_STORY_SELF,
+            `\u300C${via.name}\u300D\u8981\u4F60\u5148\u53BB\u8FC7\u300C${via.requiresScene}\u300D\u2014\u2014 \u90A3\u6B63\u662F\u5B83\u6240\u5728\u7684\u8FD9\u4E00\u573A\uFF1B\u300C\u53BB\u8FC7\u300D\u6C38\u8FDC\u4E0D\u5305\u62EC\u5F53\u524D\u573A\u666F\uFF0C\u6240\u4EE5\u8FD9\u6247\u95E8\u6C38\u8FDC\u6253\u4E0D\u5F00\u3002\u8981\u4E48\u6539\u95E8\u69DB\uFF0C\u8981\u4E48\u628A\u5B83\u6302\u5728\u522B\u5904`
+          )
+        );
+      }
+      if (!this.visited.has(via.requiresScene)) {
+        return err(
+          engineError(
+            FLOW_LOCKED_STORY,
+            `\u300C${via.name}\u300D\u8FD8\u4E0D\u901A\uFF1A\u8FD9\u6247\u95E8\u8981\u4F60\u5148\u53BB\u8FC7\u300C${via.requiresScene}\u300D\uFF0C\u800C\u8FD9\u4E00\u5C40\u8FD8\u6CA1\u5230\u8FC7\u90A3\u91CC`
+          )
+        );
+      }
+    }
     const locked = via !== null && via.requires !== "";
     if (locked) {
       const have = carry0 === null ? 0 : carryCount(carry0, via.requires);
