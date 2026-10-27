@@ -7627,7 +7627,16 @@ var DomInputDevice = class {
       this.emit({ kind: "blur" });
     };
     const onFocusIn = (ev) => {
-      this.textFocus = this.isTyping(ev);
+      const next = this.isTyping(ev);
+      if (next && !this.textFocus) {
+        this.down.clear();
+        this.pressed.clear();
+        this.released.clear();
+      }
+      this.textFocus = next;
+    };
+    const onFocusOut = () => {
+      this.textFocus = false;
     };
     const onPointerDown = (ev) => {
       this.updatePointer(ev);
@@ -7656,6 +7665,7 @@ var DomInputDevice = class {
     this.add(this.kb, "keyup", onKeyUp);
     this.add(this.kb, "blur", onBlur);
     this.add(this.kb, "focusin", onFocusIn);
+    this.add(this.kb, "focusout", onFocusOut);
     this.add(this.ptr, "pointerdown", onPointerDown);
     this.add(this.ptr, "pointerup", onPointerUp);
     this.add(this.ptr, "pointermove", onPointerMove);
@@ -22769,6 +22779,12 @@ function angleOf(dx, dz) {
   if (dx === 0 && dz === 0) return null;
   return normRad(Math.atan2(dz, dx));
 }
+function faceFromMotion(face, fromX, fromY, toX, toY) {
+  const a = angleOf(toX - fromX, toY - fromY);
+  if (a === null) return false;
+  face.setAngle(a);
+  return true;
+}
 function shortestDelta(from, to) {
   const d = normRad(to) - normRad(from);
   if (d > Math.PI) return d - TAU2;
@@ -23421,6 +23437,70 @@ function resolveDirFrame(has, prefix, dir, dirs = 8) {
   return null;
 }
 
+// src/extensions/render/sprite-animator.ts
+var SPRITE_ANIMATOR_TYPE = "render.spriteAnimator";
+var SpriteAnimator = class extends Component {
+  /** 播放哪段 clip（`AnimationClip.id`，不是对象引用 —— 同 `Sprite.atlasId`）。 */
+  clipId = "";
+  /**
+   * 本实体自己的播放进度（毫秒）。
+   * ★ 允许 > total：采样用总时长取模，保留时间可以让 HUD 看到"播到第几轮"。
+   *   一次性动画播完后由模块夹在终点，避免长时间挂着做无意义的浮点累加。
+   */
+  timeMs = 0;
+  /** 播放速率：1 = 正常，< 0 = 倒放，0 = 冻结（时间不动）。 */
+  speed = 1;
+  /** 是否推进时间。false 时仍会按当前 timeMs 刷新帧（seek 后能立刻看到）。 */
+  playing = true;
+  /** -1 = 用 clip 的 loopCount；>= 0 覆盖它。 */
+  loopOverride = -1;
+  /**
+   * `reset()` 时是否自动恢复播放。
+   * ★ 边界：模块**不监听 onAttach 来"自动开始"** —— 新挂载的实体是否播放由
+   *   `playing` 字段（默认 true）与序列化数据决定。`autoplay` 只被 `reset()`
+   *   查询，语义是"重置回初始状态时要不要接着播"。
+   */
+  autoplay = true;
+  schema = {
+    type: SPRITE_ANIMATOR_TYPE,
+    fields: {
+      clipId: FieldType.String,
+      timeMs: FieldType.Float,
+      speed: FieldType.Float,
+      playing: FieldType.Bool,
+      loopOverride: FieldType.Int,
+      autoplay: FieldType.Bool
+    },
+    // defaults 与字段声明保持一致：新组件的 save() 必须能写出可读回的值
+    defaults: {
+      clipId: "",
+      timeMs: 0,
+      speed: 1,
+      playing: true,
+      loopOverride: -1,
+      autoplay: true
+    }
+  };
+  /** 回到起点，并按 `autoplay` 决定是否继续播。 */
+  reset() {
+    this.timeMs = 0;
+    this.playing = this.autoplay;
+  }
+  /**
+   * 跳到指定毫秒。
+   * ★ 负数夹到 0：与 `sampleClip` 的"负时间 = 还没开始"保持一致。
+   *   保留负值只会让倒放动画在起点前空转一段（时间要先爬回 0 才动画面），
+   *   而"跳到 -100ms"在时间轴上没有对应画面可显示。
+   * ★ 非有限数直接抛：这是调用方的编程错误，不是可配置字段（见 animation.ts）。
+   */
+  seek(ms) {
+    if (!Number.isFinite(ms)) {
+      throw new TypeError(`SpriteAnimator.seek \u7684 ms \u5FC5\u987B\u662F\u6709\u9650\u6570\uFF08\u6536\u5230 ${String(ms)}\uFF09`);
+    }
+    this.timeMs = ms < 0 ? 0 : ms;
+  }
+};
+
 // src/extensions/render/dir-sprite.ts
 var DIR_SPRITE_TYPE = "render.dirSprite";
 var DirSprite = class extends Component {
@@ -23434,6 +23514,21 @@ var DirSprite = class extends Component {
   prefix = "";
   /** 方向数（4 或 8）。图集里只画了 4 向就填 4，别拿 8 向去凑邻向。 */
   dirs = 8;
+  /**
+   * 方向 → 动画 clip id。**空数组 = 单帧模式**（老行为）。
+   *
+   * ★ 长度必须是 `dirs`；某一项为空串表示"该向没有 clip"，此时回落单帧。
+   *   长度不足按空数组处理（整体回落单帧），**不**按 `undefined` 逐项回退：
+   *   "配了一半"与"没配"在画面上是同一件事（都在放静态图），
+   *   而逐项回退会让"只配了东向"这种半成品看起来正常。
+   *
+   * ★ 为什么不进 `schema`：`ComponentSchema` 的字段类型只有标量
+   *   （String/Int/Float/Bool），塞不进字符串数组。这意味着 `clipIds`
+   *   **不随存档走** —— 它由宿主在装配时给出，和 `Sprite.atlasId` 一样属于
+   *   "这是哪套资产"的问题，而不是"这个实体的状态"。如果哪天要热更新素材，
+   *   改的入口是装配处，不是存档迁移。
+   */
+  clipIds = [];
   /** 解析缓存：下标 = 扇区号；`null` = 该向没有专属帧，回落到 `prefix` 单帧。 */
   resolved = [];
   /** 缓存对应的 key（`prefix/dirs`）。前缀或方向数一变就重算。 */
@@ -23473,8 +23568,21 @@ function registerDirSpriteComponent(registry) {
     registry.register(new DirSprite().schema, () => new DirSprite());
   }
 }
+function restoreDirClipIds(scene, nodeId, clipIds) {
+  const ds = scene.find(nodeId)?.get(DIR_SPRITE_TYPE);
+  if (ds === void 0) return false;
+  ds.clipIds = clipIds.slice();
+  return true;
+}
 function syncDirFrames(scene, has) {
-  const stats = { changed: 0, missing: 0, visited: 0 };
+  const stats = {
+    changed: 0,
+    missing: 0,
+    visited: 0,
+    animated: 0,
+    clipChanged: 0,
+    clipMissing: 0
+  };
   scene.root.walk((node) => {
     const ds = node.get(DIR_SPRITE_TYPE);
     if (ds === void 0 || ds.prefix === "") return;
@@ -23483,8 +23591,22 @@ function syncDirFrames(scene, has) {
     const sp = node.get(SPRITE_TYPE);
     if (sp === void 0) return;
     stats.visited++;
-    const list = ds.resolve(has);
     const dir = ds.dirs === 4 ? face.dir4 : face.dir8;
+    if (ds.clipIds.length >= ds.dirs) {
+      const clipId = ds.clipIds[dir] ?? "";
+      const anim = clipId === "" ? void 0 : node.get(SPRITE_ANIMATOR_TYPE);
+      if (anim !== void 0) {
+        stats.animated++;
+        if (anim.clipId !== clipId) {
+          anim.clipId = clipId;
+          anim.timeMs = 0;
+          stats.clipChanged++;
+        }
+        return;
+      }
+      stats.clipMissing++;
+    }
+    const list = ds.resolve(has);
     const target = list[dir] ?? null;
     if (target === null) {
       stats.missing++;
@@ -24323,6 +24445,284 @@ function createFeedbackModule(options = {}) {
   return handle;
 }
 
+// src/extensions/render/animation.ts
+function makeAnimationClip(input) {
+  if (input.frames.length === 0) {
+    return err(engineError("ANIM.EMPTY_CLIP", "\u52A8\u753B\u6CA1\u6709\u5E27\uFF08\u7A7A\u5E27\u8868\uFF09\uFF0C\u65E0\u6CD5\u6784\u6210\u65F6\u95F4\u8F74", { id: input.id }));
+  }
+  if (input.durationsMs.length !== input.frames.length) {
+    return err(
+      engineError(
+        "ANIM.LENGTH_MISMATCH",
+        `\u5E27\u6570\u4E0E\u65F6\u957F\u6570\u4E0D\u4E00\u81F4\uFF1A${input.frames.length} \u5E27 / ${input.durationsMs.length} \u4E2A\u65F6\u957F`,
+        { id: input.id }
+      )
+    );
+  }
+  for (let i = 0; i < input.durationsMs.length; i++) {
+    const d = input.durationsMs[i];
+    if (!Number.isFinite(d) || d < 0) {
+      return err(
+        engineError("ANIM.BAD_DURATION", `\u7B2C ${i} \u5E27\u65F6\u957F\u975E\u6CD5\uFF1A${String(d)}\uFF08\u5FC5\u987B\u662F >= 0 \u7684\u6709\u9650\u6570\uFF09`, {
+          id: input.id,
+          index: i
+        })
+      );
+    }
+  }
+  const loopCount = input.loopCount ?? 0;
+  if (!Number.isInteger(loopCount) || loopCount < 0) {
+    return err(
+      engineError("ANIM.BAD_LOOP", `loopCount \u5FC5\u987B\u662F\u975E\u8D1F\u6574\u6570\uFF1A${String(loopCount)}\uFF080 = \u65E0\u9650\u5FAA\u73AF\uFF09`, {
+        id: input.id
+      })
+    );
+  }
+  let total = 0;
+  for (const d of input.durationsMs) total += d;
+  if (total <= 0) {
+    return err(
+      engineError("ANIM.ZERO_DURATION", "\u6240\u6709\u5E27\u65F6\u957F\u90FD\u662F 0\uFF1A\u91C7\u6837\u4F1A\u9664\u96F6/\u5361\u6B7B\uFF0C\u62D2\u7EDD\u6784\u9020", { id: input.id })
+    );
+  }
+  const frames = Object.freeze([...input.frames]);
+  const durationsMs = Object.freeze([...input.durationsMs]);
+  return ok(
+    Object.freeze({
+      id: input.id,
+      frames,
+      durationsMs,
+      loopCount,
+      totalDurationMs: total
+    })
+  );
+}
+function effectiveLoopCount(clip, override) {
+  return Number.isInteger(override) && override >= 0 ? override : clip.loopCount;
+}
+function sampleClip(clip, timeMs, loopCountOverride = -1) {
+  if (!Number.isFinite(timeMs)) {
+    throw new TypeError(`sampleClip \u7684 timeMs \u5FC5\u987B\u662F\u6709\u9650\u6570\uFF08\u6536\u5230 ${String(timeMs)}\uFF09`);
+  }
+  const loopCount = effectiveLoopCount(clip, loopCountOverride);
+  const total = clip.totalDurationMs;
+  const t = timeMs < 0 ? 0 : timeMs;
+  if (loopCount === 0) {
+    const loop2 = Math.floor(t / total);
+    const index2 = indexAt(clip, t - loop2 * total);
+    return { frame: clip.frames[index2], index: index2, loop: loop2, done: false };
+  }
+  if (t >= total * loopCount) {
+    const index2 = lastDisplayableIndex(clip);
+    return { frame: clip.frames[index2], index: index2, loop: loopCount - 1, done: true };
+  }
+  const loop = Math.floor(t / total);
+  const index = indexAt(clip, t - loop * total);
+  return { frame: clip.frames[index], index, loop, done: false };
+}
+function indexAt(clip, local) {
+  let acc = 0;
+  for (let i = 0; i < clip.durationsMs.length; i++) {
+    const d = clip.durationsMs[i];
+    if (d <= 0) continue;
+    acc += d;
+    if (local < acc) return i;
+  }
+  return clip.frames.length - 1;
+}
+function lastDisplayableIndex(clip) {
+  for (let i = clip.durationsMs.length - 1; i >= 0; i--) {
+    if (clip.durationsMs[i] > 0) return i;
+  }
+  return clip.frames.length - 1;
+}
+
+// src/extensions/render/anim-module.ts
+var SPRITE_TYPE2 = "render.sprite";
+function createAnimModule(opts = {}) {
+  let ctxRef = null;
+  const clips = /* @__PURE__ */ new Map();
+  function warn(message, fields) {
+    ctxRef?.log.channel("render").warn(message, fields);
+  }
+  function sceneOf() {
+    return ctxRef?.services.get(Services.Scene);
+  }
+  function registerClip(clip) {
+    const existing = clips.get(clip.id);
+    if (existing !== void 0) {
+      if (existing === clip) return ok(void 0);
+      return err(
+        engineError(
+          "ANIM.DUPLICATE_CLIP",
+          `clip id \u91CD\u590D\uFF1A${clip.id}\uFF08\u6CE8\u518C\u8868\u53EA\u8BFB\uFF0C\u4E0D\u5141\u8BB8\u7528\u53E6\u4E00\u4EFD\u6570\u636E\u66FF\u6362\uFF1B\u65B0\u7248\u672C\u8BF7\u6362 id\uFF09`,
+          { id: clip.id }
+        )
+      );
+    }
+    clips.set(clip.id, clip);
+    return ok(void 0);
+  }
+  function stepOne(c, dtSeconds) {
+    const node = c.node;
+    if (node === null) {
+      warn(`\u52A8\u753B\uFF1ASpriteAnimator \u4E0D\u5728\u4EFB\u4F55\u8282\u70B9\u4E0A\uFF08clipId=${JSON.stringify(c.clipId)}\uFF09`, {
+        clipId: c.clipId
+      });
+      return;
+    }
+    if (!c.enabled || !node.activeInHierarchy) return;
+    const clip = clips.get(c.clipId);
+    if (clip === void 0) {
+      warn(`\u52A8\u753B\uFF1Aclip \u4E0D\u5B58\u5728 ${JSON.stringify(c.clipId)}\uFF08\u8282\u70B9 ${node.id} \u505C\u5728\u5F53\u524D\u5E27\uFF09`, {
+        node: node.id,
+        clipId: c.clipId
+      });
+      return;
+    }
+    if (c.playing) integrate(c, clip, dtSeconds);
+    writeFrame(c, node, clip);
+  }
+  function integrate(c, clip, dtSeconds) {
+    c.timeMs += dtSeconds * 1e3 * c.speed;
+    const total = clip.totalDurationMs;
+    const loops = effectiveLoopCount(clip, c.loopOverride);
+    if (loops === 0) {
+      if (c.timeMs < 0) c.timeMs = (c.timeMs % total + total) % total;
+      return;
+    }
+    if (c.timeMs < 0) {
+      c.timeMs = 0;
+      return;
+    }
+    const end = total * loops;
+    if (c.timeMs > end) c.timeMs = end;
+  }
+  function writeFrame(c, node, clip) {
+    const sprite = node.get(SPRITE_TYPE2);
+    if (sprite === void 0) {
+      warn(`\u52A8\u753B\uFF1A\u8282\u70B9 ${node.id} \u6CA1\u6709 render.sprite\uFF0C\u5E27\u540D\u65E0\u5904\u53EF\u5199\uFF08clipId=${JSON.stringify(c.clipId)}\uFF09`, {
+        node: node.id,
+        clipId: c.clipId
+      });
+      return;
+    }
+    const sample = sampleClip(clip, c.timeMs, c.loopOverride);
+    sprite.frame = sample.frame;
+  }
+  function animatorOf(nodeId, action) {
+    const scene = sceneOf();
+    const node = scene?.find(nodeId);
+    const c = node?.get(SPRITE_ANIMATOR_TYPE);
+    if (c === void 0) {
+      warn(
+        `\u52A8\u753B\uFF1A${action} \u627E\u4E0D\u5230\u8282\u70B9 ${nodeId} \u4E0A\u7684 SpriteAnimator\uFF08${node === void 0 ? "\u8282\u70B9\u4E0D\u5B58\u5728" : "\u8282\u70B9\u672A\u6302\u8BE5\u7EC4\u4EF6"}\uFF09`,
+        { node: nodeId, action }
+      );
+    }
+    return c;
+  }
+  function seek(nodeId, ms) {
+    const c = animatorOf(nodeId, "seek");
+    if (c === void 0) return;
+    c.seek(ms);
+    const clip = clips.get(c.clipId);
+    if (clip === void 0) {
+      warn(`\u52A8\u753B\uFF1Aseek \u540E\u627E\u4E0D\u5230 clip ${JSON.stringify(c.clipId)}\uFF08\u8282\u70B9 ${nodeId} \u5E27\u540D\u672A\u66F4\u65B0\uFF09`, {
+        node: nodeId,
+        clipId: c.clipId
+      });
+      return;
+    }
+    const node = c.node;
+    if (node !== null) writeFrame(c, node, clip);
+  }
+  function setPlaying(nodeId, playing) {
+    const c = animatorOf(nodeId, playing ? "play" : "pause");
+    if (c !== void 0) c.playing = playing;
+  }
+  function advance(dtSecondsValue) {
+    const ctx = ctxRef;
+    if (ctx === null) return;
+    if (!Number.isFinite(dtSecondsValue)) {
+      ctx.log.channel("render").warn(
+        `\u52A8\u753B\uFF1Aadvance \u6536\u5230\u975E\u6709\u9650 dt\uFF08${String(dtSecondsValue)}\uFF09\uFF0C\u672C\u5E27\u4E0D\u63A8\u8FDB`,
+        void 0,
+        null
+      );
+      return;
+    }
+    const scene = ctx.services.get(Services.Scene);
+    if (scene === void 0) {
+      ctx.log.channel("render").warn("\u52A8\u753B\u6A21\u5757\u7F3A\u5C11 core.scene \u670D\u52A1\uFF0C\u65E0\u6CD5\u63A8\u8FDB\uFF08\u63A5\u7EBF\u7F3A\u5931\uFF09", void 0, null);
+      return;
+    }
+    const list = scene.componentsOf(SPRITE_ANIMATOR_TYPE);
+    for (const c of list) stepOne(c, dtSecondsValue);
+  }
+  function countPlayers() {
+    return sceneOf()?.componentsOf(SPRITE_ANIMATOR_TYPE).length ?? 0;
+  }
+  const mod = {
+    id: opts.id ?? "render.animator",
+    deps: [],
+    init(ctx) {
+      ctxRef = ctx;
+      if (!ctx.services.has(Services.Scene)) {
+        ctxRef = null;
+        return err(
+          engineError("ANIM.NO_SCENE", "\u52A8\u753B\u6A21\u5757\u9700\u8981 core.scene \u670D\u52A1\uFF1A\u6CA1\u6709\u4E16\u754C\u53EF\u63A8\u8FDB\uFF08\u63A5\u7EBF\u7F3A\u5931\uFF0C\u4E0D\u9759\u9ED8\u8FD0\u884C\uFF09")
+        );
+      }
+      for (const clip of opts.clips ?? []) {
+        const r = registerClip(clip);
+        if (!r.ok) {
+          ctxRef = null;
+          return r;
+        }
+      }
+      ctx.log.channel("render").info(`\u52A8\u753B\u6A21\u5757\u5C31\u7EEA\uFF1A\u6CE8\u518C ${clips.size} \u4E2A clip`);
+      return ok(void 0);
+    },
+    /** 世界已建好：登记组件类型（只动注册表，不动节点树）。 */
+    start() {
+      const scene = sceneOf();
+      if (scene !== void 0 && !scene.components.has(SPRITE_ANIMATOR_TYPE)) {
+        scene.components.register(new SpriteAnimator().schema, () => new SpriteAnimator());
+      }
+    },
+    dispose() {
+      clips.clear();
+      ctxRef = null;
+    },
+    describe() {
+      return `\u52A8\u753B\uFF1A${clips.size} \u4E2A clip / ${countPlayers()} \u4E2A\u64AD\u653E\u5668`;
+    },
+    registerClip,
+    getClip(id) {
+      return clips.get(id);
+    },
+    advance,
+    update(_tick, dt) {
+      advance(dt);
+    },
+    seek,
+    play(nodeId) {
+      setPlaying(nodeId, true);
+    },
+    pause(nodeId) {
+      setPlaying(nodeId, false);
+    },
+    get clipCount() {
+      return clips.size;
+    },
+    get playerCount() {
+      return countPlayers();
+    }
+  };
+  return mod;
+}
+
 // src/extensions/survival/hunger.ts
 var HUNGER_TYPE = "game.hunger";
 var HUNGER_NO_OWNER = "HUNGER.NO_OWNER";
@@ -24728,6 +25128,20 @@ function onUpdate(selfId, dt, tick)
 end
 `;
 var DIRECTION_FRAMES = ["e", "se", "s", "sw", "w", "nw", "n", "ne"];
+var HERO_FRAMES = [0, 1, 2, 3];
+var HERO_IDLE_MS = 150;
+var HERO_CLIPS = DIRECTION_FRAMES.map((letter) => {
+  const made = makeAnimationClip({
+    id: `hero_idle_${letter}`,
+    frames: HERO_FRAMES.map((f) => `hero_${letter}_${f}`),
+    durationsMs: HERO_FRAMES.map(() => HERO_IDLE_MS)
+  });
+  if (!made.ok) throw new Error(`\u73A9\u5BB6\u5F85\u673A\u52A8\u753B ${letter} \u6784\u9020\u5931\u8D25\uFF1A${made.error.message}`);
+  return made.value;
+});
+function heroClipIds() {
+  return DIRECTION_FRAMES.map((letter) => `hero_idle_${letter}`);
+}
 var DEMO_FRAMES = [
   { name: "ground", file: "ground.png" },
   // ★ terrain 是**中性灰噪点**，不是草绿：地形块用「灰度帧 × 群系色」着色
@@ -24753,6 +25167,13 @@ var DEMO_FRAMES = [
     name: `hound_${letter}`,
     file: `hound_${letter}.png`
   })),
+  // 批112：CC0 八向 + 动画素材（OpenGameArt，作者 Raphael Gonçalves / @rgs_dev）。
+  //   ★ 每个方向 4 帧待机；名字 `hero_<方向>_<帧>` 由 `tools/import-8dir-pack.mjs` 定，
+  //     判据 `eight-dir-pack.test.ts` 逐张核对磁盘 —— 这里写错一个字母，
+  //     症状是"某一个方向永远不动"，而图集只会静默少一帧。
+  ...DIRECTION_FRAMES.flatMap(
+    (letter) => HERO_FRAMES.map((f) => ({ name: `hero_${letter}_${f}`, file: `hero_${letter}_${f}.png` }))
+  ),
   { name: "photo", file: "photo.jpg" }
 ];
 var ASSET_ROOT = "/assets";
@@ -24955,6 +25376,7 @@ async function main() {
     { maxIterations: 3 }
   );
   let heroId = -1;
+  let lastHeroPos = null;
   let hudTick = 0;
   const baked = await bakeAtlasFromAssets();
   const atlasLabel = baked === null ? "procedural" : baked.label;
@@ -24976,6 +25398,7 @@ async function main() {
   const controllerMod = createControllerModule({
     poll: () => appRef === null ? EMPTY_INPUT : appRef.platform.input.poll()
   });
+  const animMod = createAnimModule({ clips: HERO_CLIPS });
   const bakedUi = baked?.ui ?? null;
   let hudUi = null;
   if (bakedUi !== null) {
@@ -25044,10 +25467,21 @@ async function main() {
         if (applied.changed > 0) hudUi?.module.invalidate();
       }
       controllerMod.update(tick, dt);
+      if (heroId >= 0) {
+        const wp = appRef?.scene.find(heroId)?.worldPosition;
+        if (wp !== void 0) {
+          if (lastHeroPos !== null) {
+            const face = appRef?.scene.find(heroId)?.get(FACING_TYPE);
+            if (face !== void 0) faceFromMotion(face, lastHeroPos.x, lastHeroPos.z, wp.x, wp.y);
+          }
+          lastHeroPos = { x: wp.x, z: wp.y };
+        }
+      }
       dispatchActions();
       worldState.tasks?.update(tick, dt);
       mobsHandle?.update(tick, dt);
       if (appRef !== null) syncDirFrames(appRef.scene, hasFrame);
+      animMod.update(tick, dt);
       survivalMod.update(tick, dt);
       feedbackMod.update(tick);
       void scriptMod.update(tick, dt);
@@ -25342,7 +25776,8 @@ async function main() {
     survivalMod,
     feedbackMod,
     hitstopMod,
-    controllerMod
+    controllerMod,
+    animMod
   ];
   if (hudUi !== null) modules.push(hudUi.module);
   const appR = await bootGameApp({
@@ -25452,6 +25887,19 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
   const heroNode = scene.find(heroId);
   if (heroNode === void 0) throw new Error(`\u51FA\u751F\u8282\u70B9 ${heroId} \u4E0D\u5728\u573A\u666F\u91CC`);
   scene.attach(heroId, () => new PlayerController());
+  scene.attach(heroId, () => {
+    const f = new Facing();
+    f.setAngle(Math.PI / 2);
+    return f;
+  });
+  scene.attach(heroId, () => new SpriteAnimator());
+  scene.attach(heroId, () => {
+    const ds = new DirSprite();
+    ds.prefix = "hero";
+    ds.dirs = 8;
+    ds.clipIds = heroClipIds();
+    return ds;
+  });
   scene.attach(heroId, () => {
     const h = new Health();
     h.hp = 20;
@@ -25625,7 +26073,12 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
     for (const id of obstacleIds) {
       if (scene.find(id) !== void 0) physics.add({ nodeId: id, radius: 0.6, isStatic: true });
     }
-    if (scene.find(heroId) !== void 0) physics.add({ nodeId: heroId, radius: 0.45, isStatic: false });
+    if (scene.find(heroId) !== void 0) {
+      physics.add({ nodeId: heroId, radius: 0.45, isStatic: false });
+      if (!restoreDirClipIds(scene, heroId, heroClipIds())) {
+        toast("\u8BFB\u6863\uFF1A\u73A9\u5BB6\u7684\u65B9\u5411\u5E27\u7EC4\u4EF6\u6CA1\u627E\u56DE\u6765\uFF08\u52A8\u753B\u4F1A\u505C\u5728\u524D\u4E00\u5E27\uFF09");
+      }
+    }
     const extra = r.value.skipped.length > 0 ? `\uFF0C\u8DF3\u8FC7 ${r.value.skipped.length} \u9879` : "";
     toast(`\u5DF2\u8BFB\u6863\uFF1A${r.value.made} \u4E2A\u8282\u70B9${extra}`);
     return ok(r.value.made);
@@ -25721,6 +26174,7 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
     cmd.anchor = 0;
     cmd.cancelComposition();
     syncBagUi();
+    if (!next && imeHost !== null && document.activeElement === imeHost) imeHost.blur();
   }
   function runCommand(text) {
     const parts = text.trim().split(/\s+/).filter((s) => s !== "");

@@ -5865,6 +5865,116 @@ MUTANTS = [
             )
         ],
         "test": "tests/extensions/ui-text.test.ts"
+    },
+    {
+        "name": "M611 导入器按裁剪框中线镜像（角色转向时整体偏一格，静态看图看不出来）",
+        "file": "tools/import-8dir-pack.mjs",
+        "pairs": [
+            (
+                "    const axisX = srcBox === null ? (bw - 1) / 2 : (srcBox.x0 + srcBox.x1) / 2;",
+                "    const axisX = (bw - 1) / 2;"
+            )
+        ],
+        "test": "tests/extensions/eight-dir-pack.test.ts"
+    },
+    {
+        "name": "M612 包围盒不看透明度（把整张画布当内容，裁剪框退化成源尺寸）",
+        "file": "tools/import-8dir-pack.mjs",
+        "pairs": [
+            (
+                "      if (img.pixels[(y * img.width + x) * 4 + 3] > 0) {",
+                "      if (true) {"
+            )
+        ],
+        "test": "tests/extensions/eight-dir-pack.test.ts"
+    },
+    {
+        "name": "M613 西向的源方向写成 down_right（镜像出来的那一向变成斜向）",
+        "file": "tools/import-8dir-pack.mjs",
+        "pairs": [
+            (
+                "  w: { src: \"right\", mirror: true },",
+                "  w: { src: \"down_right\", mirror: true },"
+            )
+        ],
+        "test": "tests/extensions/eight-dir-pack.test.ts"
+    },
+    {
+        "name": "M614 每 tick 归零 timeMs（动画永远停在第 0 帧，画面像「有在动」）",
+        "file": "src/extensions/render/dir-sprite.ts",
+        "pairs": [
+            (
+                "        if (anim.clipId !== clipId) {",
+                "        if (true) {"
+            )
+        ],
+        "test": "tests/extensions/eight-dir-pack.test.ts"
+    },
+    {
+        "name": "M615 clip 模式下继续写 sprite.frame（和动画采样抢同一个字段）",
+        "file": "src/extensions/render/dir-sprite.ts",
+        "pairs": [
+            (
+                "        // ★ 这里**必须**返回：clip 模式下再写 `sprite.frame` 就是第二个写入者，\n        //   会和 anim-module 的采样抢同一个字段（见文件头 ★★）。\n        return;",
+                "        // ★ 这里**必须**返回：clip 模式下再写 `sprite.frame` 就是第二个写入者。\n        //   会和 anim-module 的采样抢同一个字段（见文件头 ★★）。"
+            )
+        ],
+        "test": "tests/extensions/eight-dir-pack.test.ts"
+    },
+    {
+        "name": "M616 clipIds 配了一半也照用（5~8 向会全部错成东向）",
+        "file": "src/extensions/render/dir-sprite.ts",
+        "pairs": [
+            (
+                "    if (ds.clipIds.length >= ds.dirs) {",
+                "    if (ds.clipIds.length > 0) {"
+            )
+        ],
+        "test": "tests/extensions/eight-dir-pack.test.ts"
+    },
+    {
+        "name": "M617 clip 缺失时不计数（配错的方向静默回落，没人知道）",
+        "file": "src/extensions/render/dir-sprite.ts",
+        "pairs": [
+            (
+                "      stats.clipMissing++;",
+                "      // 静默回落"
+            )
+        ],
+        "test": "tests/extensions/eight-dir-pack.test.ts"
+    },
+    {
+        "name": "M618 出处清单写错许可（半年后没人说得清能不能商用）",
+        "file": "web/assets/pack-provenance.json",
+        "pairs": [
+            (
+                "  \"license\": \"CC0 1.0\",",
+                "  \"license\": \"CC-BY 4.0\","
+            )
+        ],
+        "test": "tests/extensions/eight-dir-pack.test.ts"
+    },
+    {
+        "name": "M619 朝向用绝对坐标算（同一个位移在别的位置给出别的方向 —— 朝原点）",
+        "file": "src/extensions/motion/facing.ts",
+        "pairs": [
+            (
+                "  const a = angleOf(toX - fromX, toY - fromY);",
+                "  const a = angleOf(toX, toY);"
+            )
+        ],
+        "test": "tests/extensions/facing.test.ts"
+    },
+    {
+        "name": "M620 零位移也把朝向掰向东（站着不动的角色被悄悄转向）",
+        "file": "src/extensions/motion/facing.ts",
+        "pairs": [
+            (
+                "  if (a === null) return false;\n  face.setAngle(a);\n  return true;",
+                "  if (a === null) {\n    face.setAngle(0);\n    return true;\n  }\n  face.setAngle(a);\n  return true;"
+            )
+        ],
+        "test": "tests/extensions/facing.test.ts"
     }
 ]
 

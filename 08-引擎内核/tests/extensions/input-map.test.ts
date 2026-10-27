@@ -233,6 +233,46 @@ test("没有手柄 API 的环境里 caps.gamepad 是 false（不假报能力）"
   assert.equal(dev.poll().keysDown.size, 0);
 });
 
+test("★★★ 「在打字」是双向状态：focusout 之后键盘必须交还游戏，进入打字要清掉按住的键", () => {
+  // ★ 这条钉的是批112 在浏览器里抓到的真 bug：`textFocus` 原来只在 `focusin` 里赋值。
+  //   输入框收起（命令行 Esc / 回车）时焦点落回 body，浏览器**不再派发 focusin** ⇒
+  //   `textFocus` 恒真 ⇒ 之后每个按键都被当成"在打字"吞掉。
+  //   症状：「打完一条命令收起输入行，WASD 再也不动了」。Node 判据以前全都不经过焦点，
+  //   所以它躲到了页面级断言出现为止。
+  const kb = fakeTarget();
+  const ptr = fakeTarget();
+  const dev = new DomInputDevice({ keyboard: kb.target, pointer: ptr.target, gamepads: () => [] });
+  const INPUT = { tagName: "INPUT" };
+  const poll = () => dev.poll();
+
+  // ① 输入框聚焦：按键不驱动游戏，但字符要收进 text（原有语义，别被这次改动弄坏）
+  kb.fire("focusin", { target: INPUT });
+  kb.fire("keydown", { code: "KeyW", key: "w", target: INPUT });
+  let s = poll();
+  assert.equal(s.keysDown.size, 0, "输入框聚焦时按键不该驱动游戏");
+  assert.equal(s.text, "w", "但要收进 text（输入法那条路靠它）");
+
+  // ② 焦点离开（收起输入行 / 点回画布）：键盘立刻交还游戏
+  kb.fire("focusout", { target: INPUT });
+  kb.fire("keydown", { code: "KeyW", key: "w" });
+  s = poll();
+  assert.ok(s.keysDown.has("KeyW"), "focusout 之后按键必须驱动游戏 —— 否则收起的输入行会让 WASD 永久失灵");
+  kb.fire("keyup", { code: "KeyW" });
+  assert.equal(poll().keysDown.size, 0);
+
+  // ③ 进入打字状态：之前按住的方向键必须被清掉（否则"一边打字一边走"）
+  kb.fire("keydown", { code: "KeyD" });
+  assert.ok(poll().keysDown.has("KeyD"), "前置：打字之前 KeyD 是驱动游戏的");
+  kb.fire("focusin", { target: INPUT });
+  assert.equal(poll().keysDown.size, 0, "进入打字状态要清掉已按住的键（它们的 keyup 已被输入框吃掉）");
+
+  // ④ 再出去一次仍然能走（状态可反复切换，不是一次性）
+  kb.fire("focusout", { target: INPUT });
+  kb.fire("keydown", { code: "KeyA" });
+  assert.ok(poll().keysDown.has("KeyA"), "第二次进出打字状态也要能恢复");
+});
+
+
 // ── ④ 端到端：手柄能不能玩 ───────────────────────────────────
 
 function ctxOf(scene: Scene): ModuleContext {

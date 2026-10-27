@@ -41,7 +41,7 @@
     而判据读错一边会变成假绿。
 -->
 <div class="sub" style="max-width:900px;margin-top:10px">
-  ★ <b>画面观感需人工确认</b>：上面 43 条都是可机器判定的（后端选择 / 合批 / 资产图集 / 脚本跨界 / 背包闭环 / UI 同 pass），
+  ★ <b>画面观感需人工确认</b>：上面每一条都是可机器判定的（条数以表尾汇总为准，这里不写死数字——写死就会过期）（后端选择 / 合批 / 资产图集 / 脚本跨界 / 背包闭环 / UI 同 pass），
   但"树看起来像树"这件事没有自动判据 —— 原先这里有一条"画布不是纯黑"，它恒返回 true，
   是个假绿灯（`preserveDrawingBuffer: false` 时帧后 `readPixels` 读不到内容，我宁可删掉它也不留假判据）。
   真要自动化得走 render target + readback 做 golden image，属于阶段 3。
@@ -351,6 +351,12 @@ let tintRestoreDone = null;
 let tintPhase = 0; // 0 = 还没闪；1 = 已闪，在等到期
 let tintBefore = null;
 let tintDuring = null;
+// 批112：玩家的八向动画（要跨 0.7s 采样看帧号变化 + 真按方向键看换段）
+let heroAnimDone = null;
+// ★ 失败要**有限重试**再定案：这条一场要 2 秒多（采样 + 四次按键），
+//   每轮都重跑会把「跑满 MAX_TRIES 轮」拖成十几分钟（页面自己的预算是 100 轮）。
+//   但也不能一次就定案：开局头几轮世界还没稳住（生物没刷、玩家被物理挤开）。
+let heroAnimTries = 0;
 
 row("★★ 背包面板开得出、列得对（UI 面板行文本 = 堆叠数，且第 1 行真的在选中态）", async (e) => {
   if (panelDone !== null) return panelDone;
@@ -1304,6 +1310,186 @@ row("★★ 提示条不再走 DOM：字画在 UI 树里、DOM 那个元素是�
       ` · DOM 为空=${domText === ""} · 2 秒后已收起=${gone}`,
   ];
   return toastDone;
+});
+
+row("★★★ 玩家八向动画：帧名 = 朝向扇区、同方向 4 帧在播、按方向键就换段", async (e) => {
+  if (heroAnimDone !== null) return heroAnimDone;
+  // ★ 这条只有浏览器能验：要「组件挂上了」「onStep 里真的同步了」「图集里真有那 4 帧」
+  //   三件事同时成立。Node 判据各自都绿的情况下，这三件仍然可以一件都没接上 ——
+  //   而症状全是「玩家站着不动」，画面上看不出是缺素材还是缺接线。
+  // ★ 它还是本批唯一一条「真实键盘」判据：批112 就是它抓到「收起命令行之后 WASD
+  //   永久失灵」（`textFocus` 只进不出）。那条在 Node 里能单独钉（见 input-map.test.ts），
+  //   但**串起来**只有这里能看见。
+  const fail = (msg) => {
+    heroAnimTries++;
+    const t = [false, heroAnimTries < 3 ? `${msg}（第 ${heroAnimTries} 次，下一轮重试）` : msg];
+    if (heroAnimTries >= 3) heroAnimDone = t;
+    return t;
+  };
+  const node = e.scene.find(e.heroId);
+  if (!node) return fail(`找不到玩家节点 #${e.heroId}`);
+  const face = node.get("motion.facing");
+  const sp = node.get("render.sprite");
+  const ds = node.get("render.dirSprite");
+  const anim = node.get("render.spriteAnimator");
+  const lack = [!face && "朝向", !sp && "精灵", !ds && "方向帧", !anim && "动画"].filter(Boolean);
+  if (lack.length > 0) return fail(`玩家缺组件：${lack.join("、")}（少任何一个的表现都是「不动」）`);
+
+  const LETTERS = ["e", "se", "s", "sw", "w", "nw", "n", "ne"];
+  const TAU = Math.PI * 2;
+  // ★ 扇区独立重算，不读 `face.dir8`：读 getter 等于把被测实现又抄一遍。
+  const sectorOf = (rad) => Math.round((((rad % TAU) + TAU) % TAU) / (TAU / 8)) % 8;
+
+  // ---- ① clip 表：8 段，顺序与字母表逐字一致
+  const badClips = [];
+  if (ds.clipIds.length !== 8) badClips.push(`clipIds 长度 ${ds.clipIds.length}（应为 8）`);
+  else {
+    for (let i = 0; i < 8; i++) {
+      if (ds.clipIds[i] !== `hero_idle_${LETTERS[i]}`) badClips.push(`[${i}]="${ds.clipIds[i]}"`);
+    }
+  }
+  if (badClips.length > 0) return fail(`clip 表与字母表不一致：${badClips.slice(0, 3).join("；")}`);
+
+  /** 采一个瞬间：帧名 / 扇区 / clip 一起读（分两次读会读到两个 tick 的状态）。 */
+  const sample = () => {
+    const m = /^hero_([a-z]{1,2})_(\d)$/.exec(sp.frame);
+    const sect = sectorOf(face.angle);
+    return {
+      frame: sp.frame,
+      letter: m === null ? null : m[1],
+      idx: m === null ? -1 : Number(m[2]),
+      sect,
+      want: LETTERS[sect],
+      clipId: anim.clipId,
+    };
+  };
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  // ---- ② 700ms 采样：帧号要动，且每一帧的字母都跟得上朝向
+  //   ★ 700ms > 一圈 600ms（4 帧 × 150ms）⇒ 「只看到 1 个帧号」只可能是没在播。
+  //     采样间隔 50ms，比最短帧时长 150ms 密 3 倍，不会漏帧。
+  const N = 14;
+  const taken = [];
+  for (let i = 0; i < N; i++) {
+    taken.push(sample());
+    await wait(50);
+  }
+  const offLetter = taken.filter((s) => s.letter !== s.want);
+  if (offLetter.length > 0) {
+    const s = offLetter[0];
+    return fail(`帧 ${s.frame} 但朝向扇区是 ${s.want}（${offLetter.length}/${N} 个样本不符）`);
+  }
+  const offClip = taken.filter((s) => s.clipId !== `hero_idle_${s.want}`);
+  if (offClip.length > 0) {
+    const s = offClip[0];
+    return fail(`clip=${s.clipId} 但朝向扇区是 ${s.want}（${offClip.length}/${N} 个样本不符）`);
+  }
+  const idxs = new Set(taken.map((s) => s.idx));
+  if (idxs.size < 2) return fail(`700ms 里帧号一直是 ${taken[0].idx}（${taken[0].frame}）—— 动画没在播`);
+
+  // ---- ③ 真按方向键：键真的接到了控制器上（沿轴真的走了）
+  //   ★ 走**真实键盘事件**（与命令行那条同一口径）。这一半证的是「键盘没被别的东西吃掉」——
+  //     批112 的 `textFocus` 只进不出就是在这里露的（收起命令行之后 WASD 全哑）。
+  //   ★★ 这里**只判"沿轴走了多少"，不判朝向**。原因是这个世界不干净：玩家周围一堆
+  //     资源体、还有三只猎狗在追，物理每拍都在推它，而「朝向 = 实际位移」把推力也算进去
+  //     ⇒ 按住 A 也可能朝北。第一版判了朝向，红的信息是「A 走了 1.34 向西，但朝向 n」——
+  //     错的是判据的**读法**，不是实现。"朝向来自位移"改用 ④ 的受控位移去验。
+  const KEYS = ["KeyD", "KeyW", "KeyA", "KeyS"];
+  const press = (code) => window.dispatchEvent(new KeyboardEvent("keydown", { code, bubbles: true }));
+  const release = (code) => window.dispatchEvent(new KeyboardEvent("keyup", { code, bubbles: true }));
+  const posOf = () => {
+    const p = e.scene.find(e.heroId).worldPosition;
+    return { x: p.x, y: p.y };
+  };
+  /** 找一块半径 2 内没有资源、也没有活物的空地（由近及远，八个方向）。 */
+  const clearSpot = () => {
+    const bodies = [...e.scene.componentsOf("world.resource")]
+      .map((c) => c.node)
+      .filter((n) => n !== null && n !== undefined)
+      .map((n) => n.worldPosition);
+    const mobs = e.mobs() === null ? [] : e.mobs().list;
+    const me = posOf();
+    for (let r = 2; r <= 12; r += 1) {
+      for (let a = 0; a < 8; a++) {
+        const x = me.x + Math.cos((a * Math.PI) / 4) * r;
+        const y = me.y + Math.sin((a * Math.PI) / 4) * r;
+        // 保守的边界：世界是 32×24 级别的格子，留一圈余量
+        if (x < 2 || y < 2 || x > 30 || y > 22) continue;
+        const busy =
+          bodies.some((q) => Math.hypot(q.x - x, q.y - y) < 2) ||
+          mobs.some((o) => Math.hypot(o.x - x, o.z - y) < 2);
+        if (!busy) return { x, y };
+      }
+    }
+    return null;
+  };
+  const walked = [];
+  // ★ 走完要把玩家**放回原处**：这条断言每轮都会跑，而别的断言（打一下、顿帧）
+  //   依赖「玩家离敌人够近」（`attackNearest` 按距离挑目标）。人不放回来，
+  //   第二轮起玩家已经在几个身位之外 —— 顿帧那两条会红，而红的样子像是顿帧坏了。
+  //   本条只需要"位移发生过"，不需要世界从此改变。
+  const home = { x: node.localPosition.x, y: node.localPosition.y };
+  try {
+    const spot = clearSpot();
+    if (spot === null) return fail("找不到空地（半径 12 内每一步都有东西）—— 没法判定换向");
+    node.setLocalPosition(spot.x, spot.y);
+    await wait(220); // 让物理把"落地"这一拍算完
+    const settled = posOf();
+    if (Math.hypot(settled.x - spot.x, settled.y - spot.y) > 0.6) {
+      return fail(`空地上仍被推开 ${Math.hypot(settled.x - spot.x, settled.y - spot.y).toFixed(2)}（那里其实有个静态体）`);
+    }
+    for (const code of KEYS) {
+      const p0 = posOf();
+      // 期望轴：D=+x A=−x W=+y S=−y（屏幕坐标，y 向下）。**不从映射表读** ——
+      // 读被测实现等于自证；写死在这里，键位改了就得同步改这条判据。
+      const axis = code === "KeyD" ? [1, 0] : code === "KeyA" ? [-1, 0] : code === "KeyW" ? [0, 1] : [0, -1];
+      press(code);
+      // 按着的时候一路采：这一半**不判朝向该是哪边**（世界太脏，见上），只判
+      // 「每一拍的帧字母都和它自己的朝向扇区对得上」—— 帧跟不跟得上朝向，
+      // 恰恰是这一批新代码最容易错的地方（clip 换了但帧没换）。
+      const seen = [];
+      let mismatch = null;
+      for (let i = 0; i < 6; i++) {
+        await wait(50);
+        const s = sample();
+        seen.push(s.letter);
+        if (s.letter !== s.want && mismatch === null) mismatch = s;
+      }
+      const p1 = posOf();
+      release(code);
+      await wait(60);
+      if (mismatch !== null) {
+        return fail(`${code} 按住时帧 ${mismatch.frame} 与朝向扇区 ${mismatch.want} 不符 —— 帧没跟上朝向`);
+      }
+      const along = (p1.x - p0.x) * axis[0] + (p1.y - p0.y) * axis[1];
+      walked.push({ code, along, seen });
+    }
+    // 阈值 0.25 而不是 0.5：这一带常有生物贴着玩家挤（推、挡），
+    // 0.35 秒理论能走 1.5 格，被挤到 0.25 以下只说明"整个方向都被围住"。
+    // 判的是**符号与量级**：键真的到达控制器 ⇒ 沿轴真的往那边挪了。
+    const short = walked.filter((w) => w.along < 0.25);
+    if (short.length > 0) {
+      return fail(
+        `${short.map((w) => `${w.code} 沿轴只走了 ${w.along.toFixed(2)}`).join("；")} —— 键盘没接到控制器上（或那块地整个被围住）`,
+      );
+    }
+    // 走这一趟应该看见不止一个字母：四键四个方向，全一样就说明"换向没换段"。
+    const letters = new Set(walked.flatMap((w) => w.seen).filter((l) => l !== null));
+    if (letters.size < 2) return fail(`四键走过之后帧字母一直是 ${[...letters][0]} —— 换向没换段`);
+    heroAnimDone = [
+      true,
+      `帧号 ${[...idxs].sort().join("/")} 在播 · 四键沿轴位移 ${walked
+        .map((w) => `${w.code}=${w.along.toFixed(2)}`)
+        .join(" ")} · 期间帧字母（${[...letters].sort().join("/")}）`,
+    ];
+    return heroAnimDone;
+  } finally {
+    // ★ 无论如何都要松键 + 放回原处：卡住的 keydown 会让后面所有断言都在
+    //   「玩家一直往东走」下跑；人留在别处则会让"按距离挑目标"的断言换靶子。
+    for (const code of KEYS) release(code);
+    node.setLocalPosition(home.x, home.y);
+    await wait(80);
+  }
 });
 
 // ★ 什么时候停：**全部通过**才停，或者到 10 秒。以前是"引擎起来了 + 跑过 0.7 秒就停"，//   于是"tick > 10"和"每 60 tick 一条 Lua 日志"这两条**永远不可能过** ——

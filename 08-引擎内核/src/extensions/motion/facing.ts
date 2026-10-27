@@ -73,11 +73,30 @@ export function angleOf(dx: number, dz: number): number | null {
 }
 
 /**
+ * 按「这一拍真的挪了多少」改朝向。**没挪就不动**，返回是否改过。
+ *
+ * ★★ 为什么单独抽出来：这段「读上一次位置 → 求差 → 写朝向」原来只写在
+ *   `browser-entry.ts` 的 `onStep` 里，于是它只可能被**页面级**判据看见。
+ *   而世界很脏（生物会推、物理会顶），像素级的朝向观测在浏览器里稳不住 ——
+ *   三次里有一次红。抽成纯函数之后，四种方向 + 零位移都在 Node 里定死。
+ *
+ * ★ 用「实际位移」而不是「控制器想往哪走」是有意的：贴着墙时二者不同，
+ *   读意图会让角色一直面朝墙外 —— 看起来像穿模的前兆。
+ * ★ 零位移时**保持**原朝向（不是掰向东）：`angleOf` 返回 `null` 就是为这个。
+ */
+export function faceFromMotion(face: Facing, fromX: number, fromY: number, toX: number, toY: number): boolean {
+  const a = angleOf(toX - fromX, toY - fromY);
+  if (a === null) return false;
+  face.setAngle(a);
+  return true;
+}
+
+/**
  * 两个角之间的**最短**有向差，值域 `(-π, π]`。
  *
  * ★ 不取最短的后果是「从 350° 转到 10° 要走 340°」：怪物在目标前面
  *   原地绕一大圈才转过去，画面上是一段莫名的圆弧。
- * ★ 正好差 π 时统一取 `+π`（不是随便选的：不定死的话，
+ * ★ 正好差 π 时统一取 `+π`（不是随便定的：不定死的话，
  *   同一个输入在两台机器上可能反向转，回放就不认字节了）。
  */
 export function shortestDelta(from: number, to: number): number {

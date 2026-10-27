@@ -1,0 +1,84 @@
+{
+  "version": 1,
+  "_comment": "这批图由 tools/import-8dir-pack.mjs 从 CC0 包派生，不要手改。mirrored 里的方向是镜像生成（包里只有 5 个方向），判据逐像素校验镜像关系。",
+  "license": "CC0 1.0",
+  "author": "Raphael Gonçalves (@rgs_dev)",
+  "source": "OpenGameArt: Hand-Drawn Square Characters Animated 8 Directions Top Down (FREE CC0)",
+  "sourceUrl": "https://opengameart.org/content/hand-drawn-square-characters-animated-8-directions-top-down-free-cc0",
+  "packDir": "Hero",
+  "crop": {
+    "x": 31,
+    "y": 39,
+    "w": 61,
+    "h": 55
+  },
+  "directions": {
+    "e": {
+      "src": "right",
+      "mirror": false
+    },
+    "se": {
+      "src": "down_right",
+      "mirror": false
+    },
+    "s": {
+      "src": "down",
+      "mirror": false
+    },
+    "sw": {
+      "src": "down_right",
+      "mirror": true
+    },
+    "w": {
+      "src": "right",
+      "mirror": true
+    },
+    "nw": {
+      "src": "up_right",
+      "mirror": true
+    },
+    "n": {
+      "src": "up",
+      "mirror": false
+    },
+    "ne": {
+      "src": "up_right",
+      "mirror": false
+    }
+  },
+  "framesPerDirection": 4,
+  "files": {
+    "hero_e_0.png": "8e8075bf2f5dcb419ba842930d0b9aa3baa28d12a91ae8d15314278810e6f770",
+    "hero_e_1.png": "1c1389814609225624ad2c67ff96db91994ff271f84affb867323feb3a036aff",
+    "hero_e_2.png": "8e8075bf2f5dcb419ba842930d0b9aa3baa28d12a91ae8d15314278810e6f770",
+    "hero_e_3.png": "51fb793e5248c72fcd7bdbc873fe1f3145e9fb067aa046dfd095b4d2b8230058",
+    "hero_se_0.png": "8c9801d23a8e7ed95c0996311ac407594d54e9d5779c4b860a6e525d4454c919",
+    "hero_se_1.png": "d7001f0b30f78925d95019187443d3853a77b2286dee051d90394c9e11ee0aa7",
+    "hero_se_2.png": "8c9801d23a8e7ed95c0996311ac407594d54e9d5779c4b860a6e525d4454c919",
+    "hero_se_3.png": "d64f9da60a5d22293c98bdd6b5883df6e7b6f9f96851eba355ff0f33721c15be",
+    "hero_s_0.png": "88a506b5c618a8c400558293fc08ea2afe2f2c604204e17e5ecd43a0e42e7c94",
+    "hero_s_1.png": "8877018758b7c160bdf38a2d7edbf6299a6d0f56476d00bfc7fb3d3678595577",
+    "hero_s_2.png": "88a506b5c618a8c400558293fc08ea2afe2f2c604204e17e5ecd43a0e42e7c94",
+    "hero_s_3.png": "b2222ef8852a9cf0c79d981caba420ccf074de46b65ecb8b62e8c27f12ca8dd6",
+    "hero_sw_0.png": "ba1d51c8c550e908c7a1ca450166de0ef80bba8e556787c655fb254182c72bfe",
+    "hero_sw_1.png": "b9bebc9795453f75c594bd9f30e8b2b1d5efc0ad0beaf1c8be968da674d6c129",
+    "hero_sw_2.png": "ba1d51c8c550e908c7a1ca450166de0ef80bba8e556787c655fb254182c72bfe",
+    "hero_sw_3.png": "1e0804cb590d18357098e95d27931f1dcc088c61953c6725b14c70c25965ae7f",
+    "hero_w_0.png": "ab18ba72a6598cd7a03f0081ab25089e1f3a8df72365cfb40bc3efc45b83e5bf",
+    "hero_w_1.png": "ba6905dd24969ae27abf971bafe0d450047f83258679463adda43bb6532ab3e1",
+    "hero_w_2.png": "ab18ba72a6598cd7a03f0081ab25089e1f3a8df72365cfb40bc3efc45b83e5bf",
+    "hero_w_3.png": "3e380189a4ea11a25175a0451af72a35f3904588ff42e9cc92e3be7464a7f95f",
+    "hero_nw_0.png": "b3679590d9b643e9510e40ceedbab54b9f6f37c4d3e3c263e31e3776f6f382a8",
+    "hero_nw_1.png": "1c5fe3f21faa990ee26a0459a2a74a9d87556957de074ce65ea0dc65c8d654a6",
+    "hero_nw_2.png": "b3679590d9b643e9510e40ceedbab54b9f6f37c4d3e3c263e31e3776f6f382a8",
+    "hero_nw_3.png": "d5c58014b253f25816dc2d99cda8a149ae8745b1da91147acff7d0bab9bea10c",
+    "hero_n_0.png": "f188e0dedd5f410c591cda419d1a3ec289380a2aada7c91ceb11db871c41bab6",
+    "hero_n_1.png": "5652c91639020856302785bec46f4f042b86746f7546dd5d4bd53e8d45d8908b",
+    "hero_n_2.png": "f188e0dedd5f410c591cda419d1a3ec289380a2aada7c91ceb11db871c41bab6",
+    "hero_n_3.png": "cba6f95f97efd8fd39cd5240b5feb992d929ae45815302172a6408f3959f41fe",
+    "hero_ne_0.png": "3a889d27b49d81e76cdaa61872fe5f27ef34991708ec056715b94874c29aeeae",
+    "hero_ne_1.png": "86386f2d88074d8743e20d5e840a3013aa8940c302aa0a44d9dc28db152a9536",
+    "hero_ne_2.png": "3a889d27b49d81e76cdaa61872fe5f27ef34991708ec056715b94874c29aeeae",
+    "hero_ne_3.png": "964a09abf1496658e3f066e1a0f532f98c7ea1a87ad5e8e70724fba536af88a0"
+  }
+}

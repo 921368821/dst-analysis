@@ -34,6 +34,7 @@ import {
   Facing,
   angleOf,
   dirIndex,
+  faceFromMotion,
   normRad,
   registerFacingComponent,
   shortestDelta,
@@ -412,4 +413,43 @@ test("[装配] 朝向没注册 ⇒ 装配硬失败，不留「画得出来但不
     nodes++;
   });
   assert.equal(nodes, 1, "失败的装配不能留下孤儿节点（树里只剩 __root__）");
+});
+
+test("★★ 朝向取自**位移**（不是绝对坐标）：四个方向 + 零位移保持原朝向", () => {
+  // ★ 这条钉的是批112 挪进引擎的那段「读上一次位置 → 求差 → 写朝向」。
+  //   它原来只活在 `browser-entry.ts` 的 onStep 里，只可能被页面级判据看见 ——
+  //   而世界太脏（生物会推、物理会顶），浏览器里逐拍的朝向观测稳不住（三跑一红）。
+  //   抽成纯函数之后，这里把四种方向与"没挪"都定死。
+  const PI = Math.PI;
+  const cases: Array<[string, number, number, number, number, number]> = [
+    ["东（+x）", 0, 0, 1, 0, 0],
+    ["南（屏幕下 +y）", 0, 0, 0, 1, PI / 2],
+    ["西（−x）", 0, 0, -1, 0, PI],
+    ["北（屏幕上 −y）", 0, 0, 0, -1, (3 * PI) / 2],
+    ["东南（对角）", 0, 0, 1, 1, PI / 4],
+  ];
+  for (const [why, fx, fy, tx, ty, want] of cases) {
+    const f = new Facing();
+    f.setAngle(PI / 2); // 先摆一个和期望不同的值，免得"没改"也蒙对
+    assert.equal(faceFromMotion(f, fx, fy, tx, ty), true, `${why}：动了就要改朝向`);
+    assert.equal(f.angle, want, `${why}：期望 ${String(want)}，实际 ${String(f.angle)}`);
+  }
+
+  // ★★ 关键：用的是**差**不是**绝对坐标**。把起点整体平移到 (5,5)，
+  //   结果必须一样 —— 写错成 `angleOf(toX, toY)` 时，这里会朝原点。
+  const far = new Facing();
+  assert.equal(faceFromMotion(far, 5, 5, 5, 6), true);
+  assert.equal(far.angle, PI / 2, "同一个位移在别的位置必须给同一个朝向");
+
+  // 没挪 ⇒ 一个字节都不改（`angleOf` 的零向量约定，见文件头 ①）
+  const still = new Facing();
+  still.setAngle(PI / 4);
+  assert.equal(faceFromMotion(still, 2, 3, 2, 3), false, "零位移必须返回 false");
+  assert.equal(still.angle, PI / 4, "零位移不许把朝向掰向东");
+
+  // 非有限值也不许写（NaN 写进 angle 会让实体从画面上消失，见文件头）
+  const bad = new Facing();
+  bad.setAngle(PI / 4);
+  assert.equal(faceFromMotion(bad, 0, 0, Number.NaN, 0), false);
+  assert.equal(bad.angle, PI / 4, "NaN 位移不许污染朝向");
 });

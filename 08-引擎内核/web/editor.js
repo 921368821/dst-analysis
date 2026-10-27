@@ -4307,7 +4307,16 @@ var DomInputDevice = class {
       this.emit({ kind: "blur" });
     };
     const onFocusIn = (ev) => {
-      this.textFocus = this.isTyping(ev);
+      const next = this.isTyping(ev);
+      if (next && !this.textFocus) {
+        this.down.clear();
+        this.pressed.clear();
+        this.released.clear();
+      }
+      this.textFocus = next;
+    };
+    const onFocusOut = () => {
+      this.textFocus = false;
     };
     const onPointerDown = (ev) => {
       this.updatePointer(ev);
@@ -4336,6 +4345,7 @@ var DomInputDevice = class {
     this.add(this.kb, "keyup", onKeyUp);
     this.add(this.kb, "blur", onBlur);
     this.add(this.kb, "focusin", onFocusIn);
+    this.add(this.kb, "focusout", onFocusOut);
     this.add(this.ptr, "pointerdown", onPointerDown);
     this.add(this.ptr, "pointerup", onPointerUp);
     this.add(this.ptr, "pointermove", onPointerMove);

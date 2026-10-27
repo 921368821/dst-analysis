@@ -111,7 +111,16 @@ import {
 } from "./extensions/render/feedback.ts";
 import { registerMoverComponent } from "./extensions/ai/move.ts";
 import { registerFacingComponent } from "./extensions/motion/facing.ts";
-import { registerDirSpriteComponent, syncDirFrames } from "./extensions/render/dir-sprite.ts";
+import {
+  DirSprite,
+  registerDirSpriteComponent,
+  restoreDirClipIds,
+  syncDirFrames,
+} from "./extensions/render/dir-sprite.ts";
+import { createAnimModule } from "./extensions/render/anim-module.ts";
+import { makeAnimationClip } from "./extensions/render/animation.ts";
+import { SpriteAnimator } from "./extensions/render/sprite-animator.ts";
+import { faceFromMotion, FACING_TYPE, Facing } from "./extensions/motion/facing.ts";
 import { TextInput } from "./extensions/ui/text-input.ts";
 import { HUNGER_TYPE, Hunger, registerHungerComponent } from "./extensions/survival/hunger.ts";
 import { eat as eatKind, normalizeFoodTable } from "./extensions/survival/food.ts";
@@ -208,6 +217,47 @@ end
  */
 const DIRECTION_FRAMES = ["e", "se", "s", "sw", "w", "nw", "n", "ne"] as const;
 
+/** 每个方向的待机帧数（== 导入器写出的张数）。 */
+const HERO_FRAMES = [0, 1, 2, 3] as const;
+
+/** 每帧时长（毫秒）。150 是"看得出在呼吸、又不至于像抽搐"的档位，与场景节奏无关。 */
+const HERO_IDLE_MS = 150;
+
+/**
+ * 玩家待机动画：**每个方向一段 clip**。
+ *
+ * ★ 为什么是 8 段而不是"一段 clip + 按方向切区间"：`AnimationClip` 只认帧名序列，
+ *   切区间要自己算偏移量，偏移量一错就是"朝东播到朝北的帧"—— 而两边的判据都绿
+ *   （clip 本身合法、方向下标也合法）。8 段 id 直白，错了在当前帧名上看得见。
+ *
+ * ★★ 这三个常量**必须声明在 `DEMO_FRAMES` 之前**，不是排版偏好。
+ *   `DEMO_FRAMES` 是模块顶层常量，求值发生在 import 的那一刻；它内部引用
+ *   `HERO_FRAMES`。把声明放到后面 ⇒ `Cannot access 'HERO_FRAMES' before initialization`
+ *   ——整个页面白屏，而 `tsc` 不报（引用藏在箭头函数里，TS 不做跨函数体的
+ *   使用前检查），Node 判据也碰不到（`browser-entry.ts` 只在浏览器里跑）。
+ *   批112 真踩过：页面级断言是这条错误的唯一守卫。
+ */
+const HERO_CLIPS = DIRECTION_FRAMES.map((letter) => {
+  const made = makeAnimationClip({
+    id: `hero_idle_${letter}`,
+    frames: HERO_FRAMES.map((f) => `hero_${letter}_${f}`),
+    durationsMs: HERO_FRAMES.map(() => HERO_IDLE_MS),
+  });
+  if (!made.ok) throw new Error(`玩家待机动画 ${letter} 构造失败：${made.error.message}`);
+  return made.value;
+});
+
+/**
+ * 方向 → clip id 表（**装配与读档后共用这一份**）。
+ *
+ * ★ 抽成一个函数而不是就地写两遍：`clipIds` 不进 `schema`，读档时会被丢掉，
+ *   所以「装配」和「读档后补回」必须是同一个来源。写两遍的失效方式是
+ *   某天只改了其中一处 —— 表现是「读档之后某个方向的动画换了另一段」。
+ */
+function heroClipIds(): string[] {
+  return DIRECTION_FRAMES.map((letter) => `hero_idle_${letter}`);
+}
+
 const DEMO_FRAMES = [
   { name: "ground", file: "ground.png" },
   // ★ terrain 是**中性灰噪点**，不是草绿：地形块用「灰度帧 × 群系色」着色
@@ -233,6 +283,13 @@ const DEMO_FRAMES = [
     name: `hound_${letter}`,
     file: `hound_${letter}.png`,
   })),
+  // 批112：CC0 八向 + 动画素材（OpenGameArt，作者 Raphael Gonçalves / @rgs_dev）。
+  //   ★ 每个方向 4 帧待机；名字 `hero_<方向>_<帧>` 由 `tools/import-8dir-pack.mjs` 定，
+  //     判据 `eight-dir-pack.test.ts` 逐张核对磁盘 —— 这里写错一个字母，
+  //     症状是"某一个方向永远不动"，而图集只会静默少一帧。
+  ...DIRECTION_FRAMES.flatMap((letter) =>
+    HERO_FRAMES.map((f) => ({ name: `hero_${letter}_${f}`, file: `hero_${letter}_${f}.png` })),
+  ),
   { name: "photo", file: "photo.jpg" },
 ] as const;
 
@@ -555,6 +612,13 @@ export async function main(): Promise<void> {
   );
 
   let heroId = -1;
+  /**
+   * 上一 tick 的玩家位置，用来算朝向（批112）。
+   * ★ `null` = 还没有上一 tick（首帧）：此时**不**设朝向，用装配时的初始角度。
+   *   把首帧的"从 (0,0) 到出生点"当成一段位移，会让玩家一进游戏就朝着
+   *   地图原点 —— 看起来像随机朝向。
+   */
+  let lastHeroPos: { x: number; z: number } | null = null;
   let hudTick = 0;
 
   // ---- 资产烘焙（必须在渲染模块之前：图集是渲染 init 的输入）
@@ -586,6 +650,11 @@ export async function main(): Promise<void> {
   const controllerMod = createControllerModule({
     poll: () => (appRef === null ? EMPTY_INPUT : appRef.platform.input.poll()),
   });
+
+  // 批112：动画模块（每实体时钟 + 只读 clip 注册表）。
+  // ★ 它**不自动跑**，由 onStep 手动驱动 —— 与其它模块一致；
+  //   位置排在 `syncDirFrames` 之后，才能"这一 tick 换了方向、这一 tick 就出新帧"。
+  const animMod = createAnimModule({ clips: HERO_CLIPS });
 
   // ---- HUD / 背包（批71）：从手写 DOM 迁到引擎的 UI 模块
   //
@@ -705,6 +774,24 @@ export async function main(): Promise<void> {
       // 控制器 / 再生任务 / 脚本：都由宿主在**同一个** onStep 里驱动（模块不会被自动 update）
       // ★ 控制器必须在物理之前：位置先变，再解算重叠
       controllerMod.update(tick, dt);
+      // ---- 批112：玩家朝向 = 本 tick 的**实际位移**方向
+      //   ★ 不读控制器内部状态：控制器算的是"想往哪走"（含被挡住的部分），
+      //     而画面要跟的是"真的往哪挪了"。贴着墙时两者不同，读前者会让角色
+      //     一直面朝墙外 —— 看起来像穿模的前兆。
+      //   ★ 停下时 `angleOf` 返回 null ⇒ **保持**上一朝向，别掰向东（见 facing.ts 文件头）。
+      if (heroId >= 0) {
+        // ★ 用 `worldPosition`（世界坐标）而不是本地坐标：玩家是根节点，两者今天相同 ——
+        //   但"今天相同"不是理由，等它挂到容器下时本地坐标会立刻错，而错法是"朝向反了"。
+        //   注意字段名：XZ 平面里的第二轴在节点上是 `y`（屏幕向下为正），不是 `z`。
+        const wp = appRef?.scene.find(heroId)?.worldPosition;
+        if (wp !== undefined) {
+          if (lastHeroPos !== null) {
+            const face = appRef?.scene.find(heroId)?.get<Facing>(FACING_TYPE);
+            if (face !== undefined) faceFromMotion(face, lastHeroPos.x, lastHeroPos.z, wp.x, wp.y);
+          }
+          lastHeroPos = { x: wp.x, z: wp.y };
+        }
+      }
       // ---- 动作分发：**只认动作名**，不认物理键码（键位在 InputMap 里，见 input-map.ts）
       // ★ 读的是 controllerMod.snapshot（这一 tick 已经 poll 过的那一份）：
       //   再 poll 一次会把"刚按下"的边缘吞掉 —— M168 那个 bug 的另一种写法。
@@ -717,6 +804,11 @@ export async function main(): Promise<void> {
       // 批108：朝向 → 帧名。**必须排在生物之后**：它读的是本 tick 已经转过的角度，
       // 排在前面就会稳定慢一 tick（快跑时看得出来：转弯的那一帧还是旧朝向）。
       if (appRef !== null) syncDirFrames(appRef.scene, hasFrame);
+      // 批112：动画采样 → 写 `Sprite.frame`。
+      // ★ 必须紧跟在 `syncDirFrames` 之后：前者只改 `clipId`，后者才出帧。
+      //   反过来（先采样再选 clip）会让每次转向都慢一 tick —— 60fps 下 16ms，
+      //   肉眼不容易发现，但"转向时那个方向的第一帧永远是旧的"是可测的。
+      animMod.update(tick, dt);
       // 生存：在场所有带 `game.hunger` 的实体（目前只有玩家）各推进一 tick。
       // ★ 放在生物之后：饿死是"这一 tick 的最后一件事"，免得同一 tick 里
       //   "先被判定饿死、再被打"这种顺序歧义。
@@ -1197,6 +1289,7 @@ export async function main(): Promise<void> {
     feedbackMod,
     hitstopMod,
     controllerMod,
+    animMod,
   ];
   if (hudUi !== null) modules.push(hudUi.module);
 
@@ -1345,6 +1438,30 @@ export async function main(): Promise<void> {
   if (heroNode === undefined) throw new Error(`出生节点 ${heroId} 不在场景里`);
   // 控制、脚本、物理都挂在**同一个**节点上 —— 换一个人就等于换一个坐标基准
   scene.attach(heroId, () => new PlayerController());
+  // 批112：玩家的八向动画三件套（朝向 + 方向选 clip + 每实体时钟）。
+  //
+  // ★ 为什么这三件必须一起挂：少任何一个的表现都**是"不动"**，而不是报错 ——
+  //   缺 Facing ⇒ 方向同步直接 return（`visited` 都不加）；缺 DirSprite ⇒ 没人写
+  //   clipId；缺 SpriteAnimator ⇒ clip 选出来了但没有时钟，`Sprite.frame` 一直是
+  //   装配时的那个名字。三种都长得像"素材没接上"。
+  //
+  // ★ `prefix` 必须填：`DirSprite` 用 `prefix === ""` 判定"本组件不生效"。
+  //   clip 模式下它不参与选帧，但仍然要非空才进同步循环。
+  scene.attach(heroId, () => {
+    const f = new Facing();
+    // 初始朝南（对着镜头）：出生瞬间还没有位移，不给角度就会朝东 ——
+    // 而"刚进游戏就背对镜头"看起来像贴图反了。
+    f.setAngle(Math.PI / 2);
+    return f;
+  });
+  scene.attach(heroId, () => new SpriteAnimator());
+  scene.attach(heroId, () => {
+    const ds = new DirSprite();
+    ds.prefix = "hero";
+    ds.dirs = 8;
+    ds.clipIds = heroClipIds();
+    return ds;
+  });
   // 批66：玩家也要能打、能被打。阵营写 "hunter" —— 与猎狗同队（互不攻击），
   // 兔子是 "prey"（敌对）⇒ 空格键打得到兔子，打不到猎狗。
   scene.attach(heroId, () => {
@@ -1602,7 +1719,18 @@ export async function main(): Promise<void> {
     for (const id of obstacleIds) {
       if (scene.find(id) !== undefined) physics.add({ nodeId: id, radius: 0.6, isStatic: true });
     }
-    if (scene.find(heroId) !== undefined) physics.add({ nodeId: heroId, radius: 0.45, isStatic: false });
+    if (scene.find(heroId) !== undefined) {
+      physics.add({ nodeId: heroId, radius: 0.45, isStatic: false });
+      // ★ 批112：`clipIds` 不进 `schema` ⇒ `loadScene` 按 schema 重建组件时会把它丢掉，
+      //   玩家从此退回单帧模式（这套素材没有单帧名）⇒ 读档后变成一张静止贴图。
+      //   这是**装配**（哪套资产），不是实体状态，所以只能由宿主在读档后重新施加。
+      //   同一类事：上面那张物理登记表。
+      // ★ 返回值要判：`DirSprite` 本身在 schema 里（`prefix`/`dirs` 会被存下来），
+      //   所以玩家节点在就必须补得上 —— 补不上说明装配坏了，说出来比静默停帧强。
+      if (!restoreDirClipIds(scene, heroId, heroClipIds())) {
+        toast("读档：玩家的方向帧组件没找回来（动画会停在前一帧）");
+      }
+    }
     const extra = r.value.skipped.length > 0 ? `，跳过 ${r.value.skipped.length} 项` : "";
     toast(`已读档：${r.value.made} 个节点${extra}`);
     return ok(r.value.made);
@@ -1775,6 +1903,11 @@ export async function main(): Promise<void> {
     cmd.anchor = 0;
     cmd.cancelComposition();
     syncBagUi();
+    // ★ 收起时要把焦点**交还给页面**（批112）：命令行用一个屏幕外的隐藏 `<input>`
+    //   接输入法，它开着时一直握着焦点。不 blur 的话，DOM 输入后端会认为「还在打字」，
+    //   于是收起的输入行后面每一个按键都被吞掉 —— 症状是「打完一条命令之后 WASD 不动了」。
+    //   两端都要修：这一处让焦点真的离开，后端那边的 `focusout` 才收得到。
+    if (!next && imeHost !== null && document.activeElement === imeHost) imeHost.blur();
   }
 
   /** 执行一条命令。返回给提示条的那句话（成功/失败都说）。 */

@@ -11,6 +11,9 @@
  *     "W" 会一直被认为按着（角色一直走）。这是一个非常常见的真实 bug。
  *  ③ 指针坐标**归一化到 CSS 像素的相对坐标**（`offsetX/offsetY`），
  *     不用 `clientX` —— 后者包含页面滚动，会让"点在哪"与"看到在哪"不一致。
+ *  ④ 「在打字」是一个**双向**状态：`focusin` 进、`focusout` 出。只写进不写出，
+ *     输入框一收起（焦点落回 body，不会再派发 focusin）键盘就永久失灵。
+ *     同理，进入打字状态要清掉已按住的键 —— 那些键的 keyup 已经被输入框吃掉了。
  *
  * ★ 手柄（T362）也在这里合成成**逻辑键码**（`Gamepad0.A` / `Gamepad0.LStickLeft`）：
  *   映射表那一层就完全不需要知道 `navigator.getGamepads()` 长什么样，
@@ -170,7 +173,30 @@ export class DomInputDevice implements IInputDevice {
     };
 
     const onFocusIn = (ev: DomEventLike): void => {
-      this.textFocus = this.isTyping(ev);
+      const next = this.isTyping(ev);
+      // ★ 进入打字状态要把**已经按住**的键清掉：否则「按住 W 时按 /」会让角色
+      //   一边打字一边继续走 —— 那些键的 keyup 会被输入框吃掉，游戏这一侧永远等不到。
+      //   与 `onBlur` 同一套清理、同一条理由。
+      if (next && !this.textFocus) {
+        this.down.clear();
+        this.pressed.clear();
+        this.released.clear();
+      }
+      this.textFocus = next;
+    };
+
+    /**
+     * 焦点**离开**时把「在打字」这个状态清掉。
+     *
+     * ★★ 这条是批112 的浏览器自检逼出来的真 bug（`focusout` 之前没人管）：
+     *   `textFocus` 原来只在 `focusin` 里赋值。而输入框收起（命令行按 Esc / 回车）
+     *   时浏览器把焦点交回 `body`，**不会再派发 focusin** ⇒ `textFocus` 永远是
+     *   `true` ⇒ 之后每一个按键都被当成"在输入框里打字"吞掉。
+     *   症状：「在命令行里打完一条命令，收起之后 WASD 再也不动了」（除非点到
+     *   别的可聚焦元素）。它躲过了所有 Node 判据 —— 那些都不经过焦点。
+     */
+    const onFocusOut = (): void => {
+      this.textFocus = false;
     };
 
     const onPointerDown = (ev: DomEventLike): void => {
@@ -204,6 +230,7 @@ export class DomInputDevice implements IInputDevice {
     this.add(this.kb, "keyup", onKeyUp);
     this.add(this.kb, "blur", onBlur);
     this.add(this.kb, "focusin", onFocusIn);
+    this.add(this.kb, "focusout", onFocusOut);
     this.add(this.ptr, "pointerdown", onPointerDown);
     this.add(this.ptr, "pointerup", onPointerUp);
     this.add(this.ptr, "pointermove", onPointerMove);
