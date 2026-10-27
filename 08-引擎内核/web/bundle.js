@@ -18646,6 +18646,7 @@ var UiWidget = {
 };
 var ANCHOR_TOP_LEFT = { x: 0, y: 0 };
 var ANCHOR_CENTER = { x: 0.5, y: 0.5 };
+var ANCHOR_BOTTOM_CENTER = { x: 0.5, y: 1 };
 var nextNodeId = 1;
 var UiNode = class _UiNode {
   uid;
@@ -20232,9 +20233,40 @@ function createHudUi(opts) {
   bagPanel.add(bagEmpty);
   for (const n of bagRowsNodes) bagPanel.add(n);
   bagPanel.add(bagFoot);
+  const toastW = Math.min(HUD_LAYOUT.width, 560);
+  const toastH = cjkRowH + pad * 2;
+  const toastLine = new UiNode({
+    id: "toast.line",
+    widget: UiWidget.Label,
+    size: { w: toastW - pad * 2, h: cjkRowH },
+    // free 容器里子节点靠 offset 定位（父的内区 + offset）
+    offset: { x: pad, y: pad },
+    props: {
+      text: "",
+      style: { align: "center", color: white, maxLines: 1, ellipsis: "\u2026" },
+      ...bagRowFontId === void 0 ? {} : { fontId: bagRowFontId }
+    }
+  });
+  const toastPanel = new UiNode({
+    id: "toast.panel",
+    widget: UiWidget.Panel,
+    anchor: ANCHOR_BOTTOM_CENTER,
+    pivot: ANCHOR_BOTTOM_CENTER,
+    // 从屏幕底边往上抬 28：避开最下面那行键位提示
+    offset: { x: 0, y: -28 },
+    size: { w: toastW, h: toastH },
+    visible: false,
+    // ★ **不吃点击也不挡下层**：提示条正好压在屏幕中下部，而那里是玩家点世界的地方。
+    //   `opaque=true` 会让底部一条 24px 高的区域静默失效 —— 玩家只会觉得"这里点不动"。
+    opaque: false,
+    interactive: false,
+    props: { frame: "panel", slice: sliceOf("panel"), tint: new Color(1, 1, 1, 0.92) }
+  });
+  toastPanel.add(toastLine);
   const root = new UiNode({ id: "ui.root" });
   root.add(hudPanel);
   root.add(bagPanel);
+  root.add(toastPanel);
   const onEvent = (ev) => {
     if (ev.type !== "click") return;
     if (ev.currentTarget !== ev.target) return;
@@ -20257,6 +20289,7 @@ function createHudUi(opts) {
   let bagSig = "";
   let bagOpenState = false;
   let bagTexts = [];
+  let toastText = "";
   const api = {
     module,
     built,
@@ -20312,6 +20345,17 @@ function createHudUi(opts) {
       bagEmpty.visible = rows.length === 0;
       bagTexts = rows.map((r) => r.text);
       module.invalidate();
+    },
+    setToast(text) {
+      const next = text ?? "";
+      if (next === toastText) return;
+      toastText = next;
+      toastPanel.visible = next !== "";
+      toastLine.props = { ...toastLine.props, text: next };
+      module.invalidate();
+    },
+    get toastText() {
+      return toastText;
     },
     pointer(cssX, cssY, down, wheelYCss = 0, wheelXCss = 0) {
       const p = module.viewport.screenToDesign(cssX, cssY);
@@ -24710,11 +24754,15 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
   const SAVE_PATH = "/saves/slot1.json";
   let toastTimer = 0;
   function toast(msg3) {
-    toastEl.textContent = msg3;
-    toastEl.style.opacity = "1";
+    if (hudUi !== null) hudUi.setToast(msg3);
+    else {
+      toastEl.textContent = msg3;
+      toastEl.style.opacity = "1";
+    }
     if (toastTimer !== 0) clearTimeout(toastTimer);
     toastTimer = window.setTimeout(() => {
-      toastEl.style.opacity = "0";
+      if (hudUi !== null) hudUi.setToast(null);
+      else toastEl.style.opacity = "0";
     }, 2e3);
   }
   function attackNearest() {
@@ -25306,6 +25354,15 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
     },
     /** 选中第 i 堆（自检页驱动；等价于按数字键）。 */
     selectStack: (i) => selectBagRow(i),
+    /**
+     * 弹一条提示（自检页驱动）。
+     *
+     * ★ 为什么要有这个入口：提示的**触发点**散在十几个动作里（存档、丢弃、制作失败…），
+     *   而"提示走 UI 而不是 DOM"这件事与"哪个动作触发"无关。造一个直接入口，
+     *   自检页才能在不依赖某个玩法的前提下验它 —— 否则这条断言会跟着玩法改，
+     *   改一次断一次，最后没人维护。
+     */
+    toast: (msg3) => toast(msg3),
     /** 丢弃选中堆（自检页驱动；等价于按 Q，`whole` = 按住 Shift）。 */
     dropSelected: (whole = false) => {
       const r = dropSelected(whole);
@@ -25349,6 +25406,8 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
       },
       /** 面板里**画出来的**行文本（不是重新算一遍的那份）。 */
       bagRows: () => hudUi.bagRowTexts.slice(),
+      /** 当前提示文案（"" = 没有）。自检页用它证"提示走 UI 树而不是 DOM"。 */
+      toastText: () => hudUi.toastText,
       bagOpen: () => hudUi.bagOpen,
       hudRowIds: hudUi.hudRowIds,
       /** 设计坐标（自检页验"点击命中真实矩形"时用）。 */

@@ -1347,12 +1347,26 @@ export async function main(): Promise<void> {
   const saves = new StorageFileSystem({ storage: window.localStorage, prefix: "engine08.fs." });
   const SAVE_PATH = "/saves/slot1.json";
   let toastTimer = 0;
+  /**
+   * 一行提示。
+   *
+   * ★ 有引擎 UI 就走 UI 树（`hudUi.setToast`），**没有才**回落到 DOM 的 `#toast`。
+   *   那个 DOM 元素现在只剩一个职责：资产建不起来时的降级通路 —— 那时整套 UI 树都不存在
+   *   （`hud.hidden` 也是同一条路上的），提示若只走 UI 就等于"什么都看不到"。
+   *   ★ 两条路都要留：降级态的可用性不是"顺便"，而是"启动失败时唯一的说话方式"。
+   * ★ 计时留在这里：UI 层没有时钟（它只把状态映射成节点），
+   *   "两秒后收起"是宿主对**用户注意力**的安排，不是界面的属性。
+   */
   function toast(msg: string): void {
-    toastEl!.textContent = msg;
-    toastEl!.style.opacity = "1";
+    if (hudUi !== null) hudUi.setToast(msg);
+    else {
+      toastEl!.textContent = msg;
+      toastEl!.style.opacity = "1";
+    }
     if (toastTimer !== 0) clearTimeout(toastTimer);
     toastTimer = window.setTimeout(() => {
-      toastEl!.style.opacity = "0";
+      if (hudUi !== null) hudUi.setToast(null);
+      else toastEl!.style.opacity = "0";
     }, 2000);
   }
 
@@ -2131,6 +2145,15 @@ export async function main(): Promise<void> {
     },
     /** 选中第 i 堆（自检页驱动；等价于按数字键）。 */
     selectStack: (i: number) => selectBagRow(i),
+    /**
+     * 弹一条提示（自检页驱动）。
+     *
+     * ★ 为什么要有这个入口：提示的**触发点**散在十几个动作里（存档、丢弃、制作失败…），
+     *   而"提示走 UI 而不是 DOM"这件事与"哪个动作触发"无关。造一个直接入口，
+     *   自检页才能在不依赖某个玩法的前提下验它 —— 否则这条断言会跟着玩法改，
+     *   改一次断一次，最后没人维护。
+     */
+    toast: (msg: string) => toast(msg),
     /** 丢弃选中堆（自检页驱动；等价于按 Q，`whole` = 按住 Shift）。 */
     dropSelected: (whole = false) => {
       const r = dropSelected(whole);
@@ -2179,6 +2202,8 @@ export async function main(): Promise<void> {
             },
             /** 面板里**画出来的**行文本（不是重新算一遍的那份）。 */
             bagRows: () => hudUi.bagRowTexts.slice(),
+            /** 当前提示文案（"" = 没有）。自检页用它证"提示走 UI 树而不是 DOM"。 */
+            toastText: () => hudUi.toastText,
             bagOpen: () => hudUi.bagOpen,
             hudRowIds: hudUi.hudRowIds,
             /** 设计坐标（自检页验"点击命中真实矩形"时用）。 */

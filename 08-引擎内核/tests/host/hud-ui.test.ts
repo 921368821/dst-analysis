@@ -20,6 +20,10 @@ import { fileURLToPath } from "node:url";
 import { Rect } from "../../src/foundation/math/index.ts";
 import { parseBmFont, type BitmapFont } from "../../src/extensions/ui/font.ts";
 import { layoutText } from "../../src/extensions/ui/text-layout.ts";
+import { layoutTree } from "../../src/extensions/ui/layout.ts";
+import { buildUiQuads } from "../../src/extensions/ui/widgets.ts";
+import { FontRegistry } from "../../src/extensions/ui/font.ts";
+import { UiStateStore } from "../../src/extensions/ui/state.ts";
 import {
   createHudUi,
   buildSkin,
@@ -351,4 +355,75 @@ test("★ 没有中文字体时一切照旧（降级不是崩溃，也不是中�
   hud.setBag([{ kind: "grass_tuft", count: 25 }], 0);
   assert.deepEqual(hud.bagRowTexts, ["1. grass tuft x25"]);
   assert.equal(hud.module.root.find("bag.row0")?.size.h, realFont().lineHeight + 4, "没有中文时行高不该变");
+});
+
+// ------------------------------------------------------------------ ④ toast 进 UI 树
+
+test("★ toast：文案 → 节点，收起时**面板也不可见**（不能留一条空条）", () => {
+  const hud = makeHud();
+  assert.equal(hud.toastText, "");
+  assert.equal(hud.module.root.find("toast.panel")?.visible, false, "没有提示时不该画空面板");
+  hud.setToast("背包已打开");
+  assert.equal(hud.toastText, "背包已打开");
+  assert.equal(hud.module.root.find("toast.panel")?.visible, true);
+  assert.equal(hud.module.root.find("toast.line")?.props.text, "背包已打开");
+  hud.setToast(null);
+  assert.equal(hud.toastText, "");
+  assert.equal(hud.module.root.find("toast.panel")?.visible, false);
+  // 空串与 null 同义：底栏那条"面板可见但一个字没有"是最容易被当成渲染故障的样子
+  hud.setToast("x");
+  hud.setToast("");
+  assert.equal(hud.module.root.find("toast.panel")?.visible, false);
+});
+
+test("★ toast 不吃点击、不挡下层（它正好压在玩家点世界的那块地方）", () => {
+  const hud = makeHud();
+  hud.setToast("背包已打开");
+  const panel = hud.module.root.find("toast.panel");
+  assert.ok(panel !== undefined, "toast.panel 不见了");
+  assert.equal(panel.interactive, false);
+  assert.equal(panel.opaque, false, "opaque=true 会让底部一整条静默失效，玩家只觉得「这里点不动」");
+});
+
+test("★ toast 画在**最上层**（背包开着时提示也要看得见）", () => {
+  const hud = makeHud();
+  const ids = hud.module.root.children.map((n) => n.id);
+  assert.equal(ids[ids.length - 1], "toast.panel", "绘制顺序 = children 顺序，最后 add 的才在最上面");
+});
+
+test("★ 长提示只画一行（省略号截断，而不是换行把提示条撑高）", () => {
+  // ★ 这条要读**字形落在几行**，而不是读样式里写了 maxLines ——
+  //   样式写了但绘制没用它（或换行宽算错）时，前一种读法照样绿。
+  const hud = makeHud();
+  const font = realFont();
+  const fonts = new FontRegistry();
+  fonts.register(font);
+
+  // 字形在页 0、皮肤在页 1：只看页 0 的四边形就是「画出来的那些字」，
+  // 不必去猜"哪些 quad 属于 toast"（猜错的判据会在无关的重构里变红）
+  const glyphsOf = (): readonly { readonly z: number; readonly h: number }[] => {
+    layoutTree(hud.module.root, new Rect(0, 0, 960, 600));
+    const res = buildUiQuads(hud.module.root, fonts, hud.built.skin, new UiStateStore());
+    return res.quads.filter((q) => q.atlas === 0);
+  };
+
+  hud.setToast("OK");
+  assert.equal(glyphsOf().length, 2, "两个字母就是两个字形（先确认这条判据不是空转）");
+
+  const long = "y".repeat(400);
+  hud.setToast(long);
+  const wide = glyphsOf();
+  // ★ 判"几行"不能数 `z` 的**不同值**：同一行里不同字形的高度不一样（`y` 有下伸、`…` 很扁），
+  //   于是同一行也会给出两个 z。要判的是**纵向跨度** —— 一行字必然落在 `lineHeight` 之内。
+  const top = Math.min(...wide.map((q) => q.z));
+  const bottom = Math.max(...wide.map((q) => q.z + q.h));
+  assert.ok(
+    bottom - top <= font.lineHeight,
+    `只许有一行：纵向跨度 ${String(bottom - top)} 超过行高 ${String(font.lineHeight)}（换行会把提示条撑出屏幕）`,
+  );
+  assert.ok(
+    wide.length < long.length / 2,
+    `必须截断：400 个字画了 ${String(wide.length)} 个（若接近 400，说明 maxLines 没生效）`,
+  );
+  assert.ok(wide.length > 10, `但也不能截没了 —— 只画了 ${String(wide.length)} 个`);
 });

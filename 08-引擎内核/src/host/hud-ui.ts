@@ -21,6 +21,7 @@ import { engineError, err, ok, type EngineError, type Result } from "../foundati
 import type { BitmapFont } from "../extensions/ui/font.ts";
 import { createUiModule, type UiModuleHandle, type UiPageSource } from "../extensions/ui/ui-module.ts";
 import {
+  ANCHOR_BOTTOM_CENTER,
   ANCHOR_CENTER,
   ANCHOR_TOP_LEFT,
   UiLayoutKind,
@@ -162,7 +163,18 @@ export interface HudUiHandle {
   setHud(rows: readonly string[], hunger: number | null): void;
   /** 背包内容（`null` = 关闭）。行数/选中/文本都没变时什么也不做。 */
   setBag(stacks: readonly { readonly kind: string; readonly count: number }[] | null, selected: number): void;
-  /** CSS 像素坐标 → 设计坐标 → 路由。返回本帧事件（判据用）。 */
+  /**
+   * 一行提示（`null` = 收起）。
+   *
+   * ★ 生命周期**不在这里**：本层没有时钟，也不该有（它只把状态映射成节点）。
+   *   宿主在 2 秒后调 `setToast(null)` —— 那条 `setTimeout` 本来就在宿主里，
+   *   搬进来只会让"提示什么时候消失"变成需要注入时钟才能验的东西。
+   * ★ 文案没变时什么都不做：toast 每帧被宿主推一次（存档提示之类），
+   *   每次 `invalidate()` 都会让整棵树重排一次，而重排是 O(节点数 + 字数)。
+   */
+  setToast(text: string | null): void;
+  /** 当前提示文案（"" = 没有）。判据读它，而不是去 parse 节点。 */
+  readonly toastText: string;
   /**
    * 推一帧指针（**画布相对 CSS 像素**，与 DOM 事件里拿到的一致）。
    *
@@ -298,9 +310,51 @@ export function createHudUi(opts: HudUiOptions): Result<HudUiHandle, EngineError
   for (const n of bagRowsNodes) bagPanel.add(n);
   bagPanel.add(bagFoot);
 
+  // ---- toast：屏幕底部中央一行提示
+  //
+  // ★ 这是宿主最后一块**手写 DOM**（`web/index.html` 的 `#toast`）。搬进 UI 树之后
+  //   "提示"与"游戏内文字"用同一张位图字体、同一个 pass、同一套九宫格边框 ——
+  //   在此之前它们在字体、抗锯齿、边框圆角、缩放四件事上全都不一样。
+  //
+  // ★ 宽度取定值而不是跟着文本走：toast 出现在**屏幕中央底部**，宽度随文本变会让
+  //   它每次弹出都左右抖一下（居中对齐时左边与右边同时移动）。定宽 + 单行 + 省略号
+  //   是提示条该有的行为：短提示居中，长提示被截断而不是换行把面板撑高。
+  const toastW = Math.min(HUD_LAYOUT.width, 560);
+  const toastH = cjkRowH + pad * 2;
+  const toastLine = new UiNode({
+    id: "toast.line",
+    widget: UiWidget.Label,
+    size: { w: toastW - pad * 2, h: cjkRowH },
+    // free 容器里子节点靠 offset 定位（父的内区 + offset）
+    offset: { x: pad, y: pad },
+    props: {
+      text: "",
+      style: { align: "center", color: white, maxLines: 1, ellipsis: "…" },
+      ...(bagRowFontId === undefined ? {} : { fontId: bagRowFontId }),
+    },
+  });
+  const toastPanel = new UiNode({
+    id: "toast.panel",
+    widget: UiWidget.Panel,
+    anchor: ANCHOR_BOTTOM_CENTER,
+    pivot: ANCHOR_BOTTOM_CENTER,
+    // 从屏幕底边往上抬 28：避开最下面那行键位提示
+    offset: { x: 0, y: -28 },
+    size: { w: toastW, h: toastH },
+    visible: false,
+    // ★ **不吃点击也不挡下层**：提示条正好压在屏幕中下部，而那里是玩家点世界的地方。
+    //   `opaque=true` 会让底部一条 24px 高的区域静默失效 —— 玩家只会觉得"这里点不动"。
+    opaque: false,
+    interactive: false,
+    props: { frame: "panel", slice: sliceOf("panel"), tint: new Color(1, 1, 1, 0.92) },
+  });
+  toastPanel.add(toastLine);
+
   const root = new UiNode({ id: "ui.root" });
   root.add(hudPanel);
   root.add(bagPanel);
+  // ★ 最后 add：绘制顺序 = children 顺序，提示必须在最上层（背包开着时也要看得见）
+  root.add(toastPanel);
 
   /** 只认目标本身的 click：冒泡会把同一件事投给每一层祖先。 */
   const onEvent = (ev: UiEvent): void => {
@@ -327,6 +381,7 @@ export function createHudUi(opts: HudUiOptions): Result<HudUiHandle, EngineError
   let bagSig = "";
   let bagOpenState = false;
   let bagTexts: readonly string[] = [];
+  let toastText = "";
 
   const api: HudUiHandle = {
     module,
@@ -387,6 +442,19 @@ export function createHudUi(opts: HudUiOptions): Result<HudUiHandle, EngineError
       bagEmpty.visible = rows.length === 0;
       bagTexts = rows.map((r) => r.text);
       module.invalidate();
+    },
+
+    setToast(text: string | null): void {
+      const next = text ?? "";
+      if (next === toastText) return;
+      toastText = next;
+      toastPanel.visible = next !== "";
+      toastLine.props = { ...toastLine.props, text: next };
+      module.invalidate();
+    },
+
+    get toastText(): string {
+      return toastText;
     },
 
     pointer(cssX: number, cssY: number, down: boolean, wheelYCss = 0, wheelXCss = 0): UiEvent[] {

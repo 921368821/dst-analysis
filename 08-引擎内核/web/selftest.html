@@ -71,6 +71,7 @@ function row(name, run) { rows.push({ name, run, state: "wait", detail: "" }); }
 let luaLogDone = null; // 批67：等 Lua 日志出现（有上限，见那条 ★★ 断言）
 let harvestDone = null; // [ok, detail]
 let pickupDone = null;
+let toastDone = null; // 批106：提示条走 UI 树（一次性，内部要等 2 秒收起）
 
 row("平台选择了真实后端（gfx=webgl2 / input=dom）", (e) => {
   const b = e.snapshot().backends;
@@ -1120,6 +1121,54 @@ row("★★ 打开背包时面板真的淡入（不透明度 0→1、位移 −8
       ` · ${reachedAt < 0 ? "从来没到过终点" : `第 ${reachedAt} 步到达，之后盯了 ${watched} 步、掉下去 ${droppedAfterReach} 次`}`,
   ];
   return uiFadeDone;
+});
+
+row("★★ 提示条不再走 DOM：字画在 UI 树里、DOM 那个元素是空的、两秒后自己收起", async (e) => {
+  if (toastDone !== null) return toastDone;
+  if (e.ui === null) {
+    toastDone = [false, "没有 UI 模块（降到 DOM 路径了）"];
+    return toastDone;
+  }
+  const dom = document.getElementById("toast");
+  if (dom === null) {
+    toastDone = [false, "页面里没有 #toast —— 那是资产失败时的降级通路，不能删"];
+    return toastDone;
+  }
+  // ★ 先把 DOM 抹干净：排除「两处都在写」这种情况被误判成通过
+  dom.textContent = "";
+  e.toast("提示条走 UI");
+  // 文案由 onRender 写进节点 props，所以要等一帧
+  const deadline = Date.now() + 1500;
+  let text = "";
+  let rect = null;
+  while (Date.now() < deadline) {
+    text = e.ui.toastText();
+    rect = e.ui.rect("toast.panel");
+    if (text !== "" && rect !== null) break;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  const domText = dom.textContent || "";
+  if (text === "" || rect === null) {
+    toastDone = [false, `UI 里没有提示：text="${text}" rect=${rect === null ? "null" : "有"}`];
+    return toastDone;
+  }
+  if (domText !== "") {
+    toastDone = [false, `DOM 那条路也在写（"${domText}"）—— 说明 UI 通路没接管`];
+    return toastDone;
+  }
+  // ★ 收起由**宿主**那条 setTimeout 驱动（UI 层没有时钟）。这里只盯结果：
+  //   2 秒后文案要变空、`toast.panel` 的矩形要查不到（不可见节点不进布局结果）。
+  const hideBy = Date.now() + 2600;
+  while (Date.now() < hideBy && e.ui.toastText() !== "") {
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  const gone = e.ui.toastText() === "" && e.ui.rect("toast.panel") === null;
+  toastDone = [
+    gone,
+    `文案「${text}」· 矩形 ${Math.round(rect.x)},${Math.round(rect.y)} ${Math.round(rect.width)}×${Math.round(rect.height)}` +
+      ` · DOM 为空=${domText === ""} · 2 秒后已收起=${gone}`,
+  ];
+  return toastDone;
 });
 
 // ★ 什么时候停：**全部通过**才停，或者到 10 秒。以前是"引擎起来了 + 跑过 0.7 秒就停"，//   于是"tick > 10"和"每 60 tick 一条 Lua 日志"这两条**永远不可能过** ——

@@ -5315,6 +5315,61 @@ MUTANTS = [
             ]
         ],
         "test": "tests/extensions/ui-scroll.test.ts"
+    },
+    {
+        "name": "M561 toast 收起时不隐藏面板（底部留一条空白胶囊）",
+        "file": "src/host/hud-ui.ts",
+        "pairs": [
+            [
+                "      toastPanel.visible = next !== \"\";",
+                "      toastPanel.visible = true;"
+            ]
+        ],
+        "test": "tests/host/hud-ui.test.ts"
+    },
+    {
+        "name": "M562 toast 只显示面板、不写文案（弹出一次空胶囊）",
+        "file": "src/host/hud-ui.ts",
+        "pairs": [
+            [
+                "      toastLine.props = { ...toastLine.props, text: next };",
+                "      void toastLine;"
+            ]
+        ],
+        "test": "tests/host/hud-ui.test.ts"
+    },
+    {
+        "name": "M563 toast 挡住下层（底部一整条点不动，玩家只会觉得「这里坏了」）",
+        "file": "src/host/hud-ui.ts",
+        "pairs": [
+            [
+                "    opaque: false,\n    interactive: false,\n    props: { frame: \"panel\", slice: sliceOf(\"panel\"), tint: new Color(1, 1, 1, 0.92) },",
+                "    opaque: true,\n    interactive: false,\n    props: { frame: \"panel\", slice: sliceOf(\"panel\"), tint: new Color(1, 1, 1, 0.92) },"
+            ]
+        ],
+        "test": "tests/host/hud-ui.test.ts"
+    },
+    {
+        "name": "M564 toast 挂到最底层（背包开着时提示被面板盖住）",
+        "file": "src/host/hud-ui.ts",
+        "pairs": [
+            [
+                "  root.add(toastPanel);",
+                "  root.children.unshift(toastPanel);"
+            ]
+        ],
+        "test": "tests/host/hud-ui.test.ts"
+    },
+    {
+        "name": "M565 toast 不限行（长提示换行，提示条被撑出屏幕）",
+        "file": "src/host/hud-ui.ts",
+        "pairs": [
+            [
+                "      style: { align: \"center\", color: white, maxLines: 1, ellipsis: \"…\" },",
+                "      style: { align: \"center\", color: white, maxLines: 0, ellipsis: \"…\" },"
+            ]
+        ],
+        "test": "tests/host/hud-ui.test.ts"
     }
 ]
 
