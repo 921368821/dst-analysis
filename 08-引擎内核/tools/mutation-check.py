@@ -3991,9 +3991,15 @@ MUTANTS = [
     {
         "name": "M431 跳场景不携带状态（换了个人：血满、饱食 100、背包空）",
         # 这是"少了点什么但日志干净"的典型：跳转成功、世界对，只有人不是原来那个人。
+        #
+        # ★ 靶子换过位置（批95）：原先打在"读携带"那行，而那一行在加门锁时改名为
+        #   `carry0`（`carry` 这个名字让给了"扣完门票之后的那份"），整行文本一变就报
+        #   靶子漂移。现在打在**回灌那一步**：携带读出来了、`carried` 标志也是 true，
+        #   只是喂给 `applyCarry` 的是个空包 —— 目标玩家保持他自己那份（血满、饱食 100、
+        #   背包空）。这比"读成 null"更贴这条变异的真实手感：日志与标志位全对，人换了。
         "file": "src/extensions/flow/scene-flow.ts",
-        "pairs": [("    const carry = srcPlayer === null ? null : readCarry(scene, srcPlayer);",
-                   "    const carry = null;")],
+        "pairs": [("    const applied = carry === null ? null : applyCarry(scene, dstPlayer, carry);",
+                   "    const applied = carry === null ? null : applyCarry(scene, dstPlayer, { items: [], health: null, hunger: null });")],
         "test": "tests/extensions/flow-jump.test.ts",
     },
     {
@@ -4114,10 +4120,22 @@ MUTANTS = [
         "cmd": [sys.executable, "tools/mutation_journal.py", "--selftest"],
     },
     {
-        "name": "M449 还原完不删标记（下一次启动误报「上次被强杀」并把文件再写一遍）",
+        # ★ 靶子随扫尾方式改过（批96）：原先是"删标记 + 删原文"，现在扫尾只改标记
+        #   （删文件会撞上环境的每轮删除上限，整轮被中止 —— 见 mutation_journal 文件头）。
+        #   这条打在**把标记改成 restored** 那一句上：不改 ⇒ 下一轮启动会误恢复一遍。
+        "name": "M449 还原完不改标记（下一次启动误报「上次被强杀」并把文件再写一遍）",
         "file": "tools/mutation_journal.py",
-        "pairs": [("    \"\"\"扫尾：原文已经写回去了，忘掉它。**先删标记**（否则崩在中间会误恢复）。\"\"\"\n    d = journal_dir(root)\n    _unlink(d / \"active.json\")",
-                   "    \"\"\"扫尾：原文已经写回去了，忘掉它。**先删标记**（否则崩在中间会误恢复）。\"\"\"\n    d = journal_dir(root)\n    pass")],
+        "pairs": [('    _fsync_write(d / _MARK, json.dumps(done, ensure_ascii=False).encode("utf-8"))',
+                   "    pass")],
+        "cmd": [sys.executable, "tools/mutation_journal.py", "--selftest"],
+    },
+    {
+        # ★ 把上一批刚修掉的死法原样放回去：整轮 459 条 ⇒ 900 多次删除 ⇒ 撞上
+        #   「每轮删除上限 50」的守卫 ⇒ 变异器在 25 条处静默中止，且**看起来像跑完了**。
+        "name": "M460 扫尾又改成删文件（整轮 900 多次删除，撞上每轮删除上限就静默中止）",
+        "file": "tools/mutation_journal.py",
+        "pairs": [('    _fsync_write(d / _MARK, json.dumps(done, ensure_ascii=False).encode("utf-8"))',
+                   "    (d / _MARK).unlink(); (d / _BIN).unlink()")],
         "cmd": [sys.executable, "tools/mutation_journal.py", "--selftest"],
     },
     {

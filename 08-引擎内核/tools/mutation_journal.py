@@ -22,12 +22,29 @@
    `begin()` 在**写文件之前**调用，`commit()` 在**写回之后**调用。
    中间任何时刻进程死掉，磁盘上都留着一份能自证的原文：
 
-     · `active.json` 是**提交标记**，最后写。它不存在 ⇒ 没有待恢复的事，
+     · `active.json` 是**阶段标记**，最后写。它不存在 ⇒ 没有待恢复的事，
        哪怕有个孤零零的 `active.bin`（写到一半被杀）也不管 —— 那份 `.bin`
        对应的改动还没发生，世界是干净的。
+     · `commit()` 把标记改写成 `restored`，**不删文件**（下一段解释为什么）。
      · `recover()` 先比对 `active.json` 里的 sha256 与 `.bin` 的实际哈希，
        对不上就**报问题而不是写半份**：写半份会把一个文件变成既不是原文
        也不是变异体的第三种东西，比不还原更坏。
+
+★★ 为什么扫尾是「改标记」而不是「删文件」（2026-10-27 实测，第三次事故）：
+
+   第一版扫尾用 `unlink()` 删掉两个文件 —— 反正它们只在这一条变异期间有用。
+   而变异是**每条一次**：整轮 459 条 ⇒ 900 多次删除。环境里有一层
+   「每轮删除次数上限 50」的防抖守卫，第 51 次删除被拒之后**整轮直接中止**：
+
+     · 实测 1 分 25 秒就退出，`exit=1`，日志只剩三行；stdout 是块缓冲，
+       被打断时连 25 条「√ 变异被抓住」一起丢了 —— 现场看起来像"刚启动就没了"；
+     · 最坏的不是中断，而是它**看起来像跑完了**：`git status` 干净、
+       有个 `active.bin` 但按口径「没有标记 = 没有待恢复的事」，
+       于是"整轮全被抓住"这个结论**根本不可得，而没人会去查**。
+
+   修法不是"少删几个"（那只是把上限往后推），而是**扫尾根本不需要删除**：
+   把状态写成 `restored` 就够了，下一轮 `begin()` 会覆盖同一对文件。
+   删除次数 900+ → 0。
 
 ★★ 为什么是独立文件而不是塞进 `tools/mutation-check.py`：
    与 `worktree_guard.py` 同一个理由 —— 变异靶子是写在变异表里的字符串字面量，
@@ -53,6 +70,13 @@ from datetime import datetime
 # 两者都是"这次运行的状态"，且都已在 .gitignore 里。
 _DIRNAME = "mutation-journal"
 
+# ★ 两个文件**永不删除**（见文件头「为什么扫尾是改标记而不是删文件」）。
+#   文件名固定 ⇒ 每次扫尾只是覆盖写入，不产生 unlink。
+_BIN = "active.bin"
+_MARK = "active.json"
+_PHASE_APPLYING = "applying"
+_PHASE_RESTORED = "restored"
+
 
 def journal_dir(root: pathlib.Path) -> pathlib.Path:
     return root / ".cache" / _DIRNAME
@@ -74,32 +98,35 @@ def begin(root: pathlib.Path, target: pathlib.Path, original: bytes) -> None:
     rel = target.resolve().relative_to(root.resolve()).as_posix()
     # ① 原文先落盘（内容最多，最慢）
     _fsync_write(d / "active.bin", original)
-    # ② 提交标记最后写：它出现就意味着"这份原文是完整的、对应的改动即将/已经发生"
+    # ② 阶段标记最后写：它出现就意味着"这份原文是完整的、对应的改动即将/已经发生"。
+    #    顺序不能反：先标记后原文的话，崩在中间会拿着"这份原文已就绪"的标记
+    #    去配一份还没写完的 .bin（哈希对不上 → 报问题，白丢一次可恢复机会）。
     meta = {
+        "phase": _PHASE_APPLYING,
         "path": rel,
         "bytes": len(original),
         "sha256": hashlib.sha256(original).hexdigest(),
         "at": datetime.now().isoformat(timespec="seconds"),
         "pid": os.getpid(),
     }
-    # 先删旧标记再写新标记：否则崩溃点恰好落在两者之间时，会拿**上一条**的标记
-    # 去配**这一条**的 bin（哈希对不上 → 报问题，虽然安全但会丢掉一次可恢复机会）。
-    _unlink(d / "active.json")
-    _fsync_write(d / "active.json", json.dumps(meta, ensure_ascii=False).encode("utf-8"))
+    _fsync_write(d / _MARK, json.dumps(meta, ensure_ascii=False).encode("utf-8"))
 
 
 def commit(root: pathlib.Path) -> None:
-    """扫尾：原文已经写回去了，忘掉它。**先删标记**（否则崩在中间会误恢复）。"""
+    """扫尾：原文已经写回去了，把标记改成 `restored`。**不删任何文件**。
+
+    ★ 为什么不 unlink：理由是**跑不完**，不是洁癖 —— 每轮 459 条各扫尾一次，
+      就是 900 多次删除，而环境里有「每轮删除上限 50」的守卫，第 51 次起被拒，
+      整轮当场中止且看起来像正常结束（详见文件头第三次事故）。
+    ★ 为什么先改标记就够：`recover()` 只看标记的阶段。`restored` ⇒ 无事可做，
+      原文 `.bin` 留着不占事 —— 下一轮 `begin()` 会把它整份覆盖掉。
+    """
     d = journal_dir(root)
-    _unlink(d / "active.json")
-    _unlink(d / "active.bin")
-
-
-def _unlink(p: pathlib.Path) -> None:
-    try:
-        p.unlink()
-    except OSError:
-        pass
+    # ★ 这里的变量名与 `begin()` 里那个**故意不同**（`done` vs `meta`）：变异表按
+    #   「整行文本首次出现」定位靶子，两处写成同一行的话，M449 会去打 `begin()`
+    #   那一句 —— 变异名说"还原完不改标记"，实际改的却是"根本没写标记"。
+    done = {"phase": _PHASE_RESTORED, "at": datetime.now().isoformat(timespec="seconds"), "pid": os.getpid()}
+    _fsync_write(d / _MARK, json.dumps(done, ensure_ascii=False).encode("utf-8"))
 
 
 def recover(root: pathlib.Path) -> tuple[list[str], list[str]]:
@@ -110,13 +137,17 @@ def recover(root: pathlib.Path) -> tuple[list[str], list[str]]:
     d = journal_dir(root)
     mark = d / "active.json"
     if not mark.exists():
-        # 没有标记 ⇒ 没有待恢复的事。孤儿 .bin（写到一半被杀）顺手清掉。
-        _unlink(d / "active.bin")
+        # 没有标记 ⇒ 没有待恢复的事。孤儿 .bin（写到一半被杀）**不动它**：
+        # 下一轮 begin() 会覆盖，而"顺手删掉"正是上一版撞上删除守卫的地方。
         return [], []
     try:
         meta = json.loads(mark.read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
         return [], [f"日志读不了（{mark}）：{e} —— 不知道该恢复哪个文件，请手工核对 git status"]
+
+    if str(meta.get("phase", "")) == _PHASE_RESTORED:
+        # 上一次是正常扫尾的：文件已经写回去了，标记只是留着看
+        return [], []
 
     rel = str(meta.get("path", ""))
     if not rel:
@@ -228,13 +259,34 @@ def selftest() -> int:
         check("哈希对不上时文件没被改成第三种东西", target.read_bytes() == A, "被写了半份")
         commit(root)
 
+        # ⑥ 扫尾**不删文件**（这是死因，不是洁癖）：整轮 459 条各扫尾一次 =
+        #    900 多次删除，撞上"每轮删除上限 50"的守卫整轮会静默中止。
+        #    ★ 判据要看**两件事**：文件还在 ∧ 标记写着 restored。
+        #      只看"文件还在"会被"什么也没做"骗过（那样标记停在 applying，
+        #      下一轮启动会拿它去恢复一遍 —— 正是 ② 要防的那种误恢复）。
+        begin(root, target, A)
+        target.write_bytes(B)
+        target.write_bytes(A)
+        commit(root)
+        jd = journal_dir(root)
+        check(
+            "扫尾之后两个日志文件都还在（扫尾不靠删除）",
+            (jd / "active.bin").exists() and (jd / "active.json").exists(),
+            f"bin={(jd / 'active.bin').exists()} mark={(jd / 'active.json').exists()}",
+        )
+        check(
+            "扫尾之后标记写着 restored（下一轮不会再恢复一遍）",
+            str(json.loads((jd / "active.json").read_text(encoding="utf-8")).get("phase", "")) == _PHASE_RESTORED,
+            (jd / "active.json").read_text(encoding="utf-8"),
+        )
+
     if fails:
         print("✗ 变异日志的自检没过 —— 此时「被杀也能还原」这句话没有证据价值：")
         for f in fails:
             print(f"  · {f}")
         return 1
     print(
-        "[journal] 变异日志自检 10 条通过（无日志 / 提交 / 未提交 / 强杀 / 哈希不符五种情形）",
+        "[journal] 变异日志自检 14 条通过（无日志 / 提交 / 未提交 / 强杀 / 哈希不符 / 扫尾不删文件）",
         flush=True,
     )
     return 0
