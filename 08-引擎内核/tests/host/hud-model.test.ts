@@ -20,6 +20,7 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseBmFont, type BitmapFont } from "../../src/extensions/ui/font.ts";
+import { Color } from "../../src/foundation/math/index.ts";
 import {
   bagEmptyLine,
   bagFooter,
@@ -178,4 +179,73 @@ test("★ 拖到面板外（to === null）：起点仍是 moving，且没有任�
     [null, "from"],
     "落点为空时不该有第二行被标成 drop",
   );
+});
+
+// ------------------------------------------------------------------ 行内分段（批114）
+
+/**
+ * 分段判据守两件事：
+ *   ① **哪几个字符是计数**（这是关于文案的事实，改文案时最容易漂）；
+ *   ② `text` 与 `runs` **不会各写一遍**（拼不起来就说明有人只改了一边）。
+ */
+test("★★ runs 拼起来必须等于 text（两处各拼一遍就会漂）", () => {
+  const rows = bagRows(
+    [
+      { kind: "tree", count: 3 },
+      { kind: "grass_tuft", count: 25 },
+    ],
+    0,
+    undefined,
+    { from: 0, to: 1 },
+  );
+  for (const r of rows) {
+    assert.equal(r.runs.map((x) => x.text).join(""), r.text, `第 ${String(r.index)} 行的分段与整句不一致`);
+  }
+  // 反向：分段不是"一段就是整句" —— 那样等于没分段，颜色永远只有一种。
+  assert.ok(rows[0]!.runs.length >= 2, "至少要有「主体」与「计数」两段");
+});
+
+test("★★ 计数是独立的一段，且它是最后一段（没有拖拽标记时）", () => {
+  const rows = bagRows([{ kind: "tree", count: 3 }], 0);
+  assert.deepEqual(
+    rows[0]!.runs.map((r) => r.text),
+    ["1. tree", " x3"],
+    "序号+物品名一段、空格+计数一段（空格跟计数走，视觉上才贴在一起）",
+  );
+  // 主体段**不带颜色**：它要继承行自己的 textColor（选中行的高亮才不会失效）
+  assert.equal(rows[0]!.runs[0]?.color, undefined, "主体段不许写死颜色");
+});
+
+test("★ 拖拽标记是第三段，只有真的在拖时才出现", () => {
+  const stacks = [
+    { kind: "tree", count: 3 },
+    { kind: "rock", count: 7 },
+  ];
+  const idle = bagRows(stacks, 0);
+  assert.deepEqual(
+    idle.map((r) => r.runs.length),
+    [2, 2],
+    "没在拖时每行两段",
+  );
+  const dragging = bagRows(stacks, 0, undefined, { from: 0, to: 1 });
+  assert.deepEqual(
+    dragging.map((r) => r.runs.length),
+    [3, 3],
+    "起点与落点各多一段标记；中间行仍是两段",
+  );
+  assert.equal(dragging[0]!.runs[2]?.text, "  (moving)");
+  assert.equal(dragging[1]!.runs[2]?.text, "  (drop)");
+});
+
+test("★ 配色只落在非主体段（模型给结构、面板给颜色）", () => {
+  const count = new Color(0.5, 0.5, 0.5, 1);
+  const mark = new Color(1, 0.8, 0.3, 1);
+  const rows = bagRows([{ kind: "tree", count: 3 }], 0, undefined, { from: 0, to: null }, { count, mark });
+  assert.equal(rows[0]!.runs[0]?.color, undefined, "主体段仍然不带颜色");
+  assert.deepEqual(rows[0]!.runs[1]?.color, count, "计数段拿到面板给的颜色");
+  assert.deepEqual(rows[0]!.runs[2]?.color, mark, "标记段拿到面板给的颜色");
+  // 不传配色 ⇒ 两段都不带颜色（面板没要求就不许自作主张）
+  const plain = bagRows([{ kind: "tree", count: 3 }], 0, undefined, { from: 0, to: null });
+  assert.equal(plain[0]!.runs[1]?.color, undefined);
+  assert.equal(plain[0]!.runs[2]?.color, undefined);
 });

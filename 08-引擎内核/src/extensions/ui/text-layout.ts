@@ -42,6 +42,22 @@ export interface TextStyle {
   readonly ellipsis?: string;
 }
 
+/**
+ * 富文本的一段：一段文字 + 它自己的样式（缺省继承 `TextStyle`）。
+ *
+ * ★ 为什么是「run 列表」而不是「带标记的字符串」：标记语法要解析、要转义、
+ *   还要保证「字体里没有这个字符」时的降级；而这些在内容侧一律不划算 ——
+ *   这里的使用者都是代码拼出来的文案（背包行、状态行），不是富文本编辑器。
+ * ★ 一段 run 里的样式**完全一致**是它的定义，不是约定：混排就是把两段并排。
+ */
+export interface TextRun {
+  readonly text: string;
+  /** 这一段的字号缩放（缺省 = `TextStyle.scale`）。必须 > 0。 */
+  readonly scale?: number;
+  /** 这一段的颜色（缺省 = `TextStyle.color`）。 */
+  readonly color?: Color;
+}
+
 /** 一个字形四边形（设计像素坐标，y 向下）。 */
 export interface TextQuad {
   readonly page: number;
@@ -89,31 +105,6 @@ export interface TextLayout {
 }
 
 const DEFAULT_ELLIPSIS = "…";
-
-/** 空格与制表符统一按空格处理；其它控制字符直接丢弃（除了换行）。 */
-function normalizeCodes(text: string): number[][] {
-  const paragraphs: number[][] = [];
-  let cur: number[] = [];
-  // Array.from 按码点切，代理对（emoji）不会被拆成两半。
-  for (const ch of Array.from(text)) {
-    const code = ch.codePointAt(0) ?? 0;
-    if (ch === "\n") {
-      paragraphs.push(cur);
-      cur = [];
-      continue;
-    }
-    if (ch === "\r") continue;
-    if (ch === "\t") {
-      cur.push(0x20);
-      continue;
-    }
-    // 其它 C0 控制字符与 DEL：丢弃。留着它们只会变成缺字记录，污染诊断。
-    if (code < 0x20 || code === 0x7f) continue;
-    cur.push(code);
-  }
-  paragraphs.push(cur);
-  return paragraphs;
-}
 
 /** 这个码点之后是否可以断行（不含空格——空格单独成 token）。 */
 function breakAfter(code: number): boolean {
@@ -191,8 +182,15 @@ const LINE_END_FORBIDDEN: ReadonlySet<number> = new Set([
   0x007b, // {
 ]);
 
+/** 一个码点 + 它自己的样式 —— 富文本的最小单位。 */
+interface Cell {
+  readonly code: number;
+  readonly scale: number;
+  readonly color: Color | undefined;
+}
+
 interface Token {
-  readonly codes: readonly number[];
+  readonly cells: readonly Cell[];
   readonly width: number;
   readonly isSpace: boolean;
 }
@@ -205,72 +203,79 @@ function advanceOf(font: BitmapFont, code: number, scale: number, letterSpacing:
 }
 
 /**
+ * 两个相邻码点之间要不要加 kerning —— **只有同一字号才算**。
+ *
+ * ★ kerning 是某个字号下的一对字形度量（`AV` 收一点）。跨字号的边界上
+ *   这一对根本没有定义：拿大字号的值会让小字那一段被挤，拿小字号的值会让大字那一段变松。
+ *   取「同字号才 `kerningOf`」是最不容易骗人的规则 —— 它在**单字号文本上与旧实现逐字节相同**，
+ *   而那正是下面等价性判据钉住的东西。
+ */
+function kernBetween(font: BitmapFont, prev: Cell, cur: Cell): number {
+  if (prev.scale !== cur.scale) return 0;
+  return kerningOf(font, prev.code, cur.code) * cur.scale;
+}
+
+/**
  * 切 token：一个 token 是「不可再断的一段」+ 它后面的空隙。
  * 空格自成一个 token（这样行尾空格可以整段丢掉，右对齐不会多出一格）。
  */
-function tokenize(font: BitmapFont, codes: readonly number[], scale: number, letterSpacing: number): Token[] {
+function tokenize(font: BitmapFont, cells: readonly Cell[], letterSpacing: number): Token[] {
   const out: Token[] = [];
-  let buf: number[] = [];
+  let buf: Cell[] = [];
   let bufW = 0;
   const flush = (isSpace: boolean): void => {
     if (buf.length === 0) return;
-    out.push({ codes: buf, width: bufW + (isSpace ? 0 : 0), isSpace });
+    out.push({ cells: buf, width: bufW, isSpace });
     buf = [];
     bufW = 0;
   };
-  for (let i = 0; i < codes.length; i++) {
-    const code = codes[i]!;
-    if (code === 0x20) {
+  for (let i = 0; i < cells.length; i++) {
+    const c = cells[i]!;
+    if (c.code === 0x20) {
       flush(false);
-      out.push({ codes: [code], width: advanceOf(font, code, scale, letterSpacing), isSpace: true });
+      out.push({ cells: [c], width: advanceOf(font, c.code, c.scale, letterSpacing), isSpace: true });
       continue;
     }
-    buf.push(code);
-    bufW += advanceOf(font, code, scale, letterSpacing);
+    buf.push(c);
+    bufW += advanceOf(font, c.code, c.scale, letterSpacing);
     // 字距只作用于 token 内部（token 之间由 kerning/空格决定）
-    const prev = codes[i - 1];
-    if (prev !== undefined) bufW += kerningOf(font, prev, code) * scale;
-    if (breakAfter(code)) flush(false);
+    const prev = cells[i - 1];
+    if (prev !== undefined) bufW += kernBetween(font, prev, c);
+    if (breakAfter(c.code)) flush(false);
   }
   flush(false);
   return out;
 }
 
 /** 一行（码点序列）的宽度。与绘制共用同一套前进量计算。 */
-function lineWidthOf(
-  font: BitmapFont,
-  codes: readonly number[],
-  scale: number,
-  letterSpacing: number,
-): number {
+function lineWidthOf(font: BitmapFont, cells: readonly Cell[], letterSpacing: number): number {
   let w = 0;
-  for (let i = 0; i < codes.length; i++) {
-    const code = codes[i]!;
-    w += advanceOf(font, code, scale, letterSpacing);
-    const prev = codes[i - 1];
-    if (prev !== undefined) w += kerningOf(font, prev, code) * scale;
+  for (let i = 0; i < cells.length; i++) {
+    const c = cells[i]!;
+    w += advanceOf(font, c.code, c.scale, letterSpacing);
+    const prev = cells[i - 1];
+    if (prev !== undefined) w += kernBetween(font, prev, c);
   }
   return w;
 }
 
-function trimTrailingSpaces(codes: number[]): number[] {
-  let end = codes.length;
-  while (end > 0 && codes[end - 1] === 0x20) end--;
-  return codes.slice(0, end);
+function trimTrailingSpaces(cells: readonly Cell[]): Cell[] {
+  let end = cells.length;
+  while (end > 0 && cells[end - 1]!.code === 0x20) end--;
+  return cells.slice(0, end);
 }
 
 /** 把一段码点按 maxWidth 贪心装行；单个 token 超宽时按字符硬断。 */
 function breakParagraph(
   font: BitmapFont,
-  codes: readonly number[],
-  scale: number,
+  cells: readonly Cell[],
   letterSpacing: number,
   maxWidth: number,
-): number[][] {
-  if (maxWidth <= 0) return [trimTrailingSpaces(codes.slice())];
+): Cell[][] {
+  if (maxWidth <= 0) return [trimTrailingSpaces(cells)];
 
-  const lines: number[][] = [];
-  let cur: number[] = [];
+  const lines: Cell[][] = [];
+  let cur: Cell[] = [];
   let curW = 0;
 
   const pushLine = (): void => {
@@ -279,16 +284,16 @@ function breakParagraph(
     curW = 0;
   };
 
-  for (const tk of tokenize(font, codes, scale, letterSpacing)) {
+  for (const tk of tokenize(font, cells, letterSpacing)) {
     if (tk.isSpace) {
       // 行首空格丢掉：否则居中/右对齐会因为不可见的前导空格整体偏移。
       if (cur.length === 0) continue;
-      cur.push(...tk.codes);
+      cur.push(...tk.cells);
       curW += tk.width;
       continue;
     }
     if (curW + tk.width <= maxWidth) {
-      cur.push(...tk.codes);
+      cur.push(...tk.cells);
       curW += tk.width;
       continue;
     }
@@ -304,12 +309,12 @@ function breakParagraph(
       //   全推下去，然后下一轮又从空行开始 —— 死循环。宁可让一个标点落在行首，
       //   也不能没有进展。
       // ★ 每带下来一个字，**下一行的首字**就变成它 —— 所以循环里判断的首字是
-      //   `cur[len - carry]` 而不是 `tk.codes[0]`。只判一次 `tk.codes[0]` 的话，
+      //   `cur[len - carry]` 而不是 `tk.cells[0]`。只判一次 `tk.cells[0]` 的话，
       //   「「（」连在一起时会漏掉第二个。
       let carry = 0;
       while (cur.length - carry > 1) {
-        const last = cur[cur.length - 1 - carry]!;
-        const nextFirst = carry === 0 ? (tk.codes[0] ?? -1) : cur[cur.length - carry]!;
+        const last = cur[cur.length - 1 - carry]!.code;
+        const nextFirst = carry === 0 ? (tk.cells[0]?.code ?? -1) : cur[cur.length - carry]!.code;
         if (!LINE_END_FORBIDDEN.has(last) && !LINE_START_FORBIDDEN.has(nextFirst)) break;
         carry++;
       }
@@ -319,20 +324,20 @@ function breakParagraph(
         const moved = cur.splice(cur.length - carry, carry);
         pushLine();
         cur.push(...moved);
-        curW = lineWidthOf(font, cur, scale, letterSpacing);
+        curW = lineWidthOf(font, cur, letterSpacing);
       }
     }
     if (tk.width <= maxWidth) {
-      cur.push(...tk.codes);
+      cur.push(...tk.cells);
       curW = tk.width;
       continue;
     }
     // 硬断：逐字符塞，塞不下就换行。★ 每行至少放一个字符，
     // 否则 maxWidth 小于单字宽时会死循环（这是硬断最经典的写法错误）。
-    for (const code of tk.codes) {
-      const cw = advanceOf(font, code, scale, letterSpacing);
+    for (const c of tk.cells) {
+      const cw = advanceOf(font, c.code, c.scale, letterSpacing);
       if (curW + cw > maxWidth && cur.length > 0) pushLine();
-      cur.push(code);
+      cur.push(c);
       curW += cw;
     }
   }
@@ -342,31 +347,79 @@ function breakParagraph(
 }
 
 /**
- * 排版。返回四边形列表与度量。
+ * 把若干 run 摊平成「每个码点带自己的样式」，同时按 `\n` 切段。
  *
- * 调用方（控件层）负责缓存：文本没变就不要重排 —— 这个函数是纯的，
- * 缓存键应当是「文本 + 样式 + 字体 id」，不是指针。
+ * ★ 摊平的理由：断行、量宽、光标全都按**码点**走，而样式是按**run**给的。
+ *   在每一个循环里都维护「现在是第几个 run」会让避头尾那段（要回退几个字）
+ *   变成跨 run 的索引算术 —— 那是这个文件里最容易写错的一处。
+ *   摊平之后，断行逻辑与单样式版本**逐行相同**，只是多读了一个 `cell.scale`。
  */
-export function layoutText(font: BitmapFont, text: string, style: TextStyle = {}): TextLayout {
-  const scale = style.scale ?? 1;
+function cellsOf(runs: readonly TextRun[], baseScale: number, baseColor: Color | undefined): Cell[][] {
+  const paragraphs: Cell[][] = [];
+  let cur: Cell[] = [];
+  for (const run of runs) {
+    const scale = run.scale ?? baseScale;
+    if (!(scale > 0)) throw new RangeError(`文本 run 的 scale 必须 > 0：${String(run.scale)}`);
+    const color = run.color ?? baseColor;
+    for (const ch of Array.from(run.text)) {
+      const code = ch.codePointAt(0) ?? 0;
+      if (ch === "\n") {
+        paragraphs.push(cur);
+        cur = [];
+        continue;
+      }
+      if (ch === "\r") continue;
+      if (ch === "\t") {
+        cur.push({ code: 0x20, scale, color });
+        continue;
+      }
+      // 其它 C0 控制字符与 DEL：丢弃。留着它们只会变成缺字记录，污染诊断。
+      if (code < 0x20 || code === 0x7f) continue;
+      cur.push({ code, scale, color });
+    }
+  }
+  paragraphs.push(cur);
+  return paragraphs;
+}
+
+/** 一行里最大的字号 —— 行高与基线都由它定（不是「第一个字」，也不是平均）。 */
+function maxScaleOf(cells: readonly Cell[], baseScale: number): number {
+  let m = 0;
+  for (const c of cells) if (c.scale > m) m = c.scale;
+  return m > 0 ? m : baseScale;
+}
+
+/**
+ * 富文本排版：run 之间可以换字号 / 换颜色。
+ *
+ * ★★ 与 `layoutText` 的关系：那一个是这一个的特例（单 run）。
+ *   **不许有两份实现** —— 单样式版本一旦另写一套，混排换行、光标、省略号
+ *   就会在两套里各自漂。等价性由判据钉住（同一输入两边逐字段相等）。
+ *
+ * ★ 行高按**本行最大字号**：一行里有一个大字，整行都要为它让出高度，
+ *   否则大字会压到上一行。基线同样跟着本行最大字号走 ——
+ *   若按整段的最大字号算，只有小字的行会整体下坠，看起来像行距不匀。
+ */
+export function layoutRichText(font: BitmapFont, runs: readonly TextRun[], style: TextStyle = {}): TextLayout {
+  const baseScale = style.scale ?? 1;
   const ls = style.letterSpacing ?? 0;
   const maxWidth = style.maxWidth ?? 0;
   const maxLines = style.maxLines ?? 0;
   const ellipsis = style.ellipsis ?? DEFAULT_ELLIPSIS;
   const align: TextAlign = style.align ?? "left";
 
-  if (!(scale > 0)) throw new RangeError(`文本 scale 必须 > 0：${scale}`);
+  if (!(baseScale > 0)) throw new RangeError(`文本 scale 必须 > 0：${baseScale}`);
 
-  const lineHeightPx = font.lineHeight * scale + (style.lineSpacing ?? 0);
-  const paragraphs = normalizeCodes(text);
+  const lineSpacing = style.lineSpacing ?? 0;
+  const paragraphs = cellsOf(runs, baseScale, style.color);
 
-  const lines: number[][] = [];
+  const lines: Cell[][] = [];
   for (const p of paragraphs) {
-    const broken = breakParagraph(font, p, scale, ls, maxWidth);
-    for (const l of broken) lines.push(l);
+    for (const l of breakParagraph(font, p, ls, maxWidth)) lines.push(l);
   }
   // 纯空文本：没有行，高度 0（而不是一行高度）—— 空标签不该占位。
-  if (lines.length === 1 && lines[0]!.length === 0 && text.trim() === "") {
+  const isEmpty = runs.every((r) => r.text.trim() === "");
+  if (lines.length === 1 && lines[0]!.length === 0 && isEmpty) {
     lines.length = 0;
   }
 
@@ -376,62 +429,74 @@ export function layoutText(font: BitmapFont, text: string, style: TextStyle = {}
     truncated = true;
     if (lines.length === 0) lines.push([]);
     const last = lines[lines.length - 1]!;
-    const ellCodes = Array.from(ellipsis).map((c) => c.codePointAt(0) ?? 0);
+    // 省略号跟着**它前面那个字**的样式：末尾是红色小字时，省略号也应当是红色小字。
+    const tail = last[last.length - 1];
+    const ellScale = tail?.scale ?? baseScale;
+    const ellColor = tail?.color ?? style.color;
+    const ellCells = Array.from(ellipsis).map((c) => ({
+      code: c.codePointAt(0) ?? 0,
+      scale: ellScale,
+      color: ellColor,
+    }));
     if (maxWidth > 0) {
-      const ellW = lineWidthOf(font, ellCodes, scale, ls);
+      const ellW = lineWidthOf(font, ellCells, ls);
       // ★ 从尾部逐字删除直到「本行 + 省略号」放得下。
       //   注意要重算宽度（kerning 会让"删一个字"减掉的宽度不等于单字宽度）。
-      while (last.length > 0 && lineWidthOf(font, last, scale, ls) + ellW > maxWidth) last.pop();
+      while (last.length > 0 && lineWidthOf(font, last, ls) + ellW > maxWidth) last.pop();
       if (last.length === 0 && ellW > maxWidth) {
         // 连省略号都放不下：宁可不画，也不能溢出容器。
         lines[lines.length - 1] = [];
       } else {
-        last.push(...ellCodes);
+        last.push(...ellCells);
       }
     } else {
-      last.push(...ellCodes);
+      last.push(...ellCells);
     }
   }
 
-  const lineWidths = lines.map((l) => lineWidthOf(font, l, scale, ls));
+  const lineWidths = lines.map((l) => lineWidthOf(font, l, ls));
   const naturalWidth = lineWidths.reduce((m, w) => (w > m ? w : m), 0);
   const boxWidth = maxWidth > 0 ? maxWidth : naturalWidth;
 
-  const color = style.color;
   const quads: TextQuad[] = [];
   const missingSet = new Set<number>();
   const lineCaretX: number[][] = [];
+  let yTop = 0;
 
   for (let li = 0; li < lines.length; li++) {
-    const codes = lines[li]!;
+    const cells = lines[li]!;
     const lw = lineWidths[li]!;
+    const lineScale = maxScaleOf(cells, baseScale);
+    const lineHeightPx = font.lineHeight * lineScale + lineSpacing;
     let penX = 0;
     if (align === "center") penX = (boxWidth - lw) / 2;
     else if (align === "right") penX = boxWidth - lw;
 
     // 基线：行顶 + base。yoffset 相对基线（向上为负）。
-    const lineTop = li * lineHeightPx;
-    const baseline = lineTop + font.base * scale;
+    const baseline = yTop + font.base * lineScale;
 
     // ★ 光标位置在这一趟里顺手记：笔位置只有这里知道（advance/kerning 都在下面加）。
     const caretX: number[] = [];
 
-    for (let i = 0; i < codes.length; i++) {
-      const code = codes[i]!;
+    for (let i = 0; i < cells.length; i++) {
+      const cell = cells[i]!;
+      const code = cell.code;
+      const s = cell.scale;
       caretX.push(penX); // 先记「本格左边界」，再往前走
       const g: FontGlyph | undefined = font.glyphs.get(code);
       if (g === undefined) {
         missingSet.add(code);
-        penX += font.missingAdvance * scale + ls;
+        penX += font.missingAdvance * s + ls;
         continue;
       }
       if (g.width > 0 && g.height > 0) {
+        const color = cell.color;
         quads.push({
           page: g.page,
-          x: penX + g.xoffset * scale,
-          y: baseline + g.yoffset * scale,
-          w: g.width * scale,
-          h: g.height * scale,
+          x: penX + g.xoffset * s,
+          y: baseline + g.yoffset * s,
+          w: g.width * s,
+          h: g.height * s,
           u0: g.u0,
           v0: g.v0,
           u1: g.u1,
@@ -442,23 +507,36 @@ export function layoutText(font: BitmapFont, text: string, style: TextStyle = {}
           a: color?.a ?? 1,
         });
       }
-      penX += g.xadvance * scale + ls;
-      const prev = codes[i - 1];
-      if (prev !== undefined) penX += kerningOf(font, prev, code) * scale;
+      penX += g.xadvance * s + ls;
+      const prev = cells[i - 1];
+      if (prev !== undefined) penX += kernBetween(font, prev, cell);
     }
     caretX.push(penX); // 行尾
     lineCaretX.push(caretX);
+    yTop += lineHeightPx;
   }
 
   return {
     quads,
     width: boxWidth,
-    height: lines.length === 0 ? 0 : lines.length * lineHeightPx,
+    height: yTop,
     lineCount: lines.length,
     truncated,
     missing: Array.from(missingSet).sort((a, b) => a - b),
     lineCaretX,
   };
+}
+
+/**
+ * 排版（单样式）。返回四边形列表与度量。
+ *
+ * 调用方（控件层）负责缓存：文本没变就不要重排 —— 这个函数是纯的，
+ * 缓存键应当是「文本 + 样式 + 字体 id」，不是指针。
+ *
+ * ★ 它就是 `layoutRichText` 的单 run 特例，**没有第二份实现**（见那边的 ★★）。
+ */
+export function layoutText(font: BitmapFont, text: string, style: TextStyle = {}): TextLayout {
+  return layoutRichText(font, [{ text }], style);
 }
 
 /**
@@ -470,6 +548,8 @@ export function layoutText(font: BitmapFont, text: string, style: TextStyle = {}
  *   ② **双向文本（RTL）** — 阿拉伯语/希伯来语的游标方向相反，需要**显式的 run 切分**
  *      与 bidi 算法（UAX #9）。这不是"加个反向遍历"能做到的：数字与标点在 RTL 段落里
  *      仍然从左往右排。建议单独立项，不要和避头尾混在一轮里 —— 一个改断点，一个改顺序。
- *   ③ **富文本**（行内换色/换字号）— 需要按 run 切段，现在整段一个颜色。
- *   剩下的两条都不影响"用中文与英文做一款饥荒类游戏"，所以排在 UI 控件层之后。
+ *   ③ ~~**富文本**（行内换色/换字号）~~ ✅ 批114：`layoutRichText` + `TextRun`，
+ *      按 run 摊平成「每码点带样式」再走同一套断行（断行逻辑不复制一份）。
+ *      行高与基线取**本行最大字号**；kerning 只在同一字号之间加（跨字号那一对没有定义）。
+ *   剩下的只有 RTL —— 它不影响"用中文与英文做一款饥荒类游戏"。
  */

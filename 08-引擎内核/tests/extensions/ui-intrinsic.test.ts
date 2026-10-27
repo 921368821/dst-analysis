@@ -320,3 +320,50 @@ test("默认字体按 id 排序取第一个（注册顺序不该改变画面）"
   assert.equal(defaultFontId(f), "alpha");
   assert.equal(defaultFontId(new FontRegistry()), "");
 });
+
+// ── 富文本的量算（批114） ────────────────────────────────────
+
+test("★★ 只给 runs 时也要撑开（text 为空必须量出字宽，否则「量 0 宽、却画出一行字」）", () => {
+  const f = fonts();
+  const tree = buildUiTree({
+    id: "root",
+    // ★ 故意**不填** `text`：富文本段的宿主可以只写 runs（`UiProps.runs` 的语义就是
+    //   "有 runs 就只看 runs"）。量算若还按 `text === ""` 判空，这里会塌成 0 宽。
+    children: [{ id: "lbl", widget: UiWidget.Label, props: { runs: [{ text: "ABC" }] } }],
+  });
+  layoutTree(tree, BOUNDS, { intrinsic: measureOf(f, new UiStateStore()) });
+  const lbl = tree.find("lbl")!;
+  assert.equal(lbl.measured.w, 3 * ADV, "3 个字的富文本段");
+  assert.equal(lbl.measured.h, LH);
+  assert.equal(lbl.contentSize.w, 3 * ADV, "量算结果仍要写回 contentSize");
+});
+
+test("★ 有显式宽时富文本照样换行：两行 ⇒ 高 = 2×行高", () => {
+  const f = fonts();
+  const tree = buildUiTree({
+    id: "root",
+    children: [
+      {
+        id: "lbl",
+        widget: UiWidget.Label,
+        size: { w: 2 * ADV, h: 10 },
+        props: { runs: [{ text: "AB" }, { text: "CD" }] },
+      },
+    ],
+  });
+  layoutTree(tree, BOUNDS, { intrinsic: measureOf(f, new UiStateStore()) });
+  const lbl = tree.find("lbl")!;
+  assert.equal(lbl.contentSize.h, 2 * LH, "24 宽放 48 宽的字 ⇒ 断成两行");
+  assert.equal(lbl.contentSize.w, 2 * ADV, "有显式宽时宽度就是盒子宽");
+});
+
+test("★ 全空的 runs ⇒ 不表态（null），与空文本一致（空标签不该占位）", () => {
+  const f = fonts();
+  const m = measureOf(f, new UiStateStore());
+  const tree = buildUiTree({
+    id: "root",
+    children: [{ id: "lbl", widget: UiWidget.Label, props: { runs: [{ text: " " }, { text: "" }] } }],
+  });
+  const lbl = tree.find("lbl")!;
+  assert.equal(m(lbl, 100, 100), null, "空白富文本不该量出一行高");
+});

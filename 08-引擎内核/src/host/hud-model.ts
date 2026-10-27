@@ -22,6 +22,8 @@
  */
 
 import type { BitmapFont } from "../extensions/ui/font.ts";
+import type { TextRun } from "../extensions/ui/text-layout.ts";
+import type { Color } from "../foundation/math/index.ts";
 
 /** HUD 需要的**全部事实**。加一个字段 = 改一处格式化 + 一条判据。 */
 export interface HudFacts {
@@ -118,6 +120,19 @@ export interface BagRow {
   /** 1 起的序号（与"数字键选集"对应，索引 0 是第 1 堆）。 */
   readonly index: number;
   readonly text: string;
+  /**
+   * 同一行的**分段**（富文本）：序号+物品名 / 计数 / 拖拽标记各一段。
+   *
+   * ★ 不变量：`runs.map(r => r.text).join("") === text`，而且是**构造上**成立的
+   *   （`text` 就是这几段拼出来的，不是另写一遍）。
+   *   反过来做（先拼 text、再拿正则切出 runs）会造出第二个真相：
+   *   改一句文案就悄悄少了一段，症状是"计数不灰了"，而没有任何东西报错。
+   *
+   * ★ 分段放在**模型**层而不是面板层：哪几个字符是"计数"是关于这句文案的事实，
+   *   而"计数用什么颜色"才是面板的决定。拆开之后，
+   *   颜色改了不用动判据（判据断言的是"这一段存在且被标成计数"）。
+   */
+  readonly runs: readonly TextRun[];
   readonly selected: boolean;
   /**
    * 拖拽标记。`null` = 没在拖或与它无关。
@@ -145,6 +160,20 @@ export interface BagDragState {
 }
 
 /**
+ * 背包行的**配色**（可选）。
+ *
+ * ★ 只给"非主体部分"上色：序号与物品名永远用行自己的颜色（选中行还要跟着高亮变），
+ *   所以那一段不带颜色、继承 `textColor`。把主体也写死成白色，
+ *   选中行的高亮就永远不生效 —— 而那种错看起来像"选中没反应"。
+ */
+export interface BagRowColors {
+  /** 计数（` x3`）。 */
+  readonly count?: Color;
+  /** 拖拽标记（`  (moving)`）。 */
+  readonly mark?: Color;
+}
+
+/**
  * 背包面板的行。
  *
  * ★ 物品名走 `labelOf`（宿主注入）。**默认实现是 `kind` 的 ASCII 形式**，
@@ -161,22 +190,31 @@ export function bagRows(
   selected: number,
   labelOf?: (kind: string) => string,
   drag?: BagDragState,
+  colors?: BagRowColors,
 ): BagRow[] {
   const sel = stacks.length === 0 ? 0 : Math.min(Math.max(0, selected), stacks.length - 1);
   const label = labelOf ?? ((kind: string) => kind.replace(/_/g, " "));
   const from = drag?.from ?? null;
   const to = drag?.to ?? null;
+  const withColor = (text: string, c: Color | undefined): TextRun => (c === undefined ? { text } : { text, color: c });
   return stacks.map((s, i) => {
     // ★ `from` 优先于 `to`：刚按下还没动时两者相同，这一格既是"拿起来的"又是"要放回去的"。
     //   让它显示 `moving` 才是实话 —— 显示 `drop` 会让人以为已经在换位了。
     const mark: BagDragMark = from !== null && i === from ? "from" : to !== null && i === to ? "to" : null;
-    const base = `${String(i + 1)}. ${label(s.kind)} x${String(s.count)}`;
+    // 标记**缀在行尾**，不缀在行首：行首是序号，序号错位会让"按数字键选集"看起来对不上。
+    // 也不用箭头符号：`>` / `←` 这类字符在 5×7 的 ASCII 字形里未必有，
+    // 缺字是静默的（画出来是空白），而英文单词一定在。
+    const runs: TextRun[] = [
+      // 序号与物品名连通的一段：中间没有可分段的地方，硬拆成两段只会多一个缓存键。
+      { text: `${String(i + 1)}. ${label(s.kind)}` },
+      withColor(` x${String(s.count)}`, colors?.count),
+    ];
+    if (mark !== null) runs.push(withColor(`  (${mark === "from" ? "moving" : "drop"})`, colors?.mark));
     return {
       index: i + 1,
-      // 标记**缀在行尾**，不缀在行首：行首是序号，序号错位会让"按数字键选集"看起来对不上。
-      // 也不用箭头符号：`>` / `←` 这类字符在 5×7 的 ASCII 字形里未必有，
-      // 缺字是静默的（画出来是空白），而英文单词一定在。
-      text: mark === null ? base : `${base}  (${mark === "from" ? "moving" : "drop"})`,
+      // ★ 由 runs 拼出来（而不是另拼一遍再切）：两处各写一遍是"改一句文案少一段样式"的入口。
+      text: runs.map((r) => r.text).join(""),
+      runs,
       selected: i === sel,
       drag: mark,
     };

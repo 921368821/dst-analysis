@@ -2736,7 +2736,7 @@ MUTANTS = [
     {
         "name": "M281 省略号不裁字（尾部溢出容器，truncated 仍是 true）",
         "file": "src/extensions/ui/text-layout.ts",
-        "pairs": [("      while (last.length > 0 && lineWidthOf(font, last, scale, ls) + ellW > maxWidth) last.pop();", "      while (false && last.length > 0) last.pop();")],
+        "pairs": [("      while (last.length > 0 && lineWidthOf(font, last, ls) + ellW > maxWidth) last.pop();", "      while (false && last.length > 0) last.pop();")],
         "test": "tests/extensions/ui-text.test.ts",
     },
     {
@@ -4479,8 +4479,8 @@ MUTANTS = [
         "file": "src/extensions/ui/state.ts",
         "pairs": [
             [
-                "    fontId,\n    text,\n    style.scale ?? 1,",
-                "    fontId,\n    \"\",\n    style.scale ?? 1,"
+                "  return [\n    fontId,\n    text,",
+                "  return [\n    fontId,\n    \"\","
             ]
         ],
         "test": "tests/extensions/ui-state.test.ts"
@@ -4611,7 +4611,7 @@ MUTANTS = [
         "file": "src/extensions/ui/intrinsic.ts",
         "pairs": [
             [
-                "    const text = node.props.text ?? \"\";\n    if (text === \"\") return null;",
+                "    const text = node.props.text ?? \"\";\n    if (rich === undefined && text === \"\") return null;",
                 "    const text = node.props.text ?? \"\";"
             ]
         ],
@@ -6041,6 +6041,100 @@ MUTANTS = [
             )
         ],
         "test": "tests/tools/gap-check.test.ts"
+    },
+    {
+        "name": "M627 跨字号也加 kerning（这一对度量在该字号下没有定义：小字那段被挤）",
+        "file": "src/extensions/ui/text-layout.ts",
+        "pairs": [
+            (
+                "  if (prev.scale !== cur.scale) return 0;",
+                "  // mutated: 跨字号照样查 kerning"
+            )
+        ],
+        "test": "tests/extensions/ui-text.test.ts"
+    },
+    {
+        "name": "M628 行高与基线取整段最大字号（只有小字的行整体下坠：行距看着不匀）",
+        "file": "src/extensions/ui/text-layout.ts",
+        "pairs": [
+            (
+                "    const lineScale = maxScaleOf(cells, baseScale);",
+                "    const lineScale = Math.max(...runs.map((r) => r.scale ?? baseScale));"
+            )
+        ],
+        "test": "tests/extensions/ui-text.test.ts"
+    },
+    {
+        "name": "M629 省略号取最后一段 run 的样式（被裁掉的正是那段：省略号换了颜色）",
+        "file": "src/extensions/ui/text-layout.ts",
+        "pairs": [
+            (
+                "    const ellColor = tail?.color ?? style.color;",
+                "    const ellColor = runs[runs.length - 1]?.color ?? style.color;"
+            )
+        ],
+        "test": "tests/extensions/ui-text.test.ts"
+    },
+    {
+        "name": "M630 排版缓存键漏掉 runs（改了配色不刷新：屏幕上还是上一套颜色）",
+        "file": "src/extensions/ui/state.ts",
+        "pairs": [
+            (
+                '    const key = layoutCacheKey(fontId, rich === null ? text : "", style, rich);',
+                '    const key = layoutCacheKey(fontId, rich === null ? text : "", style, null);'
+            )
+        ],
+        "test": "tests/extensions/ui-state.test.ts"
+    },
+    {
+        "name": "M631 有 runs 时仍按 text 排版（两个字段同时生效 = 两套真相）",
+        "file": "src/extensions/ui/state.ts",
+        "pairs": [
+            (
+                "    const layout = rich === null ? layoutText(font, text, style) : layoutRichText(font, rich, style);",
+                "    const layout = layoutText(font, text, style);"
+            )
+        ],
+        "test": "tests/extensions/ui-state.test.ts"
+    },
+    {
+        "name": "M632 量算仍只看 text 判空（只给 runs 的标签塌成 0 宽：画得出字却占不到位置）",
+        "file": "src/extensions/ui/intrinsic.ts",
+        "pairs": [
+            (
+                '    if (rich === undefined && text === "") return null;',
+                '    if (text === "") return null;'
+            )
+        ],
+        "test": "tests/extensions/ui-intrinsic.test.ts"
+    },
+    {
+        "name": "M633 面板只推 text 不推 runs（富文本半条链：模型分了段，屏幕上一个颜色）",
+        "file": "src/host/hud-ui.ts",
+        "pairs": [("        runs: r.runs,", "        runs: undefined,")],
+        "test": "tests/host/hud-ui.test.ts"
+    },
+    {
+        "name": "M634 背包行不再分段（计数与物品名并成一段：计数与名字一样亮）",
+        "file": "src/host/hud-model.ts",
+        "pairs": [
+            (
+                "      { text: `${String(i + 1)}. ${label(s.kind)}` },\n      withColor(` x${String(s.count)}`, colors?.count),",
+                "      { text: `${String(i + 1)}. ${label(s.kind)} x${String(s.count)}` },"
+            )
+        ],
+        "test": "tests/host/hud-model.test.ts"
+    },
+    {
+        "name": "M635 绘制层不把 runs 传给排版（接线断了：props 里有分段，画出来还是一个颜色）",
+        "file": "src/extensions/ui/widgets.ts",
+        "pairs": [
+            (
+                "    const layout = store.text(node.uid, fonts, p.fontId ?? defaultFontId(fonts), text, style, rich ?? undefined);",
+                "    const layout = store.text(node.uid, fonts, p.fontId ?? defaultFontId(fonts), text, style);"
+            )
+        ],
+        "test": "tests/host/hud-ui.test.ts"
     }
 ]
 

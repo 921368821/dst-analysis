@@ -19105,14 +19105,17 @@ function createIntrinsicMeasure(fonts, store) {
   return (node, innerW) => {
     const inset = textInsetOf(node.widget);
     if (inset < 0) return null;
+    const runs = node.props.runs;
+    const rich = runs !== void 0 && runs.length > 0 ? runs : void 0;
     const text = node.props.text ?? "";
-    if (text === "") return null;
+    if (rich === void 0 && text === "") return null;
+    if (rich !== void 0 && rich.every((r) => r.text.trim() === "")) return null;
     const pad = node.padding;
     const boxW = Math.max(0, innerW + pad.left + pad.right);
     const explicit = hasExplicitWidth(node);
     const wrap = explicit ? Math.max(0, boxW - inset * 2) : 0;
     const fontId = node.props.fontId ?? defaultFontId(fonts);
-    const layout = store.text(node.uid, fonts, fontId, text, textStyleFor(node, wrap));
+    const layout = store.text(node.uid, fonts, fontId, text, textStyleFor(node, wrap), rich);
     if (layout === null) return null;
     if (explicit) {
       return { w: boxW, h: layout.height + pad.top + pad.bottom };
@@ -19126,27 +19129,6 @@ function createIntrinsicMeasure(fonts, store) {
 
 // src/extensions/ui/text-layout.ts
 var DEFAULT_ELLIPSIS = "\u2026";
-function normalizeCodes(text) {
-  const paragraphs = [];
-  let cur = [];
-  for (const ch of Array.from(text)) {
-    const code = ch.codePointAt(0) ?? 0;
-    if (ch === "\n") {
-      paragraphs.push(cur);
-      cur = [];
-      continue;
-    }
-    if (ch === "\r") continue;
-    if (ch === "	") {
-      cur.push(32);
-      continue;
-    }
-    if (code < 32 || code === 127) continue;
-    cur.push(code);
-  }
-  paragraphs.push(cur);
-  return paragraphs;
-}
 function breakAfter(code) {
   return code >= 11904 && code <= 40959 || code >= 63744 && code <= 64255 || code >= 12288 && code <= 12351 || code >= 65280 && code <= 65519;
 }
@@ -19245,49 +19227,53 @@ function advanceOf(font, code, scale, letterSpacing) {
   const base = g === void 0 ? font.missingAdvance : g.xadvance;
   return base * scale + letterSpacing;
 }
-function tokenize(font, codes, scale, letterSpacing) {
+function kernBetween(font, prev, cur) {
+  if (prev.scale !== cur.scale) return 0;
+  return kerningOf(font, prev.code, cur.code) * cur.scale;
+}
+function tokenize(font, cells, letterSpacing) {
   const out = [];
   let buf = [];
   let bufW = 0;
   const flush = (isSpace) => {
     if (buf.length === 0) return;
-    out.push({ codes: buf, width: bufW + (isSpace ? 0 : 0), isSpace });
+    out.push({ cells: buf, width: bufW, isSpace });
     buf = [];
     bufW = 0;
   };
-  for (let i = 0; i < codes.length; i++) {
-    const code = codes[i];
-    if (code === 32) {
+  for (let i = 0; i < cells.length; i++) {
+    const c = cells[i];
+    if (c.code === 32) {
       flush(false);
-      out.push({ codes: [code], width: advanceOf(font, code, scale, letterSpacing), isSpace: true });
+      out.push({ cells: [c], width: advanceOf(font, c.code, c.scale, letterSpacing), isSpace: true });
       continue;
     }
-    buf.push(code);
-    bufW += advanceOf(font, code, scale, letterSpacing);
-    const prev = codes[i - 1];
-    if (prev !== void 0) bufW += kerningOf(font, prev, code) * scale;
-    if (breakAfter(code)) flush(false);
+    buf.push(c);
+    bufW += advanceOf(font, c.code, c.scale, letterSpacing);
+    const prev = cells[i - 1];
+    if (prev !== void 0) bufW += kernBetween(font, prev, c);
+    if (breakAfter(c.code)) flush(false);
   }
   flush(false);
   return out;
 }
-function lineWidthOf(font, codes, scale, letterSpacing) {
+function lineWidthOf(font, cells, letterSpacing) {
   let w = 0;
-  for (let i = 0; i < codes.length; i++) {
-    const code = codes[i];
-    w += advanceOf(font, code, scale, letterSpacing);
-    const prev = codes[i - 1];
-    if (prev !== void 0) w += kerningOf(font, prev, code) * scale;
+  for (let i = 0; i < cells.length; i++) {
+    const c = cells[i];
+    w += advanceOf(font, c.code, c.scale, letterSpacing);
+    const prev = cells[i - 1];
+    if (prev !== void 0) w += kernBetween(font, prev, c);
   }
   return w;
 }
-function trimTrailingSpaces(codes) {
-  let end = codes.length;
-  while (end > 0 && codes[end - 1] === 32) end--;
-  return codes.slice(0, end);
+function trimTrailingSpaces(cells) {
+  let end = cells.length;
+  while (end > 0 && cells[end - 1].code === 32) end--;
+  return cells.slice(0, end);
 }
-function breakParagraph(font, codes, scale, letterSpacing, maxWidth) {
-  if (maxWidth <= 0) return [trimTrailingSpaces(codes.slice())];
+function breakParagraph(font, cells, letterSpacing, maxWidth) {
+  if (maxWidth <= 0) return [trimTrailingSpaces(cells)];
   const lines = [];
   let cur = [];
   let curW = 0;
@@ -19296,23 +19282,23 @@ function breakParagraph(font, codes, scale, letterSpacing, maxWidth) {
     cur = [];
     curW = 0;
   };
-  for (const tk of tokenize(font, codes, scale, letterSpacing)) {
+  for (const tk of tokenize(font, cells, letterSpacing)) {
     if (tk.isSpace) {
       if (cur.length === 0) continue;
-      cur.push(...tk.codes);
+      cur.push(...tk.cells);
       curW += tk.width;
       continue;
     }
     if (curW + tk.width <= maxWidth) {
-      cur.push(...tk.codes);
+      cur.push(...tk.cells);
       curW += tk.width;
       continue;
     }
     if (cur.length > 0) {
       let carry = 0;
       while (cur.length - carry > 1) {
-        const last = cur[cur.length - 1 - carry];
-        const nextFirst = carry === 0 ? tk.codes[0] ?? -1 : cur[cur.length - carry];
+        const last = cur[cur.length - 1 - carry].code;
+        const nextFirst = carry === 0 ? tk.cells[0]?.code ?? -1 : cur[cur.length - carry].code;
         if (!LINE_END_FORBIDDEN.has(last) && !LINE_START_FORBIDDEN.has(nextFirst)) break;
         carry++;
       }
@@ -19322,40 +19308,71 @@ function breakParagraph(font, codes, scale, letterSpacing, maxWidth) {
         const moved = cur.splice(cur.length - carry, carry);
         pushLine();
         cur.push(...moved);
-        curW = lineWidthOf(font, cur, scale, letterSpacing);
+        curW = lineWidthOf(font, cur, letterSpacing);
       }
     }
     if (tk.width <= maxWidth) {
-      cur.push(...tk.codes);
+      cur.push(...tk.cells);
       curW = tk.width;
       continue;
     }
-    for (const code of tk.codes) {
-      const cw = advanceOf(font, code, scale, letterSpacing);
+    for (const c of tk.cells) {
+      const cw = advanceOf(font, c.code, c.scale, letterSpacing);
       if (curW + cw > maxWidth && cur.length > 0) pushLine();
-      cur.push(code);
+      cur.push(c);
       curW += cw;
     }
   }
   if (cur.length > 0 || lines.length === 0) lines.push(trimTrailingSpaces(cur));
   return lines;
 }
-function layoutText(font, text, style = {}) {
-  const scale = style.scale ?? 1;
+function cellsOf(runs, baseScale, baseColor) {
+  const paragraphs = [];
+  let cur = [];
+  for (const run of runs) {
+    const scale = run.scale ?? baseScale;
+    if (!(scale > 0)) throw new RangeError(`\u6587\u672C run \u7684 scale \u5FC5\u987B > 0\uFF1A${String(run.scale)}`);
+    const color = run.color ?? baseColor;
+    for (const ch of Array.from(run.text)) {
+      const code = ch.codePointAt(0) ?? 0;
+      if (ch === "\n") {
+        paragraphs.push(cur);
+        cur = [];
+        continue;
+      }
+      if (ch === "\r") continue;
+      if (ch === "	") {
+        cur.push({ code: 32, scale, color });
+        continue;
+      }
+      if (code < 32 || code === 127) continue;
+      cur.push({ code, scale, color });
+    }
+  }
+  paragraphs.push(cur);
+  return paragraphs;
+}
+function maxScaleOf(cells, baseScale) {
+  let m = 0;
+  for (const c of cells) if (c.scale > m) m = c.scale;
+  return m > 0 ? m : baseScale;
+}
+function layoutRichText(font, runs, style = {}) {
+  const baseScale = style.scale ?? 1;
   const ls = style.letterSpacing ?? 0;
   const maxWidth = style.maxWidth ?? 0;
   const maxLines = style.maxLines ?? 0;
   const ellipsis = style.ellipsis ?? DEFAULT_ELLIPSIS;
   const align = style.align ?? "left";
-  if (!(scale > 0)) throw new RangeError(`\u6587\u672C scale \u5FC5\u987B > 0\uFF1A${scale}`);
-  const lineHeightPx = font.lineHeight * scale + (style.lineSpacing ?? 0);
-  const paragraphs = normalizeCodes(text);
+  if (!(baseScale > 0)) throw new RangeError(`\u6587\u672C scale \u5FC5\u987B > 0\uFF1A${baseScale}`);
+  const lineSpacing = style.lineSpacing ?? 0;
+  const paragraphs = cellsOf(runs, baseScale, style.color);
   const lines = [];
   for (const p of paragraphs) {
-    const broken = breakParagraph(font, p, scale, ls, maxWidth);
-    for (const l of broken) lines.push(l);
+    for (const l of breakParagraph(font, p, ls, maxWidth)) lines.push(l);
   }
-  if (lines.length === 1 && lines[0].length === 0 && text.trim() === "") {
+  const isEmpty = runs.every((r) => r.text.trim() === "");
+  if (lines.length === 1 && lines[0].length === 0 && isEmpty) {
     lines.length = 0;
   }
   let truncated = false;
@@ -19364,51 +19381,62 @@ function layoutText(font, text, style = {}) {
     truncated = true;
     if (lines.length === 0) lines.push([]);
     const last = lines[lines.length - 1];
-    const ellCodes = Array.from(ellipsis).map((c) => c.codePointAt(0) ?? 0);
+    const tail = last[last.length - 1];
+    const ellScale = tail?.scale ?? baseScale;
+    const ellColor = tail?.color ?? style.color;
+    const ellCells = Array.from(ellipsis).map((c) => ({
+      code: c.codePointAt(0) ?? 0,
+      scale: ellScale,
+      color: ellColor
+    }));
     if (maxWidth > 0) {
-      const ellW = lineWidthOf(font, ellCodes, scale, ls);
-      while (last.length > 0 && lineWidthOf(font, last, scale, ls) + ellW > maxWidth) last.pop();
+      const ellW = lineWidthOf(font, ellCells, ls);
+      while (last.length > 0 && lineWidthOf(font, last, ls) + ellW > maxWidth) last.pop();
       if (last.length === 0 && ellW > maxWidth) {
         lines[lines.length - 1] = [];
       } else {
-        last.push(...ellCodes);
+        last.push(...ellCells);
       }
     } else {
-      last.push(...ellCodes);
+      last.push(...ellCells);
     }
   }
-  const lineWidths = lines.map((l) => lineWidthOf(font, l, scale, ls));
+  const lineWidths = lines.map((l) => lineWidthOf(font, l, ls));
   const naturalWidth = lineWidths.reduce((m, w) => w > m ? w : m, 0);
   const boxWidth = maxWidth > 0 ? maxWidth : naturalWidth;
-  const color = style.color;
   const quads = [];
   const missingSet = /* @__PURE__ */ new Set();
   const lineCaretX = [];
+  let yTop = 0;
   for (let li = 0; li < lines.length; li++) {
-    const codes = lines[li];
+    const cells = lines[li];
     const lw = lineWidths[li];
+    const lineScale = maxScaleOf(cells, baseScale);
+    const lineHeightPx = font.lineHeight * lineScale + lineSpacing;
     let penX = 0;
     if (align === "center") penX = (boxWidth - lw) / 2;
     else if (align === "right") penX = boxWidth - lw;
-    const lineTop = li * lineHeightPx;
-    const baseline = lineTop + font.base * scale;
+    const baseline = yTop + font.base * lineScale;
     const caretX = [];
-    for (let i = 0; i < codes.length; i++) {
-      const code = codes[i];
+    for (let i = 0; i < cells.length; i++) {
+      const cell = cells[i];
+      const code = cell.code;
+      const s = cell.scale;
       caretX.push(penX);
       const g = font.glyphs.get(code);
       if (g === void 0) {
         missingSet.add(code);
-        penX += font.missingAdvance * scale + ls;
+        penX += font.missingAdvance * s + ls;
         continue;
       }
       if (g.width > 0 && g.height > 0) {
+        const color = cell.color;
         quads.push({
           page: g.page,
-          x: penX + g.xoffset * scale,
-          y: baseline + g.yoffset * scale,
-          w: g.width * scale,
-          h: g.height * scale,
+          x: penX + g.xoffset * s,
+          y: baseline + g.yoffset * s,
+          w: g.width * s,
+          h: g.height * s,
           u0: g.u0,
           v0: g.v0,
           u1: g.u1,
@@ -19419,22 +19447,26 @@ function layoutText(font, text, style = {}) {
           a: color?.a ?? 1
         });
       }
-      penX += g.xadvance * scale + ls;
-      const prev = codes[i - 1];
-      if (prev !== void 0) penX += kerningOf(font, prev, code) * scale;
+      penX += g.xadvance * s + ls;
+      const prev = cells[i - 1];
+      if (prev !== void 0) penX += kernBetween(font, prev, cell);
     }
     caretX.push(penX);
     lineCaretX.push(caretX);
+    yTop += lineHeightPx;
   }
   return {
     quads,
     width: boxWidth,
-    height: lines.length === 0 ? 0 : lines.length * lineHeightPx,
+    height: yTop,
     lineCount: lines.length,
     truncated,
     missing: Array.from(missingSet).sort((a, b) => a - b),
     lineCaretX
   };
+}
+function layoutText(font, text, style = {}) {
+  return layoutRichText(font, [{ text }], style);
 }
 
 // src/extensions/ui/state.ts
@@ -19470,18 +19502,24 @@ var UiStateStore = class {
    * ★ 键里**必须**含字体 id、文本、样式三样（原有的 `cacheKey` 规则）：
    *   只按节点缓存 ⇒ 改了文案没换节点会显示旧文本；
    *   只按文本缓存 ⇒ 两种字号互相污染。
+   *
+   * ★★ `runs` 非空时 `text` **完全不参与**（既不进键，也不进排版）：
+   *   排版结果是 runs 的函数，对一个不参与计算的入参做缓存键只会造出
+   *   "同一份排版有两个键"（白掉命中率）或"两个不同排版共用一个键"（显示旧内容）。
+   *   调用方把两个都填上是对的（`text` 给宿主与判据认行），但**只有一个算数**。
    */
-  text(uid, fonts, fontId, text, style) {
+  text(uid, fonts, fontId, text, style, runs) {
     const font = fonts.get(fontId);
     if (font === void 0) return null;
-    const key = layoutCacheKey(fontId, text, style);
+    const rich = runs !== void 0 && runs.length > 0 ? runs : null;
+    const key = layoutCacheKey(fontId, rich === null ? text : "", style, rich);
     const hit = this.layouts.get(uid);
     if (hit !== void 0 && hit.key === key) {
       this.hits++;
       return hit.layout;
     }
     this.misses++;
-    const layout = layoutText(font, text, style);
+    const layout = rich === null ? layoutText(font, text, style) : layoutRichText(font, rich, style);
     if (this.layouts.size >= MAX_LAYOUT_ENTRIES) {
       this.evictions += this.layouts.size;
       this.layouts.clear();
@@ -19532,11 +19570,23 @@ var UiStateStore = class {
     this.scrolls.delete(uid);
   }
 };
-function layoutCacheKey(fontId, text, style) {
+function layoutCacheKey(fontId, text, style, runs) {
   const c = style.color;
   return [
     fontId,
     text,
+    // ★ runs 必须进键：同一段 `text`（拼起来一样）配不同的配色是**两份**排版，
+    //   因为颜色是烘进四边形的。不进键的症状是"改了配色不刷新"，
+    //   而那看起来像"UI 不重绘"，离真正的原因隔着两层。
+    // ★ 用 `JSON.stringify` 而不是自己拼分隔符：键的碰撞**不报错，它显示别人的文本**。
+    //   自拼分隔符时，`r.text` 里只要出现分隔符（`|`、`\u0002`）就能造出两份不同的 runs
+    //   得到同一个键；`JSON.stringify` 会把引号、反斜杠、控制字符全部转义掉。
+    runs === void 0 || runs === null || runs.length === 0 ? "-" : JSON.stringify(
+      runs.map((r) => {
+        const rc = r.color;
+        return [r.text, r.scale ?? 1, rc === void 0 ? null : [rc.r, rc.g, rc.b, rc.a]];
+      })
+    ),
     style.scale ?? 1,
     style.align ?? "left",
     style.lineSpacing ?? 0,
@@ -19630,9 +19680,11 @@ function buildUiQuads(root, fonts, skin, store) {
     }
   };
   const emitText = (node, p, box, style, ord, alpha, clip) => {
+    const runs = p.runs;
+    const rich = runs !== void 0 && runs.length > 0 ? runs : null;
     const text = p.text ?? "";
-    if (text === "") return;
-    const layout = store.text(node.uid, fonts, p.fontId ?? defaultFontId(fonts), text, style);
+    if (rich === null && text === "") return;
+    const layout = store.text(node.uid, fonts, p.fontId ?? defaultFontId(fonts), text, style, rich ?? void 0);
     if (layout === null) return;
     labels++;
     const y = box.y + (box.height - layout.height) / 2;
@@ -20208,20 +20260,25 @@ function hudRows(f) {
 function hudLine(f) {
   return hudRows(f).join(" | ");
 }
-function bagRows(stacks, selected, labelOf, drag) {
+function bagRows(stacks, selected, labelOf, drag, colors) {
   const sel = stacks.length === 0 ? 0 : Math.min(Math.max(0, selected), stacks.length - 1);
   const label = labelOf ?? ((kind) => kind.replace(/_/g, " "));
   const from = drag?.from ?? null;
   const to = drag?.to ?? null;
+  const withColor = (text, c) => c === void 0 ? { text } : { text, color: c };
   return stacks.map((s, i) => {
     const mark = from !== null && i === from ? "from" : to !== null && i === to ? "to" : null;
-    const base = `${String(i + 1)}. ${label(s.kind)} x${String(s.count)}`;
+    const runs = [
+      // 序号与物品名连通的一段：中间没有可分段的地方，硬拆成两段只会多一个缓存键。
+      { text: `${String(i + 1)}. ${label(s.kind)}` },
+      withColor(` x${String(s.count)}`, colors?.count)
+    ];
+    if (mark !== null) runs.push(withColor(`  (${mark === "from" ? "moving" : "drop"})`, colors?.mark));
     return {
       index: i + 1,
-      // 标记**缀在行尾**，不缀在行首：行首是序号，序号错位会让"按数字键选集"看起来对不上。
-      // 也不用箭头符号：`>` / `←` 这类字符在 5×7 的 ASCII 字形里未必有，
-      // 缺字是静默的（画出来是空白），而英文单词一定在。
-      text: mark === null ? base : `${base}  (${mark === "from" ? "moving" : "drop"})`,
+      // ★ 由 runs 拼出来（而不是另拼一遍再切）：两处各写一遍是"改一句文案少一段样式"的入口。
+      text: runs.map((r) => r.text).join(""),
+      runs,
       selected: i === sel,
       drag: mark
     };
@@ -20508,6 +20565,8 @@ function createHudUi(opts) {
   const hudH = pad * 2 + lineH * 3 + gap * 3 + HUD_LAYOUT.bar;
   const white = new Color(1, 1, 1, 1);
   const dim = new Color(0.72, 0.76, 0.82, 1);
+  const countTint = new Color(0.62, 0.66, 0.74, 1);
+  const markTint = new Color(0.98, 0.8, 0.36, 1);
   const selTint = new Color(0.42, 0.38, 0.22, 1);
   const rowTint = new Color(0.26, 0.28, 0.34, 0.85);
   const barTint = new Color(0.55, 0.86, 0.45, 1);
@@ -20750,7 +20809,10 @@ function createHudUi(opts) {
       module.invalidate();
       return;
     }
-    const rows = bagRows(bagStacks, bagSel, opts.labelOf, { from: dragFrom, to: dragTo });
+    const rows = bagRows(bagStacks, bagSel, opts.labelOf, { from: dragFrom, to: dragTo }, {
+      count: countTint,
+      mark: markTint
+    });
     const sig = rows.map((r) => `${r.text}#${r.selected ? 1 : 0}`).join("|");
     if (sig === bagSig) return;
     bagSig = sig;
@@ -20764,6 +20826,11 @@ function createHudUi(opts) {
       n.props = {
         ...n.props,
         text: r.text,
+        // ★ 行文本的**分段**一起推下去：`text` 是"这一格写了什么"（宿主与判据认行用），
+        //   `runs` 是"哪几个字符用哪种颜色"。两个都填是调用方的规矩，
+        //   而排版只看 runs（见 `UiProps.runs`）—— 于是"序号与物品名"跟着选中高亮变，
+        //   "计数"始终是暗的。
+        runs: r.runs,
         tint: r.selected ? selTint : rowTint,
         textColor: white
       };

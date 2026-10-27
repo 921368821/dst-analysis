@@ -251,6 +251,11 @@ export function createHudUi(opts: HudUiOptions): Result<HudUiHandle, EngineError
 
   const white = new Color(1, 1, 1, 1);
   const dim = new Color(0.72, 0.76, 0.82, 1);
+  // ★ 背包行里的**第二、三种颜色**（富文本的第一位真消费者）：
+  //   计数比物品名暗一档，拖拽标记用暖色。两者都**由面板给**，不写进模型 ——
+  //   模型只说"这几个字符是计数"，改配色不该动判据。
+  const countTint = new Color(0.62, 0.66, 0.74, 1);
+  const markTint = new Color(0.98, 0.80, 0.36, 1);
   const selTint = new Color(0.42, 0.38, 0.22, 1);
   const rowTint = new Color(0.26, 0.28, 0.34, 0.85);
   const barTint = new Color(0.55, 0.86, 0.45, 1);
@@ -556,7 +561,10 @@ export function createHudUi(opts: HudUiOptions): Result<HudUiHandle, EngineError
       module.invalidate();
       return;
     }
-    const rows = bagRows(bagStacks, bagSel, opts.labelOf, { from: dragFrom, to: dragTo });
+    const rows = bagRows(bagStacks, bagSel, opts.labelOf, { from: dragFrom, to: dragTo }, {
+      count: countTint,
+      mark: markTint,
+    });
     const sig = rows.map((r) => `${r.text}#${r.selected ? 1 : 0}`).join("|");
     if (sig === bagSig) return;
     bagSig = sig;
@@ -570,6 +578,11 @@ export function createHudUi(opts: HudUiOptions): Result<HudUiHandle, EngineError
       n.props = {
         ...n.props,
         text: r.text,
+        // ★ 行文本的**分段**一起推下去：`text` 是"这一格写了什么"（宿主与判据认行用），
+        //   `runs` 是"哪几个字符用哪种颜色"。两个都填是调用方的规矩，
+        //   而排版只看 runs（见 `UiProps.runs`）—— 于是"序号与物品名"跟着选中高亮变，
+        //   "计数"始终是暗的。
+        runs: r.runs,
         tint: r.selected ? selTint : rowTint,
         textColor: white,
       };

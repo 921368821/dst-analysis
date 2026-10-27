@@ -215,6 +215,44 @@ test("★ 选中的行必须**看起来**不一样（换 tint），不是只改�
   assert.deepEqual(hud.module.root.find("bag.row1")?.props.tint, t0);
 });
 
+test("★★ 背包行是富文本的真消费者：同一行里「计数」与「物品名」颜色不同", () => {
+  // ★ 这条走完**全程**：模型造 runs → 面板写 props → 控件层交给排版 → 颜色烘进四边形。
+  //   任何一环没接上（runs 没写进 props / emitText 没用它 / 状态表键里漏了 runs），
+  //   这里都会只剩一种颜色 —— 而屏幕上表现为"计数和名字一样亮"，没人会报 bug。
+  const hud = makeHud();
+  const fonts = new FontRegistry();
+  fonts.register(realFont());
+  hud.setBag([{ kind: "tree", count: 3 }], 0);
+  layoutTree(hud.module.root, new Rect(0, 0, 960, 600));
+  const row0 = hud.module.root.find("bag.row0");
+  assert.ok(row0 !== undefined, "bag.row0 不见了");
+
+  // 只画这一行：把行节点当根交给绘制层（矩形与裁剪框已经由布局写好），
+  // 于是"哪些字属于这一行"不靠坐标猜 —— 猜坐标那种判据会在无关的重构里变红。
+  const glyphs = buildUiQuads(row0, fonts, hud.built.skin, new UiStateStore()).quads.filter((q) => q.atlas === 0);
+  assert.equal(glyphs.length, 8, "「1. tree」6 个字形 + 「 x3」2 个（空格不画）—— 先确认不是空转");
+
+  const colors = new Set(glyphs.map((q) => `${String(q.r)},${String(q.g)},${String(q.b)}`));
+  assert.equal(colors.size, 2, `一行里应当有主体与计数两种颜色，实际 ${String(colors.size)} 种：${[...colors].join(" / ")}`);
+  // 主体（物品名那一段）更多一些：颜色不该把"谁占多数"搞反
+  const counts = new Map<string, number>();
+  for (const q of glyphs) {
+    const k = `${String(q.r)},${String(q.g)},${String(q.b)}`;
+    counts.set(k, (counts.get(k) ?? 0) + 1);
+  }
+  const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  assert.equal(sorted[0]?.[1], 6, "物品名 6 个字形");
+  assert.equal(sorted[1]?.[1], 2, "计数 2 个字形（`x` 与 `3`）");
+
+  // 宿主侧的不变量：两个字段都填，且拼起来一致（拼不起来就说明有人只改了一边）
+  const runs = row0.props.runs ?? [];
+  assert.deepEqual(
+    runs.map((r) => r.text).join(""),
+    row0.props.text,
+    "props.runs 拼起来必须等于 props.text",
+  );
+});
+
 test("★ 点中行会回调行号（走真实命中测试，不是直接赋值）", () => {
   const picked: number[] = [];
   const hud = makeHud({ onSelectRow: (i) => picked.push(i) });

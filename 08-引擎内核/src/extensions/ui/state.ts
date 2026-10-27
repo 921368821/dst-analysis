@@ -30,8 +30,8 @@
  *   所以"旧节点的状态绝不会被新节点读到"是**结构上**成立的，不靠清理纪律。
  */
 
-import type { TextStyle, TextLayout } from "./text-layout.ts";
-import { layoutText } from "./text-layout.ts";
+import type { TextStyle, TextLayout, TextRun } from "./text-layout.ts";
+import { layoutRichText, layoutText } from "./text-layout.ts";
 import type { FontRegistry } from "./font.ts";
 
 /** 一次文本排版的缓存条目。`key` 之外的字段不参与判定。 */
@@ -92,6 +92,11 @@ export class UiStateStore {
    * ★ 键里**必须**含字体 id、文本、样式三样（原有的 `cacheKey` 规则）：
    *   只按节点缓存 ⇒ 改了文案没换节点会显示旧文本；
    *   只按文本缓存 ⇒ 两种字号互相污染。
+   *
+   * ★★ `runs` 非空时 `text` **完全不参与**（既不进键，也不进排版）：
+   *   排版结果是 runs 的函数，对一个不参与计算的入参做缓存键只会造出
+   *   "同一份排版有两个键"（白掉命中率）或"两个不同排版共用一个键"（显示旧内容）。
+   *   调用方把两个都填上是对的（`text` 给宿主与判据认行），但**只有一个算数**。
    */
   text(
     uid: number,
@@ -99,17 +104,20 @@ export class UiStateStore {
     fontId: string,
     text: string,
     style: TextStyle,
+    runs?: readonly TextRun[],
   ): TextLayout | null {
     const font = fonts.get(fontId);
     if (font === undefined) return null;
-    const key = layoutCacheKey(fontId, text, style);
+    // ★ 空数组与 undefined 等价：都表示"这一段没有分段信息"。
+    const rich = runs !== undefined && runs.length > 0 ? runs : null;
+    const key = layoutCacheKey(fontId, rich === null ? text : "", style, rich);
     const hit = this.layouts.get(uid);
     if (hit !== undefined && hit.key === key) {
       this.hits++;
       return hit.layout;
     }
     this.misses++;
-    const layout = layoutText(font, text, style);
+    const layout = rich === null ? layoutText(font, text, style) : layoutRichText(font, rich, style);
     if (this.layouts.size >= MAX_LAYOUT_ENTRIES) {
       this.evictions += this.layouts.size;
       this.layouts.clear();
@@ -173,12 +181,29 @@ export class UiStateStore {
  * ★ 颜色也进键：`layoutText` 把颜色**烘进**每个字形四边形（`TextQuad.r/g/b/a`），
  *   所以"换了文字颜色"是一次真正的重新排版，而不是可以复用的采样。
  *   （这也意味着：只改颜色而文本没变时缓存不命中 —— 但那一次重排是必要的，不是浪费。）
+ *
+ * ★ 富文本时调用方传进来的 `text` 是 `""`（见 `text()`）：runs 段本身已经含文本，
+ *   再拼一遍等于把一个本来就会变的东西记了两次。
  */
-function layoutCacheKey(fontId: string, text: string, style: TextStyle): string {
+function layoutCacheKey(fontId: string, text: string, style: TextStyle, runs?: readonly TextRun[] | null): string {
   const c = style.color;
   return [
     fontId,
     text,
+    // ★ runs 必须进键：同一段 `text`（拼起来一样）配不同的配色是**两份**排版，
+    //   因为颜色是烘进四边形的。不进键的症状是"改了配色不刷新"，
+    //   而那看起来像"UI 不重绘"，离真正的原因隔着两层。
+    // ★ 用 `JSON.stringify` 而不是自己拼分隔符：键的碰撞**不报错，它显示别人的文本**。
+    //   自拼分隔符时，`r.text` 里只要出现分隔符（`|`、`\u0002`）就能造出两份不同的 runs
+    //   得到同一个键；`JSON.stringify` 会把引号、反斜杠、控制字符全部转义掉。
+    runs === undefined || runs === null || runs.length === 0
+      ? "-"
+      : JSON.stringify(
+          runs.map((r) => {
+            const rc = r.color;
+            return [r.text, r.scale ?? 1, rc === undefined ? null : [rc.r, rc.g, rc.b, rc.a]];
+          }),
+        ),
     style.scale ?? 1,
     style.align ?? "left",
     style.lineSpacing ?? 0,

@@ -194,3 +194,53 @@ test("onRegister 的退订是幂等的（重复调用不抛）", () => {
   fonts.register(makeTestFont());
   assert.deepEqual(fonts.ids(), ["test"]);
 });
+
+// ------------------------------------------------------------------ 富文本进键（批114）
+
+const RED = new Color(1, 0, 0, 1);
+const BLUE = new Color(0, 0, 1, 1);
+
+test("★★ runs 必须进键：同一段 text 换配色 ⇒ 重排（否则「改了配色不刷新」）", () => {
+  const fonts = registry();
+  const st = new UiStateStore();
+  const a = st.text(1, fonts, "test", "AB", {}, [
+    { text: "AB", color: RED },
+  ]);
+  // ★ 两次的 `text` 完全相同 —— 只有 runs 里的颜色变了
+  const b = st.text(1, fonts, "test", "AB", {}, [
+    { text: "AB", color: BLUE },
+  ]);
+  assert.deepEqual([st.hits, st.misses], [0, 2], "颜色进了键 ⇒ 第二次必须重排");
+  assert.equal(a?.quads[0]?.r, 1, "第一次是红的");
+  assert.equal(b?.quads[0]?.r, 0, "第二次是蓝的");
+  assert.equal(b?.quads[0]?.b, 1);
+  // 反向：同样的 runs 再来一次 ⇒ 命中（键不能宽到永不命中）
+  const c = st.text(1, fonts, "test", "AB", {}, [
+    { text: "AB", color: BLUE },
+  ]);
+  assert.equal(c, b, "同 runs ⇒ 同一个对象");
+  assert.deepEqual([st.hits, st.misses], [1, 2]);
+});
+
+test("★★ 有 runs 时 text 退出键与排版（两个字段同时生效就是两套真相）", () => {
+  const fonts = registry();
+  const st = new UiStateStore();
+  // text 里塞了字体没有的 Z：若还按 text 排版，width 会是 12 + 8（缺字占位）+ 12
+  const a = st.text(1, fonts, "test", "ZAB", {}, [{ text: "AB" }]);
+  assert.equal(a?.width, 2 * ADV, "只按 runs 排，Z 不参与");
+  assert.deepEqual([...(a?.missing ?? [])], [], "Z 不该被报成缺字");
+  // 换一个 text、runs 不变 ⇒ 仍然是命中（text 不在键里）
+  const b = st.text(1, fonts, "test", "QWE", {}, [{ text: "AB" }]);
+  assert.equal(b, a, "text 变了但 runs 没变 ⇒ 复用同一份排版");
+  assert.equal(st.misses, 1);
+});
+
+test("★ 空 runs 数组等价于没有（都表示「这一段是单样式」）", () => {
+  const fonts = registry();
+  const st = new UiStateStore();
+  const a = st.text(1, fonts, "test", "AB", {}, []);
+  const b = st.text(1, fonts, "test", "AB", {});
+  assert.equal(a?.width, 2 * ADV);
+  assert.equal(b, a, "空数组与 undefined 是同一个键");
+  assert.equal(st.misses, 1);
+});

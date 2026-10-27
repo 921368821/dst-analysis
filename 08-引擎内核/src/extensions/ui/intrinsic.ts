@@ -114,8 +114,13 @@ export function createIntrinsicMeasure(fonts: FontRegistry, store: UiStateStore)
   return (node, innerW) => {
     const inset = textInsetOf(node.widget);
     if (inset < 0) return null;
+    // ★ 量算必须与绘制看**同一份**文本（见 `UiProps.runs` 的 ★）：有 runs 时
+    //   `text` 不参与排版，若这里还按 `text` 判空，就会出现"量出 0 宽、画出一行字"。
+    const runs = node.props.runs;
+    const rich = runs !== undefined && runs.length > 0 ? runs : undefined;
     const text = node.props.text ?? "";
-    if (text === "") return null;
+    if (rich === undefined && text === "") return null;
+    if (rich !== undefined && rich.every((r) => r.text.trim() === "")) return null;
 
     const pad = node.padding;
     // `innerW` 是**内区**宽（已扣 padding）；绘制时看到的盒子宽要把它加回来。
@@ -125,7 +130,7 @@ export function createIntrinsicMeasure(fonts: FontRegistry, store: UiStateStore)
     const wrap = explicit ? Math.max(0, boxW - inset * 2) : 0;
 
     const fontId = node.props.fontId ?? defaultFontId(fonts);
-    const layout = store.text(node.uid, fonts, fontId, text, textStyleFor(node, wrap));
+    const layout = store.text(node.uid, fonts, fontId, text, textStyleFor(node, wrap), rich);
     if (layout === null) return null;
 
     if (explicit) {

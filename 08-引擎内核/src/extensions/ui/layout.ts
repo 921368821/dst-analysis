@@ -42,7 +42,7 @@
  */
 
 import { Color, Rect } from "../../foundation/math/index.ts";
-import type { TextStyle } from "./text-layout.ts";
+import type { TextRun, TextStyle } from "./text-layout.ts";
 
 export const UiLayoutKind = { Free: "free", Row: "row", Column: "column", Grid: "grid" } as const;
 export type UiLayoutKindValue = (typeof UiLayoutKind)[keyof typeof UiLayoutKind];
@@ -83,6 +83,17 @@ export interface UiProps {
   /** 九宫格边距（设计 px）。0 = 整图拉伸。 */
   readonly slice?: number;
   readonly text?: string;
+  /**
+   * 富文本分段（可选）。**非空时 `text` 不再参与排版与缓存键**。
+   *
+   * ★ 为什么允许两个字段同时存在、却只让一个算数：
+   *   `text` 是每个控件都有的"这一格写了什么"，宿主与判据都靠它认行
+   *   （`bagRowTexts` 之类），而 `runs` 是"怎么分段显示"。二者**不是**一个量的两种写法 ——
+   *   让它们同时生效，就会出现"改 `text` 没生效"或"runs 拼起来与 text 不一样时
+   *   量算按一个、绘制按另一个"这类两套真相。这里定死：**有 runs 就只看 runs**。
+   *   宿主侧的不变量（`runs` 拼起来 === `text`）由判据钉住，不是靠约定。
+   */
+  readonly runs?: readonly TextRun[];
   readonly fontId?: string;
   readonly style?: TextStyle;
   readonly tint?: Color;

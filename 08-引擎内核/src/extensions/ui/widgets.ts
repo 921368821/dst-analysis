@@ -217,9 +217,14 @@ export function buildUiQuads(root: UiNode, fonts: FontRegistry, skin: UiSkin, st
     alpha: number,
     clip: Rect | null,
   ): void => {
+    // ★ 有 runs 就只看 runs（见 `UiProps.runs` 的 ★）：`text` 此时只用于认行。
+    //   空判断也必须看**真正要画的那一份** —— 只看 `text` 的话，
+    //   "text 为空但 runs 有内容"会被当成空标签直接跳过（画出来什么都没有，还不报错）。
+    const runs = p.runs;
+    const rich = runs !== undefined && runs.length > 0 ? runs : null;
     const text = p.text ?? "";
-    if (text === "") return;
-    const layout = store.text(node.uid, fonts, p.fontId ?? defaultFontId(fonts), text, style);
+    if (rich === null && text === "") return;
+    const layout = store.text(node.uid, fonts, p.fontId ?? defaultFontId(fonts), text, style, rich ?? undefined);
     if (layout === null) return;
     labels++;
     const y = box.y + (box.height - layout.height) / 2;
