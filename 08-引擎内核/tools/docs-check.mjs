@@ -41,11 +41,67 @@ import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from 
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { EDITOR_DECLARED } from "./editor-declared.mjs";
+import { GAP_HEADING, findStaleGapRows, gapRowCount } from "./gap-check.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const QUICK = process.argv.includes("--quick");
 const FIX = process.argv.includes("--fix");
+/**
+ * 只跑「缺口清单对账」就退出。
+ *
+ * ★ 为什么需要它：接线判据（`tests/tools/gap-check.test.ts` 最后一条）必须证明
+ *   **这段代码真的被调用**——纯函数的判据证不了这件事，整块删掉照样全绿。
+ *   而完整的 docs-check 要先数判据（`--quick` 在缓存过期时直接退出），
+ *   在 `npm test` 里嵌一次全量跑是不可接受的。所以给它一条只走这段代码的路。
+ *   ★ 校验逻辑与正常路径**共用同一段代码**，开关只决定"跑完这段之后走不走"。
+ */
+const GAP_ONLY = process.argv.includes("--gap-only");
 const CACHE = join(ROOT, ".cache", "test-count.json");
+
+/**
+ * ★ 缺口清单对账（批97）：一条「缺口」点名了某个 `tools/` 路径，而那个工具**已经在 CI 里跑** ——
+ *   那这条缺口要么早就做完了（该改清单），要么它缺的根本不是这个工具（该改措辞）。
+ *
+ *   2026-10-27 实测：`PROGRESS §六` 的「headless ↔ 浏览器逐字节存档」从批57 起就一直写着
+ *   "浏览器侧只断言到 Lua 算得对 + 跨界日志可见"，而 `tools/cross-host-save.mjs` 那时
+ *   就在 CI 里跑了。批94 清查阻塞项时我**照抄了那一行**，于是一件已完成的事被记成了
+ *   `BLOCKERS` 的 C12，还配了一句自己编的现状。**对账的对象是磁盘，不是上一版清单。**
+ *
+ *   ★ 反向自检不是可选项：这条判据今天**永远输出 0 条**，而"没在扫"与"扫了没发现"
+ *   在这份输出上完全一样。所以每次都要拿一条合成的过期行打自己一发。
+ */
+const gapIssues = (() => {
+  const docText = readFileSync(join(ROOT, "docs", "PROGRESS.md"), "utf8");
+  const ciText = readFileSync(join(ROOT, "tools", "ci.mjs"), "utf8");
+  const exists = (rel) => {
+    try {
+      readFileSync(join(ROOT, rel));
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const SAMPLE = [
+    GAP_HEADING,
+    "",
+    "| 缺口 | 现状 | 在等什么 |",
+    "|---|---|---|",
+    "| 合成的过期行（没标已消除） | 现状 | `tools/ci.mjs` 早就在跑 |",
+    "",
+    "## 七、结束",
+    "",
+  ].join("\n");
+  const probe = findStaleGapRows({ docText: SAMPLE, exists: () => true, ciText: "tools/ci.mjs" });
+  if (probe.length !== 1) {
+    console.error("✗ 清单对账打不中合成的过期行 —— 这条判据是摆设（绿着但没在扫）");
+    process.exit(2);
+  }
+  const gapRows = gapRowCount(docText);
+  const stale = findStaleGapRows({ docText, exists, ciText });
+  console.log(`清单对账：§六 缺口行 ${gapRows} 行，过期 ${stale.length} 条`);
+  if (GAP_ONLY) process.exit(stale.length === 0 ? 0 : 1);
+  return stale;
+})();
 
 /**
  * 缓存必须自带**新鲜度凭证**，否则 --quick 就是一台假绿灯机器：
@@ -364,6 +420,15 @@ for (let k = 1; k <= nums.length; k++) {
       }
     }
   }
+}
+
+// 缺口清单对账的结果并入 problems（判据本身在文件开头那段：它必须先于「数判据」跑，
+// 否则 `--gap-only` 也要等缓存/全量测试 —— 见那段注释）。
+for (const it of gapIssues) {
+  problems.push(
+    `PROGRESS.md:${it.no} 缺口行点名了已在 CI 里跑的工具（${it.hits.join(", ")}）` +
+      " —— 若这条缺口已被它补上，把首格标 ✅ 并写清哪一批补的；若没补上，写清还差什么（工具在跑 ≠ 这件事做完了）",
+  );
 }
 
 console.log(

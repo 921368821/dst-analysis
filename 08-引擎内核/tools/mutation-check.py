@@ -4199,6 +4199,59 @@ MUTANTS = [
         "cmd": ["node", "tools/editor-selftest.mjs", "--build"],
         "env_exit": 2,
     },
+    {
+        # ★ 这一组打的是「缺口清单对账」（`tools/gap-check.mjs`）。它今天的输出永远是 0 条，
+        #   所以每条规则都必须靠合成语料咬住 —— 判据在 `tests/tools/gap-check.test.ts`。
+        "name": "M461 三级标题也当分节符（§六 的 ### 小节之下的缺口行被整段跳过）",
+        "file": "tools/gap-check.mjs",
+        "pairs": [('    if (lines[i].startsWith("## ")) break;',
+                   '    if (lines[i].startsWith("## ") || lines[i].startsWith("### ")) break;')],
+        "test": "tests/tools/gap-check.test.ts",
+    },
+    {
+        "name": "M462 行号用片段内序号（报 PROGRESS.md:3 让人去错地方，比不报更坏）",
+        "file": "tools/gap-check.mjs",
+        "pairs": [("    out.push({ no: i + 1, text: lines[i] });",
+                   "    out.push({ no: out.length + 1, text: lines[i] });")],
+        "test": "tests/tools/gap-check.test.ts",
+    },
+    {
+        "name": "M463 已消除判定整个删掉（做完的缺口也照报，清单永远红）",
+        "file": "tools/gap-check.mjs",
+        "pairs": [('    if (head.includes("✅") || head.includes("~~")) continue;',
+                   "    if (false) continue;")],
+        "test": "tests/tools/gap-check.test.ts",
+    },
+    {
+        # 这是 C12 那个形态本身：正文里划掉了旧等待条件，缺口名还挂着。
+        "name": "M464 正文里划掉就算已消除（C12 那种行被自己的正文免责）",
+        "file": "tools/gap-check.mjs",
+        "pairs": [('    if (head.includes("✅") || head.includes("~~")) continue;',
+                   '    if (text.includes("✅") || text.includes("~~")) continue;')],
+        "test": "tests/tools/gap-check.test.ts",
+    },
+    {
+        # 正则写窄 ⇒ 一条都扫不到 ⇒ 判据"绿着但没在扫"，与真的没问题完全一样。
+        "name": "M465 只认 src/ 路径（tools/ 点名一个都扫不到，判据永远绿）",
+        "file": "tools/gap-check.mjs",
+        "pairs": [(r"const TOOL_PATH = /tools\/[A-Za-z0-9_./-]+\.[A-Za-z0-9]+/g;",
+                   r"const TOOL_PATH = /src\/[A-Za-z0-9_./-]+\.[A-Za-z0-9]+/g;")],
+        "test": "tests/tools/gap-check.test.ts",
+    },
+    {
+        "name": "M466 表头分隔行也当缺口行（缺口行数多算，§六 的规模看着比实际大）",
+        "file": "tools/gap-check.mjs",
+        "pairs": [("    if (row === null || isSeparator(row)) continue;",
+                   "    if (row === null) continue;")],
+        "test": "tests/tools/gap-check.test.ts",
+    },
+    {
+        "name": "M467 工具存在就算（不看它在不在 CI 里：规划中的路径一出现就红，假红）",
+        "file": "tools/gap-check.mjs",
+        "pairs": [("    const hits = [...new Set(paths)].filter((p) => exists(p) && ciText.includes(p));",
+                   "    const hits = [...new Set(paths)].filter((p) => exists(p));")],
+        "test": "tests/tools/gap-check.test.ts",
+    },
 ]
 
 
