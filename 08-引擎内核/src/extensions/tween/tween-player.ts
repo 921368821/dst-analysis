@@ -31,6 +31,7 @@
 import { Component, FieldType, type ComponentSchema } from "../../core/scene/component.ts";
 import { engineError, err, ok, type EngineError, type Result } from "../../foundation/result.ts";
 import { makeTween, sampleTween, type TweenSpec, type TweenSpecInput } from "./tween.ts";
+import { KeyTrack, makeTrack, type Keyframe, type TrackSpec } from "./keyframes.ts";
 
 /** 组件类型常量（模块注册表与场景共用，避免两处手写字符串）。 */
 export const TWEEN_PLAYER_TYPE = "tween.player";
@@ -41,6 +42,16 @@ export const TWEEN_PLAYER_ERR = {
   /** 轨道不存在。 */
   NO_TRACK: "TWEEN.NO_TRACK",
 } as const;
+
+/** 关键帧轨道的构造入参（`spec` 换成 `keys`，其余与 `TweenTrackInput` 同形）。 */
+export interface KeyTrackInput {
+  readonly id: string;
+  readonly targetId: string;
+  readonly prop: string;
+  readonly keys: readonly Keyframe[];
+  readonly playing?: boolean;
+  readonly autoplay?: boolean;
+}
 
 /** 一条轨道的构造入参。 */
 export interface TweenTrackInput {
@@ -133,6 +144,17 @@ export class TweenPlayer extends Component {
   /** 运行时轨道（顺序 = 添加顺序，推进也按这个序）。 */
   readonly tracks: TweenTrack[] = [];
 
+  /**
+   * 关键帧轨道（ADR-0010 缺口①）。
+   *
+   * ★★ 为什么与 `tracks` **分成两个数组**，而不是让 `TweenTrack.spec` 变成可空：
+   *   分段轨道的 `spec` 在十几处被直接读（`speed`、`loopCount`、`durationMs`），
+   *   变成可空之后每个读点都要判空 —— 而漏判的地方**不会报错**，只会静默按关键帧
+   *   轨道处理（`speed` 当成 0 ⇒ 永不推进）。两个类型不同的数组让"这是哪种轨道"
+   *   在类型层面就成立，推进器里一个 `for` 循环各管一种。
+   */
+  readonly keyTracks: KeyTrack[] = [];
+
   readonly schema: ComponentSchema = {
     type: TWEEN_PLAYER_TYPE,
     fields: {
@@ -175,16 +197,48 @@ export class TweenPlayer extends Component {
     return this.tracks.find((t) => t.id === id);
   }
 
+  /**
+   * 加一条关键帧轨道。
+   * ★ id 在**两种轨道之间**也必须唯一：`pause(id)`/`play(id)` 是按 id 找的，
+   *   同名会让"停下的那条"与"以为停下的那条"不是同一条。
+   */
+  addKeyTrack(input: KeyTrackInput): Result<KeyTrack, EngineError> {
+    if (this.track(input.id) !== undefined || this.keyTrack(input.id) !== undefined) {
+      return err(
+        engineError(TWEEN_PLAYER_ERR.DUPLICATE_TRACK, `轨道 id 重复：${input.id}（同一 player 内必须唯一）`, {
+          id: input.id,
+        }),
+      );
+    }
+    const made = makeTrack({ id: input.id, keys: input.keys });
+    if (!made.ok) return made as Result<never, EngineError>;
+    const spec: TrackSpec = made.value;
+    const track = new KeyTrack(
+      input.id,
+      input.targetId,
+      input.prop,
+      spec,
+      input.playing ?? true,
+      input.autoplay ?? true,
+    );
+    this.keyTracks.push(track);
+    return ok(track);
+  }
+
+  keyTrack(id: string): KeyTrack | undefined {
+    return this.keyTracks.find((t) => t.id === id);
+  }
+
   /** 按 id 停一条轨道（界面收起时用：进度留着，只是不再推进）。 */
   pause(id: string): Result<void, EngineError> {
-    const t = this.track(id);
+    const t = this.track(id) ?? this.keyTrack(id);
     if (t === undefined) return err(engineError(TWEEN_PLAYER_ERR.NO_TRACK, `没有轨道 ${id}`));
     t.playing = false;
     return ok(undefined);
   }
 
   play(id: string): Result<void, EngineError> {
-    const t = this.track(id);
+    const t = this.track(id) ?? this.keyTrack(id);
     if (t === undefined) return err(engineError(TWEEN_PLAYER_ERR.NO_TRACK, `没有轨道 ${id}`));
     t.playing = true;
     return ok(undefined);
@@ -193,16 +247,20 @@ export class TweenPlayer extends Component {
   /** 清空所有轨道（换界面时用）。 */
   clear(): void {
     this.tracks.length = 0;
+    this.keyTracks.length = 0;
   }
 
   /** 所有轨道回到起点。 */
   reset(): void {
     for (const t of this.tracks) t.reset();
+    for (const t of this.keyTracks) t.reset();
   }
 
   /** 是否还有轨道在推进（诊断/性能用：全静止就不必每帧走一遍）。 */
   get moving(): boolean {
-    return this.playing && this.tracks.some((t) => t.playing && !sampleTween(t.spec, t.timeMs).done);
+    if (!this.playing) return false;
+    if (this.tracks.some((t) => t.playing && !sampleTween(t.spec, t.timeMs).done)) return true;
+    return this.keyTracks.some((t) => t.playing && !t.sample().done);
   }
 }
 
@@ -262,6 +320,20 @@ export function advancePlayer(player: TweenPlayer, dtMs: number): TrackSample[] 
       if (t.timeMs < 0) t.timeMs = 0;
     }
     const s = sampleTween(t.spec, t.timeMs);
+    const changed = Number.isNaN(t.lastValue) || s.value !== t.lastValue;
+    t.lastValue = s.value;
+    out.push({ id: t.id, targetId: t.targetId, prop: t.prop, value: s.value, done: s.done, changed });
+  }
+  // ★ 关键帧轨道排在后面：同一属性被两种轨道同时写时，**后者胜**。
+  //   这不是"混合解析器"（那要按属性语义决定乘/加/覆盖），只是一条确定的顺序，
+  //   让"同一个 player 里两种轨道并存"至少有一个可预测的结果。
+  for (const t of player.keyTracks) {
+    const wasDone = t.sample().done;
+    if (player.playing && t.playing && !wasDone) {
+      t.timeMs += dtMs;
+      if (t.timeMs < 0) t.timeMs = 0;
+    }
+    const s = t.sample();
     const changed = Number.isNaN(t.lastValue) || s.value !== t.lastValue;
     t.lastValue = s.value;
     out.push({ id: t.id, targetId: t.targetId, prop: t.prop, value: s.value, done: s.done, changed });

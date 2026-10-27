@@ -299,6 +299,28 @@ export function kerningOf(font: BitmapFont, first: number, second: number): numb
  */
 export class FontRegistry {
   private readonly fonts = new Map<string, BitmapFont>();
+  private readonly listeners = new Set<() => void>();
+
+  /**
+   * 订阅"字体表变了"。
+   *
+   * ★★ 为什么必须有这个通知，而不是让调用方记得手动清缓存：
+   *   文本排版结果里**烘进了字形来源**（`page` 下标、UV、`xadvance`、kerning）。
+   *   热重载一个字体（同 id、不同图集或不同字号）之后，旧缓存里的四边形
+   *   指向的是**旧图集的坐标** —— 画面上字会变成另一堆乱码/空白，
+   *   而布局量出来的宽高还是旧的。
+   *   让"谁改字体"顺手记得"谁清缓存"是不可靠的：注册点可能有三处
+   *   （启动、编辑器导入、热重载），漏一处就复现一次。
+   *   所以通知由**表自己**发：改了表就等于旧缓存作废，这条因果关系写在源头。
+   *
+   * 返回退订函数（dispose 时调用，避免模块销毁后还被通知）。
+   */
+  onRegister(cb: () => void): () => void {
+    this.listeners.add(cb);
+    return () => {
+      this.listeners.delete(cb);
+    };
+  }
 
   register(font: BitmapFont): void {
     if (this.fonts.has(font.id)) {
@@ -307,6 +329,7 @@ export class FontRegistry {
       this.fonts.delete(font.id);
     }
     this.fonts.set(font.id, font);
+    for (const cb of this.listeners) cb();
   }
 
   get(id: string): BitmapFont | undefined {

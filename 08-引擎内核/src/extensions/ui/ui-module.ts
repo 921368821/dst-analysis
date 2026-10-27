@@ -40,7 +40,9 @@ import { SpriteBatch, type RenderItem } from "../render/batch2d.ts";
 import type { RenderModuleHandle } from "../render/render-module.ts";
 import { FontRegistry, type BitmapFont } from "./font.ts";
 import { UiViewport, type UiViewportConfig } from "./viewport.ts";
-import { buildUiQuads, TextCache, type UiDrawStats, type UiSkin } from "./widgets.ts";
+import { buildUiQuads, type UiDrawStats, type UiSkin } from "./widgets.ts";
+import { createIntrinsicMeasure } from "./intrinsic.ts";
+import { UiStateStore } from "./state.ts";
 import { layoutTree, UiNode, type UiLayoutResult } from "./layout.ts";
 import { UiInputRouter, type UiEvent, type UiEventSink, type UiPointer } from "./events.ts";
 
@@ -113,6 +115,8 @@ export interface UiModuleHandle extends IModule {
   readonly lastFrame: UiFrameStats;
   /** 最近一次布局结果：节点 id → 绝对矩形。 */
   readonly layout: UiLayoutResult;
+  /** 跨帧状态表（诊断/编辑器用：看命中率、看滚动位置、必要时丢掉）。 */
+  readonly state: UiStateStore;
 }
 
 export function createUiModule(opts: UiModuleOptions): UiModuleHandle {
@@ -120,7 +124,16 @@ export function createUiModule(opts: UiModuleOptions): UiModuleHandle {
   const viewport = new UiViewport(opts.viewport);
   const fonts = new FontRegistry();
   for (const f of opts.fonts) fonts.register(f);
-  const cache = new TextCache();
+  const store = new UiStateStore();
+  // ★ 布局与绘制**共用一份状态表**：自撑开先量一次、绘制再量一次，
+  //   第二次数的是同一段文本、同一个 uid，所以直接命中（不命中就意味着键里少了一维）。
+  const intrinsic = createIntrinsicMeasure(fonts, store);
+  // ★ 字体表一变（热重载/导入），旧排版缓存里的 UV 与 page 就指向旧图集了 ——
+  //   通知由注册表自己发，不靠"记得清缓存"。
+  const offFonts = fonts.onRegister(() => {
+    store.invalidateDerived();
+    dirty = true;
+  });
   const skin = opts.skin;
   const hostPages = opts.pages;
   const pageSources = opts.pageSources;
@@ -175,8 +188,8 @@ export function createUiModule(opts: UiModuleOptions): UiModuleHandle {
       return;
     }
 
-    layoutResult = layoutTree(root, viewport.safeRect);
-    const res = buildUiQuads(root, fonts, skin, cache);
+    layoutResult = layoutTree(root, viewport.safeRect, { intrinsic });
+    const res = buildUiQuads(root, fonts, skin, store);
     quads = res.quads;
     drawStats = res.stats;
     dirty = false;
@@ -386,7 +399,8 @@ export function createUiModule(opts: UiModuleOptions): UiModuleHandle {
       batch = null;
       dev = null;
       quads = [];
-      cache.invalidate();
+      offFonts();
+      store.reset();
       dirty = true;
     },
 
@@ -410,7 +424,9 @@ export function createUiModule(opts: UiModuleOptions): UiModuleHandle {
     setRoot(node: UiNode): void {
       root = node;
       router = new UiInputRouter(root, { dragThreshold: opts.dragThreshold });
-      cache.invalidate();
+      // ★ 换界面 = 上一份世界的滚动位置与量算全部作废（`reset` 而不是 `invalidateDerived`）：
+      //   把新界面滚到"上一个界面滚到的地方"没有任何意义，而它看起来像随机跳。
+      store.reset();
       dirty = true;
     },
 
@@ -435,6 +451,10 @@ export function createUiModule(opts: UiModuleOptions): UiModuleHandle {
 
     get layout(): UiLayoutResult {
       return layoutResult;
+    },
+
+    get state(): UiStateStore {
+      return store;
     },
   };
 

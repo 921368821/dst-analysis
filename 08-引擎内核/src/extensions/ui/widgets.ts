@@ -18,8 +18,10 @@
 
 import { Rect } from "../../foundation/math/index.ts";
 import type { RenderItem } from "../render/batch2d.ts";
-import { FontRegistry } from "./font.ts";
-import { layoutText, type TextLayout, type TextStyle } from "./text-layout.ts";
+import type { FontRegistry } from "./font.ts";
+import type { UiStateStore } from "./state.ts";
+import { defaultFontId, textBoxOf, textStyleFor } from "./intrinsic.ts";
+import type { TextStyle } from "./text-layout.ts";
 import { UiWidget, type UiNode, type UiProps } from "./layout.ts";
 
 export interface Rgba {
@@ -65,54 +67,14 @@ export interface UiDrawResult {
 }
 
 /**
- * 文本排版缓存。
- * ★ 键必须包含**字体 id、文本、样式**三样：只按节点 id 缓存的话，
- *   改了文案却没换节点会显示旧文本；只按文本缓存的话，两种字号会互相污染。
+ * 文本排版缓存已迁到 `state.ts`（ADR-0012：跨帧状态统一由状态表持有）。
+ *
+ * ★ 为什么必须**只有一份**：布局层的"自撑开"要先量一次文本、绘制层还要再量一次，
+ *   两份缓存意味着同一段文本被排两遍（O(字数)，每帧），而且要各自处理失效。
+ *   更糟的是它们会**性格不同**：布局那份在改字号之后失效了、绘制那份没失效，
+ *   于是"盒子按新字号撑开、字还是旧字号那么大"—— 看起来像布局算错。
  */
-export class TextCache {
-  private readonly map = new Map<number, { key: string; layout: TextLayout }>();
-  hits = 0;
-  misses = 0;
-
-  get(uid: number, fonts: FontRegistry, fontId: string, text: string, style: TextStyle): TextLayout | null {
-    const f = fonts.get(fontId);
-    if (f === undefined) return null;
-    const key = cacheKey(fontId, text, style);
-    const hit = this.map.get(uid);
-    if (hit !== undefined && hit.key === key) {
-      this.hits++;
-      return hit.layout;
-    }
-    this.misses++;
-    const layout = layoutText(f, text, style);
-    // 粗暴上限：UI 文本几乎到不了这个量级；真到了说明有人在动态拼大量字符串，
-    // 那更该质疑那件事而不是加缓存。
-    if (this.map.size > 1024) this.map.clear();
-    this.map.set(uid, { key, layout });
-    return layout;
-  }
-
-  invalidate(uid?: number): void {
-    if (uid === undefined) this.map.clear();
-    else this.map.delete(uid);
-  }
-}
-
-function cacheKey(fontId: string, text: string, style: TextStyle): string {
-  const c = style.color;
-  return [
-    fontId,
-    text,
-    style.scale ?? 1,
-    style.align ?? "left",
-    style.lineSpacing ?? 0,
-    style.letterSpacing ?? 0,
-    style.maxWidth ?? 0,
-    style.maxLines ?? 0,
-    style.ellipsis ?? "",
-    c === undefined ? "-" : `${c.r},${c.g},${c.b},${c.a}`,
-  ].join("\u0001");
-}
+export { UiStateStore } from "./state.ts";
 
 /**
  * 一个节点的**有效**不透明度：沿父链连乘。
@@ -134,7 +96,7 @@ function alphaOf(node: UiNode): number {
 }
 
 /** 把一整棵树画成一串四边形（前序：父先、子后、兄弟按数组顺序）。 */
-export function buildUiQuads(root: UiNode, fonts: FontRegistry, skin: UiSkin, cache: TextCache): UiDrawResult {
+export function buildUiQuads(root: UiNode, fonts: FontRegistry, skin: UiSkin, store: UiStateStore): UiDrawResult {
   const quads: RenderItem[] = [];
   let order = 0;
   let glyphs = 0;
@@ -211,7 +173,7 @@ export function buildUiQuads(root: UiNode, fonts: FontRegistry, skin: UiSkin, ca
   ): void => {
     const text = p.text ?? "";
     if (text === "") return;
-    const layout = cache.get(node.uid, fonts, p.fontId ?? defaultFontId(fonts), text, style);
+    const layout = store.text(node.uid, fonts, p.fontId ?? defaultFontId(fonts), text, style);
     if (layout === null) return;
     labels++;
     const y = box.y + (box.height - layout.height) / 2;
@@ -246,13 +208,10 @@ export function buildUiQuads(root: UiNode, fonts: FontRegistry, skin: UiSkin, ca
       drawFrame(node.rect, p.frame, p.slice ?? 0, p.tint, ord, alpha);
       // ★ 按钮不自己记"按下"状态：状态由调用方改 props 表达。
       //   控件偷偷持有交互状态，会让"两个地方都能设置它"变成必然的漂移源。
-      const inner = new Rect(node.rect.x + 4, node.rect.y, Math.max(0, node.rect.width - 8), node.rect.height);
-      emitText(node, p, inner, {
-        ...p.style,
-        maxWidth: inner.width,
-        align: p.style?.align ?? "center",
-        color: p.textColor ?? p.style?.color,
-      }, ord, alpha);
+      // ★ 内缩与换行宽都来自 `intrinsic.ts` 的共用函数：量算那一侧算的是同一个数。
+      //   各写一个 4 的话，改动只会落到一处，症状是"按钮文字贴右边框一点点"。
+      const inner = textBoxOf(node, node.rect);
+      emitText(node, p, inner, textStyleFor(node, inner.width), ord, alpha);
       continue;
     }
 
@@ -271,12 +230,7 @@ export function buildUiQuads(root: UiNode, fonts: FontRegistry, skin: UiSkin, ca
     }
 
     if (node.widget === UiWidget.Label) {
-      emitText(node, p, node.rect, {
-        ...p.style,
-        maxWidth: node.rect.width,
-        align: p.style?.align ?? "left",
-        color: p.textColor ?? p.style?.color,
-      }, ord, alpha);
+      emitText(node, p, node.rect, textStyleFor(node, node.rect.width), ord, alpha);
     }
   }
 
@@ -286,17 +240,11 @@ export function buildUiQuads(root: UiNode, fonts: FontRegistry, skin: UiSkin, ca
       quads: quads.length,
       glyphs,
       labels,
-      cacheHits: cache.hits,
+      cacheHits: store.hits,
       missingGlyphs: Array.from(missingGlyphs).sort((a, b) => a - b),
       missingFrames: Array.from(missingFrames).sort(),
     },
   };
-}
-
-/** 默认字体：注册表里按 id 排序的第一个。没有字体时返回空串（标签会静默不画）。 */
-function defaultFontId(fonts: FontRegistry): string {
-  const ids = fonts.ids();
-  return ids.length === 0 ? "" : (ids[0] as string);
 }
 
 interface SliceQuad {

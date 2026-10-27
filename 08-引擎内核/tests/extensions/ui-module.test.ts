@@ -30,7 +30,8 @@ import type { FrameInfo } from "../../src/core/frame-host.ts";
 import { createRenderModule, type RenderModuleHandle } from "../../src/extensions/render/render-module.ts";
 import { Sprite } from "../../src/extensions/render/sprite.ts";
 import { buildUiTree, layoutTree, UiLayoutKind, UiWidget } from "../../src/extensions/ui/layout.ts";
-import { buildUiQuads, nineSlice, TextCache, type UiSkin, type UiSkinFrame } from "../../src/extensions/ui/widgets.ts";
+import { buildUiQuads, nineSlice, type UiSkin, type UiSkinFrame } from "../../src/extensions/ui/widgets.ts";
+import { UiStateStore } from "../../src/extensions/ui/state.ts";
 import { FontRegistry } from "../../src/extensions/ui/font.ts";
 import { createUiModule, type UiModuleHandle } from "../../src/extensions/ui/ui-module.ts";
 import { makeTestFont } from "./ui-fixtures.ts";
@@ -96,7 +97,7 @@ test("★ 进度条按比例**裁切 UV**（不是把整图缩小）：50% 时 u
   });
   // ★ 必须先布局：直接把未布局的树交给绘制层，所有 rect 都是 0 ⇒ 一个 quad 都不出。
   layoutTree(tree, new Rect(0, 0, 400, 300));
-  const res = buildUiQuads(tree, fonts, smallSkin(), new TextCache());
+  const res = buildUiQuads(tree, fonts, smallSkin(), new UiStateStore());
   // 底 1 块 + 填充 1 块（slice=0）
   assert.equal(res.quads.length, 2);
   const fill = res.quads[1]!;
@@ -116,9 +117,9 @@ test("进度条 value 被夹到 0..1；0 时不画填充", () => {
     layoutTree(t, new Rect(0, 0, 400, 300));
     return t;
   };
-  assert.equal(buildUiQuads(mk(0), fonts, smallSkin(), new TextCache()).quads.length, 1);
-  assert.equal(buildUiQuads(mk(1.8), fonts, smallSkin(), new TextCache()).quads.length, 2);
-  const full = buildUiQuads(mk(1.8), fonts, smallSkin(), new TextCache()).quads[1]!;
+  assert.equal(buildUiQuads(mk(0), fonts, smallSkin(), new UiStateStore()).quads.length, 1);
+  assert.equal(buildUiQuads(mk(1.8), fonts, smallSkin(), new UiStateStore()).quads.length, 2);
+  const full = buildUiQuads(mk(1.8), fonts, smallSkin(), new UiStateStore()).quads[1]!;
   assert.equal(full.w, 100, "超 1 的 value 不能画出容器");
 });
 
@@ -133,7 +134,7 @@ test("标签画出字形；不存在的帧名进 missingFrames（不静默）", 
     ],
   });
   layoutTree(tree, new Rect(0, 0, 400, 300));
-  const res = buildUiQuads(tree, fonts, smallSkin(), new TextCache());
+  const res = buildUiQuads(tree, fonts, smallSkin(), new UiStateStore());
   assert.equal(res.stats.labels, 1);
   assert.equal(res.stats.glyphs, 2);
   assert.deepEqual([...res.stats.missingFrames], ["no-such-frame"]);

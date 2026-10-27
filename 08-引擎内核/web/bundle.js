@@ -18261,11 +18261,33 @@ function kerningOf(font, first, second) {
 }
 var FontRegistry = class {
   fonts = /* @__PURE__ */ new Map();
+  listeners = /* @__PURE__ */ new Set();
+  /**
+   * 订阅"字体表变了"。
+   *
+   * ★★ 为什么必须有这个通知，而不是让调用方记得手动清缓存：
+   *   文本排版结果里**烘进了字形来源**（`page` 下标、UV、`xadvance`、kerning）。
+   *   热重载一个字体（同 id、不同图集或不同字号）之后，旧缓存里的四边形
+   *   指向的是**旧图集的坐标** —— 画面上字会变成另一堆乱码/空白，
+   *   而布局量出来的宽高还是旧的。
+   *   让"谁改字体"顺手记得"谁清缓存"是不可靠的：注册点可能有三处
+   *   （启动、编辑器导入、热重载），漏一处就复现一次。
+   *   所以通知由**表自己**发：改了表就等于旧缓存作废，这条因果关系写在源头。
+   *
+   * 返回退订函数（dispose 时调用，避免模块销毁后还被通知）。
+   */
+  onRegister(cb) {
+    this.listeners.add(cb);
+    return () => {
+      this.listeners.delete(cb);
+    };
+  }
   register(font) {
     if (this.fonts.has(font.id)) {
       this.fonts.delete(font.id);
     }
     this.fonts.set(font.id, font);
+    for (const cb of this.listeners) cb();
   }
   get(id) {
     return this.fonts.get(id);
@@ -18451,6 +18473,385 @@ var UiViewport = class {
     this.cam.moveTo(this.designWidth / 2, this.designHeight / 2);
   }
 };
+
+// src/extensions/ui/layout.ts
+var UiLayoutKind = { Free: "free", Row: "row", Column: "column", Grid: "grid" };
+var UiWidget = {
+  Group: "group",
+  Panel: "panel",
+  Image: "image",
+  Label: "label",
+  Button: "button",
+  Progress: "progress",
+  Spacer: "spacer"
+};
+var ANCHOR_TOP_LEFT = { x: 0, y: 0 };
+var ANCHOR_CENTER = { x: 0.5, y: 0.5 };
+var nextNodeId = 1;
+var UiNode = class _UiNode {
+  uid;
+  id;
+  widget;
+  kind;
+  anchor;
+  pivot;
+  offset;
+  size;
+  percent;
+  grow;
+  padding;
+  margin;
+  gap;
+  columns;
+  cell;
+  visible;
+  /**
+   * 自身不透明度 0..1（默认 1）。
+   *
+   * ★ 为什么是"自身"而不是"最终"：过渡动画（批76 `tween.player`）要能把父节点淡到 0.5、
+   *   子节点淡到 0.5 而得到 0.25。若这里存的是最终值，动画一改父节点就得遍历子树重算 ——
+   *   而"遍历子树"与"每帧"叠在一起就是 O(节点数) 的隐式成本，且父子谁覆盖谁说不清。
+   *   最终值在**画的时候**乘出来（`widgets.ts` 的 `alphaOf`），是纯粹的读取。
+   *
+   * ★ 语义边界：`opacity` **不参与布局**（不透明的东西和透明的占一样的位置）。
+   *   要"不占位"用 `visible=false` —— 两者是两件事（见文件头 ★）。
+   */
+  opacity;
+  /**
+   * 自身缩放 1 = 原尺寸，绕 `pivot` 缩放。
+   *
+   * ★ **不改 `measured`**：改 measured 会让父容器的流式布局把"放大到 1.2 倍"算进尺寸，
+   *   于是弹一下的按钮会把它后面的按钮挤开。过渡要的是"原地变大"，不是"重新排版"。
+   * ★ **沿父链组合**（见 `arrange` 的注释）：父 2 倍、子再 2 倍 ⇒ 子看到的是 4 倍，
+   *   位置也一起放大 —— 一组 UI 弹出时是整体放大，不是各自从自己的左上角长。
+   */
+  scale;
+  interactive;
+  opaque;
+  contentSize;
+  props;
+  children = [];
+  parent = null;
+  /** 布局结果（设计坐标，绝对值）。 */
+  rect = Rect.zero;
+  /** 测量阶段的自然尺寸。 */
+  measured = { w: 0, h: 0 };
+  constructor(cfg = {}) {
+    this.uid = nextNodeId++;
+    this.id = cfg.id ?? `#${this.uid}`;
+    this.widget = cfg.widget ?? UiWidget.Group;
+    this.kind = cfg.kind ?? UiLayoutKind.Free;
+    this.anchor = cfg.anchor ?? ANCHOR_TOP_LEFT;
+    this.pivot = cfg.pivot ?? ANCHOR_TOP_LEFT;
+    this.offset = cfg.offset ?? { x: 0, y: 0 };
+    this.size = { ...cfg.size ?? {} };
+    this.percent = { ...cfg.percent ?? {} };
+    this.grow = cfg.grow ?? 0;
+    this.padding = {
+      top: cfg.padding?.top ?? 0,
+      right: cfg.padding?.right ?? 0,
+      bottom: cfg.padding?.bottom ?? 0,
+      left: cfg.padding?.left ?? 0
+    };
+    this.margin = {
+      top: cfg.margin?.top ?? 0,
+      right: cfg.margin?.right ?? 0,
+      bottom: cfg.margin?.bottom ?? 0,
+      left: cfg.margin?.left ?? 0
+    };
+    this.gap = cfg.gap ?? 0;
+    this.columns = Math.max(1, Math.floor(cfg.columns ?? 1));
+    this.cell = cfg.cell === void 0 ? null : { w: cfg.cell.w, h: cfg.cell.h };
+    this.visible = cfg.visible ?? true;
+    this.opacity = clampOpacity(cfg.opacity ?? 1);
+    this.scale = clampScale(cfg.scale ?? 1);
+    this.interactive = cfg.interactive ?? false;
+    this.opaque = cfg.opaque ?? false;
+    this.contentSize = { w: cfg.contentSize?.w ?? 0, h: cfg.contentSize?.h ?? 0 };
+    this.props = cfg.props ?? {};
+    for (const c of cfg.children ?? []) this.add(new _UiNode(c));
+  }
+  add(child) {
+    child.parent = this;
+    this.children.push(child);
+  }
+  /** 从前序（绘制顺序）里取所有节点。 */
+  *walk() {
+    yield this;
+    for (const c of this.children) yield* c.walk();
+  }
+  find(id) {
+    for (const n of this.walk()) if (n.id === id) return n;
+    return void 0;
+  }
+  /**
+   * 内区（只扣 padding）。流式布局摆放子节点用它。
+   * ★ 这里**不扣 margin**：margin 是"节点相对父容器"的外边距，作用于自身被摆放的位置，
+   *   扣进内区会让它同时影响"自己占多大"和"子节点从哪开始"——两处都少一点，叠加起来偏得很隐蔽。
+   */
+  inner(rect) {
+    const l = this.padding.left;
+    const t = this.padding.top;
+    const r = this.padding.right;
+    const b = this.padding.bottom;
+    return new Rect(
+      rect.x + l,
+      rect.y + t,
+      Math.max(0, rect.width - l - r),
+      Math.max(0, rect.height - t - b)
+    );
+  }
+};
+function layoutTree(root, bounds, opts = {}) {
+  root.rect = bounds;
+  measure(root, bounds.width, bounds.height, opts);
+  arrange(root, bounds, 1, 0, 0);
+  const out = /* @__PURE__ */ new Map();
+  for (const n of root.walk()) {
+    if (n === root) continue;
+    if (!n.visible) continue;
+    if (out.has(n.id)) {
+      throw new Error(`UI \u8282\u70B9 id \u91CD\u590D\uFF1A${n.id}\uFF08\u540C\u4E00\u68F5\u6811\u91CC id \u5FC5\u987B\u552F\u4E00\uFF0C\u5426\u5219\u547D\u4E2D\u6D4B\u8BD5\u4F1A\u6253\u5230\u9519\u7684\u90A3\u4E2A\uFF09`);
+    }
+    out.set(n.id, n.rect);
+  }
+  return out;
+}
+function measure(node, availW, availH, opts) {
+  if (!node.visible) {
+    node.measured = { w: 0, h: 0 };
+    return;
+  }
+  const fixedW = node.size.w;
+  const fixedH = node.size.h;
+  const pctW = node.percent.w;
+  const pctH = node.percent.h;
+  const innerW = fixedW ?? (pctW !== void 0 ? availW * pctW : availW);
+  const innerH = fixedH ?? (pctH !== void 0 ? availH * pctH : availH);
+  const padW = Math.max(0, innerW - node.padding.left - node.padding.right);
+  const padH = Math.max(0, innerH - node.padding.top - node.padding.bottom);
+  const nat = opts.intrinsic?.(node, padW, padH) ?? null;
+  if (nat !== null) node.contentSize = { w: nat.w, h: nat.h };
+  let contentW = 0;
+  let contentH = 0;
+  if (node.kind === UiLayoutKind.Row || node.kind === UiLayoutKind.Column) {
+    let mainTotal = 0;
+    let crossMax = 0;
+    let count = 0;
+    for (const c of node.children) {
+      if (!c.visible) continue;
+      measure(c, padW, padH, opts);
+      count++;
+      const w2 = c.measured.w + c.margin.left + c.margin.right;
+      const h2 = c.measured.h + c.margin.top + c.margin.bottom;
+      if (node.kind === UiLayoutKind.Row) {
+        mainTotal += w2;
+        crossMax = Math.max(crossMax, h2);
+      } else {
+        mainTotal += h2;
+        crossMax = Math.max(crossMax, w2);
+      }
+    }
+    if (count > 0) mainTotal += node.gap * (count - 1);
+    if (node.kind === UiLayoutKind.Row) {
+      contentW = mainTotal;
+      contentH = crossMax;
+    } else {
+      contentW = crossMax;
+      contentH = mainTotal;
+    }
+  } else if (node.kind === UiLayoutKind.Grid) {
+    const cols = node.columns;
+    let cw = node.cell?.w ?? 0;
+    let ch = node.cell?.h ?? 0;
+    let maxCellW = 0;
+    let maxCellH = 0;
+    let n = 0;
+    for (const c of node.children) {
+      if (!c.visible) continue;
+      measure(c, padW, padH, opts);
+      maxCellW = Math.max(maxCellW, c.measured.w + c.margin.left + c.margin.right);
+      maxCellH = Math.max(maxCellH, c.measured.h + c.margin.top + c.margin.bottom);
+      n++;
+    }
+    if (cw === 0) cw = maxCellW;
+    if (ch === 0) ch = maxCellH;
+    const rows = Math.ceil(n / cols);
+    contentW = rows === 0 ? 0 : cols * cw + node.gap * (cols - 1);
+    contentH = rows === 0 ? 0 : rows * ch + node.gap * (rows - 1);
+    node.cell = { w: cw, h: ch };
+  } else {
+    for (const c of node.children) {
+      if (!c.visible) continue;
+      measure(c, padW, padH, opts);
+    }
+    contentW = 0;
+    contentH = 0;
+  }
+  const w = fixedW ?? (pctW !== void 0 ? availW * pctW : Math.max(contentW, node.contentSize.w));
+  const h = fixedH ?? (pctH !== void 0 ? availH * pctH : Math.max(contentH, node.contentSize.h));
+  node.measured = { w: clampSize(w), h: clampSize(h) };
+}
+function clampSize(v) {
+  if (!Number.isFinite(v) || v < 0) return 0;
+  return v;
+}
+function clampOpacity(v) {
+  if (!Number.isFinite(v)) return 1;
+  return v < 0 ? 0 : v > 1 ? 1 : v;
+}
+function clampScale(v) {
+  if (!Number.isFinite(v)) return 1;
+  return v < 0 ? 0 : v;
+}
+function anchoredPos(node, parentInner) {
+  const w = node.measured.w;
+  const h = node.measured.h;
+  const x = parentInner.x + node.margin.left + node.anchor.x * parentInner.width - node.pivot.x * w + node.offset.x;
+  const y = parentInner.y + node.margin.top + node.anchor.y * parentInner.height - node.pivot.y * h + node.offset.y;
+  return { x, y };
+}
+function arrange(node, slot, sIn, oxIn, oyIn) {
+  if (!node.visible) return;
+  let s = sIn;
+  let ox = oxIn;
+  let oy = oyIn;
+  if (node.scale !== 1) {
+    const px = slot.x + node.pivot.x * slot.width;
+    const py = slot.y + node.pivot.y * slot.height;
+    const offX = px * (1 - node.scale);
+    const offY = py * (1 - node.scale);
+    s = sIn * node.scale;
+    ox = sIn * offX + oxIn;
+    oy = sIn * offY + oyIn;
+  }
+  node.rect = s === 1 ? slot : new Rect(s * slot.x + ox, s * slot.y + oy, slot.width * s, slot.height * s);
+  const inner = node.inner(slot);
+  if (node.kind === UiLayoutKind.Free) {
+    for (const c of node.children) {
+      if (!c.visible) continue;
+      const p = anchoredPos(c, inner);
+      arrange(c, new Rect(p.x, p.y, c.measured.w, c.measured.h), s, ox, oy);
+    }
+    return;
+  }
+  if (node.kind === UiLayoutKind.Row || node.kind === UiLayoutKind.Column) {
+    const isRow = node.kind === UiLayoutKind.Row;
+    const mainLen = isRow ? inner.width : inner.height;
+    const visibles = node.children.filter((c) => c.visible);
+    const gaps = node.gap * Math.max(0, visibles.length - 1);
+    let used = 0;
+    let growTotal = 0;
+    for (const c of visibles) {
+      const m = isRow ? c.measured.w + c.margin.left + c.margin.right : c.measured.h + c.margin.top + c.margin.bottom;
+      used += m;
+      growTotal += Math.max(0, c.grow);
+    }
+    const remain = Math.max(0, mainLen - used - gaps);
+    let cursor = 0;
+    for (const c of visibles) {
+      const baseMain = isRow ? c.measured.w + c.margin.left + c.margin.right : c.measured.h + c.margin.top + c.margin.bottom;
+      const extra = growTotal > 0 ? remain * Math.max(0, c.grow) / growTotal : 0;
+      const mainSize = baseMain + extra;
+      const crossSize = isRow ? c.measured.h + c.margin.top + c.margin.bottom : c.measured.w + c.margin.left + c.margin.right;
+      const x = isRow ? inner.x + cursor + c.margin.left : inner.x + c.margin.left;
+      const y = isRow ? inner.y + c.margin.top : inner.y + cursor + c.margin.top;
+      const w = isRow ? Math.max(0, mainSize - c.margin.left - c.margin.right) : Math.max(0, crossSize - c.margin.left - c.margin.right);
+      const h = isRow ? Math.max(0, crossSize - c.margin.top - c.margin.bottom) : Math.max(0, mainSize - c.margin.top - c.margin.bottom);
+      arrange(c, new Rect(x, y, w, h), s, ox, oy);
+      cursor += mainSize + node.gap;
+    }
+    return;
+  }
+  const cols = Math.max(1, node.columns);
+  const cw = node.cell?.w ?? 0;
+  const ch = node.cell?.h ?? 0;
+  let i = 0;
+  for (const c of node.children) {
+    if (!c.visible) continue;
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const x = inner.x + col * (cw + node.gap) + c.margin.left;
+    const y = inner.y + row * (ch + node.gap) + c.margin.top;
+    arrange(c, new Rect(x, y, Math.max(0, cw - c.margin.left - c.margin.right), Math.max(0, ch - c.margin.top - c.margin.bottom)), s, ox, oy);
+    i++;
+  }
+}
+function hitTest(root, x, y) {
+  const stack = [];
+  for (const n of root.walk()) if (n.visible) stack.push(n);
+  for (let i = stack.length - 1; i >= 0; i--) {
+    const n = stack[i];
+    const r = n.rect;
+    if (x < r.x || x > r.xMax || y < r.y || y > r.yMax) continue;
+    if (n.interactive) return n;
+    if (n.opaque) return null;
+  }
+  return null;
+}
+function hitChain(node) {
+  const chain = [];
+  let cur = node;
+  while (cur !== null) {
+    chain.push(cur);
+    cur = cur.parent;
+  }
+  return chain;
+}
+
+// src/extensions/ui/intrinsic.ts
+var BUTTON_TEXT_INSET = 4;
+function textInsetOf(widget) {
+  if (widget === UiWidget.Button) return BUTTON_TEXT_INSET;
+  if (widget === UiWidget.Label) return 0;
+  return -1;
+}
+function defaultFontId(fonts) {
+  const ids = fonts.ids();
+  return ids.length === 0 ? "" : ids[0];
+}
+function textStyleFor(node, boxWidth) {
+  const p = node.props;
+  const explicit = p.style?.maxWidth;
+  const maxWidth = explicit !== void 0 && explicit > 0 ? explicit : boxWidth;
+  return {
+    ...p.style,
+    maxWidth,
+    align: p.style?.align ?? (node.widget === UiWidget.Button ? "center" : "left"),
+    color: p.textColor ?? p.style?.color
+  };
+}
+function textBoxOf(node, rect) {
+  const inset = textInsetOf(node.widget);
+  if (inset <= 0) return rect;
+  const w = Math.max(0, rect.width - inset * 2);
+  return new Rect(rect.x + inset, rect.y, w, rect.height);
+}
+function hasExplicitWidth(node) {
+  return node.size.w !== void 0 || node.percent.w !== void 0;
+}
+function createIntrinsicMeasure(fonts, store) {
+  return (node, innerW) => {
+    const inset = textInsetOf(node.widget);
+    if (inset < 0) return null;
+    const text = node.props.text ?? "";
+    if (text === "") return null;
+    const pad = node.padding;
+    const boxW = Math.max(0, innerW + pad.left + pad.right);
+    const explicit = hasExplicitWidth(node);
+    const wrap = explicit ? Math.max(0, boxW - inset * 2) : 0;
+    const fontId = node.props.fontId ?? defaultFontId(fonts);
+    const layout = store.text(node.uid, fonts, fontId, text, textStyleFor(node, wrap));
+    if (layout === null) return null;
+    if (explicit) {
+      return { w: boxW, h: layout.height + pad.top + pad.bottom };
+    }
+    return {
+      w: layout.width + inset * 2 + pad.left + pad.right,
+      h: layout.height + pad.top + pad.bottom
+    };
+  };
+}
 
 // src/extensions/ui/text-layout.ts
 var DEFAULT_ELLIPSIS = "\u2026";
@@ -18653,356 +19054,102 @@ function layoutText(font, text, style = {}) {
   };
 }
 
-// src/extensions/ui/layout.ts
-var UiLayoutKind = { Free: "free", Row: "row", Column: "column", Grid: "grid" };
-var UiWidget = {
-  Group: "group",
-  Panel: "panel",
-  Image: "image",
-  Label: "label",
-  Button: "button",
-  Progress: "progress",
-  Spacer: "spacer"
-};
-var ANCHOR_TOP_LEFT = { x: 0, y: 0 };
-var ANCHOR_CENTER = { x: 0.5, y: 0.5 };
-var nextNodeId = 1;
-var UiNode = class _UiNode {
-  uid;
-  id;
-  widget;
-  kind;
-  anchor;
-  pivot;
-  offset;
-  size;
-  percent;
-  grow;
-  padding;
-  margin;
-  gap;
-  columns;
-  cell;
-  visible;
-  /**
-   * 自身不透明度 0..1（默认 1）。
-   *
-   * ★ 为什么是"自身"而不是"最终"：过渡动画（批76 `tween.player`）要能把父节点淡到 0.5、
-   *   子节点淡到 0.5 而得到 0.25。若这里存的是最终值，动画一改父节点就得遍历子树重算 ——
-   *   而"遍历子树"与"每帧"叠在一起就是 O(节点数) 的隐式成本，且父子谁覆盖谁说不清。
-   *   最终值在**画的时候**乘出来（`widgets.ts` 的 `alphaOf`），是纯粹的读取。
-   *
-   * ★ 语义边界：`opacity` **不参与布局**（不透明的东西和透明的占一样的位置）。
-   *   要"不占位"用 `visible=false` —— 两者是两件事（见文件头 ★）。
-   */
-  opacity;
-  /**
-   * 自身缩放 1 = 原尺寸，绕 `pivot` 缩放。
-   *
-   * ★ **不改 `measured`**：改 measured 会让父容器的流式布局把"放大到 1.2 倍"算进尺寸，
-   *   于是弹一下的按钮会把它后面的按钮挤开。过渡要的是"原地变大"，不是"重新排版"。
-   * ★ **沿父链组合**（见 `arrange` 的注释）：父 2 倍、子再 2 倍 ⇒ 子看到的是 4 倍，
-   *   位置也一起放大 —— 一组 UI 弹出时是整体放大，不是各自从自己的左上角长。
-   */
-  scale;
-  interactive;
-  opaque;
-  contentSize;
-  props;
-  children = [];
-  parent = null;
-  /** 布局结果（设计坐标，绝对值）。 */
-  rect = Rect.zero;
-  /** 测量阶段的自然尺寸。 */
-  measured = { w: 0, h: 0 };
-  constructor(cfg = {}) {
-    this.uid = nextNodeId++;
-    this.id = cfg.id ?? `#${this.uid}`;
-    this.widget = cfg.widget ?? UiWidget.Group;
-    this.kind = cfg.kind ?? UiLayoutKind.Free;
-    this.anchor = cfg.anchor ?? ANCHOR_TOP_LEFT;
-    this.pivot = cfg.pivot ?? ANCHOR_TOP_LEFT;
-    this.offset = cfg.offset ?? { x: 0, y: 0 };
-    this.size = { ...cfg.size ?? {} };
-    this.percent = { ...cfg.percent ?? {} };
-    this.grow = cfg.grow ?? 0;
-    this.padding = {
-      top: cfg.padding?.top ?? 0,
-      right: cfg.padding?.right ?? 0,
-      bottom: cfg.padding?.bottom ?? 0,
-      left: cfg.padding?.left ?? 0
-    };
-    this.margin = {
-      top: cfg.margin?.top ?? 0,
-      right: cfg.margin?.right ?? 0,
-      bottom: cfg.margin?.bottom ?? 0,
-      left: cfg.margin?.left ?? 0
-    };
-    this.gap = cfg.gap ?? 0;
-    this.columns = Math.max(1, Math.floor(cfg.columns ?? 1));
-    this.cell = cfg.cell === void 0 ? null : { w: cfg.cell.w, h: cfg.cell.h };
-    this.visible = cfg.visible ?? true;
-    this.opacity = clampOpacity(cfg.opacity ?? 1);
-    this.scale = clampScale(cfg.scale ?? 1);
-    this.interactive = cfg.interactive ?? false;
-    this.opaque = cfg.opaque ?? false;
-    this.contentSize = { w: cfg.contentSize?.w ?? 0, h: cfg.contentSize?.h ?? 0 };
-    this.props = cfg.props ?? {};
-    for (const c of cfg.children ?? []) this.add(new _UiNode(c));
-  }
-  add(child) {
-    child.parent = this;
-    this.children.push(child);
-  }
-  /** 从前序（绘制顺序）里取所有节点。 */
-  *walk() {
-    yield this;
-    for (const c of this.children) yield* c.walk();
-  }
-  find(id) {
-    for (const n of this.walk()) if (n.id === id) return n;
-    return void 0;
-  }
-  /**
-   * 内区（只扣 padding）。流式布局摆放子节点用它。
-   * ★ 这里**不扣 margin**：margin 是"节点相对父容器"的外边距，作用于自身被摆放的位置，
-   *   扣进内区会让它同时影响"自己占多大"和"子节点从哪开始"——两处都少一点，叠加起来偏得很隐蔽。
-   */
-  inner(rect) {
-    const l = this.padding.left;
-    const t = this.padding.top;
-    const r = this.padding.right;
-    const b = this.padding.bottom;
-    return new Rect(
-      rect.x + l,
-      rect.y + t,
-      Math.max(0, rect.width - l - r),
-      Math.max(0, rect.height - t - b)
-    );
-  }
-};
-function layoutTree(root, bounds) {
-  root.rect = bounds;
-  measure(root, bounds.width, bounds.height);
-  arrange(root, bounds, 1, 0, 0);
-  const out = /* @__PURE__ */ new Map();
-  for (const n of root.walk()) {
-    if (n === root) continue;
-    if (!n.visible) continue;
-    if (out.has(n.id)) {
-      throw new Error(`UI \u8282\u70B9 id \u91CD\u590D\uFF1A${n.id}\uFF08\u540C\u4E00\u68F5\u6811\u91CC id \u5FC5\u987B\u552F\u4E00\uFF0C\u5426\u5219\u547D\u4E2D\u6D4B\u8BD5\u4F1A\u6253\u5230\u9519\u7684\u90A3\u4E2A\uFF09`);
-    }
-    out.set(n.id, n.rect);
-  }
-  return out;
-}
-function measure(node, availW, availH) {
-  if (!node.visible) {
-    node.measured = { w: 0, h: 0 };
-    return;
-  }
-  const fixedW = node.size.w;
-  const fixedH = node.size.h;
-  const pctW = node.percent.w;
-  const pctH = node.percent.h;
-  const innerW = fixedW ?? (pctW !== void 0 ? availW * pctW : availW);
-  const innerH = fixedH ?? (pctH !== void 0 ? availH * pctH : availH);
-  const padW = Math.max(0, innerW - node.padding.left - node.padding.right);
-  const padH = Math.max(0, innerH - node.padding.top - node.padding.bottom);
-  let contentW = 0;
-  let contentH = 0;
-  if (node.kind === UiLayoutKind.Row || node.kind === UiLayoutKind.Column) {
-    let mainTotal = 0;
-    let crossMax = 0;
-    let count = 0;
-    for (const c of node.children) {
-      if (!c.visible) continue;
-      measure(c, padW, padH);
-      count++;
-      const w2 = c.measured.w + c.margin.left + c.margin.right;
-      const h2 = c.measured.h + c.margin.top + c.margin.bottom;
-      if (node.kind === UiLayoutKind.Row) {
-        mainTotal += w2;
-        crossMax = Math.max(crossMax, h2);
-      } else {
-        mainTotal += h2;
-        crossMax = Math.max(crossMax, w2);
-      }
-    }
-    if (count > 0) mainTotal += node.gap * (count - 1);
-    if (node.kind === UiLayoutKind.Row) {
-      contentW = mainTotal;
-      contentH = crossMax;
-    } else {
-      contentW = crossMax;
-      contentH = mainTotal;
-    }
-  } else if (node.kind === UiLayoutKind.Grid) {
-    const cols = node.columns;
-    let cw = node.cell?.w ?? 0;
-    let ch = node.cell?.h ?? 0;
-    let maxCellW = 0;
-    let maxCellH = 0;
-    let n = 0;
-    for (const c of node.children) {
-      if (!c.visible) continue;
-      measure(c, padW, padH);
-      maxCellW = Math.max(maxCellW, c.measured.w + c.margin.left + c.margin.right);
-      maxCellH = Math.max(maxCellH, c.measured.h + c.margin.top + c.margin.bottom);
-      n++;
-    }
-    if (cw === 0) cw = maxCellW;
-    if (ch === 0) ch = maxCellH;
-    const rows = Math.ceil(n / cols);
-    contentW = rows === 0 ? 0 : cols * cw + node.gap * (cols - 1);
-    contentH = rows === 0 ? 0 : rows * ch + node.gap * (rows - 1);
-    node.cell = { w: cw, h: ch };
-  } else {
-    for (const c of node.children) {
-      if (!c.visible) continue;
-      measure(c, padW, padH);
-    }
-    contentW = 0;
-    contentH = 0;
-  }
-  const w = fixedW ?? (pctW !== void 0 ? availW * pctW : Math.max(contentW, node.contentSize.w));
-  const h = fixedH ?? (pctH !== void 0 ? availH * pctH : Math.max(contentH, node.contentSize.h));
-  node.measured = { w: clampSize(w), h: clampSize(h) };
-}
-function clampSize(v) {
-  if (!Number.isFinite(v) || v < 0) return 0;
-  return v;
-}
-function clampOpacity(v) {
-  if (!Number.isFinite(v)) return 1;
-  return v < 0 ? 0 : v > 1 ? 1 : v;
-}
-function clampScale(v) {
-  if (!Number.isFinite(v)) return 1;
-  return v < 0 ? 0 : v;
-}
-function anchoredPos(node, parentInner) {
-  const w = node.measured.w;
-  const h = node.measured.h;
-  const x = parentInner.x + node.margin.left + node.anchor.x * parentInner.width - node.pivot.x * w + node.offset.x;
-  const y = parentInner.y + node.margin.top + node.anchor.y * parentInner.height - node.pivot.y * h + node.offset.y;
-  return { x, y };
-}
-function arrange(node, slot, sIn, oxIn, oyIn) {
-  if (!node.visible) return;
-  let s = sIn;
-  let ox = oxIn;
-  let oy = oyIn;
-  if (node.scale !== 1) {
-    const px = slot.x + node.pivot.x * slot.width;
-    const py = slot.y + node.pivot.y * slot.height;
-    const offX = px * (1 - node.scale);
-    const offY = py * (1 - node.scale);
-    s = sIn * node.scale;
-    ox = sIn * offX + oxIn;
-    oy = sIn * offY + oyIn;
-  }
-  node.rect = s === 1 ? slot : new Rect(s * slot.x + ox, s * slot.y + oy, slot.width * s, slot.height * s);
-  const inner = node.inner(slot);
-  if (node.kind === UiLayoutKind.Free) {
-    for (const c of node.children) {
-      if (!c.visible) continue;
-      const p = anchoredPos(c, inner);
-      arrange(c, new Rect(p.x, p.y, c.measured.w, c.measured.h), s, ox, oy);
-    }
-    return;
-  }
-  if (node.kind === UiLayoutKind.Row || node.kind === UiLayoutKind.Column) {
-    const isRow = node.kind === UiLayoutKind.Row;
-    const mainLen = isRow ? inner.width : inner.height;
-    const visibles = node.children.filter((c) => c.visible);
-    const gaps = node.gap * Math.max(0, visibles.length - 1);
-    let used = 0;
-    let growTotal = 0;
-    for (const c of visibles) {
-      const m = isRow ? c.measured.w + c.margin.left + c.margin.right : c.measured.h + c.margin.top + c.margin.bottom;
-      used += m;
-      growTotal += Math.max(0, c.grow);
-    }
-    const remain = Math.max(0, mainLen - used - gaps);
-    let cursor = 0;
-    for (const c of visibles) {
-      const baseMain = isRow ? c.measured.w + c.margin.left + c.margin.right : c.measured.h + c.margin.top + c.margin.bottom;
-      const extra = growTotal > 0 ? remain * Math.max(0, c.grow) / growTotal : 0;
-      const mainSize = baseMain + extra;
-      const crossSize = isRow ? c.measured.h + c.margin.top + c.margin.bottom : c.measured.w + c.margin.left + c.margin.right;
-      const x = isRow ? inner.x + cursor + c.margin.left : inner.x + c.margin.left;
-      const y = isRow ? inner.y + c.margin.top : inner.y + cursor + c.margin.top;
-      const w = isRow ? Math.max(0, mainSize - c.margin.left - c.margin.right) : Math.max(0, crossSize - c.margin.left - c.margin.right);
-      const h = isRow ? Math.max(0, crossSize - c.margin.top - c.margin.bottom) : Math.max(0, mainSize - c.margin.top - c.margin.bottom);
-      arrange(c, new Rect(x, y, w, h), s, ox, oy);
-      cursor += mainSize + node.gap;
-    }
-    return;
-  }
-  const cols = Math.max(1, node.columns);
-  const cw = node.cell?.w ?? 0;
-  const ch = node.cell?.h ?? 0;
-  let i = 0;
-  for (const c of node.children) {
-    if (!c.visible) continue;
-    const col = i % cols;
-    const row = Math.floor(i / cols);
-    const x = inner.x + col * (cw + node.gap) + c.margin.left;
-    const y = inner.y + row * (ch + node.gap) + c.margin.top;
-    arrange(c, new Rect(x, y, Math.max(0, cw - c.margin.left - c.margin.right), Math.max(0, ch - c.margin.top - c.margin.bottom)), s, ox, oy);
-    i++;
-  }
-}
-function hitTest(root, x, y) {
-  const stack = [];
-  for (const n of root.walk()) if (n.visible) stack.push(n);
-  for (let i = stack.length - 1; i >= 0; i--) {
-    const n = stack[i];
-    const r = n.rect;
-    if (x < r.x || x > r.xMax || y < r.y || y > r.yMax) continue;
-    if (n.interactive) return n;
-    if (n.opaque) return null;
-  }
-  return null;
-}
-function hitChain(node) {
-  const chain = [];
-  let cur = node;
-  while (cur !== null) {
-    chain.push(cur);
-    cur = cur.parent;
-  }
-  return chain;
-}
-
-// src/extensions/ui/widgets.ts
-var UI_LAYER = 2;
-var TextCache = class {
-  map = /* @__PURE__ */ new Map();
+// src/extensions/ui/state.ts
+var MAX_LAYOUT_ENTRIES = 1024;
+var UiStateStore = class {
+  layouts = /* @__PURE__ */ new Map();
+  scrolls = /* @__PURE__ */ new Map();
+  version = 1;
   hits = 0;
   misses = 0;
-  get(uid, fonts, fontId, text, style) {
-    const f = fonts.get(fontId);
-    if (f === void 0) return null;
-    const key = cacheKey(fontId, text, style);
-    const hit = this.map.get(uid);
+  evictions = 0;
+  /** 当前失效代次。诊断用：两次报错之间没变过，说明不是缓存导致的。 */
+  get epoch() {
+    return this.version;
+  }
+  get stats() {
+    return {
+      epoch: this.version,
+      layouts: this.layouts.size,
+      scrolls: this.scrolls.size,
+      hits: this.hits,
+      misses: this.misses,
+      evictions: this.evictions
+    };
+  }
+  /**
+   * 取一段文本的排版结果（派生缓存）。
+   *
+   * ★ 返回 `null` 表示**字体不存在**，而不是"空排版"：
+   *   空排版会让调用方以为"这段文本就是 0 宽"，于是标签静默塌成 0×0；
+   *   返回 null 时调用方必须自己决定是跳过还是回退 —— 那是一个明确的决定。
+   *
+   * ★ 键里**必须**含字体 id、文本、样式三样（原有的 `cacheKey` 规则）：
+   *   只按节点缓存 ⇒ 改了文案没换节点会显示旧文本；
+   *   只按文本缓存 ⇒ 两种字号互相污染。
+   */
+  text(uid, fonts, fontId, text, style) {
+    const font = fonts.get(fontId);
+    if (font === void 0) return null;
+    const key = layoutCacheKey(fontId, text, style);
+    const hit = this.layouts.get(uid);
     if (hit !== void 0 && hit.key === key) {
       this.hits++;
       return hit.layout;
     }
     this.misses++;
-    const layout = layoutText(f, text, style);
-    if (this.map.size > 1024) this.map.clear();
-    this.map.set(uid, { key, layout });
+    const layout = layoutText(font, text, style);
+    if (this.layouts.size >= MAX_LAYOUT_ENTRIES) {
+      this.evictions += this.layouts.size;
+      this.layouts.clear();
+    }
+    this.layouts.set(uid, { key, layout });
     return layout;
   }
-  invalidate(uid) {
-    if (uid === void 0) this.map.clear();
-    else this.map.delete(uid);
+  /** 丢掉一个节点的派生缓存（改了一个节点的文案后想立刻重算时用）。 */
+  forget(uid) {
+    if (this.layouts.delete(uid)) this.evictions++;
+  }
+  /**
+   * 只丢派生缓存（字体热重载、UI 图集换页）。
+   * ★ **不动滚动位置**：换一张字体不该让用户正在看的列表回顶。
+   */
+  invalidateDerived() {
+    this.layouts.clear();
+    this.version++;
+  }
+  /**
+   * 全丢（换界面、回滚、dispose）。
+   * ★ 回滚必须走这里：上一份世界里的滚动位置与文本量算都不该被这一份世界读到。
+   *   `epoch` +1 让**任何持有旧代次的东西**（哪怕它绕过了本表）能自查出过期。
+   */
+  reset() {
+    this.layouts.clear();
+    this.scrolls.clear();
+    this.version++;
+  }
+  /** 滚动偏移（设计像素，正值向下）。未滚过 = 0。 */
+  scrollOf(uid) {
+    return this.scrolls.get(uid) ?? 0;
+  }
+  /**
+   * 写滚动偏移。
+   *
+   * ★ 非有限数**拒绝写入**（保持原值）而不是夹成 0：夹成 0 会把"算出来是 NaN"
+   *   表现成"滚回顶部"，而那是最容易被当成"用户手滑"的症状。
+   * ★ 负值夹到 0；上界由调用方按内容高度算（那一层才知道内容多高）。
+   */
+  setScroll(uid, value) {
+    if (!Number.isFinite(value)) return;
+    this.scrolls.set(uid, value < 0 ? 0 : value);
+  }
+  /** 丢一个节点的全部状态（节点被移除时）。 */
+  drop(uid) {
+    this.layouts.delete(uid);
+    this.scrolls.delete(uid);
   }
 };
-function cacheKey(fontId, text, style) {
+function layoutCacheKey(fontId, text, style) {
   const c = style.color;
   return [
     fontId,
@@ -19017,6 +19164,9 @@ function cacheKey(fontId, text, style) {
     c === void 0 ? "-" : `${c.r},${c.g},${c.b},${c.a}`
   ].join("");
 }
+
+// src/extensions/ui/widgets.ts
+var UI_LAYER = 2;
 function alphaOf(node) {
   let a = 1;
   for (let cur = node; cur !== null; cur = cur.parent) {
@@ -19024,7 +19174,7 @@ function alphaOf(node) {
   }
   return a;
 }
-function buildUiQuads(root, fonts, skin, cache) {
+function buildUiQuads(root, fonts, skin, store) {
   const quads = [];
   let order = 0;
   let glyphs = 0;
@@ -19074,7 +19224,7 @@ function buildUiQuads(root, fonts, skin, cache) {
   const emitText = (node, p, box, style, ord, alpha) => {
     const text = p.text ?? "";
     if (text === "") return;
-    const layout = cache.get(node.uid, fonts, p.fontId ?? defaultFontId(fonts), text, style);
+    const layout = store.text(node.uid, fonts, p.fontId ?? defaultFontId(fonts), text, style);
     if (layout === null) return;
     labels++;
     const y = box.y + (box.height - layout.height) / 2;
@@ -19100,13 +19250,8 @@ function buildUiQuads(root, fonts, skin, cache) {
     }
     if (node.widget === UiWidget.Button) {
       drawFrame(node.rect, p.frame, p.slice ?? 0, p.tint, ord, alpha);
-      const inner = new Rect(node.rect.x + 4, node.rect.y, Math.max(0, node.rect.width - 8), node.rect.height);
-      emitText(node, p, inner, {
-        ...p.style,
-        maxWidth: inner.width,
-        align: p.style?.align ?? "center",
-        color: p.textColor ?? p.style?.color
-      }, ord, alpha);
+      const inner = textBoxOf(node, node.rect);
+      emitText(node, p, inner, textStyleFor(node, inner.width), ord, alpha);
       continue;
     }
     if (node.widget === UiWidget.Progress) {
@@ -19121,12 +19266,7 @@ function buildUiQuads(root, fonts, skin, cache) {
       continue;
     }
     if (node.widget === UiWidget.Label) {
-      emitText(node, p, node.rect, {
-        ...p.style,
-        maxWidth: node.rect.width,
-        align: p.style?.align ?? "left",
-        color: p.textColor ?? p.style?.color
-      }, ord, alpha);
+      emitText(node, p, node.rect, textStyleFor(node, node.rect.width), ord, alpha);
     }
   }
   return {
@@ -19135,15 +19275,11 @@ function buildUiQuads(root, fonts, skin, cache) {
       quads: quads.length,
       glyphs,
       labels,
-      cacheHits: cache.hits,
+      cacheHits: store.hits,
       missingGlyphs: Array.from(missingGlyphs).sort((a, b) => a - b),
       missingFrames: Array.from(missingFrames).sort()
     }
   };
-}
-function defaultFontId(fonts) {
-  const ids = fonts.ids();
-  return ids.length === 0 ? "" : ids[0];
 }
 function nineSlice(rect, f, slice) {
   const b = Math.max(0, Math.min(slice, f.width / 2, f.height / 2, rect.width / 2, rect.height / 2));
@@ -19287,7 +19423,12 @@ function createUiModule(opts) {
   const viewport = new UiViewport(opts.viewport);
   const fonts = new FontRegistry();
   for (const f of opts.fonts) fonts.register(f);
-  const cache = new TextCache();
+  const store = new UiStateStore();
+  const intrinsic = createIntrinsicMeasure(fonts, store);
+  const offFonts = fonts.onRegister(() => {
+    store.invalidateDerived();
+    dirty = true;
+  });
   const skin = opts.skin;
   const hostPages = opts.pages;
   const pageSources = opts.pageSources;
@@ -19336,8 +19477,8 @@ function createUiModule(opts) {
       lastFrame = { ...lastFrame, relaid: false };
       return;
     }
-    layoutResult = layoutTree(root, viewport.safeRect);
-    const res = buildUiQuads(root, fonts, skin, cache);
+    layoutResult = layoutTree(root, viewport.safeRect, { intrinsic });
+    const res = buildUiQuads(root, fonts, skin, store);
     quads = res.quads;
     drawStats = res.stats;
     dirty = false;
@@ -19524,7 +19665,8 @@ function createUiModule(opts) {
       batch = null;
       dev = null;
       quads = [];
-      cache.invalidate();
+      offFonts();
+      store.reset();
       dirty = true;
     },
     describe() {
@@ -19542,7 +19684,7 @@ function createUiModule(opts) {
     setRoot(node) {
       root = node;
       router = new UiInputRouter(root, { dragThreshold: opts.dragThreshold });
-      cache.invalidate();
+      store.reset();
       dirty = true;
     },
     pointer(p) {
@@ -19561,6 +19703,9 @@ function createUiModule(opts) {
     },
     get layout() {
       return layoutResult;
+    },
+    get state() {
+      return store;
     }
   };
   return mod;
@@ -20131,6 +20276,134 @@ function sampleTween(spec, timeMs) {
   return { value, progress: p, loop, done: false, waiting: false };
 }
 
+// src/extensions/tween/keyframes.ts
+var KEYFRAME_ERR = {
+  /** 少于 2 个关键帧（一个点构不成"轨道"）。 */
+  TOO_FEW: "TWEEN.TOO_FEW_KEYS",
+  /** 时间轴没有从 0 起步（见文件头 ★★）。 */
+  NO_ORIGIN: "TWEEN.TRACK_NO_ORIGIN",
+  /** `atMs` 没有严格递增（相等也不行：同一时刻两个值没有定义）。 */
+  UNSORTED: "TWEEN.TRACK_UNSORTED",
+  /** `atMs` 非有限或为负。 */
+  BAD_AT: "TWEEN.TRACK_BAD_AT",
+  /** 关键帧的值非有限。 */
+  BAD_VALUE: "TWEEN.TRACK_BAD_VALUE",
+  /** 引用了不存在的 easing 名。 */
+  UNKNOWN_EASING: "TWEEN.UNKNOWN_EASING"
+};
+function easingOf(name) {
+  if (name === void 0) return EASINGS.linear;
+  const fn = EASINGS[name];
+  if (fn === void 0) throw new Error(`\u672A\u77E5\u7F13\u52A8\uFF1A${name}`);
+  return fn;
+}
+function makeTrack(input) {
+  const keys = input.keys;
+  if (keys.length < 2) {
+    return err(
+      engineError(KEYFRAME_ERR.TOO_FEW, `\u5173\u952E\u5E27\u81F3\u5C11\u8981\u6709 2 \u4E2A\uFF08\u6536\u5230 ${String(keys.length)} \u4E2A\uFF09`, { id: input.id })
+    );
+  }
+  const first = keys[0];
+  if (!Number.isFinite(first.atMs) || first.atMs < 0) {
+    return err(engineError(KEYFRAME_ERR.BAD_AT, `\u7B2C\u4E00\u4E2A\u5173\u952E\u5E27\u7684 atMs \u975E\u6CD5\uFF1A${String(first.atMs)}`, { id: input.id }));
+  }
+  if (first.atMs !== 0) {
+    return err(
+      engineError(KEYFRAME_ERR.NO_ORIGIN, `\u7B2C\u4E00\u4E2A\u5173\u952E\u5E27\u5FC5\u987B\u5728 0ms\uFF08\u6536\u5230 ${String(first.atMs)}ms\uFF09`, {
+        id: input.id,
+        atMs: first.atMs
+      })
+    );
+  }
+  let prev = first.atMs;
+  for (const [i, k] of keys.entries()) {
+    if (!Number.isFinite(k.atMs) || k.atMs < 0) {
+      return err(
+        engineError(KEYFRAME_ERR.BAD_AT, `\u7B2C ${String(i)} \u4E2A\u5173\u952E\u5E27\u7684 atMs \u975E\u6CD5\uFF1A${String(k.atMs)}`, { id: input.id })
+      );
+    }
+    if (i > 0 && !(k.atMs > prev)) {
+      return err(
+        engineError(
+          KEYFRAME_ERR.UNSORTED,
+          `\u7B2C ${String(i)} \u4E2A\u5173\u952E\u5E27\u7684 atMs=${String(k.atMs)} \u5FC5\u987B\u4E25\u683C\u5927\u4E8E\u524D\u4E00\u4E2A ${String(prev)}`,
+          { id: input.id }
+        )
+      );
+    }
+    if (!Number.isFinite(k.value)) {
+      return err(
+        engineError(KEYFRAME_ERR.BAD_VALUE, `\u7B2C ${String(i)} \u4E2A\u5173\u952E\u5E27\u7684\u503C\u975E\u6709\u9650\uFF1A${String(k.value)}`, { id: input.id })
+      );
+    }
+    if (i > 0 && k.easing !== void 0 && EASINGS[k.easing] === void 0) {
+      return err(
+        engineError(KEYFRAME_ERR.UNKNOWN_EASING, `\u7B2C ${String(i)} \u4E2A\u5173\u952E\u5E27\u5F15\u7528\u4E86\u672A\u77E5\u7F13\u52A8\uFF1A${k.easing}`, {
+          id: input.id
+        })
+      );
+    }
+    prev = k.atMs;
+  }
+  const frozen = keys.map(
+    (k) => k.easing === void 0 ? { atMs: k.atMs, value: k.value } : { atMs: k.atMs, value: k.value, easing: k.easing }
+  );
+  return ok({ id: input.id, keys: Object.freeze(frozen), durationMs: prev });
+}
+function sampleTrack(spec, ms) {
+  if (!Number.isFinite(ms)) {
+    throw new TypeError(`sampleTrack \u7684 ms \u5FC5\u987B\u662F\u6709\u9650\u6570\uFF08\u6536\u5230 ${String(ms)}\uFF09`);
+  }
+  const keys = spec.keys;
+  const n = keys.length;
+  if (ms <= 0) return { value: keys[0].value, segment: 0, progress: 0, done: false };
+  if (ms >= spec.durationMs) {
+    return { value: keys[n - 1].value, segment: n - 2, progress: 1, done: true };
+  }
+  let i = 0;
+  while (i < n - 2 && keys[i + 1].atMs <= ms) i++;
+  const a = keys[i];
+  const b = keys[i + 1];
+  const span = b.atMs - a.atMs;
+  const t = span <= 0 ? 1 : (ms - a.atMs) / span;
+  const eased = easingOf(b.easing)(t < 0 ? 0 : t > 1 ? 1 : t);
+  return { value: a.value + (b.value - a.value) * eased, segment: i, progress: t, done: false };
+}
+var KeyTrack = class {
+  id;
+  targetId;
+  prop;
+  spec;
+  timeMs = 0;
+  playing;
+  autoplay;
+  /** 上一次采样值（判断"这一步真的变了吗"）。`NaN` = 还没采过。 */
+  lastValue = Number.NaN;
+  constructor(id, targetId, prop, spec, playing, autoplay) {
+    this.id = id;
+    this.targetId = targetId;
+    this.prop = prop;
+    this.spec = spec;
+    this.playing = playing;
+    this.autoplay = autoplay;
+  }
+  reset() {
+    this.timeMs = 0;
+    this.lastValue = Number.NaN;
+    this.playing = this.autoplay;
+  }
+  seek(ms) {
+    if (!Number.isFinite(ms)) {
+      throw new TypeError(`KeyTrack.seek \u7684 ms \u5FC5\u987B\u662F\u6709\u9650\u6570\uFF08\u6536\u5230 ${String(ms)}\uFF09`);
+    }
+    this.timeMs = ms < 0 ? 0 : ms;
+  }
+  sample() {
+    return sampleTrack(this.spec, this.timeMs);
+  }
+};
+
 // src/extensions/tween/tween-player.ts
 var TWEEN_PLAYER_TYPE = "tween.player";
 var TWEEN_PLAYER_ERR = {
@@ -20186,6 +20459,16 @@ var TweenPlayer = class extends Component {
   playing = true;
   /** 运行时轨道（顺序 = 添加顺序，推进也按这个序）。 */
   tracks = [];
+  /**
+   * 关键帧轨道（ADR-0010 缺口①）。
+   *
+   * ★★ 为什么与 `tracks` **分成两个数组**，而不是让 `TweenTrack.spec` 变成可空：
+   *   分段轨道的 `spec` 在十几处被直接读（`speed`、`loopCount`、`durationMs`），
+   *   变成可空之后每个读点都要判空 —— 而漏判的地方**不会报错**，只会静默按关键帧
+   *   轨道处理（`speed` 当成 0 ⇒ 永不推进）。两个类型不同的数组让"这是哪种轨道"
+   *   在类型层面就成立，推进器里一个 `for` 循环各管一种。
+   */
+  keyTracks = [];
   schema = {
     type: TWEEN_PLAYER_TYPE,
     fields: {
@@ -20225,15 +20508,45 @@ var TweenPlayer = class extends Component {
   track(id) {
     return this.tracks.find((t) => t.id === id);
   }
+  /**
+   * 加一条关键帧轨道。
+   * ★ id 在**两种轨道之间**也必须唯一：`pause(id)`/`play(id)` 是按 id 找的，
+   *   同名会让"停下的那条"与"以为停下的那条"不是同一条。
+   */
+  addKeyTrack(input) {
+    if (this.track(input.id) !== void 0 || this.keyTrack(input.id) !== void 0) {
+      return err(
+        engineError(TWEEN_PLAYER_ERR.DUPLICATE_TRACK, `\u8F68\u9053 id \u91CD\u590D\uFF1A${input.id}\uFF08\u540C\u4E00 player \u5185\u5FC5\u987B\u552F\u4E00\uFF09`, {
+          id: input.id
+        })
+      );
+    }
+    const made = makeTrack({ id: input.id, keys: input.keys });
+    if (!made.ok) return made;
+    const spec = made.value;
+    const track = new KeyTrack(
+      input.id,
+      input.targetId,
+      input.prop,
+      spec,
+      input.playing ?? true,
+      input.autoplay ?? true
+    );
+    this.keyTracks.push(track);
+    return ok(track);
+  }
+  keyTrack(id) {
+    return this.keyTracks.find((t) => t.id === id);
+  }
   /** 按 id 停一条轨道（界面收起时用：进度留着，只是不再推进）。 */
   pause(id) {
-    const t = this.track(id);
+    const t = this.track(id) ?? this.keyTrack(id);
     if (t === void 0) return err(engineError(TWEEN_PLAYER_ERR.NO_TRACK, `\u6CA1\u6709\u8F68\u9053 ${id}`));
     t.playing = false;
     return ok(void 0);
   }
   play(id) {
-    const t = this.track(id);
+    const t = this.track(id) ?? this.keyTrack(id);
     if (t === void 0) return err(engineError(TWEEN_PLAYER_ERR.NO_TRACK, `\u6CA1\u6709\u8F68\u9053 ${id}`));
     t.playing = true;
     return ok(void 0);
@@ -20241,14 +20554,18 @@ var TweenPlayer = class extends Component {
   /** 清空所有轨道（换界面时用）。 */
   clear() {
     this.tracks.length = 0;
+    this.keyTracks.length = 0;
   }
   /** 所有轨道回到起点。 */
   reset() {
     for (const t of this.tracks) t.reset();
+    for (const t of this.keyTracks) t.reset();
   }
   /** 是否还有轨道在推进（诊断/性能用：全静止就不必每帧走一遍）。 */
   get moving() {
-    return this.playing && this.tracks.some((t) => t.playing && !sampleTween(t.spec, t.timeMs).done);
+    if (!this.playing) return false;
+    if (this.tracks.some((t) => t.playing && !sampleTween(t.spec, t.timeMs).done)) return true;
+    return this.keyTracks.some((t) => t.playing && !t.sample().done);
   }
 };
 function ticksToMs(ticks, fixedDtMs) {
@@ -20272,6 +20589,17 @@ function advancePlayer(player, dtMs) {
       if (t.timeMs < 0) t.timeMs = 0;
     }
     const s = sampleTween(t.spec, t.timeMs);
+    const changed = Number.isNaN(t.lastValue) || s.value !== t.lastValue;
+    t.lastValue = s.value;
+    out.push({ id: t.id, targetId: t.targetId, prop: t.prop, value: s.value, done: s.done, changed });
+  }
+  for (const t of player.keyTracks) {
+    const wasDone = t.sample().done;
+    if (player.playing && t.playing && !wasDone) {
+      t.timeMs += dtMs;
+      if (t.timeMs < 0) t.timeMs = 0;
+    }
+    const s = t.sample();
     const changed = Number.isNaN(t.lastValue) || s.value !== t.lastValue;
     t.lastValue = s.value;
     out.push({ id: t.id, targetId: t.targetId, prop: t.prop, value: s.value, done: s.done, changed });

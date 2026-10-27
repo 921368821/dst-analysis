@@ -156,8 +156,12 @@ export {
   ANCHOR_BOTTOM_LEFT,
   ANCHOR_BOTTOM_CENTER,
 } from "./extensions/ui/layout.ts";
-export type { UiNodeConfig, UiPoint, UiProps, UiPadding, UiLayoutResult, UiWidgetValue, UiLayoutKindValue } from "./extensions/ui/layout.ts";
-export { buildUiQuads, nineSlice, TextCache, UI_LAYER } from "./extensions/ui/widgets.ts";
+export type { UiNodeConfig, UiPoint, UiProps, UiPadding, UiLayoutResult, UiWidgetValue, UiLayoutKindValue, LayoutOptions } from "./extensions/ui/layout.ts";
+export { buildUiQuads, nineSlice, UI_LAYER } from "./extensions/ui/widgets.ts";
+export { UiStateStore } from "./extensions/ui/state.ts";
+export type { UiStateStats } from "./extensions/ui/state.ts";
+export { createIntrinsicMeasure, defaultFontId, textBoxOf, textStyleFor, textInsetOf, BUTTON_TEXT_INSET } from "./extensions/ui/intrinsic.ts";
+export type { IntrinsicMeasure } from "./extensions/ui/intrinsic.ts";
 export type { UiSkin, UiSkinFrame, UiDrawStats, UiDrawResult, Rgba } from "./extensions/ui/widgets.ts";
 export { UiInputRouter, UiEvent, bubble } from "./extensions/ui/events.ts";
 export type { UiPointer, UiEventType, UiEventSink, UiInputRouterOptions } from "./extensions/ui/events.ts";

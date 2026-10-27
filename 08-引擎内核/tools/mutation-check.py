@@ -4465,6 +4465,259 @@ MUTANTS = [
             ]
         ],
         "test": "tests/extensions/flow-curtain.test.ts"
+    },
+    {
+        "name": "M485 文本不进缓存键（改了文案还显示旧字）",
+        "file": "src/extensions/ui/state.ts",
+        "pairs": [
+            [
+                "    fontId,\n    text,\n    style.scale ?? 1,",
+                "    fontId,\n    \"\",\n    style.scale ?? 1,"
+            ]
+        ],
+        "test": "tests/extensions/ui-state.test.ts"
+    },
+    {
+        "name": "M486 颜色不进缓存键（换色不重排，沿用旧颜色）",
+        "file": "src/extensions/ui/state.ts",
+        "pairs": [
+            [
+                "    c === undefined ? \"-\" : `${c.r},${c.g},${c.b},${c.a}`,",
+                "    \"-\","
+            ]
+        ],
+        "test": "tests/extensions/ui-state.test.ts"
+    },
+    {
+        "name": "M487 只丢派生的入口把滚动位置一起清了（换字体列表回顶）",
+        "file": "src/extensions/ui/state.ts",
+        "pairs": [
+            [
+                "  invalidateDerived(): void {\n    this.layouts.clear();",
+                "  invalidateDerived(): void {\n    this.layouts.clear();\n    this.scrolls.clear();"
+            ]
+        ],
+        "test": "tests/extensions/ui-state.test.ts"
+    },
+    {
+        "name": "M488 全丢的入口漏掉滚动（回滚后读到上一份世界的位置）",
+        "file": "src/extensions/ui/state.ts",
+        "pairs": [
+            [
+                "  reset(): void {\n    this.layouts.clear();\n    this.scrolls.clear();",
+                "  reset(): void {\n    this.layouts.clear();"
+            ]
+        ],
+        "test": "tests/extensions/ui-state.test.ts"
+    },
+    {
+        "name": "M489 滚动写入把非有限数夹成 0（伪装成「用户滑回顶部」）",
+        "file": "src/extensions/ui/state.ts",
+        "pairs": [
+            [
+                "    if (!Number.isFinite(value)) return;",
+                "    if (!Number.isFinite(value)) value = 0;"
+            ]
+        ],
+        "test": "tests/extensions/ui-state.test.ts"
+    },
+    {
+        "name": "M490 forget 一家伙清全表（别的节点的缓存跟着废）",
+        "file": "src/extensions/ui/state.ts",
+        "pairs": [
+            [
+                "    if (this.layouts.delete(uid)) this.evictions++;",
+                "    this.layouts.clear();\n    this.evictions++;"
+            ]
+        ],
+        "test": "tests/extensions/ui-state.test.ts"
+    },
+    {
+        "name": "M491 上限判断差一条（第 1025 条时不清理，表无界增长）",
+        "file": "src/extensions/ui/state.ts",
+        "pairs": [
+            [
+                "    if (this.layouts.size >= MAX_LAYOUT_ENTRIES) {",
+                "    if (this.layouts.size > MAX_LAYOUT_ENTRIES) {"
+            ]
+        ],
+        "test": "tests/extensions/ui-state.test.ts"
+    },
+    {
+        "name": "M492 字体缺失时返回空排版而不是 null（标签静默塌成 0 宽）",
+        "file": "src/extensions/ui/state.ts",
+        "pairs": [
+            [
+                "    if (font === undefined) return null;",
+                "    if (font === undefined) return { quads: [], width: 0, height: 0, lineCount: 0, truncated: false, missing: [] };"
+            ]
+        ],
+        "test": "tests/extensions/ui-state.test.ts"
+    },
+    {
+        "name": "M493 只丢派生时不推进代次（持有旧代次的东西查不出过期）",
+        "file": "src/extensions/ui/state.ts",
+        "pairs": [
+            [
+                "    this.layouts.clear();\n    this.version++;\n  }",
+                "    this.layouts.clear();\n  }"
+            ]
+        ],
+        "test": "tests/extensions/ui-state.test.ts"
+    },
+    {
+        "name": "M494 没给宽度也按父容器宽换行（收缩到内容变成撑满整行）",
+        "file": "src/extensions/ui/intrinsic.ts",
+        "pairs": [
+            [
+                "    const wrap = explicit ? Math.max(0, boxW - inset * 2) : 0;",
+                "    const wrap = Math.max(0, boxW - inset * 2);"
+            ]
+        ],
+        "test": "tests/extensions/ui-intrinsic.test.ts"
+    },
+    {
+        "name": "M495 自撑开宽度不含内缩（按钮文字贴边）",
+        "file": "src/extensions/ui/intrinsic.ts",
+        "pairs": [
+            [
+                "      w: layout.width + inset * 2 + pad.left + pad.right,",
+                "      w: layout.width + pad.left + pad.right,"
+            ]
+        ],
+        "test": "tests/extensions/ui-intrinsic.test.ts"
+    },
+    {
+        "name": "M496 文字盒子只内缩一边（绘制与量算各偏 4 像素）",
+        "file": "src/extensions/ui/intrinsic.ts",
+        "pairs": [
+            [
+                "  const w = Math.max(0, rect.width - inset * 2);",
+                "  const w = Math.max(0, rect.width - inset);"
+            ]
+        ],
+        "test": "tests/extensions/ui-intrinsic.test.ts"
+    },
+    {
+        "name": "M497 空文本也表态（把配置里的 contentSize 改写成 0）",
+        "file": "src/extensions/ui/intrinsic.ts",
+        "pairs": [
+            [
+                "    const text = node.props.text ?? \"\";\n    if (text === \"\") return null;",
+                "    const text = node.props.text ?? \"\";"
+            ]
+        ],
+        "test": "tests/extensions/ui-intrinsic.test.ts"
+    },
+    {
+        "name": "M498 默认字体取排序最后一个（注册顺序改变画面）",
+        "file": "src/extensions/ui/intrinsic.ts",
+        "pairs": [
+            [
+                "  return ids.length === 0 ? \"\" : (ids[0] as string);",
+                "  return ids.length === 0 ? \"\" : (ids[ids.length - 1] as string);"
+            ]
+        ],
+        "test": "tests/extensions/ui-intrinsic.test.ts"
+    },
+    {
+        "name": "M499 量算结果不写回 contentSize（撑开只活在函数栈里）",
+        "file": "src/extensions/ui/layout.ts",
+        "pairs": [
+            [
+                "  const nat = opts.intrinsic?.(node, padW, padH) ?? null;\n  if (nat !== null) node.contentSize = { w: nat.w, h: nat.h };",
+                "  const nat = opts.intrinsic?.(node, padW, padH) ?? null;"
+            ]
+        ],
+        "test": "tests/extensions/ui-intrinsic.test.ts"
+    },
+    {
+        "name": "M500 easing 挂左端点（最后一帧的 easing 永远不生效）",
+        "file": "src/extensions/tween/keyframes.ts",
+        "pairs": [
+            [
+                "  const eased = easingOf(b.easing)(",
+                "  const eased = easingOf(a.easing)("
+            ]
+        ],
+        "test": "tests/extensions/tween-keyframes.test.ts"
+    },
+    {
+        "name": "M501 走到末帧不报 done（宿主永远不知道播完了）",
+        "file": "src/extensions/tween/keyframes.ts",
+        "pairs": [
+            [
+                "    return { value: (keys[n - 1] as Keyframe).value, segment: n - 2, progress: 1, done: true };",
+                "    return { value: (keys[n - 1] as Keyframe).value, segment: n - 2, progress: 1, done: false };"
+            ]
+        ],
+        "test": "tests/extensions/tween-keyframes.test.ts"
+    },
+    {
+        "name": "M502 第一个关键帧不必在 0ms（0..起播 之间没有定义）",
+        "file": "src/extensions/tween/keyframes.ts",
+        "pairs": [
+            [
+                "  if (first.atMs !== 0) {",
+                "  if (false) {"
+            ]
+        ],
+        "test": "tests/extensions/tween-keyframes.test.ts"
+    },
+    {
+        "name": "M503 时间轴改为非严格递增（同一时刻两个值）",
+        "file": "src/extensions/tween/keyframes.ts",
+        "pairs": [
+            [
+                "    if (i > 0 && !(k.atMs > prev)) {",
+                "    if (i > 0 && k.atMs < prev) {"
+            ]
+        ],
+        "test": "tests/extensions/tween-keyframes.test.ts"
+    },
+    {
+        "name": "M504 段号报错一位（调用方按段做逻辑时全部错位）",
+        "file": "src/extensions/tween/keyframes.ts",
+        "pairs": [
+            [
+                "  return { value: a.value + (b.value - a.value) * eased, segment: i, progress: t, done: false };",
+                "  return { value: a.value + (b.value - a.value) * eased, segment: i + 1, progress: t, done: false };"
+            ]
+        ],
+        "test": "tests/extensions/tween-keyframes.test.ts"
+    },
+    {
+        "name": "M505 冻结失效（改入参数组能改已构造的 spec）",
+        "file": "src/extensions/tween/keyframes.ts",
+        "pairs": [
+            [
+                "  const frozen: Keyframe[] = keys.map((k) =>",
+                "  const frozen: Keyframe[] = [...keys];\n  void keys.map((k) =>"
+            ]
+        ],
+        "test": "tests/extensions/tween-keyframes.test.ts"
+    },
+    {
+        "name": "M506 关键帧轨道播完继续累加时间（浮点精度把重播起点带漂）",
+        "file": "src/extensions/tween/tween-player.ts",
+        "pairs": [
+            [
+                "    if (player.playing && t.playing && !wasDone) {",
+                "    if (player.playing && t.playing) {"
+            ]
+        ],
+        "test": "tests/extensions/tween-keyframes.test.ts"
+    },
+    {
+        "name": "M507 关键帧轨道的 changed 恒为 true（静止的过渡每帧重排 UI）",
+        "file": "src/extensions/tween/tween-player.ts",
+        "pairs": [
+            [
+                "    const s = t.sample();\n    const changed = Number.isNaN(t.lastValue) || s.value !== t.lastValue;",
+                "    const s = t.sample();\n    const changed = true;"
+            ]
+        ],
+        "test": "tests/extensions/tween-keyframes.test.ts"
     }
 ]
 

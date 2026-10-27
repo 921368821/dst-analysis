@@ -240,15 +240,28 @@ export function buildUiTree(cfg: UiNodeConfig): UiNode {
 export type UiLayoutResult = ReadonlyMap<string, Rect>;
 
 /**
+ * 布局选项。
+ *
+ * ★ `intrinsic` 是一个**注入口**，不是布局层的一部分：它回答"这个叶子的自然尺寸是多少"，
+ *   而"自然尺寸"的定义要看控件（文本量算要字体、九宫格图片要看帧尺寸）。
+ *   布局层只负责在**内区尺寸已经算好**的那一刻问一次，然后把答案当作 `contentSize`。
+ *   这样布局保持无字体、无皮肤、无 GPU 依赖（可在 Node 里用假量算函数验接线），
+ *   而真实量算留在 `intrinsic.ts`（见那里文件头的 ★★）。
+ */
+export interface LayoutOptions {
+  readonly intrinsic?: (node: UiNode, innerW: number, innerH: number) => { readonly w: number; readonly h: number } | null;
+}
+
+/**
  * 摆一遍。`bounds` 是根节点的绝对矩形（通常是 `viewport.safeRect`）。
  *
  * 复杂度 O(节点数)：测量与摆放各自只走一次树。UI 树通常几百个节点，
  * 每帧跑一遍 < 0.05ms，所以**不做脏标记**也是安全的 —— 但控件层仍然会缓存
  * 文本排版（那一步是 O(字数)，不是 O(节点)）。
  */
-export function layoutTree(root: UiNode, bounds: Rect): UiLayoutResult {
+export function layoutTree(root: UiNode, bounds: Rect, opts: LayoutOptions = {}): UiLayoutResult {
   root.rect = bounds;
-  measure(root, bounds.width, bounds.height);
+  measure(root, bounds.width, bounds.height, opts);
   arrange(root, bounds, 1, 0, 0);
   const out = new Map<string, Rect>();
   for (const n of root.walk()) {
@@ -265,7 +278,7 @@ export function layoutTree(root: UiNode, bounds: Rect): UiLayoutResult {
 }
 
 /** 测量：自顶向下给约束，自底向上回尺寸。结果写在 `node.measured`。 */
-function measure(node: UiNode, availW: number, availH: number): void {
+function measure(node: UiNode, availW: number, availH: number, opts: LayoutOptions): void {
   if (!node.visible) {
     node.measured = { w: 0, h: 0 };
     return;
@@ -281,6 +294,16 @@ function measure(node: UiNode, availW: number, availH: number): void {
   const padW = Math.max(0, innerW - node.padding.left - node.padding.right);
   const padH = Math.max(0, innerH - node.padding.top - node.padding.bottom);
 
+  // ★ 自然尺寸（文本量算）在这里落地：**写回 `contentSize`**，而不是另开一条返回值。
+  //   原因有两个：① 下游公式（`Math.max(contentW, node.contentSize.w)`）已经就在这儿，
+  //   多一条并行路径等于让"文本撑开"和"内容撑开"两套规则打架；
+  //   ② `contentSize` 是诊断能看见的东西（编辑器属性面板读它），
+  //   如果量算结果只在函数栈里，排查"这个标签为什么是 0 宽"就只能断点。
+  //   写回的前提是注入口能表态（文本控件 + 有字 + 字体存在）；不能表态时**保持原值**，
+  //   于是配置里手写的 `contentSize` 仍然有效（向后兼容）。
+  const nat = opts.intrinsic?.(node, padW, padH) ?? null;
+  if (nat !== null) node.contentSize = { w: nat.w, h: nat.h };
+
   let contentW = 0;
   let contentH = 0;
 
@@ -292,7 +315,7 @@ function measure(node: UiNode, availW: number, availH: number): void {
     let count = 0;
     for (const c of node.children) {
       if (!c.visible) continue;
-      measure(c, padW, padH);
+      measure(c, padW, padH, opts);
       count++;
       const w = c.measured.w + c.margin.left + c.margin.right;
       const h = c.measured.h + c.margin.top + c.margin.bottom;
@@ -323,7 +346,7 @@ function measure(node: UiNode, availW: number, availH: number): void {
       if (!c.visible) continue;
       // 格子尺寸未知时（没有 cell）用子节点的自然尺寸当格尺寸 —— 但那样每格可能不同，
       // 所以取所有可见子的最大值，保证网格对齐（背包格必须等大）。
-      measure(c, padW, padH);
+      measure(c, padW, padH, opts);
       maxCellW = Math.max(maxCellW, c.measured.w + c.margin.left + c.margin.right);
       maxCellH = Math.max(maxCellH, c.measured.h + c.margin.top + c.margin.bottom);
       n++;
@@ -344,7 +367,7 @@ function measure(node: UiNode, availW: number, availH: number): void {
     //   子节点仍要测一遍：它们的 percent 与自身尺寸要成立。
     for (const c of node.children) {
       if (!c.visible) continue;
-      measure(c, padW, padH);
+      measure(c, padW, padH, opts);
     }
     contentW = 0;
     contentH = 0;

@@ -14,7 +14,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Color, Rect } from "../../src/foundation/math/index.ts";
 import { buildUiTree, layoutTree, UiNode, UiWidget, hitTest } from "../../src/extensions/ui/layout.ts";
-import { buildUiQuads, TextCache, type UiSkin } from "../../src/extensions/ui/widgets.ts";
+import { buildUiQuads, type UiSkin } from "../../src/extensions/ui/widgets.ts";
+import { UiStateStore } from "../../src/extensions/ui/state.ts";
 import { FontRegistry } from "../../src/extensions/ui/font.ts";
 import { applyUiSamples, applyUiTween, isUiTweenProp, UI_TWEEN_PROP } from "../../src/extensions/ui/ui-transition.ts";
 import type { TrackSample } from "../../src/extensions/tween/tween-player.ts";
@@ -27,7 +28,7 @@ function skinOf(): UiSkin {
 /** 跑一遍布局 + 出四边形，返回四边形列表（UI 判据的常规两步）。 */
 function quadsOf(root: UiNode): ReturnType<typeof buildUiQuads>["quads"] {
   layoutTree(root, new Rect(0, 0, 400, 300));
-  return buildUiQuads(root, new FontRegistry(), skinOf(), new TextCache()).quads;
+  return buildUiQuads(root, new FontRegistry(), skinOf(), new UiStateStore()).quads;
 }
 
 function sample(over: Partial<TrackSample> = {}): TrackSample {
