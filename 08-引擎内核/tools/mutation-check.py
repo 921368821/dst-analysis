@@ -5031,6 +5031,52 @@ MUTANTS = [
             ]
         ],
         "test": "tests/extensions/editor-asset-bake.test.ts"
+    },
+    {
+        # 批102：阻塞清单对账的四条规则，一条一组。这些规则今天**永远输出空数组**，
+        # 所以"没在扫"与"扫了没问题"在输出上一样 —— 每组都必须有一条合成坏行去咬它。
+        "name": "M536 死引用不报（改名/删文件之后，清单里那行照样绿）",
+        "file": "tools/blockers-check.mjs",
+        "pairs": [
+            [
+                "    const dead = paths.filter((p) => !exists(p));",
+                "    const dead = [];"
+            ]
+        ],
+        "test": "tests/tools/blockers-check.test.ts"
+    },
+    {
+        "name": "M537 ✅ 的证据检查恒通过（「我记得做完了」也放行）",
+        "file": "tools/blockers-check.mjs",
+        "pairs": [
+            [
+                "    const hit = quotes.some((q) => live.some((p) => readText(p).includes(q)));",
+                "    const hit = true;"
+            ]
+        ],
+        "test": "tests/tools/blockers-check.test.ts"
+    },
+    {
+        "name": "M538 状态词表只剩 ✅（⛔ 外部阻塞 / 🔜 排队 / ❌ 决定不做一律被判成坏行）",
+        "file": "tools/blockers-check.mjs",
+        "pairs": [
+            [
+                'export const BLOCKER_MARKERS = ["✅", "⛔", "🔜", "❌"];',
+                'export const BLOCKER_MARKERS = ["✅"];'
+            ]
+        ],
+        "test": "tests/tools/blockers-check.test.ts"
+    },
+    {
+        "name": "M539 跨行单元格不报（「状态」那一格读不出来，却当它是单行）",
+        "file": "tools/blockers-check.mjs",
+        "pairs": [
+            [
+                'singleLine: t.endsWith("|")',
+                "singleLine: true"
+            ]
+        ],
+        "test": "tests/tools/blockers-check.test.ts"
     }
 ]
 

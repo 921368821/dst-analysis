@@ -42,6 +42,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { EDITOR_DECLARED } from "./editor-declared.mjs";
 import { GAP_HEADING, findStaleGapRows, gapRowCount } from "./gap-check.mjs";
+import { blockerRowCount, findBlockerIssues, pickBlockersDoc } from "./blockers-check.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const QUICK = process.argv.includes("--quick");
@@ -101,6 +102,58 @@ const gapIssues = (() => {
   console.log(`清单对账：§六 缺口行 ${gapRows} 行，过期 ${stale.length} 条`);
   if (GAP_ONLY) process.exit(stale.length === 0 ? 0 : 1);
   return stale;
+})();
+
+/**
+ * ★ 阻塞项对账（批102）：规则见 `tools/blockers-check.mjs` 的文件头。
+ *
+ *   2026-10-27 实测：清单里 C5 / C7 / C10 / C11 四条**早就做完了**却还挂着"没做"
+ *   （C12 是同一形状的第三次）。根因不是"某人忘了改"，而是**这句话没有任何东西在管**：
+ *   一条 ✅ 只要有人写过一次就永久成立 —— 代码变了、文件改名了、判据被删了，
+ *   没有任何一环会去问它一句。
+ *
+ *   ★ 反向自检同样不是可选项：今天它输出 0 条，而"没在扫"与"扫了没问题"在输出上一样。
+ */
+const BLOCKERS_ONLY = process.argv.includes("--blockers-only");
+const blockersFile = pickBlockersDoc(readdirSync(join(ROOT, "docs")));
+const blockerIssues = (() => {
+  if (blockersFile === null) {
+    console.error("✗ docs/ 下没有 BLOCKERS-*.md —— 阻塞清单不在了，这条判据无从对账");
+    process.exit(2);
+  }
+  const docText = readFileSync(join(ROOT, "docs", blockersFile), "utf8");
+  const exists = (rel) => {
+    try {
+      readFileSync(join(ROOT, rel));
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const readText = (rel) => {
+    try {
+      return readFileSync(join(ROOT, rel), "utf8");
+    } catch {
+      return "";
+    }
+  };
+  const SAMPLE = [
+    "# 阻塞项",
+    "",
+    "| # | 项 | 现状 | 验证 | 状态 |",
+    "|---|---|---|---|---|",
+    "| C99 | 合成的坏行（标了已消除却一个文件都没点名） | 现状 | —— | ✅ 已消除 |",
+    "",
+  ].join("\n");
+  const probe = findBlockerIssues({ docText: SAMPLE, exists: () => true, readText: () => "" });
+  if (probe.length !== 1) {
+    console.error("✗ 阻塞项对账打不中合成的坏行 —— 这条判据是摆设（绿着但没在扫）");
+    process.exit(2);
+  }
+  const bad = findBlockerIssues({ docText, exists, readText });
+  console.log(`阻塞项对账：${String(blockerRowCount(docText))} 行，问题 ${String(bad.length)} 条`);
+  if (BLOCKERS_ONLY) process.exit(bad.length === 0 ? 0 : 1);
+  return bad;
 })();
 
 /**
@@ -429,6 +482,11 @@ for (const it of gapIssues) {
     `PROGRESS.md:${it.no} 缺口行点名了已在 CI 里跑的工具（${it.hits.join(", ")}）` +
       " —— 若这条缺口已被它补上，把首格标 ✅ 并写清哪一批补的；若没补上，写清还差什么（工具在跑 ≠ 这件事做完了）",
   );
+}
+
+// 阻塞项对账的结果并入 problems（同一条理由：它在文件开头跑，才能被 `--blockers-only` 单跑）。
+for (const it of blockerIssues) {
+  problems.push(`${blockersFile}:${it.no} ${it.id} ${it.code}：${it.detail}`);
 }
 
 console.log(
