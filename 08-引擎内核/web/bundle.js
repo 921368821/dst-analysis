@@ -22911,6 +22911,102 @@ function grantLoot(scene, ownerId, table) {
   });
 }
 
+// src/extensions/render/dir-frames.ts
+var LETTERS8 = ["e", "se", "s", "sw", "w", "nw", "n", "ne"];
+var LETTERS4 = ["e", "s", "w", "n"];
+function dirLetter(dir, dirs = 8) {
+  const table = dirs === 4 ? LETTERS4 : LETTERS8;
+  const n = table.length;
+  const i = (Math.trunc(dir) % n + n) % n;
+  return table[i];
+}
+function dirFrameName(prefix, dir, dirs = 8) {
+  return `${prefix}_${dirLetter(dir, dirs)}`;
+}
+function resolveDirFrame(has, prefix, dir, dirs = 8) {
+  const directed = dirFrameName(prefix, dir, dirs);
+  if (has(directed)) return directed;
+  if (has(prefix)) return prefix;
+  return null;
+}
+
+// src/extensions/render/dir-sprite.ts
+var DIR_SPRITE_TYPE = "render.dirSprite";
+var DirSprite = class extends Component {
+  /**
+   * 帧名前缀（`rabbit` ⇒ `rabbit_e` / `rabbit_ne`…）。空 = 本组件不生效。
+   *
+   * ★ 前缀与 `mobs` 模板里的 `frame` 是**同一个字符串**，装配时直接抄过来。
+   *   两处各配一次的症状是「生物在走但永远一个姿势」，而画面上完全看不出
+   *   是配置写错还是图没画 —— 见 `spawn-mob.ts` 的装配注释。
+   */
+  prefix = "";
+  /** 方向数（4 或 8）。图集里只画了 4 向就填 4，别拿 8 向去凑邻向。 */
+  dirs = 8;
+  /** 解析缓存：下标 = 扇区号；`null` = 该向没有专属帧，回落到 `prefix` 单帧。 */
+  resolved = [];
+  /** 缓存对应的 key（`prefix/dirs`）。前缀或方向数一变就重算。 */
+  resolvedFor = "";
+  schema = {
+    type: DIR_SPRITE_TYPE,
+    fields: {
+      prefix: FieldType.String,
+      dirs: FieldType.Int
+    },
+    defaults: { prefix: "", dirs: 8 }
+  };
+  /**
+   * 解析 8（或 4）个方向的帧名，前缀没变时直接返回缓存。
+   *
+   * `has` 用函数而不是 `Set`：调用方手里可能是 Map、也可能是惰性集合
+   * （`dir-frames.ts` 的注释里已说明同一条理由）。
+   */
+  resolve(has) {
+    const key = `${this.prefix}/${this.dirs}`;
+    if (this.resolvedFor === key && this.resolved.length > 0) return this.resolved;
+    const n = this.dirs;
+    const out = [];
+    for (let i = 0; i < n; i++) out.push(resolveDirFrame(has, this.prefix, i, n));
+    this.resolved = out;
+    this.resolvedFor = key;
+    return out;
+  }
+  /** 图集变了（热更新）时调用。**故意不自动**：自动重算等于把「图集只读」这个前提藏起来。 */
+  invalidate() {
+    this.resolved = [];
+    this.resolvedFor = "";
+  }
+};
+function registerDirSpriteComponent(registry) {
+  if (!registry.has(DIR_SPRITE_TYPE)) {
+    registry.register(new DirSprite().schema, () => new DirSprite());
+  }
+}
+function syncDirFrames(scene, has) {
+  const stats = { changed: 0, missing: 0, visited: 0 };
+  scene.root.walk((node) => {
+    const ds = node.get(DIR_SPRITE_TYPE);
+    if (ds === void 0 || ds.prefix === "") return;
+    const face = node.get(FACING_TYPE);
+    if (face === void 0) return;
+    const sp = node.get(SPRITE_TYPE);
+    if (sp === void 0) return;
+    stats.visited++;
+    const list = ds.resolve(has);
+    const dir = ds.dirs === 4 ? face.dir4 : face.dir8;
+    const target = list[dir] ?? null;
+    if (target === null) {
+      stats.missing++;
+      return;
+    }
+    if (sp.frame !== target) {
+      sp.frame = target;
+      stats.changed++;
+    }
+  });
+  return stats;
+}
+
 // src/extensions/mobs/mob-template.ts
 var MOB_BAD_TEMPLATE = "MOB.BAD_TEMPLATE";
 function bad3(field, message) {
@@ -22993,12 +23089,15 @@ function spawnMob(scene, template, x, z, opts = {}) {
   const faction = new FactionMember();
   faction.team = tpl.team;
   const facing = new Facing();
+  const dirSprite = new DirSprite();
+  dirSprite.prefix = tpl.frame;
   const attached = [
     [SPRITE_TYPE, sprite],
     [HEALTH_TYPE, health],
     [MOVER_TYPE, mover],
     [FACTION_TYPE, faction],
-    [FACING_TYPE, facing]
+    [FACING_TYPE, facing],
+    [DIR_SPRITE_TYPE, dirSprite]
   ];
   if (tpl.damage > 0) attached.push([ATTACKER_TYPE, attacker]);
   for (const [type, c] of attached) {
@@ -23032,7 +23131,16 @@ function spawnMob(scene, template, x, z, opts = {}) {
       );
     }
   }
-  return ok({ nodeId, template: tpl, sprite, health, attacker: tpl.damage > 0 ? attacker : null, mover, facing });
+  return ok({
+    nodeId,
+    template: tpl,
+    sprite,
+    health,
+    attacker: tpl.damage > 0 ? attacker : null,
+    mover,
+    facing,
+    dirSprite
+  });
 }
 
 // src/extensions/ai/perception.ts
@@ -24128,6 +24236,7 @@ function onUpdate(selfId, dt, tick)
   end
 end
 `;
+var DIRECTION_FRAMES = ["e", "se", "s", "sw", "w", "nw", "n", "ne"];
 var DEMO_FRAMES = [
   { name: "ground", file: "ground.png" },
   // ★ terrain 是**中性灰噪点**，不是草绿：地形块用「灰度帧 × 群系色」着色
@@ -24143,6 +24252,16 @@ var DEMO_FRAMES = [
   //   两边写错一个字的症状是「生物在走但看不见」，而渲染模块只会 warn。
   { name: "rabbit", file: "rabbit.png" },
   { name: "hound", file: "hound.png" },
+  // 批108：八向帧。★ 名字必须与 `dir-frames.ts` 的字母表逐字一致，
+  //   写错一个的症状是「某个方向永远显示默认帧」—— 而且只在朝那个方向时才看得见。
+  ...DIRECTION_FRAMES.map((letter) => ({
+    name: `rabbit_${letter}`,
+    file: `rabbit_${letter}.png`
+  })),
+  ...DIRECTION_FRAMES.map((letter) => ({
+    name: `hound_${letter}`,
+    file: `hound_${letter}.png`
+  })),
   { name: "photo", file: "photo.jpg" }
 ];
 var ASSET_ROOT = "/assets";
@@ -24425,6 +24544,7 @@ async function main() {
       dispatchActions();
       worldState.tasks?.update(tick, dt);
       mobsHandle?.update(tick, dt);
+      if (appRef !== null) syncDirFrames(appRef.scene, hasFrame);
       survivalMod.update(tick, dt);
       feedbackMod.update(tick);
       void scriptMod.update(tick, dt);
@@ -24448,6 +24568,8 @@ async function main() {
     assembled: false
   };
   const atlasFrames = baked === null ? [...buildProceduralAtlas().frames.keys()] : [...baked.atlas.frames.keys()];
+  const frameSet = new Set(atlasFrames);
+  const hasFrame = (frame) => frameSet.has(frame);
   const worldgenMod = {
     id: "world.worldgen",
     init(ctx) {
@@ -24465,6 +24587,7 @@ async function main() {
       registerFactionComponent(scene2.components);
       registerMoverComponent(scene2.components);
       registerFacingComponent(scene2.components);
+      registerDirSpriteComponent(scene2.components);
       registerHungerComponent(scene2.components);
       registerFeedbackComponent(scene2.components);
       if (!scene2.components.has(SPRITE_TYPE)) {

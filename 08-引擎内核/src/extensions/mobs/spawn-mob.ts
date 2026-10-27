@@ -32,6 +32,10 @@
  *    不是一个可选项 —— 没有朝向的生物等于一个永远朝东的贴纸。
  *    它没注册时 `attach` 会硬失败（同 ②），于是「少挂一个组件」不会静默退化成
  *    「画得出来但不会转身」。
+ *
+ * ⑤ **方向帧（`render.dirSprite`）也在这里挂**，前缀直接取 `tpl.frame`。
+ *    没有它，`motion.facing` 与图集里的 `rabbit_e` 之间就没有任何代码连接 ——
+ *    生物会一直显示默认那一张，而所有判据（朝向、帧名契约）各自都是绿的。
  */
 
 import type { Scene } from "../../core/scene/scene.ts";
@@ -42,6 +46,7 @@ import { ATTACKER_TYPE, Attacker } from "../combat/attack.ts";
 import { FACTION_TYPE, FactionMember } from "../combat/faction.ts";
 import { MOVER_TYPE, Mover } from "../ai/move.ts";
 import { FACING_TYPE, Facing } from "../motion/facing.ts";
+import { DIR_SPRITE_TYPE, DirSprite } from "../render/dir-sprite.ts";
 import { SPRITE_TYPE, type Sprite, makeSprite } from "../render/sprite.ts";
 import { type MobTemplate, validateTemplate } from "./mob-template.ts";
 
@@ -64,6 +69,14 @@ export interface MobHandle {
    *   「改了 handle 上的角度、画面不动」就成了新的难查项。
    */
   readonly facing: Facing;
+  /**
+   * 方向帧绑定（`render.dirSprite`）。
+   *
+   * ★ `prefix` 抄的是模板的 `frame`：这两处一旦不同，生物会「在走但永远一个姿势」，
+   *   而 `syncDirFrames` 的判据也照样绿（它拿到的前缀本身是自洽的）。
+   *   装配时强制同源，是把这种错堵在产生的那一刻。
+   */
+  readonly dirSprite: DirSprite;
 }
 
 export interface SpawnMobOptions {
@@ -110,6 +123,9 @@ export function spawnMob(
   const faction = new FactionMember();
   faction.team = tpl.team;
   const facing = new Facing();
+  // 方向帧：前缀 = 模板帧名（见 `MobHandle.dirSprite` 的注释）。
+  const dirSprite = new DirSprite();
+  dirSprite.prefix = tpl.frame;
 
   const attached: Array<[ComponentSchema["type"], Component]> = [
     [SPRITE_TYPE, sprite],
@@ -117,6 +133,7 @@ export function spawnMob(
     [MOVER_TYPE, mover],
     [FACTION_TYPE, faction],
     [FACING_TYPE, facing],
+    [DIR_SPRITE_TYPE, dirSprite],
   ];
   // 见文件头 ③：damage 为 0 ⇒ 不挂攻击组件
   if (tpl.damage > 0) attached.push([ATTACKER_TYPE, attacker]);
@@ -155,7 +172,16 @@ export function spawnMob(
     }
   }
 
-  return ok({ nodeId, template: tpl, sprite, health, attacker: tpl.damage > 0 ? attacker : null, mover, facing });
+  return ok({
+    nodeId,
+    template: tpl,
+    sprite,
+    health,
+    attacker: tpl.damage > 0 ? attacker : null,
+    mover,
+    facing,
+    dirSprite,
+  });
 }
 
 /**

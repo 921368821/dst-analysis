@@ -5480,6 +5480,127 @@ MUTANTS = [
             )
         ],
         "test": "tests/extensions/facing.test.ts"
+    },
+    {
+        "name": "M576 dir-sprite 一律按 dir8 取帧（4 向组件会拿到对角帧）",
+        "file": "src/extensions/render/dir-sprite.ts",
+        "pairs": [
+            (
+                "    const dir = ds.dirs === 4 ? face.dir4 : face.dir8;",
+                "    const dir = face.dir8;"
+            )
+        ],
+        "test": "tests/extensions/dir-sprite.test.ts"
+    },
+    {
+        "name": "M577 每 tick 无条件写帧（同向也写 ⇒ 每帧给渲染标脏）",
+        "file": "src/extensions/render/dir-sprite.ts",
+        "pairs": [
+            (
+                "    if (sp.frame !== target) {",
+                "    if (true) {"
+            )
+        ],
+        "test": "tests/extensions/dir-sprite.test.ts"
+    },
+    {
+        "name": "M578 永远取第 0 项（方向变了、帧永远是东向那张）",
+        "file": "src/extensions/render/dir-sprite.ts",
+        "pairs": [
+            (
+                "    const target = list[dir] ?? null;",
+                "    const target = list[0] ?? null;"
+            )
+        ],
+        "test": "tests/extensions/dir-sprite.test.ts"
+    },
+    {
+        "name": "M579 资产全缺时不记 missing（把「图没烘进来」报成「方向都同步好了」）",
+        "file": "src/extensions/render/dir-sprite.ts",
+        "pairs": [
+            (
+                "      stats.missing++;\n      return;",
+                "      return;"
+            )
+        ],
+        "test": "tests/extensions/dir-sprite.test.ts"
+    },
+    {
+        "name": "M580 帧名缓存键漏掉 dirs（8 向换成 4 向后继续读 8 向的表）",
+        "file": "src/extensions/render/dir-sprite.ts",
+        "pairs": [
+            (
+                "    const key = `${this.prefix}/${this.dirs}`;",
+                "    const key = this.prefix;"
+            )
+        ],
+        "test": "tests/extensions/dir-sprite.test.ts"
+    },
+    {
+        "name": "M581 空前缀也参与同步（没有帧名的实体被当作「图集里什么都没有」）",
+        "file": "src/extensions/render/dir-sprite.ts",
+        "pairs": [
+            (
+                "    if (ds === undefined || ds.prefix === \"\") return;",
+                "    if (ds === undefined) return;"
+            )
+        ],
+        "test": "tests/extensions/dir-sprite.test.ts"
+    },
+    {
+        "name": "M582 装配时把方向帧前缀写成别的模板（抄错字段 ⇒ 永远一个姿势）",
+        "file": "src/extensions/mobs/spawn-mob.ts",
+        "pairs": [
+            (
+                "  dirSprite.prefix = tpl.frame;",
+                "  dirSprite.prefix = \"hound\";"
+            )
+        ],
+        "test": "tests/extensions/dir-sprite.test.ts"
+    },
+    {
+        "name": "M583 生物不挂 render.dirSprite（朝向与图集之间又断了）",
+        "file": "src/extensions/mobs/spawn-mob.ts",
+        "pairs": [
+            (
+                "    [FACING_TYPE, facing],\n    [DIR_SPRITE_TYPE, dirSprite],\n",
+                "    [FACING_TYPE, facing],\n"
+            )
+        ],
+        "test": "tests/extensions/dir-sprite.test.ts"
+    },
+    {
+        "name": "M584 兔子朝后也画眼睛（「背对」与「面向」在图上不再可分）",
+        "file": "tools/make-demo-assets.mjs",
+        "pairs": [
+            (
+                "  const away = dz < -0.4;\n  const hx = Math.round(cx + dx * 2);\n  const hy = Math.round(13 - dz);\n  const lean = Math.round(dx * 3);\n  const earTop = away ? 5 : 2;",
+                "  const away = false;\n  const hx = Math.round(cx + dx * 2);\n  const hy = Math.round(13 - dz);\n  const lean = Math.round(dx * 3);\n  const earTop = away ? 5 : 2;"
+            )
+        ],
+        "test": "tests/extensions/dir-sprite.test.ts"
+    },
+    {
+        "name": "M585 DIRS8 里 e 的 dx 写反（东向那张图其实是朝西的）",
+        "file": "tools/make-demo-assets.mjs",
+        "pairs": [
+            (
+                "  [\"e\", 1, 0],",
+                "  [\"e\", -1, 0],"
+            )
+        ],
+        "test": "tests/extensions/dir-sprite.test.ts"
+    },
+    {
+        "name": "M586 眼睛不随 dx 横移（八向的眼睛全落在正中，方向判据失效）",
+        "file": "tools/make-demo-assets.mjs",
+        "pairs": [
+            (
+                "    const eyeDx = Math.round(dx * 3);",
+                "    const eyeDx = 0;"
+            )
+        ],
+        "test": "tests/extensions/dir-sprite.test.ts"
     }
 ]
 

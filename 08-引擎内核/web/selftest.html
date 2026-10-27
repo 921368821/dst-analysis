@@ -602,7 +602,7 @@ row("★★ 世界里真有会动的活物：生物模块起来了，至少两�
   return mobReadyDone;
 });
 
-row("★★ 每只生物都挂着可见精灵，帧名是 rabbit / hound（不是空帧）", (e) => {
+row("★★ 每只生物都挂着可见精灵，帧名在 rabbit/hound 契约内（不是空帧）", (e) => {
   if (mobSpriteDone !== null) return mobSpriteDone;
   // ★ 这一条抓的是"生物在走但看不见"：spawnMob 不校验帧名（它不认识图集），
   //   而渲染模块遇到缺帧只会 warn + 跳过 —— 统计全对，画面上什么都没有。
@@ -615,10 +615,42 @@ row("★★ 每只生物都挂着可见精灵，帧名是 rabbit / hound（不�
   for (const o of m.list) {
     const sp = e.scene.find(o.id) && e.scene.find(o.id).get("render.sprite");
     if (!sp) bad.push(`#${o.id} 没有精灵`);
-    else if (sp.frame !== "rabbit" && sp.frame !== "hound") bad.push(`#${o.id} 帧=${sp.frame}`);
+    // 批108 起帧名带方向后缀（rabbit_e / hound_ne…），所以判的是**契约形状**而不是两个固定串。
+    else if (!/^(rabbit|hound)(_(e|se|s|sw|w|nw|n|ne))?$/.test(sp.frame)) bad.push(`#${o.id} 帧=${sp.frame}`);
   }
   mobSpriteDone = [bad.length === 0, bad.length ? bad.slice(0, 3).join("；") : `${m.list.length} 只全部有精灵`];
   return mobSpriteDone;
+});
+
+row("★★★ 方向帧真的接上了：每只生物的帧名后缀 == 它自己的朝向", (e) => {
+  // ★ 这一条只有浏览器能验：它同时要求「组件挂上了」「onStep 里真的同步了」
+  //   「图集里真有那一帧」三件事同时成立。Node 判据各自都绿的情况下，
+  //   这三件事仍然可以一件都没接上（帧名一直是默认那张，画面上看不出）。
+  // ★ 扇区**独立重算**，不读 `face.dir8`：读 getter 等于把被测实现又抄一遍。
+  const m = e.mobs();
+  if (m === null || m.list.length === 0) return [false, "没有生物"];
+  const LETTERS = ["e", "se", "s", "sw", "w", "nw", "n", "ne"];
+  const TAU = Math.PI * 2;
+  const bad = [];
+  let checked = 0;
+  for (const o of m.list) {
+    const node = e.scene.find(o.id);
+    if (!node) continue;
+    const face = node.get("motion.facing");
+    const sp = node.get("render.sprite");
+    const ds = node.get("render.dirSprite");
+    if (!face || !sp || !ds) {
+      bad.push(`#${o.id} 缺 ${!face ? "朝向" : ""}${!sp ? "精灵" : ""}${!ds ? "方向帧" : ""}`);
+      continue;
+    }
+    const norm = ((face.angle % TAU) + TAU) % TAU;
+    const dir = Math.round(norm / (TAU / 8)) % 8;
+    const want = `${ds.prefix}_${LETTERS[dir]}`;
+    checked++;
+    if (sp.frame !== want) bad.push(`#${o.id} 帧=${sp.frame} 期望=${want}`);
+  }
+  if (checked === 0 && bad.length === 0) return [false, "一只都没查到"];
+  return [bad.length === 0, bad.length ? bad.slice(0, 3).join("；") : `${checked} 只帧名与朝向一致`];
 });
 
 row("★★ 生物真的在走：700ms 内至少两只换了位置", async (e) => {

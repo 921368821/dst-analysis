@@ -43,6 +43,7 @@ import { Mover, createMoveModule, registerMoverComponent } from "../../src/exten
 import { dirFrameName, resolveDirFrame } from "../../src/extensions/render/dir-frames.ts";
 import { SPRITE_TYPE, Sprite } from "../../src/extensions/render/sprite.ts";
 import { registerAttackerComponent } from "../../src/extensions/combat/attack.ts";
+import { registerDirSpriteComponent } from "../../src/extensions/render/dir-sprite.ts";
 import { registerFactionComponent } from "../../src/extensions/combat/faction.ts";
 import { registerHealthComponent } from "../../src/extensions/combat/health.ts";
 import { spawnMob } from "../../src/extensions/mobs/spawn-mob.ts";
@@ -385,6 +386,7 @@ function mobRegistry(withFacingComp: boolean): ComponentRegistry {
   registerFactionComponent(reg);
   registerMoverComponent(reg);
   if (withFacingComp) registerFacingComponent(reg);
+  registerDirSpriteComponent(reg);
   if (!reg.has(SPRITE_TYPE)) reg.register(new Sprite().schema, () => new Sprite());
   return reg;
 }

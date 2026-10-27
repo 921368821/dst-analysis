@@ -110,6 +110,7 @@ import {
 } from "./extensions/render/feedback.ts";
 import { registerMoverComponent } from "./extensions/ai/move.ts";
 import { registerFacingComponent } from "./extensions/motion/facing.ts";
+import { registerDirSpriteComponent, syncDirFrames } from "./extensions/render/dir-sprite.ts";
 import { HUNGER_TYPE, Hunger, registerHungerComponent } from "./extensions/survival/hunger.ts";
 import { eat as eatKind, normalizeFoodTable } from "./extensions/survival/food.ts";
 import { createSurvivalModule } from "./extensions/survival/survival-module.ts";
@@ -196,6 +197,15 @@ end
  *   就必须让同一份烘焙代码真的走一次有损格式（`decodeImage` 按魔数分发）。
  *   帧名仍叫 `photo`，渲染层不关心它的源格式。
  */
+/**
+ * 8 向字母表。**顺序必须与 `dir-frames.ts` 的 `LETTERS8` 一致**（`0` = 东，顺时针）。
+ *
+ * ★ 这里不 import 那个常量是有原因的：`LETTERS8` 是模块私有的实现细节，
+ *   而这里的用途是「列文件」—— 两处都写死，靠判据（`dir-sprite.test.ts` 会读每张图的眼睛位置）
+ *   来抓顺序错位。若哪天要合并，改的方向是让 `dir-frames.ts` 导出字母表，而不是在这里猜。
+ */
+const DIRECTION_FRAMES = ["e", "se", "s", "sw", "w", "nw", "n", "ne"] as const;
+
 const DEMO_FRAMES = [
   { name: "ground", file: "ground.png" },
   // ★ terrain 是**中性灰噪点**，不是草绿：地形块用「灰度帧 × 群系色」着色
@@ -211,6 +221,16 @@ const DEMO_FRAMES = [
   //   两边写错一个字的症状是「生物在走但看不见」，而渲染模块只会 warn。
   { name: "rabbit", file: "rabbit.png" },
   { name: "hound", file: "hound.png" },
+  // 批108：八向帧。★ 名字必须与 `dir-frames.ts` 的字母表逐字一致，
+  //   写错一个的症状是「某个方向永远显示默认帧」—— 而且只在朝那个方向时才看得见。
+  ...DIRECTION_FRAMES.map((letter) => ({
+    name: `rabbit_${letter}`,
+    file: `rabbit_${letter}.png`,
+  })),
+  ...DIRECTION_FRAMES.map((letter) => ({
+    name: `hound_${letter}`,
+    file: `hound_${letter}.png`,
+  })),
   { name: "photo", file: "photo.jpg" },
 ] as const;
 
@@ -680,6 +700,9 @@ export async function main(): Promise<void> {
       worldState.tasks?.update(tick, dt);
       // 生物：在玩家控制器之后、物理之前（它读的是本 tick 的位置，改的也是位置）
       mobsHandle?.update(tick, dt);
+      // 批108：朝向 → 帧名。**必须排在生物之后**：它读的是本 tick 已经转过的角度，
+      // 排在前面就会稳定慢一 tick（快跑时看得出来：转弯的那一帧还是旧朝向）。
+      if (appRef !== null) syncDirFrames(appRef.scene, hasFrame);
       // 生存：在场所有带 `game.hunger` 的实体（目前只有玩家）各推进一 tick。
       // ★ 放在生物之后：饿死是"这一 tick 的最后一件事"，免得同一 tick 里
       //   "先被判定饿死、再被打"这种顺序歧义。
@@ -724,6 +747,13 @@ export async function main(): Promise<void> {
   const atlasFrames: readonly string[] =
     baked === null ? [...buildProceduralAtlas().frames.keys()] : [...baked.atlas.frames.keys()];
 
+  /**
+   * 方向帧解析用的 `has`。**只在这里建一次**：图集在 boot 之后只读，
+   * 每 tick 重建一个 Set 是纯浪费（生物数 × 每帧）。
+   */
+  const frameSet = new Set(atlasFrames);
+  const hasFrame = (frame: string): boolean => frameSet.has(frame);
+
   const worldgenMod: IModule = {
     id: "world.worldgen",
     init(ctx: ModuleContext): Result<void, EngineError> {
@@ -745,6 +775,7 @@ export async function main(): Promise<void> {
       registerFactionComponent(scene.components);
       registerMoverComponent(scene.components);
       registerFacingComponent(scene.components);
+      registerDirSpriteComponent(scene.components);
       // 批67：饱食度。**不注册的后果是 READ 档里这一项静默丢失**（读回来 100，
       // 玩家以为自己没饿过）—— 与背包那一条同一个坑。
       registerHungerComponent(scene.components);

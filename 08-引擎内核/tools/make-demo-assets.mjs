@@ -14,6 +14,7 @@
  *
  * 用法：node tools/make-demo-assets.mjs
  * 产物：web/assets/{tree,rock,player,berry,ground,rabbit,hound}.png
+ *       ＋ 批108 的 16 张方向帧 web/assets/{rabbit,hound}_{e,se,s,sw,w,nw,n,ne}.png
  *
  * ★ `rabbit` / `hound` 是批66 加的：世界的"活物"必须有贴图，
  *   复用 `player` 或 `berry` 会让画面上分不清哪只是兔子 ——
@@ -25,7 +26,14 @@ import { mkdirSync, writeFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join, dirname } from "node:path";
 
-const OUT = join(dirname(fileURLToPath(import.meta.url)), "..", "web", "assets");
+/**
+ * 输出目录。
+ *
+ * ★ 支持用环境变量指到临时目录：`tests/extensions/dir-sprite.test.ts` 会跑一遍生成器
+ *   到临时目录、与已提交的图**逐字节比对**。没有这个入口，「生成器改坏了」就永远
+ *   发现不了 —— 判据读的是仓库里那批 PNG，而它们不会自己跟着生成器变。
+ */
+const OUT = process.env.DEMO_ASSETS_OUT ?? join(dirname(fileURLToPath(import.meta.url)), "..", "web", "assets");
 
 // ------------------------------------------------------------------ CRC32
 
@@ -274,6 +282,107 @@ function makeHound() {
   return c;
 }
 
+
+// ------------------------------------------------------------------ 八向帧（批108）
+
+/**
+ * 8 向的**单位方向**，下标 = `dirIndex(angle, 8)` 的扇区号（`0` = 东，顺时针，y 向下为正）。
+ *
+ * ★ 这张表的下标顺序必须与 `src/extensions/render/dir-frames.ts` 的 `LETTERS8`
+ *   逐项一致 —— 两处各写一份是刻意的：工具链不 import 引擎源码（`tools/` 是纯 node，
+ *   没有 TS 转译），但**顺序错了会被判据抓住**：`tests/extensions/dir-sprite.test.ts`
+ *   会逐帧读图上「眼睛在左还是右」，与这里的 `dx` 对账。
+ *   只靠肉眼对齐的话，症状是「怪往西走、显示朝东」—— 画面看着完全正常，没人能报出来。
+ */
+const DIRS8 = [
+  ["e", 1, 0],
+  ["se", 0.7071, 0.7071],
+  ["s", 0, 1],
+  ["sw", -0.7071, 0.7071],
+  ["w", -1, 0],
+  ["nw", -0.7071, -0.7071],
+  ["n", 0, -1],
+  ["ne", 0.7071, -0.7071],
+];
+
+/** 眼睛颜色（判据按这个颜色找「眼睛像素」，所以它是契约的一部分，不能随手改）。 */
+const EYE = [40, 40, 44];
+const HOUND_EYE = [240, 210, 90];
+
+/**
+ * 兔子朝 `(dx, dz)` 的一帧。
+ *
+ * 画法只依赖三个量，方向才**可判**：
+ *   · 头相对身体横向偏移 `dx * 2`（往哪边看，头往哪边偏）；
+ *   · 耳朵整体横移 `dx * 3`（侧身时耳朵跟着甩到一侧）；
+ *   · 眼睛——朝后（`dz < -0.4`）**一只都不画**，改画尾巴；朝前（`dz > 0.4`）画两只；
+ *     纯侧面画一只，落在头偏向的那一侧。
+ * 这三条正是 `dir-sprite` 判据要读的东西：方向如果画错了，眼睛的质心就会在错误的一侧。
+ */
+function rabbitAt(dx, dz) {
+  const c = new Canvas(28, 30, 4);
+  const cx = 13;
+  const cy = 21;
+  const away = dz < -0.4;
+  const hx = Math.round(cx + dx * 2);
+  const hy = Math.round(13 - dz);
+  const lean = Math.round(dx * 3);
+  const earTop = away ? 5 : 2;
+  const earH = away ? 9 : 12;
+  // 耳朵（先画，身体压在上面 ⇒ 朝后时耳朵「藏到脑后」）
+  c.rect(8 + lean, earTop, 3, earH, [236, 232, 226]);
+  c.rect(13 + lean, earTop - 1, 3, earH + 1, [236, 232, 226]);
+  c.rect(9 + lean, earTop + 2, 1, earH - 5, [226, 170, 176]);
+  c.rect(14 + lean, earTop + 1, 1, earH - 4, [226, 170, 176]);
+  // 身体 + 头
+  c.disc(cx, cy, 9, [242, 238, 232]);
+  c.disc(hx, hy, 6, [250, 246, 240]);
+  if (away) {
+    // 朝后：没有脸，只有尾巴（尾巴是「背对」唯一可靠的视觉线索）
+    c.disc(cx - lean, 25, 3, [255, 255, 255]);
+  } else {
+    const eyeDx = Math.round(dx * 3);
+    if (dz > 0.4) {
+      c.rect(hx - 3 + eyeDx, hy - 1, 2, 2, EYE);
+      c.rect(hx + 3 + eyeDx, hy - 1, 2, 2, EYE);
+      c.rect(hx + eyeDx, hy + 2, 2, 1, [226, 170, 176]);
+    } else {
+      c.rect(hx + (dx >= 0 ? 4 : -4), hy - 1, 2, 2, EYE);
+    }
+  }
+  return c;
+}
+
+/** 猎犬朝 `(dx, dz)` 的一帧。与兔子同一套方向语义，只是尖耳换成长三角、眼睛换黄色。 */
+function houndAt(dx, dz) {
+  const c = new Canvas(34, 36, 4);
+  const cx = 17;
+  const cy = 23;
+  const away = dz < -0.4;
+  const hx = Math.round(cx + dx * 2);
+  const hy = Math.round(13 - dz);
+  const lean = Math.round(dx * 3);
+  const earY = away ? 8 : 5;
+  c.triangle(9 + lean, earY, 3 + lean, earY - 2, 11 + lean, earY + 11, [78, 58, 42]);
+  c.triangle(25 + lean, earY, 31 + lean, earY - 2, 23 + lean, earY + 11, [78, 58, 42]);
+  c.disc(cx, cy, 11, [96, 74, 56]);
+  c.disc(hx, hy, 8, [112, 88, 66]);
+  if (away) {
+    c.disc(cx - lean, 27, 3, [70, 52, 38]);
+  } else {
+    const eyeDx = Math.round(dx * 3);
+    if (dz > 0.4) {
+      c.rect(hx - 4 + eyeDx, hy - 1, 2, 3, HOUND_EYE);
+      c.rect(hx + 2 + eyeDx, hy - 1, 2, 3, HOUND_EYE);
+      c.disc(hx + eyeDx, hy + 5, 3, [40, 32, 28]);
+    } else {
+      c.rect(hx + (dx >= 0 ? 5 : -5), hy - 1, 2, 3, HOUND_EYE);
+      c.disc(hx + (dx >= 0 ? 6 : -6), hy + 4, 2, [40, 32, 28]);
+    }
+  }
+  return c;
+}
+
 // ------------------------------------------------------------------ main
 
 const SPEC = [
@@ -283,7 +392,19 @@ const SPEC = [
   { name: "berry", make: makeBerry, filter: 3 },
   { name: "ground", make: makeGround, filter: 0 },
   { name: "rabbit", make: makeRabbit, filter: 1 },
+  // 批108：方向帧。过滤类型按**方向**轮转（8 个方向刚好把 None..Paeth 各走一遍），
+  // 这样一遍生成就把 PNG 编码器的五条滤波路径在「新增的这 16 张」上又验了一次。
+  ...DIRS8.map(([letter, dx, dz], i) => ({
+    name: `rabbit_${letter}`,
+    make: () => rabbitAt(dx, dz),
+    filter: i % 5,
+  })),
   { name: "hound", make: makeHound, filter: 4 },
+  ...DIRS8.map(([letter, dx, dz], i) => ({
+    name: `hound_${letter}`,
+    make: () => houndAt(dx, dz),
+    filter: (i + 2) % 5,
+  })),
 ];
 
 mkdirSync(OUT, { recursive: true });
