@@ -102,7 +102,7 @@ import { createControllerModule } from "./extensions/input/player-controller.ts"
 import type { InputSnapshot } from "./platform/input/device.ts";
 import { createUndoStack, type EditorOp, type UndoOutcome } from "./extensions/editor/undo-stack.ts";
 import { HttpFileSystem } from "./backends/fs-http/fs.ts";
-import { bakeAtlasFromImages, type BakeImage } from "./extensions/editor/asset-bake.ts";
+import { bakeAtlasFromImages, isUiPage, type BakeImage } from "./extensions/editor/asset-bake.ts";
 import {
   EDIT_BAD_ASSET_LIST,
   catalogFromManifest,
@@ -1918,7 +1918,9 @@ async function prepareAssets(): Promise<AtlasChoice> {
   const bare = catalogFromManifest(text.value);
   if (!bare.ok) return fail(`${bare.error.code} ${bare.error.message}`);
 
-  const textures = bare.value.entries.filter((e) => e.kind === "texture");
+  // ★ UI 页不进**世界**图集（理由见 `isUiPage` 的注释：UV 是相对自己那张图算的，
+  //   而且中文字形图 1024×2092 一张就超过 maxSize，会把整个编辑器打成程序化兜底）
+  const textures = bare.value.entries.filter((e) => e.kind === "texture" && !isUiPage(e.name));
   const images: BakeImage[] = [];
   const io: string[] = [];
   for (const e of textures) {

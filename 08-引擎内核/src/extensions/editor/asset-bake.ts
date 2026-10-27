@@ -42,6 +42,26 @@ import { decodeImage } from "../asset-import/decode/image.ts";
 /** 一张都没解出来 —— 调用方应当回落到程序化图集，并把这件事显示出来。 */
 export const EDIT_BAKE_EMPTY = "EDIT.BAKE_EMPTY";
 
+/**
+ * 这张图是**UI 页**（字形图 / 皮肤图），不是世界帧。
+ *
+ * ★★ 为什么要在烘图集之前挡掉它们（批101 的一次真实事故）：
+ *   UI 的图是**另一个模块的纹理页**，它们的 UV 是相对**自己那张图**算的
+ *   （BMFont 里写的就是"第几个格子 / 这张图多宽"）。塞进世界图集之后，
+ *   这些 UV 全部指向错误的位置 —— 面板上会出现一堆"星星点点的碎片"帧，
+ *   而它们是**能加进场景**的（有帧名就有帧），造出来的精灵显示的是半截汉字。
+ *   更要命的是尺寸：中文字形图是 1024×2092，一张就超过图集上限（2048），
+ *   于是 `buildAtlasFromSources` 直接失败 ⇒ **整个编辑器退回程序化假贴图**
+ *   （10 张真图全都没进图集，而画面上看起来一切正常）。
+ *
+ * ★ 用名字前缀判定而不是"清单里另开一个字段"：名字前缀是**约定**，
+ *   改了名就不会被漏掉（`ui-` 开头的图没有任何理由进世界图集）；
+ *   而清单字段要靠人填对，填错了照样炸。
+ */
+export function isUiPage(name: string): boolean {
+  return name.startsWith("ui-");
+}
+
 export interface BakeImage {
   /** 帧名（`tree.png` → `tree`）。 */
   readonly name: string;

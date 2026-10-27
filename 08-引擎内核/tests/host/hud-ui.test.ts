@@ -20,7 +20,13 @@ import { fileURLToPath } from "node:url";
 import { Rect } from "../../src/foundation/math/index.ts";
 import { parseBmFont, type BitmapFont } from "../../src/extensions/ui/font.ts";
 import { layoutText } from "../../src/extensions/ui/text-layout.ts";
-import { createHudUi, buildSkin, HUD_LAYOUT, type HudUiOptions, type UiSkinJson } from "../../src/host/hud-ui.ts";
+import {
+  createHudUi,
+  buildSkin,
+  HUD_LAYOUT,
+  type HudUiOptions,
+  type UiSkinJson,
+} from "../../src/host/hud-ui.ts";
 import {
   bagEmptyLine,
   bagFooter,
@@ -279,4 +285,70 @@ test("★ 面板里的每一句文案都画得出来（含底栏与空包提示�
 
 test("★ hudLine 与 hudRows 同源：拼起来必须**逐字**相同（两份格式化逻辑分叉会立刻红）", () => {
   assert.equal(hudLine(WORST), hudRows(WORST).join(" | "));
+});
+
+// ------------------------------------------------------------------ ⑥ 中文（批101）
+
+/** 与宿主的 `ITEM_LABEL` 同一张表（宿主那份在 `browser-entry.ts`，这里抄一份只做判据用）。 */
+const CJK_LABEL: Record<string, string> = {
+  tree: "木头",
+  rock: "石头",
+  berry: "浆果",
+  flint: "燧石",
+  grass_tuft: "草",
+  reed: "芦苇",
+  meat: "肉",
+  hide: "皮",
+  cooked_meat: "熟肉",
+  rope: "绳子",
+};
+
+function realCjkFont(): BitmapFont {
+  const text = readFileSync(join(ROOT, "web", "assets", "ui-font-cjk.fnt"), "utf8");
+  const r = parseBmFont(text, { id: "unifont-cjk-16-subset", pageBase: 2 });
+  if (!r.ok) throw new Error(`ui-font-cjk.fnt 解析失败：${r.error.message}`);
+  return r.value;
+}
+
+/**
+ * ★★ 这条守的是**接线**：字体资产做好了不等于它被用上了。
+ *   三件事同时成立才算接上：行文本是中文、行高按 16px 字体算、量出来的宽度放得进行宽。
+ *   ★ 第三条是当初"中文不许进 UI"的原始理由（标签溢出边框一点点，只在特定行才出现），
+ *     所以现在必须反过来被守住 —— 否则只是换一种方式坏掉。
+ */
+test("★★ 中文字体接进背包：物品名是中文、行高按 18px 算、宽度放得进行宽", () => {
+  const cjk = realCjkFont();
+  const hud = makeHud({
+    cjkFont: cjk,
+    cjkPage: fakePage("ui-font-cjk.png"),
+    labelOf: (kind: string): string => CJK_LABEL[kind] ?? kind,
+  });
+  hud.setBag(
+    Object.keys(CJK_LABEL).map((kind, i) => ({ kind, count: i + 1 })),
+    0,
+  );
+  assert.equal(hud.bagRowTexts[0], "1. 木头 x1");
+  assert.equal(hud.bagRowTexts[9], "10. 绳子 x10");
+
+  const inner = 268 - HUD_LAYOUT.pad * 2;
+  for (const row of hud.bagRowTexts) {
+    const l = layoutText(cjk, row);
+    assert.deepEqual([...l.missing], [], `行里有中文字体画不出的字（会静默变空白）：${row}`);
+    assert.ok(l.width <= inner, `行宽 ${l.width.toFixed(1)}px 超过内区 ${String(inner)}px：${row}`);
+  }
+
+  // ★ 看的是**节点自己的尺寸**，不是布局矩形：Node 里没有 device，`sync()` 不跑，
+  //   布局结果是空的。而这条要守的正是"行高是按哪张字体算的"，那是节点的 `size`。
+  assert.equal(
+    hud.module.root.find("bag.row0")?.size.h,
+    cjk.lineHeight + 4,
+    "行高没跟着 16px 字走 —— 18 高的字塞进 14 高的行会上下各溢出 2px",
+  );
+});
+
+test("★ 没有中文字体时一切照旧（降级不是崩溃，也不是中文变空白）", () => {
+  const hud = makeHud();
+  hud.setBag([{ kind: "grass_tuft", count: 25 }], 0);
+  assert.deepEqual(hud.bagRowTexts, ["1. grass tuft x25"]);
+  assert.equal(hud.module.root.find("bag.row0")?.size.h, realFont().lineHeight + 4, "没有中文时行高不该变");
 });

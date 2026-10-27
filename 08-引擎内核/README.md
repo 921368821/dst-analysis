@@ -20,9 +20,9 @@
 
 ```bash
 npm install
-npm run check            # tsc（strict）+ 2025 条判据 + 覆盖率闸门 <!-- n:tests -->
+npm run check            # tsc（strict）+ 2044 条判据 + 覆盖率闸门 <!-- n:tests -->
 npm run audit:errors     # 拒绝路径审计：JPEG 解码器 94 条 fail 分支里哪些真的被触发过
-npm run audit:mutation   # 变异校验：522 组注入，判据必须逐个变红 <!-- n:mutants -->
+npm run audit:mutation   # 变异校验：535 组注入，判据必须逐个变红 <!-- n:mutants -->
 npm run audit:docs       # 文档数字对账：判据/变异/测试文件/浏览器自检/JPEG 金标
 npm run test:browser     # 无头浏览器跑 selftest.html 的 46 条 <!-- n:browser -->（无浏览器时退出码 2 = 跳过）
 npm run ci               # 全部 14 道闸门 <!-- n:steps -->（含浏览器自检/外部金标/变异；--fast 跳过慢的那几步）
@@ -123,18 +123,24 @@ L0 foundation  Result · math · log · event · memory · time · random
 
 ## 当前状态
 
-- ✅ L0–L3 完整；**12 个后端** <!-- n:backends -->（gfx×2 / audio×2 / input×2 / fs×4（mem + 真实盘 + 只读 http + localStorage）/ script×2）；**2025 条判据全绿** <!-- n:tests -->（变异 522 组全被抓住 <!-- n:mutants -->）
+- ✅ L0–L3 完整；**12 个后端** <!-- n:backends -->（gfx×2 / audio×2 / input×2 / fs×4（mem + 真实盘 + 只读 http + localStorage）/ script×2）；**2044 条判据全绿** <!-- n:tests -->（变异 535 组全被抓住 <!-- n:mutants -->）
 - ✅ 2D 渲染管线（相机/精灵/批处理/确定性图集合成）· 2.5D 物理（空间哈希 + 圆/盒推出 + **连续碰撞扫掠**，[ADR-0013](docs/adr/0013-continuous-collision.md)：一拍之内的位移夹到接触点之前，高速体不再穿过薄墙）· 确定性存档 · 跳时间结算
 - ✅ **UI + 位图字体**：BMFont 解析 → 纯函数排版（量宽与画宽同源）→ 三模式视口（fit/fill/expand）
   → 锚点 + Row/Column/Grid → 九宫格控件（Group/Panel/Image/Label/Button/Progress）→ 捕获 + 冒泡。
   **与 2.5D 世界共用一次 pass、同一个批处理器、只换一个相机** ⇒ UI 盖住世界靠同 pass 内后画，不靠调 z。
   **宿主真的在用**：HUD 三行 + 饱食度条 + 背包面板都是 UI 节点（批71），点行走真实指针路由；
-  字体资产由 `tools/make-ui-assets.mjs` 生成（96 个手写 5×7 位图字形，`--check` 可复现）。
+  字体资产由 `tools/make-ui-assets.mjs` 生成、`--check` 逐字节可复现：ASCII 那张是 96 个手写 5×7 位图字形，
+  **中文那张是 `ui-font-cjk.{png,fnt}`**（[ADR-0014](docs/adr/0014-vendored-font-asset.md)）——
+  GNU Unifont 18.0.01（OFL-1.1）**原样入库** `vendor/unifont/`，按 `tools/cjk-charset.txt` 子集化成 7540 字
+  （GB2312 全集 + 可打印 ASCII + 682 符号），`tools/bdf.mjs` **直读 BDF 位图** ⇒ 生成链里没有光栅化器，
+  所以「同输入必同字节」才成立。背包面板的中文品名由它渲染，行高跟着字体走（14 → 22）。
   **跨帧状态位**（批99，[ADR-0012](docs/adr/0012-ui-crossframe-state.md)）：派生（文本量算）与权威（滚动偏移）
   放同一张 `UiStateStore`、**不共用一个 `clear()`**、键用 `uid`（从不复用）、不进存档；
   于是标签能按文本自己撑开（绘制与量算共用一个换行宽），补间有了多关键帧轨道
   （easing 挂**到达**那一帧）。仍缺：滚动容器、富文本/避头尾/RTL、多轨混合
-  （107 条判据 + 14 组变异；字体只有 ASCII；缺富文本/避头尾/RTL/滚动容器/拖拽/动画过渡）
+  （UI 家族 **173 条判据** —— `tests/extensions/ui-*.test.ts` 11 个文件 + `tests/host/hud*.test.ts` 2 个文件的
+  `test()` 总数，可随时重算；此前这里写「107 条」，是批71 的快照，之后批99（+34）与批101（+17）都没回来改。
+  仍缺：富文本/避头尾/RTL、滚动容器、拖拽、动画过渡）
 - ✅ **补间（P0-2 第一层）**：31 条命名缓动（端点/方向/中心对称三组性质判据）+ 标量补间
   （构造校验 + 纯函数采样；`delay` 只首次生效、`speed` 只缩放与倒放、`yoyo` 与 `speed<0` 异或）
   （38 条判据 + 10 组变异；属性轨道/混合/`TweenPlayer` 组件仍无，见 `docs/adr/0010-tween-system.md`）
@@ -167,7 +173,7 @@ L0 foundation  Result · math · log · event · memory · time · random
     + 8 例无损 9..16 位（liblj92 编解，**逐样本相等**）+ 8 位灰度（liblj92 与 Pillow 双外部对照）
     + **12 例 ffmpeg 独立金标**（`tests/fixtures/jpeg/ff/`，12 位 DCT 的第三方参照：灰度差 0..2 级、RGB 差 4 级）
   · 仍然没有外部实现的部分（分层、SOF11）用更强的内部判据：
-    四种有损过程解出**逐字节相同**像素、无损回环 max=0、12 位跨精度锚定到 8 位金标；522 组变异全被抓住 <!-- n:mutants -->
+    四种有损过程解出**逐字节相同**像素、无损回环 max=0、12 位跨精度锚定到 8 位金标；535 组变异全被抓住 <!-- n:mutants -->
   · 证据等级与代价见 [ADR-0009](docs/adr/0009-jpeg-decoder.md)
 - ✅ 浏览器宿主能跑，且**画面用真实资产**：`web/assets/` 5 张 PNG + **1 张 JPEG** 走完整导入链
   烘焙成图集（WASD + 砍树 + 存读档 + HUD + Lua 驱动的浆果漂浮 + 4 块 JPEG 立牌）

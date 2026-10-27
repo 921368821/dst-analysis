@@ -67,18 +67,22 @@ function buildJson(res: CliResult): { manifest: string; assets: number; bundles:
   return JSON.parse(line) as { manifest: string; assets: number; bundles: number; out: string };
 }
 
-test("真跑一次：web/assets 打成 1 个包，写出 manifest.txt 与 .pack", () => {
+test("真跑一次：web/assets 打成包，写出 manifest.txt 与 .pack", () => {
   const out = tmp("real-out");
   try {
     const res = cli(["--src", "web/assets", "--out", out]);
     assert.equal(res.status, 0, res.stderr);
     const j = buildJson(res);
     assert.ok(j.assets >= 6, `只打进去 ${String(j.assets)} 个资产`);
-    assert.equal(j.bundles, 1);
+    // ★ 包数**不再是 1**，而且不该写死：打包器按 64KB 一层切，而资产里现在有
+    //   1MB 级的字体（`ui-font-cjk.fnt` 710KB / `.png` 344KB，批101 加的）——
+    //   单个资产本身超过 64KB 时它自成一包。写死 1 会让"资产变大"变成一次假红，
+    //   而这条判据真正要守的是"包的个数与产物文件个数对得上、manifest 指得到它们"。
+    assert.ok(j.bundles >= 1, `一个包都没打出来`);
     assert.match(j.manifest, /^[0-9a-f]{16}$/);
     const files = readdirSync(out).sort();
     assert.ok(files.includes("manifest.txt"));
-    assert.equal(packs(out).length, 1);
+    assert.equal(packs(out).length, j.bundles, "磁盘上的 .pack 个数与 manifest 声明的不一致");
     assert.ok(readFileSync(join(out, "manifest.txt"), "utf8").includes(`manifest ${j.manifest}`));
   } finally {
     rmSync(out, { recursive: true, force: true });

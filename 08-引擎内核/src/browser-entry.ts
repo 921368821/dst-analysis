@@ -227,8 +227,19 @@ const ASSET_ROOT = "/assets";
  */
 const UI_FILES = ["ui-font.fnt", "ui-font.png", "ui-skin.png", "ui-skin.json"] as const;
 
+/**
+ * 中文字形资产。**可选**：读不到时 UI 照建，只是背包行回到 `kind` 的 ASCII 形式。
+ *
+ * ★ 为什么单独一张表而不是塞进 `UI_FILES`：那张表是"缺一个就整体降级"的语义
+ *   （`uiFilesOk`），而中文是**增强**。把两者混在一起，后果是"删掉中文资产 →
+ *   整个 HUD 退回 DOM"，而那正好是这批之前的状态 —— 降级路径会掩盖掉真正的缺失。
+ */
+const UI_CJK_FILES = ["ui-font-cjk.fnt", "ui-font-cjk.png"] as const;
+
 /** 字体在图集/注册表里的 id。写死一个常量：节点 props 若不写 `fontId` 也会落到它（唯一字体）。 */
 const UI_FONT_ID = "ui5x7";
+/** 中文字体的 id。背包行靠它选字体（`props.fontId`），也是 `.fnt` 的 `info face` 名。 */
+const UI_CJK_FONT_ID = "unifont-cjk-16-subset";
 
 interface BakedAtlas {
   readonly atlas: AtlasData;
@@ -239,6 +250,10 @@ interface BakedAtlas {
 
 interface BakedUi {
   readonly font: BitmapFont;
+  /** 中文字体（页 2）。读不到就是 undefined —— 背包行退回 ASCII，UI 照常。 */
+  readonly cjkFont?: BitmapFont;
+  /** 中文字形图（页 2）。与 `cjkFont` 同生共死：只有字体没有图，UV 全指向空白。 */
+  readonly cjkPage?: { name: string; width: number; height: number; pixels: Uint8Array };
   /** 字形图（页 0）。 */
   readonly fontPage: { name: string; width: number; height: number; pixels: Uint8Array };
   /** 皮肤图（页 1）。 */
@@ -306,6 +321,15 @@ async function bakeAtlasFromAssets(): Promise<BakedAtlas | null> {
       }
       const w = await fs.writeBinary(`${ASSET_ROOT}/${file}`, r.value);
       if (!w.ok) uiFilesOk = false;
+    }
+    // 中文那两件照同样一条管线进库，但**失败不算 UI 失败**（见 `UI_CJK_FILES` 的理由）
+    for (const file of UI_CJK_FILES) {
+      const r = await remote.readBinary(file);
+      if (!r.ok) {
+        console.warn(`[ui] 读不到 ${file}：${r.error.code} ${r.error.message}（背包行会用英文 kind）`);
+        continue;
+      }
+      await fs.writeBinary(`${ASSET_ROOT}/${file}`, r.value);
     }
 
     const report = await pipeline.run(ASSET_ROOT);
@@ -384,11 +408,13 @@ async function loadTextureBytes(db: AssetDatabase, file: string): Promise<Uint8A
  *   默认值会让"字体注册了但找不到"变成谜。
  */
 async function loadUiAssets(db: AssetDatabase, logger: Logger): Promise<BakedUi | null> {
-  const [fnt, skin, fontPngBytes, skinPngBytes] = await Promise.all([
+  const [fnt, skin, fontPngBytes, skinPngBytes, cjkFnt, cjkPngBytes] = await Promise.all([
     loadText(db, "ui-font.fnt"),
     loadText(db, "ui-skin.json"),
     loadTextureBytes(db, "ui-font.png"),
     loadTextureBytes(db, "ui-skin.png"),
+    loadText(db, "ui-font-cjk.fnt"),
+    loadTextureBytes(db, "ui-font-cjk.png"),
   ]);
   if (fnt === null || skin === null || fontPngBytes === null || skinPngBytes === null) {
     logger.channel("ui").warn("UI 资产不齐（.fnt/.json/两张 png），HUD 会退回 DOM");
@@ -418,13 +444,51 @@ async function loadUiAssets(db: AssetDatabase, logger: Logger): Promise<BakedUi 
     height: h,
     pixels,
   });
+  // 中文那两件是可选的。**字体与图必须同时成立**：只有 .fnt 没有 png ⇒ UV 全指向空白，
+  // 画面上是"有字形位置、没有字形"，比"没有中文"更难看，也更难查。
+  let cjkFont: BitmapFont | undefined;
+  let cjkPage: BakedUi["cjkPage"];
+  if (cjkFnt === null || cjkPngBytes === null) {
+    logger.channel("ui").warn("没有中文字形资产（背包行用英文 kind）");
+  } else {
+    const r = parseBmFont(cjkFnt, { id: UI_CJK_FONT_ID, pageBase: 2 });
+    const dec = decodeImage(cjkPngBytes);
+    if (!r.ok) logger.channel("ui").warn(`中文字体解析失败：${r.error.code} ${r.error.message}（背包行用英文 kind）`);
+    else if (!dec.ok) logger.channel("ui").warn(`中文字形图解码失败：${dec.error.code}（背包行用英文 kind）`);
+    else {
+      cjkFont = r.value;
+      cjkPage = page("ui-font-cjk.png", dec.value.width, dec.value.height, dec.value.pixels);
+    }
+  }
+
   return {
     font: fontR.value,
+    ...(cjkFont === undefined || cjkPage === undefined ? {} : { cjkFont, cjkPage }),
     fontPage: page("ui-font.png", fontDec.value.width, fontDec.value.height, fontDec.value.pixels),
     skinPage: page("ui-skin.png", skinDec.value.width, skinDec.value.height, skinDec.value.pixels),
     skinJson: json,
   };
 }
+
+/** 物品种类 → 显示名。**呈现决定**，所以留在宿主（引擎只认 `kind` 字符串）。
+ *
+ * ★ 放在**模块级**而不是 `main()` 里面：`createHudUi` 的 `labelOf` 是个闭包，
+ *   在 `main()` 里声明 `const` 会让它落在 TDZ 里 —— 今天恰好没被提前调用，
+ *   但「恰好」不是保证（背包第一次打开发生在哪一帧不由这里决定）。
+ *   中文标签生效的前提是**中文字体读到了**，这个判断在 `createHudUi` 的调用点上。 */
+const ITEM_LABEL: Record<string, string> = {
+  tree: "木头",
+  rock: "石头",
+  berry: "浆果",
+  flint: "燧石",
+  grass_tuft: "草",
+  reed: "芦苇",
+  // 批65 起战利品会进包；批67 起肉还能吃 —— 没有标签的话 HUD 里显示的是英文 kind
+  meat: "肉",
+  hide: "皮",
+  cooked_meat: "熟肉",
+  rope: "绳子",
+};
 
 // ---------------------------------------------------------------- main
 
@@ -515,6 +579,15 @@ export async function main(): Promise<void> {
   if (bakedUi !== null) {
     const r = createHudUi({
       font: bakedUi.font,
+      // 中文在才传：`labelOf` 与字体是**同一件事的两半** —— 传了中文标签却没有字形，
+      // 行文本会变成一串空白（`missingAdvance` 还占着宽度），而日志里一个字都不会响。
+      ...(bakedUi.cjkFont === undefined || bakedUi.cjkPage === undefined
+        ? {}
+        : {
+            cjkFont: bakedUi.cjkFont,
+            cjkPage: bakedUi.cjkPage,
+            labelOf: (kind: string): string => ITEM_LABEL[kind] ?? kind,
+          }),
       skinJson: bakedUi.skinJson,
       fontPage: bakedUi.fontPage,
       skinPage: bakedUi.skinPage,
@@ -1556,20 +1629,6 @@ export async function main(): Promise<void> {
     );
   }
 
-  /** 物品种类 → 显示名。**呈现决定**，所以留在宿主（引擎只认 `kind` 字符串）。 */
-  const ITEM_LABEL: Record<string, string> = {
-    tree: "木头",
-    rock: "石头",
-    berry: "浆果",
-    flint: "燧石",
-    grass_tuft: "草",
-    reed: "芦苇",
-    // 批65 起战利品会进包；批67 起肉还能吃 —— 没有标签的话 HUD 里显示的是英文 kind
-    meat: "肉",
-    hide: "皮",
-    cooked_meat: "熟肉",
-    rope: "绳子",
-  };
 
   /**
    * 每采集一个资源点给几个物品。**产品决定，留在宿主** —— 引擎的 `pickupNearby`

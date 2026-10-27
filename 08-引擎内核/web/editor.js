@@ -13001,6 +13001,9 @@ function decodeImage(bytes, opts) {
 
 // src/extensions/editor/asset-bake.ts
 var EDIT_BAKE_EMPTY = "EDIT.BAKE_EMPTY";
+function isUiPage(name) {
+  return name.startsWith("ui-");
+}
 function bakeAtlasFromImages(images, opts = {}) {
   const skipped = [];
   const sources = [];
@@ -14737,7 +14740,7 @@ async function prepareAssets() {
   if (!text.ok) return fail2(`${text.error.code} ${text.error.message}`);
   const bare = catalogFromManifest(text.value);
   if (!bare.ok) return fail2(`${bare.error.code} ${bare.error.message}`);
-  const textures = bare.value.entries.filter((e) => e.kind === "texture");
+  const textures = bare.value.entries.filter((e) => e.kind === "texture" && !isUiPage(e.name));
   const images = [];
   const io = [];
   for (const e of textures) {

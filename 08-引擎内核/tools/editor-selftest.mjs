@@ -447,8 +447,10 @@ const PROBE = `
   const aRows = document.querySelectorAll("#assetlist .arow").length;
   add(
     "资产面板列出了清单里的文件（条数、DOM 行数、可加入数三者对得上）",
-    // 12 = 14 个文件里除掉两个非位图（ui-font.fnt / ui-skin.json）
-    ai.count === 14 && aRows === 14 && ai.usable === 12,
+    // 16 = 清单里的 16 个文件（批101 加了中文字形 .fnt + .png）；
+    // 可加入的 10 = 13 张位图里除掉 3 张 **UI 页**（ui-font / ui-font-cjk / ui-skin）——
+    // 它们不进世界图集（UV 是相对自己那张图算的，且中文字形图 1024×2092 超过图集上限）。
+    ai.count === 16 && aRows === 16 && ai.usable === 10,
     "count=" + ai.count + " rows=" + aRows + " usable=" + ai.usable + " problem=" + String(ai.problem),
   );
 
@@ -457,7 +459,9 @@ const PROBE = `
   //   来源是「procedural」意味着 10 张真图全都没读到，而没人会报错。
   add(
     "★★ 图集来自真实资产（不是程序化兜底），且帧数对得上",
-    ai.atlasSource === "assets" && ai.frames === 12 && String(ai.atlasNote).length > 0,
+    // 10 = 世界帧（berry/ground/hound/photo/player/rabbit/rock/ruler/terrain/tree）。
+    // 批101 之前是 12：那 12 里混着两张 UI 页，它们本来就不该在世界图集里。
+    ai.atlasSource === "assets" && ai.frames === 10 && String(ai.atlasNote).length > 0,
     "source=" + ai.atlasSource + " frames=" + ai.frames + " note=" + ai.atlasNote,
   );
 
@@ -480,7 +484,8 @@ const PROBE = `
   const addBtn = document.getElementById("asset-add");
   add(
     "★ 无帧的资产被标出来（ui-font.fnt 是文本，按钮也就不可用）",
-    noFrame.length === 2 && noFrame.indexOf("ui-font.fnt") >= 0 && pickFnt === false &&
+    // 6 = 3 个非位图（两个 .fnt + 皮肤 .json）+ 3 张 UI 页（不进世界图集，见上一条）
+    noFrame.length === 6 && noFrame.indexOf("ui-font.fnt") >= 0 && pickFnt === false &&
       addBtn.disabled === true,
     "noFrame=" + noFrame.join(",") + " pickable=" + String(pickFnt) + " btnDisabled=" + String(addBtn.disabled),
   );
@@ -507,12 +512,18 @@ const PROBE = `
     JSON.stringify(undoAdd) + " nodes=" + E.stats().nodes,
   );
 
+  // ★ 批101：这条断言原来「抓得住」靠的是**名字撞车** —— ui-font.fnt 的名字
+  //   正好等于烘进来的 ui-font.png 的帧名，于是模型层会放行，只有命令面这道闸能拦。
+  //   「UI 页不进世界图集」落地之后 ui-font 不再是帧名了，模型层也会拒（同一个错误码）
+  //   ⇒ 光看 ok / code，拦在命令面还是拦在模型层**一模一样**（M397 因此变绿）。
+  //   剩下的区别是**人看到的那句话**：命令面说「它不是位图」，模型层说「图集里没有帧」。
+  //   所以断言改成钉住前者 —— 这也是这道闸现在还剩下的职责（三条入口给同一个理由）。
   const rejected = E.assetAdd("ui-font.fnt");
   const errText = document.getElementById("err").textContent || "";
   add(
-    "★ 无帧的资产被拒：错误码对、节点数不变、错误行有字",
+    "★ 无帧的资产被拒：命令面自己给出理由（不是引擎错误码）、节点数不变",
     rejected.ok === false && rejected.code === "EDIT.NO_FRAME" && E.stats().nodes === nodesBefore &&
-      errText.length > 0,
+      errText.indexOf("ui-font.fnt 不能加进场景") >= 0,
     JSON.stringify(rejected) + " nodes=" + E.stats().nodes + " err=" + errText.slice(0, 60),
   );
 

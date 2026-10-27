@@ -24,7 +24,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { EDIT_BAKE_EMPTY, bakeAtlasFromImages, type BakeImage } from "../../src/extensions/editor/asset-bake.ts";
+import { EDIT_BAKE_EMPTY, bakeAtlasFromImages, isUiPage, type BakeImage } from "../../src/extensions/editor/asset-bake.ts";
 import { SITE_FRAMES, TERRAIN_FRAME } from "../../src/extensions/render/world-visuals.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -144,4 +144,33 @@ test("图集里的帧确实带 UV（不是只把名字放进去）", () => {
   assert.ok(f !== undefined, "帧表里没有 tree");
   assert.ok(f.u1 > f.u0 && f.v1 > f.v0, `UV 退化：u0=${String(f.u0)} u1=${String(f.u1)}`);
   assert.ok(f.w > 0 && f.h > 0, `帧尺寸退化：${String(f.w)}×${String(f.h)}`);
+});
+
+/**
+ * ★★ UI 页不进世界图集：这条不是"顺手加的规则"，是一次**真实事故**的复盘。
+ *
+ * 批101 加了 1024×2092 的中文字形图。它进了编辑器的"世界图集"之后，
+ * `buildAtlasFromSources` 因为单帧超上限（2048）直接失败 ——
+ * 整个编辑器退回**程序化假贴图**：10 张真图一张都没进图集，
+ * 而画面上"世界照样有树有石头"（那是程序化兜底），只有"图集来源"那一栏是 procedural。
+ *
+ * 所以这里**两头都验**：谓词本身对不对，以及"不挡会怎样"（否则这条规则
+ * 哪天被删掉，判据还会绿 —— 那就成了一条注释）。
+ */
+test("★★ UI 页不进世界图集：不挡的话一张中文字形图就能让整锅烘不出来", () => {
+  assert.equal(isUiPage("ui-font-cjk.png"), true);
+  assert.equal(isUiPage("ui-font.png"), true);
+  assert.equal(isUiPage("ui-skin.png"), true);
+  assert.equal(isUiPage("tree.png"), false, "世界帧不能被误伤");
+
+  const all = [...IMAGE_FILES.map((f) => img(f)), img("ui-font-cjk.png", "ui-font-cjk")];
+  const without = bakeAtlasFromImages(all);
+  assert.equal(without.ok, false, "中文字形图（1024×2092）应该撑爆图集上限 —— 夹具已经不能复现事故了");
+  if (!without.ok) assert.equal(without.error.code, "ASSET.ATLAS_TOO_LARGE");
+
+  // 挡掉之后：10 个世界帧全都烘得出来（这才是编辑器该看到的那张图集）
+  const filtered = all.filter((i) => !isUiPage(i.name));
+  const withFilter = bakeAtlasFromImages(filtered);
+  assert.equal(withFilter.ok, true, withFilter.ok ? "" : withFilter.error.message);
+  if (withFilter.ok) assert.equal(withFilter.value.frames.length, IMAGE_FILES.length);
 });

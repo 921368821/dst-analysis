@@ -127,10 +127,19 @@ export const HUD_LAYOUT = {
 
 export interface HudUiOptions {
   readonly font: BitmapFont;
+  /**
+   * 中文位图字体（`ui-font-cjk`，16×16）。**可选**：读不到时背包行回到 `kind` 的 ASCII 形式。
+   * ★ 它是"第二张字体"而不是"同一张字体的第二批字"：汉字要 16 格，
+   *   塞进 5×7 的单元格里只会糊成一团（见 `tools/make-ui-assets.mjs` 文件头）。
+   */
+  readonly cjkFont?: BitmapFont;
+  /** 物品名 → 显示文本。缺省 = `kind` 改下划线为空格（ASCII）。 */
+  readonly labelOf?: (kind: string) => string;
   readonly skinJson: UiSkinJson;
-  /** 字形图（页 0）与皮肤图（页 1）的像素数据。 */
+  /** 字形图（页 0）/ 皮肤图（页 1）/ 中文字形图（页 2）的像素数据。 */
   readonly fontPage: UiPageSource;
   readonly skinPage: UiPageSource;
+  readonly cjkPage?: UiPageSource;
   readonly viewport: UiViewportConfig;
   readonly dpr?: number;
   /** 背包最多几行；超出部分**不画**（背包本身会拒绝第 9 堆）。 */
@@ -170,12 +179,17 @@ export function createHudUi(opts: HudUiOptions): Result<HudUiHandle, EngineError
   const pad = HUD_LAYOUT.pad;
   const gap = HUD_LAYOUT.gap;
   const rowH = lineH + 4;
+  // 中文字体在就按它算行高：18 高的字放进 14 高的行里，上下各溢出 2px，
+  // 而溢出是**静默**的（画出来就是被切掉一点，判据和日志都不会说话）。
+  const cjk = opts.cjkFont;
+  const cjkRowH = cjk === undefined ? rowH : Math.max(1, cjk.lineHeight) + 4;
+  const bagRowFontId = cjk?.id;
   const maxRows = Math.max(1, opts.maxRows ?? DEFAULT_MAX_ROWS);
   const hudW = HUD_LAYOUT.width;
   const bagW = 268;
   const innerW = bagW - pad * 2;
   /** 标题 1 行 + 行区 + 底栏 2 行（底栏文案会折成两行，见 `bagFooter`）。 */
-  const bagH = pad * 2 + lineH + gap + maxRows * rowH + (maxRows - 1) * gap + gap + lineH * 2;
+  const bagH = pad * 2 + lineH + gap + maxRows * cjkRowH + (maxRows - 1) * gap + gap + lineH * 2;
   /** HUD：3 行文本 + 一条饱食度条。 */
   const hudH = pad * 2 + lineH * 3 + gap * 3 + HUD_LAYOUT.bar;
 
@@ -225,11 +239,20 @@ export function createHudUi(opts: HudUiOptions): Result<HudUiHandle, EngineError
     const n = new UiNode({
       id: `bag.row${String(i)}`,
       widget: UiWidget.Button,
-      size: { w: innerW, h: rowH },
+      size: { w: innerW, h: cjkRowH },
       interactive: true,
       opaque: true,
       visible: false,
-      props: { frame: "slot", slice: sliceOf("slot"), text: "", tint: rowTint, style: { align: "left", color: white } },
+      props: {
+        frame: "slot",
+        slice: sliceOf("slot"),
+        text: "",
+        tint: rowTint,
+        style: { align: "left", color: white },
+        // 行数按行高算出来之后，字体的选择就只剩这一处：没有中文字体时不写这个键，
+        // 落到"注册表里第一个字体"（= 5×7），与这批之前完全一样。
+        ...(bagRowFontId === undefined ? {} : { fontId: bagRowFontId }),
+      },
     });
     return n;
   });
@@ -283,8 +306,9 @@ export function createHudUi(opts: HudUiOptions): Result<HudUiHandle, EngineError
     id: "ui.hud",
     viewport: opts.viewport,
     skin: built.skin,
-    pageSources: [opts.fontPage, opts.skinPage],
-    fonts: [font],
+    // 页号是**全局下标**：0=5×7 字形、1=皮肤、2=中文字形（`.fnt` 里写的就是这三个号）
+    pageSources: cjk === undefined ? [opts.fontPage, opts.skinPage] : [opts.fontPage, opts.skinPage, opts.cjkPage!],
+    fonts: cjk === undefined ? [font] : [font, cjk],
     root,
     dpr: opts.dpr ?? 1,
     onEvent,
@@ -327,7 +351,7 @@ export function createHudUi(opts: HudUiOptions): Result<HudUiHandle, EngineError
     setBag(stacks, selected): void {
       const open = stacks !== null;
       const list = stacks ?? [];
-      const rows = bagRows(list, selected);
+      const rows = bagRows(list, selected, opts.labelOf);
       const sig = open ? `${rows.map((r) => `${r.text}#${r.selected ? 1 : 0}`).join("|")}` : "#closed";
       if (sig === bagSig) return;
       bagSig = sig;

@@ -3695,8 +3695,13 @@ MUTANTS = [
         "env_exit": 2,
     },
     {
-        # 页面级：命令面不查 inAtlas，只靠按钮禁用 ⇒ 双击/命令面能绕过，
-        # 而 `hasFrame` 会因名字撞车放行（ui-font.fnt 的名字 == ui-font.png 的帧名）。
+        # 页面级：命令面不查 inAtlas，只靠按钮禁用 ⇒ 双击/命令面能绕过。
+        # ★ 批101 改了这条的**分辨方式**：原来靠「名字撞车」——ui-font.fnt 的名字正好等于
+        #   烘进来的 ui-font.png 的帧名，于是模型层会放行、只有命令面这道闸能拦。
+        #   「UI 页不进世界图集」落地后那个帧名没了，模型层也会拒、而且是**同一个错误码**
+        #   ⇒ ok / code 两条实现一模一样，整轮变异里 M397 因此变绿（只有跑整轮才发现）。
+        #   剩下的区别是「人看到的那句话」（命令面：不能加进场景、它不是位图；
+        #   模型层：图集里没有帧），判据因此改成钉住命令面自己那句话。
         # 与 M395 是两层：那条在模型层算错，这条在命令面不查。
         "name": "M397 加入场景不查 inAtlas（禁用的按钮被命令面绕过去）",
         "file": "src/editor-entry.ts",
@@ -4883,6 +4888,149 @@ MUTANTS = [
             ]
         ],
         "test": "tests/extensions/ai-move.test.ts"
+    },
+    {
+        "name": "M523 BDF 位序反了（高位在右 ⇒ 所有字形水平镜像，而「有墨」类判据照样绿）",
+        "file": "tools/bdf.mjs",
+        "pairs": [
+            [
+                "    bits.push((byte >> (7 - (x & 7))) & 1);",
+                "    bits.push((byte >> (x & 7)) & 1);"
+            ]
+        ],
+        "test": "tests/extensions/ui-cjk-font.test.ts"
+    },
+    {
+        "name": "M524 BITMAP 行数比 BBX 少不报错（那个字缺一整行，宽度照旧）",
+        "file": "tools/bdf.mjs",
+        "pairs": [
+            [
+                "    if (bitmap.length !== bbx.h) {",
+                "    if (bitmap.length > bbx.h) {"
+            ]
+        ],
+        "test": "tests/extensions/ui-cjk-font.test.ts"
+    },
+    {
+        "name": "M525 十六进制行多一位不报错（parseInt 照样算出一个数 ⇒ 整行错位）",
+        "file": "tools/bdf.mjs",
+        "pairs": [
+            [
+                "  if (hex.length !== bytes * 2) {",
+                "  if (hex.length < bytes * 2) {"
+            ]
+        ],
+        "test": "tests/extensions/ui-cjk-font.test.ts"
+    },
+    {
+        "name": "M526 全空字形不当成宽 0（空格会有 8×16 的空白矩形，图集里多两块透明补丁）",
+        "file": "tools/bdf.mjs",
+        "pairs": [
+            [
+                "        w: any ? bbx.w : 0,",
+                "        w: bbx.w,"
+            ]
+        ],
+        "test": "tests/extensions/ui-cjk-font.test.ts"
+    },
+    {
+        "name": "M527 前进量用整字库宽（16）代替每个字形的 DWIDTH ⇒ 半角字符变成全角",
+        "file": "tools/make-ui-assets.mjs",
+        "pairs": [
+            [
+                "      advance: g.advance,",
+                "      advance: bdf.bboxW,"
+            ]
+        ],
+        "test": "tests/extensions/ui-cjk-font.test.ts"
+    },
+    {
+        "name": "M528 inkTop 少减 1（每个字形整体下移一像素，基线不再是 1）",
+        "file": "tools/make-ui-assets.mjs",
+        "pairs": [
+            [
+                "      inkTop: g.yoff + g.h - 1,",
+                "      inkTop: g.yoff + g.h,"
+            ]
+        ],
+        "test": "tests/extensions/ui-cjk-font.test.ts"
+    },
+    {
+        "name": "M529 中文字体用 5×7 的货架间距（每行 9px ⇒ 16 高的字互相压）",
+        "file": "tools/make-ui-assets.mjs",
+        "pairs": [
+            [
+                "  const packed = pack(glyphs, CJK_ATLAS_W, bdf.bboxH + 1);",
+                "  const packed = pack(glyphs, CJK_ATLAS_W, CELL_H + 1);"
+            ]
+        ],
+        "test": "tests/extensions/ui-cjk-font.test.ts"
+    },
+    {
+        "name": "M530 行高不加那 2px（下伸的下沿正好撞到下一行）",
+        "file": "tools/make-ui-assets.mjs",
+        "pairs": [
+            [
+                "    lineHeight: bdf.ascent + bdf.descent + 2,",
+                "    lineHeight: bdf.ascent + bdf.descent,"
+            ]
+        ],
+        "test": "tests/extensions/ui-cjk-font.test.ts"
+    },
+    {
+        "name": "M531 @ascii 区间少取最后一格（U+007E 悄悄不在字符集里）",
+        "file": "tools/make-ui-assets.mjs",
+        "pairs": [
+            [
+                "      for (let c = lo; c <= hi; c++) codes.add(c);",
+                "      for (let c = lo; c < hi; c++) codes.add(c);"
+            ]
+        ],
+        "test": "tests/extensions/ui-cjk-font.test.ts"
+    },
+    {
+        "name": "M532 pageBase 不生效（第二张字体会去采样第一张图 ⇒ 画面上是乱纹）",
+        "file": "src/extensions/ui/font.ts",
+        "pairs": [
+            [
+                "      page: c.pg + pageBase,",
+                "      page: c.pg,"
+            ]
+        ],
+        "test": "tests/extensions/ui-font.test.ts"
+    },
+    {
+        "name": "M533 背包行高不跟中文字体（18 高的字塞进 14 高的行，上下各溢出 2px）",
+        "file": "src/host/hud-ui.ts",
+        "pairs": [
+            [
+                "  const cjkRowH = cjk === undefined ? rowH : Math.max(1, cjk.lineHeight) + 4;",
+                "  const cjkRowH = rowH;"
+            ]
+        ],
+        "test": "tests/host/hud-ui.test.ts"
+    },
+    {
+        "name": "M534 忽略注入的 labelOf（中文标签传进来了却仍显示 kind）",
+        "file": "src/host/hud-model.ts",
+        "pairs": [
+            [
+                '  const label = labelOf ?? ((kind: string) => kind.replace(/_/g, " "));',
+                '  const label = (kind: string): string => kind.replace(/_/g, " ");'
+            ]
+        ],
+        "test": "tests/host/hud-ui.test.ts"
+    },
+    {
+        "name": "M535 isUiPage 恒为 false（中文字形图进世界图集 ⇒ 1024×2092 一张撑爆上限，整个编辑器退回假贴图）",
+        "file": "src/extensions/editor/asset-bake.ts",
+        "pairs": [
+            [
+                '  return name.startsWith("ui-");',
+                "  return false;"
+            ]
+        ],
+        "test": "tests/extensions/editor-asset-bake.test.ts"
     }
 ]
 

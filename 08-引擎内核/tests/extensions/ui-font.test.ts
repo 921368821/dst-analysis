@@ -161,3 +161,31 @@ test("FontRegistry：require 缺字体时抛错并列出已有 id", () => {
   assert.equal(reg.get("missing"), undefined);
   assert.throws(() => reg.require("missing"), /a-font, b-font/);
 });
+
+/**
+ * ★★ `pageBase`：BMFont 的页号是**字体局部**的，绑定到全局图集页是宿主的决定。
+ *
+ * 这条判据存在的理由是它**曾经是一个坑**：第二张字体（中文）只有一个纹理页，
+ * `.fnt` 里写的是 `page id=0`，而它在全局 `pageSources` 里是第 2 页。
+ * 如果解析器把 0 原样落表，中文的四边形会去采样 5×7 那张图 —— 画面上是乱纹，
+ * 而字体文件、UV、排版宽度全都"看起来对"。
+ */
+test("★★ pageBase：这份字体的第 0 页映射到全局第 N 页（校验仍按局部页号）", () => {
+  const base = makeTestFont("base0");
+  const shifted = parseBmFont(fontText(asciiGlyphs()), { id: "base2", pageBase: 2 });
+  assert.equal(shifted.ok, true);
+  if (!shifted.ok) return;
+  assert.equal(shifted.value.glyphs.get(65)?.page, 2, "pageBase=2 时所有字形都该落在全局第 2 页");
+  assert.equal(base.glyphs.get(65)?.page, 0, "缺省 pageBase 必须还是 0（5×7 那条路一步都不能变）");
+  // ★ UV 不受影响：pageBase 只换"绑哪张图"，不换"图上的哪个格子"。
+  //   两者一起变的话，第二张字体会整体错位 —— 那是另一个 bug，不该被这条掩盖。
+  assert.equal(shifted.value.glyphs.get(65)?.u0, base.glyphs.get(65)?.u0);
+  assert.equal(shifted.value.glyphs.get(65)?.v0, base.glyphs.get(65)?.v0);
+
+  // 非法值要报错，不能夹取：`pageBase=-1` 会让第 0 页落到 -1（采样到"上一张图"或崩）
+  for (const bad of [-1, 1.5, Number.NaN]) {
+    const r = parseBmFont(fontText(asciiGlyphs()), { pageBase: bad });
+    assert.equal(r.ok, false, `pageBase=${String(bad)} 应该被拒`);
+    if (!r.ok) assert.equal(r.error.code, FONT_ERR.BAD_NUMBER);
+  }
+});

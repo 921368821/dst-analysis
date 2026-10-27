@@ -18259,6 +18259,10 @@ var FONT_ERR = {
 };
 function parseBmFont(text, opts = {}) {
   const id = opts.id ?? "font";
+  const pageBase = opts.pageBase ?? 0;
+  if (!Number.isInteger(pageBase) || pageBase < 0) {
+    return err(engineError(FONT_ERR.BAD_NUMBER, `pageBase \u5FC5\u987B\u662F\u975E\u8D1F\u6574\u6570\uFF1A${String(pageBase)}`));
+  }
   const head = text.slice(0, 4);
   if (head.startsWith("BMF")) {
     return err(
@@ -18382,7 +18386,9 @@ function parseBmFont(text, opts = {}) {
     const h = c.h;
     glyphs.set(c.code, {
       code: c.code,
-      page: c.pg,
+      // 校验用局部页号（`c.pg`），落表用全局页号（`c.pg + pageBase`）——
+      // 这两个数在单页字体里恰好相等，于是"忘了换算"在 5×7 上完全看不出来。
+      page: c.pg + pageBase,
       // ★ 恒等映射，理由见文件头。
       u0: c.x / scaleW,
       v0: c.y / scaleH,
@@ -19897,12 +19903,13 @@ function hudRows(f) {
 function hudLine(f) {
   return hudRows(f).join(" | ");
 }
-function bagRows(stacks, selected) {
+function bagRows(stacks, selected, labelOf) {
   const sel = stacks.length === 0 ? 0 : Math.min(Math.max(0, selected), stacks.length - 1);
+  const label = labelOf ?? ((kind) => kind.replace(/_/g, " "));
   return stacks.map((s, i) => ({
     index: i + 1,
     // 下划线换空格：`grass_tuft` 读作 "grass tuft"，比原文更好看，且不需要第二张表
-    text: `${String(i + 1)}. ${s.kind.replace(/_/g, " ")} x${String(s.count)}`,
+    text: `${String(i + 1)}. ${label(s.kind)} x${String(s.count)}`,
     selected: i === sel
   }));
 }
@@ -19973,11 +19980,14 @@ function createHudUi(opts) {
   const pad = HUD_LAYOUT.pad;
   const gap = HUD_LAYOUT.gap;
   const rowH = lineH + 4;
+  const cjk = opts.cjkFont;
+  const cjkRowH = cjk === void 0 ? rowH : Math.max(1, cjk.lineHeight) + 4;
+  const bagRowFontId = cjk?.id;
   const maxRows = Math.max(1, opts.maxRows ?? DEFAULT_MAX_ROWS);
   const hudW = HUD_LAYOUT.width;
   const bagW = 268;
   const innerW = bagW - pad * 2;
-  const bagH = pad * 2 + lineH + gap + maxRows * rowH + (maxRows - 1) * gap + gap + lineH * 2;
+  const bagH = pad * 2 + lineH + gap + maxRows * cjkRowH + (maxRows - 1) * gap + gap + lineH * 2;
   const hudH = pad * 2 + lineH * 3 + gap * 3 + HUD_LAYOUT.bar;
   const white = new Color(1, 1, 1, 1);
   const dim = new Color(0.72, 0.76, 0.82, 1);
@@ -20016,11 +20026,20 @@ function createHudUi(opts) {
     const n = new UiNode({
       id: `bag.row${String(i)}`,
       widget: UiWidget.Button,
-      size: { w: innerW, h: rowH },
+      size: { w: innerW, h: cjkRowH },
       interactive: true,
       opaque: true,
       visible: false,
-      props: { frame: "slot", slice: sliceOf("slot"), text: "", tint: rowTint, style: { align: "left", color: white } }
+      props: {
+        frame: "slot",
+        slice: sliceOf("slot"),
+        text: "",
+        tint: rowTint,
+        style: { align: "left", color: white },
+        // 行数按行高算出来之后，字体的选择就只剩这一处：没有中文字体时不写这个键，
+        // 落到"注册表里第一个字体"（= 5×7），与这批之前完全一样。
+        ...bagRowFontId === void 0 ? {} : { fontId: bagRowFontId }
+      }
     });
     return n;
   });
@@ -20070,8 +20089,9 @@ function createHudUi(opts) {
     id: "ui.hud",
     viewport: opts.viewport,
     skin: built.skin,
-    pageSources: [opts.fontPage, opts.skinPage],
-    fonts: [font],
+    // 页号是**全局下标**：0=5×7 字形、1=皮肤、2=中文字形（`.fnt` 里写的就是这三个号）
+    pageSources: cjk === void 0 ? [opts.fontPage, opts.skinPage] : [opts.fontPage, opts.skinPage, opts.cjkPage],
+    fonts: cjk === void 0 ? [font] : [font, cjk],
     root,
     dpr: opts.dpr ?? 1,
     onEvent
@@ -20108,7 +20128,7 @@ function createHudUi(opts) {
     setBag(stacks, selected) {
       const open = stacks !== null;
       const list = stacks ?? [];
-      const rows = bagRows(list, selected);
+      const rows = bagRows(list, selected, opts.labelOf);
       const sig = open ? `${rows.map((r) => `${r.text}#${r.selected ? 1 : 0}`).join("|")}` : "#closed";
       if (sig === bagSig) return;
       bagSig = sig;
@@ -23816,7 +23836,9 @@ var DEMO_FRAMES = [
 ];
 var ASSET_ROOT = "/assets";
 var UI_FILES = ["ui-font.fnt", "ui-font.png", "ui-skin.png", "ui-skin.json"];
+var UI_CJK_FILES = ["ui-font-cjk.fnt", "ui-font-cjk.png"];
 var UI_FONT_ID = "ui5x7";
+var UI_CJK_FONT_ID = "unifont-cjk-16-subset";
 async function bakeAtlasFromAssets() {
   try {
     const fs = new MemoryFileSystem();
@@ -23849,6 +23871,14 @@ async function bakeAtlasFromAssets() {
       }
       const w = await fs.writeBinary(`${ASSET_ROOT}/${file}`, r.value);
       if (!w.ok) uiFilesOk = false;
+    }
+    for (const file of UI_CJK_FILES) {
+      const r = await remote.readBinary(file);
+      if (!r.ok) {
+        console.warn(`[ui] \u8BFB\u4E0D\u5230 ${file}\uFF1A${r.error.code} ${r.error.message}\uFF08\u80CC\u5305\u884C\u4F1A\u7528\u82F1\u6587 kind\uFF09`);
+        continue;
+      }
+      await fs.writeBinary(`${ASSET_ROOT}/${file}`, r.value);
     }
     const report = await pipeline.run(ASSET_ROOT);
     if (!report.ok) return null;
@@ -23900,11 +23930,13 @@ async function loadTextureBytes(db, file) {
   }
 }
 async function loadUiAssets(db, logger) {
-  const [fnt, skin, fontPngBytes, skinPngBytes] = await Promise.all([
+  const [fnt, skin, fontPngBytes, skinPngBytes, cjkFnt, cjkPngBytes] = await Promise.all([
     loadText(db, "ui-font.fnt"),
     loadText(db, "ui-skin.json"),
     loadTextureBytes(db, "ui-font.png"),
-    loadTextureBytes(db, "ui-skin.png")
+    loadTextureBytes(db, "ui-skin.png"),
+    loadText(db, "ui-font-cjk.fnt"),
+    loadTextureBytes(db, "ui-font-cjk.png")
   ]);
   if (fnt === null || skin === null || fontPngBytes === null || skinPngBytes === null) {
     logger.channel("ui").warn("UI \u8D44\u4EA7\u4E0D\u9F50\uFF08.fnt/.json/\u4E24\u5F20 png\uFF09\uFF0CHUD \u4F1A\u9000\u56DE DOM");
@@ -23934,13 +23966,41 @@ async function loadUiAssets(db, logger) {
     height: h,
     pixels
   });
+  let cjkFont;
+  let cjkPage;
+  if (cjkFnt === null || cjkPngBytes === null) {
+    logger.channel("ui").warn("\u6CA1\u6709\u4E2D\u6587\u5B57\u5F62\u8D44\u4EA7\uFF08\u80CC\u5305\u884C\u7528\u82F1\u6587 kind\uFF09");
+  } else {
+    const r = parseBmFont(cjkFnt, { id: UI_CJK_FONT_ID, pageBase: 2 });
+    const dec = decodeImage(cjkPngBytes);
+    if (!r.ok) logger.channel("ui").warn(`\u4E2D\u6587\u5B57\u4F53\u89E3\u6790\u5931\u8D25\uFF1A${r.error.code} ${r.error.message}\uFF08\u80CC\u5305\u884C\u7528\u82F1\u6587 kind\uFF09`);
+    else if (!dec.ok) logger.channel("ui").warn(`\u4E2D\u6587\u5B57\u5F62\u56FE\u89E3\u7801\u5931\u8D25\uFF1A${dec.error.code}\uFF08\u80CC\u5305\u884C\u7528\u82F1\u6587 kind\uFF09`);
+    else {
+      cjkFont = r.value;
+      cjkPage = page("ui-font-cjk.png", dec.value.width, dec.value.height, dec.value.pixels);
+    }
+  }
   return {
     font: fontR.value,
+    ...cjkFont === void 0 || cjkPage === void 0 ? {} : { cjkFont, cjkPage },
     fontPage: page("ui-font.png", fontDec.value.width, fontDec.value.height, fontDec.value.pixels),
     skinPage: page("ui-skin.png", skinDec.value.width, skinDec.value.height, skinDec.value.pixels),
     skinJson: json
   };
 }
+var ITEM_LABEL = {
+  tree: "\u6728\u5934",
+  rock: "\u77F3\u5934",
+  berry: "\u6D46\u679C",
+  flint: "\u71E7\u77F3",
+  grass_tuft: "\u8349",
+  reed: "\u82A6\u82C7",
+  // 批65 起战利品会进包；批67 起肉还能吃 —— 没有标签的话 HUD 里显示的是英文 kind
+  meat: "\u8089",
+  hide: "\u76AE",
+  cooked_meat: "\u719F\u8089",
+  rope: "\u7EF3\u5B50"
+};
 async function main() {
   const canvas = document.getElementById("cv");
   const hud = document.getElementById("hud");
@@ -24000,6 +24060,13 @@ async function main() {
   if (bakedUi !== null) {
     const r = createHudUi({
       font: bakedUi.font,
+      // 中文在才传：`labelOf` 与字体是**同一件事的两半** —— 传了中文标签却没有字形，
+      // 行文本会变成一串空白（`missingAdvance` 还占着宽度），而日志里一个字都不会响。
+      ...bakedUi.cjkFont === void 0 || bakedUi.cjkPage === void 0 ? {} : {
+        cjkFont: bakedUi.cjkFont,
+        cjkPage: bakedUi.cjkPage,
+        labelOf: (kind) => ITEM_LABEL[kind] ?? kind
+      },
       skinJson: bakedUi.skinJson,
       fontPage: bakedUi.fontPage,
       skinPage: bakedUi.skinPage,
@@ -24677,19 +24744,6 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
     const k = (a) => (m.keysOf(a)[0] ?? "?").replace(/^Key/, "");
     return `${k("move_forward")}${k("move_left")}${k("move_back")}${k("move_right")} \u79FB\u52A8 \xB7 ${k("harvest")} \u62FE\u53D6 \xB7 ${k("chop")} \u780D\u6811 \xB7 ${k("attack")} \u6253 \xB7 ${k("eat")} \u5403 \xB7 ${k("craft")} \u5236\u4F5C \xB7 ${k("bag")} \u80CC\u5305 \xB7 ${k("drop")} \u4E22\u5F03 \xB7 ${k("save")} \u5B58\u6863 \xB7 ${k("load")} \u8BFB\u6863 \xB7 ${k("restart")} \u91CD\u8F7D`;
   }
-  const ITEM_LABEL = {
-    tree: "\u6728\u5934",
-    rock: "\u77F3\u5934",
-    berry: "\u6D46\u679C",
-    flint: "\u71E7\u77F3",
-    grass_tuft: "\u8349",
-    reed: "\u82A6\u82C7",
-    // 批65 起战利品会进包；批67 起肉还能吃 —— 没有标签的话 HUD 里显示的是英文 kind
-    meat: "\u8089",
-    hide: "\u76AE",
-    cooked_meat: "\u719F\u8089",
-    rope: "\u7EF3\u5B50"
-  };
   const RESOURCE_YIELD = {
     berry: 1,
     reed: 2,

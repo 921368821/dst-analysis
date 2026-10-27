@@ -105,9 +105,24 @@ interface RawChar {
 /** 解析 BMFont 的**文本**格式（.fnt）。二进制与 XML 版本不实现，遇到明确失败。 */
 export function parseBmFont(
   text: string,
-  opts: { readonly id?: string } = {},
+  opts: { readonly id?: string; readonly pageBase?: number } = {},
 ): Result<BitmapFont, EngineError> {
   const id = opts.id ?? "font";
+  /**
+   * 这份 `.fnt` 的**第 0 页**落在全局图集的第几页。
+   *
+   * ★★ BMFont 的 `page id` 是**字体局部**的编号，它从来就不是"全局图集下标"：
+   *   每个 `.fnt` 都说自己从 0 开始（造字工具就是这么导的，一份字体只有一个纹理页时
+   *   连 `page` 行都只有一行）。而一个 UI 模块的 `pageSources` 是**全局**的数组 ——
+   *   5×7 字形、皮肤、中文字形各有各的图，谁都得有个位置。
+   *   两层编号之间必须有一次显式换算，否则第二张字体要么把自己的页当成 0
+   *   （画面上是"中文采样到了 5×7 那张图"，一片乱纹），要么被迫在 `.fnt` 里写假页号
+   *   （写出 `page id=2` 却不带 0/1 两行，解析器会判它引用不存在的页 —— 那是自相矛盾的资产）。
+   */
+  const pageBase = opts.pageBase ?? 0;
+  if (!Number.isInteger(pageBase) || pageBase < 0) {
+    return err(engineError(FONT_ERR.BAD_NUMBER, `pageBase 必须是非负整数：${String(pageBase)}`));
+  }
 
   // 二进制以 "BMF" 开头、XML 以 "<" 开头。这两种不静默返回空字体 ——
   // 空字体的症状是「所有字都不显示」，而调用方以为字体加载成功了。
@@ -252,7 +267,9 @@ export function parseBmFont(
     const h = c.h;
     glyphs.set(c.code, {
       code: c.code,
-      page: c.pg,
+      // 校验用局部页号（`c.pg`），落表用全局页号（`c.pg + pageBase`）——
+      // 这两个数在单页字体里恰好相等，于是"忘了换算"在 5×7 上完全看不出来。
+      page: c.pg + pageBase,
       // ★ 恒等映射，理由见文件头。
       u0: c.x / scaleW,
       v0: c.y / scaleH,

@@ -370,7 +370,9 @@ row("★★ 背包面板开得出、列得对（UI 面板行文本 = 堆叠数�
    * ★ 批71 起面板不再是 DOM：行文本从 `e.ui.bagRows()` 读（**画出来的那份**），
    *   而不是 `querySelectorAll(".row-item")`。这条判据的语义因此变得更硬：
    *   它现在读的是"引擎打算画什么"，而"画没画出来"由下面两条 UI 判据负责。
-   *   物品名也从中文变成了 `kind` 的 ASCII 形式（位图字体只有 ASCII，见 ARCHITECTURE §11.7）。
+   *   物品名在批101 之前是 `kind` 的 ASCII 形式（那时位图字体只有 ASCII）；
+   *   批101 接了 16×16 的中文字体之后又变回中文，断言也跟着改成中文 ——
+   *   **这一步是有意的**：英文行文本现在是「中文字体没加载」的证据。
    */
   if (e.bagPanel().open !== true) e.toggleBag();
   // ★ 用 `clearBag()` 而不是"整堆丢弃"：后者会把东西**丢在玩家脚下**，
@@ -398,9 +400,12 @@ row("★★ 背包面板开得出、列得对（UI 面板行文本 = 堆叠数�
   const st = e.bagPanel();
   const panelRect = e.ui === null ? null : e.ui.rect("bag.panel");
   const shown = e.ui !== null && e.ui.bagOpen() === true && panelRect !== null && panelRect.width > 0;
+  // ★ 批101 起物品名是**中文**（中文字形资产接上了）。这里断言完整文本而不是
+  //   `indexOf("x3")`：如果哪天中文字体没加载，行会退回 `berry x3` 那种 ASCII 形式 ——
+  //   那是**降级**，要在这里红，不能靠「有个 x3 就算过」放过去。
   const okAll =
     st.open === true && shown && texts.length === st.stacks && texts.length === 2 &&
-    texts[0].indexOf("berry x3") >= 0 && texts[1].indexOf("rock x2") >= 0;
+    texts[0] === "1. 浆果 x3" && texts[1] === "2. 石头 x2";
   panelDone = [
     okAll,
     `面板${shown ? "可见" : "不可见"} · UI ${texts.length} 行 / 状态 ${st.stacks} 堆 · "${texts.join("；")}"`,
@@ -483,7 +488,8 @@ row("★★ 面板上的行真的点得到：点第 2 行 ⇒ 选中变成第 2 
   }
   const after = e.bagPanel().selected;
   const selRow = e.ui.bagRows()[1] || "";
-  const okAll = r.clicks.indexOf("bag.row1") >= 0 && after === 1 && selRow.indexOf("rock") >= 0;
+  // 行文本是中文（批101 起）：`石头` 在就说明第 2 行确实是那堆石头，且字体在
+  const okAll = r.clicks.indexOf("bag.row1") >= 0 && after === 1 && selRow.indexOf("石头") >= 0;
   clickDone = [okAll, `click 事件=${JSON.stringify(r.clicks)} · 选中 ${before}→${after} · 第 2 行="${selRow}"`];
   return clickDone;
 });

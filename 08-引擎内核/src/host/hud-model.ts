@@ -124,20 +124,26 @@ export interface BagRow {
 /**
  * 背包面板的行。
  *
- * ★ 物品名用 `kind` 的 ASCII 形式（`grass tuft`），不用中文标签：
- *   字体是 ASCII 的，中文标签会变成一片空白（`ITEM_LABEL` 保留给 DOM 的 toast，
- *   它在"有没有 CJK 字体"这件事解决之前不搬）。
- *   这是**已知限制**，不是取舍 —— 见 `docs/ARCHITECTURE.md` §11.7 的"已知缺口"。
+ * ★ 物品名走 `labelOf`（宿主注入）。**默认实现是 `kind` 的 ASCII 形式**，
+ *   而不是中文：中文标签需要中文字形，而字形是**可选资产**（`ui-font-cjk` 读不到时
+ *   UI 只有 5×7 的 ASCII）。于是"有没有中文字体"这件事在**一个地方**决定 ——
+ *   宿主读到了就传 `ITEM_LABEL`，读不到就不传，行文本自然退回英文。
+ *
+ * ★★ 上一版的注释写着"中文标签会变成一片空白，等有没有 CJK 字体这件事解决"：
+ *   现在解决了（批101）。但**默认值仍然是 ASCII** —— 因为空白是静默的，
+ *   而这里不能假设字体一定在。判据那边用真字体逐字查（见 `tests/host/hud-model.test.ts`）。
  */
 export function bagRows(
   stacks: readonly { readonly kind: string; readonly count: number }[],
   selected: number,
+  labelOf?: (kind: string) => string,
 ): BagRow[] {
   const sel = stacks.length === 0 ? 0 : Math.min(Math.max(0, selected), stacks.length - 1);
+  const label = labelOf ?? ((kind: string) => kind.replace(/_/g, " "));
   return stacks.map((s, i) => ({
     index: i + 1,
     // 下划线换空格：`grass_tuft` 读作 "grass tuft"，比原文更好看，且不需要第二张表
-    text: `${String(i + 1)}. ${s.kind.replace(/_/g, " ")} x${String(s.count)}`,
+    text: `${String(i + 1)}. ${label(s.kind)} x${String(s.count)}`,
     selected: i === sel,
   }));
 }
