@@ -5810,6 +5810,61 @@ MUTANTS = [
             )
         ],
         "test": "tests/host/hud-ui.test.ts"
+    },
+    {
+        "name": "M606 不做避头尾（逗号照旧顶在行首）",
+        "file": "src/extensions/ui/text-layout.ts",
+        "pairs": [
+            (
+                "      while (cur.length - carry > 1) {",
+                "      while (false) {"
+            )
+        ],
+        "test": "tests/extensions/ui-text.test.ts"
+    },
+    {
+        "name": "M607 只判行首、不判行尾（「（」孤零零挂在上一行末尾）",
+        "file": "src/extensions/ui/text-layout.ts",
+        "pairs": [
+            (
+                "        if (!LINE_END_FORBIDDEN.has(last) && !LINE_START_FORBIDDEN.has(nextFirst)) break;",
+                "        if (!LINE_START_FORBIDDEN.has(nextFirst)) break;"
+            )
+        ],
+        "test": "tests/extensions/ui-text.test.ts"
+    },
+    {
+        "name": "M608 行尾禁则表漏掉全角「（」（行首禁则表里也不会有它）",
+        "file": "src/extensions/ui/text-layout.ts",
+        "pairs": [
+            (
+                "  0xff08, // （",
+                "  0xff0b, // ＋"
+            )
+        ],
+        "test": "tests/extensions/ui-text.test.ts"
+    },
+    {
+        "name": "M609 断点挪过头（一次带两个字，行被吃掉一格）",
+        "file": "src/extensions/ui/text-layout.ts",
+        "pairs": [
+            (
+                "        carry++;",
+                "        carry += 2;"
+            )
+        ],
+        "test": "tests/extensions/ui-text.test.ts"
+    },
+    {
+        "name": "M610 行首禁则改成「所有汉字都禁」（等价于把避头尾关掉，还会把整行推空）",
+        "file": "src/extensions/ui/text-layout.ts",
+        "pairs": [
+            (
+                "        if (!LINE_END_FORBIDDEN.has(last) && !LINE_START_FORBIDDEN.has(nextFirst)) break;",
+                "        if (!LINE_END_FORBIDDEN.has(last) && !(nextFirst >= 0x4e00 && nextFirst <= 0x9fff) && !LINE_START_FORBIDDEN.has(nextFirst))\n          break;"
+            )
+        ],
+        "test": "tests/extensions/ui-text.test.ts"
     }
 ]
 

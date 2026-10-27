@@ -167,3 +167,53 @@ test("UV 原样透传（排版层不再动 v 轴）", () => {
   assert.equal(q.v0, g.v0);
   assert.equal(q.v1, g.v1);
 });
+
+// ------------------------------------------------------------------ 避头尾（批111）
+
+/**
+ * 中文排版用的夹具：每字 advance 仍是 12，所以「4 个字 = 48」照样能心算。
+ * ★ 用 `makeFontWith` 精确列出用到的码点，而不是给一张全角表：
+ *   字体里没有的字会被算作缺字、不画 —— 那样排出来的行宽是错的，
+ *   而这些用例断言的全是"第几个字落在哪一行"。
+ */
+const CJK = "一二三四五六，（）甲乙丙丁";
+const cf = makeFontWith([...CJK].map((c) => c.codePointAt(0) ?? 0));
+
+/** 每行几个字（`lineCaretX` 的行长 - 1）。比读 quads 直接得多。 */
+function lineLengths(r: { readonly lineCaretX: readonly (readonly number[])[] }): number[] {
+  return r.lineCaretX.map((x) => x.length - 1);
+}
+
+test("★★ 避头尾：逗号不再顶行首（多带一个字下来）", () => {
+  const width = 48; // 4 个字
+  const plain = layoutText(cf, "一二三四五六", { maxWidth: width });
+  assert.deepEqual(lineLengths(plain), [4, 2], "前提：不带标点时正好 4+2");
+  const r = layoutText(cf, "一二三四，五六", { maxWidth: width });
+  assert.deepEqual(lineLengths(r), [3, 4], "断点要从「，」前面挪到它前面那位的前面");
+  // 反向断言：两行合起来还是 7 个字，没有丢字
+  assert.equal(
+    lineLengths(r).reduce((a, b) => a + b, 0),
+    7,
+    "避头尾只挪断点，不许吞字",
+  );
+});
+
+test("★★ 行尾禁则：开括号跟着下一行走（不能孤零零挂行尾）", () => {
+  const r = layoutText(cf, "甲乙（丙", { maxWidth: 36 }); // 3 个字
+  assert.deepEqual(lineLengths(r), [2, 2], "「（」不能留在第一行末尾");
+});
+
+test("★★ 连续开括号：必须终止，且每行至少一个字（不设上界就死循环）", () => {
+  const r = layoutText(cf, "（（（（（（", { maxWidth: 24 }); // 2 个字
+  const lens = lineLengths(r);
+  assert.equal(
+    lens.reduce((a, b) => a + b, 0),
+    6,
+    "六字排完就停 —— 不终止的实现会在这里挂死，而不是给出错误的行数",
+  );
+  for (const n of lens) assert.ok(n >= 1, `出现了长度 ${String(n)} 的行：空行会让下一轮从 0 开始`);
+});
+
+test("★ 纯汉字（无标点）断行与以前完全一样（避头尾不影响正常文本）", () => {
+  assert.deepEqual(lineLengths(layoutText(cf, "一二三四五", { maxWidth: 24 })), [2, 2, 1]);
+});
