@@ -2782,13 +2782,13 @@ MUTANTS = [
         "name": "M288 背包行不切 visible（面板永远列出 8 行空格子）",
         # 症状：背包里只有 1 堆，面板上却有 8 个格子，后 7 个点得到但什么都不代表。
         "file": "src/host/hud-ui.ts",
-        "pairs": [("        n.visible = r !== undefined;", "        n.visible = true;")],
+        "pairs": [("      n.visible = r !== undefined;", "      n.visible = true;")],
         "test": "tests/host/hud-ui.test.ts",
     },
     {
         "name": "M289 选中行不换底色（点了没反馈，玩家不知道丢的是哪一堆）",
         "file": "src/host/hud-ui.ts",
-        "pairs": [("          tint: r.selected ? selTint : rowTint,", "          tint: rowTint,")],
+        "pairs": [("        tint: r.selected ? selTint : rowTint,", "        tint: rowTint,")],
         "test": "tests/host/hud-ui.test.ts",
     },
     {

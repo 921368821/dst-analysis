@@ -445,13 +445,22 @@ const PROBE = `
   for (let i = 0; i < 60 && E.assetInfo().count === 0; i++) await sleep(50);
   const ai = E.assetInfo();
   const aRows = document.querySelectorAll("#assetlist .arow").length;
+  // ★★ 期望值**从清单自己算**，不再写死 16 / 10。
+  //   批108 加了 16 张方向帧之后，这两条写死的断言当场红了 —— 而它们想守的东西
+  //   （"面板列全了""UI 页没被塞进世界图集"）与具体有几个文件毫无关系。
+  //   写死的代价是**每加一个资产就要改一次判据**，于是判据会慢慢退化成"抄一遍实现"。
+  //   下界另给（count >= 32）：删资产要能被抓住，那是另一件事。
+  const aList = E.assets();
+  // 清单里的路径形如 ui-font.png（name 是给人看的短名，别拿它做判断 —— 它没有后缀）
+  // ★ 不用正则：这段代码住在**模板串里**，正则里的斜杠要两层转义才到得了浏览器，
+  //   写漏一层就是「未闭合分组」，而且报错位置在页面里、不在源码行上。
+  const baseOf = (p) => p.slice(p.lastIndexOf("/") + 1);
+  const aUiInAtlas = aList.filter((a) => baseOf(a.path).startsWith("ui-") && a.inAtlas).length;
   add(
     "资产面板列出了清单里的文件（条数、DOM 行数、可加入数三者对得上）",
-    // 16 = 清单里的 16 个文件（批101 加了中文字形 .fnt + .png）；
-    // 可加入的 10 = 13 张位图里除掉 3 张 **UI 页**（ui-font / ui-font-cjk / ui-skin）——
-    // 它们不进世界图集（UV 是相对自己那张图算的，且中文字形图 1024×2092 超过图集上限）。
-    ai.count === 16 && aRows === 16 && ai.usable === 10,
-    "count=" + ai.count + " rows=" + aRows + " usable=" + ai.usable + " problem=" + String(ai.problem),
+    ai.count >= 32 && aRows === ai.count && aList.length === ai.count && aUiInAtlas === 0 && ai.usable >= 26,
+    "count=" + ai.count + " rows=" + aRows + " 清单 " + aList.length + " 条 · usable=" + ai.usable +
+      " · 混进图集的 UI 页 " + aUiInAtlas + " 个（应为 0）problem=" + String(ai.problem),
   );
 
   // ★★ 这一批的核心观测点：图集是**从 web/assets 烘出来的**，不是程序化假贴图。
@@ -459,10 +468,9 @@ const PROBE = `
   //   来源是「procedural」意味着 10 张真图全都没读到，而没人会报错。
   add(
     "★★ 图集来自真实资产（不是程序化兜底），且帧数对得上",
-    // 10 = 世界帧（berry/ground/hound/photo/player/rabbit/rock/ruler/terrain/tree）。
-    // 批101 之前是 12：那 12 里混着两张 UI 页，它们本来就不该在世界图集里。
-    ai.atlasSource === "assets" && ai.frames === 10 && String(ai.atlasNote).length > 0,
-    "source=" + ai.atlasSource + " frames=" + ai.frames + " note=" + ai.atlasNote,
+    // 帧数 == 可加入的位图数（每张位图烘成一帧），再加一个下界防止"资产被删光了也没人发现"。
+    ai.atlasSource === "assets" && ai.frames === ai.usable && ai.frames >= 26 && String(ai.atlasNote).length > 0,
+    "source=" + ai.atlasSource + " frames=" + ai.frames + " usable=" + ai.usable + " note=" + ai.atlasNote,
   );
 
   // ★★ 生物帧：程序化图集里**没有** rabbit / hound ⇒ 编辑器世界里

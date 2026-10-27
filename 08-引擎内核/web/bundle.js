@@ -19140,6 +19140,96 @@ function normalizeCodes(text) {
 function breakAfter(code) {
   return code >= 11904 && code <= 40959 || code >= 63744 && code <= 64255 || code >= 12288 && code <= 12351 || code >= 65280 && code <= 65519;
 }
+var LINE_START_FORBIDDEN = /* @__PURE__ */ new Set([
+  12289,
+  // 、
+  12290,
+  // 。
+  65292,
+  // ，
+  65294,
+  // ．
+  65306,
+  // ：
+  65307,
+  // ；
+  65281,
+  // ！
+  65311,
+  // ？
+  8230,
+  // …
+  8212,
+  // —
+  12539,
+  // ・
+  65289,
+  // ）
+  12297,
+  // 〉
+  12299,
+  // 》
+  12301,
+  // 」
+  12303,
+  // 』
+  12305,
+  // 】
+  12309,
+  // 〕
+  12311,
+  // 〗
+  12313,
+  // 〙
+  12315,
+  // 〛
+  41,
+  // )
+  93,
+  // ]
+  125,
+  // }
+  44,
+  // ,
+  46,
+  // .
+  58,
+  // :
+  59,
+  // ;
+  33,
+  // !
+  63
+  // ?
+]);
+var LINE_END_FORBIDDEN = /* @__PURE__ */ new Set([
+  65288,
+  // （
+  12296,
+  // 〈
+  12298,
+  // 《
+  12300,
+  // 「
+  12302,
+  // 『
+  12304,
+  // 【
+  12308,
+  // 〔
+  12310,
+  // 〖
+  12312,
+  // 〘
+  12314,
+  // 〚
+  40,
+  // (
+  91,
+  // [
+  123
+  // {
+]);
 function advanceOf(font, code, scale, letterSpacing) {
   const g = font.glyphs.get(code);
   const base = g === void 0 ? font.missingAdvance : g.xadvance;
@@ -19208,7 +19298,23 @@ function breakParagraph(font, codes, scale, letterSpacing, maxWidth) {
       curW += tk.width;
       continue;
     }
-    if (cur.length > 0) pushLine();
+    if (cur.length > 0) {
+      let carry = 0;
+      while (cur.length - carry > 1) {
+        const last = cur[cur.length - 1 - carry];
+        const nextFirst = carry === 0 ? tk.codes[0] ?? -1 : cur[cur.length - carry];
+        if (!LINE_END_FORBIDDEN.has(last) && !LINE_START_FORBIDDEN.has(nextFirst)) break;
+        carry++;
+      }
+      if (carry === 0) {
+        pushLine();
+      } else {
+        const moved = cur.splice(cur.length - carry, carry);
+        pushLine();
+        cur.push(...moved);
+        curW = lineWidthOf(font, cur, scale, letterSpacing);
+      }
+    }
     if (tk.width <= maxWidth) {
       cur.push(...tk.codes);
       curW = tk.width;
