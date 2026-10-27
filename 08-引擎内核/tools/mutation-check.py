@@ -5601,6 +5601,105 @@ MUTANTS = [
             )
         ],
         "test": "tests/extensions/dir-sprite.test.ts"
+    },
+    {
+        "name": "M587 换位只换种类不换数量（两格的数字都留在原地）",
+        "file": "src/extensions/inventory/inventory.ts",
+        "pairs": [
+            (
+                "  y.kind = kind;\n  y.count = count;",
+                "  y.kind = kind;\n  y.count = y.count;"
+            )
+        ],
+        "test": "tests/extensions/inventory.test.ts"
+    },
+    {
+        "name": "M588 两格取成同一格（y 也从 a 取 ⇒ 换位变成什么都没发生）",
+        "file": "src/extensions/inventory/inventory.ts",
+        "pairs": [
+            (
+                "  const x = stacks[a]!;\n  const y = stacks[b]!;",
+                "  const x = stacks[a]!;\n  const y = stacks[a]!;"
+            )
+        ],
+        "test": "tests/extensions/inventory.test.ts"
+    },
+    {
+        "name": "M589 不校验整数下标（1.5 静默取整，换到隔壁格）",
+        "file": "src/extensions/inventory/inventory.ts",
+        "pairs": [
+            (
+                "  const bad = (i: number): boolean => !Number.isInteger(i) || i < 0 || i >= n;",
+                "  const bad = (i: number): boolean => i < 0 || i >= n;"
+            )
+        ],
+        "test": "tests/extensions/inventory.test.ts"
+    },
+    {
+        "name": "M590 越界报错里带错格数（detail.count 说成 a）",
+        "file": "src/extensions/inventory/inventory.ts",
+        "pairs": [
+            (
+                "        count: n,",
+                "        count: a,"
+            )
+        ],
+        "test": "tests/extensions/inventory.test.ts"
+    },
+    {
+        "name": "M591 拖拽标记 to 优先于 from（还没动就显示「放这里」）",
+        "file": "src/host/hud-model.ts",
+        "pairs": [
+            (
+                "    const mark: BagDragMark = from !== null && i === from ? \"from\" : to !== null && i === to ? \"to\" : null;",
+                "    const mark: BagDragMark = to !== null && i === to ? \"to\" : from !== null && i === from ? \"from\" : null;"
+            )
+        ],
+        "test": "tests/host/hud-model.test.ts"
+    },
+    {
+        "name": "M592 落点不标记（占位反馈消失，只剩起点在动）",
+        "file": "src/host/hud-model.ts",
+        "pairs": [
+            (
+                "    const mark: BagDragMark = from !== null && i === from ? \"from\" : to !== null && i === to ? \"to\" : null;",
+                "    const mark: BagDragMark = from !== null && i === from ? \"from\" : null;"
+            )
+        ],
+        "test": "tests/host/hud-model.test.ts"
+    },
+    {
+        "name": "M593 松手只清起点不清落点（拖完标记留在屏幕上）",
+        "file": "src/host/hud-ui.ts",
+        "pairs": [
+            (
+                "      const from = dragFrom;\n      const to = dragTo;\n      dragFrom = null;\n      dragTo = null;",
+                "      const from = dragFrom;\n      const to = dragTo;\n      dragFrom = null;"
+            )
+        ],
+        "test": "tests/host/hud-ui.test.ts"
+    },
+    {
+        "name": "M594 落回同一格也算换位（按一下不动就发一次 swap）",
+        "file": "src/host/hud-ui.ts",
+        "pairs": [
+            (
+                "      if (to !== null && to !== from) opts.onSwapRows?.(from, to);",
+                "      if (to !== null) opts.onSwapRows?.(from, to);"
+            )
+        ],
+        "test": "tests/host/hud-ui.test.ts"
+    },
+    {
+        "name": "M595 关面板不清拖拽状态（重开时有一行「正被拖着」）",
+        "file": "src/host/hud-ui.ts",
+        "pairs": [
+            (
+                "      if (!open) {\n        dragFrom = null;\n        dragTo = null;\n      }",
+                "      if (false) {\n        dragFrom = null;\n        dragTo = null;\n      }"
+            )
+        ],
+        "test": "tests/host/hud-ui.test.ts"
     }
 ]
 

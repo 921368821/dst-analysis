@@ -119,6 +119,29 @@ export interface BagRow {
   readonly index: number;
   readonly text: string;
   readonly selected: boolean;
+  /**
+   * 拖拽标记。`null` = 没在拖或与它无关。
+   *
+   * ★ 单独给一个字段而不是让宿主去解析 `text` 里的后缀：
+   *   "哪一行是落点"是**结构**，从文案里 regex 出来就有了第二个真相，
+   *   改一句文案就会把它弄坏（而且坏得静默 —— 拖拽照常工作，只是高亮没了）。
+   */
+  readonly drag: BagDragMark;
+}
+
+/** 拖拽标记：`from` = 被拿起来的那格，`to` = 松手会落到的格。 */
+export type BagDragMark = "from" | "to" | null;
+
+/**
+ * 拖拽状态（下标都是**背包行下标**，从 0 起）。
+ *
+ * ★ `to === null` 表示指针不在任何格子上（拖到面板外、拖到缝里）。
+ *   它与 `to === from` 是两种不同的状态：前者松手不换位，后者松手等于放回原处。
+ *   合成一个"没变"会让"拖出去再拖回来"的分支无处落地。
+ */
+export interface BagDragState {
+  readonly from: number | null;
+  readonly to: number | null;
 }
 
 /**
@@ -137,15 +160,27 @@ export function bagRows(
   stacks: readonly { readonly kind: string; readonly count: number }[],
   selected: number,
   labelOf?: (kind: string) => string,
+  drag?: BagDragState,
 ): BagRow[] {
   const sel = stacks.length === 0 ? 0 : Math.min(Math.max(0, selected), stacks.length - 1);
   const label = labelOf ?? ((kind: string) => kind.replace(/_/g, " "));
-  return stacks.map((s, i) => ({
-    index: i + 1,
-    // 下划线换空格：`grass_tuft` 读作 "grass tuft"，比原文更好看，且不需要第二张表
-    text: `${String(i + 1)}. ${label(s.kind)} x${String(s.count)}`,
-    selected: i === sel,
-  }));
+  const from = drag?.from ?? null;
+  const to = drag?.to ?? null;
+  return stacks.map((s, i) => {
+    // ★ `from` 优先于 `to`：刚按下还没动时两者相同，这一格既是"拿起来的"又是"要放回去的"。
+    //   让它显示 `moving` 才是实话 —— 显示 `drop` 会让人以为已经在换位了。
+    const mark: BagDragMark = from !== null && i === from ? "from" : to !== null && i === to ? "to" : null;
+    const base = `${String(i + 1)}. ${label(s.kind)} x${String(s.count)}`;
+    return {
+      index: i + 1,
+      // 标记**缀在行尾**，不缀在行首：行首是序号，序号错位会让"按数字键选集"看起来对不上。
+      // 也不用箭头符号：`>` / `←` 这类字符在 5×7 的 ASCII 字形里未必有，
+      // 缺字是静默的（画出来是空白），而英文单词一定在。
+      text: mark === null ? base : `${base}  (${mark === "from" ? "moving" : "drop"})`,
+      selected: i === sel,
+      drag: mark,
+    };
+  });
 }
 
 /** 背包面板底栏（键位由映射表生成，这里只拼接）。 */

@@ -128,3 +128,54 @@ test("★ 守门函数自己会红：中文文本必须被报成缺字（否则�
   // 反向：纯 ASCII 一句话必须一个都不报（否则这个函数只会喊狼）
   assert.deepEqual(missingGlyphsIn("hud 42 quad 7", font), []);
 });
+
+// ------------------------------------------------------------------ 背包拖拽标记（批109）
+
+test("★ 不传拖拽状态时文本与旧格式一字不差（回归：标记不能污染正常状态）", () => {
+  const stacks = [
+    { kind: "tree", count: 3 },
+    { kind: "rock", count: 7 },
+  ];
+  const rows = bagRows(stacks, 0);
+  assert.equal(rows[0]!.text, "1. tree x3");
+  assert.equal(rows[1]!.text, "2. rock x7");
+  assert.equal(rows[0]!.drag, null);
+  assert.equal(rows[1]!.drag, null);
+});
+
+test("★★ 拖拽：起点缀 moving、落点缀 drop，其余行一个字都不改", () => {
+  const stacks = [
+    { kind: "tree", count: 3 },
+    { kind: "rock", count: 7 },
+    { kind: "berry", count: 2 },
+  ];
+  const rows = bagRows(stacks, 0, undefined, { from: 0, to: 2 });
+  assert.equal(rows[0]!.drag, "from");
+  assert.equal(rows[0]!.text, "1. tree x3  (moving)");
+  assert.equal(rows[1]!.drag, null);
+  assert.equal(rows[1]!.text, "2. rock x7", "既不是起点也不是落点的行必须一字不动");
+  assert.equal(rows[2]!.drag, "to");
+  assert.equal(rows[2]!.text, "3. berry x2  (drop)");
+});
+
+test("★ 拖拽 from === to：只显示 moving（还没换位，不能提前说「放这里」）", () => {
+  const stacks = [{ kind: "tree", count: 3 }];
+  const rows = bagRows(stacks, 0, undefined, { from: 0, to: 0 });
+  assert.equal(rows[0]!.drag, "from", "同一格时 from 优先");
+  assert.ok(rows[0]!.text.endsWith("(moving)"), `实际：${rows[0]!.text}`);
+  assert.equal(rows[0]!.text.includes("drop"), false);
+});
+
+test("★ 拖到面板外（to === null）：起点仍是 moving，且没有任何 drop 行", () => {
+  const stacks = [
+    { kind: "tree", count: 3 },
+    { kind: "rock", count: 7 },
+  ];
+  const rows = bagRows(stacks, 0, undefined, { from: 1, to: null });
+  assert.equal(rows[1]!.drag, "from");
+  assert.deepEqual(
+    rows.map((r) => r.drag),
+    [null, "from"],
+    "落点为空时不该有第二行被标成 drop",
+  );
+});

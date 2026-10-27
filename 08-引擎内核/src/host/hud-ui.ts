@@ -149,6 +149,17 @@ export interface HudUiOptions {
   readonly hints: { readonly drop: string; readonly bag: string; readonly pick: string };
   /** 点了第 i 行（0 起）。**只在真的 click 时调**，不是每帧调。 */
   readonly onSelectRow: (index: number) => void;
+  /**
+   * 把第 `from` 行拖到了第 `to` 行（0 起）。
+   *
+   * ★ 只有「真的换了位置」才调：`from === to`（按下没动）与 `to === null`
+   *   （拖到面板外）都不调。宿主拿到这个回调要做的只有一件事 ——
+   *   改库存，然后下一帧 `setBag` 自然就对了。
+   * ★ 回调里**不要再回调本层**：会让"拖一次"变成两次重排，
+   *   而且重排发生在事件投递的中途，行节点的 props 会被换成新文案、
+   *   旧的落点标记还挂在上面。
+   */
+  readonly onSwapRows?: (from: number, to: number) => void;
 }
 
 export interface HudUiHandle {
@@ -356,13 +367,74 @@ export function createHudUi(opts: HudUiOptions): Result<HudUiHandle, EngineError
   // ★ 最后 add：绘制顺序 = children 顺序，提示必须在最上层（背包开着时也要看得见）
   root.add(toastPanel);
 
-  /** 只认目标本身的 click：冒泡会把同一件事投给每一层祖先。 */
+  /**
+   * 从事件目标往上找**背包行**的下标（不是行内节点则 `null`）。
+   *
+   * ★ 用「沿父链找」而不是 `ev.target.id` 直接匹配：行现在是叶子节点，
+   *   但哪天给它加个图标子节点，`target` 就变成那个子节点了 ——
+   *   直接匹配会静默失效（拖拽整个不工作，而没有任何报错）。
+   */
+  const rowIndexOf = (node: UiNode | null): number | null => {
+    let cur = node;
+    while (cur !== null) {
+      const m = /^bag\.row(\d+)$/.exec(cur.id);
+      if (m !== null) return Number(m[1]);
+      cur = cur.parent;
+    }
+    return null;
+  };
+
+  /**
+   * 只认目标本身的 click：冒泡会把同一件事投给每一层祖先。
+   *
+   * ★★ 拖拽换位在这一层做，而且**归 UI 管**：它需要的东西（按下捕获、位移阈值、
+   *   逐帧命中）全在 `UiInputRouter` 里，宿主只有"指针在哪、按着没有"两个数。
+   *   放到宿主去写，就得再实现一遍捕获与阈值 —— 两份实现必然漂移成
+   *   "点一下算拖"或"拖动被当成点击"。
+   * ★ 落点状态 `drag*` 只在这里改，`renderBag()` 是唯一的出口：
+   *   跳过一次重排，标记就会留在屏幕上，而"拖完还亮着"看起来像卡住了。
+   */
   const onEvent = (ev: UiEvent): void => {
+    const row = rowIndexOf(ev.target);
+    // 只在冒泡到**行节点本身**时处理一次（行是叶子，等于第一次投递；行有子节点时也不重复）
+    if (row !== null && ev.currentTarget.id === `bag.row${String(row)}`) {
+      if (ev.type === "pointerdown") {
+        dragFrom = row;
+        dragTo = row;
+        renderBag();
+        return;
+      }
+      if (ev.type === "pointermove") {
+        if (dragFrom !== null && dragTo !== row) {
+          dragTo = row;
+          renderBag();
+        }
+        return;
+      }
+      if (ev.type === "pointerleave") {
+        // 离开某一行 ⇒ 它不再是落点。**不清 `dragFrom`**：手还按着，拖出去再拖回来照常。
+        if (dragFrom !== null && dragTo === row) {
+          dragTo = null;
+          renderBag();
+        }
+        return;
+      }
+    }
+    if (ev.type === "pointerup") {
+      if (ev.currentTarget !== ev.target) return;
+      if (dragFrom === null) return;
+      const from = dragFrom;
+      const to = dragTo;
+      dragFrom = null;
+      dragTo = null;
+      renderBag();
+      if (to !== null && to !== from) opts.onSwapRows?.(from, to);
+      return;
+    }
     if (ev.type !== "click") return;
     if (ev.currentTarget !== ev.target) return;
-    const m = /^bag\.row(\d+)$/.exec(ev.target.id);
-    if (m === null) return;
-    opts.onSelectRow(Number(m[1]));
+    if (row === null) return;
+    opts.onSelectRow(row);
   };
 
   const module = createUiModule({
@@ -382,6 +454,52 @@ export function createHudUi(opts: HudUiOptions): Result<HudUiHandle, EngineError
   let bagOpenState = false;
   let bagTexts: readonly string[] = [];
   let toastText = "";
+  /** 背包当前内容与选中（拖拽重排要重新算行文案，不能只靠 `setBag` 的入参）。 */
+  let bagStacks: readonly { readonly kind: string; readonly count: number }[] = [];
+  let bagSel = 0;
+  /** 拖拽状态（见 `BagDragState`）。只在 `onEvent` 里改。 */
+  let dragFrom: number | null = null;
+  let dragTo: number | null = null;
+
+  /**
+   * 按当前内容 + 选中 + 拖拽状态把行画出来。
+   *
+   * ★ 签名里带上 `drag` 标记（`#from` / `#to`）：不带的话「拖到隔壁那行」会算出
+   *   与上一帧相同的签名，直接 return —— 落点标记永远不出现，而拖拽本身是好的。
+   */
+  function renderBag(): void {
+    const open = bagOpenState;
+    if (!open) {
+      const closed = "#closed";
+      if (closed === bagSig) return;
+      bagSig = closed;
+      bagPanel.visible = false;
+      bagTexts = [];
+      module.invalidate();
+      return;
+    }
+    const rows = bagRows(bagStacks, bagSel, opts.labelOf, { from: dragFrom, to: dragTo });
+    const sig = rows.map((r) => `${r.text}#${r.selected ? 1 : 0}`).join("|");
+    if (sig === bagSig) return;
+    bagSig = sig;
+    bagPanel.visible = true;
+    const shown = Math.min(rows.length, maxRows);
+    for (let i = 0; i < maxRows; i++) {
+      const n = bagRowsNodes[i]!;
+      const r = i < shown ? rows[i] : undefined;
+      n.visible = r !== undefined;
+      if (r === undefined) continue;
+      n.props = {
+        ...n.props,
+        text: r.text,
+        tint: r.selected ? selTint : rowTint,
+        textColor: white,
+      };
+    }
+    bagEmpty.visible = rows.length === 0;
+    bagTexts = rows.map((r) => r.text);
+    module.invalidate();
+  }
 
   const api: HudUiHandle = {
     module,
@@ -414,34 +532,16 @@ export function createHudUi(opts: HudUiOptions): Result<HudUiHandle, EngineError
 
     setBag(stacks, selected): void {
       const open = stacks !== null;
-      const list = stacks ?? [];
-      const rows = bagRows(list, selected, opts.labelOf);
-      const sig = open ? `${rows.map((r) => `${r.text}#${r.selected ? 1 : 0}`).join("|")}` : "#closed";
-      if (sig === bagSig) return;
-      bagSig = sig;
       bagOpenState = open;
-      bagPanel.visible = open;
+      bagStacks = stacks ?? [];
+      bagSel = selected;
+      // 关面板时拖拽状态必须一起清：下次打开还留着 `dragFrom=2` 的话，
+      // 第一帧就会画出一个"正被拖着的第 3 行"，而没人按着鼠标。
       if (!open) {
-        bagTexts = [];
-        module.invalidate();
-        return;
+        dragFrom = null;
+        dragTo = null;
       }
-      const shown = Math.min(rows.length, maxRows);
-      for (let i = 0; i < maxRows; i++) {
-        const n = bagRowsNodes[i]!;
-        const r = i < shown ? rows[i] : undefined;
-        n.visible = r !== undefined;
-        if (r === undefined) continue;
-        n.props = {
-          ...n.props,
-          text: r.text,
-          tint: r.selected ? selTint : rowTint,
-          textColor: white,
-        };
-      }
-      bagEmpty.visible = rows.length === 0;
-      bagTexts = rows.map((r) => r.text);
-      module.invalidate();
+      renderBag();
     },
 
     setToast(text: string | null): void {

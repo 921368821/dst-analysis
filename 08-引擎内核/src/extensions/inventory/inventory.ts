@@ -38,6 +38,8 @@ export const INVENTORY_FULL = "INVENTORY.FULL";
 export const INVENTORY_BAD_COUNT = "INVENTORY.BAD_COUNT";
 /** 存量不足。 */
 export const INVENTORY_NOT_ENOUGH = "INVENTORY.NOT_ENOUGH";
+/** 格子下标越界（拖拽落点算错、或那边的堆叠刚好被消耗掉了）。 */
+export const INVENTORY_BAD_INDEX = "INVENTORY.BAD_INDEX";
 
 export class ItemStack extends Component {
   /** 物品种类（与 `SiteKind` 同名，但不强绑：背包不认识"世界"）。 */
@@ -113,6 +115,56 @@ export function stacksOf(scene: Scene, ownerId: number): ItemStack[] {
   });
   out.sort((a, b) => (a.node?.id ?? 0) - (b.node?.id ?? 0));
   return out;
+}
+
+/**
+ * 交换两格的**内容**（拖拽换位）。
+ *
+ * ★ 换的是 `kind` / `count` 两个字段，**不是节点 id**。
+ *   显示顺序由 `stacksOf` 的节点 id 升序决定，所以"换格子"有两条实现路径：
+ *   换内容、或者换节点的 id/挂载顺序。选前者，因为：
+ *   ① 换 id 要销毁重建节点，`game.item` 之外挂在同一节点上的东西会一起没；
+ *   ② "这一格被选中"是宿主的 `bagSel` 下标，节点一换，选中态会跳到别的东西上；
+ *   ③ 玩家的心智是「这两格的东西换一下」，不是「这两个节点换身份证」。
+ *   代价是存档里堆叠的顺序与创建顺序不再一致 —— 那本来就没人保证过
+ *   （`stacksOf` 只承诺「按 id 升序」，不承诺「按拾取顺序」）。
+ *
+ * ★ 越界**报错**，不静默返回。
+ *   拖拽的落点是像素算出来的，落空（拖到面板外、拖到两行之间的缝里）是常态；
+ *   静默的话症状是"拖了没反应"，而它可以由十几种原因造成 ——
+ *   报错至少把"落点不在任何格子上"这一类当场排掉。
+ *
+ * ★ `a === b` 是合法 no-op（按下去没动就松手）：不报错、不交换、不改任何字段。
+ *   判据要能区分它和"真的换了"（换了两格内容相同的堆叠，字段值也没变）。
+ */
+export function swapStacks(
+  scene: Scene,
+  ownerId: number,
+  a: number,
+  b: number,
+): Result<void, EngineError> {
+  const stacks = stacksOf(scene, ownerId);
+  const n = stacks.length;
+  const bad = (i: number): boolean => !Number.isInteger(i) || i < 0 || i >= n;
+  if (bad(a) || bad(b)) {
+    return err(
+      engineError(INVENTORY_BAD_INDEX, `格子下标越界：${String(a)} / ${String(b)}（当前 ${String(n)} 格）`, {
+        a,
+        b,
+        count: n,
+      }),
+    );
+  }
+  if (a === b) return ok(undefined);
+  const x = stacks[a]!;
+  const y = stacks[b]!;
+  const kind = x.kind;
+  const count = x.count;
+  x.kind = y.kind;
+  x.count = y.count;
+  y.kind = kind;
+  y.count = count;
+  return ok(undefined);
 }
 
 export function countItem(scene: Scene, ownerId: number, kind: string): number {

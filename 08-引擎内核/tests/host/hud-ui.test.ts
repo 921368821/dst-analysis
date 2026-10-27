@@ -427,3 +427,93 @@ test("★ 长提示只画一行（省略号截断，而不是换行把提示条�
   );
   assert.ok(wide.length > 10, `但也不能截没了 —— 只画了 ${String(wide.length)} 个`);
 });
+
+// ------------------------------------------------------------------ ④ 拖拽换位（批109）
+
+/** 三行背包 + 手工矩形：与「点中行」那条一样，验的是**路由**，排版另有判据。 */
+function threeRows(over: Partial<HudUiOptions> = {}) {
+  const hud = makeHud(over);
+  hud.setBag(
+    [
+      { kind: "tree", count: 3 },
+      { kind: "rock", count: 7 },
+      { kind: "berry", count: 2 },
+    ],
+    0,
+  );
+  hud.module.viewport.setScreen(960, 600, 1);
+  const rows = [0, 1, 2].map((i) => hud.module.root.find(`bag.row${String(i)}`));
+  rows.forEach((r, i) => {
+    assert.ok(r !== undefined, `bag.row${String(i)} 不存在`);
+    r.rect = new Rect(10, 40 + i * 16, 200, 14);
+  });
+  return hud;
+}
+
+test("★★ 拖拽换位：按下 → 移过中间行 → 落在第 3 行，只回调一次 (0,2)", () => {
+  const swaps: [number, number][] = [];
+  const hud = threeRows({ onSwapRows: (f, t) => swaps.push([f, t]) });
+  hud.pointer(20, 45, true); // 按在第 1 行
+  hud.pointer(20, 61, true); // 移到第 2 行
+  assert.ok(
+    (hud.bagRowTexts[1] ?? "").endsWith("(drop)"),
+    `占位反馈没画到节点上：第 2 行 = ${String(hud.bagRowTexts[1])}`,
+  );
+  hud.pointer(20, 77, true); // 移到第 3 行
+  hud.pointer(20, 77, false); // 松手
+  assert.deepEqual(swaps, [[0, 2]], "只看最终落点，中间经过哪一行不算");
+});
+
+test("★ 拖拽中：起点缀 moving、落点缀 drop，两个标记同时存在", () => {
+  const hud = threeRows();
+  hud.pointer(20, 45, true);
+  hud.pointer(20, 61, true);
+  assert.ok((hud.bagRowTexts[0] ?? "").endsWith("(moving)"), `第 1 行 = ${String(hud.bagRowTexts[0])}`);
+  assert.ok((hud.bagRowTexts[1] ?? "").endsWith("(drop)"), `第 2 行 = ${String(hud.bagRowTexts[1])}`);
+  assert.equal(hud.bagRowTexts[2], "3. berry x2", "无关的行不许被标记污染");
+});
+
+test("★★ 松手后标记必须清干净（留在屏幕上看起来像卡住了）", () => {
+  const hud = threeRows();
+  hud.pointer(20, 45, true);
+  hud.pointer(20, 61, true);
+  hud.pointer(20, 61, false);
+  for (const t of hud.bagRowTexts) {
+    assert.equal(t.includes("(moving)") || t.includes("(drop)"), false, `松手后还留着标记：${t}`);
+  }
+});
+
+test("★ 按下不动就松手：算点击（选行），不算换位", () => {
+  const picks: number[] = [];
+  const swaps: [number, number][] = [];
+  const hud = threeRows({
+    onSelectRow: (i) => picks.push(i),
+    onSwapRows: (f, t) => swaps.push([f, t]),
+  });
+  hud.pointer(20, 61, true);
+  hud.pointer(20, 61, false);
+  assert.deepEqual(swaps, [], "原地松手不该触发换位");
+  assert.deepEqual(picks, [1], "原地松手仍然是一次点击");
+});
+
+test("★ 拖到面板外再松手：不换位（落点为空 ≠ 落回原处）", () => {
+  const swaps: [number, number][] = [];
+  const hud = threeRows({ onSwapRows: (f, t) => swaps.push([f, t]) });
+  hud.pointer(20, 45, true);
+  hud.pointer(900, 500, true); // 拖到空白处：没有命中任何行
+  assert.equal((hud.bagRowTexts[0] ?? "").endsWith("(moving)"), true, "手还按着，起点仍是 moving");
+  hud.pointer(900, 500, false);
+  assert.deepEqual(swaps, [], "落点为空时松手不该换位");
+});
+
+test("★ 关面板会清掉拖拽状态（重开时不能有一行「正被拖着」）", () => {
+  const hud = threeRows();
+  hud.pointer(20, 45, true); // 按下但没松手
+  hud.setBag(null, 0); // 面板被关掉（例如按了 Tab）
+  hud.setBag([{ kind: "tree", count: 3 }], 0); // 再打开
+  assert.equal(
+    (hud.bagRowTexts[0] ?? "").includes("(moving)"),
+    false,
+    "重开后第 1 行还标着 moving —— 没人按着鼠标，这就是「关不掉的面板」那类假象",
+  );
+});

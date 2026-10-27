@@ -16919,6 +16919,7 @@ var INVENTORY_NO_OWNER = "INVENTORY.NO_OWNER";
 var INVENTORY_FULL = "INVENTORY.FULL";
 var INVENTORY_BAD_COUNT = "INVENTORY.BAD_COUNT";
 var INVENTORY_NOT_ENOUGH = "INVENTORY.NOT_ENOUGH";
+var INVENTORY_BAD_INDEX = "INVENTORY.BAD_INDEX";
 var ItemStack = class extends Component {
   /** 物品种类（与 `SiteKind` 同名，但不强绑：背包不认识"世界"）。 */
   kind = "";
@@ -16982,6 +16983,30 @@ function stacksOf(scene, ownerId) {
   });
   out.sort((a, b) => (a.node?.id ?? 0) - (b.node?.id ?? 0));
   return out;
+}
+function swapStacks(scene, ownerId, a, b) {
+  const stacks = stacksOf(scene, ownerId);
+  const n = stacks.length;
+  const bad4 = (i) => !Number.isInteger(i) || i < 0 || i >= n;
+  if (bad4(a) || bad4(b)) {
+    return err(
+      engineError(INVENTORY_BAD_INDEX, `\u683C\u5B50\u4E0B\u6807\u8D8A\u754C\uFF1A${String(a)} / ${String(b)}\uFF08\u5F53\u524D ${String(n)} \u683C\uFF09`, {
+        a,
+        b,
+        count: n
+      })
+    );
+  }
+  if (a === b) return ok(void 0);
+  const x = stacks[a];
+  const y = stacks[b];
+  const kind = x.kind;
+  const count = x.count;
+  x.kind = y.kind;
+  x.count = y.count;
+  y.kind = kind;
+  y.count = count;
+  return ok(void 0);
 }
 function countItem(scene, ownerId, kind) {
   let n = 0;
@@ -20061,15 +20086,24 @@ function hudRows(f) {
 function hudLine(f) {
   return hudRows(f).join(" | ");
 }
-function bagRows(stacks, selected, labelOf) {
+function bagRows(stacks, selected, labelOf, drag) {
   const sel = stacks.length === 0 ? 0 : Math.min(Math.max(0, selected), stacks.length - 1);
   const label = labelOf ?? ((kind) => kind.replace(/_/g, " "));
-  return stacks.map((s, i) => ({
-    index: i + 1,
-    // 下划线换空格：`grass_tuft` 读作 "grass tuft"，比原文更好看，且不需要第二张表
-    text: `${String(i + 1)}. ${label(s.kind)} x${String(s.count)}`,
-    selected: i === sel
-  }));
+  const from = drag?.from ?? null;
+  const to = drag?.to ?? null;
+  return stacks.map((s, i) => {
+    const mark = from !== null && i === from ? "from" : to !== null && i === to ? "to" : null;
+    const base = `${String(i + 1)}. ${label(s.kind)} x${String(s.count)}`;
+    return {
+      index: i + 1,
+      // 标记**缀在行尾**，不缀在行首：行首是序号，序号错位会让"按数字键选集"看起来对不上。
+      // 也不用箭头符号：`>` / `←` 这类字符在 5×7 的 ASCII 字形里未必有，
+      // 缺字是静默的（画出来是空白），而英文单词一定在。
+      text: mark === null ? base : `${base}  (${mark === "from" ? "moving" : "drop"})`,
+      selected: i === sel,
+      drag: mark
+    };
+  });
 }
 function bagFooter(hints) {
   return `click row to select | ${hints.drop} drop 1 | shift+${hints.drop} drop all | ${hints.bag} close`;
@@ -20267,12 +20301,54 @@ function createHudUi(opts) {
   root.add(hudPanel);
   root.add(bagPanel);
   root.add(toastPanel);
+  const rowIndexOf = (node) => {
+    let cur = node;
+    while (cur !== null) {
+      const m = /^bag\.row(\d+)$/.exec(cur.id);
+      if (m !== null) return Number(m[1]);
+      cur = cur.parent;
+    }
+    return null;
+  };
   const onEvent = (ev) => {
+    const row = rowIndexOf(ev.target);
+    if (row !== null && ev.currentTarget.id === `bag.row${String(row)}`) {
+      if (ev.type === "pointerdown") {
+        dragFrom = row;
+        dragTo = row;
+        renderBag();
+        return;
+      }
+      if (ev.type === "pointermove") {
+        if (dragFrom !== null && dragTo !== row) {
+          dragTo = row;
+          renderBag();
+        }
+        return;
+      }
+      if (ev.type === "pointerleave") {
+        if (dragFrom !== null && dragTo === row) {
+          dragTo = null;
+          renderBag();
+        }
+        return;
+      }
+    }
+    if (ev.type === "pointerup") {
+      if (ev.currentTarget !== ev.target) return;
+      if (dragFrom === null) return;
+      const from = dragFrom;
+      const to = dragTo;
+      dragFrom = null;
+      dragTo = null;
+      renderBag();
+      if (to !== null && to !== from) opts.onSwapRows?.(from, to);
+      return;
+    }
     if (ev.type !== "click") return;
     if (ev.currentTarget !== ev.target) return;
-    const m = /^bag\.row(\d+)$/.exec(ev.target.id);
-    if (m === null) return;
-    opts.onSelectRow(Number(m[1]));
+    if (row === null) return;
+    opts.onSelectRow(row);
   };
   const module = createUiModule({
     id: "ui.hud",
@@ -20290,6 +20366,43 @@ function createHudUi(opts) {
   let bagOpenState = false;
   let bagTexts = [];
   let toastText = "";
+  let bagStacks = [];
+  let bagSel = 0;
+  let dragFrom = null;
+  let dragTo = null;
+  function renderBag() {
+    const open = bagOpenState;
+    if (!open) {
+      const closed = "#closed";
+      if (closed === bagSig) return;
+      bagSig = closed;
+      bagPanel.visible = false;
+      bagTexts = [];
+      module.invalidate();
+      return;
+    }
+    const rows = bagRows(bagStacks, bagSel, opts.labelOf, { from: dragFrom, to: dragTo });
+    const sig = rows.map((r) => `${r.text}#${r.selected ? 1 : 0}`).join("|");
+    if (sig === bagSig) return;
+    bagSig = sig;
+    bagPanel.visible = true;
+    const shown = Math.min(rows.length, maxRows);
+    for (let i = 0; i < maxRows; i++) {
+      const n = bagRowsNodes[i];
+      const r = i < shown ? rows[i] : void 0;
+      n.visible = r !== void 0;
+      if (r === void 0) continue;
+      n.props = {
+        ...n.props,
+        text: r.text,
+        tint: r.selected ? selTint : rowTint,
+        textColor: white
+      };
+    }
+    bagEmpty.visible = rows.length === 0;
+    bagTexts = rows.map((r) => r.text);
+    module.invalidate();
+  }
   const api = {
     module,
     built,
@@ -20317,34 +20430,14 @@ function createHudUi(opts) {
     },
     setBag(stacks, selected) {
       const open = stacks !== null;
-      const list = stacks ?? [];
-      const rows = bagRows(list, selected, opts.labelOf);
-      const sig = open ? `${rows.map((r) => `${r.text}#${r.selected ? 1 : 0}`).join("|")}` : "#closed";
-      if (sig === bagSig) return;
-      bagSig = sig;
       bagOpenState = open;
-      bagPanel.visible = open;
+      bagStacks = stacks ?? [];
+      bagSel = selected;
       if (!open) {
-        bagTexts = [];
-        module.invalidate();
-        return;
+        dragFrom = null;
+        dragTo = null;
       }
-      const shown = Math.min(rows.length, maxRows);
-      for (let i = 0; i < maxRows; i++) {
-        const n = bagRowsNodes[i];
-        const r = i < shown ? rows[i] : void 0;
-        n.visible = r !== void 0;
-        if (r === void 0) continue;
-        n.props = {
-          ...n.props,
-          text: r.text,
-          tint: r.selected ? selTint : rowTint,
-          textColor: white
-        };
-      }
-      bagEmpty.visible = rows.length === 0;
-      bagTexts = rows.map((r) => r.text);
-      module.invalidate();
+      renderBag();
     },
     setToast(text) {
       const next = text ?? "";
@@ -24508,6 +24601,18 @@ async function main() {
       // 点中背包行 = 选中（走的是**真实指针路径**：命中测试 → click 事件 → 这里）
       onSelectRow: (i) => {
         selectBagRow(i);
+      },
+      // 拖拽换位：UI 只报「从第几行拖到第几行」，改库存是宿主的事。
+      // ★ 换的是格子**内容**不是节点（见 `swapStacks` 的注释）。
+      // ★ 失败只 warn 不弹 toast：越界是「拖到缝里」这种操作噪音，
+      //   弹提示会盖住 HUD，而不弹的话下一帧的 `setBag` 自己就把画面拉正了。
+      onSwapRows: (from, to) => {
+        if (heroId < 0) return;
+        const swapped = swapStacks(scene, heroId, from, to);
+        if (!swapped.ok) {
+          console.warn(`[bag] \u6362\u4F4D\u5931\u8D25\uFF1A${swapped.error.code} ${swapped.error.message}`);
+        }
+        syncBagUi();
       }
     });
     if (r.ok) hudUi = r.value;
@@ -25661,6 +25766,28 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
           reason: "",
           clicks: evs.filter((e) => e.type === "click").map((e) => e.target.id)
         };
+      },
+      /**
+       * 从一个节点拖到另一个节点：走**真实指针路径**（按下 → 中间移动 → 抬起）。
+       *
+       * ★ 为什么不直接调 `onSwapRows`：拖拽的三条语义（按下捕获、位移阈值、
+       *   逐帧命中）全在路由层。直接调回调只能证明"宿主把回调接上了"，
+       *   证明不了"这东西拖得动" —— 而拖不动才是玩家会遇到的那一半。
+       * ★ 中间那一步不能省：没有 `pointermove`，落点永远停在起点，
+       *   松手就等于"原地放下"，而它在断言里看起来和"换位成功"一样（都是两行没变）。
+       */
+      dragNode: (fromId, toId) => {
+        hudUi.module.relayout();
+        const a = rectOfId(hudUi, fromId);
+        const b = rectOfId(hudUi, toId);
+        if (a === void 0 || b === void 0) return { ok: false, reason: "NO_RECT" };
+        const sa = hudUi.module.viewport.designToScreen(a.x + a.width / 2, a.y + a.height / 2);
+        const sb = hudUi.module.viewport.designToScreen(b.x + b.width / 2, b.y + b.height / 2);
+        hudUi.pointer(sa.x, sa.y, true);
+        hudUi.pointer((sa.x + sb.x) / 2, (sa.y + sb.y) / 2, true);
+        hudUi.pointer(sb.x, sb.y, true);
+        hudUi.pointer(sb.x, sb.y, false);
+        return { ok: true, reason: "" };
       }
     }
   };

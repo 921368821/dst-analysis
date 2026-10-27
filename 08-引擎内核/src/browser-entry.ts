@@ -58,6 +58,7 @@ import {
   makeInventory,
   registerInventoryComponents,
   stacksOf,
+  swapStacks,
   type Inventory,
 } from "./extensions/inventory/inventory.ts";
 import { pickupNearby } from "./extensions/inventory/pickup.ts";
@@ -620,6 +621,18 @@ export async function main(): Promise<void> {
       // 点中背包行 = 选中（走的是**真实指针路径**：命中测试 → click 事件 → 这里）
       onSelectRow: (i) => {
         selectBagRow(i);
+      },
+      // 拖拽换位：UI 只报「从第几行拖到第几行」，改库存是宿主的事。
+      // ★ 换的是格子**内容**不是节点（见 `swapStacks` 的注释）。
+      // ★ 失败只 warn 不弹 toast：越界是「拖到缝里」这种操作噪音，
+      //   弹提示会盖住 HUD，而不弹的话下一帧的 `setBag` 自己就把画面拉正了。
+      onSwapRows: (from, to) => {
+        if (heroId < 0) return;
+        const swapped = swapStacks(scene, heroId, from, to);
+        if (!swapped.ok) {
+          console.warn(`[bag] 换位失败：${swapped.error.code} ${swapped.error.message}`);
+        }
+        syncBagUi();
       },
     });
     if (r.ok) hudUi = r.value;
@@ -2257,6 +2270,28 @@ export async function main(): Promise<void> {
                 reason: "",
                 clicks: evs.filter((e) => e.type === "click").map((e) => e.target.id),
               };
+            },
+            /**
+             * 从一个节点拖到另一个节点：走**真实指针路径**（按下 → 中间移动 → 抬起）。
+             *
+             * ★ 为什么不直接调 `onSwapRows`：拖拽的三条语义（按下捕获、位移阈值、
+             *   逐帧命中）全在路由层。直接调回调只能证明"宿主把回调接上了"，
+             *   证明不了"这东西拖得动" —— 而拖不动才是玩家会遇到的那一半。
+             * ★ 中间那一步不能省：没有 `pointermove`，落点永远停在起点，
+             *   松手就等于"原地放下"，而它在断言里看起来和"换位成功"一样（都是两行没变）。
+             */
+            dragNode: (fromId: string, toId: string) => {
+              hudUi.module.relayout();
+              const a = rectOfId(hudUi, fromId);
+              const b = rectOfId(hudUi, toId);
+              if (a === undefined || b === undefined) return { ok: false as const, reason: "NO_RECT" };
+              const sa = hudUi.module.viewport.designToScreen(a.x + a.width / 2, a.y + a.height / 2);
+              const sb = hudUi.module.viewport.designToScreen(b.x + b.width / 2, b.y + b.height / 2);
+              hudUi.pointer(sa.x, sa.y, true);
+              hudUi.pointer((sa.x + sb.x) / 2, (sa.y + sb.y) / 2, true);
+              hudUi.pointer(sb.x, sb.y, true);
+              hudUi.pointer(sb.x, sb.y, false);
+              return { ok: true as const, reason: "" };
             },
           },
   };

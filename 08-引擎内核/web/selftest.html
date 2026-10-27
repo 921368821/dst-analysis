@@ -495,6 +495,44 @@ row("★★ 面板上的行真的点得到：点第 2 行 ⇒ 选中变成第 2 
   return clickDone;
 });
 
+let dragDone = null;
+row("★★ 拖拽换位：按下-移动-松手，两行内容互换（再拖回去复原）", (e) => {
+  if (dragDone !== null) return dragDone;
+  // 依赖"行点得到"那条先跑完：它保证背包里正好是 2 堆且面板有矩形。
+  if (clickDone === null) return [false, "等「行点得到」跑完再拖（否则两条判据会互相踩背包）"];
+  if (e.ui === null) {
+    dragDone = [false, "没有 UI 模块"];
+    return dragDone;
+  }
+  const before = e.ui.bagRows().slice();
+  if (before.length < 2) {
+    dragDone = [false, `背包里只有 ${before.length} 堆，拖不出区别`];
+    return dragDone;
+  }
+  const r = e.ui.dragNode("bag.row0", "bag.row1");
+  if (!r.ok) {
+    dragDone = [false, `行没有矩形（${r.reason}）—— 面板没布局？`];
+    return dragDone;
+  }
+  const after = e.ui.bagRows().slice();
+  // 拖完标记必须清干净：留着 `(drop)` 说明"松手"那一步没走到
+  const dirty = after.filter((s) => s.indexOf("(moving)") >= 0 || s.indexOf("(drop)") >= 0);
+  // ★ 去掉行首的「N. 」再比：序号是**位置**的一部分，本来就该跟着位置走。
+  //   直接整串比较的话，换位成功也会红（`1. 石头` ≠ `2. 石头`）—— 这条判据第一版就这么红的。
+  const strip = (s) => s.replace(/^[0-9]+\.\s*/, "");
+  const swapped = strip(after[0]) === strip(before[1]) && strip(after[1]) === strip(before[0]);
+  // 再拖回去：后面的判据（堆叠上限、丢弃闭环）默认背包还是原样
+  e.ui.dragNode("bag.row0", "bag.row1");
+  const back = e.ui.bagRows().slice();
+  const restored = strip(back[0]) === strip(before[0]) && strip(back[1]) === strip(before[1]);
+  const okAll = swapped && restored && dirty.length === 0;
+  dragDone = [
+    okAll,
+    `拖完 ${JSON.stringify(after)} · 复原 ${JSON.stringify(back)} · 残留标记 ${JSON.stringify(dirty)}`,
+  ];
+  return dragDone;
+});
+
 row("★★ 堆叠上限真的接上了：45 个芦苇 ⇒ 40 + 5 两堆（不是一堆 45）", (e) => {
   if (capDone !== null) return capDone;
   const lim = e.bagLimits();

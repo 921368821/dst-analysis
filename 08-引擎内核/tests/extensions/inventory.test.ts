@@ -25,8 +25,10 @@ import {
   addItem,
   countItem,
   makeInventory,
+  INVENTORY_BAD_INDEX,
   registerInventoryComponents,
   stacksOf,
+  swapStacks,
   takeItem,
   type Inventory,
 } from "../../src/extensions/inventory/inventory.ts";
@@ -341,4 +343,78 @@ test("★★ 背包能过存档：存 → 读 → 种类与数量都在（含「
   assert.equal(countItem(fresh, heroId, "tree"), 5, "读档后木头数量不对");
   assert.equal(countItem(fresh, heroId, "rock"), 7);
   assert.equal(stacksOf(fresh, heroId).length, 2, "堆叠数变了 —— 存档把「一堆」拆成了几堆");
+});
+
+// ── ⑥ 拖拽换位（批109） ──────────────────────────────────────
+
+test("★★ 换位：两格的种类与数量**都**换（只换一个就是两个格子里的东西都不对）", () => {
+  const scene = makeScene();
+  const owner = makeOwner(scene);
+  assert.ok(addItem(scene, owner, "tree", 3).ok);
+  assert.ok(addItem(scene, owner, "rock", 7).ok);
+  const swapped = swapStacks(scene, owner, 0, 1);
+  assert.equal(swapped.ok, true, swapped.ok ? "" : `${swapped.error.code} ${swapped.error.message}`);
+  const after = stacksOf(scene, owner);
+  assert.equal(after[0]!.kind, "rock");
+  assert.equal(after[0]!.count, 7);
+  assert.equal(after[1]!.kind, "tree");
+  assert.equal(after[1]!.count, 3);
+});
+
+test("★ 换位 a === b：合法 no-op，一个字段都不动（按下去没动就松手不算拖）", () => {
+  const scene = makeScene();
+  const owner = makeOwner(scene);
+  assert.ok(addItem(scene, owner, "tree", 3).ok);
+  assert.ok(addItem(scene, owner, "rock", 7).ok);
+  const before = stacksOf(scene, owner).map((s) => `${s.kind}x${String(s.count)}`);
+  const r = swapStacks(scene, owner, 1, 1);
+  assert.equal(r.ok, true, "同一格是合法操作，不该报错");
+  const after = stacksOf(scene, owner).map((s) => `${s.kind}x${String(s.count)}`);
+  assert.deepEqual(after, before);
+});
+
+test("★★ 换位下标越界：报 INVENTORY.BAD_INDEX，并说清有几格", () => {
+  const scene = makeScene();
+  const owner = makeOwner(scene);
+  assert.ok(addItem(scene, owner, "tree", 3).ok);
+  assert.ok(addItem(scene, owner, "rock", 7).ok);
+  for (const [a, b] of [
+    [0, 2],
+    [2, 0],
+    [-1, 0],
+    [0, -1],
+  ] as const) {
+    const r = swapStacks(scene, owner, a, b);
+    assert.equal(r.ok, false, `下标 ${String(a)}/${String(b)} 越界了还成功`);
+    if (r.ok) continue;
+    assert.equal(r.error.code, INVENTORY_BAD_INDEX, "错误码要能直接看出是下标问题");
+    assert.equal((r.error.detail as { count?: number }).count, 2, "detail 里要带「当前有几格」");
+  }
+  // 小数下标同样不许放过：拖拽落点是浮点算出来的，`1.5` 静默取整会换到隔壁格
+  const frac = swapStacks(scene, owner, 0, 1.5);
+  assert.equal(frac.ok, false, "小数下标必须报错，不许悄悄取整");
+});
+
+test("★ 换位不改变格子顺序（换的是内容，不是节点 id）", () => {
+  const scene = makeScene();
+  const owner = makeOwner(scene);
+  assert.ok(addItem(scene, owner, "tree", 3).ok);
+  assert.ok(addItem(scene, owner, "rock", 7).ok);
+  const ids = stacksOf(scene, owner).map((s) => s.node?.id);
+  assert.ok(swapStacks(scene, owner, 0, 1).ok);
+  const idsAfter = stacksOf(scene, owner).map((s) => s.node?.id);
+  assert.deepEqual(idsAfter, ids, "节点 id 变了 ⇒ 选中态、编辑器里挂在这一格上的东西都会跟着跳");
+});
+
+test("★ 换两次回到原样（对合性：拖错了再拖回去必须真的复原）", () => {
+  const scene = makeScene();
+  const owner = makeOwner(scene);
+  assert.ok(addItem(scene, owner, "tree", 3).ok);
+  assert.ok(addItem(scene, owner, "rock", 7).ok);
+  assert.ok(addItem(scene, owner, "berry", 5).ok);
+  const before = stacksOf(scene, owner).map((s) => `${s.kind}x${String(s.count)}`);
+  assert.ok(swapStacks(scene, owner, 0, 2).ok);
+  assert.ok(swapStacks(scene, owner, 0, 2).ok);
+  const after = stacksOf(scene, owner).map((s) => `${s.kind}x${String(s.count)}`);
+  assert.deepEqual(after, before);
 });
