@@ -517,3 +517,58 @@ test("★ 关面板会清掉拖拽状态（重开时不能有一行「正被拖�
     "重开后第 1 行还标着 moving —— 没人按着鼠标，这就是「关不掉的面板」那类假象",
   );
 });
+
+// ------------------------------------------------------------------ ⑤ 输入行（批110）
+
+test("★★ 输入行：文本写进节点、光标 x 由排版给（不是往串里插竖线）", () => {
+  const hud = makeHud();
+  hud.setBag([{ kind: "tree", count: 3 }], 0);
+  assert.equal(hud.inputVisible, false, "默认不该露出输入行");
+  hud.setInput({ text: "give berry 3", caret: 12, selStart: 12, selEnd: 12 });
+  assert.equal(hud.inputVisible, true);
+  const t = hud.module.root.find("input.text");
+  assert.equal(t?.props.text, "give berry 3");
+  // 光标必须落在**整串之后**：12 个码点 ⇒ x 等于这一行的笔位置末项
+  assert.ok(hud.inputCaretX > 0, `光标 x 应当在字后面，实际 ${String(hud.inputCaretX)}`);
+  const layout = layoutText(realFont(), "give berry 3", { maxLines: 1 });
+  assert.equal(hud.inputCaretX, layout.lineCaretX[0]![12], "光标 x 必须与排版给出的笔位置一致");
+  // 空格也要占位置：把光标放在第一个空格前，x 必须比放在串首大
+  hud.setInput({ text: "give berry 3", caret: 4, selStart: 4, selEnd: 4 });
+  const atSpace = hud.inputCaretX;
+  hud.setInput({ text: "give berry 3", caret: 0, selStart: 0, selEnd: 0 });
+  assert.equal(hud.inputCaretX, 0, "串首的光标在 0");
+  assert.ok(atSpace > 0, "第 5 个码点前（空格处）必须有正的 x");
+});
+
+test("★ 输入行：有选区才画高亮，宽度 = 两端笔位置之差", () => {
+  const hud = makeHud();
+  hud.setBag([{ kind: "tree", count: 3 }], 0);
+  const layout = layoutText(realFont(), "abcdef", { maxLines: 1 });
+  const row = layout.lineCaretX[0]!;
+  hud.setInput({ text: "abcdef", caret: 2, selStart: 0, selEnd: 2 });
+  const sel = hud.module.root.find("input.sel");
+  assert.equal(sel?.visible, true);
+  assert.equal(sel?.offset.x, row[0]);
+  assert.equal(sel?.size.w, row[2]! - row[0]!, "选区宽度必须是两端笔位置之差");
+  // 反向选区（anchor 在右）也要给出正的矩形
+  hud.setInput({ text: "abcdef", caret: 0, selStart: 2, selEnd: 0 });
+  assert.equal(hud.module.root.find("input.sel")?.offset.x, row[0]);
+  assert.equal(hud.module.root.find("input.sel")?.size.w, row[2]! - row[0]!);
+  // 没有选区就不画
+  hud.setInput({ text: "abcdef", caret: 3, selStart: 3, selEnd: 3 });
+  assert.equal(hud.module.root.find("input.sel")?.visible, false);
+});
+
+test("★ 输入行收起时底栏回来（两行抢同一个位置，不能都不见了）", () => {
+  const hud = makeHud();
+  hud.setBag([{ kind: "tree", count: 3 }], 0);
+  const foot = hud.module.root.find("bag.foot");
+  assert.equal(foot?.visible, true, "一开始底栏在");
+  hud.setInput({ text: "x", caret: 1, selStart: 1, selEnd: 1 });
+  assert.equal(foot?.visible, false, "输入时底栏让位");
+  assert.equal(hud.module.root.find("input.row")?.visible, true);
+  hud.setInput(null);
+  assert.equal(hud.inputVisible, false);
+  assert.equal(foot?.visible, true, "收起后底栏必须回来");
+  assert.equal(hud.module.root.find("input.row")?.visible, false);
+});

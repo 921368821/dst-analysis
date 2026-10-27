@@ -19267,6 +19267,7 @@ function layoutText(font, text, style = {}) {
   const color = style.color;
   const quads = [];
   const missingSet = /* @__PURE__ */ new Set();
+  const lineCaretX = [];
   for (let li = 0; li < lines.length; li++) {
     const codes = lines[li];
     const lw = lineWidths[li];
@@ -19275,8 +19276,10 @@ function layoutText(font, text, style = {}) {
     else if (align === "right") penX = boxWidth - lw;
     const lineTop = li * lineHeightPx;
     const baseline = lineTop + font.base * scale;
+    const caretX = [];
     for (let i = 0; i < codes.length; i++) {
       const code = codes[i];
+      caretX.push(penX);
       const g = font.glyphs.get(code);
       if (g === void 0) {
         missingSet.add(code);
@@ -19304,6 +19307,8 @@ function layoutText(font, text, style = {}) {
       const prev = codes[i - 1];
       if (prev !== void 0) penX += kerningOf(font, prev, code) * scale;
     }
+    caretX.push(penX);
+    lineCaretX.push(caretX);
   }
   return {
     quads,
@@ -19311,7 +19316,8 @@ function layoutText(font, text, style = {}) {
     height: lines.length === 0 ? 0 : lines.length * lineHeightPx,
     lineCount: lines.length,
     truncated,
-    missing: Array.from(missingSet).sort((a, b) => a - b)
+    missing: Array.from(missingSet).sort((a, b) => a - b),
+    lineCaretX
   };
 }
 
@@ -20112,6 +20118,209 @@ function bagEmptyLine(pickKey) {
   return `empty - press ${pickKey} to pick something up`;
 }
 
+// src/extensions/ui/text-input.ts
+function codePointsLength(text) {
+  let n = 0;
+  for (const _ of text) n++;
+  return n;
+}
+function sliceCodePoints(text, start, end) {
+  return Array.from(text).slice(start, end).join("");
+}
+var TextInput = class _TextInput {
+  /** 已提交的值。**组合期间不变**（见文件头）。 */
+  value = "";
+  /** 光标（码点下标）。 */
+  caret = 0;
+  /** 选区锚点。`anchor === caret` 表示没有选区；否则选区是两者的闭区间外沿。 */
+  anchor = 0;
+  /**
+   * 正在组合的串（`null` = 没在组合）。
+   *
+   * ★ 空串 `""` 也是合法状态：IME 一开始会先发一个空组合（比如刚按下键、还没出候选）。
+   *   用 `null` 区分"没在组合"与"在组合但还没内容"—— 两者的 `isComposing` 都为真，
+   *   但只有后者的"取消"是无声的（没东西可丢）。
+   */
+  composing = null;
+  /** 组合替换的区间（码点下标，左闭右开）。组合开始时定下，组合期间不变。 */
+  composeStart = 0;
+  composeEnd = 0;
+  /**
+   * 组合开始那一刻的 `anchor` / `caret`（**保留方向**）。
+   *
+   * ★ 取消时必须**原样**放回去，而不是"放回替换区间起点"：
+   *   选区是有方向的（`anchor` 是拖动时不动的那端），方向决定下一次 Shift+方向键
+   *   往哪边扩。用归一化区间恢复会把"向右拖选"变成"向左拖选" ——
+   *   屏幕上完全一样，手感不一样，而且没人报得出这算什么 bug。
+   */
+  composeAnchor = 0;
+  composeCaret = 0;
+  get isComposing() {
+    return this.composing !== null;
+  }
+  /** 选区（左闭右开）。没有选区时 `start === end === caret`。 */
+  get selection() {
+    return { start: Math.min(this.anchor, this.caret), end: Math.max(this.anchor, this.caret) };
+  }
+  get hasSelection() {
+    return this.anchor !== this.caret;
+  }
+  /** 选中的文本（码点下标切片）。 */
+  get selectedText() {
+    const s = this.selection;
+    return sliceCodePoints(this.value, s.start, s.end);
+  }
+  /**
+   * **屏幕上该显示的串**：组合中 = `value` 的 [0,composeStart) + 组合串 + [composeEnd,)。
+   *
+   * ★ 组合区间是 `[composeStart, composeEnd)` 而不是"插入点"：
+   *   开始组合时若有选区，那一段是要被**替换**掉的。只记插入点的话，
+   *   "选中三个字再打拼音"会显示成"三个字 + 拼音"，提交后却只剩拼音 —— 显示与结果不一致。
+   */
+  get display() {
+    if (this.composing === null) return this.value;
+    return sliceCodePoints(this.value, 0, this.composeStart) + this.composing + sliceCodePoints(this.value, this.composeEnd, this.value.length);
+  }
+  /**
+   * 屏幕上的光标位置（码点下标，相对 `display`）。
+   * ★ 组合中光标固定在组合串**末尾**：IME 自己会画候选框，引擎不该去猜候选里的位置。
+   */
+  get displayCaret() {
+    if (this.composing === null) return this.caret;
+    return this.composeStart + codePointsLength(this.composing);
+  }
+  // ---------------------------------------------------------------- 编辑
+  /**
+   * 插入文本（`overwriteSelection` 语义：有选区就先删）。
+   *
+   * ★ 组合中调用会**先提交**再插入：真实世界里的顺序是"compositionend → keydown"，
+   *   宿主若把顺序弄反，至少结果还是对的，而不是把字符插到组合串中间去。
+   */
+  insert(text) {
+    if (text === "") return;
+    if (this.composing !== null) this.commitComposition();
+    const s = this.selection;
+    const before = sliceCodePoints(this.value, 0, s.start);
+    const after = sliceCodePoints(this.value, s.end, this.value.length);
+    this.value = before + text + after;
+    this.caret = s.start + codePointsLength(text);
+    this.anchor = this.caret;
+  }
+  /** 退格：有选区删选区，否则删光标前一个码点。返回是否真的改了。 */
+  deleteBackward() {
+    if (this.composing !== null) this.commitComposition();
+    const s = this.selection;
+    if (s.start !== s.end) {
+      this.value = sliceCodePoints(this.value, 0, s.start) + sliceCodePoints(this.value, s.end, this.value.length);
+      this.caret = s.start;
+      this.anchor = s.start;
+      return true;
+    }
+    if (s.start === 0) return false;
+    this.value = sliceCodePoints(this.value, 0, s.start - 1) + sliceCodePoints(this.value, s.start, this.value.length);
+    this.caret = s.start - 1;
+    this.anchor = this.caret;
+    return true;
+  }
+  /** 前向删除（Delete 键）：有选区删选区，否则删光标后一个码点。 */
+  deleteForward() {
+    if (this.composing !== null) this.commitComposition();
+    const s = this.selection;
+    if (s.start !== s.end) return this.deleteBackward();
+    const n = codePointsLength(this.value);
+    if (s.start >= n) return false;
+    this.value = sliceCodePoints(this.value, 0, s.start) + sliceCodePoints(this.value, s.start + 1, n);
+    return true;
+  }
+  /** 移动光标。`extend` = 按住 Shift（拖动锚点，产生选区）。 */
+  moveCaret(to, extend2 = false) {
+    const n = codePointsLength(this.value);
+    if (this.composing !== null) this.commitComposition();
+    this.caret = Math.max(0, Math.min(n, Math.trunc(to)));
+    if (!extend2) this.anchor = this.caret;
+  }
+  setSelection(anchor, caret) {
+    const n = codePointsLength(this.value);
+    this.anchor = Math.max(0, Math.min(n, Math.trunc(anchor)));
+    this.caret = Math.max(0, Math.min(n, Math.trunc(caret)));
+  }
+  selectAll() {
+    this.anchor = 0;
+    this.caret = codePointsLength(this.value);
+  }
+  // ---------------------------------------------------------------- IME
+  /**
+   * 开始组合（`compositionstart`）。
+   *
+   * ★ 选区**不在这里删**：删了就回不去了（取消要复原）。这里只把"要替换的区间"记下来，
+   *   组合期间屏幕上按替换后的样子显示，提交时才真正动 `value`。
+   */
+  beginComposition() {
+    if (this.composing !== null) {
+      this.composing = "";
+      return;
+    }
+    const s = this.selection;
+    this.composeStart = s.start;
+    this.composeEnd = s.end;
+    this.composeCaret = this.caret;
+    this.composeAnchor = this.anchor;
+    this.composing = "";
+  }
+  /** 组合更新（`compositionupdate`，每次候选变化都会来一次）。 */
+  updateComposition(text) {
+    if (this.composing === null) this.beginComposition();
+    this.composing = text;
+  }
+  /**
+   * 组合结束（`compositionend`）。
+   *
+   * ★★ 空串 = 取消，**不删**任何东西（见文件头）。这是这一层最容易做假的一条，
+   *   判据 `[输入] 组合取消（compositionend 空串）不会删掉选中的内容` 钉着它。
+   * ★ 提交后光标落在插入串之后，锚点同步 —— 否则下一次 Shift+方向键会选中"提交前"的旧区间。
+   */
+  commitComposition(text) {
+    if (this.composing === null) {
+      if (text !== void 0 && text !== "") this.insert(text);
+      return;
+    }
+    const pending = text ?? this.composing;
+    const start = this.composeStart;
+    const end = this.composeEnd;
+    this.composing = null;
+    if (pending === "") {
+      this.caret = this.composeCaret;
+      this.anchor = this.composeAnchor;
+      return;
+    }
+    this.value = sliceCodePoints(this.value, 0, start) + pending + sliceCodePoints(this.value, end, this.value.length);
+    this.caret = start + codePointsLength(pending);
+    this.anchor = this.caret;
+  }
+  /** 取消组合（宿主在 Esc / 失焦时调；等价于 `commitComposition("")`）。 */
+  cancelComposition() {
+    if (this.composing === null) return;
+    this.commitComposition("");
+  }
+  /** 存档/序列化用：只导出**已提交**的值（组合中的半成品不该进存档）。 */
+  toJSON() {
+    return this.value;
+  }
+  static from(value) {
+    const t = new _TextInput();
+    t.value = value;
+    t.caret = codePointsLength(value);
+    t.anchor = t.caret;
+    return t;
+  }
+};
+function caretXOf(table, index) {
+  if (table.length === 0) return 0;
+  if (index <= 0) return table[0];
+  if (index >= table.length - 1) return table[table.length - 1];
+  return table[index];
+}
+
 // src/host/hud-ui.ts
 function buildSkin(json, page = 1) {
   if (json.width <= 0 || json.height <= 0) {
@@ -20267,6 +20476,47 @@ function createHudUi(opts) {
   bagPanel.add(bagEmpty);
   for (const n of bagRowsNodes) bagPanel.add(n);
   bagPanel.add(bagFoot);
+  const inputSel = new UiNode({
+    id: "input.sel",
+    widget: UiWidget.Panel,
+    size: { w: 0, h: rowH },
+    visible: false,
+    opaque: false,
+    interactive: false,
+    props: { tint: new Color(0.35, 0.55, 0.95, 0.55) }
+  });
+  const inputTextNode = new UiNode({
+    id: "input.text",
+    widget: UiWidget.Label,
+    size: { w: innerW, h: rowH },
+    props: {
+      text: "",
+      style: { color: white, maxLines: 1 },
+      ...bagRowFontId === void 0 ? {} : { fontId: bagRowFontId }
+    }
+  });
+  const inputCaret = new UiNode({
+    id: "input.caret",
+    widget: UiWidget.Panel,
+    size: { w: 1, h: rowH },
+    offset: { x: 0, y: 0 },
+    opaque: false,
+    interactive: false,
+    props: { tint: white }
+  });
+  const inputRow = new UiNode({
+    id: "input.row",
+    widget: UiWidget.Panel,
+    size: { w: innerW, h: rowH },
+    visible: false,
+    opaque: false,
+    interactive: false,
+    props: { tint: new Color(1, 1, 1, 0.08) }
+  });
+  inputRow.add(inputSel);
+  inputRow.add(inputTextNode);
+  inputRow.add(inputCaret);
+  bagPanel.add(inputRow);
   const toastW = Math.min(HUD_LAYOUT.width, 560);
   const toastH = cjkRowH + pad * 2;
   const toastLine = new UiNode({
@@ -20370,6 +20620,9 @@ function createHudUi(opts) {
   let bagSel = 0;
   let dragFrom = null;
   let dragTo = null;
+  let inputOn = false;
+  let inputSig = "";
+  let inputCaretX = 0;
   function renderBag() {
     const open = bagOpenState;
     if (!open) {
@@ -20449,6 +20702,45 @@ function createHudUi(opts) {
     },
     get toastText() {
       return toastText;
+    },
+    setInput(state) {
+      const on = state !== null;
+      if (!on) {
+        if (!inputOn) return;
+        inputOn = false;
+        inputRow.visible = false;
+        bagFoot.visible = true;
+        inputCaretX = 0;
+        module.invalidate();
+        return;
+      }
+      const s = state;
+      const sig = `${s.text}|${String(s.caret)}|${String(s.selStart)}|${String(s.selEnd)}`;
+      if (inputOn && sig === inputSig) return;
+      inputSig = sig;
+      inputOn = true;
+      inputRow.visible = true;
+      bagFoot.visible = false;
+      inputTextNode.props = { ...inputTextNode.props, text: s.text };
+      const lay = layoutText(font, s.text, { maxLines: 1 });
+      const row = lay.lineCaretX[0] ?? [0];
+      inputCaretX = caretXOf(row, s.caret);
+      inputCaret.offset = { x: inputCaretX, y: 0 };
+      const hasSel = s.selStart !== s.selEnd;
+      inputSel.visible = hasSel;
+      if (hasSel) {
+        const x0 = caretXOf(row, s.selStart);
+        const x1 = caretXOf(row, s.selEnd);
+        inputSel.offset = { x: Math.min(x0, x1), y: 0 };
+        inputSel.size = { w: Math.abs(x1 - x0), h: rowH };
+      }
+      module.invalidate();
+    },
+    get inputVisible() {
+      return inputOn;
+    },
+    get inputCaretX() {
+      return inputCaretX;
     },
     pointer(cssX, cssY, down, wheelYCss = 0, wheelXCss = 0) {
       const p = module.viewport.screenToDesign(cssX, cssY);
@@ -25314,8 +25606,46 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
   function keyLabel(a) {
     return (controllerMod.map.keysOf(a)[0] ?? "?").replace(/^Key/, "");
   }
+  const cmd = new TextInput();
+  let cmdOpen = false;
+  function setCmdOpen(next) {
+    cmdOpen = next;
+    cmd.value = "";
+    cmd.caret = 0;
+    cmd.anchor = 0;
+    cmd.cancelComposition();
+    syncBagUi();
+  }
+  function runCommand(text) {
+    const parts = text.trim().split(/\s+/).filter((s) => s !== "");
+    if (parts.length === 0) return "";
+    const [head, a, b] = parts;
+    if (head === "clear") {
+      if (heroId < 0) return "\u6CA1\u6709\u73A9\u5BB6";
+      for (const s of stacksOf(scene, heroId)) {
+        const n = s.node;
+        if (n !== null && n !== void 0) scene.destroy(n.id);
+      }
+      scene.flush();
+      syncBagUi();
+      return "\u80CC\u5305\u5DF2\u6E05\u7A7A";
+    }
+    if (head === "give" && a !== void 0) {
+      if (heroId < 0) return "\u6CA1\u6709\u73A9\u5BB6";
+      const n = b === void 0 ? 1 : Number(b);
+      if (!Number.isFinite(n) || n <= 0) return `\u6570\u91CF\u4E0D\u5BF9\uFF1A${b ?? ""}`;
+      const g = addItem(scene, heroId, a, Math.floor(n));
+      if (!g.ok) return `\u7ED9\u4E0D\u4E86 ${a}\uFF1A${g.error.code}`;
+      syncBagUi();
+      return `\u7ED9\u4E86 ${a} x${String(Math.floor(n))}`;
+    }
+    return `\u672A\u77E5\u547D\u4EE4\uFF1A${head}\uFF08\u53EF\u7528 give <\u79CD\u7C7B> <\u6570\u91CF> / clear\uFF09`;
+  }
   function syncBagUi(stacks) {
     if (hudUi === null) return;
+    hudUi.setInput(
+      cmdOpen ? { text: cmd.display, caret: cmd.displayCaret, selStart: cmd.selection.start, selEnd: cmd.selection.end } : null
+    );
     if (!bagOpen || heroId < 0) {
       hudUi.setBag(null, bagSel);
       return;
@@ -25420,7 +25750,90 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
     });
   }
   const RESERVED = /* @__PURE__ */ new Set(["F5", "F9", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space", "Tab"]);
+  let imeHost = null;
+  function ensureImeHost() {
+    if (imeHost !== null) return imeHost;
+    const el = document.createElement("input");
+    el.type = "text";
+    el.autocomplete = "off";
+    el.spellcheck = false;
+    el.style.cssText = "position:fixed;left:-1000px;top:0;width:1px;height:1px;opacity:0;border:0;padding:0;";
+    document.body.appendChild(el);
+    el.addEventListener("compositionstart", () => {
+      if (!cmdOpen) return;
+      cmd.beginComposition();
+      syncBagUi();
+    });
+    el.addEventListener("compositionupdate", (e) => {
+      if (!cmdOpen) return;
+      cmd.updateComposition(e.data ?? "");
+      syncBagUi();
+    });
+    el.addEventListener("compositionend", (e) => {
+      if (!cmdOpen) return;
+      cmd.commitComposition(e.data ?? "");
+      el.value = "";
+      syncBagUi();
+    });
+    imeHost = el;
+    return el;
+  }
+  function handleCmdKey(ev) {
+    if (!cmdOpen) return false;
+    if (ev.isComposing) return true;
+    if (ev.key === "Enter") {
+      const msg3 = runCommand(cmd.value);
+      setCmdOpen(false);
+      if (msg3 !== "") toast(msg3);
+      return true;
+    }
+    if (ev.key === "Escape") {
+      setCmdOpen(false);
+      return true;
+    }
+    if (ev.key === "Backspace") {
+      cmd.deleteBackward();
+      syncBagUi();
+      return true;
+    }
+    if (ev.key === "Delete") {
+      cmd.deleteForward();
+      syncBagUi();
+      return true;
+    }
+    if (ev.key === "ArrowLeft" || ev.key === "ArrowRight") {
+      cmd.moveCaret(cmd.caret + (ev.key === "ArrowLeft" ? -1 : 1), ev.shiftKey);
+      syncBagUi();
+      return true;
+    }
+    if (ev.key === "Home" || ev.key === "End") {
+      cmd.moveCaret(ev.key === "Home" ? 0 : Number.MAX_SAFE_INTEGER, ev.shiftKey);
+      syncBagUi();
+      return true;
+    }
+    if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "a") {
+      cmd.selectAll();
+      syncBagUi();
+      return true;
+    }
+    if (ev.key.length === 1 && !ev.ctrlKey && !ev.metaKey) {
+      cmd.insert(ev.key);
+      syncBagUi();
+      return true;
+    }
+    return false;
+  }
   window.addEventListener("keydown", (ev) => {
+    if (handleCmdKey(ev)) {
+      ev.preventDefault();
+      return;
+    }
+    if (ev.code === "Slash" && bagOpen && !cmdOpen) {
+      setCmdOpen(true);
+      ensureImeHost().focus();
+      ev.preventDefault();
+      return;
+    }
     if (RESERVED.has(ev.code)) ev.preventDefault();
     if (ev.code === "ShiftLeft" || ev.code === "ShiftRight") shiftDown = true;
     if (bagOpen && /^Digit[1-8]$/.test(ev.code)) selectBagRow(Number(ev.code.slice(5)) - 1);
@@ -25746,6 +26159,11 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
       bagRows: () => hudUi.bagRowTexts.slice(),
       /** 当前提示文案（"" = 没有）。自检页用它证"提示走 UI 树而不是 DOM"。 */
       toastText: () => hudUi.toastText,
+      /** 命令行输入框的状态（自检页读**屏幕上那份**：display / 光标）。 */
+      cmdText: () => cmd.display,
+      cmdVisible: () => hudUi.inputVisible,
+      cmdCaret: () => cmd.displayCaret,
+      cmdSelection: () => cmd.selection,
       bagOpen: () => hudUi.bagOpen,
       hudRowIds: hudUi.hudRowIds,
       /** 设计坐标（自检页验"点击命中真实矩形"时用）。 */

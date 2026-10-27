@@ -533,6 +533,71 @@ row("★★ 拖拽换位：按下-移动-松手，两行内容互换（再拖回
   return dragDone;
 });
 
+let cmdDone = null;
+row("★★ 命令行输入框：/ 打开、打字、光标移动、Shift 选一个字、Esc 收起（不改背包）", (e) => {
+  if (cmdDone !== null) return cmdDone;
+  if (dragDone === null) return [false, "等拖拽那条跑完（它会动背包，两条同时改会互相踩）"];
+  const bagBefore = e.ui.bagRows().slice();
+  // ★ `code` 与 `key` 不是一回事：`/` 这个键的 code 是 `Slash`。
+  //   宿主按 code 判斜杠（键盘布局无关），只传 key 会打不开 —— 这条第一版就这么红的。
+  const codeOf = (k) => (k === "/" ? "Slash" : k);
+  const key = (k, extra) =>
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", Object.assign({ key: k, code: codeOf(k), bubbles: true }, extra || {})),
+    );
+  // ★ 走**真实键盘事件**（window.dispatchEvent），不是直接调模型：
+  //   这一条要证的是"接上了"，模型本身的正确性在 Node 判据里。
+  key("/");
+  if (e.ui.cmdVisible() !== true) {
+    cmdDone = [false, "/ 没能打开输入行 —— 宿主没把键盘接到输入框上"];
+    return cmdDone;
+  }
+  for (const ch of "give berry 2") key(ch);
+  const typed = e.ui.cmdText();
+  const caretAtEnd = e.ui.cmdCaret();
+  key("ArrowLeft");
+  const caretBack = e.ui.cmdCaret();
+  key("ArrowLeft", { shiftKey: true });
+  const sel = e.ui.cmdSelection();
+  key("Escape");
+  const closed = e.ui.cmdVisible() === false;
+  const bagAfter = e.ui.bagRows().slice();
+  const okAll =
+    // 「give berry 2」是 12 个码点（不是 13）：手算错了会红，而红的理由看起来像"接错了" ——
+    // 所以这里的数字是数出来的，不是估的。
+    typed === "give berry 2" && caretAtEnd === 12 && caretBack === 11 &&
+    sel.start === 10 && sel.end === 11 && closed &&
+    JSON.stringify(bagAfter) === JSON.stringify(bagBefore);
+  cmdDone = [
+    okAll,
+    `文本="${typed}" 光标 ${caretAtEnd}→${caretBack} 选区 [${sel.start},${sel.end}) 已收起=${closed} 背包未变=${JSON.stringify(bagAfter) === JSON.stringify(bagBefore)}`,
+  ];
+  return cmdDone;
+});
+
+row("★ 回车真的执行命令（未知命令要点名，且不动背包）", (e) => {
+  if (e.ui.cmdVisible() === true) return [false, "上一条没把输入行收起来"];
+  const bagBefore = e.ui.bagRows().slice();
+  const key = (k) =>
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: k, code: k === "/" ? "Slash" : k, bubbles: true }));
+  const opened = (() => {
+    // 面板可能已经关了（上面的判据没开关它），确保开着再开输入行
+    if (e.bagPanel().open !== true) e.toggleBag();
+    key("/");
+    return e.ui.cmdVisible();
+  })();
+  if (opened !== true) return [false, "输入行打不开"];
+  for (const ch of "nope") key(ch);
+  key("Enter");
+  const msg = e.ui.toastText();
+  const bagAfter = e.ui.bagRows().slice();
+  const okAll =
+    msg.indexOf("未知命令") >= 0 &&
+    e.ui.cmdVisible() === false &&
+    JSON.stringify(bagAfter) === JSON.stringify(bagBefore);
+  return [okAll, `提示="${msg}" · 已收起=${e.ui.cmdVisible() === false} · 背包未变=${JSON.stringify(bagAfter) === JSON.stringify(bagBefore)}`];
+});
+
 row("★★ 堆叠上限真的接上了：45 个芦苇 ⇒ 40 + 5 两堆（不是一堆 45）", (e) => {
   if (capDone !== null) return capDone;
   const lim = e.bagLimits();

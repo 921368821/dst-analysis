@@ -69,6 +69,23 @@ export interface TextLayout {
   readonly truncated: boolean;
   /** 缺字码点（升序去重）。空数组 = 全部字形都找到了。 */
   readonly missing: readonly number[];
+  /**
+   * **每一行每个码点边界的笔位置**（设计像素 x，长度 = 该行码点数 + 1）。
+   *
+   * ★★ 为什么光标位置必须由排版层给，而不是让调用方拿 `quads[i].x` 去推：
+   *   `quads` 与码点**不是一一对应**的 ——
+   *   · 空格、零宽字符没有四边形（但有前进量）；
+   *   · 缺字的码点被跳过（只推进笔位置）；
+   *   · 四边形的宽度 `w` 是**字形宽**，而光标要的是**前进量**（`xadvance` +
+   *     字距 + kerning），三者都不同。
+   *   拿 `quads[i].x` 当第 i 个光标位置，在纯英文无空格时恰好对，一加空格就整段错位 ——
+   *   而错位的症状是"光标停在字中间"，看起来像渲染 bug，实际是下标与布局没对上。
+   *   这里把笔位置**原样记下来**：下标 i 对应的 x 就是第 i 个码点左边界，
+   *   最后一项是行尾。判据可以说"相邻两项严格递增""末项等于行宽"。
+   *
+   * ★ 每行一份（不是一整条）：换行之后 x 会重置，把多行拼成一条会让第二行起的位置全错。
+   */
+  readonly lineCaretX: readonly (readonly number[])[];
 }
 
 const DEFAULT_ELLIPSIS = "…";
@@ -290,6 +307,7 @@ export function layoutText(font: BitmapFont, text: string, style: TextStyle = {}
   const color = style.color;
   const quads: TextQuad[] = [];
   const missingSet = new Set<number>();
+  const lineCaretX: number[][] = [];
 
   for (let li = 0; li < lines.length; li++) {
     const codes = lines[li]!;
@@ -302,8 +320,12 @@ export function layoutText(font: BitmapFont, text: string, style: TextStyle = {}
     const lineTop = li * lineHeightPx;
     const baseline = lineTop + font.base * scale;
 
+    // ★ 光标位置在这一趟里顺手记：笔位置只有这里知道（advance/kerning 都在下面加）。
+    const caretX: number[] = [];
+
     for (let i = 0; i < codes.length; i++) {
       const code = codes[i]!;
+      caretX.push(penX); // 先记「本格左边界」，再往前走
       const g: FontGlyph | undefined = font.glyphs.get(code);
       if (g === undefined) {
         missingSet.add(code);
@@ -331,6 +353,8 @@ export function layoutText(font: BitmapFont, text: string, style: TextStyle = {}
       const prev = codes[i - 1];
       if (prev !== undefined) penX += kerningOf(font, prev, code) * scale;
     }
+    caretX.push(penX); // 行尾
+    lineCaretX.push(caretX);
   }
 
   return {
@@ -340,6 +364,7 @@ export function layoutText(font: BitmapFont, text: string, style: TextStyle = {}
     lineCount: lines.length,
     truncated,
     missing: Array.from(missingSet).sort((a, b) => a - b),
+    lineCaretX,
   };
 }
 

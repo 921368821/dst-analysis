@@ -112,6 +112,7 @@ import {
 import { registerMoverComponent } from "./extensions/ai/move.ts";
 import { registerFacingComponent } from "./extensions/motion/facing.ts";
 import { registerDirSpriteComponent, syncDirFrames } from "./extensions/render/dir-sprite.ts";
+import { TextInput } from "./extensions/ui/text-input.ts";
 import { HUNGER_TYPE, Hunger, registerHungerComponent } from "./extensions/survival/hunger.ts";
 import { eat as eatKind, normalizeFoodTable } from "./extensions/survival/food.ts";
 import { createSurvivalModule } from "./extensions/survival/survival-module.ts";
@@ -1754,8 +1755,64 @@ export async function main(): Promise<void> {
    * ★ 收一个可选的 `stacks`：`onRender` 里已经为了 `bagStacks` 遍历过一次，
    *   再序遍历一次是白花的（而且两处遍历同一个可变场景，句柄还会不一致）。
    */
+  /**
+   * 背包面板里的命令行（批110 的输入框消费者）。
+   *
+   * ★ 为什么给它一个**真的消费者**而不是"留个接口等以后用"：
+   *   没有消费者的控件，判据只能验它自己（模型算得对），验不到"接上之后还对不对"。
+   *   命令行是最小的真消费者：它要光标、要退格、要 Esc 取消、要中文（`give 木头 3`），
+   *   四件事正好把输入框的四条路径全走一遍。
+   *
+   * ★ 命令是**调试性质**的（give / clear），不进玩法存档。
+   */
+  const cmd = new TextInput();
+  let cmdOpen = false;
+
+  function setCmdOpen(next: boolean): void {
+    cmdOpen = next;
+    cmd.value = "";
+    cmd.caret = 0;
+    cmd.anchor = 0;
+    cmd.cancelComposition();
+    syncBagUi();
+  }
+
+  /** 执行一条命令。返回给提示条的那句话（成功/失败都说）。 */
+  function runCommand(text: string): string {
+    const parts = text.trim().split(/\s+/).filter((s) => s !== "");
+    if (parts.length === 0) return "";
+    const [head, a, b] = parts;
+    if (head === "clear") {
+      if (heroId < 0) return "没有玩家";
+      for (const s of stacksOf(scene, heroId)) {
+        const n = s.node;
+        if (n !== null && n !== undefined) scene.destroy(n.id);
+      }
+      scene.flush();
+      syncBagUi();
+      return "背包已清空";
+    }
+    if (head === "give" && a !== undefined) {
+      if (heroId < 0) return "没有玩家";
+      const n = b === undefined ? 1 : Number(b);
+      if (!Number.isFinite(n) || n <= 0) return `数量不对：${b ?? ""}`;
+      const g = addItem(scene, heroId, a, Math.floor(n));
+      if (!g.ok) return `给不了 ${a}：${g.error.code}`;
+      syncBagUi();
+      return `给了 ${a} x${String(Math.floor(n))}`;
+    }
+    return `未知命令：${head}（可用 give <种类> <数量> / clear）`;
+  }
+
   function syncBagUi(stacks?: readonly { readonly kind: string; readonly count: number }[]): void {
     if (hudUi === null) return;
+    // 输入行的显示状态**跟背包一起推**：它住在背包面板里，面板一关它就该跟着收。
+    // 分开推的话，"关面板"与"收输入行"会各有一个入口，必然有一次忘了其中一个。
+    hudUi.setInput(
+      cmdOpen
+        ? { text: cmd.display, caret: cmd.displayCaret, selStart: cmd.selection.start, selEnd: cmd.selection.end }
+        : null,
+    );
     if (!bagOpen || heroId < 0) {
       hudUi.setBag(null, bagSel);
       return;
@@ -1902,7 +1959,111 @@ export async function main(): Promise<void> {
   //   "按背包键顺手把页面焦点跳了"这种 bug 只会在真按下去的那一刻出现，
   //   而且看起来像"背包打不开"。
   const RESERVED = new Set(["F5", "F9", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space", "Tab"]);
+
+  /**
+   * IME 宿主：一个**看不见的 `<input>`**。
+   *
+   * ★★ 为什么非要有一个 DOM 元素：`compositionstart/update/end` 只会发给
+   *   可编辑元素。纯 canvas 的输入框**根本收不到**这三个事件 ——
+   *   于是"组合中不提交"在浏览器里永远走不到，而 Node 判据全绿。
+   *   这是"模型对了但没接上"最典型的一种：引擎侧一条链是通的，浏览器侧没有入口。
+   * ★ 它的 `value` 不参与逻辑：真正的值在 `cmd` 里。这里只是让输入法有地方落脚，
+   *   所以每次 `compositionend` 之后要把它的 value 清空，否则注入的字符会越攒越多。
+   */
+  let imeHost: HTMLInputElement | null = null;
+  function ensureImeHost(): HTMLInputElement {
+    if (imeHost !== null) return imeHost;
+    const el = document.createElement("input");
+    el.type = "text";
+    el.autocomplete = "off";
+    el.spellcheck = false;
+    // 放到屏幕外但不 `display:none`（后者会让它拿不到焦点，输入法就不工作）
+    el.style.cssText = "position:fixed;left:-1000px;top:0;width:1px;height:1px;opacity:0;border:0;padding:0;";
+    document.body.appendChild(el);
+    el.addEventListener("compositionstart", () => {
+      if (!cmdOpen) return;
+      cmd.beginComposition();
+      syncBagUi();
+    });
+    el.addEventListener("compositionupdate", (e) => {
+      if (!cmdOpen) return;
+      cmd.updateComposition(e.data ?? "");
+      syncBagUi();
+    });
+    el.addEventListener("compositionend", (e) => {
+      if (!cmdOpen) return;
+      // ★ 空串 = 取消（Esc 时浏览器就这么发）。模型里已经把这条钉住了，
+      //   这里原样传下去，**不要**在这里自作聪明过滤。
+      cmd.commitComposition(e.data ?? "");
+      el.value = "";
+      syncBagUi();
+    });
+    imeHost = el;
+    return el;
+  }
+
+  /** 处理输入行里的按键。返回 true = 已消费。 */
+  function handleCmdKey(ev: KeyboardEvent): boolean {
+    if (!cmdOpen) return false;
+    // 组合中的按键交给输入法：此时 `key` 是 "Process" 或单个字母，
+    // 自己处理会把拼音字母插进文本里
+    if (ev.isComposing) return true;
+    if (ev.key === "Enter") {
+      const msg = runCommand(cmd.value);
+      setCmdOpen(false);
+      if (msg !== "") toast(msg);
+      return true;
+    }
+    if (ev.key === "Escape") {
+      setCmdOpen(false);
+      return true;
+    }
+    if (ev.key === "Backspace") {
+      cmd.deleteBackward();
+      syncBagUi();
+      return true;
+    }
+    if (ev.key === "Delete") {
+      cmd.deleteForward();
+      syncBagUi();
+      return true;
+    }
+    if (ev.key === "ArrowLeft" || ev.key === "ArrowRight") {
+      cmd.moveCaret(cmd.caret + (ev.key === "ArrowLeft" ? -1 : 1), ev.shiftKey);
+      syncBagUi();
+      return true;
+    }
+    if (ev.key === "Home" || ev.key === "End") {
+      cmd.moveCaret(ev.key === "Home" ? 0 : Number.MAX_SAFE_INTEGER, ev.shiftKey);
+      syncBagUi();
+      return true;
+    }
+    if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "a") {
+      cmd.selectAll();
+      syncBagUi();
+      return true;
+    }
+    // 可打印字符：`key.length === 1` 排掉 F1/F2/Tab 这些名字很长的键
+    if (ev.key.length === 1 && !ev.ctrlKey && !ev.metaKey) {
+      cmd.insert(ev.key);
+      syncBagUi();
+      return true;
+    }
+    return false;
+  }
+
   window.addEventListener("keydown", (ev) => {
+    if (handleCmdKey(ev)) {
+      ev.preventDefault();
+      return;
+    }
+    // `/` 打开命令行（只在背包开着时有意义：它就画在背包面板里）
+    if (ev.code === "Slash" && bagOpen && !cmdOpen) {
+      setCmdOpen(true);
+      ensureImeHost().focus();
+      ev.preventDefault();
+      return;
+    }
     if (RESERVED.has(ev.code)) ev.preventDefault();
     // Shift 状态：DOM 是唯一事实源（InputSnapshot 不带修饰键）—— "丢整堆"要用
     if (ev.code === "ShiftLeft" || ev.code === "ShiftRight") shiftDown = true;
@@ -2250,6 +2411,11 @@ export async function main(): Promise<void> {
             bagRows: () => hudUi.bagRowTexts.slice(),
             /** 当前提示文案（"" = 没有）。自检页用它证"提示走 UI 树而不是 DOM"。 */
             toastText: () => hudUi.toastText,
+            /** 命令行输入框的状态（自检页读**屏幕上那份**：display / 光标）。 */
+            cmdText: () => cmd.display,
+            cmdVisible: () => hudUi.inputVisible,
+            cmdCaret: () => cmd.displayCaret,
+            cmdSelection: () => cmd.selection,
             bagOpen: () => hudUi.bagOpen,
             hudRowIds: hudUi.hudRowIds,
             /** 设计坐标（自检页验"点击命中真实矩形"时用）。 */

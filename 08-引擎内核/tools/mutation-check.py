@@ -5700,6 +5700,116 @@ MUTANTS = [
             )
         ],
         "test": "tests/host/hud-ui.test.ts"
+    },
+    {
+        "name": "M596 组合中顺手写 value（取消时无从回滚 —— 玩家会看到一串没打算留下的拼音）",
+        "file": "src/extensions/ui/text-input.ts",
+        "pairs": [
+            (
+                "    this.composing = text;",
+                "    this.value = text;\n    this.composing = text;"
+            )
+        ],
+        "test": "tests/extensions/text-input.test.ts"
+    },
+    {
+        "name": "M597 compositionend 空串当提交（Esc 取消会把选中的内容删掉）",
+        "file": "src/extensions/ui/text-input.ts",
+        "pairs": [
+            (
+                "    if (pending === \"\") {",
+                "    if (false) {"
+            )
+        ],
+        "test": "tests/extensions/text-input.test.ts"
+    },
+    {
+        "name": "M598 组合区间只记插入点不记选区（「选中三个字再打拼音」显示与结果不一致）",
+        "file": "src/extensions/ui/text-input.ts",
+        "pairs": [
+            (
+                "    this.composeEnd = s.end;",
+                "    this.composeEnd = s.start;"
+            )
+        ],
+        "test": "tests/extensions/text-input.test.ts"
+    },
+    {
+        "name": "M599 取消时把光标放到区间起点（选区方向丢了：Shift+方向键会往反方向扩）",
+        "file": "src/extensions/ui/text-input.ts",
+        "pairs": [
+            (
+                "      this.caret = this.composeCaret;",
+                "      this.caret = start;"
+            )
+        ],
+        "test": "tests/extensions/text-input.test.ts"
+    },
+    {
+        "name": "M600 切片按 UTF-16 码元（emoji 上退格留下半个代理对，屏幕显示 �）",
+        "file": "src/extensions/ui/text-input.ts",
+        "pairs": [
+            (
+                "  return Array.from(text).slice(start, end).join(\"\");",
+                "  return text.slice(start, end);"
+            )
+        ],
+        "test": "tests/extensions/text-input.test.ts"
+    },
+    {
+        "name": "M601 退格不优先删选区（先删选区左边那一个，玩家选的三个字一个没少）",
+        "file": "src/extensions/ui/text-input.ts",
+        "pairs": [
+            (
+                "    if (s.start !== s.end) {",
+                "    if (false) {"
+            )
+        ],
+        "test": "tests/extensions/text-input.test.ts"
+    },
+    {
+        "name": "M602 光标末尾取最后一格的**左边**（光标停在最后一个字之前，看起来差一格）",
+        "file": "src/extensions/ui/text-input.ts",
+        "pairs": [
+            (
+                "  if (index >= table.length - 1) return table[table.length - 1]!;",
+                "  if (index >= table.length - 1) return table[table.length - 2] ?? 0;"
+            )
+        ],
+        "test": "tests/extensions/text-input.test.ts"
+    },
+    {
+        "name": "M603 输入行收起时底栏不回来（两行抢同一位置，收起后空一条）",
+        "file": "src/host/hud-ui.ts",
+        "pairs": [
+            (
+                "        bagFoot.visible = true;\n        inputCaretX = 0;",
+                "        bagFoot.visible = false;\n        inputCaretX = 0;"
+            )
+        ],
+        "test": "tests/host/hud-ui.test.ts"
+    },
+    {
+        "name": "M604 光标位置拿「字符数」当像素（字宽 5px 时偏到看不懂的地方）",
+        "file": "src/host/hud-ui.ts",
+        "pairs": [
+            (
+                "      const lay = layoutText(font, s.text, { maxLines: 1 });\n      const row = lay.lineCaretX[0] ?? [0];",
+                "      const row = [0, s.text.length];"
+            )
+        ],
+        "test": "tests/host/hud-ui.test.ts"
+    },
+    {
+        "name": "M605 选区高亮不归一化（反向拖选时宽度为负，画不出来）",
+        "file": "src/host/hud-ui.ts",
+        "pairs": [
+            (
+                "        inputSel.offset = { x: Math.min(x0, x1), y: 0 };",
+                "        inputSel.offset = { x: x0, y: 0 };"
+            )
+        ],
+        "test": "tests/host/hud-ui.test.ts"
     }
 ]
 

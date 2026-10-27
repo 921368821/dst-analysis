@@ -32,6 +32,8 @@ import type { UiSkin, UiSkinFrame } from "../extensions/ui/widgets.ts";
 import type { UiEvent, UiPointer } from "../extensions/ui/events.ts";
 import type { UiViewportConfig } from "../extensions/ui/viewport.ts";
 import { bagEmptyLine, bagFooter, bagRows } from "./hud-model.ts";
+import { caretXOf } from "../extensions/ui/text-input.ts";
+import { layoutText } from "../extensions/ui/text-layout.ts";
 
 /** `ui-skin.json` 的形状（由 `tools/make-ui-assets.mjs` 生成）。 */
 export interface UiSkinJson {
@@ -199,6 +201,28 @@ export interface HudUiHandle {
   /** 背包面板当前的行文本（**画在屏幕上的那份**，不是重新算一遍）。 */
   readonly bagRowTexts: readonly string[];
   readonly bagOpen: boolean;
+  /**
+   * 文本输入行（`null` = 收起）。
+   *
+   * ★ 传的是**已经算好的显示状态**（显示串 + 光标 + 选区），不是 `TextInput` 对象：
+   *   编辑模型在宿主那边（它要接 DOM 事件），UI 层只负责把它画出来。
+   *   把模型塞进来会让"谁来推进组合"变成两个答案。
+   * ★ 光标 x 由 `layoutText` 的 `lineCaretX` 算 —— 与画字用的是同一次排版，
+   *   所以"光标停在字中间"这种偏移不可能出现。
+   */
+  setInput(state: InputViewState | null): void;
+  readonly inputVisible: boolean;
+  /** 光标竖条的 x（设计像素，相对输入行左边）。判据读它。 */
+  readonly inputCaretX: number;
+}
+
+/** 输入行要画的东西。`text` 是**显示串**（组合中已经含了预览）。 */
+export interface InputViewState {
+  readonly text: string;
+  /** 光标（码点下标，相对 `text`）。 */
+  readonly caret: number;
+  readonly selStart: number;
+  readonly selEnd: number;
 }
 
 export function createHudUi(opts: HudUiOptions): Result<HudUiHandle, EngineError> {
@@ -320,6 +344,56 @@ export function createHudUi(opts: HudUiOptions): Result<HudUiHandle, EngineError
   bagPanel.add(bagEmpty);
   for (const n of bagRowsNodes) bagPanel.add(n);
   bagPanel.add(bagFoot);
+
+  // ---- 文本输入行（批110）
+  //
+  // ★ 光标是**一个真节点**，位置由 `layoutText` 的 `lineCaretX` 给 ——
+  //   不是往文本里插一个 `|` 字符。插字符那种写法在等宽 ASCII 上看着挺像，
+  //   一换中文字体就露馅（`|` 有自己的前进量，光标会跟着字形宽度跑），
+  //   而且"光标在哪"会变成"文本里第几个字符是竖线"，两个真相。
+  // ★ 选区是输入行里**第一个**子节点（画在最底层）：压在字后面才是选中效果；
+  //   放在字上面会把字盖住。
+  const inputSel = new UiNode({
+    id: "input.sel",
+    widget: UiWidget.Panel,
+    size: { w: 0, h: rowH },
+    visible: false,
+    opaque: false,
+    interactive: false,
+    props: { tint: new Color(0.35, 0.55, 0.95, 0.55) },
+  });
+  const inputTextNode = new UiNode({
+    id: "input.text",
+    widget: UiWidget.Label,
+    size: { w: innerW, h: rowH },
+    props: {
+      text: "",
+      style: { color: white, maxLines: 1 },
+      ...(bagRowFontId === undefined ? {} : { fontId: bagRowFontId }),
+    },
+  });
+  const inputCaret = new UiNode({
+    id: "input.caret",
+    widget: UiWidget.Panel,
+    size: { w: 1, h: rowH },
+    offset: { x: 0, y: 0 },
+    opaque: false,
+    interactive: false,
+    props: { tint: white },
+  });
+  const inputRow = new UiNode({
+    id: "input.row",
+    widget: UiWidget.Panel,
+    size: { w: innerW, h: rowH },
+    visible: false,
+    opaque: false,
+    interactive: false,
+    props: { tint: new Color(1, 1, 1, 0.08) },
+  });
+  inputRow.add(inputSel);
+  inputRow.add(inputTextNode);
+  inputRow.add(inputCaret);
+  bagPanel.add(inputRow);
 
   // ---- toast：屏幕底部中央一行提示
   //
@@ -460,6 +534,10 @@ export function createHudUi(opts: HudUiOptions): Result<HudUiHandle, EngineError
   /** 拖拽状态（见 `BagDragState`）。只在 `onEvent` 里改。 */
   let dragFrom: number | null = null;
   let dragTo: number | null = null;
+  /** 输入行状态（让"没变就不重排"这条也覆盖它）。 */
+  let inputOn = false;
+  let inputSig = "";
+  let inputCaretX = 0;
 
   /**
    * 按当前内容 + 选中 + 拖拽状态把行画出来。
@@ -555,6 +633,49 @@ export function createHudUi(opts: HudUiOptions): Result<HudUiHandle, EngineError
 
     get toastText(): string {
       return toastText;
+    },
+
+    setInput(state): void {
+      const on = state !== null;
+      if (!on) {
+        if (!inputOn) return;
+        inputOn = false;
+        inputRow.visible = false;
+        bagFoot.visible = true;
+        inputCaretX = 0;
+        module.invalidate();
+        return;
+      }
+      const s = state;
+      const sig = `${s.text}|${String(s.caret)}|${String(s.selStart)}|${String(s.selEnd)}`;
+      if (inputOn && sig === inputSig) return;
+      inputSig = sig;
+      inputOn = true;
+      inputRow.visible = true;
+      // 输入时把底栏（键位提示）让位：那一行正好是这个位置，两行叠着会糊成一团
+      bagFoot.visible = false;
+      inputTextNode.props = { ...inputTextNode.props, text: s.text };
+      const lay = layoutText(font, s.text, { maxLines: 1 });
+      const row = lay.lineCaretX[0] ?? [0];
+      inputCaretX = caretXOf(row, s.caret);
+      inputCaret.offset = { x: inputCaretX, y: 0 };
+      const hasSel = s.selStart !== s.selEnd;
+      inputSel.visible = hasSel;
+      if (hasSel) {
+        const x0 = caretXOf(row, s.selStart);
+        const x1 = caretXOf(row, s.selEnd);
+        inputSel.offset = { x: Math.min(x0, x1), y: 0 };
+        inputSel.size = { w: Math.abs(x1 - x0), h: rowH };
+      }
+      module.invalidate();
+    },
+
+    get inputVisible(): boolean {
+      return inputOn;
+    },
+
+    get inputCaretX(): number {
+      return inputCaretX;
     },
 
     pointer(cssX: number, cssY: number, down: boolean, wheelYCss = 0, wheelXCss = 0): UiEvent[] {
