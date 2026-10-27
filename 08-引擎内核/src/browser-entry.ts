@@ -109,6 +109,7 @@ import {
   type FeedbackHandle,
 } from "./extensions/render/feedback.ts";
 import { registerMoverComponent } from "./extensions/ai/move.ts";
+import { registerFacingComponent } from "./extensions/motion/facing.ts";
 import { HUNGER_TYPE, Hunger, registerHungerComponent } from "./extensions/survival/hunger.ts";
 import { eat as eatKind, normalizeFoodTable } from "./extensions/survival/food.ts";
 import { createSurvivalModule } from "./extensions/survival/survival-module.ts";
@@ -743,6 +744,7 @@ export async function main(): Promise<void> {
       registerAttackerComponent(scene.components);
       registerFactionComponent(scene.components);
       registerMoverComponent(scene.components);
+      registerFacingComponent(scene.components);
       // 批67：饱食度。**不注册的后果是 READ 档里这一项静默丢失**（读回来 100，
       // 玩家以为自己没饿过）—— 与背包那一条同一个坑。
       registerHungerComponent(scene.components);

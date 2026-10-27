@@ -26,6 +26,12 @@
  *    这里同时决定了"凶不凶"：`mob-brain` 用 `get(ATTACKER_TYPE) !== undefined`
  *    判断要不要追人。**组件就是策略**，不额外加布尔开关 ——
  *    "配了伤害却永远不出手"的怪是配置错误，不该用一个开关把它合法化。
+ *
+ * ④ **朝向（`motion.facing`）是生物的标配**，和平生物也挂。
+ *    理由：视野锥、「面朝目标」、渲染选帧三件事都要它，而「要不要有朝向」
+ *    不是一个可选项 —— 没有朝向的生物等于一个永远朝东的贴纸。
+ *    它没注册时 `attach` 会硬失败（同 ②），于是「少挂一个组件」不会静默退化成
+ *    「画得出来但不会转身」。
  */
 
 import type { Scene } from "../../core/scene/scene.ts";
@@ -35,6 +41,7 @@ import { HEALTH_TYPE, Health } from "../combat/health.ts";
 import { ATTACKER_TYPE, Attacker } from "../combat/attack.ts";
 import { FACTION_TYPE, FactionMember } from "../combat/faction.ts";
 import { MOVER_TYPE, Mover } from "../ai/move.ts";
+import { FACING_TYPE, Facing } from "../motion/facing.ts";
 import { SPRITE_TYPE, type Sprite, makeSprite } from "../render/sprite.ts";
 import { type MobTemplate, validateTemplate } from "./mob-template.ts";
 
@@ -49,6 +56,14 @@ export interface MobHandle {
   /** `null` = 和平生物（模板 `damage: 0`），见文件头 ③。 */
   readonly attacker: Attacker | null;
   readonly mover: Mover;
+  /**
+   * 朝向（`motion.facing`）。
+   *
+   * ★ 必须挂在生物身上、且是**节点上那一个实例**：渲染层按 `dir8` 选帧、
+   *   AI 按 `angle` 做扇区感知，两边都从节点上取。给 handle 一个副本的话，
+   *   「改了 handle 上的角度、画面不动」就成了新的难查项。
+   */
+  readonly facing: Facing;
 }
 
 export interface SpawnMobOptions {
@@ -94,12 +109,14 @@ export function spawnMob(
   mover.speed = tpl.speed;
   const faction = new FactionMember();
   faction.team = tpl.team;
+  const facing = new Facing();
 
   const attached: Array<[ComponentSchema["type"], Component]> = [
     [SPRITE_TYPE, sprite],
     [HEALTH_TYPE, health],
     [MOVER_TYPE, mover],
     [FACTION_TYPE, faction],
+    [FACING_TYPE, facing],
   ];
   // 见文件头 ③：damage 为 0 ⇒ 不挂攻击组件
   if (tpl.damage > 0) attached.push([ATTACKER_TYPE, attacker]);
@@ -138,7 +155,7 @@ export function spawnMob(
     }
   }
 
-  return ok({ nodeId, template: tpl, sprite, health, attacker: tpl.damage > 0 ? attacker : null, mover });
+  return ok({ nodeId, template: tpl, sprite, health, attacker: tpl.damage > 0 ? attacker : null, mover, facing });
 }
 
 /**

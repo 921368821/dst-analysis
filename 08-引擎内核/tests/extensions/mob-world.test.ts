@@ -27,6 +27,7 @@ import { createFactions, registerFactionComponent } from "../../src/extensions/c
 import { registerHealthComponent } from "../../src/extensions/combat/health.ts";
 import { registerAttackerComponent } from "../../src/extensions/combat/attack.ts";
 import { registerMoverComponent } from "../../src/extensions/ai/move.ts";
+import { registerFacingComponent } from "../../src/extensions/motion/facing.ts";
 import { Sprite } from "../../src/extensions/render/sprite.ts";
 import { countItem, makeInventory, registerInventoryComponents } from "../../src/extensions/inventory/inventory.ts";
 import { createMobWorldModule } from "../../src/extensions/mobs/mob-world.ts";
@@ -67,6 +68,7 @@ function mkScene(): Scene {
   registerAttackerComponent(reg);
   registerFactionComponent(reg);
   registerMoverComponent(reg);
+  registerFacingComponent(reg);
   registerInventoryComponents(reg);
   if (!reg.has("render.sprite")) reg.register(new Sprite().schema, () => new Sprite());
   return new Scene("mobs", reg);

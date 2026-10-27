@@ -39,6 +39,15 @@
  *    ★ 夹住之后**游标不前进**：没走到那个路点，下一 tick 还得朝它走。
  *      一直走不动就交给卡住检测（③）去丢路径重算 —— 那才是"路被挡住了"的出口，
  *      如果让游标照常前进，怪会贴着墙一路"空走"到终点再宣布到达。
+ *
+ * ⑦ **朝向跟的是"实际挪了多少"，不是"想去哪"**。
+ *    节点上有 `motion.facing` 时，这一拍拿**真实位移**去转（`faceTo`），
+ *    限速由 `turnRate` 决定。三个后果都是想要的：
+ *      · 被物理挡住的那一拍位移为 0 ⇒ 朝向不动（贴着墙原地转身是最假的动作）；
+ *      · 绕角走时朝向是**路的方向**而不是"目标方向"，精灵与视野锥都跟着路走；
+ *      · 限速大于 0 时，"瞬时对准"不存在 —— 否则视野锥等于全向（见 `motion/facing.ts`）。
+ *    ★ 没有 `motion.facing` 的节点**一个字节都不变**：老内容/老存档行为不变，
+ *      这也是这条接线可以放心加在核心移动循环里的原因。
  */
 
 import { Component, FieldType, type ComponentSchema } from "../../core/scene/component.ts";
@@ -47,6 +56,7 @@ import type { Scene } from "../../core/scene/scene.ts";
 import type { Node } from "../../core/scene/node.ts";
 import { Services } from "../../core/tokens.ts";
 import { engineError, err, ok, type EngineError, type Result } from "../../foundation/result.ts";
+import { FACING_TYPE, type Facing } from "../motion/facing.ts";
 import type { NavGrid } from "../nav/nav-grid.ts";
 import { stepAlong } from "../nav/move-along.ts";
 
@@ -297,6 +307,10 @@ export function createMoveModule(opts: MoveModuleOptions): MoveModuleHandle {
           const lp = node.localPosition;
           node.setLocalPosition(lp.x + stepX, lp.y + stepZ);
           moving++;
+          // 见文件头 ⑦：朝向跟**实际位移**走。被挡住的那一拍游标会回退、位移为 0，
+          // 于是这条 `movedNow > 0` 守卫就是「没动就不转身」的唯一一处保证。
+          const facing = node.get<Facing>(FACING_TYPE);
+          if (facing !== undefined) facing.faceTo(stepX, stepZ, facing.maxTurn(dt));
         }
 
         // ★ 被挡住时不许宣布到达：`r.done` 说的是"预算走完了这条路"，

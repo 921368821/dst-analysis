@@ -23,6 +23,13 @@
  *    点积在"正好在边界上"时会放大浮点误差（`cos(90°)` 不是 0）；
  *    角度差是同一个量纲上的比较，边界行为可以写成判据（半角 ±0.01° 两边各验一次）。
  *
+ * ⑤ **朝向的来源只有一个顺序：显式参数 → `motion.facing` 组件**。
+ *    参数优先，是因为判据与调试需要"假装我朝那边"（不必去改组件再改回来）；
+ *    组件兜底，是因为**没有谁会给每只怪手工传一次角度** ——
+ *    要求调用方传，实际结果就是"忘了传 ⇒ 报错 ⇒ 有人把它改成全向"，
+ *    而全向感知不会让任何位置判据变红，只会让怪变得异常机敏。
+ *    ★ 两处都不给时**仍然报错**，不许把"没定义"悄悄当成 360°。
+ *
  * ★ 不做什么：**不做遮挡**（视线被树挡住）。2.5D 俯视角里没有可靠的遮挡语义，
  *   硬做会得到一个"看起来在算、实际在猜"的东西。真需要时应该走导航网格/可见性图，
  *   那是另一批。
@@ -31,6 +38,7 @@
 import type { EngineError, Result } from "../../foundation/result.ts";
 import { engineError, err, ok } from "../../foundation/result.ts";
 import type { Scene } from "../../core/scene/scene.ts";
+import { FACING_TYPE, type Facing } from "../motion/facing.ts";
 
 export const AI_NO_SELF = "AI.NO_SELF";
 export const AI_BAD_SENSE = "AI.BAD_SENSE";
@@ -137,7 +145,9 @@ export class Perception {
     if (self === undefined) {
       return err(engineError(AI_NO_SELF, `感知者 ${String(selfId)} 不在场景里`));
     }
-    if (this.cfg.halfAngleDeg !== undefined && (facingRad === undefined || !Number.isFinite(facingRad))) {
+    // 见文件头 ⑤：朝向他只有一个来源，顺序是「显式参数 → `motion.facing` 组件」
+    const face = facingRad === undefined ? self.get<Facing>(FACING_TYPE)?.angle : facingRad;
+    if (this.cfg.halfAngleDeg !== undefined && (face === undefined || !Number.isFinite(face))) {
       return err(
         engineError(AI_BAD_SENSE, "配置了视野半角，但没给朝向 —— 「前方」没有定义，不能当全向处理", {
           selfId,
@@ -170,7 +180,7 @@ export class Perception {
       if (halfDeg !== undefined) {
         // 朝向是弧度、半角是度：先统一成度再比，边界行为才写得出来
         const angDeg = (Math.atan2(dz, dx) / DEG + 360) % 360;
-        const faceDeg = ((facingRad! / DEG) % 360 + 360) % 360;
+        const faceDeg = ((face! / DEG) % 360 + 360) % 360;
         let diff = Math.abs(angDeg - faceDeg);
         if (diff > 180) diff = 360 - diff;
         if (diff > halfDeg) return;

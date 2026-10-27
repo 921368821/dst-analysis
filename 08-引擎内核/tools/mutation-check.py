@@ -5370,6 +5370,116 @@ MUTANTS = [
             ]
         ],
         "test": "tests/host/hud-ui.test.ts"
+    },
+    {
+        "name": "M566 normRad 不归一化负角（-π/2 停在负区 ⇒ dir8 与存档比对全错）",
+        "file": "src/extensions/motion/facing.ts",
+        "pairs": [
+            (
+                "  const m = rad % TAU;\n  return m < 0 ? m + TAU : m + 0;",
+                "  const m = rad % TAU;\n  return m;"
+            )
+        ],
+        "test": "tests/extensions/facing.test.ts"
+    },
+    {
+        "name": "M567 零向量返回 0（站着不动的怪被掰向东 —— atan2(0,0) 不是 NaN）",
+        "file": "src/extensions/motion/facing.ts",
+        "pairs": [
+            (
+                "  if (dx === 0 && dz === 0) return null;",
+                "  if (dx === 0 && dz === 0) return 0;"
+            )
+        ],
+        "test": "tests/extensions/facing.test.ts"
+    },
+    {
+        "name": "M568 不做环绕（350° → 10° 走 340°，怪物原地绕一大圈）",
+        "file": "src/extensions/motion/facing.ts",
+        "pairs": [
+            (
+                "  const d = normRad(to) - normRad(from);\n  if (d > Math.PI) return d - TAU;\n  if (d <= -Math.PI) return d + TAU;\n  return d;",
+                "  const d = normRad(to) - normRad(from);\n  return d;"
+            )
+        ],
+        "test": "tests/extensions/facing.test.ts"
+    },
+    {
+        "name": "M569 转向不限速（turnRate 形同虚设 ⇒ 视野锥等于全向）",
+        "file": "src/extensions/motion/facing.ts",
+        "pairs": [
+            (
+                "      const lim = maxRad > 0 ? maxRad : 0;",
+                "      const lim = Number.POSITIVE_INFINITY;"
+            )
+        ],
+        "test": "tests/extensions/facing.test.ts"
+    },
+    {
+        "name": "M570 maxTurn 漏 DEG（度当弧度用，转得慢 57 倍）",
+        "file": "src/extensions/motion/facing.ts",
+        "pairs": [
+            (
+                "    return this.turnRate * DEG * Math.max(0, dt);",
+                "    return this.turnRate * Math.max(0, dt);"
+            )
+        ],
+        "test": "tests/extensions/facing.test.ts"
+    },
+    {
+        "name": "M571 感知只认显式参数、不读 motion.facing（每只怪都得手工传角度）",
+        "file": "src/extensions/ai/perception.ts",
+        "pairs": [
+            (
+                "    const face = facingRad === undefined ? self.get<Facing>(FACING_TYPE)?.angle : facingRad;",
+                "    const face = facingRad;"
+            )
+        ],
+        "test": "tests/extensions/facing.test.ts"
+    },
+    {
+        "name": "M572 感知里组件优先于参数（调用方说「我朝西」也不算数）",
+        "file": "src/extensions/ai/perception.ts",
+        "pairs": [
+            (
+                "    const face = facingRad === undefined ? self.get<Facing>(FACING_TYPE)?.angle : facingRad;",
+                "    const face = self.get<Facing>(FACING_TYPE)?.angle ?? facingRad;"
+            )
+        ],
+        "test": "tests/extensions/facing.test.ts"
+    },
+    {
+        "name": "M573 朝向挪到「有没有位移」的守卫之外，且按想去方向算（贴着墙也在转身）",
+        "file": "src/extensions/ai/move.ts",
+        "pairs": [
+            (
+                "          const facing = node.get<Facing>(FACING_TYPE);\n          if (facing !== undefined) facing.faceTo(stepX, stepZ, facing.maxTurn(dt));\n        }",
+                "        }\n        {\n          const facing = node.get<Facing>(FACING_TYPE);\n          if (facing !== undefined) facing.faceTo(r.x - wp.x, r.z - wp.y, facing.maxTurn(dt));\n        }"
+            )
+        ],
+        "test": "tests/extensions/facing.test.ts"
+    },
+    {
+        "name": "M574 缺方向帧不回落单帧（美术只画了一张图时实体整个消失）",
+        "file": "src/extensions/render/dir-frames.ts",
+        "pairs": [
+            (
+                "  if (has(prefix)) return prefix;",
+                "  if (has(prefix)) return null;"
+            )
+        ],
+        "test": "tests/extensions/facing.test.ts"
+    },
+    {
+        "name": "M575 生物不挂 motion.facing（朝向又回到「数据不存在」）",
+        "file": "src/extensions/mobs/spawn-mob.ts",
+        "pairs": [
+            (
+                "    [FACTION_TYPE, faction],\n    [FACING_TYPE, facing],\n",
+                "    [FACTION_TYPE, faction],\n"
+            )
+        ],
+        "test": "tests/extensions/facing.test.ts"
     }
 ]
 

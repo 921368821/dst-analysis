@@ -19,6 +19,7 @@ import { ATTACKER_TYPE, registerAttackerComponent } from "../../src/extensions/c
 import { FACTION_TYPE, registerFactionComponent } from "../../src/extensions/combat/faction.ts";
 import { HEALTH_TYPE, Health, registerHealthComponent } from "../../src/extensions/combat/health.ts";
 import { MOVER_TYPE, registerMoverComponent } from "../../src/extensions/ai/move.ts";
+import { registerFacingComponent } from "../../src/extensions/motion/facing.ts";
 import { SPRITE_TYPE, Sprite } from "../../src/extensions/render/sprite.ts";
 import { MOB_BAD_TEMPLATE, validateTemplate } from "../../src/extensions/mobs/mob-template.ts";
 import { MOB_SPAWN_FAILED, spawnMob, spawnMobs } from "../../src/extensions/mobs/spawn-mob.ts";
@@ -56,6 +57,7 @@ function fullRegistry(): ComponentRegistry {
   registerAttackerComponent(reg);
   registerFactionComponent(reg);
   registerMoverComponent(reg);
+  registerFacingComponent(reg);
   if (!reg.has(SPRITE_TYPE)) reg.register(new Sprite().schema, () => new Sprite());
   return reg;
 }

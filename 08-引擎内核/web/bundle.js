@@ -22264,6 +22264,110 @@ function createHitstopModule(opts) {
   return handle;
 }
 
+// src/extensions/motion/facing.ts
+var FACING_TYPE = "motion.facing";
+var TAU2 = Math.PI * 2;
+var DEG = Math.PI / 180;
+function normRad(rad) {
+  if (!Number.isFinite(rad)) return 0;
+  const m = rad % TAU2;
+  return m < 0 ? m + TAU2 : m + 0;
+}
+function angleOf(dx, dz) {
+  if (!Number.isFinite(dx) || !Number.isFinite(dz)) return null;
+  if (dx === 0 && dz === 0) return null;
+  return normRad(Math.atan2(dz, dx));
+}
+function shortestDelta(from, to) {
+  const d = normRad(to) - normRad(from);
+  if (d > Math.PI) return d - TAU2;
+  if (d <= -Math.PI) return d + TAU2;
+  return d;
+}
+function dirIndex(rad, dirs) {
+  const n = Number.isFinite(dirs) ? Math.max(1, Math.floor(dirs)) : 8;
+  return Math.round(normRad(rad) / (TAU2 / n)) % n;
+}
+var Facing = class extends Component {
+  /**
+   * 朝向（弧度，`[0, 2π)`）。`0` = +x（屏幕右），顺时针为正。
+   *
+   * ★ 直接写这个字段**不会**被归一化 —— 想安全赋值用 `setAngle()`。
+   *   留着公开字段是因为序列化与编辑器面板按名字读写它（`Component.save/load`
+   *   走的就是字段表），setter 会把 `load()` 挡住。
+   *   写入方（`setAngle` / `turnTowards` / `faceTo`）都在写后归一化，
+   *   越界值只可能来自手写存档。
+   */
+  angle = 0;
+  /**
+   * 最大转向角速度（度/秒）。`0` = 不限速（瞬时对准）。
+   *
+   * ★ 负值不表示「反向转」，而是「永远转不过去」—— 表现为怪物贴着目标
+   *   原地发抖。判据钉住 `<= 0` 一律当不限速，比让负值参与运算便宜。
+   */
+  turnRate = 0;
+  schema = {
+    type: FACING_TYPE,
+    fields: {
+      angle: FieldType.Double,
+      turnRate: FieldType.Double
+    },
+    defaults: { angle: 0, turnRate: 0 }
+  };
+  /** 朝向（度，`[0, 360)`）。给人看与给编辑器用；内部一律弧度。 */
+  get deg() {
+    return normRad(this.angle) / DEG;
+  }
+  /** 8 向扇区（`0` = 东，顺时针）。渲染选帧读它。 */
+  get dir8() {
+    return dirIndex(this.angle, 8);
+  }
+  /** 4 向扇区（`0` = 东，顺时针）。素材只有四张时用它。 */
+  get dir4() {
+    return dirIndex(this.angle, 4);
+  }
+  /** 直接设定（归一化后写入）。 */
+  setAngle(rad) {
+    this.angle = normRad(rad);
+  }
+  /**
+   * 朝 `(dx, dz)` 转，最多 `maxRad` 弧度。返回**实际**转过的有向弧度。
+   *
+   * ★ 零向量**什么都不做**并返回 0（见 `angleOf` 的注释）。
+   * ★ `maxRad` 为 `Infinity` 或不有限值 = 不限速；`< 0` 当 0（不转）。
+   */
+  faceTo(dx, dz, maxRad = Number.POSITIVE_INFINITY) {
+    const a = angleOf(dx, dz);
+    if (a === null) return 0;
+    return this.turnTowards(a, maxRad);
+  }
+  /** 朝绝对角 `target` 转，最多 `maxRad` 弧度。返回实际转过的有向弧度。 */
+  turnTowards(target, maxRad = Number.POSITIVE_INFINITY) {
+    const delta = shortestDelta(this.angle, target);
+    let step2 = delta;
+    if (Number.isFinite(maxRad)) {
+      const lim = maxRad > 0 ? maxRad : 0;
+      if (Math.abs(delta) > lim) step2 = delta > 0 ? lim : -lim;
+    }
+    if (step2 !== 0) this.angle = normRad(this.angle + step2);
+    return step2;
+  }
+  /**
+   * 这一 `dt` 秒最多能转多少弧度（由 `turnRate` 决定）。
+   *
+   * ★ 收成一处的理由：`turnRate` 是度、`angle` 是弧度、`dt` 是秒 ——
+   *   三处单位换算写在每个调用点上，必然有一处漏掉 `DEG`，
+   *   而漏掉的症状是「转得特别慢」，看着像配置问题。
+   */
+  maxTurn(dt) {
+    if (!(this.turnRate > 0) || !Number.isFinite(this.turnRate)) return Number.POSITIVE_INFINITY;
+    return this.turnRate * DEG * Math.max(0, dt);
+  }
+};
+function registerFacingComponent(registry) {
+  if (!registry.has(FACING_TYPE)) registry.register(new Facing().schema, () => new Facing());
+}
+
 // src/extensions/nav/move-along.ts
 var ARRIVE_EPS = 1e-6;
 function stepAlong(grid, path, cursor, x, z, speed, dt) {
@@ -22446,6 +22550,8 @@ function createMoveModule(opts) {
           const lp = node.localPosition;
           node.setLocalPosition(lp.x + stepX, lp.y + stepZ);
           moving++;
+          const facing = node.get(FACING_TYPE);
+          if (facing !== void 0) facing.faceTo(stepX, stepZ, facing.maxTurn(dt));
         }
         if (aim.hit === null && r.done) {
           m.arrived = true;
@@ -22886,11 +22992,13 @@ function spawnMob(scene, template, x, z, opts = {}) {
   mover.speed = tpl.speed;
   const faction = new FactionMember();
   faction.team = tpl.team;
+  const facing = new Facing();
   const attached = [
     [SPRITE_TYPE, sprite],
     [HEALTH_TYPE, health],
     [MOVER_TYPE, mover],
-    [FACTION_TYPE, faction]
+    [FACTION_TYPE, faction],
+    [FACING_TYPE, facing]
   ];
   if (tpl.damage > 0) attached.push([ATTACKER_TYPE, attacker]);
   for (const [type, c] of attached) {
@@ -22924,13 +23032,13 @@ function spawnMob(scene, template, x, z, opts = {}) {
       );
     }
   }
-  return ok({ nodeId, template: tpl, sprite, health, attacker: tpl.damage > 0 ? attacker : null, mover });
+  return ok({ nodeId, template: tpl, sprite, health, attacker: tpl.damage > 0 ? attacker : null, mover, facing });
 }
 
 // src/extensions/ai/perception.ts
 var AI_NO_SELF = "AI.NO_SELF";
 var AI_BAD_SENSE = "AI.BAD_SENSE";
-var DEG = Math.PI / 180;
+var DEG2 = Math.PI / 180;
 function byDistance(a, b) {
   if (a.dist2 !== b.dist2) return a.dist2 - b.dist2;
   return a.nodeId - b.nodeId;
@@ -22979,7 +23087,8 @@ var Perception = class {
     if (self2 === void 0) {
       return err(engineError(AI_NO_SELF, `\u611F\u77E5\u8005 ${String(selfId)} \u4E0D\u5728\u573A\u666F\u91CC`));
     }
-    if (this.cfg.halfAngleDeg !== void 0 && (facingRad === void 0 || !Number.isFinite(facingRad))) {
+    const face = facingRad === void 0 ? self2.get(FACING_TYPE)?.angle : facingRad;
+    if (this.cfg.halfAngleDeg !== void 0 && (face === void 0 || !Number.isFinite(face))) {
       return err(
         engineError(AI_BAD_SENSE, "\u914D\u7F6E\u4E86\u89C6\u91CE\u534A\u89D2\uFF0C\u4F46\u6CA1\u7ED9\u671D\u5411 \u2014\u2014 \u300C\u524D\u65B9\u300D\u6CA1\u6709\u5B9A\u4E49\uFF0C\u4E0D\u80FD\u5F53\u5168\u5411\u5904\u7406", {
           selfId
@@ -23007,8 +23116,8 @@ var Perception = class {
       const d2 = dx * dx + dz * dz;
       if (d2 > range2) return;
       if (halfDeg !== void 0) {
-        const angDeg = (Math.atan2(dz, dx) / DEG + 360) % 360;
-        const faceDeg = (facingRad / DEG % 360 + 360) % 360;
+        const angDeg = (Math.atan2(dz, dx) / DEG2 + 360) % 360;
+        const faceDeg = (face / DEG2 % 360 + 360) % 360;
         let diff = Math.abs(angDeg - faceDeg);
         if (diff > 180) diff = 360 - diff;
         if (diff > halfDeg) return;
@@ -24355,6 +24464,7 @@ async function main() {
       registerAttackerComponent(scene2.components);
       registerFactionComponent(scene2.components);
       registerMoverComponent(scene2.components);
+      registerFacingComponent(scene2.components);
       registerHungerComponent(scene2.components);
       registerFeedbackComponent(scene2.components);
       if (!scene2.components.has(SPRITE_TYPE)) {
