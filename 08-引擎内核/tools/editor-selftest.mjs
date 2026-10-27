@@ -922,7 +922,12 @@ const PROBE = `
     JSON.stringify({ wood, door }) + " portal=" + E.compCount("flow.portal", heroM),
   );
 
+  // ★ 批98 之后"走进门"不再是一 tick 内硬切：先落一块幕布（12 拍），落满那一拍才换世界。
+  //   所以这里要**分两次**断言：推一拍只该看到幕布开始落（世界还没换），
+  //   再推满落幕的拍数才该看到世界换了。只验后者的话，"幕布根本没落、直接硬切"照样绿。
   E.step(1);
+  const curtainA = E.curtain();
+  E.step(12);
   const jumpedTo = E.playScene();
   const heroT = E.hero();
   E.select(heroT);
@@ -935,10 +940,13 @@ const PROBE = `
   const namesJump = E.outline().map((r) => r.name);
   const selRow = document.querySelector("#scenelist .srow.sel");
   add(
-    "★★ 玩家脚下有一扇门：推进一步就自动跳过去（「每 tick 喂一次位置」这条接线真的接上了）",
+    "★★ 玩家脚下有一扇门：推一拍照样走不了（幕布在落），落满才跳过去",
     jumpedTo === "落盘场景" && namesJump.includes("只在目标场景里") &&
-      !namesJump.includes("只属于 main"),
-    "playScene=" + JSON.stringify(jumpedTo) + " 节点=" + JSON.stringify(namesJump),
+      !namesJump.includes("只属于 main") &&
+      curtainA.phase === "out" && curtainA.alpha > 0 && curtainA.alpha < 1 &&
+      curtainA.target === "落盘场景",
+    "playScene=" + JSON.stringify(jumpedTo) + " 第一拍幕布=" + JSON.stringify(curtainA) +
+      " 节点里有目标场景的东西=" + JSON.stringify(namesJump.includes("只在目标场景里")),
   );
   add(
     "★★ 跳过去之后血 / 饱食 / 背包都跟着人走（不是「换了个人」）",
@@ -979,13 +987,17 @@ const PROBE = `
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   const jumpedByPlay = E.playScene();
+  // ★★ 幕布的账也要在这一条里核一次：如果 loop 那条路绕过幕布直接调 doPlayJump，
+  //   世界照样会换、playScene 照样对 —— 只有 fired 会停在 0。
+  const firedByPlay = E.curtain().fired;
   E.pause();
   const stoppedP = E.stop();
   add(
     "★★ 点「播放」走进门也会跳（loop 那条帧路径与命令面 step 各喂一次）",
-    jumpedByPlay === "落盘场景" && stoppedP.ok === true && stoppedP.rolledBack === true,
+    jumpedByPlay === "落盘场景" && stoppedP.ok === true && stoppedP.rolledBack === true &&
+      firedByPlay === 1,
     "playScene=" + JSON.stringify(jumpedByPlay) + " stop=" + JSON.stringify(stoppedP) +
-      " current=" + E.scenes().current,
+      " 幕布交火=" + JSON.stringify(firedByPlay) + " current=" + E.scenes().current,
   );
 
   // ---- 路径 C：关着的门（批95）
@@ -997,6 +1009,9 @@ const PROBE = `
   //   看起来像 loop 那条帧路径没接线（而上一条断言刚刚证明它接了）。
   //   **回滚点在哪，夹具的边界就在哪**：改世界的夹具要么整体在会话之外，要么单独一段。
   const shutSet = E.setField(E.hero(), "flow.portal", "open", "false");
+  // ★ 关门这一局**跳不出去** ⇒ 停播时不该写自动检查点。先把它当时的样子记下来，
+  //   停播之后再比一次（同一份字符串 = 没被写过）。
+  const autoBeforeC = window.localStorage.getItem("dst.editor.play.auto.v1");
   E.play();
   const tShut0 = Date.now();
   while (Date.now() - tShut0 < 1200 && E.playScene() !== "落盘场景") {
@@ -1014,6 +1029,153 @@ const PROBE = `
     "set=" + JSON.stringify(shutSet) + " playScene=" + JSON.stringify(shutScene) +
       " 恢复=" + JSON.stringify(reopen),
   );
+  const autoAfterC = window.localStorage.getItem("dst.editor.play.auto.v1");
+  add(
+    "★ 没跳过场景的一局停播时**不写**自动检查点（否则会把上一次的进度换成开局）",
+    autoBeforeC !== null && autoAfterC === autoBeforeC,
+    "前 " + String(autoBeforeC === null ? -1 : autoBeforeC.length) +
+      " 字节 → 后 " + String(autoAfterC === null ? -1 : autoAfterC.length) + " 字节",
+  );
+
+  // ---- 路径 D：过场幕布（批98）
+  //
+  // ★★ 这条只能在**接线层**验：Node 那边有状态机的逐拍判据（flow-curtain）
+  //   与渲染侧的 draw 计数（render-curtain），但"门触发 → 幕布 → 换世界"这条线
+  //   有没有接上、以及"门"是不是真的走了幕布，只有把编辑器跑起来才看得见。
+  //
+  // ★ 用 E.step(1) 一拍一拍走，**不用真实播放采样**：一次过场只有 30 拍（0.5 秒），
+  //   采样器稍微抖一下就漏掉"落满那一拍"，判据于是时红时绿（批79 的教训：
+  //   「经过某点」与「停在那点」是两回事）。逐拍走则每一拍都能断言，
+  //   而且同一份夹具跑一万次结果一样。
+  const snapCurtain = () => {
+    const c = E.curtain();
+    return { phase: c.phase, alpha: c.alpha, scene: E.playScene(), drawn: c.drawn, fired: c.fired };
+  };
+  E.step(1); // 开会话 + 第一拍：脚下有门 ⇒ 幕布开始落（这一拍还没换世界）
+  const tray = [snapCurtain()];
+  for (let i = 0; i < 80 && !(tray[tray.length - 1].phase === "idle" && tray.length > 1); i++) {
+    E.step(1);
+    tray.push(snapCurtain());
+  }
+  const swapAt = tray.findIndex((s) => s.scene === "落盘场景");
+  const before = swapAt < 0 ? [] : tray.slice(0, swapAt);
+  const outP = tray.filter((s) => s.phase === "out");
+  const inP = tray.filter((s) => s.phase === "in");
+  add(
+    "★★ 幕布落满之前世界一个字节都没动（换世界那一拍 alpha 恰好是 1）",
+    swapAt > 0 && outP.length >= 10 &&
+      before.every((s) => s.scene === "main") &&
+      tray[swapAt].alpha === 1,
+    "换世界在第 " + String(swapAt) + " 个样本（共 " + String(tray.length) + "）· alpha=" +
+      JSON.stringify(swapAt < 0 ? null : tray[swapAt].alpha) +
+      " 落幕样本=" + String(outP.length) +
+      " 之前出现过的场景=" + JSON.stringify([...new Set(before.map((s) => s.scene))]),
+  );
+  add(
+    "★★ 起幕从 1 单调降回 0 并回到 idle（不是「黑一下就再也不露了」）",
+    inP.length >= 10 &&
+      inP.every((s, i) => i === 0 || s.alpha <= inP[i - 1].alpha) &&
+      tray[tray.length - 1].phase === "idle" && tray[tray.length - 1].alpha === 0,
+    "起幕样本=" + String(inP.length) + " alpha 序列=" +
+      JSON.stringify(inP.map((s) => Number(s.alpha.toFixed(3)))) +
+      " 终态=" + JSON.stringify(tray[tray.length - 1]),
+  );
+  add(
+    "★★ 幕布是真的画了（渲染层上一帧报 drawn），且整场只交火一次",
+    tray.some((s) => s.alpha > 0 && s.drawn === true) &&
+      tray.every((s) => s.fired <= 1) && tray[tray.length - 1].fired === 1,
+    "画过的样本=" + String(tray.filter((s) => s.alpha > 0 && s.drawn).length) +
+      " fired=" + JSON.stringify(tray.map((s) => s.fired).filter((v, i, a) => i === 0 || v !== a[i - 1])),
+  );
+  const stoppedCurtain = E.stop();
+  add(
+    "★ 停播之后幕布是掀开的（alpha 0）—— 回滚成工程那一份之后不该留一块黑",
+    stoppedCurtain.ok === true && E.curtain().phase === "idle" && E.curtain().alpha === 0,
+    JSON.stringify(stoppedCurtain) + " 幕布=" + JSON.stringify(E.curtain()),
+  );
+
+  // ---- 离开试玩也保留（批98 · C4）
+  //
+  // ★★ 这条的要点是**顺序**：检查点必须在回滚**之前**拍。反过来的话存下来的是
+  //   "工程里那一份"（当前场景 main、只有 1 份场景），而面板上照样写着"已存档" ——
+  //   下一次读档回到起点，人只会觉得存档丢了。
+  //   所以判据不能只验"键里有东西"，要验**内容是玩过的那个世界**。
+  const autoRaw = window.localStorage.getItem("dst.editor.play.auto.v1");
+  let autoDoc = null;
+  try {
+    autoDoc = JSON.parse(autoRaw === null ? "null" : autoRaw);
+  } catch {
+    autoDoc = null;
+  }
+  // ★ 只看 current 与份数是**验不出顺序**的：回滚之后流程层仍然认为自己在
+  //   「落盘场景」，只是场景里的**内容**换成了 main 那一份 —— 名字与份数全对。
+  //   所以要看到**内容**层：那一份文档里必须有只存在于目标场景的节点。
+  const autoSceneEntry =
+    autoDoc === null || !Array.isArray(autoDoc.scenes)
+      ? null
+      : autoDoc.scenes.find((s) => s.name === "落盘场景");
+  const autoSceneDoc = autoSceneEntry === null || autoSceneEntry === undefined ? "" : String(autoSceneEntry.doc);
+  add(
+    "★★ 停播时自动记下这一局，且记的是回滚前的世界（当前那一关还是跳过去的那一关）",
+    autoDoc !== null && autoDoc.current === "落盘场景" &&
+      Array.isArray(autoDoc.scenes) && autoDoc.scenes.length === 2 &&
+      autoSceneDoc.indexOf("只在目标场景里") >= 0 && autoSceneDoc.indexOf("只属于 main") < 0,
+    "自动检查点=" + (autoRaw === null ? "null" : String(autoRaw.length) + " 字节") +
+      " current=" + JSON.stringify(autoDoc === null ? null : autoDoc.current) +
+      " 场景份数=" + String(autoDoc === null || !Array.isArray(autoDoc.scenes) ? -1 : autoDoc.scenes.length) +
+      " 那一份里有目标场景的节点=" + JSON.stringify(autoSceneDoc.indexOf("只在目标场景里") >= 0) +
+      " 混进了 main 的节点=" + JSON.stringify(autoSceneDoc.indexOf("只属于 main") >= 0),
+  );
+
+  // ★ 不在试玩中读档（C4 的"试玩之外的入口"）：先把手动存档这一份确认是空的，
+  //   于是读档只能走自动检查点那条分支 —— 否则这条判据会被手动存档蒙过去。
+  const manualNow = window.localStorage.getItem("dst.editor.play.v1");
+  const cont = E.playLoad();
+  add(
+    "★★ 不在试玩中也能读档：自动开始试玩并接着上次那一关（读的是自动检查点）",
+    manualNow === null && cont.ok === true && cont.started === true &&
+      cont.from === "自动检查点" && E.playScene() === "落盘场景",
+    "手动存档=" + JSON.stringify(manualNow) + " 结果=" + JSON.stringify(cont) +
+      " playScene=" + JSON.stringify(E.playScene()),
+  );
+  E.stop();
+
+  // ---- 路径 E：停播时幕布还在半路（批98）
+  //
+  // ★ 为什么单独一段：上面那几条都是在**幕布已经掀开**之后停播的，
+  //   那时 cancelCurtain 是个空操作 —— 把停播里那一行删掉，判据照样绿。
+  //   要咬住它，必须**在幕布半路**停播，并看 cancelled 有没有记账。
+  //   （夹具：上一次读档停播已经把世界回滚成 main + 门开着 + 人站在门里。）
+  E.step(4);
+  const midCurtain = E.curtain();
+  const stoppedMid = E.stop();
+  const afterMid = E.curtain();
+  add(
+    "★★ 幕布还在半路时停播：立刻掀开并记一笔（停播之后不许留一块黑）",
+    midCurtain.phase === "out" && midCurtain.alpha > 0 && stoppedMid.ok === true &&
+      afterMid.phase === "idle" && afterMid.alpha === 0 && afterMid.cancelled === 1,
+    "停播前=" + JSON.stringify(midCurtain) + " 停播后=" + JSON.stringify(afterMid) +
+      " stop=" + JSON.stringify(stoppedMid),
+  );
+
+  // ---- 两份存档的优先顺序（批98）
+  //
+  // ★ 手动存档是"我特意记下的那个点"，自动检查点是"我最后待的地方"。
+  //   规则是**手动优先**，而这条规则只有在两份**内容不同**时才看得出来 ——
+  //   所以这里刻意在 main 存一次手动，再走过去让自动检查点记成另一关。
+  E.step(0);
+  const manualSaved = E.playSave(); // 手动：main · 1 份
+  E.step(13); // 走过去 ⇒ 停播时自动检查点会记成「落盘场景」
+  E.stop();
+  const pickLoad = E.playLoad(); // 不在试玩中：自动开播 + 读档
+  add(
+    "★★ 手动存档优先于自动检查点（两份都在时读的是我特意存的那一份）",
+    manualSaved.ok === true && pickLoad.ok === true && pickLoad.from === "手动存档" &&
+      E.playScene() === "main",
+    "手动=" + JSON.stringify(manualSaved) + " 读档=" + JSON.stringify(pickLoad) +
+      " playScene=" + JSON.stringify(E.playScene()),
+  );
+  E.stop();
 
   // ---------------- 试玩存档：这一局能存、能读回去、走过的不重置（批93）
   //

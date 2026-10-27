@@ -14,6 +14,13 @@
  *   如果相机在 `onUpdate`（固定步）里跟随，那么 60Hz 屏幕上的画面会
  *   以 30Hz 跳动（即使有 alpha 插值也没用，因为相机位置本身就离散）。
  *   所以跟随用 `alpha` 插值，在 `onRender` 里算 —— 这是"渲染阶段存在的意义"。
+ *
+ * ★ 全屏幕布（`setCurtain`）：换关时的淡出淡入需要一层盖住**整个画面**的东西，
+ *   包括 UI。它走的是同一个 pass 的**最后**一次 draw —— 世界、overlay 之后。
+ *   不用 Z 值、不开第二个 pass：那两个做法都会在"世界为空（加载中）"或
+ *   "UI 自己也想盖住"的时候给出奇怪的顺序。顺序的唯一表达方式就是**画的先后**。
+ *   实现上是 6 个顶点、`u_useTexture = 0`（着色器对纯色本来就留了这个开关），
+ *   所以不需要第二套管线、也不需要一张 1×1 白图。
  */
 
 import { engineError, err, ok, type EngineError, type Result } from "../../foundation/result.ts";
@@ -24,6 +31,7 @@ import type { FrameInfo } from "../../core/frame-host.ts";
 import {
   BlendMode,
   BufferUsage,
+  FLOATS_PER_SPRITE_VERTEX,
   PixelFormat,
   SPRITE_VERTEX_LAYOUT,
   TextureFilter,
@@ -177,6 +185,23 @@ export interface RenderModuleHandle extends IModule {
    *   而"谁先谁后"在 UI 上就是"谁盖住谁"。真需要多层就自己在回调里排。
    */
   setOverlay(fn: ((cmd: ICommandList) => void) | null): void;
+
+  /**
+   * 全屏黑幕的不透明度（0 = 不画，1 = 全黑）。
+   *
+   * ★ 为什么是"一整块黑"而不是"一条 UI 节点"：这一层要盖住的包括 UI ——
+   *   而 UI 节点自己就是被盖住的那些东西之一。用节点表达，就得让 UI 层
+   *   知道"有一个比我更靠上的东西"，那是第二套层级规则。
+   *
+   * ★ 只给 alpha，不给颜色：换关的幕布只有黑色这一种。把颜色做成参数，
+   *   下一个问题就是"为什么是蓝色"，而那是皮肤的活。
+   *
+   * ★ 每帧调用是允许的（就是个 setter）。`0` 与"从来没调过"等价。
+   */
+  setCurtain(alpha: number): void;
+
+  /** 最近一帧的幕布状态（判据读它：`drawn` 为真才算真的提交了一次 draw）。 */
+  readonly lastCurtain: { readonly alpha: number; readonly drawn: boolean };
 }
 
 /** `atlasFrame()` 的返回形状（单独命名：它要进公共签名，不该是一坨匿名对象类型）。 */
@@ -242,6 +267,47 @@ function frameRect(a: AtlasData, f: AtlasFrame, name: string): AtlasFrameRect {
   };
 }
 
+/**
+ * 全屏幕布的两个三角形（裁剪空间 `-1..1`，6 顶点 × 8 float）。
+ *
+ * ★ 为什么是 6 个顶点而不是 4 个 + 索引：管线建的时候没指定拓扑，
+ *   缺省是三角形列表 —— 4 个顶点只会画出**一个**三角形（半个屏幕）。
+ *   用 6 个顶点是这条路上唯一不需要第二根索引缓冲的写法。
+ *
+ * ★ 为什么坐标直接写 `-1..1`：图元本来就是"整个画面"这个抽象概念，
+ *   它不该经过相机 —— 经过相机的版本会在相机拉远/带 tilt 时露出一条边
+ *   （`camera.visibleRect()` 不是屏幕，它是世界坐标里的可见矩形）。
+ *
+ * ★ `alpha` 非有限值一律当 0：`NaN` 一路传到 GPU 的结果是**整屏变黑**，
+ *   而那时没有任何计数会变，看起来像"渲染挂了"。
+ */
+export function curtainQuad(alpha: number): Float32Array {
+  const a = Number.isFinite(alpha) ? Math.max(0, Math.min(1, alpha)) : 0;
+  // 顶点顺序：左下、右下、右上 ／ 左下、右上、左上
+  const xy = [
+    [-1, -1],
+    [1, -1],
+    [1, 1],
+    [-1, -1],
+    [1, 1],
+    [-1, 1],
+  ] as const;
+  const out = new Float32Array(xy.length * FLOATS_PER_SPRITE_VERTEX);
+  for (const [i, p] of xy.entries()) {
+    const at = i * FLOATS_PER_SPRITE_VERTEX;
+    out[at] = p[0];
+    out[at + 1] = p[1];
+    // uv 用不上（`u_useTexture = 0`），但顶点格式是共用的，位置必须留出来
+    out[at + 2] = 0;
+    out[at + 3] = 0;
+    out[at + 4] = 0;
+    out[at + 5] = 0;
+    out[at + 6] = 0;
+    out[at + 7] = a;
+  }
+  return out;
+}
+
 export function createRenderModule(opts: RenderModuleOptions): RenderModuleHandle {
   const camera = new Camera2D({
     viewportWidth: opts.viewportWidth,
@@ -261,6 +327,11 @@ export function createRenderModule(opts: RenderModuleOptions): RenderModuleHandl
   let ibo: BufferHandle | null = null;
   let offRender: (() => void) | null = null;
   let overlay: ((cmd: ICommandList) => void) | null = null;
+  /** 幕布不透明度（0 = 不画）。宿主每帧推一次，本模块在 pass 尾部读它。 */
+  let curtain = 0;
+  /** 幕布专用顶点缓冲（6 顶点，裁剪空间）。**与世界的 vbo 分开** —— 见 init 里的注释。 */
+  let curtainVbo: BufferHandle | null = null;
+  let lastCurtain = { alpha: 0, drawn: false };
   let batch: SpriteBatch | null = null;
   /** 所有页（下标 = 槽位）。诊断与 `atlasFrame()` 跨页查。 */
   let pages: AtlasData[] = [];
@@ -410,6 +481,30 @@ export function createRenderModule(opts: RenderModuleOptions): RenderModuleHandl
         return up as Result<void, EngineError>;
       }
 
+      // ★ 幕布用**自己**的顶点缓冲，不蹭世界那根 vbo：
+      //   所有 draw 都是先在 `ICommandList` 里录制、到 `endFrame` 才按顺序重放，
+      //   而 `updateBuffer` 是**立即**执行的真实写入 —— 蹭同一根缓冲的话，
+      //   世界那些 draw 重放时读到的是幕布的顶点（整屏一块黑），
+      //   而 quad 数 / draw 数 / 上传字节数全都正常。
+      //
+      // ★ 建不出来只降级、**不让 init 失败**：幕布是观感，用它换"整个世界渲染不出来"
+      //   不成比例。降级必须在日志里留痕（否则"过场怎么不淡了"会是个谜）。
+      const cvb = d.createBuffer({
+        usage: BufferUsage.Vertex,
+        byteLength: curtainQuad(0).byteLength,
+        dynamic: true,
+        label: "engine.curtain.vbo",
+      });
+      if (cvb.ok) {
+        curtainVbo = cvb.value;
+      } else {
+        ctx.log.channel("render").error(
+          `幕布顶点缓冲建不出来（过场不会有淡入淡出，其余照常）：${cvb.error.message}`,
+          undefined,
+          null,
+        );
+      }
+
       ctx.log.channel("render").info(
         `渲染模块就绪：${pages.map((p) => `${p.name ?? "main"} ${p.width}x${p.height}`).join(" + ")} · ` +
           `主图集 ${main.frames.size} 帧 · ${atlasFmt} · 批量上限 ${batch.maxQuads} quad`,
@@ -433,12 +528,16 @@ export function createRenderModule(opts: RenderModuleOptions): RenderModuleHandl
     dispose(): void {
       const d = dev;
       if (d !== null) {
+        if (curtainVbo !== null) d.destroyBuffer(curtainVbo);
         if (ibo !== null) d.destroyBuffer(ibo);
         if (vbo !== null) d.destroyBuffer(vbo);
         if (pipeline !== null) d.destroyPipeline(pipeline);
         if (shader !== null) d.destroyShader(shader);
         for (const h of tex) d.destroyTexture(h);
       }
+      curtainVbo = null;
+      curtain = 0;
+      lastCurtain = { alpha: 0, drawn: false };
       ibo = null;
       vbo = null;
       pipeline = null;
@@ -509,12 +608,25 @@ export function createRenderModule(opts: RenderModuleOptions): RenderModuleHandl
     setOverlay(fn: ((cmd: ICommandList) => void) | null): void {
       overlay = fn;
     },
+
+    setCurtain(alpha: number): void {
+      // 非有限值当 0：`NaN` 传到 GPU 是整屏变黑，而那时没有任何计数会变。
+      // 越界值夹到 0..1（宿主算错了不该变成"比黑更黑"或"负的透明"）。
+      curtain = Number.isFinite(alpha) ? Math.max(0, Math.min(1, alpha)) : 0;
+    },
+
+    get lastCurtain() {
+      return lastCurtain;
+    },
   };
 
   function renderFrame(info: FrameInfo): void {
     const d = dev;
     const b = batch;
     const scene = ctxRef?.services.get(Services.Scene);
+    // ★ 先报"这一帧没画幕布"：下面任何一条提前 return 都意味着"幕布也没画"，
+    //   而 `lastCurtain` 留着上一帧的 `true` 会让判据以为它还在画（假绿）。
+    lastCurtain = { alpha: curtain, drawn: false };
     if (d === null || b === null || pages.length === 0 || scene === undefined) return;
 
     // ---- 相机跟随（在渲染阶段做，见文件头）
@@ -644,6 +756,22 @@ export function createRenderModule(opts: RenderModuleOptions): RenderModuleHandl
         );
       }
     }
+    // ---- 全屏幕布：同一个 pass 的**最后一次** draw（世界、overlay 之后）。
+    //   ★ 放在最后不是"顺手"：换关的那一刻世界已经换成新的了，玩家不该看见它；
+    //     而 UI 也在被盖住的范围内。顺序的唯一正确表达就是画的先后。
+    if (curtain > 0 && curtainVbo !== null && pipeline !== null) {
+      const cu = d.updateBuffer(curtainVbo, curtainQuad(curtain));
+      if (cu.ok) {
+        cmd.setPipeline(pipeline);
+        // `0` = 不采纹理，片元着色器直接输出顶点色 —— 纯色矩形不占纹理槽位
+        cmd.setUniform("u_useTexture", 0, "int");
+        cmd.draw({ vertices: curtainVbo, indices: null, vertexCount: 6, indexCount: 6 });
+        lastCurtain = { alpha: curtain, drawn: true };
+      } else {
+        ctxRef?.log.channel("render").error(`幕布顶点上传失败：${cu.error.message}`, undefined, null);
+      }
+    }
+
     cmd.finish();
     d.endFrame();
     void info;

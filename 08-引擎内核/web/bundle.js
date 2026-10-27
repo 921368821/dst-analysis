@@ -4750,6 +4750,7 @@ var SPRITE_VERTEX_LAYOUT = {
     { name: "a_color", components: 4 }
   ]
 };
+var FLOATS_PER_SPRITE_VERTEX = 8;
 var BlendMode = { None: 0, Alpha: 1, Additive: 2, Premultiplied: 3 };
 var Topology = { Triangles: 0, TriangleStrip: 1 };
 
@@ -10641,6 +10642,30 @@ function frameRect(a, f, name) {
     }
   };
 }
+function curtainQuad(alpha) {
+  const a = Number.isFinite(alpha) ? Math.max(0, Math.min(1, alpha)) : 0;
+  const xy = [
+    [-1, -1],
+    [1, -1],
+    [1, 1],
+    [-1, -1],
+    [1, 1],
+    [-1, 1]
+  ];
+  const out = new Float32Array(xy.length * FLOATS_PER_SPRITE_VERTEX);
+  for (const [i, p] of xy.entries()) {
+    const at = i * FLOATS_PER_SPRITE_VERTEX;
+    out[at] = p[0];
+    out[at + 1] = p[1];
+    out[at + 2] = 0;
+    out[at + 3] = 0;
+    out[at + 4] = 0;
+    out[at + 5] = 0;
+    out[at + 6] = 0;
+    out[at + 7] = a;
+  }
+  return out;
+}
 function createRenderModule(opts) {
   const camera = new Camera2D({
     viewportWidth: opts.viewportWidth,
@@ -10657,6 +10682,9 @@ function createRenderModule(opts) {
   let ibo = null;
   let offRender = null;
   let overlay = null;
+  let curtain = 0;
+  let curtainVbo = null;
+  let lastCurtain = { alpha: 0, drawn: false };
   let batch = null;
   let pages = [];
   let atlasFmt = PixelFormat.RGBA8;
@@ -10784,6 +10812,21 @@ function createRenderModule(opts) {
         tex = [];
         return up;
       }
+      const cvb = d.createBuffer({
+        usage: BufferUsage.Vertex,
+        byteLength: curtainQuad(0).byteLength,
+        dynamic: true,
+        label: "engine.curtain.vbo"
+      });
+      if (cvb.ok) {
+        curtainVbo = cvb.value;
+      } else {
+        ctx.log.channel("render").error(
+          `\u5E55\u5E03\u9876\u70B9\u7F13\u51B2\u5EFA\u4E0D\u51FA\u6765\uFF08\u8FC7\u573A\u4E0D\u4F1A\u6709\u6DE1\u5165\u6DE1\u51FA\uFF0C\u5176\u4F59\u7167\u5E38\uFF09\uFF1A${cvb.error.message}`,
+          void 0,
+          null
+        );
+      }
       ctx.log.channel("render").info(
         `\u6E32\u67D3\u6A21\u5757\u5C31\u7EEA\uFF1A${pages.map((p) => `${p.name ?? "main"} ${p.width}x${p.height}`).join(" + ")} \xB7 \u4E3B\u56FE\u96C6 ${main2.frames.size} \u5E27 \xB7 ${atlasFmt} \xB7 \u6279\u91CF\u4E0A\u9650 ${batch.maxQuads} quad`
       );
@@ -10803,12 +10846,16 @@ function createRenderModule(opts) {
     dispose() {
       const d = dev;
       if (d !== null) {
+        if (curtainVbo !== null) d.destroyBuffer(curtainVbo);
         if (ibo !== null) d.destroyBuffer(ibo);
         if (vbo !== null) d.destroyBuffer(vbo);
         if (pipeline !== null) d.destroyPipeline(pipeline);
         if (shader !== null) d.destroyShader(shader);
         for (const h of tex) d.destroyTexture(h);
       }
+      curtainVbo = null;
+      curtain = 0;
+      lastCurtain = { alpha: 0, drawn: false };
       ibo = null;
       vbo = null;
       pipeline = null;
@@ -10860,12 +10907,19 @@ function createRenderModule(opts) {
     },
     setOverlay(fn) {
       overlay = fn;
+    },
+    setCurtain(alpha) {
+      curtain = Number.isFinite(alpha) ? Math.max(0, Math.min(1, alpha)) : 0;
+    },
+    get lastCurtain() {
+      return lastCurtain;
     }
   };
   function renderFrame(info) {
     const d = dev;
     const b = batch;
     const scene = ctxRef?.services.get(Services.Scene);
+    lastCurtain = { alpha: curtain, drawn: false };
     if (d === null || b === null || pages.length === 0 || scene === void 0) return;
     const target = opts.follow?.();
     if (target !== void 0) {
@@ -10965,6 +11019,17 @@ function createRenderModule(opts) {
           void 0,
           null
         );
+      }
+    }
+    if (curtain > 0 && curtainVbo !== null && pipeline !== null) {
+      const cu = d.updateBuffer(curtainVbo, curtainQuad(curtain));
+      if (cu.ok) {
+        cmd.setPipeline(pipeline);
+        cmd.setUniform("u_useTexture", 0, "int");
+        cmd.draw({ vertices: curtainVbo, indices: null, vertexCount: 6, indexCount: 6 });
+        lastCurtain = { alpha: curtain, drawn: true };
+      } else {
+        ctxRef?.log.channel("render").error(`\u5E55\u5E03\u9876\u70B9\u4E0A\u4F20\u5931\u8D25\uFF1A${cu.error.message}`, void 0, null);
       }
     }
     cmd.finish();

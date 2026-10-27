@@ -89,6 +89,15 @@ import {
   type PortalSpec,
 } from "./extensions/flow/portal.ts";
 import { SceneFlow, findPlayerId, type JumpReport } from "./extensions/flow/scene-flow.ts";
+import {
+  CURTAIN_IDLE,
+  DEFAULT_CURTAIN_SPEC,
+  advanceCurtain,
+  cancelCurtain,
+  curtainAlpha,
+  requestCurtain,
+  type CurtainState,
+} from "./extensions/flow/curtain.ts";
 import { createControllerModule } from "./extensions/input/player-controller.ts";
 import type { InputSnapshot } from "./platform/input/device.ts";
 import { createUndoStack, type EditorOp, type UndoOutcome } from "./extensions/editor/undo-stack.ts";
@@ -194,6 +203,15 @@ let flow: SceneFlow | null = null;
 const portalWatcher = new PortalWatcher();
 /** 最近一次跳转/门出错的说明（面板上留痕：静默跳走会让人以为点了没反应）。 */
 let flowNote = "";
+
+/**
+ * 过场幕布（批98）。`CURTAIN_IDLE` = 没有正在进行的过场。
+ *
+ * ★ 它和 `flow` 同寿：不在试玩中就没有"要跳的地方"，幕布必须是掀开的
+ *   （否则停播之后画面停在一块黑上，而世界已经回滚好了 —— 看起来像渲染挂了）。
+ */
+let curtain: CurtainState = CURTAIN_IDLE;
+const CURTAIN_SPEC = DEFAULT_CURTAIN_SPEC;
 
 let appRef: GameApp | null = null;
 let heroId: NodeId = -1;
@@ -681,6 +699,10 @@ function beginPlay(): PlaySession | null {
     flow = makeFlow(app);
     portalWatcher.reset();
     flowNote = "";
+    // ★ 幕布也要归位：上一次试玩如果停在过场中途（被停播打断），
+    //   留着 phase 不为 idle 会让**新一局的第一拍**去执行上一局没做完的跳转。
+    curtain = CURTAIN_IDLE;
+    renderMod?.setCurtain(0);
   }
   return playSession;
 }
@@ -736,6 +758,14 @@ function stopPlay(): StopOutcome {
     pieNoteEl.textContent = "没在试玩";
     return { ok: true, rolledBack: false, made: 0, edits: 0 };
   }
+  // ★ 过场立刻收掉：下面要把世界回滚成工程里那一份，幕布再留半秒就是
+  //   "点了停止，画面黑一下"——而那一黑盖住的是已经回滚好的世界。
+  curtain = cancelCurtain(curtain);
+  renderMod?.setCurtain(0);
+  // ★★ 自动检查点：**必须在回滚之前**拍（批98，C4 的"离开试玩也保留"）。
+  //   回滚之后世界已经换成工程里那一份，那时存下来的是一份"没玩过"的存档，
+  //   而面板上照样写着"已存档" —— 下一次读档回到起点，人只会觉得存档丢了。
+  const checkpoint = autoCheckpoint();
   const r = endPlaySession(docDeps(app), s);
   playSession = null;
   // 批92：流程层跟着会话一起结束。回滚失败时也要清 —— 世界已经不可信，
@@ -769,6 +799,8 @@ function stopPlay(): StopOutcome {
   pieNoteEl.textContent = r.value.rolledBack
     ? `试玩结束：回滚 ${String(s.edits)} 处改动（重建 ${String(r.value.made)} 个节点）`
     : "试玩结束：世界没变，场景没有重建";
+  // 检查点的事也要说出来：静默写盘与静默失败一样，都是"下一次才发现"的那一类
+  if (checkpoint !== "") pieNoteEl.textContent += ` · ${checkpoint}`;
   errEl.textContent = "";
   if (r.value.skipped.length > 0) {
     errEl.textContent = `回滚时跳过 ${String(r.value.skipped.length)} 条：${r.value.skipped[0] ?? ""}`;
@@ -891,6 +923,40 @@ function describePlayJump(r: JumpReport): string {
  */
 const PLAY_SAVE_KEY = "dst.editor.play.v1";
 
+/**
+ * **自动检查点**的存储键（批98）。
+ *
+ * ★ 与手动存档**分开**：手动那一份是"我特意记下的那个点"。让一次停播悄悄把它换成
+ *   "我最后待的地方"，就是本项目最反对的那类失败 —— 用户的东西被偷偷换掉，
+ *   而界面上一切正常。读档的优先顺序写死在 `doPlayLoad` 的一行里：
+ *   **手动有就用手动，没有才用自动**。
+ */
+const PLAY_AUTO_KEY = "dst.editor.play.auto.v1";
+
+/**
+ * 停播时把这一局留在存档媒介上（C4：离开试玩也保留）。
+ *
+ * ★ 只有**真的走过**才写（`visitedCount > 1`）：没跳过场景的一局与开局没有区别，
+ *   写进去只会把上一次的进度覆盖成开头。
+ * ★ 返回一句给人看的话（空串 = 没写）。静默写盘与静默失败一样坏。
+ */
+function autoCheckpoint(): string {
+  const f = flow;
+  if (f === null || f.visitedCount <= 1) return "";
+  let text: string;
+  try {
+    text = f.saveGame();
+  } catch (e) {
+    return `自动检查点没生成（${e instanceof Error ? e.message : String(e)}）`;
+  }
+  try {
+    window.localStorage.setItem(PLAY_AUTO_KEY, text);
+  } catch (e) {
+    return `自动检查点写不进去（配额满或隐私模式？）：${e instanceof Error ? e.message : String(e)}`;
+  }
+  return `已自动记下这一局（${String(text.length)} 字节）`;
+}
+
 interface PlaySaveOutcome {
   readonly ok: boolean;
   readonly bytes?: number;
@@ -905,6 +971,10 @@ interface PlayLoadOutcome {
   readonly current?: string;
   readonly scenes?: number;
   readonly made?: number;
+  /** 这一下顺带把试玩开起来了（不在试玩中读档时）。 */
+  readonly started?: boolean;
+  /** 读的是哪一份：`手动存档` / `自动检查点`。**不静默** —— 两份来源的语义不同。 */
+  readonly from?: string;
   readonly code?: string;
   readonly message?: string;
 }
@@ -966,26 +1036,49 @@ function doPlaySave(): PlaySaveOutcome {
 function doPlayLoad(): PlayLoadOutcome {
   const app = appRef;
   if (app === null) return { ok: false, code: "EDIT.NOT_READY", message: "编辑器还没启动" };
-  if (playSession === null) {
+
+  // ★ 优先**手动**存档，没有才用自动检查点。这条规则只写在下面这一行里：
+  //   两份存档的关系不是"谁新用谁的" —— 那需要时间戳，而时间戳会把
+  //   "我特意记下的那个点"变成可以被一次停播挤掉的东西。
+  const manual = window.localStorage.getItem(PLAY_SAVE_KEY);
+  const auto = window.localStorage.getItem(PLAY_AUTO_KEY);
+  const picked =
+    manual !== null && manual.length > 0
+      ? { text: manual, from: "手动存档" }
+      : auto !== null && auto.length > 0
+        ? { text: auto, from: "自动检查点" }
+        : null;
+  if (picked === null) {
     return {
       ok: false,
-      code: EDIT_NOT_PLAYING,
-      message: "不在试玩中：先点「播放」再读档（读进来的是一局游戏，不是一份文档）",
+      code: "EDIT.NO_PLAY_SAVE",
+      message: "还没有存档：在试玩中点「存档」，或者走过一扇门再停播（那会自动记一份）",
     };
+  }
+
+  // ★★ 不在试玩中也能读（批98，C4 的"试玩之外的入口"）。
+  //   在玩家眼里"读一份进度"就是"继续上次那一局"，让他先点播放再点读档是两步做一件事。
+  //   但装载与收尾**不另写一条路**：走完 `beginPlay` 之后的下半段与试玩中读档一模一样
+  //   （heroId / 门 watcher / 三块面板），两条路各写一遍迟早只改一处。
+  const started = playSession === null;
+  if (started) {
+    if (beginPlay() === null) {
+      return { ok: false, code: "EDIT.NOT_READY", message: "试玩开不起来（工程还没就绪）" };
+    }
+    pie.play();
   }
   const f = flow;
   if (f === null) return { ok: false, code: "EDIT.NOT_READY", message: "流程层没起来（工程还没就绪）" };
-  const text = window.localStorage.getItem(PLAY_SAVE_KEY);
-  if (text === null || text.length === 0) {
-    return { ok: false, code: "EDIT.NO_PLAY_SAVE", message: "还没有存档：先在试玩中点「存档」" };
-  }
+  const text = picked.text;
 
   const r = f.loadGame(text);
   if (!r.ok) {
     errEl.textContent = `${r.error.code}：${r.error.message}`;
     flowNote = `读档被拒：${r.error.code}`;
     docInfoEl.textContent = flowNote;
-    return { ok: false, code: r.error.code, message: r.error.message };
+    // 已经开始试玩了就要说出来：世界没变，但时钟在走 —— 不然人会以为"读档没反应"
+    const tail = started ? "（已开始试玩，世界没变）" : "";
+    return { ok: false, code: r.error.code, message: `${r.error.message}${tail}` };
   }
 
   // 世界换了：跟跳转同一套收尾（heroId / 门 watcher / 三块面板）
@@ -998,7 +1091,9 @@ function doPlayLoad(): PlayLoadOutcome {
   } else {
     portalWatcher.reset();
   }
-  const note = `已读档：回到「${r.value.current}」· ${String(r.value.scenes)} 份场景 · ${String(r.value.made)} 个节点`;
+  const note =
+    `已读档（${picked.from}）：回到「${r.value.current}」· ${String(r.value.scenes)} 份场景 · ` +
+    `${String(r.value.made)} 个节点`;
   flowNote = note;
   docInfoEl.textContent = note;
   errEl.textContent = r.value.skipped.length > 0 ? `读档跳过 ${String(r.value.skipped.length)} 条：${r.value.skipped[0] ?? ""}` : "";
@@ -1006,7 +1101,7 @@ function doPlayLoad(): PlayLoadOutcome {
   refreshProps();
   refreshHistory();
   refreshScenes();
-  return { ok: true, current: r.value.current, scenes: r.value.scenes, made: r.value.made };
+  return { ok: true, current: r.value.current, scenes: r.value.scenes, made: r.value.made, started, from: picked.from };
 }
 
 /**
@@ -1042,9 +1137,74 @@ function autoPortal(): void {
     portals.value,
   );
   if (hit === null) return;
+  // ★ 门指向自己：`jump` 会判 noop。为一次"什么都没发生"的跳转落一次幕布是纯浪费 ——
+  //   玩家会看到一次没有内容的黑闪，而作者看不出自己写错了。在这里挡掉并**说出来**。
+  if (hit.portal.to === f.sceneName) {
+    const line = `门「${hit.portal.name}」指向自己（${hit.portal.to}）—— 这一跳没有意义`;
+    if (flowNote !== line) {
+      flowNote = line;
+      errEl.textContent = line;
+      docInfoEl.textContent = line;
+    }
+    return;
+  }
+  // ★ 不再直接 `jump`：先落一块幕布（批98）。真正换世界发生在幕布落满的那一拍，
+  //   见 `curtain.ts` 的不变量与下面 `stepCurtain`。
+  //
   // ★ 把"从哪扇门过来"一起带进去：门的开关与钥匙都挂在这扇门上，
   //   不带的话 `jump` 只能当调试手势，锁着的门照样能过。
-  doPlayJump(hit.portal.to, hit.portal);
+  //
+  // ★ 这里**不判断幕布是否在动**：`enter()` 是边沿触发的，正常情况下一次进门
+  //   只发生一次；真的在 0.2 秒里走过两扇门，该由状态机拒掉并把 `refused` 记上
+  //   （前置 return 会把这件事变成静默 —— 玩家只会觉得"这扇门没反应"）。
+  const req = requestCurtain(curtain, { scene: hit.portal.to, via: hit.portal });
+  curtain = req.state;
+  if (!req.accepted) {
+    const line = `过场中：没接「${hit.portal.name}」这一跳（两扇门挨得太近）`;
+    if (flowNote !== line) {
+      flowNote = line;
+      errEl.textContent = line;
+      docInfoEl.textContent = line;
+    }
+  }
+}
+
+/**
+ * 过场推进一拍；幕布落满的那一拍才**真的换世界**。
+ *
+ * ★ 顺序写死成"先推进状态机、再按它的指令换世界"：换世界会让 `findPlayerId` 指向
+ *   新节点、`heroId` 要跟着走、门 watcher 要 reseed —— 那些都在 `doPlayJump` 里，
+ *   而这一步必须在**同一拍内**完成，否则下一拍渲染出来的就是"新世界 + 还没落满的幕布"。
+ *
+ * ★ 失败**没有补偿分支**：`advanceCurtain` 在交火的那一拍已经把阶段切成 `in`，
+ *   世界没动 ⇒ 幕布自己淡回来。少一条"记得把幕布撤掉"的分支，就少一个会忘的地方。
+ */
+function stepCurtain(): void {
+  const app = appRef;
+  if (app === null) return;
+  const step = advanceCurtain(curtain, CURTAIN_SPEC);
+  curtain = step.state;
+  if (step.fire !== null) {
+    doPlayJump(step.fire.scene, step.fire.via);
+  }
+  // 每拍都推：落到 `idle` 的那一拍要把它推回 0，否则画面停在全黑上
+  renderMod?.setCurtain(curtainAlpha(curtain, CURTAIN_SPEC));
+}
+
+/**
+ * 一个逻辑步：世界走一步 → 看有没有走进门 → 幕布推进一拍（可能要换世界）。
+ *
+ * ★ 只留**这一处**驱动点。原来 `loop()` 与命令面 `step()` 各写一遍，而两份"同一件事"
+ *   迟早只改一处（批92 就是这么漏掉了 loop 那条路的）。收成一处之后，
+ *   "自检走的步进"与"人点播放"跑的是同一段代码。
+ */
+function driveTick(): void {
+  const app = appRef;
+  if (app === null) return;
+  app.frame(FIXED_DT);
+  if (playSession === null) return;
+  autoPortal();
+  stepCurtain();
 }
 
 // ---------------------------------------------------------------- 历史（撤销 / 重做）
@@ -2044,9 +2204,8 @@ function loop(now: number): void {
   if (app !== null) {
     const ticks = pie.advance(dt);
     for (let i = 0; i < ticks; i++) {
-      app.frame(FIXED_DT);
-      // 每个逻辑步之后喂一次玩家位置（门是玩法事件，触发时刻按 tick 算 —— 见 autoPortal）
-      if (playSession !== null) autoPortal();
+      // 世界一步 / 门 / 幕布：三件事必须按这个顺序在同一拍里做完（见 `driveTick`）
+      driveTick();
     }
     // 每 0.5 秒刷一次树（每帧重建 DOM 在 500 节点上会掉到个位数帧率）
     if (now - uiClock > 500) {
@@ -2180,6 +2339,25 @@ interface EditorApi {
   };
   /** 试玩现在装的是哪一份场景（不在试玩中是 `null`）。 */
   playScene(): string | null;
+  /**
+   * 过场幕布的现状。
+   *
+   * ★ 必须同时给**状态**与**上一帧真的画了没有**：`alpha` 只是我们希望的不透明度，
+   *   而"幕布真的提交了一次 draw"是渲染层的事。只看前者的话，
+   *   `setCurtain` 忘了被调用、或者顶点缓冲没建出来，都会显得一切正常（假绿）。
+   */
+  curtain(): {
+    readonly phase: string;
+    readonly alpha: number;
+    readonly elapsed: number;
+    /** 幕布落满之后要跳去哪个场景（`null` = 没有待办）。 */
+    readonly target: string | null;
+    readonly fired: number;
+    readonly cancelled: number;
+    readonly refused: number;
+    /** 上一帧真的提交了幕布的 draw（`false` = 这一帧画面没被盖住）。 */
+    readonly drawn: boolean;
+  };
   /**
    * **试玩中**存一份进度（当前场景 + 本局去过的每一份）。
    *
@@ -2324,9 +2502,9 @@ function installApi(app: GameApp): void {
       beginPlay();
       const k = Math.max(0, Math.floor(n));
       for (let i = 0; i < k; i++) {
-        app.frame(FIXED_DT);
-        // 命令面这条路也要喂：否则"按键走过去进门"只有按钮那条路能触发
-        if (playSession !== null) autoPortal();
+        // ★ 与 `loop()` 共用同一个驱动点 —— 两条路各写一遍的话，"按键走过去进门"
+        //   与"点播放走过去进门"迟早只改一处（批92 的教训）。
+        driveTick();
       }
       return app.scheduler.stats().tick;
     },
@@ -2423,10 +2601,27 @@ function installApi(app: GameApp): void {
       return doSceneDelete(name);
     },
     playJump(name) {
+      // 面板硬跳是调试手势（"让我看看那一关"）：它本来就绕开门锁，
+      // 也没有理由为一个不看画面的人演 0.5 秒过场。
+      curtain = cancelCurtain(curtain);
+      renderMod?.setCurtain(0);
       return doPlayJump(name);
     },
     playScene() {
       return flow === null ? null : flow.sceneName;
+    },
+    curtain() {
+      return {
+        phase: curtain.phase,
+        alpha: curtainAlpha(curtain, CURTAIN_SPEC),
+        elapsed: curtain.elapsed,
+        target: curtain.target === null ? null : curtain.target.scene,
+        fired: curtain.fired,
+        cancelled: curtain.cancelled,
+        refused: curtain.refused,
+        // 渲染层报的"上一帧真的画了幕布"。状态机说该画而这里说没画，就是接线断了。
+        drawn: renderMod !== null && renderMod.lastCurtain.drawn,
+      };
     },
     playSave() {
       return doPlaySave();

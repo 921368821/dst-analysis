@@ -2431,6 +2431,7 @@ var SPRITE_VERTEX_LAYOUT = {
     { name: "a_color", components: 4 }
   ]
 };
+var FLOATS_PER_SPRITE_VERTEX = 8;
 var BlendMode = { None: 0, Alpha: 1, Additive: 2, Premultiplied: 3 };
 var Topology = { Triangles: 0, TriangleStrip: 1 };
 
@@ -5242,6 +5243,30 @@ function frameRect(a, f, name) {
     }
   };
 }
+function curtainQuad(alpha) {
+  const a = Number.isFinite(alpha) ? Math.max(0, Math.min(1, alpha)) : 0;
+  const xy = [
+    [-1, -1],
+    [1, -1],
+    [1, 1],
+    [-1, -1],
+    [1, 1],
+    [-1, 1]
+  ];
+  const out = new Float32Array(xy.length * FLOATS_PER_SPRITE_VERTEX);
+  for (const [i, p] of xy.entries()) {
+    const at = i * FLOATS_PER_SPRITE_VERTEX;
+    out[at] = p[0];
+    out[at + 1] = p[1];
+    out[at + 2] = 0;
+    out[at + 3] = 0;
+    out[at + 4] = 0;
+    out[at + 5] = 0;
+    out[at + 6] = 0;
+    out[at + 7] = a;
+  }
+  return out;
+}
 function createRenderModule(opts) {
   const camera = new Camera2D({
     viewportWidth: opts.viewportWidth,
@@ -5258,6 +5283,9 @@ function createRenderModule(opts) {
   let ibo = null;
   let offRender = null;
   let overlay = null;
+  let curtain2 = 0;
+  let curtainVbo = null;
+  let lastCurtain = { alpha: 0, drawn: false };
   let batch = null;
   let pages = [];
   let atlasFmt = PixelFormat.RGBA8;
@@ -5385,6 +5413,21 @@ function createRenderModule(opts) {
         tex = [];
         return up;
       }
+      const cvb = d.createBuffer({
+        usage: BufferUsage.Vertex,
+        byteLength: curtainQuad(0).byteLength,
+        dynamic: true,
+        label: "engine.curtain.vbo"
+      });
+      if (cvb.ok) {
+        curtainVbo = cvb.value;
+      } else {
+        ctx.log.channel("render").error(
+          `\u5E55\u5E03\u9876\u70B9\u7F13\u51B2\u5EFA\u4E0D\u51FA\u6765\uFF08\u8FC7\u573A\u4E0D\u4F1A\u6709\u6DE1\u5165\u6DE1\u51FA\uFF0C\u5176\u4F59\u7167\u5E38\uFF09\uFF1A${cvb.error.message}`,
+          void 0,
+          null
+        );
+      }
       ctx.log.channel("render").info(
         `\u6E32\u67D3\u6A21\u5757\u5C31\u7EEA\uFF1A${pages.map((p) => `${p.name ?? "main"} ${p.width}x${p.height}`).join(" + ")} \xB7 \u4E3B\u56FE\u96C6 ${main2.frames.size} \u5E27 \xB7 ${atlasFmt} \xB7 \u6279\u91CF\u4E0A\u9650 ${batch.maxQuads} quad`
       );
@@ -5404,12 +5447,16 @@ function createRenderModule(opts) {
     dispose() {
       const d = dev;
       if (d !== null) {
+        if (curtainVbo !== null) d.destroyBuffer(curtainVbo);
         if (ibo !== null) d.destroyBuffer(ibo);
         if (vbo !== null) d.destroyBuffer(vbo);
         if (pipeline !== null) d.destroyPipeline(pipeline);
         if (shader !== null) d.destroyShader(shader);
         for (const h of tex) d.destroyTexture(h);
       }
+      curtainVbo = null;
+      curtain2 = 0;
+      lastCurtain = { alpha: 0, drawn: false };
       ibo = null;
       vbo = null;
       pipeline = null;
@@ -5461,12 +5508,19 @@ function createRenderModule(opts) {
     },
     setOverlay(fn) {
       overlay = fn;
+    },
+    setCurtain(alpha) {
+      curtain2 = Number.isFinite(alpha) ? Math.max(0, Math.min(1, alpha)) : 0;
+    },
+    get lastCurtain() {
+      return lastCurtain;
     }
   };
   function renderFrame(info) {
     const d = dev;
     const b = batch;
     const scene = ctxRef?.services.get(Services.Scene);
+    lastCurtain = { alpha: curtain2, drawn: false };
     if (d === null || b === null || pages.length === 0 || scene === void 0) return;
     const target = opts.follow?.();
     if (target !== void 0) {
@@ -5566,6 +5620,17 @@ function createRenderModule(opts) {
           void 0,
           null
         );
+      }
+    }
+    if (curtain2 > 0 && curtainVbo !== null && pipeline !== null) {
+      const cu = d.updateBuffer(curtainVbo, curtainQuad(curtain2));
+      if (cu.ok) {
+        cmd.setPipeline(pipeline);
+        cmd.setUniform("u_useTexture", 0, "int");
+        cmd.draw({ vertices: curtainVbo, indices: null, vertexCount: 6, indexCount: 6 });
+        lastCurtain = { alpha: curtain2, drawn: true };
+      } else {
+        ctxRef?.log.channel("render").error(`\u5E55\u5E03\u9876\u70B9\u4E0A\u4F20\u5931\u8D25\uFF1A${cu.error.message}`, void 0, null);
       }
     }
     cmd.finish();
@@ -9246,6 +9311,68 @@ var SceneFlow = class {
     });
   }
 };
+
+// src/extensions/flow/curtain.ts
+var CURTAIN_OUT_TICKS = 12;
+var CURTAIN_IN_TICKS = 18;
+var CURTAIN_IDLE = {
+  phase: "idle",
+  elapsed: 0,
+  target: null,
+  fired: 0,
+  cancelled: 0,
+  refused: 0
+};
+var DEFAULT_CURTAIN_SPEC = {
+  outTicks: CURTAIN_OUT_TICKS,
+  inTicks: CURTAIN_IN_TICKS
+};
+function outTicksOf(spec) {
+  return Math.max(1, Math.floor(spec.outTicks));
+}
+function inTicksOf(spec) {
+  return Math.max(1, Math.floor(spec.inTicks));
+}
+function curtainAlpha(state, spec) {
+  if (state.phase === "out") {
+    return Math.min(1, state.elapsed / outTicksOf(spec));
+  }
+  if (state.phase === "in") {
+    return Math.max(0, 1 - state.elapsed / inTicksOf(spec));
+  }
+  return 0;
+}
+function requestCurtain(state, target) {
+  if (state.phase !== "idle") {
+    return { state: { ...state, refused: state.refused + 1 }, accepted: false };
+  }
+  return { state: { ...state, phase: "out", elapsed: 0, target }, accepted: true };
+}
+function advanceCurtain(state, spec) {
+  if (state.phase === "out") {
+    const next = state.elapsed + 1;
+    if (next < outTicksOf(spec)) {
+      return { state: { ...state, elapsed: next }, fire: null };
+    }
+    const target = state.target;
+    return {
+      state: { ...state, phase: "in", elapsed: 0, target: null, fired: state.fired + 1 },
+      fire: target
+    };
+  }
+  if (state.phase === "in") {
+    const next = state.elapsed + 1;
+    if (next < inTicksOf(spec)) {
+      return { state: { ...state, elapsed: next }, fire: null };
+    }
+    return { state: { ...state, phase: "idle", elapsed: 0 }, fire: null };
+  }
+  return { state, fire: null };
+}
+function cancelCurtain(state) {
+  if (state.phase === "idle") return state;
+  return { ...CURTAIN_IDLE, fired: state.fired, cancelled: state.cancelled + 1, refused: state.refused };
+}
 
 // src/extensions/render/atlas-from-assets.ts
 var DEFAULT_PADDING = 1;
@@ -13366,6 +13493,8 @@ var lastStop = null;
 var flow = null;
 var portalWatcher = new PortalWatcher();
 var flowNote = "";
+var curtain = CURTAIN_IDLE;
+var CURTAIN_SPEC = DEFAULT_CURTAIN_SPEC;
 var appRef = null;
 var heroId = -1;
 var booted = false;
@@ -13686,6 +13815,8 @@ function beginPlay() {
     flow = makeFlow(app);
     portalWatcher.reset();
     flowNote = "";
+    curtain = CURTAIN_IDLE;
+    renderMod?.setCurtain(0);
   }
   return playSession;
 }
@@ -13713,6 +13844,9 @@ function stopPlay() {
     pieNoteEl.textContent = "\u6CA1\u5728\u8BD5\u73A9";
     return { ok: true, rolledBack: false, made: 0, edits: 0 };
   }
+  curtain = cancelCurtain(curtain);
+  renderMod?.setCurtain(0);
+  const checkpoint = autoCheckpoint();
   const r = endPlaySession(docDeps(app), s);
   playSession = null;
   flow = null;
@@ -13727,6 +13861,7 @@ function stopPlay() {
   }
   lastStop = r.value;
   pieNoteEl.textContent = r.value.rolledBack ? `\u8BD5\u73A9\u7ED3\u675F\uFF1A\u56DE\u6EDA ${String(s.edits)} \u5904\u6539\u52A8\uFF08\u91CD\u5EFA ${String(r.value.made)} \u4E2A\u8282\u70B9\uFF09` : "\u8BD5\u73A9\u7ED3\u675F\uFF1A\u4E16\u754C\u6CA1\u53D8\uFF0C\u573A\u666F\u6CA1\u6709\u91CD\u5EFA";
+  if (checkpoint !== "") pieNoteEl.textContent += ` \xB7 ${checkpoint}`;
   errEl.textContent = "";
   if (r.value.skipped.length > 0) {
     errEl.textContent = `\u56DE\u6EDA\u65F6\u8DF3\u8FC7 ${String(r.value.skipped.length)} \u6761\uFF1A${r.value.skipped[0] ?? ""}`;
@@ -13792,6 +13927,23 @@ function describePlayJump(r) {
   return parts.join(" \xB7 ");
 }
 var PLAY_SAVE_KEY = "dst.editor.play.v1";
+var PLAY_AUTO_KEY = "dst.editor.play.auto.v1";
+function autoCheckpoint() {
+  const f = flow;
+  if (f === null || f.visitedCount <= 1) return "";
+  let text;
+  try {
+    text = f.saveGame();
+  } catch (e) {
+    return `\u81EA\u52A8\u68C0\u67E5\u70B9\u6CA1\u751F\u6210\uFF08${e instanceof Error ? e.message : String(e)}\uFF09`;
+  }
+  try {
+    window.localStorage.setItem(PLAY_AUTO_KEY, text);
+  } catch (e) {
+    return `\u81EA\u52A8\u68C0\u67E5\u70B9\u5199\u4E0D\u8FDB\u53BB\uFF08\u914D\u989D\u6EE1\u6216\u9690\u79C1\u6A21\u5F0F\uFF1F\uFF09\uFF1A${e instanceof Error ? e.message : String(e)}`;
+  }
+  return `\u5DF2\u81EA\u52A8\u8BB0\u4E0B\u8FD9\u4E00\u5C40\uFF08${String(text.length)} \u5B57\u8282\uFF09`;
+}
 function doPlaySave() {
   if (appRef === null) return { ok: false, code: "EDIT.NOT_READY", message: "\u7F16\u8F91\u5668\u8FD8\u6CA1\u542F\u52A8" };
   const f = flow;
@@ -13841,25 +13993,33 @@ function doPlaySave() {
 function doPlayLoad() {
   const app = appRef;
   if (app === null) return { ok: false, code: "EDIT.NOT_READY", message: "\u7F16\u8F91\u5668\u8FD8\u6CA1\u542F\u52A8" };
-  if (playSession === null) {
+  const manual = window.localStorage.getItem(PLAY_SAVE_KEY);
+  const auto = window.localStorage.getItem(PLAY_AUTO_KEY);
+  const picked = manual !== null && manual.length > 0 ? { text: manual, from: "\u624B\u52A8\u5B58\u6863" } : auto !== null && auto.length > 0 ? { text: auto, from: "\u81EA\u52A8\u68C0\u67E5\u70B9" } : null;
+  if (picked === null) {
     return {
       ok: false,
-      code: EDIT_NOT_PLAYING,
-      message: "\u4E0D\u5728\u8BD5\u73A9\u4E2D\uFF1A\u5148\u70B9\u300C\u64AD\u653E\u300D\u518D\u8BFB\u6863\uFF08\u8BFB\u8FDB\u6765\u7684\u662F\u4E00\u5C40\u6E38\u620F\uFF0C\u4E0D\u662F\u4E00\u4EFD\u6587\u6863\uFF09"
+      code: "EDIT.NO_PLAY_SAVE",
+      message: "\u8FD8\u6CA1\u6709\u5B58\u6863\uFF1A\u5728\u8BD5\u73A9\u4E2D\u70B9\u300C\u5B58\u6863\u300D\uFF0C\u6216\u8005\u8D70\u8FC7\u4E00\u6247\u95E8\u518D\u505C\u64AD\uFF08\u90A3\u4F1A\u81EA\u52A8\u8BB0\u4E00\u4EFD\uFF09"
     };
+  }
+  const started = playSession === null;
+  if (started) {
+    if (beginPlay() === null) {
+      return { ok: false, code: "EDIT.NOT_READY", message: "\u8BD5\u73A9\u5F00\u4E0D\u8D77\u6765\uFF08\u5DE5\u7A0B\u8FD8\u6CA1\u5C31\u7EEA\uFF09" };
+    }
+    pie.play();
   }
   const f = flow;
   if (f === null) return { ok: false, code: "EDIT.NOT_READY", message: "\u6D41\u7A0B\u5C42\u6CA1\u8D77\u6765\uFF08\u5DE5\u7A0B\u8FD8\u6CA1\u5C31\u7EEA\uFF09" };
-  const text = window.localStorage.getItem(PLAY_SAVE_KEY);
-  if (text === null || text.length === 0) {
-    return { ok: false, code: "EDIT.NO_PLAY_SAVE", message: "\u8FD8\u6CA1\u6709\u5B58\u6863\uFF1A\u5148\u5728\u8BD5\u73A9\u4E2D\u70B9\u300C\u5B58\u6863\u300D" };
-  }
+  const text = picked.text;
   const r = f.loadGame(text);
   if (!r.ok) {
     errEl.textContent = `${r.error.code}\uFF1A${r.error.message}`;
     flowNote = `\u8BFB\u6863\u88AB\u62D2\uFF1A${r.error.code}`;
     docInfoEl.textContent = flowNote;
-    return { ok: false, code: r.error.code, message: r.error.message };
+    const tail = started ? "\uFF08\u5DF2\u5F00\u59CB\u8BD5\u73A9\uFF0C\u4E16\u754C\u6CA1\u53D8\uFF09" : "";
+    return { ok: false, code: r.error.code, message: `${r.error.message}${tail}` };
   }
   const np = findPlayerId(app.scene);
   if (np !== null) heroId = np;
@@ -13870,7 +14030,7 @@ function doPlayLoad() {
   } else {
     portalWatcher.reset();
   }
-  const note = `\u5DF2\u8BFB\u6863\uFF1A\u56DE\u5230\u300C${r.value.current}\u300D\xB7 ${String(r.value.scenes)} \u4EFD\u573A\u666F \xB7 ${String(r.value.made)} \u4E2A\u8282\u70B9`;
+  const note = `\u5DF2\u8BFB\u6863\uFF08${picked.from}\uFF09\uFF1A\u56DE\u5230\u300C${r.value.current}\u300D\xB7 ${String(r.value.scenes)} \u4EFD\u573A\u666F \xB7 ${String(r.value.made)} \u4E2A\u8282\u70B9`;
   flowNote = note;
   docInfoEl.textContent = note;
   errEl.textContent = r.value.skipped.length > 0 ? `\u8BFB\u6863\u8DF3\u8FC7 ${String(r.value.skipped.length)} \u6761\uFF1A${r.value.skipped[0] ?? ""}` : "";
@@ -13878,7 +14038,7 @@ function doPlayLoad() {
   refreshProps();
   refreshHistory();
   refreshScenes();
-  return { ok: true, current: r.value.current, scenes: r.value.scenes, made: r.value.made };
+  return { ok: true, current: r.value.current, scenes: r.value.scenes, made: r.value.made, started, from: picked.from };
 }
 function autoPortal() {
   const app = appRef;
@@ -13904,7 +14064,43 @@ function autoPortal() {
     portals.value
   );
   if (hit === null) return;
-  doPlayJump(hit.portal.to, hit.portal);
+  if (hit.portal.to === f.sceneName) {
+    const line = `\u95E8\u300C${hit.portal.name}\u300D\u6307\u5411\u81EA\u5DF1\uFF08${hit.portal.to}\uFF09\u2014\u2014 \u8FD9\u4E00\u8DF3\u6CA1\u6709\u610F\u4E49`;
+    if (flowNote !== line) {
+      flowNote = line;
+      errEl.textContent = line;
+      docInfoEl.textContent = line;
+    }
+    return;
+  }
+  const req = requestCurtain(curtain, { scene: hit.portal.to, via: hit.portal });
+  curtain = req.state;
+  if (!req.accepted) {
+    const line = `\u8FC7\u573A\u4E2D\uFF1A\u6CA1\u63A5\u300C${hit.portal.name}\u300D\u8FD9\u4E00\u8DF3\uFF08\u4E24\u6247\u95E8\u6328\u5F97\u592A\u8FD1\uFF09`;
+    if (flowNote !== line) {
+      flowNote = line;
+      errEl.textContent = line;
+      docInfoEl.textContent = line;
+    }
+  }
+}
+function stepCurtain() {
+  const app = appRef;
+  if (app === null) return;
+  const step = advanceCurtain(curtain, CURTAIN_SPEC);
+  curtain = step.state;
+  if (step.fire !== null) {
+    doPlayJump(step.fire.scene, step.fire.via);
+  }
+  renderMod?.setCurtain(curtainAlpha(curtain, CURTAIN_SPEC));
+}
+function driveTick() {
+  const app = appRef;
+  if (app === null) return;
+  app.frame(FIXED_DT);
+  if (playSession === null) return;
+  autoPortal();
+  stepCurtain();
 }
 function commitField(nodeId, type, key, raw) {
   const app = appRef;
@@ -14584,8 +14780,7 @@ function loop(now) {
   if (app !== null) {
     const ticks = pie.advance(dt);
     for (let i = 0; i < ticks; i++) {
-      app.frame(FIXED_DT);
-      if (playSession !== null) autoPortal();
+      driveTick();
     }
     if (now - uiClock > 500) {
       uiClock = now;
@@ -14664,8 +14859,7 @@ function installApi(app) {
       beginPlay();
       const k = Math.max(0, Math.floor(n));
       for (let i = 0; i < k; i++) {
-        app.frame(FIXED_DT);
-        if (playSession !== null) autoPortal();
+        driveTick();
       }
       return app.scheduler.stats().tick;
     },
@@ -14761,10 +14955,25 @@ function installApi(app) {
       return doSceneDelete(name);
     },
     playJump(name) {
+      curtain = cancelCurtain(curtain);
+      renderMod?.setCurtain(0);
       return doPlayJump(name);
     },
     playScene() {
       return flow === null ? null : flow.sceneName;
+    },
+    curtain() {
+      return {
+        phase: curtain.phase,
+        alpha: curtainAlpha(curtain, CURTAIN_SPEC),
+        elapsed: curtain.elapsed,
+        target: curtain.target === null ? null : curtain.target.scene,
+        fired: curtain.fired,
+        cancelled: curtain.cancelled,
+        refused: curtain.refused,
+        // 渲染层报的"上一帧真的画了幕布"。状态机说该画而这里说没画，就是接线断了。
+        drawn: renderMod !== null && renderMod.lastCurtain.drawn
+      };
     },
     playSave() {
       return doPlaySave();

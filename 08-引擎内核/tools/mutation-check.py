@@ -4013,9 +4013,11 @@ MUTANTS = [
         "name": "M433 帧循环里不喂玩家位置（门在场景里画着，走过去毫无反应）",
         # ★ 这条只打**接线**：flow 的三层模型全对、判据全绿，但没有人每 tick 问一次
         #   "玩家现在在哪"。Node 侧永远看不见这种缺失（没有宿主），只能靠浏览器自检。
+        # ★ 批98：两处驱动点（`loop()` 与命令面 `step()`）收成了一个 `driveTick()`，
+        #   靶子跟着落到那里 —— 现在删掉这一句，两条路同时断，靠浏览器自检抓。
         "file": "src/editor-entry.ts",
-        "pairs": [("      if (playSession !== null) autoPortal();",
-                   "      if (false && playSession !== null) autoPortal();")],
+        "pairs": [("  autoPortal();\n  stepCurtain();",
+                   "  stepCurtain();")],
         "cmd": ["node", "tools/editor-selftest.mjs", "--build"],
         "env_exit": 2,
     },
@@ -4252,6 +4254,218 @@ MUTANTS = [
                    "    const hits = [...new Set(paths)].filter((p) => exists(p));")],
         "test": "tests/tools/gap-check.test.ts",
     },
+    {
+        "name": "M468 交火提前到第一拍（幕布还没落满世界就换了）",
+        "file": "src/extensions/flow/curtain.ts",
+        "pairs": [
+            [
+                "    if (next < outTicksOf(spec)) {",
+                "    if (next < 1) {"
+            ]
+        ],
+        "test": "tests/extensions/flow-curtain.test.ts"
+    },
+    {
+        "name": "M469 落幕只走到一半（换世界那一刻画面从半黑跳到全黑）",
+        "file": "src/extensions/flow/curtain.ts",
+        "pairs": [
+            [
+                "    return Math.min(1, state.elapsed / outTicksOf(spec));",
+                "    return Math.min(1, state.elapsed / (outTicksOf(spec) * 2));"
+            ]
+        ],
+        "test": "tests/extensions/flow-curtain.test.ts"
+    },
+    {
+        "name": "M470 起幕慢一倍（黑屏多留半秒，而且永远回不到 idle）",
+        "file": "src/extensions/flow/curtain.ts",
+        "pairs": [
+            [
+                "    return Math.max(0, 1 - state.elapsed / inTicksOf(spec));",
+                "    return Math.max(0, 1 - state.elapsed / (inTicksOf(spec) * 2));"
+            ]
+        ],
+        "test": "tests/extensions/flow-curtain.test.ts"
+    },
+    {
+        "name": "M471 幕布在动时也接新跳（两次换世界都没有视觉证据）",
+        "file": "src/extensions/flow/curtain.ts",
+        "pairs": [
+            [
+                "  if (state.phase !== \"idle\") {",
+                "  if (false) {"
+            ]
+        ],
+        "test": "tests/extensions/flow-curtain.test.ts"
+    },
+    {
+        "name": "M472 取消时不清待办（下一拍会执行上一局没做完的跳转）",
+        "file": "src/extensions/flow/curtain.ts",
+        "pairs": [
+            [
+                "  return { ...CURTAIN_IDLE, fired: state.fired, cancelled: state.cancelled + 1, refused: state.refused };",
+                "  return { ...CURTAIN_IDLE, fired: state.fired, cancelled: state.cancelled + 1, refused: state.refused, target: state.target };"
+            ]
+        ],
+        "test": "tests/extensions/flow-curtain.test.ts"
+    },
+    {
+        "name": "M473 拍数下限去掉（outTicks=0 时 alpha 是 NaN，整屏变黑）",
+        "file": "src/extensions/flow/curtain.ts",
+        "pairs": [
+            [
+                "  return Math.max(1, Math.floor(spec.outTicks));",
+                "  return Math.floor(spec.outTicks);"
+            ]
+        ],
+        "test": "tests/extensions/flow-curtain.test.ts"
+    },
+    {
+        "name": "M474 交火不记账（fired 恒 0，接线判据分不出有没有走幕布）",
+        "file": "src/extensions/flow/curtain.ts",
+        "pairs": [
+            [
+                "      state: { ...state, phase: \"in\", elapsed: 0, target: null, fired: state.fired + 1 },",
+                "      state: { ...state, phase: \"in\", elapsed: 0, target: null, fired: state.fired },"
+            ]
+        ],
+        "test": "tests/extensions/flow-curtain.test.ts"
+    },
+    {
+        "name": "M475 幕布只画一个三角形（另半个屏幕是亮的）",
+        "file": "src/extensions/render/render-module.ts",
+        "pairs": [
+            [
+                "  const xy = [\n    [-1, -1],\n    [1, -1],\n    [1, 1],\n    [-1, -1],\n    [1, 1],\n    [-1, 1],\n  ] as const;",
+                "  const xy = [\n    [-1, -1],\n    [1, -1],\n    [1, 1],\n  ] as const;"
+            ]
+        ],
+        "test": "tests/extensions/render-curtain.test.ts"
+    },
+    {
+        "name": "M476 幕布的 alpha 不夹（NaN 传到 GPU 是整屏变黑）",
+        "file": "src/extensions/render/render-module.ts",
+        "pairs": [
+            [
+                "  const a = Number.isFinite(alpha) ? Math.max(0, Math.min(1, alpha)) : 0;",
+                "  const a = alpha;"
+            ]
+        ],
+        "test": "tests/extensions/render-curtain.test.ts"
+    },
+    {
+        "name": "M477 alpha 为 0 也画幕布（每帧白画一次全屏）",
+        "file": "src/extensions/render/render-module.ts",
+        "pairs": [
+            [
+                "    if (curtain > 0 && curtainVbo !== null && pipeline !== null) {",
+                "    if (curtain >= 0 && curtainVbo !== null && pipeline !== null) {"
+            ]
+        ],
+        "test": "tests/extensions/render-curtain.test.ts"
+    },
+    {
+        "name": "M478 setCurtain 不生效（状态机说该画，渲染层永远是 0）",
+        "file": "src/extensions/render/render-module.ts",
+        "pairs": [
+            [
+                "      curtain = Number.isFinite(alpha) ? Math.max(0, Math.min(1, alpha)) : 0;",
+                "      curtain = 0;"
+            ]
+        ],
+        "test": "tests/extensions/render-curtain.test.ts"
+    },
+    {
+        "name": "M479 停播不取消幕布（半路停播之后卡在落幕，下一局第一拍执行旧跳转）",
+        "file": "src/editor-entry.ts",
+        "pairs": [
+            [
+                "  curtain = cancelCurtain(curtain);\n  renderMod?.setCurtain(0);",
+                "  renderMod?.setCurtain(0);"
+            ]
+        ],
+        "cmd": [
+            "node",
+            "tools/editor-selftest.mjs",
+            "--build"
+        ],
+        "env_exit": 2
+    },
+    {
+        "name": "M480 检查点拍在回滚之后（存下来的是工程那一份，读档回到起点）",
+        "file": "src/editor-entry.ts",
+        "pairs": [
+            [
+                "  const checkpoint = autoCheckpoint();\n  const r = endPlaySession(docDeps(app), s);",
+                "  const r = endPlaySession(docDeps(app), s);\n  const checkpoint = autoCheckpoint();"
+            ]
+        ],
+        "cmd": [
+            "node",
+            "tools/editor-selftest.mjs",
+            "--build"
+        ],
+        "env_exit": 2
+    },
+    {
+        "name": "M481 检查点不看走过没有（没走动也写，把上一次的进度换成开局）",
+        "file": "src/editor-entry.ts",
+        "pairs": [
+            [
+                "  if (f === null || f.visitedCount <= 1) return \"\";",
+                "  if (f === null) return \"\";"
+            ]
+        ],
+        "cmd": [
+            "node",
+            "tools/editor-selftest.mjs",
+            "--build"
+        ],
+        "env_exit": 2
+    },
+    {
+        "name": "M482 自动检查点优先于手动存档（我特意存的点被一次停播挤掉）",
+        "file": "src/editor-entry.ts",
+        "pairs": [
+            [
+                "    manual !== null && manual.length > 0\n      ? { text: manual, from: \"手动存档\" }\n      : auto !== null && auto.length > 0\n        ? { text: auto, from: \"自动检查点\" }\n        : null;",
+                "    auto !== null && auto.length > 0\n      ? { text: auto, from: \"自动检查点\" }\n      : manual !== null && manual.length > 0\n        ? { text: manual, from: \"手动存档\" }\n        : null;"
+            ]
+        ],
+        "cmd": [
+            "node",
+            "tools/editor-selftest.mjs",
+            "--build"
+        ],
+        "env_exit": 2
+    },
+    {
+        "name": "M483 不在试玩中读档不自动开播（试玩之外的入口等于没有）",
+        "file": "src/editor-entry.ts",
+        "pairs": [
+            [
+                "  const started = playSession === null;\n  if (started) {",
+                "  const started = playSession === null;\n  if (false) {"
+            ]
+        ],
+        "cmd": [
+            "node",
+            "tools/editor-selftest.mjs",
+            "--build"
+        ],
+        "env_exit": 2
+    },
+    {
+        "name": "M484 起幕拍数下限去掉（inTicks=0 时 alpha 是 NaN，整屏变黑）",
+        "file": "src/extensions/flow/curtain.ts",
+        "pairs": [
+            [
+                "  return Math.max(1, Math.floor(spec.inTicks));",
+                "  return Math.floor(spec.inTicks);"
+            ]
+        ],
+        "test": "tests/extensions/flow-curtain.test.ts"
+    }
 ]
 
 
