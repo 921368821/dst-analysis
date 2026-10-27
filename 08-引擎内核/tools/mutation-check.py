@@ -3058,7 +3058,10 @@ MUTANTS = [
         "name": "M321 缩放不沿父链组合（子节点不跟着父放大，整体弹出变成散开）",
         # 变异点：往下传的子节点变换本该是 (s, ox, oy)，退化成"无变换"
         "file": "src/extensions/ui/layout.ts",
-        "pairs": [("      arrange(c, new Rect(p.x, p.y, c.measured.w, c.measured.h), s, ox, oy);", "      arrange(c, new Rect(p.x, p.y, c.measured.w, c.measured.h), 1, 0, 0);")],
+        # ★ 批105 重新指认：`arrange` 多了 `clip` 与 `opts` 两个参数（滚动容器要用），
+        #   旧靶点整行都不存在了。**改的是靶点，不是判据强度** —— 变异语义一字未变：
+        #   往下传的子节点变换本该是 (s, ox, oy)，退化成"无变换"。
+        "pairs": [("      arrange(c, new Rect(p.x - sx, p.y - sy, c.measured.w, c.measured.h), s, ox, oy, childClip, opts);", "      arrange(c, new Rect(p.x - sx, p.y - sy, c.measured.w, c.measured.h), 1, 0, 0, childClip, opts);")],
         "test": "tests/extensions/ui-transition.test.ts",
     },
     # ---------------------------------------------------------------- 批77 编辑器撤销栈
@@ -5191,6 +5194,127 @@ MUTANTS = [
             ]
         ],
         "test": "tests/backends/script-hot-reload.test.ts"
+    },
+    {
+        "name": "M550 滚动上限用可视长度算（`measured` 而不是 `contentExtent` ⇒ 永远滚不动）",
+        "file": "src/extensions/ui/layout.ts",
+        "pairs": [
+            [
+                "    const extent = horizontal ? node.contentExtent.w : node.contentExtent.h;",
+                "    const extent = horizontal ? node.measured.w : node.measured.h;"
+            ]
+        ],
+        "test": "tests/extensions/ui-scroll.test.ts"
+    },
+    {
+        "name": "M551 越界偏移只夹不写回（状态表里仍是越界值，下次改内容又跳）",
+        "file": "src/extensions/ui/layout.ts",
+        "pairs": [
+            [
+                "      if (clamped !== raw) src.set(node.uid, clamped);",
+                "      void clamped;"
+            ]
+        ],
+        "test": "tests/extensions/ui-scroll.test.ts"
+    },
+    {
+        "name": "M552 不夹负偏移（往上滚能滚到负数，第一条内容被推到框下）",
+        "file": "src/extensions/ui/layout.ts",
+        "pairs": [
+            [
+                "      const clamped = !Number.isFinite(raw) ? 0 : raw < 0 ? 0 : raw > node.scrollMax ? node.scrollMax : raw;",
+                "      const clamped = !Number.isFinite(raw) ? 0 : raw > node.scrollMax ? node.scrollMax : raw;"
+            ]
+        ],
+        "test": "tests/extensions/ui-scroll.test.ts"
+    },
+    {
+        "name": "M553 命中测试不看裁剪框（露在面板外的半个按钮能点中）",
+        "file": "src/extensions/ui/layout.ts",
+        "pairs": [
+            [
+                "  const c = n.clipRect;\n  return c === null || (x >= c.x && x <= c.xMax && y >= c.y && y <= c.yMax);",
+                "  return true;"
+            ]
+        ],
+        "test": "tests/extensions/ui-scroll.test.ts"
+    },
+    {
+        "name": "M554 只裁矩形不改 UV（贴图被整张压进被裁的矩形里）",
+        "file": "src/extensions/ui/widgets.ts",
+        "pairs": [
+            [
+                "        const ky = (v1 - v0) / rect.height;",
+                "        const ky = 0;"
+            ]
+        ],
+        "test": "tests/extensions/ui-scroll.test.ts"
+    },
+    {
+        "name": "M555 只丢整块、不裁半块（滚到一半的行露出整个 30 高，盖到面板外）",
+        "file": "src/extensions/ui/widgets.ts",
+        "pairs": [
+            [
+                "      if (x0 !== rect.x || x1 !== rect.xMax || y0 !== rect.y || y1 !== rect.yMax) {",
+                "      if (false) {"
+            ]
+        ],
+        "test": "tests/extensions/ui-scroll.test.ts"
+    },
+    {
+        "name": "M556 滚轮投给 `hitTest` 的结果（纯展示的行上滚不动）",
+        "file": "src/extensions/ui/events.ts",
+        "pairs": [
+            [
+                "      const box = scrollTargetOf(topmostAt(this.root, p.x, p.y));",
+                "      const box = scrollTargetOf(hit);"
+            ]
+        ],
+        "test": "tests/extensions/ui-scroll.test.ts"
+    },
+    {
+        "name": "M557 隐藏只挡住自己、子树照画（`walkVisible` 退化成 `walk`：关不掉的面板）",
+        "file": "src/extensions/ui/layout.ts",
+        "pairs": [
+            [
+                "  *walkVisible(): Generator<UiNode> {\n    if (!this.visible) return;",
+                "  *walkVisible(): Generator<UiNode> {"
+            ]
+        ],
+        "test": "tests/extensions/ui-scroll.test.ts"
+    },
+    {
+        "name": "M558 子节点裁剪框不与父求交（内层漏到外层之外）",
+        "file": "src/extensions/ui/layout.ts",
+        "pairs": [
+            [
+                "    const cut = clipIn === null ? box : clipIn.intersect(box);",
+                "    const cut = box;"
+            ]
+        ],
+        "test": "tests/extensions/ui-scroll.test.ts"
+    },
+    {
+        "name": "M559 滚了但不重排（状态表里的数字变了、画面一动不动）",
+        "file": "src/extensions/ui/ui-module.ts",
+        "pairs": [
+            [
+                "      if (scrolled) {\n        dirty = true;\n        sync();\n      }",
+                "      if (scrolled) {\n        void 0;\n      }"
+            ]
+        ],
+        "test": "tests/extensions/ui-module.test.ts"
+    },
+    {
+        "name": "M560 free 容器的内容长度恒 0（给了 contentSize 也滚不动）",
+        "file": "src/extensions/ui/layout.ts",
+        "pairs": [
+            [
+                "  node.contentExtent =\n    node.kind === UiLayoutKind.Free\n      ? { w: clampSize(node.contentSize.w), h: clampSize(node.contentSize.h) }\n      : { w: clampSize(contentW), h: clampSize(contentH) };",
+                "  node.contentExtent = { w: clampSize(contentW), h: clampSize(contentH) };"
+            ]
+        ],
+        "test": "tests/extensions/ui-scroll.test.ts"
     }
 ]
 

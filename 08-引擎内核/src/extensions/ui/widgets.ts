@@ -14,6 +14,13 @@
  *   分批维度只有一个（纹理页），而绘制顺序必须保持（后画的盖住先画的）。
  *   皮肤页与字体页分开时，每个「图 + 字」组合都要切一次页 ⇒ 每节点 2 段 draw。
  *   这不是 bug，是代价；控制方法是把字体页与皮肤页打同一张 UI 图集。
+ *
+ * ★★ 裁剪在 CPU 侧做，**不打断批**：
+ *   教科书做法是给每个滚动容器套一次 GPU scissor，但那要求"按 scissor 变化切批" ——
+ *   于是每滚一个列表就多两段 draw，而且嵌套滚动容器要在每层之间来回设/还原。
+ *   这里改成把每个四边形**裁到裁剪框里**：矩形按交叠裁、UV 按同一比例裁。
+ *   对轴对齐的四边形（UI 的全部）这两种做法**逐像素等价**，而批完全不被打断。
+ *   ★ 前提是"四边形轴对齐且不旋转"—— 若以后加旋转，这条路必须重算（UV 与矩形不再是线性对应）。
  */
 
 import { Rect } from "../../foundation/math/index.ts";
@@ -55,6 +62,13 @@ export interface UiDrawStats {
   readonly labels: number;
   /** 本帧缓存命中数（诊断"文本有没有被重排"）。 */
   readonly cacheHits: number;
+  /**
+   * 被裁剪框挡掉的四边形数。
+   * ★ 必须有这个数：滚动容器的性能收益**全在这里**，而"画得对不对"看不出来它 ——
+   *   少了它，一个"忘了把 clipRect 传下去"的实现会让 quad 数悄悄翻倍，
+   *   帧率掉一半而画面完全正常。
+   */
+  readonly culled: number;
   /** 缺字码点（升序去重）。 */
   readonly missingGlyphs: readonly number[];
   /** 皮肤里找不到的帧名（去重升序）。 */
@@ -101,6 +115,7 @@ export function buildUiQuads(root: UiNode, fonts: FontRegistry, skin: UiSkin, st
   let order = 0;
   let glyphs = 0;
   let labels = 0;
+  let culled = 0;
   const missingGlyphs = new Set<number>();
   const missingFrames = new Set<string>();
 
@@ -110,25 +125,54 @@ export function buildUiQuads(root: UiNode, fonts: FontRegistry, skin: UiSkin, st
     uv: { u0: number; v0: number; u1: number; v1: number },
     tint: Rgba | undefined,
     ord: number,
-    alpha = 1,
+    alpha: number,
+    clip: Rect | null,
   ): void => {
     if (rect.width <= 0 || rect.height <= 0) return;
     // ★ 有效不透明度在**画的时候**乘（`alphaOf` 沿父链连乘），节点上存的是"自身"值。
     //   存最终值的话，动画每改一次父节点就得遍历子树重算 —— 谁也不该为读一个数付出遍历。
     const a = (tint?.a ?? 1) * alpha;
     if (a <= 0) return; // 全透明不必入批（否则白白占一次顶点/绘制）
+    // ★ 裁到祖先给的框里。**不是整块丢弃**：滚到一半的行要露出下面几条字的**一部分**，
+    //   整块丢会让列表在边界上缺一整行，看起来像"最后一行渲染坏了"。
+    //   裁矩形同时按比例裁 UV，取的是这半个矩形**对应的那半个贴图** ——
+    //   与 GPU scissor 的结果逐像素一致，但不需要打断批（见文件头 ★★）。
+    let r = rect;
+    let u0 = uv.u0;
+    let v0 = uv.v0;
+    let u1 = uv.u1;
+    let v1 = uv.v1;
+    if (clip !== null) {
+      const x0 = Math.max(rect.x, clip.x);
+      const x1 = Math.min(rect.xMax, clip.xMax);
+      const y0 = Math.max(rect.y, clip.y);
+      const y1 = Math.min(rect.yMax, clip.yMax);
+      if (x1 <= x0 || y1 <= y0) {
+        culled++;
+        return;
+      }
+      if (x0 !== rect.x || x1 !== rect.xMax || y0 !== rect.y || y1 !== rect.yMax) {
+        const kx = (u1 - u0) / rect.width;
+        const ky = (v1 - v0) / rect.height;
+        u0 = u0 + (x0 - rect.x) * kx;
+        u1 = u0 + (x1 - x0) * kx;
+        v0 = v0 + (y0 - rect.y) * ky;
+        v1 = v0 + (y1 - y0) * ky;
+        r = new Rect(x0, y0, x1 - x0, y1 - y0);
+      }
+    }
     quads.push({
       nodeId: order,
       // ★ UI 用 z=0 恒定：排序第一键 layer 恒为 UI_LAYER，绘制顺序全靠 order。
       //   给 UI 编假的 z 会让"同 order 的兄弟"按 z 乱序 —— 那是最难查的一类重叠。
-      x: rect.x,
-      z: rect.y,
-      w: rect.width,
-      h: rect.height,
-      u0: uv.u0,
-      v0: uv.v0,
-      u1: uv.u1,
-      v1: uv.v1,
+      x: r.x,
+      z: r.y,
+      w: r.width,
+      h: r.height,
+      u0,
+      v0,
+      u1,
+      v1,
       r: tint?.r ?? 1,
       g: tint?.g ?? 1,
       b: tint?.b ?? 1,
@@ -148,6 +192,7 @@ export function buildUiQuads(root: UiNode, fonts: FontRegistry, skin: UiSkin, st
     tint: Rgba | undefined,
     ord: number,
     alpha: number,
+    clip: Rect | null,
   ): void => {
     if (frameName === undefined) return;
     const f = skin.frames.get(frameName);
@@ -157,9 +202,9 @@ export function buildUiQuads(root: UiNode, fonts: FontRegistry, skin: UiSkin, st
       return;
     }
     if (slice > 0) {
-      for (const q of nineSlice(rect, f, slice)) emit(q.rect, f.page, q.uv, tint, ord, alpha);
+      for (const q of nineSlice(rect, f, slice)) emit(q.rect, f.page, q.uv, tint, ord, alpha, clip);
     } else {
-      emit(rect, f.page, { u0: f.u0, v0: f.v0, u1: f.u1, v1: f.v1 }, tint, ord, alpha);
+      emit(rect, f.page, { u0: f.u0, v0: f.v0, u1: f.u1, v1: f.v1 }, tint, ord, alpha, clip);
     }
   };
 
@@ -170,6 +215,7 @@ export function buildUiQuads(root: UiNode, fonts: FontRegistry, skin: UiSkin, st
     style: TextStyle,
     ord: number,
     alpha: number,
+    clip: Rect | null,
   ): void => {
     const text = p.text ?? "";
     if (text === "") return;
@@ -179,44 +225,55 @@ export function buildUiQuads(root: UiNode, fonts: FontRegistry, skin: UiSkin, st
     const y = box.y + (box.height - layout.height) / 2;
     for (const g of layout.quads) {
       glyphs++;
-      emit(new Rect(box.x + g.x, y + g.y, g.w, g.h), g.page, g, { r: g.r, g: g.g, b: g.b, a: g.a }, ord, alpha);
+      emit(new Rect(box.x + g.x, y + g.y, g.w, g.h), g.page, g, { r: g.r, g: g.g, b: g.b, a: g.a }, ord, alpha, clip);
     }
     for (const m of layout.missing) missingGlyphs.add(m);
   };
 
-  for (const node of root.walk()) {
+  // ★ 用 `walkVisible`（而不是 `walk` + 逐个看 `visible`）：隐藏一个容器时，
+  //   它的子树必须一起消失 —— 逐个判只挡住容器自己，子节点会带着**上一次布局的旧矩形**
+  //   继续画出来。实测症状：关掉一个面板，quads 数一点没变（见 `walkVisible` 的注释）。
+  for (const node of root.walkVisible()) {
     if (!node.visible) continue;
     if (node.widget === UiWidget.Group || node.widget === UiWidget.Spacer) continue;
+    // ★★ CPU 侧裁剪的第一道：**整块在裁剪框外就不要走排版**。
+    //   只省顶点是不够的 —— 标签的排版是 O(字数)，一个 200 行的日志面板滚到末尾时，
+    //   前面 190 行的文本排版全都会被算一遍再全部丢掉。那一步才是这里真正的成本。
+    if (!intersectsClip(node.rect, node.clipRect)) {
+      culled++;
+      continue;
+    }
     const ord = order++;
     const p: UiProps = node.props;
     // ★ 沿父链连乘：父节点淡到 0.5、子节点 0.5 ⇒ 子节点实际 0.25。
     //   Group/Spacer 不画东西但也可能带 opacity（它们是"容器"），
     //   所以这个值必须在 `continue` **之前**算好。
     const alpha = alphaOf(node);
+    const clip = node.clipRect;
 
     if (node.widget === UiWidget.Panel) {
-      drawFrame(node.rect, p.frame, p.slice ?? 0, p.tint, ord, alpha);
+      drawFrame(node.rect, p.frame, p.slice ?? 0, p.tint, ord, alpha, clip);
       continue;
     }
 
     if (node.widget === UiWidget.Image) {
-      drawFrame(node.rect, p.frame, 0, p.tint, ord, alpha);
+      drawFrame(node.rect, p.frame, 0, p.tint, ord, alpha, clip);
       continue;
     }
 
     if (node.widget === UiWidget.Button) {
-      drawFrame(node.rect, p.frame, p.slice ?? 0, p.tint, ord, alpha);
+      drawFrame(node.rect, p.frame, p.slice ?? 0, p.tint, ord, alpha, clip);
       // ★ 按钮不自己记"按下"状态：状态由调用方改 props 表达。
       //   控件偷偷持有交互状态，会让"两个地方都能设置它"变成必然的漂移源。
       // ★ 内缩与换行宽都来自 `intrinsic.ts` 的共用函数：量算那一侧算的是同一个数。
       //   各写一个 4 的话，改动只会落到一处，症状是"按钮文字贴右边框一点点"。
       const inner = textBoxOf(node, node.rect);
-      emitText(node, p, inner, textStyleFor(node, inner.width), ord, alpha);
+      emitText(node, p, inner, textStyleFor(node, inner.width), ord, alpha, clip);
       continue;
     }
 
     if (node.widget === UiWidget.Progress) {
-      drawFrame(node.rect, p.frame, p.slice ?? 0, p.tint, ord, alpha);
+      drawFrame(node.rect, p.frame, p.slice ?? 0, p.tint, ord, alpha, clip);
       const v = Math.max(0, Math.min(1, p.value ?? 0));
       const f = p.frame === undefined ? undefined : skin.frames.get(p.frame);
       if (v > 0 && f !== undefined) {
@@ -224,13 +281,13 @@ export function buildUiQuads(root: UiNode, fonts: FontRegistry, skin: UiSkin, st
         // ★ 填充按比例**裁切 UV**，而不是缩放整张图：
         //   缩放会把描边一起拉细，进度 20% 时看起来像"另一张图"。
         const u1 = f.u0 + (f.u1 - f.u0) * v;
-        emit(r, f.page, { u0: f.u0, v0: f.v0, u1, v1: f.v1 }, p.activeTint ?? { r: 0.5, g: 0.85, b: 0.4, a: 1 }, ord, alpha);
+        emit(r, f.page, { u0: f.u0, v0: f.v0, u1, v1: f.v1 }, p.activeTint ?? { r: 0.5, g: 0.85, b: 0.4, a: 1 }, ord, alpha, clip);
       }
       continue;
     }
 
     if (node.widget === UiWidget.Label) {
-      emitText(node, p, node.rect, textStyleFor(node, node.rect.width), ord, alpha);
+      emitText(node, p, node.rect, textStyleFor(node, node.rect.width), ord, alpha, clip);
     }
   }
 
@@ -241,10 +298,17 @@ export function buildUiQuads(root: UiNode, fonts: FontRegistry, skin: UiSkin, st
       glyphs,
       labels,
       cacheHits: store.hits,
+      culled,
       missingGlyphs: Array.from(missingGlyphs).sort((a, b) => a - b),
       missingFrames: Array.from(missingFrames).sort(),
     },
   };
+}
+
+/** 矩形与裁剪框是否有交叠（`clip === null` = 不裁、恒真）。 */
+export function intersectsClip(rect: Rect, clip: Rect | null): boolean {
+  if (clip === null) return true;
+  return rect.x < clip.xMax && rect.xMax > clip.x && rect.y < clip.yMax && rect.yMax > clip.y;
 }
 
 interface SliceQuad {

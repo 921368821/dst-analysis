@@ -94,6 +94,8 @@ export interface UiFrameStats {
   readonly glyphs: number;
   readonly labels: number;
   readonly cacheHits: number;
+  /** 被裁剪框挡掉的四边形（滚动容器的收益指标，见 `UiDrawStats.culled`）。 */
+  readonly culled: number;
   readonly missingGlyphs: readonly number[];
   readonly missingFrames: readonly string[];
   /** 本帧是否真的重排过（false = 复用了上一帧的结果）。 */
@@ -161,6 +163,7 @@ export function createUiModule(opts: UiModuleOptions): UiModuleHandle {
     glyphs: 0,
     labels: 0,
     cacheHits: 0,
+    culled: 0,
     missingGlyphs: [],
     missingFrames: [],
   };
@@ -171,6 +174,7 @@ export function createUiModule(opts: UiModuleOptions): UiModuleHandle {
     glyphs: 0,
     labels: 0,
     cacheHits: 0,
+    culled: 0,
     missingGlyphs: [],
     missingFrames: [],
     relaid: false,
@@ -188,7 +192,13 @@ export function createUiModule(opts: UiModuleOptions): UiModuleHandle {
       return;
     }
 
-    layoutResult = layoutTree(root, viewport.safeRect, { intrinsic });
+    layoutResult = layoutTree(root, viewport.safeRect, {
+      intrinsic,
+      // ★ 滚动的**唯一真相**在状态表里（ADR-0012 的权威态）：布局读它、夹它、写回它，
+      //   自己不存一份。存两份的话，"用户滚了但布局用的是旧值"这类漂移迟早出现，
+      //   而且两边都觉得自己对。
+      scroll: { get: (uid) => store.scrollOf(uid), set: (uid, v) => store.setScroll(uid, v) },
+    });
     const res = buildUiQuads(root, fonts, skin, store);
     quads = res.quads;
     drawStats = res.stats;
@@ -201,6 +211,7 @@ export function createUiModule(opts: UiModuleOptions): UiModuleHandle {
       glyphs: drawStats.glyphs,
       labels: drawStats.labels,
       cacheHits: drawStats.cacheHits,
+      culled: drawStats.culled,
       missingGlyphs: drawStats.missingGlyphs,
       missingFrames: drawStats.missingFrames,
       relaid: true,
@@ -433,7 +444,35 @@ export function createUiModule(opts: UiModuleOptions): UiModuleHandle {
     pointer(p: UiPointer): UiEvent[] {
       // 先保证布局是最新的：否则点击会打在上一次布局的矩形上（换分辨率后的第一帧必错）。
       sync();
-      return router.update(p, opts.onEvent);
+      const events = router.update(p, opts.onEvent);
+      // ★ 滚轮在这里**落地**：路由只回答"该滚谁"（树上查父链），
+      //   写状态表是模块的事（它持有状态表）。这一步不能放进布局层 ——
+      //   布局是纯的，让它改状态就等于"重排一次 = 滚一下"，那是灾难。
+      let scrolled = false;
+      for (const ev of events) {
+        if (ev.type !== "wheel") continue;
+        const box = ev.target;
+        const delta = box.scrollAxis === "x" ? ev.wheelX : ev.wheelY;
+        if (delta === 0) continue;
+        const cur = store.scrollOf(box.uid);
+        // ★ 这里**只加、不夹**。上限只有布局层算得出来（`scrollMax` = 内容长 − 内区），
+        //   而紧接着的 `sync()` 就会夹并写回状态表（见 `arrange`）。
+        //   两处都夹的后果实测过（M559）：模块层那份先跑、布局层那份后跑，
+        //   于是模块层的夹取**永远被布局层盖住**，判据怎么改都验不到它 ——
+        //   一段验不到的"防御"比没有更糟，它会在下一次改动时被当成真相。
+        const next = cur + delta;
+        if (next !== cur) {
+          store.setScroll(box.uid, next);
+          scrolled = true;
+        }
+      }
+      // 滚过就立刻重排：否则这一次按钮的命中会用**滚动前**的矩形，
+      // 而"滚一下再马上点"正好是人最容易做出的动作序列。
+      if (scrolled) {
+        dirty = true;
+        sync();
+      }
+      return events;
     },
 
     invalidate(): void {

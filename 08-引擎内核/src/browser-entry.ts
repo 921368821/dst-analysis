@@ -1815,10 +1815,24 @@ export async function main(): Promise<void> {
   //   传设备像素会让点击位置差一个 dpr（高分屏上"点不中"）。
   if (hudUi !== null) {
     const ui = hudUi;
+    // 滚轮事件**不带坐标**（`x`/`y` 字段里是 deltaX/deltaY），所以要记住最后一次
+    // 指针位置再投进去。用 `input.poll()` 的 snapshot 不行：那是"自上次 poll 以来"的
+    // 边缘状态，而 controller 每 tick 已经 poll 过一次了（见上面的注释）。
+    let lastX = 0;
+    let lastY = 0;
+    let lastDown = false;
     app.platform.input.subscribe((e) => {
-      if (e.kind !== "pointer") return;
-      if (e.x === undefined || e.y === undefined) return;
-      ui.pointer(e.x, e.y, e.down === true);
+      if (e.kind === "pointer") {
+        if (e.x === undefined || e.y === undefined) return;
+        lastX = e.x;
+        lastY = e.y;
+        lastDown = e.down === true;
+        ui.pointer(lastX, lastY, lastDown);
+        return;
+      }
+      if (e.kind !== "wheel") return;
+      // 单位是 CSS 像素，换算在 `HudUiHandle.pointer` 里做（与坐标同一处）
+      ui.pointer(lastX, lastY, lastDown, e.y ?? 0, e.x ?? 0);
     });
   }
 

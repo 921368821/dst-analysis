@@ -21,6 +21,24 @@
  * ★ `visible=false` 的节点**完全不参与**布局（不占位），等价于从树上摘掉。
  *   需要"占位但看不见"用 `visible=false + 保留 size` 做不到 —— 那是两种语义，
  *   混在一起会让"隐藏一个按钮后后面的按钮跳不跳"变成需要试才知道的问题。
+ *
+ * ★★ 滚动容器（`scroll=true`）把「内容长度」与「可视长度」分成了两个量，
+ *   而这一步是在**本层**做完的，不是留给绘制层：
+ *
+ *   · **内容长度** `contentExtent` 来自测量（子节点之和），**可视长度**是 `inner`。
+ *     两者之差就是滚动上限 `scrollMax` —— 它是**布局算出来的**，
+ *     所以调用方不需要自己知道"内容有多高"，也不可能算错。
+ *   · **偏移从状态表读、夹取之后写回**（`LayoutOptions.scroll`）。夹取只能发生在这里：
+ *     内容变短（删了一行）之后，旧偏移会越过上限，若不夹取，症状是
+ *     "列表底部空出一段、滚不回去" —— 而它在别的层查不出来。
+ *     写回是必须的：只夹取不写回，状态表里仍存着越界的值，下一次改内容又会跳。
+ *   · **裁剪框 `clipRect` 沿树往下继承并求交**，滚动容器额外与自己的内区求交。
+ *     绘制层与命中测试都读它 —— 于是"看不见的不能点"与"看得见的才画"是**同一个事实**，
+ *     不会出现"点了露在面板外的那半个按钮"。
+ *
+ *   ★ 不虚拟化：子节点仍然全部测量与摆放。省下来的是**顶点与文本排版**（见 `widgets.ts`
+ *     的 CPU 侧裁剪），不是布局遍历。几百个节点的 O(n) 遍历不值得为它引入"按需实例化"
+ *     那套回收池 —— 那套机制的 bug 数量远超它省下的时间。
  */
 
 import { Color, Rect } from "../../foundation/math/index.ts";
@@ -102,6 +120,16 @@ export interface UiNodeConfig {
   readonly scale?: number;
   /** 参与命中测试。false = 点击穿透到下层。 */
   readonly interactive?: boolean;
+  /**
+   * 滚动容器：内容超出内区时沿 `scrollAxis` 滚动，并把子节点裁到内区。
+   *
+   * ★ 只有 row/column/grid 能算出"内容多长"；free 容器的内容长度为 0，
+   *   要用它就必须自己给 `contentSize`（那是 free 容器的"内容总尺寸"）。
+   *   不给就是滚不动 —— 不猜。
+   */
+  readonly scroll?: boolean;
+  /** 滚动轴。缺省取容器的**主轴**（row → x，其余 → y）。构造时定死，改 `kind` 不会跟着改。 */
+  readonly scrollAxis?: "x" | "y";
   /** 命中后是否阻断下层（面板/按钮必须 true，否则点按钮会同时点到背后）。 */
   readonly opaque?: boolean;
   /** 叶子的自然尺寸（文本量出来的宽高、图片帧的尺寸）。由控件层写入。 */
@@ -152,6 +180,10 @@ export class UiNode {
   scale: number;
   interactive: boolean;
   opaque: boolean;
+  /** 滚动容器（见 `UiNodeConfig.scroll`）。 */
+  scroll: boolean;
+  /** 有效滚动轴（构造时按 `kind` 定死，见 `UiNodeConfig.scrollAxis`）。 */
+  scrollAxis: "x" | "y";
   contentSize: { w: number; h: number };
   props: UiProps;
   readonly children: UiNode[] = [];
@@ -160,6 +192,18 @@ export class UiNode {
   rect: Rect = Rect.zero;
   /** 测量阶段的自然尺寸。 */
   measured: { w: number; h: number } = { w: 0, h: 0 };
+  /**
+   * 测量阶段的**内容尺寸**（子节点之和）：滚动上限 = 它与内区之差。
+   * free 容器没有"内容包围盒"（见 `measure` 的注释），所以取 `contentSize`。
+   */
+  contentExtent: { w: number; h: number } = { w: 0, h: 0 };
+  /** 本节点可滚动的上限（`arrange` 写入，非滚动容器恒 0）。 */
+  scrollMax = 0;
+  /**
+   * 本节点的裁剪框（绝对坐标，已含自身缩放）；`null` = 不被裁。
+   * 由 `arrange` 从父链继承并与本节点（若是滚动容器）的内区求交。
+   */
+  clipRect: Rect | null = null;
 
   constructor(cfg: UiNodeConfig = {}) {
     this.uid = nextNodeId++;
@@ -192,6 +236,8 @@ export class UiNode {
     this.scale = clampScale(cfg.scale ?? 1);
     this.interactive = cfg.interactive ?? false;
     this.opaque = cfg.opaque ?? false;
+    this.scroll = cfg.scroll ?? false;
+    this.scrollAxis = cfg.scrollAxis ?? (this.kind === UiLayoutKind.Row ? "x" : "y");
     this.contentSize = { w: cfg.contentSize?.w ?? 0, h: cfg.contentSize?.h ?? 0 };
     this.props = cfg.props ?? {};
     for (const c of cfg.children ?? []) this.add(new UiNode(c));
@@ -202,10 +248,29 @@ export class UiNode {
     this.children.push(child);
   }
 
-  /** 从前序（绘制顺序）里取所有节点。 */
+  /** 从前序（绘制顺序）里取所有节点（**含不可见的**）。只用于结构操作（`find` 等）。 */
   *walk(): Generator<UiNode> {
     yield this;
     for (const c of this.children) yield* c.walk();
+  }
+
+  /**
+   * 前序遍历，**不可见的节点连同整棵子树一起跳过**。
+   *
+   * ★ 这个方法是补一个真实漏洞（批105）。在此之前，`visible=false` 只挡住了
+   *   **自己**：`measure`/`arrange` 早退不给子树重新布局，于是子树**保留上一次的矩形**，
+   *   而绘制遍历逐个节点看 `n.visible` —— 子节点自己是 true，于是照样画出来。
+   *   实测症状：把一个面板 `visible=false` 再重排，`quads` 数一点没变（关不掉的背包）。
+   *   它与文件头那句"等价于从树上摘掉"不符，而那一句是所有人（包括我）写代码时的前提。
+   *
+   * ★ 谁该用它：**绘制、命中、布局结果的收集** —— 也就是"看得见才有意义"的那三处。
+   *   谁不该用它：`find` / `drop` / 编辑器里的查找 —— 那些是按名字找节点，
+   *   隐藏的节点照样要能被找到（否则"打开面板"那行代码就找不到面板了）。
+   */
+  *walkVisible(): Generator<UiNode> {
+    if (!this.visible) return;
+    yield this;
+    for (const c of this.children) yield* c.walkVisible();
   }
 
   find(id: string): UiNode | undefined {
@@ -240,6 +305,20 @@ export function buildUiTree(cfg: UiNodeConfig): UiNode {
 export type UiLayoutResult = ReadonlyMap<string, Rect>;
 
 /**
+ * 滚动偏移的**来源**。
+ *
+ * ★ 为什么是注入而不是让布局层持有状态表：布局层是纯函数（给同一棵树 + 同一组参数
+ *   就摆出同一个结果），而滚动偏移是**用户操作留下的状态**（ADR-0012 的权威态）。
+ *   让布局层持有它，"重排一次"就会和"记住滚到哪"纠缠在一起，回滚/换界面时谁也说不清
+ *   该不该清。注入之后，布局只承诺一件事：**读进来的一定夹在 [0, scrollMax] 里，
+ *   不合法就写回夹取后的值**。
+ */
+export interface UiScrollSource {
+  get(uid: number): number;
+  set(uid: number, value: number): void;
+}
+
+/**
  * 布局选项。
  *
  * ★ `intrinsic` 是一个**注入口**，不是布局层的一部分：它回答"这个叶子的自然尺寸是多少"，
@@ -247,9 +326,13 @@ export type UiLayoutResult = ReadonlyMap<string, Rect>;
  *   布局层只负责在**内区尺寸已经算好**的那一刻问一次，然后把答案当作 `contentSize`。
  *   这样布局保持无字体、无皮肤、无 GPU 依赖（可在 Node 里用假量算函数验接线），
  *   而真实量算留在 `intrinsic.ts`（见那里文件头的 ★★）。
+ *
+ * ★ `scroll` 同理：不给 = 所有滚动容器的偏移按 0 处理（此时 `scrollMax` 照样算出来，
+ *   只是内容不会被推动）。判据里验"上限是多少"不需要状态表。
  */
 export interface LayoutOptions {
   readonly intrinsic?: (node: UiNode, innerW: number, innerH: number) => { readonly w: number; readonly h: number } | null;
+  readonly scroll?: UiScrollSource;
 }
 
 /**
@@ -262,12 +345,14 @@ export interface LayoutOptions {
 export function layoutTree(root: UiNode, bounds: Rect, opts: LayoutOptions = {}): UiLayoutResult {
   root.rect = bounds;
   measure(root, bounds.width, bounds.height, opts);
-  arrange(root, bounds, 1, 0, 0);
+  // 根节点不被裁：`clipRect` 指的是"祖先给的裁剪框"，根没有祖先。
+  arrange(root, bounds, 1, 0, 0, null, opts);
   const out = new Map<string, Rect>();
-  for (const n of root.walk()) {
+  for (const n of root.walkVisible()) {
     if (n === root) continue;
     // 不可见节点不进结果：调用方拿到一个 Rect.zero 会当成"在左上角有一块 0×0 的东西"，
-    // 而那比"查不到"更难查。
+    // 而那比"查不到"更难查。★ 隐藏容器的**子节点**同样不进 —— 它们手里的矩形是
+    // 上一次布局留下的旧值，看着像真的，用起来是错的（见 `walkVisible`）。
     if (!n.visible) continue;
     if (out.has(n.id)) {
       throw new Error(`UI 节点 id 重复：${n.id}（同一棵树里 id 必须唯一，否则命中测试会打到错的那个）`);
@@ -281,6 +366,8 @@ export function layoutTree(root: UiNode, bounds: Rect, opts: LayoutOptions = {})
 function measure(node: UiNode, availW: number, availH: number, opts: LayoutOptions): void {
   if (!node.visible) {
     node.measured = { w: 0, h: 0 };
+    node.contentExtent = { w: 0, h: 0 };
+    node.scrollMax = 0;
     return;
   }
   const fixedW = node.size.w;
@@ -376,6 +463,14 @@ function measure(node: UiNode, availW: number, availH: number, opts: LayoutOptio
   const w = fixedW ?? (pctW !== undefined ? availW * pctW : Math.max(contentW, node.contentSize.w));
   const h = fixedH ?? (pctH !== undefined ? availH * pctH : Math.max(contentH, node.contentSize.h));
   node.measured = { w: clampSize(w), h: clampSize(h) };
+  // ★ 内容长度与自身尺寸分开存：滚动容器的 `measured` 是**可视长度**（由 size 定），
+  //   而能不能滚、能滚多远只看 `contentExtent`。合并成一个量的话，
+  //   "容器固定 200 高、内容 500" 就无处表达 —— 那正是滚动容器唯一的表达需求。
+  //   free 容器没有内容包围盒（见上），所以退到作者显式给的 `contentSize`。
+  node.contentExtent =
+    node.kind === UiLayoutKind.Free
+      ? { w: clampSize(node.contentSize.w), h: clampSize(node.contentSize.h) }
+      : { w: clampSize(contentW), h: clampSize(contentH) };
 }
 
 /**
@@ -404,6 +499,15 @@ function clampScale(v: number): number {
   if (!Number.isFinite(v)) return 1;
   return v < 0 ? 0 : v;
 }
+
+/**
+ * "裁到什么都不剩"。
+ *
+ * ★ 用一个 0×0 的矩形而不是 `null`：`null` 的语义是"**不裁**"，
+ *   把"裁光了"也写成 null，会让整棵子树在裁剪框退化时**全都画出来** ——
+ *   面板被压扁到 0 高的那一帧，里面所有行会一起冒到屏幕上。
+ */
+const EMPTY_CLIP = new Rect(0, 0, 0, 0);
 
 /** 锚点定位：父内区 + 锚点比例 − 自身枢轴 + 偏移 + margin。 */
 function anchoredPos(node: UiNode, parentInner: Rect): { x: number; y: number } {
@@ -440,7 +544,15 @@ function anchoredPos(node: UiNode, parentInner: Rect): { x: number; y: number } 
  * ★ 布局计算仍在**未缩放空间**里做（`inner` 用的是入参 `slot` 而不是缩放后的矩形）：
  *   否则子节点会先按父的缩放算一遍位置、再被继承的缩放乘第二遍。
  */
-function arrange(node: UiNode, slot: Rect, sIn: number, oxIn: number, oyIn: number): void {
+function arrange(
+  node: UiNode,
+  slot: Rect,
+  sIn: number,
+  oxIn: number,
+  oyIn: number,
+  clipIn: Rect | null,
+  opts: LayoutOptions,
+): void {
   if (!node.visible) return;
   let s = sIn;
   let ox = oxIn;
@@ -456,14 +568,44 @@ function arrange(node: UiNode, slot: Rect, sIn: number, oxIn: number, oyIn: numb
     oy = sIn * offY + oyIn;
   }
   node.rect = s === 1 ? slot : new Rect(s * slot.x + ox, s * slot.y + oy, slot.width * s, slot.height * s);
+  node.clipRect = clipIn;
   // ★ 内区用入参 `slot`（未缩放）：布局数学只在未缩放空间里成立一次
   const inner = node.inner(slot);
+
+  // ---- 滚动：上限在这里算、偏移在这里夹、写回也在这里（见文件头 ★★）
+  let scrollOff = 0;
+  let childClip = clipIn;
+  if (node.scroll) {
+    const horizontal = node.scrollAxis === "x";
+    const extent = horizontal ? node.contentExtent.w : node.contentExtent.h;
+    const view = horizontal ? inner.width : inner.height;
+    node.scrollMax = Math.max(0, extent - view);
+    const src = opts.scroll;
+    if (src !== undefined) {
+      const raw = src.get(node.uid);
+      const clamped = !Number.isFinite(raw) ? 0 : raw < 0 ? 0 : raw > node.scrollMax ? node.scrollMax : raw;
+      // 只在**真的越界**时写回：每次布局都写一遍会让"谁改的"失去可追溯性
+      if (clamped !== raw) src.set(node.uid, clamped);
+      scrollOff = clamped;
+    }
+    // 裁剪框与自身内区求交。变换到子节点空间（与本节点同样的 s/ox/oy）——
+    // 否则缩放中的滚动容器会按未缩放的框裁，露出的边正好是那条缩放差。
+    const box =
+      s === 1 && ox === 0 && oy === 0
+        ? inner
+        : new Rect(s * inner.x + ox, s * inner.y + oy, inner.width * s, inner.height * s);
+    const cut = clipIn === null ? box : clipIn.intersect(box);
+    childClip = cut.width > 0 && cut.height > 0 ? cut : EMPTY_CLIP;
+  }
+
+  const sx = node.scroll && node.scrollAxis === "x" ? scrollOff : 0;
+  const sy = node.scroll && node.scrollAxis === "y" ? scrollOff : 0;
 
   if (node.kind === UiLayoutKind.Free) {
     for (const c of node.children) {
       if (!c.visible) continue;
       const p = anchoredPos(c, inner);
-      arrange(c, new Rect(p.x, p.y, c.measured.w, c.measured.h), s, ox, oy);
+      arrange(c, new Rect(p.x - sx, p.y - sy, c.measured.w, c.measured.h), s, ox, oy, childClip, opts);
     }
     return;
   }
@@ -492,11 +634,11 @@ function arrange(node: UiNode, slot: Rect, sIn: number, oxIn: number, oyIn: numb
       const extra = growTotal > 0 ? (remain * Math.max(0, c.grow)) / growTotal : 0;
       const mainSize = baseMain + extra;
       const crossSize = isRow ? c.measured.h + c.margin.top + c.margin.bottom : c.measured.w + c.margin.left + c.margin.right;
-      const x = isRow ? inner.x + cursor + c.margin.left : inner.x + c.margin.left;
-      const y = isRow ? inner.y + c.margin.top : inner.y + cursor + c.margin.top;
+      const x = (isRow ? inner.x + cursor + c.margin.left : inner.x + c.margin.left) - sx;
+      const y = (isRow ? inner.y + c.margin.top : inner.y + cursor + c.margin.top) - sy;
       const w = isRow ? Math.max(0, mainSize - c.margin.left - c.margin.right) : Math.max(0, crossSize - c.margin.left - c.margin.right);
       const h = isRow ? Math.max(0, crossSize - c.margin.top - c.margin.bottom) : Math.max(0, mainSize - c.margin.top - c.margin.bottom);
-      arrange(c, new Rect(x, y, w, h), s, ox, oy);
+      arrange(c, new Rect(x, y, w, h), s, ox, oy, childClip, opts);
       cursor += mainSize + node.gap;
     }
     return;
@@ -511,9 +653,9 @@ function arrange(node: UiNode, slot: Rect, sIn: number, oxIn: number, oyIn: numb
     if (!c.visible) continue;
     const col = i % cols;
     const row = Math.floor(i / cols);
-    const x = inner.x + col * (cw + node.gap) + c.margin.left;
-    const y = inner.y + row * (ch + node.gap) + c.margin.top;
-    arrange(c, new Rect(x, y, Math.max(0, cw - c.margin.left - c.margin.right), Math.max(0, ch - c.margin.top - c.margin.bottom)), s, ox, oy);
+    const x = inner.x + col * (cw + node.gap) + c.margin.left - sx;
+    const y = inner.y + row * (ch + node.gap) + c.margin.top - sy;
+    arrange(c, new Rect(x, y, Math.max(0, cw - c.margin.left - c.margin.right), Math.max(0, ch - c.margin.top - c.margin.bottom)), s, ox, oy, childClip, opts);
     i++;
   }
 }
@@ -530,15 +672,31 @@ function arrange(node: UiNode, slot: Rect, sIn: number, oxIn: number, oyIn: numb
  */
 export function hitTest(root: UiNode, x: number, y: number): UiNode | null {
   const stack: UiNode[] = [];
-  for (const n of root.walk()) if (n.visible) stack.push(n);
+  for (const n of root.walkVisible()) stack.push(n);
   for (let i = stack.length - 1; i >= 0; i--) {
     const n = stack[i]!;
-    const r = n.rect;
-    if (x < r.x || x > r.xMax || y < r.y || y > r.yMax) continue;
+    if (!picks(n, x, y)) continue;
     if (n.interactive) return n;
     if (n.opaque) return null;
   }
   return null;
+}
+
+/**
+ * 这个点是否落在该节点**可见**的那部分矩形里。
+ *
+ * ★ 抽成一个函数是因为 `hitTest` 与 `topmostAt` 必须给出同一个答案：
+ *   "看得见"与"点得着"是这个项目里最容易分叉的一对（一个在绘制层、一个在事件层）。
+ *   两处各写一遍，「裁掉的部分不能点」这条就只在其中一处成立 —— 而症状是
+ *   "点在空地上却打开了某个条目"，几乎不可能对上代码。
+ *
+ * ★ 裁掉的部分两者都不算：既画不出，也点不中，也指不着（滚轮）。
+ */
+function picks(n: UiNode, x: number, y: number): boolean {
+  const r = n.rect;
+  if (x < r.x || x > r.xMax || y < r.y || y > r.yMax) return false;
+  const c = n.clipRect;
+  return c === null || (x >= c.x && x <= c.xMax && y >= c.y && y <= c.yMax);
 }
 
 /** 命中链：从命中的节点一路向上到根（冒泡用）。 */
@@ -550,4 +708,27 @@ export function hitChain(node: UiNode | null): UiNode[] {
     cur = cur.parent;
   }
   return chain;
+}
+
+/**
+ * 指针下面是**哪块内容**（不管它能不能接收点击）。
+ *
+ * ★ 与 `hitTest` 的区别，以及为什么必须有它：
+ *   `hitTest` 回答的是"这一下点到了谁" —— 它跳过 `interactive=false` 的节点、
+ *   在 `opaque` 处停下，于是一块纯展示的 Label **永远不会**成为它的答案。
+ *   而滚轮要问的是"我正指着哪个列表"，那跟能不能点毫无关系。
+ *   拿 `hitTest` 去找滚动祖先，会在所有纯展示内容上失效（滚不动），
+ *   而"列表里有按钮的那几行能滚、纯文字的行不能滚"这种症状几乎不可能被猜到。
+ *
+ * ★ 同样尊重 `clipRect`：裁掉的部分既点不中，也**指不着**。
+ */
+export function topmostAt(root: UiNode, x: number, y: number): UiNode | null {
+  const stack: UiNode[] = [];
+  for (const n of root.walkVisible()) stack.push(n);
+  for (let i = stack.length - 1; i >= 0; i--) {
+    const n = stack[i]!;
+    if (!picks(n, x, y)) continue;
+    return n;
+  }
+  return null;
 }

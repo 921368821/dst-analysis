@@ -163,7 +163,16 @@ export interface HudUiHandle {
   /** 背包内容（`null` = 关闭）。行数/选中/文本都没变时什么也不做。 */
   setBag(stacks: readonly { readonly kind: string; readonly count: number }[] | null, selected: number): void;
   /** CSS 像素坐标 → 设计坐标 → 路由。返回本帧事件（判据用）。 */
-  pointer(cssX: number, cssY: number, down: boolean): UiEvent[];
+  /**
+   * 推一帧指针（**画布相对 CSS 像素**，与 DOM 事件里拿到的一致）。
+   *
+   * ★ 滚轮量也收 CSS 像素，**在这里**换成设计像素 —— 与坐标走同一个换算。
+   *   若让调用方自己换，两处各写一遍 `1/scale`，改动只会落到一处，
+   *   症状是"滚一格跳半页"或"滚半天不动"，而且只在高分屏/非 1080p 上出现。
+   * ★ DOM 的 `deltaMode`（像素 / 行 / 页）折算成 CSS 像素是**输入后端**的事：
+   *   它知道行高与视口高，本层不知道。这里只做"CSS px → 设计 px"这一步。
+   */
+  pointer(cssX: number, cssY: number, down: boolean, wheelYCss?: number, wheelXCss?: number): UiEvent[];
   /** 背包面板当前的行文本（**画在屏幕上的那份**，不是重新算一遍）。 */
   readonly bagRowTexts: readonly string[];
   readonly bagOpen: boolean;
@@ -380,9 +389,12 @@ export function createHudUi(opts: HudUiOptions): Result<HudUiHandle, EngineError
       module.invalidate();
     },
 
-    pointer(cssX: number, cssY: number, down: boolean): UiEvent[] {
+    pointer(cssX: number, cssY: number, down: boolean, wheelYCss = 0, wheelXCss = 0): UiEvent[] {
       const p = module.viewport.screenToDesign(cssX, cssY);
-      const ptr: UiPointer = { x: p.x, y: p.y, down };
+      // 与位置同一个除数（`screenToDesign` 里也是除 `scale`）：两处用同一个约定，
+      // 否则"滚一格"和"移动一格"会不一致，而那种不一致只在某些分辨率下看得出来。
+      const k = module.viewport.scale > 0 ? 1 / module.viewport.scale : 1;
+      const ptr: UiPointer = { x: p.x, y: p.y, down, wheelY: wheelYCss * k, wheelX: wheelXCss * k };
       return module.pointer(ptr);
     },
   };

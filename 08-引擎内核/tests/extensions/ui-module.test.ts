@@ -470,3 +470,81 @@ test("★ pageSources 与 pages 同时给 ⇒ 直接拒绝（所有权不能猜�
   assert.ok(!(r instanceof Promise) && r !== undefined && !r.ok, "两条都给时必须失败，而不是静默选一条");
   assert.equal(r.error.code, "UI.PAGE_AMBIGUOUS");
 });
+
+// ── ⑤ 滚动容器接线（C9）────────────────────────────────────
+
+/** root(800×600) > list(200×100, column, scroll) > 3 行 × 50 */
+function scrollRoot(): { root: ReturnType<typeof buildUiTree>; list: ReturnType<typeof buildUiTree> } {
+  const root = buildUiTree({
+    id: "root",
+    children: [
+      {
+        id: "list",
+        kind: UiLayoutKind.Column,
+        scroll: true,
+        size: { w: 200, h: 100 },
+        children: Array.from({ length: 3 }, (_, i) => ({
+          id: `r${String(i)}`,
+          widget: UiWidget.Image as typeof UiWidget.Image,
+          size: { w: 200, h: 50 },
+          props: { frame: "panel" },
+        })),
+      },
+    ],
+  });
+  const list = root.find("list");
+  assert.ok(list !== undefined, "夹具里的 list 不见了");
+  return { root, list };
+}
+
+test("★ 接线：滚轮 → 状态表偏移变化 → 下一帧子节点真的移动了", () => {
+  // ★ 这条守的是「标志位对了、效果没发生」：`store.setScroll` 成功但布局没重跑时，
+  //   状态表里的数字是对的，画面一动不动。所以必须同时断言**位置**。
+  const { root, list } = scrollRoot();
+  const rig = bootUi({ root });
+  rig.frame();
+  assert.equal(rig.ui.state.scrollOf(list.uid), 0);
+  assert.equal(rig.ui.layout.get("r0")?.y, 0);
+
+  const evts = rig.ui.pointer({ x: 10, y: 10, down: false, wheelY: 30 });
+  assert.ok(evts.some((e) => e.type === "wheel"), "滚轮必须投给列表");
+  assert.equal(rig.ui.state.scrollOf(list.uid), 30, "状态表记下了");
+  assert.equal(rig.ui.layout.get("r0")?.y, -30, "而且内容真的上移了（3 行 × 50 = 150，上限 50）");
+});
+
+test("★ 接线：滚到底会停在 scrollMax（下一次注入的值再大也推不动）", () => {
+  const { root, list } = scrollRoot();
+  const rig = bootUi({ root });
+  rig.frame();
+  rig.ui.pointer({ x: 10, y: 10, down: false, wheelY: 999 });
+  assert.equal(rig.ui.state.scrollOf(list.uid), 50, "上限 = 150 − 100");
+  assert.equal(rig.ui.layout.get("r0")?.y, -50);
+  // 反向：滚回顶之后也不该变成负数（状态表自己夹 0，模块也要夹）
+  rig.ui.pointer({ x: 10, y: 10, down: false, wheelY: -999 });
+  assert.equal(rig.ui.state.scrollOf(list.uid), 0);
+  assert.equal(rig.ui.layout.get("r0")?.y, 0);
+});
+
+test("★ 裁剪的计数要一路传到 lastFrame（否则它只是绘制层的私有数字）", () => {
+  // ★ 为什么不是"滚动前后 culled 变多"：这个夹具只有 3 行，**两端各裁一块**
+  //   （滚到顶时最后一行在框下、滚到底时第一行在框上），差值恒为 0。
+  //   判据要能分辨"有没有接上"，就不能挑一个在夹具里本来就不变化的量。
+  const { root } = scrollRoot();
+  const rig = bootUi({ root });
+  rig.frame();
+  assert.equal(rig.ui.lastFrame.culled, 1, "滚到顶：第 3 行整个在框下");
+  assert.equal(rig.ui.lastFrame.quads, 2, "可见的就是 2 行");
+  rig.ui.pointer({ x: 10, y: 10, down: false, wheelY: 50 });
+  assert.equal(rig.ui.lastFrame.culled, 1, "滚到底：换成第 1 行整个在框上");
+  assert.equal(rig.ui.lastFrame.quads, 2);
+});
+
+test("换界面（setRoot）会把滚动位置一起丢掉（回顶）", () => {
+  const a = scrollRoot();
+  const rig = bootUi({ root: a.root });
+  rig.frame();
+  rig.ui.pointer({ x: 10, y: 10, down: false, wheelY: 40 });
+  assert.equal(rig.ui.state.scrollOf(a.list.uid), 40);
+  rig.ui.setRoot(buildUiTree({ id: "root" }));
+  assert.equal(rig.ui.state.scrollOf(a.list.uid), 0, "上一份界面的滚动位置不该被下一份读到");
+});

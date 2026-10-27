@@ -21,9 +21,18 @@
  *
  * ★ 悬停（enter/leave）按**逐帧比较**产生，不按"每移动一次"产生：
  *   指针停住不动但屏幕滚动（UI 内容变化）时，悬停目标也可能变，逐帧比较才不漏。
+ *
+ * ★★ 滚轮（`wheel`）投给**最近的滚动容器祖先**，而不是命中目标本身。
+ *   DOM 把这个决定交给浏览器（"scroll chain"），这里必须自己定，因为：
+ *   ① 命中目标往往是一个 Label / 图片 —— 它们对"滚"这件事没有任何可做的事，
+ *      把事件投给它们只会让每个控件都必须写一句"我不处理，往上交"；
+ *   ② 用冒泡去找第一个"愿意滚的"祖先需要每个容器都注册监听，而"愿意滚"
+ *      本来就是节点的静态属性（`UiNode.scroll`），查一次父链就能定。
+ *   ★ 滚轮**不参与**按下/抬起边沿：滚动时手指可能正按着（拖拽中滚一下很常见），
+ *     若滚轮顺手改 `downTarget`，一次拖拽会被滚动打断。
  */
 
-import { hitChain, hitTest, type UiNode } from "./layout.ts";
+import { hitChain, hitTest, topmostAt, type UiNode } from "./layout.ts";
 
 export type UiEventType =
   | "pointerdown"
@@ -31,13 +40,21 @@ export type UiEventType =
   | "click"
   | "pointerenter"
   | "pointerleave"
-  | "pointermove";
+  | "pointermove"
+  | "wheel";
 
 export interface UiPointer {
   /** 设计坐标（不是屏幕像素）。宿主用 `viewport.screenToDesign()` 换。 */
   readonly x: number;
   readonly y: number;
   readonly down: boolean;
+  /**
+   * 滚轮，单位**设计像素**（正值 = 内容向上移，即向下滚）。
+   * 宿主负责把 `deltaMode` 的三种单位（像素 / 行 / 页）折算成设计像素 ——
+   * 那一步要知道行高与视口高，只有宿主有。
+   */
+  readonly wheelY?: number;
+  readonly wheelX?: number;
 }
 
 export class UiEvent {
@@ -48,14 +65,19 @@ export class UiEvent {
   currentTarget: UiNode;
   readonly x: number;
   readonly y: number;
+  /** 滚轮量（设计像素，仅 `wheel` 事件非 0）。 */
+  readonly wheelX: number;
+  readonly wheelY: number;
   private stopped = false;
 
-  constructor(type: UiEventType, target: UiNode, x: number, y: number) {
+  constructor(type: UiEventType, target: UiNode, x: number, y: number, wheelX = 0, wheelY = 0) {
     this.type = type;
     this.target = target;
     this.currentTarget = target;
     this.x = x;
     this.y = y;
+    this.wheelX = wheelX;
+    this.wheelY = wheelY;
   }
 
   stopPropagation(): void {
@@ -149,6 +171,16 @@ export class UiInputRouter {
       this.downTarget = null;
     }
 
+    // ---- 滚轮（不参与按下/抬起边沿，见文件头 ★★）
+    const wx = p.wheelX ?? 0;
+    const wy = p.wheelY ?? 0;
+    if (wx !== 0 || wy !== 0) {
+      // ★ 用 `topmostAt` 而不是上面那个 `hit`：`hit` 会跳过纯展示的节点，
+      //   而"指着一个纯文字的列表行"恰恰是最常见的滚动场景（见 `topmostAt` 的注释）。
+      const box = scrollTargetOf(topmostAt(this.root, p.x, p.y));
+      if (box !== null) events.push(new UiEvent("wheel", box, p.x, p.y, wx, wy));
+    }
+
     this.lastDown = p.down;
     this.lastX = p.x;
     this.lastY = p.y;
@@ -175,4 +207,22 @@ export function bubble(ev: UiEvent, sink: UiEventSink): void {
     sink(ev);
     cur = cur.parent;
   }
+}
+
+/**
+ * 从命中点往上找**最近的滚动容器**（含命中节点自己）。
+ *
+ * ★ 这里不判 `visible`，因为调用方传进来的节点必然可见：`topmostAt` 用
+ *   `walkVisible` 遍历，隐藏节点的子树根本不会被返回。再判一次就成了
+ *   **永远为真的死分支** —— 而死分支既不能被变异验红，又会在下次改动时
+ *   给人"这里已经防住了"的错觉。
+ * ★ 同样不判裁剪框：`picks` 已经滤掉了框外的点。
+ */
+export function scrollTargetOf(node: UiNode | null): UiNode | null {
+  let cur = node;
+  while (cur !== null) {
+    if (cur.scroll) return cur;
+    cur = cur.parent;
+  }
+  return null;
 }

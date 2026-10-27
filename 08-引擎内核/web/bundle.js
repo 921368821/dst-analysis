@@ -17692,11 +17692,11 @@ function validateTaskTable(table) {
         message: `\u4EFB\u52A1 ${t.id} \u7684 phase \u5FC5\u987B\u843D\u5728 [0, ${t.periodTicks})\uFF0C\u5F97\u5230 ${String(phase)} \u2014\u2014 \u8D8A\u754C\u4F1A\u8BA9\u5B83\u6C38\u4E0D\u89E6\u53D1`
       });
     }
-    const picks = t.picksPerRun ?? 0;
-    if (!Number.isInteger(picks) || picks < 0 || picks > 64) {
+    const picks2 = t.picksPerRun ?? 0;
+    if (!Number.isInteger(picks2) || picks2 < 0 || picks2 > 64) {
       return err({
         code: TASK_BAD_TABLE,
-        message: `\u4EFB\u52A1 ${t.id} \u7684 picksPerRun \u5FC5\u987B\u662F 0..64 \u7684\u6574\u6570\uFF0C\u5F97\u5230 ${String(picks)}`
+        message: `\u4EFB\u52A1 ${t.id} \u7684 picksPerRun \u5FC5\u987B\u662F 0..64 \u7684\u6574\u6570\uFF0C\u5F97\u5230 ${String(picks2)}`
       });
     }
     if (t.biomes !== void 0) {
@@ -18687,6 +18687,10 @@ var UiNode = class _UiNode {
   scale;
   interactive;
   opaque;
+  /** 滚动容器（见 `UiNodeConfig.scroll`）。 */
+  scroll;
+  /** 有效滚动轴（构造时按 `kind` 定死，见 `UiNodeConfig.scrollAxis`）。 */
+  scrollAxis;
   contentSize;
   props;
   children = [];
@@ -18695,6 +18699,18 @@ var UiNode = class _UiNode {
   rect = Rect.zero;
   /** 测量阶段的自然尺寸。 */
   measured = { w: 0, h: 0 };
+  /**
+   * 测量阶段的**内容尺寸**（子节点之和）：滚动上限 = 它与内区之差。
+   * free 容器没有"内容包围盒"（见 `measure` 的注释），所以取 `contentSize`。
+   */
+  contentExtent = { w: 0, h: 0 };
+  /** 本节点可滚动的上限（`arrange` 写入，非滚动容器恒 0）。 */
+  scrollMax = 0;
+  /**
+   * 本节点的裁剪框（绝对坐标，已含自身缩放）；`null` = 不被裁。
+   * 由 `arrange` 从父链继承并与本节点（若是滚动容器）的内区求交。
+   */
+  clipRect = null;
   constructor(cfg = {}) {
     this.uid = nextNodeId++;
     this.id = cfg.id ?? `#${this.uid}`;
@@ -18726,6 +18742,8 @@ var UiNode = class _UiNode {
     this.scale = clampScale(cfg.scale ?? 1);
     this.interactive = cfg.interactive ?? false;
     this.opaque = cfg.opaque ?? false;
+    this.scroll = cfg.scroll ?? false;
+    this.scrollAxis = cfg.scrollAxis ?? (this.kind === UiLayoutKind.Row ? "x" : "y");
     this.contentSize = { w: cfg.contentSize?.w ?? 0, h: cfg.contentSize?.h ?? 0 };
     this.props = cfg.props ?? {};
     for (const c of cfg.children ?? []) this.add(new _UiNode(c));
@@ -18734,10 +18752,28 @@ var UiNode = class _UiNode {
     child.parent = this;
     this.children.push(child);
   }
-  /** 从前序（绘制顺序）里取所有节点。 */
+  /** 从前序（绘制顺序）里取所有节点（**含不可见的**）。只用于结构操作（`find` 等）。 */
   *walk() {
     yield this;
     for (const c of this.children) yield* c.walk();
+  }
+  /**
+   * 前序遍历，**不可见的节点连同整棵子树一起跳过**。
+   *
+   * ★ 这个方法是补一个真实漏洞（批105）。在此之前，`visible=false` 只挡住了
+   *   **自己**：`measure`/`arrange` 早退不给子树重新布局，于是子树**保留上一次的矩形**，
+   *   而绘制遍历逐个节点看 `n.visible` —— 子节点自己是 true，于是照样画出来。
+   *   实测症状：把一个面板 `visible=false` 再重排，`quads` 数一点没变（关不掉的背包）。
+   *   它与文件头那句"等价于从树上摘掉"不符，而那一句是所有人（包括我）写代码时的前提。
+   *
+   * ★ 谁该用它：**绘制、命中、布局结果的收集** —— 也就是"看得见才有意义"的那三处。
+   *   谁不该用它：`find` / `drop` / 编辑器里的查找 —— 那些是按名字找节点，
+   *   隐藏的节点照样要能被找到（否则"打开面板"那行代码就找不到面板了）。
+   */
+  *walkVisible() {
+    if (!this.visible) return;
+    yield this;
+    for (const c of this.children) yield* c.walkVisible();
   }
   find(id) {
     for (const n of this.walk()) if (n.id === id) return n;
@@ -18764,9 +18800,9 @@ var UiNode = class _UiNode {
 function layoutTree(root, bounds, opts = {}) {
   root.rect = bounds;
   measure(root, bounds.width, bounds.height, opts);
-  arrange(root, bounds, 1, 0, 0);
+  arrange(root, bounds, 1, 0, 0, null, opts);
   const out = /* @__PURE__ */ new Map();
-  for (const n of root.walk()) {
+  for (const n of root.walkVisible()) {
     if (n === root) continue;
     if (!n.visible) continue;
     if (out.has(n.id)) {
@@ -18779,6 +18815,8 @@ function layoutTree(root, bounds, opts = {}) {
 function measure(node, availW, availH, opts) {
   if (!node.visible) {
     node.measured = { w: 0, h: 0 };
+    node.contentExtent = { w: 0, h: 0 };
+    node.scrollMax = 0;
     return;
   }
   const fixedW = node.size.w;
@@ -18850,6 +18888,7 @@ function measure(node, availW, availH, opts) {
   const w = fixedW ?? (pctW !== void 0 ? availW * pctW : Math.max(contentW, node.contentSize.w));
   const h = fixedH ?? (pctH !== void 0 ? availH * pctH : Math.max(contentH, node.contentSize.h));
   node.measured = { w: clampSize(w), h: clampSize(h) };
+  node.contentExtent = node.kind === UiLayoutKind.Free ? { w: clampSize(node.contentSize.w), h: clampSize(node.contentSize.h) } : { w: clampSize(contentW), h: clampSize(contentH) };
 }
 function clampSize(v) {
   if (!Number.isFinite(v) || v < 0) return 0;
@@ -18863,6 +18902,7 @@ function clampScale(v) {
   if (!Number.isFinite(v)) return 1;
   return v < 0 ? 0 : v;
 }
+var EMPTY_CLIP = new Rect(0, 0, 0, 0);
 function anchoredPos(node, parentInner) {
   const w = node.measured.w;
   const h = node.measured.h;
@@ -18870,7 +18910,7 @@ function anchoredPos(node, parentInner) {
   const y = parentInner.y + node.margin.top + node.anchor.y * parentInner.height - node.pivot.y * h + node.offset.y;
   return { x, y };
 }
-function arrange(node, slot, sIn, oxIn, oyIn) {
+function arrange(node, slot, sIn, oxIn, oyIn, clipIn, opts) {
   if (!node.visible) return;
   let s = sIn;
   let ox = oxIn;
@@ -18885,12 +18925,33 @@ function arrange(node, slot, sIn, oxIn, oyIn) {
     oy = sIn * offY + oyIn;
   }
   node.rect = s === 1 ? slot : new Rect(s * slot.x + ox, s * slot.y + oy, slot.width * s, slot.height * s);
+  node.clipRect = clipIn;
   const inner = node.inner(slot);
+  let scrollOff = 0;
+  let childClip = clipIn;
+  if (node.scroll) {
+    const horizontal = node.scrollAxis === "x";
+    const extent = horizontal ? node.contentExtent.w : node.contentExtent.h;
+    const view = horizontal ? inner.width : inner.height;
+    node.scrollMax = Math.max(0, extent - view);
+    const src = opts.scroll;
+    if (src !== void 0) {
+      const raw = src.get(node.uid);
+      const clamped = !Number.isFinite(raw) ? 0 : raw < 0 ? 0 : raw > node.scrollMax ? node.scrollMax : raw;
+      if (clamped !== raw) src.set(node.uid, clamped);
+      scrollOff = clamped;
+    }
+    const box = s === 1 && ox === 0 && oy === 0 ? inner : new Rect(s * inner.x + ox, s * inner.y + oy, inner.width * s, inner.height * s);
+    const cut = clipIn === null ? box : clipIn.intersect(box);
+    childClip = cut.width > 0 && cut.height > 0 ? cut : EMPTY_CLIP;
+  }
+  const sx = node.scroll && node.scrollAxis === "x" ? scrollOff : 0;
+  const sy = node.scroll && node.scrollAxis === "y" ? scrollOff : 0;
   if (node.kind === UiLayoutKind.Free) {
     for (const c of node.children) {
       if (!c.visible) continue;
       const p = anchoredPos(c, inner);
-      arrange(c, new Rect(p.x, p.y, c.measured.w, c.measured.h), s, ox, oy);
+      arrange(c, new Rect(p.x - sx, p.y - sy, c.measured.w, c.measured.h), s, ox, oy, childClip, opts);
     }
     return;
   }
@@ -18913,11 +18974,11 @@ function arrange(node, slot, sIn, oxIn, oyIn) {
       const extra = growTotal > 0 ? remain * Math.max(0, c.grow) / growTotal : 0;
       const mainSize = baseMain + extra;
       const crossSize = isRow ? c.measured.h + c.margin.top + c.margin.bottom : c.measured.w + c.margin.left + c.margin.right;
-      const x = isRow ? inner.x + cursor + c.margin.left : inner.x + c.margin.left;
-      const y = isRow ? inner.y + c.margin.top : inner.y + cursor + c.margin.top;
+      const x = (isRow ? inner.x + cursor + c.margin.left : inner.x + c.margin.left) - sx;
+      const y = (isRow ? inner.y + c.margin.top : inner.y + cursor + c.margin.top) - sy;
       const w = isRow ? Math.max(0, mainSize - c.margin.left - c.margin.right) : Math.max(0, crossSize - c.margin.left - c.margin.right);
       const h = isRow ? Math.max(0, crossSize - c.margin.top - c.margin.bottom) : Math.max(0, mainSize - c.margin.top - c.margin.bottom);
-      arrange(c, new Rect(x, y, w, h), s, ox, oy);
+      arrange(c, new Rect(x, y, w, h), s, ox, oy, childClip, opts);
       cursor += mainSize + node.gap;
     }
     return;
@@ -18930,23 +18991,28 @@ function arrange(node, slot, sIn, oxIn, oyIn) {
     if (!c.visible) continue;
     const col = i % cols;
     const row = Math.floor(i / cols);
-    const x = inner.x + col * (cw + node.gap) + c.margin.left;
-    const y = inner.y + row * (ch + node.gap) + c.margin.top;
-    arrange(c, new Rect(x, y, Math.max(0, cw - c.margin.left - c.margin.right), Math.max(0, ch - c.margin.top - c.margin.bottom)), s, ox, oy);
+    const x = inner.x + col * (cw + node.gap) + c.margin.left - sx;
+    const y = inner.y + row * (ch + node.gap) + c.margin.top - sy;
+    arrange(c, new Rect(x, y, Math.max(0, cw - c.margin.left - c.margin.right), Math.max(0, ch - c.margin.top - c.margin.bottom)), s, ox, oy, childClip, opts);
     i++;
   }
 }
 function hitTest(root, x, y) {
   const stack = [];
-  for (const n of root.walk()) if (n.visible) stack.push(n);
+  for (const n of root.walkVisible()) stack.push(n);
   for (let i = stack.length - 1; i >= 0; i--) {
     const n = stack[i];
-    const r = n.rect;
-    if (x < r.x || x > r.xMax || y < r.y || y > r.yMax) continue;
+    if (!picks(n, x, y)) continue;
     if (n.interactive) return n;
     if (n.opaque) return null;
   }
   return null;
+}
+function picks(n, x, y) {
+  const r = n.rect;
+  if (x < r.x || x > r.xMax || y < r.y || y > r.yMax) return false;
+  const c = n.clipRect;
+  return c === null || x >= c.x && x <= c.xMax && y >= c.y && y <= c.yMax;
 }
 function hitChain(node) {
   const chain = [];
@@ -18956,6 +19022,16 @@ function hitChain(node) {
     cur = cur.parent;
   }
   return chain;
+}
+function topmostAt(root, x, y) {
+  const stack = [];
+  for (const n of root.walkVisible()) stack.push(n);
+  for (let i = stack.length - 1; i >= 0; i--) {
+    const n = stack[i];
+    if (!picks(n, x, y)) continue;
+    return n;
+  }
+  return null;
 }
 
 // src/extensions/ui/intrinsic.ts
@@ -19338,24 +19414,49 @@ function buildUiQuads(root, fonts, skin, store) {
   let order = 0;
   let glyphs = 0;
   let labels = 0;
+  let culled = 0;
   const missingGlyphs = /* @__PURE__ */ new Set();
   const missingFrames = /* @__PURE__ */ new Set();
-  const emit = (rect, page, uv, tint, ord, alpha = 1) => {
+  const emit = (rect, page, uv, tint, ord, alpha, clip) => {
     if (rect.width <= 0 || rect.height <= 0) return;
     const a = (tint?.a ?? 1) * alpha;
     if (a <= 0) return;
+    let r = rect;
+    let u0 = uv.u0;
+    let v0 = uv.v0;
+    let u1 = uv.u1;
+    let v1 = uv.v1;
+    if (clip !== null) {
+      const x0 = Math.max(rect.x, clip.x);
+      const x1 = Math.min(rect.xMax, clip.xMax);
+      const y0 = Math.max(rect.y, clip.y);
+      const y1 = Math.min(rect.yMax, clip.yMax);
+      if (x1 <= x0 || y1 <= y0) {
+        culled++;
+        return;
+      }
+      if (x0 !== rect.x || x1 !== rect.xMax || y0 !== rect.y || y1 !== rect.yMax) {
+        const kx = (u1 - u0) / rect.width;
+        const ky = (v1 - v0) / rect.height;
+        u0 = u0 + (x0 - rect.x) * kx;
+        u1 = u0 + (x1 - x0) * kx;
+        v0 = v0 + (y0 - rect.y) * ky;
+        v1 = v0 + (y1 - y0) * ky;
+        r = new Rect(x0, y0, x1 - x0, y1 - y0);
+      }
+    }
     quads.push({
       nodeId: order,
       // ★ UI 用 z=0 恒定：排序第一键 layer 恒为 UI_LAYER，绘制顺序全靠 order。
       //   给 UI 编假的 z 会让"同 order 的兄弟"按 z 乱序 —— 那是最难查的一类重叠。
-      x: rect.x,
-      z: rect.y,
-      w: rect.width,
-      h: rect.height,
-      u0: uv.u0,
-      v0: uv.v0,
-      u1: uv.u1,
-      v1: uv.v1,
+      x: r.x,
+      z: r.y,
+      w: r.width,
+      h: r.height,
+      u0,
+      v0,
+      u1,
+      v1,
       r: tint?.r ?? 1,
       g: tint?.g ?? 1,
       b: tint?.b ?? 1,
@@ -19367,7 +19468,7 @@ function buildUiQuads(root, fonts, skin, store) {
       atlas: page
     });
   };
-  const drawFrame = (rect, frameName, slice, tint, ord, alpha) => {
+  const drawFrame = (rect, frameName, slice, tint, ord, alpha, clip) => {
     if (frameName === void 0) return;
     const f = skin.frames.get(frameName);
     if (f === void 0) {
@@ -19375,12 +19476,12 @@ function buildUiQuads(root, fonts, skin, store) {
       return;
     }
     if (slice > 0) {
-      for (const q2 of nineSlice(rect, f, slice)) emit(q2.rect, f.page, q2.uv, tint, ord, alpha);
+      for (const q2 of nineSlice(rect, f, slice)) emit(q2.rect, f.page, q2.uv, tint, ord, alpha, clip);
     } else {
-      emit(rect, f.page, { u0: f.u0, v0: f.v0, u1: f.u1, v1: f.v1 }, tint, ord, alpha);
+      emit(rect, f.page, { u0: f.u0, v0: f.v0, u1: f.u1, v1: f.v1 }, tint, ord, alpha, clip);
     }
   };
-  const emitText = (node, p, box, style, ord, alpha) => {
+  const emitText = (node, p, box, style, ord, alpha, clip) => {
     const text = p.text ?? "";
     if (text === "") return;
     const layout = store.text(node.uid, fonts, p.fontId ?? defaultFontId(fonts), text, style);
@@ -19389,43 +19490,48 @@ function buildUiQuads(root, fonts, skin, store) {
     const y = box.y + (box.height - layout.height) / 2;
     for (const g of layout.quads) {
       glyphs++;
-      emit(new Rect(box.x + g.x, y + g.y, g.w, g.h), g.page, g, { r: g.r, g: g.g, b: g.b, a: g.a }, ord, alpha);
+      emit(new Rect(box.x + g.x, y + g.y, g.w, g.h), g.page, g, { r: g.r, g: g.g, b: g.b, a: g.a }, ord, alpha, clip);
     }
     for (const m of layout.missing) missingGlyphs.add(m);
   };
-  for (const node of root.walk()) {
+  for (const node of root.walkVisible()) {
     if (!node.visible) continue;
     if (node.widget === UiWidget.Group || node.widget === UiWidget.Spacer) continue;
+    if (!intersectsClip(node.rect, node.clipRect)) {
+      culled++;
+      continue;
+    }
     const ord = order++;
     const p = node.props;
     const alpha = alphaOf(node);
+    const clip = node.clipRect;
     if (node.widget === UiWidget.Panel) {
-      drawFrame(node.rect, p.frame, p.slice ?? 0, p.tint, ord, alpha);
+      drawFrame(node.rect, p.frame, p.slice ?? 0, p.tint, ord, alpha, clip);
       continue;
     }
     if (node.widget === UiWidget.Image) {
-      drawFrame(node.rect, p.frame, 0, p.tint, ord, alpha);
+      drawFrame(node.rect, p.frame, 0, p.tint, ord, alpha, clip);
       continue;
     }
     if (node.widget === UiWidget.Button) {
-      drawFrame(node.rect, p.frame, p.slice ?? 0, p.tint, ord, alpha);
+      drawFrame(node.rect, p.frame, p.slice ?? 0, p.tint, ord, alpha, clip);
       const inner = textBoxOf(node, node.rect);
-      emitText(node, p, inner, textStyleFor(node, inner.width), ord, alpha);
+      emitText(node, p, inner, textStyleFor(node, inner.width), ord, alpha, clip);
       continue;
     }
     if (node.widget === UiWidget.Progress) {
-      drawFrame(node.rect, p.frame, p.slice ?? 0, p.tint, ord, alpha);
+      drawFrame(node.rect, p.frame, p.slice ?? 0, p.tint, ord, alpha, clip);
       const v = Math.max(0, Math.min(1, p.value ?? 0));
       const f = p.frame === void 0 ? void 0 : skin.frames.get(p.frame);
       if (v > 0 && f !== void 0) {
         const r = new Rect(node.rect.x, node.rect.y, node.rect.width * v, node.rect.height);
         const u1 = f.u0 + (f.u1 - f.u0) * v;
-        emit(r, f.page, { u0: f.u0, v0: f.v0, u1, v1: f.v1 }, p.activeTint ?? { r: 0.5, g: 0.85, b: 0.4, a: 1 }, ord, alpha);
+        emit(r, f.page, { u0: f.u0, v0: f.v0, u1, v1: f.v1 }, p.activeTint ?? { r: 0.5, g: 0.85, b: 0.4, a: 1 }, ord, alpha, clip);
       }
       continue;
     }
     if (node.widget === UiWidget.Label) {
-      emitText(node, p, node.rect, textStyleFor(node, node.rect.width), ord, alpha);
+      emitText(node, p, node.rect, textStyleFor(node, node.rect.width), ord, alpha, clip);
     }
   }
   return {
@@ -19435,10 +19541,15 @@ function buildUiQuads(root, fonts, skin, store) {
       glyphs,
       labels,
       cacheHits: store.hits,
+      culled,
       missingGlyphs: Array.from(missingGlyphs).sort((a, b) => a - b),
       missingFrames: Array.from(missingFrames).sort()
     }
   };
+}
+function intersectsClip(rect, clip) {
+  if (clip === null) return true;
+  return rect.x < clip.xMax && rect.xMax > clip.x && rect.y < clip.yMax && rect.yMax > clip.y;
 }
 function nineSlice(rect, f, slice) {
   const b = Math.max(0, Math.min(slice, f.width / 2, f.height / 2, rect.width / 2, rect.height / 2));
@@ -19475,13 +19586,18 @@ var UiEvent = class {
   currentTarget;
   x;
   y;
+  /** 滚轮量（设计像素，仅 `wheel` 事件非 0）。 */
+  wheelX;
+  wheelY;
   stopped = false;
-  constructor(type, target, x, y) {
+  constructor(type, target, x, y, wheelX = 0, wheelY = 0) {
     this.type = type;
     this.target = target;
     this.currentTarget = target;
     this.x = x;
     this.y = y;
+    this.wheelX = wheelX;
+    this.wheelY = wheelY;
   }
   stopPropagation() {
     this.stopped = true;
@@ -19551,6 +19667,12 @@ var UiInputRouter = class {
       }
       this.downTarget = null;
     }
+    const wx = p.wheelX ?? 0;
+    const wy = p.wheelY ?? 0;
+    if (wx !== 0 || wy !== 0) {
+      const box = scrollTargetOf(topmostAt(this.root, p.x, p.y));
+      if (box !== null) events.push(new UiEvent("wheel", box, p.x, p.y, wx, wy));
+    }
     this.lastDown = p.down;
     this.lastX = p.x;
     this.lastY = p.y;
@@ -19573,6 +19695,14 @@ function bubble(ev, sink) {
     sink(ev);
     cur = cur.parent;
   }
+}
+function scrollTargetOf(node) {
+  let cur = node;
+  while (cur !== null) {
+    if (cur.scroll) return cur;
+    cur = cur.parent;
+  }
+  return null;
 }
 
 // src/extensions/ui/ui-module.ts
@@ -19612,6 +19742,7 @@ function createUiModule(opts) {
     glyphs: 0,
     labels: 0,
     cacheHits: 0,
+    culled: 0,
     missingGlyphs: [],
     missingFrames: []
   };
@@ -19622,6 +19753,7 @@ function createUiModule(opts) {
     glyphs: 0,
     labels: 0,
     cacheHits: 0,
+    culled: 0,
     missingGlyphs: [],
     missingFrames: [],
     relaid: false
@@ -19636,7 +19768,13 @@ function createUiModule(opts) {
       lastFrame = { ...lastFrame, relaid: false };
       return;
     }
-    layoutResult = layoutTree(root, viewport.safeRect, { intrinsic });
+    layoutResult = layoutTree(root, viewport.safeRect, {
+      intrinsic,
+      // ★ 滚动的**唯一真相**在状态表里（ADR-0012 的权威态）：布局读它、夹它、写回它，
+      //   自己不存一份。存两份的话，"用户滚了但布局用的是旧值"这类漂移迟早出现，
+      //   而且两边都觉得自己对。
+      scroll: { get: (uid) => store.scrollOf(uid), set: (uid, v) => store.setScroll(uid, v) }
+    });
     const res = buildUiQuads(root, fonts, skin, store);
     quads = res.quads;
     drawStats = res.stats;
@@ -19649,6 +19787,7 @@ function createUiModule(opts) {
       glyphs: drawStats.glyphs,
       labels: drawStats.labels,
       cacheHits: drawStats.cacheHits,
+      culled: drawStats.culled,
       missingGlyphs: drawStats.missingGlyphs,
       missingFrames: drawStats.missingFrames,
       relaid: true
@@ -19848,7 +19987,25 @@ function createUiModule(opts) {
     },
     pointer(p) {
       sync();
-      return router.update(p, opts.onEvent);
+      const events = router.update(p, opts.onEvent);
+      let scrolled = false;
+      for (const ev of events) {
+        if (ev.type !== "wheel") continue;
+        const box = ev.target;
+        const delta = box.scrollAxis === "x" ? ev.wheelX : ev.wheelY;
+        if (delta === 0) continue;
+        const cur = store.scrollOf(box.uid);
+        const next = cur + delta;
+        if (next !== cur) {
+          store.setScroll(box.uid, next);
+          scrolled = true;
+        }
+      }
+      if (scrolled) {
+        dirty = true;
+        sync();
+      }
+      return events;
     },
     invalidate() {
       dirty = true;
@@ -20156,9 +20313,10 @@ function createHudUi(opts) {
       bagTexts = rows.map((r) => r.text);
       module.invalidate();
     },
-    pointer(cssX, cssY, down) {
+    pointer(cssX, cssY, down, wheelYCss = 0, wheelXCss = 0) {
       const p = module.viewport.screenToDesign(cssX, cssY);
-      const ptr = { x: p.x, y: p.y, down };
+      const k = module.viewport.scale > 0 ? 1 / module.viewport.scale : 1;
+      const ptr = { x: p.x, y: p.y, down, wheelY: wheelYCss * k, wheelX: wheelXCss * k };
       return module.pointer(ptr);
     }
   };
@@ -24859,10 +25017,20 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
   });
   if (hudUi !== null) {
     const ui = hudUi;
+    let lastX = 0;
+    let lastY = 0;
+    let lastDown = false;
     app.platform.input.subscribe((e) => {
-      if (e.kind !== "pointer") return;
-      if (e.x === void 0 || e.y === void 0) return;
-      ui.pointer(e.x, e.y, e.down === true);
+      if (e.kind === "pointer") {
+        if (e.x === void 0 || e.y === void 0) return;
+        lastX = e.x;
+        lastY = e.y;
+        lastDown = e.down === true;
+        ui.pointer(lastX, lastY, lastDown);
+        return;
+      }
+      if (e.kind !== "wheel") return;
+      ui.pointer(lastX, lastY, lastDown, e.y ?? 0, e.x ?? 0);
     });
   }
   const RESERVED = /* @__PURE__ */ new Set(["F5", "F9", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space", "Tab"]);
