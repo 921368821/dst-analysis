@@ -63,6 +63,8 @@ export const FLOW_PORTAL_BAD_RADIUS = "FLOW.PORTAL.BAD_RADIUS";
 export const FLOW_PORTAL_DUPLICATE = "FLOW.PORTAL_DUPLICATE";
 /** 写了要钥匙，但数量不是正整数 ⇒ 这扇门永远打不开（或语义不明）。 */
 export const FLOW_PORTAL_BAD_REQUIRES = "FLOW.PORTAL.BAD_REQUIRES";
+/** 写了「要先去过的场景」，但那个名字是空白 ⇒ 永远匹配不上任何场景，门永远锁着。 */
+export const FLOW_PORTAL_BAD_SCENE = "FLOW.PORTAL.BAD_SCENE";
 
 export const PORTAL_SCHEMA: ComponentSchema = {
   type: PORTAL_TYPE,
@@ -98,6 +100,23 @@ export const PORTAL_SCHEMA: ComponentSchema = {
      *   同一扇门扣不扣，决定"能不能反复来回"，而这是关卡设计，不是引擎该替他定的。
      */
     consume: FieldType.Bool,
+    /**
+     * 「先去过这个场景」才通（空串 = 不设剧情门槛）。
+     *
+     * ★ 与 `requires` 是**两件事**，别合并（批103）：
+     *   `requires` = 要钥匙，缺了要报「缺哪把、还差几个」—— 因为钥匙确实存在，玩家能去弄；
+     *   这里 = **剧情没到**，一扇根本没该出现的门不该被提示"缺某把钥匙"，
+     *   否则玩家会满世界找一把不存在的钥匙。
+     *
+     * ★ 门槛取自**本局进度**（`SceneFlow.visited`），不是背包：
+     *   「去过第 2 关」与「身上有 3 个木头」是两种不同的进度，前者跟着存档走、后者跟着携带走。
+     *   也正因为门槛是 `visited`，它天然进存档 —— 不需要给存档格式加字段。
+     *
+     * ★ 与目标场景同名是**允许**的：那是"你从别处到过 B，这里才给你一条回 B 的近路"。
+     *   而与**当前这一场**同名则是死锁（`visited` 永远不含当前场景），
+     *   在 `SceneFlow.jump` 里报 `FLOW.STORY_SELF`，不是永远锁着不说原因。
+     */
+    requiresScene: FieldType.String,
   },
   defaults: {
     to: "",
@@ -106,6 +125,7 @@ export const PORTAL_SCHEMA: ComponentSchema = {
     requires: "",
     requiresCount: 1,
     consume: false,
+    requiresScene: "",
   },
 };
 
@@ -116,6 +136,7 @@ export class Portal extends Component {
   requires = "";
   requiresCount = 1;
   consume = false;
+  requiresScene = "";
 
   readonly schema: ComponentSchema = PORTAL_SCHEMA;
 }
@@ -140,6 +161,8 @@ export interface PortalSpec {
   readonly requiresCount: number;
   /** 过门时扣不扣钥匙。 */
   readonly consume: boolean;
+  /** 「先去过这个场景」才通（空串 = 不设剧情门槛）。 */
+  readonly requiresScene: string;
   /** 门心的世界坐标（定点）。 */
   readonly x: number;
   readonly z: number;
@@ -204,6 +227,17 @@ export function collectPortals(scene: Scene): Result<readonly PortalSpec[], Engi
         ),
       );
     }
+    // ★ 空白名字的剧情门槛：`" "` 永远匹配不上任何场景名 ⇒ 这扇门永远锁着，
+    //   而画面上它与一扇正常的门一模一样。与半径、钥匙同一条纪律：**作者写错了就当场说**。
+    if (p.requiresScene !== "" && p.requiresScene.trim() === "") {
+      return err(
+        engineError(
+          FLOW_PORTAL_BAD_SCENE,
+          `节点「${node.name}」的传送门写了一个空白的「要先去过的场景」（${JSON.stringify(p.requiresScene)}）` +
+            ` —— 它永远匹配不上任何场景名，这扇门会永远锁着`,
+        ),
+      );
+    }
     specs.push({
       name: node.name,
       to: p.to,
@@ -212,6 +246,7 @@ export function collectPortals(scene: Scene): Result<readonly PortalSpec[], Engi
       requires: p.requires,
       requiresCount: p.requiresCount,
       consume: p.consume,
+      requiresScene: p.requiresScene,
       x: Math.round(w.x * FIXED_UNITS),
       z: Math.round(w.y * FIXED_UNITS),
     });

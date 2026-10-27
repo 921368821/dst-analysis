@@ -49,6 +49,7 @@ function spec(
     open: true,
     requires: "",
     requiresCount: 1,
+    requiresScene: "",
     consume: false,
     x,
     z,
@@ -152,6 +153,7 @@ test("传送门：组件字段能存档往返（门锁那几个字段一起进�
   p.requires = "wood";
   p.requiresCount = 3;
   p.consume = true;
+  p.requiresScene = "village";
   const saved = p.save();
   // ★ 字段**顺序即序列化顺序**，所以这里必须逐字段比 —— 只写 `deepEqual(saved)`
   //   而不写期望对象的话，"少存一个字段"这种错会被漏掉（对象多出来的键不会被检查）。
@@ -163,6 +165,7 @@ test("传送门：组件字段能存档往返（门锁那几个字段一起进�
     requires: "wood",
     requiresCount: 3,
     consume: true,
+    requiresScene: "village",
   });
   const back = new Portal();
   const miss = back.load(saved);
@@ -173,6 +176,7 @@ test("传送门：组件字段能存档往返（门锁那几个字段一起进�
   assert.equal(back.requires, "wood");
   assert.equal(back.requiresCount, 3);
   assert.equal(back.consume, true);
+  assert.equal(back.requiresScene, "village", "剧情门槛也要进档 —— 否则读档后门重新锁上");
 });
 
 // ---------------------------------------------------------------- hitTest

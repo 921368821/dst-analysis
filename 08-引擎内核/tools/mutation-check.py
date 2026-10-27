@@ -5077,6 +5077,120 @@ MUTANTS = [
             ]
         ],
         "test": "tests/tools/blockers-check.test.ts"
+    },
+    {
+        # 批103：剧情门槛（BLOCKERS C2）。六条打在六件不同的事上：
+        # 判不判、判定顺序、自锁配置、空白校验、规格带没带出来、「去过」的语义。
+        "name": "M540 剧情门槛不判（要先去过的场景形同虚设，门直接放行）",
+        "file": "src/extensions/flow/scene-flow.ts",
+        "pairs": [
+            [
+                '    if (via !== null && via.requiresScene !== "") {',
+                "    if (false) {"
+            ]
+        ],
+        "test": "tests/extensions/flow-story.test.ts"
+    },
+    {
+        "name": "M541 顺序反了：有钥匙要求时就不判剧情（两样都缺时先喊「缺 3 个 key」）",
+        "file": "src/extensions/flow/scene-flow.ts",
+        "pairs": [
+            [
+                '    if (via !== null && via.requiresScene !== "") {',
+                '    if (via !== null && via.requiresScene !== "" && via.requires === "") {'
+            ]
+        ],
+        "test": "tests/extensions/flow-story.test.ts"
+    },
+    {
+        "name": "M542 拿门名当场景名去查「去过」（查的是一张没人往里写的表）",
+        "file": "src/extensions/flow/scene-flow.ts",
+        "pairs": [
+            [
+                "      if (!this.visited.has(via.requiresScene)) {",
+                "      if (!this.visited.has(via.name)) {"
+            ]
+        ],
+        "test": "tests/extensions/flow-story.test.ts"
+    },
+    {
+        "name": "M543 不判「门槛就是自己这一场」（死锁配置表现为「这扇门没反应」）",
+        "file": "src/extensions/flow/scene-flow.ts",
+        "pairs": [
+            [
+                "      if (via.requiresScene === this.current) {",
+                "      if (false) {"
+            ]
+        ],
+        "test": "tests/extensions/flow-story.test.ts"
+    },
+    {
+        "name": "M544 空白门槛不校验（永远匹配不上任何场景 ⇒ 这扇门永远锁着，作者看不出）",
+        "file": "src/extensions/flow/portal.ts",
+        "pairs": [
+            [
+                '    if (p.requiresScene !== "" && p.requiresScene.trim() === "") {',
+                "    if (false) {"
+            ]
+        ],
+        "test": "tests/extensions/flow-story.test.ts"
+    },
+    {
+        "name": "M545 门槛字段没带进规格（collectPortals 里丢掉 ⇒ 门槛形同虚设）",
+        "file": "src/extensions/flow/portal.ts",
+        "pairs": [
+            [
+                "      requiresScene: p.requiresScene,",
+                '      requiresScene: "",'
+            ]
+        ],
+        "test": "tests/extensions/flow-story.test.ts"
+    },
+    {
+        "name": "M546 hasVisited 把当前场景也算进去（「站在 a 上」被当成「去过 a」）",
+        "file": "src/extensions/flow/scene-flow.ts",
+        "pairs": [
+            [
+                "    return this.visited.has(name);",
+                "    return this.visited.has(name) || name === this.current;"
+            ]
+        ],
+        "test": "tests/extensions/flow-story.test.ts"
+    },
+    {
+        # 批104：热重载的三条不变量。删掉下面任一分支，**正常运行一条测试都不会红**
+        # （成功路径一模一样），只有"改坏了中间态"的用例才会现形。
+        "name": "M547 热更复用旧 env（`_G` 当模块表 ⇒ 上一版的全局串到新版）",
+        "file": "src/backends/script-lua/runtime.ts",
+        "pairs": [
+            [
+                "  local env = {}",
+                "  local env = _G"
+            ]
+        ],
+        "test": "tests/backends/script-hot-reload.test.ts"
+    },
+    {
+        "name": "M548 编译失败也当成成功（旧模块被换成一个空壳，改坏一句就全挂）",
+        "file": "src/backends/script-lua/runtime.ts",
+        "pairs": [
+            [
+                "    return { s = 0, m = tostring(compile_err) }",
+                "    return { s = 1, m = tostring(compile_err) }"
+            ]
+        ],
+        "test": "tests/backends/script-hot-reload.test.ts"
+    },
+    {
+        "name": "M549 执行期出错也当成成功（编译通过 ≠ 能跑，半成品被登记）",
+        "file": "src/backends/script-lua/runtime.ts",
+        "pairs": [
+            [
+                "    return { s = 2, m = tostring(result) }",
+                "    return { s = 1, m = tostring(result) }"
+            ]
+        ],
+        "test": "tests/backends/script-hot-reload.test.ts"
     }
 ]
 

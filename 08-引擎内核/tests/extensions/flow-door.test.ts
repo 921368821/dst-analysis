@@ -52,6 +52,7 @@ function spec(extra: Partial<PortalSpec> = {}): PortalSpec {
     open: true,
     requires: "",
     requiresCount: 1,
+    requiresScene: "",
     consume: false,
     x: 0,
     z: 0,

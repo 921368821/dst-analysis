@@ -72,6 +72,15 @@ export interface IScriptRuntime {
    * 加载（或**覆盖**）一个模块。同名重复加载 = 重新定义，不是错误 ——
    * 热重载与编辑器 PIE 都靠这条语义。
    * `name` 是逻辑模块名（`ai.brain`），不是文件路径；路径 → 模块名由上层映射。
+   *
+   * ★★ **热重载的三条不变量**（批104 补的判据钉住，实现见 `backends/script-lua`）：
+   *   ① **先编译后替换**：新源码编译失败 ⇒ 返回错误，**旧模块还能照跑**。
+   *      热更最常见的用法是"边跑边改"，改坏的中间态绝不能把运行中的游戏打挂；
+   *   ② **执行期出错同样不换**：编译通过但 chunk 抛错时，登记表一个字节不动；
+   *   ③ **每次都造新的 env**：新版本看不到上一版的全局（`counter = 3` 不会残到新版），
+   *      这是热更最典型的串味缺陷。
+   *   三条都由 `tests/backends/script-hot-reload.test.ts` 守着 —— 只写在文档里的话，
+   *   它会在某次"顺手优化"里静默消失。
    */
   loadModule(name: string, source: string): Promise<Result<void, EngineError>>;
   unloadModule(name: string): Promise<Result<void, EngineError>>;

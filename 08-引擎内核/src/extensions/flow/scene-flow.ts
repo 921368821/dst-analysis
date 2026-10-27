@@ -94,6 +94,21 @@ export const FLOW_NO_SPAWN = "FLOW.NO_SPAWN";
  *   后者是工程配置错了（作者的事）。混成一个码，玩家会去错的地方找答案。
  */
 export const FLOW_LOCKED = "FLOW.LOCKED";
+/**
+ * 剧情门槛没到（这扇门要你先去过某个场景）。**世界未改动**。
+ *
+ * ★ 与 `FLOW_LOCKED`（缺钥匙）分开：钥匙缺了要给出"还差几个"—— 那把钥匙是存在的，
+ *   玩家去弄就是；剧情没到则该门根本不该被当成"要一把钥匙"，报错混用会让人满世界找
+ *   一把不存在的钥匙。
+ */
+export const FLOW_LOCKED_STORY = "FLOW.LOCKED_STORY";
+/**
+ * 门把自己的场景写成了「要先去过的场景」⇒ **死锁配置**。
+ *
+ * `visited` 永远不包含当前场景（它在 `scene` 里），所以这种门永远打不开。
+ * 单独报出来而不是让它"永远锁着"：作者看到的是"这扇门没反应"，而真相是配置写反了。
+ */
+export const FLOW_STORY_SELF = "FLOW.STORY_SELF";
 /** 装载失败（组件工厂抛、节点建不出来…）。此时**已经尝试回滚**。 */
 export const FLOW_LOAD_FAILED = "FLOW.LOAD_FAILED";
 /** 存档里某一份场景文档解析不了（坏 JSON / 缺字段）。**世界未改动**。 */
@@ -259,6 +274,16 @@ export class SceneFlow {
     return this.visited.size + 1;
   }
 
+  /**
+   * 这一局是否去过某个场景（**当前场景不算** —— 它就在世界里，不在册上）。
+   *
+   * 宿主拿它判"剧情门要不要提示"，`jump` 拿它判剧情门槛，两处共用一个答案：
+   * 各写一遍就会有两套语义（`visited` 是否含当前场景，两种都说得通）。
+   */
+  hasVisited(name: string): boolean {
+    return this.visited.has(name);
+  }
+
   /** 当前场景里的玩家节点 id（没有就是 `null`）。 */
   playerId(): number | null {
     return findPlayerId(this.deps.scene);
@@ -331,6 +356,31 @@ export class SceneFlow {
     const from = this.current;
     const srcPlayer = findPlayerId(scene);
     const carry0 = srcPlayer === null ? null : readCarry(scene, srcPlayer);
+
+    // ④.5 剧情门槛：要「先去过某一场」的门在这里判 —— 同样在世界动之前
+    //
+    // ★ 顺序：**剧情在钥匙之前**。两样都缺时先说「剧情没到」，因为那是"这条路还不该出现"；
+    //   先报缺几个钥匙会把人往错误的方向支（门背后根本不是靠钥匙能开的东西）。
+    //   这一条有判据钉着（两条都缺时报的一定是 FLOW.LOCKED_STORY）。
+    if (via !== null && via.requiresScene !== "") {
+      if (via.requiresScene === this.current) {
+        return err(
+          engineError(
+            FLOW_STORY_SELF,
+            `「${via.name}」要你先去过「${via.requiresScene}」—— 那正是它所在的这一场；` +
+              `「去过」永远不包括当前场景，所以这扇门永远打不开。要么改门槛，要么把它挂在别处`,
+          ),
+        );
+      }
+      if (!this.visited.has(via.requiresScene)) {
+        return err(
+          engineError(
+            FLOW_LOCKED_STORY,
+            `「${via.name}」还不通：这扇门要你先去过「${via.requiresScene}」，而这一局还没到过那里`,
+          ),
+        );
+      }
+    }
 
     // ⑤ 门锁：要钥匙的门在这里判 —— 世界一个字节都没动
     //
