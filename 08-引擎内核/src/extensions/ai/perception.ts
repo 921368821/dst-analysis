@@ -38,7 +38,7 @@
 import type { EngineError, Result } from "../../foundation/result.ts";
 import { engineError, err, ok } from "../../foundation/result.ts";
 import type { Scene } from "../../core/scene/scene.ts";
-import { FACING_TYPE, type Facing } from "../motion/facing.ts";
+import { angleOf, FACING_TYPE, type Facing } from "../motion/facing.ts";
 
 export const AI_NO_SELF = "AI.NO_SELF";
 export const AI_BAD_SENSE = "AI.BAD_SENSE";
@@ -179,7 +179,13 @@ export class Perception {
       if (d2 > range2) return;
       if (halfDeg !== undefined) {
         // 朝向是弧度、半角是度：先统一成度再比，边界行为才写得出来
-        const angDeg = (Math.atan2(dz, dx) / DEG + 360) % 360;
+        // ★★ 这里**必须**用 `angleOf`（而不是自己写一遍 `atan2`）：同一个量算两遍，
+        //   两遍只有在「符号约定也一样」时才一致 —— 批113 之前正是两遍都用了错的符号，
+        //   于是「怪物朝着南边却看见北边的人」这件事在两边都自洽、判据全绿。
+        //   收成一处之后，约定一改两边同时跟。
+        const a = angleOf(dx, dz);
+        if (a === null) return; // 重合（d2 = 0）没有方向，与「正前方 0°」是两回事
+        const angDeg = (a / DEG + 360) % 360;
         const faceDeg = ((face! / DEG) % 360 + 360) % 360;
         let diff = Math.abs(angDeg - faceDeg);
         if (diff > 180) diff = 360 - diff;

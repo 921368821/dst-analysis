@@ -65,11 +65,19 @@ export function normRad(rad: number): number {
  * ★ `atan2(0, 0)` 在 V8 里是 `0`（不是 NaN），所以直接用它会让
  *   「站着不动的怪物」被悄悄掰向东边。症状只在它停下来之后出现，
  *   看起来像美术帧选错了。
+ *
+ * ★★ `-dz` 那个负号**不是笔误**，它承载着「角度增大 = 屏幕上顺时针」这条约定，
+ *   而这条约定是 8 向字母表与美术帧名共用的语言。批113 之前这里写的是
+ *   `atan2(dz, dx)`（数学习惯：逆时针为正），可世界的 +y 在屏幕上是**上**
+ *   （`Camera2D.project` 走裁剪空间，+y 朝上；指针 `unproject` 同源），
+ *   两处合起来的结果是「往上走拿到 `s`（正面）」—— 角色背对镜头走，脸上还有眼睛。
+ *   这类错不会在自洽的判据里露头（期望值都从同一套约定里取）。
+ *   反证见 `tests/extensions/facing.test.ts` 的「往屏幕上方走就该看见背面」。
  */
 export function angleOf(dx: number, dz: number): number | null {
   if (!Number.isFinite(dx) || !Number.isFinite(dz)) return null;
   if (dx === 0 && dz === 0) return null;
-  return normRad(Math.atan2(dz, dx));
+  return normRad(Math.atan2(-dz, dx));
 }
 
 /**
@@ -107,11 +115,16 @@ export function shortestDelta(from: number, to: number): number {
 }
 
 /**
- * 方向扇区下标：`0` = 屏幕右（+x，东），**顺时针**增加（屏幕 y 向下）。
+ * 方向扇区下标：`0` = 屏幕右（+x，东），**屏幕上顺时针**增加。
  *
  * 8 向时顺序是 `e, se, s, sw, w, nw, n, ne`；4 向时是 `e, s, w, n`。
  * 扇区**闭合于右端**（`Math.round`）：正好 22.5° 算 1 号扇形，
  * 所以边界只有一个答案，不会随浮点误差在两格之间跳。
+ *
+ * ★ 「顺时针」这个词说的是**屏幕**，而不是「y 向下」。本引擎的世界 +y 是
+ *   屏幕上方（见 `angleOf` 的 ★★），所以「顺时针」对应的数值是 `atan2(-dz, dx)` ——
+ *   两个词混着用正是批113 那个错约定的来源：函数注释写 y 向下、
+ *   相机其实 y 向上，两边各自自洽，判据全绿。
  */
 export function dirIndex(rad: number, dirs: number): number {
   const n = Number.isFinite(dirs) ? Math.max(1, Math.floor(dirs)) : 8;
@@ -120,7 +133,7 @@ export function dirIndex(rad: number, dirs: number): number {
 
 export class Facing extends Component {
   /**
-   * 朝向（弧度，`[0, 2π)`）。`0` = +x（屏幕右），顺时针为正。
+   * 朝向（弧度，`[0, 2π)`）。`0` = +x（屏幕右），**屏幕上顺时针**为正。
    *
    * ★ 直接写这个字段**不会**被归一化 —— 想安全赋值用 `setAngle()`。
    *   留着公开字段是因为序列化与编辑器面板按名字读写它（`Component.save/load`

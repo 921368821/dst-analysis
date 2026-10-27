@@ -5975,6 +5975,72 @@ MUTANTS = [
             )
         ],
         "test": "tests/extensions/facing.test.ts"
+    },
+    {
+        "name": "M621 角度符号改回数学习惯（往屏幕上走拿到背面变正面：角色倒着走）",
+        "file": "src/extensions/motion/facing.ts",
+        "pairs": [
+            (
+                "  return normRad(Math.atan2(-dz, dx));",
+                "  return normRad(Math.atan2(dz, dx));"
+            )
+        ],
+        "test": "tests/extensions/facing.test.ts"
+    },
+    {
+        "name": "M622 感知自己再算一遍角度（两处约定一错开：怪物朝下却看见上方的人）",
+        "file": "src/extensions/ai/perception.ts",
+        "pairs": [
+            (
+                "        const a = angleOf(dx, dz);",
+                "        const a = Math.atan2(dz, dx);"
+            )
+        ],
+        "test": "tests/extensions/ai-perception.test.ts"
+    },
+    {
+        "name": "M623 扇区下标反着走（角度增大算成逆时针：8 向整体镜像）",
+        "file": "src/extensions/motion/facing.ts",
+        "pairs": [
+            (
+                "  return Math.round(normRad(rad) / (TAU / n)) % n;",
+                "  return Math.round((TAU - normRad(rad)) / (TAU / n)) % n;"
+            )
+        ],
+        "test": "tests/extensions/facing.test.ts"
+    },
+    {
+        "name": "M624 8 向字母表南北互换（帧名与美术帧对不上：上半圈全画成正面）",
+        "file": "src/extensions/render/dir-frames.ts",
+        "pairs": [
+            (
+                'const LETTERS8 = ["e", "se", "s", "sw", "w", "nw", "n", "ne"] as const;',
+                'const LETTERS8 = ["e", "ne", "n", "nw", "w", "sw", "s", "se"] as const;'
+            )
+        ],
+        "test": "tests/extensions/facing.test.ts"
+    },
+    {
+        "name": "M625 「仍缺」判据恒不报（闸门绿着但什么都没扫）",
+        "file": "tools/gap-check.mjs",
+        "pairs": [
+            (
+                "function liveClaim(text) {\n  let struck = false;",
+                "function liveClaim(text) {\n  if (text !== \"\") return false;\n  let struck = false;"
+            )
+        ],
+        "test": "tests/tools/gap-check.test.ts"
+    },
+    {
+        "name": "M626 引用 ✅ 的「仍缺」不报（过期句子又变成绿的了 —— C12 的入口）",
+        "file": "tools/gap-check.mjs",
+        "pairs": [
+            (
+                "    const done = ids.filter((id) => status.get(id) === \"✅\");",
+                "    const done = [];"
+            )
+        ],
+        "test": "tests/tools/gap-check.test.ts"
     }
 ]
 

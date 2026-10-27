@@ -41,7 +41,7 @@ import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from 
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { EDITOR_DECLARED } from "./editor-declared.mjs";
-import { GAP_HEADING, findStaleGapRows, gapRowCount } from "./gap-check.mjs";
+import { GAP_HEADING, findStaleGapRows, findUnresolvedClaims, gapRowCount } from "./gap-check.mjs";
 import { blockerRowCount, findBlockerIssues, pickBlockersDoc } from "./blockers-check.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -71,6 +71,15 @@ const CACHE = join(ROOT, ".cache", "test-count.json");
  *   ★ 反向自检不是可选项：这条判据今天**永远输出 0 条**，而"没在扫"与"扫了没发现"
  *   在这份输出上完全一样。所以每次都要拿一条合成的过期行打自己一发。
  */
+/**
+ * 当前生效的阻塞清单文件名。
+ *
+ * ★ 声明位置**必须在 `gapIssues` 之前**：批113 那条「仍缺必须挂编号」要读清单，
+ *   而它跑在缺口对账里。原本这两个块谁也不需要谁，加了一行就读到 TDZ —— 报错信息
+ *   是「Cannot access 'blockersFile' before initialization」，看上去像文件路径的错。
+ */
+const blockersFile = pickBlockersDoc(readdirSync(join(ROOT, "docs")));
+
 const gapIssues = (() => {
   const docText = readFileSync(join(ROOT, "docs", "PROGRESS.md"), "utf8");
   const ciText = readFileSync(join(ROOT, "tools", "ci.mjs"), "utf8");
@@ -99,9 +108,46 @@ const gapIssues = (() => {
   }
   const gapRows = gapRowCount(docText);
   const stale = findStaleGapRows({ docText, exists, ciText });
-  console.log(`清单对账：§六 缺口行 ${gapRows} 行，过期 ${stale.length} 条`);
-  if (GAP_ONLY) process.exit(stale.length === 0 ? 0 : 1);
-  return stale;
+
+  // ★ 「仍缺」必须挂阻断编号（批113，规则见 `tools/gap-check.mjs` 的 findUnresolvedClaims）。
+  //   反向自检同样不是可选项：零条输出分不清「没在扫」与「扫了没问题」。
+  const blockersText = readFileSync(join(ROOT, "docs", blockersFile), "utf8");
+  const CLAIM_SAMPLE = [
+    GAP_HEADING,
+    "",
+    "| 缺口 | 现状 | 在等什么 |",
+    "|---|---|---|",
+    "| 甲 | 现状 | **仍缺**：没写编号 |",
+    "| 乙 | 现状 | **仍缺**：早就做完了（C2） |",
+    "| 丙 | 现状 | **仍缺**：还在做（C9） |",
+    "| 丁 | 现状 | ~~仍缺：写完了~~ ✅ |",
+    "",
+    "## 七、结束",
+    "",
+  ].join("\n");
+  const CLAIM_BLOCKERS = [
+    "| # | 项 | 状态 |",
+    "|---|---|---|",
+    "| C2 | 剧情解锁 | ✅ 批103 |",
+    "| C9 | 富文本 | 🔜 批106 起 |",
+    "",
+  ].join("\n");
+  const claimProbe = findUnresolvedClaims(CLAIM_SAMPLE, CLAIM_BLOCKERS);
+  const probeOk =
+    claimProbe !== null &&
+    claimProbe.length === 2 &&
+    claimProbe.some((x) => x.kind === "uncited") &&
+    claimProbe.some((x) => x.kind === "stale" && x.ids.includes("C2"));
+  if (!probeOk) {
+    console.error("✗ 「仍缺必须挂编号」打不中合成语料 —— 这条判据是摆设（绿着但没在扫）");
+    process.exit(2);
+  }
+  const claims = findUnresolvedClaims(docText, blockersText) ?? [];
+  console.log(
+    `清单对账：§六 缺口行 ${gapRows} 行，过期 ${stale.length} 条，未挂编号/已过期的「仍缺」 ${claims.length} 条`,
+  );
+  if (GAP_ONLY) process.exit(stale.length === 0 && claims.length === 0 ? 0 : 1);
+  return [...stale, ...claims];
 })();
 
 /**
@@ -115,7 +161,7 @@ const gapIssues = (() => {
  *   ★ 反向自检同样不是可选项：今天它输出 0 条，而"没在扫"与"扫了没问题"在输出上一样。
  */
 const BLOCKERS_ONLY = process.argv.includes("--blockers-only");
-const blockersFile = pickBlockersDoc(readdirSync(join(ROOT, "docs")));
+// （声明已上移到 §六 缺口对账之前 —— 那里要用它读清单，见批113）
 const blockerIssues = (() => {
   if (blockersFile === null) {
     console.error("✗ docs/ 下没有 BLOCKERS-*.md —— 阻塞清单不在了，这条判据无从对账");
@@ -478,10 +524,22 @@ for (let k = 1; k <= nums.length; k++) {
 // 缺口清单对账的结果并入 problems（判据本身在文件开头那段：它必须先于「数判据」跑，
 // 否则 `--gap-only` 也要等缓存/全量测试 —— 见那段注释）。
 for (const it of gapIssues) {
-  problems.push(
-    `PROGRESS.md:${it.no} 缺口行点名了已在 CI 里跑的工具（${it.hits.join(", ")}）` +
-      " —— 若这条缺口已被它补上，把首格标 ✅ 并写清哪一批补的；若没补上，写清还差什么（工具在跑 ≠ 这件事做完了）",
-  );
+  if (it.kind === "uncited") {
+    problems.push(
+      `PROGRESS.md:${it.no} 缺口里的「仍缺」没挂阻断编号` +
+        " —— 挂上（C9）这类编号，下一轮清查才会被迫回来核对；写完的就把「仍缺」划掉并标 ✅",
+    );
+  } else if (it.kind === "stale") {
+    problems.push(
+      `PROGRESS.md:${it.no} 「仍缺」引用的 ${it.ids.join(", ")} 在阻塞清单里已经是 ✅` +
+        " —— 这条缺口早就消除了，句子过期了（C12 就是照抄过期句写出来的）",
+    );
+  } else {
+    problems.push(
+      `PROGRESS.md:${it.no} 缺口行点名了已在 CI 里跑的工具（${it.hits.join(", ")}）` +
+        " —— 若这条缺口已被它补上，把首格标 ✅ 并写清哪一批补的；若没补上，写清还差什么（工具在跑 ≠ 这件事做完了）",
+    );
+  }
 }
 
 // 阻塞项对账的结果并入 problems（同一条理由：它在文件开头跑，才能被 `--blockers-only` 单跑）。

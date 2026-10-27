@@ -40,3 +40,23 @@ export function findStaleGapRows(p: {
 
 /** §六 里的缺口行数（给 `docs-check` 打印用：0 行 = 判据没在扫）。 */
 export function gapRowCount(docText: string): number;
+
+/**
+ * 一条「仍缺」的毛病（批113）。
+ *
+ * `uncited` = 没挂阻断编号（没人被迫回来核对）；`stale` = 挂的那条已经 ✅（句子过期）。
+ */
+export interface UnresolvedClaim {
+  /** 原文行号（1-based）。 */
+  readonly no: number;
+  readonly kind: "uncited" | "stale";
+  /** 仅 `stale` 有：清单里已经是 ✅ 的编号。 */
+  readonly ids?: string[];
+}
+
+/**
+ * 扫出「没被划掉、却既没挂编号 / 挂的编号已 ✅」的「仍缺」。
+ *
+ * **标题不见了返回 `null`**（与 `gapSectionLines` 同一口径：不静默扫 0 行）。
+ */
+export function findUnresolvedClaims(docText: string, blockerText: string): UnresolvedClaim[] | null;

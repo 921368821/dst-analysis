@@ -112,3 +112,84 @@ export function gapRowCount(docText) {
   if (section === null) return 0;
   return dataRows(section).length;
 }
+
+/**
+ * ## 「仍缺」必须挂一个阻断编号（批113）
+ *
+ * ★ 为什么需要它：`docs-check` 原来只抓一种过期 —— **点名的工具已经在 CI 里跑**。
+ *   2026-10-27 批113 实测，`§六` 里另有 **5 处**早就做完却仍写着「仍缺」：
+ *   剧情解锁（C2，批103 就交付）、拖拽换位与输入框（批109/110）、避头尾（批111）、
+ *   脚本热更（批104），外加一句「W 往屏幕下方走」的**错误结论**。
+ *   它们的共同形状是：句子没有点名任何工具（所以旧规则永远抓不到），
+ *   也从来不引用 `BLOCKERS` 的编号（所以没人被迫回去核对）。
+ *
+ * ★ 规则有两条，都很窄：
+ *   ① `§六` 里一个**没被划掉**的「仍缺」，必须写明它对应哪一条阻断项（`（C9）` 这种）；
+ *   ② 写的那一条在清单里不能是 `✅` —— 是 `✅` 就说明这条缺口已经消除，句子过期了。
+ *
+ * ★ 什么样的「仍缺」不算：**被 `~~` 划掉的**（历史留痕）。判定不用正则猜，
+ *   而是逐字符过 `~~` 开关 —— `~~平台分包~~ ✅ … **仍缺**：微信上传` 这种一行里
+ *   既有划掉又有仍缺的情况，只有开关注能分辨（`indexOf("~~仍缺")` 会把 2041 行那种
+ *   `~~世界仍缺：…` 漏掉，也会把 2081 行这种误判成划掉）。
+ *
+ * @param {string} docText
+ * @param {string} blockerText  `BLOCKERS-*.md` 全文
+ * @returns {{no: number, kind: "uncited"|"stale", ids?: string[]}[]|null}
+ *           `null` = 找不到 §六 标题（判据不静默扫 0 行）
+ */
+export function findUnresolvedClaims(docText, blockerText) {
+  const section = gapSectionLines(docText);
+  if (section === null) return null;
+  const status = blockerStatuses(blockerText);
+  const issues = [];
+  for (const { no, text } of section) {
+    if (!liveClaim(text)) continue;
+    const ids = [...text.matchAll(/（[^）]*?([A-Z]\d+)[^）]*?）/g)].map((m) => m[1]);
+    if (ids.length === 0) {
+      issues.push({ no, kind: "uncited" });
+      continue;
+    }
+    const done = ids.filter((id) => status.get(id) === "✅");
+    if (done.length > 0) issues.push({ no, kind: "stale", ids: done });
+  }
+  return issues;
+}
+
+/**
+ * 这一行里有没有**没被划掉**的「仍缺」。
+ *
+ * 逐字符过 `~~`，命中「仍缺」时看开关状态 —— 见上面 ★。
+ */
+function liveClaim(text) {
+  let struck = false;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === "~" && text[i + 1] === "~") {
+      struck = !struck;
+      i++;
+      continue;
+    }
+    if (!struck && text.startsWith("仍缺", i)) return true;
+  }
+  return false;
+}
+
+/**
+ * 阻断清单里「编号 → 状态字符」。
+ *
+ * 只认**首格是编号**的数据行（`| C9 | … | 🔜 批106 起 |`），状态取**最后一格**里的第一个
+ * 词表字符。认不出来就留空 —— 留空会让 ② 不报（宁可不报，也不拿猜出来的状态判红）。
+ */
+function blockerStatuses(text) {
+  const map = new Map();
+  for (const line of text.replace(/\r\n/g, "\n").split("\n")) {
+    const t = line.trim();
+    if (!t.startsWith("|")) continue;
+    const cells = t.replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
+    if (cells.length < 3) continue;
+    const id = cells[0];
+    if (!/^[A-Z]\d+$/.test(id)) continue;
+    const last = cells[cells.length - 1];
+    map.set(id, ["✅", "⛔", "🔜", "❌"].find((c) => last.includes(c)) ?? "");
+  }
+  return map;
+}

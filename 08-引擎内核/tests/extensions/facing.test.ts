@@ -42,6 +42,7 @@ import {
 import { AI_BAD_SENSE, Perception } from "../../src/extensions/ai/perception.ts";
 import { Mover, createMoveModule, registerMoverComponent } from "../../src/extensions/ai/move.ts";
 import { dirFrameName, resolveDirFrame } from "../../src/extensions/render/dir-frames.ts";
+import { Camera2D } from "../../src/extensions/render/camera.ts";
 import { SPRITE_TYPE, Sprite } from "../../src/extensions/render/sprite.ts";
 import { registerAttackerComponent } from "../../src/extensions/combat/attack.ts";
 import { registerDirSpriteComponent } from "../../src/extensions/render/dir-sprite.ts";
@@ -421,12 +422,15 @@ test("★★ 朝向取自**位移**（不是绝对坐标）：四个方向 + 零
   //   而世界太脏（生物会推、物理会顶），浏览器里逐拍的朝向观测稳不住（三跑一红）。
   //   抽成纯函数之后，这里把四种方向与"没挪"都定死。
   const PI = Math.PI;
+  // ★ 标签写的是**屏幕**方位（批113 更正）：本引擎的世界 +y 是屏幕上方，
+  //   所以「往下走」是 −y、「往上走」是 +y。批113 之前这里全标反了 ——
+  //   而那正是错约定的一部分（判据照着函数注释抄，注释本身是错的）。
   const cases: Array<[string, number, number, number, number, number]> = [
     ["东（+x）", 0, 0, 1, 0, 0],
-    ["南（屏幕下 +y）", 0, 0, 0, 1, PI / 2],
+    ["下（屏幕下 −y）", 0, 0, 0, -1, PI / 2],
     ["西（−x）", 0, 0, -1, 0, PI],
-    ["北（屏幕上 −y）", 0, 0, 0, -1, (3 * PI) / 2],
-    ["东南（对角）", 0, 0, 1, 1, PI / 4],
+    ["上（屏幕上 +y）", 0, 0, 0, 1, (3 * PI) / 2],
+    ["东南（+x−y 对角）", 0, 0, 1, -1, PI / 4],
   ];
   for (const [why, fx, fy, tx, ty, want] of cases) {
     const f = new Facing();
@@ -439,7 +443,7 @@ test("★★ 朝向取自**位移**（不是绝对坐标）：四个方向 + 零
   //   结果必须一样 —— 写错成 `angleOf(toX, toY)` 时，这里会朝原点。
   const far = new Facing();
   assert.equal(faceFromMotion(far, 5, 5, 5, 6), true);
-  assert.equal(far.angle, PI / 2, "同一个位移在别的位置必须给同一个朝向");
+  assert.equal(far.angle, (3 * PI) / 2, "同一个位移在别的位置必须给同一个朝向（+y = 屏幕上）");
 
   // 没挪 ⇒ 一个字节都不改（`angleOf` 的零向量约定，见文件头 ①）
   const still = new Facing();
@@ -452,4 +456,53 @@ test("★★ 朝向取自**位移**（不是绝对坐标）：四个方向 + 零
   bad.setAngle(PI / 4);
   assert.equal(faceFromMotion(bad, 0, 0, Number.NaN, 0), false);
   assert.equal(bad.angle, PI / 4, "NaN 位移不许污染朝向");
+});
+
+test("★★★ 往屏幕上方走就该看见**背面**：角度约定必须与「屏幕上方是 +y」一致", () => {
+  // ★★ 这条抓的是一个**两边都自洽、全绿了很久**的错约定（批113 修）：
+  //   `angleOf` 原来是 `atan2(dz, dx)`（数学习惯：逆时针为正），而 `dirIndex`
+  //   与 8 向字母表按「屏幕 y 向下、顺时针」写的 —— 两处假设的方向相反，
+  //   于是**往上走拿到的是「s」（正面）那张图**：角色背对着你走，脸上还有眼睛。
+  //   为什么一直没被发现：所有判据的期望值都从同一套约定里取（`sectorOf(angle)`
+  //   和 `dirIndex` 同源），自洽的错不会在自洽的判据里露头。能分开它们的，
+  //   只有「**运动方向**」与「**字母**」这两头，而中间必须有一段不是自家算的锚。
+  //
+  //   锚在这里：相机把世界 (x,z) 投影到裁剪空间，`unproject` 又把 DOM 像素
+  //   投回世界 —— 指针命中与绘制**共用**这一对函数（gizmo 的「抓哪拖哪」判据
+  //   钉着它们互为逆）。所以「DOM 顶行 ⇒ 世界 y 更大」是可核的，不用猜。
+  const cam = new Camera2D({ viewportWidth: 960, viewportHeight: 700, zoom: 32, tiltY: 0.62, x: 10, z: 10 });
+  const topZ = cam.unproject(480, 0).z;
+  const bottomZ = cam.unproject(480, 699).z;
+  assert.ok(topZ > bottomZ, "DOM 顶行必须对应更大的世界 y —— 否则指针命中与画面会上下颠倒");
+
+  // ① 世界 +y 在屏幕上是**上方**：往上走的位移是 dz > 0
+  // ② 8 向全表：每个罗盘方向走过去，帧名字母必须是那个方向
+  const CASES: Array<[string, number, number, string]> = [
+    ["东（+x）", 1, 0, "e"],
+    ["东北（+x+y）", 1, 1, "ne"],
+    ["上（+y）", 0, 1, "n"],
+    ["西北（−x+y）", -1, 1, "nw"],
+    ["西（−x）", -1, 0, "w"],
+    ["西南（−x−y）", -1, -1, "sw"],
+    ["下（−y）", 0, -1, "s"],
+    ["东南（+x−y）", 1, -1, "se"],
+  ];
+  for (const [why, dx, dy, want] of CASES) {
+    const f = new Facing();
+    // 先摆一个和任何 45° 倍数**都不同**的朝向：不改也能蒙对的话，这条判据等于没写
+    f.setAngle(0.3);
+    assert.equal(faceFromMotion(f, 0, 0, dx, dy), true, `${why}：动了就要有朝向`);
+    const frame = dirFrameName("walk", f.dir8);
+    assert.equal(frame, `walk_${want}`, `${why}：位移方向对应的帧是 walk_${want}，实际 ${frame}`);
+  }
+
+  // ③ 正/背必须是**一对反向**：上下两个方向不许给同一个字母
+  //   （这条能单独抓住「字母表整体错位一格」—— 那种错法在 8 个方向里有一半仍然对）
+  const up = new Facing();
+  faceFromMotion(up, 0, 0, 0, 1);
+  const down = new Facing();
+  faceFromMotion(down, 0, 0, 0, -1);
+  assert.notEqual(dirFrameName("walk", up.dir8), dirFrameName("walk", down.dir8));
+  assert.equal(dirFrameName("walk", up.dir8), "walk_n");
+  assert.equal(dirFrameName("walk", down.dir8), "walk_s");
 });

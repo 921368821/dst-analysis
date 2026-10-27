@@ -1476,11 +1476,56 @@ row("★★★ 玩家八向动画：帧名 = 朝向扇区、同方向 4 帧在�
     // 走这一趟应该看见不止一个字母：四键四个方向，全一样就说明"换向没换段"。
     const letters = new Set(walked.flatMap((w) => w.seen).filter((l) => l !== null));
     if (letters.size < 2) return fail(`四键走过之后帧字母一直是 ${[...letters][0]} —— 换向没换段`);
+
+    // ---- ④ 位移方向 → 帧字母（**这条是批113 那个错约定的页面侧守卫**）
+    //   ★ 为什么不能靠上面 ③：③ 判的是「帧字母 == 它自己的朝向扇区」，两边同源，
+    //     朝向整体反了也照样绿 —— 批113 之前就是这样绿的（往上走画的是正面）。
+    //   ★ 这里用**受控位移**：每拍往一个方向挪 0.25 格，读下一拍的帧字母。
+    //     不按键是因为按键期间的位移会被生物推挤污染（见上），而受控位移
+    //     远大于一拍推力；也不直接写 `Facing.angle` —— 那只是把 dirIndex 再跑一遍，
+    //     证不到「onStep 真的把位移变成了朝向」这条接缝。
+    const DIR4 = [
+      [1, 0, "e"],
+      [0, 1, "n"],
+      [-1, 0, "w"],
+      [0, -1, "s"],
+    ];
+    // ★ 先回到**空地**再测：③ 走完四键之后人已经不在原来那块空地上了，
+    //   而出生点周围挤着资源体与猎狗，物理每拍都在推（实测推 0.3 格）。
+    //   0.6 格的一步 vs 0.3 格的推力：符号不会被推反。
+    const spot2 = clearSpot();
+    if (spot2 === null) return fail("找不到空地来测四向帧字母");
+    node.setLocalPosition(spot2.x, spot2.y);
+    await wait(220);
+    const faces = [];
+    for (const [ux, uy, want] of DIR4) {
+      const seenL = [];
+      for (let i = 0; i < 8; i++) {
+        const p = posOf();
+        node.setLocalPosition(p.x + ux * 0.6, p.y + uy * 0.6);
+        await wait(30);
+        seenL.push(sample());
+      }
+      const hit = seenL.filter((s) => s.letter === want).length;
+      faces.push({ want, hit, last: seenL[seenL.length - 1] });
+    }
+    // 8 拍里至少 6 拍对：留两拍给"正好被生物挤了一下"的偶发样本。
+    const bad = faces.filter((f) => f.hit < 6);
+    if (bad.length > 0) {
+      const f = bad[0];
+      return fail(
+        `往 ${f.want} 方向挪 4 拍，只有 ${f.hit} 拍画的是 ${f.want}（最后一拍是 ${f.last.frame}）` +
+          ` —— 位移没变成朝向，或帧字母与方向对不上（批113：屏幕上方是 +y）`,
+      );
+    }
+    const four = new Set(faces.map((f) => f.want));
+    if (four.size !== 4) return fail("四个方向没给出四个不同的字母");
+
     heroAnimDone = [
       true,
       `帧号 ${[...idxs].sort().join("/")} 在播 · 四键沿轴位移 ${walked
         .map((w) => `${w.code}=${w.along.toFixed(2)}`)
-        .join(" ")} · 期间帧字母（${[...letters].sort().join("/")}）`,
+        .join(" ")} · 四向帧字母 ${faces.map((f) => `${f.want}×${f.hit}/8`).join(" ")}`,
     ];
     return heroAnimDone;
   } finally {

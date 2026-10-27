@@ -13,6 +13,7 @@ import assert from "node:assert/strict";
 import { Component, ComponentRegistry, FieldType } from "../../src/core/scene/component.ts";
 import { Scene } from "../../src/core/scene/scene.ts";
 import { Perception, AI_BAD_SENSE, AI_NO_SELF } from "../../src/extensions/ai/perception.ts";
+import { angleOf } from "../../src/extensions/motion/facing.ts";
 import { TargetTracker, AI_BAD_TARGET } from "../../src/extensions/ai/targeting.ts";
 
 class Marker extends Component {
@@ -130,6 +131,32 @@ test("[感知] 视野：正前方看见、正后方看不见、半角外（60° 
   assert.ok(ids.includes(inView), "30° 在半角 45° 内，应该看见");
   assert.ok(!ids.includes(back), "正后方被看见了 —— 视野没起作用");
   assert.ok(!ids.includes(off), "60° 超出半角 45°，不该看见");
+});
+
+test("★★ 视野锥跟着「屏幕上方 = +y」走：朝上时看不见下方的人", () => {
+  // ★ 这条钉的是**第二处角度实现**（批113 修掉）：`sense()` 原来是自己写一遍
+  //   `Math.atan2(dz, dx)`，而朝向来自 `angleOf()` —— 两处只有在符号约定也相同时
+  //   才一致。把它们错开（或把其中一处改回数学习惯）就会出现
+  //   「怪物朝着屏幕下方却看见上方的人」，而**两边各自的判据都还是绿的**。
+  //   上面那条「视野」用 facing=0（+x）验，两个符号约定在 0° 上恰好重合 ⇒ 抓不到。
+  const { scene } = makeScene();
+  const self = scene.spawnImmediate("self");
+  self.setLocalPosition(0, 0);
+  scene.flush();
+  const up = put(scene, "up", 0, 3);
+  const down = put(scene, "down", 0, -3);
+  const east = put(scene, "east", 3, 0);
+
+  const p = new Perception({ range: 10, watch: [MARKER], halfAngleDeg: 45 });
+  const facingUp = angleOf(0, 1);
+  assert.notEqual(facingUp, null);
+  const r = p.sense(scene, self.id, 1, facingUp!);
+  assert.equal(r.ok, true);
+  if (!r.ok) return;
+  const ids = r.value.map((s) => s.nodeId);
+  assert.ok(ids.includes(up), "朝着屏幕上方，上方的人必须看得见");
+  assert.ok(!ids.includes(down), "朝着屏幕上方却看见了下方的人 —— 两处角度的符号约定不一致");
+  assert.ok(!ids.includes(east), "正侧方 90° 超出半角 45°");
 });
 
 test("[感知] 配了半角却没给朝向：报错，**不**默默当全向", () => {

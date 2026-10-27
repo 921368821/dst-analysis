@@ -18,7 +18,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { findStaleGapRows, gapRowCount, gapSectionLines, GAP_HEADING } from "../../tools/gap-check.mjs";
+import { findStaleGapRows, findUnresolvedClaims, gapRowCount, gapSectionLines, GAP_HEADING } from "../../tools/gap-check.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -188,4 +188,85 @@ test("接线：docs-check 真的在扫（`--gap-only` 的输出里必须有「�
     `docs-check 没有打印清单对账结果：\n${out.slice(0, 800)}`,
   );
   assert.ok(r.status === 0 || r.status === 1, `退出码应当是 0 或 1（0 干净 / 1 有过期行），实际 ${String(r.status)}`);
+});
+
+// ---------------------------------------------------------------------------
+// 「仍缺」必须挂阻断编号（批113）
+//
+// ★ 这一组存在的原因：`§六` 里当时有 5 处**早就做完**却仍写着「仍缺」的句子
+//   （剧情解锁 / 拖拽换位 / 输入框 / 避头尾 / 脚本热更）。旧规则只抓「点名了已在 CI
+//   里跑的工具」，这些句子一个工具都没点名 ⇒ 永远绿。加规则的同时必须给每条规则
+//   一发合成语料，否则它就是「绿着但没在扫」。
+// ---------------------------------------------------------------------------
+
+const BLOCKERS = [
+  "| # | 项 | 状态 |",
+  "|---|---|---|",
+  "| C2 | 剧情解锁 | ✅ 批103 |",
+  "| C9 | 富文本 | 🔜 批106 起 |",
+  "| B1 | 微信上传 | ⛔ 阻塞在凭据 |",
+].join("\n");
+
+test("[仍缺] 没挂编号 ⇒ 报（否则没人会回去核对它到底做完没有）", () => {
+  const text = doc(["| 某个缺口 | **仍缺**：按任务/进度开门 | 等下一个玩家 |"]);
+  const got = findUnresolvedClaims(text, BLOCKERS);
+  assert.equal(got?.length, 1);
+  assert.equal(got?.[0]?.kind, "uncited");
+  const lineNo = text.split("\n").findIndex((l) => l.includes("某个缺口")) + 1;
+  assert.equal(got?.[0]?.no, lineNo);
+});
+
+test("[仍缺] 挂的编号在清单里是 ✅ ⇒ 报（句子过期了，C12 就是这么来的）", () => {
+  const text = doc(["| 另一个缺口 | **仍缺**：剧情解锁（C2） | —— |"]);
+  const got = findUnresolvedClaims(text, BLOCKERS);
+  assert.equal(got?.length, 1);
+  assert.equal(got?.[0]?.kind, "stale");
+  assert.deepEqual(got?.[0]?.ids, ["C2"]);
+});
+
+test("[仍缺] 编号是 🔜 / ⛔ ⇒ 不报（还在排队 / 等凭据，这就是现状）", () => {
+  const text = doc([
+    "| 甲 | **仍缺**：富文本（C9） | 等排版层重构 |",
+    "| 乙 | **仍缺**：微信上传（要 appid，B1） | 等凭据 |",
+  ]);
+  assert.deepEqual(findUnresolvedClaims(text, BLOCKERS), []);
+});
+
+test("[仍缺] 被 ~~ 划掉的不算（历史留痕，不是现状）", () => {
+  const text = doc([
+    "| 甲 | ~~**仍缺**：输入框~~ ✅ 批110 | —— |",
+    "- ~~世界仍缺：**关卡流程**~~ ✅ 已消除（批92）",
+  ]);
+  assert.deepEqual(findUnresolvedClaims(text, BLOCKERS), []);
+});
+
+test("[仍缺] 一行里既有划掉又有仍缺：只有 ~~ 开关注分得清（indexOf 两边都错）", () => {
+  const live = doc(["| 甲 | ~~平台分包~~ ✅、~~Steam 上传~~ ✅。**仍缺**：微信上传（B1） | —— |"]);
+  assert.equal(findUnresolvedClaims(live, BLOCKERS)?.length, 0, "挂了 B1 且在等凭据 ⇒ 不报");
+  const uncited = doc(["| 甲 | ~~平台分包~~ ✅。**仍缺**：微信上传 | —— |"]);
+  assert.equal(findUnresolvedClaims(uncited, BLOCKERS)?.length, 1, "没挂编号 ⇒ 报");
+});
+
+test("[仍缺] 编号写了但清单里没有 ⇒ 不报（不拿猜出来的状态判红）", () => {
+  const text = doc(["| 甲 | **仍缺**：某件事（C99） | —— |"]);
+  assert.deepEqual(findUnresolvedClaims(text, BLOCKERS), []);
+});
+
+test("[仍缺] 找不到 §六 标题 ⇒ null（不许静默扫 0 行）", () => {
+  assert.equal(findUnresolvedClaims("# 没有六\n\n| 甲 | **仍缺**：x | —— |", BLOCKERS), null);
+});
+
+test("[仍缺] 真实 PROGRESS.md：0 条，且确实扫到了「仍缺」（防「扫 0 行也绿」）", () => {
+  const text = readFileSync(join(ROOT, "docs", "PROGRESS.md"), "utf8");
+  const blockersText = readFileSync(join(ROOT, "docs", "BLOCKERS-2026-10-27.md"), "utf8");
+  const got = findUnresolvedClaims(text, blockersText);
+  assert.notEqual(got, null, "§六 标题没了？");
+  assert.deepEqual(got, [], `真实文档里有 ${String(got?.length)} 条「仍缺」没挂编号或已过期`);
+  // ★ 上一条只证明「没报」，不证明「扫过」：正文里必须真有『仍缺』，也真有一条挂了编号
+  const section = gapSectionLines(text) ?? [];
+  assert.ok(section.some((l) => l.text.includes("仍缺")), "§六 里一条「仍缺」都找不到 —— 判据可能扫错了范围");
+  assert.ok(
+    section.some((l) => /（[^）]*[A-Z]\d+[^）]*）/.test(l.text)),
+    "没有一条挂了编号 —— 上面的空数组可能来自「没扫」",
+  );
 });

@@ -22777,7 +22777,7 @@ function normRad(rad) {
 function angleOf(dx, dz) {
   if (!Number.isFinite(dx) || !Number.isFinite(dz)) return null;
   if (dx === 0 && dz === 0) return null;
-  return normRad(Math.atan2(dz, dx));
+  return normRad(Math.atan2(-dz, dx));
 }
 function faceFromMotion(face, fromX, fromY, toX, toY) {
   const a = angleOf(toX - fromX, toY - fromY);
@@ -22797,7 +22797,7 @@ function dirIndex(rad, dirs) {
 }
 var Facing = class extends Component {
   /**
-   * 朝向（弧度，`[0, 2π)`）。`0` = +x（屏幕右），顺时针为正。
+   * 朝向（弧度，`[0, 2π)`）。`0` = +x（屏幕右），**屏幕上顺时针**为正。
    *
    * ★ 直接写这个字段**不会**被归一化 —— 想安全赋值用 `setAngle()`。
    *   留着公开字段是因为序列化与编辑器面板按名字读写它（`Component.save/load`
@@ -23837,7 +23837,9 @@ var Perception = class {
       const d2 = dx * dx + dz * dz;
       if (d2 > range2) return;
       if (halfDeg !== void 0) {
-        const angDeg = (Math.atan2(dz, dx) / DEG2 + 360) % 360;
+        const a = angleOf(dx, dz);
+        if (a === null) return;
+        const angDeg = (a / DEG2 + 360) % 360;
         const faceDeg = (face / DEG2 % 360 + 360) % 360;
         let diff = Math.abs(angDeg - faceDeg);
         if (diff > 180) diff = 360 - diff;
