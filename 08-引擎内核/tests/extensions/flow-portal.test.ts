@@ -34,8 +34,26 @@ import {
 
 const F = FIXED_UNITS;
 
-function spec(name: string, x: number, z: number, radius = F, to = "b"): PortalSpec {
-  return { name, to, radius, x, z };
+function spec(
+  name: string,
+  x: number,
+  z: number,
+  radius = F,
+  to = "b",
+  extra: Partial<PortalSpec> = {},
+): PortalSpec {
+  return {
+    name,
+    to,
+    radius,
+    open: true,
+    requires: "",
+    requiresCount: 1,
+    consume: false,
+    x,
+    z,
+    ...extra,
+  };
 }
 
 function setup(): { scene: Scene; registry: ComponentRegistry } {
@@ -126,17 +144,35 @@ test("传送门：规格按名字升序（重叠时的兜底顺序不能取决�
   );
 });
 
-test("传送门：组件字段能存档往返（to 与 radius 都在 schema 里）", () => {
+test("传送门：组件字段能存档往返（门锁那几个字段一起进档）", () => {
   const p = new Portal();
   p.to = "forest";
   p.radius = 640;
+  p.open = false;
+  p.requires = "wood";
+  p.requiresCount = 3;
+  p.consume = true;
   const saved = p.save();
-  assert.deepEqual(saved, { type: PORTAL_TYPE, to: "forest", radius: 640 });
+  // ★ 字段**顺序即序列化顺序**，所以这里必须逐字段比 —— 只写 `deepEqual(saved)`
+  //   而不写期望对象的话，"少存一个字段"这种错会被漏掉（对象多出来的键不会被检查）。
+  assert.deepEqual(saved, {
+    type: PORTAL_TYPE,
+    to: "forest",
+    radius: 640,
+    open: false,
+    requires: "wood",
+    requiresCount: 3,
+    consume: true,
+  });
   const back = new Portal();
   const miss = back.load(saved);
   assert.deepEqual(miss.missing, []);
   assert.equal(back.to, "forest");
   assert.equal(back.radius, 640);
+  assert.equal(back.open, false, "关着的门读回来还是关着的");
+  assert.equal(back.requires, "wood");
+  assert.equal(back.requiresCount, 3);
+  assert.equal(back.consume, true);
 });
 
 // ---------------------------------------------------------------- hitTest

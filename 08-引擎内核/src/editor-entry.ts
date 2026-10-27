@@ -82,7 +82,12 @@ import {
 } from "./extensions/editor/play-session.ts";
 // 批92：关卡流程（试玩里走进门 → 换场景）。这一层是纯模型，编辑器只负责
 // "什么时候喂位置"和"跳完重画什么"。
-import { PortalWatcher, collectPortals, registerPortalComponent } from "./extensions/flow/portal.ts";
+import {
+  PortalWatcher,
+  collectPortals,
+  registerPortalComponent,
+  type PortalSpec,
+} from "./extensions/flow/portal.ts";
 import { SceneFlow, findPlayerId, type JumpReport } from "./extensions/flow/scene-flow.ts";
 import { createControllerModule } from "./extensions/input/player-controller.ts";
 import type { InputSnapshot } from "./platform/input/device.ts";
@@ -738,6 +743,17 @@ function stopPlay(): StopOutcome {
   flow = null;
   portalWatcher.reset();
   flowNote = "";
+  // ★★ 回滚会**重建节点**（id 全变），而 `heroId` 是"编辑器认为的玩家"。
+  //   不重新指向的话，停播之后每一次按 heroId 取节点的命令（选中、gizmo、`E.hero()`）
+  //   都指向一个**不在场景里**的 id —— 而画面上一切正常，只是那些操作报
+  //   `EDIT.BAD_FIELD`（"节点不在场景里"），看起来像组件丢了。
+  //   批92 在跳转里修过同一个坑的另一半（"世界换了，heroId 必须跟着人走"）；
+  //   这里是"世界回到原样，heroId 也必须回到原样"。
+  //
+  //   ★ 放在 `if (!r.ok)` **之前**：回滚失败时世界是半个，但指向半个世界里的玩家
+  //     仍然比指向一个死 id 好 —— 而且那时面板上已经有"工作区不可信"这句话了。
+  const np = findPlayerId(app.scene);
+  if (np !== null) heroId = np;
   if (!r.ok) {
     // 回滚失败时**不清空 playSession 的结论**：面板必须留着"工作区不可信"这句话，
     // 否则人只会看到一条一闪而过的错误，然后接着在半个世界里编辑。
@@ -779,6 +795,10 @@ interface PlayJumpOutcome {
    *   只看画面的话，"从文档重建"与"从快照重建"在第一次跳进去时完全一样。
    */
   readonly reused?: boolean;
+  /** 这一跳是走过一扇门触发的（`false` = 面板/调试手势，不判门锁）。 */
+  readonly viaDoor?: boolean;
+  /** 过门扣掉的钥匙（空 = 没扣）。**不静默**。 */
+  readonly consumed?: readonly string[];
   readonly dropped?: readonly string[];
   readonly code?: string;
   readonly message?: string;
@@ -792,7 +812,7 @@ interface PlayJumpOutcome {
  *   - 这里**一个槽位都不写**（试玩是沙盒），停播时按会话快照回滚。
  *   合并的后果是"试玩里走过一扇门，工程里那份场景被改成了跑过两步的样子"。
  */
-function doPlayJump(name: string): PlayJumpOutcome {
+function doPlayJump(name: string, via: PortalSpec | null = null): PlayJumpOutcome {
   const app = appRef;
   if (app === null) return { ok: false, code: "EDIT.NOT_READY", message: "编辑器还没启动" };
   if (playSession === null) {
@@ -805,7 +825,10 @@ function doPlayJump(name: string): PlayJumpOutcome {
   const f = flow;
   if (f === null) return { ok: false, code: "EDIT.NOT_READY", message: "流程层没起来（工程还没就绪）" };
 
-  const r = f.jump(name);
+  // ★ 面板点行传 `null` ⇒ 不判门锁：那是**调试手势**（"让我看看那一关"），
+  //   而钥匙是给玩家的规则。两条路走同一个 `jump`，但规则不同，
+  //   区别就写在这一个参数上，不另开一个函数（两个函数会长出两份顺序）。
+  const r = f.jump(name, via);
   if (!r.ok) {
     errEl.textContent = `${r.error.code}：${r.error.message}`;
     flowNote = `跳转被拒：${r.error.code}`;
@@ -841,6 +864,8 @@ function doPlayJump(name: string): PlayJumpOutcome {
     to: r.value.to,
     carried: r.value.carried,
     reused: r.value.reused,
+    viaDoor: r.value.viaDoor,
+    consumed: r.value.consumed,
     dropped: r.value.dropped,
   };
 }
@@ -849,6 +874,7 @@ function describePlayJump(r: JumpReport): string {
   if (r.kind === "noop") return `已经在「${r.to}」里（试玩中的跳转不改工程）`;
   const parts = [`试玩跳到「${r.to}」：${String(r.made)} 个节点`];
   parts.push(r.carried ? "背包/血量/饱食已带过去" : "没有可携带的状态");
+  if (r.consumed.length > 0) parts.push(`过门扣掉 ${r.consumed.join("、")}`);
   if (r.reused) parts.push("接着上一回走（这一关没重置）");
   if (r.clamped.length > 0) parts.push(`${String(r.clamped.length)} 项被上限夹住`);
   if (r.skipped.length > 0) parts.push(`${String(r.skipped.length)} 条被跳过`);
@@ -1016,7 +1042,9 @@ function autoPortal(): void {
     portals.value,
   );
   if (hit === null) return;
-  doPlayJump(hit.portal.to);
+  // ★ 把"从哪扇门过来"一起带进去：门的开关与钥匙都挂在这扇门上，
+  //   不带的话 `jump` 只能当调试手势，锁着的门照样能过。
+  doPlayJump(hit.portal.to, hit.portal);
 }
 
 // ---------------------------------------------------------------- 历史（撤销 / 重做）
@@ -2135,6 +2163,8 @@ interface EditorApi {
    *
    * ★ 与 `sceneSwitch` 是两件事：后者会先把当前场景写回槽位（它改的是文档）。
    *   不在试玩中调这里会被拒（`EDIT.NOT_PLAYING`）—— 那时候该走 `sceneSwitch`。
+   * ★ 这条路是**调试手势**：不判门锁（`viaDoor` 恒为 `false`）。
+   *   「走过一扇锁着的门」只能在试玩里真的走过去才验得到。
    */
   playJump(name: string): {
     ok: boolean;
@@ -2142,6 +2172,8 @@ interface EditorApi {
     from?: string;
     to?: string;
     carried?: boolean;
+    viaDoor?: boolean;
+    consumed?: readonly string[];
     dropped?: readonly string[];
     code?: string;
     message?: string;

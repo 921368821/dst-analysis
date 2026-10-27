@@ -988,6 +988,33 @@ const PROBE = `
       " current=" + E.scenes().current,
   );
 
+  // ---- 路径 C：关着的门（批95）
+  //
+  // ★★ 为什么必须**另起一段会话**，而不是塞进上面那一段：
+  //   会话快照是在开播那一刻拍的。若在同一段里先关门再测，快照里门就是关着的，
+  //   停播回滚会把门恢复成关着 —— 于是后面每一条用例都在"门关着的世界"里跑。
+  //   我第一次就是这么写的，报错是 playScene 仍是 main，
+  //   看起来像 loop 那条帧路径没接线（而上一条断言刚刚证明它接了）。
+  //   **回滚点在哪，夹具的边界就在哪**：改世界的夹具要么整体在会话之外，要么单独一段。
+  const shutSet = E.setField(E.hero(), "flow.portal", "open", "false");
+  E.play();
+  const tShut0 = Date.now();
+  while (Date.now() - tShut0 < 1200 && E.playScene() !== "落盘场景") {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  const shutScene = E.playScene();
+  E.pause();
+  const stoppedShut = E.stop();
+  // 恢复成开着：后面的用例（存档/读档）还要用这扇门，而停播已经把世界回滚成
+  // "门关着"的那一份（快照在关门之后才拍）。
+  const reopen = E.setField(E.hero(), "flow.portal", "open", "true");
+  add(
+    "★ 门关着时真的走不过去：真播放 1.2 秒仍在原来那一关（关着的门不是「跳过去再跳回来」）",
+    shutSet.ok === true && shutScene === "main" && stoppedShut.ok === true && reopen.ok === true,
+    "set=" + JSON.stringify(shutSet) + " playScene=" + JSON.stringify(shutScene) +
+      " 恢复=" + JSON.stringify(reopen),
+  );
+
   // ---------------- 试玩存档：这一局能存、能读回去、走过的不重置（批93）
   //
   // ★ 四件事各验一次，不许互相顶替：

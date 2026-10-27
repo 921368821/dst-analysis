@@ -107,6 +107,50 @@ export function clearInventory(scene: Scene, ownerId: number): number {
   return n;
 }
 
+/** 携带里某种东西有多少个（没有就是 0）。 */
+export function carryCount(carry: CarryState, kind: string): number {
+  let n = 0;
+  for (const it of carry.items) if (it.kind === kind) n += it.count;
+  return n;
+}
+
+/**
+ * 从携带内容里扣掉 `n` 个 `kind`，返回扣完的**新**携带（纯函数，不碰世界）。
+ *
+ * ★★ 为什么过门的"门票"在这里收，而不是在源场景里 `takeItem`：
+ *   后者必须在 `loadScene` 之前改世界，于是"装载失败要回滚"就得连带把扣掉的
+ *   东西还回来 —— 而那条回滚路径**今天根本走不到**：`sceneFromJson` 已经把
+ *   格式太新、结构不对、缺字段全拦在外面，`loadScene` 里唯一会返回错的
+ *   只有"格式太新"，它同样先被解析挡住。一个"理论上正确、实际上没有一次执行
+ *   机会"的分支，正是静默丢东西最舒服的住处。
+ *   改在纯数据上扣之后，"钥匙绝不会白丢"是**结构保证**，不依赖任何顺序约定。
+ *
+ * `paid` 是真正扣掉的数量（不够就只扣现有的）。调用方应当先自己判够不够 ——
+ * 这里只保证"不会扣成负数，也不会凭空多出东西"。
+ */
+export function payFromCarry(
+  carry: CarryState,
+  kind: string,
+  n: number,
+): { readonly carry: CarryState; readonly paid: number } {
+  if (n <= 0) return { carry, paid: 0 };
+  const items: { kind: string; count: number }[] = [];
+  let left = n;
+  for (const it of carry.items) {
+    if (it.kind !== kind || left === 0) {
+      items.push({ kind: it.kind, count: it.count });
+      continue;
+    }
+    const take = Math.min(it.count, left);
+    left -= take;
+    // 扣成 0 的那一项直接消失：留着 `count: 0` 会让"按 kind 聚合"里出现空条目，
+    // 而空条目会被 `applyCarry` 当作"要装 0 个"—— 看着无害，却让
+    // "背包里有哪些种类"这件事多出一个永远为假的答案。
+    if (it.count - take > 0) items.push({ kind: it.kind, count: it.count - take });
+  }
+  return { carry: { items, health: carry.health, hunger: carry.hunger }, paid: n - left };
+}
+
 /**
  * 把携带内容写进场景里的某个节点。
  *

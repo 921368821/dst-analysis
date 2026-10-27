@@ -8605,19 +8605,58 @@ var PORTAL_DEFAULT_RADIUS = FIXED_UNITS * 3 / 2;
 var FLOW_PORTAL_NO_TARGET = "FLOW.PORTAL_NO_TARGET";
 var FLOW_PORTAL_BAD_RADIUS = "FLOW.PORTAL.BAD_RADIUS";
 var FLOW_PORTAL_DUPLICATE = "FLOW.PORTAL_DUPLICATE";
+var FLOW_PORTAL_BAD_REQUIRES = "FLOW.PORTAL.BAD_REQUIRES";
 var PORTAL_SCHEMA = {
   type: PORTAL_TYPE,
   fields: {
     /** 目标场景名（工程里的槽位名）。空串 = 作者还没填，见 `FLOW_PORTAL_NO_TARGET`。 */
     to: FieldType.String,
     /** 触发半径（定点单位，> 0）。见文件头 ④。 */
-    radius: FieldType.Int
+    radius: FieldType.Int,
+    /**
+     * 这扇门现在通不通（`open=false` = 作者还没开通这条路）。
+     *
+     * ★★ 名字**不能叫 `enabled`**：基类 `Component` 已经有一个同名成员
+     *   （它管「这个组件要不要跑 onUpdate / onEnable」）。字段同名会把
+     *   「门关着」变成「组件停用」—— 停用的组件连生命周期都不一样了，
+     *   症状是「我把门设成关着，结果整扇门都不工作了」。
+     *   TypeScript 会报（要求 `override`），但报错位置在类声明上，
+     *   看起来像语法问题 —— 记在这里，免得下次又想用 `enabled`。
+     *
+     * ★ 与 `requires` 是两件事，别合并：
+     *   `open=false` = **这条路还没开通**（作者还在做，玩家走过去什么都不该发生，
+     *   也不该弹一句"锁着"—— 那会让人去满地找钥匙）；
+     *   `requires` = **要钥匙**（走过去要报"缺什么"，因为钥匙确实存在）。
+     */
+    open: FieldType.Bool,
+    /** 需要的物品 kind（空串 = 不需要钥匙）。 */
+    requires: FieldType.String,
+    /** 需要几个（`requires` 非空时必须是正整数）。 */
+    requiresCount: FieldType.Int,
+    /**
+     * 过门时**扣掉**钥匙。
+     *
+     * ★ 缺省 `false`：钥匙是"资格"还是"消耗品"，只有作者知道。
+     *   同一扇门扣不扣，决定"能不能反复来回"，而这是关卡设计，不是引擎该替他定的。
+     */
+    consume: FieldType.Bool
   },
-  defaults: { to: "", radius: PORTAL_DEFAULT_RADIUS }
+  defaults: {
+    to: "",
+    radius: PORTAL_DEFAULT_RADIUS,
+    open: true,
+    requires: "",
+    requiresCount: 1,
+    consume: false
+  }
 };
 var Portal = class extends Component {
   to = "";
   radius = PORTAL_DEFAULT_RADIUS;
+  open = true;
+  requires = "";
+  requiresCount = 1;
+  consume = false;
   schema = PORTAL_SCHEMA;
 };
 function registerPortalComponent(registry2) {
@@ -8646,10 +8685,22 @@ function collectPortals(scene) {
         engineError(FLOW_PORTAL_NO_TARGET, `\u8282\u70B9\u300C${node.name}\u300D\u4E0D\u5728\u573A\u666F\u91CC\uFF08\u53D6\u4E0D\u5230\u4E16\u754C\u5750\u6807\uFF09`)
       );
     }
+    if (p.requires !== "" && (!Number.isInteger(p.requiresCount) || p.requiresCount <= 0)) {
+      return err(
+        engineError(
+          FLOW_PORTAL_BAD_REQUIRES,
+          `\u8282\u70B9\u300C${node.name}\u300D\u7684\u4F20\u9001\u95E8\u8981\u300C${p.requires}\u300D\uFF0C\u4F46\u6570\u91CF\u662F ${String(p.requiresCount)} \u2014\u2014 \u5FC5\u987B\u662F\u6B63\u6574\u6570\uFF08\u8FD9\u6247\u95E8\u73B0\u5728\u8981\u4E48\u6C38\u8FDC\u6253\u4E0D\u5F00\uFF0C\u8981\u4E48\u8BED\u4E49\u4E0D\u660E\uFF09`
+        )
+      );
+    }
     specs.push({
       name: node.name,
       to: p.to,
       radius: p.radius,
+      open: p.open,
+      requires: p.requires,
+      requiresCount: p.requiresCount,
+      consume: p.consume,
       x: Math.round(w.x * FIXED_UNITS),
       z: Math.round(w.y * FIXED_UNITS)
     });
@@ -8670,6 +8721,7 @@ function collectPortals(scene) {
 function hitTestPortals(x, z, portals) {
   const hits = [];
   for (const p of portals) {
+    if (!p.open) continue;
     const dx = x - p.x;
     const dz = z - p.z;
     const d2 = dx * dx + dz * dz;
@@ -8749,6 +8801,26 @@ function clearInventory(scene, ownerId) {
   }
   if (n > 0) scene.flush();
   return n;
+}
+function carryCount(carry, kind) {
+  let n = 0;
+  for (const it of carry.items) if (it.kind === kind) n += it.count;
+  return n;
+}
+function payFromCarry(carry, kind, n) {
+  if (n <= 0) return { carry, paid: 0 };
+  const items = [];
+  let left = n;
+  for (const it of carry.items) {
+    if (it.kind !== kind || left === 0) {
+      items.push({ kind: it.kind, count: it.count });
+      continue;
+    }
+    const take = Math.min(it.count, left);
+    left -= take;
+    if (it.count - take > 0) items.push({ kind: it.kind, count: it.count - take });
+  }
+  return { carry: { items, health: carry.health, hunger: carry.hunger }, paid: n - left };
 }
 function applyCarry(scene, nodeId, carry) {
   const applied = [];
@@ -8900,6 +8972,7 @@ function decodeGameSave(text) {
 var FLOW_NO_SUCH_SCENE = "FLOW.NO_SUCH_SCENE";
 var FLOW_BAD_TARGET = "FLOW.BAD_TARGET";
 var FLOW_NO_SPAWN = "FLOW.NO_SPAWN";
+var FLOW_LOCKED = "FLOW.LOCKED";
 var FLOW_LOAD_FAILED = "FLOW.LOAD_FAILED";
 var FLOW_SAVE_BAD_SCENE = "FLOW.SAVE_BAD_SCENE";
 var FLOW_SAVE_NO_SPAWN = "FLOW.SAVE_NO_SPAWN";
@@ -8975,12 +9048,15 @@ var SceneFlow = class {
   /**
    * 跳到另一份场景。
    *
-   * 失败语义分两类，调用方必须能分辨：
-   * - `NO_SUCH_SCENE` / `BAD_TARGET` / `NO_SPAWN`：**世界没动**，`current` 没动，
+   * `via` 是"从哪扇门过来的"：传了就按那扇门的规则判（开关 / 钥匙 / 扣不扣），
+   * 传 `null` 表示调试手势（面板直接点、读档跳转），**不判门锁**。
+   *
+   * 失败语义分三类，调用方必须能分辨：
+   * - `NO_SUCH_SCENE` / `BAD_TARGET` / `NO_SPAWN` / `LOCKED`：**世界没动**，`current` 没动，
    *   可以原样重试或让玩家继续玩；
    * - `LOAD_FAILED`：世界**已经变过**，回滚是否成功写在消息里。这类之后不该继续跑。
    */
-  jump(to) {
+  jump(to, via = null) {
     const { scene, registry: registry2, source } = this.deps;
     if (to === this.current) {
       return ok({
@@ -8991,6 +9067,8 @@ var SceneFlow = class {
         skipped: [],
         carried: false,
         reused: false,
+        viaDoor: via !== null,
+        consumed: [],
         dropped: [],
         clamped: [],
         landing: null
@@ -9025,7 +9103,31 @@ var SceneFlow = class {
     }
     const from = this.current;
     const srcPlayer = findPlayerId(scene);
-    const carry = srcPlayer === null ? null : readCarry(scene, srcPlayer);
+    const carry0 = srcPlayer === null ? null : readCarry(scene, srcPlayer);
+    const locked = via !== null && via.requires !== "";
+    if (locked) {
+      const have = carry0 === null ? 0 : carryCount(carry0, via.requires);
+      if (have < via.requiresCount) {
+        return err(
+          engineError(
+            FLOW_LOCKED,
+            `\u300C${via.name}\u300D\u9501\u7740\uFF1A\u8981 ${String(via.requiresCount)} \u4E2A ${via.requires}\uFF0C\u4F60\u8EAB\u4E0A\u53EA\u6709 ${String(have)} \u4E2A`
+          )
+        );
+      }
+    }
+    const consumed = [];
+    let carry = carry0;
+    if (locked && via.consume && carry !== null) {
+      const paid = payFromCarry(carry, via.requires, via.requiresCount);
+      if (paid.paid !== via.requiresCount) {
+        throw new Error(
+          `\u95E8\u7968\u6263\u4E0D\u51FA\u6765\uFF08\u521A\u6570\u8FC7 ${String(via.requiresCount)} \u4E2A ${via.requires}\uFF09\uFF1A\u771F\u6B63\u6263\u5230 ${String(paid.paid)} \u4E2A`
+        );
+      }
+      carry = paid.carry;
+      consumed.push(`${via.requires}\xD7${String(paid.paid)}`);
+    }
     const before = saveScene(scene);
     const leavingEntry = this.entry;
     const loaded = loadScene(scene, snap, registry2);
@@ -9059,6 +9161,8 @@ var SceneFlow = class {
       skipped: loaded.value.skipped,
       carried: applied !== null && applied.applied.length > 0,
       reused: memo !== void 0,
+      viaDoor: via !== null,
+      consumed,
       dropped: applied === null ? [] : applied.dropped,
       clamped: applied === null ? [] : applied.clamped,
       landing: w === void 0 ? null : { x: Math.round(w.x * FIXED_UNITS), z: Math.round(w.y * FIXED_UNITS) }
@@ -13614,6 +13718,8 @@ function stopPlay() {
   flow = null;
   portalWatcher.reset();
   flowNote = "";
+  const np = findPlayerId(app.scene);
+  if (np !== null) heroId = np;
   if (!r.ok) {
     errEl.textContent = `${r.error.code}\uFF1A${r.error.message}`;
     refreshAll();
@@ -13629,7 +13735,7 @@ function stopPlay() {
   return { ok: true, rolledBack: r.value.rolledBack, made: r.value.made, edits: s.edits };
 }
 var EDIT_NOT_PLAYING = "EDIT.NOT_PLAYING";
-function doPlayJump(name) {
+function doPlayJump(name, via = null) {
   const app = appRef;
   if (app === null) return { ok: false, code: "EDIT.NOT_READY", message: "\u7F16\u8F91\u5668\u8FD8\u6CA1\u542F\u52A8" };
   if (playSession === null) {
@@ -13641,7 +13747,7 @@ function doPlayJump(name) {
   }
   const f = flow;
   if (f === null) return { ok: false, code: "EDIT.NOT_READY", message: "\u6D41\u7A0B\u5C42\u6CA1\u8D77\u6765\uFF08\u5DE5\u7A0B\u8FD8\u6CA1\u5C31\u7EEA\uFF09" };
-  const r = f.jump(name);
+  const r = f.jump(name, via);
   if (!r.ok) {
     errEl.textContent = `${r.error.code}\uFF1A${r.error.message}`;
     flowNote = `\u8DF3\u8F6C\u88AB\u62D2\uFF1A${r.error.code}`;
@@ -13670,6 +13776,8 @@ function doPlayJump(name) {
     to: r.value.to,
     carried: r.value.carried,
     reused: r.value.reused,
+    viaDoor: r.value.viaDoor,
+    consumed: r.value.consumed,
     dropped: r.value.dropped
   };
 }
@@ -13677,6 +13785,7 @@ function describePlayJump(r) {
   if (r.kind === "noop") return `\u5DF2\u7ECF\u5728\u300C${r.to}\u300D\u91CC\uFF08\u8BD5\u73A9\u4E2D\u7684\u8DF3\u8F6C\u4E0D\u6539\u5DE5\u7A0B\uFF09`;
   const parts = [`\u8BD5\u73A9\u8DF3\u5230\u300C${r.to}\u300D\uFF1A${String(r.made)} \u4E2A\u8282\u70B9`];
   parts.push(r.carried ? "\u80CC\u5305/\u8840\u91CF/\u9971\u98DF\u5DF2\u5E26\u8FC7\u53BB" : "\u6CA1\u6709\u53EF\u643A\u5E26\u7684\u72B6\u6001");
+  if (r.consumed.length > 0) parts.push(`\u8FC7\u95E8\u6263\u6389 ${r.consumed.join("\u3001")}`);
   if (r.reused) parts.push("\u63A5\u7740\u4E0A\u4E00\u56DE\u8D70\uFF08\u8FD9\u4E00\u5173\u6CA1\u91CD\u7F6E\uFF09");
   if (r.clamped.length > 0) parts.push(`${String(r.clamped.length)} \u9879\u88AB\u4E0A\u9650\u5939\u4F4F`);
   if (r.skipped.length > 0) parts.push(`${String(r.skipped.length)} \u6761\u88AB\u8DF3\u8FC7`);
@@ -13795,7 +13904,7 @@ function autoPortal() {
     portals.value
   );
   if (hit === null) return;
-  doPlayJump(hit.portal.to);
+  doPlayJump(hit.portal.to, hit.portal);
 }
 function commitField(nodeId, type, key, raw) {
   const app = appRef;

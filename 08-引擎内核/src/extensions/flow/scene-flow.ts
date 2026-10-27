@@ -4,7 +4,7 @@
  * 这一层把三样东西接起来：**目标场景的文档**、**当前的世界**、**玩家身上的状态**。
  * 顺序一旦写错，症状全都是"跳成功了，但少了点什么"，而日志里干干净净。
  *
- * ★★ 顺序是这一层唯一的实质内容，钉死成六步：
+ * ★★ 顺序是这一层唯一的实质内容，钉死成十步：
  *
  *   ① 目标是当前场景 ⇒ `noop`，一个字节都不动（与 `editor/project.ts` 同一条规则：
  *      `loadScene` 会换掉所有 `Node` 实例，而"点了一下当前这一份"不该有任何代价）。
@@ -15,11 +15,21 @@
  *      人站在虚空里、按 WASD 谁也不动（`spawnPlayer` 才有控制器）。同样从快照里
  *      静态检查，不动世界。
  *   ④ 导出携带（血/饱食/背包）—— 必须在 `loadScene` **之前**，之后源节点就没了。
- *   ⑤ `loadScene`。**这一步之后世界已经变了**，所以从这里开始任何失败都必须回滚。
- *   ⑥ 落点与回灌：目标场景的玩家节点**自己的坐标就是落点**（作者在编辑器里摆的），
- *      然后 `applyCarry` 把状态写进去。
+ *   ⑤ **门锁**：要钥匙的门在这里判，位置在"任何写操作之前"（`FLOW.LOCKED`）。
+ *   ⑥ **收门票**：在**携带数据**上扣，不碰世界 —— 见 `carry.ts` 的 `payFromCarry`。
+ *   ⑦ 取回滚基准（`saveScene`）。**从这一步之后，世界才可能变。**
+ *   ⑧ `loadScene`。**这一步之后世界已经变了**，所以从这里开始任何失败都必须回滚。
+ *   ⑨ 落点与回灌：目标场景的玩家节点**自己的坐标就是落点**（作者在编辑器里摆的），
+ *      然后 `applyCarry` 把（已扣过门票的）状态写进去。
+ *   ⑩ 记账（`visited` / `current` / `entry`）。只在装载成功之后。
  *
- * ★ 只有第 ⑤ 步失败需要回滚。①②③④ 都在装载之前判定，失败时世界原样 ——
+ * ★ ⑤⑥ 之所以排在 ⑦ 之前、却又不必担心"世界被改了没回滚"：⑤ 只读，⑥ 只改纯数据。
+ *   第一版的门票是拿 `takeItem` 在源场景里扣的（那会改世界），于是"装载失败要回滚
+ *   连带把钥匙还回来"就成了一条必须正确的分支 —— 而那条回滚路径**今天根本走不到**
+ *   （`sceneFromJson` 已经把格式/结构问题全拦在外面）。**一个没有执行机会的分支，
+ *   是静默丢东西最舒服的住处**；改成纯数据扣之后，"钥匙不会白丢"是结构保证。
+ *
+ * ★ 只有第 ⑧ 步失败需要回滚。①–⑦ 都在装载之前判定，失败时世界原样 ——
  *   这不是省事，而是**回滚本身是危险动作**：`loadScene` 回滚失败的话工作区不可信，
  *   能不做就不做。所以"能让错误发生在装载之前"的检查，一律提前。
  *
@@ -52,8 +62,15 @@ import {
 } from "../../core/scene/scene-io.ts";
 import { FIXED_UNITS } from "../worldgen/worldgen.ts";
 import { PLAYER_TYPE } from "../worldgen/spawn.ts";
-import { applyCarry, clearInventory, readCarry } from "./carry.ts";
+import {
+  applyCarry,
+  carryCount,
+  clearInventory,
+  payFromCarry,
+  readCarry,
+} from "./carry.ts";
 import { decodeGameSave, encodeGameSave } from "./game-save.ts";
+import type { PortalSpec } from "./portal.ts";
 
 /**
  * 场景名 → 文档文本。找不到返回 `null`（不抛）。
@@ -70,6 +87,13 @@ export const FLOW_NO_SUCH_SCENE = "FLOW.NO_SUCH_SCENE";
 export const FLOW_BAD_TARGET = "FLOW.BAD_TARGET";
 /** 目标文档里没有玩家节点 ⇒ 跳过去没人可操控。**世界未改动**。 */
 export const FLOW_NO_SPAWN = "FLOW.NO_SPAWN";
+/**
+ * 这扇门要钥匙，而玩家身上不够。**世界未改动**（钥匙也没扣）。
+ *
+ * ★ 与「没有这个场景」分开报：前者是关卡状态（再去找一把就行），
+ *   后者是工程配置错了（作者的事）。混成一个码，玩家会去错的地方找答案。
+ */
+export const FLOW_LOCKED = "FLOW.LOCKED";
 /** 装载失败（组件工厂抛、节点建不出来…）。此时**已经尝试回滚**。 */
 export const FLOW_LOAD_FAILED = "FLOW.LOAD_FAILED";
 /** 存档里某一份场景文档解析不了（坏 JSON / 缺字段）。**世界未改动**。 */
@@ -103,6 +127,15 @@ export interface JumpReport {
    *   只看画面的话，"从文档重建"与"从快照重建"在第一次跳进去时完全一样。
    */
   readonly reused: boolean;
+  /**
+   * 这一跳是**走过一扇门**触发的（而不是宿主/调试面板直接点的）。
+   *
+   * ★ 报出来是因为两者**规则不同**：门有开关与钥匙，而面板跳转是调试手势、
+   *   绕过门锁。若报告里分不清，判据就没法证明"绕过只发生在面板那条路上"。
+   */
+  readonly viaDoor: boolean;
+  /** 这一跳过门扣掉的钥匙（空 = 没扣）。**不静默**：丢东西必须有人看见。 */
+  readonly consumed: readonly string[];
   readonly dropped: readonly string[];
   readonly clamped: readonly string[];
   /**
@@ -234,12 +267,15 @@ export class SceneFlow {
   /**
    * 跳到另一份场景。
    *
-   * 失败语义分两类，调用方必须能分辨：
-   * - `NO_SUCH_SCENE` / `BAD_TARGET` / `NO_SPAWN`：**世界没动**，`current` 没动，
+   * `via` 是"从哪扇门过来的"：传了就按那扇门的规则判（开关 / 钥匙 / 扣不扣），
+   * 传 `null` 表示调试手势（面板直接点、读档跳转），**不判门锁**。
+   *
+   * 失败语义分三类，调用方必须能分辨：
+   * - `NO_SUCH_SCENE` / `BAD_TARGET` / `NO_SPAWN` / `LOCKED`：**世界没动**，`current` 没动，
    *   可以原样重试或让玩家继续玩；
    * - `LOAD_FAILED`：世界**已经变过**，回滚是否成功写在消息里。这类之后不该继续跑。
    */
-  jump(to: string): Result<JumpReport, EngineError> {
+  jump(to: string, via: PortalSpec | null = null): Result<JumpReport, EngineError> {
     const { scene, registry, source } = this.deps;
     if (to === this.current) {
       // ① 见文件头：noop 不是优化，是"不许换实例"
@@ -251,6 +287,8 @@ export class SceneFlow {
         skipped: [],
         carried: false,
         reused: false,
+        viaDoor: via !== null,
+        consumed: [],
         dropped: [],
         clamped: [],
         landing: null,
@@ -289,15 +327,54 @@ export class SceneFlow {
       );
     }
 
-    // ④ 导出携带（必须在 loadScene 之前：之后源节点就没了）
+    // ④ 导出携带（必须在 loadScene 之前：之后源节点就没了）—— 它同时是门锁的唯一依据
     const from = this.current;
     const srcPlayer = findPlayerId(scene);
-    const carry = srcPlayer === null ? null : readCarry(scene, srcPlayer);
+    const carry0 = srcPlayer === null ? null : readCarry(scene, srcPlayer);
+
+    // ⑤ 门锁：要钥匙的门在这里判 —— 世界一个字节都没动
+    //
+    // ★ 数的是**携带里**有多少，不是场景里有多少：这一跳要搬的就是携带，
+    //   两处各数一遍就有两个真相（源场景 3 个、携带里却是 2 个时就过了门却交不出票）。
+    //   只从携带里数，票与货必然是同一份。
+    const locked = via !== null && via.requires !== "";
+    if (locked) {
+      // 没有玩家节点 ⇒ 没有携带 ⇒ 0 个，下面这条会拦住。
+      const have = carry0 === null ? 0 : carryCount(carry0, via.requires);
+      if (have < via.requiresCount) {
+        return err(
+          engineError(
+            FLOW_LOCKED,
+            `「${via.name}」锁着：要 ${String(via.requiresCount)} 个 ${via.requires}，` +
+              `你身上只有 ${String(have)} 个`,
+          ),
+        );
+      }
+    }
+
+    // ⑥ 收门票：在**纯数据**上扣，不碰世界（理由见 `carry.ts` 的 `payFromCarry`）
+    //
+    // ★ 先判够不够、再扣，而不是"扣了看结果"：两条路会给出两个失败出口，
+    //   而其中一个永远进不去 —— 那种分支会被另一条遮住（批90 的教训）。
+    const consumed: string[] = [];
+    let carry = carry0;
+    if (locked && via.consume && carry !== null) {
+      const paid = payFromCarry(carry, via.requires, via.requiresCount);
+      if (paid.paid !== via.requiresCount) {
+        throw new Error(
+          `门票扣不出来（刚数过 ${String(via.requiresCount)} 个 ${via.requires}）：真正扣到 ${String(paid.paid)} 个`,
+        );
+      }
+      carry = paid.carry;
+      consumed.push(`${via.requires}×${String(paid.paid)}`);
+    }
+
+    // ⑦ 回滚基准（从这里开始，世界才可能变）
     const before = saveScene(scene);
     // 离开的这一场的入口：**装载前**取，之后 `this.entry` 就换成新的那一份了
     const leavingEntry = this.entry;
 
-    // ⑤ 装载
+    // ⑧ 装载
     const loaded = loadScene(scene, snap, registry);
     if (!loaded.ok) {
       // 世界已经被 clear 过 ⇒ 必须回滚。回滚失败要如实说"工作区不可信"。
@@ -310,7 +387,7 @@ export class SceneFlow {
       );
     }
 
-    // ⑥ 落点与回灌
+    // ⑨ 落点与回灌
     const dstPlayer = findPlayerId(scene);
     if (dstPlayer === null) {
       // ③ 已经静态查过一次，走不到这里。用 `!` 顶住而不是再写一个错误分支：
@@ -328,7 +405,7 @@ export class SceneFlow {
     }
     const applied = carry === null ? null : applyCarry(scene, dstPlayer, carry);
     const w = scene.worldPositionOf(dstPlayer);
-    // ⑦ 记账（**只在装载成功之后**：装失败时要回滚到一个干净的世界，
+    // ⑩ 记账（**只在装载成功之后**：装失败时要回滚到一个干净的世界，
     //    提前入册会留下"这一场已经被我改过"的假记忆）
     this.visited.set(from, stampEntry(before, leavingEntry));
     // 刚从册子里取出来的那一份现在就在世界里了 —— 留着就是同一份世界的两个副本
@@ -343,6 +420,8 @@ export class SceneFlow {
       skipped: loaded.value.skipped,
       carried: applied !== null && applied.applied.length > 0,
       reused: memo !== undefined,
+      viaDoor: via !== null,
+      consumed,
       dropped: applied === null ? [] : applied.dropped,
       clamped: applied === null ? [] : applied.clamped,
       landing:

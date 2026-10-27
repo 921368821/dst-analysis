@@ -24,8 +24,14 @@
  * ④ **半径与坐标都是定点整数**（1 格 = `FIXED_UNITS` = 256）。理由与出生点、资源投放
  *    同一个：`dx² + dz² ≤ r²` 全整数比较，不含浮点舍入，判据里能写等号。
  *
- * ★ 不做的：门没有"开/关"状态、没有方向性（走进走出都触发）、没有渐隐过场。
- *   这三件都要先有"过场"这个概念 —— 那是表现层的事，不是流程层的事。
+ * ★ 不做的：**「同一扇门单向」**。这一条看起来像缺功能，其实缺的是**数据**：
+ *   引擎里的节点只有位置与缩放，没有"朝向/法线"。想判"他是不是朝着门里走"，
+ *   只能拿前后两次位置去猜方向 —— 而猜错的表现是"这扇门有时能过有时不能过"，
+ *   比没有方向性更坏（玩家会以为是自己站位不对）。
+ *   真要的"只去不回"今天就有两种做法，都不需要引擎改：
+ *     · 目标场景里**不放回程门**（关卡结构就是方向性）；
+ *     · 那扇回程门设 `requires`（钥匙被消耗掉 ⇒ 回去的路自然断了）。
+ *   剩下的过场（渐隐）是表现层的事，也不是流程层的。
  */
 
 import {
@@ -55,6 +61,8 @@ export const FLOW_PORTAL_NO_TARGET = "FLOW.PORTAL_NO_TARGET";
 export const FLOW_PORTAL_BAD_RADIUS = "FLOW.PORTAL.BAD_RADIUS";
 /** 两扇门同名 ⇒ "上一刻在哪扇门里"这件事就没有确定含义了。 */
 export const FLOW_PORTAL_DUPLICATE = "FLOW.PORTAL_DUPLICATE";
+/** 写了要钥匙，但数量不是正整数 ⇒ 这扇门永远打不开（或语义不明）。 */
+export const FLOW_PORTAL_BAD_REQUIRES = "FLOW.PORTAL.BAD_REQUIRES";
 
 export const PORTAL_SCHEMA: ComponentSchema = {
   type: PORTAL_TYPE,
@@ -63,13 +71,51 @@ export const PORTAL_SCHEMA: ComponentSchema = {
     to: FieldType.String,
     /** 触发半径（定点单位，> 0）。见文件头 ④。 */
     radius: FieldType.Int,
+    /**
+     * 这扇门现在通不通（`open=false` = 作者还没开通这条路）。
+     *
+     * ★★ 名字**不能叫 `enabled`**：基类 `Component` 已经有一个同名成员
+     *   （它管「这个组件要不要跑 onUpdate / onEnable」）。字段同名会把
+     *   「门关着」变成「组件停用」—— 停用的组件连生命周期都不一样了，
+     *   症状是「我把门设成关着，结果整扇门都不工作了」。
+     *   TypeScript 会报（要求 `override`），但报错位置在类声明上，
+     *   看起来像语法问题 —— 记在这里，免得下次又想用 `enabled`。
+     *
+     * ★ 与 `requires` 是两件事，别合并：
+     *   `open=false` = **这条路还没开通**（作者还在做，玩家走过去什么都不该发生，
+     *   也不该弹一句"锁着"—— 那会让人去满地找钥匙）；
+     *   `requires` = **要钥匙**（走过去要报"缺什么"，因为钥匙确实存在）。
+     */
+    open: FieldType.Bool,
+    /** 需要的物品 kind（空串 = 不需要钥匙）。 */
+    requires: FieldType.String,
+    /** 需要几个（`requires` 非空时必须是正整数）。 */
+    requiresCount: FieldType.Int,
+    /**
+     * 过门时**扣掉**钥匙。
+     *
+     * ★ 缺省 `false`：钥匙是"资格"还是"消耗品"，只有作者知道。
+     *   同一扇门扣不扣，决定"能不能反复来回"，而这是关卡设计，不是引擎该替他定的。
+     */
+    consume: FieldType.Bool,
   },
-  defaults: { to: "", radius: PORTAL_DEFAULT_RADIUS },
+  defaults: {
+    to: "",
+    radius: PORTAL_DEFAULT_RADIUS,
+    open: true,
+    requires: "",
+    requiresCount: 1,
+    consume: false,
+  },
 };
 
 export class Portal extends Component {
   to = "";
   radius = PORTAL_DEFAULT_RADIUS;
+  open = true;
+  requires = "";
+  requiresCount = 1;
+  consume = false;
 
   readonly schema: ComponentSchema = PORTAL_SCHEMA;
 }
@@ -86,6 +132,14 @@ export interface PortalSpec {
   readonly to: string;
   /** 触发半径（定点）。 */
   readonly radius: number;
+  /** 这扇门现在通不通（`false` 的门不会被 `hitTestPortals` 返回）。 */
+  readonly open: boolean;
+  /** 需要的物品 kind（空串 = 不需要钥匙）。 */
+  readonly requires: string;
+  /** 需要几个。 */
+  readonly requiresCount: number;
+  /** 过门时扣不扣钥匙。 */
+  readonly consume: boolean;
   /** 门心的世界坐标（定点）。 */
   readonly x: number;
   readonly z: number;
@@ -138,10 +192,26 @@ export function collectPortals(scene: Scene): Result<readonly PortalSpec[], Engi
         engineError(FLOW_PORTAL_NO_TARGET, `节点「${node.name}」不在场景里（取不到世界坐标）`),
       );
     }
+    // ★ 写了钥匙但数量不是正整数：这扇门要么永远打不开（0 / 负数），
+    //   要么"要 1.5 个木头"（小数，`takeItem` 会按整数截断，作者看不出为什么多了半个）。
+    //   与半径同一条纪律：**作者写错了就当场说**，别等玩家走到门前才发现。
+    if (p.requires !== "" && (!Number.isInteger(p.requiresCount) || p.requiresCount <= 0)) {
+      return err(
+        engineError(
+          FLOW_PORTAL_BAD_REQUIRES,
+          `节点「${node.name}」的传送门要「${p.requires}」，但数量是 ${String(p.requiresCount)}` +
+            ` —— 必须是正整数（这扇门现在要么永远打不开，要么语义不明）`,
+        ),
+      );
+    }
     specs.push({
       name: node.name,
       to: p.to,
       radius: p.radius,
+      open: p.open,
+      requires: p.requires,
+      requiresCount: p.requiresCount,
+      consume: p.consume,
       x: Math.round(w.x * FIXED_UNITS),
       z: Math.round(w.y * FIXED_UNITS),
     });
@@ -160,7 +230,14 @@ export function collectPortals(scene: Scene): Result<readonly PortalSpec[], Engi
   return ok(specs);
 }
 
-/** 覆盖某一点的所有门，按 (距离², 名字) 升序 —— 第 0 个就是"最近的那一扇"。 */
+/**
+ * 覆盖某一点的所有门，按 (距离², 名字) 升序 —— 第 0 个就是"最近的那一扇"。
+ *
+ * ★ **关着的门（`open=false`）不在这里出现**，而不是在这里出现再由调用方筛：
+ *   这个函数同时被 `enter`（要不要触发）和 `reseed`（落地时把哪儿记成"本来就该在这"）
+ *   使用。两处各自筛一遍的话，"关着的门算不算一个身份"会有两个答案，而其中一个
+ *   永远没人测 —— 那正是批90 记下的"同一件事两个出口会遮掉一条变异"。
+ */
 export function hitTestPortals(
   x: number,
   z: number,
@@ -168,6 +245,7 @@ export function hitTestPortals(
 ): readonly PortalHit[] {
   const hits: PortalHit[] = [];
   for (const p of portals) {
+    if (!p.open) continue;
     const dx = x - p.x;
     const dz = z - p.z;
     const d2 = dx * dx + dz * dz;

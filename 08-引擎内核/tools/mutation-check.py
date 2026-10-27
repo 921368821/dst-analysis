@@ -4132,6 +4132,55 @@ MUTANTS = [
         "pairs": [("    if not mark.exists():", "    if False:")],
         "cmd": [sys.executable, "tools/mutation_journal.py", "--selftest"],
     },
+    {
+        "name": "M452 关着的门照样算命中（作者还没开通的路，玩家一走就掉进另一个场景）",
+        "file": "src/extensions/flow/portal.ts",
+        "pairs": [("    if (!p.open) continue;", "    if (false) continue;")],
+        "test": "tests/extensions/flow-door.test.ts",
+    },
+    {
+        "name": "M453 要钥匙但数量不合法也照过（那扇门永远打不开，而作者看不出为什么）",
+        "file": "src/extensions/flow/portal.ts",
+        "pairs": [('    if (p.requires !== "" && (!Number.isInteger(p.requiresCount) || p.requiresCount <= 0)) {', "    if (false) {")],
+        "test": "tests/extensions/flow-door.test.ts",
+    },
+    {
+        "name": "M454 钥匙不够也放行（白拿一次通关，而手里那两个木头一个没少）",
+        "file": "src/extensions/flow/scene-flow.ts",
+        "pairs": [("      if (have < via.requiresCount) {", "      if (false) {")],
+        "test": "tests/extensions/flow-door.test.ts",
+    },
+    {
+        "name": "M455 不要消耗也扣钥匙（「资格」和「消耗品」混成一件事）",
+        "file": "src/extensions/flow/scene-flow.ts",
+        "pairs": [("    if (locked && via.consume && carry !== null) {", "    if (locked && carry !== null) {")],
+        "test": "tests/extensions/flow-door.test.ts",
+    },
+    {
+        "name": "M456 门票扣了但不生效（报告里写着扣 3 个，身上一个没少）",
+        "file": "src/extensions/flow/scene-flow.ts",
+        "pairs": [("      carry = paid.carry;", "      void paid;")],
+        "test": "tests/extensions/flow-door.test.ts",
+    },
+    {
+        "name": "M457 扣门票时什么都不扣（走一遍纯函数，账单一分没动）",
+        "file": "src/extensions/flow/carry.ts",
+        "pairs": [("    if (it.kind !== kind || left === 0) {", "    if (true) {")],
+        "test": "tests/extensions/flow-door.test.ts",
+    },
+    {
+        "name": "M458 扣光的条目留成 count:0（背包里多出一种「有但为 0」的东西）",
+        "file": "src/extensions/flow/carry.ts",
+        "pairs": [("    if (it.count - take > 0) items.push({ kind: it.kind, count: it.count - take });", "    items.push({ kind: it.kind, count: it.count - take });")],
+        "test": "tests/extensions/flow-door.test.ts",
+    },
+    {
+        "name": "M459 停播回滚之后不重新指向玩家（heroId 指向一个不在场景里的 id）",
+        "file": "src/editor-entry.ts",
+        "pairs": [("  const np = findPlayerId(app.scene);\n  if (np !== null) heroId = np;\n  if (!r.ok) {", "  const np = findPlayerId(app.scene);\n  void np;\n  if (!r.ok) {")],
+        "cmd": ["node", "tools/editor-selftest.mjs", "--build"],
+        "env_exit": 2,
+    },
 ]
 
 
