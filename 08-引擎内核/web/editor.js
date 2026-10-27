@@ -8738,6 +8738,18 @@ function readCarry(scene, nodeId) {
     hunger: hg === void 0 ? null : { value: hg.value, max: hg.max }
   };
 }
+function clearInventory(scene, ownerId) {
+  const stacks = stacksOf(scene, ownerId);
+  let n = 0;
+  for (const s of stacks) {
+    const id = s.node?.id;
+    if (id === void 0) continue;
+    scene.destroy(id);
+    n++;
+  }
+  if (n > 0) scene.flush();
+  return n;
+}
 function applyCarry(scene, nodeId, carry) {
   const applied = [];
   const dropped = [];
@@ -8811,11 +8823,87 @@ function addUpTo(scene, ownerId, kind, count, cap, dropped) {
   return moved;
 }
 
+// src/extensions/flow/game-save.ts
+var GAME_SAVE_FORMAT = 1;
+var FLOW_BAD_SAVE = "FLOW.BAD_SAVE";
+function cmpName(a, b) {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+function bad3(message) {
+  return engineError(FLOW_BAD_SAVE, message);
+}
+function encodeGameSave(current, docs) {
+  if (!docs.has(current)) {
+    throw new Error(`\u5B58\u6863\u7F3A\u5F53\u524D\u573A\u666F\u300C${current}\u300D\u7684\u6587\u6863 \u2014\u2014 \u62D2\u7EDD\u751F\u6210\u4E00\u4EFD\u8BFB\u4E0D\u56DE\u6765\u7684\u6863`);
+  }
+  const names = [...docs.keys()].sort(cmpName);
+  const scenes = names.map((name) => ({ name, doc: docs.get(name) ?? "" }));
+  return JSON.stringify({ format: GAME_SAVE_FORMAT, current, scenes });
+}
+function decodeGameSave(text) {
+  let raw;
+  try {
+    raw = JSON.parse(text);
+  } catch (e) {
+    return err(bad3(`\u5B58\u6863\u4E0D\u662F JSON\uFF1A${e instanceof Error ? e.message : String(e)}`));
+  }
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return err(bad3("\u5B58\u6863\u4E0D\u662F\u4E00\u4E2A\u5BF9\u8C61\uFF08\u9876\u5C42\u5E94\u8BE5\u662F {format, current, scenes}\uFF09"));
+  }
+  const o = raw;
+  const format = o["format"];
+  if (typeof format !== "number" || !Number.isInteger(format) || format < 1) {
+    return err(bad3("\u5B58\u6863\u7F3A\u5C11\u5408\u6CD5\u7684 format\uFF08\u6B63\u6574\u6570\uFF09"));
+  }
+  if (format > GAME_SAVE_FORMAT) {
+    return err(
+      bad3(`\u5B58\u6863\u683C\u5F0F v${String(format)} \u9AD8\u4E8E\u5F15\u64CE\u652F\u6301\u7684 v${String(GAME_SAVE_FORMAT)}\uFF08\u7528\u65B0\u7248\u672C\u5B58\u7684\u6863\uFF0C\u65E7\u7248\u672C\u8BFB\u4E0D\u4E86\uFF09`)
+    );
+  }
+  const current = o["current"];
+  if (typeof current !== "string" || current.length === 0) {
+    return err(bad3("\u5B58\u6863\u6CA1\u5199\u300C\u5F53\u524D\u5728\u54EA\u4E2A\u573A\u666F\u300D\uFF08current \u4E3A\u7A7A\uFF09"));
+  }
+  const rawScenes = o["scenes"];
+  if (!Array.isArray(rawScenes) || rawScenes.length === 0) {
+    return err(bad3("\u5B58\u6863\u91CC\u4E00\u4EFD\u573A\u666F\u90FD\u6CA1\u6709\uFF08scenes \u4E3A\u7A7A\uFF09"));
+  }
+  const scenes = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (let i = 0; i < rawScenes.length; i++) {
+    const item = rawScenes[i];
+    if (typeof item !== "object" || item === null || Array.isArray(item)) {
+      return err(bad3(`\u7B2C ${String(i + 1)} \u4EFD\u573A\u666F\u4E0D\u662F\u4E00\u4E2A\u5BF9\u8C61`));
+    }
+    const rec = item;
+    const name = rec["name"];
+    const doc = rec["doc"];
+    if (typeof name !== "string" || name.length === 0) {
+      return err(bad3(`\u7B2C ${String(i + 1)} \u4EFD\u573A\u666F\u6CA1\u6709\u540D\u5B57`));
+    }
+    if (seen.has(name)) {
+      return err(bad3(`\u5B58\u6863\u91CC\u6709\u91CD\u590D\u7684\u573A\u666F\u300C${name}\u300D\u2014\u2014 \u4E0D\u77E5\u9053\u54EA\u4E00\u4EFD\u624D\u662F\u8FD9\u4E00\u5C40\u7684`));
+    }
+    seen.add(name);
+    if (typeof doc !== "string" || doc.length === 0) {
+      return err(bad3(`\u573A\u666F\u300C${name}\u300D\u7684\u6587\u6863\u662F\u7A7A\u7684`));
+    }
+    scenes.push({ name, doc });
+  }
+  if (!seen.has(current)) {
+    return err(bad3(`\u5B58\u6863\u8BF4\u5F53\u524D\u5728\u300C${current}\u300D\uFF0C\u4F46 scenes \u91CC\u6CA1\u6709\u8FD9\u4E00\u4EFD`));
+  }
+  return ok({ format: GAME_SAVE_FORMAT, current, scenes });
+}
+
 // src/extensions/flow/scene-flow.ts
 var FLOW_NO_SUCH_SCENE = "FLOW.NO_SUCH_SCENE";
 var FLOW_BAD_TARGET = "FLOW.BAD_TARGET";
 var FLOW_NO_SPAWN = "FLOW.NO_SPAWN";
 var FLOW_LOAD_FAILED = "FLOW.LOAD_FAILED";
+var FLOW_SAVE_BAD_SCENE = "FLOW.SAVE_BAD_SCENE";
+var FLOW_SAVE_NO_SPAWN = "FLOW.SAVE_NO_SPAWN";
+var FLOW_SAVE_LOAD_FAILED = "FLOW.SAVE_LOAD_FAILED";
 function findPlayerId(scene) {
   let best = null;
   for (const c of scene.componentsOf(PLAYER_TYPE)) {
@@ -8831,16 +8919,54 @@ function snapshotHasPlayer(snap) {
   }
   return false;
 }
+function playerLocal(scene) {
+  const id = findPlayerId(scene);
+  if (id === null) return null;
+  const n = scene.find(id);
+  if (n === void 0) return null;
+  return { x: n.localPosition.x, y: n.localPosition.y };
+}
+function stampEntry(snap, entry) {
+  if (entry === null) return snap;
+  let target = -1;
+  for (const n of snap.nodes) {
+    if (!n.components.some((c) => c.type === PLAYER_TYPE)) continue;
+    if (target === -1 || n.id < target) target = n.id;
+  }
+  if (target === -1) return snap;
+  return {
+    ...snap,
+    nodes: snap.nodes.map((n) => n.id === target ? { ...n, x: entry.x, y: entry.y } : n)
+  };
+}
 var SceneFlow = class {
   current;
   deps;
+  /**
+   * 本局去过的场景 → **离开时的世界**。
+   *
+   * `current` 永远不在这张表里（它就在 `scene` 里）。跳走时把自己这一份入册，
+   * 进来时把自己那一份取走 —— 于是"在册"与"在世界里"恰好互补，
+   * 不存在"同一份世界有两个副本，谁才是真的"这种问题。
+   */
+  visited = /* @__PURE__ */ new Map();
+  /**
+   * 当前场景的入口（局部坐标）。**每次成功进入时重取** ——
+   * 取的是玩家在这一刻站的地方，也就是"这一关卡的门通向哪里"。
+   */
+  entry;
   constructor(deps, startScene) {
     this.deps = deps;
     this.current = startScene;
+    this.entry = playerLocal(deps.scene);
   }
   /** 现在装的是哪一份场景。 */
   get sceneName() {
     return this.current;
+  }
+  /** 本局去过几个场景（含当前这一份）。诊断/自检读它，不直接摸私有状态。 */
+  get visitedCount() {
+    return this.visited.size + 1;
   }
   /** 当前场景里的玩家节点 id（没有就是 `null`）。 */
   playerId() {
@@ -8864,24 +8990,31 @@ var SceneFlow = class {
         made: 0,
         skipped: [],
         carried: false,
+        reused: false,
         dropped: [],
         clamped: [],
         landing: null
       });
     }
-    const text = source(to);
-    if (text === null) {
-      return err(engineError(FLOW_NO_SUCH_SCENE, `\u5DE5\u7A0B\u91CC\u6CA1\u6709\u540D\u4E3A\u300C${to}\u300D\u7684\u573A\u666F`));
+    const memo = this.visited.get(to);
+    let snap;
+    if (memo !== void 0) {
+      snap = memo;
+    } else {
+      const text = source(to);
+      if (text === null) {
+        return err(engineError(FLOW_NO_SUCH_SCENE, `\u5DE5\u7A0B\u91CC\u6CA1\u6709\u540D\u4E3A\u300C${to}\u300D\u7684\u573A\u666F`));
+      }
+      const parsed = sceneFromJson(text);
+      if (!parsed.ok) {
+        return err(
+          engineError(FLOW_BAD_TARGET, `\u573A\u666F\u300C${to}\u300D\u7684\u6587\u6863\u8BFB\u4E0D\u4E86\uFF1A${parsed.error.message}`, {
+            cause: parsed.error.code
+          })
+        );
+      }
+      snap = parsed.value;
     }
-    const parsed = sceneFromJson(text);
-    if (!parsed.ok) {
-      return err(
-        engineError(FLOW_BAD_TARGET, `\u573A\u666F\u300C${to}\u300D\u7684\u6587\u6863\u8BFB\u4E0D\u4E86\uFF1A${parsed.error.message}`, {
-          cause: parsed.error.code
-        })
-      );
-    }
-    const snap = parsed.value;
     if (!snapshotHasPlayer(snap)) {
       return err(
         engineError(
@@ -8894,6 +9027,7 @@ var SceneFlow = class {
     const srcPlayer = findPlayerId(scene);
     const carry = srcPlayer === null ? null : readCarry(scene, srcPlayer);
     const before = saveScene(scene);
+    const leavingEntry = this.entry;
     const loaded = loadScene(scene, snap, registry2);
     if (!loaded.ok) {
       const back = loadScene(scene, before, registry2);
@@ -8908,9 +9042,15 @@ var SceneFlow = class {
     if (dstPlayer === null) {
       throw new Error(`\u573A\u666F\u300C${to}\u300D\u88C5\u8F7D\u540E\u627E\u4E0D\u5230\u73A9\u5BB6\u8282\u70B9 \u2014\u2014 \u4E0E\u88C5\u8F7D\u524D\u7684\u9759\u6001\u68C0\u67E5\u77DB\u76FE`);
     }
+    if (carry !== null && memo !== void 0) {
+      clearInventory(scene, dstPlayer);
+    }
     const applied = carry === null ? null : applyCarry(scene, dstPlayer, carry);
     const w = scene.worldPositionOf(dstPlayer);
+    this.visited.set(from, stampEntry(before, leavingEntry));
+    this.visited.delete(to);
     this.current = to;
+    this.entry = playerLocal(scene);
     return ok({
       kind: "jumped",
       from,
@@ -8918,9 +9058,87 @@ var SceneFlow = class {
       made: loaded.value.made,
       skipped: loaded.value.skipped,
       carried: applied !== null && applied.applied.length > 0,
+      reused: memo !== void 0,
       dropped: applied === null ? [] : applied.dropped,
       clamped: applied === null ? [] : applied.clamped,
       landing: w === void 0 ? null : { x: Math.round(w.x * FIXED_UNITS), z: Math.round(w.y * FIXED_UNITS) }
+    });
+  }
+  /**
+   * 把这一局编成存档文本（当前场景 + 本局去过的每一份）。
+   *
+   * ★ 当前场景这一份是**现拍的**（`saveScene`），不是入册时那一份 ——
+   *   人在这一关里走到的位置、砍掉的树，只有现在这一刻的快照才带着。
+   */
+  saveGame() {
+    const docs = /* @__PURE__ */ new Map();
+    for (const [name, snap] of this.visited) docs.set(name, sceneToJson(snap));
+    docs.set(this.current, sceneToJson(saveScene(this.deps.scene)));
+    return encodeGameSave(this.current, docs);
+  }
+  /**
+   * 读一份存档：世界换成存档里的当前场景，去过的地方一并恢复。
+   *
+   * 顺序与 `jump` 同一套纪律——**所有判定都在装载之前**：
+   *   ① 结构（`decodeGameSave`）→ ② 每份文档都能解析 → ③ 当前场景有玩家 → ④ 装载。
+   * 前三条失败时世界一个字节都没动；只有 ④ 失败要回滚。
+   *
+   * ★ 不需要 `applyCarry`：存档里的玩家节点**自带**血/饱食/背包（它们本来就是节点上的
+   *   组件）。跨场景搬运才需要 `carry`，读档是整体换世界，多搬一遍反而会把存档里的
+   *   状态覆盖成"读档前那个人的"。
+   */
+  loadGame(text) {
+    const decoded = decodeGameSave(text);
+    if (!decoded.ok) return err(decoded.error);
+    const save = decoded.value;
+    const snaps = /* @__PURE__ */ new Map();
+    for (const s of save.scenes) {
+      const p = sceneFromJson(s.doc);
+      if (!p.ok) {
+        return err(
+          engineError(
+            FLOW_SAVE_BAD_SCENE,
+            `\u5B58\u6863\u91CC\u573A\u666F\u300C${s.name}\u300D\u7684\u6587\u6863\u8BFB\u4E0D\u4E86\uFF1A${p.error.message}`,
+            { cause: p.error.code }
+          )
+        );
+      }
+      snaps.set(s.name, p.value);
+    }
+    const cur = snaps.get(save.current);
+    if (cur === void 0) {
+      throw new Error(`\u5B58\u6863\u5F53\u524D\u573A\u666F\u300C${save.current}\u300D\u4E0D\u5728\u89E3\u6790\u7ED3\u679C\u91CC \u2014\u2014 \u4E0E\u7ED3\u6784\u6821\u9A8C\u77DB\u76FE`);
+    }
+    if (!snapshotHasPlayer(cur)) {
+      return err(
+        engineError(
+          FLOW_SAVE_NO_SPAWN,
+          `\u5B58\u6863\u7684\u5F53\u524D\u573A\u666F\u300C${save.current}\u300D\u91CC\u6CA1\u6709\u73A9\u5BB6\u8282\u70B9 \u2014\u2014 \u8BFB\u8FDB\u53BB\u6CA1\u4EBA\u53EF\u64CD\u63A7`
+        )
+      );
+    }
+    const before = saveScene(this.deps.scene);
+    const loaded = loadScene(this.deps.scene, cur, this.deps.registry);
+    if (!loaded.ok) {
+      const back = loadScene(this.deps.scene, before, this.deps.registry);
+      const tail = back.ok ? "\u5DF2\u56DE\u6EDA\u5230\u8BFB\u6863\u524D\u7684\u573A\u666F" : `\u56DE\u6EDA\u4E5F\u5931\u8D25\u4E86\uFF1A${back.error.message} \u2014\u2014 \u5DE5\u4F5C\u533A\u4E0D\u53EF\u4FE1`;
+      return err(
+        engineError(FLOW_SAVE_LOAD_FAILED, `\u88C5\u8F7D\u5B58\u6863\u7684\u5F53\u524D\u573A\u666F\u5931\u8D25\uFF1A${loaded.error.message}\uFF1B${tail}`, {
+          cause: loaded.error.code
+        })
+      );
+    }
+    this.visited.clear();
+    for (const [name, snap] of snaps) {
+      if (name !== save.current) this.visited.set(name, snap);
+    }
+    this.current = save.current;
+    this.entry = playerLocal(this.deps.scene);
+    return ok({
+      current: save.current,
+      scenes: snaps.size,
+      made: loaded.value.made,
+      skipped: loaded.value.skipped
     });
   }
 };
@@ -9583,17 +9801,17 @@ function ascii4(b, at) {
 function hex32(v) {
   return `0x${v.toString(16).padStart(8, "0")}`;
 }
-function bad3(why, detail) {
+function bad4(why, detail) {
   return detail === void 0 ? engineError(PngErrorCode.BadPng, why) : engineError(PngErrorCode.BadPng, why, detail);
 }
 function scanPng(bytes) {
   if (bytes.length < SIGNATURE.length) {
-    return err(bad3(`\u6587\u4EF6\u8FC7\u77ED\uFF1A${bytes.length} \u5B57\u8282\uFF0C\u8FDE PNG \u7B7E\u540D\u90FD\u4E0D\u591F\uFF088 \u5B57\u8282\uFF09`));
+    return err(bad4(`\u6587\u4EF6\u8FC7\u77ED\uFF1A${bytes.length} \u5B57\u8282\uFF0C\u8FDE PNG \u7B7E\u540D\u90FD\u4E0D\u591F\uFF088 \u5B57\u8282\uFF09`));
   }
   for (let i = 0; i < SIGNATURE.length; i++) {
     if (bytes[i] !== SIGNATURE[i]) {
       return err(
-        bad3(
+        bad4(
           `PNG \u7B7E\u540D\u4E0D\u5339\u914D\uFF1A\u671F\u671B 89 50 4e 47 0d 0a 1a 0a\uFF0C\u5B9E\u9645 ${Array.from(
             bytes.subarray(0, 8),
             (x) => x.toString(16).padStart(2, "0")
@@ -9611,18 +9829,18 @@ function scanPng(bytes) {
   let at = SIGNATURE.length;
   while (at < bytes.length) {
     if (at + 8 > bytes.length) {
-      return err(bad3(`\u5757\u5934\u622A\u65AD\uFF1A\u504F\u79FB ${at} \u5904\u53EA\u5269 ${bytes.length - at} \u5B57\u8282\uFF08\u5757\u5934 8 \u5B57\u8282\uFF09`));
+      return err(bad4(`\u5757\u5934\u622A\u65AD\uFF1A\u504F\u79FB ${at} \u5904\u53EA\u5269 ${bytes.length - at} \u5B57\u8282\uFF08\u5757\u5934 8 \u5B57\u8282\uFF09`));
     }
     const length = u32be(bytes, at);
     const type = ascii4(bytes, at + 4);
     if (length > 2147483647) {
-      return err(bad3(`\u5757 "${type}" \u957F\u5EA6 ${length} \u975E\u6CD5\uFF08> 2^31-1\uFF09`, { offset: at }));
+      return err(bad4(`\u5757 "${type}" \u957F\u5EA6 ${length} \u975E\u6CD5\uFF08> 2^31-1\uFF09`, { offset: at }));
     }
     const dataStart = at + 8;
     const crcAt = dataStart + length;
     if (crcAt + 4 > bytes.length) {
       return err(
-        bad3(
+        bad4(
           `\u5757 "${type}" \u8D8A\u754C\uFF08\u622A\u65AD\uFF09\uFF1A\u504F\u79FB ${at}\uFF0C\u957F\u5EA6 ${length}\uFF0C\u6587\u4EF6\u53EA\u5269 ${bytes.length - dataStart} \u5B57\u8282`,
           { chunk: type, offset: at }
         )
@@ -9632,7 +9850,7 @@ function scanPng(bytes) {
     const actualCrc = crc32(bytes, at + 4, crcAt);
     if (expectedCrc !== actualCrc) {
       return err(
-        bad3(
+        bad4(
           `\u5757 "${type}" CRC \u6821\u9A8C\u5931\u8D25\uFF1A\u671F\u671B ${hex32(expectedCrc)}\uFF0C\u5B9E\u9645 ${hex32(actualCrc)}\uFF08\u504F\u79FB ${at}\uFF09`,
           { chunk: type, offset: at }
         )
@@ -9641,29 +9859,29 @@ function scanPng(bytes) {
     const chunk = { type, start: at, dataStart, length };
     if (ihdr === void 0) {
       if (type !== "IHDR") {
-        return err(bad3(`\u7B2C\u4E00\u4E2A\u5757\u5FC5\u987B\u662F IHDR\uFF0C\u5B9E\u9645\u662F "${type}"`));
+        return err(bad4(`\u7B2C\u4E00\u4E2A\u5757\u5FC5\u987B\u662F IHDR\uFF0C\u5B9E\u9645\u662F "${type}"`));
       }
       if (length !== IHDR_BYTES) {
-        return err(bad3(`IHDR \u6570\u636E\u957F\u5EA6 ${length}\uFF08\u5FC5\u987B 13\uFF09`));
+        return err(bad4(`IHDR \u6570\u636E\u957F\u5EA6 ${length}\uFF08\u5FC5\u987B 13\uFF09`));
       }
       ihdr = chunk;
     } else if (type === "IHDR") {
-      return err(bad3("\u51FA\u73B0\u7B2C\u4E8C\u4E2A IHDR"));
+      return err(bad4("\u51FA\u73B0\u7B2C\u4E8C\u4E2A IHDR"));
     } else if (type === "PLTE") {
-      if (palette !== void 0) return err(bad3("\u51FA\u73B0\u7B2C\u4E8C\u4E2A PLTE"));
-      if (idat.length > 0) return err(bad3("PLTE \u51FA\u73B0\u5728 IDAT \u4E4B\u540E\uFF08\u89C4\u8303\u8981\u6C42\u4E4B\u524D\uFF09"));
+      if (palette !== void 0) return err(bad4("\u51FA\u73B0\u7B2C\u4E8C\u4E2A PLTE"));
+      if (idat.length > 0) return err(bad4("PLTE \u51FA\u73B0\u5728 IDAT \u4E4B\u540E\uFF08\u89C4\u8303\u8981\u6C42\u4E4B\u524D\uFF09"));
       if (length === 0 || length % 3 !== 0 || length > 768) {
-        return err(bad3(`PLTE \u957F\u5EA6 ${length} \u975E\u6CD5\uFF08\u5E94\u4E3A 3 \u7684\u500D\u6570\u4E14 \u2264768\uFF09`));
+        return err(bad4(`PLTE \u957F\u5EA6 ${length} \u975E\u6CD5\uFF08\u5E94\u4E3A 3 \u7684\u500D\u6570\u4E14 \u2264768\uFF09`));
       }
       palette = chunk;
     } else if (type === "tRNS") {
-      if (trns !== void 0) return err(bad3("\u51FA\u73B0\u7B2C\u4E8C\u4E2A tRNS"));
-      if (idat.length > 0) return err(bad3("tRNS \u51FA\u73B0\u5728 IDAT \u4E4B\u540E\uFF08\u89C4\u8303\u8981\u6C42\u4E4B\u524D\uFF09"));
+      if (trns !== void 0) return err(bad4("\u51FA\u73B0\u7B2C\u4E8C\u4E2A tRNS"));
+      if (idat.length > 0) return err(bad4("tRNS \u51FA\u73B0\u5728 IDAT \u4E4B\u540E\uFF08\u89C4\u8303\u8981\u6C42\u4E4B\u524D\uFF09"));
       trns = chunk;
     } else if (type === "IDAT") {
       idat.push(chunk);
     } else if (type === "IEND") {
-      if (length !== 0) return err(bad3(`IEND \u6570\u636E\u957F\u5EA6 ${length}\uFF08\u5FC5\u987B 0\uFF09`));
+      if (length !== 0) return err(bad4(`IEND \u6570\u636E\u957F\u5EA6 ${length}\uFF08\u5FC5\u987B 0\uFF09`));
       iendEnd = crcAt + 4;
       chunks.push(chunk);
       break;
@@ -9679,13 +9897,13 @@ function scanPng(bytes) {
     chunks.push(chunk);
     at = crcAt + 4;
   }
-  if (ihdr === void 0) return err(bad3("\u6CA1\u6709 IHDR"));
+  if (ihdr === void 0) return err(bad4("\u6CA1\u6709 IHDR"));
   if (iendEnd < 0) {
-    return err(bad3("\u7F3A\u5C11 IEND\uFF08\u6587\u4EF6\u5728\u6700\u540E\u4E00\u4E2A\u5757\u4E4B\u540E\u7ED3\u675F\uFF0C\u53EF\u80FD\u88AB\u622A\u65AD\uFF09"));
+    return err(bad4("\u7F3A\u5C11 IEND\uFF08\u6587\u4EF6\u5728\u6700\u540E\u4E00\u4E2A\u5757\u4E4B\u540E\u7ED3\u675F\uFF0C\u53EF\u80FD\u88AB\u622A\u65AD\uFF09"));
   }
-  if (idat.length === 0) return err(bad3("\u6CA1\u6709 IDAT\uFF1A\u6587\u4EF6\u91CC\u6CA1\u6709\u4EFB\u4F55\u56FE\u50CF\u6570\u636E"));
+  if (idat.length === 0) return err(bad4("\u6CA1\u6709 IDAT\uFF1A\u6587\u4EF6\u91CC\u6CA1\u6709\u4EFB\u4F55\u56FE\u50CF\u6570\u636E"));
   if (iendEnd !== bytes.length) {
-    return err(bad3(`IEND \u4E4B\u540E\u8FD8\u6709 ${bytes.length - iendEnd} \u5B57\u8282\u6570\u636E\uFF08PNG \u4E0D\u5141\u8BB8\u5C3E\u90E8\u9644\u52A0\u5185\u5BB9\uFF09`));
+    return err(bad4(`IEND \u4E4B\u540E\u8FD8\u6709 ${bytes.length - iendEnd} \u5B57\u8282\u6570\u636E\uFF08PNG \u4E0D\u5141\u8BB8\u5C3E\u90E8\u9644\u52A0\u5185\u5BB9\uFF09`));
   }
   const header = readHeader(bytes, ihdr);
   if (!header.ok) return err(header.error);
@@ -9699,11 +9917,11 @@ function readHeader(bytes, c) {
   const compression = bytes[c.dataStart + 10];
   const filter = bytes[c.dataStart + 11];
   const interlace = bytes[c.dataStart + 12];
-  if (width === 0 || height === 0) return err(bad3(`IHDR \u5BBD\u9AD8\u5FC5\u987B\u975E 0\uFF0C\u5B9E\u9645 ${width}\xD7${height}`));
-  if (compression !== 0) return err(bad3(`IHDR compression=${compression}\uFF08\u53EA\u652F\u6301 0\uFF09`));
-  if (filter !== 0) return err(bad3(`IHDR filter method=${filter}\uFF08\u53EA\u652F\u6301 0\uFF09`));
+  if (width === 0 || height === 0) return err(bad4(`IHDR \u5BBD\u9AD8\u5FC5\u987B\u975E 0\uFF0C\u5B9E\u9645 ${width}\xD7${height}`));
+  if (compression !== 0) return err(bad4(`IHDR compression=${compression}\uFF08\u53EA\u652F\u6301 0\uFF09`));
+  if (filter !== 0) return err(bad4(`IHDR filter method=${filter}\uFF08\u53EA\u652F\u6301 0\uFF09`));
   if (interlace !== 0 && interlace !== 1) {
-    return err(bad3(`IHDR interlace=${interlace} \u975E\u6CD5\uFF08\u53EA\u5141\u8BB8 0/1\uFF09`));
+    return err(bad4(`IHDR interlace=${interlace} \u975E\u6CD5\uFF08\u53EA\u5141\u8BB8 0/1\uFF09`));
   }
   return ok({ width, height, bitDepth, colorType, interlace });
 }
@@ -9729,7 +9947,7 @@ function validateFormat(header, palette) {
     );
   }
   if (header.colorType === 3 && palette === void 0) {
-    return err(bad3("colorType=3\uFF08\u8C03\u8272\u677F\uFF09\u4F46\u6587\u4EF6\u91CC\u6CA1\u6709 PLTE \u5757"));
+    return err(bad4("colorType=3\uFF08\u8C03\u8272\u677F\uFF09\u4F46\u6587\u4EF6\u91CC\u6CA1\u6709 PLTE \u5757"));
   }
   return ok(channels);
 }
@@ -9764,7 +9982,7 @@ function unfilter(raw, stride, height, bpp) {
       out.set(raw.subarray(src, src + stride), dst);
       continue;
     }
-    if (ft > 4) return err(bad3(`\u7B2C ${y} \u884C\u7684\u6EE4\u6CE2\u7C7B\u578B ${ft} \u975E\u6CD5\uFF08\u53EA\u5141\u8BB8 0..4\uFF09`));
+    if (ft > 4) return err(bad4(`\u7B2C ${y} \u884C\u7684\u6EE4\u6CE2\u7C7B\u578B ${ft} \u975E\u6CD5\uFF08\u53EA\u5141\u8BB8 0..4\uFF09`));
     for (let x = 0; x < stride; x++) {
       const cur = raw[src + x];
       const left = x >= bpp ? out[dst + x - bpp] : 0;
@@ -9885,7 +10103,7 @@ function writePalette(ctx, passes, bitDepth, palette, trns, state) {
         const idx = bitDepth === 8 ? row[px] : subByteSample(row, px, bitDepth);
         if (idx >= entries) {
           return err(
-            bad3(`\u8C03\u8272\u677F\u7D22\u5F15\u8D8A\u754C\uFF1A\u7B2C (${x},${y}) \u50CF\u7D20\u7D22\u5F15 ${idx}\uFF0CPLTE \u53EA\u6709 ${entries} \u9879`, { x, y, index: idx })
+            bad4(`\u8C03\u8272\u677F\u7D22\u5F15\u8D8A\u754C\uFF1A\u7B2C (${x},${y}) \u50CF\u7D20\u7D22\u5F15 ${idx}\uFF0CPLTE \u53EA\u6709 ${entries} \u9879`, { x, y, index: idx })
           );
         }
         const o = (y * ctx.imageWidth + x) * 4;
@@ -9959,15 +10177,15 @@ function toRgba(passes, header, palette, trns, keep16) {
   let trnsB = -1;
   if (trns !== void 0) {
     if (colorType === 0) {
-      if (trns.length !== 2) return err(bad3(`\u7070\u5EA6\u56FE\u7684 tRNS \u957F\u5EA6\u5FC5\u987B\u662F 2\uFF0C\u5B9E\u9645 ${trns.length}`));
+      if (trns.length !== 2) return err(bad4(`\u7070\u5EA6\u56FE\u7684 tRNS \u957F\u5EA6\u5FC5\u987B\u662F 2\uFF0C\u5B9E\u9645 ${trns.length}`));
       trnsGray = trns[0] << 8 | trns[1];
     } else if (colorType === 2) {
-      if (trns.length !== 6) return err(bad3(`RGB \u56FE\u7684 tRNS \u957F\u5EA6\u5FC5\u987B\u662F 6\uFF0C\u5B9E\u9645 ${trns.length}`));
+      if (trns.length !== 6) return err(bad4(`RGB \u56FE\u7684 tRNS \u957F\u5EA6\u5FC5\u987B\u662F 6\uFF0C\u5B9E\u9645 ${trns.length}`));
       trnsR = trns[0] << 8 | trns[1];
       trnsG = trns[2] << 8 | trns[3];
       trnsB = trns[4] << 8 | trns[5];
     } else if (colorType !== 3) {
-      return err(bad3(`colorType=${colorType} \u4E0D\u5141\u8BB8 tRNS\uFF08\u8BE5\u7C7B\u578B\u81EA\u5E26 alpha \u901A\u9053\uFF09`));
+      return err(bad4(`colorType=${colorType} \u4E0D\u5141\u8BB8 tRNS\uFF08\u8BE5\u7C7B\u578B\u81EA\u5E26 alpha \u901A\u9053\uFF09`));
     }
   }
   switch (colorType) {
@@ -10011,7 +10229,7 @@ function decodeZlibImage(compressed, header, width, height, palette, trns, opts 
   const maxBytes = opts.maxBytes ?? DEFAULT_MAX_BYTES2;
   if (rawBytes > maxBytes) {
     return err(
-      bad3(
+      bad4(
         `${label} \u7684\u626B\u63CF\u7EBF\u7EA6 ${rawBytes} \u5B57\u8282\uFF0C\u8D85\u8FC7 maxBytes=${maxBytes}\uFF08\u89E3\u538B\u70B8\u5F39\u4FDD\u62A4\uFF09`,
         { width, height, rawBytes, maxBytes }
       )
@@ -10029,7 +10247,7 @@ function decodeZlibImage(compressed, header, width, height, palette, trns, opts 
   const raw = inflated.value;
   if (raw.length !== rawBytes) {
     return err(
-      bad3(
+      bad4(
         `${label} \u626B\u63CF\u7EBF\u6570\u636E\u957F\u5EA6\u4E0D\u5BF9\uFF1A\u671F\u671B ${rawBytes}${header.interlace === 1 ? `\uFF08Adam7 \u4E03\u4E2A pass \u4E4B\u548C\uFF0C\u975E\u9694\u884C\u5E94\u4E3A ${height * (Math.ceil(width * bitsPerPixel / 8) + 1)}\uFF09` : ""}\uFF0C\u5B9E\u9645 ${raw.length}\u3002IDAT \u88AB\u622A\u65AD\u6216 IHDR \u4E0E\u5B9E\u9645\u6570\u636E\u4E0D\u7B26 \u2014\u2014 \u62D2\u7EDD\u8FD4\u56DE\u534A\u5F20\u56FE\u3002`,
         { expectedRaw: rawBytes, actual: raw.length, interlace: header.interlace }
       )
@@ -10100,7 +10318,7 @@ function decodePng(bytes, opts) {
   const bitsPerPixel = channels.value * h.bitDepth;
   if (h.height > 0 && h.width > Math.floor(maxBytes / 4 / h.height)) {
     return err(
-      bad3(
+      bad4(
         `PNG \u5C3A\u5BF8 ${h.width}\xD7${h.height} \u7684 RGBA8 \u50CF\u7D20\u6570\u8D85\u8FC7 maxBytes=${maxBytes} \u7684\u4E0A\u9650\uFF08\u89E3\u538B\u70B8\u5F39\u4FDD\u62A4\uFF09`,
         { width: h.width, height: h.height, maxBytes }
       )
@@ -10112,7 +10330,7 @@ function decodePng(bytes, opts) {
   );
   if (rawBytes > maxBytes) {
     return err(
-      bad3(
+      bad4(
         `PNG ${h.width}\xD7${h.height} \u7684\u89E3\u538B\u540E\u626B\u63CF\u7EBF\u7EA6 ${rawBytes} \u5B57\u8282\uFF0C\u8D85\u8FC7 maxBytes=${maxBytes}`,
         { width: h.width, height: h.height, maxBytes }
       )
@@ -13013,6 +13231,8 @@ var btnPause = need("btn-pause");
 var btnStop = need("btn-stop");
 var btnStep = need("btn-step");
 var btnStep10 = need("btn-step10");
+var btnPSave = need("btn-psave");
+var btnPLoad = need("btn-pload");
 var btnUndo = need("btn-undo");
 var btnRedo = need("btn-redo");
 var btnAdd = need("btn-add");
@@ -13449,6 +13669,7 @@ function doPlayJump(name) {
     from: r.value.from,
     to: r.value.to,
     carried: r.value.carried,
+    reused: r.value.reused,
     dropped: r.value.dropped
   };
 }
@@ -13456,9 +13677,99 @@ function describePlayJump(r) {
   if (r.kind === "noop") return `\u5DF2\u7ECF\u5728\u300C${r.to}\u300D\u91CC\uFF08\u8BD5\u73A9\u4E2D\u7684\u8DF3\u8F6C\u4E0D\u6539\u5DE5\u7A0B\uFF09`;
   const parts = [`\u8BD5\u73A9\u8DF3\u5230\u300C${r.to}\u300D\uFF1A${String(r.made)} \u4E2A\u8282\u70B9`];
   parts.push(r.carried ? "\u80CC\u5305/\u8840\u91CF/\u9971\u98DF\u5DF2\u5E26\u8FC7\u53BB" : "\u6CA1\u6709\u53EF\u643A\u5E26\u7684\u72B6\u6001");
+  if (r.reused) parts.push("\u63A5\u7740\u4E0A\u4E00\u56DE\u8D70\uFF08\u8FD9\u4E00\u5173\u6CA1\u91CD\u7F6E\uFF09");
   if (r.clamped.length > 0) parts.push(`${String(r.clamped.length)} \u9879\u88AB\u4E0A\u9650\u5939\u4F4F`);
   if (r.skipped.length > 0) parts.push(`${String(r.skipped.length)} \u6761\u88AB\u8DF3\u8FC7`);
   return parts.join(" \xB7 ");
+}
+var PLAY_SAVE_KEY = "dst.editor.play.v1";
+function doPlaySave() {
+  if (appRef === null) return { ok: false, code: "EDIT.NOT_READY", message: "\u7F16\u8F91\u5668\u8FD8\u6CA1\u542F\u52A8" };
+  const f = flow;
+  if (playSession === null || f === null) {
+    return {
+      ok: false,
+      code: EDIT_NOT_PLAYING,
+      message: "\u4E0D\u5728\u8BD5\u73A9\u4E2D\uFF1A\u8FDB\u5EA6\u662F\u73A9\u51FA\u6765\u7684\uFF0C\u7F16\u8F91\u6587\u6863\u8BF7\u7528\u5DE6\u4E0B\u89D2\u7684\u300C\u4FDD\u5B58\u5230\u6587\u672C\u300D"
+    };
+  }
+  let text;
+  try {
+    text = f.saveGame();
+  } catch (e) {
+    return {
+      ok: false,
+      code: "EDIT.PLAY_SAVE_FAILED",
+      message: `\u5B58\u6863\u751F\u6210\u5931\u8D25\uFF1A${e instanceof Error ? e.message : String(e)}`
+    };
+  }
+  try {
+    window.localStorage.setItem(PLAY_SAVE_KEY, text);
+  } catch (e) {
+    return {
+      ok: false,
+      code: "EDIT.PLAY_SAVE_STORE",
+      message: `\u5B58\u6863\u5199\u4E0D\u8FDB\u53BB\uFF08\u914D\u989D\u6EE1\u6216\u9690\u79C1\u6A21\u5F0F\uFF1F\uFF09\uFF1A${e instanceof Error ? e.message : String(e)}`
+    };
+  }
+  let names = [];
+  let current = f.sceneName;
+  try {
+    const o = JSON.parse(text);
+    if (typeof o.current === "string") current = o.current;
+    if (Array.isArray(o.scenes)) {
+      names = o.scenes.map((s) => String(s.name ?? ""));
+    }
+  } catch {
+    names = [];
+  }
+  const note = `\u5DF2\u5B58\u6863\uFF1A\u5728\u300C${current}\u300D\xB7 ${String(names.length)} \u4EFD\u573A\u666F \xB7 ${String(text.length)} \u5B57\u8282`;
+  flowNote = note;
+  docInfoEl.textContent = note;
+  errEl.textContent = "";
+  return { ok: true, bytes: text.length, current, scenes: names };
+}
+function doPlayLoad() {
+  const app = appRef;
+  if (app === null) return { ok: false, code: "EDIT.NOT_READY", message: "\u7F16\u8F91\u5668\u8FD8\u6CA1\u542F\u52A8" };
+  if (playSession === null) {
+    return {
+      ok: false,
+      code: EDIT_NOT_PLAYING,
+      message: "\u4E0D\u5728\u8BD5\u73A9\u4E2D\uFF1A\u5148\u70B9\u300C\u64AD\u653E\u300D\u518D\u8BFB\u6863\uFF08\u8BFB\u8FDB\u6765\u7684\u662F\u4E00\u5C40\u6E38\u620F\uFF0C\u4E0D\u662F\u4E00\u4EFD\u6587\u6863\uFF09"
+    };
+  }
+  const f = flow;
+  if (f === null) return { ok: false, code: "EDIT.NOT_READY", message: "\u6D41\u7A0B\u5C42\u6CA1\u8D77\u6765\uFF08\u5DE5\u7A0B\u8FD8\u6CA1\u5C31\u7EEA\uFF09" };
+  const text = window.localStorage.getItem(PLAY_SAVE_KEY);
+  if (text === null || text.length === 0) {
+    return { ok: false, code: "EDIT.NO_PLAY_SAVE", message: "\u8FD8\u6CA1\u6709\u5B58\u6863\uFF1A\u5148\u5728\u8BD5\u73A9\u4E2D\u70B9\u300C\u5B58\u6863\u300D" };
+  }
+  const r = f.loadGame(text);
+  if (!r.ok) {
+    errEl.textContent = `${r.error.code}\uFF1A${r.error.message}`;
+    flowNote = `\u8BFB\u6863\u88AB\u62D2\uFF1A${r.error.code}`;
+    docInfoEl.textContent = flowNote;
+    return { ok: false, code: r.error.code, message: r.error.message };
+  }
+  const np = findPlayerId(app.scene);
+  if (np !== null) heroId = np;
+  const portals = collectPortals(app.scene);
+  const w = np === null ? void 0 : app.scene.worldPositionOf(np);
+  if (w !== void 0 && portals.ok) {
+    portalWatcher.reseed(Math.round(w.x * FIXED_UNITS), Math.round(w.y * FIXED_UNITS), portals.value);
+  } else {
+    portalWatcher.reset();
+  }
+  const note = `\u5DF2\u8BFB\u6863\uFF1A\u56DE\u5230\u300C${r.value.current}\u300D\xB7 ${String(r.value.scenes)} \u4EFD\u573A\u666F \xB7 ${String(r.value.made)} \u4E2A\u8282\u70B9`;
+  flowNote = note;
+  docInfoEl.textContent = note;
+  errEl.textContent = r.value.skipped.length > 0 ? `\u8BFB\u6863\u8DF3\u8FC7 ${String(r.value.skipped.length)} \u6761\uFF1A${r.value.skipped[0] ?? ""}` : "";
+  refreshTree();
+  refreshProps();
+  refreshHistory();
+  refreshScenes();
+  return { ok: true, current: r.value.current, scenes: r.value.scenes, made: r.value.made };
 }
 function autoPortal() {
   const app = appRef;
@@ -14346,6 +14657,23 @@ function installApi(app) {
     playScene() {
       return flow === null ? null : flow.sceneName;
     },
+    playSave() {
+      return doPlaySave();
+    },
+    playLoad() {
+      return doPlayLoad();
+    },
+    playSaveInfo() {
+      const text = window.localStorage.getItem(PLAY_SAVE_KEY);
+      if (text === null) return { bytes: -1, current: null, scenes: [] };
+      try {
+        const o = JSON.parse(text);
+        const scenes = Array.isArray(o.scenes) ? o.scenes.map((s) => String(s.name ?? "")) : [];
+        return { bytes: text.length, current: typeof o.current === "string" ? o.current : null, scenes };
+      } catch {
+        return { bytes: text.length, current: null, scenes: [] };
+      }
+    },
     saveInfo() {
       let storedBytes = -1;
       try {
@@ -14514,6 +14842,12 @@ async function main() {
   });
   btnStep10.addEventListener("click", () => {
     if (beginPlay() !== null) pie.step(10);
+  });
+  btnPSave.addEventListener("click", () => {
+    doPlaySave();
+  });
+  btnPLoad.addEventListener("click", () => {
+    doPlayLoad();
   });
   btnUndo.addEventListener("click", () => void doUndo());
   btnRedo.addEventListener("click", () => void doRedo());

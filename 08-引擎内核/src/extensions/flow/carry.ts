@@ -83,6 +83,31 @@ export function readCarry(scene: Scene, nodeId: number): CarryState {
 }
 
 /**
+ * 清空某个节点的背包（把它的每一堆都从世界里删掉）。
+ *
+ * ★★ 为什么需要这一步（批93）：`applyCarry` 是**加**上去的，这对"首次进入一个场景"
+ *   是对的（作者可能给那个场景的玩家配了初始装备，比如一把斧头）。但**回访**一个
+ *   去过的场景时，目标玩家身上那份背包是"我上一次离开这一关时的自己"——
+ *   它已经被携带走了，再往上加就是**凭空翻倍**（12 根树枝变成 24 根）。
+ *   同一件东西不能既在"我身上"又在"这个场景里"——清空之后再由携带写回来，
+ *   才是"同一个人走进来"。
+ *
+ * 返回删掉了几堆（诊断用）。
+ */
+export function clearInventory(scene: Scene, ownerId: number): number {
+  const stacks = stacksOf(scene, ownerId);
+  let n = 0;
+  for (const s of stacks) {
+    const id = s.node?.id;
+    if (id === undefined) continue;
+    scene.destroy(id);
+    n++;
+  }
+  if (n > 0) scene.flush();
+  return n;
+}
+
+/**
  * 把携带内容写进场景里的某个节点。
  *
  * ★ 顺序是**先血后饱食再背包**：背包可能因为容量不足而部分失败，

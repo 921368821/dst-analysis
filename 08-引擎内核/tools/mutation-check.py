@@ -4021,6 +4021,73 @@ MUTANTS = [
                    "    if (to === this.current && false) {")],
         "test": "tests/extensions/flow-jump.test.ts",
     },
+    {
+        "name": "M437 回访时又按文档重建（离开不重置这件事整个没做）",
+        "file": "src/extensions/flow/scene-flow.ts",
+        "pairs": [("    const memo = this.visited.get(to);",
+                   "    const memo = this.visited.get(to + \"\\u0000\");")],
+        "test": "tests/extensions/flow-progress.test.ts",
+    },
+    {
+        "name": "M438 入册时不给玩家归位（回访落在上次离开的地方，能绕过整张地图）",
+        "file": "src/extensions/flow/scene-flow.ts",
+        "pairs": [("    this.visited.set(from, stampEntry(before, leavingEntry));",
+                   "    this.visited.set(from, before);")],
+        "test": "tests/extensions/flow-progress.test.ts",
+    },
+    {
+        "name": "M439 回访不清目标背包（同一件东西算两遍：12 根变 24 根）",
+        "file": "src/extensions/flow/scene-flow.ts",
+        "pairs": [("      clearInventory(scene, dstPlayer);",
+                   "      void clearInventory;")],
+        "test": "tests/extensions/flow-progress.test.ts",
+    },
+    {
+        "name": "M440 读档只换当前场景、不恢复走过的场景（之后再进那一关又按文档重建）",
+        "file": "src/extensions/flow/scene-flow.ts",
+        "pairs": [("      if (name !== save.current) this.visited.set(name, snap);",
+                   "      if (name !== save.current && false) this.visited.set(name, snap);")],
+        "test": "tests/extensions/flow-progress.test.ts",
+    },
+    {
+        "name": "M441 存档的当前场景没有玩家也放行（读进去没人可操控）",
+        "file": "src/extensions/flow/scene-flow.ts",
+        "pairs": [("    if (!snapshotHasPlayer(cur)) {", "    if (false) {")],
+        "test": "tests/extensions/flow-progress.test.ts",
+    },
+    {
+        "name": "M442 存档里的场景不按名字排序（同一局的字节取决于先后去过哪）",
+        "file": "src/extensions/flow/game-save.ts",
+        "pairs": [("  const names = [...docs.keys()].sort(cmpName);",
+                   "  const names = [...docs.keys()];")],
+        "test": "tests/extensions/flow-progress.test.ts",
+    },
+    {
+        "name": "M443 存档允许场景重名（后一份覆盖前一份，读档少一整块进度）",
+        "file": "src/extensions/flow/game-save.ts",
+        "pairs": [("    if (seen.has(name)) {", "    if (false) {")],
+        "test": "tests/extensions/flow-progress.test.ts",
+    },
+    {
+        "name": "M444 存档版本太新也照读（旧引擎读新档，缺的字段静默变默认值）",
+        "file": "src/extensions/flow/game-save.ts",
+        "pairs": [("  if (format > GAME_SAVE_FORMAT) {", "  if (format > GAME_SAVE_FORMAT + 99) {")],
+        "test": "tests/extensions/flow-progress.test.ts",
+    },
+    {
+        "name": "M445 存档说的当前场景不在列表里也接受（读的时候必然对不上）",
+        "file": "src/extensions/flow/game-save.ts",
+        "pairs": [("  if (!seen.has(current)) {", "  if (false) {")],
+        "test": "tests/extensions/flow-progress.test.ts",
+    },
+    {
+        "name": "M446 试玩存档说存了、其实没落盘（面板写着已存，关掉页面全没）",
+        "file": "src/editor-entry.ts",
+        "pairs": [("    window.localStorage.setItem(PLAY_SAVE_KEY, text);",
+                   "    void PLAY_SAVE_KEY;")],
+        "cmd": ["node", "tools/editor-selftest.mjs", "--build"],
+        "env_exit": 2,
+    },
 ]
 
 

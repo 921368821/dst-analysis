@@ -132,6 +132,8 @@ const btnPause = need<HTMLButtonElement>("btn-pause");
 const btnStop = need<HTMLButtonElement>("btn-stop");
 const btnStep = need<HTMLButtonElement>("btn-step");
 const btnStep10 = need<HTMLButtonElement>("btn-step10");
+const btnPSave = need<HTMLButtonElement>("btn-psave");
+const btnPLoad = need<HTMLButtonElement>("btn-pload");
 const btnUndo = need<HTMLButtonElement>("btn-undo");
 const btnRedo = need<HTMLButtonElement>("btn-redo");
 const btnAdd = need<HTMLButtonElement>("btn-add");
@@ -770,6 +772,13 @@ interface PlayJumpOutcome {
   readonly from?: string;
   readonly to?: string;
   readonly carried?: boolean;
+  /**
+   * 这一跳用的是**手里那份快照**（这个场景本局去过了）。
+   *
+   * ★ 必须报出来：`reused` 是"离开不重置"唯一能从外面看见的证据 ——
+   *   只看画面的话，"从文档重建"与"从快照重建"在第一次跳进去时完全一样。
+   */
+  readonly reused?: boolean;
   readonly dropped?: readonly string[];
   readonly code?: string;
   readonly message?: string;
@@ -831,6 +840,7 @@ function doPlayJump(name: string): PlayJumpOutcome {
     from: r.value.from,
     to: r.value.to,
     carried: r.value.carried,
+    reused: r.value.reused,
     dropped: r.value.dropped,
   };
 }
@@ -839,9 +849,138 @@ function describePlayJump(r: JumpReport): string {
   if (r.kind === "noop") return `已经在「${r.to}」里（试玩中的跳转不改工程）`;
   const parts = [`试玩跳到「${r.to}」：${String(r.made)} 个节点`];
   parts.push(r.carried ? "背包/血量/饱食已带过去" : "没有可携带的状态");
+  if (r.reused) parts.push("接着上一回走（这一关没重置）");
   if (r.clamped.length > 0) parts.push(`${String(r.clamped.length)} 项被上限夹住`);
   if (r.skipped.length > 0) parts.push(`${String(r.skipped.length)} 条被跳过`);
   return parts.join(" · ");
+}
+
+// ---------------------------------------------------------------- 试玩存档（批93）
+
+/**
+ * 试玩存档的存储键。**与工程键分开**：
+ * 工程存的是"我设计了什么"（该一直留着），这一份存的是"我这一局走到哪儿了"
+ * （随时可以覆盖、丢了不影响工程）。两者共用一个键的话，一次"存档进度"
+ * 就会把用户的设计换成一次游戏的中间状态 —— 那是不可逆的。
+ */
+const PLAY_SAVE_KEY = "dst.editor.play.v1";
+
+interface PlaySaveOutcome {
+  readonly ok: boolean;
+  readonly bytes?: number;
+  readonly current?: string;
+  readonly scenes?: readonly string[];
+  readonly code?: string;
+  readonly message?: string;
+}
+
+interface PlayLoadOutcome {
+  readonly ok: boolean;
+  readonly current?: string;
+  readonly scenes?: number;
+  readonly made?: number;
+  readonly code?: string;
+  readonly message?: string;
+}
+
+/** 把这一局存下来（只在试玩中；编辑器的文档请用「保存」）。 */
+function doPlaySave(): PlaySaveOutcome {
+  if (appRef === null) return { ok: false, code: "EDIT.NOT_READY", message: "编辑器还没启动" };
+  const f = flow;
+  if (playSession === null || f === null) {
+    return {
+      ok: false,
+      code: EDIT_NOT_PLAYING,
+      message: "不在试玩中：进度是玩出来的，编辑文档请用左下角的「保存到文本」",
+    };
+  }
+  let text: string;
+  try {
+    text = f.saveGame();
+  } catch (e) {
+    // 导出不该抛（同 `exportDocument` 的注释）；真抛了要说出来，不能静默留个空档
+    return {
+      ok: false,
+      code: "EDIT.PLAY_SAVE_FAILED",
+      message: `存档生成失败：${e instanceof Error ? e.message : String(e)}`,
+    };
+  }
+  try {
+    window.localStorage.setItem(PLAY_SAVE_KEY, text);
+  } catch (e) {
+    // ★ 写不进去（配额满 / 隐私模式）必须报错：面板上写着"已存"而实际没落盘，
+    //   是这一整类功能里最伤人的失败（人关掉页面才发现）。
+    return {
+      ok: false,
+      code: "EDIT.PLAY_SAVE_STORE",
+      message: `存档写不进去（配额满或隐私模式？）：${e instanceof Error ? e.message : String(e)}`,
+    };
+  }
+  let names: string[] = [];
+  let current = f.sceneName;
+  try {
+    const o = JSON.parse(text) as { current?: unknown; scenes?: unknown };
+    if (typeof o.current === "string") current = o.current;
+    if (Array.isArray(o.scenes)) {
+      names = o.scenes.map((s) => String((s as { name?: unknown }).name ?? ""));
+    }
+  } catch {
+    // 刚由 `encodeGameSave` 生成的文本解析不了是不可能的；真发生了下一句 `text.length`
+    // 仍然是对的，而"几份场景"退化成空数组 —— 不影响存档本身能不能读。
+    names = [];
+  }
+  const note = `已存档：在「${current}」· ${String(names.length)} 份场景 · ${String(text.length)} 字节`;
+  flowNote = note;
+  docInfoEl.textContent = note;
+  errEl.textContent = "";
+  return { ok: true, bytes: text.length, current, scenes: names };
+}
+
+/** 读回上一次存的那一局。 */
+function doPlayLoad(): PlayLoadOutcome {
+  const app = appRef;
+  if (app === null) return { ok: false, code: "EDIT.NOT_READY", message: "编辑器还没启动" };
+  if (playSession === null) {
+    return {
+      ok: false,
+      code: EDIT_NOT_PLAYING,
+      message: "不在试玩中：先点「播放」再读档（读进来的是一局游戏，不是一份文档）",
+    };
+  }
+  const f = flow;
+  if (f === null) return { ok: false, code: "EDIT.NOT_READY", message: "流程层没起来（工程还没就绪）" };
+  const text = window.localStorage.getItem(PLAY_SAVE_KEY);
+  if (text === null || text.length === 0) {
+    return { ok: false, code: "EDIT.NO_PLAY_SAVE", message: "还没有存档：先在试玩中点「存档」" };
+  }
+
+  const r = f.loadGame(text);
+  if (!r.ok) {
+    errEl.textContent = `${r.error.code}：${r.error.message}`;
+    flowNote = `读档被拒：${r.error.code}`;
+    docInfoEl.textContent = flowNote;
+    return { ok: false, code: r.error.code, message: r.error.message };
+  }
+
+  // 世界换了：跟跳转同一套收尾（heroId / 门 watcher / 三块面板）
+  const np = findPlayerId(app.scene);
+  if (np !== null) heroId = np;
+  const portals = collectPortals(app.scene);
+  const w = np === null ? undefined : app.scene.worldPositionOf(np);
+  if (w !== undefined && portals.ok) {
+    portalWatcher.reseed(Math.round(w.x * FIXED_UNITS), Math.round(w.y * FIXED_UNITS), portals.value);
+  } else {
+    portalWatcher.reset();
+  }
+  const note = `已读档：回到「${r.value.current}」· ${String(r.value.scenes)} 份场景 · ${String(r.value.made)} 个节点`;
+  flowNote = note;
+  docInfoEl.textContent = note;
+  errEl.textContent = r.value.skipped.length > 0 ? `读档跳过 ${String(r.value.skipped.length)} 条：${r.value.skipped[0] ?? ""}` : "";
+  refreshTree();
+  refreshProps();
+  refreshHistory();
+  refreshScenes();
+  return { ok: true, current: r.value.current, scenes: r.value.scenes, made: r.value.made };
 }
 
 /**
@@ -2010,6 +2149,20 @@ interface EditorApi {
   /** 试玩现在装的是哪一份场景（不在试玩中是 `null`）。 */
   playScene(): string | null;
   /**
+   * **试玩中**存一份进度（当前场景 + 本局去过的每一份）。
+   *
+   * 与工程的 `saveInfo` / 槽位完全分开：那条路存的是设计，这条存的是这一局。
+   */
+  playSave(): PlaySaveOutcome;
+  /** 读回上一次的进度（`playSave` 存的那一份）。 */
+  playLoad(): PlayLoadOutcome;
+  /** 存档媒介上那一份进度（字节数 / 当前场景 / 场景清单）；没存过时 `bytes = -1`。 */
+  playSaveInfo(): {
+    readonly bytes: number;
+    readonly current: string | null;
+    readonly scenes: readonly string[];
+  };
+  /**
    * 存档现状（面板上那句话 + 存档键里现在有多少字节，没存过是 -1）。
    *
    * ★ 判据不满足于"面板说了已存"：它必须能对着**存档媒介**核（`localStorage` 里
@@ -2243,6 +2396,28 @@ function installApi(app: GameApp): void {
     playScene() {
       return flow === null ? null : flow.sceneName;
     },
+    playSave() {
+      return doPlaySave();
+    },
+    playLoad() {
+      return doPlayLoad();
+    },
+    playSaveInfo() {
+      // 与 `saveInfo` 同一个口径：字节数**问媒介**，不问我们自己的变量
+      const text = window.localStorage.getItem(PLAY_SAVE_KEY);
+      if (text === null) return { bytes: -1, current: null, scenes: [] };
+      try {
+        const o = JSON.parse(text) as { current?: unknown; scenes?: unknown };
+        const scenes = Array.isArray(o.scenes)
+          ? o.scenes.map((s) => String((s as { name?: unknown }).name ?? ""))
+          : [];
+        return { bytes: text.length, current: typeof o.current === "string" ? o.current : null, scenes };
+      } catch {
+        // 键在但内容不是 JSON（被手改过 / 别的版本写的）：如实报"读不出结构"，
+        // 不假装没存过（`-1` 会让人以为"从没存过"，而去重新存一次覆盖掉线索）
+        return { bytes: text.length, current: null, scenes: [] };
+      }
+    },
     saveInfo() {
       // ★ 字节数直接问存档媒介（不是问我们自己记的变量）：`-1` = 键不存在。
       //   问变量的话，"写失败但变量改了"这种实现会一路绿到底。
@@ -2438,6 +2613,12 @@ async function main(): Promise<void> {
   });
   btnStep10.addEventListener("click", () => {
     if (beginPlay() !== null) pie.step(10);
+  });
+  btnPSave.addEventListener("click", () => {
+    doPlaySave();
+  });
+  btnPLoad.addEventListener("click", () => {
+    doPlayLoad();
   });
   btnUndo.addEventListener("click", () => void doUndo());
   btnRedo.addEventListener("click", () => void doRedo());

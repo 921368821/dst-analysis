@@ -988,6 +988,73 @@ const PROBE = `
       " current=" + E.scenes().current,
   );
 
+  // ---------------- 试玩存档：这一局能存、能读回去、走过的不重置（批93）
+  //
+  // ★ 四件事各验一次，不许互相顶替：
+  //   ① 不在试玩里存档要被拒（"进度是玩出来的"这个前提本身要能验）；
+  //   ② 存下来的东西**在媒介上**（对着 localStorage 核，不看面板自己的变量 —— 批91 的教训）；
+  //   ③ ★★ 回访一个去过的场景不重置：这是我这一批的核心行为，而它只能在**接线层**看见
+  //      —— Node 判据走的是模型层，证明不了命令面/按钮这条路真的接上了；
+  //   ④ ★★ 读档回到存档里的那一关，且那一关的世界按存档恢复。
+  const saveIdle = E.playSave();
+  add(
+    "★ 不在试玩中存档被拒（EDIT.NOT_PLAYING）—— 进度只在试玩里产生",
+    saveIdle.ok === false && saveIdle.code === "EDIT.NOT_PLAYING",
+    JSON.stringify(saveIdle),
+  );
+
+  // step(0)：开会话但一步都不推 —— 脚下那扇门会在推帧时立刻把人送走，这里要留在 main
+  E.step(0);
+  const psFirst = E.playSave();
+  const psInfo0 = E.playSaveInfo();
+  add(
+    "★ 试玩中存档落在存档媒介上（字节数问的是 localStorage，不是面板上那句话）",
+    psFirst.ok === true && psInfo0.bytes > 0 && psInfo0.current === "main" && psInfo0.scenes.length === 1,
+    JSON.stringify(psFirst) + " 媒介=" + JSON.stringify(psInfo0),
+  );
+
+  // 跳去目标场景，在那一关留下一个"砍倒的树"
+  const j1 = E.playJump("落盘场景");
+  const heroJ = E.hero();
+  E.select(heroJ);
+  const chop = E.addNode("在目标场景里砍的树");
+  const j2 = E.playJump("main");
+  const j3 = E.playJump("落盘场景");
+  const namesR = E.outline().map((r) => r.name);
+  add(
+    "★★ 回访一个去过的场景不重置（我砍掉的树还在，不是又按文档重建了）",
+    j1.ok === true && j2.ok === true && j3.ok === true &&
+      (j3.ok === true ? j3.reused : false) === true && namesR.includes("在目标场景里砍的树"),
+    JSON.stringify({ j1, j2, j3 }) + " 节点=" + JSON.stringify(namesR),
+  );
+
+  const psSecond = E.playSave();
+  const psInfo1 = E.playSaveInfo();
+  add(
+    "★ 存档记的是「这一局走过哪几关」（当前那一关 + 走过的那一关，共 2 份）",
+    psSecond.ok === true && psInfo1.current === "落盘场景" && psInfo1.scenes.length === 2,
+    JSON.stringify(psSecond) + " 媒介=" + JSON.stringify(psInfo1),
+  );
+
+  // 回到 main，再读档 ⇒ 人应该回到存档里的那一关，而"砍的树"还在
+  const backForLoad = E.playJump("main");
+  const loadedP = E.playLoad();
+  const namesL = E.outline().map((r) => r.name);
+  add(
+    "★★ 读档：回到存档里的那一关（当前场景与那一关的世界都按存档恢复）",
+    backForLoad.ok === true && loadedP.ok === true && E.playScene() === "落盘场景" &&
+      namesL.includes("在目标场景里砍的树"),
+    JSON.stringify(loadedP) + " playScene=" + JSON.stringify(E.playScene()) +
+      " 节点=" + JSON.stringify(namesL),
+  );
+
+  const stopS = E.stop();
+  add(
+    "★★ 存档不动工程槽位：停播之后 current 还是 main（进度是进度，设计是设计）",
+    stopS.ok === true && E.scenes().current === "main",
+    JSON.stringify(stopS) + " current=" + E.scenes().current,
+  );
+
   const backT = E.sceneSwitch("落盘场景");
   const hasOnly = E.outline().some((r) => r.name === "只在目标场景里");
   const backM2 = E.sceneSwitch("main");
@@ -1069,6 +1136,15 @@ const PROBE2 = `
     "★★ 恢复出来的是**内容**不只是名字：切到「落盘场景」能看到刷新前加的那个节点",
     sw.ok === true && has === true && E.scenes().current === "落盘场景",
     JSON.stringify(sw) + " 有落盘标记=" + String(has) + " current=" + E.scenes().current,
+  );
+
+  // ★★ 试玩存档跨页面活着：进度如果不是落在媒介上，刷新一次就"回到第一关"了。
+  //   这一条与上面几条验的不是同一件事：上面验"存了能读"，这里验"存的东西活过了刷新"。
+  const pinfo = E.playSaveInfo();
+  add(
+    "★★ 刷新页面之后那一局的存档还在（当前场景 / 走过几关都活过了刷新）",
+    pinfo.bytes > 0 && pinfo.current === "落盘场景" && pinfo.scenes.length === 2,
+    JSON.stringify(pinfo),
   );
 
   return rows;
