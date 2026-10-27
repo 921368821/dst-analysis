@@ -17,6 +17,7 @@ import type { ModuleContext } from "../../src/core/module/module.ts";
 import { Services } from "../../src/core/tokens.ts";
 import { NavGrid } from "../../src/extensions/nav/nav-grid.ts";
 import { MOVER_TYPE, Mover, createMoveModule, registerMoverComponent } from "../../src/extensions/ai/move.ts";
+import { SpatialHashWorld } from "../../src/extensions/physics/physics.ts";
 import { generateWorld } from "../../src/extensions/worldgen/worldgen.ts";
 import { assembleWorld, registerWorldComponents } from "../../src/extensions/worldgen/assemble.ts";
 
@@ -255,4 +256,157 @@ test("[AI 移动] ★ 接线：在真实生成的世界里走，全程不踩水�
   const p = scene.find(node.value.id)!.worldPosition;
   const end = grid.centerOf(goal);
   assert.ok(Math.abs(p.x - end.x) < 1e-9 && Math.abs(p.y - end.z) < 1e-9, "终点格中心没对上");
+});
+
+// ── ⑥ 连续碰撞接线（ADR-0013）────────────────────────────────
+
+/**
+ * ★★ 这一条守的是**接线**，不是纯函数 —— `sweepMove` 自己那套判据
+ * （`physics-sweep.test.ts`）全绿也说明不了"AI 走路的时候喊了它"。
+ *
+ * 夹具特意让「一 tick 的位移 (0.5) > 墙厚 (0.1)」：这时起终点都不重叠，
+ * `resolve()` 永远推不回来 —— 那正是「这只怪偶尔穿过箱子」。
+ * 判据先跑一遍**不注入** sweep 的对照，证明这个夹具真的会穿过去
+ * （不然"夹住了"可能只是因为走得慢）。
+ */
+test("★★ 连续碰撞接线：一 tick 跨得比薄墙厚 ⇒ 夹在墙前；不注入 sweep 就会穿过去", () => {
+  const WALL_X = 4;
+  const WALL_HALF = 0.05;
+  const BODY_R = 0.5;
+  /** 圆心能到达的最远处 = 墙面 − 半径（墙面在 4 − 0.05）。 */
+  const CONTACT = WALL_X - WALL_HALF - BODY_R;
+
+  function run(injectSweep: boolean): { maxX: number; blocked: number; arrived: boolean } {
+    const w = corridor(16);
+    w.mover.speed = 30; // dt = 1/60 ⇒ 每拍 0.5 世界单位
+    const pos = new Map<number, { x: number; z: number }>([
+      [w.nodeId, { x: 0.5, z: 0.5 }],
+      [999, { x: WALL_X, z: 0.5 }],
+    ]);
+    const world = new SpatialHashWorld({
+      get: (id) => pos.get(id),
+      set: (id, x, z) => {
+        pos.set(id, { x, z });
+      },
+    });
+    // ★ 必须真的 add 进世界：候选集来自空间哈希，只在访问器里塞坐标的话世界是空的。
+    world.add({ nodeId: w.nodeId, radius: BODY_R, isStatic: false });
+    world.add({ nodeId: 999, radius: BODY_R, isStatic: true, halfExtents: { x: WALL_HALF, z: 5 } });
+
+    const mod = createMoveModule({
+      grid: w.grid,
+      decide: () => 15,
+      ...(injectSweep ? { sweep: (id: number, dx: number, dz: number) => world.sweepMove(id, dx, dz) } : {}),
+    });
+    initOk(mod, makeCtx(w.scene));
+
+    let maxX = 0.5;
+    for (let t = 1; t <= 200; t++) {
+      // 物理世界的位置访问器要跟场景同步（引擎里这一步由"写回 body 位置"的系统做）
+      const p = w.scene.find(w.nodeId)!.worldPosition;
+      pos.set(w.nodeId, { x: p.x, z: p.y });
+      mod.update(t, 1 / 60);
+      maxX = Math.max(maxX, w.scene.find(w.nodeId)!.worldPosition.x);
+      if (w.mover.arrived) break;
+    }
+    return { maxX, blocked: mod.stats.blocked, arrived: w.mover.arrived };
+  }
+
+  const without = run(false);
+  assert.ok(
+    without.maxX > WALL_X + BODY_R,
+    `夹具没有分辨力：不扫掠时必须穿过墙（最远 x=${String(without.maxX)} > ${String(WALL_X + BODY_R)}）`,
+  );
+
+  const withSweep = run(true);
+  assert.ok(
+    withSweep.maxX <= CONTACT + 1e-9,
+    `圆心不该越过 ${String(CONTACT)}，实际最远 ${String(withSweep.maxX)}`,
+  );
+  assert.ok(withSweep.blocked > 0, "扫掠一次都没被调用 —— 接线没接上（纯函数再绿也不作数）");
+  assert.equal(withSweep.arrived, false, "被挡住时不许宣布到达（`r.done` 说的只是预算走完了这条路）");
+});
+
+test("★ 连续碰撞接线：被挡住时不推进游标（否则会贴着墙把剩下的路空走完）", () => {
+  const w = corridor(16);
+  w.mover.speed = 30;
+  const pos = new Map<number, { x: number; z: number }>([
+    [w.nodeId, { x: 0.5, z: 0.5 }],
+    [999, { x: 4, z: 0.5 }],
+  ]);
+  const world = new SpatialHashWorld({
+    get: (id) => pos.get(id),
+    set: (id, x, z) => {
+      pos.set(id, { x, z });
+    },
+  });
+  world.add({ nodeId: w.nodeId, radius: 0.5, isStatic: false });
+  world.add({ nodeId: 999, radius: 0.5, isStatic: true, halfExtents: { x: 0.05, z: 5 } });
+
+  const mod = createMoveModule({
+    grid: w.grid,
+    decide: () => 15,
+    sweep: (id: number, dx: number, dz: number) => world.sweepMove(id, dx, dz),
+  });
+  initOk(mod, makeCtx(w.scene));
+
+  const cursorAt: number[] = [];
+  for (let t = 1; t <= 40; t++) {
+    const p = w.scene.find(w.nodeId)!.worldPosition;
+    pos.set(w.nodeId, { x: p.x, z: p.y });
+    mod.update(t, 1 / 60);
+    cursorAt.push(w.mover.cursor);
+  }
+  // 撞上之后游标不再增长：40 拍里它有很长一段时间停在同一个值上。
+  assert.ok(
+    new Set(cursorAt).size < cursorAt.length,
+    `游标每拍都在前进（${cursorAt.join(",")}）—— 那是"贴着墙空走到终点"`,
+  );
+  // 而且它**没有**走到路径末端（末端 = path.length）
+  assert.ok(w.mover.cursor < w.mover.path.length, `游标走到了末端 ${String(w.mover.cursor)}/${String(w.mover.path.length)}`);
+  // 卡住检测要接得住：被挡住的代理最终会丢路径重算一次（不是永远僵在那里）
+  assert.ok(mod.stats.blocked > 0);
+});
+
+/**
+ * ★★ 这一条是给 M521/M522 准备的：**预算大到一拍走完整条路**。
+ *
+ * 只有这种局面里 `r.done` 才会在"被挡住的那一拍"为 true，于是两个错法各有症状：
+ *   · 被挡住还推进游标 ⇒ 下一拍 `r.done` 为真而位移是 0，游标已到末端 ⇒ 宣布到达；
+ *   · 被挡住也宣布到达 ⇒ 第一拍就到达，而人其实贴在墙上。
+ * 慢速夹具（上两条）里这两件事都碰不到 —— 预算一拍走不完，`r.done` 一直是 false。
+ */
+test("★★ 被物理挡住时不许宣布到达：预算大到一拍走完整条路也一样", () => {
+  const w = corridor(8);
+  w.mover.speed = 30; // dt = 0.5 ⇒ 一拍 15 世界单位，整条路都在一拍之内
+  const WALL_X = 4.5; // 正好压在目标格中心上：圆心最近只能到 3.95
+  const pos = new Map<number, { x: number; z: number }>([
+    [w.nodeId, { x: 0.5, z: 0.5 }],
+    [999, { x: WALL_X, z: 0.5 }],
+  ]);
+  const world = new SpatialHashWorld({
+    get: (id) => pos.get(id),
+    set: (id, x, z) => {
+      pos.set(id, { x, z });
+    },
+  });
+  world.add({ nodeId: w.nodeId, radius: 0.5, isStatic: false });
+  world.add({ nodeId: 999, radius: 0.5, isStatic: true, halfExtents: { x: 0.05, z: 5 } });
+
+  const mod = createMoveModule({
+    grid: w.grid,
+    decide: () => 4,
+    sweep: (id: number, dx: number, dz: number) => world.sweepMove(id, dx, dz),
+  });
+  initOk(mod, makeCtx(w.scene));
+
+  for (let t = 1; t <= 60; t++) {
+    const p = w.scene.find(w.nodeId)!.worldPosition;
+    pos.set(w.nodeId, { x: p.x, z: p.y });
+    mod.update(t, 0.5);
+    assert.equal(w.mover.arrived, false, `第 ${String(t)} 拍宣布到达了，而它贴在墙上`);
+  }
+  const p = w.scene.find(w.nodeId)!.worldPosition;
+  assert.ok(p.x <= WALL_X - 0.05 - 0.5 + 1e-9, `圆心越过了接触点：x=${String(p.x)}`);
+  assert.ok(mod.stats.blocked > 0, "一次都没被挡住 —— 夹具没咬住扫掠");
 });

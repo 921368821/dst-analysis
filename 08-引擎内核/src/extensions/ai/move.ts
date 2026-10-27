@@ -31,6 +31,14 @@
  * ⑤ **坐标用世界坐标读、用增量写**。见 `step()` 里的注释：直接写 `localPosition`
  *    在"代理挂在有位移的父节点下"时会走错方向，而世界坐标读出来是对的，
  *    所以取"世界坐标的增量"回写到 local —— 父级只有平移（最常见）时两者等价。
+ *
+ * ⑥ **一拍之内的位移要夹到"第一次接触"之前**（[ADR-0013](docs/adr/0013-continuous-collision.md)）。
+ *    导航格只知道地形，不知道物理障碍：`speed * dt` 一跨 0.05 宽的箱子，
+ *    起终点都不重叠 ⇒ `resolve()` 永远推不回来，看起来就是「这只怪偶尔穿过箱子」。
+ *    所以每 tick 的位移在**落笔之前**过一次扫掠，撞上就停在接触点前。
+ *    ★ 夹住之后**游标不前进**：没走到那个路点，下一 tick 还得朝它走。
+ *      一直走不动就交给卡住检测（③）去丢路径重算 —— 那才是"路被挡住了"的出口，
+ *      如果让游标照常前进，怪会贴着墙一路"空走"到终点再宣布到达。
  */
 
 import { Component, FieldType, type ComponentSchema } from "../../core/scene/component.ts";
@@ -46,6 +54,30 @@ import { stepAlong } from "../nav/move-along.ts";
 export const MOVER_TYPE = "ai.mover";
 /** 配置非法。 */
 export const AI_BAD_MOVE = "AI.BAD_MOVE";
+
+/**
+ * 停在接触点**之前**留的缝（世界单位）。
+ *
+ * ★ 恰好相切在浮点上是五五开：下一 tick 的扫掠可能把 `t` 报成 0，
+ *   而 0 的语义是"起点已重叠" ⇒ 这一拍不动 ⇒ 看起来像"被墙吸住、推都推不动"。
+ *   留一条缝之后，下一 tick 是一个**正**的 `t`，夹到 0 与"没碰到"可以区分。
+ */
+export const SWEEP_SKIN = 1e-3;
+
+/**
+ * 扫掠命中。与 `physics/sweep.ts` 的 `SweepHit` **同形**，但这里不 import 它：
+ * AI 层不该为了一个四字段的记录依赖物理层（顺序是 physics ← ai）。
+ * 结构化类型让 `world.sweepMove` 直接能传进来，判据里也能传假实现。
+ */
+export interface MoveSweepHit {
+  /** 接触时刻，`[0, 1]`：这一步的位移参数。 */
+  readonly t: number;
+  /** 接触法线（指向"把圆推出去"的方向）。 */
+  readonly nx: number;
+  readonly nz: number;
+  /** 碰到的节点 id（诊断用）。 */
+  readonly nodeId: number;
+}
 
 export class Mover extends Component {
   /** 每秒走多少世界单位。 */
@@ -96,6 +128,8 @@ export interface MoveStats {
   readonly unreachable: number;
   /** 累计：因卡住而丢弃路径的次数。 */
   readonly stuck: number;
+  /** 累计：被**物理障碍**挡住的次数（扫掠夹到了接触点，见文件头 ⑥）。 */
+  readonly blocked: number;
 }
 
 export interface MoveModuleOptions {
@@ -112,6 +146,12 @@ export interface MoveModuleOptions {
   readonly stuckEps?: number;
   /** 算路失败后多少 tick 内不重试（默认 30）。 */
   readonly retryTicks?: number;
+  /**
+   * 连续碰撞：这一拍从当前位置走 `(dx, dz)` 会不会撞上静态障碍（见文件头 ⑥）。
+   * 不传 = 不扫掠（老行为：一格一格地挪，快不起来也穿不过去）。
+   * `IPhysicsWorld.sweepMove` 直接能传进来 —— 它只回答、不改位置。
+   */
+  readonly sweep?: (nodeId: number, dx: number, dz: number) => MoveSweepHit | null;
 }
 
 export interface MoveModuleHandle extends IModule {
@@ -131,9 +171,33 @@ export function createMoveModule(opts: MoveModuleOptions): MoveModuleHandle {
   let paths = 0;
   let unreachable = 0;
   let stuck = 0;
+  let blocked = 0;
   let moving = 0;
   let arrived = 0;
   let idle = 0;
+
+  /**
+   * 把这一拍的位移夹到**第一次接触之前**（见文件头 ⑥）。
+   * 没注入 `sweep`、或者没碰到 ⇒ 原样返回目标点。
+   */
+  function clampToContact(
+    nodeId: number,
+    fromX: number,
+    fromZ: number,
+    toX: number,
+    toZ: number,
+  ): { x: number; z: number; hit: MoveSweepHit | null } {
+    const sweep = opts.sweep;
+    if (sweep === undefined) return { x: toX, z: toZ, hit: null };
+    const dx = toX - fromX;
+    const dz = toZ - fromZ;
+    const len = Math.hypot(dx, dz);
+    if (!(len > 0)) return { x: toX, z: toZ, hit: null };
+    const hit = sweep(nodeId, dx, dz);
+    if (hit === null) return { x: toX, z: toZ, hit: null };
+    const back = Math.max(0, hit.t - SWEEP_SKIN / len);
+    return { x: fromX + dx * back, z: fromZ + dz * back, hit };
+  }
 
   const handle: MoveModuleHandle = {
     id: opts.id ?? "ai.move",
@@ -147,6 +211,7 @@ export function createMoveModule(opts: MoveModuleOptions): MoveModuleHandle {
         paths,
         unreachable,
         stuck,
+        blocked,
       };
     },
     pathOf(nodeId: number): readonly number[] {
@@ -214,16 +279,29 @@ export function createMoveModule(opts: MoveModuleOptions): MoveModuleHandle {
         }
 
         const wp = node.worldPosition;
+        const cursorBefore = m.cursor;
         const r = stepAlong(grid, m.path, m.cursor, wp.x, wp.y, m.speed, dt);
         m.cursor = r.cursor;
-        if (r.moved > 0) {
+        // 见文件头 ⑥：落笔之前先夹到接触点（物理障碍不在导航格上）
+        const aim = clampToContact(node.id, wp.x, wp.y, r.x, r.z);
+        if (aim.hit !== null) {
+          // 没走到那个路点 ⇒ 游标不前进（见文件头 ⑥ 的后半句）
+          m.cursor = cursorBefore;
+          blocked++;
+        }
+        const stepX = aim.x - wp.x;
+        const stepZ = aim.z - wp.y;
+        const movedNow = Math.hypot(stepX, stepZ);
+        if (movedNow > 0) {
           // 见文件头 ⑤：把世界坐标的增量回写到 local
           const lp = node.localPosition;
-          node.setLocalPosition(lp.x + (r.x - wp.x), lp.y + (r.z - wp.y));
+          node.setLocalPosition(lp.x + stepX, lp.y + stepZ);
           moving++;
         }
 
-        if (r.done) {
+        // ★ 被挡住时不许宣布到达：`r.done` 说的是"预算走完了这条路"，
+        //   而实际位移被夹在半路上 —— 那正是"贴着墙空走到终点"的来源。
+        if (aim.hit === null && r.done) {
           m.arrived = true;
           m.stuckTicks = 0;
           arrived++;
@@ -231,7 +309,7 @@ export function createMoveModule(opts: MoveModuleOptions): MoveModuleHandle {
         }
 
         // ---- 卡住检测（见文件头 ③）
-        if (r.moved <= stuckEps) {
+        if (movedNow <= stuckEps) {
           m.stuckTicks++;
           if (m.stuckTicks >= stuckLimit) {
             m.path.length = 0;
@@ -247,7 +325,7 @@ export function createMoveModule(opts: MoveModuleOptions): MoveModuleHandle {
       }
     },
     describe(): string {
-      return `AI 移动：${String(moving)} 个代理在走，累计算路 ${String(paths)} 次 / 不可达 ${String(unreachable)} 次`;
+      return `AI 移动：${String(moving)} 个代理在走，累计算路 ${String(paths)} 次 / 不可达 ${String(unreachable)} 次 / 被物理挡住 ${String(blocked)} 次`;
     },
   };
 

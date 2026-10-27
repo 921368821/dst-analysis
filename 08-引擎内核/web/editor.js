@@ -5642,6 +5642,128 @@ function createRenderModule(opts) {
   return mod;
 }
 
+// src/extensions/physics/sweep.ts
+var NO_NODE = -1;
+function finite(name, v) {
+  if (!Number.isFinite(v)) throw new TypeError(`sweepCircleVsBox \u7684 ${name} \u5FC5\u987B\u662F\u6709\u9650\u6570\uFF08\u6536\u5230 ${String(v)}\uFF09`);
+}
+function closestOnBox(px, pz, box) {
+  const x = px < box.cx - box.hx ? box.cx - box.hx : px > box.cx + box.hx ? box.cx + box.hx : px;
+  const z = pz < box.cz - box.hz ? box.cz - box.hz : pz > box.cz + box.hz ? box.cz + box.hz : pz;
+  return { x, z, inside: x === px && z === pz };
+}
+function overlapNormal(px, pz, box) {
+  const dxL = px - (box.cx - box.hx);
+  const dxR = box.cx + box.hx - px;
+  const dzL = pz - (box.cz - box.hz);
+  const dzR = box.cz + box.hz - pz;
+  const m = Math.min(dxL, dxR, dzL, dzR);
+  if (m === dxL) return { nx: -1, nz: 0 };
+  if (m === dxR) return { nx: 1, nz: 0 };
+  if (m === dzL) return { nx: 0, nz: -1 };
+  return { nx: 0, nz: 1 };
+}
+function sweepCircleVsBox(px, pz, dx, dz, r, box) {
+  finite("px", px);
+  finite("pz", pz);
+  finite("dx", dx);
+  finite("dz", dz);
+  finite("r", r);
+  if (!(r > 0)) throw new RangeError(`sweepCircleVsBox \u7684\u534A\u5F84\u5FC5\u987B > 0\uFF08\u6536\u5230 ${String(r)}\uFF09`);
+  const nodeId = box.nodeId ?? NO_NODE;
+  const cp = closestOnBox(px, pz, box);
+  if (cp.inside) {
+    const n = overlapNormal(px, pz, box);
+    return { t: 0, nx: n.nx, nz: n.nz, nodeId };
+  }
+  const ddx = px - cp.x;
+  const ddz = pz - cp.z;
+  const d2 = ddx * ddx + ddz * ddz;
+  if (d2 < r * r) {
+    const len = Math.sqrt(d2);
+    return { t: 0, nx: ddx / len, nz: ddz / len, nodeId };
+  }
+  if (dx === 0 && dz === 0) return null;
+  let best = Number.POSITIVE_INFINITY;
+  let bestNx = 0;
+  let bestNz = 0;
+  const faces = [
+    { axis: 0, plane: box.cx - box.hx - r, lo: box.cz - box.hz, hi: box.cz + box.hz, nx: -1, nz: 0 },
+    { axis: 0, plane: box.cx + box.hx + r, lo: box.cz - box.hz, hi: box.cz + box.hz, nx: 1, nz: 0 },
+    { axis: 1, plane: box.cz - box.hz - r, lo: box.cx - box.hx, hi: box.cx + box.hx, nx: 0, nz: -1 },
+    { axis: 1, plane: box.cz + box.hz + r, lo: box.cx - box.hx, hi: box.cx + box.hx, nx: 0, nz: 1 }
+  ];
+  for (const f of faces) {
+    const p = f.axis === 0 ? px : pz;
+    const d = f.axis === 0 ? dx : dz;
+    if (d === 0) continue;
+    const t = (f.plane - p) / d;
+    if (!(t >= 0 && t <= 1)) continue;
+    const other = f.axis === 0 ? pz + dz * t : px + dx * t;
+    if (other < f.lo || other > f.hi) continue;
+    if (t < best) {
+      best = t;
+      bestNx = f.nx;
+      bestNz = f.nz;
+    }
+  }
+  const corners = [
+    { cx: box.cx - box.hx, cz: box.cz - box.hz },
+    { cx: box.cx + box.hx, cz: box.cz - box.hz },
+    { cx: box.cx - box.hx, cz: box.cz + box.hz },
+    { cx: box.cx + box.hx, cz: box.cz + box.hz }
+  ];
+  for (const c of corners) {
+    const hit = rayVsCircle(px - c.cx, pz - c.cz, dx, dz, r);
+    if (hit === null) continue;
+    if (hit > best) continue;
+    const hx0 = px + dx * hit - c.cx;
+    const hz0 = pz + dz * hit - c.cz;
+    const outwardX = px < c.cx ? hx0 <= 0 : hx0 >= 0;
+    const outwardZ = pz < c.cz ? hz0 <= 0 : hz0 >= 0;
+    if (!outwardX || !outwardZ) continue;
+    const len = Math.sqrt(hx0 * hx0 + hz0 * hz0);
+    if (len === 0) continue;
+    best = hit;
+    bestNx = hx0 / len;
+    bestNz = hz0 / len;
+  }
+  if (!Number.isFinite(best)) return null;
+  return { t: best, nx: bestNx, nz: bestNz, nodeId };
+}
+function rayVsCircle(px, pz, dx, dz, r) {
+  const c = px * px + pz * pz - r * r;
+  if (c <= 0) return 0;
+  const a = dx * dx + dz * dz;
+  if (a === 0) return null;
+  const b = px * dx + pz * dz;
+  if (b >= 0) return null;
+  const disc = b * b - a * c;
+  if (disc < 0) return null;
+  return (-b - Math.sqrt(disc)) / a;
+}
+function sweepCircleVsCircle(px, pz, dx, dz, r, cx, cz, otherR, nodeId = NO_NODE) {
+  finite("cx", cx);
+  finite("cz", cz);
+  finite("otherR", otherR);
+  const sum = r + otherR;
+  const t = rayVsCircle(px - cx, pz - cz, dx, dz, sum);
+  if (t === null || t > 1) return null;
+  const hx = px + dx * t - cx;
+  const hz = pz + dz * t - cz;
+  const len = Math.hypot(hx, hz);
+  if (len === 0) return { t, nx: 0, nz: 0, nodeId };
+  return { t, nx: hx / len, nz: hz / len, nodeId };
+}
+function earliestHit(hits) {
+  let best = null;
+  for (const h of hits) {
+    if (h === null) continue;
+    if (best === null || h.t < best.t || h.t === best.t && h.nodeId < best.nodeId) best = h;
+  }
+  return best;
+}
+
 // src/extensions/physics/physics.ts
 var AUTO_CELL_MIN = 0.5;
 var AUTO_CELL_MAX = 16;
@@ -5915,6 +6037,37 @@ var SpatialHashWorld = class {
    *   推过自己这一半），另外半程由对面承担 —— 总位移与原来相同（`overlap + skin`），
    *   但每对每轮只算一次，且两侧对称。
    */
+  /**
+   * 连续碰撞（扫掠）的实现：把候选体换成"静态障碍"再交给纯函数。
+   *
+   * ★ 候选集用 `query(起点, 位移长度 + 自身半径 + 最大障碍半径)`：那是**圆**的保守范围。
+   *   用轴对齐的方框范围会漏掉斜方向的候选 —— 而漏掉的症状正是"偶尔穿过去"，
+   *   与这段代码要修的问题一模一样，所以这里宁可多扫几个。
+   */
+  sweepMove(nodeId, dx, dz) {
+    const self = this.bodies.get(nodeId);
+    if (self === void 0) return null;
+    const p = this.pos.get(nodeId);
+    if (p === void 0) return null;
+    const reach = Math.hypot(dx, dz) + self.radius + this.maxRange;
+    const boxes = [];
+    const circles = [];
+    for (const id of this.query(p.x, p.z, reach)) {
+      if (id === nodeId) continue;
+      const other = this.bodies.get(id);
+      if (other === void 0 || !other.isStatic) continue;
+      const q2 = this.pos.get(id);
+      if (q2 === void 0) continue;
+      if (other.halfExtents !== void 0) {
+        boxes.push({ cx: q2.x, cz: q2.z, hx: other.halfExtents.x, hz: other.halfExtents.z, nodeId: id });
+      } else {
+        circles.push({ cx: q2.x, cz: q2.z, r: other.radius, nodeId: id });
+      }
+    }
+    const fromBoxes = boxes.map((b) => sweepCircleVsBox(p.x, p.z, dx, dz, self.radius, b));
+    const fromCircles = circles.map((c) => sweepCircleVsCircle(p.x, p.z, dx, dz, self.radius, c.cx, c.cz, c.r, c.nodeId));
+    return earliestHit([...fromBoxes, ...fromCircles]);
+  }
   resolve() {
     let moved = 0;
     for (let iter = 0; iter < this.maxIterations; iter++) {

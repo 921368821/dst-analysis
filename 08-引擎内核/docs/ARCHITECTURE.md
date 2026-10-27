@@ -246,7 +246,7 @@ step(tick, dt):
 | `render/render-module` | 把 Sprite 组件变成每帧一次 draw | 相机跟随在**渲染阶段**做（用 alpha），不在 `onUpdate` 里做；多页时分段提交（每段绑自己的纹理 + `firstIndex`） | `extensions/render/render-module.ts` |
 | `render/camera` | 正交 + 斜俯视投影（`tiltY`） | 投影在 CPU 做；逻辑坐标是**未压缩**的 XZ | `extensions/render/camera.ts` |
 | `render/sprite` | 渲染数据组件 | **不存 GPU 句柄**，只存 `atlasId + frame`（句柄是进程内的，存进档就是灾难） | `extensions/render/sprite.ts` |
-| `physics` | 2.5D 碰撞：空间哈希 + 推出 | 不做刚体积分（饥荒风格的正确选择：卡顿不会穿墙） | `extensions/physics/physics.ts` |
+| `physics` | 2.5D 碰撞：空间哈希 + 推出 + **连续碰撞扫掠** | 不做刚体积分（饥荒风格的正确选择：卡顿不会穿墙）。扫掠是**纯函数**（`sweep.ts`），世界只负责筛候选 —— 于是"一拍跨过薄墙"有解，而推挤仍由 `resolve()` 负责（[ADR-0013](adr/0013-continuous-collision.md)） | `extensions/physics/physics.ts` · `extensions/physics/sweep.ts` |
 | `script/script-module` | 每 tick 驱动 `game.script` 组件调 Lua | 内部**串行队列**（上限 4，满了丢弃 + 计数）；异常隔离到单脚本 | `extensions/script/script-module.ts` |
 | `asset-import` | `.meta` 身份 + 导入器 + 增量管线 + 产物加载器 | 身份来自 `.meta`；增量 = hash + importerVersion + 依赖仍活着 | `extensions/asset-import/*` |
 | `asset-import/decode` | 位图解码：PNG（inflate + 反滤波 + 调色板 + Adam7 + APNG）/ JPEG（DCT + 熵解码）/ 按魔数分发 | **纯 TS、同步**：不用 `DecompressionStream`、不用 `createImageBitmap`（跨环境字节级一致 + 错误可诊断）。代价是自己养一份 | `extensions/asset-import/decode/*` |
@@ -797,7 +797,7 @@ UI 动画、音频、录像在暂停时仍应活动 —— 所以它们是不同
 | **浏览器自检** | 真实浏览器里 9 条端到端断言（画面/批处理/存档往返） | 9 | `web/selftest.html` |
 
 本表只统计 **L0–L3 核心子集**，行内数字相加为 **120 条 Node 判据 + 9 条浏览器自检**；
-含扩展解码器（PNG/JPEG/资产导入）与文件系统的全量是 1996 条 <!-- n:tests -->，全部在 `npm test` / 打开自检页里跑；
+含扩展解码器（PNG/JPEG/资产导入）与文件系统的全量是 2025 条 <!-- n:tests -->，全部在 `npm test` / 打开自检页里跑；
 `npm run check` 额外跑 `tsc`（strict + noUncheckedIndexedAccess）。
 
 ### 10.2 为什么"架构守护"比多写功能更重要
@@ -831,7 +831,7 @@ UI 动画、音频、录像在暂停时仍应活动 —— 所以它们是不同
 | # | 闸门 | 挡住什么 | 为什么必须自动化 |
 |---|---|---|---|
 | 1 | 类型检查 `tsc`（strict + `noUncheckedIndexedAccess`） | 类型层的不可能状态 | 人眼看不见"这里可能是 undefined" |
-| 2 | 判据（全量，1996 条 <!-- n:tests -->） | 行为退化 | 上一代引擎的判据从未被一次跑完过 |
+| 2 | 判据（全量，2025 条 <!-- n:tests -->） | 行为退化 | 上一代引擎的判据从未被一次跑完过 |
 | 3 | 物理性能闸门（**独占**跑） | 解算耗时退化 | 并行跑时测到的是"机器多忙"，不是"代码多慢"（阈值仍是 8ms，一个字没动） |
 | 4 | 覆盖率闸门 | "新代码没有任何判据走过" | 百分比能被平凡代码堆出来，所以守的是**未覆盖行清单**不许变多 |
 | 5 | 文档对账 | 判据数、变异数、后端数、步数写成过期值；**缺口清单里点名了已经在 CI 里跑的工具**（= 把做完的事记成待办） | **实测：这一批一次喊出 14 处漂移，人眼一处都没发现**。批97 起还管「清单对账」：`§六` 的缺口行若点名了某个 `tools/` 路径，而那个工具**已经在 CI 里跑**，就要人说清是"做完了没划掉"还是"点名点错了工具"（`tools/gap-check.mjs`，带合成的过期行做反向自检） |
@@ -843,7 +843,7 @@ UI 动画、音频、录像在暂停时仍应活动 —— 所以它们是不同
 | 11 | 浏览器端自检（无头 CDP 驱动，46 条 <!-- n:browser -->） | 页面级问题（DOM 缺节点、`fetch` 绑定、GL 拒绝） | Node 判据只能证明"我们发了什么调用"，不能证明浏览器接受；**缺浏览器时标 ⊘ 跳过，不算通过** |
 | 12 | 编辑器页自检（无头 CDP，103 条 <!-- n:editor -->） | 编辑器坏而运行时好（或反过来） | 与第 11 步分开，红的时候要一眼看出该谁修 |
 | 13 | 跨宿主存档比对 | Node 与浏览器写出的存档字节不同 | 存档要能在两个宿主之间迁，字节不同就悄悄迁移失败 |
-| 14 | 变异校验（507 组 <!-- n:mutants -->） | **判据本身失效**（改坏了还是绿的） | 这是唯一能证明"判据有牙齿"的手段 |
+| 14 | 变异校验（522 组 <!-- n:mutants -->） | **判据本身失效**（改坏了还是绿的） | 这是唯一能证明"判据有牙齿"的手段 |
 
 ★ 第 8 步的**适用域**（2026-10-25 实测，写清楚免得下次又当 bug 查）：
 金标是**某个具体 ffmpeg 构建**的产物 —— 本机生成它的是 `7.1-essentials_build-www.gyan.dev`。
@@ -896,9 +896,9 @@ CI 上 `pip install imageio-ffmpeg` 装的是 Linux 构建，对 12 位灰度（
   **16 位进 GPU**（`PixelFormat.RGBA16` + 图集 `precision` + WebGL2 `RGBA16/UNSIGNED_SHORT`）、
   **动画时间轴**（`AnimationClip` 只读数据 + 组件持时间 + 纯采样，图集不持计时器）、
   **真实资产上屏**（导入 → 解码 → 确定性图集合成 → `createTexture`，浏览器读 `web/assets/` 5 PNG + 1 JPEG）
-- **1996 条 Node 判据** <!-- n:tests -->（135 个测试文件 <!-- n:files -->）+ 46 条浏览器自检 <!-- n:browser -->，架构守护 7 条，
+- **2025 条 Node 判据** <!-- n:tests -->（136 个测试文件 <!-- n:files -->）+ 46 条浏览器自检 <!-- n:browser -->，架构守护 7 条，
   后端契约 22 条（两图形后端）+ 14 条（两脚本后端）
-- 变异验证 **507 组** <!-- n:mutants -->（异常隔离 / id 空间 / 增量 hash / env 隔离 / Paeth / 像素上传 / 5.1 unpack /
+- 变异验证 **522 组** <!-- n:mutants -->（异常隔离 / id 空间 / 增量 hash / env 隔离 / Paeth / 像素上传 / 5.1 unpack /
   Adam7 pass 表 / pass 宽度 / APNG blend / APNG dispose / 16 位取整 / APNG 帧数校验 /
   渐进 AC 精修 EOBRUN / 重启区间 DC 复位 / 三角上采样 / 截断标记 / EXIF 旋转 /
   QM 的 Switch_MPS / 双线性单侧钳位 / 无损差分取模 / DC 类别上限 / 精度规则 / EXP 位置 /
@@ -928,6 +928,7 @@ CI 上 `pip install imageio-ffmpeg` 装的是 Linux 构建，对 12 位灰度（
 ★ 但"修好了"当时**没有判据**：三处加起来只值 ~2ms，而预算 8ms，退回去依然全绿。批47 换成**工作量计数**
 （`stats().bodyScans / maxRangeScans / cellScans`）后立刻抓到第一处根本没修干净 ——
 `maxRadiusNearby()` 的注释写着 O(1)，代码仍是全场 `for`，缓存 `maxRange` 一直维护、**没有任何地方读它**。**密集布局 11ms 超预算的账已在批53（T338）还清**：根因不是「推挤对数」，而是**格宽默认值 4 与实体尺寸无关**（半径 0.3 的实体被塞进「每格 40 个」的粗桶，一次查询要白扫上百个候选）。改成「格宽 = 2 × 全场最大 range」之后密集布局 **4.97ms**；推挤工作量本身仍是密度的性质（5853 次/步、每步都有未解重叠），如实记在 `tests/core/physics-perf.test.ts` 文件头 | 已完成 |
+| ~~连续碰撞（CCD）~~ | ✅ 已支持（批100，[ADR-0013](adr/0013-continuous-collision.md)）：`physics/sweep.ts` 是**纯函数**扫掠（精确解 = 放大盒四条边 ∪ 四个角圆；起点已重叠 ⇒ `t = 0` 且这一拍不动；滑动只去掉法向分量、路程恒 ≤ 原长），`IPhysicsWorld.sweepMove` 只回答不改位置、只扫静态体，`ai/move` 的 `sweep` 接线把每拍夹在接触点前（挡住不推进游标、不宣布到达）。26 + 3 条判据、15 组变异 | 已完成 |
 | ~~`IWorldGenerator`（群系图 + 连通性校验 + 世界指纹）~~ | ✅ 已支持（2026-10-23）：整数噪声 + 架桥修复 + 规范化指纹 + 连通性校验（含"能报红"的反向判据）；**装配成真实场景**（可反查、可存档往返）；**世界任务表**（tick 驱动、跳时间不爆刷）已接进模块系统并真正 spawn 实体。见 §11.4 | 已完成 |
 | ~~AI（行为树 + 模块接线）~~ | ✅ 已支持（2026-10-23）：纯数据树 + 注册表行为 + tick 计数 + 真 `FixedStepScheduler` 驱动 + 异常隔离，见 §11.5；状态机未做（不打算另做一套） | 已完成 |
 | 编辑器（独立进程 + PIE） | 最大缺口 | 阶段 4 |
@@ -1551,7 +1552,8 @@ HUD 文案混入非 ASCII、背包行不切 `visible`、选中不换底色、皮
 读起来像"阶段 2 的一部分"。老实说这类缺失比数字写错更难发现 ——
 没有人会觉得"阶段 2 里怎么在讲物理"。补标题时顺手核对了条目状态。
 
-- ✅ `IPhysicsWorld`：XZ 平面 + AABB/圆 + 空间哈希；`findEntities(x,z,r)` 与饥荒 `FindEntities` 同签名
+- ✅ `IPhysicsWorld`：XZ 平面 + AABB/圆 + 空间哈希；`findEntities(x,z,r)` 与饥荒 `FindEntities` 同签名；
+  **连续碰撞（批100）**：`sweepCircleVsBox`/`sweepCircleVsCircle` 纯函数（精确解 = 放大盒四边 ∪ 四角圆）+ `sweepMove` 只回答不改位置
 - ✅ `IWorldGenerator`：群系图 + 连通性校验 + **世界指纹**（见 §11.4）；任务表仍待做
 - ✅ AI：行为树 + `IModule` 接线 + 真调度器驱动 + 异常隔离（`src/extensions/ai/`，见 §11.5）
 - 出口判据：`findEntities` / `query` 候选集与暴力枚举**完全一致** ✅；同种子两次生成指纹相同 ✅；
@@ -1600,7 +1602,7 @@ HUD 文案混入非 ASCII、背包行不切 `visible`、选中不换底色、皮
 │   │                          input-null · input-dom · fs-memory · fs-node · script-null · script-lua
 │   ├── browser-entry.ts   L6  浏览器宿主（宿主层，允许知道一切具体实现）
 │   └── index.ts               对外 API 面（只导出接口/类型/工厂）
-├── tests/                 135 个文件 <!-- n:files --> / 1996 条判据 <!-- n:tests -->（arch · contract · core · backends · extensions）
+├── tests/                 136 个文件 <!-- n:files --> / 2025 条判据 <!-- n:tests -->（arch · contract · core · backends · extensions）
 │   └── fixtures/png/      外部金标语料（隔行/16 位/APNG，pngjs + Pillow 双实现产出）
 │   └── fixtures/jpeg/     外部金标语料（**54 例** <!-- n:jpeggold -->，三份清单按案例名去重：Pillow 解 17 + 算术 6
 │                          + CMYK/YCCK 4 + "我们编码→libjpeg 解" 6 + liblj92 无损 8..16 位 9 + ffmpeg 12，

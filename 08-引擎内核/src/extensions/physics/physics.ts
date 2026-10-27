@@ -22,6 +22,7 @@
 
 import type { EngineError, Result } from "../../foundation/result.ts";
 import { err, ok } from "../../foundation/result.ts";
+import { earliestHit, sweepCircleVsBox, sweepCircleVsCircle, type SweepBox, type SweepHit } from "./sweep.ts";
 
 export interface BodyId {
   readonly nodeId: number;
@@ -148,6 +149,19 @@ export interface IPhysicsWorld {
    * ★ 只推动**动态** body；静态体不动（树不会因为你撞它而位移）。
    */
   resolve(): number;
+
+  /**
+   * 连续碰撞（扫掠）：这一步会不会**穿过去**（[ADR-0013](docs/adr/0013-continuous-collision.md)）。
+   *
+   * `resolve()` 回答的是"现在是不是叠在一起"；它按**当前**坐标找重叠对，
+   * 对"一拍之内从墙的这侧到那侧"完全无能为力 —— 跨过去之后两侧不重叠，
+   * 下一拍再也不会被推开。那个症状是「这只怪偶尔会穿过箱子」，而且同一个种子复现不了。
+   *
+   * ★ 只扫**静态**体：只有静态障碍是"解算永远救不回来"的（它不会动过来。
+   *   动态体撞上之后 `resolve()` 会把两边分开，扫掠一遍反而会让两只怪互相卡住）。
+   * ★ 只回答、**不改位置**：移动是调用方的事（它才知道要不要停、要不要滑、要不要播动画）。
+   */
+  sweepMove(nodeId: number, dx: number, dz: number): SweepHit | null;
 
   stats(): PhysicsStats;
   clear(): void;
@@ -452,6 +466,38 @@ export class SpatialHashWorld implements IPhysicsWorld {
    *   推过自己这一半），另外半程由对面承担 —— 总位移与原来相同（`overlap + skin`），
    *   但每对每轮只算一次，且两侧对称。
    */
+  /**
+   * 连续碰撞（扫掠）的实现：把候选体换成"静态障碍"再交给纯函数。
+   *
+   * ★ 候选集用 `query(起点, 位移长度 + 自身半径 + 最大障碍半径)`：那是**圆**的保守范围。
+   *   用轴对齐的方框范围会漏掉斜方向的候选 —— 而漏掉的症状正是"偶尔穿过去"，
+   *   与这段代码要修的问题一模一样，所以这里宁可多扫几个。
+   */
+  sweepMove(nodeId: number, dx: number, dz: number): SweepHit | null {
+    const self = this.bodies.get(nodeId);
+    if (self === undefined) return null;
+    const p = this.pos.get(nodeId);
+    if (p === undefined) return null;
+    const reach = Math.hypot(dx, dz) + self.radius + this.maxRange;
+    const boxes: SweepBox[] = [];
+    const circles: { cx: number; cz: number; r: number; nodeId: number }[] = [];
+    for (const id of this.query(p.x, p.z, reach)) {
+      if (id === nodeId) continue;
+      const other = this.bodies.get(id);
+      if (other === undefined || !other.isStatic) continue;
+      const q = this.pos.get(id);
+      if (q === undefined) continue;
+      if (other.halfExtents !== undefined) {
+        boxes.push({ cx: q.x, cz: q.z, hx: other.halfExtents.x, hz: other.halfExtents.z, nodeId: id });
+      } else {
+        circles.push({ cx: q.x, cz: q.z, r: other.radius, nodeId: id });
+      }
+    }
+    const fromBoxes = boxes.map((b) => sweepCircleVsBox(p.x, p.z, dx, dz, self.radius, b));
+    const fromCircles = circles.map((c) => sweepCircleVsCircle(p.x, p.z, dx, dz, self.radius, c.cx, c.cz, c.r, c.nodeId));
+    return earliestHit([...fromBoxes, ...fromCircles]);
+  }
+
   resolve(): number {
     let moved = 0;
     for (let iter = 0; iter < this.maxIterations; iter++) {

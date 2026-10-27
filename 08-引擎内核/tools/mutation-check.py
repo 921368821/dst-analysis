@@ -4718,6 +4718,171 @@ MUTANTS = [
             ]
         ],
         "test": "tests/extensions/tween-keyframes.test.ts"
+    },
+    {
+        "name": "M508 面命中不检查另一轴的范围（角区域的命中被当成面 ⇒ 提前停住）",
+        "file": "src/extensions/physics/sweep.ts",
+        "pairs": [
+            [
+                "    if (other < f.lo || other > f.hi) continue; // 角区域，交给下面",
+                "    if (false) continue; // 角区域，交给下面"
+            ]
+        ],
+        "test": "tests/extensions/physics-sweep.test.ts"
+    },
+    {
+        "name": "M509 走过的路程记成本步**想走**的长度（贴墙时虚报位移 ⇒ 「≤ 原始长度」判据反而看不出来）",
+        "file": "src/extensions/physics/sweep.ts",
+        "pairs": [
+            [
+                "    traveled += len * back;",
+                "    traveled += len;"
+            ]
+        ],
+        "test": "tests/extensions/physics-sweep.test.ts"
+    },
+    {
+        "name": "M510 角圆半径写死 0（等于关掉角圆 ⇒ 45° 打角早停 0.02）",
+        "file": "src/extensions/physics/sweep.ts",
+        "pairs": [
+            [
+                "    const hit = rayVsCircle(px - c.cx, pz - c.cz, dx, dz, r);",
+                "    const hit = rayVsCircle(px - c.cx, pz - c.cz, dx, dz, 0);"
+            ]
+        ],
+        "test": "tests/extensions/physics-sweep.test.ts"
+    },
+    {
+        "name": "M511 起点已重叠不特判（法线退化成 0/0 = NaN）",
+        "file": "src/extensions/physics/sweep.ts",
+        "pairs": [
+            [
+                "  if (cp.inside) {",
+                "  if (false) {"
+            ]
+        ],
+        "test": "tests/extensions/physics-sweep.test.ts"
+    },
+    {
+        "name": "M512 滑动时不清掉法向分量（沿墙走会比直线更快：凭空加能量）",
+        "file": "src/extensions/physics/sweep.ts",
+        "pairs": [
+            [
+                "    remX -= h.nx * dot;\n    remZ -= h.nz * dot;",
+                "    // 法向分量留在 rem 里（错）"
+            ]
+        ],
+        "test": "tests/extensions/physics-sweep.test.ts"
+    },
+    {
+        "name": "M513 起点已重叠的边界写成 `< 0`（恰好相切/重叠的那一拍被当成「走进去了」，记一次滑动）",
+        "file": "src/extensions/physics/sweep.ts",
+        "pairs": [
+            [
+                "    if (h.t <= 0) break;",
+                "    if (h.t < 0) break;"
+            ]
+        ],
+        "test": "tests/extensions/physics-sweep.test.ts"
+    },
+    {
+        "name": "M514 平手时取 nodeId 大的（结果依赖数组顺序）",
+        "file": "src/extensions/physics/sweep.ts",
+        "pairs": [
+            [
+                "h.t === best.t && h.nodeId < best.nodeId",
+                "h.t === best.t && h.nodeId > best.nodeId"
+            ]
+        ],
+        "test": "tests/extensions/physics-sweep.test.ts"
+    },
+    {
+        "name": "M515 earliestHit 不比较 t（取最后一个候选，与距离无关）",
+        "file": "src/extensions/physics/sweep.ts",
+        "pairs": [
+            [
+                "    if (best === null || h.t < best.t || (h.t === best.t && h.nodeId < best.nodeId)) best = h;",
+                "    best = h;"
+            ]
+        ],
+        "test": "tests/extensions/physics-sweep.test.ts"
+    },
+    {
+        "name": "M516 起点已在圆内时返回 null（重叠的圆互相穿过）",
+        "file": "src/extensions/physics/sweep.ts",
+        "pairs": [
+            [
+                "  if (c <= 0) return 0;",
+                "  if (c <= 0) return null;"
+            ]
+        ],
+        "test": "tests/extensions/physics-sweep.test.ts"
+    },
+    {
+        "name": "M517 sweepMove 连动态体一起扫（两只怪互相卡住）",
+        "file": "src/extensions/physics/physics.ts",
+        "pairs": [
+            [
+                "      if (other === undefined || !other.isStatic) continue;",
+                "      if (other === undefined) continue;"
+            ]
+        ],
+        "test": "tests/extensions/physics-sweep.test.ts"
+    },
+    {
+        "name": "M518 sweepMove 丢掉圆形候选（只扫方框障碍）",
+        "file": "src/extensions/physics/physics.ts",
+        "pairs": [
+            [
+                "    const fromCircles = circles.map((c) => sweepCircleVsCircle(p.x, p.z, dx, dz, self.radius, c.cx, c.cz, c.r, c.nodeId));",
+                "    const fromCircles: (SweepHit | null)[] = [];"
+            ]
+        ],
+        "test": "tests/extensions/physics-sweep.test.ts"
+    },
+    {
+        "name": "M519 sweepMove 的候选半径漏掉位移长度（远处的墙根本不在候选集里）",
+        "file": "src/extensions/physics/physics.ts",
+        "pairs": [
+            [
+                "    const reach = Math.hypot(dx, dz) + self.radius + this.maxRange;",
+                "    const reach = self.radius + this.maxRange;"
+            ]
+        ],
+        "test": "tests/extensions/physics-sweep.test.ts"
+    },
+    {
+        "name": "M520 AI 移动不夹接触点（一步跨过薄墙：起终点都不重叠，resolve() 永远救不回来）",
+        "file": "src/extensions/ai/move.ts",
+        "pairs": [
+            [
+                "        const aim = clampToContact(node.id, wp.x, wp.y, r.x, r.z);",
+                "        const aim: { x: number; z: number; hit: MoveSweepHit | null } = { x: r.x, z: r.z, hit: null };"
+            ]
+        ],
+        "test": "tests/extensions/ai-move.test.ts"
+    },
+    {
+        "name": "M521 被物理挡住时照常推进游标（贴着墙把剩下的路空走完，然后宣布到达）",
+        "file": "src/extensions/ai/move.ts",
+        "pairs": [
+            [
+                "          m.cursor = cursorBefore;",
+                "          m.cursor = r.cursor;"
+            ]
+        ],
+        "test": "tests/extensions/ai-move.test.ts"
+    },
+    {
+        "name": "M522 被物理挡住也宣布到达（`r.done` 只是预算走完了这条路，不是人走到了）",
+        "file": "src/extensions/ai/move.ts",
+        "pairs": [
+            [
+                "        if (aim.hit === null && r.done) {",
+                "        if (r.done) {"
+            ]
+        ],
+        "test": "tests/extensions/ai-move.test.ts"
     }
 ]
 
