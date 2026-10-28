@@ -6203,6 +6203,142 @@ MUTANTS = [
             )
         ],
         "test": "tests/extensions/render-curtain.test.ts"
+    },
+    # ---------------- 批116：UAX #9 双向算法 + RTL 排版 ----------------
+    # ★ 这一批的判据主力是**官方 conformance 语料**（BidiTest / BidiCharacterTest
+    #   子集，9 万余例），所以"少做一条规则"类的变异几乎必然被抓住；
+    #   真正需要盯的是**排版层**的三处（镜像/顺序/光标），它们不在语料范围内。
+    {
+        "name": "M643 X9 移除类漏掉 PDF（结束嵌入的控制符占了一个视觉位）",
+        "file": "src/extensions/ui/bidi.ts",
+        "pairs": [
+            (
+                "    t === BC.LRE || t === BC.RLE || t === BC.LRO || t === BC.RLO || t === BC.PDF || t === BC.BN",
+                "    t === BC.LRE || t === BC.RLE || t === BC.LRO || t === BC.RLO || t === BC.BN"
+            )
+        ],
+        "test": "tests/extensions/ui-bidi.test.ts"
+    },
+    {
+        "name": "M644 L2 只反转「级别正好等于当前级」的段（嵌套 run 漏反转）",
+        "file": "src/extensions/ui/bidi.ts",
+        "pairs": [
+            (
+                "      if (levels[members[k]!]! >= lvl) {",
+                "      if (levels[members[k]!]! === lvl) {"
+            ),
+            (
+                "        while (e < members.length && levels[members[e]!]! >= lvl) e++;",
+                "        while (e < members.length && levels[members[e]!]! === lvl) e++;"
+            )
+        ],
+        "test": "tests/extensions/ui-bidi.test.ts"
+    },
+    {
+        "name": "M645 X2 溢出时无条件累计 embedding 计数（之后 PDF 弹错一层：末字符级别差 1）",
+        "file": "src/extensions/ui/bidi.ts",
+        "pairs": [
+            (
+                "} else if (overflowIso === 0) overflowEmbed++; // X2 步骤 3：isolate 溢出期间不累计",
+                "} else overflowEmbed++;"
+            )
+        ],
+        "test": "tests/extensions/ui-bidi.test.ts"
+    },
+    {
+        "name": "M646 N0 不按 open 的逻辑序处理括号对（前文强类型读到的是「还没被改写的」）",
+        "file": "src/extensions/ui/bidi.ts",
+        "pairs": [("    pairs.sort((a, b) => a[0] - b[0]);", "    void 0;")],
+        "test": "tests/extensions/ui-bidi.test.ts"
+    },
+    {
+        "name": "M647 BD16 栈满只是跳过这个 open（TR9 要求停止本序列后续配对）",
+        "file": "src/extensions/ui/bidi.ts",
+        "pairs": [("        if (stack.length >= 63) break;", "        if (stack.length >= 63) continue;")],
+        "test": "tests/extensions/ui-bidi.test.ts"
+    },
+    {
+        "name": "M648 I1 偶级 EN/AN 只 +1（数字在 LTR 段里少一级，视觉位置错一格）",
+        "file": "src/extensions/ui/bidi.ts",
+        "pairs": [
+            (
+                "        else if (t === BC.AN || t === BC.EN) levels[i] = lv + 2;",
+                "        else if (t === BC.AN || t === BC.EN) levels[i] = lv + 1;"
+            )
+        ],
+        "test": "tests/extensions/ui-bidi.test.ts"
+    },
+    {
+        "name": "M649 sos 的前文级读 I 阶段改写后的值（前一个字符已被别的 sequence 抬过级）",
+        # ★ 第一版靶的是 `levels0[first]` → `levels[first]`，实测**等价变异**（不红）：
+        #   每个下标只属于一个 sequence，`first` 不可能被前面的 sequence 改过，
+        #   两个表达式恒等。真正会变的是**邻居**的级 —— 它可能已经在别的 sequence
+        #   里被 I1/I2 抬过（TR9 X10 注："must use the embedding levels ... before
+        #   any changes"）。
+        "file": "src/extensions/ui/bidi.ts",
+        "pairs": [
+            (
+                "      prevLv = levels0[i]!;",
+                "      prevLv = levels[i]!;"
+            )
+        ],
+        "test": "tests/extensions/ui-bidi.test.ts"
+    },
+    {
+        "name": "M650 L1 的行尾重置链不含 isolate 格式字符（行尾 LRI 拿到嵌入级而不是段落级）",
+        "file": "src/extensions/ui/bidi.ts",
+        "pairs": [
+            (
+                "    t === BC.PDF ||\n    t === BC.LRI ||\n    t === BC.RLI ||\n    t === BC.FSI ||\n    t === BC.PDI\n  );",
+                "    t === BC.PDF\n  );"
+            )
+        ],
+        "test": "tests/extensions/ui-bidi.test.ts"
+    },
+    {
+        "name": "M651 镜像不看奇偶级（LTR 段落里的括号也被镜像了）",
+        "file": "src/extensions/ui/text-layout.ts",
+        "pairs": [("      if (odd[i]) {", "      if (!odd[i]) {")],
+        "test": "tests/extensions/ui-text.test.ts"
+    },
+    {
+        "name": "M652 镜像不回退：字体没有镜像字形时直接换成镜像码点（变成缺字）",
+        "file": "src/extensions/ui/text-layout.ts",
+        "pairs": [
+            (
+                "        if (m !== undefined && font.glyphs.has(m)) cp = m;",
+                "        if (m !== undefined) cp = m;"
+            )
+        ],
+        "test": "tests/extensions/ui-text.test.ts"
+    },
+    {
+        "name": "M653 开了 bidi 却不重排（四边形仍按逻辑序发：RTL 文本还是从左往右）",
+        "file": "src/extensions/ui/text-layout.ts",
+        "pairs": [
+            (
+                "    const map = reorderLine(local.types, local.levels, 0, n, bidi.paraLevel, local.rawTypes);",
+                "    const map = Int32Array.from({ length: n }, (_, k) => k);"
+            )
+        ],
+        "test": "tests/extensions/ui-text.test.ts"
+    },
+    {
+        "name": "M654 光标一律贴左边缘（RTL 里光标不跟着字往左走）",
+        "file": "src/extensions/ui/text-layout.ts",
+        "pairs": [
+            (
+                "      caretX.push(pl.odd[i]! ? slotX[v]! + pl.adv[i]! : slotX[v]!);",
+                "      caretX.push(slotX[v]!);"
+            )
+        ],
+        "test": "tests/extensions/ui-text.test.ts"
+    },
+    {
+        "name": "M655 排版缓存键漏掉 direction（改成 rtl 之后还是从左往右）",
+        "file": "src/extensions/ui/state.ts",
+        "pairs": [('    style.direction ?? "-",', '    "-",')],
+        "test": "tests/extensions/ui-state.test.ts"
     }
 ]
 

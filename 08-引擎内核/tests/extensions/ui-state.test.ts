@@ -35,7 +35,7 @@ test("同 uid 同键 ⇒ 第二次命中；命中数只涨在 hit 上", () => {
   assert.deepEqual([st.hits, st.misses], [1, 1]);
 });
 
-test("★ 改了文本 / 字号 / 颜色 / 换行宽，都不命中（键里各有一维）", () => {
+test("★ 改了文本 / 字号 / 颜色 / 换行宽 / 段落方向，都不命中（键里各有一维）", () => {
   const fonts = registry();
   const st = new UiStateStore();
   st.text(1, fonts, "test", "AB", {});
@@ -43,8 +43,25 @@ test("★ 改了文本 / 字号 / 颜色 / 换行宽，都不命中（键里各�
   st.text(1, fonts, "test", "ABC", { scale: 2 });
   st.text(1, fonts, "test", "ABC", { scale: 2, color: new Color(1, 0, 0, 1) });
   st.text(1, fonts, "test", "ABC", { scale: 2, color: new Color(1, 0, 0, 1), maxWidth: 40 });
-  assert.equal(st.misses, 5, "五次都该是未命中");
+  // 文本与几何全同，只多一个 direction：开了 bidi 之后四边形顺序会变，
+  // 所以它必须是键的一维（否则"改成 rtl 之后还是从左往右"）
+  st.text(1, fonts, "test", "ABC", { scale: 2, color: new Color(1, 0, 0, 1), maxWidth: 40, direction: "rtl" });
+  assert.equal(st.misses, 6, "六次都该是未命中");
   assert.equal(st.hits, 0);
+});
+
+test("★★ direction 进键且**真的改变排版**：同一段希伯来文，rtl 的视觉序是倒的", () => {
+  const fonts = new FontRegistry();
+  fonts.register(makeFontWith([0x5d0, 0x5d1, 0x5d2], "heb"));
+  const st = new UiStateStore();
+  const hebrew = "\u05d0\u05d1\u05d2";
+  const ltr = st.text(1, fonts, "heb", hebrew, {});
+  const rtl = st.text(1, fonts, "heb", hebrew, { direction: "rtl" });
+  assert.notEqual(ltr, rtl, "对象不同 ⇒ 键里确实有 direction 这一维");
+  // 光"没命中"还不够：顺序必须真的反过来（不然键多一维也只是白重排）
+  assert.deepEqual(ltr?.lineVisualOrder, [[0, 1, 2]]);
+  assert.deepEqual(rtl?.lineVisualOrder, [[2, 1, 0]]);
+  assert.equal(ltr?.width, rtl?.width, "方向不影响宽度：3 × 12");
 });
 
 test("★ 键是 uid：两个节点用同一段文本**不共享**（改一个不该影响另一个）", () => {

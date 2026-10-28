@@ -211,6 +211,9 @@ function layoutCacheKey(fontId: string, text: string, style: TextStyle, runs?: r
     style.maxWidth ?? 0,
     style.maxLines ?? 0,
     style.ellipsis ?? "",
+    // ★ 段落方向必须进键：开了 bidi 之后**同一段文本**的四边形顺序都会变
+    //   （RTL 整体倒序 + 镜像码点），不进键的症状是"改成 rtl 之后还是从左往右"。
+    style.direction ?? "-",
     c === undefined ? "-" : `${c.r},${c.g},${c.b},${c.a}`,
   ].join("\u0001");
 }

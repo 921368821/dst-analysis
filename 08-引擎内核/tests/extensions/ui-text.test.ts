@@ -377,3 +377,122 @@ test("★★ 源码里只有一处绘制循环（多写一份排版实现就会�
   assert.equal((code.match(/quads\.push\(/g) ?? []).length, 1, "绘制循环只许有一处");
   assert.equal((code.match(/lineCaretX\.push\(/g) ?? []).length, 1, "光标表只许有一处写入");
 });
+
+// =====================================================================
+// ③ 双向文本（UAX #9）—— `TextStyle.direction` 一开就整段过 bidi
+//
+// 这里的每个数字都能在纸上核：夹具 advance 一律 12（所以「n 个字 = 12n」），
+// 段落方向定了之后级别就能推出来，级别定了视觉序就唯一。
+// =====================================================================
+
+/** 希伯来文 א ב ג ד ה ו（R），外加括号与数字，够覆盖 RTL 的各种形状。 */
+const RTL_FONT = makeFontWith(
+  [0x61, 0x62, 0x5d0, 0x5d1, 0x5d2, 0x5d3, 0x5d4, 0x5d5, 0x28, 0x29, 0x31, 0x32],
+  "rtl",
+);
+const ALEF = "\u05d0";
+const BET = "\u05d1";
+const GIMEL = "\u05d2";
+const DALET = "\u05d3";
+const HE = "\u05d4";
+const VAV = "\u05d5";
+
+test("★★ RTL：视觉序整体倒过来，宽度与光标方向都跟着反过来", () => {
+  const r = layoutText(RTL_FONT, ALEF + BET + GIMEL, { direction: "rtl" });
+  assert.deepEqual(r.lineVisualOrder, [[2, 1, 0]], "视觉第 0 位是逻辑第 2 个字");
+  assert.equal(r.width, 36, "宽度与方向无关：3 × 12");
+  // 四边形**按视觉序**发：第一个四边形的 x = 0（最左），它是逻辑上的最后一个字
+  assert.deepEqual(
+    r.quads.map((q) => q.x),
+    [0, 12, 24],
+  );
+  // 光标按**逻辑序**：RTL 里下标越大越靠左，所以是递减的
+  assert.deepEqual(r.lineCaretX, [[36, 24, 12, 0]]);
+});
+
+test("★★ LTR 段里夹一段希伯来文：只有 RTL run 倒序，字母不动（direction: auto）", () => {
+  const r = layoutText(RTL_FONT, "ab" + ALEF + BET + GIMEL, { direction: "auto" });
+  // 级别 0 0 1 1 1 → L2 只反转 level ≥ 1 的连续段
+  assert.deepEqual(r.lineVisualOrder, [[0, 1, 4, 3, 2]]);
+  assert.equal(r.width, 60);
+  // 光标（逻辑序）：0,12 之后直接跳到 RTL run 的**右端** 60 —— 这不是 bug，
+  // 是「逻辑第 2 个字画在最右边」的必然结果
+  assert.deepEqual(r.lineCaretX, [[0, 12, 60, 48, 36, 24]]);
+});
+
+test("★★ RTL 段里的数字保持从左往右（EN 是 LTR 岛，不是「倒着写」）", () => {
+  const r = layoutText(RTL_FONT, ALEF + BET + "1" + "2", { direction: "rtl" });
+  // 级别 1 1 2 2：level 2 先反（数字对调）→ level 1 再反（整段倒过来）
+  // 两次反转抵消，数字回到从左往右 —— 只有算过一遍才敢写这个期望
+  assert.deepEqual(r.lineVisualOrder, [[2, 3, 1, 0]]);
+  assert.equal(r.width, 48);
+  assert.deepEqual(
+    r.quads.map((q) => q.x),
+    [0, 12, 24, 36],
+  );
+});
+
+test("★★ 镜像（M1）：RTL 里的括号画成镜像字形，不是原字形", () => {
+  const r = layoutText(RTL_FONT, ALEF + "(" + BET + ")", { direction: "rtl" });
+  // 全部级别 1 → 视觉序全倒：[3,2,1,0]
+  assert.deepEqual(r.lineVisualOrder, [[3, 2, 1, 0]]);
+  const openU = RTL_FONT.glyphs.get(0x28)?.u0;
+  const closeU = RTL_FONT.glyphs.get(0x29)?.u0;
+  assert.notEqual(openU, closeU, "夹具里左右括号必须是不同的字形，否则这条判据测不出东西");
+  // 视觉第 0 位是逻辑第 3 个字符 ')' —— 它在奇级，要画成 '('
+  assert.equal(r.quads[0]?.u0, openU, "逻辑的 ')' 画成了 '('");
+  // 视觉第 2 位是逻辑第 1 个字符 '(' —— 画成 ')'
+  assert.equal(r.quads[2]?.u0, closeU, "逻辑的 '(' 画成了 ')'");
+});
+
+test("★ 镜像回退：字体没有镜像字形时用原字形，且**不记缺字**", () => {
+  // 只做了左括号的字体：'(' 的镜像 ')' 不存在
+  const noClose = makeFontWith([0x5d0, 0x28], "open-only");
+  const r = layoutText(noClose, ALEF + "(", { direction: "rtl" });
+  assert.equal(r.quads.length, 2);
+  assert.deepEqual(r.missing, [], "回退到原字形不是缺字 —— 记缺字会让调用方误报字体不全");
+  // 全倒序：视觉第 0 位是逻辑的 '('
+  assert.equal(r.quads[0]?.u0, noClose.glyphs.get(0x28)?.u0, "画的是原字形");
+});
+
+test("★ X9 移除的嵌入控制符：不占视觉位、不记缺字（开 bidi 时）", () => {
+  const font = makeFontWith([0x5d0, 0x5d1], "heb-only");
+  const r = layoutText(font, ALEF + "\u202a" + BET, { direction: "auto" });
+  assert.deepEqual(r.lineVisualOrder, [[2, 0]], "LRE 没有视觉位置");
+  assert.equal(r.quads.length, 2);
+  assert.deepEqual(r.missing, [], "格式字符不是缺字");
+  // 关 bidi 时保持旧行为（控制符当作普通码点，字体没有就报缺字）——
+  // 这条不是"顺手保留"，而是**开不开 bidi 的语义分界**
+  const off = layoutText(font, ALEF + "\u202a" + BET);
+  assert.deepEqual(off.lineVisualOrder, [[0, 1, 2]], "没开 direction 就不重排");
+  assert.deepEqual(off.missing, [0x202a]);
+});
+
+test("★ 对齐是**物理**的：RTL 行 + align=right 仍然贴右边", () => {
+  const r = layoutText(RTL_FONT, ALEF + BET + GIMEL, { direction: "rtl", align: "right", maxWidth: 100 });
+  assert.equal(r.width, 100);
+  // 行宽 36，右对齐 → 起点 64；视觉第一位（逻辑最后一位）在 64
+  assert.equal(r.quads[0]?.x, 64);
+  assert.deepEqual(
+    r.quads.map((q) => q.x),
+    [64, 76, 88],
+  );
+});
+
+test("★★ 折行：RTL 段按逻辑序断行，每行各自倒序（不是整段先倒再断）", () => {
+  // 6 个希伯来文字符 / maxWidth 48 = 每行 4 个
+  const r = layoutText(RTL_FONT, ALEF + BET + GIMEL + DALET + HE + VAV, {
+    direction: "rtl",
+    maxWidth: 48,
+  });
+  assert.equal(r.lineCount, 2);
+  // ★ 下标是**行内**的（与 lineCaretX 同口径）：第二行只有 2 个字，所以是 [1,0]
+  //   而不是段内下标 [5,4] —— 两种口径混用会在调用方那里变成"多减了一行起点"
+  assert.deepEqual(r.lineVisualOrder, [
+    [3, 2, 1, 0],
+    [1, 0],
+  ]);
+  // 第二行重新从 x=0 起（行内坐标），并且**仍是**倒的
+  const second = r.quads.slice(4).map((q) => q.x);
+  assert.deepEqual(second, [0, 12]);
+});

@@ -18,9 +18,19 @@
  * ★ `yoffset` 相对**基线**、向上为负 —— 这是 libgdx / TextMeshPro 采用的语义，
  *   也是 BMFont 文本格式在实际渲染器里的事实约定。写在这里是因为它无法从
  *   数据本身推出来：等高的字形镜像后仍然"看着像字"，只有行高不一致时才会露馅。
+ *
+ * ★★ 双向文本（RTL）：`TextStyle.direction` 一开，整个**段落**先过 UAX #9
+ *   （见 `bidi.ts`），断行仍在**逻辑序**上做，最后**每行**单独重排 + 镜像。
+ *   这个顺序不是可选的美化 —— 它们是标准规定的管道顺序：
+ *   · 段落级（P2/P3）只能看整段，不能看行：一行里没有强字符时，段落级仍要
+ *     沿用上面几行定下来的那个；
+ *   · 隐式级别（I1/I2）也在段落层算完，因为 X 系列的嵌入栈跨行；
+ *   · 只有 L1（行尾空白/隔离符重置）与 L2（按级反转）、M1（镜像）是**行级**的。
+ *   反过来做（先按级别切段再断行）会在"一行以空格结尾"的地方给出错的行宽。
  */
 
 import type { Color } from "../../foundation/math/index.ts";
+import { bidiClassOf, embeddingLevels, mirroredOf, reorderLine, type ParaDir } from "./bidi.ts";
 import { kerningOf, type BitmapFont, type FontGlyph } from "./font.ts";
 
 export type TextAlign = "left" | "center" | "right";
@@ -40,6 +50,19 @@ export interface TextStyle {
   readonly maxLines?: number;
   /** 省略号字符串，默认「…」。 */
   readonly ellipsis?: string;
+  /**
+   * 段落方向（UAX #9）。
+   *
+   * · 缺省 = **不跑 bidi**：一律从左往右排，行为与批116 之前逐字节相同；
+   * · `"auto"` = P2/P3（找段落首个强字符，跳过 isolate 内容）——用户输入、
+   *   玩家起的名字这类"不知道会是什么语言"的文本应当用它；
+   * · `"ltr"` / `"rtl"` = 强制段落级（阿拉伯语/希伯来语界面文案用 `"rtl"`，
+   *   即使第一个字符是数字）。
+   *
+   * ★ 只有「整段都在一个方向语境里」才看得出来该给谁开：一段希伯来文里夹
+   *   数字，数字仍然从左往右排（这是 bidi 给的 LTR 岛），不需要调用方做任何事。
+   */
+  readonly direction?: ParaDir;
 }
 
 /**
@@ -102,6 +125,18 @@ export interface TextLayout {
    * ★ 每行一份（不是一整条）：换行之后 x 会重置，把多行拼成一条会让第二行起的位置全错。
    */
   readonly lineCaretX: readonly (readonly number[])[];
+  /**
+   * **每行的「视觉槽 → 逻辑下标」映射**（UAX #9 L2 的产物）。
+   *
+   * 第 v 项是「屏幕上从左往右第 v 个字形」的**行内码点下标**（与 `lineCaretX`
+   * 同一个下标口径：都相对**本行**，不是相对整段）。LTR 文本是恒等映射，
+   * 看不出来；RTL 段里它是倒的 —— 这正是"哪个字画在左边"的唯一可断言证据。
+   *
+   * ★ 为什么必须由排版层给出：命中测试（点一下选到第几个字）与光标移动
+   *   都要这个映射，而它无法从 `quads[i].x` 反推 —— 缺字与空格没有四边形，
+   *   `quads` 的下标与码点下标根本不是一回事（见 lineCaretX 的 ★★）。
+   */
+  readonly lineVisualOrder: readonly (readonly number[])[];
 }
 
 const DEFAULT_ELLIPSIS = "…";
@@ -187,6 +222,17 @@ interface Cell {
   readonly code: number;
   readonly scale: number;
   readonly color: Color | undefined;
+  /**
+   * 在**本段**里的码点下标（0 起）。
+   *
+   * ★ 为什么排版层需要一个下标：bidi 的级别是**按整段**算好的（X 栈跨行），
+   *   而断行之后每一行只剩自己那几个 cell —— 没有下标就无法把"行内第 i 个"
+   *   映射回"段内第 k 个"，也就要么重算 bidi（错：段落级会变）要么复制整段
+   *   levels（慢且容易漏 L1 的行尾语义）。
+   * ★ 缺省（undefined）只出现在**省略号**上：那是截断时临时造出来的格子，
+   *   本来就不属于段落文本。
+   */
+  readonly idx?: number;
 }
 
 interface Token {
@@ -370,12 +416,12 @@ function cellsOf(runs: readonly TextRun[], baseScale: number, baseColor: Color |
       }
       if (ch === "\r") continue;
       if (ch === "\t") {
-        cur.push({ code: 0x20, scale, color });
+        cur.push({ code: 0x20, scale, color, idx: cur.length });
         continue;
       }
       // 其它 C0 控制字符与 DEL：丢弃。留着它们只会变成缺字记录，污染诊断。
       if (code < 0x20 || code === 0x7f) continue;
-      cur.push({ code, scale, color });
+      cur.push({ code, scale, color, idx: cur.length });
     }
   }
   paragraphs.push(cur);
@@ -387,6 +433,103 @@ function maxScaleOf(cells: readonly Cell[], baseScale: number): number {
   let m = 0;
   for (const c of cells) if (c.scale > m) m = c.scale;
   return m > 0 ? m : baseScale;
+}
+
+/**
+ * 一段的 bidi 上下文：**整段**算好一次（段落级 + 每码点级别/类型）。
+ *
+ * ★ 为什么不是每行算一次：段落级（P2/P3）与显式嵌入栈（X1–X8）都是**跨行**的。
+ *   逐行算的话，第二行起"第一个强字符"会重新定段落级 —— 一段以数字开头的
+ *   希伯来文，第二行会莫名其妙变成 LTR。
+ */
+interface ParaBidi {
+  readonly types: Uint8Array;
+  readonly rawTypes: Uint8Array;
+  readonly levels: Uint8Array;
+  readonly paraLevel: 0 | 1;
+}
+
+/** 一行的排版准备结果：**逻辑下标**上的码点/前进量/级别 + 视觉顺序。 */
+interface PreparedLine {
+  /** 逻辑下标 → 渲染码点（M1 镜像后的；LTR 时等于原码点）。 */
+  readonly code: number[];
+  /** 逻辑下标 → 前进量（含 kerning；与绘制同源，见 lineWidthOf 的 ★）。 */
+  readonly adv: number[];
+  /** 逻辑下标 → 级别是否奇数（决定镜像，以及光标贴哪一侧边缘）。 */
+  readonly odd: boolean[];
+  /** 视觉槽 → 逻辑下标。未开 bidi 时是恒等映射。 */
+  readonly order: number[];
+  readonly width: number;
+}
+
+/**
+ * 一行的 bidi 收尾：L1（行内重置）+ L2（重排）+ M1（镜像）。
+ *
+ * ★ 只有这三条是**行级**规则 —— 前面所有规则（P/X/W/N/I）都在段落层算完了。
+ *   「行级」在这里是精确的：L1 的"行尾空白"指**这一行**的末尾，不是段落的。
+ */
+function prepareLine(
+  font: BitmapFont,
+  cells: readonly Cell[],
+  bidi: ParaBidi | undefined,
+  letterSpacing: number,
+): PreparedLine {
+  const n = cells.length;
+  const code: number[] = new Array<number>(n);
+  const adv: number[] = new Array<number>(n);
+  const odd: boolean[] = new Array<boolean>(n);
+  const startIdx = cells[0]?.idx ?? 0;
+  // 本行在段内的级别/类型切片。省略号（idx === undefined）不属于段落文本，
+  // 给它段落级 —— 它逻辑上排在段尾，UAX #9 里这种位置的中性字符结果就是段落级
+  // （L1 也不改中性字符），所以这不是"偷懒的近似"。
+  const local = bidi === undefined ? undefined : {
+    types: new Uint8Array(n),
+    rawTypes: new Uint8Array(n),
+    levels: new Uint8Array(n),
+  };
+  for (let i = 0; i < n; i++) {
+    const c = cells[i]!;
+    const inPara = c.idx !== undefined && bidi !== undefined ? c.idx - startIdx : -1;
+    let cp = c.code;
+    if (bidi !== undefined && local !== undefined) {
+      const lvl = inPara >= 0 ? bidi.levels[inPara]! : bidi.paraLevel;
+      odd[i] = (lvl & 1) === 1;
+      local.types[i] = inPara >= 0 ? bidi.types[inPara]! : bidiClassOf(cp);
+      local.rawTypes[i] = inPara >= 0 ? bidi.rawTypes[inPara]! : bidiClassOf(cp);
+      local.levels[i] = lvl;
+      // ---- M1：奇级字符换成镜像字形 ----
+      // ★ 镜像要**先看字体有没有那个字形**：位图字体常常只做了左括号没做
+      //   右括号，这时强行换成镜像码点会变成"缺字"，比不镜像更糟。回退到
+      //   原码点是浏览器/ICU 的做法（先找镜像字形，找不到就用原字形）。
+      if (odd[i]) {
+        const m = mirroredOf(cp);
+        if (m !== undefined && font.glyphs.has(m)) cp = m;
+      }
+    } else {
+      odd[i] = false;
+    }
+    code[i] = cp;
+    adv[i] = advanceOf(font, cp, c.scale, letterSpacing) + (i > 0 ? kernBetween(font, cells[i - 1]!, c) : 0);
+  }
+
+  let order: number[] = Array.from({ length: n }, (_, i) => i);
+  if (local !== undefined && bidi !== undefined) {
+    const map = reorderLine(local.types, local.levels, 0, n, bidi.paraLevel, local.rawTypes);
+    // X9 移除的字符（LRM/RLM 之外的嵌入控制符、BN）没有视觉位置 —— 也不该
+    // 参与宽度：它们是"看不见的格式字符"。关 bidi 时保持旧行为（交给字体报缺字）。
+    order = [];
+    for (let v = 0; v < map.length; v++) {
+      const i = map[v]!;
+      if (i < 0) continue;
+      order.push(i);
+    }
+    for (let i = 0; i < n; i++) {
+      if (!order.includes(i)) adv[i] = 0;
+    }
+  }
+  let width = 0;
+  for (const i of order) width += adv[i]!;
+  return { code, adv, odd, order, width };
 }
 
 /**
@@ -413,9 +556,26 @@ export function layoutRichText(font: BitmapFont, runs: readonly TextRun[], style
   const lineSpacing = style.lineSpacing ?? 0;
   const paragraphs = cellsOf(runs, baseScale, style.color);
 
+  const dir = style.direction;
   const lines: Cell[][] = [];
+  // 每行所属**段落**的 bidi 上下文（未开 direction 时全是 undefined）
+  const lineBidi: (ParaBidi | undefined)[] = [];
   for (const p of paragraphs) {
-    for (const l of breakParagraph(font, p, ls, maxWidth)) lines.push(l);
+    let ctx: ParaBidi | undefined;
+    if (dir !== undefined) {
+      // ★ 整段算一次：段落级（P2/P3）+ 显式栈（X）+ W/N/I 全在 embeddingLevels 里。
+      //   断行仍然在**逻辑序**上做 —— 与 Blink/ICU 的管道一致（先断行后重排），
+      //   因为行宽必须按逻辑顺序累加，重排只在最后一步动位置。
+      const r = embeddingLevels(
+        p.map((c) => c.code),
+        dir,
+      );
+      ctx = { types: r.types, rawTypes: r.rawTypes, levels: r.levels, paraLevel: r.paraLevel };
+    }
+    for (const l of breakParagraph(font, p, ls, maxWidth)) {
+      lines.push(l);
+      lineBidi.push(ctx);
+    }
   }
   // 纯空文本：没有行，高度 0（而不是一行高度）—— 空标签不该占位。
   const isEmpty = runs.every((r) => r.text.trim() === "");
@@ -454,18 +614,25 @@ export function layoutRichText(font: BitmapFont, runs: readonly TextRun[], style
     }
   }
 
-  const lineWidths = lines.map((l) => lineWidthOf(font, l, ls));
+  // ★ 行宽按**渲染码点**算（镜像后字形的前进量可能与原字形不同）：
+  //   量出来的宽度与画出来的宽度必须同源，这是这个文件的立身之本。
+  //   （截断那一段仍用逻辑宽度：它要在镜像之前决定"删到哪"，而镜像字形
+  //   前进量与原文通常相同；差一个像素时以"不溢出"为先。）
+  const prepared = lines.map((l, li) => prepareLine(font, l, lineBidi[li], ls));
+  const lineWidths = prepared.map((p) => p.width);
   const naturalWidth = lineWidths.reduce((m, w) => (w > m ? w : m), 0);
   const boxWidth = maxWidth > 0 ? maxWidth : naturalWidth;
 
   const quads: TextQuad[] = [];
   const missingSet = new Set<number>();
   const lineCaretX: number[][] = [];
+  const lineVisualOrder: number[][] = [];
   let yTop = 0;
 
   for (let li = 0; li < lines.length; li++) {
     const cells = lines[li]!;
-    const lw = lineWidths[li]!;
+    const pl = prepared[li]!;
+    const lw = pl.width;
     const lineScale = maxScaleOf(cells, baseScale);
     const lineHeightPx = font.lineHeight * lineScale + lineSpacing;
     let penX = 0;
@@ -475,25 +642,36 @@ export function layoutRichText(font: BitmapFont, runs: readonly TextRun[], style
     // 基线：行顶 + base。yoffset 相对基线（向上为负）。
     const baseline = yTop + font.base * lineScale;
 
-    // ★ 光标位置在这一趟里顺手记：笔位置只有这里知道（advance/kerning 都在下面加）。
-    const caretX: number[] = [];
+    // 视觉槽的笔位置：从左往右按 order 累加（LTR 时 order 是恒等，与旧实现同）。
+    const slotX: number[] = new Array<number>(pl.order.length);
+    let pen = penX;
+    for (let v = 0; v < pl.order.length; v++) {
+      slotX[v] = pen;
+      pen += pl.adv[pl.order[v]!]!;
+    }
+    // 逻辑下标 → 视觉槽（被 X9 移除的格式字符是 -1，它们没有视觉位置）
+    const visualOf: number[] = new Array<number>(cells.length).fill(-1);
+    for (let v = 0; v < pl.order.length; v++) visualOf[pl.order[v]!] = v;
 
-    for (let i = 0; i < cells.length; i++) {
+    // ★★ 发 quad 的顺序 = **视觉顺序**。这是 RTL 唯一真正"画出来不一样"的地方：
+    //    同一个四边形列表，按逻辑序画与按视觉序画在 LTR 上完全相同，在 RTL 上
+    //    整体左右颠倒。顺序本身也是判据（`lineVisualOrder` 与它同源）。
+    for (let v = 0; v < pl.order.length; v++) {
+      const i = pl.order[v]!;
       const cell = cells[i]!;
-      const code = cell.code;
+      const code = pl.code[i]!;
       const s = cell.scale;
-      caretX.push(penX); // 先记「本格左边界」，再往前走
       const g: FontGlyph | undefined = font.glyphs.get(code);
       if (g === undefined) {
+        // 开了 bidi 时 X9 移除类字符已不在 order 里，走到这里的都是真缺字。
         missingSet.add(code);
-        penX += font.missingAdvance * s + ls;
         continue;
       }
       if (g.width > 0 && g.height > 0) {
         const color = cell.color;
         quads.push({
           page: g.page,
-          x: penX + g.xoffset * s,
+          x: slotX[v]! + g.xoffset * s,
           y: baseline + g.yoffset * s,
           w: g.width * s,
           h: g.height * s,
@@ -507,12 +685,33 @@ export function layoutRichText(font: BitmapFont, runs: readonly TextRun[], style
           a: color?.a ?? 1,
         });
       }
-      penX += g.xadvance * s + ls;
-      const prev = cells[i - 1];
-      if (prev !== undefined) penX += kernBetween(font, prev, cell);
     }
-    caretX.push(penX); // 行尾
+
+    // ★ 光标位置按**逻辑序**记（`caretX[i]` 就是"第 i 个码点处"）：
+    //   偶数级贴该字形的**左**边缘、奇数级贴**右**边缘。后者正是 RTL 里
+    //   "下一个字在左边"的体现 —— 在纯 RTL 行里 caretX 因此是**递减**的，
+    //   而 LTR 行仍严格递增（与批116 之前完全一致）。
+    const caretX: number[] = [];
+    for (let i = 0; i < cells.length; i++) {
+      const v = visualOf[i]!;
+      if (v < 0) {
+        // 不可见字符（X9 移除类）：光标位置与前一格重合，不制造跳变。
+        caretX.push(caretX.length > 0 ? caretX[caretX.length - 1]! : penX);
+        continue;
+      }
+      caretX.push(pl.odd[i]! ? slotX[v]! + pl.adv[i]! : slotX[v]!);
+    }
+    // 末项 = 最后一个可见字符的**另一侧**边缘（LTR 时就是行尾 x）。
+    let endX = penX;
+    for (let i = cells.length - 1; i >= 0; i--) {
+      const v = visualOf[i]!;
+      if (v < 0) continue;
+      endX = pl.odd[i]! ? slotX[v]! : slotX[v]! + pl.adv[i]!;
+      break;
+    }
+    caretX.push(endX);
     lineCaretX.push(caretX);
+    lineVisualOrder.push(pl.order.slice());
     yTop += lineHeightPx;
   }
 
@@ -524,6 +723,7 @@ export function layoutRichText(font: BitmapFont, runs: readonly TextRun[], style
     truncated,
     missing: Array.from(missingSet).sort((a, b) => a - b),
     lineCaretX,
+    lineVisualOrder,
   };
 }
 
@@ -545,11 +745,19 @@ export function layoutText(font: BitmapFont, text: string, style: TextStyle = {}
  *      「本行末字是禁则」，就把本行末尾的字符逐个带到下一行，上界是**本行至少留一个字**
  *      （不设上界的话「（（（（」会把整行推空并死循环）。两张表分开：
  *      一个字符不可能既不许在行首又不许在行尾，合成一张会让字少的行被拖空。
- *   ② **双向文本（RTL）** — 阿拉伯语/希伯来语的游标方向相反，需要**显式的 run 切分**
- *      与 bidi 算法（UAX #9）。这不是"加个反向遍历"能做到的：数字与标点在 RTL 段落里
- *      仍然从左往右排。建议单独立项，不要和避头尾混在一轮里 —— 一个改断点，一个改顺序。
+ *   ② ~~**双向文本（RTL）**~~ ✅ 批116（单独立项）：`TextStyle.direction` 一开，
+ *      整段先过 UAX #9（`bidi.ts`，官方 conformance 语料验收），断行仍在**逻辑序**上，
+ *      最后**每行**做 L1 + L2 + M1。不是"反向遍历"：RTL 段里的数字与英文仍是
+ *      LTR 岛，标点归属由上下文强类型决定，括号还要按 BD16 配对（N0）。
+ *      产出口是 `lineVisualOrder`（视觉槽 → 行内码点下标），`lineCaretX` 改按
+ *      「偶级贴左边缘、奇级贴右边缘」记 —— 纯 RTL 行里它是**递减**的。
  *   ③ ~~**富文本**（行内换色/换字号）~~ ✅ 批114：`layoutRichText` + `TextRun`，
  *      按 run 摊平成「每码点带样式」再走同一套断行（断行逻辑不复制一份）。
  *      行高与基线取**本行最大字号**；kerning 只在同一字号之间加（跨字号那一对没有定义）。
- *   剩下的只有 RTL —— 它不影响"用中文与英文做一款饥荒类游戏"。
+ *   还能想到但**不打算做**的（写下来免得下一个人以为是漏了）：
+ *   · **双向的段落级省略号**：截断时省略号按段落方向摆在末尾，但"裁到哪"仍用
+ *     逻辑宽度算（镜像字形前进量与原文通常相同）。真要抠这一像素，得先把镜像
+ *     之后的宽度喂回截断循环 —— 属于"两个方向都截断才看得见"的边角。
+ *   · **双向的命中测试**：`lineVisualOrder` 已经给了映射，但"点在两个字之间算谁"
+ *     还取决于段的亲和性（caret affinity），那是另一层的事，本层不表态。
  */
