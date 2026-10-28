@@ -44,6 +44,7 @@ import { engineError, err, ok, type EngineError, type Result } from "../../found
 import { HEALTH_TYPE, Health } from "../combat/health.ts";
 import { ATTACKER_TYPE, Attacker } from "../combat/attack.ts";
 import { FACTION_TYPE, FactionMember } from "../combat/faction.ts";
+import { LOOT_TYPE, LootHolding, encodeItems } from "../combat/loot.ts";
 import { MOVER_TYPE, Mover } from "../ai/move.ts";
 import { FACING_TYPE, Facing } from "../motion/facing.ts";
 import { DIR_SPRITE_TYPE, DirSprite } from "../render/dir-sprite.ts";
@@ -126,6 +127,11 @@ export function spawnMob(
   // 方向帧：前缀 = 模板帧名（见 `MobHandle.dirSprite` 的注释）。
   const dirSprite = new DirSprite();
   dirSprite.prefix = tpl.frame;
+  // ★ 批123：战利品表**挂在实体上**（`game.loot`），不是模块里的旁表 ——
+  //   旁表按节点 id 索引，而读档会把场景换成存档里的那批节点：跨会话读档之后
+  //   "打死的怪什么都不掉"，且没有报错。详见 `loot.ts` 的 `LOOT_TYPE`。
+  const loot = new LootHolding();
+  loot.items = encodeItems(tpl.loot);
 
   const attached: Array<[ComponentSchema["type"], Component]> = [
     [SPRITE_TYPE, sprite],
@@ -137,6 +143,8 @@ export function spawnMob(
   ];
   // 见文件头 ③：damage 为 0 ⇒ 不挂攻击组件
   if (tpl.damage > 0) attached.push([ATTACKER_TYPE, attacker]);
+  // 空表就不挂（`lootOfNode` 对"没有组件"和"空表"都返回 null，语义一致）
+  if (tpl.loot.length > 0) attached.push([LOOT_TYPE, loot]);
   for (const [type, c] of attached) {
     const a = scene.attach(nodeId, () => c);
     if (!a.ok) {

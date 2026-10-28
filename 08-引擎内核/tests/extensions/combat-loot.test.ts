@@ -25,12 +25,21 @@ import { Health, registerHealthComponent } from "../../src/extensions/combat/hea
 import { registerAttackerComponent, type Attacker, Attacker as AttackerCls } from "../../src/extensions/combat/attack.ts";
 import { createCombatModule } from "../../src/extensions/combat/combat-module.ts";
 import {
+  LOOT_BAD_ITEMS,
   LOOT_BAD_TABLE,
+  LOOT_NO_COMPONENT,
+  LOOT_NO_NODE,
   LOOT_NO_OWNER,
+  LOOT_TYPE,
+  LootHolding,
+  attachLoot,
   grantLoot,
+  lootOfNode,
   lootTotal,
   normalizeLoot,
+  registerLootComponent,
 } from "../../src/extensions/combat/loot.ts";
+import { loadScene, saveScene } from "../../src/core/scene/scene-io.ts";
 import { countItem, makeInventory, registerInventoryComponents } from "../../src/extensions/inventory/inventory.ts";
 
 function mkScene(): Scene {
@@ -38,6 +47,8 @@ function mkScene(): Scene {
   registerHealthComponent(reg);
   registerAttackerComponent(reg);
   registerInventoryComponents(reg);
+  // ★ 批123：战利品表现在是**实体上的组件**（`game.loot`）
+  registerLootComponent(reg);
   return new Scene("loot", reg);
 }
 
@@ -259,4 +270,117 @@ test("[战斗·战利品] ★ 两个猎人：**补最后一刀**的那个拿到�
   );
   assert.equal(countItem(scene, hunterIds[1]!, "meat"), 3);
   assert.equal(countItem(scene, hunterIds[0]!, "meat"), 0, "先动手不等于拿到战利品");
+});
+
+// ---------------------------------------------------- 战利品表挂在实体上（批123）
+//
+// ★★ 这五条盯的是**一个真出过的隐患**：战利品表原本放在生物模块的旁表里
+//   （`Map<nodeId, table>`）。旁表是进程内状态，实体是场景里的东西 ——
+//   读档会把场景整个换成存档里那批节点（`loadScene`），旁表却还按旧 id 索引。
+//   跨会话读档之后"打死的怪什么都不掉"，而且没有任何报错。
+
+function nodeWithLoot(scene: Scene, table: unknown): number {
+  const n = scene.spawn("mob", null);
+  assert.ok(n.ok, n.ok ? "" : n.error.code);
+  scene.flush();
+  const r = attachLoot(scene, n.value.id, table);
+  assert.ok(r.ok, r.ok ? "" : r.error.code);
+  return n.value.id;
+}
+
+test("[战斗·战利品] 表挂在**节点上**：读回来按 kind 升序（语料故意逆序）", () => {
+  const scene = mkScene();
+  const id = nodeWithLoot(scene, [
+    { kind: "meat", count: 2 },
+    { kind: "hide", count: 1 },
+  ]);
+  const got = lootOfNode(scene, id);
+  assert.ok(got.ok, got.ok ? "" : got.error.code);
+  assert.deepEqual(got.ok ? got.value : null, [
+    { kind: "hide", count: 1 },
+    { kind: "meat", count: 2 },
+  ]);
+  // ★ 同时读组件本身：只比 lootOfNode 的话，"读的时候才排序"与"存的时候就排序"
+  //   在这一条上一样绿 —— 而存档里看到的是后者。
+  const c = scene.find(id)?.get<LootHolding>(LOOT_TYPE);
+  assert.ok(c instanceof LootHolding, "节点上没有 game.loot");
+  assert.deepEqual(c.items, ["hide:1", "meat:2"], `存进去的是 ${JSON.stringify(c.items)}`);
+});
+
+test("[战斗·战利品] ★★ 存档往返之后表还在（不是进程里的旁表）", () => {
+  const scene = mkScene();
+  const id = nodeWithLoot(scene, [{ kind: "meat", count: 3 }]);
+  const snap = saveScene(scene);
+
+  const reg = new ComponentRegistry();
+  registerHealthComponent(reg);
+  registerAttackerComponent(reg);
+  registerInventoryComponents(reg);
+  registerLootComponent(reg);
+  const scene2 = new Scene("loot-2", reg);
+  const rep = loadScene(scene2, snap, reg);
+  assert.ok(rep.ok, rep.ok ? "" : `读档失败：${rep.error.code}`);
+  assert.deepEqual(rep.value.missingFields, [], "新档不该缺字段");
+
+  const got = lootOfNode(scene2, id);
+  assert.ok(got.ok, got.ok ? "" : got.error.code);
+  assert.deepEqual(got.ok ? got.value : null, [{ kind: "meat", count: 3 }], "读档之后战利品表丢了 —— 玩家的东西会凭空消失");
+});
+
+test("[战斗·战利品] 空表 ⇒ null（不是空数组）；表读不出来 ⇒ 报错（不是静默 null）", () => {
+  const scene = mkScene();
+  const empty = nodeWithLoot(scene, []);
+  const e = lootOfNode(scene, empty);
+  assert.ok(e.ok, e.ok ? "" : e.error.code);
+  assert.equal(e.ok ? e.value : "ERR", null, "空表必须是 null：调用方要能区分『没有掉落』与『读不出来』");
+
+  // 没有组件（不是生物、也不是靶子）
+  const bare = scene.spawn("bare", null);
+  assert.ok(bare.ok, bare.ok ? "" : bare.error.code);
+  scene.flush();
+  const b = lootOfNode(scene, bare.value.id);
+  assert.ok(b.ok, b.ok ? "" : b.error.code);
+  assert.equal(b.ok ? b.value : "ERR", null);
+
+  // ★ 存档被改坏：把字段改成读不出来的样子 ⇒ 必须报错。
+  //   静默返回 null 的话，症状是"打死了没掉东西"，而日志里一个字都没有。
+  const bad = nodeWithLoot(scene, [{ kind: "meat", count: 1 }]);
+  const c = scene.find(bad)?.get<LootHolding>(LOOT_TYPE);
+  assert.ok(c !== undefined);
+  c.items = ["meat"];
+  const got = lootOfNode(scene, bad);
+  assert.equal(got.ok, false, "读不出来的表必须报错");
+  assert.equal(got.ok ? "" : got.error.code, LOOT_BAD_ITEMS);
+});
+
+test("[战斗·战利品] 挂表的两条失败路径：节点不在 ⇒ NO_NODE；组件没注册 ⇒ NO_COMPONENT（不留半个节点）", () => {
+  const scene = mkScene();
+  const gone = attachLoot(scene, 999999, [{ kind: "meat", count: 1 }]);
+  assert.equal(gone.ok, false);
+  assert.equal(gone.ok ? "" : gone.error.code, LOOT_NO_NODE);
+
+  // 没注册组件：attach 之前就要拦住（否则报的是引擎的"组件未注册"，说不出是谁要挂）
+  const reg = new ComponentRegistry();
+  const scene2 = new Scene("loot-noreg", reg);
+  const n = scene2.spawn("mob", null);
+  assert.ok(n.ok, n.ok ? "" : n.error.code);
+  scene2.flush();
+  const r = attachLoot(scene2, n.value.id, [{ kind: "meat", count: 1 }]);
+  assert.equal(r.ok, false);
+  assert.equal(r.ok ? "" : r.error.code, LOOT_NO_COMPONENT);
+  assert.equal(scene2.find(n.value.id)?.get(LOOT_TYPE), undefined, "失败了却挂上了组件");
+});
+
+test("[战斗·战利品] 重复挂是**换内容**（不是叠加）：配表从两张改成一张，地上不掉旧的", () => {
+  const scene = mkScene();
+  const id = nodeWithLoot(scene, [{ kind: "meat", count: 5 }]);
+  const again = attachLoot(scene, id, [{ kind: "hide", count: 1 }]);
+  assert.ok(again.ok, again.ok ? "" : again.error.code);
+  const got = lootOfNode(scene, id);
+  assert.ok(got.ok, got.ok ? "" : got.error.code);
+  assert.deepEqual(got.ok ? got.value : null, [{ kind: "hide", count: 1 }], "旧表还留着 —— 改配表之后会多掉东西");
+  // 且组件只有一个（attach 两次不该挂两个）
+  let n = 0;
+  for (const c of scene.componentsOf<LootHolding>(LOOT_TYPE)) if (c.node?.id === id) n++;
+  assert.equal(n, 1);
 });

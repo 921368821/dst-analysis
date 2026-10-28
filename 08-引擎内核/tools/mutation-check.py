@@ -2003,7 +2003,9 @@ MUTANTS = [
         # "丢东西"莫名失败，看起来像世界坏了，实际是选格漏了一步
         "name": "M188 findFreeCells 不查可通行（候选格可能是水，丢弃莫名失败）",
         "file": "src/extensions/inventory/drop-to-world.ts",
-        "pairs": [("        if (!isPassable(plan.kinds[cell]!)) continue;\n", "")],
+        # ★ 批123 重新指认：环形扫格抽成 `cellsInRing` 之后，这行从双循环内层
+        #   （8 空格）挪成了单循环内层（6 空格）—— 原文只剩这一处。
+        "pairs": [("      if (!isPassable(plan.kinds[cell]!)) continue;\n", "")],
         "test": "tests/extensions/drop-to-world.test.ts",
     },
     {
@@ -2454,7 +2456,9 @@ MUTANTS = [
     {
         "name": "M245 onKill 不发战利品（打了白打）",
         "file": "src/extensions/mobs/mob-world.ts",
-        "pairs": [("          if (loot === undefined || loot.length === 0) return;", "          if (true) return;")],
+        # ★ 批123 重新指认：旁表 `lootOf.get()` 换成实体组件 `lootOfNode()`，
+        #   读不出来要报错、读出来可能是 null（没有表）—— 靶子改成那句 null 判空。
+        "pairs": [("          if (loot === null) return;", "          if (true) return;")],
         "test": "tests/extensions/mob-world.test.ts",
     },
     {
@@ -3008,7 +3012,7 @@ MUTANTS = [
         "test": "tests/host/hitstop-policy.test.ts",
     },
     {
-        "name": "M314 攻击选择不跳过尸体（贴着尸体打不到活人，浏览器判据永远等不到自己的击杀）",
+        "name": "M314 攻击候选不跳过尸体（贴着尸体打不到活人）",
         # ★ 批74 修的根因：`damage()` 不销毁节点，归零的靶子一直留在场景里。
         #   不跳的话最近的候选是尸体 ⇒ `attack()` 上抛 TARGET_DEAD ⇒ 空格键
         #   对着一个还能打的活人**就是没反应**（health.ts 的文案自己说了
@@ -3016,10 +3020,40 @@ MUTANTS = [
         #   浏览器侧的症状：顿帧判据那一枪打中上一条判据留下的尸体，
         #   却读到上一条残留的冻结而假绿 —— 变异后它永远等不到"击杀"，
         #   10 秒总闸判红。
-        "file": "src/browser-entry.ts",
-        "pairs": [("      if (isDead(h)) continue; // 尸体不当候选：见文件头 ★\n", "")],
-        "cmd": ["node", "tools/browser-selftest.mjs", "--build"],
-        "env_exit": 2,
+        # ★★ 批123 重新指认（靶子从「浏览器」换成「纯函数」，不是放宽）：
+        #   批123 给玩家击杀补了「当场撤掉死掉的节点」（尸体落地的同时
+        #   `scene.destroy`），演示世界里于是**不再有站着的尸体** —— 那一行
+        #   `if (isDead(h)) continue;` 在浏览器里再也等不到语料，删掉它浏览器
+        #   判据照样全绿（CI 报「判据假绿」）。这不是判据写窄了，是那一行
+        #   **没了可观察的出口**。修法是把候选资格抽成纯函数
+        #   （`src/host/attack-target-policy.ts`，与批74 的 `hitstop-policy.ts`
+        #   同一做法），四条理由各有 Node 判据，不再赌世界里恰好有什么。
+        "file": "src/host/attack-target-policy.ts",
+        "pairs": [("  if (info.dead) return \"dead\";\n", "")],
+        "test": "tests/host/attack-target-policy.test.ts",
+    },
+    {
+        "name": "M774 攻击候选不跳过自己（最近的候选永远是玩家自己，打谁都是打自己）",
+        "file": "src/host/attack-target-policy.ts",
+        "pairs": [("  if (info.id === info.selfId) return \"self\";\n", "")],
+        "test": "tests/host/attack-target-policy.test.ts",
+    },
+    {
+        "name": "M775 攻击候选不跳过未激活的（画面上没有的东西也能被锁上）",
+        "file": "src/host/attack-target-policy.ts",
+        "pairs": [("  if (!info.active) return \"inactive\";\n", "")],
+        "test": "tests/host/attack-target-policy.test.ts",
+    },
+    {
+        "name": "M776 四条拒绝理由合并成一个码（「为什么打不到」重新变回不可诊断）",
+        "file": "src/host/attack-target-policy.ts",
+        "pairs": [
+            ("  if (info.id === info.selfId) return \"self\";\n", "  if (info.id === info.selfId) return \"no\";\n"),
+            ("  if (!info.active) return \"inactive\";\n", "  if (!info.active) return \"no\";\n"),
+            ("  if (info.dead) return \"dead\";\n", "  if (info.dead) return \"no\";\n"),
+            ("  if (info.isAlly) return \"ally\";\n", "  if (info.isAlly) return \"no\";\n"),
+        ],
+        "test": "tests/host/attack-target-policy.test.ts",
     },
     {
         "name": "M315 伤害数字不记攻击者（判据分不清谁冒的数字，被怪的数字带着通过）",
@@ -6923,6 +6957,278 @@ MUTANTS = [
         "pairs": [("    return ok({ cell: stackAt, nodeId: stackedUp.value.nodeId, count: stackedUp.value.count, dropped: n, merged: true });",
                    "    return ok({ cell: stackAt, nodeId: stackedUp.value.nodeId, count: stackedUp.value.count, dropped: n, merged: false });")],
         "test": "tests/extensions/stack.test.ts"
+    },
+    # ────────────────────────── 批123：尸体（C18 第三项） ──────────────────────────
+    {
+        "name": "M744 环扫丢掉第 0 圈（中心格永远不入围）",
+        # 症状：丢东西永远掉到旁边一格、尸体永远不落在死亡格。
+        # 两者都"成功了"，只是位置偏一格 —— 而回放比对的是格子，不是"有没有放"。
+        "file": "src/extensions/worldgen/cell-ring.ts",
+        "pairs": [(
+            """  if (r === 0) {
+    if (cx >= 0 && cx < width && cz >= 0 && cz < height) out.push(cz * width + cx);
+    return;
+  }""",
+            """  if (r === 0) {
+    return;
+  }""",
+        )],
+        "test": "tests/extensions/corpse.test.ts",
+    },
+    {
+        "name": "M745 环内顺序倒过来（同距离取到的是大 cell）",
+        # 由近到远还在，环内顺序反了 ⇒ "同距离取小 cell"这条确定性没了。
+        # 两次调用之间仍然一致，所以只比"两次是否相同"的判据抓不住。
+        "file": "src/extensions/worldgen/cell-ring.ts",
+        "pairs": [(
+            """  for (let dz = -r; dz <= r; dz++) {
+    for (let dx = -r; dx <= r; dx++) {""",
+            """  for (let dz = r; dz >= -r; dz--) {
+    for (let dx = r; dx >= -r; dx--) {""",
+        )],
+        "test": "tests/extensions/drop-to-world.test.ts",
+    },
+    {
+        "name": "M746 生成尸体时不写 cell（按格永远找不到它）",
+        # 组件在、节点在、items 也对 —— 只有 `corpseAt(cell)` 永远 null。
+        "file": "src/extensions/combat/corpse.ts",
+        "pairs": [("  made.value.cell = cell;\n", "")],
+        "test": "tests/extensions/corpse.test.ts",
+    },
+    {
+        "name": "M747 生成尸体时不写 items（尸体是空的，翻了也没东西）",
+        "file": "src/extensions/combat/corpse.ts",
+        "pairs": [("  made.value.items = encodeItems(items);\n", "")],
+        "test": "tests/extensions/corpse.test.ts",
+    },
+    {
+        "name": "M748 腐烂时刻存成相对量（不 + nowTick）",
+        # 相对量意味着"读档续命"：存档前剩 600、读档后又从当前 tick 数 600。
+        "file": "src/extensions/combat/corpse.ts",
+        "pairs": [(
+            "  made.value.decayAtTick = decayTicks === 0 ? 0 : opts.nowTick + decayTicks;",
+            "  made.value.decayAtTick = decayTicks === 0 ? 0 : decayTicks;",
+        )],
+        "test": "tests/extensions/corpse.test.ts",
+    },
+    {
+        "name": "M749 空表也生成尸体（玩家白跑一趟，而且那一格再也放不下别的尸体）",
+        "file": "src/extensions/combat/corpse.ts",
+        "pairs": [("  if (items.length === 0) {", "  if (false) {")],
+        "test": "tests/extensions/corpse.test.ts",
+    },
+    {
+        "name": "M750 不校验腐烂时长（-1 直接当「已经烂了」）",
+        "file": "src/extensions/combat/corpse.ts",
+        "pairs": [("  if (!Number.isInteger(decayTicks) || decayTicks < 0) {", "  if (false) {")],
+        "test": "tests/extensions/corpse.test.ts",
+    },
+    {
+        "name": "M751 尸体落点不查可走性（尸体躺在海里）",
+        "file": "src/extensions/combat/corpse.ts",
+        "pairs": [("      if (!ground.isWalkableIndex(cell)) continue;\n", "")],
+        "test": "tests/extensions/corpse.test.ts",
+    },
+    {
+        "name": "M752 尸体落点不看「这格已经有一具」（两具叠在一格）",
+        "file": "src/extensions/combat/corpse.ts",
+        "pairs": [("      if (occupied.has(cell)) continue;\n", "")],
+        "test": "tests/extensions/corpse.test.ts",
+    },
+    {
+        "name": "M753 配表不排序就进存档（同一张表的两种写法产出两份不同的档）",
+        # 它同时是"跨宿主逐字节比对"的地基：顺序不稳，两边各写一遍就会随机红。
+        "file": "src/extensions/combat/loot.ts",
+        "pairs": [("  out.sort((x, y) => (x.kind < y.kind ? -1 : x.kind > y.kind ? 1 : 0));\n", "")],
+        "test": "tests/extensions/corpse.test.ts",
+    },
+    {
+        "name": "M754 解码用 indexOf 而不是 lastIndexOf（kind 含冒号就解错）",
+        "file": "src/extensions/combat/loot.ts",
+        "pairs": [(
+            '    const at = s.lastIndexOf(":");',
+            '    const at = s.indexOf(":");',
+        )],
+        "test": "tests/extensions/corpse.test.ts",
+    },
+    {
+        "name": "M755 解码不校验数量（NaN / 负数 / 前导零都能进配表）",
+        "file": "src/extensions/combat/loot.ts",
+        "pairs": [("    if (!Number.isInteger(n) || n <= 0 || String(n) !== raw) {", "    if (false) {")],
+        "test": "tests/extensions/corpse.test.ts",
+    },
+    {
+        "name": "M756 腐烂差一 tick（到点那一 tick 还看得见）",
+        # 只在"正好走到那一 tick"的判据里可见；跑一万 tick 的粗判据看不出来。
+        "file": "src/extensions/combat/corpse.ts",
+        "pairs": [(
+            "        if (tick < c.decayAtTick) continue;\n",
+            "        if (tick <= c.decayAtTick) continue;\n",
+        )],
+        "test": "tests/extensions/corpse.test.ts",
+    },
+    {
+        "name": "M757 删掉「永不腐烂」的哨兵（decayAtTick = 0 的尸体下一 tick 就烂）",
+        # ★ 0 在 `tick >= decayAtTick` 里恒真 ⇒ 一具本该永久的尸体立刻消失。
+        "file": "src/extensions/combat/corpse.ts",
+        "pairs": [("        if (c.decayAtTick === 0) continue;\n", "")],
+        "test": "tests/extensions/corpse.test.ts",
+    },
+    {
+        "name": "M758 腐烂后不 flush（组件没了，节点还在场景里）",
+        "file": "src/extensions/combat/corpse.ts",
+        "pairs": [("      s.flush();\n      decayed += due.length;", "      decayed += due.length;")],
+        "test": "tests/extensions/corpse.test.ts",
+    },
+    {
+        "name": "M759 多条目取到一半失败不回滚（背包比尸体多一件）",
+        # ★ 最隐蔽的一种：第一次 addItem 成功、第二次满 ⇒ 玩家白得一件，
+        #   而"取成功了没有"看起来完全正常（返回值是错误码，可没人会去看背包对账）。
+        "file": "src/extensions/combat/corpse.ts",
+        "pairs": [(
+            """      for (const back of added) {
+        const rb = takeItem(scene, ownerId, back.kind, back.count);
+        // 退回失败只能透传：继续退回剩下的会掩盖第一处失败
+        if (!rb.ok) return rb;
+      }
+""",
+            "",
+        )],
+        "test": "tests/extensions/corpse.test.ts",
+    },
+    {
+        "name": "M760 尸体取空后不销毁节点（幽灵尸体：看得见、再也取不出东西）",
+        "file": "src/extensions/combat/corpse.ts",
+        "pairs": [(
+            "  if (emptied) {\n    scene.destroy(nodeId);\n    scene.flush();\n  } else {",
+            "  if (false) {\n    scene.destroy(nodeId);\n    scene.flush();\n  } else {",
+        )],
+        "test": "tests/extensions/corpse.test.ts",
+    },
+    {
+        "name": "M761 取东西时忽略 amount 上限（点「拿 2 个」把整堆拿走）",
+        "file": "src/extensions/combat/corpse.ts",
+        "pairs": [(
+            "    take.push({ kind: e.kind, count: Math.min(e.count, limit) });",
+            "    take.push({ kind: e.kind, count: e.count });",
+        )],
+        "test": "tests/extensions/corpse.test.ts",
+    },
+    {
+        "name": "M762 尸体放不下时不退回进背包（战利品凭空消失）",
+        # 画面上只是"地上没有尸体"，玩家不会想到去怀疑地形。
+        "file": "src/extensions/mobs/mob-world.ts",
+        "pairs": [(
+            """              corpsesFailed++;
+              lastCorpseError = placed.error.code;
+            } else {""",
+            """              corpsesFailed++;
+              lastCorpseError = placed.error.code;
+              return;
+            } else {""",
+        )],
+        "test": "tests/extensions/mob-world.test.ts",
+    },
+    {
+        "name": "M763 尸体模式下仍然把战利品发给击杀者（双份掉落）",
+        "file": "src/extensions/mobs/mob-world.ts",
+        "pairs": [(
+            """              if (placed.ok) {
+                corpsesSpawned++;
+                return;
+              }""",
+            """              if (placed.ok) {
+                corpsesSpawned++;
+              }""",
+        )],
+        "test": "tests/extensions/mob-world.test.ts",
+    },
+    {
+        "name": "M764 生成尸体时把 tick 传成 0（腐烂时刻从世界的开端算）",
+        "file": "src/extensions/mobs/mob-world.ts",
+        "pairs": [("                nowTick: tick,", "                nowTick: 0,")],
+        "test": "tests/extensions/mob-world.test.ts",
+    },
+    {
+        "name": "M765 尸体不上屏（世界里有、画面上没有）",
+        "file": "src/extensions/render/world-visuals.ts",
+        "pairs": [(
+            "  for (const body of scene.componentsOf<Corpse>(CORPSE_TYPE)) {",
+            "  for (const body of [] as Corpse[]) {",
+        )],
+        "test": "tests/extensions/world-visuals.test.ts",
+    },
+    # ---- 批123 后期：战利品表改成**实体上的组件**（`game.loot`）
+    #   这一组盯的是"旁表 vs 组件"的区别本身：旁表是进程内状态，
+    #   读档换了场景就查不到 —— 症状是"读档之后打死的怪什么都不掉"，且无日志。
+    {
+        "name": "M766 挂表后不 flush（组件还在队列里，紧接着的读操作读不到 ⇒ 挂上两个）",
+        "file": "src/extensions/combat/loot.ts",
+        "pairs": [(
+            "  scene.flush();\n  return ok(norm.value);\n}\n",
+            "  return ok(norm.value);\n}\n",
+        )],
+        "test": "tests/extensions/combat-loot.test.ts",
+    },
+    {
+        "name": "M767 表读不出来时静默当成「没有掉落」（东西凭空消失且无日志）",
+        "file": "src/extensions/combat/loot.ts",
+        "pairs": [(
+            "  if (!decoded.ok) return decoded;\n",
+            "  if (!decoded.ok) return ok(null);\n",
+        )],
+        "test": "tests/extensions/combat-loot.test.ts",
+    },
+    {
+        "name": "M768 空表返回空数组而不是 null（调用方再生成一具空尸体、再报一次错）",
+        "file": "src/extensions/combat/loot.ts",
+        "pairs": [(
+            "  return ok(decoded.value.length === 0 ? null : decoded.value);",
+            "  return ok(decoded.value);",
+        )],
+        "test": "tests/extensions/combat-loot.test.ts",
+    },
+    {
+        "name": "M769 挂表时不过 normalizeLoot（配表顺序直接进存档 ⇒ 跨宿主比对随机红）",
+        "file": "src/extensions/combat/loot.ts",
+        "pairs": [(
+            "  const items = encodeItems(norm.value);",
+            "  const items = encodeItems(table as LootTable);",
+        )],
+        "test": "tests/extensions/combat-loot.test.ts",
+    },
+    {
+        "name": "M770 挂表不检查节点在不在（对不存在的 id 也返回成功）",
+        "file": "src/extensions/combat/loot.ts",
+        "pairs": [(
+            "  if (node === undefined) {\n    return err(engineError(LOOT_NO_NODE,",
+            "  if (false) {\n    return err(engineError(LOOT_NO_NODE,",
+        )],
+        "test": "tests/extensions/combat-loot.test.ts",
+    },
+    {
+        "name": "M771 挂表不检查组件注册（报的是引擎的通用错，说不出是谁要挂）",
+        "file": "src/extensions/combat/loot.ts",
+        "pairs": [("  if (!scene.components.has(LOOT_TYPE)) {", "  if (false) {")],
+        "test": "tests/extensions/combat-loot.test.ts",
+    },
+    {
+        "name": "M772 spawnMob 不挂战利品表（生物一打死就什么都不掉）",
+        "file": "src/extensions/mobs/spawn-mob.ts",
+        "pairs": [(
+            "  if (tpl.loot.length > 0) attached.push([LOOT_TYPE, loot]);",
+            "  if (false) attached.push([LOOT_TYPE, loot]);",
+        )],
+        "test": "tests/extensions/mob-world.test.ts",
+    },
+    {
+        "name": "M773 击杀时表读不出来就当成没有掉落（AI 那条路的静默丢）",
+        "file": "src/extensions/mobs/mob-world.ts",
+        "pairs": [(
+            "          if (!lootR.ok) {\n            // 表在、但读不出来：不能当成\"没有掉落\"，否则东西凭空消失且无日志\n            lastLootError = lootR.error.code;\n            return;\n          }\n          const loot = lootR.value;",
+            "          const loot = lootR.ok ? lootR.value : null;",
+        )],
+        "test": "tests/extensions/mob-world.test.ts",
     }
 ]
 

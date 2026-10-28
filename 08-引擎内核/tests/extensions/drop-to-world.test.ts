@@ -365,4 +365,41 @@ test("★★ findFreeCells：由近到远、同格优先、跳过占用与不可
 
   // 确定性：同样的输入永远给出同样的格（回放依赖这条）
   assert.deepEqual(findFreeCells(plan, tasks, p.x, p.z, 1, 3), got2, "同一输入两次结果不同 —— 顺序性断了");
+
+  // ★★ 环内顺序：同距离必须取**小 cell**。
+  //   上面每一条对"把环扫方向倒过来"都是绿的（距离仍是 1、格子仍可通行、
+  //   两次调用仍一致）—— 而那一刻"同一世界同一位置丢 100 次落在哪"会整体镜像，
+  //   版本升级前后的回放就对不上了。所以期望值必须由**另一份实现**算出来。
+  const expect3 = nearestCells(plan, tasks, cx, cz, 5, 3);
+  assert.ok(expect3.length === 3, "锚点周围的候选格不够 —— 判据前提不成立");
+  assert.deepEqual(findFreeCells(plan, tasks, p.x, p.z, 3, 3), expect3, "环内顺序不是「同距离取小 cell」");
 });
+
+/**
+ * 「由近到远、同距离取小 cell」的**独立实现**（暴力枚举 + 排序）。
+ *
+ * ★ 存在的理由：用 `findFreeCells` 自己算期望值只能证明"两次一样"。
+ *   把环扫的两个循环都改成倒序时，"两次一样"仍然成立 —— 而这条口径已经破了。
+ */
+function nearestCells(
+  plan: WorldPlan,
+  tasks: WorldTaskModuleHandle,
+  cx: number,
+  cz: number,
+  reach: number,
+  n: number,
+): number[] {
+  const all: Array<{ cell: number; d: number }> = [];
+  for (let gz = 0; gz < plan.height; gz++) {
+    for (let gx = 0; gx < plan.width; gx++) {
+      const d = Math.max(Math.abs(gx - cx), Math.abs(gz - cz));
+      if (d > reach) continue;
+      const cell = gz * plan.width + gx;
+      if (!isPassable(plan.kinds[cell]!)) continue;
+      if (tasks.isOccupied(cell)) continue;
+      all.push({ cell, d });
+    }
+  }
+  all.sort((a, b) => (a.d !== b.d ? a.d - b.d : a.cell - b.cell));
+  return all.slice(0, n).map((e) => e.cell);
+}

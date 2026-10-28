@@ -909,27 +909,112 @@ row("★★ 生物真的在走：700ms 内至少两只换了位置", async (e) =
   return mobMoveDone;
 });
 
+// ---- 批123：尸体（玩家打死的东西也要留一具）----
+let corpseDone = null;
+// 靶子只造一次：每轮重造的话，上一轮那两个血没打完的靶子会留在场上，
+// 下一轮"最近的目标"就未必是新的那个（判据自己制造的干扰）。
+let corpseDummy = -1;
+row("★★★ 打死一只怪 ⇒ 地上留一具尸体；按拾取能翻出战利品，那具尸体随即消失", async (e) => {
+  if (corpseDone !== null) return corpseDone;
+  // ★ 这条**只有浏览器能验**：玩家击杀走的是 `attack()`（按一下打一下），
+  //   不经过生物模块的 `combat-module` —— 那条路上"留尸体"是宿主在
+  //   `attackNearest` 里补的，Node 判据碰不到它（它们打的是 AI 打 AI 那条路）。
+  const hero = e.scene.find(e.world.player.nodeId);
+  if (!hero) return [false, "玩家不在场景里"];
+  const st = e.nav.stats();
+  if (st === null) return [false, "导航网格没建起来（没法算尸体落在哪一格）"];
+  // ★★ 语料自己造：一个**带战利品表**的靶子（`dummy(血量, 表)`）。
+  //   判据不许依赖世界的自发活动 —— 演示世界里 3 只猎狗会在开播 3~4 秒内吃光
+  //   10 只兔子（2 伤害 / 0.5 秒 对 4 血），之后**一只猎物都不剩**：
+  //   拿"场上碰巧还有兔子"当语料，红了会与"尸体层坏了"混成一个现象。
+  //   这也是批123 实际卡住的地方：当时拿猎狗当靶子（它是**盟友**，`attackNearest`
+  //   会跳过），打中的是旁边的调试靶子，诊断报 `NO_LOOT_TABLE`。
+  if (corpseDummy < 0 || e.scene.find(corpseDummy) === undefined) {
+    corpseDummy = e.feedback.dummy(2, [{ kind: "meat", count: 2 }]);
+  }
+  if (corpseDummy < 0) return [false, "带战利品表的靶子没造出来 —— 判据前提不成立"];
+  const corpses0 = e.scene.countOf("world.corpse");
+
+  // 靶子在玩家右边一格 ⇒ 必然是最近的非盟友目标（蠁 一枪 3 伤害 / 2 血就该击杀）
+  let msg = "";
+  for (let i = 0; i < 3; i++) {
+    msg = e.attack();
+    if (msg.indexOf("击杀") >= 0) break;
+    await new Promise((r) => setTimeout(r, 220));
+  }
+  if (msg.indexOf("击杀") < 0) return [false, `还没打死（${msg}）—— 下一轮再试`];
+  // ★ 打死的是谁必须写进详情：只报"没留尸体"的话，"打错了东西"与"尸体层坏了"
+  //   长得一模一样（这一条正是批123 卡了两轮的那个坑）。
+  const diag = e.world.corpseDiag();
+  const v = diag.lastVictim;
+  const killed = v === null ? "（没记到）" : `${v.mobKind === null ? v.name : v.mobKind}#${v.id}`;
+
+  const corpses1 = e.scene.countOf("world.corpse");
+  if (corpses1 <= corpses0) {
+    corpseDone = [
+      false,
+      `击杀之后尸体数 ${corpses0}→${corpses1} —— 玩家击杀没有留尸体` +
+        `（打死的是 ${killed} · 提示「${msg}」 · 诊断 ${JSON.stringify(diag)}）`,
+    ];
+    return corpseDone;
+  }
+  // ★ 尸体可能被"这格已经有一具"挤到旁边一格，所以取 3×3 邻域里找：
+  //   只按目标格断言的话，AI 恰好在同一格死过就会红，而功能是对的。
+  const hp = hero.worldPosition;
+  const cx = Math.floor(hp.x);
+  const cz = Math.floor(hp.y);
+  let found = null;
+  let foundCell = -1;
+  for (let dz = -1; dz <= 1 && found === null; dz++) {
+    for (let dx = -1; dx <= 1 && found === null; dx++) {
+      const gx = cx + dx;
+      const gz = cz + dz;
+      if (gx < 0 || gz < 0 || gx >= st.width || gz >= st.height) continue;
+      const cell = gz * st.width + gx;
+      // ★ 尸体接口挂在 `e.world` 下（与 harvest / counts 同一层），不在 `e` 顶层
+      const items = e.world.corpseItems(cell);
+      if (items !== null) {
+        found = items;
+        foundCell = cell;
+      }
+    }
+  }
+  if (found === null) {
+    corpseDone = [false, `尸体数涨到 ${corpses1}，但目标周围没有一具（corpseItems 全为 null）—— 按格找不到它`];
+    return corpseDone;
+  }
+  if (found.join(",").indexOf("meat") < 0) {
+    corpseDone = [false, `尸体里的东西不对：${JSON.stringify(found)}（兔子应该掉肉）`];
+    return corpseDone;
+  }
+
+  // 翻尸体：拾取**优先尸体**（否则站在尸体上按 G 会去采旁边的树）
+  const bag0 = e.bag().reduce((a, x) => a + x.count, 0);
+  const pick = e.world.pickupNearest(3.2);
+  const bag1 = e.bag().reduce((a, x) => a + x.count, 0);
+  const corpses2 = e.scene.countOf("world.corpse");
+  const okAll =
+    pick && pick.ok === true &&
+    bag1 > bag0 &&
+    corpses2 < corpses1 &&
+    String(pick.value).indexOf("翻尸体") >= 0;
+  corpseDone = [
+    okAll,
+    `打死的是 ${killed} · 尸体 ${corpses0}→${corpses1}→${corpses2}（格 ${foundCell} 里 ${JSON.stringify(found)}）· 背包 ${bag0}→${bag1} · ` +
+      `${pick && pick.ok === true ? pick.value : pick && pick.error ? pick.error.code : "?"}`,
+  ];
+  return corpseDone;
+});
+
 row("★ 丢不动的两种情况都说得清：空包（BAG.EMPTY）与面板没开（BAG.CLOSED）", (e) => {
   if (dropEmptyDone !== null) return dropEmptyDone;
-  // 先把背包清空（give 1 个再整堆丢掉），再试一次
-  const g = e.give("flint", 1);
-  if (!g || g.ok !== true) {
-    dropEmptyDone = [false, `give 失败：${g && g.code ? g.code.code || g.code : "?"}`];
-    return dropEmptyDone;
-  }
-  e.selectStack(e.bag().length - 1);
-  const whole = e.dropSelected(true);
-  if (!whole || whole.ok !== true) {
-    dropEmptyDone = [false, `整堆丢弃失败：${whole && whole.code ? whole.code : "?"}`];
-    return dropEmptyDone;
-  }
-  // 现在只剩刚刚 give 的种类被丢完 —— 但包里可能还有前面几条 give 的东西，
-  // 所以"空包"这一步要丢到真的空：循环整堆丢到 empty 为止
-  let guard = 0;
-  while (e.bag().length > 0 && guard++ < 16) {
-    const d = e.dropSelected(true);
-    if (!d || d.ok !== true) break;
-  }
+  // ★★ 清空走 `clearBag()`（自检页的既有入口），**不要**"一直丢到空"：
+  //   背包里可能有丢不进世界的东西 —— 肉不是 `SiteKind`，`dropIntoWorld` 会报
+  //   `DROP.UNKNOWN_KIND`（那是设计如此，见 `loot.ts` 文件头）。循环一碰上它就
+  //   `break`，包永远清不空，于是这一条报的是 `DROP.UNKNOWN_KIND` ——
+  //   而它想验的是"空包时报 BAG.EMPTY"。批123 的尸体判据翻出两块肉之后，
+  //   这条就按这个方式红了（红得毫无关系）。
+  e.clearBag();
   const onEmpty = e.dropSelected(false);
   // 关上面板再试 ⇒ 另一种提示
   e.toggleBag();
@@ -1114,7 +1199,10 @@ row("★ 打一下冒出伤害数字：数字是**实际扣血 2**，不是攻�
   //   而那一枪可能被漫游的怪抢走（兔子 4 血一下打不死，屏幕上只有 -3），
   //   也可能撞冷却 —— 两种都会把"没打中"记成这条的失败，而它与本条的语义
   //   （数字显示的是实际扣血）无关。兔子 4 血保证"击杀"只可能来自 2 血靶子。
-  if (dmgDummy < 0) {
+  // ★ 靶子被**别的判据**打死过也算"没有"：缓存的是一句柄，不是所有权。
+  //   批123 新增的尸体判据也要打一下，它可能抢走这只靶子 —— 而"靶子没了"与
+  //   "数字没显示"长得一样（都是"等自己这一下命中靶子"）。
+  if (dmgDummy < 0 || e.scene.find(dmgDummy) === undefined) {
     dmgDummy = e.feedback.dummy(2);
     if (dmgDummy < 0) {
       dmgShownDone = [false, "靶子没造出来（玩家不在场景里？）"];
@@ -1196,7 +1284,8 @@ let hsGraceTries = 0;
 row("★★ 命中真的顿帧：世界当场冻住，而渲染帧还在涨", async (e) => {
   if (hsDone !== null) return hsDone;
   if (hsPhase === 0) {
-    if (hsDummy < 0) {
+    // ★ 同 `dmgDummy`：句柄失效就重造（被别的判据打死了）
+    if (hsDummy < 0 || e.scene.find(hsDummy) === undefined) {
       hsDummy = e.feedback.dummy(2);
       if (hsDummy < 0) {
         hsDone = [false, "靶子没造出来（玩家不在场景里？）"];

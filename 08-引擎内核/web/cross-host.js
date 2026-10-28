@@ -2938,6 +2938,7 @@ function buildProceduralAtlas() {
     { name: "rock", x: 64, y: 0, w: 48, h: 40 },
     { name: "player", x: 112, y: 0, w: 32, h: 48 },
     { name: "berry", x: 144, y: 0, w: 24, h: 24 },
+    { name: "carcass", x: 168, y: 0, w: 32, h: 24 },
     { name: "ground", x: 0, y: 96, w: 64, h: 64 },
     { name: "terrain", x: 64, y: 96, w: 64, h: 64 }
   ];
@@ -2963,6 +2964,12 @@ function buildProceduralAtlas() {
   pen.disc(9, 9, 4, [186, 42, 46]);
   pen.disc(16, 12, 4, [206, 58, 54]);
   pen.disc(11, 17, 3, [168, 34, 40]);
+  pen.origin(at("carcass").x, at("carcass").y);
+  pen.disc(16, 17, 11, [116, 40, 44]);
+  pen.disc(16, 14, 8, [96, 74, 60]);
+  pen.disc(13, 11, 4, [126, 102, 84]);
+  pen.rect(2, 9, 7, 2, [228, 224, 210]);
+  pen.rect(23, 9, 7, 2, [228, 224, 210]);
   let seed = 19088743;
   const rnd = () => {
     seed = seed * 1103515245 + 12345 & 2147483647;
@@ -2996,6 +3003,20 @@ function buildProceduralAtlas() {
   return { width: W, height: H, pixels: px, frames };
 }
 
+// src/extensions/combat/loot.ts
+var LOOT_TYPE = "game.loot";
+var LOOT_SCHEMA = {
+  type: LOOT_TYPE,
+  fields: { items: FieldType.StringArray }
+};
+
+// src/extensions/combat/corpse.ts
+var CORPSE_TYPE = "world.corpse";
+var CORPSE_SCHEMA = {
+  type: CORPSE_TYPE,
+  fields: { cell: FieldType.Int, decayAtTick: FieldType.Int, items: FieldType.StringArray }
+};
+
 // src/extensions/render/world-visuals.ts
 var VISUAL_MISSING_FRAME = "VISUAL.MISSING_FRAME";
 var VISUAL_NO_SPRITE_COMPONENT = "VISUAL.NO_SPRITE_COMPONENT";
@@ -3008,6 +3029,7 @@ var SITE_FRAMES = {
   grass_tuft: "berry",
   reed: "berry"
 };
+var CORPSE_FRAMES = ["carcass", "berry", "rock"];
 var TERRAIN_FRAME = "terrain";
 var TERRAIN_TILE_PAGE = "terrain.tile";
 var BIOME_TINT = {
@@ -3093,6 +3115,28 @@ function attachWorldVisuals(scene, availableFrames) {
       b: 1
     });
   }
+  const availableFramesSet = new Set(availableFrames);
+  const corpseFrame = CORPSE_FRAMES.find((f) => availableFramesSet.has(f)) ?? CORPSE_FRAMES[0];
+  for (const body of scene.componentsOf(CORPSE_TYPE)) {
+    if (body.node === null) continue;
+    plans.push({
+      nodeId: body.node.id,
+      frame: corpseFrame,
+      atlasId: "",
+      kind: "corpse",
+      tileX: 1,
+      tileY: 1,
+      width: 1,
+      height: 1,
+      layer: 1,
+      pivotX: 0.5,
+      // 与资源同一条：脚踩地面（精灵底边贴住它所在那一格）
+      pivotY: 0,
+      r: 1,
+      g: 1,
+      b: 1
+    });
+  }
   const available = new Set(availableFrames);
   const missing = /* @__PURE__ */ new Map();
   for (const p of plans) {
@@ -3122,6 +3166,7 @@ function attachWorldVisuals(scene, availableFrames) {
   let terrain = 0;
   let sites = 0;
   let resources = 0;
+  let corpses = 0;
   let skipped = 0;
   const used = /* @__PURE__ */ new Set();
   for (const p of plans) {
@@ -3151,6 +3196,7 @@ function attachWorldVisuals(scene, availableFrames) {
     used.add(frame);
     if (p.kind.startsWith("terrain:")) terrain++;
     else if (p.kind.startsWith("site:")) sites++;
+    else if (p.kind === "corpse") corpses++;
     else resources++;
   }
   scene.flush();
@@ -3158,6 +3204,7 @@ function attachWorldVisuals(scene, availableFrames) {
     terrain,
     sites,
     resources,
+    corpses,
     frames: [...used].sort(),
     skipped
   });

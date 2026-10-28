@@ -34,6 +34,7 @@ import { engineError, err, ok, type EngineError, type Result } from "../../found
 import type { BiomeKind, SiteKind } from "../worldgen/worldgen.ts";
 import { SITE_TYPE, TERRAIN_TYPE, SiteMarker, TerrainArea } from "../worldgen/assemble.ts";
 import { RESOURCE_TYPE, ResourceMarker } from "../worldgen/task-module.ts";
+import { CORPSE_TYPE, Corpse } from "../combat/corpse.ts";
 
 /** 缺帧：需要的帧名不在可用图集里。 */
 export const VISUAL_MISSING_FRAME = "VISUAL.MISSING_FRAME";
@@ -45,8 +46,9 @@ const UNMAPPED_LABEL = "（未映射的种类）";
 /**
  * 资源种类 → 图集帧名。
  *
- * ★ 这是一张**临时的**映射：程序化图集里只有 `tree / rock / berry / player / ground / terrain`
- *   六帧，没有 `flint / grass_tuft / reed`。所以三类暂时复用别的帧。
+ * ★ 这是一张**临时的**映射：程序化图集里只有 `tree / rock / berry / player / carcass /
+ *   ground / terrain` 七帧（`carcass` 是批123 为尸体加的），没有 `flint / grass_tuft / reed`。
+ *   所以那三类暂时复用别的帧。
  *   映射集中在这一处，换成真资产时**只改这张表**（判据会自动跟着走：
  *   它不写死帧名，而是断言"每个种类映射到的帧都在可用图集里"）。
  */
@@ -58,6 +60,24 @@ export const SITE_FRAMES: Readonly<Record<SiteKind, string>> = {
   grass_tuft: "berry",
   reed: "berry",
 };
+
+/**
+ * 尸体的帧（批123）。**这是一个降级链，不是一个名字。**
+ *
+ * ★ 为什么**不**在 `SITE_FRAMES` 里：那张表的键是 `SiteKind`，而 `SiteKind` 是
+ *   "世界生成时的投放种类" —— 加一个 `carcass` 进去，群系表、投放配额、存档校验
+ *   全都要跟着处理一个**永远不会被生成**的种类；而漏一处就会让尸体被"随机长出来"。
+ *   尸体的来源只有一个：**别的东西死了**。
+ *
+ * ★★ 为什么需要降级链（这不是"顺手加的宽容"，是一次真事故）：程序化图集有
+ *   `carcass`，而**真实宿主用的是烘焙过的资产图集**（`assets/*.png`），那里没有这一帧。
+ *   只写死 `carcass` 的后果不是"尸体样子不对"，而是 `attachWorldVisuals` **报错**
+ *   —— 而它是在"世界里新出现东西"之后被补调的，于是每次长出一具尸体就弹一次错。
+ *   实测症状：自检页里「提示条不再走 DOM」变红（提示条被反复顶出来，2 秒后收不下去），
+ *   而所有 Node 判据都绿（它们用程序化图集）。
+ *   ⇒ 有 `carcass` 就用它；没有就用 `berry`（一小坨红色，形状上最接近"一块肉"）。
+ */
+export const CORPSE_FRAMES: readonly string[] = ["carcass", "berry", "rock"];
 
 /** 地形用的帧（中性灰，颜色来自 `BIOME_TINT`）。 */
 export const TERRAIN_FRAME = "terrain";
@@ -91,6 +111,8 @@ export interface WorldVisualReport {
   readonly terrain: number;
   readonly sites: number;
   readonly resources: number;
+  /** 这一轮挂上图的尸体数（批123；懒补的，见 `attachWorldVisuals` 的幂等说明）。 */
+  readonly corpses: number;
   /** 实际用到的帧名（去重、升序）。换图集时拿它与图集帧表对一下就知道有没有漏。 */
   readonly frames: readonly string[];
   /** 已经有了 Sprite、这次跳过的节点数（幂等性的证据）。 */
@@ -127,7 +149,12 @@ function hasSprite(s: Scene, nodeId: number): boolean {
 }
 
 /**
- * 给场景里所有地形块、投放点与再生资源挂上 Sprite。
+ * 给场景里所有地形块、投放点、再生资源与**尸体**挂上 Sprite。
+ *
+ * ★ 它是**可以被反复调用的**（批123 起宿主在"世界里多出东西"之后补调一次）：
+ *   再生资源与尸体都是运行期才出现的，而装配那一刻它们还不存在。
+ *   幂等性就是为这件事准备的 —— 没有它，"补一次"会把已有精灵再挂一遍，
+ *   半透明资源的颜色加深一倍，看起来像"贴图颜色不对"。
  *
  * ★ 幂等：已经有 Sprite 的节点跳过并计数。
  *   不加这个判断的后果不是"画两次"那么简单 —— 两个 Sprite 各画一遍会让半透明资源的
@@ -205,6 +232,33 @@ export function attachWorldVisuals(scene: Scene, availableFrames: readonly strin
     });
   }
 
+  // 尸体（批123）：与资源同层，但**帧是固定的**（尸体没有"种类"这个维度）
+  // ★ 降级链见 `CORPSE_FRAMES`：真实宿主的资产图集里没有 `carcass`。
+  //   全都没有时退回**首选名**（而不是 null）—— 那样报错信息会写
+  //   「图集里没有这些帧：carcass（被 corpse 用到）」，一眼知道缺什么。
+  const availableFramesSet = new Set(availableFrames);
+  const corpseFrame = CORPSE_FRAMES.find((f) => availableFramesSet.has(f)) ?? CORPSE_FRAMES[0]!;
+  for (const body of scene.componentsOf<Corpse>(CORPSE_TYPE)) {
+    if (body.node === null) continue;
+    plans.push({
+      nodeId: body.node.id,
+      frame: corpseFrame,
+      atlasId: "",
+      kind: "corpse",
+      tileX: 1,
+      tileY: 1,
+      width: 1,
+      height: 1,
+      layer: 1,
+      pivotX: 0.5,
+      // 与资源同一条：脚踩地面（精灵底边贴住它所在那一格）
+      pivotY: 0,
+      r: 1,
+      g: 1,
+      b: 1,
+    });
+  }
+
   // ★ 先整体检查帧，再动场景：报错时不该留下"挂了一半"的场景
   const available = new Set(availableFrames);
   const missing = new Map<string, Set<string>>();
@@ -240,6 +294,7 @@ export function attachWorldVisuals(scene: Scene, availableFrames: readonly strin
   let terrain = 0;
   let sites = 0;
   let resources = 0;
+  let corpses = 0;
   let skipped = 0;
   const used = new Set<string>();
 
@@ -272,6 +327,7 @@ export function attachWorldVisuals(scene: Scene, availableFrames: readonly strin
     used.add(frame);
     if (p.kind.startsWith("terrain:")) terrain++;
     else if (p.kind.startsWith("site:")) sites++;
+    else if (p.kind === "corpse") corpses++;
     else resources++;
   }
   scene.flush();
@@ -280,6 +336,7 @@ export function attachWorldVisuals(scene: Scene, availableFrames: readonly strin
     terrain,
     sites,
     resources,
+    corpses,
     frames: [...used].sort(),
     skipped,
   });

@@ -10522,6 +10522,7 @@ function buildProceduralAtlas() {
     { name: "rock", x: 64, y: 0, w: 48, h: 40 },
     { name: "player", x: 112, y: 0, w: 32, h: 48 },
     { name: "berry", x: 144, y: 0, w: 24, h: 24 },
+    { name: "carcass", x: 168, y: 0, w: 32, h: 24 },
     { name: "ground", x: 0, y: 96, w: 64, h: 64 },
     { name: "terrain", x: 64, y: 96, w: 64, h: 64 }
   ];
@@ -10547,6 +10548,12 @@ function buildProceduralAtlas() {
   pen.disc(9, 9, 4, [186, 42, 46]);
   pen.disc(16, 12, 4, [206, 58, 54]);
   pen.disc(11, 17, 3, [168, 34, 40]);
+  pen.origin(at("carcass").x, at("carcass").y);
+  pen.disc(16, 17, 11, [116, 40, 44]);
+  pen.disc(16, 14, 8, [96, 74, 60]);
+  pen.disc(13, 11, 4, [126, 102, 84]);
+  pen.rect(2, 9, 7, 2, [228, 224, 210]);
+  pen.rect(23, 9, 7, 2, [228, 224, 210]);
   let seed = 19088743;
   const rnd = () => {
     seed = seed * 1103515245 + 12345 & 2147483647;
@@ -18693,6 +18700,373 @@ function pickupNearby(scene, x, z, radius, ownerId, opts = {}) {
   });
 }
 
+// src/extensions/combat/loot.ts
+var LOOT_BAD_TABLE = "LOOT.BAD_TABLE";
+var LOOT_NO_OWNER = "LOOT.NO_OWNER";
+var LOOT_NO_NODE = "LOOT.NO_NODE";
+var LOOT_BAD_ITEMS = "LOOT.BAD_ITEMS";
+var LOOT_NO_COMPONENT = "LOOT.NO_COMPONENT";
+function isPositiveInt2(n) {
+  return typeof n === "number" && Number.isInteger(n) && n > 0;
+}
+function normalizeLoot(table) {
+  if (!Array.isArray(table)) {
+    return err(engineError(LOOT_BAD_TABLE, `\u6218\u5229\u54C1\u8868\u5FC5\u987B\u662F\u6570\u7EC4\uFF0C\u6536\u5230 ${typeof table}`));
+  }
+  const merged = /* @__PURE__ */ new Map();
+  for (let i = 0; i < table.length; i++) {
+    const e = table[i];
+    if (e === void 0 || typeof e !== "object") {
+      return err(engineError(LOOT_BAD_TABLE, `\u7B2C ${String(i)} \u9879\u4E0D\u662F\u5BF9\u8C61`));
+    }
+    if (typeof e.kind !== "string" || e.kind.length === 0) {
+      return err(engineError(LOOT_BAD_TABLE, `\u7B2C ${String(i)} \u9879\u7684 kind \u5FC5\u987B\u662F\u975E\u7A7A\u5B57\u7B26\u4E32\uFF0C\u6536\u5230 ${JSON.stringify(e.kind)}`));
+    }
+    if (!isPositiveInt2(e.count)) {
+      return err(
+        engineError(LOOT_BAD_TABLE, `\u7B2C ${String(i)} \u9879\u300C${e.kind}\u300D\u7684 count \u5FC5\u987B\u662F\u6B63\u6574\u6570\uFF0C\u6536\u5230 ${String(e.count)}`)
+      );
+    }
+    merged.set(e.kind, (merged.get(e.kind) ?? 0) + e.count);
+  }
+  const out = [...merged.entries()].map(([kind, count]) => ({ kind, count }));
+  out.sort((x, y) => x.kind < y.kind ? -1 : x.kind > y.kind ? 1 : 0);
+  return ok(out);
+}
+function lootTotal(table) {
+  let n = 0;
+  for (const e of table) n += e.count;
+  return n;
+}
+function grantLoot(scene, ownerId, table) {
+  const norm2 = normalizeLoot(table);
+  if (!norm2.ok) return norm2;
+  const entries = norm2.value;
+  const owner = scene.find(ownerId);
+  if (owner === void 0 || owner === null) {
+    return err(engineError(LOOT_NO_OWNER, `\u51FB\u6740\u8005 ${String(ownerId)} \u4E0D\u5728\u573A\u666F\u91CC\uFF08\u6218\u5229\u54C1\u6CA1\u6709\u53BB\u5904\uFF09`));
+  }
+  if (owner.get(INVENTORY_TYPE) === void 0) {
+    return err(engineError(LOOT_NO_OWNER, `\u51FB\u6740\u8005 ${String(ownerId)} \u6CA1\u6709\u80CC\u5305\u7EC4\u4EF6 \u2014\u2014 \u5148 makeInventory()`));
+  }
+  const granted = [];
+  const lost = [];
+  let stoppedAt = null;
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i];
+    if (stoppedAt !== null) {
+      lost.push({ kind: e.kind, count: e.count, code: "LOOT.SKIPPED" });
+      continue;
+    }
+    const r = addItem(scene, ownerId, e.kind, e.count);
+    if (r.ok) {
+      granted.push({ kind: e.kind, count: e.count });
+      continue;
+    }
+    stoppedAt = e.kind;
+    lost.push({ kind: e.kind, count: e.count, code: r.error.code });
+  }
+  return ok({
+    granted,
+    grantedCount: lootTotal(granted),
+    lost,
+    lostCount: lootTotal(lost),
+    stoppedAt
+  });
+}
+var LOOT_TYPE = "game.loot";
+var LOOT_SCHEMA = {
+  type: LOOT_TYPE,
+  fields: { items: FieldType.StringArray }
+};
+var LootHolding = class extends Component {
+  /** `"kind:count"`，按 `kind` 升序（空数组 = 不掉东西）。 */
+  items = [];
+  schema = LOOT_SCHEMA;
+};
+function registerLootComponent(registry) {
+  if (!registry.has(LOOT_TYPE)) registry.register(LOOT_SCHEMA, () => new LootHolding());
+}
+function encodeItems(table) {
+  const out = [];
+  for (const e of table) out.push(`${e.kind}:${String(e.count)}`);
+  return out;
+}
+function decodeItems(items) {
+  const out = [];
+  for (let i = 0; i < items.length; i++) {
+    const s = items[i];
+    const at = s.lastIndexOf(":");
+    if (at <= 0) {
+      return err(engineError(LOOT_BAD_ITEMS, `\u7B2C ${String(i)} \u9879\u300C${s}\u300D\u4E0D\u662F\u300C\u79CD\u7C7B:\u6570\u91CF\u300D`, { index: i, raw: s }));
+    }
+    const kind = s.slice(0, at);
+    const raw = s.slice(at + 1);
+    const n = Number(raw);
+    if (!Number.isInteger(n) || n <= 0 || String(n) !== raw) {
+      return err(engineError(LOOT_BAD_ITEMS, `\u7B2C ${String(i)} \u9879\u300C${s}\u300D\u7684\u6570\u91CF\u4E0D\u662F\u6B63\u6574\u6570`, { index: i, raw: s }));
+    }
+    out.push({ kind, count: n });
+  }
+  return ok(out);
+}
+function attachLoot(scene, nodeId, table) {
+  const norm2 = normalizeLoot(table);
+  if (!norm2.ok) return norm2;
+  const items = encodeItems(norm2.value);
+  const node = scene.find(nodeId);
+  if (node === void 0) {
+    return err(engineError(LOOT_NO_NODE, `\u8282\u70B9 ${String(nodeId)} \u4E0D\u5728\u573A\u666F\u91CC \u2014\u2014 \u6218\u5229\u54C1\u8868\u6CA1\u5730\u65B9\u6302`));
+  }
+  const have = node.get(LOOT_TYPE);
+  if (have !== void 0) {
+    have.items = items;
+    return ok(norm2.value);
+  }
+  if (!scene.components.has(LOOT_TYPE)) {
+    return err(engineError(LOOT_NO_COMPONENT, `\u573A\u666F\u7684\u7EC4\u4EF6\u6CE8\u518C\u8868\u91CC\u6CA1\u6709 ${LOOT_TYPE} \u2014\u2014 \u5148 registerLootComponent()`));
+  }
+  const made = scene.attach(nodeId, () => {
+    const c = new LootHolding();
+    c.items = items;
+    return c;
+  });
+  if (!made.ok) return made;
+  scene.flush();
+  return ok(norm2.value);
+}
+function lootOfNode(scene, nodeId) {
+  const c = scene.find(nodeId)?.get(LOOT_TYPE);
+  if (c === void 0) return ok(null);
+  const decoded = decodeItems(c.items);
+  if (!decoded.ok) return decoded;
+  return ok(decoded.value.length === 0 ? null : decoded.value);
+}
+
+// src/extensions/worldgen/cell-ring.ts
+function cellsInRing(width, height, cx, cz, r, out) {
+  if (!Number.isInteger(r) || r < 0) return;
+  if (r === 0) {
+    if (cx >= 0 && cx < width && cz >= 0 && cz < height) out.push(cz * width + cx);
+    return;
+  }
+  for (let dz = -r; dz <= r; dz++) {
+    for (let dx = -r; dx <= r; dx++) {
+      if (Math.abs(dx) !== r && Math.abs(dz) !== r) continue;
+      const gx = cx + dx;
+      const gz = cz + dz;
+      if (gx < 0 || gx >= width || gz < 0 || gz >= height) continue;
+      out.push(gz * width + gx);
+    }
+  }
+}
+
+// src/extensions/combat/corpse.ts
+var CORPSE_TYPE = "world.corpse";
+var CORPSE_NO_SPACE = "CORPSE.NO_SPACE";
+var CORPSE_EMPTY = "CORPSE.EMPTY";
+var CORPSE_BAD_DECAY = "CORPSE.BAD_DECAY";
+var CORPSE_NONE = "CORPSE.NONE";
+var CORPSE_NO_COMPONENT = "CORPSE.NO_COMPONENT";
+var CORPSE_SCHEMA = {
+  type: CORPSE_TYPE,
+  fields: { cell: FieldType.Int, decayAtTick: FieldType.Int, items: FieldType.StringArray }
+};
+var Corpse = class extends Component {
+  /** 所在格子（见文件头 ②）。 */
+  cell = 0;
+  /**
+   * 腐烂时刻（绝对 tick）。`0` = **永不腐烂**（见文件头 ③）。
+   * ★ 默认值写在类初始化器里：`Component.load` 在字段缺失时保留实例值，
+   *   所以旧档/坏档读回来是"永久尸体"，而不是"立刻消失"。
+   */
+  decayAtTick = 0;
+  /**
+   * 里面有什么：`"kind:count"`，按 `kind` 升序（见文件头 ④）。
+   * ★ 存成字符串数组而不是 JSON：schema 的字段类型是唯一可校验的形状，
+   *   而 `StringArray` 是仓库里已有的类型（标签、配方都走它）。
+   */
+  items = [];
+  schema = CORPSE_SCHEMA;
+};
+function registerCorpseComponent(registry) {
+  if (!registry.has(CORPSE_TYPE)) registry.register(CORPSE_SCHEMA, () => new Corpse());
+}
+function findCorpseCell(scene, ground, x, z, searchCells = 2) {
+  const cx = Math.floor(x);
+  const cz = Math.floor(z);
+  const base = Math.max(0, Math.floor(searchCells));
+  const occupied = /* @__PURE__ */ new Set();
+  for (const c of scene.componentsOf(CORPSE_TYPE)) {
+    if (c.node !== null) occupied.add(c.cell);
+  }
+  const ring = [];
+  for (let r = 0; r <= base; r++) {
+    ring.length = 0;
+    cellsInRing(ground.width, ground.height, cx, cz, r, ring);
+    for (const cell of ring) {
+      if (!ground.isWalkableIndex(cell)) continue;
+      if (occupied.has(cell)) continue;
+      return cell;
+    }
+  }
+  return null;
+}
+function spawnCorpse(scene, table, opts) {
+  if (!scene.components.has(CORPSE_TYPE)) {
+    return err(engineError(CORPSE_NO_COMPONENT, `\u573A\u666F\u7684\u7EC4\u4EF6\u6CE8\u518C\u8868\u91CC\u6CA1\u6709 ${CORPSE_TYPE} \u2014\u2014 \u5148 registerCorpseComponent()`));
+  }
+  const norm2 = normalizeLoot(table);
+  if (!norm2.ok) return norm2;
+  const items = norm2.value;
+  if (items.length === 0) {
+    return err(engineError(CORPSE_EMPTY, "\u6218\u5229\u54C1\u8868\u662F\u7A7A\u7684 \u2014\u2014 \u4E0D\u751F\u6210\u7A7A\u5C38\u4F53\uFF08\u90A3\u5177\u5C38\u4F53\u53EA\u4F1A\u8BA9\u73A9\u5BB6\u767D\u8DD1\u4E00\u8D9F\uFF09"));
+  }
+  const decayTicks = opts.decayTicks ?? 0;
+  if (!Number.isInteger(decayTicks) || decayTicks < 0) {
+    return err(engineError(CORPSE_BAD_DECAY, `\u8150\u70C2\u65F6\u957F\u5FC5\u987B\u662F >= 0 \u7684\u6574\u6570\uFF080 = \u6C38\u4E0D\uFF09\uFF0C\u6536\u5230 ${String(opts.decayTicks)}`));
+  }
+  const cell = findCorpseCell(scene, opts.ground, opts.x, opts.z, opts.searchCells);
+  if (cell === null) {
+    return err(
+      engineError(
+        CORPSE_NO_SPACE,
+        `(${opts.x.toFixed(2)}, ${opts.z.toFixed(2)}) \u9644\u8FD1\u6CA1\u6709\u80FD\u653E\u5C38\u4F53\u7684\u7A7A\u5730\uFF08\u5DF2\u5916\u6269\u5230 ${String(Math.max(0, Math.floor(opts.searchCells ?? 2)))} \u683C\uFF09`
+      )
+    );
+  }
+  const c = opts.ground.centerOf(cell);
+  const node = scene.spawn("corpse", null);
+  if (!node.ok) return node;
+  node.value.setLocalPosition(c.x, c.z);
+  const made = scene.attach(node.value.id, () => new Corpse());
+  if (!made.ok) {
+    scene.destroy(node.value.id);
+    scene.flush();
+    return made;
+  }
+  made.value.cell = cell;
+  made.value.decayAtTick = decayTicks === 0 ? 0 : opts.nowTick + decayTicks;
+  made.value.items = encodeItems(items);
+  scene.flush();
+  return ok({ cell, nodeId: node.value.id, items, decayAtTick: made.value.decayAtTick });
+}
+function corpseAt(scene, cell) {
+  for (const c of scene.componentsOf(CORPSE_TYPE)) {
+    if (c.node === null) continue;
+    if (c.cell === cell) return c;
+  }
+  return null;
+}
+function createCorpseModule(opts = {}) {
+  let scene = opts.scene ?? null;
+  let started = false;
+  let decayed = 0;
+  const mod = {
+    id: opts.id ?? "world.corpses",
+    deps: [],
+    init(ctx) {
+      if (scene === null) {
+        const got = ctx.services.get(Services.Scene);
+        if (got === void 0) {
+          return err(
+            engineError(
+              CORPSE_NO_COMPONENT,
+              "\u5C38\u4F53\u6A21\u5757\u9700\u8981\u4E00\u4E2A Scene\uFF1A\u8981\u4E48\u5728 options \u91CC\u4F20\uFF0C\u8981\u4E48\u5148\u7531\u5BBF\u4E3B\u6CE8\u518C Services.Scene"
+            )
+          );
+        }
+        scene = got;
+      }
+      return ok(void 0);
+    },
+    start() {
+      started = true;
+    },
+    stop() {
+      started = false;
+    },
+    update(tick, _dt) {
+      const s = scene;
+      if (s === null || !started) return;
+      const due = [];
+      for (const c of s.componentsOf(CORPSE_TYPE)) {
+        if (c.node === null) continue;
+        if (c.decayAtTick === 0) continue;
+        if (tick < c.decayAtTick) continue;
+        due.push(c.node.id);
+      }
+      if (due.length === 0) return;
+      for (const id of due) s.destroy(id);
+      s.flush();
+      decayed += due.length;
+    },
+    get stats() {
+      const s = scene;
+      return { corpses: s === null ? 0 : s.countOf(CORPSE_TYPE), decayed };
+    }
+  };
+  return mod;
+}
+function takeFromCorpse(scene, cell, ownerId, opts = {}) {
+  const corpse = corpseAt(scene, cell);
+  if (corpse === null || corpse.node === null) {
+    return err(engineError(CORPSE_NONE, `\u683C\u5B50 ${String(cell)} \u4E0A\u6CA1\u6709\u5C38\u4F53`));
+  }
+  const nodeId = corpse.node.id;
+  const decoded = decodeItems(corpse.items);
+  if (!decoded.ok) return decoded;
+  const all = decoded.value;
+  let limit = Number.POSITIVE_INFINITY;
+  if (opts.amount !== void 0) {
+    if (!Number.isInteger(opts.amount) || opts.amount <= 0) {
+      return err(engineError("INVENTORY.BAD_COUNT", `\u4E00\u6B21\u62FF\u51E0\u4E2A\u5FC5\u987B\u662F\u6B63\u6574\u6570\uFF0C\u6536\u5230 ${String(opts.amount)}`));
+    }
+    limit = opts.amount;
+  }
+  const take = [];
+  for (const e of all) {
+    if (opts.kind !== void 0 && e.kind !== opts.kind) continue;
+    take.push({ kind: e.kind, count: Math.min(e.count, limit) });
+  }
+  if (take.length === 0) {
+    return err(engineError(CORPSE_NONE, `\u683C\u5B50 ${String(cell)} \u7684\u5C38\u4F53\u91CC\u6CA1\u6709\u300C${String(opts.kind)}\u300D`));
+  }
+  const added = [];
+  for (const e of take) {
+    const r = addItem(scene, ownerId, e.kind, e.count);
+    if (!r.ok) {
+      for (const back of added) {
+        const rb = takeItem(scene, ownerId, back.kind, back.count);
+        if (!rb.ok) return rb;
+      }
+      return r;
+    }
+    added.push(e);
+  }
+  const left = [];
+  for (const e of all) {
+    const keep = opts.kind === void 0 || e.kind === opts.kind ? e.count - Math.min(e.count, limit) : e.count;
+    if (keep > 0) left.push({ kind: e.kind, count: keep });
+  }
+  const emptied = left.length === 0;
+  if (emptied) {
+    scene.destroy(nodeId);
+    scene.flush();
+  } else {
+    corpse.items = encodeItems(left);
+  }
+  return ok({
+    cell,
+    nodeId,
+    taken: take,
+    takenCount: lootTotal(take),
+    left,
+    leftCount: lootTotal(left),
+    emptied
+  });
+}
+
 // src/extensions/inventory/drop-to-world.ts
 var DROP_NO_SPACE = "DROP.NO_SPACE";
 var DROP_UNKNOWN_KIND = "DROP.UNKNOWN_KIND";
@@ -18723,18 +19097,15 @@ function findFreeCells(plan, tasks, x, z, n, searchCells = 3) {
   const cz = Math.floor(z);
   const base = Math.max(0, Math.floor(searchCells));
   const out = [];
+  const ring = [];
   for (let r = 0; r <= base + 2 && out.length < n; r++) {
-    for (let dz = -r; dz <= r && out.length < n; dz++) {
-      for (let dx = -r; dx <= r && out.length < n; dx++) {
-        if (r > 0 && Math.abs(dx) !== r && Math.abs(dz) !== r) continue;
-        const gx = cx + dx;
-        const gz = cz + dz;
-        if (gx < 0 || gx >= width || gz < 0 || gz >= height) continue;
-        const cell = gz * width + gx;
-        if (!isPassable(plan.kinds[cell])) continue;
-        if (tasks.isOccupied(cell)) continue;
-        out.push(cell);
-      }
+    ring.length = 0;
+    cellsInRing(width, height, cx, cz, r, ring);
+    for (const cell of ring) {
+      if (out.length >= n) break;
+      if (!isPassable(plan.kinds[cell])) continue;
+      if (tasks.isOccupied(cell)) continue;
+      out.push(cell);
     }
   }
   return out.length >= n ? out : null;
@@ -22992,6 +23363,15 @@ function applyUiSamples(samples, index) {
   return { applied, changed, unknownProp, missingNode };
 }
 
+// src/host/attack-target-policy.ts
+function whyNotAttackable(info) {
+  if (info.id === info.selfId) return "self";
+  if (!info.active) return "inactive";
+  if (info.dead) return "dead";
+  if (info.isAlly) return "ally";
+  return null;
+}
+
 // src/host/hitstop-policy.ts
 var HITSTOP_HIT_TICKS = 3;
 var HITSTOP_KILL_TICKS = 12;
@@ -23316,6 +23696,7 @@ var SITE_FRAMES = {
   grass_tuft: "berry",
   reed: "berry"
 };
+var CORPSE_FRAMES = ["carcass", "berry", "rock"];
 var TERRAIN_FRAME = "terrain";
 var TERRAIN_TILE_PAGE = "terrain.tile";
 var BIOME_TINT = {
@@ -23401,6 +23782,28 @@ function attachWorldVisuals(scene, availableFrames) {
       b: 1
     });
   }
+  const availableFramesSet = new Set(availableFrames);
+  const corpseFrame = CORPSE_FRAMES.find((f) => availableFramesSet.has(f)) ?? CORPSE_FRAMES[0];
+  for (const body of scene.componentsOf(CORPSE_TYPE)) {
+    if (body.node === null) continue;
+    plans.push({
+      nodeId: body.node.id,
+      frame: corpseFrame,
+      atlasId: "",
+      kind: "corpse",
+      tileX: 1,
+      tileY: 1,
+      width: 1,
+      height: 1,
+      layer: 1,
+      pivotX: 0.5,
+      // 与资源同一条：脚踩地面（精灵底边贴住它所在那一格）
+      pivotY: 0,
+      r: 1,
+      g: 1,
+      b: 1
+    });
+  }
   const available = new Set(availableFrames);
   const missing = /* @__PURE__ */ new Map();
   for (const p of plans) {
@@ -23430,6 +23833,7 @@ function attachWorldVisuals(scene, availableFrames) {
   let terrain = 0;
   let sites = 0;
   let resources = 0;
+  let corpses = 0;
   let skipped = 0;
   const used = /* @__PURE__ */ new Set();
   for (const p of plans) {
@@ -23459,6 +23863,7 @@ function attachWorldVisuals(scene, availableFrames) {
     used.add(frame);
     if (p.kind.startsWith("terrain:")) terrain++;
     else if (p.kind.startsWith("site:")) sites++;
+    else if (p.kind === "corpse") corpses++;
     else resources++;
   }
   scene.flush();
@@ -23466,6 +23871,7 @@ function attachWorldVisuals(scene, availableFrames) {
     terrain,
     sites,
     resources,
+    corpses,
     frames: [...used].sort(),
     skipped
   });
@@ -24807,78 +25213,6 @@ function createThreatTable(options) {
   return new ThreatTable(options);
 }
 
-// src/extensions/combat/loot.ts
-var LOOT_BAD_TABLE = "LOOT.BAD_TABLE";
-var LOOT_NO_OWNER = "LOOT.NO_OWNER";
-function isPositiveInt2(n) {
-  return typeof n === "number" && Number.isInteger(n) && n > 0;
-}
-function normalizeLoot(table) {
-  if (!Array.isArray(table)) {
-    return err(engineError(LOOT_BAD_TABLE, `\u6218\u5229\u54C1\u8868\u5FC5\u987B\u662F\u6570\u7EC4\uFF0C\u6536\u5230 ${typeof table}`));
-  }
-  const merged = /* @__PURE__ */ new Map();
-  for (let i = 0; i < table.length; i++) {
-    const e = table[i];
-    if (e === void 0 || typeof e !== "object") {
-      return err(engineError(LOOT_BAD_TABLE, `\u7B2C ${String(i)} \u9879\u4E0D\u662F\u5BF9\u8C61`));
-    }
-    if (typeof e.kind !== "string" || e.kind.length === 0) {
-      return err(engineError(LOOT_BAD_TABLE, `\u7B2C ${String(i)} \u9879\u7684 kind \u5FC5\u987B\u662F\u975E\u7A7A\u5B57\u7B26\u4E32\uFF0C\u6536\u5230 ${JSON.stringify(e.kind)}`));
-    }
-    if (!isPositiveInt2(e.count)) {
-      return err(
-        engineError(LOOT_BAD_TABLE, `\u7B2C ${String(i)} \u9879\u300C${e.kind}\u300D\u7684 count \u5FC5\u987B\u662F\u6B63\u6574\u6570\uFF0C\u6536\u5230 ${String(e.count)}`)
-      );
-    }
-    merged.set(e.kind, (merged.get(e.kind) ?? 0) + e.count);
-  }
-  const out = [...merged.entries()].map(([kind, count]) => ({ kind, count }));
-  out.sort((x, y) => x.kind < y.kind ? -1 : x.kind > y.kind ? 1 : 0);
-  return ok(out);
-}
-function lootTotal(table) {
-  let n = 0;
-  for (const e of table) n += e.count;
-  return n;
-}
-function grantLoot(scene, ownerId, table) {
-  const norm2 = normalizeLoot(table);
-  if (!norm2.ok) return norm2;
-  const entries = norm2.value;
-  const owner = scene.find(ownerId);
-  if (owner === void 0 || owner === null) {
-    return err(engineError(LOOT_NO_OWNER, `\u51FB\u6740\u8005 ${String(ownerId)} \u4E0D\u5728\u573A\u666F\u91CC\uFF08\u6218\u5229\u54C1\u6CA1\u6709\u53BB\u5904\uFF09`));
-  }
-  if (owner.get(INVENTORY_TYPE) === void 0) {
-    return err(engineError(LOOT_NO_OWNER, `\u51FB\u6740\u8005 ${String(ownerId)} \u6CA1\u6709\u80CC\u5305\u7EC4\u4EF6 \u2014\u2014 \u5148 makeInventory()`));
-  }
-  const granted = [];
-  const lost = [];
-  let stoppedAt = null;
-  for (let i = 0; i < entries.length; i++) {
-    const e = entries[i];
-    if (stoppedAt !== null) {
-      lost.push({ kind: e.kind, count: e.count, code: "LOOT.SKIPPED" });
-      continue;
-    }
-    const r = addItem(scene, ownerId, e.kind, e.count);
-    if (r.ok) {
-      granted.push({ kind: e.kind, count: e.count });
-      continue;
-    }
-    stoppedAt = e.kind;
-    lost.push({ kind: e.kind, count: e.count, code: r.error.code });
-  }
-  return ok({
-    granted,
-    grantedCount: lootTotal(granted),
-    lost,
-    lostCount: lootTotal(lost),
-    stoppedAt
-  });
-}
-
 // src/extensions/render/dir-frames.ts
 var LETTERS8 = ["e", "se", "s", "sw", "w", "nw", "n", "ne"];
 var LETTERS4 = ["e", "s", "w", "n"];
@@ -25165,6 +25499,8 @@ function spawnMob(scene, template, x, z, opts = {}) {
   const facing = new Facing();
   const dirSprite = new DirSprite();
   dirSprite.prefix = tpl.frame;
+  const loot = new LootHolding();
+  loot.items = encodeItems(tpl.loot);
   const attached = [
     [SPRITE_TYPE, sprite],
     [HEALTH_TYPE, health],
@@ -25174,6 +25510,7 @@ function spawnMob(scene, template, x, z, opts = {}) {
     [DIR_SPRITE_TYPE, dirSprite]
   ];
   if (tpl.damage > 0) attached.push([ATTACKER_TYPE, attacker]);
+  if (tpl.loot.length > 0) attached.push([LOOT_TYPE, loot]);
   for (const [type, c] of attached) {
     const a = scene.attach(nodeId, () => c);
     if (!a.ok) {
@@ -25520,7 +25857,7 @@ function createMobWorldModule(options) {
   let threat = null;
   let moveMod = null;
   let combatMod = null;
-  const lootOf = /* @__PURE__ */ new Map();
+  const corpse = options.corpse;
   const kindOf2 = /* @__PURE__ */ new Map();
   let ids = [];
   let mobs = 0;
@@ -25531,6 +25868,9 @@ function createMobWorldModule(options) {
   let lootLost = 0;
   let lootNoRecipient = 0;
   let lastLootError = "";
+  let corpsesSpawned = 0;
+  let corpsesFailed = 0;
+  let lastCorpseError = "";
   function prune() {
     const s = scene;
     if (s === null || ids.length === 0) {
@@ -25553,6 +25893,9 @@ function createMobWorldModule(options) {
         lootGranted,
         lootLost,
         lootNoRecipient,
+        corpsesSpawned,
+        corpsesFailed,
+        lastCorpseError,
         threatTargets: threat?.stats().targets ?? 0,
         threatEntries: threat?.stats().entries ?? 0,
         lastLootError
@@ -25608,7 +25951,6 @@ function createMobWorldModule(options) {
       }
       for (const m of placed) {
         ids.push(m.nodeId);
-        lootOf.set(m.nodeId, m.template.loot);
         kindOf2.set(m.nodeId, m.template.kind);
       }
       mobs = ids.length;
@@ -25631,13 +25973,40 @@ function createMobWorldModule(options) {
         factions: options.factions,
         id: "world.mobs.combat",
         // ---- ③ 战利品：发给击杀者（见文件头 ②）
-        onKill: (targetId, killerId) => {
+        onKill: (targetId, killerId, tick) => {
           if (threat !== null) {
             threat.forgetOne(targetId, killerId);
             threat.forget(targetId);
           }
-          const loot = lootOf.get(targetId);
-          if (loot === void 0 || loot.length === 0) return;
+          const lootR = lootOfNode(got, targetId);
+          if (!lootR.ok) {
+            lastLootError = lootR.error.code;
+            return;
+          }
+          const loot = lootR.value;
+          if (loot === null) return;
+          if (corpse !== void 0) {
+            const dead = got.find(targetId);
+            if (dead !== void 0) {
+              const placed2 = spawnCorpse(got, loot, {
+                ground: corpse.ground,
+                x: dead.localPosition.x,
+                z: dead.localPosition.y,
+                nowTick: tick,
+                ...corpse.decayTicks === void 0 ? {} : { decayTicks: corpse.decayTicks },
+                ...corpse.searchCells === void 0 ? {} : { searchCells: corpse.searchCells }
+              });
+              if (placed2.ok) {
+                corpsesSpawned++;
+                return;
+              }
+              corpsesFailed++;
+              lastCorpseError = placed2.error.code;
+            } else {
+              corpsesFailed++;
+              lastCorpseError = "MOB_WORLD.NO_DEAD_NODE";
+            }
+          }
           const g = grantLoot(got, killerId, loot);
           if (!g.ok) {
             lootNoRecipient++;
@@ -26932,6 +27301,22 @@ async function main() {
       t.playing = false;
     }
   }
+  let lastVisualKey = -1;
+  let lastVisualError = "";
+  function syncNewVisuals() {
+    const s = appRef?.scene;
+    if (s === void 0) return;
+    const t = worldState.tasks;
+    const c = corpsesHandle;
+    const key = (t === null ? 0 : t.stats().spawned) + (c === null ? 0 : c.stats.corpses + c.stats.decayed);
+    if (key === lastVisualKey) return;
+    lastVisualKey = key;
+    const v = attachWorldVisuals(s, atlasFrames);
+    if (!v.ok && v.error.code !== lastVisualError) {
+      lastVisualError = v.error.code;
+      toast(`\u8865\u6302\u7CBE\u7075\u5931\u8D25\uFF1A${v.error.code} ${v.error.message}`);
+    }
+  }
   const worldMod = createWorldModule(physics, {
     onTick: (t) => hudTick = t,
     onStep: (tick, dt) => {
@@ -26953,6 +27338,8 @@ async function main() {
       dispatchActions();
       worldState.tasks?.update(tick, dt);
       mobsHandle?.update(tick, dt);
+      corpsesHandle?.update(tick, dt);
+      syncNewVisuals();
       if (appRef !== null) syncDirFrames(appRef.scene, hasFrame);
       animMod.update(tick, dt);
       survivalMod.update(tick, dt);
@@ -26991,6 +27378,8 @@ async function main() {
       registerWorldComponents(scene2.components);
       registerResourceComponent(scene2.components);
       registerPlayerComponents(scene2.components);
+      registerCorpseComponent(scene2.components);
+      registerLootComponent(scene2.components);
       registerInventoryComponents(scene2.components);
       registerHealthComponent(scene2.components);
       registerAttackerComponent(scene2.components);
@@ -27062,6 +27451,10 @@ async function main() {
       return s === void 0 ? "\u4E16\u754C\u4EFB\u52A1\uFF1A\u672A\u542F\u52A8" : `\u4E16\u754C\u4EFB\u52A1\uFF1A\u6D3B ${s.alive} / \u7D2F\u8BA1 ${s.spawned}`;
     }
   };
+  const CORPSE_DECAY_TICKS = 900;
+  let playerCorpses = 0;
+  let lastCorpseSkip = "";
+  let lastVictim = null;
   const MOB_TEMPLATES = [
     {
       kind: "rabbit",
@@ -27117,6 +27510,7 @@ async function main() {
     return out;
   }
   let mobsHandle = null;
+  let corpsesHandle = null;
   const feedbackMod = createFeedbackModule({ id: "render.feedback.demo" });
   const hitstopMod = createHitstopModule({
     id: "combat.hitstop.demo",
@@ -27209,7 +27603,10 @@ async function main() {
         aggroCells: 16,
         // 生物打人：与玩家打怪走**同一个** showHit（否则会出现"我打的看得见、
         // 我挨打看不见"，而两边的代码都对）
-        onHit: (info) => showHit(info)
+        onHit: (info) => showHit(info),
+        // 批123：死了原地留一具（战利品在尸体里，得自己走过去翻）。
+        // ★ 时长与玩家击杀共用同一个常量（见 `CORPSE_DECAY_TICKS`）
+        corpse: { ground: g, decayTicks: CORPSE_DECAY_TICKS }
       });
       const r = h.init(ctx);
       if (r !== void 0 && !r.ok) return r;
@@ -27222,6 +27619,24 @@ async function main() {
       if (m === null) return "\u751F\u7269\uFF1A\u672A\u542F\u52A8";
       const st = m.stats;
       return `\u751F\u7269\uFF1A${String(st.mobs)} \u53EA\uFF08\u8FFD ${String(st.hunting)} / \u6E38 ${String(st.wandering)}\uFF09\uFF0C\u51FB\u6740 ${String(st.kills)}`;
+    }
+  };
+  const corpsesMod = {
+    id: "world.corpses",
+    deps: [worldgenMod.id],
+    init(ctx) {
+      const h = createCorpseModule({ id: "world.corpses" });
+      const r = h.init(ctx);
+      if (!r.ok) return r;
+      h.start();
+      corpsesHandle = h;
+      return ok(void 0);
+    },
+    describe() {
+      const c = corpsesHandle;
+      if (c === null) return "\u5C38\u4F53\uFF1A\u672A\u542F\u52A8";
+      const st = c.stats;
+      return `\u5C38\u4F53\uFF1A${String(st.corpses)} \u5177\uFF08\u5DF2\u70C2 ${String(st.decayed)}\uFF09`;
     }
   };
   const survivalMod = createSurvivalModule({
@@ -27256,6 +27671,8 @@ async function main() {
     worldgenMod,
     tasksMod,
     mobsMod,
+    // ★ 排在 `mobsMod` 之后（见 `corpsesMod` 的注释）：刚死的那一具不该被同 tick 清掉
+    corpsesMod,
     survivalMod,
     feedbackMod,
     hitstopMod,
@@ -27443,9 +27860,15 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
     let bestD2 = Number.POSITIVE_INFINITY;
     for (const h of scene.componentsOf(HEALTH_TYPE)) {
       const n = h.node;
-      if (n === null || n.id === heroId || !n.activeInHierarchy) continue;
-      if (isDead(h)) continue;
-      if (MOB_FACTIONS.stanceOf(myTeam, teamOf(scene, n.id).team) === "ally") continue;
+      if (n === null) continue;
+      const why = whyNotAttackable({
+        selfId: heroId,
+        id: n.id,
+        active: n.activeInHierarchy,
+        dead: isDead(h),
+        isAlly: MOB_FACTIONS.stanceOf(myTeam, teamOf(scene, n.id).team) === "ally"
+      });
+      if (why !== null) continue;
       const p = n.worldPosition;
       const dx = p.x - me.x;
       const dz = p.y - me.y;
@@ -27469,6 +27892,50 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
       dead: rep.dead,
       tick: hudTick
     });
+    if (rep.dead) {
+      const dead = scene.find(bestId);
+      lastVictim = {
+        id: bestId,
+        mobKind: worldState.mobs?.templateOf(bestId) ?? null,
+        name: dead?.name ?? ""
+      };
+      if (dead === void 0) {
+        lastCorpseSkip = "NODE_GONE";
+      } else {
+        const nav = worldState.nav;
+        const p = dead.worldPosition;
+        const lootR = lootOfNode(scene, bestId);
+        const table = lootR.ok ? lootR.value : null;
+        if (!lootR.ok) {
+          lastCorpseSkip = `BAD_LOOT:${lootR.error.code}`;
+          toast(`\u5C38\u4F53\u6CA1\u751F\u6210\uFF08\u6218\u5229\u54C1\u8868\u8BFB\u4E0D\u51FA\u6765\uFF1A${lootR.error.code}\uFF09`);
+        } else if (table === null) {
+          lastCorpseSkip = "NO_LOOT_TABLE";
+        } else if (nav === null) {
+          lastCorpseSkip = "NO_NAV";
+          const g = grantLoot(scene, heroId, table);
+          toast(`\u5C38\u4F53\u6CA1\u751F\u6210\uFF08\u6CA1\u6709\u5BFC\u822A\u7F51\u683C\uFF09\uFF0C${g.ok ? "\u6218\u5229\u54C1\u76F4\u63A5\u8FDB\u5305" : "\u800C\u4E14\u8FDB\u5305\u4E5F\u5931\u8D25\u4E86"}`);
+        } else {
+          const placed = spawnCorpse(scene, table, {
+            ground: nav,
+            x: p.x,
+            z: p.y,
+            nowTick: hudTick,
+            decayTicks: CORPSE_DECAY_TICKS
+          });
+          if (placed.ok) {
+            playerCorpses++;
+            lastCorpseSkip = "";
+          } else {
+            lastCorpseSkip = `PLACE_FAILED:${placed.error.code}`;
+            const g = grantLoot(scene, heroId, table);
+            toast(`\u5C38\u4F53\u6CA1\u751F\u6210\uFF08${placed.error.code}\uFF09\uFF0C${g.ok ? "\u6218\u5229\u54C1\u76F4\u63A5\u8FDB\u5305" : "\u800C\u4E14\u8FDB\u5305\u4E5F\u5931\u8D25\u4E86"}`);
+          }
+        }
+        scene.destroy(bestId);
+        scene.flush();
+      }
+    }
     return rep.dead ? `\u51FB\u6740\uFF01` : `\u547D\u4E2D ${String(rep.applied)}\uFF0C\u5269 ${String(rep.after)}`;
   }
   function eatSomething() {
@@ -27566,12 +28033,40 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
     toast(`\u5DF2\u8BFB\u6863\uFF1A${r.value.made} \u4E2A\u8282\u70B9${extra}`);
     return ok(r.value.made);
   }
+  function nearestCorpse(x, z, range) {
+    const plan2 = worldState.plan;
+    if (plan2 === null) return null;
+    let best = -1;
+    let bestD = Number.POSITIVE_INFINITY;
+    for (const c of scene.componentsOf(CORPSE_TYPE)) {
+      if (c.node === null) continue;
+      const gx = c.cell % plan2.width;
+      const gz = (c.cell - gx) / plan2.width;
+      const d = Math.hypot(gx + 0.5 - x, gz + 0.5 - z);
+      if (d > range) continue;
+      if (d < bestD || d === bestD && (best < 0 || c.cell < best)) {
+        best = c.cell;
+        bestD = d;
+      }
+    }
+    return best < 0 ? null : best;
+  }
   function pickupNearest(range = 3.2) {
     const heroNode2 = scene.find(heroId);
     if (heroNode2 === void 0) return err(engineError("HARVEST.NO_PLAYER", "\u73A9\u5BB6\u4E0D\u5728\u573A\u666F\u91CC"));
     const tasks = worldState.tasks;
     if (tasks === null) return err(engineError("HARVEST.NO_TASKS", "\u4E16\u754C\u4EFB\u52A1\u6A21\u5757\u6CA1\u8D77\u6765"));
     const hp = heroNode2.worldPosition;
+    const bodyCell = nearestCorpse(hp.x, hp.y, range);
+    if (bodyCell !== null) {
+      const took = takeFromCorpse(scene, bodyCell, heroId);
+      if (!took.ok) {
+        return err(engineError(took.error.code, `\u7FFB\u5C38\u4F53\u5931\u8D25\uFF1A${took.error.message}`));
+      }
+      const list = took.value.taken.map((e) => `${ITEM_LABEL[e.kind] ?? e.kind}\xD7${e.count}`);
+      const tail2 = took.value.emptied ? "\uFF08\u53D6\u7A7A\u4E86\uFF0C\u5C38\u4F53\u5DF2\u7ECF\u6D88\u5931\uFF09" : `\uFF08\u8FD8\u5269 ${String(took.value.leftCount)} \u4E2A\uFF09`;
+      return ok(`\u7FFB\u5C38\u4F53\uFF1A${list.join(" ")}${tail2}`);
+    }
     const r = pickupNearby(scene, hp.x, hp.y, range, heroId, {
       max: 4,
       // ★ 批122 起不传 `amount`：产量已经是**世界侧**的事（`ResourceMarker.count`，
@@ -27942,8 +28437,18 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
         terrain: scene.countOf(TERRAIN_TYPE),
         sites: scene.countOf(SITE_TYPE),
         resources: scene.countOf(RESOURCE_TYPE),
-        sprites: scene.countOf(SPRITE_TYPE)
-      })
+        sprites: scene.countOf(SPRITE_TYPE),
+        // 批123：尸体会自己烂掉，所以它不能靠"打死一只就验一次"来观察
+        corpses: scene.countOf(CORPSE_TYPE)
+      }),
+      /** 某一格尸体里有什么（自检页用；`null` = 那一格没有尸体）。 */
+      corpseItems: (cell) => corpseAt(scene, cell)?.items.slice() ?? null,
+      /**
+       * 玩家击杀留尸体的诊断（批123）。
+       * ★ `playerCorpses` 与 `lastCorpseSkip` 必须一起读：前者 0 而后者空 = 这条
+       *   分支根本没走到；前者 0 而后者有值 = 走到了但没成（原因就在那个码里）。
+       */
+      corpseDiag: () => ({ playerCorpses, lastCorpseSkip, lastVictim })
     },
     /**
      * 生物群（批66）。自检页要用它证三件**只有浏览器里才可能坏**的事：
@@ -28089,8 +28594,13 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
        *   而世界里的生物血量都是满的，那两条数永远相等 —— 那种语料下
        *   "用 damage 还是 applied"是分不出来的。
        * ★ 它不改玩家状态、不碰背包，所以它证的仍然是"命中这一侧"。
+       * ★★ 批123：第二个参数给"打死它掉什么"。**没有它，尸体的判据就没有语料** ——
+       *   演示世界的兔子会在开播 3~4 秒内被猎狗吃光（3 只猎狗 × 2 伤害 / 0.5 秒
+       *   对 10 只 4 血兔子），而"尸体"这条判据必须有**一只当场能打死的、带战利品表
+       *   的非盟友**。依赖世界的自发活动（"碰巧还剩一只兔子"）是在赌，
+       *   而判据不许赌。
        */
-      dummy: (hp = 2) => {
+      dummy: (hp = 2, loot = []) => {
         if (heroId < 0) return -1;
         const hero = scene.find(heroId);
         if (hero === void 0) return -1;
@@ -28104,6 +28614,14 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
         scene.attach(id, () => h);
         scene.attach(id, () => makeSprite("rabbit", 1, 1));
         scene.flush();
+        if (loot.length > 0) {
+          const l = attachLoot(scene, id, loot);
+          if (!l.ok) {
+            scene.destroy(id);
+            scene.flush();
+            return -1;
+          }
+        }
         return id;
       }
     },

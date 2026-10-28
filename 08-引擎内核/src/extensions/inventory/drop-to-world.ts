@@ -25,6 +25,7 @@
 import type { Scene } from "../../core/scene/scene.ts";
 import { engineError, err, ok, type EngineError, type Result } from "../../foundation/result.ts";
 import { isPassable, isSiteKind, type SiteKind, type WorldPlan } from "../worldgen/worldgen.ts";
+import { cellsInRing } from "../worldgen/cell-ring.ts";
 import { RESOURCE_TYPE, ResourceMarker, type WorldTaskModuleHandle } from "../worldgen/task-module.ts";
 import { countItem, INVENTORY_TYPE, takeItem, type Inventory } from "./inventory.ts";
 
@@ -133,19 +134,17 @@ export function findFreeCells(
   const cz = Math.floor(z);
   const base = Math.max(0, Math.floor(searchCells));
   const out: number[] = [];
+  // ★ 环扫本身在 `cellsInRing`（批123 抽出去的）：尸体找落点要的也是
+  //   **同一种顺序**，两份实现迟早会有一处被改歪 —— 而两边的判据各自都能过。
+  const ring: number[] = [];
   for (let r = 0; r <= base + 2 && out.length < n; r++) {
-    for (let dz = -r; dz <= r && out.length < n; dz++) {
-      for (let dx = -r; dx <= r && out.length < n; dx++) {
-        // 只扫这一圈的"环"：内圈在更小的 r 上已经扫过
-        if (r > 0 && Math.abs(dx) !== r && Math.abs(dz) !== r) continue;
-        const gx = cx + dx;
-        const gz = cz + dz;
-        if (gx < 0 || gx >= width || gz < 0 || gz >= height) continue;
-        const cell = gz * width + gx;
-        if (!isPassable(plan.kinds[cell]!)) continue;
-        if (tasks.isOccupied(cell)) continue;
-        out.push(cell);
-      }
+    ring.length = 0;
+    cellsInRing(width, height, cx, cz, r, ring);
+    for (const cell of ring) {
+      if (out.length >= n) break;
+      if (!isPassable(plan.kinds[cell]!)) continue;
+      if (tasks.isOccupied(cell)) continue;
+      out.push(cell);
     }
   }
   return out.length >= n ? out : null;

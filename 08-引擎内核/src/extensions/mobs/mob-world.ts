@@ -40,7 +40,8 @@ import type { NavGrid } from "../nav/nav-grid.ts";
 import { createCombatModule, type CombatModuleHandle, type HitInfo } from "../combat/combat-module.ts";
 import { createThreatTable, type ThreatTable } from "../combat/threat.ts";
 import type { Factions } from "../combat/faction.ts";
-import { type LootEntry, grantLoot } from "../combat/loot.ts";
+import { grantLoot, lootOfNode } from "../combat/loot.ts";
+import { type CorpseGround, spawnCorpse } from "../combat/corpse.ts";
 import { type MobHandle, spawnMob } from "./spawn-mob.ts";
 import { type MobBrain, createMobBrain } from "./mob-brain.ts";
 
@@ -82,7 +83,29 @@ export interface MobWorldOptions {
   readonly threatDecayTicks?: number;
   /** 记仇的追击半径（格；默认 = `leashCells`，0 = 不限）。 */
   readonly aggroCells?: number;
+  /**
+   * 死亡时在**原地留一具尸体**（批123）。不给 = 老行为（战利品直接进击杀者背包）。
+   *
+   * ★★ 为什么是选项而不是默认行为：改成默认的话，所有"击杀 → 背包多了几块肉"的
+   *   判据会同时变红（`lootGranted` 全变 0），而那些判据验的是另一件事。
+   *   玩法上的差别是真实的（"地上有具尸体"要玩家自己走过去翻），所以它必须由
+   *   宿主**明说**，而不是被一个默认值悄悄接管。
+   * ★ 尸体放不下时（`CORPSE.NO_SPACE`）**退回老路**：战利品进击杀者背包。
+   *   不退回的话，"四周全是水"这种地形会让掉落凭空消失 —— 而画面上只是
+   *   地上没有尸体，玩家不会想到去怀疑地形。
+   */
+  readonly corpse?: MobCorpseOptions;
   readonly id?: string;
+}
+
+/** 尸体模式（见 `MobWorldOptions.corpse`）。 */
+export interface MobCorpseOptions {
+  /** 尸体落在哪片地上（通常就是同一个 `NavGrid`）。 */
+  readonly ground: CorpseGround;
+  /** 腐烂时长（tick；`0`/省略 = 永不腐烂）。 */
+  readonly decayTicks?: number;
+  /** 找落点的搜索半径（格，默认 2）。 */
+  readonly searchCells?: number;
 }
 
 export interface MobWorldStats {
@@ -101,6 +124,12 @@ export interface MobWorldStats {
   readonly lootLost: number;
   /** 击杀者没有背包（猎狗打死兔子）—— **不是错误**。 */
   readonly lootNoRecipient: number;
+  /** 原地留下的尸体数（`corpse` 没开时恒 0）。 */
+  readonly corpsesSpawned: number;
+  /** 尸体没放成、退回"进背包"的次数（`CORPSE.NO_SPACE` / 找不到死亡位置）。 */
+  readonly corpsesFailed: number;
+  /** 上一次尸体失败的原因（正常时为空串）。 */
+  readonly lastCorpseError: string;
   /** 有仇恨的生物数（`threatDecayTicks: 0` 时恒为 0）。 */
   readonly threatTargets: number;
   /** 仇恨表里一共几条（生物 × 攻击者）。 */
@@ -124,6 +153,10 @@ export interface MobWorldHandle extends IModule {
    *   于是"打了就跑"这个核心体验是坏的，而所有 Node 判据都是绿的
    *   （它们打的是"生物打生物"那条路）。
    * ★ 返回 `false` = 没记仇（没开记仇 / 伤害不合法 / 自己打自己）。
+   * ★ 批123 后期：原来这里还有一个 `lootTableOf` —— 已删除。
+   *   战利品表改成挂在实体上的组件（`loot.ts` 的 `LOOT_TYPE`），
+   *   于是"玩家打死的东西掉什么"不再需要问本模块，也就不会因为读档换了一批
+   *   节点而查不到表。
    */
   noteHit(info: { attackerId: number; targetId: number; applied: number; tick: number }): boolean;
 }
@@ -136,8 +169,7 @@ export function createMobWorldModule(options: MobWorldOptions): MobWorldHandle {
   let moveMod: MoveModuleHandle | null = null;
   let combatMod: CombatModuleHandle | null = null;
 
-  /** nodeId → 这个生物的战利品表（击杀时查它）。 */
-  const lootOf = new Map<number, readonly LootEntry[]>();
+  const corpse = options.corpse;
   const kindOf = new Map<number, string>();
   /** 存活名单（每 tick 惰性清理，见文件头 ③）。 */
   let ids: number[] = [];
@@ -150,6 +182,9 @@ export function createMobWorldModule(options: MobWorldOptions): MobWorldHandle {
   let lootLost = 0;
   let lootNoRecipient = 0;
   let lastLootError = "";
+  let corpsesSpawned = 0;
+  let corpsesFailed = 0;
+  let lastCorpseError = "";
 
   /** 见文件头 ③。头部与尾部各调一次：本 tick 开始时与结束时都要准。 */
   function prune(): void {
@@ -175,6 +210,9 @@ export function createMobWorldModule(options: MobWorldOptions): MobWorldHandle {
         lootGranted,
         lootLost,
         lootNoRecipient,
+        corpsesSpawned,
+        corpsesFailed,
+        lastCorpseError,
         threatTargets: threat?.stats().targets ?? 0,
         threatEntries: threat?.stats().entries ?? 0,
         lastLootError,
@@ -235,7 +273,6 @@ export function createMobWorldModule(options: MobWorldOptions): MobWorldHandle {
       }
       for (const m of placed) {
         ids.push(m.nodeId);
-        lootOf.set(m.nodeId, m.template.loot);
         kindOf.set(m.nodeId, m.template.kind);
       }
       mobs = ids.length;
@@ -262,15 +299,49 @@ export function createMobWorldModule(options: MobWorldOptions): MobWorldHandle {
         factions: options.factions,
         id: "world.mobs.combat",
         // ---- ③ 战利品：发给击杀者（见文件头 ②）
-        onKill: (targetId, killerId) => {
+        onKill: (targetId, killerId, tick) => {
           // ★ 被杀的那个作为**目标**整条清掉；同时它作为**攻击者**也不该再被记着
           //   （它已经不在场景里，留着的话 AI 会朝一个不存在的 id 走一辈子）
           if (threat !== null) {
             threat.forgetOne(targetId, killerId);
             threat.forget(targetId);
           }
-          const loot = lootOf.get(targetId);
-          if (loot === undefined || loot.length === 0) return;
+          // ★ 战利品表**从实体身上读**（`game.loot`），不从模块旁表读 ——
+          //   旁表按 id 索引，读档换了场景就查不到了（见 `loot.ts` 的 `LOOT_TYPE`）。
+          const lootR = lootOfNode(got, targetId);
+          if (!lootR.ok) {
+            // 表在、但读不出来：不能当成"没有掉落"，否则东西凭空消失且无日志
+            lastLootError = lootR.error.code;
+            return;
+          }
+          const loot = lootR.value;
+          if (loot === null) return;
+          // ① 尸体模式：先试着留在原地（见 `MobWorldOptions.corpse` 的 ★）
+          if (corpse !== undefined) {
+            const dead = got.find(targetId);
+            if (dead !== undefined) {
+              const placed = spawnCorpse(got, loot, {
+                ground: corpse.ground,
+                x: dead.localPosition.x,
+                z: dead.localPosition.y,
+                nowTick: tick,
+                ...(corpse.decayTicks === undefined ? {} : { decayTicks: corpse.decayTicks }),
+                ...(corpse.searchCells === undefined ? {} : { searchCells: corpse.searchCells }),
+              });
+              if (placed.ok) {
+                corpsesSpawned++;
+                return;
+              }
+              // 放不下 ⇒ 退回老路（战利品不许凭空消失）：记一笔，再往下走
+              corpsesFailed++;
+              lastCorpseError = placed.error.code;
+            } else {
+              // `onKill` 在**销毁之前**调用，读不到位置说明调用方改了顺序
+              corpsesFailed++;
+              lastCorpseError = "MOB_WORLD.NO_DEAD_NODE";
+            }
+          }
+          // ② 老路：直接进击杀者背包
           const g = grantLoot(got, killerId, loot);
           if (!g.ok) {
             lootNoRecipient++;

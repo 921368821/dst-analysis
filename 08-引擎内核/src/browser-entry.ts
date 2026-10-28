@@ -64,6 +64,18 @@ import {
   type Inventory,
 } from "./extensions/inventory/inventory.ts";
 import { pickupNearby } from "./extensions/inventory/pickup.ts";
+// 批123：尸体（死亡原地留下的那一具，自己带 loot 表与腐烂计时）
+import { attachLoot, grantLoot, lootOfNode, registerLootComponent } from "./extensions/combat/loot.ts";
+import {
+  CORPSE_TYPE,
+  corpseAt,
+  createCorpseModule,
+  registerCorpseComponent,
+  spawnCorpse,
+  takeFromCorpse,
+  type Corpse,
+  type CorpseModuleHandle,
+} from "./extensions/combat/corpse.ts";
 import { dropIntoWorld } from "./extensions/inventory/drop-to-world.ts";
 import { buildProceduralAtlas, type AtlasData } from "./extensions/render/atlas.ts";
 import { parseBmFont, type BitmapFont } from "./extensions/ui/font.ts";
@@ -74,6 +86,7 @@ import { advancePlayer, ticksToMs, TweenPlayer } from "./extensions/tween/tween-
 import { applyUiSamples, UI_TWEEN_PROP } from "./extensions/ui/ui-transition.ts";
 import { HUD_VALUE_TINT } from "./host/hud-ui.ts";
 import { hudLine, hudRowRuns, type HudFacts } from "./host/hud-model.ts";
+import { whyNotAttackable } from "./host/attack-target-policy.ts";
 import { demoHitstopPolicy } from "./host/hitstop-policy.ts";
 import { generateWorld, type WorldPlan } from "./extensions/worldgen/worldgen.ts";
 import {
@@ -780,6 +793,42 @@ export async function main(): Promise<void> {
     }
   }
 
+  /**
+   * 给"世界里新出现的东西"补挂精灵（批123）。
+   *
+   * ★★ 为什么需要它：`attachWorldVisuals` 只在**装配那一刻**调过一次，而再生资源与
+   *   尸体是运行期才出现的 —— 它们没有 `render.sprite`，**画面上就是不存在**。
+   *   这不是"画得不好看"，是"砍完的树重生了、玩家看不见也想不到去找"。
+   * ★ 为什么用阀门而不是每帧调：函数本身是幂等的（有精灵就跳过），但每次都要扫
+   *   全部地形/投放点/资源/尸体。按"数量没变就不扫"走，跑起来只有事件那几帧有开销。
+   * ★ 计数必须**单调**：`spawned` 只涨；尸体用 `corpses + decayed`（涨 + 烂掉的总数），
+   *   两个都只涨。用 `corpses` 本身的话，"这 tick 烂了一具、又死了一具"数量不变 ⇒
+   *   新那具的精灵永远补不上，而尸体会腐烂、所以这个错不会累积成"看不见"，
+   *   只会在少数几帧里闪一下没图 —— 正是最难查的那一类。
+   */
+  let lastVisualKey = -1;
+  let lastVisualError = "";
+  function syncNewVisuals(): void {
+    const s = appRef?.scene;
+    if (s === undefined) return;
+    const t = worldState.tasks;
+    const c = corpsesHandle;
+    const key = (t === null ? 0 : t.stats().spawned) + (c === null ? 0 : c.stats.corpses + c.stats.decayed);
+    if (key === lastVisualKey) return;
+    lastVisualKey = key;
+    const v = attachWorldVisuals(s, atlasFrames);
+    // ★ 失败要说出来：补挂失败的症状是"新长出来的资源没有图"，而那一刻
+    //   世界逻辑一切正常 —— 不说的话没人会去查。
+    // ★★ 但**同一个错误只报一次**：这条路径跟着"世界里多了东西"跑，
+    //   每长一具尸体就弹一次错的话，提示条会被反复顶出来（永远收不下去），
+    //   而真正的坏消息埋在那一片重复里。实测症状：自检页里
+    //   「提示条不再走 DOM…2 秒后自己收起」变红 —— 提示条不是坏了，是被刷爆了。
+    if (!v.ok && v.error.code !== lastVisualError) {
+      lastVisualError = v.error.code;
+      toast(`补挂精灵失败：${v.error.code} ${v.error.message}`);
+    }
+  }
+
   const worldMod = createWorldModule(physics, {
     onTick: (t) => (hudTick = t),
     onStep: (tick, dt) => {
@@ -822,6 +871,9 @@ export async function main(): Promise<void> {
       worldState.tasks?.update(tick, dt);
       // 生物：在玩家控制器之后、物理之前（它读的是本 tick 的位置，改的也是位置）
       mobsHandle?.update(tick, dt);
+      // 批123：尸体在生物之后（刚死的那一具在同一 tick 里还没到期，清不掉）
+      corpsesHandle?.update(tick, dt);
+      syncNewVisuals();
       // 批108：朝向 → 帧名。**必须排在生物之后**：它读的是本 tick 已经转过的角度，
       // 排在前面就会稳定慢一 tick（快跑时看得出来：转弯的那一帧还是旧朝向）。
       if (appRef !== null) syncDirFrames(appRef.scene, hasFrame);
@@ -893,6 +945,14 @@ export async function main(): Promise<void> {
       registerWorldComponents(scene.components);
       registerResourceComponent(scene.components);
       registerPlayerComponents(scene.components);
+      // 批123：尸体组件。不注册的话生物死亡时的 `spawnCorpse` 会报
+      // `CORPSE.NO_COMPONENT`，而战利品退回进包 —— 画面上只是"地上没有尸体"，
+      // 看起来像"这次没掉东西"。
+      registerCorpseComponent(scene.components);
+      // ★ 批123：生物身上的战利品表（`game.loot`）。不注册的话 `spawnMob`
+      //   在 attach 时会失败 —— 但那是在生物模块 init 里，报错会被当成"世界没装配好"；
+      //   更糟的是"注册了但忘了 save" ⇒ 读档后生物不掉东西（见 `loot.ts` 的 `LOOT_TYPE`）。
+      registerLootComponent(scene.components);
       // ★ 背包也要注册：`game.item` / `game.inventory` 不注册的话，
       //   存档里这两类组件的字段会在读档时**静默丢失**（"读档后背包空了"）。
       registerInventoryComponents(scene.components);
@@ -1009,6 +1069,36 @@ export async function main(): Promise<void> {
   // ★ 模板只写数字，不写"兔子应该跑多快"这种判断 —— 那是配表，不是引擎。
   // ★ `damage: 0` 的兔子不挂攻击组件（见 spawn-mob.ts）：它只跑不打，
   //   而"凶不凶"由**组件有没有**决定，不额外加一个布尔开关。
+  /**
+   * 尸体留多久（批123）。30Hz 下 900 tick = 30 秒。
+   * ★ 一个常量而不是两处字面量：AI 击杀（`mobsMod` 的 `corpse.decayTicks`）与
+   *   玩家击杀（`attackNearest`）必须是**同一个**时长 —— 两处各写一遍的话，
+   *   调平衡时只改一处，玩家会发现"自己打死的尸体留得比怪打死的长"。
+   */
+  const CORPSE_DECAY_TICKS = 900;
+
+  /**
+   * 玩家击杀留尸体的**诊断账**（批123）。
+   *
+   * ★ 为什么需要它：这条分支有四个前置条件（节点还在 / 有战利品表 / 有导航网格 /
+   *   放得下），任何一个不成立都表现为**同一个现象**——"地上没多一具尸体"。
+   *   没有这一对计数器，那四种原因长得一模一样，只能靠猜。
+   * ★ `lastCorpseSkip` 是"这次为什么没留"的原话（空串 = 留了）。
+   *   它与 `playerCorpses` **一起**读才有意义：只看计数会分不清"没走到这条分支"
+   *   与"走了但每次都失败"。
+   */
+  let playerCorpses = 0;
+  let lastCorpseSkip = "";
+  /**
+   * 玩家这一下打死的**是谁**（`id` / 生物种类 / 节点名）。
+   *
+   * ★ 为什么必须记：`NO_LOOT_TABLE` 只说明"它不是生物"，不说明"它是谁"。
+   *   没有这一项时，"玩家打不到兔子、却打死了旁边的靶子"与"战利品表没建起来"
+   *   报的是同一个码 —— 一个在选择侧，一个在配表侧，修法完全不同。
+   * ★ `mobKind` 为 `null` = 场景里没有这个节点的生物登记（靶子、树、其他有血量的东西）。
+   */
+  let lastVictim: { id: number; mobKind: string | null; name: string } | null = null;
+
   const MOB_TEMPLATES = [
     {
       kind: "rabbit",
@@ -1075,6 +1165,8 @@ export async function main(): Promise<void> {
   }
 
   let mobsHandle: MobWorldHandle | null = null;
+  /** 尸体模块句柄（批123；与 `mobsHandle` 同一个形状：init 里拿到、onStep 里驱动）。 */
+  let corpsesHandle: CorpseModuleHandle | null = null;
 
   // ---------------------------------------------------------------- 表现层（批69）
   //
@@ -1258,6 +1350,9 @@ export async function main(): Promise<void> {
         // 生物打人：与玩家打怪走**同一个** showHit（否则会出现"我打的看得见、
         // 我挨打看不见"，而两边的代码都对）
         onHit: (info) => showHit(info),
+        // 批123：死了原地留一具（战利品在尸体里，得自己走过去翻）。
+        // ★ 时长与玩家击杀共用同一个常量（见 `CORPSE_DECAY_TICKS`）
+        corpse: { ground: g, decayTicks: CORPSE_DECAY_TICKS },
       });
       const r = h.init(ctx) as Result<void, EngineError> | undefined;
       if (r !== undefined && !r.ok) return r;
@@ -1270,6 +1365,33 @@ export async function main(): Promise<void> {
       if (m === null) return "生物：未启动";
       const st = m.stats;
       return `生物：${String(st.mobs)} 只（追 ${String(st.hunting)} / 游 ${String(st.wandering)}），击杀 ${String(st.kills)}`;
+    },
+  };
+
+  /**
+   * 尸体模块（批123）：每 tick 把到点的尸体清掉。
+   *
+   * ★ 与 `mobsMod` 同一个形状（句柄在 init 里拿到、`update` 由宿主在 `onStep` 里调）：
+   *   让模块自己订阅调度器的话，"尸体在生物之前还是之后清"就变成了注册顺序的隐式约定。
+   * ★ 排在生物**之后**：这一 tick 刚死的那一具不会被同一 tick 清掉
+   *   （`decayTicks` 相对死亡 tick 算，顺序反了就会出现"刚死就没了"的边界）。
+   */
+  const corpsesMod: IModule = {
+    id: "world.corpses",
+    deps: [worldgenMod.id],
+    init(ctx: ModuleContext): Result<void, EngineError> {
+      const h = createCorpseModule({ id: "world.corpses" });
+      const r = h.init(ctx);
+      if (!r.ok) return r;
+      h.start();
+      corpsesHandle = h;
+      return ok(undefined);
+    },
+    describe(): string {
+      const c = corpsesHandle;
+      if (c === null) return "尸体：未启动";
+      const st = c.stats;
+      return `尸体：${String(st.corpses)} 具（已烂 ${String(st.decayed)}）`;
     },
   };
 
@@ -1327,6 +1449,8 @@ export async function main(): Promise<void> {
     worldgenMod,
     tasksMod,
     mobsMod,
+    // ★ 排在 `mobsMod` 之后（见 `corpsesMod` 的注释）：刚死的那一具不该被同 tick 清掉
+    corpsesMod,
     survivalMod,
     feedbackMod,
     hitstopMod,
@@ -1614,9 +1738,21 @@ export async function main(): Promise<void> {
     let bestD2 = Number.POSITIVE_INFINITY;
     for (const h of scene.componentsOf<Health>(HEALTH_TYPE)) {
       const n = h.node;
-      if (n === null || n.id === heroId || !n.activeInHierarchy) continue;
-      if (isDead(h)) continue; // 尸体不当候选：见文件头 ★
-      if (MOB_FACTIONS.stanceOf(myTeam, teamOf(scene, n.id).team) === "ally") continue;
+      if (n === null) continue;
+      // ★★ 批123：候选资格抽成**纯函数**（`src/host/attack-target-policy.ts`）。
+      //   原来这里是四行 `continue`（自己 / 未激活 / 死 / 盟友）与在一起 ——
+      //   四个条件任何一个不成立都是同一个现象（"打不到"），诊断只能猜；
+      //   更要紧的是"死节点不当候选"这条**在演示里没了语料**：批123 让玩家击杀
+      //   当场撤节点，场上不再有站着的尸体，浏览器判据再也咬不住它（M314 报假绿）。
+      //   抽出去之后四条理由各有 Node 判据，不再赌世界里恰好有什么。
+      const why = whyNotAttackable({
+        selfId: heroId,
+        id: n.id,
+        active: n.activeInHierarchy,
+        dead: isDead(h),
+        isAlly: MOB_FACTIONS.stanceOf(myTeam, teamOf(scene, n.id).team) === "ally",
+      });
+      if (why !== null) continue;
       const p = n.worldPosition;
       const dx = p.x - me.x;
       const dz = p.y - me.y;
@@ -1645,6 +1781,68 @@ export async function main(): Promise<void> {
       dead: rep.dead,
       tick: hudTick,
     });
+    // ★★ 批123：玩家打死的东西也要**留一具尸体**。
+    //   这条路走的是 `attack()`（按一下打一下），不经过生物模块的 `combat-module`，
+    //   所以那边的 `onKill` 永远不会为玩家触发 —— 不在这里补，演示里就是
+    //   "AI 互相打死的留下尸体、玩家亲手打死的什么也没有"，同一种死两种结果。
+    //   ★ 尸体放不下时退回"直接进包"：掉不许凭空消失（与 `mob-world` 同一条纪律）。
+    if (rep.dead) {
+      const dead = scene.find(bestId);
+      lastVictim = {
+        id: bestId,
+        mobKind: worldState.mobs?.templateOf(bestId) ?? null,
+        name: dead?.name ?? "",
+      };
+      if (dead === undefined) {
+        // 已经不在场景里（同一 tick 被 AI 那条路先撤掉了）：没有位置可落尸体
+        lastCorpseSkip = "NODE_GONE";
+      } else {
+        const nav = worldState.nav;
+        const p = dead.worldPosition;
+        // ★ 战利品表从**实体身上**读（`game.loot`），不问生物模块：
+        //   玩家的攻击不经过 `combat-module`，而模块里的旁表按节点 id 索引 ——
+        //   读档换了场景之后就查不到，于是"打死了却什么都不掉"（见 `loot.ts`）。
+        const lootR = lootOfNode(scene, bestId);
+        const table = lootR.ok ? lootR.value : null;
+        if (!lootR.ok) {
+          lastCorpseSkip = `BAD_LOOT:${lootR.error.code}`;
+          toast(`尸体没生成（战利品表读不出来：${lootR.error.code}）`);
+        } else if (table === null) {
+          // 没有战利品表 ⇒ 它不是生物（是某个恰好有血量的东西）。
+          // ★ 仍然要撤掉节点：不撤就是"一只站着的死兔子"，而 AI 那条路是
+          //   `combat-module` 撤的 —— 这条路没人替它撤。
+          lastCorpseSkip = "NO_LOOT_TABLE";
+        } else if (nav === null) {
+          // 没有导航网格就算不出"哪一格能放"：退回直接进包，且**说出来**
+          lastCorpseSkip = "NO_NAV";
+          const g = grantLoot(scene, heroId, table);
+          toast(`尸体没生成（没有导航网格），${g.ok ? "战利品直接进包" : "而且进包也失败了"}`);
+        } else {
+          const placed = spawnCorpse(scene, table, {
+            ground: nav,
+            x: p.x,
+            z: p.y,
+            nowTick: hudTick,
+            decayTicks: CORPSE_DECAY_TICKS,
+          });
+          if (placed.ok) {
+            playerCorpses++;
+            lastCorpseSkip = "";
+          } else {
+            // 退回老路：战利品直接进包（并且说出来 —— 静默退回等于"偶尔不掉东西"）
+            lastCorpseSkip = `PLACE_FAILED:${placed.error.code}`;
+            const g = grantLoot(scene, heroId, table);
+            toast(`尸体没生成（${placed.error.code}），${g.ok ? "战利品直接进包" : "而且进包也失败了"}`);
+          }
+        }
+        // 死掉的生物节点要撤掉：AI 那条路是 `combat-module` 撤的，这条路没人撤 ——
+        // 不撤就变成"一只站着的死兔子 + 旁边一具尸体"。
+        // ★ 放在**所有**分支之后（不只是放成功那条）：撤节点与留尸体是两件事，
+        //   尸体放不下不代表该死的东西还能站着。
+        scene.destroy(bestId);
+        scene.flush();
+      }
+    }
     return rep.dead ? `击杀！` : `命中 ${String(rep.applied)}，剩 ${String(rep.after)}`;
   }
 
@@ -1779,6 +1977,33 @@ export async function main(): Promise<void> {
   }
 
   /**
+   * 脚下最近的一具尸体（格中心距离，`null` = 范围内没有）。
+   *
+   * ★ 按**格中心**算距离，不按节点坐标：尸体就落在格中心，两者今天等价 ——
+   *   而"按格"是拾取的单位（`takeFromCorpse` 收 cell），两处用同一个口径才不会
+   *   出现"看得见却够不着"（判据在 `corpse.test.ts` 里钉的是格，不是坐标）。
+   */
+  function nearestCorpse(x: number, z: number, range: number): number | null {
+    const plan = worldState.plan;
+    if (plan === null) return null;
+    let best = -1;
+    let bestD = Number.POSITIVE_INFINITY;
+    for (const c of scene.componentsOf<Corpse>(CORPSE_TYPE)) {
+      if (c.node === null) continue;
+      const gx = c.cell % plan.width;
+      const gz = (c.cell - gx) / plan.width;
+      const d = Math.hypot(gx + 0.5 - x, gz + 0.5 - z);
+      if (d > range) continue;
+      // 同距离取小 cell：回放与"点了同一具"都依赖确定性
+      if (d < bestD || (d === bestD && (best < 0 || c.cell < best))) {
+        best = c.cell;
+        bestD = d;
+      }
+    }
+    return best < 0 ? null : best;
+  }
+
+  /**
    * **半径拾取**：把脚下 `range` 内的世界资源按"最近优先"收进背包。
    *
    * ★ 以前这里只摘**一格**、而且**不进背包**（直接调 `harvestAt`）——
@@ -1786,6 +2011,9 @@ export async function main(): Promise<void> {
    *   顺序是"先进包、后摘"（`harvestInto` 保证），背包满了就停，并且**说出来**。
    * ★ 老演示区的树走的是 `Workable` 那条路（砍三下倒，`chopNearest`），两条路并存是
    *   故意的：一条演示"世界自己的资源"，一条演示"宿主自定义的可交互物"。
+   * ★ 批123：**尸体优先于资源**。尸体是玩家自己打出来的，意图明确（"我是来翻这具的"）；
+   *   而资源满地都是、随时能采。反过来（资源优先）的症状是"站在尸体上按 G，
+   *   结果把旁边的树采了"—— 玩家会以为尸体不能翻。
    */
   function pickupNearest(range = 3.2): Result<string, EngineError> {
     const heroNode2 = scene.find(heroId);
@@ -1793,6 +2021,19 @@ export async function main(): Promise<void> {
     const tasks = worldState.tasks;
     if (tasks === null) return err(engineError("HARVEST.NO_TASKS", "世界任务模块没起来"));
     const hp = heroNode2.worldPosition;
+    // ★ 批123：先翻尸体（见上面那段注释）。取空了就一次拿完 —— 尸体只有一次机会，
+    //   玩家不会想为了剩下的两块肉再按一次 G。
+    const bodyCell = nearestCorpse(hp.x, hp.y, range);
+    if (bodyCell !== null) {
+      const took = takeFromCorpse(scene, bodyCell, heroId);
+      if (!took.ok) {
+        // 背包满是最常见的；指名道姓，否则玩家只看到"按 G 没反应"
+        return err(engineError(took.error.code, `翻尸体失败：${took.error.message}`));
+      }
+      const list = took.value.taken.map((e) => `${ITEM_LABEL[e.kind] ?? e.kind}×${e.count}`);
+      const tail = took.value.emptied ? "（取空了，尸体已经消失）" : `（还剩 ${String(took.value.leftCount)} 个）`;
+      return ok(`翻尸体：${list.join(" ")}${tail}`);
+    }
   const r = pickupNearby(scene, hp.x, hp.y, range, heroId, {
     max: 4,
     // ★ 批122 起不传 `amount`：产量已经是**世界侧**的事（`ResourceMarker.count`，
@@ -2312,7 +2553,17 @@ export async function main(): Promise<void> {
         sites: scene.countOf(SITE_TYPE),
         resources: scene.countOf(RESOURCE_TYPE),
         sprites: scene.countOf(SPRITE_TYPE),
+        // 批123：尸体会自己烂掉，所以它不能靠"打死一只就验一次"来观察
+        corpses: scene.countOf(CORPSE_TYPE),
       }),
+      /** 某一格尸体里有什么（自检页用；`null` = 那一格没有尸体）。 */
+      corpseItems: (cell: number) => corpseAt(scene, cell)?.items.slice() ?? null,
+      /**
+       * 玩家击杀留尸体的诊断（批123）。
+       * ★ `playerCorpses` 与 `lastCorpseSkip` 必须一起读：前者 0 而后者空 = 这条
+       *   分支根本没走到；前者 0 而后者有值 = 走到了但没成（原因就在那个码里）。
+       */
+      corpseDiag: () => ({ playerCorpses, lastCorpseSkip, lastVictim }),
     },
     /**
      * 生物群（批66）。自检页要用它证三件**只有浏览器里才可能坏**的事：
@@ -2465,8 +2716,13 @@ export async function main(): Promise<void> {
        *   而世界里的生物血量都是满的，那两条数永远相等 —— 那种语料下
        *   "用 damage 还是 applied"是分不出来的。
        * ★ 它不改玩家状态、不碰背包，所以它证的仍然是"命中这一侧"。
+       * ★★ 批123：第二个参数给"打死它掉什么"。**没有它，尸体的判据就没有语料** ——
+       *   演示世界的兔子会在开播 3~4 秒内被猎狗吃光（3 只猎狗 × 2 伤害 / 0.5 秒
+       *   对 10 只 4 血兔子），而"尸体"这条判据必须有**一只当场能打死的、带战利品表
+       *   的非盟友**。依赖世界的自发活动（"碰巧还剩一只兔子"）是在赌，
+       *   而判据不许赌。
        */
-      dummy: (hp = 2) => {
+      dummy: (hp = 2, loot: readonly { kind: string; count: number }[] = []) => {
         if (heroId < 0) return -1;
         const hero = scene.find(heroId);
         if (hero === undefined) return -1;
@@ -2480,6 +2736,16 @@ export async function main(): Promise<void> {
         scene.attach(id, () => h);
         scene.attach(id, () => makeSprite("rabbit", 1, 1));
         scene.flush();
+        if (loot.length > 0) {
+          // 挂不上就**别把它当靶子交出去**：没有战利品表的靶子打死了不留尸体，
+          // 而那种失败在判据里看起来一模一样（"尸体没生成"）。
+          const l = attachLoot(scene, id, loot);
+          if (!l.ok) {
+            scene.destroy(id);
+            scene.flush();
+            return -1;
+          }
+        }
         return id;
       },
     },

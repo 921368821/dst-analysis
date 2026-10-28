@@ -156,7 +156,13 @@ class Pen {
  * 生成默认图集（256×256）。
  * 帧：tree（64×96，绿冠 + 褐干）、rock（48×40，灰圆）、
  *      player（32×48，黄身体）、berry（24×24，红点）、
- *      ground（64×64，草色，可平铺）。
+ *      carcass（32×24，尸体）、ground（64×64，草色，可平铺）。
+ *
+ * ★ `carcass` 是批123 加的：尸体要"地上看得见一具"，而它**不是**资源
+ *   （不走 `SiteKind`，见 `combat/corpse.ts` 文件头 ①）。所以它只需要一帧图，
+ *   不需要进群系投放表 —— 两者的区别正是"能长出来"和"只能被留下"。
+ * ★ 新帧画在 x=168..200 的空区里：不覆盖任何已有矩形（`Pen` 的坐标是帧内局部的，
+ *   但**像素**是整张图的 —— 矩形重叠会静默把别人的图涂掉）。
  */
 export function buildProceduralAtlas(): AtlasData {
   const W = 256;
@@ -169,6 +175,7 @@ export function buildProceduralAtlas(): AtlasData {
     { name: "rock", x: 64, y: 0, w: 48, h: 40 },
     { name: "player", x: 112, y: 0, w: 32, h: 48 },
     { name: "berry", x: 144, y: 0, w: 24, h: 24 },
+    { name: "carcass", x: 168, y: 0, w: 32, h: 24 },
     { name: "ground", x: 0, y: 96, w: 64, h: 64 },
     { name: "terrain", x: 64, y: 96, w: 64, h: 64 },
   ];
@@ -205,6 +212,16 @@ export function buildProceduralAtlas(): AtlasData {
   pen.disc(9, 9, 4, [186, 42, 46]);
   pen.disc(16, 12, 4, [206, 58, 54]);
   pen.disc(11, 17, 3, [168, 34, 40]);
+
+  // carcass：一摊暗红 + 暗褐色身体 + 两根白骨（一眼能看出"死过东西"）
+  // ★ 必须**看得见**：一条"帧在不在"的判据查的是地图，不是地图上有没有东西 ——
+  //   批 T330 就栽在这里（三帧画到了别人的矩形里，一个字都不显示而全绿）。
+  pen.origin(at("carcass").x, at("carcass").y);
+  pen.disc(16, 17, 11, [116, 40, 44]);
+  pen.disc(16, 14, 8, [96, 74, 60]);
+  pen.disc(13, 11, 4, [126, 102, 84]);
+  pen.rect(2, 9, 7, 2, [228, 224, 210]);
+  pen.rect(23, 9, 7, 2, [228, 224, 210]);
 
   // ground：草色噪点（用确定的伪随机，保证两次生成逐字节相同）
   let seed = 0x1234567;

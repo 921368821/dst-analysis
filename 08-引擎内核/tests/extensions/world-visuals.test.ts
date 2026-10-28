@@ -42,6 +42,8 @@ import {
   registerResourceComponent,
 } from "../../src/extensions/worldgen/task-module.ts";
 import { SPRITE_TYPE, Sprite } from "../../src/extensions/render/sprite.ts";
+import { NavGrid } from "../../src/extensions/nav/nav-grid.ts";
+import { registerCorpseComponent, spawnCorpse } from "../../src/extensions/combat/corpse.ts";
 import { buildProceduralAtlas } from "../../src/extensions/render/atlas.ts";
 import { spriteToRenderItem } from "../../src/extensions/render/render-module.ts";
 import {
@@ -494,4 +496,49 @@ test("★ 空场景 + 组件未注册 ⇒ 仍然报错（配置错误不因为�
   assert.ok(!r.ok, "组件没注册却报成功 —— 等下次刷出资源时才炸，那时已经离现场很远了");
   if (r.ok) return;
   assert.equal(r.error.code, VISUAL_NO_SPRITE_COMPONENT);
+});
+
+test("★★ 尸体也会被挂上精灵（carcass 帧），且重复调用不叠", () => {
+  const reg = new ComponentRegistry();
+  registerWorldComponents(reg);
+  registerResourceComponent(reg);
+  registerCorpseComponent(reg);
+  reg.register(new Sprite().schema, () => new Sprite());
+  const scene = new Scene("corpse-visual", reg);
+  const g = generateWorld({ seed: 7, width: 16, height: 12, maxSitesPerCell: 0 });
+  assert.ok(g.ok, g.ok ? "" : `生成失败：${g.error.code}`);
+  assert.ok(assembleWorld(g.value, scene).ok);
+  const nav = NavGrid.fromPlan(g.value);
+  assert.ok(nav.ok, nav.ok ? "" : `导航网格建不起来：${nav.error.code}`);
+  let cell = -1;
+  for (let i = 0; i < nav.value.total; i++) {
+    if (nav.value.isWalkableIndex(i)) {
+      cell = i;
+      break;
+    }
+  }
+  assert.ok(cell >= 0, "世界里一格可走的地方都没有 —— 判据前提不成立");
+  const c = nav.value.centerOf(cell);
+  const made = spawnCorpse(scene, [{ kind: "meat", count: 2 }], { ground: nav.value, x: c.x, z: c.z, nowTick: 0 });
+  assert.ok(made.ok, made.ok ? "" : `生成尸体失败：${made.error.code}`);
+
+  const frames = atlasFrames();
+  // ★ 前置：帧真的在**真图集**里（不是这里手写一份帧名表）
+  assert.ok(frames.includes("carcass"), `程序化图集里没有 carcass 帧：${frames.join(", ")}`);
+
+  const r1 = attachWorldVisuals(scene, frames);
+  assert.ok(r1.ok, r1.ok ? "" : `挂可视化失败：${r1.error.code}`);
+  // ★ 只验「没报错」是不够的：尸体不在计划里，漏掉它时函数照样成功返回。
+  assert.equal(r1.value.corpses, 1, "尸体没有挂精灵 —— 画面上就是不存在（而它明明在世界里）");
+  const sp = scene.find(made.value.nodeId)?.get<Sprite>(SPRITE_TYPE);
+  assert.ok(sp !== undefined, "尸体节点上没有 render.sprite");
+  assert.equal(sp!.frame, "carcass", "尸体的帧名不对（换图集时这里会先红）");
+
+  // 幂等：再挂一次不叠（尸体是运行期反复出现的，这条路径一定会被走第二遍）
+  const sprites = scene.countOf(SPRITE_TYPE);
+  const r2 = attachWorldVisuals(scene, frames);
+  assert.ok(r2.ok);
+  assert.equal(r2.value.corpses, 0, "第二次调用又给同一具尸体挂了一个精灵");
+  assert.ok(r2.value.skipped >= 1, "跳过的计数没涨 —— 幂等是靠「有精灵就跳过」实现的");
+  assert.equal(scene.countOf(SPRITE_TYPE), sprites, "精灵数变了：同一个尸体被挂了两次");
 });

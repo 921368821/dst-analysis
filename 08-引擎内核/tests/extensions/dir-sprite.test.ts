@@ -38,6 +38,7 @@ import {
 import { registerAttackerComponent } from "../../src/extensions/combat/attack.ts";
 import { registerFactionComponent } from "../../src/extensions/combat/faction.ts";
 import { registerHealthComponent } from "../../src/extensions/combat/health.ts";
+import { registerLootComponent } from "../../src/extensions/combat/loot.ts";
 import { registerMoverComponent } from "../../src/extensions/ai/move.ts";
 import { spawnMob } from "../../src/extensions/mobs/spawn-mob.ts";
 
@@ -357,6 +358,8 @@ function mobRegistry(): ComponentRegistry {
   registerMoverComponent(reg);
   registerFacingComponent(reg);
   registerDirSpriteComponent(reg);
+  // ★ 批123：spawnMob 会把模板的战利品表挂成组件（game.loot）
+  registerLootComponent(reg);
   if (!reg.has(SPRITE_TYPE)) reg.register(new Sprite().schema, () => new Sprite());
   return reg;
 }

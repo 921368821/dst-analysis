@@ -32,6 +32,14 @@ import { registerDirSpriteComponent } from "../../src/extensions/render/dir-spri
 import { Sprite } from "../../src/extensions/render/sprite.ts";
 import { countItem, makeInventory, registerInventoryComponents } from "../../src/extensions/inventory/inventory.ts";
 import { createMobWorldModule } from "../../src/extensions/mobs/mob-world.ts";
+import { CORPSE_TYPE, Corpse, registerCorpseComponent, corpseAt } from "../../src/extensions/combat/corpse.ts";
+import {
+  LOOT_BAD_ITEMS,
+  LOOT_TYPE,
+  LootHolding,
+  lootOfNode,
+  registerLootComponent,
+} from "../../src/extensions/combat/loot.ts";
 
 const RABBIT = {
   kind: "rabbit",
@@ -72,6 +80,10 @@ function mkScene(): Scene {
   registerFacingComponent(reg);
   registerDirSpriteComponent(reg);
   registerInventoryComponents(reg);
+  registerCorpseComponent(reg);
+  // ★ 批123：`spawnMob` 会把模板的战利品表挂成组件（`game.loot`）——
+  //   不注册的话 attach 失败，而失败发生在 `init` 里，报出来像"世界没装配好"。
+  registerLootComponent(reg);
   if (!reg.has("render.sprite")) reg.register(new Sprite().schema, () => new Sprite());
   return new Scene("mobs", reg);
 }
@@ -367,4 +379,174 @@ test("[生物·世界] 记仇可以整体关掉（threatDecayTicks: 0）", () =>
   const r = mod.noteHit({ attackerId: player.value.id, targetId: mod.nodeIds[0]!, applied: 3, tick: 1 });
   assert.equal(r, false, "关掉记仇时 noteHit 要老实返回 false（不能假装记下了）");
   assert.equal(mod.stats.threatEntries, 0);
+});
+
+// ── 批123：死亡留尸体 ────────────────────────────────────────
+
+/**
+ * 打到出第一次击杀为止，返回那一 tick（尸体时刻要用它算）。
+ * ★ 不写死"第几 tick 会打死"：那是配表的副产品，写死之后调一次数值就要改判据。
+ */
+function killOnce(mod: { update(t: number, d: number): void; stats: { kills: number } }): number {
+  for (let t = 0; t < 400; t++) {
+    mod.update(t, 1 / 30);
+    if (mod.stats.kills > 0) return t;
+  }
+  return -1;
+}
+
+test("[生物·尸体] 开着尸体模式 ⇒ 原地留一具（肉在里面），击杀者背包**没多**", () => {
+  const scene = mkScene();
+  const { grid, cells } = realWorld(31415, 4);
+  const mod = createMobWorldModule({
+    grid,
+    factions: mkFactions(),
+    templates: [RABBIT, HOUND],
+    spots: [
+      { template: 1, cell: cells[0]! },
+      { template: 0, cell: cells[1]! },
+    ],
+    range: 16,
+    seed: 5,
+    corpse: { ground: grid, decayTicks: 600 },
+  });
+  initOk(mod, makeCtx(scene));
+  const houndId = mod.nodeIds[0]!;
+  assert.equal(mod.templateOf(houndId), "hound", "前置条件：第一个出生的必须是猎狗");
+  // 猎狗有背包 —— 有背包才谈得上"这一次**没有**进包"
+  assert.equal(makeInventory(scene, houndId).ok, true);
+
+  const killTick = killOnce(mod);
+  assert.ok(killTick >= 0, "400 tick 内没有发生击杀 —— 判据前提不成立");
+  assert.equal(mod.stats.corpsesSpawned, 1, "击杀之后地上没有尸体");
+  // ★ 两套账一起读：只验"有尸体"的话，"尸体 + 同时进包"（双份掉落）照样绿
+  assert.equal(mod.stats.lootGranted, 0, "开了尸体模式却还把战利品发给了击杀者 —— 双份掉落");
+  assert.equal(scene.countOf(CORPSE_TYPE), 1);
+
+  // 尸体里就是那张 loot 表（兔子掉 2 块肉），且腐烂时刻 = 死亡 tick + 600
+  let found: Corpse | null = null;
+  for (const c of scene.componentsOf<Corpse>(CORPSE_TYPE)) found = c;
+  assert.ok(found !== null, "场景里找不到尸体组件");
+  const body = found as unknown as Corpse;
+  assert.deepEqual(body.items, ["meat:2"], `尸体里是 ${JSON.stringify(body.items)}`);
+  assert.equal(body.decayAtTick, killTick + 600, "腐烂时刻不是「死亡那一 tick + 时长」");
+  assert.ok(corpseAt(scene, body.cell) !== null, "按格子找不到那具尸体");
+});
+
+test("[生物·尸体] 尸体放不下 ⇒ 退回进背包（掉不许凭空消失）", () => {
+  const scene = mkScene();
+  const { grid, cells } = realWorld(31415, 4);
+  // ★ 一个 3×3 且**全不可走**的假地面：无论死在哪，外扩两圈也落不进去。
+  //   不用"可走但越界"来造——那取决于生物死在地图的哪个角，判据会随种子漂。
+  const tiny = new NavGrid(3, 3, new Uint8Array(9));
+  const mod = createMobWorldModule({
+    grid,
+    factions: mkFactions(),
+    templates: [RABBIT, HOUND],
+    spots: [
+      { template: 1, cell: cells[0]! },
+      { template: 0, cell: cells[1]! },
+    ],
+    range: 16,
+    seed: 5,
+    corpse: { ground: tiny },
+  });
+  initOk(mod, makeCtx(scene));
+  const houndId = mod.nodeIds[0]!;
+  assert.equal(makeInventory(scene, houndId).ok, true);
+
+  const killTick = killOnce(mod);
+  assert.ok(killTick >= 0);
+  assert.equal(mod.stats.corpsesSpawned, 0, "地面不对却还是生成了尸体");
+  assert.equal(mod.stats.corpsesFailed, 1, "放不下要**记一笔**，不是静默");
+  assert.equal(mod.stats.lastCorpseError, "CORPSE.NO_SPACE");
+  assert.equal(scene.countOf(CORPSE_TYPE), 0);
+  // ★ 关键：退回老路 —— 2 块肉进了击杀者背包。只验 corpsesFailed 的话，
+  //   "放不下就把东西扔掉"这条最坏的实现照样绿。
+  assert.equal(mod.stats.lootGranted, 2, "放不下的时候战利品必须退回背包，不许消失");
+  assert.equal(countItem(scene, houndId, "meat"), 2);
+});
+
+test("[生物·尸体] 不开尸体模式 ⇒ 老行为（进包、没有尸体）", () => {
+  const scene = mkScene();
+  const { grid, cells } = realWorld(31415, 4);
+  const mod = createMobWorldModule({
+    grid,
+    factions: mkFactions(),
+    templates: [RABBIT, HOUND],
+    spots: [
+      { template: 1, cell: cells[0]! },
+      { template: 0, cell: cells[1]! },
+    ],
+    range: 16,
+    seed: 5,
+  });
+  initOk(mod, makeCtx(scene));
+  assert.equal(makeInventory(scene, mod.nodeIds[0]!).ok, true);
+  assert.ok(killOnce(mod) >= 0);
+  // ★ 这一条钉的是"默认不变"：加选项时把默认行为顺手改掉，是本项目最容易犯的错
+  assert.equal(mod.stats.lootGranted, 2);
+  assert.equal(mod.stats.corpsesSpawned, 0);
+  assert.equal(scene.countOf(CORPSE_TYPE), 0);
+});
+
+test("[生物·尸体] 战利品表挂在**实体身上**（不是模块旁表：读档换了场景也查得到）", () => {
+  const scene = mkScene();
+  const { grid, cells } = realWorld(31415, 3);
+  const mod = createMobWorldModule({
+    grid,
+    factions: mkFactions(),
+    templates: [RABBIT, HOUND],
+    spots: [
+      { template: 1, cell: cells[0]! },
+      { template: 0, cell: cells[1]! },
+    ],
+    range: 16,
+    seed: 5,
+  });
+  initOk(mod, makeCtx(scene));
+  const hound = mod.nodeIds[0]!;
+  const rabbit = mod.nodeIds[1]!;
+  // ★ 读**场景里的组件**：`lootOfNode` 不经过生物模块，所以"模块没起来"
+  //   与"这只生物没有战利品"不会混成一个现象。
+  const meet = lootOfNode(scene, rabbit);
+  assert.ok(meet.ok, meet.ok ? "" : meet.error.code);
+  assert.deepEqual(meet.ok ? meet.value : null, [{ kind: "meat", count: 2 }], "兔子的战利品表不对");
+  const hide = lootOfNode(scene, hound);
+  assert.ok(hide.ok, hide.ok ? "" : hide.error.code);
+  assert.deepEqual(hide.ok ? hide.value : null, [{ kind: "hide", count: 1 }]);
+  // ★ 没有组件 ⇒ null（不是空数组）：空数组会让调用方"生成了空尸体"再报一次错，
+  //   而 null 能一句话区分"这东西没有战利品"与"读不出来"（后者是 `!ok`）。
+  assert.equal(lootOfNode(scene, 999999).ok, true);
+  const none = lootOfNode(scene, 999999);
+  assert.equal(none.ok ? none.value : "ERR", null);
+});
+
+test("[生物·尸体] 表读不出来 ⇒ 不发东西、记 lastLootError（不静默当成「没有掉落」）", () => {
+  // ★ 这一条盯的是"静默丢"：把 `!lootR.ok` 当成 `null` 的实现，
+  //   在正常语料上完全绿 —— 只有存档被改坏（或版本升级改了编码）时才暴露，
+  //   而那正是玩家丢东西却没有任何日志的时刻。
+  const scene = mkScene();
+  const { grid, cells } = realWorld(31415, 2);
+  const mod = createMobWorldModule({
+    grid,
+    factions: mkFactions(),
+    templates: [RABBIT, HOUND],
+    spots: [
+      { template: 1, cell: cells[0]! },
+      { template: 0, cell: cells[1]! },
+    ],
+    range: 16,
+    seed: 5,
+  });
+  initOk(mod, makeCtx(scene));
+  const rabbit = mod.nodeIds[1]!;
+  const c = scene.find(rabbit)?.get<LootHolding>(LOOT_TYPE);
+  assert.ok(c instanceof LootHolding, "兔子身上没有 game.loot");
+  if (!(c instanceof LootHolding)) return;
+  c.items = ["meat"]; // 少了「:数量」——decodeItems 拒绝
+  assert.equal(makeInventory(scene, mod.nodeIds[0]!).ok, true);
+  assert.ok(killOnce(mod) >= 0);
+  assert.equal(mod.stats.lootGranted, 0, "表读不出来却还是发了东西？");
+  assert.equal(mod.stats.lastLootError, LOOT_BAD_ITEMS, `lastLootError 是「${mod.stats.lastLootError}」`);
 });

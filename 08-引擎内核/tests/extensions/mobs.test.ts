@@ -21,6 +21,7 @@ import { HEALTH_TYPE, Health, registerHealthComponent } from "../../src/extensio
 import { MOVER_TYPE, registerMoverComponent } from "../../src/extensions/ai/move.ts";
 import { registerFacingComponent } from "../../src/extensions/motion/facing.ts";
 import { registerDirSpriteComponent } from "../../src/extensions/render/dir-sprite.ts";
+import { registerLootComponent } from "../../src/extensions/combat/loot.ts";
 import { SPRITE_TYPE, Sprite } from "../../src/extensions/render/sprite.ts";
 import { MOB_BAD_TEMPLATE, validateTemplate } from "../../src/extensions/mobs/mob-template.ts";
 import { MOB_SPAWN_FAILED, spawnMob, spawnMobs } from "../../src/extensions/mobs/spawn-mob.ts";
@@ -60,6 +61,8 @@ function fullRegistry(): ComponentRegistry {
   registerMoverComponent(reg);
   registerFacingComponent(reg);
   registerDirSpriteComponent(reg);
+  // ★ 批123：spawnMob 现在会把模板的战利品表挂成组件（game.loot）
+  registerLootComponent(reg);
   if (!reg.has(SPRITE_TYPE)) reg.register(new Sprite().schema, () => new Sprite());
   return reg;
 }
