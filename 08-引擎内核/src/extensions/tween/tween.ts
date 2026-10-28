@@ -27,7 +27,7 @@
 
 import type { EngineError, Result } from "../../foundation/result.ts";
 import { engineError, err, ok } from "../../foundation/result.ts";
-import { EASINGS, getEasing } from "./easing.ts";
+import { getEasing, type EasingFn } from "./easing.ts";
 
 export const TWEEN_ERR = {  BAD_DURATION: "TWEEN.BAD_DURATION",
   BAD_DELAY: "TWEEN.BAD_DELAY",
@@ -48,8 +48,19 @@ export interface TweenSpec {
   readonly to: number;
   /** 一段的时长（毫秒）。必须 > 0。 */
   readonly durationMs: number;
-  /** 缓动名（`EASINGS` 的键）。 */
+  /** 缓动名（`EASINGS` 的键，或 `cubic-bezier(a,b,c,d)`）。 */
   readonly easing: string;
+  /**
+   * 构造期解析出来的曲线（冻结、无状态，可被多实体共享）。
+   *
+   * ★ 为什么把函数也放进 spec，而不是采样时按 `easing` 再查一次表：
+   *   ① `cubic-bezier(...)` 不在表里 —— 采样时查表得到 `undefined`，
+   *      空值断言会在第一帧崩（这正是批118 之前 `EASINGS[spec.easing]!` 的形状）；
+   *   ② 每帧解析一次正则/跑一次反解构造，纯属浪费；
+   *   ③ 最要紧的是**一致性**：同一份 spec 在两次采样之间不该有"重新解释"的机会。
+   *   函数本身不可变、不持状态，所以 spec 仍然是可共享的纯数据。
+   */
+  readonly ease: EasingFn;
   /** 首次开始前的等待（毫秒）。>= 0，只在第一次生效（见文件头）。 */
   readonly delayMs: number;
   /** 播放速率倍率。1 = 正常，< 0 = 倒放，0 = 冻结。 */
@@ -138,6 +149,7 @@ export function makeTween(input: TweenSpecInput): Result<TweenSpec, EngineError>
       to: input.to,
       durationMs: input.durationMs,
       easing,
+      ease: e.value,
       delayMs,
       speed,
       loopCount,
@@ -231,8 +243,7 @@ export function sampleTween(spec: TweenSpec, timeMs: number): TweenSample {
   const reversed = spec.speed < 0 !== (spec.yoyo && effectiveLoop % 2 === 1);
   const progress = reversed ? 1 - p : p;
 
-  const ease = EASINGS[spec.easing]!;
-  const value = spec.from + (spec.to - spec.from) * ease(progress);
+  const value = spec.from + (spec.to - spec.from) * spec.ease(progress);
   return { value, progress: p, loop, done: false, waiting: false };
 }
 /** 一段补间从 `from` 走到 `to` 需要的总时长（不含循环、不含 delay）。 */

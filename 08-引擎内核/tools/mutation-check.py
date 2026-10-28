@@ -6414,6 +6414,78 @@ MUTANTS = [
         "file": "src/extensions/tween/tween-player.ts",
         "pairs": [('    // ★ 合成值的记忆也要清：否则"重播"的第一帧会拿新起点和**上一轮的终点**比，\n    //   恰好相等时（循环轨道、或者终值等于起点）不报 `changed`，宿主不重画 ——\n    //   症状是"重置后界面停留在上一轮最后一帧"。\n    this.lastComposed.clear();', "    // （变异：忘了清）")],
         "test": "tests/extensions/tween-player.test.ts"
+    },
+    {
+        "name": "M667 贝塞尔三次项的系数写错（3→2：曲线形状整体塌掉）",
+        "file": "src/extensions/tween/bezier.ts",
+        "pairs": [("  return 3 * mt * mt * t * a + 3 * mt * t * t * b + t * t * t;", "  return 3 * mt * mt * t * a + 2 * mt * t * t * b + t * t * t;")],
+        "test": "tests/extensions/tween-bezier.test.ts"
+    },
+    {
+        "name": "M668 反解去掉二分兜底（x1=0 的曲线牛顿必然失效，f 返回错值）",
+        "file": "src/extensions/tween/bezier.ts",
+        "pairs": [("  for (let i = 0; i < BISECT_STEPS; i++) {", "  for (let i = 0; i < 0; i++) {")],
+        "test": "tests/extensions/tween-bezier.test.ts"
+    },
+    {
+        "name": "M669 不校验 x 越界（非单调 ⇒ 同一进度对应多个时刻）",
+        "file": "src/extensions/tween/bezier.ts",
+        "pairs": [("  if (x1 < 0 || x1 > 1 || x2 < 0 || x2 > 1) {", "  if (false) {")],
+        "test": "tests/extensions/tween-bezier.test.ts"
+    },
+    {
+        "name": "M670 不校验非有限控制点（NaN 一路扩散成控件消失）",
+        "file": "src/extensions/tween/bezier.ts",
+        "pairs": [("    if (!Number.isFinite(v)) {", "    if (false) {")],
+        "test": "tests/extensions/tween-bezier.test.ts"
+    },
+    {
+        "name": "M671 采样不调缓动（把 ease(progress) 换成 progress：自定义曲线形同虚设）",
+        "file": "src/extensions/tween/tween.ts",
+        "pairs": [("  const value = spec.from + (spec.to - spec.from) * spec.ease(progress);", "  const value = spec.from + (spec.to - spec.from) * progress;")],
+        "test": "tests/extensions/tween-bezier.test.ts"
+    },
+    {
+        "name": "M672 spec 里不存解析结果（ease 填成恒等：所有曲线退化成 linear）",
+        "file": "src/extensions/tween/tween.ts",
+        "pairs": [("      ease: e.value,", "      ease: (t: number) => t,")],
+        "test": "tests/extensions/tween-bezier.test.ts"
+    },
+    {
+        "name": "M673 getEasing 不试贝塞尔分支（资产里写自定义曲线一律 UNKNOWN）",
+        "file": "src/extensions/tween/easing.ts",
+        "pairs": [("  if (looksLikeCubicBezier(name)) {", "  if (false) {")],
+        "test": "tests/extensions/tween-bezier.test.ts"
+    },
+    {
+        "name": "M674 语法不允许空白（从设计工具复制来的写法一律拒绝）",
+        "file": "src/extensions/tween/bezier.ts",
+        "pairs": [("\\\\s*,\\\\s*", ",")],
+        "test": "tests/extensions/tween-bezier.test.ts"
+    },
+    {
+        "name": "M675 looksLikeCubicBezier 恒 false（分流永远走不到贝塞尔）",
+        "file": "src/extensions/tween/bezier.ts",
+        "pairs": [("  return /^\\s*cubic-bezier\\s*\\(/.test(text);", "  return false;")],
+        "test": "tests/extensions/tween-bezier.test.ts"
+    },
+    {
+        "name": "M676 解析只读三个参数（第四个变 NaN ⇒ 合法曲线被当成越界）",
+        "file": "src/extensions/tween/bezier.ts",
+        "pairs": [("  for (let i = 1; i <= 4; i++) nums.push(Number(m[i]));", "  for (let i = 1; i <= 3; i++) nums.push(Number(m[i]));")],
+        "test": "tests/extensions/tween-bezier.test.ts"
+    },
+    {
+        "name": "M677 输出夹到 [0,1]（回弹被掐掉：easeOutBack 变成普通 easeOut）",
+        "file": "src/extensions/tween/bezier.ts",
+        "pairs": [("    return sampleCurve(y1, y2, solveT(x1, x2, t));", "    return Math.max(0, Math.min(1, sampleCurve(y1, y2, solveT(x1, x2, t))));")],
+        "test": "tests/extensions/tween-bezier.test.ts"
+    },
+    {
+        "name": "M678 区间外直接返回 t（t=1.5 给 1.5：补间末帧会冲出终点）",
+        "file": "src/extensions/tween/bezier.ts",
+        "pairs": [("    if (t <= 0) return 0;", "    if (t <= 0) return t;")],
+        "test": "tests/extensions/tween-bezier.test.ts"
     }
 ]
 

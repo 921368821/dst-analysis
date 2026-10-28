@@ -9,6 +9,8 @@
  *   而引擎侧的最小可用集是**一组数学上已证明的性质**（见下面的判据口径），
  *   先用命名函数把这些性质固定下来，将来要支持自定义曲线时，
  *   新曲线必须通过同一组性质判据才能进注册表 —— 不会因为"能传函数"就放进坏曲线。
+ *   （批118 到了那一步：`bezier.ts` 的 `cubic-bezier(a,b,c,d)` 走**同一个** `getEasing`
+ *   入口，性质判据是同一条口径 —— 端点精确、单调、区间外夹取。）
  *
  * ★ 值域允许越界 [0,1]：`back`/`elastic` 会先冲过目标再回来，
  *   这是"回弹手感"的来源，夹住它就等于只剩一个二次曲线。
@@ -21,6 +23,7 @@
  */
 
 import { engineError, err, ok, type EngineError, type Result } from "../../foundation/result.ts";
+import { looksLikeCubicBezier, parseCubicBezier } from "./bezier.ts";
 
 /** 缓动函数：输入归一化进度，输出比例（可越界）。 */
 export type EasingFn = (t: number) => number;
@@ -274,14 +277,19 @@ export const EASING_NAMES: readonly string[] = Object.freeze(Object.keys(EASINGS
  */
 export function getEasing(name: string): Result<EasingFn, EngineError> {
   const fn = EASINGS[name];
-  if (fn === undefined) {
-    return err(
-      engineError(
-        EASING_ERR.UNKNOWN,
-        `未知缓动 ${JSON.stringify(name)}；可用：${EASING_NAMES.join(", ")}`,
-        { name },
-      ),
-    );
+  if (fn !== undefined) return ok(fn);
+  // ★ 自定义曲线与命名曲线走**同一个入口**：资产里写 `cubic-bezier(0.25,0.1,0.25,1)`
+  //   与写 `quadInOut` 是同一件事，调用方不必知道有两条路。
+  //   分流条件用「以 cubic-bezier( 开头」而不是「解析失败再试」：
+  //   否则一个拼错的命名曲线会得到两条互相矛盾的错误信息。
+  if (looksLikeCubicBezier(name)) {
+    return parseCubicBezier(name);
   }
-  return ok(fn);
+  return err(
+    engineError(
+      EASING_ERR.UNKNOWN,
+      `未知缓动 ${JSON.stringify(name)}；可用：${EASING_NAMES.join(", ")}，或 cubic-bezier(x1,y1,x2,y2)`,
+      { name },
+    ),
+  );
 }

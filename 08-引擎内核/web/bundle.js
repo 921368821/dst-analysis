@@ -21673,6 +21673,91 @@ function rectOfId(handle, id) {
   return handle.module.layout.get(id);
 }
 
+// src/extensions/tween/bezier.ts
+var BEZIER_ERR = {
+  /** 字符串不是 `cubic-bezier(a,b,c,d)` 的形状。 */
+  BAD_SYNTAX: "TWEEN.BAD_BEZIER_SYNTAX",
+  /** 形状对，但控制点非法（非有限，或 x 越出 [0,1]）。 */
+  BAD_CONTROL: "TWEEN.BAD_BEZIER_CONTROL"
+};
+var NUM = "[-+]?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][-+]?\\d+)?";
+var CUBIC_RE = new RegExp(
+  `^\\s*cubic-bezier\\(\\s*(${NUM})\\s*,\\s*(${NUM})\\s*,\\s*(${NUM})\\s*,\\s*(${NUM})\\s*\\)\\s*$`
+);
+function sampleCurve(a, b, t) {
+  const mt = 1 - t;
+  return 3 * mt * mt * t * a + 3 * mt * t * t * b + t * t * t;
+}
+function sampleDeriv(a, b, t) {
+  const mt = 1 - t;
+  return 3 * mt * mt * a + 6 * mt * t * (b - a) + 3 * t * t * (1 - b);
+}
+var NEWTON_STEPS = 8;
+var BISECT_STEPS = 32;
+var SOLVE_EPS = 1e-9;
+function solveT(x1, x2, x) {
+  let t = x;
+  for (let i = 0; i < NEWTON_STEPS; i++) {
+    const diff = sampleCurve(x1, x2, t) - x;
+    if (Math.abs(diff) < SOLVE_EPS) return t;
+    const d = sampleDeriv(x1, x2, t);
+    if (Math.abs(d) < 1e-6) break;
+    const next = t - diff / d;
+    if (!(next >= 0 && next <= 1)) break;
+    t = next;
+  }
+  let lo = 0;
+  let hi = 1;
+  t = x;
+  for (let i = 0; i < BISECT_STEPS; i++) {
+    const xt = sampleCurve(x1, x2, t);
+    if (Math.abs(xt - x) < SOLVE_EPS) return t;
+    if (xt < x) lo = t;
+    else hi = t;
+    t = (lo + hi) / 2;
+  }
+  return t;
+}
+function cubicBezier(x1, y1, x2, y2) {
+  for (const [name, v] of [["x1", x1], ["y1", y1], ["x2", x2], ["y2", y2]]) {
+    if (!Number.isFinite(v)) {
+      throw new RangeError(`cubic-bezier \u7684 ${name} \u5FC5\u987B\u662F\u6709\u9650\u6570\uFF1A${String(v)}`);
+    }
+  }
+  if (x1 < 0 || x1 > 1 || x2 < 0 || x2 > 1) {
+    throw new RangeError(
+      `cubic-bezier \u7684 x1/x2 \u5FC5\u987B\u5728 [0,1]\uFF1Ax1=${String(x1)} x2=${String(x2)}\uFF08\u8D8A\u754C\u4F1A\u8BA9 x(t) \u975E\u5355\u8C03\uFF0C\u540C\u4E00\u8FDB\u5EA6\u5BF9\u5E94\u591A\u4E2A\u65F6\u523B\uFF09`
+    );
+  }
+  return (t) => {
+    if (t <= 0) return 0;
+    if (t >= 1) return 1;
+    return sampleCurve(y1, y2, solveT(x1, x2, t));
+  };
+}
+function parseCubicBezier(text) {
+  const m = CUBIC_RE.exec(text);
+  if (m === null) {
+    return err(
+      engineError(BEZIER_ERR.BAD_SYNTAX, `\u4E0D\u662F cubic-bezier(a,b,c,d) \u7684\u5F62\u72B6\uFF1A${JSON.stringify(text)}`, {
+        text
+      })
+    );
+  }
+  const nums = [];
+  for (let i = 1; i <= 4; i++) nums.push(Number(m[i]));
+  try {
+    return ok(cubicBezier(nums[0], nums[1], nums[2], nums[3]));
+  } catch (e) {
+    return err(
+      engineError(BEZIER_ERR.BAD_CONTROL, e instanceof Error ? e.message : String(e), { text })
+    );
+  }
+}
+function looksLikeCubicBezier(text) {
+  return /^\s*cubic-bezier\s*\(/.test(text);
+}
+
 // src/extensions/tween/easing.ts
 var EASING_ERR = {
   UNKNOWN: "TWEEN.UNKNOWN_EASING"
@@ -21846,16 +21931,17 @@ var EASINGS = Object.freeze({
 var EASING_NAMES = Object.freeze(Object.keys(EASINGS));
 function getEasing(name) {
   const fn = EASINGS[name];
-  if (fn === void 0) {
-    return err(
-      engineError(
-        EASING_ERR.UNKNOWN,
-        `\u672A\u77E5\u7F13\u52A8 ${JSON.stringify(name)}\uFF1B\u53EF\u7528\uFF1A${EASING_NAMES.join(", ")}`,
-        { name }
-      )
-    );
+  if (fn !== void 0) return ok(fn);
+  if (looksLikeCubicBezier(name)) {
+    return parseCubicBezier(name);
   }
-  return ok(fn);
+  return err(
+    engineError(
+      EASING_ERR.UNKNOWN,
+      `\u672A\u77E5\u7F13\u52A8 ${JSON.stringify(name)}\uFF1B\u53EF\u7528\uFF1A${EASING_NAMES.join(", ")}\uFF0C\u6216 cubic-bezier(x1,y1,x2,y2)`,
+      { name }
+    )
+  );
 }
 
 // src/extensions/tween/tween.ts
@@ -21911,6 +21997,7 @@ function makeTween(input) {
       to: input.to,
       durationMs: input.durationMs,
       easing,
+      ease: e.value,
       delayMs,
       speed,
       loopCount,
@@ -21949,8 +22036,7 @@ function sampleTween(spec, timeMs) {
   const p = atLoopStart ? 1 : local / perLoop;
   const reversed = spec.speed < 0 !== (spec.yoyo && effectiveLoop % 2 === 1);
   const progress = reversed ? 1 - p : p;
-  const ease = EASINGS[spec.easing];
-  const value = spec.from + (spec.to - spec.from) * ease(progress);
+  const value = spec.from + (spec.to - spec.from) * spec.ease(progress);
   return { value, progress: p, loop, done: false, waiting: false };
 }
 

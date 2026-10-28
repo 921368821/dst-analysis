@@ -176,6 +176,7 @@ export type { UiTweenProp, UiTransitionResult } from "./extensions/ui/ui-transit
 //   批73 顿帧是**时间**的消费者，批76 `TweenPlayer` 才是**值**的消费者。
 export { EASINGS, getEasing } from "./extensions/tween/easing.ts";
 export type { EasingFn } from "./extensions/tween/easing.ts";
+export { BEZIER_ERR, cubicBezier, parseCubicBezier, looksLikeCubicBezier } from "./extensions/tween/bezier.ts";
 export { makeTween, sampleTween, tweenDurationMs, tweenIsDone, TWEEN_ERR } from "./extensions/tween/tween.ts";
 export type { TweenSpec, TweenSpecInput, TweenSample } from "./extensions/tween/tween.ts";
 export { TweenPlayer, TweenTrack, advancePlayer, ticksToMs, TWEEN_PLAYER_TYPE, TWEEN_PLAYER_ERR } from "./extensions/tween/tween-player.ts";

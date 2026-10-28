@@ -93,7 +93,7 @@ seek 之后的第一帧会取决于缓存的陈旧值。
 
 ## 缺口（不在本批）
 
-- 属性轨道（多关键帧）与混合：需要先定 `UiNode` / `SpriteAnimator` 上的跨帧状态位
-- `TweenPlayer` 组件与每帧驱动：等第一批消费者（UI 过渡 or hitstop）来定义
-- 自定义曲线（贝塞尔/美术编辑）：要进注册表必须通过同一组性质判据
+- 属性轨道（多关键帧）与混合：需要先定 `UiNode` / `SpriteAnimator` 上的跨帧状态位（✅ 批99 属性轨道、批117 合成；跨帧状态位由批99 [ADR-0012](0012-ui-crossframe-state.md) 定）
+- `TweenPlayer` 组件与每帧驱动：等第一批消费者（UI 过渡 or hitstop）来定义（✅ 批76）
+- 自定义曲线（贝塞尔/美术编辑）：要进注册表必须通过同一组性质判据（✅ 批118：`bezier.ts` 的 `cubic-bezier(a,b,c,d)`，与命名曲线同一组判据）
 - `holdMs`（轮间停顿）：`delayMs` 刻意不做这个，避免一个字段两种语义
