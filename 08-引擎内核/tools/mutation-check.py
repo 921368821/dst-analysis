@@ -6612,6 +6612,149 @@ MUTANTS = [
         "file": "src/extensions/build/bundle-source.ts",
         "pairs": [("    if (!parsed.ok) throw new Error(", "    if (false) throw new Error(")],
         "test": "tests/extensions/fs-bundle.test.ts"
+    },
+    {
+        "name": "M700 acquireCanvas 不检查 createCanvas 的返回值（拿到 null 也当画布用）",
+        "file": "src/host/wx/env.ts",
+        "pairs": [("  if (canvas === null || canvas === undefined || typeof canvas.getContext !== \"function\") {", "  if (false) {")],
+        "test": "tests/host/wx.test.ts"
+    },
+    {
+        "name": "M701 probeWebgl2 把「取不到」当成功（于是宿主以为能上 GPU，画面一片黑）",
+        "file": "src/host/wx/env.ts",
+        "pairs": [("  if (gl === null || gl === undefined) {", "  if (false) {")],
+        "test": "tests/host/wx.test.ts"
+    },
+    {
+        "name": "M702 没有 getSystemInfoSync 时把像素比猜成 2（把「不知道」写成「等于 2」）",
+        "file": "src/host/wx/env.ts",
+        "pairs": [("  const pixelRatio = ratio === undefined || !Number.isFinite(ratio) || ratio <= 0 ? 1 : ratio;", "  const pixelRatio = ratio ?? 2;")],
+        "test": "tests/host/wx.test.ts"
+    },
+    {
+        "name": "M703 视口尺寸为 0 也放过去（之后所有坐标都是 NaN）",
+        "file": "src/host/wx/env.ts",
+        "pairs": [("  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {", "  if (false) {")],
+        "test": "tests/host/wx.test.ts"
+    },
+    {
+        "name": "M704 帧源不看 canvas 上的 rAF，直接只认 wx（两条出口顺序反了）",
+        "file": "src/host/wx/tick.ts",
+        "pairs": [("  const onCanvas = canvas.requestAnimationFrame;", "  const onCanvas: WxCanvasLike[\"requestAnimationFrame\"] = undefined;")],
+        "test": "tests/host/wx.test.ts"
+    },
+    {
+        "name": "M705 两处都没有 rAF 也不报错（造一个假调度顶上，真机上永远不刷新）",
+        "file": "src/host/wx/tick.ts",
+        "pairs": [("  return err(\n"
+            "    engineError(WX_ERR.NO_SCHEDULER, \"canvas 与 wx 上都没有 requestAnimationFrame\"),\n"
+            "  );", "  return ok({ from: \"fallback\", requestAnimationFrame: () => 0 });")],
+        "test": "tests/host/wx.test.ts"
+    },
+    {
+        "name": "M706 dt 读 rAF 回调参数（小游戏不保证传；传了也是 undefined ⇒ NaN）",
+        "file": "src/host/wx/tick.ts",
+        "pairs": [("  private readonly loop = (): void => {\n"
+            "    if (!this._running) return;\n"
+            "    const t = this.now();", "  private readonly loop = (ts?: number): void => {\n"
+            "    if (!this._running) return;\n"
+            "    const t = ts ?? this.now();")],
+        "test": "tests/host/wx.test.ts"
+    },
+    {
+        "name": "M707 stop 不取消已排队的那一帧（stop 之后还会再跑一次）",
+        "file": "src/host/wx/tick.ts",
+        "pairs": [("    if (this.handle !== 0) this.raf.cancelAnimationFrame?.(this.handle);", "    if (false) this.raf.cancelAnimationFrame?.(this.handle);")],
+        "test": "tests/host/wx.test.ts"
+    },
+    {
+        "name": "M708 同级按名字升序失效（行序随文件系统而变 ⇒ 截图对不上）",
+        "file": "src/host/wx/fs.ts",
+        "pairs": [("        return x.name < y.name ? -1 : x.name > y.name ? 1 : 0;", "        return 0;")],
+        "test": "tests/host/wx.test.ts"
+    },
+    {
+        "name": "M709 目录排到文件后面（清单第一行变成一个文件）",
+        "file": "src/host/wx/fs.ts",
+        "pairs": [("        if (x.isDirectory !== y.isDirectory) return x.isDirectory ? -1 : 1;", "        if (x.isDirectory !== y.isDirectory) return x.isDirectory ? 1 : -1;")],
+        "test": "tests/host/wx.test.ts"
+    },
+    {
+        "name": "M710 list 拿名字猜类型（readdirSync 不给类型，猜出来全是文件）",
+        "file": "src/host/wx/fs.ts",
+        "pairs": [("        const st = this.mgr.statSync(joinPath(a.value, name));", "        const st = { size: 0, isDirectory: () => false };")],
+        "test": "tests/host/wx.test.ts"
+    },
+    {
+        "name": "M711 错误分类里删掉权限分支（权限错误被读成 FS.IO，排查方向从一开始就错）",
+        "file": "src/host/wx/fs.ts",
+        "pairs": [("  if (low.includes(\"permission\") || low.includes(\"denied\") || low.includes(\"eacces\")) {", "  if (false) {")],
+        "test": "tests/host/wx.test.ts"
+    },
+    {
+        "name": "M712 写文件前不建父目录（第一次存档失败、第二次能成）",
+        "file": "src/host/wx/fs.ts",
+        "pairs": [("    const parent = parentOf(abs);", "    const parent = \"\";")],
+        "test": "tests/host/wx.test.ts"
+    },
+    {
+        "name": "M713 写二进制不复制（wx 持有那块内存，调用方复用时已写的内容被改掉）",
+        "file": "src/host/wx/fs.ts",
+        "pairs": [("      const copy = new Uint8Array(data.length);", "      const copy = data;")],
+        "test": "tests/host/wx.test.ts"
+    },
+    {
+        "name": "M714 摇杆死区不生效（手指一碰角色就往前挪）",
+        "file": "src/host/wx/input.ts",
+        "pairs": [("    if (dist <= 1 && dist > pad.deadZone) {", "    if (dist <= 1 && dist >= 0) {")],
+        "test": "tests/host/wx.test.ts"
+    },
+    {
+        "name": "M715 摇杆用方框而不是圆（矩形角落也算命中，按下去没反应）",
+        "file": "src/host/wx/input.ts",
+        "pairs": [("    const dist = Math.sqrt(nx * nx + ny * ny);", "    const dist = Math.max(Math.abs(nx), Math.abs(ny));")],
+        "test": "tests/host/wx.test.ts"
+    },
+    {
+        "name": "M716 按钮命中后不 break（两个重叠按钮同时触发两个动作）",
+        "file": "src/host/wx/input.ts",
+        "pairs": [("      keys.push(b.key);\n"
+            "      break;", "      keys.push(b.key);")],
+        "test": "tests/host/wx.test.ts"
+    },
+    {
+        "name": "M717 触摸点不换算像素比（必须点到偏左上才有效）",
+        "file": "src/host/wx/input.ts",
+        "pairs": [("  const sx = space.windowWidth > 0 ? space.canvasWidth / space.windowWidth : 1;", "  const sx = 1;")],
+        "test": "tests/host/wx.test.ts"
+    },
+    {
+        "name": "M718 多指只算最后一根（左手摇杆 + 右手按钮变成二选一）",
+        "file": "src/host/wx/input.ts",
+        "pairs": [("    for (const p of this.points.values()) {", "    for (const p of [...this.points.values()].slice(-1)) {")],
+        "test": "tests/host/wx.test.ts"
+    },
+    {
+        "name": "M719 poll 不清边缘（一次点击被处理到下一次 poll）",
+        "file": "src/host/wx/input.ts",
+        "pairs": [(
+            "    this.pressed.clear();\n    this.released.clear();\n"
+            "    this.pointerPressed = false;\n    this.pointerReleased = false;\n    return snap;",
+            "    this.pointerPressed = false;\n    this.pointerReleased = false;\n    return snap;",
+        )],
+        "test": "tests/host/wx.test.ts"
+    },
+    {
+        "name": "M720 createWxInput 不检查有没有触摸订阅（没有输入源也装作能玩）",
+        "file": "src/host/wx/input.ts",
+        "pairs": [("  if (!WxInputDevice.hasTouch(wx)) {", "  if (false) {")],
+        "test": "tests/host/wx.test.ts"
+    },
+    {
+        "name": "M721 destroy 不设 dead 标记（没给 off* 的实现回调照旧改状态）",
+        "file": "src/host/wx/input.ts",
+        "pairs": [("    this.dead = true;", "    this.dead = false;")],
+        "test": "tests/host/wx.test.ts"
     }
 ]
 
