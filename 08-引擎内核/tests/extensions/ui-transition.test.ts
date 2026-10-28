@@ -19,6 +19,7 @@ import { UiStateStore } from "../../src/extensions/ui/state.ts";
 import { FontRegistry } from "../../src/extensions/ui/font.ts";
 import { applyUiSamples, applyUiTween, isUiTweenProp, UI_TWEEN_PROP } from "../../src/extensions/ui/ui-transition.ts";
 import type { TrackSample } from "../../src/extensions/tween/tween-player.ts";
+import { advancePlayer, TweenPlayer } from "../../src/extensions/tween/tween-player.ts";
 
 const FRAME = { page: 0, u0: 0, v0: 0, u1: 1, v1: 1, width: 32, height: 32 };
 function skinOf(): UiSkin {
@@ -226,4 +227,31 @@ test("★ 完全不透明的节点不该额外产生四边形（淡到 0 就是�
     children: [{ id: "p", widget: UiWidget.Panel, size: { w: 100, h: 50 }, opacity: 0, props: { frame: "panel" } }],
   });
   assert.equal(quadsOf(root).length, 0);
+});
+
+// ── 批117：合成之后的两个消费者必须看到同一个数 ──────────────
+//   推进器算出的是"合成值"，UI 这一层只负责写；`applied === 1` 证明
+//   同一属性**没有**被写两次（写两次时第二次会盖掉第一次的合法值）。
+
+test("★★ 两条轨道写同一属性 ⇒ 写进节点的只有一次，且是合成后的值", () => {
+  const p = new TweenPlayer();
+  assert.ok(
+    p.addTrack({ id: "base", targetId: "panel", prop: UI_TWEEN_PROP.Opacity, spec: { id: "b", from: 0, to: 1, durationMs: 100, easing: "linear" } }).ok,
+  );
+  assert.ok(
+    p.addTrack({
+      id: "dim",
+      targetId: "panel",
+      prop: UI_TWEEN_PROP.Opacity,
+      composite: "multiply",
+      spec: { id: "d", from: 1, to: 0.5, durationMs: 100, easing: "linear" },
+    }).ok,
+  );
+  const node = new UiNode({ id: "panel" });
+  node.opacity = 1;
+  // 走 50ms：base = 0.5，dim = 0.75 ⇒ 合成 0.375
+  const r = applyUiSamples(advancePlayer(p, 50), (id) => (id === "panel" ? node : undefined));
+  assert.equal(r.applied, 1, "一个属性只写一次");
+  assert.equal(r.changed, 1);
+  assert.equal(node.opacity, 0.375, "写进去的是合成值（0.5 × 0.75），不是任一条的采样");
 });

@@ -180,3 +180,6 @@ export { makeTween, sampleTween, tweenDurationMs, tweenIsDone, TWEEN_ERR } from 
 export type { TweenSpec, TweenSpecInput, TweenSample } from "./extensions/tween/tween.ts";
 export { TweenPlayer, TweenTrack, advancePlayer, ticksToMs, TWEEN_PLAYER_TYPE, TWEEN_PLAYER_ERR } from "./extensions/tween/tween-player.ts";
 export type { TweenTrackInput, TrackSample } from "./extensions/tween/tween-player.ts";
+// 批117：同一属性上的多条轨道怎么合成（`replace | add | multiply`，调研见文件头）
+export { COMPOSITE_OP, COMPOSITE_ERR, composeEntries, composeValue, isCompositeOp } from "./extensions/tween/composite.ts";
+export type { CompositeOp, CompositeEntry, ComposedEntry } from "./extensions/tween/composite.ts";

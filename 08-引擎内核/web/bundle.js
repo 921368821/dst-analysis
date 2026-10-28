@@ -21954,6 +21954,70 @@ function sampleTween(spec, timeMs) {
   return { value, progress: p, loop, done: false, waiting: false };
 }
 
+// src/extensions/tween/composite.ts
+var COMPOSITE_ERR = {
+  /** 算子名不认识（拼错 `"multipy"` 会静默变成覆盖，见 `resolveComposite`）。 */
+  BAD_OP: "TWEEN.BAD_COMPOSITE"
+};
+var COMPOSITE_OP = {
+  /** 覆盖（缺省）：后一条直接取代前一条的合成结果。 */
+  Replace: "replace",
+  /** 相加：前一条的合成结果 + 本条的值。适合"偏移"类属性（offsetX/offsetY）。 */
+  Add: "add",
+  /** 相乘：前一条的合成结果 × 本条的值。适合"相对量"（opacity/scale）。 */
+  Multiply: "multiply"
+};
+var KNOWN_OPS = new Set(Object.values(COMPOSITE_OP));
+function isCompositeOp(op) {
+  return KNOWN_OPS.has(op);
+}
+function resolveComposite(op, id) {
+  if (op === void 0) return ok(COMPOSITE_OP.Replace);
+  if (!isCompositeOp(op)) {
+    return err(
+      engineError(COMPOSITE_ERR.BAD_OP, `\u8F68\u9053 ${id} \u7684\u5408\u6210\u7B97\u5B50\u4E0D\u8BA4\u8BC6\uFF1A${op}\uFF08\u53EF\u7528\uFF1Areplace / add / multiply\uFF09`, {
+        id,
+        op
+      })
+    );
+  }
+  return ok(op);
+}
+function composeValue(op, base, value) {
+  if (op === COMPOSITE_OP.Add) return base + value;
+  if (op === COMPOSITE_OP.Multiply) return base * value;
+  return value;
+}
+function composeEntries(entries) {
+  const out = [];
+  const at = /* @__PURE__ */ new Map();
+  for (const e of entries) {
+    let byProp = at.get(e.targetId);
+    if (byProp === void 0) {
+      byProp = /* @__PURE__ */ new Map();
+      at.set(e.targetId, byProp);
+    }
+    const idx = byProp.get(e.prop);
+    if (idx === void 0) {
+      byProp.set(e.prop, out.length);
+      out.push({ id: e.id, targetId: e.targetId, prop: e.prop, value: e.value, done: e.done });
+      continue;
+    }
+    const prev = out[idx];
+    out[idx] = {
+      // ★ id 取**后一条**：`id` 回答的是"这个最终值是谁给的"，
+      //   而覆盖/叠加之后，屏幕上看到的是最后那条参与者的功劳（也是出问题时要找的那条）。
+      id: e.id,
+      targetId: e.targetId,
+      prop: e.prop,
+      value: composeValue(e.op, prev.value, e.value),
+      // ★ 全部完成才算完成：`add` 链里前一条还在动，这个属性的值就还在变。
+      done: prev.done && e.done
+    };
+  }
+  return out;
+}
+
 // src/extensions/tween/keyframes.ts
 var KEYFRAME_ERR = {
   /** 少于 2 个关键帧（一个点构不成"轨道"）。 */
@@ -22056,19 +22120,19 @@ var KeyTrack = class {
   timeMs = 0;
   playing;
   autoplay;
-  /** 上一次采样值（判断"这一步真的变了吗"）。`NaN` = 还没采过。 */
-  lastValue = Number.NaN;
-  constructor(id, targetId, prop, spec, playing, autoplay) {
+  /** 合成算子（作用于同一属性上排在它前面的轨道，见 `composite.ts`）。 */
+  composite;
+  constructor(id, targetId, prop, spec, playing, autoplay, composite = COMPOSITE_OP.Replace) {
     this.id = id;
     this.targetId = targetId;
     this.prop = prop;
     this.spec = spec;
     this.playing = playing;
     this.autoplay = autoplay;
+    this.composite = composite;
   }
   reset() {
     this.timeMs = 0;
-    this.lastValue = Number.NaN;
     this.playing = this.autoplay;
   }
   seek(ms) {
@@ -22100,20 +22164,20 @@ var TweenTrack = class {
   /** 是否推进时间。false 时仍可按当前 `timeMs` 采样（`seek` 之后能立刻看到结果）。 */
   playing;
   autoplay;
-  /** 上一次采样出来的值（判断"这一步真的变了吗"）。`NaN` = 还没采过。 */
-  lastValue = Number.NaN;
-  constructor(id, targetId, prop, spec, playing, autoplay) {
+  /** 合成算子（作用于"同一属性上排在它前面的轨道"的已合成结果，见 `composite.ts`）。 */
+  composite;
+  constructor(id, targetId, prop, spec, playing, autoplay, composite = COMPOSITE_OP.Replace) {
     this.id = id;
     this.targetId = targetId;
     this.prop = prop;
     this.spec = spec;
     this.playing = playing;
     this.autoplay = autoplay;
+    this.composite = composite;
   }
   /** 回到起点，并按 `autoplay` 决定是否继续播。 */
   reset() {
     this.timeMs = 0;
-    this.lastValue = Number.NaN;
     this.playing = this.autoplay;
   }
   /**
@@ -22147,6 +22211,33 @@ var TweenPlayer = class extends Component {
    *   在类型层面就成立，推进器里一个 `for` 循环各管一种。
    */
   keyTracks = [];
+  /**
+   * 上一次**输出**过的合成值（`targetId → prop → value`）。
+   *
+   * ★★ 为什么这个状态在 player 上而不在轨道上：`changed` 判的是"屏幕上的值变了
+   *   没有"，那是**每个属性一个**的事实；挂在轨道上会得到"某条轨道动了"，
+   *   而被 `replace` 盖掉的那条动了并不等于画面动了（见 `TrackSample.changed`）。
+   * ★ 它**不进 schema**（与轨道同一条理由：读档回来时目标节点可能已经不存在），
+   *   由 `reset()` / `clear()` 清空 —— 清空之后第一帧一定报"变了"，
+   *   这正是重播时界面需要重画的信号。
+   */
+  lastComposed = /* @__PURE__ */ new Map();
+  /**
+   * 记录一次输出，回答"相对上次变了吗"（只给 `advancePlayer` 用）。
+   * ★ 放在类里而不是让 `advancePlayer` 直接摸那个 Map：这个状态的更新与
+   *   `reset()` 的清空必须成对，散成两处的话"重播后第一帧不重画"这种 bug
+   *   在两个文件之间来回猜。
+   */
+  commitComposed(targetId, prop, value) {
+    let byProp = this.lastComposed.get(targetId);
+    if (byProp === void 0) {
+      byProp = /* @__PURE__ */ new Map();
+      this.lastComposed.set(targetId, byProp);
+    }
+    const prev = byProp.get(prop);
+    byProp.set(prop, value);
+    return prev === void 0 || prev !== value;
+  }
   schema = {
     type: TWEEN_PLAYER_TYPE,
     fields: {
@@ -22172,13 +22263,16 @@ var TweenPlayer = class extends Component {
     }
     const made = makeTween(input.spec);
     if (!made.ok) return made;
+    const op = resolveComposite(input.composite, input.id);
+    if (!op.ok) return op;
     const track = new TweenTrack(
       input.id,
       input.targetId,
       input.prop,
       made.value,
       input.playing ?? true,
-      input.autoplay ?? true
+      input.autoplay ?? true,
+      op.value
     );
     this.tracks.push(track);
     return ok(track);
@@ -22201,6 +22295,8 @@ var TweenPlayer = class extends Component {
     }
     const made = makeTrack({ id: input.id, keys: input.keys });
     if (!made.ok) return made;
+    const op = resolveComposite(input.composite, input.id);
+    if (!op.ok) return op;
     const spec = made.value;
     const track = new KeyTrack(
       input.id,
@@ -22208,7 +22304,8 @@ var TweenPlayer = class extends Component {
       input.prop,
       spec,
       input.playing ?? true,
-      input.autoplay ?? true
+      input.autoplay ?? true,
+      op.value
     );
     this.keyTracks.push(track);
     return ok(track);
@@ -22233,11 +22330,13 @@ var TweenPlayer = class extends Component {
   clear() {
     this.tracks.length = 0;
     this.keyTracks.length = 0;
+    this.lastComposed.clear();
   }
   /** 所有轨道回到起点。 */
   reset() {
     for (const t of this.tracks) t.reset();
     for (const t of this.keyTracks) t.reset();
+    this.lastComposed.clear();
   }
   /** 是否还有轨道在推进（诊断/性能用：全静止就不必每帧走一遍）。 */
   get moving() {
@@ -22259,7 +22358,7 @@ function advancePlayer(player, dtMs) {
   if (!Number.isFinite(dtMs) || dtMs < 0) {
     throw new TypeError(`advancePlayer \u7684 dtMs \u5FC5\u987B\u662F\u975E\u8D1F\u6709\u9650\u6570\uFF08\u6536\u5230 ${String(dtMs)}\uFF09`);
   }
-  const out = [];
+  const entries = [];
   for (const t of player.tracks) {
     const wasDone = sampleTween(t.spec, t.timeMs).done;
     if (player.playing && t.playing && !wasDone && t.spec.speed !== 0) {
@@ -22267,9 +22366,7 @@ function advancePlayer(player, dtMs) {
       if (t.timeMs < 0) t.timeMs = 0;
     }
     const s = sampleTween(t.spec, t.timeMs);
-    const changed = Number.isNaN(t.lastValue) || s.value !== t.lastValue;
-    t.lastValue = s.value;
-    out.push({ id: t.id, targetId: t.targetId, prop: t.prop, value: s.value, done: s.done, changed });
+    entries.push({ id: t.id, targetId: t.targetId, prop: t.prop, op: t.composite, value: s.value, done: s.done });
   }
   for (const t of player.keyTracks) {
     const wasDone = t.sample().done;
@@ -22278,9 +22375,19 @@ function advancePlayer(player, dtMs) {
       if (t.timeMs < 0) t.timeMs = 0;
     }
     const s = t.sample();
-    const changed = Number.isNaN(t.lastValue) || s.value !== t.lastValue;
-    t.lastValue = s.value;
-    out.push({ id: t.id, targetId: t.targetId, prop: t.prop, value: s.value, done: s.done, changed });
+    entries.push({ id: t.id, targetId: t.targetId, prop: t.prop, op: t.composite, value: s.value, done: s.done });
+  }
+  const composed = composeEntries(entries);
+  const out = [];
+  for (const c of composed) {
+    out.push({
+      id: c.id,
+      targetId: c.targetId,
+      prop: c.prop,
+      value: c.value,
+      done: c.done,
+      changed: player.commitComposed(c.targetId, c.prop, c.value)
+    });
   }
   return out;
 }

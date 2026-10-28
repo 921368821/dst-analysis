@@ -25,15 +25,21 @@
  *   拒绝掉这个配置，代价是"要等 500ms 就先 delay"（`TweenTrack` 已经有 delay 的能力），
  *   收益是"任意时刻都有定义"这条性质结构上成立。
  *
- * ★ 本文件**不**做：循环（`loopCount`/`yoyo`）、速率（`speed`）、多轨混合写同一属性。
- *   前两个在关键帧轨道上语义与分段轨道不同构（"循环一遍关键帧"等于按总时长重播，
- *   而分段轨道的 `yoyo` 是逐段翻向），混在一个字段里必然有一边的人理解错；
- *   混合需要一个"同一属性多轨怎么合成"的解析器（乘/加/覆盖），在没有第二个
- *   消费者之前先定它，只会得到一套猜出来的 API —— 与 ADR-0010 ② 同一条理由。
+ * ★ 本文件**不**做：循环（`loopCount`/`yoyo`）、速率（`speed`）。
+ *   这两个在关键帧轨道上语义与分段轨道不同构（"循环一遍关键帧"等于按总时长重播，
+ *   而分段轨道的 `yoyo` 是逐段翻向），混在一个字段里必然有一边的人理解错 ——
+ *   与 ADR-0010 ② 同一条理由。
+ *
+ * ★ 本文件**也**不做多轨合成（批117 起改由 `composite.ts` 承担）：一条关键帧轨道
+ *   只携带自己的算子（`KeyTrack.composite`），"同一属性上的几条轨道怎么折成一个值"
+ *   是推进器与 `composeEntries` 的事。批76~116 期间这里是"等第二个消费者再定"，
+ *   现在第二个消费者到了（压暗要乘不透明度），语义按业界的 `replace|add|multiply`
+ *   定在 `composite.ts` 的文件头里。
  */
 
 import { engineError, err, ok, type EngineError, type Result } from "../../foundation/result.ts";
 import { EASINGS, type EasingFn } from "./easing.ts";
+import { COMPOSITE_OP, type CompositeOp } from "./composite.ts";
 
 export const KEYFRAME_ERR = {
   /** 少于 2 个关键帧（一个点构不成"轨道"）。 */
@@ -195,21 +201,29 @@ export class KeyTrack {
   timeMs = 0;
   playing: boolean;
   readonly autoplay: boolean;
-  /** 上一次采样值（判断"这一步真的变了吗"）。`NaN` = 还没采过。 */
-  lastValue = Number.NaN;
+  /** 合成算子（作用于同一属性上排在它前面的轨道，见 `composite.ts`）。 */
+  readonly composite: CompositeOp;
 
-  constructor(id: string, targetId: string, prop: string, spec: TrackSpec, playing: boolean, autoplay: boolean) {
+  constructor(
+    id: string,
+    targetId: string,
+    prop: string,
+    spec: TrackSpec,
+    playing: boolean,
+    autoplay: boolean,
+    composite: CompositeOp = COMPOSITE_OP.Replace,
+  ) {
     this.id = id;
     this.targetId = targetId;
     this.prop = prop;
     this.spec = spec;
     this.playing = playing;
     this.autoplay = autoplay;
+    this.composite = composite;
   }
 
   reset(): void {
     this.timeMs = 0;
-    this.lastValue = Number.NaN;
     this.playing = this.autoplay;
   }
 

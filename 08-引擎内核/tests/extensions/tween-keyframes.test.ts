@@ -259,11 +259,13 @@ test("moving：关键帧轨道未播完时 true，播完后 false", () => {
   assert.equal(p.moving, false);
 });
 
-test("两种轨道并存时按「分段在前、关键帧在后」的顺序返回（同一属性后者胜）", () => {
+test("同一属性上两种轨道并存 ⇒ 合成成一条，分段在前、关键帧在后（默认 replace = 覆盖）", () => {
   const p = new TweenPlayer();
   assert.ok(p.addTrack({ id: "seg", targetId: "panel", prop: "scale", spec: { id: "s", from: 0, to: 1, durationMs: 100, easing: "linear" } }).ok);
   assert.ok(p.addKeyTrack({ id: "k", targetId: "panel", prop: "scale", keys: [{ atMs: 0, value: 5 }, { atMs: 100, value: 5 }] }).ok);
   const out = advancePlayer(p, 50);
-  assert.deepEqual(out.map((s) => s.id), ["seg", "k"]);
-  assert.equal(out[1]!.value, 5, "关键帧轨道在后面 ⇒ 覆盖");
+  // ★ 批117 起数组粒度是 (目标, 属性)：同一属性只出**一条**，`id` 是最后写它的那条。
+  assert.deepEqual(out.map((s) => s.id), ["k"], "同一属性合成成一条（阶梯上有两条，屏幕上只有一个值）");
+  assert.equal(out[0]!.value, 5, "默认 replace ⇒ 关键帧轨道盖掉分段轨道（0.5 被丢掉）");
+  assert.equal(p.track("seg")?.composite, "replace", "不写 composite 时缺省是 replace（批76 行为不变）");
 });

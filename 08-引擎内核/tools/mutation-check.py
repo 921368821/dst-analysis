@@ -4727,16 +4727,24 @@ MUTANTS = [
         ],
         "test": "tests/extensions/tween-keyframes.test.ts"
     },
+    # ★ 批117 复核：这条原来的靶子是「关键帧轨道的 changed 恒为 true」——
+    #   `Number.isNaN(t.lastValue) || s.value !== t.lastValue` 已被合并进
+    #   `TweenPlayer.commitComposed`（两种轨道共用一条 changed 路径），
+    #   同一语义现在由 M665 钉在新代码上（一行，两种轨道都会中）。
+    #   编号必须连续（`tools/docs-check.mjs` 会查），所以**重新指认**而不是删：
+    #   换成关键帧轨道那一路的算子携带 —— 它同样只影响关键帧轨道，
+    #   而且批117 之前这条路径一条判据都没有（新判据见 tween-player.test.ts 的
+    #   「关键帧轨道也能带算子」）。
     {
-        "name": "M507 关键帧轨道的 changed 恒为 true（静止的过渡每帧重排 UI）",
+        "name": "M507 关键帧轨道那一路不带算子（配了 multiply 还是按覆盖算）",
         "file": "src/extensions/tween/tween-player.ts",
         "pairs": [
             [
-                "    const s = t.sample();\n    const changed = Number.isNaN(t.lastValue) || s.value !== t.lastValue;",
-                "    const s = t.sample();\n    const changed = true;"
+                "    const s = t.sample();\n    entries.push({ id: t.id, targetId: t.targetId, prop: t.prop, op: t.composite, value: s.value, done: s.done });",
+                "    const s = t.sample();\n    entries.push({ id: t.id, targetId: t.targetId, prop: t.prop, op: COMPOSITE_OP.Replace, value: s.value, done: s.done });"
             ]
         ],
-        "test": "tests/extensions/tween-keyframes.test.ts"
+        "test": "tests/extensions/tween-player.test.ts"
     },
     {
         "name": "M508 面命中不检查另一轴的范围（角区域的命中被当成面 ⇒ 提前停住）",
@@ -6339,6 +6347,73 @@ MUTANTS = [
         "file": "src/extensions/ui/state.ts",
         "pairs": [('    style.direction ?? "-",', '    "-",')],
         "test": "tests/extensions/ui-state.test.ts"
+    },
+    {
+        "name": "M656 multiply 写成加法（各自减半的两条轨道叠成 0，而不是 0.25）",
+        "file": "src/extensions/tween/composite.ts",
+        "pairs": [("  if (op === COMPOSITE_OP.Multiply) return base * value;", "  if (op === COMPOSITE_OP.Multiply) return base + value;")],
+        "test": "tests/extensions/tween-composite.test.ts"
+    },
+    {
+        "name": "M657 合成不看算子，一律覆盖（add/multiply 静默退化成 replace）",
+        "file": "src/extensions/tween/composite.ts",
+        "pairs": [("      value: composeValue(e.op, prev.value, e.value),", "      value: e.value,")],
+        "test": "tests/extensions/tween-composite.test.ts"
+    },
+    {
+        "name": "M658 合成后的 id 保留第一条（值对了，但「这是谁给的」指向前一条）",
+        "file": "src/extensions/tween/composite.ts",
+        "pairs": [('      id: e.id,\n      targetId: e.targetId,', '      id: prev.id,\n      targetId: e.targetId,')],
+        "test": "tests/extensions/tween-composite.test.ts"
+    },
+    {
+        "name": "M659 done 取「任一完成」（上一条还在动就宣布这个属性播完了）",
+        "file": "src/extensions/tween/composite.ts",
+        "pairs": [("      done: prev.done && e.done,", "      done: prev.done || e.done,")],
+        "test": "tests/extensions/tween-composite.test.ts"
+    },
+    {
+        "name": "M660 分组键漏掉 targetId（背包的 opacity 乘到了 HUD 上）",
+        "file": "src/extensions/tween/composite.ts",
+        "pairs": [('    let byProp = at.get(e.targetId);', '    let byProp = at.get("");')],
+        "test": "tests/extensions/tween-composite.test.ts"
+    },
+    {
+        "name": "M661 第一条也合成到 0 上（首条 multiply 变 0：这条属性再也动不了）",
+        "file": "src/extensions/tween/composite.ts",
+        "pairs": [("      out.push({ id: e.id, targetId: e.targetId, prop: e.prop, value: e.value, done: e.done });",
+                   "      out.push({ id: e.id, targetId: e.targetId, prop: e.prop, value: composeValue(e.op, 0, e.value), done: e.done });")],
+        "test": "tests/extensions/tween-composite.test.ts"
+    },
+    {
+        "name": "M662 合成顺序反着走（replace 跑到最后，覆盖语义整体错位）",
+        "file": "src/extensions/tween/composite.ts",
+        "pairs": [("  for (const e of entries) {", "  for (const e of [...entries].reverse()) {")],
+        "test": "tests/extensions/tween-composite.test.ts"
+    },
+    {
+        "name": "M663 算子名不校验（拼成 multipy 的轨道静默变成覆盖）",
+        "file": "src/extensions/tween/composite.ts",
+        "pairs": [("  return KNOWN_OPS.has(op);", "  return true;")],
+        "test": "tests/extensions/tween-composite.test.ts"
+    },
+    {
+        "name": "M664 推进器不调合成（同一属性一帧写两次，第二次盖掉第一次）",
+        "file": "src/extensions/tween/tween-player.ts",
+        "pairs": [("  const composed = composeEntries(entries);", "  const composed = entries;")],
+        "test": "tests/extensions/tween-player.test.ts"
+    },
+    {
+        "name": "M665 changed 恒为真（被盖掉的那条在动 ⇒ 整棵 UI 每帧重排）",
+        "file": "src/extensions/tween/tween-player.ts",
+        "pairs": [("    return prev === undefined || prev !== value;", "    return true;")],
+        "test": "tests/extensions/tween-player.test.ts"
+    },
+    {
+        "name": "M666 reset 不清合成值记忆（重播第一帧不报变化，界面停在上一轮末帧）",
+        "file": "src/extensions/tween/tween-player.ts",
+        "pairs": [('    // ★ 合成值的记忆也要清：否则"重播"的第一帧会拿新起点和**上一轮的终点**比，\n    //   恰好相等时（循环轨道、或者终值等于起点）不报 `changed`，宿主不重画 ——\n    //   症状是"重置后界面停留在上一轮最后一帧"。\n    this.lastComposed.clear();', "    // （变异：忘了清）")],
+        "test": "tests/extensions/tween-player.test.ts"
     }
 ]
 

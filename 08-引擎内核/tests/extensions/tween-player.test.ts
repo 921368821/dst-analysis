@@ -13,6 +13,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { advancePlayer, ticksToMs, TweenPlayer, TWEEN_PLAYER_ERR, TWEEN_PLAYER_TYPE } from "../../src/extensions/tween/tween-player.ts";
 import { TWEEN_ERR } from "../../src/extensions/tween/tween.ts";
+import { COMPOSITE_ERR, type CompositeOp } from "../../src/extensions/tween/composite.ts";
 
 /** 造一个只有一条轨道的 player。`linear` 便于手算断言值。 */
 function playerWith(
@@ -216,4 +217,136 @@ test("★ 反向用例：延迟段内推进不出值（delay 仍只作用于第�
   assert.equal(advancePlayer(p, 20)[0]?.value, 5, "delay 段内停在 from");
   // 累计 60ms ⇒ 越过 delay 40ms ⇒ 单段内走了 20ms ⇒ 5 + 95×0.2 = 24
   assert.equal(advancePlayer(p, 40)[0]?.value, 24, "越过 delay 之后按 20ms 计");
+});
+
+// ── 批117：同一属性多轨合成 ─────────────────────────────────
+//   纯函数层（三个算子/顺序/分组/恒等元）在 `tween-composite.test.ts`；
+//   这里只验**推进器真的把合成接上了**，以及 `changed` 是"输出变了"而不是"某条轨道动了"。
+
+/** 造一个"基础轨道 + 叠加轨道"都写 `panel.opacity` 的 player。 */
+function stacked(
+  baseTo: number,
+  overFrom: number,
+  overTo: number,
+  composite?: "replace" | "add" | "multiply",
+): TweenPlayer {
+  const p = new TweenPlayer();
+  const a = p.addTrack({
+    id: "base",
+    targetId: "panel",
+    prop: "opacity",
+    spec: { id: "b", from: 0, to: baseTo, durationMs: 100, easing: "linear" },
+  });
+  if (!a.ok) throw new Error(`夹具自身失败：${a.error.message}`);
+  const b = p.addTrack({
+    id: "over",
+    targetId: "panel",
+    prop: "opacity",
+    composite,
+    spec: { id: "o", from: overFrom, to: overTo, durationMs: 100, easing: "linear" },
+  });
+  if (!b.ok) throw new Error(`夹具自身失败：${b.error.message}`);
+  return p;
+}
+
+test("★★ add：同一属性两条轨道 ⇒ 一条采样，值 = 前者 + 后者（50 + 10 = 60）", () => {
+  const p = stacked(100, 0, 20, "add");
+  const s = advancePlayer(p, 50);
+  assert.equal(s.length, 1, "两条轨道一个属性 ⇒ 只该写出去一次");
+  assert.equal(s[0]?.value, 60, "基础 50 + 叠加 10");
+  assert.equal(s[0]?.id, "over", "id 是最后写它的那条（这个值是谁给的）");
+});
+
+test("★★ multiply：0.5 × 0.5 = 0.25（相对量的正确合成，加法会得到 1.0）", () => {
+  const p = stacked(1, 1, 0, "multiply");
+  const s = advancePlayer(p, 50);
+  assert.equal(s[0]?.value, 0.25);
+});
+
+test("★★ 求值无状态：同一时刻连推两次 dt=0，值必须一模一样", () => {
+  // add 若被实现成"在上一帧的输出上累加"，就成了积分器：每帧 +10，
+  // 静止的叠加轨道会把不透明度/位移一路推到天上。这条钉住"每帧从头 fold"。
+  const p = stacked(100, 0, 20, "add");
+  const a = advancePlayer(p, 0);
+  const b = advancePlayer(p, 0);
+  assert.equal(a[0]?.value, b[0]?.value, "同一时刻两次求值必须相等");
+  assert.equal(b[0]?.changed, false, "值没变 ⇒ 不标脏");
+});
+
+test("★★ changed 比的是**输出的合成值**：被盖掉的那条还在动，也不该标脏", () => {
+  // 基础轨道一直从 0 走到 1，上面压了一条恒为 0.5 的 replace 轨道：
+  // 屏幕上始终是 0.5。按"某条轨道动了"判会连报 4 帧变化 ⇒ 整棵 UI 每帧重排。
+  const p = new TweenPlayer();
+  assert.ok(
+    p.addTrack({ id: "base", targetId: "panel", prop: "opacity", spec: { id: "b", from: 0, to: 1, durationMs: 100, easing: "linear" } }).ok,
+  );
+  assert.ok(
+    p.addKeyTrack({ id: "top", targetId: "panel", prop: "opacity", keys: [{ atMs: 0, value: 0.5 }, { atMs: 100, value: 0.5 }] }).ok,
+  );
+  assert.equal(advancePlayer(p, 25)[0]?.changed, true, "第一帧从无到有 ⇒ 变了");
+  const next = advancePlayer(p, 50);
+  assert.equal(next[0]?.value, 0.5, "屏幕上还是 0.5（base 的 0.75 被盖掉）");
+  assert.equal(next[0]?.changed, false, "输出没变 ⇒ 不该标脏");
+});
+
+test("★ 跨目标同属性不合成（背包与 HUD 的 opacity 互不相干）", () => {
+  const p = new TweenPlayer();
+  assert.ok(p.addTrack({ id: "bag", targetId: "bag.panel", prop: "opacity", spec: { id: "a", from: 0, to: 100, durationMs: 100, easing: "linear" } }).ok);
+  assert.ok(
+    p.addTrack({ id: "hud", targetId: "hud.root", prop: "opacity", composite: "multiply", spec: { id: "b", from: 0, to: 10, durationMs: 100, easing: "linear" } }).ok,
+  );
+  const s = advancePlayer(p, 50);
+  assert.equal(s.length, 2, "两个目标各自一条");
+  assert.deepEqual(s.map((x) => x.value), [50, 5], "各自的第一条（multiply 对首个贡献者等同自身）");
+});
+
+test("★ 合成算子拼错在 addTrack 就炸（不静默变成覆盖）", () => {
+  const p = new TweenPlayer();
+  const r = p.addTrack({
+    id: "typo",
+    targetId: "panel",
+    prop: "opacity",
+    composite: "multipy" as CompositeOp,
+    spec: { id: "t", from: 0, to: 1, durationMs: 100 },
+  });
+  assert.equal(r.ok, false);
+  if (!r.ok) assert.equal(r.error.code, COMPOSITE_ERR.BAD_OP);
+  assert.equal(p.tracks.length, 0, "失败的轨道不该留在表里");
+
+  const k = p.addKeyTrack({
+    id: "typoKey",
+    targetId: "panel",
+    prop: "scale",
+    composite: "multipy" as CompositeOp,
+    keys: [{ atMs: 0, value: 1 }, { atMs: 100, value: 2 }],
+  });
+  assert.equal(k.ok, false, "关键帧轨道走同一条校验");
+  if (!k.ok) assert.equal(k.error.code, COMPOSITE_ERR.BAD_OP);
+});
+
+test("★ 关键帧轨道也能带算子（multiply 叠在分段轨道上 ⇒ 0.5 × 0.5 = 0.25）", () => {
+  // ★ 两种轨道各有自己的采集循环，算子是在各自的循环里带进条目的 ——
+  //   "关键帧轨道那一路忘了带算子"只有把算子真的配在关键帧轨道上才看得见。
+  const p = new TweenPlayer();
+  assert.ok(
+    p.addTrack({ id: "base", targetId: "panel", prop: "opacity", spec: { id: "b", from: 0, to: 1, durationMs: 100, easing: "linear" } }).ok,
+  );
+  assert.ok(
+    p.addKeyTrack({ id: "dim", targetId: "panel", prop: "opacity", composite: "multiply", keys: [{ atMs: 0, value: 1 }, { atMs: 100, value: 0 }] }).ok,
+  );
+  const s = advancePlayer(p, 50);
+  assert.equal(s.length, 1, "同一属性仍然只有一条");
+  assert.equal(s[0]?.value, 0.25, "分段轨道 0.5 × 关键帧轨道 0.5");
+  assert.equal(s[0]?.id, "dim", "关键帧轨道在合成顺序的后面");
+  assert.equal(p.keyTrack("dim")?.composite, "multiply", "算子真的存到轨道上了");
+});
+
+test("★ reset 之后第一帧必须报 changed（重播时界面要重画）", () => {
+  const p = new TweenPlayer();
+  // 恒为 5 的轨道：值从头到尾不变，只能靠"合成值记忆被清空"来报变化。
+  assert.ok(p.addKeyTrack({ id: "k", targetId: "panel", prop: "scale", keys: [{ atMs: 0, value: 5 }, { atMs: 100, value: 5 }] }).ok);
+  assert.equal(advancePlayer(p, 50)[0]?.changed, true, "第一帧");
+  assert.equal(advancePlayer(p, 0)[0]?.changed, false, "值没变");
+  p.reset();
+  assert.equal(advancePlayer(p, 0)[0]?.changed, true, "reset 清掉记忆 ⇒ 第一帧必报变化");
 });

@@ -23,6 +23,19 @@
  *   所以 `playing` 进 schema（它是"这组过渡要不要继续"的开关，存下来有意义），
  *   轨道本身是运行时状态，`reset()` 负责把它清干净。
  *
+ * ★★ 同一属性被多条轨道写：**合成**，不是"后写者胜"（批117）
+ *   批76 只有一条轨道写一个属性，那时"两种轨道并存"被处理成一条确定的顺序
+ *   （后者胜），并在推进器里写明"这不是混合解析器"。现在第二个写者出现了
+ *   （"受伤压暗"要乘不透明度、"弹一下"要在基础缩放上叠偏移）—— 后写者胜
+ *   不再是"确定的顺序"，而是**静默丢掉一条正确的轨道**：两条轨道各自的采样
+ *   都对，合成结果是错的。
+ *   合成语义、算子、顺序、无状态求值全在 `composite.ts` 的文件头（含业界调研）。
+ *   本文件只负责三件事：
+ *   ① 每条轨道带一个算子（缺省 `replace` ⇒ 与批76 的行为逐字节相同）；
+ *   ② 推进时**先采样、再按 `tracks → keyTracks` 的声明顺序 fold**；
+ *   ③ 输出**每个 (目标, 属性) 一条**，而不是每条轨道一条 —— 一个属性一帧被写
+ *      两次时，第二次写会把第一次的合法值盖掉，等于把合成结果又丢一遍。
+ *
  * ★ 时长按**逻辑步**指定，不按毫秒（`ticksToMs`）：与 `hitstop` 的
  *   `HITSTOP_*_TICKS`、战斗的 `cooldownTicks` 同一条口径。按毫秒写死的话，
  *   同一个"淡入 0.2 秒"在 144Hz 与 30Hz 上帧数差 4 倍，顿帧期间还会被拉长。
@@ -32,6 +45,13 @@ import { Component, FieldType, type ComponentSchema } from "../../core/scene/com
 import { engineError, err, ok, type EngineError, type Result } from "../../foundation/result.ts";
 import { makeTween, sampleTween, type TweenSpec, type TweenSpecInput } from "./tween.ts";
 import { KeyTrack, makeTrack, type Keyframe, type TrackSpec } from "./keyframes.ts";
+import {
+  COMPOSITE_OP,
+  composeEntries,
+  resolveComposite,
+  type CompositeEntry,
+  type CompositeOp,
+} from "./composite.ts";
 
 /** 组件类型常量（模块注册表与场景共用，避免两处手写字符串）。 */
 export const TWEEN_PLAYER_TYPE = "tween.player";
@@ -51,6 +71,8 @@ export interface KeyTrackInput {
   readonly keys: readonly Keyframe[];
   readonly playing?: boolean;
   readonly autoplay?: boolean;
+  /** 与同一 (目标, 属性) 上**前面那条**怎么合成（缺省 `replace`，见 `composite.ts`）。 */
+  readonly composite?: CompositeOp;
 }
 
 /** 一条轨道的构造入参。 */
@@ -67,6 +89,12 @@ export interface TweenTrackInput {
   readonly playing?: boolean;
   /** `reset()` 之后是否接着播（默认 true）。 */
   readonly autoplay?: boolean;
+  /**
+   * 与同一 (目标, 属性) 上**前面那条**怎么合成（缺省 `replace`）。
+   * ★ 语义是"作用于已合成结果"，所以它的意义取决于顺序 ⇒ 顺序也是契约的一部分
+   *   （`tracks` 全在 `keyTracks` 之前，各自按添加顺序）。
+   */
+  readonly composite?: CompositeOp;
 }
 
 /**
@@ -86,22 +114,30 @@ export class TweenTrack {
   /** 是否推进时间。false 时仍可按当前 `timeMs` 采样（`seek` 之后能立刻看到结果）。 */
   playing: boolean;
   readonly autoplay: boolean;
-  /** 上一次采样出来的值（判断"这一步真的变了吗"）。`NaN` = 还没采过。 */
-  lastValue = Number.NaN;
+  /** 合成算子（作用于"同一属性上排在它前面的轨道"的已合成结果，见 `composite.ts`）。 */
+  readonly composite: CompositeOp;
 
-  constructor(id: string, targetId: string, prop: string, spec: TweenSpec, playing: boolean, autoplay: boolean) {
+  constructor(
+    id: string,
+    targetId: string,
+    prop: string,
+    spec: TweenSpec,
+    playing: boolean,
+    autoplay: boolean,
+    composite: CompositeOp = COMPOSITE_OP.Replace,
+  ) {
     this.id = id;
     this.targetId = targetId;
     this.prop = prop;
     this.spec = spec;
     this.playing = playing;
     this.autoplay = autoplay;
+    this.composite = composite;
   }
 
   /** 回到起点，并按 `autoplay` 决定是否继续播。 */
   reset(): void {
     this.timeMs = 0;
-    this.lastValue = Number.NaN;
     this.playing = this.autoplay;
   }
 
@@ -118,17 +154,28 @@ export class TweenTrack {
   }
 }
 
-/** 一步推进的产物：某个目标上的某个属性现在应该是多少。 */
+/**
+ * 一步推进的产物：某个目标上的某个属性现在应该是多少。
+ *
+ * ★★ 数组的粒度是 **(目标, 属性)**，不是轨道（批117）：同一属性上的多条轨道
+ *   在推进器里已经合成成一条，`value` 是**合成结果**。于是消费者不需要知道
+ *   算子、顺序、有几条轨道 —— "写进节点的那个数"只有一处来源。
+ */
 export interface TrackSample {
+  /** 给出这个最终值的轨道（同一属性有多条时是**最后**写它的那条）。 */
   readonly id: string;
   readonly targetId: string;
   readonly prop: string;
+  /** 合成后的值（合成语义见 `composite.ts`）。 */
   readonly value: number;
-  /** 这条轨道（有限循环）已经播完。 */
+  /** 参与合成的所有轨道（有限循环）都已经播完。 */
   readonly done: boolean;
   /**
-   * 与上一次采样相比**值真的变了**。
+   * 与上一次**输出的合成值**相比，值真的变了。
    * ★ 调用方据此决定要不要标脏：静止的过渡不该每帧重排一遍 UI。
+   * ★ 比的是"输出了什么"而不是"哪条轨道动了"：一条被 `replace` 盖掉的轨道
+   *   还在走，屏幕上的值并没有变 —— 按轨道判会让界面在无事发生的几百毫秒里
+   *   一直重排（症状：界面莫名很卡，但看不出在动什么）。
    */
   readonly changed: boolean;
 }
@@ -154,6 +201,37 @@ export class TweenPlayer extends Component {
    *   在类型层面就成立，推进器里一个 `for` 循环各管一种。
    */
   readonly keyTracks: KeyTrack[] = [];
+
+  /**
+   * 上一次**输出**过的合成值（`targetId → prop → value`）。
+   *
+   * ★★ 为什么这个状态在 player 上而不在轨道上：`changed` 判的是"屏幕上的值变了
+   *   没有"，那是**每个属性一个**的事实；挂在轨道上会得到"某条轨道动了"，
+   *   而被 `replace` 盖掉的那条动了并不等于画面动了（见 `TrackSample.changed`）。
+   * ★ 它**不进 schema**（与轨道同一条理由：读档回来时目标节点可能已经不存在），
+   *   由 `reset()` / `clear()` 清空 —— 清空之后第一帧一定报"变了"，
+   *   这正是重播时界面需要重画的信号。
+   */
+  private readonly lastComposed = new Map<string, Map<string, number>>();
+
+  /**
+   * 记录一次输出，回答"相对上次变了吗"（只给 `advancePlayer` 用）。
+   * ★ 放在类里而不是让 `advancePlayer` 直接摸那个 Map：这个状态的更新与
+   *   `reset()` 的清空必须成对，散成两处的话"重播后第一帧不重画"这种 bug
+   *   在两个文件之间来回猜。
+   */
+  commitComposed(targetId: string, prop: string, value: number): boolean {
+    let byProp = this.lastComposed.get(targetId);
+    if (byProp === undefined) {
+      byProp = new Map<string, number>();
+      this.lastComposed.set(targetId, byProp);
+    }
+    const prev = byProp.get(prop);
+    byProp.set(prop, value);
+    // ★ 用 `!==` 而不是 `Math.abs(diff) > eps`：值来自同一条纯函数的确定性计算，
+    //   同一个时刻必然算出同一个双精度数 —— 阈值只会把"真的变了一点点"吞掉。
+    return prev === undefined || prev !== value;
+  }
 
   readonly schema: ComponentSchema = {
     type: TWEEN_PLAYER_TYPE,
@@ -181,6 +259,8 @@ export class TweenPlayer extends Component {
     }
     const made = makeTween(input.spec);
     if (!made.ok) return made as Result<never, EngineError>;
+    const op = resolveComposite(input.composite, input.id);
+    if (!op.ok) return op as Result<never, EngineError>;
     const track = new TweenTrack(
       input.id,
       input.targetId,
@@ -188,6 +268,7 @@ export class TweenPlayer extends Component {
       made.value,
       input.playing ?? true,
       input.autoplay ?? true,
+      op.value,
     );
     this.tracks.push(track);
     return ok(track);
@@ -212,6 +293,8 @@ export class TweenPlayer extends Component {
     }
     const made = makeTrack({ id: input.id, keys: input.keys });
     if (!made.ok) return made as Result<never, EngineError>;
+    const op = resolveComposite(input.composite, input.id);
+    if (!op.ok) return op as Result<never, EngineError>;
     const spec: TrackSpec = made.value;
     const track = new KeyTrack(
       input.id,
@@ -220,6 +303,7 @@ export class TweenPlayer extends Component {
       spec,
       input.playing ?? true,
       input.autoplay ?? true,
+      op.value,
     );
     this.keyTracks.push(track);
     return ok(track);
@@ -248,12 +332,17 @@ export class TweenPlayer extends Component {
   clear(): void {
     this.tracks.length = 0;
     this.keyTracks.length = 0;
+    this.lastComposed.clear();
   }
 
   /** 所有轨道回到起点。 */
   reset(): void {
     for (const t of this.tracks) t.reset();
     for (const t of this.keyTracks) t.reset();
+    // ★ 合成值的记忆也要清：否则"重播"的第一帧会拿新起点和**上一轮的终点**比，
+    //   恰好相等时（循环轨道、或者终值等于起点）不报 `changed`，宿主不重画 ——
+    //   症状是"重置后界面停留在上一轮最后一帧"。
+    this.lastComposed.clear();
   }
 
   /** 是否还有轨道在推进（诊断/性能用：全静止就不必每帧走一遍）。 */
@@ -295,12 +384,16 @@ export function ticksToMs(ticks: number, fixedDtMs: number): number {
  *   ④ `changed` 只在值真的变了时为 true —— 这是宿主 `invalidate()` 的依据。
  *      没有它，静止的过渡会让整棵 UI 每帧重排（布局 O(节点数)，看着没事，
  *      但文本缓存会跟着失效，最后表现为"UI 一直很卡但看不出在动什么"）。
+ *   ⑤ 返回粒度是 **(目标, 属性)**：同一属性上的多条轨道按声明顺序合成成一条
+ *      （`composeEntries`），`value` 是合成结果、`id` 是最后写它的那条轨道。
+ *      ★ 这条是批117 加的，它让"两条轨道都对、合成结果错"这一类 bug 变得
+ *        不可能存在 —— 也顺手消掉了"同一属性一帧被写两次"（第二次覆盖第一次）。
  */
 export function advancePlayer(player: TweenPlayer, dtMs: number): TrackSample[] {
   if (!Number.isFinite(dtMs) || dtMs < 0) {
     throw new TypeError(`advancePlayer 的 dtMs 必须是非负有限数（收到 ${String(dtMs)}）`);
   }
-  const out: TrackSample[] = [];
+  const entries: CompositeEntry[] = [];
   for (const t of player.tracks) {
     const wasDone = sampleTween(t.spec, t.timeMs).done;
     // ★★ 这里**只加原始 dt，绝不乘 `spec.speed`**。
@@ -320,13 +413,11 @@ export function advancePlayer(player: TweenPlayer, dtMs: number): TrackSample[] 
       if (t.timeMs < 0) t.timeMs = 0;
     }
     const s = sampleTween(t.spec, t.timeMs);
-    const changed = Number.isNaN(t.lastValue) || s.value !== t.lastValue;
-    t.lastValue = s.value;
-    out.push({ id: t.id, targetId: t.targetId, prop: t.prop, value: s.value, done: s.done, changed });
+    entries.push({ id: t.id, targetId: t.targetId, prop: t.prop, op: t.composite, value: s.value, done: s.done });
   }
-  // ★ 关键帧轨道排在后面：同一属性被两种轨道同时写时，**后者胜**。
-  //   这不是"混合解析器"（那要按属性语义决定乘/加/覆盖），只是一条确定的顺序，
-  //   让"同一个 player 里两种轨道并存"至少有一个可预测的结果。
+  // ★★ 关键帧轨道排在**合成顺序**的后面（不是"后者胜"）：合成是按声明顺序
+  //   一条条 fold 的，所以"谁在后"决定的是"谁作用在谁的结果上"。
+  //   顺序本身是契约的一部分 —— 判据钉住的就是它（见 tween-keyframes.test.ts）。
   for (const t of player.keyTracks) {
     const wasDone = t.sample().done;
     if (player.playing && t.playing && !wasDone) {
@@ -334,9 +425,22 @@ export function advancePlayer(player: TweenPlayer, dtMs: number): TrackSample[] 
       if (t.timeMs < 0) t.timeMs = 0;
     }
     const s = t.sample();
-    const changed = Number.isNaN(t.lastValue) || s.value !== t.lastValue;
-    t.lastValue = s.value;
-    out.push({ id: t.id, targetId: t.targetId, prop: t.prop, value: s.value, done: s.done, changed });
+    entries.push({ id: t.id, targetId: t.targetId, prop: t.prop, op: t.composite, value: s.value, done: s.done });
+  }
+  // 采样与合成是**两步**（不是边采边合）：合成要看到同一属性的**全部**贡献者，
+  // 而"边采边合"要求"同一属性的轨道在数组里相邻"—— 那只是当下的巧合
+  // （两种轨道分成两个数组，一条分段轨道写的属性和后面关键帧轨道写的属性可以隔着十几条）。
+  const composed = composeEntries(entries);
+  const out: TrackSample[] = [];
+  for (const c of composed) {
+    out.push({
+      id: c.id,
+      targetId: c.targetId,
+      prop: c.prop,
+      value: c.value,
+      done: c.done,
+      changed: player.commitComposed(c.targetId, c.prop, c.value),
+    });
   }
   return out;
 }
