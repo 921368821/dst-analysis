@@ -31,6 +31,8 @@ import { createRenderModule, type RenderModuleHandle } from "../../src/extension
 import { Sprite } from "../../src/extensions/render/sprite.ts";
 import { buildUiTree, layoutTree, UiLayoutKind, UiWidget } from "../../src/extensions/ui/layout.ts";
 import { buildUiQuads, nineSlice, type UiSkin, type UiSkinFrame } from "../../src/extensions/ui/widgets.ts";
+import { SpriteBatch, type RenderItem } from "../../src/extensions/render/batch2d.ts";
+import { UiViewport } from "../../src/extensions/ui/viewport.ts";
 import { UiStateStore } from "../../src/extensions/ui/state.ts";
 import { FontRegistry } from "../../src/extensions/ui/font.ts";
 import { createUiModule, type UiModuleHandle } from "../../src/extensions/ui/ui-module.ts";
@@ -140,8 +142,99 @@ test("标签画出字形；不存在的帧名进 missingFrames（不静默）", 
   assert.deepEqual([...res.stats.missingFrames], ["no-such-frame"]);
 });
 
-// ── ③ 模块接线 ──────────────────────────────────────────────
+test("★★ UI 的遮挡顺序是画家顺序：文字排在它所在面板的底色之后（不是按屏幕 y）", () => {
+  // ★ 背景（批115 抓到的缺陷）：UI 四边形的几何是屏幕 (x, y)，塞进 (x, z) 之后
+  //   排序键「z 降序」变成了「屏幕 y 大的先画」⇒ 面板底色（y 小）画在文字
+  //   （y 大）之后，把文字盖住。四边形颜色、字形数、draw 数全对，只有像素少了。
+  const fonts = new FontRegistry();
+  fonts.register(makeTestFont());
+  const tree = buildUiTree({
+    id: "root",
+    children: [
+      { id: "panel", widget: UiWidget.Panel, size: { w: 300, h: 90 }, props: { frame: "panel" } },
+      { id: "lbl", widget: UiWidget.Label, size: { w: 300, h: 24 }, props: { text: "AB", fontId: "test" } },
+    ],
+  });
+  layoutTree(tree, new Rect(0, 0, 400, 300));
+  const res = buildUiQuads(tree, fonts, smallSkin(), new UiStateStore());
+  const bg = res.quads.find((q) => q.order === 0);
+  const glyphs = res.quads.filter((q) => q.order === 1);
+  assert.ok(bg !== undefined && glyphs.length > 0, "面板与字形都得真的出四边形");
+  // 前提断言（保证这条判据有牙）：文字的 y 比底色大 ⇒ 纯按 z 排会把它排到前面
+  assert.ok(glyphs[0]!.z > bg.z, `前提：字形 y=${glyphs[0]!.z} 应大于底色 y=${bg.z}`);
+  const sorted: RenderItem[] = [...res.quads];
+  SpriteBatch.sort(sorted);
+  const bgAt = sorted.indexOf(bg);
+  const glyphAts = glyphs.map((g) => sorted.indexOf(g));
+  assert.ok(
+    glyphAts.every((i) => i > bgAt),
+    `文字必须画在底色之后：底色 #${bgAt}，字形 #${glyphAts.join(",")}（反了就是 z 当深度那个缺陷）`,
+  );
+});
 
+test("★★ UI 的 y 轴是屏幕式的：设计上方的元素画在屏幕上方，字也不倒（不是镜像）", () => {
+  // 背景（批115）：`layout` 是 y 向下的，而 `Camera2D.project` 的 z 向上。
+  // 不在 UI 相机上开 `yDown`，整棵树会被上下镜像：顶部 HUD 画到屏幕底、
+  // 列表行倒序 —— 而 quad 数、字形数、颜色、UV 全对。这条判据钉的是**投影方向**。
+  const fonts = new FontRegistry();
+  fonts.register(makeTestFont());
+  const tree = buildUiTree({
+    id: "root",
+    kind: UiLayoutKind.Column,
+    children: [
+      { id: "top", widget: UiWidget.Label, size: { w: 200, h: 24 }, props: { text: "A", fontId: "test" } },
+      { id: "bottom", widget: UiWidget.Label, size: { w: 200, h: 24 }, props: { text: "B", fontId: "test" } },
+    ],
+  });
+  const vp = new UiViewport({ designWidth: 400, designHeight: 300 });
+  vp.setScreen(400, 300, 1);
+  layoutTree(tree, vp.safeRect);
+  const res = buildUiQuads(tree, fonts, smallSkin(), new UiStateStore());
+  const a = res.quads.filter((q) => q.order === 0);
+  const b = res.quads.filter((q) => q.order === 1);
+  assert.ok(a.length > 0 && b.length > 0, "两个字都得画出字形");
+  assert.ok(a[0]!.z < b[0]!.z, "前提：设计坐标里 A 在 B 上方（y 更小）");
+  const batch = new SpriteBatch(64);
+  const built = batch.build(res.quads, vp.camera);
+  const v = batch.vertexView(built.quadCount);
+  const quadOf = (order: number): { min: number; max: number; topEdgeY: number; botEdgeY: number } => {
+    const item = order === 0 ? a[0]! : b[0]!;
+    const o = res.quads.indexOf(item) * 32;
+    const ys: number[] = [];
+    const vs: number[] = [];
+    for (let vtx = 0; vtx < 4; vtx++) {
+      ys.push(v[o + vtx * 8 + 1]!);
+      vs.push(v[o + vtx * 8 + 3]!);
+    }
+    // 顶点 2/3 带 va（帧的顶边），1/0 带 vb —— 拿 UV 的 v 反查哪个顶点是"字的顶边"，
+    // 不靠顶点顺序（顺序是实现细节，判据不该钉它）。
+    const topV = Math.min(...vs);
+    const botV = Math.max(...vs);
+    const topY = ys[vs.indexOf(topV)]!;
+    const botY = ys[vs.indexOf(botV)]!;
+    return { min: Math.min(...ys), max: Math.max(...ys), topEdgeY: topY, botEdgeY: botY };
+  };
+  const qa = quadOf(0);
+  const qb = quadOf(1);
+  assert.ok(qa.min > qb.max, `A 的四边形应整个在 B 之上：A y=${qa.min.toFixed(3)}..${qa.max.toFixed(3)}，B y=${qb.min.toFixed(3)}..${qb.max.toFixed(3)}（反了就是镜像）`);
+  assert.ok(qa.topEdgeY > qa.botEdgeY, "字形的顶边必须在裁剪空间更高处（否则字是倒的）");
+  // ★ 绝对几何也要钉：矩形的上沿落在 `project(设计 y)`、下沿落在 `project(设计 y+h)`。
+  //   只比"谁在上"抓不到 pivot 方向错 —— 那种错让**每个**四边形整体上移自身高度，
+  //   相对顺序一点不变（批115 的 M638 就是这么溜过去一次的）。
+  const item = a[0]!;
+  const wantTop = vp.camera.project(0, item.z).y;
+  const wantBottom = vp.camera.project(0, item.z + item.h).y;
+  assert.ok(
+    Math.abs(qa.max - wantTop) < 1e-6,
+    `上沿应在 project(${item.z})=${wantTop.toFixed(4)}，实际 ${qa.max.toFixed(4)}（大了就是 pivot 往上长）`,
+  );
+  assert.ok(
+    Math.abs(qa.min - wantBottom) < 1e-6,
+    `下沿应在 project(${(item.z + item.h).toFixed(1)})=${wantBottom.toFixed(4)}，实际 ${qa.min.toFixed(4)}`,
+  );
+});
+
+// ── ③ 模块接线 ──────────────────────────────────────────────
 interface Rig {
   readonly dev: NullGraphicsDevice;
   readonly ui: UiModuleHandle;

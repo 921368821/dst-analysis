@@ -39,6 +39,25 @@ export class Camera2D {
   x: number;
   z: number;
   clearColor: Color;
+  /**
+   * y 轴方向：`false`（默认）= 世界约定，**z 越大越靠上**；
+   * `true` = 界面约定，**y 越大越靠下**（屏幕坐标，左上原点）。
+   *
+   * ★ 为什么需要它（批115 抓到的真缺陷）：UI 的设计坐标是**屏幕式**的
+   *   （`Rect` 从左上角起、Column 从 `inner.y` 往下累加），而 `project` 的
+   *   世界约定是 z 向上。UI 把设计 y 当 z 传进来，于是整棵树被**上下镜像**：
+   *   布局在顶部的 HUD 画到了屏幕底部、贴在底部的提示条画到了顶部、
+   *   背包的行从下往上排。四边形数、字形数、颜色、UV 全对，只是位置反了 ——
+   *   `layout` 层的判据看不到（它们读的是布局矩形），只有像素级判据能抓。
+   *
+   * ★ 不把 `tiltY` 设成负数来"顺便翻转"：`tiltY` 同时进 `extents`，
+   *   负值会把 quad 的高也翻成负的（UV 与角落的对应关系跟着反）⇒ 字变倒影。
+   *   方向必须是投影**单独**的一条，不能借用缩放。
+   *
+   * ★ 拾取（`unproject`）跟着同一个开关走：输入与渲染必须用同一套 y 语义，
+   *   否则"看到的位置"和"点到的东西"会差一个镜像 —— 那是最难查的一类错位。
+   */
+  yDown = false;
   /** 每世界单位有多少像素（x 方向）。UI 命中测试、像素对齐用。 */
   private _pxPerUnit = 1;
 
@@ -77,11 +96,11 @@ export class Camera2D {
     this.z = z;
   }
 
-  /** 世界 (x,z) → 裁剪空间 (-1..1)。 */
+  /** 世界 (x,z) → 裁剪空间 (-1..1)。`yDown` 时 y 取反（见字段说明）。 */
   project(wx: number, wz: number): { x: number; y: number } {
     const sx = ((wx - this.x) * this.zoom) / (this.vw / 2);
     const sy = ((wz - this.z) * this.zoom * this.tiltY) / (this.vh / 2);
-    return { x: sx, y: sy };
+    return { x: sx, y: this.yDown ? -sy : sy };
   }
 
   /** 世界尺寸 → 裁剪空间半宽/半高（精灵用）。 */
@@ -92,13 +111,13 @@ export class Camera2D {
     };
   }
 
-  /** 屏幕像素 → 世界 XZ（拾取/点选用）。 */
+  /** 屏幕像素 → 世界 XZ（拾取/点选用）。与 `project` 共用 `yDown` 语义。 */
   unproject(px: number, py: number): { x: number; z: number } {
     const nx = (px / this.vw) * 2 - 1;
     const ny = 1 - (py / this.vh) * 2;
     return {
       x: this.x + (nx * this.vw) / 2 / this.zoom,
-      z: this.z + (ny * this.vh) / 2 / (this.zoom * this.tiltY),
+      z: this.z + ((this.yDown ? -ny : ny) * this.vh) / 2 / (this.zoom * this.tiltY),
     };
   }
 

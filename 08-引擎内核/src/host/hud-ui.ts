@@ -31,7 +31,15 @@ import {
 import type { UiSkin, UiSkinFrame } from "../extensions/ui/widgets.ts";
 import type { UiEvent, UiPointer } from "../extensions/ui/events.ts";
 import type { UiViewportConfig } from "../extensions/ui/viewport.ts";
-import { bagEmptyLine, bagFooter, bagRows } from "./hud-model.ts";
+import { bagEmptyLine, bagFooter, bagRows, type HudRow } from "./hud-model.ts";
+
+/**
+ * HUD 行「值」段的亮色（富文本的第二位消费者，批115）：
+ * 标签（`fps `）与分隔符（` | `）继承行基色（hud.panel 里那档 dim），值一段用它。
+ * ★ 模块级常量而不是函数局部：`browser-entry` 传给 `hudRowRuns` 时要用它，
+ *   两端同源 —— 改了这里，Node 判据按同一常量断言，配色与判据不会悄悄分叉。
+ */
+export const HUD_VALUE_TINT = new Color(0.93, 0.96, 1, 1);
 import { caretXOf } from "../extensions/ui/text-input.ts";
 import { layoutText } from "../extensions/ui/text-layout.ts";
 
@@ -172,8 +180,12 @@ export interface HudUiHandle {
   /**
    * 每帧推一次事实。**只改 props，不重建树**；
    * 内容没变（签名相同）时连 `invalidate()` 都不调 —— 否则每帧全量重排。
+   *
+   * ★ 收的是 `HudRow`（text + runs）而不是裸字符串：HUD 三行是富文本的
+   *   第二位消费者（批115）—— 标签与分隔符继承行基色，值一段上亮色。
+   *   与背包行同一条规矩：`runs` 拼起来 === `text`，由模型构造保证、判据钉住。
    */
-  setHud(rows: readonly string[], hunger: number | null): void;
+  setHud(rows: readonly HudRow[], hunger: number | null): void;
   /** 背包内容（`null` = 关闭）。行数/选中/文本都没变时什么也不做。 */
   setBag(stacks: readonly { readonly kind: string; readonly count: number }[] | null, selected: number): void;
   /**
@@ -604,17 +616,25 @@ export function createHudUi(opts: HudUiOptions): Result<HudUiHandle, EngineError
       return bagOpenState;
     },
 
-    setHud(rows: readonly string[], hunger: number | null): void {
-      const text0 = rows[0] ?? "";
-      const text1 = rows[1] ?? "";
-      const text2 = rows[2] ?? "";
+    setHud(rows: readonly HudRow[], hunger: number | null): void {
+      const text0 = rows[0]?.text ?? "";
+      const text1 = rows[1]?.text ?? "";
+      const text2 = rows[2]?.text ?? "";
       // 签名 = 三行文本 + 有无饱食条 + 条的值（取两位小数，避免每帧浮点抖动重排）
+      // ★ 只签 text 不签 runs：分段（谁标签谁值）是文案的函数，文案没变分段就没变；
+      //   而值色来自调用方传给 `hudRowRuns` 的那一档 —— 它不是每帧变的量。
       const sig = `${text0}\u0001${text1}\u0001${text2}\u0001${hunger === null ? "-" : hunger.toFixed(2)}`;
       if (sig === hudSig) return;
       hudSig = sig;
-      const texts = [text0, text1, text2];
       hudRowNodes.forEach((n, i) => {
-        n.props = { ...n.props, text: texts[i] ?? "" };
+        const row = rows[i];
+        if (row === undefined) return;
+        n.props = {
+          ...n.props,
+          text: row.text,
+          // 与背包行同一条规矩：runs 与 text 一起推（排版只看 runs，text 给判据认行）。
+          runs: row.runs,
+        };
       });
       fedBar.visible = hunger !== null;
       fedBar.props = { ...fedBar.props, value: hunger === null ? 0 : Math.max(0, Math.min(1, hunger)) };

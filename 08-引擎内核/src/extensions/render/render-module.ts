@@ -202,6 +202,22 @@ export interface RenderModuleHandle extends IModule {
 
   /** 最近一帧的幕布状态（判据读它：`drawn` 为真才算真的提交了一次 draw）。 */
   readonly lastCurtain: { readonly alpha: number; readonly drawn: boolean };
+
+  /**
+   * 注册「`endFrame` **之后**」的一次性回调（返回退订函数）。
+   *
+   * ★ 为什么要有这个钩子：`preserveDrawingBuffer: false` 的画布在**任务结束后**
+   *   帧缓冲就不可读了（`readPixels`/`drawImage` 读到的是空的），而"像素级断言"
+   *   恰恰要在帧刚提交、还没有让出事件循环的那个窗口里读。这个钩子就是那个窗口：
+   *   回调在 `d.endFrame()` 的下一行、**同一个任务里**被调。
+   *
+   * ★ 是「一次性」的：像素断言是低频诊断动作，常驻钩子会让每一帧都多一次
+   *   无意义的调用。要每帧都收，自己在回调里重新注册。
+   *
+   * ★ 回调抛错不静默：记 `render` 通道的 error，不影响其他钩子与下一帧
+   *   （诊断代码坏掉不该把渲染拖死）。
+   */
+  onFrameEnd(fn: () => void): () => void;
 }
 
 /** `atlasFrame()` 的返回形状（单独命名：它要进公共签名，不该是一坨匿名对象类型）。 */
@@ -332,6 +348,8 @@ export function createRenderModule(opts: RenderModuleOptions): RenderModuleHandl
   /** 幕布专用顶点缓冲（6 顶点，裁剪空间）。**与世界的 vbo 分开** —— 见 init 里的注释。 */
   let curtainVbo: BufferHandle | null = null;
   let lastCurtain = { alpha: 0, drawn: false };
+  /** 「endFrame 之后」的一次性回调队列（见 `onFrameEnd` 的注释）。 */
+  const frameEndHooks: Array<() => void> = [];
   let batch: SpriteBatch | null = null;
   /** 所有页（下标 = 槽位）。诊断与 `atlasFrame()` 跨页查。 */
   let pages: AtlasData[] = [];
@@ -609,6 +627,14 @@ export function createRenderModule(opts: RenderModuleOptions): RenderModuleHandl
       overlay = fn;
     },
 
+    onFrameEnd(fn: () => void): () => void {
+      frameEndHooks.push(fn);
+      return () => {
+        const i = frameEndHooks.indexOf(fn);
+        if (i >= 0) frameEndHooks.splice(i, 1);
+      };
+    },
+
     setCurtain(alpha: number): void {
       // 非有限值当 0：`NaN` 传到 GPU 是整屏变黑，而那时没有任何计数会变。
       // 越界值夹到 0..1（宿主算错了不该变成"比黑更黑"或"负的透明"）。
@@ -774,6 +800,19 @@ export function createRenderModule(opts: RenderModuleOptions): RenderModuleHandl
 
     cmd.finish();
     d.endFrame();
+    // ★ 帧末钩子必须在 `endFrame` 的**下一行**：这一行与 `endFrame` 之间
+    //   没有任何 await，回调里读帧缓冲（drawImage/readPixels）才赶得上
+    //   「同一任务」这个窗口 —— 挪到任务边界之后就是一帧空白。
+    if (frameEndHooks.length > 0) {
+      const hooks = frameEndHooks.splice(0, frameEndHooks.length);
+      for (const fn of hooks) {
+        try {
+          fn();
+        } catch (e) {
+          ctxRef?.log.channel("render").error(`onFrameEnd 回调抛错：${String(e)}`, undefined, null);
+        }
+      }
+    }
     void info;
   }
 

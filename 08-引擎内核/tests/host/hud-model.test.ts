@@ -26,6 +26,8 @@ import {
   bagFooter,
   bagRows,
   hudLine,
+  hudRowRuns,
+  hudRows,
   missingGlyphsIn,
   type HudFacts,
 } from "../../src/host/hud-model.ts";
@@ -248,4 +250,70 @@ test("★ 配色只落在非主体段（模型给结构、面板给颜色）", (
   const plain = bagRows([{ kind: "tree", count: 3 }], 0, undefined, { from: 0, to: null });
   assert.equal(plain[0]!.runs[1]?.color, undefined);
   assert.equal(plain[0]!.runs[2]?.color, undefined);
+});
+
+/**
+ * 批115 · HUD 行的分段（富文本第二位消费者）。
+ *
+ * ★ 判据钉四件事：不变量（runs 拼起来 === text）、同源（hudRows 从 hudRowRuns 派生）、
+ *   分段边界（标签/值切在空格上，且逐字符等于重构前的串）、配色只落在值段。
+ *   任何一条破了，症状都不是「HUD 消失」，而是「值不亮了 / 标签也亮了 /
+ *   某个字段在 UI 里没了」—— 全都静默，所以必须在模型层钉住。
+ */
+test("★ HUD 三行 runs 拼起来 === text（与背包行同一条不变量）", () => {
+  const rows = hudRowRuns(FULL);
+  for (let i = 0; i < 3; i++) {
+    const row = rows[i]!;
+    assert.equal(
+      row.runs.map((s) => s.text).join(""),
+      row.text,
+      `第 ${String(i)} 行的 runs 拼起来与 text 不一致 —— 面板按 runs 画、判据按 text 认行，分叉就是两个画面`,
+    );
+  }
+});
+
+test("★ hudRows 从 hudRowRuns 派生（同源），且逐字符等于重构前的串", () => {
+  const rows = hudRowRuns(FULL);
+  assert.deepEqual(hudRows(FULL), [rows[0]!.text, rows[1]!.text, rows[2]!.text]);
+  // 逐字符钉住：这条同时守「分段没有吞字符」（标签尾空格、冒号后不空格）与「分隔符还是 ' | '」。
+  assert.equal(rows[0]!.text, "fps 60 | tick 12034 | quad 1420 | draw 3 | cull 71 | nodes 481 | bodies 71");
+  assert.equal(rows[1]!.text, "atlas:assets*11 | world 120/40 | res 12/30/18 | bag 3 | fed 78/100");
+  assert.equal(rows[2]!.text, "webgl2/webaudio/dom/lua | script 12034c/0e/2to | drop 0");
+});
+
+test("★ 配色只落在值段（标签与分隔符继承行基色）", () => {
+  const value = new Color(0.93, 0.96, 1, 1);
+  const rows = hudRowRuns(FULL, { value });
+  const r0 = rows[0]!.runs;
+  assert.equal(r0[0]!.text, "fps ");
+  assert.equal(r0[0]!.color, undefined, "标签段不许自带颜色（它继承行基色）");
+  assert.equal(r0[1]!.text, "60");
+  assert.deepEqual(r0[1]!.color, value, "值段必须拿到调用方给的颜色");
+  assert.equal(r0[2]!.text, " | ");
+  assert.equal(r0[2]!.color, undefined, "分隔符不许带颜色");
+  // 末段没有尾随分隔符，且它是值
+  assert.equal(r0[r0.length - 1]!.text, "71");
+  assert.deepEqual(r0[r0.length - 1]!.color, value);
+  // 第二行的 atlas 字段切在冒号后
+  const r1 = rows[1]!.runs;
+  assert.equal(r1[0]!.text, "atlas:");
+  assert.equal(r1[1]!.text, "assets*11");
+  // 不传配色 ⇒ 全部继承（面板没要求就不许自作主张）
+  const plain = hudRowRuns(FULL);
+  for (const row of plain) {
+    for (const seg of row.runs) assert.equal(seg.color, undefined);
+  }
+});
+
+test("★ 后端串整段一段（它没有「标签: 值」结构，硬拆就是造一个没有意义的段）", () => {
+  const rows = hudRowRuns(FULL);
+  const r2 = rows[2]!.runs;
+  assert.equal(r2[0]!.text, "webgl2/webaudio/dom/lua");
+  assert.equal(r2[1]!.text, " | ");
+  assert.equal(r2[2]!.text, "script ");
+  // 「不存在」分支同样成立：script off 的 off 是值
+  const none = hudRowRuns({ ...FULL, script: null });
+  const nr = none[2]!.runs;
+  assert.equal(nr[2]!.text, "script ");
+  assert.equal(nr[3]!.text, "off");
 });

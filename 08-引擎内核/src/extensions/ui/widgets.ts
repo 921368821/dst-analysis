@@ -163,8 +163,12 @@ export function buildUiQuads(root: UiNode, fonts: FontRegistry, skin: UiSkin, st
     }
     quads.push({
       nodeId: order,
-      // ★ UI 用 z=0 恒定：排序第一键 layer 恒为 UI_LAYER，绘制顺序全靠 order。
-      //   给 UI 编假的 z 会让"同 order 的兄弟"按 z 乱序 —— 那是最难查的一类重叠。
+      // ★ 几何用屏幕 (x, y)，**深度用常量 0** —— 两者分开是因为 UI 的排序
+      //   必须是画家顺序（`order`：父先子后、兄弟按数组顺序），而 `z` 在这个
+      //   结构里是"几何纵坐标"。把屏幕 y 直接当深度用会让"y 更大的文字"排在
+      //   "y 更小的行底色"之前画，于是行底色盖住行文字（批115 的像素级判据
+      //   抓到的就是这个：四边形颜色全对、字形数也对，屏幕上只剩底色）。
+      //   见 `RenderItem.sortZ` 的说明。
       x: r.x,
       z: r.y,
       w: r.width,
@@ -179,6 +183,8 @@ export function buildUiQuads(root: UiNode, fonts: FontRegistry, skin: UiSkin, st
       a,
       order: ord,
       layer: UI_LAYER,
+      // 深度恒 0（见上面 ★）：order 才是 UI 的遮挡顺序。
+      sortZ: 0,
       pivotX: 0,
       pivotY: 0,
       atlas: page,

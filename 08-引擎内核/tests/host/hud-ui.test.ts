@@ -28,6 +28,7 @@ import {
   createHudUi,
   buildSkin,
   HUD_LAYOUT,
+  HUD_VALUE_TINT,
   type HudUiOptions,
   type UiSkinJson,
 } from "../../src/host/hud-ui.ts";
@@ -36,6 +37,7 @@ import {
   bagFooter,
   hudLine,
   hudRows,
+  hudRowRuns,
   missingGlyphsIn,
   type HudFacts,
 } from "../../src/host/hud-model.ts";
@@ -609,4 +611,54 @@ test("★ 输入行收起时底栏回来（两行抢同一个位置，不能都�
   assert.equal(hud.inputVisible, false);
   assert.equal(foot?.visible, true, "收起后底栏必须回来");
   assert.equal(hud.module.root.find("input.row")?.visible, false);
+});
+
+/** HUD 三行的最小事实（行 0 足够短，字形数能手数）。 */
+const HUD_MIN: HudFacts = {
+  fps: 60,
+  tick: 5,
+  quads: 1,
+  drawCalls: 1,
+  culled: 0,
+  nodes: 1,
+  bodies: 1,
+  atlas: "x",
+  world: null,
+  resources: { alive: 0, spawned: 0, released: 0 },
+  bagStacks: 0,
+  hunger: null,
+  backends: { gfx: "a", audio: "b", input: "c", script: null },
+  script: null,
+  droppedSteps: 0,
+};
+
+test("★★ HUD 三行是富文本的真消费者（批115）：值一段亮色、标签与分隔符继承基色", () => {
+  // ★ 与背包行那条同构，走**全程**：hudRowRuns 造 runs → setHud 写 props →
+  //   排版 → 颜色烘进四边形。任何一环没接上（setHud 丢了 runs / emitText 没用它），
+  //   这里就只剩一种颜色 —— 屏幕上表现为「整行一样暗」，没人会报 bug。
+  const hud = makeHud();
+  const fonts = new FontRegistry();
+  fonts.register(realFont());
+  hud.setHud(hudRowRuns(HUD_MIN, { value: HUD_VALUE_TINT }), null);
+  layoutTree(hud.module.root, new Rect(0, 0, 960, 600));
+  const row0 = hud.module.root.find("hud.row0");
+  assert.ok(row0 !== undefined, "hud.row0 不见了");
+  assert.equal(row0.props.text, "fps 60 | tick 5 | quad 1 | draw 1 | cull 0 | nodes 1 | bodies 1");
+
+  const glyphs = buildUiQuads(row0, fonts, hud.built.skin, new UiStateStore()).quads.filter((q) => q.atlas === 0);
+  // 字形数不手抄一份：行文本去掉空格就是该画的字形数（空格不画，见背包行那条的注释）。
+  const nonSpace = (row0.props.text as string).replace(/ /g, "").length;
+  assert.equal(
+    glyphs.length,
+    nonSpace,
+    `行 0 应画出全部 ${String(nonSpace)} 个非空格字符（实际 ${String(glyphs.length)}）—— 多了少了都说明分段断了`,
+  );
+
+  const colors = new Set(glyphs.map((q) => `${String(q.r)},${String(q.g)},${String(q.b)}`));
+  assert.equal(colors.size, 2, `一行里应当有基色与值色两种，实际 ${String(colors.size)} 种：${[...colors].join(" / ")}`);
+  // 值色的字形数 = 值段的非空格字符数（60,5,1,1,0,1,1 → 8 个）
+  // ★ quad 里烘的是 0..1 的浮点（不是 255 整数）—— 键必须用同一个量，换算过去就对不上了。
+  const valueKey = `${String(HUD_VALUE_TINT.r)},${String(HUD_VALUE_TINT.g)},${String(HUD_VALUE_TINT.b)}`;
+  const valueGlyphs = glyphs.filter((q) => `${String(q.r)},${String(q.g)},${String(q.b)}` === valueKey).length;
+  assert.equal(valueGlyphs, 8, `值段应有 8 个字形（实际 ${String(valueGlyphs)}）—— 值色落错段会在这里红`);
 });

@@ -168,3 +168,44 @@ test("★ `setCurtain` 越界也夹：2 当 1、NaN 当 0", () => {
   assert.equal(rig.mod.lastCurtain.alpha, 0);
   assert.equal(rig.mod.lastCurtain.drawn, false, "NaN 不许画 —— 那是「不知道多黑」，不是「很黑」");
 });
+
+// ── ③ 帧末钩子（批115）：像素级断言的唯一入口 ────────────────
+
+test("★★ onFrameEnd 在 endFrame 之后、同一帧内触发，且只触发一次", () => {
+  const rig = boot();
+  let calls = 0;
+  let framesAtFire = -1;
+  rig.mod.onFrameEnd(() => {
+    calls++;
+    framesAtFire = rig.dev.frames.length;
+  });
+  const before = rig.dev.frames.length;
+  rig.frame();
+  assert.equal(calls, 1, "一次性：一帧只该触发一次（常驻钩子会让每帧多一次无意义调用）");
+  // ★ 顺序的证词：触发那一刻 `endFrame` 已经跑完（frames 已经多了一帧）。
+  //   挪到 endFrame 之前调的话，这里读到的是 before —— 而那时帧还没提交，
+  //   浏览器里读帧缓冲只会读到空（preserveDrawingBuffer: false）。
+  assert.equal(framesAtFire, before + 1, "钩子必须在 endFrame 之后触发，否则读帧缓冲读到的是空");
+  // 一次性：没再注册就不该再触发
+  rig.frame();
+  assert.equal(calls, 1);
+});
+
+test("★ onFrameEnd 退订后不再触发（等不到帧时的收尾路径）", () => {
+  const rig = boot();
+  let calls = 0;
+  const off = rig.mod.onFrameEnd(() => calls++);
+  off();
+  rig.frame();
+  assert.equal(calls, 0);
+});
+
+test("★ onFrameEnd 回调抛错不影响下一帧（诊断代码坏掉不能把渲染拖死）", () => {
+  const rig = boot();
+  rig.mod.onFrameEnd(() => {
+    throw new Error("诊断钩子炸了");
+  });
+  rig.frame();
+  rig.frame();
+  assert.equal(rig.dev.frames.length >= 2, true, "两帧都提交了 —— 回调抛错不许吞掉 endFrame 之后的帧");
+});

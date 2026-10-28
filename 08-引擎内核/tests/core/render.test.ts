@@ -88,6 +88,49 @@ test("排序把 z 放在 atlas 之前（遮挡正确性优先于减少纹理切�
   );
 });
 
+test("★ sortZ 覆盖 z 做深度：UI 用恒定深度，画家顺序（z 仍是几何）", () => {
+  // 三个 quad 的 z（几何纵坐标）是乱的，但深度恒定 ⇒ 只能按 order 画。
+  const items = [
+    item({ nodeId: 1, z: 300, sortZ: 0, order: 0 }),
+    item({ nodeId: 2, z: 100, sortZ: 0, order: 1 }),
+    item({ nodeId: 3, z: 200, sortZ: 0, order: 2 }),
+  ];
+  SpriteBatch.sort(items);
+  assert.deepEqual(
+    items.map((i) => i.nodeId),
+    [1, 2, 3],
+    "sortZ 相等 ⇒ 按 order 升序；若这里按 z 降序排，就是「屏幕 y 当深度」那个缺陷回来了",
+  );
+  assert.deepEqual(
+    items.map((i) => i.z),
+    [300, 100, 200],
+    "排序不能改几何：z 是屏幕 y，UI 的布局/命中/判据都在读它",
+  );
+});
+
+test("★ 不传 sortZ 时世界的排序一点没变（z 降序）", () => {
+  const items = [item({ nodeId: 1, z: 0 }), item({ nodeId: 2, z: 9 }), item({ nodeId: 3, z: 5 })];
+  SpriteBatch.sort(items);
+  assert.deepEqual(items.map((i) => i.nodeId), [2, 3, 1]);
+});
+
+test("★ yDown 相机：z 增大往下走（截图坐标），extents 与拾取都跟着走", () => {
+  const cam = new Camera2D({ viewportWidth: 800, viewportHeight: 600, zoom: 32, tiltY: 1 });
+  cam.moveTo(0, 0);
+  const up = cam.project(0, 10);
+  cam.yDown = true;
+  const down = cam.project(0, 10);
+  assert.ok(up.y > 0, "世界约定：z=+10 在裁剪空间上半屏");
+  assert.ok(down.y < 0, "yDown：同一坐标落到下半屏（z 就是屏幕 y）");
+  assert.ok(Math.abs(up.y + down.y) < 1e-12, "只翻符号，不改变量级");
+  // extents 不能跟着翻：翻了会把 quad 的高变负，UV 与角落的对应就反了（字变倒影）
+  const e = cam.extents(10, 10);
+  assert.ok(e.halfW > 0 && e.halfH > 0);
+  // 拾取与投影同一套语义
+  const back = cam.unproject(400, 450);
+  assert.ok(back.z > 0, "屏幕下方（py>中心）在 yDown 下应映射到 z>0");
+});
+
 test("排序是确定的：同一批输入两次排序结果相同（否则画面会闪）", () => {
   const make = (): RenderItem[] => [
     item({ nodeId: 9, z: 1 }),

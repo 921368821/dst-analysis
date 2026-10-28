@@ -187,6 +187,11 @@ export class UiViewport {
     this.cam.setViewport(pw, ph);
     this.cam.zoom = this.scaleValue;
     this.cam.tiltY = 1;
+    // ★ UI 的设计坐标是**屏幕式**的（y 向下增长：Rect 左上原点、Column 往下堆），
+    //   而相机默认的 z 轴向上。不打开这个开关，整棵界面会被**上下镜像**画出来：
+    //   顶部 HUD 跑到屏幕底、底部提示条跑到顶部、列表行倒序 ——
+    //   而四边形数/字形数/颜色/UV 全对，只有位置反了（批115 像素判据抓到）。
+    this.cam.yDown = true;
     // 相机看设计框中心：于是设计坐标 (0,0) 在 fit 下落在黑边内侧，
     // 在 fill 下落在屏幕外 —— 这正好与 anchorRect 的语义对应。
     this.cam.moveTo(this.designWidth / 2, this.designHeight / 2);

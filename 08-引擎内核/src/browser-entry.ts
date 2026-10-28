@@ -70,7 +70,8 @@ import { createHudUi, rectOfId, type HudUiHandle, type UiSkinJson } from "./host
 // 批76：UI 过渡 —— `TweenPlayer` 的第一个真实消费者（顿帧消费"时间"，它消费"值"）
 import { advancePlayer, ticksToMs, TweenPlayer } from "./extensions/tween/tween-player.ts";
 import { applyUiSamples, UI_TWEEN_PROP } from "./extensions/ui/ui-transition.ts";
-import { hudLine, hudRows, type HudFacts } from "./host/hud-model.ts";
+import { HUD_VALUE_TINT } from "./host/hud-ui.ts";
+import { hudLine, hudRowRuns, type HudFacts } from "./host/hud-model.ts";
 import { demoHitstopPolicy } from "./host/hitstop-policy.ts";
 import { generateWorld, type WorldPlan } from "./extensions/worldgen/worldgen.ts";
 import {
@@ -2046,7 +2047,12 @@ export async function main(): Promise<void> {
     };
     lastHudText = hudLine(facts);
     if (hudUi !== null) {
-      hudUi.setHud(hudRows(facts), hungerC === undefined || hungerC.max <= 0 ? null : hungerC.value / hungerC.max);
+      // ★ HUD 行是富文本（批115）：标签与分隔符继承行基色（dim），值一段用亮色。
+      //   色号从 hud-ui 导入 —— HUD 的整套配色只在一处，判据按同一常量断言。
+      hudUi.setHud(
+        hudRowRuns(facts, { value: HUD_VALUE_TINT }),
+        hungerC === undefined || hungerC.max <= 0 ? null : hungerC.value / hungerC.max,
+      );
       // 复用上面为 `bagStacks` 已经取过的那一份，不再遍历第二次
       syncBagUi(stacks);
     } else {
@@ -2516,6 +2522,14 @@ export async function main(): Promise<void> {
     /** 累计渲染帧数（引擎侧计数）。与 `gfxStats().frameIndex` 对账 ⇒ 一帧几个 pass。 */
     renderFrames: () => renderFrames,
     /**
+     * 像素级断言的窗口（批115）：回调在 `endFrame` 之后、**同一个任务里**被调（一次）。
+     * ★ 自检页在这里把 WebGL 画布 `drawImage` 到 2D 画布再读像素 ——
+     *   `preserveDrawingBuffer: false` 之下，出了这个任务帧缓冲就空了
+     *   （自检页头部那条注释说过：帧后 `readPixels` 读不到内容）。
+     *   返回退订函数（等不到帧时用来收尾）。
+     */
+    onFrameEnd: (cb: () => void) => renderMod.onFrameEnd(cb),
+    /**
      * UI（批71）。`null` = UI 资产不可用，HUD 已退回 DOM。
      *
      * ★ 这里给的必须是**屏幕上的事实**：这一帧真画了多少 quad/字形、
@@ -2542,6 +2556,12 @@ export async function main(): Promise<void> {
             },
             /** 面板里**画出来的**行文本（不是重新算一遍的那份）。 */
             bagRows: () => hudUi.bagRowTexts.slice(),
+            /**
+             * 最近一帧 UI 实际提交的顶点（诊断；与渲染模块的 `lastVertices` 同款）。
+             * ★ Node 判据验的是「要画什么」，这里验的是「真的提交了什么」——
+             *   「四边形说有、像素说没有」时只有这一层能分辨 UV 与位置（批115）。
+             */
+            verts: (n: number) => hudUi.module.lastVertices(n),
             /** 当前提示文案（"" = 没有）。自检页用它证"提示走 UI 树而不是 DOM"。 */
             toastText: () => hudUi.toastText,
             /** 命令行输入框的状态（自检页读**屏幕上那份**：display / 光标）。 */
@@ -2553,6 +2573,13 @@ export async function main(): Promise<void> {
             hudRowIds: hudUi.hudRowIds,
             /** 设计坐标（自检页验"点击命中真实矩形"时用）。 */
             designSize: () => ({ w: hudUi.module.viewport.designWidth, h: hudUi.module.viewport.designHeight }),
+            /**
+             * 设计坐标 → CSS 像素（含视口缩放与 letterbox 偏移）。
+             * ★ 像素断言用它定位采样区：行矩形是设计像素，帧缓冲是画布像素，
+             *   中间隔着这一步换算 —— 跳过它采样就会采到别的行（视口 1×1 时碰巧对，
+             *   缩放一变就错，而且错得没有计数能看出来）。
+             */
+            toScreen: (x: number, y: number) => hudUi.module.viewport.designToScreen(x, y),
             /**
              * 点一下某个节点：走**真实指针路径**（设计坐标 → CSS 像素 → 命中测试 → click）。
              * 直接改 `bagSel` 只能证明"赋值有效"，证明不了"面板上的行点得到"。

@@ -119,6 +119,8 @@ export interface UiModuleHandle extends IModule {
   readonly layout: UiLayoutResult;
   /** 跨帧状态表（诊断/编辑器用：看命中率、看滚动位置、必要时丢掉）。 */
   readonly state: UiStateStore;
+  /** 最近一帧实际提交的顶点（诊断用；见实现处的注释）。 */
+  lastVertices(quads: number): Float32Array;
 }
 
 export function createUiModule(opts: UiModuleOptions): UiModuleHandle {
@@ -494,6 +496,26 @@ export function createUiModule(opts: UiModuleOptions): UiModuleHandle {
 
     get state(): UiStateStore {
       return store;
+    },
+
+    /**
+     * 最近一帧**实际提交**的顶点（前 `quads` 个四边形，每顶点 8 个 float）。
+     *
+     * ★ 与渲染模块的 `lastVertices` 同一款诊断：Node 判据里的 `buildUiQuads`
+     *   验的是「要画什么」，这里验的是「真的提交了什么」—— 相机变换、批内排序、
+     *   run 分段都发生在这之后。排查「四边形说有、像素说没有」时，这一层能把
+     *   「UV 指空」与「顶点出屏/排序错位」分开。
+     *
+     * ★ 批115 的教训：当时靠它排除了三种假设（UV 指空、顶点出屏、绑错页），
+     *   最后发现**根本不存在这个缺陷** —— 是像素判据自己的亮度阈值（>180）
+     *   与采样区位置写错了，文字一直是暗色在画。诊断面留着仍然有用（下一次
+     *   「说有却看不见」还要靠它分辨），但**「诊断面全绿」不等于「判据对」**：
+     *   判据自己的假设也要被验证一次。
+     */
+    lastVertices(quads: number): Float32Array {
+      const b = batch;
+      if (b === null) return new Float32Array(0);
+      return b.vertexView(Math.max(0, quads)).slice();
     },
   };
 

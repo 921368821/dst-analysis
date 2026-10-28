@@ -60,6 +60,22 @@ export interface RenderItem {
   readonly a: number;
   readonly order: number;
   /**
+   * 排序用的深度（**只影响谁盖住谁**，不影响几何）。缺省 = `z`。
+   *
+   * ★ 为什么需要它：「z」在世界里同时承担**几何**（2.5D 的纵向位置）与**深度**
+   *   （离镜头多远）两个职责，因为世界坐标本来就在 (x, z) 平面上。
+   *   但 UI 的四边形是把**屏幕坐标** (x, y) 塞进 (x, z) 的：那里的 z 就是屏幕 y，
+   *   于是「z 降序 = 远的先画」变成了「屏幕 y 大的先画」 —— 面板底色（y 小）
+   *   排在它的文字（y 大）**之后**画，把文字盖住一半（批115 的像素判据抓到：
+   *   行文字四边形颜色全对、字形数也对，屏幕上却是行底色）。
+   *   UI 的正确顺序是**画家顺序**（`order` 前序），深度必须恒定。
+   *
+   *   把两者拆开而不是给 UI 传 `z: 0`：`z` 还得当几何用（`ui-scroll` 的判据
+   *   就是读 `q.z + q.h` 算行底）。拆开之后两边都保持原意，世界的调用方
+   *   一个都不用改（不传 = 用 z）。
+   */
+  readonly sortZ?: number;
+  /**
    * 绘制层：0 = 背景（地面），1 = 实体。排序键的**第一**优先级（高于 z）。
    * 缺省当 1（旧内容 / 手搓的 RenderItem 不能因此掉到地形背后）。
    */
@@ -146,7 +162,10 @@ export class SpriteBatch {
       const la = a.layer ?? 1;
       const lb = b.layer ?? 1;
       if (la !== lb) return la - lb; // 背景先画
-      if (a.z !== b.z) return b.z - a.z; // 远的先画
+      // 深度与几何分家（见 RenderItem.sortZ）：世界不传 = 用 z，UI 传 0 = 只看 order。
+      const za = a.sortZ ?? a.z;
+      const zb = b.sortZ ?? b.z;
+      if (za !== zb) return zb - za; // 远的先画
       if (a.order !== b.order) return a.order - b.order;
       if (a.atlas !== b.atlas) return a.atlas - b.atlas;
       return a.nodeId - b.nodeId;
@@ -188,7 +207,11 @@ export class SpriteBatch {
       // ★ 两轴的符号必须同向：`0.5 - pivot` 为正 ⇒ 中心上/右移。
       //   写成 (pivot - 0.5) 会让 pivotY=0（脚踩地面）变成"陷进地里一整格"，
       //   而这种错法在 pivot=0.5 的内容上完全看不出来（对称中心不动）。
-      const cy = c.y + (0.5 - it.pivotY) * 2 * e.halfH;
+      // ★ `yDown` 的相机（UI）里"抬"的方向是**屏幕下方的减号**：那边的 pivotY=0
+      //   是矩形的**上沿**，中心要往 y 增大的方向（屏幕下方 = 裁剪 y 减小）偏。
+      //   投影已经翻过一次，这里翻第二次才是"从边往内长"。
+      const pivotDir = cam.yDown ? -1 : 1;
+      const cy = c.y + (0.5 - it.pivotY) * 2 * e.halfH * pivotDir;
       const cx = c.x + (0.5 - it.pivotX) * 2 * e.halfW;
       const x0 = cx - e.halfW;
       const x1 = cx + e.halfW;

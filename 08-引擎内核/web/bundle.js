@@ -10170,7 +10170,9 @@ var SpriteBatch = class _SpriteBatch {
       const la = a.layer ?? 1;
       const lb = b.layer ?? 1;
       if (la !== lb) return la - lb;
-      if (a.z !== b.z) return b.z - a.z;
+      const za = a.sortZ ?? a.z;
+      const zb = b.sortZ ?? b.z;
+      if (za !== zb) return zb - za;
       if (a.order !== b.order) return a.order - b.order;
       if (a.atlas !== b.atlas) return a.atlas - b.atlas;
       return a.nodeId - b.nodeId;
@@ -10202,7 +10204,8 @@ var SpriteBatch = class _SpriteBatch {
       }
       const c = cam.project(it.x, it.z);
       const e = cam.extents(it.w, it.h);
-      const cy = c.y + (0.5 - it.pivotY) * 2 * e.halfH;
+      const pivotDir = cam.yDown ? -1 : 1;
+      const cy = c.y + (0.5 - it.pivotY) * 2 * e.halfH * pivotDir;
       const cx = c.x + (0.5 - it.pivotX) * 2 * e.halfW;
       const x0 = cx - e.halfW;
       const x1 = cx + e.halfW;
@@ -10257,6 +10260,25 @@ var Camera2D = class {
   x;
   z;
   clearColor;
+  /**
+   * y 轴方向：`false`（默认）= 世界约定，**z 越大越靠上**；
+   * `true` = 界面约定，**y 越大越靠下**（屏幕坐标，左上原点）。
+   *
+   * ★ 为什么需要它（批115 抓到的真缺陷）：UI 的设计坐标是**屏幕式**的
+   *   （`Rect` 从左上角起、Column 从 `inner.y` 往下累加），而 `project` 的
+   *   世界约定是 z 向上。UI 把设计 y 当 z 传进来，于是整棵树被**上下镜像**：
+   *   布局在顶部的 HUD 画到了屏幕底部、贴在底部的提示条画到了顶部、
+   *   背包的行从下往上排。四边形数、字形数、颜色、UV 全对，只是位置反了 ——
+   *   `layout` 层的判据看不到（它们读的是布局矩形），只有像素级判据能抓。
+   *
+   * ★ 不把 `tiltY` 设成负数来"顺便翻转"：`tiltY` 同时进 `extents`，
+   *   负值会把 quad 的高也翻成负的（UV 与角落的对应关系跟着反）⇒ 字变倒影。
+   *   方向必须是投影**单独**的一条，不能借用缩放。
+   *
+   * ★ 拾取（`unproject`）跟着同一个开关走：输入与渲染必须用同一套 y 语义，
+   *   否则"看到的位置"和"点到的东西"会差一个镜像 —— 那是最难查的一类错位。
+   */
+  yDown = false;
   /** 每世界单位有多少像素（x 方向）。UI 命中测试、像素对齐用。 */
   _pxPerUnit = 1;
   constructor(cfg) {
@@ -10288,11 +10310,11 @@ var Camera2D = class {
     this.x = x;
     this.z = z;
   }
-  /** 世界 (x,z) → 裁剪空间 (-1..1)。 */
+  /** 世界 (x,z) → 裁剪空间 (-1..1)。`yDown` 时 y 取反（见字段说明）。 */
   project(wx, wz) {
     const sx = (wx - this.x) * this.zoom / (this.vw / 2);
     const sy = (wz - this.z) * this.zoom * this.tiltY / (this.vh / 2);
-    return { x: sx, y: sy };
+    return { x: sx, y: this.yDown ? -sy : sy };
   }
   /** 世界尺寸 → 裁剪空间半宽/半高（精灵用）。 */
   extents(worldW, worldH) {
@@ -10301,13 +10323,13 @@ var Camera2D = class {
       halfH: worldH * this.zoom * this.tiltY / this.vh
     };
   }
-  /** 屏幕像素 → 世界 XZ（拾取/点选用）。 */
+  /** 屏幕像素 → 世界 XZ（拾取/点选用）。与 `project` 共用 `yDown` 语义。 */
   unproject(px, py) {
     const nx = px / this.vw * 2 - 1;
     const ny = 1 - py / this.vh * 2;
     return {
       x: this.x + nx * this.vw / 2 / this.zoom,
-      z: this.z + ny * this.vh / 2 / (this.zoom * this.tiltY)
+      z: this.z + (this.yDown ? -ny : ny) * this.vh / 2 / (this.zoom * this.tiltY)
     };
   }
   /** 当前可见的世界矩形（裁剪用，也是"哪些实体该画"的粗筛）。 */
@@ -10695,6 +10717,7 @@ function createRenderModule(opts) {
   let curtain = 0;
   let curtainVbo = null;
   let lastCurtain = { alpha: 0, drawn: false };
+  const frameEndHooks = [];
   let batch = null;
   let pages = [];
   let atlasFmt = PixelFormat.RGBA8;
@@ -10918,6 +10941,13 @@ function createRenderModule(opts) {
     setOverlay(fn) {
       overlay = fn;
     },
+    onFrameEnd(fn) {
+      frameEndHooks.push(fn);
+      return () => {
+        const i = frameEndHooks.indexOf(fn);
+        if (i >= 0) frameEndHooks.splice(i, 1);
+      };
+    },
     setCurtain(alpha) {
       curtain = Number.isFinite(alpha) ? Math.max(0, Math.min(1, alpha)) : 0;
     },
@@ -11044,6 +11074,16 @@ function createRenderModule(opts) {
     }
     cmd.finish();
     d.endFrame();
+    if (frameEndHooks.length > 0) {
+      const hooks = frameEndHooks.splice(0, frameEndHooks.length);
+      for (const fn of hooks) {
+        try {
+          fn();
+        } catch (e) {
+          ctxRef?.log.channel("render").error(`onFrameEnd \u56DE\u8C03\u629B\u9519\uFF1A${String(e)}`, void 0, null);
+        }
+      }
+    }
   }
   function frameOf(slot, frame) {
     return pages[slot]?.frames.get(frame);
@@ -18664,6 +18704,7 @@ var UiViewport = class {
     this.cam.setViewport(pw, ph);
     this.cam.zoom = this.scaleValue;
     this.cam.tiltY = 1;
+    this.cam.yDown = true;
     this.cam.moveTo(this.designWidth / 2, this.designHeight / 2);
   }
 };
@@ -19645,8 +19686,12 @@ function buildUiQuads(root, fonts, skin, store) {
     }
     quads.push({
       nodeId: order,
-      // ★ UI 用 z=0 恒定：排序第一键 layer 恒为 UI_LAYER，绘制顺序全靠 order。
-      //   给 UI 编假的 z 会让"同 order 的兄弟"按 z 乱序 —— 那是最难查的一类重叠。
+      // ★ 几何用屏幕 (x, y)，**深度用常量 0** —— 两者分开是因为 UI 的排序
+      //   必须是画家顺序（`order`：父先子后、兄弟按数组顺序），而 `z` 在这个
+      //   结构里是"几何纵坐标"。把屏幕 y 直接当深度用会让"y 更大的文字"排在
+      //   "y 更小的行底色"之前画，于是行底色盖住行文字（批115 的像素级判据
+      //   抓到的就是这个：四边形颜色全对、字形数也对，屏幕上只剩底色）。
+      //   见 `RenderItem.sortZ` 的说明。
       x: r.x,
       z: r.y,
       w: r.width,
@@ -19661,6 +19706,8 @@ function buildUiQuads(root, fonts, skin, store) {
       a,
       order: ord,
       layer: UI_LAYER,
+      // 深度恒 0（见上面 ★）：order 才是 UI 的遮挡顺序。
+      sortZ: 0,
       pivotX: 0,
       pivotY: 0,
       atlas: page
@@ -20222,40 +20269,74 @@ function createUiModule(opts) {
     },
     get state() {
       return store;
+    },
+    /**
+     * 最近一帧**实际提交**的顶点（前 `quads` 个四边形，每顶点 8 个 float）。
+     *
+     * ★ 与渲染模块的 `lastVertices` 同一款诊断：Node 判据里的 `buildUiQuads`
+     *   验的是「要画什么」，这里验的是「真的提交了什么」—— 相机变换、批内排序、
+     *   run 分段都发生在这之后。排查「四边形说有、像素说没有」时，这一层能把
+     *   「UV 指空」与「顶点出屏/排序错位」分开。
+     *
+     * ★ 批115 的教训：当时靠它排除了三种假设（UV 指空、顶点出屏、绑错页），
+     *   最后发现**根本不存在这个缺陷** —— 是像素判据自己的亮度阈值（>180）
+     *   与采样区位置写错了，文字一直是暗色在画。诊断面留着仍然有用（下一次
+     *   「说有却看不见」还要靠它分辨），但**「诊断面全绿」不等于「判据对」**：
+     *   判据自己的假设也要被验证一次。
+     */
+    lastVertices(quads2) {
+      const b = batch;
+      if (b === null) return new Float32Array(0);
+      return b.vertexView(Math.max(0, quads2)).slice();
     }
   };
   return mod;
 }
 
 // src/host/hud-model.ts
-function hudRows(f) {
+function hudRowRuns(f, colors) {
   const r = (n) => String(Math.round(n));
-  const world = f.world === null ? "world -" : `world ${r(f.world.terrain)}/${r(f.world.sites)}`;
-  const script = f.script === null ? "script off" : `script ${r(f.script.calls)}c/${r(f.script.errors)}e${f.script.timeouts > 0 ? `/${r(f.script.timeouts)}to` : ""}`;
-  const hunger = f.hunger === null ? "fed -" : `fed ${r(f.hunger.value)}/${r(f.hunger.max)}`;
+  const valueRun = (text) => colors?.value === void 0 ? { text } : { text, color: colors.value };
+  const field = (label, value) => [{ text: label }, valueRun(value)];
+  const sep = { text: " | " };
+  const join = (fields) => fields.flatMap((seg, i) => i === 0 ? seg : [sep, ...seg]);
+  const world = f.world === null ? "-" : `${r(f.world.terrain)}/${r(f.world.sites)}`;
+  const scriptValue = f.script === null ? "off" : `${r(f.script.calls)}c/${r(f.script.errors)}e${f.script.timeouts > 0 ? `/${r(f.script.timeouts)}to` : ""}`;
+  const hungerValue = f.hunger === null ? "-" : `${r(f.hunger.value)}/${r(f.hunger.max)}`;
+  const mk = (runs) => ({ text: runs.map((s) => s.text).join(""), runs });
   return [
-    [
-      `fps ${r(f.fps)}`,
-      `tick ${r(f.tick)}`,
-      `quad ${r(f.quads)}`,
-      `draw ${r(f.drawCalls)}`,
-      `cull ${r(f.culled)}`,
-      `nodes ${r(f.nodes)}`,
-      `bodies ${r(f.bodies)}`
-    ].join(" | "),
-    [
-      `atlas:${f.atlas}`,
-      world,
-      `res ${r(f.resources.alive)}/${r(f.resources.spawned)}/${r(f.resources.released)}`,
-      `bag ${r(f.bagStacks)}`,
-      hunger
-    ].join(" | "),
-    [
-      `${f.backends.gfx}/${f.backends.audio}/${f.backends.input}/${f.backends.script ?? "-"}`,
-      script,
-      `drop ${r(f.droppedSteps)}`
-    ].join(" | ")
+    mk(
+      join([
+        field("fps ", r(f.fps)),
+        field("tick ", r(f.tick)),
+        field("quad ", r(f.quads)),
+        field("draw ", r(f.drawCalls)),
+        field("cull ", r(f.culled)),
+        field("nodes ", r(f.nodes)),
+        field("bodies ", r(f.bodies))
+      ])
+    ),
+    mk(
+      join([
+        field("atlas:", f.atlas),
+        field("world ", world),
+        field("res ", `${r(f.resources.alive)}/${r(f.resources.spawned)}/${r(f.resources.released)}`),
+        field("bag ", r(f.bagStacks)),
+        field("fed ", hungerValue)
+      ])
+    ),
+    mk(
+      join([
+        [{ text: `${f.backends.gfx}/${f.backends.audio}/${f.backends.input}/${f.backends.script ?? "-"}` }],
+        field("script ", scriptValue),
+        field("drop ", r(f.droppedSteps))
+      ])
+    )
   ];
+}
+function hudRows(f) {
+  const rows = hudRowRuns(f);
+  return [rows[0].text, rows[1].text, rows[2].text];
 }
 function hudLine(f) {
   return hudRows(f).join(" | ");
@@ -20495,6 +20576,7 @@ function caretXOf(table, index) {
 }
 
 // src/host/hud-ui.ts
+var HUD_VALUE_TINT = new Color(0.93, 0.96, 1, 1);
 function buildSkin(json, page = 1) {
   if (json.width <= 0 || json.height <= 0) {
     return err(engineError("UI.SKIN_BAD_SIZE", `\u76AE\u80A4\u56FE\u5C3A\u5BF8\u975E\u6CD5\uFF1A${String(json.width)}x${String(json.height)}`));
@@ -20850,15 +20932,21 @@ function createHudUi(opts) {
       return bagOpenState;
     },
     setHud(rows, hunger) {
-      const text0 = rows[0] ?? "";
-      const text1 = rows[1] ?? "";
-      const text2 = rows[2] ?? "";
+      const text0 = rows[0]?.text ?? "";
+      const text1 = rows[1]?.text ?? "";
+      const text2 = rows[2]?.text ?? "";
       const sig = `${text0}${text1}${text2}${hunger === null ? "-" : hunger.toFixed(2)}`;
       if (sig === hudSig) return;
       hudSig = sig;
-      const texts = [text0, text1, text2];
       hudRowNodes.forEach((n, i) => {
-        n.props = { ...n.props, text: texts[i] ?? "" };
+        const row = rows[i];
+        if (row === void 0) return;
+        n.props = {
+          ...n.props,
+          text: row.text,
+          // 与背包行同一条规矩：runs 与 text 一起推（排版只看 runs，text 给判据认行）。
+          runs: row.runs
+        };
       });
       fedBar.visible = hunger !== null;
       fedBar.props = { ...fedBar.props, value: hunger === null ? 0 : Math.max(0, Math.min(1, hunger)) };
@@ -26354,7 +26442,10 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
     };
     lastHudText = hudLine(facts);
     if (hudUi !== null) {
-      hudUi.setHud(hudRows(facts), hungerC === void 0 || hungerC.max <= 0 ? null : hungerC.value / hungerC.max);
+      hudUi.setHud(
+        hudRowRuns(facts, { value: HUD_VALUE_TINT }),
+        hungerC === void 0 || hungerC.max <= 0 ? null : hungerC.value / hungerC.max
+      );
       syncBagUi(stacks);
     } else {
       hud.textContent = lastHudText;
@@ -26765,6 +26856,14 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
     /** 累计渲染帧数（引擎侧计数）。与 `gfxStats().frameIndex` 对账 ⇒ 一帧几个 pass。 */
     renderFrames: () => renderFrames,
     /**
+     * 像素级断言的窗口（批115）：回调在 `endFrame` 之后、**同一个任务里**被调（一次）。
+     * ★ 自检页在这里把 WebGL 画布 `drawImage` 到 2D 画布再读像素 ——
+     *   `preserveDrawingBuffer: false` 之下，出了这个任务帧缓冲就空了
+     *   （自检页头部那条注释说过：帧后 `readPixels` 读不到内容）。
+     *   返回退订函数（等不到帧时用来收尾）。
+     */
+    onFrameEnd: (cb) => renderMod.onFrameEnd(cb),
+    /**
      * UI（批71）。`null` = UI 资产不可用，HUD 已退回 DOM。
      *
      * ★ 这里给的必须是**屏幕上的事实**：这一帧真画了多少 quad/字形、
@@ -26786,6 +26885,12 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
       },
       /** 面板里**画出来的**行文本（不是重新算一遍的那份）。 */
       bagRows: () => hudUi.bagRowTexts.slice(),
+      /**
+       * 最近一帧 UI 实际提交的顶点（诊断；与渲染模块的 `lastVertices` 同款）。
+       * ★ Node 判据验的是「要画什么」，这里验的是「真的提交了什么」——
+       *   「四边形说有、像素说没有」时只有这一层能分辨 UV 与位置（批115）。
+       */
+      verts: (n) => hudUi.module.lastVertices(n),
       /** 当前提示文案（"" = 没有）。自检页用它证"提示走 UI 树而不是 DOM"。 */
       toastText: () => hudUi.toastText,
       /** 命令行输入框的状态（自检页读**屏幕上那份**：display / 光标）。 */
@@ -26797,6 +26902,13 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
       hudRowIds: hudUi.hudRowIds,
       /** 设计坐标（自检页验"点击命中真实矩形"时用）。 */
       designSize: () => ({ w: hudUi.module.viewport.designWidth, h: hudUi.module.viewport.designHeight }),
+      /**
+       * 设计坐标 → CSS 像素（含视口缩放与 letterbox 偏移）。
+       * ★ 像素断言用它定位采样区：行矩形是设计像素，帧缓冲是画布像素，
+       *   中间隔着这一步换算 —— 跳过它采样就会采到别的行（视口 1×1 时碰巧对，
+       *   缩放一变就错，而且错得没有计数能看出来）。
+       */
+      toScreen: (x, y) => hudUi.module.viewport.designToScreen(x, y),
       /**
        * 点一下某个节点：走**真实指针路径**（设计坐标 → CSS 像素 → 命中测试 → click）。
        * 直接改 `bagSel` 只能证明"赋值有效"，证明不了"面板上的行点得到"。

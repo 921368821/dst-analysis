@@ -67,37 +67,89 @@ export interface HudFacts {
  *
  * ★ 行的划分就是"什么时候会去看它"的划分，不是按字段类型分的。
  */
-export function hudRows(f: HudFacts): readonly [string, string, string] {
+/** 一行 HUD：`text` 给诊断面与降级路径认行用，`runs` 给 UI 面板分段上色用。 */
+export interface HudRow {
+  readonly text: string;
+  readonly runs: readonly TextRun[];
+}
+
+/**
+ * HUD 行的**配色**（可选）—— 与 `BagRowColors` 同一先例：分段在模型、颜色在调用方。
+ *
+ * ★ 只给「值」上色：标签（`fps `）与分隔符（` | `）不带 color、继承行自己的
+ *   基色（hud-ui 里那档 dim）。反过来「给标签上色」会让三个标签在视觉上
+ *   抢过值 —— 值才是每帧变的东西，也是人扫一眼要找的东西。
+ */
+export interface HudRowColors {
+  readonly value?: Color;
+}
+
+/**
+ * 三行 HUD 的**分段**形态。
+ *
+ * ★ `hudRows`（纯文本）从它派生，而不是两份各写一遍：字段文案只在这一处拼，
+ *   「哪个字符是标签、哪个是值」是关于这句文案的**事实**，跟"值用什么颜色"
+ *   一样属于分段 —— 拆成两处就会改一处漏一处（症状：值亮了但标签串也亮了）。
+ *
+ * ★ 分段切在**空格**上：`fps 60` → 「`fps `」（标签）+「`60`」（值）。
+ *   标签保留尾空格 —— 拼回去必须逐字符等于原串，这是判据钉死的不变量。
+ *   `atlas:assets*11` 切在冒号后；后端串（`webgl2/webaudio/...`）整段一段 ——
+ *   它没有"标签: 值"结构，硬拆只会造出一个没有意义的段。
+ */
+export function hudRowRuns(f: HudFacts, colors?: HudRowColors): readonly [HudRow, HudRow, HudRow] {
   const r = (n: number): string => String(Math.round(n));
-  const world = f.world === null ? "world -" : `world ${r(f.world.terrain)}/${r(f.world.sites)}`;
-  const script =
-    f.script === null
-      ? "script off"
-      : `script ${r(f.script.calls)}c/${r(f.script.errors)}e${f.script.timeouts > 0 ? `/${r(f.script.timeouts)}to` : ""}`;
-  const hunger = f.hunger === null ? "fed -" : `fed ${r(f.hunger.value)}/${r(f.hunger.max)}`;
+  const valueRun = (text: string): TextRun =>
+    colors?.value === undefined ? { text } : { text, color: colors.value };
+  /** 「标签 + 值」的标准字段：标签继承基色，值可上色。 */
+  const field = (label: string, value: string): TextRun[] => [{ text: label }, valueRun(value)];
+  const sep: TextRun = { text: " | " };
+  /** 字段之间插分隔符；分隔符不带颜色（继承基色，比标签更退后一步是面板的事）。 */
+  const join = (fields: TextRun[][]): TextRun[] =>
+    fields.flatMap((seg, i) => (i === 0 ? seg : [sep, ...seg]));
+
+  const world = f.world === null ? "-" : `${r(f.world.terrain)}/${r(f.world.sites)}`;
+  const scriptValue =
+    f.script === null ? "off" : `${r(f.script.calls)}c/${r(f.script.errors)}e${f.script.timeouts > 0 ? `/${r(f.script.timeouts)}to` : ""}`;
+  const hungerValue = f.hunger === null ? "-" : `${r(f.hunger.value)}/${r(f.hunger.max)}`;
+
+  const mk = (runs: TextRun[]): HudRow => ({ text: runs.map((s) => s.text).join(""), runs });
   return [
-    [
-      `fps ${r(f.fps)}`,
-      `tick ${r(f.tick)}`,
-      `quad ${r(f.quads)}`,
-      `draw ${r(f.drawCalls)}`,
-      `cull ${r(f.culled)}`,
-      `nodes ${r(f.nodes)}`,
-      `bodies ${r(f.bodies)}`,
-    ].join(" | "),
-    [
-      `atlas:${f.atlas}`,
-      world,
-      `res ${r(f.resources.alive)}/${r(f.resources.spawned)}/${r(f.resources.released)}`,
-      `bag ${r(f.bagStacks)}`,
-      hunger,
-    ].join(" | "),
-    [
-      `${f.backends.gfx}/${f.backends.audio}/${f.backends.input}/${f.backends.script ?? "-"}`,
-      script,
-      `drop ${r(f.droppedSteps)}`,
-    ].join(" | "),
+    mk(
+      join([
+        field("fps ", r(f.fps)),
+        field("tick ", r(f.tick)),
+        field("quad ", r(f.quads)),
+        field("draw ", r(f.drawCalls)),
+        field("cull ", r(f.culled)),
+        field("nodes ", r(f.nodes)),
+        field("bodies ", r(f.bodies)),
+      ]),
+    ),
+    mk(
+      join([
+        field("atlas:", f.atlas),
+        field("world ", world),
+        field("res ", `${r(f.resources.alive)}/${r(f.resources.spawned)}/${r(f.resources.released)}`),
+        field("bag ", r(f.bagStacks)),
+        field("fed ", hungerValue),
+      ]),
+    ),
+    mk(
+      join([
+        [{ text: `${f.backends.gfx}/${f.backends.audio}/${f.backends.input}/${f.backends.script ?? "-"}` }],
+        field("script ", scriptValue),
+        field("drop ", r(f.droppedSteps)),
+      ]),
+    ),
   ];
+}
+
+/**
+ * 三行 HUD 的**纯文本**形态（诊断面与降级路径用）。从 `hudRowRuns` 派生 —— 见那里的 ★。
+ */
+export function hudRows(f: HudFacts): readonly [string, string, string] {
+  const rows = hudRowRuns(f);
+  return [rows[0].text, rows[1].text, rows[2].text];
 }
 
 /**

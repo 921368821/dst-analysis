@@ -12,7 +12,11 @@
   table { border-collapse: collapse; width: 100%; max-width: 900px; }
   td { padding: 5px 10px 5px 0; vertical-align: top; border-bottom: 1px solid #1c2129; }
   .ok { color: #4ade80; } .bad { color: #f87171; } .wait { color: #fbbf24; }
-  #cv { width: 320px; height: 200px; border: 1px solid #21262d;
+  /* 批115：320×200 → 958×598（≈ 设计分辨率）。像素级判据要从这块画布读帧缓冲，
+     1/3 尺度下 5×7 的计数字形只剩几个像素，阈值断言永远够不着 ——
+     画布小到「判据没有分辨率」时，错的是画布，不是判据。（注意 style 里只能写 CSS 注释，
+     第一版写了 HTML 注释，整个规则被选择器错误吞掉，画布掉回默认 300×150。） */
+  #cv { width: 958px; height: 598px; border: 1px solid #21262d;
     image-rendering: pixelated; margin-top: 16px; border-radius: 4px; }
   code { background: #161b22; padding: 1px 4px; border-radius: 3px; }
 </style>
@@ -539,6 +543,124 @@ row("★★ 拖拽换位：按下-移动-松手，两行内容互换（再拖回
   return dragDone;
 });
 
+// ---- 批115：背包行两种颜色，从帧缓冲读回（像素级）----
+// ★ Node 里那条「走完全程」判据断言的是**四边形**的颜色；这里补最后一跳：
+//   四边形 → WebGL 帧缓冲 → 屏幕像素。`preserveDrawingBuffer: false` 之下，
+//   出了渲染任务帧缓冲就是空的，所以必须挂 `onFrameEnd`（endFrame 之后、
+//   同一个任务里）把画布抄进 2D 画布再读 —— 页面头部那条老注释说过这事。
+let pxDone = null;
+let pxBusy = false;
+let pxCanvas = null;
+row("★★ 背包行两种颜色到了帧缓冲（像素级：物品名白、计数灰，从 #cv 读回）", async (e) => {
+  if (pxDone !== null) return pxDone;
+  if (dragDone === null) return [false, "等「拖拽换位」跑完再读（它保证背包里是 2 堆）"];
+  if (e.ui === null) return [false, "没有 UI 模块（DOM 降级），像素断言不适用"];
+  if (e.ui.bagOpen() !== true) e.toggleBag();
+  const rect = e.ui.rect("bag.row0");
+  if (rect === null || rect.width <= 0) return [false, "行 0 没有布局矩形"];
+  const cv = document.getElementById("cv");
+  if (pxCanvas === null) pxCanvas = document.createElement("canvas");
+  // 设计坐标 → CSS 像素（toScreen：含 UI 缩放与 letterbox）→ 画布像素（×dpr）。
+  //  ★ 两个**角**都过 toScreen：矩形的宽高是设计像素，直接乘 dpr 会漏掉 UI 缩放
+  //  （预览画布不是设计分辨率时，采样区就落到界外 —— 第一版就是这么错的）。
+  //  跳过任何一步，采样区就落到别的行 —— 视口 1×1 时碰巧对，缩放一变就错。
+  const scr0 = e.ui.toScreen(rect.x, rect.y);
+  const scr1 = e.ui.toScreen(rect.x + rect.width, rect.y + rect.height);
+  const scale = cv.width / cv.clientWidth;
+  const x = Math.round(scr0.x * scale);
+  const y = Math.round(scr0.y * scale);
+  const w = Math.max(1, Math.round((scr1.x - scr0.x) * scale));
+  const h = Math.max(1, Math.round((scr1.y - scr0.y) * scale));
+  if (pxBusy) return [false, "上一轮取帧还没回来"];
+  pxBusy = true;
+  let img;
+  try {
+    img = await new Promise((resolve, reject) => {
+      const off = e.onFrameEnd(() => {
+        try {
+          pxCanvas.width = cv.width;
+          pxCanvas.height = cv.height;
+          const ctx = pxCanvas.getContext("2d");
+          ctx.drawImage(cv, 0, 0);
+          resolve(ctx.getImageData(x, y, w, h));
+        } catch (err) {
+          reject(err);
+        }
+      });
+      // 等不到帧就撤：引擎停了不该挂住整张表
+      setTimeout(() => {
+        off();
+        reject(new Error("1 秒内没等到帧末"));
+      }, 1000);
+    });
+  } catch (err) {
+    pxBusy = false;
+    return [false, "取帧失败：" + (err && err.message ? err.message : String(err))];
+  }
+  pxBusy = false;
+  // 目标色与 src/host/hud-ui.ts 的色板一致：物品名白、计数 (0.62,0.66,0.74)。
+  const targets = [
+    { name: "物品名", r: 255, g: 255, b: 255 },
+    { name: "计数", r: 158, g: 168, b: 189 },
+  ];
+  const TOL = 10;
+  const near = (v, t) => Math.abs(v - t) <= TOL;
+  // ★ 先把行底色抠掉：底色占绝大多数像素，若它碰巧落在某个目标色的容差里，
+  //   「计数=?px」就会凭空长出来 —— 那是背景在冒充文字。底色取行右侧 12%
+  //  （那里没有字）里最多的颜色。
+  const bgStart = Math.floor(w * 0.88);
+  const bgFreq = new Map();
+  for (let yy = 0; yy < h; yy++) {
+    for (let xx = bgStart; xx < w; xx++) {
+      const i = (yy * w + xx) * 4;
+      const k = img.data[i] + "," + img.data[i + 1] + "," + img.data[i + 2];
+      bgFreq.set(k, (bgFreq.get(k) || 0) + 1);
+    }
+  }
+  let bgKey = "";
+  let bgBest = 0;
+  for (const [k, c] of bgFreq) {
+    if (c > bgBest) {
+      bgBest = c;
+      bgKey = k;
+    }
+  }
+  const bg = bgKey.split(",").map(Number);
+  const isBg = (r, g, b) =>
+    bg.length === 3 && near(r, bg[0]) && near(g, bg[1]) && near(b, bg[2]);
+  const counts = new Map(targets.map((t) => [t.name, 0]));
+  // 前 3 名颜色（诊断用）：采样区落空（全透明黑）或底色抢戏时，看它一眼就知道是哪种错
+  const freq = new Map();
+  for (let i = 0; i < img.data.length; i += 4) {
+    const k = img.data[i] + "," + img.data[i + 1] + "," + img.data[i + 2];
+    freq.set(k, (freq.get(k) || 0) + 1);
+  }
+  const topColors = [...freq.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([k, c]) => "rgb(" + k + ")×" + String(c))
+    .join(" / ");
+  for (let i = 0; i < img.data.length; i += 4) {
+    const r = img.data[i];
+    const g = img.data[i + 1];
+    const b = img.data[i + 2];
+    if (isBg(r, g, b)) continue;
+    for (const t of targets) {
+      if (near(r, t.r) && near(g, t.g) && near(b, t.b)) {
+        counts.set(t.name, counts.get(t.name) + 1);
+        break;
+      }
+    }
+  }
+  const okAll = counts.get("物品名") >= 20 && counts.get("计数") >= 20;
+  pxDone = [
+    okAll,
+    `采样区 @${String(x)},${String(y)} ${String(w)}×${String(h)} · 画布 ${String(cv.width)}×${String(cv.height)}（css ${String(cv.clientWidth)}×${String(cv.clientHeight)}）` +
+      ` · top ${topColors} · 底色 rgb(${String(bg[0] ?? -1)},${String(bg[1] ?? -1)},${String(bg[2] ?? -1)})` +
+      ` · ${targets.map((t) => `${t.name}=${String(counts.get(t.name))}px`).join(" · ")}（各 ≥20 算到）`,
+  ];
+  return pxDone;
+});
 let cmdDone = null;
 row("★★ 命令行输入框：/ 打开、打字、光标移动、Shift 选一个字、Esc 收起（不改背包）", (e) => {
   if (cmdDone !== null) return cmdDone;
@@ -1095,16 +1217,23 @@ row("★★ 命中真的顿帧：世界当场冻住，而渲染帧还在涨", as
     hsPhase = 1;
     return [false, `已冻住：剩余 ${hsA.freeze} 步 · tick=${hsA.tick} · 渲染帧=${hsA.frame}（等下一轮对比）`];
   }
+  // ★ 在**行内**等一段时间再比，而不是靠"下一轮表格重跑"当间隔：
+  //   表格是同一个任务里连跑全部行的（`for (const r of rows) await r.run(e)`），
+  //   而 phase 0 → phase 1 有可能落在两次相邻的 sweep 里、间隔几毫秒 ——
+  //   那时"渲染帧没涨"是**采样太近**，不是帧停了（批115 就红在这上面）。
+  //   等 120ms 再采：真停住的话 delta 必然是 0，判据的牙一点没松。
+  await new Promise((r) => setTimeout(r, 120));
   const now = { tick: e.snapshot().tick, frame: e.renderFrames() };
   const still = e.hitstop().frozen;
   if (still) {
     // ★ 冻结期间的两件事必须同时成立：tick 一步不走、渲染帧一直在涨。
     //   只验"tick 不动"会漏掉"整个 frame 停了"（那种实现连闪色一起定住，像卡了）；
     //   只验"帧在涨"会漏掉"世界照常跑、只是记了个标志位"。
+    //   两个采样点的**时间间隔**由上面那次等待给定，所以"帧没涨"只可能是真停。
     const worldStopped = now.tick === hsA.tick;
     const framesMoving = now.frame > hsA.frame;
     if (!worldStopped || !framesMoving) {
-      hsDone = [false, `冻结中 tick ${hsA.tick}→${now.tick}（应不动）· 渲染帧 ${hsA.frame}→${now.frame}（应涨）`];
+      hsDone = [false, `冻结中（120ms 后复采）tick ${hsA.tick}→${now.tick}（应不动）· 渲染帧 ${hsA.frame}→${now.frame}（应涨）`];
       return hsDone;
     }
     return [false, `冻结中：tick 保持 ${now.tick} · 渲染帧 ${hsA.frame}→${now.frame}`];
@@ -1497,13 +1626,24 @@ row("★★★ 玩家八向动画：帧名 = 朝向扇区、同方向 4 帧在�
     if (spot2 === null) return fail("找不到空地来测四向帧字母");
     node.setLocalPosition(spot2.x, spot2.y);
     await wait(220);
+    // ★ 采样按**逻辑步**对齐，不等固定 30ms：浏览器自检在 CI 里排在重负载步骤之后，
+    //   30ms 里那一拍可能还没跑 ⇒ 采到的是上一拍的旧朝向（实测「往 s 挪 8 拍只有 5 拍对」，
+    //   单跑却全绿 —— 与批115 顿帧判据的采样节奏洞同源：等真实时间 ≠ 等逻辑步）。
+    //   等待条件是 tick 前进 ≥1（上限 300ms 防真死锁）：机器慢只会多等几拍，不会假红。
+    const waitTick = async (from) => {
+      const deadline = Date.now() + 300;
+      while (Date.now() < deadline && e.snapshot().tick <= from) {
+        await new Promise((r) => setTimeout(r, 5));
+      }
+    };
     const faces = [];
     for (const [ux, uy, want] of DIR4) {
       const seenL = [];
       for (let i = 0; i < 8; i++) {
+        const t0 = e.snapshot().tick;
         const p = posOf();
         node.setLocalPosition(p.x + ux * 0.6, p.y + uy * 0.6);
-        await wait(30);
+        await waitTick(t0);
         seenL.push(sample());
       }
       const hit = seenL.filter((s) => s.letter === want).length;

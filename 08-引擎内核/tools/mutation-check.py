@@ -1906,11 +1906,19 @@ MUTANTS = [
         #   整条删掉才是完整的旧行为。判据两条腿：「layer 优先于 z」抓顺序，
         #   「交错场景 draw == 2」抓段数 —— 少任何一条，另一条仍可能绿。
         "file": "src/extensions/render/batch2d.ts",
+        # 批115 重新指认：sort 加了 sortZ（深度与几何分家），旧靶子第 4 行
+        # `if (a.z !== b.z) ...` 不存在了；变异语义不变 —— 仍删 layer 这一**第一**优先级。
         "pairs": [("""      const la = a.layer ?? 1;
       const lb = b.layer ?? 1;
       if (la !== lb) return la - lb; // 背景先画
-      if (a.z !== b.z) return b.z - a.z; // 远的先画""",
-                   """      if (a.z !== b.z) return b.z - a.z; // 远的先画""")],
+      // 深度与几何分家（见 RenderItem.sortZ）：世界不传 = 用 z，UI 传 0 = 只看 order。
+      const za = a.sortZ ?? a.z;
+      const zb = b.sortZ ?? b.z;
+      if (za !== zb) return zb - za; // 远的先画""",
+                   """      // 深度与几何分家（见 RenderItem.sortZ）：世界不传 = 用 z，UI 传 0 = 只看 order。
+      const za = a.sortZ ?? a.z;
+      const zb = b.sortZ ?? b.z;
+      if (za !== zb) return zb - za; // 远的先画""")],
         "test": "tests/extensions/render-tile.test.ts",
     },
     {
@@ -2775,7 +2783,10 @@ MUTANTS = [
         # "·" 是旧 DOM 版的分隔符），而 5×7 位图字体里两者都没有。
         # 症状：不报错、不崩、`xadvance` 照旧推进，只是那块地方是空的。
         "file": "src/host/hud-model.ts",
-        "pairs": [("      `bag ${r(f.bagStacks)}`,", "      `背包 ${r(f.bagStacks)}`,")],
+        # 批115 重新指认：bagStacks 文案从模板串改成 field("bag ", r(...))（富文本分段），
+        # 旧靶子 `` `bag ${...}` `` 不存在了；变异语义不变 —— 标签混进非 ASCII。
+        "pairs": [('        field("bag ", r(f.bagStacks)),',
+                   '        field("背包 ", r(f.bagStacks)),')],
         "test": "tests/host/hud-model.test.ts",
     },
     {
@@ -6135,6 +6146,63 @@ MUTANTS = [
             )
         ],
         "test": "tests/host/hud-ui.test.ts"
+    },
+    {
+        "name": "M636 UI 的深度用屏幕 y（行底色画在行文字之后：字被自己的行盖住）",
+        "file": "src/extensions/ui/widgets.ts",
+        "pairs": [("      sortZ: 0,", "      sortZ: undefined,")],
+        "test": "tests/extensions/ui-module.test.ts"
+    },
+    {
+        "name": "M637 UI 相机不开 yDown（整棵界面上下镜像：顶部 HUD 画到屏幕底）",
+        "file": "src/extensions/ui/viewport.ts",
+        "pairs": [("    this.cam.yDown = true;", "    this.cam.yDown = false;")],
+        "test": "tests/extensions/ui-viewport.test.ts"
+    },
+    {
+        "name": "M638 yDown 下 pivot 仍朝上长（矩形从边往反方向长：一行压到上一行）",
+        "file": "src/extensions/render/batch2d.ts",
+        "pairs": [("      const pivotDir = cam.yDown ? -1 : 1;", "      const pivotDir = 1;")],
+        "test": "tests/extensions/ui-module.test.ts"
+    },
+    {
+        "name": "M639 排序不认 sortZ（UI 的顺序又退回按屏幕 y 排）",
+        "file": "src/extensions/render/batch2d.ts",
+        "pairs": [
+            (
+                "      const za = a.sortZ ?? a.z;\n      const zb = b.sortZ ?? b.z;",
+                "      const za = a.z;\n      const zb = b.z;"
+            )
+        ],
+        "test": "tests/core/render.test.ts"
+    },
+    {
+        "name": "M640 HUD 的值段不上色（分段还在，颜色没了：三行又变成一种颜色）",
+        "file": "src/host/hud-model.ts",
+        "pairs": [
+            (
+                "    colors?.value === undefined ? { text } : { text, color: colors.value };",
+                "    ({ text });"
+            )
+        ],
+        "test": "tests/host/hud-model.test.ts"
+    },
+    {
+        "name": "M641 面板收下 runs 却不推给节点（富文本半条链：模型分了段，屏幕一个色）",
+        "file": "src/host/hud-ui.ts",
+        "pairs": [("          runs: row.runs,", "          runs: undefined,")],
+        "test": "tests/host/hud-ui.test.ts"
+    },
+    {
+        "name": "M642 onFrameEnd 退订不生效（像素判据会重复触发：一次取帧读两次缓冲）",
+        "file": "src/extensions/render/render-module.ts",
+        "pairs": [
+            (
+                "        if (i >= 0) frameEndHooks.splice(i, 1);",
+                "        void i;"
+            )
+        ],
+        "test": "tests/extensions/render-curtain.test.ts"
     }
 ]
 
