@@ -6486,6 +6486,72 @@ MUTANTS = [
         "file": "src/extensions/tween/bezier.ts",
         "pairs": [("    if (t <= 0) return 0;", "    if (t <= 0) return t;")],
         "test": "tests/extensions/tween-bezier.test.ts"
+    },
+    {
+        "name": "M679 未声明的事件回落到 initial（跑步时一个无关事件把状态打回待机）",
+        "file": "src/extensions/render/anim-state.ts",
+        "pairs": [("  return { state: current, clip: currentClip, consumed: false, changed: false, restart: false };", "  return { state: machine.initial, clip: stateClip(machine, machine.initial), consumed: false, changed: machine.initial !== current, restart: true };")],
+        "test": "tests/extensions/anim-state.test.ts"
+    },
+    {
+        "name": "M680 自转移不算消费（连按跑步键不再重播起跑）",
+        "file": "src/extensions/render/anim-state.ts",
+        "pairs": [("      consumed: true,", "      consumed: t.to !== current,")],
+        "test": "tests/extensions/anim-state.test.ts"
+    },
+    {
+        "name": "M681 不检测重复转移（同一状态同一事件两条，后者静默覆盖）",
+        "file": "src/extensions/render/anim-state.ts",
+        "pairs": [("    if (seen.has(key)) {", "    if (false) {")],
+        "test": "tests/extensions/anim-state.test.ts"
+    },
+    {
+        "name": "M682 不校验初始状态（initial 指向不存在的状态）",
+        "file": "src/extensions/render/anim-state.ts",
+        "pairs": [("  if (!Object.hasOwn(input.states, input.initial)) {", "  if (false) {")],
+        "test": "tests/extensions/anim-state.test.ts"
+    },
+    {
+        "name": "M683 不校验转移目标（走到一个没有 clip 的状态）",
+        "file": "src/extensions/render/anim-state.ts",
+        "pairs": [("    if (!Object.hasOwn(input.states, t.to)) {", "    if (false) {")],
+        "test": "tests/extensions/anim-state.test.ts"
+    },
+    {
+        "name": "M684 changed 恒 false（换了状态也不换 clip）",
+        "file": "src/extensions/render/anim-state.ts",
+        "pairs": [("      changed: t.to !== current,", "      changed: false,")],
+        "test": "tests/extensions/anim-state.test.ts"
+    },
+    {
+        "name": "M685 restart 恒 false（换了状态但时钟不清零，从上一段进度接着播）",
+        "file": "src/extensions/render/anim-state.ts",
+        "pairs": [("      restart: true,", "      restart: false,")],
+        "test": "tests/extensions/anim-state.test.ts"
+    },
+    {
+        "name": "M686 未知状态不抛（返回状态名当 clip，下游变成「找不到 clip」）",
+        "file": "src/extensions/render/anim-state.ts",
+        "pairs": [("    throw new TypeError(`\u72b6\u6001 ${JSON.stringify(state)} \u4e0d\u5728\u72b6\u6001\u673a ${JSON.stringify(machine.id)} \u91cc`);", "    return state;")],
+        "test": "tests/extensions/anim-state.test.ts"
+    },
+    {
+        "name": "M687 不校验空事件名（「没有事件」与「某个事件」混同）",
+        "file": "src/extensions/render/anim-state.ts",
+        "pairs": [("    if (t.event.length === 0) {", "    if (false) {")],
+        "test": "tests/extensions/anim-state.test.ts"
+    },
+    {
+        "name": "M688 状态表不冻结（一次改写会同时改掉所有共享它的实体）",
+        "file": "src/extensions/render/anim-state.ts",
+        "pairs": [("  const states: Record<string, string> = Object.freeze({ ...input.states });", "  const states: Record<string, string> = { ...input.states };")],
+        "test": "tests/extensions/anim-state.test.ts"
+    },
+    {
+        "name": "M689 去重键用冒号拼（状态名/事件名含分隔符时撞车，漏报重复）",
+        "file": "src/extensions/render/anim-state.ts",
+        "pairs": [("    const key = `${t.from}\\u0000${t.event}`;", "    const key = `${t.from}:${t.event}`;")],
+        "test": "tests/extensions/anim-state.test.ts"
     }
 ]
 
