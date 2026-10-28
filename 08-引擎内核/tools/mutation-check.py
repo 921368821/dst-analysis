@@ -6552,6 +6552,66 @@ MUTANTS = [
         "file": "src/extensions/render/anim-state.ts",
         "pairs": [("    const key = `${t.from}\\u0000${t.event}`;", "    const key = `${t.from}:${t.event}`;")],
         "test": "tests/extensions/anim-state.test.ts"
+    },
+    {
+        "name": "M690 包后端谎称不能列目录（manifest 就是清单，这个信息本来就有）",
+        "file": "src/extensions/build/fs-bundle.ts",
+        "pairs": [("  readonly canList = true;", "  readonly canList = false;")],
+        "test": "tests/extensions/fs-bundle.test.ts"
+    },
+    {
+        "name": "M691 列目录把后代也当直接子项（资产浏览器一层展开成全部）",
+        "file": "src/extensions/build/fs-bundle.ts",
+        "pairs": [("      if (slash < 0) {", "      if (true) {")],
+        "test": "tests/extensions/fs-bundle.test.ts"
+    },
+    {
+        "name": "M692 相对路径不挂到 root 下（绝对路径被拼成 /assets/assets/...）",
+        "file": "src/extensions/build/fs-bundle.ts",
+        "pairs": [("    if (input.startsWith(\"/\")) return p;", "    if (false) return p;")],
+        "test": "tests/extensions/fs-bundle.test.ts"
+    },
+    {
+        "name": "M693 同级文件按名字倒序（顺序不确定就不是同一份清单）",
+        "file": "src/extensions/build/fs-bundle.ts",
+        "pairs": [("    files.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));", "    files.sort((a, b) => (a.name < b.name ? 1 : a.name > b.name ? -1 : 0));")],
+        "test": "tests/extensions/fs-bundle.test.ts"
+    },
+    {
+        "name": "M694 路径不存在时返回空字节（调用方会当成「读到了、但内容是空的」）",
+        "file": "src/extensions/build/fs-bundle.ts",
+        "pairs": [("    if (asset === undefined) {", "    if (asset === undefined && false) {")],
+        "test": "tests/extensions/fs-bundle.test.ts"
+    },
+    {
+        "name": "M695 exists 不查目录（根目录与中间目录都「不存在」）",
+        "file": "src/extensions/build/fs-bundle.ts",
+        "pairs": [("    return this.byPath.has(p.value) || this.dirs.has(p.value);", "    return this.byPath.has(p.value);")],
+        "test": "tests/extensions/fs-bundle.test.ts"
+    },
+    {
+        "name": "M696 构造期不检测重复 path（查 path 时静默取最后一个）",
+        "file": "src/extensions/build/fs-bundle.ts",
+        "pairs": [("      if (this.byPath.has(p.value)) {", "      if (false) {")],
+        "test": "tests/extensions/fs-bundle.test.ts"
+    },
+    {
+        "name": "M697 没有 pack 参数也去取 manifest（默认路径开始发网络请求）",
+        "file": "src/extensions/build/bundle-source.ts",
+        "pairs": [("  if (param === null || param === \"\") return opts.fallback();", "  if (param === \"\") return opts.fallback();")],
+        "test": "tests/extensions/fs-bundle.test.ts"
+    },
+    {
+        "name": "M698 退回直读时不留痕（「以为在测包，其实在测直读」）",
+        "file": "src/extensions/build/bundle-source.ts",
+        "pairs": [("  const warn = opts.warn ?? (() => {});", "  const warn = () => {};")],
+        "test": "tests/extensions/fs-bundle.test.ts"
+    },
+    {
+        "name": "M699 manifest 解析失败也继续（用一个一知半解的结构去建后端）",
+        "file": "src/extensions/build/bundle-source.ts",
+        "pairs": [("    if (!parsed.ok) throw new Error(", "    if (false) throw new Error(")],
+        "test": "tests/extensions/fs-bundle.test.ts"
     }
 ]
 

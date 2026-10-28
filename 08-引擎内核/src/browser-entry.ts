@@ -42,6 +42,8 @@ import { stableHash } from "./core/serialization/schema.ts";
 import { Logger, LogLevel } from "./foundation/log/logger.ts";
 import { MemoryFileSystem } from "./backends/fs-memory/fs.ts";
 import { HttpFileSystem } from "./backends/fs-http/fs.ts";
+import { resolveAssetSource } from "./extensions/build/bundle-source.ts";
+import type { IReadableFileSystem } from "./platform/fs/fs.ts";
 import { StorageFileSystem } from "./backends/fs-storage/fs.ts";
 import { AssetDatabase } from "./core/asset/asset.ts";
 import { ImporterRegistry } from "./extensions/asset-import/importer.ts";
@@ -360,6 +362,24 @@ interface BakedUi {
  *   返回值是 null 时，HUD 会显示 `atlas:procedural`，`__engine.atlasSource` 也会说明。
  *   静默降级的后果是"以为在测真资产，其实在测假贴图"—— 这正是本轮要消灭的盲区。
  */
+/**
+ * 资产来源：默认直读 web/assets；URL 带 ?pack=<manifest 地址> 时改走构建产物（C17）。
+ *
+ * ★ 决策本身在 `resolveAssetSource`（纯函数，Node 判据覆盖三条出口）；
+ *   这里只做接线：从 location 取参数、把全局 fetch 与直读后端交给它。
+ *   写在入口文件里的分支只能靠无头浏览器验，而哪条出口被走到是可以纯函数判的。
+ */
+async function assetSource(): Promise<IReadableFileSystem> {
+  return resolveAssetSource({
+    packParam: new URL(location.href).searchParams.get("pack"),
+    pageHref: location.href,
+    root: ASSET_ROOT,
+    fallback: () => new HttpFileSystem({ base: new URL("./assets/", location.href) }),
+    fetchLike: (url) => fetch(url),
+    warn: (message) => console.warn(message),
+  });
+}
+
 async function bakeAtlasFromAssets(): Promise<BakedAtlas | null> {
   try {
     const fs = new MemoryFileSystem();
@@ -379,7 +399,7 @@ async function bakeAtlasFromAssets(): Promise<BakedAtlas | null> {
     //   路径归一、`..` 拒绝、404→`FS.NOT_FOUND`、断网→`FS.IO` 全在**一个地方**，
     //   与 Node 侧 `fs-node` 的失败形状一致。宿主里各写一份 fetch 的后果是
     //   "资产读不到"在浏览器和 Node 下长得不一样，而导入管线只认识后者。
-    const remote = new HttpFileSystem({ base: new URL("./assets/", location.href) });
+    const remote = await assetSource();
     for (const { file } of DEMO_FRAMES) {
       const r = await remote.readBinary(file);
       if (!r.ok) {

@@ -12352,6 +12352,458 @@ var SCENE_SCHEMA = new Schema({
   versionKey: "format"
 });
 
+// src/foundation/canonical.ts
+var CANON_NOT_INTEGER = "CANON.NOT_INTEGER";
+var CANON_NOT_FINITE = "CANON.NOT_FINITE";
+var CANON_TOO_LARGE = "CANON.TOO_LARGE";
+var CANON_NULL = "CANON.NULL";
+var CANON_UNSUPPORTED = "CANON.UNSUPPORTED";
+function bad(code, path, extra) {
+  return err({
+    code,
+    message: `${path} ${extra} \u2014\u2014 \u5185\u5BB9\u6307\u7EB9\u8981\u6C42"\u540C\u503C\u540C\u4E32"\uFF0C\u8FD9\u7C7B\u503C\u6CA1\u6CD5\u4FDD\u8BC1`,
+    detail: { path }
+  });
+}
+function canonicalize(value) {
+  return canon(value, "$");
+}
+function canon(value, path) {
+  if (value === null) {
+    return bad(CANON_NULL, path, "\u662F null\uFF08\u7F3A\u5B57\u6BB5\u5C31\u522B\u5199\u8FD9\u4E2A\u952E\uFF0C\u4E0D\u8981\u5199 null\uFF09");
+  }
+  if (value === void 0) {
+    return bad(CANON_UNSUPPORTED, path, "\u662F undefined\uFF08JSON \u4F1A\u628A\u5B83\u9759\u9ED8\u4E22\u6389\uFF0C\u6570\u7EC4\u91CC\u8FD8\u4F1A\u53D8 null\uFF09");
+  }
+  switch (typeof value) {
+    case "string":
+      return ok(JSON.stringify(value));
+    case "boolean":
+      return ok(value ? "true" : "false");
+    case "number": {
+      if (!Number.isFinite(value)) {
+        return bad(CANON_NOT_FINITE, path, `\u662F ${String(value)}`);
+      }
+      if (!Number.isInteger(value)) {
+        return bad(CANON_NOT_INTEGER, path, `\u662F\u5C0F\u6570 ${String(value)}\uFF08\u9700\u8981\u5C0F\u6570\u8BF7\u6539\u7528\u5B9A\u70B9\u6574\u6570\uFF09`);
+      }
+      if (Math.abs(value) > Number.MAX_SAFE_INTEGER) {
+        return bad(CANON_TOO_LARGE, path, `\u662F ${String(value)}\uFF0C\u8D85\u51FA\u5B89\u5168\u6574\u6570\u8303\u56F4\uFF08\u6574\u6570\u5DF2\u4E0D\u7CBE\u786E\uFF09`);
+      }
+      return ok(String(value));
+    }
+    case "bigint":
+    case "function":
+    case "symbol":
+      return bad(CANON_UNSUPPORTED, path, `\u662F ${typeof value}`);
+    default:
+      break;
+  }
+  if (Array.isArray(value)) {
+    const parts2 = [];
+    for (let i = 0; i < value.length; i++) {
+      const r = canon(value[i], `${path}[${String(i)}]`);
+      if (!r.ok) return r;
+      parts2.push(r.value);
+    }
+    return ok(`[${parts2.join(",")}]`);
+  }
+  const proto = Object.getPrototypeOf(value);
+  if (proto !== Object.prototype && proto !== null) {
+    const name = proto?.constructor?.name;
+    return bad(CANON_UNSUPPORTED, path, `\u4E0D\u662F\u7EAF\u5BF9\u8C61\uFF08\u539F\u578B ${String(name)}\uFF09`);
+  }
+  const rec = value;
+  const keys = Object.keys(rec).sort();
+  const parts = [];
+  for (const k of keys) {
+    const r = canon(rec[k], `${path}.${k}`);
+    if (!r.ok) return r;
+    parts.push(`${JSON.stringify(k)}:${r.value}`);
+  }
+  return ok(`{${parts.join(",")}}`);
+}
+function fingerprintOf(value) {
+  const c = canonicalize(value);
+  if (!c.ok) return c;
+  return ok(hashText(c.value));
+}
+
+// src/extensions/build/publish.ts
+var PUBLISH_SCHEMA = 1;
+
+// src/extensions/build/loader.ts
+var LOAD_BAD_MANIFEST = "LOAD.BAD_MANIFEST";
+var LOAD_BAD_BUNDLE = "LOAD.BAD_BUNDLE";
+var LOAD_ASSET_MISSING = "LOAD.ASSET_MISSING";
+var LOAD_BUNDLE_MISSING = "LOAD.BUNDLE_MISSING";
+var LOAD_HASH_MISMATCH = "LOAD.HASH_MISMATCH";
+var MAX_ID_BYTES = 4096;
+function indexAssets(manifest) {
+  const known = new Set(manifest.assets.map((a) => a.id));
+  const index = /* @__PURE__ */ new Map();
+  for (const b of manifest.bundles) {
+    for (const id of b.assets) {
+      if (!known.has(id)) {
+        return err(
+          engineError(LOAD_BAD_MANIFEST, `\u5305 ${b.hash.slice(0, 8)}\u2026 \u91CC\u6709\u4E00\u4E2A manifest \u6CA1\u767B\u8BB0\u7684\u8D44\u4EA7\u300C${id}\u300D`)
+        );
+      }
+      const prev = index.get(id);
+      if (prev !== void 0) {
+        return err(
+          engineError(LOAD_BAD_MANIFEST, `\u8D44\u4EA7\u300C${id}\u300D\u540C\u65F6\u51FA\u73B0\u5728\u5305 ${prev.slice(0, 8)}\u2026 \u4E0E ${b.hash.slice(0, 8)}\u2026 \u91CC`)
+        );
+      }
+      index.set(id, b.hash);
+    }
+  }
+  for (const a of manifest.assets) {
+    if (!index.has(a.id)) {
+      return err(engineError(LOAD_BAD_MANIFEST, `manifest \u767B\u8BB0\u4E86\u8D44\u4EA7\u300C${a.id}\u300D\u4F46\u6CA1\u6709\u4EFB\u4F55\u5305\u542B\u5B83`));
+    }
+  }
+  return ok(index);
+}
+function manifestHashOf(manifest) {
+  const body = {
+    schema: manifest.schema,
+    entries: manifest.entries,
+    assets: manifest.assets,
+    bundles: manifest.bundles
+  };
+  const canon2 = canonicalize(body);
+  if (!canon2.ok) return canon2;
+  return ok(hashText(canon2.value));
+}
+function parseManifest(text) {
+  let raw;
+  try {
+    raw = JSON.parse(text);
+  } catch (e) {
+    return err(engineError(LOAD_BAD_MANIFEST, `manifest \u4E0D\u662F\u5408\u6CD5 JSON\uFF1A${e instanceof Error ? e.message : String(e)}`));
+  }
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return err(engineError(LOAD_BAD_MANIFEST, "manifest \u9876\u5C42\u5FC5\u987B\u662F\u5BF9\u8C61"));
+  }
+  const m = raw;
+  if (m.schema !== PUBLISH_SCHEMA) {
+    return err(
+      engineError(LOAD_BAD_MANIFEST, `manifest schema \u662F ${String(m.schema)}\uFF0C\u672C\u8FD0\u884C\u65F6\u53EA\u8BA4 ${String(PUBLISH_SCHEMA)}`)
+    );
+  }
+  if (!Array.isArray(m.entries) || !Array.isArray(m.assets) || !Array.isArray(m.bundles) || typeof m.hash !== "string") {
+    return err(engineError(LOAD_BAD_MANIFEST, "manifest \u7F3A\u5B57\u6BB5\uFF08entries / assets / bundles / hash \u90FD\u8981\u6709\uFF09"));
+  }
+  for (const a of m.assets) {
+    if (typeof a?.id !== "string" || typeof a.hash !== "string" || typeof a.size !== "number") {
+      return err(engineError(LOAD_BAD_MANIFEST, "assets \u91CC\u6709\u4E00\u6761\u7F3A id/hash/size"));
+    }
+  }
+  for (const b of m.bundles) {
+    if (typeof b?.hash !== "string" || typeof b.size !== "number" || !Array.isArray(b.assets)) {
+      return err(engineError(LOAD_BAD_MANIFEST, "bundles \u91CC\u6709\u4E00\u6761\u7F3A hash/size/assets"));
+    }
+  }
+  const manifest = m;
+  const rehash = manifestHashOf(manifest);
+  if (!rehash.ok) return rehash;
+  if (rehash.value !== manifest.hash) {
+    return err(
+      engineError(
+        LOAD_HASH_MISMATCH,
+        `manifest \u81EA\u8EAB hash \u4E0D\u7B26\uFF1A\u8BB0\u7684\u662F ${manifest.hash.slice(0, 16)}\u2026\uFF0C\u91CD\u7B97\u5F97\u5230 ${rehash.value.slice(0, 16)}\u2026\uFF08manifest \u88AB\u6539\u8FC7\uFF1F\uFF09`
+      )
+    );
+  }
+  const indexed = indexAssets(manifest);
+  if (!indexed.ok) return indexed;
+  return ok(manifest);
+}
+function parseBundle(bytes, expectedHash) {
+  if (expectedHash !== void 0) {
+    const got = hashBytes(bytes);
+    if (got !== expectedHash) {
+      return err(
+        engineError(
+          LOAD_HASH_MISMATCH,
+          `\u5305 hash \u4E0D\u7B26\uFF1Amanifest \u8BB0 ${expectedHash.slice(0, 16)}\u2026\uFF0C\u5B9E\u9645 ${got.slice(0, 16)}\u2026\uFF08${String(bytes.length)} \u5B57\u8282\uFF09`
+        )
+      );
+    }
+  }
+  const out = /* @__PURE__ */ new Map();
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const dec = new TextDecoder();
+  let at = 0;
+  while (at < bytes.length) {
+    if (at + 4 > bytes.length) {
+      return err(engineError(LOAD_BAD_BUNDLE, `\u5305\u5728\u7B2C ${String(at)} \u5B57\u8282\u5904\u622A\u65AD\uFF08\u8BFB\u4E0D\u5B8C idLen\uFF09`));
+    }
+    const idLen = dv.getUint32(at, true);
+    at += 4;
+    if (idLen === 0 || idLen > MAX_ID_BYTES) {
+      return err(engineError(LOAD_BAD_BUNDLE, `\u7B2C ${String(at - 4)} \u5B57\u8282\u5904\u7684 idLen=${String(idLen)} \u4E0D\u5408\u6CD5`));
+    }
+    if (at + idLen + 4 > bytes.length) {
+      return err(engineError(LOAD_BAD_BUNDLE, `\u5305\u5728\u7B2C ${String(at)} \u5B57\u8282\u5904\u622A\u65AD\uFF08\u8BFB\u4E0D\u5B8C id\uFF09`));
+    }
+    const id = dec.decode(bytes.subarray(at, at + idLen));
+    at += idLen;
+    const dataLen = dv.getUint32(at, true);
+    at += 4;
+    if (at + dataLen > bytes.length) {
+      return err(
+        engineError(LOAD_BAD_BUNDLE, `\u8D44\u4EA7\u300C${id}\u300D\u58F0\u660E ${String(dataLen)} \u5B57\u8282\uFF0C\u4F46\u5305\u53EA\u5269 ${String(bytes.length - at)} \u5B57\u8282`)
+      );
+    }
+    if (out.has(id)) {
+      return err(engineError(LOAD_BAD_BUNDLE, `\u5305\u91CC\u8D44\u4EA7\u300C${id}\u300D\u51FA\u73B0\u4E24\u6B21\uFF08framing \u6709\u6B67\u4E49\uFF09`));
+    }
+    out.set(id, bytes.slice(at, at + dataLen));
+    at += dataLen;
+  }
+  if (out.size === 0) {
+    return err(engineError(LOAD_BAD_BUNDLE, "\u5305\u662F\u7A7A\u7684\uFF080 \u6761\u8D44\u4EA7\uFF09"));
+  }
+  return ok(out);
+}
+function createBundleReader(opts) {
+  const { manifest } = opts;
+  let fetches = 0;
+  let hits = 0;
+  let requests = 0;
+  const cache = /* @__PURE__ */ new Map();
+  const assetIndex = /* @__PURE__ */ new Map();
+  for (const b of manifest.bundles) for (const id of b.assets) assetIndex.set(id, b.hash);
+  const assetHash = /* @__PURE__ */ new Map();
+  for (const a of manifest.assets) assetHash.set(a.id, a.hash);
+  const loadBundle = (hash) => {
+    const hit = cache.get(hash);
+    if (hit !== void 0) {
+      hits++;
+      return hit;
+    }
+    fetches++;
+    const p = (async () => {
+      let bytes;
+      try {
+        bytes = await opts.fetchBundle(hash);
+      } catch (e) {
+        return err(
+          engineError(LOAD_BUNDLE_MISSING, `\u53D6\u5305 ${hash.slice(0, 8)}\u2026 \u5931\u8D25\uFF1A${e instanceof Error ? e.message : String(e)}`)
+        );
+      }
+      return parseBundle(bytes, hash);
+    })();
+    cache.set(hash, p);
+    return p;
+  };
+  return {
+    async get(assetId) {
+      requests++;
+      const bundleHash = assetIndex.get(assetId);
+      if (bundleHash === void 0) {
+        return err(
+          engineError(
+            LOAD_ASSET_MISSING,
+            `\u8D44\u4EA7\u300C${assetId}\u300D\u4E0D\u5728 manifest \u91CC\uFF08\u5DF2\u767B\u8BB0 ${String(manifest.assets.length)} \u4E2A\uFF09`
+          )
+        );
+      }
+      const bundle = await loadBundle(bundleHash);
+      if (!bundle.ok) return bundle;
+      const data = bundle.value.get(assetId);
+      if (data === void 0) {
+        return err(
+          engineError(LOAD_BAD_BUNDLE, `\u5305 ${bundleHash.slice(0, 8)}\u2026 \u91CC\u6CA1\u6709\u8D44\u4EA7\u300C${assetId}\u300D\uFF08manifest \u4E0E\u5305\u4E0D\u914D\u5957\uFF09`)
+        );
+      }
+      const want = assetHash.get(assetId);
+      if (want === void 0) {
+        return err(engineError(LOAD_BAD_MANIFEST, `\u8D44\u4EA7\u300C${assetId}\u300D\u6CA1\u6709\u767B\u8BB0 hash`));
+      }
+      const got = hashBytes(data);
+      if (got !== want) {
+        return err(
+          engineError(
+            LOAD_HASH_MISMATCH,
+            `\u8D44\u4EA7\u300C${assetId}\u300Dhash \u4E0D\u7B26\uFF1Amanifest \u8BB0 ${want.slice(0, 16)}\u2026\uFF0C\u89E3\u51FA ${got.slice(0, 16)}\u2026\uFF08\u90E8\u7F72\u65F6 manifest \u4E0E\u5305\u4E0D\u662F\u540C\u4E00\u7248\uFF1F\uFF09`
+          )
+        );
+      }
+      return ok(data);
+    },
+    stats() {
+      return { fetches, hits, requests, bundles: cache.size };
+    }
+  };
+}
+
+// src/extensions/build/fs-bundle.ts
+var FSBUNDLE_ERR = {
+  /** manifest 里两个资产用同一个逻辑路径 —— 查 path 会有歧义（path 不参与 hash）。 */
+  DUPLICATE_PATH: "FSBUNDLE.DUPLICATE_PATH",
+  /** 这个路径不在 manifest 里。 */
+  NOT_FOUND: "FSBUNDLE.NOT_FOUND",
+  /** 路径是空的或归一化之后没有意义。 */
+  BAD_PATH: "FSBUNDLE.BAD_PATH"
+};
+function normalize(input) {
+  if (input.length === 0) {
+    return err(engineError(FSBUNDLE_ERR.BAD_PATH, "\u8DEF\u5F84\u662F\u7A7A\u4E32"));
+  }
+  let s = input.replace(/\\/g, "/");
+  if (!s.startsWith("/")) s = `/${s}`;
+  s = s.replace(/\/+/g, "/");
+  if (s.length > 1 && s.endsWith("/")) s = s.slice(0, -1);
+  return ok(s);
+}
+var BundleFileSystem = class {
+  scheme = "bundle";
+  /** 见文件头：manifest 就是清单，所以这里**真的**能列目录。 */
+  canList = true;
+  byPath = /* @__PURE__ */ new Map();
+  dirs = /* @__PURE__ */ new Set(["/"]);
+  reader;
+  root;
+  constructor(opts, reader) {
+    const rootR = normalize(opts.root ?? "/");
+    if (!rootR.ok) throw new Error(`${FSBUNDLE_ERR.BAD_PATH}\uFF1Aroot=${String(opts.root)}`);
+    this.root = rootR.value;
+    for (const a of opts.manifest.assets) {
+      const p = normalize(a.path);
+      if (!p.ok) throw new Error(`${FSBUNDLE_ERR.BAD_PATH}\uFF1A${a.path}`);
+      if (this.byPath.has(p.value)) {
+        throw new Error(`${FSBUNDLE_ERR.DUPLICATE_PATH}\uFF1A\u4E24\u4E2A\u8D44\u4EA7\u90FD\u7528 ${p.value}\uFF08path \u4E0D\u53C2\u4E0E hash\uFF0C\u67E5\u8D77\u6765\u6709\u6B67\u4E49\uFF09`);
+      }
+      this.byPath.set(p.value, a);
+      let cut = p.value.lastIndexOf("/");
+      while (cut > 0) {
+        this.dirs.add(p.value.slice(0, cut));
+        cut = p.value.slice(0, cut).lastIndexOf("/");
+      }
+    }
+    this.reader = reader ?? createBundleReader({ manifest: opts.manifest, fetchBundle: opts.fetchBundle });
+  }
+  /**
+   * 唯一一处路径归一化：绝对路径原样，相对路径挂到  下。
+   *
+   * ★ 四个入口（read / exists / stat / list）都走这里。各写一遍的后果是
+   *   「exists 说在、readBinary 说找不到」—— 而那种症状会被归因成包坏了。
+   */
+  resolve(input) {
+    const p = normalize(input);
+    if (!p.ok) return p;
+    if (input.startsWith("/")) return p;
+    return normalize(this.root === "/" ? p.value : `${this.root}${p.value}`);
+  }
+  /** 读了多少次包（判据用：同一个包只该取一次）。 */
+  stats() {
+    const s = this.reader.stats();
+    return { fetches: s.fetches, hits: s.hits, requests: s.requests };
+  }
+  async readBinary(path) {
+    const p = this.resolve(path);
+    if (!p.ok) return p;
+    const asset = this.byPath.get(p.value);
+    if (asset === void 0) {
+      return err(
+        engineError(
+          FSBUNDLE_ERR.NOT_FOUND,
+          `${p.value} \u4E0D\u5728 manifest \u91CC\uFF08\u5DF2\u767B\u8BB0 ${String(this.byPath.size)} \u4E2A\u8D44\u4EA7\uFF09`,
+          { path: p.value }
+        )
+      );
+    }
+    return this.reader.get(asset.id);
+  }
+  async readText(path) {
+    const b = await this.readBinary(path);
+    if (!b.ok) return b;
+    try {
+      return ok(new TextDecoder("utf-8", { fatal: true }).decode(b.value));
+    } catch (e) {
+      return err(engineError("FS.NOT_UTF8", `\u4E0D\u662F\u5408\u6CD5 UTF-8\uFF1A${path}\uFF08${e instanceof Error ? e.message : String(e)}\uFF09`));
+    }
+  }
+  async exists(path) {
+    const p = this.resolve(path);
+    if (!p.ok) return false;
+    return this.byPath.has(p.value) || this.dirs.has(p.value);
+  }
+  async stat(path) {
+    const p = this.resolve(path);
+    if (!p.ok) return p;
+    const asset = this.byPath.get(p.value);
+    if (asset !== void 0) {
+      return ok({ size: asset.size, mtimeMs: 0, isDirectory: false });
+    }
+    if (this.dirs.has(p.value)) {
+      return ok({ size: 0, mtimeMs: 0, isDirectory: true });
+    }
+    return err(engineError(FSBUNDLE_ERR.NOT_FOUND, `${p.value} \u4E0D\u5B58\u5728`, { path: p.value }));
+  }
+  /**
+   * 列**直接子项**（目录在前、同级按名字升序 —— 顺序固定，判据才能逐项比）。
+   *
+   * ★ 不递归：递归列举会让"资产浏览器展开一个目录"变成"把几千个路径一次性读进来"，
+   *   而调用方通常只想要下一层。
+   */
+  async list(dir) {
+    const d = this.resolve(dir);
+    if (!d.ok) return d;
+    if (!this.dirs.has(d.value) && !this.byPath.has(d.value)) {
+      return err(engineError(FSBUNDLE_ERR.NOT_FOUND, `${d.value} \u4E0D\u5B58\u5728`, { path: d.value }));
+    }
+    const prefix = d.value === "/" ? "/" : `${d.value}/`;
+    const children = /* @__PURE__ */ new Set();
+    const files = [];
+    for (const [path, asset] of this.byPath) {
+      if (!path.startsWith(prefix)) continue;
+      const rest = path.slice(prefix.length);
+      const slash = rest.indexOf("/");
+      if (slash < 0) {
+        files.push({ name: rest, path, isDirectory: false, size: asset.size });
+      } else {
+        children.add(rest.slice(0, slash));
+      }
+    }
+    const dirEntries = [...children].sort().map((name) => ({ name, path: `${prefix}${name}`, isDirectory: true, size: 0 }));
+    files.sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+    return ok([...dirEntries, ...files]);
+  }
+};
+
+// src/extensions/build/bundle-source.ts
+async function resolveAssetSource(opts) {
+  const param = opts.packParam;
+  if (param === null || param === "") return opts.fallback();
+  const doFetch = opts.fetchLike ?? ((url) => globalThis.fetch(url));
+  const warn = opts.warn ?? (() => {
+  });
+  try {
+    const manifestUrl = new URL(param, opts.pageHref);
+    const res = await doFetch(manifestUrl.href);
+    if (!res.ok) throw new Error(`manifest \u53D6\u4E0D\u5230\uFF1AHTTP ${String(res.status)}`);
+    const parsed = parseManifest(await res.text());
+    if (!parsed.ok) throw new Error(`${parsed.error.code}\uFF1A${parsed.error.message}`);
+    const dir = new URL(".", manifestUrl);
+    return new BundleFileSystem({
+      manifest: parsed.value,
+      root: opts.root,
+      fetchBundle: async (hash) => {
+        const r = await doFetch(new URL(`bundles/${hash}.bin`, dir).href);
+        if (!r.ok) throw new Error(`\u5305\u53D6\u4E0D\u5230\uFF1AHTTP ${String(r.status)}`);
+        return new Uint8Array(await r.arrayBuffer());
+      }
+    });
+  } catch (e) {
+    warn(`[asset] \u4ECE\u5305\u52A0\u8F7D\u5931\u8D25\uFF0C\u9000\u56DE\u76F4\u8BFB\uFF1A${e instanceof Error ? e.message : String(e)}`);
+    return opts.fallback();
+  }
+}
+
 // src/backends/fs-storage/fs.ts
 var StorageFileSystem = class {
   scheme = "storage";
@@ -14379,17 +14831,17 @@ function ascii42(b, at) {
 function hex32(v) {
   return `0x${v.toString(16).padStart(8, "0")}`;
 }
-function bad(why, detail) {
+function bad2(why, detail) {
   return detail === void 0 ? engineError(PngErrorCode.BadPng, why) : engineError(PngErrorCode.BadPng, why, detail);
 }
 function scanPng(bytes) {
   if (bytes.length < SIGNATURE.length) {
-    return err(bad(`\u6587\u4EF6\u8FC7\u77ED\uFF1A${bytes.length} \u5B57\u8282\uFF0C\u8FDE PNG \u7B7E\u540D\u90FD\u4E0D\u591F\uFF088 \u5B57\u8282\uFF09`));
+    return err(bad2(`\u6587\u4EF6\u8FC7\u77ED\uFF1A${bytes.length} \u5B57\u8282\uFF0C\u8FDE PNG \u7B7E\u540D\u90FD\u4E0D\u591F\uFF088 \u5B57\u8282\uFF09`));
   }
   for (let i = 0; i < SIGNATURE.length; i++) {
     if (bytes[i] !== SIGNATURE[i]) {
       return err(
-        bad(
+        bad2(
           `PNG \u7B7E\u540D\u4E0D\u5339\u914D\uFF1A\u671F\u671B 89 50 4e 47 0d 0a 1a 0a\uFF0C\u5B9E\u9645 ${Array.from(
             bytes.subarray(0, 8),
             (x) => x.toString(16).padStart(2, "0")
@@ -14407,18 +14859,18 @@ function scanPng(bytes) {
   let at = SIGNATURE.length;
   while (at < bytes.length) {
     if (at + 8 > bytes.length) {
-      return err(bad(`\u5757\u5934\u622A\u65AD\uFF1A\u504F\u79FB ${at} \u5904\u53EA\u5269 ${bytes.length - at} \u5B57\u8282\uFF08\u5757\u5934 8 \u5B57\u8282\uFF09`));
+      return err(bad2(`\u5757\u5934\u622A\u65AD\uFF1A\u504F\u79FB ${at} \u5904\u53EA\u5269 ${bytes.length - at} \u5B57\u8282\uFF08\u5757\u5934 8 \u5B57\u8282\uFF09`));
     }
     const length = u32be2(bytes, at);
     const type = ascii42(bytes, at + 4);
     if (length > 2147483647) {
-      return err(bad(`\u5757 "${type}" \u957F\u5EA6 ${length} \u975E\u6CD5\uFF08> 2^31-1\uFF09`, { offset: at }));
+      return err(bad2(`\u5757 "${type}" \u957F\u5EA6 ${length} \u975E\u6CD5\uFF08> 2^31-1\uFF09`, { offset: at }));
     }
     const dataStart = at + 8;
     const crcAt = dataStart + length;
     if (crcAt + 4 > bytes.length) {
       return err(
-        bad(
+        bad2(
           `\u5757 "${type}" \u8D8A\u754C\uFF08\u622A\u65AD\uFF09\uFF1A\u504F\u79FB ${at}\uFF0C\u957F\u5EA6 ${length}\uFF0C\u6587\u4EF6\u53EA\u5269 ${bytes.length - dataStart} \u5B57\u8282`,
           { chunk: type, offset: at }
         )
@@ -14428,7 +14880,7 @@ function scanPng(bytes) {
     const actualCrc = crc32(bytes, at + 4, crcAt);
     if (expectedCrc !== actualCrc) {
       return err(
-        bad(
+        bad2(
           `\u5757 "${type}" CRC \u6821\u9A8C\u5931\u8D25\uFF1A\u671F\u671B ${hex32(expectedCrc)}\uFF0C\u5B9E\u9645 ${hex32(actualCrc)}\uFF08\u504F\u79FB ${at}\uFF09`,
           { chunk: type, offset: at }
         )
@@ -14437,29 +14889,29 @@ function scanPng(bytes) {
     const chunk = { type, start: at, dataStart, length };
     if (ihdr === void 0) {
       if (type !== "IHDR") {
-        return err(bad(`\u7B2C\u4E00\u4E2A\u5757\u5FC5\u987B\u662F IHDR\uFF0C\u5B9E\u9645\u662F "${type}"`));
+        return err(bad2(`\u7B2C\u4E00\u4E2A\u5757\u5FC5\u987B\u662F IHDR\uFF0C\u5B9E\u9645\u662F "${type}"`));
       }
       if (length !== IHDR_BYTES) {
-        return err(bad(`IHDR \u6570\u636E\u957F\u5EA6 ${length}\uFF08\u5FC5\u987B 13\uFF09`));
+        return err(bad2(`IHDR \u6570\u636E\u957F\u5EA6 ${length}\uFF08\u5FC5\u987B 13\uFF09`));
       }
       ihdr = chunk;
     } else if (type === "IHDR") {
-      return err(bad("\u51FA\u73B0\u7B2C\u4E8C\u4E2A IHDR"));
+      return err(bad2("\u51FA\u73B0\u7B2C\u4E8C\u4E2A IHDR"));
     } else if (type === "PLTE") {
-      if (palette !== void 0) return err(bad("\u51FA\u73B0\u7B2C\u4E8C\u4E2A PLTE"));
-      if (idat.length > 0) return err(bad("PLTE \u51FA\u73B0\u5728 IDAT \u4E4B\u540E\uFF08\u89C4\u8303\u8981\u6C42\u4E4B\u524D\uFF09"));
+      if (palette !== void 0) return err(bad2("\u51FA\u73B0\u7B2C\u4E8C\u4E2A PLTE"));
+      if (idat.length > 0) return err(bad2("PLTE \u51FA\u73B0\u5728 IDAT \u4E4B\u540E\uFF08\u89C4\u8303\u8981\u6C42\u4E4B\u524D\uFF09"));
       if (length === 0 || length % 3 !== 0 || length > 768) {
-        return err(bad(`PLTE \u957F\u5EA6 ${length} \u975E\u6CD5\uFF08\u5E94\u4E3A 3 \u7684\u500D\u6570\u4E14 \u2264768\uFF09`));
+        return err(bad2(`PLTE \u957F\u5EA6 ${length} \u975E\u6CD5\uFF08\u5E94\u4E3A 3 \u7684\u500D\u6570\u4E14 \u2264768\uFF09`));
       }
       palette = chunk;
     } else if (type === "tRNS") {
-      if (trns !== void 0) return err(bad("\u51FA\u73B0\u7B2C\u4E8C\u4E2A tRNS"));
-      if (idat.length > 0) return err(bad("tRNS \u51FA\u73B0\u5728 IDAT \u4E4B\u540E\uFF08\u89C4\u8303\u8981\u6C42\u4E4B\u524D\uFF09"));
+      if (trns !== void 0) return err(bad2("\u51FA\u73B0\u7B2C\u4E8C\u4E2A tRNS"));
+      if (idat.length > 0) return err(bad2("tRNS \u51FA\u73B0\u5728 IDAT \u4E4B\u540E\uFF08\u89C4\u8303\u8981\u6C42\u4E4B\u524D\uFF09"));
       trns = chunk;
     } else if (type === "IDAT") {
       idat.push(chunk);
     } else if (type === "IEND") {
-      if (length !== 0) return err(bad(`IEND \u6570\u636E\u957F\u5EA6 ${length}\uFF08\u5FC5\u987B 0\uFF09`));
+      if (length !== 0) return err(bad2(`IEND \u6570\u636E\u957F\u5EA6 ${length}\uFF08\u5FC5\u987B 0\uFF09`));
       iendEnd = crcAt + 4;
       chunks.push(chunk);
       break;
@@ -14475,13 +14927,13 @@ function scanPng(bytes) {
     chunks.push(chunk);
     at = crcAt + 4;
   }
-  if (ihdr === void 0) return err(bad("\u6CA1\u6709 IHDR"));
+  if (ihdr === void 0) return err(bad2("\u6CA1\u6709 IHDR"));
   if (iendEnd < 0) {
-    return err(bad("\u7F3A\u5C11 IEND\uFF08\u6587\u4EF6\u5728\u6700\u540E\u4E00\u4E2A\u5757\u4E4B\u540E\u7ED3\u675F\uFF0C\u53EF\u80FD\u88AB\u622A\u65AD\uFF09"));
+    return err(bad2("\u7F3A\u5C11 IEND\uFF08\u6587\u4EF6\u5728\u6700\u540E\u4E00\u4E2A\u5757\u4E4B\u540E\u7ED3\u675F\uFF0C\u53EF\u80FD\u88AB\u622A\u65AD\uFF09"));
   }
-  if (idat.length === 0) return err(bad("\u6CA1\u6709 IDAT\uFF1A\u6587\u4EF6\u91CC\u6CA1\u6709\u4EFB\u4F55\u56FE\u50CF\u6570\u636E"));
+  if (idat.length === 0) return err(bad2("\u6CA1\u6709 IDAT\uFF1A\u6587\u4EF6\u91CC\u6CA1\u6709\u4EFB\u4F55\u56FE\u50CF\u6570\u636E"));
   if (iendEnd !== bytes.length) {
-    return err(bad(`IEND \u4E4B\u540E\u8FD8\u6709 ${bytes.length - iendEnd} \u5B57\u8282\u6570\u636E\uFF08PNG \u4E0D\u5141\u8BB8\u5C3E\u90E8\u9644\u52A0\u5185\u5BB9\uFF09`));
+    return err(bad2(`IEND \u4E4B\u540E\u8FD8\u6709 ${bytes.length - iendEnd} \u5B57\u8282\u6570\u636E\uFF08PNG \u4E0D\u5141\u8BB8\u5C3E\u90E8\u9644\u52A0\u5185\u5BB9\uFF09`));
   }
   const header = readHeader(bytes, ihdr);
   if (!header.ok) return err(header.error);
@@ -14495,11 +14947,11 @@ function readHeader(bytes, c) {
   const compression = bytes[c.dataStart + 10];
   const filter = bytes[c.dataStart + 11];
   const interlace = bytes[c.dataStart + 12];
-  if (width === 0 || height === 0) return err(bad(`IHDR \u5BBD\u9AD8\u5FC5\u987B\u975E 0\uFF0C\u5B9E\u9645 ${width}\xD7${height}`));
-  if (compression !== 0) return err(bad(`IHDR compression=${compression}\uFF08\u53EA\u652F\u6301 0\uFF09`));
-  if (filter !== 0) return err(bad(`IHDR filter method=${filter}\uFF08\u53EA\u652F\u6301 0\uFF09`));
+  if (width === 0 || height === 0) return err(bad2(`IHDR \u5BBD\u9AD8\u5FC5\u987B\u975E 0\uFF0C\u5B9E\u9645 ${width}\xD7${height}`));
+  if (compression !== 0) return err(bad2(`IHDR compression=${compression}\uFF08\u53EA\u652F\u6301 0\uFF09`));
+  if (filter !== 0) return err(bad2(`IHDR filter method=${filter}\uFF08\u53EA\u652F\u6301 0\uFF09`));
   if (interlace !== 0 && interlace !== 1) {
-    return err(bad(`IHDR interlace=${interlace} \u975E\u6CD5\uFF08\u53EA\u5141\u8BB8 0/1\uFF09`));
+    return err(bad2(`IHDR interlace=${interlace} \u975E\u6CD5\uFF08\u53EA\u5141\u8BB8 0/1\uFF09`));
   }
   return ok({ width, height, bitDepth, colorType, interlace });
 }
@@ -14525,7 +14977,7 @@ function validateFormat(header, palette) {
     );
   }
   if (header.colorType === 3 && palette === void 0) {
-    return err(bad("colorType=3\uFF08\u8C03\u8272\u677F\uFF09\u4F46\u6587\u4EF6\u91CC\u6CA1\u6709 PLTE \u5757"));
+    return err(bad2("colorType=3\uFF08\u8C03\u8272\u677F\uFF09\u4F46\u6587\u4EF6\u91CC\u6CA1\u6709 PLTE \u5757"));
   }
   return ok(channels);
 }
@@ -14560,7 +15012,7 @@ function unfilter(raw, stride, height, bpp) {
       out.set(raw.subarray(src, src + stride), dst);
       continue;
     }
-    if (ft > 4) return err(bad(`\u7B2C ${y} \u884C\u7684\u6EE4\u6CE2\u7C7B\u578B ${ft} \u975E\u6CD5\uFF08\u53EA\u5141\u8BB8 0..4\uFF09`));
+    if (ft > 4) return err(bad2(`\u7B2C ${y} \u884C\u7684\u6EE4\u6CE2\u7C7B\u578B ${ft} \u975E\u6CD5\uFF08\u53EA\u5141\u8BB8 0..4\uFF09`));
     for (let x = 0; x < stride; x++) {
       const cur = raw[src + x];
       const left = x >= bpp ? out[dst + x - bpp] : 0;
@@ -14681,7 +15133,7 @@ function writePalette(ctx, passes, bitDepth, palette, trns, state) {
         const idx = bitDepth === 8 ? row[px] : subByteSample(row, px, bitDepth);
         if (idx >= entries) {
           return err(
-            bad(`\u8C03\u8272\u677F\u7D22\u5F15\u8D8A\u754C\uFF1A\u7B2C (${x},${y}) \u50CF\u7D20\u7D22\u5F15 ${idx}\uFF0CPLTE \u53EA\u6709 ${entries} \u9879`, { x, y, index: idx })
+            bad2(`\u8C03\u8272\u677F\u7D22\u5F15\u8D8A\u754C\uFF1A\u7B2C (${x},${y}) \u50CF\u7D20\u7D22\u5F15 ${idx}\uFF0CPLTE \u53EA\u6709 ${entries} \u9879`, { x, y, index: idx })
           );
         }
         const o = (y * ctx.imageWidth + x) * 4;
@@ -14755,15 +15207,15 @@ function toRgba(passes, header, palette, trns, keep16) {
   let trnsB = -1;
   if (trns !== void 0) {
     if (colorType === 0) {
-      if (trns.length !== 2) return err(bad(`\u7070\u5EA6\u56FE\u7684 tRNS \u957F\u5EA6\u5FC5\u987B\u662F 2\uFF0C\u5B9E\u9645 ${trns.length}`));
+      if (trns.length !== 2) return err(bad2(`\u7070\u5EA6\u56FE\u7684 tRNS \u957F\u5EA6\u5FC5\u987B\u662F 2\uFF0C\u5B9E\u9645 ${trns.length}`));
       trnsGray = trns[0] << 8 | trns[1];
     } else if (colorType === 2) {
-      if (trns.length !== 6) return err(bad(`RGB \u56FE\u7684 tRNS \u957F\u5EA6\u5FC5\u987B\u662F 6\uFF0C\u5B9E\u9645 ${trns.length}`));
+      if (trns.length !== 6) return err(bad2(`RGB \u56FE\u7684 tRNS \u957F\u5EA6\u5FC5\u987B\u662F 6\uFF0C\u5B9E\u9645 ${trns.length}`));
       trnsR = trns[0] << 8 | trns[1];
       trnsG = trns[2] << 8 | trns[3];
       trnsB = trns[4] << 8 | trns[5];
     } else if (colorType !== 3) {
-      return err(bad(`colorType=${colorType} \u4E0D\u5141\u8BB8 tRNS\uFF08\u8BE5\u7C7B\u578B\u81EA\u5E26 alpha \u901A\u9053\uFF09`));
+      return err(bad2(`colorType=${colorType} \u4E0D\u5141\u8BB8 tRNS\uFF08\u8BE5\u7C7B\u578B\u81EA\u5E26 alpha \u901A\u9053\uFF09`));
     }
   }
   switch (colorType) {
@@ -14807,7 +15259,7 @@ function decodeZlibImage(compressed, header, width, height, palette, trns, opts 
   const maxBytes = opts.maxBytes ?? DEFAULT_MAX_BYTES2;
   if (rawBytes > maxBytes) {
     return err(
-      bad(
+      bad2(
         `${label} \u7684\u626B\u63CF\u7EBF\u7EA6 ${rawBytes} \u5B57\u8282\uFF0C\u8D85\u8FC7 maxBytes=${maxBytes}\uFF08\u89E3\u538B\u70B8\u5F39\u4FDD\u62A4\uFF09`,
         { width, height, rawBytes, maxBytes }
       )
@@ -14825,7 +15277,7 @@ function decodeZlibImage(compressed, header, width, height, palette, trns, opts 
   const raw = inflated.value;
   if (raw.length !== rawBytes) {
     return err(
-      bad(
+      bad2(
         `${label} \u626B\u63CF\u7EBF\u6570\u636E\u957F\u5EA6\u4E0D\u5BF9\uFF1A\u671F\u671B ${rawBytes}${header.interlace === 1 ? `\uFF08Adam7 \u4E03\u4E2A pass \u4E4B\u548C\uFF0C\u975E\u9694\u884C\u5E94\u4E3A ${height * (Math.ceil(width * bitsPerPixel / 8) + 1)}\uFF09` : ""}\uFF0C\u5B9E\u9645 ${raw.length}\u3002IDAT \u88AB\u622A\u65AD\u6216 IHDR \u4E0E\u5B9E\u9645\u6570\u636E\u4E0D\u7B26 \u2014\u2014 \u62D2\u7EDD\u8FD4\u56DE\u534A\u5F20\u56FE\u3002`,
         { expectedRaw: rawBytes, actual: raw.length, interlace: header.interlace }
       )
@@ -14896,7 +15348,7 @@ function decodePng(bytes, opts) {
   const bitsPerPixel = channels.value * h.bitDepth;
   if (h.height > 0 && h.width > Math.floor(maxBytes / 4 / h.height)) {
     return err(
-      bad(
+      bad2(
         `PNG \u5C3A\u5BF8 ${h.width}\xD7${h.height} \u7684 RGBA8 \u50CF\u7D20\u6570\u8D85\u8FC7 maxBytes=${maxBytes} \u7684\u4E0A\u9650\uFF08\u89E3\u538B\u70B8\u5F39\u4FDD\u62A4\uFF09`,
         { width: h.width, height: h.height, maxBytes }
       )
@@ -14908,7 +15360,7 @@ function decodePng(bytes, opts) {
   );
   if (rawBytes > maxBytes) {
     return err(
-      bad(
+      bad2(
         `PNG ${h.width}\xD7${h.height} \u7684\u89E3\u538B\u540E\u626B\u63CF\u7EBF\u7EA6 ${rawBytes} \u5B57\u8282\uFF0C\u8D85\u8FC7 maxBytes=${maxBytes}`,
         { width: h.width, height: h.height, maxBytes }
       )
@@ -17147,83 +17599,6 @@ function takeItem(scene, ownerId, kind, n) {
   }
   scene.flush();
   return ok(n);
-}
-
-// src/foundation/canonical.ts
-var CANON_NOT_INTEGER = "CANON.NOT_INTEGER";
-var CANON_NOT_FINITE = "CANON.NOT_FINITE";
-var CANON_TOO_LARGE = "CANON.TOO_LARGE";
-var CANON_NULL = "CANON.NULL";
-var CANON_UNSUPPORTED = "CANON.UNSUPPORTED";
-function bad2(code, path, extra) {
-  return err({
-    code,
-    message: `${path} ${extra} \u2014\u2014 \u5185\u5BB9\u6307\u7EB9\u8981\u6C42"\u540C\u503C\u540C\u4E32"\uFF0C\u8FD9\u7C7B\u503C\u6CA1\u6CD5\u4FDD\u8BC1`,
-    detail: { path }
-  });
-}
-function canonicalize(value) {
-  return canon(value, "$");
-}
-function canon(value, path) {
-  if (value === null) {
-    return bad2(CANON_NULL, path, "\u662F null\uFF08\u7F3A\u5B57\u6BB5\u5C31\u522B\u5199\u8FD9\u4E2A\u952E\uFF0C\u4E0D\u8981\u5199 null\uFF09");
-  }
-  if (value === void 0) {
-    return bad2(CANON_UNSUPPORTED, path, "\u662F undefined\uFF08JSON \u4F1A\u628A\u5B83\u9759\u9ED8\u4E22\u6389\uFF0C\u6570\u7EC4\u91CC\u8FD8\u4F1A\u53D8 null\uFF09");
-  }
-  switch (typeof value) {
-    case "string":
-      return ok(JSON.stringify(value));
-    case "boolean":
-      return ok(value ? "true" : "false");
-    case "number": {
-      if (!Number.isFinite(value)) {
-        return bad2(CANON_NOT_FINITE, path, `\u662F ${String(value)}`);
-      }
-      if (!Number.isInteger(value)) {
-        return bad2(CANON_NOT_INTEGER, path, `\u662F\u5C0F\u6570 ${String(value)}\uFF08\u9700\u8981\u5C0F\u6570\u8BF7\u6539\u7528\u5B9A\u70B9\u6574\u6570\uFF09`);
-      }
-      if (Math.abs(value) > Number.MAX_SAFE_INTEGER) {
-        return bad2(CANON_TOO_LARGE, path, `\u662F ${String(value)}\uFF0C\u8D85\u51FA\u5B89\u5168\u6574\u6570\u8303\u56F4\uFF08\u6574\u6570\u5DF2\u4E0D\u7CBE\u786E\uFF09`);
-      }
-      return ok(String(value));
-    }
-    case "bigint":
-    case "function":
-    case "symbol":
-      return bad2(CANON_UNSUPPORTED, path, `\u662F ${typeof value}`);
-    default:
-      break;
-  }
-  if (Array.isArray(value)) {
-    const parts2 = [];
-    for (let i = 0; i < value.length; i++) {
-      const r = canon(value[i], `${path}[${String(i)}]`);
-      if (!r.ok) return r;
-      parts2.push(r.value);
-    }
-    return ok(`[${parts2.join(",")}]`);
-  }
-  const proto = Object.getPrototypeOf(value);
-  if (proto !== Object.prototype && proto !== null) {
-    const name = proto?.constructor?.name;
-    return bad2(CANON_UNSUPPORTED, path, `\u4E0D\u662F\u7EAF\u5BF9\u8C61\uFF08\u539F\u578B ${String(name)}\uFF09`);
-  }
-  const rec = value;
-  const keys = Object.keys(rec).sort();
-  const parts = [];
-  for (const k of keys) {
-    const r = canon(rec[k], `${path}.${k}`);
-    if (!r.ok) return r;
-    parts.push(`${JSON.stringify(k)}:${r.value}`);
-  }
-  return ok(`{${parts.join(",")}}`);
-}
-function fingerprintOf(value) {
-  const c = canonicalize(value);
-  if (!c.ok) return c;
-  return ok(hashText(c.value));
 }
 
 // src/extensions/worldgen/worldgen.ts
@@ -26178,6 +26553,16 @@ var UI_FILES = ["ui-font.fnt", "ui-font.png", "ui-skin.png", "ui-skin.json"];
 var UI_CJK_FILES = ["ui-font-cjk.fnt", "ui-font-cjk.png"];
 var UI_FONT_ID = "ui5x7";
 var UI_CJK_FONT_ID = "unifont-cjk-16-subset";
+async function assetSource() {
+  return resolveAssetSource({
+    packParam: new URL(location.href).searchParams.get("pack"),
+    pageHref: location.href,
+    root: ASSET_ROOT,
+    fallback: () => new HttpFileSystem({ base: new URL("./assets/", location.href) }),
+    fetchLike: (url) => fetch(url),
+    warn: (message) => console.warn(message)
+  });
+}
 async function bakeAtlasFromAssets() {
   try {
     const fs = new MemoryFileSystem();
@@ -26190,7 +26575,7 @@ async function bakeAtlasFromAssets() {
     importers.register(textImporter);
     const pipeline = new AssetImportPipeline(fs, db, importers, logger.channel("import"));
     for (const l of createImportLoaders({ root: ASSET_ROOT })) db.registerLoader(l);
-    const remote = new HttpFileSystem({ base: new URL("./assets/", location.href) });
+    const remote = await assetSource();
     for (const { file } of DEMO_FRAMES) {
       const r = await remote.readBinary(file);
       if (!r.ok) {
