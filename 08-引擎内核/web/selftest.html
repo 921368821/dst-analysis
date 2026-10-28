@@ -1530,13 +1530,18 @@ row("★★★ 玩家八向动画：帧名 = 朝向扇区、同方向 4 帧在�
     const p = e.scene.find(e.heroId).worldPosition;
     return { x: p.x, y: p.y };
   };
-  /** 找一块半径 2 内没有资源、也没有活物的空地（由近及远，八个方向）。 */
+  /**
+   * 找一块半径 2 内**物理上真的空**的格子（由近及远，八个方向）。
+   *
+   * ★★ 批122 改成让**物理自己回答**（`e.physics.query`），不再手工排除
+   *   「资源 + 生物」：手工那份漏了地形上的装饰体（树桩/石堆），而站上去被推
+   *   0.3 格会让「按键后的实际位移」歪进相邻扇区 —— 四向帧字母判据正是被这个
+   *   弄红的。漏一个来源就等于没排除 —— 而 `query` 是本项目物理门的同一个出口，
+   *   它认得所有静态体，也认得以后新加的任何一种。
+   * ★ 半径 2.0 而不是 1.0：四键各要按住走 10 拍（约 1 格），所以要保证「周围 1 格」
+   *   也空，再留 1 格缓冲给物理的一拍残差。
+   */
   const clearSpot = () => {
-    const bodies = [...e.scene.componentsOf("world.resource")]
-      .map((c) => c.node)
-      .filter((n) => n !== null && n !== undefined)
-      .map((n) => n.worldPosition);
-    const mobs = e.mobs() === null ? [] : e.mobs().list;
     const me = posOf();
     for (let r = 2; r <= 12; r += 1) {
       for (let a = 0; a < 8; a++) {
@@ -1544,10 +1549,8 @@ row("★★★ 玩家八向动画：帧名 = 朝向扇区、同方向 4 帧在�
         const y = me.y + Math.sin((a * Math.PI) / 4) * r;
         // 保守的边界：世界是 32×24 级别的格子，留一圈余量
         if (x < 2 || y < 2 || x > 30 || y > 22) continue;
-        const busy =
-          bodies.some((q) => Math.hypot(q.x - x, q.y - y) < 2) ||
-          mobs.some((o) => Math.hypot(o.x - x, o.z - y) < 2);
-        if (!busy) return { x, y };
+        const near = e.physics.query(x, y, 2).filter((id) => id !== e.heroId);
+        if (near.length === 0) return { x, y };
       }
     }
     return null;
@@ -1613,22 +1616,26 @@ row("★★★ 玩家八向动画：帧名 = 朝向扇区、同方向 4 帧在�
     //     不按键是因为按键期间的位移会被生物推挤污染（见上），而受控位移
     //     远大于一拍推力；也不直接写 `Facing.angle` —— 那只是把 dirIndex 再跑一遍，
     //     证不到「onStep 真的把位移变成了朝向」这条接缝。
-    const DIR4 = [
-      [1, 0, "e"],
-      [0, 1, "n"],
-      [-1, 0, "w"],
-      [0, -1, "s"],
-    ];
+    // ★★ 批122 把这一段的驱动方式从「瞬移」换成「按键」。
+    //   瞬移这条路根本走不通：物理只在**推出重叠**时把位置写回节点
+    //   （`physics.ts` 的 `this.pos.set`），`setLocalPosition` 造出的位移
+    //   下一拍会被推回 —— 逐拍诊断抓到的实测净位移恒为 (0.00, 0.00)，
+    //   而帧在 e/w 之间反复横跳。按键走的是控制器 → 速度 → 物理，
+    //   位置与物理内部表天然一致。
+    // ★ 期望扇区由**这一拍的实际位移**算（`dirLetter` 写死在页面里，不读 `Facing`）：
+    //   读 Facing 等于自证（③ 已经那样做过，朝向整体反了也绿）；用实际位移则判的是
+    //   「帧跟不跟得上真实移动」这条真接缝，顺带把"撞墙/被挤"吸收进期望值。
+    // ★ 几乎没动的拍（< 0.05 格）**不计入**：那一拍的方向是噪声，算了只会碰运气。
+    const dirLetter = (dx, dy) => LETTERS[sectorOf(Math.atan2(-dy, dx))];
+    const KEY4 = [["KeyD", "e"], ["KeyW", "n"], ["KeyA", "w"], ["KeyS", "s"]];
     // ★ 先回到**空地**再测：③ 走完四键之后人已经不在原来那块空地上了，
-    //   而出生点周围挤着资源体与猎狗，物理每拍都在推（实测推 0.3 格）。
-    //   0.6 格的一步 vs 0.3 格的推力：符号不会被推反。
+    //   而出生点周围挤着资源体与猎狗，每一拍都在推。
     const spot2 = clearSpot();
     if (spot2 === null) return fail("找不到空地来测四向帧字母");
     node.setLocalPosition(spot2.x, spot2.y);
-    await wait(220);
+    await wait(260);
     // ★ 采样按**逻辑步**对齐，不等固定 30ms：浏览器自检在 CI 里排在重负载步骤之后，
-    //   30ms 里那一拍可能还没跑 ⇒ 采到的是上一拍的旧朝向（实测「往 s 挪 8 拍只有 5 拍对」，
-    //   单跑却全绿 —— 与批115 顿帧判据的采样节奏洞同源：等真实时间 ≠ 等逻辑步）。
+    //   30ms 里那一拍可能还没跑 ⇒ 采到的是上一拍的旧朝向。
     //   等待条件是 tick 前进 ≥1（上限 300ms 防真死锁）：机器慢只会多等几拍，不会假红。
     const waitTick = async (from) => {
       const deadline = Date.now() + 300;
@@ -1637,35 +1644,58 @@ row("★★★ 玩家八向动画：帧名 = 朝向扇区、同方向 4 帧在�
       }
     };
     const faces = [];
-    for (const [ux, uy, want] of DIR4) {
-      const seenL = [];
-      for (let i = 0; i < 8; i++) {
+    for (const [code, want] of KEY4) {
+      press(code);
+      const bits = [];
+      for (let i = 0; i < 10; i++) {
         const t0 = e.snapshot().tick;
         const p = posOf();
-        node.setLocalPosition(p.x + ux * 0.6, p.y + uy * 0.6);
         await waitTick(t0);
-        seenL.push(sample());
+        const q = posOf();
+        const s = sample();
+        const dx = q.x - p.x;
+        const dy = q.y - p.y;
+        if (Math.hypot(dx, dy) < 0.05) continue;
+        bits.push({ ok: s.letter === dirLetter(dx, dy), want: dirLetter(dx, dy), s });
       }
-      const hit = seenL.filter((s) => s.letter === want).length;
-      faces.push({ want, hit, last: seenL[seenL.length - 1] });
+      release(code);
+      await wait(80);
+      faces.push({ code, want, ok: bits.filter((b) => b.ok).length, total: bits.length, bits });
     }
-    // 8 拍里至少 6 拍对：留两拍给"正好被生物挤了一下"的偶发样本。
-    const bad = faces.filter((f) => f.hit < 6);
+    const fmt = (f) =>
+      f.bits.map((b) => `${b.s.letter ?? "-"}/${b.want}/${b.s.frame}`).join(" ");
+    // 有效拍里至少 75% 对（与旧口径一致：8 拍里 ≥6 拍）。有效拍不足 6 ⇒ 这一键
+    // 根本没走起来（被挡住 / 按键没到控制器），同样是红 —— 否则"一条都没采到"会静默通过。
+    const bad = faces.filter((f) => f.total < 6 || f.ok < Math.ceil(f.total * 0.75));
     if (bad.length > 0) {
       const f = bad[0];
+      const spread = faces.map((x) => `${x.code}×${x.ok}/${x.total}`).join(" ");
       return fail(
-        `往 ${f.want} 方向挪 4 拍，只有 ${f.hit} 拍画的是 ${f.want}（最后一拍是 ${f.last.frame}）` +
+        `按 ${f.code}（应画 ${f.want}）只有 ${f.ok}/${f.total} 拍对（四键分布 ${spread}）` +
+          `；逐拍 帧字母/位移给出的期望/帧名：${fmt(f)}` +
           ` —— 位移没变成朝向，或帧字母与方向对不上（批113：屏幕上方是 +y）`,
       );
     }
-    const four = new Set(faces.map((f) => f.want));
-    if (four.size !== 4) return fail("四个方向没给出四个不同的字母");
+    // ★ 四个键各自必须**真的走出自己的主方向**（至少一拍）。
+    //   旧写法是「四个期望字母互不相同」—— 那四个字母是写死的常量，恒等于 4，
+    //   从来没验过任何东西（一个恒真的检查比没有检查更糟：它占着位置）。
+    //   现在判的是「这一键按下去，位移真的朝了那个方向」：
+    //   被整键推歪（十拍全是 nw）会让 75% 那条过、这一条红 —— 两者互补。
+    for (const [code, want] of KEY4) {
+      const f = faces.find((x) => x.code === code);
+      if (f === undefined || !f.bits.some((b) => b.want === want)) {
+        return fail(
+          `按 ${code} 的 ${f === undefined ? 0 : f.total} 拍里没有一拍朝 ${want}` +
+            `（实测 ${f === undefined ? "-" : fmt(f)}）—— 这一键没把位移变成那个方向`,
+        );
+      }
+    }
 
     heroAnimDone = [
       true,
       `帧号 ${[...idxs].sort().join("/")} 在播 · 四键沿轴位移 ${walked
         .map((w) => `${w.code}=${w.along.toFixed(2)}`)
-        .join(" ")} · 四向帧字母 ${faces.map((f) => `${f.want}×${f.hit}/8`).join(" ")}`,
+        .join(" ")} · 按键四向帧字母 ${faces.map((f) => `${f.code}=${f.ok}/${f.total}`).join(" ")}`,
     ];
     return heroAnimDone;
   } finally {

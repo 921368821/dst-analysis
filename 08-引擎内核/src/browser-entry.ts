@@ -936,6 +936,25 @@ export async function main(): Promise<void> {
     },
   };
 
+  /**
+   * 每个资源节点出生时带几个物品（`ResourceMarker.count` 的初值）。
+   *
+   * ★ 这是**产品决定，留在宿主**：引擎只认"这一格有几个"，不认识芦苇。
+   * ★ 批122 之前这张表是传给 `pickupNearby` 的"产量"，现在是传给世界的"存量" ——
+   *   两者在**自然节点**上完全等价（采一次拿光），但只有后者能表达"丢 40 个 berry
+   *   在地上、一次捡回 40 个"：产量表会让它一次只捡 1 个。
+   * ★ 这张表同时是"背包堆叠上限"的存在意义：单次产出 > 1 时，`maxStack`（每堆 40）
+   *   才会真的被撞到（采 25 次芦苇 = 50 个 ⇒ 自动开第二堆）。
+   */
+  const RESOURCE_YIELD: Record<string, number> = {
+    berry: 1,
+    reed: 2,
+    tree: 1,
+    rock: 1,
+    flint: 1,
+    grass_tuft: 1,
+  };
+
   // 再生任务：每 30 tick（约 1 秒 @30Hz）在可通行群系里抽 2 格长出新资源
   const tasksHandle: WorldTaskModuleHandle | null =
     plan === null
@@ -947,6 +966,8 @@ export async function main(): Promise<void> {
           },
           plan,
           maxResources: 96,
+          // 产量在**出生那一刻**冻进 `count`：之后改这张表不影响地上已有的资源
+          yieldOf: (kind) => RESOURCE_YIELD[kind] ?? 1,
         });
 
   /**
@@ -1774,9 +1795,9 @@ export async function main(): Promise<void> {
     const hp = heroNode2.worldPosition;
   const r = pickupNearby(scene, hp.x, hp.y, range, heroId, {
     max: 4,
-    // ★ 产出按种类走（T355 遗留的"amount 固定 1"）：芦苇成片长，一次攥一把；
-    //   石头燧石一块是一块。**这是产品决定，留在宿主** —— 引擎只认"给几个"。
-    amount: (kind) => RESOURCE_YIELD[kind] ?? 1,
+    // ★ 批122 起不传 `amount`：产量已经是**世界侧**的事（`ResourceMarker.count`，
+    //   出生时由 `yieldOf` 冻结）。这里再传一张产量表，就会把"丢在地上 40 个 berry"
+    //   压成一次捡 1 个 —— 而那正是地面堆叠要解决的问题。
     onRelease: (c) => tasks.releaseCell(c),
   });
     if (!r.ok) return r;
@@ -1839,21 +1860,6 @@ export async function main(): Promise<void> {
     );
   }
 
-
-  /**
-   * 每采集一个资源点给几个物品。**产品决定，留在宿主** —— 引擎的 `pickupNearby`
-   * 接受 `amount: (kind) => number`，为的就是让这张表不需要改引擎。
-   * ★ 这张表同时是"堆叠上限"的存在意义：单次产出 > 1 时，`maxStack`（每堆 40）
-   *   才会真的被撞到（采 25 次芦苇 = 50 个 ⇒ 自动开第二堆）。
-   */
-  const RESOURCE_YIELD: Record<string, number> = {
-    berry: 1,
-    reed: 2,
-    tree: 1,
-    rock: 1,
-    flint: 1,
-    grass_tuft: 1,
-  };
 
   /**
    * 背包一行文本。**空背包要显示"空"，不是空白** ——
@@ -2013,7 +2019,10 @@ export async function main(): Promise<void> {
     if (!r.ok) return r;
     syncBagUi();
     const label = ITEM_LABEL[s.kind] ?? s.kind;
-    return ok(`丢下 ${label}×${String(n)}（散落在 ${String(r.value.cells.length)} 格，按 G 还能捡回来）`);
+    // ★ 报告"这一堆现在有几个"，不是"占了几格"：批122 起丢 n 个只有一格，
+    //   再说"散落在 1 格"会让 40 个和 1 个的提示一模一样。
+    const where = r.value.merged ? "叠到地上的堆" : "放在脚下";
+    return ok(`丢下 ${label}×${String(n)}（${where}，那一堆共 ${String(r.value.count)} 个，按 G 还能捡回来）`);
   }
 
   // ---- HUD（每帧一次；字段都是"可解释的事实"，不是装饰）

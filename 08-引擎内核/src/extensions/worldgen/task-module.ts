@@ -49,6 +49,23 @@ export const TASK_BAD_TERRAIN = "TASK.BAD_TERRAIN";
 export const TASK_CELL_TAKEN = "TASK.CELL_TAKEN";
 /** 放置：全局资源上限到了。 */
 export const TASK_CAP = "TASK.CAP";
+/** 叠堆：这一格上没有**同种类**的资源可叠（空格 / 种类不同 / 越界）。 */
+export const TASK_NO_STACK = "TASK.NO_STACK";
+/** 叠堆：数量不是正整数。 */
+export const TASK_BAD_COUNT = "TASK.BAD_COUNT";
+
+/**
+ * 把外部给的"几个"收成可以写进 `ResourceMarker.count` 的值。
+ *
+ * ★ 兜底而不是报错：`count` 是"这一堆几个"，0 或负数是无意义的中间态，
+ *   而调用方（丢弃、放置）此刻已经检查过自己的输入了 —— 再抛一个几乎不会命中的错误码，
+ *   只会让每个调用点多一个死分支。**但也不能让它变成 0**：count = 0 的堆
+ *   既采不动也不会被销毁（`harvestAt` 只在见底时销毁），是一个永远拆不掉的装饰。
+ */
+function normCount(raw: number): number {
+  if (!Number.isFinite(raw)) return 1;
+  return Math.max(1, Math.floor(raw));
+}
 
 export const RESOURCE_SCHEMA: ComponentSchema = {
   type: RESOURCE_TYPE,
@@ -57,6 +74,17 @@ export const RESOURCE_SCHEMA: ComponentSchema = {
     kind: FieldType.String,
     /** 哪一次触发刷出来的（= `TaskFire.tick`）。诊断用，也用来验"重复触发没被合并"。 */
     bornTick: FieldType.Int,
+    /**
+     * 这一格上还有几个物品（批122：**地面堆叠**）。
+     *
+     * ★ 放在 `fields` 的**末尾**不是审美：`Component.load` 按 schema 逐字段读，
+     *   旧存档没有这个键时走"缺字段 ⇒ 保留类初始化器的值"那一支 ——
+     *   也就是说**旧档读回来是 1，不是 0**。零值是空堆，而空堆既采不动也不会被销毁
+     *   （`harvestAt` 只在见底时才销毁），于是"打开旧档 ⇒ 所有资源都变成采不动的装饰"。
+     *   这条兼容性由 `ResourceMarker.count = 1` 这个**类初始化器**承担，
+     *   判据钉在 `tests/extensions/stack.test.ts`（旧档往返）。
+     */
+    count: FieldType.Int,
   },
 };
 
@@ -66,6 +94,11 @@ export class ResourceMarker extends Component {
   cell = 0;
   kind: SiteKind = "tree";
   bornTick = 0;
+  /**
+   * 还剩几个物品。**默认 1** —— 与批122 之前的"一个节点 = 一个单位"逐字节等价，
+   * 也是旧存档的兼容值（见 `RESOURCE_SCHEMA.fields.count` 的注释）。
+   */
+  count = 1;
 }
 
 export function registerResourceComponent(registry: ComponentRegistry): void {
@@ -79,6 +112,17 @@ export interface WorldTaskModuleOptions {
   readonly scene?: Scene;
   /** 全局资源上限（默认 4096）。到了就不再刷，并计入 `skippedCap`。 */
   readonly maxResources?: number;
+  /**
+   * 一个资源节点出生时带几个物品（`ResourceMarker.count` 的初值）。默认 `() => 1`。
+   *
+   * ★ 为什么"产量"要在这里冻结，而不是采摘时再查一张表：
+   *   采摘那一刻查表，意味着**改了配置就会改地上已有资源的产量** ——
+   *   玩家昨天看到的那棵树，今天变成 3 个木头。而冻结在节点上之后，
+   *   配置只影响**以后长出来的**，这与"世界里已有东西的承诺不变"一致。
+   * ★ 它也是"产品决定留在宿主"的落点：引擎不认识芦苇，宿主传
+   *   `{ reed: 2 }` 就是"芦苇一格 2 份"，引擎照单全收。
+   */
+  readonly yieldOf?: (kind: SiteKind) => number;
 }
 
 export interface WorldTaskModuleStats {
@@ -93,6 +137,13 @@ export interface WorldTaskModuleStats {
   readonly skippedExisting: number;
   /** 因为到了全局上限而跳过。 */
   readonly skippedCap: number;
+  /**
+   * 累计**叠进已有堆**的物品数（批122）。堆叠不新增节点，所以它不体现在
+   * `spawned` / `alive` / `occupied` 里 —— 没有这个计数器，
+   * "丢了 40 个但世界只多 1 个节点"在账目上就是**看不见**的
+   * （只能靠逐格读 `count`，而那是逐格的不是全世界的）。
+   */
+  readonly stacked: number;
   /**
    * 去重索引里现在有多少格。
    *
@@ -128,14 +179,48 @@ export interface WorldTaskModuleHandle extends IModule {
    *   而画面上只是地上多了一个图标，看不出来。
    * ★ `bornTick` 由调用方给（宿主知道当前 tick）：模块自己不看时钟，
    *   于是"跳时间回放"不会把丢的东西记成别的 tick 出生。
+   * ★ `count` 是这一堆的初值，默认 `yieldOf(kind)` —— 与再生同一条口径，
+   *   否则"自然长的树 1 个、丢下的树 3 个"就是两个互不相干的世界。
    */
-  placeResource(cell: number, kind: SiteKind, bornTick: number): Result<number, EngineError>;
+  placeResource(cell: number, kind: SiteKind, bornTick: number, count?: number): Result<number, EngineError>;
+  /**
+   * 往**已有**的同格同类堆上再叠 `n` 个（批122）。
+   *
+   * ★ 与 `placeResource` 是两个不同的问题：那个是"造一个新节点"，这个是"改一个已有节点的
+   *   `count`"。合成一个函数（带 `mergeIfSameKind` 开关）会让两条账彻底缠在一起 ——
+   *   叠堆**不动** `spawned`/`alive`/`occupied`，只动 `stacked` 和一个字段。
+   * ★ 它不受 `maxResources` 限制：叠堆不产生新节点，世界里的节点数没变。
+   *   拿上限拦叠堆的症状是"世界满了以后，丢东西也丢不下去"—— 而那是两件不相干的事。
+   */
+  stackResource(cell: number, kind: SiteKind, n: number): Result<StackedResource, EngineError>;
+}
+
+/** `stackResource` 的结果：叠到了哪一个节点上、叠完还剩几个、叠了几个。 */
+export interface StackedResource {
+  readonly nodeId: number;
+  /** 叠完这一堆的总数（含之前就在地上的）。 */
+  readonly count: number;
+  /** 这一次叠进去几个（= 调用方给的正整数）。 */
+  readonly added: number;
 }
 
 const DEFAULT_MAX_RESOURCES = 4096;
 
 export function createWorldTaskModule(opts: WorldTaskModuleOptions): WorldTaskModuleHandle {
   const maxResources = opts.maxResources ?? DEFAULT_MAX_RESOURCES;
+  /**
+   * 产量的**唯一入口**。★ 在构造期解析一次并收成一个本地函数，
+   * 采样期不再碰 `opts.yieldOf` —— 与 `TweenSpec.ease` 同一条理由：
+   * 每个节点出生都过一遍可选链和 `??`，出错时（返回 0/NaN）会在世界的某处
+   * 悄悄种下一个 count = 0 的空堆。
+   * ★ `Math.max(1, ...)`：产量配置成 0 或负数时**必须兜到 1**，否则那个节点
+   * 出生即空堆 —— 采不动、也不会被销毁（`harvestAt` 只在见底时才销毁）。
+   * 宁可长成 1 份，也不要长成一个永远拆不掉的装饰。
+   */
+  const yieldOf = (kind: SiteKind): number => {
+    const raw = opts.yieldOf === undefined ? 1 : opts.yieldOf(kind);
+    return normCount(raw);
+  };
 
   let scene: Scene | null = opts.scene ?? null;
   let ctxRef: ModuleContext | null = null;
@@ -158,6 +243,7 @@ export function createWorldTaskModule(opts: WorldTaskModuleOptions): WorldTaskMo
   let released = 0;
   let skippedExisting = 0;
   let skippedCap = 0;
+  let stacked = 0;
   let lastFires: readonly TaskFire[] = [];
 
   /**
@@ -256,6 +342,8 @@ export function createWorldTaskModule(opts: WorldTaskModuleOptions): WorldTaskMo
           made.value.cell = cell;
           made.value.kind = kindOf(fire, opts.plan, cell);
           made.value.bornTick = fire.tick;
+          // 产量在**出生那一刻**冻结（批122）：之后改配置不影响这一棵
+          made.value.count = yieldOf(made.value.kind);
           taken.add(cell);
           spawned++;
           alive++;
@@ -277,6 +365,7 @@ export function createWorldTaskModule(opts: WorldTaskModuleOptions): WorldTaskMo
         released,
         skippedExisting,
         skippedCap,
+        stacked,
         occupied: occupied === null ? 0 : occupied.size,
         lastTick: tasks.lastTick,
       };
@@ -300,7 +389,7 @@ export function createWorldTaskModule(opts: WorldTaskModuleOptions): WorldTaskMo
       return ensureIndex(s).has(cell);
     },
 
-    placeResource(cell: number, kind: SiteKind, bornTick: number): Result<number, EngineError> {
+    placeResource(cell: number, kind: SiteKind, bornTick: number, count?: number): Result<number, EngineError> {
       const s = scene;
       if (s === null) {
         return err(engineError(TASK_NO_SCENE, "世界任务模块没有场景，放不了资源"));
@@ -339,11 +428,37 @@ export function createWorldTaskModule(opts: WorldTaskModuleOptions): WorldTaskMo
       made.value.cell = cell;
       made.value.kind = kind;
       made.value.bornTick = bornTick;
+      // ★ `count` 省略时与再生同一条口径（`yieldOf`），不是硬编码 1：
+      //   否则"自然长出来的芦苇 2 份、丢下去的芦苇 1 份"。
+      made.value.count = count === undefined ? yieldOf(kind) : normCount(count);
       taken.add(cell);
       spawned++;
       alive++;
       s.flush();
       return ok(node.value.id);
+    },
+
+    stackResource(cell: number, kind: SiteKind, n: number): Result<StackedResource, EngineError> {
+      const s = scene;
+      if (s === null) {
+        return err(engineError(TASK_NO_SCENE, "世界任务模块没有场景，叠不了资源"));
+      }
+      if (!Number.isInteger(n) || n <= 0) {
+        return err(engineError(TASK_BAD_COUNT, `叠堆数量必须是正整数，收到 ${String(n)}`));
+      }
+      // ★ 只找 `world.resource`，且**种类必须相同**：空格子上叠不出东西（那不是"合并"，
+      //   是"放置"）；不同种类叠一起会让 `kind` 只能留一个，另一个种类的物品凭空消失。
+      //   两种情况都报同一个码：调用方要做的事是一样的（换一格 / 换一条路），
+      //   而分开编码只会让调用方多写一个几乎不会发生的分支。
+      for (const r of s.componentsOf<ResourceMarker>(RESOURCE_TYPE)) {
+        if (r.cell !== cell || r.node === null || r.kind !== kind) continue;
+        r.count += n;
+        stacked += n;
+        return ok({ nodeId: r.node.id, count: r.count, added: n });
+      }
+      return err(
+        engineError(TASK_NO_STACK, `格子 ${String(cell)} 上没有 ${kind} 可以叠（先 placeResource 造一堆）`),
+      );
     },
 
     lastFires(): readonly TaskFire[] {

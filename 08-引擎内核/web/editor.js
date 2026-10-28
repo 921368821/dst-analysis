@@ -7230,7 +7230,18 @@ var RESOURCE_SCHEMA = {
     cell: FieldType.Int,
     kind: FieldType.String,
     /** 哪一次触发刷出来的（= `TaskFire.tick`）。诊断用，也用来验"重复触发没被合并"。 */
-    bornTick: FieldType.Int
+    bornTick: FieldType.Int,
+    /**
+     * 这一格上还有几个物品（批122：**地面堆叠**）。
+     *
+     * ★ 放在 `fields` 的**末尾**不是审美：`Component.load` 按 schema 逐字段读，
+     *   旧存档没有这个键时走"缺字段 ⇒ 保留类初始化器的值"那一支 ——
+     *   也就是说**旧档读回来是 1，不是 0**。零值是空堆，而空堆既采不动也不会被销毁
+     *   （`harvestAt` 只在见底时才销毁），于是"打开旧档 ⇒ 所有资源都变成采不动的装饰"。
+     *   这条兼容性由 `ResourceMarker.count = 1` 这个**类初始化器**承担，
+     *   判据钉在 `tests/extensions/stack.test.ts`（旧档往返）。
+     */
+    count: FieldType.Int
   }
 };
 

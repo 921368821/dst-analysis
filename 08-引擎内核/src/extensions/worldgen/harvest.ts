@@ -26,11 +26,26 @@ import { RESOURCE_TYPE, ResourceMarker } from "./task-module.ts";
 export const HARVEST_NOTHING = "HARVEST.NOTHING";
 /** 格子下标不合法（负数 / 小数 / NaN）。 */
 export const HARVEST_BAD_CELL = "HARVEST.BAD_CELL";
+/** 这一次采几个不合法（0 / 负数 / NaN）—— 0 个的采摘是调用方 bug，不是"什么都不做"。 */
+export const HARVEST_BAD_AMOUNT = "HARVEST.BAD_AMOUNT";
+
+/** 这一格上有什么（**只看，不动场景**）。 */
+export interface PeekedResource {
+  readonly kind: SiteKind;
+  readonly source: "resource" | "site";
+  /** 这一格还有几个物品（`site` 恒为 1：投放点没有堆叠概念）。 */
+  readonly count: number;
+}
 
 export interface Harvested {
   readonly cell: number;
   readonly kind: SiteKind;
+  /** 这一格上资源的节点 id。★ `left === 0` 时它已经失效 —— 那正是"被销毁"的证据。 */
   readonly nodeId: number;
+  /** 这一次拿走几个（= `min(请求量, 原有 count)`）。 */
+  readonly taken: number;
+  /** 这一格还剩几个。**0 表示堆已见底**（节点已销毁、名额已释放）。 */
+  readonly left: number;
   /** `resource` = 任务表刷出来的；`site` = 计划里自带的投放点。 */
   readonly source: "resource" | "site";
 }
@@ -39,9 +54,19 @@ export interface HarvestOptions {
   /**
    * 名额释放回调（把格子从去重索引里去掉）。
    * 返回 `false` 表示索引里本来就没有这一格 —— 不当作错误，但会被记在结果的语义里：
-   * `harvestAt` 只在**真的摘掉了节点**时才调用它。
+   * `harvestAt` 只在**这一堆真的见底**时才调用它。
    */
   readonly onRelease?: (cell: number) => boolean;
+  /**
+   * 这一次**最多**拿走几个。省略 = 能拿多少拿多少（`Infinity`）。
+   *
+   * ★ 语义在批122 变了，而且只变了这一处：以前它是"这一格的产量"（节点必被销毁），
+   *   现在是"这一次的上限"（拿不完就留在地上）。同一件事的两种说法在
+   *   `count = 1` 的自然节点上**完全等价** —— 这正是老调用方一行不改也照样对的原因。
+   * ★ 传 0 或负数会报 `HARVEST.BAD_AMOUNT`，不是"什么都不做"：
+   *   静默返回 `taken = 0` 会让调用方以为采到了东西。
+   */
+  readonly amount?: number;
 }
 
 function isCellIndex(v: number): boolean {
@@ -56,12 +81,16 @@ function isCellIndex(v: number): boolean {
  *   顺序反过来（先摘、再发现背包满）会让资源**凭空消失** —— 画面上树没了，
  *   而玩家什么也没拿到。
  */
-export function peekResourceAt(scene: Scene, cell: number): { readonly kind: SiteKind; readonly source: "resource" | "site" } | null {
+export function peekResourceAt(scene: Scene, cell: number): PeekedResource | null {
   for (const r of scene.componentsOf<ResourceMarker>(RESOURCE_TYPE)) {
-    if (r.cell === cell && r.node !== null) return { kind: r.kind, source: "resource" };
+    if (r.cell === cell && r.node !== null) {
+      // ★ 兜底 1：`count` 是可以在存档里被伪造的（0 / 负数），而 0 个的空堆
+      //   既采不动也不会被销毁。把它当 1 是唯一能让这个格子"能被打扫干净"的解释。
+      return { kind: r.kind, source: "resource", count: Math.max(1, r.count) };
+    }
   }
   for (const m of scene.componentsOf<SiteMarker>(SITE_TYPE)) {
-    if (m.cell === cell && m.node !== null) return { kind: m.kind, source: "site" };
+    if (m.cell === cell && m.node !== null) return { kind: m.kind, source: "site", count: 1 };
   }
   return null;
 }
@@ -76,26 +105,44 @@ export function harvestAt(scene: Scene, cell: number, opts: HarvestOptions = {})
   if (!isCellIndex(cell)) {
     return err(engineError(HARVEST_BAD_CELL, `格子下标必须是 ≥ 0 的整数，收到 ${String(cell)}`));
   }
+  const askRaw = opts.amount === undefined ? Number.POSITIVE_INFINITY : opts.amount;
+  if (!(askRaw > 0)) {
+    return err(engineError(HARVEST_BAD_AMOUNT, `这次采几个必须是正数，收到 ${String(opts.amount)}`));
+  }
+  // 有限值取整（小数是调用方的错，向下取整比"多给"诚实）；`Infinity` 保持原样
+  const ask = Number.isFinite(askRaw) ? Math.max(1, Math.floor(askRaw)) : Number.POSITIVE_INFINITY;
+
+  /**
+   * 见底才销毁 + 还名额。**只有这一处**做这件事 ——
+   * 两条来源（再生 / 投放点）都从这里出去，写成两份的话变异只会打到第一份，
+   * 而"投放点采光了不还名额"的症状是那一格永远刷不出新东西。
+   */
+  const settle = (nodeId: number, kind: SiteKind, source: "resource" | "site", have: number): Harvested => {
+    const taken = Math.min(ask, have);
+    const left = have - taken;
+    if (left === 0) {
+      scene.destroy(nodeId);
+      scene.flush();
+      opts.onRelease?.(cell);
+    }
+    return { cell, kind, nodeId, taken, left, source };
+  };
 
   // ★ 先看再生资源，再看计划投放点：同一个格子上如果两种都有（不该发生，但存档可以伪造），
   //   摘掉"后长出来的那个"更符合直觉 —— 而两种都摘会一次调用删两个节点。
   for (const r of scene.componentsOf<ResourceMarker>(RESOURCE_TYPE)) {
     if (r.cell !== cell || r.node === null) continue;
-    const nodeId = r.node.id;
-    const kind = r.kind;
-    scene.destroy(nodeId);
-    scene.flush();
-    opts.onRelease?.(cell);
-    return ok({ cell, kind, nodeId, source: "resource" });
+    const have = Math.max(1, r.count);
+    const out = settle(r.node.id, r.kind, "resource", have);
+    // ★ 记账在 `settle` 之后：它决定"见底了没有"，而 `count` 必须与那个决定一致。
+    //   在之前写会让"见底却不销毁"和"销毁了却还剩 1 个"这两种错都变得不可能被看见。
+    r.count = out.left;
+    return ok(out);
   }
   for (const m of scene.componentsOf<SiteMarker>(SITE_TYPE)) {
     if (m.cell !== cell || m.node === null) continue;
-    const nodeId = m.node.id;
-    const kind = m.kind;
-    scene.destroy(nodeId);
-    scene.flush();
-    opts.onRelease?.(cell);
-    return ok({ cell, kind, nodeId, source: "site" });
+    // 投放点没有堆叠：恒 1 份，采一次就投完了
+    return ok(settle(m.node.id, m.kind, "site", 1));
   }
 
   return err(

@@ -104,7 +104,7 @@ function findImpassableCell(plan: WorldPlan): number {
 
 // ── ① 闭环 ─────────────────────────────────────────────────────
 
-test("★★ 闭环：丢 1 个到脚下 ⇒ 世界多一个资源 + 背包少一个 + 名额被占（三块状态一起变）", () => {
+test("★★ 闭环：丢 1 个到脚下 ⇒ 世界多一堆 + 背包少一个 + 名额被占（三块状态一起变）", () => {
   const { scene, plan, tasks, heroId } = makeWorld();
   const p = heroPos(scene, heroId);
   assert.ok(addItem(scene, heroId, "berry", 3).ok);
@@ -114,15 +114,17 @@ test("★★ 闭环：丢 1 个到脚下 ⇒ 世界多一个资源 + 背包少�
   const r = dropIntoWorld(scene, heroId, "berry", 1, { x: p.x, z: p.z, plan, tasks, bornTick: 42 });
   assert.ok(r.ok, r.ok ? "" : `${r.error.code} ${r.error.message}`);
   assert.equal(r.value.dropped, 1);
-  assert.equal(r.value.cells.length, 1, "丢 1 个应该只占 1 格");
+  assert.equal(r.value.merged, false, "地上本来没有同类堆 —— 这一发必须是新建（叠堆的账目完全不同）");
+  assert.equal(r.value.count, 1);
 
-  // 世界侧：真的多了一个节点，且标记的字段全对（种类 / 格子 / 出生 tick）
+  // 世界侧：真的多了一个节点，且标记的字段全对（种类 / 格子 / 出生 tick / 存量）
   assert.equal(scene.countOf(RESOURCE_TYPE), resBefore + 1, "世界侧没有多出资源");
   const marks = [...scene.componentsOf<ResourceMarker>(RESOURCE_TYPE)];
-  const mine = marks.find((m) => m.cell === r.value.cells[0]);
+  const mine = marks.find((m) => m.cell === r.value.cell);
   assert.ok(mine !== undefined, "丢下去的格子找不到资源标记");
   assert.equal(mine!.kind, "berry");
   assert.equal(mine!.bornTick, 42, "出生 tick 必须由调用方给（回放时不能变成当前时钟）");
+  assert.equal(mine!.count, 1, "丢 1 个应该长出一堆 1 个");
   // 背包侧
   assert.equal(countItem(scene, heroId, "berry"), 2);
   // 账目侧：去重索引与 alive 一起动（少改任何一样的症状是"再生会在同一格再叠一个"）
@@ -130,24 +132,34 @@ test("★★ 闭环：丢 1 个到脚下 ⇒ 世界多一个资源 + 背包少�
   assert.equal(t1.alive, t0.alive + 1);
   assert.equal(t1.spawned, t0.spawned + 1);
   assert.equal(t1.occupied, t0.occupied + 1);
-  assert.ok(tasks.isOccupied(r.value.cells[0]!), "丢下去的格子没占住 —— 再生会往同一格再叠一个");
+  assert.equal(t1.stacked, t0.stacked, "新建一堆不该记进 stacked（那是残留的合并计数）");
+  assert.ok(tasks.isOccupied(r.value.cell), "丢下去的格子没占住 —— 再生会往同一格再叠一个");
 });
 
-test("★★ 丢 2 个 = 放 2 个节点（一张地图一个单位：少放的那个会凭空消失）", () => {
+test("★★ 丢 2 个 = 一堆 2 个（只占 1 格）：批122 起地面堆叠，不再散成 2 张图", () => {
   const { scene, plan, tasks, heroId } = makeWorld();
   const p = heroPos(scene, heroId);
   assert.ok(addItem(scene, heroId, "rock", 2).ok);
   const resBefore = scene.countOf(RESOURCE_TYPE);
+  const t0 = tasks.stats();
   const r = dropIntoWorld(scene, heroId, "rock", 2, { x: p.x, z: p.z, plan, tasks, bornTick: 7 });
   assert.ok(r.ok, r.ok ? "" : r.error.message);
-  assert.equal(r.value.cells.length, 2, "丢 2 个必须占 2 格");
-  assert.equal(new Set(r.value.cells).size, 2, "两格不能相同");
-  assert.equal(scene.countOf(RESOURCE_TYPE), resBefore + 2, "世界侧没有多出 2 个");
+  assert.equal(r.value.count, 2, "丢 2 个必须是一堆 2 个");
+  assert.equal(scene.countOf(RESOURCE_TYPE), resBefore + 1, "丢 2 个只该新增 1 个节点（多了就是没合并）");
+  const mine = [...scene.componentsOf<ResourceMarker>(RESOURCE_TYPE)].find((m) => m.cell === r.value.cell);
+  assert.equal(mine?.count, 2, "堆里的数量与报告不符");
   assert.equal(countItem(scene, heroId, "rock"), 0);
   assert.equal(stacksOf(scene, heroId).length, 0, "整堆丢完应该一个不剩（含空壳销毁）");
+  // ★ 只验"背包少了 2 个"抓不到这类错：新建一堆却报 merged=true 时，三块状态**全都自洽**，
+  //   只有账目能分辨（叠堆不动 spawned/alive/occupied，只动 stacked）。
+  const t1 = tasks.stats();
+  assert.equal(t1.spawned, t0.spawned + 1);
+  assert.equal(t1.alive, t0.alive + 1);
+  assert.equal(t1.occupied, t0.occupied + 1);
+  assert.equal(t1.stacked, t0.stacked, "新建一堆不该记进 stacked");
 });
 
-test("★★ 丢下去的还能再捡回来（背包 → 世界 → 背包，整圈闭合）", () => {
+test("★★ 丢下去的还能再捡回来（背包 → 世界 → 背包，整圈闭合且数量一个不少）", () => {
   const { scene, plan, tasks, heroId } = makeWorld();
   const p = heroPos(scene, heroId);
   assert.ok(addItem(scene, heroId, "rock", 2).ok);
@@ -157,22 +169,29 @@ test("★★ 丢下去的还能再捡回来（背包 → 世界 → 背包，整
   // 半径拾取把它们捡回来（走的是世界那一侧的真实入口，不是直接调 addItem）
   const pick = pickupNearby(scene, p.x, p.z, 1.5, heroId, { onRelease: (c) => tasks.releaseCell(c) });
   assert.ok(pick.ok, pick.ok ? "" : pick.error.message);
-  assert.equal(pick.value.picked.length, 2, "刚丢下去的居然捡不回来");
-  assert.equal(countItem(scene, heroId, "rock"), 2, "捡回来的数量不对");
+  // ★ 一堆就是一堆：捡的次数是 1，拿回来的量是 2。写成 2 次的话，
+  //   "堆叠没生效、又退回到散开" 这种回退照样会绿。
+  assert.equal(pick.value.picked.length, 1, "一堆 2 个应该一次捡完（不该拆成两次）");
+  assert.equal(countItem(scene, heroId, "rock"), 2, "捡回来的数量不对 —— 丢 2 个必须能捡回 2 个");
+  assert.equal(scene.countOf(RESOURCE_TYPE), 0, "捡光了节点还在 —— 见底了没销毁");
+  assert.equal(tasks.stats().occupied, 0, "捡光了名额没还 —— 那一格永远刷不出新东西");
 });
 
-test("★★ 整堆丢（45 个）：自动外扩找格，一格一个，一个不少", () => {
+test("★★ 整堆丢（45 个）：只占 1 格、堆里 45 个、名额只动 1（不是外扩找 45 格）", () => {
   const { scene, plan, tasks, heroId } = makeWorld();
   const p = heroPos(scene, heroId);
   assert.ok(addItem(scene, heroId, "reed", 45).ok);
   const resBefore = scene.countOf(RESOURCE_TYPE);
   const r = dropIntoWorld(scene, heroId, "reed", 45, { x: p.x, z: p.z, plan, tasks, bornTick: 7 });
   assert.ok(r.ok, r.ok ? "" : `${r.error.code} ${r.error.message}`);
-  assert.equal(r.value.cells.length, 45);
-  assert.equal(new Set(r.value.cells).size, 45, "45 个占了重复的格子");
-  assert.equal(scene.countOf(RESOURCE_TYPE), resBefore + 45, "世界侧没有多出 45 个");
+  assert.equal(r.value.count, 45);
+  assert.equal(scene.countOf(RESOURCE_TYPE), resBefore + 1, "45 个占了不止 1 个节点");
+  assert.equal(tasks.stats().occupied, 1, "45 个只该占住 1 格名额");
   assert.equal(countItem(scene, heroId, "reed"), 0);
-  assert.equal(tasks.stats().occupied, 45, "45 个都该占住名额");
+  // 捡回来也是 45 个（不是 1 个 —— 那才是"批量丢东西"最怕的静默丢失）
+  const pick = pickupNearby(scene, p.x, p.z, 1.5, heroId, { onRelease: (c) => tasks.releaseCell(c) });
+  assert.ok(pick.ok, pick.ok ? "" : pick.error.message);
+  assert.equal(countItem(scene, heroId, "reed"), 45, "丢 45 个却捡不回 45 个 —— 剩下的凭空消失了");
 });
 
 // ── ② 顺序契约（失败时两边都不动）─────────────────────────────
@@ -219,20 +238,22 @@ test("★★ 没有空地 ⇒ DROP.NO_SPACE，物品还在包里（先找格再�
   assert.equal(countItem(scene, heroId, "berry"), 1, "没空地却把东西丢了 —— 顺序反了（先出包再找格）");
 });
 
-test("★★ 放下中途撞上限 ⇒ 回滚已放下的：世界没多、背包没少（不许留下半份）", () => {
-  const { scene, plan, tasks, heroId } = makeWorld(2); // maxResources = 2
+test("★★ 撞全局上限 ⇒ 世界没多、背包没少（放置的失败不被吞成「丢成功」）", () => {
+  const { scene, plan, tasks, heroId } = makeWorld(1); // maxResources = 1
   const p = heroPos(scene, heroId);
+  // 先把唯一的名额用掉 —— ★ 必须放**不同种类**：放 berry 的话，接下来丢 berry
+  // 会走"合并"那条路（不耗名额），于是这条判据根本碰不到上限。
+  const free = findFreeCells(plan, tasks, p.x, p.z, 1, 3);
+  assert.ok(free !== null, "玩家周围没有空地，判据前提不成立");
+  assert.ok(tasks.placeResource(free![0]!, "tree", 0).ok, "前置占格失败");
   assert.ok(addItem(scene, heroId, "berry", 5).ok);
-  const resBefore = scene.countOf(RESOURCE_TYPE);
-  const t0 = tasks.stats();
 
   const r = dropIntoWorld(scene, heroId, "berry", 5, { x: p.x, z: p.z, plan, tasks, bornTick: 1 });
-  assert.ok(!r.ok, "第 3 个就该撞上限，居然全放下来了");
+  assert.ok(!r.ok, "名额已经用完了，居然还放下来了");
   if (!r.ok) assert.equal(r.error.code, TASK_CAP);
-  assert.equal(scene.countOf(RESOURCE_TYPE), resBefore, "回滚没销毁已放节点");
-  assert.equal(tasks.stats().occupied, t0.occupied, "回滚没归还名额");
-  assert.equal(tasks.stats().alive, t0.alive, "回滚没把 alive 减回去");
-  assert.equal(countItem(scene, heroId, "berry"), 5, "回滚路径还是扣了背包");
+  assert.equal(countItem(scene, heroId, "berry"), 5, "放置失败却扣了背包（顺序反了：先出包再放下）");
+  assert.equal(scene.countOf(RESOURCE_TYPE), 1, "放置失败却往世界里加了东西");
+  assert.equal(tasks.stats().alive, 1, "放置失败却改了 alive");
 });
 
 test("★★ 世界不认识的种类 ⇒ DROP.UNKNOWN_KIND（不许把非法值写进 SiteKind 字段）", () => {
@@ -290,7 +311,7 @@ test("★★ 丢下去的资源参与去重：之后再生不会在那一格再�
   assert.ok(addItem(scene, heroId, "berry", 1).ok);
   const r = dropIntoWorld(scene, heroId, "berry", 1, { x: p.x, z: p.z, plan, tasks, bornTick: 3 });
   assert.ok(r.ok, r.ok ? "" : r.error.message);
-  const cell = r.value.cells[0]!;
+  const cell = r.value.cell;
   const before = scene.countOf(RESOURCE_TYPE);
 
   // 让任务表跑几个周期（它自己会挑格子；如果去重漏了我们的格子，这里会 +1）

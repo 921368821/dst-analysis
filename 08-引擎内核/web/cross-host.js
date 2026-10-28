@@ -2079,13 +2079,30 @@ var TASK_BAD_CELL = "TASK.BAD_CELL";
 var TASK_BAD_TERRAIN = "TASK.BAD_TERRAIN";
 var TASK_CELL_TAKEN = "TASK.CELL_TAKEN";
 var TASK_CAP = "TASK.CAP";
+var TASK_NO_STACK = "TASK.NO_STACK";
+var TASK_BAD_COUNT = "TASK.BAD_COUNT";
+function normCount(raw) {
+  if (!Number.isFinite(raw)) return 1;
+  return Math.max(1, Math.floor(raw));
+}
 var RESOURCE_SCHEMA = {
   type: RESOURCE_TYPE,
   fields: {
     cell: FieldType.Int,
     kind: FieldType.String,
     /** 哪一次触发刷出来的（= `TaskFire.tick`）。诊断用，也用来验"重复触发没被合并"。 */
-    bornTick: FieldType.Int
+    bornTick: FieldType.Int,
+    /**
+     * 这一格上还有几个物品（批122：**地面堆叠**）。
+     *
+     * ★ 放在 `fields` 的**末尾**不是审美：`Component.load` 按 schema 逐字段读，
+     *   旧存档没有这个键时走"缺字段 ⇒ 保留类初始化器的值"那一支 ——
+     *   也就是说**旧档读回来是 1，不是 0**。零值是空堆，而空堆既采不动也不会被销毁
+     *   （`harvestAt` 只在见底时才销毁），于是"打开旧档 ⇒ 所有资源都变成采不动的装饰"。
+     *   这条兼容性由 `ResourceMarker.count = 1` 这个**类初始化器**承担，
+     *   判据钉在 `tests/extensions/stack.test.ts`（旧档往返）。
+     */
+    count: FieldType.Int
   }
 };
 var ResourceMarker = class extends Component {
@@ -2093,6 +2110,11 @@ var ResourceMarker = class extends Component {
   cell = 0;
   kind = "tree";
   bornTick = 0;
+  /**
+   * 还剩几个物品。**默认 1** —— 与批122 之前的"一个节点 = 一个单位"逐字节等价，
+   * 也是旧存档的兼容值（见 `RESOURCE_SCHEMA.fields.count` 的注释）。
+   */
+  count = 1;
 };
 function registerResourceComponent(registry) {
   if (!registry.has(RESOURCE_TYPE)) registry.register(RESOURCE_SCHEMA, () => new ResourceMarker());
@@ -2100,6 +2122,10 @@ function registerResourceComponent(registry) {
 var DEFAULT_MAX_RESOURCES = 4096;
 function createWorldTaskModule(opts) {
   const maxResources = opts.maxResources ?? DEFAULT_MAX_RESOURCES;
+  const yieldOf = (kind) => {
+    const raw = opts.yieldOf === void 0 ? 1 : opts.yieldOf(kind);
+    return normCount(raw);
+  };
   let scene = opts.scene ?? null;
   let ctxRef = null;
   let started = false;
@@ -2117,6 +2143,7 @@ function createWorldTaskModule(opts) {
   let released = 0;
   let skippedExisting = 0;
   let skippedCap = 0;
+  let stacked = 0;
   let lastFires = [];
   function ensureIndex(s) {
     if (occupied !== null) return occupied;
@@ -2198,6 +2225,7 @@ function createWorldTaskModule(opts) {
           made.value.cell = cell;
           made.value.kind = kindOf(fire, opts.plan, cell);
           made.value.bornTick = fire.tick;
+          made.value.count = yieldOf(made.value.kind);
           taken.add(cell);
           spawned++;
           alive++;
@@ -2214,6 +2242,7 @@ function createWorldTaskModule(opts) {
         released,
         skippedExisting,
         skippedCap,
+        stacked,
         occupied: occupied === null ? 0 : occupied.size,
         lastTick: tasks.lastTick
       };
@@ -2232,7 +2261,7 @@ function createWorldTaskModule(opts) {
       if (s === null) return false;
       return ensureIndex(s).has(cell);
     },
-    placeResource(cell, kind, bornTick) {
+    placeResource(cell, kind, bornTick, count) {
       const s = scene;
       if (s === null) {
         return err(engineError(TASK_NO_SCENE, "\u4E16\u754C\u4EFB\u52A1\u6A21\u5757\u6CA1\u6709\u573A\u666F\uFF0C\u653E\u4E0D\u4E86\u8D44\u6E90"));
@@ -2266,11 +2295,30 @@ function createWorldTaskModule(opts) {
       made.value.cell = cell;
       made.value.kind = kind;
       made.value.bornTick = bornTick;
+      made.value.count = count === void 0 ? yieldOf(kind) : normCount(count);
       taken.add(cell);
       spawned++;
       alive++;
       s.flush();
       return ok(node.value.id);
+    },
+    stackResource(cell, kind, n) {
+      const s = scene;
+      if (s === null) {
+        return err(engineError(TASK_NO_SCENE, "\u4E16\u754C\u4EFB\u52A1\u6A21\u5757\u6CA1\u6709\u573A\u666F\uFF0C\u53E0\u4E0D\u4E86\u8D44\u6E90"));
+      }
+      if (!Number.isInteger(n) || n <= 0) {
+        return err(engineError(TASK_BAD_COUNT, `\u53E0\u5806\u6570\u91CF\u5FC5\u987B\u662F\u6B63\u6574\u6570\uFF0C\u6536\u5230 ${String(n)}`));
+      }
+      for (const r of s.componentsOf(RESOURCE_TYPE)) {
+        if (r.cell !== cell || r.node === null || r.kind !== kind) continue;
+        r.count += n;
+        stacked += n;
+        return ok({ nodeId: r.node.id, count: r.count, added: n });
+      }
+      return err(
+        engineError(TASK_NO_STACK, `\u683C\u5B50 ${String(cell)} \u4E0A\u6CA1\u6709 ${kind} \u53EF\u4EE5\u53E0\uFF08\u5148 placeResource \u9020\u4E00\u5806\uFF09`)
+      );
     },
     lastFires() {
       return lastFires;
@@ -2625,6 +2673,7 @@ function spawnPlayer(scene, plan) {
 // src/extensions/worldgen/harvest.ts
 var HARVEST_NOTHING = "HARVEST.NOTHING";
 var HARVEST_BAD_CELL = "HARVEST.BAD_CELL";
+var HARVEST_BAD_AMOUNT = "HARVEST.BAD_AMOUNT";
 function isCellIndex(v) {
   return Number.isInteger(v) && v >= 0;
 }
@@ -2632,23 +2681,31 @@ function harvestAt(scene, cell, opts = {}) {
   if (!isCellIndex(cell)) {
     return err(engineError(HARVEST_BAD_CELL, `\u683C\u5B50\u4E0B\u6807\u5FC5\u987B\u662F \u2265 0 \u7684\u6574\u6570\uFF0C\u6536\u5230 ${String(cell)}`));
   }
+  const askRaw = opts.amount === void 0 ? Number.POSITIVE_INFINITY : opts.amount;
+  if (!(askRaw > 0)) {
+    return err(engineError(HARVEST_BAD_AMOUNT, `\u8FD9\u6B21\u91C7\u51E0\u4E2A\u5FC5\u987B\u662F\u6B63\u6570\uFF0C\u6536\u5230 ${String(opts.amount)}`));
+  }
+  const ask = Number.isFinite(askRaw) ? Math.max(1, Math.floor(askRaw)) : Number.POSITIVE_INFINITY;
+  const settle = (nodeId, kind, source, have) => {
+    const taken = Math.min(ask, have);
+    const left = have - taken;
+    if (left === 0) {
+      scene.destroy(nodeId);
+      scene.flush();
+      opts.onRelease?.(cell);
+    }
+    return { cell, kind, nodeId, taken, left, source };
+  };
   for (const r of scene.componentsOf(RESOURCE_TYPE)) {
     if (r.cell !== cell || r.node === null) continue;
-    const nodeId = r.node.id;
-    const kind = r.kind;
-    scene.destroy(nodeId);
-    scene.flush();
-    opts.onRelease?.(cell);
-    return ok({ cell, kind, nodeId, source: "resource" });
+    const have = Math.max(1, r.count);
+    const out = settle(r.node.id, r.kind, "resource", have);
+    r.count = out.left;
+    return ok(out);
   }
   for (const m of scene.componentsOf(SITE_TYPE)) {
     if (m.cell !== cell || m.node === null) continue;
-    const nodeId = m.node.id;
-    const kind = m.kind;
-    scene.destroy(nodeId);
-    scene.flush();
-    opts.onRelease?.(cell);
-    return ok({ cell, kind, nodeId, source: "site" });
+    return ok(settle(m.node.id, m.kind, "site", 1));
   }
   return err(
     engineError(

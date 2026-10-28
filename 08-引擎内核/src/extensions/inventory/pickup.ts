@@ -48,9 +48,13 @@ export interface PickupResult {
 
 export interface PickupOptions {
   /**
-   * 每个资源给多少个。可以是固定值，也可以是**按种类**的函数 ——
-   * 产品上"灌木给 2 个浆果、燧石堆给 1 块"是常态，写死 1 会让
-   * "amount 固定 1"成为背包系统的长期缺口。
+   * 每一格**最多**拿几个（默认：这一格有几个拿几个）。
+   * 可以是固定值，也可以是**按种类**的函数。它现在是"这一次的上限"，
+   * 不再是"这一格的产量"—— 产量已经是世界侧的事（`ResourceMarker.count`，
+   * 出生时由 `WorldTaskModuleOptions.yieldOf` 冻结）。
+   *
+   * ★ 默认必须是"不设上限"，不能是 1：地上一堆 40 个 berry 时，
+   *   上限 1 会让按一次只捡一个 —— 而"丢 40 个能一次捡回 40 个"正是地面堆叠的承诺。
    */
   readonly amount?: number | ((kind: SiteKind) => number);
   /** 名额释放回调（交回 `task-module.releaseCell`）。 */
@@ -81,7 +85,14 @@ export function pickupNearby(
   //   TS 会把闭包内的类型还原成联合 —— 于是 `amountOf(c.kind)` 的类型是
   //   `number | ((kind)=>number)`，编译期就炸。
   const amountOpt = opts.amount;
-  const amountOf = typeof amountOpt === "function" ? amountOpt : () => amountOpt ?? 1;
+  // ★ 不传 = 不设上限（见 `PickupOptions.amount` 的注释）。写成 `?? 1` 会让
+  //   地上每一堆都被压成"一次只拿一个"，而所有计数依然自洽 —— 又一个静默失效。
+  const amountOf: (kind: SiteKind) => number =
+    amountOpt === undefined
+      ? () => Number.POSITIVE_INFINITY
+      : typeof amountOpt === "function"
+        ? amountOpt
+        : () => amountOpt;
 
   // ---- ① 先收集候选（不能在遍历组件的同时销毁节点：那是"边读边改"）
   const cand: Array<{ nodeId: number; cell: number; d2: number; kind: SiteKind }> = [];

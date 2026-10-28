@@ -18287,13 +18287,30 @@ var TASK_BAD_CELL = "TASK.BAD_CELL";
 var TASK_BAD_TERRAIN = "TASK.BAD_TERRAIN";
 var TASK_CELL_TAKEN = "TASK.CELL_TAKEN";
 var TASK_CAP = "TASK.CAP";
+var TASK_NO_STACK = "TASK.NO_STACK";
+var TASK_BAD_COUNT = "TASK.BAD_COUNT";
+function normCount(raw) {
+  if (!Number.isFinite(raw)) return 1;
+  return Math.max(1, Math.floor(raw));
+}
 var RESOURCE_SCHEMA = {
   type: RESOURCE_TYPE,
   fields: {
     cell: FieldType.Int,
     kind: FieldType.String,
     /** 哪一次触发刷出来的（= `TaskFire.tick`）。诊断用，也用来验"重复触发没被合并"。 */
-    bornTick: FieldType.Int
+    bornTick: FieldType.Int,
+    /**
+     * 这一格上还有几个物品（批122：**地面堆叠**）。
+     *
+     * ★ 放在 `fields` 的**末尾**不是审美：`Component.load` 按 schema 逐字段读，
+     *   旧存档没有这个键时走"缺字段 ⇒ 保留类初始化器的值"那一支 ——
+     *   也就是说**旧档读回来是 1，不是 0**。零值是空堆，而空堆既采不动也不会被销毁
+     *   （`harvestAt` 只在见底时才销毁），于是"打开旧档 ⇒ 所有资源都变成采不动的装饰"。
+     *   这条兼容性由 `ResourceMarker.count = 1` 这个**类初始化器**承担，
+     *   判据钉在 `tests/extensions/stack.test.ts`（旧档往返）。
+     */
+    count: FieldType.Int
   }
 };
 var ResourceMarker = class extends Component {
@@ -18301,6 +18318,11 @@ var ResourceMarker = class extends Component {
   cell = 0;
   kind = "tree";
   bornTick = 0;
+  /**
+   * 还剩几个物品。**默认 1** —— 与批122 之前的"一个节点 = 一个单位"逐字节等价，
+   * 也是旧存档的兼容值（见 `RESOURCE_SCHEMA.fields.count` 的注释）。
+   */
+  count = 1;
 };
 function registerResourceComponent(registry) {
   if (!registry.has(RESOURCE_TYPE)) registry.register(RESOURCE_SCHEMA, () => new ResourceMarker());
@@ -18308,6 +18330,10 @@ function registerResourceComponent(registry) {
 var DEFAULT_MAX_RESOURCES = 4096;
 function createWorldTaskModule(opts) {
   const maxResources = opts.maxResources ?? DEFAULT_MAX_RESOURCES;
+  const yieldOf = (kind) => {
+    const raw = opts.yieldOf === void 0 ? 1 : opts.yieldOf(kind);
+    return normCount(raw);
+  };
   let scene = opts.scene ?? null;
   let ctxRef = null;
   let started = false;
@@ -18325,6 +18351,7 @@ function createWorldTaskModule(opts) {
   let released = 0;
   let skippedExisting = 0;
   let skippedCap = 0;
+  let stacked = 0;
   let lastFires = [];
   function ensureIndex(s) {
     if (occupied !== null) return occupied;
@@ -18406,6 +18433,7 @@ function createWorldTaskModule(opts) {
           made.value.cell = cell;
           made.value.kind = kindOf(fire, opts.plan, cell);
           made.value.bornTick = fire.tick;
+          made.value.count = yieldOf(made.value.kind);
           taken.add(cell);
           spawned++;
           alive++;
@@ -18422,6 +18450,7 @@ function createWorldTaskModule(opts) {
         released,
         skippedExisting,
         skippedCap,
+        stacked,
         occupied: occupied === null ? 0 : occupied.size,
         lastTick: tasks.lastTick
       };
@@ -18440,7 +18469,7 @@ function createWorldTaskModule(opts) {
       if (s === null) return false;
       return ensureIndex(s).has(cell);
     },
-    placeResource(cell, kind, bornTick) {
+    placeResource(cell, kind, bornTick, count) {
       const s = scene;
       if (s === null) {
         return err(engineError(TASK_NO_SCENE, "\u4E16\u754C\u4EFB\u52A1\u6A21\u5757\u6CA1\u6709\u573A\u666F\uFF0C\u653E\u4E0D\u4E86\u8D44\u6E90"));
@@ -18474,11 +18503,30 @@ function createWorldTaskModule(opts) {
       made.value.cell = cell;
       made.value.kind = kind;
       made.value.bornTick = bornTick;
+      made.value.count = count === void 0 ? yieldOf(kind) : normCount(count);
       taken.add(cell);
       spawned++;
       alive++;
       s.flush();
       return ok(node.value.id);
+    },
+    stackResource(cell, kind, n) {
+      const s = scene;
+      if (s === null) {
+        return err(engineError(TASK_NO_SCENE, "\u4E16\u754C\u4EFB\u52A1\u6A21\u5757\u6CA1\u6709\u573A\u666F\uFF0C\u53E0\u4E0D\u4E86\u8D44\u6E90"));
+      }
+      if (!Number.isInteger(n) || n <= 0) {
+        return err(engineError(TASK_BAD_COUNT, `\u53E0\u5806\u6570\u91CF\u5FC5\u987B\u662F\u6B63\u6574\u6570\uFF0C\u6536\u5230 ${String(n)}`));
+      }
+      for (const r of s.componentsOf(RESOURCE_TYPE)) {
+        if (r.cell !== cell || r.node === null || r.kind !== kind) continue;
+        r.count += n;
+        stacked += n;
+        return ok({ nodeId: r.node.id, count: r.count, added: n });
+      }
+      return err(
+        engineError(TASK_NO_STACK, `\u683C\u5B50 ${String(cell)} \u4E0A\u6CA1\u6709 ${kind} \u53EF\u4EE5\u53E0\uFF08\u5148 placeResource \u9020\u4E00\u5806\uFF09`)
+      );
     },
     lastFires() {
       return lastFires;
@@ -18513,15 +18561,18 @@ function kindOf(fire, plan, cell) {
 // src/extensions/worldgen/harvest.ts
 var HARVEST_NOTHING = "HARVEST.NOTHING";
 var HARVEST_BAD_CELL = "HARVEST.BAD_CELL";
+var HARVEST_BAD_AMOUNT = "HARVEST.BAD_AMOUNT";
 function isCellIndex(v) {
   return Number.isInteger(v) && v >= 0;
 }
 function peekResourceAt(scene, cell) {
   for (const r of scene.componentsOf(RESOURCE_TYPE)) {
-    if (r.cell === cell && r.node !== null) return { kind: r.kind, source: "resource" };
+    if (r.cell === cell && r.node !== null) {
+      return { kind: r.kind, source: "resource", count: Math.max(1, r.count) };
+    }
   }
   for (const m of scene.componentsOf(SITE_TYPE)) {
-    if (m.cell === cell && m.node !== null) return { kind: m.kind, source: "site" };
+    if (m.cell === cell && m.node !== null) return { kind: m.kind, source: "site", count: 1 };
   }
   return null;
 }
@@ -18529,23 +18580,31 @@ function harvestAt(scene, cell, opts = {}) {
   if (!isCellIndex(cell)) {
     return err(engineError(HARVEST_BAD_CELL, `\u683C\u5B50\u4E0B\u6807\u5FC5\u987B\u662F \u2265 0 \u7684\u6574\u6570\uFF0C\u6536\u5230 ${String(cell)}`));
   }
+  const askRaw = opts.amount === void 0 ? Number.POSITIVE_INFINITY : opts.amount;
+  if (!(askRaw > 0)) {
+    return err(engineError(HARVEST_BAD_AMOUNT, `\u8FD9\u6B21\u91C7\u51E0\u4E2A\u5FC5\u987B\u662F\u6B63\u6570\uFF0C\u6536\u5230 ${String(opts.amount)}`));
+  }
+  const ask = Number.isFinite(askRaw) ? Math.max(1, Math.floor(askRaw)) : Number.POSITIVE_INFINITY;
+  const settle = (nodeId, kind, source, have) => {
+    const taken = Math.min(ask, have);
+    const left = have - taken;
+    if (left === 0) {
+      scene.destroy(nodeId);
+      scene.flush();
+      opts.onRelease?.(cell);
+    }
+    return { cell, kind, nodeId, taken, left, source };
+  };
   for (const r of scene.componentsOf(RESOURCE_TYPE)) {
     if (r.cell !== cell || r.node === null) continue;
-    const nodeId = r.node.id;
-    const kind = r.kind;
-    scene.destroy(nodeId);
-    scene.flush();
-    opts.onRelease?.(cell);
-    return ok({ cell, kind, nodeId, source: "resource" });
+    const have = Math.max(1, r.count);
+    const out = settle(r.node.id, r.kind, "resource", have);
+    r.count = out.left;
+    return ok(out);
   }
   for (const m of scene.componentsOf(SITE_TYPE)) {
     if (m.cell !== cell || m.node === null) continue;
-    const nodeId = m.node.id;
-    const kind = m.kind;
-    scene.destroy(nodeId);
-    scene.flush();
-    opts.onRelease?.(cell);
-    return ok({ cell, kind, nodeId, source: "site" });
+    return ok(settle(m.node.id, m.kind, "site", 1));
   }
   return err(
     engineError(
@@ -18557,18 +18616,33 @@ function harvestAt(scene, cell, opts = {}) {
 
 // src/extensions/inventory/harvest-into.ts
 function harvestInto(scene, cell, ownerId, opts = {}) {
-  const amount = opts.amount ?? 1;
   const peek = peekResourceAt(scene, cell);
   if (peek === null) {
     return err(engineError(HARVEST_NOTHING, `\u683C\u5B50 ${String(cell)} \u4E0A\u6CA1\u6709\u8D44\u6E90`));
   }
-  const added = addItem(scene, ownerId, peek.kind, amount);
+  const wantRaw = opts.amount === void 0 ? peek.count : opts.amount;
+  if (!(wantRaw > 0)) {
+    return err(engineError(HARVEST_BAD_AMOUNT, `\u8FD9\u6B21\u91C7\u51E0\u4E2A\u5FC5\u987B\u662F\u6B63\u6570\uFF0C\u6536\u5230 ${String(opts.amount)}`));
+  }
+  const want = Math.min(peek.count, Number.isFinite(wantRaw) ? Math.max(1, Math.floor(wantRaw)) : peek.count);
+  const added = addItem(scene, ownerId, peek.kind, want);
   if (!added.ok) return added;
-  const took = harvestAt(scene, cell, { onRelease: opts.onRelease });
+  const took = harvestAt(scene, cell, { onRelease: opts.onRelease, amount: want });
   if (!took.ok) {
     return took;
   }
-  return ok({ cell, kind: peek.kind, total: added.value });
+  const short = want - took.value.taken;
+  if (short > 0) {
+    const back = takeItem(scene, ownerId, peek.kind, short);
+    if (!back.ok) return back;
+  }
+  return ok({
+    cell,
+    kind: peek.kind,
+    total: added.value - Math.max(0, short),
+    taken: took.value.taken,
+    left: took.value.left
+  });
 }
 
 // src/extensions/inventory/pickup.ts
@@ -18577,7 +18651,7 @@ function pickupNearby(scene, x, z, radius, ownerId, opts = {}) {
   if (!(radius >= 0)) return err(engineError("PICKUP.BAD_RADIUS", `\u62FE\u53D6\u534A\u5F84\u5FC5\u987B \u2265 0\uFF0C\u6536\u5230 ${radius}`));
   const max = Math.max(1, Math.floor(opts.max ?? DEFAULT_MAX));
   const amountOpt = opts.amount;
-  const amountOf = typeof amountOpt === "function" ? amountOpt : () => amountOpt ?? 1;
+  const amountOf = amountOpt === void 0 ? () => Number.POSITIVE_INFINITY : typeof amountOpt === "function" ? amountOpt : () => amountOpt;
   const cand = [];
   for (const m of scene.componentsOf(RESOURCE_TYPE)) {
     const node = m.node;
@@ -18622,6 +18696,25 @@ function pickupNearby(scene, x, z, radius, ownerId, opts = {}) {
 // src/extensions/inventory/drop-to-world.ts
 var DROP_NO_SPACE = "DROP.NO_SPACE";
 var DROP_UNKNOWN_KIND = "DROP.UNKNOWN_KIND";
+function findStackCell(scene, plan, x, z, kind, searchCells = 3) {
+  const cx = Math.floor(x);
+  const cz = Math.floor(z);
+  const reach = Math.max(0, Math.floor(searchCells)) + 2;
+  let best = -1;
+  let bestD = Number.POSITIVE_INFINITY;
+  for (const r of scene.componentsOf(RESOURCE_TYPE)) {
+    if (r.node === null || r.kind !== kind) continue;
+    const gx = r.cell % plan.width;
+    const gz = (r.cell - gx) / plan.width;
+    const d = Math.max(Math.abs(gx - cx), Math.abs(gz - cz));
+    if (d > reach) continue;
+    if (d < bestD || d === bestD && (best < 0 || r.cell < best)) {
+      best = r.cell;
+      bestD = d;
+    }
+  }
+  return best < 0 ? null : best;
+}
 function findFreeCells(plan, tasks, x, z, n, searchCells = 3) {
   if (n <= 0) return [];
   const width = plan.width;
@@ -18664,31 +18757,29 @@ function dropIntoWorld(scene, ownerId, kind, n, opts) {
   if (has < n) {
     return err(engineError("INVENTORY.NOT_ENOUGH", `\u53EA\u6709 ${String(has)} \u4E2A ${kind}\uFF0C\u8981\u4E22 ${String(n)} \u4E2A`));
   }
-  const cells = findFreeCells(opts.plan, opts.tasks, opts.x, opts.z, n, opts.searchCells);
+  const stackAt = findStackCell(scene, opts.plan, opts.x, opts.z, kind, opts.searchCells);
+  if (stackAt !== null) {
+    const stackedUp = opts.tasks.stackResource(stackAt, kind, n);
+    if (!stackedUp.ok) return stackedUp;
+    const tookMerged = takeItem(scene, ownerId, kind, n);
+    if (!tookMerged.ok) return tookMerged;
+    return ok({ cell: stackAt, nodeId: stackedUp.value.nodeId, count: stackedUp.value.count, dropped: n, merged: true });
+  }
+  const cells = findFreeCells(opts.plan, opts.tasks, opts.x, opts.z, 1, opts.searchCells);
   if (cells === null) {
     return err(
       engineError(
         DROP_NO_SPACE,
-        `\u9644\u8FD1\u6CA1\u6709\u8DB3\u591F\u591A\u7684\u7A7A\u5730\u653E\u4E0B ${String(n)} \u4E2A${kind}\uFF08\u5DF2\u5916\u6269\u5230 ${String(Math.max(0, Math.floor(opts.searchCells ?? 3)) + 2)} \u683C\uFF09`
+        `\u9644\u8FD1\u6CA1\u6709\u7A7A\u5730\u653E\u4E0B ${String(n)} \u4E2A${kind}\uFF08\u5DF2\u5916\u6269\u5230 ${String(Math.max(0, Math.floor(opts.searchCells ?? 3)) + 2)} \u683C\uFF09`
       )
     );
   }
-  const nodeIds = [];
-  for (const cell of cells) {
-    const placed = opts.tasks.placeResource(cell, kind, opts.bornTick);
-    if (!placed.ok) {
-      for (let i = 0; i < nodeIds.length; i++) {
-        scene.destroy(nodeIds[i]);
-        opts.tasks.releaseCell(cells[i]);
-      }
-      scene.flush();
-      return placed;
-    }
-    nodeIds.push(placed.value);
-  }
+  const cell = cells[0];
+  const placed = opts.tasks.placeResource(cell, kind, opts.bornTick, n);
+  if (!placed.ok) return placed;
   const took = takeItem(scene, ownerId, kind, n);
   if (!took.ok) return took;
-  return ok({ cells, nodeIds, dropped: n });
+  return ok({ cell, nodeId: placed.value, count: n, dropped: n, merged: false });
 }
 
 // src/extensions/ui/font.ts
@@ -26931,13 +27022,23 @@ async function main() {
       return v === null ? "\u4E16\u754C\uFF1A\u672A\u88C5\u914D" : `\u4E16\u754C\uFF1A${v.terrain} \u5757\u5730\u5F62 / ${v.sites} \u4E2A\u6295\u653E\u70B9`;
     }
   };
+  const RESOURCE_YIELD = {
+    berry: 1,
+    reed: 2,
+    tree: 1,
+    rock: 1,
+    flint: 1,
+    grass_tuft: 1
+  };
   const tasksHandle = plan === null ? null : createWorldTaskModule({
     tasks: {
       schema: WORLD_TASK_SCHEMA,
       tasks: [{ id: "regen", periodTicks: 30, phase: 0, picksPerRun: 2, biomes: ["grass", "forest"] }]
     },
     plan,
-    maxResources: 96
+    maxResources: 96,
+    // 产量在**出生那一刻**冻进 `count`：之后改这张表不影响地上已有的资源
+    yieldOf: (kind) => RESOURCE_YIELD[kind] ?? 1
   });
   const tasksMod = {
     id: "world.tasks",
@@ -27473,9 +27574,9 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
     const hp = heroNode2.worldPosition;
     const r = pickupNearby(scene, hp.x, hp.y, range, heroId, {
       max: 4,
-      // ★ 产出按种类走（T355 遗留的"amount 固定 1"）：芦苇成片长，一次攥一把；
-      //   石头燧石一块是一块。**这是产品决定，留在宿主** —— 引擎只认"给几个"。
-      amount: (kind) => RESOURCE_YIELD[kind] ?? 1,
+      // ★ 批122 起不传 `amount`：产量已经是**世界侧**的事（`ResourceMarker.count`，
+      //   出生时由 `yieldOf` 冻结）。这里再传一张产量表，就会把"丢在地上 40 个 berry"
+      //   压成一次捡 1 个 —— 而那正是地面堆叠要解决的问题。
       onRelease: (c) => tasks.releaseCell(c)
     });
     if (!r.ok) return r;
@@ -27521,14 +27622,6 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
     const k = (a) => (m.keysOf(a)[0] ?? "?").replace(/^Key/, "");
     return `${k("move_forward")}${k("move_left")}${k("move_back")}${k("move_right")} \u79FB\u52A8 \xB7 ${k("harvest")} \u62FE\u53D6 \xB7 ${k("chop")} \u780D\u6811 \xB7 ${k("attack")} \u6253 \xB7 ${k("eat")} \u5403 \xB7 ${k("craft")} \u5236\u4F5C \xB7 ${k("bag")} \u80CC\u5305 \xB7 ${k("drop")} \u4E22\u5F03 \xB7 ${k("save")} \u5B58\u6863 \xB7 ${k("load")} \u8BFB\u6863 \xB7 ${k("restart")} \u91CD\u8F7D`;
   }
-  const RESOURCE_YIELD = {
-    berry: 1,
-    reed: 2,
-    tree: 1,
-    rock: 1,
-    flint: 1,
-    grass_tuft: 1
-  };
   function bagText() {
     if (heroId < 0) return "\u65E0\u4E3B";
     const stacks = stacksOf(scene, heroId);
@@ -27624,7 +27717,8 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
     if (!r.ok) return r;
     syncBagUi();
     const label = ITEM_LABEL[s.kind] ?? s.kind;
-    return ok(`\u4E22\u4E0B ${label}\xD7${String(n)}\uFF08\u6563\u843D\u5728 ${String(r.value.cells.length)} \u683C\uFF0C\u6309 G \u8FD8\u80FD\u6361\u56DE\u6765\uFF09`);
+    const where = r.value.merged ? "\u53E0\u5230\u5730\u4E0A\u7684\u5806" : "\u653E\u5728\u811A\u4E0B";
+    return ok(`\u4E22\u4E0B ${label}\xD7${String(n)}\uFF08${where}\uFF0C\u90A3\u4E00\u5806\u5171 ${String(r.value.count)} \u4E2A\uFF0C\u6309 G \u8FD8\u80FD\u6361\u56DE\u6765\uFF09`);
   }
   let fps = 0;
   let frames = 0;

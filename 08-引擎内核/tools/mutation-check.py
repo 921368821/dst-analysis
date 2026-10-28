@@ -1635,10 +1635,11 @@ MUTANTS = [
         "name": "M151 采集只释放名额、不销毁节点（砍完了树还在那儿）",
         # ★ 这是"只做两块状态里的一半"的第一种：组件数、索引、alive 全对，
         #   只有场景里的节点还在 —— 而玩家看到的就是"树砍不掉"。
+        # ★ 批122：两条分支（再生 / 投放点）合并进 `settle` 闭包，缩进 6 空格、
+        #   同名原文只剩一份 —— pairs 从两条降到一条（不是放宽，是原文少了一处）。
         "file": "src/extensions/worldgen/harvest.ts",
         "pairs": [
-            ("    scene.destroy(nodeId);\n", ""),
-            ("    scene.destroy(nodeId);\n", ""),
+            ("      scene.destroy(nodeId);\n", ""),
         ],
         "test": "tests/extensions/harvest.test.ts",
     },
@@ -1648,8 +1649,7 @@ MUTANTS = [
         #   只验"节点没了"的判据对这条完全无感。
         "file": "src/extensions/worldgen/harvest.ts",
         "pairs": [
-            ("    opts.onRelease?.(cell);\n", ""),
-            ("    opts.onRelease?.(cell);\n", ""),
+            ("      opts.onRelease?.(cell);\n", ""),
         ],
         "test": "tests/extensions/harvest.test.ts",
     },
@@ -1698,8 +1698,7 @@ MUTANTS = [
         #   ① 「300 轮后节点数回到基线」，② 「同格连采之后节点数不变」。
         "file": "src/extensions/worldgen/harvest.ts",
         "pairs": [
-            ("    scene.flush();\n", ""),
-            ("    scene.flush();\n", ""),
+            ("      scene.flush();\n", ""),
         ],
         "test": "tests/extensions/world-soak.test.ts",
     },
@@ -1791,14 +1790,14 @@ MUTANTS = [
         # ★ 最坏的一种：树真的倒了、计数自洽、玩家什么都没拿到。画面上无异常可看。
         "file": "src/extensions/inventory/harvest-into.ts",
         "pairs": [("""  // ① 先进包：满了就在这里失败，**世界没动**
-  const added = addItem(scene, ownerId, peek.kind, amount);
+  const added = addItem(scene, ownerId, peek.kind, want);
   if (!added.ok) return added;
-  // ② 再摘：这一步之后资源就没了，所以它必须是最后一步
-  const took = harvestAt(scene, cell, { onRelease: opts.onRelease });""",
+  // ② 再摘：这一步之后资源就少了，所以它必须是最后一步
+  const took = harvestAt(scene, cell, { onRelease: opts.onRelease, amount: want });""",
 """  // ① 先摘（错的顺序）
-  const took = harvestAt(scene, cell, { onRelease: opts.onRelease });
+  const took = harvestAt(scene, cell, { onRelease: opts.onRelease, amount: want });
   // ② 再进包
-  const added = addItem(scene, ownerId, peek.kind, amount);
+  const added = addItem(scene, ownerId, peek.kind, want);
   if (!added.ok) return added;""")],
         "test": "tests/extensions/inventory.test.ts",
     },
@@ -1961,7 +1960,10 @@ MUTANTS = [
         # （画面看不出 —— 两个图标叠在一起只显示上面那个，只有 countOf 会涨）
         "name": "M185 placeResource 不占格（去重索引漏一个，再生原地叠）",
         "file": "src/extensions/worldgen/task-module.ts",
-        "pairs": [("      made.value.bornTick = bornTick;\n      taken.add(cell);", "      made.value.bornTick = bornTick;")],
+        "pairs": [(
+            "      made.value.count = count === undefined ? yieldOf(kind) : normCount(count);\n      taken.add(cell);",
+            "      made.value.count = count === undefined ? yieldOf(kind) : normCount(count);",
+        )],
         "test": "tests/extensions/drop-to-world.test.ts",
     },
     {
@@ -1976,11 +1978,23 @@ MUTANTS = [
     {
         # 回滚被删：放下中途撞上限时，已放下的节点留在世界里、
         # 而背包没扣 —— "世界多几个、背包没少"的复制 bug
-        "name": "M187 dropIntoWorld 不回滚已放节点（中途失败留下半份）",
+        "name": "M187 dropIntoWorld 先出包再放置（放置失败时背包少了、世界没多）",
+        # ★ 批122 重指认：堆叠后一次只放**一个**节点，"中途"这个场景不存在了，
+        #   回滚循环也整段删掉了。同一条保证（失败时两边都不动）现在靠顺序撑着：
+        #   「先做完可能失败的事，最后出包」。所以靶子改成把这两步对调 ——
+        #   放置撞上限时就留下"背包少了、世界没多"的半份状态，症状与旧 M187 同类。
         "file": "src/extensions/inventory/drop-to-world.ts",
         "pairs": [(
-            "      for (let i = 0; i < nodeIds.length; i++) {\n        scene.destroy(nodeIds[i]!);\n        opts.tasks.releaseCell(cells[i]!);\n      }\n      scene.flush();",
-            "      scene.flush();",
+            """  const placed = opts.tasks.placeResource(cell, kind, opts.bornTick, n);
+  // 失败（越界/不可通行/被抢/上限）时世界没动 —— `placeResource` 的每个失败分支
+  // 都在 `spawn` 之前 return，或把刚 spawn 的孤儿撤掉，不留半份。
+  if (!placed.ok) return placed;
+  const took = takeItem(scene, ownerId, kind, n);
+  if (!took.ok) return took;""",
+            """  const took = takeItem(scene, ownerId, kind, n);
+  if (!took.ok) return took;
+  const placed = opts.tasks.placeResource(cell, kind, opts.bornTick, n);
+  if (!placed.ok) return placed;""",
         )],
         "test": "tests/extensions/drop-to-world.test.ts",
     },
@@ -6755,6 +6769,160 @@ MUTANTS = [
         "file": "src/host/wx/input.ts",
         "pairs": [("    this.dead = true;", "    this.dead = false;")],
         "test": "tests/host/wx.test.ts"
+    },
+    {
+        "name": "M722 yieldOf 的兜底没了（产量配成 0 时种出空堆：采不动、也永远拆不掉）",
+        "file": "src/extensions/worldgen/task-module.ts",
+        "pairs": [("    return normCount(raw);",
+                   "    return raw;")],
+        "test": "tests/extensions/stack.test.ts"
+    },
+    {
+        "name": "M723 再生时不把产量冻进 count（世界上长出来的全是 1 份，芦苇少一半）",
+        "file": "src/extensions/worldgen/task-module.ts",
+        "pairs": [("          made.value.count = yieldOf(made.value.kind);",
+                   "          made.value.count = 1;")],
+        "test": "tests/extensions/stack.test.ts"
+    },
+    {
+        "name": "M724 placeResource 忽略 count 参数（丢 45 个只放 1 个，其余 44 个凭空消失）",
+        "file": "src/extensions/worldgen/task-module.ts",
+        "pairs": [("      made.value.count = count === undefined ? yieldOf(kind) : normCount(count);",
+                   "      made.value.count = 1;")],
+        "test": "tests/extensions/stack.test.ts"
+    },
+    {
+        "name": "M725 stackResource 不看种类（把 tree 叠进 berry 堆，berry 凭空消失）",
+        "file": "src/extensions/worldgen/task-module.ts",
+        "pairs": [("        if (r.cell !== cell || r.node === null || r.kind !== kind) continue;",
+                   "        if (r.cell !== cell || r.node === null) continue;")],
+        "test": "tests/extensions/stack.test.ts"
+    },
+    {
+        "name": "M726 叠堆不记账（stacked 恒 0：合并这件事在世界账目上完全不可观察）",
+        "file": "src/extensions/worldgen/task-module.ts",
+        "pairs": [("        stacked += n;",
+                   "        void n;")],
+        "test": "tests/extensions/stack.test.ts"
+    },
+    {
+        "name": "M727 stats 不暴露 stacked（内部记了也不给看，等于没记）",
+        "file": "src/extensions/worldgen/task-module.ts",
+        "pairs": [("        stacked,",
+                   "        stacked: 0,")],
+        "test": "tests/extensions/stack.test.ts"
+    },
+    {
+        "name": "M728 stackResource 不校验数量（n = 0 也算成功，调用方以为叠上了）",
+        "file": "src/extensions/worldgen/task-module.ts",
+        "pairs": [("      if (!Number.isInteger(n) || n <= 0) {",
+                   "      if (false) {")],
+        "test": "tests/extensions/stack.test.ts"
+    },
+    {
+        "name": "M729 叠堆顺手把 spawned 加一（账目串到放置上：上限提前撞满）",
+        "file": "src/extensions/worldgen/task-module.ts",
+        "pairs": [("        r.count += n;",
+                   "        r.count += n; spawned++;")],
+        "test": "tests/extensions/stack.test.ts"
+    },
+    {
+        "name": "M730 只剩 1 个就销毁（left <= 1：最后那个凭空消失，背包只收到 taken 个）",
+        "file": "src/extensions/worldgen/harvest.ts",
+        "pairs": [("    if (left === 0) {",
+                   "    if (left <= 1) {")],
+        "test": "tests/extensions/stack.test.ts"
+    },
+    {
+        "name": "M731 每次都销毁（回到批122 前：拿 2 个也把整堆 5 个一起删掉）",
+        "file": "src/extensions/worldgen/harvest.ts",
+        "pairs": [("    if (left === 0) {",
+                   "    if (true) {")],
+        "test": "tests/extensions/stack.test.ts"
+    },
+    {
+        "name": "M732 采完不减 count（永远采不光，同一格可以无限采）",
+        "file": "src/extensions/worldgen/harvest.ts",
+        "pairs": [("    r.count = out.left;",
+                   "    void out.left;")],
+        "test": "tests/extensions/stack.test.ts"
+    },
+    {
+        "name": "M733 count = 0 的堆不兜底（存档被伪造出空堆时它永远采不动）",
+        "file": "src/extensions/worldgen/harvest.ts",
+        "pairs": [("    const have = Math.max(1, r.count);",
+                   "    const have = r.count;")],
+        "test": "tests/extensions/stack.test.ts"
+    },
+    {
+        "name": "M734 忽略这次的上限（要 2 个给 5 个：凭空生资源）",
+        "file": "src/extensions/worldgen/harvest.ts",
+        "pairs": [("    const taken = Math.min(ask, have);",
+                   "    const taken = have;")],
+        "test": "tests/extensions/stack.test.ts"
+    },
+    {
+        "name": "M735 peek 的 count 恒 1（背包满时调用方算不出还能拿几个）",
+        "file": "src/extensions/worldgen/harvest.ts",
+        "pairs": [("      return { kind: r.kind, source: \"resource\", count: Math.max(1, r.count) };",
+                   "      return { kind: r.kind, source: \"resource\", count: 1 };")],
+        "test": "tests/extensions/stack.test.ts"
+    },
+    {
+        "name": "M736 不校验 amount（传 0 也当成功，返回 taken = 0 让调用方以为采到了）",
+        "file": "src/extensions/worldgen/harvest.ts",
+        "pairs": [("  if (!(askRaw > 0)) {",
+                   "  if (false) {")],
+        "test": "tests/extensions/stack.test.ts"
+    },
+    {
+        "name": "M737 harvestInto 只往包里加 1 个（与这一堆的数量脱钩：堆里 45 个只捡回 1 个）",
+        "file": "src/extensions/inventory/harvest-into.ts",
+        "pairs": [("  const added = addItem(scene, ownerId, peek.kind, want);",
+                   "  const added = addItem(scene, ownerId, peek.kind, 1);")],
+        "test": "tests/extensions/drop-to-world.test.ts"
+    },
+    {
+        "name": "M738 pickupNearby 默认上限 1（地上一堆 40 个，按一次只捡一个）",
+        "file": "src/extensions/inventory/pickup.ts",
+        "pairs": [("      ? () => Number.POSITIVE_INFINITY",
+                   "      ? () => 1")],
+        "test": "tests/extensions/drop-to-world.test.ts"
+    },
+    {
+        "name": "M739 丢弃永不合并（每次都新建碎堆，地上很快全是同一格一颗的图）",
+        "file": "src/extensions/inventory/drop-to-world.ts",
+        "pairs": [("  const stackAt = findStackCell(scene, opts.plan, opts.x, opts.z, kind, opts.searchCells);",
+                   "  const stackAt: number | null = null;")],
+        "test": "tests/extensions/stack.test.ts"
+    },
+    {
+        "name": "M740 findStackCell 不看种类（把 tree 的落点指到 berry 堆上，放置随即失败）",
+        "file": "src/extensions/inventory/drop-to-world.ts",
+        "pairs": [("    if (r.node === null || r.kind !== kind) continue;",
+                   "    if (r.node === null) continue;")],
+        "test": "tests/extensions/drop-to-world.test.ts"
+    },
+    {
+        "name": "M741 findStackCell 半径无上限（隔着半张图也能合并，位置完全失控）",
+        "file": "src/extensions/inventory/drop-to-world.ts",
+        "pairs": [("    if (d > reach) continue;",
+                   "    if (false) continue;")],
+        "test": "tests/extensions/stack.test.ts"
+    },
+    {
+        "name": "M742 新建堆时把 n 丢了（传 1：丢 45 个只放 1 个）",
+        "file": "src/extensions/inventory/drop-to-world.ts",
+        "pairs": [("  const placed = opts.tasks.placeResource(cell, kind, opts.bornTick, n);",
+                   "  const placed = opts.tasks.placeResource(cell, kind, opts.bornTick, 1);")],
+        "test": "tests/extensions/drop-to-world.test.ts"
+    },
+    {
+        "name": "M743 合并分支谎报 merged = false（走了叠堆却说是新建，两条账从此分不清）",
+        "file": "src/extensions/inventory/drop-to-world.ts",
+        "pairs": [("    return ok({ cell: stackAt, nodeId: stackedUp.value.nodeId, count: stackedUp.value.count, dropped: n, merged: true });",
+                   "    return ok({ cell: stackAt, nodeId: stackedUp.value.nodeId, count: stackedUp.value.count, dropped: n, merged: false });")],
+        "test": "tests/extensions/stack.test.ts"
     }
 ]
 
