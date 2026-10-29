@@ -82,6 +82,18 @@ function dataRows(section) {
 }
 
 /**
+ * 这一行的「首格」是不是已经关单了（`~~划掉~~` 或标了 ✅）。
+ *
+ * ★ 两处规则都要问这件事（过期工具行 / 做完却没关单），所以收成一个函数 ——
+ *   同一个条件写两遍的话，变异只打得到第一个，第二个分支的错永远没人咬
+ *   （批131 第一次加 M821 时就撞上了：靶串逐字相同，`replace(…, 1)` 打在旧函数上，
+ *   新规则的首格条件其实一条变异都没覆盖）。
+ */
+function alreadyClosed(head) {
+  return head.includes("✅") || head.includes("~~");
+}
+
+/**
  * 扫出「首格没标已消除、却点名了已在 CI 里跑的工具」的缺口行。
  *
  * @param {object} p
@@ -96,8 +108,8 @@ export function findStaleGapRows({ docText, exists, ciText }) {
   const issues = [];
   for (const { no, row, text } of dataRows(section)) {
     const head = row[0] ?? "";
-    // ② 只看首格：正文里划掉一句话不能顶替"这条缺口已经消除了"
-    if (head.includes("✅") || head.includes("~~")) continue;
+    // ② 只看首格：正文里划掉一句话不能顶替"这条缺口已经消除了"（`alreadyClosed`）
+    if (alreadyClosed(head)) continue;
     const paths = text.match(TOOL_PATH) ?? [];
     // ★ 去重：同一行里同一个路径写两遍不该报两遍
     const hits = [...new Set(paths)].filter((p) => exists(p) && ciText.includes(p));
@@ -111,6 +123,72 @@ export function gapRowCount(docText) {
   const section = gapSectionLines(docText);
   if (section === null) return 0;
   return dataRows(section).length;
+}
+
+/** 去掉 `~~…~~` 划掉的部分（只看**还成立**的文字）。 */
+function stripStruck(text) {
+  const out = [];
+  let struck = false;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === "~" && text[i + 1] === "~") {
+      struck = !struck;
+      i++;
+      continue;
+    }
+    if (!struck) out.push(text[i]);
+  }
+  return out.join("");
+}
+
+/** 一行里自称「做完了」的说法。 */
+const DONE_CLAIM = /全部交付|已交付|已消除|已支持|已完成|已落地/;
+
+/**
+ * 一行里仍然成立的「还差什么」。
+ *
+ * ★ 这几组词是**唯一**能救一条未关单的行：写清「已交付 A，仍缺 B」的行说明作者
+ *   知道自己还在半路上，不能判红（C3 那种"开关已交付、只是决定不读朝向"也在这一档）。
+ */
+const LIVE_GAP = /仍缺|仍无|仍不|仍未|仍没|尚缺|尚无|尚未|还没|未实现|没做|待补|待做|做不到/;
+
+/**
+ * ## 「做完了却没关单」（批131）
+ *
+ * ★ 为什么需要它：`BLOCKERS` 那边早就有了这条规则（`blockers-check.mjs` 的 ⑤，
+ *   批127 —— C18 的三项全交付、状态格还挂 `🔜`）。但 `PROGRESS §六` 的缺口表
+ *   是**另一份**「还剩几件」的答案，而那边一条判据都没有。
+ *   2026-10-27 批131 实测：`| 补间：混合 / 自定义曲线 |` 这一行三个格子写满了
+ *   「多关键帧已交付（批99）」「✅ 批117」「✅ 批118」「✅ 批119」，
+ *   首格却一直没划 —— 19 行缺口行（`gapRowCount` 的口径，含 4 个表头）里
+ *   有 1 行是**已经做完却还在数**。
+ *   行数因此永远是"大约 6 条"，而这正是这份表唯一的存在理由。
+ *
+ * ★ 为什么不直接抄 ⑤ 的判据：`BLOCKERS` 有独立的「状态」格可以读，
+ *   `§六` 没有 —— 状态只体现在**首格有没有划掉**。所以这里的判据是：
+ *   首格没划掉 ∧ 行里自称做完 ∧ 行里没有还成立的「仍缺」 ⇒ 红。
+ *
+ * ★ 三个反向条件都是为了**不假红**（假红比漏报贵：被误报吓过的人会关闸门）：
+ *   ① 首格带 ✅ / ~~ ⇒ 已经关单了（正文怎么写的不管）；
+ *   ② 行里还有「仍缺 / 没做 / 待补」这类词 ⇒ 作者知道在半路上；
+ *   ③ 划掉的部分不算数 —— `~~A~~ ✅ 批117` 里的「已交付」是历史留痕。
+ *
+ * @param {string} docText 整篇 `PROGRESS.md`
+ * @returns {{no: number, head: string, kind: "forgot-close"}[]|null}
+ *          `null` = 找不到 §六 标题（判据不静默扫 0 行）
+ */
+export function findForgottenClosures(docText) {
+  const section = gapSectionLines(docText);
+  if (section === null) return null;
+  const issues = [];
+  for (const { no, row, text } of dataRows(section)) {
+    const head = row[0] ?? "";
+    if (alreadyClosed(head)) continue;
+    const body = stripStruck(text);
+    if (!DONE_CLAIM.test(body)) continue;
+    if (LIVE_GAP.test(body)) continue;
+    issues.push({ no, head, kind: "forgot-close" });
+  }
+  return issues;
 }
 
 /**

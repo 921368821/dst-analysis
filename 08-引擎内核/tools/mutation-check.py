@@ -4302,17 +4302,23 @@ MUTANTS = [
     },
     {
         "name": "M463 已消除判定整个删掉（做完的缺口也照报，清单永远红）",
+        # ★ 靶子带上行注释当上下文：批131 抽成 alreadyClosed 后两处调用点逐字相同
         "file": "tools/gap-check.mjs",
-        "pairs": [('    if (head.includes("✅") || head.includes("~~")) continue;',
-                   "    if (false) continue;")],
+        "pairs": [(
+            '    // ② 只看首格：正文里划掉一句话不能顶替"这条缺口已经消除了"（`alreadyClosed`）\n    if (alreadyClosed(head)) continue;\n',
+            '    // ② 只看首格：正文里划掉一句话不能顶替"这条缺口已经消除了"（`alreadyClosed`）\n    if (false) continue;\n',
+        )],
         "test": "tests/tools/gap-check.test.ts",
     },
     {
         # 这是 C12 那个形态本身：正文里划掉了旧等待条件，缺口名还挂着。
+        # ★ 靶子带上行注释当上下文：批131 抽成 alreadyClosed 后两处调用点逐字相同
         "name": "M464 正文里划掉就算已消除（C12 那种行被自己的正文免责）",
         "file": "tools/gap-check.mjs",
-        "pairs": [('    if (head.includes("✅") || head.includes("~~")) continue;',
-                   '    if (text.includes("✅") || text.includes("~~")) continue;')],
+        "pairs": [(
+            '    // ② 只看首格：正文里划掉一句话不能顶替"这条缺口已经消除了"（`alreadyClosed`）\n    if (alreadyClosed(head)) continue;\n',
+            '    // ② 只看首格：正文里划掉一句话不能顶替"这条缺口已经消除了"（`alreadyClosed`）\n    if (alreadyClosed(text)) continue;\n',
+        )],
         "test": "tests/tools/gap-check.test.ts",
     },
     {
@@ -7627,6 +7633,50 @@ MUTANTS = [
         "file": "src/backends/script-lua/runtime.ts",
         "pairs": [("嵌套超过 32 层（**不是环** —— 真的是数据太深；跨边界前请先摊平）", "嵌套超过 32 层（八成是成环的表）")],
         "test": "tests/backends/script-value-cycle.test.ts",
+    },
+    # ---- 批131：「做完了却没关单」
+    {
+        "name": "M821 已关单的行照样报（`alreadyClosed` 恒 false：划掉 / ✅ 都不再免责）",
+        # ★ 靶子打在 `alreadyClosed` 上，不是打在调用点：两处规则共用它，
+        #   打在调用点的话 `replace(…, 1)` 只改得到第一个 —— 第一条变异跑完才发现
+        #   新规则那条分支一条变异都没覆盖（靶串逐字相同的陷阱，批131 实测）。
+        "file": "tools/gap-check.mjs",
+        "pairs": [(
+            '  return head.includes("✅") || head.includes("~~");\n',
+            "  return false;\n",
+        )],
+        "test": "tests/tools/gap-check.test.ts",
+    },
+    {
+        "name": "M822 行里写着「仍缺 X」也报（判据逼人把「还差什么」删掉才好交差）",
+        # ★ 这一条是**反向条件**：不写「仍缺」就没人报，写了反而被判红 —— 那种判据
+        #   会训练人删证据。C3「开关已交付、只是决定不读朝向」就是这一档。
+        "file": "tools/gap-check.mjs",
+        "pairs": [("    if (LIVE_GAP.test(body)) continue;\n", "    if (false) continue;\n")],
+        "test": "tests/tools/gap-check.test.ts",
+    },
+    {
+        "name": "M823 一行里没自称做完也报（缺口表全变红，等于没有判据）",
+        "file": "tools/gap-check.mjs",
+        "pairs": [("    if (!DONE_CLAIM.test(body)) continue;\n", "    if (false) continue;\n")],
+        "test": "tests/tools/gap-check.test.ts",
+    },
+    {
+        "name": "M824 不剥 ~~…~~（划掉的历史留痕被当成现状，重新打开的行被误报）",
+        "file": "tools/gap-check.mjs",
+        "pairs": [('  return out.join("");\n', "  return text;\n")],
+        "test": "tests/tools/gap-check.test.ts",
+    },
+    {
+        "name": "M825 docs-check 打印里去掉「没关单」（接线判据只剩半条：仍缺在跑、新规则没在跑）",
+        # ★ 纯函数判据证不了「有人在调用它」。去掉这一段输出，
+        #   tests/tools/gap-check.test.ts 的接线那条立刻红。
+        "file": "tools/docs-check.mjs",
+        "pairs": [(
+            "，做完却没关单 ${forgotten.length} 条`,\n",
+            "`,\n",
+        )],
+        "test": "tests/tools/gap-check.test.ts",
     },
 ]
 

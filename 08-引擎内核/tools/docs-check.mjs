@@ -41,7 +41,7 @@ import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from 
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { EDITOR_DECLARED } from "./editor-declared.mjs";
-import { GAP_HEADING, findStaleGapRows, findUnresolvedClaims, gapRowCount } from "./gap-check.mjs";
+import { GAP_HEADING, findForgottenClosures, findStaleGapRows, findUnresolvedClaims, gapRowCount } from "./gap-check.mjs";
 import { blockerRowCount, findBlockerIssues, pickBlockersDoc } from "./blockers-check.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -143,11 +143,43 @@ const gapIssues = (() => {
     process.exit(2);
   }
   const claims = findUnresolvedClaims(docText, blockersText) ?? [];
+
+  // ★ 「做完了却没关单」（批131，规则见 `tools/gap-check.mjs` 的 findForgottenClosures）。
+  //   反向自检同样不是可选项：这条判据今天应当输出 0 条（唯一的实例已被修掉），
+  //   而「0 条」与「没在扫」在这份输出上完全一样。
+  const CLOSE_SAMPLE = [
+    GAP_HEADING,
+    "",
+    "| 缺口 | 现状 | 在等什么 |",
+    "|---|---|---|",
+    "| 合成的没关单 | **已交付**（批99） | 已完成 |",
+    "| 真的还在半路 | 已交付一半，仍缺 B | —— |",
+    "| ~~划掉的那种~~ | 已交付 | —— |",
+    "| 还在做 | 没做 | —— |",
+    "",
+    "## 七、结束",
+    "",
+  ].join("\n");
+  const closeProbe = findForgottenClosures(CLOSE_SAMPLE);
+  const closeProbeOk =
+    closeProbe !== null && closeProbe.length === 1 && closeProbe[0].head === "合成的没关单";
+  if (!closeProbeOk) {
+    console.error("✗ 「做完了却没关单」打不中合成语料 —— 这条判据是摆设（绿着但没在扫）");
+    process.exit(2);
+  }
+  const forgotten = findForgottenClosures(docText) ?? [];
   console.log(
-    `清单对账：§六 缺口行 ${gapRows} 行，过期 ${stale.length} 条，未挂编号/已过期的「仍缺」 ${claims.length} 条`,
+    `清单对账：§六 缺口行 ${gapRows} 行，过期 ${stale.length} 条，未挂编号/已过期的「仍缺」 ${claims.length} 条，做完却没关单 ${forgotten.length} 条`,
   );
-  if (GAP_ONLY) process.exit(stale.length === 0 && claims.length === 0 ? 0 : 1);
-  return [...stale, ...claims];
+  if (GAP_ONLY) {
+    // ★ 退出码要带得走原因：`--gap-only` 在 problems 汇总之前就退出了，
+    //   只留一个 1 的话，接线判据红起来只有「rc=1」—— 与「脚本崩了」分不开。
+    for (const it of [...stale, ...claims, ...forgotten]) {
+      console.error(`  ✗ PROGRESS.md:${it.no} ${it.kind ?? "stale-tool"} ${it.head ?? ""}`);
+    }
+    process.exit(stale.length === 0 && claims.length === 0 && forgotten.length === 0 ? 0 : 1);
+  }
+  return [...stale, ...claims, ...forgotten];
 })();
 
 /**
@@ -533,6 +565,11 @@ for (const it of gapIssues) {
     problems.push(
       `PROGRESS.md:${it.no} 「仍缺」引用的 ${it.ids.join(", ")} 在阻塞清单里已经是 ✅` +
         " —— 这条缺口早就消除了，句子过期了（C12 就是照抄过期句写出来的）",
+    );
+  } else if (it.kind === "forgot-close") {
+    problems.push(
+      `PROGRESS.md:${it.no} 「${it.head}」这一行自称做完了，首格却没划掉` +
+        " —— 要么把首格划掉并写清哪一批交付的，要么在行里写明还差什么（仍缺 / 待补）：缺口表要能回答「还剩几件」",
     );
   } else {
     problems.push(

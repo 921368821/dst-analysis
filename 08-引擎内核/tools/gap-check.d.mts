@@ -55,8 +55,31 @@ export interface UnresolvedClaim {
 }
 
 /**
+ * 一条「做完了却没关单」的缺口行（批131）。
+ *
+ * 与 `UnresolvedClaim` 分开两种类型而不是共用一个 `kind`：这两条规则的**输出**
+ * 完全不同（一条是「还差什么没写清」，一条是「已经做完了还在数」），
+ * 混成一个联合类型的话，`docs-check` 的 `problems` 分支只能靠 `kind` 猜着走。
+ */
+export interface ForgottenClosure {
+  /** 原文行号（1-based）。 */
+  readonly no: number;
+  /** 首格原文（缺口名）。 */
+  readonly head: string;
+  readonly kind: "forgot-close";
+}
+
+/**
+ * 扫「首格没划掉、行里却自称做完」的缺口行。
+ *
+ * **标题不见了返回 `null`**（同一口径：不静默扫 0 行）。
+ */
+export function findForgottenClosures(docText: string): ForgottenClosure[] | null;
+
+/**
  * 扫出「没被划掉、却既没挂编号 / 挂的编号已 ✅」的「仍缺」。
  *
  * **标题不见了返回 `null`**（与 `gapSectionLines` 同一口径：不静默扫 0 行）。
  */
 export function findUnresolvedClaims(docText: string, blockerText: string): UnresolvedClaim[] | null;
+
