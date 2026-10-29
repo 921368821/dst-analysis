@@ -204,6 +204,16 @@ if (platform === "wechat") {
       );
       process.exit(EXIT_FAIL);
     }
+  } else {
+    // ★ 干净时**也要说话**（批128）：静默通过无法区分「扫了 0 处」与「压根没扫」。
+    //   这条输出的价值不在结论，而在**证明扫了哪几个文件** —— 产物少一个 `.js`
+    //   （比如入口文件名改了）时，这里会立刻露出来。
+    const jsFiles = files.filter((f) => f.path.endsWith(".js"));
+    console.log(
+      `\n✓ 小游戏禁用 API：0 处（扫了 ${String(jsFiles.length)} 个 .js / ${fmt(
+        jsFiles.reduce((n, f) => n + f.bytes, 0),
+      )}）`,
+    );
   }
 
   if (checkOnly) {

@@ -444,15 +444,18 @@ var BackendRegistry = class {
 function createPlatform(req) {
   const { registry: registry2 } = req;
   const clock = req.clock ?? new SystemClock();
+  const noNull = (kind) => req.strict?.includes(kind) === true ? { allowFallbackToNull: false } : {};
   const gfxR = registry2.create("gfx", {
     ...req.prefer?.gfx === void 0 ? {} : { prefer: req.prefer.gfx },
     ...req.allow?.gfx === void 0 ? {} : { allow: req.allow.gfx },
+    ...noNull("gfx"),
     options: req.backendOptions?.gfx
   });
   if (!gfxR.ok) return gfxR;
   const audioR = registry2.create("audio", {
     ...req.prefer?.audio === void 0 ? {} : { prefer: req.prefer.audio },
     ...req.allow?.audio === void 0 ? {} : { allow: req.allow.audio },
+    ...noNull("audio"),
     options: req.backendOptions?.audio
   });
   if (!audioR.ok) {
@@ -462,6 +465,7 @@ function createPlatform(req) {
   const inputR = registry2.create("input", {
     ...req.prefer?.input === void 0 ? {} : { prefer: req.prefer.input },
     ...req.allow?.input === void 0 ? {} : { allow: req.allow.input },
+    ...noNull("input"),
     options: req.backendOptions?.input
   });
   if (!inputR.ok) {
@@ -472,6 +476,7 @@ function createPlatform(req) {
   const fsR = registry2.create("fs", {
     ...req.prefer?.fs === void 0 ? {} : { prefer: req.prefer.fs },
     ...req.allow?.fs === void 0 ? {} : { allow: req.allow.fs },
+    ...noNull("fs"),
     options: req.backendOptions?.fs
   });
   if (!fsR.ok) {
@@ -486,6 +491,7 @@ function createPlatform(req) {
     const netR = registry2.create("net", {
       ...req.prefer?.net === void 0 ? {} : { prefer: req.prefer.net },
       ...req.allow?.net === void 0 ? {} : { allow: req.allow.net },
+      ...noNull("net"),
       options: req.backendOptions?.net
     });
     if (netR.ok) {
@@ -499,6 +505,7 @@ function createPlatform(req) {
     const scriptR = registry2.create("script", {
       ...req.prefer?.script === void 0 ? {} : { prefer: req.prefer.script },
       ...req.allow?.script === void 0 ? {} : { allow: req.allow.script },
+      ...noNull("script"),
       options: req.backendOptions?.script
     });
     if (scriptR.ok) {
@@ -2201,7 +2208,8 @@ var GameApp = class _GameApp {
       clock,
       ...opts.prefer === void 0 ? {} : { prefer: opts.prefer },
       ...opts.allow === void 0 ? {} : { allow: opts.allow },
-      ...opts.backendOptions === void 0 ? {} : { backendOptions: opts.backendOptions }
+      ...opts.backendOptions === void 0 ? {} : { backendOptions: opts.backendOptions },
+      ...opts.strict === void 0 ? {} : { strict: opts.strict }
     });
     if (!platformR.ok) {
       log.channel("app").error(`\u5E73\u53F0\u521B\u5EFA\u5931\u8D25\uFF1A${platformR.error.message}`, {

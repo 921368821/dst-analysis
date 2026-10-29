@@ -324,6 +324,14 @@ test("[打包CLI] 干净的源码在 --strict-api 下也通过（判据不能恒
     const r = cli(["--platform", "wechat", "--staging", staging, "--out", out, "--config", WECHAT_CFG, "--strict-api"]);
     assert.equal(r.status, 0, `${r.stdout}${r.stderr}`);
     assert.equal(r.stdout.includes("小游戏环境里没有的 API"), false);
+    // ★ 干净时**必须也说话**（批128）：静默通过分不清「扫了 0 处」与「压根没扫」。
+    //   而且这里比的是**扫了几个文件**，不是一个写死的数 —— 只断言"有这一行"的话，
+    //   产物里一个 `.js` 都没有时它照样绿（那正是最该红的情形）。
+    const m = /✓ 小游戏禁用 API：0 处（扫了 (\d+) 个 \.js/.exec(r.stdout);
+    assert.ok(m !== null, `干净时也要打印扫描结论，实际输出：${r.stdout}`);
+    const jsOnDisk = stagedOf(staging).filter((f) => f.path.endsWith(".js")).length;
+    assert.ok(jsOnDisk > 0, "夹具里该有 .js（否则这条判据在验空集）");
+    assert.equal(Number(m[1]), jsOnDisk, "报告里扫到的文件数要与 staging 里的 .js 数一致");
   } finally {
     for (const d of [staging, out]) rmSync(d, { recursive: true, force: true });
   }

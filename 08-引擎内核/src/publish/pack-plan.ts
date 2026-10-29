@@ -375,9 +375,133 @@ export interface ApiHit {
  *   那正是「上微信小游戏」真正的工作量：需要一个 `host-wx` 适配层，
  *   而不是一个打包脚本。把这件事说清楚，比写一个扫不出东西的检查有用得多。
  */
+/**
+ * 剥掉 JS 源码里的注释，**长度与换行保持不变**（注释字符换成空格）。
+ *
+ * ★ 为什么要"保持长度"：`scanMiniGameSource` 报的是行号，人要靠它直接跳过去。
+ *   把注释删掉会让行号整体上移，报出来的行是错的 —— 而错的定位比没有定位更费时间。
+ *
+ * ★ 覆盖四种状态：行注释（双斜杠）、块注释（斜杠星号到星号斜杠）、单双引号字符串、模板字符串。
+ *   字符串里的 `//` **不是**注释（`"http://x"` 是最常见的反例）。
+ *   模板里的 `${ ... }` 会切回代码态（用栈记住"等会儿回到模板"）——
+ *   不展开它的话，`` `${document.title}` `` 这种真调用会被漏掉。
+ */
+export function stripJsComments(src: string): string {
+  const out: string[] = [];
+  /** `code` 之外的状态都表示"这些字符属于注释或字符串，不该被当代码看"。 */
+  let mode: "code" | "line" | "block" | "sq" | "dq" | "tpl" = "code";
+  /** 模板里遇到 `${` 时压栈，等对应的 `}` 回来。 */
+  const back: ("tpl" | "code")[] = [];
+  let i = 0;
+  while (i < src.length) {
+    const c = src[i]!;
+    const n = src[i + 1];
+    if (mode === "line") {
+      if (c === "\n") {
+        mode = "code";
+        out.push(c);
+      } else out.push(" ");
+      i++;
+      continue;
+    }
+    if (mode === "block") {
+      if (c === "*" && n === "/") {
+        out.push("  ");
+        i += 2;
+        mode = "code";
+        continue;
+      }
+      out.push(c === "\n" ? c : " ");
+      i++;
+      continue;
+    }
+    if (mode === "sq" || mode === "dq") {
+      // 字符串**原样保留**（见调用点的说明），但要知道它什么时候结束
+      out.push(c);
+      if (c === "\\") {
+        out.push(n ?? "");
+        i += 2;
+        continue;
+      }
+      if ((mode === "sq" && c === "'") || (mode === "dq" && c === '"')) mode = "code";
+      i++;
+      continue;
+    }
+    if (mode === "tpl") {
+      out.push(c);
+      if (c === "\\") {
+        out.push(n ?? "");
+        i += 2;
+        continue;
+      }
+      if (c === "`") {
+        mode = "code";
+        i++;
+        continue;
+      }
+      if (c === "$" && n === "{") {
+        out.push("{");
+        i += 2;
+        back.push("tpl");
+        mode = "code";
+        continue;
+      }
+      i++;
+      continue;
+    }
+    // ---- code
+    if (c === "/" && n === "/") {
+      mode = "line";
+      out.push("  ");
+      i += 2;
+      continue;
+    }
+    if (c === "/" && n === "*") {
+      mode = "block";
+      out.push("  ");
+      i += 2;
+      continue;
+    }
+    if (c === "'") {
+      mode = "sq";
+      out.push(c);
+      i++;
+      continue;
+    }
+    if (c === '"') {
+      mode = "dq";
+      out.push(c);
+      i++;
+      continue;
+    }
+    if (c === "`") {
+      mode = "tpl";
+      out.push(c);
+      i++;
+      continue;
+    }
+    if (c === "}" && back.length > 0 && back[back.length - 1] === "tpl") {
+      back.pop();
+      mode = "tpl";
+      out.push(c);
+      i++;
+      continue;
+    }
+    out.push(c);
+    i++;
+  }
+  return out.join("");
+}
+
 export function scanMiniGameSource(source: string): readonly ApiHit[] {
   const hits: ApiHit[] = [];
-  const lines = source.split("\n");
+  // ★ 先剥注释再扫（批128）。这不是"让判据变绿"的宽松，而是**改正一个假红**：
+  //   引擎里最该保留的注释恰恰是"为什么不能用 `window.setTimeout`"这种 ——
+  //   它们逐字包含被禁的字符串，于是 `--strict-api` 会对**解释规则的注释**报失败。
+  //   假红比漏报更贵：被它挡过一次的人会把闸门关掉。
+  //   ★ 字符串字面量**不剥**：`"document.createElement"` 仍然算命中 ——
+  //     宁可多报一次让人确认，也不要因为"它在引号里"而漏掉真正的动态调用。
+  const lines = stripJsComments(source).split("\n");
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
     for (const api of FORBIDDEN_IN_MINIGAME) {

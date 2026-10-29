@@ -4351,106 +4351,572 @@ function engineError(code, message, detail) {
   return detail === void 0 ? { code, message } : { code, message, detail };
 }
 
-// src/platform/registry.ts
-var BackendRegistry = class {
-  tables = /* @__PURE__ */ new Map();
-  register(kind, entry) {
-    let table = this.tables.get(kind);
-    if (table === void 0) {
-      table = /* @__PURE__ */ new Map();
-      this.tables.set(kind, table);
-    }
-    if (table.has(entry.id)) {
-      throw new Error(`\u540E\u7AEF ${kind}/${entry.id} \u5DF2\u7ECF\u6CE8\u518C\u8FC7\uFF08\u540C id \u4E0D\u5141\u8BB8\u91CD\u590D\u6CE8\u518C\uFF09`);
-    }
-    table.set(entry.id, entry);
-  }
-  /** 便捷注册：从工厂对象批量取 probe/create。 */
-  registerGfx(f, priority = 100) {
-    this.register("gfx", { id: f.id, priority, probe: f.probe, create: f.create });
-  }
-  registerAudio(f, priority = 100) {
-    this.register("audio", {
-      id: f.id,
-      priority,
-      probe: f.probe,
-      create: f.create
-    });
-  }
-  registerInput(f, priority = 100) {
-    this.register("input", { id: f.id, priority, probe: f.probe, create: f.create });
-  }
-  registerFs(f, priority = 100) {
-    this.register("fs", { id: f.id, priority, probe: f.probe, create: f.create });
-  }
-  registerNet(f, priority = 100) {
-    this.register("net", { id: f.id, priority, probe: f.probe, create: f.create });
-  }
-  registerScript(f, priority = 100) {
-    this.register("script", { id: f.id, priority, probe: f.probe, create: f.create });
-  }
-  list(kind) {
-    return Array.from(this.tables.get(kind)?.keys() ?? []).sort();
-  }
-  has(kind, id) {
-    return this.tables.get(kind)?.has(id) ?? false;
-  }
-  /**
-   * 创建后端。选择顺序：
-   *   1) `prefer` 指定 → 必须成功（除非 `allowFallbackToNull` 且 `null` 可用）
-   *   2) `allow` 白名单内、probe 通过、priority 最高的
-   *   3) 全失败 → 返回聚合错误
-   */
-  create(kind, opts = {}) {
-    const table = this.tables.get(kind);
-    if (table === void 0 || table.size === 0) {
+// src/backends/fs-memory/fs.ts
+function norm(path) {
+  let p = path.replace(/\\/g, "/");
+  if (p.startsWith("mem:")) p = p.slice(4);
+  if (!p.startsWith("/")) p = "/" + p;
+  const parts = [];
+  for (const seg of p.split("/")) {
+    if (seg === "" || seg === ".") continue;
+    if (seg === "..") {
       return err(
-        engineError(
-          "BACKEND.NONE_REGISTERED",
-          `\u6CA1\u6709\u4EFB\u4F55 ${kind} \u540E\u7AEF\u88AB\u6CE8\u518C\uFF08\u5BBF\u4E3B\u5E94\u8BE5\u5728 bootstrap \u9636\u6BB5\u8C03\u7528 register* \uFF09`
-        )
+        engineError("FS.PATH_ESCAPE", `\u8DEF\u5F84\u91CC\u51FA\u73B0 ".."\uFF1A${path}\uFF08\u62D2\u7EDD\uFF0C\u4E0D\u505A'\u806A\u660E'\u7684\u89E3\u6790\uFF09`)
       );
     }
-    const notes = [];
-    if (opts.prefer !== void 0) {
-      const e = table.get(opts.prefer);
-      if (e === void 0) {
-        notes.push(`prefer=${opts.prefer} \u672A\u6CE8\u518C`);
-      } else if (!e.probe(opts.options)) {
-        notes.push(`prefer=${opts.prefer} \u63A2\u6D4B\u5931\u8D25\uFF08\u8BE5\u73AF\u5883\u4E0D\u652F\u6301\uFF09`);
-      } else {
-        const r = e.create(opts.options);
-        if (r.ok) return ok(r.value);
-        notes.push(`prefer=${opts.prefer} \u521B\u5EFA\u5931\u8D25\uFF1A${r.error.message}`);
-      }
+    parts.push(seg);
+  }
+  return ok("/" + parts.join("/"));
+}
+var MemoryFileSystem = class {
+  /** 前缀，用于同一进程里隔离多个内存盘（`mem:/a` vs `mem:/b`）。 */
+  constructor(prefix = "") {
+    this.prefix = prefix;
+  }
+  scheme = "mem";
+  /** 内存盘/真实盘都能列目录。 */
+  canList = true;
+  files = /* @__PURE__ */ new Map();
+  dirs = /* @__PURE__ */ new Set(["/"]);
+  nowCounter = 1;
+  /** 写入次数：判据可以断言"没有多余的落盘"。 */
+  writeCount = 0;
+  key(p) {
+    const n = norm(this.prefix + p);
+    return n;
+  }
+  async readText(path) {
+    const b = await this.readBinary(path);
+    if (!b.ok) return b;
+    try {
+      return ok(new TextDecoder("utf-8", { fatal: true }).decode(b.value));
+    } catch (e) {
+      return err(engineError("FS.NOT_UTF8", `\u4E0D\u662F\u5408\u6CD5 UTF-8\uFF1A${path}\uFF08${e instanceof Error ? e.message : ""}\uFF09`));
     }
-    const cands = Array.from(table.values()).filter((e) => opts.allow === void 0 || opts.allow.includes(e.id)).sort((a, b) => b.priority - a.priority);
-    for (const e of cands) {
-      if (opts.allowFallbackToNull === false && e.id === "null") continue;
-      let probed = false;
-      try {
-        probed = e.probe(opts.options);
-      } catch (ex) {
-        notes.push(`${e.id} \u63A2\u6D4B\u629B\u9519\uFF1A${ex instanceof Error ? ex.message : String(ex)}`);
-        continue;
+  }
+  async readBinary(path) {
+    const k = this.key(path);
+    if (!k.ok) return k;
+    const f = this.files.get(k.value);
+    if (f === void 0) {
+      if (this.dirs.has(k.value)) {
+        return err(engineError("FS.IS_DIR", `${k.value} \u662F\u76EE\u5F55\uFF08\u8FD9\u4E2A\u63A5\u53E3\u53EA\u8BFB\u6587\u4EF6\uFF09`));
       }
-      if (!probed) {
-        notes.push(`${e.id} \u4E0D\u53EF\u7528`);
-        continue;
-      }
-      const r = e.create(opts.options);
-      if (r.ok) return ok(r.value);
-      notes.push(`${e.id} \u521B\u5EFA\u5931\u8D25\uFF1A${r.error.message}`);
+      return err(
+        engineError("FS.NOT_FOUND", `\u6587\u4EF6\u4E0D\u5B58\u5728\uFF1A${k.value}`, {
+          known: Array.from(this.files.keys()).sort().slice(0, 20)
+        })
+      );
     }
-    return err(
-      engineError("BACKEND.UNAVAILABLE", `\u6CA1\u6709\u53EF\u7528\u7684 ${kind} \u540E\u7AEF`, {
-        kind,
-        candidates: opts.allow ?? Array.from(table.keys()),
-        reasons: notes
-      })
-    );
+    return ok(f.data.slice());
+  }
+  async writeText(path, text) {
+    return this.writeBinary(path, new TextEncoder().encode(text));
+  }
+  async writeBinary(path, data) {
+    const k = this.key(path);
+    if (!k.ok) return k;
+    this.files.set(k.value, { data: data.slice(), mtimeMs: this.nowCounter++ });
+    this.writeCount++;
+    const segs = k.value.split("/").filter(Boolean);
+    for (let i = 1; i <= segs.length - 1; i++) {
+      this.dirs.add("/" + segs.slice(0, i).join("/"));
+    }
+    return ok(void 0);
+  }
+  async remove(path) {
+    const k = this.key(path);
+    if (!k.ok) return k;
+    if (!this.files.delete(k.value)) {
+      if (this.dirs.has(k.value)) {
+        return err(engineError("FS.IS_DIR", `${k.value} \u662F\u76EE\u5F55\uFF08\u8FD9\u4E2A\u63A5\u53E3\u53EA\u5220\u6587\u4EF6\uFF09`));
+      }
+      return err(engineError("FS.NOT_FOUND", `\u8981\u5220\u9664\u7684\u8DEF\u5F84\u4E0D\u5B58\u5728\uFF1A${k.value}`));
+    }
+    return ok(void 0);
+  }
+  async exists(path) {
+    const k = this.key(path);
+    if (!k.ok) return false;
+    return this.files.has(k.value) || this.dirs.has(k.value);
+  }
+  async list(dir) {
+    const k = this.key(dir);
+    if (!k.ok) return k;
+    if (this.files.has(k.value)) {
+      return err(engineError("FS.NOT_A_DIR", `${k.value} \u662F\u6587\u4EF6\uFF0C\u4E0D\u662F\u76EE\u5F55`));
+    }
+    if (!this.dirs.has(k.value)) {
+      return err(engineError("FS.NOT_FOUND", `\u76EE\u5F55\u4E0D\u5B58\u5728\uFF1A${k.value}`));
+    }
+    const base = k.value === "/" ? "/" : k.value + "/";
+    const out = [];
+    for (const [p, f] of this.files) {
+      if (!p.startsWith(base)) continue;
+      const rest = p.slice(base.length);
+      if (rest === "" || rest.includes("/")) continue;
+      out.push({ name: rest, path: p, isDirectory: false, size: f.data.byteLength });
+    }
+    for (const d of this.dirs) {
+      if (d === k.value || !d.startsWith(base)) continue;
+      const rest = d.slice(base.length);
+      if (rest === "" || rest.includes("/")) continue;
+      out.push({ name: rest, path: d, isDirectory: true, size: 0 });
+    }
+    out.sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+    return ok(out);
+  }
+  async stat(path) {
+    const k = this.key(path);
+    if (!k.ok) return k;
+    const f = this.files.get(k.value);
+    if (f !== void 0) {
+      return ok({ size: f.data.byteLength, mtimeMs: f.mtimeMs, isDirectory: false });
+    }
+    if (this.dirs.has(k.value)) return ok({ size: 0, mtimeMs: 0, isDirectory: true });
+    return err(engineError("FS.NOT_FOUND", `\u8DEF\u5F84\u4E0D\u5B58\u5728\uFF1A${k.value}`));
+  }
+  async ensureDir(dir) {
+    const k = this.key(dir);
+    if (!k.ok) return k;
+    this.dirs.add(k.value);
+    return ok(void 0);
+  }
+  // ---- 判据/编辑器便利（不在 IFileSystem 接口里，避免所有实现都要有）
+  snapshotFiles() {
+    const m = /* @__PURE__ */ new Map();
+    for (const [k, v] of this.files) m.set(k, v.data.slice());
+    return m;
+  }
+  reset() {
+    this.files.clear();
+    this.dirs.clear();
+    this.dirs.add("/");
+    this.writeCount = 0;
   }
 };
+var memFsBackend = {
+  id: "mem",
+  scheme: "mem",
+  priority: 50,
+  probe(_options) {
+    return true;
+  },
+  create(options) {
+    const o = options ?? {};
+    return ok(new MemoryFileSystem(o.prefix ?? ""));
+  }
+};
+
+// src/platform/fs/virtual-path.ts
+function normalizeVirtualPath(path) {
+  if (typeof path !== "string" || path === "") {
+    return err(engineError("FS.BAD_PATH", "\u8DEF\u5F84\u5FC5\u987B\u662F\u975E\u7A7A\u5B57\u7B26\u4E32"));
+  }
+  if (path.includes("\0")) {
+    return err(engineError("FS.BAD_PATH", "\u8DEF\u5F84\u91CC\u4E0D\u80FD\u6709 NUL\uFF08OS \u4F1A\u9759\u9ED8\u622A\u65AD\uFF0CJS \u4E0D\u4F1A\uFF09"));
+  }
+  if (path.includes("\\")) {
+    return err(engineError("FS.BAD_PATH", `\u8DEF\u5F84\u91CC\u4E0D\u80FD\u6709\u53CD\u659C\u6760\uFF1A${path}`));
+  }
+  const out = [];
+  for (const seg of path.split("/")) {
+    if (seg === "" || seg === ".") continue;
+    if (seg === "..") {
+      return err(engineError("FS.PATH_ESCAPE", `\u8DEF\u5F84\u542B ..\uFF08\u62D2\u7EDD\u8D8A\u754C\uFF09\uFF1A${path}`));
+    }
+    out.push(seg);
+  }
+  return ok(out);
+}
+function virtualPathOf(segs) {
+  return "/" + segs.join("/");
+}
+
+// src/backends/fs-http/fs.ts
+var DEFAULT_TIMEOUT_MS = 15e3;
+var HttpFileSystem = class {
+  scheme = "http";
+  canList = false;
+  base;
+  doFetch;
+  timeoutMs;
+  constructor(opts) {
+    const base = typeof opts.base === "string" ? new URL(opts.base) : new URL(opts.base.href);
+    if (base.protocol !== "http:" && base.protocol !== "https:") {
+      throw new Error(`fs-http\uFF1Abase \u5FC5\u987B\u662F http/https\uFF0C\u5B9E\u9645 ${base.protocol}`);
+    }
+    if (!base.pathname.endsWith("/")) base.pathname += "/";
+    this.base = base;
+    const f = opts.fetch ?? (typeof globalThis.fetch === "function" ? globalThis.fetch.bind(globalThis) : void 0);
+    if (f === void 0) {
+      throw new Error("fs-http\uFF1A\u73AF\u5883\u91CC\u6CA1\u6709 fetch\uFF08\u6D4F\u89C8\u5668\u9700\u8981 polyfill\uFF0CNode < 18 \u8BF7\u663E\u5F0F\u4F20\u5165\uFF09");
+    }
+    this.doFetch = f;
+    this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  }
+  // ---------------------------------------------------------------- 读
+  async readBinary(path) {
+    const url = this.urlOf(path);
+    if (!url.ok) return url;
+    const res = await this.request(url.value, "GET", path);
+    if (!res.ok) return res;
+    try {
+      const buf = await res.value.arrayBuffer();
+      return ok(new Uint8Array(buf));
+    } catch (e) {
+      return err(engineError("FS.IO", `\u8BFB\u54CD\u5E94\u4F53\u5931\u8D25\uFF1A${path}\uFF08${msg(e)}\uFF09`));
+    }
+  }
+  async readText(path) {
+    const b = await this.readBinary(path);
+    if (!b.ok) return b;
+    try {
+      return ok(new TextDecoder("utf-8", { fatal: true }).decode(b.value));
+    } catch (e) {
+      return err(engineError("FS.NOT_UTF8", `\u4E0D\u662F\u5408\u6CD5 UTF-8\uFF1A${path}\uFF08${msg(e)}\uFF09`));
+    }
+  }
+  /**
+   * 用 HEAD 探存在性；有的静态服务器不支持 HEAD（405/501），退回带 `Range` 的 GET。
+   *
+   * ★ 返回 boolean 而不是 Result：`exists` 的签名没有错误通道。
+   *   所以这里对"说不清"的响应（500、超时）一律 false ——
+   *   **保守**是关键：把不确定说成"存在"会让调用方去读一个读不到的东西。
+   */
+  async exists(path) {
+    const url = this.urlOf(path);
+    if (!url.ok) return false;
+    let res = await this.raw(url.value, "HEAD");
+    if (res !== null && (res.status === 405 || res.status === 501)) {
+      res = await this.raw(url.value, "GET", { Range: "bytes=0-0" });
+      res?.body?.cancel();
+    }
+    return res !== null && res.status >= 200 && res.status < 300;
+  }
+  async stat(path) {
+    const url = this.urlOf(path);
+    if (!url.ok) return url;
+    let res = await this.request(url.value, "HEAD", path, { allowBodyless: true });
+    if (!res.ok && res.error.code === "FS.NOT_SUPPORTED") {
+      res = await this.request(url.value, "GET", path, { headers: { Range: "bytes=0-0" } });
+    }
+    if (!res.ok) return res;
+    const lenText = res.value.headers.get("content-length");
+    const len = lenText === null ? NaN : Number(lenText);
+    const lm = res.value.headers.get("last-modified");
+    return ok({
+      // 没有 Content-Length（分块传输）时给 0：**未知 ≠ 非零**，0 是唯一不会撒谎的默认
+      size: Number.isFinite(len) && len >= 0 ? len : 0,
+      mtimeMs: lm === null ? 0 : parseHttpDate(lm),
+      isDirectory: false
+    });
+  }
+  async list(dir) {
+    return err(
+      engineError(
+        "FS.NOT_SUPPORTED",
+        `HTTP \u540E\u7AEF\u6CA1\u6709\u76EE\u5F55\u5217\u4E3E\u80FD\u529B\uFF08\u9759\u6001\u8D44\u6E90\u670D\u52A1\u5668\u4E0D\u63D0\u4F9B\u5217\u76EE\u5F55\uFF09\uFF1A${dir}`
+      )
+    );
+  }
+  // ---------------------------------------------------------------- 内部
+  /** 虚拟路径 → URL。三道防线：归一、编码、前缀核对。 */
+  urlOf(path) {
+    const segs = normalizeVirtualPath(path);
+    if (!segs.ok) return segs;
+    const rel = segs.value.map((s) => encodeURIComponent(s)).join("/");
+    let url;
+    try {
+      url = new URL(rel, this.base);
+    } catch (e) {
+      return err(engineError("FS.BAD_PATH", `\u8DEF\u5F84\u65E0\u6CD5\u62FC\u6210 URL\uFF1A${path}\uFF08${msg(e)}\uFF09`));
+    }
+    if (!url.href.startsWith(this.base.href)) {
+      return err(engineError("FS.PATH_ESCAPE", `\u8DEF\u5F84\u9003\u51FA\u4E86\u8D44\u6E90\u6839\uFF1A${path}`));
+    }
+    return ok(url);
+  }
+  /** 发请求并做状态码映射（唯一一处把 HTTP 状态翻成引擎错误码）。 */
+  async request(url, method, path, opts = {}) {
+    let res;
+    try {
+      res = await this.doFetch(url.href, {
+        method,
+        ...opts.headers === void 0 ? {} : { headers: opts.headers },
+        signal: AbortSignal.timeout(this.timeoutMs)
+      });
+    } catch (e) {
+      return err(engineError("FS.IO", `\u8BF7\u6C42\u5931\u8D25\uFF1A${path}\uFF08${msg(e)}\uFF09`));
+    }
+    const st = res.status;
+    if (st >= 200 && st < 300) return ok(res);
+    if (st === 404 || st === 410) return err(engineError("FS.NOT_FOUND", `\u8D44\u6E90\u4E0D\u5B58\u5728\uFF1A${path}\uFF08HTTP ${st}\uFF09`));
+    if (st === 401 || st === 403) {
+      return err(engineError("FS.PERMISSION", `\u6CA1\u6709\u6743\u9650\u8BFB\u53D6\uFF1A${path}\uFF08HTTP ${st}\uFF09`));
+    }
+    if (st === 405 || st === 501) {
+      return err(engineError("FS.NOT_SUPPORTED", `\u670D\u52A1\u5668\u4E0D\u652F\u6301 ${method}\uFF1A${path}\uFF08HTTP ${st}\uFF09`));
+    }
+    return err(engineError("FS.IO", `HTTP ${st}\uFF1A${path}`));
+  }
+  /** 只要状态码的场景（`exists`）。失败返回 null，不抛。 */
+  async raw(url, method, headers) {
+    try {
+      return await this.doFetch(url.href, {
+        method,
+        ...headers === void 0 ? {} : { headers },
+        signal: AbortSignal.timeout(this.timeoutMs)
+      });
+    } catch {
+      return null;
+    }
+  }
+};
+function parseHttpDate(s) {
+  const t = Date.parse(s);
+  return Number.isFinite(t) ? t : 0;
+}
+function msg(e) {
+  return e instanceof Error ? e.message : String(e);
+}
+
+// src/backends/fs-storage/fs.ts
+var StorageFileSystem = class {
+  scheme = "storage";
+  canList = true;
+  storage;
+  prefix;
+  clock = 1;
+  constructor(opts) {
+    this.storage = opts.storage;
+    this.prefix = opts.prefix ?? "";
+  }
+  // ---------------------------------------------------------------- 写
+  async writeText(path, text) {
+    return this.writeBinary(path, new TextEncoder().encode(text));
+  }
+  async writeBinary(path, data) {
+    const segs = normalizeVirtualPath(path);
+    if (!segs.ok) return segs;
+    if (segs.value.length === 0) {
+      return err(engineError("FS.IS_DIR", "\u4E0D\u80FD\u5F80\u6839\u8DEF\u5F84\u5199\u6587\u4EF6"));
+    }
+    const vpath = virtualPathOf(segs.value);
+    const dirs = this.dirs();
+    for (let i = 1; i < segs.value.length; i++) {
+      dirs.add(virtualPathOf(segs.value.slice(0, i)));
+    }
+    if (dirs.has(vpath)) {
+      return err(engineError("FS.IS_DIR", `\u76EE\u6807\u662F\u4E00\u4E2A\u76EE\u5F55\uFF1A${vpath}`));
+    }
+    const rec = { t: this.now(), n: data.byteLength, b: toBase64(data) };
+    const w = this.set(this.keyOf(vpath), JSON.stringify(rec));
+    if (!w.ok) return w;
+    return this.writeDirs(dirs);
+  }
+  async remove(path) {
+    const segs = normalizeVirtualPath(path);
+    if (!segs.ok) return segs;
+    const vpath = virtualPathOf(segs.value);
+    const dirs = this.dirs();
+    if (dirs.has(vpath)) {
+      return err(engineError("FS.IS_DIR", `\u8FD9\u662F\u4E00\u4E2A\u76EE\u5F55\uFF0C\u4E0D\u80FD\u5F53\u6587\u4EF6\u5220\uFF1A${vpath}`));
+    }
+    if (this.storage.getItem(this.keyOf(vpath)) === null) {
+      return err(engineError("FS.NOT_FOUND", `\u8981\u5220\u9664\u7684\u8DEF\u5F84\u4E0D\u5B58\u5728\uFF1A${vpath}`));
+    }
+    this.storage.removeItem(this.keyOf(vpath));
+    return ok(void 0);
+  }
+  async ensureDir(dir) {
+    const segs = normalizeVirtualPath(dir);
+    if (!segs.ok) return segs;
+    const dirs = this.dirs();
+    for (let i = 0; i <= segs.value.length; i++) {
+      dirs.add(virtualPathOf(segs.value.slice(0, i)));
+    }
+    return this.writeDirs(dirs);
+  }
+  // ---------------------------------------------------------------- 读
+  async readText(path) {
+    const b = await this.readBinary(path);
+    if (!b.ok) return b;
+    try {
+      return ok(new TextDecoder("utf-8", { fatal: true }).decode(b.value));
+    } catch (e) {
+      return err(engineError("FS.NOT_UTF8", `\u4E0D\u662F\u5408\u6CD5 UTF-8\uFF1A${path}\uFF08${msg2(e)}\uFF09`));
+    }
+  }
+  async readBinary(path) {
+    const segs = normalizeVirtualPath(path);
+    if (!segs.ok) return segs;
+    const vpath = virtualPathOf(segs.value);
+    if (this.dirs().has(vpath)) {
+      return err(engineError("FS.IS_DIR", `\u8DEF\u5F84\u662F\u4E00\u4E2A\u76EE\u5F55\uFF1A${vpath}`));
+    }
+    const rec = this.record(vpath);
+    if (!rec.ok) return rec;
+    try {
+      return ok(fromBase64(rec.value.b));
+    } catch (e) {
+      return err(engineError("FS.IO", `\u5B58\u6863\u8BB0\u5F55\u635F\u574F\uFF08base64 \u89E3\u4E0D\u5F00\uFF09\uFF1A${vpath}\uFF08${msg2(e)}\uFF09`));
+    }
+  }
+  async exists(path) {
+    const segs = normalizeVirtualPath(path);
+    if (!segs.ok) return false;
+    const vpath = virtualPathOf(segs.value);
+    return this.dirs().has(vpath) || this.storage.getItem(this.keyOf(vpath)) !== null;
+  }
+  async stat(path) {
+    const segs = normalizeVirtualPath(path);
+    if (!segs.ok) return segs;
+    const vpath = virtualPathOf(segs.value);
+    if (this.dirs().has(vpath)) return ok({ size: 0, mtimeMs: 0, isDirectory: true });
+    const rec = this.record(vpath);
+    if (!rec.ok) return rec;
+    return ok({ size: rec.value.n, mtimeMs: rec.value.t, isDirectory: false });
+  }
+  async list(dir) {
+    const segs = normalizeVirtualPath(dir);
+    if (!segs.ok) return segs;
+    const base = virtualPathOf(segs.value);
+    const dirs = this.dirs();
+    if (!dirs.has(base)) {
+      return err(engineError("FS.NOT_FOUND", `\u76EE\u5F55\u4E0D\u5B58\u5728\uFF1A${base}`));
+    }
+    const prefix = base === "/" ? "/" : base + "/";
+    const seen = /* @__PURE__ */ new Map();
+    for (const d of dirs) {
+      if (!d.startsWith(prefix) || d === base) continue;
+      const rest = d.slice(prefix.length);
+      if (rest === "" || rest.includes("/")) continue;
+      seen.set(rest, { name: rest, path: prefix + rest, isDirectory: true, size: 0 });
+    }
+    for (const k of this.filePaths()) {
+      if (!k.startsWith(prefix)) continue;
+      const rest = k.slice(prefix.length);
+      if (rest === "" || rest.includes("/")) continue;
+      if (seen.has(rest)) continue;
+      const rec = this.recordRaw(k);
+      seen.set(rest, {
+        name: rest,
+        path: prefix + rest,
+        isDirectory: false,
+        size: rec === null ? 0 : rec.n
+      });
+    }
+    const out = [...seen.values()].sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+    return ok(out);
+  }
+  // ---------------------------------------------------------------- 内部
+  now() {
+    this.clock = Math.max(Date.now(), this.clock + 1);
+    return this.clock;
+  }
+  keyOf(vpath) {
+    return `${this.prefix}f:${vpath}`;
+  }
+  dirsKey() {
+    return `${this.prefix}d`;
+  }
+  set(key, value) {
+    try {
+      this.storage.setItem(key, value);
+      return ok(void 0);
+    } catch (e) {
+      return err(engineError("FS.NO_SPACE", `\u5199\u5165\u5931\u8D25\uFF08storage \u6EE1\u6216\u4E0D\u53EF\u5199\uFF09\uFF1A${msg2(e)}`));
+    }
+  }
+  /** 目录索引。读坏了就当空集（自愈），不把用户卡在"删 storage 才能用"。 */
+  dirs() {
+    const out = /* @__PURE__ */ new Set(["/"]);
+    const raw = this.storage.getItem(this.dirsKey());
+    if (raw === null) return out;
+    try {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) {
+        for (const p of arr) if (typeof p === "string") out.add(p);
+      }
+    } catch {
+      const rebuilt = /* @__PURE__ */ new Set(["/"]);
+      for (const p of this.filePaths()) {
+        const segs = p.split("/").filter((s) => s !== "");
+        for (let i = 0; i < segs.length; i++) rebuilt.add("/" + segs.slice(0, i).join("/"));
+      }
+      return rebuilt;
+    }
+    return out;
+  }
+  writeDirs(dirs) {
+    return this.set(this.dirsKey(), JSON.stringify([...dirs].sort()));
+  }
+  /** 所有以 `prefix + "f:"` 开头的键 → 虚拟路径。 */
+  filePaths() {
+    const out = [];
+    const head = `${this.prefix}f:`;
+    for (let i = 0; i < this.storage.length; i++) {
+      const k = this.storage.key(i);
+      if (k === null || !k.startsWith(head)) continue;
+      out.push(k.slice(head.length));
+    }
+    return out;
+  }
+  recordRaw(vpath) {
+    const raw = this.storage.getItem(this.keyOf(vpath));
+    if (raw === null) return null;
+    try {
+      const o = JSON.parse(raw);
+      if (typeof o.b !== "string" || typeof o.n !== "number" || typeof o.t !== "number") return null;
+      return { t: o.t, n: o.n, b: o.b };
+    } catch {
+      return null;
+    }
+  }
+  record(vpath) {
+    const raw = this.storage.getItem(this.keyOf(vpath));
+    if (raw === null) return err(engineError("FS.NOT_FOUND", `\u6587\u4EF6\u4E0D\u5B58\u5728\uFF1A${vpath}`));
+    const rec = this.recordRaw(vpath);
+    if (rec === null) return err(engineError("FS.IO", `\u5B58\u6863\u8BB0\u5F55\u635F\u574F\uFF08\u4E0D\u662F\u5408\u6CD5\u8BB0\u5F55\uFF09\uFF1A${vpath}`));
+    return ok(rec);
+  }
+};
+var B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+function toBase64(bytes) {
+  let out = "";
+  for (let i = 0; i < bytes.length; i += 3) {
+    const a = bytes[i];
+    const b = i + 1 < bytes.length ? bytes[i + 1] : 0;
+    const c = i + 2 < bytes.length ? bytes[i + 2] : 0;
+    out += B64[a >> 2];
+    out += B64[(a & 3) << 4 | b >> 4];
+    out += i + 1 < bytes.length ? B64[(b & 15) << 2 | c >> 6] : "=";
+    out += i + 2 < bytes.length ? B64[c & 63] : "=";
+  }
+  return out;
+}
+function fromBase64(s) {
+  const clean = s.replace(/=+$/, "");
+  const out = new Uint8Array(Math.floor(clean.length * 3 / 4));
+  let o = 0;
+  let acc = 0;
+  let bits = 0;
+  for (let i = 0; i < clean.length; i++) {
+    const v = B64.indexOf(clean[i]);
+    if (v < 0) throw new Error(`\u975E\u6CD5 base64 \u5B57\u7B26 ${JSON.stringify(clean[i])}\uFF08\u4F4D\u7F6E ${i}\uFF09`);
+    acc = acc << 6 | v;
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      out[o++] = acc >> bits & 255;
+    }
+  }
+  return o === out.length ? out : out.subarray(0, o);
+}
+function msg2(e) {
+  return e instanceof Error ? e.message : String(e);
+}
 
 // src/foundation/hash.ts
 var FNV_PRIME = 16777619;
@@ -5433,163 +5899,6 @@ var nullInputBackend = {
   }
 };
 
-// src/backends/fs-memory/fs.ts
-function norm(path) {
-  let p = path.replace(/\\/g, "/");
-  if (p.startsWith("mem:")) p = p.slice(4);
-  if (!p.startsWith("/")) p = "/" + p;
-  const parts = [];
-  for (const seg of p.split("/")) {
-    if (seg === "" || seg === ".") continue;
-    if (seg === "..") {
-      return err(
-        engineError("FS.PATH_ESCAPE", `\u8DEF\u5F84\u91CC\u51FA\u73B0 ".."\uFF1A${path}\uFF08\u62D2\u7EDD\uFF0C\u4E0D\u505A'\u806A\u660E'\u7684\u89E3\u6790\uFF09`)
-      );
-    }
-    parts.push(seg);
-  }
-  return ok("/" + parts.join("/"));
-}
-var MemoryFileSystem = class {
-  /** 前缀，用于同一进程里隔离多个内存盘（`mem:/a` vs `mem:/b`）。 */
-  constructor(prefix = "") {
-    this.prefix = prefix;
-  }
-  scheme = "mem";
-  /** 内存盘/真实盘都能列目录。 */
-  canList = true;
-  files = /* @__PURE__ */ new Map();
-  dirs = /* @__PURE__ */ new Set(["/"]);
-  nowCounter = 1;
-  /** 写入次数：判据可以断言"没有多余的落盘"。 */
-  writeCount = 0;
-  key(p) {
-    const n = norm(this.prefix + p);
-    return n;
-  }
-  async readText(path) {
-    const b = await this.readBinary(path);
-    if (!b.ok) return b;
-    try {
-      return ok(new TextDecoder("utf-8", { fatal: true }).decode(b.value));
-    } catch (e) {
-      return err(engineError("FS.NOT_UTF8", `\u4E0D\u662F\u5408\u6CD5 UTF-8\uFF1A${path}\uFF08${e instanceof Error ? e.message : ""}\uFF09`));
-    }
-  }
-  async readBinary(path) {
-    const k = this.key(path);
-    if (!k.ok) return k;
-    const f = this.files.get(k.value);
-    if (f === void 0) {
-      if (this.dirs.has(k.value)) {
-        return err(engineError("FS.IS_DIR", `${k.value} \u662F\u76EE\u5F55\uFF08\u8FD9\u4E2A\u63A5\u53E3\u53EA\u8BFB\u6587\u4EF6\uFF09`));
-      }
-      return err(
-        engineError("FS.NOT_FOUND", `\u6587\u4EF6\u4E0D\u5B58\u5728\uFF1A${k.value}`, {
-          known: Array.from(this.files.keys()).sort().slice(0, 20)
-        })
-      );
-    }
-    return ok(f.data.slice());
-  }
-  async writeText(path, text) {
-    return this.writeBinary(path, new TextEncoder().encode(text));
-  }
-  async writeBinary(path, data) {
-    const k = this.key(path);
-    if (!k.ok) return k;
-    this.files.set(k.value, { data: data.slice(), mtimeMs: this.nowCounter++ });
-    this.writeCount++;
-    const segs = k.value.split("/").filter(Boolean);
-    for (let i = 1; i <= segs.length - 1; i++) {
-      this.dirs.add("/" + segs.slice(0, i).join("/"));
-    }
-    return ok(void 0);
-  }
-  async remove(path) {
-    const k = this.key(path);
-    if (!k.ok) return k;
-    if (!this.files.delete(k.value)) {
-      if (this.dirs.has(k.value)) {
-        return err(engineError("FS.IS_DIR", `${k.value} \u662F\u76EE\u5F55\uFF08\u8FD9\u4E2A\u63A5\u53E3\u53EA\u5220\u6587\u4EF6\uFF09`));
-      }
-      return err(engineError("FS.NOT_FOUND", `\u8981\u5220\u9664\u7684\u8DEF\u5F84\u4E0D\u5B58\u5728\uFF1A${k.value}`));
-    }
-    return ok(void 0);
-  }
-  async exists(path) {
-    const k = this.key(path);
-    if (!k.ok) return false;
-    return this.files.has(k.value) || this.dirs.has(k.value);
-  }
-  async list(dir) {
-    const k = this.key(dir);
-    if (!k.ok) return k;
-    if (this.files.has(k.value)) {
-      return err(engineError("FS.NOT_A_DIR", `${k.value} \u662F\u6587\u4EF6\uFF0C\u4E0D\u662F\u76EE\u5F55`));
-    }
-    if (!this.dirs.has(k.value)) {
-      return err(engineError("FS.NOT_FOUND", `\u76EE\u5F55\u4E0D\u5B58\u5728\uFF1A${k.value}`));
-    }
-    const base = k.value === "/" ? "/" : k.value + "/";
-    const out = [];
-    for (const [p, f] of this.files) {
-      if (!p.startsWith(base)) continue;
-      const rest = p.slice(base.length);
-      if (rest === "" || rest.includes("/")) continue;
-      out.push({ name: rest, path: p, isDirectory: false, size: f.data.byteLength });
-    }
-    for (const d of this.dirs) {
-      if (d === k.value || !d.startsWith(base)) continue;
-      const rest = d.slice(base.length);
-      if (rest === "" || rest.includes("/")) continue;
-      out.push({ name: rest, path: d, isDirectory: true, size: 0 });
-    }
-    out.sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
-    return ok(out);
-  }
-  async stat(path) {
-    const k = this.key(path);
-    if (!k.ok) return k;
-    const f = this.files.get(k.value);
-    if (f !== void 0) {
-      return ok({ size: f.data.byteLength, mtimeMs: f.mtimeMs, isDirectory: false });
-    }
-    if (this.dirs.has(k.value)) return ok({ size: 0, mtimeMs: 0, isDirectory: true });
-    return err(engineError("FS.NOT_FOUND", `\u8DEF\u5F84\u4E0D\u5B58\u5728\uFF1A${k.value}`));
-  }
-  async ensureDir(dir) {
-    const k = this.key(dir);
-    if (!k.ok) return k;
-    this.dirs.add(k.value);
-    return ok(void 0);
-  }
-  // ---- 判据/编辑器便利（不在 IFileSystem 接口里，避免所有实现都要有）
-  snapshotFiles() {
-    const m = /* @__PURE__ */ new Map();
-    for (const [k, v] of this.files) m.set(k, v.data.slice());
-    return m;
-  }
-  reset() {
-    this.files.clear();
-    this.dirs.clear();
-    this.dirs.add("/");
-    this.writeCount = 0;
-  }
-};
-var memFsBackend = {
-  id: "mem",
-  scheme: "mem",
-  priority: 50,
-  probe(_options) {
-    return true;
-  },
-  create(options) {
-    const o = options ?? {};
-    return ok(new MemoryFileSystem(o.prefix ?? ""));
-  }
-};
-
 // src/platform/script/runtime.ts
 var ScriptErrorCode = {
   NotSupported: "SCRIPT.NOT_SUPPORTED",
@@ -5721,179 +6030,6 @@ var nullScriptBackend = {
   create: () => ok(new NullScriptRuntime())
 };
 
-// src/platform/fs/virtual-path.ts
-function normalizeVirtualPath(path) {
-  if (typeof path !== "string" || path === "") {
-    return err(engineError("FS.BAD_PATH", "\u8DEF\u5F84\u5FC5\u987B\u662F\u975E\u7A7A\u5B57\u7B26\u4E32"));
-  }
-  if (path.includes("\0")) {
-    return err(engineError("FS.BAD_PATH", "\u8DEF\u5F84\u91CC\u4E0D\u80FD\u6709 NUL\uFF08OS \u4F1A\u9759\u9ED8\u622A\u65AD\uFF0CJS \u4E0D\u4F1A\uFF09"));
-  }
-  if (path.includes("\\")) {
-    return err(engineError("FS.BAD_PATH", `\u8DEF\u5F84\u91CC\u4E0D\u80FD\u6709\u53CD\u659C\u6760\uFF1A${path}`));
-  }
-  const out = [];
-  for (const seg of path.split("/")) {
-    if (seg === "" || seg === ".") continue;
-    if (seg === "..") {
-      return err(engineError("FS.PATH_ESCAPE", `\u8DEF\u5F84\u542B ..\uFF08\u62D2\u7EDD\u8D8A\u754C\uFF09\uFF1A${path}`));
-    }
-    out.push(seg);
-  }
-  return ok(out);
-}
-function virtualPathOf(segs) {
-  return "/" + segs.join("/");
-}
-
-// src/backends/fs-http/fs.ts
-var DEFAULT_TIMEOUT_MS = 15e3;
-var HttpFileSystem = class {
-  scheme = "http";
-  canList = false;
-  base;
-  doFetch;
-  timeoutMs;
-  constructor(opts) {
-    const base = typeof opts.base === "string" ? new URL(opts.base) : new URL(opts.base.href);
-    if (base.protocol !== "http:" && base.protocol !== "https:") {
-      throw new Error(`fs-http\uFF1Abase \u5FC5\u987B\u662F http/https\uFF0C\u5B9E\u9645 ${base.protocol}`);
-    }
-    if (!base.pathname.endsWith("/")) base.pathname += "/";
-    this.base = base;
-    const f = opts.fetch ?? (typeof globalThis.fetch === "function" ? globalThis.fetch.bind(globalThis) : void 0);
-    if (f === void 0) {
-      throw new Error("fs-http\uFF1A\u73AF\u5883\u91CC\u6CA1\u6709 fetch\uFF08\u6D4F\u89C8\u5668\u9700\u8981 polyfill\uFF0CNode < 18 \u8BF7\u663E\u5F0F\u4F20\u5165\uFF09");
-    }
-    this.doFetch = f;
-    this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  }
-  // ---------------------------------------------------------------- 读
-  async readBinary(path) {
-    const url = this.urlOf(path);
-    if (!url.ok) return url;
-    const res = await this.request(url.value, "GET", path);
-    if (!res.ok) return res;
-    try {
-      const buf = await res.value.arrayBuffer();
-      return ok(new Uint8Array(buf));
-    } catch (e) {
-      return err(engineError("FS.IO", `\u8BFB\u54CD\u5E94\u4F53\u5931\u8D25\uFF1A${path}\uFF08${msg(e)}\uFF09`));
-    }
-  }
-  async readText(path) {
-    const b = await this.readBinary(path);
-    if (!b.ok) return b;
-    try {
-      return ok(new TextDecoder("utf-8", { fatal: true }).decode(b.value));
-    } catch (e) {
-      return err(engineError("FS.NOT_UTF8", `\u4E0D\u662F\u5408\u6CD5 UTF-8\uFF1A${path}\uFF08${msg(e)}\uFF09`));
-    }
-  }
-  /**
-   * 用 HEAD 探存在性；有的静态服务器不支持 HEAD（405/501），退回带 `Range` 的 GET。
-   *
-   * ★ 返回 boolean 而不是 Result：`exists` 的签名没有错误通道。
-   *   所以这里对"说不清"的响应（500、超时）一律 false ——
-   *   **保守**是关键：把不确定说成"存在"会让调用方去读一个读不到的东西。
-   */
-  async exists(path) {
-    const url = this.urlOf(path);
-    if (!url.ok) return false;
-    let res = await this.raw(url.value, "HEAD");
-    if (res !== null && (res.status === 405 || res.status === 501)) {
-      res = await this.raw(url.value, "GET", { Range: "bytes=0-0" });
-      res?.body?.cancel();
-    }
-    return res !== null && res.status >= 200 && res.status < 300;
-  }
-  async stat(path) {
-    const url = this.urlOf(path);
-    if (!url.ok) return url;
-    let res = await this.request(url.value, "HEAD", path, { allowBodyless: true });
-    if (!res.ok && res.error.code === "FS.NOT_SUPPORTED") {
-      res = await this.request(url.value, "GET", path, { headers: { Range: "bytes=0-0" } });
-    }
-    if (!res.ok) return res;
-    const lenText = res.value.headers.get("content-length");
-    const len = lenText === null ? NaN : Number(lenText);
-    const lm = res.value.headers.get("last-modified");
-    return ok({
-      // 没有 Content-Length（分块传输）时给 0：**未知 ≠ 非零**，0 是唯一不会撒谎的默认
-      size: Number.isFinite(len) && len >= 0 ? len : 0,
-      mtimeMs: lm === null ? 0 : parseHttpDate(lm),
-      isDirectory: false
-    });
-  }
-  async list(dir) {
-    return err(
-      engineError(
-        "FS.NOT_SUPPORTED",
-        `HTTP \u540E\u7AEF\u6CA1\u6709\u76EE\u5F55\u5217\u4E3E\u80FD\u529B\uFF08\u9759\u6001\u8D44\u6E90\u670D\u52A1\u5668\u4E0D\u63D0\u4F9B\u5217\u76EE\u5F55\uFF09\uFF1A${dir}`
-      )
-    );
-  }
-  // ---------------------------------------------------------------- 内部
-  /** 虚拟路径 → URL。三道防线：归一、编码、前缀核对。 */
-  urlOf(path) {
-    const segs = normalizeVirtualPath(path);
-    if (!segs.ok) return segs;
-    const rel = segs.value.map((s) => encodeURIComponent(s)).join("/");
-    let url;
-    try {
-      url = new URL(rel, this.base);
-    } catch (e) {
-      return err(engineError("FS.BAD_PATH", `\u8DEF\u5F84\u65E0\u6CD5\u62FC\u6210 URL\uFF1A${path}\uFF08${msg(e)}\uFF09`));
-    }
-    if (!url.href.startsWith(this.base.href)) {
-      return err(engineError("FS.PATH_ESCAPE", `\u8DEF\u5F84\u9003\u51FA\u4E86\u8D44\u6E90\u6839\uFF1A${path}`));
-    }
-    return ok(url);
-  }
-  /** 发请求并做状态码映射（唯一一处把 HTTP 状态翻成引擎错误码）。 */
-  async request(url, method, path, opts = {}) {
-    let res;
-    try {
-      res = await this.doFetch(url.href, {
-        method,
-        ...opts.headers === void 0 ? {} : { headers: opts.headers },
-        signal: AbortSignal.timeout(this.timeoutMs)
-      });
-    } catch (e) {
-      return err(engineError("FS.IO", `\u8BF7\u6C42\u5931\u8D25\uFF1A${path}\uFF08${msg(e)}\uFF09`));
-    }
-    const st = res.status;
-    if (st >= 200 && st < 300) return ok(res);
-    if (st === 404 || st === 410) return err(engineError("FS.NOT_FOUND", `\u8D44\u6E90\u4E0D\u5B58\u5728\uFF1A${path}\uFF08HTTP ${st}\uFF09`));
-    if (st === 401 || st === 403) {
-      return err(engineError("FS.PERMISSION", `\u6CA1\u6709\u6743\u9650\u8BFB\u53D6\uFF1A${path}\uFF08HTTP ${st}\uFF09`));
-    }
-    if (st === 405 || st === 501) {
-      return err(engineError("FS.NOT_SUPPORTED", `\u670D\u52A1\u5668\u4E0D\u652F\u6301 ${method}\uFF1A${path}\uFF08HTTP ${st}\uFF09`));
-    }
-    return err(engineError("FS.IO", `HTTP ${st}\uFF1A${path}`));
-  }
-  /** 只要状态码的场景（`exists`）。失败返回 null，不抛。 */
-  async raw(url, method, headers) {
-    try {
-      return await this.doFetch(url.href, {
-        method,
-        ...headers === void 0 ? {} : { headers },
-        signal: AbortSignal.timeout(this.timeoutMs)
-      });
-    } catch {
-      return null;
-    }
-  }
-};
-function parseHttpDate(s) {
-  const t = Date.parse(s);
-  return Number.isFinite(t) ? t : 0;
-}
-function msg(e) {
-  return e instanceof Error ? e.message : String(e);
-}
-
 // src/backends/index.ts
 function registerNullBackends(reg, opts = {}) {
   reg.registerGfx(nullGfxBackend, 0);
@@ -5909,967 +6045,6 @@ function registerNullBackends(reg, opts = {}) {
     0
   );
   reg.registerScript(nullScriptBackend, 0);
-}
-
-// src/backends/script-lua/runtime.ts
-var import_wasmoon = __toESM(require_dist(), 1);
-
-// src/backends/script-lua/compat-lua51.ts
-var LUA51_COMPAT_SRC = String.raw`
--- ============================== 内部工具 ==============================
-
-local __type = type
-local __error = error
-local __select = select
-local __tostring = tostring
-local __setmetatable = setmetatable
-local __getmetatable = getmetatable
-local __rawget = rawget
-local __load = load
-local __debug = debug
-
--- 找到函数的 _ENV upvalue 序号；没有（函数不读全局 / 是 C 函数）返回 nil。
--- 注意：5.4 里 _ENV 可能不是 1 号（函数先捕获了别的局部变量），必须按名字找。
-local function __engine_compat_envindex(f)
-  if __type(f) ~= "function" then return nil end
-  local i = 1
-  while true do
-    local name = __debug.getupvalue(f, i)
-    if name == nil then return nil end
-    if name == "_ENV" then return i end
-    i = i + 1
-  end
-end
-
-local function __engine_compat_getenv(f)
-  local idx = __engine_compat_envindex(f)
-  if idx == nil then return nil end
-  local _, v = __debug.getupvalue(f, idx)
-  if __type(v) ~= "table" then return nil end
-  return v
-end
-
-local __engine_compat_has_join = __type(__debug.upvaluejoin) == "function"
-
--- 把 f 的 _ENV 换成 t（私有 upvalue，不牵连兄弟闭包）。返回是否真的换了。
-local function __engine_compat_bind(f, t)
-  local idx = __engine_compat_envindex(f)
-  if idx == nil then
-    -- 函数根本没读过全局 ⇒ 没有可观察差异。5.1 会给它 env，但读了才有意义。
-    return false
-  end
-  if __engine_compat_has_join then
-    local holder = __load("return _ENV", "=__engine_compat_envholder", "t", t)
-    if holder ~= nil then
-      __debug.upvaluejoin(f, idx, holder, 1)
-      return true
-    end
-  end
-  -- 退化路径：upvaluejoin 不可用。语义仍对，但会牵连同 chunk 的兄弟闭包。
-  __debug.setupvalue(f, idx, t)
-  return true
-end
-
--- ============================== setfenv / getfenv ==============================
-
-function setfenv(f, t)
-  if __type(f) == "number" then
-    __error(
-      "setfenv: Lua 5.4 无法按栈层号(level=" .. __tostring(f) .. ")设置环境；"
-        .. "5.1 的这个用法在 5.4 里没有对应物，请改成传函数本身",
-      2
-    )
-  end
-  if __type(f) ~= "function" then
-    __error("setfenv: 第一个参数必须是函数（收到 " .. __type(f) .. "）", 2)
-  end
-  if __type(t) ~= "table" then
-    __error("setfenv: 第二个参数必须是 table（收到 " .. __type(t) .. "）", 2)
-  end
-  __engine_compat_bind(f, t)
-  return f
-end
-
-function getfenv(f)
-  if f == nil then f = 1 end
-  if __type(f) == "number" then
-    -- 5.1 的 getfenv(level) 只是查询，5.4 能**精确**做到，因此不降级。
-    -- +1 是因为 level 1 在 5.1 里指"调用 getfenv 的那个函数"，
-    -- 而在 debug.getinfo 里 level 1 是 getfenv 自己。
-    local info = __debug.getinfo(f + 1, "f")
-    if info == nil or __type(info.func) ~= "function" then return _G end
-    return __engine_compat_getenv(info.func) or _G
-  end
-  if __type(f) ~= "function" then
-    __error("getfenv: 参数必须是函数或栈层号（收到 " .. __type(f) .. "）", 2)
-  end
-  return __engine_compat_getenv(f) or _G
-end
-
--- ============================== module / package.seeall ==============================
-
--- 在真正的 _G 上建（或复用）点号嵌套的表。5.1 的 findtable 就是往全局表里写。
--- ★ 返回 tbl, created：created 是"本次真正新建的那几张表"的记录（父表 + 键 + 表本身），
---   顺序是**从外到内**，最后一条就是模块自己的那张表。卸载时靠它精确摘除。
---   只记"新建"的：复用的表是别人的，动它就是删别人的数据。
-local function __engine_compat_findtable(name)
-  local cur = _G
-  local created = {}
-  for part in string.gmatch(name, "[^.]+") do
-    local nxt = cur[part]
-    if __type(nxt) ~= "table" then
-      nxt = {}
-      cur[part] = nxt
-      created[#created + 1] = { parent = cur, key = part, value = nxt }
-    end
-    cur = nxt
-  end
-  return cur, created
-end
-
--- "模块名的点号路径 → 我建过哪些表"。卸载时按记录反向摘除。
-__engine_compat_modtables = {}
-
--- "当时还不能删的空容器"。例：shared.a 与 shared.b 是两个模块先后建的，
--- 卸 a 时 shared 里还有 b，不能删 —— 但也不能忘，否则 shared 这张空表会永远留在 _G 里。
--- 每次卸载都扫一遍待办，谁变空了就摘谁。
-__engine_compat_pending = {}
-
--- 释放一条"容器"记录：身份还对上、且已经空 ⇒ 摘掉并返回 true；
--- 身份被换掉（别人接管了这个键）⇒ 记录作废，返回 true（不用再管）；
--- 还非空 ⇒ false（转入待办）。
-local function __engine_compat_release(e)
-  if e.parent[e.key] ~= e.value then return true end
-  for _ in pairs(e.value) do return false end
-  e.parent[e.key] = nil
-  return true
-end
-
--- 摘掉 module() 往真 _G 写的表。规则只有一条：**身份必须还是我建的那张**。
---   · 叶子（模块自己的表）：身份对上就摘，不管里面还有多少函数 —— 那些函数随模块一起作废。
---   · 中间容器（a.b 里的 a）：只有变成空表才摘。别人往 a 里加过东西就留着并转入待办，
---     否则会把别人的模块一起摘掉（这是最容易写错的一步）。
-function __engine_compat_unmodule(name)
-  if __type(name) ~= "string" then return false end
-  local removed = 0
-  local rec = __engine_compat_modtables[name]
-  if __type(rec) == "table" then
-    __engine_compat_modtables[name] = nil
-    for i = #rec, 1, -1 do
-      local e = rec[i]
-      if i == #rec then
-        if e.parent[e.key] == e.value then
-          e.parent[e.key] = nil
-          removed = removed + 1
-        end
-      elseif not __engine_compat_release(e) then
-        __engine_compat_pending[#__engine_compat_pending + 1] = e
-      else
-        removed = removed + 1
-      end
-    end
-  end
-  -- 扫待办：随别的模块卸载，之前非空的容器可能已经空了
-  local keep = {}
-  for i = 1, #__engine_compat_pending do
-    local e = __engine_compat_pending[i]
-    if not __engine_compat_release(e) then
-      keep[#keep + 1] = e
-    else
-      removed = removed + 1
-    end
-  end
-  __engine_compat_pending = keep
-  return removed > 0
-end
-
-function module(name, ...)
-  if __type(name) ~= "string" or name == "" then
-    __error("module: 模块名必须是非空字符串", 2)
-  end
-
-  -- ① 建/取模块表，并登记到 package.loaded
-  local mod = package.loaded[name]
-  if __type(mod) ~= "table" then
-    local created
-    mod, created = __engine_compat_findtable(name)
-    if #created > 0 then
-      local log = __engine_compat_modtables[name]
-      if __type(log) ~= "table" then
-        log = {}
-        __engine_compat_modtables[name] = log
-      end
-      for i = 1, #created do log[#log + 1] = created[i] end
-    end
-  end
-  package.loaded[name] = mod
-
-  -- ② 取调用者的旧 env（module 之后模块里还要能看见全局，5.1 靠这个兜底链）
-  local caller = __debug.getinfo(2, "f")
-  local caller_fn = nil
-  local caller_env = _G
-  if caller ~= nil and __type(caller.func) == "function" then
-    caller_fn = caller.func
-    caller_env = __engine_compat_getenv(caller_fn) or _G
-  end
-
-  -- ③ 先铺默认 __index（链到调用者旧 env ⇒ 最终到 _G），再跑选项覆盖它。
-  --    ★ 严格的 5.1 没有这条默认（所以才需要 package.seeall），但缺了它，
-  --      任何 module("x") 之后 math/string/engine_* 全部变 nil —— 5.1 生态里
-  --      这条默认被视为"本来就该有"。加上它只会让更多内容层跑得起来。
-  local mt = __getmetatable(mod)
-  if __type(mt) ~= "table" then
-    mt = {}
-    __setmetatable(mod, mt)
-  end
-  if mt.__index == nil then mt.__index = caller_env end
-
-  -- ④ 跑选项（package.seeall 等）。5.1 在 setfenv **之前**跑，顺序会影响
-  --    __index 的最终值，这里保持一致。
-  local n = __select("#", ...)
-  for i = 1, n do
-    local opt = __select(i, ...)
-    if __type(opt) ~= "function" then
-      __error("module: 第 " .. __tostring(i + 1) .. " 个参数不是函数（选项应为 package.seeall 之类）", 2)
-    end
-    opt(mod)
-  end
-
-  -- ⑤ 换调用者的 env。5.1 的 setfenv(2, mod) 就是这一步。
-  if caller_fn ~= nil then
-    __engine_compat_bind(caller_fn, mod)
-  end
-  return mod
-end
-
-function package.seeall(t)
-  if __type(t) ~= "table" then
-    __error("package.seeall: 需要 table（收到 " .. __type(t) .. "）", 2)
-  end
-  local mt = __getmetatable(t)
-  if __type(mt) ~= "table" then
-    __setmetatable(t, { __index = _G })
-  else
-    mt.__index = _G
-  end
-end
-
--- ============================== require ==============================
-
--- 5.1 语义：package.loaded → package.preload → 报错。
--- ★ 不碰文件系统：wasm 里没有 fs，package.preload 才是引擎注册模块的入口。
-function require(name)
-  if __type(name) ~= "string" then
-    __error("require: 模块名必须是字符串（收到 " .. __type(name) .. "）", 2)
-  end
-
-  local loaded = package.loaded[name]
-  if loaded ~= nil then return loaded end
-
-  local loader = package.preload[name]
-  if loader == nil then
-    __error("module '" .. name .. "' not found", 2)
-  end
-  if __type(loader) ~= "function" then
-    __error("module '" .. name .. "': package.preload 里登记的不是函数", 2)
-  end
-
-  local r = loader(name)
-  if r ~= nil then package.loaded[name] = r end
-  local v = package.loaded[name]
-  if v == nil then
-    v = true
-    package.loaded[name] = v
-  end
-  return v
-end
-
--- ============================== math 补齐 ==============================
-
-function math.pow(x, y) return x ^ y end
-math.mod = math.fmod
-function math.ldexp(x, e) return x * 2.0 ^ e end
-function math.log10(x) return math.log(x, 10) end
-
--- frexp：x = m * 2^e，要求 0.5 <= |m| < 1（C 库的 frexp 定义）。
--- 用循环而不是位运算：Lua 5.4 的整数/浮点边界比这里需要的精度更容易出错。
-function math.frexp(x)
-  if x == 0 or x ~= x or x == math.huge or x == -math.huge then return x, 0 end
-  local sign = 1
-  local m = x
-  if m < 0 then sign = -1; m = -m end
-  local e = 0
-  -- 次数上限：极值/非规格化数下也不会转不出来（每步最多把 |x| 缩一半）
-  for _ = 1, 1200 do
-    if m >= 1 then m = m / 2; e = e + 1 else break end
-  end
-  for _ = 1, 1200 do
-    if m < 0.5 and m > 0 then m = m * 2; e = e - 1 else break end
-  end
-  return sign * m, e
-end
-
--- ============================== table / string 补齐 ==============================
-
-function table.getn(t) return #t end
-function table.setn()
-  __error("table.setn 在 Lua 5.1 已废弃（表长度由 # 决定），5.4 没有对应实现", 2)
-end
-
-string.gfind = string.gmatch
-
--- ============================== 全局别名 ==============================
-
-unpack = table.unpack
-
--- 5.1 的 loadstring 与 5.4 的 load 返回值形状一致（成功 fn / 失败 nil, err），
--- 差别只在"默认 env"：5.1 用**全局表**，这里不传第 4 个参数即同一行为。
--- 也正因如此，loadstring 出来的 chunk 看不见调用它的模块 env —— 与 5.1 一致。
-function loadstring(s, chunkname)
-  if __type(s) ~= "string" then
-    return nil, "bad argument #1 to 'loadstring' (string expected, got " .. __type(s) .. ")"
-  end
-  return __load(s, chunkname or s, "t")
-end
-
--- 5.1 的启动参数表。wasm 里没有 argv，但内容层会读 arg[0]/arg[1]（拿到 nil 就行）。
-if __rawget(_G, "arg") == nil then _G.arg = {} end
-`;
-
-// src/backends/script-lua/runtime.ts
-var envGate = Promise.resolve();
-function withSanitizedEnv(fn) {
-  const run = envGate.then(
-    () => runWithSanitizedEnv(fn),
-    () => runWithSanitizedEnv(fn)
-  );
-  envGate = run.then(
-    () => void 0,
-    () => void 0
-  );
-  return run;
-}
-async function runWithSanitizedEnv(fn) {
-  const proc = globalThis.process;
-  const env = { _: "lua" };
-  const saved = [];
-  if (proc !== void 0 && proc.env !== void 0) {
-    for (const [key, value] of Object.entries(proc.env)) {
-      if (value === void 0) continue;
-      if (!/[^\u0000-\u00ff]/.test(value)) continue;
-      saved.push([key, value]);
-      const ascii = value.replace(/[^\u0000-\u00ff]/g, "_");
-      proc.env[key] = ascii;
-      env[key] = ascii;
-    }
-    env["_"] = "lua";
-  }
-  try {
-    return await fn(env);
-  } finally {
-    for (const [key, value] of saved) proc.env[key] = value;
-  }
-}
-var BOOTSTRAP = `
-__engine_deadline = 0
-
--- \u8BA1\u65F6\u94A9\u5B50\uFF1A\u53EA\u5728\u8C03\u7528\u65B9\u7ED9\u4E86 timeoutMs \u65F6\u6302\u4E0A\uFF08\u5426\u5219\u6BCF N \u6761\u6307\u4EE4\u4E00\u6B21\u56DE\u8C03\u662F\u767D\u4ED8\u7684\u5F00\u9500\uFF09\u3002
--- \u7528 CPU \u65F6\u95F4\u800C\u4E0D\u662F Date.now\uFF1A\u811A\u672C\u91CC\u62FF\u4E0D\u5230 JS \u65F6\u949F\uFF0Cos.clock \u5728 wasm \u91CC\u53EF\u7528\u4E14\u5355\u8C03\u3002
-__engine_timeout_hook = function()
-  if os.clock() >= __engine_deadline then
-    error("__ENGINE_TIMEOUT__", 0)
-  end
-end
-
--- \u652F\u6301 "a.b.c" \u5F62\u5F0F\u7684\u51FD\u6570\u540D\uFF1A\u6A21\u5757\u53EF\u4EE5\u628A API \u6302\u5728\u81EA\u5DF1\u7684\u8868\u91CC\u3002
-local function __engine_walk(root, path)
-  local cur = root
-  for part in string.gmatch(path, "[^.]+") do
-    if type(cur) ~= "table" then return nil end
-    cur = cur[part]
-  end
-  return cur
-end
-
--- \u5DF2\u52A0\u8F7D\u6A21\u5757\u7684"\u547D\u540D\u7A7A\u95F4"\uFF08env \u91CC\u6A21\u5757\u81EA\u5DF1\u5B9A\u4E49\u7684\u952E\u7684\u6D45\u62F7\u8D1D\uFF0C\u89C1 __engine_load\uFF09
-__engine_modules = {}
--- \u6A21\u5757\u540D -> \u8BE5\u6A21\u5757\u7684\u6709\u6548 _ENV \u8868\u3002\u53EA\u7528\u4E8E\u8BCA\u65AD\u4E0E\u5378\u8F7D\uFF08\u70ED\u91CD\u8F7D\u65F6\u6574\u5F20\u4E22\u5F03\uFF09
-__engine_envs = {}
--- \u52A0\u8F7D\u987A\u5E8F\uFF08\u6700\u8FD1\u52A0\u8F7D\u7684\u5728\u6700\u540E\uFF09\u3002\u88F8\u540D\u89E3\u6790\u7528"\u540E\u6765\u8005\u4F18\u5148"\uFF0C\u4E0E\u5171\u4EAB _G \u65F6\u4EE3\u4E00\u81F4
-__engine_order = {}
-
-local function __engine_drop_order(name)
-  for i = #__engine_order, 1, -1 do
-    if __engine_order[i] == name then table.remove(__engine_order, i) end
-  end
-end
-
-local function __engine_push_order(name)
-  __engine_drop_order(name)
-  __engine_order[#__engine_order + 1] = name
-end
-
--- \u53D6\u51FD\u6570\u7684 _ENV upvalue \u503C\uFF085.4 \u91CC _ENV \u662F\u666E\u901A upvalue\uFF0C\u4E0D\u4E00\u5B9A\u5728 1 \u53F7\u4F4D\uFF09\u3002
--- \u8FD4\u56DE nil \u8868\u793A"\u8FD9\u4E2A\u51FD\u6570\u4E0D\u8BFB\u5168\u5C40"\u6216"\u662F C \u51FD\u6570"\u3002
-local function __engine_env_of(f)
-  local i = 1
-  while true do
-    local n = debug.getupvalue(f, i)
-    if n == nil then return nil end
-    if n == "_ENV" then
-      -- \u2605 \u53D6\u7B2C\u4E8C\u4E2A\u8FD4\u56DE\u503C\uFF1Adebug.getupvalue \u8FD4\u56DE (name, value)\uFF0C\u5199\u6210 local v = ...
-      --   \u62FF\u5230\u7684\u662F **name**\uFF0Ctype \u6C38\u8FDC\u4E0D\u662F table\uFF08\u8FD9\u4E2A\u5751\u5403\u8FC7\u4E00\u6B21\uFF0C\u522B\u518D\u6539\u56DE\u53BB\uFF09
-      local _, v = debug.getupvalue(f, i)
-      if type(v) == "table" then return v end
-      return nil
-    end
-    i = i + 1
-  end
-end
-
-local function __engine_resolve(name)
-  -- \u2460 \u6309"\u6A21\u5757\u9650\u5B9A\u540D"\u627E\uFF1A\u53D6\u6700\u957F\u5339\u914D\u7684\u6A21\u5757\u540D\uFF0C\u907F\u514D a \u4E0E a.b \u4E92\u76F8\u62A2\u5360\u3002
-  --    ScriptModule \u7528 "<module>.<entry>" \u8C03\u7528\uFF0C\u6240\u4EE5\u4E24\u4E2A\u6A21\u5757\u90FD\u5B9A\u4E49 onUpdate \u65F6
-  --    \u4E0D\u4F1A\u4E92\u76F8\u8986\u76D6\uFF08\u6A21\u5757\u540D\u53EF\u4EE5\u5E26\u70B9\uFF0C\u6240\u4EE5\u5FC5\u987B\u7528\u6700\u957F\u5339\u914D\uFF09\u3002
-  local best = nil
-  for m in pairs(__engine_modules) do
-    if string.sub(name, 1, #m + 1) == m .. "." then
-      if best == nil or #m > #best then best = m end
-    end
-  end
-  if best ~= nil then
-    local fn = __engine_walk(__engine_modules[best], string.sub(name, #best + 2))
-    if type(fn) == "function" then return fn end
-  end
-
-  -- \u2461 \u88F8\u540D/\u8DEF\u5F84\uFF1A\u6700\u8FD1\u52A0\u8F7D\u7684\u6A21\u5757\u4F18\u5148\u3002
-  --    \u2605 \u8FD9\u6761\u662F"per-module env"\u7684\u5FC5\u8981\u8865\u507F\uFF1A\u6A21\u5757\u5B9A\u4E49\u7684\u5168\u5C40\u4E0D\u518D\u843D\u5230 _G\uFF0C
-  --      \u4F46\u5951\u7EA6\u8981\u6C42 loadModule("greet", "function greet() ...") \u4E4B\u540E call("greet") \u80FD\u8C03\u5230\u3002
-  for i = #__engine_order, 1, -1 do
-    local ns = __engine_modules[__engine_order[i]]
-    if ns ~= nil then
-      local fn = __engine_walk(ns, name)
-      if type(fn) == "function" then return fn end
-    end
-  end
-
-  -- \u2462 _G\uFF1A\u5BBF\u4E3B expose \u7684\u51FD\u6570\u4E0E\u771F\u6B63\u7684\u5168\u5C40\uFF08\u542B\u517C\u5BB9\u57AB\u7247\u88C5\u7684 unpack/setfenv \u7B49\uFF09
-  return __engine_walk(_G, name)
-end
-
-function __engine_dispatch(name, args, n, timeout_ms)
-  local out = {}
-  local fn = __engine_resolve(name)
-  if type(fn) ~= "function" then
-    out.s = 2
-    out.m = tostring(name)
-    return out
-  end
-
-  local co = coroutine.running()
-  local hooked = false
-  if timeout_ms ~= nil and timeout_ms > 0 then
-    __engine_deadline = os.clock() + timeout_ms / 1000
-    debug.sethook(co, __engine_timeout_hook, "", 1000)
-    hooked = true
-  end
-
-  local ok, v = pcall(fn, table.unpack(args or {}, 1, n or 0))
-
-  -- \u4E00\u5B9A\u8981\u6E05 hook\uFF08\u8D85\u65F6\u8DEF\u5F84\u4E5F\u8981\uFF09\uFF1A\u6B8B\u7559\u7684\u94A9\u5B50\u4F1A\u8BA9\u4E0B\u4E00\u6B21\u8C03\u7528\u83AB\u540D\u5176\u5999\u5730\u4E5F\u8D85\u65F6
-  if hooked then debug.sethook(co) end
-
-  if ok then
-    out.s = 0
-    out.v = v
-  else
-    local msg = tostring(v)
-    if string.find(msg, "__ENGINE_TIMEOUT__", 1, true) then
-      out.s = 4
-      out.m = msg
-    elseif string.find(msg, "__ENGINE_BAD_VALUE__", 1, true) then
-      out.s = 3
-      out.m = msg
-    else
-      out.s = 1
-      out.m = msg
-    end
-  end
-  return out
-end
-
--- \u5148\u7F16\u8BD1\u540E\u66FF\u6362\uFF1Aload \u53EA\u7F16\u8BD1\uFF1B\u8BED\u6CD5\u9519\u8BEF\u65F6\u65E7\u6A21\u5757\u4E00\u4E2A\u90FD\u6CA1\u52A8\u3002
--- \u7F16\u8BD1\u6210\u529F\u540E\u624D\u6267\u884C chunk\uFF0C\u5176\u8FD4\u56DE\u503C\u5199\u5165 package.loaded[name]
---\uFF08\u6A21\u5757\u540D\u5728 Lua \u4FA7\u53EF\u89C1\uFF0C\u8C03\u8BD5\u65F6 print(package.loaded["ai.brain"]) \u6709\u4E1C\u897F\u770B\uFF09\u3002
---
--- \u2605 \u70ED\u91CD\u8F7D\u8BED\u4E49\uFF1A\u6BCF\u6B21\u52A0\u8F7D\u90FD\u9020\u4E00\u5F20**\u5168\u65B0\u7684** env\u3002\u65E7 env \u8FDE\u540C\u5B83\u91CC\u9762\u7684\u5168\u5C40\u4E00\u8D77
---   \u53D8\u6210\u5783\u573E\uFF08\u65E7\u7684\u95ED\u5305\u8FD8\u5F15\u7528\u7740\u5B83\uFF0C\u6240\u4EE5\u4E0D\u4F1A\u51FA\u95EE\u9898\uFF0C\u53EA\u662F\u6CA1\u4EBA\u518D\u8BFB\uFF09\u3002\u590D\u7528\u65E7 env
---   \u4F1A\u8BA9\u4E0A\u4E00\u7248\u7684 "counter = 3" \u6B8B\u7559\u5230\u65B0\u7248\u672C \u2014\u2014 \u8FD9\u6B63\u662F\u70ED\u91CD\u8F7D\u6700\u5178\u578B\u7684\u4E32\u5473\u7F3A\u9677\u3002
---
--- \u2605 \u6536\u96C6\u6A21\u5757\u547D\u540D\u7A7A\u95F4\uFF1A\u6A21\u5757\u53EF\u4EE5
---     \u2460 \u76F4\u63A5\u5199 env\uFF08\u6700\u5E38\u89C1\uFF09\uFF1B
---     \u2461 \u8C03 module()/setfenv(1, ...) \u628A chunk \u7684 _ENV \u6362\u6389\uFF085.1 \u98CE\u683C\uFF09\u2014\u2014
---        \u8FD9\u65F6\u6709\u6548 env \u5728**\u6267\u884C\u540E**\u624D\u770B\u5F97\u5230\uFF0C\u6240\u4EE5\u4E24\u4E2A\u8868\u90FD\u8981\u6536\uFF1B
---     \u2462 "return { onUpdate = ... }"\u3002
---   \u4E0E _G \u91CC\u540C\u503C\u7684\u952E\u4E0D\u6536\uFF08\u6A21\u5757\u628A env \u6362\u6210\u4E86 _G \u65F6\uFF0C\u90A3\u91CC\u7684\u4E00\u5207\u90FD\u662F\u5168\u5C40\u7684\uFF0C
---   \u4E0D\u8BE5\u6574\u4F53\u642C\u8FDB\u6A21\u5757\u547D\u540D\u7A7A\u95F4\uFF09\u3002
-function __engine_load(name, source)
-  local env = {}
-  setmetatable(env, { __index = _G })
-
-  local chunk, compile_err = load(source, "@" .. name, "t", env)
-  if not chunk then
-    return { s = 0, m = tostring(compile_err) }
-  end
-
-  local ok, result = pcall(chunk)
-  if not ok then
-    -- \u7F16\u8BD1\u901A\u8FC7\u4F46\u6267\u884C\u671F\u51FA\u9519\uFF1A\u4E0D\u52A8\u5DF2\u767B\u8BB0\u7684 env/\u547D\u540D\u7A7A\u95F4\uFF08\u65E7\u6A21\u5757\u8FD8\u80FD\u8DD1\uFF09
-    return { s = 2, m = tostring(result) }
-  end
-
-  local live = __engine_env_of(chunk) or env
-
-  local ns = {}
-  local function collect(t)
-    if t == nil or t == _G then return end
-    for k, v in pairs(t) do
-      if _G[k] ~= v then ns[k] = v end
-    end
-  end
-  collect(env)
-  collect(live)
-  -- \u60EF\u7528\u5199\u6CD5 "return { onUpdate = ... }"\uFF1A\u628A\u8FD4\u56DE\u8868\u7684\u6210\u5458\u4E5F\u7EB3\u5165\u6A21\u5757\u547D\u540D\u7A7A\u95F4
-  if type(result) == "table" then
-    for k, v in pairs(result) do ns[k] = v end
-  end
-
-  __engine_envs[name] = live
-  __engine_modules[name] = ns
-  __engine_push_order(name)
-  package.loaded[name] = result == nil and true or result
-  return { s = 1, m = "" }
-end
-
-function __engine_unload(name)
-  package.loaded[name] = nil
-  __engine_modules[name] = nil
-  __engine_envs[name] = nil
-  __engine_drop_order(name)
-  -- \u2605 5.1 \u7684 module("a.b") \u5F80**\u771F _G** \u5199\u4E86\u5D4C\u5957\u8868\uFF0C\u8FD9\u91CC\u6309"\u521B\u5EFA\u65F6\u7684\u8EAB\u4EFD"\u6458\u6389\u3002
-  --   \u57AB\u7247\u6CA1\u88C5\uFF08\u7EAF 5.4 \u73AF\u5883\uFF09\u65F6\u8FD9\u4E2A\u51FD\u6570\u4E0D\u5B58\u5728\uFF0C\u8DF3\u8FC7 \u2014\u2014 \u4E0D\u5047\u88C5\u6E05\u6389\u4E86\u3002
-  if type(__engine_compat_unmodule) == "function" then
-    __engine_compat_unmodule(name)
-  end
-  return { s = 1 }
-end
-`;
-var COMPAT_PROBE_SRC = `
-local need = { "unpack", "loadstring", "setfenv", "getfenv", "module", "require", "math.pow", "math.mod", "math.ldexp", "math.frexp", "math.log10", "table.getn", "string.gfind", "arg" }
-local missing = {}
-for i = 1, #need do
-  local name = need[i]
-  local dot = string.find(name, ".", 1, true)
-  local v = _G
-  if dot == nil then
-    v = _G[name]
-  else
-    v = _G[string.sub(name, 1, dot - 1)]
-    if v ~= nil then v = v[string.sub(name, dot + 1)] end
-  end
-  if v == nil then missing[#missing + 1] = name end
-end
-return table.concat(missing, ",")
-`;
-var LuaStatus = {
-  Ok: 0,
-  CallFailed: 1,
-  NoFunction: 2,
-  BadValue: 3,
-  Timeout: 4
-};
-function looksLikeSequence(obj) {
-  const keys = Object.keys(obj);
-  if (keys.length === 0) return false;
-  for (let i = 1; i <= keys.length; i++) {
-    if (!Object.prototype.hasOwnProperty.call(obj, String(i))) return false;
-  }
-  return true;
-}
-function toScriptValue(v, where, depth = 0) {
-  if (depth > 32) {
-    return err(engineError(ScriptErrorCode.BadValue, `${where}: \u5D4C\u5957\u8D85\u8FC7 32 \u5C42\uFF08\u516B\u6210\u662F\u6210\u73AF\u7684\u8868\uFF09`));
-  }
-  if (v === null || v === void 0) return ok(null);
-  if (typeof v === "boolean" || typeof v === "string") return ok(v);
-  if (typeof v === "number") {
-    if (!Number.isFinite(v)) {
-      return err(engineError(ScriptErrorCode.BadValue, `${where}: \u6570\u503C ${String(v)} \u4E0D\u662F\u6709\u9650\u6570`));
-    }
-    return ok(v);
-  }
-  if (Array.isArray(v)) {
-    const out = [];
-    for (let i = 0; i < v.length; i++) {
-      const r = toScriptValue(v[i], `${where}[${i}]`, depth + 1);
-      if (!r.ok) return r;
-      out.push(r.value);
-    }
-    return ok(out);
-  }
-  if (typeof v === "object") {
-    const src = v;
-    if (looksLikeSequence(src)) {
-      const out2 = [];
-      for (let i = 1; i <= Object.keys(src).length; i++) {
-        const r = toScriptValue(src[String(i)], `${where}[${i}]`, depth + 1);
-        if (!r.ok) return r;
-        out2.push(r.value);
-      }
-      return ok(out2);
-    }
-    const out = {};
-    for (const k of Object.keys(src).sort()) {
-      const r = toScriptValue(src[k], `${where}.${k}`, depth + 1);
-      if (!r.ok) return r;
-      out[k] = r.value;
-    }
-    return ok(out);
-  }
-  return err(
-    engineError(
-      ScriptErrorCode.BadValue,
-      `${where}: \u7C7B\u578B ${typeof v} \u4E0D\u80FD\u8DE8\u811A\u672C\u8FB9\u754C\uFF08\u53EA\u5141\u8BB8 null/bool/number/string/\u6570\u7EC4/\u7EAF\u5BF9\u8C61\uFF09`
-    )
-  );
-}
-function sanitizeForLua(v) {
-  if (v === null) return void 0;
-  if (Array.isArray(v)) {
-    const out = [];
-    for (let i = 0; i < v.length; i++) out.push(sanitizeForLua(v[i]));
-    return out;
-  }
-  if (typeof v === "object") {
-    const src = v;
-    const out = {};
-    for (const k of Object.keys(src)) out[k] = sanitizeForLua(src[k]);
-    return out;
-  }
-  return v;
-}
-function statusOf(raw) {
-  return raw !== null && typeof raw === "object" ? raw : {};
-}
-var LuaScriptRuntime = class {
-  id = "lua";
-  /**
-   * ★ `version` 写的是**解释器**的版本（5.4），不是"脚本该按哪版写"。
-   *   5.1 兼容垫片是 API 补齐，不是换运行时；把它写成 "5.1" 会让
-   *   "这段脚本到底按哪个语义能跑"变得不可判定（5.4 的 goto / 整除仍在）。
-   */
-  caps = {
-    language: "lua",
-    version: "5.4",
-    interruptible: true,
-    hostCalls: true,
-    executes: true
-  };
-  opts;
-  constructor(opts = {}) {
-    this.opts = opts;
-  }
-  engine = null;
-  dispatchFn = null;
-  loadFn = null;
-  unloadFn = null;
-  readyPromise = null;
-  modules = /* @__PURE__ */ new Map();
-  hostFns = /* @__PURE__ */ new Map();
-  calls = 0;
-  errors = 0;
-  timeouts = 0;
-  disposed = false;
-  // ---------------------------------------------------------------- 生命周期
-  ready() {
-    if (this.disposed) return Promise.resolve(this.disposedErr());
-    if (this.readyPromise === null) this.readyPromise = this.initEngine();
-    return this.readyPromise;
-  }
-  async initEngine() {
-    let lua = null;
-    try {
-      lua = await withSanitizedEnv((env) => new import_wasmoon.LuaFactory(this.opts.wasmPath, env).createEngine());
-      if (this.disposed) {
-        lua.global.close();
-        return this.disposedErr();
-      }
-      await lua.doString(BOOTSTRAP);
-      if (this.disposed) {
-        lua.global.close();
-        return this.disposedErr();
-      }
-      try {
-        await lua.doString(LUA51_COMPAT_SRC);
-      } catch (e) {
-        lua.global.close();
-        return err(
-          engineError(
-            ScriptErrorCode.LoadFailed,
-            `Lua 5.1 \u517C\u5BB9\u57AB\u7247\u6267\u884C\u5931\u8D25\uFF1A${e instanceof Error ? e.message : String(e)}`,
-            { backend: this.id }
-          )
-        );
-      }
-      if (this.disposed) {
-        lua.global.close();
-        return this.disposedErr();
-      }
-      const missing = await lua.doString(COMPAT_PROBE_SRC);
-      if (typeof missing === "string" && missing.length > 0) {
-        lua.global.close();
-        return err(
-          engineError(ScriptErrorCode.LoadFailed, `Lua 5.1 \u517C\u5BB9\u57AB\u7247\u6CA1\u6709\u88C5\u4E0A\u8FD9\u4E9B\u51FD\u6570\uFF1A${missing}`)
-        );
-      }
-      const dispatch = lua.global.get("__engine_dispatch");
-      const load = lua.global.get("__engine_load");
-      const unload = lua.global.get("__engine_unload");
-      if (typeof dispatch !== "function" || typeof load !== "function" || typeof unload !== "function") {
-        lua.global.close();
-        return err(
-          engineError(ScriptErrorCode.LoadFailed, "Lua \u5F15\u5BFC\u811A\u672C\u6CA1\u6709\u4EA7\u51FA\u8FB9\u754C\u539F\u8BED\uFF08__engine_dispatch/load/unload\uFF09")
-        );
-      }
-      this.engine = lua;
-      this.dispatchFn = dispatch;
-      this.loadFn = load;
-      this.unloadFn = unload;
-      for (const [name, fn] of this.hostFns) this.installHost(lua, name, fn);
-      return ok(void 0);
-    } catch (e) {
-      if (lua !== null) {
-        try {
-          lua.global.close();
-        } catch {
-        }
-      }
-      return err(
-        engineError(
-          ScriptErrorCode.LoadFailed,
-          `Lua \u8FD0\u884C\u65F6\u521D\u59CB\u5316\u5931\u8D25\uFF1A${e instanceof Error ? e.message : String(e)}`,
-          { backend: this.id }
-        )
-      );
-    }
-  }
-  dispose() {
-    if (this.disposed) return;
-    this.disposed = true;
-    const lua = this.engine;
-    this.engine = null;
-    this.dispatchFn = null;
-    this.loadFn = null;
-    this.unloadFn = null;
-    this.modules.clear();
-    this.hostFns.clear();
-    this.calls = 0;
-    this.errors = 0;
-    this.timeouts = 0;
-    if (lua !== null) {
-      try {
-        lua.global.close();
-      } catch {
-      }
-    }
-  }
-  // ---------------------------------------------------------------- 模块
-  async loadModule(name, source) {
-    if (this.disposed) return this.disposedErr();
-    const load = this.loadFn;
-    if (load === null) {
-      return err(engineError(ScriptErrorCode.LoadFailed, `\u52A0\u8F7D\u6A21\u5757 ${name} \u524D\u8981\u5148 await ready()`));
-    }
-    let raw;
-    try {
-      raw = load(name, source);
-    } catch (e) {
-      return err(
-        engineError(
-          ScriptErrorCode.LoadFailed,
-          `\u6A21\u5757 ${name} \u7F16\u8BD1/\u6267\u884C\u65F6\u8FB9\u754C\u5F02\u5E38\uFF1A${e instanceof Error ? e.message : String(e)}`
-        )
-      );
-    }
-    const st = statusOf(raw);
-    if (st.s !== 1) {
-      return err(
-        engineError(ScriptErrorCode.LoadFailed, `\u6A21\u5757 ${name} \u52A0\u8F7D\u5931\u8D25\uFF1A${String(st.m ?? "\u672A\u77E5\u539F\u56E0")}`, {
-          module: name
-        })
-      );
-    }
-    this.modules.set(name, source);
-    return ok(void 0);
-  }
-  async unloadModule(name) {
-    if (this.disposed) return this.disposedErr();
-    this.modules.delete(name);
-    try {
-      this.unloadFn?.(name);
-    } catch (e) {
-      return err(
-        engineError(
-          ScriptErrorCode.CallFailed,
-          `\u5378\u8F7D\u6A21\u5757 ${name} \u65F6\u51FA\u9519\uFF1A${e instanceof Error ? e.message : String(e)}`
-        )
-      );
-    }
-    return ok(void 0);
-  }
-  hasModule(name) {
-    return this.disposed ? false : this.modules.has(name);
-  }
-  listModules() {
-    if (this.disposed) return [];
-    return Array.from(this.modules.keys()).sort();
-  }
-  // ---------------------------------------------------------------- 调用
-  async call(fn, args = [], opts = {}) {
-    if (this.disposed) return this.disposedErr();
-    this.calls++;
-    const dispatch = this.dispatchFn;
-    if (dispatch === null) {
-      this.errors++;
-      return err(engineError(ScriptErrorCode.LoadFailed, `\u8C03\u7528 ${fn} \u524D\u8981\u5148 await ready()`));
-    }
-    const checked = [];
-    for (let i = 0; i < args.length; i++) {
-      const r = assertScriptValue(args[i], `call(${fn}) \u53C2\u6570 #${i}`);
-      if (!r.ok) {
-        this.errors++;
-        return err(r.error);
-      }
-      checked.push(r.value);
-    }
-    const timeoutMs = opts.timeoutMs;
-    if (timeoutMs !== void 0 && !(Number.isFinite(timeoutMs) && timeoutMs > 0)) {
-      this.errors++;
-      return err(
-        engineError(ScriptErrorCode.BadValue, `call(${fn}) \u7684 timeoutMs \u5FC5\u987B\u662F\u6B63\u7684\u6709\u9650\u6570\uFF08\u6536\u5230 ${String(timeoutMs)}\uFF09`)
-      );
-    }
-    if (timeoutMs !== void 0 && !this.caps.interruptible) {
-      this.errors++;
-      return err(engineError(ScriptErrorCode.NotSupported, `\u540E\u7AEF ${this.id} \u4E0D\u80FD\u6253\u65AD\u811A\u672C\uFF0CtimeoutMs \u65E0\u5904\u751F\u6548`));
-    }
-    let raw;
-    try {
-      raw = dispatch(fn, sanitizeForLua(checked), checked.length, timeoutMs ?? 0);
-    } catch (e) {
-      this.errors++;
-      return err(
-        engineError(
-          ScriptErrorCode.CallFailed,
-          `\u8C03\u7528 ${fn} \u65F6\u8FD0\u884C\u65F6\u5F02\u5E38\uFF1A${e instanceof Error ? e.message : String(e)}`,
-          { fn }
-        )
-      );
-    }
-    const st = statusOf(raw);
-    switch (st.s) {
-      case LuaStatus.Ok: {
-        const r = toScriptValue(st.v, `call(${fn}) \u8FD4\u56DE\u503C`);
-        if (!r.ok) {
-          this.errors++;
-          return err(r.error);
-        }
-        return r;
-      }
-      case LuaStatus.NoFunction:
-        this.errors++;
-        return err(
-          engineError(ScriptErrorCode.NoFunction, `\u811A\u672C\u91CC\u6CA1\u6709\u51FD\u6570 ${fn}\uFF08\u4E0D\u662F\u53EF\u8C03\u7528\u7684 function\uFF09`, { fn })
-        );
-      case LuaStatus.Timeout:
-        this.errors++;
-        this.timeouts++;
-        return err(
-          engineError(ScriptErrorCode.Timeout, `\u8C03\u7528 ${fn} \u8D85\u8FC7 ${String(timeoutMs)} ms\uFF0C\u5DF2\u6253\u65AD`, {
-            fn,
-            timeoutMs
-          })
-        );
-      case LuaStatus.BadValue:
-        this.errors++;
-        return err(
-          engineError(ScriptErrorCode.BadValue, String(st.m ?? "\u5BBF\u4E3B\u51FD\u6570\u62D2\u7EDD\u4E86\u53C2\u6570"), { fn })
-        );
-      default:
-        this.errors++;
-        return err(
-          engineError(ScriptErrorCode.CallFailed, String(st.m ?? "\u811A\u672C\u6267\u884C\u5931\u8D25\uFF08\u65E0\u9519\u8BEF\u4FE1\u606F\uFF09"), { fn })
-        );
-    }
-  }
-  // ---------------------------------------------------------------- 宿主函数
-  expose(name, fn) {
-    if (this.disposed) return this.disposedErr();
-    if (name.length === 0) {
-      return err(engineError(ScriptErrorCode.BadValue, "expose \u7684\u540D\u5B57\u4E0D\u80FD\u4E3A\u7A7A"));
-    }
-    if (name.startsWith("__engine_")) {
-      return err(
-        engineError(ScriptErrorCode.BadValue, `expose \u4E0D\u80FD\u5360\u7528\u4FDD\u7559\u524D\u7F00 __engine_\uFF08\u6536\u5230 ${name}\uFF09`)
-      );
-    }
-    this.hostFns.set(name, fn);
-    const lua = this.engine;
-    if (lua !== null) this.installHost(lua, name, fn);
-    return ok(void 0);
-  }
-  exposed() {
-    if (this.disposed) return [];
-    return Array.from(this.hostFns.keys()).sort();
-  }
-  installHost(lua, name, fn) {
-    lua.global.set(name, (...rawArgs) => {
-      const args = [];
-      for (let i = 0; i < rawArgs.length; i++) {
-        const r = toScriptValue(rawArgs[i], `${name} \u53C2\u6570 #${i}`);
-        if (!r.ok) throw new Error(`__ENGINE_BAD_VALUE__: ${r.error.message}`);
-        args.push(r.value);
-      }
-      let out;
-      try {
-        out = fn(...args);
-      } catch (e) {
-        throw e instanceof Error ? e : new Error(String(e));
-      }
-      const checked = assertScriptValue(out ?? null, `${name} \u8FD4\u56DE\u503C`);
-      if (!checked.ok) throw new Error(`__ENGINE_BAD_VALUE__: ${checked.error.message}`);
-      return sanitizeForLua(checked.value);
-    });
-  }
-  // ---------------------------------------------------------------- 统计
-  stats() {
-    return {
-      modules: this.disposed ? 0 : this.modules.size,
-      calls: this.disposed ? 0 : this.calls,
-      errors: this.disposed ? 0 : this.errors,
-      timeouts: this.disposed ? 0 : this.timeouts
-    };
-  }
-  disposedErr() {
-    return err(engineError(ScriptErrorCode.Disposed, "\u811A\u672C\u8FD0\u884C\u65F6\u5DF2\u91CA\u653E"));
-  }
-};
-function createLuaScriptBackend(opts = {}) {
-  return {
-    id: "lua",
-    probe: () => true,
-    create: () => ok(new LuaScriptRuntime(opts))
-  };
 }
 
 // src/backends/gfx-webgl2/gl2.ts
@@ -8035,6 +7210,1558 @@ var webAudioBackend = {
   }
 };
 
+// src/backends/script-lua/runtime.ts
+var import_wasmoon = __toESM(require_dist(), 1);
+
+// src/backends/script-lua/compat-lua51.ts
+var LUA51_COMPAT_SRC = String.raw`
+-- ============================== 内部工具 ==============================
+
+local __type = type
+local __error = error
+local __select = select
+local __tostring = tostring
+local __setmetatable = setmetatable
+local __getmetatable = getmetatable
+local __rawget = rawget
+local __load = load
+local __debug = debug
+
+-- 找到函数的 _ENV upvalue 序号；没有（函数不读全局 / 是 C 函数）返回 nil。
+-- 注意：5.4 里 _ENV 可能不是 1 号（函数先捕获了别的局部变量），必须按名字找。
+local function __engine_compat_envindex(f)
+  if __type(f) ~= "function" then return nil end
+  local i = 1
+  while true do
+    local name = __debug.getupvalue(f, i)
+    if name == nil then return nil end
+    if name == "_ENV" then return i end
+    i = i + 1
+  end
+end
+
+local function __engine_compat_getenv(f)
+  local idx = __engine_compat_envindex(f)
+  if idx == nil then return nil end
+  local _, v = __debug.getupvalue(f, idx)
+  if __type(v) ~= "table" then return nil end
+  return v
+end
+
+local __engine_compat_has_join = __type(__debug.upvaluejoin) == "function"
+
+-- 把 f 的 _ENV 换成 t（私有 upvalue，不牵连兄弟闭包）。返回是否真的换了。
+local function __engine_compat_bind(f, t)
+  local idx = __engine_compat_envindex(f)
+  if idx == nil then
+    -- 函数根本没读过全局 ⇒ 没有可观察差异。5.1 会给它 env，但读了才有意义。
+    return false
+  end
+  if __engine_compat_has_join then
+    local holder = __load("return _ENV", "=__engine_compat_envholder", "t", t)
+    if holder ~= nil then
+      __debug.upvaluejoin(f, idx, holder, 1)
+      return true
+    end
+  end
+  -- 退化路径：upvaluejoin 不可用。语义仍对，但会牵连同 chunk 的兄弟闭包。
+  __debug.setupvalue(f, idx, t)
+  return true
+end
+
+-- ============================== setfenv / getfenv ==============================
+
+function setfenv(f, t)
+  if __type(f) == "number" then
+    __error(
+      "setfenv: Lua 5.4 无法按栈层号(level=" .. __tostring(f) .. ")设置环境；"
+        .. "5.1 的这个用法在 5.4 里没有对应物，请改成传函数本身",
+      2
+    )
+  end
+  if __type(f) ~= "function" then
+    __error("setfenv: 第一个参数必须是函数（收到 " .. __type(f) .. "）", 2)
+  end
+  if __type(t) ~= "table" then
+    __error("setfenv: 第二个参数必须是 table（收到 " .. __type(t) .. "）", 2)
+  end
+  __engine_compat_bind(f, t)
+  return f
+end
+
+function getfenv(f)
+  if f == nil then f = 1 end
+  if __type(f) == "number" then
+    -- 5.1 的 getfenv(level) 只是查询，5.4 能**精确**做到，因此不降级。
+    -- +1 是因为 level 1 在 5.1 里指"调用 getfenv 的那个函数"，
+    -- 而在 debug.getinfo 里 level 1 是 getfenv 自己。
+    local info = __debug.getinfo(f + 1, "f")
+    if info == nil or __type(info.func) ~= "function" then return _G end
+    return __engine_compat_getenv(info.func) or _G
+  end
+  if __type(f) ~= "function" then
+    __error("getfenv: 参数必须是函数或栈层号（收到 " .. __type(f) .. "）", 2)
+  end
+  return __engine_compat_getenv(f) or _G
+end
+
+-- ============================== module / package.seeall ==============================
+
+-- 在真正的 _G 上建（或复用）点号嵌套的表。5.1 的 findtable 就是往全局表里写。
+-- ★ 返回 tbl, created：created 是"本次真正新建的那几张表"的记录（父表 + 键 + 表本身），
+--   顺序是**从外到内**，最后一条就是模块自己的那张表。卸载时靠它精确摘除。
+--   只记"新建"的：复用的表是别人的，动它就是删别人的数据。
+local function __engine_compat_findtable(name)
+  local cur = _G
+  local created = {}
+  for part in string.gmatch(name, "[^.]+") do
+    local nxt = cur[part]
+    if __type(nxt) ~= "table" then
+      nxt = {}
+      cur[part] = nxt
+      created[#created + 1] = { parent = cur, key = part, value = nxt }
+    end
+    cur = nxt
+  end
+  return cur, created
+end
+
+-- "模块名的点号路径 → 我建过哪些表"。卸载时按记录反向摘除。
+__engine_compat_modtables = {}
+
+-- "当时还不能删的空容器"。例：shared.a 与 shared.b 是两个模块先后建的，
+-- 卸 a 时 shared 里还有 b，不能删 —— 但也不能忘，否则 shared 这张空表会永远留在 _G 里。
+-- 每次卸载都扫一遍待办，谁变空了就摘谁。
+__engine_compat_pending = {}
+
+-- 释放一条"容器"记录：身份还对上、且已经空 ⇒ 摘掉并返回 true；
+-- 身份被换掉（别人接管了这个键）⇒ 记录作废，返回 true（不用再管）；
+-- 还非空 ⇒ false（转入待办）。
+local function __engine_compat_release(e)
+  if e.parent[e.key] ~= e.value then return true end
+  for _ in pairs(e.value) do return false end
+  e.parent[e.key] = nil
+  return true
+end
+
+-- 摘掉 module() 往真 _G 写的表。规则只有一条：**身份必须还是我建的那张**。
+--   · 叶子（模块自己的表）：身份对上就摘，不管里面还有多少函数 —— 那些函数随模块一起作废。
+--   · 中间容器（a.b 里的 a）：只有变成空表才摘。别人往 a 里加过东西就留着并转入待办，
+--     否则会把别人的模块一起摘掉（这是最容易写错的一步）。
+function __engine_compat_unmodule(name)
+  if __type(name) ~= "string" then return false end
+  local removed = 0
+  local rec = __engine_compat_modtables[name]
+  if __type(rec) == "table" then
+    __engine_compat_modtables[name] = nil
+    for i = #rec, 1, -1 do
+      local e = rec[i]
+      if i == #rec then
+        if e.parent[e.key] == e.value then
+          e.parent[e.key] = nil
+          removed = removed + 1
+        end
+      elseif not __engine_compat_release(e) then
+        __engine_compat_pending[#__engine_compat_pending + 1] = e
+      else
+        removed = removed + 1
+      end
+    end
+  end
+  -- 扫待办：随别的模块卸载，之前非空的容器可能已经空了
+  local keep = {}
+  for i = 1, #__engine_compat_pending do
+    local e = __engine_compat_pending[i]
+    if not __engine_compat_release(e) then
+      keep[#keep + 1] = e
+    else
+      removed = removed + 1
+    end
+  end
+  __engine_compat_pending = keep
+  return removed > 0
+end
+
+function module(name, ...)
+  if __type(name) ~= "string" or name == "" then
+    __error("module: 模块名必须是非空字符串", 2)
+  end
+
+  -- ① 建/取模块表，并登记到 package.loaded
+  local mod = package.loaded[name]
+  if __type(mod) ~= "table" then
+    local created
+    mod, created = __engine_compat_findtable(name)
+    if #created > 0 then
+      local log = __engine_compat_modtables[name]
+      if __type(log) ~= "table" then
+        log = {}
+        __engine_compat_modtables[name] = log
+      end
+      for i = 1, #created do log[#log + 1] = created[i] end
+    end
+  end
+  package.loaded[name] = mod
+
+  -- ② 取调用者的旧 env（module 之后模块里还要能看见全局，5.1 靠这个兜底链）
+  local caller = __debug.getinfo(2, "f")
+  local caller_fn = nil
+  local caller_env = _G
+  if caller ~= nil and __type(caller.func) == "function" then
+    caller_fn = caller.func
+    caller_env = __engine_compat_getenv(caller_fn) or _G
+  end
+
+  -- ③ 先铺默认 __index（链到调用者旧 env ⇒ 最终到 _G），再跑选项覆盖它。
+  --    ★ 严格的 5.1 没有这条默认（所以才需要 package.seeall），但缺了它，
+  --      任何 module("x") 之后 math/string/engine_* 全部变 nil —— 5.1 生态里
+  --      这条默认被视为"本来就该有"。加上它只会让更多内容层跑得起来。
+  local mt = __getmetatable(mod)
+  if __type(mt) ~= "table" then
+    mt = {}
+    __setmetatable(mod, mt)
+  end
+  if mt.__index == nil then mt.__index = caller_env end
+
+  -- ④ 跑选项（package.seeall 等）。5.1 在 setfenv **之前**跑，顺序会影响
+  --    __index 的最终值，这里保持一致。
+  local n = __select("#", ...)
+  for i = 1, n do
+    local opt = __select(i, ...)
+    if __type(opt) ~= "function" then
+      __error("module: 第 " .. __tostring(i + 1) .. " 个参数不是函数（选项应为 package.seeall 之类）", 2)
+    end
+    opt(mod)
+  end
+
+  -- ⑤ 换调用者的 env。5.1 的 setfenv(2, mod) 就是这一步。
+  if caller_fn ~= nil then
+    __engine_compat_bind(caller_fn, mod)
+  end
+  return mod
+end
+
+function package.seeall(t)
+  if __type(t) ~= "table" then
+    __error("package.seeall: 需要 table（收到 " .. __type(t) .. "）", 2)
+  end
+  local mt = __getmetatable(t)
+  if __type(mt) ~= "table" then
+    __setmetatable(t, { __index = _G })
+  else
+    mt.__index = _G
+  end
+end
+
+-- ============================== require ==============================
+
+-- 5.1 语义：package.loaded → package.preload → 报错。
+-- ★ 不碰文件系统：wasm 里没有 fs，package.preload 才是引擎注册模块的入口。
+function require(name)
+  if __type(name) ~= "string" then
+    __error("require: 模块名必须是字符串（收到 " .. __type(name) .. "）", 2)
+  end
+
+  local loaded = package.loaded[name]
+  if loaded ~= nil then return loaded end
+
+  local loader = package.preload[name]
+  if loader == nil then
+    __error("module '" .. name .. "' not found", 2)
+  end
+  if __type(loader) ~= "function" then
+    __error("module '" .. name .. "': package.preload 里登记的不是函数", 2)
+  end
+
+  local r = loader(name)
+  if r ~= nil then package.loaded[name] = r end
+  local v = package.loaded[name]
+  if v == nil then
+    v = true
+    package.loaded[name] = v
+  end
+  return v
+end
+
+-- ============================== math 补齐 ==============================
+
+function math.pow(x, y) return x ^ y end
+math.mod = math.fmod
+function math.ldexp(x, e) return x * 2.0 ^ e end
+function math.log10(x) return math.log(x, 10) end
+
+-- frexp：x = m * 2^e，要求 0.5 <= |m| < 1（C 库的 frexp 定义）。
+-- 用循环而不是位运算：Lua 5.4 的整数/浮点边界比这里需要的精度更容易出错。
+function math.frexp(x)
+  if x == 0 or x ~= x or x == math.huge or x == -math.huge then return x, 0 end
+  local sign = 1
+  local m = x
+  if m < 0 then sign = -1; m = -m end
+  local e = 0
+  -- 次数上限：极值/非规格化数下也不会转不出来（每步最多把 |x| 缩一半）
+  for _ = 1, 1200 do
+    if m >= 1 then m = m / 2; e = e + 1 else break end
+  end
+  for _ = 1, 1200 do
+    if m < 0.5 and m > 0 then m = m * 2; e = e - 1 else break end
+  end
+  return sign * m, e
+end
+
+-- ============================== table / string 补齐 ==============================
+
+function table.getn(t) return #t end
+function table.setn()
+  __error("table.setn 在 Lua 5.1 已废弃（表长度由 # 决定），5.4 没有对应实现", 2)
+end
+
+string.gfind = string.gmatch
+
+-- ============================== 全局别名 ==============================
+
+unpack = table.unpack
+
+-- 5.1 的 loadstring 与 5.4 的 load 返回值形状一致（成功 fn / 失败 nil, err），
+-- 差别只在"默认 env"：5.1 用**全局表**，这里不传第 4 个参数即同一行为。
+-- 也正因如此，loadstring 出来的 chunk 看不见调用它的模块 env —— 与 5.1 一致。
+function loadstring(s, chunkname)
+  if __type(s) ~= "string" then
+    return nil, "bad argument #1 to 'loadstring' (string expected, got " .. __type(s) .. ")"
+  end
+  return __load(s, chunkname or s, "t")
+end
+
+-- 5.1 的启动参数表。wasm 里没有 argv，但内容层会读 arg[0]/arg[1]（拿到 nil 就行）。
+if __rawget(_G, "arg") == nil then _G.arg = {} end
+`;
+
+// src/backends/script-lua/runtime.ts
+var envGate = Promise.resolve();
+function withSanitizedEnv(fn) {
+  const run = envGate.then(
+    () => runWithSanitizedEnv(fn),
+    () => runWithSanitizedEnv(fn)
+  );
+  envGate = run.then(
+    () => void 0,
+    () => void 0
+  );
+  return run;
+}
+async function runWithSanitizedEnv(fn) {
+  const proc = globalThis.process;
+  const env = { _: "lua" };
+  const saved = [];
+  if (proc !== void 0 && proc.env !== void 0) {
+    for (const [key, value] of Object.entries(proc.env)) {
+      if (value === void 0) continue;
+      if (!/[^\u0000-\u00ff]/.test(value)) continue;
+      saved.push([key, value]);
+      const ascii = value.replace(/[^\u0000-\u00ff]/g, "_");
+      proc.env[key] = ascii;
+      env[key] = ascii;
+    }
+    env["_"] = "lua";
+  }
+  try {
+    return await fn(env);
+  } finally {
+    for (const [key, value] of saved) proc.env[key] = value;
+  }
+}
+var BOOTSTRAP = `
+__engine_deadline = 0
+
+-- \u8BA1\u65F6\u94A9\u5B50\uFF1A\u53EA\u5728\u8C03\u7528\u65B9\u7ED9\u4E86 timeoutMs \u65F6\u6302\u4E0A\uFF08\u5426\u5219\u6BCF N \u6761\u6307\u4EE4\u4E00\u6B21\u56DE\u8C03\u662F\u767D\u4ED8\u7684\u5F00\u9500\uFF09\u3002
+-- \u7528 CPU \u65F6\u95F4\u800C\u4E0D\u662F Date.now\uFF1A\u811A\u672C\u91CC\u62FF\u4E0D\u5230 JS \u65F6\u949F\uFF0Cos.clock \u5728 wasm \u91CC\u53EF\u7528\u4E14\u5355\u8C03\u3002
+__engine_timeout_hook = function()
+  if os.clock() >= __engine_deadline then
+    error("__ENGINE_TIMEOUT__", 0)
+  end
+end
+
+-- \u652F\u6301 "a.b.c" \u5F62\u5F0F\u7684\u51FD\u6570\u540D\uFF1A\u6A21\u5757\u53EF\u4EE5\u628A API \u6302\u5728\u81EA\u5DF1\u7684\u8868\u91CC\u3002
+local function __engine_walk(root, path)
+  local cur = root
+  for part in string.gmatch(path, "[^.]+") do
+    if type(cur) ~= "table" then return nil end
+    cur = cur[part]
+  end
+  return cur
+end
+
+-- \u5DF2\u52A0\u8F7D\u6A21\u5757\u7684"\u547D\u540D\u7A7A\u95F4"\uFF08env \u91CC\u6A21\u5757\u81EA\u5DF1\u5B9A\u4E49\u7684\u952E\u7684\u6D45\u62F7\u8D1D\uFF0C\u89C1 __engine_load\uFF09
+__engine_modules = {}
+-- \u6A21\u5757\u540D -> \u8BE5\u6A21\u5757\u7684\u6709\u6548 _ENV \u8868\u3002\u53EA\u7528\u4E8E\u8BCA\u65AD\u4E0E\u5378\u8F7D\uFF08\u70ED\u91CD\u8F7D\u65F6\u6574\u5F20\u4E22\u5F03\uFF09
+__engine_envs = {}
+-- \u52A0\u8F7D\u987A\u5E8F\uFF08\u6700\u8FD1\u52A0\u8F7D\u7684\u5728\u6700\u540E\uFF09\u3002\u88F8\u540D\u89E3\u6790\u7528"\u540E\u6765\u8005\u4F18\u5148"\uFF0C\u4E0E\u5171\u4EAB _G \u65F6\u4EE3\u4E00\u81F4
+__engine_order = {}
+
+local function __engine_drop_order(name)
+  for i = #__engine_order, 1, -1 do
+    if __engine_order[i] == name then table.remove(__engine_order, i) end
+  end
+end
+
+local function __engine_push_order(name)
+  __engine_drop_order(name)
+  __engine_order[#__engine_order + 1] = name
+end
+
+-- \u53D6\u51FD\u6570\u7684 _ENV upvalue \u503C\uFF085.4 \u91CC _ENV \u662F\u666E\u901A upvalue\uFF0C\u4E0D\u4E00\u5B9A\u5728 1 \u53F7\u4F4D\uFF09\u3002
+-- \u8FD4\u56DE nil \u8868\u793A"\u8FD9\u4E2A\u51FD\u6570\u4E0D\u8BFB\u5168\u5C40"\u6216"\u662F C \u51FD\u6570"\u3002
+local function __engine_env_of(f)
+  local i = 1
+  while true do
+    local n = debug.getupvalue(f, i)
+    if n == nil then return nil end
+    if n == "_ENV" then
+      -- \u2605 \u53D6\u7B2C\u4E8C\u4E2A\u8FD4\u56DE\u503C\uFF1Adebug.getupvalue \u8FD4\u56DE (name, value)\uFF0C\u5199\u6210 local v = ...
+      --   \u62FF\u5230\u7684\u662F **name**\uFF0Ctype \u6C38\u8FDC\u4E0D\u662F table\uFF08\u8FD9\u4E2A\u5751\u5403\u8FC7\u4E00\u6B21\uFF0C\u522B\u518D\u6539\u56DE\u53BB\uFF09
+      local _, v = debug.getupvalue(f, i)
+      if type(v) == "table" then return v end
+      return nil
+    end
+    i = i + 1
+  end
+end
+
+local function __engine_resolve(name)
+  -- \u2460 \u6309"\u6A21\u5757\u9650\u5B9A\u540D"\u627E\uFF1A\u53D6\u6700\u957F\u5339\u914D\u7684\u6A21\u5757\u540D\uFF0C\u907F\u514D a \u4E0E a.b \u4E92\u76F8\u62A2\u5360\u3002
+  --    ScriptModule \u7528 "<module>.<entry>" \u8C03\u7528\uFF0C\u6240\u4EE5\u4E24\u4E2A\u6A21\u5757\u90FD\u5B9A\u4E49 onUpdate \u65F6
+  --    \u4E0D\u4F1A\u4E92\u76F8\u8986\u76D6\uFF08\u6A21\u5757\u540D\u53EF\u4EE5\u5E26\u70B9\uFF0C\u6240\u4EE5\u5FC5\u987B\u7528\u6700\u957F\u5339\u914D\uFF09\u3002
+  local best = nil
+  for m in pairs(__engine_modules) do
+    if string.sub(name, 1, #m + 1) == m .. "." then
+      if best == nil or #m > #best then best = m end
+    end
+  end
+  if best ~= nil then
+    local fn = __engine_walk(__engine_modules[best], string.sub(name, #best + 2))
+    if type(fn) == "function" then return fn end
+  end
+
+  -- \u2461 \u88F8\u540D/\u8DEF\u5F84\uFF1A\u6700\u8FD1\u52A0\u8F7D\u7684\u6A21\u5757\u4F18\u5148\u3002
+  --    \u2605 \u8FD9\u6761\u662F"per-module env"\u7684\u5FC5\u8981\u8865\u507F\uFF1A\u6A21\u5757\u5B9A\u4E49\u7684\u5168\u5C40\u4E0D\u518D\u843D\u5230 _G\uFF0C
+  --      \u4F46\u5951\u7EA6\u8981\u6C42 loadModule("greet", "function greet() ...") \u4E4B\u540E call("greet") \u80FD\u8C03\u5230\u3002
+  for i = #__engine_order, 1, -1 do
+    local ns = __engine_modules[__engine_order[i]]
+    if ns ~= nil then
+      local fn = __engine_walk(ns, name)
+      if type(fn) == "function" then return fn end
+    end
+  end
+
+  -- \u2462 _G\uFF1A\u5BBF\u4E3B expose \u7684\u51FD\u6570\u4E0E\u771F\u6B63\u7684\u5168\u5C40\uFF08\u542B\u517C\u5BB9\u57AB\u7247\u88C5\u7684 unpack/setfenv \u7B49\uFF09
+  return __engine_walk(_G, name)
+end
+
+function __engine_dispatch(name, args, n, timeout_ms)
+  local out = {}
+  local fn = __engine_resolve(name)
+  if type(fn) ~= "function" then
+    out.s = 2
+    out.m = tostring(name)
+    return out
+  end
+
+  local co = coroutine.running()
+  local hooked = false
+  if timeout_ms ~= nil and timeout_ms > 0 then
+    __engine_deadline = os.clock() + timeout_ms / 1000
+    debug.sethook(co, __engine_timeout_hook, "", 1000)
+    hooked = true
+  end
+
+  local ok, v = pcall(fn, table.unpack(args or {}, 1, n or 0))
+
+  -- \u4E00\u5B9A\u8981\u6E05 hook\uFF08\u8D85\u65F6\u8DEF\u5F84\u4E5F\u8981\uFF09\uFF1A\u6B8B\u7559\u7684\u94A9\u5B50\u4F1A\u8BA9\u4E0B\u4E00\u6B21\u8C03\u7528\u83AB\u540D\u5176\u5999\u5730\u4E5F\u8D85\u65F6
+  if hooked then debug.sethook(co) end
+
+  if ok then
+    out.s = 0
+    out.v = v
+  else
+    local msg = tostring(v)
+    if string.find(msg, "__ENGINE_TIMEOUT__", 1, true) then
+      out.s = 4
+      out.m = msg
+    elseif string.find(msg, "__ENGINE_BAD_VALUE__", 1, true) then
+      out.s = 3
+      out.m = msg
+    else
+      out.s = 1
+      out.m = msg
+    end
+  end
+  return out
+end
+
+-- \u5148\u7F16\u8BD1\u540E\u66FF\u6362\uFF1Aload \u53EA\u7F16\u8BD1\uFF1B\u8BED\u6CD5\u9519\u8BEF\u65F6\u65E7\u6A21\u5757\u4E00\u4E2A\u90FD\u6CA1\u52A8\u3002
+-- \u7F16\u8BD1\u6210\u529F\u540E\u624D\u6267\u884C chunk\uFF0C\u5176\u8FD4\u56DE\u503C\u5199\u5165 package.loaded[name]
+--\uFF08\u6A21\u5757\u540D\u5728 Lua \u4FA7\u53EF\u89C1\uFF0C\u8C03\u8BD5\u65F6 print(package.loaded["ai.brain"]) \u6709\u4E1C\u897F\u770B\uFF09\u3002
+--
+-- \u2605 \u70ED\u91CD\u8F7D\u8BED\u4E49\uFF1A\u6BCF\u6B21\u52A0\u8F7D\u90FD\u9020\u4E00\u5F20**\u5168\u65B0\u7684** env\u3002\u65E7 env \u8FDE\u540C\u5B83\u91CC\u9762\u7684\u5168\u5C40\u4E00\u8D77
+--   \u53D8\u6210\u5783\u573E\uFF08\u65E7\u7684\u95ED\u5305\u8FD8\u5F15\u7528\u7740\u5B83\uFF0C\u6240\u4EE5\u4E0D\u4F1A\u51FA\u95EE\u9898\uFF0C\u53EA\u662F\u6CA1\u4EBA\u518D\u8BFB\uFF09\u3002\u590D\u7528\u65E7 env
+--   \u4F1A\u8BA9\u4E0A\u4E00\u7248\u7684 "counter = 3" \u6B8B\u7559\u5230\u65B0\u7248\u672C \u2014\u2014 \u8FD9\u6B63\u662F\u70ED\u91CD\u8F7D\u6700\u5178\u578B\u7684\u4E32\u5473\u7F3A\u9677\u3002
+--
+-- \u2605 \u6536\u96C6\u6A21\u5757\u547D\u540D\u7A7A\u95F4\uFF1A\u6A21\u5757\u53EF\u4EE5
+--     \u2460 \u76F4\u63A5\u5199 env\uFF08\u6700\u5E38\u89C1\uFF09\uFF1B
+--     \u2461 \u8C03 module()/setfenv(1, ...) \u628A chunk \u7684 _ENV \u6362\u6389\uFF085.1 \u98CE\u683C\uFF09\u2014\u2014
+--        \u8FD9\u65F6\u6709\u6548 env \u5728**\u6267\u884C\u540E**\u624D\u770B\u5F97\u5230\uFF0C\u6240\u4EE5\u4E24\u4E2A\u8868\u90FD\u8981\u6536\uFF1B
+--     \u2462 "return { onUpdate = ... }"\u3002
+--   \u4E0E _G \u91CC\u540C\u503C\u7684\u952E\u4E0D\u6536\uFF08\u6A21\u5757\u628A env \u6362\u6210\u4E86 _G \u65F6\uFF0C\u90A3\u91CC\u7684\u4E00\u5207\u90FD\u662F\u5168\u5C40\u7684\uFF0C
+--   \u4E0D\u8BE5\u6574\u4F53\u642C\u8FDB\u6A21\u5757\u547D\u540D\u7A7A\u95F4\uFF09\u3002
+function __engine_load(name, source)
+  local env = {}
+  setmetatable(env, { __index = _G })
+
+  local chunk, compile_err = load(source, "@" .. name, "t", env)
+  if not chunk then
+    return { s = 0, m = tostring(compile_err) }
+  end
+
+  local ok, result = pcall(chunk)
+  if not ok then
+    -- \u7F16\u8BD1\u901A\u8FC7\u4F46\u6267\u884C\u671F\u51FA\u9519\uFF1A\u4E0D\u52A8\u5DF2\u767B\u8BB0\u7684 env/\u547D\u540D\u7A7A\u95F4\uFF08\u65E7\u6A21\u5757\u8FD8\u80FD\u8DD1\uFF09
+    return { s = 2, m = tostring(result) }
+  end
+
+  local live = __engine_env_of(chunk) or env
+
+  local ns = {}
+  local function collect(t)
+    if t == nil or t == _G then return end
+    for k, v in pairs(t) do
+      if _G[k] ~= v then ns[k] = v end
+    end
+  end
+  collect(env)
+  collect(live)
+  -- \u60EF\u7528\u5199\u6CD5 "return { onUpdate = ... }"\uFF1A\u628A\u8FD4\u56DE\u8868\u7684\u6210\u5458\u4E5F\u7EB3\u5165\u6A21\u5757\u547D\u540D\u7A7A\u95F4
+  if type(result) == "table" then
+    for k, v in pairs(result) do ns[k] = v end
+  end
+
+  __engine_envs[name] = live
+  __engine_modules[name] = ns
+  __engine_push_order(name)
+  package.loaded[name] = result == nil and true or result
+  return { s = 1, m = "" }
+end
+
+function __engine_unload(name)
+  package.loaded[name] = nil
+  __engine_modules[name] = nil
+  __engine_envs[name] = nil
+  __engine_drop_order(name)
+  -- \u2605 5.1 \u7684 module("a.b") \u5F80**\u771F _G** \u5199\u4E86\u5D4C\u5957\u8868\uFF0C\u8FD9\u91CC\u6309"\u521B\u5EFA\u65F6\u7684\u8EAB\u4EFD"\u6458\u6389\u3002
+  --   \u57AB\u7247\u6CA1\u88C5\uFF08\u7EAF 5.4 \u73AF\u5883\uFF09\u65F6\u8FD9\u4E2A\u51FD\u6570\u4E0D\u5B58\u5728\uFF0C\u8DF3\u8FC7 \u2014\u2014 \u4E0D\u5047\u88C5\u6E05\u6389\u4E86\u3002
+  if type(__engine_compat_unmodule) == "function" then
+    __engine_compat_unmodule(name)
+  end
+  return { s = 1 }
+end
+`;
+var COMPAT_PROBE_SRC = `
+local need = { "unpack", "loadstring", "setfenv", "getfenv", "module", "require", "math.pow", "math.mod", "math.ldexp", "math.frexp", "math.log10", "table.getn", "string.gfind", "arg" }
+local missing = {}
+for i = 1, #need do
+  local name = need[i]
+  local dot = string.find(name, ".", 1, true)
+  local v = _G
+  if dot == nil then
+    v = _G[name]
+  else
+    v = _G[string.sub(name, 1, dot - 1)]
+    if v ~= nil then v = v[string.sub(name, dot + 1)] end
+  end
+  if v == nil then missing[#missing + 1] = name end
+end
+return table.concat(missing, ",")
+`;
+var LuaStatus = {
+  Ok: 0,
+  CallFailed: 1,
+  NoFunction: 2,
+  BadValue: 3,
+  Timeout: 4
+};
+function looksLikeSequence(obj) {
+  const keys = Object.keys(obj);
+  if (keys.length === 0) return false;
+  for (let i = 1; i <= keys.length; i++) {
+    if (!Object.prototype.hasOwnProperty.call(obj, String(i))) return false;
+  }
+  return true;
+}
+function toScriptValue(v, where, depth = 0) {
+  if (depth > 32) {
+    return err(engineError(ScriptErrorCode.BadValue, `${where}: \u5D4C\u5957\u8D85\u8FC7 32 \u5C42\uFF08\u516B\u6210\u662F\u6210\u73AF\u7684\u8868\uFF09`));
+  }
+  if (v === null || v === void 0) return ok(null);
+  if (typeof v === "boolean" || typeof v === "string") return ok(v);
+  if (typeof v === "number") {
+    if (!Number.isFinite(v)) {
+      return err(engineError(ScriptErrorCode.BadValue, `${where}: \u6570\u503C ${String(v)} \u4E0D\u662F\u6709\u9650\u6570`));
+    }
+    return ok(v);
+  }
+  if (Array.isArray(v)) {
+    const out = [];
+    for (let i = 0; i < v.length; i++) {
+      const r = toScriptValue(v[i], `${where}[${i}]`, depth + 1);
+      if (!r.ok) return r;
+      out.push(r.value);
+    }
+    return ok(out);
+  }
+  if (typeof v === "object") {
+    const src = v;
+    if (looksLikeSequence(src)) {
+      const out2 = [];
+      for (let i = 1; i <= Object.keys(src).length; i++) {
+        const r = toScriptValue(src[String(i)], `${where}[${i}]`, depth + 1);
+        if (!r.ok) return r;
+        out2.push(r.value);
+      }
+      return ok(out2);
+    }
+    const out = {};
+    for (const k of Object.keys(src).sort()) {
+      const r = toScriptValue(src[k], `${where}.${k}`, depth + 1);
+      if (!r.ok) return r;
+      out[k] = r.value;
+    }
+    return ok(out);
+  }
+  return err(
+    engineError(
+      ScriptErrorCode.BadValue,
+      `${where}: \u7C7B\u578B ${typeof v} \u4E0D\u80FD\u8DE8\u811A\u672C\u8FB9\u754C\uFF08\u53EA\u5141\u8BB8 null/bool/number/string/\u6570\u7EC4/\u7EAF\u5BF9\u8C61\uFF09`
+    )
+  );
+}
+function sanitizeForLua(v) {
+  if (v === null) return void 0;
+  if (Array.isArray(v)) {
+    const out = [];
+    for (let i = 0; i < v.length; i++) out.push(sanitizeForLua(v[i]));
+    return out;
+  }
+  if (typeof v === "object") {
+    const src = v;
+    const out = {};
+    for (const k of Object.keys(src)) out[k] = sanitizeForLua(src[k]);
+    return out;
+  }
+  return v;
+}
+function statusOf(raw) {
+  return raw !== null && typeof raw === "object" ? raw : {};
+}
+var LuaScriptRuntime = class {
+  id = "lua";
+  /**
+   * ★ `version` 写的是**解释器**的版本（5.4），不是"脚本该按哪版写"。
+   *   5.1 兼容垫片是 API 补齐，不是换运行时；把它写成 "5.1" 会让
+   *   "这段脚本到底按哪个语义能跑"变得不可判定（5.4 的 goto / 整除仍在）。
+   */
+  caps = {
+    language: "lua",
+    version: "5.4",
+    interruptible: true,
+    hostCalls: true,
+    executes: true
+  };
+  opts;
+  constructor(opts = {}) {
+    this.opts = opts;
+  }
+  engine = null;
+  dispatchFn = null;
+  loadFn = null;
+  unloadFn = null;
+  readyPromise = null;
+  modules = /* @__PURE__ */ new Map();
+  hostFns = /* @__PURE__ */ new Map();
+  calls = 0;
+  errors = 0;
+  timeouts = 0;
+  disposed = false;
+  // ---------------------------------------------------------------- 生命周期
+  ready() {
+    if (this.disposed) return Promise.resolve(this.disposedErr());
+    if (this.readyPromise === null) this.readyPromise = this.initEngine();
+    return this.readyPromise;
+  }
+  async initEngine() {
+    let lua = null;
+    try {
+      lua = await withSanitizedEnv((env) => new import_wasmoon.LuaFactory(this.opts.wasmPath, env).createEngine());
+      if (this.disposed) {
+        lua.global.close();
+        return this.disposedErr();
+      }
+      await lua.doString(BOOTSTRAP);
+      if (this.disposed) {
+        lua.global.close();
+        return this.disposedErr();
+      }
+      try {
+        await lua.doString(LUA51_COMPAT_SRC);
+      } catch (e) {
+        lua.global.close();
+        return err(
+          engineError(
+            ScriptErrorCode.LoadFailed,
+            `Lua 5.1 \u517C\u5BB9\u57AB\u7247\u6267\u884C\u5931\u8D25\uFF1A${e instanceof Error ? e.message : String(e)}`,
+            { backend: this.id }
+          )
+        );
+      }
+      if (this.disposed) {
+        lua.global.close();
+        return this.disposedErr();
+      }
+      const missing = await lua.doString(COMPAT_PROBE_SRC);
+      if (typeof missing === "string" && missing.length > 0) {
+        lua.global.close();
+        return err(
+          engineError(ScriptErrorCode.LoadFailed, `Lua 5.1 \u517C\u5BB9\u57AB\u7247\u6CA1\u6709\u88C5\u4E0A\u8FD9\u4E9B\u51FD\u6570\uFF1A${missing}`)
+        );
+      }
+      const dispatch = lua.global.get("__engine_dispatch");
+      const load = lua.global.get("__engine_load");
+      const unload = lua.global.get("__engine_unload");
+      if (typeof dispatch !== "function" || typeof load !== "function" || typeof unload !== "function") {
+        lua.global.close();
+        return err(
+          engineError(ScriptErrorCode.LoadFailed, "Lua \u5F15\u5BFC\u811A\u672C\u6CA1\u6709\u4EA7\u51FA\u8FB9\u754C\u539F\u8BED\uFF08__engine_dispatch/load/unload\uFF09")
+        );
+      }
+      this.engine = lua;
+      this.dispatchFn = dispatch;
+      this.loadFn = load;
+      this.unloadFn = unload;
+      for (const [name, fn] of this.hostFns) this.installHost(lua, name, fn);
+      return ok(void 0);
+    } catch (e) {
+      if (lua !== null) {
+        try {
+          lua.global.close();
+        } catch {
+        }
+      }
+      return err(
+        engineError(
+          ScriptErrorCode.LoadFailed,
+          `Lua \u8FD0\u884C\u65F6\u521D\u59CB\u5316\u5931\u8D25\uFF1A${e instanceof Error ? e.message : String(e)}`,
+          { backend: this.id }
+        )
+      );
+    }
+  }
+  dispose() {
+    if (this.disposed) return;
+    this.disposed = true;
+    const lua = this.engine;
+    this.engine = null;
+    this.dispatchFn = null;
+    this.loadFn = null;
+    this.unloadFn = null;
+    this.modules.clear();
+    this.hostFns.clear();
+    this.calls = 0;
+    this.errors = 0;
+    this.timeouts = 0;
+    if (lua !== null) {
+      try {
+        lua.global.close();
+      } catch {
+      }
+    }
+  }
+  // ---------------------------------------------------------------- 模块
+  async loadModule(name, source) {
+    if (this.disposed) return this.disposedErr();
+    const load = this.loadFn;
+    if (load === null) {
+      return err(engineError(ScriptErrorCode.LoadFailed, `\u52A0\u8F7D\u6A21\u5757 ${name} \u524D\u8981\u5148 await ready()`));
+    }
+    let raw;
+    try {
+      raw = load(name, source);
+    } catch (e) {
+      return err(
+        engineError(
+          ScriptErrorCode.LoadFailed,
+          `\u6A21\u5757 ${name} \u7F16\u8BD1/\u6267\u884C\u65F6\u8FB9\u754C\u5F02\u5E38\uFF1A${e instanceof Error ? e.message : String(e)}`
+        )
+      );
+    }
+    const st = statusOf(raw);
+    if (st.s !== 1) {
+      return err(
+        engineError(ScriptErrorCode.LoadFailed, `\u6A21\u5757 ${name} \u52A0\u8F7D\u5931\u8D25\uFF1A${String(st.m ?? "\u672A\u77E5\u539F\u56E0")}`, {
+          module: name
+        })
+      );
+    }
+    this.modules.set(name, source);
+    return ok(void 0);
+  }
+  async unloadModule(name) {
+    if (this.disposed) return this.disposedErr();
+    this.modules.delete(name);
+    try {
+      this.unloadFn?.(name);
+    } catch (e) {
+      return err(
+        engineError(
+          ScriptErrorCode.CallFailed,
+          `\u5378\u8F7D\u6A21\u5757 ${name} \u65F6\u51FA\u9519\uFF1A${e instanceof Error ? e.message : String(e)}`
+        )
+      );
+    }
+    return ok(void 0);
+  }
+  hasModule(name) {
+    return this.disposed ? false : this.modules.has(name);
+  }
+  listModules() {
+    if (this.disposed) return [];
+    return Array.from(this.modules.keys()).sort();
+  }
+  // ---------------------------------------------------------------- 调用
+  async call(fn, args = [], opts = {}) {
+    if (this.disposed) return this.disposedErr();
+    this.calls++;
+    const dispatch = this.dispatchFn;
+    if (dispatch === null) {
+      this.errors++;
+      return err(engineError(ScriptErrorCode.LoadFailed, `\u8C03\u7528 ${fn} \u524D\u8981\u5148 await ready()`));
+    }
+    const checked = [];
+    for (let i = 0; i < args.length; i++) {
+      const r = assertScriptValue(args[i], `call(${fn}) \u53C2\u6570 #${i}`);
+      if (!r.ok) {
+        this.errors++;
+        return err(r.error);
+      }
+      checked.push(r.value);
+    }
+    const timeoutMs = opts.timeoutMs;
+    if (timeoutMs !== void 0 && !(Number.isFinite(timeoutMs) && timeoutMs > 0)) {
+      this.errors++;
+      return err(
+        engineError(ScriptErrorCode.BadValue, `call(${fn}) \u7684 timeoutMs \u5FC5\u987B\u662F\u6B63\u7684\u6709\u9650\u6570\uFF08\u6536\u5230 ${String(timeoutMs)}\uFF09`)
+      );
+    }
+    if (timeoutMs !== void 0 && !this.caps.interruptible) {
+      this.errors++;
+      return err(engineError(ScriptErrorCode.NotSupported, `\u540E\u7AEF ${this.id} \u4E0D\u80FD\u6253\u65AD\u811A\u672C\uFF0CtimeoutMs \u65E0\u5904\u751F\u6548`));
+    }
+    let raw;
+    try {
+      raw = dispatch(fn, sanitizeForLua(checked), checked.length, timeoutMs ?? 0);
+    } catch (e) {
+      this.errors++;
+      return err(
+        engineError(
+          ScriptErrorCode.CallFailed,
+          `\u8C03\u7528 ${fn} \u65F6\u8FD0\u884C\u65F6\u5F02\u5E38\uFF1A${e instanceof Error ? e.message : String(e)}`,
+          { fn }
+        )
+      );
+    }
+    const st = statusOf(raw);
+    switch (st.s) {
+      case LuaStatus.Ok: {
+        const r = toScriptValue(st.v, `call(${fn}) \u8FD4\u56DE\u503C`);
+        if (!r.ok) {
+          this.errors++;
+          return err(r.error);
+        }
+        return r;
+      }
+      case LuaStatus.NoFunction:
+        this.errors++;
+        return err(
+          engineError(ScriptErrorCode.NoFunction, `\u811A\u672C\u91CC\u6CA1\u6709\u51FD\u6570 ${fn}\uFF08\u4E0D\u662F\u53EF\u8C03\u7528\u7684 function\uFF09`, { fn })
+        );
+      case LuaStatus.Timeout:
+        this.errors++;
+        this.timeouts++;
+        return err(
+          engineError(ScriptErrorCode.Timeout, `\u8C03\u7528 ${fn} \u8D85\u8FC7 ${String(timeoutMs)} ms\uFF0C\u5DF2\u6253\u65AD`, {
+            fn,
+            timeoutMs
+          })
+        );
+      case LuaStatus.BadValue:
+        this.errors++;
+        return err(
+          engineError(ScriptErrorCode.BadValue, String(st.m ?? "\u5BBF\u4E3B\u51FD\u6570\u62D2\u7EDD\u4E86\u53C2\u6570"), { fn })
+        );
+      default:
+        this.errors++;
+        return err(
+          engineError(ScriptErrorCode.CallFailed, String(st.m ?? "\u811A\u672C\u6267\u884C\u5931\u8D25\uFF08\u65E0\u9519\u8BEF\u4FE1\u606F\uFF09"), { fn })
+        );
+    }
+  }
+  // ---------------------------------------------------------------- 宿主函数
+  expose(name, fn) {
+    if (this.disposed) return this.disposedErr();
+    if (name.length === 0) {
+      return err(engineError(ScriptErrorCode.BadValue, "expose \u7684\u540D\u5B57\u4E0D\u80FD\u4E3A\u7A7A"));
+    }
+    if (name.startsWith("__engine_")) {
+      return err(
+        engineError(ScriptErrorCode.BadValue, `expose \u4E0D\u80FD\u5360\u7528\u4FDD\u7559\u524D\u7F00 __engine_\uFF08\u6536\u5230 ${name}\uFF09`)
+      );
+    }
+    this.hostFns.set(name, fn);
+    const lua = this.engine;
+    if (lua !== null) this.installHost(lua, name, fn);
+    return ok(void 0);
+  }
+  exposed() {
+    if (this.disposed) return [];
+    return Array.from(this.hostFns.keys()).sort();
+  }
+  installHost(lua, name, fn) {
+    lua.global.set(name, (...rawArgs) => {
+      const args = [];
+      for (let i = 0; i < rawArgs.length; i++) {
+        const r = toScriptValue(rawArgs[i], `${name} \u53C2\u6570 #${i}`);
+        if (!r.ok) throw new Error(`__ENGINE_BAD_VALUE__: ${r.error.message}`);
+        args.push(r.value);
+      }
+      let out;
+      try {
+        out = fn(...args);
+      } catch (e) {
+        throw e instanceof Error ? e : new Error(String(e));
+      }
+      const checked = assertScriptValue(out ?? null, `${name} \u8FD4\u56DE\u503C`);
+      if (!checked.ok) throw new Error(`__ENGINE_BAD_VALUE__: ${checked.error.message}`);
+      return sanitizeForLua(checked.value);
+    });
+  }
+  // ---------------------------------------------------------------- 统计
+  stats() {
+    return {
+      modules: this.disposed ? 0 : this.modules.size,
+      calls: this.disposed ? 0 : this.calls,
+      errors: this.disposed ? 0 : this.errors,
+      timeouts: this.disposed ? 0 : this.timeouts
+    };
+  }
+  disposedErr() {
+    return err(engineError(ScriptErrorCode.Disposed, "\u811A\u672C\u8FD0\u884C\u65F6\u5DF2\u91CA\u653E"));
+  }
+};
+function createLuaScriptBackend(opts = {}) {
+  return {
+    id: "lua",
+    probe: () => true,
+    create: () => ok(new LuaScriptRuntime(opts))
+  };
+}
+
+// src/platform/registry.ts
+var BackendRegistry = class {
+  tables = /* @__PURE__ */ new Map();
+  register(kind, entry) {
+    let table = this.tables.get(kind);
+    if (table === void 0) {
+      table = /* @__PURE__ */ new Map();
+      this.tables.set(kind, table);
+    }
+    if (table.has(entry.id)) {
+      throw new Error(`\u540E\u7AEF ${kind}/${entry.id} \u5DF2\u7ECF\u6CE8\u518C\u8FC7\uFF08\u540C id \u4E0D\u5141\u8BB8\u91CD\u590D\u6CE8\u518C\uFF09`);
+    }
+    table.set(entry.id, entry);
+  }
+  /** 便捷注册：从工厂对象批量取 probe/create。 */
+  registerGfx(f, priority = 100) {
+    this.register("gfx", { id: f.id, priority, probe: f.probe, create: f.create });
+  }
+  registerAudio(f, priority = 100) {
+    this.register("audio", {
+      id: f.id,
+      priority,
+      probe: f.probe,
+      create: f.create
+    });
+  }
+  registerInput(f, priority = 100) {
+    this.register("input", { id: f.id, priority, probe: f.probe, create: f.create });
+  }
+  registerFs(f, priority = 100) {
+    this.register("fs", { id: f.id, priority, probe: f.probe, create: f.create });
+  }
+  registerNet(f, priority = 100) {
+    this.register("net", { id: f.id, priority, probe: f.probe, create: f.create });
+  }
+  registerScript(f, priority = 100) {
+    this.register("script", { id: f.id, priority, probe: f.probe, create: f.create });
+  }
+  list(kind) {
+    return Array.from(this.tables.get(kind)?.keys() ?? []).sort();
+  }
+  has(kind, id) {
+    return this.tables.get(kind)?.has(id) ?? false;
+  }
+  /**
+   * 创建后端。选择顺序：
+   *   1) `prefer` 指定 → 必须成功（除非 `allowFallbackToNull` 且 `null` 可用）
+   *   2) `allow` 白名单内、probe 通过、priority 最高的
+   *   3) 全失败 → 返回聚合错误
+   */
+  create(kind, opts = {}) {
+    const table = this.tables.get(kind);
+    if (table === void 0 || table.size === 0) {
+      return err(
+        engineError(
+          "BACKEND.NONE_REGISTERED",
+          `\u6CA1\u6709\u4EFB\u4F55 ${kind} \u540E\u7AEF\u88AB\u6CE8\u518C\uFF08\u5BBF\u4E3B\u5E94\u8BE5\u5728 bootstrap \u9636\u6BB5\u8C03\u7528 register* \uFF09`
+        )
+      );
+    }
+    const notes = [];
+    if (opts.prefer !== void 0) {
+      const e = table.get(opts.prefer);
+      if (e === void 0) {
+        notes.push(`prefer=${opts.prefer} \u672A\u6CE8\u518C`);
+      } else if (!e.probe(opts.options)) {
+        notes.push(`prefer=${opts.prefer} \u63A2\u6D4B\u5931\u8D25\uFF08\u8BE5\u73AF\u5883\u4E0D\u652F\u6301\uFF09`);
+      } else {
+        const r = e.create(opts.options);
+        if (r.ok) return ok(r.value);
+        notes.push(`prefer=${opts.prefer} \u521B\u5EFA\u5931\u8D25\uFF1A${r.error.message}`);
+      }
+    }
+    const cands = Array.from(table.values()).filter((e) => opts.allow === void 0 || opts.allow.includes(e.id)).sort((a, b) => b.priority - a.priority);
+    for (const e of cands) {
+      if (opts.allowFallbackToNull === false && e.id === "null") continue;
+      let probed = false;
+      try {
+        probed = e.probe(opts.options);
+      } catch (ex) {
+        notes.push(`${e.id} \u63A2\u6D4B\u629B\u9519\uFF1A${ex instanceof Error ? ex.message : String(ex)}`);
+        continue;
+      }
+      if (!probed) {
+        notes.push(`${e.id} \u4E0D\u53EF\u7528`);
+        continue;
+      }
+      const r = e.create(opts.options);
+      if (r.ok) return ok(r.value);
+      notes.push(`${e.id} \u521B\u5EFA\u5931\u8D25\uFF1A${r.error.message}`);
+    }
+    return err(
+      engineError("BACKEND.UNAVAILABLE", `\u6CA1\u6709\u53EF\u7528\u7684 ${kind} \u540E\u7AEF`, {
+        kind,
+        candidates: opts.allow ?? Array.from(table.keys()),
+        reasons: notes
+      })
+    );
+  }
+};
+
+// src/runtime/tick-source.ts
+var RafTickSource = class {
+  constructor(now) {
+    this.now = now;
+  }
+  id = "raf";
+  handle = 0;
+  fn = null;
+  last = 0;
+  _running = false;
+  start(fn) {
+    if (this._running) return;
+    this.fn = fn;
+    this.last = this.now();
+    this._running = true;
+    const raf = globalThis.requestAnimationFrame;
+    if (raf === void 0) throw new Error("\u5F53\u524D\u73AF\u5883\u6CA1\u6709 requestAnimationFrame \u2014\u2014 \u7528 IntervalTickSource");
+    const loop = () => {
+      if (!this._running) return;
+      const t = this.now();
+      const dt = (t - this.last) / 1e3;
+      this.last = t;
+      this.fn?.(dt);
+      this.handle = raf(loop);
+    };
+    this.handle = raf(loop);
+  }
+  stop() {
+    this._running = false;
+    const caf = globalThis.cancelAnimationFrame;
+    if (this.handle !== 0 && caf !== void 0) caf(this.handle);
+    this.handle = 0;
+  }
+  get running() {
+    return this._running;
+  }
+};
+
+// src/foundation/canonical.ts
+var CANON_NOT_INTEGER = "CANON.NOT_INTEGER";
+var CANON_NOT_FINITE = "CANON.NOT_FINITE";
+var CANON_TOO_LARGE = "CANON.TOO_LARGE";
+var CANON_NULL = "CANON.NULL";
+var CANON_UNSUPPORTED = "CANON.UNSUPPORTED";
+function bad(code, path, extra) {
+  return err({
+    code,
+    message: `${path} ${extra} \u2014\u2014 \u5185\u5BB9\u6307\u7EB9\u8981\u6C42"\u540C\u503C\u540C\u4E32"\uFF0C\u8FD9\u7C7B\u503C\u6CA1\u6CD5\u4FDD\u8BC1`,
+    detail: { path }
+  });
+}
+function canonicalize(value) {
+  return canon(value, "$");
+}
+function canon(value, path) {
+  if (value === null) {
+    return bad(CANON_NULL, path, "\u662F null\uFF08\u7F3A\u5B57\u6BB5\u5C31\u522B\u5199\u8FD9\u4E2A\u952E\uFF0C\u4E0D\u8981\u5199 null\uFF09");
+  }
+  if (value === void 0) {
+    return bad(CANON_UNSUPPORTED, path, "\u662F undefined\uFF08JSON \u4F1A\u628A\u5B83\u9759\u9ED8\u4E22\u6389\uFF0C\u6570\u7EC4\u91CC\u8FD8\u4F1A\u53D8 null\uFF09");
+  }
+  switch (typeof value) {
+    case "string":
+      return ok(JSON.stringify(value));
+    case "boolean":
+      return ok(value ? "true" : "false");
+    case "number": {
+      if (!Number.isFinite(value)) {
+        return bad(CANON_NOT_FINITE, path, `\u662F ${String(value)}`);
+      }
+      if (!Number.isInteger(value)) {
+        return bad(CANON_NOT_INTEGER, path, `\u662F\u5C0F\u6570 ${String(value)}\uFF08\u9700\u8981\u5C0F\u6570\u8BF7\u6539\u7528\u5B9A\u70B9\u6574\u6570\uFF09`);
+      }
+      if (Math.abs(value) > Number.MAX_SAFE_INTEGER) {
+        return bad(CANON_TOO_LARGE, path, `\u662F ${String(value)}\uFF0C\u8D85\u51FA\u5B89\u5168\u6574\u6570\u8303\u56F4\uFF08\u6574\u6570\u5DF2\u4E0D\u7CBE\u786E\uFF09`);
+      }
+      return ok(String(value));
+    }
+    case "bigint":
+    case "function":
+    case "symbol":
+      return bad(CANON_UNSUPPORTED, path, `\u662F ${typeof value}`);
+    default:
+      break;
+  }
+  if (Array.isArray(value)) {
+    const parts2 = [];
+    for (let i = 0; i < value.length; i++) {
+      const r = canon(value[i], `${path}[${String(i)}]`);
+      if (!r.ok) return r;
+      parts2.push(r.value);
+    }
+    return ok(`[${parts2.join(",")}]`);
+  }
+  const proto = Object.getPrototypeOf(value);
+  if (proto !== Object.prototype && proto !== null) {
+    const name = proto?.constructor?.name;
+    return bad(CANON_UNSUPPORTED, path, `\u4E0D\u662F\u7EAF\u5BF9\u8C61\uFF08\u539F\u578B ${String(name)}\uFF09`);
+  }
+  const rec = value;
+  const keys = Object.keys(rec).sort();
+  const parts = [];
+  for (const k of keys) {
+    const r = canon(rec[k], `${path}.${k}`);
+    if (!r.ok) return r;
+    parts.push(`${JSON.stringify(k)}:${r.value}`);
+  }
+  return ok(`{${parts.join(",")}}`);
+}
+function fingerprintOf(value) {
+  const c = canonicalize(value);
+  if (!c.ok) return c;
+  return ok(hashText(c.value));
+}
+
+// src/extensions/build/publish.ts
+var PUBLISH_SCHEMA = 1;
+
+// src/extensions/build/loader.ts
+var LOAD_BAD_MANIFEST = "LOAD.BAD_MANIFEST";
+var LOAD_BAD_BUNDLE = "LOAD.BAD_BUNDLE";
+var LOAD_ASSET_MISSING = "LOAD.ASSET_MISSING";
+var LOAD_BUNDLE_MISSING = "LOAD.BUNDLE_MISSING";
+var LOAD_HASH_MISMATCH = "LOAD.HASH_MISMATCH";
+var MAX_ID_BYTES = 4096;
+function indexAssets(manifest) {
+  const known = new Set(manifest.assets.map((a) => a.id));
+  const index = /* @__PURE__ */ new Map();
+  for (const b of manifest.bundles) {
+    for (const id of b.assets) {
+      if (!known.has(id)) {
+        return err(
+          engineError(LOAD_BAD_MANIFEST, `\u5305 ${b.hash.slice(0, 8)}\u2026 \u91CC\u6709\u4E00\u4E2A manifest \u6CA1\u767B\u8BB0\u7684\u8D44\u4EA7\u300C${id}\u300D`)
+        );
+      }
+      const prev = index.get(id);
+      if (prev !== void 0) {
+        return err(
+          engineError(LOAD_BAD_MANIFEST, `\u8D44\u4EA7\u300C${id}\u300D\u540C\u65F6\u51FA\u73B0\u5728\u5305 ${prev.slice(0, 8)}\u2026 \u4E0E ${b.hash.slice(0, 8)}\u2026 \u91CC`)
+        );
+      }
+      index.set(id, b.hash);
+    }
+  }
+  for (const a of manifest.assets) {
+    if (!index.has(a.id)) {
+      return err(engineError(LOAD_BAD_MANIFEST, `manifest \u767B\u8BB0\u4E86\u8D44\u4EA7\u300C${a.id}\u300D\u4F46\u6CA1\u6709\u4EFB\u4F55\u5305\u542B\u5B83`));
+    }
+  }
+  return ok(index);
+}
+function manifestHashOf(manifest) {
+  const body = {
+    schema: manifest.schema,
+    entries: manifest.entries,
+    assets: manifest.assets,
+    bundles: manifest.bundles
+  };
+  const canon2 = canonicalize(body);
+  if (!canon2.ok) return canon2;
+  return ok(hashText(canon2.value));
+}
+function parseManifest(text) {
+  let raw;
+  try {
+    raw = JSON.parse(text);
+  } catch (e) {
+    return err(engineError(LOAD_BAD_MANIFEST, `manifest \u4E0D\u662F\u5408\u6CD5 JSON\uFF1A${e instanceof Error ? e.message : String(e)}`));
+  }
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return err(engineError(LOAD_BAD_MANIFEST, "manifest \u9876\u5C42\u5FC5\u987B\u662F\u5BF9\u8C61"));
+  }
+  const m = raw;
+  if (m.schema !== PUBLISH_SCHEMA) {
+    return err(
+      engineError(LOAD_BAD_MANIFEST, `manifest schema \u662F ${String(m.schema)}\uFF0C\u672C\u8FD0\u884C\u65F6\u53EA\u8BA4 ${String(PUBLISH_SCHEMA)}`)
+    );
+  }
+  if (!Array.isArray(m.entries) || !Array.isArray(m.assets) || !Array.isArray(m.bundles) || typeof m.hash !== "string") {
+    return err(engineError(LOAD_BAD_MANIFEST, "manifest \u7F3A\u5B57\u6BB5\uFF08entries / assets / bundles / hash \u90FD\u8981\u6709\uFF09"));
+  }
+  for (const a of m.assets) {
+    if (typeof a?.id !== "string" || typeof a.hash !== "string" || typeof a.size !== "number") {
+      return err(engineError(LOAD_BAD_MANIFEST, "assets \u91CC\u6709\u4E00\u6761\u7F3A id/hash/size"));
+    }
+  }
+  for (const b of m.bundles) {
+    if (typeof b?.hash !== "string" || typeof b.size !== "number" || !Array.isArray(b.assets)) {
+      return err(engineError(LOAD_BAD_MANIFEST, "bundles \u91CC\u6709\u4E00\u6761\u7F3A hash/size/assets"));
+    }
+  }
+  const manifest = m;
+  const rehash = manifestHashOf(manifest);
+  if (!rehash.ok) return rehash;
+  if (rehash.value !== manifest.hash) {
+    return err(
+      engineError(
+        LOAD_HASH_MISMATCH,
+        `manifest \u81EA\u8EAB hash \u4E0D\u7B26\uFF1A\u8BB0\u7684\u662F ${manifest.hash.slice(0, 16)}\u2026\uFF0C\u91CD\u7B97\u5F97\u5230 ${rehash.value.slice(0, 16)}\u2026\uFF08manifest \u88AB\u6539\u8FC7\uFF1F\uFF09`
+      )
+    );
+  }
+  const indexed = indexAssets(manifest);
+  if (!indexed.ok) return indexed;
+  return ok(manifest);
+}
+function parseBundle(bytes, expectedHash) {
+  if (expectedHash !== void 0) {
+    const got = hashBytes(bytes);
+    if (got !== expectedHash) {
+      return err(
+        engineError(
+          LOAD_HASH_MISMATCH,
+          `\u5305 hash \u4E0D\u7B26\uFF1Amanifest \u8BB0 ${expectedHash.slice(0, 16)}\u2026\uFF0C\u5B9E\u9645 ${got.slice(0, 16)}\u2026\uFF08${String(bytes.length)} \u5B57\u8282\uFF09`
+        )
+      );
+    }
+  }
+  const out = /* @__PURE__ */ new Map();
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const dec = new TextDecoder();
+  let at = 0;
+  while (at < bytes.length) {
+    if (at + 4 > bytes.length) {
+      return err(engineError(LOAD_BAD_BUNDLE, `\u5305\u5728\u7B2C ${String(at)} \u5B57\u8282\u5904\u622A\u65AD\uFF08\u8BFB\u4E0D\u5B8C idLen\uFF09`));
+    }
+    const idLen = dv.getUint32(at, true);
+    at += 4;
+    if (idLen === 0 || idLen > MAX_ID_BYTES) {
+      return err(engineError(LOAD_BAD_BUNDLE, `\u7B2C ${String(at - 4)} \u5B57\u8282\u5904\u7684 idLen=${String(idLen)} \u4E0D\u5408\u6CD5`));
+    }
+    if (at + idLen + 4 > bytes.length) {
+      return err(engineError(LOAD_BAD_BUNDLE, `\u5305\u5728\u7B2C ${String(at)} \u5B57\u8282\u5904\u622A\u65AD\uFF08\u8BFB\u4E0D\u5B8C id\uFF09`));
+    }
+    const id = dec.decode(bytes.subarray(at, at + idLen));
+    at += idLen;
+    const dataLen = dv.getUint32(at, true);
+    at += 4;
+    if (at + dataLen > bytes.length) {
+      return err(
+        engineError(LOAD_BAD_BUNDLE, `\u8D44\u4EA7\u300C${id}\u300D\u58F0\u660E ${String(dataLen)} \u5B57\u8282\uFF0C\u4F46\u5305\u53EA\u5269 ${String(bytes.length - at)} \u5B57\u8282`)
+      );
+    }
+    if (out.has(id)) {
+      return err(engineError(LOAD_BAD_BUNDLE, `\u5305\u91CC\u8D44\u4EA7\u300C${id}\u300D\u51FA\u73B0\u4E24\u6B21\uFF08framing \u6709\u6B67\u4E49\uFF09`));
+    }
+    out.set(id, bytes.slice(at, at + dataLen));
+    at += dataLen;
+  }
+  if (out.size === 0) {
+    return err(engineError(LOAD_BAD_BUNDLE, "\u5305\u662F\u7A7A\u7684\uFF080 \u6761\u8D44\u4EA7\uFF09"));
+  }
+  return ok(out);
+}
+function createBundleReader(opts) {
+  const { manifest } = opts;
+  let fetches = 0;
+  let hits = 0;
+  let requests = 0;
+  const cache = /* @__PURE__ */ new Map();
+  const assetIndex = /* @__PURE__ */ new Map();
+  for (const b of manifest.bundles) for (const id of b.assets) assetIndex.set(id, b.hash);
+  const assetHash = /* @__PURE__ */ new Map();
+  for (const a of manifest.assets) assetHash.set(a.id, a.hash);
+  const loadBundle = (hash) => {
+    const hit = cache.get(hash);
+    if (hit !== void 0) {
+      hits++;
+      return hit;
+    }
+    fetches++;
+    const p = (async () => {
+      let bytes;
+      try {
+        bytes = await opts.fetchBundle(hash);
+      } catch (e) {
+        return err(
+          engineError(LOAD_BUNDLE_MISSING, `\u53D6\u5305 ${hash.slice(0, 8)}\u2026 \u5931\u8D25\uFF1A${e instanceof Error ? e.message : String(e)}`)
+        );
+      }
+      return parseBundle(bytes, hash);
+    })();
+    cache.set(hash, p);
+    return p;
+  };
+  return {
+    async get(assetId) {
+      requests++;
+      const bundleHash = assetIndex.get(assetId);
+      if (bundleHash === void 0) {
+        return err(
+          engineError(
+            LOAD_ASSET_MISSING,
+            `\u8D44\u4EA7\u300C${assetId}\u300D\u4E0D\u5728 manifest \u91CC\uFF08\u5DF2\u767B\u8BB0 ${String(manifest.assets.length)} \u4E2A\uFF09`
+          )
+        );
+      }
+      const bundle = await loadBundle(bundleHash);
+      if (!bundle.ok) return bundle;
+      const data = bundle.value.get(assetId);
+      if (data === void 0) {
+        return err(
+          engineError(LOAD_BAD_BUNDLE, `\u5305 ${bundleHash.slice(0, 8)}\u2026 \u91CC\u6CA1\u6709\u8D44\u4EA7\u300C${assetId}\u300D\uFF08manifest \u4E0E\u5305\u4E0D\u914D\u5957\uFF09`)
+        );
+      }
+      const want = assetHash.get(assetId);
+      if (want === void 0) {
+        return err(engineError(LOAD_BAD_MANIFEST, `\u8D44\u4EA7\u300C${assetId}\u300D\u6CA1\u6709\u767B\u8BB0 hash`));
+      }
+      const got = hashBytes(data);
+      if (got !== want) {
+        return err(
+          engineError(
+            LOAD_HASH_MISMATCH,
+            `\u8D44\u4EA7\u300C${assetId}\u300Dhash \u4E0D\u7B26\uFF1Amanifest \u8BB0 ${want.slice(0, 16)}\u2026\uFF0C\u89E3\u51FA ${got.slice(0, 16)}\u2026\uFF08\u90E8\u7F72\u65F6 manifest \u4E0E\u5305\u4E0D\u662F\u540C\u4E00\u7248\uFF1F\uFF09`
+          )
+        );
+      }
+      return ok(data);
+    },
+    stats() {
+      return { fetches, hits, requests, bundles: cache.size };
+    }
+  };
+}
+
+// src/extensions/build/fs-bundle.ts
+var FSBUNDLE_ERR = {
+  /** manifest 里两个资产用同一个逻辑路径 —— 查 path 会有歧义（path 不参与 hash）。 */
+  DUPLICATE_PATH: "FSBUNDLE.DUPLICATE_PATH",
+  /** 这个路径不在 manifest 里。 */
+  NOT_FOUND: "FSBUNDLE.NOT_FOUND",
+  /** 路径是空的或归一化之后没有意义。 */
+  BAD_PATH: "FSBUNDLE.BAD_PATH"
+};
+function normalize(input) {
+  if (input.length === 0) {
+    return err(engineError(FSBUNDLE_ERR.BAD_PATH, "\u8DEF\u5F84\u662F\u7A7A\u4E32"));
+  }
+  let s = input.replace(/\\/g, "/");
+  if (!s.startsWith("/")) s = `/${s}`;
+  s = s.replace(/\/+/g, "/");
+  if (s.length > 1 && s.endsWith("/")) s = s.slice(0, -1);
+  return ok(s);
+}
+var BundleFileSystem = class {
+  scheme = "bundle";
+  /** 见文件头：manifest 就是清单，所以这里**真的**能列目录。 */
+  canList = true;
+  byPath = /* @__PURE__ */ new Map();
+  dirs = /* @__PURE__ */ new Set(["/"]);
+  reader;
+  root;
+  constructor(opts, reader) {
+    const rootR = normalize(opts.root ?? "/");
+    if (!rootR.ok) throw new Error(`${FSBUNDLE_ERR.BAD_PATH}\uFF1Aroot=${String(opts.root)}`);
+    this.root = rootR.value;
+    for (const a of opts.manifest.assets) {
+      const p = normalize(a.path);
+      if (!p.ok) throw new Error(`${FSBUNDLE_ERR.BAD_PATH}\uFF1A${a.path}`);
+      if (this.byPath.has(p.value)) {
+        throw new Error(`${FSBUNDLE_ERR.DUPLICATE_PATH}\uFF1A\u4E24\u4E2A\u8D44\u4EA7\u90FD\u7528 ${p.value}\uFF08path \u4E0D\u53C2\u4E0E hash\uFF0C\u67E5\u8D77\u6765\u6709\u6B67\u4E49\uFF09`);
+      }
+      this.byPath.set(p.value, a);
+      let cut = p.value.lastIndexOf("/");
+      while (cut > 0) {
+        this.dirs.add(p.value.slice(0, cut));
+        cut = p.value.slice(0, cut).lastIndexOf("/");
+      }
+    }
+    this.reader = reader ?? createBundleReader({ manifest: opts.manifest, fetchBundle: opts.fetchBundle });
+  }
+  /**
+   * 唯一一处路径归一化：绝对路径原样，相对路径挂到  下。
+   *
+   * ★ 四个入口（read / exists / stat / list）都走这里。各写一遍的后果是
+   *   「exists 说在、readBinary 说找不到」—— 而那种症状会被归因成包坏了。
+   */
+  resolve(input) {
+    const p = normalize(input);
+    if (!p.ok) return p;
+    if (input.startsWith("/")) return p;
+    return normalize(this.root === "/" ? p.value : `${this.root}${p.value}`);
+  }
+  /** 读了多少次包（判据用：同一个包只该取一次）。 */
+  stats() {
+    const s = this.reader.stats();
+    return { fetches: s.fetches, hits: s.hits, requests: s.requests };
+  }
+  async readBinary(path) {
+    const p = this.resolve(path);
+    if (!p.ok) return p;
+    const asset = this.byPath.get(p.value);
+    if (asset === void 0) {
+      return err(
+        engineError(
+          FSBUNDLE_ERR.NOT_FOUND,
+          `${p.value} \u4E0D\u5728 manifest \u91CC\uFF08\u5DF2\u767B\u8BB0 ${String(this.byPath.size)} \u4E2A\u8D44\u4EA7\uFF09`,
+          { path: p.value }
+        )
+      );
+    }
+    return this.reader.get(asset.id);
+  }
+  async readText(path) {
+    const b = await this.readBinary(path);
+    if (!b.ok) return b;
+    try {
+      return ok(new TextDecoder("utf-8", { fatal: true }).decode(b.value));
+    } catch (e) {
+      return err(engineError("FS.NOT_UTF8", `\u4E0D\u662F\u5408\u6CD5 UTF-8\uFF1A${path}\uFF08${e instanceof Error ? e.message : String(e)}\uFF09`));
+    }
+  }
+  async exists(path) {
+    const p = this.resolve(path);
+    if (!p.ok) return false;
+    return this.byPath.has(p.value) || this.dirs.has(p.value);
+  }
+  async stat(path) {
+    const p = this.resolve(path);
+    if (!p.ok) return p;
+    const asset = this.byPath.get(p.value);
+    if (asset !== void 0) {
+      return ok({ size: asset.size, mtimeMs: 0, isDirectory: false });
+    }
+    if (this.dirs.has(p.value)) {
+      return ok({ size: 0, mtimeMs: 0, isDirectory: true });
+    }
+    return err(engineError(FSBUNDLE_ERR.NOT_FOUND, `${p.value} \u4E0D\u5B58\u5728`, { path: p.value }));
+  }
+  /**
+   * 列**直接子项**（目录在前、同级按名字升序 —— 顺序固定，判据才能逐项比）。
+   *
+   * ★ 不递归：递归列举会让"资产浏览器展开一个目录"变成"把几千个路径一次性读进来"，
+   *   而调用方通常只想要下一层。
+   */
+  async list(dir) {
+    const d = this.resolve(dir);
+    if (!d.ok) return d;
+    if (!this.dirs.has(d.value) && !this.byPath.has(d.value)) {
+      return err(engineError(FSBUNDLE_ERR.NOT_FOUND, `${d.value} \u4E0D\u5B58\u5728`, { path: d.value }));
+    }
+    const prefix = d.value === "/" ? "/" : `${d.value}/`;
+    const children = /* @__PURE__ */ new Set();
+    const files = [];
+    for (const [path, asset] of this.byPath) {
+      if (!path.startsWith(prefix)) continue;
+      const rest = path.slice(prefix.length);
+      const slash = rest.indexOf("/");
+      if (slash < 0) {
+        files.push({ name: rest, path, isDirectory: false, size: asset.size });
+      } else {
+        children.add(rest.slice(0, slash));
+      }
+    }
+    const dirEntries = [...children].sort().map((name) => ({ name, path: `${prefix}${name}`, isDirectory: true, size: 0 }));
+    files.sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+    return ok([...dirEntries, ...files]);
+  }
+};
+
+// src/extensions/build/bundle-source.ts
+async function resolveAssetSource(opts) {
+  const param = opts.packParam;
+  if (param === null || param === "") return opts.fallback();
+  const doFetch = opts.fetchLike ?? ((url) => globalThis.fetch(url));
+  const warn = opts.warn ?? (() => {
+  });
+  try {
+    const manifestUrl = new URL(param, opts.pageHref);
+    const res = await doFetch(manifestUrl.href);
+    if (!res.ok) throw new Error(`manifest \u53D6\u4E0D\u5230\uFF1AHTTP ${String(res.status)}`);
+    const parsed = parseManifest(await res.text());
+    if (!parsed.ok) throw new Error(`${parsed.error.code}\uFF1A${parsed.error.message}`);
+    const dir = new URL(".", manifestUrl);
+    return new BundleFileSystem({
+      manifest: parsed.value,
+      root: opts.root,
+      fetchBundle: async (hash) => {
+        const r = await doFetch(new URL(`bundles/${hash}.bin`, dir).href);
+        if (!r.ok) throw new Error(`\u5305\u53D6\u4E0D\u5230\uFF1AHTTP ${String(r.status)}`);
+        return new Uint8Array(await r.arrayBuffer());
+      }
+    });
+  } catch (e) {
+    warn(`[asset] \u4ECE\u5305\u52A0\u8F7D\u5931\u8D25\uFF0C\u9000\u56DE\u76F4\u8BFB\uFF1A${e instanceof Error ? e.message : String(e)}`);
+    return opts.fallback();
+  }
+}
+
 // src/foundation/log/logger.ts
 var LogLevel = {
   Trace: 10,
@@ -8359,15 +9086,18 @@ var XorShift128 = class {
 function createPlatform(req) {
   const { registry } = req;
   const clock = req.clock ?? new SystemClock();
+  const noNull = (kind) => req.strict?.includes(kind) === true ? { allowFallbackToNull: false } : {};
   const gfxR = registry.create("gfx", {
     ...req.prefer?.gfx === void 0 ? {} : { prefer: req.prefer.gfx },
     ...req.allow?.gfx === void 0 ? {} : { allow: req.allow.gfx },
+    ...noNull("gfx"),
     options: req.backendOptions?.gfx
   });
   if (!gfxR.ok) return gfxR;
   const audioR = registry.create("audio", {
     ...req.prefer?.audio === void 0 ? {} : { prefer: req.prefer.audio },
     ...req.allow?.audio === void 0 ? {} : { allow: req.allow.audio },
+    ...noNull("audio"),
     options: req.backendOptions?.audio
   });
   if (!audioR.ok) {
@@ -8377,6 +9107,7 @@ function createPlatform(req) {
   const inputR = registry.create("input", {
     ...req.prefer?.input === void 0 ? {} : { prefer: req.prefer.input },
     ...req.allow?.input === void 0 ? {} : { allow: req.allow.input },
+    ...noNull("input"),
     options: req.backendOptions?.input
   });
   if (!inputR.ok) {
@@ -8387,6 +9118,7 @@ function createPlatform(req) {
   const fsR = registry.create("fs", {
     ...req.prefer?.fs === void 0 ? {} : { prefer: req.prefer.fs },
     ...req.allow?.fs === void 0 ? {} : { allow: req.allow.fs },
+    ...noNull("fs"),
     options: req.backendOptions?.fs
   });
   if (!fsR.ok) {
@@ -8401,6 +9133,7 @@ function createPlatform(req) {
     const netR = registry.create("net", {
       ...req.prefer?.net === void 0 ? {} : { prefer: req.prefer.net },
       ...req.allow?.net === void 0 ? {} : { allow: req.allow.net },
+      ...noNull("net"),
       options: req.backendOptions?.net
     });
     if (netR.ok) {
@@ -8414,6 +9147,7 @@ function createPlatform(req) {
     const scriptR = registry.create("script", {
       ...req.prefer?.script === void 0 ? {} : { prefer: req.prefer.script },
       ...req.allow?.script === void 0 ? {} : { allow: req.allow.script },
+      ...noNull("script"),
       options: req.backendOptions?.script
     });
     if (scriptR.ok) {
@@ -9832,44 +10566,6 @@ var Services = {
   Script: defineService("core.script")
 };
 
-// src/runtime/tick-source.ts
-var RafTickSource = class {
-  constructor(now) {
-    this.now = now;
-  }
-  id = "raf";
-  handle = 0;
-  fn = null;
-  last = 0;
-  _running = false;
-  start(fn) {
-    if (this._running) return;
-    this.fn = fn;
-    this.last = this.now();
-    this._running = true;
-    const raf = globalThis.requestAnimationFrame;
-    if (raf === void 0) throw new Error("\u5F53\u524D\u73AF\u5883\u6CA1\u6709 requestAnimationFrame \u2014\u2014 \u7528 IntervalTickSource");
-    const loop = () => {
-      if (!this._running) return;
-      const t = this.now();
-      const dt = (t - this.last) / 1e3;
-      this.last = t;
-      this.fn?.(dt);
-      this.handle = raf(loop);
-    };
-    this.handle = raf(loop);
-  }
-  stop() {
-    this._running = false;
-    const caf = globalThis.cancelAnimationFrame;
-    if (this.handle !== 0 && caf !== void 0) caf(this.handle);
-    this.handle = 0;
-  }
-  get running() {
-    return this._running;
-  }
-};
-
 // src/runtime/GameApp.ts
 var GameApp = class _GameApp {
   platform;
@@ -9959,7 +10655,8 @@ var GameApp = class _GameApp {
       clock,
       ...opts.prefer === void 0 ? {} : { prefer: opts.prefer },
       ...opts.allow === void 0 ? {} : { allow: opts.allow },
-      ...opts.backendOptions === void 0 ? {} : { backendOptions: opts.backendOptions }
+      ...opts.backendOptions === void 0 ? {} : { backendOptions: opts.backendOptions },
+      ...opts.strict === void 0 ? {} : { strict: opts.strict }
     });
     if (!platformR.ok) {
       log.channel("app").error(`\u5E73\u53F0\u521B\u5EFA\u5931\u8D25\uFF1A${platformR.error.message}`, {
@@ -12358,695 +13055,6 @@ var SCENE_SCHEMA = new Schema({
   fields: ["name", "nodes"],
   versionKey: "format"
 });
-
-// src/foundation/canonical.ts
-var CANON_NOT_INTEGER = "CANON.NOT_INTEGER";
-var CANON_NOT_FINITE = "CANON.NOT_FINITE";
-var CANON_TOO_LARGE = "CANON.TOO_LARGE";
-var CANON_NULL = "CANON.NULL";
-var CANON_UNSUPPORTED = "CANON.UNSUPPORTED";
-function bad(code, path, extra) {
-  return err({
-    code,
-    message: `${path} ${extra} \u2014\u2014 \u5185\u5BB9\u6307\u7EB9\u8981\u6C42"\u540C\u503C\u540C\u4E32"\uFF0C\u8FD9\u7C7B\u503C\u6CA1\u6CD5\u4FDD\u8BC1`,
-    detail: { path }
-  });
-}
-function canonicalize(value) {
-  return canon(value, "$");
-}
-function canon(value, path) {
-  if (value === null) {
-    return bad(CANON_NULL, path, "\u662F null\uFF08\u7F3A\u5B57\u6BB5\u5C31\u522B\u5199\u8FD9\u4E2A\u952E\uFF0C\u4E0D\u8981\u5199 null\uFF09");
-  }
-  if (value === void 0) {
-    return bad(CANON_UNSUPPORTED, path, "\u662F undefined\uFF08JSON \u4F1A\u628A\u5B83\u9759\u9ED8\u4E22\u6389\uFF0C\u6570\u7EC4\u91CC\u8FD8\u4F1A\u53D8 null\uFF09");
-  }
-  switch (typeof value) {
-    case "string":
-      return ok(JSON.stringify(value));
-    case "boolean":
-      return ok(value ? "true" : "false");
-    case "number": {
-      if (!Number.isFinite(value)) {
-        return bad(CANON_NOT_FINITE, path, `\u662F ${String(value)}`);
-      }
-      if (!Number.isInteger(value)) {
-        return bad(CANON_NOT_INTEGER, path, `\u662F\u5C0F\u6570 ${String(value)}\uFF08\u9700\u8981\u5C0F\u6570\u8BF7\u6539\u7528\u5B9A\u70B9\u6574\u6570\uFF09`);
-      }
-      if (Math.abs(value) > Number.MAX_SAFE_INTEGER) {
-        return bad(CANON_TOO_LARGE, path, `\u662F ${String(value)}\uFF0C\u8D85\u51FA\u5B89\u5168\u6574\u6570\u8303\u56F4\uFF08\u6574\u6570\u5DF2\u4E0D\u7CBE\u786E\uFF09`);
-      }
-      return ok(String(value));
-    }
-    case "bigint":
-    case "function":
-    case "symbol":
-      return bad(CANON_UNSUPPORTED, path, `\u662F ${typeof value}`);
-    default:
-      break;
-  }
-  if (Array.isArray(value)) {
-    const parts2 = [];
-    for (let i = 0; i < value.length; i++) {
-      const r = canon(value[i], `${path}[${String(i)}]`);
-      if (!r.ok) return r;
-      parts2.push(r.value);
-    }
-    return ok(`[${parts2.join(",")}]`);
-  }
-  const proto = Object.getPrototypeOf(value);
-  if (proto !== Object.prototype && proto !== null) {
-    const name = proto?.constructor?.name;
-    return bad(CANON_UNSUPPORTED, path, `\u4E0D\u662F\u7EAF\u5BF9\u8C61\uFF08\u539F\u578B ${String(name)}\uFF09`);
-  }
-  const rec = value;
-  const keys = Object.keys(rec).sort();
-  const parts = [];
-  for (const k of keys) {
-    const r = canon(rec[k], `${path}.${k}`);
-    if (!r.ok) return r;
-    parts.push(`${JSON.stringify(k)}:${r.value}`);
-  }
-  return ok(`{${parts.join(",")}}`);
-}
-function fingerprintOf(value) {
-  const c = canonicalize(value);
-  if (!c.ok) return c;
-  return ok(hashText(c.value));
-}
-
-// src/extensions/build/publish.ts
-var PUBLISH_SCHEMA = 1;
-
-// src/extensions/build/loader.ts
-var LOAD_BAD_MANIFEST = "LOAD.BAD_MANIFEST";
-var LOAD_BAD_BUNDLE = "LOAD.BAD_BUNDLE";
-var LOAD_ASSET_MISSING = "LOAD.ASSET_MISSING";
-var LOAD_BUNDLE_MISSING = "LOAD.BUNDLE_MISSING";
-var LOAD_HASH_MISMATCH = "LOAD.HASH_MISMATCH";
-var MAX_ID_BYTES = 4096;
-function indexAssets(manifest) {
-  const known = new Set(manifest.assets.map((a) => a.id));
-  const index = /* @__PURE__ */ new Map();
-  for (const b of manifest.bundles) {
-    for (const id of b.assets) {
-      if (!known.has(id)) {
-        return err(
-          engineError(LOAD_BAD_MANIFEST, `\u5305 ${b.hash.slice(0, 8)}\u2026 \u91CC\u6709\u4E00\u4E2A manifest \u6CA1\u767B\u8BB0\u7684\u8D44\u4EA7\u300C${id}\u300D`)
-        );
-      }
-      const prev = index.get(id);
-      if (prev !== void 0) {
-        return err(
-          engineError(LOAD_BAD_MANIFEST, `\u8D44\u4EA7\u300C${id}\u300D\u540C\u65F6\u51FA\u73B0\u5728\u5305 ${prev.slice(0, 8)}\u2026 \u4E0E ${b.hash.slice(0, 8)}\u2026 \u91CC`)
-        );
-      }
-      index.set(id, b.hash);
-    }
-  }
-  for (const a of manifest.assets) {
-    if (!index.has(a.id)) {
-      return err(engineError(LOAD_BAD_MANIFEST, `manifest \u767B\u8BB0\u4E86\u8D44\u4EA7\u300C${a.id}\u300D\u4F46\u6CA1\u6709\u4EFB\u4F55\u5305\u542B\u5B83`));
-    }
-  }
-  return ok(index);
-}
-function manifestHashOf(manifest) {
-  const body = {
-    schema: manifest.schema,
-    entries: manifest.entries,
-    assets: manifest.assets,
-    bundles: manifest.bundles
-  };
-  const canon2 = canonicalize(body);
-  if (!canon2.ok) return canon2;
-  return ok(hashText(canon2.value));
-}
-function parseManifest(text) {
-  let raw;
-  try {
-    raw = JSON.parse(text);
-  } catch (e) {
-    return err(engineError(LOAD_BAD_MANIFEST, `manifest \u4E0D\u662F\u5408\u6CD5 JSON\uFF1A${e instanceof Error ? e.message : String(e)}`));
-  }
-  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
-    return err(engineError(LOAD_BAD_MANIFEST, "manifest \u9876\u5C42\u5FC5\u987B\u662F\u5BF9\u8C61"));
-  }
-  const m = raw;
-  if (m.schema !== PUBLISH_SCHEMA) {
-    return err(
-      engineError(LOAD_BAD_MANIFEST, `manifest schema \u662F ${String(m.schema)}\uFF0C\u672C\u8FD0\u884C\u65F6\u53EA\u8BA4 ${String(PUBLISH_SCHEMA)}`)
-    );
-  }
-  if (!Array.isArray(m.entries) || !Array.isArray(m.assets) || !Array.isArray(m.bundles) || typeof m.hash !== "string") {
-    return err(engineError(LOAD_BAD_MANIFEST, "manifest \u7F3A\u5B57\u6BB5\uFF08entries / assets / bundles / hash \u90FD\u8981\u6709\uFF09"));
-  }
-  for (const a of m.assets) {
-    if (typeof a?.id !== "string" || typeof a.hash !== "string" || typeof a.size !== "number") {
-      return err(engineError(LOAD_BAD_MANIFEST, "assets \u91CC\u6709\u4E00\u6761\u7F3A id/hash/size"));
-    }
-  }
-  for (const b of m.bundles) {
-    if (typeof b?.hash !== "string" || typeof b.size !== "number" || !Array.isArray(b.assets)) {
-      return err(engineError(LOAD_BAD_MANIFEST, "bundles \u91CC\u6709\u4E00\u6761\u7F3A hash/size/assets"));
-    }
-  }
-  const manifest = m;
-  const rehash = manifestHashOf(manifest);
-  if (!rehash.ok) return rehash;
-  if (rehash.value !== manifest.hash) {
-    return err(
-      engineError(
-        LOAD_HASH_MISMATCH,
-        `manifest \u81EA\u8EAB hash \u4E0D\u7B26\uFF1A\u8BB0\u7684\u662F ${manifest.hash.slice(0, 16)}\u2026\uFF0C\u91CD\u7B97\u5F97\u5230 ${rehash.value.slice(0, 16)}\u2026\uFF08manifest \u88AB\u6539\u8FC7\uFF1F\uFF09`
-      )
-    );
-  }
-  const indexed = indexAssets(manifest);
-  if (!indexed.ok) return indexed;
-  return ok(manifest);
-}
-function parseBundle(bytes, expectedHash) {
-  if (expectedHash !== void 0) {
-    const got = hashBytes(bytes);
-    if (got !== expectedHash) {
-      return err(
-        engineError(
-          LOAD_HASH_MISMATCH,
-          `\u5305 hash \u4E0D\u7B26\uFF1Amanifest \u8BB0 ${expectedHash.slice(0, 16)}\u2026\uFF0C\u5B9E\u9645 ${got.slice(0, 16)}\u2026\uFF08${String(bytes.length)} \u5B57\u8282\uFF09`
-        )
-      );
-    }
-  }
-  const out = /* @__PURE__ */ new Map();
-  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const dec = new TextDecoder();
-  let at = 0;
-  while (at < bytes.length) {
-    if (at + 4 > bytes.length) {
-      return err(engineError(LOAD_BAD_BUNDLE, `\u5305\u5728\u7B2C ${String(at)} \u5B57\u8282\u5904\u622A\u65AD\uFF08\u8BFB\u4E0D\u5B8C idLen\uFF09`));
-    }
-    const idLen = dv.getUint32(at, true);
-    at += 4;
-    if (idLen === 0 || idLen > MAX_ID_BYTES) {
-      return err(engineError(LOAD_BAD_BUNDLE, `\u7B2C ${String(at - 4)} \u5B57\u8282\u5904\u7684 idLen=${String(idLen)} \u4E0D\u5408\u6CD5`));
-    }
-    if (at + idLen + 4 > bytes.length) {
-      return err(engineError(LOAD_BAD_BUNDLE, `\u5305\u5728\u7B2C ${String(at)} \u5B57\u8282\u5904\u622A\u65AD\uFF08\u8BFB\u4E0D\u5B8C id\uFF09`));
-    }
-    const id = dec.decode(bytes.subarray(at, at + idLen));
-    at += idLen;
-    const dataLen = dv.getUint32(at, true);
-    at += 4;
-    if (at + dataLen > bytes.length) {
-      return err(
-        engineError(LOAD_BAD_BUNDLE, `\u8D44\u4EA7\u300C${id}\u300D\u58F0\u660E ${String(dataLen)} \u5B57\u8282\uFF0C\u4F46\u5305\u53EA\u5269 ${String(bytes.length - at)} \u5B57\u8282`)
-      );
-    }
-    if (out.has(id)) {
-      return err(engineError(LOAD_BAD_BUNDLE, `\u5305\u91CC\u8D44\u4EA7\u300C${id}\u300D\u51FA\u73B0\u4E24\u6B21\uFF08framing \u6709\u6B67\u4E49\uFF09`));
-    }
-    out.set(id, bytes.slice(at, at + dataLen));
-    at += dataLen;
-  }
-  if (out.size === 0) {
-    return err(engineError(LOAD_BAD_BUNDLE, "\u5305\u662F\u7A7A\u7684\uFF080 \u6761\u8D44\u4EA7\uFF09"));
-  }
-  return ok(out);
-}
-function createBundleReader(opts) {
-  const { manifest } = opts;
-  let fetches = 0;
-  let hits = 0;
-  let requests = 0;
-  const cache = /* @__PURE__ */ new Map();
-  const assetIndex = /* @__PURE__ */ new Map();
-  for (const b of manifest.bundles) for (const id of b.assets) assetIndex.set(id, b.hash);
-  const assetHash = /* @__PURE__ */ new Map();
-  for (const a of manifest.assets) assetHash.set(a.id, a.hash);
-  const loadBundle = (hash) => {
-    const hit = cache.get(hash);
-    if (hit !== void 0) {
-      hits++;
-      return hit;
-    }
-    fetches++;
-    const p = (async () => {
-      let bytes;
-      try {
-        bytes = await opts.fetchBundle(hash);
-      } catch (e) {
-        return err(
-          engineError(LOAD_BUNDLE_MISSING, `\u53D6\u5305 ${hash.slice(0, 8)}\u2026 \u5931\u8D25\uFF1A${e instanceof Error ? e.message : String(e)}`)
-        );
-      }
-      return parseBundle(bytes, hash);
-    })();
-    cache.set(hash, p);
-    return p;
-  };
-  return {
-    async get(assetId) {
-      requests++;
-      const bundleHash = assetIndex.get(assetId);
-      if (bundleHash === void 0) {
-        return err(
-          engineError(
-            LOAD_ASSET_MISSING,
-            `\u8D44\u4EA7\u300C${assetId}\u300D\u4E0D\u5728 manifest \u91CC\uFF08\u5DF2\u767B\u8BB0 ${String(manifest.assets.length)} \u4E2A\uFF09`
-          )
-        );
-      }
-      const bundle = await loadBundle(bundleHash);
-      if (!bundle.ok) return bundle;
-      const data = bundle.value.get(assetId);
-      if (data === void 0) {
-        return err(
-          engineError(LOAD_BAD_BUNDLE, `\u5305 ${bundleHash.slice(0, 8)}\u2026 \u91CC\u6CA1\u6709\u8D44\u4EA7\u300C${assetId}\u300D\uFF08manifest \u4E0E\u5305\u4E0D\u914D\u5957\uFF09`)
-        );
-      }
-      const want = assetHash.get(assetId);
-      if (want === void 0) {
-        return err(engineError(LOAD_BAD_MANIFEST, `\u8D44\u4EA7\u300C${assetId}\u300D\u6CA1\u6709\u767B\u8BB0 hash`));
-      }
-      const got = hashBytes(data);
-      if (got !== want) {
-        return err(
-          engineError(
-            LOAD_HASH_MISMATCH,
-            `\u8D44\u4EA7\u300C${assetId}\u300Dhash \u4E0D\u7B26\uFF1Amanifest \u8BB0 ${want.slice(0, 16)}\u2026\uFF0C\u89E3\u51FA ${got.slice(0, 16)}\u2026\uFF08\u90E8\u7F72\u65F6 manifest \u4E0E\u5305\u4E0D\u662F\u540C\u4E00\u7248\uFF1F\uFF09`
-          )
-        );
-      }
-      return ok(data);
-    },
-    stats() {
-      return { fetches, hits, requests, bundles: cache.size };
-    }
-  };
-}
-
-// src/extensions/build/fs-bundle.ts
-var FSBUNDLE_ERR = {
-  /** manifest 里两个资产用同一个逻辑路径 —— 查 path 会有歧义（path 不参与 hash）。 */
-  DUPLICATE_PATH: "FSBUNDLE.DUPLICATE_PATH",
-  /** 这个路径不在 manifest 里。 */
-  NOT_FOUND: "FSBUNDLE.NOT_FOUND",
-  /** 路径是空的或归一化之后没有意义。 */
-  BAD_PATH: "FSBUNDLE.BAD_PATH"
-};
-function normalize(input) {
-  if (input.length === 0) {
-    return err(engineError(FSBUNDLE_ERR.BAD_PATH, "\u8DEF\u5F84\u662F\u7A7A\u4E32"));
-  }
-  let s = input.replace(/\\/g, "/");
-  if (!s.startsWith("/")) s = `/${s}`;
-  s = s.replace(/\/+/g, "/");
-  if (s.length > 1 && s.endsWith("/")) s = s.slice(0, -1);
-  return ok(s);
-}
-var BundleFileSystem = class {
-  scheme = "bundle";
-  /** 见文件头：manifest 就是清单，所以这里**真的**能列目录。 */
-  canList = true;
-  byPath = /* @__PURE__ */ new Map();
-  dirs = /* @__PURE__ */ new Set(["/"]);
-  reader;
-  root;
-  constructor(opts, reader) {
-    const rootR = normalize(opts.root ?? "/");
-    if (!rootR.ok) throw new Error(`${FSBUNDLE_ERR.BAD_PATH}\uFF1Aroot=${String(opts.root)}`);
-    this.root = rootR.value;
-    for (const a of opts.manifest.assets) {
-      const p = normalize(a.path);
-      if (!p.ok) throw new Error(`${FSBUNDLE_ERR.BAD_PATH}\uFF1A${a.path}`);
-      if (this.byPath.has(p.value)) {
-        throw new Error(`${FSBUNDLE_ERR.DUPLICATE_PATH}\uFF1A\u4E24\u4E2A\u8D44\u4EA7\u90FD\u7528 ${p.value}\uFF08path \u4E0D\u53C2\u4E0E hash\uFF0C\u67E5\u8D77\u6765\u6709\u6B67\u4E49\uFF09`);
-      }
-      this.byPath.set(p.value, a);
-      let cut = p.value.lastIndexOf("/");
-      while (cut > 0) {
-        this.dirs.add(p.value.slice(0, cut));
-        cut = p.value.slice(0, cut).lastIndexOf("/");
-      }
-    }
-    this.reader = reader ?? createBundleReader({ manifest: opts.manifest, fetchBundle: opts.fetchBundle });
-  }
-  /**
-   * 唯一一处路径归一化：绝对路径原样，相对路径挂到  下。
-   *
-   * ★ 四个入口（read / exists / stat / list）都走这里。各写一遍的后果是
-   *   「exists 说在、readBinary 说找不到」—— 而那种症状会被归因成包坏了。
-   */
-  resolve(input) {
-    const p = normalize(input);
-    if (!p.ok) return p;
-    if (input.startsWith("/")) return p;
-    return normalize(this.root === "/" ? p.value : `${this.root}${p.value}`);
-  }
-  /** 读了多少次包（判据用：同一个包只该取一次）。 */
-  stats() {
-    const s = this.reader.stats();
-    return { fetches: s.fetches, hits: s.hits, requests: s.requests };
-  }
-  async readBinary(path) {
-    const p = this.resolve(path);
-    if (!p.ok) return p;
-    const asset = this.byPath.get(p.value);
-    if (asset === void 0) {
-      return err(
-        engineError(
-          FSBUNDLE_ERR.NOT_FOUND,
-          `${p.value} \u4E0D\u5728 manifest \u91CC\uFF08\u5DF2\u767B\u8BB0 ${String(this.byPath.size)} \u4E2A\u8D44\u4EA7\uFF09`,
-          { path: p.value }
-        )
-      );
-    }
-    return this.reader.get(asset.id);
-  }
-  async readText(path) {
-    const b = await this.readBinary(path);
-    if (!b.ok) return b;
-    try {
-      return ok(new TextDecoder("utf-8", { fatal: true }).decode(b.value));
-    } catch (e) {
-      return err(engineError("FS.NOT_UTF8", `\u4E0D\u662F\u5408\u6CD5 UTF-8\uFF1A${path}\uFF08${e instanceof Error ? e.message : String(e)}\uFF09`));
-    }
-  }
-  async exists(path) {
-    const p = this.resolve(path);
-    if (!p.ok) return false;
-    return this.byPath.has(p.value) || this.dirs.has(p.value);
-  }
-  async stat(path) {
-    const p = this.resolve(path);
-    if (!p.ok) return p;
-    const asset = this.byPath.get(p.value);
-    if (asset !== void 0) {
-      return ok({ size: asset.size, mtimeMs: 0, isDirectory: false });
-    }
-    if (this.dirs.has(p.value)) {
-      return ok({ size: 0, mtimeMs: 0, isDirectory: true });
-    }
-    return err(engineError(FSBUNDLE_ERR.NOT_FOUND, `${p.value} \u4E0D\u5B58\u5728`, { path: p.value }));
-  }
-  /**
-   * 列**直接子项**（目录在前、同级按名字升序 —— 顺序固定，判据才能逐项比）。
-   *
-   * ★ 不递归：递归列举会让"资产浏览器展开一个目录"变成"把几千个路径一次性读进来"，
-   *   而调用方通常只想要下一层。
-   */
-  async list(dir) {
-    const d = this.resolve(dir);
-    if (!d.ok) return d;
-    if (!this.dirs.has(d.value) && !this.byPath.has(d.value)) {
-      return err(engineError(FSBUNDLE_ERR.NOT_FOUND, `${d.value} \u4E0D\u5B58\u5728`, { path: d.value }));
-    }
-    const prefix = d.value === "/" ? "/" : `${d.value}/`;
-    const children = /* @__PURE__ */ new Set();
-    const files = [];
-    for (const [path, asset] of this.byPath) {
-      if (!path.startsWith(prefix)) continue;
-      const rest = path.slice(prefix.length);
-      const slash = rest.indexOf("/");
-      if (slash < 0) {
-        files.push({ name: rest, path, isDirectory: false, size: asset.size });
-      } else {
-        children.add(rest.slice(0, slash));
-      }
-    }
-    const dirEntries = [...children].sort().map((name) => ({ name, path: `${prefix}${name}`, isDirectory: true, size: 0 }));
-    files.sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
-    return ok([...dirEntries, ...files]);
-  }
-};
-
-// src/extensions/build/bundle-source.ts
-async function resolveAssetSource(opts) {
-  const param = opts.packParam;
-  if (param === null || param === "") return opts.fallback();
-  const doFetch = opts.fetchLike ?? ((url) => globalThis.fetch(url));
-  const warn = opts.warn ?? (() => {
-  });
-  try {
-    const manifestUrl = new URL(param, opts.pageHref);
-    const res = await doFetch(manifestUrl.href);
-    if (!res.ok) throw new Error(`manifest \u53D6\u4E0D\u5230\uFF1AHTTP ${String(res.status)}`);
-    const parsed = parseManifest(await res.text());
-    if (!parsed.ok) throw new Error(`${parsed.error.code}\uFF1A${parsed.error.message}`);
-    const dir = new URL(".", manifestUrl);
-    return new BundleFileSystem({
-      manifest: parsed.value,
-      root: opts.root,
-      fetchBundle: async (hash) => {
-        const r = await doFetch(new URL(`bundles/${hash}.bin`, dir).href);
-        if (!r.ok) throw new Error(`\u5305\u53D6\u4E0D\u5230\uFF1AHTTP ${String(r.status)}`);
-        return new Uint8Array(await r.arrayBuffer());
-      }
-    });
-  } catch (e) {
-    warn(`[asset] \u4ECE\u5305\u52A0\u8F7D\u5931\u8D25\uFF0C\u9000\u56DE\u76F4\u8BFB\uFF1A${e instanceof Error ? e.message : String(e)}`);
-    return opts.fallback();
-  }
-}
-
-// src/backends/fs-storage/fs.ts
-var StorageFileSystem = class {
-  scheme = "storage";
-  canList = true;
-  storage;
-  prefix;
-  clock = 1;
-  constructor(opts) {
-    this.storage = opts.storage;
-    this.prefix = opts.prefix ?? "";
-  }
-  // ---------------------------------------------------------------- 写
-  async writeText(path, text) {
-    return this.writeBinary(path, new TextEncoder().encode(text));
-  }
-  async writeBinary(path, data) {
-    const segs = normalizeVirtualPath(path);
-    if (!segs.ok) return segs;
-    if (segs.value.length === 0) {
-      return err(engineError("FS.IS_DIR", "\u4E0D\u80FD\u5F80\u6839\u8DEF\u5F84\u5199\u6587\u4EF6"));
-    }
-    const vpath = virtualPathOf(segs.value);
-    const dirs = this.dirs();
-    for (let i = 1; i < segs.value.length; i++) {
-      dirs.add(virtualPathOf(segs.value.slice(0, i)));
-    }
-    if (dirs.has(vpath)) {
-      return err(engineError("FS.IS_DIR", `\u76EE\u6807\u662F\u4E00\u4E2A\u76EE\u5F55\uFF1A${vpath}`));
-    }
-    const rec = { t: this.now(), n: data.byteLength, b: toBase64(data) };
-    const w = this.set(this.keyOf(vpath), JSON.stringify(rec));
-    if (!w.ok) return w;
-    return this.writeDirs(dirs);
-  }
-  async remove(path) {
-    const segs = normalizeVirtualPath(path);
-    if (!segs.ok) return segs;
-    const vpath = virtualPathOf(segs.value);
-    const dirs = this.dirs();
-    if (dirs.has(vpath)) {
-      return err(engineError("FS.IS_DIR", `\u8FD9\u662F\u4E00\u4E2A\u76EE\u5F55\uFF0C\u4E0D\u80FD\u5F53\u6587\u4EF6\u5220\uFF1A${vpath}`));
-    }
-    if (this.storage.getItem(this.keyOf(vpath)) === null) {
-      return err(engineError("FS.NOT_FOUND", `\u8981\u5220\u9664\u7684\u8DEF\u5F84\u4E0D\u5B58\u5728\uFF1A${vpath}`));
-    }
-    this.storage.removeItem(this.keyOf(vpath));
-    return ok(void 0);
-  }
-  async ensureDir(dir) {
-    const segs = normalizeVirtualPath(dir);
-    if (!segs.ok) return segs;
-    const dirs = this.dirs();
-    for (let i = 0; i <= segs.value.length; i++) {
-      dirs.add(virtualPathOf(segs.value.slice(0, i)));
-    }
-    return this.writeDirs(dirs);
-  }
-  // ---------------------------------------------------------------- 读
-  async readText(path) {
-    const b = await this.readBinary(path);
-    if (!b.ok) return b;
-    try {
-      return ok(new TextDecoder("utf-8", { fatal: true }).decode(b.value));
-    } catch (e) {
-      return err(engineError("FS.NOT_UTF8", `\u4E0D\u662F\u5408\u6CD5 UTF-8\uFF1A${path}\uFF08${msg2(e)}\uFF09`));
-    }
-  }
-  async readBinary(path) {
-    const segs = normalizeVirtualPath(path);
-    if (!segs.ok) return segs;
-    const vpath = virtualPathOf(segs.value);
-    if (this.dirs().has(vpath)) {
-      return err(engineError("FS.IS_DIR", `\u8DEF\u5F84\u662F\u4E00\u4E2A\u76EE\u5F55\uFF1A${vpath}`));
-    }
-    const rec = this.record(vpath);
-    if (!rec.ok) return rec;
-    try {
-      return ok(fromBase64(rec.value.b));
-    } catch (e) {
-      return err(engineError("FS.IO", `\u5B58\u6863\u8BB0\u5F55\u635F\u574F\uFF08base64 \u89E3\u4E0D\u5F00\uFF09\uFF1A${vpath}\uFF08${msg2(e)}\uFF09`));
-    }
-  }
-  async exists(path) {
-    const segs = normalizeVirtualPath(path);
-    if (!segs.ok) return false;
-    const vpath = virtualPathOf(segs.value);
-    return this.dirs().has(vpath) || this.storage.getItem(this.keyOf(vpath)) !== null;
-  }
-  async stat(path) {
-    const segs = normalizeVirtualPath(path);
-    if (!segs.ok) return segs;
-    const vpath = virtualPathOf(segs.value);
-    if (this.dirs().has(vpath)) return ok({ size: 0, mtimeMs: 0, isDirectory: true });
-    const rec = this.record(vpath);
-    if (!rec.ok) return rec;
-    return ok({ size: rec.value.n, mtimeMs: rec.value.t, isDirectory: false });
-  }
-  async list(dir) {
-    const segs = normalizeVirtualPath(dir);
-    if (!segs.ok) return segs;
-    const base = virtualPathOf(segs.value);
-    const dirs = this.dirs();
-    if (!dirs.has(base)) {
-      return err(engineError("FS.NOT_FOUND", `\u76EE\u5F55\u4E0D\u5B58\u5728\uFF1A${base}`));
-    }
-    const prefix = base === "/" ? "/" : base + "/";
-    const seen = /* @__PURE__ */ new Map();
-    for (const d of dirs) {
-      if (!d.startsWith(prefix) || d === base) continue;
-      const rest = d.slice(prefix.length);
-      if (rest === "" || rest.includes("/")) continue;
-      seen.set(rest, { name: rest, path: prefix + rest, isDirectory: true, size: 0 });
-    }
-    for (const k of this.filePaths()) {
-      if (!k.startsWith(prefix)) continue;
-      const rest = k.slice(prefix.length);
-      if (rest === "" || rest.includes("/")) continue;
-      if (seen.has(rest)) continue;
-      const rec = this.recordRaw(k);
-      seen.set(rest, {
-        name: rest,
-        path: prefix + rest,
-        isDirectory: false,
-        size: rec === null ? 0 : rec.n
-      });
-    }
-    const out = [...seen.values()].sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
-    return ok(out);
-  }
-  // ---------------------------------------------------------------- 内部
-  now() {
-    this.clock = Math.max(Date.now(), this.clock + 1);
-    return this.clock;
-  }
-  keyOf(vpath) {
-    return `${this.prefix}f:${vpath}`;
-  }
-  dirsKey() {
-    return `${this.prefix}d`;
-  }
-  set(key, value) {
-    try {
-      this.storage.setItem(key, value);
-      return ok(void 0);
-    } catch (e) {
-      return err(engineError("FS.NO_SPACE", `\u5199\u5165\u5931\u8D25\uFF08storage \u6EE1\u6216\u4E0D\u53EF\u5199\uFF09\uFF1A${msg2(e)}`));
-    }
-  }
-  /** 目录索引。读坏了就当空集（自愈），不把用户卡在"删 storage 才能用"。 */
-  dirs() {
-    const out = /* @__PURE__ */ new Set(["/"]);
-    const raw = this.storage.getItem(this.dirsKey());
-    if (raw === null) return out;
-    try {
-      const arr = JSON.parse(raw);
-      if (Array.isArray(arr)) {
-        for (const p of arr) if (typeof p === "string") out.add(p);
-      }
-    } catch {
-      const rebuilt = /* @__PURE__ */ new Set(["/"]);
-      for (const p of this.filePaths()) {
-        const segs = p.split("/").filter((s) => s !== "");
-        for (let i = 0; i < segs.length; i++) rebuilt.add("/" + segs.slice(0, i).join("/"));
-      }
-      return rebuilt;
-    }
-    return out;
-  }
-  writeDirs(dirs) {
-    return this.set(this.dirsKey(), JSON.stringify([...dirs].sort()));
-  }
-  /** 所有以 `prefix + "f:"` 开头的键 → 虚拟路径。 */
-  filePaths() {
-    const out = [];
-    const head = `${this.prefix}f:`;
-    for (let i = 0; i < this.storage.length; i++) {
-      const k = this.storage.key(i);
-      if (k === null || !k.startsWith(head)) continue;
-      out.push(k.slice(head.length));
-    }
-    return out;
-  }
-  recordRaw(vpath) {
-    const raw = this.storage.getItem(this.keyOf(vpath));
-    if (raw === null) return null;
-    try {
-      const o = JSON.parse(raw);
-      if (typeof o.b !== "string" || typeof o.n !== "number" || typeof o.t !== "number") return null;
-      return { t: o.t, n: o.n, b: o.b };
-    } catch {
-      return null;
-    }
-  }
-  record(vpath) {
-    const raw = this.storage.getItem(this.keyOf(vpath));
-    if (raw === null) return err(engineError("FS.NOT_FOUND", `\u6587\u4EF6\u4E0D\u5B58\u5728\uFF1A${vpath}`));
-    const rec = this.recordRaw(vpath);
-    if (rec === null) return err(engineError("FS.IO", `\u5B58\u6863\u8BB0\u5F55\u635F\u574F\uFF08\u4E0D\u662F\u5408\u6CD5\u8BB0\u5F55\uFF09\uFF1A${vpath}`));
-    return ok(rec);
-  }
-};
-var B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-function toBase64(bytes) {
-  let out = "";
-  for (let i = 0; i < bytes.length; i += 3) {
-    const a = bytes[i];
-    const b = i + 1 < bytes.length ? bytes[i + 1] : 0;
-    const c = i + 2 < bytes.length ? bytes[i + 2] : 0;
-    out += B64[a >> 2];
-    out += B64[(a & 3) << 4 | b >> 4];
-    out += i + 1 < bytes.length ? B64[(b & 15) << 2 | c >> 6] : "=";
-    out += i + 2 < bytes.length ? B64[c & 63] : "=";
-  }
-  return out;
-}
-function fromBase64(s) {
-  const clean = s.replace(/=+$/, "");
-  const out = new Uint8Array(Math.floor(clean.length * 3 / 4));
-  let o = 0;
-  let acc = 0;
-  let bits = 0;
-  for (let i = 0; i < clean.length; i++) {
-    const v = B64.indexOf(clean[i]);
-    if (v < 0) throw new Error(`\u975E\u6CD5 base64 \u5B57\u7B26 ${JSON.stringify(clean[i])}\uFF08\u4F4D\u7F6E ${i}\uFF09`);
-    acc = acc << 6 | v;
-    bits += 6;
-    if (bits >= 8) {
-      bits -= 8;
-      out[o++] = acc >> bits & 255;
-    }
-  }
-  return o === out.length ? out : out.subarray(0, o);
-}
-function msg2(e) {
-  return e instanceof Error ? e.message : String(e);
-}
 
 // src/extensions/asset-import/importer.ts
 function normalizeExtension(ext) {
@@ -27167,7 +27175,7 @@ function firstCraftable(scene, ownerId, recipes) {
   return void 0;
 }
 
-// src/browser-entry.ts
+// src/host/demo-game.ts
 var EMPTY_INPUT = {
   keysDown: /* @__PURE__ */ new Set(),
   keysPressed: /* @__PURE__ */ new Set(),
@@ -27271,24 +27279,15 @@ var UI_FILES = ["ui-font.fnt", "ui-font.png", "ui-skin.png", "ui-skin.json"];
 var UI_CJK_FILES = ["ui-font-cjk.fnt", "ui-font-cjk.png"];
 var UI_FONT_ID = "ui5x7";
 var UI_CJK_FONT_ID = "unifont-cjk-16-subset";
-var assetFs = null;
-var assetKind = "direct";
-async function assetSource() {
-  const source = await resolveAssetSource({
-    packParam: new URL(location.href).searchParams.get("pack"),
-    pageHref: location.href,
-    root: ASSET_ROOT,
-    fallback: () => new HttpFileSystem({ base: new URL("./assets/", location.href) }),
-    fetchLike: (url) => fetch(url),
-    warn: (message) => console.warn(message)
-  });
-  assetFs = source;
-  assetKind = source instanceof BundleFileSystem ? "bundle" : "direct";
+async function assetSource(env, sink) {
+  const source = await env.assets.open();
+  sink.fs = source;
+  sink.kind = env.assets.kind();
   return source;
 }
-async function bakeAtlasFromAssets() {
+async function bakeAtlasFromAssets(env, sink) {
   try {
-    const fs = new MemoryFileSystem();
+    const fs = env.assets.scratch();
     const logger = new Logger(() => performance.now());
     logger.setLevel(LogLevel.Warn);
     const db = new AssetDatabase(fs, logger.channel("asset"));
@@ -27298,7 +27297,7 @@ async function bakeAtlasFromAssets() {
     importers.register(textImporter);
     const pipeline = new AssetImportPipeline(fs, db, importers, logger.channel("import"));
     for (const l of createImportLoaders({ root: ASSET_ROOT })) db.registerLoader(l);
-    const remote = await assetSource();
+    const remote = await assetSource(env, sink);
     for (const { file } of DEMO_FRAMES) {
       const r = await remote.readBinary(file);
       if (!r.ok) {
@@ -27448,22 +27447,11 @@ var ITEM_LABEL = {
   cooked_meat: "\u719F\u8089",
   rope: "\u7EF3\u5B50"
 };
-async function main() {
-  const canvas = document.getElementById("cv");
-  const hud = document.getElementById("hud");
-  const toastEl = document.getElementById("toast");
-  if (canvas === null || hud === null || toastEl === null) {
-    throw new Error("\u9875\u9762\u7ED3\u6784\u4E0D\u5B8C\u6574\uFF1A\u9700\u8981 #cv / #hud / #toast");
-  }
-  const dpr = Math.min(2, window.devicePixelRatio || 1);
-  canvas.width = Math.floor((canvas.clientWidth || 960) * dpr);
-  canvas.height = Math.floor((canvas.clientHeight || 600) * dpr);
-  const registry = new BackendRegistry();
-  registerNullBackends(registry);
-  registry.registerGfx(webgl2Backend, 100);
-  registry.registerInput(domInputBackend, 100);
-  registry.registerAudio(webAudioBackend, 100);
-  registry.registerScript(createLuaScriptBackend({ wasmPath: new URL("glue.wasm", location.href).href }), 100);
+async function buildDemoGame(env) {
+  const surface = env.surface;
+  const registry = env.registry;
+  const dpr = env.viewport.devicePixelRatio;
+  const assetsUsed = { fs: null, kind: "none" };
   let appRef = null;
   const physics = new SpatialHashWorld(
     makeSceneAccessor((id) => {
@@ -27483,11 +27471,11 @@ async function main() {
   let heroId = -1;
   let lastHeroPos = null;
   let hudTick = 0;
-  const baked = await bakeAtlasFromAssets();
+  const baked = await bakeAtlasFromAssets(env, assetsUsed);
   const atlasLabel = baked === null ? "procedural" : baked.label;
   const renderMod = createRenderModule({
-    viewportWidth: canvas.width,
-    viewportHeight: canvas.height,
+    viewportWidth: env.viewport.width,
+    viewportHeight: env.viewport.height,
     zoom: 26 * dpr,
     tiltY: 0.62,
     atlas: baked?.atlas,
@@ -27499,7 +27487,7 @@ async function main() {
       return { x: p.x, z: p.y };
     }
   });
-  const scriptMod = createScriptModule({ callTimeoutMs: 16 });
+  const scriptMod = env.scriptWasm === null ? null : createScriptModule({ callTimeoutMs: 16 });
   const controllerMod = createControllerModule({
     poll: () => appRef === null ? EMPTY_INPUT : appRef.platform.input.poll()
   });
@@ -27544,7 +27532,10 @@ async function main() {
     if (r.ok) hudUi = r.value;
     else console.warn(`[ui] UI \u6A21\u5757\u6CA1\u5EFA\u8D77\u6765\uFF1A${r.error.code} ${r.error.message}\uFF08HUD \u9000\u56DE DOM\uFF09`);
   }
-  hud.hidden = hudUi !== null;
+  if (hudUi === null && surface?.hudLine === void 0) {
+    throw new Error("DEMO.NO_VISIBLE_HUD\uFF1A\u65E2\u6CA1\u6709\u53EF\u7528\u7684 UI \u8D44\u4EA7\uFF0C\u5BBF\u4E3B\u4E5F\u6CA1\u6709\u80FD\u663E\u793A\u4E00\u884C\u6587\u672C\u7684\u5730\u65B9");
+  }
+  surface?.hideFallbackHud?.();
   const BAG_FADE_TICKS = 6;
   const BAG_SLIDE_FROM = -8;
   let bagTween = null;
@@ -27607,7 +27598,7 @@ async function main() {
       animMod.update(tick, dt);
       survivalMod.update(tick, dt);
       feedbackMod.update(tick);
-      void scriptMod.update(tick, dt);
+      if (scriptMod !== null) void scriptMod.update(tick, dt);
     }
   });
   const WORLD_SEED = 20261023;
@@ -27753,24 +27744,15 @@ async function main() {
   const DMG_LIFE_MS = 900;
   const feedbackErrors = [];
   const damageNumbers = [];
-  const fxLayer = document.createElement("div");
-  fxLayer.id = "fx";
-  fxLayer.style.cssText = "position:fixed;left:0;top:0;width:100%;height:100%;pointer-events:none;overflow:hidden;z-index:20;";
-  document.body.appendChild(fxLayer);
   function spawnDamageNumber(x, z, text, dead, by) {
-    const el = document.createElement("div");
-    el.className = "dmg";
-    el.dataset.dmg = text;
-    el.dataset.dmgBy = String(by);
-    el.textContent = text;
-    el.style.cssText = `position:absolute;left:0;top:0;font:700 14px/1 ui-monospace,monospace;color:${dead ? "#ffd54a" : "#ff6b5a"};text-shadow:0 1px 2px rgba(0,0,0,.55);pointer-events:none;will-change:transform,opacity;`;
-    fxLayer.appendChild(el);
-    damageNumbers.push({ el, x, z, bornMs: performance.now(), lifeMs: DMG_LIFE_MS, text, dead, by });
+    const el = surface?.damageNumber?.(text, dead, by);
+    if (el === null || el === void 0) return;
+    damageNumbers.push({ el, x, z, bornMs: env.now(), lifeMs: DMG_LIFE_MS, text, dead, by, opacity: 1 });
   }
   function updateDamageNumbers(now) {
     if (damageNumbers.length === 0) return;
-    if (canvas === null) return;
-    const rect = canvas.getBoundingClientRect();
+    const rect = surface?.canvasRect?.() ?? null;
+    if (rect === null) return;
     const cam = renderMod.camera;
     for (let i = damageNumbers.length - 1; i >= 0; i--) {
       const d = damageNumbers[i];
@@ -27785,8 +27767,8 @@ async function main() {
       const px = rect.left + (c.x + 1) / 2 * rect.width;
       const py = rect.top + (1 - c.y) / 2 * rect.height - t * 28;
       const op = t < 0.7 ? 1 : 1 - (t - 0.7) / 0.3;
-      d.el.style.transform = `translate(${px.toFixed(1)}px, ${py.toFixed(1)}px)`;
-      d.el.style.opacity = op.toFixed(2);
+      d.opacity = op;
+      d.el.place(px, py, op);
     }
   }
   function showHit(info) {
@@ -27912,7 +27894,7 @@ async function main() {
   const modules = [
     worldMod,
     renderMod,
-    scriptMod,
+    ...scriptMod === null ? [] : [scriptMod],
     worldgenMod,
     tasksMod,
     mobsMod,
@@ -27926,25 +27908,25 @@ async function main() {
   ];
   if (hudUi !== null) modules.push(hudUi.module);
   const appR = await bootGameApp({
-    platformId: "web",
+    platformId: env.platformId ?? "web",
     interactive: true,
     registry,
     modules,
     seed: 20261022,
     fixedDt: 1 / 30,
-    tickSource: new RafTickSource(() => performance.now()),
-    backendOptions: {
-      gfx: { canvas },
-      input: { keyboard: window, pointer: canvas },
-      audio: {}
-    }
+    // ★ 帧源由宿主给：浏览器是 rAF，小游戏是 wx.requestAnimationFrame，判据是手动。
+    //   装配自己 `new RafTickSource()` 的话，那三者都会退化成"用 rAF"——
+    //   而小游戏里 rAF 在 wx 上、不在 canvas 上时，症状是"画面不动但逻辑在跑"。
+    tickSource: env.tick,
+    ...env.platform ?? {}
   });
   if (!appR.ok) {
-    document.body.innerHTML = `<pre style="color:#f66;padding:16px;font:13px ui-monospace">\u542F\u52A8\u5931\u8D25\uFF1A${appR.error.code}
+    const text = `\u542F\u52A8\u5931\u8D25\uFF1A${appR.error.code}
 ${appR.error.message}
 
-${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
-    return;
+` + JSON.stringify(appR.error.detail ?? {}, null, 2);
+    surface?.fatal?.(text);
+    throw new Error(text);
   }
   const app = appR.value;
   appRef = app;
@@ -27966,7 +27948,7 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
     if (fade.ok && slide.ok) bagTween = player;
     else app.log.channel("host").warn("\u80CC\u5305\u8FC7\u6E21\u8F68\u9053\u6CA1\u5EFA\u8D77\u6765\uFF1A\u5C5E\u6027\u540D\u6216 spec \u5199\u9519\u4E86");
   }
-  const scriptRuntime = scriptMod.runtime;
+  const scriptRuntime = scriptMod?.runtime ?? null;
   if (scriptRuntime === null) {
     app.log.channel("host").warn("\u5E73\u53F0\u6CA1\u6709\u811A\u672C\u8FD0\u884C\u65F6\uFF1A\u6F14\u793A\u811A\u672C\u4E0D\u4F1A\u6267\u884C");
   } else {
@@ -28089,29 +28071,28 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
     g.value = 100;
     return g;
   });
-  scene.attach(heroId, () => {
-    const c = new ScriptComponent();
-    c.module = "demo";
-    c.entry = "onUpdate";
-    return c;
-  });
+  if (scriptMod !== null) {
+    scene.attach(heroId, () => {
+      const c = new ScriptComponent();
+      c.module = "demo";
+      c.entry = "onUpdate";
+      return c;
+    });
+  }
   scene.enqueue(() => physics.add({ nodeId: heroId, radius: 0.45, isStatic: false }), "physics-add");
   scene.flush();
   const bag = makeInventory(scene, heroId, 8);
   if (!bag.ok) toast(`\u80CC\u5305\u5EFA\u4E0D\u8D77\u6765\uFF1A${bag.error.code}`);
-  const saves = new StorageFileSystem({ storage: window.localStorage, prefix: "engine08.fs." });
+  const saves = env.saves;
   const SAVE_PATH = "/saves/slot1.json";
   let toastTimer = 0;
   function toast(msg3) {
     if (hudUi !== null) hudUi.setToast(msg3);
-    else {
-      toastEl.textContent = msg3;
-      toastEl.style.opacity = "1";
-    }
-    if (toastTimer !== 0) clearTimeout(toastTimer);
-    toastTimer = window.setTimeout(() => {
+    else surface?.toast?.(msg3);
+    if (toastTimer !== 0) env.clearTimer(toastTimer);
+    toastTimer = env.setTimer(() => {
       if (hudUi !== null) hudUi.setToast(null);
-      else toastEl.style.opacity = "0";
+      else surface?.toast?.(null);
     }, 2e3);
   }
   function attackNearest() {
@@ -28243,7 +28224,7 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
     const map = controllerMod.map;
     if (map.justPressed(snap, "save")) void doSave();
     else if (map.justPressed(snap, "load")) void doLoad();
-    else if (map.justPressed(snap, "restart")) location.reload();
+    else if (map.justPressed(snap, "restart")) env.reload();
     else if (map.justPressed(snap, "bag")) {
       setBagOpen(!bagOpen);
       toast(bagOpen ? "\u80CC\u5305\u5DF2\u6253\u5F00" : "\u80CC\u5305\u5DF2\u5173\u4E0A");
@@ -28414,7 +28395,7 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
     cmd.anchor = 0;
     cmd.cancelComposition();
     syncBagUi();
-    if (!next && imeHost !== null && document.activeElement === imeHost) imeHost.blur();
+    if (!next && imeHost !== null && surface?.isFocused?.(imeHost) === true) surface.blur?.(imeHost);
   }
   function runCommand(text) {
     const parts = text.trim().split(/\s+/).filter((s) => s !== "");
@@ -28487,13 +28468,13 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
   }
   let fps = 0;
   let frames = 0;
-  let lastFpsAt = performance.now();
+  let lastFpsAt = env.now();
   let renderFrames = 0;
   let lastHudText = "";
   app.services.require(Services.Frame).onRender((info) => {
     frames++;
     renderFrames++;
-    const now = performance.now();
+    const now = env.now();
     if (now - lastFpsAt > 500) {
       fps = frames / ((now - lastFpsAt) / 1e3);
       frames = 0;
@@ -28502,7 +28483,7 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
     updateDamageNumbers(now);
     const lf = renderMod.lastFrame;
     const st = app.snapshot();
-    const sc = scriptMod.runtime?.stats();
+    const sc = scriptMod?.runtime?.stats();
     const ws = worldState.tasks?.stats();
     const wv = worldState.visual;
     const stacks = heroId < 0 ? [] : stacksOf(scene, heroId);
@@ -28532,7 +28513,7 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
       );
       syncBagUi(stacks);
     } else {
-      hud.textContent = lastHudText;
+      surface?.hudLine?.(lastHudText);
     }
   });
   if (hudUi !== null) {
@@ -28557,30 +28538,24 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
   let imeHost = null;
   function ensureImeHost() {
     if (imeHost !== null) return imeHost;
-    const el = document.createElement("input");
-    el.type = "text";
-    el.autocomplete = "off";
-    el.spellcheck = false;
-    el.style.cssText = "position:fixed;left:-1000px;top:0;width:1px;height:1px;opacity:0;border:0;padding:0;";
-    document.body.appendChild(el);
-    el.addEventListener("compositionstart", () => {
-      if (!cmdOpen) return;
-      cmd.beginComposition();
-      syncBagUi();
-    });
-    el.addEventListener("compositionupdate", (e) => {
-      if (!cmdOpen) return;
-      cmd.updateComposition(e.data ?? "");
-      syncBagUi();
-    });
-    el.addEventListener("compositionend", (e) => {
-      if (!cmdOpen) return;
-      cmd.commitComposition(e.data ?? "");
-      el.value = "";
-      syncBagUi();
-    });
-    imeHost = el;
-    return el;
+    imeHost = surface?.ime?.({
+      begin: () => {
+        if (!cmdOpen) return;
+        cmd.beginComposition();
+        syncBagUi();
+      },
+      update: (data) => {
+        if (!cmdOpen) return;
+        cmd.updateComposition(data);
+        syncBagUi();
+      },
+      commit: (data) => {
+        if (!cmdOpen) return;
+        cmd.commitComposition(data);
+        syncBagUi();
+      }
+    }) ?? null;
+    return imeHost;
   }
   function handleCmdKey(ev) {
     if (!cmdOpen) return false;
@@ -28627,44 +28602,39 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
     }
     return false;
   }
-  window.addEventListener("keydown", (ev) => {
-    if (handleCmdKey(ev)) {
-      ev.preventDefault();
-      return;
-    }
-    if (ev.code === "Slash" && bagOpen && !cmdOpen) {
-      setCmdOpen(true);
-      ensureImeHost().focus();
-      ev.preventDefault();
-      return;
-    }
-    if (RESERVED.has(ev.code)) ev.preventDefault();
-    if (ev.code === "ShiftLeft" || ev.code === "ShiftRight") shiftDown = true;
-    if (bagOpen && /^Digit[1-8]$/.test(ev.code)) selectBagRow(Number(ev.code.slice(5)) - 1);
-  });
-  window.addEventListener("keyup", (ev) => {
-    if (ev.code === "ShiftLeft" || ev.code === "ShiftRight") shiftDown = false;
-  });
-  window.addEventListener("blur", () => {
-    shiftDown = false;
-  });
-  window.addEventListener(
-    "pointerdown",
-    () => {
-      void app.platform.audio.resume();
+  surface?.keyboard?.({
+    keydown: (ev) => {
+      if (handleCmdKey(ev)) return true;
+      if (ev.code === "Slash" && bagOpen && !cmdOpen) {
+        setCmdOpen(true);
+        ensureImeHost()?.focus();
+        return true;
+      }
+      if (ev.code === "ShiftLeft" || ev.code === "ShiftRight") shiftDown = true;
+      if (bagOpen && /^Digit[1-8]$/.test(ev.code)) selectBagRow(Number(ev.code.slice(5)) - 1);
+      return RESERVED.has(ev.code);
     },
-    { once: true }
-  );
+    keyup: (ev) => {
+      if (ev.code === "ShiftLeft" || ev.code === "ShiftRight") shiftDown = false;
+    },
+    // 焦点离开页面时 Shift 可能卡在"按下"状态（keyup 没送到）—— 失焦一律清零
+    blur: () => {
+      shiftDown = false;
+    },
+    // 首次真实手势时解锁音频（浏览器要求）
+    pointerdown: () => {
+      void app.platform.audio.resume();
+    }
+  });
   const runR = app.run();
   if (!runR.ok) {
     app.log.channel("host").error(`\u5E27\u5FAA\u73AF\u542F\u52A8\u5931\u8D25\uFF1A${runR.error.message}`);
     toast("\u5E27\u5FAA\u73AF\u542F\u52A8\u5931\u8D25\uFF1A" + runR.error.message);
   } else {
-    const helpEl = document.getElementById("help");
-    if (helpEl !== null) helpEl.textContent = helpText();
+    surface?.help?.(helpText());
     toast(helpText());
   }
-  globalThis.__engine = {
+  const handle = {
     app,
     renderMod,
     physics,
@@ -28693,10 +28663,11 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
      *   端到端判据拿它跟直读的字节比，顺带证明"包里那份内容也是对的"。
      */
     asset: {
-      kind: () => assetKind,
+      kind: () => assetsUsed.kind,
       readHex: async (file) => {
-        if (assetFs === null) return null;
-        const r = await assetFs.readBinary(file);
+        const fs = assetsUsed.fs;
+        if (fs === null) return null;
+        const r = await fs.readBinary(file);
         if (!r.ok) return null;
         let hex2 = "";
         for (const b of r.value) hex2 += b.toString(16).padStart(2, "0");
@@ -28850,13 +28821,13 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
      */
     feedback: {
       /** 屏幕上还活着的伤害数字（`[{text, dead, opacity, by}]`，空数组 = 都消失了）。 */
-      numbers: () => damageNumbers.map((d) => ({ text: d.text, dead: d.dead, opacity: d.el.style.opacity, by: d.by })),
+      numbers: () => damageNumbers.map((d) => ({ text: d.text, dead: d.dead, opacity: d.opacity, by: d.by })),
       /**
        * DOM 里真的有这么多 `.dmg` 元素（与上面的数组**分开**：一个对、一个错就是漏删）。
        * ★ `by` 可选（批74）：只数某个攻击者冒的数字。生物打斗也在冒数字，
        *   不区分来源的话"数字会消失"在打斗窗口里永远等不到 0。
        */
-      domCount: (by) => by === void 0 ? fxLayer.querySelectorAll(".dmg").length : fxLayer.querySelectorAll(`.dmg[data-dmg-by="${String(by)}"]`).length,
+      domCount: (by) => surface?.damageNumberCount?.(by) ?? -1,
       /** 某个节点现在是不是在闪（读组件字段，不是读"我记得调过"）。 */
       flashing: (id) => {
         const fb = scene.find(id)?.get(FEEDBACK_TYPE);
@@ -29077,6 +29048,162 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
       }
     }
   };
+  return handle;
+}
+
+// src/browser-entry.ts
+var FX_LAYER_STYLE = "position:fixed;left:0;top:0;width:100%;height:100%;pointer-events:none;overflow:hidden;z-index:20;";
+var dmgStyle = (dead) => `position:absolute;left:0;top:0;font:700 14px/1 ui-monospace,monospace;color:${dead ? "#ffd54a" : "#ff6b5a"};text-shadow:0 1px 2px rgba(0,0,0,.55);pointer-events:none;will-change:transform,opacity;`;
+function escapeHtml(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+async function main() {
+  const canvas = document.getElementById("cv");
+  const hud = document.getElementById("hud");
+  const toastEl = document.getElementById("toast");
+  if (canvas === null || hud === null || toastEl === null) {
+    throw new Error("\u9875\u9762\u7ED3\u6784\u4E0D\u5B8C\u6574\uFF1A\u9700\u8981 #cv / #hud / #toast");
+  }
+  const helpEl = document.getElementById("help");
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  canvas.width = Math.floor((canvas.clientWidth || 960) * dpr);
+  canvas.height = Math.floor((canvas.clientHeight || 600) * dpr);
+  const registry = new BackendRegistry();
+  registerNullBackends(registry);
+  registry.registerGfx(webgl2Backend, 100);
+  registry.registerInput(domInputBackend, 100);
+  registry.registerAudio(webAudioBackend, 100);
+  const scriptWasm = new URL("glue.wasm", location.href).href;
+  registry.registerScript(createLuaScriptBackend({ wasmPath: scriptWasm }), 100);
+  const fxLayer = document.createElement("div");
+  fxLayer.id = "fx";
+  fxLayer.style.cssText = FX_LAYER_STYLE;
+  document.body.appendChild(fxLayer);
+  let assetKindLabel = "direct";
+  const assets = {
+    async open() {
+      const source = await resolveAssetSource({
+        packParam: new URL(location.href).searchParams.get("pack"),
+        pageHref: location.href,
+        root: ASSET_ROOT,
+        fallback: () => new HttpFileSystem({ base: new URL("./assets/", location.href) }),
+        fetchLike: (url) => fetch(url),
+        warn: (message) => console.warn(message)
+      });
+      assetKindLabel = source instanceof BundleFileSystem ? "bundle" : "direct";
+      return source;
+    },
+    kind: () => assetKindLabel,
+    scratch: () => new MemoryFileSystem()
+  };
+  const surface = {
+    hudLine: (text) => {
+      hud.textContent = text;
+    },
+    // UI 树接管后必须藏掉：否则屏幕上两份 HUD，而两边数字可能不同步
+    hideFallbackHud: () => {
+      hud.hidden = true;
+    },
+    toast: (msg3) => {
+      if (msg3 === null) {
+        toastEl.style.opacity = "0";
+        return;
+      }
+      toastEl.textContent = msg3;
+      toastEl.style.opacity = "1";
+    },
+    help: (text) => {
+      if (helpEl !== null) helpEl.textContent = text;
+    },
+    fatal: (text) => {
+      document.body.innerHTML = `<pre style="color:#f66;padding:16px;font:13px ui-monospace;white-space:pre-wrap">${escapeHtml(text)}</pre>`;
+    },
+    canvasRect: () => {
+      const r = canvas.getBoundingClientRect();
+      return { left: r.left, top: r.top, width: r.width, height: r.height };
+    },
+    damageNumber: (text, dead, by) => {
+      const el = document.createElement("div");
+      el.className = "dmg";
+      el.dataset.dmg = text;
+      el.dataset.dmgBy = String(by);
+      el.textContent = text;
+      el.style.cssText = dmgStyle(dead);
+      fxLayer.appendChild(el);
+      const node = {
+        place(px, py, opacity) {
+          el.style.transform = `translate(${px.toFixed(1)}px, ${py.toFixed(1)}px)`;
+          el.style.opacity = opacity.toFixed(2);
+        },
+        remove() {
+          el.remove();
+        }
+      };
+      return node;
+    },
+    damageNumberCount: (by) => by === void 0 ? fxLayer.querySelectorAll(".dmg").length : fxLayer.querySelectorAll(`.dmg[data-dmg-by="${String(by)}"]`).length,
+    keyboard: (handlers) => {
+      window.addEventListener("keydown", (ev) => {
+        if (handlers.keydown(ev)) ev.preventDefault();
+      });
+      window.addEventListener("keyup", (ev) => {
+        handlers.keyup(ev);
+      });
+      window.addEventListener("blur", () => {
+        handlers.blur();
+      });
+      window.addEventListener("pointerdown", () => handlers.pointerdown(), { once: true });
+    },
+    ime: (hooks) => {
+      const el = document.createElement("input");
+      el.type = "text";
+      el.autocomplete = "off";
+      el.spellcheck = false;
+      el.style.cssText = "position:fixed;left:-1000px;top:0;width:1px;height:1px;opacity:0;border:0;padding:0;";
+      document.body.appendChild(el);
+      el.addEventListener("compositionstart", () => hooks.begin());
+      el.addEventListener("compositionupdate", (e) => hooks.update(e.data ?? ""));
+      el.addEventListener("compositionend", (e) => {
+        hooks.commit(e.data ?? "");
+        el.value = "";
+      });
+      return {
+        focus: () => el.focus(),
+        blur: () => el.blur(),
+        element: el
+      };
+    },
+    isFocused: (h) => h?.element === document.activeElement,
+    blur: (h) => h?.blur?.()
+  };
+  const env = {
+    registry,
+    canvas,
+    viewport: { width: canvas.width, height: canvas.height, devicePixelRatio: dpr },
+    assets,
+    // 存档走 `StorageFileSystem`（不是直接 `localStorage.setItem`）：
+    // 于是"配额满/读不出"有错误码，与 Node 侧同一套。
+    saves: new StorageFileSystem({ storage: window.localStorage, prefix: "engine08.fs." }),
+    // ★ 浏览器这里**不给** `input`：由注册表挑 `input-dom`（它自带键盘/指针接线）。
+    //   小游戏才用注入通道（那边没有 DOM，probe 必然不过）。
+    tick: new RafTickSource(() => performance.now()),
+    now: () => performance.now(),
+    setTimer: (fn, ms) => window.setTimeout(fn, ms),
+    clearTimer: (id) => window.clearTimeout(id),
+    reload: () => location.reload(),
+    scriptWasm,
+    surface,
+    platformId: "web",
+    platform: {
+      backendOptions: {
+        gfx: { canvas },
+        input: { keyboard: window, pointer: canvas },
+        audio: {}
+      }
+    }
+  };
+  const handle = await buildDemoGame(env);
+  globalThis.__engine = handle;
 }
 void main();
 export {

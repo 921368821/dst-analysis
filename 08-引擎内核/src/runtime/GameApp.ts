@@ -58,6 +58,18 @@ export interface GameAppOptions {
   readonly prefer?: PlatformRequest["prefer"];
   readonly allow?: PlatformRequest["allow"];
   readonly backendOptions?: PlatformRequest["backendOptions"];
+  /**
+   * 点名"这几样不许回落到 null"（见 `PlatformRequest.strict`）。
+   *
+   * ★★ 这个字段是**补上了漏传**，不是新功能：`host/wx-entry.ts` 从批128 起就给了
+   *   `strict: ["gfx", "input", "fs"]`，而 `GameAppOptions` 里没有它 —— 装配那边是
+   *   靠 `...(env.platform ?? {})` 展开进来的，而**对象展开不做多余属性检查**，
+   *   于是它被静默丢掉，平台一次都没收到过。症状正是"说了不留半个宿主，
+   *   实则照样悄悄退回 null 后端"，而所有判据都绿（判据验的是各子系统，
+   *   验不到"这个参数到没到"）。
+   *   ⇒ 由 `tests/host/wx-entry.test.ts` 的 no-GL 那条钉住：没有 GL 时必须**启动失败**。
+   */
+  readonly strict?: PlatformRequest["strict"];
   /** 强制文件系统（编辑器/判据注入内存盘）。 */
   readonly fs?: IFileSystem;
   /** 注入时钟（判据用 ManualClock 拨表）。缺省用系统高精度时钟。 */
@@ -192,6 +204,7 @@ export class GameApp {
       ...(opts.prefer === undefined ? {} : { prefer: opts.prefer }),
       ...(opts.allow === undefined ? {} : { allow: opts.allow }),
       ...(opts.backendOptions === undefined ? {} : { backendOptions: opts.backendOptions }),
+      ...(opts.strict === undefined ? {} : { strict: opts.strict }),
     });
     if (!platformR.ok) {
       log.channel("app").error(`平台创建失败：${platformR.error.message}`, {

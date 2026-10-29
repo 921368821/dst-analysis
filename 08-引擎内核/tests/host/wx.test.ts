@@ -13,7 +13,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -41,6 +41,8 @@ import { FORBIDDEN_IN_MINIGAME, scanMiniGameSource } from "../../src/publish/pac
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const WX_DIR = join(HERE, "..", "..", "src", "host", "wx");
+/** 仓库根（`src/` 的上一层）。自指闸门（批128）按**相对路径**点名文件时用它。 */
+const ROOT = join(HERE, "..", "..");
 
 // ---------------------------------------------------------------- 假的 wx
 
@@ -856,4 +858,27 @@ test("★★ 自指闸门：src/host/wx/*.ts 的**代码**里零 FORBIDDEN_IN_MI
   assert.deepEqual(hits, [], `适配层自己用了小游戏里没有的 API：\n  ${hits.join("\n  ")}`);
   // ★ 反向：清单真的非空（否则上面那条恒绿）。
   assert.ok(FORBIDDEN_IN_MINIGAME.length >= 5);
+});
+
+test("★★ 自指闸门（批128）：装配与小游戏入口里也零命中 —— 搬出入口不等于搬出闸门", () => {
+  // ★ 为什么必须单独一条：批128 把 3000 行装配从 `browser-entry.ts` 搬到了
+  //   `host/demo-game.ts`，而上面那条只扫 `host/wx/*.ts`。
+  //   于是「装配里出现一个 `document.`」会有整整一批判据看不见它：
+  //   Node 判据全绿（wx 那条用假 wx，`document` 压根不会被访问），
+  //   要到真机白屏才发现。闸门必须跟着**代码搬家**，不是跟着目录名走。
+  const files = ["src/host/demo-game.ts", "src/wx-entry.ts", "src/wx-boot.ts"];
+  const hits: string[] = [];
+  let lines = 0;
+  for (const rel of files) {
+    const abs = join(ROOT, rel);
+    assert.equal(existsSync(abs), true, `文件不见了：${rel}（路径漂移会让这条判据扫 0 行也绿）`);
+    const src = readFileSync(abs, "utf8");
+    lines += src.split("\n").length;
+    // ★ 不再自己剥一遍注释：`scanMiniGameSource` 内部已经剥了（批128），
+    //   而这里的 `stripComments` 不认字符串字面量 —— 二次剥会把 `"http://…"` 之后的内容吃掉，
+    //   那会**少报**命中（假绿）。一处真相就够。
+    for (const h of scanMiniGameSource(src)) hits.push(`${rel}:${h.line} ${h.api}`);
+  }
+  assert.ok(lines > 2500, `总行数只有 ${lines} —— 三个文件加起来不该这么少（装配约 3000 行）`);
+  assert.deepEqual(hits, [], `宿主无关的代码里用了小游戏没有的 API：\n  ${hits.join("\n  ")}`);
 });

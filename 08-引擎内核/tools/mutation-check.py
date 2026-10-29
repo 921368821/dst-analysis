@@ -979,10 +979,10 @@ MUTANTS = [
         "cmd": ["node", "tools/docs-check.mjs", "--quick"],
     },
     {
-        "name": "M75 README 的后端数写成过期的 11",
+        "name": "M75 README 的后端数写成过期的 12",
         # 对账工具真正的价值是"文档写错了要红"。只测"工具能跑通"证明不了这件事。
         "file": "README.md",
-        "pairs": [("**12 个后端**", "**11 个后端**")],
+        "pairs": [("**13 个后端**", "**12 个后端**")],
         "test": "README.md",
         "cmd": ["node", "tools/docs-check.mjs", "--quick"],
     },
@@ -3004,7 +3004,8 @@ MUTANTS = [
         #   坏的是"宿主的 onHit 有没有调它"。症状是完全没有顿帧，
         #   而闪色/伤害数字/仇恨全都正常 —— 每一项单独看都对。
         # 用 `--build`：不重建的话页面读的还是旧 bundle，会得到"变异没被抓住"的假结论。
-        "file": "src/browser-entry.ts",
+                # ★ 批128：装配从 `browser-entry.ts` 搬进 `host/demo-game.ts`，靶子跟着搬家（代码一字未改）。
+"file": "src/host/demo-game.ts",
         "pairs": [("    const hs = hitstopMod.trigger(info);", "    const hs = { ok: true as const, value: { ticks: 0, remaining: 0, extended: false } };")],
         "cmd": ["node", "tools/browser-selftest.mjs", "--build"],
         "env_exit": 2,
@@ -3070,8 +3071,12 @@ MUTANTS = [
         #   "打出 -2"这条能在完全没打中的情况下靠怪的数字通过；而"数字会消失"
         #   在生物打斗窗口里永远等不到一个空数组。by 恒为 -1 时，
         #   顿帧/伤害两条判据都等不到自己的数字 ⇒ 10 秒总闸判红。
-        "file": "src/browser-entry.ts",
-        "pairs": [("    damageNumbers.push({ el, x, z, bornMs: performance.now(), lifeMs: DMG_LIFE_MS, text, dead, by });", "    damageNumbers.push({ el, x, z, bornMs: performance.now(), lifeMs: DMG_LIFE_MS, text, dead, by: -1 });")],
+                # ★ 批128：装配从 `browser-entry.ts` 搬进 `host/demo-game.ts`，靶子跟着搬家（代码一字未改）。
+"file": "src/host/demo-game.ts",
+        "pairs": [(
+            "    damageNumbers.push({ el, x, z, bornMs: env.now(), lifeMs: DMG_LIFE_MS, text, dead, by, opacity: 1 });",
+            "    damageNumbers.push({ el, x, z, bornMs: env.now(), lifeMs: DMG_LIFE_MS, text, dead, by: -1, opacity: 1 });",
+        )],
         "cmd": ["node", "tools/browser-selftest.mjs", "--build"],
         "env_exit": 2,
     },
@@ -3094,7 +3099,8 @@ MUTANTS = [
         #   而 `reset()` 只重置轨道（进度 + autoplay），不动整组开关 ——
         #   于是"关一次再开"之后面板永远停在 opacity 0（起点值完全正确，只是不再前进）。
         #   Node 判据抓不到：它们直接调 `advancePlayer`，不经过宿主这条状态路径。
-        "file": "src/browser-entry.ts",
+                # ★ 批128：装配从 `browser-entry.ts` 搬进 `host/demo-game.ts`，靶子跟着搬家（代码一字未改）。
+"file": "src/host/demo-game.ts",
         "pairs": [("      t.playing = true;\n      t.reset();", "      t.reset();")],
         "cmd": ["node", "tools/browser-selftest.mjs", "--build"],
         "env_exit": 2,
@@ -3365,7 +3371,8 @@ MUTANTS = [
         #   它只能靠浏览器判据抓（Node 侧没有这条宿主 spec），所以走 `cmd`。
         #   判据本身也跟着改了：从「到过 1」改成「到达后一个周期内不许再掉下去」——
         #   只看到过 1 的判据对脉冲无能为力，因为每一轮都会经过 1。
-        "file": "src/browser-entry.ts",
+                # ★ 批128：装配从 `browser-entry.ts` 搬进 `host/demo-game.ts`，靶子跟着搬家（代码一字未改）。
+"file": "src/host/demo-game.ts",
         "pairs": [('      spec: { id: "bag.fadeIn", from: 0, to: 1, durationMs: fadeMs, easing: "quadOut", loopCount: 1 },',
                    '      spec: { id: "bag.fadeIn", from: 0, to: 1, durationMs: fadeMs, easing: "quadOut", loopCount: 0 },')],
         "cmd": ["node", "tools/browser-selftest.mjs", "--build"],
@@ -7295,7 +7302,8 @@ MUTANTS = [
     },
     {
         "name": "M785 宿主读档时不补生物体（模块有入口，但没人调 —— 接线断了）",
-        "file": "src/browser-entry.ts",
+                # ★ 批128：装配从 `browser-entry.ts` 搬进 `host/demo-game.ts`，靶子跟着搬家（代码一字未改）。
+"file": "src/host/demo-game.ts",
         "pairs": [("    const back = worldState.mobs?.resyncBodies() ?? 0;\n", "    const back = 0;\n")],
         "cmd": ["node", "tools/browser-selftest.mjs", "--build"],
     },
@@ -7325,7 +7333,8 @@ MUTANTS = [
     },
     {
         "name": "M790 宿主不传 respawn（引擎能力在，演示世界用不上 —— 接线断了）",
-        "file": "src/browser-entry.ts",
+                # ★ 批128：装配从 `browser-entry.ts` 搬进 `host/demo-game.ts`，靶子跟着搬家（代码一字未改）。
+"file": "src/host/demo-game.ts",
         "pairs": [(
             "        respawn: {\n          everyTicks: DEMO_PREY_RESPAWN.everyTicks,\n          kind: DEMO_PREY_RESPAWN.kind,\n          max: DEMO_PREY_RESPAWN.max,\n          template: DEMO_PREY_RESPAWN.template,\n          pickCell: (tick) => pickPreySpawnCell(tick),\n        },\n",
             "",
@@ -7366,8 +7375,8 @@ MUTANTS = [
         "name": "M795 资产来源永远自报 direct（走包也说自己走直读 —— 探针分不清哪条路径真的用了）",
         "file": "src/browser-entry.ts",
         "pairs": [(
-            '  assetKind = source instanceof BundleFileSystem ? "bundle" : "direct";\n',
-            '  assetKind = "direct";\n',
+            '      assetKindLabel = source instanceof BundleFileSystem ? "bundle" : "direct";\n',
+            '      assetKindLabel = "direct";\n',
         )],
         "cmd": ["node", "tools/browser-selftest.mjs", "--build"],
     },
@@ -7375,11 +7384,156 @@ MUTANTS = [
         "name": "M796 资产来源永远自报 bundle（退回直读也说在走包 —— 「静默退回」从此又变成长期假象）",
         "file": "src/browser-entry.ts",
         "pairs": [(
-            '  assetKind = source instanceof BundleFileSystem ? "bundle" : "direct";\n',
-            '  assetKind = "bundle";\n',
+            '      assetKindLabel = source instanceof BundleFileSystem ? "bundle" : "direct";\n',
+            '      assetKindLabel = "bundle";\n',
         )],
         "cmd": ["node", "tools/browser-selftest.mjs", "--build"],
-    }
+    },
+    # ---- 批128：宿主抽取（demo-game / wx 入口 / 注入输入 / 严格后端）
+    {
+        "name": "M797 strict 不往下透传（宿主说了「输入不许降级」，平台听见了却没转达）",
+        "file": "src/platform/platform.ts",
+        "pairs": [(
+            "    req.strict?.includes(kind) === true ? { allowFallbackToNull: false } : {};\n",
+            # ★ 变异成恒 `{}`：注册表退回默认语义「挑不到就继续往下挑」——
+            #   prefer 的后端 probe 不过时会**静默**落到 null 后端，
+            #   症状是"游戏起来了但按什么都没反应"，与"输入没接好"画面完全一样。
+            "    false ? { allowFallbackToNull: false } : {};\n",
+        )],
+        "test": "tests/backends/input-injected.test.ts",
+    },
+    {
+        "name": "M798 probe 把 null 当成「给了设备」（之后 create 才炸，栈里已看不到是谁注入的）",
+        "file": "src/backends/input-injected/device.ts",
+        "pairs": [(
+            "    return (options as InjectedInputOptions | undefined)?.device != null;\n",
+            # ★ `!= null` 与 `!== undefined` 差的就是 null 这一格，而它恰恰是最常见的那格：
+            #   调用方从可选字段读出来的常常正是 null。
+            "    return (options as InjectedInputOptions | undefined)?.device !== undefined;\n",
+        )],
+        "test": "tests/backends/input-injected.test.ts",
+    },
+    {
+        "name": "M799 两样都看不见也照样启动（起了但什么都没有，比起不来更贵）",
+        "file": "src/host/demo-game.ts",
+        "pairs": [(
+            '  if (hudUi === null && surface?.hudLine === undefined) {\n'
+            '    throw new Error("DEMO.NO_VISIBLE_HUD：既没有可用的 UI 资产，宿主也没有能显示一行文本的地方");\n'
+            "  }\n",
+            # ★ 不抛之后工程照样跑得起来：模块全绿、tick 在走、日志里只有几条 warn。
+            #   这正是要拦的那一类 —— 玩家看到的是黑屏，开发者看到的是"没报错"。
+            "  if (hudUi === null && surface?.hudLine === undefined) {\n"
+            "    // 变异：不抛（让它起得来）\n"
+            "  }\n",
+        )],
+        "test": "tests/host/wx-entry.test.ts",
+    },
+    {
+        "name": "M800 无条件建脚本模块（`SCRIPT.NOT_SUPPORTED` 把整个启动拖下来）",
+        "file": "src/host/demo-game.ts",
+        "pairs": [(
+            "  const scriptMod = env.scriptWasm === null ? null : createScriptModule({ callTimeoutMs: 16 });\n",
+            # ★ 「这个宿主有没有脚本能力」必须在**建模块之前**回答：
+            #   `script-null` 的 `caps.executes` 是 false，`init` 会直接报错。
+            "  const scriptMod = createScriptModule({ callTimeoutMs: 16 });\n",
+        )],
+        "test": "tests/host/wx-entry.test.ts",
+    },
+    {
+        "name": "M801 GameApp 丢掉 strict（宿主说了「不许降级」，装配转手就扔了）",
+        "file": "src/runtime/GameApp.ts",
+        "pairs": [(
+            "      ...(opts.strict === undefined ? {} : { strict: opts.strict }),\n",
+            # ★★ 这条是**真事**，不是假想：`GameAppOptions` 原先没有 `strict` 字段，
+            #   而装配是用 `...(env.platform ?? {})` 展开进来的 —— 对象展开**不做**
+            #   多余属性检查，于是 wx 入口从批128 起写的 `strict` 一次都没到过平台。
+            #   症状与"写了没生效"完全一样：黑屏也能起得来，所有子系统判据全绿。
+            #   判别法：**参数跨了三层**（入口 → DemoHostEnv.platform → GameAppOptions
+            #   → PlatformRequest），就得有一层判据去验"它到底到没到尽头"。
+            "      ...(opts.strict === undefined ? {} : {}),\n",
+        )],
+        "test": "tests/host/wx-entry.test.ts",
+    },
+    {
+        "name": "M802 资产盘复用存档盘（包内只读与用户目录可写是两个根）",
+        "file": "src/wx-entry.ts",
+        "pairs": [(
+            "    open: async () => assetFs,\n",
+            # ★ 症状是"真机上资产全读不到、模拟器上正常"：模拟器两者等价，
+            #   真机上 `wxfile://usr` 里根本没有 `ui-font.fnt`。
+            "    open: async () => host.fs,\n",
+        )],
+        "test": "tests/host/wx-entry.test.ts",
+    },
+    {
+        "name": "M803 触摸设备没交给平台（适配层全绿，平台里跑的却是 input-null）",
+        "file": "src/wx-entry.ts",
+        "pairs": [(
+            "        input: { device: host.input },\n",
+            # ★ 这条是本批的核心接线：不交设备 ⇒ probe 为 false ⇒ 平台没有输入。
+            #   而 `host/wx/` 那 37 条判据此刻**依然全绿**（它们验的是翻译，不是接线）。
+            "        input: {},\n",
+        )],
+        "test": "tests/host/wx-entry.test.ts",
+    },
+    {
+        "name": "M804 扫产物前不剥注释（解释规则的注释把闸门自己顶红）",
+        "file": "src/publish/pack-plan.ts",
+        "pairs": [(
+            '  const lines = stripJsComments(source).split("\\n");\n',
+            # ★ 引擎里最该保留的注释恰恰是「为什么不能用 window.setTimeout」这种，
+            #   它们逐字包含被禁的字符串 ⇒ 假红。假红比漏报更贵（被挡过的人会关闸门）。
+            '  const lines = source.split("\\n");\n',
+        )],
+        "test": "tests/publish/pack-plan.test.ts",
+    },
+    {
+        "name": "M805 连字符串字面量一起剥（`el[\"document.\" + x]` 这种动态拼法彻底消失）",
+        "file": "src/publish/pack-plan.ts",
+        "pairs": [(
+            '    if (mode === "sq" || mode === "dq") {\n'
+            "      // 字符串**原样保留**（见调用点的说明），但要知道它什么时候结束\n"
+            "      out.push(c);\n",
+            # ★ 看起来"更干净"（连引号内容都不算了），实际把最需要在闸门上看见的
+            #   那一种擦掉了：动态拼法 `el["document." + x]` 只在字符串里露出线索。
+            '    if (mode === "sq" || mode === "dq") {\n'
+            "      // 变异：字符串也当注释抹掉\n"
+            '      out.push(" ");\n',
+        )],
+        "test": "tests/publish/pack-plan.test.ts",
+    },
+    {
+        "name": "M806 剥注释时把换行也吃掉（后面的行号全歪一格，报错指到别人头上）",
+        "file": "src/publish/pack-plan.ts",
+        "pairs": [(
+            '    if (mode === "line") {\n      if (c === "\\n") {\n        mode = "code";\n        out.push(c);\n',
+            # ★ 长度保持是为了**行号**；只保长度不保换行等于没保。
+            '    if (mode === "line") {\n      if (c === "\\n") {\n        mode = "code";\n        out.push(" ");\n',
+        )],
+        "test": "tests/publish/pack-plan.test.ts",
+    },
+    {
+        "name": "M807 装配里混进一个小游戏没有的 API（闸门只扫 host/wx/ ⇒ 真机上才白屏）",
+        "file": "src/host/demo-game.ts",
+        "pairs": [(
+            'export const ASSET_ROOT = "/assets";\n',
+            # ★ 破坏方式刻意选"不改变任何行为"的那一种：一个没人调用的函数体。
+            #   它只能被**静态闸门**看见 —— 所有运行时判据都会绿（假 wx 里根本没人访问 document），
+            #   而这正是"闸门要跟着代码搬家"的理由：搬走了 3000 行，闸门的目录却没跟着动。
+            'export const ASSET_ROOT = "/assets";\n\nconst __forbiddenProbe = (): unknown => globalThis.document.title;\n',
+        )],
+        "test": "tests/host/wx.test.ts",
+    },    {
+        "name": "M808 干净时静默通过（`0 处` 不打印 ⇒ 分不清「扫了 0 处」与「压根没扫」）",
+        "file": "tools/pack.ts",
+        "pairs": [(
+            "    console.log(\n      `\\n✓ 小游戏禁用 API：0 处（扫了 ",
+            # ★ 退出码仍然是 0，`--strict-api` 的判据也仍然绿 —— 唯一的差别是**没有输出**。
+            #   「判据输出恒为空」正是本项目反复吃亏的那种"没验"。
+            "    void 0 && console.log(\n      `\\n✓ 小游戏禁用 API：0 处（扫了 ",
+        )],
+        "test": "tests/publish/pack-cli.test.ts",
+    },
 ]
 
 

@@ -279,6 +279,40 @@ test("[打包] ★ 扫描能报出浏览器专有 API，且带行号（要能直
   assert.equal(hits.find((h) => h.api === "eval(")?.line, 4);
 });
 
+test("★★ 注释里写禁用 API 不算命中（否则解释规则的注释会把闸门自己顶红）", () => {
+  // ★ 这条来自一次真实的假红：`host/wx/env.ts` 的文件头逐字写着
+  //   「不许出现 document. / window. / localStorage」—— 于是 `--strict-api`
+  //   对着**解释规则的那段注释**报失败。假红比漏报更贵：被它挡过的人会关闸门。
+  const src = [
+    "// 不许用 document.getElementById（小游戏里没有 DOM）",
+    "/* window.localStorage 也不存在 */",
+    "const a = 1; // 行尾注释里的 eval( 也不算",
+    "const b = globalThis.wx;",
+  ].join("\n");
+  assert.deepEqual(scanMiniGameSource(src), []);
+  // 行号仍然准：剥注释保持长度，所以第 2 行的真命中要报第 2 行
+  const mixed = ["// 注释", "window.x = 1;"].join("\n");
+  const hits = scanMiniGameSource(mixed);
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0]?.line, 2, "剥注释不能把行号弄歪");
+});
+
+test("★★ 字符串里的禁用词仍然报（宁可多报一次，也不要漏掉动态调用）", () => {
+  // ★ 这里刻意**不剥字符串**：`el["document." + x]` 这种动态拼法在引号里，
+  //   剥掉就再也看不见了。多报一次的代价是"人看一眼确认"，漏报的代价是"真机上白屏"。
+  assert.equal(scanMiniGameSource('const s = "document.createElement";').length, 1);
+  assert.equal(scanMiniGameSource("const t = 'http://example.test';").length, 0, "URL 里的 // 不是注释");
+});
+
+test("★ 模板字符串里的表达式要展开（`` `${document.title}` `` 是真调用）", () => {
+  const hits = scanMiniGameSource("const s = `x${document.title}y`;");
+  assert.equal(hits.length, 1);
+  // ★ 模板里的**纯文本**同样会被报（与字符串字面量同一口径）。
+  //   这条不是漏网：剥字符串会让 `el["document." + x]` 这种动态拼法彻底消失，
+  //   而它恰恰是最需要在闸门上看见的那一种。多报一次的代价是"人看一眼"。
+  assert.equal(scanMiniGameSource("const s = `document.title 只是文字`;").length, 1);
+});
+
 test("[打包] 干净的源码扫不出东西（判据不能恒有命中）", () => {
   assert.deepEqual(scanMiniGameSource("const a = globalThis.wx; function f(){ return 1; }"), []);
   assert.ok(FORBIDDEN_IN_MINIGAME.length >= 5);

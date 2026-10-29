@@ -22,6 +22,7 @@
     "sample:headless": "node --experimental-transform-types samples/headless.ts",
     "test:browser": "node tools/browser-selftest.mjs",
     "test:cross-host": "node tools/cross-host-save.mjs",
+    "build:wx": "node tools/build-wx.mjs",
     "build:assets": "node --experimental-transform-types tools/build.ts",
     "pack": "node --experimental-transform-types tools/pack.ts"
   },

@@ -70,6 +70,16 @@ export interface WxLike {
   offTouchEnd?(cb: WxTouchHandler): void;
   offTouchCancel?(cb: WxTouchHandler): void;
   getFileSystemManager?(): unknown;
+  /**
+   * 一行提示（小游戏的原生 toast）。
+   *
+   * ★ 它不是"装饰"：小游戏**没有** HUD 的 DOM 兜底路径，而提示条（"捡到 3 个木头"
+   *   / "背包已满"）是玩家唯一能看到的反馈通道之一。缺了它，装配那边只能静默 ——
+   *   静默的后果是"按了没反应"，而那与"按键没接上"在画面上完全一样。
+   */
+  showToast?(opts: { title: string; icon?: "none" | "success" | "error"; duration?: number }): void;
+  /** 需要用户确认的弹窗（启动失败时用：让人知道是坏了，而不是"还没加载完"）。 */
+  showModal?(opts: { title?: string; content: string; showCancel?: boolean }): void;
 }
 
 export const WX_ERR = {

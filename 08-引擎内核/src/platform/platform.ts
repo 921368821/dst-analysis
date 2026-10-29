@@ -89,7 +89,21 @@ export interface PlatformRequest {
     readonly net?: readonly string[];
     readonly script?: readonly string[];
   };
+  /**
+   * 这些子系统**不许**回落到 null（起不来就整体失败）。
+   *
+   * ★ 为什么需要它：`prefer` 只是"优先试这个"，试不成会继续往下挑 ——
+   *   对浏览器宿主这是对的（WebGL2 不可用就退回 null 画个空画面，至少页面还在）。
+   *   但小游戏宿主上，输入/存档退回 null 等于**半个宿主**：游戏起得来、
+   *   帧也在跑，而"按不动"与"存不了"要在五个方向里各查一遍才知道是哪个掉的。
+   *   这类宿主应当把 `input` / `fs` 列进来，让失败停在启动那一刻并带上原因。
+   *
+   * ★ 默认（不传）= 与之前逐字节一致：允许回落。判据 `input-injected` 同时钉了两侧。
+   */
+  readonly strict?: readonly StrictBackendKind[];
 }
+
+export type StrictBackendKind = "gfx" | "audio" | "input" | "fs" | "net" | "script";
 
 /**
  * 按注册表创建平台。**失败是聚合的**：四个子系统里任何一个起不来，
@@ -98,10 +112,14 @@ export interface PlatformRequest {
 export function createPlatform(req: PlatformRequest): Result<IPlatform, EngineError> {
   const { registry } = req;
   const clock = req.clock ?? new SystemClock();
+  /** `strict` 里点名的子系统不许回落到 null（注册表早已支持，这里只是把它透传下去）。 */
+  const noNull = (kind: StrictBackendKind): { allowFallbackToNull?: false } =>
+    req.strict?.includes(kind) === true ? { allowFallbackToNull: false } : {};
 
   const gfxR = registry.create("gfx", {
     ...(req.prefer?.gfx === undefined ? {} : { prefer: req.prefer.gfx }),
     ...(req.allow?.gfx === undefined ? {} : { allow: req.allow.gfx }),
+    ...noNull("gfx"),
     options: req.backendOptions?.gfx,
   });
   if (!gfxR.ok) return gfxR as Result<IPlatform, EngineError>;
@@ -109,6 +127,7 @@ export function createPlatform(req: PlatformRequest): Result<IPlatform, EngineEr
   const audioR = registry.create("audio", {
     ...(req.prefer?.audio === undefined ? {} : { prefer: req.prefer.audio }),
     ...(req.allow?.audio === undefined ? {} : { allow: req.allow.audio }),
+    ...noNull("audio"),
     options: req.backendOptions?.audio,
   });
   if (!audioR.ok) {
@@ -119,6 +138,7 @@ export function createPlatform(req: PlatformRequest): Result<IPlatform, EngineEr
   const inputR = registry.create("input", {
     ...(req.prefer?.input === undefined ? {} : { prefer: req.prefer.input }),
     ...(req.allow?.input === undefined ? {} : { allow: req.allow.input }),
+    ...noNull("input"),
     options: req.backendOptions?.input,
   });
   if (!inputR.ok) {
@@ -130,6 +150,7 @@ export function createPlatform(req: PlatformRequest): Result<IPlatform, EngineEr
   const fsR = registry.create("fs", {
     ...(req.prefer?.fs === undefined ? {} : { prefer: req.prefer.fs }),
     ...(req.allow?.fs === undefined ? {} : { allow: req.allow.fs }),
+    ...noNull("fs"),
     options: req.backendOptions?.fs,
   });
   if (!fsR.ok) {
@@ -146,6 +167,7 @@ export function createPlatform(req: PlatformRequest): Result<IPlatform, EngineEr
     const netR = registry.create("net", {
       ...(req.prefer?.net === undefined ? {} : { prefer: req.prefer.net }),
       ...(req.allow?.net === undefined ? {} : { allow: req.allow.net }),
+      ...noNull("net"),
       options: req.backendOptions?.net,
     });
     if (netR.ok) {
@@ -163,6 +185,7 @@ export function createPlatform(req: PlatformRequest): Result<IPlatform, EngineEr
     const scriptR = registry.create("script", {
       ...(req.prefer?.script === undefined ? {} : { prefer: req.prefer.script }),
       ...(req.allow?.script === undefined ? {} : { allow: req.allow.script }),
+      ...noNull("script"),
       options: req.backendOptions?.script,
     });
     if (scriptR.ok) {

@@ -85,10 +85,16 @@ test("★ 「不存在」的三个分支（world / hunger / script）也必须�
 
 test("★ 背包行的物品名全部画得出来（kind 本身必须能进 UI）", () => {
   const font = realFont();
-  const src = readFileSync(join(ROOT, "src", "browser-entry.ts"), "utf8");
+  // ★ 批128：装配整段从 `browser-entry.ts` 搬到了 `host/demo-game.ts`（宿主变薄壳），
+  //   这张表跟着搬了。判据读的是**它现在住的地方** —— 不读两个候选路径，
+  //   因为"两处都找"会掩盖"表又跑到第三处去了"这种漂移。
+  const src = readFileSync(join(ROOT, "src", "host", "demo-game.ts"), "utf8");
   // 从 `ITEM_LABEL` 表里把 kind 抠出来：不手抄一份，手抄的那份迟早和真实数据分叉
   const block = /const ITEM_LABEL: Record<string, string> = \{([\s\S]*?)\n  \};/.exec(src);
-  assert.ok(block !== null, "browser-entry.ts 里找不到 ITEM_LABEL 表 —— 判据的取数路径失效了");
+  assert.ok(
+    block !== null,
+    "host/demo-game.ts 里找不到 ITEM_LABEL 表 —— 判据的取数路径失效了（表又被搬家了？）",
+  );
   const kinds = [...(block[1] ?? "").matchAll(/^\s{4}([A-Za-z_][\w]*):/gm)].map((m) => m[1] as string);
   assert.ok(kinds.length >= 8, `只抠到 ${String(kinds.length)} 个 kind，取数正则可能失效了`);
 
