@@ -68,6 +68,7 @@
 import { LuaFactory } from "wasmoon";
 import { engineError, err, ok, type EngineError, type Result } from "../../foundation/result.ts";
 import { LUA51_COMPAT_SRC } from "./compat-lua51.ts";
+import { LUA_BIT_SRC } from "./compat-bit.ts";
 import type { LuaModuleResolver } from "./module-resolver.ts";
 import {
   ScriptErrorCode,
@@ -398,7 +399,8 @@ end
  *   被误报成"运行时初始化崩了"，诊断信息完全错位。
  */
 const COMPAT_PROBE_SRC = `
-local need = { "unpack", "loadstring", "setfenv", "getfenv", "module", "require", "math.pow", "math.mod", "math.ldexp", "math.frexp", "math.log10", "table.getn", "string.gfind", "arg" }
+local need = { "unpack", "loadstring", "setfenv", "getfenv", "module", "require", "math.pow", "math.mod", "math.ldexp", "math.frexp", "math.log10", "table.getn", "string.gfind", "arg",
+  "bit", "bit.band", "bit.bor", "bit.bxor", "bit.bnot", "bit.lshift", "bit.rshift", "bit.arshift", "bit.rol", "bit.ror", "bit.bswap", "bit.tobit", "bit.tohex" }
 local missing = {}
 for i = 1, #need do
   local name = need[i]
@@ -682,6 +684,26 @@ export class LuaScriptRuntime implements IScriptRuntime {
           engineError(
             ScriptErrorCode.LoadFailed,
             `Lua 5.1 兼容垫片执行失败：${e instanceof Error ? e.message : String(e)}`,
+            { backend: this.id },
+          ),
+        );
+      }
+      if (this.disposed) {
+        lua.global.close();
+        return this.disposedErr();
+      }
+
+      // ★ LuaJIT 的 `bit`（批137）：内容层当标准库用，5.4 既没有它也没有 bit32。
+      //   放在垫片之后、任何模块之前 —— 单独一段而不是塞进 LUA51_COMPAT_SRC，
+      //   因为「5.1 标准 API」与「LuaJIT 扩展」是两件事（见 compat-bit.ts 文件头）。
+      try {
+        await lua.doString(LUA_BIT_SRC);
+      } catch (e) {
+        lua.global.close();
+        return err(
+          engineError(
+            ScriptErrorCode.LoadFailed,
+            `LuaJIT 的 bit 库安装失败：${e instanceof Error ? e.message : String(e)}`,
             { backend: this.id },
           ),
         );

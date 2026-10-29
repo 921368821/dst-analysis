@@ -7608,6 +7608,132 @@ end
 if __rawget(_G, "arg") == nil then _G.arg = {} end
 `;
 
+// src/backends/script-lua/compat-bit.ts
+var LUA_BIT_SRC = String.raw`
+local __type = type
+local __error = error
+local __select = select
+local __format = string.format
+local __sub = string.sub
+local __upper = string.upper
+local __abs = math.abs
+local __floor = math.floor
+
+local TWO32 = 4294967296
+local TWO31 = 2147483648
+
+-- 规范成有符号 32 位（-2^31 .. 2^31-1）。这是整个库的地基：
+-- 只在这一处做符号解释，别的函数一律先 tobit 再用 5.4 的原生整数运算。
+local function tobit(x)
+  if __type(x) ~= "number" then
+    __error("bit: 参数必须是数字（收到 " .. __type(x) .. "）", 3)
+  end
+  local n = __floor(x) % TWO32
+  if n >= TWO31 then n = n - TWO32 end
+  return n
+end
+
+-- 规范成无符号 32 位（0 .. 2^32-1）。逻辑右移与 tohex 需要这个视角。
+local function u32(x)
+  if __type(x) ~= "number" then
+    __error("bit: 参数必须是数字（收到 " .. __type(x) .. "）", 3)
+  end
+  return __floor(x) % TWO32
+end
+
+local M = {}
+
+function M.tobit(x) return tobit(x) end
+
+-- 三个变参函数：从**第二个**参数起才累加，所以第一个必须先单独取。
+-- 无参是单位元（-1 / 0 / 0）：这样 band(x) == x、bor() == 0，与「空集合的与/或」一致。
+function M.band(...)
+  local n = __select("#", ...)
+  if n == 0 then return -1 end
+  local r = tobit((__select(1, ...)))
+  for i = 2, n do r = r & tobit((__select(i, ...))) end
+  return r
+end
+
+function M.bor(...)
+  local n = __select("#", ...)
+  if n == 0 then return 0 end
+  local r = tobit((__select(1, ...)))
+  for i = 2, n do r = r | tobit((__select(i, ...))) end
+  return r
+end
+
+function M.bxor(...)
+  local n = __select("#", ...)
+  if n == 0 then return 0 end
+  local r = tobit((__select(1, ...)))
+  for i = 2, n do r = r ~ tobit((__select(i, ...))) end
+  return r
+end
+
+function M.bnot(x) return ~tobit(x) end
+
+-- 位移量按 & 31 掩码：LuaJIT 就是这么做的（lshift(1, 32) == 1，不是 0）。
+function M.lshift(x, n)
+  n = tobit(n) & 31
+  return tobit((u32(x) << n) % TWO32)
+end
+
+function M.rshift(x, n)
+  n = tobit(n) & 31
+  return tobit(u32(x) >> n)
+end
+
+-- 算术右移：负数的高位补 1。用 // 而不是 >>（5.4 的 >> 是逻辑移位，
+-- 对负数会得到 2147483644 这种明显错的答案 —— 见 M858/M859 两条变异）。
+function M.arshift(x, n)
+  n = tobit(n) & 31
+  local v = tobit(x)
+  if n == 0 then return v end
+  return tobit(v // (1 << n))
+end
+
+function M.rol(x, n)
+  n = tobit(n) & 31
+  local u = u32(x)
+  if n == 0 then return tobit(u) end
+  return tobit(((u << n) | (u >> (32 - n))) % TWO32)
+end
+
+function M.ror(x, n)
+  n = tobit(n) & 31
+  local u = u32(x)
+  if n == 0 then return tobit(u) end
+  return tobit(((u >> n) | (u << (32 - n))) % TWO32)
+end
+
+function M.bswap(x)
+  local u = u32(x)
+  local b0 = u & 0xFF
+  local b1 = (u >> 8) & 0xFF
+  local b2 = (u >> 16) & 0xFF
+  local b3 = (u >> 24) & 0xFF
+  return tobit((b0 << 24) | (b1 << 16) | (b2 << 8) | b3)
+end
+
+function M.tohex(x, n)
+  local s = __format("%08x", u32(x))
+  if n == nil then return s end
+  local wid = __floor(__abs(n))
+  if wid >= 1 and wid < 8 then
+    s = __sub(s, 9 - wid)
+  elseif wid >= 8 then
+    -- 保持不变：u32 最多 8 位十六进制
+  else
+    s = ""
+  end
+  if n < 0 then return __upper(s) end
+  return s
+end
+
+rawset(_G, "bit", M)
+`;
+
 // src/backends/script-lua/runtime.ts
 var envGate = Promise.resolve();
 function withSanitizedEnv(fn) {
@@ -7856,7 +7982,8 @@ function __engine_unload(name)
 end
 `;
 var COMPAT_PROBE_SRC = `
-local need = { "unpack", "loadstring", "setfenv", "getfenv", "module", "require", "math.pow", "math.mod", "math.ldexp", "math.frexp", "math.log10", "table.getn", "string.gfind", "arg" }
+local need = { "unpack", "loadstring", "setfenv", "getfenv", "module", "require", "math.pow", "math.mod", "math.ldexp", "math.frexp", "math.log10", "table.getn", "string.gfind", "arg",
+  "bit", "bit.band", "bit.bor", "bit.bxor", "bit.bnot", "bit.lshift", "bit.rshift", "bit.arshift", "bit.rol", "bit.ror", "bit.bswap", "bit.tobit", "bit.tohex" }
 local missing = {}
 for i = 1, #need do
   local name = need[i]
@@ -8042,6 +8169,22 @@ var LuaScriptRuntime = class {
           engineError(
             ScriptErrorCode.LoadFailed,
             `Lua 5.1 \u517C\u5BB9\u57AB\u7247\u6267\u884C\u5931\u8D25\uFF1A${e instanceof Error ? e.message : String(e)}`,
+            { backend: this.id }
+          )
+        );
+      }
+      if (this.disposed) {
+        lua.global.close();
+        return this.disposedErr();
+      }
+      try {
+        await lua.doString(LUA_BIT_SRC);
+      } catch (e) {
+        lua.global.close();
+        return err(
+          engineError(
+            ScriptErrorCode.LoadFailed,
+            `LuaJIT \u7684 bit \u5E93\u5B89\u88C5\u5931\u8D25\uFF1A${e instanceof Error ? e.message : String(e)}`,
             { backend: this.id }
           )
         );

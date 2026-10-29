@@ -7909,6 +7909,60 @@ MUTANTS = [
         "test": "tests/tools/dstsrc-report.test.ts",
     },
     {
+        "name": "M857 bit.tobit 不做符号扩展（返回 4294967295 而不是 -1：32 位补码退化成无符号）",
+        "file": "src/backends/script-lua/compat-bit.ts",
+        "pairs": [(
+            "  local n = __floor(x) % TWO32\n  if n >= TWO31 then n = n - TWO32 end\n  return n\n",
+            "  local n = __floor(x) % TWO32\n  return n\n",
+        )],
+        "test": "tests/backends/script-bit.test.ts",
+    },
+    {
+        "name": "M858 bit.rshift 对有符号值直接右移再截断（rshift(-1,1) 得 -1，应是 2147483647）",
+        "file": "src/backends/script-lua/compat-bit.ts",
+        "pairs": [(
+            "  n = tobit(n) & 31\n  return tobit(u32(x) >> n)\nend\n",
+            "  n = tobit(n) & 31\n  return tobit(tobit(x) >> n)\nend\n",
+        )],
+        "test": "tests/backends/script-bit.test.ts",
+    },
+    {
+        "name": "M859 bit.arshift 用逻辑右移（arshift(-8,1) 得 2147483644，应是 -4 —— 负数符号位丢了）",
+        "file": "src/backends/script-lua/compat-bit.ts",
+        "pairs": [(
+            "  return tobit(v // (1 << n))\n",
+            "  return tobit(u32(v) >> n)\n",
+        )],
+        "test": "tests/backends/script-bit.test.ts",
+    },
+    {
+        "name": "M860 bit.lshift 不掩码位移量（lshift(1,32) 得 0，LuaJIT 得 1）",
+        "file": "src/backends/script-lua/compat-bit.ts",
+        "pairs": [(
+            "function M.lshift(x, n)\n  n = tobit(n) & 31\n",
+            "function M.lshift(x, n)\n",
+        )],
+        "test": "tests/backends/script-bit.test.ts",
+    },
+    {
+        "name": "M861 bit.tohex 取高位而不是低位（tohex(0x12345678,4) 得 1234，应是 5678）",
+        "file": "src/backends/script-lua/compat-bit.ts",
+        "pairs": [(
+            "    s = __sub(s, 9 - wid)\n",
+            "    s = __sub(s, 1, wid)\n",
+        )],
+        "test": "tests/backends/script-bit.test.ts",
+    },
+    {
+        "name": "M862 bit.band 的单位元用 0（band(0xFF,0x0F) 得 0 —— 与运算从 0 起等于把一切都清掉）",
+        "file": "src/backends/script-lua/compat-bit.ts",
+        "pairs": [(
+            "  if n == 0 then return -1 end\n  local r = tobit((__select(1, ...)))\n",
+            "  local r = 0\n",
+        )],
+        "test": "tests/backends/script-bit.test.ts",
+    },
+    {
         "name": "M826 wx 存档直接写目标（回到批132 之前：崩在写入中途就是半份存档）",
         # ★ 这条变异必须**整段绕过** atomicWrite，而不是只把 write(tmp) 改成 write(target)：
         #   那样 rename 会去挪一个不存在的临时文件、报的是另一个错，
