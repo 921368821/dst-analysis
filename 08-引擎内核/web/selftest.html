@@ -909,22 +909,29 @@ row("★★ 生物真的在走：700ms 内至少两只换了位置", async (e) =
   return mobMoveDone;
 });
 
-// ---- 批124：动态障碍（会动的东西也要挡路）----
-row("★★ 每只活着的生物都长着物理体（会动的东西也挡路）", async (e) => {
-  // ★ 为什么要等一拍：上面那条读档检查会走 `physics.clear()`，而体是由生物模块
-  //   **下一拍**补回来的（`mob-world.ts` 的 `syncBodies`）。不等的话量到的是
-  //   "清表那一瞬间"，而那不是这条要验的东西 —— 但它确实说明存在一个 33ms 的空窗。
-  await new Promise((r) => setTimeout(r, 250));
+// ---- 批124：动态障碍（会动的东西也要挡路）---- 批125：读档不空窗 ----
+row("★★ 读档当场补齐生物体：clear() 之后**不等任何一拍**就有体（会动的东西也挡路）", async (e) => {
+  // ★ 这条自己造语料（存档 → 读档），不依赖上面那条"存档往返"留下了什么。
+  const m0 = e.mobs();
+  if (m0 === null) return [false, "e.mobs() 是 null —— 生物模块没起来"];
+  if (m0.mobs === 0) return [false, "世界里没有生物"];
+  const w = await e.save();
+  if (!w || w.ok !== true) return [false, `存档失败：${w && w.error ? w.error.code : "?"}`];
+  const r = await e.load();
+  if (!r || r.ok !== true) return [false, `读档失败：${r && r.error ? r.error.code : "?"}`];
+  // ★★ 关键在"不 await 任何一拍"：`applyLoad` 清了物理表之后必须**当场**补齐
+  //   （`mob-world.ts` 的 `resyncBodies`）。批124 这里要等 250ms 才敢采样，因为体是
+  //   靠下一拍的 `syncBodies` 补回来的 —— 那条判据因此永远验不出"33ms 空窗回来了没有"
+  //   （等一会儿当然会好）。现在同步采样：少补一只就红，空窗一回来也红。
   const m = e.mobs();
-  if (m === null) return [false, "e.mobs() 是 null —— 生物模块没起来"];
-  if (m.mobs === 0) return [false, "世界里没有生物"];
-  // ★ 两个数字一起读：`bodies` 是**物理世界真的有的**（`has()` 逐个查回来的），
+  if (m === null) return [false, "读档之后生物模块消失了"];
+  // ★ 两个数字一起读：`bodies` 是物理世界真的有的（`has()` 逐个查回来的），
   //   `mobs` 是还活着的只数。只比其中一个的话：
   //   · 只读 `mobs` ⇒ 体一个都没加也绿（那正是穿模的样子）；
   //   · 只读 `bodies > 0` ⇒ 十只里只挂上一只也绿。
-  // ★ 这条**只有浏览器能验**：Node 判据直接把 `physics` 传给模块，
-  //   验的是模块本身；"宿主有没有把它传进去"只有真跑一次才知道。
-  return [m.bodies === m.mobs && m.bodies > 0, `${m.bodies} 个体 / ${m.mobs} 只活物`];
+  // ★ 这条**只有浏览器能验**：Node 判据直接把 `physics` 传给模块，验的是模块本身；
+  //   "宿主有没有把它传进去、传了之后有没有在清表时补"只有真跑一次才知道。
+  return [m.bodies === m.mobs && m.bodies > 0, `${m.bodies} 个体 / ${m.mobs} 只活物（读档后 0 拍）`];
 });
 
 // ---- 批123：尸体（玩家打死的东西也要留一具）----

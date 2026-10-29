@@ -2014,6 +2014,18 @@ export async function main(): Promise<void> {
       }
     }
     const extra = r.value.skipped.length > 0 ? `，跳过 ${r.value.skipped.length} 项` : "";
+    // ★ 批125：清表之后**当场**把生物的体补回来，不等下一拍。
+    //   生物体是每拍维护的不变量（`mob-world.ts` 的 `syncBodies`），但"每拍"意味着
+    //   读档与下一拍之间有一个 33ms（30Hz）的空窗 —— 那段时间里生物互相穿过、
+    //   也穿过玩家，而所有计数都自洽（`mobs` 数、`bodies` 数各读一次都对不上时才看得见）。
+    //   宿主是唯一知道"刚刚清过表"的人，所以补齐必须在这里显式调一次。
+    const back = worldState.mobs?.resyncBodies() ?? 0;
+    // ★ 补完还要对账：`resyncBodies` 会跳过"节点已经不在"的 id，也可能被 future
+    //   的改动弄成静默失效。少一具体不会报错、只会穿模，所以这里说出来。
+    const m = worldState.mobs;
+    if (m !== null && m !== undefined && m.stats.bodies !== m.stats.mobs) {
+      toast(`读档：${String(m.stats.mobs - m.stats.bodies)} 只生物没有物理体（补了 ${String(back)} 个）`);
+    }
     toast(`已读档：${r.value.made} 个节点${extra}`);
     return ok(r.value.made);
   }

@@ -199,6 +199,17 @@ export interface MobWorldHandle extends IModule {
    *   节点而查不到表。
    */
   noteHit(info: { attackerId: number; targetId: number; applied: number; tick: number }): boolean;
+  /**
+   * **当场**把物理表拉回"每只活着的生物都有体"，返回这一次补了几个（批125）。
+   *
+   * ★★ 为什么必须有这个入口（`update` 里已经在做同一件事了）：
+   *   宿主的读档走 `physics.clear()` + 重建摆件与玩家，那一步发生在**两个 tick 之间**。
+   *   只靠 `update` 里的 `syncBodies` 的话，读档后的 33ms（30Hz 一拍）里
+   *   生物是**没有体**的：它们互相穿过、也穿过玩家，而所有计数都自洽。
+   *   "下一拍会好"不足以兜住它 —— 33ms 在 30Hz 下就是一个可观测的帧。
+   * ★ 幂等：已经有体的不会再补，所以可以在任何安全点重复调用。
+   */
+  resyncBodies(): number;
 }
 
 export function createMobWorldModule(options: MobWorldOptions): MobWorldHandle {
@@ -270,10 +281,13 @@ export function createMobWorldModule(options: MobWorldOptions): MobWorldHandle {
    * ★ 也因为它，`init` 里不需要 `scene.enqueue` 那种"晚一批"的写法：第一次
    *   `update` 就会把体补齐（那时组合根已经能读到场景）。
    */
-  function syncBodies(): void {
+  function syncBodies(): number {
     const s = scene;
     const phys = options.physics;
-    if (s === null || phys === undefined) return;
+    if (s === null || phys === undefined) return 0;
+    // ★ 返回值 = 这一次补了几个（批125）。用 `bodiesAdded` 的前后差算，**不改循环体**：
+    //   循环里那两行是 M780/M782 的靶子，往里插一行计数器就会让它们"靶子漂移"。
+    const before = bodiesAdded;
     for (const id of ids) {
       if (phys.has(id)) continue;
       const radius = radiusOfNode.get(id);
@@ -282,6 +296,7 @@ export function createMobWorldModule(options: MobWorldOptions): MobWorldHandle {
       phys.add({ nodeId: id, radius, isStatic: false });
       bodiesAdded++;
     }
+    return bodiesAdded - before;
   }
 
   const handle: MobWorldHandle = {
@@ -319,6 +334,12 @@ export function createMobWorldModule(options: MobWorldOptions): MobWorldHandle {
     noteHit(info): boolean {
       if (threat === null) return false;
       return threat.add(info.targetId, info.attackerId, info.applied, info.tick).ok;
+    },
+    resyncBodies(): number {
+      // ★ 先 prune：读档会把死掉的那些节点的体也一起清掉，`ids` 里可能还有它们的尸体号。
+      //   不 prune 的话这里会对"已经不存在的节点"调用 `add` —— 而 `add` 读不到坐标会抛。
+      prune();
+      return syncBodies();
     },
     init(ctx: ModuleContext): Result<void, EngineError> {
       const got = ctx.services.get(Services.Scene);

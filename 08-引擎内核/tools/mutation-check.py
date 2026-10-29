@@ -7274,6 +7274,24 @@ MUTANTS = [
         "file": "src/extensions/mobs/mob-world.ts",
         "pairs": [("      phys.add({ nodeId: id, radius, isStatic: false });\n", "      phys.add({ nodeId: id, radius, isStatic: true });\n")],
         "test": "tests/extensions/mob-collision.test.ts",
+    },
+    {
+        "name": "M783 resyncBodies 什么都不补（读档后的 33ms 空窗又回来了）",
+        "file": "src/extensions/mobs/mob-world.ts",
+        "pairs": [("      return syncBodies();\n", "      return 0;\n")],
+        "test": "tests/extensions/mob-collision.test.ts",
+    },
+    {
+        "name": "M784 resyncBodies 不先 prune（读档时对已销毁的节点补体 ⇒ 直接抛）",
+        "file": "src/extensions/mobs/mob-world.ts",
+        "pairs": [("      prune();\n      return syncBodies();\n", "      return syncBodies();\n")],
+        "test": "tests/extensions/mob-collision.test.ts",
+    },
+    {
+        "name": "M785 宿主读档时不补生物体（模块有入口，但没人调 —— 接线断了）",
+        "file": "src/browser-entry.ts",
+        "pairs": [("    const back = worldState.mobs?.resyncBodies() ?? 0;\n", "    const back = 0;\n")],
+        "cmd": ["node", "tools/browser-selftest.mjs", "--build"],
     }
 ]
 

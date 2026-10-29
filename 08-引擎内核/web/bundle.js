@@ -25929,7 +25929,8 @@ function createMobWorldModule(options) {
   function syncBodies() {
     const s = scene;
     const phys = options.physics;
-    if (s === null || phys === void 0) return;
+    if (s === null || phys === void 0) return 0;
+    const before = bodiesAdded;
     for (const id of ids) {
       if (phys.has(id)) continue;
       const radius = radiusOfNode.get(id);
@@ -25938,6 +25939,7 @@ function createMobWorldModule(options) {
       phys.add({ nodeId: id, radius, isStatic: false });
       bodiesAdded++;
     }
+    return bodiesAdded - before;
   }
   const handle = {
     id: options.id ?? "world.mobs",
@@ -25976,6 +25978,10 @@ function createMobWorldModule(options) {
     noteHit(info) {
       if (threat === null) return false;
       return threat.add(info.targetId, info.attackerId, info.applied, info.tick).ok;
+    },
+    resyncBodies() {
+      prune();
+      return syncBodies();
     },
     init(ctx) {
       const got = ctx.services.get(Services.Scene);
@@ -28122,6 +28128,11 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
       }
     }
     const extra = r.value.skipped.length > 0 ? `\uFF0C\u8DF3\u8FC7 ${r.value.skipped.length} \u9879` : "";
+    const back = worldState.mobs?.resyncBodies() ?? 0;
+    const m = worldState.mobs;
+    if (m !== null && m !== void 0 && m.stats.bodies !== m.stats.mobs) {
+      toast(`\u8BFB\u6863\uFF1A${String(m.stats.mobs - m.stats.bodies)} \u53EA\u751F\u7269\u6CA1\u6709\u7269\u7406\u4F53\uFF08\u8865\u4E86 ${String(back)} \u4E2A\uFF09`);
+    }
     toast(`\u5DF2\u8BFB\u6863\uFF1A${r.value.made} \u4E2A\u8282\u70B9${extra}`);
     return ok(r.value.made);
   }

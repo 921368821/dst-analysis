@@ -233,6 +233,64 @@ test("★★★ 生物死后物理体必须撤掉（不撤 = 原地一堵看不�
   assert.equal(physics.query(at.x, at.z, 0.01).includes(a), false);
 });
 
+test("★★ 外部清表（读档）之后 `resyncBodies` **当场**补齐 —— 不等下一拍（批125：33ms 空窗）", () => {
+  // ★ 这条钉的是"宿主的读档路径"能不能同步补齐：`applyLoad` 里 `physics.clear()`
+  //   与下一拍之间那 33ms（30Hz 一拍）里，生物是**没有体**的 —— 它们互相穿过、
+  //   也穿过玩家，而 `mobs` 数、战利品数、尸体数全都自洽。只有"清表之后立刻读
+  //   `bodies`"这一个采样点能分辨它。
+  // ★ 为什么不能靠 `update` 那一条判据兜：`syncBodies` 已经每拍跑了，所以
+  //   "过一拍再看"永远绿 —— 那正是批124 的写法（自检里等 250ms）。
+  const scene = mkScene();
+  const { grid, cells } = realWorld(5150, 3);
+  const physics = mkPhysics(scene);
+  const mod = mobModule(scene, grid, cells, physics);
+  assert.equal(mod.stats.mobs, 3, "夹具前提：三只生物");
+  assert.equal(mod.stats.bodies, 3, "夹具前提：三只都已经有体（不然下面清表量到的 0 不算数）");
+
+  // ---- ① 模拟宿主读档那一刻：`physics.clear()` 之后只重建摆件与玩家
+  physics.clear();
+  assert.equal(mod.stats.bodies, 0, "清表之后体确实没了 —— 这是下面那步的分辨力来源");
+  assert.equal(mod.stats.mobs, 3, "生物本身还在（清表只清物理表，不动场景）");
+
+  // ---- ② 宿主在同一处调用它（`applyLoad` 里那一行）
+  const addedBefore = mod.stats.bodiesAdded;
+  const added = mod.resyncBodies();
+  assert.equal(added, 3, "三只都该被补上");
+  assert.equal(mod.stats.bodies, mod.stats.mobs, "补完必须一具不缺");
+  // ★ 第二个观测量：补齐要**被计数器看见**，否则"补了 3 个"与"这里没跑过"在日志上一样
+  assert.equal(mod.stats.bodiesAdded - addedBefore, 3);
+
+  // ---- ③ 幂等：再调一次不许重复加（宿主每个安全点都能调，重复加会把表撑大）
+  assert.equal(mod.resyncBodies(), 0, "已经有体的一只都不该再补");
+  assert.equal(mod.stats.bodies, mod.stats.mobs);
+  const bodiesAfter = physics.stats().bodies;
+  assert.ok(bodiesAfter >= 3, `物理世界里该有三具体，实际 ${String(bodiesAfter)}`);
+});
+
+test("★★ 清表前先 prune：已经销毁的节点不会被 `add`（否则读档会对不存在的节点抛）", () => {
+  // ★ `resyncBodies` 里那一句 `prune()` 的理由就在这里：`ids` 是"出生名单"，
+  //   读档前打死的那只已经从场景里没了，而它的 id 还在名单上。
+  //   不 prune 的话 `phys.add` 读不到坐标会**抛**（`body N 没有位置`）——
+  //   抛在 `applyLoad` 里 = 读档直接炸，而不是"少一具体"。
+  const scene = mkScene();
+  const { grid, cells } = realWorld(6262, 3);
+  const physics = mkPhysics(scene);
+  const mod = mobModule(scene, grid, cells, physics);
+  const [a] = mod.nodeIds;
+  if (a === undefined) throw new Error("unreachable");
+  scene.destroy(a);
+  scene.flush();
+
+  physics.clear();
+  let added = -1;
+  assert.doesNotThrow(() => {
+    added = mod.resyncBodies();
+  }, "对已销毁的节点补体会抛 —— 说明 prune 没跑");
+  assert.equal(added, 2, "只剩两只要补");
+  assert.equal(mod.stats.mobs, 2, "名单也要跟着清（否则 stats 会多报一只）");
+  assert.equal(mod.stats.bodies, 2);
+});
+
 test("★★ 两只生物被摆在同一格 ⇒ 一进解算就被分开（动态-动态这一对也有人处理）", () => {
   const scene = mkScene();
   const { grid, cells } = realWorld(3131, 2);
