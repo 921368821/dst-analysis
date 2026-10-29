@@ -57,6 +57,7 @@ import type { Factions } from "../combat/faction.ts";
 import { grantLoot, lootOfNode } from "../combat/loot.ts";
 import { type CorpseGround, spawnCorpse } from "../combat/corpse.ts";
 import { type MobHandle, spawnMob } from "./spawn-mob.ts";
+import { type MobTemplate, validateTemplate } from "./mob-template.ts";
 import { type MobBrain, createMobBrain } from "./mob-brain.ts";
 
 export const MOB_WORLD_BAD_MODULE = "MOB_WORLD.BAD_MODULE";
@@ -129,7 +130,38 @@ export interface MobWorldOptions {
    *   ③ **谁会动** —— 生物（本选项）与玩家（宿主那条路）。装饰与尸体不动。
    */
   readonly physics?: IPhysicsWorld;
+  /**
+   * 猎物再生（批126）：让"地图上再没有猎物可打"不再出现。
+   *
+   * ★★ 为什么这是引擎能力、而不是宿主的配表：捕食者没有"吃饱"、猎物不会再生，
+   *   那么**任何**有限数量都会被吃掉 —— 这不是数值没调好，是缺一条规则。
+   *   演示里 3 只猎狗 3.5 秒吃光 10 只兔子，之后地图上只剩猎狗可打；
+   *   调伤害/冷却只能把它推迟到 15 秒，仍然会归零（`docs/PROGRESS.md` 批126 有算术）。
+   * ★ 谁来挑落点：宿主（`pickCell`）。引擎不知道玩家在哪、也不知道"离玩家多远
+   *   才算看得见"，那是产品决定；引擎只负责"数一数、到点了、要一只"。
+   * ★ 不给 = 老行为（世界里的生物只减不增）。
+   */
+  readonly respawn?: MobRespawnOptions;
   readonly id?: string;
+}
+
+/** 猎物再生（见 `MobWorldOptions.respawn`）。 */
+export interface MobRespawnOptions {
+  /** 每隔多少 tick 检查一次（>= 1）。同一个窗口里最多补一只（不批量刷）。 */
+  readonly everyTicks: number;
+  /** 维护哪一类（按模板 `kind` 计数，初始那批也算在内）。 */
+  readonly kind: string;
+  /** 这一类**同时最多**活几只。到了上限就什么都不做。 */
+  readonly max: number;
+  /** 用哪个模板出生（必须能在 `templates` 里找到同 `kind` 的）。 */
+  readonly template: string;
+  /**
+   * 挑落脚格（宿主给）；`-1` = 这一轮没地方，下一个窗口再试。
+   *
+   * ★ 让它返回格子而不是坐标：格子是导航的单位，坐标由模块 `centerOf` 换算 ——
+   *   这样"一出生就站在水里"这类错在类型上就不可能。
+   */
+  readonly pickCell: (tick: number) => number;
 }
 
 /** 尸体模式（见 `MobWorldOptions.corpse`）。 */
@@ -164,6 +196,18 @@ export interface MobWorldStats {
   readonly corpsesFailed: number;
   /** 上一次尸体失败的原因（正常时为空串）。 */
   readonly lastCorpseError: string;
+  /**
+   * 猎物再生补过几只（批126；`respawn` 没给时恒 0）。
+   *
+   * ★ 必须能读到："地图上还有兔子"有两个来源 —— 从来没被杀光，或者补过。
+   *   只读"现在有几只"的话，"再生一次都没跑"与"再生在正常工作"分不开，
+   *   而前者正是这个功能最可能的坏法（`pickCell` 一直返回 -1 / 窗口条件写反）。
+   */
+  readonly respawned: number;
+  /** 上一次再生落在哪一格（`-1` = 还没补过）。 */
+  readonly lastRespawnCell: number;
+  /** 上一次再生失败的原因（`MOB.SPAWN_FAILED` 等；正常时为空串）。 */
+  readonly lastRespawnError: string;
   /** 现在**真的有物理体**的生物数（`physics` 没给时恒 0）。 */
   readonly bodies: number;
   /** 撤掉过的生物物理体数（见 `prune`：死掉的不撤就是**一堵看不见的墙**）。 */
@@ -240,6 +284,13 @@ export function createMobWorldModule(options: MobWorldOptions): MobWorldHandle {
   let lastCorpseError = "";
   let bodiesRemoved = 0;
   let bodiesAdded = 0;
+  let respawned = 0;
+  let lastRespawnCell = -1;
+  let lastRespawnError = "";
+  /** 上一次**检查**再生的 tick（不是"上一次补"：没补也要记，否则每 tick 都问一遍）。 */
+  let lastRespawnCheck = Number.NEGATIVE_INFINITY;
+  /** 再生用的模板（`init` 里按 `kind` 查好，采样期不再查表）。 */
+  let respawnTpl: MobTemplate | null = null;
 
   /** 见文件头 ③。头部与尾部各调一次：本 tick 开始时与结束时都要准。 */
   function prune(): void {
@@ -299,6 +350,46 @@ export function createMobWorldModule(options: MobWorldOptions): MobWorldHandle {
     return bodiesAdded - before;
   }
 
+  /**
+   * 猎物再生（批126，见 `MobWorldOptions.respawn`）。
+   *
+   * ★ 三个"不"：
+   *   · **不批量**：一个窗口最多补一只。批量补会让"一次算错"变成"一瞬间冒出十只"，
+   *     而那种现象在判据里看起来像"再生一直很健康"。
+   *   · **不覆盖**：到了 `max` 就什么都不做（也不重置窗口体感 —— 见下）。
+   *   · **不猜落点**：格子由宿主给（`pickCell`），引擎不知道玩家在哪。
+   * ★ 窗口按"检查"记而不是"补"记：不然没补成（没地方 / 到上限）之后每一 tick 都会
+   *   再问一次宿主 —— `pickCell` 是一次全图扫描，问得比调度器还勤没有意义。
+   */
+  function respawnPrey(tick: number): void {
+    const rp = options.respawn;
+    const s = scene;
+    if (rp === undefined || s === null || respawnTpl === null) return;
+    if (tick - lastRespawnCheck < rp.everyTicks) return;
+    lastRespawnCheck = tick;
+    let alive = 0;
+    for (const id of ids) if (kindOf.get(id) === rp.kind) alive++;
+    if (alive >= rp.max) return;
+    const cell = rp.pickCell(tick);
+    if (cell < 0) return;
+    const c = options.grid.centerOf(cell);
+    // ★ 名字带 `r` 前缀：出生点那批叫 `mob#0..N`，重生的是 `mob#r1..` ——
+    //   存档与 Lua 脚本按名字找节点，两批撞名会"找到另一只"。
+    const born = spawnMob(s, respawnTpl, c.x, c.z, { name: `mob#r${String(respawned + 1)}` });
+    if (!born.ok) {
+      lastRespawnError = born.error.code;
+      return;
+    }
+    ids.push(born.value.nodeId);
+    kindOf.set(born.value.nodeId, born.value.template.kind);
+    radiusOfNode.set(born.value.nodeId, born.value.template.radius);
+    respawned++;
+    lastRespawnCell = cell;
+    // ★ 顺手把 `mobs` 对齐：`prune` 是这一拍更早的时候算的，不补的话
+    //   `stats.mobs` 会比 `stats.bodies` 少一只，而那个差值正是读档对账用的口径。
+    mobs = ids.length;
+  }
+
   const handle: MobWorldHandle = {
     id: options.id ?? "world.mobs",
     get stats(): MobWorldStats {
@@ -320,6 +411,9 @@ export function createMobWorldModule(options: MobWorldOptions): MobWorldHandle {
         corpsesSpawned,
         corpsesFailed,
         lastCorpseError,
+        respawned,
+        lastRespawnCell,
+        lastRespawnError,
         threatTargets: threat?.stats().targets ?? 0,
         threatEntries: threat?.stats().entries ?? 0,
         lastLootError,
@@ -355,6 +449,32 @@ export function createMobWorldModule(options: MobWorldOptions): MobWorldHandle {
         return err(engineError(MOB_WORLD_BAD_MODULE, `threatDecayTicks 必须是 >= 0 的整数，收到 ${String(decay)}`));
       }
       threat = decay === 0 ? null : createThreatTable({ decayTicks: decay });
+      // ---- 猎物再生（批126）：配置错误在这里**当场**报，不要等第十秒"少了一只兔子"
+      const rp = options.respawn;
+      if (rp !== undefined) {
+        if (!Number.isInteger(rp.everyTicks) || rp.everyTicks < 1) {
+          return err(
+            engineError(MOB_WORLD_BAD_MODULE, `respawn.everyTicks 必须是 >= 1 的整数，收到 ${String(rp.everyTicks)}`),
+          );
+        }
+        if (!Number.isInteger(rp.max) || rp.max < 1) {
+          return err(engineError(MOB_WORLD_BAD_MODULE, `respawn.max 必须是 >= 1 的整数，收到 ${String(rp.max)}`));
+        }
+        for (const raw of options.templates) {
+          const v = validateTemplate(raw);
+          if (v.ok && v.value.kind === rp.template) {
+            respawnTpl = v.value;
+            break;
+          }
+        }
+        if (respawnTpl === null) {
+          return err(
+            engineError(MOB_WORLD_BAD_MODULE, `respawn.template 指向一个不存在的模板 ${String(rp.template)}`, {
+              template: rp.template,
+            }),
+          );
+        }
+      }
       brain = createMobBrain({
         factions: options.factions,
         range: options.range,
@@ -503,6 +623,10 @@ export function createMobWorldModule(options: MobWorldOptions): MobWorldHandle {
       //   `stats.mobs` 会滞后一 tick —— 而"世界里还有几只"正是这个模块存在的理由，
       //   一个滞后一 tick 的数字比没有更糟（人会去查"为什么少了一只"）。
       prune();
+      // ★ 顺序：先 prune（死者出名单）→ 再决定要不要补 → 再由 `syncBodies` 给新生的那只加体。
+      //   倒过来的话，新补的那只会被这一拍的 prune 当成"名单外的" —— 它的体没人加，
+      //   要等下一拍，于是"再生"自己制造了一次 33ms 空窗（批125 刚修掉的那种）。
+      respawnPrey(tick);
       syncBodies();
     },
     stop(): void {

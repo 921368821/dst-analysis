@@ -934,6 +934,27 @@ row("★★ 读档当场补齐生物体：clear() 之后**不等任何一拍**�
   return [m.bodies === m.mobs && m.bodies > 0, `${m.bodies} 个体 / ${m.mobs} 只活物（读档后 0 拍）`];
 });
 
+// ---- 批126：猎物再生（地图上一直有猎物可打）----
+row("★★ 猎狗吃掉的兔子会补回来：兔子还在、而且真的补过（不是一直没死）", async (e) => {
+  const m0 = e.mobs();
+  if (m0 === null) return [false, "e.mobs() 是 null —— 生物模块没起来"];
+  const r0 = m0.list.filter((o) => o.kind === "rabbit").length;
+  if (r0 === 0 && m0.respawned === 0) return [false, "开场就没有兔子，也没补过 —— 生物模块有问题"];
+  // ★ 等"世界时间"而不只是墙钟：命中顿帧会把世界冻住，按秒等可能只推了几十拍。
+  //   窗口是 90 拍（3 秒 @30Hz），所以至少要跨过两个窗口才可能补上一只。
+  const t0 = e.snapshot().tick;
+  const deadline = Date.now() + 6000;
+  while (Date.now() < deadline && e.mobs().respawned < 1) {
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  const m = e.mobs();
+  const r = m.list.filter((o) => o.kind === "rabbit").length;
+  const ticks = e.snapshot().tick - t0;
+  // ★ 两个数字一起读：只读"兔子还在"的话，"猎狗根本没杀到东西"也是绿的
+  //   （那正是不需要再生的世界）；只读"补过"的话，补在不可走格上、补完没有体也绿。
+  return [m.respawned >= 1 && r > 0, `${r0} → ${r} 只兔子 · 补 ${m.respawned} 只 · 等 ${ticks} 拍`];
+});
+
 // ---- 批123：尸体（玩家打死的东西也要留一具）----
 let corpseDone = null;
 // 靶子只造一次：每轮重造的话，上一轮那两个血没打完的靶子会留在场上，

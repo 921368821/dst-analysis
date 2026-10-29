@@ -87,6 +87,15 @@ import { applyUiSamples, UI_TWEEN_PROP } from "./extensions/ui/ui-transition.ts"
 import { HUD_VALUE_TINT } from "./host/hud-ui.ts";
 import { hudLine, hudRowRuns, type HudFacts } from "./host/hud-model.ts";
 import { whyNotAttackable } from "./host/attack-target-policy.ts";
+import { pickPreyCellAround } from "./host/prey-respawn.ts";
+import {
+  DEMO_HOUNDS,
+  DEMO_MOB_TEMPLATES,
+  DEMO_PREY_RESPAWN,
+  DEMO_RABBITS,
+  createDemoFactions,
+  pickDemoMobSpots,
+} from "./host/demo-mobs.ts";
 import { demoHitstopPolicy } from "./host/hitstop-policy.ts";
 import { generateWorld, type WorldPlan } from "./extensions/worldgen/worldgen.ts";
 import {
@@ -109,11 +118,11 @@ import {
 import { NavGrid } from "./extensions/nav/nav-grid.ts";
 import { HEALTH_TYPE, Health, isDead, registerHealthComponent } from "./extensions/combat/health.ts";
 import { ATTACKER_TYPE, Attacker, attack, registerAttackerComponent } from "./extensions/combat/attack.ts";
-import { FactionMember, createFactions, registerFactionComponent, teamOf } from "./extensions/combat/faction.ts";
+import { FactionMember, registerFactionComponent, teamOf } from "./extensions/combat/faction.ts";
 // 批73：顿帧（hitstop）。命中的一瞬间把世界冻住几个逻辑步，画面继续走。
 import { createHitstopModule, type HitstopHandle } from "./extensions/combat/hitstop.ts";
 import type { HitInfo } from "./extensions/combat/combat-module.ts";
-import { createMobWorldModule, type MobSpot, type MobWorldHandle } from "./extensions/mobs/mob-world.ts";
+import { createMobWorldModule, type MobWorldHandle } from "./extensions/mobs/mob-world.ts";
 // 批69：命中反馈（受击闪色 / 挥击挤压 / 伤害数字）。引擎侧只负责"让状态可见"，
 // 数字的排布属于宿主（贴在屏幕上的东西，引擎不该规定它长什么样）。
 import {
@@ -1077,6 +1086,14 @@ export async function main(): Promise<void> {
    */
   const CORPSE_DECAY_TICKS = 900;
 
+  // ---- 猎物再生（批126）：让"打完之后地图上没有猎物"不再出现
+  //
+  // ★ 为什么需要它：捕食者不会吃饱、猎物不会再生 ⇒ 任何有限数量都会被吃光。
+  //   实测（`tests/host/demo-ecology.test.ts`）：3 只猎狗 3.5 秒吃光 10 只兔子，
+  //   之后地图上只剩猎狗 —— 调伤害/冷却只能把归零推迟，算术在
+  //   `docs/PROGRESS.md` 批126。所以这是**一条规则**，不是一次调参。
+  // ★ 数字在 `host/demo-mobs.ts`（与生态判据读同一份）：这里不写第二遍。
+
   /**
    * 玩家击杀留尸体的**诊断账**（批123）。
    *
@@ -1099,74 +1116,52 @@ export async function main(): Promise<void> {
    */
   let lastVictim: { id: number; mobKind: string | null; name: string } | null = null;
 
-  const MOB_TEMPLATES = [
-    {
-      kind: "rabbit",
-      frame: "rabbit",
-      width: 0.9,
-      height: 0.9,
-      radius: 0.28,
-      maxHp: 4,
-      damage: 0,
-      range: 1.4,
-      cooldownTicks: 20,
-      speed: 1.1,
-      team: "prey",
-      loot: [{ kind: "meat", count: 2 }],
-    },
-    {
-      kind: "hound",
-      frame: "hound",
-      width: 1.1,
-      height: 1.1,
-      radius: 0.34,
-      maxHp: 8,
-      damage: 2,
-      range: 1.7,
-      cooldownTicks: 15,
-      speed: 2.3,
-      team: "hunter",
-      loot: [{ kind: "hide", count: 1 }],
-    },
-  ] as const;
-
-  // ★ 关系表是**宿主**的配置（引擎不认识"猎人"）：玩家与猎狗同队，兔子是猎物。
-  //   于是猎狗会追兔子、玩家能打兔子，而玩家与猎狗之间是友军（互不攻击）。
-  const MOB_FACTIONS = createFactions();
-  MOB_FACTIONS.setStance("hunter", "prey", "foe");
-
-  /**
-   * 挑出生点：**等距抽样** + 避开采摘点。
-   *
-   * ★ 不用随机：同一个种子要跑出同一批位置（回放与截图比对都依赖这条）。
-   * ★ 避开玩家出生点 2 格内：出生就贴脸会让"第一次看见怪物"变成"被怪物淹没"。
-   */
-  function pickMobSpots(grid: NavGrid, hounds: number, rabbits: number, avoidCell: number): MobSpot[] {
-    const walk: number[] = [];
-    const ax = grid.cellX(avoidCell);
-    const az = grid.cellZ(avoidCell);
-    for (let i = 0; i < grid.total; i++) {
-      if (!grid.isWalkableIndex(i)) continue;
-      const cx = grid.cellX(i);
-      const cz = grid.cellZ(i);
-      if (Math.abs(cx - ax) <= 2 && Math.abs(cz - az) <= 2) continue;
-      walk.push(i);
-    }
-    const total = hounds + rabbits;
-    const out: MobSpot[] = [];
-    if (walk.length === 0) return out;
-    const stride = Math.max(1, Math.floor(walk.length / total));
-    for (let k = 0; k < total; k++) {
-      const cell = walk[Math.min(walk.length - 1, k * stride)];
-      if (cell === undefined) continue;
-      out.push({ template: k < hounds ? 1 : 0, cell });
-    }
-    return out;
-  }
+  // ---- 演示配表住在 `host/demo-mobs.ts`（批126）
+  //
+  // ★ 为什么搬出去：那张表是"这一局的世界长什么样"的产品决定，而**生态判据
+  //   必须读同一份数字** —— 抄一份到测试里的第二份必然漂移（调了猎狗冷却、
+  //   测试还在用旧的），于是"生态正常"永远是绿的。搬出去之后测试 import 的
+  //   是这张表本身，配表一改判据跟着改。
+  const MOB_TEMPLATES = DEMO_MOB_TEMPLATES;
+  const MOB_FACTIONS = createDemoFactions();
 
   let mobsHandle: MobWorldHandle | null = null;
   /** 尸体模块句柄（批123；与 `mobsHandle` 同一个形状：init 里拿到、onStep 里驱动）。 */
   let corpsesHandle: CorpseModuleHandle | null = null;
+
+  /**
+   * 猎物重生的落点（批126）：**离玩家 6~14 格、不压在活物身上**。
+   *
+   * ★ 为什么要有下限：贴在玩家脸上重生 = 凭空出现（而且玩家一转身就撞上）。
+   * ★ 为什么要有上限：太远等于没重生 —— 玩家走过去的路上又会撞到猎狗。
+   * ★ 为什么避开活物周围 2 格：生成在猎狗 1 格外就是"生成即被杀"，
+   *   而那时 `respawned` 照涨、地图照空（最典型的假健康）。
+   * ★ 落点规则本身是纯函数（`host/prey-respawn.ts`），Node 判据造语料逼它；
+   *   这里只负责把"谁在哪"喂进去 —— 那部分只有真跑起来才知道对不对。
+   */
+  function pickPreySpawnCell(tick: number): number {
+    const grid = worldState.nav;
+    const player = worldState.player;
+    const mobs = worldState.mobs;
+    if (grid === null || player === null) return -1;
+    // ★ 这里只做"场景查询"：谁站在哪一格。**规则**（离玩家 6~14 格、避开活物 2 格）
+    //   在 `host/prey-respawn.ts` 里，由 Node 判据逼（见 `tests/host/prey-respawn.test.ts`）。
+    const live: number[] = [];
+    if (mobs !== null) {
+      for (const id of mobs.nodeIds) {
+        const n = scene.find(id);
+        if (n === undefined) continue;
+        const c = grid.cellAt(n.worldPosition.x, n.worldPosition.y);
+        if (c >= 0) live.push(c);
+      }
+    }
+    return pickPreyCellAround(grid, player.cell, live, tick, {
+      minCells: DEMO_PREY_RESPAWN.minCells,
+      maxCells: DEMO_PREY_RESPAWN.maxCells,
+      blockCells: DEMO_PREY_RESPAWN.blockCells,
+      seed: WORLD_SEED,
+    });
+  }
 
   // ---------------------------------------------------------------- 表现层（批69）
   //
@@ -1331,7 +1326,7 @@ export async function main(): Promise<void> {
       if (g === null || player === null) {
         return err(engineError("MOBS.NO_WORLD", "导航网格或玩家还没建好，生物无处落脚"));
       }
-      const spots = pickMobSpots(g, 3, 10, player.cell);
+      const spots = pickDemoMobSpots(g, DEMO_HOUNDS, DEMO_RABBITS, player.cell);
       if (spots.length === 0) {
         return err(engineError("MOBS.NO_SPOT", "世界里找不到可走的出生点（地形全是水/崖？）"));
       }
@@ -1357,6 +1352,15 @@ export async function main(): Promise<void> {
         // ★ 不传的话它们仍然互相穿过 —— 而"穿过"与"挡住"在统计上一模一样，
         //   只有画面能分辨，所以这条接线必须有判据（浏览器自检的 bodies 那一条）。
         physics,
+        // 批126：兔子会再长出来。不传的话世界里的生物只减不增 ——
+        // 3 只猎狗 4 秒就能把 10 只兔子吃干净，之后地图上没有猎物可打。
+        respawn: {
+          everyTicks: DEMO_PREY_RESPAWN.everyTicks,
+          kind: DEMO_PREY_RESPAWN.kind,
+          max: DEMO_PREY_RESPAWN.max,
+          template: DEMO_PREY_RESPAWN.template,
+          pickCell: (tick) => pickPreySpawnCell(tick),
+        },
       });
       const r = h.init(ctx) as Result<void, EngineError> | undefined;
       if (r !== undefined && !r.ok) return r;

@@ -2464,9 +2464,15 @@ MUTANTS = [
     {
         "name": "M246 击杀之后不清名单（stats.mobs 滞后，打死一只还报原来那个数）",
         "file": "src/extensions/mobs/mob-world.ts",
+        # ★ 批126 重新指认：原来指的是 `prune();\n      syncBodies();` 那两行，
+        #   而 `respawnPrey(tick);` 现在插在中间（顺序有意义：补出来的那只必须在
+        #   `syncBodies` 之前进名单，否则它要等下一拍才有体）。
+        #   要变异的东西没变 —— "尾部不再清名单"，所以只打 `prune();` 这一行，
+        #   把 `respawnPrey` / `syncBodies` 留着：否则这条会同时证明两件事，
+        #   红的时候分不清是哪一个坏了。
         "pairs": [(
-            "      prune();\n      syncBodies();\n    },\n    stop(): void {",
-            "      void 0;\n      syncBodies();\n    },\n    stop(): void {",
+            "      prune();\n      // ★ 顺序：先 prune",
+            "      void 0;\n      // ★ 顺序：先 prune",
         )],
         "test": "tests/extensions/mob-world.test.ts",
     },
@@ -7292,6 +7298,54 @@ MUTANTS = [
         "file": "src/browser-entry.ts",
         "pairs": [("    const back = worldState.mobs?.resyncBodies() ?? 0;\n", "    const back = 0;\n")],
         "cmd": ["node", "tools/browser-selftest.mjs", "--build"],
+    },
+    {
+        "name": "M786 `update` 里不调 respawnPrey（再生规则写好了，但没人跑 —— 兔子照样灭绝）",
+        "file": "src/extensions/mobs/mob-world.ts",
+        "pairs": [("      respawnPrey(tick);\n", "")],
+        "test": "tests/extensions/mob-world-respawn.test.ts",
+    },
+    {
+        "name": "M787 再生不看上限（`max` 变成摆设，兔子越打越多）",
+        "file": "src/extensions/mobs/mob-world.ts",
+        "pairs": [("    if (alive >= rp.max) return;\n", "")],
+        "test": "tests/extensions/mob-world-respawn.test.ts",
+    },
+    {
+        "name": "M788 再生不看窗口（每一拍都补一只，直到上限）",
+        "file": "src/extensions/mobs/mob-world.ts",
+        "pairs": [("    if (tick - lastRespawnCheck < rp.everyTicks) return;\n", "")],
+        "test": "tests/extensions/mob-world-respawn.test.ts",
+    },
+    {
+        "name": "M789 落点不避开活物周围若干格（兔子生成在猎狗嘴边 = 生成即被杀）",
+        "file": "src/host/prey-respawn.ts",
+        "pairs": [("  for (const c of liveCells) blockAround(grid, c, cfg.blockCells, blocked);\n", "")],
+        "test": "tests/host/prey-respawn.test.ts",
+    },
+    {
+        "name": "M790 宿主不传 respawn（引擎能力在，演示世界用不上 —— 接线断了）",
+        "file": "src/browser-entry.ts",
+        "pairs": [(
+            "        respawn: {\n          everyTicks: DEMO_PREY_RESPAWN.everyTicks,\n          kind: DEMO_PREY_RESPAWN.kind,\n          max: DEMO_PREY_RESPAWN.max,\n          template: DEMO_PREY_RESPAWN.template,\n          pickCell: (tick) => pickPreySpawnCell(tick),\n        },\n",
+            "",
+        )],
+        "cmd": ["node", "tools/browser-selftest.mjs", "--build"],
+    },
+    {
+        "name": "M791 落点只查下界不查上界（兔子被扔到地图另一头，玩家永远遇不到）",
+        "file": "src/host/prey-respawn.ts",
+        "pairs": [("    if (d < q.minCells || d > q.maxCells) continue;\n", "    if (d < q.minCells) continue;\n")],
+        "test": "tests/host/prey-respawn.test.ts",
+    },
+    {
+        "name": "M792 封格用曼哈顿距离（斜角漏掉，兔子从斜角被咬死）",
+        "file": "src/host/prey-respawn.ts",
+        "pairs": [(
+            "    for (let dz = -r; dz <= r; dz++) {\n",
+            "    for (let dz = -r; dz <= r; dz++) {\n      if (Math.abs(dx) + Math.abs(dz) > r) continue;\n",
+        )],
+        "test": "tests/host/prey-respawn.test.ts",
     }
 ]
 

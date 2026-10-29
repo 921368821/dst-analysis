@@ -23372,6 +23372,224 @@ function whyNotAttackable(info) {
   return null;
 }
 
+// src/host/prey-respawn.ts
+function mix322(a, b) {
+  let h = (a ^ 2654435769) >>> 0;
+  h = Math.imul(h ^ b + 2246822507, 3432918353) >>> 0 ^ h >>> 13;
+  h = Math.imul(h ^ 668265263, 374761393) >>> 0 ^ h >>> 15;
+  return h >>> 0;
+}
+function pickPreyCell(q2) {
+  if (!(q2.maxCells >= q2.minCells) || q2.minCells < 0) return -1;
+  const px = q2.grid.cellX(q2.playerCell);
+  const pz = q2.grid.cellZ(q2.playerCell);
+  if (px < 0 || pz < 0) return -1;
+  const cand = [];
+  for (let i = 0; i < q2.grid.total; i++) {
+    if (!q2.grid.isWalkableIndex(i)) continue;
+    if (q2.blocked.has(i)) continue;
+    const dx = Math.abs(q2.grid.cellX(i) - px);
+    const dz = Math.abs(q2.grid.cellZ(i) - pz);
+    const d = Math.max(dx, dz);
+    if (d < q2.minCells || d > q2.maxCells) continue;
+    cand.push(i);
+  }
+  if (cand.length === 0) return -1;
+  const pick = mix322(q2.seed, q2.salt) % cand.length;
+  return cand[pick] ?? -1;
+}
+function blockAround(grid, cell, r, out) {
+  const cx = grid.cellX(cell);
+  const cz = grid.cellZ(cell);
+  if (cx < 0 || cz < 0) return;
+  for (let dx = -r; dx <= r; dx++) {
+    for (let dz = -r; dz <= r; dz++) {
+      const x = cx + dx;
+      const z = cz + dz;
+      if (x < 0 || z < 0) continue;
+      const i = z * grid.width + x;
+      if (i < 0 || i >= grid.total) continue;
+      out.add(i);
+    }
+  }
+}
+function pickPreyCellAround(grid, playerCell, liveCells, tick, cfg) {
+  const blocked = /* @__PURE__ */ new Set();
+  blockAround(grid, playerCell, 1, blocked);
+  for (const c of liveCells) blockAround(grid, c, cfg.blockCells, blocked);
+  return pickPreyCell({
+    grid,
+    playerCell,
+    blocked,
+    minCells: cfg.minCells,
+    maxCells: cfg.maxCells,
+    salt: tick,
+    seed: cfg.seed
+  });
+}
+
+// src/extensions/combat/faction.ts
+var FACTION_TYPE = "combat.faction";
+var FACTION_BAD_INPUT = "FACTION.BAD_INPUT";
+var STANCES = ["ally", "foe", "neutral"];
+function isStance(v) {
+  return STANCES.includes(v);
+}
+var FactionMember = class extends Component {
+  /** 阵营名。**空串 = 中立**（在场但没编队）。 */
+  team = "";
+  schema = {
+    type: FACTION_TYPE,
+    fields: { team: FieldType.String }
+  };
+};
+function registerFactionComponent(registry) {
+  if (!registry.has(FACTION_TYPE)) registry.register(new FactionMember().schema, () => new FactionMember());
+}
+function teamOf(scene, nodeId) {
+  const node = scene.find(nodeId);
+  if (node === void 0 || node === null) return { team: "", hasComponent: false };
+  const m = node.get(FACTION_TYPE);
+  if (m === void 0) return { team: "", hasComponent: false };
+  return { team: m.team, hasComponent: true };
+}
+var Factions = class {
+  /** a → (b → stance)，**恒定对称**写入，见文件头 ③。 */
+  table = /* @__PURE__ */ new Map();
+  /**
+   * 设置两个阵营的关系（**双向**）。
+   *
+   * 报错而非覆盖的三种情况（见文件头 ②④）：
+   *  · `a`/`b` 为空串 —— 中立不是一个能用关系表编址的组（否则一次调用
+   *    就把"世界上所有中立单位"变成某人的敌人，而调用方以为自己只设了一对）；
+   *  · `a === b` —— 同队关系是不变量；
+   *  · `stance` 不在 `STANCES` 里 —— 拼错的 `"foe "` 会被当成未知关系。
+   */
+  setStance(a, b, stance) {
+    if (a.length === 0 || b.length === 0) {
+      return err(engineError(FACTION_BAD_INPUT, `\u9635\u8425\u540D\u4E0D\u80FD\u4E3A\u7A7A\u4E32\uFF08\u7A7A\u4E32 = \u4E2D\u7ACB\uFF0C\u4E2D\u7ACB\u4E0D\u53C2\u4E0E\u5173\u7CFB\u8868\uFF09\uFF1A\u6536\u5230\u300C${a}\u300D/\u300C${b}\u300D`));
+    }
+    if (a === b) {
+      return err(
+        engineError(FACTION_BAD_INPUT, `\u4E0D\u80FD\u7ED9\u300C${a}\u300D\u548C\u5B83\u81EA\u5DF1\u8BBE\u5173\u7CFB \u2014\u2014 \u540C\u961F\u6052\u4E3A ally\uFF08\u8981\u961F\u53CB\u4E92\u780D\u8BF7\u7528 attack({friendlyFire:true})\uFF09`)
+      );
+    }
+    if (!isStance(stance)) {
+      return err(engineError(FACTION_BAD_INPUT, `\u672A\u77E5\u5173\u7CFB\u300C${String(stance)}\u300D\uFF08\u53EA\u63A5\u53D7 ${STANCES.join(" / ")}\uFF09`));
+    }
+    this.put(a, b, stance);
+    this.put(b, a, stance);
+    return ok(true);
+  }
+  put(a, b, stance) {
+    let row = this.table.get(a);
+    if (row === void 0) {
+      row = /* @__PURE__ */ new Map();
+      this.table.set(a, row);
+    }
+    row.set(b, stance);
+  }
+  /**
+   * 判两方的立场。
+   *
+   * 顺序（判据按这个顺序写）：
+   *  1. 同名且非空 → `ally`（不查表）；
+   *  2. 表里有 → 表里的值；
+   *  3. 其余（含任一方为空串、含两方都空串）→ `neutral`。
+   */
+  stanceOf(a, b) {
+    if (a.length > 0 && a === b) return "ally";
+    const got = this.table.get(a)?.get(b);
+    return got ?? "neutral";
+  }
+  /** 是不是盟友（`attack()` 默认只拦这个）。 */
+  isAlly(a, b) {
+    return this.stanceOf(a, b) === "ally";
+  }
+  /** 关系的只读快照（按 `a` 再按 `b` 升序）—— 日志与判据读它不会因插入序而变。 */
+  pairs() {
+    const out = [];
+    for (const [a, row] of this.table) {
+      for (const [b, stance] of row) out.push({ a, b, stance });
+    }
+    out.sort((x, y) => x.a !== y.a ? x.a < y.a ? -1 : 1 : x.b < y.b ? -1 : x.b > y.b ? 1 : 0);
+    return out;
+  }
+};
+function createFactions() {
+  return new Factions();
+}
+
+// src/host/demo-mobs.ts
+var DEMO_MOB_TEMPLATES = [
+  {
+    kind: "rabbit",
+    frame: "rabbit",
+    width: 0.9,
+    height: 0.9,
+    radius: 0.28,
+    maxHp: 4,
+    damage: 0,
+    range: 1.4,
+    cooldownTicks: 20,
+    speed: 1.1,
+    team: "prey",
+    loot: [{ kind: "meat", count: 2 }]
+  },
+  {
+    kind: "hound",
+    frame: "hound",
+    width: 1.1,
+    height: 1.1,
+    radius: 0.34,
+    maxHp: 8,
+    damage: 2,
+    range: 1.7,
+    cooldownTicks: 15,
+    speed: 2.3,
+    team: "hunter",
+    loot: [{ kind: "hide", count: 1 }]
+  }
+];
+var DEMO_HOUNDS = 3;
+var DEMO_RABBITS = 10;
+function createDemoFactions() {
+  const f = createFactions();
+  f.setStance("hunter", "prey", "foe");
+  return f;
+}
+function pickDemoMobSpots(grid, hounds, rabbits, avoidCell) {
+  const walk = [];
+  const ax = grid.cellX(avoidCell);
+  const az = grid.cellZ(avoidCell);
+  for (let i = 0; i < grid.total; i++) {
+    if (!grid.isWalkableIndex(i)) continue;
+    const cx = grid.cellX(i);
+    const cz = grid.cellZ(i);
+    if (Math.abs(cx - ax) <= 2 && Math.abs(cz - az) <= 2) continue;
+    walk.push(i);
+  }
+  const total = hounds + rabbits;
+  const out = [];
+  if (walk.length === 0) return out;
+  const stride = Math.max(1, Math.floor(walk.length / total));
+  for (let k = 0; k < total; k++) {
+    const cell = walk[Math.min(walk.length - 1, k * stride)];
+    if (cell === void 0) continue;
+    out.push({ template: k < hounds ? 1 : 0, cell });
+  }
+  return out;
+}
+var DEMO_PREY_RESPAWN = {
+  everyTicks: 90,
+  kind: "rabbit",
+  template: "rabbit",
+  max: 10,
+  minCells: 6,
+  maxCells: 14,
+  blockCells: 2
+};
+
 // src/host/hitstop-policy.ts
 var HITSTOP_HIT_TICKS = 3;
 var HITSTOP_KILL_TICKS = 12;
@@ -24384,98 +24602,6 @@ function heal(scene, targetId, amount) {
   const before = h.hp;
   h.hp = Math.min(h.maxHp, before + amount);
   return ok(h.hp - before);
-}
-
-// src/extensions/combat/faction.ts
-var FACTION_TYPE = "combat.faction";
-var FACTION_BAD_INPUT = "FACTION.BAD_INPUT";
-var STANCES = ["ally", "foe", "neutral"];
-function isStance(v) {
-  return STANCES.includes(v);
-}
-var FactionMember = class extends Component {
-  /** 阵营名。**空串 = 中立**（在场但没编队）。 */
-  team = "";
-  schema = {
-    type: FACTION_TYPE,
-    fields: { team: FieldType.String }
-  };
-};
-function registerFactionComponent(registry) {
-  if (!registry.has(FACTION_TYPE)) registry.register(new FactionMember().schema, () => new FactionMember());
-}
-function teamOf(scene, nodeId) {
-  const node = scene.find(nodeId);
-  if (node === void 0 || node === null) return { team: "", hasComponent: false };
-  const m = node.get(FACTION_TYPE);
-  if (m === void 0) return { team: "", hasComponent: false };
-  return { team: m.team, hasComponent: true };
-}
-var Factions = class {
-  /** a → (b → stance)，**恒定对称**写入，见文件头 ③。 */
-  table = /* @__PURE__ */ new Map();
-  /**
-   * 设置两个阵营的关系（**双向**）。
-   *
-   * 报错而非覆盖的三种情况（见文件头 ②④）：
-   *  · `a`/`b` 为空串 —— 中立不是一个能用关系表编址的组（否则一次调用
-   *    就把"世界上所有中立单位"变成某人的敌人，而调用方以为自己只设了一对）；
-   *  · `a === b` —— 同队关系是不变量；
-   *  · `stance` 不在 `STANCES` 里 —— 拼错的 `"foe "` 会被当成未知关系。
-   */
-  setStance(a, b, stance) {
-    if (a.length === 0 || b.length === 0) {
-      return err(engineError(FACTION_BAD_INPUT, `\u9635\u8425\u540D\u4E0D\u80FD\u4E3A\u7A7A\u4E32\uFF08\u7A7A\u4E32 = \u4E2D\u7ACB\uFF0C\u4E2D\u7ACB\u4E0D\u53C2\u4E0E\u5173\u7CFB\u8868\uFF09\uFF1A\u6536\u5230\u300C${a}\u300D/\u300C${b}\u300D`));
-    }
-    if (a === b) {
-      return err(
-        engineError(FACTION_BAD_INPUT, `\u4E0D\u80FD\u7ED9\u300C${a}\u300D\u548C\u5B83\u81EA\u5DF1\u8BBE\u5173\u7CFB \u2014\u2014 \u540C\u961F\u6052\u4E3A ally\uFF08\u8981\u961F\u53CB\u4E92\u780D\u8BF7\u7528 attack({friendlyFire:true})\uFF09`)
-      );
-    }
-    if (!isStance(stance)) {
-      return err(engineError(FACTION_BAD_INPUT, `\u672A\u77E5\u5173\u7CFB\u300C${String(stance)}\u300D\uFF08\u53EA\u63A5\u53D7 ${STANCES.join(" / ")}\uFF09`));
-    }
-    this.put(a, b, stance);
-    this.put(b, a, stance);
-    return ok(true);
-  }
-  put(a, b, stance) {
-    let row = this.table.get(a);
-    if (row === void 0) {
-      row = /* @__PURE__ */ new Map();
-      this.table.set(a, row);
-    }
-    row.set(b, stance);
-  }
-  /**
-   * 判两方的立场。
-   *
-   * 顺序（判据按这个顺序写）：
-   *  1. 同名且非空 → `ally`（不查表）；
-   *  2. 表里有 → 表里的值；
-   *  3. 其余（含任一方为空串、含两方都空串）→ `neutral`。
-   */
-  stanceOf(a, b) {
-    if (a.length > 0 && a === b) return "ally";
-    const got = this.table.get(a)?.get(b);
-    return got ?? "neutral";
-  }
-  /** 是不是盟友（`attack()` 默认只拦这个）。 */
-  isAlly(a, b) {
-    return this.stanceOf(a, b) === "ally";
-  }
-  /** 关系的只读快照（按 `a` 再按 `b` 升序）—— 日志与判据读它不会因插入序而变。 */
-  pairs() {
-    const out = [];
-    for (const [a, row] of this.table) {
-      for (const [b, stance] of row) out.push({ a, b, stance });
-    }
-    out.sort((x, y) => x.a !== y.a ? x.a < y.a ? -1 : 1 : x.b < y.b ? -1 : x.b > y.b ? 1 : 0);
-    return out;
-  }
-};
-function createFactions() {
-  return new Factions();
 }
 
 // src/extensions/combat/attack.ts
@@ -25707,7 +25833,7 @@ var Perception = class {
 
 // src/extensions/mobs/mob-brain.ts
 var MOB_BAD_BRAIN = "MOB.BAD_BRAIN";
-function mix322(a, b, c) {
+function mix323(a, b, c) {
   let h = (a ^ 2654435769) >>> 0;
   h = Math.imul(h ^ b + 2246822507, 3432918353) >>> 0 ^ h >>> 13;
   h = Math.imul(h ^ c + 3266489909, 461845907) >>> 0 ^ h >>> 15;
@@ -25853,7 +25979,7 @@ var MobBrain = class {
     const cz = grid.cellZ(homeCell);
     const r = this.o.wanderRadiusCells;
     const epoch = Math.floor(tick / this.o.wanderEvery);
-    let h = mix322(this.o.seed, agentId, epoch);
+    let h = mix323(this.o.seed, agentId, epoch);
     for (let k = 0; k < 6; k++) {
       h = Math.imul(h, 1664525) + 1013904223 >>> 0;
       const span = 2 * r + 1;
@@ -25905,6 +26031,11 @@ function createMobWorldModule(options) {
   let lastCorpseError = "";
   let bodiesRemoved = 0;
   let bodiesAdded = 0;
+  let respawned = 0;
+  let lastRespawnCell = -1;
+  let lastRespawnError = "";
+  let lastRespawnCheck = Number.NEGATIVE_INFINITY;
+  let respawnTpl = null;
   function prune() {
     const s = scene;
     if (s === null || ids.length === 0) {
@@ -25941,6 +26072,30 @@ function createMobWorldModule(options) {
     }
     return bodiesAdded - before;
   }
+  function respawnPrey(tick) {
+    const rp = options.respawn;
+    const s = scene;
+    if (rp === void 0 || s === null || respawnTpl === null) return;
+    if (tick - lastRespawnCheck < rp.everyTicks) return;
+    lastRespawnCheck = tick;
+    let alive = 0;
+    for (const id of ids) if (kindOf2.get(id) === rp.kind) alive++;
+    if (alive >= rp.max) return;
+    const cell = rp.pickCell(tick);
+    if (cell < 0) return;
+    const c = options.grid.centerOf(cell);
+    const born = spawnMob(s, respawnTpl, c.x, c.z, { name: `mob#r${String(respawned + 1)}` });
+    if (!born.ok) {
+      lastRespawnError = born.error.code;
+      return;
+    }
+    ids.push(born.value.nodeId);
+    kindOf2.set(born.value.nodeId, born.value.template.kind);
+    radiusOfNode.set(born.value.nodeId, born.value.template.radius);
+    respawned++;
+    lastRespawnCell = cell;
+    mobs = ids.length;
+  }
   const handle = {
     id: options.id ?? "world.mobs",
     get stats() {
@@ -25964,6 +26119,9 @@ function createMobWorldModule(options) {
         corpsesSpawned,
         corpsesFailed,
         lastCorpseError,
+        respawned,
+        lastRespawnCell,
+        lastRespawnError,
         threatTargets: threat?.stats().targets ?? 0,
         threatEntries: threat?.stats().entries ?? 0,
         lastLootError
@@ -25995,6 +26153,31 @@ function createMobWorldModule(options) {
         return err(engineError(MOB_WORLD_BAD_MODULE, `threatDecayTicks \u5FC5\u987B\u662F >= 0 \u7684\u6574\u6570\uFF0C\u6536\u5230 ${String(decay)}`));
       }
       threat = decay === 0 ? null : createThreatTable({ decayTicks: decay });
+      const rp = options.respawn;
+      if (rp !== void 0) {
+        if (!Number.isInteger(rp.everyTicks) || rp.everyTicks < 1) {
+          return err(
+            engineError(MOB_WORLD_BAD_MODULE, `respawn.everyTicks \u5FC5\u987B\u662F >= 1 \u7684\u6574\u6570\uFF0C\u6536\u5230 ${String(rp.everyTicks)}`)
+          );
+        }
+        if (!Number.isInteger(rp.max) || rp.max < 1) {
+          return err(engineError(MOB_WORLD_BAD_MODULE, `respawn.max \u5FC5\u987B\u662F >= 1 \u7684\u6574\u6570\uFF0C\u6536\u5230 ${String(rp.max)}`));
+        }
+        for (const raw of options.templates) {
+          const v = validateTemplate(raw);
+          if (v.ok && v.value.kind === rp.template) {
+            respawnTpl = v.value;
+            break;
+          }
+        }
+        if (respawnTpl === null) {
+          return err(
+            engineError(MOB_WORLD_BAD_MODULE, `respawn.template \u6307\u5411\u4E00\u4E2A\u4E0D\u5B58\u5728\u7684\u6A21\u677F ${String(rp.template)}`, {
+              template: rp.template
+            })
+          );
+        }
+      }
       brain = createMobBrain({
         factions: options.factions,
         range: options.range,
@@ -26118,6 +26301,7 @@ function createMobWorldModule(options) {
       moveMod.update(tick, dt);
       combatMod.update(tick, dt);
       prune();
+      respawnPrey(tick);
       syncBodies();
     },
     stop() {
@@ -27529,62 +27713,31 @@ async function main() {
   let playerCorpses = 0;
   let lastCorpseSkip = "";
   let lastVictim = null;
-  const MOB_TEMPLATES = [
-    {
-      kind: "rabbit",
-      frame: "rabbit",
-      width: 0.9,
-      height: 0.9,
-      radius: 0.28,
-      maxHp: 4,
-      damage: 0,
-      range: 1.4,
-      cooldownTicks: 20,
-      speed: 1.1,
-      team: "prey",
-      loot: [{ kind: "meat", count: 2 }]
-    },
-    {
-      kind: "hound",
-      frame: "hound",
-      width: 1.1,
-      height: 1.1,
-      radius: 0.34,
-      maxHp: 8,
-      damage: 2,
-      range: 1.7,
-      cooldownTicks: 15,
-      speed: 2.3,
-      team: "hunter",
-      loot: [{ kind: "hide", count: 1 }]
-    }
-  ];
-  const MOB_FACTIONS = createFactions();
-  MOB_FACTIONS.setStance("hunter", "prey", "foe");
-  function pickMobSpots(grid, hounds, rabbits, avoidCell) {
-    const walk = [];
-    const ax = grid.cellX(avoidCell);
-    const az = grid.cellZ(avoidCell);
-    for (let i = 0; i < grid.total; i++) {
-      if (!grid.isWalkableIndex(i)) continue;
-      const cx = grid.cellX(i);
-      const cz = grid.cellZ(i);
-      if (Math.abs(cx - ax) <= 2 && Math.abs(cz - az) <= 2) continue;
-      walk.push(i);
-    }
-    const total = hounds + rabbits;
-    const out = [];
-    if (walk.length === 0) return out;
-    const stride = Math.max(1, Math.floor(walk.length / total));
-    for (let k = 0; k < total; k++) {
-      const cell = walk[Math.min(walk.length - 1, k * stride)];
-      if (cell === void 0) continue;
-      out.push({ template: k < hounds ? 1 : 0, cell });
-    }
-    return out;
-  }
+  const MOB_TEMPLATES = DEMO_MOB_TEMPLATES;
+  const MOB_FACTIONS = createDemoFactions();
   let mobsHandle = null;
   let corpsesHandle = null;
+  function pickPreySpawnCell(tick) {
+    const grid = worldState.nav;
+    const player = worldState.player;
+    const mobs = worldState.mobs;
+    if (grid === null || player === null) return -1;
+    const live = [];
+    if (mobs !== null) {
+      for (const id of mobs.nodeIds) {
+        const n = scene.find(id);
+        if (n === void 0) continue;
+        const c = grid.cellAt(n.worldPosition.x, n.worldPosition.y);
+        if (c >= 0) live.push(c);
+      }
+    }
+    return pickPreyCellAround(grid, player.cell, live, tick, {
+      minCells: DEMO_PREY_RESPAWN.minCells,
+      maxCells: DEMO_PREY_RESPAWN.maxCells,
+      blockCells: DEMO_PREY_RESPAWN.blockCells,
+      seed: WORLD_SEED
+    });
+  }
   const feedbackMod = createFeedbackModule({ id: "render.feedback.demo" });
   const hitstopMod = createHitstopModule({
     id: "combat.hitstop.demo",
@@ -27659,7 +27812,7 @@ async function main() {
       if (g === null || player === null) {
         return err(engineError("MOBS.NO_WORLD", "\u5BFC\u822A\u7F51\u683C\u6216\u73A9\u5BB6\u8FD8\u6CA1\u5EFA\u597D\uFF0C\u751F\u7269\u65E0\u5904\u843D\u811A"));
       }
-      const spots = pickMobSpots(g, 3, 10, player.cell);
+      const spots = pickDemoMobSpots(g, DEMO_HOUNDS, DEMO_RABBITS, player.cell);
       if (spots.length === 0) {
         return err(engineError("MOBS.NO_SPOT", "\u4E16\u754C\u91CC\u627E\u4E0D\u5230\u53EF\u8D70\u7684\u51FA\u751F\u70B9\uFF08\u5730\u5F62\u5168\u662F\u6C34/\u5D16\uFF1F\uFF09"));
       }
@@ -27684,7 +27837,16 @@ async function main() {
         // 批124：生物长**动态体**（被树挡住、被玩家挡住、彼此挡住）。
         // ★ 不传的话它们仍然互相穿过 —— 而"穿过"与"挡住"在统计上一模一样，
         //   只有画面能分辨，所以这条接线必须有判据（浏览器自检的 bodies 那一条）。
-        physics
+        physics,
+        // 批126：兔子会再长出来。不传的话世界里的生物只减不增 ——
+        // 3 只猎狗 4 秒就能把 10 只兔子吃干净，之后地图上没有猎物可打。
+        respawn: {
+          everyTicks: DEMO_PREY_RESPAWN.everyTicks,
+          kind: DEMO_PREY_RESPAWN.kind,
+          max: DEMO_PREY_RESPAWN.max,
+          template: DEMO_PREY_RESPAWN.template,
+          pickCell: (tick) => pickPreySpawnCell(tick)
+        }
       });
       const r = h.init(ctx);
       if (r !== void 0 && !r.ok) return r;
