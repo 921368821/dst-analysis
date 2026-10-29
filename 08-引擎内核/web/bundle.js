@@ -7595,6 +7595,11 @@ async function runWithSanitizedEnv(fn) {
 var BOOTSTRAP = `
 __engine_deadline = 0
 
+-- \u6A21\u5757\u73AF\u5883\u6A21\u5F0F\uFF08\u6279133\uFF09\uFF1Afalse = \u6BCF\u4E2A\u6A21\u5757\u4E00\u5F20\u72EC\u7ACB env\uFF1Btrue = \u5171\u7528 _G\u3002
+-- \u2605 \u7531 LuaBackendOptions.sharedModuleEnv \u5728 initEngine \u91CC\u7FFB\u8F6C\uFF0C**\u4E0D\u5728**\u8FD9\u91CC\u731C\u9ED8\u8BA4\u503C\uFF1A
+--   \u9ED8\u8BA4\u5FC5\u987B\u662F\u9694\u79BB\uFF08\u70ED\u66F4\u4E0D\u53D8\u5F0F\u9760\u5B83\uFF09\uFF0C\u5171\u4EAB\u662F\u663E\u5F0F\u9009\u62E9\u3002
+__engine_shared_env = false
+
 -- \u8BA1\u65F6\u94A9\u5B50\uFF1A\u53EA\u5728\u8C03\u7528\u65B9\u7ED9\u4E86 timeoutMs \u65F6\u6302\u4E0A\uFF08\u5426\u5219\u6BCF N \u6761\u6307\u4EE4\u4E00\u6B21\u56DE\u8C03\u662F\u767D\u4ED8\u7684\u5F00\u9500\uFF09\u3002
 -- \u7528 CPU \u65F6\u95F4\u800C\u4E0D\u662F Date.now\uFF1A\u811A\u672C\u91CC\u62FF\u4E0D\u5230 JS \u65F6\u949F\uFF0Cos.clock \u5728 wasm \u91CC\u53EF\u7528\u4E14\u5355\u8C03\u3002
 __engine_timeout_hook = function()
@@ -7736,8 +7741,16 @@ end
 --   \u4E0E _G \u91CC\u540C\u503C\u7684\u952E\u4E0D\u6536\uFF08\u6A21\u5757\u628A env \u6362\u6210\u4E86 _G \u65F6\uFF0C\u90A3\u91CC\u7684\u4E00\u5207\u90FD\u662F\u5168\u5C40\u7684\uFF0C
 --   \u4E0D\u8BE5\u6574\u4F53\u642C\u8FDB\u6A21\u5757\u547D\u540D\u7A7A\u95F4\uFF09\u3002
 function __engine_load(name, source)
-  local env = {}
-  setmetatable(env, { __index = _G })
+  -- \u2605 \u5171\u4EAB\u6A21\u5F0F\uFF08\u6279133\uFF09\uFF1A\u76F4\u63A5\u7528 _G \u5F53\u73AF\u5883\u3002
+  --   \u771F\u5B9E DST \u811A\u672C\u9760"\u5168\u5C40\u5373\u6A21\u5757"\u5DE5\u4F5C\uFF08require("class") \u4E4B\u540E\u88F8\u7528 Class\uFF09\uFF0C
+  --   \u9694\u79BB\u6A21\u5F0F\u4E0B\u90A3\u4E9B\u5168\u5C40\u843D\u5728\u6A21\u5757\u81EA\u5DF1\u7684 env \u91CC\u3001\u522B\u4EBA\u770B\u4E0D\u89C1 \u2014\u2014 \u89C1\u6587\u4EF6\u5934\u3002
+  local env
+  if __engine_shared_env then
+    env = _G
+  else
+    env = {}
+    setmetatable(env, { __index = _G })
+  end
 
   local chunk, compile_err = load(source, "@" .. name, "t", env)
   if not chunk then
@@ -7958,6 +7971,9 @@ var LuaScriptRuntime = class {
         return this.disposedErr();
       }
       await lua.doString(BOOTSTRAP);
+      if (this.opts.sharedModuleEnv === true) {
+        await lua.doString("__engine_shared_env = true");
+      }
       if (this.disposed) {
         lua.global.close();
         return this.disposedErr();

@@ -172,9 +172,9 @@ MUTANTS = [
         "name": "M4 模块 env 退化为共享 _G",
         "file": "src/backends/script-lua/runtime.ts",
         "pairs": [(
-            "  local env = {}\n  setmetatable(env, { __index = _G })",
-            # 等价于"没做隔离"：所有模块写在同一个全局表里
-            "  local env = _G\n  setmetatable(env, { __index = _G })",
+            "    env = {}\n    setmetatable(env, { __index = _G })",
+            # 等价于"没做隔离"：所有模块写在同一个全局表里（批133 起这行在 else 分支里）
+            "    env = _G\n    setmetatable(env, { __index = _G })",
         )],
         "test": "tests/backends/script-env.test.ts",
     },
@@ -5256,8 +5256,9 @@ MUTANTS = [
         "file": "src/backends/script-lua/runtime.ts",
         "pairs": [
             [
-                "  local env = {}",
-                "  local env = _G"
+                # 批133 起这一行在 else 分支里（4 空格缩进）；共享模式分支自己用 env = _G。
+                "    env = {}",
+                "    env = _G"
             ]
         ],
         "test": "tests/backends/script-hot-reload.test.ts"
@@ -7668,6 +7669,35 @@ MUTANTS = [
         "test": "tests/tools/gap-check.test.ts",
     },
     # ---- 批132：wx 存档的原子写
+    # ---- 批133：脚本模块的两种环境
+    {
+        "name": "M831 sharedModuleEnv 选项被忽略（共享模式退化成隔离 —— 真实 DST 脚本又全炸在 Class 上）",
+        "file": "src/backends/script-lua/runtime.ts",
+        "pairs": [("      if (this.opts.sharedModuleEnv === true) {\n", "      if (false) {\n")],
+        "test": "tests/backends/script-shared-env.test.ts",
+    },
+    {
+        "name": "M832 默认改成共享（热更不变式 ③ 被静默关掉：新版本还看得到上一版的全局）",
+        # ★ 这条与 M831 是**两个方向**：那条验"打开时真的打开了"，这条验"没打开时真的是关着的"。
+        #   只验一个方向的话，一个"永远共享"的实现全绿，而隔离模式的承诺已经没了。
+        "file": "src/backends/script-lua/runtime.ts",
+        "pairs": [("__engine_shared_env = false\n", "__engine_shared_env = true\n")],
+        "test": "tests/backends/script-shared-env.test.ts",
+    },
+    {
+        "name": "M833 loadModule 不登记 package.loaded（require 永远说「已加载的模块不存在」）",
+        # ★ 第一版这里打的是「共享模式也去建命名空间表」，跑出来是**等价变异**：
+        #   `collect` 内部还有一句 `if _G[k] ~= v then ns[k] = v end`，
+        #   当 t 就是 _G 时它一个键都收不进去 —— 删掉外层那个判断，行为一模一样。
+        #   换成这条：package.loaded 是 5.1 里 require 的第一站（也是唯一一站，
+        #   因为垫片的 require 不读文件系统），漏登记 ⇒ 先加载 class 再 require("class") 也找不到。
+        "file": "src/backends/script-lua/runtime.ts",
+        "pairs": [(
+            "  package.loaded[name] = result == nil and true or result\n",
+            "  package.loaded[name] = nil\n",
+        )],
+        "test": "tests/backends/script-shared-env.test.ts",
+    },
     {
         "name": "M826 wx 存档直接写目标（回到批132 之前：崩在写入中途就是半份存档）",
         # ★ 这条变异必须**整段绕过** atomicWrite，而不是只把 write(tmp) 改成 write(target)：

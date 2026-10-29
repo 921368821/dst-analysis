@@ -40,11 +40,22 @@
  *   `caps.version` 仍然是 `5.4` —— 这是**事实**（解释器是 5.4），垫片只补 API；
  *   把它写成 "5.1" 会让"到底按哪个语义写的脚本能跑"变得不可判定。
  *
- * ★★ per-module `_ENV` 隔离：
- *   每个模块一张独立 env（`__index = _G`），模块里 `x = 1` 不再污染别人；
- *   热重载换一张新表，旧全局随旧表一起丢弃。细节与解析顺序见 `BOOTSTRAP` 头部。
- *   已知边界：`_G` 本身仍是共享的（`module()` 会往里写嵌套表、宿主 `expose` 也往
- *   里写）—— 那是"全局"的本义，不是隔离没做。
+ * ★★ 两种模块环境（默认隔离；共享模式为真实 DST 内容而存在）：
+ *
+ *   **隔离（默认）**：每个模块一张独立 env（`__index = _G`），模块里 `x = 1` 不再污染别人；
+ *   热重载换一张新表，旧全局随旧表一起丢弃。已知边界：`_G` 本身仍共享
+ *   （`module()` 会往里写嵌套表、宿主 `expose` 也往里写）—— 那是"全局"的本义。
+ *
+ *   **共享（`sharedModuleEnv: true`）**：所有模块共用 `_G`。这不是"关掉隔离图省事"，
+ *   而是**真实 DST 脚本的约定就是"全局即模块"** —— 2026-10-29 批133 实测：
+ *   `dstsrc/scripts/behaviourtree.lua` 第 159 行只有一句裸的 `require("class")`，
+ *   第 204 行直接 `BT = Class(function ... end)`。`class.lua` 里 `Class` 是**全局**，
+ *   于是隔离模式下 `Class` 落到 `_G` 是 nil ⇒ 每个真实文件都死在第一个 `Class(...)`。
+ *   这不是"垫片缺口"，是**两种模块观**的冲突，只能显式选：
+ *     · 隔离模式保住热更不变式 ③（新版本看不到上一版的全局）；
+ *     · 共享模式换来的能力是"能跑 153 万行内容层"，代价是热更换版本时旧全局还在
+ *       —— 也就是 DST 自己在设备上的行为。两者不能同时成立，别假装能。
+ *   细节与解析顺序见 `BOOTSTRAP` 头部。
  */
 
 import { LuaFactory } from "wasmoon";
@@ -158,6 +169,11 @@ async function runWithSanitizedEnv<T>(
  */
 const BOOTSTRAP = `
 __engine_deadline = 0
+
+-- 模块环境模式（批133）：false = 每个模块一张独立 env；true = 共用 _G。
+-- ★ 由 LuaBackendOptions.sharedModuleEnv 在 initEngine 里翻转，**不在**这里猜默认值：
+--   默认必须是隔离（热更不变式靠它），共享是显式选择。
+__engine_shared_env = false
 
 -- 计时钩子：只在调用方给了 timeoutMs 时挂上（否则每 N 条指令一次回调是白付的开销）。
 -- 用 CPU 时间而不是 Date.now：脚本里拿不到 JS 时钟，os.clock 在 wasm 里可用且单调。
@@ -300,8 +316,16 @@ end
 --   与 _G 里同值的键不收（模块把 env 换成了 _G 时，那里的一切都是全局的，
 --   不该整体搬进模块命名空间）。
 function __engine_load(name, source)
-  local env = {}
-  setmetatable(env, { __index = _G })
+  -- ★ 共享模式（批133）：直接用 _G 当环境。
+  --   真实 DST 脚本靠"全局即模块"工作（require("class") 之后裸用 Class），
+  --   隔离模式下那些全局落在模块自己的 env 里、别人看不见 —— 见文件头。
+  local env
+  if __engine_shared_env then
+    env = _G
+  else
+    env = {}
+    setmetatable(env, { __index = _G })
+  end
 
   local chunk, compile_err = load(source, "@" .. name, "t", env)
   if not chunk then
@@ -546,6 +570,15 @@ export interface LuaBackendOptions {
    *   典型值：`new URL("glue.wasm", location.href).href`。
    */
   readonly wasmPath?: string;
+  /**
+   * 所有模块共用 `_G` 当环境（默认 false = 每模块独立 env）。
+   *
+   * ★ 只该在"跑真实 DST 内容层"时打开：那些脚本按 5.1 的 `require` + 全局工作，
+   *   隔离模式下它们会死在第一个跨模块的全局引用上（批133 实测 behaviourtree.lua:204）。
+   *   代价是热更不变式 ③ 不成立（新版本仍看得到上一版的全局）——
+   *   这就是 DST 在设备上的行为，不是缺陷，但必须是**显式**选择。
+   */
+  readonly sharedModuleEnv?: boolean;
 }
 
 export class LuaScriptRuntime implements IScriptRuntime {
@@ -601,6 +634,11 @@ export class LuaScriptRuntime implements IScriptRuntime {
         return this.disposedErr();
       }
       await lua.doString(BOOTSTRAP);
+      if (this.opts.sharedModuleEnv === true) {
+        // ★ 单独一句、且在垫片与任何模块之前：垫片里的 `require` 与 `__engine_load`
+        //   都要读这个标志，晚一行就会有一个模块按错模式加载。
+        await lua.doString("__engine_shared_env = true");
+      }
       if (this.disposed) {
         // dispose 可能发生在 doString 的 await 期间（此时 engine 还没赋值，dispose 拿不到它）
         lua.global.close();
