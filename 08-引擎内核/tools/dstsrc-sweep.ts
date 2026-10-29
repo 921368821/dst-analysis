@@ -29,12 +29,9 @@
 import { readdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { LuaScriptRuntime } from "../src/backends/script-lua/runtime.ts";
-import {
-  collectModuleSources,
-  resolverFromSources,
-} from "../src/backends/script-lua/module-resolver.ts";
-import { ORDER_PRESETS, orderScripts, splitNeverDefined, summarizeFailures } from "./dstsrc-report.mjs";
+import { collectModuleSources } from "../src/backends/script-lua/module-resolver.ts";
+import { ORDER_PRESETS, splitNeverDefined, summarizeFailures } from "./dstsrc-report.mjs";
+import { runSweepPass } from "./dstsrc-run.ts";
 import { NodeFileSystem } from "../src/backends/fs-node/fs.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -80,60 +77,34 @@ const files = [...allFiles].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 
 type Pass = { readonly label: string; readonly resolve: boolean; readonly order: string };
 
+/**
+ * 跑一档。**逻辑全在 `dstsrc-run.ts`**（批138 拆出去的：那段逻辑承载着报告的结论，
+ * 却在 CI 里永远跑不到 —— `dstsrc` 未入库）。这里只负责"抓异常 → 退出码"和打印。
+ */
 async function run(
   pass: Pass,
-): Promise<{ ok: number; fail: Array<[string, string]>; order: string[]; probed: Map<string, string> }> {
+): Promise<{ ok: number; fail: ReadonlyArray<readonly [string, string]>; order: readonly string[]; probed: Map<string, string> }> {
   // 根 = scripts 目录；collect 的键是**相对**路径（`cls.lua` / `ai/brain.lua`）
   const fs = new NodeFileSystem(SRC);
   const collected = await collectModuleSources(fs, "");
   if (!collected.ok) throw new Error(`收集模块失败：${collected.error.message}`);
 
-  const rt = new LuaScriptRuntime(
-    pass.resolve
-      ? { sharedModuleEnv: true, resolveModule: resolverFromSources(collected.value) }
-      : { sharedModuleEnv: true },
-  );
-  // 未知预设在上面已挡掉；这里再抛就说明常量被改坏了，宁可炸也不要跑出错口径。
-  const order = orderScripts(files, pass.order);
-  try {
-    const ready = await rt.ready();
-    if (!ready.ok) throw new Error(`运行时没起来：${ready.error.message}`);
-
-    let ok = 0;
-    const fail: Array<[string, string]> = [];
-    for (const name of order) {
-      const read = await fs.readText(name);
-      if (!read.ok) throw new Error(`读不动 ${name}：${read.error.message}`);
-      const r = await rt.loadModule(name.replace(/\.lua$/, ""), read.value);
-      if (r.ok) ok++;
-      else fail.push([name, r.error.message]);
-    }
-
-    // ── 探针：跑完之后 `_G` 里到底有没有这个名字 ────────────────────────────
-    // ★ 这一步把「缺」分成两种，而这两种要做的决定完全相反：
-    //   · 跑完仍是 nil  ⇒ 这份语料里**没有任何文件**给过它 ⇒ 引擎欠的
-    //   · 跑完不是 nil  ⇒ 它后来被定义了 ⇒ 只是读到它时还没轮到 ⇒ 顺序问题
-    //   没有这一步，"三档都缺"里会混进 8 个其实有定义的名字（`EntityScript`
-    //   `WORLD_TILES` `Entity` `Print` `TheMixer` `CAMERASHAKE` `SEED` 等），
-    //   于是 API 面会被做成一堆没人需要的假对象。
-    //   `rawget` 而不是 `_G[n]`：strict 档里 `__index` 会对未声明的名字直接报错。
-    const probed = new Map<string, string>();
-    const names = summarizeFailures(fail).missingGlobals.map((g) => g.name);
-    if (names.length > 0) {
-      const probe = await rt.loadModule(
-        "__sweep_probe",
-        "function __sweep_probe_global(name)\n return type(rawget(_G, tostring(name)))\nend",
-      );
-      if (!probe.ok) throw new Error(`装不上探针：${probe.error.message}`);
-      for (const n of names) {
-        const r = await rt.call("__sweep_probe_global", [n]);
-        probed.set(n, r.ok ? String(r.value) : `?(调用失败 ${r.error.message})`);
-      }
-    }
-    return { ok, fail, order, probed };
-  } finally {
-    rt.dispose();
-  }
+  // ★ 三档共用同一份模块快照：每档各收集一次的话，量到的可能不是同一份语料
+  //   （中间有人改了文件，三档的对比就失去意义，而且没有任何地方会报错）。
+  const r = await runSweepPass({
+    fs,
+    files,
+    order: pass.order,
+    resolve: pass.resolve,
+    modules: collected.value,
+  });
+  if (!r.ok) throw new Error(`${pass.label} 跑不起来：${r.error.message}`);
+  return {
+    ok: r.value.ok,
+    fail: r.value.fail,
+    order: r.value.order,
+    probed: new Map(r.value.probed),
+  };
 }
 
 console.log(`语料：${SRC}`);

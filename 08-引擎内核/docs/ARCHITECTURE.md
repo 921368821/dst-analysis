@@ -567,8 +567,7 @@ wasmoon 是 5.4，DST 内容层是 5.1。垫片补齐 `unpack` / `loadstring` / 
 边界（诚实标注）：`listModules()` / `hasModule()` 只报宿主 `loadModule` 直接给的模块，
 `require` 装载的留在 Lua 的 `package.loaded` 里 —— 合并会假装引擎知道内容层的模块图，而解析器是可替换的。
 
-**加载顺序是测量口径的一部分（批136）。** 上面那张「缺哪些全局」的表**曾经是错的**：
-`IsConsole` / `IsSteamDeck` / `ValidateLineNumber` 由 `main.lua` 自己定义、`global` 在 `strict.lua`、
+**加载顺序是测量口径的一部分（批136）。** 上面那张「缺哪些全局」的表**曾经是错的**：`IsConsole` / `IsSteamDeck` / `ValidateLineNumber` 由 `main.lua` 自己定义、`global` 在 `strict.lua`、
 `Vector3` 在 `vector3.lua` —— 纯字母序把 `debugkeys.lua` 排在 `main.lua` 前面，它们就"看起来"是引擎缺口。
 所以 `--order` 是显式参数（`alpha` 纯字母序 / `strict-first` / `boot-first` / `all`），
 写进文档的数字必须能复现出"用哪个口径量的"。三档实测：**165** / **129** / **137**（共 218）。
@@ -590,6 +589,15 @@ alpha 从 **164 抬到 165** —— 批136 当时判断「给了也不改数字�
 判据在 `tests/backends/script-bit.test.ts` 与 `tests/tools/dstsrc-report.test.ts`
 （`orderScripts` / `splitNeverDefined`），M850–M862 钉住"静默回退预设""没探测到当成 nil"
 「`tobit` 不做符号扩展」「`arshift` 用逻辑右移」这些会把结论或数值带偏的实现。
+
+**仪器本身也要有判据（批138）。** 上面这些结论全由「跑一遍语料」那段逻辑产出，而它原来
+只跑在 `dstsrc` 上 —— 素材未入库，CI 里永远是"跳过"，跳过与通过长得一模一样（第三次撞上
+这个形状）。现在那段逻辑在 `tools/dstsrc-run.ts` 的 `runSweepPass({fs, files, order, resolve, modules})`：
+文件系统可注入，于是 `tests/tools/dstsrc-sweep.test.ts` 用 `MemoryFileSystem` 造一份
+**迷你语料**（晚定义的全局 / `main.lua` 定义后即死 / `strict.lua` 挂 `__index` /
+被 require 的模块放在子目录、不在顶层列表里）在 CI 里真跑，钉住三件真实测量里看不见的事：
+**顺序真的应用到了加载循环**、**探针真的是跑完之后问 `_G`**、**strict 档下探针走 `rawget`**。
+M863–M866 分别把它们打红。拆分后三档复量仍是 117 / 165 / 129 / 137。
 
 **`module()` 往真 `_G` 写的表怎么收尾**：5.1 语义下 `module("a.b")` 会在 `_G` 里建表，
 这正是"全局"的本义，不能隔离掉。但**卸载时必须摘掉**，否则下一次加载同名模块会复用那张脏表
@@ -847,7 +855,7 @@ UI 动画、音频、录像在暂停时仍应活动 —— 所以它们是不同
 | **浏览器自检** | 真实浏览器里 9 条端到端断言（画面/批处理/存档往返） | 9 | `web/selftest.html` |
 
 本表只统计 **L0–L3 核心子集**，行内数字相加为 **120 条 Node 判据 + 9 条浏览器自检**；
-含扩展解码器（PNG/JPEG/资产导入）与文件系统的全量是 2539 条 <!-- n:tests -->，全部在 `npm test` / 打开自检页里跑；
+含扩展解码器（PNG/JPEG/资产导入）与文件系统的全量是 2547 条 <!-- n:tests -->，全部在 `npm test` / 打开自检页里跑；
 `npm run check` 额外跑 `tsc`（strict + noUncheckedIndexedAccess）。
 
 ### 10.2 为什么"架构守护"比多写功能更重要
@@ -881,7 +889,7 @@ UI 动画、音频、录像在暂停时仍应活动 —— 所以它们是不同
 | # | 闸门 | 挡住什么 | 为什么必须自动化 |
 |---|---|---|---|
 | 1 | 类型检查 `tsc`（strict + `noUncheckedIndexedAccess`） | 类型层的不可能状态 | 人眼看不见"这里可能是 undefined" |
-| 2 | 判据（全量，2539 条 <!-- n:tests -->） | 行为退化 | 上一代引擎的判据从未被一次跑完过 |
+| 2 | 判据（全量，2547 条 <!-- n:tests -->） | 行为退化 | 上一代引擎的判据从未被一次跑完过 |
 | 3 | 物理性能闸门（**独占**跑） | 解算耗时退化 | 并行跑时测到的是"机器多忙"，不是"代码多慢"（阈值仍是 8ms，一个字没动） |
 | 4 | 覆盖率闸门 | "新代码没有任何判据走过" | 百分比能被平凡代码堆出来，所以守的是**未覆盖行清单**不许变多 |
 | 5 | 文档对账 | 判据数、变异数、后端数、步数写成过期值；**缺口清单里点名了已经在 CI 里跑的工具**（= 把做完的事记成待办） | **实测：这一批一次喊出 14 处漂移，人眼一处都没发现**。批97 起还管「清单对账」：`§六` 的缺口行若点名了某个 `tools/` 路径，而那个工具**已经在 CI 里跑**，就要人说清是"做完了没划掉"还是"点名点错了工具"（`tools/gap-check.mjs`，带合成的过期行做反向自检）。**批102 起还管阻塞清单**：`docs/BLOCKERS-*.md` 的每条数据行必须单行、点名的路径必须存在、状态落在 ✅/⛔/🔜/❌ 四种里，且**每条 ✅ 必须给一条逐字可核的证据**（行内一句「…」要能在它引用的文件里原样找到 —— 判据被删或文件改名就红）。`tools/blockers-check.mjs` + 12 条判据（含反向自检与接线判据）。**批131 起还管「做完却没关单」**：`§六` 的缺口行首格没划掉、行里却写着「已交付 / 已消除 / 已支持」，又没写明还差什么 ⇒ 红（`tools/gap-check.mjs` 的 `findForgottenClosures`，8 条判据 / 5 条变异）。两个反向条件（首格已划、行里还写着「仍缺」）都是为了不假红 —— 假红会让人把「还差什么」那句话删掉，比漏报更贵 |
@@ -894,7 +902,7 @@ UI 动画、音频、录像在暂停时仍应活动 —— 所以它们是不同
 | 12 | 浏览器端自检（无头 CDP 驱动，56 条 <!-- n:browser -->） | 页面级问题（DOM 缺节点、`fetch` 绑定、GL 拒绝） | Node 判据只能证明"我们发了什么调用"，不能证明浏览器接受；**缺浏览器时标 ⊘ 跳过，不算通过** |
 | 13 | 编辑器页自检（无头 CDP，103 条 <!-- n:editor -->） | 编辑器坏而运行时好（或反过来） | 与第 12 步分开，红的时候要一眼看出该谁修 |
 | 14 | 跨宿主存档比对 | Node 与浏览器写出的存档字节不同 | 存档要能在两个宿主之间迁，字节不同就悄悄迁移失败 |
-| 15 | 变异校验（862 组 <!-- n:mutants -->） | **判据本身失效**（改坏了还是绿的） | 这是唯一能证明"判据有牙齿"的手段 |
+| 15 | 变异校验（866 组 <!-- n:mutants -->） | **判据本身失效**（改坏了还是绿的） | 这是唯一能证明"判据有牙齿"的手段 |
 
 ★ 第 8 步的**适用域**（2026-10-25 实测，写清楚免得下次又当 bug 查）：
 金标是**某个具体 ffmpeg 构建**的产物 —— 本机生成它的是 `7.1-essentials_build-www.gyan.dev`。
@@ -948,9 +956,9 @@ CI 上 `pip install imageio-ffmpeg` 装的是 Linux 构建，对 12 位灰度（
   **16 位进 GPU**（`PixelFormat.RGBA16` + 图集 `precision` + WebGL2 `RGBA16/UNSIGNED_SHORT`）、
   **动画时间轴**（`AnimationClip` 只读数据 + 组件持时间 + 纯采样，图集不持计时器）、
   **真实资产上屏**（导入 → 解码 → 确定性图集合成 → `createTexture`，浏览器读 `web/assets/` 5 PNG + 1 JPEG）
-- **2539 条 Node 判据** <!-- n:tests -->（166 个测试文件 <!-- n:files -->）+ 56 条浏览器自检 <!-- n:browser -->，架构守护 7 条，
+- **2547 条 Node 判据** <!-- n:tests -->（167 个测试文件 <!-- n:files -->）+ 56 条浏览器自检 <!-- n:browser -->，架构守护 7 条，
   后端契约 22 条（两图形后端）+ 14 条（两脚本后端）
-- 变异验证 **862 组** <!-- n:mutants -->（异常隔离 / id 空间 / 增量 hash / env 隔离 / Paeth / 像素上传 / 5.1 unpack /
+- 变异验证 **866 组** <!-- n:mutants -->（异常隔离 / id 空间 / 增量 hash / env 隔离 / Paeth / 像素上传 / 5.1 unpack /
   Adam7 pass 表 / pass 宽度 / APNG blend / APNG dispose / 16 位取整 / APNG 帧数校验 /
   渐进 AC 精修 EOBRUN / 重启区间 DC 复位 / 三角上采样 / 截断标记 / EXIF 旋转 /
   QM 的 Switch_MPS / 双线性单侧钳位 / 无损差分取模 / DC 类别上限 / 精度规则 / EXP 位置 /
@@ -1710,7 +1718,7 @@ HUD 文案混入非 ASCII、背包行不切 `visible`、选中不换底色、皮
 │   ├── wx-entry.ts        L6  小游戏宿主（同一份装配，换四件套）
 │   ├── wx-boot.ts             小游戏启动壳（esbuild 入口，只调 main()）
 │   └── index.ts               对外 API 面（只导出接口/类型/工厂）
-├── tests/                 166 个文件 <!-- n:files --> / 2539 条判据 <!-- n:tests -->（arch · contract · core · backends · extensions）
+├── tests/                 167 个文件 <!-- n:files --> / 2547 条判据 <!-- n:tests -->（arch · contract · core · backends · extensions）
 │   └── fixtures/png/      外部金标语料（隔行/16 位/APNG，pngjs + Pillow 双实现产出）
 │   └── fixtures/jpeg/     外部金标语料（**54 例** <!-- n:jpeggold -->，三份清单按案例名去重：Pillow 解 17 + 算术 6
 │                          + CMYK/YCCK 4 + "我们编码→libjpeg 解" 6 + liblj92 无损 8..16 位 9 + ffmpeg 12，

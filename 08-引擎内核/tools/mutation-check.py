@@ -7963,6 +7963,42 @@ MUTANTS = [
         "test": "tests/backends/script-bit.test.ts",
     },
     {
+        "name": "M863 顺序只算不用（加载循环仍按原顺序走）⇒ 「换口径」变成打印了一下",
+        "file": "tools/dstsrc-run.ts",
+        "pairs": [(
+            "    for (const name of plan) {",
+            "    for (const name of files) {",
+        )],
+        "test": "tests/tools/dstsrc-sweep.test.ts",
+    },
+    {
+        "name": "M864 探针用 `_G[name]` 而不是 `rawget`（strict 档下 __index 会先炸，探针自己坏了）",
+        "file": "tools/dstsrc-run.ts",
+        "pairs": [(
+            "\"function __sweep_probe_global(name)\\n return type(rawget(_G, tostring(name)))\\nend\"",
+            "\"function __sweep_probe_global(name)\\n return type(_G[tostring(name)])\\nend\"",
+        )],
+        "test": "tests/tools/dstsrc-sweep.test.ts",
+    },
+    {
+        "name": "M865 解析器没接上（传个空表）⇒ require 永远找不到，仪器退化成批134 之前",
+        "file": "tools/dstsrc-run.ts",
+        "pairs": [(
+            "      ? { sharedModuleEnv: true, resolveModule: resolverFromSources(modules) }",
+            "      ? { sharedModuleEnv: true, resolveModule: resolverFromSources(new Map()) }",
+        )],
+        "test": "tests/tools/dstsrc-sweep.test.ts",
+    },
+    {
+        "name": "M866 探针只探第一个名字（其余的「跑完有没有」全靠猜）",
+        "file": "tools/dstsrc-run.ts",
+        "pairs": [(
+            "      for (const n of names) {",
+            "      for (const n of names.slice(0, 1)) {",
+        )],
+        "test": "tests/tools/dstsrc-sweep.test.ts",
+    },
+    {
         "name": "M826 wx 存档直接写目标（回到批132 之前：崩在写入中途就是半份存档）",
         # ★ 这条变异必须**整段绕过** atomicWrite，而不是只把 write(tmp) 改成 write(target)：
         #   那样 rename 会去挪一个不存在的临时文件、报的是另一个错，
