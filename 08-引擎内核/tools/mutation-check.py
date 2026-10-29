@@ -7590,6 +7590,44 @@ MUTANTS = [
         "test": "tools/docs-check.mjs",
         "cmd": ["node", "tools/docs-check.mjs", "--quick"],
     },
+    {
+        "name": "M816 返回值桥接不判环（自引用表退回「嵌套超过 32 层」）",
+        # ★ 这就是批130 修复前的行为：`c.__index = c` 会一路展开 32 层，
+        #   报的是「八成是成环的表」—— 说了症状，没说原因。
+        "file": "src/backends/script-lua/runtime.ts",
+        "pairs": [("    if (path.has(src)) {\n", "    if (false) {\n")],
+        "test": "tests/backends/script-value-cycle.test.ts",
+    },
+    {
+        "name": "M817 只在对象分支判环，数组分支漏判（`t[1] = t` 退回深度兜底）",
+        # ★ 第一版实现就是这样：数组分支在对象分支**之前**，判环写在对象里，
+        #   于是自引用数组永远走不到 —— 判据当场红在 `返回值[0][0][0]…` 上。
+        "file": "src/backends/script-lua/runtime.ts",
+        "pairs": [("    if (path.has(v)) {\n", "    if (false) {\n")],
+        "test": "tests/backends/script-value-cycle.test.ts",
+    },
+    {
+        "name": "M818 参数侧用「全局 visited」代替路径栈（合法的共享引用被当成环拒掉）",
+        # ★ 落在参数侧而不是 Lua 侧：wasmoon 转 Lua 表时**深拷贝**，
+        #   `{a=t, b=t}` 到那边已经是两个对象 ⇒ 打在 Lua 侧是等价变异，永远不红。
+        "file": "src/platform/script/runtime.ts",
+        "pairs": [("        path.delete(src);\n", "")],
+        "test": "tests/backends/script-value-cycle.test.ts",
+    },
+    {
+        "name": "M819 参数侧不判环（自引用对象进 Lua 之前没人挡）",
+        "file": "src/platform/script/runtime.ts",
+        "pairs": [("      if (path.has(src)) return err(cycleError(where));\n", "      if (false) return err(cycleError(where));\n")],
+        "test": "tests/backends/script-value-cycle.test.ts",
+    },
+    {
+        "name": "M820 深度上限的文案不说「不是环」（两种失败又混成一句）",
+        # 文案也是判据的一部分：作者读到「八成是成环」会去拆数据，
+        # 读到「不是环，是太深」才会去摊平。
+        "file": "src/backends/script-lua/runtime.ts",
+        "pairs": [("嵌套超过 32 层（**不是环** —— 真的是数据太深；跨边界前请先摊平）", "嵌套超过 32 层（八成是成环的表）")],
+        "test": "tests/backends/script-value-cycle.test.ts",
+    },
 ]
 
 

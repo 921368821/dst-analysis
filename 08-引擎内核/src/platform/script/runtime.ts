@@ -129,11 +129,28 @@ export const ScriptErrorCode = {
 /**
  * 值校验：把"不可跨边界的东西"在进运行时之前就挡掉。
  * 不做这一步的症状是"某个字段在 Lua 侧变成 userdata/nil"，很难回溯到调用方。
+ *
+ * ★★ 环检测（批130）：`path` 是**当前这条路径**上的对象，不是"见过的对象"。
+ *
+ *   两者的区别不是风格问题，是**会误杀什么**：`{ a: t, b: t }` 是合法的共享引用
+ *   （同一张表挂在两个键下），用全局 visited 集判会把它当成环拒掉；用路径栈判
+ *   则在回溯时把 t 移出，`b` 那一支照样通过。DST 的类表里到处都是这种结构
+ *   （`c.__index = c`、组件表互相引用），误杀的代价比漏报大。
+ *
+ *   为什么需要它：批130 拿真实的 `class.lua`（363 行 DST 原始脚本）跑了一遍 ——
+ *   加载成功、`Class()` 一调就报"嵌套超过 32 层（八成是成环的引用）"。那不是"太深"，
+ *   是 `c.__index = c` 这种**自引用**：深度上限只是症状的兜底，说的是"我放弃数了"。
+ *   现在先判环再判深度，两条文案分开 —— 一个是作者的写法问题，一个是数据太大。
  */
 export function assertScriptValue(v: unknown, where: string): Result<ScriptValue, EngineError> {
-  const walk = (x: unknown, depth: number): Result<ScriptValue, EngineError> => {
+  const walk = (x: unknown, depth: number, path: Set<object>): Result<ScriptValue, EngineError> => {
     if (depth > 32) {
-      return err(engineError(ScriptErrorCode.BadValue, `${where}: 嵌套超过 32 层（八成是成环的引用）`));
+      return err(
+        engineError(
+          ScriptErrorCode.BadValue,
+          `${where}: 嵌套超过 32 层（**不是环** —— 真的是数据太深；跨边界前请先摊平）`,
+        ),
+      );
     }
     if (x === null || typeof x === "boolean" || typeof x === "string") return ok(x);
     if (typeof x === "number") {
@@ -144,28 +161,55 @@ export function assertScriptValue(v: unknown, where: string): Result<ScriptValue
       return ok(x);
     }
     if (Array.isArray(x)) {
-      const out: ScriptValue[] = [];
-      for (let i = 0; i < x.length; i++) {
-        const r = walk(x[i], depth + 1);
-        if (!r.ok) return r;
-        out.push(r.value);
+      if (path.has(x)) return err(cycleError(where));
+      path.add(x);
+      try {
+        const out: ScriptValue[] = [];
+        for (let i = 0; i < x.length; i++) {
+          const r = walk(x[i], depth + 1, path);
+          if (!r.ok) return r;
+          out.push(r.value);
+        }
+        return ok(out);
+      } finally {
+        path.delete(x);
       }
-      return ok(out);
     }
     if (typeof x === "object") {
       const src = x as Record<string, unknown>;
-      const out: Record<string, ScriptValue> = {};
-      for (const k of Object.keys(src).sort()) {
-        // 排序：保证跨语言转换顺序确定（与存档的确定性同一诉求）
-        const r = walk(src[k], depth + 1);
-        if (!r.ok) return r;
-        out[k] = r.value;
+      if (path.has(src)) return err(cycleError(where));
+      path.add(src);
+      try {
+        const out: Record<string, ScriptValue> = {};
+        for (const k of Object.keys(src).sort()) {
+          // 排序：保证跨语言转换顺序确定（与存档的确定性同一诉求）
+          const r = walk(src[k], depth + 1, path);
+          if (!r.ok) return r;
+          out[k] = r.value;
+        }
+        return ok(out);
+      } finally {
+        path.delete(src);
       }
-      return ok(out);
     }
     return err(
       engineError(ScriptErrorCode.BadValue, `${where}: 类型 ${typeof x} 不能跨脚本边界（只允许 null/bool/number/string/数组/纯对象）`),
     );
   };
-  return walk(v, 0);
+  return walk(v, 0, new Set<object>());
+}
+
+/**
+ * 「自引用」的统一文案。
+ *
+ * ★ 必须点名那句**具体的话**（`c.__index = c`），而不是"八成是成环的表"：
+ *   读懂"嵌套超过 32 层"的人会去拆数据，读懂"c.__index = c"的人会立刻明白
+ *   自己把类对象当返回值了。同一份信息，两种写法的**行动成本差一个数量级**。
+ */
+function cycleError(where: string): EngineError {
+  return engineError(
+    ScriptErrorCode.BadValue,
+    `${where}: 自引用（同一个表在它自己的路径上又出现了一次）—— ` +
+      "DST 的类都写 `c.__index = c`，所以别把类/实例当返回值，只返回数据字段",
+  );
 }

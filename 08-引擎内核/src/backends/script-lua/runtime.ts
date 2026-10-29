@@ -406,10 +406,26 @@ function looksLikeSequence(obj: Record<string, unknown>): boolean {
 /**
  * Lua/JS 混合值 → `ScriptValue`。
  * 只在这里做"合法化"，上层拿到的每个值都满足契约（有限 number、纯对象、无函数）。
+ *
+ * ★★ 环检测先于深度上限（批130）。原因与 `assertScriptValue` 同：DST 的类写的是
+ *   `c.__index = c`，那是**自引用**，而"嵌套超过 32 层"只是数不下去时的兜底说法。
+ *   真实症状（拿 `dstsrc/scripts/class.lua` 实测）：`Class()` 一返回就报
+ *   `返回值.__index.__index.…（32 层）`，读的人只会去怀疑"数据太大"。
+ *   现在同样用**路径栈**（不是全局 visited）：`{a=t, b=t}` 这种共享引用合法，不该拒。
  */
-function toScriptValue(v: unknown, where: string, depth = 0): Result<ScriptValue, EngineError> {
+function toScriptValue(
+  v: unknown,
+  where: string,
+  depth = 0,
+  path: Set<object> = new Set<object>(),
+): Result<ScriptValue, EngineError> {
   if (depth > 32) {
-    return err(engineError(ScriptErrorCode.BadValue, `${where}: 嵌套超过 32 层（八成是成环的表）`));
+    return err(
+      engineError(
+        ScriptErrorCode.BadValue,
+        `${where}: 嵌套超过 32 层（**不是环** —— 真的是数据太深；跨边界前请先摊平）`,
+      ),
+    );
   }
   if (v === null || v === undefined) return ok(null);
   if (typeof v === "boolean" || typeof v === "string") return ok(v);
@@ -420,33 +436,67 @@ function toScriptValue(v: unknown, where: string, depth = 0): Result<ScriptValue
     return ok(v);
   }
   if (Array.isArray(v)) {
-    const out: ScriptValue[] = [];
-    for (let i = 0; i < v.length; i++) {
-      const r = toScriptValue(v[i], `${where}[${i}]`, depth + 1);
-      if (!r.ok) return r;
-      out.push(r.value);
+    // ★ 数组也要判环：`t[1] = t` 在 Lua 里是合法写法，wasmoon 会把它转成
+    //   `[self]` —— 不判就会在下一层无限展开，最后还是被 32 层兜底报成"太深"。
+    //   （第一版只给对象分支加了环检测，判据当场红在 `返回值[0][0][0]…` 上。）
+    if (path.has(v)) {
+      return err(
+        engineError(
+          ScriptErrorCode.BadValue,
+          `${where}: 自引用（同一个表在它自己的路径上又出现了一次）—— ` +
+            "DST 的类都写 `c.__index = c`，所以别把类/实例当返回值，只返回数据字段",
+        ),
+      );
     }
-    return ok(out);
-  }
-  if (typeof v === "object") {
-    const src = v as Record<string, unknown>;
-    if (looksLikeSequence(src)) {
+    path.add(v);
+    try {
       const out: ScriptValue[] = [];
-      for (let i = 1; i <= Object.keys(src).length; i++) {
-        const r = toScriptValue(src[String(i)], `${where}[${i}]`, depth + 1);
+      for (let i = 0; i < v.length; i++) {
+        const r = toScriptValue(v[i], `${where}[${i}]`, depth + 1, path);
         if (!r.ok) return r;
         out.push(r.value);
       }
       return ok(out);
+    } finally {
+      path.delete(v);
     }
-    const out: Record<string, ScriptValue> = {};
-    // 排序：转换顺序确定 ⇒ 调试输出与判据可复现（不依赖 lua_next 顺序）
-    for (const k of Object.keys(src).sort()) {
-      const r = toScriptValue(src[k], `${where}.${k}`, depth + 1);
-      if (!r.ok) return r;
-      out[k] = r.value;
+  }
+  if (typeof v === "object") {
+    const src = v as Record<string, unknown>;
+    // ★ 环检测必须在**进入**这一层时判（数组与对象共用），否则自引用数组
+    //   （`t[1] = t`）会先被 `looksLikeSequence` 认成序列，再在下一层无限展开。
+    if (path.has(src)) {
+      return err(
+        engineError(
+          ScriptErrorCode.BadValue,
+          `${where}: 自引用（同一个表在它自己的路径上又出现了一次）—— ` +
+            "DST 的类都写 `c.__index = c`，所以别把类/实例当返回值，只返回数据字段",
+        ),
+      );
     }
-    return ok(out);
+    path.add(src);
+    try {
+      if (looksLikeSequence(src)) {
+        const out: ScriptValue[] = [];
+        for (let i = 1; i <= Object.keys(src).length; i++) {
+          const r = toScriptValue(src[String(i)], `${where}[${i}]`, depth + 1, path);
+          if (!r.ok) return r;
+          out.push(r.value);
+        }
+        return ok(out);
+      }
+      const out: Record<string, ScriptValue> = {};
+      // 排序：转换顺序确定 ⇒ 调试输出与判据可复现（不依赖 lua_next 顺序）
+      for (const k of Object.keys(src).sort()) {
+        const r = toScriptValue(src[k], `${where}.${k}`, depth + 1, path);
+        if (!r.ok) return r;
+        out[k] = r.value;
+      }
+      return ok(out);
+    } finally {
+      // ★ 回溯时移出：`{a=t, b=t}` 的 `b` 那一支要能通过。
+      path.delete(src);
+    }
   }
   return err(
     engineError(

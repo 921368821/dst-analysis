@@ -5910,9 +5910,14 @@ var ScriptErrorCode = {
   BadValue: "SCRIPT.BAD_VALUE"
 };
 function assertScriptValue(v, where) {
-  const walk = (x, depth) => {
+  const walk = (x, depth, path) => {
     if (depth > 32) {
-      return err(engineError(ScriptErrorCode.BadValue, `${where}: \u5D4C\u5957\u8D85\u8FC7 32 \u5C42\uFF08\u516B\u6210\u662F\u6210\u73AF\u7684\u5F15\u7528\uFF09`));
+      return err(
+        engineError(
+          ScriptErrorCode.BadValue,
+          `${where}: \u5D4C\u5957\u8D85\u8FC7 32 \u5C42\uFF08**\u4E0D\u662F\u73AF** \u2014\u2014 \u771F\u7684\u662F\u6570\u636E\u592A\u6DF1\uFF1B\u8DE8\u8FB9\u754C\u524D\u8BF7\u5148\u644A\u5E73\uFF09`
+        )
+      );
     }
     if (x === null || typeof x === "boolean" || typeof x === "string") return ok(x);
     if (typeof x === "number") {
@@ -5922,29 +5927,47 @@ function assertScriptValue(v, where) {
       return ok(x);
     }
     if (Array.isArray(x)) {
-      const out = [];
-      for (let i = 0; i < x.length; i++) {
-        const r = walk(x[i], depth + 1);
-        if (!r.ok) return r;
-        out.push(r.value);
+      if (path.has(x)) return err(cycleError(where));
+      path.add(x);
+      try {
+        const out = [];
+        for (let i = 0; i < x.length; i++) {
+          const r = walk(x[i], depth + 1, path);
+          if (!r.ok) return r;
+          out.push(r.value);
+        }
+        return ok(out);
+      } finally {
+        path.delete(x);
       }
-      return ok(out);
     }
     if (typeof x === "object") {
       const src = x;
-      const out = {};
-      for (const k of Object.keys(src).sort()) {
-        const r = walk(src[k], depth + 1);
-        if (!r.ok) return r;
-        out[k] = r.value;
+      if (path.has(src)) return err(cycleError(where));
+      path.add(src);
+      try {
+        const out = {};
+        for (const k of Object.keys(src).sort()) {
+          const r = walk(src[k], depth + 1, path);
+          if (!r.ok) return r;
+          out[k] = r.value;
+        }
+        return ok(out);
+      } finally {
+        path.delete(src);
       }
-      return ok(out);
     }
     return err(
       engineError(ScriptErrorCode.BadValue, `${where}: \u7C7B\u578B ${typeof x} \u4E0D\u80FD\u8DE8\u811A\u672C\u8FB9\u754C\uFF08\u53EA\u5141\u8BB8 null/bool/number/string/\u6570\u7EC4/\u7EAF\u5BF9\u8C61\uFF09`)
     );
   };
-  return walk(v, 0);
+  return walk(v, 0, /* @__PURE__ */ new Set());
+}
+function cycleError(where) {
+  return engineError(
+    ScriptErrorCode.BadValue,
+    `${where}: \u81EA\u5F15\u7528\uFF08\u540C\u4E00\u4E2A\u8868\u5728\u5B83\u81EA\u5DF1\u7684\u8DEF\u5F84\u4E0A\u53C8\u51FA\u73B0\u4E86\u4E00\u6B21\uFF09\u2014\u2014 DST \u7684\u7C7B\u90FD\u5199 \`c.__index = c\`\uFF0C\u6240\u4EE5\u522B\u628A\u7C7B/\u5B9E\u4F8B\u5F53\u8FD4\u56DE\u503C\uFF0C\u53EA\u8FD4\u56DE\u6570\u636E\u5B57\u6BB5`
+  );
 }
 
 // src/backends/script-null/runtime.ts
@@ -7795,9 +7818,14 @@ function looksLikeSequence(obj) {
   }
   return true;
 }
-function toScriptValue(v, where, depth = 0) {
+function toScriptValue(v, where, depth = 0, path = /* @__PURE__ */ new Set()) {
   if (depth > 32) {
-    return err(engineError(ScriptErrorCode.BadValue, `${where}: \u5D4C\u5957\u8D85\u8FC7 32 \u5C42\uFF08\u516B\u6210\u662F\u6210\u73AF\u7684\u8868\uFF09`));
+    return err(
+      engineError(
+        ScriptErrorCode.BadValue,
+        `${where}: \u5D4C\u5957\u8D85\u8FC7 32 \u5C42\uFF08**\u4E0D\u662F\u73AF** \u2014\u2014 \u771F\u7684\u662F\u6570\u636E\u592A\u6DF1\uFF1B\u8DE8\u8FB9\u754C\u524D\u8BF7\u5148\u644A\u5E73\uFF09`
+      )
+    );
   }
   if (v === null || v === void 0) return ok(null);
   if (typeof v === "boolean" || typeof v === "string") return ok(v);
@@ -7808,32 +7836,58 @@ function toScriptValue(v, where, depth = 0) {
     return ok(v);
   }
   if (Array.isArray(v)) {
-    const out = [];
-    for (let i = 0; i < v.length; i++) {
-      const r = toScriptValue(v[i], `${where}[${i}]`, depth + 1);
-      if (!r.ok) return r;
-      out.push(r.value);
+    if (path.has(v)) {
+      return err(
+        engineError(
+          ScriptErrorCode.BadValue,
+          `${where}: \u81EA\u5F15\u7528\uFF08\u540C\u4E00\u4E2A\u8868\u5728\u5B83\u81EA\u5DF1\u7684\u8DEF\u5F84\u4E0A\u53C8\u51FA\u73B0\u4E86\u4E00\u6B21\uFF09\u2014\u2014 DST \u7684\u7C7B\u90FD\u5199 \`c.__index = c\`\uFF0C\u6240\u4EE5\u522B\u628A\u7C7B/\u5B9E\u4F8B\u5F53\u8FD4\u56DE\u503C\uFF0C\u53EA\u8FD4\u56DE\u6570\u636E\u5B57\u6BB5`
+        )
+      );
     }
-    return ok(out);
+    path.add(v);
+    try {
+      const out = [];
+      for (let i = 0; i < v.length; i++) {
+        const r = toScriptValue(v[i], `${where}[${i}]`, depth + 1, path);
+        if (!r.ok) return r;
+        out.push(r.value);
+      }
+      return ok(out);
+    } finally {
+      path.delete(v);
+    }
   }
   if (typeof v === "object") {
     const src = v;
-    if (looksLikeSequence(src)) {
-      const out2 = [];
-      for (let i = 1; i <= Object.keys(src).length; i++) {
-        const r = toScriptValue(src[String(i)], `${where}[${i}]`, depth + 1);
-        if (!r.ok) return r;
-        out2.push(r.value);
+    if (path.has(src)) {
+      return err(
+        engineError(
+          ScriptErrorCode.BadValue,
+          `${where}: \u81EA\u5F15\u7528\uFF08\u540C\u4E00\u4E2A\u8868\u5728\u5B83\u81EA\u5DF1\u7684\u8DEF\u5F84\u4E0A\u53C8\u51FA\u73B0\u4E86\u4E00\u6B21\uFF09\u2014\u2014 DST \u7684\u7C7B\u90FD\u5199 \`c.__index = c\`\uFF0C\u6240\u4EE5\u522B\u628A\u7C7B/\u5B9E\u4F8B\u5F53\u8FD4\u56DE\u503C\uFF0C\u53EA\u8FD4\u56DE\u6570\u636E\u5B57\u6BB5`
+        )
+      );
+    }
+    path.add(src);
+    try {
+      if (looksLikeSequence(src)) {
+        const out2 = [];
+        for (let i = 1; i <= Object.keys(src).length; i++) {
+          const r = toScriptValue(src[String(i)], `${where}[${i}]`, depth + 1, path);
+          if (!r.ok) return r;
+          out2.push(r.value);
+        }
+        return ok(out2);
       }
-      return ok(out2);
+      const out = {};
+      for (const k of Object.keys(src).sort()) {
+        const r = toScriptValue(src[k], `${where}.${k}`, depth + 1, path);
+        if (!r.ok) return r;
+        out[k] = r.value;
+      }
+      return ok(out);
+    } finally {
+      path.delete(src);
     }
-    const out = {};
-    for (const k of Object.keys(src).sort()) {
-      const r = toScriptValue(src[k], `${where}.${k}`, depth + 1);
-      if (!r.ok) return r;
-      out[k] = r.value;
-    }
-    return ok(out);
   }
   return err(
     engineError(
