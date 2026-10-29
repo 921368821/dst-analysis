@@ -43,6 +43,7 @@ import { Logger, LogLevel } from "./foundation/log/logger.ts";
 import { MemoryFileSystem } from "./backends/fs-memory/fs.ts";
 import { HttpFileSystem } from "./backends/fs-http/fs.ts";
 import { resolveAssetSource } from "./extensions/build/bundle-source.ts";
+import { BundleFileSystem } from "./extensions/build/fs-bundle.ts";
 import type { IReadableFileSystem } from "./platform/fs/fs.ts";
 import { StorageFileSystem } from "./backends/fs-storage/fs.ts";
 import { AssetDatabase } from "./core/asset/asset.ts";
@@ -391,8 +392,13 @@ interface BakedUi {
  *   这里只做接线：从 location 取参数、把全局 fetch 与直读后端交给它。
  *   写在入口文件里的分支只能靠无头浏览器验，而哪条出口被走到是可以纯函数判的。
  */
+/** 这一次**实际**用的资产来源（`null` = 还没解析过；判据读的就是它）。 */
+let assetFs: IReadableFileSystem | null = null;
+/** `direct` = 直读 `web/assets`；`bundle` = 从内容寻址的构建产物包读。 */
+let assetKind: "direct" | "bundle" = "direct";
+
 async function assetSource(): Promise<IReadableFileSystem> {
-  return resolveAssetSource({
+  const source = await resolveAssetSource({
     packParam: new URL(location.href).searchParams.get("pack"),
     pageHref: location.href,
     root: ASSET_ROOT,
@@ -400,6 +406,13 @@ async function assetSource(): Promise<IReadableFileSystem> {
     fetchLike: (url) => fetch(url),
     warn: (message) => console.warn(message),
   });
+  // ★ 记下这次**实际**用的是哪一条（批127，C21）：只有 `?pack=` 那条路径能端到端验，
+  //   而"从包里读的"与"退回直读"在**画面上完全一样**（包里的字节就是源文件的字节）——
+  //   所以区分它们不能靠内容，只能靠这个标签。少了它，端到端判据会在"静默退回"
+  //   时照样绿，而那正是 C17 最想消灭的那种假象。
+  assetFs = source;
+  assetKind = source instanceof BundleFileSystem ? "bundle" : "direct";
+  return source;
 }
 
 async function bakeAtlasFromAssets(): Promise<BakedAtlas | null> {
@@ -2586,6 +2599,26 @@ export async function main(): Promise<void> {
     hitstop: () => ({ ...hitstopMod.stats }),
     /** 图集真实来源：`assets*7`（6 PNG + 1 JPEG）表示走完了导入链；`procedural` 表示降级了。 */
     atlasSource: atlasLabel,
+    /**
+     * 资产来源（批127 / C21）。
+     *
+     * ★ 为什么需要它：`?pack=` 那条路径此前**只有 Node 单测**（假的 fetch、假的字节），
+     *   真实浏览器里"从包读"与"静默退回直读"**画面完全一样** —— 包里的字节就是源文件的
+     *   字节。于是那条路径坏掉时没有任何东西会红，而 C17 整行还标着 ✅。
+     *   `kind` 是唯一能把两条路径分开的观测量；`readHex` 走**同一条来源**读，
+     *   端到端判据拿它跟直读的字节比，顺带证明"包里那份内容也是对的"。
+     */
+    asset: {
+      kind: () => assetKind,
+      readHex: async (file: string): Promise<string | null> => {
+        if (assetFs === null) return null;
+        const r = await assetFs.readBinary(file);
+        if (!r.ok) return null;
+        let hex = "";
+        for (const b of r.value) hex += b.toString(16).padStart(2, "0");
+        return hex;
+      },
+    },
     /** 世界链的产物：生成计划 / 装配结果 / 可见化报告 / 再生任务句柄。 */
     world: {
       plan: worldState.plan,

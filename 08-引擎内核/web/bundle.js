@@ -27271,8 +27271,10 @@ var UI_FILES = ["ui-font.fnt", "ui-font.png", "ui-skin.png", "ui-skin.json"];
 var UI_CJK_FILES = ["ui-font-cjk.fnt", "ui-font-cjk.png"];
 var UI_FONT_ID = "ui5x7";
 var UI_CJK_FONT_ID = "unifont-cjk-16-subset";
+var assetFs = null;
+var assetKind = "direct";
 async function assetSource() {
-  return resolveAssetSource({
+  const source = await resolveAssetSource({
     packParam: new URL(location.href).searchParams.get("pack"),
     pageHref: location.href,
     root: ASSET_ROOT,
@@ -27280,6 +27282,9 @@ async function assetSource() {
     fetchLike: (url) => fetch(url),
     warn: (message) => console.warn(message)
   });
+  assetFs = source;
+  assetKind = source instanceof BundleFileSystem ? "bundle" : "direct";
+  return source;
 }
 async function bakeAtlasFromAssets() {
   try {
@@ -28678,6 +28683,26 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
     hitstop: () => ({ ...hitstopMod.stats }),
     /** 图集真实来源：`assets*7`（6 PNG + 1 JPEG）表示走完了导入链；`procedural` 表示降级了。 */
     atlasSource: atlasLabel,
+    /**
+     * 资产来源（批127 / C21）。
+     *
+     * ★ 为什么需要它：`?pack=` 那条路径此前**只有 Node 单测**（假的 fetch、假的字节），
+     *   真实浏览器里"从包读"与"静默退回直读"**画面完全一样** —— 包里的字节就是源文件的
+     *   字节。于是那条路径坏掉时没有任何东西会红，而 C17 整行还标着 ✅。
+     *   `kind` 是唯一能把两条路径分开的观测量；`readHex` 走**同一条来源**读，
+     *   端到端判据拿它跟直读的字节比，顺带证明"包里那份内容也是对的"。
+     */
+    asset: {
+      kind: () => assetKind,
+      readHex: async (file) => {
+        if (assetFs === null) return null;
+        const r = await assetFs.readBinary(file);
+        if (!r.ok) return null;
+        let hex2 = "";
+        for (const b of r.value) hex2 += b.toString(16).padStart(2, "0");
+        return hex2;
+      }
+    },
     /** 世界链的产物：生成计划 / 装配结果 / 可见化报告 / 再生任务句柄。 */
     world: {
       plan: worldState.plan,

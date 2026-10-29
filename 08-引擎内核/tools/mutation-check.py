@@ -7346,6 +7346,39 @@ MUTANTS = [
             "    for (let dz = -r; dz <= r; dz++) {\n      if (Math.abs(dx) + Math.abs(dz) > r) continue;\n",
         )],
         "test": "tests/host/prey-respawn.test.ts",
+    },
+    {
+        "name": "M793 闸门不再看「项」格的自述（做完的项目可以一直挂在 🔜 上，清单又回答不了「还剩几件」）",
+        "file": "tools/blockers-check.mjs",
+        "pairs": [("      const claim = DONE_CLAIM_RE.exec(item);\n", "      const claim = null;\n")],
+        "test": "tests/tools/blockers-check.test.ts",
+    },
+    {
+        "name": "M794 构建忽略 mount（manifest 登记的键回到源文件位置，?pack= 每个 readBinary 都 NOT_FOUND）",
+        "file": "src/extensions/build/from-pipeline.ts",
+        "pairs": [(
+            "    const logical = mount === undefined ? path : `${mount}${path.slice(rootTrim.length)}`;\n",
+            "    const logical = path;\n",
+        )],
+        "test": "tests/extensions/build-cli.test.ts",
+    },
+    {
+        "name": "M795 资产来源永远自报 direct（走包也说自己走直读 —— 探针分不清哪条路径真的用了）",
+        "file": "src/browser-entry.ts",
+        "pairs": [(
+            '  assetKind = source instanceof BundleFileSystem ? "bundle" : "direct";\n',
+            '  assetKind = "direct";\n',
+        )],
+        "cmd": ["node", "tools/browser-selftest.mjs", "--build"],
+    },
+    {
+        "name": "M796 资产来源永远自报 bundle（退回直读也说在走包 —— 「静默退回」从此又变成长期假象）",
+        "file": "src/browser-entry.ts",
+        "pairs": [(
+            '  assetKind = source instanceof BundleFileSystem ? "bundle" : "direct";\n',
+            '  assetKind = "bundle";\n',
+        )],
+        "cmd": ["node", "tools/browser-selftest.mjs", "--build"],
     }
 ]
 

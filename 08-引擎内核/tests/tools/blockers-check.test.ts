@@ -146,6 +146,34 @@ test("同一个编号出现两次 ⇒ DUP_ID（复制粘贴留下的一半）", 
   assert.deepEqual(got.map((g) => g.code), ["DUP_ID"]);
 });
 
+test("「项」格写着「全部交付」却还挂着 🔜 ⇒ STATUS_CONTRADICTS_ITEM（做完忘了关单）", () => {
+  // ★ 这是 C18 的真实样子：地面堆叠 / 尸体 / 动态障碍在批122–124 全部交付、
+  //   演示生态批126 补上，而状态格一直挂 `🔜 未排期`。前四条规则全绿
+  //   —— `🔜` 本来就不要求证据，于是「做完了」与「还开着」在同一行同时成立，
+  //   清单再也回答不了「还剩几件」。
+  const got = findBlockerIssues({
+    docText: doc([
+      `| C18 | 玩法层三缺（**三项全部交付**：批122 / 批123 / 批124） | 现状 | —— | 🔜 未排期 |`,
+    ]),
+    ...OK_FS,
+  });
+  assert.deepEqual(got.map((g) => g.code), ["STATUS_CONTRADICTS_ITEM"]);
+});
+
+test("别格里的「已交付」不算自述 ⇒ 不许报（C3 的形状：能力已交付、项目决定不做）", () => {
+  // ★ 假红比漏报更贵：被误报吓过一次的人会把整条闸门关掉。
+  //   C3 的现状格里写着「开关已交付（批95）」，但那是**前置件**；
+  //   这条阻塞项本身的状态是「决定不做」。只看「项」格就不会误伤。
+  const got = findBlockerIssues({
+    docText: doc([
+      `| C3 | 门的方向性 | 开关已交付（批95）；剩下的确实是玩法决定 | —— | ❌ 决定不做 |`,
+    ]),
+    ...OK_FS,
+  });
+  assert.deepEqual(got.map((g) => g.code), []);
+});
+
+
 test("清单文件名带日期 ⇒ 取最新那份（拿旧清单对账等于没对账）", () => {
   assert.equal(pickBlockersDoc(["BLOCKERS-2026-10-27.md", "BLOCKERS-2026-03-01.md", "README.md"]), "BLOCKERS-2026-10-27.md");
   assert.equal(pickBlockersDoc(["README.md"]), null);

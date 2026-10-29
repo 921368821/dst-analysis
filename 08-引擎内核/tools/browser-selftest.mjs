@@ -48,6 +48,86 @@ function declaredRows() {
   return (src.match(/^row\(/gm) ?? []).length;
 }
 
+/**
+ * 判一次「资产来源探针」的结果（批127 / C21）。
+ *
+ * ★ 为什么这件事必须端到端、而且必须读 `kind`：
+ *   `?pack=` 坏掉时**画面不会坏** —— 包里装的字节就是源文件的字节，退回直读之后
+ *   游戏照跑、贴图照旧，只有一条 `console.warn` 飘过。C17 的 16 条 Node 判据
+ *   也发现不了：那些用例自己造的 manifest 与 root 当然对得上（真实构建产物的
+ *   `path` 是源文件位置，运行时的键是挂载根），于是这个错活过了整整一批。
+ *   唯一能把两条路径分开的观测量是宿主自报的 `asset.kind`。
+ *
+ * ★ 为什么还要比字节：`kind` 只回答"走的哪条路"，回答不了"包里那份内容对不对"。
+ *   两者一起读，才既证明路径通了、又证明内容没串。
+ */
+export function judgePackProbe({ label, expectedKind, booted, actualKind, byteEqual, atlasSource }) {
+  const problems = [];
+  if (booted !== true) return [`${label}：引擎没起来（页面里读不到 __engine.asset —— 包路径让启动挂掉了？）`];
+  if (actualKind !== expectedKind) {
+    problems.push(
+      `${label}：资产来源应当是 ${expectedKind}，实际是 ${String(actualKind)}` +
+        (expectedKind === "bundle" ? "（包没被用上 = 每个 readBinary 都 NOT_FOUND，图集静默降级）" : "（该退回直读却没退）"),
+    );
+  }
+  if (byteEqual !== true) problems.push(`${label}：从来源读出的 tree.png 与直读的字节不一致（或读不出来）`);
+  // ★ 第三条只在"资产真的走完导入链"时成立：程序化图集意味着读资产的每一张都失败了，
+  //   而那正是"path 与 root 对不上"的症状。它在两种来源下都该为真。
+  if (atlasSource === "procedural") problems.push(`${label}：图集退回程序化贴图 —— 说明资产一张都没读成功`);
+  return problems;
+}
+
+/** 在页面里读一次资产来源状态（`__engine.asset` 由入口暴露）。 */
+const PROBE_EXPR =
+  "(async () => {" +
+  " const e = globalThis.__engine;" +
+  " if (!e || !e.asset) return { booted: false };" +
+  " const kind = e.asset.kind();" +
+  " const hex = await e.asset.readHex('tree.png');" +
+  " let want = '';" +
+  " try {" +
+  "   const r = await fetch('./assets/tree.png');" +
+  "   if (!r.ok) return { booted: true, actualKind: kind, byteEqual: false, atlasSource: e.atlasSource };" +
+  "   const u = new Uint8Array(await r.arrayBuffer());" +
+  "   for (const b of u) want += b.toString(16).padStart(2, '0');" +
+  " } catch (err) { return { booted: true, actualKind: kind, byteEqual: false, atlasSource: e.atlasSource }; }" +
+  " return { booted: true, actualKind: kind, byteEqual: hex === want, atlasSource: e.atlasSource };" +
+  "})()";
+
+/** 开一个页面、等引擎起来，读一次探针。失败返回 `{booted:false}` 或抛给调用方。 */
+async function probeAssetSource(browser, url) {
+  const profile = mkdtempSync(join(tmpdir(), "engine-probe-"));
+  let child;
+  let client;
+  try {
+    const page = await openPage(browser, url, profile, "selftest.html");
+    child = page.child;
+    client = page.client;
+    const deadline = Date.now() + 45_000;
+    while (Date.now() < deadline) {
+      const r = await client.send("Runtime.evaluate", {
+        expression: PROBE_EXPR,
+        awaitPromise: true,
+        returnByValue: true,
+      });
+      const v = r?.result?.value;
+      // ★ 等到"引擎起来了 **且** 图集来源已有值"：`__engine` 是启动末尾才挂上的，
+      //   而 atlasSource 在那之前是 undefined —— 提前采会读到"程序化"的假象。
+      if (v !== undefined && v.booted === true && typeof v.atlasSource === "string") return v;
+      await sleep(250);
+    }
+    return { booted: false };
+  } finally {
+    client?.close();
+    if (child !== undefined) killTree(child);
+    try {
+      rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 60 });
+    } catch {
+      /* 留给系统临时目录清理 */
+    }
+  }
+}
+
 async function main() {
   if (process.argv.includes("--build")) {
     const b = spawnSync(process.platform === "win32" ? "npm.cmd" : "npm", ["run", "build:web"], {
@@ -79,8 +159,23 @@ async function main() {
     process.exit(EXIT_FAIL);
   }
 
-  const srv = await startStaticServer({ port: 0 });
-  const profile = mkdtempSync(join(tmpdir(), "engine-browser-"));
+  // ---- 构建产物（批127 / C21）：`?pack=` 那条路径要用**真产物**才能验，
+  //   自己造一个假 manifest 等于把"构建侧与运行时侧的路径约定"这条缝又让过去。
+  //   ★ 打进 `web/.packfix`（静态服务的根就是 `web/`），跑完删掉；`.gitignore` 里有它。
+  const packDir = join(WEB_ROOT, ".packfix");
+  rmSync(packDir, { recursive: true, force: true });
+  const packBuild = spawnSync(
+    process.execPath,
+    ["--experimental-transform-types", join("tools", "build.ts"), "--out", "web/.packfix"],
+    { encoding: "utf8", env: { ...process.env, NODE_NO_WARNINGS: "1" } },
+  );
+  if (packBuild.status !== 0) {
+    console.error("✗ 构建产物打不出来 —— `?pack=` 那条路径无从验证（不是判据失败，是验证条件缺失）");
+    console.error(`${packBuild.stdout ?? ""}${packBuild.stderr ?? ""}`.slice(0, 1200));
+    process.exit(EXIT_FAIL);
+  }
+
+  const srv = await startStaticServer({ port: 0 });  const profile = mkdtempSync(join(tmpdir(), "engine-browser-"));
   const t0 = Date.now();
   let child;
   let client;
@@ -182,6 +277,31 @@ async function main() {
       console.error(text.slice(0, 6000));
       process.exit(EXIT_FAIL);
     }
+    // ---- 资产来源探针（批127 / C21）：`?pack=` 只在真浏览器里才算数
+    //   ★ 两条一起跑，缺一条就有一半是瞎的：
+    //     · 包有效 ⇒ 必须真的走包里（kind=bundle）；
+    //     · 包无效 ⇒ 必须退回直读（kind=direct），**而且游戏还能跑**。
+    //   只跑前者的话，"永远走直读"（即 `?pack=` 完全没接线）会绿；
+    //   只跑后者的话，"永远走直读"同样绿。
+    const probes = [
+      { label: "?pack= 有效", query: "pack=.packfix/manifest.json", expectedKind: "bundle" },
+      { label: "?pack= 无效", query: "pack=.packfix/没有这个文件.json", expectedKind: "direct" },
+    ];
+    const probeProblems = [];
+    for (const p of probes) {
+      const got = await probeAssetSource(browser, `${srv.origin}/selftest.html?${p.query}`);
+      const msgs = judgePackProbe({ label: p.label, expectedKind: p.expectedKind, ...got });
+      if (msgs.length === 0) {
+        console.log(`· 资产来源 ${p.label}：${String(got.actualKind)}${got.actualKind === "bundle" ? "（包里的字节与直读一致）" : ""}`);
+      }
+      probeProblems.push(...msgs);
+    }
+    if (probeProblems.length > 0) {
+      console.error("✗ 资产来源探针失败（`?pack=` 这条路径）：");
+      for (const m of probeProblems) console.error(`  · ${m}`);
+      process.exit(EXIT_FAIL);
+    }
+
     console.log("✓ 浏览器端自检全部通过");
     process.exit(EXIT_PASS);
   } catch (e) {
@@ -192,6 +312,12 @@ async function main() {
     client?.close();
     if (child !== undefined) killTree(child);
     await srv.close();
+    // ★ 产物目录也要清：它每次都能重建，留着只会让下一个人以为自己手里的包是最新的
+    try {
+      rmSync(join(WEB_ROOT, ".packfix"), { recursive: true, force: true });
+    } catch {
+      /* 尽力而为：删不掉不影响结论，`.gitignore` 已经挡着它 */
+    }
     // 临时 profile 清理是**尽力而为**：Windows 上杀进程后文件句柄可能还没释放（EBUSY）。
     // 在 finally 里抛异常会盖掉真正的结果 —— 清理失败不算判据失败。
     try {

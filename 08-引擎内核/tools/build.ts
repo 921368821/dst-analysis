@@ -51,6 +51,12 @@ const EXIT_CONFIG = 2;
 
 interface Config {
   readonly assetRoot: string;
+  /**
+   * manifest 里登记的**运行时路径前缀**（批127）。缺省 = 与 `assetRoot` 相同（老行为）。
+   * 演示站点的运行时挂载根是 `/assets`，而源文件在 `/web/assets` —— 两者不等时
+   * 必须显式写出来，否则 `?pack=` 读到的每个键都是 NOT_FOUND（见 `CollectOptions.mount`）。
+   */
+  readonly mount?: string;
   readonly entries: readonly string[];
   readonly outDir: string;
   readonly maxBundleBytes?: number;
@@ -94,6 +100,7 @@ function loadConfig(configPath: string): Config {
     assetRoot: obj.assetRoot,
     entries,
     outDir: obj.outDir,
+    ...(typeof obj.mount === "string" ? { mount: obj.mount } : {}),
     ...(typeof obj.maxBundleBytes === "number" ? { maxBundleBytes: obj.maxBundleBytes } : {}),
   };
 }
@@ -169,7 +176,11 @@ async function main(): Promise<void> {
   }
 
   // ---- ④ 收集 + 打包
-  const input = await collectPublishInput(mem, db, { root: assetRoot, entries });
+  const input = await collectPublishInput(mem, db, {
+    root: assetRoot,
+    entries,
+    ...(cfg.mount === undefined ? {} : { mount: cfg.mount }),
+  });
   if (!input.ok) die(EXIT_BUILD_FAILED, `收集资产失败：${input.error.code} ${input.error.message}`);
   const built = buildPublish(input.value, cfg.maxBundleBytes === undefined ? {} : { maxBundleBytes: cfg.maxBundleBytes });
   if (!built.ok) die(EXIT_BUILD_FAILED, `打包失败：${built.error.code} ${built.error.message}`);

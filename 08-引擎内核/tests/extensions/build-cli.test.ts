@@ -165,6 +165,50 @@ test("[构建] 删掉一个包文件后重建：只把它补回来（不会全�
   }
 });
 
+test("[构建] mount 只改 manifest 里登记的**运行时键**，一个包都不重打（批127 / C21）", () => {
+  // ★ 这条守的是一个**真的活过一个批次**的错：manifest 的 `path` 以前直接取
+  //   "源文件在仓库哪里"（`/web/assets/tree.png`），而运行时是按自己的挂载根去取
+  //   （`/assets/tree.png`）—— 于是 `?pack=` 的每一次 readBinary 都 NOT_FOUND，
+  //   图集整体降级成程序化贴图，而屏幕上只是"美术看起来不太一样"。
+  //   Node 侧的单测发现不了它：那些用例自己造的 manifest 与 root 当然对得上。
+  const f = makeFixture();
+  try {
+    const cfgPath = join(f.dir, "config.json");
+    const base = JSON.parse(readFileSync(cfgPath, "utf8")) as Record<string, unknown>;
+    assert.equal(runBuild(f.dir).code, 0);
+    const before = JSON.parse(readFileSync(join(f.dir, "out", "manifest.json"), "utf8")) as {
+      assets: { path: string; id: string }[];
+      bundles: { hash: string }[];
+    };
+    assert.deepEqual(
+      before.assets.map((a) => a.path).sort(),
+      ["/assets/a.png", "/assets/b.png", "/assets/main.atlas.json"],
+      "不写 mount 时必须与老行为逐字相同（否则这条判据自己就成了破坏兼容的那一次改动）",
+    );
+    const bundlesBefore = bundleNames(join(f.dir, "out"));
+
+    writeFileSync(cfgPath, JSON.stringify({ ...base, mount: "/run" }), "utf8");
+    assert.equal(runBuild(f.dir).code, 0);
+    const after = JSON.parse(readFileSync(join(f.dir, "out", "manifest.json"), "utf8")) as {
+      assets: { path: string; id: string }[];
+      bundles: { hash: string }[];
+    };
+    assert.deepEqual(after.assets.map((a) => a.path).sort(), ["/run/a.png", "/run/b.png", "/run/main.atlas.json"]);
+    assert.deepEqual(
+      after.assets.map((a) => a.id).sort(),
+      before.assets.map((a) => a.id).sort(),
+      "换挂载点不该改变资产身份（id 是内容 hash）",
+    );
+    // ★ 两个观测量一起读：路径变了 ∧ 包没变。只读路径的话，
+    //   "把内容也一起重排了"照样绿；只读包的话，这条根本没验到东西。
+    assert.deepEqual(bundleNames(join(f.dir, "out")), bundlesBefore, "换挂载点不该重打任何包");
+    assert.deepEqual(after.bundles.map((b) => b.hash), before.bundles.map((b) => b.hash));
+  } finally {
+    f.cleanup();
+  }
+});
+
+
 test("[构建] 入口写错：退出码 1 并点名（不产出缺件的包）", () => {
   const f = makeFixture();
   try {

@@ -37,6 +37,20 @@ const META_SUFFIX = ".meta";
 export interface CollectOptions {
   /** 资产根（scheme 内的绝对路径，如 `/web/assets`）。 */
   readonly root: string;
+  /**
+   * manifest 里登记的**运行时路径前缀**（批127，C21）。
+   *
+   * ★ 为什么需要它：`root` 是"源文件在仓库哪里"，而 manifest 的 `path` 是
+   *   "运行时按什么键去取"。两者以前是同一个值，于是 `/web/assets/tree.png`
+   *   被当成运行时的键 —— 而宿主读的是 `/assets/tree.png`（它只知道自己的挂载根）。
+   *   结果：`?pack=` 那条路径每一个 `readBinary` 都 `FSBUNDLE.NOT_FOUND`，
+   *   图集烘焙整体降级成程序化贴图，**而画面看起来只是"美术不一样了"**。
+   *   判据在 Node 侧只有单测（自己造的 manifest 与 root 当然对得上），
+   *   所以这个错活了整整一批（C17 → C21）。
+   *
+   * ★ 缺省（不传）= 原样不动：老产物逐字节不变，不给出第二套默认行为。
+   */
+  readonly mount?: string;
   /** 入口资产 id。**必须显式给**：从"目录里所有文件"倒推入口，等于没有闭包。 */
   readonly entries: readonly string[];
   /**
@@ -98,7 +112,12 @@ export async function collectPublishInput(
     const read = await fs.readBinary(path);
     if (!read.ok) return read;
     const meta = db.meta(id);
-    assets.push({ id, path, bytes: read.value });
+    // ★ 登记的是**运行时键**（见 `mount` 的注释）。`root` 去尾斜杠后再切，
+    //   否则 `root="/web/assets/"` 会切出一个以 `/` 开头的余数、拼成 `//tree.png`。
+    const rootTrim = options.root.replace(/\/+$/, "");
+    const mount = options.mount === undefined ? undefined : options.mount.replace(/\/+$/, "");
+    const logical = mount === undefined ? path : `${mount}${path.slice(rootTrim.length)}`;
+    assets.push({ id, path: logical, bytes: read.value });
     dependencies.set(id, meta?.dependencies ?? []);
   }
 

@@ -41,7 +41,14 @@ export const BUILD_DEP_MISSING = "BUILD.DEP_MISSING";
 export interface PublishAsset {
   /** 资产身份（与 `AssetMeta.id` 同义）。 */
   readonly id: string;
-  /** 逻辑路径，只用于排查（**不参与**任何 hash）。 */
+  /**
+   * 运行时取资产的键（**不参与**任何 hash）。
+   *
+   * ★ 批127 改口：原来写的是「逻辑路径，只用于排查」，而 `BundleFileSystem`
+   *   `readBinary(path)` 就是拿它当键查的 —— 文档说"只用于排查"、代码当主键用，
+   *   于是构建侧按源文件位置生成、运行时按自己的挂载根去取，两边永远对不上。
+   *   现在这份路径由 `CollectOptions.mount` 决定（见那里的注释）。
+   */
   readonly path: string;
   readonly bytes: Uint8Array;
 }

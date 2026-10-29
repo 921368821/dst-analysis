@@ -15,3 +15,7 @@ coverage/
 # 三个文件与 `src/extensions/survival/` 下的正本重复，其中 `survival-module.ts`
 # 已经落后 9 行 —— 这种"看起来能改、改了没效果"的文件比不存在更贵。
 /.scratch/
+
+# `tools/browser-selftest.mjs` 每次跑都重新打的构建产物（`?pack=` 探针用），
+# 跑完它自己会删；留在这里是为了「被强杀之后 git status 仍然干净」。
+/web/.packfix/
