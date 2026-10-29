@@ -146,6 +146,8 @@ function makeMgr(o: FakeFsOptions = {}) {
 interface FakeWx {
   readonly wx: WxLike;
   readonly mgr: ReturnType<typeof makeMgr>;
+  /** `showModal` 收到的正文（启动失败的**唯一**可见通道 —— 真机上没有 DOM 兜底）。 */
+  readonly modals: string[];
   /** 把画布上排队的那一帧回调跑掉（帧源就是这么被驱动的）。 */
   frame(): void;
   touch(kind: "start" | "move" | "end", ev: WxTouchEventLike): void;
@@ -166,6 +168,7 @@ function makeWx(o: FakeFsOptions & { touch?: boolean; fs?: boolean } = {}): Fake
     cancelAnimationFrame: () => undefined,
   };
   const mgr = makeMgr(o);
+  const modals: string[] = [];
   const handlers = new Map<string, Set<WxTouchHandler>>();
   const wx: Record<string, unknown> = {
     createCanvas: () => canvas,
@@ -178,6 +181,9 @@ function makeWx(o: FakeFsOptions & { touch?: boolean; fs?: boolean } = {}): Fake
     cancelAnimationFrame: () => undefined,
     ...(o.fs === false ? {} : { getFileSystemManager: () => mgr.mgr }),
     showToast: () => undefined,
+    showModal: (opts: { content: string }) => {
+      modals.push(opts.content);
+    },
   };
   if (o.touch !== false) {
     for (const kind of ["Start", "Move", "End", "Cancel"]) {
@@ -191,6 +197,7 @@ function makeWx(o: FakeFsOptions & { touch?: boolean; fs?: boolean } = {}): Fake
   return {
     wx: wx as WxLike,
     mgr,
+    modals,
     frame: () => {
       const cbs = queue.splice(0, queue.length);
       for (const cb of cbs) cb();
@@ -346,4 +353,39 @@ test("★ 没有全局 wx 时 `main` 报 WX.NO_GLOBAL（不静默什么都不做
   } finally {
     if (had) g.wx = old;
   }
+});
+
+test("★★★ 装不起来时必须让人看见：没有触摸 ⇒ `main` 弹窗点名 WX.NO_TOUCH，且自己不抛", async () => {
+  // ★ 这条钉的是一个**顺序**缺陷，不是某个分支写错：`surface` 是在 `createWxHost`
+  //   之后才建好的，而 `WX.NO_TOUCH` / `WX.NO_FS` 恰恰抛在那之前 ⇒ 异常一路冒到
+  //   `void main()` ⇒ 真机上"未处理 promise 拒绝"通常什么都不发生：没画面、没弹窗、
+  //   帧循环没起来 —— 与"还在加载"在屏幕上一模一样。而这两类失败恰好是最可能
+  //   只在真机出现的那一类（触摸接口与文件系统在工具与真机之间行为不一定一致）。
+  const mod = await import("../../src/wx-entry.ts");
+  const f = makeWx({ touch: false });
+  const g = globalThis as { wx?: unknown };
+  const old = g.wx;
+  g.wx = f.wx;
+  const logs: string[] = [];
+  const oldErr = console.error;
+  console.error = (...args: unknown[]) => {
+    logs.push(args.map((a) => String(a)).join(" "));
+  };
+  try {
+    // ★ 这里**不** `assert.rejects`：抛出去正是要消掉的那个行为。
+    //   判据第一件事是"它自己回来了"，而不是"它抛了什么"。
+    await mod.main();
+  } finally {
+    console.error = oldErr;
+    if (old === undefined) delete g.wx;
+    else g.wx = old;
+  }
+  // 两个观测量一起读：弹窗是**玩家**看见的，日志是**开发者**看见的。
+  // 只断言弹窗会漏掉"日志被吞"；只断言日志会漏掉"弹窗没弹"——后者就是白屏。
+  assert.equal(f.modals.length, 1, `该弹且只该弹一次窗（实际 ${String(f.modals.length)} 次）`);
+  assert.ok(f.modals[0]!.includes("WX.NO_TOUCH"), `弹窗要带错误码，人才能照着查：${f.modals[0]!}`);
+  assert.ok(
+    logs.some((l) => l.includes("WX.NO_TOUCH")),
+    `日志里也要有全文（第一现场）：${logs.join(" | ")}`,
+  );
 });

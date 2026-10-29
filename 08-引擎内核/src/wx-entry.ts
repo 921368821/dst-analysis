@@ -77,6 +77,26 @@ export interface WxGameOptions {
   readonly onReady?: (handle: DemoHandle) => void;
 }
 
+/**
+ * 启动失败时**唯一**的播报点（弹窗 + 日志）。
+ *
+ * ★★ 为什么必须抽出来，而不是只放在 `surface.fatal` 里：
+ *
+ *   `surface` 是在 `createWxHost` **之后**才建好的（它要用 `wx` 才谈得上 `showToast`），
+ *   而 `createWxHost` 自己就会失败 —— `WX.NO_TOUCH` / `WX.NO_FS` 恰恰是**真机上最常见**
+ *   的那一类（触摸接口与文件系统在开发者工具与真机之间行为不一定一致）。
+ *   于是顺序是：真机缺一个东西 ⇒ 抛在 surface 建好之前 ⇒ `main()` 的 promise 拒绝
+ *   ⇒ 启动脚本里没人接 ⇒ **白屏，控制台一条红**。玩家看到的是"打开就黑"，开发者拿到的
+ *   是一句没有上下文的堆栈，而这正好落在"只有真机才复现"的那一侧 —— 最贵的位置。
+ *
+ *   所以：**报错的路不能依赖"已经走到哪一步了"**。这一层只依赖 `wx` 本身。
+ */
+function reportFatal(wx: WxLike, text: string): void {
+  // 日志是第一现场（真机调试与判据都读它），弹窗是给人看的。
+  console.error(text);
+  wx.showModal?.({ title: "启动失败", content: text.slice(0, 200), showCancel: false });
+}
+
 /** 把 `WxLike` 装成一局可玩的游戏。失败一律 reject，并带 `WX.*` / `DEMO.*` 错误码。 */
 export async function startWxGame(wx: WxLike, options: WxGameOptions = {}): Promise<DemoHandle> {
   // ---- 四件套（canvas / 视口 / 帧源 / 输入）+ 存档盘
@@ -134,9 +154,7 @@ export async function startWxGame(wx: WxLike, options: WxGameOptions = {}): Prom
       wx.showToast?.({ title: msg, icon: "none", duration: 2000 });
     },
     fatal: (text) => {
-      // 日志是第一现场（真机调试与判据都读它），弹窗是给人看的。
-      console.error(text);
-      wx.showModal?.({ title: "启动失败", content: text.slice(0, 200), showCancel: false });
+      reportFatal(wx, text);
     },
   };
 
@@ -186,17 +204,36 @@ export async function startWxGame(wx: WxLike, options: WxGameOptions = {}): Prom
   return handle;
 }
 
-/** 小游戏启动脚本的入口（`src/wx-boot.ts` 调它）。 */
+/**
+ * 小游戏启动脚本的入口（`src/wx-boot.ts` 调它）。
+ *
+ * ★★ 这里**必须**接住 `startWxGame` 的失败，而不是让它变成未处理的 promise 拒绝。
+ *   真机上"未处理拒绝"最坏的结果是**什么都不发生**：帧循环没起来、屏幕上没有画面、
+ *   也没有弹窗 —— 与"游戏正在加载"看起来一模一样。见 `reportFatal` 的注释。
+ *
+ * ★ 接住之后**不再重抛**：人已经看见弹窗、日志里也有全文；再抛一次只会变成
+ *   一条未处理拒绝，而"报过了"这件事那时就有两个真相了（哪个才算数？）。
+ *   判据要看失败原因，调的是 `startWxGame`（它仍然 reject），不是 `main`。
+ */
 export async function main(): Promise<void> {
   const g = globalThis as { wx?: WxLike };
   if (g.wx === undefined) {
-    throw new Error("WX.NO_GLOBAL：全局没有 wx —— 这不是小游戏运行环境");
+    // 没有 `wx` 连弹窗都没有（这不是小游戏环境）—— 只能打日志，然后抛给调用方，
+    // 否则"在浏览器里跑了小游戏入口"会变成一次静默的空转。
+    const text = "WX.NO_GLOBAL：全局没有 wx —— 这不是小游戏运行环境";
+    console.error(text);
+    throw new Error(text);
   }
   const wx = g.wx;
-  await startWxGame(wx, {
-    onReady: () => {
-      // 小游戏里没有 `window`；调试时从控制台读 `globalThis.__engine` 即可。
-      // （写在这里而不是 startWxGame 内部：那是"宿主要不要暴露调试面"的选择。）
-    },
-  });
+  try {
+    await startWxGame(wx, {
+      onReady: () => {
+        // 小游戏里没有 `window`；调试时从控制台读 `globalThis.__engine` 即可。
+        // （写在这里而不是 startWxGame 内部：那是"宿主要不要暴露调试面"的选择。）
+      },
+    });
+  } catch (e) {
+    // ★ 错误码前缀（`WX.NO_TOUCH：…`）必须原样到人眼前：真机排查时它是唯一的路标。
+    reportFatal(wx, e instanceof Error ? e.message : String(e));
+  }
 }

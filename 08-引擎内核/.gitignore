@@ -19,3 +19,8 @@ coverage/
 # `tools/browser-selftest.mjs` 每次跑都重新打的构建产物（`?pack=` 探针用），
 # 跑完它自己会删；留在这里是为了「被强杀之后 git status 仍然干净」。
 /web/.packfix/
+
+# `npm run build:wx` 的默认输出（`web/wx/game.js`）。**可再生的产物**：
+# 它由 `tools/build-wx.mjs` 逐字节确定性地造出来（CI 的 `wx-check` 就是验这一条），
+# 入库只会让「产物和源码哪个才是真的」变成一个可以争论的问题。
+/web/wx/

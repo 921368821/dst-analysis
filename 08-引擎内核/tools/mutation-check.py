@@ -987,15 +987,15 @@ MUTANTS = [
         "cmd": ["node", "tools/docs-check.mjs", "--quick"],
     },
     {
-        "name": "M76 ARCHITECTURE 的 CI 步数写成过期的 12",
+        "name": "M76 ARCHITECTURE 的 CI 步数写成过期的 14",
         # steps 的值来自 `node tools/ci.mjs --list`（外部进程），
         # 与 backends（读目录）是两条不同的取数路径，各钉一条。
         "file": "docs/ARCHITECTURE.md",
-        # ★ 靶子随闸门数漂移过三次（10→11→12→13）：这条变异必须跟着**真实标题**走，
+        # ★ 靶子随闸门数漂移过四次（10→11→12→13→14→15）：这条变异必须跟着**真实标题**走，
         #   否则它报的是"变异点没找到"（靶子漂移），而不是"文档对账抓住了它"。
         #   这也是"靶子漂移"这个分类存在的意义：它明确告诉你该改的是**变异表**，
         #   不是判据 —— 别去动 docs-check。
-        "pairs": [("### 10.4 14 道闸门", "### 10.4 13 道闸门")],
+        "pairs": [("### 10.4 15 道闸门", "### 10.4 14 道闸门")],
         "test": "docs/ARCHITECTURE.md",
         "cmd": ["node", "tools/docs-check.mjs", "--quick"],
     },
@@ -7533,6 +7533,62 @@ MUTANTS = [
             "    void 0 && console.log(\n      `\\n✓ 小游戏禁用 API：0 处（扫了 ",
         )],
         "test": "tests/publish/pack-cli.test.ts",
+    },
+    {
+        "name": "M809 wx 启动失败只冒泡不播报（真机上就是白屏无提示）",
+        # ★ 这是修复前的行为：`surface` 建好之前抛的错（WX.NO_TOUCH / WX.NO_FS）一路冒到
+        #   `void main()` ⇒ 真机上未处理的 promise 拒绝通常**什么都不发生** ——
+        #   与「还在加载」在屏幕上一模一样。
+        "file": "src/wx-entry.ts",
+        "pairs": [("    reportFatal(wx, e instanceof Error ? e.message : String(e));\n", "    throw e;\n")],
+        "test": "tests/host/wx-entry.test.ts",
+    },
+    {
+        "name": "M810 启动失败只打日志不弹窗（开发者看得见，玩家仍是白屏）",
+        # 与 M809 是**两个不同的观测量**：那条验「有没有播报」，这条验「播给谁看」。
+        # 只留 console.error 时，判据必须红在弹窗那一条上 —— 否则玩家看到的白屏没人管。
+        "file": "src/wx-entry.ts",
+        "pairs": [("  wx.showModal?.({ title: \"启动失败\", content: text.slice(0, 200), showCancel: false });\n", "  void wx;\n")],
+        "test": "tests/host/wx-entry.test.ts",
+    },
+    {
+        "name": "M811 包体下限调成 0（构建成空壳也通过）",
+        # 空壳是最容易发生的产物退化：入口改坏、tree-shaking 把整局吃掉 —— 产物仍然「构建成功」。
+        "file": "tools/wx-check.mjs",
+        "pairs": [("export const MIN_BUNDLE_BYTES = 200_000;", "export const MIN_BUNDLE_BYTES = 0;")],
+        "test": "tests/host/wx-bundle.test.ts",
+    },
+    {
+        "name": "M812 ESM export 判据扫了个空串（恒不命中，闸门变成装饰）",
+        "file": "tools/wx-check.mjs",
+        "pairs": [("  if (ESM_EXPORT.test(source)) {", "  if (ESM_EXPORT.test(source.slice(0, 0))) {")],
+        "test": "tests/host/wx-bundle.test.ts",
+    },
+    {
+        "name": "M813 node 内置判据漏掉 `from \"node:…\"` 这一种写法（require 仍然报）",
+        # ★ 半错的变异比「完全失效」难发现得多：合成语料里两种写法都在，只漏一种时
+        #   另一种仍然绿 —— 这正是「判据要能分辨两种改法」的意义。
+        "file": "tools/wx-check.mjs",
+        "pairs": [("|\\bfrom\\s*)[\"']node:[a-z/]+[\"']/;", "|\\bimported\\s*)[\"']node:[a-z/]+[\"']/;")],
+        "test": "tests/host/wx-bundle.test.ts",
+    },
+    {
+        "name": "M814 小游戏包被打成 ESM（真机 Unexpected token；而 export 那条抓不到）",
+        # ★ 实测过：esm 产物**没有** `export`（入口没有导出），所以 ESM_EXPORT 那条是绿的；
+        #   抓住它的是「必须含 EngineWx」那条结构判据。这就是它存在的理由。
+        "file": "tools/build-wx.mjs",
+        "pairs": [("  format: \"iife\",", "  format: \"esm\",")],
+        "test": "tools/wx-check.mjs",
+        "cmd": ["node", "tools/wx-check.mjs"],
+    },
+    {
+        "name": "M815 CI 里删掉小游戏包那一步（闸门表 15 行 vs --list 14 步）",
+        # ★ 这条验的是「新闸门真的进了 CI」，而不是「写了这个脚本」：
+        #   删掉这一步，ARCHITECTURE 的闸门表与 `ci.mjs --list` 立刻对不上。
+        "file": "tools/ci.mjs",
+        "pairs": [("  node(\"小游戏包构建+断言\", \"tools/wx-check.mjs\");\n", "")],
+        "test": "tools/docs-check.mjs",
+        "cmd": ["node", "tools/docs-check.mjs", "--quick"],
     },
 ]
 
