@@ -10,7 +10,7 @@
 
 1. **22 条观察项里，12 条现在就能断言**（不变量已吸收真机差异，且有判据守着）、
    **5 条只有设备能取数**（帧率、首进耗时等标量）、**3 条离开设备只能是「未验」**（低内存、断网、写失败提示），
-   **1 条是已知未接线**（安全区），**1 条是被误记成「待验」的可判定缺口**（`main` 无幂等守卫）。
+   **1 条是供给端没填**（安全区：布局已在用 `safeRect`，只差数字），**1 条是被误记成「待验」的可判定缺口**（`main` 无幂等守卫）。
 2. **清单第 0 节把模拟器的能力说反了**：它写「停在模拟器，第 1–2 组能看，3–4 组看不了」，
    而实际上**第 1 组（启动）与第 3 组（触摸布局）是模拟器最有价值的**，**第 2 组（帧源）在模拟器上恰恰最不可信**
    —— 模拟器的 rAF 是桌面浏览器的节拍，不是手机的 vsync。
@@ -59,7 +59,7 @@
 | 3.2 | 点左下角按钮命中 | **A-** | 同上；键位按短边成比例布局，已有「分辨率变了布局跟着变且不重叠」的判据 |
 | 3.3 | 两指同时按不串号、不丢 | **A** | 多点并集 + 「只给 `changedTouches` 的老实现也能跑」两条判据 |
 | 3.4 | 按住拖出屏幕再回来不卡住 | **A** | `input.ts:153` 订阅了 `onTouchCancel`，`input.ts:222` 把 `cancel` 与 `end` 同样清理触点 |
-| 3.5 | 刘海 / 挖孔屏 UI 不被遮 | **缺口** | 见 §2.1：安全区**一个消费者都没有** |
+| 3.5 | 刘海 / 挖孔屏 UI 不被遮 | **缺口（供给端）** | 见 §2.1：布局**已经在用** `safeRect`，只是没人填数字 |
 
 ### 1.4 文件系统（5 条）
 
@@ -83,16 +83,24 @@
 
 ## 2 · 四处分类错误（附证据）
 
-### 2.1 3.5「刘海屏」不是待验，是没接线
+### 2.1 3.5「刘海屏」不是待验，是**供给端没填**
 
-清单写「不一致时先看 `toCanvasPoint`（含 `safeArea` / `devicePixelRatio`）」。实际：
+清单写「不一致时先看 `toCanvasPoint`（含 `safeArea` / `devicePixelRatio`）」。实际核下来，
+链路是**消费端齐备、供给端空着**：
 
-- `src/host/wx/env.ts:148-162` 的 `readViewport` 只返回 `{ width, height, pixelRatio }` —— **没有 `safeArea`**；
-- `src/host/wx/input.ts:79-86` 的 `toCanvasPoint` 只做 `canvas/window` 的比例换算，**一个安全区字段都没读**；
-- `src/extensions/ui/viewport.ts:97` 有 `setSafeArea`，但**全仓库 0 处调用**。
+- 消费端：`ui-module.ts:197` 的布局根**就是** `viewport.safeRect`，`viewport.ts:144-152` 会按
+  四边扣减并对半夹紧；判据也有（`tests/extensions/ui-viewport.test.ts:121-130` 验扣减与夹紧，
+  `tests/extensions/ui-module.test.ts:191` 用 `safeRect` 摆树）。
+- 供给端：`src/host/wx/env.ts:148-162` 的 `readViewport` 只返回 `{ width, height, pixelRatio }`
+  —— **没有 `safeArea`**；`DemoHostEnv.viewport`（`demo-game.ts:245-249`）同样只有三个字段；
+  `demo-game.ts:908` 造 `UiViewport` 时**没传** `safeArea`。于是 `this.safe` 恒为 `ZERO_INSETS`。
 
-所以这条的准确描述是：**宿主从未把安全区交给任何消费者**。UI 会不会被遮，取决于布局的偶然留白
-（键位是 0.06 短边边距），不是设计保证。它不是「无设备验不了」，是**现在就能从代码断定「没有保障」**。
+所以准确说法是：**能力齐、判据齐、只差把数字填进去**。UI 会不会被刘海遮，取决于布局的偶然留白
+（键位是 0.06 短边边距），不是设计保证。改动面因此是可枚举的四步（见 §5 P0），不是「重做安全区」。
+
+顺带纠正一处定位错误：**安全区不属于坐标换算**。触摸命中与 UI 遮挡在同一个坐标系里，
+`toCanvasPoint` 对了，点击就中；「UI 被遮」是布局问题。把 safeArea 挂在 `toCanvasPoint` 上，
+会让人去改一个不需要改的函数。
 
 顺带纠正一处定位错误：**安全区不属于坐标换算**。触摸命中与 UI 遮挡在同一个坐标系里，
 `toCanvasPoint` 对了，点击就中；「UI 被遮」是布局问题。把 safeArea 挂在 `toCanvasPoint` 上，
@@ -155,8 +163,14 @@
 
 **P0（无设备，可立即做，2 条缺口）**
 - `main()` 加幂等守卫：第二次调用要么拒绝、要么先停旧宿主；配一条「连调两次只有一条循环」的判据（§2.4）。
-- 安全区接线：`readViewport` 读 `getSystemInfoSync().safeArea`，交给布局；配一条「刘海机型下 HUD 四角都在安全区内」的判据（§2.1）。
+- 安全区供给端，四步（§2.1）：① `WxViewport` 加 `safeArea`；② `readViewport` 从
+  `getSystemInfoSync().safeArea` 换算出四边 inset（CSS 像素）；③ `DemoHostEnv.viewport` 加可选
+  `safeArea`；④ `demo-game.ts:908` 传进 `UiViewportConfig`。配一条「刘海机型下 HUD 四角都在
+  `safeRect` 内」的判据。
   —— 这两条**不是验证工作，是欠的活**，做完之后清单各少一条。
+  **注意语义决策**：`UiViewportConfig.safeArea` 的注释写「设计像素」，而宿主手上是 CSS 像素，
+  且 `scale` 要等 `setScreen` 之后才有 ⇒ 要么改注释与语义（推荐，CSS 进、内部换算），
+  要么让宿主在 `setScreen` 之后调 `setSafeArea`。这一条必须先定，否则填进去的数是错的。
 
 **P1（无设备，重写清单，1 天）**
 - 给 22 条加一列「证据等级（A/B/C/缺口）」与一列「谁能判（CI / 模拟器 / 真机）」。
