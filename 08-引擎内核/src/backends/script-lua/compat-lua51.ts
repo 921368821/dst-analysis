@@ -39,8 +39,17 @@
  *      `__engine_compat_unmodule` 按**创建时的身份**（`parent[key] == 记录的表`）删除。
  *      身份不匹配就不删 —— 别人后来换掉的、或别人也往里加过东西的容器，一律不动。
  *      这条以前写作"已知且未修"，是 2026-10-23 修掉的：能修的不该留在"已知问题"里。
- *   ④ `require` **不读文件系统**（wasm 里没有 fs）：只查 `package.loaded` 与
- *      `package.preload`。`package.preload` 是引擎注册模块的唯一入口。
+ *   ④ `require` 的第三站是**宿主解析器**（批134）：`package.loaded` →
+ *      `package.preload` → `__engine_require_host`（运行时在 `ready()` 里装）→ 报错。
+ *      wasm 里没有 fs，但**宿主有** —— 解析回调必须是**同步**的（Lua 的 `require`
+ *      没有 await），异步宿主用 `collectModuleSources` 先把目录读成表。
+ *      没装解析器时行为与批134 之前完全一致（报 `not found`），
+ *      **不会**偷偷去读文件系统：脚本能读到哪些文件是宿主的安全边界。
+ *
+ *      这条以前写作"不读文件系统，`package.preload` 是唯一入口"—— 前半句是事实，
+ *      后半句是**空头支票**：引擎里没有任何 API 往 `package.preload` 里写。
+ *      于是真实 DST 脚本的 `require("class")` 一个都落不了地（2026-10-29 实测：
+ *      `dstsrc` 顶层 218 个脚本里 101 个死在 `module 'class' not found`）。
  */
 
 /**
@@ -291,8 +300,15 @@ end
 
 -- ============================== require ==============================
 
--- 5.1 语义：package.loaded → package.preload → 报错。
--- ★ 不碰文件系统：wasm 里没有 fs，package.preload 才是引擎注册模块的入口。
+-- 5.1 语义：package.loaded → package.preload → **宿主解析** → 报错。
+-- ★ 批134 之前只有前两站，而且没有任何 API 往 package.preload 里写
+--   （文件头那句"唯一入口"是空头支票）⇒ 真实 DST 脚本的 require("class")
+--   一个都落不了地。第三站交给宿主：__engine_require_host 由运行时在 ready() 里装上，
+--   **没装时行为与以前完全一样**（报 not found），不会偷偷去读文件系统。
+-- ★ 宿主那条路是同步的：Lua 的 require 没有 await。异步宿主先用
+--   collectModuleSources 把目录读成一张表（见 module-resolver.ts）。
+-- ★ 三种失败的措辞**故意分开**（合起来就分不清该去查哪儿）：
+--   找不到（宿主里没有）/ 读取失败（有但读不出来）/ 加载失败（它自己又缺模块）。
 function require(name)
   if __type(name) ~= "string" then
     __error("require: 模块名必须是字符串（收到 " .. __type(name) .. "）", 2)
@@ -302,21 +318,64 @@ function require(name)
   if loaded ~= nil then return loaded end
 
   local loader = package.preload[name]
-  if loader == nil then
-    __error("module '" .. name .. "' not found", 2)
-  end
-  if __type(loader) ~= "function" then
-    __error("module '" .. name .. "': package.preload 里登记的不是函数", 2)
+  if loader ~= nil then
+    if __type(loader) ~= "function" then
+      __error("module '" .. name .. "': package.preload 里登记的不是函数", 2)
+    end
+    local r = loader(name)
+    if r ~= nil then package.loaded[name] = r end
+    local v = package.loaded[name]
+    if v == nil then
+      v = true
+      package.loaded[name] = v
+    end
+    return v
   end
 
-  local r = loader(name)
-  if r ~= nil then package.loaded[name] = r end
-  local v = package.loaded[name]
-  if v == nil then
-    v = true
-    package.loaded[name] = v
+  local host = __engine_require_host
+  if host == nil then
+    __error("module '" .. name .. "' not found", 2)
   end
-  return v
+
+  if __engine_loading_set[name] then
+    __error(
+      "module '" .. name .. "' 循环依赖：" ..
+        table.concat(__engine_loading_chain, " -> ") .. " -> " .. name,
+      2
+    )
+  end
+
+  local got = host(name)
+  if got == nil or got.ok ~= true then
+    if got ~= nil and got.reason == "io" then
+      __error("module '" .. name .. "' 读取失败：" .. __tostring(got.message), 2)
+    end
+    local why = ""
+    if got ~= nil and got.message ~= nil then
+      why = "（" .. __tostring(got.message) .. "）"
+    end
+    __error("module '" .. name .. "' not found" .. why, 2)
+  end
+
+  -- ★ 记下"正在加载谁"。__engine_load 内部对 chunk 走 pcall，所以下面这行
+  --   一定能被执行到（裸 error 会跳掉清理，这里不会）。
+  __engine_loading_set[name] = true
+  __engine_loading_chain[#__engine_loading_chain + 1] = name
+  local st = __engine_load(name, got.source)
+  __engine_loading_chain[#__engine_loading_chain] = nil
+  __engine_loading_set[name] = nil
+
+  if st.s ~= 1 then
+    __error(
+      "module '" .. name .. "' 加载失败（源：" .. __tostring(got.path) .. "）：" ..
+        __tostring(st.m),
+      2
+    )
+  end
+
+  local value = package.loaded[name]
+  if value == nil then return true end
+  return value
 end
 
 -- ============================== math 补齐 ==============================

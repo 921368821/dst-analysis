@@ -7698,6 +7698,98 @@ MUTANTS = [
         )],
         "test": "tests/backends/script-shared-env.test.ts",
     },
+    # ---- 批134：require 的宿主解析器（C26）
+    {
+        "name": "M834 resolveModule 选项没接到 Lua（配了解析器也不生效 —— 开关打开了，线没接）",
+        "file": "src/backends/script-lua/runtime.ts",
+        "pairs": [(
+            "      if (this.opts.resolveModule !== undefined) {\n",
+            "      if (false) {\n",
+        )],
+        "test": "tests/backends/script-module-resolver.test.ts",
+    },
+    {
+        "name": "M835 require 不调宿主（第三站形同不存在：解析器装上了也白装）",
+        # ★ 与 M834 是两层：那条打「选项没接线」，这条打「接了但 require 不问」。
+        "file": "src/backends/script-lua/compat-lua51.ts",
+        "pairs": [(
+            "  local host = __engine_require_host\n",
+            "  local host = nil\n",
+        )],
+        "test": "tests/backends/script-module-resolver.test.ts",
+    },
+    {
+        "name": "M836 解析到源码却不执行（假装加载成功，模块体一行没跑）",
+        "file": "src/backends/script-lua/compat-lua51.ts",
+        "pairs": [(
+            "  local st = __engine_load(name, got.source)\n",
+            "  local st = { s = 1, m = \"\" }\n",
+        )],
+        "test": "tests/backends/script-module-resolver.test.ts",
+    },
+    {
+        "name": "M837 require 成功后不交回返回值（`local X = require(...)` 一律拿到 true）",
+        "file": "src/backends/script-lua/compat-lua51.ts",
+        "pairs": [(
+            "  local value = package.loaded[name]\n  if value == nil then return true end\n  return value\n",
+            "  return true\n",
+        )],
+        "test": "tests/backends/script-module-resolver.test.ts",
+    },
+    {
+        "name": "M838 「找不到」说成「加载失败」（两种失败的措辞合并 ⇒ 报错没有信息量）",
+        "file": "src/backends/script-lua/compat-lua51.ts",
+        "pairs": [(
+            "    __error(\"module '\" .. name .. \"' not found\" .. why, 2)\n",
+            "    __error(\"module '\" .. name .. \"' 加载失败\" .. why, 2)\n",
+        )],
+        "test": "tests/backends/script-module-resolver.test.ts",
+    },
+    {
+        "name": "M839 io 与 not-found 不分（「有但读不出来」被说成「没有」）",
+        "file": "src/backends/script-lua/compat-lua51.ts",
+        "pairs": [(
+            "    if got ~= nil and got.reason == \"io\" then\n",
+            "    if false then\n",
+        )],
+        "test": "tests/backends/script-module-resolver.test.ts",
+    },
+    {
+        "name": "M840 删掉循环依赖检测（a→b→a 退化成 C stack overflow，与「缺模块」看起来毫无关系）",
+        "file": "src/backends/script-lua/compat-lua51.ts",
+        "pairs": [(
+            "  if __engine_loading_set[name] then\n",
+            "  if false then\n",
+        )],
+        "test": "tests/backends/script-module-resolver.test.ts",
+    },
+    {
+        "name": "M841 只认 <name>.lua（目录式模块 <name>/init.lua 全部解析不到）",
+        "file": "src/backends/script-lua/module-resolver.ts",
+        "pairs": [(
+            "  return [`${base}.lua`, `${base}/init.lua`];\n",
+            "  return [`${base}.lua`, `${base}.lua`];\n",
+        )],
+        "test": "tests/backends/script-module-resolver.test.ts",
+    },
+    {
+        "name": "M842 收集模块时不只看 .lua（.zip/.txt 也读成源码 ⇒ 报语法错而不是「不是模块」）",
+        "file": "src/backends/script-lua/module-resolver.ts",
+        "pairs": [(
+            "      if (!ent.name.endsWith(\".lua\")) continue;\n",
+            "      if (false) continue;\n",
+        )],
+        "test": "tests/backends/script-module-resolver.test.ts",
+    },
+    {
+        "name": "M843 不能列目录时不报错（返回空表 = 「这个目录是空的」，宿主没这个能力从此看不见）",
+        "file": "src/backends/script-lua/module-resolver.ts",
+        "pairs": [(
+            "    if (!fs.canList) {\n",
+            "    if (false) {\n",
+        )],
+        "test": "tests/backends/script-module-resolver.test.ts",
+    },
     {
         "name": "M826 wx 存档直接写目标（回到批132 之前：崩在写入中途就是半份存档）",
         # ★ 这条变异必须**整段绕过** atomicWrite，而不是只把 write(tmp) 改成 write(target)：

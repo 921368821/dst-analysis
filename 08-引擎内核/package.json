@@ -24,7 +24,8 @@
     "test:cross-host": "node tools/cross-host-save.mjs",
     "build:wx": "node tools/build-wx.mjs",
     "build:assets": "node --experimental-transform-types tools/build.ts",
-    "pack": "node --experimental-transform-types tools/pack.ts"
+    "pack": "node --experimental-transform-types tools/pack.ts",
+    "sweep:dstsrc": "node --experimental-transform-types tools/dstsrc-sweep.ts"
   },
   "devDependencies": {
     "@types/node": "^22.7.5",

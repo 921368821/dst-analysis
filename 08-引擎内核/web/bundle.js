@@ -7478,8 +7478,15 @@ end
 
 -- ============================== require ==============================
 
--- 5.1 语义：package.loaded → package.preload → 报错。
--- ★ 不碰文件系统：wasm 里没有 fs，package.preload 才是引擎注册模块的入口。
+-- 5.1 语义：package.loaded → package.preload → **宿主解析** → 报错。
+-- ★ 批134 之前只有前两站，而且没有任何 API 往 package.preload 里写
+--   （文件头那句"唯一入口"是空头支票）⇒ 真实 DST 脚本的 require("class")
+--   一个都落不了地。第三站交给宿主：__engine_require_host 由运行时在 ready() 里装上，
+--   **没装时行为与以前完全一样**（报 not found），不会偷偷去读文件系统。
+-- ★ 宿主那条路是同步的：Lua 的 require 没有 await。异步宿主先用
+--   collectModuleSources 把目录读成一张表（见 module-resolver.ts）。
+-- ★ 三种失败的措辞**故意分开**（合起来就分不清该去查哪儿）：
+--   找不到（宿主里没有）/ 读取失败（有但读不出来）/ 加载失败（它自己又缺模块）。
 function require(name)
   if __type(name) ~= "string" then
     __error("require: 模块名必须是字符串（收到 " .. __type(name) .. "）", 2)
@@ -7489,21 +7496,64 @@ function require(name)
   if loaded ~= nil then return loaded end
 
   local loader = package.preload[name]
-  if loader == nil then
-    __error("module '" .. name .. "' not found", 2)
-  end
-  if __type(loader) ~= "function" then
-    __error("module '" .. name .. "': package.preload 里登记的不是函数", 2)
+  if loader ~= nil then
+    if __type(loader) ~= "function" then
+      __error("module '" .. name .. "': package.preload 里登记的不是函数", 2)
+    end
+    local r = loader(name)
+    if r ~= nil then package.loaded[name] = r end
+    local v = package.loaded[name]
+    if v == nil then
+      v = true
+      package.loaded[name] = v
+    end
+    return v
   end
 
-  local r = loader(name)
-  if r ~= nil then package.loaded[name] = r end
-  local v = package.loaded[name]
-  if v == nil then
-    v = true
-    package.loaded[name] = v
+  local host = __engine_require_host
+  if host == nil then
+    __error("module '" .. name .. "' not found", 2)
   end
-  return v
+
+  if __engine_loading_set[name] then
+    __error(
+      "module '" .. name .. "' 循环依赖：" ..
+        table.concat(__engine_loading_chain, " -> ") .. " -> " .. name,
+      2
+    )
+  end
+
+  local got = host(name)
+  if got == nil or got.ok ~= true then
+    if got ~= nil and got.reason == "io" then
+      __error("module '" .. name .. "' 读取失败：" .. __tostring(got.message), 2)
+    end
+    local why = ""
+    if got ~= nil and got.message ~= nil then
+      why = "（" .. __tostring(got.message) .. "）"
+    end
+    __error("module '" .. name .. "' not found" .. why, 2)
+  end
+
+  -- ★ 记下"正在加载谁"。__engine_load 内部对 chunk 走 pcall，所以下面这行
+  --   一定能被执行到（裸 error 会跳掉清理，这里不会）。
+  __engine_loading_set[name] = true
+  __engine_loading_chain[#__engine_loading_chain + 1] = name
+  local st = __engine_load(name, got.source)
+  __engine_loading_chain[#__engine_loading_chain] = nil
+  __engine_loading_set[name] = nil
+
+  if st.s ~= 1 then
+    __error(
+      "module '" .. name .. "' 加载失败（源：" .. __tostring(got.path) .. "）：" ..
+        __tostring(st.m),
+      2
+    )
+  end
+
+  local value = package.loaded[name]
+  if value == nil then return true end
+  return value
 end
 
 -- ============================== math 补齐 ==============================
@@ -7724,6 +7774,12 @@ function __engine_dispatch(name, args, n, timeout_ms)
   end
   return out
 end
+
+-- \u2605 \u5FAA\u73AF\u4F9D\u8D56\u7684\u72B6\u6001\uFF08\u6279134\uFF09\uFF1ALua 5.1 \u7684\u6807\u51C6 require **\u6CA1\u6709**\u68C0\u6D4B\uFF0C
+--   a\u2192b\u2192a \u7684\u8868\u73B0\u662F "C stack overflow" \u2014\u2014 \u4E00\u53E5\u4E0E"\u7F3A\u6A21\u5757"\u6BEB\u65E0\u5173\u7CFB\u7684\u62A5\u9519\u3002
+--   \u4E24\u4E2A\u8868\u5206\u5DE5\uFF1A_set \u53EA\u5224\u6210\u5458\uFF08O(1)\uFF09\uFF0C_chain \u53EA\u4E3A\u4E86\u628A a -> b -> a \u6253\u51FA\u6765\u3002
+__engine_loading_set = {}
+__engine_loading_chain = {}
 
 -- \u5148\u7F16\u8BD1\u540E\u66FF\u6362\uFF1Aload \u53EA\u7F16\u8BD1\uFF1B\u8BED\u6CD5\u9519\u8BEF\u65F6\u65E7\u6A21\u5757\u4E00\u4E2A\u90FD\u6CA1\u52A8\u3002
 -- \u7F16\u8BD1\u6210\u529F\u540E\u624D\u6267\u884C chunk\uFF0C\u5176\u8FD4\u56DE\u503C\u5199\u5165 package.loaded[name]
@@ -8000,6 +8056,19 @@ var LuaScriptRuntime = class {
         return err(
           engineError(ScriptErrorCode.LoadFailed, `Lua 5.1 \u517C\u5BB9\u57AB\u7247\u6CA1\u6709\u88C5\u4E0A\u8FD9\u4E9B\u51FD\u6570\uFF1A${missing}`)
         );
+      }
+      if (this.opts.resolveModule !== void 0) {
+        const resolve = this.opts.resolveModule;
+        lua.global.set("__engine_require_host", (name) => {
+          if (typeof name !== "string") {
+            return { ok: false, reason: "io", message: `\u6A21\u5757\u540D\u5FC5\u987B\u662F\u5B57\u7B26\u4E32\uFF08\u6536\u5230 ${typeof name}\uFF09` };
+          }
+          try {
+            return resolve(name);
+          } catch (e) {
+            return { ok: false, reason: "io", message: e instanceof Error ? e.message : String(e) };
+          }
+        });
       }
       const dispatch = lua.global.get("__engine_dispatch");
       const load = lua.global.get("__engine_load");

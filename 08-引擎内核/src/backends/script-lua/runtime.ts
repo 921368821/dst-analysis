@@ -56,11 +56,19 @@
  *     · 共享模式换来的能力是"能跑 153 万行内容层"，代价是热更换版本时旧全局还在
  *       —— 也就是 DST 自己在设备上的行为。两者不能同时成立，别假装能。
  *   细节与解析顺序见 `BOOTSTRAP` 头部。
+ *
+ * ★★ 模块从哪儿来（批134）：`loadModule(name, source)` 是宿主**直接给源码**的那条路；
+ *   `require(name)` 走的是内容层自己的模块图，第三站交给 `resolveModule` 回调
+ *   （宿主按 `<name>.lua` / `<name>/init.lua` 找）。两条路的登记是**分开**的：
+ *   `listModules()` / `hasModule()` 只报宿主直连加载的模块，`require` 装载的留在
+ *   Lua 侧 `package.loaded` 里（那边才是内容层的真相）。这不是遗漏 ——
+ *   合并会假装"引擎知道内容层的模块图"，而解析器是可替换的（有人用包、有人用磁盘）。
  */
 
 import { LuaFactory } from "wasmoon";
 import { engineError, err, ok, type EngineError, type Result } from "../../foundation/result.ts";
 import { LUA51_COMPAT_SRC } from "./compat-lua51.ts";
+import type { LuaModuleResolver } from "./module-resolver.ts";
 import {
   ScriptErrorCode,
   assertScriptValue,
@@ -299,6 +307,12 @@ function __engine_dispatch(name, args, n, timeout_ms)
   end
   return out
 end
+
+-- ★ 循环依赖的状态（批134）：Lua 5.1 的标准 require **没有**检测，
+--   a→b→a 的表现是 "C stack overflow" —— 一句与"缺模块"毫无关系的报错。
+--   两个表分工：_set 只判成员（O(1)），_chain 只为了把 a -> b -> a 打出来。
+__engine_loading_set = {}
+__engine_loading_chain = {}
 
 -- 先编译后替换：load 只编译；语法错误时旧模块一个都没动。
 -- 编译成功后才执行 chunk，其返回值写入 package.loaded[name]
@@ -579,6 +593,17 @@ export interface LuaBackendOptions {
    *   这就是 DST 在设备上的行为，不是缺陷，但必须是**显式**选择。
    */
   readonly sharedModuleEnv?: boolean;
+  /**
+   * `require(name)` 的源码解析器（第三站：`package.loaded` → `package.preload` → 这里）。
+   *
+   * ★ 必须是**同步**的：Lua 的 `require` 没有 await，而 `IFileSystem.readText` 是 Promise。
+   *   异步宿主用 `collectModuleSources(fs, root)` 一次性读完，再用 `resolverFromSources`
+   *   包成同步解析器（见 `module-resolver.ts`）。
+   * ★ 不配就是老行为：`require` 只查 `package.loaded` / `package.preload`，
+   *   **不会**偷偷去读文件系统 —— 脚本能读到哪些文件是宿主的安全边界，
+   *   不该由引擎默认决定。
+   */
+  readonly resolveModule?: LuaModuleResolver;
 }
 
 export class LuaScriptRuntime implements IScriptRuntime {
@@ -675,6 +700,26 @@ export class LuaScriptRuntime implements IScriptRuntime {
         return err(
           engineError(ScriptErrorCode.LoadFailed, `Lua 5.1 兼容垫片没有装上这些函数：${missing}`),
         );
+      }
+
+      // ★ 模块解析器（批134）：`require(name)` 的第三站。**同步**在这里是类型上的
+      //   硬约束，不是风格（理由见 module-resolver.ts 文件头）。直接 global.set 而不走
+      //   `installHost`：`__engine_` 是引导原语的前缀，`expose()` 明确禁止占用它。
+      //   不配解析器 ⇒ 这个全局不存在 ⇒ require 的行为与批134 之前完全一样。
+      if (this.opts.resolveModule !== undefined) {
+        const resolve = this.opts.resolveModule;
+        lua.global.set("__engine_require_host", (name: unknown) => {
+          if (typeof name !== "string") {
+            // 名字不是字符串属于调用方错误，按 io 交给脚本（能 pcall 住），
+            // 而不是抛异常穿过 wasm 边界打断整次加载。
+            return { ok: false, reason: "io", message: `模块名必须是字符串（收到 ${typeof name}）` };
+          }
+          try {
+            return resolve(name);
+          } catch (e) {
+            return { ok: false, reason: "io", message: e instanceof Error ? e.message : String(e) };
+          }
+        });
       }
 
       const dispatch = lua.global.get("__engine_dispatch");
