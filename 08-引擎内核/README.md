@@ -20,9 +20,9 @@
 
 ```bash
 npm install
-npm run check            # tsc（strict）+ 2522 条判据 + 覆盖率闸门 <!-- n:tests -->
+npm run check            # tsc（strict）+ 2531 条判据 + 覆盖率闸门 <!-- n:tests -->
 npm run audit:errors     # 拒绝路径审计：JPEG 解码器 94 条 fail 分支里哪些真的被触发过
-npm run audit:mutation   # 变异校验：849 组注入，判据必须逐个变红 <!-- n:mutants -->
+npm run audit:mutation   # 变异校验：856 组注入，判据必须逐个变红 <!-- n:mutants -->
 npm run audit:docs       # 文档数字对账：判据/变异/测试文件/浏览器自检/JPEG 金标
 npm run test:browser     # 无头浏览器跑 selftest.html 的 56 条 <!-- n:browser -->（无浏览器时退出码 2 = 跳过）
 npm run ci               # 全部 15 道闸门 <!-- n:steps -->（含浏览器自检/外部金标/变异；--fast 跳过慢的那几步）
@@ -125,7 +125,7 @@ L0 foundation  Result · math · log · event · memory · time · random
 
 ## 当前状态
 
-- ✅ L0–L3 完整；**13 个后端** <!-- n:backends -->（gfx×2 / audio×2 / input×3（null / dom / 注入）/ fs×4（mem + 真实盘 + 只读 http + localStorage）/ script×2）；**2522 条判据全绿** <!-- n:tests -->（变异 849 组全被抓住 <!-- n:mutants -->）
+- ✅ L0–L3 完整；**13 个后端** <!-- n:backends -->（gfx×2 / audio×2 / input×3（null / dom / 注入）/ fs×4（mem + 真实盘 + 只读 http + localStorage）/ script×2）；**2531 条判据全绿** <!-- n:tests -->（变异 856 组全被抓住 <!-- n:mutants -->）
 - ✅ 2D 渲染管线（相机/精灵/批处理/确定性图集合成）· 2.5D 物理（空间哈希 + 圆/盒推出 + **连续碰撞扫掠**，[ADR-0013](docs/adr/0013-continuous-collision.md)：一拍之内的位移夹到接触点之前，高速体不再穿过薄墙）· 确定性存档 · 跳时间结算
 - ✅ **UI + 位图字体**：BMFont 解析 → 纯函数排版（量宽与画宽同源）→ 三模式视口（fit/fill/expand）
   → 锚点 + Row/Column/Grid → 九宫格控件（Group/Panel/Image/Label/Button/Progress）→ 捕获 + 冒泡。
@@ -163,6 +163,9 @@ L0 foundation  Result · math · log · event · memory · time · random
   + **`require` 的宿主解析器**（`<name>.lua` / `<name>/init.lua`，同步回调；四种失败措辞分开）
   + 每 tick 串行调度 + 异常隔离 + 最小反射表。实测：`dstsrc` 顶层 218 个真实脚本 **164 通过**
   （`npm run sweep:dstsrc`，同一条命令跑「有/无解析器」两轮：117 → 164）
+  · 剩下 54 条**不是解析问题**，是内容层引用的 C 侧全局；`--order` 可换加载顺序口径
+  （`alpha` / `strict-first` / `boot-first` / `all`，实测 164 / 129 / 137），
+  换口径后"缺哪些全局"的清单会变 —— 顺序是测量口径的一部分
 - ✅ **小游戏（wx）适配层 + 入口**：canvas/视口、帧源（`ITickSource`）、文件系统（`IFileSystem`）、触摸→逻辑键，`createWxHost` 组装；`buildDemoGame(hostEnv)`（`src/host/demo-game.ts`）把 demo 装配与宿主拆开，`src/wx-entry.ts` 只做「换四件套」。**引擎语义一条不重写**（小游戏与浏览器只差「从哪拿」）。43 条判据用假 wx 驱动（不依赖真机），含**两条自指闸门**：扫适配层 + 装配/入口自己的源码有没有用小游戏里没有的 API。产物：`npm run build:wx` → `npm run pack -- --platform wechat --strict-api`（`✓ 0 处`）；批129 起这条链路进 CI（`node tools/wx-check.mjs`：构建两次验可复现 + IIFE/零 ESM/零 node 内置 + 打包扫描）
 - ✅ 资产身份：`.meta` + `AssetId` + 依赖图 + 增量导入 + 产物加载器
 - ✅ **PNG 全格式解码**（纯 TS inflate，colorType 0/2/3/4/6 × 位深 1/2/4/8/16 × 5 种滤波
@@ -180,7 +183,7 @@ L0 foundation  Result · math · log · event · memory · time · random
     + 8 例无损 9..16 位（liblj92 编解，**逐样本相等**）+ 8 位灰度（liblj92 与 Pillow 双外部对照）
     + **12 例 ffmpeg 独立金标**（`tests/fixtures/jpeg/ff/`，12 位 DCT 的第三方参照：灰度差 0..2 级、RGB 差 4 级）
   · 仍然没有外部实现的部分（分层、SOF11）用更强的内部判据：
-    四种有损过程解出**逐字节相同**像素、无损回环 max=0、12 位跨精度锚定到 8 位金标；849 组变异全被抓住 <!-- n:mutants -->
+    四种有损过程解出**逐字节相同**像素、无损回环 max=0、12 位跨精度锚定到 8 位金标；856 组变异全被抓住 <!-- n:mutants -->
   · 证据等级与代价见 [ADR-0009](docs/adr/0009-jpeg-decoder.md)
 - ✅ 浏览器宿主能跑，且**画面用真实资产**：`web/assets/` 5 张 PNG + **1 张 JPEG** 走完整导入链
   烘焙成图集（WASD + 砍树 + 存读档 + HUD + Lua 驱动的浆果漂浮 + 4 块 JPEG 立牌）

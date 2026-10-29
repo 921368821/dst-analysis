@@ -16,6 +16,12 @@ export type FailureShape =
 
 export const SHAPES: readonly FailureShape[];
 
+/** 加载顺序预设（`alpha` / `strict-first` / `boot-first`）。 */
+export const ORDER_PRESETS: Readonly<Record<string, readonly string[]>>;
+
+/** 按预设排加载顺序，返回新数组（不改入参）；未知预设抛错。 */
+export function orderScripts(files: readonly string[], preset?: string): string[];
+
 /** 取最内层那句并剥掉 `文件:行号:` 前缀。 */
 export function innerMessage(message: string): string;
 
@@ -54,3 +60,15 @@ export interface SweepSummary {
 export function summarizeFailures(
   failures: readonly (readonly [string, string])[],
 ): SweepSummary;
+
+/** 一个口径跑完时的一次「`_G` 里有没有这个名字」探测：值是 `type()` 的结果（`"nil"` 表示没有）。 */
+export type GlobalProbe = Readonly<Record<string, string>>;
+
+/**
+ * 把「每个口径都缺」的名字劈成 `never`（跑完仍是 nil ⇒ 引擎欠的）与
+ * `later`（跑完出现了 ⇒ 顺序/嵌套加载）。没探测到的名字进 `later`（不主张缺口）。
+ */
+export function splitNeverDefined(
+  names: readonly string[],
+  probes: readonly GlobalProbe[],
+): { never: string[]; later: string[] };

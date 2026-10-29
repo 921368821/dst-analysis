@@ -23,6 +23,48 @@
  *   "引擎该提供 `v`"这种荒唐结论（`v` 是某个函数返回值）。
  */
 
+/**
+ * 加载顺序的预设。
+ *
+ * ★ 为什么"顺序"是**测量口径**的一部分（批136 的教训）：`IsConsole` / `IsSteamDeck` /
+ *   `ValidateLineNumber` 是 `main.lua`（DST 的引导文件）**自己定义的**，
+ *   `global` 在 `strict.lua` 里，`Vector3` 在 `vector3.lua` 里 —— 都是内容层的东西。
+ *   按字母序加载时 `debugkeys.lua` 排在 `main.lua` 前面，于是它们"看起来"是引擎缺口。
+ *   顺序不改对，"缺什么"就会数错。
+ *
+ * ★ `alpha` 是**我们原本的口径**（纯字母序），保留它是因为它是基线：
+ *   换了口径的数字必须能和旧数字比。
+ */
+export const ORDER_PRESETS = {
+  alpha: [],
+  /** 只把 `strict.lua` 提到最前：isolate 出"允许读到 nil 继续跑"的影响。 */
+  "strict-first": ["strict.lua"],
+  /** DST 自己也认的引导文件（顺序有意义，不排序）都在最前。 */
+  "boot-first": ["main.lua", "strict.lua", "class.lua", "util.lua", "vector3.lua", "constants.lua"],
+};
+
+/**
+ * 按预设排加载顺序，返回**新数组**（不改入参）。
+ *
+ * @param files 语料里的脚本名
+ * @param preset `ORDER_PRESETS` 的键；未知键**抛错**（不静默回退到 alpha ——
+ *   回退会让"我以为在跑严格口径"变成无法发现的事实）
+ */
+export function orderScripts(files, preset = "alpha") {
+  const first = ORDER_PRESETS[preset];
+  if (first === undefined) {
+    throw new Error(
+      `未知的加载顺序预设：${preset}（可选：${Object.keys(ORDER_PRESETS).join(" / ")}）`,
+    );
+  }
+  const present = new Set(files);
+  // ★ 只把**语料里真的有**的引导文件排前面：缺 main.lua 的语料不该凭空多出一个元素。
+  const head = first.filter((f) => present.has(f));
+  const headSet = new Set(head);
+  const rest = [...files].filter((f) => !headSet.has(f)).sort();
+  return [...head, ...rest];
+}
+
 /** 失败的形状。 */
 export const SHAPES = [
   "missing-module",
@@ -156,4 +198,41 @@ export function summarizeFailures(failures) {
     localNils: [...locals.values()].sort(byCountThenName),
     others: [...others.values()].sort(byCountThenText),
   };
+}
+
+/**
+ * 把一批「每个口径都缺」的全局名劈成两半。
+ *
+ * ★ 为什么需要这一刀（批136 实测）：`EntityScript` / `WORLD_TILES` / `Entity` /
+ *   `Print` 这些名字在**三种加载顺序下都被报缺**，但它们其实有内容层定义 ——
+ *   `componentactions.lua` 在 3128 行 `function EntityScript:XXX()` 之前就用了它，
+ *   `constants.lua` 在自己跑到 1201 行 `WORLD_TILES = {` 之前就 `require` 了
+ *   `custompresets`（嵌套加载）。只看报错，"缺"与"还没轮到"长得一模一样。
+ *
+ *   所以真正的判据是**跑完之后再问一次 `_G`**：
+ *   · 跑完仍是 nil ⇒ 这份语料里没有任何文件给过它 ⇒ 引擎欠的
+ *   · 跑完出现了  ⇒ 只是当时还没轮到 ⇒ 顺序/嵌套加载问题，别拿它做 API 面
+ *
+ * ★ 没探测到的名字算 `later`（**不主张缺口**）。理由：把"没证据"报成"引擎欠的"
+ *   会让人去做一堆没人需要的假对象；而"引擎欠的"被误判成顺序问题，代价是下一批
+ *   再量一次 —— 两种错都会发生，但前者会污染代码，后者只污染一次测量。
+ *
+ * @param names 每个口径都缺的全局名
+ * @param probes 每个口径跑完时的一次探测（`Record<名字, type() 的结果>`），
+ *        顺序无关，只要求"每个口径一份"
+ * @returns `{ never, later }`：`never` = 三档跑完都还是 nil；`later` = 其余
+ */
+export function splitNeverDefined(names, probes) {
+  const list = Array.isArray(names) ? names : [];
+  const maps = Array.isArray(probes) ? probes : [];
+  const never = [];
+  const later = [];
+  for (const raw of list) {
+    const name = String(raw);
+    const stillNil =
+      maps.length > 0 &&
+      maps.every((m) => m !== null && m !== undefined && m[name] === "nil");
+    (stillNil ? never : later).push(name);
+  }
+  return { never, later };
 }

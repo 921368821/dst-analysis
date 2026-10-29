@@ -13,7 +13,14 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { classifyFailure, innerMessage, summarizeFailures } from "../../tools/dstsrc-report.mjs";
+import {
+  ORDER_PRESETS,
+  classifyFailure,
+  innerMessage,
+  orderScripts,
+  splitNeverDefined,
+  summarizeFailures,
+} from "../../tools/dstsrc-report.mjs";
 import { LuaScriptRuntime } from "../../src/backends/script-lua/runtime.ts";
 import { resolverFromSources } from "../../src/backends/script-lua/module-resolver.ts";
 
@@ -119,6 +126,100 @@ test("★ 空输入 ⇒ total 0（调用方要能分辨「没失败」；不许�
   assert.equal(sum.total, 0);
   assert.deepEqual(sum.groups, []);
   assert.deepEqual(sum.missingGlobals, []);
+});
+
+// ── 加载顺序（批136）：顺序是**测量口径**的一部分 ─────────────────────────────
+//
+// 为什么"顺序"要单独判：`IsConsole` / `global` / `Vector3` 是 `main.lua` /
+// `strict.lua` / `vector3.lua` **自己定义的**。纯字母序把 `debugkeys.lua` 排在
+// `main.lua` 前面 ⇒ 它们"看起来"是引擎缺口，"缺什么"就被数错了。
+// 这不是"跑法不同"，这是**结论不同**。
+
+test("★ orderScripts alpha：排成字母序，但**不许原地改入参**", () => {
+  // alpha 是**基线口径**（批133/134 的 117→164 都是它量的）。它一旦变成非空，
+  // 新数字就再也无法与旧数字比较 —— 所以这条钉住"alpha 就是纯字母序"。
+  assert.deepEqual(ORDER_PRESETS["alpha"], []);
+  const input = ["b.lua", "a.lua"];
+  const out = orderScripts(input, "alpha");
+  assert.deepEqual(out, ["a.lua", "b.lua"]);
+  // 调用方可能还要拿原顺序做别的事（例如按文件顺序打印明细）
+  assert.deepEqual(input, ["b.lua", "a.lua"], "入参被原地排序 = 偷偷改了调用方的数据");
+});
+
+test("★★ orderScripts boot-first：引导文件按**声明顺序**排前面，不是字母序", () => {
+  const input = [
+    "vector3.lua", "debugkeys.lua", "strict.lua", "util.lua",
+    "main.lua", "class.lua", "constants.lua", "aa.lua",
+  ];
+  assert.deepEqual(
+    orderScripts(input, "boot-first"),
+    [
+      // 声明顺序（main 先于 strict 先于 class…）。按字母序排会变成
+      // class / constants / main / strict / util / vector3 —— 必须能分辨出这两者。
+      "main.lua", "strict.lua", "class.lua", "util.lua", "vector3.lua", "constants.lua",
+      "aa.lua", "debugkeys.lua",
+    ],
+  );
+});
+
+test("★ orderScripts：语料里没有的引导文件**不许凭空出现**（缺 main.lua 就少一个元素）", () => {
+  const out = orderScripts(["z.lua", "a.lua", "strict.lua"], "boot-first");
+  assert.deepEqual(out, ["strict.lua", "a.lua", "z.lua"], "只提前语料里真有的那些");
+  assert.equal(out.length, 3, "长度必须等于入参，否则后面按名字读文件会读空");
+});
+
+test("★ orderScripts strict-first：只提 strict.lua，其余仍按字母序（与 alpha 可比）", () => {
+  assert.deepEqual(orderScripts(["b.lua", "strict.lua", "a.lua"], "strict-first"), [
+    "strict.lua", "a.lua", "b.lua",
+  ]);
+});
+
+test("★★ 未知预设必须**抛错**：静默回退到 alpha 会让「以为在跑严格口径」永远发现不了", () => {
+  assert.throws(() => orderScripts(["a.lua"], "no-such"), /未知的加载顺序预设：no-such/);
+  // 顺带钉住可选值：报错里要把可选预设列出来，否则看到错也不知道该填什么
+  assert.throws(() => orderScripts(["a.lua"], "no-such"), /alpha \/ strict-first \/ boot-first/);
+});
+
+// ── 跨口径求交（批136）：把「缺」劈成「引擎欠的」与「还没轮到」 ─────────────────
+//
+// 为什么光看报错不够：`WORLD_TILES` 在三档里都被报缺，但它其实由 `constants.lua:1201`
+// 定义 —— 原因是 `constants.lua` 在自己跑到 1201 行之前就 `require` 了 `custompresets`。
+// 只看报错，"引擎欠的"与"还没轮到"长得一模一样。判据是**跑完再问一次 `_G`**。
+
+test("★★ 跑完仍是 nil ⇒ never（三档都 nil 才算，一档出现就划到 later）", () => {
+  const got = splitNeverDefined(
+    ["TheNet", "WORLD_TILES"],
+    [
+      { TheNet: "nil", WORLD_TILES: "nil" },
+      { TheNet: "nil", WORLD_TILES: "table" }, // 只要有一档跑完出现了，就不是缺口
+      { TheNet: "nil", WORLD_TILES: "table" },
+    ],
+  );
+  assert.deepEqual(got.never, ["TheNet"]);
+  assert.deepEqual(got.later, ["WORLD_TILES"]);
+});
+
+test("★★ 没探测到的名字进 later —— 「没证据」不许报成「引擎欠的」", () => {
+  // 把"没证据"说成"引擎欠的"，会让人去做一堆没人需要的假对象。
+  assert.deepEqual(splitNeverDefined(["X"], [{}]), { never: [], later: ["X"] });
+  assert.deepEqual(splitNeverDefined(["X"], []), { never: [], later: ["X"] }, "一份探测都没有时不主张缺口");
+});
+
+test("★ 三档全 nil 才算 never：少一档不行（两档 nil + 一档缺失也不许当 never）", () => {
+  assert.deepEqual(splitNeverDefined(["A"], [{ A: "nil" }, { A: "nil" }]), {
+    never: ["A"],
+    later: [],
+  });
+  assert.deepEqual(splitNeverDefined(["A"], [{ A: "nil" }, {}]), { never: [], later: ["A"] });
+});
+
+test("★ 空输入 ⇒ 两半都空；返回新数组，不改入参", () => {
+  const names = ["A"];
+  const probes = [{ A: "nil" }];
+  assert.deepEqual(splitNeverDefined([], probes), { never: [], later: [] });
+  const got = splitNeverDefined(names, probes);
+  assert.deepEqual(names, ["A"], "入参不许被改");
+  assert.notEqual(got.never, names, "不许把入参数组直接当结果交出去");
 });
 
 test("★★ 用**真实运行时**产出的报错喂进去：合成语料与真实格式不许漂移", async () => {

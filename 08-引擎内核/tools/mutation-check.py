@@ -7846,6 +7846,69 @@ MUTANTS = [
         "test": "tests/tools/dstsrc-report.test.ts",
     },
     {
+        "name": "M850 orderScripts 不把引导文件提前（换口径等于没换，18 个名字会被误判成引擎缺口）",
+        "file": "tools/dstsrc-report.mjs",
+        "pairs": [(
+            "  const head = first.filter((f) => present.has(f));\n",
+            "  const head = [];\n",
+        )],
+        "test": "tests/tools/dstsrc-report.test.ts",
+    },
+    {
+        "name": "M851 引导文件按字母序排（main 落到 class 后面，`IsConsole` 又变回「缺全局」）",
+        "file": "tools/dstsrc-report.mjs",
+        "pairs": [(
+            "  const head = first.filter((f) => present.has(f));\n",
+            "  const head = first.filter((f) => present.has(f)).sort();\n",
+        )],
+        "test": "tests/tools/dstsrc-report.test.ts",
+    },
+    {
+        "name": "M852 未知预设静默回退到 alpha（「以为在跑严格口径」永远发现不了）",
+        "file": "tools/dstsrc-report.mjs",
+        "pairs": [(
+            "  const first = ORDER_PRESETS[preset];\n",
+            "  const first = ORDER_PRESETS[preset] ?? [];\n",
+        )],
+        "test": "tests/tools/dstsrc-report.test.ts",
+    },
+    {
+        "name": "M853 不过滤「语料里没有的引导文件」（结果数组比入参长，后面按名字读文件会读到空）",
+        "file": "tools/dstsrc-report.mjs",
+        "pairs": [(
+            "  const head = first.filter((f) => present.has(f));\n",
+            "  const head = [...first];\n",
+        )],
+        "test": "tests/tools/dstsrc-report.test.ts",
+    },
+    {
+        "name": "M854 原地排序入参（偷偷改掉调用方的数组，调用方再拿它做别的事就全错）",
+        "file": "tools/dstsrc-report.mjs",
+        "pairs": [(
+            "  const rest = [...files].filter((f) => !headSet.has(f)).sort();\n",
+            "  const rest = files.sort().filter((f) => !headSet.has(f));\n",
+        )],
+        "test": "tests/tools/dstsrc-report.test.ts",
+    },
+    {
+        "name": "M855 splitNeverDefined 用 some 代替 every（只要有一档是 nil 就判成引擎欠的）",
+        "file": "tools/dstsrc-report.mjs",
+        "pairs": [(
+            "      maps.every((m) => m !== null && m !== undefined && m[name] === \"nil\");\n",
+            "      maps.some((m) => m !== null && m !== undefined && m[name] === \"nil\");\n",
+        )],
+        "test": "tests/tools/dstsrc-report.test.ts",
+    },
+    {
+        "name": "M856 splitNeverDefined 把「没探测到」当成 nil（没证据就说引擎欠，回头做一堆假对象）",
+        "file": "tools/dstsrc-report.mjs",
+        "pairs": [(
+            "      maps.every((m) => m !== null && m !== undefined && m[name] === \"nil\");\n",
+            "      maps.every((m) => m !== null && m !== undefined && (m[name] ?? \"nil\") === \"nil\");\n",
+        )],
+        "test": "tests/tools/dstsrc-report.test.ts",
+    },
+    {
         "name": "M826 wx 存档直接写目标（回到批132 之前：崩在写入中途就是半份存档）",
         # ★ 这条变异必须**整段绕过** atomicWrite，而不是只把 write(tmp) 改成 write(target)：
         #   那样 rename 会去挪一个不存在的临时文件、报的是另一个错，
