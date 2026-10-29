@@ -7667,6 +7667,49 @@ MUTANTS = [
         "pairs": [('  return out.join("");\n', "  return text;\n")],
         "test": "tests/tools/gap-check.test.ts",
     },
+    # ---- 批132：wx 存档的原子写
+    {
+        "name": "M826 wx 存档直接写目标（回到批132 之前：崩在写入中途就是半份存档）",
+        # ★ 这条变异必须**整段绕过** atomicWrite，而不是只把 write(tmp) 改成 write(target)：
+        #   那样 rename 会去挪一个不存在的临时文件、报的是另一个错，
+        #   判据红在"写失败"上而不是"没走临时文件"上 —— 红的位置错了，等于没验到。
+        "file": "src/host/wx/fs.ts",
+        "pairs": [(
+            "    return this.atomicWrite(a.value, path, (tmp) => {\n      this.mgr.writeFileSync(tmp, text, \"utf8\");\n    });\n",
+            "    this.mgr.writeFileSync(a.value, text, \"utf8\");\n    return ok(undefined);\n",
+        )],
+        "test": "tests/host/wx.test.ts",
+    },
+    {
+        "name": "M827 写失败不删临时文件（存档目录里从此多个 `.tmp-N`，list 会当成普通文件）",
+        "file": "src/host/wx/fs.ts",
+        "pairs": [(
+            "    } catch (e) {\n      this.dropTmp(tmp);\n      return err(classify(e, logical));\n    }\n",
+            "    } catch (e) {\n      return err(classify(e, logical));\n    }\n",
+        )],
+        "test": "tests/host/wx.test.ts",
+    },
+    {
+        "name": "M828 老基础库没有 renameSync 也照写（静默退化成非原子写，修复形同不存在）",
+        "file": "src/host/wx/fs.ts",
+        "pairs": [("    if (typeof rename !== \"function\") {\n", "    if (false) {\n")],
+        "test": "tests/host/wx.test.ts",
+    },
+    {
+        "name": "M829 rename 不会覆盖目标时不补救（第二次存档永远失败 —— 读档一直是旧的）",
+        "file": "src/host/wx/fs.ts",
+        "pairs": [("      if (isAlreadyExists(e)) {\n", "      if (false) {\n")],
+        "test": "tests/host/wx.test.ts",
+    },
+    {
+        "name": "M830 临时文件名不带序号（同一个目标的两次写互相踩）",
+        "file": "src/host/wx/fs.ts",
+        "pairs": [(
+            "    const tmp = `${target}.tmp-${String(++this.tmpSeq)}`;\n",
+            "    const tmp = `${target}.tmp-0`;\n",
+        )],
+        "test": "tests/host/wx.test.ts",
+    },
     {
         "name": "M825 docs-check 打印里去掉「没关单」（接线判据只剩半条：仍缺在跑、新规则没在跑）",
         # ★ 纯函数判据证不了「有人在调用它」。去掉这一段输出，

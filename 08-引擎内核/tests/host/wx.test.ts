@@ -95,7 +95,23 @@ function makeCanvas(width = 1000, height = 1000, raf = true): FakeCanvas {
 interface FakeMgr extends WxFsManagerLike {
   readonly files: Map<string, Uint8Array>;
   readonly dirs: Set<string>;
-  readonly calls: { stat: number; mkdir: number; unlink: number; rmdir: number };
+  readonly calls: { stat: number; mkdir: number; unlink: number; rmdir: number; rename: number };
+  /** 记下每次 rename 的 (源, 目标)：用来验"源是临时文件、且两次写不撞名"。 */
+  readonly renames: { from: string; to: string }[];
+  /**
+   * 让下一次 `writeFileSync` **先落下半截内容再抛异常**。
+   *
+   * ★ 必须真的留下半截：真实的 `writeFileSync` 失败时临时文件通常**已经存在**
+   *   （写到一半满了 / 被杀了），"失败就没建文件"是个不存在的世界。
+   *   第一版夹具就是那样，于是「失败要删临时文件」那条判据永远绿（M827 假绿）。
+   */
+  failWriteOnce(errMsg: string): void;
+  /** 让下一次 `renameSync` 抛异常（写成功了、挪不过去）。 */
+  failRenameOnce(errMsg: string): void;
+  /** 模拟"该实现不覆盖已存在的目标"（rename 报 already exists）。 */
+  setRenameRejectsExisting(v: boolean): void;
+  /** 模拟老基础库：根本没有 renameSync。 */
+  dropRename(): void;
   /** 让 `accessSync` 对"不存在"改为抛异常（部分实现是这样）。 */
   setAccessThrows(v: boolean): void;
   /** 下一次调用抛一个指定 errMsg 的异常（用来验错误分类）。 */
@@ -105,9 +121,14 @@ interface FakeMgr extends WxFsManagerLike {
 function makeMgr(root = WX_USER_DATA_PATH): FakeMgr {
   const files = new Map<string, Uint8Array>();
   const dirs = new Set<string>([root]);
-  const calls = { stat: 0, mkdir: 0, unlink: 0, rmdir: 0 };
+  const calls = { stat: 0, mkdir: 0, unlink: 0, rmdir: 0, rename: 0 };
+  const renames: { from: string; to: string }[] = [];
   let accessThrows = false;
   let nextFail: string | null = null;
+  let nextWriteFail: string | null = null;
+  let nextRenameFail: string | null = null;
+  let renameRejectsExisting = false;
+  let hasRename = true;
   const enc = new TextEncoder();
   const dec = new TextDecoder();
   const parentOf = (p: string): string => {
@@ -121,6 +142,19 @@ function makeMgr(root = WX_USER_DATA_PATH): FakeMgr {
     files,
     dirs,
     calls,
+    renames,
+    failWriteOnce: (m) => {
+      nextWriteFail = m;
+    },
+    failRenameOnce: (m) => {
+      nextRenameFail = m;
+    },
+    setRenameRejectsExisting: (v) => {
+      renameRejectsExisting = v;
+    },
+    dropRename: () => {
+      hasRename = false;
+    },
     setAccessThrows: (v) => {
       accessThrows = v;
     },
@@ -141,6 +175,15 @@ function makeMgr(root = WX_USER_DATA_PATH): FakeMgr {
       return out;
     },
     writeFileSync: (p: string, data: string | ArrayBuffer, encoding?: string): void => {
+      if (nextWriteFail !== null) {
+        const m = nextWriteFail;
+        nextWriteFail = null;
+        // ★ 真实失败是"写到一半"：文件已经在了、内容是断的。留下这半截，
+        //   「失败要把临时文件删掉」才是一条有分辨力的判据。
+        const body = typeof data === "string" ? enc.encode(data) : new Uint8Array(data, 0, data.byteLength);
+        files.set(p, body.slice(0, Math.max(1, body.length >> 1)));
+        throw { errMsg: m };
+      }
       const parent = parentOf(p);
       if (parent.length > 0 && !dirs.has(parent)) {
         // ★ 真实行为：不会自动建目录。
@@ -223,6 +266,30 @@ function makeMgr(root = WX_USER_DATA_PATH): FakeMgr {
       return okv;
     },
   };
+  // ★ 用 getter 挂 renameSync，`dropRename()` 才能真的把它从对象上**摘掉**
+  //   （写成普通字段的话 `delete` 之后原型上还在，判据里那条"老基础库"永远假绿）。
+  Object.defineProperty(mgr, "renameSync", {
+    configurable: true,
+    get: () => {
+      if (!hasRename) return undefined;
+      return (from: string, to: string): void => {
+        calls.rename++;
+        renames.push({ from, to });
+        if (nextRenameFail !== null) {
+          const m = nextRenameFail;
+          nextRenameFail = null;
+          throw { errMsg: m };
+        }
+        if (!files.has(from)) notFound(from);
+        if (files.has(to)) {
+          if (renameRejectsExisting) throw { errMsg: `renameSync:fail file already exists: ${to}` };
+          files.delete(to);
+        }
+        files.set(to, files.get(from)!);
+        files.delete(from);
+      };
+    },
+  });
   return mgr;
 }
 
@@ -449,6 +516,99 @@ test("★★ 写→读回环：文本与二进制都逐字节回来（二进制�
   const rb = await fs.readBinary("save/a.bin");
   assert.equal(rb.ok, true);
   assert.deepEqual([...(rb.ok ? rb.value : [])], [1, 2, 3, 255], "写入后改原 buffer 不该改到已存的内容");
+});
+
+// ---------------------------------------------------------------- 原子写（批132）
+
+/**
+ * ★★ 为什么这一组必须存在：`fs-node` 从第一天就是「临时文件 → rename」，
+ *   而 wx 后端一直是直接 `writeFileSync` 到目标路径 —— 于是同一个"存档"契约，
+ *   在一个宿主上是原子的、在另一个上不是。这类差异**不会**在桌面端报错，
+ *   只在"手机没电 / 用户上滑杀进程"那一刻变成半份存档。
+ *
+ * ★ 判据读两个观测量：**目标文件的最终内容**（旧 vs 新 vs 半个）与
+ *   **临时文件有没有留下**。只断言"写成功"的话，直接写也会全绿。
+ */
+
+test("★★ 写存档走临时文件 + rename：目标是新内容，且留下的临时文件为 0", async () => {
+  const mgr = makeMgr();
+  const fs = new WxFileSystem(mgr);
+  const w = await fs.writeText("save.json", "v2");
+  assert.equal(w.ok, true, w.ok ? "" : w.error.code);
+  assert.equal(mgr.calls.rename, 1, "写一次应当 rename 一次");
+  assert.equal(mgr.renames[0]?.to, `${WX_USER_DATA_PATH}/save.json`);
+  assert.ok(
+    (mgr.renames[0]?.from ?? "").includes(".tmp-"),
+    `rename 的源必须是临时文件，实际：${mgr.renames[0]?.from ?? ""}`,
+  );
+  const rt = await fs.readText("save.json");
+  assert.equal(rt.ok && rt.value, "v2");
+  const leftovers = [...mgr.files.keys()].filter((k) => k.includes(".tmp-"));
+  assert.deepEqual(leftovers, [], "成功后不该留下临时文件");
+});
+
+test("★★ 写到一半失败 ⇒ 目标文件保持**旧内容**（不是半份），临时文件被清掉", async () => {
+  const mgr = makeMgr();
+  const fs = new WxFileSystem(mgr);
+  await fs.writeText("save.json", "v1");
+  mgr.failWriteOnce("writeFileSync:fail disk full");
+  const w = await fs.writeText("save.json", "v2-写到一半");
+  assert.equal(w.ok, false, "写失败必须如实返回错误");
+  // ★ 两个观测量一起读：目标没变（旧），且没留下垃圾。
+  const rt = await fs.readText("save.json");
+  assert.equal(rt.ok && rt.value, "v1", "失败的写不许动到旧存档（直接写会留下半份 v2）");
+  const leftovers = [...mgr.files.keys()].filter((k) => k.includes(".tmp-"));
+  assert.deepEqual(leftovers, [], "失败后不许留下临时文件（list 会把它当普通文件列出来）");
+});
+
+test("★★ rename 失败（写成功了、挪不过去）⇒ 旧存档不动，临时文件清掉", async () => {
+  const mgr = makeMgr();
+  const fs = new WxFileSystem(mgr);
+  await fs.writeText("save.json", "v1");
+  mgr.failRenameOnce("renameSync:fail permission denied");
+  const w = await fs.writeText("save.json", "v2");
+  assert.equal(w.ok, false, "挪不过去必须如实失败");
+  const rt = await fs.readText("save.json");
+  assert.equal(rt.ok && rt.value, "v1", "旧存档不许丢（这是 atomicWrite 的全部意义）");
+  const leftovers = [...mgr.files.keys()].filter((k) => k.includes(".tmp-"));
+  assert.deepEqual(leftovers, [], "rename 失败也必须清掉临时文件");
+});
+
+test("★★ 没有 renameSync 的老基础库 ⇒ 明确报错，且**不回退**直接写", async () => {
+  const mgr = makeMgr();
+  mgr.dropRename();
+  const fs = new WxFileSystem(mgr);
+  const w = await fs.writeText("save.json", "v1");
+  assert.equal(w.ok, false, "不能静默退化成非原子写");
+  const msg = w.ok ? "" : w.error.message;
+  assert.ok(msg.includes("renameSync"), `报错要点名缺的是什么，实际：${msg}`);
+  assert.ok(msg.includes("原子"), `报错要说清后果，实际：${msg}`);
+  // ★ 关键的反向断言：**一个字节都不许落盘**（落了一半正是这条要防的）。
+  assert.equal(mgr.files.has(`${WX_USER_DATA_PATH}/save.json`), false, "拒绝之后不许写出东西");
+});
+
+test("★ rename 不覆盖已存在目标（某些实现）⇒ 走 unlink + rename，仍是新内容", async () => {
+  const mgr = makeMgr();
+  mgr.setRenameRejectsExisting(true);
+  const fs = new WxFileSystem(mgr);
+  const first = await fs.writeText("save.json", "v1");
+  assert.equal(first.ok, true, first.ok ? "" : first.error.message);
+  const second = await fs.writeText("save.json", "v2");
+  assert.equal(second.ok, true, second.ok ? "" : second.error.message);
+  const rt = await fs.readText("save.json");
+  assert.equal(rt.ok && rt.value, "v2", "第二次必须覆盖成功（否则读档会永远读到 v1）");
+});
+
+test("★ 同一个目标写两次，临时文件名不撞（async 之间别的代码能插进来）", async () => {
+  const mgr = makeMgr();
+  const fs = new WxFileSystem(mgr);
+  // ★ 必须写**同一个目标**才验得到序号：写两个不同目标时，临时名本身就因为
+  //   目标名不同而不同 —— 那样这条判据删掉 `tmpSeq` 也照样绿（等价变异）。
+  await fs.writeText("save.json", "1");
+  await fs.writeText("save.json", "2");
+  const froms = mgr.renames.map((r) => r.from);
+  assert.equal(froms.length, 2, `应当 rename 两次，实际：${froms.join(" / ")}`);
+  assert.notEqual(froms[0], froms[1], `同一个目标的两次写必须用不同临时名，实际：${froms.join(" / ")}`);
 });
 
 test("★★ list：readdirSync 只给名字 ⇒ 每个子项必须 stat 一次（类型不是猜出来的）", async () => {

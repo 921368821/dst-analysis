@@ -139,6 +139,13 @@ function makeMgr(o: FakeFsOptions = {}) {
     accessSync(p: string): boolean {
       return files.has(p) || dirs.has(p) || readAsset(p) !== null || assetDir(p) !== null;
     },
+    // 存档现在是「临时文件 → rename」（批132），假 manager 必须跟着长这一个能力：
+    // 缺了它，宿主那条"存档真的落到文件系统"会红在**夹具**上，而看着像实现坏了。
+    renameSync(from: string, to: string): void {
+      if (!files.has(from)) notFound(from);
+      files.set(to, files.get(from) as Uint8Array);
+      files.delete(from);
+    },
   };
   return { mgr, files, dirs, calls };
 }

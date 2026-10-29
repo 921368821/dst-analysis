@@ -21,6 +21,13 @@
  *   ③ 写文件**不会自动建父目录**（浏览器里 localStorage 没有目录概念，很容易漏）。
  *      所以 `writeText` / `writeBinary` 必须先 `ensureDir(dirname)`。
  *      漏了这一步的症状是"第一次存档就失败，而第二次能成功"（目录被上一次的失败顺手建出来了）。
+ *
+ *   ④ 写存档**要走临时文件 + rename**（批132）：直接 `writeFileSync` 到目标路径时，
+ *      "写到一半被杀进程 / 手机没电"留下的是**半份存档**，而半份存档比没有存档更坏 ——
+ *      读档那边会把半截 JSON 当格式错，玩家看到的是「存档损坏」。
+ *      与 `fs-node` 同一套语义（临时文件 → rename），差别只有一处、而且是真实的：
+ *      **wx 没有 `fsync`**，所以"rename 是否已持久化"在这里连"靠文件系统日志"都谈不上，
+ *      只能如实记着。原子性管的是"要么旧、要么新"，不管"是否已落到闪存"。
  */
 
 import { engineError, err, ok, type EngineError, type Result } from "../../foundation/result.ts";
@@ -40,6 +47,8 @@ export interface WxFsManagerLike {
   unlinkSync(path: string): void;
   rmdirSync(path: string, recursive?: boolean): void;
   accessSync(path: string): boolean;
+  /** 可选：没有它就无法原子落盘（见 `atomicWrite`）。真机基础库从 1.9.9 起都有。 */
+  renameSync?(oldPath: string, newPath: string): void;
 }
 
 /** wx 的 `Stat`：类型是**方法**，不是字段。 */
@@ -121,6 +130,14 @@ export class WxFileSystem implements IFileSystem {
   readonly scheme = "wx";
   readonly canList = true;
   private readonly root: string;
+  /**
+   * 临时文件名里的序号。
+   *
+   * ★ 为什么需要它：`save.json.tmp` 这种固定名在"两次写重叠"时会互相踩
+   *   （`writeText` 是 async 的，两个 await 之间别的代码能插进来）。
+   *   序号 +1 让每次写自己的临时文件互不相干 —— 与 `fs-node` 同一条理由。
+   */
+  private tmpSeq = 0;
 
   constructor(
     private readonly mgr: WxFsManagerLike,
@@ -135,6 +152,68 @@ export class WxFileSystem implements IFileSystem {
       return err(engineError("FS.BAD_PATH", "路径是空串"));
     }
     return ok(joinPath(this.root, path));
+  }
+
+  /**
+   * 写临时文件 → rename（`fs-node` 的同款语义，去掉 `fsync`：wx 没有）。
+   *
+   * ★★ 失败路径必须**删掉临时文件**：否则一次写失败就在存档目录里留一个
+   *   `save.json.tmp-3`，而 `list()` 会把它当普通文件列出来（`readdirSync` 只给名字，
+   *   没有"这是临时文件"这个信息）—— 资产浏览器里从此多一个看不懂的条目。
+   *
+   * ★ 关于"rename 到已存在的目标"：wx 的文档没有把"覆盖"写死。所以这里**先直接 rename**，
+   *   只有在报「已存在」时才退化成 unlink + rename。代价是那一步里有一瞬间**没有存档**，
+   *   但这仍然是"要么旧、要么新、要么没有"，而不是"半个" —— 三者里唯一不可恢复的只有"半个"。
+   */
+  private atomicWrite(
+    target: string,
+    logical: string,
+    write: (tmp: string) => void,
+  ): Result<void, EngineError> {
+    const rename = this.mgr.renameSync;
+    if (typeof rename !== "function") {
+      // ★ 不退化成直接写：静默退化等于这个修复从来没生效过，而失败是要人看见的。
+      return err(
+        engineError(
+          "FS.IO",
+          `当前 wx 的 FileSystemManager 没有 renameSync —— 存档无法原子落盘：${logical}（拒绝退化成直接写：半份存档比没有更坏）`,
+        ),
+      );
+    }
+    const tmp = `${target}.tmp-${String(++this.tmpSeq)}`;
+    try {
+      write(tmp);
+    } catch (e) {
+      this.dropTmp(tmp);
+      return err(classify(e, logical));
+    }
+    try {
+      rename.call(this.mgr, tmp, target);
+      return ok(undefined);
+    } catch (e) {
+      if (isAlreadyExists(e)) {
+        // 目标已存在且该实现不覆盖：删掉旧的再 rename（见上面 ★ 的取舍）。
+        try {
+          this.mgr.unlinkSync(target);
+          rename.call(this.mgr, tmp, target);
+          return ok(undefined);
+        } catch (e2) {
+          this.dropTmp(tmp);
+          return err(classify(e2, logical));
+        }
+      }
+      this.dropTmp(tmp);
+      return err(classify(e, logical));
+    }
+  }
+
+  /** 删临时文件。清理失败**不许**盖掉真正的原因（所以吞掉异常）。 */
+  private dropTmp(tmp: string): void {
+    try {
+      this.mgr.unlinkSync(tmp);
+    } catch {
+      /* 临时文件没建出来 / 已经不在：都无所谓 */
+    }
   }
 
   async readText(path: string): Promise<Result<string, EngineError>> {
@@ -231,12 +310,9 @@ export class WxFileSystem implements IFileSystem {
     if (!a.ok) return a;
     const ready = this.ensureParent(a.value);
     if (ready !== null) return ready;
-    try {
-      this.mgr.writeFileSync(a.value, text, "utf8");
-      return ok(undefined);
-    } catch (e) {
-      return err(classify(e, path));
-    }
+    return this.atomicWrite(a.value, path, (tmp) => {
+      this.mgr.writeFileSync(tmp, text, "utf8");
+    });
   }
 
   async writeBinary(path: string, data: Uint8Array): Promise<Result<void, EngineError>> {
@@ -244,16 +320,13 @@ export class WxFileSystem implements IFileSystem {
     if (!a.ok) return a;
     const ready = this.ensureParent(a.value);
     if (ready !== null) return ready;
-    try {
+    return this.atomicWrite(a.value, path, (tmp) => {
       // ★ 复制一份再交给 manager：wx 的 writeFileSync 在某些版本里会**持有**这个 buffer，
       //   调用方随后复用同一块内存（存档缓冲池）就会把已写入的内容改掉。
       const copy = new Uint8Array(data.length);
       copy.set(data);
-      this.mgr.writeFileSync(a.value, copy.buffer as ArrayBuffer);
-      return ok(undefined);
-    } catch (e) {
-      return err(classify(e, path));
-    }
+      this.mgr.writeFileSync(tmp, copy.buffer as ArrayBuffer);
+    });
   }
 
   async remove(path: string): Promise<Result<void, EngineError>> {
