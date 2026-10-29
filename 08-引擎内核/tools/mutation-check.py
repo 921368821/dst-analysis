@@ -2464,7 +2464,10 @@ MUTANTS = [
     {
         "name": "M246 击杀之后不清名单（stats.mobs 滞后，打死一只还报原来那个数）",
         "file": "src/extensions/mobs/mob-world.ts",
-        "pairs": [("      prune();\n    },\n    stop(): void {", "      void 0;\n    },\n    stop(): void {")],
+        "pairs": [(
+            "      prune();\n      syncBodies();\n    },\n    stop(): void {",
+            "      void 0;\n      syncBodies();\n    },\n    stop(): void {",
+        )],
         "test": "tests/extensions/mob-world.test.ts",
     },
     # ---- 批67：饥饿与进食
@@ -7229,6 +7232,48 @@ MUTANTS = [
             "          const loot = lootR.ok ? lootR.value : null;",
         )],
         "test": "tests/extensions/mob-world.test.ts",
+    },
+    {
+        "name": "M777 blockCells 封了格却不作废连通分量（分量说有路、寻路说没有）",
+        "file": "src/extensions/nav/nav-grid.ts",
+        "pairs": [("      this.labels.fill(-1);\n      this.labeled = false;\n      this.labelCount = 0;\n", "")],
+        "test": "tests/extensions/nav-grid.test.ts",
+    },
+    {
+        "name": "M778 blockCells 只计数不封格（摆件仍然是一条通途）",
+        "file": "src/extensions/nav/nav-grid.ts",
+        "pairs": [("      this.mask[c] = 0;\n", "")],
+        "test": "tests/extensions/nav-grid.test.ts",
+    },
+    {
+        "name": "M779 blockCells 把已经封过的格也算成新封（返回值会虚高）",
+        "file": "src/extensions/nav/nav-grid.ts",
+        "pairs": [("      if (this.mask[c] === 0) continue;\n", "")],
+        "test": "tests/extensions/nav-grid.test.ts",
+    },
+    {
+        "name": "M780 syncBodies 不补体（读档清了物理表之后，生物静默开始穿模）",
+        "file": "src/extensions/mobs/mob-world.ts",
+        "pairs": [(
+            "      phys.add({ nodeId: id, radius, isStatic: false });\n      bodiesAdded++;\n",
+            "",
+        )],
+        "test": "tests/extensions/mob-collision.test.ts",
+    },
+    {
+        "name": "M781 prune 不撤死者的体（原地一堵看不见的墙）",
+        "file": "src/extensions/mobs/mob-world.ts",
+        "pairs": [(
+            "      if (phys !== undefined && phys.has(id)) {\n        phys.remove(id);\n        bodiesRemoved++;\n      }\n",
+            "",
+        )],
+        "test": "tests/extensions/mob-collision.test.ts",
+    },
+    {
+        "name": "M782 生物体登记成静态体（解算不推它，它站在树里出不来）",
+        "file": "src/extensions/mobs/mob-world.ts",
+        "pairs": [("      phys.add({ nodeId: id, radius, isStatic: false });\n", "      phys.add({ nodeId: id, radius, isStatic: true });\n")],
+        "test": "tests/extensions/mob-collision.test.ts",
     }
 ]
 

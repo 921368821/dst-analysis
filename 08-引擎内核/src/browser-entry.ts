@@ -1353,6 +1353,10 @@ export async function main(): Promise<void> {
         // 批123：死了原地留一具（战利品在尸体里，得自己走过去翻）。
         // ★ 时长与玩家击杀共用同一个常量（见 `CORPSE_DECAY_TICKS`）
         corpse: { ground: g, decayTicks: CORPSE_DECAY_TICKS },
+        // 批124：生物长**动态体**（被树挡住、被玩家挡住、彼此挡住）。
+        // ★ 不传的话它们仍然互相穿过 —— 而"穿过"与"挡住"在统计上一模一样，
+        //   只有画面能分辨，所以这条接线必须有判据（浏览器自检的 bodies 那一条）。
+        physics,
       });
       const r = h.init(ctx) as Result<void, EngineError> | undefined;
       if (r !== undefined && !r.ok) return r;
@@ -1540,22 +1544,49 @@ export async function main(): Promise<void> {
   const H = worldPlan?.height ?? WORLD_H;
 
   /** 抽一个可通行格的中心点（抽不到就退回地图中心，别把整段摆件卡死）。 */
-  function walkableSpot(margin = 1): { x: number; z: number } {
+  function walkableSpot(margin = 1, avoid?: ReadonlySet<number>): { x: number; z: number } {
     for (let tries = 0; tries < 64 && worldPlan !== null; tries++) {
       const cx = Math.floor(rnd.range(margin, W - margin));
       const cz = Math.floor(rnd.range(margin, H - margin));
       const kind = worldPlan.kinds[cz * W + cx];
       if (kind === undefined) continue;
       if (kind === "ocean" || kind === "cliff") continue;
+      // 见下面装饰段的 ★：生物与玩家已经在场，树不能摆在他们脚下
+      if (avoid !== undefined && avoid.has(cz * W + cx)) continue;
       return { x: cx + 0.5, z: cz + 0.5 };
     }
     return { x: W / 2, z: H / 2 };
   }
 
+  // ---- 装饰摆件：它们**同时**是物理障碍与导航障碍（批124）
+  //
+  // ★★ 为什么两样都要：物理体让它挡得住已经贴上来的东西，导航封格让它**不往那儿走**。
+  //   只做物理体是不够的 —— 树摆在格中心（`walkableSpot` 给的是 `cx+0.5`），
+  //   而路点也是格中心（`NavGrid.centerOf`），两者落在同一个点阵上、误差为零。
+  //   于是生物会**正对着树心**走过去：推力与走的方向正好相反、净位移 0，
+  //   症状是"一只怪顶着树抖一整天"，而生物数、击杀数、战利品数全部自洽。
+  //
+  // ★ 生物与玩家此刻**已经在前场**（生物群模块先于本段 init），所以先收一张
+  //   "别摆"的格子表 —— 否则开局第一帧就是"一只怪从树干里被挤出来"。
+  const occupiedCells = new Set<number>();
+  {
+    const nav0 = worldState.nav;
+    const mobs0 = worldState.mobs;
+    if (nav0 !== null && mobs0 !== null) {
+      for (const id of mobs0.nodeIds) {
+        const n = scene.find(id);
+        if (n !== undefined) occupiedCells.add(nav0.cellAt(n.worldPosition.x, n.worldPosition.y));
+      }
+    }
+    if (worldState.player !== null) occupiedCells.add(worldState.player.cell);
+  }
+
   const obstacleIds: number[] = [];
+  /** 摆件占住的格子：摆完一起交给 `blockCells`（见上面的 ★★）。 */
+  const obstacleCells: number[] = [];
   for (let i = 0; i < 70; i++) {
     const isTree = i % 3 !== 0;
-    const spot = walkableSpot();
+    const spot = walkableSpot(1, occupiedCells);
     const r = scene.spawnAt(isTree ? `tree${i}` : `rock${i}`, spot.x, spot.z);
     if (!r.ok) continue;
     const node = r.value;
@@ -1564,6 +1595,7 @@ export async function main(): Promise<void> {
     scene.attach(node.id, () => s);
     if (isTree) scene.attach(node.id, () => new Workable());
     obstacleIds.push(node.id);
+    obstacleCells.push(Math.floor(spot.z) * W + Math.floor(spot.x));
     // ★ 物理体要跟着节点**同批**建：`spawn` 只是入队，节点在 `flush()` 之前不在 `byId` 里，
     //   而 `SpatialHashWorld.add` 会立刻读位置（读不到就抛"没有位置"）。
     //   用 `scene.enqueue` 把它排在同一批里，顺序由投递序保证 —— 这时节点已经挂上了。
@@ -1593,7 +1625,17 @@ export async function main(): Promise<void> {
     s.order = -50;
     scene.attach(r.value.id, () => s);
     obstacleIds.push(r.value.id);
+    obstacleCells.push(Math.floor(3.5) * W + Math.floor(cx + 0.5));
     scene.enqueue(() => physics.add({ nodeId: r.value.id, radius: 0.6, isStatic: true }), "physics-add");
+  }
+
+  // ★ 见装饰段开头 ★★：障碍必须在导航里"看得见"，否则生物会正对着障碍心走。
+  //   放在这里（而不是更早）是因为格子要等摆件落位才知道；放在这里也不会漏，
+  //   因为**第一批寻路发生在本段之后**（生物群模块 init 用的是摆件之前的格子，
+  //   而那些格子已经被 `occupiedCells` 排除了）。
+  const navObstacles = worldState.nav;
+  if (navObstacles !== null && obstacleCells.length > 0) {
+    navObstacles.blockCells(obstacleCells);
   }
 
   // ---- 玩家：就是世界生成里落地的那个（不再是另造一个 hero）

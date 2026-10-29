@@ -24058,6 +24058,37 @@ var NavGrid = class _NavGrid {
     return this.isWalkableIndex(this.indexOf(cx, cz));
   }
   /**
+   * 把一批格子改成**不可走**（批124：装饰摆件是导航建好之后才放到地上的）。
+   *
+   * ★★ 为什么需要它：`fromPlan` 只认群系（草地 / 森林 / 海），而演示里那 70 棵树
+   *   是装配阶段"随手摆"的装饰，不在 `plan.kinds` 里。于是导航认为"穿过树的那条直线
+   *   是通的"，生物就**瞄准树的正中心**走过去 —— 树摆在格中心（`walkableSpot` 给的是
+   *   `cx+0.5`），路点也是格中心（`centerOf`），两者落在同一个点阵上，误差为零。
+   *   没有物理体时这只是"穿模"；一旦有了物理体，推力与走的方向正好相反、净位移 0，
+   *   症状是**一只怪顶着树抖一整天**，而生物数、击杀数、战利品数全部自洽。
+   *
+   * ★ 连通分量必须**作废重算**：封格只会让区域断开、不会让它们连上。留着旧标号的
+   *   症状是"分量说有路、寻路说没有" —— 两边各自都能自证清白。
+   * ★ 只封格、不删格：`total` 与下标语义都不变（存档/回放里记的是下标）。
+   *
+   * @returns 这次**新封**的格数（本来就不可走的格不计）。
+   */
+  blockCells(cells) {
+    let n = 0;
+    for (const c of cells) {
+      if (c < 0 || c >= this.mask.length) continue;
+      if (this.mask[c] === 0) continue;
+      this.mask[c] = 0;
+      n++;
+    }
+    if (n > 0) {
+      this.labels.fill(-1);
+      this.labeled = false;
+      this.labelCount = 0;
+    }
+    return n;
+  }
+  /**
    * 找离 `(cx, cz)` 最近的可站立格；找不到返回 -1。
    *
    * ★ 同一圈内取**距离平方最小**、平手取**下标最小**，不是"环上第一个遇到的"。
@@ -25859,6 +25890,7 @@ function createMobWorldModule(options) {
   let combatMod = null;
   const corpse = options.corpse;
   const kindOf2 = /* @__PURE__ */ new Map();
+  const radiusOfNode = /* @__PURE__ */ new Map();
   let ids = [];
   let mobs = 0;
   let hunting = 0;
@@ -25871,21 +25903,55 @@ function createMobWorldModule(options) {
   let corpsesSpawned = 0;
   let corpsesFailed = 0;
   let lastCorpseError = "";
+  let bodiesRemoved = 0;
+  let bodiesAdded = 0;
   function prune() {
     const s = scene;
     if (s === null || ids.length === 0) {
       mobs = 0;
       return;
     }
-    const alive = ids.filter((id) => s.find(id) !== void 0);
+    const phys = options.physics;
+    const alive = [];
+    for (const id of ids) {
+      if (s.find(id) !== void 0) {
+        alive.push(id);
+        continue;
+      }
+      if (phys !== void 0 && phys.has(id)) {
+        phys.remove(id);
+        bodiesRemoved++;
+      }
+    }
     if (alive.length !== ids.length) ids = alive;
     mobs = ids.length;
+  }
+  function syncBodies() {
+    const s = scene;
+    const phys = options.physics;
+    if (s === null || phys === void 0) return;
+    for (const id of ids) {
+      if (phys.has(id)) continue;
+      const radius = radiusOfNode.get(id);
+      if (radius === void 0) continue;
+      if (s.find(id) === void 0) continue;
+      phys.add({ nodeId: id, radius, isStatic: false });
+      bodiesAdded++;
+    }
   }
   const handle = {
     id: options.id ?? "world.mobs",
     get stats() {
+      const phys = options.physics;
+      let bodies = 0;
+      if (phys !== void 0) {
+        for (const id of ids) if (phys.has(id)) bodies++;
+      }
       return {
         mobs,
+        bodies,
+        bodiesRemoved,
+        bodiesAdded,
         hunting,
         wandering,
         idle,
@@ -25954,6 +26020,7 @@ function createMobWorldModule(options) {
         kindOf2.set(m.nodeId, m.template.kind);
       }
       mobs = ids.length;
+      for (const m of placed) radiusOfNode.set(m.nodeId, m.template.radius);
       const b = brain;
       moveMod = createMoveModule({
         grid,
@@ -26045,6 +26112,7 @@ function createMobWorldModule(options) {
       moveMod.update(tick, dt);
       combatMod.update(tick, dt);
       prune();
+      syncBodies();
     },
     stop() {
       moveMod?.stop?.();
@@ -27606,7 +27674,11 @@ async function main() {
         onHit: (info) => showHit(info),
         // 批123：死了原地留一具（战利品在尸体里，得自己走过去翻）。
         // ★ 时长与玩家击杀共用同一个常量（见 `CORPSE_DECAY_TICKS`）
-        corpse: { ground: g, decayTicks: CORPSE_DECAY_TICKS }
+        corpse: { ground: g, decayTicks: CORPSE_DECAY_TICKS },
+        // 批124：生物长**动态体**（被树挡住、被玩家挡住、彼此挡住）。
+        // ★ 不传的话它们仍然互相穿过 —— 而"穿过"与"挡住"在统计上一模一样，
+        //   只有画面能分辨，所以这条接线必须有判据（浏览器自检的 bodies 那一条）。
+        physics
       });
       const r = h.init(ctx);
       if (r !== void 0 && !r.ok) return r;
@@ -27736,21 +27808,35 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
   const worldPlan = worldState.plan;
   const W = worldPlan?.width ?? WORLD_W;
   const H = worldPlan?.height ?? WORLD_H;
-  function walkableSpot(margin = 1) {
+  function walkableSpot(margin = 1, avoid) {
     for (let tries = 0; tries < 64 && worldPlan !== null; tries++) {
       const cx = Math.floor(rnd.range(margin, W - margin));
       const cz = Math.floor(rnd.range(margin, H - margin));
       const kind = worldPlan.kinds[cz * W + cx];
       if (kind === void 0) continue;
       if (kind === "ocean" || kind === "cliff") continue;
+      if (avoid !== void 0 && avoid.has(cz * W + cx)) continue;
       return { x: cx + 0.5, z: cz + 0.5 };
     }
     return { x: W / 2, z: H / 2 };
   }
+  const occupiedCells = /* @__PURE__ */ new Set();
+  {
+    const nav0 = worldState.nav;
+    const mobs0 = worldState.mobs;
+    if (nav0 !== null && mobs0 !== null) {
+      for (const id of mobs0.nodeIds) {
+        const n = scene.find(id);
+        if (n !== void 0) occupiedCells.add(nav0.cellAt(n.worldPosition.x, n.worldPosition.y));
+      }
+    }
+    if (worldState.player !== null) occupiedCells.add(worldState.player.cell);
+  }
   const obstacleIds = [];
+  const obstacleCells = [];
   for (let i = 0; i < 70; i++) {
     const isTree = i % 3 !== 0;
-    const spot = walkableSpot();
+    const spot = walkableSpot(1, occupiedCells);
     const r = scene.spawnAt(isTree ? `tree${i}` : `rock${i}`, spot.x, spot.z);
     if (!r.ok) continue;
     const node = r.value;
@@ -27759,6 +27845,7 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
     scene.attach(node.id, () => s);
     if (isTree) scene.attach(node.id, () => new Workable());
     obstacleIds.push(node.id);
+    obstacleCells.push(Math.floor(spot.z) * W + Math.floor(spot.x));
     scene.enqueue(() => physics.add({ nodeId: node.id, radius: isTree ? 0.55 : 0.7, isStatic: true }), "physics-add");
   }
   for (let i = 0; i < 14; i++) {
@@ -27779,7 +27866,12 @@ ${JSON.stringify(appR.error.detail ?? {}, null, 2)}</pre>`;
     s.order = -50;
     scene.attach(r.value.id, () => s);
     obstacleIds.push(r.value.id);
+    obstacleCells.push(Math.floor(3.5) * W + Math.floor(cx + 0.5));
     scene.enqueue(() => physics.add({ nodeId: r.value.id, radius: 0.6, isStatic: true }), "physics-add");
+  }
+  const navObstacles = worldState.nav;
+  if (navObstacles !== null && obstacleCells.length > 0) {
+    navObstacles.blockCells(obstacleCells);
   }
   const sp = worldState.player;
   if (sp === null) throw new Error("\u4E16\u754C\u6CA1\u6709\u7ED9\u51FA\u51FA\u751F\u70B9\uFF08worldgen \u6A21\u5757\u6CA1\u8DD1\u6210\uFF09");

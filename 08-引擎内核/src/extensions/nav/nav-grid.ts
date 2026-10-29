@@ -9,7 +9,7 @@
  * 位移本身在 `move-along.ts`，AI 的接线在 `ai/move.ts` —— 三层分开的理由是
  * "路径算错了"和"沿着路径走错了"是两种完全不同的失效，混在一起时判据会互相掩盖。
  *
- * ★★ 五个刻意的设计决定：
+ * ★★ 六个刻意的设计决定：
  *
  * ① **代价用整数**（直走 10 / 斜走 14），启发式用八向 octile。
  *    浮点代价在"两条路径总长几乎相等"时会让 A* 的选择取决于累加次序，
@@ -32,6 +32,13 @@
  *
  * ⑤ **越界是错误，不是障碍**。查询越界返回 `NAV.OUT_OF_RANGE` 而不是 `false`：
  *    把"坐标算错了"混进"这里走不了"，会让一个坐标 bug 表现成"地图设计不好"。
+ *
+ * ⑥ **掩码在建成之后还能封格**（`blockCells`，批124），但只能**封**、不能解封。
+ *    理由是时序：网格由生成计划建（`fromPlan` 只认群系），而树/石头/立牌是
+ *    装配阶段才摆到地上的 —— 摆的时候导航已经在了。封格会让连通分量失效，
+ *    所以 `blockCells` 必须把惰性标号一起作废（见那个方法的 ★）。
+ *    只封不解封不是省事：解封会让"这格以前能走"变成一条需要重算的账，
+ *    而**没有任何调用方需要它**（摆件不会被搬走）。
  */
 
 import type { EngineError, Result } from "../../foundation/result.ts";
@@ -285,6 +292,39 @@ export class NavGrid {
 
   isWalkable(cx: number, cz: number): boolean {
     return this.isWalkableIndex(this.indexOf(cx, cz));
+  }
+
+  /**
+   * 把一批格子改成**不可走**（批124：装饰摆件是导航建好之后才放到地上的）。
+   *
+   * ★★ 为什么需要它：`fromPlan` 只认群系（草地 / 森林 / 海），而演示里那 70 棵树
+   *   是装配阶段"随手摆"的装饰，不在 `plan.kinds` 里。于是导航认为"穿过树的那条直线
+   *   是通的"，生物就**瞄准树的正中心**走过去 —— 树摆在格中心（`walkableSpot` 给的是
+   *   `cx+0.5`），路点也是格中心（`centerOf`），两者落在同一个点阵上，误差为零。
+   *   没有物理体时这只是"穿模"；一旦有了物理体，推力与走的方向正好相反、净位移 0，
+   *   症状是**一只怪顶着树抖一整天**，而生物数、击杀数、战利品数全部自洽。
+   *
+   * ★ 连通分量必须**作废重算**：封格只会让区域断开、不会让它们连上。留着旧标号的
+   *   症状是"分量说有路、寻路说没有" —— 两边各自都能自证清白。
+   * ★ 只封格、不删格：`total` 与下标语义都不变（存档/回放里记的是下标）。
+   *
+   * @returns 这次**新封**的格数（本来就不可走的格不计）。
+   */
+  blockCells(cells: readonly number[]): number {
+    let n = 0;
+    for (const c of cells) {
+      if (c < 0 || c >= this.mask.length) continue;
+      if (this.mask[c] === 0) continue;
+      this.mask[c] = 0;
+      n++;
+    }
+    if (n > 0) {
+      // 见 ★：标号作废（下一次 `componentOf` / `componentCount` 会重算）
+      this.labels.fill(-1);
+      this.labeled = false;
+      this.labelCount = 0;
+    }
+    return n;
   }
 
   /**

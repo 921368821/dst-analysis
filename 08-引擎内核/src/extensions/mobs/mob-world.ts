@@ -25,10 +25,23 @@
  *    不清的代价不是内存（几十个 id），而是统计里的 `mobs` 会只增不减 ——
  *    而"世界里有多少活物"正是这个模块存在的理由。
  *
- * ④ **不放物理体**。生物之间、生物与树之间会互相穿过。
- *    加物理体需要处理"被推挤后路径失效"（`move` 的 `nearestIndexOnPath` 已经支持，
- *    但没人验过"二十只生物挤在门口"），那是另一批的事；
- *    这一批的目标是"看得见会动的活物"，把物理一起塞进来会让判据说不清是哪一个坏了。
+ * ④ **放物理体，但只放动态体**（批124；原来这一条写的是"不放"）。
+ *    体是**每 tick 维护出来的不变量**（`syncBodies`），不是"init 时加一次"——
+ *    物理表会在读档时被清空，而"清空之后忘了补"的症状是所有数字都对、只有画面变。
+ *    给的是 `isStatic: false` 的圆体：于是它被树挡住、被玩家挡住、彼此也挡住，
+ *    而"挡住"是 `resolve()` 的软推，不是扫掠的硬停（理由见 `MobWorldOptions.physics`
+ *    的 ★，那里同时是 C18「动态障碍」三个问题的答案）。
+ *
+ * ⑤ **生物的移动不注入 `sweep`**。看起来是漏了，其实是量级问题：生物每拍最多走
+ *    `speed × dt` = 3.0 / 30 = 0.1 单位，而最薄的障碍（半径 0.55 的树）加上体半径后
+ *    接触距离 0.83~0.9 —— "一步跨过去"这件事根本不存在，扫掠没有可回答的问题。
+ *    而扫掠在这条路上是**硬停**：`move` 的 `clampToContact` 夹到接触点、游标回退，
+ *    症状是"顶着树抖"；软推会带一点切向分量，怪自己就滑过去了。
+ *
+ * ⑥ **障碍必须同时进导航**（`NavGrid.blockCells`，批124）。只放物理体是不够的：
+ *    树摆在格中心、路点也是格中心，两者落在同一个点阵上 —— 导航若认为那格可走，
+ *    怪就会**正对着树心**走，推力与走的方向正好相反、净位移 0。
+ *    换句话说，"动态体"这件事真正的门槛不在物理层，而在**导航是否知道障碍存在**。
  */
 
 import type { IModule, ModuleContext } from "../../core/module/module.ts";
@@ -36,6 +49,7 @@ import type { Scene } from "../../core/scene/scene.ts";
 import { Services } from "../../core/tokens.ts";
 import { engineError, err, ok, type EngineError, type Result } from "../../foundation/result.ts";
 import { createMoveModule, type MoveModuleHandle } from "../ai/move.ts";
+import type { IPhysicsWorld } from "../physics/physics.ts";
 import type { NavGrid } from "../nav/nav-grid.ts";
 import { createCombatModule, type CombatModuleHandle, type HitInfo } from "../combat/combat-module.ts";
 import { createThreatTable, type ThreatTable } from "../combat/threat.ts";
@@ -95,6 +109,26 @@ export interface MobWorldOptions {
    *   地上没有尸体，玩家不会想到去怀疑地形。
    */
   readonly corpse?: MobCorpseOptions;
+  /**
+   * 物理世界（批124）。给了 = 每只生物长一个**动态体**；不给 = 老行为（互相穿过）。
+   *
+   * ★★ 为什么是动态体、不是静态障碍体：静态体在物理层的含义是"不会动、也不该被
+   *   推开"（树 / 石头 / 立牌）。生物会动，登记成静态体会同时错两处：
+   *   ① `resolve()` 不推动静态体 ⇒ 它踩进树里之后永远出不来；
+   *   ② `sweepMove()` **只扫静态体** ⇒ 它变成一堵会走路的墙，别的单位"贴着怪走"
+   *      会莫名其妙停住，而怪一走开那堵墙也跟着走。
+   *
+   * ★ C18「动态障碍」的三问，答案都在这里：
+   *   ① **AI 追人的那个碰撞体参不参与扫掠** —— 不参与。动态体被跨过去**不是**
+   *      "一去不回"（`resolve()` 下一拍还能把两侧分开），而扫掠要读对方**这一拍的
+   *      旧坐标**，症状是"它明明走开了我却停住"。判据在 `physics-sweep.test.ts`
+   *      的「sweepMove 只扫静态体」。
+   *   ② **静态体每帧重插还是移动体扫掠** —— 都不做。静态体整局不动，重插是纯成本；
+   *      "节点位置变了"由空间哈希按增量重分格（`cellMoves`）负责；而真正会穿过去的
+   *      只有移动体，它的位移在这一层小到不需要扫掠（见文件头 ⑤）。
+   *   ③ **谁会动** —— 生物（本选项）与玩家（宿主那条路）。装饰与尸体不动。
+   */
+  readonly physics?: IPhysicsWorld;
   readonly id?: string;
 }
 
@@ -130,6 +164,12 @@ export interface MobWorldStats {
   readonly corpsesFailed: number;
   /** 上一次尸体失败的原因（正常时为空串）。 */
   readonly lastCorpseError: string;
+  /** 现在**真的有物理体**的生物数（`physics` 没给时恒 0）。 */
+  readonly bodies: number;
+  /** 撤掉过的生物物理体数（见 `prune`：死掉的不撤就是**一堵看不见的墙**）。 */
+  readonly bodiesRemoved: number;
+  /** 加过多少次生物物理体（**含读档后的重建**，见 `syncBodies`）。 */
+  readonly bodiesAdded: number;
   /** 有仇恨的生物数（`threatDecayTicks: 0` 时恒为 0）。 */
   readonly threatTargets: number;
   /** 仇恨表里一共几条（生物 × 攻击者）。 */
@@ -171,6 +211,8 @@ export function createMobWorldModule(options: MobWorldOptions): MobWorldHandle {
 
   const corpse = options.corpse;
   const kindOf = new Map<number, string>();
+  /** nodeId → 模板半径（体要用**模板的**尺寸，不是常数，见 `syncBodies`）。 */
+  const radiusOfNode = new Map<number, number>();
   /** 存活名单（每 tick 惰性清理，见文件头 ③）。 */
   let ids: number[] = [];
 
@@ -185,6 +227,8 @@ export function createMobWorldModule(options: MobWorldOptions): MobWorldHandle {
   let corpsesSpawned = 0;
   let corpsesFailed = 0;
   let lastCorpseError = "";
+  let bodiesRemoved = 0;
+  let bodiesAdded = 0;
 
   /** 见文件头 ③。头部与尾部各调一次：本 tick 开始时与结束时都要准。 */
   function prune(): void {
@@ -193,16 +237,64 @@ export function createMobWorldModule(options: MobWorldOptions): MobWorldHandle {
       mobs = 0;
       return;
     }
-    const alive = ids.filter((id) => s.find(id) !== undefined);
+    const phys = options.physics;
+    const alive: number[] = [];
+    for (const id of ids) {
+      if (s.find(id) !== undefined) {
+        alive.push(id);
+        continue;
+      }
+      // ★★ 节点没了，**物理体必须跟着没**（批124）。
+      //   不撤的话原地留下一个半径 0.3 的圆：画面上什么都没有，走过去却过不去。
+      //   它也不会自己消失 —— `resolve()` 只推动态体，而"那里已经没有节点了"
+      //   恰恰意味着位置访问器读不到坐标（`sweepMove` 直接返回 null）。
+      //   最阴的是**所有数字都对**：生物数、尸体数、战利品数全都自洽。
+      if (phys !== undefined && phys.has(id)) {
+        phys.remove(id);
+        bodiesRemoved++;
+      }
+    }
     if (alive.length !== ids.length) ids = alive;
     mobs = ids.length;
+  }
+
+  /**
+   * **把物理表拉回"每只活着的生物都有体"**（批124）。
+   *
+   * ★★ 为什么是"每 tick 维护"而不是"init 时加一次"：物理表会在**别处**被清空 ——
+   *   最典型的是读档（`applyLoad` 里 `physics.clear()` 之后只重建了摆件与玩家）。
+   *   一次性加的话，读档之后生物就**静默地**开始互相穿过：所有计数照旧，只有画面变了。
+   *   这类"外部把表清了"的路径没法靠"记得在每个出口补一遍"来覆盖 ——
+   *   摆件与玩家的补写已经散在宿主里两份了。
+   * ★ 代价是每 tick 每只一次 `has()`：13 只 = 13 次 Map 查询，不值一提。
+   * ★ 也因为它，`init` 里不需要 `scene.enqueue` 那种"晚一批"的写法：第一次
+   *   `update` 就会把体补齐（那时组合根已经能读到场景）。
+   */
+  function syncBodies(): void {
+    const s = scene;
+    const phys = options.physics;
+    if (s === null || phys === undefined) return;
+    for (const id of ids) {
+      if (phys.has(id)) continue;
+      const radius = radiusOfNode.get(id);
+      if (radius === undefined) continue;
+      if (s.find(id) === undefined) continue;
+      phys.add({ nodeId: id, radius, isStatic: false });
+      bodiesAdded++;
+    }
   }
 
   const handle: MobWorldHandle = {
     id: options.id ?? "world.mobs",
     get stats(): MobWorldStats {
+      const phys = options.physics;
+      let bodies = 0;
+      if (phys !== undefined) for (const id of ids) if (phys.has(id)) bodies++;
       return {
         mobs,
+        bodies,
+        bodiesRemoved,
+        bodiesAdded,
         hunting,
         wandering,
         idle,
@@ -276,6 +368,9 @@ export function createMobWorldModule(options: MobWorldOptions): MobWorldHandle {
         kindOf.set(m.nodeId, m.template.kind);
       }
       mobs = ids.length;
+      // ★ 物理体**不在这里加**（见 `syncBodies` 的 ★★）：init 期间组合根还读不到
+      //   场景，此刻 `add` 会抛「body N 没有位置」。体是 `update` 里维护的不变量。
+      for (const m of placed) radiusOfNode.set(m.nodeId, m.template.radius);
 
       // ---- ② 两个子模块共用同一个大脑（见文件头 ①）
       const b = brain;
@@ -387,6 +482,7 @@ export function createMobWorldModule(options: MobWorldOptions): MobWorldHandle {
       //   `stats.mobs` 会滞后一 tick —— 而"世界里还有几只"正是这个模块存在的理由，
       //   一个滞后一 tick 的数字比没有更糟（人会去查"为什么少了一只"）。
       prune();
+      syncBodies();
     },
     stop(): void {
       moveMod?.stop?.();

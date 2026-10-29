@@ -371,3 +371,49 @@ test("[导航] toMask 返回副本：改它不影响网格", () => {
   mask[0] = 0;
   assert.equal(grid.isWalkableIndex(0), true);
 });
+
+/**
+ * ★★ 批124：装饰摆件是**导航建好之后**才放到地上的，所以掩码必须能在建成后封格。
+ *
+ * 这条判据的靶子是"连通分量不重算"：封掉中间那一格之后，`labels` 里仍然写着
+ * "两端同一块"。症状不是报错，而是**两个自相矛盾的答案** ——
+ * `componentOf` 说连通、`findPath` 说没路。所以两个观测量必须一起读。
+ */
+test("★★ blockCells 封格之后连通分量必须重算（否则分量说有路、寻路说没有）", () => {
+  const grid = gridOf(["..."]); // 1×3 的走廊：A(0) - M(1) - B(2)
+  assert.equal(grid.componentOf(0), grid.componentOf(2), "前提：封之前两端连通");
+
+  assert.equal(grid.blockCells([1]), 1, "封掉中间那一格");
+  assert.equal(grid.isWalkableIndex(1), false);
+  // ① 分量：两端不再是同一块
+  assert.notEqual(grid.componentOf(0), grid.componentOf(2), "封格之后两端还算同一块（labels 没作废）");
+  // ② 寻路：确实没有路
+  const r = grid.findPath(0, 2);
+  assert.equal(r.ok, false, "中间封掉了却还寻得到路");
+  if (!r.ok) assert.equal(r.error.code, "NAV.NO_PATH");
+  // ③ 计数：`stats()` 是活的（不是构造时算死的快照）
+  assert.equal(grid.stats().blocked, 1);
+  assert.equal(grid.stats().walkable, 2);
+});
+
+test("blockCells：重复封 / 越界 / 空表都不算数（幂等，不抛）", () => {
+  const grid = gridOf(["...."]);
+  assert.equal(grid.blockCells([1, 1, 1]), 1, "同一格封三次只算一次");
+  assert.equal(grid.blockCells([1]), 0, "已经封过的格不再算新封");
+  assert.equal(grid.blockCells([-1, 999]), 0, "越界下标要被忽略（不是抛错）");
+  assert.equal(grid.blockCells([]), 0);
+  assert.equal(grid.stats().blocked, 1);
+  // ★ 封过的格不许"解封"：`blockCells` 只封不开（见 nav-grid.ts 文件头 ⑥）
+  assert.equal(grid.isWalkableIndex(1), false);
+});
+
+test("★★ blockCells 只封格、不删格：下标语义与 total 都不变（存档里存的是下标）", () => {
+  const grid = gridOf([".....", "....."]);
+  const total = grid.total;
+  const at = grid.indexOf(3, 1);
+  grid.blockCells([grid.indexOf(1, 0)]);
+  assert.equal(grid.total, total, "total 变了 —— 下标语义跟着变，旧存档会读错格");
+  assert.equal(grid.indexOf(3, 1), at, "indexOf 的结果不许变");
+  assert.equal(grid.cellX(at), 3);
+  assert.equal(grid.cellZ(at), 1);
+});
