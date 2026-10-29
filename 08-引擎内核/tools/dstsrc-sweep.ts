@@ -26,6 +26,7 @@ import {
   collectModuleSources,
   resolverFromSources,
 } from "../src/backends/script-lua/module-resolver.ts";
+import { summarizeFailures } from "./dstsrc-report.mjs";
 import { NodeFileSystem } from "../src/backends/fs-node/fs.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -107,24 +108,40 @@ for (const pass of passes) {
 }
 
 if (lastFail.length > 0) {
-  console.log(`\n解析器那一轮仍失败的，前 ${Math.min(MAX_FAIL, lastFail.length)} 条：`);
-  for (const [name, msg] of lastFail.slice(0, MAX_FAIL)) {
-    console.log(`  ✗ ${name}：${msg.split("\n")[0]}`);
+  const sum = summarizeFailures(lastFail);
+  console.log(`\n解析器那一轮仍失败的 ${sum.total} 条，按形状：`);
+  for (const g of sum.groups) {
+    console.log(`  ${String(g.count).padStart(3)} × ${g.shape}`);
   }
-  const kinds = new Map<string, number>();
-  for (const [, msg] of lastFail) {
-    const head = msg.split("\n")[0] ?? "";
-    // 取**最内层**那一句（`模块 A 加载失败（源：x）：B:12: 真正的原因` 的最后一段），
-    // 再去掉"文件:行号"和具体名字 —— 否则每条都因为模块名不同而各成一类，
-    // 归类表会退化成"54 条各 1 次"，等于没归类。
-    const inner = head.split("）：").pop() ?? head;
-    const key = inner.replace(/^\s*[^:]*:\d+:\s*/, "").replace(/'[^']*'/g, "'<name>'").slice(0, 80);
-    kinds.set(key, (kinds.get(key) ?? 0) + 1);
+
+  if (sum.missingGlobals.length > 0) {
+    console.log("\n缺的全局（当表用 / 当值用 / strict 点名）—— 这是「要不要提供 API 面」的依据：");
+    for (const g of sum.missingGlobals.slice(0, MAX_FAIL)) {
+      console.log(`  ${String(g.count).padStart(3)} × ${g.name}  [${(g.how ?? []).join("+")}]  如 ${g.scripts[0] ?? ""}`);
+    }
   }
-  console.log("\n按形状归类：");
-  for (const [k, n] of [...kinds.entries()].sort((a, b) => b[1] - a[1])) {
-    console.log(`  ${String(n).padStart(3)} × ${k}`);
+
+  if (sum.missingModules.length > 0) {
+    console.log("\n找不到的模块（文件就不在语料里，不是引擎的活）：");
+    for (const m of sum.missingModules.slice(0, MAX_FAIL)) {
+      console.log(`  ${String(m.count).padStart(3)} × ${m.name}  如 ${m.scripts[0] ?? ""}`);
+    }
   }
+
+  if (sum.localNils.length > 0) {
+    console.log("\n局部变量是 nil（脚本自己的逻辑问题，不算缺全局）：");
+    for (const l of sum.localNils.slice(0, MAX_FAIL)) {
+      console.log(`  ${String(l.count).padStart(3)} × ${l.name}  如 ${l.scripts[0] ?? ""}`);
+    }
+  }
+
+  if (sum.others.length > 0) {
+    console.log("\n其余（认不出的形状，原文留着 —— 不许静默丢掉）：");
+    for (const o of sum.others.slice(0, MAX_FAIL)) {
+      console.log(`  ${String(o.count).padStart(3)} × ${o.text}  如 ${o.scripts[0] ?? ""}`);
+    }
+  }
+
   process.exit(1);
 }
 

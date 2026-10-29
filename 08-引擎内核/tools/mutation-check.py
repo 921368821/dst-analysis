@@ -7790,6 +7790,61 @@ MUTANTS = [
         )],
         "test": "tests/backends/script-module-resolver.test.ts",
     },
+    # ---- 批135：dstsrc 失败归类（C27 的前置测量）
+    {
+        "name": "M844 innerMessage 不取最内层（只剥「加载失败：」）⇒ 三层嵌套的失败被归成 other",
+        "file": "tools/dstsrc-report.mjs",
+        "pairs": [(
+            "  for (const sep of [\"）：\", \"加载失败：\"]) {\n    const at = tail.lastIndexOf(sep);\n    if (at >= 0) tail = tail.slice(at + sep.length);\n  }\n",
+            "  {\n    const at = tail.lastIndexOf(\"加载失败：\");\n    if (at >= 0) tail = tail.slice(at + 8);\n  }\n",
+        )],
+        "test": "tests/tools/dstsrc-report.test.ts",
+    },
+    {
+        "name": "M845 `(local 'X')` 也算缺全局（会得出「引擎该提供某个局部变量」这种荒唐结论）",
+        "file": "tools/dstsrc-report.mjs",
+        "pairs": [(
+            "  const local = /\\(local '([^']*)'\\)/.exec(inner);\n  if (local !== null) return { shape: \"script-local-nil\", name: local[1] };\n",
+            "  const local = /\\(local '([^']*)'\\)/.exec(inner);\n  if (local !== null) return { shape: \"missing-global-value\", name: local[1] };\n",
+        )],
+        "test": "tests/tools/dstsrc-report.test.ts",
+    },
+    {
+        "name": "M846 strict.lua 的 `variable 'X' is not declared` 不算缺全局（同一件事被拆成两类，清单就少一半）",
+        "file": "tools/dstsrc-report.mjs",
+        "pairs": [(
+            "  if (strict !== null) return { shape: \"missing-global-strict\", name: strict[1] };\n",
+            "  if (strict !== null) return { shape: \"other\", name: \"\" };\n",
+        )],
+        "test": "tests/tools/dstsrc-report.test.ts",
+    },
+    {
+        "name": "M847 找不到模块归成 other（「文件不在语料里」与「引擎缺东西」混成一堆）",
+        "file": "tools/dstsrc-report.mjs",
+        "pairs": [(
+            "  if (/^module '[^']*' not found/.test(inner)) {\n",
+            "  if (false) {\n",
+        )],
+        "test": "tests/tools/dstsrc-report.test.ts",
+    },
+    {
+        "name": "M848 分组不按次数排（按名字排）⇒ 决定「先修哪个」的那张表失去意义",
+        "file": "tools/dstsrc-report.mjs",
+        "pairs": [(
+            "    .sort((a, b) => b.count - a.count || (a.shape < b.shape ? -1 : a.shape > b.shape ? 1 : 0));\n",
+            "    .sort((a, b) => (a.shape < b.shape ? -1 : a.shape > b.shape ? 1 : 0));\n",
+        )],
+        "test": "tests/tools/dstsrc-report.test.ts",
+    },
+    {
+        "name": "M849 同一个全局的用法只记第一次（既当表又当函数时，清单只说一半）",
+        "file": "tools/dstsrc-report.mjs",
+        "pairs": [(
+            "      if (!rec.how.includes(how)) rec.how.push(how);\n",
+            "      if (rec.how.length === 0) rec.how.push(how);\n",
+        )],
+        "test": "tests/tools/dstsrc-report.test.ts",
+    },
     {
         "name": "M826 wx 存档直接写目标（回到批132 之前：崩在写入中途就是半份存档）",
         # ★ 这条变异必须**整段绕过** atomicWrite，而不是只把 write(tmp) 改成 write(target)：

@@ -1352,14 +1352,40 @@ row("★★ 命中真的顿帧：世界当场冻住，而渲染帧还在涨", as
     hsPhase = 1;
     return [false, `已冻住：剩余 ${hsA.freeze} 步 · tick=${hsA.tick} · 渲染帧=${hsA.frame}（等下一轮对比）`];
   }
-  // ★ 在**行内**等一段时间再比，而不是靠"下一轮表格重跑"当间隔：
+  // ★ 在**行内**等，而不是靠"下一轮表格重跑"当间隔：
   //   表格是同一个任务里连跑全部行的（`for (const r of rows) await r.run(e)`），
   //   而 phase 0 → phase 1 有可能落在两次相邻的 sweep 里、间隔几毫秒 ——
   //   那时"渲染帧没涨"是**采样太近**，不是帧停了（批115 就红在这上面）。
-  //   等 120ms 再采：真停住的话 delta 必然是 0，判据的牙一点没松。
-  await new Promise((r) => setTimeout(r, 120));
+  //
+  // ★★ 批135：这里原来写的是「等 120ms 再采」。那是一个**固定时长**，
+  //   而它等的是一件"什么时候发生不确定"的事（下一个 rAF）。机器一忙
+  //   （CI 里同时跑变异、或者恰好有别的重活），120ms 内浏览器可能一次
+  //   rAF 都没派发 ⇒ 渲染帧没涨 ⇒ **假红**。批135 实测过两次：
+  //   同一条判据在 CI 里红，单独跑两次全绿。
+  //   改成**等到它真的涨**（最多 1 秒），再回头读 tick：
+  //     · 真实现：帧涨时 tick 仍然冻着 ⇒ 绿；
+  //     · "整个 frame 停了"的坏实现：要么 1 秒内帧一次都不涨（红），
+  //       要么等冻结自己结束后才涨 —— 那时 tick 也动了（红）。
+  //   牙一点没松，只是把"等多久"换成了"等什么"。
+  const FRAME_DEADLINE_MS = 1000;
+  const hsT0 = Date.now();
+  let framesAdvanced = false;
+  while (Date.now() - hsT0 < FRAME_DEADLINE_MS) {
+    await new Promise((r) => setTimeout(r, 16));
+    if (e.renderFrames() > hsA.frame) {
+      framesAdvanced = true;
+      break;
+    }
+  }
   const now = { tick: e.snapshot().tick, frame: e.renderFrames() };
   const still = e.hitstop().frozen;
+  if (!framesAdvanced) {
+    hsDone = [
+      false,
+      `${FRAME_DEADLINE_MS}ms 内渲染帧一次都没涨（${hsA.frame}→${now.frame}）—— 帧循环停了，不是"顿帧"`,
+    ];
+    return hsDone;
+  }
   if (still) {
     // ★ 冻结期间的两件事必须同时成立：tick 一步不走、渲染帧一直在涨。
     //   只验"tick 不动"会漏掉"整个 frame 停了"（那种实现连闪色一起定住，像卡了）；
@@ -1368,7 +1394,7 @@ row("★★ 命中真的顿帧：世界当场冻住，而渲染帧还在涨", as
     const worldStopped = now.tick === hsA.tick;
     const framesMoving = now.frame > hsA.frame;
     if (!worldStopped || !framesMoving) {
-      hsDone = [false, `冻结中（120ms 后复采）tick ${hsA.tick}→${now.tick}（应不动）· 渲染帧 ${hsA.frame}→${now.frame}（应涨）`];
+      hsDone = [false, `冻结中（等到帧涨后复采，${Date.now() - hsT0}ms）tick ${hsA.tick}→${now.tick}（应不动）· 渲染帧 ${hsA.frame}→${now.frame}（应涨）`];
       return hsDone;
     }
     return [false, `冻结中：tick 保持 ${now.tick} · 渲染帧 ${hsA.frame}→${now.frame}`];
