@@ -2357,6 +2357,16 @@ async function bootGameApp(opts) {
   return ok(app);
 }
 
+// src/host/backing-store.ts
+var MAX_DPR = 2;
+function backingStoreSize(cssWidth, cssHeight, devicePixelRatio, maxDpr = MAX_DPR) {
+  const raw = Number.isFinite(devicePixelRatio) && devicePixelRatio > 0 ? devicePixelRatio : 1;
+  const cap = Number.isFinite(maxDpr) && maxDpr > 0 ? maxDpr : MAX_DPR;
+  const dpr2 = Math.min(cap, raw);
+  const px = (n) => Number.isFinite(n) && n > 0 ? Math.max(1, Math.floor(n * dpr2)) : 1;
+  return { width: px(cssWidth), height: px(cssHeight), dpr: dpr2 };
+}
+
 // src/foundation/hash.ts
 var FNV_PRIME = 16777619;
 var FNV_BASIS_A = 2166136261;
@@ -13812,9 +13822,14 @@ var sceneCountEl = need("scenecount");
 var saveNoteEl = need("savenote");
 var btnSceneNew = need("scene-new");
 var btnSceneDel = need("scene-del");
-var dpr = Math.min(2, window.devicePixelRatio || 1);
-canvas.width = Math.max(1, Math.floor((canvas.clientWidth || 640) * dpr));
-canvas.height = Math.max(1, Math.floor((canvas.clientHeight || 420) * dpr));
+var firstStore = backingStoreSize(
+  canvas.clientWidth || 640,
+  canvas.clientHeight || 420,
+  window.devicePixelRatio || 1
+);
+var dpr = firstStore.dpr;
+canvas.width = firstStore.width;
+canvas.height = firstStore.height;
 var selection = createSelection();
 var pie = createPie({ hz: HZ, maxStepTicks: 4 });
 var history = createUndoStack();
@@ -13932,8 +13947,9 @@ function makeRenderModule(atlas) {
   });
 }
 function syncViewport() {
-  const w = Math.max(1, Math.floor((canvas.clientWidth || 640) * dpr));
-  const h = Math.max(1, Math.floor((canvas.clientHeight || 420) * dpr));
+  const size = backingStoreSize(canvas.clientWidth || 640, canvas.clientHeight || 420, dpr);
+  const w = size.width;
+  const h = size.height;
   if (canvas.width === w && canvas.height === h) return;
   requireRender().resize(w, h);
 }

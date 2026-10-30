@@ -8554,6 +8554,16 @@ var BackendRegistry = class {
   }
 };
 
+// src/host/backing-store.ts
+var MAX_DPR = 2;
+function backingStoreSize(cssWidth, cssHeight, devicePixelRatio, maxDpr = MAX_DPR) {
+  const raw = Number.isFinite(devicePixelRatio) && devicePixelRatio > 0 ? devicePixelRatio : 1;
+  const cap = Number.isFinite(maxDpr) && maxDpr > 0 ? maxDpr : MAX_DPR;
+  const dpr = Math.min(cap, raw);
+  const px = (n) => Number.isFinite(n) && n > 0 ? Math.max(1, Math.floor(n * dpr)) : 1;
+  return { width: px(cssWidth), height: px(cssHeight), dpr };
+}
+
 // src/runtime/tick-source.ts
 var RafTickSource = class {
   constructor(now) {
@@ -29408,9 +29418,14 @@ async function main() {
     throw new Error("\u9875\u9762\u7ED3\u6784\u4E0D\u5B8C\u6574\uFF1A\u9700\u8981 #cv / #hud / #toast");
   }
   const helpEl = document.getElementById("help");
-  const dpr = Math.min(2, window.devicePixelRatio || 1);
-  canvas.width = Math.floor((canvas.clientWidth || 960) * dpr);
-  canvas.height = Math.floor((canvas.clientHeight || 600) * dpr);
+  const store = backingStoreSize(
+    canvas.clientWidth || 960,
+    canvas.clientHeight || 600,
+    window.devicePixelRatio || 1
+  );
+  const dpr = store.dpr;
+  canvas.width = store.width;
+  canvas.height = store.height;
   const registry = new BackendRegistry();
   registerNullBackends(registry);
   registry.registerGfx(webgl2Backend, 100);

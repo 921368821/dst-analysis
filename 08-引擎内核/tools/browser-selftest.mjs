@@ -128,6 +128,89 @@ async function probeAssetSource(browser, url) {
   }
 }
 
+/**
+ * dpr=2 下「画布物理尺寸 = CSS × 上限 2」的**接线**检查（批145 / C28）。
+ *
+ * ★ 为什么只有这一条，而不是把整张 56 条表也跑一遍：
+ *   批144 试过两种做法（`Emulation.setDeviceMetricsOverride` + reload；960×700 的
+ *   `--force-device-scale-factor=2`），三次全红。批145 定的性：
+ *   ① `selftest.html` 的 `#cv` CSS 尺寸**写死** 958×598，dpr=2 ⇒ 物理 1916×1196，
+ *      SwiftShader 跑不动（实测「1000ms 内渲染帧 0 涨幅（837→837）」）—— 那是**负载**；
+ *   ② 同 CSS 尺寸（479×299）下比对 dpr=1 与 dpr=2：采样几何严格 2 倍对应
+ *      （@351,182 255×22 对 @176,92 128×11）⇒ 换算**是对的**；
+ *   ③ 那条像素判据在两个 dpr 下都红（「计数=0px」），与 dpr 无关 —— 是它自己的
+ *      采样区宽度依赖视口。整表 dpr=2 只会变成「常红、且原因不在 dpr」的噪声。
+ *   留下来的这条 0.7 秒、只读四个数，抓的是**入口有没有用 `backingStoreSize`**
+ *   （Node 判据只能测那个纯函数，测不到「三个入口是不是真的在用它」）。
+ *
+ * ★ 为什么必须要求 `devicePixelRatio === 2`：dpr=1 时这条公式退化成恒等
+ *   （958×1 = 958），跟「根本没乘像素比」分不开 —— 覆盖没生效就必须报红，
+ *   否则这一格是「永远绿」，而它守的正是「桌面全绿、手机才露」的那条缝。
+ */
+async function probeDprBackingStore(browser, url) {
+  const profile = mkdtempSync(join(tmpdir(), "engine-dpr-"));
+  let child;
+  let client;
+  try {
+    const page = await openPage(browser, url, profile, "selftest.html", "960,700", [
+      "--force-device-scale-factor=2",
+    ]);
+    child = page.child;
+    client = page.client;
+    const deadline = Date.now() + 20_000;
+    while (Date.now() < deadline) {
+      let v = null;
+      try {
+        const r = await client.send("Runtime.evaluate", {
+          // 默认 canvas 是 300×150；引擎还没设过尺寸时它比 CSS 宽小 ⇒ 继续等
+          expression:
+            "(() => { const c = document.getElementById('cv');" +
+            " if (!c || !c.clientWidth || c.width < c.clientWidth) return null;" +
+            " return { dpr: window.devicePixelRatio, w: c.width, h: c.height," +
+            " cw: c.clientWidth, ch: c.clientHeight }; })()",
+          returnByValue: true,
+        });
+        v = r?.result?.value ?? null;
+      } catch {
+        /* 执行上下文还没建起来 */
+      }
+      if (v !== null) return v;
+      await sleep(100);
+    }
+    return null;
+  } finally {
+    client?.close();
+    if (child !== undefined) killTree(child);
+    try {
+      rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 60 });
+    } catch {
+      /* 留给系统临时目录清理 */
+    }
+  }
+}
+
+/** 判 `probeDprBackingStore` 的结果。期望值**从页面自己的 CSS 尺寸算**，不写死 1916。 */
+function judgeDprBackingStore(got) {
+  if (got === null) return ["20 秒内画布没被引擎设过尺寸 —— 引擎没起来，这一轮没验到"];
+  const problems = [];
+  if (got.dpr !== 2) {
+    problems.push(
+      `--force-device-scale-factor=2 没生效（window.devicePixelRatio=${String(got.dpr)}）——` +
+        " dpr=1 下这条公式退化成恒等，等于没验；报红而不是静默跳过",
+    );
+  }
+  const dpr = Math.min(2, got.dpr);
+  const ew = Math.max(1, Math.floor(got.cw * dpr));
+  const eh = Math.max(1, Math.floor(got.ch * dpr));
+  if (got.w !== ew) {
+    problems.push(`画布宽 ${got.w} ≠ CSS ${got.cw} × ${dpr} = ${ew}（实际 ${(got.w / got.cw).toFixed(2)} 倍）`);
+  }
+  if (got.h !== eh) {
+    problems.push(`画布高 ${got.h} ≠ CSS ${got.ch} × ${dpr} = ${eh}（实际 ${(got.h / got.ch).toFixed(2)} 倍）`);
+  }
+  return problems;
+}
+
 async function main() {
   if (process.argv.includes("--build")) {
     const b = spawnSync(process.platform === "win32" ? "npm.cmd" : "npm", ["run", "build:web"], {
@@ -301,6 +384,18 @@ async function main() {
       for (const m of probeProblems) console.error(`  · ${m}`);
       process.exit(EXIT_FAIL);
     }
+
+    // ---- dpr=2 的接线检查（批145 / C28）：只读四个数，验「入口真的按像素比放大画布」
+    const dprGot = await probeDprBackingStore(browser, `${srv.origin}/selftest.html`);
+    const dprProblems = judgeDprBackingStore(dprGot);
+    if (dprProblems.length > 0) {
+      console.error("✗ dpr=2 画布尺寸检查失败：");
+      for (const m of dprProblems) console.error(`  · ${m}`);
+      process.exit(EXIT_FAIL);
+    }
+    console.log(
+      `· dpr=2 画布：CSS ${String(dprGot.cw)}×${String(dprGot.ch)} → 物理 ${String(dprGot.w)}×${String(dprGot.h)}（×${String(dprGot.dpr)}）`,
+    );
 
     console.log("✓ 浏览器端自检全部通过");
     process.exit(EXIT_PASS);

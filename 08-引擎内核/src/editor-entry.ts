@@ -24,6 +24,7 @@
 
 import { bootGameApp, type GameApp } from "./runtime/GameApp.ts";
 import { BackendRegistry } from "./platform/registry.ts";
+import { backingStoreSize } from "./host/backing-store.ts";
 import { registerNullBackends } from "./backends/index.ts";
 import { webgl2Backend } from "./backends/gfx-webgl2/device.ts";
 import { domInputBackend } from "./backends/input-dom/device.ts";
@@ -167,10 +168,17 @@ const saveNoteEl = need<HTMLSpanElement>("savenote");
 const btnSceneNew = need<HTMLButtonElement>("scene-new");
 const btnSceneDel = need<HTMLButtonElement>("scene-del");
 
-const dpr = Math.min(2, window.devicePixelRatio || 1);
 // 首次位图尺寸：必须在 `createRenderModule` **之前**定好，它用这个值建初始视口。
-canvas.width = Math.max(1, Math.floor((canvas.clientWidth || 640) * dpr));
-canvas.height = Math.max(1, Math.floor((canvas.clientHeight || 420) * dpr));
+// ★ 公式与上限只有一份（`host/backing-store.ts`）：启动与下面的 `syncViewport` 必须是
+//   同一个函数 —— 否则改上限的人只改这两行，ResizeObserver 一触发就用旧值把画布改回去。
+const firstStore = backingStoreSize(
+  canvas.clientWidth || 640,
+  canvas.clientHeight || 420,
+  window.devicePixelRatio || 1,
+);
+const dpr = firstStore.dpr;
+canvas.width = firstStore.width;
+canvas.height = firstStore.height;
 
 const selection = createSelection();
 const pie = createPie({ hz: HZ, maxStepTicks: 4 });
@@ -407,8 +415,9 @@ function makeRenderModule(atlas: AtlasData): RenderModuleHandle {
  *   恰恰是"窗口没动、只是面板撑高了"。
  */
 function syncViewport(): void {
-  const w = Math.max(1, Math.floor((canvas.clientWidth || 640) * dpr));
-  const h = Math.max(1, Math.floor((canvas.clientHeight || 420) * dpr));
+  const size = backingStoreSize(canvas.clientWidth || 640, canvas.clientHeight || 420, dpr);
+  const w = size.width;
+  const h = size.height;
   if (canvas.width === w && canvas.height === h) return;
   requireRender().resize(w, h);
 }

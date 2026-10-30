@@ -148,7 +148,7 @@ export function killTree(child) {
  * @param {string} profile 临时 profile 目录（调用方负责删）
  * @param {string} pageHint 用于在 target 列表里认出"我们那个页面"的片段
  */
-export async function openPage(browser, url, profile, pageHint, windowSize = "960,700") {
+export async function openPage(browser, url, profile, pageHint, windowSize = "960,700", extraArgs = []) {
   const child = spawnBrowser(browser, [
     "--headless",
     "--no-sandbox",
@@ -163,6 +163,9 @@ export async function openPage(browser, url, profile, pageHint, windowSize = "96
     "--remote-debugging-port=0",
     `--user-data-dir=${profile}`,
     `--window-size=${windowSize}`,
+    // ★ 追加参数放最后：有的开关（如 `--force-device-scale-factor`）必须在 URL 之前生效，
+    //   而 chrome 对"URL 之后"的参数容忍度不高 —— 放在这里两种都安全。
+    ...extraArgs,
     url,
   ]);
 

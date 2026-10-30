@@ -8070,6 +8070,61 @@ MUTANTS = [
         )],
         "test": "tests/host/wx.test.ts",
     },
+
+    {
+        "name": "M878 像素比上限删掉 ⇒ 4K 屏按 3 倍开画布，填充率翻 2.25 倍（桌面 dpr=1/2 下全绿）",
+        "file": "src/host/backing-store.ts",
+        "pairs": [(
+            "  const dpr = Math.min(cap, raw);",
+            "  const dpr = raw;",
+        )],
+        "test": "tests/host/backing-store.test.ts",
+    },
+    {
+        "name": "M879 floor 改 round ⇒ CSS 带小数时画布多 1 像素，视口比布局大，采样与命中偏半像素",
+        "file": "src/host/backing-store.ts",
+        "pairs": [(
+            "Math.max(1, Math.floor(n * dpr))",
+            "Math.max(1, Math.round(n * dpr))",
+        )],
+        "test": "tests/host/backing-store.test.ts",
+    },
+    {
+        "name": "M880 像素比兜底删掉 ⇒ 宿主报 0 时画布 0×0，WebGL 上下文直接失效",
+        "file": "src/host/backing-store.ts",
+        "pairs": [(
+            "const raw = Number.isFinite(devicePixelRatio) && devicePixelRatio > 0 ? devicePixelRatio : 1;",
+            "const raw = devicePixelRatio;",
+        )],
+        "test": "tests/host/backing-store.test.ts",
+    },
+    {
+        "name": "M881 CSS 尺寸兜底删掉 ⇒「还没布局」那一刻画布 0×0，渲染器当场没了",
+        "file": "src/host/backing-store.ts",
+        "pairs": [(
+            "Number.isFinite(n) && n > 0 ? Math.max(1, Math.floor(n * dpr)) : 1",
+            "Math.max(1, Math.floor(n * dpr))",
+        )],
+        "test": "tests/host/backing-store.test.ts",
+    },
+    {
+        "name": "M882 maxDpr 兜底删掉 ⇒ 调用方传错上限时整块画布缩成 1 像素",
+        "file": "src/host/backing-store.ts",
+        "pairs": [(
+            "const cap = Number.isFinite(maxDpr) && maxDpr > 0 ? maxDpr : MAX_DPR;",
+            "const cap = maxDpr;",
+        )],
+        "test": "tests/host/backing-store.test.ts",
+    },
+    {
+        "name": "M883 入口不乘像素比 ⇒ 高 dpi 屏上画布只画 CSS 尺寸，画面糊一半（dpr=1 下看不出来）",
+        "file": "src/browser-entry.ts",
+        "pairs": [(
+            "  canvas.width = store.width;",
+            "  canvas.width = Math.floor((canvas.clientWidth || 960) * 1);",
+        )],
+        "cmd": ["node", "tools/browser-selftest.mjs", "--build"],
+    },
     {
         "name": "M864 探针用 `_G[name]` 而不是 `rawget`（strict 档下 __index 会先炸，探针自己坏了）",
         "file": "tools/dstsrc-run.ts",

@@ -25,6 +25,7 @@ import { domInputBackend } from "./backends/input-dom/device.ts";
 import { webAudioBackend } from "./backends/audio-webaudio/device.ts";
 import { createLuaScriptBackend } from "./backends/script-lua/runtime.ts";
 import { BackendRegistry } from "./platform/registry.ts";
+import { backingStoreSize } from "./host/backing-store.ts";
 import { RafTickSource } from "./runtime/tick-source.ts";
 import { resolveAssetSource } from "./extensions/build/bundle-source.ts";
 import { BundleFileSystem } from "./extensions/build/fs-bundle.ts";
@@ -66,11 +67,18 @@ export async function main(): Promise<void> {
   }
   const helpEl = document.getElementById("help");
 
-  // ---- 画布尺寸：逻辑尺寸 × 像素比（**上限 2**：4K 屏上按 3 倍开会让填充率炸掉，
-  //   而观感提升在 2 倍之后基本看不出来 —— 这是"性能换画质"的一个已定档位）。
-  const dpr = Math.min(2, window.devicePixelRatio || 1);
-  canvas.width = Math.floor((canvas.clientWidth || 960) * dpr);
-  canvas.height = Math.floor((canvas.clientHeight || 600) * dpr);
+  // ---- 画布尺寸：逻辑尺寸 × 像素比。上限 2 与 floor 的理由见 `host/backing-store.ts`。
+  //   ★ 公式只有一份：`editor-entry.ts` 的两处（启动 + ResizeObserver 的 `syncViewport`）
+  //   走的是同一个函数 —— 三处各写一遍时，改了上限的人只改启动那两行，
+  //   而 `syncViewport` 会用旧上限把画布改回去（批145 合并）。
+  const store = backingStoreSize(
+    canvas.clientWidth || 960,
+    canvas.clientHeight || 600,
+    window.devicePixelRatio || 1,
+  );
+  const dpr = store.dpr;
+  canvas.width = store.width;
+  canvas.height = store.height;
 
   // ---- 后端注册（**只有组合根能做**）
   const registry = new BackendRegistry();
