@@ -231,6 +231,49 @@ Intent = { kind: "move.dir",  dx, dz }        // 方向型：键盘 / 摇杆
 （`cellZ(-1) = 0`，而 `isWalkable` 要求 `cz > 0`，六个候选全不可走 ⇒ 仍返回 -1）。
 保留检查（防御性），不为它造变异条目。
 
+### 9.3 批154 落地：决策树 = 数据（「给角色配 AI」写一棵树）
+
+| 文件 | 内容 |
+|---|---|
+| `src/extensions/mobs/mob-tree.ts`（新） | `K`（黑板键，唯一字符串来源）、`writeFacts`、`boardToDecision`、`MOB_OPS`（8 个玩法词汇 op）、`MOB_TREE`、`createMobTree` |
+| `src/extensions/mobs/mob-brain.ts` | `decide` 交给 `MobTree`；新增 `tree?` / `ops?` 选项与 `tree` / `treeMemory()` 访问器 |
+| `src/extensions/ai/behavior.ts` | `Board.clear()`（一块板服务多个 agent 时必须） |
+| `tests/extensions/mob-tree.test.ts`（新） | 10 条 |
+| 变异 | M914–M920 七条全部被抓住 |
+
+```
+sequence 根
+  check   能找到自己（selfCell >= 0）—— 否则整棵树失败 ⇒ 这一拍没有决定
+  selector 主体
+    sequence 敌对            ← 只有挂了攻击组件的生物才追
+      check 凶不凶
+      selector 挑目标
+        sequence 记仇 → check 有仇人 → do 追仇人
+        sequence 看见 → check 看得见 → do 追最近的
+    sequence 漫游
+      check 有漫游格（-1 = 孤岛 / 界外）
+      do 漫游
+```
+
+四个 kind 全用上，**没有为这棵树新增任何原语**。op 名是玩法词汇（`mob.hasGrudge`）而不是
+通用原语（`num.gt`）：后者会把树撑到二十个节点，而「记仇优先」这种语义消失在键名里。
+
+**三条契约，每条都对应一个静默 bug：**
+
+| 契约 | 破掉之后的症状 |
+|---|---|
+| 黑板只放数字，`MobFacts → Board` 只映射一次 | 树能直接摸 `facts.visible[3]` ⇒ 存不了档、进不了指纹、编辑器导不出 |
+| 每拍先 `clear()` 再全量写 | 一块板服务全部生物 ⇒ B 继承 A 的仇人（「一群怪围着同一具尸体」） |
+| 树必须瞬时（`memorySize() === 0`） | 决定带上不在快照里的历史 ⇒ 回滚到 tick N 之后行为分叉 |
+
+**规范与编译产物**：`chooseFromFacts` 留在 `mob-facts.ts`，身份是**语义规范**；树是它的编译产物。
+判据拿 48 组事实逐条对账两者。这不是两份实现 —— 没有对照，就分不清「树被改坏」与
+「规范被改坏」，而两者都只表现为「这只怪的行为有点怪」。
+
+**下一步（P3 第三块）**：让「配 AI」真正落到**资产**上 —— 树能存进场景/模板、编辑器能改、
+面板能显示它这一拍照什么做的决定（`MobTree.boardSnapshot()` 已经备好）。
+在那之前，树还只是代码里的一个常量。
+
 ## 10 · P2 第二块：会话层 —— 客户端只发意图、主机每 N 拍广播快照（批152 已交付）
 
 | 交付 | 内容 |

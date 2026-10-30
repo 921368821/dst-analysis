@@ -60,6 +60,18 @@ export class Board {
     return this.data.has(key);
   }
 
+  /**
+   * 清空全部键。
+   *
+   * ★ 为什么必须有：一块板服务多个 agent 时（一个大脑 / 一个模块驱动世界里
+   *   全部生物），上一拍甚至上**一个** agent 留下的键会读成这一拍的输入。
+   *   症状是「一群怪围着同一具尸体」—— 每只都继承了别人的仇人。
+   *   只信「反正每拍都会覆盖」是不够的：自定义 op 往板上写的临时键没人覆盖。
+   */
+  clear(): void {
+    this.data.clear();
+  }
+
   /** 快照（升序键，便于比对与写日志）。 */
   snapshot(): Record<string, number> {
     const out: Record<string, number> = {};

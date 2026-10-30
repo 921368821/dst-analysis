@@ -8495,6 +8495,72 @@ MUTANTS = [
         )],
         "test": "tests/extensions/mob-facts.test.ts",
     },
+    # ---- 批154：生物决策树（MobFacts → Board → MOB_TREE）----
+    {
+        "name": "M914 黑板漏写 visible.count ⇒ 看见分支永远走不到，凶的生物只会干站着",
+        "file": "src/extensions/mobs/mob-tree.ts",
+        "pairs": [(
+            "  board.set(K.visibleCount, f.visible.length);\n",
+            "",
+        )],
+        "test": "tests/extensions/mob-tree.test.ts",
+    },
+    {
+        "name": "M915 树里把「看见」提到「记仇」前面 ⇒ 打了就跑的人照样逃得掉",
+        "file": "src/extensions/mobs/mob-tree.ts",
+        "pairs": [(
+            '        bt.sequence("mob.grudge", bt.check("mob.c1", "mob.hasGrudge"), bt.do("mob.d1", "mob.huntGrudge")),\n'
+            '        bt.sequence("mob.sight", bt.check("mob.c2", "mob.seesFoe"), bt.do("mob.d2", "mob.huntNearest")),',
+            '        bt.sequence("mob.sight", bt.check("mob.c2", "mob.seesFoe"), bt.do("mob.d2", "mob.huntNearest")),\n'
+            '        bt.sequence("mob.grudge", bt.check("mob.c1", "mob.hasGrudge"), bt.do("mob.d1", "mob.huntGrudge")),',
+        )],
+        "test": "tests/extensions/mob-tree.test.ts",
+    },
+    {
+        "name": "M916 出板的 reason 写死 grudge ⇒ 看见才追与记仇才追分不开（修法完全不同）",
+        "file": "src/extensions/mobs/mob-tree.ts",
+        "pairs": [(
+            '      reason: WHY_NAME[board.get(K.outReason) - 1] ?? "sight",',
+            '      reason: WHY_NAME[0] ?? "sight",',
+        )],
+        "test": "tests/extensions/mob-tree.test.ts",
+    },
+    {
+        "name": "M917 大脑忽略传入的树 ⇒ 「配 AI」写了不生效，还在走缺省那棵",
+        "file": "src/extensions/mobs/mob-brain.ts",
+        "pairs": [(
+            "this.mobTree = createMobTree({ tree: options.tree, ops: options.ops });",
+            "this.mobTree = createMobTree({ ops: options.ops });",
+        )],
+        "test": "tests/extensions/mob-tree.test.ts",
+    },
+    {
+        "name": "M918 写板前不清空 ⇒ 上一位生物的临时键带进这一位的决定（一群怪用同一条数据）",
+        "file": "src/extensions/mobs/mob-tree.ts",
+        "pairs": [(
+            "  board.clear();\n",
+            "",
+        )],
+        "test": "tests/extensions/mob-tree.test.ts",
+    },
+    {
+        "name": "M919 追仇人时格子取可见候选 ⇒ 朝 A 的格子打 B",
+        "file": "src/extensions/mobs/mob-tree.ts",
+        "pairs": [(
+            '  "mob.huntGrudge": (ctx) => emit(ctx, OUT_HUNT, K.grudgeNode, K.grudgeCell, WHY.grudge),',
+            '  "mob.huntGrudge": (ctx) => emit(ctx, OUT_HUNT, K.grudgeNode, K.visibleCell, WHY.grudge),',
+        )],
+        "test": "tests/extensions/mob-tree.test.ts",
+    },
+    {
+        "name": "M920 条件一律写成 > ⇒ 凶的生物判成不凶（1 > 1 为假），全体只会漫游",
+        "file": "src/extensions/mobs/mob-tree.ts",
+        "pairs": [(
+            '  return ctx.board.get(key) >= min ? "success" : "failure";',
+            '  return ctx.board.get(key) > min ? "success" : "failure";',
+        )],
+        "test": "tests/extensions/mob-tree.test.ts",
+    },
 ]
 
 def run(m: dict) -> tuple[int, str]:

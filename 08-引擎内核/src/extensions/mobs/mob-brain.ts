@@ -23,9 +23,15 @@
  * ④ **同一 tick 只感知一次**（按 `(agentId, tick)` 记住上一次结果）。
  *    宿主每 tick 要向两个模块各问一次；不缓存就是两倍的"遍历整棵树"，
  *    而二十只生物 × 每 tick 两次 = 一秒一千多次全树扫描，画面上只表现为"有点卡"。
+ *
+ * ⑤ **决策的执行者是树，不是 `if`**（`mob-tree.ts`）。这个文件只负责
+ *    「把世界读成事实」，之后交给 `MobTree.decide`。`chooseFromFacts` 留着，
+ *    身份是**语义规范**：树是它的编译产物，判据逐条对账两者。
+ *    于是「给这只怪换一套脾气」= 传一棵树，不改这里的任何一行。
  */
 
 import type { Scene } from "../../core/scene/scene.ts";
+import type { AiNode, AiOps } from "../ai/behavior.ts";
 import { ATTACKER_TYPE } from "../combat/attack.ts";
 import { type Factions, teamOf } from "../combat/faction.ts";
 import { HEALTH_TYPE } from "../combat/health.ts";
@@ -33,7 +39,6 @@ import { Perception } from "../ai/perception.ts";
 import { isDead, type Health } from "../combat/health.ts";
 import type { ThreatTable } from "../combat/threat.ts";
 import {
-  chooseFromFacts,
   wanderTarget,
   type Decision,
   type MobCandidate,
@@ -41,6 +46,7 @@ import {
   type MobGrid,
   type MobGrudge,
 } from "./mob-facts.ts";
+import { createMobTree, type MobTree } from "./mob-tree.ts";
 
 /** 大脑参数不合法（半径、视野、漫游周期）。 */
 export const MOB_BAD_BRAIN = "MOB.BAD_BRAIN";
@@ -68,6 +74,13 @@ export interface MobBrainOptions {
   /** 记仇的追击半径（格；默认 `leashCells`，0 = 不限）。 */
   readonly aggroCells?: number;
   readonly seed?: number;
+  /**
+   * 换一棵决策树（**「给角色配 AI」的唯一入口**，见文件头 ⑤）。
+   * 缺省 `MOB_TREE`：记仇 > 看见 > 漫游。
+   */
+  readonly tree?: AiNode;
+  /** 与 `tree` 配套的 op 表（树里写了新 op 就要一起给）。缺省 `MOB_OPS`。 */
+  readonly ops?: AiOps;
 }
 
 /**
@@ -77,11 +90,13 @@ export interface MobBrainOptions {
 export type { Decision, DecisionReason, MobCandidate, MobFacts, MobGrid } from "./mob-facts.ts";
 
 export class MobBrain {
-  private readonly o: Required<Omit<MobBrainOptions, "watch" | "threat">> & {
+  private readonly o: Required<Omit<MobBrainOptions, "watch" | "threat" | "tree" | "ops">> & {
     watch: readonly string[];
     threat: ThreatTable | null;
   };
   private readonly perception: Perception;
+  /** 决策树（见文件头 ⑤）。一根大脑一棵，服务这个世界里**全部**生物。 */
+  private readonly mobTree: MobTree;
   /**
    * 见文件头 ④。**按 `id → 决定` 存一整张表**，不是只存"上一次"：
    * `move` 与 `combat` 是两个模块，它们各自遍历全部生物 ——
@@ -131,11 +146,26 @@ export class MobBrain {
       seed: options.seed ?? 1,
     };
     this.perception = new Perception({ range: this.o.range, watch: this.o.watch });
+    // 坏树在这里抛（`MOB.BAD_TREE`）：那是配置错误，不该等第 500 拍才炸
+    this.mobTree = createMobTree({ tree: options.tree, ops: options.ops });
   }
 
   /** 感知调用次数（判据用它证"同一 tick 只算一次"）。 */
   get senseCount(): number {
     return this.senses;
+  }
+
+  /** 当前这棵树（编辑器 / 面板要显示「这只怪在跑哪棵树」）。 */
+  get tree(): AiNode {
+    return this.mobTree.tree;
+  }
+
+  /**
+   * 树上还记着几处 `running`。**恒为 0** —— 决策树是瞬时的。
+   * 非 0 说明有人往树里塞了 `wait`：那不是风格问题，那是「决定带上了不在快照里的历史」。
+   */
+  treeMemory(): number {
+    return this.mobTree.memorySize();
   }
 
   /**
@@ -154,7 +184,8 @@ export class MobBrain {
       f = this.sense(scene, agentId, tick, grid);
       this.factsCache.set(agentId, f);
     }
-    return chooseFromFacts(f);
+    // 见文件头 ⑤：决定由树算（纯函数，不吃 dt、不留跨拍记忆）
+    return this.mobTree.decide(f);
   }
 
   /**

@@ -2871,14 +2871,14 @@ ${traceback}`;
                     var fb = A.I;
                     if (N > O) throw Error("invalid range (" + N + ", " + O + ") or no bytes requested!");
                     if (O > B - 1) throw Error("only " + B + " bytes available! programmer error!");
-                    var K = new XMLHttpRequest();
-                    K.open("GET", c, false);
-                    B !== v && K.setRequestHeader("Range", "bytes=" + N + "-" + O);
-                    K.responseType = "arraybuffer";
-                    K.overrideMimeType && K.overrideMimeType("text/plain; charset=x-user-defined");
-                    K.send(null);
-                    if (!(200 <= K.status && 300 > K.status || 304 === K.status)) throw Error("Couldn't load " + c + ". Status: " + K.status);
-                    N = void 0 !== K.response ? new Uint8Array(K.response || []) : lb(K.responseText || "", true);
+                    var K2 = new XMLHttpRequest();
+                    K2.open("GET", c, false);
+                    B !== v && K2.setRequestHeader("Range", "bytes=" + N + "-" + O);
+                    K2.responseType = "arraybuffer";
+                    K2.overrideMimeType && K2.overrideMimeType("text/plain; charset=x-user-defined");
+                    K2.send(null);
+                    if (!(200 <= K2.status && 300 > K2.status || 304 === K2.status)) throw Error("Couldn't load " + c + ". Status: " + K2.status);
+                    N = void 0 !== K2.response ? new Uint8Array(K2.response || []) : lb(K2.responseText || "", true);
                     fb[H] = N;
                   }
                   if ("undefined" == typeof A.I[H]) throw Error("doXHR failed!");
@@ -16808,7 +16808,7 @@ function decodeArithScan(bytes, dataStart, dataLen, frame, restartInterval) {
     lastDc.set(c, lastDc.get(c) + r.diff);
     c.coefs[bo] = lastDc.get(c) << 16 >> 16;
     const ac = acStatsOf(c);
-    const K = frame.acCond[c.ta] ?? 5;
+    const K2 = frame.acCond[c.ta] ?? 5;
     for (let k = 1; k <= 63; k++) {
       let at = 3 * (k - 1);
       if (dec(ac, at) !== 0) break;
@@ -16823,7 +16823,7 @@ function decodeArithScan(bytes, dataStart, dataLen, frame, restartInterval) {
       if (m !== 0) {
         if (dec(ac, at) !== 0) {
           m <<= 1;
-          at = k <= K ? 189 : 217;
+          at = k <= K2 ? 189 : 217;
           while (dec(ac, at) !== 0) {
             m <<= 1;
             if (m === 32768) fail("ASSET.BAD_JPEG", "\u7B97\u672F\u7F16\u7801\u7684 AC \u5E45\u5EA6\u7C7B\u522B\u6EA2\u51FA\uFF08\u2265 0x8000\uFF09");
@@ -16852,7 +16852,7 @@ function decodeArithScan(bytes, dataStart, dataLen, frame, restartInterval) {
   };
   const decodeAcFirst = (c, bo) => {
     const ac = acStatsOf(c);
-    const K = frame.acCond[c.ta] ?? 5;
+    const K2 = frame.acCond[c.ta] ?? 5;
     for (let k = ss; k <= se; k++) {
       let at = 3 * (k - 1);
       if (dec(ac, at) !== 0) break;
@@ -16867,7 +16867,7 @@ function decodeArithScan(bytes, dataStart, dataLen, frame, restartInterval) {
       if (m !== 0) {
         if (dec(ac, at) !== 0) {
           m <<= 1;
-          at = k <= K ? 189 : 217;
+          at = k <= K2 ? 189 : 217;
           while (dec(ac, at) !== 0) {
             m <<= 1;
             if (m === 32768) fail("ASSET.BAD_JPEG", "\u7B97\u672F\u7F16\u7801\u7684 AC \u5E45\u5EA6\u7C7B\u522B\u6EA2\u51FA\uFF08\u2265 0x8000\uFF09");
@@ -21484,7 +21484,7 @@ function buildUiQuads(root, fonts, skin, store) {
   let culled = 0;
   const missingGlyphs = /* @__PURE__ */ new Set();
   const missingFrames = /* @__PURE__ */ new Set();
-  const emit = (rect, page, uv, tint, ord, alpha, clip) => {
+  const emit2 = (rect, page, uv, tint, ord, alpha, clip) => {
     if (rect.width <= 0 || rect.height <= 0) return;
     const a = (tint?.a ?? 1) * alpha;
     if (a <= 0) return;
@@ -21549,9 +21549,9 @@ function buildUiQuads(root, fonts, skin, store) {
       return;
     }
     if (slice > 0) {
-      for (const q2 of nineSlice(rect, f, slice)) emit(q2.rect, f.page, q2.uv, tint, ord, alpha, clip);
+      for (const q2 of nineSlice(rect, f, slice)) emit2(q2.rect, f.page, q2.uv, tint, ord, alpha, clip);
     } else {
-      emit(rect, f.page, { u0: f.u0, v0: f.v0, u1: f.u1, v1: f.v1 }, tint, ord, alpha, clip);
+      emit2(rect, f.page, { u0: f.u0, v0: f.v0, u1: f.u1, v1: f.v1 }, tint, ord, alpha, clip);
     }
   };
   const emitText = (node, p, box, style, ord, alpha, clip) => {
@@ -21565,7 +21565,7 @@ function buildUiQuads(root, fonts, skin, store) {
     const y = box.y + (box.height - layout.height) / 2;
     for (const g of layout.quads) {
       glyphs++;
-      emit(new Rect(box.x + g.x, y + g.y, g.w, g.h), g.page, g, { r: g.r, g: g.g, b: g.b, a: g.a }, ord, alpha, clip);
+      emit2(new Rect(box.x + g.x, y + g.y, g.w, g.h), g.page, g, { r: g.r, g: g.g, b: g.b, a: g.a }, ord, alpha, clip);
     }
     for (const m of layout.missing) missingGlyphs.add(m);
   };
@@ -21601,7 +21601,7 @@ function buildUiQuads(root, fonts, skin, store) {
       if (v > 0 && f !== void 0) {
         const r = new Rect(node.rect.x, node.rect.y, node.rect.width * v, node.rect.height);
         const u1 = f.u0 + (f.u1 - f.u0) * v;
-        emit(r, f.page, { u0: f.u0, v0: f.v0, u1, v1: f.v1 }, p.activeTint ?? { r: 0.5, g: 0.85, b: 0.4, a: 1 }, ord, alpha, clip);
+        emit2(r, f.page, { u0: f.u0, v0: f.v0, u1, v1: f.v1 }, p.activeTint ?? { r: 0.5, g: 0.85, b: 0.4, a: 1 }, ord, alpha, clip);
       }
       continue;
     }
@@ -26244,19 +26244,326 @@ function wanderTarget(grid, selfCell, agentId, tick, w) {
   }
   return -1;
 }
-function chooseFromFacts(f) {
-  if (f.selfCell < 0) return null;
-  if (f.aggressive) {
-    if (f.grudge !== null) {
-      return { kind: "hunt", targetNodeId: f.grudge.nodeId, cell: f.grudge.cell, reason: "grudge" };
+
+// src/extensions/ai/behavior.ts
+var Board = class {
+  data = /* @__PURE__ */ new Map();
+  get(key) {
+    return this.data.get(key) ?? 0;
+  }
+  set(key, value) {
+    this.data.set(key, value);
+  }
+  has(key) {
+    return this.data.has(key);
+  }
+  /**
+   * 清空全部键。
+   *
+   * ★ 为什么必须有：一块板服务多个 agent 时（一个大脑 / 一个模块驱动世界里
+   *   全部生物），上一拍甚至上**一个** agent 留下的键会读成这一拍的输入。
+   *   症状是「一群怪围着同一具尸体」—— 每只都继承了别人的仇人。
+   *   只信「反正每拍都会覆盖」是不够的：自定义 op 往板上写的临时键没人覆盖。
+   */
+  clear() {
+    this.data.clear();
+  }
+  /** 快照（升序键，便于比对与写日志）。 */
+  snapshot() {
+    const out = {};
+    for (const k of [...this.data.keys()].sort()) out[k] = this.data.get(k);
+    return out;
+  }
+};
+var AI_BAD_TREE = "AI.BAD_TREE";
+var AI_UNKNOWN_OP = "AI.UNKNOWN_OP";
+var AI_DUPLICATE_ID = "AI.DUPLICATE_ID";
+var AI_TOO_DEEP = "AI.TOO_DEEP";
+var MAX_DEPTH2 = 64;
+function validateNode(node, path, depth, ops, seen) {
+  if (depth > MAX_DEPTH2) {
+    return err({
+      code: AI_TOO_DEEP,
+      message: `${path} \u6DF1\u5EA6\u8D85\u8FC7 ${String(MAX_DEPTH2)} \u2014\u2014 \u6570\u636E\u91CC\u53EF\u80FD\u85CF\u4E86\u73AF\uFF08\u6811\u4E0D\u8BE5\u6709\u73AF\uFF09`,
+      detail: { path, depth }
+    });
+  }
+  if (typeof node.id !== "string" || node.id.length === 0) {
+    return err({ code: AI_BAD_TREE, message: `${path} \u7F3A\u5C11 id`, detail: { path } });
+  }
+  if (seen.ids.has(node.id)) {
+    return err({ code: AI_DUPLICATE_ID, message: `${path} \u7684 id\u300C${node.id}\u300D\u91CD\u590D`, detail: { id: node.id } });
+  }
+  seen.ids.add(node.id);
+  const kids = node.children ?? [];
+  switch (node.kind) {
+    case "sequence":
+    case "selector":
+      if (kids.length === 0) {
+        return err({ code: AI_BAD_TREE, message: `${path}\uFF08${node.kind}\uFF09\u5FC5\u987B\u6709\u81F3\u5C11 1 \u4E2A\u5B50\u8282\u70B9`, detail: { path } });
+      }
+      break;
+    case "inverter":
+      if (kids.length !== 1) {
+        return err({
+          code: AI_BAD_TREE,
+          message: `${path}\uFF08inverter\uFF09\u5FC5\u987B\u6070\u597D 1 \u4E2A\u5B50\u8282\u70B9\uFF0C\u5B9E\u9645 ${String(kids.length)}`,
+          detail: { path }
+        });
+      }
+      break;
+    case "wait": {
+      const t = node.ticks;
+      if (t === void 0 || !Number.isInteger(t) || t < 0) {
+        return err({
+          code: AI_BAD_TREE,
+          message: `${path}\uFF08wait\uFF09\u7684 ticks \u5FC5\u987B\u662F >= 0 \u7684\u6574\u6570\uFF0C\u5B9E\u9645 ${String(t)}`,
+          detail: { path }
+        });
+      }
+      break;
     }
-    const first = f.visible[0];
-    if (first !== void 0) {
-      return { kind: "hunt", targetNodeId: first.nodeId, cell: first.cell, reason: "sight" };
+    case "do":
+    case "check":
+      if (kids.length !== 0) {
+        return err({ code: AI_BAD_TREE, message: `${path}\uFF08${node.kind}\uFF09\u662F\u53F6\u5B50\uFF0C\u4E0D\u8BE5\u6709\u5B50\u8282\u70B9`, detail: { path } });
+      }
+      break;
+    default:
+      return err({ code: AI_BAD_TREE, message: `${path} \u7684 kind\u300C${String(node.kind)}\u300D\u4E0D\u8BA4\u8BC6`, detail: { path } });
+  }
+  if (node.kind === "do" || node.kind === "check") {
+    const op = node.op;
+    if (op === void 0 || !Object.prototype.hasOwnProperty.call(ops, op)) {
+      return err({
+        code: AI_UNKNOWN_OP,
+        message: `${path}\uFF08${node.kind}\uFF09\u5F15\u7528\u4E86\u672A\u6CE8\u518C\u7684\u884C\u4E3A\u300C${String(op)}\u300D`,
+        detail: { path, op: String(op), available: Object.keys(ops).sort() }
+      });
     }
   }
-  if (f.wanderCell < 0) return null;
-  return { kind: "wander", targetNodeId: -1, cell: f.wanderCell, reason: "wander" };
+  for (let i = 0; i < kids.length; i++) {
+    const r = validateNode(kids[i], `${path}.children[${String(i)}]`, depth + 1, ops, seen);
+    if (!r.ok) return r;
+  }
+  return ok(true);
+}
+var AiAgent = class _AiAgent {
+  tree;
+  ops;
+  /**
+   * 记忆（**每 agent 一份**）：
+   *  · `cursor`：sequence/selector 停在了第几个子节点（只在 running 时存在）
+   *  · `elapsed`：wait 节点已经消耗了几个 tick
+   */
+  cursor = /* @__PURE__ */ new Map();
+  elapsed = /* @__PURE__ */ new Map();
+  constructor(tree, ops) {
+    this.tree = tree;
+    this.ops = ops;
+  }
+  static create(tree, ops) {
+    const r = validateNode(tree, "root", 0, ops, { ids: /* @__PURE__ */ new Set() });
+    if (!r.ok) return r;
+    return ok(new _AiAgent(tree, ops));
+  }
+  /** 跑一个 tick。返回根节点的状态。**不吃 dt**：只依赖被调用的次数与黑板。 */
+  step(ctx) {
+    return this.evalNode(this.tree, ctx, 0);
+  }
+  /** 清掉全部记忆（换目标、被眩晕、读档后想重来一次时用）。 */
+  reset() {
+    this.cursor.clear();
+    this.elapsed.clear();
+  }
+  /** 只读观察：当前有多少个节点记着 running 位置（判据用它证明"记忆没串"）。 */
+  memorySize() {
+    return this.cursor.size + this.elapsed.size;
+  }
+  evalNode(node, ctx, depth) {
+    if (depth > MAX_DEPTH2) return "failure";
+    switch (node.kind) {
+      case "sequence": {
+        const kids = node.children;
+        let i = this.cursor.get(node.id) ?? 0;
+        for (; i < kids.length; i++) {
+          const st = this.evalNode(kids[i], ctx, depth + 1);
+          if (st === "running") {
+            this.cursor.set(node.id, i);
+            return "running";
+          }
+          if (st === "failure") {
+            this.cursor.delete(node.id);
+            return "failure";
+          }
+        }
+        this.cursor.delete(node.id);
+        return "success";
+      }
+      case "selector": {
+        const kids = node.children;
+        let i = this.cursor.get(node.id) ?? 0;
+        for (; i < kids.length; i++) {
+          const st = this.evalNode(kids[i], ctx, depth + 1);
+          if (st === "running") {
+            this.cursor.set(node.id, i);
+            return "running";
+          }
+          if (st === "success") {
+            this.cursor.delete(node.id);
+            return "success";
+          }
+        }
+        this.cursor.delete(node.id);
+        return "failure";
+      }
+      case "inverter": {
+        const st = this.evalNode(node.children[0], ctx, depth + 1);
+        if (st === "running") return "running";
+        return st === "success" ? "failure" : "success";
+      }
+      case "wait": {
+        const need = node.ticks;
+        const done = (this.elapsed.get(node.id) ?? 0) + 1;
+        if (done >= need) {
+          this.elapsed.delete(node.id);
+          return "success";
+        }
+        this.elapsed.set(node.id, done);
+        return "running";
+      }
+      case "do":
+      case "check": {
+        const fn = this.ops[node.op];
+        if (fn === void 0) return "failure";
+        return fn(ctx, node);
+      }
+      default:
+        return "failure";
+    }
+  }
+};
+var bt = {
+  sequence: (id, ...children) => ({ id, kind: "sequence", children }),
+  selector: (id, ...children) => ({ id, kind: "selector", children }),
+  inverter: (id, child) => ({ id, kind: "inverter", children: [child] }),
+  wait: (id, ticks) => ({ id, kind: "wait", ticks }),
+  do: (id, op) => ({ id, kind: "do", op }),
+  check: (id, op) => ({ id, kind: "check", op })
+};
+
+// src/extensions/mobs/mob-tree.ts
+var MOB_BAD_TREE = "MOB.BAD_TREE";
+var K = {
+  selfCell: "self.cell",
+  aggressive: "self.aggressive",
+  grudgeHas: "grudge.has",
+  grudgeNode: "grudge.node",
+  grudgeCell: "grudge.cell",
+  visibleCount: "visible.count",
+  visibleNode: "visible.0.node",
+  visibleCell: "visible.0.cell",
+  wanderCell: "wander.cell",
+  outKind: "out.kind",
+  outTarget: "out.target",
+  outCell: "out.cell",
+  outReason: "out.reason"
+};
+var OUT_NONE = 0;
+var OUT_HUNT = 1;
+var OUT_WANDER = 2;
+var WHY = { grudge: 1, sight: 2, wander: 3 };
+var WHY_NAME = ["grudge", "sight", "wander"];
+function writeFacts(board, f) {
+  board.clear();
+  board.set(K.selfCell, f.selfCell);
+  board.set(K.aggressive, f.aggressive ? 1 : 0);
+  board.set(K.grudgeHas, f.grudge === null ? 0 : 1);
+  board.set(K.grudgeNode, f.grudge?.nodeId ?? -1);
+  board.set(K.grudgeCell, f.grudge?.cell ?? -1);
+  board.set(K.visibleCount, f.visible.length);
+  const first = f.visible[0];
+  board.set(K.visibleNode, first?.nodeId ?? -1);
+  board.set(K.visibleCell, first?.cell ?? -1);
+  board.set(K.wanderCell, f.wanderCell);
+  board.set(K.outKind, OUT_NONE);
+  board.set(K.outTarget, -1);
+  board.set(K.outCell, -1);
+  board.set(K.outReason, 0);
+  return board;
+}
+function boardToDecision(board) {
+  const kind = board.get(K.outKind);
+  if (kind === OUT_HUNT) {
+    return {
+      kind: "hunt",
+      targetNodeId: board.get(K.outTarget),
+      cell: board.get(K.outCell),
+      reason: WHY_NAME[board.get(K.outReason) - 1] ?? "sight"
+    };
+  }
+  if (kind === OUT_WANDER) {
+    return { kind: "wander", targetNodeId: -1, cell: board.get(K.outCell), reason: "wander" };
+  }
+  return null;
+}
+function atLeast(ctx, key, min) {
+  return ctx.board.get(key) >= min ? "success" : "failure";
+}
+function emit(ctx, kind, nodeKey, cellKey, why) {
+  const cell = ctx.board.get(cellKey);
+  if (cell < 0) return "failure";
+  ctx.board.set(K.outKind, kind);
+  ctx.board.set(K.outTarget, nodeKey === null ? -1 : ctx.board.get(nodeKey));
+  ctx.board.set(K.outCell, cell);
+  ctx.board.set(K.outReason, why);
+  return "success";
+}
+var MOB_OPS = {
+  "mob.canDecide": (ctx) => atLeast(ctx, K.selfCell, 0),
+  "mob.isAggressive": (ctx) => atLeast(ctx, K.aggressive, 1),
+  "mob.hasGrudge": (ctx) => atLeast(ctx, K.grudgeHas, 1),
+  "mob.seesFoe": (ctx) => atLeast(ctx, K.visibleCount, 1),
+  "mob.hasWander": (ctx) => atLeast(ctx, K.wanderCell, 0),
+  "mob.huntGrudge": (ctx) => emit(ctx, OUT_HUNT, K.grudgeNode, K.grudgeCell, WHY.grudge),
+  "mob.huntNearest": (ctx) => emit(ctx, OUT_HUNT, K.visibleNode, K.visibleCell, WHY.sight),
+  "mob.wander": (ctx) => emit(ctx, OUT_WANDER, null, K.wanderCell, WHY.wander)
+};
+var MOB_TREE = bt.sequence(
+  "mob.root",
+  bt.check("mob.sane", "mob.canDecide"),
+  bt.selector(
+    "mob.body",
+    bt.sequence(
+      "mob.hostile",
+      bt.check("mob.angry", "mob.isAggressive"),
+      bt.selector(
+        "mob.pick",
+        bt.sequence("mob.grudge", bt.check("mob.c1", "mob.hasGrudge"), bt.do("mob.d1", "mob.huntGrudge")),
+        bt.sequence("mob.sight", bt.check("mob.c2", "mob.seesFoe"), bt.do("mob.d2", "mob.huntNearest"))
+      )
+    ),
+    bt.sequence("mob.roam", bt.check("mob.c3", "mob.hasWander"), bt.do("mob.d3", "mob.wander"))
+  )
+);
+function createMobTree(options = {}) {
+  const tree = options.tree ?? MOB_TREE;
+  const created = AiAgent.create(tree, options.ops ?? MOB_OPS);
+  if (!created.ok) {
+    throw new RangeError(`${MOB_BAD_TREE}: ${created.error.code} \u2014\u2014 ${created.error.message}`);
+  }
+  const agent = created.value;
+  const board = new Board();
+  return {
+    tree,
+    decide(facts) {
+      writeFacts(board, facts);
+      agent.step({ tick: facts.tick, board });
+      return boardToDecision(board);
+    },
+    memorySize: () => agent.memorySize(),
+    boardSnapshot: () => board.snapshot()
+  };
 }
 
 // src/extensions/mobs/mob-brain.ts
@@ -26264,6 +26571,8 @@ var MOB_BAD_BRAIN = "MOB.BAD_BRAIN";
 var MobBrain = class {
   o;
   perception;
+  /** 决策树（见文件头 ⑤）。一根大脑一棵，服务这个世界里**全部**生物。 */
+  mobTree;
   /**
    * 见文件头 ④。**按 `id → 决定` 存一整张表**，不是只存"上一次"：
    * `move` 与 `combat` 是两个模块，它们各自遍历全部生物 ——
@@ -26312,10 +26621,22 @@ var MobBrain = class {
       seed: options.seed ?? 1
     };
     this.perception = new Perception({ range: this.o.range, watch: this.o.watch });
+    this.mobTree = createMobTree({ tree: options.tree, ops: options.ops });
   }
   /** 感知调用次数（判据用它证"同一 tick 只算一次"）。 */
   get senseCount() {
     return this.senses;
+  }
+  /** 当前这棵树（编辑器 / 面板要显示「这只怪在跑哪棵树」）。 */
+  get tree() {
+    return this.mobTree.tree;
+  }
+  /**
+   * 树上还记着几处 `running`。**恒为 0** —— 决策树是瞬时的。
+   * 非 0 说明有人往树里塞了 `wait`：那不是风格问题，那是「决定带上了不在快照里的历史」。
+   */
+  treeMemory() {
+    return this.mobTree.memorySize();
   }
   /**
    * 决定这一 tick 干什么（= 感知一次 + 纯函数决策）。
@@ -26332,7 +26653,7 @@ var MobBrain = class {
       f = this.sense(scene, agentId, tick, grid);
       this.factsCache.set(agentId, f);
     }
-    return chooseFromFacts(f);
+    return this.mobTree.decide(f);
   }
   /**
    * 最近一次感知到的世界事实（调试面板用它显示「它看见了什么、为什么这么决定」）。
