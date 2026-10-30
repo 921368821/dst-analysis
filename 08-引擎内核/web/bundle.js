@@ -17805,8 +17805,8 @@ function stacksOf(scene, ownerId) {
 function swapStacks(scene, ownerId, a, b) {
   const stacks = stacksOf(scene, ownerId);
   const n = stacks.length;
-  const bad4 = (i) => !Number.isInteger(i) || i < 0 || i >= n;
-  if (bad4(a) || bad4(b)) {
+  const bad5 = (i) => !Number.isInteger(i) || i < 0 || i >= n;
+  if (bad5(a) || bad5(b)) {
     return err(
       engineError(INVENTORY_BAD_INDEX, `\u683C\u5B50\u4E0B\u6807\u8D8A\u754C\uFF1A${String(a)} / ${String(b)}\uFF08\u5F53\u524D ${String(n)} \u683C\uFF09`, {
         a,
@@ -25959,6 +25959,34 @@ function syncDirFrames(scene, has) {
   return stats;
 }
 
+// src/extensions/mobs/ai-config.ts
+var AI_CONFIG_TYPE = "mobs.ai";
+var AIConfig = class extends Component {
+  /**
+   * 决策树的资产 id。`""` = 用内置树（见文件头 ②）。
+   *
+   * ★ 字段名 `tree` 而不是 `treeId`：属性面板上显示的就是这个名字，
+   *   而「Asset 类型的 tree」在编辑器里已经是资产选择器 —— 名字里再带一个 Id
+   *   会让配置的人以为要手填一串 GUID。
+   */
+  tree = "";
+  schema = {
+    type: AI_CONFIG_TYPE,
+    fields: { tree: FieldType.Asset },
+    defaults: { tree: "" }
+  };
+};
+function registerAiConfig(reg) {
+  reg.register(new AIConfig().schema, () => new AIConfig());
+}
+function treeIdOf(scene, nodeId) {
+  const node = scene.find(nodeId);
+  if (node === void 0) return "";
+  const c = node.get(AI_CONFIG_TYPE);
+  if (c === void 0) return "";
+  return typeof c.tree === "string" ? c.tree : "";
+}
+
 // src/extensions/mobs/mob-template.ts
 var MOB_BAD_TEMPLATE = "MOB.BAD_TEMPLATE";
 function bad3(field, message) {
@@ -25996,6 +26024,14 @@ function validateTemplate(raw) {
   }
   if (!isPosFinite(t.speed)) return bad3("speed", `\u300C${t.kind}\u300D\u7684 speed \u5FC5\u987B\u662F > 0 \u7684\u6709\u9650\u6570\uFF0C\u6536\u5230 ${String(t.speed)}`);
   if (typeof t.team !== "string") return bad3("team", `\u300C${t.kind}\u300D\u7684 team \u5FC5\u987B\u662F\u5B57\u7B26\u4E32\uFF0C\u6536\u5230 ${typeof t.team}`);
+  if (t.tree !== void 0) {
+    if (typeof t.tree !== "string") {
+      return bad3("tree", `\u300C${t.kind}\u300D\u7684 tree \u5FC5\u987B\u662F\u8D44\u4EA7 id \u5B57\u7B26\u4E32\uFF08\u7A7A\u4E32 = \u5185\u7F6E\u6811\uFF09\uFF0C\u6536\u5230 ${typeof t.tree}`);
+    }
+    if (t.tree.length > 0 && t.tree.trim().length === 0) {
+      return bad3("tree", `\u300C${t.kind}\u300D\u7684 tree \u662F\u7EAF\u7A7A\u767D \u2014\u2014 \u7A7A\u4E32\u8868\u793A\u5185\u7F6E\u6811\uFF0C\u7EAF\u7A7A\u767D\u662F\u4E00\u4E2A\u770B\u4E0D\u89C1\u7684\u8D44\u4EA7 id`);
+    }
+  }
   if (t.team.length > 0 && t.team.trim().length === 0) {
     return bad3("team", `\u300C${t.kind}\u300D\u7684 team \u662F\u7EAF\u7A7A\u767D \u2014\u2014 \u7A7A\u4E32\u8868\u793A\u4E2D\u7ACB\uFF0C\u7EAF\u7A7A\u767D\u662F\u4E00\u4E2A\u770B\u4E0D\u89C1\u7684\u9635\u8425\u540D`);
   }
@@ -26013,6 +26049,7 @@ function validateTemplate(raw) {
     cooldownTicks: t.cooldownTicks,
     speed: t.speed,
     team: t.team,
+    tree: t.tree ?? "",
     loot: loot.value
   });
 }
@@ -26045,6 +26082,8 @@ function spawnMob(scene, template, x, z, opts = {}) {
   dirSprite.prefix = tpl.frame;
   const loot = new LootHolding();
   loot.items = encodeItems(tpl.loot);
+  const aiConfig = new AIConfig();
+  aiConfig.tree = tpl.tree;
   const attached = [
     [SPRITE_TYPE, sprite],
     [HEALTH_TYPE, health],
@@ -26055,6 +26094,7 @@ function spawnMob(scene, template, x, z, opts = {}) {
   ];
   if (tpl.damage > 0) attached.push([ATTACKER_TYPE, attacker]);
   if (tpl.loot.length > 0) attached.push([LOOT_TYPE, loot]);
+  if (tpl.tree !== "") attached.push([AI_CONFIG_TYPE, aiConfig]);
   for (const [type, c] of attached) {
     const a = scene.attach(nodeId, () => c);
     if (!a.ok) {
@@ -26094,7 +26134,8 @@ function spawnMob(scene, template, x, z, opts = {}) {
     attacker: tpl.damage > 0 ? attacker : null,
     mover,
     facing,
-    dirSprite
+    dirSprite,
+    aiConfig: tpl.tree === "" ? null : aiConfig
   });
 }
 
@@ -26566,13 +26607,173 @@ function createMobTree(options = {}) {
   };
 }
 
+// src/extensions/mobs/tree-asset.ts
+var TREE_FORMAT = "aitree";
+var TREE_FORMAT_VERSION = 1;
+var AI_TREE_BAD_ASSET = "AI_TREE.BAD_ASSET";
+var AI_TREE_BAD_VERSION = "AI_TREE.BAD_VERSION";
+function canonicalNode(node) {
+  const out = { id: node.id, kind: node.kind };
+  if (node.op !== void 0) out.op = node.op;
+  if (node.ticks !== void 0) out.ticks = node.ticks;
+  if (node.children !== void 0) out.children = node.children.map(canonicalNode);
+  return out;
+}
+function serializeTreeAsset(tree) {
+  const doc = { format: TREE_FORMAT, version: TREE_FORMAT_VERSION, root: canonicalNode(tree) };
+  return JSON.stringify(doc, null, 2) + "\n";
+}
+function checkTree(tree, ops = MOB_OPS) {
+  const created = AiAgent.create(tree, ops);
+  if (!created.ok) return err(created.error);
+  return ok(tree);
+}
+function bad4(message, detail) {
+  return err(engineError(AI_TREE_BAD_ASSET, message, detail));
+}
+function parseTreeAsset(text, ops = MOB_OPS) {
+  let raw;
+  try {
+    raw = JSON.parse(text);
+  } catch (e) {
+    return bad4(`\u51B3\u7B56\u6811\u8D44\u4EA7\u4E0D\u662F\u5408\u6CD5 JSON\uFF1A${e instanceof Error ? e.message : String(e)}`);
+  }
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return bad4(`\u51B3\u7B56\u6811\u8D44\u4EA7\u5FC5\u987B\u662F\u5BF9\u8C61\uFF0C\u6536\u5230 ${Array.isArray(raw) ? "\u6570\u7EC4" : typeof raw}`);
+  }
+  const doc = raw;
+  if (doc.format !== TREE_FORMAT) {
+    return bad4(`format \u5FC5\u987B\u662F\u300C${TREE_FORMAT}\u300D\uFF0C\u6536\u5230 ${JSON.stringify(doc.format)}`);
+  }
+  if (typeof doc.version !== "number" || !Number.isInteger(doc.version) || doc.version < 1) {
+    return bad4(`version \u5FC5\u987B\u662F\u6B63\u6574\u6570\uFF0C\u6536\u5230 ${JSON.stringify(doc.version)}`);
+  }
+  if (doc.version > TREE_FORMAT_VERSION) {
+    return err(
+      engineError(
+        AI_TREE_BAD_VERSION,
+        `\u51B3\u7B56\u6811\u8D44\u4EA7\u7684\u7248\u672C ${String(doc.version)} \u6BD4\u672C\u4EE3\u7801\u652F\u6301\u7684 ${String(TREE_FORMAT_VERSION)} \u65B0 \u2014\u2014 \u62D2\u7EDD\u6253\u5F00\uFF08\u6309\u65E7\u683C\u5F0F\u8BFB\u4F1A\u4E22\u5B57\u6BB5\uFF09`,
+        { version: doc.version, supported: TREE_FORMAT_VERSION }
+      )
+    );
+  }
+  if (typeof doc.root !== "object" || doc.root === null || Array.isArray(doc.root)) {
+    return bad4("\u7F3A\u5C11 root \u8282\u70B9");
+  }
+  return checkTree(doc.root, ops);
+}
+
+// src/extensions/mobs/tree-library.ts
+var DEFAULT_TREE_ASSET = "builtin:mob";
+function fnv(s) {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return h.toString(36).padStart(7, "0");
+}
+var TreeLibrary = class {
+  trees = /* @__PURE__ */ new Map();
+  ops;
+  revisionCount = 0;
+  constructor(opts = {}) {
+    this.ops = opts.ops ?? MOB_OPS;
+    const builtin = opts.defaultTree ?? MOB_TREE;
+    const checked = checkTree(builtin, this.ops);
+    if (!checked.ok) {
+      throw new RangeError(`${AI_TREE_BAD_ASSET}: \u5185\u7F6E\u6811\u4E0D\u5408\u6CD5 \u2014\u2014 ${checked.error.code}\uFF1A${checked.error.message}`);
+    }
+    this.trees.set(DEFAULT_TREE_ASSET, builtin);
+  }
+  /** 库变过几次（见文件头 ②）。只增不减。 */
+  get revision() {
+    return this.revisionCount;
+  }
+  /** 装/换一棵树。**校验在这里**（见文件头 ①）。 */
+  put(id, tree) {
+    if (typeof id !== "string" || id.length === 0) {
+      return err(engineError(AI_TREE_BAD_ASSET, "\u6811\u7684\u8D44\u4EA7 id \u4E0D\u80FD\u662F\u7A7A\u4E32\uFF08\u7A7A\u4E32\u8868\u793A\u300C\u6CA1\u914D\u300D\uFF0C\u89C1 DEFAULT_TREE_ASSET\uFF09"));
+    }
+    if (id.trim().length === 0) {
+      return err(engineError(AI_TREE_BAD_ASSET, "\u6811\u7684\u8D44\u4EA7 id \u4E0D\u80FD\u662F\u7EAF\u7A7A\u767D \u2014\u2014 \u90A3\u662F\u4E00\u4E2A\u770B\u4E0D\u89C1\u7684 id"));
+    }
+    const checked = checkTree(tree, this.ops);
+    if (!checked.ok) return err(checked.error);
+    this.trees.set(id, tree);
+    this.revisionCount++;
+    return ok(void 0);
+  }
+  /** 从资产文本装载（解析 + 校验 + 存）。 */
+  putText(id, text) {
+    const parsed = parseTreeAsset(text, this.ops);
+    if (!parsed.ok) return err(parsed.error);
+    return this.put(id, parsed.value);
+  }
+  /** 删一棵树（资产被删）。内置树删不掉 —— 它是「没配」的落点。 */
+  remove(id) {
+    if (id === DEFAULT_TREE_ASSET) return false;
+    const had = this.trees.delete(id);
+    if (had) this.revisionCount++;
+    return had;
+  }
+  has(id) {
+    return this.trees.has(id);
+  }
+  get(id) {
+    return this.trees.get(id);
+  }
+  /** 库里全部 id（升序；含内置树）。 */
+  ids() {
+    return [...this.trees.keys()].sort();
+  }
+  /**
+   * 解析一个引用（**纯的**：不改库、不改 revision）。
+   *
+   * 缺 id 不抛（见文件头 ③）：返回内置树 + `source: "missing"`，由调用方决定怎么报警。
+   */
+  resolve(id) {
+    if (id === "") {
+      return { wanted: "", id: DEFAULT_TREE_ASSET, tree: this.trees.get(DEFAULT_TREE_ASSET), source: "default" };
+    }
+    const tree = this.trees.get(id);
+    if (tree !== void 0) return { wanted: id, id, tree, source: "asset" };
+    return { wanted: id, id: DEFAULT_TREE_ASSET, tree: this.trees.get(DEFAULT_TREE_ASSET), source: "missing" };
+  }
+  /**
+   * 内容指纹（升序 id + 规范序列化）。
+   *
+   * 用途：证「换了一棵树」与「换回来」是可判定的两件事；也能进世界指纹
+   * （同一场景 + 同一批树 = 同一局，否则回放会在 AI 上分叉）。
+   */
+  fingerprint() {
+    const parts = [];
+    for (const id of this.ids()) parts.push(`${id}=${serializeTreeAsset(this.trees.get(id))}`);
+    return fnv(parts.join("\0"));
+  }
+  stats() {
+    return { trees: this.trees.size, revision: this.revisionCount };
+  }
+};
+
 // src/extensions/mobs/mob-brain.ts
 var MOB_BAD_BRAIN = "MOB.BAD_BRAIN";
 var MobBrain = class {
   o;
   perception;
-  /** 决策树（见文件头 ⑤）。一根大脑一棵，服务这个世界里**全部**生物。 */
-  mobTree;
+  /** 树库（id → 已校验的树）。没给就按 `options.tree` 建一个只含内置树的。 */
+  library;
+  /** 建树用的 op 表（`createMobTree` 要用同一份）。 */
+  ops;
+  /**
+   * `树 id → 编译好的实例`（见文件头 ⑥）。
+   * ★ 键是**树**不是实体：同种怪共享一份树与一块板（板每拍 `clear`，见 `mob-tree.ts` ②）。
+   */
+  trees = /* @__PURE__ */ new Map();
+  /** `trees` 是按哪个 revision 建的。库一变就整批作废（`tree-library.ts` 文件头 ②）。 */
+  treeRevision = -1;
+  /** 引用过、但库里没有的树 id（去重；`treeMissing()` 读它）。 */
+  missingTrees = /* @__PURE__ */ new Set();
   /**
    * 见文件头 ④。**按 `id → 决定` 存一整张表**，不是只存"上一次"：
    * `move` 与 `combat` 是两个模块，它们各自遍历全部生物 ——
@@ -26620,23 +26821,86 @@ var MobBrain = class {
       watch: options.watch ?? [HEALTH_TYPE],
       seed: options.seed ?? 1
     };
+    if (options.library !== void 0 && options.tree !== void 0) {
+      throw new RangeError(
+        `${MOB_BAD_BRAIN}: \u540C\u65F6\u7ED9\u4E86 library \u4E0E tree \u2014\u2014 \u7F3A\u7701\u6811\u6709\u4E24\u4E2A\u6765\u6E90\uFF08\u89C1 MobBrainOptions.library \u7684 \u2605\uFF09`
+      );
+    }
+    this.ops = options.ops ?? MOB_OPS;
+    this.library = options.library ?? new TreeLibrary({
+      ...options.ops === void 0 ? {} : { ops: options.ops },
+      ...options.tree === void 0 ? {} : { defaultTree: options.tree }
+    });
     this.perception = new Perception({ range: this.o.range, watch: this.o.watch });
-    this.mobTree = createMobTree({ tree: options.tree, ops: options.ops });
   }
   /** 感知调用次数（判据用它证"同一 tick 只算一次"）。 */
   get senseCount() {
     return this.senses;
   }
-  /** 当前这棵树（编辑器 / 面板要显示「这只怪在跑哪棵树」）。 */
+  /**
+   * **缺省树**（不是"某一只正在跑的树"）。
+   *
+   * ★ 批155 之前这个 getter 返回的是"唯一那棵"。现在每只生物可以有自己的树，
+   *   所以它只能是缺省那棵；要看某一只的，用 `treeForAgent(scene, id)` 或 `explain`。
+   */
   get tree() {
-    return this.mobTree.tree;
+    return this.library.resolve("").tree;
+  }
+  /** 树库（编辑器与判据要 `put` / 看 revision）。 */
+  get treeLibrary() {
+    return this.library;
   }
   /**
-   * 树上还记着几处 `running`。**恒为 0** —— 决策树是瞬时的。
+   * 树上还记着几处 `running`（**全部已编译的树加起来**）。**恒为 0** —— 决策树是瞬时的。
    * 非 0 说明有人往树里塞了 `wait`：那不是风格问题，那是「决定带上了不在快照里的历史」。
    */
   treeMemory() {
-    return this.mobTree.memorySize();
+    let n = 0;
+    for (const t of this.trees.values()) n += t.memorySize();
+    return n;
+  }
+  /**
+   * 被引用过、但库里没有的树有几棵（去重，见文件头 ⑥）。
+   *
+   * ★ 这是**降级路径的计数**：>0 说明场景里有人配了一个不存在的树 id，
+   *   而那些生物正在用内置树跑 —— 看起来一切正常。
+   */
+  treeMissing() {
+    return this.missingTrees.size;
+  }
+  /** 那些不存在的树 id（升序；面板要能指名道姓）。 */
+  missingTreeIds() {
+    return [...this.missingTrees].sort();
+  }
+  /**
+   * 这只生物这一拍用的树（id + 来源 + 树本身）。
+   *
+   * 纯查询：不改缓存、不改计数（计数在 `compiledTreeFor` 建缓存时做一次）。
+   */
+  treeForAgent(scene, agentId) {
+    return this.library.resolve(treeIdOf(scene, agentId));
+  }
+  /**
+   * 「它这一拍照什么做的决定」——面板与判据共用这一个入口。
+   *
+   * ★ 会**重跑一次决策**（纯函数，同 facts 同结果）：板是随树共享的，
+   *   上一次写板的是上一只生物。读完 `decide` 立刻取板，才是这一只的数据。
+   */
+  explain(scene, agentId, tick, grid) {
+    const decision = this.decide(scene, agentId, tick, grid);
+    const facts = this.facts(agentId);
+    if (facts === void 0) return null;
+    const { lookup, compiled } = this.compiledTreeFor(scene, agentId);
+    return {
+      nodeId: agentId,
+      tick,
+      wanted: lookup.wanted,
+      treeId: lookup.id,
+      treeSource: lookup.source,
+      decision,
+      facts,
+      board: compiled.boardSnapshot()
+    };
   }
   /**
    * 决定这一 tick 干什么（= 感知一次 + 纯函数决策）。
@@ -26653,7 +26917,7 @@ var MobBrain = class {
       f = this.sense(scene, agentId, tick, grid);
       this.factsCache.set(agentId, f);
     }
-    return this.mobTree.decide(f);
+    return this.compiledTreeFor(scene, agentId).compiled.decide(f);
   }
   /**
    * 最近一次感知到的世界事实（调试面板用它显示「它看见了什么、为什么这么决定」）。
@@ -26665,6 +26929,29 @@ var MobBrain = class {
     const f = this.factsCache.get(agentId);
     if (f === void 0 || f.tick !== this.cacheTick) return void 0;
     return f;
+  }
+  /**
+   * 按实体取「编译好的树」（见文件头 ⑥）。
+   *
+   * 三件事按这个顺序：库变了就全作废 → 解析实体要的 id → 没编译过就编译。
+   * ★ 缺 id 时缓存键用**默认树**的 id：编译出来的是同一棵树，
+   *   而"哪只怪引用了坏 id"由 `missingTrees` 记着，不靠缓存键表达。
+   */
+  compiledTreeFor(scene, agentId) {
+    if (this.library.revision !== this.treeRevision) {
+      this.trees.clear();
+      this.treeRevision = this.library.revision;
+    }
+    const lookup = this.library.resolve(treeIdOf(scene, agentId));
+    if (lookup.source === "missing" && !this.missingTrees.has(lookup.wanted)) {
+      this.missingTrees.add(lookup.wanted);
+    }
+    let compiled = this.trees.get(lookup.id);
+    if (compiled === void 0) {
+      compiled = createMobTree({ tree: lookup.tree, ops: this.ops });
+      this.trees.set(lookup.id, compiled);
+    }
+    return { lookup, compiled };
   }
   /** 把世界读成事实（**本文件唯一读场景的地方**，除 `avenge` 的仇恨表查询）。 */
   sense(scene, agentId, tick, grid) {
@@ -26757,6 +27044,7 @@ function createMobWorldModule(options) {
   let scene = null;
   let brain = null;
   let threat = null;
+  let lastTick = 0;
   let moveMod = null;
   let combatMod = null;
   const corpse = options.corpse;
@@ -26864,6 +27152,7 @@ function createMobWorldModule(options) {
         corpsesSpawned,
         corpsesFailed,
         lastCorpseError,
+        treeFallbacks: brain?.treeMissing() ?? 0,
         respawned,
         lastRespawnCell,
         lastRespawnError,
@@ -26881,6 +27170,13 @@ function createMobWorldModule(options) {
     noteHit(info) {
       if (threat === null) return false;
       return threat.add(info.targetId, info.attackerId, info.applied, info.tick).ok;
+    },
+    explain(nodeId) {
+      if (brain === null || scene === null) return null;
+      return brain.explain(scene, nodeId, lastTick, options.grid);
+    },
+    get missingTrees() {
+      return brain?.missingTreeIds() ?? [];
     },
     resyncBodies() {
       prune();
@@ -26930,7 +27226,8 @@ function createMobWorldModule(options) {
         ...options.wanderEvery === void 0 ? {} : { wanderEvery: options.wanderEvery },
         ...options.leashCells === void 0 ? {} : { leashCells: options.leashCells },
         ...options.aggroCells === void 0 ? {} : { aggroCells: options.aggroCells },
-        ...threat === null ? {} : { threat }
+        ...threat === null ? {} : { threat },
+        ...options.library === void 0 ? {} : { library: options.library }
       });
       const placed = [];
       for (let i = 0; i < options.spots.length; i++) {
@@ -27031,6 +27328,7 @@ function createMobWorldModule(options) {
       const s = scene;
       const b = brain;
       if (s === null || b === null || moveMod === null || combatMod === null) return;
+      lastTick = tick;
       let h = 0;
       let w = 0;
       let i0 = 0;
@@ -27145,8 +27443,8 @@ function positiveTicks(ticks) {
   return null;
 }
 function flash(scene, nodeId, ticks) {
-  const bad4 = positiveTicks(ticks);
-  if (bad4 !== null) return err(bad4);
+  const bad5 = positiveTicks(ticks);
+  if (bad5 !== null) return err(bad5);
   const sp = spriteOf(scene, nodeId);
   if ("code" in sp) return err(sp);
   const sprite = sp;
@@ -27170,8 +27468,8 @@ function flash(scene, nodeId, ticks) {
   return ok({ nodeId, ticks, remaining: feed2.flashTicks, extended });
 }
 function punch(scene, nodeId, ticks) {
-  const bad4 = positiveTicks(ticks);
-  if (bad4 !== null) return err(bad4);
+  const bad5 = positiveTicks(ticks);
+  if (bad5 !== null) return err(bad5);
   const sp = spriteOf(scene, nodeId);
   if ("code" in sp) return err(sp);
   const sprite = sp;
@@ -28386,6 +28684,7 @@ async function buildDemoGame(env) {
       registerMoverComponent(scene2.components);
       registerFacingComponent(scene2.components);
       registerDirSpriteComponent(scene2.components);
+      registerAiConfig(scene2.components);
       registerHungerComponent(scene2.components);
       registerFeedbackComponent(scene2.components);
       if (!scene2.components.has(SPRITE_TYPE)) {

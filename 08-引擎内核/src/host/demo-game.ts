@@ -127,6 +127,7 @@ import {
   type FeedbackHandle,
 } from "../extensions/render/feedback.ts";
 import { registerMoverComponent } from "../extensions/ai/move.ts";
+import { registerAiConfig } from "../extensions/mobs/ai-config.ts";
 import { registerFacingComponent } from "../extensions/motion/facing.ts";
 import {
   DirSprite,
@@ -1168,6 +1169,10 @@ export async function buildDemoGame(env: DemoHostEnv): Promise<DemoHandle> {
       registerMoverComponent(scene.components);
       registerFacingComponent(scene.components);
       registerDirSpriteComponent(scene.components);
+      // 批155：树引用（`mobs.ai`）。不注册的后果与背包那一条同源 ——
+      // 读档时这一类组件会被当成未知类型**静默跳过**，那只怪悄悄换回内置树，
+      // 而世界看起来完全正常（它照样走、照样追）。
+      registerAiConfig(scene.components);
       // 批67：饱食度。**不注册的后果是 READ 档里这一项静默丢失**（读回来 100，
       // 玩家以为自己没饿过）—— 与背包那一条同一个坑。
       registerHungerComponent(scene.components);

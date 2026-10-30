@@ -51,6 +51,15 @@ export interface MobTemplate {
   readonly speed: number;
   /** 阵营名。`""` = 中立。 */
   readonly team: string;
+  /**
+   * 决策树资产 id（批155）。`""` = 用内置树。
+   *
+   * ★ 这是「这个模板的怪用什么脾气」的**唯一**入口。它进模板而不是进引擎常量，
+   *   于是「换一套 AI 逻辑」= 改一行配置 + 一个 `.tree.json` 文件，不动代码。
+   * ★ 纯空白要拒绝：`" "` 与 `""` 在 ID 里是两个不同的值，而人眼分不出 ——
+   *   症状是「配了树，怪还是老样子」（库里查不到 `" "`，静默降级成内置树）。
+   */
+  readonly tree: string;
   readonly loot: LootTable;
 }
 
@@ -101,6 +110,14 @@ export function validateTemplate(raw: unknown): Result<MobTemplate, EngineError>
   }
   if (!isPosFinite(t.speed)) return bad("speed", `「${t.kind}」的 speed 必须是 > 0 的有限数，收到 ${String(t.speed)}`);
   if (typeof t.team !== "string") return bad("team", `「${t.kind}」的 team 必须是字符串，收到 ${typeof t.team}`);
+  if (t.tree !== undefined) {
+    if (typeof t.tree !== "string") {
+      return bad("tree", `「${t.kind}」的 tree 必须是资产 id 字符串（空串 = 内置树），收到 ${typeof t.tree}`);
+    }
+    if (t.tree.length > 0 && t.tree.trim().length === 0) {
+      return bad("tree", `「${t.kind}」的 tree 是纯空白 —— 空串表示内置树，纯空白是一个看不见的资产 id`);
+    }
+  }
   // 见文件头 ②
   if (t.team.length > 0 && t.team.trim().length === 0) {
     return bad("team", `「${t.kind}」的 team 是纯空白 —— 空串表示中立，纯空白是一个看不见的阵营名`);
@@ -122,6 +139,7 @@ export function validateTemplate(raw: unknown): Result<MobTemplate, EngineError>
     cooldownTicks: t.cooldownTicks,
     speed: t.speed,
     team: t.team,
+    tree: t.tree ?? "",
     loot: loot.value as readonly LootEntry[],
   });
 }

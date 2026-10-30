@@ -7642,6 +7642,27 @@ function registerHealthComponent(registry2) {
   if (!registry2.has(HEALTH_TYPE)) registry2.register(new Health().schema, () => new Health());
 }
 
+// src/extensions/mobs/ai-config.ts
+var AI_CONFIG_TYPE = "mobs.ai";
+var AIConfig = class extends Component {
+  /**
+   * 决策树的资产 id。`""` = 用内置树（见文件头 ②）。
+   *
+   * ★ 字段名 `tree` 而不是 `treeId`：属性面板上显示的就是这个名字，
+   *   而「Asset 类型的 tree」在编辑器里已经是资产选择器 —— 名字里再带一个 Id
+   *   会让配置的人以为要手填一串 GUID。
+   */
+  tree = "";
+  schema = {
+    type: AI_CONFIG_TYPE,
+    fields: { tree: FieldType.Asset },
+    defaults: { tree: "" }
+  };
+};
+function registerAiConfig(reg) {
+  reg.register(new AIConfig().schema, () => new AIConfig());
+}
+
 // src/extensions/survival/hunger.ts
 var HUNGER_TYPE = "game.hunger";
 var Hunger = class extends Component {
@@ -14016,6 +14037,7 @@ var worldgenMod = {
     registerHealthComponent(scene.components);
     registerHungerComponent(scene.components);
     registerPortalComponent(scene.components);
+    registerAiConfig(scene.components);
     if (!scene.components.has(SPRITE_TYPE)) {
       scene.components.register(new Sprite().schema, () => new Sprite());
     }

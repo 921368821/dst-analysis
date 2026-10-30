@@ -41,6 +41,7 @@ import { registerPlayerComponents, spawnPlayer } from "./extensions/worldgen/spa
 import { attachWorldVisuals } from "./extensions/render/world-visuals.ts";
 import { registerInventoryComponents } from "./extensions/inventory/inventory.ts";
 import { registerHealthComponent } from "./extensions/combat/health.ts";
+import { registerAiConfig } from "./extensions/mobs/ai-config.ts";
 import { registerHungerComponent } from "./extensions/survival/hunger.ts";
 import type { IModule, ModuleContext } from "./core/module/module.ts";
 import type { EngineError } from "./foundation/result.ts";
@@ -504,6 +505,11 @@ const worldgenMod: IModule = {
     // 批92：传送门组件必须进注册表，否则属性面板的「加组件」里看不到它（人就没法摆门），
     // 而且读档时 `flow.portal` 会被当成未知组件**静默跳过**（"我摆的门不见了"）。
     registerPortalComponent(scene.components);
+    // 批155：AI 配置（`mobs.ai` 的树引用）必须能在编辑器里挂 —— 属性面板的「加组件」
+    // 读的就是这张注册表。不注册的后果不是报错，而是**面板里看不到这个类型**，
+    // 于是"给这一只换棵树"只能靠手改存档；而且读档时未知组件会被静默跳过，
+    // 那只怪会悄悄换回内置树（"我配的树没了"）。
+    registerAiConfig(scene.components);
     if (!scene.components.has(SPRITE_TYPE)) {
       scene.components.register(new Sprite().schema, () => new Sprite());
     }

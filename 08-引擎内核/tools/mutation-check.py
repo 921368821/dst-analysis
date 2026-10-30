@@ -8529,8 +8529,8 @@ MUTANTS = [
         "name": "M917 大脑忽略传入的树 ⇒ 「配 AI」写了不生效，还在走缺省那棵",
         "file": "src/extensions/mobs/mob-brain.ts",
         "pairs": [(
-            "this.mobTree = createMobTree({ tree: options.tree, ops: options.ops });",
-            "this.mobTree = createMobTree({ ops: options.ops });",
+            "        ...(options.tree === undefined ? {} : { defaultTree: options.tree }),\n",
+            "",
         )],
         "test": "tests/extensions/mob-tree.test.ts",
     },
@@ -8560,6 +8560,182 @@ MUTANTS = [
             '  return ctx.board.get(key) > min ? "success" : "failure";',
         )],
         "test": "tests/extensions/mob-tree.test.ts",
+    },
+    {
+        "name": "M921 树资产不校验（坏树照样进库）",
+        "file": "src/extensions/mobs/tree-asset.ts",
+        "pairs": [
+            (
+                "  const created = AiAgent.create(tree, ops);\n  if (!created.ok) return err(created.error);\n  return ok(tree);",
+                "  void AiAgent.create(tree, ops);\n  return ok(tree);",
+            ),
+        ],
+        "test": "tests/extensions/tree-library.test.ts",
+    },
+    {
+        "name": "M922 序列化不重排键（同一棵树两种字节）",
+        "file": "src/extensions/mobs/tree-asset.ts",
+        "pairs": [
+            (
+                "  const doc = { format: TREE_FORMAT, version: TREE_FORMAT_VERSION, root: canonicalNode(tree) };",
+                "  const doc = { format: TREE_FORMAT, version: TREE_FORMAT_VERSION, root: tree };",
+            ),
+        ],
+        "test": "tests/extensions/tree-asset.test.ts",
+    },
+    {
+        "name": "M923 不检查版本上限（新格式按旧格式读）",
+        "file": "src/extensions/mobs/tree-asset.ts",
+        "pairs": [
+            (
+                "  if (doc.version > TREE_FORMAT_VERSION) {",
+                "  if (false) {",
+            ),
+        ],
+        "test": "tests/extensions/tree-asset.test.ts",
+    },
+    {
+        "name": "M924 put 失败也写进库（坏树留在库里）",
+        "file": "src/extensions/mobs/tree-library.ts",
+        "pairs": [
+            (
+                "    const checked = checkTree(tree, this.ops);\n    if (!checked.ok) return err(checked.error);",
+                "    const checked = checkTree(tree, this.ops);",
+            ),
+        ],
+        "test": "tests/extensions/tree-library.test.ts",
+    },
+    {
+        "name": "M925 缺 id 当成 default（面板上分不出「配了」与「丢了」）",
+        "file": "src/extensions/mobs/tree-library.ts",
+        "pairs": [
+            (
+                "    return { wanted: id, id: DEFAULT_TREE_ASSET, tree: this.trees.get(DEFAULT_TREE_ASSET)!, source: \"missing\" };",
+                "    return { wanted: id, id: DEFAULT_TREE_ASSET, tree: this.trees.get(DEFAULT_TREE_ASSET)!, source: \"default\" };",
+            ),
+        ],
+        "test": "tests/extensions/mob-tree-per-entity.test.ts",
+    },
+    {
+        "name": "M926 按实体选树没生效（恒用内置树）",
+        "file": "src/extensions/mobs/mob-brain.ts",
+        "pairs": [
+            (
+                "    const lookup = this.library.resolve(treeIdOf(scene, agentId));",
+                "    const lookup = this.library.resolve(\"\");",
+            ),
+        ],
+        "test": "tests/extensions/mob-tree-per-entity.test.ts",
+    },
+    {
+        "name": "M927 缓存不按 revision 作废（改了树要重启才生效）",
+        "file": "src/extensions/mobs/mob-brain.ts",
+        "pairs": [
+            (
+                "    if (this.library.revision !== this.treeRevision) {\n      this.trees.clear();\n      this.treeRevision = this.library.revision;\n    }",
+                "    if (this.library.revision !== this.treeRevision) {\n      this.treeRevision = this.library.revision;\n    }",
+            ),
+        ],
+        "test": "tests/extensions/mob-tree-per-entity.test.ts",
+    },
+    {
+        "name": "M928 缺树不计数（配了坏 id 永远没人知道）",
+        "file": "src/extensions/mobs/mob-brain.ts",
+        "pairs": [
+            (
+                "    if (lookup.source === \"missing\" && !this.missingTrees.has(lookup.wanted)) {\n      this.missingTrees.add(lookup.wanted);\n    }",
+                "",
+            ),
+        ],
+        "test": "tests/extensions/mob-tree-per-entity.test.ts",
+    },
+    {
+        "name": "M929 explain 把「配的」当「实际跑的」",
+        "file": "src/extensions/mobs/mob-brain.ts",
+        "pairs": [
+            (
+                "      treeId: lookup.id,",
+                "      treeId: lookup.wanted,",
+            ),
+        ],
+        "test": "tests/extensions/mob-tree-per-entity.test.ts",
+    },
+    {
+        "name": "M930 面板不标 missing（与「配了内置树」长得一样）",
+        "file": "src/extensions/mobs/mob-inspector.ts",
+        "pairs": [
+            (
+                "  if (e.treeSource === \"missing\") return `${base} (miss ${e.wanted})`;",
+                "",
+            ),
+        ],
+        "test": "tests/extensions/mob-tree-per-entity.test.ts",
+    },
+    {
+        "name": "M931 面板的 why 用 kind 而不是 reason（看见追与记仇追不可分）",
+        "file": "src/extensions/mobs/mob-inspector.ts",
+        "pairs": [
+            (
+                "    { label: \"why\", value: e.decision === null ? NO_DECISION : e.decision.reason },",
+                "    { label: \"why\", value: e.decision === null ? NO_DECISION : e.decision.kind },",
+            ),
+        ],
+        "test": "tests/extensions/mob-tree-per-entity.test.ts",
+    },
+    {
+        "name": "M932 模块不透传树库（世界里恒用内置树）",
+        "file": "src/extensions/mobs/mob-world.ts",
+        "pairs": [
+            (
+                "        ...(options.library === undefined ? {} : { library: options.library }),\n",
+                "",
+            ),
+        ],
+        "test": "tests/extensions/mob-tree-per-entity.test.ts",
+    },
+    {
+        "name": "M933 模块不记 lastTick（面板永远是空的）",
+        "file": "src/extensions/mobs/mob-world.ts",
+        "pairs": [
+            (
+                "      lastTick = tick;",
+                "      lastTick = 0;",
+            ),
+        ],
+        "test": "tests/extensions/mob-tree-per-entity.test.ts",
+    },
+    {
+        "name": "M934 stats 的 treeFallbacks 恒 0",
+        "file": "src/extensions/mobs/mob-world.ts",
+        "pairs": [
+            (
+                "        treeFallbacks: brain?.treeMissing() ?? 0,",
+                "        treeFallbacks: 0,",
+            ),
+        ],
+        "test": "tests/extensions/mob-tree-per-entity.test.ts",
+    },
+    {
+        "name": "M935 spawn 恒挂 AI 组件（没配也挂，存档多一堆空记录）",
+        "file": "src/extensions/mobs/spawn-mob.ts",
+        "pairs": [
+            (
+                "  if (tpl.tree !== \"\") attached.push([AI_CONFIG_TYPE, aiConfig]);",
+                "  attached.push([AI_CONFIG_TYPE, aiConfig]);",
+            ),
+        ],
+        "test": "tests/extensions/mob-tree-per-entity.test.ts",
+    },
+    {
+        "name": "M936 模板不拒绝纯空白的树 id",
+        "file": "src/extensions/mobs/mob-template.ts",
+        "pairs": [
+            (
+                "    if (t.tree.length > 0 && t.tree.trim().length === 0) {\n      return bad(\"tree\", `「${t.kind}」的 tree 是纯空白 —— 空串表示内置树，纯空白是一个看不见的资产 id`);\n    }",
+                "",
+            ),
+        ],
+        "test": "tests/extensions/mob-tree-per-entity.test.ts",
     },
 ]
 

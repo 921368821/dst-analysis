@@ -58,7 +58,8 @@ import { grantLoot, lootOfNode } from "../combat/loot.ts";
 import { type CorpseGround, spawnCorpse } from "../combat/corpse.ts";
 import { type MobHandle, spawnMob } from "./spawn-mob.ts";
 import { type MobTemplate, validateTemplate } from "./mob-template.ts";
-import { type MobBrain, createMobBrain } from "./mob-brain.ts";
+import { type MobBrain, type MobExplain, createMobBrain } from "./mob-brain.ts";
+import type { TreeLibrary } from "./tree-library.ts";
 
 export const MOB_WORLD_BAD_MODULE = "MOB_WORLD.BAD_MODULE";
 
@@ -142,6 +143,13 @@ export interface MobWorldOptions {
    * ★ 不给 = 老行为（世界里的生物只减不增）。
    */
   readonly respawn?: MobRespawnOptions;
+  /**
+   * 树库（批155）。给了 ⇒ 每只生物按自己身上的 `mobs.ai` 组件选树。
+   *
+   * ★ 不给 = 整群用内置树（批154 的行为，逐字节不变）。
+   *   这条"不给就与以前一样"不是保守，而是让既有世界的判据继续验它们本来验的东西。
+   */
+  readonly library?: TreeLibrary;
   readonly id?: string;
 }
 
@@ -196,6 +204,13 @@ export interface MobWorldStats {
   readonly corpsesFailed: number;
   /** 上一次尸体失败的原因（正常时为空串）。 */
   readonly lastCorpseError: string;
+  /**
+   * 引用了库里不存在的树、正在用内置树兜底的**不同树 id 个数**（批155）。
+   *
+   * ★ 必须单列：`0` 是常态，`>0` 表示"配了树但没生效"—— 而世界看起来完全正常
+   *   （怪照样走、照样追），只有这个数字能把它说出来。名字见 `MobWorldHandle.missingTrees`。
+   */
+  readonly treeFallbacks: number;
   /**
    * 猎物再生补过几只（批126；`respawn` 没给时恒 0）。
    *
@@ -254,6 +269,18 @@ export interface MobWorldHandle extends IModule {
    * ★ 幂等：已经有体的不会再补，所以可以在任何安全点重复调用。
    */
   resyncBodies(): number;
+  /**
+   * 「这一只这一拍照什么做的决定」——调试面板的唯一入口（批155）。
+   *
+   * ★ 返回 `null` 的两种情形都表示"没有可显示的东西"，但原因不同：
+   *   模块还没 `init`（世界没起来）/ 这个节点不是本模块管的生物。
+   *   调用方（HUD / 编辑器）应当把 `null` 显示成「-」，而不是上一次的值。
+   * ★ 用的是**上一拍**的 `tick`：面板在帧与帧之间被画，而决定是每拍算的。
+   *   传"当前实时 tick"会让它去找一份还没算过的 facts（`facts()` 返回 `undefined`）。
+   */
+  explain(nodeId: number): MobExplain | null;
+  /** 引用了不存在的树、正在用内置树兜底的树 id（升序；空 = 一切正常）。 */
+  readonly missingTrees: readonly string[];
 }
 
 export function createMobWorldModule(options: MobWorldOptions): MobWorldHandle {
@@ -261,6 +288,8 @@ export function createMobWorldModule(options: MobWorldOptions): MobWorldHandle {
   let brain: MobBrain | null = null;
   /** 仇恨表（`threatDecayTicks: 0` 时是 null = 完全不记仇）。 */
   let threat: ThreatTable | null = null;
+  /** 上一拍走到的 tick（`explain` 要用它去取当拍的 facts，见句柄注释）。 */
+  let lastTick = 0;
   let moveMod: MoveModuleHandle | null = null;
   let combatMod: CombatModuleHandle | null = null;
 
@@ -411,6 +440,7 @@ export function createMobWorldModule(options: MobWorldOptions): MobWorldHandle {
         corpsesSpawned,
         corpsesFailed,
         lastCorpseError,
+        treeFallbacks: brain?.treeMissing() ?? 0,
         respawned,
         lastRespawnCell,
         lastRespawnError,
@@ -428,6 +458,13 @@ export function createMobWorldModule(options: MobWorldOptions): MobWorldHandle {
     noteHit(info): boolean {
       if (threat === null) return false;
       return threat.add(info.targetId, info.attackerId, info.applied, info.tick).ok;
+    },
+    explain(nodeId: number): MobExplain | null {
+      if (brain === null || scene === null) return null;
+      return brain.explain(scene, nodeId, lastTick, options.grid);
+    },
+    get missingTrees(): readonly string[] {
+      return brain?.missingTreeIds() ?? [];
     },
     resyncBodies(): number {
       // ★ 先 prune：读档会把死掉的那些节点的体也一起清掉，`ids` 里可能还有它们的尸体号。
@@ -483,6 +520,7 @@ export function createMobWorldModule(options: MobWorldOptions): MobWorldHandle {
         ...(options.leashCells === undefined ? {} : { leashCells: options.leashCells }),
         ...(options.aggroCells === undefined ? {} : { aggroCells: options.aggroCells }),
         ...(threat === null ? {} : { threat }),
+        ...(options.library === undefined ? {} : { library: options.library }),
       });
 
       // ---- ① 放生物。**任何一只失败都整体失败**（见 `spawnMobs` 的理由：
@@ -602,6 +640,8 @@ export function createMobWorldModule(options: MobWorldOptions): MobWorldHandle {
       const s = scene;
       const b = brain;
       if (s === null || b === null || moveMod === null || combatMod === null) return;
+      // 见 `explain` 的注释：面板要的是"刚算过的那一拍"，不是实时 tick
+      lastTick = tick;
 
       // 先自己问一遍（顺带出统计），两个子模块随后提问会命中同一张缓存
       let h = 0;

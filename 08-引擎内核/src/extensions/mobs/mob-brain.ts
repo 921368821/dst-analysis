@@ -28,6 +28,13 @@
  *    「把世界读成事实」，之后交给 `MobTree.decide`。`chooseFromFacts` 留着，
  *    身份是**语义规范**：树是它的编译产物，判据逐条对账两者。
  *    于是「给这只怪换一套脾气」= 传一棵树，不改这里的任何一行。
+ *
+ * ⑥ **「用哪棵树」按实体取**（`ai-config.ts` 的 `mobs.ai` 组件，批155）。
+ *    一根大脑服务世界里全部生物，所以树不能只挂在脑上 —— 否则「给这一只换脾气」
+ *    只能靠换整个世界。这里按实体读组件 → 查 `TreeLibrary` → 用**编译好的实例**
+ *    （缓存按树 id，不按实体：同种怪共享一份树与一块板，而板每拍先 `clear`）。
+ *    ★ 缺 id **不抛**：一只怪的树被删了不该让整局崩，但必须被数出来（`treeMissing()`）
+ *      并在面板上标 `missing` —— 降级路径要有面板 + 计数 + 判据三件套。
  */
 
 import type { Scene } from "../../core/scene/scene.ts";
@@ -46,7 +53,9 @@ import {
   type MobGrid,
   type MobGrudge,
 } from "./mob-facts.ts";
-import { createMobTree, type MobTree } from "./mob-tree.ts";
+import { MOB_OPS, createMobTree, type MobTree } from "./mob-tree.ts";
+import { TreeLibrary, type TreeLookup } from "./tree-library.ts";
+import { treeIdOf } from "./ai-config.ts";
 
 /** 大脑参数不合法（半径、视野、漫游周期）。 */
 export const MOB_BAD_BRAIN = "MOB.BAD_BRAIN";
@@ -81,6 +90,14 @@ export interface MobBrainOptions {
   readonly tree?: AiNode;
   /** 与 `tree` 配套的 op 表（树里写了新 op 就要一起给）。缺省 `MOB_OPS`。 */
   readonly ops?: AiOps;
+  /**
+   * 树库（`id → 树`，批155）。给了就会按实体读 `mobs.ai` 组件决定用哪棵树。
+   *
+   * ★ 与 `tree` **互斥**（同时给会抛 `MOB_BAD_BRAIN`）：两者都是「缺省树」的来源，
+   *   同时存在就必须回答「哪个赢」，而任何一种回答都会在某次热重载后变成 bug。
+   *   想「换缺省树」→ 把树 `put` 进库并用它的 id 配组件；想「整根脑子换一棵」→ 只给 `tree`。
+   */
+  readonly library?: TreeLibrary;
 }
 
 /**
@@ -89,14 +106,46 @@ export interface MobBrainOptions {
  */
 export type { Decision, DecisionReason, MobCandidate, MobFacts, MobGrid } from "./mob-facts.ts";
 
+/**
+ * 「它这一拍照什么做的决定」——`explain()` 的产物，面板与判据共用。
+ *
+ * ★ `wanted` 与 `treeId` 分开：`wanted` 是配置里写的（可能是错的），
+ *   `treeId` 是**实际跑的**那棵。合成一个字段的话，「配错了树」与「配对了」
+ *   在面板上完全一样 —— 而那正是最需要看见的一刻。
+ */
+export interface MobExplain {
+  readonly nodeId: number;
+  readonly tick: number;
+  /** 配置里写的树 id（`""` = 没配）。 */
+  readonly wanted: string;
+  /** 实际用的树 id（缺 id 时是内置树）。 */
+  readonly treeId: string;
+  readonly treeSource: "asset" | "default" | "missing";
+  readonly decision: Decision | null;
+  readonly facts: MobFacts;
+  /** 这一拍黑板上的全部键（`mob-tree.ts` 的 `K`）。 */
+  readonly board: Readonly<Record<string, number>>;
+}
+
 export class MobBrain {
-  private readonly o: Required<Omit<MobBrainOptions, "watch" | "threat" | "tree" | "ops">> & {
+  private readonly o: Required<Omit<MobBrainOptions, "watch" | "threat" | "tree" | "ops" | "library">> & {
     watch: readonly string[];
     threat: ThreatTable | null;
   };
   private readonly perception: Perception;
-  /** 决策树（见文件头 ⑤）。一根大脑一棵，服务这个世界里**全部**生物。 */
-  private readonly mobTree: MobTree;
+  /** 树库（id → 已校验的树）。没给就按 `options.tree` 建一个只含内置树的。 */
+  private readonly library: TreeLibrary;
+  /** 建树用的 op 表（`createMobTree` 要用同一份）。 */
+  private readonly ops: AiOps;
+  /**
+   * `树 id → 编译好的实例`（见文件头 ⑥）。
+   * ★ 键是**树**不是实体：同种怪共享一份树与一块板（板每拍 `clear`，见 `mob-tree.ts` ②）。
+   */
+  private readonly trees = new Map<string, MobTree>();
+  /** `trees` 是按哪个 revision 建的。库一变就整批作废（`tree-library.ts` 文件头 ②）。 */
+  private treeRevision = -1;
+  /** 引用过、但库里没有的树 id（去重；`treeMissing()` 读它）。 */
+  private readonly missingTrees = new Set<string>();
   /**
    * 见文件头 ④。**按 `id → 决定` 存一整张表**，不是只存"上一次"：
    * `move` 与 `combat` 是两个模块，它们各自遍历全部生物 ——
@@ -145,9 +194,20 @@ export class MobBrain {
       watch: options.watch ?? [HEALTH_TYPE],
       seed: options.seed ?? 1,
     };
-    this.perception = new Perception({ range: this.o.range, watch: this.o.watch });
+    if (options.library !== undefined && options.tree !== undefined) {
+      throw new RangeError(
+        `${MOB_BAD_BRAIN}: 同时给了 library 与 tree —— 缺省树有两个来源（见 MobBrainOptions.library 的 ★）`,
+      );
+    }
+    this.ops = options.ops ?? MOB_OPS;
     // 坏树在这里抛（`MOB.BAD_TREE`）：那是配置错误，不该等第 500 拍才炸
-    this.mobTree = createMobTree({ tree: options.tree, ops: options.ops });
+    this.library =
+      options.library ??
+      new TreeLibrary({
+        ...(options.ops === undefined ? {} : { ops: options.ops }),
+        ...(options.tree === undefined ? {} : { defaultTree: options.tree }),
+      });
+    this.perception = new Perception({ range: this.o.range, watch: this.o.watch });
   }
 
   /** 感知调用次数（判据用它证"同一 tick 只算一次"）。 */
@@ -155,17 +215,76 @@ export class MobBrain {
     return this.senses;
   }
 
-  /** 当前这棵树（编辑器 / 面板要显示「这只怪在跑哪棵树」）。 */
+  /**
+   * **缺省树**（不是"某一只正在跑的树"）。
+   *
+   * ★ 批155 之前这个 getter 返回的是"唯一那棵"。现在每只生物可以有自己的树，
+   *   所以它只能是缺省那棵；要看某一只的，用 `treeForAgent(scene, id)` 或 `explain`。
+   */
   get tree(): AiNode {
-    return this.mobTree.tree;
+    return this.library.resolve("").tree;
+  }
+
+  /** 树库（编辑器与判据要 `put` / 看 revision）。 */
+  get treeLibrary(): TreeLibrary {
+    return this.library;
   }
 
   /**
-   * 树上还记着几处 `running`。**恒为 0** —— 决策树是瞬时的。
+   * 树上还记着几处 `running`（**全部已编译的树加起来**）。**恒为 0** —— 决策树是瞬时的。
    * 非 0 说明有人往树里塞了 `wait`：那不是风格问题，那是「决定带上了不在快照里的历史」。
    */
   treeMemory(): number {
-    return this.mobTree.memorySize();
+    let n = 0;
+    for (const t of this.trees.values()) n += t.memorySize();
+    return n;
+  }
+
+  /**
+   * 被引用过、但库里没有的树有几棵（去重，见文件头 ⑥）。
+   *
+   * ★ 这是**降级路径的计数**：>0 说明场景里有人配了一个不存在的树 id，
+   *   而那些生物正在用内置树跑 —— 看起来一切正常。
+   */
+  treeMissing(): number {
+    return this.missingTrees.size;
+  }
+
+  /** 那些不存在的树 id（升序；面板要能指名道姓）。 */
+  missingTreeIds(): readonly string[] {
+    return [...this.missingTrees].sort();
+  }
+
+  /**
+   * 这只生物这一拍用的树（id + 来源 + 树本身）。
+   *
+   * 纯查询：不改缓存、不改计数（计数在 `compiledTreeFor` 建缓存时做一次）。
+   */
+  treeForAgent(scene: Scene, agentId: number): TreeLookup {
+    return this.library.resolve(treeIdOf(scene, agentId));
+  }
+
+  /**
+   * 「它这一拍照什么做的决定」——面板与判据共用这一个入口。
+   *
+   * ★ 会**重跑一次决策**（纯函数，同 facts 同结果）：板是随树共享的，
+   *   上一次写板的是上一只生物。读完 `decide` 立刻取板，才是这一只的数据。
+   */
+  explain(scene: Scene, agentId: number, tick: number, grid: MobGrid): MobExplain | null {
+    const decision = this.decide(scene, agentId, tick, grid);
+    const facts = this.facts(agentId);
+    if (facts === undefined) return null;
+    const { lookup, compiled } = this.compiledTreeFor(scene, agentId);
+    return {
+      nodeId: agentId,
+      tick,
+      wanted: lookup.wanted,
+      treeId: lookup.id,
+      treeSource: lookup.source,
+      decision,
+      facts,
+      board: compiled.boardSnapshot(),
+    };
   }
 
   /**
@@ -184,8 +303,8 @@ export class MobBrain {
       f = this.sense(scene, agentId, tick, grid);
       this.factsCache.set(agentId, f);
     }
-    // 见文件头 ⑤：决定由树算（纯函数，不吃 dt、不留跨拍记忆）
-    return this.mobTree.decide(f);
+    // 见文件头 ⑤ / ⑥：树按实体选，决定由树算（纯函数，不吃 dt、不留跨拍记忆）
+    return this.compiledTreeFor(scene, agentId).compiled.decide(f);
   }
 
   /**
@@ -198,6 +317,30 @@ export class MobBrain {
     const f = this.factsCache.get(agentId);
     if (f === undefined || f.tick !== this.cacheTick) return undefined;
     return f;
+  }
+
+  /**
+   * 按实体取「编译好的树」（见文件头 ⑥）。
+   *
+   * 三件事按这个顺序：库变了就全作废 → 解析实体要的 id → 没编译过就编译。
+   * ★ 缺 id 时缓存键用**默认树**的 id：编译出来的是同一棵树，
+   *   而"哪只怪引用了坏 id"由 `missingTrees` 记着，不靠缓存键表达。
+   */
+  private compiledTreeFor(scene: Scene, agentId: number): { readonly lookup: TreeLookup; readonly compiled: MobTree } {
+    if (this.library.revision !== this.treeRevision) {
+      this.trees.clear();
+      this.treeRevision = this.library.revision;
+    }
+    const lookup = this.library.resolve(treeIdOf(scene, agentId));
+    if (lookup.source === "missing" && !this.missingTrees.has(lookup.wanted)) {
+      this.missingTrees.add(lookup.wanted);
+    }
+    let compiled = this.trees.get(lookup.id);
+    if (compiled === undefined) {
+      compiled = createMobTree({ tree: lookup.tree, ops: this.ops });
+      this.trees.set(lookup.id, compiled);
+    }
+    return { lookup, compiled };
   }
 
   /** 把世界读成事实（**本文件唯一读场景的地方**，除 `avenge` 的仇恨表查询）。 */

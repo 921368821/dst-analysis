@@ -33,6 +33,14 @@
  *    它没注册时 `attach` 会硬失败（同 ②），于是「少挂一个组件」不会静默退化成
  *    「画得出来但不会转身」。
  *
+ * ⑥ **模板写了 `tree` 才挂 `mobs.ai`**（批155）。
+ *    不写 = 不挂 = 用内置树（`MobBrain` 对"没组件"与"空串"一视同仁）。
+ *    为什么不给每只都挂一个空值的组件：那样存档里会多出一条
+ *    `{"type":"mobs.ai","tree":""}`，而它表达的信息是零 ——「没配」就是没配。
+ *    ★ 代价：模板写了 `tree` 之后 `mobs.ai` 必须已注册，否则本函数**硬失败**
+ *      （`MOB.SPAWN_FAILED` 里点名类型）。这是对的：配了树却没人能承载它，
+ *      静默退化等于"配了不生效"，那是最难查的一类。
+ *
  * ⑤ **方向帧（`render.dirSprite`）也在这里挂**，前缀直接取 `tpl.frame`。
  *    没有它，`motion.facing` 与图集里的 `rabbit_e` 之间就没有任何代码连接 ——
  *    生物会一直显示默认那一张，而所有判据（朝向、帧名契约）各自都是绿的。
@@ -48,6 +56,7 @@ import { LOOT_TYPE, LootHolding, encodeItems } from "../combat/loot.ts";
 import { MOVER_TYPE, Mover } from "../ai/move.ts";
 import { FACING_TYPE, Facing } from "../motion/facing.ts";
 import { DIR_SPRITE_TYPE, DirSprite } from "../render/dir-sprite.ts";
+import { AI_CONFIG_TYPE, AIConfig } from "./ai-config.ts";
 import { SPRITE_TYPE, type Sprite, makeSprite } from "../render/sprite.ts";
 import { type MobTemplate, validateTemplate } from "./mob-template.ts";
 
@@ -78,6 +87,8 @@ export interface MobHandle {
    *   装配时强制同源，是把这种错堵在产生的那一刻。
    */
   readonly dirSprite: DirSprite;
+  /** 决策树配置（见文件头 ⑥）。`null` = 模板没写 `tree`，用内置树。 */
+  readonly aiConfig: AIConfig | null;
 }
 
 export interface SpawnMobOptions {
@@ -132,6 +143,9 @@ export function spawnMob(
   //   "打死的怪什么都不掉"，且没有报错。详见 `loot.ts` 的 `LOOT_TYPE`。
   const loot = new LootHolding();
   loot.items = encodeItems(tpl.loot);
+  // 见文件头 ⑥：只有模板明确写了树才挂
+  const aiConfig = new AIConfig();
+  aiConfig.tree = tpl.tree;
 
   const attached: Array<[ComponentSchema["type"], Component]> = [
     [SPRITE_TYPE, sprite],
@@ -145,6 +159,8 @@ export function spawnMob(
   if (tpl.damage > 0) attached.push([ATTACKER_TYPE, attacker]);
   // 空表就不挂（`lootOfNode` 对"没有组件"和"空表"都返回 null，语义一致）
   if (tpl.loot.length > 0) attached.push([LOOT_TYPE, loot]);
+  // 见文件头 ⑥
+  if (tpl.tree !== "") attached.push([AI_CONFIG_TYPE, aiConfig]);
   for (const [type, c] of attached) {
     const a = scene.attach(nodeId, () => c);
     if (!a.ok) {
@@ -189,6 +205,7 @@ export function spawnMob(
     mover,
     facing,
     dirSprite,
+    aiConfig: tpl.tree === "" ? null : aiConfig,
   });
 }
 
