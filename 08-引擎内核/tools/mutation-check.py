@@ -8165,6 +8165,60 @@ MUTANTS = [
         "test": "tests/extensions/snapshot-any-tick.test.ts",
     },
     {
+        "name": "M888 到达边界写成 `<` ⇒ 0 延迟的环回永远慢一拍（所有『终态一致』的判据照绿）",
+        "file": "src/extensions/net/transport.ts",
+        "pairs": [(
+            "      if (p.at <= tick) out.push(p.msg);",
+            "      if (p.at < tick) out.push(p.msg);",
+        )],
+        "test": "tests/extensions/net-transport.test.ts",
+    },
+    {
+        "name": "M889 到达时刻不含延迟 ⇒ 设了 3 拍延迟却在同一拍收到，『晚到』整条路径没验过",
+        "file": "src/extensions/net/transport.ts",
+        "pairs": [(
+            "    this.queue(to).push({ at: msg.tick + this.delay, msg });",
+            "    this.queue(to).push({ at: msg.tick, msg });",
+        )],
+        "test": "tests/extensions/net-transport.test.ts",
+    },
+    {
+        "name": "M890 丢包率当成布尔用 ⇒ 设 0.3 时一条都不丢（判据的『丢包』实验变成空转）",
+        "file": "src/extensions/net/transport.ts",
+        "pairs": [(
+            "    if (this.loss > 0 && this.rng.chance(this.loss)) {",
+            "    if (this.loss >= 1) {",
+        )],
+        "test": "tests/extensions/net-transport.test.ts",
+    },
+    {
+        "name": "M891 取走不出队 ⇒ 同一条消息被反复投递，收件方把同一步走两遍",
+        "file": "src/extensions/net/transport.ts",
+        "pairs": [(
+            "    q.length = kept;",
+            "    void kept;",
+        )],
+        "test": "tests/extensions/net-transport.test.ts",
+    },
+    {
+        "name": "M892 关闭只清队列不关端点 ⇒ dispose 之后继续 send 照样『成功』，世界状态静默丢",
+        "file": "src/extensions/net/transport.ts",
+        "pairs": [(
+            "    this.open = false;\n    for (const q of this.queues.values()) q.length = 0;",
+            "    for (const q of this.queues.values()) q.length = 0;",
+        )],
+        "test": "tests/extensions/net-transport.test.ts",
+    },
+    {
+        "name": "M893 延迟只校验负数不校验整数 ⇒ 1.5 拍延迟被放行，到达时刻变成半个 tick",
+        "file": "src/extensions/net/transport.ts",
+        "pairs": [(
+            "  if (!Number.isInteger(delay) || delay < 0) {",
+            "  if (delay < 0) {",
+        )],
+        "test": "tests/extensions/net-transport.test.ts",
+    },
+    {
         "name": "M864 探针用 `_G[name]` 而不是 `rawget`（strict 档下 __index 会先炸，探针自己坏了）",
         "file": "tools/dstsrc-run.ts",
         "pairs": [(
