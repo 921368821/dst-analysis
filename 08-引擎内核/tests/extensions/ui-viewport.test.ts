@@ -151,3 +151,77 @@ test("切换缩放模式不需要重新 setScreen（宿主改设置后立刻生�
   assert.notEqual(v.scale, fitScale, "fit 用 min、fill 用 max，超宽屏上两者必然不同");
   near(v.scale, 1400 / 960);
 });
+
+test("★★ 坐标换算的单位：CSS 边缘 ↔ 设计边缘（dpr=2 时旧实现差一倍，且逆运算判据看不出来）", () => {
+  // ★ 这条钉的是**单位**，不是数值关系。旧实现 `screenToDesign` 除的是 `scale`
+  //   （绘制像素/设计像素），而入参是宿主给的 CSS 像素 ⇒ dpr=2 的屏上，
+  //   屏幕右边（CSS 800）算出来是设计 720 而不是 960：点中间准、点边上偏。
+  //   它在旧判据里一直绿 —— 因为 `screenToDesign` 与 `designToScreen` 错同一个倍数，
+  //   "互为逆运算"永远成立。判据要有分辨力，就必须断言**端点落在端点上**。
+  const v = vp(UiScaleMode.Expand);
+  v.setScreen(800, 450, 2); // CSS 800×450、物理 1600×900、设计 960×540
+  near(v.scale, 1600 / 960, "渲染侧仍是「绘制像素/设计像素」：相机的 viewport 是物理像素");
+
+  const right = v.screenToDesign(800, 450);
+  near(right.x, 960, "CSS 右边缘必须落在设计右边缘");
+  near(right.y, 540, "CSS 下边缘必须落在设计下边缘");
+  const mid = v.screenToDesign(400, 225);
+  near(mid.x, 480);
+  near(mid.y, 270);
+
+  const back = v.designToScreen(960, 540);
+  near(back.x, 800, "反方向同理：设计右边缘落到 CSS 右边缘");
+  near(back.y, 450);
+});
+
+test("★★ 安全区入参是 CSS 像素：按 CSS 比例换到设计像素（不是按绘制比例）", () => {
+  const v = vp(UiScaleMode.Expand);
+  v.setScreen(480, 270, 2); // CSS 宽度是设计宽的一半 ⇒ 1 设计像素 = 0.5 CSS 像素
+  v.setSafeArea({ top: 20, right: 10, bottom: 20, left: 10 });
+  const r = v.anchorRect;
+  const s = v.safeRect;
+  near(s.y - r.y, 40, "20 CSS 像素 ⇒ 40 设计像素");
+  near(s.x - r.x, 20);
+  near(r.width - s.width, 40, "左右各 20 设计像素");
+  near(r.height - s.height, 80);
+  // ★ 反证：若按绘制比例（scale=1）换算，边距会是 20 而不是 40 —— 少一半。
+  assert.notEqual(s.y - r.y, 20);
+});
+
+test("★★ 换屏幕尺寸后同一组 CSS inset 必须重算（转屏后停在旧值 = 边距突然变宽/变窄）", () => {
+  const v = vp(UiScaleMode.Expand);
+  v.setScreen(480, 270, 2);
+  v.setSafeArea({ top: 20, right: 0, bottom: 0, left: 0 });
+  near(v.safeRect.y - v.anchorRect.y, 40);
+
+  // 同一个设备横过来：CSS 宽度变成 960（= 设计宽）⇒ 1 设计像素 = 1 CSS 像素
+  v.setScreen(960, 270, 2);
+  near(v.safeRect.y - v.anchorRect.y, 20, "没有重新 setSafeArea，也必须跟着新比例走");
+});
+
+test("★★ setSafeArea 立刻生效，且构造参数也生效（不需要等下一次 setScreen）", () => {
+  const v = vp(UiScaleMode.Expand);
+  v.setScreen(960, 540); // CSS = 设计
+  v.setSafeArea({ top: 12, right: 0, bottom: 0, left: 0 });
+  near(v.safeRect.y - v.anchorRect.y, 12, "填了数字却没生效，在下次 setScreen 之前完全看不出来");
+
+  const w = new UiViewport({
+    designWidth: 960,
+    designHeight: 540,
+    scaleMode: UiScaleMode.Expand,
+    safeArea: { top: 30, right: 0, bottom: 0, left: 0 },
+  });
+  w.setScreen(960, 540);
+  near(w.safeRect.y - w.anchorRect.y, 30, "构造时就给的安全区不能只在字段里躺着");
+});
+
+test("安全区的畸形输入：负数与 NaN 一律当 0（负 inset 会把可用区推出屏幕）", () => {
+  const v = vp(UiScaleMode.Expand);
+  v.setScreen(960, 540);
+  v.setSafeArea({ top: -50, right: Number.NaN, bottom: 0, left: 0 });
+  const r = v.anchorRect;
+  const s = v.safeRect;
+  near(s.y, r.y, "负的 top 不能变成「往上扩」");
+  near(s.height, r.height);
+  near(s.width, r.width);
+});

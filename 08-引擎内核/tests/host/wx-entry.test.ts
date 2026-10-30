@@ -396,3 +396,102 @@ test("★★★ 装不起来时必须让人看见：没有触摸 ⇒ `main` 弹�
     `日志里也要有全文（第一现场）：${logs.join(" | ")}`,
   );
 });
+
+// ---------------------------------------------------------------- 批141：安全区供给端 + main 幂等
+
+test("★★ 安全区真的走到了布局根：宿主报 50 CSS ⇒ 布局根按**CSS 比例**内缩（全链，不是单件）", async () => {
+  // ★ 这条钉的是**供给端**。`UiViewport` 的换算与扣减早就有判据（视口那 15 条），
+  //   真正缺的是"有人把数字填进去"：宿主 → DemoHostEnv → UiViewportConfig → 布局根。
+  //   中间任何一环漏掉，链子看起来都是完整的（类型对、单件绿、界面照画），
+  //   而在刘海机型上 UI 就是会被遮住 —— 这类"半条链"只有端到端判据抓得住。
+  const f = makeWx();
+  // 1000×1000 的窗口，上下各躲 50（CSS 像素）；画布 1000×1000、pixelRatio 1
+  (f.wx as Record<string, unknown>).getSystemInfoSync = () => ({
+    windowWidth: 1000,
+    windowHeight: 1000,
+    pixelRatio: 1,
+    safeArea: { left: 0, right: 1000, top: 50, bottom: 950 },
+  });
+  const clock = makeClock();
+  const handle = await startWxGame(f.wx, { gfx: "null", pad: PAD, now: clock.now });
+  try {
+    // ★ 必须先推一帧：UI 模块在 `sync()` 里才 `setScreen`，那之前视口还是
+    //   `cssW = 1` 的初值 —— 此时 `safeRect` 会被"对半夹紧"成一个荒谬的数
+    //   （50 CSS 换算出 48000 设计像素 ⇒ 夹到高度的一半）。不推帧读到的不是
+    //   "接线错了"，是"还没有屏幕"。
+    clock.advance(34);
+    f.frame();
+    const ui = (handle as unknown as {
+      ui: {
+        safeRect: () => { y: number; height: number; anchor: { y: number; height: number } };
+        toScreen: (x: number, y: number) => { x: number; y: number };
+      } | null;
+    }).ui;
+    assert.ok(ui !== null, "UI 没建起来 ⇒ 这条链没验到，不能算通过");
+    const s = ui.safeRect();
+    const dTop = s.y - s.anchor.y;
+    // ★ 期望值不拿 wx 窗口宽算：UI 视口的 CSS 尺寸来自**渲染设备**（这条假 wx 是
+    //   `gfx: "null"`，设备默认 1280×720），与 `windowWidth` 不是同一个来源 ——
+    //   把两者当同一个数，会得到一条"因为常数不同而红"的判据。
+    //   改问一个不依赖屏幕尺寸的问题：**这段设计像素在 CSS 坐标里是多少**。
+    //   它应该正好等于宿主报的 50（这就是"CSS 像素进、内部换算"的含义）。
+    assert.ok(dTop > 0, "上边距必须真的变大（没接线时这里是 0，而界面照画、类型全对）");
+    const a = ui.toScreen(0, 0);
+    const b = ui.toScreen(0, dTop);
+    assert.ok(
+      Math.abs(b.y - a.y - 50) < 1e-6,
+      `这段内缩在 CSS 坐标里应是 50（宿主报的数），实际 ${b.y - a.y}`,
+    );
+    assert.ok(
+      Math.abs(s.anchor.height - s.height - 2 * dTop) < 1e-6,
+      `上下各让 ${dTop}：${s.anchor.height} − ${s.height}`,
+    );
+  } finally {
+    handle.app.stopRun();
+  }
+});
+
+test("★★ main() 幂等：第二次调用必须拒绝并留痕（真机上看到的是两条帧循环，日志一句不响）", async () => {
+  const mod = await import("../../src/wx-entry.ts");
+  mod.__resetWxMainForTest();
+  const g = globalThis as { wx?: unknown };
+  const old = g.wx;
+  const logs: string[] = [];
+  const oldErr = console.error;
+  console.error = (...args: unknown[]) => {
+    logs.push(args.map((a) => String(a)).join(" "));
+  };
+  try {
+    // ① 没有 wx 的那次**不消耗配额**：它不是一次启动尝试。
+    delete g.wx;
+    await assert.rejects(
+      () => mod.main(),
+      (e: unknown) => (e instanceof Error ? e.message : "").includes("WX.NO_GLOBAL"),
+    );
+
+    // ② 第一次真尝试（故意让它失败在 NO_TOUCH）：失败也用掉配额 ——
+    //    失败可能发生在帧循环已经起来之后，那时再起一遍就是两条循环。
+    const f = makeWx({ touch: false });
+    g.wx = f.wx;
+    await mod.main();
+    assert.equal(f.modals.length, 1, "第一次失败照旧要弹窗");
+    assert.ok(f.modals[0]!.includes("WX.NO_TOUCH"), f.modals[0]!);
+
+    // ③ 第二次必须拒绝，且**先报再抛**：只抛，真机上就是"什么都没发生"。
+    await assert.rejects(
+      () => mod.main(),
+      (e: unknown) => (e instanceof Error ? e.message : "").includes("WX.ALREADY_STARTED"),
+    );
+    assert.equal(f.modals.length, 2, "第二次也要让人看见（弹窗是给玩家的）");
+    assert.ok(f.modals[1]!.includes("WX.ALREADY_STARTED"), f.modals[1]!);
+    assert.ok(
+      logs.some((l) => l.includes("WX.ALREADY_STARTED")),
+      `日志里也要有（堆栈是给开发者的）：${logs.join(" | ")}`,
+    );
+  } finally {
+    console.error = oldErr;
+    if (old === undefined) delete g.wx;
+    else g.wx = old;
+    mod.__resetWxMainForTest();
+  }
+});

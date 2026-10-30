@@ -221,31 +221,40 @@ export const FS_CASES: readonly FsCase[] = [
   {
     name: "原子写：边写边读，只能读到某一次的完整内容",
     async run(fs) {
-      const SIZE = 16 * 1024;
-      const payload = (fill: number): Uint8Array => new Uint8Array(SIZE).fill(fill);
+      // ★ 取样器用 `stat` 而不是 `readBinary`（批141 改）：
+      //   这条判据靠"撞上写入过程中的那一瞬间"来观察半截文件，而**读文件句柄会和
+      //   rename 撞车** —— Windows 上 rename 到「正被打开的文件」是 `FS.PERMISSION`，
+      //   于是**正确的**实现会偶发假红（实测 1MB 语料下 6 次里红 3 次）。
+      //   `stat` 只取元数据、不持读句柄，既能看见「尺寸变成 0 或半截」这个直接写的特征，
+      //   又不会挡住 rename。
+      // ★ 语料 16KB×40 → 1MB×12：窗口由**单次写入的时长**决定（16KB 在热盘上是一瞬间，
+      //   快机器上永远撞不上 ⇒ 变异 M55 被判成假绿），总时长由 fsync 次数决定。
+      //   2MB×40 实测从 40ms 涨到 15s，所以是"单次更大、次数更少"。
+      // ★ 代价（诚实标注）：`stat` 看不到「两次写入混在一起的内容」—— 那需要读正文。
+      //   同尺寸载荷下混合内容不可能出现（每次写的字节数一样），所以这条退化的损失是零；
+      //   正文正确性仍由末尾那次完整读取断言。
+      const SIZE = 1024 * 1024;
+      const WRITES = 12;
+      const payload = (fill: number): Uint8Array => new Uint8Array(SIZE).fill(fill % 256);
       let writing = true;
       const problems: string[] = [];
-      let reads = 0;
+      let samples = 0;
       const reader = (async () => {
         // 上限是"防止用例自己变成死循环"：写侧一旦抛错，writing 可能停在 true
-        while (writing && reads < 200_000) {
-          const r = await fs.readBinary("/atomic.bin");
-          reads++;
+        while (writing && samples < 200_000) {
+          const r = await fs.stat("/atomic.bin");
+          samples++;
           if (!r.ok) {
             if (r.error.code !== "FS.NOT_FOUND") problems.push(`意外错误 ${r.error.code}`);
             continue;
           }
-          const v = r.value;
-          if (v.byteLength !== SIZE) {
-            problems.push(`读到半截文件：${v.byteLength} / ${SIZE} 字节`);
-            continue;
+          if (r.value.size !== SIZE) {
+            problems.push(`读到半截文件：${String(r.value.size)} / ${SIZE} 字节`);
           }
-          const first = v[0];
-          if (!v.every((b) => b === first)) problems.push("读到两次写入混在一起的内容");
         }
       })();
       try {
-        for (let i = 0; i < 40; i++) expectOk(await fs.writeBinary("/atomic.bin", payload(i)));
+        for (let i = 0; i < WRITES; i++) expectOk(await fs.writeBinary("/atomic.bin", payload(i)));
       } finally {
         // ★ 必须在 finally 里停读者：写侧断言失败时若不停，读者会一直转，
         //   测试进程在"报完错之后"继续挂 90 秒 —— 报错被淹没在超时里。
@@ -253,9 +262,15 @@ export const FS_CASES: readonly FsCase[] = [
         await reader;
       }
       assert.equal(problems.length, 0, `原子性被破坏：${problems.slice(0, 3).join(" / ")}`);
-      // 反向自检：读者必须真的读到过东西，否则这条用例是空转
-      assert.ok(reads > 0, "读者一次都没读过 —— 用例没生效");
-      assert.equal(expectOk(await fs.readBinary("/atomic.bin")).byteLength, SIZE);
+      // 反向自检：取样器必须真的取到过东西，否则这条用例是空转
+      assert.ok(samples > 0, "取样器一次都没取过 —— 用例没生效");
+      const final = expectOk(await fs.readBinary("/atomic.bin"));
+      assert.equal(final.byteLength, SIZE);
+      assert.equal(final[0], (WRITES - 1) % 256, "最后一次写的内容必须真的落盘（rename 真的生效了）");
+      assert.ok(
+        final.every((b) => b === final[0]),
+        "最终内容里混着两次写入的字节 —— 写入路径不是整文件替换",
+      );
     },
   },
 ];

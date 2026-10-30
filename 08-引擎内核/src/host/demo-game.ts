@@ -241,11 +241,17 @@ export interface DemoHostEnv {
   readonly registry: BackendRegistry;
   /** 图形后端要的画布。装配不碰它的方法，只把它交给后端与渲染模块量尺寸。 */
   readonly canvas: unknown;
-  /** 逻辑尺寸与像素比。**宿主量好再给**（装配不自己读 `devicePixelRatio`）。 */
+  /**
+   * 逻辑尺寸与像素比。**宿主量好再给**（装配不自己读 `devicePixelRatio`）。
+   *
+   * ★ `safeArea` 是**四边 inset、CSS 像素**（不是可用矩形）。缺省 = 宿主没报
+   *   （浏览器没有统一来源；小游戏老基础库没有这个字段），此时 UI 按 0 处理。
+   */
   readonly viewport: {
     readonly width: number;
     readonly height: number;
     readonly devicePixelRatio: number;
+    readonly safeArea?: { readonly top: number; readonly right: number; readonly bottom: number; readonly left: number };
   };
   readonly assets: DemoAssets;
   /** 存档盘（web: localStorage 后端；wx: 文件系统；判据: 内存盘）。 */
@@ -905,7 +911,15 @@ export async function buildDemoGame(env: DemoHostEnv): Promise<DemoHandle> {
       skinPage: bakedUi.skinPage,
       // 设计分辨率与画布默认尺寸一致（960×600）；`expand` 让 HUD 贴屏幕边而不是贴设计框，
       // 于是超宽屏上左上角的那块不会跑到黑边里。
-      viewport: { designWidth: 960, designHeight: 600, scaleMode: UiScaleMode.Expand },
+      // ★ `safeArea` 是**供给端**（批141）：接口与换算早就在 `UiViewport` 里齐了，
+      //   一直没人把数填进来 —— 于是刘海机型上"UI 不被遮"靠的是键位 0.06 短边的偶然留白，
+      //   不是设计保证。宿主没报（`undefined`）时**不传**，UI 按 0 处理。
+      viewport: {
+        designWidth: 960,
+        designHeight: 600,
+        scaleMode: UiScaleMode.Expand,
+        ...(env.viewport.safeArea === undefined ? {} : { safeArea: env.viewport.safeArea }),
+      },
       dpr,
       hints: { drop: keyLabel("drop"), bag: keyLabel("bag"), pick: keyLabel("harvest") },
       // 点中背包行 = 选中（走的是**真实指针路径**：命中测试 → click 事件 → 这里）
@@ -3123,6 +3137,24 @@ export async function buildDemoGame(env: DemoHostEnv): Promise<DemoHandle> {
             hudRowIds: hudUi.hudRowIds,
             /** 设计坐标（自检页验"点击命中真实矩形"时用）。 */
             designSize: () => ({ w: hudUi.module.viewport.designWidth, h: hudUi.module.viewport.designHeight }),
+            /**
+             * 布局根实际可用的矩形，与它**没扣安全区**时的样子。
+             *
+             * ★ 两个一起给：只给 `safeRect` 读不出"安全区到底生效了没有" ——
+             *   宿主没报安全区时它也是这个值（扣 0）。要分辨"扣了 28.8"与"什么都没扣"，
+             *   必须同时拿到基准。这是批141 里 `safeArea` 那条链唯一的观测量。
+             */
+            safeRect: () => {
+              const s = hudUi.module.viewport.safeRect;
+              const a = hudUi.module.viewport.anchorRect;
+              return {
+                x: s.x,
+                y: s.y,
+                width: s.width,
+                height: s.height,
+                anchor: { x: a.x, y: a.y, width: a.width, height: a.height },
+              };
+            },
             /**
              * 设计坐标 → CSS 像素（含视口缩放与 letterbox 偏移）。
              * ★ 像素断言用它定位采样区：行矩形是设计像素，帧缓冲是画布像素，

@@ -42,7 +42,17 @@ export interface UiViewportConfig {
   readonly designWidth: number;
   readonly designHeight: number;
   readonly scaleMode?: UiScaleModeValue;
-  /** 安全区（设计像素）。宿主从 CSS `env(safe-area-inset-*)` 或平台 API 读来。 */
+  /**
+   * 安全区（**CSS 像素**）。宿主从 CSS `env(safe-area-inset-*)` 或平台 API 读来。
+   *
+   * ★ 为什么收 CSS 像素而不是设计像素（批141）：宿主手上只有 CSS 像素
+   *   （`windowWidth/windowHeight` 的坐标系），而设计像素要乘 `scale` —— 那个值
+   *   由本类在 `setScreen` 之后才算得出来。让宿主先换算，等于要求它复刻一份缩放逻辑；
+   *   两份实现迟早会在某个 mode 上分叉。所以**边界收 CSS，内部换算一次**。
+   * ★ 换算是**在 apply 里重做的**：屏幕旋转 / 窗口变化时 scale 变了，
+   *   同一组 CSS inset 对应的设计像素也跟着变。只在 setSafeArea 时算一次，
+   *   旋转后就停在旧值上（症状是"横屏下刘海边距突然变宽/变窄"）。
+   */
   readonly safeArea?: Insets;
 }
 
@@ -55,7 +65,10 @@ export class UiViewport {
   private cssH = 1;
   private dpr = 1;
   private scaleValue = 1;
-  private safe: Insets = ZERO_INSETS;
+  /** 宿主给的原始安全区（CSS 像素）。 */
+  private safeCss: Insets = ZERO_INSETS;
+  /** 换算后的安全区（设计像素）——`safeRect` 只读这个。 */
+  private safeDesign: Insets = ZERO_INSETS;
   /** 复用同一个相机实例：每帧 new 一个会白白产生垃圾，而且外部持有的引用会失效。 */
   private readonly cam: Camera2D;
 
@@ -66,7 +79,9 @@ export class UiViewport {
     this.designWidth = cfg.designWidth;
     this.designHeight = cfg.designHeight;
     this.scaleMode = cfg.scaleMode ?? UiScaleMode.Expand;
-    this.safe = cfg.safeArea ?? ZERO_INSETS;
+    // 构造时就记下（**CSS 像素**）；真正换算成设计像素要等 `apply()`，
+    // 而 `apply()` 依赖屏幕尺寸 —— 此刻还没有屏幕，换算是下一帧的事。
+    this.safeCss = cfg.safeArea ?? ZERO_INSETS;
     this.cam = new Camera2D({
       viewportWidth: 1,
       viewportHeight: 1,
@@ -94,8 +109,15 @@ export class UiViewport {
     this.apply();
   }
 
+  /**
+   * 换安全区。入参是 **CSS 像素**（见 `UiViewportConfig.safeArea`）。
+   *
+   * ★ 必须 `apply()`：换算比例依赖屏幕尺寸，而"填了数字却没生效"在下一次
+   *   `setScreen` 之前是完全看不出来的（同尺寸、同模式、`safeRect` 却停在旧值）。
+   */
   setSafeArea(insets: Insets): void {
-    this.safe = insets;
+    this.safeCss = insets;
+    this.apply();
   }
 
   /** 绘制像素尺寸（= CSS 像素 × dpr）。`makeCamera` 用它设 viewport。 */
@@ -109,6 +131,22 @@ export class UiViewport {
   /** 一个设计像素对应多少**绘制**像素。 */
   get scale(): number {
     return this.scaleValue;
+  }
+
+  /**
+   * 一个设计像素对应多少 **CSS 像素**（= CSS 宽 / 设计宽）。
+   *
+   * ★ 与 `scale` **不是同一个数**，差一个 `dpr`，而这两件事分不开就会出错（批141）：
+   *   渲染要的是"设计 → 绘制像素"（相机 viewport 是绘制像素，所以要 `scale`），
+   *   而指针 / 安全区都是从宿主来的 **CSS 像素**（`clientX`、`windowWidth`）。
+   *   旧版把指针也除 `scale`，于是 `dpr = 2` 的屏上点屏幕右边（CSS 800）
+   *   算出来的设计 x 是 720 而不是 960 —— 点中间准、点边上偏，看起来像"手势不灵"。
+   *   ★ 它一直是绿的：`screenToDesign` / `designToScreen` 互为逆运算，
+   *   两个都错同一个倍数，逆运算判据看不出来。缺的是"输入输出的**单位**"判据。
+   */
+  get cssPerDesign(): number {
+    const v = this.cssW / this.designWidth;
+    return v > 0 && Number.isFinite(v) ? v : 1;
   }
 
   /** 设计框本身（恒为原点起始）。 */
@@ -143,26 +181,28 @@ export class UiViewport {
   /** 锚点参考矩形扣掉安全区。刘海屏上的可点区域用它。 */
   get safeRect(): Rect {
     const r = this.anchorRect;
-    const top = Math.min(this.safe.top, r.height / 2);
-    const bottom = Math.min(this.safe.bottom, r.height / 2 - top);
-    const left = Math.min(this.safe.left, r.width / 2);
-    const right = Math.min(this.safe.right, r.width / 2 - left);
+    const top = Math.min(this.safeDesign.top, r.height / 2);
+    const bottom = Math.min(this.safeDesign.bottom, r.height / 2 - top);
+    const left = Math.min(this.safeDesign.left, r.width / 2);
+    const right = Math.min(this.safeDesign.right, r.width / 2 - left);
     return new Rect(r.x + left, r.y + top, r.width - left - right, r.height - top - bottom);
   }
 
   /** CSS 像素 → 设计坐标。 */
   screenToDesign(px: number, py: number): { x: number; y: number } {
+    const k = this.cssPerDesign;
     return {
-      x: this.designWidth / 2 + (px - this.cssW / 2) / this.scaleValue,
-      y: this.designHeight / 2 + (py - this.cssH / 2) / this.scaleValue,
+      x: this.designWidth / 2 + (px - this.cssW / 2) / k,
+      y: this.designHeight / 2 + (py - this.cssH / 2) / k,
     };
   }
 
   /** 设计坐标 → CSS 像素。 */
   designToScreen(x: number, y: number): { x: number; y: number } {
+    const k = this.cssPerDesign;
     return {
-      x: this.cssW / 2 + (x - this.designWidth / 2) * this.scaleValue,
-      y: this.cssH / 2 + (y - this.designHeight / 2) * this.scaleValue,
+      x: this.cssW / 2 + (x - this.designWidth / 2) * k,
+      y: this.cssH / 2 + (y - this.designHeight / 2) * k,
     };
   }
 
@@ -184,6 +224,18 @@ export class UiViewport {
     this.scaleValue =
       this.scaleMode === UiScaleMode.Fill ? Math.max(sx, sy) : Math.min(sx, sy);
     if (!(this.scaleValue > 0) || !Number.isFinite(this.scaleValue)) this.scaleValue = 1;
+    // ★ 安全区在这里换算，而不是在 `setSafeArea` 里算完存下来：屏幕尺寸一变，
+    //   同一组 CSS inset 对应的设计像素就变了（横竖屏切换最明显 —— 停在旧值上的
+    //   症状是"转屏之后刘海边距突然变宽/变窄"，而模式与缩放全都对）。
+    //   负数与 NaN 一律当 0：负的 inset 会**扩大**可用区，把控制台按钮推到屏幕外。
+    const k = this.cssPerDesign;
+    const inset = (n: number): number => (Number.isFinite(n) && n > 0 ? n / k : 0);
+    this.safeDesign = {
+      top: inset(this.safeCss.top),
+      right: inset(this.safeCss.right),
+      bottom: inset(this.safeCss.bottom),
+      left: inset(this.safeCss.left),
+    };
     this.cam.setViewport(pw, ph);
     this.cam.zoom = this.scaleValue;
     this.cam.tiltY = 1;

@@ -33,6 +33,7 @@ import { createWxFileSystem } from "./host/wx/fs.ts";
 import { createWxHost } from "./host/wx/index.ts";
 import type { VirtualPad } from "./host/wx/input.ts";
 import type { WxLike } from "./host/wx/env.ts";
+import { WX_ERR } from "./host/wx/env.ts";
 import {
   buildDemoGame,
   type DemoAssets,
@@ -167,6 +168,9 @@ export async function startWxGame(wx: WxLike, options: WxGameOptions = {}): Prom
       // ★ 小游戏的 `pixelRatio` 来自 `getSystemInfoSync`；拿不到时 `readViewport` 记 1
       //   （"不知道"，不是"等于 1"）。这里原样传，不再夹上限 —— 上屏尺寸已由宿主定。
       devicePixelRatio: host.viewport.pixelRatio,
+      // ★ 安全区（CSS 像素四边 inset）。老基础库没有 `safeArea` 时这里是 `undefined`，
+      //   于是 UI 按 0 处理 —— 不替设备猜边距。
+      ...(host.viewport.safeArea === undefined ? {} : { safeArea: host.viewport.safeArea }),
     },
     assets,
     saves: host.fs,
@@ -205,6 +209,23 @@ export async function startWxGame(wx: WxLike, options: WxGameOptions = {}): Prom
 }
 
 /**
+ * `main()` 的幂等状态。
+ *
+ * ★ 为什么要有（批141）：真机正常路径只调一次，但**热重载 / 双入口 / 假宿主连调两次**
+ *   会建出**第二条 rAF 循环** —— 症状是"游戏跑两倍速"或"一帧推两次"，
+ *   而两次调用都成功返回、日志里一句错都没有。这是"标志位对了、效果没发生"的反面：
+ *   没有任何标志位，效果却发生了两次。
+ * ★ 一旦尝试过就**不再重试**（即使上一次失败）：失败可能发生在帧循环已经起来之后
+ *   （例如 `onReady` 里抛），那时再起一遍就是两条循环 —— 比"不能重试"贵得多。
+ */
+let bootState: "idle" | "attempted" = "idle";
+
+/** 判据用：把幂等状态复位。**只给测试**，宿主不该调用它。 */
+export function __resetWxMainForTest(): void {
+  bootState = "idle";
+}
+
+/**
  * 小游戏启动脚本的入口（`src/wx-boot.ts` 调它）。
  *
  * ★★ 这里**必须**接住 `startWxGame` 的失败，而不是让它变成未处理的 promise 拒绝。
@@ -214,17 +235,28 @@ export async function startWxGame(wx: WxLike, options: WxGameOptions = {}): Prom
  * ★ 接住之后**不再重抛**：人已经看见弹窗、日志里也有全文；再抛一次只会变成
  *   一条未处理拒绝，而"报过了"这件事那时就有两个真相了（哪个才算数？）。
  *   判据要看失败原因，调的是 `startWxGame`（它仍然 reject），不是 `main`。
+ *
+ * ★ 例外是「重复调用」：它**先报再抛**。理由是两者的读者不同 —— `startWxGame`
+ *   的失败是**运行时**故障（玩家要看见弹窗），重复调用是**接线**错误（开发者要看见
+ *   堆栈）。只弹窗不抛，堆栈就丢了；只抛不弹，真机上又变成"什么都没发生"。
  */
 export async function main(): Promise<void> {
   const g = globalThis as { wx?: WxLike };
   if (g.wx === undefined) {
     // 没有 `wx` 连弹窗都没有（这不是小游戏环境）—— 只能打日志，然后抛给调用方，
     // 否则"在浏览器里跑了小游戏入口"会变成一次静默的空转。
+    // ★ 这一支**不消耗**幂等配额：它不是一次启动尝试。
     const text = "WX.NO_GLOBAL：全局没有 wx —— 这不是小游戏运行环境";
     console.error(text);
     throw new Error(text);
   }
   const wx = g.wx;
+  if (bootState !== "idle") {
+    const text = `${WX_ERR.ALREADY_STARTED}：main() 已经被调用过 —— 再调一次会建出第二条帧循环（表现是跑两倍速或一帧推两次）。重启小程序，不要重复调用。`;
+    reportFatal(wx, text);
+    throw new Error(text);
+  }
+  bootState = "attempted";
   try {
     await startWxGame(wx, {
       onReady: () => {

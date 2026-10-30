@@ -47,6 +47,18 @@ export interface WxSystemInfoLike {
   readonly windowWidth: number;
   readonly windowHeight: number;
   readonly pixelRatio?: number;
+  /**
+   * 安全区（**CSS 像素**，与 `windowWidth/windowHeight` 同一坐标系）。
+   *
+   * ★ 可选：老基础库没有这个字段。缺省表示**宿主没报**，不是"安全区是零" ——
+   *   消费端据此按 0 处理（宁可少留边，也不替设备猜一个边距）。
+   */
+  readonly safeArea?: {
+    readonly left: number;
+    readonly right: number;
+    readonly top: number;
+    readonly bottom: number;
+  };
 }
 
 /**
@@ -95,6 +107,12 @@ export const WX_ERR = {
   NO_FS: "WX.NO_FS",
   /** 视口尺寸不可用（0 或负数会静默算出 NaN 坐标）。 */
   BAD_VIEWPORT: "WX.BAD_VIEWPORT",
+  /**
+   * `main()` 被调了第二次。
+   * ★ 单独一个码：真机正常路径只会调一次，能触发它的只有热重载 / 双入口 / 假宿主。
+   *   两次都"成功"的结果是**两条 rAF 循环**（跑两倍速、或一帧推两次），日志一句不响。
+   */
+  ALREADY_STARTED: "WX.ALREADY_STARTED",
 } as const;
 
 /**
@@ -135,6 +153,36 @@ export interface WxViewport {
   readonly width: number;
   readonly height: number;
   readonly pixelRatio: number;
+  /** 四边安全区（**CSS 像素**）。`undefined` = 宿主没报（老基础库或非真机）。 */
+  readonly safeArea?: { readonly top: number; readonly right: number; readonly bottom: number; readonly left: number };
+}
+
+/**
+ * `getSystemInfoSync().safeArea` → 四边 inset（CSS 像素）。
+ *
+ * ★ 两个坐标要分清：wx 给的是**可用矩形的四条边**（`left/top/right/bottom` 是边的位置），
+ *   而布局要的是"离屏幕边有多远"（inset）。右边与下边因此要**减**：
+ *   `inset.right = 窗口宽 − safeArea.right`。直接把它当 inset 用会让刘海屏右边
+ *   多出一整块宽度（看起来像"右边被吃掉"）。
+ * ★ 四个数缺一个就返回 `undefined`，不拿 0 去补：补出来的值会让安全区"看起来验过了"。
+ */
+function readSafeInsets(
+  sa:
+    | { readonly left: number; readonly right: number; readonly top: number; readonly bottom: number }
+    | undefined,
+  width: number,
+  height: number,
+): { readonly top: number; readonly right: number; readonly bottom: number; readonly left: number } | undefined {
+  if (sa === undefined) return undefined;
+  const all = [sa.left, sa.top, sa.right, sa.bottom];
+  if (!all.every((n) => Number.isFinite(n))) return undefined;
+  const clamp = (n: number): number => (n > 0 ? n : 0);
+  return {
+    top: clamp(sa.top),
+    right: clamp(width - sa.right),
+    bottom: clamp(height - sa.bottom),
+    left: clamp(sa.left),
+  };
 }
 
 /**
@@ -159,5 +207,15 @@ export function readViewport(
       engineError(WX_ERR.BAD_VIEWPORT, `视口尺寸不可用：${String(width)}×${String(height)}`),
     );
   }
-  return ok({ width, height, pixelRatio });
+  return ok({
+    width,
+    height,
+    pixelRatio,
+    ...(info === null
+      ? {}
+      : ((): { safeArea?: WxViewport["safeArea"] } => {
+          const safeArea = readSafeInsets(info.safeArea, width, height);
+          return safeArea === undefined ? {} : { safeArea };
+        })()),
+  });
 }

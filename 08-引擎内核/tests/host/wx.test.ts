@@ -423,6 +423,50 @@ test("★ readViewport：没有 getSystemInfoSync 时用画布尺寸且 pixelRat
   assert.equal(!c.ok && c.error.code, WX_ERR.BAD_VIEWPORT);
 });
 
+test("★★ 安全区：`safeArea` 的边是**位置**不是 inset，右边与下边要减（写反 = 右边多出一整块）", () => {
+  // ★ wx 给的是可用矩形：`{ left: 0, right: 400, top: 40, bottom: 760 }` 意味着
+  //   "上边躲 40、下边躲 40、左右不留"。把 `right: 400` 直接当 inset 用，
+  //   UI 会以为右边要躲 400 像素（半个屏幕）—— 而它**不会报错**，只会缩在左半边。
+  const wx = {
+    getSystemInfoSync: () => ({
+      windowWidth: 400,
+      windowHeight: 800,
+      pixelRatio: 2,
+      safeArea: { left: 0, right: 400, top: 40, bottom: 760 },
+    }),
+  } as unknown as WxLike;
+  const r = readViewport(wx, makeCanvas(800, 1600).canvas);
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.ok && r.value.safeArea, { top: 40, right: 0, bottom: 40, left: 0 });
+  // ★ 顺带钉住"没被误当成像素比"：safeArea 是 CSS 像素，不乘 dpr。
+  assert.equal(r.ok && r.value.pixelRatio, 2);
+});
+
+test("★★ 安全区缺失或含 NaN 时**不给**（不给 ≠ 给一组 0）", () => {
+  const noInfo = readViewport(makeWx({ info: false }).wx, makeCanvas(640, 480).canvas);
+  assert.equal(noInfo.ok && noInfo.value.safeArea, undefined, "没有 getSystemInfoSync 就不知道");
+
+  // 老基础库：有 getSystemInfoSync 但没有 safeArea
+  const old = readViewport(
+    { getSystemInfoSync: () => ({ windowWidth: 400, windowHeight: 800 }) } as unknown as WxLike,
+    makeCanvas(800, 1600).canvas,
+  );
+  assert.equal(old.ok && old.value.safeArea, undefined, "缺字段不能补成 0：补了就等于「验过了」");
+
+  // 报了但有一个数是 NaN：不拿剩下的三个去凑
+  const broken = readViewport(
+    {
+      getSystemInfoSync: () => ({
+        windowWidth: 400,
+        windowHeight: 800,
+        safeArea: { left: 0, right: Number.NaN, top: 40, bottom: 760 },
+      }),
+    } as unknown as WxLike,
+    makeCanvas(800, 1600).canvas,
+  );
+  assert.equal(broken.ok && broken.value.safeArea, undefined);
+});
+
 // ---------------------------------------------------------------- tick
 
 test("★★ 帧源：canvas 上有 rAF 就用它，wx 上的那个一次都不碰", () => {

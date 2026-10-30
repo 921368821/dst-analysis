@@ -7972,6 +7972,96 @@ MUTANTS = [
         "test": "tests/tools/dstsrc-sweep.test.ts",
     },
     {
+        "name": "M867 screenToDesign 除 scale（绘制比例）而不是 CSS 比例 ⇒ dpr=2 的屏上点中间准、点边上偏一倍",
+        "file": "src/extensions/ui/viewport.ts",
+        "pairs": [(
+            "      x: this.designWidth / 2 + (px - this.cssW / 2) / k,",
+            "      x: this.designWidth / 2 + (px - this.cssW / 2) / this.scaleValue,",
+        )],
+        "test": "tests/extensions/ui-viewport.test.ts",
+    },
+    {
+        "name": "M868 setSafeArea 不 apply ⇒ 填了数字不生效，直到下一次 setScreen（同尺寸下完全看不出来）",
+        "file": "src/extensions/ui/viewport.ts",
+        "pairs": [(
+            "    this.safeCss = insets;\n    this.apply();",
+            "    this.safeCss = insets;",
+        )],
+        "test": "tests/extensions/ui-viewport.test.ts",
+    },
+    {
+        "name": "M869 safeRect 直接读 CSS 值（跳过换算）⇒ 安全区按 CSS 像素当设计像素扣",
+        "file": "src/extensions/ui/viewport.ts",
+        "pairs": [(
+            "    const top = Math.min(this.safeDesign.top, r.height / 2);",
+            "    const top = Math.min(this.safeCss.top, r.height / 2);",
+        )],
+        "test": "tests/extensions/ui-viewport.test.ts",
+    },
+    {
+        "name": "M870 安全区的负数不夹 ⇒ 负 inset 把可用区往外扩（控制台按钮被推出屏幕）",
+        "file": "src/extensions/ui/viewport.ts",
+        "pairs": [(
+            "    const inset = (n: number): number => (Number.isFinite(n) && n > 0 ? n / k : 0);",
+            "    const inset = (n: number): number => (Number.isFinite(n) ? n / k : 0);",
+        )],
+        "test": "tests/extensions/ui-viewport.test.ts",
+    },
+    {
+        "name": "M871 wx 的 safeArea.right/bottom 当 inset 直接用（不减窗口尺寸）⇒ 右边多出一整块",
+        "file": "src/host/wx/env.ts",
+        "pairs": [(
+            "    right: clamp(width - sa.right),",
+            "    right: clamp(sa.right),",
+        )],
+        "test": "tests/host/wx.test.ts",
+    },
+    {
+        "name": "M872 宿主没报 safeArea 时补一组 0 ⇒ 「不知道」被写成「安全区是零」，看起来像验过了",
+        "file": "src/host/wx/env.ts",
+        "pairs": [(
+            "  if (sa === undefined) return undefined;",
+            "  if (sa === undefined) return { top: 0, right: 0, bottom: 0, left: 0 };",
+        )],
+        "test": "tests/host/wx.test.ts",
+    },
+    {
+        "name": "M873 装配不把 safeArea 交给 UI 视口 ⇒ 单件全绿、刘海机型上 UI 照旧被遮",
+        "file": "src/host/demo-game.ts",
+        "pairs": [(
+            "        ...(env.viewport.safeArea === undefined ? {} : { safeArea: env.viewport.safeArea }),",
+            "",
+        )],
+        "test": "tests/host/wx-entry.test.ts",
+    },
+    {
+        "name": "M874 小游戏入口不转发 safeArea ⇒ 上面两环都对，数字在最后一米丢掉",
+        "file": "src/wx-entry.ts",
+        "pairs": [(
+            "      ...(host.viewport.safeArea === undefined ? {} : { safeArea: host.viewport.safeArea }),",
+            "",
+        )],
+        "test": "tests/host/wx-entry.test.ts",
+    },
+    {
+        "name": "M875 main 删幂等守卫 ⇒ 第二次调用建出第二条帧循环（跑两倍速），两次都成功返回",
+        "file": "src/wx-entry.ts",
+        "pairs": [(
+            "  if (bootState !== \"idle\") {",
+            "  if (false) {",
+        )],
+        "test": "tests/host/wx-entry.test.ts",
+    },
+    {
+        "name": "M876 重复调用只抛不报 ⇒ 真机上没有弹窗，与「还在加载」一模一样",
+        "file": "src/wx-entry.ts",
+        "pairs": [(
+            "    reportFatal(wx, text);\n    throw new Error(text);",
+            "    throw new Error(text);",
+        )],
+        "test": "tests/host/wx-entry.test.ts",
+    },
+    {
         "name": "M864 探针用 `_G[name]` 而不是 `rawget`（strict 档下 __index 会先炸，探针自己坏了）",
         "file": "tools/dstsrc-run.ts",
         "pairs": [(

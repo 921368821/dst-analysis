@@ -19716,7 +19716,10 @@ var UiViewport = class {
   cssH = 1;
   dpr = 1;
   scaleValue = 1;
-  safe = ZERO_INSETS;
+  /** 宿主给的原始安全区（CSS 像素）。 */
+  safeCss = ZERO_INSETS;
+  /** 换算后的安全区（设计像素）——`safeRect` 只读这个。 */
+  safeDesign = ZERO_INSETS;
   /** 复用同一个相机实例：每帧 new 一个会白白产生垃圾，而且外部持有的引用会失效。 */
   cam;
   constructor(cfg) {
@@ -19726,7 +19729,7 @@ var UiViewport = class {
     this.designWidth = cfg.designWidth;
     this.designHeight = cfg.designHeight;
     this.scaleMode = cfg.scaleMode ?? UiScaleMode.Expand;
-    this.safe = cfg.safeArea ?? ZERO_INSETS;
+    this.safeCss = cfg.safeArea ?? ZERO_INSETS;
     this.cam = new Camera2D({
       viewportWidth: 1,
       viewportHeight: 1,
@@ -19751,8 +19754,15 @@ var UiViewport = class {
     this.scaleMode = m;
     this.apply();
   }
+  /**
+   * 换安全区。入参是 **CSS 像素**（见 `UiViewportConfig.safeArea`）。
+   *
+   * ★ 必须 `apply()`：换算比例依赖屏幕尺寸，而"填了数字却没生效"在下一次
+   *   `setScreen` 之前是完全看不出来的（同尺寸、同模式、`safeRect` 却停在旧值）。
+   */
   setSafeArea(insets) {
-    this.safe = insets;
+    this.safeCss = insets;
+    this.apply();
   }
   /** 绘制像素尺寸（= CSS 像素 × dpr）。`makeCamera` 用它设 viewport。 */
   get pixelWidth() {
@@ -19764,6 +19774,21 @@ var UiViewport = class {
   /** 一个设计像素对应多少**绘制**像素。 */
   get scale() {
     return this.scaleValue;
+  }
+  /**
+   * 一个设计像素对应多少 **CSS 像素**（= CSS 宽 / 设计宽）。
+   *
+   * ★ 与 `scale` **不是同一个数**，差一个 `dpr`，而这两件事分不开就会出错（批141）：
+   *   渲染要的是"设计 → 绘制像素"（相机 viewport 是绘制像素，所以要 `scale`），
+   *   而指针 / 安全区都是从宿主来的 **CSS 像素**（`clientX`、`windowWidth`）。
+   *   旧版把指针也除 `scale`，于是 `dpr = 2` 的屏上点屏幕右边（CSS 800）
+   *   算出来的设计 x 是 720 而不是 960 —— 点中间准、点边上偏，看起来像"手势不灵"。
+   *   ★ 它一直是绿的：`screenToDesign` / `designToScreen` 互为逆运算，
+   *   两个都错同一个倍数，逆运算判据看不出来。缺的是"输入输出的**单位**"判据。
+   */
+  get cssPerDesign() {
+    const v = this.cssW / this.designWidth;
+    return v > 0 && Number.isFinite(v) ? v : 1;
   }
   /** 设计框本身（恒为原点起始）。 */
   get designRect() {
@@ -19794,24 +19819,26 @@ var UiViewport = class {
   /** 锚点参考矩形扣掉安全区。刘海屏上的可点区域用它。 */
   get safeRect() {
     const r = this.anchorRect;
-    const top = Math.min(this.safe.top, r.height / 2);
-    const bottom = Math.min(this.safe.bottom, r.height / 2 - top);
-    const left = Math.min(this.safe.left, r.width / 2);
-    const right = Math.min(this.safe.right, r.width / 2 - left);
+    const top = Math.min(this.safeDesign.top, r.height / 2);
+    const bottom = Math.min(this.safeDesign.bottom, r.height / 2 - top);
+    const left = Math.min(this.safeDesign.left, r.width / 2);
+    const right = Math.min(this.safeDesign.right, r.width / 2 - left);
     return new Rect(r.x + left, r.y + top, r.width - left - right, r.height - top - bottom);
   }
   /** CSS 像素 → 设计坐标。 */
   screenToDesign(px, py) {
+    const k = this.cssPerDesign;
     return {
-      x: this.designWidth / 2 + (px - this.cssW / 2) / this.scaleValue,
-      y: this.designHeight / 2 + (py - this.cssH / 2) / this.scaleValue
+      x: this.designWidth / 2 + (px - this.cssW / 2) / k,
+      y: this.designHeight / 2 + (py - this.cssH / 2) / k
     };
   }
   /** 设计坐标 → CSS 像素。 */
   designToScreen(x, y) {
+    const k = this.cssPerDesign;
     return {
-      x: this.cssW / 2 + (x - this.designWidth / 2) * this.scaleValue,
-      y: this.cssH / 2 + (y - this.designHeight / 2) * this.scaleValue
+      x: this.cssW / 2 + (x - this.designWidth / 2) * k,
+      y: this.cssH / 2 + (y - this.designHeight / 2) * k
     };
   }
   /**
@@ -19828,6 +19855,14 @@ var UiViewport = class {
     const sy = ph / this.designHeight;
     this.scaleValue = this.scaleMode === UiScaleMode.Fill ? Math.max(sx, sy) : Math.min(sx, sy);
     if (!(this.scaleValue > 0) || !Number.isFinite(this.scaleValue)) this.scaleValue = 1;
+    const k = this.cssPerDesign;
+    const inset = (n) => Number.isFinite(n) && n > 0 ? n / k : 0;
+    this.safeDesign = {
+      top: inset(this.safeCss.top),
+      right: inset(this.safeCss.right),
+      bottom: inset(this.safeCss.bottom),
+      left: inset(this.safeCss.left)
+    };
     this.cam.setViewport(pw, ph);
     this.cam.zoom = this.scaleValue;
     this.cam.tiltY = 1;
@@ -27791,7 +27826,15 @@ async function buildDemoGame(env) {
       skinPage: bakedUi.skinPage,
       // 设计分辨率与画布默认尺寸一致（960×600）；`expand` 让 HUD 贴屏幕边而不是贴设计框，
       // 于是超宽屏上左上角的那块不会跑到黑边里。
-      viewport: { designWidth: 960, designHeight: 600, scaleMode: UiScaleMode.Expand },
+      // ★ `safeArea` 是**供给端**（批141）：接口与换算早就在 `UiViewport` 里齐了，
+      //   一直没人把数填进来 —— 于是刘海机型上"UI 不被遮"靠的是键位 0.06 短边的偶然留白，
+      //   不是设计保证。宿主没报（`undefined`）时**不传**，UI 按 0 处理。
+      viewport: {
+        designWidth: 960,
+        designHeight: 600,
+        scaleMode: UiScaleMode.Expand,
+        ...env.viewport.safeArea === void 0 ? {} : { safeArea: env.viewport.safeArea }
+      },
       dpr,
       hints: { drop: keyLabel("drop"), bag: keyLabel("bag"), pick: keyLabel("harvest") },
       // 点中背包行 = 选中（走的是**真实指针路径**：命中测试 → click 事件 → 这里）
@@ -29282,6 +29325,24 @@ ${appR.error.message}
       hudRowIds: hudUi.hudRowIds,
       /** 设计坐标（自检页验"点击命中真实矩形"时用）。 */
       designSize: () => ({ w: hudUi.module.viewport.designWidth, h: hudUi.module.viewport.designHeight }),
+      /**
+       * 布局根实际可用的矩形，与它**没扣安全区**时的样子。
+       *
+       * ★ 两个一起给：只给 `safeRect` 读不出"安全区到底生效了没有" ——
+       *   宿主没报安全区时它也是这个值（扣 0）。要分辨"扣了 28.8"与"什么都没扣"，
+       *   必须同时拿到基准。这是批141 里 `safeArea` 那条链唯一的观测量。
+       */
+      safeRect: () => {
+        const s = hudUi.module.viewport.safeRect;
+        const a = hudUi.module.viewport.anchorRect;
+        return {
+          x: s.x,
+          y: s.y,
+          width: s.width,
+          height: s.height,
+          anchor: { x: a.x, y: a.y, width: a.width, height: a.height }
+        };
+      },
       /**
        * 设计坐标 → CSS 像素（含视口缩放与 letterbox 偏移）。
        * ★ 像素断言用它定位采样区：行矩形是设计像素，帧缓冲是画布像素，
