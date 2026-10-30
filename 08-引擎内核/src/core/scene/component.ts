@@ -46,6 +46,39 @@ export interface ComponentSchema {
   readonly fields: Readonly<Record<string, FieldTypeValue>>;
   /** 默认值（新节点挂载时）。缺省用类型零值。 */
   readonly defaults?: Readonly<Record<string, unknown>>;
+  /**
+   * **只在回滚快照里导出**的字段（字段名列表，不进存档）。
+   *
+   * ★★ 为什么存档与回滚要分开（这是批151 的核心决定，背景见 `docs/ONLINE-READINESS-PLAN.md` §7.1）：
+   *
+   * 有些字段是「从当前局面推出来的缓存」，比如寻路结果 `path`。它的正确性取决于
+   * 它是在什么局面下算出来的：
+   *
+   * | 语义 | 局面 | 这个缓存 |
+   * |---|---|---|
+   * | 存档 / 读档（新会话） | 可能已经变了 | **过期**，存进去会让读档后沿老路走 ⇒ 不该存 |
+   * | 回滚到 tick N（同一会话） | 与 N 完全一致 | **必须一致**，重算可能分叉 ⇒ 必须存 |
+   *
+   * 两种语义对同一字段的要求相反，所以它不能只由字段类型决定 —— 必须由**导出时的模式**决定。
+   * 默认模式（`"save"`）不导出它们，行为与加这个字段之前**逐字节相同**；
+   * 只有显式要回滚快照时才导出。
+   *
+   * ★ 为什么这里只写字段名、不写 `FieldType`：这些是运行期状态，编辑器不编辑它们、
+   *   资产管线不导入它们，所以「序列化形式」和「编辑器控件」这两件 FieldType 负责的事
+   *   在这里都没有消费者。写类型只会带来一次「新增一种 FieldType 要同时改序列化与编辑器」的连带成本。
+   *
+   * ★ 读档端**不需要**配套的模式参数：快照里有什么就还原什么，没有就保持类里的出生值。
+   *   于是"存档快照读回来之后路径是空的"是自然结果，不需要再传一次模式（少一处可以传错的地方）。
+   */
+  readonly rollback?: readonly string[];
+}
+
+/** 导出模式：`"save"` = 存档（默认，行为不变），`"rollback"` = 回滚快照（额外带上 `schema.rollback` 字段）。 */
+export type SnapshotMode = "save" | "rollback";
+
+export interface SaveOptions {
+  /** 缺省 `"save"`。 */
+  readonly mode?: SnapshotMode;
 }
 
 export function zeroValue(t: FieldTypeValue): unknown {
@@ -107,11 +140,20 @@ export abstract class Component {
   onUpdate(_tick: number, _dt: number): void {}
 
   /** 通用保存：按 schema 逐字段取。**顺序由 schema 决定**（字节确定）。 */
-  save(): Record<string, unknown> {
+  save(opts: SaveOptions = {}): Record<string, unknown> {
     const out: Record<string, unknown> = { type: this.schema.type };
     for (const k of Object.keys(this.schema.fields)) {
       const v = (this as unknown as Record<string, unknown>)[k];
       out[k] = v === undefined ? zeroValue(this.schema.fields[k]!) : v;
+    }
+    // 回滚模式：额外带上「从局面推出来的缓存」（见 `ComponentSchema.rollback` 的表）。
+    // ★ 未声明的组件一律不参与 —— 写成"全部字段再来一遍"会让每个组件都多出噪声字段，
+    //   而存档与回滚快照就再也分不出来了。
+    if (opts.mode === "rollback") {
+      for (const k of this.schema.rollback ?? []) {
+        const v = (this as unknown as Record<string, unknown>)[k];
+        if (v !== undefined) out[k] = v;
+      }
     }
     return out;
   }
@@ -140,6 +182,12 @@ export abstract class Component {
         continue;
       }
       self[k] = data[k];
+    }
+    // 回滚字段：**有就还原，没有就保持出生值**。
+    // ★ 不把它们算进 `missing`：存档模式的快照里本来就没有它们，报"缺字段"会造成
+    //   每读一次档就刷一堆假告警，而假告警会让真告警失效。
+    for (const k of this.schema.rollback ?? []) {
+      if (data[k] !== undefined) self[k] = data[k];
     }
     return { missing };
   }

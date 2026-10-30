@@ -9843,11 +9843,17 @@ var Component = class {
   onUpdate(_tick, _dt) {
   }
   /** 通用保存：按 schema 逐字段取。**顺序由 schema 决定**（字节确定）。 */
-  save() {
+  save(opts = {}) {
     const out = { type: this.schema.type };
     for (const k of Object.keys(this.schema.fields)) {
       const v = this[k];
       out[k] = v === void 0 ? zeroValue(this.schema.fields[k]) : v;
+    }
+    if (opts.mode === "rollback") {
+      for (const k of this.schema.rollback ?? []) {
+        const v = this[k];
+        if (v !== void 0) out[k] = v;
+      }
     }
     return out;
   }
@@ -9875,6 +9881,9 @@ var Component = class {
         continue;
       }
       self2[k] = data[k];
+    }
+    for (const k of this.schema.rollback ?? []) {
+      if (data[k] !== void 0) self2[k] = data[k];
     }
     return { missing };
   }
@@ -13193,10 +13202,10 @@ function collectNodes(scene) {
   out.sort((a, b) => a.id - b.id);
   return out;
 }
-function recordOf(scene, n) {
+function recordOf(scene, n, opts = {}) {
   const comps = [];
   for (const c of [...n.components].sort((a, b) => a.type < b.type ? -1 : a.type > b.type ? 1 : 0)) {
-    const saved = c.save();
+    const saved = c.save(opts);
     const { type: _t, ...rest } = saved;
     comps.push({ type: c.type, data: rest });
   }
@@ -13215,9 +13224,9 @@ function recordOf(scene, n) {
     components: comps
   };
 }
-function saveScene(scene) {
+function saveScene(scene, opts = {}) {
   const nodes = [];
-  for (const n of collectNodes(scene)) nodes.push(recordOf(scene, n));
+  for (const n of collectNodes(scene)) nodes.push(recordOf(scene, n, opts));
   return { format: SCENE_FORMAT_VERSION, name: scene.name, nodes };
 }
 function loadScene(scene, snap, registry) {
@@ -25306,11 +25315,29 @@ var Mover = class extends Component {
   speed = 2.2;
   schema = {
     type: MOVER_TYPE,
-    fields: { speed: FieldType.Float }
+    fields: { speed: FieldType.Float },
+    /**
+     * 回滚快照才带的运行期状态（批151）。
+     *
+     * ★★ 这份清单与下面那段注释并不矛盾，因为它们是**两种语义**：
+     *   · **存档**：局面可能已经变了 ⇒ 路径是过期的 ⇒ 存进去会让读档后沿老路走；
+     *   · **回滚到 tick N**：局面与 N 完全一致 ⇒ 路径不是过期的，是必须一致的，重算会分叉。
+     *   所以它们不是「该不该进档」，而是「进哪种档」—— 由 `saveScene(scene, {mode})` 决定。
+     *
+     * ★ 为什么六个别都在这儿，而不只是 `path` / `cursor`：
+     *   判据问的是「回滚之后下一拍会不会走出不同的路」。凡是**影响下一拍**的状态都得在，
+     *   而这条路径上有两处历史：`failCell`/`retryTick`（算路失败后的退避）与
+     *   `stuckTicks`（连续没挪动的计数，到阈值就丢路径重算）。漏掉它们的症状是
+     *   「回滚之后这只怪多转了一次身」—— 位置差一格，无人报错。
+     *
+     * ★ 新增运行期状态时**必须回来加**。`snapshot-any-tick.test.ts` 里有一条对账判据：
+     *   把 `Mover` 上所有非 schema 字段与这份清单求差集，差集非空就红 —— 它不判断
+     *   「这个字段该不该进」，只保证「加了字段没声明」这件事不会静默发生。
+     */
+    rollback: ["path", "cursor", "goalCell", "arrived", "failCell", "retryTick", "stuckTicks"]
   };
-  // ---- 以下全部是**运行期状态**，不进 schema、不进存档、不进指纹。
-  //      理由：路径是"从当前局面推出来的"，存档再读回来时局面已经变了；
-  //      把它存进去反而会让读档后的第一 tick 沿一条过期的路走。
+  // ---- 以下全部是**运行期状态**，不进 `fields`（= 不进存档、不进指纹）。
+  //      它们进**回滚快照**（`rollback` 清单），两种语义的区别见上面那段注释。
   /** 当前路径（格子下标序列）。 */
   path = [];
   /** 下一个要去的路点下标。 */

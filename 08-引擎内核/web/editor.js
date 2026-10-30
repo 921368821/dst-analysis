@@ -909,11 +909,17 @@ var Component = class {
   onUpdate(_tick, _dt) {
   }
   /** 通用保存：按 schema 逐字段取。**顺序由 schema 决定**（字节确定）。 */
-  save() {
+  save(opts = {}) {
     const out = { type: this.schema.type };
     for (const k of Object.keys(this.schema.fields)) {
       const v = this[k];
       out[k] = v === void 0 ? zeroValue(this.schema.fields[k]) : v;
+    }
+    if (opts.mode === "rollback") {
+      for (const k of this.schema.rollback ?? []) {
+        const v = this[k];
+        if (v !== void 0) out[k] = v;
+      }
     }
     return out;
   }
@@ -941,6 +947,9 @@ var Component = class {
         continue;
       }
       self[k] = data[k];
+    }
+    for (const k of this.schema.rollback ?? []) {
+      if (data[k] !== void 0) self[k] = data[k];
     }
     return { missing };
   }
@@ -7896,10 +7905,10 @@ function collectNodes(scene) {
   out.sort((a, b) => a.id - b.id);
   return out;
 }
-function recordOf(scene, n) {
+function recordOf(scene, n, opts = {}) {
   const comps = [];
   for (const c of [...n.components].sort((a, b) => a.type < b.type ? -1 : a.type > b.type ? 1 : 0)) {
-    const saved = c.save();
+    const saved = c.save(opts);
     const { type: _t, ...rest } = saved;
     comps.push({ type: c.type, data: rest });
   }
@@ -7918,9 +7927,9 @@ function recordOf(scene, n) {
     components: comps
   };
 }
-function saveScene(scene) {
+function saveScene(scene, opts = {}) {
   const nodes = [];
-  for (const n of collectNodes(scene)) nodes.push(recordOf(scene, n));
+  for (const n of collectNodes(scene)) nodes.push(recordOf(scene, n, opts));
   return { format: SCENE_FORMAT_VERSION, name: scene.name, nodes };
 }
 function loadScene(scene, snap, registry2) {

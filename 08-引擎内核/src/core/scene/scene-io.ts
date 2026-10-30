@@ -22,7 +22,7 @@
  */
 
 import { engineError, err, ok, type EngineError, type Result } from "../../foundation/result.ts";
-import type { ComponentRegistry } from "./component.ts";
+import type { ComponentRegistry, SaveOptions } from "./component.ts";
 import { isFastForwardable } from "./component.ts";
 import type { Scene } from "./scene.ts";
 import { Schema } from "../serialization/schema.ts";
@@ -74,10 +74,13 @@ export function collectNodes(scene: Scene): Array<import("./node.ts").Node> {
  *   `save()`）。两处共用同一份字段表，加字段不必改两个地方 —— 否则一定会有一处
  *   被漏掉，症状是「撤销删除之后 `layer` 回到了默认值」这种很难查的偏差。
  */
-export function recordOf(scene: Scene, n: import("./node.ts").Node): NodeRecord {
+export function recordOf(scene: Scene, n: import("./node.ts").Node, opts: SaveOptions = {}): NodeRecord {
   const comps: ComponentRecord[] = [];
   for (const c of [...n.components].sort((a, b) => (a.type < b.type ? -1 : a.type > b.type ? 1 : 0))) {
-    const saved = c.save();
+    // ★ 模式必须**透传到这里**：组件的 `save(opts)` 早就认这个参数了，但编辑器撤销
+    //   走的也是 `recordOf`，漏传一次就变成「回滚快照悄悄少了寻路状态」—— 而那种快照
+    //   照样能被 loadScene 读回来，只是世界会从半路重新规划路线（M898 打的就是这条）。
+    const saved = c.save(opts);
     // save() 里带着 type（便于人读），记录里 type 已单独存，data 去掉它避免重复
     const { type: _t, ...rest } = saved as { type?: unknown } & Record<string, unknown>;
     void _t;
@@ -99,9 +102,17 @@ export function recordOf(scene: Scene, n: import("./node.ts").Node): NodeRecord 
   };
 }
 
-export function saveScene(scene: Scene): SceneSnapshot {
+/**
+ * 导出整棵场景。
+ *
+ * `opts.mode` 缺省 `"save"` —— **默认行为与批151 之前逐字节相同**（判据
+ * `snapshot-any-tick.test.ts` 里那条「存档里只该有 speed」守着的就是它）。
+ * 传 `"rollback"` 时会额外带上各组件的 `schema.rollback` 字段，供「回滚到某一 tick」
+ * 使用：那种场景下局面与导出时刻完全一致，缓存不是过期的，是必须一致的。
+ */
+export function saveScene(scene: Scene, opts: SaveOptions = {}): SceneSnapshot {
   const nodes: NodeRecord[] = [];
-  for (const n of collectNodes(scene)) nodes.push(recordOf(scene, n));
+  for (const n of collectNodes(scene)) nodes.push(recordOf(scene, n, opts));
   return { format: SCENE_FORMAT_VERSION, name: scene.name, nodes };
 }
 

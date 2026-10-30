@@ -8219,6 +8219,51 @@ MUTANTS = [
         "test": "tests/extensions/net-transport.test.ts",
     },
     {
+        "name": "M894 模式判断写成『不是 save』⇒ 不传模式时也导出回滚字段，存档里凭空多出运行期状态",
+        "file": "src/core/scene/component.ts",
+        "pairs": [(
+            "    if (opts.mode === \"rollback\") {",
+            "    if (opts.mode !== \"save\") {",
+        )],
+        "test": "tests/extensions/snapshot-any-tick.test.ts",
+    },
+    {
+        "name": "M895 组件保存不接模式 ⇒ 模式参数到了组件门口被丢掉，回滚快照静默少一块状态",
+        "file": "src/core/scene/component.ts",
+        "pairs": [(
+            "    if (opts.mode === \"rollback\") {\n      for (const k of this.schema.rollback ?? []) {",
+            "    if (opts.mode === \"rollback\") {\n      for (const k of [] as readonly string[]) {",
+        )],
+        "test": "tests/extensions/snapshot-any-tick.test.ts",
+    },
+    {
+        "name": "M896 读档不还原回滚字段 ⇒ 快照里明明有路径，读回来还是空路径（回滚后重新规划）",
+        "file": "src/core/scene/component.ts",
+        "pairs": [(
+            "    for (const k of this.schema.rollback ?? []) {\n      if (data[k] !== undefined) self[k] = data[k];\n    }",
+            "    void this.schema.rollback;",
+        )],
+        "test": "tests/extensions/snapshot-any-tick.test.ts",
+    },
+    {
+        "name": "M897 回滚清单漏一个字段（stuckTicks）⇒ 回滚后要再卡 4 次才走丢路径那条出口",
+        "file": "src/extensions/ai/move.ts",
+        "pairs": [(
+            "    rollback: [\"path\", \"cursor\", \"goalCell\", \"arrived\", \"failCell\", \"retryTick\", \"stuckTicks\"],",
+            "    rollback: [\"path\", \"cursor\", \"goalCell\", \"arrived\", \"failCell\", \"retryTick\"],",
+        )],
+        "test": "tests/extensions/snapshot-any-tick.test.ts",
+    },
+    {
+        "name": "M898 saveScene 不把模式交给 recordOf ⇒ 上一跳透传了、这一跳没透传，回滚快照照样只有 speed",
+        "file": "src/core/scene/scene-io.ts",
+        "pairs": [(
+            "  for (const n of collectNodes(scene)) nodes.push(recordOf(scene, n, opts));",
+            "  for (const n of collectNodes(scene)) nodes.push(recordOf(scene, n));",
+        )],
+        "test": "tests/extensions/snapshot-any-tick.test.ts",
+    },
+    {
         "name": "M864 探针用 `_G[name]` 而不是 `rawget`（strict 档下 __index 会先炸，探针自己坏了）",
         "file": "tools/dstsrc-run.ts",
         "pairs": [(
