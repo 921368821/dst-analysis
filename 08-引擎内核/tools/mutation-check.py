@@ -1804,9 +1804,12 @@ MUTANTS = [
     {
         "name": "M167 对角线不归一化（斜着走快 41%）",
         # 位置、输入、组件全都正常，只是"斜走更快" —— 玩家能感觉到，数值一个都不报错。
+        # ★ 批149 重新指认：归一化算式搬进了 `motion/intent.ts`（M884 打那边）。
+        #   这条改成打**接线** —— 玩家这条路径有没有真的走 `dirStep`。
+        #   两条不重复：M884 删的是 dirStep 内部的 hypot，这条绕开 dirStep 自己乘。
         "file": "src/extensions/input/player-controller.ts",
-        "pairs": [("  return { dx: (d.dx / len) * speed * dt, dz: (d.dz / len) * speed * dt };",
-                   "  return { dx: d.dx * speed * dt, dz: d.dz * speed * dt };")],
+        "pairs": [("  const r = dirStep({ kind: \"move.dir\", dx: d.dx, dz: d.dz }, speed, dt);",
+                   "  const r = { dx: d.dx * speed * dt, dz: d.dz * speed * dt, done: false };")],
         "test": "tests/extensions/player-controller.test.ts",
     },
     {
@@ -4953,8 +4956,8 @@ MUTANTS = [
         "file": "src/extensions/ai/move.ts",
         "pairs": [
             [
-                "        const aim = clampToContact(node.id, wp.x, wp.y, r.x, r.z);",
-                "        const aim: { x: number; z: number; hit: MoveSweepHit | null } = { x: r.x, z: r.z, hit: null };"
+                "        const aim = clampToContact(node.id, wp.x, wp.y, wp.x + r.dx, wp.y + r.dz);",
+                "        const aim: { x: number; z: number; hit: MoveSweepHit | null } = { x: wp.x + r.dx, z: wp.y + r.dz, hit: null };"
             ]
         ],
         "test": "tests/extensions/ai-move.test.ts"

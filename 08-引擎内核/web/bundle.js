@@ -24077,6 +24077,70 @@ var DEFAULT_INPUT_MAP = (() => {
   return r.value;
 })();
 
+// src/extensions/nav/move-along.ts
+var ARRIVE_EPS = 1e-6;
+function stepAlong(grid, path, cursor, x, z, speed, dt) {
+  let i = Math.max(0, Math.min(cursor, path.length));
+  let px = x;
+  let pz = z;
+  let moved = 0;
+  let budget = speed * dt;
+  if (!Number.isFinite(px) || !Number.isFinite(pz)) {
+    return { x, z, cursor: i, done: i >= path.length, moved: 0 };
+  }
+  if (!(budget > 0) || !Number.isFinite(budget)) {
+    return { x: px, z: pz, cursor: i, done: i >= path.length, moved: 0 };
+  }
+  while (budget > 0 && i < path.length) {
+    const c = grid.centerOf(path[i]);
+    const dx = c.x - px;
+    const dz = c.z - pz;
+    const d = Math.hypot(dx, dz);
+    if (d <= ARRIVE_EPS) {
+      px = c.x;
+      pz = c.z;
+      i++;
+      continue;
+    }
+    if (d <= budget) {
+      px = c.x;
+      pz = c.z;
+      moved += d;
+      budget -= d;
+      i++;
+      continue;
+    }
+    px += dx / d * budget;
+    pz += dz / d * budget;
+    moved += budget;
+    budget = 0;
+  }
+  return { x: px, z: pz, cursor: i, done: i >= path.length, moved };
+}
+
+// src/extensions/motion/intent.ts
+var STEP_ZERO = { dx: 0, dz: 0, done: false };
+function positive(n) {
+  return Number.isFinite(n) && n > 0;
+}
+function dirStep(intent, speed, dt) {
+  if (intent.kind !== "move.dir") return STEP_ZERO;
+  if (!positive(speed) || !positive(dt)) return STEP_ZERO;
+  const { dx, dz } = intent;
+  if (!Number.isFinite(dx) || !Number.isFinite(dz)) return STEP_ZERO;
+  const len = Math.hypot(dx, dz);
+  if (len === 0) return STEP_ZERO;
+  return { dx: dx / len * speed * dt, dz: dz / len * speed * dt, done: false };
+}
+function cellStep(intent, ctx) {
+  if (intent.kind !== "move.cell") return { ...STEP_ZERO, cursor: ctx.cursor };
+  if (!positive(ctx.speed) || !positive(ctx.dt)) return { ...STEP_ZERO, cursor: ctx.cursor };
+  if (ctx.path.length === 0) return { dx: 0, dz: 0, done: true, cursor: ctx.cursor };
+  void intent.cell;
+  const w = stepAlong(ctx.grid, ctx.path, ctx.cursor, ctx.x, ctx.z, ctx.speed, ctx.dt);
+  return { dx: w.x - ctx.x, dz: w.z - ctx.z, done: w.done, cursor: w.cursor };
+}
+
 // src/extensions/input/player-controller.ts
 var CONTROLLER_TYPE = "game.controller";
 var PlayerController = class extends Component {
@@ -24103,9 +24167,8 @@ function directionFromMap(map, snap) {
 var EMPTY_KEYS = /* @__PURE__ */ new Set();
 function stepOf(snap, speed, dt, map = DEFAULT_INPUT_MAP) {
   const d = directionFromMap(map, snap);
-  const len = Math.hypot(d.dx, d.dz);
-  if (len === 0) return { dx: 0, dz: 0 };
-  return { dx: d.dx / len * speed * dt, dz: d.dz / len * speed * dt };
+  const r = dirStep({ kind: "move.dir", dx: d.dx, dz: d.dz }, speed, dt);
+  return { dx: r.dx, dz: r.dz };
 }
 function createControllerModule(opts) {
   let scene = null;
@@ -25234,47 +25297,6 @@ function registerFacingComponent(registry) {
   if (!registry.has(FACING_TYPE)) registry.register(new Facing().schema, () => new Facing());
 }
 
-// src/extensions/nav/move-along.ts
-var ARRIVE_EPS = 1e-6;
-function stepAlong(grid, path, cursor, x, z, speed, dt) {
-  let i = Math.max(0, Math.min(cursor, path.length));
-  let px = x;
-  let pz = z;
-  let moved = 0;
-  let budget = speed * dt;
-  if (!Number.isFinite(px) || !Number.isFinite(pz)) {
-    return { x, z, cursor: i, done: i >= path.length, moved: 0 };
-  }
-  if (!(budget > 0) || !Number.isFinite(budget)) {
-    return { x: px, z: pz, cursor: i, done: i >= path.length, moved: 0 };
-  }
-  while (budget > 0 && i < path.length) {
-    const c = grid.centerOf(path[i]);
-    const dx = c.x - px;
-    const dz = c.z - pz;
-    const d = Math.hypot(dx, dz);
-    if (d <= ARRIVE_EPS) {
-      px = c.x;
-      pz = c.z;
-      i++;
-      continue;
-    }
-    if (d <= budget) {
-      px = c.x;
-      pz = c.z;
-      moved += d;
-      budget -= d;
-      i++;
-      continue;
-    }
-    px += dx / d * budget;
-    pz += dz / d * budget;
-    moved += budget;
-    budget = 0;
-  }
-  return { x: px, z: pz, cursor: i, done: i >= path.length, moved };
-}
-
 // src/extensions/ai/move.ts
 var MOVER_TYPE = "ai.mover";
 var AI_BAD_MOVE = "AI.BAD_MOVE";
@@ -25402,9 +25424,12 @@ function createMoveModule(opts) {
         }
         const wp = node.worldPosition;
         const cursorBefore = m.cursor;
-        const r = stepAlong(grid, m.path, m.cursor, wp.x, wp.y, m.speed, dt);
+        const r = cellStep(
+          { kind: "move.cell", cell: goal },
+          { grid, path: m.path, cursor: m.cursor, x: wp.x, z: wp.y, speed: m.speed, dt }
+        );
         m.cursor = r.cursor;
-        const aim = clampToContact(node.id, wp.x, wp.y, r.x, r.z);
+        const aim = clampToContact(node.id, wp.x, wp.y, wp.x + r.dx, wp.y + r.dz);
         if (aim.hit !== null) {
           m.cursor = cursorBefore;
           blocked++;
@@ -27293,7 +27318,7 @@ function eat(scene, ownerId, kind, table) {
 
 // src/extensions/survival/survival-module.ts
 var SURVIVAL_BAD_MODULE = "SURVIVAL.BAD_MODULE";
-function positive(name, v, dflt) {
+function positive2(name, v, dflt) {
   const n = v ?? dflt;
   if (!Number.isInteger(n) || n <= 0) {
     throw new RangeError(`${name} \u5FC5\u987B\u662F\u6B63\u6574\u6570\uFF0C\u6536\u5230 ${String(v)}`);
@@ -27301,9 +27326,9 @@ function positive(name, v, dflt) {
   return n;
 }
 function createSurvivalModule(options = {}) {
-  const decayEvery = positive("decayEveryTicks", options.decayEveryTicks, 30);
-  const starveEvery = positive("starveEveryTicks", options.starveEveryTicks, 30);
-  const starveDmg = positive("starveDamage", options.starveDamage, 1);
+  const decayEvery = positive2("decayEveryTicks", options.decayEveryTicks, 30);
+  const starveEvery = positive2("starveEveryTicks", options.starveEveryTicks, 30);
+  const starveDmg = positive2("starveDamage", options.starveDamage, 1);
   let scene = null;
   let tracked = 0;
   let starving = 0;

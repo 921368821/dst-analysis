@@ -7087,6 +7087,21 @@ var DEFAULT_INPUT_MAP = (() => {
   return r.value;
 })();
 
+// src/extensions/motion/intent.ts
+var STEP_ZERO = { dx: 0, dz: 0, done: false };
+function positive(n) {
+  return Number.isFinite(n) && n > 0;
+}
+function dirStep(intent, speed, dt) {
+  if (intent.kind !== "move.dir") return STEP_ZERO;
+  if (!positive(speed) || !positive(dt)) return STEP_ZERO;
+  const { dx, dz } = intent;
+  if (!Number.isFinite(dx) || !Number.isFinite(dz)) return STEP_ZERO;
+  const len = Math.hypot(dx, dz);
+  if (len === 0) return STEP_ZERO;
+  return { dx: dx / len * speed * dt, dz: dz / len * speed * dt, done: false };
+}
+
 // src/extensions/input/player-controller.ts
 var CONTROLLER_TYPE = "game.controller";
 var PlayerController = class extends Component {
@@ -7113,9 +7128,8 @@ function directionFromMap(map, snap) {
 var EMPTY_KEYS = /* @__PURE__ */ new Set();
 function stepOf(snap, speed, dt, map = DEFAULT_INPUT_MAP) {
   const d = directionFromMap(map, snap);
-  const len = Math.hypot(d.dx, d.dz);
-  if (len === 0) return { dx: 0, dz: 0 };
-  return { dx: d.dx / len * speed * dt, dz: d.dz / len * speed * dt };
+  const r = dirStep({ kind: "move.dir", dx: d.dx, dz: d.dz }, speed, dt);
+  return { dx: r.dx, dz: r.dz };
 }
 function createControllerModule(opts) {
   let scene = null;
