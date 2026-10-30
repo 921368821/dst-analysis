@@ -871,6 +871,42 @@ test("★ 只给 changedTouches（不给 touches 全量）的老实现也能跑"
   assert.equal(d?.poll().keysDown.size, 0);
 });
 
+test("★★ touchcancel 与 touchend 同口径：拖出屏幕不许卡住输入（两条输入路径都验）", () => {
+  // 真机上的形状：按住摇杆往屏幕外拖、在别的 App 里松手 —— 回来的不是 touchend 而是
+  // touchcancel。`feed()` 把 cancel 与 end 同样对待（input.ts 的增量分支），但在这条判据
+  // 之前**没有任何一条判据喂过 cancel**：把那半个条件删掉，43 条输入判据全绿。
+  //
+  // ★ 为什么非要在**增量路径**上验一次：全量 `touches` 那条路下 cancel 靠"列表空了"自然
+  //   清掉，删掉 `phase === "cancel"` 它照样绿 —— 那条路对这件事**没有分辨力**。
+  const mk = () => {
+    const f = makeWx({ windowWidth: 1000, windowHeight: 1000, width: 1000, height: 1000, pixelRatio: 1 });
+    const dev = createWxInput(f.wx, {
+      space: { windowWidth: 1000, windowHeight: 1000, canvasWidth: 1000, canvasHeight: 1000 },
+      pad: PAD,
+    });
+    return { f, d: dev.ok ? dev.value : null };
+  };
+
+  // ① 全量路径：cancel 时 touches 已经是空列表
+  const a = mk();
+  a.f.touch("start", { touches: [TOUCH_AT(1, 360, 200)] });
+  assert.equal(a.d?.poll().keysDown.has("KeyD"), true, "前提：先真的按上了");
+  a.f.touch("cancel", { touches: [] });
+  const sa = a.d?.poll();
+  assert.equal(sa?.keysDown.size, 0, "cancel 之后不许还按着");
+  assert.deepEqual([...(sa?.keysReleased ?? [])], ["KeyD"], "松开要作为一次「抬起」报出去");
+
+  // ② 增量路径：只给 changedTouches —— 只有这条能分辨 cancel 有没有被当成抬起
+  const b = mk();
+  b.f.touch("start", { changedTouches: [TOUCH_AT(9, 360, 200)] });
+  assert.equal(b.d?.poll().keysDown.has("KeyD"), true, "前提：先真的按上了");
+  b.f.touch("cancel", { changedTouches: [TOUCH_AT(9, 360, 200)] });
+  const sb = b.d?.poll();
+  assert.equal(sb?.keysDown.size, 0, "cancel 必须清点：否则手指早就松了、角色还在往右走");
+  assert.deepEqual([...(sb?.keysReleased ?? [])], ["KeyD"]);
+  assert.equal(sb?.pointer.down, false, "指针也得松开（否则拖拽状态永远结束不了）");
+});
+
 test("★ 没有 onTouch* ⇒ WX.NO_TOUCH（没有输入源就别装作能玩）", () => {
   const r = createWxInput(makeWx({ touch: false }).wx, {
     space: { windowWidth: 1000, windowHeight: 1000, canvasWidth: 1000, canvasHeight: 1000 },

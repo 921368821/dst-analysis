@@ -8062,6 +8062,15 @@ MUTANTS = [
         "test": "tests/host/wx-entry.test.ts",
     },
     {
+        "name": "M877 touchcancel 不当抬起 ⇒ 手指拖出屏幕后旧触点永远留着，角色一直往那个方向走",
+        "file": "src/host/wx/input.ts",
+        "pairs": [(
+            '        if (phase === "end" || phase === "cancel") this.points.delete(t.identifier);',
+            '        if (phase === "end") this.points.delete(t.identifier);',
+        )],
+        "test": "tests/host/wx.test.ts",
+    },
+    {
         "name": "M864 探针用 `_G[name]` 而不是 `rawget`（strict 档下 __index 会先炸，探针自己坏了）",
         "file": "tools/dstsrc-run.ts",
         "pairs": [(
