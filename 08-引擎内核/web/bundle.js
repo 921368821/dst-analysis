@@ -26218,14 +26218,49 @@ var Perception = class {
   }
 };
 
-// src/extensions/mobs/mob-brain.ts
-var MOB_BAD_BRAIN = "MOB.BAD_BRAIN";
+// src/extensions/mobs/mob-facts.ts
 function mix323(a, b, c) {
   let h = (a ^ 2654435769) >>> 0;
   h = Math.imul(h ^ b + 2246822507, 3432918353) >>> 0 ^ h >>> 13;
   h = Math.imul(h ^ c + 3266489909, 461845907) >>> 0 ^ h >>> 15;
   return h >>> 0;
 }
+function wanderTarget(grid, selfCell, agentId, tick, w) {
+  if (selfCell < 0) return -1;
+  const cx = grid.cellX(selfCell);
+  const cz = grid.cellZ(selfCell);
+  const r = w.radiusCells;
+  const epoch = Math.floor(tick / w.every);
+  let h = mix323(w.seed, agentId, epoch);
+  for (let k = 0; k < 6; k++) {
+    h = Math.imul(h, 1664525) + 1013904223 >>> 0;
+    const span = 2 * r + 1;
+    const dx = h % span - r;
+    const dz = Math.floor(h / span) % span - r;
+    if (dx === 0 && dz === 0) continue;
+    if (grid.isWalkable(cx + dx, cz + dz)) {
+      return grid.cellAt(cx + dx + 0.5, cz + dz + 0.5);
+    }
+  }
+  return -1;
+}
+function chooseFromFacts(f) {
+  if (f.selfCell < 0) return null;
+  if (f.aggressive) {
+    if (f.grudge !== null) {
+      return { kind: "hunt", targetNodeId: f.grudge.nodeId, cell: f.grudge.cell, reason: "grudge" };
+    }
+    const first = f.visible[0];
+    if (first !== void 0) {
+      return { kind: "hunt", targetNodeId: first.nodeId, cell: first.cell, reason: "sight" };
+    }
+  }
+  if (f.wanderCell < 0) return null;
+  return { kind: "wander", targetNodeId: -1, cell: f.wanderCell, reason: "wander" };
+}
+
+// src/extensions/mobs/mob-brain.ts
+var MOB_BAD_BRAIN = "MOB.BAD_BRAIN";
 var MobBrain = class {
   o;
   perception;
@@ -26236,7 +26271,14 @@ var MobBrain = class {
    *（于是"缓存"实际只对同一只生物连续问两次才生效，而这几乎不发生）。
    */
   cacheTick = Number.NaN;
-  cache = /* @__PURE__ */ new Map();
+  /**
+   * 缓存的是「看到什么」，不是「决定什么」。
+   *
+   * ★ 只留一份缓存：两份（facts + decision）一定会有不同步的那一刻，
+   *   而那一刻的症状是「同一 tick 两次问给两个答案」—— 恰好是最难复现的一类。
+   *   决定由 facts 算出来（`chooseFromFacts` 是 O(1) 纯函数），不需要缓存。
+   */
+  factsCache = /* @__PURE__ */ new Map();
   senses = 0;
   constructor(options) {
     if (!(options.range > 0) || !Number.isFinite(options.range)) {
@@ -26276,49 +26318,78 @@ var MobBrain = class {
     return this.senses;
   }
   /**
-   * 决定这一 tick 干什么。
+   * 决定这一 tick 干什么（= 感知一次 + 纯函数决策）。
    *
    * @returns `null` = 什么都不用做（找不到自己 / 没有可走的漫游格）。
    */
   decide(scene, agentId, tick, grid) {
     if (this.cacheTick !== tick) {
       this.cacheTick = tick;
-      this.cache.clear();
+      this.factsCache.clear();
     }
-    const hit = this.cache.get(agentId);
-    if (hit !== void 0 || this.cache.has(agentId)) return hit ?? null;
+    let f = this.factsCache.get(agentId);
+    if (f === void 0) {
+      f = this.sense(scene, agentId, tick, grid);
+      this.factsCache.set(agentId, f);
+    }
+    return chooseFromFacts(f);
+  }
+  /**
+   * 最近一次感知到的世界事实（调试面板用它显示「它看见了什么、为什么这么决定」）。
+   *
+   * ★ 返回的是**当拍**的事实：`tick` 与当前 `cacheTick` 不同时返回 `undefined`，
+   *   而不是「上一拍的旧事实」。旧事实会让面板显示一只已经改主意的生物。
+   */
+  facts(agentId) {
+    const f = this.factsCache.get(agentId);
+    if (f === void 0 || f.tick !== this.cacheTick) return void 0;
+    return f;
+  }
+  /** 把世界读成事实（**本文件唯一读场景的地方**，除 `avenge` 的仇恨表查询）。 */
+  sense(scene, agentId, tick, grid) {
     const self2 = scene.find(agentId);
     if (self2 === void 0) {
-      this.remember(agentId, tick, null);
-      return null;
+      return { agentId, tick, selfCell: -1, aggressive: false, grudge: null, visible: [], wanderCell: -1 };
     }
-    const homeCell = grid.cellAt(self2.worldPosition.x, self2.worldPosition.y);
+    const selfCell = grid.cellAt(self2.worldPosition.x, self2.worldPosition.y);
     const me = teamOf(scene, agentId).team;
-    if (self2.get(ATTACKER_TYPE) !== void 0) {
-      const grudge = this.avenge(scene, agentId, tick, grid, me);
-      if (grudge !== null) {
-        this.remember(agentId, tick, grudge);
-        return grudge;
-      }
-      this.senses++;
-      const sensed = this.perception.sense(scene, agentId, tick);
-      if (sensed.ok) {
-        for (const s of sensed.value) {
-          const other = teamOf(scene, s.nodeId).team;
-          if (this.o.factions.stanceOf(me, other) === "ally") continue;
-          if (this.o.leashCells > 0 && s.dist2 > this.o.leashCells * this.o.leashCells) continue;
-          const cell2 = grid.cellAt(s.x, s.z);
-          if (cell2 < 0) continue;
-          const d2 = { kind: "hunt", targetNodeId: s.nodeId, cell: cell2 };
-          this.remember(agentId, tick, d2);
-          return d2;
-        }
+    const aggressive = self2.get(ATTACKER_TYPE) !== void 0;
+    let grudge = null;
+    let visible = [];
+    if (aggressive) {
+      grudge = this.avenge(scene, agentId, tick, grid, me);
+      if (grudge === null) {
+        this.senses++;
+        const sensed = this.perception.sense(scene, agentId, tick);
+        if (sensed.ok) visible = this.filterSensed(scene, sensed.value, grid, me);
       }
     }
-    const cell = this.wanderCell(grid, agentId, tick, homeCell);
-    const d = cell < 0 ? null : { kind: "wander", targetNodeId: -1, cell };
-    this.remember(agentId, tick, d);
-    return d;
+    const wanderCell = grudge === null && visible.length === 0 ? wanderTarget(grid, selfCell, agentId, tick, {
+      seed: this.o.seed,
+      radiusCells: this.o.wanderRadiusCells,
+      every: this.o.wanderEvery
+    }) : -1;
+    return { agentId, tick, selfCell, aggressive, grudge, visible, wanderCell };
+  }
+  /**
+   * 感知结果的过滤（友军 / 超 leash / 不在地图上）。
+   *
+   * ★ 过滤留在感知这一侧而不是决策那一侧：这些条件讲的是「我这只生物够得着什么」，
+   *   属于感知的语义。留在决策里的话，同一份黑板喂给玩家控制的角色时行为会不同。
+   * ★ 顺序沿用 `Perception` 给的排序（距离平方升序、同距离按节点 id 升序），
+   *   这里**不重排** —— 重排就是第二份排序规则，两份迟早不一致。
+   */
+  filterSensed(scene, sensed, grid, me) {
+    const out = [];
+    for (const s of sensed) {
+      const other = teamOf(scene, s.nodeId).team;
+      if (this.o.factions.stanceOf(me, other) === "ally") continue;
+      if (this.o.leashCells > 0 && s.dist2 > this.o.leashCells * this.o.leashCells) continue;
+      const cell = grid.cellAt(s.x, s.z);
+      if (cell < 0) continue;
+      out.push({ nodeId: s.nodeId, cell, dist2: s.dist2 });
+    }
+    return out;
   }
   /**
    * 从仇恨表里挑出"要追的那个人"（`null` = 没有人打过我 / 都忘了 / 都够不着）。
@@ -26352,41 +26423,7 @@ var MobBrain = class {
       const dz = target.worldPosition.y - self2.worldPosition.y;
       if (dx * dx + dz * dz > this.o.aggroCells * this.o.aggroCells) return null;
     }
-    return { kind: "hunt", targetNodeId: targetId, cell };
-  }
-  /**
-   * 漫游目标格（见文件头 ②：纯函数）。
-   *
-   * ★ 取**第一个可走**的候选而不是"取最近的/最远的"：后者会让所有生物
-   *   挤向同一片空地（同一个 epoch 的候选序是同一个函数），画面上像一队人。
-   */
-  wanderCell(grid, agentId, tick, homeCell) {
-    if (homeCell < 0) return -1;
-    const cx = grid.cellX(homeCell);
-    const cz = grid.cellZ(homeCell);
-    const r = this.o.wanderRadiusCells;
-    const epoch = Math.floor(tick / this.o.wanderEvery);
-    let h = mix323(this.o.seed, agentId, epoch);
-    for (let k = 0; k < 6; k++) {
-      h = Math.imul(h, 1664525) + 1013904223 >>> 0;
-      const span = 2 * r + 1;
-      const dx = h % span - r;
-      const dz = Math.floor(h / span) % span - r;
-      if (dx === 0 && dz === 0) continue;
-      if (grid.isWalkable(cx + dx, cz + dz)) return this.cellIndex(grid, cx + dx, cz + dz);
-    }
-    return -1;
-  }
-  /** 用 `cellAt` 反查下标（避免再引入一个 `indexOf` 依赖）。 */
-  cellIndex(grid, cx, cz) {
-    return grid.cellAt(cx + 0.5, cz + 0.5);
-  }
-  remember(agentId, tick, d) {
-    if (this.cacheTick !== tick) {
-      this.cacheTick = tick;
-      this.cache.clear();
-    }
-    this.cache.set(agentId, d);
+    return { nodeId: targetId, cell };
   }
 };
 function createMobBrain(options) {

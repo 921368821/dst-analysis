@@ -2438,21 +2438,21 @@ MUTANTS = [
     {
         "name": "M242 本能不过滤友军（猎狗互相咬）",
         "file": "src/extensions/mobs/mob-brain.ts",
-        "pairs": [('          if (this.o.factions.stanceOf(me, other) === "ally") continue;', "          if (false) continue;")],
+        "pairs": [('      if (this.o.factions.stanceOf(me, other) === "ally") continue;', "      if (false) continue;")],
         "test": "tests/extensions/mob-brain.test.ts",
     },
     {
         "name": "M243 漫游用 Math.random（不再是谁来问都一样的纯函数）",
-        "file": "src/extensions/mobs/mob-brain.ts",
-        "pairs": [("    let h = mix32(this.o.seed, agentId, epoch);", "    let h = (Math.random() * 0xffffffff) >>> 0;")],
+        "file": "src/extensions/mobs/mob-facts.ts",
+        "pairs": [("  let h = mix32(w.seed, agentId, epoch);", "  let h = (Math.random() * 0xffffffff) >>> 0;")],
         "test": "tests/extensions/mob-brain.test.ts",
     },
     {
         "name": "M244 大脑缓存不按 id 存（同一 tick 所有生物共用一个决定）",
         "file": "src/extensions/mobs/mob-brain.ts",
         "pairs": [
-            ("    const hit = this.cache.get(agentId);", "    const hit = this.cache.get(0);"),
-            ("    this.cache.set(agentId, d);", "    this.cache.set(0, d);"),
+            ("    let f = this.factsCache.get(agentId);", "    let f = this.factsCache.get(0);"),
+            ("      this.factsCache.set(agentId, f);", "      this.factsCache.set(0, f);"),
         ],
         "test": "tests/extensions/mob-brain.test.ts",
     },
@@ -8424,8 +8424,78 @@ MUTANTS = [
         )],
         "test": "tests/extensions/net-session.test.ts",
     },
+    {
+        "name": "M908 记仇挪到「看见」之后 ⇒ 打了就跑又逃得掉（世界造不出这种黑板，靠手写一份抓）",
+        "file": "src/extensions/mobs/mob-facts.ts",
+        "pairs": [(
+            """  if (f.aggressive) {
+    if (f.grudge !== null) {
+      return { kind: "hunt", targetNodeId: f.grudge.nodeId, cell: f.grudge.cell, reason: "grudge" };
+    }
+    const first = f.visible[0];
+    if (first !== undefined) {
+      return { kind: "hunt", targetNodeId: first.nodeId, cell: first.cell, reason: "sight" };
+    }
+  }""",
+            """  if (f.aggressive) {
+    const first = f.visible[0];
+    if (first !== undefined) {
+      return { kind: "hunt", targetNodeId: first.nodeId, cell: first.cell, reason: "sight" };
+    }
+    if (f.grudge !== null) {
+      return { kind: "hunt", targetNodeId: f.grudge.nodeId, cell: f.grudge.cell, reason: "grudge" };
+    }
+  }""",
+        )],
+        "test": "tests/extensions/mob-facts.test.ts",
+    },
+    {
+        "name": "M909 删掉友军过滤 ⇒ 混战里所有人乱打（阵营白做）",
+        "file": "src/extensions/mobs/mob-brain.ts",
+        "pairs": [(
+            '      if (this.o.factions.stanceOf(me, other) === "ally") continue;\n',
+            "",
+        )],
+        "test": "tests/extensions/mob-facts.test.ts",
+    },
+    {
+        "name": "M910 leash 边界 `>` 写成 `>=` ⇒ 正好站在 4.0 格上的目标被当成超距",
+        "file": "src/extensions/mobs/mob-brain.ts",
+        "pairs": [(
+            "if (this.o.leashCells > 0 && s.dist2 > this.o.leashCells * this.o.leashCells) continue;",
+            "if (this.o.leashCells > 0 && s.dist2 >= this.o.leashCells * this.o.leashCells) continue;",
+        )],
+        "test": "tests/extensions/mob-facts.test.ts",
+    },
+    {
+        "name": "M911 决策不检查 selfCell ⇒ 找不到自己也沿着上一格继续走（尸体在走）",
+        "file": "src/extensions/mobs/mob-facts.ts",
+        "pairs": [(
+            "  if (f.selfCell < 0) return null;\n",
+            "",
+        )],
+        "test": "tests/extensions/mob-facts.test.ts",
+    },
+    {
+        "name": "M912 事实缓存不按 tick 清空 ⇒ 下一拍仍按上一拍的世界做决定",
+        "file": "src/extensions/mobs/mob-brain.ts",
+        "pairs": [(
+            """      this.cacheTick = tick;
+      this.factsCache.clear();""",
+            """      this.cacheTick = tick;""",
+        )],
+        "test": "tests/extensions/mob-facts.test.ts",
+    },
+    {
+        "name": "M913 reason 写成 wander ⇒ 面板与判据都说「它在闲逛」，实际在追人",
+        "file": "src/extensions/mobs/mob-facts.ts",
+        "pairs": [(
+            'return { kind: "hunt", targetNodeId: first.nodeId, cell: first.cell, reason: "sight" };',
+            'return { kind: "hunt", targetNodeId: first.nodeId, cell: first.cell, reason: "wander" };',
+        )],
+        "test": "tests/extensions/mob-facts.test.ts",
+    },
 ]
-
 
 def run(m: dict) -> tuple[int, str]:
     """

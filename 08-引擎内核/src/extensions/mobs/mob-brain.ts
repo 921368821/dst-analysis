@@ -32,6 +32,15 @@ import { HEALTH_TYPE } from "../combat/health.ts";
 import { Perception } from "../ai/perception.ts";
 import { isDead, type Health } from "../combat/health.ts";
 import type { ThreatTable } from "../combat/threat.ts";
+import {
+  chooseFromFacts,
+  wanderTarget,
+  type Decision,
+  type MobCandidate,
+  type MobFacts,
+  type MobGrid,
+  type MobGrudge,
+} from "./mob-facts.ts";
 
 /** 大脑参数不合法（半径、视野、漫游周期）。 */
 export const MOB_BAD_BRAIN = "MOB.BAD_BRAIN";
@@ -61,29 +70,11 @@ export interface MobBrainOptions {
   readonly seed?: number;
 }
 
-export interface Decision {
-  /** `hunt` = 有目标；`wander` = 闲逛。 */
-  readonly kind: "hunt" | "wander";
-  /** 要打/要追的节点；`wander` 时是 `-1`。 */
-  readonly targetNodeId: number;
-  /** 移动目标格（`move` 模块直接用这个）。 */
-  readonly cell: number;
-}
-
-interface Grid {
-  cellAt(x: number, z: number): number;
-  cellX(index: number): number;
-  cellZ(index: number): number;
-  isWalkable(cx: number, cz: number): boolean;
-}
-
-/** 32 位混合：同 `(seed,id,epoch)` 必得同值，且相邻 epoch 不呈线性（否则生物会走直线）。 */
-function mix32(a: number, b: number, c: number): number {
-  let h = (a ^ 0x9e3779b9) >>> 0;
-  h = (Math.imul(h ^ (b + 0x85ebca6b), 0xcc9e2d51) >>> 0) ^ (h >>> 13);
-  h = (Math.imul(h ^ (c + 0xc2b2ae35), 0x1b873593) >>> 0) ^ (h >>> 15);
-  return h >>> 0;
-}
+/**
+ * 类型都搬到了 `mob-facts.ts`（黑板 = 纯数据），这里只为保持既有 import 路径不变而转出。
+ * 判据与外部代码继续 `import type { Decision } from "./mob-brain.ts"` 即可。
+ */
+export type { Decision, DecisionReason, MobCandidate, MobFacts, MobGrid } from "./mob-facts.ts";
 
 export class MobBrain {
   private readonly o: Required<Omit<MobBrainOptions, "watch" | "threat">> & {
@@ -98,7 +89,14 @@ export class MobBrain {
    *（于是"缓存"实际只对同一只生物连续问两次才生效，而这几乎不发生）。
    */
   private cacheTick = Number.NaN;
-  private cache = new Map<number, Decision | null>();
+  /**
+   * 缓存的是「看到什么」，不是「决定什么」。
+   *
+   * ★ 只留一份缓存：两份（facts + decision）一定会有不同步的那一刻，
+   *   而那一刻的症状是「同一 tick 两次问给两个答案」—— 恰好是最难复现的一类。
+   *   决定由 facts 算出来（`chooseFromFacts` 是 O(1) 纯函数），不需要缓存。
+   */
+  private factsCache = new Map<number, MobFacts>();
   private senses = 0;
 
   constructor(options: MobBrainOptions) {
@@ -141,60 +139,99 @@ export class MobBrain {
   }
 
   /**
-   * 决定这一 tick 干什么。
+   * 决定这一 tick 干什么（= 感知一次 + 纯函数决策）。
    *
    * @returns `null` = 什么都不用做（找不到自己 / 没有可走的漫游格）。
    */
-  decide(scene: Scene, agentId: number, tick: number, grid: Grid): Decision | null {
-    // 见文件头 ④：同一 tick 同一 id 复用
+  decide(scene: Scene, agentId: number, tick: number, grid: MobGrid): Decision | null {
+    // 见文件头 ④：同一 tick 同一 id 复用（感知是这里最贵的一步）
     if (this.cacheTick !== tick) {
       this.cacheTick = tick;
-      this.cache.clear();
+      this.factsCache.clear();
     }
-    const hit = this.cache.get(agentId);
-    if (hit !== undefined || this.cache.has(agentId)) return hit ?? null;
+    let f = this.factsCache.get(agentId);
+    if (f === undefined) {
+      f = this.sense(scene, agentId, tick, grid);
+      this.factsCache.set(agentId, f);
+    }
+    return chooseFromFacts(f);
+  }
 
+  /**
+   * 最近一次感知到的世界事实（调试面板用它显示「它看见了什么、为什么这么决定」）。
+   *
+   * ★ 返回的是**当拍**的事实：`tick` 与当前 `cacheTick` 不同时返回 `undefined`，
+   *   而不是「上一拍的旧事实」。旧事实会让面板显示一只已经改主意的生物。
+   */
+  facts(agentId: number): MobFacts | undefined {
+    const f = this.factsCache.get(agentId);
+    if (f === undefined || f.tick !== this.cacheTick) return undefined;
+    return f;
+  }
+
+  /** 把世界读成事实（**本文件唯一读场景的地方**，除 `avenge` 的仇恨表查询）。 */
+  private sense(scene: Scene, agentId: number, tick: number, grid: MobGrid): MobFacts {
     const self = scene.find(agentId);
     if (self === undefined) {
-      this.remember(agentId, tick, null);
-      return null;
+      return { agentId, tick, selfCell: -1, aggressive: false, grudge: null, visible: [], wanderCell: -1 };
     }
-
-    const homeCell = grid.cellAt(self.worldPosition.x, self.worldPosition.y);
+    const selfCell = grid.cellAt(self.worldPosition.x, self.worldPosition.y);
     const me = teamOf(scene, agentId).team;
+    // 见文件头 ①：没有攻击组件 = 和平生物，只漫游（连感知都不做）
+    const aggressive = self.get(ATTACKER_TYPE) !== undefined;
 
-    // 见文件头 ①：没有攻击组件 = 和平生物，只漫游
-    if (self.get(ATTACKER_TYPE) !== undefined) {
-      // ----  hatred 优先于感知：打了就跑的人**仍然**被追（这才是「记忆」的意义）
-      //      放在感知之前，是因为感知会跳过"看不见但打过我"的人；
-      //      反过来（先感知）的话，记仇只在"恰好还看得见"时生效，等于没有记忆。
-      const grudge = this.avenge(scene, agentId, tick, grid, me);
-      if (grudge !== null) {
-        this.remember(agentId, tick, grudge);
-        return grudge;
+    let grudge: MobGrudge | null = null;
+    let visible: MobCandidate[] = [];
+    if (aggressive) {
+      // ---- 仇恨优先于感知：打了就跑的人**仍然**被追（这才是「记忆」的意义）
+      //      放在感知之前，是因为感知会跳过「看不见但打过我」的人；
+      //      反过来（先感知）的话，记仇只在「恰好还看得见」时生效，等于没有记忆。
+      grudge = this.avenge(scene, agentId, tick, grid, me);
+      if (grudge === null) {
+        this.senses++;
+        const sensed = this.perception.sense(scene, agentId, tick);
+        if (sensed.ok) visible = this.filterSensed(scene, sensed.value, grid, me);
       }
-      this.senses++;
-      const sensed = this.perception.sense(scene, agentId, tick);
-      if (sensed.ok) {
-        for (const s of sensed.value) {
-          // 见文件头 ③
-          const other = teamOf(scene, s.nodeId).team;
-          if (this.o.factions.stanceOf(me, other) === "ally") continue;
-          if (this.o.leashCells > 0 && s.dist2 > this.o.leashCells * this.o.leashCells) continue;
-          const cell = grid.cellAt(s.x, s.z);
-          if (cell < 0) continue;
-          const d: Decision = { kind: "hunt", targetNodeId: s.nodeId, cell };
-          this.remember(agentId, tick, d);
-          return d;
-        }
-      }
-      // 感知失败（自我不存在等）不该让生物停摆 —— 落到漫游
     }
 
-    const cell = this.wanderCell(grid, agentId, tick, homeCell);
-    const d: Decision | null = cell < 0 ? null : { kind: "wander", targetNodeId: -1, cell };
-    this.remember(agentId, tick, d);
-    return d;
+    // 见文件头 ③：漫游目标只在「用得上」时算（有仇人 / 看得见人时用不到）
+    const wanderCell =
+      grudge === null && visible.length === 0
+        ? wanderTarget(grid, selfCell, agentId, tick, {
+            seed: this.o.seed,
+            radiusCells: this.o.wanderRadiusCells,
+            every: this.o.wanderEvery,
+          })
+        : -1;
+
+    return { agentId, tick, selfCell, aggressive, grudge, visible, wanderCell };
+  }
+
+  /**
+   * 感知结果的过滤（友军 / 超 leash / 不在地图上）。
+   *
+   * ★ 过滤留在感知这一侧而不是决策那一侧：这些条件讲的是「我这只生物够得着什么」，
+   *   属于感知的语义。留在决策里的话，同一份黑板喂给玩家控制的角色时行为会不同。
+   * ★ 顺序沿用 `Perception` 给的排序（距离平方升序、同距离按节点 id 升序），
+   *   这里**不重排** —— 重排就是第二份排序规则，两份迟早不一致。
+   */
+  private filterSensed(
+    scene: Scene,
+    sensed: readonly { readonly nodeId: number; readonly x: number; readonly z: number; readonly dist2: number }[],
+    grid: MobGrid,
+    me: string,
+  ): MobCandidate[] {
+    const out: MobCandidate[] = [];
+    for (const s of sensed) {
+      // 见文件头 ③
+      const other = teamOf(scene, s.nodeId).team;
+      if (this.o.factions.stanceOf(me, other) === "ally") continue;
+      if (this.o.leashCells > 0 && s.dist2 > this.o.leashCells * this.o.leashCells) continue;
+      const cell = grid.cellAt(s.x, s.z);
+      if (cell < 0) continue;
+      out.push({ nodeId: s.nodeId, cell, dist2: s.dist2 });
+    }
+    return out;
   }
 
   /**
@@ -211,9 +248,9 @@ export class MobBrain {
     scene: Scene,
     agentId: number,
     tick: number,
-    grid: Grid,
+    grid: MobGrid,
     me: string,
-  ): Decision | null {
+  ): MobGrudge | null {
     const t = this.o.threat;
     if (t === null) return null;
     const targetId = t.best(agentId, tick, (id) => {
@@ -235,47 +272,9 @@ export class MobBrain {
       const dz = target.worldPosition.y - self.worldPosition.y;
       if (dx * dx + dz * dz > this.o.aggroCells * this.o.aggroCells) return null;
     }
-    return { kind: "hunt", targetNodeId: targetId, cell };
+    return { nodeId: targetId, cell };
   }
 
-  /**
-   * 漫游目标格（见文件头 ②：纯函数）。
-   *
-   * ★ 取**第一个可走**的候选而不是"取最近的/最远的"：后者会让所有生物
-   *   挤向同一片空地（同一个 epoch 的候选序是同一个函数），画面上像一队人。
-   */
-  private wanderCell(grid: Grid, agentId: number, tick: number, homeCell: number): number {
-    if (homeCell < 0) return -1;
-    const cx = grid.cellX(homeCell);
-    const cz = grid.cellZ(homeCell);
-    const r = this.o.wanderRadiusCells;
-    const epoch = Math.floor(tick / this.o.wanderEvery);
-    let h = mix32(this.o.seed, agentId, epoch);
-    // 6 次尝试：半径 4 的方框里 81 格里总有可走的，除非它站在孤岛上
-    for (let k = 0; k < 6; k++) {
-      h = (Math.imul(h, 1664525) + 1013904223) >>> 0;
-      const span = 2 * r + 1;
-      const dx = (h % span) - r;
-      const dz = (Math.floor(h / span) % span) - r;
-      if (dx === 0 && dz === 0) continue;
-      if (grid.isWalkable(cx + dx, cz + dz)) return this.cellIndex(grid, cx + dx, cz + dz);
-    }
-    return -1;
-  }
-
-  /** 用 `cellAt` 反查下标（避免再引入一个 `indexOf` 依赖）。 */
-  private cellIndex(grid: Grid, cx: number, cz: number): number {
-    // 格心坐标 → 下标
-    return grid.cellAt(cx + 0.5, cz + 0.5);
-  }
-
-  private remember(agentId: number, tick: number, d: Decision | null): void {
-    if (this.cacheTick !== tick) {
-      this.cacheTick = tick;
-      this.cache.clear();
-    }
-    this.cache.set(agentId, d);
-  }
 }
 
 export function createMobBrain(options: MobBrainOptions): MobBrain {
@@ -283,12 +282,12 @@ export function createMobBrain(options: MobBrainOptions): MobBrain {
 }
 
 /** 把大脑接到 `move` 模块的 `decide` 上（只要"想去哪一格"）。 */
-export function moveDecider(brain: MobBrain, scene: Scene, grid: Grid): (agentId: number, tick: number) => number | null {
+export function moveDecider(brain: MobBrain, scene: Scene, grid: MobGrid): (agentId: number, tick: number) => number | null {
   return (agentId, tick) => brain.decide(scene, agentId, tick, grid)?.cell ?? null;
 }
 
 /** 把大脑接到 `combat` 模块的 `decide` 上（只要"想打哪个节点"）。 */
-export function combatDecider(brain: MobBrain, scene: Scene, grid: Grid): (agentId: number, tick: number) => number | null {
+export function combatDecider(brain: MobBrain, scene: Scene, grid: MobGrid): (agentId: number, tick: number) => number | null {
   return (agentId, tick) => {
     const d = brain.decide(scene, agentId, tick, grid);
     return d !== null && d.kind === "hunt" ? d.targetNodeId : null;
