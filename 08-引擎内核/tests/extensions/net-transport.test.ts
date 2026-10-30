@@ -77,7 +77,7 @@ function intentMsg(tick: number): IntentMessage {
   // ★ 过一遍 JSON：消息必须**可序列化**。若哪天给意图塞进一个函数引用或一个 Node，
   //   这里会当场变成 `{}`，后面的等价判据就再也对不上。
   return JSON.parse(
-    JSON.stringify({ kind: "intent", from: 0, tick, seq: tick, intent: intentOf(tick) }),
+    JSON.stringify({ kind: "intent", from: 0, tick, seq: tick, entity: 1, intent: intentOf(tick) }),
   ) as IntentMessage;
 }
 
@@ -88,9 +88,9 @@ function pos(o: { x: number; y: number }): string {
 test("[传输] 同一拍发的消息同一拍就能收到，且顺序 = 发送顺序", () => {
   const [a, b] = createLoopbackPair();
   const sent: NetMessage[] = [
-    { kind: "intent", from: 0, tick: 5, seq: 0, intent: { kind: "move.dir", dx: 1, dz: 0 } },
-    { kind: "intent", from: 0, tick: 5, seq: 1, intent: { kind: "move.dir", dx: 0, dz: 1 } },
-    { kind: "intent", from: 0, tick: 5, seq: 2, intent: { kind: "move.cell", cell: 7 } },
+    { kind: "intent", from: 0, tick: 5, seq: 0, entity: 1, intent: { kind: "move.dir", dx: 1, dz: 0 } },
+    { kind: "intent", from: 0, tick: 5, seq: 1, entity: 1, intent: { kind: "move.dir", dx: 0, dz: 1 } },
+    { kind: "intent", from: 0, tick: 5, seq: 2, entity: 1, intent: { kind: "move.cell", cell: 7 } },
   ];
   for (const m of sent) assert.equal(a.send(m), true);
 
@@ -290,4 +290,23 @@ test("[传输] 快照消息过环回之后能原样还原世界（回传方向�
   const same = client.find(n.id);
   assert.ok(same !== undefined, "还原后节点丢了（id 没跟着走）");
   assert.equal(pos(same.localPosition), "3.5,-1.25", "还原后的位置不对 —— 快照过网损坏了");
+});
+
+test("[传输] ★ 信封的 from 由端点在发送时盖章：自称 from: 0 冒充不了主机", () => {
+  // ★ 这条不是洁癖：会话层的**全部**授权都是 `owner(entity) === msg.from`
+  //   （见 `net/session.ts` 的 `admit`）。如果 `from` 采信发送方写进去的值，
+  //   一个客户端只要在消息里填 `from: 0` 就能驱动主机自己的角色，而世界一致性
+  //   判据照样全绿（主机确实动了，只是动的人不对）。源地址必须由栈填，不由报文自称。
+  const [a, b] = createLoopbackPair();
+  a.send({
+    kind: "intent",
+    from: 99,
+    tick: 0,
+    seq: 0,
+    entity: 1,
+    intent: { kind: "move.dir", dx: 1, dz: 0 },
+  });
+  const got = b.receive(0);
+  assert.equal(got.length, 1);
+  assert.equal(got[0]?.from, 0, "端点 0 发出来的消息，from 必须是 0 —— 而不是发送方自称的 99");
 });

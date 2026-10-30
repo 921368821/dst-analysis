@@ -8343,6 +8343,87 @@ MUTANTS = [
         )],
         "test": "tests/tools/gap-check.test.ts",
     },
+    {
+        "name": "M899 广播节奏错位一拍 ⇒ 快照永远晚一格，客户端副本与原世界差一个 tick 的位置",
+        "file": "src/extensions/net/session.ts",
+        "pairs": [(
+            "if (tick % this.snapshotEvery === 0) this.broadcast(tick);",
+            "if ((tick + 1) % this.snapshotEvery === 0) this.broadcast(tick);",
+        )],
+        "test": "tests/extensions/net-session.test.ts",
+    },
+    {
+        "name": "M900 一拍把队列消化干净 ⇒ 一次卡顿之后角色瞬移好几拍（位置最终还对，画面上跳了一下）",
+        "file": "src/extensions/net/session.ts",
+        "pairs": [(
+            "      const intent = q.shift();\n      if (intent === undefined) continue;\n      this.move(entity, intent, dt);\n      this.remoteApplied++;",
+            "      while (q.length > 0) {\n        const intent = q.shift();\n        if (intent === undefined) break;\n        this.move(entity, intent, dt);\n        this.remoteApplied++;\n      }",
+        )],
+        "test": "tests/extensions/net-session.test.ts",
+    },
+    {
+        "name": "M901 队列超限丢最新的 ⇒ 角色的时间轴永久落后，越丢越晚（而位置看着还在动）",
+        "file": "src/extensions/net/session.ts",
+        "pairs": [(
+            "      q.shift();\n      this.backlogDropped++;",
+            "      q.pop();\n      this.backlogDropped++;",
+        )],
+        "test": "tests/extensions/net-session.test.ts",
+    },
+    {
+        "name": "M902 归属校验失效 ⇒ 任何客户端都能驱动别人的角色（世界照样一致，动的人不对）",
+        "file": "src/extensions/net/session.ts",
+        "pairs": [(
+            "if (id.owner !== from) return { ok: false, reason: NetReject.NotOwner };",
+            "if (id.owner !== from && false) return { ok: false, reason: NetReject.NotOwner };",
+        )],
+        "test": "tests/extensions/net-session.test.ts",
+    },
+    {
+        "name": "M903 不查意图的 seq 缺口 ⇒ 丢包与「玩家没按」在日志里长得一模一样",
+        "file": "src/extensions/net/session.ts",
+        "pairs": [(
+            "if (prev !== undefined && msg.seq > prev + 1) this.intentGaps += msg.seq - prev - 1;",
+            "if (prev !== undefined && msg.seq > prev + 1 && false) this.intentGaps += msg.seq - prev - 1;",
+        )],
+        "test": "tests/extensions/net-session.test.ts",
+    },
+    {
+        "name": "M904 旧快照也能覆盖新世界 ⇒ 一条迟到的包把世界拉回几百毫秒前",
+        "file": "src/extensions/net/session.ts",
+        "pairs": [(
+            "if (msg.seq <= this.lastSnapshotSeq) {",
+            "if (msg.seq <= this.lastSnapshotSeq && false) {",
+        )],
+        "test": "tests/extensions/net-session.test.ts",
+    },
+    {
+        "name": "M905 网络快照用存档语义导出 ⇒ 副本少一整个寻路状态，而两个角色的位置一模一样",
+        "file": "src/extensions/net/session.ts",
+        "pairs": [(
+            "json: sceneToJson(saveScene(this.scene, { mode: \"rollback\" })),",
+            "json: sceneToJson(saveScene(this.scene)),",
+        )],
+        "test": "tests/extensions/net-session.test.ts",
+    },
+    {
+        "name": "M906 端点不盖章 from ⇒ 客户端在消息里写 from: 0 就能冒充主机（授权全放行）",
+        "file": "src/extensions/net/transport.ts",
+        "pairs": [(
+            "return this.wire.enqueue(this.self, { ...msg, from: this.self } as NetMessage);",
+            "return this.wire.enqueue(this.self, msg);",
+        )],
+        "test": "tests/extensions/net-transport.test.ts",
+    },
+    {
+        "name": "M907 客户端也能改归属 ⇒ 谁都能把别人的角色划到自己名下，而当场没有任何报错",
+        "file": "src/extensions/net/session.ts",
+        "pairs": [(
+            "    if (this.role !== \"host\") {",
+            "    if (this.role !== \"host\" && false) {",
+        )],
+        "test": "tests/extensions/net-session.test.ts",
+    },
 ]
 
 

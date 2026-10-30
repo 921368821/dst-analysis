@@ -34,6 +34,7 @@
  */
 
 import { XorShift128, type IRandom } from "../../foundation/random.ts";
+import type { NodeId } from "../../core/scene/node.ts";
 import type { MoveIntent } from "../motion/intent.ts";
 
 /** 对端标识。环回里只有 0 与 1；真实的会话层可以把它映射成连接号。 */
@@ -62,6 +63,15 @@ export interface NetEnvelope {
 /** 客户端 → 主机：这个实体这一拍想干什么。 */
 export interface IntentMessage extends NetEnvelope {
   readonly kind: "intent";
+  /**
+   * 这条意图要给**哪个**实体。
+   *
+   * ★ 必须点名，不能靠"发件人反查它拥有谁"：一个对端拥有几个实体（分屏、观战、
+   *   交接间隙）从第一次改动起就会发生，而"默认第一个"这种约定在第二次改动时
+   *   就会变成不可解释的行为。点名之后，主机那边只有一道检查 ——
+   *   `owner(entity) === from`（见 `session.ts` 的 `admit`）。
+   */
+  readonly entity: NodeId;
   readonly intent: MoveIntent;
 }
 
@@ -215,7 +225,13 @@ class LoopbackEnd implements Transport {
   ) {}
 
   send(msg: NetMessage): boolean {
-    return this.wire.enqueue(this.self, msg);
+    // ★★ 信封里的 `from` 由**端点在发送时盖章**，不采信调用方写进去的那个。
+    //   理由与真实套接字一致：源地址由栈填，不由报文自称。少了这一次覆盖，
+    //   一个客户端只要在消息里写 `from: 0` 就能冒充主机，而基于 `from` 的
+    //   授权检查（`owner === from`）会全部放行 —— 且任何"世界一致"的判据都绿。
+    //   用断言而不是逐字段重建：`NetMessage` 是判别联合，展开后判别字段在
+    //   运行期原样保留，但类型上需要一次收窄，写两个分支只是把同一个字写两遍。
+    return this.wire.enqueue(this.self, { ...msg, from: this.self } as NetMessage);
   }
 
   receive(tick: number): readonly NetMessage[] {
