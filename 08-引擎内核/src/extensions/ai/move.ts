@@ -58,7 +58,7 @@ import { Services } from "../../core/tokens.ts";
 import { engineError, err, ok, type EngineError, type Result } from "../../foundation/result.ts";
 import { FACING_TYPE, type Facing } from "../motion/facing.ts";
 import type { NavGrid } from "../nav/nav-grid.ts";
-import { stepAlong } from "../nav/move-along.ts";
+import { cellStep } from "../motion/intent.ts";
 
 /** 会自己走路的代理。 */
 export const MOVER_TYPE = "ai.mover";
@@ -290,10 +290,16 @@ export function createMoveModule(opts: MoveModuleOptions): MoveModuleHandle {
 
         const wp = node.worldPosition;
         const cursorBefore = m.cursor;
-        const r = stepAlong(grid, m.path, m.cursor, wp.x, wp.y, m.speed, dt);
+        // ★ 批147：位移这一步走 `motion/intent.ts` 的 `cellStep`，与玩家那条路共用同一个
+        //   「意图 → 位移」实现。这里只负责把「目标格」包成意图、并交进当前寻路状态；
+        //   寻路本身仍在本文件（有缓存与失效，不该塞进纯函数）。
+        const r = cellStep(
+          { kind: "move.cell", cell: goal },
+          { grid, path: m.path, cursor: m.cursor, x: wp.x, z: wp.y, speed: m.speed, dt },
+        );
         m.cursor = r.cursor;
         // 见文件头 ⑥：落笔之前先夹到接触点（物理障碍不在导航格上）
-        const aim = clampToContact(node.id, wp.x, wp.y, r.x, r.z);
+        const aim = clampToContact(node.id, wp.x, wp.y, wp.x + r.dx, wp.y + r.dz);
         if (aim.hit !== null) {
           // 没走到那个路点 ⇒ 游标不前进（见文件头 ⑥ 的后半句）
           m.cursor = cursorBefore;

@@ -19,6 +19,7 @@ import type { IModule, ModuleContext } from "../../core/module/module.ts";
 import type { InputSnapshot } from "../../platform/input/device.ts";
 import { Services } from "../../core/tokens.ts";
 import { DEFAULT_INPUT_MAP, type InputMap } from "./input-map.ts";
+import { dirStep } from "../motion/intent.ts";
 import { engineError, err, ok, type EngineError, type Result } from "../../foundation/result.ts";
 import type { Scene } from "../../core/scene/scene.ts";
 
@@ -85,9 +86,10 @@ export function stepOf(
   map: InputMap = DEFAULT_INPUT_MAP,
 ): { dx: number; dz: number } {
   const d = directionFromMap(map, snap);
-  const len = Math.hypot(d.dx, d.dz);
-  if (len === 0) return { dx: 0, dz: 0 };
-  return { dx: (d.dx / len) * speed * dt, dz: (d.dz / len) * speed * dt };
+  // ★ 归一化搬到 `motion/intent.ts` 的 `dirStep`（批147）：AI 想按方向走时也要同一份，
+  //   留在这里就会变成两处实现、两种对角线速度。这里只负责「输入快照 → 意图」。
+  const r = dirStep({ kind: "move.dir", dx: d.dx, dz: d.dz }, speed, dt);
+  return { dx: r.dx, dz: r.dz };
 }
 
 export interface ControllerModuleOptions {

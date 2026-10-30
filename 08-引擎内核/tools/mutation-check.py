@@ -8126,6 +8126,33 @@ MUTANTS = [
         "cmd": ["node", "tools/browser-selftest.mjs", "--build"],
     },
     {
+        "name": "M884 对角线不归一化 ⇒ 斜着走比直着走快 41%，而所有位置判据照绿",
+        "file": "src/extensions/motion/intent.ts",
+        "pairs": [(
+            "  const len = Math.hypot(dx, dz);",
+            "  const len = 1;",
+        )],
+        "test": "tests/extensions/intent.test.ts",
+    },
+    {
+        "name": "M885 非法输入不降级 ⇒ speed/dt 为负时朝反方向走，NaN 时整块位置变 NaN",
+        "file": "src/extensions/motion/intent.ts",
+        "pairs": [(
+            "  if (!positive(speed) || !positive(dt)) return STEP_ZERO;\n  const { dx, dz } = intent;",
+            "  const { dx, dz } = intent;",
+        )],
+        "test": "tests/extensions/intent.test.ts",
+    },
+    {
+        "name": "M886 空路径不宣布完成 ⇒ 调用方每 tick 拿一条空路径重问一次，永远不算到达",
+        "file": "src/extensions/motion/intent.ts",
+        "pairs": [(
+            "  if (ctx.path.length === 0) return { dx: 0, dz: 0, done: true, cursor: ctx.cursor };",
+            "  if (ctx.path.length === 0) return { dx: 0, dz: 0, done: false, cursor: ctx.cursor };",
+        )],
+        "test": "tests/extensions/intent.test.ts",
+    },
+    {
         "name": "M864 探针用 `_G[name]` 而不是 `rawget`（strict 档下 __index 会先炸，探针自己坏了）",
         "file": "tools/dstsrc-run.ts",
         "pairs": [(
