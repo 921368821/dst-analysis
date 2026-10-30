@@ -8153,6 +8153,15 @@ MUTANTS = [
         "test": "tests/extensions/intent.test.ts",
     },
     {
+        "name": "M887 寻路状态进存档 ⇒ 读档后沿一条过期的路走（画面只是「愣一下」，无人报错）",
+        "file": "src/extensions/ai/move.ts",
+        "pairs": [(
+            "    fields: { speed: FieldType.Float },",
+            "    fields: { speed: FieldType.Float, cursor: FieldType.Float },",
+        )],
+        "test": "tests/extensions/snapshot-any-tick.test.ts",
+    },
+    {
         "name": "M864 探针用 `_G[name]` 而不是 `rawget`（strict 档下 __index 会先炸，探针自己坏了）",
         "file": "tools/dstsrc-run.ts",
         "pairs": [(
