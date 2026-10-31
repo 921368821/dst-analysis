@@ -2,6 +2,8 @@
   "version": 1,
   "_comment": "资产浏览器的清单。浏览器端的资源后端是 HttpFileSystem（canList=false），页面没法自己列目录 ⇒ 这份清单是唯一来源。加/删 web/assets 里的文件必须同步改这里，否则 tests/extensions/editor-assets.test.ts 的『清单与磁盘一致』那条会红。",
   "assets": [
+    "ai/hound.tree.json",
+    "ai/hound_grudge.tree.json",
     "berry.png",
     "ground.png",
     "hero_e_0.png",

@@ -1,0 +1,86 @@
+{
+  "format": "aitree",
+  "version": 1,
+  "root": {
+    "id": "mob.root",
+    "kind": "sequence",
+    "children": [
+      {
+        "id": "mob.sane",
+        "kind": "check",
+        "op": "mob.canDecide"
+      },
+      {
+        "id": "mob.body",
+        "kind": "selector",
+        "children": [
+          {
+            "id": "mob.hostile",
+            "kind": "sequence",
+            "children": [
+              {
+                "id": "mob.angry",
+                "kind": "check",
+                "op": "mob.isAggressive"
+              },
+              {
+                "id": "mob.pick",
+                "kind": "selector",
+                "children": [
+                  {
+                    "id": "mob.grudge",
+                    "kind": "sequence",
+                    "children": [
+                      {
+                        "id": "mob.c1",
+                        "kind": "check",
+                        "op": "mob.hasGrudge"
+                      },
+                      {
+                        "id": "mob.d1",
+                        "kind": "do",
+                        "op": "mob.huntGrudge"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "mob.sight",
+                    "kind": "sequence",
+                    "children": [
+                      {
+                        "id": "mob.c2",
+                        "kind": "check",
+                        "op": "mob.seesFoe"
+                      },
+                      {
+                        "id": "mob.d2",
+                        "kind": "do",
+                        "op": "mob.huntNearest"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "mob.roam",
+            "kind": "sequence",
+            "children": [
+              {
+                "id": "mob.c3",
+                "kind": "check",
+                "op": "mob.hasWander"
+              },
+              {
+                "id": "mob.d3",
+                "kind": "do",
+                "op": "mob.wander"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

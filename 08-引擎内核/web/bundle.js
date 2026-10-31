@@ -14967,7 +14967,7 @@ function inflateZlib(data, opts) {
     }
     const br = new BitReader2(data, 2);
     const sink = new ByteSink(opts?.sizeHint !== void 0 ? opts.sizeHint : 64 * 1024, maxBytes);
-    const fail2 = (msg3) => {
+    const fail3 = (msg3) => {
       throw new ZlibError(`${msg3} at byte ${br.pos}`);
     };
     let isFinal = 0;
@@ -14979,10 +14979,10 @@ function inflateZlib(data, opts) {
         const len = br.u16le();
         const nlen = br.u16le();
         if (((len ^ 65535) & 65535) !== nlen) {
-          fail2(`stored \u5757\u7684 LEN/NLEN \u4E0D\u4E92\u8865\uFF1ALEN=${len} NLEN=${nlen}`);
+          fail3(`stored \u5757\u7684 LEN/NLEN \u4E0D\u4E92\u8865\uFF1ALEN=${len} NLEN=${nlen}`);
         }
         if (br.pos + len > data.length) {
-          fail2(`stored \u5757\u622A\u65AD\uFF1A\u9700\u8981 ${len} \u5B57\u8282\uFF0C\u5269\u4F59 ${data.length - br.pos}`);
+          fail3(`stored \u5757\u622A\u65AD\uFF1A\u9700\u8981 ${len} \u5B57\u8282\uFF0C\u5269\u4F59 ${data.length - br.pos}`);
         }
         sink.writeBytes(data, br.pos, len);
         br.pos += len;
@@ -14993,13 +14993,13 @@ function inflateZlib(data, opts) {
           lit = getFixedLit();
           dist = getFixedDist();
         } else {
-          const tables = readDynamicTables(br, fail2);
+          const tables = readDynamicTables(br, fail3);
           lit = tables.lit;
           dist = tables.dist;
         }
-        decodeCompressed(br, lit, dist, sink, fail2);
+        decodeCompressed(br, lit, dist, sink, fail3);
       } else {
-        fail2(`invalid block type ${type}\uFF08deflate \u53EA\u6709 0/1/2\uFF09`);
+        fail3(`invalid block type ${type}\uFF08deflate \u53EA\u6709 0/1/2\uFF09`);
       }
     } while (isFinal === 0);
     br.alignToByte();
@@ -15024,19 +15024,19 @@ function inflateZlib(data, opts) {
     );
   }
 }
-function readDynamicTables(br, fail2) {
+function readDynamicTables(br, fail3) {
   const hlit = br.readBits(5) + 257;
   const hdist = br.readBits(5) + 1;
   const hclen = br.readBits(4) + 4;
-  if (hlit > 286) fail2(`HLIT=${hlit - 257} \u975E\u6CD5\uFF08\u6700\u591A 286 \u4E2A\u5B57\u9762\u91CF/\u957F\u5EA6\u7801\uFF09`);
-  if (hdist > 30) fail2(`HDIST=${hdist - 1} \u975E\u6CD5\uFF08\u6700\u591A 30 \u4E2A\u8DDD\u79BB\u7801\uFF09`);
+  if (hlit > 286) fail3(`HLIT=${hlit - 257} \u975E\u6CD5\uFF08\u6700\u591A 286 \u4E2A\u5B57\u9762\u91CF/\u957F\u5EA6\u7801\uFF09`);
+  if (hdist > 30) fail3(`HDIST=${hdist - 1} \u975E\u6CD5\uFF08\u6700\u591A 30 \u4E2A\u8DDD\u79BB\u7801\uFF09`);
   const clenLengths = new Uint8Array(19);
   for (let i2 = 0; i2 < hclen; i2++) clenLengths[CLEN_ORDER[i2]] = br.readBits(3);
   let clen;
   try {
     clen = buildHuffman(clenLengths);
   } catch (e) {
-    fail2(`\u7801\u957F\u8868\u7684 Huffman \u6784\u9020\u5931\u8D25\uFF1A${e instanceof Error ? e.message : String(e)}`);
+    fail3(`\u7801\u957F\u8868\u7684 Huffman \u6784\u9020\u5931\u8D25\uFF1A${e instanceof Error ? e.message : String(e)}`);
   }
   const total = hlit + hdist;
   const lengths = new Uint8Array(total);
@@ -15046,33 +15046,33 @@ function readDynamicTables(br, fail2) {
     if (sym < 16) {
       lengths[i++] = sym;
     } else if (sym === 16) {
-      if (i === 0) fail2("\u7801\u957F\u91CD\u590D\u7801 16 \u51FA\u73B0\u5728\u7B2C\u4E00\u4E2A\u7801\u957F\u4E4B\u524D\uFF08\u6CA1\u6709\u53EF\u590D\u5236\u7684\u4E0A\u4E00\u4E2A\u503C\uFF09");
+      if (i === 0) fail3("\u7801\u957F\u91CD\u590D\u7801 16 \u51FA\u73B0\u5728\u7B2C\u4E00\u4E2A\u7801\u957F\u4E4B\u524D\uFF08\u6CA1\u6709\u53EF\u590D\u5236\u7684\u4E0A\u4E00\u4E2A\u503C\uFF09");
       const repeat = br.readBits(2) + 3;
-      if (i + repeat > total) fail2(`\u7801\u957F\u91CD\u590D\u7801 16 \u8D8A\u754C\uFF1Ai=${i} repeat=${repeat} total=${total}`);
+      if (i + repeat > total) fail3(`\u7801\u957F\u91CD\u590D\u7801 16 \u8D8A\u754C\uFF1Ai=${i} repeat=${repeat} total=${total}`);
       const prev = lengths[i - 1];
       for (let k = 0; k < repeat; k++) lengths[i++] = prev;
     } else if (sym === 17) {
       const repeat = br.readBits(3) + 3;
-      if (i + repeat > total) fail2(`\u7801\u957F\u91CD\u590D\u7801 17 \u8D8A\u754C\uFF1Ai=${i} repeat=${repeat} total=${total}`);
+      if (i + repeat > total) fail3(`\u7801\u957F\u91CD\u590D\u7801 17 \u8D8A\u754C\uFF1Ai=${i} repeat=${repeat} total=${total}`);
       i += repeat;
     } else if (sym === 18) {
       const repeat = br.readBits(7) + 11;
-      if (i + repeat > total) fail2(`\u7801\u957F\u91CD\u590D\u7801 18 \u8D8A\u754C\uFF1Ai=${i} repeat=${repeat} total=${total}`);
+      if (i + repeat > total) fail3(`\u7801\u957F\u91CD\u590D\u7801 18 \u8D8A\u754C\uFF1Ai=${i} repeat=${repeat} total=${total}`);
       i += repeat;
     } else {
-      fail2(`\u975E\u6CD5\u7801\u957F\u7B26\u53F7 ${sym}\uFF08\u53EA\u5141\u8BB8 0..18\uFF09`);
+      fail3(`\u975E\u6CD5\u7801\u957F\u7B26\u53F7 ${sym}\uFF08\u53EA\u5141\u8BB8 0..18\uFF09`);
     }
   }
   const litLengths = lengths.subarray(0, hlit);
   const distLengths = lengths.subarray(hlit);
-  if (litLengths[256] === 0) fail2("\u5B57\u9762\u91CF\u8868\u7F3A\u5C11\u5757\u7ED3\u675F\u7B26 256 \u7684\u7801\u5B57");
+  if (litLengths[256] === 0) fail3("\u5B57\u9762\u91CF\u8868\u7F3A\u5C11\u5757\u7ED3\u675F\u7B26 256 \u7684\u7801\u5B57");
   try {
     return { lit: buildHuffman(litLengths), dist: buildHuffman(distLengths) };
   } catch (e) {
-    fail2(`Huffman \u8868\u6784\u9020\u5931\u8D25\uFF1A${e instanceof Error ? e.message : String(e)}`);
+    fail3(`Huffman \u8868\u6784\u9020\u5931\u8D25\uFF1A${e instanceof Error ? e.message : String(e)}`);
   }
 }
-function decodeCompressed(br, lit, dist, sink, fail2) {
+function decodeCompressed(br, lit, dist, sink, fail3) {
   for (; ; ) {
     const sym = br.decode(lit);
     if (sym < 256) {
@@ -15080,14 +15080,14 @@ function decodeCompressed(br, lit, dist, sink, fail2) {
       continue;
     }
     if (sym === 256) return;
-    if (sym > 285) fail2(`\u975E\u6CD5\u957F\u5EA6\u7B26\u53F7 ${sym}\uFF08286/287 \u4FDD\u7559\uFF09`);
+    if (sym > 285) fail3(`\u975E\u6CD5\u957F\u5EA6\u7B26\u53F7 ${sym}\uFF08286/287 \u4FDD\u7559\uFF09`);
     const li = sym - 257;
     const length = LEN_BASE[li] + br.readBits(LEN_EXTRA[li]);
     const dsym = br.decode(dist);
-    if (dsym > 29) fail2(`\u975E\u6CD5\u8DDD\u79BB\u7B26\u53F7 ${dsym}\uFF0830/31 \u4FDD\u7559\uFF09`);
+    if (dsym > 29) fail3(`\u975E\u6CD5\u8DDD\u79BB\u7B26\u53F7 ${dsym}\uFF0830/31 \u4FDD\u7559\uFF09`);
     const distance = DIST_BASE[dsym] + br.readBits(DIST_EXTRA[dsym]);
     if (distance > sink.len) {
-      fail2(`invalid distance ${distance} > \u5DF2\u4EA7\u51FA ${sink.len} \u5B57\u8282`);
+      fail3(`invalid distance ${distance} > \u5DF2\u4EA7\u51FA ${sink.len} \u5B57\u8282`);
     }
     sink.copyBack(distance, length);
   }
@@ -22147,6 +22147,7 @@ function hudRowRuns(f, colors) {
     mk(
       join([
         field("atlas:", f.atlas),
+        field("ai ", `${r(f.ai.loaded)}/${r(f.ai.missing)}`),
         field("world ", world),
         field("res ", `${r(f.resources.alive)}/${r(f.resources.spawned)}/${r(f.resources.released)}`),
         field("bag ", r(f.bagStacks)),
@@ -23897,6 +23898,8 @@ var DEMO_MOB_TEMPLATES = [
 ];
 var DEMO_HOUNDS = 3;
 var DEMO_RABBITS = 10;
+var DEMO_TREE_FILES = ["ai/hound.tree.json", "ai/hound_grudge.tree.json"];
+var DEMO_HOUND_TREE = "ai/hound";
 function createDemoFactions() {
   const f = createFactions();
   f.setStance("hunter", "prey", "foe");
@@ -26608,10 +26611,47 @@ function createMobTree(options = {}) {
 }
 
 // src/extensions/mobs/tree-asset.ts
+var TREE_FILE_SUFFIX = ".tree.json";
 var TREE_FORMAT = "aitree";
 var TREE_FORMAT_VERSION = 1;
 var AI_TREE_BAD_ASSET = "AI_TREE.BAD_ASSET";
 var AI_TREE_BAD_VERSION = "AI_TREE.BAD_VERSION";
+var AI_TREE_BAD_PATH = "AI_TREE.BAD_PATH";
+function normalizePath2(p) {
+  return p.trim().replace(/\\/g, "/").split("/").filter((s) => s.length > 0 && s !== ".").join("/");
+}
+function treeAssetIdFromPath(path, root = "") {
+  const p = normalizePath2(path);
+  const r = normalizePath2(root);
+  if (p.length === 0) {
+    return err(engineError(AI_TREE_BAD_PATH, "\u6811\u8D44\u4EA7\u7684\u8DEF\u5F84\u662F\u7A7A\u7684"));
+  }
+  let rel = p;
+  if (r.length > 0) {
+    if (p === r) {
+      return err(engineError(AI_TREE_BAD_PATH, `\u300C${path}\u300D\u662F\u8D44\u4EA7\u6839\u672C\u8EAB\uFF0C\u4E0D\u662F\u4E00\u4EFD\u6587\u4EF6`, { path, root }));
+    }
+    if (!p.startsWith(`${r}/`)) {
+      return err(engineError(AI_TREE_BAD_PATH, `\u300C${path}\u300D\u4E0D\u5728\u8D44\u4EA7\u6839\u300C${root}\u300D\u4E0B`, { path, root }));
+    }
+    rel = p.slice(r.length + 1);
+  }
+  if (!rel.toLowerCase().endsWith(TREE_FILE_SUFFIX)) {
+    return err(
+      engineError(AI_TREE_BAD_PATH, `\u300C${path}\u300D\u4E0D\u662F\u51B3\u7B56\u6811\u8D44\u4EA7\uFF08\u8981\u4EE5 ${TREE_FILE_SUFFIX} \u7ED3\u5C3E\uFF09`, { path })
+    );
+  }
+  const id = rel.slice(0, rel.length - TREE_FILE_SUFFIX.length);
+  if (id.length === 0) {
+    return err(
+      engineError(AI_TREE_BAD_PATH, `\u300C${path}\u300D\u63A8\u51FA\u6765\u662F\u7A7A id \u2014\u2014 \u7A7A\u4E32\u8868\u793A\u300C\u6CA1\u914D\u300D\uFF0C\u4E0D\u80FD\u5F53\u6811\u7684\u8EAB\u4EFD`, { path })
+    );
+  }
+  if (id.split("/").some((s) => s === "..")) {
+    return err(engineError(AI_TREE_BAD_PATH, `\u300C${path}\u300D\u63A8\u51FA\u7684 id \u91CC\u6709\u300C..\u300D\u2014\u2014 \u8FD9\u4EFD\u6587\u4EF6\u5728\u8D44\u4EA7\u6839\u5916\u9762`, { path }));
+  }
+  return ok(id.toLowerCase());
+}
 function canonicalNode(node) {
   const out = { id: node.id, kind: node.kind };
   if (node.op !== void 0) out.op = node.op;
@@ -27578,6 +27618,75 @@ function createFeedbackModule(options = {}) {
   return handle;
 }
 
+// src/extensions/mobs/tree-loader.ts
+var AI_TREE_DUPLICATE_ID = "AI_TREE.DUPLICATE_ID";
+function fail2(path, e) {
+  return { path, code: e.code, message: e.message };
+}
+function sortedBy(items, key) {
+  return [...items].sort((a, b) => key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0);
+}
+function loadTreeTexts(library, entries, opts = {}) {
+  const ids = [];
+  const failed = [];
+  const taken = /* @__PURE__ */ new Map();
+  for (const entry of sortedBy(entries, (e) => e.path)) {
+    const idR = treeAssetIdFromPath(entry.path, opts.root ?? "");
+    if (!idR.ok) {
+      failed.push(fail2(entry.path, idR.error));
+      continue;
+    }
+    const id = idR.value;
+    const owner = taken.get(id);
+    if (owner !== void 0) {
+      failed.push(
+        fail2(
+          entry.path,
+          engineError(
+            AI_TREE_DUPLICATE_ID,
+            `\u300C${entry.path}\u300D\u4E0E\u300C${owner}\u300D\u63A8\u51FA\u540C\u4E00\u4E2A\u6811 id\u300C${id}\u300D\u2014\u2014 \u4FDD\u7559\u5148\u5230\u7684\u90A3\u4E2A`,
+            { id, path: entry.path, first: owner }
+          )
+        )
+      );
+      continue;
+    }
+    const put2 = library.putText(id, entry.text);
+    if (!put2.ok) {
+      failed.push(fail2(entry.path, put2.error));
+      continue;
+    }
+    taken.set(id, entry.path);
+    ids.push(id);
+  }
+  return { loaded: ids.length, ids: sortedBy(ids, (s) => s), failed };
+}
+async function loadTreeFiles(library, paths, read2, opts = {}) {
+  const entries = [];
+  const failed = [];
+  for (const path of sortedBy(paths, (p) => p)) {
+    const r = await read2(path);
+    if (!r.ok) {
+      failed.push(fail2(path, r.error));
+      continue;
+    }
+    entries.push({ path, text: r.value });
+  }
+  const fromText = loadTreeTexts(library, entries, opts);
+  return {
+    loaded: fromText.loaded,
+    ids: fromText.ids,
+    failed: [...failed, ...fromText.failed]
+  };
+}
+function treesLoadedClean(report) {
+  return report.failed.length === 0;
+}
+function treeLoadShort(report) {
+  if (report.failed.length === 0) return `trees ${String(report.loaded)}`;
+  return `trees ${String(report.loaded)}/${String(report.failed.length)}`;
+}
+
 // src/extensions/render/animation.ts
 function makeAnimationClip(input) {
   if (input.frames.length === 0) {
@@ -28388,6 +28497,18 @@ async function bakeAtlasFromAssets(env, sink) {
     return null;
   }
 }
+async function loadDemoTrees(remote) {
+  const library = new TreeLibrary();
+  if (remote === null) {
+    return { library, report: { loaded: 0, ids: [], failed: [] } };
+  }
+  const report = await loadTreeFiles(library, DEMO_TREE_FILES, (path) => remote.readText(path));
+  if (!treesLoadedClean(report)) {
+    const why = report.failed.map((f) => `${f.path}(${f.code})`).join("\u3001");
+    console.warn(`[ai] \u6811\u8D44\u4EA7\u6CA1\u88C5\u5168\uFF1A${treeLoadShort(report)} \u2014\u2014 ${why}`);
+  }
+  return { library, report };
+}
 async function loadText(db, file) {
   const id = db.idAtPath(`${ASSET_ROOT}/${file}`);
   if (id === void 0) return null;
@@ -28508,6 +28629,7 @@ async function buildDemoGame(env) {
   let hudTick = 0;
   const baked = await bakeAtlasFromAssets(env, assetsUsed);
   const atlasLabel = baked === null ? "procedural" : baked.label;
+  const trees = await loadDemoTrees(assetsUsed.fs);
   const renderMod = createRenderModule({
     viewportWidth: env.viewport.width,
     viewportHeight: env.viewport.height,
@@ -28753,7 +28875,11 @@ async function buildDemoGame(env) {
   let playerCorpses = 0;
   let lastCorpseSkip = "";
   let lastVictim = null;
-  const MOB_TEMPLATES = DEMO_MOB_TEMPLATES;
+  const treeOverride = env.aiTree === void 0 || env.aiTree === null || env.aiTree.trim() === "" ? null : env.aiTree.trim();
+  const MOB_TEMPLATES = DEMO_MOB_TEMPLATES.map((t) => ({
+    ...t,
+    tree: treeOverride ?? (t.kind === "hound" ? DEMO_HOUND_TREE : "")
+  }));
   const MOB_FACTIONS = createDemoFactions();
   let mobsHandle = null;
   let corpsesHandle = null;
@@ -28877,7 +29003,10 @@ async function buildDemoGame(env) {
           max: DEMO_PREY_RESPAWN.max,
           template: DEMO_PREY_RESPAWN.template,
           pickCell: (tick) => pickPreySpawnCell(tick)
-        }
+        },
+        // 批156：树库。不给的话 `mobs.ai` 组件被**无视**（每只都跑内置树）——
+        // 而世界看起来完全正常，只有 `ai n/m` 那一格能分辨。
+        library: trees.library
       });
       const r = h.init(ctx);
       if (r !== void 0 && !r.ok) return r;
@@ -29541,6 +29670,7 @@ ${appR.error.message}
       nodes: st.scene.nodes,
       bodies: physics.stats().bodies,
       atlas: atlasLabel,
+      ai: { loaded: trees.report.loaded, missing: mobsHandle?.missingTrees.length ?? 0 },
       world: wv === null ? null : { terrain: wv.terrain, sites: wv.sites },
       resources: { alive: ws?.alive ?? 0, spawned: ws?.spawned ?? 0, released: ws?.released ?? 0 },
       bagStacks: stacks.length,
@@ -29988,6 +30118,21 @@ ${appR.error.message}
     /** 最近一帧的 HUD 一行文本（**UI 路径下 DOM 不再更新**，诊断与降级都读这里）。 */
     hudText: () => lastHudText,
     /**
+     * 决策树资产（批156）。
+     *
+     * ★ 读的是**装载报告与库**，不是"我调过装载函数"：`loaded: 0` 而 `failed` 非空
+     *   与"这一局没配任何树"在 HUD 上是同一个 `ai 0/0`，只有这两个字段能分辨。
+     * ★ `explain` 是「面板看见」那条线的数据源：它说的不是"配了哪棵树"，
+     *   而是"**这一拍照什么做了决定、依据是哪几个键**"（`mob-brain.explain`）。
+     */
+    ai: {
+      loaded: trees.report.loaded,
+      trees: trees.library.ids(),
+      failed: trees.report.failed.map((f) => ({ path: f.path, code: f.code })),
+      missing: () => worldState.mobs?.missingTrees ?? [],
+      explain: (nodeId) => worldState.mobs?.explain(nodeId) ?? null
+    },
+    /**
      * 图形后端的帧计数（`frameIndex` **每次 `endFrame` 加一**）。
      *
      * ★★ 自检页用它证"UI 与世界在**同一个 pass**"：一帧里若 UI 自己开了第二个
@@ -30259,6 +30404,9 @@ async function main() {
     clearTimer: (id) => window.clearTimeout(id),
     reload: () => location.reload(),
     scriptWasm,
+    // 批156：`?tree=ai/hound_grudge` —— 全体生物换一棵决策树（不改代码、不用重建）。
+    // ★ 空串/缺省都交给装配去归一（空串不是"换成一棵空树"，是"没指定"）。
+    aiTree: new URL(location.href).searchParams.get("tree"),
     surface,
     platformId: "web",
     platform: {

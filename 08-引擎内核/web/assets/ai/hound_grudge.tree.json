@@ -1,0 +1,64 @@
+{
+  "format": "aitree",
+  "version": 1,
+  "root": {
+    "id": "grudge.root",
+    "kind": "sequence",
+    "children": [
+      {
+        "id": "grudge.sane",
+        "kind": "check",
+        "op": "mob.canDecide"
+      },
+      {
+        "id": "grudge.body",
+        "kind": "selector",
+        "children": [
+          {
+            "id": "grudge.hostile",
+            "kind": "sequence",
+            "children": [
+              {
+                "id": "grudge.angry",
+                "kind": "check",
+                "op": "mob.isAggressive"
+              },
+              {
+                "id": "grudge.hunt",
+                "kind": "sequence",
+                "children": [
+                  {
+                    "id": "grudge.c1",
+                    "kind": "check",
+                    "op": "mob.hasGrudge"
+                  },
+                  {
+                    "id": "grudge.d1",
+                    "kind": "do",
+                    "op": "mob.huntGrudge"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "grudge.roam",
+            "kind": "sequence",
+            "children": [
+              {
+                "id": "grudge.c2",
+                "kind": "check",
+                "op": "mob.hasWander"
+              },
+              {
+                "id": "grudge.d2",
+                "kind": "do",
+                "op": "mob.wander"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

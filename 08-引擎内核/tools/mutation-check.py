@@ -8737,6 +8737,94 @@ MUTANTS = [
         ],
         "test": "tests/extensions/mob-tree-per-entity.test.ts",
     },
+    {
+        "name": "M937 树 id 不转小写（Hound 与 hound 变成两棵树，其中一个永远解析不到）",
+        "file": "src/extensions/mobs/tree-asset.ts",
+        "pairs": [
+            (
+                "  return ok(id.toLowerCase());",
+                "  return ok(id);",
+            ),
+        ],
+        "test": "tests/extensions/tree-loader.test.ts",
+    },
+    {
+        "name": "M938 id 里的 .. 放行（能推出资产根外面的路径）",
+        "file": "src/extensions/mobs/tree-asset.ts",
+        "pairs": [
+            (
+                '  if (id.split("/").some((s) => s === "..")) {',
+                '  if (id.split("/").some((s) => s === ".._")) {',
+            ),
+        ],
+        "test": "tests/extensions/tree-loader.test.ts",
+    },
+    {
+        "name": "M939 空 id 放行（与「没配」合成一个值，那棵树的引用状态永远不可见）",
+        "file": "src/extensions/mobs/tree-asset.ts",
+        "pairs": [
+            (
+                "  if (id.length === 0) {",
+                "  if (id.length < 0) {",
+            ),
+        ],
+        "test": "tests/extensions/tree-loader.test.ts",
+    },
+    {
+        "name": "M940 给了资产根却不剥前缀（id 里带上 web/assets/，配置的人永远猜不到）",
+        "file": "src/extensions/mobs/tree-asset.ts",
+        "pairs": [
+            (
+                "    rel = p.slice(r.length + 1);",
+                "    rel = p;",
+            ),
+        ],
+        "test": "tests/extensions/tree-loader.test.ts",
+    },
+    {
+        "name": "M941 一个坏文件就整批停（五棵树里坏一棵 ⇒ 全员退回内置树）",
+        "file": "src/extensions/mobs/tree-loader.ts",
+        "pairs": [
+            (
+                "      failed.push(fail(entry.path, put.error));\n      continue;",
+                "      failed.push(fail(entry.path, put.error));\n      break;",
+            ),
+        ],
+        "test": "tests/extensions/tree-loader.test.ts",
+    },
+    {
+        "name": "M942 撞 id 不判（后者静默覆盖前者，症状是「我改的那棵没生效」）",
+        "file": "src/extensions/mobs/tree-loader.ts",
+        "pairs": [
+            (
+                "    if (owner !== undefined) {",
+                "    if (false) {",
+            ),
+        ],
+        "test": "tests/extensions/tree-loader.test.ts",
+    },
+    {
+        "name": "M943 报告的 ids 不排序（撞车时「谁先到」变成运气）",
+        "file": "src/extensions/mobs/tree-loader.ts",
+        "pairs": [
+            (
+                "  return { loaded: ids.length, ids: sortedBy(ids, (s) => s), failed };",
+                "  return { loaded: ids.length, ids, failed };",
+            ),
+        ],
+        "test": "tests/extensions/tree-loader.test.ts",
+    },
+    {
+        "name": "M944 HUD 的 ai 只显示装了几棵、不显示缺了几棵（配错 id 在画面上消失）",
+        "file": "src/host/hud-model.ts",
+        "pairs": [
+            (
+                '        field("ai ", `${r(f.ai.loaded)}/${r(f.ai.missing)}`),',
+                '        field("ai ", r(f.ai.loaded)),',
+            ),
+        ],
+        "test": "tests/host/hud-model.test.ts",
+    },
 ]
 
 def run(m: dict) -> tuple[int, str]:

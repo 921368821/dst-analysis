@@ -1868,6 +1868,39 @@ row("★★★ 玩家八向动画：帧名 = 朝向扇区、同方向 4 帧在�
   }
 });
 
+// ---- 批156：树资产（`.tree.json` → 库）：配置生效的唯一窗口 ----
+row("★★ 树资产真的装进了库：猎狗跑的是**文件里**那棵树，HUD 那一格也说得出来", (e) => {
+  const ai = e.ai;
+  if (!ai) return [false, "e.ai 不存在 —— 宿主没把树资产接出来（「配置生效了没有」就只有这一格能回答）"];
+  if (ai.failed.length > 0) {
+    return [false, `树资产装载失败：${ai.failed.map((f) => `${f.path}(${f.code})`).join("、")}`];
+  }
+  if (ai.loaded < 2) {
+    // 少装一份 = 运行时那次 readText 是 404，而世界照样在跑（全员退回内置树）
+    return [false, `只装上了 ${ai.loaded} 棵树（清单是两份）—— 少的那份在运行时是 404`];
+  }
+  const m = e.mobs();
+  if (m === null) return [false, "生物模块没起来"];
+  const hound = m.list.find((o) => o.kind === "hound");
+  if (hound === undefined) return [false, "世界里没有猎狗 —— 这条判据没有语料"];
+  const ex = ai.explain(hound.id);
+  if (ex === null || ex === undefined) return [false, "explain 返回 null —— 面板在这一格上没有数据"];
+  // ★ 三个字段一起读：`wanted`（配置里写的）/ `treeId`（实际跑的）/ `treeSource`。
+  //   只读 `treeSource` 的话，「全员都没配」与「配了但库里没有」在 default/missing 上是能分，
+  //   但「配置生效」这一侧仍然可能因为 wanted 是空串而假绿 —— 所以要一起读。
+  // ★ 不写死 `ai/hound`（那是宿主里的常量，写在这里就变成第三份抄本）：
+  //   要判的是「组件里那个 id 真的在库里解析到了」，而不是"那个 id 拼对了"。
+  const hud = e.hudText();
+  const fitsHud = hud.includes(`ai ${ai.loaded}/0`);
+  const ok =
+    ex.treeSource === "asset" && ex.wanted !== "" && ex.treeId === ex.wanted && m.treeFallbacks === 0 && fitsHud;
+  return [
+    ok,
+    `hound wanted=${ex.wanted === "" ? "(none)" : ex.wanted} actual=${ex.treeId} source=${ex.treeSource}` +
+      ` · 回落 ${m.treeFallbacks} · HUD「${hud}」`,
+  ];
+});
+
 // ★ 什么时候停：**全部通过**才停，或者到 10 秒。以前是"引擎起来了 + 跑过 0.7 秒就停"，//   于是"tick > 10"和"每 60 tick 一条 Lua 日志"这两条**永远不可能过** ——
 //   而页面会一本正经地显示"12 通过 / 2 失败"，看起来像引擎的问题。
 //   停得太早和判定写错一样，都是假红。

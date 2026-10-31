@@ -228,6 +228,9 @@ export async function main(): Promise<void> {
     clearTimer: (id) => window.clearTimeout(id),
     reload: () => location.reload(),
     scriptWasm,
+    // 批156：`?tree=ai/hound_grudge` —— 全体生物换一棵决策树（不改代码、不用重建）。
+    // ★ 空串/缺省都交给装配去归一（空串不是"换成一棵空树"，是"没指定"）。
+    aiTree: new URL(location.href).searchParams.get("tree"),
     surface,
     platformId: "web",
     platform: {

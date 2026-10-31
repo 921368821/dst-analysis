@@ -31,6 +31,7 @@
 
 import { AiAgent, type AiNode, type AiOps } from "../ai/behavior.ts";
 import { engineError, err, ok, type EngineError, type Result } from "../../foundation/result.ts";
+import type { AssetId } from "../../core/asset/asset.ts";
 import { MOB_OPS } from "./mob-tree.ts";
 
 /** 资产文件后缀。与 `asset-list.ts` 的 `.json` 分类不冲突（最长后缀优先，这里只是识别用）。 */
@@ -46,10 +47,86 @@ export const TREE_FORMAT_VERSION = 1;
 export const AI_TREE_BAD_ASSET = "AI_TREE.BAD_ASSET";
 /** 版本比本代码新（见文件头 ④）。 */
 export const AI_TREE_BAD_VERSION = "AI_TREE.BAD_VERSION";
+/** 路径推不出一个合法的树 id（批156，见 `treeAssetIdFromPath`）。 */
+export const AI_TREE_BAD_PATH = "AI_TREE.BAD_PATH";
 
 /** 这个路径是不是一份决策树资产（编辑器打开/资产清单用）。 */
 export function isTreeAssetPath(path: string): boolean {
   return path.toLowerCase().endsWith(TREE_FILE_SUFFIX);
+}
+
+/** 路径归一：反斜杠 → `/`，丢掉空段与 `.`（**保留** `..` —— 它要被拒绝，不是被吃掉）。 */
+function normalizePath(p: string): string {
+  return p
+    .trim()
+    .replace(/\\/g, "/")
+    .split("/")
+    .filter((s) => s.length > 0 && s !== ".")
+    .join("/");
+}
+
+/**
+ * 资产路径 → 树 id（批156）。**树的身份就是它在资产根下的路径**。
+ *
+ * ★★ 五个决定：
+ *
+ * ① **不哈希**（与 `core/asset` 的 `stableIdFromPath` 不同）。那边要的是"稳定且唯一"，
+ *    这边多一条：**id 要能被人在组件的 `tree` 字段里读懂**。`p1k2j3h` 与
+ *    `ai/hound` 在配置面板上没有可比性 —— 前者只能靠资产选择器点出来，
+ *    而本仓库的编辑器对面这个字段给的是一个**文本框**（`FieldType.Asset` → `asset` 控件）。
+ *    代价与 `stableIdFromPath` 一样写在这里：**改了路径就换了 id**，
+ *    引用它的生物会以 `missing`（`treeFallbacks` + 面板 `miss <id>`）被数出来，
+ *    而不是静默失效 —— 这正是批155 那套降级三件套存在的理由。
+ *
+ * ② **一律小写**。`Hound.tree.json` 与 `hound.tree.json` 在 Windows 上是同一个文件，
+ *    而 id 是**字符串相等**语义。不归一的话同一棵树会有两个 id，
+ *    其中一个永远解析不到 —— 症状是"我明明有这个文件，它却说没有"。
+ *
+ * ③ **`root` 剥掉，且必须真的匹配**。给了根而路径不在它下面 ⇒ 报错，
+ *    不是"照原样当 id"：那会让 id 里带上 `web/assets/`，配置的人永远猜不到要写什么。
+ *
+ * ④ **空 id 拒绝**。根目录下直接放一个 `.tree.json` 推出来是空串，
+ *    而空串在组件里表示"没配"（见 `tree-library.ts` 的 `DEFAULT_TREE_ASSET`）。
+ *    两者合成一个的话，那棵树的引用状态就永远不可见了。
+ *
+ * ⑤ **`..` 拒绝**。id 里出现 `..` 说明这份文件在资产根外面 ——
+ *    要么调用方算错了相对路径，要么有人在拼一个能读到别处的路径。
+ */
+export function treeAssetIdFromPath(path: string, root = ""): Result<AssetId, EngineError> {
+  const p = normalizePath(path);
+  const r = normalizePath(root);
+  if (p.length === 0) {
+    return err(engineError(AI_TREE_BAD_PATH, "树资产的路径是空的"));
+  }
+  let rel = p;
+  if (r.length > 0) {
+    // 见文件头 ③
+    if (p === r) {
+      return err(engineError(AI_TREE_BAD_PATH, `「${path}」是资产根本身，不是一份文件`, { path, root }));
+    }
+    if (!p.startsWith(`${r}/`)) {
+      return err(engineError(AI_TREE_BAD_PATH, `「${path}」不在资产根「${root}」下`, { path, root }));
+    }
+    rel = p.slice(r.length + 1);
+  }
+  if (!rel.toLowerCase().endsWith(TREE_FILE_SUFFIX)) {
+    return err(
+      engineError(AI_TREE_BAD_PATH, `「${path}」不是决策树资产（要以 ${TREE_FILE_SUFFIX} 结尾）`, { path }),
+    );
+  }
+  const id = rel.slice(0, rel.length - TREE_FILE_SUFFIX.length);
+  // 见文件头 ④
+  if (id.length === 0) {
+    return err(
+      engineError(AI_TREE_BAD_PATH, `「${path}」推出来是空 id —— 空串表示「没配」，不能当树的身份`, { path }),
+    );
+  }
+  // 见文件头 ⑤
+  if (id.split("/").some((s) => s === "..")) {
+    return err(engineError(AI_TREE_BAD_PATH, `「${path}」推出的 id 里有「..」—— 这份文件在资产根外面`, { path }));
+  }
+  // 见文件头 ②
+  return ok(id.toLowerCase());
 }
 
 /**

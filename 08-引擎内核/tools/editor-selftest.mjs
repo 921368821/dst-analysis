@@ -492,10 +492,12 @@ const PROBE = `
   const addBtn = document.getElementById("asset-add");
   add(
     "★ 无帧的资产被标出来（ui-font.fnt 是文本，按钮也就不可用）",
-    // 7 = 4 个非位图（两个 .fnt + 皮肤 .json + 批112 的 pack-provenance.json）+ 3 张 UI 页
-    //（UI 页不进世界图集，见上一条）。★ 这个数**不是**"大约"：多一个文件就要有人来解释它是什么 ——
+    // 9 = 4 个非位图（两个 .fnt + 皮肤 .json + 批112 的 pack-provenance.json）
+    // + 3 张 UI 页（UI 页不进世界图集，见上一条）+ 2 份决策树（批156 的 .tree.json，
+    // 它们是**文本**资产：能进库、不能进图集，所以按钮必须灰着）。
+    // ★ 这个数**不是**"大约"：多一个文件就要有人来解释它是什么 ——
     // 上一批就是被资产数量带红的，那次红得对（清单里多了东西但没人说清）。
-    noFrame.length === 7 && noFrame.indexOf("ui-font.fnt") >= 0 && pickFnt === false &&
+    noFrame.length === 9 && noFrame.indexOf("ui-font.fnt") >= 0 && pickFnt === false &&
       addBtn.disabled === true,
     "noFrame=" + noFrame.join(",") + " pickable=" + String(pickFnt) + " btnDisabled=" + String(addBtn.disabled),
   );

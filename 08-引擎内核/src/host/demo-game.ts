@@ -85,6 +85,8 @@ import {
   DEMO_MOB_TEMPLATES,
   DEMO_PREY_RESPAWN,
   DEMO_RABBITS,
+  DEMO_HOUND_TREE,
+  DEMO_TREE_FILES,
   createDemoFactions,
   pickDemoMobSpots,
 } from "../host/demo-mobs.ts";
@@ -128,6 +130,10 @@ import {
 } from "../extensions/render/feedback.ts";
 import { registerMoverComponent } from "../extensions/ai/move.ts";
 import { registerAiConfig } from "../extensions/mobs/ai-config.ts";
+// 批156：树资产（`.tree.json`）→ 库。装载规则在引擎侧（`tree-loader.ts`），
+// 宿主只负责"读文件 + 装进库 + 把库交给生物模块"这三步。
+import { TreeLibrary } from "../extensions/mobs/tree-library.ts";
+import { loadTreeFiles, treesLoadedClean, treeLoadShort, type TreeLoadReport } from "../extensions/mobs/tree-loader.ts";
 import { registerFacingComponent } from "../extensions/motion/facing.ts";
 import {
   DirSprite,
@@ -275,6 +281,17 @@ export interface DemoHostEnv {
   /** 平台标识（`web` / `wx` / `headless`）—— 诊断与快照里会读它。 */
   readonly platformId?: string;
   /**
+   * 这一局**全体生物**改用哪棵决策树（批156）。`null` / 缺省 = 按各自的配置。
+   *
+   * ★ 为什么这算宿主的事、而不是引擎的：**"这一局玩哪套脾气"是产品决定**，
+   *   与"渲染用什么后端"同一层级。浏览器宿主把它接到 URL 上（`?tree=ai/hound_grudge`），
+   *   于是"换一棵树看效果"不必改代码、不必重新构建 —— 这正是批156 想让
+   *   「配 AI」落地的最后那一步。引擎侧只认"每只生物身上的 `mobs.ai`"。
+   * ★ 给了就**覆盖全部生物**（不只是猎狗）：一个能"只改某一种"的开关会需要
+   *   "哪一种是哪种"的第二张表，而那张表正是模板里已经有了的东西。
+   */
+  readonly aiTree?: string | null;
+  /**
    * 平台创建参数（prefer / allow / backendOptions / strict）。
    *
    * ★ 必须由宿主给：`backendOptions.input` 在浏览器里是 `{keyboard: window, pointer: canvas}`，
@@ -394,6 +411,20 @@ export interface DemoHandle {
   readonly save: () => Promise<unknown>;
   readonly load: () => Promise<unknown>;
   readonly attack: () => string;
+  /**
+   * 决策树资产（批156，自检页读）。
+   *
+   * ★ `loaded` 是"从文件装上了几棵"，`missing()` 是"现在有谁配了不存在的树"。
+   *   两者都为 0 时世界照样在跑（退回内置树）—— 所以这两个数字必须能被外部读到，
+   *   否则"树资产没生效"在浏览器里除了肉眼没有任何证据。
+   */
+  readonly ai: {
+    readonly loaded: number;
+    readonly trees: readonly string[];
+    readonly failed: readonly { readonly path: string; readonly code: string }[];
+    missing(): readonly string[];
+    explain(nodeId: number): unknown;
+  };
   readonly [key: string]: unknown;
 }
 
@@ -679,6 +710,38 @@ async function bakeAtlasFromAssets(env: DemoHostEnv, sink: AssetSink): Promise<B
   }
 }
 
+/** 树资产装载的结果：库（交给生物模块）+ 报告（交给面板与自检）。 */
+export interface DemoTreeLoad {
+  readonly library: TreeLibrary;
+  readonly report: TreeLoadReport;
+}
+
+/**
+ * 决策树资产装载（批156）：`web/assets/ai/*.tree.json` → `TreeLibrary`。
+ *
+ * ★ 为什么这里再开一次 `env.assets.open()` 之外的路：**不重复开**。
+ *   资产源由 `bakeAtlasFromAssets` 打开一次并存进 `assetsUsed.fs`（`AssetSink`），
+ *   这里复用它。再开一次在包模式下意味着**第二次下载同一个包**，
+ *   而症状只是"启动慢了一点" —— 没有任何计数能看见。
+ * ★ 失败不抛：一棵树装不上不该让整个页面起不来。代价是**必须有人说出它**，
+ *   所以报告进 `HudFacts.ai`（`ai n/m`）与 `DemoHandle.ai.failed`。
+ */
+async function loadDemoTrees(remote: IReadableFileSystem | null): Promise<DemoTreeLoad> {
+  const library = new TreeLibrary();
+  if (remote === null) {
+    // 资产源没开起来（图集烘焙在更早一步就退了）⇒ 一棵树都没有，世界退回内置树。
+    // ★ 这不是异常路径：它必须与"读到了零个文件"区分开，所以返回**空报告**，
+    //   由 HUD 的 `ai 0/0` 说出来。在这里抛的话，一个读不到的树文件会带走整个世界。
+    return { library, report: { loaded: 0, ids: [], failed: [] } };
+  }
+  const report = await loadTreeFiles(library, DEMO_TREE_FILES, (path) => remote.readText(path));
+  if (!treesLoadedClean(report)) {
+    const why = report.failed.map((f) => `${f.path}(${f.code})`).join("、");
+    console.warn(`[ai] 树资产没装全：${treeLoadShort(report)} —— ${why}`);
+  }
+  return { library, report };
+}
+
 /**
  * 取一份**文本**产物（`.fnt` / `.json` 都归 `textImporter`）。找不到返回 null。
  *
@@ -842,6 +905,10 @@ export async function buildDemoGame(env: DemoHostEnv): Promise<DemoHandle> {
   // ---- 资产烘焙（必须在渲染模块之前：图集是渲染 init 的输入）
   const baked = await bakeAtlasFromAssets(env, assetsUsed);
   const atlasLabel = baked === null ? "procedural" : baked.label;
+
+  // ---- 决策树资产（批156）：必须在 `world.mobs` **之前** —— 那边 init 时就要按实体查树。
+  //   ★ 复用的是烘焙那一步打开过的资产源（见 `loadDemoTrees` 的 ★）。
+  const trees = await loadDemoTrees(assetsUsed.fs);
 
   // ---- 渲染模块（follow 闭包读 heroId，世界建好后才有效）
   const renderMod = createRenderModule({
@@ -1323,7 +1390,19 @@ export async function buildDemoGame(env: DemoHostEnv): Promise<DemoHandle> {
   //   必须读同一份数字** —— 抄一份到测试里的第二份必然漂移（调了猎狗冷却、
   //   测试还在用旧的），于是"生态正常"永远是绿的。搬出去之后测试 import 的
   //   是这张表本身，配表一改判据跟着改。
-  const MOB_TEMPLATES = DEMO_MOB_TEMPLATES;
+  //
+  // ★ 批156：这里给每只生物写上「用哪棵树」的 id。
+  //   猎狗用 `ai/hound`（**与内置树同构的资产版**：行为逐条不变，但它是一个文件了），
+  //   兔子不配（`""` = 没配 ⇒ 内置树；兔子没有攻击组件，树对它本来也无差别）。
+  //   `env.aiTree` 给了就全体覆盖 —— 那是「换一棵树看效果」的开关（见那里的 ★）。
+  //   ★ 为什么在宿主里拼、而不是把 id 写进 `DEMO_MOB_TEMPLATES`：
+  //     模板表是**生态判据的语料**（Node 里不装库，组件会指向一棵不存在的树 ⇒
+  //     那些判据会带着一个假的 `treeFallbacks` 跑）。"这一局装哪棵树"是宿主的事。
+  const treeOverride = env.aiTree === undefined || env.aiTree === null || env.aiTree.trim() === "" ? null : env.aiTree.trim();
+  const MOB_TEMPLATES = DEMO_MOB_TEMPLATES.map((t) => ({
+    ...t,
+    tree: treeOverride ?? (t.kind === "hound" ? DEMO_HOUND_TREE : ""),
+  }));
   const MOB_FACTIONS = createDemoFactions();
 
   let mobsHandle: MobWorldHandle | null = null;
@@ -1553,6 +1632,9 @@ export async function buildDemoGame(env: DemoHostEnv): Promise<DemoHandle> {
           template: DEMO_PREY_RESPAWN.template,
           pickCell: (tick) => pickPreySpawnCell(tick),
         },
+        // 批156：树库。不给的话 `mobs.ai` 组件被**无视**（每只都跑内置树）——
+        // 而世界看起来完全正常，只有 `ai n/m` 那一格能分辨。
+        library: trees.library,
       });
       const r = h.init(ctx) as Result<void, EngineError> | undefined;
       if (r !== undefined && !r.ok) return r;
@@ -2559,6 +2641,7 @@ export async function buildDemoGame(env: DemoHostEnv): Promise<DemoHandle> {
       nodes: st.scene.nodes,
       bodies: physics.stats().bodies,
       atlas: atlasLabel,
+      ai: { loaded: trees.report.loaded, missing: mobsHandle?.missingTrees.length ?? 0 },
       world: wv === null ? null : { terrain: wv.terrain, sites: wv.sites },
       resources: { alive: ws?.alive ?? 0, spawned: ws?.spawned ?? 0, released: ws?.released ?? 0 },
       bagStacks: stacks.length,
@@ -3080,6 +3163,21 @@ export async function buildDemoGame(env: DemoHostEnv): Promise<DemoHandle> {
     bindings: () => ({ ...controllerMod.map.toData().actions }),
     /** 最近一帧的 HUD 一行文本（**UI 路径下 DOM 不再更新**，诊断与降级都读这里）。 */
     hudText: () => lastHudText,
+    /**
+     * 决策树资产（批156）。
+     *
+     * ★ 读的是**装载报告与库**，不是"我调过装载函数"：`loaded: 0` 而 `failed` 非空
+     *   与"这一局没配任何树"在 HUD 上是同一个 `ai 0/0`，只有这两个字段能分辨。
+     * ★ `explain` 是「面板看见」那条线的数据源：它说的不是"配了哪棵树"，
+     *   而是"**这一拍照什么做了决定、依据是哪几个键**"（`mob-brain.explain`）。
+     */
+    ai: {
+      loaded: trees.report.loaded,
+      trees: trees.library.ids(),
+      failed: trees.report.failed.map((f) => ({ path: f.path, code: f.code })),
+      missing: () => worldState.mobs?.missingTrees ?? [],
+      explain: (nodeId: number) => worldState.mobs?.explain(nodeId) ?? null,
+    },
     /**
      * 图形后端的帧计数（`frameIndex` **每次 `endFrame` 加一**）。
      *

@@ -60,6 +60,27 @@ export const DEMO_HOUNDS = 3;
 export const DEMO_RABBITS = 10;
 
 /**
+ * 随包发的决策树文件（**相对 `web/assets/`**，批156）。
+ *
+ * ★★ 为什么是一张显式的清单，而不是"扫一遍目录"：
+ *   浏览器的资产源是静态资源服务器（`HttpFileSystem` 的 `canList === false`），
+ *   **没有列目录这个操作**。而小游戏包里也没有 —— 目录信息在构建期就丢了。
+ *   所以"这一局有哪几棵树"必须是数据，不能靠运行时枚举。
+ *   ★ 与 `DEMO_FRAMES` 同一条理由的另一面：清单在这里，判据才能逐条核对
+ *     「清单里的文件真的存在、真的能解析、推出来的 id 真的是组件里写的那个」——
+ *     而这三件事任何一件坏了，症状都只是"怪的脾气没变"。
+ */
+export const DEMO_TREE_FILES = ["ai/hound.tree.json", "ai/hound_grudge.tree.json"] as const;
+
+/**
+ * 猎狗默认用哪棵：`ai/hound.tree.json` 去掉后缀。
+ *
+ * ★ 就是 `treeAssetIdFromPath` 的输出。判据断言两者相等（`demo-trees.test.ts`），
+ *   于是"改文件名却忘了改这里"会红在测试里，而不是变成一次静默的 `miss`。
+ */
+export const DEMO_HOUND_TREE = "ai/hound";
+
+/**
  * 关系表是**宿主**的配置（引擎不认识"猎人"）：玩家与猎狗同队，兔子是猎物。
  * 于是猎狗会追兔子、玩家能打兔子，而玩家与猎狗之间是友军（互不攻击）。
  */

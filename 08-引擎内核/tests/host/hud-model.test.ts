@@ -52,6 +52,7 @@ const FULL: HudFacts = {
   nodes: 481,
   bodies: 71,
   atlas: "assets*11",
+  ai: { loaded: 2, missing: 0 },
   world: { terrain: 120, sites: 40 },
   resources: { alive: 12, spawned: 30, released: 18 },
   bagStacks: 3,
@@ -283,7 +284,7 @@ test("★ hudRows 从 hudRowRuns 派生（同源），且逐字符等于重构�
   assert.deepEqual(hudRows(FULL), [rows[0]!.text, rows[1]!.text, rows[2]!.text]);
   // 逐字符钉住：这条同时守「分段没有吞字符」（标签尾空格、冒号后不空格）与「分隔符还是 ' | '」。
   assert.equal(rows[0]!.text, "fps 60 | tick 12034 | quad 1420 | draw 3 | cull 71 | nodes 481 | bodies 71");
-  assert.equal(rows[1]!.text, "atlas:assets*11 | world 120/40 | res 12/30/18 | bag 3 | fed 78/100");
+  assert.equal(rows[1]!.text, "atlas:assets*11 | ai 2/0 | world 120/40 | res 12/30/18 | bag 3 | fed 78/100");
   assert.equal(rows[2]!.text, "webgl2/webaudio/dom/lua | script 12034c/0e/2to | drop 0");
 });
 

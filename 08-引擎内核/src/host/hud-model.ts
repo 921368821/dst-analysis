@@ -36,6 +36,17 @@ export interface HudFacts {
   readonly bodies: number;
   /** 图集来源标签（`assets*11` / `procedural`）—— 降级必须**看得见**。 */
   readonly atlas: string;
+  /**
+   * 决策树资产（批156）：`loaded` = 从 `.tree.json` 装上的棵数（**不含内置树**）；
+   * `missing` = 场景里配了、但库里没有的树 id 个数。
+   *
+   * ★ 两个数必须都在：`loaded` 回答"我的树到底装了没"，`missing` 回答"有没有谁配错了 id"。
+   *   只显示 `loaded` 的话，一个都装失败与一棵都没配看起来一样（都是 0）；
+   *   只显示 `missing` 的话，0 既可能是"全都对"也可能是"根本没有树"。
+   * ★ 与 `atlas` 同一条纪律：降级（缺树 ⇒ 退回内置树）在画面上**看起来完全正常**，
+   *   所以它必须占 HUD 一格，而不是只留在日志里。
+   */
+  readonly ai: { readonly loaded: number; readonly missing: number };
   /** `null` = 世界没装配。`terrain` = 地形块数，`sites` = 投放点数。 */
   readonly world: { readonly terrain: number; readonly sites: number } | null;
   /** 再生资源的三个计数：活着的 / 累计刷出的 / 被采走的。 */
@@ -128,6 +139,7 @@ export function hudRowRuns(f: HudFacts, colors?: HudRowColors): readonly [HudRow
     mk(
       join([
         field("atlas:", f.atlas),
+        field("ai ", `${r(f.ai.loaded)}/${r(f.ai.missing)}`),
         field("world ", world),
         field("res ", `${r(f.resources.alive)}/${r(f.resources.spawned)}/${r(f.resources.released)}`),
         field("bag ", r(f.bagStacks)),
