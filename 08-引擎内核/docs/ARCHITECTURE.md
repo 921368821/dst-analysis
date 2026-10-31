@@ -855,7 +855,7 @@ UI 动画、音频、录像在暂停时仍应活动 —— 所以它们是不同
 | **浏览器自检** | 真实浏览器里 9 条端到端断言（画面/批处理/存档往返） | 9 | `web/selftest.html` |
 
 本表只统计 **L0–L3 核心子集**，行内数字相加为 **120 条 Node 判据 + 9 条浏览器自检**；
-含扩展解码器（PNG/JPEG/资产导入）与文件系统的全量是 2865 条 <!-- n:tests -->，全部在 `npm test` / 打开自检页里跑；
+含扩展解码器（PNG/JPEG/资产导入）与文件系统的全量是 2878 条 <!-- n:tests -->，全部在 `npm test` / 打开自检页里跑；
 `npm run check` 额外跑 `tsc`（strict + noUncheckedIndexedAccess）。
 
 ### 10.2 为什么"架构守护"比多写功能更重要
@@ -889,7 +889,7 @@ UI 动画、音频、录像在暂停时仍应活动 —— 所以它们是不同
 | # | 闸门 | 挡住什么 | 为什么必须自动化 |
 |---|---|---|---|
 | 1 | 类型检查 `tsc`（strict + `noUncheckedIndexedAccess`） | 类型层的不可能状态 | 人眼看不见"这里可能是 undefined" |
-| 2 | 判据（全量，2865 条 <!-- n:tests -->） | 行为退化 | 上一代引擎的判据从未被一次跑完过 |
+| 2 | 判据（全量，2878 条 <!-- n:tests -->） | 行为退化 | 上一代引擎的判据从未被一次跑完过 |
 | 3 | 物理性能闸门（**独占**跑） | 解算耗时退化 | 并行跑时测到的是"机器多忙"，不是"代码多慢"（阈值仍是 8ms，一个字没动） |
 | 4 | 覆盖率闸门 | "新代码没有任何判据走过" | 百分比能被平凡代码堆出来，所以守的是**未覆盖行清单**不许变多 |
 | 5 | 文档对账 | 判据数、变异数、后端数、步数写成过期值；**缺口清单里点名了已经在 CI 里跑的工具**（= 把做完的事记成待办） | **实测：这一批一次喊出 14 处漂移，人眼一处都没发现**。批97 起还管「清单对账」：`§六` 的缺口行若点名了某个 `tools/` 路径，而那个工具**已经在 CI 里跑**，就要人说清是"做完了没划掉"还是"点名点错了工具"（`tools/gap-check.mjs`，带合成的过期行做反向自检）。**批102 起还管阻塞清单**：`docs/BLOCKERS-*.md` 的每条数据行必须单行、点名的路径必须存在、状态落在 ✅/⛔/🔜/❌ 四种里，且**每条 ✅ 必须给一条逐字可核的证据**（行内一句「…」要能在它引用的文件里原样找到 —— 判据被删或文件改名就红）。`tools/blockers-check.mjs` + 12 条判据（含反向自检与接线判据）。**批131 起还管「做完却没关单」**：`§六` 的缺口行首格没划掉、行里却写着「已交付 / 已消除 / 已支持」，又没写明还差什么 ⇒ 红（`tools/gap-check.mjs` 的 `findForgottenClosures`，8 条判据 / 5 条变异）。两个反向条件（首格已划、行里还写着「仍缺」）都是为了不假红 —— 假红会让人把「还差什么」那句话删掉，比漏报更贵 |
@@ -903,7 +903,7 @@ UI 动画、音频、录像在暂停时仍应活动 —— 所以它们是不同
 | 13 | 浏览器端自检（无头 CDP 驱动，57 条 <!-- n:browser -->） | 页面级问题（DOM 缺节点、`fetch` 绑定、GL 拒绝） | Node 判据只能证明"我们发了什么调用"，不能证明浏览器接受；**缺浏览器时标 ⊘ 跳过，不算通过** |
 | 14 | 编辑器页自检（无头 CDP，113 条 <!-- n:editor -->） | 编辑器坏而运行时好（或反过来） | 与第 12 步分开，红的时候要一眼看出该谁修 |
 | 15 | 跨宿主存档比对 | Node 与浏览器写出的存档字节不同 | 存档要能在两个宿主之间迁，字节不同就悄悄迁移失败 |
-| 16 | 变异校验（1070 组 <!-- n:mutants -->） | **判据本身失效**（改坏了还是绿的） | 这是唯一能证明"判据有牙齿"的手段 |
+| 16 | 变异校验（1082 组 <!-- n:mutants -->） | **判据本身失效**（改坏了还是绿的） | 这是唯一能证明"判据有牙齿"的手段 |
 
 ★ 第 8 步的**适用域**（2026-10-25 实测，写清楚免得下次又当 bug 查）：
 金标是**某个具体 ffmpeg 构建**的产物 —— 本机生成它的是 `7.1-essentials_build-www.gyan.dev`。
@@ -957,9 +957,9 @@ CI 上 `pip install imageio-ffmpeg` 装的是 Linux 构建，对 12 位灰度（
   **16 位进 GPU**（`PixelFormat.RGBA16` + 图集 `precision` + WebGL2 `RGBA16/UNSIGNED_SHORT`）、
   **动画时间轴**（`AnimationClip` 只读数据 + 组件持时间 + 纯采样，图集不持计时器）、
   **真实资产上屏**（导入 → 解码 → 确定性图集合成 → `createTexture`，浏览器读 `web/assets/` 5 PNG + 1 JPEG）
-- **2865 条 Node 判据** <!-- n:tests -->（197 个测试文件 <!-- n:files -->）+ 57 条浏览器自检 <!-- n:browser -->，架构守护 7 条，
+- **2878 条 Node 判据** <!-- n:tests -->（198 个测试文件 <!-- n:files -->）+ 57 条浏览器自检 <!-- n:browser -->，架构守护 7 条，
   后端契约 22 条（两图形后端）+ 14 条（两脚本后端）
-- 变异验证 **1070 组** <!-- n:mutants -->（异常隔离 / id 空间 / 增量 hash / env 隔离 / Paeth / 像素上传 / 5.1 unpack /
+- 变异验证 **1082 组** <!-- n:mutants -->（异常隔离 / id 空间 / 增量 hash / env 隔离 / Paeth / 像素上传 / 5.1 unpack /
   Adam7 pass 表 / pass 宽度 / APNG blend / APNG dispose / 16 位取整 / APNG 帧数校验 /
   渐进 AC 精修 EOBRUN / 重启区间 DC 复位 / 三角上采样 / 截断标记 / EXIF 旋转 /
   QM 的 Switch_MPS / 双线性单侧钳位 / 无损差分取模 / DC 类别上限 / 精度规则 / EXP 位置 /
@@ -1536,6 +1536,7 @@ UV 用**恒等映射**（`u0 = x/scaleW, v0 = y/scaleH`），与 T330 那条教�
 | `host/demo-game.ts` | `buildDemoGame(env)`：整段 demo 装配（约 3000 行）+ 依赖面 `DemoHostEnv` / `DemoSurface`（含 HUD 缺失时的降级语义表） | 装配是「用引擎的那一侧」，但**不是**「某个平台的那一侧」—— 它必须同时被浏览器与假 wx 装上。**不许 import 具体后端**（规则 4）⇒ 注册表由入口交进来；一切宿主能力（HUD 文本 / toast / 浮字 / 键盘 / 输入法 / 重载）收进 `DemoSurface`。两个世界同时存在时模块级单例会互相覆盖，所以 `assetFs`/`assetKind` 这类都收成**每次构建一份** |
 | `host/net-mode.ts` | `parseNetMode`（URL 参数 → 角色/房间/座位）· `localDriveOf` · `pickLocalEntity` · `planNetWiring` | 全是**纯函数**，因为这三件事每一个错了都表现为画面正常（座位错 ⇒ 像断网；控制器与会话同时改位置 ⇒ 每拍走两步，像「跑得快」；预测没开 ⇒ 一顿一顿，像帧率）。写在三千行的组合根里就只能靠「打开浏览器看一眼」验证 |
 | `host/seat-table.ts` | `createSeatTable({ scene, plan, origin, free? })` → `join` / `release` / `entityOf` / `stats`；`countPlayers(scene)` 按 `world.player` 数 | 座位 → 实体的**唯一**落地器：`join` 幂等（重连复用同一实体并重写归属）、`release` **只**交还 `AUTHORITY`、占用格从场景里的玩家收集（开局那位不是这张表造的）。住 L6 才能既用 worldgen（L4）又用宿主侧的物理登记，并且能被 Node 判据直接调 |
+| `host/net-assembly.ts` | `assembleHostNet` / `assembleClientNet`（座位表 + 房间 + 会话接成一条）、`handleJoinRequest`（分配 → 回包 → 重连补归属 → 要全量）、`localCommand`（**两端共用**的本地意图读取） | 这一段原来长在组合根里，而那三根线（重连补 `join`、`requestKeyframe`、装载后重指主角）**一条 Node 判据都打不到** —— 它们的共同症状是「世界在动，但按键不动 / 相机钉住」，而所有计数都是对的。搬到 L6 之后每一条都有判据（`net-handshake-wiring.test.ts`），组合根退回「收集 env → 调这里」。`localCommand` 两端共用一份，是因为差别只有「座位号从哪来」；写两份的话，只改一处的症状是「主机转得动、客户端转不动」，而两边判据各自都绿 |
 | `host/wx/` | `env.ts`（canvas / 视口 / webgl2 探测）、`tick.ts`（`ITickSource` 的 wx 实现）、`fs.ts`（`IFileSystem` 覆盖 `wx.getFileSystemManager()`）、`input.ts`（触摸 → 逻辑键）、`index.ts`（`createWxHost` 组装） | 小游戏适配层（批121）：**只换「从哪拿」**，帧/存档/输入的语义一条不重写。住 L6 才能 import L3 的 `ITickSource`，又不会被引擎层反向依赖。**图形后端不在这里** —— 规则 4 只允许组合根 import 具体后端；入口（批128）注册 `webgl2Backend` 并交 `backendOptions.gfx = { canvas }`，由 `createPlatform` 去 probe + create（入口自己 `new GL2Device` 会把「探测失败」这条正常路径变成异常路径） |
 
 小游戏适配层（`host/wx/`）也住 L6，理由与 HUD 那两件不完全一样：HUD 是「纯函数好判」，而它是「**必须能向下 import**」—— 帧源要 `ITickSource`（L3）、文件系统要实现 `IFileSystem`（L1）。放到 `src/platform/` 会让 L1 反向依赖 L3；放到 `src/backends/` 又会让它够不着 L3。L6 是唯一同时满足「向下可见」与「引擎看不见它」的位置。
@@ -1745,7 +1746,7 @@ HUD 文案混入非 ASCII、背包行不切 `visible`、选中不换底色、皮
 │   ├── wx-entry.ts        L6  小游戏宿主（同一份装配，换四件套）
 │   ├── wx-boot.ts             小游戏启动壳（esbuild 入口，只调 main()）
 │   └── index.ts               对外 API 面（只导出接口/类型/工厂）
-├── tests/                 197 个文件 <!-- n:files --> / 2865 条判据 <!-- n:tests -->（arch · contract · core · backends · extensions）
+├── tests/                 198 个文件 <!-- n:files --> / 2878 条判据 <!-- n:tests -->（arch · contract · core · backends · extensions）
 │   └── fixtures/png/      外部金标语料（隔行/16 位/APNG，pngjs + Pillow 双实现产出）
 │   └── fixtures/jpeg/     外部金标语料（**54 例** <!-- n:jpeggold -->，三份清单按案例名去重：Pillow 解 17 + 算术 6
 │                          + CMYK/YCCK 4 + "我们编码→libjpeg 解" 6 + liblj92 无损 8..16 位 9 + ffmpeg 12，

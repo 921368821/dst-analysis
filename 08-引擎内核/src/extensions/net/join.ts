@@ -25,6 +25,9 @@
  *    会有一条路径把半份回复当成功处理 —— 症状是客户端进了房、世界里没有任何东西能动。
  * ② **票据只用来恢复身份，不用来授权**：授权永远看 `PlayerId`（`session.admit`）。
  *    票据一旦被当成令牌，一次泄露就是永久的（没有任何地方会去收回它）。
+ *    ★ 批165：它虽然不是授权令牌，但**必须不可猜** —— 猜中就能顶掉一个掉线玩家的
+ *    座位（那是一次接管，只是不持久）。所以随机源换成 CSPRNG，`RoomOptions.seed` 删掉
+ *    （那个选项的全部作用就是让票据「可复现」，也就是可预测）。
  * ③ **掉线不清归属，超时才清，而且清的理由要交出来**：掉线的角色还站在原地等（世界
  *    不该因为网线拔了就把角色交给 AI）。但超时之后必须把归属交还 `AUTHORITY` ——
  *    这件事 Room 做不到（它不认识场景），所以 `sweep()` **返回名单**，而不是自己悄悄
@@ -40,7 +43,6 @@
  *   `joinable` 与 `reason`，让界面自己决定怎么解释。
  */
 
-import { XorShift128, type IRandom } from "../../foundation/random.ts";
 import type { NetEnvelope, PeerId } from "./transport.ts";
 import type { PlayerId } from "./identity.ts";
 
@@ -49,6 +51,24 @@ import type { PlayerId } from "./identity.ts";
  * 与「新主机」在握手那一刻就分开，而不是让它们连上之后在某个字段上读出 `undefined`。
  */
 export const PROTOCOL_VERSION = 1;
+
+/**
+ * 96 位随机票据：`t` + 24 个十六进制字符。
+ *
+ * ★ 为什么是 96 位：够大（2^96 下猜中一张在现实中不存在），又不至于让每条握手消息
+ *   带一串长尾巴。位数本身不是判据，判据是「同样的参数两次生成的票据不同」
+ *   （见 `net-join.test.ts` 的「票据不可复现」）。
+ *
+ * ★ 用 `globalThis.crypto` 而不是 `Math.random`：后者在 V8 里是可预测的
+ *   （xorshift128+，拿到几个输出就能推后面全部），而这正是要消除的性质。
+ */
+function randomTicket(): string {
+  const bytes = new Uint8Array(12);
+  globalThis.crypto.getRandomValues(bytes);
+  let hex = "";
+  for (const b of bytes) hex += b.toString(16).padStart(2, "0");
+  return `t${hex}`;
+}
 
 /** 被拒原因。**每一个都要能被计数**：不计数就等于静默丢弃。 */
 export const JoinReject = {
@@ -134,8 +154,10 @@ export interface RoomOptions {
   readonly reconnectWindowTicks?: number;
   /** 主机的端点号（回复从这里发出，也用来拒绝「主机自己入房」）。缺省 0。 */
   readonly hostPeer?: PeerId;
-  /** 票据随机流的种子（同种子 ⇒ 同一串票据，判据可复现）。缺省 1。 */
-  readonly seed?: number;
+  // ★ 批165 删掉了 `seed`：它让票据「可复现」，也就是**可预测**。
+  //   判据并不依赖票据的具体值（只依赖「拿回来还能对上」），所以那点可复现性
+  //   换来的是"知道算法与种子就能算出别人的票据" —— 不划算。
+  //   现在票据来自 CSPRNG，见 `newTicket`。
   /**
    * 全量快照来源。返回 `null` = 世界还没准备好 ⇒ 这次加入被拒（`behind`）。
    *
@@ -229,12 +251,10 @@ class RoomImpl implements Room {
   private readonly hostPeer: PeerId;
   private readonly snapshot: (tick: number) => string | null;
   private readonly onJoin: ((playerId: PlayerId, tick: number) => void) | null;
-  private readonly rng: IRandom;
 
   private seatsIn: Seat[] = [];
   private nextPlayerId = 1;
   private outSeq = 0;
-  private ticketSeq = 0;
   private isClosed = false;
 
   private accepted = 0;
@@ -261,7 +281,6 @@ class RoomImpl implements Room {
     this.hostPeer = opts.hostPeer ?? 0;
     this.snapshot = opts.snapshot ?? (() => null);
     this.onJoin = opts.onJoin ?? null;
-    this.rng = new XorShift128(opts.seed ?? 1);
     this.refused = {
       [JoinReject.VersionOld]: 0,
       [JoinReject.VersionNew]: 0,
@@ -424,11 +443,27 @@ class RoomImpl implements Room {
   }
 
   private newTicket(): string {
-    // ★ 只保证「房间内唯一」，**不保证不可猜**：票据不是授权令牌（见文件头 ②），
-    //   被猜到最多让你顶掉一个掉线玩家的座位。真联网时这一层要换成 CSPRNG + 服务端
-    //   签发，而那时它仍然是「恢复身份」的凭据，不是「持续授权」的令牌。
-    const n = this.ticketSeq++;
-    return `t${String(n)}-${this.rng.int(0, 0x1000000).toString(16).padStart(6, "0")}`;
+    // ★★ 批165：从「种子决定的 6 位十六进制」换成 CSPRNG 的 96 位。
+    //
+    //   旧实现的格式是 `t{自增号}-{6 hex}`，随机流由 `RoomOptions.seed` 播种
+    //   （缺省 1）—— 知道算法的人能把整串票据算出来。当时的注释写着
+    //   「只保证房间内唯一，不保证不可猜」，而票据确实不是授权令牌（文件头 ②）；
+    //   但「猜中就能顶掉一个掉线玩家的座位」仍然是接管，只是不持久。
+    //
+    //   ★ 为什么现在改而不是等跨机器：本机 BroadcastChannel 上票据本来就是广播的，
+    //     改了也挡不住同机的另一个标签页；可跨机器那天票据只在点对点里出现，
+    //     到那时再改就要连着判据一起补。现在改的成本接近零（判据不依赖票据的具体值）。
+    //
+    //   ★ 保留 `t` 前缀与「房间内唯一」这两条：前缀让日志里一眼认得出是票据，
+    //     唯一性由碰撞重试兜住（96 位下几乎不会进那个分支，但「几乎」不是「不会」）。
+    const MAX_TRIES = 8;
+    for (let i = 0; i < MAX_TRIES; i++) {
+      const ticket = randomTicket();
+      if (!this.seatsIn.some((s) => s.ticket === ticket)) return ticket;
+    }
+    // 8 次都撞上同一个值 = 随机源坏了。此时宁可抛，也不要发一张重复的票 ——
+    // 重复的票会让两个人抢同一个座位，而那看起来像「重连」，症状完全不指向原因。
+    throw new Error("JOIN.TICKET_COLLISION：连续 8 次生成到已存在的票据，随机源可能坏了");
   }
 
   private refuse(

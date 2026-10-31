@@ -24573,6 +24573,569 @@ function attachWorldVisuals(scene, availableFrames) {
   });
 }
 
+// src/extensions/net/broadcast-transport.ts
+var KNOWN_KINDS = /* @__PURE__ */ new Set([
+  "intent",
+  "snapshot",
+  "snapshot-delta",
+  "resync",
+  "join",
+  "join-reply"
+]);
+function isNetMessage(v) {
+  if (typeof v !== "object" || v === null) return false;
+  const o = v;
+  return typeof o["kind"] === "string" && typeof o["tick"] === "number" && typeof o["seq"] === "number";
+}
+function createBroadcastTransport(opts) {
+  const { channel, self: self2 } = opts;
+  const inbox = [];
+  let now = 0;
+  let closed = false;
+  const counters = { sent: 0, received: 0, dropped: 0 };
+  let unknownKinds = 0;
+  let malformed = 0;
+  let sendAfterClose = 0;
+  channel.onmessage = (ev) => {
+    if (closed) return;
+    const data = ev.data;
+    if (!isNetMessage(data)) {
+      counters.dropped++;
+      malformed++;
+      return;
+    }
+    if (!KNOWN_KINDS.has(data.kind)) {
+      counters.dropped++;
+      unknownKinds++;
+      return;
+    }
+    inbox.push({ at: now, msg: data });
+    counters.received++;
+  };
+  const transport = {
+    self: self2,
+    send(msg3) {
+      if (closed) {
+        sendAfterClose++;
+        counters.dropped++;
+        return false;
+      }
+      try {
+        channel.postMessage(msg3);
+      } catch {
+        counters.dropped++;
+        return false;
+      }
+      counters.sent++;
+      return true;
+    },
+    receive(tick, kinds) {
+      if (tick > now) now = tick;
+      const out = [];
+      let kept = 0;
+      for (const a of inbox) {
+        if (a.at <= tick && (kinds === void 0 || kinds.includes(a.msg.kind))) out.push(a.msg);
+        else inbox[kept++] = a;
+      }
+      inbox.length = kept;
+      return out;
+    },
+    stats() {
+      return {
+        sent: counters.sent,
+        received: counters.received,
+        dropped: counters.dropped,
+        // 到了但还没被取走的：真实链路上它就是"在途"，与环回的 `queued` 同义。
+        queued: inbox.length
+      };
+    },
+    dispose() {
+      if (closed) return;
+      closed = true;
+      channel.onmessage = null;
+      inbox.length = 0;
+      try {
+        channel.close();
+      } catch {
+      }
+    },
+    get unknownKinds() {
+      return unknownKinds;
+    },
+    get malformed() {
+      return malformed;
+    },
+    get sendAfterClose() {
+      return sendAfterClose;
+    }
+  };
+  return transport;
+}
+
+// src/extensions/net/identity.ts
+var NET_IDENTITY_TYPE = "net.identity";
+var AUTHORITY = -1;
+var NetIdentity = class extends Component {
+  /** 拥有者。`AUTHORITY` = 由权威侧驱动（AI / 脚本 / 主机本地）。 */
+  owner = AUTHORITY;
+  schema = {
+    type: NET_IDENTITY_TYPE,
+    fields: { owner: FieldType.Int },
+    defaults: { owner: AUTHORITY }
+  };
+};
+var SCHEMA2 = {
+  type: NET_IDENTITY_TYPE,
+  fields: { owner: FieldType.Int },
+  defaults: { owner: AUTHORITY }
+};
+function registerNetIdentity(registry) {
+  if (!registry.has(NET_IDENTITY_TYPE)) registry.register(SCHEMA2, () => new NetIdentity());
+}
+function ownerOf(scene, nodeId) {
+  const id = scene.find(nodeId)?.get(NET_IDENTITY_TYPE);
+  return id === void 0 ? null : id.owner;
+}
+function assignOwner(scene, nodeId, owner) {
+  const id = scene.find(nodeId)?.get(NET_IDENTITY_TYPE);
+  if (id === void 0) return false;
+  id.owner = owner;
+  return true;
+}
+function ownedBy(scene, player) {
+  const out = [];
+  for (const c of scene.componentsOf(NET_IDENTITY_TYPE)) {
+    if (c.owner !== player) continue;
+    const node = c.node;
+    if (node === null) continue;
+    out.push(node.id);
+  }
+  out.sort((a, b) => a - b);
+  return out;
+}
+
+// src/extensions/net/join.ts
+var PROTOCOL_VERSION = 1;
+function randomTicket() {
+  const bytes = new Uint8Array(12);
+  globalThis.crypto.getRandomValues(bytes);
+  let hex2 = "";
+  for (const b of bytes) hex2 += b.toString(16).padStart(2, "0");
+  return `t${hex2}`;
+}
+var JoinReject = {
+  /** **你**比对方旧。 */
+  VersionOld: "version-old",
+  /** **你**比对方新（主机该更新了）。 */
+  VersionNew: "version-new",
+  /** 房间满了（掉线未超时的人仍占位）。 */
+  Full: "full",
+  /** 房间已关闭。 */
+  Closed: "closed",
+  /** 主机自己不能入房 —— 这是编程错误，不是玩家可行动项。 */
+  Host: "host",
+  /** 主机还没有世界（第 0 拍之前 / 场景未装载）。可重试。 */
+  Behind: "behind"
+};
+var DEFAULT_MAX_PLAYERS = 4;
+var DEFAULT_RECONNECT_WINDOW = 300;
+function refusedReply(from, to, tick, seq, reason, detail) {
+  const base = { kind: "join-reply", from, to, tick, seq, accepted: false, reason };
+  return detail === void 0 ? base : { ...base, detail };
+}
+var RoomImpl = class {
+  id;
+  name;
+  version;
+  max;
+  window;
+  hostPeer;
+  snapshot;
+  onJoin;
+  seatsIn = [];
+  nextPlayerId = 1;
+  outSeq = 0;
+  isClosed = false;
+  accepted = 0;
+  reconnects = 0;
+  ticketStale = 0;
+  duplicates = 0;
+  expired = 0;
+  refused;
+  constructor(opts) {
+    const max = opts.maxPlayers ?? DEFAULT_MAX_PLAYERS;
+    if (!Number.isInteger(max) || max < 2) {
+      throw new RangeError(`maxPlayers \u5FC5\u987B\u662F \u22652 \u7684\u6574\u6570\uFF08\u4E3B\u673A\u81EA\u5DF1\u5360\u4E00\u4E2A\uFF09\uFF0C\u6536\u5230 ${String(max)}`);
+    }
+    const win = opts.reconnectWindowTicks ?? DEFAULT_RECONNECT_WINDOW;
+    if (!Number.isInteger(win) || win < 0) {
+      throw new RangeError(`reconnectWindowTicks \u5FC5\u987B\u662F\u975E\u8D1F\u6574\u6570\uFF0C\u6536\u5230 ${String(win)}`);
+    }
+    this.id = opts.id;
+    this.name = opts.name;
+    this.version = opts.protocolVersion ?? PROTOCOL_VERSION;
+    this.max = max;
+    this.window = win;
+    this.hostPeer = opts.hostPeer ?? 0;
+    this.snapshot = opts.snapshot ?? (() => null);
+    this.onJoin = opts.onJoin ?? null;
+    this.refused = {
+      [JoinReject.VersionOld]: 0,
+      [JoinReject.VersionNew]: 0,
+      [JoinReject.Full]: 0,
+      [JoinReject.Closed]: 0,
+      [JoinReject.Host]: 0,
+      [JoinReject.Behind]: 0
+    };
+    this.seatsIn.push({
+      playerId: 0,
+      peer: this.hostPeer,
+      name: opts.name,
+      ticket: "",
+      joinedTick: 0,
+      lostAt: null
+    });
+  }
+  info() {
+    return {
+      id: this.id,
+      name: this.name,
+      protocolVersion: this.version,
+      players: this.seatsIn.length,
+      maxPlayers: this.max
+    };
+  }
+  accept(req, peer, tick) {
+    if (this.isClosed) return this.refuse(peer, tick, JoinReject.Closed);
+    if (peer === this.hostPeer) return this.refuse(peer, tick, JoinReject.Host);
+    const want = Number.isInteger(req.protocolVersion) ? req.protocolVersion : -1;
+    if (want !== this.version) {
+      const reason = want < this.version ? JoinReject.VersionOld : JoinReject.VersionNew;
+      return this.refuse(peer, tick, reason, { host: this.version, client: want });
+    }
+    const dup = this.online(peer);
+    if (dup !== void 0) {
+      this.duplicates++;
+      const json2 = this.snapshot(tick);
+      if (json2 === null) return this.refuse(peer, tick, JoinReject.Behind);
+      this.accepted++;
+      return this.acceptedReply(peer, tick, dup, json2, true);
+    }
+    const ticket = req.ticket;
+    if (ticket !== void 0 && ticket.length > 0) {
+      const seat2 = this.seatsIn.find((s) => s.ticket === ticket && s.lostAt !== null);
+      if (seat2 !== void 0) {
+        const json2 = this.snapshot(tick);
+        if (json2 === null) return this.refuse(peer, tick, JoinReject.Behind);
+        seat2.peer = peer;
+        seat2.lostAt = null;
+        this.reconnects++;
+        this.accepted++;
+        return this.acceptedReply(peer, tick, seat2, json2, true);
+      }
+      this.ticketStale++;
+    }
+    if (this.seatsIn.length >= this.max) return this.refuse(peer, tick, JoinReject.Full);
+    const seat = {
+      playerId: this.nextPlayerId++,
+      peer,
+      name: req.name,
+      ticket: this.newTicket(),
+      joinedTick: tick,
+      lostAt: null
+    };
+    this.seatsIn.push(seat);
+    this.onJoin?.(seat.playerId, tick);
+    const json = this.snapshot(tick);
+    if (json === null) {
+      this.seatsIn = this.seatsIn.filter((s) => s !== seat);
+      return this.refuse(peer, tick, JoinReject.Behind);
+    }
+    this.accepted++;
+    return this.acceptedReply(peer, tick, seat, json, false);
+  }
+  drop(peer, tick) {
+    const seat = this.online(peer);
+    if (seat === void 0) return null;
+    if (seat.playerId === 0) return null;
+    seat.lostAt = tick;
+    return seat.playerId;
+  }
+  sweep(tick) {
+    const gone = [];
+    const kept = [];
+    for (const s of this.seatsIn) {
+      if (s.lostAt === null || tick - s.lostAt < this.window) {
+        kept.push(s);
+        continue;
+      }
+      gone.push(s.playerId);
+      this.expired++;
+    }
+    this.seatsIn = kept;
+    gone.sort((a, b) => a - b);
+    return gone;
+  }
+  /**
+   * ★ 这个方法会被直接交给 `session.playerOf`（`playerOf: room.playerOf`），
+   *   所以必须是**绑定过的箭头属性**：写成原型方法时，脱离 `this` 调用会在运行期
+   *   抛出「读不到 seatsIn」，而类型检查看不出来。
+   */
+  playerOf = (peer) => {
+    const seat = this.online(peer);
+    return seat === void 0 ? null : seat.playerId;
+  };
+  seats() {
+    return this.seatsIn.filter((s) => s.lostAt === null).map((s) => s.playerId).sort((a, b) => a - b);
+  }
+  stats() {
+    let online = 0;
+    for (const s of this.seatsIn) if (s.lostAt === null) online++;
+    return {
+      players: this.seatsIn.length,
+      online,
+      lost: this.seatsIn.length - online,
+      maxPlayers: this.max,
+      accepted: this.accepted,
+      refused: { ...this.refused },
+      reconnects: this.reconnects,
+      ticketStale: this.ticketStale,
+      duplicates: this.duplicates,
+      expired: this.expired,
+      closed: this.isClosed
+    };
+  }
+  close() {
+    this.isClosed = true;
+  }
+  // ---------------------------------------------------------------- 内部
+  /** 在线座位（掉线的不算：掉线的连接不能再驱动角色）。 */
+  online(peer) {
+    return this.seatsIn.find((s) => s.peer === peer && s.lostAt === null);
+  }
+  newTicket() {
+    const MAX_TRIES = 8;
+    for (let i = 0; i < MAX_TRIES; i++) {
+      const ticket = randomTicket();
+      if (!this.seatsIn.some((s) => s.ticket === ticket)) return ticket;
+    }
+    throw new Error("JOIN.TICKET_COLLISION\uFF1A\u8FDE\u7EED 8 \u6B21\u751F\u6210\u5230\u5DF2\u5B58\u5728\u7684\u7968\u636E\uFF0C\u968F\u673A\u6E90\u53EF\u80FD\u574F\u4E86");
+  }
+  refuse(to, tick, reason, detail) {
+    this.refused[reason]++;
+    return refusedReply(this.hostPeer, to, tick, this.outSeq++, reason, detail);
+  }
+  acceptedReply(peer, tick, seat, json, reconnected) {
+    return {
+      kind: "join-reply",
+      from: this.hostPeer,
+      to: peer,
+      tick,
+      seq: this.outSeq++,
+      accepted: true,
+      playerId: seat.playerId,
+      ticket: seat.ticket,
+      reconnected,
+      json
+    };
+  }
+};
+function createRoom(opts) {
+  return new RoomImpl(opts);
+}
+var JoinerImpl = class {
+  selfPeer;
+  name;
+  version;
+  now = "idle";
+  /** 已经在等一条回复。用它而不是 `now === "joining"`：重发之后状态可能仍是 `joined`。 */
+  awaiting = false;
+  mine = null;
+  held = null;
+  pending = null;
+  outSeq = 0;
+  requests = 0;
+  joins = 0;
+  reconnects = 0;
+  refusals = 0;
+  seatChanges = 0;
+  strayReplies = 0;
+  badReplies = 0;
+  drops = 0;
+  lastRefusal = null;
+  constructor(opts) {
+    this.selfPeer = opts.self;
+    this.name = opts.name;
+    this.version = opts.protocolVersion ?? PROTOCOL_VERSION;
+  }
+  state() {
+    return this.now;
+  }
+  request(tick) {
+    const base = {
+      kind: "join",
+      from: this.selfPeer,
+      tick,
+      seq: this.outSeq++,
+      protocolVersion: this.version,
+      name: this.name
+    };
+    this.awaiting = true;
+    this.requests++;
+    if (this.now !== "joined") this.now = "joining";
+    return this.held === null ? base : { ...base, ticket: this.held };
+  }
+  reply(msg3) {
+    if (msg3.to !== this.selfPeer) {
+      this.strayReplies++;
+      return false;
+    }
+    if (!this.awaiting) {
+      this.strayReplies++;
+      return false;
+    }
+    if (!msg3.accepted) {
+      this.awaiting = false;
+      this.now = "refused";
+      this.refusals++;
+      this.lastRefusal = msg3.reason;
+      return true;
+    }
+    if (typeof msg3.json !== "string" || msg3.json.length === 0 || typeof msg3.ticket !== "string" || !Number.isInteger(msg3.playerId)) {
+      this.badReplies++;
+      return false;
+    }
+    const prev = this.mine;
+    this.awaiting = false;
+    this.mine = msg3.playerId;
+    this.held = msg3.ticket;
+    this.pending = msg3.json;
+    this.now = "joined";
+    if (prev !== null && prev !== msg3.playerId) this.seatChanges++;
+    if (msg3.reconnected) this.reconnects++;
+    else this.joins++;
+    return true;
+  }
+  takeSnapshot() {
+    const s = this.pending;
+    this.pending = null;
+    return s;
+  }
+  playerId() {
+    return this.mine;
+  }
+  ticket() {
+    return this.held;
+  }
+  drop() {
+    if (this.now === "idle") return;
+    if (this.now === "joined" || this.now === "joining") this.drops++;
+    this.awaiting = false;
+    this.pending = null;
+    this.now = "lost";
+  }
+  stats() {
+    return {
+      state: this.now,
+      requests: this.requests,
+      joins: this.joins,
+      reconnects: this.reconnects,
+      refusals: this.refusals,
+      seatChanges: this.seatChanges,
+      strayReplies: this.strayReplies,
+      badReplies: this.badReplies,
+      drops: this.drops,
+      lastRefusal: this.lastRefusal
+    };
+  }
+};
+function createJoiner(opts) {
+  return new JoinerImpl(opts);
+}
+
+// src/host/seat-table.ts
+var SEAT_BAD_ID = "SEAT.BAD_ID";
+var SEAT_NO_IDENTITY = "SEAT.NO_IDENTITY";
+var SEAT_NO_ROOM = "SEAT.NO_ROOM";
+function createSeatTable(opts) {
+  const { scene, plan, origin } = opts;
+  const entities = /* @__PURE__ */ new Map();
+  let spawned = 0;
+  let reused = 0;
+  let released = 0;
+  let failed = 0;
+  let lastError = null;
+  function fail4(code) {
+    failed++;
+    lastError = code;
+    return null;
+  }
+  function join(playerId) {
+    if (!Number.isInteger(playerId) || playerId < 0) return fail4(SEAT_BAD_ID);
+    if (!scene.components.has(NET_IDENTITY_TYPE)) return fail4(SEAT_NO_IDENTITY);
+    const had = entities.get(playerId);
+    if (had !== void 0) {
+      if (scene.find(had) === void 0) {
+        entities.delete(playerId);
+      } else {
+        assignOwner(scene, had, playerId);
+        reused++;
+        return had;
+      }
+    }
+    const taken = [];
+    for (const marker of scene.componentsOf(PLAYER_TYPE)) {
+      taken.push(marker.cell);
+    }
+    const cell = pickJoinCell(plan, origin, opts.free === void 0 ? { taken } : { taken, free: opts.free });
+    if (cell === null) return fail4(SEAT_NO_ROOM);
+    const made = spawnPlayerAt(scene, plan, { cell, name: `player:${String(playerId)}` });
+    if (!made.ok) return fail4(made.error.code);
+    const attached = scene.attach(made.value.nodeId, () => new NetIdentity());
+    if (!attached.ok) {
+      return fail4(SEAT_NO_IDENTITY);
+    }
+    scene.flush();
+    if (!assignOwner(scene, made.value.nodeId, playerId)) {
+      return fail4(SEAT_NO_IDENTITY);
+    }
+    entities.set(playerId, made.value.nodeId);
+    spawned++;
+    return made.value.nodeId;
+  }
+  function release(playerId) {
+    const id = entities.get(playerId);
+    if (id === void 0) return false;
+    if (scene.find(id) === void 0) {
+      entities.delete(playerId);
+      return false;
+    }
+    if (!assignOwner(scene, id, AUTHORITY)) return false;
+    released++;
+    return true;
+  }
+  return {
+    join,
+    release,
+    entityOf: (playerId) => entities.get(playerId) ?? null,
+    stats: () => ({
+      seats: entities.size,
+      spawned,
+      reused,
+      released,
+      failed,
+      lastError
+    })
+  };
+}
+function countPlayers(scene) {
+  let n = 0;
+  for (const c of scene.componentsOf(PLAYER_TYPE)) {
+    if (c.node !== null) n++;
+  }
+  return n;
+}
+
 // src/extensions/net/delta.ts
 var DELTA_FORMAT_VERSION = 1;
 var NODE_FIELDS = [
@@ -24920,48 +25483,6 @@ var PredictorImpl = class {
 };
 function createPredictor(opts = {}) {
   return new PredictorImpl(opts);
-}
-
-// src/extensions/net/identity.ts
-var NET_IDENTITY_TYPE = "net.identity";
-var AUTHORITY = -1;
-var NetIdentity = class extends Component {
-  /** 拥有者。`AUTHORITY` = 由权威侧驱动（AI / 脚本 / 主机本地）。 */
-  owner = AUTHORITY;
-  schema = {
-    type: NET_IDENTITY_TYPE,
-    fields: { owner: FieldType.Int },
-    defaults: { owner: AUTHORITY }
-  };
-};
-var SCHEMA2 = {
-  type: NET_IDENTITY_TYPE,
-  fields: { owner: FieldType.Int },
-  defaults: { owner: AUTHORITY }
-};
-function registerNetIdentity(registry) {
-  if (!registry.has(NET_IDENTITY_TYPE)) registry.register(SCHEMA2, () => new NetIdentity());
-}
-function ownerOf(scene, nodeId) {
-  const id = scene.find(nodeId)?.get(NET_IDENTITY_TYPE);
-  return id === void 0 ? null : id.owner;
-}
-function assignOwner(scene, nodeId, owner) {
-  const id = scene.find(nodeId)?.get(NET_IDENTITY_TYPE);
-  if (id === void 0) return false;
-  id.owner = owner;
-  return true;
-}
-function ownedBy(scene, player) {
-  const out = [];
-  for (const c of scene.componentsOf(NET_IDENTITY_TYPE)) {
-    if (c.owner !== player) continue;
-    const node = c.node;
-    if (node === null) continue;
-    out.push(node.id);
-  }
-  out.sort((a, b) => a - b);
-  return out;
 }
 
 // src/extensions/net/transport.ts
@@ -25475,519 +25996,6 @@ function attachSession(host, opts) {
   return { session, off };
 }
 
-// src/extensions/net/broadcast-transport.ts
-var KNOWN_KINDS = /* @__PURE__ */ new Set([
-  "intent",
-  "snapshot",
-  "snapshot-delta",
-  "resync",
-  "join",
-  "join-reply"
-]);
-function isNetMessage(v) {
-  if (typeof v !== "object" || v === null) return false;
-  const o = v;
-  return typeof o["kind"] === "string" && typeof o["tick"] === "number" && typeof o["seq"] === "number";
-}
-function createBroadcastTransport(opts) {
-  const { channel, self: self2 } = opts;
-  const inbox = [];
-  let now = 0;
-  let closed = false;
-  const counters = { sent: 0, received: 0, dropped: 0 };
-  let unknownKinds = 0;
-  let malformed = 0;
-  let sendAfterClose = 0;
-  channel.onmessage = (ev) => {
-    if (closed) return;
-    const data = ev.data;
-    if (!isNetMessage(data)) {
-      counters.dropped++;
-      malformed++;
-      return;
-    }
-    if (!KNOWN_KINDS.has(data.kind)) {
-      counters.dropped++;
-      unknownKinds++;
-      return;
-    }
-    inbox.push({ at: now, msg: data });
-    counters.received++;
-  };
-  const transport = {
-    self: self2,
-    send(msg3) {
-      if (closed) {
-        sendAfterClose++;
-        counters.dropped++;
-        return false;
-      }
-      try {
-        channel.postMessage(msg3);
-      } catch {
-        counters.dropped++;
-        return false;
-      }
-      counters.sent++;
-      return true;
-    },
-    receive(tick, kinds) {
-      if (tick > now) now = tick;
-      const out = [];
-      let kept = 0;
-      for (const a of inbox) {
-        if (a.at <= tick && (kinds === void 0 || kinds.includes(a.msg.kind))) out.push(a.msg);
-        else inbox[kept++] = a;
-      }
-      inbox.length = kept;
-      return out;
-    },
-    stats() {
-      return {
-        sent: counters.sent,
-        received: counters.received,
-        dropped: counters.dropped,
-        // 到了但还没被取走的：真实链路上它就是"在途"，与环回的 `queued` 同义。
-        queued: inbox.length
-      };
-    },
-    dispose() {
-      if (closed) return;
-      closed = true;
-      channel.onmessage = null;
-      inbox.length = 0;
-      try {
-        channel.close();
-      } catch {
-      }
-    },
-    get unknownKinds() {
-      return unknownKinds;
-    },
-    get malformed() {
-      return malformed;
-    },
-    get sendAfterClose() {
-      return sendAfterClose;
-    }
-  };
-  return transport;
-}
-
-// src/extensions/net/join.ts
-var PROTOCOL_VERSION = 1;
-var JoinReject = {
-  /** **你**比对方旧。 */
-  VersionOld: "version-old",
-  /** **你**比对方新（主机该更新了）。 */
-  VersionNew: "version-new",
-  /** 房间满了（掉线未超时的人仍占位）。 */
-  Full: "full",
-  /** 房间已关闭。 */
-  Closed: "closed",
-  /** 主机自己不能入房 —— 这是编程错误，不是玩家可行动项。 */
-  Host: "host",
-  /** 主机还没有世界（第 0 拍之前 / 场景未装载）。可重试。 */
-  Behind: "behind"
-};
-var DEFAULT_MAX_PLAYERS = 4;
-var DEFAULT_RECONNECT_WINDOW = 300;
-function refusedReply(from, to, tick, seq, reason, detail) {
-  const base = { kind: "join-reply", from, to, tick, seq, accepted: false, reason };
-  return detail === void 0 ? base : { ...base, detail };
-}
-var RoomImpl = class {
-  id;
-  name;
-  version;
-  max;
-  window;
-  hostPeer;
-  snapshot;
-  onJoin;
-  rng;
-  seatsIn = [];
-  nextPlayerId = 1;
-  outSeq = 0;
-  ticketSeq = 0;
-  isClosed = false;
-  accepted = 0;
-  reconnects = 0;
-  ticketStale = 0;
-  duplicates = 0;
-  expired = 0;
-  refused;
-  constructor(opts) {
-    const max = opts.maxPlayers ?? DEFAULT_MAX_PLAYERS;
-    if (!Number.isInteger(max) || max < 2) {
-      throw new RangeError(`maxPlayers \u5FC5\u987B\u662F \u22652 \u7684\u6574\u6570\uFF08\u4E3B\u673A\u81EA\u5DF1\u5360\u4E00\u4E2A\uFF09\uFF0C\u6536\u5230 ${String(max)}`);
-    }
-    const win = opts.reconnectWindowTicks ?? DEFAULT_RECONNECT_WINDOW;
-    if (!Number.isInteger(win) || win < 0) {
-      throw new RangeError(`reconnectWindowTicks \u5FC5\u987B\u662F\u975E\u8D1F\u6574\u6570\uFF0C\u6536\u5230 ${String(win)}`);
-    }
-    this.id = opts.id;
-    this.name = opts.name;
-    this.version = opts.protocolVersion ?? PROTOCOL_VERSION;
-    this.max = max;
-    this.window = win;
-    this.hostPeer = opts.hostPeer ?? 0;
-    this.snapshot = opts.snapshot ?? (() => null);
-    this.onJoin = opts.onJoin ?? null;
-    this.rng = new XorShift128(opts.seed ?? 1);
-    this.refused = {
-      [JoinReject.VersionOld]: 0,
-      [JoinReject.VersionNew]: 0,
-      [JoinReject.Full]: 0,
-      [JoinReject.Closed]: 0,
-      [JoinReject.Host]: 0,
-      [JoinReject.Behind]: 0
-    };
-    this.seatsIn.push({
-      playerId: 0,
-      peer: this.hostPeer,
-      name: opts.name,
-      ticket: "",
-      joinedTick: 0,
-      lostAt: null
-    });
-  }
-  info() {
-    return {
-      id: this.id,
-      name: this.name,
-      protocolVersion: this.version,
-      players: this.seatsIn.length,
-      maxPlayers: this.max
-    };
-  }
-  accept(req, peer, tick) {
-    if (this.isClosed) return this.refuse(peer, tick, JoinReject.Closed);
-    if (peer === this.hostPeer) return this.refuse(peer, tick, JoinReject.Host);
-    const want = Number.isInteger(req.protocolVersion) ? req.protocolVersion : -1;
-    if (want !== this.version) {
-      const reason = want < this.version ? JoinReject.VersionOld : JoinReject.VersionNew;
-      return this.refuse(peer, tick, reason, { host: this.version, client: want });
-    }
-    const dup = this.online(peer);
-    if (dup !== void 0) {
-      this.duplicates++;
-      const json2 = this.snapshot(tick);
-      if (json2 === null) return this.refuse(peer, tick, JoinReject.Behind);
-      this.accepted++;
-      return this.acceptedReply(peer, tick, dup, json2, true);
-    }
-    const ticket = req.ticket;
-    if (ticket !== void 0 && ticket.length > 0) {
-      const seat2 = this.seatsIn.find((s) => s.ticket === ticket && s.lostAt !== null);
-      if (seat2 !== void 0) {
-        const json2 = this.snapshot(tick);
-        if (json2 === null) return this.refuse(peer, tick, JoinReject.Behind);
-        seat2.peer = peer;
-        seat2.lostAt = null;
-        this.reconnects++;
-        this.accepted++;
-        return this.acceptedReply(peer, tick, seat2, json2, true);
-      }
-      this.ticketStale++;
-    }
-    if (this.seatsIn.length >= this.max) return this.refuse(peer, tick, JoinReject.Full);
-    const seat = {
-      playerId: this.nextPlayerId++,
-      peer,
-      name: req.name,
-      ticket: this.newTicket(),
-      joinedTick: tick,
-      lostAt: null
-    };
-    this.seatsIn.push(seat);
-    this.onJoin?.(seat.playerId, tick);
-    const json = this.snapshot(tick);
-    if (json === null) {
-      this.seatsIn = this.seatsIn.filter((s) => s !== seat);
-      return this.refuse(peer, tick, JoinReject.Behind);
-    }
-    this.accepted++;
-    return this.acceptedReply(peer, tick, seat, json, false);
-  }
-  drop(peer, tick) {
-    const seat = this.online(peer);
-    if (seat === void 0) return null;
-    if (seat.playerId === 0) return null;
-    seat.lostAt = tick;
-    return seat.playerId;
-  }
-  sweep(tick) {
-    const gone = [];
-    const kept = [];
-    for (const s of this.seatsIn) {
-      if (s.lostAt === null || tick - s.lostAt < this.window) {
-        kept.push(s);
-        continue;
-      }
-      gone.push(s.playerId);
-      this.expired++;
-    }
-    this.seatsIn = kept;
-    gone.sort((a, b) => a - b);
-    return gone;
-  }
-  /**
-   * ★ 这个方法会被直接交给 `session.playerOf`（`playerOf: room.playerOf`），
-   *   所以必须是**绑定过的箭头属性**：写成原型方法时，脱离 `this` 调用会在运行期
-   *   抛出「读不到 seatsIn」，而类型检查看不出来。
-   */
-  playerOf = (peer) => {
-    const seat = this.online(peer);
-    return seat === void 0 ? null : seat.playerId;
-  };
-  seats() {
-    return this.seatsIn.filter((s) => s.lostAt === null).map((s) => s.playerId).sort((a, b) => a - b);
-  }
-  stats() {
-    let online = 0;
-    for (const s of this.seatsIn) if (s.lostAt === null) online++;
-    return {
-      players: this.seatsIn.length,
-      online,
-      lost: this.seatsIn.length - online,
-      maxPlayers: this.max,
-      accepted: this.accepted,
-      refused: { ...this.refused },
-      reconnects: this.reconnects,
-      ticketStale: this.ticketStale,
-      duplicates: this.duplicates,
-      expired: this.expired,
-      closed: this.isClosed
-    };
-  }
-  close() {
-    this.isClosed = true;
-  }
-  // ---------------------------------------------------------------- 内部
-  /** 在线座位（掉线的不算：掉线的连接不能再驱动角色）。 */
-  online(peer) {
-    return this.seatsIn.find((s) => s.peer === peer && s.lostAt === null);
-  }
-  newTicket() {
-    const n = this.ticketSeq++;
-    return `t${String(n)}-${this.rng.int(0, 16777216).toString(16).padStart(6, "0")}`;
-  }
-  refuse(to, tick, reason, detail) {
-    this.refused[reason]++;
-    return refusedReply(this.hostPeer, to, tick, this.outSeq++, reason, detail);
-  }
-  acceptedReply(peer, tick, seat, json, reconnected) {
-    return {
-      kind: "join-reply",
-      from: this.hostPeer,
-      to: peer,
-      tick,
-      seq: this.outSeq++,
-      accepted: true,
-      playerId: seat.playerId,
-      ticket: seat.ticket,
-      reconnected,
-      json
-    };
-  }
-};
-function createRoom(opts) {
-  return new RoomImpl(opts);
-}
-var JoinerImpl = class {
-  selfPeer;
-  name;
-  version;
-  now = "idle";
-  /** 已经在等一条回复。用它而不是 `now === "joining"`：重发之后状态可能仍是 `joined`。 */
-  awaiting = false;
-  mine = null;
-  held = null;
-  pending = null;
-  outSeq = 0;
-  requests = 0;
-  joins = 0;
-  reconnects = 0;
-  refusals = 0;
-  seatChanges = 0;
-  strayReplies = 0;
-  badReplies = 0;
-  drops = 0;
-  lastRefusal = null;
-  constructor(opts) {
-    this.selfPeer = opts.self;
-    this.name = opts.name;
-    this.version = opts.protocolVersion ?? PROTOCOL_VERSION;
-  }
-  state() {
-    return this.now;
-  }
-  request(tick) {
-    const base = {
-      kind: "join",
-      from: this.selfPeer,
-      tick,
-      seq: this.outSeq++,
-      protocolVersion: this.version,
-      name: this.name
-    };
-    this.awaiting = true;
-    this.requests++;
-    if (this.now !== "joined") this.now = "joining";
-    return this.held === null ? base : { ...base, ticket: this.held };
-  }
-  reply(msg3) {
-    if (msg3.to !== this.selfPeer) {
-      this.strayReplies++;
-      return false;
-    }
-    if (!this.awaiting) {
-      this.strayReplies++;
-      return false;
-    }
-    if (!msg3.accepted) {
-      this.awaiting = false;
-      this.now = "refused";
-      this.refusals++;
-      this.lastRefusal = msg3.reason;
-      return true;
-    }
-    if (typeof msg3.json !== "string" || msg3.json.length === 0 || typeof msg3.ticket !== "string" || !Number.isInteger(msg3.playerId)) {
-      this.badReplies++;
-      return false;
-    }
-    const prev = this.mine;
-    this.awaiting = false;
-    this.mine = msg3.playerId;
-    this.held = msg3.ticket;
-    this.pending = msg3.json;
-    this.now = "joined";
-    if (prev !== null && prev !== msg3.playerId) this.seatChanges++;
-    if (msg3.reconnected) this.reconnects++;
-    else this.joins++;
-    return true;
-  }
-  takeSnapshot() {
-    const s = this.pending;
-    this.pending = null;
-    return s;
-  }
-  playerId() {
-    return this.mine;
-  }
-  ticket() {
-    return this.held;
-  }
-  drop() {
-    if (this.now === "idle") return;
-    if (this.now === "joined" || this.now === "joining") this.drops++;
-    this.awaiting = false;
-    this.pending = null;
-    this.now = "lost";
-  }
-  stats() {
-    return {
-      state: this.now,
-      requests: this.requests,
-      joins: this.joins,
-      reconnects: this.reconnects,
-      refusals: this.refusals,
-      seatChanges: this.seatChanges,
-      strayReplies: this.strayReplies,
-      badReplies: this.badReplies,
-      drops: this.drops,
-      lastRefusal: this.lastRefusal
-    };
-  }
-};
-function createJoiner(opts) {
-  return new JoinerImpl(opts);
-}
-
-// src/host/seat-table.ts
-var SEAT_BAD_ID = "SEAT.BAD_ID";
-var SEAT_NO_IDENTITY = "SEAT.NO_IDENTITY";
-var SEAT_NO_ROOM = "SEAT.NO_ROOM";
-function createSeatTable(opts) {
-  const { scene, plan, origin } = opts;
-  const entities = /* @__PURE__ */ new Map();
-  let spawned = 0;
-  let reused = 0;
-  let released = 0;
-  let failed = 0;
-  let lastError = null;
-  function fail4(code) {
-    failed++;
-    lastError = code;
-    return null;
-  }
-  function join(playerId) {
-    if (!Number.isInteger(playerId) || playerId < 0) return fail4(SEAT_BAD_ID);
-    if (!scene.components.has(NET_IDENTITY_TYPE)) return fail4(SEAT_NO_IDENTITY);
-    const had = entities.get(playerId);
-    if (had !== void 0) {
-      if (scene.find(had) === void 0) {
-        entities.delete(playerId);
-      } else {
-        assignOwner(scene, had, playerId);
-        reused++;
-        return had;
-      }
-    }
-    const taken = [];
-    for (const marker of scene.componentsOf(PLAYER_TYPE)) {
-      taken.push(marker.cell);
-    }
-    const cell = pickJoinCell(plan, origin, opts.free === void 0 ? { taken } : { taken, free: opts.free });
-    if (cell === null) return fail4(SEAT_NO_ROOM);
-    const made = spawnPlayerAt(scene, plan, { cell, name: `player:${String(playerId)}` });
-    if (!made.ok) return fail4(made.error.code);
-    const attached = scene.attach(made.value.nodeId, () => new NetIdentity());
-    if (!attached.ok) {
-      return fail4(SEAT_NO_IDENTITY);
-    }
-    scene.flush();
-    if (!assignOwner(scene, made.value.nodeId, playerId)) {
-      return fail4(SEAT_NO_IDENTITY);
-    }
-    entities.set(playerId, made.value.nodeId);
-    spawned++;
-    return made.value.nodeId;
-  }
-  function release(playerId) {
-    const id = entities.get(playerId);
-    if (id === void 0) return false;
-    if (scene.find(id) === void 0) {
-      entities.delete(playerId);
-      return false;
-    }
-    if (!assignOwner(scene, id, AUTHORITY)) return false;
-    released++;
-    return true;
-  }
-  return {
-    join,
-    release,
-    entityOf: (playerId) => entities.get(playerId) ?? null,
-    stats: () => ({
-      seats: entities.size,
-      spawned,
-      reused,
-      released,
-      failed,
-      lastError
-    })
-  };
-}
-function countPlayers(scene) {
-  let n = 0;
-  for (const c of scene.componentsOf(PLAYER_TYPE)) {
-    if (c.node !== null) n++;
-  }
-  return n;
-}
-
 // src/host/net-mode.ts
 var DEFAULT_ROOM = "engine08";
 var ROOM_RE = /^[A-Za-z0-9._-]{1,64}$/;
@@ -26011,6 +26019,129 @@ function pickLocalEntity(scene, player) {
 }
 function planNetWiring(mode) {
   return { mode, driveController: localDriveOf(mode.role) === "controller" };
+}
+
+// src/host/net-assembly.ts
+function localCommand(scene, player, input) {
+  if (input === null) return null;
+  const entity = pickLocalEntity(scene, player);
+  if (entity === null) return null;
+  const d = directionFromMap(input.map, input.snapshot);
+  if (d.dx === 0 && d.dz === 0) return null;
+  return { entity, intent: { kind: "move.dir", dx: d.dx, dz: d.dz } };
+}
+function handleJoinRequest(deps, req, from, tick) {
+  const reply = deps.room.accept(req, from, tick);
+  deps.send(reply);
+  if (reply.accepted) {
+    if (reply.reconnected) {
+      const seat = deps.seats?.join(reply.playerId) ?? null;
+      if (seat === null) {
+        deps.warn(
+          `\u91CD\u8FDE\u7684\u5EA7\u4F4D ${String(reply.playerId)} \u6CA1\u80FD\u627E\u56DE\u5B9E\u4F53\uFF1A${deps.seats?.stats().lastError ?? "NO_PLAN"}`
+        );
+      }
+    }
+    deps.requestKeyframe();
+  }
+  return reply;
+}
+function assembleHostNet(o) {
+  const { scene, transport } = o;
+  const hero = scene.find(o.heroId);
+  if (hero !== void 0 && hero.get(NET_IDENTITY_TYPE) === void 0) {
+    scene.attach(o.heroId, () => {
+      const ident = new NetIdentity();
+      ident.owner = 0;
+      return ident;
+    });
+    scene.flush();
+  }
+  const seats = o.plan === null ? null : createSeatTable({
+    scene,
+    plan: o.plan,
+    origin: o.origin,
+    ...o.nav === null ? {} : { free: (c) => o.nav?.isWalkableIndex(c) === true }
+  });
+  const room = createRoom({
+    id: o.room,
+    name: `demo:${o.room}`,
+    maxPlayers: o.maxPlayers ?? 4,
+    // ★ 现拍而不是「开局拍一份存着」：`Room` 保证**先分配座位、再调这个回调**，
+    //   于是一个刚坐下的人在回复里就已经在世界上。先存的那份里没有他 ——
+    //   客户端进房第一眼「世界里没有我」，而下一份广播要等 5 拍。
+    snapshot: () => o.assembled() ? sceneToJson(snapshotOfScene(scene)) : null,
+    onJoin: (playerId) => {
+      const made = seats === null ? null : seats.join(playerId);
+      if (made === null) {
+        o.warn(`\u5EA7\u4F4D ${String(playerId)} \u6CA1\u6709\u843D\u5230\u5B9E\u4F53\u4E0A\uFF1A${seats?.stats().lastError ?? "NO_PLAN"}`);
+      }
+    }
+  });
+  let attached = null;
+  attached = attachSession(o.app, {
+    role: "host",
+    transport,
+    ...o.snapshotEveryTicks === void 0 ? {} : { snapshotEveryTicks: o.snapshotEveryTicks },
+    // ★ 端点 → 座位来自房间，**不是**「任何端点都是同一个座位」（批163 的捷径）。
+    playerOf: room.playerOf,
+    onJoinRequest: (req, from, tick) => {
+      handleJoinRequest(
+        {
+          room,
+          seats,
+          send: (reply) => {
+            transport.send(reply);
+          },
+          requestKeyframe: () => attached?.session.requestKeyframe(),
+          warn: o.warn
+        },
+        req,
+        from,
+        tick
+      );
+    },
+    // ★ 主机自己的输入走**同一道**授权检查（`admit` 用的是 `room.playerOf`）。
+    local: () => localCommand(scene, room.playerOf(transport.self), o.input())
+  });
+  return { room, seats, session: attached.session, off: attached.off };
+}
+function assembleClientNet(o) {
+  const { scene, joiner } = o;
+  let lastRefusal = null;
+  let side = null;
+  side = attachSession(o.app, {
+    role: "client",
+    transport: o.transport,
+    // 客户端没有座位表：它的座位是主机回复里的那个数字。`null` = 还没握上手 ——
+    // 此时 `localCommand` 也拿不到实体，于是**发不出意图**（不需要额外的开关）。
+    playerOf: () => joiner.playerId(),
+    local: () => localCommand(scene, joiner.playerId(), o.input()),
+    onJoinReply: (reply) => {
+      if (!joiner.reply(reply)) return;
+      if (!reply.accepted) {
+        if (lastRefusal !== reply.reason) {
+          lastRefusal = reply.reason;
+          const detail = reply.detail;
+          o.notify(
+            detail === void 0 ? `\u8FDB\u623F\u88AB\u62D2\uFF1A${reply.reason}` : `\u8FDB\u623F\u88AB\u62D2\uFF1A${reply.reason}\uFF08\u4E3B\u673A ${String(detail["host"])} / \u6211 ${String(detail["client"])}\uFF09`
+          );
+        }
+        return;
+      }
+      lastRefusal = null;
+      const json = joiner.takeSnapshot();
+      if (json !== null) {
+        const ok2 = side?.session.adopt(json) ?? false;
+        if (!ok2) o.notify("\u8FDB\u623F\u7684\u4E16\u754C\u88C5\u4E0D\u4E0A\uFF08\u5B58\u6863\u683C\u5F0F\u6BD4\u5F15\u64CE\u65B0\uFF1F\uFF09");
+      }
+    },
+    onWorldLoaded: () => {
+      const id = pickLocalEntity(scene, joiner.playerId());
+      if (id !== null) o.onHero(id);
+    }
+  });
+  return { session: side.session, off: side.off };
 }
 
 // src/extensions/nav/nav-grid.ts
@@ -30360,7 +30491,6 @@ async function buildDemoGame(env) {
   let netClient = null;
   const NET_JOIN_RETRY_TICKS = 15;
   let lastJoinRequestTick = null;
-  let lastJoinRefusal = null;
   let lastHeroPos = null;
   let hudTick = 0;
   const baked = await bakeAtlasFromAssets(env, assetsUsed);
@@ -31565,112 +31695,42 @@ ${appR.error.message}
     }
   });
   if (netWiring.mode.role !== "off" && env.netChannel !== void 0 && env.netChannel !== null) {
-    const role = netWiring.mode.role;
     const channel = env.netChannel;
     registerNetIdentity(app.components);
     const transport = createBroadcastTransport({ channel, self: netWiring.mode.self ?? 0 });
-    if (role === "host") {
-      const heroNow = scene.find(heroId);
-      if (heroNow !== void 0 && heroNow.get(NET_IDENTITY_TYPE) === void 0) {
-        scene.attach(heroId, () => {
-          const ident = new NetIdentity();
-          ident.owner = 0;
-          return ident;
-        });
-        scene.flush();
-      }
-      const plan2 = worldState.plan;
-      const nav = worldState.nav;
-      const seats = plan2 === null ? null : createSeatTable({
+    const probe = () => ({ map: controllerMod.map, snapshot: controllerMod.snapshot });
+    if (netWiring.mode.role === "host") {
+      const host = assembleHostNet({
+        app,
         scene,
-        plan: plan2,
-        origin: worldState.player?.cell ?? 0,
-        // 树摆在格中心：只看地形会让新玩家生在树里（物理把他推出来，而两台机器
-        // 推的方向不一定一样 —— 世界从第 0 拍就分叉）。导航网格是"能不能站"的
-        // 唯一真相，和生物寻路同源。
-        ...nav === null ? {} : { free: (c) => nav.isWalkableIndex(c) }
-      });
-      const room = createRoom({
-        id: netWiring.mode.room,
-        name: `demo:${netWiring.mode.room}`,
-        maxPlayers: 4,
-        // 固定种子：票据序列可复现（判据里两次跑得到同一串票据）。
-        seed: 7,
-        // ★ 现拍而不是"开局拍一份存着"：`Room` 保证**先分配座位、再调这个回调**，
-        //   于是一个刚坐下的人在回复里就已经在世界上。先存的那份里没有他 ——
-        //   客户端进房第一眼"世界里没有我"，而下一份广播要等 5 拍。
-        snapshot: () => worldState.assembled ? sceneToJson(snapshotOfScene(scene)) : null,
-        onJoin: (playerId) => {
-          const made = seats === null ? null : seats.join(playerId);
-          if (made === null) {
-            app.log.channel("net").error(`\u5EA7\u4F4D ${String(playerId)} \u6CA1\u6709\u843D\u5230\u5B9E\u4F53\u4E0A\uFF1A${seats?.stats().lastError ?? "NO_PLAN"}`);
-          }
-        }
-      });
-      netHost = { room, seats };
-      const side = attachSession(app, {
-        role: "host",
         transport,
-        snapshotEveryTicks: 5,
-        // ★ 端点 → 座位来自房间，**不是**"任何端点都是同一个座位"（批163 的捷径）。
-        //   `Room.playerOf` 是绑定过的箭头属性（见 `join.ts` 里的 ★）。
-        playerOf: room.playerOf,
-        onJoinRequest: (req, from, tick) => {
-          const reply = room.accept(req, from, tick);
-          transport.send(reply);
-          if (reply.accepted) {
-            if (reply.reconnected) seats?.join(reply.playerId);
-            side.session.requestKeyframe();
-          }
-        },
-        local: () => {
-          const entity = pickLocalEntity(scene, room.playerOf(transport.self));
-          if (entity === null) return null;
-          const d = directionFromMap(controllerMod.map, controllerMod.snapshot);
-          if (d.dx === 0 && d.dz === 0) return null;
-          return { entity, intent: { kind: "move.dir", dx: d.dx, dz: d.dz } };
-        }
+        heroId,
+        plan: worldState.plan,
+        nav: worldState.nav,
+        origin: worldState.player?.cell ?? 0,
+        room: netWiring.mode.room,
+        assembled: () => worldState.assembled,
+        input: probe,
+        warn: (msg3) => app.log.channel("net").error(msg3)
       });
-      netSide = side;
+      netHost = { room: host.room, seats: host.seats };
+      netSide = { session: host.session, off: host.off };
     } else {
       const joiner = createJoiner({ self: transport.self, name: "client" });
       netClient = { joiner, transport };
-      const side = attachSession(app, {
-        role: "client",
+      const client = assembleClientNet({
+        app,
+        scene,
         transport,
-        // 客户端没有座位表：它的座位是主机回复里的那个数字。`null` = 还没握上手 ——
-        // 此时 `pickLocalEntity` 也拿不到实体，于是**发不出意图**（不需要额外的开关）。
-        playerOf: () => joiner.playerId(),
-        local: () => {
-          const entity = pickLocalEntity(scene, joiner.playerId());
-          if (entity === null) return null;
-          const d = directionFromMap(controllerMod.map, controllerMod.snapshot);
-          if (d.dx === 0 && d.dz === 0) return null;
-          return { entity, intent: { kind: "move.dir", dx: d.dx, dz: d.dz } };
+        joiner,
+        input: probe,
+        // ★ 重指主角必须回到**宿主的**变量（相机、HUD、背包都跟着它）。
+        onHero: (id) => {
+          heroId = id;
         },
-        onJoinReply: (reply) => {
-          if (!joiner.reply(reply)) return;
-          if (!reply.accepted) {
-            if (lastJoinRefusal !== reply.reason) {
-              lastJoinRefusal = reply.reason;
-              toast(
-                `\u8FDB\u623F\u88AB\u62D2\uFF1A${reply.reason}${reply.detail === void 0 ? "" : `\uFF08\u4E3B\u673A ${String(reply.detail["host"])} / \u6211 ${String(reply.detail["client"])}\uFF09`}`
-              );
-            }
-            return;
-          }
-          lastJoinRefusal = null;
-          const json = joiner.takeSnapshot();
-          if (json !== null && !side.session.adopt(json)) {
-            toast("\u8FDB\u623F\u7684\u4E16\u754C\u88C5\u4E0D\u4E0A\uFF08\u5B58\u6863\u683C\u5F0F\u6BD4\u5F15\u64CE\u65B0\uFF1F\uFF09");
-          }
-        },
-        onWorldLoaded: () => {
-          const id = pickLocalEntity(scene, joiner.playerId());
-          if (id !== null) heroId = id;
-        }
+        notify: toast
       });
-      netSide = side;
+      netSide = { session: client.session, off: client.off };
     }
   }
   const runR = app.run();

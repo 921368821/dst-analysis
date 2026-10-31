@@ -114,16 +114,15 @@ import { harvestAt } from "../extensions/worldgen/harvest.ts";
 import {
   PlayerController,
   createControllerModule,
-  directionFromMap,
   registerControllerComponent,
 } from "../extensions/input/player-controller.ts";
-import { attachSession, type NetSession } from "../extensions/net/session.ts";
+import type { NetSession } from "../extensions/net/session.ts";
 import { createBroadcastTransport, type ChannelLike } from "../extensions/net/broadcast-transport.ts";
-import { NET_IDENTITY_TYPE, NetIdentity, registerNetIdentity } from "../extensions/net/identity.ts";
-import { createJoiner, createRoom, type Joiner, type Room } from "../extensions/net/join.ts";
-import { snapshotOfScene } from "../extensions/net/delta.ts";
-import { countPlayers, createSeatTable, type SeatTable } from "./seat-table.ts";
-import { parseNetMode, planNetWiring, pickLocalEntity, type NetWiring } from "./net-mode.ts";
+import { registerNetIdentity } from "../extensions/net/identity.ts";
+import { createJoiner, type Joiner, type Room } from "../extensions/net/join.ts";
+import { countPlayers, type SeatTable } from "./seat-table.ts";
+import { assembleClientNet, assembleHostNet, type NetInputProbe } from "./net-assembly.ts";
+import { parseNetMode, planNetWiring, type NetWiring } from "./net-mode.ts";
 import { NavGrid } from "../extensions/nav/nav-grid.ts";
 import { HEALTH_TYPE, Health, isDead, registerHealthComponent } from "../extensions/combat/health.ts";
 import { ATTACKER_TYPE, Attacker, registerAttackerComponent } from "../extensions/combat/attack.ts";
@@ -963,7 +962,6 @@ export async function buildDemoGame(env: DemoHostEnv): Promise<DemoHandle> {
    */
   let lastJoinRequestTick: number | null = null;
   /** 上一次被拒的理由。只在**理由变化**时提示 —— 否则重发会让提示每 0.5 秒弹一次。 */
-  let lastJoinRefusal: string | null = null;
   /**
    * 上一 tick 的玩家位置，用来算朝向（批112）。
    * ★ `null` = 还没有上一 tick（首帧）：此时**不**设朝向，用装配时的初始角度。
@@ -2986,151 +2984,51 @@ export async function buildDemoGame(env: DemoHostEnv): Promise<DemoHandle> {
   //   于是"两个窗口同控一个角色"在结构上不成立了：客户端手里的实体是主机按它的
   //   座位造出来的那一个，主机那边的 `admit` 也只认它自己那个座位。
   if (netWiring.mode.role !== "off" && env.netChannel !== undefined && env.netChannel !== null) {
-    const role = netWiring.mode.role;
     const channel: ChannelLike = env.netChannel;
     // 两端都要注册：主机要**造**归属，客户端 `loadScene` 要能**认出**快照里的归属
     // （没注册 ⇒ 世界装进来之后每个实体都"没有归属"，`admit` 一律 `no-identity`）。
     registerNetIdentity(app.components);
     const transport = createBroadcastTransport({ channel, self: netWiring.mode.self ?? 0 });
+    /**
+     * 这一拍的输入（**已经 poll 过**的那一份）。再 poll 会消费按下边缘，
+     * 「刚按下」那一下就没了（M168 的另一种写法）。
+     */
+    const probe = (): NetInputProbe => ({ map: controllerMod.map, snapshot: controllerMod.snapshot });
 
-    if (role === "host") {
-      // 主机自己的角色 = 0 号座位。它不经过握手（`Room` 构造时已经把 0 号给了自己）。
-      // ★ 先判有没有再 attach：重复 attach 同类型组件会让"谁才是那份归属"多一个答案。
-      const heroNow = scene.find(heroId);
-      if (heroNow !== undefined && heroNow.get(NET_IDENTITY_TYPE) === undefined) {
-        scene.attach(heroId, () => {
-          const ident = new NetIdentity();
-          ident.owner = 0;
-          return ident;
-        });
-        scene.flush();
-      }
-
-      const plan = worldState.plan;
-      const nav = worldState.nav;
-      // ★ 没有生成计划就没有座位表 —— 而 `snapshot` 也会返回 null（`Room` 因此以
-      //   `behind` 拒客）。两种失败指向同一件事（世界还没准备好），不需要各自一套处理。
-      const seats: SeatTable | null =
-        plan === null
-          ? null
-          : createSeatTable({
-              scene,
-              plan,
-              origin: worldState.player?.cell ?? 0,
-              // 树摆在格中心：只看地形会让新玩家生在树里（物理把他推出来，而两台机器
-              // 推的方向不一定一样 —— 世界从第 0 拍就分叉）。导航网格是"能不能站"的
-              // 唯一真相，和生物寻路同源。
-              ...(nav === null ? {} : { free: (c: number) => nav.isWalkableIndex(c) }),
-            });
-
-      const room: Room = createRoom({
-        id: netWiring.mode.room,
-        name: `demo:${netWiring.mode.room}`,
-        maxPlayers: 4,
-        // 固定种子：票据序列可复现（判据里两次跑得到同一串票据）。
-        seed: 7,
-        // ★ 现拍而不是"开局拍一份存着"：`Room` 保证**先分配座位、再调这个回调**，
-        //   于是一个刚坐下的人在回复里就已经在世界上。先存的那份里没有他 ——
-        //   客户端进房第一眼"世界里没有我"，而下一份广播要等 5 拍。
-        snapshot: () => (worldState.assembled ? sceneToJson(snapshotOfScene(scene)) : null),
-        onJoin: (playerId: number) => {
-          // ★ 造不出来必须留证据：`seats.join` 返回 null 时所有计数都是对的
-          //   （座位 1、在线 1、accepted 1），唯一的症状是"客户端进了房却没有角色"。
-          const made = seats === null ? null : seats.join(playerId);
-          if (made === null) {
-            app.log.channel("net").error(`座位 ${String(playerId)} 没有落到实体上：${seats?.stats().lastError ?? "NO_PLAN"}`);
-          }
-        },
-      });
-      netHost = { room, seats };
-
-      const side = attachSession(app, {
-        role: "host",
+    if (netWiring.mode.role === "host") {
+      // ★ 接线全在 `host/net-assembly.ts`：座位表、房间、握手路由、重连补归属
+      //   都在那边，且**每一条都有 Node 判据**。这个文件只负责把 env 交过去。
+      const host = assembleHostNet({
+        app,
+        scene,
         transport,
-        snapshotEveryTicks: 5,
-        // ★ 端点 → 座位来自房间，**不是**"任何端点都是同一个座位"（批163 的捷径）。
-        //   `Room.playerOf` 是绑定过的箭头属性（见 `join.ts` 里的 ★）。
-        playerOf: room.playerOf,
-        onJoinRequest: (req, from, tick) => {
-          const reply = room.accept(req, from, tick);
-          // 回复也是 `NetMessage`：走同一条通道、同一个发送计数。
-          transport.send(reply);
-          if (reply.accepted) {
-            // ★★ 重连要**补一次** `seats.join`：`Room` 的重连路径刻意不调 `onJoin`
-            //   （那是对的 —— 重连不该造第二个实体），可它也不知道"上一次超时清扫
-            //   已经把归属交还权威了"。不补的症状非常安静：他看得到自己的角色、
-            //   世界在动，但按键不动（每条输入都被 `not-owner` 拒掉），
-            //   而所有计数都是对的（座位 1、在线 1、reconnects 1）。
-            //   `join` 是幂等的：复用同一个实体 + 把归属写回去。
-            if (reply.reconnected) seats?.join(reply.playerId);
-            // ★ 下一份广播改全量：客户端刚装上的那份不在会话的序号链上（见 `adopt`），
-            //   而"链从哪开始"要由主机说了算 —— 不等它 `resync` 一次。
-            side.session.requestKeyframe();
-          }
-        },
-        local: () => {
-          // 主机自己的输入走**同一道**授权检查（`admit` 用的是 `room.playerOf`）。
-          const entity = pickLocalEntity(scene, room.playerOf(transport.self));
-          if (entity === null) return null;
-          // ★ 读的是 `controllerMod.snapshot`（这一拍已经 poll 过的那一份），不再 poll：
-          //   再 poll 会消费按下边缘，"刚按下"那一下就没了（M168 的另一种写法）。
-          const d = directionFromMap(controllerMod.map, controllerMod.snapshot);
-          if (d.dx === 0 && d.dz === 0) return null;
-          return { entity, intent: { kind: "move.dir" as const, dx: d.dx, dz: d.dz } };
-        },
+        heroId,
+        plan: worldState.plan,
+        nav: worldState.nav,
+        origin: worldState.player?.cell ?? 0,
+        room: netWiring.mode.room,
+        assembled: () => worldState.assembled,
+        input: probe,
+        warn: (msg) => app.log.channel("net").error(msg),
       });
-      netSide = side;
+      netHost = { room: host.room, seats: host.seats };
+      netSide = { session: host.session, off: host.off };
     } else {
       const joiner = createJoiner({ self: transport.self, name: "client" });
       netClient = { joiner, transport };
-
-      const side = attachSession(app, {
-        role: "client",
+      const client = assembleClientNet({
+        app,
+        scene,
         transport,
-        // 客户端没有座位表：它的座位是主机回复里的那个数字。`null` = 还没握上手 ——
-        // 此时 `pickLocalEntity` 也拿不到实体，于是**发不出意图**（不需要额外的开关）。
-        playerOf: () => joiner.playerId(),
-        local: () => {
-          const entity = pickLocalEntity(scene, joiner.playerId());
-          if (entity === null) return null;
-          // ★ 这里没有"世界是不是从主机来的"这道闸：能拿到实体就说明主机已经
-          //   按我的座位造了一个（归属就在世界快照里）。用标志位再判一次 =
-          //   同一个问题的第二份答案，而两份答案迟早会不一致。
-          const d = directionFromMap(controllerMod.map, controllerMod.snapshot);
-          if (d.dx === 0 && d.dz === 0) return null;
-          return { entity, intent: { kind: "move.dir" as const, dx: d.dx, dz: d.dz } };
+        joiner,
+        input: probe,
+        // ★ 重指主角必须回到**宿主的**变量（相机、HUD、背包都跟着它）。
+        onHero: (id) => {
+          heroId = id;
         },
-        onJoinReply: (reply) => {
-          // ★ `reply()` 返回 `false` = 不是给我的 / 迟到的 / 半份的。一律不应用
-          //   （同一份回复应用两遍 = 凭空回滚一次世界）。
-          if (!joiner.reply(reply)) return;
-          if (!reply.accepted) {
-            // 拒绝要能说清"我该怎么办"：`version-old` 是"你该更新"，`full` 是"等会儿"。
-            // ★ 只在**理由变化**时提示：客户端每 15 拍重发一次，每条都弹的话提示会闪成一团。
-            if (lastJoinRefusal !== reply.reason) {
-              lastJoinRefusal = reply.reason;
-              toast(
-                `进房被拒：${reply.reason}${reply.detail === undefined ? "" : `（主机 ${String(reply.detail["host"])} / 我 ${String(reply.detail["client"])}）`}`,
-              );
-            }
-            return;
-          }
-          lastJoinRefusal = null;
-          const json = joiner.takeSnapshot();
-          // ★ 装的是"主机在这个座位刚坐定时拍的世界"：里面有我。装载成功会触发
-          //   `onWorldLoaded`，宿主在那里把主角重指到我的实体上。
-          if (json !== null && !side.session.adopt(json)) {
-            toast("进房的世界装不上（存档格式比引擎新？）");
-          }
-        },
-        onWorldLoaded: () => {
-          // ★ 重指主角：`loadScene` 把客户端的节点全换掉了，`heroId` 现在指向一个不存在的
-          //   节点 —— 相机、HUD、背包全都静默失效（世界在动，但你在看别人）。
-          const id = pickLocalEntity(scene, joiner.playerId());
-          if (id !== null) heroId = id;
-        },
+        notify: toast,
       });
-      netSide = side;
+      netSide = { session: client.session, off: client.off };
     }
   }
 

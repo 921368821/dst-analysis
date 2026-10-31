@@ -679,6 +679,31 @@ test("[传输] 按种类取：不匹配的留在队里、取走的不重复（�
   assert.equal(list[0]?.joinable, true);
 });
 
+// ---------------------------------------------------------------- 9 · 票据
+
+test("[握手] 票据**不可复现**：同样的参数、同样的时序，两次跑出来的票不一样", () => {
+  // ★★ 这条判据测的性质叫「不可预测」。直接测「猜不中」是不可能的（那要写一个攻击者），
+  //   能测的是它的必要条件：**序列不由输入决定**。
+  //   旧实现 `t{自增号}-{XorShift128(seed 缺省 1) 的 6 位}` 在这一条上会红 —— 两次跑一模一样。
+  const a = mkRoom();
+  const b = mkRoom();
+  const ra = a.accept(reqOf(), 1, 0);
+  const rb = b.accept(reqOf(), 1, 0);
+  assert.ok(ra.accepted && rb.accepted);
+  assert.notEqual(
+    ra.ticket,
+    rb.ticket,
+    "同样参数两次生成同一张票据 —— 序列由种子决定，也就是可预测",
+  );
+});
+
+test("[握手] 票据形状固定：`t` + 24 个十六进制（日志里认得出，也不会漂回序号形式）", () => {
+  const room = mkRoom();
+  const r = room.accept(reqOf(), 1, 0);
+  assert.ok(r.accepted);
+  assert.match(r.ticket, /^t[0-9a-f]{24}$/, `票据形状不对：${r.ticket}`);
+});
+
 // ---------------------------------------------------------------- 小工具
 
 /** `applyJson` 的表达式版：返回装好的场景（省一个临时变量）。 */

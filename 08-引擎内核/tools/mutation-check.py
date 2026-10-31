@@ -10192,6 +10192,143 @@ MUTANTS = [
         "cmd": ["node", "tools/browser-selftest.mjs", "--build"],
         "env_exit": 2,
     },
+    {
+        "name": "M1071 重连不再补座位归属（他看得到自己，但每条输入都被 not-owner 拒掉）",
+        # ★ 这一行是批164 唯一没有判据的接线，批165 把它搬进装配层之后才打得到。
+        #   症状特别安静：座位 1、在线 1、reconnects 1 全都对，只有"按键不动"。
+        "file": "src/host/net-assembly.ts",
+        "pairs": [
+            (
+                "    if (reply.reconnected) {",
+                "    if (reply.reconnected && false) {",
+            ),
+        ],
+        "test": "tests/host/net-handshake-wiring.test.ts",
+    },
+    {
+        "name": "M1072 接受加入之后不再要全量（客户端手里那份不在序号链上，下一份增量必然对不上）",
+        "file": "src/host/net-assembly.ts",
+        "pairs": [
+            (
+                "    deps.requestKeyframe();",
+                "    void deps.requestKeyframe;",
+            ),
+        ],
+        "test": "tests/host/net-handshake-wiring.test.ts",
+    },
+    {
+        "name": "M1073 装配无条件挂 0 号归属（重复装配会换一个 net.identity 实例，归属有两个答案）",
+        "file": "src/host/net-assembly.ts",
+        "pairs": [
+            (
+                "  if (hero !== undefined && hero.get(NET_IDENTITY_TYPE) === undefined) {",
+                "  if (hero !== undefined) {",
+            ),
+        ],
+        "test": "tests/host/net-handshake-wiring.test.ts",
+    },
+    {
+        "name": "M1074 进房被拒的提示不去重（客户端每 15 拍重发一次，提示会闪成一团）",
+        "file": "src/host/net-assembly.ts",
+        "pairs": [
+            (
+                "        if (lastRefusal !== reply.reason) {",
+                "        if (true) {",
+            ),
+        ],
+        "test": "tests/host/net-handshake-wiring.test.ts",
+    },
+    {
+        "name": "M1075 装载之后不重指主角（相机钉在原地，按键看起来没反应）",
+        "file": "src/host/net-assembly.ts",
+        "pairs": [
+            (
+                "      if (id !== null) o.onHero(id);",
+                "      if (id !== null && false) o.onHero(id);",
+            ),
+        ],
+        "test": "tests/host/net-handshake.test.ts",
+    },
+    {
+        "name": "M1076 零方向也产出一条意图（每拍一条零位移，队列被无意义的消息塞满）",
+        "file": "src/host/net-assembly.ts",
+        "pairs": [
+            (
+                "  if (d.dx === 0 && d.dz === 0) return null;",
+                "  if (d.dx === 0 && d.dz === 0 && false) return null;",
+            ),
+        ],
+        "test": "tests/host/net-handshake-wiring.test.ts",
+    },
+    {
+        "name": "M1077 本地意图永远拿 0 号的实体（谁的座位号都不看，等于回到同控）",
+        "file": "src/host/net-assembly.ts",
+        "pairs": [
+            (
+                "  const entity = pickLocalEntity(scene, player);",
+                "  const entity = pickLocalEntity(scene, 0);",
+            ),
+        ],
+        "test": "tests/host/net-handshake-wiring.test.ts",
+    },
+    {
+        "name": "M1078 票据不再取随机字节（两次跑出同一张票 = 序列可预测）",
+        # ★ 第一版打的是 `new Uint8Array(12)` 后面补一句 `bytes.fill(7)` —— 没被抓住，
+        #   但那是**等价变异**：紧接着 `getRandomValues(bytes)` 又把 12 字节覆盖了。
+        #   换靶子要打"真正决定值的那一句"。
+        "file": "src/extensions/net/join.ts",
+        "pairs": [
+            (
+                "  globalThis.crypto.getRandomValues(bytes);",
+                "  void bytes;",
+            ),
+        ],
+        "test": "tests/extensions/net-join.test.ts",
+    },
+    {
+        "name": "M1079 票据只保留前 8 位（形状退化，日志里再也分不清一张票有多长）",
+        "file": "src/extensions/net/join.ts",
+        "pairs": [
+            (
+                "  return `t${hex}`;",
+                "  return `t${hex.slice(0, 8)}`;",
+            ),
+        ],
+        "test": "tests/extensions/net-join.test.ts",
+    },
+    {
+        "name": "M1080 世界没好也照拍快照（加入不再是 behind，来的人会进一个空世界）",
+        "file": "src/host/net-assembly.ts",
+        "pairs": [
+            (
+                "    snapshot: () => (o.assembled() ? sceneToJson(snapshotOfScene(scene)) : null),",
+                "    snapshot: () => sceneToJson(snapshotOfScene(scene)),",
+            ),
+        ],
+        "test": "tests/host/net-handshake-wiring.test.ts",
+    },
+    {
+        "name": "M1081 座位表是 null 时重连不再告警（「补不上实体」变成完全静默）",
+        "file": "src/host/net-assembly.ts",
+        "pairs": [
+            (
+                "      if (seat === null) {",
+                "      if (seat === null && deps.seats !== null) {",
+            ),
+        ],
+        "test": "tests/host/net-handshake-wiring.test.ts",
+    },
+    {
+        "name": "M1082 端点一律映射到 0 号座位（回到批163 的捷径：两个窗口同控一个角色）",
+        "file": "src/host/net-assembly.ts",
+        "pairs": [
+            (
+                "    playerOf: room.playerOf,",
+                "    playerOf: () => 0,",
+            ),
+        ],
+        "test": "tests/host/net-handshake.test.ts",
+    },
 ]
 
 def run(m: dict) -> tuple[int, str]:

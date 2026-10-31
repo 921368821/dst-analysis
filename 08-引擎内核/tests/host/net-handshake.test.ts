@@ -30,18 +30,17 @@ import { registerPlayerComponents, spawnPlayer } from "../../src/extensions/worl
 import { Sprite } from "../../src/extensions/render/sprite.ts";
 import {
   AUTHORITY,
-  NetIdentity,
   assignOwner,
   ownerOf,
   registerNetIdentity,
 } from "../../src/extensions/net/identity.ts";
-import { createJoiner, createRoom, JoinReject, type Joiner, type Room } from "../../src/extensions/net/join.ts";
+import { createJoiner, JoinReject, type Joiner, type Room } from "../../src/extensions/net/join.ts";
+import { DEFAULT_INPUT_MAP } from "../../src/extensions/input/input-map.ts";
 import { createSession, type NetSession } from "../../src/extensions/net/session.ts";
 import { createBroadcastTransport, type ChannelLike } from "../../src/extensions/net/broadcast-transport.ts";
-import { snapshotOfScene } from "../../src/extensions/net/delta.ts";
-import { countPlayers, createSeatTable, type SeatTable } from "../../src/host/seat-table.ts";
+import { countPlayers, type SeatTable } from "../../src/host/seat-table.ts";
+import { assembleClientNet, assembleHostNet, type NetInputProbe } from "../../src/host/net-assembly.ts";
 import { pickLocalEntity } from "../../src/host/net-mode.ts";
-import type { MoveIntent } from "../../src/extensions/motion/intent.ts";
 
 const DT = 1 / 30;
 
@@ -99,14 +98,55 @@ function makeHostWorld(): { scene: Scene; plan: WorldPlan; heroId: number; heroC
   assert.ok(assembleWorld(g.value, scene).ok);
   const hero = spawnPlayer(scene, g.value);
   assert.ok(hero.ok, hero.ok ? "" : `${hero.error.code} ${hero.error.message}`);
-  // 主机自己的归属 = 0 号座位（联机模式下由装配挂上，见 `demo-game`）
-  scene.attach(hero.value.nodeId, () => {
-    const n = new NetIdentity();
-    n.owner = 0;
-    return n;
-  });
-  scene.flush();
+  // ★ 这里**不再手挂** 0 号归属：那是装配的事（`assembleHostNet` 的第一段）。
+  //   手挂的话「装配有没有挂」就永远测不到 —— 而它掉了的症状是主机自己的输入
+  //   全被 `not-owner` 拒掉（世界在动，但自己不动的那个最容易被当成"卡了"）。
   return { scene, plan: g.value, heroId: hero.value.nodeId, heroCell: hero.value.cell };
+}
+
+/** 只收集 `onStep` 回调的假调度器：判据自己决定什么时候推进（与 `attachSession` 同形）。 */
+interface FakeScheduler {
+  onStep(fn: (tick: number, dt: number) => void): () => void;
+  run(tick: number, dt: number): void;
+  readonly size: number;
+}
+
+function makeScheduler(): FakeScheduler {
+  const fns: ((tick: number, dt: number) => void)[] = [];
+  return {
+    onStep(fn) {
+      fns.push(fn);
+      return () => {
+        const k = fns.indexOf(fn);
+        if (k >= 0) fns.splice(k, 1);
+      };
+    },
+    run(tick, dt) {
+      for (const fn of [...fns]) fn(tick, dt);
+    },
+    get size() {
+      return fns.length;
+    },
+  };
+}
+
+/** 「一直按住 D」的输入探针（真走 `directionFromMap`，不是直接给 `dx: 1`）。 */
+const HOLD_RIGHT_KEYS: ReadonlySet<string> = new Set(["KeyD"]);
+const HOLD_FORWARD_KEYS: ReadonlySet<string> = new Set(["KeyW"]);
+const NO_KEYS: ReadonlySet<string> = new Set<string>();
+
+function probe(keys: ReadonlySet<string>): NetInputProbe {
+  return {
+    map: DEFAULT_INPUT_MAP,
+    snapshot: {
+      keysDown: keys,
+      keysPressed: NO_KEYS,
+      keysReleased: NO_KEYS,
+      pointer: { x: 0, y: 0, down: false, pressed: false, released: false, button: 0 },
+      wheel: { dx: 0, dy: 0 },
+      text: "",
+    },
+  };
 }
 
 interface HostRig {
@@ -116,89 +156,90 @@ interface HostRig {
   readonly seats: SeatTable;
   readonly heroId: number;
   readonly transport: ReturnType<typeof createBroadcastTransport>;
+  readonly scheduler: FakeScheduler;
+  /** 装配留下的告警（「座位没落到实体上」之类）。 */
+  readonly warnings: readonly string[];
 }
 
+/** 主机侧整套装配 —— **走产品代码**（`assembleHostNet`），不是判据里另搭一份。 */
 function makeHostRig(bus: ReturnType<typeof createBus>, roomName: string): HostRig {
   const w = makeHostWorld();
   const transport = createBroadcastTransport({ channel: bus.open(roomName), self: 0 });
-  const seats = createSeatTable({ scene: w.scene, plan: w.plan, origin: w.heroCell });
-  const room = createRoom({
-    id: roomName,
-    name: "test",
-    seed: 7,
-    snapshot: () => sceneToJson(snapshotOfScene(w.scene)),
-    onJoin: (pid: number) => {
-      seats.join(pid);
-    },
-  });
-  const session = createSession({
-    role: "host",
-    transport,
+  const scheduler = makeScheduler();
+  const warnings: string[] = [];
+  const side = assembleHostNet({
+    app: { scene: w.scene, components: w.scene.components, scheduler },
     scene: w.scene,
-    registry: w.scene.components,
+    transport,
+    heroId: w.heroId,
+    plan: w.plan,
+    nav: null,
+    origin: w.heroCell,
+    room: roomName,
     snapshotEveryTicks: 1,
-    playerOf: room.playerOf,
-    onJoinRequest: (req, from, tick) => {
-      const reply = room.accept(req, from, tick);
-      transport.send(reply);
-      if (reply.accepted) {
-        // 与 `demo-game` 同一条路径：重连时 `Room` 不再调 `onJoin`，而归属可能已经
-        // 被超时清扫交还权威 —— 补一次幂等的 `join`（复用实体 + 写回归属）。
-        if (reply.reconnected) seats.join(reply.playerId);
-        session.requestKeyframe();
-      }
+    assembled: () => true,
+    input: () => null,
+    warn: (m) => {
+      warnings.push(m);
     },
   });
-  return { scene: w.scene, session, room, seats, heroId: w.heroId, transport };
+  const seats = side.seats;
+  assert.ok(seats !== null, "有生成计划时座位表不该是 null");
+  return {
+    scene: w.scene,
+    session: side.session,
+    room: side.room,
+    seats,
+    heroId: w.heroId,
+    transport,
+    scheduler,
+    warnings,
+  };
 }
 
 interface ClientRig {
   readonly joiner: Joiner;
   readonly session: NetSession;
   readonly transport: ReturnType<typeof createBroadcastTransport>;
-  /** 客户端当前认为自己能推的实体（每拍现算，与 `demo-game` 一致）。 */
+  readonly scheduler: FakeScheduler;
+  /** 客户端当前认为自己能推的实体（每拍现算，与装配一致）。 */
   localEntity(): number | null;
-  /** `adopt` 成功过几次（= 拿到过几份"我进房那一刻的世界"）。 */
-  adopted(): number;
+  /** 装载之后装配把主角重指到了哪个实体（`null` = 还没装载过）。 */
+  heroAfterLoad(): number | null;
 }
 
+/** 客户端侧整套装配 —— 同样走 `assembleClientNet`。 */
 function makeClientRig(
   bus: ReturnType<typeof createBus>,
   roomName: string,
   self: number,
-  opts: { local?: (tick: number) => MoveIntent | null } = {},
+  opts: { keys?: ReadonlySet<string> } = {},
 ): ClientRig {
   const reg = makeRegistry();
   const scene = new Scene(`client-${String(self)}`, reg);
   const transport = createBroadcastTransport({ channel: bus.open(roomName), self });
   const joiner = createJoiner({ self, name: `c${String(self)}` });
-  let adoptedCount = 0;
-  const session = createSession({
-    role: "client",
-    transport,
+  const scheduler = makeScheduler();
+  const keys = opts.keys ?? NO_KEYS;
+  let hero: number | null = null;
+  const side = assembleClientNet({
+    app: { scene, components: reg, scheduler },
     scene,
-    registry: reg,
-    snapshotEveryTicks: 1,
-    playerOf: () => joiner.playerId(),
-    local: (tick) => {
-      const entity = pickLocalEntity(scene, joiner.playerId());
-      if (entity === null) return null;
-      const intent = opts.local?.(tick) ?? null;
-      return intent === null ? null : { entity, intent };
+    transport,
+    joiner,
+    input: () => probe(keys),
+    onHero: (id) => {
+      hero = id;
     },
-    onJoinReply: (reply) => {
-      if (!joiner.reply(reply)) return;
-      if (!reply.accepted) return;
-      const json = joiner.takeSnapshot();
-      if (json !== null && session.adopt(json)) adoptedCount++;
-    },
+    notify: () => {},
   });
   return {
     joiner,
-    session,
+    session: side.session,
     transport,
+    scheduler,
     localEntity: () => pickLocalEntity(scene, joiner.playerId()),
-    adopted: () => adoptedCount,
+    heroAfterLoad: () => hero,
   };
 }
 
@@ -214,9 +255,9 @@ function pumpJoin(client: ClientRig, tick: number, every = 5): void {
 
 function stepAll(tick: number, host: HostRig, clients: readonly ClientRig[], bus: ReturnType<typeof createBus>): void {
   for (const c of clients) {
-    c.session.step(tick, DT);
+    c.scheduler.run(tick, DT);
   }
-  host.session.step(tick, DT);
+  host.scheduler.run(tick, DT);
   bus.flush();
 }
 
@@ -242,7 +283,10 @@ test("★★ 握手 → 座位 → 实体：客户端拿到 1 号座位，主机
   assert.notEqual(mine, host.heroId, "新座位落到了主机自己的角色上（那就是批163 的同控）");
 
   // 客户端：装上了"我进房那一刻的世界"，并且找得到**自己**那个实体
-  assert.equal(client.adopted(), 1, "进房的那份世界没装上 —— 客户端会一直看主机的世界，却推不动任何人");
+  // ★ 读的是「装载之后装配把主角重指到了谁」而不是内部计数：`onWorldLoaded`
+  //   只在装载**成功**之后调，而客户端在握手之前没有世界 ⇒ 第一次装载必定是 adopt。
+  //   它非 `null` 就同时证明了三件事：世界装上了、重指跑了、重指找到了我的实体。
+  assert.notEqual(client.heroAfterLoad(), null, "装载之后没有重指主角 —— 相机会钉在原地，按键看起来没反应");
   const onClient = client.localEntity();
   assert.ok(onClient !== null, "客户端在装好的世界里找不到自己的实体");
   assert.equal(ownerOf(host.scene, onClient), 1, "客户端找到的实体不是 1 号座的（快照里的归属没带过来）");
@@ -251,7 +295,7 @@ test("★★ 握手 → 座位 → 实体：客户端拿到 1 号座位，主机
 test("★★ 两个人的输入各动各的角色：主机那位**一步没动**（这条就是「不再同控」的正面判据）", () => {
   const bus = createBus();
   const host = makeHostRig(bus, "r2");
-  const client = makeClientRig(bus, "r2", 1, { local: () => ({ kind: "move.dir", dx: 1, dz: 0 }) });
+  const client = makeClientRig(bus, "r2", 1, { keys: HOLD_RIGHT_KEYS });
 
   for (let t = 0; t <= 30; t++) {
     pumpJoin(client, t);
@@ -293,8 +337,8 @@ test("★★ 两个人的输入各动各的角色：主机那位**一步没动**
 test("★ 两个客户端 = 两个座位两个角色：他们各推各的，互不干扰", () => {
   const bus = createBus();
   const host = makeHostRig(bus, "r3");
-  const one = makeClientRig(bus, "r3", 1, { local: () => ({ kind: "move.dir", dx: 1, dz: 0 }) });
-  const two = makeClientRig(bus, "r3", 2, { local: () => ({ kind: "move.dir", dx: 0, dz: 1 }) });
+  const one = makeClientRig(bus, "r3", 1, { keys: HOLD_RIGHT_KEYS });
+  const two = makeClientRig(bus, "r3", 2, { keys: HOLD_FORWARD_KEYS });
 
   for (let t = 0; t <= 30; t++) {
     pumpJoin(one, t);
