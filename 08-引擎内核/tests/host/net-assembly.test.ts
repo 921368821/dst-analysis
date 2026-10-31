@@ -101,6 +101,11 @@ test("[装配] 两个 GameApp 经环回互连，跑 24 拍后客户端世界与�
       role: "client",
       transport: clientT,
       snapshotEveryTicks: 1,
+      // ★ 关掉预测：这条判据问的是「副本忠实不忠实」，而预测开着时客户端**本来就**
+      //   比主机多走一步（主机还没收到的那条意图）。开着比会红在一个合法差异上，
+      //   于是只能放宽成"差不多" —— 那才是真正的放松。预测本身由
+      //   `tests/extensions/net-predict.test.ts` 正面钉（客户端位置 == 主机 d 拍之后的位置）。
+      predict: false,
       local: (t) => {
         // ★ 客户端从副本里读出「我拥有谁」再发意图 —— 第一份快照到之前它是空的，
         //   所以第 0 拍不发（与 `net-session` 的判据同一条约定）。

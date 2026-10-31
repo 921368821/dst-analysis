@@ -91,8 +91,34 @@ export interface IntentMessage extends NetEnvelope {
   readonly intent: MoveIntent;
 }
 
+/**
+ * 一条收据：**这个实体已经处理到发送方的第 `seq` 条意图**。
+ *
+ * ★ `seq` 是**发送方**的意图序号（`IntentMessage.seq`），不是接收方的、也不是 tick。
+ *   用发送方的序号是因为它不依赖两端共用时钟 —— 客户端中途加入时本地 tick 从 0 数，
+ *   主机已经在第 1000 拍，按 tick 对账在这里根本不成立（见 `net/predict.ts` 文件头）。
+ *
+ * ★ 「处理」包含三种结局：执行了、被拒了、队列满被丢了。三种都要报 ——
+ *   只报"执行了"时，一条被拒的意图会永远留在客户端的待重放表里，一拍一步地重放。
+ */
+export interface AckEntry {
+  readonly entity: NodeId;
+  readonly seq: number;
+}
+
+/** 带收据的消息。目前只有会话的两种下行广播带 —— 客户端不需要向主机收据（主机不预测）。 */
+interface AckCarrier {
+  /**
+   * 每个实体最近处理的意图序号。**按实体升序**（同一份世界同一份收据，便于逐字节比对）。
+   *
+   * ★ 可选：手搓的夹具（判据里模拟主机发一份快照）不必填它。缺省 = 客户端什么都不剪，
+   *   代价是待重放表涨到上限后停止预测 —— 而不是算错。
+   */
+  readonly acks?: readonly AckEntry[];
+}
+
 /** 主机 → 客户端：这一拍的世界**全量**（`sceneToJson(snapshotOfScene(scene))`）。 */
-export interface SnapshotMessage extends NetEnvelope {
+export interface SnapshotMessage extends NetEnvelope, AckCarrier {
   readonly kind: "snapshot";
   readonly json: string;
 }
@@ -104,7 +130,7 @@ export interface SnapshotMessage extends NetEnvelope {
  *   用 tick 当基线会撞车：加入握手在同一拍也可能拍一份，两份内容不同而 tick 相同 ——
  *   客户端于是把增量合到一份不是基线的世界上，合完看起来完整，某个字段却是旧的。
  */
-export interface SnapshotDeltaMessage extends NetEnvelope {
+export interface SnapshotDeltaMessage extends NetEnvelope, AckCarrier {
   readonly kind: "snapshot-delta";
   /** 这份增量基于哪一份快照（那一份的 `seq`）。 */
   readonly base: number;

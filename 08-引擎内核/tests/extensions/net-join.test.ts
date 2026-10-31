@@ -531,6 +531,9 @@ test("[端到端] ★ 环回 + 握手：从「一根线」到「能推自己的�
     scene: client.scene,
     registry: client.reg,
     playerOf: () => joiner.playerId(),
+    // ★ 关掉预测：这条判据问的是「握手之后副本对不对」，而预测开着时客户端本端角色
+    //   永远比主机多走一步（合法的）。预测的正面判据在 `net-predict.test.ts`。
+    predict: false,
     local: (): LocalCommand | null => {
       const pid = joiner.playerId();
       if (pid === null) return null;

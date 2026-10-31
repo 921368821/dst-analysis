@@ -69,6 +69,21 @@
  * ★ `seq` 是「这一族消息内」单调的（`transport.ts` ⑤）：会话的广播与意图、房间的
  *   回复、客户端的 `resync` 各自从 0 数。所以 `base` 只可能指向会话自己发过的快照，
  *   不会与房间的 `join-reply` 撞号。
+ *
+ * ★★ 预测（批161）：客户端发出去的那一步**当拍就落地**
+ *
+ *   规格全在 `net/predict.ts` 的文件头，这里只说会话层多管的两件事：
+ *
+ *   ① **收据跟着快照走**。主机每份广播带一张 `acks`（每个实体处理到发送方第几条
+ *      意图）。这是客户端"该重放哪一段"的唯一依据 —— 让它猜 tick 或猜 RTT，错一次
+ *      就永久偏，而且猜错与"网络卡了一下"在日志里长得一模一样。
+ *      「处理」= 执行 / 被拒 / 队列满被丢，三种都要进收据（见 `onIntent`）。
+ *
+ *   ② **重放只能在装载之后**。`commit()` 是整场替换，它会覆盖预测出来的坐标；
+ *      重放放在它之前就白放（现象是"预测只生效一瞬"，而终态判据全绿）。
+ *
+ *   ★ 默认开。关掉（`predict: false`）只该用于两件事：对照实验，和"要证明副本
+ *     逐字节等于主机"的判据（预测开着时，两端**本来就该**在两次快照之间不同）。
  */
 
 import type { ComponentRegistry } from "../../core/scene/component.ts";
@@ -78,9 +93,11 @@ import { loadScene, sceneFromJson, sceneToJson, type SceneSnapshot } from "../..
 import { applyDelta, deltaFromJson, deltaToJson, diffSnapshot, snapshotOfScene } from "./delta.ts";
 import { CONTROLLER_TYPE, PlayerController } from "../input/player-controller.ts";
 import { dirStep, type MoveIntent } from "../motion/intent.ts";
-import { AUTHORITY, NET_IDENTITY_TYPE, NetIdentity, assignOwner, ownedBy, type PlayerId } from "./identity.ts";
+import { createPredictor, type Predictor } from "./predict.ts";
+import { AUTHORITY, NET_IDENTITY_TYPE, NetIdentity, assignOwner, ownedBy, ownerOf, type PlayerId } from "./identity.ts";
 import {
   ResyncReason,
+  type AckEntry,
   type IntentMessage,
   type PeerId,
   type ResyncMessage,
@@ -172,6 +189,19 @@ export interface SessionOptions {
    */
   readonly playerOf?: (peer: PeerId) => PlayerId | null;
   /**
+   * 客户端是否做移动预测。缺省 `true`（只有客户端这一个角色会用到）。
+   *
+   * ★ 关掉它的正当理由只有两个：①**对照实验**（同一段脚本开/关各跑一遍，
+   *   位移差就是预测的贡献）；②**「副本逐字节等于主机」这条判据** —— 预测开着时，
+   *   两次快照之间两端的本端角色**本来就该**不同（客户端已经走了主机还没收到的那步）。
+   *   用别的理由关它（"先稳一稳"）等于把这个功能留成没人调的死代码。
+   */
+  readonly predict?: boolean;
+  /**
+   * 每个实体最多攒多少步未确认的预测。缺省 32。上限的用途见 `net/predict.ts`。
+   */
+  readonly maxPredictSteps?: number;
+  /**
    * 本地输入来源。主机 = 玩家输入，客户端 = 要发出去的意图。
    *
    * ★ 做成"每拍问一次"而不是"推一条进来"：推送会让"这一拍有没有输入"取决于
@@ -226,6 +256,21 @@ export interface SessionStats {
   /** 主机：收到的重同步请求条数。 */
   readonly resyncsReceived: number;
   readonly intentsSent: number;
+  /**
+   * 客户端：**当拍就落地**的步数（预测生效的证据）。
+   *
+   * ★ 与 `intentsSent` 分开：一条意图可能发出去但没预测（不是我的实体、没有控制器、
+   *   零位移）。合成一个数时，「预测根本没接上」与「输入是空的」分不开。
+   */
+  readonly predicted: number;
+  /** 客户端：快照落地后重放的步数总和。 */
+  readonly replayed: number;
+  /** 客户端：重放把玩家挪动的最大距离（没有积压时停在量化地板 ≈1e-9）。 */
+  readonly predictError: number;
+  /** 客户端：因为收据断了下不去而丢掉的最老预测步数（>0 表示有一段时间没收敛）。 */
+  readonly predictDropped: number;
+  /** 客户端：预测中的实体在快照里不见了（被销毁）而整条丢掉的次数。 */
+  readonly predictResets: number;
   /** 客户端：最近一次应用成功的快照属于哪一拍（-1 = 还没收到过）。 */
   readonly lastSnapshotTick: number;
   /** 本端当前能驱动的实体数（客户端读它决定"给谁发意图"）。 */
@@ -273,6 +318,18 @@ interface Refused {
 }
 type Admission = Admitted | Refused;
 
+/**
+ * 队列里的一条：意图本体 + 它在发送方那边的序号。
+ *
+ * ★ `seq` 必须跟着排队，不能只留在信封上：收据要报「处理到第几条」，而被拒的那条
+ *   根本不进队列、被丢的那条在 `shift()` 时就没了 —— 序号不在手上就只能报一个
+ *   含糊的"处理过一些"，客户端于是重放那些其实已经被收下的步。
+ */
+interface QueuedIntent {
+  readonly intent: DirIntent;
+  readonly seq: number;
+}
+
 class Session implements NetSession {
   /** 角色是公开的：面板与判据要按角色解释同一份计数器。 */
   readonly role: NetRole;
@@ -284,9 +341,19 @@ class Session implements NetSession {
   private readonly maxQueued: number;
   private readonly local: ((tick: number) => LocalCommand | null) | null;
   private readonly playerOf: (peer: PeerId) => PlayerId | null;
+  /** 客户端：移动预测。`null` = 关掉了（`predict: false`）。 */
+  private readonly predictor: Predictor | null;
 
   /** 待消化的方向意图，按实体分组。**插入序即到达序**（传输保序）。 */
-  private readonly queues = new Map<NodeId, DirIntent[]>();
+  private readonly queues = new Map<NodeId, QueuedIntent[]>();
+  /**
+   * 主机：每个实体**处理到**哪一条意图（发送方的 `seq`）。这就是收据的内容。
+   *
+   * ★ 三种结局都记：执行（`drainOnePerEntity`）、被拒（`onIntent`）、队列满被丢
+   *   （`shift` 那一下）。只记"执行"时，一条被拒的意图永远不会出现在收据里，
+   *   客户端于是把它重放一辈子 —— 症状是"这个角色一直在往一个方向挪"。
+   */
+  private readonly processed = new Map<NodeId, number>();
   /** 每个发送方最后看到的意图 seq。 */
   private readonly intentSeq = new Map<PeerId, number>();
 
@@ -359,6 +426,13 @@ class Session implements NetSession {
     this.maxQueued = queued;
     this.local = opts.local ?? null;
     this.playerOf = opts.playerOf ?? ((peer: PeerId): PlayerId => peer);
+    // ★ 只给客户端建：主机的本地输入是**权威本身**，没有"预测"这回事（它先落地，
+    //   快照才发出去）。给主机也建一个，会让它每拍把位置加两遍，而所有关于主机的
+    //   判据都是拿主机当基准的 —— 那种错会一路绿到线上。
+    this.predictor =
+      opts.role === "client" && opts.predict !== false
+        ? createPredictor(opts.maxPredictSteps === undefined ? {} : { maxPerEntity: opts.maxPredictSteps })
+        : null;
     this.rejected = {
       [NetReject.NoEntity]: 0,
       [NetReject.NoIdentity]: 0,
@@ -387,7 +461,7 @@ class Session implements NetSession {
     const cmd = this.local === null ? null : this.local(tick);
     if (cmd !== null) {
       if (this.role === "host") this.applyLocal(cmd, dt);
-      else this.sendIntent(cmd, tick);
+      else this.sendIntent(cmd, tick, dt);
     }
 
     if (this.role !== "host") return;
@@ -421,6 +495,7 @@ class Session implements NetSession {
   stats(): SessionStats {
     let queued = 0;
     for (const q of this.queues.values()) queued += q.length;
+    const p = this.predictor?.stats() ?? { applied: 0, replayed: 0, maxError: 0, dropped: 0, resets: 0 };
     // ★ 没有座位时 `owned` 必须是 0，不能退化成「归 AUTHORITY 的都算我的」：
     //   那样一个还没握手的客户端会以为自己拥有满场 AI。
     const mine = this.playerOf(this.transport.self);
@@ -446,6 +521,11 @@ class Session implements NetSession {
       resyncsSent: this.resyncsSent,
       resyncsReceived: this.resyncsReceived,
       intentsSent: this.intentsSent,
+      predicted: p.applied,
+      replayed: p.replayed,
+      predictError: p.maxError,
+      predictDropped: p.dropped,
+      predictResets: p.resets,
       lastSnapshotTick: this.lastSnapshotTick,
       owned: mine === null ? 0 : ownedBy(this.scene, mine).length,
       queued,
@@ -464,6 +544,9 @@ class Session implements NetSession {
     const a = this.admit(msg.from, msg.entity, msg.intent);
     if (!a.ok) {
       this.rejected[a.reason]++;
+      // ★ 被拒的也要进收据。不进的话，客户端那条意图永远等不到确认，于是被重放
+      //   一辈子 —— 现象是"角色一直往一个方向挪"，而主机的拒绝计数在涨。
+      this.noteProcessed(msg.entity, msg.seq);
       return;
     }
     let q = this.queues.get(msg.entity);
@@ -471,13 +554,35 @@ class Session implements NetSession {
       q = [];
       this.queues.set(msg.entity, q);
     }
-    q.push(a.intent);
+    q.push({ intent: a.intent, seq: msg.seq });
     // ★ 丢最老的：丢最新的会让实体永久落后于时间轴（越丢越晚），
     //   而丢最老的只是放弃最早那段输入，位置最终仍然追得上。
+    //   丢的那条同样进收据 —— 它永远不会被执行，不说清楚就等于让客户端一直重放。
     while (q.length > this.maxQueued) {
-      q.shift();
+      const gone = q.shift();
+      if (gone !== undefined) this.noteProcessed(msg.entity, gone.seq);
       this.backlogDropped++;
     }
+  }
+
+  /**
+   * 记一条「这个实体处理到第 `seq` 条了」。只前移，不回退。
+   *
+   * ★ 用 `>` 而不是直接赋值：收据是**单调**的语义，而事件到达能乱序。回退一次，
+   *   客户端会把已经确认的步重放一遍 —— 那是一种只在"某条意图晚到"时出现的
+   *   漂移，靠位置判据基本抓不到。
+   */
+  private noteProcessed(entity: NodeId, seq: number): void {
+    const prev = this.processed.get(entity);
+    if (prev === undefined || seq > prev) this.processed.set(entity, seq);
+  }
+
+  /** 收据：按实体升序（同一份世界同一份收据，逐字节可比）。 */
+  private ackList(): AckEntry[] {
+    const out: AckEntry[] = [];
+    for (const [entity, seq] of this.processed) out.push({ entity, seq });
+    out.sort((a, b) => a.entity - b.entity);
+    return out;
   }
 
   /**
@@ -518,6 +623,9 @@ class Session implements NetSession {
       this.askFull(tick, ResyncReason.Bad);
       return;
     }
+    // ★ 只在**装载成功之后**重放（见文件头 ②）。失败时世界没被动过，
+    //   重放一遍等于把预测值再加一次。
+    this.predictor?.reconcile(this.scene, msg.acks ?? []);
     this.baseSnap = parsed.value;
     this.baseSeq = msg.seq;
     this.snapshotsApplied++;
@@ -558,6 +666,7 @@ class Session implements NetSession {
       this.askFull(tick, ResyncReason.Bad);
       return;
     }
+    this.predictor?.reconcile(this.scene, msg.acks ?? []);
     this.baseSnap = applied.snap;
     this.baseSeq = msg.seq;
     this.snapshotsApplied++;
@@ -642,9 +751,12 @@ class Session implements NetSession {
   private drainOnePerEntity(dt: number): void {
     for (const [entity, q] of this.queues) {
       if (q.length === 0) continue;
-      const intent = q.shift();
-      if (intent === undefined) continue;
-      this.move(entity, intent, dt);
+      const item = q.shift();
+      if (item === undefined) continue;
+      // ★ 先记账再落地：落地那一步里实体可能刚好被销毁（这一拍别的地方 destroy 了它），
+      //   记账在后的写法会让一条"已经算过"的意图永远留在收据外面。
+      this.noteProcessed(entity, item.seq);
+      this.move(entity, item.intent, dt);
       this.remoteApplied++;
     }
   }
@@ -668,7 +780,7 @@ class Session implements NetSession {
 
   // ---------------------------------------------------------------- 发
 
-  private sendIntent(cmd: LocalCommand, tick: number): void {
+  private sendIntent(cmd: LocalCommand, tick: number, dt: number): void {
     const msg: IntentMessage = {
       kind: "intent",
       from: this.transport.self,
@@ -679,7 +791,20 @@ class Session implements NetSession {
       entity: cmd.entity,
       intent: cmd.intent,
     };
-    if (this.transport.send(msg)) this.intentsSent++;
+    if (!this.transport.send(msg)) {
+      // ★ 发不出去就**不预测**。预测的是"主机将会做的事"，不是"我想做的事"：
+      //   这一步主机永远不会看到，本地先走一段就再也收不回来（收据永远等不到），
+      //   玩家看到的是"松手了人还在滑"。
+      return;
+    }
+    this.intentsSent++;
+    const p = this.predictor;
+    if (p === null) return;
+    // ★ 归属检查与主机**同源**（都读快照里带过来的 `net.identity.owner`）。
+    //   不是我的角色时主机也会以 `not-owner` 拒掉，本地先走一步只会多一次橡皮筋。
+    const mine = this.playerOf(this.transport.self);
+    if (mine === null || ownerOf(this.scene, cmd.entity) !== mine) return;
+    p.predict(this.scene, cmd.entity, msg.seq, cmd.intent, dt);
   }
 
   /**
@@ -696,9 +821,13 @@ class Session implements NetSession {
     const base = this.sentSnap;
     const keyframe = base === null || this.forceFull || this.sinceKeyframe + 1 >= this.keyframeEvery;
     const json = keyframe ? sceneToJson(now) : deltaToJson(diffSnapshot(base, now));
+    // ★ 收据在 §计算 ④ 之前就已经更新过了（`drainOnePerEntity` 是 ③，广播是 ④），
+    //   所以这份收据包含的正是这份世界做过的事 —— 顺序反了时，客户端会少剪一步、
+    //   把那一步重放成双份位移。
+    const acks = this.ackList();
     const msg: SnapshotMessage | SnapshotDeltaMessage = keyframe
-      ? { kind: "snapshot", from: this.transport.self, tick, seq, json }
-      : { kind: "snapshot-delta", from: this.transport.self, tick, seq, base: this.sentSeq, json };
+      ? { kind: "snapshot", from: this.transport.self, tick, seq, json, acks }
+      : { kind: "snapshot-delta", from: this.transport.self, tick, seq, base: this.sentSeq, json, acks };
     if (!this.transport.send(msg)) return;
     this.snapshotsSent++;
     this.snapshotCharsSent += json.length;

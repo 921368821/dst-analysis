@@ -252,6 +252,10 @@ test("[会话] ★ 客户端的副本与主机逐字节一致（两条不同轨�
     transport: clientT,
     scene: client.scene,
     registry: client.reg,
+    // ★ 关掉预测再比"逐字节一致"：预测开着时客户端的**本端角色**当拍就往前走了一步，
+    //   而主机要等下一拍才收到那条意图 —— 两端**应该**不同。开着比只能放宽成"差不多"，
+    //   那是真放松。预测的正面判据在 `net-predict.test.ts`。
+    predict: false,
     // ★ 归属从快照里读出来（客户端不硬编码自己拥有谁）
     local: (t): LocalCommand | null => {
       const mine = ownedBy(client.scene, 1);

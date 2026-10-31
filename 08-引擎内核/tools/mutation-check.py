@@ -8356,8 +8356,8 @@ MUTANTS = [
         "name": "M900 一拍把队列消化干净 ⇒ 一次卡顿之后角色瞬移好几拍（位置最终还对，画面上跳了一下）",
         "file": "src/extensions/net/session.ts",
         "pairs": [(
-            "      const intent = q.shift();\n      if (intent === undefined) continue;\n      this.move(entity, intent, dt);\n      this.remoteApplied++;",
-            "      while (q.length > 0) {\n        const intent = q.shift();\n        if (intent === undefined) break;\n        this.move(entity, intent, dt);\n        this.remoteApplied++;\n      }",
+            "      const item = q.shift();\n      if (item === undefined) continue;\n      // ★ 先记账再落地：落地那一步里实体可能刚好被销毁（这一拍别的地方 destroy 了它），\n      //   记账在后的写法会让一条\"已经算过\"的意图永远留在收据外面。\n      this.noteProcessed(entity, item.seq);\n      this.move(entity, item.intent, dt);\n      this.remoteApplied++;",
+            "      let item = q.shift();\n      while (item !== undefined) {\n        this.noteProcessed(entity, item.seq);\n        this.move(entity, item.intent, dt);\n        this.remoteApplied++;\n        item = q.shift();\n      }",
         )],
         "test": "tests/extensions/net-session.test.ts",
     },
@@ -8365,8 +8365,8 @@ MUTANTS = [
         "name": "M901 队列超限丢最新的 ⇒ 角色的时间轴永久落后，越丢越晚（而位置看着还在动）",
         "file": "src/extensions/net/session.ts",
         "pairs": [(
-            "      q.shift();\n      this.backlogDropped++;",
-            "      q.pop();\n      this.backlogDropped++;",
+            "      const gone = q.shift();",
+            "      const gone = q.pop();",
         )],
         "test": "tests/extensions/net-session.test.ts",
     },
@@ -9638,6 +9638,127 @@ MUTANTS = [
             ),
         ],
         "test": "tests/extensions/net-session.test.ts",
+    },
+    {
+        "name": "M1019 重放基准取「上一拍显示的坐标」（累加而不是覆盖：无积压时两种算法一模一样）",
+        "file": "src/extensions/net/predict.ts",
+        "pairs": [
+            (
+                "      let x = before.x;\n      let y = before.y;",
+                "      let x = this.shown.get(entity)?.x ?? before.x;\n      let y = this.shown.get(entity)?.y ?? before.y;",
+            ),
+        ],
+        "test": "tests/extensions/net-predict.test.ts",
+    },
+    {
+        "name": "M1020 剪收据时用 >=（差一：已确认的最后一步永远留在表里，每份快照多走一步）",
+        "file": "src/extensions/net/predict.ts",
+        "pairs": [
+            (
+                "if (head === undefined || head.seq > limit) break;",
+                "if (head === undefined || head.seq >= limit) break;",
+            ),
+        ],
+        "test": "tests/extensions/net-predict.test.ts",
+    },
+    {
+        "name": "M1021 收据一律不剪（待重放表只增：一有积压就永久偏）",
+        "file": "src/extensions/net/predict.ts",
+        "pairs": [
+            (
+                "      const limit = acked.get(entity);",
+                "      const limit: number | undefined = undefined;",
+            ),
+        ],
+        "test": "tests/extensions/net-predict.test.ts",
+    },
+    {
+        "name": "M1022 零位移也记一步（重放表里堆恒零步，pending 永远回不到 0）",
+        "file": "src/extensions/net/predict.ts",
+        "pairs": [
+            (
+                "    if (r.dx === 0 && r.dz === 0) return false;",
+                "    if (r.dx === 0 && r.dz === 0) {}",
+            ),
+        ],
+        "test": "tests/extensions/net-predict.test.ts",
+    },
+    {
+        "name": "M1023 预测不看归属（不是我的角色也本地先走一步，主机那边按 not-owner 拒）",
+        "file": "src/extensions/net/session.ts",
+        "pairs": [
+            (
+                "    if (mine === null || ownerOf(this.scene, cmd.entity) !== mine) return;",
+                "    if (mine === null) return;",
+            ),
+        ],
+        "test": "tests/extensions/net-predict.test.ts",
+    },
+    {
+        "name": "M1024 发不出去也预测（那一步主机永远看不到，收据永远等不到，人一直往前滑）",
+        "file": "src/extensions/net/session.ts",
+        "pairs": [
+            (
+                "    if (!this.transport.send(msg)) {",
+                "    if (false) {",
+            ),
+        ],
+        "test": "tests/extensions/net-predict.test.ts",
+    },
+    {
+        "name": "M1025 默认值被翻成 false（客户端不传 predict 就退化成「只在快照到达时动」）",
+        "file": "src/extensions/net/session.ts",
+        "pairs": [
+            (
+                "      opts.role === \"client\" && opts.predict !== false",
+                "      opts.role === \"client\" && opts.predict === true",
+            ),
+        ],
+        "test": "tests/extensions/net-predict.test.ts",
+    },
+    {
+        "name": "M1026 被拒的意图不进收据（客户端把它们重放一辈子）",
+        "file": "src/extensions/net/session.ts",
+        "pairs": [
+            (
+                "      this.noteProcessed(msg.entity, msg.seq);\n      return;",
+                "      return;",
+            ),
+        ],
+        "test": "tests/extensions/net-predict.test.ts",
+    },
+    {
+        "name": "M1027 增量分支漏掉收据（全量带、增量不带：链路一长就重放双份）",
+        "file": "src/extensions/net/session.ts",
+        "pairs": [
+            (
+                "{ kind: \"snapshot-delta\", from: this.transport.self, tick, seq, base: this.sentSeq, json, acks };",
+                "{ kind: \"snapshot-delta\", from: this.transport.self, tick, seq, base: this.sentSeq, json };",
+            ),
+        ],
+        "test": "tests/extensions/net-predict.test.ts",
+    },
+    {
+        "name": "M1028 重放放在装载之前（整场替换把重放结果盖掉：预测只生效一瞬）",
+        "file": "src/extensions/net/session.ts",
+        "pairs": [
+            (
+                "    if (!this.commit(parsed.value)) {\n      this.badSnapshots++;\n      this.askFull(tick, ResyncReason.Bad);\n      return;\n    }\n    // ★ 只在**装载成功之后**重放（见文件头 ②）。失败时世界没被动过，\n    //   重放一遍等于把预测值再加一次。\n    this.predictor?.reconcile(this.scene, msg.acks ?? []);",
+                "    this.predictor?.reconcile(this.scene, msg.acks ?? []);\n    if (!this.commit(parsed.value)) {\n      this.badSnapshots++;\n      this.askFull(tick, ResyncReason.Bad);\n      return;\n    }",
+            ),
+        ],
+        "test": "tests/extensions/net-predict.test.ts",
+    },
+    {
+        "name": "M1029 收据用赋值而不是只前移（晚到的旧意图把收据拨回去，已确认的步被重放）",
+        "file": "src/extensions/net/session.ts",
+        "pairs": [
+            (
+                "    const prev = this.processed.get(entity);\n    if (prev === undefined || seq > prev) this.processed.set(entity, seq);",
+                "    this.processed.set(entity, seq);",
+            ),
+        ],
+        "test": "tests/extensions/net-predict.test.ts",
     },
 ]
 
