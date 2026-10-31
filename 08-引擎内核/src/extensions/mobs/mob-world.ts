@@ -570,6 +570,12 @@ export function createMobWorldModule(options: MobWorldOptions): MobWorldHandle {
           const d = b.decide(got, agentId, tick, grid);
           return d !== null && d.kind === "hunt" ? d.targetNodeId : null;
         },
+        // ★★ 批158：把"这一拍打成了没有"送回大脑（→ 写进下一拍的事实）。
+        //   没有这条线，树就只能瞎猜：它知道目标在哪，但不知道上次够不够得着。
+        //   ★ 只认紧邻的下一拍（`MobBrain.lastOutcome` 带 tick），读档/回滚后自动作废。
+        onAttempt: (i) => {
+          b.noteOutcome(i.attackerId, i.verdict, i.targetId, i.tick);
+        },
         factions: options.factions,
         id: "world.mobs.combat",
         // ---- ③ 战利品：发给击杀者（见文件头 ②）

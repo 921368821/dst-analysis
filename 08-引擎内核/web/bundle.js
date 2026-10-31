@@ -14967,7 +14967,7 @@ function inflateZlib(data, opts) {
     }
     const br = new BitReader2(data, 2);
     const sink = new ByteSink(opts?.sizeHint !== void 0 ? opts.sizeHint : 64 * 1024, maxBytes);
-    const fail3 = (msg3) => {
+    const fail4 = (msg3) => {
       throw new ZlibError(`${msg3} at byte ${br.pos}`);
     };
     let isFinal = 0;
@@ -14979,10 +14979,10 @@ function inflateZlib(data, opts) {
         const len = br.u16le();
         const nlen = br.u16le();
         if (((len ^ 65535) & 65535) !== nlen) {
-          fail3(`stored \u5757\u7684 LEN/NLEN \u4E0D\u4E92\u8865\uFF1ALEN=${len} NLEN=${nlen}`);
+          fail4(`stored \u5757\u7684 LEN/NLEN \u4E0D\u4E92\u8865\uFF1ALEN=${len} NLEN=${nlen}`);
         }
         if (br.pos + len > data.length) {
-          fail3(`stored \u5757\u622A\u65AD\uFF1A\u9700\u8981 ${len} \u5B57\u8282\uFF0C\u5269\u4F59 ${data.length - br.pos}`);
+          fail4(`stored \u5757\u622A\u65AD\uFF1A\u9700\u8981 ${len} \u5B57\u8282\uFF0C\u5269\u4F59 ${data.length - br.pos}`);
         }
         sink.writeBytes(data, br.pos, len);
         br.pos += len;
@@ -14993,13 +14993,13 @@ function inflateZlib(data, opts) {
           lit = getFixedLit();
           dist = getFixedDist();
         } else {
-          const tables = readDynamicTables(br, fail3);
+          const tables = readDynamicTables(br, fail4);
           lit = tables.lit;
           dist = tables.dist;
         }
-        decodeCompressed(br, lit, dist, sink, fail3);
+        decodeCompressed(br, lit, dist, sink, fail4);
       } else {
-        fail3(`invalid block type ${type}\uFF08deflate \u53EA\u6709 0/1/2\uFF09`);
+        fail4(`invalid block type ${type}\uFF08deflate \u53EA\u6709 0/1/2\uFF09`);
       }
     } while (isFinal === 0);
     br.alignToByte();
@@ -15024,19 +15024,19 @@ function inflateZlib(data, opts) {
     );
   }
 }
-function readDynamicTables(br, fail3) {
+function readDynamicTables(br, fail4) {
   const hlit = br.readBits(5) + 257;
   const hdist = br.readBits(5) + 1;
   const hclen = br.readBits(4) + 4;
-  if (hlit > 286) fail3(`HLIT=${hlit - 257} \u975E\u6CD5\uFF08\u6700\u591A 286 \u4E2A\u5B57\u9762\u91CF/\u957F\u5EA6\u7801\uFF09`);
-  if (hdist > 30) fail3(`HDIST=${hdist - 1} \u975E\u6CD5\uFF08\u6700\u591A 30 \u4E2A\u8DDD\u79BB\u7801\uFF09`);
+  if (hlit > 286) fail4(`HLIT=${hlit - 257} \u975E\u6CD5\uFF08\u6700\u591A 286 \u4E2A\u5B57\u9762\u91CF/\u957F\u5EA6\u7801\uFF09`);
+  if (hdist > 30) fail4(`HDIST=${hdist - 1} \u975E\u6CD5\uFF08\u6700\u591A 30 \u4E2A\u8DDD\u79BB\u7801\uFF09`);
   const clenLengths = new Uint8Array(19);
   for (let i2 = 0; i2 < hclen; i2++) clenLengths[CLEN_ORDER[i2]] = br.readBits(3);
   let clen;
   try {
     clen = buildHuffman(clenLengths);
   } catch (e) {
-    fail3(`\u7801\u957F\u8868\u7684 Huffman \u6784\u9020\u5931\u8D25\uFF1A${e instanceof Error ? e.message : String(e)}`);
+    fail4(`\u7801\u957F\u8868\u7684 Huffman \u6784\u9020\u5931\u8D25\uFF1A${e instanceof Error ? e.message : String(e)}`);
   }
   const total = hlit + hdist;
   const lengths = new Uint8Array(total);
@@ -15046,33 +15046,33 @@ function readDynamicTables(br, fail3) {
     if (sym < 16) {
       lengths[i++] = sym;
     } else if (sym === 16) {
-      if (i === 0) fail3("\u7801\u957F\u91CD\u590D\u7801 16 \u51FA\u73B0\u5728\u7B2C\u4E00\u4E2A\u7801\u957F\u4E4B\u524D\uFF08\u6CA1\u6709\u53EF\u590D\u5236\u7684\u4E0A\u4E00\u4E2A\u503C\uFF09");
+      if (i === 0) fail4("\u7801\u957F\u91CD\u590D\u7801 16 \u51FA\u73B0\u5728\u7B2C\u4E00\u4E2A\u7801\u957F\u4E4B\u524D\uFF08\u6CA1\u6709\u53EF\u590D\u5236\u7684\u4E0A\u4E00\u4E2A\u503C\uFF09");
       const repeat = br.readBits(2) + 3;
-      if (i + repeat > total) fail3(`\u7801\u957F\u91CD\u590D\u7801 16 \u8D8A\u754C\uFF1Ai=${i} repeat=${repeat} total=${total}`);
+      if (i + repeat > total) fail4(`\u7801\u957F\u91CD\u590D\u7801 16 \u8D8A\u754C\uFF1Ai=${i} repeat=${repeat} total=${total}`);
       const prev = lengths[i - 1];
       for (let k = 0; k < repeat; k++) lengths[i++] = prev;
     } else if (sym === 17) {
       const repeat = br.readBits(3) + 3;
-      if (i + repeat > total) fail3(`\u7801\u957F\u91CD\u590D\u7801 17 \u8D8A\u754C\uFF1Ai=${i} repeat=${repeat} total=${total}`);
+      if (i + repeat > total) fail4(`\u7801\u957F\u91CD\u590D\u7801 17 \u8D8A\u754C\uFF1Ai=${i} repeat=${repeat} total=${total}`);
       i += repeat;
     } else if (sym === 18) {
       const repeat = br.readBits(7) + 11;
-      if (i + repeat > total) fail3(`\u7801\u957F\u91CD\u590D\u7801 18 \u8D8A\u754C\uFF1Ai=${i} repeat=${repeat} total=${total}`);
+      if (i + repeat > total) fail4(`\u7801\u957F\u91CD\u590D\u7801 18 \u8D8A\u754C\uFF1Ai=${i} repeat=${repeat} total=${total}`);
       i += repeat;
     } else {
-      fail3(`\u975E\u6CD5\u7801\u957F\u7B26\u53F7 ${sym}\uFF08\u53EA\u5141\u8BB8 0..18\uFF09`);
+      fail4(`\u975E\u6CD5\u7801\u957F\u7B26\u53F7 ${sym}\uFF08\u53EA\u5141\u8BB8 0..18\uFF09`);
     }
   }
   const litLengths = lengths.subarray(0, hlit);
   const distLengths = lengths.subarray(hlit);
-  if (litLengths[256] === 0) fail3("\u5B57\u9762\u91CF\u8868\u7F3A\u5C11\u5757\u7ED3\u675F\u7B26 256 \u7684\u7801\u5B57");
+  if (litLengths[256] === 0) fail4("\u5B57\u9762\u91CF\u8868\u7F3A\u5C11\u5757\u7ED3\u675F\u7B26 256 \u7684\u7801\u5B57");
   try {
     return { lit: buildHuffman(litLengths), dist: buildHuffman(distLengths) };
   } catch (e) {
-    fail3(`Huffman \u8868\u6784\u9020\u5931\u8D25\uFF1A${e instanceof Error ? e.message : String(e)}`);
+    fail4(`Huffman \u8868\u6784\u9020\u5931\u8D25\uFF1A${e instanceof Error ? e.message : String(e)}`);
   }
 }
-function decodeCompressed(br, lit, dist, sink, fail3) {
+function decodeCompressed(br, lit, dist, sink, fail4) {
   for (; ; ) {
     const sym = br.decode(lit);
     if (sym < 256) {
@@ -15080,14 +15080,14 @@ function decodeCompressed(br, lit, dist, sink, fail3) {
       continue;
     }
     if (sym === 256) return;
-    if (sym > 285) fail3(`\u975E\u6CD5\u957F\u5EA6\u7B26\u53F7 ${sym}\uFF08286/287 \u4FDD\u7559\uFF09`);
+    if (sym > 285) fail4(`\u975E\u6CD5\u957F\u5EA6\u7B26\u53F7 ${sym}\uFF08286/287 \u4FDD\u7559\uFF09`);
     const li = sym - 257;
     const length = LEN_BASE[li] + br.readBits(LEN_EXTRA[li]);
     const dsym = br.decode(dist);
-    if (dsym > 29) fail3(`\u975E\u6CD5\u8DDD\u79BB\u7B26\u53F7 ${dsym}\uFF0830/31 \u4FDD\u7559\uFF09`);
+    if (dsym > 29) fail4(`\u975E\u6CD5\u8DDD\u79BB\u7B26\u53F7 ${dsym}\uFF0830/31 \u4FDD\u7559\uFF09`);
     const distance = DIST_BASE[dsym] + br.readBits(DIST_EXTRA[dsym]);
     if (distance > sink.len) {
-      fail3(`invalid distance ${distance} > \u5DF2\u4EA7\u51FA ${sink.len} \u5B57\u8282`);
+      fail4(`invalid distance ${distance} > \u5DF2\u4EA7\u51FA ${sink.len} \u5B57\u8282`);
     }
     sink.copyBack(distance, length);
   }
@@ -25131,6 +25131,291 @@ function attack(scene, attackerId, targetId, opts = {}) {
   });
 }
 
+// src/extensions/survival/hunger.ts
+var HUNGER_TYPE = "game.hunger";
+var HUNGER_NO_OWNER = "HUNGER.NO_OWNER";
+var HUNGER_NO_COMPONENT = "HUNGER.NO_COMPONENT";
+var HUNGER_BAD_AMOUNT = "HUNGER.BAD_AMOUNT";
+var Hunger = class extends Component {
+  /** 当前饱食度（整数，>= 0）。0 = 饿着（见文件头 ②）。 */
+  value = 100;
+  /** 上限（整数，> 0）。 */
+  max = 100;
+  schema = {
+    type: HUNGER_TYPE,
+    fields: { value: FieldType.Int, max: FieldType.Int }
+  };
+};
+function registerHungerComponent(registry) {
+  if (!registry.has(HUNGER_TYPE)) registry.register(new Hunger().schema, () => new Hunger());
+}
+function isStarving(h) {
+  return h.value <= 0;
+}
+function feed(scene, ownerId, nutrition) {
+  if (!Number.isInteger(nutrition) || nutrition <= 0) {
+    return err(
+      engineError(HUNGER_BAD_AMOUNT, `\u8425\u517B\u503C\u5FC5\u987B\u662F\u6B63\u6574\u6570\uFF0C\u6536\u5230 ${String(nutrition)}\uFF08\u5C0F\u6570\u4F1A\u8BA9"\u997F\u4E86\u6CA1\u6709"\u53D6\u51B3\u4E8E\u7D2F\u52A0\u6B21\u5E8F\uFF09`)
+    );
+  }
+  const node = scene.find(ownerId);
+  if (node === void 0 || node === null) {
+    return err(engineError(HUNGER_NO_OWNER, `\u8282\u70B9 ${String(ownerId)} \u4E0D\u5728\u573A\u666F\u91CC`));
+  }
+  const h = node.get(HUNGER_TYPE);
+  if (h === void 0) {
+    return err(
+      engineError(HUNGER_NO_COMPONENT, `\u8282\u70B9 ${String(ownerId)} \u6CA1\u6709 ${HUNGER_TYPE}\uFF08\u5148 attach \u4E00\u4E2A Hunger\uFF09`)
+    );
+  }
+  const before = h.value;
+  const after = Math.min(h.max, before + nutrition);
+  h.value = after;
+  return ok({
+    nodeId: ownerId,
+    before,
+    after,
+    applied: after - before,
+    wasted: nutrition - (after - before)
+  });
+}
+
+// src/extensions/survival/food.ts
+var FOOD_BAD_TABLE = "FOOD.BAD_TABLE";
+var FOOD_UNKNOWN_KIND = "FOOD.UNKNOWN_KIND";
+var FOOD_NOT_HELD = "FOOD.NOT_HELD";
+var FOOD_FULL = "FOOD.FULL";
+var FOOD_DEAD = "FOOD.DEAD";
+function normalizeFoodTable(raw) {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return err(engineError(FOOD_BAD_TABLE, "\u98DF\u7269\u8868\u5FC5\u987B\u662F\u5BF9\u8C61\uFF08kind \u2192 {nutrition, health?}\uFF09"));
+  }
+  const src = raw;
+  const kinds = Object.keys(src).sort();
+  if (kinds.length === 0) {
+    return err(engineError(FOOD_BAD_TABLE, "\u98DF\u7269\u8868\u662F\u7A7A\u7684 \u2014\u2014 \u591A\u534A\u662F\u5FD8\u4E86\u586B\uFF0C\u800C\u4E0D\u662F\u771F\u7684\u60F3\u8BA9\u6240\u6709\u4E1C\u897F\u90FD\u4E0D\u80FD\u5403"));
+  }
+  const out = {};
+  for (const kind of kinds) {
+    if (kind === "") {
+      return err(engineError(FOOD_BAD_TABLE, "\u98DF\u7269\u8868\u91CC\u6709\u4E00\u4E2A\u7A7A\u5B57\u7B26\u4E32 kind"));
+    }
+    const e = src[kind];
+    if (typeof e !== "object" || e === null || Array.isArray(e)) {
+      return err(engineError(FOOD_BAD_TABLE, `\u98DF\u7269\u8868\u9879 ${kind} \u5FC5\u987B\u662F\u5BF9\u8C61`, { field: kind, kind }));
+    }
+    const n = e.nutrition;
+    if (!Number.isInteger(n) || n <= 0) {
+      return err(
+        engineError(FOOD_BAD_TABLE, `\u98DF\u7269\u8868\u9879 ${kind}.nutrition \u5FC5\u987B\u662F\u6B63\u6574\u6570\uFF0C\u6536\u5230 ${String(n)}`, {
+          field: `${kind}.nutrition`,
+          kind
+        })
+      );
+    }
+    const hp = e.health;
+    if (hp !== void 0 && (!Number.isInteger(hp) || hp <= 0)) {
+      return err(
+        engineError(FOOD_BAD_TABLE, `\u98DF\u7269\u8868\u9879 ${kind}.health \u5FC5\u987B\u662F\u6B63\u6574\u6570\uFF0C\u6536\u5230 ${String(hp)}\uFF08\u7701\u7565 = \u4E0D\u56DE\u8840\uFF09`, {
+          field: `${kind}.health`,
+          kind
+        })
+      );
+    }
+    out[kind] = hp === void 0 ? { nutrition: n } : { nutrition: n, health: hp };
+  }
+  return ok(out);
+}
+function eat(scene, ownerId, kind, table) {
+  const entry = table[kind];
+  if (entry === void 0) {
+    return err(
+      engineError(FOOD_UNKNOWN_KIND, `"${kind}" \u4E0D\u5728\u98DF\u7269\u8868\u91CC\uFF08\u80FD\u5403\u7684\u53EA\u6709\uFF1A${Object.keys(table).sort().join(" / ")}\uFF09`)
+    );
+  }
+  const node = scene.find(ownerId);
+  if (node === void 0 || node === null) {
+    return err(engineError(HUNGER_NO_OWNER, `\u8282\u70B9 ${String(ownerId)} \u4E0D\u5728\u573A\u666F\u91CC`));
+  }
+  const h = node.get(HUNGER_TYPE);
+  if (h === void 0) {
+    return err(engineError(HUNGER_NO_COMPONENT, `\u8282\u70B9 ${String(ownerId)} \u6CA1\u6709 ${HUNGER_TYPE}`));
+  }
+  const health = node.get(HEALTH_TYPE);
+  if (health !== void 0 && isDead(health)) {
+    return err(engineError(FOOD_DEAD, `\u8282\u70B9 ${String(ownerId)} \u5DF2\u7ECF\u6B7B\u4E86 \u2014\u2014 \u5C38\u4F53\u4E0D\u4F1A\u5403\u4E1C\u897F`));
+  }
+  if (h.value >= h.max) {
+    return err(
+      engineError(FOOD_FULL, `\u5DF2\u7ECF\u5403\u9971\u4E86\uFF08${String(h.value)}/${String(h.max)}\uFF09\u2014\u2014 \u4E0D\u8BE5\u5728\u8FD9\u65F6\u5019\u6D88\u8017\u4E00\u4E2A\u300C${kind}\u300D`)
+    );
+  }
+  if (countItem(scene, ownerId, kind) < 1) {
+    return err(engineError(FOOD_NOT_HELD, `\u8EAB\u4E0A\u6CA1\u6709\u300C${kind}\u300D\uFF08\u80CC\u5305\u91CC\u6709\uFF1A${Object.keys(table).sort().join(" / ")}\uFF09`));
+  }
+  const taken = takeItem(scene, ownerId, kind, 1);
+  if (!taken.ok) return taken;
+  const fed = feed(scene, ownerId, entry.nutrition);
+  if (!fed.ok) {
+    return fed;
+  }
+  let healed = 0;
+  if (entry.health !== void 0 && health !== void 0) {
+    const r = heal(scene, ownerId, entry.health);
+    if (r.ok) healed = r.value;
+  }
+  return ok({
+    nodeId: ownerId,
+    kind,
+    nutrition: entry.nutrition,
+    hungerBefore: fed.value.before,
+    hungerAfter: fed.value.after,
+    healed
+  });
+}
+
+// src/extensions/actions/intent.ts
+var INTENT_OK = "OK";
+var INTENT_BAD_SHAPE = "INTENT.BAD_SHAPE";
+var RETRYABLE = /* @__PURE__ */ new Set([
+  COMBAT_OUT_OF_RANGE,
+  COMBAT_COOLDOWN,
+  FOOD_FULL,
+  INVENTORY_FULL
+]);
+function verdictOf(code) {
+  if (code === INTENT_OK) return "ok";
+  return RETRYABLE.has(code) ? "retry" : "fatal";
+}
+function actionProblem(it) {
+  if (!Number.isInteger(it.actor) || it.actor < 0) {
+    return engineError(INTENT_BAD_SHAPE, `actor \u8981\u662F >= 0 \u7684\u6574\u6570\uFF0C\u6536\u5230 ${String(it.actor)}`);
+  }
+  if (!Number.isInteger(it.tick) || it.tick < 0) {
+    return engineError(INTENT_BAD_SHAPE, `tick \u8981\u662F >= 0 \u7684\u6574\u6570\uFF0C\u6536\u5230 ${String(it.tick)}`);
+  }
+  switch (it.kind) {
+    case "attack":
+      if (it.target === void 0 || !Number.isInteger(it.target) || it.target < 0) {
+        return engineError(INTENT_BAD_SHAPE, `attack \u5FC5\u987B\u5E26 target\uFF08>= 0 \u7684\u6574\u6570\uFF09\uFF0C\u6536\u5230 ${String(it.target)}`);
+      }
+      return null;
+    case "pickup":
+      if (it.radius !== void 0 && (!(it.radius >= 0) || !Number.isFinite(it.radius))) {
+        return engineError(INTENT_BAD_SHAPE, `pickup \u7684 radius \u5FC5\u987B >= 0\uFF0C\u6536\u5230 ${String(it.radius)}`);
+      }
+      return null;
+    case "use":
+      if (it.item === void 0 || it.item.trim().length === 0) {
+        return engineError(INTENT_BAD_SHAPE, "use \u5FC5\u987B\u5E26 item\uFF08\u7269\u54C1\u540D\uFF09\uFF0C\u6536\u5230\u7A7A");
+      }
+      return null;
+  }
+}
+
+// src/extensions/actions/executor.ts
+var INTENT_NO_ACTOR = "INTENT.NO_ACTOR";
+var INTENT_NO_RADIUS = "INTENT.NO_RADIUS";
+var INTENT_NO_FOOD_TABLE = "INTENT.NO_FOOD_TABLE";
+function fail2(it, e) {
+  return {
+    intent: it,
+    ok: false,
+    verdict: verdictOf(e.code),
+    code: e.code,
+    message: e.message,
+    applied: 0
+  };
+}
+function executeIntent(w, it) {
+  const bad5 = actionProblem(it);
+  if (bad5 !== null) return fail2(it, bad5);
+  switch (it.kind) {
+    case "attack": {
+      const target = it.target ?? -1;
+      const r = attack(w.scene, it.actor, target, {
+        tick: it.tick,
+        ...w.factions === void 0 ? {} : { factions: w.factions },
+        ...w.friendlyFire === void 0 ? {} : { friendlyFire: w.friendlyFire }
+      });
+      if (!r.ok) return fail2(it, r.error);
+      const out = r.value;
+      return {
+        intent: it,
+        ok: true,
+        verdict: "ok",
+        code: INTENT_OK,
+        message: "",
+        applied: out.report.applied,
+        hit: out
+      };
+    }
+    case "pickup": {
+      const node = w.scene.find(it.actor);
+      if (node === void 0 || node === null) {
+        return fail2(it, engineError(INTENT_NO_ACTOR, `\u53D1\u8D77\u8005 ${String(it.actor)} \u4E0D\u5728\u573A\u666F\u91CC`));
+      }
+      const radius = it.radius ?? w.pickupRadius;
+      if (radius === void 0) {
+        return fail2(
+          it,
+          engineError(INTENT_NO_RADIUS, "pickup \u6CA1\u5E26\u534A\u5F84\uFF0C\u6267\u884C\u5668\u4E5F\u6CA1\u6709\u9ED8\u8BA4\u534A\u5F84 \u2014\u2014 \u4E0D\u77E5\u9053\u8BE5\u6361\u591A\u5927\u8303\u56F4")
+        );
+      }
+      const p = node.localPosition;
+      const r = pickupNearby(w.scene, p.x, p.y, radius, it.actor, {
+        ...w.onRelease === void 0 ? {} : { onRelease: w.onRelease }
+      });
+      if (!r.ok) return fail2(it, r.error);
+      const res = r.value;
+      if (res.picked.length > 0) {
+        return {
+          intent: it,
+          ok: true,
+          // 拿了一部分但停下了（背包满）⇒ 下一拍还能接着拿
+          verdict: res.failed === null ? "ok" : "retry",
+          code: INTENT_OK,
+          message: res.failed === null ? "" : res.failed.message,
+          applied: res.picked.length,
+          picked: res
+        };
+      }
+      if (res.failed !== null) {
+        return fail2(it, engineError(res.failed.code, res.failed.message));
+      }
+      return {
+        intent: it,
+        ok: true,
+        verdict: "fatal",
+        code: INTENT_OK,
+        message: "\u9644\u8FD1\u6CA1\u6709\u53EF\u62FE\u53D6\u7684\u4E1C\u897F",
+        applied: 0,
+        picked: res
+      };
+    }
+    case "use": {
+      if (w.food === void 0) {
+        return fail2(
+          it,
+          engineError(INTENT_NO_FOOD_TABLE, "\u6267\u884C\u5668\u6CA1\u6709\u98DF\u7269\u8868 \u2014\u2014 use \u9700\u8981\u4E00\u5F20\u5DF2\u5F52\u4E00\u5316\u7684\u8868\uFF08\u89C1 food.ts\uFF09")
+        );
+      }
+      const r = eat(w.scene, it.actor, it.item ?? "", w.food);
+      if (!r.ok) return fail2(it, r.error);
+      const rep = r.value;
+      return {
+        intent: it,
+        ok: true,
+        verdict: "ok",
+        code: INTENT_OK,
+        message: "",
+        applied: rep.nutrition,
+        ate: rep
+      };
+    }
+  }
+}
+
 // src/extensions/combat/hitstop.ts
 var HITSTOP_BAD_MODULE = "HITSTOP.BAD_MODULE";
 var HITSTOP_BAD_TICKS = "HITSTOP.BAD_TICKS";
@@ -25578,9 +25863,24 @@ function createCombatModule(opts) {
         if (node === null || !node.activeInHierarchy) continue;
         const target = opts.decide(node.id, tick);
         if (target === null) continue;
-        const r = attack(s, node.id, target, { tick, factions: opts.factions, friendlyFire: opts.friendlyFire });
-        if (!r.ok) {
-          switch (r.error.code) {
+        const out = executeIntent(
+          {
+            scene: s,
+            ...opts.factions === void 0 ? {} : { factions: opts.factions },
+            ...opts.friendlyFire === void 0 ? {} : { friendlyFire: opts.friendlyFire }
+          },
+          { kind: "attack", actor: node.id, target, tick, origin: "ai" }
+        );
+        opts.onAttempt?.({
+          attackerId: node.id,
+          targetId: target,
+          tick,
+          ok: out.ok,
+          code: out.code,
+          verdict: out.verdict
+        });
+        if (!out.ok) {
+          switch (out.code) {
             case "COMBAT.OUT_OF_RANGE":
               outOfRange++;
               break;
@@ -25592,23 +25892,29 @@ function createCombatModule(opts) {
               break;
             default:
               errors++;
-              lastError = r.error.code;
+              lastError = out.code;
               break;
           }
+          continue;
+        }
+        const rep = out.hit?.report;
+        if (rep === void 0) {
+          errors++;
+          lastError = "INTENT.NO_REPORT";
           continue;
         }
         hits++;
         opts.onHit?.({
           attackerId: node.id,
           targetId: target,
-          before: r.value.report.before,
-          after: r.value.report.after,
-          applied: r.value.report.applied,
-          overkill: r.value.report.overkill,
-          dead: r.value.report.dead,
+          before: rep.before,
+          after: rep.after,
+          applied: rep.applied,
+          overkill: rep.overkill,
+          dead: rep.dead,
           tick
         });
-        if (!r.value.report.dead) continue;
+        if (!rep.dead) continue;
         kills++;
         opts.onKill?.(target, node.id, tick);
         if (destroyOnKill) {
@@ -26508,11 +26814,14 @@ var K = {
   visibleNode: "visible.0.node",
   visibleCell: "visible.0.cell",
   wanderCell: "wander.cell",
+  lastVerdict: "last.verdict",
+  lastTarget: "last.target",
   outKind: "out.kind",
   outTarget: "out.target",
   outCell: "out.cell",
   outReason: "out.reason"
 };
+var LAST = { none: 0, ok: 1, retry: 2, fatal: 3 };
 var OUT_NONE = 0;
 var OUT_HUNT = 1;
 var OUT_WANDER = 2;
@@ -26530,6 +26839,8 @@ function writeFacts(board, f) {
   board.set(K.visibleNode, first?.nodeId ?? -1);
   board.set(K.visibleCell, first?.cell ?? -1);
   board.set(K.wanderCell, f.wanderCell);
+  board.set(K.lastVerdict, LAST[f.lastVerdict ?? "none"]);
+  board.set(K.lastTarget, f.lastTarget ?? -1);
   board.set(K.outKind, OUT_NONE);
   board.set(K.outTarget, -1);
   board.set(K.outCell, -1);
@@ -26571,7 +26882,10 @@ var MOB_OPS = {
   "mob.hasWander": (ctx) => atLeast(ctx, K.wanderCell, 0),
   "mob.huntGrudge": (ctx) => emit(ctx, OUT_HUNT, K.grudgeNode, K.grudgeCell, WHY.grudge),
   "mob.huntNearest": (ctx) => emit(ctx, OUT_HUNT, K.visibleNode, K.visibleCell, WHY.sight),
-  "mob.wander": (ctx) => emit(ctx, OUT_WANDER, null, K.wanderCell, WHY.wander)
+  "mob.wander": (ctx) => emit(ctx, OUT_WANDER, null, K.wanderCell, WHY.wander),
+  // 上一拍那个动作**没做成**（retry 或 fatal）。默认树不挂它 —— 挂上去就等于
+  // "打不到就换目标"，那是玩法决定，不该由这一批替策划做（见 mob-brain ⑦）。
+  "mob.lastFailed": (ctx) => atLeast(ctx, K.lastVerdict, LAST.retry)
 };
 var MOB_TREE = bt.sequence(
   "mob.root",
@@ -26830,6 +27144,16 @@ var MobBrain = class {
    */
   factsCache = /* @__PURE__ */ new Map();
   senses = 0;
+  /**
+   * 每只生物**上一拍**的动作结果（批158）。键是实体 id，值带 tick。
+   *
+   * ★ 为什么记在脑里、不记在黑板里：黑板每拍 `clear` 重写（树是瞬时的），
+   *   而结果天然是"上一次"的事 —— 它必须活过一拍。脑是每个世界一份，
+   *   正好是这个寿命。
+   * ★ 为什么带 `tick`：只认**紧邻的上一拍**。读档 / 回滚之后 tick 会跳，
+   *   那时陈旧结果比没有结果更坏（树会对着一个早就变了的局面做决定）。
+   */
+  lastOutcome = /* @__PURE__ */ new Map();
   constructor(options) {
     if (!(options.range > 0) || !Number.isFinite(options.range)) {
       throw new RangeError(`${MOB_BAD_BRAIN}: \u611F\u77E5\u534A\u5F84\u5FC5\u987B\u662F > 0 \u7684\u6709\u9650\u6570\uFF0C\u5F97\u5230 ${String(options.range)}`);
@@ -26997,7 +27321,17 @@ var MobBrain = class {
   sense(scene, agentId, tick, grid) {
     const self2 = scene.find(agentId);
     if (self2 === void 0) {
-      return { agentId, tick, selfCell: -1, aggressive: false, grudge: null, visible: [], wanderCell: -1 };
+      return {
+        agentId,
+        tick,
+        selfCell: -1,
+        aggressive: false,
+        grudge: null,
+        visible: [],
+        wanderCell: -1,
+        lastVerdict: "none",
+        lastTarget: -1
+      };
     }
     const selfCell = grid.cellAt(self2.worldPosition.x, self2.worldPosition.y);
     const me = teamOf(scene, agentId).team;
@@ -27017,7 +27351,31 @@ var MobBrain = class {
       radiusCells: this.o.wanderRadiusCells,
       every: this.o.wanderEvery
     }) : -1;
-    return { agentId, tick, selfCell, aggressive, grudge, visible, wanderCell };
+    const prev = this.lastOutcome.get(agentId);
+    const fresh = prev !== void 0 && prev.tick + 1 === tick;
+    return {
+      agentId,
+      tick,
+      selfCell,
+      aggressive,
+      grudge,
+      visible,
+      wanderCell,
+      lastVerdict: fresh ? prev.verdict : "none",
+      lastTarget: fresh ? prev.target : -1
+    };
+  }
+  /**
+   * 记下「这一只这一拍做过的动作结果」（由 `combat-module` 的 `onAttempt` 回调）。
+   *
+   * ★ 只由**执行者**写，不由决策层写：树是瞬时的，它没有"我刚才打中了"这种记忆，
+   *   把结果写回事实是**执行 → 决策**的唯一通道。缺了这条通道，树就只能瞎猜 ——
+   *   而"打不到就换目标"这类玩法永远写不出来。
+   *
+   * @param tick 发生这一结果的 tick（`sense` 会检查它是否紧邻当前拍）。
+   */
+  noteOutcome(agentId, verdict, target, tick) {
+    this.lastOutcome.set(agentId, { verdict, target, tick });
   }
   /**
    * 感知结果的过滤（友军 / 超 leash / 不在地图上）。
@@ -27307,6 +27665,12 @@ function createMobWorldModule(options) {
         decide: (agentId, tick) => {
           const d = b.decide(got, agentId, tick, grid);
           return d !== null && d.kind === "hunt" ? d.targetNodeId : null;
+        },
+        // ★★ 批158：把"这一拍打成了没有"送回大脑（→ 写进下一拍的事实）。
+        //   没有这条线，树就只能瞎猜：它知道目标在哪，但不知道上次够不够得着。
+        //   ★ 只认紧邻的下一拍（`MobBrain.lastOutcome` 带 tick），读档/回滚后自动作废。
+        onAttempt: (i) => {
+          b.noteOutcome(i.attackerId, i.verdict, i.targetId, i.tick);
         },
         factions: options.factions,
         id: "world.mobs.combat",
@@ -27620,7 +27984,7 @@ function createFeedbackModule(options = {}) {
 
 // src/extensions/mobs/tree-loader.ts
 var AI_TREE_DUPLICATE_ID = "AI_TREE.DUPLICATE_ID";
-function fail2(path, e) {
+function fail3(path, e) {
   return { path, code: e.code, message: e.message };
 }
 function sortedBy(items, key) {
@@ -27633,14 +27997,14 @@ function loadTreeTexts(library, entries, opts = {}) {
   for (const entry of sortedBy(entries, (e) => e.path)) {
     const idR = treeAssetIdFromPath(entry.path, opts.root ?? "");
     if (!idR.ok) {
-      failed.push(fail2(entry.path, idR.error));
+      failed.push(fail3(entry.path, idR.error));
       continue;
     }
     const id = idR.value;
     const owner = taken.get(id);
     if (owner !== void 0) {
       failed.push(
-        fail2(
+        fail3(
           entry.path,
           engineError(
             AI_TREE_DUPLICATE_ID,
@@ -27653,7 +28017,7 @@ function loadTreeTexts(library, entries, opts = {}) {
     }
     const put2 = library.putText(id, entry.text);
     if (!put2.ok) {
-      failed.push(fail2(entry.path, put2.error));
+      failed.push(fail3(entry.path, put2.error));
       continue;
     }
     taken.set(id, entry.path);
@@ -27667,7 +28031,7 @@ async function loadTreeFiles(library, paths, read2, opts = {}) {
   for (const path of sortedBy(paths, (p) => p)) {
     const r = await read2(path);
     if (!r.ok) {
-      failed.push(fail2(path, r.error));
+      failed.push(fail3(path, r.error));
       continue;
     }
     entries.push({ path, text: r.value });
@@ -27963,149 +28327,6 @@ function createAnimModule(opts = {}) {
     }
   };
   return mod;
-}
-
-// src/extensions/survival/hunger.ts
-var HUNGER_TYPE = "game.hunger";
-var HUNGER_NO_OWNER = "HUNGER.NO_OWNER";
-var HUNGER_NO_COMPONENT = "HUNGER.NO_COMPONENT";
-var HUNGER_BAD_AMOUNT = "HUNGER.BAD_AMOUNT";
-var Hunger = class extends Component {
-  /** 当前饱食度（整数，>= 0）。0 = 饿着（见文件头 ②）。 */
-  value = 100;
-  /** 上限（整数，> 0）。 */
-  max = 100;
-  schema = {
-    type: HUNGER_TYPE,
-    fields: { value: FieldType.Int, max: FieldType.Int }
-  };
-};
-function registerHungerComponent(registry) {
-  if (!registry.has(HUNGER_TYPE)) registry.register(new Hunger().schema, () => new Hunger());
-}
-function isStarving(h) {
-  return h.value <= 0;
-}
-function feed(scene, ownerId, nutrition) {
-  if (!Number.isInteger(nutrition) || nutrition <= 0) {
-    return err(
-      engineError(HUNGER_BAD_AMOUNT, `\u8425\u517B\u503C\u5FC5\u987B\u662F\u6B63\u6574\u6570\uFF0C\u6536\u5230 ${String(nutrition)}\uFF08\u5C0F\u6570\u4F1A\u8BA9"\u997F\u4E86\u6CA1\u6709"\u53D6\u51B3\u4E8E\u7D2F\u52A0\u6B21\u5E8F\uFF09`)
-    );
-  }
-  const node = scene.find(ownerId);
-  if (node === void 0 || node === null) {
-    return err(engineError(HUNGER_NO_OWNER, `\u8282\u70B9 ${String(ownerId)} \u4E0D\u5728\u573A\u666F\u91CC`));
-  }
-  const h = node.get(HUNGER_TYPE);
-  if (h === void 0) {
-    return err(
-      engineError(HUNGER_NO_COMPONENT, `\u8282\u70B9 ${String(ownerId)} \u6CA1\u6709 ${HUNGER_TYPE}\uFF08\u5148 attach \u4E00\u4E2A Hunger\uFF09`)
-    );
-  }
-  const before = h.value;
-  const after = Math.min(h.max, before + nutrition);
-  h.value = after;
-  return ok({
-    nodeId: ownerId,
-    before,
-    after,
-    applied: after - before,
-    wasted: nutrition - (after - before)
-  });
-}
-
-// src/extensions/survival/food.ts
-var FOOD_BAD_TABLE = "FOOD.BAD_TABLE";
-var FOOD_UNKNOWN_KIND = "FOOD.UNKNOWN_KIND";
-var FOOD_NOT_HELD = "FOOD.NOT_HELD";
-var FOOD_FULL = "FOOD.FULL";
-var FOOD_DEAD = "FOOD.DEAD";
-function normalizeFoodTable(raw) {
-  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
-    return err(engineError(FOOD_BAD_TABLE, "\u98DF\u7269\u8868\u5FC5\u987B\u662F\u5BF9\u8C61\uFF08kind \u2192 {nutrition, health?}\uFF09"));
-  }
-  const src = raw;
-  const kinds = Object.keys(src).sort();
-  if (kinds.length === 0) {
-    return err(engineError(FOOD_BAD_TABLE, "\u98DF\u7269\u8868\u662F\u7A7A\u7684 \u2014\u2014 \u591A\u534A\u662F\u5FD8\u4E86\u586B\uFF0C\u800C\u4E0D\u662F\u771F\u7684\u60F3\u8BA9\u6240\u6709\u4E1C\u897F\u90FD\u4E0D\u80FD\u5403"));
-  }
-  const out = {};
-  for (const kind of kinds) {
-    if (kind === "") {
-      return err(engineError(FOOD_BAD_TABLE, "\u98DF\u7269\u8868\u91CC\u6709\u4E00\u4E2A\u7A7A\u5B57\u7B26\u4E32 kind"));
-    }
-    const e = src[kind];
-    if (typeof e !== "object" || e === null || Array.isArray(e)) {
-      return err(engineError(FOOD_BAD_TABLE, `\u98DF\u7269\u8868\u9879 ${kind} \u5FC5\u987B\u662F\u5BF9\u8C61`, { field: kind, kind }));
-    }
-    const n = e.nutrition;
-    if (!Number.isInteger(n) || n <= 0) {
-      return err(
-        engineError(FOOD_BAD_TABLE, `\u98DF\u7269\u8868\u9879 ${kind}.nutrition \u5FC5\u987B\u662F\u6B63\u6574\u6570\uFF0C\u6536\u5230 ${String(n)}`, {
-          field: `${kind}.nutrition`,
-          kind
-        })
-      );
-    }
-    const hp = e.health;
-    if (hp !== void 0 && (!Number.isInteger(hp) || hp <= 0)) {
-      return err(
-        engineError(FOOD_BAD_TABLE, `\u98DF\u7269\u8868\u9879 ${kind}.health \u5FC5\u987B\u662F\u6B63\u6574\u6570\uFF0C\u6536\u5230 ${String(hp)}\uFF08\u7701\u7565 = \u4E0D\u56DE\u8840\uFF09`, {
-          field: `${kind}.health`,
-          kind
-        })
-      );
-    }
-    out[kind] = hp === void 0 ? { nutrition: n } : { nutrition: n, health: hp };
-  }
-  return ok(out);
-}
-function eat(scene, ownerId, kind, table) {
-  const entry = table[kind];
-  if (entry === void 0) {
-    return err(
-      engineError(FOOD_UNKNOWN_KIND, `"${kind}" \u4E0D\u5728\u98DF\u7269\u8868\u91CC\uFF08\u80FD\u5403\u7684\u53EA\u6709\uFF1A${Object.keys(table).sort().join(" / ")}\uFF09`)
-    );
-  }
-  const node = scene.find(ownerId);
-  if (node === void 0 || node === null) {
-    return err(engineError(HUNGER_NO_OWNER, `\u8282\u70B9 ${String(ownerId)} \u4E0D\u5728\u573A\u666F\u91CC`));
-  }
-  const h = node.get(HUNGER_TYPE);
-  if (h === void 0) {
-    return err(engineError(HUNGER_NO_COMPONENT, `\u8282\u70B9 ${String(ownerId)} \u6CA1\u6709 ${HUNGER_TYPE}`));
-  }
-  const health = node.get(HEALTH_TYPE);
-  if (health !== void 0 && isDead(health)) {
-    return err(engineError(FOOD_DEAD, `\u8282\u70B9 ${String(ownerId)} \u5DF2\u7ECF\u6B7B\u4E86 \u2014\u2014 \u5C38\u4F53\u4E0D\u4F1A\u5403\u4E1C\u897F`));
-  }
-  if (h.value >= h.max) {
-    return err(
-      engineError(FOOD_FULL, `\u5DF2\u7ECF\u5403\u9971\u4E86\uFF08${String(h.value)}/${String(h.max)}\uFF09\u2014\u2014 \u4E0D\u8BE5\u5728\u8FD9\u65F6\u5019\u6D88\u8017\u4E00\u4E2A\u300C${kind}\u300D`)
-    );
-  }
-  if (countItem(scene, ownerId, kind) < 1) {
-    return err(engineError(FOOD_NOT_HELD, `\u8EAB\u4E0A\u6CA1\u6709\u300C${kind}\u300D\uFF08\u80CC\u5305\u91CC\u6709\uFF1A${Object.keys(table).sort().join(" / ")}\uFF09`));
-  }
-  const taken = takeItem(scene, ownerId, kind, 1);
-  if (!taken.ok) return taken;
-  const fed = feed(scene, ownerId, entry.nutrition);
-  if (!fed.ok) {
-    return fed;
-  }
-  let healed = 0;
-  if (entry.health !== void 0 && health !== void 0) {
-    const r = heal(scene, ownerId, entry.health);
-    if (r.ok) healed = r.value;
-  }
-  return ok({
-    nodeId: ownerId,
-    kind,
-    nutrition: entry.nutrition,
-    hungerBefore: fed.value.before,
-    hungerAfter: fed.value.after,
-    healed
-  });
 }
 
 // src/extensions/survival/survival-module.ts
@@ -29132,6 +29353,7 @@ ${appR.error.message}
   registerControllerComponent(reg);
   reg.register({ type: "game.workable", fields: { workleft: FieldType.Int } }, () => new Workable());
   const scene = app.scene;
+  const intentWorld = { scene, factions: MOB_FACTIONS };
   const rnd = app.random;
   const worldPlan = worldState.plan;
   const W = worldPlan?.width ?? WORLD_W;
@@ -29298,9 +29520,19 @@ ${appR.error.message}
       }
     }
     if (bestId < 0) return "\u9644\u8FD1\u6CA1\u6709\u53EF\u6253\u7684";
-    const r = attack(scene, heroId, bestId, { tick: hudTick, factions: MOB_FACTIONS });
-    if (!r.ok) return `${r.error.code}\uFF1A${r.error.message}`;
-    const rep = r.value.report;
+    const out = executeIntent(intentWorld, {
+      kind: "attack",
+      actor: heroId,
+      target: bestId,
+      tick: hudTick,
+      origin: "player"
+    });
+    if (!out.ok) return `${out.code}\uFF1A${out.message}`;
+    const hit = out.hit;
+    if (hit === void 0) {
+      return "\u6253\u4E86\u4F46\u6CA1\u6709\u4F24\u5BB3\u62A5\u544A\uFF08\u6267\u884C\u5668\u5951\u7EA6\u7834\u4E86\uFF09";
+    }
+    const rep = hit.report;
     showHit({
       attackerId: heroId,
       targetId: bestId,

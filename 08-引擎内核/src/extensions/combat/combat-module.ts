@@ -34,7 +34,9 @@ import type { IModule, ModuleContext } from "../../core/module/module.ts";
 import type { Scene } from "../../core/scene/scene.ts";
 import { Services } from "../../core/tokens.ts";
 import { engineError, err, ok, type EngineError, type Result } from "../../foundation/result.ts";
-import { ATTACKER_TYPE, Attacker, attack } from "./attack.ts";
+import { ATTACKER_TYPE, Attacker } from "./attack.ts";
+import { executeIntent } from "../actions/executor.ts";
+import type { ActionVerdict } from "../actions/intent.ts";
 import type { Factions } from "./faction.ts";
 
 export const COMBAT_BAD_MODULE = "COMBAT.BAD_MODULE";
@@ -75,6 +77,22 @@ export interface CombatStats {  /** 带 `combat.attacker` 的节点数。 */
   readonly lastError: string;
 }
 
+/**
+ * 一次**尝试**的报告（成功与失败都报）。
+ *
+ * ★ 与 `onHit` 的区别：`onHit` 只在**真的扣到血**时回调（表现层要闪烁/数字），
+ *   这个回调每次尝试都报 —— 决策层要知道的恰恰是"没做成"（射程不够 / 目标死了）。
+ *   用 `onHit` 冒充它的话，树永远收不到"打不到"，于是只能一直锁着同一个目标。
+ */
+export interface AttemptInfo {
+  readonly attackerId: number;
+  readonly targetId: number;
+  readonly tick: number;
+  readonly ok: boolean;
+  readonly code: string;
+  readonly verdict: ActionVerdict;
+}
+
 export interface CombatModuleOptions {
   /** 返回"要打哪个节点"；`null` = 这一 tick 不打。 */
   readonly decide: (attackerNodeId: number, tick: number) => number | null;
@@ -98,6 +116,8 @@ export interface CombatModuleOptions {
   readonly onKill?: (targetNodeId: number, killerNodeId: number, tick: number) => void;
   /** 击杀后销毁目标节点（默认 `true`：留着的话 AI 会继续锁定一个死目标）。 */
   readonly destroyOnKill?: boolean;
+  /** 每次尝试之后回调（成功与失败都调，见 `AttemptInfo`）。 */
+  readonly onAttempt?: (info: AttemptInfo) => void;
   /** 阵营关系表（不给就**不检查友伤**，见 `attack()` 文件头 ⑤）。 */
   readonly factions?: Factions;
   /** 显式允许友伤（默认 false）。 */
@@ -158,9 +178,29 @@ export function createCombatModule(opts: CombatModuleOptions): CombatModuleHandl
         const target = opts.decide(node.id, tick);
         if (target === null) continue;
 
-        const r = attack(s, node.id, target, { tick, factions: opts.factions, friendlyFire: opts.friendlyFire });
-        if (!r.ok) {
-          switch (r.error.code) {
+        // ★★ 批158：不走 `attack()` 直连，走**意图执行器**。
+        //   这不是多包一层 —— 玩家那条路（`demo-game.attackNearest`）也走它，
+        //   于是"友伤拦不拦、失败算 fatal 还是 retry、文案怎么写"只有一份。
+        //   分开写两套的那天，改一处就会漏另一处，而漏的那一半在画面上只是"没反应"。
+        const out = executeIntent(
+          {
+            scene: s,
+            ...(opts.factions === undefined ? {} : { factions: opts.factions }),
+            ...(opts.friendlyFire === undefined ? {} : { friendlyFire: opts.friendlyFire }),
+          },
+          { kind: "attack", actor: node.id, target, tick, origin: "ai" },
+        );
+        // 每次尝试都报（见 `AttemptInfo`）：决策层的"上一拍做成了没有"只有这里有
+        opts.onAttempt?.({
+          attackerId: node.id,
+          targetId: target,
+          tick,
+          ok: out.ok,
+          code: out.code,
+          verdict: out.verdict,
+        });
+        if (!out.ok) {
+          switch (out.code) {
             case "COMBAT.OUT_OF_RANGE":
               outOfRange++;
               break;
@@ -173,9 +213,19 @@ export function createCombatModule(opts: CombatModuleOptions): CombatModuleHandl
               break;
             default:
               errors++;
-              lastError = r.error.code;
+              lastError = out.code;
               break;
           }
+          continue;
+        }
+
+        // ★ 报告从意图结果里取（`hit` 是原始 `AttackOutcome`，没有裁剪过 ——
+        //   裁剪版会把 `overkill` 变成 0，而顿帧策略正是按它判断"这一下有多重"）
+        const rep = out.hit?.report;
+        if (rep === undefined) {
+          // 执行成功却没有报告 = 执行器与 `attack()` 的契约破了。数出来，别静默通过。
+          errors++;
+          lastError = "INTENT.NO_REPORT";
           continue;
         }
 
@@ -184,14 +234,14 @@ export function createCombatModule(opts: CombatModuleOptions): CombatModuleHandl
         opts.onHit?.({
           attackerId: node.id,
           targetId: target,
-          before: r.value.report.before,
-          after: r.value.report.after,
-          applied: r.value.report.applied,
-          overkill: r.value.report.overkill,
-          dead: r.value.report.dead,
+          before: rep.before,
+          after: rep.after,
+          applied: rep.applied,
+          overkill: rep.overkill,
+          dead: rep.dead,
           tick,
         });
-        if (!r.value.report.dead) continue;
+        if (!rep.dead) continue;
 
         // ---- 击杀：先回调（能读到目标），再统计，最后销毁（见文件头 ①）
         //      回调带上 `node.id`（补最后一刀的那个），见文件头 ④

@@ -2633,7 +2633,7 @@ MUTANTS = [
     {
         "name": "M267 onHit 的 applied 用了攻击力（打死 2 血的东西显示 -3）",
         "file": "src/extensions/combat/combat-module.ts",
-        "pairs": [("          applied: r.value.report.applied,", "          applied: atk.damage,")],
+        "pairs": [("          applied: rep.applied,", "          applied: atk.damage,")],
         "test": "tests/extensions/combat-onhit.test.ts",
     },
     {
@@ -8923,6 +8923,105 @@ MUTANTS = [
             ),
         ],
         "test": "tests/extensions/tree-edit.test.ts",
+    },
+    {
+        "name": "M954 未知码默认成 retry（配置写错的怪每拍重试、世界毫无变化）",
+        "file": "src/extensions/actions/intent.ts",
+        "pairs": [
+            (
+                "  return RETRYABLE.has(code) ? \"retry\" : \"fatal\";",
+                "  return code === INTENT_OK ? \"ok\" : \"retry\";",
+            ),
+        ],
+        "test": "tests/extensions/action-intent.test.ts",
+    },
+    {
+        "name": "M955 形状校验被跳过（缺 target 的攻击直接进世界）",
+        "file": "src/extensions/actions/intent.ts",
+        "pairs": [
+            (
+                "      if (it.target === undefined || !Number.isInteger(it.target) || it.target < 0) {",
+                "      if (false) {",
+            ),
+        ],
+        "test": "tests/extensions/action-intent.test.ts",
+    },
+    {
+        "name": "M956 空手拾取判成 ok（决策层以为成了，这只怪就站着捡空气）",
+        "file": "src/extensions/actions/executor.ts",
+        "pairs": [
+            (
+                "        verdict: \"fatal\",",
+                "        verdict: \"ok\",",
+            ),
+        ],
+        "test": "tests/extensions/action-intent.test.ts",
+    },
+    {
+        "name": "M957 applied 恒 0（命中却报世界没变）",
+        "file": "src/extensions/actions/executor.ts",
+        "pairs": [
+            (
+                "        applied: out.report.applied,",
+                "        applied: 0,",
+            ),
+        ],
+        "test": "tests/extensions/action-intent.test.ts",
+    },
+    {
+        "name": "M958 三态压成两态（retry 被抹成 fatal，够不着与目标死了分不开）",
+        "file": "src/extensions/combat/combat-module.ts",
+        "pairs": [
+            (
+                "          verdict: out.verdict,",
+                "          verdict: out.ok ? \"ok\" : \"fatal\",",
+            ),
+        ],
+        "test": "tests/extensions/action-intent.test.ts",
+    },
+    {
+        "name": "M959 结果不过期（读档之后带着上一局的陈旧结果做决定）",
+        "file": "src/extensions/mobs/mob-brain.ts",
+        "pairs": [
+            (
+                "    const fresh = prev !== undefined && prev.tick + 1 === tick;",
+                "    const fresh = prev !== undefined;",
+            ),
+        ],
+        "test": "tests/extensions/mob-outcome.test.ts",
+    },
+    {
+        "name": "M960 mob.lastFailed 只认 fatal（射程不够当成做成了）",
+        "file": "src/extensions/mobs/mob-tree.ts",
+        "pairs": [
+            (
+                "  \"mob.lastFailed\": (ctx) => atLeast(ctx, K.lastVerdict, LAST.retry),",
+                "  \"mob.lastFailed\": (ctx) => atLeast(ctx, K.lastVerdict, LAST.fatal),",
+            ),
+        ],
+        "test": "tests/extensions/mob-outcome.test.ts",
+    },
+    {
+        "name": "M961 黑板不写结果（树永远读到 none，能力等于没开）",
+        "file": "src/extensions/mobs/mob-tree.ts",
+        "pairs": [
+            (
+                "  board.set(K.lastVerdict, LAST[f.lastVerdict ?? \"none\"]);",
+                "  board.set(K.lastVerdict, LAST.none);",
+            ),
+        ],
+        "test": "tests/extensions/mob-outcome.test.ts",
+    },
+    {
+        "name": "M962 执行器不透传阵营（友伤拦截在玩家与 AI 两条路上同时失效）",
+        "file": "src/extensions/actions/executor.ts",
+        "pairs": [
+            (
+                "        ...(w.factions === undefined ? {} : { factions: w.factions }),\n",
+                "",
+            ),
+        ],
+        "test": "tests/extensions/action-intent.test.ts",
     },
 ]
 

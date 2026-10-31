@@ -53,11 +53,21 @@ export const K = {
   visibleNode: "visible.0.node",
   visibleCell: "visible.0.cell",
   wanderCell: "wander.cell",
+  lastVerdict: "last.verdict",
+  lastTarget: "last.target",
   outKind: "out.kind",
   outTarget: "out.target",
   outCell: "out.cell",
   outReason: "out.reason",
 } as const;
+
+/**
+ * 上一拍结果的三态码。**与 `LastVerdict` 一一对应**（`none` 是 0）。
+ *
+ * ★ 编码成数字而不是字符串：黑板只存数字（见 `mob-facts.ts` ①）。
+ *   顺带让 `atLeast(ctx, K.lastVerdict, 2)` 能表达「没做成」（retry 或 fatal）。
+ */
+export const LAST = { none: 0, ok: 1, retry: 2, fatal: 3 } as const;
 
 /** 输出槽的 kind 码（`0` = 这一拍没有决定）。 */
 export const OUT_NONE = 0;
@@ -87,6 +97,8 @@ export function writeFacts(board: Board, f: MobFacts): Board {
   board.set(K.visibleNode, first?.nodeId ?? -1);
   board.set(K.visibleCell, first?.cell ?? -1);
   board.set(K.wanderCell, f.wanderCell);
+  board.set(K.lastVerdict, LAST[f.lastVerdict ?? "none"]);
+  board.set(K.lastTarget, f.lastTarget ?? -1);
   // 输出槽也每拍归零：一棵不含漫游分支的自定义树跑完之后，不能让上一拍的
   // 「漫游」留在板上被当成本拍的决定
   board.set(K.outKind, OUT_NONE);
@@ -149,6 +161,9 @@ export const MOB_OPS: AiOps = {
   "mob.huntGrudge": (ctx) => emit(ctx, OUT_HUNT, K.grudgeNode, K.grudgeCell, WHY.grudge),
   "mob.huntNearest": (ctx) => emit(ctx, OUT_HUNT, K.visibleNode, K.visibleCell, WHY.sight),
   "mob.wander": (ctx) => emit(ctx, OUT_WANDER, null, K.wanderCell, WHY.wander),
+  // 上一拍那个动作**没做成**（retry 或 fatal）。默认树不挂它 —— 挂上去就等于
+  // "打不到就换目标"，那是玩法决定，不该由这一批替策划做（见 mob-brain ⑦）。
+  "mob.lastFailed": (ctx) => atLeast(ctx, K.lastVerdict, LAST.retry),
 };
 
 /**

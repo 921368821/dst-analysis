@@ -111,7 +111,8 @@ import {
 } from "../extensions/input/player-controller.ts";
 import { NavGrid } from "../extensions/nav/nav-grid.ts";
 import { HEALTH_TYPE, Health, isDead, registerHealthComponent } from "../extensions/combat/health.ts";
-import { ATTACKER_TYPE, Attacker, attack, registerAttackerComponent } from "../extensions/combat/attack.ts";
+import { ATTACKER_TYPE, Attacker, registerAttackerComponent } from "../extensions/combat/attack.ts";
+import { executeIntent, type IntentWorld } from "../extensions/actions/executor.ts";
 import { FactionMember, registerFactionComponent, teamOf } from "../extensions/combat/faction.ts";
 // 批73：顿帧（hitstop）。命中的一瞬间把世界冻住几个逻辑步，画面继续走。
 import { createHitstopModule, type HitstopHandle } from "../extensions/combat/hitstop.ts";
@@ -1817,6 +1818,16 @@ export async function buildDemoGame(env: DemoHostEnv): Promise<DemoHandle> {
 
   // ---- 在世界之上摆装饰
   const scene = app.scene;
+
+  /**
+   * 意图执行器的世界侧参数（批158）。
+   *
+   * ★ 玩家与 AI 共用同一条路：AI 在 `combat-module` 里建一份等价的（带它自己的
+   *   `factions`），两边都落到 `executeIntent` —— 友伤拦不拦、射程怎么比、
+   *   冷却算不算、失败文案怎么写，只有一份。分成两条路的那天，改一处就会漏另一处，
+   *   而漏的那一半在画面上只表现为"打了没反应"。
+   */
+  const intentWorld: IntentWorld = { scene, factions: MOB_FACTIONS };
   const rnd = app.random;
   const worldPlan = worldState.plan;
   const W = worldPlan?.width ?? WORLD_W;
@@ -2085,9 +2096,23 @@ export async function buildDemoGame(env: DemoHostEnv): Promise<DemoHandle> {
       }
     }
     if (bestId < 0) return "附近没有可打的";
-    const r = attack(scene, heroId, bestId, { tick: hudTick, factions: MOB_FACTIONS });
-    if (!r.ok) return `${r.error.code}：${r.error.message}`;
-    const rep = r.value.report;
+    // ★★ 批158：与 AI 同一条路（`executeIntent`）。返回值是三态判定，
+    //   但玩家这条路径**不读 `verdict`** —— "下一步该换哪个目标"是决策层的事，
+    //   玩家按一次键就是一次请求，成败直接说给他看。
+    const out = executeIntent(intentWorld, {
+      kind: "attack",
+      actor: heroId,
+      target: bestId,
+      tick: hudTick,
+      origin: "player",
+    });
+    if (!out.ok) return `${out.code}：${out.message}`;
+    const hit = out.hit;
+    if (hit === undefined) {
+      // 成功却没有报告 = 执行器与 `attack()` 的契约破了。说清楚，别静默通过。
+      return "打了但没有伤害报告（执行器契约破了）";
+    }
+    const rep = hit.report;
     // ★ 玩家这条路径**不经过** `combat-module`（它是"按一下打一下"，
     //   没有每 tick 的 decide），所以表现要在这里补一次 —— 且必须是**同一个** showHit：
     //   分头写两份的那天，就是"怪打我冒数字、我打怪不冒"的那天。

@@ -14011,11 +14011,14 @@ var K = {
   visibleNode: "visible.0.node",
   visibleCell: "visible.0.cell",
   wanderCell: "wander.cell",
+  lastVerdict: "last.verdict",
+  lastTarget: "last.target",
   outKind: "out.kind",
   outTarget: "out.target",
   outCell: "out.cell",
   outReason: "out.reason"
 };
+var LAST = { none: 0, ok: 1, retry: 2, fatal: 3 };
 var OUT_HUNT = 1;
 var OUT_WANDER = 2;
 var WHY = { grudge: 1, sight: 2, wander: 3 };
@@ -14039,7 +14042,10 @@ var MOB_OPS = {
   "mob.hasWander": (ctx) => atLeast(ctx, K.wanderCell, 0),
   "mob.huntGrudge": (ctx) => emit(ctx, OUT_HUNT, K.grudgeNode, K.grudgeCell, WHY.grudge),
   "mob.huntNearest": (ctx) => emit(ctx, OUT_HUNT, K.visibleNode, K.visibleCell, WHY.sight),
-  "mob.wander": (ctx) => emit(ctx, OUT_WANDER, null, K.wanderCell, WHY.wander)
+  "mob.wander": (ctx) => emit(ctx, OUT_WANDER, null, K.wanderCell, WHY.wander),
+  // 上一拍那个动作**没做成**（retry 或 fatal）。默认树不挂它 —— 挂上去就等于
+  // "打不到就换目标"，那是玩法决定，不该由这一批替策划做（见 mob-brain ⑦）。
+  "mob.lastFailed": (ctx) => atLeast(ctx, K.lastVerdict, LAST.retry)
 };
 var MOB_TREE = bt.sequence(
   "mob.root",

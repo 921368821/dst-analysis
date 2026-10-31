@@ -52,6 +52,7 @@ import {
   type MobFacts,
   type MobGrid,
   type MobGrudge,
+  type LastVerdict,
 } from "./mob-facts.ts";
 import { MOB_OPS, createMobTree, type MobTree } from "./mob-tree.ts";
 import { TreeLibrary, type TreeLookup } from "./tree-library.ts";
@@ -162,6 +163,16 @@ export class MobBrain {
    */
   private factsCache = new Map<number, MobFacts>();
   private senses = 0;
+  /**
+   * 每只生物**上一拍**的动作结果（批158）。键是实体 id，值带 tick。
+   *
+   * ★ 为什么记在脑里、不记在黑板里：黑板每拍 `clear` 重写（树是瞬时的），
+   *   而结果天然是"上一次"的事 —— 它必须活过一拍。脑是每个世界一份，
+   *   正好是这个寿命。
+   * ★ 为什么带 `tick`：只认**紧邻的上一拍**。读档 / 回滚之后 tick 会跳，
+   *   那时陈旧结果比没有结果更坏（树会对着一个早就变了的局面做决定）。
+   */
+  private lastOutcome = new Map<number, { readonly verdict: LastVerdict; readonly target: number; readonly tick: number }>();
 
   constructor(options: MobBrainOptions) {
     if (!(options.range > 0) || !Number.isFinite(options.range)) {
@@ -347,7 +358,17 @@ export class MobBrain {
   private sense(scene: Scene, agentId: number, tick: number, grid: MobGrid): MobFacts {
     const self = scene.find(agentId);
     if (self === undefined) {
-      return { agentId, tick, selfCell: -1, aggressive: false, grudge: null, visible: [], wanderCell: -1 };
+      return {
+        agentId,
+        tick,
+        selfCell: -1,
+        aggressive: false,
+        grudge: null,
+        visible: [],
+        wanderCell: -1,
+        lastVerdict: "none",
+        lastTarget: -1,
+      };
     }
     const selfCell = grid.cellAt(self.worldPosition.x, self.worldPosition.y);
     const me = teamOf(scene, agentId).team;
@@ -378,7 +399,34 @@ export class MobBrain {
           })
         : -1;
 
-    return { agentId, tick, selfCell, aggressive, grudge, visible, wanderCell };
+    // 见 `lastOutcome` 的 ★：只认紧邻的上一拍
+    const prev = this.lastOutcome.get(agentId);
+    const fresh = prev !== undefined && prev.tick + 1 === tick;
+
+    return {
+      agentId,
+      tick,
+      selfCell,
+      aggressive,
+      grudge,
+      visible,
+      wanderCell,
+      lastVerdict: fresh ? prev.verdict : "none",
+      lastTarget: fresh ? prev.target : -1,
+    };
+  }
+
+  /**
+   * 记下「这一只这一拍做过的动作结果」（由 `combat-module` 的 `onAttempt` 回调）。
+   *
+   * ★ 只由**执行者**写，不由决策层写：树是瞬时的，它没有"我刚才打中了"这种记忆，
+   *   把结果写回事实是**执行 → 决策**的唯一通道。缺了这条通道，树就只能瞎猜 ——
+   *   而"打不到就换目标"这类玩法永远写不出来。
+   *
+   * @param tick 发生这一结果的 tick（`sense` 会检查它是否紧邻当前拍）。
+   */
+  noteOutcome(agentId: number, verdict: "ok" | "retry" | "fatal", target: number, tick: number): void {
+    this.lastOutcome.set(agentId, { verdict, target, tick });
   }
 
   /**

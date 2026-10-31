@@ -27,6 +27,14 @@
 /** 为什么这么决定（给 HUD 与判据各看一半，见文件头 ④）。 */
 export type DecisionReason = "grudge" | "sight" | "wander";
 
+/**
+ * 上一拍动作的结果（批158）。
+ *
+ * `"none"` = 上一拍没做过动作，**或者**两个 tick 之间断过（读档、回滚、跳拍）——
+ * 后一种是刻意的：陈旧结果比没有结果更坏，它会让树对着一个早就变了的局面做决定。
+ */
+export type LastVerdict = "none" | "ok" | "retry" | "fatal";
+
 export interface Decision {
   /** `hunt` = 有目标；`wander` = 闲逛。 */
   readonly kind: "hunt" | "wander";
@@ -79,6 +87,16 @@ export interface MobFacts {
   readonly visible: readonly MobCandidate[];
   /** 这一 epoch 的漫游目标格；`-1` = 没有可走的（孤岛 / 站在界外）。 */
   readonly wanderCell: number;
+  /**
+   * 上一拍那个动作的判定（见 `LastVerdict`）。
+   *
+   * ★ 可选：`MobFacts` 有手写夹具（判据直接造一份来测边界），必填字段会让每一处
+   *   都补一遍 —— 而漏补的那一处不报错，只是读不到值。所以缺省是 `"none"`，
+   *   由 `writeFacts` 兜底；同时有一条判据断言 `sense()` 产出的**一定带**这个字段。
+   */
+  readonly lastVerdict?: LastVerdict;
+  /** 上一拍那个动作打的是谁；`-1` = 无。 */
+  readonly lastTarget?: number;
 }
 
 /** 漫游参数（纯函数需要的全部外部量）。 */
