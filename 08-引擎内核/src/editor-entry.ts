@@ -122,6 +122,33 @@ import {
   reparentWithUndo,
   topmostIds,
 } from "./extensions/editor/undo-ops.ts";
+// 批157：决策树的编辑模型（纯函数在 `extensions/mobs/tree-edit.ts`，
+// 这里只负责把它接到面板上）。
+import type { AiNode, AiNodeKind } from "./extensions/ai/behavior.ts";
+import { MOB_OPS } from "./extensions/mobs/mob-tree.ts";
+import {
+  checkTree,
+  isTreeAssetPath,
+  parseTreeAsset,
+  serializeTreeAsset,
+  treeAssetIdFromPath,
+} from "./extensions/mobs/tree-asset.ts";
+import {
+  addChild,
+  moveNode,
+  nodeAt,
+  patchNode,
+  pathAfterRemoval,
+  pathFromText,
+  pathText,
+  removeNode,
+  treeAdvice,
+  treeIssue,
+  treeRows,
+  treeStatusText,
+  type TreePath,
+  type TreeRowView,
+} from "./extensions/mobs/tree-edit.ts";
 
 const WORLD_SEED = 20261025;
 const WORLD_W = 26;
@@ -1838,11 +1865,21 @@ function assetRow(e: AssetEntry): HTMLElement {
   if (!e.inAtlas) {
     const nof = document.createElement("span");
     nof.className = "nof";
-    nof.textContent = "无帧";
-    nof.title = "图集里没有同名帧（编辑器还没接图片导入）—— 加进场景也画不出来";
+    // ★ 决策树资产「没有帧」是理所当然的（它是文本、是行为），把它和
+    //   「这张图画不出来」混成同一句话，人会以为树资产坏了。
+    const tree = isTreeAssetPath(e.path);
+    nof.textContent = tree ? "树" : "无帧";
+    nof.title = tree
+      ? "决策树资产：点一下在画布上打开编辑器（它加不进场景，也不需要加）"
+      : "图集里没有同名帧（编辑器还没接图片导入）—— 加进场景也画不出来";
     el.appendChild(nof);
   }
   el.addEventListener("click", () => {
+    // 树资产点了就编辑：它本来就加不进场景（没有帧），"选中但什么都不能做"没有意义
+    if (isTreeAssetPath(e.path)) {
+      void openTree(e.path);
+      return;
+    }
     pickAsset(e.path);
   });
   // ★ 拖到画布（批89）：只有「有帧」的资产能拖 —— 与按钮同一个条件，
@@ -1860,6 +1897,10 @@ function assetRow(e: AssetEntry): HTMLElement {
   }
   // 双击直接加入：与场景树双击换父相反，这里的双击是"最常用那个动作"的快捷方式。
   el.addEventListener("dblclick", () => {
+    if (isTreeAssetPath(e.path)) {
+      void openTree(e.path);
+      return;
+    }
     pickAsset(e.path);
     doAddAsset(e.path);
   });
@@ -2247,6 +2288,466 @@ function propsFocused(): boolean {
   return a !== null && propsEl.contains(a);
 }
 
+// ---------------------------------------------------------------- 决策树编辑器（批157）
+
+/**
+ * 决策树的可视化编辑：资产面板里点一份 `.tree.json`，画布上就盖一层树面板 ——
+ * 增删节点、拖拽换父、改 id / kind / op / ticks，改完当场知道它装不装得上。
+ *
+ * ★★ 三个决定：
+ *
+ * ① **编辑不拦坏树**，与装载路径刻意相反（理由见 `tree-edit.ts` 文件头 ①）。
+ *    面板上的红字说的是「现在装不上」，不是「不许这么放」；只有**导出**那一刻
+ *    才硬性要求合法（`checkTree`）。所以在面板里把 selector 的孩子删光是允许的，
+ *    红字会告诉你「这一层没有子节点」。
+ *
+ * ② **每次改动立刻落 `localStorage`**，键 `engine.tree.edits.v1`，**与工程存档分开**。
+ *    工程存档管的是「这一局的世界长什么样」，而树是**资产** —— 树的真身在版本库里的
+ *    `.tree.json`。混进工程存档的后果是「切一个场景就把树带回旧版本」，
+ *    而症状看起来像"编辑器把树改坏了"。
+ *    存的是 `AiNode` 的 JSON，**不是**资产文本：坏的中间态也要能存下来，
+ *    而资产文本是要过 `parseTreeAsset` 的（那块一过就把坏树拒了）。
+ *
+ * ③ **撤销栈存根快照**（`tree-edit.ts` 文件头 ③ 保证每次编辑返回新根，未受影响的
+ *    子树按引用共享）。树只有几十个节点，快照比命令对象便宜，也不会出现
+ *    「重放顺序错一格」这类只在大树上才暴露的 bug。
+ *
+ * ★ 树面板**不进 `refreshProps` 的每帧刷新**：它不是世界的一部分（不长 tick 也不动），
+ *   每帧重建只会让正在拖的那一行每帧被替换掉 —— 拖到一半就断了。
+ */
+
+/** 树改动的本地存档键。与工程存档分开，见决定 ②。 */
+const TREE_EDITS_KEY = "engine.tree.edits.v1";
+
+interface TreeDoc {
+  /** 资产路径（`ai/hound.tree.json`）—— 导出文件名与"还原成文件"要用它。 */
+  readonly path: string;
+  /** 树 id（= 路径去掉后缀）。引用它的是 `mobs.ai.tree`。 */
+  readonly id: string;
+  /** 文件里那一份（**基准**）：`dirty` 是「与它不同」，导出前的对照物。 */
+  readonly baseText: string;
+  readonly root: AiNode;
+}
+
+let treeDoc: TreeDoc | null = null;
+/** 选中行（下标路径）。根是 `[]`，所以不能拿 `null` 表示"选根"。 */
+let treeSel: TreePath = [];
+/** 撤销/重做栈：存根快照，见决定 ③。 */
+let treeUndo: AiNode[] = [];
+let treeRedo: AiNode[] = [];
+/** 拖动中的行（`pointerup` 之前一直是它）。 */
+let treeDrag: { path: TreePath; x: number; y: number; active: boolean } | null = null;
+
+const treeEditorEl = need<HTMLDivElement>("treeditor");
+const teTitleEl = need<HTMLElement>("te-title");
+const teNoteEl = need<HTMLElement>("te-note");
+const teHintEl = need<HTMLDivElement>("te-hint");
+const teRowsEl = need<HTMLDivElement>("te-rows");
+const teIdEl = need<HTMLInputElement>("te-id");
+const teKindEl = need<HTMLSelectElement>("te-kind");
+const teOpEl = need<HTMLSelectElement>("te-op");
+const teTicksEl = need<HTMLInputElement>("te-ticks");
+const btnTeUndo = need<HTMLButtonElement>("te-undo");
+const btnTeRedo = need<HTMLButtonElement>("te-redo");
+const btnTeExport = need<HTMLButtonElement>("te-export");
+const btnTeReset = need<HTMLButtonElement>("te-reset");
+const btnTeClose = need<HTMLButtonElement>("te-close");
+const btnTeApply = need<HTMLButtonElement>("te-apply");
+const btnTeChild = need<HTMLButtonElement>("te-child");
+const btnTeDel = need<HTMLButtonElement>("te-del");
+
+/** 资产根的读写口（与 `prepareAssets` 同一个 base；每次新建很便宜）。 */
+function assetsFs(): HttpFileSystem {
+  return new HttpFileSystem({ base: new URL("./assets/", location.href) });
+}
+
+/** 本地改动表：`树 id → AiNode 的 JSON`。读坏了当没有（下一次写入会把它整个重写）。 */
+function treeEditsRead(): Record<string, string> {
+  try {
+    const raw = window.localStorage.getItem(TREE_EDITS_KEY);
+    if (raw === null) return {};
+    const v = JSON.parse(raw) as unknown;
+    if (typeof v !== "object" || v === null || Array.isArray(v)) return {};
+    const out: Record<string, string> = {};
+    for (const [k, s] of Object.entries(v as Record<string, unknown>)) {
+      if (typeof s === "string") out[k] = s;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * 写一条本地改动（`root === null` = 删掉这条，回到文件版本）。
+ *
+ * ★ 失败要说出来：配额满 / 隐私模式下 `setItem` 会抛，而"改了半天刷新全没了"
+ *   在界面上没有任何痕迹 —— 与工程存档那边同一条理由（`projectStore` 的注释）。
+ */
+function treeEditsWrite(id: string, root: AiNode | null): boolean {
+  const all = treeEditsRead();
+  if (root === null) delete all[id];
+  else all[id] = JSON.stringify(root);
+  try {
+    window.localStorage.setItem(TREE_EDITS_KEY, JSON.stringify(all));
+    return true;
+  } catch (e) {
+    errEl.textContent = `树的本地改动没存下来：${e instanceof Error ? e.message : String(e)}`;
+    return false;
+  }
+}
+
+/** 现在这份与文件里那份不同吗（导出/还原按钮的可用状态就是它）。 */
+function treeDirty(): boolean {
+  const d = treeDoc;
+  if (d === null) return false;
+  return serializeTreeAsset(d.root) !== d.baseText;
+}
+
+/**
+ * 打开一份树资产。
+ *
+ * ★ **文件先读、本地改动后覆盖**：文件是基准（`baseText` 要拿它算 dirty），
+ *   而本地改动是"我上次改到一半"。顺序反过来的话，脏标记永远是对的
+ *   （因为基准也来自存档），「文件原样」这句话就再也说不出口了。
+ */
+async function openTree(path: string): Promise<{ ok: boolean; code?: string; message?: string }> {
+  const idR = treeAssetIdFromPath(path);
+  if (!idR.ok) return { ok: false, code: idR.error.code, message: idR.error.message };
+  const id = idR.value;
+  const text = await assetsFs().readText(path);
+  if (!text.ok) return { ok: false, code: text.error.code, message: text.error.message };
+  const parsed = parseTreeAsset(text.value);
+  if (!parsed.ok) return { ok: false, code: parsed.error.code, message: parsed.error.message };
+  const baseText = serializeTreeAsset(parsed.value);
+
+  let root: AiNode = parsed.value;
+  let note = "文件原样";
+  const saved = treeEditsRead()[id];
+  if (saved !== undefined) {
+    try {
+      root = JSON.parse(saved) as AiNode;
+      note = "本地改动";
+    } catch {
+      // 存档坏了就当没有，但**说出来** —— 静默丢掉"我改到一半的树"是最难自查的一种
+      errEl.textContent = `「${id}」的本地改动读不出来，已按文件打开`;
+    }
+  }
+  treeDoc = { path, id, baseText, root };
+  treeUndo = [];
+  treeRedo = [];
+  treeSel = [];
+  refreshTreeEditor();
+  teNoteEl.textContent = note;
+  return { ok: true };
+}
+
+function closeTree(): void {
+  treeDoc = null;
+  treeUndo = [];
+  treeRedo = [];
+  treeSel = [];
+  treeEditorEl.hidden = true;
+}
+
+/**
+ * 一次编辑：压一条快照、换根、落本地存档、重画。
+ *
+ * ★ 失败路径**不动快照栈**：调用方传进来的已经是 `Result` 的成功值，
+ *   而所有结构错误在 `tree-edit.ts` 里就已经返回了（不会走到这里）。
+ */
+function treeApply(next: AiNode): void {
+  const d = treeDoc;
+  if (d === null) return;
+  treeUndo.push(d.root);
+  if (treeUndo.length > 64) treeUndo.shift();
+  treeRedo = [];
+  treeDoc = { path: d.path, id: d.id, baseText: d.baseText, root: next };
+  treeEditsWrite(d.id, next);
+  refreshTreeEditor();
+}
+
+function treeUndoOnce(): boolean {
+  const d = treeDoc;
+  const prev = treeUndo.pop();
+  if (d === null || prev === undefined) return false;
+  treeRedo.push(d.root);
+  treeDoc = { path: d.path, id: d.id, baseText: d.baseText, root: prev };
+  treeEditsWrite(d.id, prev);
+  refreshTreeEditor();
+  return true;
+}
+
+function treeRedoOnce(): boolean {
+  const d = treeDoc;
+  const next = treeRedo.pop();
+  if (d === null || next === undefined) return false;
+  treeUndo.push(d.root);
+  treeDoc = { path: d.path, id: d.id, baseText: d.baseText, root: next };
+  treeEditsWrite(d.id, next);
+  refreshTreeEditor();
+  return true;
+}
+
+/** 当前选中的节点（选中的行被撤销掉了就退回根）。 */
+function treeSelectedNode(): AiNode | null {
+  const d = treeDoc;
+  if (d === null) return null;
+  return nodeAt(d.root, treeSel) ?? d.root;
+}
+
+function treeRowEl(row: TreeRowView): HTMLElement {
+  const el = document.createElement("div");
+  el.className = `te-row ${row.marker}${pathText(treeSel) === pathText(row.path) ? " sel" : ""}`;
+  el.style.paddingLeft = `${String(6 + row.depth * 14)}px`;
+  el.dataset["tpath"] = pathText(row.path);
+  const id = document.createElement("span");
+  id.className = "tid";
+  id.textContent = row.id;
+  const kind = document.createElement("span");
+  kind.className = "tk";
+  kind.textContent = row.kind;
+  const detail = document.createElement("span");
+  detail.className = "td";
+  detail.textContent = row.detail;
+  el.append(id, kind, detail);
+  if (row.kids > 0) {
+    const c = document.createElement("span");
+    c.className = "tc";
+    c.textContent = `${String(row.kids)} 子`;
+    el.appendChild(c);
+  }
+  // 行内按钮：+ 挂一个子节点、× 删掉这一行（根没有 ×）。
+  // ★ 只在容器行给 + ：往叶子下面挂子节点是**允许**的中间态（结构层不拦），
+  //   但把它做成按钮等于在界面上推荐一种一定会红的操作。
+  if (row.kind === "sequence" || row.kind === "selector" || row.kind === "inverter") {
+    const add = document.createElement("button");
+    add.className = "te-mini";
+    add.dataset["teadd"] = pathText(row.path);
+    add.textContent = "+";
+    add.title = "在这个节点下面加一个 wait 1（再用下面的表单改成你要的种类）";
+    add.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      addTreeNodeChild(row.path);
+    });
+    el.appendChild(add);
+  }
+  if (row.depth > 0) {
+    const del = document.createElement("button");
+    del.className = "te-mini";
+    del.dataset["tedel"] = pathText(row.path);
+    del.textContent = "×";
+    del.title = "删掉这个节点（连同它的子树）";
+    del.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      removeTreeNode(row.path);
+    });
+    el.appendChild(del);
+  }
+  el.addEventListener("click", () => {
+    treeSel = row.path;
+    refreshTreeEditor();
+  });
+  el.addEventListener("pointerdown", (ev) => {
+    if (ev.button !== 0) return;
+    treeDrag = { path: row.path, x: ev.clientX, y: ev.clientY, active: false };
+  });
+  return el;
+}
+
+/** 面板动作的结果。与别处的 `Result` 同形（`ok` + 码 + 话），但这里不运值。 */
+interface TreeOpOutcome {
+  readonly ok: boolean;
+  readonly code?: string;
+  readonly message?: string;
+}
+
+function treeFail(e: EngineError): TreeOpOutcome {
+  errEl.textContent = `${e.code}：${e.message}`;
+  return { ok: false, code: e.code, message: e.message };
+}
+
+/** 加一个子节点（默认 `wait 1`：它一定合法，再用表单改成要的种类）。 */
+function addTreeNodeChild(parentPath: TreePath): TreeOpOutcome {
+  const d = treeDoc;
+  if (d === null) return { ok: false, code: "EDIT.NO_TREE", message: "没有打开的树" };
+  const parent = nodeAt(d.root, parentPath);
+  const base = parent === undefined ? "n" : parent.id;
+  const kids = parent?.children ?? [];
+  // 新 id 要**避开兄弟里已有的**：树的 id 是记忆的键，撞车的树当场装不上，
+  // 而"加一个节点导致整棵树变红"是最莫名其妙的第一次体验。
+  let n = kids.length + 1;
+  const taken = new Set(kids.map((c) => c.id));
+  while (taken.has(`${base}_${String(n)}`)) n++;
+  const child: AiNode = { id: `${base}_${String(n)}`, kind: "wait", ticks: 1 };
+  const r = addChild(d.root, parentPath, child);
+  if (!r.ok) return treeFail(r.error);
+  treeSel = [...parentPath, kids.length];
+  treeApply(r.value);
+  return { ok: true };
+}
+
+function removeTreeNode(path: TreePath): TreeOpOutcome {
+  const d = treeDoc;
+  if (d === null) return { ok: false, code: "EDIT.NO_TREE", message: "没有打开的树" };
+  const r = removeNode(d.root, path);
+  if (!r.ok) return treeFail(r.error);
+  // 选中的那一行没了 ⇒ 退回它的父亲（不是根：撤一步回来时人还想接着改那一带）
+  if (pathText(treeSel).startsWith(pathText(path))) treeSel = path.slice(0, -1);
+  treeApply(r.value);
+  return { ok: true };
+}
+
+function moveTreeNode(from: TreePath, to: TreePath): TreeOpOutcome {
+  const d = treeDoc;
+  if (d === null) return { ok: false, code: "EDIT.NO_TREE", message: "没有打开的树" };
+  const r = moveNode(d.root, from, to);
+  if (!r.ok) return treeFail(r.error);
+  // 移动之后路径变了，选中跟着走。★ 目标父的路径要按"摘掉源之后"算
+  //   （`pathAfterRemoval`）：拿移动前的 `to` 去新树里查，源在目标左边时会偏一格。
+  const dest = pathAfterRemoval(from, to);
+  const parent = nodeAt(r.value, dest);
+  treeSel = parent === undefined ? dest : [...dest, Math.max(0, (parent.children ?? []).length - 1)];
+  treeApply(r.value);
+  return { ok: true };
+}
+
+/** 表单 → `patchNode`。op 只在 do/check 上生效，ticks 只在 wait 上生效。 */
+function applyTreeForm(): TreeOpOutcome {
+  const d = treeDoc;
+  if (d === null) return { ok: false, code: "EDIT.NO_TREE", message: "没有打开的树" };
+  const kind = teKindEl.value as AiNodeKind;
+  // `TreePatch` 的字段是 readonly（它描述的是"一次改动的意图"），所以按需拼对象，
+  // 而不是 new 一个再逐字段赋值。
+  const patch: { id: string; kind: AiNodeKind; op?: string; ticks?: number } = { id: teIdEl.value, kind };
+  if (kind === "do" || kind === "check") patch.op = teOpEl.value;
+  if (kind === "wait") {
+    const n = Number(teTicksEl.value);
+    if (!Number.isInteger(n) || n < 0) {
+      errEl.textContent = `ticks 要的是 >= 0 的整数，收到「${teTicksEl.value}」`;
+      return { ok: false, code: "EDIT.BAD_VALUE", message: "ticks 要的是 >= 0 的整数" };
+    }
+    patch.ticks = n;
+  }
+  const r = patchNode(d.root, treeSel, patch);
+  if (!r.ok) return treeFail(r.error);
+  errEl.textContent = "";
+  treeApply(r.value);
+  return { ok: true };
+}
+
+function refreshTreeEditor(): void {
+  const d = treeDoc;
+  if (d === null) {
+    treeEditorEl.hidden = true;
+    return;
+  }
+  treeEditorEl.hidden = false;
+  const issue = treeIssue(d.root);
+  const advice = treeAdvice(d.root);
+  teTitleEl.textContent = `树 ${d.id}`;
+  teHintEl.textContent = treeStatusText(issue, advice);
+  teHintEl.className = `te-hint ${issue !== null ? "bad" : advice.length > 0 ? "warn" : "ok"}`;
+
+  const frag = document.createDocumentFragment();
+  for (const row of treeRows(d.root, issue, advice)) frag.appendChild(treeRowEl(row));
+  teRowsEl.replaceChildren(frag);
+
+  // 表单跟着选中行走。kind 换了 op/ticks 的可用性也跟着换 —— 置灰比"点了没反应"诚实。
+  const sel = treeSelectedNode();
+  const kind = sel === null ? "wait" : sel.kind;
+  teKindEl.value = kind;
+  teIdEl.value = sel === null ? "" : sel.id;
+  teOpEl.value = sel?.op ?? "";
+  teTicksEl.value = sel?.ticks === undefined ? "" : String(sel.ticks);
+  const leaf = kind === "do" || kind === "check";
+  teOpEl.disabled = !leaf;
+  teTicksEl.disabled = kind !== "wait";
+  teIdEl.disabled = sel === null;
+  btnTeApply.disabled = sel === null;
+  btnTeDel.disabled = sel === null || treeSel.length === 0;
+  btnTeChild.disabled = sel === null || !(kind === "sequence" || kind === "selector" || kind === "inverter");
+  btnTeUndo.disabled = treeUndo.length === 0;
+  btnTeRedo.disabled = treeRedo.length === 0;
+  const dirty = treeDirty();
+  teNoteEl.textContent = dirty ? "本地改动" : "文件原样";
+  btnTeReset.disabled = !dirty;
+  btnTeExport.disabled = issue !== null;
+  btnTeExport.title = issue === null ? "导出成 .tree.json（可以放进 web/assets/ai/）" : "现在装不上，先把红字那处修好";
+}
+
+/** 导出用的文本：**先过 `checkTree`**（唯一规则源），合法才给规范文本。 */
+function treeExportText(): string | null {
+  const d = treeDoc;
+  if (d === null) return null;
+  const c = checkTree(d.root);
+  if (!c.ok) {
+    errEl.textContent = `${c.error.code}：${c.error.message}`;
+    return null;
+  }
+  return serializeTreeAsset(d.root);
+}
+
+/** 真的下载一份文件（`a.download` 是浏览器里唯一"写到人手上"的方式）。 */
+function downloadTree(): void {
+  const d = treeDoc;
+  const text = treeExportText();
+  if (d === null || text === null) return;
+  const blob = new Blob([text], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${d.id.split("/").pop() ?? "tree"}.tree.json`;
+  a.click();
+  // ★ 立刻回收：不 revoke 的话每导出一次就多留一份几个 KB 的 blob 到页面关闭
+  URL.revokeObjectURL(url);
+}
+
+/** 丢掉本地改动，回到文件版本。 */
+async function resetTreeToFile(): Promise<void> {
+  const d = treeDoc;
+  if (d === null) return;
+  treeEditsWrite(d.id, null);
+  await openTree(d.path);
+}
+
+/**
+ * 拖动：按下时记行，移动超过 4px 才算拖（否则点一下也会被当成"拖到原处"），
+ * 松手时用 `elementFromPoint` 找落点行 —— 与场景树那边同一个套路，
+ * 理由是 HTML5 的 dragstart 在触摸/指针设备上不一致。
+ */
+function bindTreeEditDrag(): void {
+  window.addEventListener("pointermove", (ev) => {
+    const g = treeDrag;
+    if (g === null) return;
+    if (!g.active) {
+      if (Math.abs(ev.clientX - g.x) + Math.abs(ev.clientY - g.y) <= 4) return;
+      g.active = true;
+      const el = teRowsEl.querySelector(`[data-tpath="${pathText(g.path)}"]`);
+      if (el !== null) el.classList.add("dragging");
+    }
+    for (const el of Array.from(teRowsEl.querySelectorAll(".te-row.drop"))) el.classList.remove("drop");
+    const hit = document.elementFromPoint(ev.clientX, ev.clientY)?.closest(".te-row") as HTMLElement | null;
+    if (hit !== null && hit.dataset["tpath"] !== undefined) hit.classList.add("drop");
+  });
+  window.addEventListener("pointerup", (ev) => {
+    const g = treeDrag;
+    treeDrag = null;
+    const hit = document.elementFromPoint(ev.clientX, ev.clientY)?.closest(".te-row") as HTMLElement | null;
+    for (const el of Array.from(teRowsEl.querySelectorAll(".te-row.drop, .te-row.dragging"))) {
+      el.classList.remove("drop");
+      el.classList.remove("dragging");
+    }
+    if (g === null || !g.active || hit === null) return;
+    const d = treeDoc;
+    const text = hit.dataset["tpath"];
+    if (d === null || text === undefined) return;
+    const to = pathFromText(d.root, text);
+    if (to === null) return;
+    moveTreeNode(g.path, to);
+  });
+}
+
 // ---------------------------------------------------------------- 命令面（UI 与自检共用）
 interface EditorApi {
   ready(): boolean;
@@ -2453,6 +2954,35 @@ interface EditorApi {
     atlasNote: string;
     frames: number;
   };
+  // ---- 决策树编辑器（批157）。这些方法**就是**面板按钮调的那些函数，
+  //      不另写一条"给判据用的实现"（那样判据证明的是另一条路径）。
+  treeOpen(path: string): Promise<{ ok: boolean; code?: string; message?: string }>;
+  treeClose(): void;
+  treeState(): {
+    open: boolean;
+    id: string;
+    path: string;
+    rows: Array<{ path: number[]; depth: number; id: string; kind: string; detail: string; kids: number; marker: string }>;
+    status: string;
+    hintClass: string;
+    dirty: boolean;
+    sel: number[];
+    canUndo: boolean;
+    canRedo: boolean;
+    /** 真的画到 DOM 上的行数 —— 与 `rows.length` 对不上说明渲染那一步断了。 */
+    domRows: number;
+  };
+  treeSelect(path: number[]): boolean;
+  treeAddChild(path?: number[]): { ok: boolean; code?: string; message?: string };
+  treeRemove(path?: number[]): { ok: boolean; code?: string; message?: string };
+  treeMove(from: number[], to: number[]): { ok: boolean; code?: string; message?: string };
+  treePatch(patch: { id?: string; kind?: string; op?: string; ticks?: number }): { ok: boolean; code?: string; message?: string };
+  treeUndo(): boolean;
+  treeRedo(): boolean;
+  /** 导出的文本（**合法才给**；装不上时返回 null，与导出按钮同一条件）。 */
+  treeText(): string | null;
+  /** 丢掉本地改动、回到文件版本（面板上那个「还原成文件」就是它）。 */
+  treeReset(): Promise<{ ok: boolean }>;
 }
 
 function installApi(app: GameApp): void {
@@ -2765,6 +3295,97 @@ function installApi(app: GameApp): void {
         frames: atlasFrames.length,
       };
     },
+    treeOpen(path) {
+      return openTree(path);
+    },
+    treeClose() {
+      closeTree();
+    },
+    treeState() {
+      const d = treeDoc;
+      if (d === null) {
+        return {
+          open: false,
+          id: "",
+          path: "",
+          rows: [],
+          status: "",
+          hintClass: "",
+          dirty: false,
+          sel: [],
+          canUndo: false,
+          canRedo: false,
+          domRows: 0,
+        };
+      }
+      const issue = treeIssue(d.root);
+      const advice = treeAdvice(d.root);
+      return {
+        open: true,
+        id: d.id,
+        path: d.path,
+        rows: treeRows(d.root, issue, advice).map((r) => ({
+          path: [...r.path],
+          depth: r.depth,
+          id: r.id,
+          kind: r.kind,
+          detail: r.detail,
+          kids: r.kids,
+          marker: r.marker,
+        })),
+        status: teHintEl.textContent ?? "",
+        hintClass: teHintEl.className,
+        dirty: treeDirty(),
+        sel: [...treeSel],
+        canUndo: treeUndo.length > 0,
+        canRedo: treeRedo.length > 0,
+        // 数 DOM 而不是数 `rows`：两个数字对不上说明"算出来了但没画上去"，
+        // 而那正是本条判据唯一能证明的事（与 `#tree .row` 那条同一条理由）。
+        domRows: teRowsEl.querySelectorAll(".te-row").length,
+      };
+    },
+    treeSelect(path) {
+      const d = treeDoc;
+      if (d === null || nodeAt(d.root, path) === undefined) return false;
+      treeSel = path;
+      refreshTreeEditor();
+      return true;
+    },
+    treeAddChild(path) {
+      return addTreeNodeChild(path ?? treeSel);
+    },
+    treeRemove(path) {
+      return removeTreeNode(path ?? treeSel);
+    },
+    treeMove(from, to) {
+      return moveTreeNode(from, to);
+    },
+    treePatch(patch) {
+      const d = treeDoc;
+      if (d === null) return { ok: false, code: "EDIT.NO_TREE", message: "没有打开的树" };
+      const r = patchNode(d.root, treeSel, {
+        ...(patch.id === undefined ? {} : { id: patch.id }),
+        ...(patch.kind === undefined ? {} : { kind: patch.kind as AiNodeKind }),
+        ...(patch.op === undefined ? {} : { op: patch.op }),
+        ...(patch.ticks === undefined ? {} : { ticks: patch.ticks }),
+      });
+      if (!r.ok) return treeFail(r.error);
+      treeApply(r.value);
+      return { ok: true };
+    },
+    treeUndo() {
+      return treeUndoOnce();
+    },
+    treeRedo() {
+      return treeRedoOnce();
+    },
+    treeText() {
+      return treeExportText();
+    },
+    async treeReset() {
+      await resetTreeToFile();
+      return { ok: treeDoc !== null };
+    },
   };
   (window as unknown as { __editor?: EditorApi }).__editor = api;
 }
@@ -2818,6 +3439,50 @@ async function main(): Promise<void> {
   bindCanvasDrag();
   bindTreeDrag();
   bindAssetDrag();
+  bindTreeEditDrag();
+
+  // ---- 决策树面板（批157）：两个下拉的选项与七个按钮，与 `__editor` 走同一条代码路径
+  for (const k of ["sequence", "selector", "inverter", "wait", "do", "check"]) {
+    const o = document.createElement("option");
+    o.value = k;
+    o.textContent = k;
+    teKindEl.appendChild(o);
+  }
+  for (const k of Object.keys(MOB_OPS).sort()) {
+    const o = document.createElement("option");
+    o.value = k;
+    o.textContent = k;
+    teOpEl.appendChild(o);
+  }
+  // 换 kind 只改控件可用性，**不写树** —— 写树要点「应用」（与属性面板同一条规矩：
+  // 边改边写会让人还没打完就已经改掉半棵树）
+  teKindEl.addEventListener("change", () => {
+    const leaf = teKindEl.value === "do" || teKindEl.value === "check";
+    teOpEl.disabled = !leaf;
+    teTicksEl.disabled = teKindEl.value !== "wait";
+  });
+  btnTeApply.addEventListener("click", () => {
+    applyTreeForm();
+  });
+  btnTeChild.addEventListener("click", () => {
+    addTreeNodeChild(treeSel);
+  });
+  btnTeDel.addEventListener("click", () => {
+    removeTreeNode(treeSel);
+  });
+  btnTeUndo.addEventListener("click", () => {
+    treeUndoOnce();
+  });
+  btnTeRedo.addEventListener("click", () => {
+    treeRedoOnce();
+  });
+  btnTeExport.addEventListener("click", () => {
+    downloadTree();
+  });
+  btnTeReset.addEventListener("click", () => void resetTreeToFile());
+  btnTeClose.addEventListener("click", () => {
+    closeTree();
+  });
 
   // ★ 工程在**世界装好之后**才建：第一个槽位就是刚装上来的这个世界。
   //   先建工程再装世界的话，第一个槽位要么是空文档、要么得靠后面补一次导出 ——

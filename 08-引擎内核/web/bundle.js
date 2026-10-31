@@ -26336,7 +26336,7 @@ function validateNode(node, path, depth, ops, seen) {
     return err({ code: AI_BAD_TREE, message: `${path} \u7F3A\u5C11 id`, detail: { path } });
   }
   if (seen.ids.has(node.id)) {
-    return err({ code: AI_DUPLICATE_ID, message: `${path} \u7684 id\u300C${node.id}\u300D\u91CD\u590D`, detail: { id: node.id } });
+    return err({ code: AI_DUPLICATE_ID, message: `${path} \u7684 id\u300C${node.id}\u300D\u91CD\u590D`, detail: { path, id: node.id } });
   }
   seen.ids.add(node.id);
   const kids = node.children ?? [];

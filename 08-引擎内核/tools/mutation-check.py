@@ -8825,6 +8825,105 @@ MUTANTS = [
         ],
         "test": "tests/host/hud-model.test.ts",
     },
+    {
+        "name": "M945 拖拽之后不修正目标下标（源在目标左边时静默落错位置）",
+        "file": "src/extensions/mobs/tree-edit.ts",
+        "pairs": [
+            (
+                "  if (slot <= sourceSlot) return to;",
+                "  return to;",
+            ),
+        ],
+        "test": "tests/extensions/tree-edit.test.ts",
+    },
+    {
+        "name": "M946 移动的环检查写反（同父换序被拒、拖进自己反而放行）",
+        "file": "src/extensions/mobs/tree-edit.ts",
+        "pairs": [
+            (
+                "  if (isPrefix(from, to)) {",
+                "  if (isPrefix(to, from)) {",
+            ),
+        ],
+        "test": "tests/extensions/tree-edit.test.ts",
+    },
+    {
+        "name": "M947 根节点也能删（删完就没有树了）",
+        "file": "src/extensions/mobs/tree-edit.ts",
+        "pairs": [
+            (
+                "  if (path.length === 0) return err(engineError(TREE_EDIT_ROOT, \"根节点不能删（可以换它的 kind）\"));",
+                "  if (path.length < 0) return err(engineError(TREE_EDIT_ROOT, \"根节点不能删（可以换它的 kind）\"));",
+            ),
+        ],
+        "test": "tests/extensions/tree-edit.test.ts",
+    },
+    {
+        "name": "M948 校验错误不带位置（面板只知道树坏了，不知道标哪一行）",
+        "file": "src/extensions/mobs/tree-edit.ts",
+        "pairs": [
+            (
+                "    path: text === \"\" ? null : pathFromText(root, text),",
+                "    path: null,",
+            ),
+        ],
+        "test": "tests/extensions/tree-edit.test.ts",
+    },
+    {
+        "name": "M949 wait 0 的建议判反了（该提示的不提示、不该提示的乱提示）",
+        "file": "src/extensions/mobs/tree-edit.ts",
+        "pairs": [
+            (
+                "    if (n.kind === \"wait\" && n.ticks === 0) {",
+                "    if (n.kind === \"wait\" && n.ticks !== 0) {",
+            ),
+        ],
+        "test": "tests/extensions/tree-edit.test.ts",
+    },
+    {
+        "name": "M950 状态栏把「有错」说成「没错」（红字消失，人以为能导出了）",
+        "file": "src/extensions/mobs/tree-edit.ts",
+        "pairs": [
+            (
+                "  if (issue !== null) return `${issue.code}：${issue.message}`;",
+                "  if (issue === null) return `${issue.code}：${issue.message}`;",
+            ),
+        ],
+        "test": "tests/extensions/tree-edit.test.ts",
+    },
+    {
+        "name": "M951 改 id 时把 op 抹掉（节点从 do 变成空操作）",
+        "file": "src/extensions/mobs/tree-edit.ts",
+        "pairs": [
+            (
+                "  if (op !== undefined) next.op = op;",
+                "  if (op !== undefined) next.op = undefined;",
+            ),
+        ],
+        "test": "tests/extensions/tree-edit.test.ts",
+    },
+    {
+        "name": "M952 加子节点忽略插入位置（永远插在末尾）",
+        "file": "src/extensions/mobs/tree-edit.ts",
+        "pairs": [
+            (
+                "  const kids = parent.children ?? [];\n  const i = at === undefined ? kids.length : Math.max(0, Math.min(at, kids.length));\n  const next: AiNode = { ...parent, children: [...kids.slice(0, i), child, ...kids.slice(i)] };",
+                "  const kids = parent.children ?? [];\n  const i = kids.length;\n  const next: AiNode = { ...parent, children: [...kids.slice(0, i), child, ...kids.slice(i)] };",
+            ),
+        ],
+        "test": "tests/extensions/tree-edit.test.ts",
+    },
+    {
+        "name": "M953 重复 id 的错误不带位置（最隐蔽的一类错在面板上不声不响）",
+        "file": "src/extensions/ai/behavior.ts",
+        "pairs": [
+            (
+                "detail: { path, id: node.id }",
+                "detail: { id: node.id }",
+            ),
+        ],
+        "test": "tests/extensions/tree-edit.test.ts",
+    },
 ]
 
 def run(m: dict) -> tuple[int, str]:

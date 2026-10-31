@@ -115,7 +115,7 @@ function validateNode(node: AiNode, path: string, depth: number, ops: AiOps, see
   }
   if (seen.ids.has(node.id)) {
     // 重复 id 的后果很隐蔽：两个节点共用一份记忆，其中一个的 running 会被另一个续上
-    return err({ code: AI_DUPLICATE_ID, message: `${path} 的 id「${node.id}」重复`, detail: { id: node.id } });
+    return err({ code: AI_DUPLICATE_ID, message: `${path} 的 id「${node.id}」重复`, detail: { path, id: node.id } });
   }
   seen.ids.add(node.id);
 

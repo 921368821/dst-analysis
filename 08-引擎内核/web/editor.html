@@ -90,6 +90,48 @@
   .row.dragging { opacity: .45; }
   .row.drop { background: rgba(120,200,140,.22); outline: 1px solid rgba(120,220,150,.65); }
 
+  /* 决策树面板（批157）：盖在画布上，因为它比右侧那 260px 宽得多（一行要放 id/kind/op
+     ＋两个按钮），而且它编辑的东西**不在世界里** —— 挤进属性面板会让人以为它是某个
+     节点的属性。盖层而不是新开一列：列一多，画布就只剩中间一条。 */
+  #treeditor { position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column;
+    background: rgba(11,14,19,.97); border-radius: 2px; }
+  #treeditor[hidden] { display: none; }
+  .te-head { display: flex; align-items: center; gap: 8px; padding: 6px 10px;
+    border-bottom: 1px solid #1d2530; background: #10151d; }
+  .te-head b { color: #e6c07b; font-weight: 600; }
+  .te-head .grow { flex: 1 1 auto; }
+  .te-head button { font-size: 10px; padding: 1px 8px; line-height: 16px; }
+  .te-hint { padding: 4px 10px; font-size: 11px; border-bottom: 1px solid #1d2530;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .te-hint.ok { color: #6fbf8f; }
+  .te-hint.warn { color: #d8b26a; background: rgba(216,178,106,.08); }
+  .te-hint.bad { color: #e06c60; background: rgba(224,108,96,.10); }
+  #te-body { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+  #te-rows { flex: 1 1 auto; overflow: auto; padding: 4px 6px; min-height: 0; }
+  /* 一行 = 一个节点。缩进说明层级；颜色说明状态（红=装不上 / 黄=提醒）。 */
+  .te-row { display: flex; align-items: center; gap: 8px; padding: 1px 6px;
+    border-radius: 3px; cursor: pointer; white-space: nowrap; }
+  .te-row:hover { background: rgba(255,255,255,.06); }
+  .te-row.sel { background: rgba(88,140,220,.28); outline: 1px solid rgba(120,170,255,.5); }
+  .te-row.bad .tid { color: #ff8f83; }
+  .te-row.warn .tid { color: #e0b979; }
+  .te-row .tid { color: #cfd8e3; }
+  .te-row .tk { color: #6a7684; font-size: 10px; }
+  .te-row .td { color: #8fb6e0; font-size: 10px; }
+  .te-row .tc { color: #4d5866; font-size: 10px; }
+  .te-row.dragging { opacity: .45; }
+  .te-row.drop { background: rgba(120,200,140,.22); outline: 1px solid rgba(120,220,150,.65); }
+  .te-mini { font-size: 10px; padding: 0 5px; line-height: 14px; margin-left: 2px; }
+  #te-form { display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    padding: 6px 10px; border-top: 1px solid #1d2530; background: #10151d; }
+  #te-form label { color: #6a7684; font-size: 10px; }
+  #te-form input, #te-form select { font: inherit; font-size: 11px;
+    background: #0a0e14; color: #e6edf3; border: 1px solid #263140; border-radius: 3px;
+    padding: 1px 4px; }
+  #te-form input#te-id { width: 120px; }
+  #te-form input#te-ticks { width: 56px; }
+  #te-form button { font-size: 10px; padding: 1px 8px; line-height: 16px; }
+
   #props h2 { margin: 0 0 6px; font-size: 12px; color: #8b98a8; font-weight: 600; }
   #props h3 { margin: 12px 0 4px; font-size: 11px; color: #6a7684; font-weight: 600;
     border-bottom: 1px solid #1d2530; padding-bottom: 3px; display: flex;
@@ -144,7 +186,34 @@
       <div id="assetlist"><div class="empty">读取清单…</div></div>
     </div>
   </div>
-  <div id="view"><canvas id="cv"></canvas></div>
+  <div id="view"><canvas id="cv"></canvas>
+    <!-- 决策树面板（批157）。默认隐藏；点资产面板里的一份 .tree.json 才出来。 -->
+    <div id="treeditor" hidden>
+      <div class="te-head">
+        <b id="te-title">树</b>
+        <span class="dim" id="te-note">—</span>
+        <span class="grow"></span>
+        <button id="te-undo" title="撤销一次树编辑">撤销</button>
+        <button id="te-redo" title="重做一次树编辑">重做</button>
+        <button id="te-export" title="导出成 .tree.json（可以放进 web/assets/ai/）">导出 .tree.json</button>
+        <button id="te-reset" title="丢掉本地改动，回到文件里的那一份">还原成文件</button>
+        <button id="te-close">关闭</button>
+      </div>
+      <div id="te-hint" class="te-hint ok">—</div>
+      <div id="te-body">
+        <div id="te-rows"></div>
+        <div id="te-form">
+          <label for="te-id">id</label><input id="te-id" type="text" spellcheck="false">
+          <label for="te-kind">kind</label><select id="te-kind"></select>
+          <label for="te-op">op</label><select id="te-op"></select>
+          <label for="te-ticks">ticks</label><input id="te-ticks" type="text">
+          <button id="te-apply">应用</button>
+          <button id="te-child">加子节点</button>
+          <button id="te-del">删除</button>
+        </div>
+      </div>
+    </div>
+  </div>
   <div id="props"><div class="empty">未选中</div></div>
   <div id="doc">
     <div class="col">

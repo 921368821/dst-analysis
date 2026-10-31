@@ -12476,7 +12476,7 @@ function decodeArithScan(bytes, dataStart, dataLen, frame, restartInterval) {
     lastDc.set(c, lastDc.get(c) + r.diff);
     c.coefs[bo] = lastDc.get(c) << 16 >> 16;
     const ac = acStatsOf(c);
-    const K = frame.acCond[c.ta] ?? 5;
+    const K2 = frame.acCond[c.ta] ?? 5;
     for (let k = 1; k <= 63; k++) {
       let at = 3 * (k - 1);
       if (dec(ac, at) !== 0) break;
@@ -12491,7 +12491,7 @@ function decodeArithScan(bytes, dataStart, dataLen, frame, restartInterval) {
       if (m !== 0) {
         if (dec(ac, at) !== 0) {
           m <<= 1;
-          at = k <= K ? 189 : 217;
+          at = k <= K2 ? 189 : 217;
           while (dec(ac, at) !== 0) {
             m <<= 1;
             if (m === 32768) fail("ASSET.BAD_JPEG", "\u7B97\u672F\u7F16\u7801\u7684 AC \u5E45\u5EA6\u7C7B\u522B\u6EA2\u51FA\uFF08\u2265 0x8000\uFF09");
@@ -12520,7 +12520,7 @@ function decodeArithScan(bytes, dataStart, dataLen, frame, restartInterval) {
   };
   const decodeAcFirst = (c, bo) => {
     const ac = acStatsOf(c);
-    const K = frame.acCond[c.ta] ?? 5;
+    const K2 = frame.acCond[c.ta] ?? 5;
     for (let k = ss; k <= se; k++) {
       let at = 3 * (k - 1);
       if (dec(ac, at) !== 0) break;
@@ -12535,7 +12535,7 @@ function decodeArithScan(bytes, dataStart, dataLen, frame, restartInterval) {
       if (m !== 0) {
         if (dec(ac, at) !== 0) {
           m <<= 1;
-          at = k <= K ? 189 : 217;
+          at = k <= K2 ? 189 : 217;
           while (dec(ac, at) !== 0) {
             m <<= 1;
             if (m === 32768) fail("ASSET.BAD_JPEG", "\u7B97\u672F\u7F16\u7801\u7684 AC \u5E45\u5EA6\u7C7B\u522B\u6EA2\u51FA\uFF08\u2265 0x8000\uFF09");
@@ -13822,6 +13822,517 @@ function addSpriteNodeWithUndo(scene, registry2, spec) {
   return ok({ op, nodeId: node.id, warnings: () => warnings });
 }
 
+// src/extensions/ai/behavior.ts
+var AI_BAD_TREE = "AI.BAD_TREE";
+var AI_UNKNOWN_OP = "AI.UNKNOWN_OP";
+var AI_DUPLICATE_ID = "AI.DUPLICATE_ID";
+var AI_TOO_DEEP = "AI.TOO_DEEP";
+var MAX_DEPTH = 64;
+function validateNode(node, path, depth, ops, seen) {
+  if (depth > MAX_DEPTH) {
+    return err({
+      code: AI_TOO_DEEP,
+      message: `${path} \u6DF1\u5EA6\u8D85\u8FC7 ${String(MAX_DEPTH)} \u2014\u2014 \u6570\u636E\u91CC\u53EF\u80FD\u85CF\u4E86\u73AF\uFF08\u6811\u4E0D\u8BE5\u6709\u73AF\uFF09`,
+      detail: { path, depth }
+    });
+  }
+  if (typeof node.id !== "string" || node.id.length === 0) {
+    return err({ code: AI_BAD_TREE, message: `${path} \u7F3A\u5C11 id`, detail: { path } });
+  }
+  if (seen.ids.has(node.id)) {
+    return err({ code: AI_DUPLICATE_ID, message: `${path} \u7684 id\u300C${node.id}\u300D\u91CD\u590D`, detail: { path, id: node.id } });
+  }
+  seen.ids.add(node.id);
+  const kids = node.children ?? [];
+  switch (node.kind) {
+    case "sequence":
+    case "selector":
+      if (kids.length === 0) {
+        return err({ code: AI_BAD_TREE, message: `${path}\uFF08${node.kind}\uFF09\u5FC5\u987B\u6709\u81F3\u5C11 1 \u4E2A\u5B50\u8282\u70B9`, detail: { path } });
+      }
+      break;
+    case "inverter":
+      if (kids.length !== 1) {
+        return err({
+          code: AI_BAD_TREE,
+          message: `${path}\uFF08inverter\uFF09\u5FC5\u987B\u6070\u597D 1 \u4E2A\u5B50\u8282\u70B9\uFF0C\u5B9E\u9645 ${String(kids.length)}`,
+          detail: { path }
+        });
+      }
+      break;
+    case "wait": {
+      const t = node.ticks;
+      if (t === void 0 || !Number.isInteger(t) || t < 0) {
+        return err({
+          code: AI_BAD_TREE,
+          message: `${path}\uFF08wait\uFF09\u7684 ticks \u5FC5\u987B\u662F >= 0 \u7684\u6574\u6570\uFF0C\u5B9E\u9645 ${String(t)}`,
+          detail: { path }
+        });
+      }
+      break;
+    }
+    case "do":
+    case "check":
+      if (kids.length !== 0) {
+        return err({ code: AI_BAD_TREE, message: `${path}\uFF08${node.kind}\uFF09\u662F\u53F6\u5B50\uFF0C\u4E0D\u8BE5\u6709\u5B50\u8282\u70B9`, detail: { path } });
+      }
+      break;
+    default:
+      return err({ code: AI_BAD_TREE, message: `${path} \u7684 kind\u300C${String(node.kind)}\u300D\u4E0D\u8BA4\u8BC6`, detail: { path } });
+  }
+  if (node.kind === "do" || node.kind === "check") {
+    const op = node.op;
+    if (op === void 0 || !Object.prototype.hasOwnProperty.call(ops, op)) {
+      return err({
+        code: AI_UNKNOWN_OP,
+        message: `${path}\uFF08${node.kind}\uFF09\u5F15\u7528\u4E86\u672A\u6CE8\u518C\u7684\u884C\u4E3A\u300C${String(op)}\u300D`,
+        detail: { path, op: String(op), available: Object.keys(ops).sort() }
+      });
+    }
+  }
+  for (let i = 0; i < kids.length; i++) {
+    const r = validateNode(kids[i], `${path}.children[${String(i)}]`, depth + 1, ops, seen);
+    if (!r.ok) return r;
+  }
+  return ok(true);
+}
+var AiAgent = class _AiAgent {
+  tree;
+  ops;
+  /**
+   * 记忆（**每 agent 一份**）：
+   *  · `cursor`：sequence/selector 停在了第几个子节点（只在 running 时存在）
+   *  · `elapsed`：wait 节点已经消耗了几个 tick
+   */
+  cursor = /* @__PURE__ */ new Map();
+  elapsed = /* @__PURE__ */ new Map();
+  constructor(tree, ops) {
+    this.tree = tree;
+    this.ops = ops;
+  }
+  static create(tree, ops) {
+    const r = validateNode(tree, "root", 0, ops, { ids: /* @__PURE__ */ new Set() });
+    if (!r.ok) return r;
+    return ok(new _AiAgent(tree, ops));
+  }
+  /** 跑一个 tick。返回根节点的状态。**不吃 dt**：只依赖被调用的次数与黑板。 */
+  step(ctx) {
+    return this.evalNode(this.tree, ctx, 0);
+  }
+  /** 清掉全部记忆（换目标、被眩晕、读档后想重来一次时用）。 */
+  reset() {
+    this.cursor.clear();
+    this.elapsed.clear();
+  }
+  /** 只读观察：当前有多少个节点记着 running 位置（判据用它证明"记忆没串"）。 */
+  memorySize() {
+    return this.cursor.size + this.elapsed.size;
+  }
+  evalNode(node, ctx, depth) {
+    if (depth > MAX_DEPTH) return "failure";
+    switch (node.kind) {
+      case "sequence": {
+        const kids = node.children;
+        let i = this.cursor.get(node.id) ?? 0;
+        for (; i < kids.length; i++) {
+          const st = this.evalNode(kids[i], ctx, depth + 1);
+          if (st === "running") {
+            this.cursor.set(node.id, i);
+            return "running";
+          }
+          if (st === "failure") {
+            this.cursor.delete(node.id);
+            return "failure";
+          }
+        }
+        this.cursor.delete(node.id);
+        return "success";
+      }
+      case "selector": {
+        const kids = node.children;
+        let i = this.cursor.get(node.id) ?? 0;
+        for (; i < kids.length; i++) {
+          const st = this.evalNode(kids[i], ctx, depth + 1);
+          if (st === "running") {
+            this.cursor.set(node.id, i);
+            return "running";
+          }
+          if (st === "success") {
+            this.cursor.delete(node.id);
+            return "success";
+          }
+        }
+        this.cursor.delete(node.id);
+        return "failure";
+      }
+      case "inverter": {
+        const st = this.evalNode(node.children[0], ctx, depth + 1);
+        if (st === "running") return "running";
+        return st === "success" ? "failure" : "success";
+      }
+      case "wait": {
+        const need2 = node.ticks;
+        const done = (this.elapsed.get(node.id) ?? 0) + 1;
+        if (done >= need2) {
+          this.elapsed.delete(node.id);
+          return "success";
+        }
+        this.elapsed.set(node.id, done);
+        return "running";
+      }
+      case "do":
+      case "check": {
+        const fn = this.ops[node.op];
+        if (fn === void 0) return "failure";
+        return fn(ctx, node);
+      }
+      default:
+        return "failure";
+    }
+  }
+};
+var bt = {
+  sequence: (id, ...children) => ({ id, kind: "sequence", children }),
+  selector: (id, ...children) => ({ id, kind: "selector", children }),
+  inverter: (id, child) => ({ id, kind: "inverter", children: [child] }),
+  wait: (id, ticks) => ({ id, kind: "wait", ticks }),
+  do: (id, op) => ({ id, kind: "do", op }),
+  check: (id, op) => ({ id, kind: "check", op })
+};
+
+// src/extensions/mobs/mob-tree.ts
+var K = {
+  selfCell: "self.cell",
+  aggressive: "self.aggressive",
+  grudgeHas: "grudge.has",
+  grudgeNode: "grudge.node",
+  grudgeCell: "grudge.cell",
+  visibleCount: "visible.count",
+  visibleNode: "visible.0.node",
+  visibleCell: "visible.0.cell",
+  wanderCell: "wander.cell",
+  outKind: "out.kind",
+  outTarget: "out.target",
+  outCell: "out.cell",
+  outReason: "out.reason"
+};
+var OUT_HUNT = 1;
+var OUT_WANDER = 2;
+var WHY = { grudge: 1, sight: 2, wander: 3 };
+function atLeast(ctx, key, min) {
+  return ctx.board.get(key) >= min ? "success" : "failure";
+}
+function emit(ctx, kind, nodeKey, cellKey, why) {
+  const cell = ctx.board.get(cellKey);
+  if (cell < 0) return "failure";
+  ctx.board.set(K.outKind, kind);
+  ctx.board.set(K.outTarget, nodeKey === null ? -1 : ctx.board.get(nodeKey));
+  ctx.board.set(K.outCell, cell);
+  ctx.board.set(K.outReason, why);
+  return "success";
+}
+var MOB_OPS = {
+  "mob.canDecide": (ctx) => atLeast(ctx, K.selfCell, 0),
+  "mob.isAggressive": (ctx) => atLeast(ctx, K.aggressive, 1),
+  "mob.hasGrudge": (ctx) => atLeast(ctx, K.grudgeHas, 1),
+  "mob.seesFoe": (ctx) => atLeast(ctx, K.visibleCount, 1),
+  "mob.hasWander": (ctx) => atLeast(ctx, K.wanderCell, 0),
+  "mob.huntGrudge": (ctx) => emit(ctx, OUT_HUNT, K.grudgeNode, K.grudgeCell, WHY.grudge),
+  "mob.huntNearest": (ctx) => emit(ctx, OUT_HUNT, K.visibleNode, K.visibleCell, WHY.sight),
+  "mob.wander": (ctx) => emit(ctx, OUT_WANDER, null, K.wanderCell, WHY.wander)
+};
+var MOB_TREE = bt.sequence(
+  "mob.root",
+  bt.check("mob.sane", "mob.canDecide"),
+  bt.selector(
+    "mob.body",
+    bt.sequence(
+      "mob.hostile",
+      bt.check("mob.angry", "mob.isAggressive"),
+      bt.selector(
+        "mob.pick",
+        bt.sequence("mob.grudge", bt.check("mob.c1", "mob.hasGrudge"), bt.do("mob.d1", "mob.huntGrudge")),
+        bt.sequence("mob.sight", bt.check("mob.c2", "mob.seesFoe"), bt.do("mob.d2", "mob.huntNearest"))
+      )
+    ),
+    bt.sequence("mob.roam", bt.check("mob.c3", "mob.hasWander"), bt.do("mob.d3", "mob.wander"))
+  )
+);
+
+// src/extensions/mobs/tree-asset.ts
+var TREE_FILE_SUFFIX = ".tree.json";
+var TREE_FORMAT = "aitree";
+var TREE_FORMAT_VERSION = 1;
+var AI_TREE_BAD_ASSET = "AI_TREE.BAD_ASSET";
+var AI_TREE_BAD_VERSION = "AI_TREE.BAD_VERSION";
+var AI_TREE_BAD_PATH = "AI_TREE.BAD_PATH";
+function isTreeAssetPath(path) {
+  return path.toLowerCase().endsWith(TREE_FILE_SUFFIX);
+}
+function normalizePath(p) {
+  return p.trim().replace(/\\/g, "/").split("/").filter((s) => s.length > 0 && s !== ".").join("/");
+}
+function treeAssetIdFromPath(path, root = "") {
+  const p = normalizePath(path);
+  const r = normalizePath(root);
+  if (p.length === 0) {
+    return err(engineError(AI_TREE_BAD_PATH, "\u6811\u8D44\u4EA7\u7684\u8DEF\u5F84\u662F\u7A7A\u7684"));
+  }
+  let rel = p;
+  if (r.length > 0) {
+    if (p === r) {
+      return err(engineError(AI_TREE_BAD_PATH, `\u300C${path}\u300D\u662F\u8D44\u4EA7\u6839\u672C\u8EAB\uFF0C\u4E0D\u662F\u4E00\u4EFD\u6587\u4EF6`, { path, root }));
+    }
+    if (!p.startsWith(`${r}/`)) {
+      return err(engineError(AI_TREE_BAD_PATH, `\u300C${path}\u300D\u4E0D\u5728\u8D44\u4EA7\u6839\u300C${root}\u300D\u4E0B`, { path, root }));
+    }
+    rel = p.slice(r.length + 1);
+  }
+  if (!rel.toLowerCase().endsWith(TREE_FILE_SUFFIX)) {
+    return err(
+      engineError(AI_TREE_BAD_PATH, `\u300C${path}\u300D\u4E0D\u662F\u51B3\u7B56\u6811\u8D44\u4EA7\uFF08\u8981\u4EE5 ${TREE_FILE_SUFFIX} \u7ED3\u5C3E\uFF09`, { path })
+    );
+  }
+  const id = rel.slice(0, rel.length - TREE_FILE_SUFFIX.length);
+  if (id.length === 0) {
+    return err(
+      engineError(AI_TREE_BAD_PATH, `\u300C${path}\u300D\u63A8\u51FA\u6765\u662F\u7A7A id \u2014\u2014 \u7A7A\u4E32\u8868\u793A\u300C\u6CA1\u914D\u300D\uFF0C\u4E0D\u80FD\u5F53\u6811\u7684\u8EAB\u4EFD`, { path })
+    );
+  }
+  if (id.split("/").some((s) => s === "..")) {
+    return err(engineError(AI_TREE_BAD_PATH, `\u300C${path}\u300D\u63A8\u51FA\u7684 id \u91CC\u6709\u300C..\u300D\u2014\u2014 \u8FD9\u4EFD\u6587\u4EF6\u5728\u8D44\u4EA7\u6839\u5916\u9762`, { path }));
+  }
+  return ok(id.toLowerCase());
+}
+function canonicalNode(node) {
+  const out = { id: node.id, kind: node.kind };
+  if (node.op !== void 0) out.op = node.op;
+  if (node.ticks !== void 0) out.ticks = node.ticks;
+  if (node.children !== void 0) out.children = node.children.map(canonicalNode);
+  return out;
+}
+function serializeTreeAsset(tree) {
+  const doc = { format: TREE_FORMAT, version: TREE_FORMAT_VERSION, root: canonicalNode(tree) };
+  return JSON.stringify(doc, null, 2) + "\n";
+}
+function checkTree(tree, ops = MOB_OPS) {
+  const created = AiAgent.create(tree, ops);
+  if (!created.ok) return err(created.error);
+  return ok(tree);
+}
+function bad5(message, detail) {
+  return err(engineError(AI_TREE_BAD_ASSET, message, detail));
+}
+function parseTreeAsset(text, ops = MOB_OPS) {
+  let raw;
+  try {
+    raw = JSON.parse(text);
+  } catch (e) {
+    return bad5(`\u51B3\u7B56\u6811\u8D44\u4EA7\u4E0D\u662F\u5408\u6CD5 JSON\uFF1A${e instanceof Error ? e.message : String(e)}`);
+  }
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return bad5(`\u51B3\u7B56\u6811\u8D44\u4EA7\u5FC5\u987B\u662F\u5BF9\u8C61\uFF0C\u6536\u5230 ${Array.isArray(raw) ? "\u6570\u7EC4" : typeof raw}`);
+  }
+  const doc = raw;
+  if (doc.format !== TREE_FORMAT) {
+    return bad5(`format \u5FC5\u987B\u662F\u300C${TREE_FORMAT}\u300D\uFF0C\u6536\u5230 ${JSON.stringify(doc.format)}`);
+  }
+  if (typeof doc.version !== "number" || !Number.isInteger(doc.version) || doc.version < 1) {
+    return bad5(`version \u5FC5\u987B\u662F\u6B63\u6574\u6570\uFF0C\u6536\u5230 ${JSON.stringify(doc.version)}`);
+  }
+  if (doc.version > TREE_FORMAT_VERSION) {
+    return err(
+      engineError(
+        AI_TREE_BAD_VERSION,
+        `\u51B3\u7B56\u6811\u8D44\u4EA7\u7684\u7248\u672C ${String(doc.version)} \u6BD4\u672C\u4EE3\u7801\u652F\u6301\u7684 ${String(TREE_FORMAT_VERSION)} \u65B0 \u2014\u2014 \u62D2\u7EDD\u6253\u5F00\uFF08\u6309\u65E7\u683C\u5F0F\u8BFB\u4F1A\u4E22\u5B57\u6BB5\uFF09`,
+        { version: doc.version, supported: TREE_FORMAT_VERSION }
+      )
+    );
+  }
+  if (typeof doc.root !== "object" || doc.root === null || Array.isArray(doc.root)) {
+    return bad5("\u7F3A\u5C11 root \u8282\u70B9");
+  }
+  return checkTree(doc.root, ops);
+}
+
+// src/extensions/mobs/tree-edit.ts
+var TREE_EDIT_ROOT = "TREE_EDIT.ROOT";
+var TREE_EDIT_CYCLE = "TREE_EDIT.CYCLE";
+var TREE_EDIT_BAD_PATH = "TREE_EDIT.BAD_PATH";
+function flattenTree(root) {
+  const out = [];
+  const walk = (node, path, depth) => {
+    out.push({ path, depth, index: path.length === 0 ? -1 : path[path.length - 1], node });
+    const kids = node.children ?? [];
+    for (let i = 0; i < kids.length; i++) walk(kids[i], [...path, i], depth + 1);
+  };
+  walk(root, [], 0);
+  return out;
+}
+function nodeAt(root, path) {
+  let cur = root;
+  for (const i of path) {
+    cur = cur.children?.[i];
+    if (cur === void 0) return void 0;
+  }
+  return cur;
+}
+function pathText(path) {
+  let s = "root";
+  for (const i of path) s += `.children[${String(i)}]`;
+  return s;
+}
+function pathFromText(root, text) {
+  if (text === "root") return [];
+  if (!text.startsWith("root.")) return null;
+  const parts = text.slice("root.".length).split(".");
+  const out = [];
+  for (const p of parts) {
+    const m = /^children\[(\d+)\]$/.exec(p);
+    if (m === null) return null;
+    out.push(Number(m[1]));
+  }
+  return nodeAt(root, out) === void 0 ? null : out;
+}
+function isPrefix(a, b) {
+  if (a.length > b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+function badPath(path) {
+  return err(engineError(TREE_EDIT_BAD_PATH, `\u6811\u91CC\u6CA1\u6709 ${pathText(path)} \u8FD9\u4E2A\u4F4D\u7F6E`, { path: pathText(path) }));
+}
+function addChild(root, parentPath, child, at) {
+  const parent = nodeAt(root, parentPath);
+  if (parent === void 0) return badPath(parentPath);
+  const kids = parent.children ?? [];
+  const i = at === void 0 ? kids.length : Math.max(0, Math.min(at, kids.length));
+  const next = { ...parent, children: [...kids.slice(0, i), child, ...kids.slice(i)] };
+  return replaceAt(root, parentPath, next);
+}
+function replaceAt(root, path, next) {
+  if (path.length === 0) return ok(next);
+  const slot = path[0];
+  const kid = root.children?.[slot];
+  if (kid === void 0) return badPath(path);
+  const r = replaceAt(kid, path.slice(1), next);
+  if (!r.ok) return r;
+  const kids = [...root.children ?? []];
+  kids[slot] = r.value;
+  return ok({ ...root, children: kids });
+}
+function removeNode(root, path) {
+  if (path.length === 0) return err(engineError(TREE_EDIT_ROOT, "\u6839\u8282\u70B9\u4E0D\u80FD\u5220\uFF08\u53EF\u4EE5\u6362\u5B83\u7684 kind\uFF09"));
+  const parentPath = path.slice(0, -1);
+  const parent = nodeAt(root, parentPath);
+  if (parent === void 0) return badPath(path);
+  const slot = path[path.length - 1];
+  const kids = parent.children ?? [];
+  if (kids[slot] === void 0) return badPath(path);
+  const next = { ...parent, children: kids.filter((_, i) => i !== slot) };
+  return replaceAt(root, parentPath, next);
+}
+function pathAfterRemoval(from, to) {
+  const parent = from.slice(0, -1);
+  if (to.length <= parent.length) return to;
+  for (let i = 0; i < parent.length; i++) if (to[i] !== parent[i]) return to;
+  const sourceSlot = from[from.length - 1];
+  const slot = to[parent.length];
+  if (slot <= sourceSlot) return to;
+  const out = [...to];
+  out[parent.length] = slot - 1;
+  return out;
+}
+function moveNode(root, from, to, at) {
+  if (from.length === 0) return err(engineError(TREE_EDIT_ROOT, "\u6839\u8282\u70B9\u4E0D\u80FD\u79FB\u52A8"));
+  if (isPrefix(from, to)) {
+    return err(
+      engineError(TREE_EDIT_CYCLE, `\u4E0D\u80FD\u628A ${pathText(from)} \u79FB\u5230\u5B83\u81EA\u5DF1\uFF08\u6216\u5B83\u7684\u5B50\u5B59\uFF09\u4E0B\u9762`, {
+        from: pathText(from),
+        to: pathText(to)
+      })
+    );
+  }
+  const moved = nodeAt(root, from);
+  if (moved === void 0) return badPath(from);
+  const targetParent = nodeAt(root, to);
+  if (targetParent === void 0) return badPath(to);
+  const pruned = removeNode(root, from);
+  if (!pruned.ok) return pruned;
+  const dest = pathAfterRemoval(from, to);
+  const parent = nodeAt(pruned.value, dest);
+  if (parent === void 0) return badPath(dest);
+  const kids = parent.children ?? [];
+  const i = at === void 0 ? kids.length : Math.max(0, Math.min(at, kids.length));
+  const next = { ...parent, children: [...kids.slice(0, i), moved, ...kids.slice(i)] };
+  return replaceAt(pruned.value, dest, next);
+}
+function patchNode(root, path, patch) {
+  const node = nodeAt(root, path);
+  if (node === void 0) return badPath(path);
+  const next = {
+    id: patch.id === void 0 ? node.id : patch.id,
+    kind: patch.kind === void 0 ? node.kind : patch.kind
+  };
+  const op = patch.op === void 0 ? node.op : patch.op;
+  if (op !== void 0) next.op = op;
+  const ticks = patch.ticks === void 0 ? node.ticks : patch.ticks;
+  if (ticks !== void 0) next.ticks = ticks;
+  if (node.children !== void 0) next.children = node.children;
+  return replaceAt(root, path, next);
+}
+function treeIssue(root, ops = MOB_OPS) {
+  const r = checkTree(root, ops);
+  if (r.ok) return null;
+  const e = r.error;
+  const detail = e.detail;
+  const text = typeof detail?.path === "string" ? detail.path : "";
+  return {
+    code: e.code,
+    message: e.message,
+    pathText: text,
+    path: text === "" ? null : pathFromText(root, text)
+  };
+}
+function treeAdvice(root) {
+  const out = [];
+  for (const row of flattenTree(root)) {
+    const n = row.node;
+    const kids = n.children ?? [];
+    if ((n.kind === "sequence" || n.kind === "selector") && kids.length === 1) {
+      out.push({ path: row.path, message: `${n.kind} \u53EA\u6709\u4E00\u4E2A\u5B50\u8282\u70B9 \u2014\u2014 \u8FD9\u4E00\u5C42\u7B49\u4E8E\u6CA1\u6709` });
+    }
+    if (n.kind === "wait" && n.ticks === 0) {
+      out.push({ path: row.path, message: "wait 0 \u672C\u62CD\u7ACB\u5373\u6210\u529F\uFF0C\u7B49\u4E8E\u7A7A\u8BED\u53E5" });
+    }
+  }
+  return out;
+}
+function samePath(a, b) {
+  return isPrefix(a, b) && a.length === b.length;
+}
+function treeRows(root, issue = treeIssue(root), advice = treeAdvice(root)) {
+  const warned = new Set(advice.map((a) => pathText(a.path)));
+  return flattenTree(root).map((r) => {
+    const marker = issue?.path !== null && issue?.path !== void 0 && samePath(issue.path, r.path) ? "bad" : warned.has(pathText(r.path)) ? "warn" : "none";
+    return {
+      path: r.path,
+      depth: r.depth,
+      index: r.index,
+      id: r.node.id,
+      kind: r.node.kind,
+      detail: r.node.op !== void 0 ? r.node.op : r.node.ticks !== void 0 ? String(r.node.ticks) : "",
+      kids: (r.node.children ?? []).length,
+      marker
+    };
+  });
+}
+function treeStatusText(issue, advice) {
+  if (issue !== null) return `${issue.code}\uFF1A${issue.message}`;
+  if (advice.length > 0) return `\u88C5\u5F97\u4E0A \xB7 ${String(advice.length)} \u6761\u63D0\u9192`;
+  return "\u88C5\u5F97\u4E0A \xB7 \u6CA1\u6709\u63D0\u9192";
+}
+
 // src/editor-entry.ts
 var WORLD_SEED = 20261025;
 var WORLD_W = 26;
@@ -14917,11 +15428,16 @@ function assetRow(e) {
   if (!e.inAtlas) {
     const nof = document.createElement("span");
     nof.className = "nof";
-    nof.textContent = "\u65E0\u5E27";
-    nof.title = "\u56FE\u96C6\u91CC\u6CA1\u6709\u540C\u540D\u5E27\uFF08\u7F16\u8F91\u5668\u8FD8\u6CA1\u63A5\u56FE\u7247\u5BFC\u5165\uFF09\u2014\u2014 \u52A0\u8FDB\u573A\u666F\u4E5F\u753B\u4E0D\u51FA\u6765";
+    const tree = isTreeAssetPath(e.path);
+    nof.textContent = tree ? "\u6811" : "\u65E0\u5E27";
+    nof.title = tree ? "\u51B3\u7B56\u6811\u8D44\u4EA7\uFF1A\u70B9\u4E00\u4E0B\u5728\u753B\u5E03\u4E0A\u6253\u5F00\u7F16\u8F91\u5668\uFF08\u5B83\u52A0\u4E0D\u8FDB\u573A\u666F\uFF0C\u4E5F\u4E0D\u9700\u8981\u52A0\uFF09" : "\u56FE\u96C6\u91CC\u6CA1\u6709\u540C\u540D\u5E27\uFF08\u7F16\u8F91\u5668\u8FD8\u6CA1\u63A5\u56FE\u7247\u5BFC\u5165\uFF09\u2014\u2014 \u52A0\u8FDB\u573A\u666F\u4E5F\u753B\u4E0D\u51FA\u6765";
     el.appendChild(nof);
   }
   el.addEventListener("click", () => {
+    if (isTreeAssetPath(e.path)) {
+      void openTree(e.path);
+      return;
+    }
     pickAsset(e.path);
   });
   if (e.inAtlas) {
@@ -14933,6 +15449,10 @@ function assetRow(e) {
     });
   }
   el.addEventListener("dblclick", () => {
+    if (isTreeAssetPath(e.path)) {
+      void openTree(e.path);
+      return;
+    }
     pickAsset(e.path);
     doAddAsset(e.path);
   });
@@ -14960,7 +15480,7 @@ function proceduralChoice(note) {
 }
 async function prepareAssets() {
   const fs = new HttpFileSystem({ base: new URL("./", location.href) });
-  const assetsFs = new HttpFileSystem({ base: new URL("./assets/", location.href) });
+  const assetsFs2 = new HttpFileSystem({ base: new URL("./assets/", location.href) });
   const text = await fs.readText("assets-manifest.json");
   catalog = null;
   assetPicked = null;
@@ -14979,7 +15499,7 @@ async function prepareAssets() {
   const images = [];
   const io = [];
   for (const e of textures) {
-    const r = await assetsFs.readBinary(e.path);
+    const r = await assetsFs2.readBinary(e.path);
     if (!r.ok) {
       io.push(`${e.path}(${r.error.code})`);
       continue;
@@ -15187,6 +15707,344 @@ function loop(now) {
 function propsFocused() {
   const a = document.activeElement;
   return a !== null && propsEl.contains(a);
+}
+var TREE_EDITS_KEY = "engine.tree.edits.v1";
+var treeDoc = null;
+var treeSel = [];
+var treeUndo = [];
+var treeRedo = [];
+var treeDrag = null;
+var treeEditorEl = need("treeditor");
+var teTitleEl = need("te-title");
+var teNoteEl = need("te-note");
+var teHintEl = need("te-hint");
+var teRowsEl = need("te-rows");
+var teIdEl = need("te-id");
+var teKindEl = need("te-kind");
+var teOpEl = need("te-op");
+var teTicksEl = need("te-ticks");
+var btnTeUndo = need("te-undo");
+var btnTeRedo = need("te-redo");
+var btnTeExport = need("te-export");
+var btnTeReset = need("te-reset");
+var btnTeClose = need("te-close");
+var btnTeApply = need("te-apply");
+var btnTeChild = need("te-child");
+var btnTeDel = need("te-del");
+function assetsFs() {
+  return new HttpFileSystem({ base: new URL("./assets/", location.href) });
+}
+function treeEditsRead() {
+  try {
+    const raw = window.localStorage.getItem(TREE_EDITS_KEY);
+    if (raw === null) return {};
+    const v = JSON.parse(raw);
+    if (typeof v !== "object" || v === null || Array.isArray(v)) return {};
+    const out = {};
+    for (const [k, s] of Object.entries(v)) {
+      if (typeof s === "string") out[k] = s;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+function treeEditsWrite(id, root) {
+  const all = treeEditsRead();
+  if (root === null) delete all[id];
+  else all[id] = JSON.stringify(root);
+  try {
+    window.localStorage.setItem(TREE_EDITS_KEY, JSON.stringify(all));
+    return true;
+  } catch (e) {
+    errEl.textContent = `\u6811\u7684\u672C\u5730\u6539\u52A8\u6CA1\u5B58\u4E0B\u6765\uFF1A${e instanceof Error ? e.message : String(e)}`;
+    return false;
+  }
+}
+function treeDirty() {
+  const d = treeDoc;
+  if (d === null) return false;
+  return serializeTreeAsset(d.root) !== d.baseText;
+}
+async function openTree(path) {
+  const idR = treeAssetIdFromPath(path);
+  if (!idR.ok) return { ok: false, code: idR.error.code, message: idR.error.message };
+  const id = idR.value;
+  const text = await assetsFs().readText(path);
+  if (!text.ok) return { ok: false, code: text.error.code, message: text.error.message };
+  const parsed = parseTreeAsset(text.value);
+  if (!parsed.ok) return { ok: false, code: parsed.error.code, message: parsed.error.message };
+  const baseText = serializeTreeAsset(parsed.value);
+  let root = parsed.value;
+  let note = "\u6587\u4EF6\u539F\u6837";
+  const saved = treeEditsRead()[id];
+  if (saved !== void 0) {
+    try {
+      root = JSON.parse(saved);
+      note = "\u672C\u5730\u6539\u52A8";
+    } catch {
+      errEl.textContent = `\u300C${id}\u300D\u7684\u672C\u5730\u6539\u52A8\u8BFB\u4E0D\u51FA\u6765\uFF0C\u5DF2\u6309\u6587\u4EF6\u6253\u5F00`;
+    }
+  }
+  treeDoc = { path, id, baseText, root };
+  treeUndo = [];
+  treeRedo = [];
+  treeSel = [];
+  refreshTreeEditor();
+  teNoteEl.textContent = note;
+  return { ok: true };
+}
+function closeTree() {
+  treeDoc = null;
+  treeUndo = [];
+  treeRedo = [];
+  treeSel = [];
+  treeEditorEl.hidden = true;
+}
+function treeApply(next) {
+  const d = treeDoc;
+  if (d === null) return;
+  treeUndo.push(d.root);
+  if (treeUndo.length > 64) treeUndo.shift();
+  treeRedo = [];
+  treeDoc = { path: d.path, id: d.id, baseText: d.baseText, root: next };
+  treeEditsWrite(d.id, next);
+  refreshTreeEditor();
+}
+function treeUndoOnce() {
+  const d = treeDoc;
+  const prev = treeUndo.pop();
+  if (d === null || prev === void 0) return false;
+  treeRedo.push(d.root);
+  treeDoc = { path: d.path, id: d.id, baseText: d.baseText, root: prev };
+  treeEditsWrite(d.id, prev);
+  refreshTreeEditor();
+  return true;
+}
+function treeRedoOnce() {
+  const d = treeDoc;
+  const next = treeRedo.pop();
+  if (d === null || next === void 0) return false;
+  treeUndo.push(d.root);
+  treeDoc = { path: d.path, id: d.id, baseText: d.baseText, root: next };
+  treeEditsWrite(d.id, next);
+  refreshTreeEditor();
+  return true;
+}
+function treeSelectedNode() {
+  const d = treeDoc;
+  if (d === null) return null;
+  return nodeAt(d.root, treeSel) ?? d.root;
+}
+function treeRowEl(row) {
+  const el = document.createElement("div");
+  el.className = `te-row ${row.marker}${pathText(treeSel) === pathText(row.path) ? " sel" : ""}`;
+  el.style.paddingLeft = `${String(6 + row.depth * 14)}px`;
+  el.dataset["tpath"] = pathText(row.path);
+  const id = document.createElement("span");
+  id.className = "tid";
+  id.textContent = row.id;
+  const kind = document.createElement("span");
+  kind.className = "tk";
+  kind.textContent = row.kind;
+  const detail = document.createElement("span");
+  detail.className = "td";
+  detail.textContent = row.detail;
+  el.append(id, kind, detail);
+  if (row.kids > 0) {
+    const c = document.createElement("span");
+    c.className = "tc";
+    c.textContent = `${String(row.kids)} \u5B50`;
+    el.appendChild(c);
+  }
+  if (row.kind === "sequence" || row.kind === "selector" || row.kind === "inverter") {
+    const add = document.createElement("button");
+    add.className = "te-mini";
+    add.dataset["teadd"] = pathText(row.path);
+    add.textContent = "+";
+    add.title = "\u5728\u8FD9\u4E2A\u8282\u70B9\u4E0B\u9762\u52A0\u4E00\u4E2A wait 1\uFF08\u518D\u7528\u4E0B\u9762\u7684\u8868\u5355\u6539\u6210\u4F60\u8981\u7684\u79CD\u7C7B\uFF09";
+    add.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      addTreeNodeChild(row.path);
+    });
+    el.appendChild(add);
+  }
+  if (row.depth > 0) {
+    const del = document.createElement("button");
+    del.className = "te-mini";
+    del.dataset["tedel"] = pathText(row.path);
+    del.textContent = "\xD7";
+    del.title = "\u5220\u6389\u8FD9\u4E2A\u8282\u70B9\uFF08\u8FDE\u540C\u5B83\u7684\u5B50\u6811\uFF09";
+    del.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      removeTreeNode(row.path);
+    });
+    el.appendChild(del);
+  }
+  el.addEventListener("click", () => {
+    treeSel = row.path;
+    refreshTreeEditor();
+  });
+  el.addEventListener("pointerdown", (ev) => {
+    if (ev.button !== 0) return;
+    treeDrag = { path: row.path, x: ev.clientX, y: ev.clientY, active: false };
+  });
+  return el;
+}
+function treeFail(e) {
+  errEl.textContent = `${e.code}\uFF1A${e.message}`;
+  return { ok: false, code: e.code, message: e.message };
+}
+function addTreeNodeChild(parentPath) {
+  const d = treeDoc;
+  if (d === null) return { ok: false, code: "EDIT.NO_TREE", message: "\u6CA1\u6709\u6253\u5F00\u7684\u6811" };
+  const parent = nodeAt(d.root, parentPath);
+  const base = parent === void 0 ? "n" : parent.id;
+  const kids = parent?.children ?? [];
+  let n = kids.length + 1;
+  const taken = new Set(kids.map((c) => c.id));
+  while (taken.has(`${base}_${String(n)}`)) n++;
+  const child = { id: `${base}_${String(n)}`, kind: "wait", ticks: 1 };
+  const r = addChild(d.root, parentPath, child);
+  if (!r.ok) return treeFail(r.error);
+  treeSel = [...parentPath, kids.length];
+  treeApply(r.value);
+  return { ok: true };
+}
+function removeTreeNode(path) {
+  const d = treeDoc;
+  if (d === null) return { ok: false, code: "EDIT.NO_TREE", message: "\u6CA1\u6709\u6253\u5F00\u7684\u6811" };
+  const r = removeNode(d.root, path);
+  if (!r.ok) return treeFail(r.error);
+  if (pathText(treeSel).startsWith(pathText(path))) treeSel = path.slice(0, -1);
+  treeApply(r.value);
+  return { ok: true };
+}
+function moveTreeNode(from, to) {
+  const d = treeDoc;
+  if (d === null) return { ok: false, code: "EDIT.NO_TREE", message: "\u6CA1\u6709\u6253\u5F00\u7684\u6811" };
+  const r = moveNode(d.root, from, to);
+  if (!r.ok) return treeFail(r.error);
+  const dest = pathAfterRemoval(from, to);
+  const parent = nodeAt(r.value, dest);
+  treeSel = parent === void 0 ? dest : [...dest, Math.max(0, (parent.children ?? []).length - 1)];
+  treeApply(r.value);
+  return { ok: true };
+}
+function applyTreeForm() {
+  const d = treeDoc;
+  if (d === null) return { ok: false, code: "EDIT.NO_TREE", message: "\u6CA1\u6709\u6253\u5F00\u7684\u6811" };
+  const kind = teKindEl.value;
+  const patch = { id: teIdEl.value, kind };
+  if (kind === "do" || kind === "check") patch.op = teOpEl.value;
+  if (kind === "wait") {
+    const n = Number(teTicksEl.value);
+    if (!Number.isInteger(n) || n < 0) {
+      errEl.textContent = `ticks \u8981\u7684\u662F >= 0 \u7684\u6574\u6570\uFF0C\u6536\u5230\u300C${teTicksEl.value}\u300D`;
+      return { ok: false, code: "EDIT.BAD_VALUE", message: "ticks \u8981\u7684\u662F >= 0 \u7684\u6574\u6570" };
+    }
+    patch.ticks = n;
+  }
+  const r = patchNode(d.root, treeSel, patch);
+  if (!r.ok) return treeFail(r.error);
+  errEl.textContent = "";
+  treeApply(r.value);
+  return { ok: true };
+}
+function refreshTreeEditor() {
+  const d = treeDoc;
+  if (d === null) {
+    treeEditorEl.hidden = true;
+    return;
+  }
+  treeEditorEl.hidden = false;
+  const issue = treeIssue(d.root);
+  const advice = treeAdvice(d.root);
+  teTitleEl.textContent = `\u6811 ${d.id}`;
+  teHintEl.textContent = treeStatusText(issue, advice);
+  teHintEl.className = `te-hint ${issue !== null ? "bad" : advice.length > 0 ? "warn" : "ok"}`;
+  const frag = document.createDocumentFragment();
+  for (const row of treeRows(d.root, issue, advice)) frag.appendChild(treeRowEl(row));
+  teRowsEl.replaceChildren(frag);
+  const sel = treeSelectedNode();
+  const kind = sel === null ? "wait" : sel.kind;
+  teKindEl.value = kind;
+  teIdEl.value = sel === null ? "" : sel.id;
+  teOpEl.value = sel?.op ?? "";
+  teTicksEl.value = sel?.ticks === void 0 ? "" : String(sel.ticks);
+  const leaf = kind === "do" || kind === "check";
+  teOpEl.disabled = !leaf;
+  teTicksEl.disabled = kind !== "wait";
+  teIdEl.disabled = sel === null;
+  btnTeApply.disabled = sel === null;
+  btnTeDel.disabled = sel === null || treeSel.length === 0;
+  btnTeChild.disabled = sel === null || !(kind === "sequence" || kind === "selector" || kind === "inverter");
+  btnTeUndo.disabled = treeUndo.length === 0;
+  btnTeRedo.disabled = treeRedo.length === 0;
+  const dirty = treeDirty();
+  teNoteEl.textContent = dirty ? "\u672C\u5730\u6539\u52A8" : "\u6587\u4EF6\u539F\u6837";
+  btnTeReset.disabled = !dirty;
+  btnTeExport.disabled = issue !== null;
+  btnTeExport.title = issue === null ? "\u5BFC\u51FA\u6210 .tree.json\uFF08\u53EF\u4EE5\u653E\u8FDB web/assets/ai/\uFF09" : "\u73B0\u5728\u88C5\u4E0D\u4E0A\uFF0C\u5148\u628A\u7EA2\u5B57\u90A3\u5904\u4FEE\u597D";
+}
+function treeExportText() {
+  const d = treeDoc;
+  if (d === null) return null;
+  const c = checkTree(d.root);
+  if (!c.ok) {
+    errEl.textContent = `${c.error.code}\uFF1A${c.error.message}`;
+    return null;
+  }
+  return serializeTreeAsset(d.root);
+}
+function downloadTree() {
+  const d = treeDoc;
+  const text = treeExportText();
+  if (d === null || text === null) return;
+  const blob = new Blob([text], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${d.id.split("/").pop() ?? "tree"}.tree.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+async function resetTreeToFile() {
+  const d = treeDoc;
+  if (d === null) return;
+  treeEditsWrite(d.id, null);
+  await openTree(d.path);
+}
+function bindTreeEditDrag() {
+  window.addEventListener("pointermove", (ev) => {
+    const g = treeDrag;
+    if (g === null) return;
+    if (!g.active) {
+      if (Math.abs(ev.clientX - g.x) + Math.abs(ev.clientY - g.y) <= 4) return;
+      g.active = true;
+      const el = teRowsEl.querySelector(`[data-tpath="${pathText(g.path)}"]`);
+      if (el !== null) el.classList.add("dragging");
+    }
+    for (const el of Array.from(teRowsEl.querySelectorAll(".te-row.drop"))) el.classList.remove("drop");
+    const hit = document.elementFromPoint(ev.clientX, ev.clientY)?.closest(".te-row");
+    if (hit !== null && hit.dataset["tpath"] !== void 0) hit.classList.add("drop");
+  });
+  window.addEventListener("pointerup", (ev) => {
+    const g = treeDrag;
+    treeDrag = null;
+    const hit = document.elementFromPoint(ev.clientX, ev.clientY)?.closest(".te-row");
+    for (const el of Array.from(teRowsEl.querySelectorAll(".te-row.drop, .te-row.dragging"))) {
+      el.classList.remove("drop");
+      el.classList.remove("dragging");
+    }
+    if (g === null || !g.active || hit === null) return;
+    const d = treeDoc;
+    const text = hit.dataset["tpath"];
+    if (d === null || text === void 0) return;
+    const to = pathFromText(d.root, text);
+    if (to === null) return;
+    moveTreeNode(g.path, to);
+  });
 }
 function installApi(app) {
   const api = {
@@ -15479,6 +16337,97 @@ function installApi(app) {
         atlasNote,
         frames: atlasFrames.length
       };
+    },
+    treeOpen(path) {
+      return openTree(path);
+    },
+    treeClose() {
+      closeTree();
+    },
+    treeState() {
+      const d = treeDoc;
+      if (d === null) {
+        return {
+          open: false,
+          id: "",
+          path: "",
+          rows: [],
+          status: "",
+          hintClass: "",
+          dirty: false,
+          sel: [],
+          canUndo: false,
+          canRedo: false,
+          domRows: 0
+        };
+      }
+      const issue = treeIssue(d.root);
+      const advice = treeAdvice(d.root);
+      return {
+        open: true,
+        id: d.id,
+        path: d.path,
+        rows: treeRows(d.root, issue, advice).map((r) => ({
+          path: [...r.path],
+          depth: r.depth,
+          id: r.id,
+          kind: r.kind,
+          detail: r.detail,
+          kids: r.kids,
+          marker: r.marker
+        })),
+        status: teHintEl.textContent ?? "",
+        hintClass: teHintEl.className,
+        dirty: treeDirty(),
+        sel: [...treeSel],
+        canUndo: treeUndo.length > 0,
+        canRedo: treeRedo.length > 0,
+        // 数 DOM 而不是数 `rows`：两个数字对不上说明"算出来了但没画上去"，
+        // 而那正是本条判据唯一能证明的事（与 `#tree .row` 那条同一条理由）。
+        domRows: teRowsEl.querySelectorAll(".te-row").length
+      };
+    },
+    treeSelect(path) {
+      const d = treeDoc;
+      if (d === null || nodeAt(d.root, path) === void 0) return false;
+      treeSel = path;
+      refreshTreeEditor();
+      return true;
+    },
+    treeAddChild(path) {
+      return addTreeNodeChild(path ?? treeSel);
+    },
+    treeRemove(path) {
+      return removeTreeNode(path ?? treeSel);
+    },
+    treeMove(from, to) {
+      return moveTreeNode(from, to);
+    },
+    treePatch(patch) {
+      const d = treeDoc;
+      if (d === null) return { ok: false, code: "EDIT.NO_TREE", message: "\u6CA1\u6709\u6253\u5F00\u7684\u6811" };
+      const r = patchNode(d.root, treeSel, {
+        ...patch.id === void 0 ? {} : { id: patch.id },
+        ...patch.kind === void 0 ? {} : { kind: patch.kind },
+        ...patch.op === void 0 ? {} : { op: patch.op },
+        ...patch.ticks === void 0 ? {} : { ticks: patch.ticks }
+      });
+      if (!r.ok) return treeFail(r.error);
+      treeApply(r.value);
+      return { ok: true };
+    },
+    treeUndo() {
+      return treeUndoOnce();
+    },
+    treeRedo() {
+      return treeRedoOnce();
+    },
+    treeText() {
+      return treeExportText();
+    },
+    async treeReset() {
+      await resetTreeToFile();
+      return { ok: treeDoc !== null };
     }
   };
   window.__editor = api;
@@ -15523,6 +16472,46 @@ async function main() {
   bindCanvasDrag();
   bindTreeDrag();
   bindAssetDrag();
+  bindTreeEditDrag();
+  for (const k of ["sequence", "selector", "inverter", "wait", "do", "check"]) {
+    const o = document.createElement("option");
+    o.value = k;
+    o.textContent = k;
+    teKindEl.appendChild(o);
+  }
+  for (const k of Object.keys(MOB_OPS).sort()) {
+    const o = document.createElement("option");
+    o.value = k;
+    o.textContent = k;
+    teOpEl.appendChild(o);
+  }
+  teKindEl.addEventListener("change", () => {
+    const leaf = teKindEl.value === "do" || teKindEl.value === "check";
+    teOpEl.disabled = !leaf;
+    teTicksEl.disabled = teKindEl.value !== "wait";
+  });
+  btnTeApply.addEventListener("click", () => {
+    applyTreeForm();
+  });
+  btnTeChild.addEventListener("click", () => {
+    addTreeNodeChild(treeSel);
+  });
+  btnTeDel.addEventListener("click", () => {
+    removeTreeNode(treeSel);
+  });
+  btnTeUndo.addEventListener("click", () => {
+    treeUndoOnce();
+  });
+  btnTeRedo.addEventListener("click", () => {
+    treeRedoOnce();
+  });
+  btnTeExport.addEventListener("click", () => {
+    downloadTree();
+  });
+  btnTeReset.addEventListener("click", () => void resetTreeToFile());
+  btnTeClose.addEventListener("click", () => {
+    closeTree();
+  });
   const t0 = exportDocument(docDeps(app));
   if (!t0.ok) {
     errEl.textContent = `\u5DE5\u7A0B\u521D\u59CB\u5316\u5931\u8D25\uFF1A${t0.error.code}\uFF1A${t0.error.message}`;

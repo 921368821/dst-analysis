@@ -1286,6 +1286,163 @@ const PROBE = `
     JSON.stringify(unDoor) + " 剩余门=" + E.compCount("flow.portal", heroM),
   );
 
+  // ================================================================ 决策树编辑器（批157）
+  //
+  // ★ 这一段只碰树面板，**不碰场景** —— 它放在最后，前面那些判据已经把世界换过几轮了。
+  // ★★ 每条都要有"内容层"的观测点：行数、kind、detail 这些**能从一个空壳树
+  //    造出来的东西不算数**。所以断言里都带着具体的节点 id（mob.roam、mob.pick），
+  //    而不是只比 rows.length（少一行多一行都可能对）。
+  const treePath = "ai/hound.tree.json";
+  const openT = await E.treeOpen(treePath);
+  const ts0 = E.treeState();
+  add(
+    "★★ 点开一份 .tree.json：面板出来、行数对得上 DOM、根就是文件里的那个 sequence",
+    openT.ok === true && ts0.open === true && ts0.id === "ai/hound" &&
+      ts0.rows.length === 15 && ts0.domRows === 15 &&
+      ts0.rows[0].id === "mob.root" && ts0.rows[0].kind === "sequence" &&
+      ts0.status.indexOf("装得上") >= 0 &&
+      document.getElementById("treeditor").hidden === false,
+    JSON.stringify(openT) + " id=" + ts0.id + " rows=" + ts0.rows.length +
+      " dom=" + ts0.domRows + " status=" + ts0.status,
+  );
+  add(
+    "★ 层级画对了：最大深度 5（mob.c1 那一层），每行的 depth 与它的路径长度一致",
+    Math.max(...ts0.rows.map((r) => r.depth)) === 5 &&
+      ts0.rows.every((r) => r.depth === r.path.length) &&
+      ts0.rows.filter((r) => r.marker !== "none").length === 0,
+    "maxDepth=" + Math.max(...ts0.rows.map((r) => r.depth)) +
+      " 行数(路径长度不符)=" + ts0.rows.filter((r) => r.depth !== r.path.length).length,
+  );
+
+  const addT = E.treeAddChild([1, 1]);
+  const ts1 = E.treeState();
+  const addedRow = ts1.rows.find((r) => r.id === "mob.roam_3");
+  add(
+    "★ 加子节点：多一行、id 自动避开兄弟、并且立刻可撤销（改动进了树的历史）",
+    addT.ok === true && ts1.rows.length === 16 && addedRow !== undefined &&
+      addedRow.kind === "wait" && addedRow.depth === 3 && ts1.canUndo === true &&
+      ts1.dirty === true && E.treeState().domRows === 16,
+    JSON.stringify(addT) + " rows=" + ts1.rows.length +
+      " 新行=" + JSON.stringify(addedRow === undefined ? null : addedRow) + " dirty=" + ts1.dirty,
+  );
+
+  const selT = E.treeSelect([1, 1, 2]);
+  const patchT = E.treePatch({ kind: "do", op: "mob.huntNearest" });
+  const ts2 = E.treeState();
+  const patched = ts2.rows.find((r) => r.id === "mob.roam_3");
+  add(
+    "★ 表单改 kind / op：那一行真的变了，而且树仍然装得上（改的是内容不是标签）",
+    selT === true && patchT.ok === true && patched !== undefined &&
+      patched.kind === "do" && patched.detail === "mob.huntNearest" &&
+      ts2.status.indexOf("装得上") >= 0,
+    JSON.stringify(patchT) + " 行=" + JSON.stringify(patched === undefined ? null : patched) +
+      " status=" + ts2.status,
+  );
+
+  // ★★ 拖拽换父：mob.roam（[1,1]）拖进 mob.pick（[1,0,1]）。源在目标的**左边**，
+  //    所以这条同时在验「摘掉源之后目标路径要修正」—— 不修正的话它会落到 mob.sight 里，
+  //    而两边的行数一模一样。
+  const moveT = E.treeMove([1, 1], [1, 0, 1]);
+  const ts3 = E.treeState();
+  const roam = ts3.rows.find((r) => r.id === "mob.roam");
+  const pick = ts3.rows.find((r) => r.id === "mob.pick");
+  const sight = ts3.rows.find((r) => r.id === "mob.sight");
+  const bodyAfter = ts3.rows.find((r) => r.id === "mob.body");
+  add(
+    "★★ 拖拽换父：mob.roam 真的挂到了 mob.pick 下面（而 mob.sight 没被动）",
+    moveT.ok === true && roam !== undefined && pick !== undefined && sight !== undefined &&
+      roam.path.join("/") === "1/0/1/2" && pick.kids === 3 && sight.kids === 2 &&
+      bodyAfter !== undefined && bodyAfter.kids === 1,
+    JSON.stringify(moveT) + " roam=" + JSON.stringify(roam === undefined ? null : roam.path) +
+      " pick.kids=" + (pick === undefined ? "?" : pick.kids) +
+      " sight.kids=" + (sight === undefined ? "?" : sight.kids) +
+      " body.kids=" + (bodyAfter === undefined ? "?" : bodyAfter.kids),
+  );
+
+  // ★★ 装不上的树：把一个 do 的 op 改成没注册的名字。要看到三件事 ——
+  //    红字说出来、**红在那一行**、导出的门被挡住。只验第一件的话，
+  //    "标红标在了根上"和"标对了"分不开。
+  // ★ 移动之后选中的是**被移动的那个**（mob.roam），而我们要弄坏的是它那个孩子。
+  //   不重新选的话，treePatch 改的是 sequence 上的 op —— 校验器对容器上的 op 视而不见，
+  //   于是"树仍然装得上"而判据以为"改坏了"（这条夹具第一版就是这么错的）。
+  const selBad = E.treeSelect([1, 0, 1, 2, 2]);
+  const badT = E.treePatch({ op: "mob.nope" });
+  const ts4 = E.treeState();
+  const badRow = ts4.rows.find((r) => r.marker === "bad");
+  const exportT = E.treeText();
+  add(
+    "★★ 改成没注册的 op：红字说得出原因、红的就是那一行、导出被挡住",
+    selBad === true && badT.ok === true && ts4.status.indexOf("AI.UNKNOWN_OP") >= 0 &&
+      ts4.hintClass.indexOf("bad") >= 0 &&
+      badRow !== undefined && badRow.id === "mob.roam_3" &&
+      exportT === null,
+    JSON.stringify(badT) + " status=" + ts4.status +
+      " 标红的行=" + JSON.stringify(badRow === undefined ? null : badRow.id) +
+      " 导出=" + JSON.stringify(exportT),
+  );
+
+  const undo1 = E.treeUndo();
+  const ts5 = E.treeState();
+  add(
+    "★★ 撤销一次：树回到装得上，红字消失（撤销真的重放的是**树**，不是只改了个标记）",
+    undo1 === true && ts5.status.indexOf("装得上") >= 0 &&
+      ts5.hintClass.indexOf("bad") < 0 && ts5.canRedo === true &&
+      ts5.rows.filter((r) => r.marker === "bad").length === 0,
+    "undo=" + String(undo1) + " status=" + ts5.status + " 红行=" +
+      ts5.rows.filter((r) => r.marker === "bad").length,
+  );
+
+  // ★★ 导出：合法时才给文本，而且是**规范形式**（能被装载路径读回去）。
+  const textT = E.treeText();
+  let roundT = "null";
+  try {
+    const o = JSON.parse(textT || "null");
+    roundT = o === null ? "null" : o.format + "/" + o.version + "/" + o.root.id;
+  } catch (e) {
+    roundT = "解析失败：" + String(e && e.message);
+  }
+  add(
+    "★★ 导出的是规范文本：format/version 对、末尾有换行、根还是 mob.root",
+    // ★ 不能用「反斜杠 n」这种转义写法：这整段在**模板串**里，拼接时它先被吃掉，
+    //   表现是"探针抛 SyntaxError"而不是判据红（踩过一次，找了一轮）。
+    typeof textT === "string" && textT.slice(-1) === String.fromCharCode(10) &&
+      roundT === "aitree/1/mob.root",
+    "前 24 字=" + JSON.stringify(String(textT).slice(0, 24)) + " 解析=" + roundT,
+  );
+
+  // ★★ 关掉再打开：改动必须还在（走的是 localStorage 覆盖那条路，不是又读了一遍文件）。
+  //    只看"打开成功"是不够的 —— 文件里本来就有 15 行，读文件也"成功"。
+  E.treeClose();
+  const closed = E.treeState();
+  // ★ 立刻读 DOM：下面 openTree 又把它显示出来了，到 add(...) 那一刻再读
+  //   永远是 false —— 这条判据就成了"验了个常量"。
+  const closedHidden = document.getElementById("treeditor").hidden;
+  const reopenT = await E.treeOpen(treePath);
+  const ts6 = E.treeState();
+  const kept = ts6.rows.find((r) => r.id === "mob.roam_3");
+  add(
+    "★★ 关掉再打开：改过的树还在（本地改动覆盖了文件，而不是把文件重读一遍）",
+    closed.open === false && closedHidden === true &&
+      reopenT.ok === true && ts6.rows.length === 16 && kept !== undefined &&
+      kept.detail === "mob.huntNearest" && ts6.dirty === true,
+    "关闭后 open=" + String(closed.open) + " 重开 rows=" + ts6.rows.length +
+      " 保留的行=" + JSON.stringify(kept === undefined ? null : kept) + " dirty=" + ts6.dirty,
+  );
+
+  const resetT = await E.treeReset();
+  const ts7 = E.treeState();
+  add(
+    "★ 还原成文件：回到文件里那 15 行，脏标记归零（本地改动被丢掉）",
+    resetT.ok === true && ts7.rows.length === 15 && ts7.dirty === false &&
+      ts7.rows.every((r) => r.id !== "mob.roam_3") &&
+      localStorage.getItem("engine.tree.edits.v1") === "{}",
+    "reset=" + JSON.stringify(resetT) + " rows=" + ts7.rows.length +
+      " dirty=" + String(ts7.dirty) + " 本地存档=" +
+      JSON.stringify(localStorage.getItem("engine.tree.edits.v1")),
+  );
+  E.treeClose();
+
+
   return rows;
 })()
 `;
