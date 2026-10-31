@@ -9023,6 +9023,325 @@ MUTANTS = [
         ],
         "test": "tests/extensions/action-intent.test.ts",
     },
+    {
+        "name": "M963 版本检查只拦「更旧」（更新的一方带着未知字段连进来，而那正是 NaN 的来源）",
+        "file": "src/extensions/net/join.ts",
+        "pairs": [
+            (
+                "    if (want !== this.version) {",
+                "    if (want < this.version) {",
+            ),
+        ],
+        "test": "tests/extensions/net-join.test.ts",
+    },
+    {
+        "name": "M964 被拒的回复也带 playerId（半份回复会被某条路径当成功处理）",
+        "file": "src/extensions/net/join.ts",
+        "pairs": [
+            (
+                "  const base = { kind: \"join-reply\" as const, from, to, tick, seq, accepted: false as const, reason };",
+                "  const base = { kind: \"join-reply\" as const, from, to, tick, seq, accepted: false as const, reason, playerId: 0 };",
+            ),
+        ],
+        "test": "tests/extensions/net-join.test.ts",
+    },
+    {
+        "name": "M965 满员判断差一（最后一个位子永远空着，或者能挤进一个人）",
+        "file": "src/extensions/net/join.ts",
+        "pairs": [
+            (
+                "    if (this.seatsIn.length >= this.max) return this.refuse(peer, tick, JoinReject.Full);",
+                "    if (this.seatsIn.length > this.max) return this.refuse(peer, tick, JoinReject.Full);",
+            ),
+        ],
+        "test": "tests/extensions/net-join.test.ts",
+    },
+    {
+        "name": "M966 畸形版本号不归一（NaN 比不过任何数 ⇒ 被当成「更新」放过去）",
+        "file": "src/extensions/net/join.ts",
+        "pairs": [
+            (
+                "    const want = Number.isInteger(req.protocolVersion) ? req.protocolVersion : -1;",
+                "    const want = req.protocolVersion;",
+            ),
+        ],
+        "test": "tests/extensions/net-join.test.ts",
+    },
+    {
+        "name": "M967 主机自己也能入房（0 号座位被当成一个普通客户端）",
+        "file": "src/extensions/net/join.ts",
+        "pairs": [
+            (
+                "    if (peer === this.hostPeer) return this.refuse(peer, tick, JoinReject.Host);\n",
+                "",
+            ),
+        ],
+        "test": "tests/extensions/net-join.test.ts",
+    },
+    {
+        "name": "M968 座位号直接取端点号（「重连后你还是你」退化成「拿到了同一个端口」）",
+        "file": "src/extensions/net/join.ts",
+        "pairs": [
+            (
+                "      playerId: this.nextPlayerId++,\n",
+                "      playerId: peer,\n",
+            ),
+        ],
+        "test": "tests/extensions/net-join.test.ts",
+    },
+    {
+        "name": "M969 座位记在自报的 from 上（自报不等于来源）",
+        "file": "src/extensions/net/join.ts",
+        "pairs": [
+            (
+                "      peer,\n      name: req.name,",
+                "      peer: req.from,\n      name: req.name,",
+            ),
+        ],
+        "test": "tests/extensions/net-join.test.ts",
+    },
+    {
+        "name": "M970 在线座位的票据也被采信（一张票据就能把在玩的人顶掉）",
+        "file": "src/extensions/net/join.ts",
+        "pairs": [
+            (
+                "(s) => s.ticket === ticket && s.lostAt !== null",
+                "(s) => s.ticket === ticket",
+            ),
+        ],
+        "test": "tests/extensions/net-join.test.ts",
+    },
+    {
+        "name": "M971 先拍照再给归属（第一份快照里没有任何实体归他，前几拍走不动）",
+        "file": "src/extensions/net/join.ts",
+        "pairs": [
+            (
+                "    this.onJoin?.(seat.playerId, tick);\n    const json = this.snapshot(tick);",
+                "    const json = this.snapshot(tick);\n    this.onJoin?.(seat.playerId, tick);",
+            ),
+        ],
+        "test": "tests/extensions/net-join.test.ts",
+    },
+    {
+        "name": "M972 世界还没准备好也放行（客户端拿空世界进房，然后什么都不对）",
+        "file": "src/extensions/net/join.ts",
+        "pairs": [
+            (
+                "    this.onJoin?.(seat.playerId, tick);\n    const json = this.snapshot(tick);\n    if (json === null) {",
+                "    this.onJoin?.(seat.playerId, tick);\n    const json = this.snapshot(tick);\n    if (false) {",
+            ),
+        ],
+        "test": "tests/extensions/net-join.test.ts",
+    },
+    {
+        "name": "M973 被拒的座位不退回（空位被一个进不来的人占着，满员也再进不来）",
+        "file": "src/extensions/net/join.ts",
+        "pairs": [
+            (
+                "      this.seatsIn = this.seatsIn.filter((s) => s !== seat);\n",
+                "",
+            ),
+        ],
+        "test": "tests/extensions/net-join.test.ts",
+    },
+    {
+        "name": "M974 座位号按人数分配（号会复用：老票据可能匹配到新玩家）",
+        "file": "src/extensions/net/join.ts",
+        "pairs": [
+            (
+                "      playerId: this.nextPlayerId++,",
+                "      playerId: this.seatsIn.length,",
+            ),
+        ],
+        "test": "tests/extensions/net-join.test.ts",
+    },
+    {
+        "name": "M975 重连不摘掉线标记（回来了也还是没有座位，意图全被 no-seat 拒）",
+        "file": "src/extensions/net/join.ts",
+        "pairs": [
+            (
+                "        seat.lostAt = null;\n",
+                "",
+            ),
+        ],
+        "test": "tests/extensions/net-join.test.ts",
+    },
+    {
+        "name": "M976 drop 不标掉线（掉线的连接还能继续驱动角色）",
+        "file": "src/extensions/net/join.ts",
+        "pairs": [
+            (
+                "    seat.lostAt = tick;\n    return seat.playerId;",
+                "    seat.lostAt = null;\n    return seat.playerId;",
+            ),
+        ],
+        "test": "tests/extensions/net-join.test.ts",
+    },
+    {
+        "name": "M977 超时边界差一（晚一拍才清，重连窗口悄悄变长）",
+        "file": "src/extensions/net/join.ts",
+        "pairs": [
+            (
+                "tick - s.lostAt < this.window",
+                "tick - s.lostAt <= this.window",
+            ),
+        ],
+        "test": "tests/extensions/net-join.test.ts",
+    },
+    {
+        "name": "M978 sweep 不交名单（超时的角色被幽灵占着，谁都推不动，而计数全对）",
+        "file": "src/extensions/net/join.ts",
+        "pairs": [
+            (
+                "      gone.push(s.playerId);\n",
+                "",
+            ),
+        ],
+        "test": "tests/extensions/net-join.test.ts",
+    },
+    {
+        "name": "M979 票据降级不可见（「你的角色没了」被记成一次普通加入）",
+        "file": "src/extensions/net/join.ts",
+        "pairs": [
+            (
+                "      this.ticketStale++;\n",
+                "",
+            ),
+        ],
+        "test": "tests/extensions/net-join.test.ts",
+    },
+    {
+        "name": "M980 重复入房报成新玩家（客户端会以为自己的角色换了）",
+        "file": "src/extensions/net/join.ts",
+        "pairs": [
+            (
+                "      return this.acceptedReply(peer, tick, dup, json, true);",
+                "      return this.acceptedReply(peer, tick, dup, json, false);",
+            ),
+        ],
+        "test": "tests/extensions/net-join.test.ts",
+    },
+    {
+        "name": "M981 发现列表版本方向写反（让人去更新本来就新的一端）",
+        "file": "src/extensions/net/join.ts",
+        "pairs": [
+            (
+                "    reason = r.protocolVersion < mine ? JoinReject.VersionNew : JoinReject.VersionOld;",
+                "    reason = r.protocolVersion < mine ? JoinReject.VersionOld : JoinReject.VersionNew;",
+            ),
+        ],
+        "test": "tests/extensions/net-join.test.ts",
+    },
+    {
+        "name": "M982 客户端不按 to 过滤（别人的回复被应用到自己的座位上）",
+        "file": "src/extensions/net/join.ts",
+        "pairs": [
+            (
+                "    if (msg.to !== this.selfPeer) {",
+                "    if (false) {",
+            ),
+        ],
+        "test": "tests/extensions/net-join.test.ts",
+    },
+    {
+        "name": "M983 同一份回复可以重放（等于凭空回滚一次世界）",
+        "file": "src/extensions/net/join.ts",
+        "pairs": [
+            (
+                "    if (!this.awaiting) {",
+                "    if (false) {",
+            ),
+        ],
+        "test": "tests/extensions/net-join.test.ts",
+    },
+    {
+        "name": "M984 半份回复也进房（半连着比没连上难查得多）",
+        "file": "src/extensions/net/join.ts",
+        "pairs": [
+            (
+                "      typeof msg.json !== \"string\" ||",
+                "      false ||",
+            ),
+        ],
+        "test": "tests/extensions/net-join.test.ts",
+    },
+    {
+        "name": "M985 掉线清身份（重连退化成以新玩家身份重新加入）",
+        "file": "src/extensions/net/join.ts",
+        "pairs": [
+            (
+                "    this.now = \"lost\";",
+                "    this.mine = null;\n    this.now = \"lost\";",
+            ),
+        ],
+        "test": "tests/extensions/net-join.test.ts",
+    },
+    {
+        "name": "M986 换号不可见（客户端继续用旧号发意图，全被拒，而面板写「已连接」）",
+        "file": "src/extensions/net/join.ts",
+        "pairs": [
+            (
+                "    if (prev !== null && prev !== msg.playerId) this.seatChanges++;",
+                "    if (false) this.seatChanges++;",
+            ),
+        ],
+        "test": "tests/extensions/net-join.test.ts",
+    },
+    {
+        "name": "M987 会话按端点号判归属（重连后你就不再是你）",
+        "file": "src/extensions/net/session.ts",
+        "pairs": [
+            (
+                "    if (id.owner !== pid) return { ok: false, reason: NetReject.NotOwner };",
+                "    if (id.owner !== from) return { ok: false, reason: NetReject.NotOwner };",
+            ),
+        ],
+        "test": "tests/extensions/net-join.test.ts",
+    },
+    {
+        "name": "M988 没座位时报成「抢别人的角色」（两种完全不同的行动被压成一个码）",
+        "file": "src/extensions/net/session.ts",
+        "pairs": [
+            (
+                "    if (pid === null) return { ok: false, reason: NetReject.NoSeat };\n",
+                "",
+            ),
+        ],
+        "test": "tests/extensions/net-join.test.ts",
+    },
+    {
+        "name": "M989 没座位时 owned 退化成「归 AUTHORITY 的都算我的」",
+        "file": "src/extensions/net/session.ts",
+        "pairs": [
+            (
+                "      owned: mine === null ? 0 : ownedBy(this.scene, mine).length,",
+                "      owned: ownedBy(this.scene, mine ?? AUTHORITY).length,",
+            ),
+        ],
+        "test": "tests/extensions/net-join.test.ts",
+    },
+    {
+        "name": "M990 传输忽略种类过滤（先跑的那个把另一类的消息吃掉）",
+        "file": "src/extensions/net/transport.ts",
+        "pairs": [
+            (
+                "(kinds === undefined || kinds.includes(p.msg.kind))",
+                "true",
+            ),
+        ],
+        "test": "tests/extensions/net-join.test.ts",
+    },
+    {
+        "name": "M991 空串快照也进房（不是字符串挡得住，空串挡不住：客户端拿空世界装载）",
+        "file": "src/extensions/net/join.ts",
+        "pairs": [
+            (
+                "      msg.json.length === 0 ||\n",
+                "",
+            ),
+        ],
+        "test": "tests/extensions/net-join.test.ts",
+    },
 ]
 
 def run(m: dict) -> tuple[int, str]:

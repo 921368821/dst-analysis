@@ -31,11 +31,20 @@
  *
  * ③ **丢包记在发送方**：接收方永远不知道该来的是什么（这正是要 `seq` 的原因）。
  *    把丢包记在接收方等于假装它知道，而"以为自己知道"正是这类 bug 的起点。
+ *
+ * ④ **`receive` 可以按消息种类取，取走的不再重复**（`kinds` 参数）。
+ *    联机不是"一个消费者读一条线"：加入握手读 `join` / `join-reply`，会话读
+ *    `intent` / `snapshot`。没有这个参数时，先跑的那个会把另一类消息**吃掉**
+ *    （会话把它当协议违规计一笔，握手永远等不到回复），而症状是「客户端连不上，
+ *    主机日志说有人发了不该发的消息」。过滤是"不匹配的留在队列里"，
+ *    不是"不匹配的丢掉"—— 后者只是把"吃消息"换了个地方发生。
+ *    代价：**先取握手、后取会话**这个顺序成了调用方的责任（`net/join.ts` 文件头）。
  */
 
 import { XorShift128, type IRandom } from "../../foundation/random.ts";
 import type { NodeId } from "../../core/scene/node.ts";
 import type { MoveIntent } from "../motion/intent.ts";
+import type { JoinReply, JoinRequest } from "./join.ts";
 
 /** 对端标识。环回里只有 0 与 1；真实的会话层可以把它映射成连接号。 */
 export type PeerId = number;
@@ -81,7 +90,15 @@ export interface SnapshotMessage extends NetEnvelope {
   readonly json: string;
 }
 
-export type NetMessage = IntentMessage | SnapshotMessage;
+/**
+ * 一条能过网的消息。
+ *
+ * ★ 四种里只有两种属于会话层（`intent` / `snapshot`），另两种属于加入握手
+ *   （`join` / `join-reply`，见 `net/join.ts`）。合在一个联合里不是图省事：它们
+ *   共用同一条线、同一套信封、同一个 `seq` 缺口诊断 —— 分开定义就会出现第二份
+ *   「怎么算送到」。
+ */
+export type NetMessage = IntentMessage | SnapshotMessage | JoinRequest | JoinReply;
 
 /** 诊断计数（面板与判据读这一份，避免各算一套）。 */
 export interface TransportStats {
@@ -105,8 +122,14 @@ export interface Transport {
    * 那只能靠 `seq` 的缺口。
    */
   send(msg: NetMessage): boolean;
-  /** 取出所有「到达时刻 ≤ tick」的消息，按发送顺序；取走的不再重复。 */
-  receive(tick: number): readonly NetMessage[];
+  /**
+   * 取出所有「到达时刻 ≤ tick」的消息，按发送顺序；取走的不再重复。
+   *
+   * ★ 给了 `kinds` 时只取这些种类，**其余留在队列里**（下一个消费者还能取到）。
+   *   这不是「顺手做的优化」：会话与握手是两个消费者，吃掉对方的消息会让
+   *   "客户端连不上"与"有人发了不该发的消息"同时出现，而两者都不指向真正的原因。
+   */
+  receive(tick: number, kinds?: readonly NetMessage["kind"][]): readonly NetMessage[];
   stats(): TransportStats;
   /** 关闭：清空在途队列，之后的 `send` 一律返回 `false`。幂等。 */
   dispose(): void;
@@ -175,14 +198,17 @@ class LoopbackWire {
     return true;
   }
 
-  drain(to: PeerId, tick: number): NetMessage[] {
+  drain(to: PeerId, tick: number, kinds?: readonly NetMessage["kind"][]): NetMessage[] {
     const q = this.queue(to);
     const out: NetMessage[] = [];
     let kept = 0;
     for (const p of q) {
       // ★ `<=` 而不是 `<`：延迟 0 的语义就是"同一拍能收到"。写成 `<` 时
       //   环回会永远慢一拍，而所有"终态一致"的判据照样绿（只是晚一点）。
-      if (p.at <= tick) out.push(p.msg);
+      //
+      // ★ 种类不匹配时**留在队里**（走 else 分支）：它不是「没到」，是「还没轮到
+      //   它的消费者」。丢掉它等于让另一个消费者永远等不到。
+      if (p.at <= tick && (kinds === undefined || kinds.includes(p.msg.kind))) out.push(p.msg);
       else q[kept++] = p;
     }
     q.length = kept;
@@ -234,8 +260,8 @@ class LoopbackEnd implements Transport {
     return this.wire.enqueue(this.self, { ...msg, from: this.self } as NetMessage);
   }
 
-  receive(tick: number): readonly NetMessage[] {
-    return this.wire.drain(this.self, tick);
+  receive(tick: number, kinds?: readonly NetMessage["kind"][]): readonly NetMessage[] {
+    return this.wire.drain(this.self, tick, kinds);
   }
 
   stats(): TransportStats {

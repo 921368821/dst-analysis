@@ -24,7 +24,16 @@
 import { Component, FieldType, type ComponentSchema } from "../../core/scene/component.ts";
 import type { NodeId } from "../../core/scene/node.ts";
 import type { Scene } from "../../core/scene/scene.ts";
-import type { PeerId } from "./transport.ts";
+/**
+ * 座位号：这个实体归**几号玩家**。
+ *
+ * ★ 与 `PeerId`（端点号）**是两件事**，虽然都是数字：
+ *   - `PeerId` = 「这根线是几号口」，由传输决定，重连一次就换一个；
+ *   - `PlayerId` = 「你是几号玩家」，由主机的握手盖章（`net/join.ts`），掉线重连不变。
+ *   归属判据（`session.admit`）永远用后者。混用之后「重连后你还是你」会退化成
+ *   「重连后你拿到了同一个端口」—— 在真实传输里根本不成立，而所有判据照样绿。
+ */
+export type PlayerId = number;
 
 /** 组件类型。 */
 export const NET_IDENTITY_TYPE = "net.identity";
@@ -36,11 +45,11 @@ export const NET_IDENTITY_TYPE = "net.identity";
  *   与远程客户端走同一道校验）。NPC 归的是"权威"这个角色，不是"0 号对端" ——
  *   专用服里没有 0 号对端的玩家，混用会让这段代码在换宿主形态时全部失效。
  */
-export const AUTHORITY: PeerId = -1;
+export const AUTHORITY: PlayerId = -1;
 
 export class NetIdentity extends Component {
   /** 拥有者。`AUTHORITY` = 由权威侧驱动（AI / 脚本 / 主机本地）。 */
-  owner: PeerId = AUTHORITY;
+  owner: PlayerId = AUTHORITY;
 
   readonly schema: ComponentSchema = {
     type: NET_IDENTITY_TYPE,
@@ -64,7 +73,7 @@ export function registerNetIdentity(registry: {
 }
 
 /** 读归属。`null` = 节点不存在或没挂 `net.identity`（不参与联机）。 */
-export function ownerOf(scene: Scene, nodeId: NodeId): PeerId | null {
+export function ownerOf(scene: Scene, nodeId: NodeId): PlayerId | null {
   const id = scene.find(nodeId)?.get<NetIdentity>(NET_IDENTITY_TYPE);
   return id === undefined ? null : id.owner;
 }
@@ -76,18 +85,18 @@ export function ownerOf(scene: Scene, nodeId: NodeId): PeerId | null {
  * 角色守卫在 `session.assign`（那里知道谁是主机）。把它写在这里会让
  * "客户端偷偷改"变成一个需要猜测的问题，而不是一个可计数的拒绝。
  */
-export function assignOwner(scene: Scene, nodeId: NodeId, owner: PeerId): boolean {
+export function assignOwner(scene: Scene, nodeId: NodeId, owner: PlayerId): boolean {
   const id = scene.find(nodeId)?.get<NetIdentity>(NET_IDENTITY_TYPE);
   if (id === undefined) return false;
   id.owner = owner;
   return true;
 }
 
-/** 这个对端能驱动哪些实体（客户端用它决定"给谁发意图"）。按 id 升序，确定性。 */
-export function ownedBy(scene: Scene, peer: PeerId): NodeId[] {
+/** 这个**玩家**能驱动哪些实体（客户端用它决定"给谁发意图"）。按 id 升序，确定性。 */
+export function ownedBy(scene: Scene, player: PlayerId): NodeId[] {
   const out: NodeId[] = [];
   for (const c of scene.componentsOf<NetIdentity>(NET_IDENTITY_TYPE)) {
-    if (c.owner !== peer) continue;
+    if (c.owner !== player) continue;
     const node = c.node;
     if (node === null) continue;
     out.push(node.id);

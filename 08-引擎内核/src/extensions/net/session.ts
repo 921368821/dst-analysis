@@ -28,6 +28,18 @@
  *   这不是后门 —— 它过的是**同一道授权检查**（`owner === self`），所以"主机能驱动
  *   别人的角色"这件事不会因为它绕开网络而重新出现。
  *
+ * ★★ 归属比对用的是**座位号**，不是端点号（`playerOf`）
+ *
+ *   信封上的 `from` 是「这根线是几号口」，由传输盖章；`net.identity.owner` 里存的是
+ *   「这个实体归几号玩家」，由主机的加入握手盖章（`net/join.ts`）。两者今天在环回里
+ *   都是 0/1，所以最省事的写法是直接比 —— 而那样一来，「重连后你还是你」就变成了
+ *   「重连后你拿到了同一个端口」，在真实传输里根本不成立（每次连接都是新 handle），
+ *   且所有关于归属的判据照样全绿。`playerOf` 就是这个转换点，缺省恒等（单机 / 环回）。
+ *
+ *   映射返回 `null` 时给的是 `no-seat` 而不是 `not-owner`：这两句话对应完全不同的
+ *   行动（「这个连接没有座位」vs「这不是你的角色」），压成一个码之后，掉线之后还在
+ *   发的那串意图会看起来像有人在抢别人的角色。
+ *
  * ★ 快照用 `mode: "rollback"` 导出（见 `core/scene/component.ts`）：
  *   网络快照不是"新会话的存档"，而是"第 T 拍的世界"。两者对缓存的语义相反 ——
  *   存档里寻路路径是过期的，快照里它必须一致。用错模式不会报错，只会让客户端的
@@ -40,7 +52,7 @@ import type { Scene } from "../../core/scene/scene.ts";
 import { loadScene, saveScene, sceneFromJson, sceneToJson } from "../../core/scene/scene-io.ts";
 import { CONTROLLER_TYPE, PlayerController } from "../input/player-controller.ts";
 import { dirStep, type MoveIntent } from "../motion/intent.ts";
-import { AUTHORITY, NET_IDENTITY_TYPE, NetIdentity, assignOwner, ownedBy } from "./identity.ts";
+import { AUTHORITY, NET_IDENTITY_TYPE, NetIdentity, assignOwner, ownedBy, type PlayerId } from "./identity.ts";
 import type { IntentMessage, PeerId, SnapshotMessage, Transport } from "./transport.ts";
 
 export type NetRole = "host" | "client";
@@ -74,6 +86,13 @@ export const NetReject = {
   NotOwner: "not-owner",
   /** 不是 `game.controller` 实体：没有速度来源，驱动它只会得到"什么都没发生"。 */
   NoController: "no-controller",
+  /**
+   * 发送方当前没有座位（没握手 / 座位已超时被清 / 掉线中）。
+   *
+   * ★ 与 `NotOwner` 分开：前者是「这个连接不属于任何玩家」（握手层的事），
+   *   后者是「它属于某个玩家，但不是这条实体的主人」（玩法层的事）。
+   */
+  NoSeat: "no-seat",
   /** 目前只支持方向型意图（`move.cell` 要主机自己持有寻路状态，见文件头）。 */
   UnsupportedKind: "unsupported-kind",
 } as const;
@@ -100,6 +119,14 @@ export interface SessionOptions {
    *   恢复之后角色要花几百拍"补作业"，而玩家早就松手了。
    */
   readonly maxQueuedIntents?: number;
+  /**
+   * 端点号 → 座位号。缺省恒等（单机 / 环回）。
+   *
+   * ★ 由加入握手提供（`playerOf: room.playerOf` 主机侧、`() => joiner.playerId()`
+   *   客户端侧）。**两端的来源不同，但都必须来自握手** —— 任何一端自己编号，
+   *   归属就会在重连时分叉。返回 `null` = 这个端点现在没有座位。
+   */
+  readonly playerOf?: (peer: PeerId) => PlayerId | null;
   /**
    * 本地输入来源。主机 = 玩家输入，客户端 = 要发出去的意图。
    *
@@ -178,6 +205,7 @@ class Session implements NetSession {
   private readonly snapshotEvery: number;
   private readonly maxQueued: number;
   private readonly local: ((tick: number) => LocalCommand | null) | null;
+  private readonly playerOf: (peer: PeerId) => PlayerId | null;
 
   /** 待消化的方向意图，按实体分组。**插入序即到达序**（传输保序）。 */
   private readonly queues = new Map<NodeId, DirIntent[]>();
@@ -217,11 +245,13 @@ class Session implements NetSession {
     this.snapshotEvery = every;
     this.maxQueued = queued;
     this.local = opts.local ?? null;
+    this.playerOf = opts.playerOf ?? ((peer: PeerId): PlayerId => peer);
     this.rejected = {
       [NetReject.NoEntity]: 0,
       [NetReject.NoIdentity]: 0,
       [NetReject.NotOwner]: 0,
       [NetReject.NoController]: 0,
+      [NetReject.NoSeat]: 0,
       [NetReject.UnsupportedKind]: 0,
     };
   }
@@ -266,6 +296,9 @@ class Session implements NetSession {
   stats(): SessionStats {
     let queued = 0;
     for (const q of this.queues.values()) queued += q.length;
+    // ★ 没有座位时 `owned` 必须是 0，不能退化成「归 AUTHORITY 的都算我的」：
+    //   那样一个还没握手的客户端会以为自己拥有满场 AI。
+    const mine = this.playerOf(this.transport.self);
     return {
       role: this.role,
       localApplied: this.localApplied,
@@ -281,7 +314,7 @@ class Session implements NetSession {
       snapshotsApplied: this.snapshotsApplied,
       intentsSent: this.intentsSent,
       lastSnapshotTick: this.lastSnapshotTick,
-      owned: ownedBy(this.scene, this.transport.self).length,
+      owned: mine === null ? 0 : ownedBy(this.scene, mine).length,
       queued,
     };
   }
@@ -355,7 +388,11 @@ class Session implements NetSession {
     if (node === undefined) return { ok: false, reason: NetReject.NoEntity };
     const id = node.get<NetIdentity>(NET_IDENTITY_TYPE);
     if (id === undefined) return { ok: false, reason: NetReject.NoIdentity };
-    if (id.owner !== from) return { ok: false, reason: NetReject.NotOwner };
+    // ★ 先问「这个端点有没有座位」，再问「这个实体是不是他的」：顺序反了时，
+    //   一个已经掉线超时的连接会报成 not-owner —— 看起来像"有人在抢角色"。
+    const pid = this.playerOf(from);
+    if (pid === null) return { ok: false, reason: NetReject.NoSeat };
+    if (id.owner !== pid) return { ok: false, reason: NetReject.NotOwner };
     if (!isDirIntent(intent)) return { ok: false, reason: NetReject.UnsupportedKind };
     if (node.get<PlayerController>(CONTROLLER_TYPE) === undefined) {
       return { ok: false, reason: NetReject.NoController };
