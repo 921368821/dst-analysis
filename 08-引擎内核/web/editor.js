@@ -7181,13 +7181,16 @@ function createControllerModule(opts) {
       if (tick === lastTick) return;
       lastTick = tick;
       snapshot = opts.poll();
+      const drive = opts.drive !== false;
       let n = 0;
       for (const c of s.componentsOf(CONTROLLER_TYPE)) {
         const node = c.node;
         if (node === null) continue;
-        const step = stepOf(snapshot, c.speed, dt, map);
-        if (step.dx !== 0 || step.dz !== 0) {
-          node.setLocalPosition(node.localPosition.x + step.dx, node.localPosition.y + step.dz);
+        if (drive) {
+          const step = stepOf(snapshot, c.speed, dt, map);
+          if (step.dx !== 0 || step.dz !== 0) {
+            node.setLocalPosition(node.localPosition.x + step.dx, node.localPosition.y + step.dz);
+          }
         }
         n++;
       }

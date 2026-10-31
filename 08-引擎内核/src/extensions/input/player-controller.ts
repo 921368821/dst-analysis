@@ -98,6 +98,17 @@ export interface ControllerModuleOptions {
   /** 动作名 → 键位。缺省用 `DEFAULT_INPUT_MAP`（改键从"换一张表"开始，而不是改代码）。 */
   readonly map?: InputMap;
   readonly id?: string;
+  /**
+   * 这一层要不要**直接改位置**（缺省 `true`）。
+   *
+   * ★ 联机时必须是 `false`：位置要由会话走 `admit → dirStep → 预测` 那一条
+   *   （主机权威 + 客户端预测）。两边同时生效就是**每拍走两步** —— 而单机下
+   *   永远只有一个驱动者，所以"两步"这件事在任何单机判据里都看不见。
+   * ★ `false` 时 `snapshot` 照常每 tick 更新：会话的 `local` 回调读的正是它。
+   *   这就是为什么开关落在这里、而不是"联机时不建这个模块"—— 不建模块的话
+   *   输入根本没人 poll，而 `poll()` 会消费按下边缘，别处补 poll 会吞掉"刚按下"。
+   */
+  readonly drive?: boolean;
 }
 
 export interface ControllerModuleHandle extends IModule {
@@ -168,13 +179,19 @@ export function createControllerModule(opts: ControllerModuleOptions): Controlle
       if (tick === lastTick) return;
       lastTick = tick;
       snapshot = opts.poll();
+      // ★ `drive: false` 时**只 poll、不落位**（见 `ControllerModuleOptions.drive`）：
+      //   位置改由会话接管。计数照常走 —— 诊断要回答"这一拍有几个控制器被看过了"，
+      //   而不是"有几个被我推了"，后者在联机模式下恒为 0，看起来像模块没跑。
+      const drive = opts.drive !== false;
       let n = 0;
       for (const c of s.componentsOf<PlayerController>(CONTROLLER_TYPE)) {
         const node = c.node;
         if (node === null) continue;
-        const step = stepOf(snapshot, c.speed, dt, map);
-        if (step.dx !== 0 || step.dz !== 0) {
-          node.setLocalPosition(node.localPosition.x + step.dx, node.localPosition.y + step.dz);
+        if (drive) {
+          const step = stepOf(snapshot, c.speed, dt, map);
+          if (step.dx !== 0 || step.dz !== 0) {
+            node.setLocalPosition(node.localPosition.x + step.dx, node.localPosition.y + step.dz);
+          }
         }
         n++;
       }

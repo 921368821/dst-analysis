@@ -24226,13 +24226,16 @@ function createControllerModule(opts) {
       if (tick === lastTick) return;
       lastTick = tick;
       snapshot = opts.poll();
+      const drive = opts.drive !== false;
       let n = 0;
       for (const c of s.componentsOf(CONTROLLER_TYPE)) {
         const node = c.node;
         if (node === null) continue;
-        const step2 = stepOf(snapshot, c.speed, dt, map);
-        if (step2.dx !== 0 || step2.dz !== 0) {
-          node.setLocalPosition(node.localPosition.x + step2.dx, node.localPosition.y + step2.dz);
+        if (drive) {
+          const step2 = stepOf(snapshot, c.speed, dt, map);
+          if (step2.dx !== 0 || step2.dz !== 0) {
+            node.setLocalPosition(node.localPosition.x + step2.dx, node.localPosition.y + step2.dz);
+          }
         }
         n++;
       }
@@ -24509,6 +24512,1022 @@ function attachWorldVisuals(scene, availableFrames) {
     frames: [...used].sort(),
     skipped
   });
+}
+
+// src/extensions/net/delta.ts
+var DELTA_FORMAT_VERSION = 1;
+var NODE_FIELDS = [
+  "name",
+  "parent",
+  "x",
+  "y",
+  "rot",
+  "sx",
+  "sy",
+  "zIndex",
+  "active",
+  "layer"
+];
+function normalizeValue(v) {
+  if (typeof v === "number") return quantizeSave(v);
+  if (Array.isArray(v)) return v.map(normalizeValue);
+  if (v !== null && typeof v === "object") {
+    const src = v;
+    const out = {};
+    for (const k of Object.keys(src).sort()) {
+      const val = src[k];
+      if (val === void 0) continue;
+      out[k] = normalizeValue(val);
+    }
+    return out;
+  }
+  return v;
+}
+function normalizeRecord(n) {
+  const components = n.components.map((c) => ({ type: c.type, data: normalizeValue(c.data) })).sort((a, b) => a.type < b.type ? -1 : a.type > b.type ? 1 : 0);
+  return {
+    id: n.id,
+    name: n.name,
+    parent: n.parent,
+    x: quantizeSave(n.x),
+    y: quantizeSave(n.y),
+    rot: quantizeSave(n.rot),
+    sx: quantizeSave(n.sx),
+    sy: quantizeSave(n.sy),
+    zIndex: n.zIndex,
+    active: n.active,
+    layer: n.layer,
+    components
+  };
+}
+function normalizeSnapshot(snap) {
+  const nodes = snap.nodes.map(normalizeRecord).sort((a, b) => a.id - b.id);
+  return { format: snap.format, name: snap.name, nodes };
+}
+function snapshotOfScene(scene) {
+  return normalizeSnapshot(saveScene(scene, { mode: "rollback" }));
+}
+function sameJson(a, b) {
+  if (a === b) return true;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b)) return false;
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) if (!sameJson(a[i], b[i])) return false;
+    return true;
+  }
+  if (a !== null && b !== null && typeof a === "object" && typeof b === "object") {
+    const ra = a;
+    const rb = b;
+    const ka = Object.keys(ra);
+    if (ka.length !== Object.keys(rb).length) return false;
+    for (const k of ka) {
+      if (!Object.prototype.hasOwnProperty.call(rb, k)) return false;
+      if (!sameJson(ra[k], rb[k])) return false;
+    }
+    return true;
+  }
+  return false;
+}
+function patchOf(old, now) {
+  const fields = {};
+  let touched = false;
+  for (const k of NODE_FIELDS) {
+    if (!sameJson(old[k], now[k])) {
+      fields[k] = now[k];
+      touched = true;
+    }
+  }
+  const before = /* @__PURE__ */ new Map();
+  for (const c of old.components) before.set(c.type, c.data);
+  const components = [];
+  for (const c of now.components) {
+    const prev = before.get(c.type);
+    if (prev === void 0 || !sameJson(prev, c.data)) components.push(c);
+    before.delete(c.type);
+  }
+  const dropComponents = [...before.keys()].sort();
+  if (!touched && components.length === 0 && dropComponents.length === 0) return null;
+  const out = { id: now.id, fields };
+  const withComponents = components.length === 0 ? out : { ...out, components };
+  return dropComponents.length === 0 ? withComponents : { ...withComponents, dropComponents };
+}
+function diffSnapshot(prev, next) {
+  const old = /* @__PURE__ */ new Map();
+  for (const n of prev.nodes) old.set(n.id, n);
+  const added = [];
+  const patched = [];
+  for (const n of next.nodes) {
+    const before = old.get(n.id);
+    if (before === void 0) {
+      added.push(n);
+      continue;
+    }
+    old.delete(n.id);
+    const p = patchOf(before, n);
+    if (p !== null) patched.push(p);
+  }
+  const removed = [...old.keys()].sort((a, b) => a - b);
+  return { format: DELTA_FORMAT_VERSION, added, patched, removed };
+}
+function mergeNode(old, p) {
+  const drop = new Set(p.dropComponents ?? []);
+  const byType = /* @__PURE__ */ new Map();
+  for (const c of old.components) if (!drop.has(c.type)) byType.set(c.type, c);
+  for (const c of p.components ?? []) byType.set(c.type, c);
+  const components = [...byType.values()].sort((a, b) => a.type < b.type ? -1 : a.type > b.type ? 1 : 0);
+  return { ...old, ...p.fields, components };
+}
+function applyDelta(base, d) {
+  const byId = /* @__PURE__ */ new Map();
+  for (const n of base.nodes) byId.set(n.id, n);
+  let orphans = 0;
+  for (const id of d.removed) if (!byId.delete(id)) orphans++;
+  for (const n of d.added) {
+    if (byId.has(n.id)) orphans++;
+    byId.set(n.id, n);
+  }
+  for (const p of d.patched) {
+    const old = byId.get(p.id);
+    if (old === void 0) {
+      orphans++;
+      continue;
+    }
+    byId.set(p.id, mergeNode(old, p));
+  }
+  const nodes = [...byId.values()].sort((a, b) => a.id - b.id);
+  return { snap: { format: base.format, name: base.name, nodes }, orphans };
+}
+function deltaToJson(d) {
+  const patched = d.patched.map((p) => {
+    const o = { id: p.id, fields: p.fields };
+    if (p.components !== void 0) o.components = p.components;
+    if (p.dropComponents !== void 0) o.dropComponents = p.dropComponents;
+    return o;
+  });
+  return JSON.stringify({ format: d.format, added: d.added, patched, removed: d.removed });
+}
+function isRecord(v) {
+  return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+function isInt(v) {
+  return typeof v === "number" && Number.isInteger(v);
+}
+function validRecord(v) {
+  if (!isRecord(v)) return false;
+  if (!isInt(v.id) || typeof v.name !== "string") return false;
+  if (!(v.parent === null || isInt(v.parent))) return false;
+  for (const k of ["x", "y", "rot", "sx", "sy"]) {
+    if (typeof v[k] !== "number" || !Number.isFinite(v[k])) return false;
+  }
+  if (!isInt(v.zIndex) || typeof v.active !== "boolean" || !isInt(v.layer)) return false;
+  const comps = v.components;
+  if (!Array.isArray(comps)) return false;
+  for (const c of comps) {
+    if (!isRecord(c) || typeof c.type !== "string" || !isRecord(c.data)) return false;
+  }
+  return true;
+}
+function validPatch(v) {
+  if (!isRecord(v) || !isInt(v.id) || !isRecord(v.fields)) return false;
+  const fields = v.fields;
+  for (const k of Object.keys(fields)) {
+    if (!NODE_FIELDS.includes(k)) return false;
+  }
+  const comps = v.components;
+  if (comps !== void 0) {
+    if (!Array.isArray(comps)) return false;
+    for (const c of comps) {
+      if (!isRecord(c) || typeof c.type !== "string" || !isRecord(c.data)) return false;
+    }
+  }
+  const drop = v.dropComponents;
+  if (drop !== void 0) {
+    if (!Array.isArray(drop)) return false;
+    for (const t of drop) if (typeof t !== "string") return false;
+  }
+  return true;
+}
+function deltaFromJson(text) {
+  let raw;
+  try {
+    raw = JSON.parse(text);
+  } catch (e) {
+    return err(engineError("NET.DELTA_BAD", `\u589E\u91CF\u5FEB\u7167\u4E0D\u662F\u5408\u6CD5 JSON\uFF1A${e instanceof Error ? e.message : String(e)}`));
+  }
+  if (!isRecord(raw)) return err(engineError("NET.DELTA_BAD", "\u589E\u91CF\u5FEB\u7167\u4E0D\u662F\u5BF9\u8C61"));
+  if (!isInt(raw.format)) return err(engineError("NET.DELTA_BAD", "\u589E\u91CF\u5FEB\u7167\u7F3A\u5C11 format"));
+  if (raw.format > DELTA_FORMAT_VERSION) {
+    return err(
+      engineError("NET.DELTA_TOO_NEW", `\u589E\u91CF\u683C\u5F0F v${String(raw.format)} \u9AD8\u4E8E\u672C\u7AEF\u652F\u6301\u7684 v${String(DELTA_FORMAT_VERSION)}`)
+    );
+  }
+  if (raw.format !== DELTA_FORMAT_VERSION) {
+    return err(engineError("NET.DELTA_BAD", `\u589E\u91CF\u683C\u5F0F v${String(raw.format)} \u4E0D\u8BA4\u8BC6\uFF08\u53EA\u652F\u6301 v${String(DELTA_FORMAT_VERSION)}\uFF09`));
+  }
+  const added = raw.added;
+  const patched = raw.patched;
+  const removed = raw.removed;
+  if (!Array.isArray(added) || !Array.isArray(patched) || !Array.isArray(removed)) {
+    return err(engineError("NET.DELTA_BAD", "\u589E\u91CF\u5FEB\u7167\u7F3A\u5C11 added / patched / removed"));
+  }
+  const addOut = [];
+  for (const n of added) {
+    if (!validRecord(n)) return err(engineError("NET.DELTA_BAD", "added \u91CC\u6709\u4E00\u6761\u4E0D\u662F\u8282\u70B9\u8BB0\u5F55"));
+    addOut.push(n);
+  }
+  const patchOut = [];
+  for (const p of patched) {
+    if (!validPatch(p)) return err(engineError("NET.DELTA_BAD", "patched \u91CC\u6709\u4E00\u6761\u5F62\u72B6\u4E0D\u5BF9"));
+    patchOut.push(p);
+  }
+  const removedOut = [];
+  for (const id of removed) {
+    if (!isInt(id)) return err(engineError("NET.DELTA_BAD", "removed \u91CC\u6709\u4E00\u4E2A\u4E0D\u662F\u6574\u6570 id"));
+    removedOut.push(id);
+  }
+  return ok({ format: DELTA_FORMAT_VERSION, added: addOut, patched: patchOut, removed: removedOut });
+}
+
+// src/extensions/net/predict.ts
+var PredictorImpl = class {
+  maxPerEntity;
+  /** 待重放表。`Map` 的插入序就是发送序，重放也按这个序。 */
+  pending = /* @__PURE__ */ new Map();
+  /**
+   * 上一拍**玩家看到**的坐标。
+   *
+   * ★ 必须自己记一份：`reconcile` 跑在 `loadScene` 之后，那时节点里的预测值已经被
+   *   主机坐标覆盖了。"这次重放把玩家挪了多少"（= 可见的抖动）只能与装载**之前**
+   *   的那个数比，而那个数此刻只存在于这里。
+   */
+  shown = /* @__PURE__ */ new Map();
+  applied = 0;
+  replayed = 0;
+  dropped = 0;
+  resets = 0;
+  maxError = 0;
+  constructor(opts) {
+    const max = opts.maxPerEntity ?? 32;
+    if (!Number.isInteger(max) || max < 1) {
+      throw new RangeError(`maxPerEntity \u5FC5\u987B\u662F \u22651 \u7684\u6574\u6570\uFF0C\u6536\u5230 ${String(max)}`);
+    }
+    this.maxPerEntity = max;
+  }
+  predict(scene, entity, seq, intent, dt) {
+    const node = scene.find(entity);
+    const c = node?.get(CONTROLLER_TYPE);
+    if (node === void 0 || c === void 0) return false;
+    const r = dirStep(intent, c.speed, dt);
+    if (r.dx === 0 && r.dz === 0) return false;
+    node.setLocalPosition(node.localPosition.x + r.dx, node.localPosition.y + r.dz);
+    this.shown.set(entity, { x: node.localPosition.x, y: node.localPosition.y });
+    this.applied++;
+    let q2 = this.pending.get(entity);
+    if (q2 === void 0) {
+      q2 = [];
+      this.pending.set(entity, q2);
+    }
+    q2.push({ seq, intent, dt });
+    while (q2.length > this.maxPerEntity) {
+      q2.shift();
+      this.dropped++;
+    }
+    return true;
+  }
+  reconcile(scene, acks) {
+    const acked = /* @__PURE__ */ new Map();
+    for (const a of acks) acked.set(a.entity, a.seq);
+    if (this.pending.size === 0) return 0;
+    let replayed = 0;
+    for (const [entity, q2] of this.pending) {
+      const limit = acked.get(entity);
+      if (limit !== void 0) {
+        while (q2.length > 0) {
+          const head = q2[0];
+          if (head === void 0 || head.seq > limit) break;
+          q2.shift();
+        }
+      }
+      const node = scene.find(entity);
+      if (node === void 0) {
+        this.resets++;
+        this.pending.delete(entity);
+        this.shown.delete(entity);
+        continue;
+      }
+      if (q2.length === 0) {
+        this.pending.delete(entity);
+        this.shown.delete(entity);
+        continue;
+      }
+      const c = node.get(CONTROLLER_TYPE);
+      if (c === void 0) {
+        this.pending.delete(entity);
+        this.shown.delete(entity);
+        continue;
+      }
+      const before = node.localPosition;
+      let x = before.x;
+      let y = before.y;
+      for (const step2 of q2) {
+        const r = dirStep(step2.intent, c.speed, step2.dt);
+        x += r.dx;
+        y += r.dz;
+      }
+      const seen = this.shown.get(entity);
+      if (seen !== void 0) {
+        const err2 = planeLen(x - seen.x, y - seen.y);
+        if (err2 > this.maxError) this.maxError = err2;
+      }
+      node.setLocalPosition(x, y);
+      this.shown.set(entity, { x, y });
+      replayed += q2.length;
+    }
+    this.replayed += replayed;
+    return replayed;
+  }
+  stats() {
+    let pending = 0;
+    for (const q2 of this.pending.values()) pending += q2.length;
+    return {
+      applied: this.applied,
+      replayed: this.replayed,
+      dropped: this.dropped,
+      resets: this.resets,
+      pending,
+      maxError: this.maxError
+    };
+  }
+};
+function createPredictor(opts = {}) {
+  return new PredictorImpl(opts);
+}
+
+// src/extensions/net/identity.ts
+var NET_IDENTITY_TYPE = "net.identity";
+var AUTHORITY = -1;
+var NetIdentity = class extends Component {
+  /** 拥有者。`AUTHORITY` = 由权威侧驱动（AI / 脚本 / 主机本地）。 */
+  owner = AUTHORITY;
+  schema = {
+    type: NET_IDENTITY_TYPE,
+    fields: { owner: FieldType.Int },
+    defaults: { owner: AUTHORITY }
+  };
+};
+var SCHEMA2 = {
+  type: NET_IDENTITY_TYPE,
+  fields: { owner: FieldType.Int },
+  defaults: { owner: AUTHORITY }
+};
+function registerNetIdentity(registry) {
+  if (!registry.has(NET_IDENTITY_TYPE)) registry.register(SCHEMA2, () => new NetIdentity());
+}
+function ownerOf(scene, nodeId) {
+  const id = scene.find(nodeId)?.get(NET_IDENTITY_TYPE);
+  return id === void 0 ? null : id.owner;
+}
+function assignOwner(scene, nodeId, owner) {
+  const id = scene.find(nodeId)?.get(NET_IDENTITY_TYPE);
+  if (id === void 0) return false;
+  id.owner = owner;
+  return true;
+}
+function ownedBy(scene, player) {
+  const out = [];
+  for (const c of scene.componentsOf(NET_IDENTITY_TYPE)) {
+    if (c.owner !== player) continue;
+    const node = c.node;
+    if (node === null) continue;
+    out.push(node.id);
+  }
+  out.sort((a, b) => a - b);
+  return out;
+}
+
+// src/extensions/net/transport.ts
+var ResyncReason = {
+  /** 基线 seq 与增量的 `base` 不一致（中间丢了一份）。 */
+  Base: "base",
+  /** 增量本身读不回来（坏 JSON / 形状不对 / 版本更新）。 */
+  Bad: "bad",
+  /** 增量与基线严丝合缝地对不上（补丁指向不存在的节点）。 */
+  Orphan: "orphan"
+};
+
+// src/extensions/net/session.ts
+function isDirIntent(i) {
+  return i.kind === "move.dir";
+}
+var NetReject = {
+  /** 场景里没有这个节点（已被销毁，或客户端发错了 id）。 */
+  NoEntity: "no-entity",
+  /** 节点没挂 `net.identity` —— 它不参与联机，谈不上归属。 */
+  NoIdentity: "no-identity",
+  /** 发送方不是它的所有者（伪造 / 交接后仍在路上的旧意图）。 */
+  NotOwner: "not-owner",
+  /** 不是 `game.controller` 实体：没有速度来源，驱动它只会得到"什么都没发生"。 */
+  NoController: "no-controller",
+  /**
+   * 发送方当前没有座位（没握手 / 座位已超时被清 / 掉线中）。
+   *
+   * ★ 与 `NotOwner` 分开：前者是「这个连接不属于任何玩家」（握手层的事），
+   *   后者是「它属于某个玩家，但不是这条实体的主人」（玩法层的事）。
+   */
+  NoSeat: "no-seat",
+  /** 目前只支持方向型意图（`move.cell` 要主机自己持有寻路状态，见文件头）。 */
+  UnsupportedKind: "unsupported-kind"
+};
+var Session = class {
+  /** 角色是公开的：面板与判据要按角色解释同一份计数器。 */
+  role;
+  transport;
+  scene;
+  registry;
+  snapshotEvery;
+  keyframeEvery;
+  maxQueued;
+  local;
+  /** 装载成功之后的回调（宿主重指节点 id 用）。 */
+  onWorldLoaded;
+  playerOf;
+  /** 客户端：移动预测。`null` = 关掉了（`predict: false`）。 */
+  predictor;
+  /** 待消化的方向意图，按实体分组。**插入序即到达序**（传输保序）。 */
+  queues = /* @__PURE__ */ new Map();
+  /**
+   * 主机：每个实体**处理到**哪一条意图（发送方的 `seq`）。这就是收据的内容。
+   *
+   * ★ 三种结局都记：执行（`drainOnePerEntity`）、被拒（`onIntent`）、队列满被丢
+   *   （`shift` 那一下）。只记"执行"时，一条被拒的意图永远不会出现在收据里，
+   *   客户端于是把它重放一辈子 —— 症状是"这个角色一直在往一个方向挪"。
+   */
+  processed = /* @__PURE__ */ new Map();
+  /** 每个发送方最后看到的意图 seq。 */
+  intentSeq = /* @__PURE__ */ new Map();
+  outSeq = 0;
+  /** 客户端：见过的最大快照 `seq`（含**没能应用**的那份）。缺口与乱序都靠它。 */
+  seenSeq = -1;
+  /**
+   * 客户端：手上这份世界对应哪一份快照的 `seq`。
+   *
+   * ★ 与 `seenSeq` 分开：一份增量「收到了但没能应用」时，`seenSeq` 该前移
+   *   （否则下一份的缺口会被算成丢包），而基数**不能**前移（否则下一份增量会
+   *   合到一份不是它基线的世界上）。
+   */
+  baseSeq = -1;
+  /** 客户端：基数那份快照的内容（增量只在这个数据层上合成）。 */
+  baseSnap = null;
+  lastSnapshotTick = -1;
+  /** 主机：上一份**成功发出去**的内容（增量的基线）。`null` = 还没发过，下一份必须是全量。 */
+  sentSnap = null;
+  /** 主机：`sentSnap` 那份的 `seq`（增量里的 `base`）。 */
+  sentSeq = -1;
+  /** 主机：距离上一份全量发了几份。 */
+  sinceKeyframe = 0;
+  /** 主机：有客户端说对不上，下一份改全量。 */
+  forceFull = false;
+  /** 客户端：重同步请求自己的序号（**不与意图共用**，见文件头末尾）。 */
+  ctrlSeq = 0;
+  localApplied = 0;
+  remoteApplied = 0;
+  backlogDropped = 0;
+  intentGaps = 0;
+  snapshotGaps = 0;
+  staleSnapshots = 0;
+  badSnapshots = 0;
+  protocolViolations = 0;
+  snapshotsSent = 0;
+  keyframesSent = 0;
+  deltasSent = 0;
+  snapshotCharsSent = 0;
+  snapshotsApplied = 0;
+  keyframesApplied = 0;
+  deltasApplied = 0;
+  desyncs = 0;
+  resyncsSent = 0;
+  resyncsReceived = 0;
+  intentsSent = 0;
+  rejected;
+  constructor(opts) {
+    const every = opts.snapshotEveryTicks ?? 5;
+    if (!Number.isInteger(every) || every < 1) {
+      throw new RangeError(`snapshotEveryTicks \u5FC5\u987B\u662F \u22651 \u7684\u6574\u6570\uFF0C\u6536\u5230 ${String(every)}`);
+    }
+    const queued = opts.maxQueuedIntents ?? 3;
+    if (!Number.isInteger(queued) || queued < 1) {
+      throw new RangeError(`maxQueuedIntents \u5FC5\u987B\u662F \u22651 \u7684\u6574\u6570\uFF0C\u6536\u5230 ${String(queued)}`);
+    }
+    const keyframe = opts.keyframeEvery ?? 10;
+    if (!Number.isInteger(keyframe) || keyframe < 1) {
+      throw new RangeError(`keyframeEvery \u5FC5\u987B\u662F \u22651 \u7684\u6574\u6570\uFF081 = \u5173\u6389\u589E\u91CF\uFF09\uFF0C\u6536\u5230 ${String(keyframe)}`);
+    }
+    this.role = opts.role;
+    this.transport = opts.transport;
+    this.scene = opts.scene;
+    this.registry = opts.registry;
+    this.snapshotEvery = every;
+    this.keyframeEvery = keyframe;
+    this.maxQueued = queued;
+    this.local = opts.local ?? null;
+    this.onWorldLoaded = opts.onWorldLoaded ?? null;
+    this.playerOf = opts.playerOf ?? ((peer) => peer);
+    this.predictor = opts.role === "client" && opts.predict !== false ? createPredictor(opts.maxPredictSteps === void 0 ? {} : { maxPerEntity: opts.maxPredictSteps }) : null;
+    this.rejected = {
+      [NetReject.NoEntity]: 0,
+      [NetReject.NoIdentity]: 0,
+      [NetReject.NotOwner]: 0,
+      [NetReject.NoController]: 0,
+      [NetReject.NoSeat]: 0,
+      [NetReject.UnsupportedKind]: 0
+    };
+  }
+  step(tick, dt) {
+    for (const msg3 of this.transport.receive(tick)) {
+      if (this.role === "host") {
+        if (msg3.kind === "intent") this.onIntent(msg3);
+        else if (msg3.kind === "resync") this.onResync(msg3);
+        else this.protocolViolations++;
+      } else {
+        if (msg3.kind === "snapshot") this.onSnapshot(msg3, tick);
+        else if (msg3.kind === "snapshot-delta") this.onDelta(msg3, tick);
+        else this.protocolViolations++;
+      }
+    }
+    const cmd = this.local === null ? null : this.local(tick);
+    if (cmd !== null) {
+      if (this.role === "host") this.applyLocal(cmd, dt);
+      else this.sendIntent(cmd, tick, dt);
+    }
+    if (this.role !== "host") return;
+    this.drainOnePerEntity(dt);
+    if (tick % this.snapshotEvery === 0) this.broadcast(tick);
+  }
+  assign(nodeId, peer) {
+    if (this.role !== "host") {
+      this.protocolViolations++;
+      return false;
+    }
+    return assignOwner(this.scene, nodeId, peer);
+  }
+  requestKeyframe() {
+    if (this.role !== "host") {
+      this.protocolViolations++;
+      return;
+    }
+    this.forceFull = true;
+  }
+  stats() {
+    let queued = 0;
+    for (const q2 of this.queues.values()) queued += q2.length;
+    const p = this.predictor?.stats() ?? { applied: 0, replayed: 0, maxError: 0, dropped: 0, resets: 0 };
+    const mine = this.playerOf(this.transport.self);
+    return {
+      role: this.role,
+      localApplied: this.localApplied,
+      remoteApplied: this.remoteApplied,
+      rejected: { ...this.rejected },
+      backlogDropped: this.backlogDropped,
+      intentGaps: this.intentGaps,
+      snapshotGaps: this.snapshotGaps,
+      staleSnapshots: this.staleSnapshots,
+      badSnapshots: this.badSnapshots,
+      protocolViolations: this.protocolViolations,
+      snapshotsSent: this.snapshotsSent,
+      keyframesSent: this.keyframesSent,
+      deltasSent: this.deltasSent,
+      snapshotCharsSent: this.snapshotCharsSent,
+      snapshotsApplied: this.snapshotsApplied,
+      keyframesApplied: this.keyframesApplied,
+      deltasApplied: this.deltasApplied,
+      desyncs: this.desyncs,
+      resyncsSent: this.resyncsSent,
+      resyncsReceived: this.resyncsReceived,
+      intentsSent: this.intentsSent,
+      predicted: p.applied,
+      replayed: p.replayed,
+      predictError: p.maxError,
+      predictDropped: p.dropped,
+      predictResets: p.resets,
+      lastSnapshotTick: this.lastSnapshotTick,
+      owned: mine === null ? 0 : ownedBy(this.scene, mine).length,
+      queued
+    };
+  }
+  // ---------------------------------------------------------------- 收
+  onIntent(msg3) {
+    const prev = this.intentSeq.get(msg3.from);
+    if (prev !== void 0 && msg3.seq > prev + 1) this.intentGaps += msg3.seq - prev - 1;
+    if (prev === void 0 || msg3.seq > prev) this.intentSeq.set(msg3.from, msg3.seq);
+    const a = this.admit(msg3.from, msg3.entity, msg3.intent);
+    if (!a.ok) {
+      this.rejected[a.reason]++;
+      this.noteProcessed(msg3.entity, msg3.seq);
+      return;
+    }
+    let q2 = this.queues.get(msg3.entity);
+    if (q2 === void 0) {
+      q2 = [];
+      this.queues.set(msg3.entity, q2);
+    }
+    q2.push({ intent: a.intent, seq: msg3.seq });
+    while (q2.length > this.maxQueued) {
+      const gone = q2.shift();
+      if (gone !== void 0) this.noteProcessed(msg3.entity, gone.seq);
+      this.backlogDropped++;
+    }
+  }
+  /**
+   * 记一条「这个实体处理到第 `seq` 条了」。只前移，不回退。
+   *
+   * ★ 用 `>` 而不是直接赋值：收据是**单调**的语义，而事件到达能乱序。回退一次，
+   *   客户端会把已经确认的步重放一遍 —— 那是一种只在"某条意图晚到"时出现的
+   *   漂移，靠位置判据基本抓不到。
+   */
+  noteProcessed(entity, seq) {
+    const prev = this.processed.get(entity);
+    if (prev === void 0 || seq > prev) this.processed.set(entity, seq);
+  }
+  /** 收据：按实体升序（同一份世界同一份收据，逐字节可比）。 */
+  ackList() {
+    const out = [];
+    for (const [entity, seq] of this.processed) out.push({ entity, seq });
+    out.sort((a, b) => a.entity - b.entity);
+    return out;
+  }
+  /**
+   * 序号诊断（**只看收到过什么**，不看应用成功没成功）。
+   *
+   * ★ 两个计数器要分开，否则「收到但没应用」会被记成「丢了」：
+   *   `seenSeq` 管缺口与乱序，`baseSeq` 管「我这份世界是哪一份」。合成一个时，
+   *   一次坏增量会让下一份好增量的缺口凭空 +1 —— 而丢包本来是要能被数清的。
+   *
+   * 返回 `false` = 这份比手上看过的旧（乱序 / 重放），一律不应用。
+   */
+  noteSeq(seq) {
+    if (this.seenSeq >= 0) {
+      const missed = seq - this.seenSeq - 1;
+      if (missed > 0) this.snapshotGaps += missed;
+      if (seq <= this.seenSeq) {
+        this.staleSnapshots++;
+        return false;
+      }
+    }
+    this.seenSeq = seq;
+    return true;
+  }
+  onSnapshot(msg3, tick) {
+    if (!this.noteSeq(msg3.seq)) return;
+    const parsed = sceneFromJson(msg3.json);
+    if (!parsed.ok) {
+      this.badSnapshots++;
+      this.askFull(tick, ResyncReason.Bad);
+      return;
+    }
+    if (!this.commit(parsed.value)) {
+      this.badSnapshots++;
+      this.askFull(tick, ResyncReason.Bad);
+      return;
+    }
+    this.predictor?.reconcile(this.scene, msg3.acks ?? []);
+    this.baseSnap = parsed.value;
+    this.baseSeq = msg3.seq;
+    this.snapshotsApplied++;
+    this.keyframesApplied++;
+    this.lastSnapshotTick = msg3.tick;
+  }
+  /**
+   * 应用一份增量：**先合出一份完整快照，再整场替换**（见文件头 ③）。
+   *
+   * ★ 三条「不算数」的路径各自对应一种真实故障，而且都必须**要一份全量**：
+   *   · `base` 对不上 ⇒ 中间丢了一份（或者我刚从一份全量里恢复，而主机的基线更早）；
+   *   · 增量读不回来 ⇒ 包坏了 / 版本不同；
+   *   · 补丁指向基线里没有的节点 ⇒ 两边对「基线是什么」理解不同（最隐蔽的一类：
+   *     合出来的世界节点一个不少，只有某个字段是旧的）。
+   */
+  onDelta(msg3, tick) {
+    if (!this.noteSeq(msg3.seq)) return;
+    if (this.baseSnap === null || msg3.base !== this.baseSeq) {
+      this.desyncs++;
+      this.askFull(tick, ResyncReason.Base);
+      return;
+    }
+    const parsed = deltaFromJson(msg3.json);
+    if (!parsed.ok) {
+      this.badSnapshots++;
+      this.askFull(tick, ResyncReason.Bad);
+      return;
+    }
+    const applied = applyDelta(this.baseSnap, parsed.value);
+    if (applied.orphans > 0) {
+      this.desyncs++;
+      this.askFull(tick, ResyncReason.Orphan);
+      return;
+    }
+    if (!this.commit(applied.snap)) {
+      this.badSnapshots++;
+      this.askFull(tick, ResyncReason.Bad);
+      return;
+    }
+    this.predictor?.reconcile(this.scene, msg3.acks ?? []);
+    this.baseSnap = applied.snap;
+    this.baseSeq = msg3.seq;
+    this.snapshotsApplied++;
+    this.deltasApplied++;
+    this.lastSnapshotTick = msg3.tick;
+  }
+  /**
+   * 装载一份完整快照。返回 `false` = 没装成（世界保持原样）。
+   *
+   * ★ `loadScene` 唯一的失败路径是「格式比引擎新」，它在 `scene.clear()` **之前**
+   *   就返回了 —— 所以失败时世界没被动过。这一点不能靠「大概吧」：上面的
+   *   `baseSnap` 只有在装载成功之后才前移，靠的就是它。
+   */
+  commit(snap) {
+    if (!loadScene(this.scene, snap, this.registry).ok) return false;
+    this.onWorldLoaded?.();
+    return true;
+  }
+  /** 请主机给一份全量。**幂等**：多要一份只浪费一点带宽，所以不做去重与重试上限。 */
+  askFull(tick, reason) {
+    const msg3 = {
+      kind: "resync",
+      from: this.transport.self,
+      tick,
+      seq: this.ctrlSeq++,
+      reason
+    };
+    if (this.transport.send(msg3)) this.resyncsSent++;
+  }
+  /**
+   * 主机收到重同步请求：下一份广播改全量。
+   *
+   * ★ 不校验发送方有没有座位：会话层不认识座位表（那是 `net/join.ts` 的事），
+   *   而多给一份全量最多浪费带宽。在这里加一道「它有座位吗」的检查，会把
+   *   「掉线中的人请求恢复」判成攻击，而那种情况下他恰恰最需要一份。
+   */
+  onResync(msg3) {
+    this.resyncsReceived++;
+    this.forceFull = true;
+  }
+  // ---------------------------------------------------------------- 授权与执行
+  /**
+   * 一条意图能不能被执行。
+   *
+   * ★ 顺序有意义：先"实体在不在"（客户端发错 id 与交接后实体被销毁都会到这里），
+   *   再"归不归你"，最后才看"这种意图能不能驱动它"。反过来时，一个伪造的 id
+   *   会先被算成 `unsupported-kind` —— 于是"有人在冒充别人"这条证据就没了。
+   */
+  admit(from, entity, intent) {
+    const node = this.scene.find(entity);
+    if (node === void 0) return { ok: false, reason: NetReject.NoEntity };
+    const id = node.get(NET_IDENTITY_TYPE);
+    if (id === void 0) return { ok: false, reason: NetReject.NoIdentity };
+    const pid = this.playerOf(from);
+    if (pid === null) return { ok: false, reason: NetReject.NoSeat };
+    if (id.owner !== pid) return { ok: false, reason: NetReject.NotOwner };
+    if (!isDirIntent(intent)) return { ok: false, reason: NetReject.UnsupportedKind };
+    if (node.get(CONTROLLER_TYPE) === void 0) {
+      return { ok: false, reason: NetReject.NoController };
+    }
+    return { ok: true, intent };
+  }
+  applyLocal(cmd, dt) {
+    const a = this.admit(this.transport.self, cmd.entity, cmd.intent);
+    if (!a.ok) {
+      this.rejected[a.reason]++;
+      return;
+    }
+    this.move(cmd.entity, a.intent, dt);
+    this.localApplied++;
+  }
+  drainOnePerEntity(dt) {
+    for (const [entity, q2] of this.queues) {
+      if (q2.length === 0) continue;
+      const item = q2.shift();
+      if (item === void 0) continue;
+      this.noteProcessed(entity, item.seq);
+      this.move(entity, item.intent, dt);
+      this.remoteApplied++;
+    }
+  }
+  /**
+   * 真正改变世界的地方。
+   *
+   * ★ 只走 `dirStep`：网上的意图与本地玩家、AI 共用同一个位移实现（批147）。
+   *   这里如果自己再算一遍归一化，就出现了第二份"对角线速度"。
+   */
+  move(entity, intent, dt) {
+    const node = this.scene.find(entity);
+    if (node === void 0) return;
+    const c = node.get(CONTROLLER_TYPE);
+    if (c === void 0) return;
+    const r = dirStep(intent, c.speed, dt);
+    if (r.dx === 0 && r.dz === 0) return;
+    node.setLocalPosition(node.localPosition.x + r.dx, node.localPosition.y + r.dz);
+  }
+  // ---------------------------------------------------------------- 发
+  sendIntent(cmd, tick, dt) {
+    const msg3 = {
+      kind: "intent",
+      from: this.transport.self,
+      tick,
+      // ★ seq 在"准备发"时消耗，不管对面收不收得到 —— 否则丢包就不会留下缺口，
+      //   而这正是接收方唯一能发现丢包的证据。
+      seq: this.outSeq++,
+      entity: cmd.entity,
+      intent: cmd.intent
+    };
+    if (!this.transport.send(msg3)) {
+      return;
+    }
+    this.intentsSent++;
+    const p = this.predictor;
+    if (p === null) return;
+    const mine = this.playerOf(this.transport.self);
+    if (mine === null || ownerOf(this.scene, cmd.entity) !== mine) return;
+    p.predict(this.scene, cmd.entity, msg3.seq, cmd.intent, dt);
+  }
+  /**
+   * 广播：全量（关键帧）或增量。
+   *
+   * ★ `seq` 在**准备发**时消耗，不管对面收不收得到（与 `sendIntent` 同一条规矩）：
+   *   否则丢包就不会留下缺口，而缺口是接收方唯一能发现丢包的证据。
+   * ★ 但 `sentSnap` / `sentSeq` **只在传出去了之后**才前移：它们是「对面手上有什么」，
+   *   而不是「我算出了什么」。见文件头 ①。
+   */
+  broadcast(tick) {
+    const now = snapshotOfScene(this.scene);
+    const seq = this.outSeq++;
+    const base = this.sentSnap;
+    const keyframe = base === null || this.forceFull || this.sinceKeyframe + 1 >= this.keyframeEvery;
+    const json = keyframe ? sceneToJson(now) : deltaToJson(diffSnapshot(base, now));
+    const acks = this.ackList();
+    const msg3 = keyframe ? { kind: "snapshot", from: this.transport.self, tick, seq, json, acks } : { kind: "snapshot-delta", from: this.transport.self, tick, seq, base: this.sentSeq, json, acks };
+    if (!this.transport.send(msg3)) return;
+    this.snapshotsSent++;
+    this.snapshotCharsSent += json.length;
+    if (keyframe) {
+      this.keyframesSent++;
+      this.sinceKeyframe = 0;
+      this.forceFull = false;
+    } else {
+      this.deltasSent++;
+      this.sinceKeyframe++;
+    }
+    this.sentSnap = now;
+    this.sentSeq = seq;
+  }
+};
+function createSession(opts) {
+  return new Session(opts);
+}
+function attachSession(host, opts) {
+  const session = createSession({ ...opts, scene: host.scene, registry: host.components });
+  const off = host.scheduler.onStep((tick, dt) => {
+    session.step(tick, dt);
+  });
+  return { session, off };
+}
+
+// src/extensions/net/broadcast-transport.ts
+var KNOWN_KINDS = /* @__PURE__ */ new Set([
+  "intent",
+  "snapshot",
+  "snapshot-delta",
+  "resync",
+  "join",
+  "join-reply"
+]);
+function isNetMessage(v) {
+  if (typeof v !== "object" || v === null) return false;
+  const o = v;
+  return typeof o["kind"] === "string" && typeof o["tick"] === "number" && typeof o["seq"] === "number";
+}
+function createBroadcastTransport(opts) {
+  const { channel, self: self2 } = opts;
+  const inbox = [];
+  let now = 0;
+  let closed = false;
+  const counters = { sent: 0, received: 0, dropped: 0 };
+  let unknownKinds = 0;
+  let malformed = 0;
+  let sendAfterClose = 0;
+  channel.onmessage = (ev) => {
+    if (closed) return;
+    const data = ev.data;
+    if (!isNetMessage(data)) {
+      counters.dropped++;
+      malformed++;
+      return;
+    }
+    if (!KNOWN_KINDS.has(data.kind)) {
+      counters.dropped++;
+      unknownKinds++;
+      return;
+    }
+    inbox.push({ at: now, msg: data });
+    counters.received++;
+  };
+  const transport = {
+    self: self2,
+    send(msg3) {
+      if (closed) {
+        sendAfterClose++;
+        counters.dropped++;
+        return false;
+      }
+      try {
+        channel.postMessage(msg3);
+      } catch {
+        counters.dropped++;
+        return false;
+      }
+      counters.sent++;
+      return true;
+    },
+    receive(tick, kinds) {
+      if (tick > now) now = tick;
+      const out = [];
+      let kept = 0;
+      for (const a of inbox) {
+        if (a.at <= tick && (kinds === void 0 || kinds.includes(a.msg.kind))) out.push(a.msg);
+        else inbox[kept++] = a;
+      }
+      inbox.length = kept;
+      return out;
+    },
+    stats() {
+      return {
+        sent: counters.sent,
+        received: counters.received,
+        dropped: counters.dropped,
+        // 到了但还没被取走的：真实链路上它就是"在途"，与环回的 `queued` 同义。
+        queued: inbox.length
+      };
+    },
+    dispose() {
+      if (closed) return;
+      closed = true;
+      channel.onmessage = null;
+      inbox.length = 0;
+      try {
+        channel.close();
+      } catch {
+      }
+    },
+    get unknownKinds() {
+      return unknownKinds;
+    },
+    get malformed() {
+      return malformed;
+    },
+    get sendAfterClose() {
+      return sendAfterClose;
+    }
+  };
+  return transport;
+}
+
+// src/host/net-mode.ts
+var DEFAULT_ROOM = "engine08";
+var ROOM_RE = /^[A-Za-z0-9._-]{1,64}$/;
+function parseNetMode(param, roomParam, seatParam) {
+  const raw = (param ?? "").trim().toLowerCase();
+  const role = raw === "host" ? "host" : raw === "client" ? "client" : "off";
+  const why = role !== "off" ? `?net=${role}` : raw === "" || raw === "off" || raw === "0" ? "\u672A\u6307\u5B9A\uFF08\u5355\u673A\uFF09" : `\u4E0D\u8BA4\u8BC6\u7684\u503C\u300C${raw}\u300D\uFF0C\u9000\u56DE\u5355\u673A`;
+  if (role === "off") return { role, self: null, assumedSeat: null, room: "", why };
+  const self2 = role === "host" ? 0 : 1;
+  const want = (roomParam ?? "").trim();
+  const room = want === "" ? DEFAULT_ROOM : ROOM_RE.test(want) ? want : DEFAULT_ROOM;
+  let roomWhy = want !== "" && room !== want ? `\uFF08\u623F\u95F4\u540D\u300C${want}\u300D\u4E0D\u5408\u6CD5\uFF0C\u7528\u4E86 ${DEFAULT_ROOM}\uFF09` : "";
+  const seatWant = (seatParam ?? "").trim();
+  let assumedSeat = self2;
+  if (seatWant !== "") {
+    const n = /^\d{1,2}$/.test(seatWant) ? Number(seatWant) : Number.NaN;
+    if (Number.isInteger(n) && n >= 0 && n <= 31) assumedSeat = n;
+    else roomWhy += `\uFF08\u5EA7\u4F4D\u53F7\u300C${seatWant}\u300D\u4E0D\u5408\u6CD5\uFF0C\u7528\u4E86 ${String(self2)}\uFF09`;
+  }
+  return { role, self: self2, assumedSeat, room, why: why + roomWhy };
+}
+function localDriveOf(role) {
+  return role === "off" ? "controller" : "session";
+}
+function pickLocalEntity(scene, player) {
+  if (player === null) return null;
+  return ownedBy(scene, player)[0] ?? null;
+}
+function planNetWiring(mode) {
+  if (mode.role === "off" || mode.assumedSeat === null) {
+    return { mode, driveController: true, seat: null, playerOf: null };
+  }
+  const seat = mode.assumedSeat;
+  return {
+    mode,
+    driveController: localDriveOf(mode.role) === "controller",
+    seat,
+    playerOf: () => seat
+  };
 }
 
 // src/extensions/nav/nav-grid.ts
@@ -28852,6 +29871,8 @@ async function buildDemoGame(env) {
     { maxIterations: 3 }
   );
   let heroId = -1;
+  const netWiring = planNetWiring(parseNetMode(env.net ?? null, env.netRoom ?? null, env.netSeat ?? null));
+  let netSide = null;
   let lastHeroPos = null;
   let hudTick = 0;
   const baked = await bakeAtlasFromAssets(env, assetsUsed);
@@ -28873,7 +29894,9 @@ async function buildDemoGame(env) {
   });
   const scriptMod = env.scriptWasm === null ? null : createScriptModule({ callTimeoutMs: 16 });
   const controllerMod = createControllerModule({
-    poll: () => appRef === null ? EMPTY_INPUT : appRef.platform.input.poll()
+    poll: () => appRef === null ? EMPTY_INPUT : appRef.platform.input.poll(),
+    // ★ 联机时位置由会话接管（`admit → dirStep → 预测`）；两边同时生效就是每拍走两步。
+    drive: netWiring.driveController
   });
   const animMod = createAnimModule({ clips: HERO_CLIPS });
   const bakedUi = baked?.ui ?? null;
@@ -30038,6 +31061,41 @@ ${appR.error.message}
       void app.platform.audio.resume();
     }
   });
+  if (netWiring.mode.role !== "off" && netWiring.seat !== null && env.netChannel !== void 0 && env.netChannel !== null) {
+    const seat = netWiring.seat;
+    const channel = env.netChannel;
+    registerNetIdentity(app.components);
+    const heroNow = scene.find(heroId);
+    if (heroNow !== void 0 && heroNow.get(NET_IDENTITY_TYPE) === void 0) {
+      scene.attach(heroId, () => {
+        const ident = new NetIdentity();
+        ident.owner = seat;
+        return ident;
+      });
+      scene.flush();
+    }
+    const transport = createBroadcastTransport({ channel, self: netWiring.mode.self ?? 0 });
+    let loadedFromHost = false;
+    netSide = attachSession(app, {
+      role: netWiring.mode.role,
+      transport,
+      snapshotEveryTicks: 5,
+      ...netWiring.playerOf !== null ? { playerOf: netWiring.playerOf } : {},
+      local: () => {
+        if (netWiring.mode.role === "client" && !loadedFromHost) return null;
+        const entity = pickLocalEntity(scene, seat);
+        if (entity === null) return null;
+        const d = directionFromMap(controllerMod.map, controllerMod.snapshot);
+        if (d.dx === 0 && d.dz === 0) return null;
+        return { entity, intent: { kind: "move.dir", dx: d.dx, dz: d.dz } };
+      },
+      onWorldLoaded: () => {
+        loadedFromHost = true;
+        const id = pickLocalEntity(scene, seat);
+        if (id !== null) heroId = id;
+      }
+    });
+  }
   const runR = app.run();
   if (!runR.ok) {
     app.log.channel("host").error(`\u5E27\u5FAA\u73AF\u542F\u52A8\u5931\u8D25\uFF1A${runR.error.message}`);
@@ -30055,6 +31113,18 @@ ${appR.error.message}
     save: doSave,
     load: doLoad,
     heroId,
+    /**
+     * 联机状态（批163）。`null` = 单机。
+     *
+     * ★ 自检页要能读到它：`?net=` 是**页面参数**，而"参数生效了没有"在画面上
+     *   几乎看不出来（单机与主机模式都能走能打）。会话统计是唯一的硬证据。
+     */
+    net: () => netSide === null ? null : {
+      role: netWiring.mode.role,
+      why: netWiring.mode.why,
+      seat: netWiring.seat,
+      stats: netSide.session.stats()
+    },
     /** 打一下最近的敌人（自检页用：它要走**玩家这条真实路径**，见 `attackNearest`）。 */
     attack: () => attackNearest(),
     /**
@@ -30497,12 +31567,43 @@ ${appR.error.message}
 }
 
 // src/browser-entry.ts
+function openNetChannel(mode) {
+  if (mode.role === "off") return null;
+  if (typeof BroadcastChannel === "undefined") return null;
+  let bc;
+  try {
+    bc = new BroadcastChannel(mode.room);
+  } catch {
+    return null;
+  }
+  let handler = null;
+  bc.onmessage = (ev) => {
+    handler?.(ev);
+  };
+  return {
+    name: bc.name,
+    postMessage: (data) => {
+      bc.postMessage(data);
+    },
+    close: () => {
+      bc.close();
+    },
+    get onmessage() {
+      return handler;
+    },
+    set onmessage(h) {
+      handler = h;
+    }
+  };
+}
 var FX_LAYER_STYLE = "position:fixed;left:0;top:0;width:100%;height:100%;pointer-events:none;overflow:hidden;z-index:20;";
 var dmgStyle = (dead) => `position:absolute;left:0;top:0;font:700 14px/1 ui-monospace,monospace;color:${dead ? "#ffd54a" : "#ff6b5a"};text-shadow:0 1px 2px rgba(0,0,0,.55);pointer-events:none;will-change:transform,opacity;`;
 function escapeHtml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 async function main() {
+  const params = new URL(location.href).searchParams;
+  const netModeForEntry = parseNetMode(params.get("net"), params.get("room"), params.get("seat"));
   const canvas = document.getElementById("cv");
   const hud = document.getElementById("hud");
   const toastEl = document.getElementById("toast");
@@ -30644,7 +31745,13 @@ async function main() {
     scriptWasm,
     // 批156：`?tree=ai/hound_grudge` —— 全体生物换一棵决策树（不改代码、不用重建）。
     // ★ 空串/缺省都交给装配去归一（空串不是"换成一棵空树"，是"没指定"）。
-    aiTree: new URL(location.href).searchParams.get("tree"),
+    aiTree: params.get("tree"),
+    // 批163：`?net=host` / `?net=client`，可选 `&room=`（通道名）与 `&seat=`（座位号）。
+    // ★ 归一在 `host/net-mode.ts`（有判据）；这里只把原值与通道交给装配。
+    net: params.get("net"),
+    netRoom: params.get("room"),
+    netSeat: params.get("seat"),
+    netChannel: openNetChannel(netModeForEntry),
     surface,
     platformId: "web",
     platform: {

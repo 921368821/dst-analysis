@@ -37,6 +37,58 @@ import {
   type DemoHostEnv,
   type DemoSurface,
 } from "./host/demo-game.ts";
+import { parseNetMode } from "./host/net-mode.ts";
+import type { ChannelLike } from "./extensions/net/broadcast-transport.ts";
+
+/**
+ * 打开联机通道（批163）。返回 `null` = 这一端不联网。
+ *
+ * ★★ 为什么用 `BroadcastChannel` 而不是 WebSocket：这一批要回答的是「两个标签页
+ *   能不能一起玩」，不是「运营服怎么搭」。`BroadcastChannel` 是浏览器原生的同源广播，
+ *   两个标签页各开一个同名 channel 就行 —— 不用起进程、不用端口、不用证书。
+ *   代价写在脸上：**只在同一台机器、同一个浏览器进程内**成立。跨机器仍然要
+ *   Steamworks 或 WebSocket，而那一天的改动只发生在 `net/broadcast-transport.ts`。
+ *
+ * ★ 名字用 `parseNetMode` 归一之后的 `room`，不在这里自己拼：两处各算一次的话，
+ *   页面 A 用了缺省名、页面 B 用了原值（含空格），两个标签页就永远连不上，
+ *   而两边的日志都写着"通道名是 xxx"。
+ */
+function openNetChannel(mode: ReturnType<typeof parseNetMode>): ChannelLike | null {
+  if (mode.role === "off") return null;
+  // 小游戏 / 老浏览器没有这个全局：**显式不启用**，而不是假装开着（假装开着之后
+  // `send` 永远返回 false，表现就是"主机在广播、客户端一动不动"）。
+  if (typeof BroadcastChannel === "undefined") return null;
+  let bc: BroadcastChannel;
+  try {
+    bc = new BroadcastChannel(mode.room);
+  } catch {
+    return null;
+  }
+  // ★ 适配而不是「直接塞进去」：`BroadcastChannel.onmessage` 的类型是
+  //   `(this: BroadcastChannel, ev: MessageEvent) => any`，与 `ChannelLike` 的
+  //   `(ev: {data: unknown}) => void` 在参数上是**逆变**的 —— 直接赋值过不了 tsc，
+  //   而 `as unknown as ChannelLike` 会把"将来 BC 的签名变了"这件事变成运行时才发现。
+  //   一层 12 行的适配器把风险关在一个地方。
+  let handler: ((ev: { readonly data: unknown }) => void) | null = null;
+  bc.onmessage = (ev: MessageEvent): void => {
+    handler?.(ev);
+  };
+  return {
+    name: bc.name,
+    postMessage: (data: unknown): void => {
+      bc.postMessage(data);
+    },
+    close: (): void => {
+      bc.close();
+    },
+    get onmessage(): ((ev: { readonly data: unknown }) => void) | null {
+      return handler;
+    },
+    set onmessage(h: ((ev: { readonly data: unknown }) => void) | null) {
+      handler = h;
+    },
+  };
+}
 
 /** 浮字容器的样式。★ 必须 `fixed`：`getBoundingClientRect()` 给的是**视口**坐标。 */
 const FX_LAYER_STYLE =
@@ -59,6 +111,17 @@ function escapeHtml(s: string): string {
 }
 
 export async function main(): Promise<void> {
+  /**
+   * 页面参数（一次取出来）。
+   *
+   * ★ `URLSearchParams` 每次 `new URL(location.href)` 都要解析一遍 URL 字符串 ——
+   *   这里原来有两处各解析一次，加了联机参数之后会变成五处。**一处解析、多处读**
+   *   才能保证"同一个参数在不同地方读到的是同一个值"。
+   */
+  const params = new URL(location.href).searchParams;
+  /** 联机模式（归一在这里做一次，`env` 里传原值给装配再算一次 —— 纯函数，两次相同）。 */
+  const netModeForEntry = parseNetMode(params.get("net"), params.get("room"), params.get("seat"));
+
   const canvas = document.getElementById("cv") as HTMLCanvasElement | null;
   const hud = document.getElementById("hud");
   const toastEl = document.getElementById("toast");
@@ -230,7 +293,13 @@ export async function main(): Promise<void> {
     scriptWasm,
     // 批156：`?tree=ai/hound_grudge` —— 全体生物换一棵决策树（不改代码、不用重建）。
     // ★ 空串/缺省都交给装配去归一（空串不是"换成一棵空树"，是"没指定"）。
-    aiTree: new URL(location.href).searchParams.get("tree"),
+    aiTree: params.get("tree"),
+    // 批163：`?net=host` / `?net=client`，可选 `&room=`（通道名）与 `&seat=`（座位号）。
+    // ★ 归一在 `host/net-mode.ts`（有判据）；这里只把原值与通道交给装配。
+    net: params.get("net"),
+    netRoom: params.get("room"),
+    netSeat: params.get("seat"),
+    netChannel: openNetChannel(netModeForEntry),
     surface,
     platformId: "web",
     platform: {

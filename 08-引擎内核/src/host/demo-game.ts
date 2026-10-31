@@ -108,8 +108,13 @@ import { harvestAt } from "../extensions/worldgen/harvest.ts";
 import {
   PlayerController,
   createControllerModule,
+  directionFromMap,
   registerControllerComponent,
 } from "../extensions/input/player-controller.ts";
+import { attachSession, type NetSession } from "../extensions/net/session.ts";
+import { createBroadcastTransport, type ChannelLike } from "../extensions/net/broadcast-transport.ts";
+import { NET_IDENTITY_TYPE, NetIdentity, registerNetIdentity } from "../extensions/net/identity.ts";
+import { parseNetMode, planNetWiring, pickLocalEntity, type NetWiring } from "./net-mode.ts";
 import { NavGrid } from "../extensions/nav/nav-grid.ts";
 import { HEALTH_TYPE, Health, isDead, registerHealthComponent } from "../extensions/combat/health.ts";
 import { ATTACKER_TYPE, Attacker, registerAttackerComponent } from "../extensions/combat/attack.ts";
@@ -293,6 +298,25 @@ export interface DemoHostEnv {
    *   "哪一种是哪种"的第二张表，而那张表正是模板里已经有了的东西。
    */
   readonly aiTree?: string | null;
+  /**
+   * 联机（批163）：`?net=host` / `?net=client` 的**原值**（装配负责归一，见 `host/net-mode.ts`）。
+   *
+   * ★ 缺省 = 不联网，且这条路径**一行都不经过**联机代码（`planNetWiring` 返回
+   *   `driveController: true`、`playerOf: null`）。单机行为不许因为"加了联机"变一点点 ——
+   *   而这件事只能靠"缺省时不进那段 if"来保证，不能靠"那个 if 里的默认值写得对"。
+   */
+  readonly net?: string | null;
+  /** `?room=`（通道名）。两个窗口要填同一个。 */
+  readonly netRoom?: string | null;
+  /** `?seat=`（本端声称的座位号）。缺省 = 端点号：host 0 / client 1。 */
+  readonly netSeat?: string | null;
+  /**
+   * 通道本体。**由宿主给**：浏览器是 `BroadcastChannel`，判据是内存总线。
+   *
+   * ★ 装配不 `new BroadcastChannel(...)`：小游戏里没有这个全局，而判据里
+   *   真通道的投递时机取决于事件循环 —— "哪一拍看得到"就不能钉了。
+   */
+  readonly netChannel?: ChannelLike | null;
   /**
    * 平台创建参数（prefer / allow / backendOptions / strict）。
    *
@@ -896,6 +920,13 @@ export async function buildDemoGame(env: DemoHostEnv): Promise<DemoHandle> {
 
   let heroId = -1;
   /**
+   * 联机决策（批163）。**一处算完，后面只读** —— 见 `host/net-mode.ts` 的文件头：
+   * "该不该联网 / 我是谁 / 控制器要不要自己改位置"这三件事每一个错了都表现为画面正常。
+   */
+  const netWiring: NetWiring = planNetWiring(parseNetMode(env.net ?? null, env.netRoom ?? null, env.netSeat ?? null));
+  /** 联机句柄（`off` 时恒为 `null`）。自检页用它读会话统计。 */
+  let netSide: { readonly session: NetSession; readonly off: () => void } | null = null;
+  /**
    * 上一 tick 的玩家位置，用来算朝向（批112）。
    * ★ `null` = 还没有上一 tick（首帧）：此时**不**设朝向，用装配时的初始角度。
    *   把首帧的"从 (0,0) 到出生点"当成一段位移，会让玩家一进游戏就朝着
@@ -945,6 +976,8 @@ export async function buildDemoGame(env: DemoHostEnv): Promise<DemoHandle> {
   // ★ 模块不会被框架自动 update —— 由下面的 onStep 手动驱动（脚本模块也是这么做的）。
   const controllerMod = createControllerModule({
     poll: () => (appRef === null ? EMPTY_INPUT : appRef.platform.input.poll()),
+    // ★ 联机时位置由会话接管（`admit → dirStep → 预测`）；两边同时生效就是每拍走两步。
+    drive: netWiring.driveController,
   });
 
   // 批112：动画模块（每实体时钟 + 只读 clip 注册表）。
@@ -2863,6 +2896,60 @@ export async function buildDemoGame(env: DemoHostEnv): Promise<DemoHandle> {
     },
   });
 
+  // ---- 联机（批163）：`?net=host` / `?net=client`
+  //
+  // ★ 位置在 `app.run()` **之前**：会话挂在 `scheduler.onStep` 上，晚一步就会漏掉
+  //   启动那一拍 —— 而"漏一拍"在"终态一致"的判据里看不出来，只在"第 0 拍按了没反应"里看得出来。
+  // ★ `off` 时这一段整个不执行（`planNetWiring` 已经给出 `driveController: true` /
+  //   `playerOf: null`），单机路径**一行都不经过**联机代码。
+  if (netWiring.mode.role !== "off" && netWiring.seat !== null && env.netChannel !== undefined && env.netChannel !== null) {
+    const seat: number = netWiring.seat;
+    const channel: ChannelLike = env.netChannel;
+    // 客户端要能还原归属，注册表里必须**先有** net.identity：否则 `loadScene` 认不出
+    // 这个组件，世界装进来之后每个实体都是"没有归属"的，`admit` 一律 NoIdentity。
+    registerNetIdentity(app.components);
+    // 本机玩家的归属：联机模式下**这个**实体归本端座位。
+    // ★ 先判有没有，不能直接 attach：重复 attach 同类型组件会让"谁才是那份归属"多一个答案。
+    const heroNow = scene.find(heroId);
+    if (heroNow !== undefined && heroNow.get(NET_IDENTITY_TYPE) === undefined) {
+      scene.attach(heroId, () => {
+        const ident = new NetIdentity();
+        ident.owner = seat;
+        return ident;
+      });
+      scene.flush();
+    }
+
+    const transport = createBroadcastTransport({ channel, self: netWiring.mode.self ?? 0 });
+    // 客户端在第一份快照到达之前**不发意图**：那时它手里的实体是本机生成的副本，
+    // 而快照一到整个场景会被替换 —— 对着一份马上要消失的世界预测，收益是 0，
+    // 观感是"原地动几下然后瞬移"。
+    let loadedFromHost = false;
+    netSide = attachSession(app, {
+      role: netWiring.mode.role,
+      transport,
+      snapshotEveryTicks: 5,
+      ...(netWiring.playerOf !== null ? { playerOf: netWiring.playerOf } : {}),
+      local: () => {
+        if (netWiring.mode.role === "client" && !loadedFromHost) return null;
+        const entity = pickLocalEntity(scene, seat);
+        if (entity === null) return null;
+        // ★ 读的是 `controllerMod.snapshot`（这一拍已经 poll 过的那一份），不再 poll：
+        //   再 poll 会消费按下边缘，"刚按下"那一下就没了（M168 的另一种写法）。
+        const d = directionFromMap(controllerMod.map, controllerMod.snapshot);
+        if (d.dx === 0 && d.dz === 0) return null;
+        return { entity, intent: { kind: "move.dir" as const, dx: d.dx, dz: d.dz } };
+      },
+      onWorldLoaded: () => {
+        loadedFromHost = true;
+        // ★ 重指主角：`loadScene` 把客户端的节点全换掉了，`heroId` 现在指向一个不存在的
+        //   节点 —— 相机、HUD、背包全都静默失效（世界在动，但你在看别人）。
+        const id = pickLocalEntity(scene, seat);
+        if (id !== null) heroId = id;
+      },
+    });
+  }
+
   const runR = app.run();
   if (!runR.ok) {
     app.log.channel("host").error(`帧循环启动失败：${runR.error.message}`);
@@ -2883,6 +2970,21 @@ export async function buildDemoGame(env: DemoHostEnv): Promise<DemoHandle> {
     save: doSave,
     load: doLoad,
     heroId,
+    /**
+     * 联机状态（批163）。`null` = 单机。
+     *
+     * ★ 自检页要能读到它：`?net=` 是**页面参数**，而"参数生效了没有"在画面上
+     *   几乎看不出来（单机与主机模式都能走能打）。会话统计是唯一的硬证据。
+     */
+    net: () =>
+      netSide === null
+        ? null
+        : {
+            role: netWiring.mode.role,
+            why: netWiring.mode.why,
+            seat: netWiring.seat,
+            stats: netSide.session.stats(),
+          },
     /** 打一下最近的敌人（自检页用：它要走**玩家这条真实路径**，见 `attackNearest`）。 */
     attack: () => attackNearest(),
     /**

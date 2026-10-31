@@ -208,6 +208,21 @@ export interface SessionOptions {
    *   调用次数，而每拍问一次时，"没有输入"就是 `null`，不多不少。
    */
   readonly local?: (tick: number) => LocalCommand | null;
+  /**
+   * 世界被一份快照**整场替换之后**调用（客户端）。
+   *
+   * ★ 为什么需要它：`loadScene` 会把客户端场景里的节点全部换掉，于是宿主手里那些
+   *   **节点 id**（主角、相机跟随目标、选中对象）全部指向不存在的节点。
+   *   不重指的症状非常安静：世界在动（别的实体的位置每拍都在变），但相机钉在原地、
+   *   按键没反应 —— 看起来像"渲染坏了"或"输入坏了"，而两者都是好的。
+   *
+   * ★ 为什么放在 `commit` 里而不是"客户端自己每拍扫一遍"：每拍扫一遍要自己判断
+   *   "这一拍世界有没有被换掉"，而那个信息只有装载点知道（增量合成之后也会装载，
+   *   一拍都不会漏）。让宿主猜 = 迟早漏一次，而漏一次就是永久失焦。
+   *
+   * ★ 只在装载**成功**之后调（失败时世界没被动过，重指反而会把 id 改坏）。
+   */
+  readonly onWorldLoaded?: () => void;
 }
 
 export interface SessionStats {
@@ -340,6 +355,8 @@ class Session implements NetSession {
   private readonly keyframeEvery: number;
   private readonly maxQueued: number;
   private readonly local: ((tick: number) => LocalCommand | null) | null;
+  /** 装载成功之后的回调（宿主重指节点 id 用）。 */
+  private readonly onWorldLoaded: (() => void) | null;
   private readonly playerOf: (peer: PeerId) => PlayerId | null;
   /** 客户端：移动预测。`null` = 关掉了（`predict: false`）。 */
   private readonly predictor: Predictor | null;
@@ -425,6 +442,7 @@ class Session implements NetSession {
     this.keyframeEvery = keyframe;
     this.maxQueued = queued;
     this.local = opts.local ?? null;
+    this.onWorldLoaded = opts.onWorldLoaded ?? null;
     this.playerOf = opts.playerOf ?? ((peer: PeerId): PlayerId => peer);
     // ★ 只给客户端建：主机的本地输入是**权威本身**，没有"预测"这回事（它先落地，
     //   快照才发出去）。给主机也建一个，会让它每拍把位置加两遍，而所有关于主机的
@@ -682,7 +700,10 @@ class Session implements NetSession {
    *   `baseSnap` 只有在装载成功之后才前移，靠的就是它。
    */
   private commit(snap: SceneSnapshot): boolean {
-    return loadScene(this.scene, snap, this.registry).ok;
+    if (!loadScene(this.scene, snap, this.registry).ok) return false;
+    // 装载成功才通知宿主重指（见 `onWorldLoaded` 的注释：失败时世界没被动过）
+    this.onWorldLoaded?.();
+    return true;
   }
 
   /** 请主机给一份全量。**幂等**：多要一份只浪费一点带宽，所以不做去重与重试上限。 */

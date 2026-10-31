@@ -9849,6 +9849,227 @@ MUTANTS = [
         ],
         "test": "tests/core/math-plane-len.test.ts",
     },
+    {
+        "name": "M1038 ownedBy 按降序返回（`ownedBy(...)[0]` 拿到的就不是最小的那个，而这一幕只在多实体时出现）",
+        "file": "src/extensions/net/identity.ts",
+        "pairs": [
+            (
+                "  out.sort((a, b) => a - b);",
+                "  out.sort((a, b) => b - a);",
+            ),
+        ],
+        "test": "tests/extensions/net-identity.test.ts",
+    },
+    {
+        "name": "M1039 pickLocalEntity 取最后一个（本机玩家操控错角色 —— 单机下永远只有一个，测不出来）",
+        "file": "src/host/net-mode.ts",
+        "pairs": [
+            (
+                "  return ownedBy(scene, player)[0] ?? null;",
+                "  return ownedBy(scene, player).at(-1) ?? null;",
+            ),
+        ],
+        "test": "tests/host/net-mode.test.ts",
+    },
+    {
+        "name": "M1040 单机也用会话驱动（控制器不再改位置 ⇒ 单机下角色纹丝不动）",
+        "file": "src/host/net-mode.ts",
+        "pairs": [
+            (
+                "  return role === \"off\" ? \"controller\" : \"session\";",
+                "  return \"session\";",
+            ),
+        ],
+        "test": "tests/host/net-mode.test.ts",
+    },
+    {
+        "name": "M1041 联机也让控制器自己改位置（每拍走两步 —— 看起来像「跑得特别快」，也可能是敏捷属性）",
+        "file": "src/host/net-mode.ts",
+        "pairs": [
+            (
+                "    driveController: localDriveOf(mode.role) === \"controller\",",
+                "    driveController: true,",
+            ),
+        ],
+        "test": "tests/host/net-mode.test.ts",
+    },
+    {
+        "name": "M1042 座位号直接 Number 收下（`Number(\"1e3\")` 是 1000、`Number(\"-1\")` 是 -1，都让人以为填对了）",
+        "file": "src/host/net-mode.ts",
+        "pairs": [
+            (
+                "    const n = /^\\d{1,2}$/.test(seatWant) ? Number(seatWant) : Number.NaN;\n    if (Number.isInteger(n) && n >= 0 && n <= 31) assumedSeat = n;",
+                "    const n = Number(seatWant);\n    if (Number.isFinite(n)) assumedSeat = n;",
+            ),
+        ],
+        "test": "tests/host/net-mode.test.ts",
+    },
+    {
+        "name": "M1043 座位号不检查上界（32 号座位会写出一个世界生成永远不会给的座位）",
+        "file": "src/host/net-mode.ts",
+        "pairs": [
+            (
+                "    if (Number.isInteger(n) && n >= 0 && n <= 31) assumedSeat = n;",
+                "    if (Number.isInteger(n) && n >= 0) assumedSeat = n;",
+            ),
+        ],
+        "test": "tests/host/net-mode.test.ts",
+    },
+    {
+        "name": "M1044 参数不归一大小写（`?NET=HOST` 静默退回单机，而两端的日志都说一切正常）",
+        "file": "src/host/net-mode.ts",
+        "pairs": [
+            (
+                "  const raw = (param ?? \"\").trim().toLowerCase();",
+                "  const raw = (param ?? \"\").trim();",
+            ),
+        ],
+        "test": "tests/host/net-mode.test.ts",
+    },
+    {
+        "name": "M1045 房间名照单全收（URL 里一个错字就让两个窗口各自开一条通道，症状是「连不上」）",
+        "file": "src/host/net-mode.ts",
+        "pairs": [
+            (
+                "  const room = want === \"\" ? DEFAULT_ROOM : ROOM_RE.test(want) ? want : DEFAULT_ROOM;",
+                "  const room = want === \"\" ? DEFAULT_ROOM : want;",
+            ),
+        ],
+        "test": "tests/host/net-mode.test.ts",
+    },
+    {
+        "name": "M1046 回退理由里不写用户填的那个值（症状就是「我明明加了参数，怎么还是单机」）",
+        "file": "src/host/net-mode.ts",
+        "pairs": [
+            (
+                "        : `不认识的值「${raw}」，退回单机`;",
+                "        : \"未指定（单机）\";",
+            ),
+        ],
+        "test": "tests/host/net-mode.test.ts",
+    },
+    {
+        "name": "M1047 到达时刻用消息自带的 tick（等于假装它按时到了 —— 客户端会在收到快照的同一拍就用它）",
+        "file": "src/extensions/net/broadcast-transport.ts",
+        "pairs": [
+            (
+                "    inbox.push({ at: now, msg: data });",
+                "    inbox.push({ at: data.tick, msg: data });",
+            ),
+        ],
+        "test": "tests/extensions/net-broadcast.test.ts",
+    },
+    {
+        "name": "M1048 未知 kind 也进队（会话层按「未知种类」静默丢弃 ⇒ 版本不一致永远查不出来）",
+        "file": "src/extensions/net/broadcast-transport.ts",
+        "pairs": [
+            (
+                "    if (!KNOWN_KINDS.has(data.kind)) {",
+                "    if (false) {",
+            ),
+        ],
+        "test": "tests/extensions/net-broadcast.test.ts",
+    },
+    {
+        "name": "M1049 形状校验形同虚设（坏消息被算成「对面版本不同」⇒ 版本线索被无关广播淹掉）",
+        "file": "src/extensions/net/broadcast-transport.ts",
+        "pairs": [
+            (
+                "    if (!isNetMessage(data)) {",
+                "    if (false) {",
+            ),
+        ],
+        "test": "tests/extensions/net-broadcast.test.ts",
+    },
+    {
+        "name": "M1050 dispose 之后收到的还进队（关闭是「不再收」，不是「收着不取」）",
+        "file": "src/extensions/net/broadcast-transport.ts",
+        "pairs": [
+            (
+                "    if (closed) return;\n    const data = ev.data;",
+                "    const data = ev.data;",
+            ),
+        ],
+        "test": "tests/extensions/net-broadcast.test.ts",
+    },
+    {
+        "name": "M1051 关闭后发送不计数（面板上「发不出去」恒为 0，看起来像链路正常）",
+        "file": "src/extensions/net/broadcast-transport.ts",
+        "pairs": [
+            (
+                "        sendAfterClose++;\n        counters.dropped++;",
+                "        counters.dropped++;",
+            ),
+        ],
+        "test": "tests/extensions/net-broadcast.test.ts",
+    },
+    {
+        "name": "M1052 这一拍没取走的消息被丢掉（另一个消费者要的族会被顺手清空）",
+        "file": "src/extensions/net/broadcast-transport.ts",
+        "pairs": [
+            (
+                "        if (a.at <= tick && (kinds === undefined || kinds.includes(a.msg.kind))) out.push(a.msg);\n        else inbox[kept++] = a;",
+                "        if (a.at <= tick && (kinds === undefined || kinds.includes(a.msg.kind))) out.push(a.msg);",
+            ),
+        ],
+        "test": "tests/extensions/net-broadcast.test.ts",
+    },
+    {
+        "name": "M1053 queued 恒为 0（在途量与环回不可比 ⇒ 切链路时唯一想看的数没了）",
+        "file": "src/extensions/net/broadcast-transport.ts",
+        "pairs": [
+            (
+                "        queued: inbox.length,",
+                "        queued: 0,",
+            ),
+        ],
+        "test": "tests/extensions/net-broadcast.test.ts",
+    },
+    {
+        "name": "M1054 控制器无视 drive:false（联机下每拍走两步 —— 而单机下永远只有一个驱动者，看不见）",
+        "file": "src/extensions/input/player-controller.ts",
+        "pairs": [
+            (
+                "      const drive = opts.drive !== false;",
+                "      const drive = true;",
+            ),
+        ],
+        "test": "tests/extensions/player-controller.test.ts",
+    },
+    {
+        "name": "M1055 装载回调提前到装载**之前**（坏快照也会把宿主的 id 改坏）",
+        "file": "src/extensions/net/session.ts",
+        "pairs": [
+            (
+                "    if (!loadScene(this.scene, snap, this.registry).ok) return false;\n    // 装载成功才通知宿主重指（见 `onWorldLoaded` 的注释：失败时世界没被动过）\n    this.onWorldLoaded?.();",
+                "    this.onWorldLoaded?.();\n    if (!loadScene(this.scene, snap, this.registry).ok) return false;",
+            ),
+        ],
+        "test": "tests/extensions/net-world-loaded.test.ts",
+    },
+    {
+        "name": "M1056 装载成功后不回调（相机钉在已删除的节点上、按键没反应）",
+        "file": "src/extensions/net/session.ts",
+        "pairs": [
+            (
+                "    // 装载成功才通知宿主重指（见 `onWorldLoaded` 的注释：失败时世界没被动过）\n    this.onWorldLoaded?.();",
+                "    // 装载成功才通知宿主重指（见 `onWorldLoaded` 的注释：失败时世界没被动过）",
+            ),
+        ],
+        "test": "tests/extensions/net-world-loaded.test.ts",
+    },
+    {
+        "name": "M1057 入口不把 ?net= 传给装配（页面参数写着 client，游戏还是单机 —— 两种模式都能走能打，画面上分不开）",
+        # ★ 这条只能靠浏览器探针抓：`parseNetMode` 与 `planNetWiring` 各自全绿，
+        #   坏的只是 browser-entry 到 demo-game 之间的那一根线（同一形状的问题在 C20 上出过一次：
+        #   wx 入口装上了却没接进 main，Node 侧一片绿）。
+        # 用 `--build`：不重建的话页面读的还是旧 bundle，会得到"没被抓住"的假结论。
+        "file": "src/browser-entry.ts",
+        "pairs": [("    net: params.get(\"net\"),", "    net: null,")],
+        "cmd": ["node", "tools/browser-selftest.mjs", "--build"],
+        "env_exit": 2,
+    },
+
 ]
 
 def run(m: dict) -> tuple[int, str]:

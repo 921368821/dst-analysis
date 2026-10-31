@@ -159,4 +159,41 @@ test("没有控制器的场景：不 poll、不崩（driven = 0）", () => {
   assert.equal(polls, 1, "没玩家时也该 poll 一次（否则「按了没反应」时无法区分是没输入还是没实体）");
 });
 
+// ── ④ `drive: false`：只 poll、不落位 ───────────────────────
+//
+// ★ 这一条为什么必须写：`planNetWiring` 给出 `driveController: false` 是一个**标志位**，
+//   而"标志位对了、效果没发生"是最隐蔽的假绿 —— 只测 `planNetWiring` 的话，
+//   把 `opts.drive !== false` 改成 `true`（或者把整个 `if (drive)` 拆掉）判据照样全绿，
+//   症状是联机下每拍走两步（而单机下永远只有一个驱动者，看不见）。
+// ★ 两个观测量必须同时读：该变的变了（poll 与 snapshot）∧ 不该变的没变（位置）。
+
+test("★★ drive:false —— 位置一点不动，但 poll 照跑、snapshot 照更新、driven 照数", () => {
+  const { scene } = makeScene();
+  const id = addPlayer(scene, "p1", 4);
+  let polls = 0;
+  const mod = createControllerModule({ drive: false, poll: () => (polls++, snap(["KeyD"])) });
+  mod.init(ctx(scene));
+  mod.update(1, 0.5);
+
+  const p = scene.find(id)!;
+  assert.equal(
+    p.localPosition.x,
+    0,
+    `drive:false 时位置被改了 ${String(p.localPosition.x)} —— 联机下会话再怎么预测都是每拍走两步`,
+  );
+  assert.equal(polls, 1, "drive:false 也要 poll —— 不 poll 的话会话的 local 回调读到的永远是空输入");
+  assert.ok(mod.snapshot.keysDown.has("KeyD"), "snapshot 没更新 —— 会话读到的输入会是「什么都没按」");
+  assert.equal(mod.driven, 1, "driven 要照常计数 —— 联机下恒 0 看起来像「控制器模块没跑」");
+});
+
+test("★ drive 写成显式 true 时与缺省一致（单机那条路一个字节都没改）", () => {
+  const { scene } = makeScene();
+  const id = addPlayer(scene, "p1", 4);
+  const mod = createControllerModule({ drive: true, poll: () => snap(["KeyD"]) });
+  mod.init(ctx(scene));
+  mod.update(1, 0.5);
+  const p = scene.find(id)!;
+  assert.ok(Math.abs(p.localPosition.x - 2) < 1e-9, `位移 ${String(p.localPosition.x)} ≠ 2（speed 4 × dt 0.5）`);
+});
+
 void CONTROLLER_TYPE;

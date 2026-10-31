@@ -147,6 +147,89 @@ async function probeAssetSource(browser, url) {
  *   （958×1 = 958），跟「根本没乘像素比」分不开 —— 覆盖没生效就必须报红，
  *   否则这一格是「永远绿」，而它守的正是「桌面全绿、手机才露」的那条缝。
  */
+/**
+ * 联机接线探针（批163）：`?net=` 是**页面参数**，而它生效了没有在画面上几乎看不出来 ——
+ * 单机、主机、客户端三种模式都能走能打。唯一能分开的观测量是宿主自报的 `net()`。
+ *
+ * ★ 为什么不能只靠 Node 判据：`parseNetMode` / `planNetWiring` 那 13 条全绿，也说明不了
+ *   「`browser-entry` 把 `?net=` 传进 `env`、`demo-game` 照着它建了会话」—— 中间少接一根线时，
+ *   两头都测得到、中间空着。这与 C20（批128 之前的 wx 入口「装上了但没接进 main」）同一条缝。
+ * ★ 只读四个字段，每个都对应一种具体的坏法：
+ *   `role` 错了 ⇒ 参数没接到装配上；`seat` 错了 ⇒ 座位号与端点号被合并；
+ *   `why` 是"参数认不认得"的人话（静默回退的症状是「我明明加了参数」）；
+ *   `stats` 说明会话对象**真的**建了（不是只算了个标志位）。
+ */
+const NET_PROBE_EXPR =
+  "(() => {" +
+  " const e = globalThis.__engine;" +
+  " if (!e || typeof e.net !== 'function') return null;" +
+  " const n = e.net();" +
+  " if (n === null) return { role: null };" +
+  " return { role: n.role, seat: n.seat, why: n.why, stats: n.stats };" +
+  "})()";
+
+/** 开一个页面、等 `__engine` 挂上（启动末尾），读一次联机状态。读不到返回 `null`。 */
+async function probeNetState(browser, url) {
+  const profile = mkdtempSync(join(tmpdir(), "engine-net-"));
+  let child;
+  let client;
+  try {
+    const page = await openPage(browser, url, profile, "selftest.html");
+    child = page.child;
+    client = page.client;
+    const deadline = Date.now() + 30_000;
+    while (Date.now() < deadline) {
+      let v;
+      try {
+        const r = await client.send("Runtime.evaluate", { expression: NET_PROBE_EXPR, returnByValue: true });
+        v = r?.result?.value;
+      } catch {
+        v = undefined; // 执行上下文还没建起来
+      }
+      // ★ 只认"拿到了一个对象"：`__engine` 挂上之前读到的是 undefined，
+      //   它与"参数没生效"（`net()` 返回 null ⇒ `{role:null}`）必须分得开 ——
+      //   混在一起的话，"页面根本没起来"会被判成"参数没接上"。
+      if (v !== undefined && v !== null) return v;
+      await sleep(250);
+    }
+    return null;
+  } finally {
+    client?.close();
+    if (child !== undefined) killTree(child);
+    try {
+      rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 60 });
+    } catch {
+      /* 留给系统临时目录清理 */
+    }
+  }
+}
+
+/**
+ * 判一次联机探针。
+ *
+ * ★ `want === null` 那一格不是凑数：**加了联机之后单机必须还是单机**。
+ *   它一旦坏了，症状是"打开首页就在等一个不存在的房间"，而首页在所有 Node 判据里都是绿的。
+ */
+function judgeNetState({ label, want, got }) {
+  if (got === null) return [`${label}：30 秒内读不到 __engine.net —— 页面没起来，这一轮没验到`];
+  if (want === null) {
+    if (got.role === null) return [];
+    return [`${label}：没带参数时 net() 应当是 null（单机、联机代码一行都不经过），实际 role=${String(got.role)}`];
+  }
+  if (got.role === null) {
+    return [`${label}：参数带上了，但 net() 是 null —— 这个参数没接到装配上（症状与"参数写错"一模一样）`];
+  }
+  const problems = [];
+  if (got.role !== want) problems.push(`${label}：role=${String(got.role)}（期望 ${want}）`);
+  if (typeof got.seat !== "number") problems.push(`${label}：seat=${String(got.seat)}（期望一个数字）`);
+  else if (want === "client" && got.seat !== 1) problems.push(`${label}：seat=${String(got.seat)}（客户端缺省座位号是 1）`);
+  if (typeof got.why !== "string" || !got.why.includes(`net=${want}`)) {
+    problems.push(`${label}：why=「${String(got.why)}」里没有 net=${want} —— 理由要能被人看懂`);
+  }
+  if (typeof got.stats !== "object" || got.stats === null) problems.push(`${label}：没有会话统计（会话对象没建出来）`);
+  return problems;
+}
+
 async function probeDprBackingStore(browser, url) {
   const profile = mkdtempSync(join(tmpdir(), "engine-dpr-"));
   let child;
@@ -396,6 +479,32 @@ async function main() {
     console.log(
       `· dpr=2 画布：CSS ${String(dprGot.cw)}×${String(dprGot.ch)} → 物理 ${String(dprGot.w)}×${String(dprGot.h)}（×${String(dprGot.dpr)}）`,
     );
+
+
+    // ---- 联机接线探针（批163）：`?net=` 从 URL 一路到「会话对象建出来了没有」
+    const netCases = [
+      { label: "不带 ?net=", query: "", want: null },
+      { label: "?net=client", query: "net=client&room=selftest163", want: "client" },
+    ];
+    const netProblems = [];
+    for (const c of netCases) {
+      const base = `${srv.origin}/selftest.html`;
+      const got = await probeNetState(browser, c.query === "" ? base : `${base}?${c.query}`);
+      const msgs = judgeNetState({ label: c.label, want: c.want, got });
+      if (msgs.length === 0) {
+        console.log(
+          got.role === null
+            ? `· 联机 ${c.label}：net() = null（单机，联机代码一行都不经过）`
+            : `· 联机 ${c.label}：role=${String(got.role)} seat=${String(got.seat)}（会话已建）`,
+        );
+      }
+      netProblems.push(...msgs);
+    }
+    if (netProblems.length > 0) {
+      console.error("✗ 联机接线探针失败（`?net=` 这条路径）：");
+      for (const m of netProblems) console.error(`  · ${m}`);
+      process.exit(EXIT_FAIL);
+    }
 
     console.log("✓ 浏览器端自检全部通过");
     process.exit(EXIT_PASS);
