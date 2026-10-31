@@ -8168,8 +8168,8 @@ MUTANTS = [
         "name": "M888 到达边界写成 `<` ⇒ 0 延迟的环回永远慢一拍（所有『终态一致』的判据照绿）",
         "file": "src/extensions/net/transport.ts",
         "pairs": [(
-            "      if (p.at <= tick) out.push(p.msg);",
-            "      if (p.at < tick) out.push(p.msg);",
+            "      if (p.at <= tick && (kinds === undefined",
+            "      if (p.at < tick && (kinds === undefined",
         )],
         "test": "tests/extensions/net-transport.test.ts",
     },
@@ -8374,8 +8374,8 @@ MUTANTS = [
         "name": "M902 归属校验失效 ⇒ 任何客户端都能驱动别人的角色（世界照样一致，动的人不对）",
         "file": "src/extensions/net/session.ts",
         "pairs": [(
-            "if (id.owner !== from) return { ok: false, reason: NetReject.NotOwner };",
-            "if (id.owner !== from && false) return { ok: false, reason: NetReject.NotOwner };",
+            "if (id.owner !== pid) return { ok: false, reason: NetReject.NotOwner };",
+            "if (id.owner !== pid && false) return { ok: false, reason: NetReject.NotOwner };",
         )],
         "test": "tests/extensions/net-session.test.ts",
     },
