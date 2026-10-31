@@ -572,3 +572,81 @@ export function pickSpawn(plan: WorldPlan): Result<SpawnPoint, EngineError> {
     clearance: bestDist,
   });
 }
+
+/** 找不到第二个玩家的落脚点（可行走区已经站满了 / 起点本身不可通行）。 */
+export const WORLD_NO_JOIN_CELL = "WORLD.NO_JOIN_CELL";
+
+export interface JoinCellOptions {
+  /** 已经站了人的格子（不与他们重叠）。 */
+  readonly taken?: readonly number[];
+  /** 额外的"能不能站"判定（宿主传导航：树是摆在格中心的，只看地形会让新玩家生在树里）。 */
+  readonly free?: (cell: number) => boolean;
+}
+
+/**
+ * 给**后来加入的玩家**挑一格：离 `from` 最近、没人站、能站的格子。
+ *
+ * ★★ 为什么不是"`pickSpawn` 再算一次"
+ *
+ *   两个人开局站在同一格上，物理会把其中一个推开 —— 而"被推开"这件事在两端
+ *   算出来不一定一样（推力取决于体与体的先后），于是两台机器的世界从第 0 拍就分叉。
+ *   更要紧的是：**客户端看到的自己**（快照里那份）与**主机看到的他**必须是同一处，
+ *   而重叠会掩盖这一条（两个人叠在一起，谁的位移都说得通）。
+ *
+ * ★ 规则（全部写死，因为"同种子同世界"要求它确定）：
+ *   ① 从 `from` 出发做**四连通** BFS，只走可通行格（于是结果必然在同一块陆地上）；
+ *   ② 取 BFS 距离**最小**的那一格 —— "最近"是玩家能感知的性质（进房就看到队友在旁边）；
+ *   ③ 平局取**格子下标最小**的那个。
+ *
+ * ★ 与 `pickSpawn` 的差别只有目标函数：那里要"最宽敞"（离边界最远），这里要"最近"。
+ *   两者的搜索骨架是同一种东西，但没有抽成公共函数 —— 抽出来要传四五个开关，
+ *   读起来比两段各 30 行的 BFS 更绕，而这两段都不会再变。
+ *
+ * 返回 `null` = 没地方站（调用方必须把它当成**真实的失败**报出来：
+ * 一张把人放进海里的世界，看起来与"客户端没连上"一模一样）。
+ */
+export function pickJoinCell(plan: WorldPlan, from: number, opts: JoinCellOptions = {}): number | null {
+  const { width, height, kinds } = plan;
+  const total = width * height;
+  if (!Number.isInteger(from) || from < 0 || from >= total) return null;
+  // 起点不可通行 ⇒ 没有"附近"可言。不是空图的问题，是调用方给了错的起点
+  // （比如主机自己被传送到了海里），这种情形要返回 null 让它显形。
+  if (!isPassable(kinds[from]!)) return null;
+
+  const taken = new Set(opts.taken ?? []);
+  const free = opts.free;
+
+  const dist = new Int32Array(total).fill(-1);
+  dist[from] = 0;
+  const queue: number[] = [from];
+  for (let head = 0; head < queue.length; head++) {
+    const cur = queue[head]!;
+    const cx = cur % width;
+    const cz = (cur - cx) / width;
+    const d = dist[cur]!;
+    for (const [ox, oz] of NEIGHBORS) {
+      const nx = cx + ox;
+      const nz = cz + oz;
+      if (nx < 0 || nz < 0 || nx >= width || nz >= height) continue;
+      const ni = nz * width + nx;
+      if (dist[ni] !== -1) continue;
+      if (!isPassable(kinds[ni]!)) continue;
+      dist[ni] = d + 1;
+      queue.push(ni);
+    }
+  }
+
+  // 平局取下标最小：按 index 升序扫、只有**严格更近**才更新（与 `pickSpawn` 同一条规矩）。
+  let best = -1;
+  let bestDist = Number.POSITIVE_INFINITY;
+  for (let i = 0; i < total; i++) {
+    const d = dist[i]!;
+    // `d <= 0`：-1 是不可达，0 是起点自己（他要站的地方不是这里面的问题）
+    if (d <= 0 || d >= bestDist) continue;
+    if (taken.has(i)) continue;
+    if (free !== undefined && !free(i)) continue;
+    bestDist = d;
+    best = i;
+  }
+  return best < 0 ? null : best;
+}

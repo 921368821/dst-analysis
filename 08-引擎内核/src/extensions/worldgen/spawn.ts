@@ -29,7 +29,7 @@ import type { Scene } from "../../core/scene/scene.ts";
 import { engineError, err, ok, type EngineError, type Result } from "../../foundation/result.ts";
 import { SPRITE_TYPE, Sprite } from "../render/sprite.ts";
 import { CONTROLLER_TYPE, PlayerController, registerControllerComponent } from "../input/player-controller.ts";
-import { FIXED_UNITS, pickSpawn, type WorldPlan } from "./worldgen.ts";
+import { FIXED_UNITS, isPassable, pickSpawn, type WorldPlan } from "./worldgen.ts";
 
 /** 场景里代表"玩家"的标记组件。 */
 export const PLAYER_TYPE = "world.player";
@@ -41,6 +41,16 @@ export const SPAWN_NO_SPRITE_COMPONENT = "SPAWN.NO_SPRITE_COMPONENT";
 export const SPAWN_NO_CONTROLLER_COMPONENT = "SPAWN.NO_CONTROLLER_COMPONENT";
 /** 场景里已经有玩家了。 */
 export const SPAWN_ALREADY_SPAWNED = "SPAWN.ALREADY_SPAWNED";
+/** 指定的格子在地图外。 */
+export const SPAWN_CELL_OUT_OF_RANGE = "SPAWN.CELL_OUT_OF_RANGE";
+/**
+ * 指定的格子不可通行。
+ *
+ * ★ 为什么是硬错误：把人放进海里/悬崖里，他会站在虚空上，而且**看起来完全正常**
+ *   （画面有他、输入能动、存档也对）——直到某天寻路把他当成"走不到的队友"。
+ *   判定必须在造节点**之前**，否则报错的同时还留下了一个玩家节点。
+ */
+export const SPAWN_CELL_NOT_PASSABLE = "SPAWN.CELL_NOT_PASSABLE";
 
 export const PLAYER_SCHEMA: ComponentSchema = {
   type: PLAYER_TYPE,
@@ -79,8 +89,45 @@ export interface PlayerHandle {
  *
  * 调用方要保证 `registerWorldComponents` / `registerPlayerComponents` /
  * `render.sprite` 都注册过 —— 缺一就报错，不静默挂半个玩家。
+ *
+ * ★ 这是**开局那一个**玩家：它从 `pickSpawn` 挑出来的格子上出生，并拒绝第二个人
+ *   （重复出生会让两个控制器抢同一个位置）。后来加入的玩家走 `spawnPlayerAt`。
  */
 export function spawnPlayer(scene: Scene, plan: WorldPlan): Result<PlayerHandle, EngineError> {
+  const existing = [...scene.componentsOf<PlayerSpawn>(PLAYER_TYPE)];
+  if (existing.length > 0) {
+    return err(
+      engineError(SPAWN_ALREADY_SPAWNED, "场景里已经有玩家了 —— 重复出生会让两个控制器抢同一个位置"),
+    );
+  }
+  const pick = pickSpawn(plan);
+  if (!pick.ok) return pick;
+  return spawnPlayerAt(scene, plan, { cell: pick.value.cell });
+}
+
+export interface SpawnAtOptions {
+  readonly cell: number;
+  /**
+   * 节点名。缺省 `player`。
+   *
+   * ★ 多个玩家时**要给不同的名字**：名字不进任何判定（也没有唯一性约束），
+   *   但日志、存档 diff、`scene.find` 的排障全靠它 —— 三个都叫 `player` 的世界里
+   *   "哪个节点是二号玩家"只能靠 id 猜。
+   */
+  readonly name?: string;
+}
+
+/**
+ * 在**指定格子**上造一个玩家（联机：座位落成实体）。
+ *
+ * ★★ 为什么它与 `spawnPlayer` 共用同一段实现，而不是各写一份
+ *
+ *   "造一个玩家"要挂三样东西（精灵 / `world.player` 标记 / 控制器），少一样都表现为
+ *   「按 WASD 不动」；第二份实现里少挂一样时，**开局那位是好的、联机那位是木桩** ——
+ *   而那正是最不容易被注意到的一种坏（单人玩一切正常）。
+ *   所以这里只有一份：`spawnPlayer` = 挑格 + 调用本函数。
+ */
+export function spawnPlayerAt(scene: Scene, plan: WorldPlan, opts: SpawnAtOptions): Result<PlayerHandle, EngineError> {
   if (!scene.components.has(SPRITE_TYPE)) {
     return err(
       engineError(
@@ -105,20 +152,28 @@ export function spawnPlayer(scene: Scene, plan: WorldPlan): Result<PlayerHandle,
       ),
     );
   }
-  const existing = [...scene.componentsOf<PlayerSpawn>(PLAYER_TYPE)];
-  if (existing.length > 0) {
+
+  const total = plan.width * plan.height;
+  const cell = opts.cell;
+  if (!Number.isInteger(cell) || cell < 0 || cell >= total) {
     return err(
-      engineError(SPAWN_ALREADY_SPAWNED, "场景里已经有玩家了 —— 重复出生会让两个控制器抢同一个位置"),
+      engineError(SPAWN_CELL_OUT_OF_RANGE, `格子 ${String(cell)} 不在 0..${String(total - 1)} 范围内`),
+    );
+  }
+  const kind = plan.kinds[cell];
+  if (kind === undefined || !isPassable(kind)) {
+    return err(
+      engineError(SPAWN_CELL_NOT_PASSABLE, `格子 ${String(cell)} 是 ${String(kind)}，站不住`),
     );
   }
 
-  const pick = pickSpawn(plan);
-  if (!pick.ok) return pick;
-
-  const sp = pick.value;
   // 坐标直接给出：`sp.x / 256` 在二进制浮点里**无舍入**（256 是 2 的幂），
   // 所以 spawn 之后 `position.x * 256 === sp.x` 是恒等式，不需要事后校正。
-  const made = scene.spawnAt("player", sp.x / FIXED_UNITS, sp.z / FIXED_UNITS);
+  const cx = cell % plan.width;
+  const cz = (cell - cx) / plan.width;
+  const x = cx * FIXED_UNITS + FIXED_UNITS / 2;
+  const z = cz * FIXED_UNITS + FIXED_UNITS / 2;
+  const made = scene.spawnAt(opts.name ?? "player", x / FIXED_UNITS, z / FIXED_UNITS);
   if (!made.ok) return made;
   const nodeId = made.value.id;
   scene.attach(nodeId, () => {
@@ -132,7 +187,7 @@ export function spawnPlayer(scene: Scene, plan: WorldPlan): Result<PlayerHandle,
   });
   scene.attach(nodeId, () => {
     const marker = new PlayerSpawn();
-    marker.cell = sp.cell;
+    marker.cell = cell;
     return marker;
   });
   // ★ 见文件头 ★★：这一行是"玩家真的能动"的全部所在。
@@ -141,5 +196,5 @@ export function spawnPlayer(scene: Scene, plan: WorldPlan): Result<PlayerHandle,
   scene.attach(nodeId, () => new PlayerController());
   scene.flush();
 
-  return ok({ nodeId, cell: sp.cell, x: sp.x, z: sp.z });
+  return ok({ nodeId, cell, x, z });
 }

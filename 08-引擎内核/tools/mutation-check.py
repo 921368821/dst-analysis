@@ -1592,10 +1592,12 @@ MUTANTS = [
     {
         "name": "M146 玩家放在格子**左上角**而不是中心",
         # 差半格。坐标仍然是整数，所以"能精确进存档"那条不会红 —— 只有定点恒等式能抓。
+        # ★ 批164 把坐标那一行搬进了 `spawnPlayerAt`（`spawnPlayer` 现在只是"挑一格 + 调它"）：
+        #   靶子跟着搬，判据（定点恒等式）一个字没改。
         "file": "src/extensions/worldgen/spawn.ts",
         "pairs": [(
-            'scene.spawnAt("player", sp.x / FIXED_UNITS, sp.z / FIXED_UNITS)',
-            'scene.spawnAt("player", (sp.x - FIXED_UNITS / 2) / FIXED_UNITS, sp.z / FIXED_UNITS)',
+            'scene.spawnAt(opts.name ?? "player", x / FIXED_UNITS, z / FIXED_UNITS)',
+            'scene.spawnAt(opts.name ?? "player", (x - FIXED_UNITS / 2) / FIXED_UNITS, z / FIXED_UNITS)',
         )],
         "test": "tests/extensions/spawn.test.ts",
     },
@@ -9887,33 +9889,35 @@ MUTANTS = [
         "file": "src/host/net-mode.ts",
         "pairs": [
             (
-                "    driveController: localDriveOf(mode.role) === \"controller\",",
-                "    driveController: true,",
+                'driveController: localDriveOf(mode.role) === "controller"',
+                "driveController: true",
             ),
         ],
         "test": "tests/host/net-mode.test.ts",
     },
     {
-        "name": "M1042 座位号直接 Number 收下（`Number(\"1e3\")` 是 1000、`Number(\"-1\")` 是 -1，都让人以为填对了）",
-        "file": "src/host/net-mode.ts",
+        "name": "M1042 座位号不要求是整数（1.5 号座位会被当成一个真座位，造出一个谁也认不出的实体）",
+        # ★ 批164 把「座位号解析」从 `parseNetMode` 整段删了（座位只能由握手给），
+        #   靶子改指到 `SeatTable.join` 的那一道校验 —— 语义没变：不合法的座位号要当场拦下。
+        "file": "src/host/seat-table.ts",
         "pairs": [
             (
-                "    const n = /^\\d{1,2}$/.test(seatWant) ? Number(seatWant) : Number.NaN;\n    if (Number.isInteger(n) && n >= 0 && n <= 31) assumedSeat = n;",
-                "    const n = Number(seatWant);\n    if (Number.isFinite(n)) assumedSeat = n;",
+                "    if (!Number.isInteger(playerId) || playerId < 0) return fail(SEAT_BAD_ID);",
+                "    if (playerId < 0) return fail(SEAT_BAD_ID);",
             ),
         ],
-        "test": "tests/host/net-mode.test.ts",
+        "test": "tests/host/seat-table.test.ts",
     },
     {
-        "name": "M1043 座位号不检查上界（32 号座位会写出一个世界生成永远不会给的座位）",
-        "file": "src/host/net-mode.ts",
+        "name": "M1043 座位号不拦负数（-1 就是 `AUTHORITY`，于是「由权威驱动」与「由 0 号玩家驱动」混成同一件事）",
+        "file": "src/host/seat-table.ts",
         "pairs": [
             (
-                "    if (Number.isInteger(n) && n >= 0 && n <= 31) assumedSeat = n;",
-                "    if (Number.isInteger(n) && n >= 0) assumedSeat = n;",
+                "    if (!Number.isInteger(playerId) || playerId < 0) return fail(SEAT_BAD_ID);",
+                "    if (!Number.isInteger(playerId)) return fail(SEAT_BAD_ID);",
             ),
         ],
-        "test": "tests/host/net-mode.test.ts",
+        "test": "tests/host/seat-table.test.ts",
     },
     {
         "name": "M1044 参数不归一大小写（`?NET=HOST` 静默退回单机，而两端的日志都说一切正常）",
@@ -10070,6 +10074,124 @@ MUTANTS = [
         "env_exit": 2,
     },
 
+    {
+        "name": "M1058 pickJoinCell 一个都选不出来（比较号写反 ⇒ best 永远停在 -1，后来的人一个也进不来）",
+        # ★ 与 M1059 的区别：这条改的是「会不会选」，M1059 改的是「平局选谁」。
+        #   后者在「距离」上完全正确 —— 只有判据里那一份独立的平局重算能分辨（见新增用例）。
+        "file": "src/extensions/worldgen/worldgen.ts",
+        "pairs": [
+            (
+                "    if (d <= 0 || d >= bestDist) continue;",
+                "    if (d <= 0 || d <= bestDist) continue;",
+            ),
+        ],
+        "test": "tests/extensions/spawn-join.test.ts",
+    },
+    {
+        "name": "M1059 pickJoinCell 平局取格号大的（遍历顺序一变，两端算出的世界就不一样）",
+        "file": "src/extensions/worldgen/worldgen.ts",
+        "pairs": [
+            (
+                "    if (d <= 0 || d >= bestDist) continue;",
+                "    if (d <= 0 || d > bestDist) continue;",
+            ),
+        ],
+        "test": "tests/extensions/spawn-join.test.ts",
+    },
+    {
+        "name": "M1060 已经在用的格子不被跳过（第二个人站在第一个人身上，物理决定谁被推开）",
+        "file": "src/extensions/worldgen/worldgen.ts",
+        "pairs": [("    if (taken.has(i)) continue;", "")],
+        "test": "tests/extensions/spawn-join.test.ts",
+    },
+    {
+        "name": "M1061 free 谓词没被用上（树摆在格中心 ⇒ 新玩家生在树里，被物理推出来）",
+        "file": "src/extensions/worldgen/worldgen.ts",
+        "pairs": [("    if (free !== undefined && !free(i)) continue;", "")],
+        "test": "tests/extensions/spawn-join.test.ts",
+    },
+    {
+        "name": "M1062 没地方站时返回 -1 而不是 null（-1 会被调用方当成一格合法下标）",
+        "file": "src/extensions/worldgen/worldgen.ts",
+        "pairs": [("  return best < 0 ? null : best;", "  return best;")],
+        "test": "tests/extensions/spawn-join.test.ts",
+    },
+    {
+        "name": "M1063 spawnPlayerAt 不检查可通行（把人放进海里，而画面上他站着、能走、存档也对）",
+        "file": "src/extensions/worldgen/spawn.ts",
+        "pairs": [("  if (kind === undefined || !isPassable(kind)) {", "  if (kind === undefined) {")],
+        "test": "tests/extensions/spawn-join.test.ts",
+    },
+    {
+        "name": "M1064 同一个座位来第二次就再造成一个实体（重连的人多出一个自己，而面板上座位数还是 1）",
+        "file": "src/host/seat-table.ts",
+        "pairs": [
+            (
+                "        assignOwner(scene, had, playerId);\n        reused++;\n        return had;",
+                "        entities.delete(playerId);",
+            ),
+        ],
+        "test": "tests/host/seat-table.test.ts",
+    },
+    {
+        "name": "M1065 重连只复用实体、不把归属写回去（他看得到自己的角色但按键不动，所有计数都对）",
+        "file": "src/host/seat-table.ts",
+        "pairs": [("        assignOwner(scene, had, playerId);\n        reused++;", "        reused++;")],
+        "test": "tests/host/seat-table.test.ts",
+    },
+    {
+        "name": "M1066 release 把归属又写了一遍自己（他走了于是等于他还占着）",
+        "file": "src/host/seat-table.ts",
+        "pairs": [
+            (
+                "    if (!assignOwner(scene, id, AUTHORITY)) return false;",
+                "    if (!assignOwner(scene, id, playerId)) return false;",
+            ),
+        ],
+        "test": "tests/host/seat-table.test.ts",
+    },
+    {
+        "name": "M1067 占用格只认本表记着的（开局那位玩家不算 —— 新来的人正好生在他身上）",
+        "file": "src/host/seat-table.ts",
+        "pairs": [
+            (
+                "    for (const marker of scene.componentsOf<PlayerSpawn>(PLAYER_TYPE)) {\n      taken.push(marker.cell);\n    }",
+                "    // 变异：只认本表记着的座位（开局那位玩家不是这张表造的）",
+            ),
+        ],
+        "test": "tests/host/seat-table.test.ts",
+    },
+    {
+        "name": "M1068 adopt 之后不作废序号链（下一份增量被当成接着上次的，客户端静默地少一格世界）",
+        "file": "src/extensions/net/session.ts",
+        "pairs": [("    this.baseSnap = null;\n    this.baseSeq = -1;", "")],
+        "test": "tests/extensions/net-world-loaded.test.ts",
+    },
+    {
+        "name": "M1069 没接握手钩子时静默丢弃（接错线与没人连长得一模一样）",
+        "file": "src/extensions/net/session.ts",
+        "pairs": [
+            (
+                "        else if (msg.kind === \"join\" && this.onJoinRequest !== null) this.onJoinRequest(msg, msg.from, tick);\n        else this.protocolViolations++;",
+                "        else if (msg.kind === \"join\") {\n          if (this.onJoinRequest !== null) this.onJoinRequest(msg, msg.from, tick);\n        }\n        else this.protocolViolations++;",
+            ),
+        ],
+        "test": "tests/host/net-handshake.test.ts",
+    },
+    {
+        "name": "M1070 客户端不重发加入请求（丢一条就永久连不上，界面停在正在连接转一辈子）",
+        # ★ 只能靠浏览器探针：这条逻辑在宿主接线里，Node 侧的所有握手判据都自带重发。
+        #   用 `--build`：不重建的话页面读的是旧 bundle，会得到没被抓住的假结论。
+        "file": "src/host/demo-game.ts",
+        "pairs": [
+            (
+                "      if (netClient !== null && netClient.joiner.state() !== \"joined\") {",
+                "      if (netClient !== null && netClient.joiner.state() !== \"joined\" && tick < 0) {",
+            ),
+        ],
+        "cmd": ["node", "tools/browser-selftest.mjs", "--build"],
+        "env_exit": 2,
+    },
 ]
 
 def run(m: dict) -> tuple[int, str]:

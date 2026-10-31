@@ -162,3 +162,65 @@ test("[装载回调] 增量合成之后也要调（增量走的是同一个装�
   assert.ok(applied !== undefined);
   assert.equal(applied.localPosition.x, 3, "坐标确实被增量改到了");
 });
+
+/**
+ * ★ 批164：握手回复里那份世界（`adopt`）也走同一个装载点。
+ *
+ * 这一条单独立着，因为它与"广播快照"有一个本质差别：**它不在序号链上**。
+ * 如果 `adopt` 自己写一套装载（`loadScene` + 手动回调），那么"装载失败不回调"
+ * 这条规矩就会有两份实现 —— 而第二份一定会在某次改动里丢掉其中一个分支。
+ */
+test("[装载回调] ★ 握手回复里的世界（`adopt`）装载成功也要回调，且**不**污染快照序号链", () => {
+  const w = world();
+  const end = new End(1);
+  let calls = 0;
+  const s = createSession({
+    role: "client",
+    transport: end,
+    scene: w.scene,
+    registry: w.reg,
+    onWorldLoaded: () => {
+      calls++;
+    },
+  });
+
+  // ★★ 先让会话**真的在链上走过一步**（6 号那份全量）。
+  //   少了这一步，「`adopt` 把基线作废」与「`adopt` 什么都不动」是**同一个状态**
+  //   （基线本来就是空的），于是那两行删掉也不会红 —— 批164 的 M1068 就是这么暴露的：
+  //   夹具没建立「链上已经有东西」这个前提，判据对那条规则就没有分辨力。
+  //   判据本身的期望一个字没改（下面仍然要求 `desyncs >= 1`），改的是语料。
+  const first = world();
+  spawnPlayer(first, 1, 400);
+  end.push({ kind: "snapshot", from: 0, tick: 3, seq: 6, json: sceneToJson(snapshotOfScene(first.scene)) });
+  s.step(3, DT);
+  assert.equal(calls, 1, "链上那一份没装上 —— 后面的「对不上基线」就无从谈起");
+  assert.equal(s.stats().keyframesApplied, 1);
+
+  const host = world();
+  const heroId = spawnPlayer(host, 1, 700);
+  assert.ok(s.adopt(sceneToJson(snapshotOfScene(host.scene))), "合法世界应该装得上");
+  assert.equal(calls, 2, "装载成功必须调（宿主在那里把主角重指到这个实体上）");
+  assert.ok(w.scene.find(heroId) !== undefined, "世界没换过来");
+
+  // 坏的那份：不装、不回调、计入 badSnapshots
+  assert.equal(s.adopt("{ 这不是 json"), false);
+  assert.equal(calls, 2, "装载失败时不该调");
+  assert.equal(s.stats().badSnapshots, 1);
+
+  // ★ 它不在序号链上：装完之后会话的"基线"是空的，所以**接着 6 号那份**的增量必然对不上，
+  //   会话自己去要全量。这不是 bug —— 链从哪开始由主机决定（见 `NetSession.adopt`）。
+  //   ★ 反过来说：基线没被作废的话，这条增量会被当成"接着 6 号"，一声不响地应用掉 ——
+  //   而那正是 M1068 的分辨点（应用了 ∧ 没要全量，两个观测量一起读）。
+  const base = snapshotOfScene(host.scene);
+  end.push({
+    kind: "snapshot-delta",
+    from: 0,
+    tick: 5,
+    seq: 7,
+    base: 6,
+    json: deltaToJson(diffSnapshot(base, base)),
+  });
+  s.step(5, DT);
+  assert.ok(s.stats().desyncs >= 1, "那份增量居然被应用了 —— 说明 `adopt` 把链上的基线写成了自己");
+  assert.ok(s.stats().resyncsSent >= 1, "对不上基线时不主动要全量，客户端会一直用一份旧世界");
+});

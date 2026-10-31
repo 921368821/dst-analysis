@@ -148,16 +148,18 @@ async function probeAssetSource(browser, url) {
  *   否则这一格是「永远绿」，而它守的正是「桌面全绿、手机才露」的那条缝。
  */
 /**
- * 联机接线探针（批163）：`?net=` 是**页面参数**，而它生效了没有在画面上几乎看不出来 ——
- * 单机、主机、客户端三种模式都能走能打。唯一能分开的观测量是宿主自报的 `net()`。
+ * 联机接线探针（批163，批164 扩了一次）：`?net=` 是**页面参数**，而它生效了没有
+ * 在画面上几乎看不出来 —— 单机、主机、客户端三种模式都能走能打。
+ * 唯一能分开的观测量是宿主自报的 `net()`。
  *
- * ★ 为什么不能只靠 Node 判据：`parseNetMode` / `planNetWiring` 那 13 条全绿，也说明不了
+ * ★ 为什么不能只靠 Node 判据：`parseNetMode` / `planNetWiring` 那几条全绿，也说明不了
  *   「`browser-entry` 把 `?net=` 传进 `env`、`demo-game` 照着它建了会话」—— 中间少接一根线时，
  *   两头都测得到、中间空着。这与 C20（批128 之前的 wx 入口「装上了但没接进 main」）同一条缝。
- * ★ 只读四个字段，每个都对应一种具体的坏法：
- *   `role` 错了 ⇒ 参数没接到装配上；`seat` 错了 ⇒ 座位号与端点号被合并；
- *   `why` 是"参数认不认得"的人话（静默回退的症状是「我明明加了参数」）；
- *   `stats` 说明会话对象**真的**建了（不是只算了个标志位）。
+ * ★ 只读五个字段，每个都对应一种具体的坏法：
+ *   `role` 错了 ⇒ 参数没接到装配上；`why` 是"参数认不认得"的人话
+ *   （静默回退的症状是「我明明加了参数」）；`stats` 说明会话对象**真的**建了；
+ *   `join` 说明**握手真的在跑**（批164 起座位来自主机，光是"有个会话对象"
+ *   已经不能说明"它会去要座位"）；`seat` 必须**是 `null`** —— 这一页里没有主机。
  */
 const NET_PROBE_EXPR =
   "(() => {" +
@@ -165,11 +167,16 @@ const NET_PROBE_EXPR =
   " if (!e || typeof e.net !== 'function') return null;" +
   " const n = e.net();" +
   " if (n === null) return { role: null };" +
-  " return { role: n.role, seat: n.seat, why: n.why, stats: n.stats };" +
+  " return { role: n.role, seat: n.seat, why: n.why, stats: n.stats, join: n.join };" +
   "})()";
 
-/** 开一个页面、等 `__engine` 挂上（启动末尾），读一次联机状态。读不到返回 `null`。 */
-async function probeNetState(browser, url) {
+/**
+ * 开一个页面、等 `__engine` 挂上（启动末尾），读联机状态。读不到返回 `null`。
+ *
+ * ★ `want === "client"` 时**不是**读一次就返回：要等它真的把加入请求发出去（见下面
+ *   `JOIN_SETTLE_MS` 的注释）。等待只影响取样时机，判定标准一个字都没改。
+ */
+async function probeNetState(browser, url, want) {
   const profile = mkdtempSync(join(tmpdir(), "engine-net-"));
   let child;
   let client;
@@ -177,7 +184,19 @@ async function probeNetState(browser, url) {
     const page = await openPage(browser, url, profile, "selftest.html");
     child = page.child;
     client = page.client;
-    const deadline = Date.now() + 30_000;
+    const start = Date.now();
+    const deadline = start + 30_000;
+    /**
+     * 「客户端把请求发出去了」这一条的等待上限，从**页面起来那一刻**算。
+     *
+     * ★ 为什么必须等：`__engine` 是 `buildDemoGame` 返回时挂上的，比第一拍还早。
+     *   只在那一个瞬间取一次样，读到的是「还没发」—— 而「还没发」与「永远不发」
+     *   是**同一个值**（`requests === 0`）。这一格要判的是后者，所以得给它时间发。
+     *   6 秒足够让 0.5 秒的重发间隔跑上十轮；真不发的话这里照样红。
+     */
+    const JOIN_SETTLE_MS = 6_000;
+    let last = null;
+    let firstSeenAt = 0;
     while (Date.now() < deadline) {
       let v;
       try {
@@ -189,10 +208,19 @@ async function probeNetState(browser, url) {
       // ★ 只认"拿到了一个对象"：`__engine` 挂上之前读到的是 undefined，
       //   它与"参数没生效"（`net()` 返回 null ⇒ `{role:null}`）必须分得开 ——
       //   混在一起的话，"页面根本没起来"会被判成"参数没接上"。
-      if (v !== undefined && v !== null) return v;
+      if (v !== undefined && v !== null) {
+        last = v;
+        if (firstSeenAt === 0) firstSeenAt = Date.now();
+        const sent =
+          typeof v.join === "object" &&
+          v.join !== null &&
+          typeof v.join.requests === "number" &&
+          v.join.requests >= 1;
+        if (want !== "client" || sent || Date.now() - firstSeenAt >= JOIN_SETTLE_MS) return v;
+      }
       await sleep(250);
     }
-    return null;
+    return last;
   } finally {
     client?.close();
     if (child !== undefined) killTree(child);
@@ -221,12 +249,28 @@ function judgeNetState({ label, want, got }) {
   }
   const problems = [];
   if (got.role !== want) problems.push(`${label}：role=${String(got.role)}（期望 ${want}）`);
-  if (typeof got.seat !== "number") problems.push(`${label}：seat=${String(got.seat)}（期望一个数字）`);
-  else if (want === "client" && got.seat !== 1) problems.push(`${label}：seat=${String(got.seat)}（客户端缺省座位号是 1）`);
   if (typeof got.why !== "string" || !got.why.includes(`net=${want}`)) {
     problems.push(`${label}：why=「${String(got.why)}」里没有 net=${want} —— 理由要能被人看懂`);
   }
   if (typeof got.stats !== "object" || got.stats === null) problems.push(`${label}：没有会话统计（会话对象没建出来）`);
+  // ★★ 批164：这一页里**没有主机**（探针只开一个标签页），所以：
+  //   ① `seat` 必须是 `null` —— 座位只能由握手给。它要是 1，说明又退回了
+  //      「按端点号猜座位」那条路（批163 的形状），而那正是这一批拆掉的捷径。
+  //   ② `join.requests >= 1` 且状态是 `joining` —— 客户端在**真的要座位**
+  //      （只建了个会话对象、从不发请求，症状与"参数没生效"一模一样）。
+  if (want === "client") {
+    if (got.seat !== null) {
+      problems.push(`${label}：seat=${String(got.seat)}（这一页没有主机，座位必须还是 null —— 猜出来的座位就是那条捷径）`);
+    }
+    const j = got.join;
+    if (typeof j !== "object" || j === null) {
+      problems.push(`${label}：没有握手统计（net() 里缺 join）—— 客户端不会去要座位`);
+    } else if (typeof j.requests !== "number" || j.requests < 1) {
+      problems.push(`${label}：join.requests=${String(j.requests)}（客户端一个加入请求都没发）`);
+    } else if (j.state !== "joining") {
+      problems.push(`${label}：join.state=${String(j.state)}（没有主机时应该在等：joining）`);
+    }
+  }
   return problems;
 }
 
@@ -489,7 +533,7 @@ async function main() {
     const netProblems = [];
     for (const c of netCases) {
       const base = `${srv.origin}/selftest.html`;
-      const got = await probeNetState(browser, c.query === "" ? base : `${base}?${c.query}`);
+      const got = await probeNetState(browser, c.query === "" ? base : `${base}?${c.query}`, c.want);
       const msgs = judgeNetState({ label: c.label, want: c.want, got });
       if (msgs.length === 0) {
         console.log(

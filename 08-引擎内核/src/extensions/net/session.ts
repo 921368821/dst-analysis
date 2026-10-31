@@ -95,6 +95,7 @@ import { CONTROLLER_TYPE, PlayerController } from "../input/player-controller.ts
 import { dirStep, type MoveIntent } from "../motion/intent.ts";
 import { createPredictor, type Predictor } from "./predict.ts";
 import { AUTHORITY, NET_IDENTITY_TYPE, NetIdentity, assignOwner, ownedBy, ownerOf, type PlayerId } from "./identity.ts";
+import type { JoinReply, JoinRequest } from "./join.ts";
 import {
   ResyncReason,
   type AckEntry,
@@ -209,6 +210,24 @@ export interface SessionOptions {
    */
   readonly local?: (tick: number) => LocalCommand | null;
   /**
+   * 主机：收到了一个端点的加入请求（`net/join.ts` 的 `JoinRequest`）。
+   *
+   * ★★ 为什么握手消息要经过会话，而不是让宿主自己去 `transport.receive`
+   *
+   *   `receive` 是**消费式**的：宿主与会话各读一次，第二条消息会被第一个人吃掉。
+   *   批164 之前这条路径不存在（收到 `join` 一律记协议违规），所以两个消费者还能
+   *   各过各的；接上握手之后，谁读 inbox 谁就决定了另一端看到什么 —— 那不是
+   *   "两个模块各写一份"，而是"一条消息只能有一个人读"。
+   *   于是这里只留一个钩子：消息路由归会话（它每一拍确定性地读一次），
+   *   座位表归宿主（它认识 `Room` 与场景）。
+   *
+   * ★ 钩子为 `null` 时**仍然记协议违规**：单机/旧宿主收到 join 说明对面接错了线，
+   *   这正是那个计数要反映的东西（静默忽略会让"接错了"和"没人连"长得一样）。
+   */
+  readonly onJoinRequest?: ((req: JoinRequest, from: PeerId, tick: number) => void) | null;
+  /** 客户端：收到了主机对自己加入请求的回复。 */
+  readonly onJoinReply?: ((reply: JoinReply) => void) | null;
+  /**
    * 世界被一份快照**整场替换之后**调用（客户端）。
    *
    * ★ 为什么需要它：`loadScene` 会把客户端场景里的节点全部换掉，于是宿主手里那些
@@ -320,6 +339,24 @@ export interface NetSession {
    * ★ 客户端调用按协议违规计：只有权威知道「世界什么时候被偷偷改过」。
    */
   requestKeyframe(): void;
+  /**
+   * 客户端：装一份**不在这条序号链上**的世界（握手回复里带的那个）。
+   *
+   * ★★ 为什么握手回复里的世界要单独一个入口，而不是"也当成一份快照"
+   *
+   *   会话的每一份快照都挂在一条序号链上（`baseSnap` / `seenSeq`），链的用途是
+   *   "发现丢了哪一份"。握手那份**不在链上**：它是主机在"这个座位刚坐定"那一刻
+   *   专门为这个客户端拍的，seq 与广播那条链无关。硬塞进链里，会让客户端把下一份
+   *   广播算成"缺了一份"，于是刚进房就要一次全量（一个往返还可能丢）。
+   *
+   * ★ 所以装完之后 `baseSnap` 被清空，语义是"我手里这份不是链上的任何一份"：
+   *   下一份增量自然对不上基线 ⇒ 它自己去要全量 ⇒ 链从这里重新开始。
+   *   这是**故意让一次重同步发生**，因为它把"链从哪开始"这件事交给主机决定，
+   *   而不是让客户端猜一个序号。
+   *
+   * ★ 装载成功会触发 `onWorldLoaded`（宿主在那里重指主角/相机）。
+   */
+  adopt(json: string): boolean;
   stats(): SessionStats;
 }
 
@@ -357,6 +394,8 @@ class Session implements NetSession {
   private readonly local: ((tick: number) => LocalCommand | null) | null;
   /** 装载成功之后的回调（宿主重指节点 id 用）。 */
   private readonly onWorldLoaded: (() => void) | null;
+  private readonly onJoinRequest: ((req: JoinRequest, from: PeerId, tick: number) => void) | null;
+  private readonly onJoinReply: ((reply: JoinReply) => void) | null;
   private readonly playerOf: (peer: PeerId) => PlayerId | null;
   /** 客户端：移动预测。`null` = 关掉了（`predict: false`）。 */
   private readonly predictor: Predictor | null;
@@ -443,6 +482,8 @@ class Session implements NetSession {
     this.maxQueued = queued;
     this.local = opts.local ?? null;
     this.onWorldLoaded = opts.onWorldLoaded ?? null;
+    this.onJoinRequest = opts.onJoinRequest ?? null;
+    this.onJoinReply = opts.onJoinReply ?? null;
     this.playerOf = opts.playerOf ?? ((peer: PeerId): PlayerId => peer);
     // ★ 只给客户端建：主机的本地输入是**权威本身**，没有"预测"这回事（它先落地，
     //   快照才发出去）。给主机也建一个，会让它每拍把位置加两遍，而所有关于主机的
@@ -467,10 +508,21 @@ class Session implements NetSession {
       if (this.role === "host") {
         if (msg.kind === "intent") this.onIntent(msg);
         else if (msg.kind === "resync") this.onResync(msg);
+        // ★ 没接钩子时落到最后的 `else`（记违规）—— 见 `onJoinRequest` 的注释。
+        //
+        // ★★ `msg.from` 在这里**没有经过传输盖章**：`BroadcastChannel` 不告诉你
+        //   "这条是谁发的"（同一个源里的任何标签页都能往同一个 channel 写）。
+        //   环回与真实传输（Steam/WebSocket）都由传输层改写这个字段，而这一条没有 ——
+        //   所以**同机的另一个标签页可以自称是别人**，从而坐进别人的座位。
+        //   这不是"忘了做"，是这条链路的能力边界（它只在本机同进程成立，本来就没有
+        //   信任边界）；换成真实传输的那天，盖章发生在 `transport.receive` 里，
+        //   这里一个字符都不用改。
+        else if (msg.kind === "join" && this.onJoinRequest !== null) this.onJoinRequest(msg, msg.from, tick);
         else this.protocolViolations++;
       } else {
         if (msg.kind === "snapshot") this.onSnapshot(msg, tick);
         else if (msg.kind === "snapshot-delta") this.onDelta(msg, tick);
+        else if (msg.kind === "join-reply" && this.onJoinReply !== null) this.onJoinReply(msg);
         else this.protocolViolations++;
       }
     }
@@ -489,6 +541,30 @@ class Session implements NetSession {
 
     // ---- ④ 广播：在移动**之后**，于是这条快照描述的是第 tick 拍的世界
     if (tick % this.snapshotEvery === 0) this.broadcast(tick);
+  }
+
+  adopt(json: string): boolean {
+    // ★ 主机调用它是编程错误（主机就是世界的来源，没有"别人给我一份世界"）：
+    //   静默接受会让一个两处都接错的宿主看起来在工作。
+    if (this.role === "host") {
+      this.protocolViolations++;
+      return false;
+    }
+    const parsed = sceneFromJson(json);
+    if (!parsed.ok) {
+      this.badSnapshots++;
+      return false;
+    }
+    if (!this.commit(parsed.value)) {
+      this.badSnapshots++;
+      return false;
+    }
+    // 见接口注释：这份不在序号链上，链从这里**重新开始**。
+    this.baseSnap = null;
+    this.baseSeq = -1;
+    this.snapshotsApplied++;
+    this.keyframesApplied++;
+    return true;
   }
 
   assign(nodeId: NodeId, peer: PeerId): boolean {

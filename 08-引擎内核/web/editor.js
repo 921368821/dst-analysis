@@ -7209,6 +7209,8 @@ var PLAYER_FRAME = "player";
 var SPAWN_NO_SPRITE_COMPONENT = "SPAWN.NO_SPRITE_COMPONENT";
 var SPAWN_NO_CONTROLLER_COMPONENT = "SPAWN.NO_CONTROLLER_COMPONENT";
 var SPAWN_ALREADY_SPAWNED = "SPAWN.ALREADY_SPAWNED";
+var SPAWN_CELL_OUT_OF_RANGE = "SPAWN.CELL_OUT_OF_RANGE";
+var SPAWN_CELL_NOT_PASSABLE = "SPAWN.CELL_NOT_PASSABLE";
 var PLAYER_SCHEMA = {
   type: PLAYER_TYPE,
   fields: {
@@ -7225,6 +7227,17 @@ function registerPlayerComponents(registry2) {
   registerControllerComponent(registry2);
 }
 function spawnPlayer(scene, plan) {
+  const existing = [...scene.componentsOf(PLAYER_TYPE)];
+  if (existing.length > 0) {
+    return err(
+      engineError(SPAWN_ALREADY_SPAWNED, "\u573A\u666F\u91CC\u5DF2\u7ECF\u6709\u73A9\u5BB6\u4E86 \u2014\u2014 \u91CD\u590D\u51FA\u751F\u4F1A\u8BA9\u4E24\u4E2A\u63A7\u5236\u5668\u62A2\u540C\u4E00\u4E2A\u4F4D\u7F6E")
+    );
+  }
+  const pick = pickSpawn(plan);
+  if (!pick.ok) return pick;
+  return spawnPlayerAt(scene, plan, { cell: pick.value.cell });
+}
+function spawnPlayerAt(scene, plan, opts) {
   if (!scene.components.has(SPRITE_TYPE)) {
     return err(
       engineError(
@@ -7246,16 +7259,24 @@ function spawnPlayer(scene, plan) {
       )
     );
   }
-  const existing = [...scene.componentsOf(PLAYER_TYPE)];
-  if (existing.length > 0) {
+  const total = plan.width * plan.height;
+  const cell = opts.cell;
+  if (!Number.isInteger(cell) || cell < 0 || cell >= total) {
     return err(
-      engineError(SPAWN_ALREADY_SPAWNED, "\u573A\u666F\u91CC\u5DF2\u7ECF\u6709\u73A9\u5BB6\u4E86 \u2014\u2014 \u91CD\u590D\u51FA\u751F\u4F1A\u8BA9\u4E24\u4E2A\u63A7\u5236\u5668\u62A2\u540C\u4E00\u4E2A\u4F4D\u7F6E")
+      engineError(SPAWN_CELL_OUT_OF_RANGE, `\u683C\u5B50 ${String(cell)} \u4E0D\u5728 0..${String(total - 1)} \u8303\u56F4\u5185`)
     );
   }
-  const pick = pickSpawn(plan);
-  if (!pick.ok) return pick;
-  const sp = pick.value;
-  const made = scene.spawnAt("player", sp.x / FIXED_UNITS, sp.z / FIXED_UNITS);
+  const kind = plan.kinds[cell];
+  if (kind === void 0 || !isPassable(kind)) {
+    return err(
+      engineError(SPAWN_CELL_NOT_PASSABLE, `\u683C\u5B50 ${String(cell)} \u662F ${String(kind)}\uFF0C\u7AD9\u4E0D\u4F4F`)
+    );
+  }
+  const cx = cell % plan.width;
+  const cz = (cell - cx) / plan.width;
+  const x = cx * FIXED_UNITS + FIXED_UNITS / 2;
+  const z = cz * FIXED_UNITS + FIXED_UNITS / 2;
+  const made = scene.spawnAt(opts.name ?? "player", x / FIXED_UNITS, z / FIXED_UNITS);
   if (!made.ok) return made;
   const nodeId = made.value.id;
   scene.attach(nodeId, () => {
@@ -7268,12 +7289,12 @@ function spawnPlayer(scene, plan) {
   });
   scene.attach(nodeId, () => {
     const marker = new PlayerSpawn();
-    marker.cell = sp.cell;
+    marker.cell = cell;
     return marker;
   });
   scene.attach(nodeId, () => new PlayerController());
   scene.flush();
-  return ok({ nodeId, cell: sp.cell, x: sp.x, z: sp.z });
+  return ok({ nodeId, cell, x, z });
 }
 
 // src/extensions/worldgen/task-module.ts

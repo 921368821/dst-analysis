@@ -102,7 +102,13 @@ import {
 import { RESOURCE_TYPE, createWorldTaskModule, registerResourceComponent } from "../extensions/worldgen/task-module.ts";
 import type { WorldTaskModuleHandle } from "../extensions/worldgen/task-module.ts";
 import { WORLD_TASK_SCHEMA } from "../extensions/worldgen/tasks.ts";
-import { spawnPlayer, registerPlayerComponents, type PlayerHandle } from "../extensions/worldgen/spawn.ts";
+import {
+  PLAYER_TYPE,
+  PlayerSpawn,
+  spawnPlayer,
+  registerPlayerComponents,
+  type PlayerHandle,
+} from "../extensions/worldgen/spawn.ts";
 import { attachWorldVisuals, type WorldVisualReport } from "../extensions/render/world-visuals.ts";
 import { harvestAt } from "../extensions/worldgen/harvest.ts";
 import {
@@ -114,6 +120,9 @@ import {
 import { attachSession, type NetSession } from "../extensions/net/session.ts";
 import { createBroadcastTransport, type ChannelLike } from "../extensions/net/broadcast-transport.ts";
 import { NET_IDENTITY_TYPE, NetIdentity, registerNetIdentity } from "../extensions/net/identity.ts";
+import { createJoiner, createRoom, type Joiner, type Room } from "../extensions/net/join.ts";
+import { snapshotOfScene } from "../extensions/net/delta.ts";
+import { countPlayers, createSeatTable, type SeatTable } from "./seat-table.ts";
 import { parseNetMode, planNetWiring, pickLocalEntity, type NetWiring } from "./net-mode.ts";
 import { NavGrid } from "../extensions/nav/nav-grid.ts";
 import { HEALTH_TYPE, Health, isDead, registerHealthComponent } from "../extensions/combat/health.ts";
@@ -302,14 +311,14 @@ export interface DemoHostEnv {
    * 联机（批163）：`?net=host` / `?net=client` 的**原值**（装配负责归一，见 `host/net-mode.ts`）。
    *
    * ★ 缺省 = 不联网，且这条路径**一行都不经过**联机代码（`planNetWiring` 返回
-   *   `driveController: true`、`playerOf: null`）。单机行为不许因为"加了联机"变一点点 ——
+   *   `driveController: true`）。单机行为不许因为"加了联机"变一点点 ——
    *   而这件事只能靠"缺省时不进那段 if"来保证，不能靠"那个 if 里的默认值写得对"。
+   * ★ 批164 删掉了 `?seat=`：座位号由**握手**分配（`net/join.ts` 的 `Room`），
+   *   宿主不再申报 —— 详见 `host/net-mode.ts` 文件头。
    */
   readonly net?: string | null;
   /** `?room=`（通道名）。两个窗口要填同一个。 */
   readonly netRoom?: string | null;
-  /** `?seat=`（本端声称的座位号）。缺省 = 端点号：host 0 / client 1。 */
-  readonly netSeat?: string | null;
   /**
    * 通道本体。**由宿主给**：浏览器是 `BroadcastChannel`，判据是内存总线。
    *
@@ -923,9 +932,38 @@ export async function buildDemoGame(env: DemoHostEnv): Promise<DemoHandle> {
    * 联机决策（批163）。**一处算完，后面只读** —— 见 `host/net-mode.ts` 的文件头：
    * "该不该联网 / 我是谁 / 控制器要不要自己改位置"这三件事每一个错了都表现为画面正常。
    */
-  const netWiring: NetWiring = planNetWiring(parseNetMode(env.net ?? null, env.netRoom ?? null, env.netSeat ?? null));
+  const netWiring: NetWiring = planNetWiring(parseNetMode(env.net ?? null, env.netRoom ?? null));
   /** 联机句柄（`off` 时恒为 `null`）。自检页用它读会话统计。 */
   let netSide: { readonly session: NetSession; readonly off: () => void } | null = null;
+  /**
+   * 主机侧：房间（座位表）与"座位 → 实体"的落地器。客户端侧恒为 `null`。
+   * ★ 两者都留成句柄而不是就地丢弃：诊断面要读它们（`net()`），
+   *   而"座位表造了几个、失败几次"是排障时唯一能问的东西。
+   */
+  let netHost: { readonly room: Room; readonly seats: SeatTable | null } | null = null;
+  /** 客户端侧：握手状态机 + 通道（发 join 请求要它）。 */
+  let netClient: { readonly joiner: Joiner; readonly transport: ReturnType<typeof createBroadcastTransport> } | null =
+    null;
+  /**
+   * 客户端重发加入请求的间隔（拍）。30Hz 下 15 拍 = 0.5 秒。
+   *
+   * ★ 节奏放在宿主：`join.ts` 只保证「重发是安全的」，它不知道一拍有多长
+   *   （一句 `request()` 在 30Hz 与 60Hz 下意味着完全不同的重试频率）。
+   * ★ 不重发的代价是**永久连不上**：请求丢一条就再也没有第二条，
+   *   而玩家看到的只是「正在连接…」转一辈子。
+   */
+  const NET_JOIN_RETRY_TICKS = 15;
+  /**
+   * 上一次发加入请求的拍号（`null` = 一次都还没发）。
+   *
+   * ★ 用「距上次过了几拍」而不是 `tick % 15 === 0`：调度器的 tick 从 **1** 开始
+   *   （`scheduler.ts` 先 `_tick++` 再回调），取模会让第一份请求等到第 15 拍 ——
+   *   开局那 0.5 秒里界面写的是「正在连接…」。两种写法对重发**频率**完全等价，
+   *   差别只在首拍；而首拍恰恰是唯一被端到端判据看到的那一拍。
+   */
+  let lastJoinRequestTick: number | null = null;
+  /** 上一次被拒的理由。只在**理由变化**时提示 —— 否则重发会让提示每 0.5 秒弹一次。 */
+  let lastJoinRefusal: string | null = null;
   /**
    * 上一 tick 的玩家位置，用来算朝向（批112）。
    * ★ `null` = 还没有上一 tick（首帧）：此时**不**设朝向，用装配时的初始角度。
@@ -1152,6 +1190,17 @@ export async function buildDemoGame(env: DemoHostEnv): Promise<DemoHandle> {
       // 控制器 / 再生任务 / 脚本：都由宿主在**同一个** onStep 里驱动（模块不会被自动 update）
       // ★ 控制器必须在物理之前：位置先变，再解算重叠
       controllerMod.update(tick, dt);
+      // 批164：玩家（含联机加进来的）每拍补齐物理体 —— 见 `ensurePlayerBodies` 的注释
+      ensurePlayerBodies();
+      // ---- 联机握手（批164）：客户端重发加入请求，直到坐进一个座位
+      // ★ 判据是 `state()` 而不是 `playerId() !== null`：掉线之后座位号与票据是**留着**的
+      //   （那正是重连的凭据，见 `join.ts` 文件头 ①），用座位号判断会永远不发请求。
+      if (netClient !== null && netClient.joiner.state() !== "joined") {
+        if (lastJoinRequestTick === null || tick - lastJoinRequestTick >= NET_JOIN_RETRY_TICKS) {
+          lastJoinRequestTick = tick;
+          netClient.transport.send(netClient.joiner.request(tick));
+        }
+      }
       // ---- 批112：玩家朝向 = 本 tick 的**实际位移**方向
       //   ★ 不读控制器内部状态：控制器算的是"想往哪走"（含被挡住的部分），
       //     而画面要跟的是"真的往哪挪了"。贴着墙时两者不同，读前者会让角色
@@ -2324,6 +2373,30 @@ export async function buildDemoGame(env: DemoHostEnv): Promise<DemoHandle> {
     return applyLoad(res.value);
   }
 
+  /**
+   * 每个玩家都要有物理体 —— **每拍维护的不变量**（批164）。
+   *
+   * ★★ 为什么是"每拍"而不是"造他的时候加一次"
+   *
+   *   · 联机玩家是**运行期**才出现的（有人加入才造），加体那一步不在开局那条路上；
+   *   · `applyLoad` 会 `physics.clear()`，读档之后一次性登记的动态体全部静默失效
+   *     —— 症状是"读档后新玩家开始穿树"，而所有计数都对（这是批131 踩过的形状）；
+   *   · `loadScene`（客户端装主机的快照）同理，整场替换之后体全没了。
+   *   三件事的正确处置是同一条：把它当成**世界的不变量**，每拍补齐。
+   *
+   * ★ `physics.add` 不是幂等的：它除了写一张 `Map`，还会往空间格子的数组里 push 一个 id。
+   *   重复调用会让同一个实体在一次解算里被处理两次（表现是"贴墙时被推得更狠"），
+   *   所以必须先 `has` 再 `add`。
+   */
+  function ensurePlayerBodies(): void {
+    for (const marker of scene.componentsOf<PlayerSpawn>(PLAYER_TYPE)) {
+      const node = marker.node;
+      if (node === null) continue;
+      if (physics.has(node.id)) continue;
+      physics.add({ nodeId: node.id, radius: 0.45, isStatic: false });
+    }
+  }
+
   function applyLoad(json: string): Result<number, EngineError> {
     const snap = sceneFromJson(json);
     if (!snap.ok) {
@@ -2340,8 +2413,11 @@ export async function buildDemoGame(env: DemoHostEnv): Promise<DemoHandle> {
     for (const id of obstacleIds) {
       if (scene.find(id) !== undefined) physics.add({ nodeId: id, radius: 0.6, isStatic: true });
     }
+    // ★ 批164：玩家的体**不在这里逐个补**了 —— 上面那次 `clear()` 之后由
+    //   `ensurePlayerBodies()` 一次补齐所有玩家（包括联机加进来的那些）。
+    //   只补主角的写法在有多人时静默失效：新玩家读档后开始穿树，而计数全对。
+    ensurePlayerBodies();
     if (scene.find(heroId) !== undefined) {
-      physics.add({ nodeId: heroId, radius: 0.45, isStatic: false });
       // ★ 批112：`clipIds` 不进 `schema` ⇒ `loadScene` 按 schema 重建组件时会把它丢掉，
       //   玩家从此退回单帧模式（这套素材没有单帧名）⇒ 读档后变成一张静止贴图。
       //   这是**装配**（哪套资产），不是实体状态，所以只能由宿主在读档后重新施加。
@@ -2896,58 +2972,166 @@ export async function buildDemoGame(env: DemoHostEnv): Promise<DemoHandle> {
     },
   });
 
-  // ---- 联机（批163）：`?net=host` / `?net=client`
+  // ---- 联机（批164）：`?net=host` / `?net=client`，**座位号由握手分配**
   //
   // ★ 位置在 `app.run()` **之前**：会话挂在 `scheduler.onStep` 上，晚一步就会漏掉
   //   启动那一拍 —— 而"漏一拍"在"终态一致"的判据里看不出来，只在"第 0 拍按了没反应"里看得出来。
-  // ★ `off` 时这一段整个不执行（`planNetWiring` 已经给出 `driveController: true` /
-  //   `playerOf: null`），单机路径**一行都不经过**联机代码。
-  if (netWiring.mode.role !== "off" && netWiring.seat !== null && env.netChannel !== undefined && env.netChannel !== null) {
-    const seat: number = netWiring.seat;
+  // ★ `off` 时这一段整个不执行（`planNetWiring` 给出 `driveController: true`），
+  //   单机路径**一行都不经过**联机代码。
+  //
+  // ★★ 与批163 只差一件事，但它就是这一批的全部：**没有"大家同一个座位"这条捷径了**。
+  //   · 主机：`Room` 给每个加入的端点分配座位（0 号是主机自己），座位落成实体，
+  //     归属写进场景（`net.identity`）；端点 → 座位的映射交给会话，`admit` 拿它比对。
+  //   · 客户端：座位来自主机的回复（`Joiner`），**不是**从 URL 猜的。
+  //   于是"两个窗口同控一个角色"在结构上不成立了：客户端手里的实体是主机按它的
+  //   座位造出来的那一个，主机那边的 `admit` 也只认它自己那个座位。
+  if (netWiring.mode.role !== "off" && env.netChannel !== undefined && env.netChannel !== null) {
+    const role = netWiring.mode.role;
     const channel: ChannelLike = env.netChannel;
-    // 客户端要能还原归属，注册表里必须**先有** net.identity：否则 `loadScene` 认不出
-    // 这个组件，世界装进来之后每个实体都是"没有归属"的，`admit` 一律 NoIdentity。
+    // 两端都要注册：主机要**造**归属，客户端 `loadScene` 要能**认出**快照里的归属
+    // （没注册 ⇒ 世界装进来之后每个实体都"没有归属"，`admit` 一律 `no-identity`）。
     registerNetIdentity(app.components);
-    // 本机玩家的归属：联机模式下**这个**实体归本端座位。
-    // ★ 先判有没有，不能直接 attach：重复 attach 同类型组件会让"谁才是那份归属"多一个答案。
-    const heroNow = scene.find(heroId);
-    if (heroNow !== undefined && heroNow.get(NET_IDENTITY_TYPE) === undefined) {
-      scene.attach(heroId, () => {
-        const ident = new NetIdentity();
-        ident.owner = seat;
-        return ident;
-      });
-      scene.flush();
-    }
-
     const transport = createBroadcastTransport({ channel, self: netWiring.mode.self ?? 0 });
-    // 客户端在第一份快照到达之前**不发意图**：那时它手里的实体是本机生成的副本，
-    // 而快照一到整个场景会被替换 —— 对着一份马上要消失的世界预测，收益是 0，
-    // 观感是"原地动几下然后瞬移"。
-    let loadedFromHost = false;
-    netSide = attachSession(app, {
-      role: netWiring.mode.role,
-      transport,
-      snapshotEveryTicks: 5,
-      ...(netWiring.playerOf !== null ? { playerOf: netWiring.playerOf } : {}),
-      local: () => {
-        if (netWiring.mode.role === "client" && !loadedFromHost) return null;
-        const entity = pickLocalEntity(scene, seat);
-        if (entity === null) return null;
-        // ★ 读的是 `controllerMod.snapshot`（这一拍已经 poll 过的那一份），不再 poll：
-        //   再 poll 会消费按下边缘，"刚按下"那一下就没了（M168 的另一种写法）。
-        const d = directionFromMap(controllerMod.map, controllerMod.snapshot);
-        if (d.dx === 0 && d.dz === 0) return null;
-        return { entity, intent: { kind: "move.dir" as const, dx: d.dx, dz: d.dz } };
-      },
-      onWorldLoaded: () => {
-        loadedFromHost = true;
-        // ★ 重指主角：`loadScene` 把客户端的节点全换掉了，`heroId` 现在指向一个不存在的
-        //   节点 —— 相机、HUD、背包全都静默失效（世界在动，但你在看别人）。
-        const id = pickLocalEntity(scene, seat);
-        if (id !== null) heroId = id;
-      },
-    });
+
+    if (role === "host") {
+      // 主机自己的角色 = 0 号座位。它不经过握手（`Room` 构造时已经把 0 号给了自己）。
+      // ★ 先判有没有再 attach：重复 attach 同类型组件会让"谁才是那份归属"多一个答案。
+      const heroNow = scene.find(heroId);
+      if (heroNow !== undefined && heroNow.get(NET_IDENTITY_TYPE) === undefined) {
+        scene.attach(heroId, () => {
+          const ident = new NetIdentity();
+          ident.owner = 0;
+          return ident;
+        });
+        scene.flush();
+      }
+
+      const plan = worldState.plan;
+      const nav = worldState.nav;
+      // ★ 没有生成计划就没有座位表 —— 而 `snapshot` 也会返回 null（`Room` 因此以
+      //   `behind` 拒客）。两种失败指向同一件事（世界还没准备好），不需要各自一套处理。
+      const seats: SeatTable | null =
+        plan === null
+          ? null
+          : createSeatTable({
+              scene,
+              plan,
+              origin: worldState.player?.cell ?? 0,
+              // 树摆在格中心：只看地形会让新玩家生在树里（物理把他推出来，而两台机器
+              // 推的方向不一定一样 —— 世界从第 0 拍就分叉）。导航网格是"能不能站"的
+              // 唯一真相，和生物寻路同源。
+              ...(nav === null ? {} : { free: (c: number) => nav.isWalkableIndex(c) }),
+            });
+
+      const room: Room = createRoom({
+        id: netWiring.mode.room,
+        name: `demo:${netWiring.mode.room}`,
+        maxPlayers: 4,
+        // 固定种子：票据序列可复现（判据里两次跑得到同一串票据）。
+        seed: 7,
+        // ★ 现拍而不是"开局拍一份存着"：`Room` 保证**先分配座位、再调这个回调**，
+        //   于是一个刚坐下的人在回复里就已经在世界上。先存的那份里没有他 ——
+        //   客户端进房第一眼"世界里没有我"，而下一份广播要等 5 拍。
+        snapshot: () => (worldState.assembled ? sceneToJson(snapshotOfScene(scene)) : null),
+        onJoin: (playerId: number) => {
+          // ★ 造不出来必须留证据：`seats.join` 返回 null 时所有计数都是对的
+          //   （座位 1、在线 1、accepted 1），唯一的症状是"客户端进了房却没有角色"。
+          const made = seats === null ? null : seats.join(playerId);
+          if (made === null) {
+            app.log.channel("net").error(`座位 ${String(playerId)} 没有落到实体上：${seats?.stats().lastError ?? "NO_PLAN"}`);
+          }
+        },
+      });
+      netHost = { room, seats };
+
+      const side = attachSession(app, {
+        role: "host",
+        transport,
+        snapshotEveryTicks: 5,
+        // ★ 端点 → 座位来自房间，**不是**"任何端点都是同一个座位"（批163 的捷径）。
+        //   `Room.playerOf` 是绑定过的箭头属性（见 `join.ts` 里的 ★）。
+        playerOf: room.playerOf,
+        onJoinRequest: (req, from, tick) => {
+          const reply = room.accept(req, from, tick);
+          // 回复也是 `NetMessage`：走同一条通道、同一个发送计数。
+          transport.send(reply);
+          if (reply.accepted) {
+            // ★★ 重连要**补一次** `seats.join`：`Room` 的重连路径刻意不调 `onJoin`
+            //   （那是对的 —— 重连不该造第二个实体），可它也不知道"上一次超时清扫
+            //   已经把归属交还权威了"。不补的症状非常安静：他看得到自己的角色、
+            //   世界在动，但按键不动（每条输入都被 `not-owner` 拒掉），
+            //   而所有计数都是对的（座位 1、在线 1、reconnects 1）。
+            //   `join` 是幂等的：复用同一个实体 + 把归属写回去。
+            if (reply.reconnected) seats?.join(reply.playerId);
+            // ★ 下一份广播改全量：客户端刚装上的那份不在会话的序号链上（见 `adopt`），
+            //   而"链从哪开始"要由主机说了算 —— 不等它 `resync` 一次。
+            side.session.requestKeyframe();
+          }
+        },
+        local: () => {
+          // 主机自己的输入走**同一道**授权检查（`admit` 用的是 `room.playerOf`）。
+          const entity = pickLocalEntity(scene, room.playerOf(transport.self));
+          if (entity === null) return null;
+          // ★ 读的是 `controllerMod.snapshot`（这一拍已经 poll 过的那一份），不再 poll：
+          //   再 poll 会消费按下边缘，"刚按下"那一下就没了（M168 的另一种写法）。
+          const d = directionFromMap(controllerMod.map, controllerMod.snapshot);
+          if (d.dx === 0 && d.dz === 0) return null;
+          return { entity, intent: { kind: "move.dir" as const, dx: d.dx, dz: d.dz } };
+        },
+      });
+      netSide = side;
+    } else {
+      const joiner = createJoiner({ self: transport.self, name: "client" });
+      netClient = { joiner, transport };
+
+      const side = attachSession(app, {
+        role: "client",
+        transport,
+        // 客户端没有座位表：它的座位是主机回复里的那个数字。`null` = 还没握上手 ——
+        // 此时 `pickLocalEntity` 也拿不到实体，于是**发不出意图**（不需要额外的开关）。
+        playerOf: () => joiner.playerId(),
+        local: () => {
+          const entity = pickLocalEntity(scene, joiner.playerId());
+          if (entity === null) return null;
+          // ★ 这里没有"世界是不是从主机来的"这道闸：能拿到实体就说明主机已经
+          //   按我的座位造了一个（归属就在世界快照里）。用标志位再判一次 =
+          //   同一个问题的第二份答案，而两份答案迟早会不一致。
+          const d = directionFromMap(controllerMod.map, controllerMod.snapshot);
+          if (d.dx === 0 && d.dz === 0) return null;
+          return { entity, intent: { kind: "move.dir" as const, dx: d.dx, dz: d.dz } };
+        },
+        onJoinReply: (reply) => {
+          // ★ `reply()` 返回 `false` = 不是给我的 / 迟到的 / 半份的。一律不应用
+          //   （同一份回复应用两遍 = 凭空回滚一次世界）。
+          if (!joiner.reply(reply)) return;
+          if (!reply.accepted) {
+            // 拒绝要能说清"我该怎么办"：`version-old` 是"你该更新"，`full` 是"等会儿"。
+            // ★ 只在**理由变化**时提示：客户端每 15 拍重发一次，每条都弹的话提示会闪成一团。
+            if (lastJoinRefusal !== reply.reason) {
+              lastJoinRefusal = reply.reason;
+              toast(
+                `进房被拒：${reply.reason}${reply.detail === undefined ? "" : `（主机 ${String(reply.detail["host"])} / 我 ${String(reply.detail["client"])}）`}`,
+              );
+            }
+            return;
+          }
+          lastJoinRefusal = null;
+          const json = joiner.takeSnapshot();
+          // ★ 装的是"主机在这个座位刚坐定时拍的世界"：里面有我。装载成功会触发
+          //   `onWorldLoaded`，宿主在那里把主角重指到我的实体上。
+          if (json !== null && !side.session.adopt(json)) {
+            toast("进房的世界装不上（存档格式比引擎新？）");
+          }
+        },
+        onWorldLoaded: () => {
+          // ★ 重指主角：`loadScene` 把客户端的节点全换掉了，`heroId` 现在指向一个不存在的
+          //   节点 —— 相机、HUD、背包全都静默失效（世界在动，但你在看别人）。
+          const id = pickLocalEntity(scene, joiner.playerId());
+          if (id !== null) heroId = id;
+        },
+      });
+      netSide = side;
+    }
   }
 
   const runR = app.run();
@@ -2982,8 +3166,27 @@ export async function buildDemoGame(env: DemoHostEnv): Promise<DemoHandle> {
         : {
             role: netWiring.mode.role,
             why: netWiring.mode.why,
-            seat: netWiring.seat,
+            /**
+             * 本端的座位号。**运行期才知道**的东西，所以它不是一个字段而是一次查询：
+             * 主机恒为 0（它不经过握手），客户端在回复到达之前是 `null`。
+             *
+             * ★ 这个 `null` 有确定含义：**还没坐进任何座位**。它不该被读成"座位 0"
+             *   —— 那正是批163 用 `?? 0` 抹掉的信息。
+             */
+            seat: netClient === null ? (netSide === null ? null : 0) : netClient.joiner.playerId(),
             stats: netSide.session.stats(),
+            /** 主机：房间账本（座位 / 在线 / 各码拒绝次数）。 */
+            room: netHost === null ? null : netHost.room.stats(),
+            /** 主机：座位表（造了几个 / 复用几次 / 失败几次 + 最后一个错误码）。 */
+            seats: netHost === null ? null : (netHost.seats?.stats() ?? null),
+            /** 客户端：握手状态（`state` / `requests` / `joins` / `refusals` / `seatChanges`）。 */
+            join: netClient === null ? null : netClient.joiner.stats(),
+            /**
+             * 世界上站着几个玩家（含开局那位）。
+             * ★ 主机侧的健康值是 `seats.seats + 1`；客户端侧取决于主机造了几个。
+             *   两者不等就说明"座位坐了、实体没造出来"或"实体造了两次"。
+             */
+            players: countPlayers(scene),
           },
     /** 打一下最近的敌人（自检页用：它要走**玩家这条真实路径**，见 `attackNearest`）。 */
     attack: () => attackNearest(),

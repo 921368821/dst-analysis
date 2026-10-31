@@ -15,6 +15,14 @@
  *
  * ★ 这一层不认识 `Transport` / `Session`：它只回答「该不该联网、我是谁、
  *   本地玩家是哪个实体、谁负责驱动他」。把对象创建也塞进来，判据就得造一堆假对象。
+ *
+ * ★★ 批164：`?seat=` 与 `assumedSeat` **删掉了**
+ *
+ *   批163 里它们的存在理由是「demo 还没有握手，座位号只能从 URL 猜」，
+ *   并且明写了那条捷径的用途：两个窗口都填 0 = 两个人同控一个角色。
+ *   握手接上之后（`net/join.ts` 的 `Room` 分配座位 → `host/seat-table.ts` 造实体），
+ *   **座位号不再是一个可以被申报的东西**：它由主机分配，客户端只能等回复。
+ *   留着 `?seat=` 就留下了一条"我自称我是谁"的路径 —— 而那正是这次要拆的东西。
  */
 
 import type { Scene } from "../core/scene/scene.ts";
@@ -44,21 +52,6 @@ export interface NetMode {
   readonly role: NetRole;
   /** 端点号：主机 = 0、客户端 = 1；`off` 时为 `null`（没有端点，也不该有身份）。 */
   readonly self: number | null;
-  /**
-   * 本端**声称**的座位号（`PlayerId`）。
-   *
-   * ★★ 这是这一层唯一一处「简化」，必须写明白：
-   *   正式的座位号由**握手分配**（`net/join.ts` 的 `assignOwner`，重连不变），
-   *   而 demo-game 还没有接握手。所以这里退化成「端点号 = 座位号」，
-   *   并用 `?seat=` 允许宿主覆盖 —— 双窗口联调时两个窗口都填 0，
-   *   就是「两个人同控主机世界里的同一个角色」。
-   *
-   * ★ 为什么不做成 `self`：批159 立的规矩是「座位号 ≠ 端点号」。
-   *   合并之后，「重连拿到同一个端口」与「重连拿到同一个座位」会同时成立，
-   *   而那句判据（座位号不由端点数决定）就再也测不出区别。
-   *   分成两个字段之后，退化发生在**调用方**，而不是在类型里。
-   */
-  readonly assumedSeat: number | null;
   /** 通道名；`off` 时是空串（没有通道）。 */
   readonly room: string;
   /**
@@ -75,11 +68,7 @@ export interface NetMode {
  * ★ 接受 `null` 与空串都算"没指定"：`?net=` 与不带参数是同一件事
  *   （`URLSearchParams.get` 对 `?net=` 返回 `""`，不是 `null`）。
  */
-export function parseNetMode(
-  param: string | null | undefined,
-  roomParam?: string | null,
-  seatParam?: string | null,
-): NetMode {
+export function parseNetMode(param: string | null | undefined, roomParam?: string | null): NetMode {
   const raw = (param ?? "").trim().toLowerCase();
   const role: NetRole = raw === "host" ? "host" : raw === "client" ? "client" : "off";
   const why =
@@ -89,26 +78,16 @@ export function parseNetMode(
         ? "未指定（单机）"
         : `不认识的值「${raw}」，退回单机`;
 
-  if (role === "off") return { role, self: null, assumedSeat: null, room: "", why };
+  if (role === "off") return { role, self: null, room: "", why };
 
   const self = role === "host" ? 0 : 1;
 
   const want = (roomParam ?? "").trim();
   // ★ 空串不是"换成一个空房间"，是"没指定" —— 与 `?tree=` 同一条归一规则。
   const room = want === "" ? DEFAULT_ROOM : ROOM_RE.test(want) ? want : DEFAULT_ROOM;
-  let roomWhy = want !== "" && room !== want ? `（房间名「${want}」不合法，用了 ${DEFAULT_ROOM}）` : "";
+  const roomWhy = want !== "" && room !== want ? `（房间名「${want}」不合法，用了 ${DEFAULT_ROOM}）` : "";
 
-  // 座位号：缺省 = 端点号（见 `assumedSeat` 的注释）。给了就校验，不合法就退回并说明。
-  const seatWant = (seatParam ?? "").trim();
-  let assumedSeat = self;
-  if (seatWant !== "") {
-    // ★ 只认 0..31：`Number("")` 是 0、`Number("1e3")` 是 1000，两者都会让人以为"填对了"。
-    const n = /^\d{1,2}$/.test(seatWant) ? Number(seatWant) : Number.NaN;
-    if (Number.isInteger(n) && n >= 0 && n <= 31) assumedSeat = n;
-    else roomWhy += `（座位号「${seatWant}」不合法，用了 ${String(self)}）`;
-  }
-
-  return { role, self, assumedSeat, room, why: why + roomWhy };
+  return { role, self, room, why: why + roomWhy };
 }
 
 /** 联机时位置由会话管；单机时由控制器模块管。 */
@@ -156,31 +135,16 @@ export interface NetWiring {
   readonly mode: NetMode;
   /** 控制器模块要不要自己改位置（见 `LocalDrive`）。 */
   readonly driveController: boolean;
-  /** 这一端认为自己是几号座位；`off` 时为 `null`。 */
-  readonly seat: number | null;
-  /**
-   * 端点 → 座位的映射，交给 `SessionOptions.playerOf`；`off` 时为 `null`。
-   *
-   * ★★ 这里有一处**必须说清的简化**：demo 的世界里只有一个玩家实体（owner 0），
-   *   所以联机模式下**任何端点都被当成同一个座位** —— 于是两个窗口可以同控那个角色。
-   *   这正是「预测真的跑在游戏里」需要的最小形态（客户端得有个实体可以预测）。
-   *
-   *   正式的多玩家（每人一个实体、座位由握手分配、重连不变）不在这里：
-   *   那要 `net/join.ts` 的座位表，且需要世界生成能造出第二个玩家 —— 见
-   *   `docs/ONLINE-READINESS-PLAN.md` 的缺口表。把这条捷径写成"默认"是最糟的做法。
-   */
-  readonly playerOf: ((peer: number) => number) | null;
 }
 
+/**
+ * 装配要用的决策。
+ *
+ * ★ 批164 之后这里只剩一件事（"位置由谁改"）：座位号与端点映射不在这了 ——
+ *   它们来自握手（主机侧 `room.playerOf`、客户端侧 `joiner.playerId()`），
+ *   而握手是**运行期**才知道的，不是"URL 解析出来"的。硬塞进来的话，
+ *   它会是一个"解析那一刻算出来的常量"，重连之后就与事实不符。
+ */
 export function planNetWiring(mode: NetMode): NetWiring {
-  if (mode.role === "off" || mode.assumedSeat === null) {
-    return { mode, driveController: true, seat: null, playerOf: null };
-  }
-  const seat = mode.assumedSeat;
-  return {
-    mode,
-    driveController: localDriveOf(mode.role) === "controller",
-    seat,
-    playerOf: () => seat,
-  };
+  return { mode, driveController: localDriveOf(mode.role) === "controller" };
 }

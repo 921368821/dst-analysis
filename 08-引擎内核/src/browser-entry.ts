@@ -120,7 +120,7 @@ export async function main(): Promise<void> {
    */
   const params = new URL(location.href).searchParams;
   /** 联机模式（归一在这里做一次，`env` 里传原值给装配再算一次 —— 纯函数，两次相同）。 */
-  const netModeForEntry = parseNetMode(params.get("net"), params.get("room"), params.get("seat"));
+  const netModeForEntry = parseNetMode(params.get("net"), params.get("room"));
 
   const canvas = document.getElementById("cv") as HTMLCanvasElement | null;
   const hud = document.getElementById("hud");
@@ -294,11 +294,11 @@ export async function main(): Promise<void> {
     // 批156：`?tree=ai/hound_grudge` —— 全体生物换一棵决策树（不改代码、不用重建）。
     // ★ 空串/缺省都交给装配去归一（空串不是"换成一棵空树"，是"没指定"）。
     aiTree: params.get("tree"),
-    // 批163：`?net=host` / `?net=client`，可选 `&room=`（通道名）与 `&seat=`（座位号）。
+    // 批163：`?net=host` / `?net=client`，可选 `&room=`（通道名）。
     // ★ 归一在 `host/net-mode.ts`（有判据）；这里只把原值与通道交给装配。
+    // ★ 批164 起**没有** `&seat=`：座位号由握手分配（见 `host/net-mode.ts` 文件头）。
     net: params.get("net"),
     netRoom: params.get("room"),
-    netSeat: params.get("seat"),
     netChannel: openNetChannel(netModeForEntry),
     surface,
     platformId: "web",
