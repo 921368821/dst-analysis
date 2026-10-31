@@ -13332,10 +13332,13 @@ function sceneFromJson(text) {
 }
 var SAVE_SCALE = 1e9;
 var SAVE_SCALE_LIMIT = 1e6;
-function q(v) {
+function quantizeSave(v) {
   if (!Number.isFinite(v)) return v;
   if (!(Math.abs(v) < SAVE_SCALE_LIMIT)) return v;
   return Math.round(v * SAVE_SCALE) / SAVE_SCALE;
+}
+function q(v) {
+  return quantizeSave(v);
 }
 function stringifySorted(o) {
   if (o === null || typeof o !== "object") {

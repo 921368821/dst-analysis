@@ -8392,19 +8392,19 @@ MUTANTS = [
         "name": "M904 旧快照也能覆盖新世界 ⇒ 一条迟到的包把世界拉回几百毫秒前",
         "file": "src/extensions/net/session.ts",
         "pairs": [(
-            "if (msg.seq <= this.lastSnapshotSeq) {",
-            "if (msg.seq <= this.lastSnapshotSeq && false) {",
+            "      if (seq <= this.seenSeq) {",
+            "      if (seq <= this.seenSeq && false) {",
         )],
         "test": "tests/extensions/net-session.test.ts",
     },
     {
-        "name": "M905 网络快照用存档语义导出 ⇒ 副本少一整个寻路状态，而两个角色的位置一模一样",
-        "file": "src/extensions/net/session.ts",
+        "name": "M905 快照不先归一化 ⇒ 定点尾巴被当成变化，增量永远非空（带宽优化归零）",
+        "file": "src/extensions/net/delta.ts",
         "pairs": [(
-            "json: sceneToJson(saveScene(this.scene, { mode: \"rollback\" })),",
-            "json: sceneToJson(saveScene(this.scene)),",
+            "  return normalizeSnapshot(saveScene(scene, { mode: \"rollback\" }));",
+            "  return saveScene(scene, { mode: \"rollback\" });",
         )],
-        "test": "tests/extensions/net-session.test.ts",
+        "test": "tests/extensions/net-delta.test.ts",
     },
     {
         "name": "M906 端点不盖章 from ⇒ 客户端在消息里写 from: 0 就能冒充主机（授权全放行）",
@@ -9341,6 +9341,303 @@ MUTANTS = [
             ),
         ],
         "test": "tests/extensions/net-join.test.ts",
+    },
+    {
+        "name": "M992 比对不再量化坐标（每拍都发一点浮点尾巴：增量永远非空，而日志只说「优化没效果」）",
+        "file": "src/extensions/net/delta.ts",
+        "pairs": [
+            (
+                "    x: quantizeSave(n.x),",
+                "    x: n.x,",
+            ),
+        ],
+        "test": "tests/extensions/net-delta.test.ts",
+    },
+    {
+        "name": "M993 组件数据不量化（速度 / 冷却这类被乘除的字段每拍都不一样）",
+        "file": "src/extensions/net/delta.ts",
+        "pairs": [
+            (
+                "  if (typeof v === \"number\") return quantizeSave(v);",
+                "  if (typeof v === \"number\") return v;",
+            ),
+        ],
+        "test": "tests/extensions/net-delta.test.ts",
+    },
+    {
+        "name": "M994 字段表少了 layer（客户端那个字段永远停在旧值，其余九个都对）",
+        "file": "src/extensions/net/delta.ts",
+        "pairs": [
+            (
+                "  \"layer\",\n] as const;",
+                "] as const;",
+            ),
+        ],
+        "test": "tests/extensions/net-delta.test.ts",
+    },
+    {
+        "name": "M995 顶层字段变了也不记（增量为空，客户端整个世界停在第一次那份）",
+        "file": "src/extensions/net/delta.ts",
+        "pairs": [
+            (
+                "    if (!sameJson(old[k], now[k])) {",
+                "    if (false) {",
+            ),
+        ],
+        "test": "tests/extensions/net-delta.test.ts",
+    },
+    {
+        "name": "M996 组件没变也重发（每拍都带上全部组件，增量退化成全量）",
+        "file": "src/extensions/net/delta.ts",
+        "pairs": [
+            (
+                "    if (prev === undefined || !sameJson(prev, c.data)) components.push(c);",
+                "    if (true) components.push(c);",
+            ),
+        ],
+        "test": "tests/extensions/net-delta.test.ts",
+    },
+    {
+        "name": "M997 删组件不上报（客户端还会按旧组件算：拿僵尸的目标继续打）",
+        "file": "src/extensions/net/delta.ts",
+        "pairs": [
+            (
+                "  const dropComponents = [...before.keys()].sort();",
+                "  const dropComponents: string[] = [];",
+            ),
+        ],
+        "test": "tests/extensions/net-delta.test.ts",
+    },
+    {
+        "name": "M998 删节点不上报（客户端场上多一个已经不在的箱子，谁都不知道）",
+        "file": "src/extensions/net/delta.ts",
+        "pairs": [
+            (
+                "  const removed = [...old.keys()].sort((a, b) => a - b);",
+                "  const removed: number[] = [];",
+            ),
+        ],
+        "test": "tests/extensions/net-delta.test.ts",
+    },
+    {
+        "name": "M999 新节点不上报（客户端永远看不到后来刷出来的东西）",
+        "file": "src/extensions/net/delta.ts",
+        "pairs": [
+            (
+                "      added.push(n);",
+                "      void n;",
+            ),
+        ],
+        "test": "tests/extensions/net-delta.test.ts",
+    },
+    {
+        "name": "M1000 合成之后不排序（同一个世界写出两种字节，逐字节比对红在顺序上）",
+        "file": "src/extensions/net/delta.ts",
+        "pairs": [
+            (
+                "  const nodes = [...byId.values()].sort((a, b) => a.id - b.id);",
+                "  const nodes = [...byId.values()];",
+            ),
+        ],
+        "test": "tests/extensions/net-delta.test.ts",
+    },
+    {
+        "name": "M1001 合成时不摘组件（增量里删掉的组件在客户端活下来）",
+        "file": "src/extensions/net/delta.ts",
+        "pairs": [
+            (
+                "  for (const c of old.components) if (!drop.has(c.type)) byType.set(c.type, c);",
+                "  for (const c of old.components) byType.set(c.type, c);",
+            ),
+        ],
+        "test": "tests/extensions/net-delta.test.ts",
+    },
+    {
+        "name": "M1002 合成时不合并字段（增量带过来的字段全被丢掉：客户端半步不动）",
+        "file": "src/extensions/net/delta.ts",
+        "pairs": [
+            (
+                "  return { ...old, ...p.fields, components };",
+                "  return { ...old, components };",
+            ),
+        ],
+        "test": "tests/extensions/net-delta.test.ts",
+    },
+    {
+        "name": "M1003 补丁指向不存在的节点也只跳过不计数（对不上基线却没人知道）",
+        "file": "src/extensions/net/delta.ts",
+        "pairs": [
+            (
+                "    if (old === undefined) {\n      orphans++;\n      continue;",
+                "    if (old === undefined) {\n      continue;",
+            ),
+        ],
+        "test": "tests/extensions/net-delta.test.ts",
+    },
+    {
+        "name": "M1004 编码时丢掉 removed（解码端看到一份「谁都没被删」的增量）",
+        "file": "src/extensions/net/delta.ts",
+        "pairs": [
+            (
+                "  return JSON.stringify({ format: d.format, added: d.added, patched, removed: d.removed });",
+                "  return JSON.stringify({ format: d.format, added: d.added, patched, removed: [] });",
+            ),
+        ],
+        "test": "tests/extensions/net-delta.test.ts",
+    },
+    {
+        "name": "M1005 编码时丢掉 dropComponents",
+        "file": "src/extensions/net/delta.ts",
+        "pairs": [
+            (
+                "    if (p.dropComponents !== undefined) o.dropComponents = p.dropComponents;\n",
+                "",
+            ),
+        ],
+        "test": "tests/extensions/net-delta.test.ts",
+    },
+    {
+        "name": "M1006 解码不比 format 版本（旧版本的一套字段被当成当前版本读进来）",
+        "file": "src/extensions/net/delta.ts",
+        "pairs": [
+            (
+                "  if (raw.format !== DELTA_FORMAT_VERSION) {",
+                "  if (false) {",
+            ),
+        ],
+        "test": "tests/extensions/net-delta.test.ts",
+    },
+    {
+        "name": "M1007 补丁里的未知字段被放行（拼错的字段静默合进去，看着完整）",
+        "file": "src/extensions/net/delta.ts",
+        "pairs": [
+            (
+                "    if (!(NODE_FIELDS as readonly string[]).includes(k)) return false;",
+                "    if (false) return false;",
+            ),
+        ],
+        "test": "tests/extensions/net-delta.test.ts",
+    },
+    {
+        "name": "M1008 新增节点不查坐标类型（网络数据可以是任何形状，这里就不该放行）",
+        "file": "src/extensions/net/delta.ts",
+        "pairs": [
+            (
+                "    if (typeof v[k] !== \"number\" || !Number.isFinite(v[k])) return false;",
+                "    if (false) return false;",
+            ),
+        ],
+        "test": "tests/extensions/net-delta.test.ts",
+    },
+    {
+        "name": "M1009 新增节点的组件不查 data（不是对象的 data 会被合进快照）",
+        "file": "src/extensions/net/delta.ts",
+        "pairs": [
+            (
+                "    if (!isRecord(c) || typeof c.type !== \"string\" || !isRecord(c.data)) return false;",
+                "    if (!isRecord(c) || typeof c.type !== \"string\") return false;",
+            ),
+        ],
+        "test": "tests/extensions/net-delta.test.ts",
+    },
+    {
+        "name": "M1010 快照不用回滚语义导出（副本少一整个寻路状态，位置却一模一样）",
+        "file": "src/extensions/net/delta.ts",
+        "pairs": [
+            (
+                "  return normalizeSnapshot(saveScene(scene, { mode: \"rollback\" }));",
+                "  return normalizeSnapshot(saveScene(scene));",
+            ),
+        ],
+        "test": "tests/extensions/net-session.test.ts",
+    },
+    {
+        "name": "M1011 发不出去也前移基线（下一份增量基于一份对面从未收到的世界）",
+        "file": "src/extensions/net/session.ts",
+        "pairs": [
+            (
+                "    if (!this.transport.send(msg)) return;",
+                "    if (!this.transport.send(msg) && false) return;",
+            ),
+        ],
+        "test": "tests/extensions/net-session.test.ts",
+    },
+    {
+        "name": "M1012 客户端不比对 base（把增量合到不是它基线的世界上，看着完整、字段是旧的）",
+        "file": "src/extensions/net/session.ts",
+        "pairs": [
+            (
+                "    if (this.baseSnap === null || msg.base !== this.baseSeq) {",
+                "    if (this.baseSnap === null) {",
+            ),
+        ],
+        "test": "tests/extensions/net-session.test.ts",
+    },
+    {
+        "name": "M1013 对不上也只是放弃（不请求全量：卡住到下一次关键帧）",
+        "file": "src/extensions/net/session.ts",
+        "pairs": [
+            (
+                "      this.desyncs++;\n      this.askFull(tick, ResyncReason.Base);",
+                "      this.desyncs++;",
+            ),
+        ],
+        "test": "tests/extensions/net-session.test.ts",
+    },
+    {
+        "name": "M1014 主机收到重同步请求也不给全量（客户端永远卡在那一拍）",
+        "file": "src/extensions/net/session.ts",
+        "pairs": [
+            (
+                "    this.resyncsReceived++;\n    this.forceFull = true;",
+                "    this.resyncsReceived++;\n    this.forceFull = false;",
+            ),
+        ],
+        "test": "tests/extensions/net-session.test.ts",
+    },
+    {
+        "name": "M1015 关键帧差一（第 11 份才补，中间多一份增量 —— 链子悄悄变长）",
+        "file": "src/extensions/net/session.ts",
+        "pairs": [
+            (
+                "this.sinceKeyframe + 1 >= this.keyframeEvery",
+                "this.sinceKeyframe >= this.keyframeEvery",
+            ),
+        ],
+        "test": "tests/extensions/net-session.test.ts",
+    },
+    {
+        "name": "M1016 缺口按「世界是哪一份」算（一次失配让后面每份都再记一次丢包）",
+        "file": "src/extensions/net/session.ts",
+        "pairs": [
+            (
+                "      const missed = seq - this.seenSeq - 1;",
+                "      const missed = seq - this.baseSeq - 1;",
+            ),
+        ],
+        "test": "tests/extensions/net-session.test.ts",
+    },
+    {
+        "name": "M1017 主机被要求补全量也不补（加入之后客户端白跑一次重同步往返）",
+        "file": "src/extensions/net/session.ts",
+        "pairs": [
+            (
+                "    this.forceFull = true;\n  }\n\n  stats(): SessionStats {",
+                "    this.forceFull = false;\n  }\n\n  stats(): SessionStats {",
+            ),
+        ],
+        "test": "tests/extensions/net-session.test.ts",
+    },
+    {
+        "name": "M1018 客户端要求补全量被静默忽略（接错的线永远不报错）",
+        "file": "src/extensions/net/session.ts",
+        "pairs": [
+            (
+                "      this.protocolViolations++;\n      return;\n    }\n    this.forceFull = true;",
+                "      return;\n    }\n    this.forceFull = true;",
+            ),
+        ],
+        "test": "tests/extensions/net-session.test.ts",
     },
 ]
 

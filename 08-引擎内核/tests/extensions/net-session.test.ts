@@ -36,6 +36,7 @@ import {
   type IntentMessage,
   type NetMessage,
   type PeerId,
+  type SnapshotDeltaMessage,
   type SnapshotMessage,
   type Transport,
   type TransportStats,
@@ -135,7 +136,19 @@ class FakeEnd implements Transport {
     this.self = self;
   }
 
+  /**
+   * 让接下来 N 次 `send` 返回 `false`（模拟环回「当场就知道丢了」）。
+   *
+   * ★ 环回能知道，真实传输不能 —— 增量快照为了这件差别专门把「基线前移」放在
+   *   发送成功之后，所以这里必须能造出「我以为发出去了，其实没有」。
+   */
+  fails = 0;
+
   send(msg: NetMessage): boolean {
+    if (this.fails > 0) {
+      this.fails--;
+      return false;
+    }
     this.out.push(msg);
     return true;
   }
@@ -169,6 +182,13 @@ function snapshotMsgOf(scene: Scene, seq: number, tick: number): SnapshotMessage
     // 与 `session.broadcast` 同一条规矩：网络快照是「第 T 拍的世界」，用回滚语义。
     json: jsonOf(scene),
   };
+}
+
+/** 把 `from` 发出去的消息搬进 `to` 的收件箱，返回搬了几条（判据自己当网线）。 */
+function pipeOut(from: FakeEnd, to: FakeEnd): number {
+  const n = from.out.length;
+  to.push(...from.out.splice(0, n));
+  return n;
 }
 
 // ---------------------------------------------------------------- 1 · 快照节奏
@@ -574,4 +594,290 @@ test("[会话] 授权常量不自相矛盾：AUTHORITY 不等于任何真实对�
   assert.notEqual(AUTHORITY, 0);
   assert.equal(new NetIdentity().owner, AUTHORITY, "新挂的实体默认归权威，不是归 0 号");
   assert.equal(new NetIdentity().schema.type, NET_IDENTITY_TYPE);
+});
+
+// ---------------------------------------------------------------- 13 · 增量快照
+
+/**
+ * 同一条脚本跑两遍，只改「多少份里一份全量」。
+ *
+ * ★ 场景里**大量节点不动**：增量的收益全在它们身上。只放两个角色的话，
+ *   全世界每拍都在动，增量本来就不该省多少 —— 那样的数字说明不了任何问题。
+ */
+function bandwidthRun(keyframeEvery: number): {
+  readonly chars: number;
+  readonly keyframes: number;
+  readonly deltas: number;
+  readonly applied: number;
+  readonly desyncs: number;
+  readonly same: boolean;
+} {
+  const [hostT, clientT] = createLoopbackPair();
+  const host = world();
+  const client = world();
+  for (let i = 0; i < 60; i++) spawnPlayer(host.scene, i % 2, 500 + i);
+  const hero = spawnPlayer(host.scene, 0, 100);
+
+  const hostS = createSession({
+    role: "host",
+    transport: hostT,
+    scene: host.scene,
+    registry: host.reg,
+    snapshotEveryTicks: 1,
+    keyframeEvery,
+    local: (t) => ({ entity: hero, intent: intentOf(t) }),
+  });
+  const clientS = createSession({
+    role: "client",
+    transport: clientT,
+    scene: client.scene,
+    registry: client.reg,
+  });
+  for (let t = 0; t <= 40; t++) {
+    clientS.step(t, DT);
+    hostS.step(t, DT);
+  }
+  clientS.step(41, DT);
+
+  const hs = hostS.stats();
+  const cs = clientS.stats();
+  return {
+    chars: hs.snapshotCharsSent,
+    keyframes: hs.keyframesSent,
+    deltas: hs.deltasSent,
+    applied: cs.snapshotsApplied,
+    desyncs: cs.desyncs,
+    same: jsonOf(client.scene) === jsonOf(host.scene),
+  };
+}
+
+test("[增量] 默认每 10 份广播里一份全量（41 份 = 5 全量 + 36 增量，客户端全收下）", () => {
+  const r = bandwidthRun(10);
+  assert.equal(r.keyframes, 5, "0..40 共 41 份，第 1/11/21/31/41 份是全量");
+  assert.equal(r.deltas, 36);
+  assert.equal(r.applied, 41, "每一份都该应用成功（没有丢包）");
+  assert.equal(r.desyncs, 0, "一份没丢却对不上 —— 增量的基线算错了");
+  assert.equal(r.same, true, "省了带宽却算错世界，等于什么都没做");
+});
+
+test("[增量] ★ 带宽：同一场景同一脚本，增量比每份全量少一大截（实测数字进断言）", () => {
+  // ★ 比较对象是「每份全量」而不是「默认关键帧」：默认节奏里有 1/10 是全量，
+  //   那部分开销是**关键帧的价格**，混进来量出来的数字既不是增量的收益，
+  //   也不是谁的成本 —— 两个问题要分开量。实测比约 32 倍（见断言消息）。
+  const full = bandwidthRun(1);
+  const inc = bandwidthRun(1000);
+  assert.equal(full.deltas, 0, "keyframeEvery=1 时不该有增量");
+  assert.equal(inc.deltas, 40, "keyframeEvery=1000 时只有第一份是全量");
+  assert.equal(inc.same && full.same, true, "省了带宽却算错世界，等于什么都没做");
+  // ★ 阈值取实测的一半留余量，同时是回归哨兵：谁把量化去掉（增量永远非空）
+  //   或往每拍都变的字段里塞东西，这里会立刻红。
+  assert.ok(
+    inc.chars * 20 < full.chars,
+    `增量 ${String(inc.chars)} 字符 vs 全量 ${String(full.chars)} 字符（${(full.chars / inc.chars).toFixed(1)} 倍）`,
+  );
+});
+
+test("[增量] ★ 丢了一份增量：客户端要全量，主机下一份就给，世界照样追平", () => {
+  const hostEnd = new FakeEnd(0);
+  const clientEnd = new FakeEnd(1);
+  const host = world();
+  const client = world();
+  const a = spawnPlayer(host.scene, 0, 100);
+
+  const hostS = createSession({
+    role: "host",
+    transport: hostEnd,
+    scene: host.scene,
+    registry: host.reg,
+    snapshotEveryTicks: 1,
+    // 关键帧拉得很远：这条判据要证的是「重同步能救」，不是「等到关键帧就好了」
+    keyframeEvery: 1000,
+  });
+  const clientS = createSession({ role: "client", transport: clientEnd, scene: client.scene, registry: client.reg });
+
+  // 第 0 拍：全量
+  clientS.step(0, DT);
+  hostS.step(0, DT);
+  assert.equal(pipeOut(hostEnd, clientEnd), 1);
+  clientS.step(1, DT);
+  assert.equal(clientS.stats().keyframesApplied, 1);
+  assert.equal(xOf(client.scene, a), 0);
+
+  // 第 1 拍：主机发增量，**在路上丢掉**（发送成功，所以主机以为对面有）
+  host.scene.find(a)?.setLocalPosition(1, 0);
+  hostS.step(1, DT);
+  const lost = hostEnd.out.splice(0);
+  assert.equal(lost.length, 1);
+  assert.equal((lost[0] as SnapshotDeltaMessage).kind, "snapshot-delta");
+
+  // 第 2 拍：第二份增量基于第 1 拍那份 ⇒ 客户端对不上
+  host.scene.find(a)?.setLocalPosition(2, 0);
+  hostS.step(2, DT);
+  assert.equal(pipeOut(hostEnd, clientEnd), 1);
+  clientS.step(2, DT);
+
+  assert.equal(clientS.stats().desyncs, 1, "基线对不上必须算一次失配");
+  assert.equal(clientS.stats().resyncsSent, 1, "而且要明说（不是干等下一次关键帧）");
+  assert.equal(xOf(client.scene, a), 0, "对不上就不许合 —— 合出来的世界看着完整、其实是错的");
+
+  // 主机收到请求：**同一拍**的广播就改全量
+  assert.equal(pipeOut(clientEnd, hostEnd), 1);
+  hostS.step(3, DT);
+  assert.equal(hostS.stats().resyncsReceived, 1);
+  assert.equal(pipeOut(hostEnd, clientEnd), 1);
+  clientS.step(4, DT);
+  assert.equal(clientS.stats().keyframesApplied, 2, "恢复靠的是一份全量");
+  assert.equal(xOf(client.scene, a), 2, "全量把丢掉的那两拍一次补齐");
+
+  // 恢复之后增量照常
+  host.scene.find(a)?.setLocalPosition(3, 0);
+  hostS.step(4, DT);
+  assert.equal(pipeOut(hostEnd, clientEnd), 1);
+  clientS.step(5, DT);
+  assert.equal(clientS.stats().deltasApplied, 1, "恢复之后要能继续吃增量");
+  // ★ 「丢了 1 份」就该是 1：缺口按**见过的最大 seq** 算。改成按「世界是哪一份」算时，
+  //   一次失配会让后面每一份都再记一次缺口 —— 丢包诊断从此永远偏高，而没有人会怀疑它。
+  assert.equal(clientS.stats().snapshotGaps, 1, "真正丢的只有第 1 拍那份增量");
+  assert.equal(jsonOf(client.scene), jsonOf(host.scene));
+});
+
+test("[增量] 增量读不回来：计数、要全量、但不许把上一份好世界改坏", () => {
+  const hostEnd = new FakeEnd(0);
+  const clientEnd = new FakeEnd(1);
+  const host = world();
+  const client = world();
+  const a = spawnPlayer(host.scene, 0, 100);
+
+  const hostS = createSession({
+    role: "host",
+    transport: hostEnd,
+    scene: host.scene,
+    registry: host.reg,
+    snapshotEveryTicks: 1,
+    keyframeEvery: 1000,
+  });
+  const clientS = createSession({ role: "client", transport: clientEnd, scene: client.scene, registry: client.reg });
+
+  clientS.step(0, DT);
+  hostS.step(0, DT);
+  pipeOut(hostEnd, clientEnd);
+  clientS.step(1, DT);
+
+  host.scene.find(a)?.setLocalPosition(5, 5);
+  hostS.step(1, DT);
+  const good = hostEnd.out.splice(0);
+  const broken = good.map((m) => ({ ...(m as SnapshotDeltaMessage), json: "{\"format\":1,\"added\":[]" }));
+  clientEnd.push(...broken);
+  clientS.step(2, DT);
+
+  assert.equal(clientS.stats().badSnapshots, 1);
+  assert.equal(clientS.stats().desyncs, 0, "坏包不算「基线对不上」，两件事分开计");
+  assert.equal(clientS.stats().resyncsSent, 1, "坏包同样要一份全量 —— 否则下一份还会坏在同一处");
+  assert.equal(xOf(client.scene, a), 0, "上一份好世界必须原样留着");
+});
+
+test("[增量] 发不出去的增量不动基线（下一份仍然基于对面手上那份）", () => {
+  const hostEnd = new FakeEnd(0);
+  const host = world();
+  const a = spawnPlayer(host.scene, 0, 100);
+  const hostS = createSession({
+    role: "host",
+    transport: hostEnd,
+    scene: host.scene,
+    registry: host.reg,
+    snapshotEveryTicks: 1,
+    keyframeEvery: 1000,
+  });
+
+  hostS.step(0, DT); // 全量 seq 0
+  assert.equal(hostEnd.out.length, 1);
+  const full = hostEnd.out[0];
+  assert.equal(full?.kind, "snapshot");
+
+  hostEnd.fails = 1; // 这份增量当场丢
+  host.scene.find(a)?.setLocalPosition(1, 0);
+  hostS.step(1, DT);
+  assert.equal(hostEnd.out.length, 1, "丢的那份不该出现在发件箱里");
+  assert.equal(hostS.stats().deltasSent, 0, "没传出去就不算发过");
+
+  host.scene.find(a)?.setLocalPosition(2, 0);
+  hostS.step(2, DT);
+  assert.equal(hostEnd.out.length, 2);
+  const second = hostEnd.out[1] as SnapshotDeltaMessage;
+  assert.equal(second.kind, "snapshot-delta");
+  // ★ 这条是「基线 = 对面手上那份」的唯一可观察证据：写成「上一拍的世界」时这里是 1，
+  //   而客户端会因为对不上而失配 —— 症状只是「多打了一次重同步」，很容易被当成噪声。
+  assert.equal(second.base, 0, "基线该还是那份全量（seq 0），不是丢掉的 seq 1");
+  const json = JSON.parse(second.json) as { patched: { id: number; fields: { x?: number } }[] };
+  assert.equal(json.patched[0]?.fields.x, 2, "丢掉的那份的变化要一起补上（否则客户端永远差一格）");
+});
+
+test("[增量] 世界在会话背后被改过（加入握手给了归属）时，主机能主动补一份全量", () => {
+  const hostEnd = new FakeEnd(0);
+  const host = world();
+  const a = spawnPlayer(host.scene, 0, 100);
+  const hostS = createSession({
+    role: "host",
+    transport: hostEnd,
+    scene: host.scene,
+    registry: host.reg,
+    snapshotEveryTicks: 1,
+    keyframeEvery: 1000,
+  });
+
+  hostS.step(0, DT);
+  host.scene.find(a)?.setLocalPosition(1, 0);
+  hostS.step(1, DT);
+  assert.equal(hostEnd.out[1]?.kind, "snapshot-delta", "基线还在时发的是增量");
+
+  // ★ 会话看不见的那次改动（`onJoin` 在场景上直接改了归属）+ 一句「补一份全量」
+  host.scene.find(a)?.setLocalPosition(2, 0);
+  hostS.requestKeyframe();
+  hostS.step(2, DT);
+  assert.equal(hostEnd.out[2]?.kind, "snapshot", "被要求之后下一份就是全量");
+  assert.equal(hostS.stats().keyframesSent, 2);
+
+  // 客户端调用是协议违规，不是静默忽略（接错线要能看见）
+  const clientEnd = new FakeEnd(1);
+  const client = world();
+  const clientS = createSession({ role: "client", transport: clientEnd, scene: client.scene, registry: client.reg });
+  clientS.requestKeyframe();
+  assert.equal(clientS.stats().protocolViolations, 1);
+});
+
+test("[增量] 刚连上（还没有基线）就收到增量：失配 + 要全量，而不是拿半空世界去合", () => {
+  const host = world();
+  const a = spawnPlayer(host.scene, 0, 100);
+  host.scene.find(a)?.setLocalPosition(4, 0);
+  const full = snapshotMsgOf(host.scene, 0, 0);
+
+  const hostEnd = new FakeEnd(0);
+  host.scene.find(a)?.setLocalPosition(6, 0);
+  const hostS2 = createSession({
+    role: "host",
+    transport: hostEnd,
+    scene: host.scene,
+    registry: host.reg,
+    snapshotEveryTicks: 1,
+    keyframeEvery: 1000,
+  });
+  hostS2.step(0, DT); // 全量
+  host.scene.find(a)?.setLocalPosition(7, 0);
+  hostS2.step(1, DT); // 增量
+  const delta = hostEnd.out[1];
+  assert.equal(delta?.kind, "snapshot-delta");
+
+  const clientEnd = new FakeEnd(1);
+  const client = world();
+  const clientS = createSession({ role: "client", transport: clientEnd, scene: client.scene, registry: client.reg });
+
+  // 只给增量，不给全量（模拟「握手那份快照是另一个人给的，会话没看见」）
+  clientEnd.push(delta as NetMessage);
+  clientS.step(0, DT);
+  void full;
+
+  assert.equal(clientS.stats().desyncs, 1);
+  assert.equal(clientS.stats().resyncsSent, 1);
+  assert.equal(clientS.stats().snapshotsApplied, 0);
+  assert.equal(client.scene.find(a), undefined, "没有基线就不许合 —— 半空世界比空世界更难查");
 });

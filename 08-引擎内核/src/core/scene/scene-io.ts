@@ -301,10 +301,22 @@ const SAVE_SCALE = 1e9;
 /** |v| 超过这个值时 v * 1e9 会越过安全整数，此时不量化（宁可原样写，也不要算错）。 */
 const SAVE_SCALE_LIMIT = 1e6;
 
-function q(v: number): number {
+/**
+ * 存档量化（导出给 `extensions/net/delta.ts` 的增量比对用）。
+ *
+ * ★ 为什么必须**共用一份**：增量快照判「这个字段变没变」，判据是「序列化之后是否
+ *   不同」。量化在序列化里，所以比对方也得量化 —— 两边各写一份的那天，
+ *   1e-9 的边界会开始不一致：要么增量永远非空（白费带宽），要么漏发一个真变化
+ *   （客户端某个坐标停在旧值，而世界看起来完全正常）。
+ */
+export function quantizeSave(v: number): number {
   if (!Number.isFinite(v)) return v;
   if (!(Math.abs(v) < SAVE_SCALE_LIMIT)) return v;
   return Math.round(v * SAVE_SCALE) / SAVE_SCALE;
+}
+
+function q(v: number): number {
+  return quantizeSave(v);
 }
 
 /** 键排序的对象序列化（嵌套也排）。 */

@@ -39,6 +39,13 @@
  *    主机日志说有人发了不该发的消息」。过滤是"不匹配的留在队列里"，
  *    不是"不匹配的丢掉"—— 后者只是把"吃消息"换了个地方发生。
  *    代价：**先取握手、后取会话**这个顺序成了调用方的责任（`net/join.ts` 文件头）。
+ *
+ * ⑤ **`seq` 是「同一发送方的同一族消息内」单调，不是整个端点单调**。
+ *    同一条线上有几族生产者：房间（`join-reply`）、会话（`snapshot` / `snapshot-delta`）、
+ *    客户端控制（`resync`）、意图（`intent`），各自从 0 数。缺口诊断只能按族做 ——
+ *    混着数时，一次加入握手就会在意图序列里凭空造出一个缺口（`intentGaps` 涨），
+ *    于是「玩家说按了没反应」与「网络真丢了」在日志里再也分不开。
+ *    这一条本来只是口头约定，批160 加 `resync` 时写进注释：注释比默契可靠。
  */
 
 import { XorShift128, type IRandom } from "../../foundation/random.ts";
@@ -84,21 +91,66 @@ export interface IntentMessage extends NetEnvelope {
   readonly intent: MoveIntent;
 }
 
-/** 主机 → 客户端：这一拍的世界长什么样（`sceneToJson(saveScene(scene))`）。 */
+/** 主机 → 客户端：这一拍的世界**全量**（`sceneToJson(snapshotOfScene(scene))`）。 */
 export interface SnapshotMessage extends NetEnvelope {
   readonly kind: "snapshot";
   readonly json: string;
 }
 
 /**
+ * 主机 → 客户端：相对 `base` 那份快照的变化量（`deltaToJson(diffSnapshot(...))`）。
+ *
+ * ★ `base` 是**上一次成功发出去的那份快照的 `seq`**，不是「上一拍的 tick」。
+ *   用 tick 当基线会撞车：加入握手在同一拍也可能拍一份，两份内容不同而 tick 相同 ——
+ *   客户端于是把增量合到一份不是基线的世界上，合完看起来完整，某个字段却是旧的。
+ */
+export interface SnapshotDeltaMessage extends NetEnvelope {
+  readonly kind: "snapshot-delta";
+  /** 这份增量基于哪一份快照（那一份的 `seq`）。 */
+  readonly base: number;
+  readonly json: string;
+}
+
+/** 为什么对不上基线。只进日志与计数，不参与任何判定。 */
+export const ResyncReason = {
+  /** 基线 seq 与增量的 `base` 不一致（中间丢了一份）。 */
+  Base: "base",
+  /** 增量本身读不回来（坏 JSON / 形状不对 / 版本更新）。 */
+  Bad: "bad",
+  /** 增量与基线严丝合缝地对不上（补丁指向不存在的节点）。 */
+  Orphan: "orphan",
+} as const;
+
+export type ResyncReason = (typeof ResyncReason)[keyof typeof ResyncReason];
+
+/**
+ * 客户端 → 主机：我对不上基线了（丢了 / 乱了 / 读不回来），请给一份全量。
+ *
+ * ★ 为什么不「等下一次关键帧」：关键帧间隔决定卡住的时长
+ *   （`keyframeEvery × snapshotEveryTicks` 拍）。恢复要等两秒时，玩家看到的是
+ *   「人全冻住了」。重同步请求是**幂等**的（多要一份全量只浪费一点带宽），
+ *   所以丢了就再要，不需要确认机制 —— 有确认反而多一个「确认也丢了」的状态。
+ */
+export interface ResyncMessage extends NetEnvelope {
+  readonly kind: "resync";
+  readonly reason: ResyncReason;
+}
+
+/**
  * 一条能过网的消息。
  *
- * ★ 四种里只有两种属于会话层（`intent` / `snapshot`），另两种属于加入握手
- *   （`join` / `join-reply`，见 `net/join.ts`）。合在一个联合里不是图省事：它们
- *   共用同一条线、同一套信封、同一个 `seq` 缺口诊断 —— 分开定义就会出现第二份
- *   「怎么算送到」。
+ * ★ 六种里四种属于会话层（`intent` / `snapshot` / `snapshot-delta` / `resync`），
+ *   另两种属于加入握手（`join` / `join-reply`，见 `net/join.ts`）。合在一个联合里
+ *   不是图省事：它们共用同一条线、同一套信封、同一套缺口诊断 —— 分开定义就会出现
+ *   第二份「怎么算送到」。
  */
-export type NetMessage = IntentMessage | SnapshotMessage | JoinRequest | JoinReply;
+export type NetMessage =
+  | IntentMessage
+  | SnapshotMessage
+  | SnapshotDeltaMessage
+  | ResyncMessage
+  | JoinRequest
+  | JoinReply;
 
 /** 诊断计数（面板与判据读这一份，避免各算一套）。 */
 export interface TransportStats {

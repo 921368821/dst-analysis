@@ -41,19 +41,53 @@
  *   发的那串意图会看起来像有人在抢别人的角色。
  *
  * ★ 快照用 `mode: "rollback"` 导出（见 `core/scene/component.ts`）：
- *   网络快照不是"新会话的存档"，而是"第 T 拍的世界"。两者对缓存的语义相反 ——
+ *   网络快照不是「新会话的存档」，而是「第 T 拍的世界」。两者对缓存的语义相反 ——
  *   存档里寻路路径是过期的，快照里它必须一致。用错模式不会报错，只会让客户端的
  *   副本与主机在第 T 拍差一个字段。
+ *
+ * ★★ 增量快照（批160）：广播发的是「相对上一份的差」，不再是整棵树
+ *
+ *   口径（哪些字段算变化量、为什么按组件整体而不按字段）全在 `net/delta.ts`
+ *   的文件头 —— 那是唯一的规格，这里只写**会话层**要多管的三件事：
+ *
+ *   ① **基线是「上一份成功发出去的内容」，不是「上一拍的世界」。**
+ *      `sentSnap` 只在 `transport.send` 返回 `true` 之后才前移。环回能知道「这条当场
+ *      就丢了」，真实传输不知道 —— 所以还有 ②。差别在于：拿「上一拍的世界」当基线时，
+ *      丢一份快照会让客户端**永久**对不上（后面每份增量都是基于它没有的世界），
+ *      而症状是「客户端某几个东西再也不动」，位置却停在一个合理的地方。
+ *
+ *   ② **对不上就明说**：客户端发现 `base` 与自己的基线不一致 / 增量读不回来 /
+ *      增量与基线严丝合缝地对不上，就发一条 `resync`，主机下一份广播改成全量。
+ *      不做「等下一次关键帧」：等待时长 = `keyframeEvery × snapshotEveryTicks` 拍，
+ *      30Hz 默认配置下是 1.5 秒，玩家看到的是「人全冻住了」。
+ *
+ *   ③ **客户端的世界仍然是整场替换**（`loadScene`）。增量只在**数据层**合成 ——
+ *      先把增量应用到上一份快照上得到完整快照，再整场装载。这条边界是批152 立的，
+ *      破了它就会出现两套增量修改逻辑各差一个字段。代价诚实地说：客户端每份快照的
+ *      CPU 代价仍是 O(节点数)，省下的是带宽，不是装载时间。
+ *
+ * ★ `seq` 是「这一族消息内」单调的（`transport.ts` ⑤）：会话的广播与意图、房间的
+ *   回复、客户端的 `resync` 各自从 0 数。所以 `base` 只可能指向会话自己发过的快照，
+ *   不会与房间的 `join-reply` 撞号。
  */
 
 import type { ComponentRegistry } from "../../core/scene/component.ts";
 import type { NodeId } from "../../core/scene/node.ts";
 import type { Scene } from "../../core/scene/scene.ts";
-import { loadScene, saveScene, sceneFromJson, sceneToJson } from "../../core/scene/scene-io.ts";
+import { loadScene, sceneFromJson, sceneToJson, type SceneSnapshot } from "../../core/scene/scene-io.ts";
+import { applyDelta, deltaFromJson, deltaToJson, diffSnapshot, snapshotOfScene } from "./delta.ts";
 import { CONTROLLER_TYPE, PlayerController } from "../input/player-controller.ts";
 import { dirStep, type MoveIntent } from "../motion/intent.ts";
 import { AUTHORITY, NET_IDENTITY_TYPE, NetIdentity, assignOwner, ownedBy, type PlayerId } from "./identity.ts";
-import type { IntentMessage, PeerId, SnapshotMessage, Transport } from "./transport.ts";
+import {
+  ResyncReason,
+  type IntentMessage,
+  type PeerId,
+  type ResyncMessage,
+  type SnapshotDeltaMessage,
+  type SnapshotMessage,
+  type Transport,
+} from "./transport.ts";
 
 export type NetRole = "host" | "client";
 
@@ -113,6 +147,16 @@ export interface SessionOptions {
    */
   readonly snapshotEveryTicks?: number;
   /**
+   * 增量快照：每多少份广播里至少有一份**全量**（关键帧）。缺省 10。
+   *
+   * ★ 设 1 = 关掉增量（每次全量）。这既是**对照实验的开关**（带宽判据就是拿它
+   *   与 10 比出来的），也是排障的第一步：客户端一直对不上时先设成 1，
+   *   世界立刻就对 ⇒ 问题在增量层，不在会话层。
+   * ★ 不提供「永不发全量」：增量链越长，一次「两边理解不同」的窗口就越长。
+   *   关键帧是兜底，真正的主路径是重同步请求（它不用等）。
+   */
+  readonly keyframeEvery?: number;
+  /**
    * 每个实体最多积压几条未消化的意图。缺省 3。
    *
    * ★ 上限不是"性能考虑"，是正确性：没有上限时一次长卡顿会积压几百条，
@@ -156,8 +200,31 @@ export interface SessionStats {
   readonly badSnapshots: number;
   /** 两种角色：收到了不该收到的消息种类。 */
   readonly protocolViolations: number;
+  /** 主机：发出去的广播总份数（全量 + 增量）。 */
   readonly snapshotsSent: number;
+  /** 主机：其中的全量份数。 */
+  readonly keyframesSent: number;
+  /** 主机：其中的增量份数。 */
+  readonly deltasSent: number;
+  /**
+   * 主机：快照负载的字符数总和（UTF-16 码元）。
+   *
+   * ★ 叫「字节」会撒谎（多字节字符时不等长），叫「带宽」更不行（还有信封）。
+   *   它唯一的用途是**同一场景下两种策略的相对比较** —— 那一比较里两端用同一把尺子。
+   */
+  readonly snapshotCharsSent: number;
+  /** 客户端：应用成功的份数（全量 + 增量）。 */
   readonly snapshotsApplied: number;
+  /** 客户端：其中全量的份数。 */
+  readonly keyframesApplied: number;
+  /** 客户端：其中增量的份数。 */
+  readonly deltasApplied: number;
+  /** 客户端：对不上基线而放弃应用的份数（每份都会触发一次重同步请求）。 */
+  readonly desyncs: number;
+  /** 客户端：发出去的重同步请求条数。 */
+  readonly resyncsSent: number;
+  /** 主机：收到的重同步请求条数。 */
+  readonly resyncsReceived: number;
   readonly intentsSent: number;
   /** 客户端：最近一次应用成功的快照属于哪一拍（-1 = 还没收到过）。 */
   readonly lastSnapshotTick: number;
@@ -183,6 +250,16 @@ export interface NetSession {
   step(tick: number, dt: number): void;
   /** 主机：把实体的归属交给某个对端（交接 / 加入）。客户端调用会被拒并计数。 */
   assign(nodeId: NodeId, peer: PeerId): boolean;
+  /**
+   * 主机：下一份广播发全量（关键帧）。
+   *
+   * ★ 用在「世界在会话背后被改过」的时刻，最典型的是加入握手刚给完归属
+   *   （`net/join.ts` 的 `snapshot` 回调里拍的快照与会话的基线不是同一份）。
+   *   不调也不会错：客户端的 `base` 会对不上，它自己会 `resync` 要一份 ——
+   *   代价是一个往返还可能丢，而且从日志看像一次网络故障。
+   * ★ 客户端调用按协议违规计：只有权威知道「世界什么时候被偷偷改过」。
+   */
+  requestKeyframe(): void;
   stats(): SessionStats;
 }
 
@@ -203,6 +280,7 @@ class Session implements NetSession {
   private readonly scene: Scene;
   private readonly registry: ComponentRegistry;
   private readonly snapshotEvery: number;
+  private readonly keyframeEvery: number;
   private readonly maxQueued: number;
   private readonly local: ((tick: number) => LocalCommand | null) | null;
   private readonly playerOf: (peer: PeerId) => PlayerId | null;
@@ -213,8 +291,30 @@ class Session implements NetSession {
   private readonly intentSeq = new Map<PeerId, number>();
 
   private outSeq = 0;
-  private lastSnapshotSeq = -1;
+  /** 客户端：见过的最大快照 `seq`（含**没能应用**的那份）。缺口与乱序都靠它。 */
+  private seenSeq = -1;
+  /**
+   * 客户端：手上这份世界对应哪一份快照的 `seq`。
+   *
+   * ★ 与 `seenSeq` 分开：一份增量「收到了但没能应用」时，`seenSeq` 该前移
+   *   （否则下一份的缺口会被算成丢包），而基数**不能**前移（否则下一份增量会
+   *   合到一份不是它基线的世界上）。
+   */
+  private baseSeq = -1;
+  /** 客户端：基数那份快照的内容（增量只在这个数据层上合成）。 */
+  private baseSnap: SceneSnapshot | null = null;
   private lastSnapshotTick = -1;
+
+  /** 主机：上一份**成功发出去**的内容（增量的基线）。`null` = 还没发过，下一份必须是全量。 */
+  private sentSnap: SceneSnapshot | null = null;
+  /** 主机：`sentSnap` 那份的 `seq`（增量里的 `base`）。 */
+  private sentSeq = -1;
+  /** 主机：距离上一份全量发了几份。 */
+  private sinceKeyframe = 0;
+  /** 主机：有客户端说对不上，下一份改全量。 */
+  private forceFull = false;
+  /** 客户端：重同步请求自己的序号（**不与意图共用**，见文件头末尾）。 */
+  private ctrlSeq = 0;
 
   private localApplied = 0;
   private remoteApplied = 0;
@@ -225,7 +325,15 @@ class Session implements NetSession {
   private badSnapshots = 0;
   private protocolViolations = 0;
   private snapshotsSent = 0;
+  private keyframesSent = 0;
+  private deltasSent = 0;
+  private snapshotCharsSent = 0;
   private snapshotsApplied = 0;
+  private keyframesApplied = 0;
+  private deltasApplied = 0;
+  private desyncs = 0;
+  private resyncsSent = 0;
+  private resyncsReceived = 0;
   private intentsSent = 0;
   private readonly rejected: Record<NetRejectReason, number>;
 
@@ -238,11 +346,16 @@ class Session implements NetSession {
     if (!Number.isInteger(queued) || queued < 1) {
       throw new RangeError(`maxQueuedIntents 必须是 ≥1 的整数，收到 ${String(queued)}`);
     }
+    const keyframe = opts.keyframeEvery ?? 10;
+    if (!Number.isInteger(keyframe) || keyframe < 1) {
+      throw new RangeError(`keyframeEvery 必须是 ≥1 的整数（1 = 关掉增量），收到 ${String(keyframe)}`);
+    }
     this.role = opts.role;
     this.transport = opts.transport;
     this.scene = opts.scene;
     this.registry = opts.registry;
     this.snapshotEvery = every;
+    this.keyframeEvery = keyframe;
     this.maxQueued = queued;
     this.local = opts.local ?? null;
     this.playerOf = opts.playerOf ?? ((peer: PeerId): PlayerId => peer);
@@ -261,9 +374,11 @@ class Session implements NetSession {
     for (const msg of this.transport.receive(tick)) {
       if (this.role === "host") {
         if (msg.kind === "intent") this.onIntent(msg);
+        else if (msg.kind === "resync") this.onResync(msg);
         else this.protocolViolations++;
       } else {
-        if (msg.kind === "snapshot") this.onSnapshot(msg);
+        if (msg.kind === "snapshot") this.onSnapshot(msg, tick);
+        else if (msg.kind === "snapshot-delta") this.onDelta(msg, tick);
         else this.protocolViolations++;
       }
     }
@@ -293,6 +408,16 @@ class Session implements NetSession {
     return assignOwner(this.scene, nodeId, peer);
   }
 
+  requestKeyframe(): void {
+    if (this.role !== "host") {
+      // ★ 客户端没有「强制关键帧」这个动作：它连基线都对不上时该做的是 `resync`。
+      //   静默忽略会让一行接错的代码永远不报错。
+      this.protocolViolations++;
+      return;
+    }
+    this.forceFull = true;
+  }
+
   stats(): SessionStats {
     let queued = 0;
     for (const q of this.queues.values()) queued += q.length;
@@ -311,7 +436,15 @@ class Session implements NetSession {
       badSnapshots: this.badSnapshots,
       protocolViolations: this.protocolViolations,
       snapshotsSent: this.snapshotsSent,
+      keyframesSent: this.keyframesSent,
+      deltasSent: this.deltasSent,
+      snapshotCharsSent: this.snapshotCharsSent,
       snapshotsApplied: this.snapshotsApplied,
+      keyframesApplied: this.keyframesApplied,
+      deltasApplied: this.deltasApplied,
+      desyncs: this.desyncs,
+      resyncsSent: this.resyncsSent,
+      resyncsReceived: this.resyncsReceived,
       intentsSent: this.intentsSent,
       lastSnapshotTick: this.lastSnapshotTick,
       owned: mine === null ? 0 : ownedBy(this.scene, mine).length,
@@ -347,31 +480,125 @@ class Session implements NetSession {
     }
   }
 
-  private onSnapshot(msg: SnapshotMessage): void {
-    if (this.lastSnapshotSeq >= 0) {
-      const missed = msg.seq - this.lastSnapshotSeq - 1;
+  /**
+   * 序号诊断（**只看收到过什么**，不看应用成功没成功）。
+   *
+   * ★ 两个计数器要分开，否则「收到但没应用」会被记成「丢了」：
+   *   `seenSeq` 管缺口与乱序，`baseSeq` 管「我这份世界是哪一份」。合成一个时，
+   *   一次坏增量会让下一份好增量的缺口凭空 +1 —— 而丢包本来是要能被数清的。
+   *
+   * 返回 `false` = 这份比手上看过的旧（乱序 / 重放），一律不应用。
+   */
+  private noteSeq(seq: number): boolean {
+    if (this.seenSeq >= 0) {
+      const missed = seq - this.seenSeq - 1;
       if (missed > 0) this.snapshotGaps += missed;
-      if (msg.seq <= this.lastSnapshotSeq) {
+      if (seq <= this.seenSeq) {
         // 乱序 / 重放：旧快照不许覆盖新世界。用 `<=` 而不是 `<` 是因为
         // 同一 seq 到达两次时，第二次应用没有意义（整场替换代价不小）。
         this.staleSnapshots++;
-        return;
+        return false;
       }
     }
-    this.lastSnapshotSeq = msg.seq;
+    this.seenSeq = seq;
+    return true;
+  }
+
+  private onSnapshot(msg: SnapshotMessage, tick: number): void {
+    if (!this.noteSeq(msg.seq)) return;
 
     const parsed = sceneFromJson(msg.json);
     if (!parsed.ok) {
       this.badSnapshots++;
+      this.askFull(tick, ResyncReason.Bad);
       return;
     }
-    const r = loadScene(this.scene, parsed.value, this.registry);
-    if (!r.ok) {
+    if (!this.commit(parsed.value)) {
       this.badSnapshots++;
+      this.askFull(tick, ResyncReason.Bad);
       return;
     }
+    this.baseSnap = parsed.value;
+    this.baseSeq = msg.seq;
     this.snapshotsApplied++;
+    this.keyframesApplied++;
     this.lastSnapshotTick = msg.tick;
+  }
+
+  /**
+   * 应用一份增量：**先合出一份完整快照，再整场替换**（见文件头 ③）。
+   *
+   * ★ 三条「不算数」的路径各自对应一种真实故障，而且都必须**要一份全量**：
+   *   · `base` 对不上 ⇒ 中间丢了一份（或者我刚从一份全量里恢复，而主机的基线更早）；
+   *   · 增量读不回来 ⇒ 包坏了 / 版本不同；
+   *   · 补丁指向基线里没有的节点 ⇒ 两边对「基线是什么」理解不同（最隐蔽的一类：
+   *     合出来的世界节点一个不少，只有某个字段是旧的）。
+   */
+  private onDelta(msg: SnapshotDeltaMessage, tick: number): void {
+    if (!this.noteSeq(msg.seq)) return;
+    if (this.baseSnap === null || msg.base !== this.baseSeq) {
+      this.desyncs++;
+      this.askFull(tick, ResyncReason.Base);
+      return;
+    }
+    const parsed = deltaFromJson(msg.json);
+    if (!parsed.ok) {
+      this.badSnapshots++;
+      this.askFull(tick, ResyncReason.Bad);
+      return;
+    }
+    const applied = applyDelta(this.baseSnap, parsed.value);
+    if (applied.orphans > 0) {
+      this.desyncs++;
+      this.askFull(tick, ResyncReason.Orphan);
+      return;
+    }
+    if (!this.commit(applied.snap)) {
+      this.badSnapshots++;
+      this.askFull(tick, ResyncReason.Bad);
+      return;
+    }
+    this.baseSnap = applied.snap;
+    this.baseSeq = msg.seq;
+    this.snapshotsApplied++;
+    this.deltasApplied++;
+    this.lastSnapshotTick = msg.tick;
+  }
+
+  /**
+   * 装载一份完整快照。返回 `false` = 没装成（世界保持原样）。
+   *
+   * ★ `loadScene` 唯一的失败路径是「格式比引擎新」，它在 `scene.clear()` **之前**
+   *   就返回了 —— 所以失败时世界没被动过。这一点不能靠「大概吧」：上面的
+   *   `baseSnap` 只有在装载成功之后才前移，靠的就是它。
+   */
+  private commit(snap: SceneSnapshot): boolean {
+    return loadScene(this.scene, snap, this.registry).ok;
+  }
+
+  /** 请主机给一份全量。**幂等**：多要一份只浪费一点带宽，所以不做去重与重试上限。 */
+  private askFull(tick: number, reason: ResyncReason): void {
+    const msg = {
+      kind: "resync" as const,
+      from: this.transport.self,
+      tick,
+      seq: this.ctrlSeq++,
+      reason,
+    };
+    if (this.transport.send(msg)) this.resyncsSent++;
+  }
+
+  /**
+   * 主机收到重同步请求：下一份广播改全量。
+   *
+   * ★ 不校验发送方有没有座位：会话层不认识座位表（那是 `net/join.ts` 的事），
+   *   而多给一份全量最多浪费带宽。在这里加一道「它有座位吗」的检查，会把
+   *   「掉线中的人请求恢复」判成攻击，而那种情况下他恰恰最需要一份。
+   */
+  private onResync(msg: ResyncMessage): void {
+    void msg;
+    this.resyncsReceived++;
+    this.forceFull = true;
   }
 
   // ---------------------------------------------------------------- 授权与执行
@@ -455,15 +682,36 @@ class Session implements NetSession {
     if (this.transport.send(msg)) this.intentsSent++;
   }
 
+  /**
+   * 广播：全量（关键帧）或增量。
+   *
+   * ★ `seq` 在**准备发**时消耗，不管对面收不收得到（与 `sendIntent` 同一条规矩）：
+   *   否则丢包就不会留下缺口，而缺口是接收方唯一能发现丢包的证据。
+   * ★ 但 `sentSnap` / `sentSeq` **只在传出去了之后**才前移：它们是「对面手上有什么」，
+   *   而不是「我算出了什么」。见文件头 ①。
+   */
   private broadcast(tick: number): void {
-    const msg: SnapshotMessage = {
-      kind: "snapshot",
-      from: this.transport.self,
-      tick,
-      seq: this.outSeq++,
-      json: sceneToJson(saveScene(this.scene, { mode: "rollback" })),
-    };
-    if (this.transport.send(msg)) this.snapshotsSent++;
+    const now = snapshotOfScene(this.scene);
+    const seq = this.outSeq++;
+    const base = this.sentSnap;
+    const keyframe = base === null || this.forceFull || this.sinceKeyframe + 1 >= this.keyframeEvery;
+    const json = keyframe ? sceneToJson(now) : deltaToJson(diffSnapshot(base, now));
+    const msg: SnapshotMessage | SnapshotDeltaMessage = keyframe
+      ? { kind: "snapshot", from: this.transport.self, tick, seq, json }
+      : { kind: "snapshot-delta", from: this.transport.self, tick, seq, base: this.sentSeq, json };
+    if (!this.transport.send(msg)) return;
+    this.snapshotsSent++;
+    this.snapshotCharsSent += json.length;
+    if (keyframe) {
+      this.keyframesSent++;
+      this.sinceKeyframe = 0;
+      this.forceFull = false;
+    } else {
+      this.deltasSent++;
+      this.sinceKeyframe++;
+    }
+    this.sentSnap = now;
+    this.sentSeq = seq;
   }
 }
 
