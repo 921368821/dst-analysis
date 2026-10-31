@@ -3,6 +3,9 @@ var TAU = Math.PI * 2;
 function clamp(v, lo, hi) {
   return v < lo ? lo : v > hi ? hi : v;
 }
+function planeLen(dx, dz) {
+  return Math.sqrt(dx * dx + dz * dz);
+}
 function quantize(v, decimals = 3) {
   const f = Math.pow(10, decimals);
   return Math.sign(v) * Math.round(Math.abs(v) * f + 1e-9) / f;
@@ -5835,7 +5838,7 @@ function sweepCircleVsCircle(px, pz, dx, dz, r, cx, cz, otherR, nodeId = NO_NODE
   if (t === null || t > 1) return null;
   const hx = px + dx * t - cx;
   const hz = pz + dz * t - cz;
-  const len = Math.hypot(hx, hz);
+  const len = planeLen(hx, hz);
   if (len === 0) return { t, nx: 0, nz: 0, nodeId };
   return { t, nx: hx / len, nz: hz / len, nodeId };
 }
@@ -6133,7 +6136,7 @@ var SpatialHashWorld = class {
     if (self === void 0) return null;
     const p = this.pos.get(nodeId);
     if (p === void 0) return null;
-    const reach = Math.hypot(dx, dz) + self.radius + this.maxRange;
+    const reach = planeLen(dx, dz) + self.radius + this.maxRange;
     const boxes = [];
     const circles = [];
     for (const id of this.query(p.x, p.z, reach)) {
@@ -7106,7 +7109,7 @@ function dirStep(intent, speed, dt) {
   if (!positive(speed) || !positive(dt)) return STEP_ZERO;
   const { dx, dz } = intent;
   if (!Number.isFinite(dx) || !Number.isFinite(dz)) return STEP_ZERO;
-  const len = Math.hypot(dx, dz);
+  const len = planeLen(dx, dz);
   if (len === 0) return STEP_ZERO;
   return { dx: dx / len * speed * dt, dz: dz / len * speed * dt, done: false };
 }

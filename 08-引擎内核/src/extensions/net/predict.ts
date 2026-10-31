@@ -56,6 +56,7 @@
  *   属于下一个决定，不该混在这里。
  */
 
+import { planeLen } from "../../foundation/math/scalar.ts";
 import type { NodeId } from "../../core/scene/node.ts";
 import type { Scene } from "../../core/scene/scene.ts";
 import { CONTROLLER_TYPE, PlayerController } from "../input/player-controller.ts";
@@ -239,7 +240,7 @@ class PredictorImpl implements Predictor {
       // 它停在量化地板（≈1e-9）；主机丢过一条意图时它是一步的量（speed × dt ≈ 0.15）。
       const seen = this.shown.get(entity);
       if (seen !== undefined) {
-        const err = Math.hypot(x - seen.x, y - seen.y);
+        const err = planeLen(x - seen.x, y - seen.y);
         if (err > this.maxError) this.maxError = err;
       }
       node.setLocalPosition(x, y);

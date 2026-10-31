@@ -20,6 +20,7 @@
  *   退化成链表，而哈希表的 cell 是常数成本。饥荒用的也是网格。
  */
 
+import { planeLen } from "../../foundation/math/scalar.ts";
 import type { EngineError, Result } from "../../foundation/result.ts";
 import { err, ok } from "../../foundation/result.ts";
 import { earliestHit, sweepCircleVsBox, sweepCircleVsCircle, type SweepBox, type SweepHit } from "./sweep.ts";
@@ -478,7 +479,7 @@ export class SpatialHashWorld implements IPhysicsWorld {
     if (self === undefined) return null;
     const p = this.pos.get(nodeId);
     if (p === undefined) return null;
-    const reach = Math.hypot(dx, dz) + self.radius + this.maxRange;
+    const reach = planeLen(dx, dz) + self.radius + this.maxRange;
     const boxes: SweepBox[] = [];
     const circles: { cx: number; cz: number; r: number; nodeId: number }[] = [];
     for (const id of this.query(p.x, p.z, reach)) {

@@ -35,6 +35,7 @@
  *    一个 NaN 不该让整个世界这一 tick 停摆。判据钉的是「降级成零」而不是「随便怎样」。
  */
 
+import { planeLen } from "../../foundation/math/scalar.ts";
 import type { NavGrid } from "../nav/nav-grid.ts";
 import { stepAlong } from "../nav/move-along.ts";
 
@@ -87,7 +88,7 @@ export function dirStep(intent: MoveIntent, speed: number, dt: number): StepResu
   if (!positive(speed) || !positive(dt)) return STEP_ZERO;
   const { dx, dz } = intent;
   if (!Number.isFinite(dx) || !Number.isFinite(dz)) return STEP_ZERO;
-  const len = Math.hypot(dx, dz);
+  const len = planeLen(dx, dz);
   // 零向量不是错误，是「这个 tick 没推摇杆」
   if (len === 0) return STEP_ZERO;
   return { dx: (dx / len) * speed * dt, dz: (dz / len) * speed * dt, done: false };

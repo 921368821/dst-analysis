@@ -991,11 +991,12 @@ MUTANTS = [
         # steps 的值来自 `node tools/ci.mjs --list`（外部进程），
         # 与 backends（读目录）是两条不同的取数路径，各钉一条。
         "file": "docs/ARCHITECTURE.md",
-        # ★ 靶子随闸门数漂移过四次（10→11→12→13→14→15）：这条变异必须跟着**真实标题**走，
+        # ★ 靶子随闸门数漂移过五次（10→11→12→13→14→15→16，批162 加了确定性闸门）：
+        #   这条变异必须跟着**真实标题**走，
         #   否则它报的是"变异点没找到"（靶子漂移），而不是"文档对账抓住了它"。
         #   这也是"靶子漂移"这个分类存在的意义：它明确告诉你该改的是**变异表**，
         #   不是判据 —— 别去动 docs-check。
-        "pairs": [("### 10.4 15 道闸门", "### 10.4 14 道闸门")],
+        "pairs": [("### 10.4 16 道闸门", "### 10.4 15 道闸门")],
         "test": "docs/ARCHITECTURE.md",
         "cmd": ["node", "tools/docs-check.mjs", "--quick"],
     },
@@ -1806,7 +1807,7 @@ MUTANTS = [
         # 位置、输入、组件全都正常，只是"斜走更快" —— 玩家能感觉到，数值一个都不报错。
         # ★ 批149 重新指认：归一化算式搬进了 `motion/intent.ts`（M884 打那边）。
         #   这条改成打**接线** —— 玩家这条路径有没有真的走 `dirStep`。
-        #   两条不重复：M884 删的是 dirStep 内部的 hypot，这条绕开 dirStep 自己乘。
+        #   两条不重复：M884 把 dirStep 内部的分母固定成 1，这条绕开 dirStep 自己乘。
         "file": "src/extensions/input/player-controller.ts",
         "pairs": [("  const r = dirStep({ kind: \"move.dir\", dx: d.dx, dz: d.dz }, speed, dt);",
                    "  const r = { dx: d.dx * speed * dt, dz: d.dz * speed * dt, done: false };")],
@@ -4945,7 +4946,7 @@ MUTANTS = [
         "file": "src/extensions/physics/physics.ts",
         "pairs": [
             [
-                "    const reach = Math.hypot(dx, dz) + self.radius + this.maxRange;",
+                "    const reach = planeLen(dx, dz) + self.radius + this.maxRange;",
                 "    const reach = self.radius + this.maxRange;"
             ]
         ],
@@ -8132,7 +8133,7 @@ MUTANTS = [
         "name": "M884 对角线不归一化 ⇒ 斜着走比直着走快 41%，而所有位置判据照绿",
         "file": "src/extensions/motion/intent.ts",
         "pairs": [(
-            "  const len = Math.hypot(dx, dz);",
+            "  const len = planeLen(dx, dz);",
             "  const len = 1;",
         )],
         "test": "tests/extensions/intent.test.ts",
@@ -9759,6 +9760,94 @@ MUTANTS = [
             ),
         ],
         "test": "tests/extensions/net-predict.test.ts",
+    },
+    {
+        "name": "M1030 planeLen 实现换回 hypot（数值上今天一样 ⇒ 只有静态闸门抓得住）",
+        "file": "src/foundation/math/scalar.ts",
+        "pairs": [
+            (
+                "  return Math.sqrt(dx * dx + dz * dz);",
+                "  return Math.hypot(dx, dz);",
+            ),
+        ],
+        "test": "tests/tools/determinism-scan.test.ts",
+    },
+    {
+        "name": "M1031 调用点换回 hypot（12 处里任意一处都要被闸门抓住，不只是定义处）",
+        "file": "src/extensions/motion/intent.ts",
+        "pairs": [
+            (
+                "  const len = planeLen(dx, dz);",
+                "  const len = Math.hypot(dx, dz);",
+            ),
+        ],
+        "test": "tests/tools/determinism-scan.test.ts",
+    },
+    {
+        "name": "M1032 闸门不跳过整行注释（文件头写「为什么不能用 Math.random」都被判红 ⇒ 人开始习惯性加白名单）",
+        "file": "tools/determinism-scan.mjs",
+        "pairs": [
+            (
+                "        if (isCommentLine(lineText)) continue;",
+                "        if (false) continue;",
+            ),
+        ],
+        "test": "tests/tools/determinism-scan.test.ts",
+    },
+    {
+        "name": "M1033 白名单只认规则不认文件（一处豁免扩散成整个仓库的同类都免疫）",
+        "file": "tools/determinism-scan.mjs",
+        "pairs": [
+            (
+                "        if (allowKeys.has(key)) {",
+                "        if (allow.some((a) => a.rule === rule.id)) {",
+            ),
+        ],
+        "test": "tests/tools/determinism-scan.test.ts",
+    },
+    {
+        "name": "M1034 陈旧白名单不报（文件改名后白名单静默失效，还在替未来的违规打掩护）",
+        "file": "tools/determinism-scan.mjs",
+        "pairs": [
+            (
+                "  const unusedAllow = allow.filter((a) => !used.has(`${a.file}\\u0000${a.rule}`));",
+                "  const unusedAllow = [];",
+            ),
+        ],
+        "test": "tests/tools/determinism-scan.test.ts",
+    },
+    {
+        "name": "M1035 命中数与登记值不符时不报（规则被写错 ⇒ 永远 0 命中 ⇒ 与\"仓库干净\"一模一样）",
+        "file": "tools/determinism-scan.mjs",
+        "pairs": [
+            (
+                "  const stale = rules\n    .filter((r) => (hitsByRule.get(r.id) ?? 0) !== r.expect)\n    .map((r) => ({ id: r.id, expect: r.expect, actual: hitsByRule.get(r.id) ?? 0 }));",
+                "  const stale = [];",
+            ),
+        ],
+        "test": "tests/tools/determinism-scan.test.ts",
+    },
+    {
+        "name": "M1036 违规行号取文件总行数（报出来的位置永远指在末尾 ⇒ 追查成本从一秒变成一整天）",
+        "file": "tools/determinism-scan.mjs",
+        "pairs": [
+            (
+                "        const line = before.split(\"\\n\").length;",
+                "        const line = fileLines.length;",
+            ),
+        ],
+        "test": "tests/tools/determinism-scan.test.ts",
+    },
+    {
+        "name": "M1037 planeLen 写成曼哈顿距离（斜着走 41% 快，而位置判据全绿）",
+        "file": "src/foundation/math/scalar.ts",
+        "pairs": [
+            (
+                "  return Math.sqrt(dx * dx + dz * dz);",
+                "  return Math.abs(dx) + Math.abs(dz);",
+            ),
+        ],
+        "test": "tests/core/math-plane-len.test.ts",
     },
 ]
 

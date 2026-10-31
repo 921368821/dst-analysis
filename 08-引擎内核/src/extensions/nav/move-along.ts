@@ -23,6 +23,7 @@
  *    看起来像"卡在路点上学步"。取更大下标 = 宁可往前，符合"已经走过的不重走"。
  */
 
+import { planeLen } from "../../foundation/math/scalar.ts";
 import type { NavGrid } from "./nav-grid.ts";
 
 /** 到点判定阈值（世界单位）。小于它就算踩到了这个路点。 */
@@ -71,7 +72,7 @@ export function stepAlong(
     const c = grid.centerOf(path[i]!);
     const dx = c.x - px;
     const dz = c.z - pz;
-    const d = Math.hypot(dx, dz);
+    const d = planeLen(dx, dz);
 
     if (d <= ARRIVE_EPS) {
       // 已经在这一格上：吸附 + 换下一个（吸附让浮点误差不会累积）
@@ -107,7 +108,7 @@ export function pathLength(grid: NavGrid, path: readonly number[], fromX?: numbe
   let pz = fromZ;
   for (const cell of path) {
     const c = grid.centerOf(cell);
-    if (px !== undefined && pz !== undefined) total += Math.hypot(c.x - px, c.z - pz);
+    if (px !== undefined && pz !== undefined) total += planeLen(c.x - px, c.z - pz);
     px = c.x;
     pz = c.z;
   }

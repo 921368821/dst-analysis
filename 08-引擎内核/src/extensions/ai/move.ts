@@ -55,6 +55,7 @@ import type { IModule, ModuleContext } from "../../core/module/module.ts";
 import type { Scene } from "../../core/scene/scene.ts";
 import type { Node } from "../../core/scene/node.ts";
 import { Services } from "../../core/tokens.ts";
+import { planeLen } from "../../foundation/math/scalar.ts";
 import { engineError, err, ok, type EngineError, type Result } from "../../foundation/result.ts";
 import { FACING_TYPE, type Facing } from "../motion/facing.ts";
 import type { NavGrid } from "../nav/nav-grid.ts";
@@ -219,7 +220,7 @@ export function createMoveModule(opts: MoveModuleOptions): MoveModuleHandle {
     if (sweep === undefined) return { x: toX, z: toZ, hit: null };
     const dx = toX - fromX;
     const dz = toZ - fromZ;
-    const len = Math.hypot(dx, dz);
+    const len = planeLen(dx, dz);
     if (!(len > 0)) return { x: toX, z: toZ, hit: null };
     const hit = sweep(nodeId, dx, dz);
     if (hit === null) return { x: toX, z: toZ, hit: null };
@@ -325,7 +326,7 @@ export function createMoveModule(opts: MoveModuleOptions): MoveModuleHandle {
         }
         const stepX = aim.x - wp.x;
         const stepZ = aim.z - wp.y;
-        const movedNow = Math.hypot(stepX, stepZ);
+        const movedNow = planeLen(stepX, stepZ);
         if (movedNow > 0) {
           // 见文件头 ⑤：把世界坐标的增量回写到 local
           const lp = node.localPosition;

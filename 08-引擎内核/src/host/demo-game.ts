@@ -19,6 +19,7 @@
  *   手动调会绕过拓扑排序与失败回滚，而且很容易漏掉 stop/dispose。
  */
 
+import { planeLen } from "../foundation/math/scalar.ts";
 import { ok, err, engineError, type EngineError, type Result } from "../foundation/result.ts";
 import { BackendRegistry } from "../platform/registry.ts";
 import type { PlatformRequest } from "../platform/platform.ts";
@@ -2351,7 +2352,7 @@ export async function buildDemoGame(env: DemoHostEnv): Promise<DemoHandle> {
       if (c.node === null) continue;
       const gx = c.cell % plan.width;
       const gz = (c.cell - gx) / plan.width;
-      const d = Math.hypot(gx + 0.5 - x, gz + 0.5 - z);
+      const d = planeLen(gx + 0.5 - x, gz + 0.5 - z);
       if (d > range) continue;
       // 同距离取小 cell：回放与"点了同一具"都依赖确定性
       if (d < bestD || (d === bestD && (best < 0 || c.cell < best))) {

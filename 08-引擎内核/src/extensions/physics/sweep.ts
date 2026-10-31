@@ -25,6 +25,7 @@
  *   不是某段数学的一部分。
  */
 
+import { planeLen } from "../../foundation/math/scalar.ts";
 /** 静态障碍：中心 + 半宽半高（XZ 平面）。`nodeId` 只用于回报"撞到了谁"。 */
 export interface SweepBox {
   readonly cx: number;
@@ -223,7 +224,7 @@ export function sweepCircleVsCircle(
   if (t === null || t > 1) return null;
   const hx = px + dx * t - cx;
   const hz = pz + dz * t - cz;
-  const len = Math.hypot(hx, hz);
+  const len = planeLen(hx, hz);
   if (len === 0) return { t, nx: 0, nz: 0, nodeId };
   return { t, nx: hx / len, nz: hz / len, nodeId };
 }
@@ -307,7 +308,7 @@ export function moveSwept(
     if (h === null) {
       x += remX;
       z += remZ;
-      traveled += Math.hypot(remX, remZ);
+      traveled += planeLen(remX, remZ);
       break;
     }
     hit = true;
@@ -315,7 +316,7 @@ export function moveSwept(
     // 起点已经重叠（`t === 0`）⇒ **这一拍不动**，交给 `resolve()` 去分开。
     // ★ 滑过去会让"卡在墙里"变成"从墙里穿出去"，而那正是这套代码要防的事。
     if (h.t <= 0) break;
-    const len = Math.hypot(remX, remZ);
+    const len = planeLen(remX, remZ);
     // 走到接触点，再退 `skin`：不退的话下一轮起点恰好相切，
     // 而"相切"在浮点上是重叠/不重叠五五开 —— 那就是"有时会粘住"的来源。
     const back = Math.max(0, h.t - (len > 0 ? skin / len : 0));
@@ -328,7 +329,7 @@ export function moveSwept(
     remX -= h.nx * dot;
     remZ -= h.nz * dot;
     if (step === maxSlides) break; // 滑动次数用尽：停在接触点
-    if (Math.hypot(remX, remZ) < skin) break;
+    if (planeLen(remX, remZ) < skin) break;
     slides++;
   }
 
