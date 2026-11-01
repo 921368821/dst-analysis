@@ -172,14 +172,47 @@ export async function openPage(browser, url, profile, pageHint, windowSize = "96
   const devtools = await waitForDevTools(child, 30_000);
   // ws://127.0.0.1:PORT/devtools/browser/<id> → 取页面 target 的 ws 地址
   const port = new URL(devtools).port;
-  const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
-  const page = list.find((t) => t.type === "page" && String(t.url).includes(pageHint)) ?? list.find((t) => t.type === "page");
+  // ★★ 选 target 要**重试**（批169 实测到的偶发假红）：
+  //
+  //   `/json/list` 在浏览器刚起来那一瞬间可能只报一个 `about:blank` —— 我们要的
+  //   那张页还没进列表。旧写法是"取一次，找不到就退到第一个 page"，于是连到了
+  //   一张**永远不加载**的空白页上，探针 30 秒后报"引擎没起来"，而**同一个 URL
+  //   下一次跑就通过**。实测两轮里红的那一格还不一样 —— 这就是"选错了标签页"
+  //   的典型形状，不是"页面坏了"。
+  //
+  //   注意这**不是放宽判据**：判据（断言）一个字没改，这里只是不再把
+  //   "我没连上对的那张页"记成"引擎没起来"。
+  const page = await pickPageTarget(port, pageHint, 10_000);
   if (page === undefined) throw new Error("调试端口里没有页面 target");
-
   const client = connect(page.webSocketDebuggerUrl);
   await client.ready;
   await client.send("Runtime.enable");
   return { child, client };
+}
+
+/**
+ * 在调试端口的 target 列表里挑出**我们要的那张页**，最多等 `ms`。
+ *
+ * ★ 兜底保留，但只在超时之后用，并且**不接受 `about:`**：空白页永远不会加载我们的
+ *   脚本，连上去只会得到 30 秒的"没起来"，而那是个假红。
+ */
+async function pickPageTarget(port, pageHint, ms) {
+  const deadline = Date.now() + ms;
+  let fallback;
+  for (;;) {
+    let list = [];
+    try {
+      list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
+    } catch {
+      list = []; // 端口刚开、还没开始服务
+    }
+    const hit = list.find((t) => t.type === "page" && String(t.url).includes(pageHint));
+    if (hit !== undefined) return hit;
+    const first = list.find((t) => t.type === "page");
+    if (first !== undefined && !String(first.url).startsWith("about:")) fallback = first;
+    if (Date.now() >= deadline) return fallback ?? first;
+    await sleep(100);
+  }
 }
 
 /** 页面控制台里的异常与 error 日志（排障线索，不是判据）。 */

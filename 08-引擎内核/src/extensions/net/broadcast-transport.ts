@@ -37,7 +37,7 @@
  *   要等 20 次事件循环）。`ChannelLike` 只要求三样东西，内存总线三行就能实现。
  */
 
-import type { NetMessage, PeerId, Transport, TransportStats } from "./transport.ts";
+import { isKnownKind, isNetMessage, type NetMessage, type PeerId, type Transport, type TransportStats } from "./transport.ts";
 
 /**
  * `BroadcastChannel` 里我们用到的那三样。
@@ -53,16 +53,6 @@ export interface ChannelLike {
   /** 只用于诊断（`stats` 里报哪条通道）。缺省当作 `""`。 */
   readonly name?: string;
 }
-
-/** 已知的消息种类。收到表外的 `kind` 一律丢弃并计入 `unknownKinds`。 */
-const KNOWN_KINDS: ReadonlySet<string> = new Set([
-  "intent",
-  "snapshot",
-  "snapshot-delta",
-  "resync",
-  "join",
-  "join-reply",
-]);
 
 export interface BroadcastTransportOptions {
   readonly channel: ChannelLike;
@@ -98,13 +88,6 @@ interface Arrived {
   readonly msg: NetMessage;
 }
 
-/** 形状校验：只认「有 kind、有 tick、有 seq」的对象。 */
-function isNetMessage(v: unknown): v is NetMessage {
-  if (typeof v !== "object" || v === null) return false;
-  const o = v as Record<string, unknown>;
-  return typeof o["kind"] === "string" && typeof o["tick"] === "number" && typeof o["seq"] === "number";
-}
-
 export function createBroadcastTransport(opts: BroadcastTransportOptions): BroadcastTransport {
   const { channel, self } = opts;
   const inbox: Arrived[] = [];
@@ -125,7 +108,7 @@ export function createBroadcastTransport(opts: BroadcastTransportOptions): Broad
       malformed++;
       return;
     }
-    if (!KNOWN_KINDS.has(data.kind)) {
+    if (!isKnownKind(data.kind)) {
       counters.dropped++;
       unknownKinds++;
       return;

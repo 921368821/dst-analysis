@@ -20,6 +20,7 @@ import { NetIdentity, registerNetIdentity } from "../../src/extensions/net/ident
 import {
   DEFAULT_ROOM,
   localDriveOf,
+  normalizeWsUrl,
   parseNetMode,
   pickLocalEntity,
   planNetWiring,
@@ -89,16 +90,18 @@ test("[联机模式] 房间名：合法就用，不合法退回缺省并在理�
 });
 
 test("[联机模式] ★ `?seat=` 那条路整个不存在了（宿主不许申报座位号）", () => {
-  // ★ 这条判据守的是**接口形状**，不是某个分支：`parseNetMode` 的第三个参数被删掉之后，
-  //   多传进来的东西必须完全不起作用（JS 里多传的参数本来就会被忽略）。
-  //   如果哪天有人把它加回去，这两个断言会同时红。
-  // ★ 为了能"按老签名调用一次"，这里显式放宽成 `unknown[]` —— 平时的调用点
-  //   靠 tsc 就挡住了第三个参数，这条判据管的是**运行期**（`?seat=0` 曾经真的
-  //   让两个窗口坐进同一个座位）。
-  const loose = parseNetMode as unknown as (...args: unknown[]) => ReturnType<typeof parseNetMode>;
-  const m = loose("client", null, "0");
+  // ★ 这条判据守的是**接口形状**，不是某个分支。
+  //
+  // ★★ 批169 改过一次：原来它靠"多传第三个参数看它起不起作用"来守 ——
+  //   而现在第三个参数是 `wire`（合法的），那个语料再也验不了原意。
+  //   改成守形状：`NetMode` 上没有任何"我申报自己是几号"的字段，端点号只由 role 决定。
+  //   这比"多传参数无效"更贴近要防的东西 —— `?seat=0` 曾经真的让两个窗口坐进同一个座位，
+  //   而它的实现就是"把 URL 里的一个数字直接当端点号"。
+  const m = parseNetMode("client");
   assert.equal(m.self, 1, "端点号仍是 1");
-  assert.equal(Object.hasOwn(m, "assumedSeat"), false, "第三个参数不该变出一个座位号");
+  for (const forbidden of ["assumedSeat", "seat", "playerOf"]) {
+    assert.equal(Object.hasOwn(m, forbidden), false, `NetMode 上不该有 \`${forbidden}\`：那是一条"我自称我是谁"的路`);
+  }
 });
 
 test("[联机模式] 谁驱动本地玩家：单机给控制器模块，联机给会话", () => {
@@ -161,4 +164,66 @@ test("[装配决策] ★ 这一层不再产出座位映射：它是运行期才�
   const w = planNetWiring(parseNetMode("client"));
   assert.equal(Object.hasOwn(w, "playerOf"), false);
   assert.equal(Object.hasOwn(w, "seat"), false);
+});
+
+// ---------------------------------------------------------------- 批169：链路选择
+
+test("[链路] ★ 缺省是 `bc`：不写 `wire` 时批163~166 的行为一模一样", () => {
+  // ★ 这条是「加了新功能不许改老行为」的守卫。缺省换成 `ws` 的话，
+  //   两个标签页那套（今天唯一真的能玩的方式）会当场失效 —— 而它的失败方式是
+  //   "两个页面都在等一个网关"，页面上只显示"没连上"。
+  for (const role of ["host", "client"] as const) {
+    const m = parseNetMode(role);
+    assert.equal(m.wire, "bc");
+    assert.equal(m.url, null);
+    // `bc` 下端点号仍是 URL 给的（同机标签页数得清）
+    assert.equal(m.self, role === "host" ? 0 : 1);
+  }
+});
+
+test("★★ `wire=ws` 时 **self 必须是 null**（号由网关给，这里猜一个就是把自报座位号放回来）", () => {
+  // ★ 猜错的后果不是"看起来不对"，而是 `Joiner.reply()` 里 `msg.to !== selfPeer`
+  //   把每一份合法回复都丢掉：客户端连上了、网关日志说转发了、主机日志说分配了座位，
+  //   而客户端上什么也没有。
+  for (const role of ["host", "client"] as const) {
+    const m = parseNetMode(role, null, "ws", "ws://127.0.0.1:8787");
+    assert.equal(m.wire, "ws");
+    assert.equal(m.self, null, `${role}：ws 下本端不可能知道自己几号`);
+    assert.equal(m.url, "ws://127.0.0.1:8787/");
+    assert.equal(m.role, role, "选了链路不该改变角色");
+  }
+});
+
+test("★★ `wire=ws` 但 url 缺失/非法 ⇒ **退回单机**，而不是退回 bc", () => {
+  // ★ 退回 bc 会让"跨机器打不开"变成"同机能玩"，于是参数写错这件事再也看不出来。
+  const noUrl = parseNetMode("host", null, "ws", null);
+  assert.equal(noUrl.role, "off");
+  assert.match(noUrl.why, /没有 url/);
+
+  const httpUrl = parseNetMode("host", null, "ws", "http://127.0.0.1:8787");
+  assert.equal(httpUrl.role, "off");
+  assert.ok(httpUrl.why.includes("ws:// 或 wss://"), `理由里要说清该填什么，收到：${httpUrl.why}`);
+
+  const junk = parseNetMode("client", null, "ws", "不是地址");
+  assert.equal(junk.role, "off");
+});
+
+test("★ 不认识的 wire 值退回单机（与 `?net=cleint` 同一条规矩：失败要有理由）", () => {
+  const m = parseNetMode("host", null, "websocket", "ws://x/");
+  assert.equal(m.role, "off");
+  assert.match(m.why, /不认识的 wire「websocket」/);
+});
+
+test("★ `normalizeWsUrl`：只认 ws/wss，且归一成带结尾斜杠的形态", () => {
+  assert.equal(normalizeWsUrl("ws://a:1"), "ws://a:1/");
+  assert.equal(normalizeWsUrl("wss://a/b?x=1"), "wss://a/b?x=1");
+  assert.equal(normalizeWsUrl("  ws://a:1  "), "ws://a:1/", "前后空格要吃掉（URL 参数常带）");
+  assert.equal(normalizeWsUrl("http://a/"), null);
+  // ★ 注意 `ws:/a` **不是**"缺主机名"：WHATWG 会把特殊协议规范化成 `ws://a/`。
+  //   真正没有主机的是 `ws://` —— 它直接抛。
+  assert.equal(normalizeWsUrl("ws://"), null, "没有主机名的不算");
+  assert.equal(normalizeWsUrl(""), null);
+  assert.equal(normalizeWsUrl(null), null);
+  // ★ IPv6 字面量：自己写正则的那一天就是"局域网能用、IPv6 不能用"的那一天
+  assert.equal(normalizeWsUrl("ws://[::1]:8787"), "ws://[::1]:8787/");
 });

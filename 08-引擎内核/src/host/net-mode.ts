@@ -48,12 +48,34 @@ export const DEFAULT_ROOM = "engine08";
 /** 通道名允许的字符集：`BroadcastChannel` 接受任意字符串，但跨机器/记账时会进日志与 URL。 */
 const ROOM_RE = /^[A-Za-z0-9._-]{1,64}$/;
 
+/**
+ * 走哪条链路。
+ *
+ * ★ 两条链路的差别**不是"实现不同"**，而是「端点号与投递语义从哪来」：
+ *   · `bc`（`BroadcastChannel`）：同源标签页广播。号由 URL 给（host = 0 / client = 1），
+ *     因为同一台机器上有几个标签页是**页面自己知道的**。
+ *   · `ws`（WebSocket + 网关）：跨机器。号由**网关**给（`hello`），因为一台机器
+ *     不可能知道别处还有谁连着 —— 这正是"我自称我是谁"必须断掉的地方。
+ */
+export type NetWire = "bc" | "ws";
+
 export interface NetMode {
   readonly role: NetRole;
-  /** 端点号：主机 = 0、客户端 = 1；`off` 时为 `null`（没有端点，也不该有身份）。 */
+  /**
+   * 端点号。**只有 `bc` 有值**（主机 = 0、客户端 = 1）。
+   *
+   * ★ `ws` 下恒为 `null`：号由网关在连接建立时分配（`net/ws-transport.ts` 的 `hello`）。
+   *   在这里给一个猜测值等于把刚拆掉的"自报座位号"从后门放回来 ——
+   *   而它的症状是"客户端连上了但收不到自己的加入回复"（见 `join.ts` 里
+   *   `JoinerOptions.self` 的注释）。
+   */
   readonly self: number | null;
   /** 通道名；`off` 时是空串（没有通道）。 */
   readonly room: string;
+  /** 走哪条链路；`off` 时为 `null`。 */
+  readonly wire: NetWire | null;
+  /** `wire === "ws"` 时的地址（已归一）；其余情况为 `null`。 */
+  readonly url: string | null;
   /**
    * 落到这个模式的理由。**失败也要有理由**：`?net=cleint` 退回单机时，
    * `why` 里写着「不认识的值 cleint」—— 这句话会进 HUD 与日志。
@@ -63,12 +85,47 @@ export interface NetMode {
 }
 
 /**
+ * 归一一个 WebSocket 地址。**不合法返回 `null`**（调用方据此退回单机）。
+ *
+ * ★ 只认 `ws:` / `wss:`：把 `http://` 当成能连的地址，症状是浏览器控制台里
+ *   "The URL's scheme must be either 'ws' or 'wss'" —— 而页面上只会显示"没连上"。
+ * ★ 走 `new URL()` 而不是正则：端口、IPv6 字面量（`ws://[::1]:8787`）、百分号编码
+ *   全部由它处理。自己写正则的那一天，就是"局域网能用、IPv6 不能用"的那一天。
+ * ★ 返回 `toString()` 的归一形态（补上结尾的 `/`）：判据可以直接比字符串，
+ *   而不用两处各自记得"有没有斜杠"。
+ */
+export function normalizeWsUrl(raw: string | null | undefined): string | null {
+  const s = (raw ?? "").trim();
+  if (s === "") return null;
+  let u: URL;
+  try {
+    u = new URL(s);
+  } catch {
+    return null;
+  }
+  if (u.protocol !== "ws:" && u.protocol !== "wss:") return null;
+  if (u.hostname === "") return null;
+  return u.toString();
+}
+
+/**
  * 解析宿主的联网参数。
  *
  * ★ 接受 `null` 与空串都算"没指定"：`?net=` 与不带参数是同一件事
  *   （`URLSearchParams.get` 对 `?net=` 返回 `""`，不是 `null`）。
+ *
+ * ★★ `wire` 的缺省是 `bc`，**不是**"自动挑一个"
+ *   自动挑的规则会需要"这台机器上有没有别人"这种运行期知识，而那在页面起来时
+ *   根本没有答案。缺省 `bc` 保住了批163~166 的全部行为（两个标签页能玩），
+ *   跨机器必须显式写 `wire=ws` —— 于是"我忘了加参数"的表现是"同机能玩、跨机不能"，
+ *   而不是"两边都在等一个永远不会来的对手"。
  */
-export function parseNetMode(param: string | null | undefined, roomParam?: string | null): NetMode {
+export function parseNetMode(
+  param: string | null | undefined,
+  roomParam?: string | null,
+  wireParam?: string | null,
+  urlParam?: string | null,
+): NetMode {
   const raw = (param ?? "").trim().toLowerCase();
   const role: NetRole = raw === "host" ? "host" : raw === "client" ? "client" : "off";
   const why =
@@ -78,16 +135,41 @@ export function parseNetMode(param: string | null | undefined, roomParam?: strin
         ? "未指定（单机）"
         : `不认识的值「${raw}」，退回单机`;
 
-  if (role === "off") return { role, self: null, room: "", why };
-
-  const self = role === "host" ? 0 : 1;
+  if (role === "off") return { role, self: null, room: "", wire: null, url: null, why };
 
   const want = (roomParam ?? "").trim();
   // ★ 空串不是"换成一个空房间"，是"没指定" —— 与 `?tree=` 同一条归一规则。
   const room = want === "" ? DEFAULT_ROOM : ROOM_RE.test(want) ? want : DEFAULT_ROOM;
   const roomWhy = want !== "" && room !== want ? `（房间名「${want}」不合法，用了 ${DEFAULT_ROOM}）` : "";
 
-  return { role, self, room, why: why + roomWhy };
+  const off = (why2: string): NetMode => ({
+    role: "off",
+    self: null,
+    room: "",
+    wire: null,
+    url: null,
+    why: why + why2,
+  });
+
+  const wRaw = (wireParam ?? "").trim().toLowerCase();
+  if (wRaw !== "" && wRaw !== "bc" && wRaw !== "ws") {
+    // ★ 不认识的链路**退回单机**，而不是退回 `bc`：后者会让"跨机器打不开"变成
+    //   "同机能玩"，于是参数写错这件事再也看不出来。
+    return off(`；不认识的 wire「${wRaw}」，退回单机`);
+  }
+
+  if (wRaw === "ws") {
+    const url = normalizeWsUrl(urlParam);
+    if (url === null) {
+      const detail = (urlParam ?? "").trim() === "" ? "wire=ws 但没有 url" : `url「${(urlParam ?? "").trim()}」不是 ws:// 或 wss://`;
+      return off(`；${detail}，退回单机`);
+    }
+    // ★ `self: null`：号由网关给（见 `NetMode.self` 的注释）。
+    return { role, self: null, room, wire: "ws", url, why: `${why} + wire=ws` + roomWhy };
+  }
+
+  const self = role === "host" ? 0 : 1;
+  return { role, self, room, wire: "bc", url: null, why: why + roomWhy };
 }
 
 /** 联机时位置由会话管；单机时由控制器模块管。 */

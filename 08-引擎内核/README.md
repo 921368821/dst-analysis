@@ -20,9 +20,9 @@
 
 ```bash
 npm install
-npm run check            # tsc（strict）+ 2924 条判据 + 覆盖率闸门 <!-- n:tests -->
+npm run check            # tsc（strict）+ 2979 条判据 + 覆盖率闸门 <!-- n:tests -->
 npm run audit:errors     # 拒绝路径审计：JPEG 解码器 94 条 fail 分支里哪些真的被触发过
-npm run audit:mutation   # 变异校验：1122 组注入，判据必须逐个变红 <!-- n:mutants -->
+npm run audit:mutation   # 变异校验：1147 组注入，判据必须逐个变红 <!-- n:mutants -->
 npm run audit:docs       # 文档数字对账：判据/变异/测试文件/浏览器自检/JPEG 金标
 npm run test:browser     # 无头浏览器跑 selftest.html 的 57 条 <!-- n:browser -->（无浏览器时退出码 2 = 跳过）
 npm run ci               # 全部 16 道闸门 <!-- n:steps -->（含浏览器自检/外部金标/变异；--fast 跳过慢的那几步）
@@ -36,8 +36,11 @@ npm run serve:web        # http://127.0.0.1:8123/
 #   index.html    演示：WASD 移动 · H 砍树 · F5 存档 · F9 读档 · 浆果在漂（Lua 驱动）
 #   selftest.html 端到端自检：57 条断言 <!-- n:browser -->（画面/批处理/存档往返/Lua 跨边界）
 #   联机（批163/164）：同机开两个标签页，一个 ?net=host、一个 ?net=client&room=engine08
-#   （客户端预测跑在真链路上；座位由握手分配，两边**各有一个角色** —— 没有 &seat= 这种参数；
-#     只有同一个浏览器进程内成立，跨机器见 docs/ONLINE-READINESS-PLAN.md §19/§20）
+#   （客户端预测跑在真链路上；座位由握手分配，两边**各有一个角色** —— 没有 &seat= 这种参数）
+#   跨机器（批169）：先 `node tools/net-gateway.mjs`（8787），它打印主机/客户端两条链接；
+#     链接形如 ?net=host&wire=ws&url=ws://<这台机器的地址>:8787&token=<口令>
+#     （`wire=bc` 是同源多标签页那条老链路，缺省值；`wire=ws` 时端点号由网关分配并在 hello 里给，
+#       信封上的 from 一律由网关盖 —— 客户端写什么都不算。细节见 §25）
 ```
 
 平台打包（判断层不带 IO，可以在没有引擎的空容器里跑）：
@@ -128,7 +131,7 @@ L0 foundation  Result · math · log · event · memory · time · random
 
 ## 当前状态
 
-- ✅ L0–L3 完整；**13 个后端** <!-- n:backends -->（gfx×2 / audio×2 / input×3（null / dom / 注入）/ fs×4（mem + 真实盘 + 只读 http + localStorage）/ script×2）；**2924 条判据全绿** <!-- n:tests -->（变异 1122 组全被抓住 <!-- n:mutants -->）
+- ✅ L0–L3 完整；**13 个后端** <!-- n:backends -->（gfx×2 / audio×2 / input×3（null / dom / 注入）/ fs×4（mem + 真实盘 + 只读 http + localStorage）/ script×2）；**2979 条判据全绿** <!-- n:tests -->（变异 1147 组全被抓住 <!-- n:mutants -->）
 - ✅ 2D 渲染管线（相机/精灵/批处理/确定性图集合成）· 2.5D 物理（空间哈希 + 圆/盒推出 + **连续碰撞扫掠**，[ADR-0013](docs/adr/0013-continuous-collision.md)：一拍之内的位移夹到接触点之前，高速体不再穿过薄墙）· 确定性存档 · 跳时间结算
 - ✅ **UI + 位图字体**：BMFont 解析 → 纯函数排版（量宽与画宽同源）→ 三模式视口（fit/fill/expand）
   → 锚点 + Row/Column/Grid → 九宫格控件（Group/Panel/Image/Label/Button/Progress）→ 捕获 + 冒泡。
@@ -189,7 +192,7 @@ L0 foundation  Result · math · log · event · memory · time · random
     + 8 例无损 9..16 位（liblj92 编解，**逐样本相等**）+ 8 位灰度（liblj92 与 Pillow 双外部对照）
     + **12 例 ffmpeg 独立金标**（`tests/fixtures/jpeg/ff/`，12 位 DCT 的第三方参照：灰度差 0..2 级、RGB 差 4 级）
   · 仍然没有外部实现的部分（分层、SOF11）用更强的内部判据：
-    四种有损过程解出**逐字节相同**像素、无损回环 max=0、12 位跨精度锚定到 8 位金标；1122 组变异全被抓住 <!-- n:mutants -->
+    四种有损过程解出**逐字节相同**像素、无损回环 max=0、12 位跨精度锚定到 8 位金标；1147 组变异全被抓住 <!-- n:mutants -->
   · 证据等级与代价见 [ADR-0009](docs/adr/0009-jpeg-decoder.md)
 - ✅ 浏览器宿主能跑，且**画面用真实资产**：`web/assets/` 5 张 PNG + **1 张 JPEG** 走完整导入链
   烘焙成图集（WASD + 砍树 + 存读档 + HUD + Lua 驱动的浆果漂浮 + 4 块 JPEG 立牌）

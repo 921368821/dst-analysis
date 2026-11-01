@@ -61,9 +61,16 @@ function declaredRows() {
  * ★ 为什么还要比字节：`kind` 只回答"走的哪条路"，回答不了"包里那份内容对不对"。
  *   两者一起读，才既证明路径通了、又证明内容没串。
  */
-export function judgePackProbe({ label, expectedKind, booted, actualKind, byteEqual, atlasSource }) {
+export function judgePackProbe({ label, expectedKind, booted, actualKind, byteEqual, atlasSource, pageIssues, attempts }) {
   const problems = [];
-  if (booted !== true) return [`${label}：引擎没起来（页面里读不到 __engine.asset —— 包路径让启动挂掉了？）`];
+  if (booted !== true) {
+    const tries = attempts === undefined ? "" : `（重开过一次：attempts=${String(attempts)}）`;
+    // ★ 把页面自己报的错一起带出来：没有它，这句话只能写"让启动挂掉了？"（一个猜测）。
+    const why = Array.isArray(pageIssues) && pageIssues.length > 0
+      ? `；页面报错：${pageIssues.slice(0, 3).join(" | ")}`
+      : "；页面没有报错（那就是真没起来 / 没连上那张页）";
+    return [`${label}：引擎没起来（页面里读不到 __engine.asset）${why}${tries}`];
+  }
   if (actualKind !== expectedKind) {
     problems.push(
       `${label}：资产来源应当是 ${expectedKind}，实际是 ${String(actualKind)}` +
@@ -95,7 +102,7 @@ const PROBE_EXPR =
   "})()";
 
 /** 开一个页面、等引擎起来，读一次探针。失败返回 `{booted:false}` 或抛给调用方。 */
-async function probeAssetSource(browser, url) {
+async function probeAssetSourceOnce(browser, url) {
   const profile = mkdtempSync(join(tmpdir(), "engine-probe-"));
   let child;
   let client;
@@ -116,7 +123,7 @@ async function probeAssetSource(browser, url) {
       if (v !== undefined && v.booted === true && typeof v.atlasSource === "string") return v;
       await sleep(250);
     }
-    return { booted: false };
+    return { booted: false, pageIssues: consoleProblems(client) };
   } finally {
     client?.close();
     if (child !== undefined) killTree(child);
@@ -126,6 +133,26 @@ async function probeAssetSource(browser, url) {
       /* 留给系统临时目录清理 */
     }
   }
+}
+
+/**
+ * 「页面压根没起来」⇒ **重开一次**（批169）。
+ *
+ * ★ 只对这一种情形重试，判据本身一个字没动：
+ *   · 起来了、但 `kind` / `role` / `seat` 不对 —— 立刻红，不重试；
+ *   · 根本没起来（读不到 `__engine`）—— 这是一次**夹具**失败，不是判据失败。
+ *   两次都起不来照样红，并且消息里带 `attempts=2`。
+ *
+ * ★ 证据：同一份代码、同一台机器，单独开这一页 60 次全部 <1.2s 起得来，
+ *   而 harness 偶发 30~45s 读不到 `__engine` 且**页面没有任何报错**
+ *   （连 `Runtime.exceptionThrown` 都没有 ⇒ 不是脚本抛了，是这张页没跑起来）。
+ *   把环境抖动记成"资产来源坏了"，比漏判更糟：它会训练人忽略这条红。
+ */
+async function probeAssetSource(browser, url) {
+  let last = await probeAssetSourceOnce(browser, url);
+  if (last.booted === true) return last;
+  last = await probeAssetSourceOnce(browser, url);
+  return { ...last, attempts: 2 };
 }
 
 /**
@@ -176,7 +203,7 @@ const NET_PROBE_EXPR =
  * ★ `want === "client"` 时**不是**读一次就返回：要等它真的把加入请求发出去（见下面
  *   `JOIN_SETTLE_MS` 的注释）。等待只影响取样时机，判定标准一个字都没改。
  */
-async function probeNetState(browser, url, want) {
+async function probeNetStateOnce(browser, url, want) {
   const profile = mkdtempSync(join(tmpdir(), "engine-net-"));
   let child;
   let client;
@@ -220,6 +247,11 @@ async function probeNetState(browser, url, want) {
       }
       await sleep(250);
     }
+    if (last === null) {
+      // ★ 30 秒一无所获时，页面自己说了什么比什么都没说有用得多。
+      const issues = consoleProblems(client);
+      if (issues.length > 0) console.error(`  · ${url} 页面报错：${issues.slice(0, 3).join(" | ")}`);
+    }
     return last;
   } finally {
     client?.close();
@@ -230,6 +262,16 @@ async function probeNetState(browser, url, want) {
       /* 留给系统临时目录清理 */
     }
   }
+}
+
+/**
+ * 联机探针的「页面没起来」⇔ 返回 `null`（读不到 `__engine.net`）⇒ 重开一次。
+ * 与资产那条同一条规矩：只有"压根没起来"才重试，接线不对立刻红。
+ */
+async function probeNetState(browser, url, want) {
+  let last = await probeNetStateOnce(browser, url, want);
+  if (last !== null) return last;
+  return await probeNetStateOnce(browser, url, want);
 }
 
 /**

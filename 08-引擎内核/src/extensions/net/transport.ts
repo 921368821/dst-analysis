@@ -178,6 +178,43 @@ export type NetMessage =
   | JoinRequest
   | JoinReply;
 
+/**
+ * 这一版认识的 `kind`。**一处定义**：`BroadcastChannel` 与 WebSocket 两条链路
+ * 都要按它过滤，各写一份的话，将来加一种消息只会有一条链路上认得
+ * （症状是"跨标签页能玩、跨机器不能"，而两条链路的判据各自都绿）。
+ */
+export const KNOWN_KINDS: ReadonlySet<string> = new Set([
+  "intent",
+  "snapshot",
+  "snapshot-delta",
+  "resync",
+  "join",
+  "join-reply",
+]);
+
+/** 这条消息的种类是不是这一版认识的。 */
+export function isKnownKind(kind: string): boolean {
+  return KNOWN_KINDS.has(kind);
+}
+
+/**
+ * 形状校验：只认「有 kind、有 tick、有 seq」的对象。
+ *
+ * ★ 为什么两条链路都要这一步，而不是"反正是自己发的"：
+ *   · `BroadcastChannel` 走结构化克隆，克隆是**不报错地丢东西**的（`Map`/函数会变 `{}`）；
+ *   · WebSocket 走 JSON，`JSON.parse` 对 `{"kind":1}` 这种"字段在、类型错"完全放行。
+ *   两者都会让一个形状不对的对象混进来，而会话层对它只会"按未知种类静默丢弃"——
+ *   症状是「连不上，日志里什么都没有」。
+ *
+ * ★ 与「未知种类」分成两个计数（`malformed` / `unknownKinds`）：成因不同、处置也不同。
+ *   合起来数的话，一个无关广播就能把"两边版本不一致"这条唯一线索淹掉。
+ */
+export function isNetMessage(v: unknown): v is NetMessage {
+  if (typeof v !== "object" || v === null) return false;
+  const o = v as Record<string, unknown>;
+  return typeof o["kind"] === "string" && typeof o["tick"] === "number" && typeof o["seq"] === "number";
+}
+
 /** 诊断计数（面板与判据读这一份，避免各算一套）。 */
 export interface TransportStats {
   /** 本端成功交出去的条数（不含被丢的）。 */

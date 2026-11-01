@@ -42,7 +42,7 @@ import { sceneToJson } from "../core/scene/scene-io.ts";
 import type { InputMap } from "../extensions/input/input-map.ts";
 import { directionFromMap } from "../extensions/input/player-controller.ts";
 import type { InputSnapshot } from "../platform/input/device.ts";
-import { NET_IDENTITY_TYPE, NetIdentity, type PlayerId } from "../extensions/net/identity.ts";
+import { AUTHORITY, NET_IDENTITY_TYPE, NetIdentity, assignOwner, ownedBy, type PlayerId } from "../extensions/net/identity.ts";
 import { createRoom, type Joiner, type JoinReply, type JoinRequest, type Room } from "../extensions/net/join.ts";
 import { snapshotOfScene } from "../extensions/net/delta.ts";
 import { attachSession, type LocalCommand, type NetSession, type SessionHost } from "../extensions/net/session.ts";
@@ -51,6 +51,73 @@ import type { PeerId, Transport } from "../extensions/net/transport.ts";
 import type { WorldPlan } from "../extensions/worldgen/worldgen.ts";
 import { createSeatTable, type SeatTable } from "./seat-table.ts";
 import { pickLocalEntity } from "./net-mode.ts";
+
+/**
+ * 「有端点断了」这个能力**只有 WebSocket 链路有**。
+ *
+ * ★ 环回与 `BroadcastChannel` 里没有"对面不在了"这个概念（它们是同一进程/同一机器，
+ *   连接的生命周期就是页面/进程的生命周期）。所以不把它塞进 `Transport` 接口 ——
+ *   那会逼着两条不上报的链路实现一个永远返回空的钩子，而"永远为空"正是
+ *   `docs/PROGRESS.md` 里反复出现的那种假绿（判据能过，因为它本来就没东西可验）。
+ */
+export interface PeerLeftSource {
+  onPeerLeft(cb: (peer: PeerId, reason: string) => void): () => void;
+}
+
+function readPeerLeft(t: Transport): PeerLeftSource["onPeerLeft"] | null {
+  const fn = (t as Partial<PeerLeftSource>).onPeerLeft;
+  return typeof fn === "function" ? fn.bind(t) : null;
+}
+
+/**
+ * 超时清扫：把被清掉的座位的归属交还权威。
+ *
+ * ★ 抽成独立函数（而不是写在 `scheduler.onStep` 的闭包里）有两个理由：
+ *   ① `assembleHostNet` 内部 `createRoom()`，判据**注入不了**一个"刚好有人超时"的房间；
+ *      而这里只要求参数有 `sweep`，传一个 `{ sweep: () => [7] }` 就能验；
+ *   ② 归属交还这一步是**唯一**会把 `net.identity.owner` 改回 `AUTHORITY` 的地方，
+ *      它坏掉的症状是"下一个坐进这个号的人一动，动的是别人"，而所有计数都正常。
+ *
+ * ★ 参数用**结构化类型**而不是 `Room`：判据不必为一个方法造 12 个空实现。
+ *   这在 TS 里是免费的解耦，不削弱任何契约（调用点仍然传真 `Room`）。
+ */
+export function sweepExpired(
+  room: { sweep(tick: number): readonly PlayerId[] },
+  scene: Scene,
+  tick: number,
+): readonly PlayerId[] {
+  const gone = room.sweep(tick);
+  for (const playerId of gone) {
+    // ★ 只交还归属，**不销毁实体**：他还站在原地（世界不该因为网线拔了就少一个人），
+    //   只是不再"归某人"。
+    for (const id of ownedBy(scene, playerId)) assignOwner(scene, id, AUTHORITY);
+  }
+  return gone;
+}
+
+/**
+ * 一个端点断了：把它的座位标成"掉线"，等重连窗口。
+ *
+ * ★ 只标掉线、**不清座位**：`Room` 的 `reconnectWindowTicks` 是"网线拔了又插上"
+ *   这段窗口，清掉的话回来的人会拿到一个新座位号（背包、位置、归属全丢）。
+ *   真正的清理由 `sweepExpired` 在窗口之后做。
+ */
+export function notePeerLeft(
+  room: { drop(peer: PeerId, tick: number): PlayerId | null },
+  peer: PeerId,
+  tick: number,
+  reason: string,
+  warn: (msg: string) => void,
+): PlayerId | null {
+  const gone = room.drop(peer, tick);
+  // ★ `null` 是常态（还没握手的端点、或者已经清掉过的）：不告警。
+  //   每次都告警会让日志里充满"某个陌生人断了"，真正的掉线反而看不见。
+  // ★ 文案**只在这里拼一处**：调用点再拼一遍的话，改的人只会改一处。
+  if (gone !== null) {
+    warn(`端点 ${String(peer)} 断开（${reason}），座位 ${String(gone)} 先留着等重连`);
+  }
+  return gone;
+}
 
 /** 这一拍的输入（已经 poll 过的那一份 —— 再 poll 会吞掉"刚按下"）。 */
 export interface NetInputProbe {
@@ -158,6 +225,13 @@ export interface HostNetSide {
   readonly room: Room;
   readonly seats: SeatTable | null;
   readonly session: NetSession;
+  /**
+   * 解绑全部三样：会话订阅、超时清扫、断开监听。幂等。
+   *
+   * ★ 只解绑会话是不够的：清扫订阅在 `scheduler.onStep` 上，留着它会在世界已经
+   *   `loadScene` 换掉之后继续跑 `ownedBy(scene)` —— 而那时的场景里没有那些座位，
+   *   于是每拍白跑一遍（没有任何症状，只是"关掉联机之后帧时间慢慢涨"）。
+   */
   readonly off: () => void;
 }
 
@@ -205,6 +279,36 @@ export function assembleHostNet(o: HostNetOptions): HostNetSide {
     },
   });
 
+  // ---- 掉线与超时清扫（批169）
+  //
+  // ★★ 这两件事在批164 就写好了接口（`Room.drop` / `Room.sweep`），
+  //   **而 `src/` 里一个调用点都没有**。原因是当时没有任何一条链路能给出
+  //   「谁断了」—— 环回与 `BroadcastChannel` 里"对面不在了"这件事根本不存在。
+  //   网关是第一个知道的一方，所以接线落在这里。
+  //
+  // ★ 不做的后果不是"少一个功能"，而是一个**永远不释放的座位**：
+  //   一个人关掉页面之后 `maxPlayers` 满了，之后谁也进不来，而房间账本上
+  //   "在线 N"永远不变 —— 所有计数都对，只有"新玩家进不来"。
+  let tickNow = 0;
+
+  /**
+   * 清扫订阅。**必须在 `attachSession` 之前注册**：`scheduler.onStep` 按
+   * 注册顺序执行，而这一拍要先把超时座位的归属交还权威，会话的 `admit`
+   * 才看得到那个结果 —— 反过来的话，掉线的人这一拍还能再走一步。
+   */
+  const offSweep = o.app.scheduler.onStep((tick) => {
+    tickNow = tick;
+    sweepExpired(room, scene, tick);
+  });
+
+  const onPeerLeft = readPeerLeft(transport);
+  const offPeerLeft: () => void =
+    onPeerLeft === null
+      ? () => {}
+      : onPeerLeft((peer, reason) => {
+          notePeerLeft(room, peer, tickNow, reason, o.warn);
+        });
+
   // ★ 循环引用：`onJoinRequest` 里要调 `session.requestKeyframe()`，而会话是
   //   `attachSession` 的**返回值**。回调在运行时才执行，那时 `attached` 已经赋好；
   //   用 `?.` 兜住「回调早于赋值」（单机不会，但判据里可能构造出来）。
@@ -236,7 +340,20 @@ export function assembleHostNet(o: HostNetOptions): HostNetSide {
     local: () => localCommand(scene, room.playerOf(transport.self), o.input()),
   });
 
-  return { room, seats, session: attached.session, off: attached.off };
+  let offed = false;
+  return {
+    room,
+    seats,
+    session: attached.session,
+    off: () => {
+      // ★ 幂等：调用方可能在页面卸载与显式关闭两处都调。
+      if (offed) return;
+      offed = true;
+      attached?.off();
+      offSweep();
+      offPeerLeft();
+    },
+  };
 }
 
 // ---------------------------------------------------------------- 客户端侧

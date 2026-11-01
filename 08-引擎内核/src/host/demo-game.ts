@@ -125,6 +125,9 @@ import { createJoiner, type Joiner, type Room } from "../extensions/net/join.ts"
 import { countPlayers, type SeatTable } from "./seat-table.ts";
 import { assembleClientNet, assembleHostNet, type NetInputProbe } from "./net-assembly.ts";
 import { parseNetMode, planNetWiring, type NetWiring } from "./net-mode.ts";
+import { createVisualRef } from "./visual-ref.ts";
+
+import type { Transport } from "../extensions/net/transport.ts";
 import { NavGrid } from "../extensions/nav/nav-grid.ts";
 import { HEALTH_TYPE, Health, isDead, registerHealthComponent } from "../extensions/combat/health.ts";
 import { ATTACKER_TYPE, Attacker, registerAttackerComponent } from "../extensions/combat/attack.ts";
@@ -327,6 +330,18 @@ export interface DemoHostEnv {
    *   真通道的投递时机取决于事件循环 —— "哪一拍看得到"就不能钉了。
    */
   readonly netChannel?: ChannelLike | null;
+  /**
+   * 已经建好的传输（批169，`wire=ws`）。
+   *
+   * ★ 为什么由宿主建、而不是这里建：`new WebSocket(url)` 是浏览器/Node 各有一个的
+   *   全局对象，而判据里的替身不该为了过 `instanceof` 去继承它
+   *   （`net/broadcast-transport.ts` 对 `BroadcastChannel` 是同一条规矩）。
+   *   这里只认 `Transport` 这个接口。
+   *
+   * ★ 与 `netChannel` 互斥：给了它就不再建 `BroadcastChannel`
+   *   —— 两条链路同时在线会造出两个会话（每拍两份输入、两份广播）。
+   */
+  readonly netTransport?: Transport | null;
   /**
    * 平台创建参数（prefer / allow / backendOptions / strict）。
    *
@@ -951,7 +966,7 @@ export async function buildDemoGame(env: DemoHostEnv): Promise<DemoHandle> {
    */
   let netHost: { readonly room: Room; readonly seats: SeatTable | null } | null = null;
   /** 客户端侧：握手状态机 + 通道（发 join 请求要它）。 */
-  let netClient: { readonly joiner: Joiner; readonly transport: ReturnType<typeof createBroadcastTransport> } | null =
+  let netClient: { readonly joiner: Joiner; readonly transport: Transport } | null =
     null;
   /**
    * 客户端重发加入请求的间隔（拍）。30Hz 下 15 拍 = 0.5 秒。
@@ -989,6 +1004,14 @@ export async function buildDemoGame(env: DemoHostEnv): Promise<DemoHandle> {
   //   ★ 复用的是烘焙那一步打开过的资产源（见 `loadDemoTrees` 的 ★）。
   const trees = await loadDemoTrees(assetsUsed.fs);
 
+  /**
+   * 插值器的**晚绑定**壳（批169）：渲染模块在联机会话之前就建好了
+   * （图集烘焙要先跑），而 `visual` 只有会话建好之后才存在。
+   * ★ 单机与主机侧**永远不绑**，此时它的行为与 `visual: null` 完全一样
+   *   （见 `host/visual-ref.ts` 的判据）。
+   */
+  const visualRef = createVisualRef();
+
   // ---- 渲染模块（follow 闭包读 heroId，世界建好后才有效）
   const renderMod = createRenderModule({
     viewportWidth: env.viewport.width,
@@ -996,6 +1019,8 @@ export async function buildDemoGame(env: DemoHostEnv): Promise<DemoHandle> {
     zoom: 26 * dpr,
     tiltY: 0.62,
     atlas: baked?.atlas,
+    // 恒非 null 的转发壳：未绑定时 `at()` 返回 null（= 按节点真实坐标画）。
+    visual: visualRef.visual,
     follow: () => {
       if (heroId < 0) return undefined;
       const n = appRef?.scene.find(heroId);
@@ -3004,12 +3029,21 @@ export async function buildDemoGame(env: DemoHostEnv): Promise<DemoHandle> {
   //   · 客户端：座位来自主机的回复（`Joiner`），**不是**从 URL 猜的。
   //   于是"两个窗口同控一个角色"在结构上不成立了：客户端手里的实体是主机按它的
   //   座位造出来的那一个，主机那边的 `admit` 也只认它自己那个座位。
-  if (netWiring.mode.role !== "off" && env.netChannel !== undefined && env.netChannel !== null) {
-    const channel: ChannelLike = env.netChannel;
+  // ★ 批169：两条链路在这里汇合。上面（`wire=ws`）来的已经是一个 `Transport`，
+  //   同源多标签页那条仍在这里建。**下面的一切都只认 `Transport`** ——
+  //   会话、预测、握手、插值一行都没改，这正是当初分层要的效果。
+  const netTransport: Transport | null =
+    env.netTransport !== undefined && env.netTransport !== null
+      ? env.netTransport
+      : netWiring.mode.role !== "off" && env.netChannel !== undefined && env.netChannel !== null
+        ? createBroadcastTransport({ channel: env.netChannel, self: netWiring.mode.self ?? 0 })
+        : null;
+
+  if (netWiring.mode.role !== "off" && netTransport !== null) {
     // 两端都要注册：主机要**造**归属，客户端 `loadScene` 要能**认出**快照里的归属
     // （没注册 ⇒ 世界装进来之后每个实体都"没有归属"，`admit` 一律 `no-identity`）。
     registerNetIdentity(app.components);
-    const transport = createBroadcastTransport({ channel, self: netWiring.mode.self ?? 0 });
+    const transport = netTransport;
     /**
      * 这一拍的输入（**已经 poll 过**的那一份）。再 poll 会消费按下边缘，
      * 「刚按下」那一下就没了（M168 的另一种写法）。
@@ -3035,7 +3069,10 @@ export async function buildDemoGame(env: DemoHostEnv): Promise<DemoHandle> {
       netHost = { room: host.room, seats: host.seats };
       netSide = { session: host.session, off: host.off };
     } else {
-      const joiner = createJoiner({ self: transport.self, name: "client" });
+      // ★ `self` 给**函数**而不是数字：`wire=ws` 时端点号由网关分配，
+      //   到这里为止本端还不知道自己几号（`net/ws-transport.ts` 的 `hello` 才给）。
+      //   快照会把握手打死（见 `JoinerOptions.self` 的注释）。
+      const joiner = createJoiner({ self: () => transport.self, name: "client" });
       netClient = { joiner, transport };
       const client = assembleClientNet({
         app,
@@ -3049,7 +3086,19 @@ export async function buildDemoGame(env: DemoHostEnv): Promise<DemoHandle> {
         },
         notify: toast,
       });
-      netSide = { session: client.session, off: client.off };
+      // ★ 客户端才有插值器：主机是权威，它手上的坐标就是真值（§24.1）。
+      //   绑定放在**会话建好之后**、渲染第一帧之前 —— 这两点之间没有别的调用点
+      //   （`app.run()` 在下面几行）。
+      visualRef.bind(client.visual);
+      netSide = {
+        session: client.session,
+        // ★ 拆线时也要解绑：会话断了之后 `at()` 再返回旧的中间值，画面会停在
+        //   一份谁也不再生效的插值上（而所有计数都正常）。
+        off: () => {
+          visualRef.bind(null);
+          client.off();
+        },
+      };
     }
   }
 

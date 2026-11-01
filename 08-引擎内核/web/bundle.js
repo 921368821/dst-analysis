@@ -24621,7 +24621,15 @@ function attachWorldVisuals(scene, availableFrames) {
   });
 }
 
-// src/extensions/net/broadcast-transport.ts
+// src/extensions/net/transport.ts
+var ResyncReason = {
+  /** 基线 seq 与增量的 `base` 不一致（中间丢了一份）。 */
+  Base: "base",
+  /** 增量本身读不回来（坏 JSON / 形状不对 / 版本更新）。 */
+  Bad: "bad",
+  /** 增量与基线严丝合缝地对不上（补丁指向不存在的节点）。 */
+  Orphan: "orphan"
+};
 var KNOWN_KINDS = /* @__PURE__ */ new Set([
   "intent",
   "snapshot",
@@ -24630,11 +24638,16 @@ var KNOWN_KINDS = /* @__PURE__ */ new Set([
   "join",
   "join-reply"
 ]);
+function isKnownKind(kind) {
+  return KNOWN_KINDS.has(kind);
+}
 function isNetMessage(v) {
   if (typeof v !== "object" || v === null) return false;
   const o = v;
   return typeof o["kind"] === "string" && typeof o["tick"] === "number" && typeof o["seq"] === "number";
 }
+
+// src/extensions/net/broadcast-transport.ts
 function createBroadcastTransport(opts) {
   const { channel, self: self2 } = opts;
   const inbox = [];
@@ -24652,7 +24665,7 @@ function createBroadcastTransport(opts) {
       malformed++;
       return;
     }
-    if (!KNOWN_KINDS.has(data.kind)) {
+    if (!isKnownKind(data.kind)) {
       counters.dropped++;
       unknownKinds++;
       return;
@@ -24992,7 +25005,8 @@ function createRoom(opts) {
   return new RoomImpl(opts);
 }
 var JoinerImpl = class {
-  selfPeer;
+  /** 每读一次都是**当前**端点号（见 `JoinerOptions.self` 的注释）。 */
+  selfOf;
   name;
   version;
   now = "idle";
@@ -25012,7 +25026,8 @@ var JoinerImpl = class {
   drops = 0;
   lastRefusal = null;
   constructor(opts) {
-    this.selfPeer = opts.self;
+    const given = opts.self;
+    this.selfOf = typeof given === "function" ? given : () => given;
     this.name = opts.name;
     this.version = opts.protocolVersion ?? PROTOCOL_VERSION;
   }
@@ -25022,7 +25037,7 @@ var JoinerImpl = class {
   request(tick) {
     const base = {
       kind: "join",
-      from: this.selfPeer,
+      from: this.selfOf(),
       tick,
       seq: this.outSeq++,
       protocolVersion: this.version,
@@ -25034,7 +25049,7 @@ var JoinerImpl = class {
     return this.held === null ? base : { ...base, ticket: this.held };
   }
   reply(msg3) {
-    if (msg3.to !== this.selfPeer) {
+    if (msg3.to !== this.selfOf()) {
       this.strayReplies++;
       return false;
     }
@@ -25644,16 +25659,6 @@ function createInterpolator(opts = {}) {
   return new InterpolatorImpl(opts);
 }
 
-// src/extensions/net/transport.ts
-var ResyncReason = {
-  /** 基线 seq 与增量的 `base` 不一致（中间丢了一份）。 */
-  Base: "base",
-  /** 增量本身读不回来（坏 JSON / 形状不对 / 版本更新）。 */
-  Bad: "bad",
-  /** 增量与基线严丝合缝地对不上（补丁指向不存在的节点）。 */
-  Orphan: "orphan"
-};
-
 // src/extensions/net/session.ts
 function isDirIntent(i) {
   return i.kind === "move.dir";
@@ -26187,16 +26192,49 @@ function attachSession(host, opts) {
 // src/host/net-mode.ts
 var DEFAULT_ROOM = "engine08";
 var ROOM_RE = /^[A-Za-z0-9._-]{1,64}$/;
-function parseNetMode(param, roomParam) {
+function normalizeWsUrl(raw) {
+  const s = (raw ?? "").trim();
+  if (s === "") return null;
+  let u;
+  try {
+    u = new URL(s);
+  } catch {
+    return null;
+  }
+  if (u.protocol !== "ws:" && u.protocol !== "wss:") return null;
+  if (u.hostname === "") return null;
+  return u.toString();
+}
+function parseNetMode(param, roomParam, wireParam, urlParam) {
   const raw = (param ?? "").trim().toLowerCase();
   const role = raw === "host" ? "host" : raw === "client" ? "client" : "off";
   const why = role !== "off" ? `?net=${role}` : raw === "" || raw === "off" || raw === "0" ? "\u672A\u6307\u5B9A\uFF08\u5355\u673A\uFF09" : `\u4E0D\u8BA4\u8BC6\u7684\u503C\u300C${raw}\u300D\uFF0C\u9000\u56DE\u5355\u673A`;
-  if (role === "off") return { role, self: null, room: "", why };
-  const self2 = role === "host" ? 0 : 1;
+  if (role === "off") return { role, self: null, room: "", wire: null, url: null, why };
   const want = (roomParam ?? "").trim();
   const room = want === "" ? DEFAULT_ROOM : ROOM_RE.test(want) ? want : DEFAULT_ROOM;
   const roomWhy = want !== "" && room !== want ? `\uFF08\u623F\u95F4\u540D\u300C${want}\u300D\u4E0D\u5408\u6CD5\uFF0C\u7528\u4E86 ${DEFAULT_ROOM}\uFF09` : "";
-  return { role, self: self2, room, why: why + roomWhy };
+  const off = (why2) => ({
+    role: "off",
+    self: null,
+    room: "",
+    wire: null,
+    url: null,
+    why: why + why2
+  });
+  const wRaw = (wireParam ?? "").trim().toLowerCase();
+  if (wRaw !== "" && wRaw !== "bc" && wRaw !== "ws") {
+    return off(`\uFF1B\u4E0D\u8BA4\u8BC6\u7684 wire\u300C${wRaw}\u300D\uFF0C\u9000\u56DE\u5355\u673A`);
+  }
+  if (wRaw === "ws") {
+    const url = normalizeWsUrl(urlParam);
+    if (url === null) {
+      const detail = (urlParam ?? "").trim() === "" ? "wire=ws \u4F46\u6CA1\u6709 url" : `url\u300C${(urlParam ?? "").trim()}\u300D\u4E0D\u662F ws:// \u6216 wss://`;
+      return off(`\uFF1B${detail}\uFF0C\u9000\u56DE\u5355\u673A`);
+    }
+    return { role, self: null, room, wire: "ws", url, why: `${why} + wire=ws` + roomWhy };
+  }
+  const self2 = role === "host" ? 0 : 1;
+  return { role, self: self2, room, wire: "bc", url: null, why: why + roomWhy };
 }
 function localDriveOf(role) {
   return role === "off" ? "controller" : "session";
@@ -26210,6 +26248,24 @@ function planNetWiring(mode) {
 }
 
 // src/host/net-assembly.ts
+function readPeerLeft(t) {
+  const fn = t.onPeerLeft;
+  return typeof fn === "function" ? fn.bind(t) : null;
+}
+function sweepExpired(room, scene, tick) {
+  const gone = room.sweep(tick);
+  for (const playerId of gone) {
+    for (const id of ownedBy(scene, playerId)) assignOwner(scene, id, AUTHORITY);
+  }
+  return gone;
+}
+function notePeerLeft(room, peer, tick, reason, warn) {
+  const gone = room.drop(peer, tick);
+  if (gone !== null) {
+    warn(`\u7AEF\u70B9 ${String(peer)} \u65AD\u5F00\uFF08${reason}\uFF09\uFF0C\u5EA7\u4F4D ${String(gone)} \u5148\u7559\u7740\u7B49\u91CD\u8FDE`);
+  }
+  return gone;
+}
 function localCommand(scene, player, input) {
   if (input === null) return null;
   const entity = pickLocalEntity(scene, player);
@@ -26266,6 +26322,16 @@ function assembleHostNet(o) {
       }
     }
   });
+  let tickNow = 0;
+  const offSweep = o.app.scheduler.onStep((tick) => {
+    tickNow = tick;
+    sweepExpired(room, scene, tick);
+  });
+  const onPeerLeft = readPeerLeft(transport);
+  const offPeerLeft = onPeerLeft === null ? () => {
+  } : onPeerLeft((peer, reason) => {
+    notePeerLeft(room, peer, tickNow, reason, o.warn);
+  });
   let attached = null;
   attached = attachSession(o.app, {
     role: "host",
@@ -26292,7 +26358,19 @@ function assembleHostNet(o) {
     // ★ 主机自己的输入走**同一道**授权检查（`admit` 用的是 `room.playerOf`）。
     local: () => localCommand(scene, room.playerOf(transport.self), o.input())
   });
-  return { room, seats, session: attached.session, off: attached.off };
+  let offed = false;
+  return {
+    room,
+    seats,
+    session: attached.session,
+    off: () => {
+      if (offed) return;
+      offed = true;
+      attached?.off();
+      offSweep();
+      offPeerLeft();
+    }
+  };
 }
 function assembleClientNet(o) {
   const { scene, joiner } = o;
@@ -26330,6 +26408,23 @@ function assembleClientNet(o) {
     }
   });
   return { session: side.session, visual: side.session.visual, off: side.off };
+}
+
+// src/host/visual-ref.ts
+function createVisualRef() {
+  let cur = null;
+  return {
+    visual: {
+      beginFrame: (dtMs) => {
+        if (cur !== null) cur.beginFrame(dtMs);
+      },
+      at: (nodeId) => cur === null ? null : cur.at(nodeId)
+    },
+    bind: (next) => {
+      cur = next;
+    },
+    bound: () => cur
+  };
 }
 
 // src/extensions/nav/nav-grid.ts
@@ -30934,12 +31029,15 @@ async function buildDemoGame(env) {
   const baked = await bakeAtlasFromAssets(env, assetsUsed);
   const atlasLabel = baked === null ? "procedural" : baked.label;
   const trees = await loadDemoTrees(assetsUsed.fs);
+  const visualRef = createVisualRef();
   const renderMod = createRenderModule({
     viewportWidth: env.viewport.width,
     viewportHeight: env.viewport.height,
     zoom: 26 * dpr,
     tiltY: 0.62,
     atlas: baked?.atlas,
+    // 恒非 null 的转发壳：未绑定时 `at()` 返回 null（= 按节点真实坐标画）。
+    visual: visualRef.visual,
     follow: () => {
       if (heroId < 0) return void 0;
       const n = appRef?.scene.find(heroId);
@@ -32141,10 +32239,10 @@ ${appR.error.message}
       void app.platform.audio.resume();
     }
   });
-  if (netWiring.mode.role !== "off" && env.netChannel !== void 0 && env.netChannel !== null) {
-    const channel = env.netChannel;
+  const netTransport = env.netTransport !== void 0 && env.netTransport !== null ? env.netTransport : netWiring.mode.role !== "off" && env.netChannel !== void 0 && env.netChannel !== null ? createBroadcastTransport({ channel: env.netChannel, self: netWiring.mode.self ?? 0 }) : null;
+  if (netWiring.mode.role !== "off" && netTransport !== null) {
     registerNetIdentity(app.components);
-    const transport = createBroadcastTransport({ channel, self: netWiring.mode.self ?? 0 });
+    const transport = netTransport;
     const probe = () => ({ map: controllerMod.map, snapshot: controllerMod.snapshot });
     if (netWiring.mode.role === "host") {
       const host = assembleHostNet({
@@ -32163,7 +32261,7 @@ ${appR.error.message}
       netHost = { room: host.room, seats: host.seats };
       netSide = { session: host.session, off: host.off };
     } else {
-      const joiner = createJoiner({ self: transport.self, name: "client" });
+      const joiner = createJoiner({ self: () => transport.self, name: "client" });
       netClient = { joiner, transport };
       const client = assembleClientNet({
         app,
@@ -32177,7 +32275,16 @@ ${appR.error.message}
         },
         notify: toast
       });
-      netSide = { session: client.session, off: client.off };
+      visualRef.bind(client.visual);
+      netSide = {
+        session: client.session,
+        // ★ 拆线时也要解绑：会话断了之后 `at()` 再返回旧的中间值，画面会停在
+        //   一份谁也不再生效的插值上（而所有计数都正常）。
+        off: () => {
+          visualRef.bind(null);
+          client.off();
+        }
+      };
     }
   }
   const runR = app.run();
@@ -32669,6 +32776,191 @@ ${appR.error.message}
   return handle;
 }
 
+// src/extensions/net/ws-transport.ts
+var UNASSIGNED = -1;
+function isHello(v) {
+  if (typeof v !== "object" || v === null) return false;
+  const o = v;
+  return o["kind"] === "hello" && typeof o["peer"] === "number";
+}
+function isPeerLeft(v) {
+  if (typeof v !== "object" || v === null) return false;
+  const o = v;
+  return o["kind"] === "peer-left" && typeof o["peer"] === "number";
+}
+function createWsTransport(opts) {
+  const { socket } = opts;
+  const inbox = [];
+  let now = 0;
+  let opened = opts.opened ?? socket.readyState === 1;
+  let closed = null;
+  let self2 = UNASSIGNED;
+  let hello = null;
+  const counters = { sent: 0, received: 0, dropped: 0 };
+  let malformed = 0;
+  let unknownKinds = 0;
+  let sendBeforeOpen = 0;
+  let sendAfterClose = 0;
+  const helloCbs = [];
+  const leftCbs = [];
+  socket.onopen = () => {
+    opened = true;
+  };
+  socket.onmessage = (ev) => {
+    if (closed !== null) return;
+    const raw = typeof ev.data === "string" ? ev.data : null;
+    if (raw === null) {
+      counters.dropped++;
+      malformed++;
+      return;
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      counters.dropped++;
+      malformed++;
+      return;
+    }
+    if (isHello(parsed)) {
+      hello = { peer: parsed.peer, role: parsed.role === "host" ? "host" : "client" };
+      self2 = parsed.peer;
+      for (const cb of helloCbs.slice()) cb(hello);
+      return;
+    }
+    if (isPeerLeft(parsed)) {
+      const reason = typeof parsed.reason === "string" ? parsed.reason : "";
+      for (const cb of leftCbs.slice()) cb(parsed.peer, reason);
+      return;
+    }
+    if (!isNetMessage(parsed)) {
+      counters.dropped++;
+      malformed++;
+      return;
+    }
+    if (!isKnownKind(parsed.kind)) {
+      counters.dropped++;
+      unknownKinds++;
+      return;
+    }
+    inbox.push({ at: now, msg: parsed });
+    counters.received++;
+  };
+  socket.onclose = () => {
+    if (closed === null) closed = "peer";
+    inbox.length = 0;
+  };
+  const transport = {
+    // ★ getter 而不是快照：`hello` 之前是 `UNASSIGNED`，之后是网关给的号。
+    //   所有调用点（`session.sendIntent` 的信封、`Joiner.request` 的 `from`、
+    //   `net-assembly` 的 `room.playerOf(transport.self)`）都**每拍现读**，
+    //   所以这里一动，它们全部跟着动 —— 不需要任何"刷新"回调。
+    get self() {
+      return self2;
+    },
+    get hello() {
+      return hello;
+    },
+    get ready() {
+      return opened && closed === null;
+    },
+    get closedBy() {
+      return closed;
+    },
+    send(msg3) {
+      if (closed !== null) {
+        sendAfterClose++;
+        counters.dropped++;
+        return false;
+      }
+      if (!opened) {
+        sendBeforeOpen++;
+        counters.dropped++;
+        return false;
+      }
+      let text;
+      try {
+        text = JSON.stringify(msg3);
+      } catch {
+        counters.dropped++;
+        return false;
+      }
+      try {
+        socket.send(text);
+      } catch {
+        closed = "peer";
+        counters.dropped++;
+        return false;
+      }
+      counters.sent++;
+      return true;
+    },
+    receive(tick, kinds) {
+      if (tick > now) now = tick;
+      const out = [];
+      let kept = 0;
+      for (const a of inbox) {
+        if (a.at <= tick && (kinds === void 0 || kinds.includes(a.msg.kind))) out.push(a.msg);
+        else inbox[kept++] = a;
+      }
+      inbox.length = kept;
+      return out;
+    },
+    stats() {
+      return {
+        sent: counters.sent,
+        received: counters.received,
+        dropped: counters.dropped,
+        queued: inbox.length
+      };
+    },
+    dispose() {
+      if (closed !== null) {
+        inbox.length = 0;
+        return;
+      }
+      closed = "self";
+      socket.onmessage = null;
+      socket.onopen = null;
+      socket.onclose = null;
+      inbox.length = 0;
+      try {
+        socket.close();
+      } catch {
+      }
+    },
+    get malformed() {
+      return malformed;
+    },
+    get unknownKinds() {
+      return unknownKinds;
+    },
+    get sendBeforeOpen() {
+      return sendBeforeOpen;
+    },
+    get sendAfterClose() {
+      return sendAfterClose;
+    },
+    onHello(cb) {
+      helloCbs.push(cb);
+      const h = hello;
+      if (h !== null) cb(h);
+      return () => {
+        const i = helloCbs.indexOf(cb);
+        if (i >= 0) helloCbs.splice(i, 1);
+      };
+    },
+    onPeerLeft(cb) {
+      leftCbs.push(cb);
+      return () => {
+        const i = leftCbs.indexOf(cb);
+        if (i >= 0) leftCbs.splice(i, 1);
+      };
+    }
+  };
+  return transport;
+}
+
 // src/browser-entry.ts
 function openNetChannel(mode) {
   if (mode.role === "off") return null;
@@ -32699,6 +32991,70 @@ function openNetChannel(mode) {
     }
   };
 }
+function toSocketLike(ws) {
+  let onOpen = null;
+  let onMsg = null;
+  let onClose = null;
+  let onErr = null;
+  ws.onopen = (ev) => onOpen?.(ev);
+  ws.onmessage = (ev) => onMsg?.(ev);
+  ws.onclose = (ev) => onClose?.(ev);
+  ws.onerror = (ev) => onErr?.(ev);
+  return {
+    send: (d) => {
+      ws.send(d);
+    },
+    close: (code, reason) => {
+      ws.close(code, reason);
+    },
+    get readyState() {
+      return ws.readyState;
+    },
+    get onopen() {
+      return onOpen;
+    },
+    set onopen(h) {
+      onOpen = h;
+    },
+    get onmessage() {
+      return onMsg;
+    },
+    set onmessage(h) {
+      onMsg = h;
+    },
+    get onclose() {
+      return onClose;
+    },
+    set onclose(h) {
+      onClose = h;
+    },
+    get onerror() {
+      return onErr;
+    },
+    set onerror(h) {
+      onErr = h;
+    }
+  };
+}
+function openWsTransport(mode, token) {
+  if (mode.wire !== "ws" || mode.url === null) return null;
+  if (typeof WebSocket === "undefined") return null;
+  let target = mode.url;
+  try {
+    const u = new URL(mode.url);
+    if (mode.role === "host" && token !== null && token !== "") u.searchParams.set("token", token);
+    target = u.toString();
+  } catch {
+    return null;
+  }
+  let ws;
+  try {
+    ws = new WebSocket(target);
+  } catch {
+    return null;
+  }
+  return createWsTransport({ socket: toSocketLike(ws) });
+}
 var FX_LAYER_STYLE = "position:fixed;left:0;top:0;width:100%;height:100%;pointer-events:none;overflow:hidden;z-index:20;";
 var dmgStyle = (dead) => `position:absolute;left:0;top:0;font:700 14px/1 ui-monospace,monospace;color:${dead ? "#ffd54a" : "#ff6b5a"};text-shadow:0 1px 2px rgba(0,0,0,.55);pointer-events:none;will-change:transform,opacity;`;
 function escapeHtml(s) {
@@ -32706,7 +33062,12 @@ function escapeHtml(s) {
 }
 async function main() {
   const params = new URL(location.href).searchParams;
-  const netModeForEntry = parseNetMode(params.get("net"), params.get("room"));
+  const netModeForEntry = parseNetMode(
+    params.get("net"),
+    params.get("room"),
+    params.get("wire"),
+    params.get("url")
+  );
   const canvas = document.getElementById("cv");
   const hud = document.getElementById("hud");
   const toastEl = document.getElementById("toast");
@@ -32854,7 +33215,10 @@ async function main() {
     // ★ 批164 起**没有** `&seat=`：座位号由握手分配（见 `host/net-mode.ts` 文件头）。
     net: params.get("net"),
     netRoom: params.get("room"),
-    netChannel: openNetChannel(netModeForEntry),
+    // ★ 两条链路互斥（见 `DemoEnv.netTransport` 的注释）：`wire=ws` 时只交传输，
+    //   `bc` 时只交通道。同时交两个会造出两个会话。
+    netChannel: netModeForEntry.wire === "ws" ? null : openNetChannel(netModeForEntry),
+    netTransport: openWsTransport(netModeForEntry, params.get("token")),
     surface,
     platformId: "web",
     platform: {

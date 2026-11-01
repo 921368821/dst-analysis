@@ -530,3 +530,50 @@ test("房间满了之后加入被拒，且拒绝码是 `full`（不是笼统的 
   assert.ok(refused.refusals >= 1, "满员的加入请求没有被拒？");
   assert.equal(refused.lastRefusal, JoinReject.Full, "拒绝码不是 full —— 界面只能说「加入失败」");
 });
+
+// ---------------------------------------------------------------- 批169：端点号是运行期才知道的
+
+test("★★ `self` 可以是函数：网关分配号之前，握手不许把自己打死", () => {
+  // ★★ 这条守的是跨机器那条链路**唯一**的握手前提。
+  //   `Joiner.reply()` 里有一句 `msg.to !== selfPeer` —— 端点号写死成快照的话，
+  //   客户端在 `hello` 之前那次构造拿到的号（比如 -1）会**永远**留着，
+  //   于是每一份合法的加入回复都被当成"不是给我的"丢掉。
+  //   症状：客户端连上了、网关日志说转发了、主机日志说分配了座位，
+  //   而客户端上什么也没有 —— 三层日志全都正常。
+  let self = -1; // `UNASSIGNED`：还没收到 hello
+  const joiner = createJoiner({ self: () => self, name: "c" });
+
+  const req = joiner.request(0);
+  // ★ 第一条请求的 `from` 是垃圾 —— 这没问题：网关会盖成连接的真实号。
+  //   反过来（先等 hello 再发请求）会让"页面一起来就握手"变成"等一个异步事件"。
+  assert.equal(req.from, -1, "还没握手就说自己几号才是错的");
+
+  // 网关的 hello 到了，本端知道自己 3 号。
+  self = 3;
+  const mine = { kind: "join-reply" as const, from: 0, to: 3, tick: 2, seq: 0, accepted: false as const, reason: JoinReject.Full };
+  assert.equal(
+    joiner.reply(mine),
+    true,
+    "self 是快照的话这份回复会被判成「不是给我的」（strayReplies 涨），而所有计数都正常",
+  );
+  assert.equal(joiner.stats().lastRefusal, JoinReject.Full, "回复没被应用：状态机还停在 joining");
+
+  // ★ 反向也要成立：号不对的回复仍然必须被拒 —— 否则上面那条就退化成"什么都接受"。
+  const other = { kind: "join-reply" as const, from: 0, to: 1, tick: 3, seq: 1, accepted: false as const, reason: JoinReject.Full };
+  assert.equal(joiner.reply(other), false, "to 不对的回复也接受了 ⇒ 两个客户端会应用同一份座位分配");
+});
+
+test("★ 端点号没变时（环回 / 跨标签页），函数形态与数字形态行为一致", () => {
+  // ★ 这条防的是"为了支持函数把老路径改了"：`self: 1` 与 `self: () => 1` 必须等价。
+  const fixed = createJoiner({ self: 1, name: "a" });
+  const fn = createJoiner({ self: () => 1, name: "b" });
+  const reply = { kind: "join-reply" as const, from: 0, to: 1, tick: 0, seq: 0, accepted: false as const, reason: JoinReject.Full };
+  assert.equal(fixed.request(0).from, fn.request(0).from);
+  // ★ 别写 `a.strays ?? a.strayReplies`：字段名不存在时两边都是 `undefined`，
+  //   `undefined === undefined` 照样绿 —— 那不是"两种形态一致"，是"这条什么也没验"。
+  assert.equal(fixed.reply(reply), true, "数字形态没接受 to=1 的回复");
+  assert.equal(fn.reply(reply), true, "函数形态没接受 to=1 的回复");
+  assert.equal(fixed.state(), fn.state());
+  assert.equal(fixed.stats().strayReplies, 0);
+  assert.equal(fn.stats().strayReplies, 0);
+});

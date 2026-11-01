@@ -9240,7 +9240,7 @@ MUTANTS = [
         "file": "src/extensions/net/join.ts",
         "pairs": [
             (
-                "    if (msg.to !== this.selfPeer) {",
+                "    if (msg.to !== this.selfOf()) {",
                 "    if (false) {",
             ),
         ],
@@ -9968,7 +9968,7 @@ MUTANTS = [
         "file": "src/extensions/net/broadcast-transport.ts",
         "pairs": [
             (
-                "    if (!KNOWN_KINDS.has(data.kind)) {",
+                "    if (!isKnownKind(data.kind)) {",
                 "    if (false) {",
             ),
         ],
@@ -10777,6 +10777,281 @@ MUTANTS = [
             ),
         ],
         "test": "tests/extensions/net-interpolate.test.ts",
+    },
+    {
+        "name": "M1123 帧长度 126..65535 只读了高字节（小消息全好，第一条大快照就断）",
+        "file": "src/extensions/net/ws-frame.ts",
+        "pairs": [
+            (
+                "      need = ((b[p] ?? 0) << 8) | (b[p + 1] ?? 0);",
+                "      need = b[p] ?? 0;",
+            ),
+        ],
+        "test": "tests/extensions/net-ws-frame.test.ts",
+    },
+    {
+        "name": "M1124 客户端帧不解掩码（连上来立刻收到一堆乱码 JSON，而握手日志完全正常）",
+        "file": "src/extensions/net/ws-frame.ts",
+        "pairs": [
+            (
+                "        payload[i] = (payload[i] ?? 0) ^ m;",
+                "        payload[i] = payload[i] ?? 0;",
+            ),
+        ],
+        "test": "tests/extensions/net-ws-frame.test.ts",
+    },
+    {
+        "name": "M1125 容忍不属于任何消息的续帧（下一条消息从半截开始拼）",
+        "file": "src/extensions/net/ws-frame.ts",
+        "pairs": [
+            (
+                "      if (this.fragOpcode === null) return this.setFail(\"收到了不属于任何消息的续帧\");",
+                "      if (this.fragOpcode === null) this.fragOpcode = Opcode.Text;",
+            ),
+        ],
+        "test": "tests/extensions/net-ws-frame.test.ts",
+    },
+    {
+        "name": "M1126 声称超长的帧头不在读载荷前拒（10 个字节就能让网关吃满内存）",
+        "file": "src/extensions/net/ws-frame.ts",
+        "pairs": [
+            (
+                "    if (need > MAX_PAYLOAD) return this.setFail(`单帧 ${String(need)} 字节，超过上限`);",
+                "    if (false) return this.setFail(`单帧 ${String(need)} 字节，超过上限`);",
+            ),
+        ],
+        "test": "tests/extensions/net-ws-frame.test.ts",
+    },
+    {
+        "name": "M1127 控制帧载荷不查 125 上限（一个 ping 就能打乱分片重组状态机）",
+        "file": "src/extensions/net/ws-frame.ts",
+        "pairs": [
+            (
+                "      if (need > 125) return this.setFail(\"控制帧载荷超过 125 字节\");",
+                "      if (false) return this.setFail(\"控制帧载荷超过 125 字节\");",
+            ),
+        ],
+        "test": "tests/extensions/net-ws-frame.test.ts",
+    },
+    {
+        "name": "M1128 hello 到了也不更新端点号（self 永远是 UNASSIGNED ⇒ 每一份合法回复都被丢掉）",
+        "file": "src/extensions/net/ws-transport.ts",
+        "pairs": [
+            (
+                "      self = parsed.peer;",
+                "      self = UNASSIGNED;",
+            ),
+        ],
+        "test": "tests/extensions/net-ws.test.ts",
+    },
+    {
+        "name": "M1129 hello 漏进数据面（会话把它计成「未知种类」协议违规）",
+        "file": "src/extensions/net/ws-transport.ts",
+        "pairs": [
+            (
+                "    if (isHello(parsed)) {",
+                "    if (isHello(parsed) && false) {",
+            ),
+        ],
+        "test": "tests/extensions/net-ws.test.ts",
+    },
+    {
+        "name": "M1130 到达时刻用消息自带的 tick（等于假装它按时到了 —— 网络延迟这个维度消失）",
+        "file": "src/extensions/net/ws-transport.ts",
+        "pairs": [
+            (
+                "    inbox.push({ at: now, msg: parsed });",
+                "    inbox.push({ at: parsed.tick, msg: parsed });",
+            ),
+        ],
+        "test": "tests/extensions/net-ws.test.ts",
+    },
+    {
+        "name": "M1131 未连接就发送不单独计数（每局开头丢的几条看起来像丢包）",
+        "file": "src/extensions/net/ws-transport.ts",
+        "pairs": [
+            (
+                "        sendBeforeOpen++;\n        counters.dropped++;",
+                "        counters.dropped++;",
+            ),
+        ],
+        "test": "tests/extensions/net-ws.test.ts",
+    },
+    {
+        "name": "M1132 hello 之后才注册的回调不再补一次（端点号一直是 -1，而 hello 明明收到了）",
+        "file": "src/extensions/net/ws-transport.ts",
+        "pairs": [
+            (
+                "      if (h !== null) cb(h);",
+                "      if (h !== null && false) cb(h);",
+            ),
+        ],
+        "test": "tests/extensions/net-ws.test.ts",
+    },
+    {
+        "name": "M1133 未知 kind 不拦（对面是另一个版本，而面板上什么也看不见）",
+        "file": "src/extensions/net/ws-transport.ts",
+        "pairs": [
+            (
+                "    if (!isKnownKind(parsed.kind)) {",
+                "    if (!isKnownKind(parsed.kind) && false) {",
+            ),
+        ],
+        "test": "tests/extensions/net-ws.test.ts",
+    },
+    {
+        "name": "M1134 ws 下按 role 猜端点号（把批164 拆掉的「自报座位号」从后门放回来）",
+        "file": "src/host/net-mode.ts",
+        "pairs": [
+            (
+                "    return { role, self: null, room, wire: \"ws\", url, why:",
+                "    return { role, self: role === \"host\" ? 0 : 1, room, wire: \"ws\", url, why:",
+            ),
+        ],
+        "test": "tests/host/net-mode.test.ts",
+    },
+    {
+        "name": "M1135 wire=ws 时跳过 url 校验（`http://` 也当能连的地址 ⇒ 页面上只显示「没连上」）",
+        "file": "src/host/net-mode.ts",
+        "pairs": [
+            (
+                "    const url = normalizeWsUrl(urlParam);",
+                "    const url = (urlParam ?? \"\").trim() === \"\" ? null : (urlParam as string);",
+            ),
+        ],
+        "test": "tests/host/net-mode.test.ts",
+    },
+    {
+        "name": "M1136 网关不盖 from（改一下 DevTools 就能冒充主机，而世界仍逐字节一致）",
+        "file": "src/extensions/net/gateway.ts",
+        "pairs": [
+            (
+                "    const stamped = { ...msg, from: conn.peer };",
+                "    const stamped = { ...msg };",
+            ),
+        ],
+        "test": "tests/host/net-gateway.test.ts",
+    },
+    {
+        "name": "M1137 扇出也发给主机（主机把自己重放一次，而终态一致的判据看不出来）",
+        "file": "src/extensions/net/gateway.ts",
+        "pairs": [
+            (
+                "        if (p.role === \"host\") continue;",
+                "        if (p.role === \"host\" && false) continue;",
+            ),
+        ],
+        "test": "tests/host/net-gateway.test.ts",
+    },
+    {
+        "name": "M1138 第二个「主机」也放进来（房间里有两个权威，而两边各自都算得对）",
+        "file": "src/extensions/net/gateway.ts",
+        "pairs": [
+            (
+                "    if (wantsHost && hostPeer !== null) {",
+                "    if (wantsHost && hostPeer !== null && false) {",
+            ),
+        ],
+        "test": "tests/host/net-gateway.test.ts",
+    },
+    {
+        "name": "M1139 主机不在时丢弃不计数（面板上看不出「大家都在等一个没上线的主机」）",
+        "file": "src/extensions/net/gateway.ts",
+        "pairs": [
+            (
+                "      counters.droppedNoHost++;",
+                "      counters.droppedNoHost += 0;",
+            ),
+        ],
+        "test": "tests/host/net-gateway.test.ts",
+    },
+    {
+        "name": "M1140 超时清掉的座位不交还归属（下一个坐进来的人一动，动的是别人）",
+        "file": "src/host/net-assembly.ts",
+        "pairs": [
+            (
+                "    for (const id of ownedBy(scene, playerId)) assignOwner(scene, id, AUTHORITY);",
+                "    for (const id of ownedBy(scene, playerId)) void id;",
+            ),
+        ],
+        "test": "tests/host/net-lifecycle.test.ts",
+    },
+    {
+        "name": "M1141 端点断开不调 room.drop（座位永远不释放，maxPlayers 满了之后谁也进不来）",
+        "file": "src/host/net-assembly.ts",
+        "pairs": [
+            (
+                "  const gone = room.drop(peer, tick);",
+                "  const gone: PlayerId | null = null;",
+            ),
+        ],
+        "test": "tests/host/net-lifecycle.test.ts",
+    },
+    {
+        "name": "M1142 收件人过滤形同虚设（两个客户端会应用同一份座位分配）",
+        "file": "src/extensions/net/join.ts",
+        "pairs": [
+            (
+                "    if (msg.to !== this.selfOf()) {",
+                "    if (msg.to !== this.selfOf() && false) {",
+            ),
+        ],
+        "test": "tests/host/net-handshake.test.ts",
+    },
+    {
+        "name": "M1143 形状校验恒真（坏消息被算成「对面版本不同」⇒ 版本线索被无关广播淹掉）",
+        "file": "src/extensions/net/transport.ts",
+        "pairs": [
+            (
+                "  return typeof o[\"kind\"] === \"string\" && typeof o[\"tick\"] === \"number\" && typeof o[\"seq\"] === \"number\";",
+                "  return true;",
+            ),
+        ],
+        "test": "tests/extensions/net-ws.test.ts",
+    },
+    {
+        "name": "M1144 已知种类恒真（这条链路收到的任何 kind 都往会话送）",
+        "file": "src/extensions/net/transport.ts",
+        "pairs": [
+            (
+                "  return KNOWN_KINDS.has(kind);",
+                "  return true;",
+            ),
+        ],
+        "test": "tests/extensions/net-ws.test.ts",
+    },
+    {
+        "name": "M1145 解绑无效（拆线之后画面停在一份谁也不再生效的插值上，而所有计数都正常）",
+        "file": "src/host/visual-ref.ts",
+        "pairs": [
+            (
+                "      cur = next;",
+                "      if (next !== null) cur = next;",
+            ),
+        ],
+        "test": "tests/host/visual-ref.test.ts",
+    },
+    {
+        "name": "M1146 插值时钟不推进（别人画在上一份的坐标上，看起来像所有人站着不动）",
+        "file": "src/host/visual-ref.ts",
+        "pairs": [
+            (
+                "        if (cur !== null) cur.beginFrame(dtMs);",
+                "        void cur;",
+            ),
+        ],
+        "test": "tests/host/visual-ref.test.ts",
+    },
+    {
+        "name": "M1147 插值坐标不转发（算了却不画：画面上所有人都在节点真实坐标上）",
+        "file": "src/host/visual-ref.ts",
+        "pairs": [
+            (
+                "      at: (nodeId: number) => (cur === null ? null : cur.at(nodeId)),",
+                "      at: (nodeId: number) => (void nodeId, null),",
+            ),
+        ],
+        "test": "tests/host/visual-ref.test.ts",
     },
 ]
 

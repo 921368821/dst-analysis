@@ -549,8 +549,20 @@ export function discoverRooms(
 export type JoinState = "idle" | "joining" | "joined" | "refused" | "lost";
 
 export interface JoinerOptions {
-  /** 本端端点号（回复按 `to` 过滤）。 */
-  readonly self: PeerId;
+  /**
+   * 本端端点号（回复按 `to` 过滤）。
+   *
+   * ★★ 为什么它可以是一个**函数**（批169）
+   *
+   *   端点号在两条链路上都是"事先知道"的：环回里是构造参数，跨标签页里是 URL 参数。
+   *   跨机器时不是 —— 号由网关分配，`hello` 到达之前本端**不知道自己几号**。
+   *   写成快照的话，`reply()` 里那句 `msg.to !== this.selfOf()` 会把每一份合法的
+   *   加入回复都当成"不是给我的"丢掉：客户端连上了，网关日志说转发了，主机日志说
+   *   分配了座位，而客户端上什么也没有 —— 三层日志全都正常。
+   *
+   *   给一次函数就够：`request()` 与 `reply()` 两处都**每次现读**。
+   */
+  readonly self: PeerId | (() => PeerId);
   readonly name: string;
   readonly protocolVersion?: number;
 }
@@ -595,7 +607,8 @@ export interface Joiner {
 }
 
 class JoinerImpl implements Joiner {
-  private readonly selfPeer: PeerId;
+  /** 每读一次都是**当前**端点号（见 `JoinerOptions.self` 的注释）。 */
+  private readonly selfOf: () => PeerId;
   private readonly name: string;
   private readonly version: number;
 
@@ -618,7 +631,12 @@ class JoinerImpl implements Joiner {
   private lastRefusal: JoinRejectReason | null = null;
 
   constructor(opts: JoinerOptions) {
-    this.selfPeer = opts.self;
+    // ★ 先取到局部常量再收窄：直接对 `opts.self`（readonly 属性）做
+    //   `typeof === "function"` 收窄，TS 不会把 else 分支收成 `PeerId`
+    //   （属性访问可能被别处改，收窄不被信任），于是 `() => opts.self` 的类型是
+    //   `() => number | (() => PeerId)` —— 一个只会在类型检查里出现的绕。
+    const given = opts.self;
+    this.selfOf = typeof given === "function" ? given : () => given;
     this.name = opts.name;
     this.version = opts.protocolVersion ?? PROTOCOL_VERSION;
   }
@@ -630,7 +648,7 @@ class JoinerImpl implements Joiner {
   request(tick: number): JoinRequest {
     const base = {
       kind: "join" as const,
-      from: this.selfPeer,
+      from: this.selfOf(),
       tick,
       seq: this.outSeq++,
       protocolVersion: this.version,
@@ -643,7 +661,7 @@ class JoinerImpl implements Joiner {
   }
 
   reply(msg: JoinReply): boolean {
-    if (msg.to !== this.selfPeer) {
+    if (msg.to !== this.selfOf()) {
       this.strayReplies++;
       return false;
     }

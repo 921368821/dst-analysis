@@ -39,6 +39,7 @@ import {
 } from "./host/demo-game.ts";
 import { parseNetMode } from "./host/net-mode.ts";
 import type { ChannelLike } from "./extensions/net/broadcast-transport.ts";
+import { createWsTransport, type SocketLike, type WsTransport } from "./extensions/net/ws-transport.ts";
 
 /**
  * 打开联机通道（批163）。返回 `null` = 这一端不联网。
@@ -90,6 +91,96 @@ function openNetChannel(mode: ReturnType<typeof parseNetMode>): ChannelLike | nu
   };
 }
 
+/**
+ * 把浏览器 `WebSocket` 包成 `SocketLike`（批169）。
+ *
+ * ★ 为什么要这一层：`WebSocket.onmessage` 的类型是
+ *   `(this: WebSocket, ev: MessageEvent) => any`，与 `SocketLike` 的
+ *   `(ev: { readonly data: unknown }) => void` 签名不同 —— 直接赋值过不了 tsc，
+ *   而 `as unknown as SocketLike` 会把"将来 DOM 的签名变了"变成运行时才发现。
+ *   `BroadcastChannel` 那边（`openNetChannel`）是同一套处置，理由一样。
+ *
+ * ★ 转发四个事件而不是"把 ws 原样当成 SocketLike"：`WsTransport` 会往这些属性上
+ *   赋值（`socket.onopen = …`），而浏览器的 `onmessage` 是 setter，直接覆盖它
+ *   等于把这一层绕过去 —— 那时事件仍会送到这里，但 `onMsg` 永远是 `null`。
+ */
+function toSocketLike(ws: WebSocket): SocketLike {
+  let onOpen: ((ev: unknown) => void) | null = null;
+  let onMsg: ((ev: { readonly data: unknown }) => void) | null = null;
+  let onClose: ((ev: unknown) => void) | null = null;
+  let onErr: ((ev: unknown) => void) | null = null;
+  ws.onopen = (ev): void => onOpen?.(ev);
+  ws.onmessage = (ev): void => onMsg?.(ev);
+  ws.onclose = (ev): void => onClose?.(ev);
+  ws.onerror = (ev): void => onErr?.(ev);
+  return {
+    send: (d: string): void => {
+      ws.send(d);
+    },
+    close: (code?: number, reason?: string): void => {
+      ws.close(code, reason);
+    },
+    get readyState(): number {
+      return ws.readyState;
+    },
+    get onopen(): ((ev: unknown) => void) | null {
+      return onOpen;
+    },
+    set onopen(h: ((ev: unknown) => void) | null) {
+      onOpen = h;
+    },
+    get onmessage(): ((ev: { readonly data: unknown }) => void) | null {
+      return onMsg;
+    },
+    set onmessage(h: ((ev: { readonly data: unknown }) => void) | null) {
+      onMsg = h;
+    },
+    get onclose(): ((ev: unknown) => void) | null {
+      return onClose;
+    },
+    set onclose(h: ((ev: unknown) => void) | null) {
+      onClose = h;
+    },
+    get onerror(): ((ev: unknown) => void) | null {
+      return onErr;
+    },
+    set onerror(h: ((ev: unknown) => void) | null) {
+      onErr = h;
+    },
+  };
+}
+
+/**
+ * 打开 WebSocket 传输（批169）。
+ *
+ * ★ `token` 只对**主机**有意义（网关靠它认出谁是 0 号）。客户端带了也只是被忽略 ——
+ *   但这里仍然只在 `role === "host"` 时拼它：把一个密钥放进客户端页面的 URL 里，
+ *   它就会出现在地址栏、历史记录、以及任何一次"把链接发给我看看"里。
+ *
+ * ★ 建不起来（没有 `WebSocket` 全局 / URL 被浏览器拒）返回 `null`，与
+ *   `openNetChannel` 同一条规矩：**显式不启用**，而不是交一个永远发不出去的传输
+ *   —— 后者在画面上表现为"连上了但世界不动"，最难查。
+ */
+function openWsTransport(mode: ReturnType<typeof parseNetMode>, token: string | null): WsTransport | null {
+  if (mode.wire !== "ws" || mode.url === null) return null;
+  if (typeof WebSocket === "undefined") return null;
+  let target = mode.url;
+  try {
+    const u = new URL(mode.url);
+    if (mode.role === "host" && token !== null && token !== "") u.searchParams.set("token", token);
+    target = u.toString();
+  } catch {
+    return null;
+  }
+  let ws: WebSocket;
+  try {
+    ws = new WebSocket(target);
+  } catch {
+    return null;
+  }
+  return createWsTransport({ socket: toSocketLike(ws) });
+}
+
 /** 浮字容器的样式。★ 必须 `fixed`：`getBoundingClientRect()` 给的是**视口**坐标。 */
 const FX_LAYER_STYLE =
   "position:fixed;left:0;top:0;width:100%;height:100%;pointer-events:none;overflow:hidden;z-index:20;";
@@ -120,7 +211,14 @@ export async function main(): Promise<void> {
    */
   const params = new URL(location.href).searchParams;
   /** 联机模式（归一在这里做一次，`env` 里传原值给装配再算一次 —— 纯函数，两次相同）。 */
-  const netModeForEntry = parseNetMode(params.get("net"), params.get("room"));
+  // ★ 批169：`&wire=ws&url=ws://host:8787` 走跨机器，缺省仍是同源标签页（`bc`）。
+  //   决策全在 `host/net-mode.ts`（纯函数、有判据），这里只把原值递过去。
+  const netModeForEntry = parseNetMode(
+    params.get("net"),
+    params.get("room"),
+    params.get("wire"),
+    params.get("url"),
+  );
 
   const canvas = document.getElementById("cv") as HTMLCanvasElement | null;
   const hud = document.getElementById("hud");
@@ -299,7 +397,10 @@ export async function main(): Promise<void> {
     // ★ 批164 起**没有** `&seat=`：座位号由握手分配（见 `host/net-mode.ts` 文件头）。
     net: params.get("net"),
     netRoom: params.get("room"),
-    netChannel: openNetChannel(netModeForEntry),
+    // ★ 两条链路互斥（见 `DemoEnv.netTransport` 的注释）：`wire=ws` 时只交传输，
+    //   `bc` 时只交通道。同时交两个会造出两个会话。
+    netChannel: netModeForEntry.wire === "ws" ? null : openNetChannel(netModeForEntry),
+    netTransport: openWsTransport(netModeForEntry, params.get("token")),
     surface,
     platformId: "web",
     platform: {
