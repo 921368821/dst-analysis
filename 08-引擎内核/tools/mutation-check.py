@@ -10045,8 +10045,12 @@ MUTANTS = [
         "file": "src/extensions/net/session.ts",
         "pairs": [
             (
-                "    if (!loadScene(this.scene, snap, this.registry).ok) return false;\n    // 装载成功才通知宿主重指（见 `onWorldLoaded` 的注释：失败时世界没被动过）\n    this.onWorldLoaded?.();",
-                "    this.onWorldLoaded?.();\n    if (!loadScene(this.scene, snap, this.registry).ok) return false;",
+                "    if (!loadScene(this.scene, snap, this.registry).ok) {\n      // 装载失败：",
+                "    this.onWorldLoaded?.();\n    if (!loadScene(this.scene, snap, this.registry).ok) {\n      // 装载失败：",
+            ),
+            (
+                "    // 装载成功才通知宿主重指（见 `onWorldLoaded` 的注释：失败时世界没被动过）\n    this.onWorldLoaded?.();\n",
+                "    // 装载成功才通知宿主重指（见 `onWorldLoaded` 的注释：失败时世界没被动过）\n",
             ),
         ],
         "test": "tests/extensions/net-world-loaded.test.ts",
@@ -10604,6 +10608,175 @@ MUTANTS = [
             ),
         ],
         "test": "tests/extensions/dir-sprite.test.ts",
+    },
+    {
+        "name": "M1108 本地玩家也被插值（手感差一帧，而画面上只会「更顺」）",
+        "file": "src/extensions/net/interpolate.ts",
+        "pairs": [
+            (
+                "  return local === null || owner !== local;",
+                "  return true;",
+            ),
+        ],
+        "test": "tests/extensions/net-interpolate.test.ts",
+    },
+    {
+        "name": "M1109 重新定基用了节点坐标而不是「现在画到哪」（画面往回跳一段刚走过的路）",
+        "file": "src/extensions/net/interpolate.ts",
+        "pairs": [
+            (
+                "      const cur = this.at(node.id);",
+                "      const cur = null;",
+            ),
+        ],
+        "test": "tests/extensions/net-interpolate.test.ts",
+    },
+    {
+        "name": "M1110 超过阈值也插值（被传送的人从地图这头飘到那头）",
+        "file": "src/extensions/net/interpolate.ts",
+        "pairs": [
+            (
+                "      if (d > this.snapDistance) {",
+                "      if (false) {",
+            ),
+        ],
+        "test": "tests/extensions/net-interpolate.test.ts",
+    },
+    {
+        "name": "M1111 帧长覆盖而不是累加（永远走不到终点，而终态判据是绿的）",
+        "file": "src/extensions/net/interpolate.ts",
+        "pairs": [
+            (
+                "      t.elapsedMs += dtMs;",
+                "      t.elapsedMs = dtMs;",
+            ),
+        ],
+        "test": "tests/extensions/net-interpolate.test.ts",
+    },
+    {
+        "name": "M1112 走满也不落地（轨道永远不清，active 不归零、画面差最后几厘米）",
+        "file": "src/extensions/net/interpolate.ts",
+        "pairs": [
+            (
+                "      if (t.elapsedMs >= t.durationMs) {",
+                "      if (false) {",
+            ),
+        ],
+        "test": "tests/extensions/net-interpolate.test.ts",
+    },
+    {
+        "name": "M1113 新出现的实体从 (0,0) 插过来（所有新角色都从地图原点飞进来）",
+        "file": "src/extensions/net/interpolate.ts",
+        "pairs": [
+            (
+                "      const from = this.held.get(node.id);",
+                "      const from = this.held.get(node.id) ?? { x: 0, y: 0 };",
+            ),
+        ],
+        "test": "tests/extensions/net-interpolate.test.ts",
+    },
+    {
+        "name": "M1114 已消失的节点轨道不清（世界稳定后 active 也不归零）",
+        "file": "src/extensions/net/interpolate.ts",
+        "pairs": [
+            (
+                "      if (scene.find(id) === undefined) this.tracks.delete(id);",
+                "      if (false) this.tracks.delete(id);",
+            ),
+        ],
+        "test": "tests/extensions/net-interpolate.test.ts",
+    },
+    {
+        "name": "M1115 帧长 NaN 不设防（精灵被画到 (NaN, NaN) 上 = 角色凭空消失）",
+        "file": "src/extensions/net/interpolate.ts",
+        "pairs": [
+            (
+                "    if (!Number.isFinite(dtMs) || dtMs <= 0) return;",
+                "    if (false) return;",
+            ),
+        ],
+        "test": "tests/extensions/net-interpolate.test.ts",
+    },
+    {
+        "name": "M1116 采样点挪到装载之后（卡顿时一段都不开始，60fps 下几乎看不出来）",
+        "file": "src/extensions/net/session.ts",
+        "pairs": [
+            (
+                "    this.visual?.capture(this.scene, local);\n",
+                "",
+            ),
+            (
+                "    this.onWorldLoaded?.();\n",
+                "    this.onWorldLoaded?.();\n    this.visual?.capture(this.scene, local);\n",
+            ),
+        ],
+        "test": "tests/extensions/net-interp-session.test.ts",
+    },
+    {
+        "name": "M1117 过渡时长写成常量（不是广播周期 ⇒ 永远落后一截，且没有任何计数反映）",
+        "file": "src/extensions/net/session.ts",
+        "pairs": [
+            (
+                "    this.visual?.rebase(this.scene, local, this.snapshotEvery * this.lastDt * 1000);",
+                "    this.visual?.rebase(this.scene, local, 120);",
+            ),
+        ],
+        "test": "tests/extensions/net-interp-session.test.ts",
+    },
+    {
+        "name": "M1118 `interpolate: false` 关不掉（对照实验做不了，而默认路径全绿）",
+        "file": "src/extensions/net/session.ts",
+        "pairs": [
+            (
+                '      opts.role === "client" && opts.interpolate !== false',
+                '      opts.role === "client"',
+            ),
+        ],
+        "test": "tests/extensions/net-interp-session.test.ts",
+    },
+    {
+        "name": "M1119 渲染层不用插值坐标（会话算出来了，画面没动）",
+        "file": "src/extensions/render/render-module.ts",
+        "pairs": [
+            (
+                "      const px = v === null ? p.x : v.x;",
+                "      const px = p.x;",
+            ),
+        ],
+        "test": "tests/extensions/render-visual.test.ts",
+    },
+    {
+        "name": "M1120 beginFrame 传秒而不是毫秒（插值慢 1000 倍，看起来像「没插值」）",
+        "file": "src/extensions/render/render-module.ts",
+        "pairs": [
+            (
+                "    opts.visual?.beginFrame(info.realDtSec * 1000);",
+                "    opts.visual?.beginFrame(info.realDtSec);",
+            ),
+        ],
+        "test": "tests/extensions/render-visual.test.ts",
+    },
+    {
+        "name": "M1121 视口粗筛用节点坐标（被插值到屏幕外的精灵还在提交）",
+        "file": "src/extensions/render/render-module.ts",
+        "pairs": [
+            (
+                "      if (px < vis.xMin - pad || px > vis.xMax + pad || pz < vis.zMin - pad || pz > vis.zMax + pad) {",
+                "      if (p.x < vis.xMin - pad || p.x > vis.xMax + pad || p.y < vis.zMin - pad || p.y > vis.zMax + pad) {",
+            ),
+        ],
+        "test": "tests/extensions/render-visual.test.ts",
+    },
+    {
+        "name": "M1122 归属交接后不清旧轨道（我的角色被「它还是别人的时候」那段过渡带着走）",
+        "file": "src/extensions/net/interpolate.ts",
+        "pairs": [
+            (
+                "        this.tracks.delete(node.id);\n        continue;\n      }\n      const from = this.held.get(node.id);",
+                "        continue;\n      }\n      const from = this.held.get(node.id);",
+            ),
+        ],
+        "test": "tests/extensions/net-interpolate.test.ts",
     },
 ]
 

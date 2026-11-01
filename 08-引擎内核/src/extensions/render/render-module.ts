@@ -111,6 +111,30 @@ export interface RenderModuleOptions {
    *   传 `[]` 可关掉（例如主图集里没有 terrain 帧，抽了也是空）。
    */
   readonly tileFrames?: readonly string[];
+  /**
+   * 视觉插值（联机平滑，`net/interpolate.ts`）。
+   *
+   * ★★ 只改**画出来的**坐标，不改节点坐标。节点上的数是预测与重放的基准：
+   *   往里面塞插值中间值，重放会以中间值为起点，误差一路累积；而且"从哪开始"
+   *   会取决于渲染跑了多少帧 —— 判据里帧率可控，玩家机器上不可控。
+   *
+   * ★ 为什么渲染层只收一个**结构化**接口、不 import `net/`：渲染不该知道"网络"
+   *   这件事，它只知道"有人想让我把某个节点画在别处"。层级方向（`extensions/net`
+   *   → `extensions/render` 单向）靠这一点维持。
+   *
+   * `null` / 不传 = 每条精灵都按节点真实坐标画（单机、以及关掉插值的对照实验）。
+   */
+  readonly visual?: VisualSmoothing | null;
+}
+
+/**
+ * 渲染层要的那两个动作（`net/interpolate.ts` 的 `Interpolator` 结构上满足它）。
+ */
+export interface VisualSmoothing {
+  /** 每帧一次：推进插值时钟。`dtMs` = 这一帧的真实耗时（毫秒）。 */
+  beginFrame(dtMs: number): void;
+  /** 这个节点这一帧该画在哪。`null` = 用节点真实坐标。 */
+  at(nodeId: number): { readonly x: number; readonly y: number } | null;
 }
 
 export interface RenderModuleHandle extends IModule {
@@ -650,6 +674,10 @@ export function createRenderModule(opts: RenderModuleOptions): RenderModuleHandl
     const d = dev;
     const b = batch;
     const scene = ctxRef?.services.get(Services.Scene);
+    // ★ 插值时钟在**最前面**推进，不在精灵循环里：一条精灵被裁剪 / 帧名不存在时
+    //   会 `continue`，把时间挂在循环里就意味着"看不见的实体时钟停住"，而它下次
+    //   出现时正好从一段很旧的中间值开始画。
+    opts.visual?.beginFrame(info.realDtSec * 1000);
     // ★ 先报"这一帧没画幕布"：下面任何一条提前 return 都意味着"幕布也没画"，
     //   而 `lastCurtain` 留着上一帧的 `true` 会让判据以为它还在画（假绿）。
     lastCurtain = { alpha: curtain, drawn: false };
@@ -677,10 +705,17 @@ export function createRenderModule(opts: RenderModuleOptions): RenderModuleHandl
       const node = s.node;
       if (node === null || !node.activeInHierarchy) continue;
       const p = node.worldPosition;
+      // ★ 插值只改"画在哪"，不改节点（理由见 `RenderModuleOptions.visual`）。
+      //   `null` = 这条精灵不插值（本地玩家 / 没在过渡 / 已经到位）⇒ 用真实坐标。
+      const v = opts.visual?.at(node.id) ?? null;
+      const px = v === null ? p.x : v.x;
+      const pz = v === null ? p.y : v.y;
       // 视口粗筛：只按"中心点是否在扩展后的可见矩形内"。
+      // ★ 粗筛用**画出来的**坐标（`px`/`pz`），不是节点坐标：插值中的实体这两个
+      //   值不同，用节点坐标会在边缘多剔掉一条本来就该可见的精灵。
       // ★ 粗筛**会漏掉**中心在框外但边缘在框内的精灵，所以矩形按最大半径外扩。
       const pad = Math.max(s.width, s.height);
-      if (p.x < vis.xMin - pad || p.x > vis.xMax + pad || p.y < vis.zMin - pad || p.y > vis.zMax + pad) {
+      if (px < vis.xMin - pad || px > vis.xMax + pad || pz < vis.zMin - pad || pz > vis.zMax + pad) {
         culled++;
         continue;
       }
@@ -708,7 +743,7 @@ export function createRenderModule(opts: RenderModuleOptions): RenderModuleHandl
         ctxRef?.log.channel("render").warn(`Sprite 帧名不存在：${JSON.stringify(s.frame)}`, { node: node.id }, null);
         continue;
       }
-      items.push(spriteToRenderItem(s, f, node.id, p.x, p.y, slot));
+      items.push(spriteToRenderItem(s, f, node.id, px, pz, slot));
       // ★ T288 的组合检查：平铺（tileX/tileY > 1）只能用在 `repeat` 页上。
       //   clamp 页上平铺 ⇒ GPU 把边缘像素抻出去，画面是一条脏边，而精灵的
       //   所有数字（UV/尺寸/位置）都对 —— 这类"全对但难看"必须在这里喊出来。

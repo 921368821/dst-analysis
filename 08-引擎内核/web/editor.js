@@ -5597,6 +5597,7 @@ function createRenderModule(opts) {
     const d = dev;
     const b = batch;
     const scene = ctxRef?.services.get(Services.Scene);
+    opts.visual?.beginFrame(info.realDtSec * 1e3);
     lastCurtain = { alpha: curtain2, drawn: false };
     if (d === null || b === null || pages.length === 0 || scene === void 0) return;
     const target = opts.follow?.();
@@ -5613,8 +5614,11 @@ function createRenderModule(opts) {
       const node = s.node;
       if (node === null || !node.activeInHierarchy) continue;
       const p = node.worldPosition;
+      const v = opts.visual?.at(node.id) ?? null;
+      const px = v === null ? p.x : v.x;
+      const pz = v === null ? p.y : v.y;
       const pad = Math.max(s.width, s.height);
-      if (p.x < vis.xMin - pad || p.x > vis.xMax + pad || p.y < vis.zMin - pad || p.y > vis.zMax + pad) {
+      if (px < vis.xMin - pad || px > vis.xMax + pad || pz < vis.zMin - pad || pz > vis.zMax + pad) {
         culled++;
         continue;
       }
@@ -5639,7 +5643,7 @@ function createRenderModule(opts) {
         ctxRef?.log.channel("render").warn(`Sprite \u5E27\u540D\u4E0D\u5B58\u5728\uFF1A${JSON.stringify(s.frame)}`, { node: node.id }, null);
         continue;
       }
-      items.push(spriteToRenderItem(s, f, node.id, p.x, p.y, slot));
+      items.push(spriteToRenderItem(s, f, node.id, px, pz, slot));
       if ((s.tileX > 1 || s.tileY > 1) && (pages[slot]?.wrap ?? "clamp") !== "repeat") {
         ctxRef?.log.channel("render").warn(
           `Sprite \u5728 clamp \u9875\u4E0A\u5E73\u94FA\uFF08tileX=${s.tileX}, tileY=${s.tileY}, atlasId=${JSON.stringify(s.atlasId)}\uFF09\u2014\u2014 \u63A5\u7F1D\u4F1A\u88AB\u62BB\u6210\u810F\u8FB9\uFF1B\u8BF7\u6539\u7528 buildTilePages \u62BD\u51FA\u7684 repeat \u9875`,

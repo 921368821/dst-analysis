@@ -11967,6 +11967,7 @@ function createRenderModule(opts) {
     const d = dev;
     const b = batch;
     const scene = ctxRef?.services.get(Services.Scene);
+    opts.visual?.beginFrame(info.realDtSec * 1e3);
     lastCurtain = { alpha: curtain, drawn: false };
     if (d === null || b === null || pages.length === 0 || scene === void 0) return;
     const target = opts.follow?.();
@@ -11983,8 +11984,11 @@ function createRenderModule(opts) {
       const node = s.node;
       if (node === null || !node.activeInHierarchy) continue;
       const p = node.worldPosition;
+      const v = opts.visual?.at(node.id) ?? null;
+      const px = v === null ? p.x : v.x;
+      const pz = v === null ? p.y : v.y;
       const pad = Math.max(s.width, s.height);
-      if (p.x < vis.xMin - pad || p.x > vis.xMax + pad || p.y < vis.zMin - pad || p.y > vis.zMax + pad) {
+      if (px < vis.xMin - pad || px > vis.xMax + pad || pz < vis.zMin - pad || pz > vis.zMax + pad) {
         culled++;
         continue;
       }
@@ -12009,7 +12013,7 @@ function createRenderModule(opts) {
         ctxRef?.log.channel("render").warn(`Sprite \u5E27\u540D\u4E0D\u5B58\u5728\uFF1A${JSON.stringify(s.frame)}`, { node: node.id }, null);
         continue;
       }
-      items.push(spriteToRenderItem(s, f, node.id, p.x, p.y, slot));
+      items.push(spriteToRenderItem(s, f, node.id, px, pz, slot));
       if ((s.tileX > 1 || s.tileY > 1) && (pages[slot]?.wrap ?? "clamp") !== "repeat") {
         ctxRef?.log.channel("render").warn(
           `Sprite \u5728 clamp \u9875\u4E0A\u5E73\u94FA\uFF08tileX=${s.tileX}, tileY=${s.tileY}, atlasId=${JSON.stringify(s.atlasId)}\uFF09\u2014\u2014 \u63A5\u7F1D\u4F1A\u88AB\u62BB\u6210\u810F\u8FB9\uFF1B\u8BF7\u6539\u7528 buildTilePages \u62BD\u51FA\u7684 repeat \u9875`,
@@ -25529,6 +25533,117 @@ function createPredictor(opts = {}) {
   return new PredictorImpl(opts);
 }
 
+// src/extensions/net/interpolate.ts
+var DEFAULT_INTERP_MS = 120;
+var DEFAULT_SNAP_DISTANCE = 2;
+function interpolable(owner, local) {
+  return local === null || owner !== local;
+}
+var InterpolatorImpl = class {
+  snapDistance;
+  /** 正在走的过渡，按节点 id。 */
+  tracks = /* @__PURE__ */ new Map();
+  /** `capture` 与 `rebase` 之间的暂存：装载前的坐标。 */
+  held = /* @__PURE__ */ new Map();
+  started = 0;
+  snapped = 0;
+  settled = 0;
+  maxDistance = 0;
+  constructor(opts) {
+    const d = opts.snapDistance ?? DEFAULT_SNAP_DISTANCE;
+    if (!Number.isFinite(d) || d <= 0) {
+      throw new RangeError(`snapDistance \u5FC5\u987B\u662F >0 \u7684\u6709\u9650\u6570\uFF0C\u6536\u5230 ${String(d)}`);
+    }
+    this.snapDistance = d;
+  }
+  capture(scene, local) {
+    this.held.clear();
+    for (const c of scene.componentsOf(NET_IDENTITY_TYPE)) {
+      const node = c.node;
+      if (node === null) continue;
+      if (!interpolable(c.owner, local)) continue;
+      const cur = this.at(node.id);
+      const p = node.worldPosition;
+      this.held.set(node.id, cur ?? { x: p.x, y: p.y });
+    }
+  }
+  rebase(scene, local, durationMs = DEFAULT_INTERP_MS) {
+    const dur = Number.isFinite(durationMs) && durationMs > 0 ? durationMs : DEFAULT_INTERP_MS;
+    let began = 0;
+    for (const c of scene.componentsOf(NET_IDENTITY_TYPE)) {
+      const node = c.node;
+      if (node === null) continue;
+      if (!interpolable(c.owner, local)) {
+        this.tracks.delete(node.id);
+        continue;
+      }
+      const from = this.held.get(node.id);
+      if (from === void 0) {
+        this.tracks.delete(node.id);
+        continue;
+      }
+      const p = node.worldPosition;
+      const d = planeLen(p.x - from.x, p.y - from.y);
+      if (d > this.snapDistance) {
+        this.tracks.delete(node.id);
+        this.snapped++;
+        continue;
+      }
+      if (d <= 0) {
+        this.tracks.delete(node.id);
+        continue;
+      }
+      if (d > this.maxDistance) this.maxDistance = d;
+      this.tracks.set(node.id, {
+        fromX: from.x,
+        fromY: from.y,
+        toX: p.x,
+        toY: p.y,
+        elapsedMs: 0,
+        durationMs: dur
+      });
+      this.started++;
+      began++;
+    }
+    this.held.clear();
+    for (const id of [...this.tracks.keys()]) {
+      if (scene.find(id) === void 0) this.tracks.delete(id);
+    }
+    return began;
+  }
+  beginFrame(dtMs) {
+    if (!Number.isFinite(dtMs) || dtMs <= 0) return;
+    for (const [id, t] of this.tracks) {
+      t.elapsedMs += dtMs;
+      if (t.elapsedMs >= t.durationMs) {
+        this.tracks.delete(id);
+        this.settled++;
+      }
+    }
+  }
+  at(nodeId) {
+    const t = this.tracks.get(nodeId);
+    if (t === void 0) return null;
+    const k = t.elapsedMs / t.durationMs;
+    return {
+      x: t.fromX + (t.toX - t.fromX) * k,
+      y: t.fromY + (t.toY - t.fromY) * k
+    };
+  }
+  stats() {
+    return {
+      active: this.tracks.size,
+      started: this.started,
+      snapped: this.snapped,
+      settled: this.settled,
+      maxDistance: this.maxDistance
+    };
+  }
+};
+function createInterpolator(opts = {}) {
+  return new InterpolatorImpl(opts);
+}
+
 // src/extensions/net/transport.ts
 var ResyncReason = {
   /** 基线 seq 与增量的 `base` 不一致（中间丢了一份）。 */
@@ -25579,6 +25694,22 @@ var Session = class {
   playerOf;
   /** 客户端：移动预测。`null` = 关掉了（`predict: false`）。 */
   predictor;
+  /**
+   * 客户端：别人的视觉插值。`null` = 关掉了（`interpolate: false`）或我是主机。
+   *
+   * ★ 公开（`readonly visual`）：渲染层要每帧问它。这是这一层唯一的出口，
+   *   没有第二个地方能拿到它。
+   */
+  visual;
+  /**
+   * 上一拍的步长（秒）。只给插值时长用：一段过渡摊**一个广播周期**，而周期
+   * 是「几拍 × 一拍多长」，只有 `step` 知道后者。
+   *
+   * ★ 缺省 1/30 而不是 0：`adopt` 可能在第一拍之前就被调用（握手回复里带的世界），
+   *   除以 0 会让时长变成 0，`rebase` 回落成缺省值 —— 那不算错，但"为什么那次
+   *   插值时长不一样"会成为一个查不出来的问题。
+   */
+  lastDt = 1 / 30;
   /** 待消化的方向意图，按实体分组。**插入序即到达序**（传输保序）。 */
   queues = /* @__PURE__ */ new Map();
   /**
@@ -25661,6 +25792,9 @@ var Session = class {
     this.onJoinReply = opts.onJoinReply ?? null;
     this.playerOf = opts.playerOf ?? ((peer) => peer);
     this.predictor = opts.role === "client" && opts.predict !== false ? createPredictor(opts.maxPredictSteps === void 0 ? {} : { maxPerEntity: opts.maxPredictSteps }) : null;
+    this.visual = opts.role === "client" && opts.interpolate !== false ? createInterpolator(
+      opts.interpSnapDistance === void 0 ? {} : { snapDistance: opts.interpSnapDistance }
+    ) : null;
     this.rejected = {
       [NetReject.NoEntity]: 0,
       [NetReject.NoIdentity]: 0,
@@ -25671,6 +25805,7 @@ var Session = class {
     };
   }
   step(tick, dt) {
+    if (Number.isFinite(dt) && dt > 0) this.lastDt = dt;
     for (const msg3 of this.transport.receive(tick)) {
       if (this.role === "host") {
         if (msg3.kind === "intent") this.onIntent(msg3);
@@ -25731,6 +25866,7 @@ var Session = class {
     let queued = 0;
     for (const q2 of this.queues.values()) queued += q2.length;
     const p = this.predictor?.stats() ?? { applied: 0, replayed: 0, maxError: 0, dropped: 0, resets: 0 };
+    const v = this.visual?.stats() ?? { active: 0, started: 0, snapped: 0, settled: 0, maxDistance: 0 };
     const mine = this.playerOf(this.transport.self);
     return {
       role: this.role,
@@ -25759,6 +25895,9 @@ var Session = class {
       predictError: p.maxError,
       predictDropped: p.dropped,
       predictResets: p.resets,
+      interpStarted: v.started,
+      interpSnapped: v.snapped,
+      interpActive: v.active,
       lastSnapshotTick: this.lastSnapshotTick,
       owned: mine === null ? 0 : ownedBy(this.scene, mine).length,
       queued
@@ -25894,8 +26033,13 @@ var Session = class {
    *   `baseSnap` 只有在装载成功之后才前移，靠的就是它。
    */
   commit(snap) {
-    if (!loadScene(this.scene, snap, this.registry).ok) return false;
+    const local = this.playerOf(this.transport.self);
+    this.visual?.capture(this.scene, local);
+    if (!loadScene(this.scene, snap, this.registry).ok) {
+      return false;
+    }
     this.onWorldLoaded?.();
+    this.visual?.rebase(this.scene, local, this.snapshotEvery * this.lastDt * 1e3);
     return true;
   }
   /** 请主机给一份全量。**幂等**：多要一份只浪费一点带宽，所以不做去重与重试上限。 */
@@ -26185,7 +26329,7 @@ function assembleClientNet(o) {
       if (id !== null) o.onHero(id);
     }
   });
-  return { session: side.session, off: side.off };
+  return { session: side.session, visual: side.session.visual, off: side.off };
 }
 
 // src/extensions/nav/nav-grid.ts

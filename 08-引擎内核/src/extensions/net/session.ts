@@ -94,6 +94,7 @@ import { applyDelta, deltaFromJson, deltaToJson, diffSnapshot, snapshotOfScene }
 import { CONTROLLER_TYPE, PlayerController } from "../input/player-controller.ts";
 import { dirStep, type MoveIntent } from "../motion/intent.ts";
 import { createPredictor, type Predictor } from "./predict.ts";
+import { createInterpolator, type Interpolator } from "./interpolate.ts";
 import { AUTHORITY, NET_IDENTITY_TYPE, NetIdentity, assignOwner, ownedBy, ownerOf, type PlayerId } from "./identity.ts";
 import type { JoinReply, JoinRequest } from "./join.ts";
 import {
@@ -203,6 +204,24 @@ export interface SessionOptions {
    */
   readonly maxPredictSteps?: number;
   /**
+   * 客户端：是否做**别人**的视觉插值（`net/interpolate.ts`）。缺省 `true`。
+   *
+   * ★ 关掉它的正当理由只有「对照实验」（同一段脚本开/关各跑一遍，逐帧采到的
+   *   坐标序列就是插值的贡献）。用别的理由关它（"先稳一稳"）等于把这一层留成
+   *   没人调的死代码。
+   * ★ 关掉之后 `session.visual` 是 `null`，渲染层自然退回"用节点真实坐标" ——
+   *   于是这个开关不需要渲染层配合，也不会留下"一半开一半关"的状态。
+   */
+  readonly interpolate?: boolean;
+  /**
+   * 客户端：插值阈值（世界单位），超过就直接跳。缺省 2.0。
+   *
+   * ★ 它**不是**"要插多久"的刻度盘，是"这到底是走了一步还是被传送了"的判别线。
+   *   真正走一步的量级是一个广播周期（0.6~0.75 格）—— 调低到那附近会把正常
+   *   移动也判成传送，画面上就是"一秒跳七次"，比不插值更糟。
+   */
+  readonly interpSnapDistance?: number;
+  /**
    * 本地输入来源。主机 = 玩家输入，客户端 = 要发出去的意图。
    *
    * ★ 做成"每拍问一次"而不是"推一条进来"：推送会让"这一拍有没有输入"取决于
@@ -305,6 +324,18 @@ export interface SessionStats {
   readonly predictDropped: number;
   /** 客户端：预测中的实体在快照里不见了（被销毁）而整条丢掉的次数。 */
   readonly predictResets: number;
+  /**
+   * 客户端：开始过多少段视觉插值（`net/interpolate.ts`）。
+   *
+   * ★ 与 `snapshotsApplied` 一起看才有意义：插值开着而 `snapshotsApplied` 在涨，
+   *   这个数却不涨 ⇒ 别人的位移全被判成了「传送」，或者根本没有别人的实体。
+   *   只有这一个数时，"没接上"与"场上只有我一个"分不开。
+   */
+  readonly interpStarted: number;
+  /** 客户端：因为位移超过阈值而**直接跳**的次数（>0 且持续增长 ⇒ 阈值或判定出了问题）。 */
+  readonly interpSnapped: number;
+  /** 客户端：此刻还在插值中的实体数（世界稳定后必须回 0）。 */
+  readonly interpActive: number;
   /** 客户端：最近一次应用成功的快照属于哪一拍（-1 = 还没收到过）。 */
   readonly lastSnapshotTick: number;
   /** 本端当前能驱动的实体数（客户端读它决定"给谁发意图"）。 */
@@ -357,6 +388,21 @@ export interface NetSession {
    * ★ 装载成功会触发 `onWorldLoaded`（宿主在那里重指主角/相机）。
    */
   adopt(json: string): boolean;
+  /**
+   * 视觉插值器：渲染层每帧问它「这个节点该画在哪」。
+   *
+   * ★ 为什么由会话持有、而不是让宿主自己建一个：起点的采样必须发生在
+   *   `loadScene` 的**那一侧**（`commit` 里），而那个时机只有会话知道。
+   *   宿主自己插值的话，它只能在渲染阶段看见「已经是新位置」的世界 ——
+   *   旧位置早就被整场替换掉了。
+   *
+   * ★ 只有**客户端**有（与 `predict` 同一条规矩，理由不同）：主机不装载快照
+   *   （它是权威），别人的移动在它那里是每拍一格的 `move()` —— 本来就不跳。
+   *   给主机也建一个，它永远不会 `rebase`，是个没人调的空壳。
+   *
+   * `null` = 关掉了（`interpolate: false`，对照实验用）。
+   */
+  readonly visual: Interpolator | null;
   stats(): SessionStats;
 }
 
@@ -399,6 +445,22 @@ class Session implements NetSession {
   private readonly playerOf: (peer: PeerId) => PlayerId | null;
   /** 客户端：移动预测。`null` = 关掉了（`predict: false`）。 */
   private readonly predictor: Predictor | null;
+  /**
+   * 客户端：别人的视觉插值。`null` = 关掉了（`interpolate: false`）或我是主机。
+   *
+   * ★ 公开（`readonly visual`）：渲染层要每帧问它。这是这一层唯一的出口，
+   *   没有第二个地方能拿到它。
+   */
+  readonly visual: Interpolator | null;
+  /**
+   * 上一拍的步长（秒）。只给插值时长用：一段过渡摊**一个广播周期**，而周期
+   * 是「几拍 × 一拍多长」，只有 `step` 知道后者。
+   *
+   * ★ 缺省 1/30 而不是 0：`adopt` 可能在第一拍之前就被调用（握手回复里带的世界），
+   *   除以 0 会让时长变成 0，`rebase` 回落成缺省值 —— 那不算错，但"为什么那次
+   *   插值时长不一样"会成为一个查不出来的问题。
+   */
+  private lastDt = 1 / 30;
 
   /** 待消化的方向意图，按实体分组。**插入序即到达序**（传输保序）。 */
   private readonly queues = new Map<NodeId, QueuedIntent[]>();
@@ -492,6 +554,14 @@ class Session implements NetSession {
       opts.role === "client" && opts.predict !== false
         ? createPredictor(opts.maxPredictSteps === undefined ? {} : { maxPerEntity: opts.maxPredictSteps })
         : null;
+    // ★ 与预测同一条规矩：只给客户端建。主机不装载快照，别人的移动在它那里是
+    //   每拍一格的 `move()`，本来就不跳 —— 建了也永远不会 `rebase`。
+    this.visual =
+      opts.role === "client" && opts.interpolate !== false
+        ? createInterpolator(
+            opts.interpSnapDistance === undefined ? {} : { snapDistance: opts.interpSnapDistance },
+          )
+        : null;
     this.rejected = {
       [NetReject.NoEntity]: 0,
       [NetReject.NoIdentity]: 0,
@@ -503,6 +573,8 @@ class Session implements NetSession {
   }
 
   step(tick: number, dt: number): void {
+    // ★ 先记步长：`commit` 要用它算插值时长，而 `commit` 就在这一拍的 ① 里。
+    if (Number.isFinite(dt) && dt > 0) this.lastDt = dt;
     // ---- ① 收：两种角色收到的合法消息互斥，另一种算协议违规
     for (const msg of this.transport.receive(tick)) {
       if (this.role === "host") {
@@ -590,6 +662,7 @@ class Session implements NetSession {
     let queued = 0;
     for (const q of this.queues.values()) queued += q.length;
     const p = this.predictor?.stats() ?? { applied: 0, replayed: 0, maxError: 0, dropped: 0, resets: 0 };
+    const v = this.visual?.stats() ?? { active: 0, started: 0, snapped: 0, settled: 0, maxDistance: 0 };
     // ★ 没有座位时 `owned` 必须是 0，不能退化成「归 AUTHORITY 的都算我的」：
     //   那样一个还没握手的客户端会以为自己拥有满场 AI。
     const mine = this.playerOf(this.transport.self);
@@ -620,6 +693,9 @@ class Session implements NetSession {
       predictError: p.maxError,
       predictDropped: p.dropped,
       predictResets: p.resets,
+      interpStarted: v.started,
+      interpSnapped: v.snapped,
+      interpActive: v.active,
       lastSnapshotTick: this.lastSnapshotTick,
       owned: mine === null ? 0 : ownedBy(this.scene, mine).length,
       queued,
@@ -776,9 +852,23 @@ class Session implements NetSession {
    *   `baseSnap` 只有在装载成功之后才前移，靠的就是它。
    */
   private commit(snap: SceneSnapshot): boolean {
-    if (!loadScene(this.scene, snap, this.registry).ok) return false;
+    // ★★ 两阶段，顺序不可换：
+    //   ① 装载**之前**记下"玩家现在看到"的坐标 —— 装载是整场替换，之后那个位置
+    //      就不存在了（节点被销毁重建，虽然 id 不变，坐标已经是权威的）。
+    //   ② 装载**之后**重新定基。放在之前的话，起点会被随后的装载覆盖，插值永远
+    //      从权威坐标开始 ⇒ 位移恒 0 ⇒ 一段都不开始，而所有位置判据照样绿。
+    const local = this.playerOf(this.transport.self);
+    this.visual?.capture(this.scene, local);
+    if (!loadScene(this.scene, snap, this.registry).ok) {
+      // 装载失败：世界没被动过，这份捕获作废。**不需要显式收尾** —— `capture`
+      // 开头就会清空，而下一次成功装载前一定还有一次 `capture`（见它自己的注释）。
+      return false;
+    }
     // 装载成功才通知宿主重指（见 `onWorldLoaded` 的注释：失败时世界没被动过）
     this.onWorldLoaded?.();
+    // 插值时长 = **一个广播周期**：下一份快照到达时这一段刚好走完，于是画面上
+    // 永远是"上一份 → 这一份"匀速走完，没有固定的落后量在累积。
+    this.visual?.rebase(this.scene, local, this.snapshotEvery * this.lastDt * 1000);
     return true;
   }
 

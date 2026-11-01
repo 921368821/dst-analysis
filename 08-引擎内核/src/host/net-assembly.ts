@@ -46,6 +46,7 @@ import { NET_IDENTITY_TYPE, NetIdentity, type PlayerId } from "../extensions/net
 import { createRoom, type Joiner, type JoinReply, type JoinRequest, type Room } from "../extensions/net/join.ts";
 import { snapshotOfScene } from "../extensions/net/delta.ts";
 import { attachSession, type LocalCommand, type NetSession, type SessionHost } from "../extensions/net/session.ts";
+import type { Interpolator } from "../extensions/net/interpolate.ts";
 import type { PeerId, Transport } from "../extensions/net/transport.ts";
 import type { WorldPlan } from "../extensions/worldgen/worldgen.ts";
 import { createSeatTable, type SeatTable } from "./seat-table.ts";
@@ -254,6 +255,13 @@ export interface ClientNetOptions {
 
 export interface ClientNetSide {
   readonly session: NetSession;
+  /**
+   * 视觉插值器：宿主把它原样交给渲染模块（`createRenderModule({ visual })`）。
+   *
+   * ★ 这里只是**透传**，不在这一层建：起点的采样要发生在 `loadScene` 的那一侧，
+   *   而那个时机只有会话的 `commit` 知道（见 `NetSession.visual` 的注释）。
+   */
+  readonly visual: Interpolator | null;
   readonly off: () => void;
 }
 
@@ -305,5 +313,5 @@ export function assembleClientNet(o: ClientNetOptions): ClientNetSide {
     },
   });
 
-  return { session: side.session, off: side.off };
+  return { session: side.session, visual: side.session.visual, off: side.off };
 }
