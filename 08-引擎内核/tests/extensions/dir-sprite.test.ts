@@ -50,8 +50,31 @@ const LETTERS = ["e", "se", "s", "sw", "w", "nw", "n", "ne"] as const;
 
 /** 兔子方向帧的眼睛颜色（生成器里的 `EYE`，是契约的一部分）。 */
 const EYE = [40, 40, 44] as const;
-/** 朝后那一帧的尾巴颜色。 */
-const TAIL = [255, 255, 255] as const;
+/** 猎狗的黄眼与深棕尾巴。 */
+const HOUND_EYE = [240, 210, 90] as const;
+const HOUND_TAIL = [70, 52, 38] as const;
+/** 拾荒者的青眼与亮土黄尾巴（批167）。 */
+const SCAV_EYE = [120, 226, 206] as const;
+const SCAV_TAIL = [214, 186, 96] as const;
+
+type Rgb = readonly [number, number, number];
+
+/**
+ * 三种生物的素材契约。**每只一份，判据对每一份都跑一遍。**
+ *
+ * ★★ 为什么不是只验兔子：批108 只验了兔子，猎狗的 8 张方向帧从来没有人读过像素。
+ *   而"某一只的 e/w 画反"在画面上看起来完全正常（它朝东时显示朝西的姿势，
+ *   只有盯着脚看才怪），唯一的守卫就是按眼睛质心对账。
+ * ★ 瞳色必须互不相同：`scan` 是按**颜色**找眼睛的，撞色之后"这是谁的眼睛"无解，
+ *   而症状是"某一只的眼睛数总是 0、或者多出来一份"。
+ * ★ 尾巴色也一样（判据靠它判「背对」）。拾荒者的口袋是暗土黄、尾巴是亮土黄，
+ *   刻意分开：同色的话，朝前那一帧的口袋会被当成尾巴 ⇒ 判据说方向画反了。
+ */
+const SPECIES: readonly { readonly key: string; readonly base: string; readonly eye: Rgb; readonly tail: Rgb }[] = [
+  { key: "rabbit", base: "rabbit.png", eye: EYE, tail: [255, 255, 255] },
+  { key: "hound", base: "hound.png", eye: HOUND_EYE, tail: HOUND_TAIL },
+  { key: "scavenger", base: "scavenger.png", eye: SCAV_EYE, tail: SCAV_TAIL },
+];
 
 interface Scanned {
   readonly w: number;
@@ -62,84 +85,93 @@ interface Scanned {
   readonly tail: number;
 }
 
-function scan(name: string): Scanned {
+function scan(name: string, eye: Rgb, tail: Rgb): Scanned {
   const r = decodePng(new Uint8Array(readFileSync(ASSETS + name)));
   if (!r.ok) throw new Error(`解码 ${name} 失败：${r.error.code} ${r.error.message}`);
   const { width: w, height: h, pixels } = r.value;
   let eyes = 0;
   let sumX = 0;
-  let tail = 0;
+  let tailPx = 0;
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const i = (y * w + x) * 4;
       if (pixels[i + 3]! < 40) continue;
       const rgb = [pixels[i]!, pixels[i + 1]!, pixels[i + 2]!] as const;
-      if (rgb[0] === EYE[0] && rgb[1] === EYE[1] && rgb[2] === EYE[2]) {
+      if (rgb[0] === eye[0] && rgb[1] === eye[1] && rgb[2] === eye[2]) {
         eyes++;
         sumX += x;
       }
-      // 尾巴只在**下半身**算，免得把白色的身体轮廓也算进去
-      if (rgb[0] === TAIL[0] && rgb[1] === TAIL[1] && rgb[2] === TAIL[2] && y > h * 0.7) tail++;
+      // 尾巴只在**下半身**算，免得把身体轮廓也算进去
+      if (rgb[0] === tail[0] && rgb[1] === tail[1] && rgb[2] === tail[2] && y > h * 0.7) tailPx++;
     }
   }
-  return { w, h, eyes, eyeCx: eyes === 0 ? null : sumX / eyes, tail };
+  return { w, h, eyes, eyeCx: eyes === 0 ? null : sumX / eyes, tail: tailPx };
 }
 
-function dirFrame(letter: string): string {
-  return `rabbit_${letter}.png`;
+function dirFrame(prefix: string, letter: string): string {
+  return `${prefix}_${letter}.png`;
 }
 
 // ------------------------------------------------------------------ 素材
 
-test("[素材] 八向帧齐全，尺寸与单帧一致（图集切片按同格才拼得上）", () => {
-  const base = scan("rabbit.png");
-  for (const l of LETTERS) {
-    const s = scan(dirFrame(l));
-    assert.equal(s.w, base.w, `${l} 帧宽度必须与单帧相同`);
-    assert.equal(s.h, base.h, `${l} 帧高度必须与单帧相同`);
+test("[素材] 三只生物各有一套八向帧，尺寸与自己的单帧一致（图集切片按同格才拼得上）", () => {
+  for (const sp of SPECIES) {
+    const base = scan(sp.base, sp.eye, sp.tail);
+    assert.ok(base.w > 0 && base.h > 0, `${sp.base} 尺寸必须非零`);
+    for (const l of LETTERS) {
+      const s = scan(dirFrame(sp.key, l), sp.eye, sp.tail);
+      assert.equal(s.w, base.w, `${sp.key}/${l} 帧宽度必须与自己的单帧相同`);
+      assert.equal(s.h, base.h, `${sp.key}/${l} 帧高度必须与自己的单帧相同`);
+    }
   }
 });
 
-test("[素材] 朝后的三向没有眼睛、有尾巴；朝前的五向有眼睛", () => {
-  // dz < 0 的三向：nw / n / ne
-  for (const l of ["nw", "n", "ne"] as const) {
-    const s = scan(dirFrame(l));
-    assert.equal(s.eyes, 0, `${l} 是背对镜头，不该有眼睛像素（有 ⇒ 方向画反了）`);
-    assert.ok(s.tail > 0, `${l} 背对时必须看得到尾巴 —— 那是「背对」唯一可靠的视觉线索`);
-  }
-  for (const l of ["e", "se", "s", "sw", "w"] as const) {
-    const s = scan(dirFrame(l));
-    assert.ok(s.eyes > 0, `${l} 面朝镜头方向，必须有眼睛像素`);
-    assert.equal(s.tail, 0, `${l} 朝前时不该出现尾巴`);
+test("[素材] 朝后的三向没有眼睛、有尾巴；朝前的五向有眼睛、没尾巴", () => {
+  for (const sp of SPECIES) {
+    // dz < 0 的三向：nw / n / ne
+    for (const l of ["nw", "n", "ne"] as const) {
+      const s = scan(dirFrame(sp.key, l), sp.eye, sp.tail);
+      assert.equal(s.eyes, 0, `${sp.key}/${l} 是背对镜头，不该有眼睛像素（有 ⇒ 方向画反了）`);
+      assert.ok(s.tail > 0, `${sp.key}/${l} 背对时必须看得到尾巴 —— 那是「背对」唯一可靠的视觉线索`);
+    }
+    for (const l of ["e", "se", "s", "sw", "w"] as const) {
+      const s = scan(dirFrame(sp.key, l), sp.eye, sp.tail);
+      assert.ok(s.eyes > 0, `${sp.key}/${l} 面朝镜头方向，必须有眼睛像素`);
+      assert.equal(s.tail, 0, `${sp.key}/${l} 朝前时不该出现尾巴（出现 ⇒ 那帧里藏着一块尾巴色）`);
+    }
   }
 });
 
 test("[素材] 眼睛质心自东向西单调左移（e/w 写反或顺序错位都会红）", () => {
-  const order = ["e", "se", "s", "sw", "w"] as const;
-  const xs = order.map((l) => {
-    const s = scan(dirFrame(l));
-    assert.notEqual(s.eyeCx, null, `${l} 没有眼睛，质心无法比较`);
-    return s.eyeCx!;
-  });
-  for (let i = 1; i < xs.length; i++) {
-    assert.ok(
-      xs[i]! < xs[i - 1]!,
-      `${order[i - 1]} → ${order[i]} 眼睛质心应当左移，实际 ${xs[i - 1]!.toFixed(2)} → ${xs[i]!.toFixed(2)}`,
-    );
+  for (const sp of SPECIES) {
+    const order = ["e", "se", "s", "sw", "w"] as const;
+    const xs = order.map((l) => {
+      const s = scan(dirFrame(sp.key, l), sp.eye, sp.tail);
+      assert.notEqual(s.eyeCx, null, `${sp.key}/${l} 没有眼睛，质心无法比较`);
+      return s.eyeCx!;
+    });
+    for (let i = 1; i < xs.length; i++) {
+      assert.ok(
+        xs[i]! < xs[i - 1]!,
+        `${sp.key}：${order[i - 1]} → ${order[i]} 眼睛质心应当左移，实际 ${xs[i - 1]!.toFixed(2)} → ${xs[i]!.toFixed(2)}`,
+      );
+    }
+    const half = scan(sp.base, sp.eye, sp.tail).w / 2;
+    assert.ok(xs[0]! > half, `${sp.key}：最东向的眼睛质心要在右半（实际 ${xs[0]!.toFixed(2)}，中线 ${half}）`);
+    assert.ok(xs[4]! < half, `${sp.key}：最西向的眼睛质心要在左半（实际 ${xs[4]!.toFixed(2)}，中线 ${half}）`);
   }
-  const half = scan("rabbit.png").w / 2;
-  assert.ok(xs[0]! > half, `最东向的眼睛质心要在右半（实际 ${xs[0]!.toFixed(2)}，中线 ${half}）`);
-  assert.ok(xs[4]! < half, `最西向的眼睛质心要在左半（实际 ${xs[4]!.toFixed(2)}，中线 ${half}）`);
 });
 
-test("[素材] 八帧互不相同（画了八张一样的图也是「齐全」）", () => {
-  const seen = new Map<string, string>();
-  for (const l of LETTERS) {
-    const bytes = readFileSync(ASSETS + dirFrame(l));
-    const sig = bytes.toString("base64");
-    const dup = seen.get(sig);
-    assert.equal(dup, undefined, `${l} 与 ${String(dup)} 的图完全相同 —— 方向没有画出来`);
-    seen.set(sig, l);
+test("[素材] 每只的八帧互不相同（画了八张一样的图也是「齐全」）", () => {
+  for (const sp of SPECIES) {
+    const seen = new Map<string, string>();
+    for (const l of LETTERS) {
+      const bytes = readFileSync(ASSETS + dirFrame(sp.key, l));
+      const sig = bytes.toString("base64");
+      const dup = seen.get(sig);
+      assert.equal(dup, undefined, `${sp.key}/${l} 与 ${String(dup)} 的图完全相同 —— 方向没有画出来`);
+      seen.set(sig, l);
+    }
   }
 });
 
@@ -156,16 +188,19 @@ test("[素材] 生成器产物与已提交的图逐字节一致（改坏生成�
     });
     assert.equal(r.status, 0, `生成器退出码 ${String(r.status)}：${r.stderr ?? ""}`);
     const names = readdirSync(out).filter((f) => f.endsWith(".png")).sort();
-    assert.equal(names.length, 23, `生成器应当产出 23 张，实际 ${names.length} 张`);
+    // 5 张场景图 + 3 只生物的单帧 + 3×8 张方向帧 = 5 + 3 + 24 = 32
+    assert.equal(names.length, 32, `生成器应当产出 32 张，实际 ${names.length} 张`);
     for (const n of names) {
       const a = readFileSync(ASSETS + n);
       const b = readFileSync(join(out, n));
       assert.ok(a.equals(b), `${n} 与生成器产物不一致（改了生成器但没重新生成？）`);
     }
     // 反向也要查：仓库里不许有「生成器不再产出」的孤儿方向帧
-    for (const l of LETTERS) {
-      assert.ok(names.includes(`rabbit_${l}.png`), `生成器不再产出 rabbit_${l}.png`);
-      assert.ok(names.includes(`hound_${l}.png`), `生成器不再产出 hound_${l}.png`);
+    for (const sp of SPECIES) {
+      assert.ok(names.includes(sp.base), `生成器不再产出 ${sp.base}`);
+      for (const l of LETTERS) {
+        assert.ok(names.includes(dirFrame(sp.key, l)), `生成器不再产出 ${dirFrame(sp.key, l)}`);
+      }
     }
   } finally {
     rmSync(out, { recursive: true, force: true });

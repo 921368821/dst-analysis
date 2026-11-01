@@ -13,12 +13,19 @@
  *   全部真机验证了一遍 —— 而不是靠自造字节在单测里"看起来支持"。
  *
  * 用法：node tools/make-demo-assets.mjs
- * 产物：web/assets/{tree,rock,player,berry,ground,rabbit,hound}.png
+ * 产物：web/assets/{tree,rock,player,berry,ground,rabbit,hound,scavenger}.png
  *       ＋ 批108 的 16 张方向帧 web/assets/{rabbit,hound}_{e,se,s,sw,w,nw,n,ne}.png
+ *       ＋ 批167 的 8 张 direction帧 web/assets/scavenger_{e,se,s,sw,w,nw,n,ne}.png
  *
  * ★ `rabbit` / `hound` 是批66 加的：世界的"活物"必须有贴图，
  *   复用 `player` 或 `berry` 会让画面上分不清哪只是兔子 ——
  *   而"看得见会走路的生物"正是那一批要证明的东西。
+ *
+ * ★ `scavenger` 是批167 加的：那一批让 AI 会捡东西、会饿、会吃，但**能力没有载体**
+ *   （模板里没这一只 ⇒ 演示页上看不见任何新行为）。它与前两只的视觉契约只有一条：
+ *   **一眼能看出"它会捡东西"** —— 所以背着一只土黄口袋，且口袋在朝后那一帧整只露出来。
+ *   ★ 眼睛用青色（`SCAV_EYE`），与兔子的深灰、猎狗的黄色都不同：
+ *     `dir-sprite.test.ts` 按眼睛颜色找质心，三只撞色的话"谁的眼睛"就没法分辨。
  */
 
 import { deflateSync } from "node:zlib";
@@ -283,6 +290,32 @@ function makeHound() {
 }
 
 
+/**
+ * 拾荒者：灰绿身 + 尖耳 + 背上的土黄口袋 + 青眼（批167）。
+ *
+ * ★ 为什么要口袋：这一只在玩法上存在的**唯一理由**就是"它会捡东西"。贴图不体现，
+ *   画面上它就只是"第三只兔子"—— 而新行为（捡、吃）反而是看不见的。
+ * ★ 口袋色（暗土黄）与尾巴色（亮土黄）刻意分开：判据用尾巴色数「背对」，
+ *   两者同色的话，朝前那一帧的口袋会被当成尾巴（`tail > 0` ⇒ 判据说方向画反了）。
+ */
+function makeScavenger() {
+  const c = new Canvas(30, 32, 4);
+  // 耳朵：短而宽的三角。★ 第一版画成细长尖角（5,2 那种），整只像"触角虫"，
+  //   与猎狗的宽耳不是同一套风格 —— 三只并排时一眼就看得出不是一批做的。
+  c.triangle(10, 9, 4, 6, 13, 18, [84, 96, 74]);
+  c.triangle(20, 9, 26, 6, 17, 18, [84, 96, 74]);
+  c.disc(15, 22, 10, [104, 118, 92]);
+  c.disc(15, 13, 7, [126, 140, 108]);
+  // 背包：肩带 + 口袋。★ 这一只在玩法上存在的唯一理由就是"会捡东西"，
+  //   贴图不体现的话，新行为在画面上完全不可见。
+  c.rect(6, 14, 2, 6, [128, 96, 50]);
+  c.rect(4, 20, 9, 9, [176, 138, 74]);
+  c.rect(4, 20, 9, 2, [128, 96, 50]);
+  c.rect(11, 12, 2, 3, SCAV_EYE);
+  c.rect(18, 12, 2, 3, SCAV_EYE);
+  return c;
+}
+
 // ------------------------------------------------------------------ 八向帧（批108）
 
 /**
@@ -308,6 +341,10 @@ const DIRS8 = [
 /** 眼睛颜色（判据按这个颜色找「眼睛像素」，所以它是契约的一部分，不能随手改）。 */
 const EYE = [40, 40, 44];
 const HOUND_EYE = [240, 210, 90];
+/** 拾荒者的青眼（批167）。★ 三只生物的瞳色必须互不相同，理由见文件头。 */
+const SCAV_EYE = [120, 226, 206];
+/** 拾荒者背对时的尾巴色（**只在朝后那一帧出现**，判据靠它判「背对」）。 */
+const SCAV_TAIL = [214, 186, 96];
 
 /**
  * 兔子朝 `(dx, dz)` 的一帧。
@@ -383,6 +420,55 @@ function houndAt(dx, dz) {
   return c;
 }
 
+/**
+ * 拾荒者朝 `(dx, dz)` 的一帧（批167）。
+ *
+ * 与 `rabbitAt` / `houndAt` 同一套方向语义，三条规则逐条照搬（判据读的正是这三条）：
+ *   · 头横移 `dx * 2`；
+ *   · 口袋横移 `dx * 3`（侧身时口袋甩到那一侧）；
+ *   · 朝后（`dz < -0.4`）不画眼睛、改画亮土黄尾巴。
+ *
+ * ★ 口袋与尾巴的**位置关系**是这一只独有的：朝后时口袋整只露在背上（`cx - lean`），
+ *   朝前时只从身侧露一角。于是"背对"在两处同时成立（没有眼睛 ∧ 有尾巴 ∧ 口袋在上），
+ *   而任何一处画错都不会被另一处掩盖。
+ */
+function scavengerAt(dx, dz) {
+  const c = new Canvas(30, 32, 4);
+  const cx = 15;
+  const cy = 22;
+  const away = dz < -0.4;
+  const hx = Math.round(cx + dx * 2);
+  const hy = Math.round(13 - dz);
+  const lean = Math.round(dx * 3);
+  const earY = away ? 11 : 9;
+  // 耳朵（先画，身体压在上面 ⇒ 朝后时耳朵藏到脑后）
+  c.triangle(10 + lean, earY, 4 + lean, earY - 3, 13 + lean, earY + 9, [84, 96, 74]);
+  c.triangle(20 + lean, earY, 26 + lean, earY - 3, 17 + lean, earY + 9, [84, 96, 74]);
+  // 身体 + 头
+  c.disc(cx, cy, 10, [104, 118, 92]);
+  c.disc(hx, hy, 7, [126, 140, 108]);
+  if (away) {
+    // 背对：口袋整只露在背上（跟着 `lean` 甩），尾巴在下面
+    c.rect(cx - lean - 4, 19, 9, 9, [176, 138, 74]);
+    c.rect(cx - lean - 4, 19, 9, 2, [128, 96, 50]);
+    c.disc(cx - lean, 28, 3, SCAV_TAIL);
+  } else {
+    // 朝前：口袋挂在身体的相反一侧（像背在背后），肩带斜出头
+    const bagX = Math.round(cx - dx * 7);
+    c.rect(bagX - 1, 14, 2, 6, [128, 96, 50]);
+    c.rect(bagX - 4, 20, 9, 9, [176, 138, 74]);
+    c.rect(bagX - 4, 20, 9, 2, [128, 96, 50]);
+    const eyeDx = Math.round(dx * 3);
+    if (dz > 0.4) {
+      c.rect(hx - 3 + eyeDx, hy - 1, 2, 3, SCAV_EYE);
+      c.rect(hx + 3 + eyeDx, hy - 1, 2, 3, SCAV_EYE);
+    } else {
+      c.rect(hx + (dx >= 0 ? 4 : -4), hy - 1, 2, 3, SCAV_EYE);
+    }
+  }
+  return c;
+}
+
 // ------------------------------------------------------------------ main
 
 const SPEC = [
@@ -404,6 +490,13 @@ const SPEC = [
     name: `hound_${letter}`,
     make: () => houndAt(dx, dz),
     filter: (i + 2) % 5,
+  })),
+  // 批167：拾荒者。★ 过滤类型继续轮转，让新增的 9 张把五条滤波路径再走一遍
+  { name: "scavenger", make: makeScavenger, filter: 3 },
+  ...DIRS8.map(([letter, dx, dz], i) => ({
+    name: `scavenger_${letter}`,
+    make: () => scavengerAt(dx, dz),
+    filter: (i + 4) % 5,
   })),
 ];
 

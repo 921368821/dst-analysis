@@ -10505,7 +10505,107 @@ MUTANTS = [
             ),
         ],
         "test": "tests/extensions/mob-forage.test.ts",
-    },]
+    },
+    {
+        "name": "M1099 拾荒者算进同一个抽样基数（猎狗与兔子的出生点全部挪位）",
+        "file": "src/host/demo-mobs.ts",
+        "pairs": [
+            (
+                "  const base = plan.hounds + plan.rabbits;",
+                "  const base = plan.hounds + plan.rabbits + plan.scavengers;",
+            ),
+        ],
+        "test": "tests/host/demo-ecology.test.ts",
+    },
+    {
+        "name": "M1100 `isDemoBystander` 恒 false（旁观者被算进重生阻挡集）",
+        "file": "src/host/demo-mobs.ts",
+        "pairs": [
+            (
+                "export function isDemoBystander(kind: string | null): boolean {\n  // `MobWorldHandle.templateOf` 对\"已经不在了的节点\"返回 `null` —— 那不是旁观者，\n  // 而是\"查不到\"。两者绝不能合并：把 `null` 当旁观者会把**所有**死掉的怪\n  // 从阻挡集里漏掉，而症状是\"兔子重生在猎狗脸上\"。\n  return kind === \"scavenger\";\n}",
+                "export function isDemoBystander(kind: string | null): boolean {\n  // `MobWorldHandle.templateOf` 对\"已经不在了的节点\"返回 `null` —— 那不是旁观者，\n  // 而是\"查不到\"。两者绝不能合并：把 `null` 当旁观者会把**所有**死掉的怪\n  // 从阻挡集里漏掉，而症状是\"兔子重生在猎狗脸上\"。\n  return false;\n}",
+            ),
+        ],
+        "test": "tests/host/demo-scavenger.test.ts",
+    },
+    {
+        "name": "M1101 再生间隔退回 3 秒（世界重新变成临界：地图上会空几拍）",
+        "file": "src/host/demo-mobs.ts",
+        "pairs": [
+            (
+                "  everyTicks: 75,",
+                "  everyTicks: 90,",
+            ),
+        ],
+        "test": "tests/host/demo-ecology.test.ts",
+    },
+    {
+        "name": "M1102 拾荒者不设 ally（`neutral` 不是免战牌 ⇒ 猎狗把它也吃了）",
+        "file": "src/host/demo-mobs.ts",
+        "pairs": [
+            (
+                "  f.setStance(\"hunter\", \"scavenger\", \"ally\");\n  f.setStance(\"prey\", \"scavenger\", \"ally\");",
+                "",
+            ),
+        ],
+        "test": "tests/host/demo-ecology.test.ts",
+    },
+    {
+        "name": "M1103 抽样把拾荒者当成兔子出生（世界里一只拾荒者都没有）",
+        "file": "src/host/demo-mobs.ts",
+        "pairs": [
+            (
+                "      out.push({ template: 2, cell });",
+                "      out.push({ template: 0, cell });",
+            ),
+        ],
+        "test": "tests/host/demo-scavenger.test.ts",
+    },
+    {
+        "name": "M1104 拾荒者模板不写 carry（会走会饿，但捡不了东西）",
+        "file": "src/host/demo-mobs.ts",
+        "pairs": [
+            (
+                "    carry: { stacks: 3, stack: 5 },",
+                "",
+            ),
+        ],
+        "test": "tests/host/demo-scavenger.test.ts",
+    },
+    {
+        "name": "M1105 拾荒者模板不写 hunger（会捡，但永远不饿 ⇒ 不会吃）",
+        "file": "src/host/demo-mobs.ts",
+        "pairs": [
+            (
+                "    hunger: 100,",
+                "",
+            ),
+        ],
+        "test": "tests/host/demo-scavenger.test.ts",
+    },
+    {
+        "name": "M1106 模板写了 hunger 也不挂饱食组件（世界里永远不饿）",
+        "file": "src/extensions/mobs/spawn-mob.ts",
+        "pairs": [
+            (
+                "  if (tpl.hunger > 0) attached.push([HUNGER_TYPE, hunger]);",
+                "  if (false) attached.push([HUNGER_TYPE, hunger]);",
+            ),
+        ],
+        "test": "tests/host/demo-scavenger.test.ts",
+    },
+    {
+        "name": "M1107 拾荒者朝后也画眼睛（方向画法坏了，只有生成器逐字节那条能抓住）",
+        "file": "tools/make-demo-assets.mjs",
+        "pairs": [
+            (
+                "  c.disc(hx, hy, 7, [126, 140, 108]);\n  if (away) {",
+                "  c.disc(hx, hy, 7, [126, 140, 108]);\n  if (false) {",
+            ),
+        ],
+        "test": "tests/extensions/dir-sprite.test.ts",
+    },
+]
 
 def run(m: dict) -> tuple[int, str]:
     """

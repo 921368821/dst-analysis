@@ -87,7 +87,9 @@ import {
   DEMO_PREY_RESPAWN,
   DEMO_RABBITS,
   DEMO_HOUND_TREE,
+  DEMO_SCAVENGERS,
   DEMO_TREE_FILES,
+  isDemoBystander,
   createDemoFactions,
   pickDemoMobSpots,
 } from "../host/demo-mobs.ts";
@@ -538,6 +540,9 @@ const DEMO_FRAMES = [
   //   两边写错一个字的症状是「生物在走但看不见」，而渲染模块只会 warn。
   { name: "rabbit", file: "rabbit.png" },
   { name: "hound", file: "hound.png" },
+  // 批167：拾荒者。★ 帧名必须与 `DEMO_MOB_TEMPLATES` 的 `frame` 一致 ——
+  //   写错一个字的症状是「它在走但看不见」，而渲染模块只会 warn（同上面两只）。
+  { name: "scavenger", file: "scavenger.png" },
   // 批108：八向帧。★ 名字必须与 `dir-frames.ts` 的字母表逐字一致，
   //   写错一个的症状是「某个方向永远显示默认帧」—— 而且只在朝那个方向时才看得见。
   ...DIRECTION_FRAMES.map((letter) => ({
@@ -547,6 +552,11 @@ const DEMO_FRAMES = [
   ...DIRECTION_FRAMES.map((letter) => ({
     name: `hound_${letter}`,
     file: `hound_${letter}.png`,
+  })),
+  // 批167：拾荒者的八向帧
+  ...DIRECTION_FRAMES.map((letter) => ({
+    name: `scavenger_${letter}`,
+    file: `scavenger_${letter}.png`,
   })),
   // 批112：CC0 八向 + 动画素材（OpenGameArt，作者 Raphael Gonçalves / @rgs_dev）。
   //   ★ 每个方向 4 帧待机；名字 `hero_<方向>_<帧>` 由 `tools/import-8dir-pack.mjs` 定，
@@ -1511,6 +1521,9 @@ export async function buildDemoGame(env: DemoHostEnv): Promise<DemoHandle> {
     const live: number[] = [];
     if (mobs !== null) {
       for (const id of mobs.nodeIds) {
+        // 批167：旁观者不算"占位"（见 `isDemoBystander` 的 ★ —— 算进去会让
+        // 候选集变小、重生时间线整条分叉，而那与"世界多了一只生物"无关）
+        if (isDemoBystander(mobs.templateOf(id))) continue;
         const n = scene.find(id);
         if (n === undefined) continue;
         const c = grid.cellAt(n.worldPosition.x, n.worldPosition.y);
@@ -1679,7 +1692,11 @@ export async function buildDemoGame(env: DemoHostEnv): Promise<DemoHandle> {
       if (g === null || player === null) {
         return err(engineError("MOBS.NO_WORLD", "导航网格或玩家还没建好，生物无处落脚"));
       }
-      const spots = pickDemoMobSpots(g, DEMO_HOUNDS, DEMO_RABBITS, player.cell);
+      const spots = pickDemoMobSpots(
+        g,
+        { hounds: DEMO_HOUNDS, rabbits: DEMO_RABBITS, scavengers: DEMO_SCAVENGERS },
+        player.cell,
+      );
       if (spots.length === 0) {
         return err(engineError("MOBS.NO_SPOT", "世界里找不到可走的出生点（地形全是水/崖？）"));
       }
@@ -1717,6 +1734,10 @@ export async function buildDemoGame(env: DemoHostEnv): Promise<DemoHandle> {
         // 批156：树库。不给的话 `mobs.ai` 组件被**无视**（每只都跑内置树）——
         // 而世界看起来完全正常，只有 `ai n/m` 那一格能分辨。
         library: trees.library,
+        // 批167：食物表。不传的话，拾荒者**会捡但永远不吃**（`foodKind` 恒 undefined）
+        // —— 饱食度一路掉到 0 然后饿死，而它捡东西的样子一直正常。
+        // ★ 与玩家按 E 吃的是**同一张已归一化的表**：两处各归一化一遍就变成两个答案。
+        food: FOOD_TABLE,
       });
       const r = h.init(ctx) as Result<void, EngineError> | undefined;
       if (r !== undefined && !r.ok) return r;

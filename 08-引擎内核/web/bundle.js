@@ -23938,18 +23938,43 @@ var DEMO_MOB_TEMPLATES = [
     speed: 2.3,
     team: "hunter",
     loot: [{ kind: "hide", count: 1 }]
+  },
+  {
+    // ★ 只捡不吃亏：`carry` 让它能拾取、`hunger` 让它会饿（饿了就吃包里的）。
+    //   `damage: 0` ⇒ 不挂攻击组件 ⇒ 它不会参与打架（生态数字不受影响）。
+    //   队伍独立：不设任何 stance ⇒ 与猎狗、玩家都是友好，谁都打不了它、
+    //   它也打不了谁。★ 与 prey 同队会让猎狗顺手把它吃掉，那不是"拾荒"该有的样子。
+    kind: "scavenger",
+    frame: "scavenger",
+    width: 1,
+    height: 1,
+    radius: 0.3,
+    maxHp: 5,
+    damage: 0,
+    range: 1.4,
+    cooldownTicks: 20,
+    speed: 1,
+    team: "scavenger",
+    loot: [],
+    // 3 格 × 每格 5 个：够它边捡边吃，但装不下半张地图的浆果。
+    carry: { stacks: 3, stack: 5 },
+    // 100 = 满饱食；低于 50% 才找吃的（见 `MobBrainOptions.hungryBelowPercent`）
+    hunger: 100
   }
 ];
 var DEMO_HOUNDS = 3;
 var DEMO_RABBITS = 10;
+var DEMO_SCAVENGERS = 2;
 var DEMO_TREE_FILES = ["ai/hound.tree.json", "ai/hound_grudge.tree.json"];
 var DEMO_HOUND_TREE = "ai/hound";
 function createDemoFactions() {
   const f = createFactions();
   f.setStance("hunter", "prey", "foe");
+  f.setStance("hunter", "scavenger", "ally");
+  f.setStance("prey", "scavenger", "ally");
   return f;
 }
-function pickDemoMobSpots(grid, hounds, rabbits, avoidCell) {
+function pickDemoMobSpots(grid, plan, avoidCell) {
   const walk = [];
   const ax = grid.cellX(avoidCell);
   const az = grid.cellZ(avoidCell);
@@ -23960,19 +23985,38 @@ function pickDemoMobSpots(grid, hounds, rabbits, avoidCell) {
     if (Math.abs(cx - ax) <= 2 && Math.abs(cz - az) <= 2) continue;
     walk.push(i);
   }
-  const total = hounds + rabbits;
   const out = [];
   if (walk.length === 0) return out;
-  const stride = Math.max(1, Math.floor(walk.length / total));
-  for (let k = 0; k < total; k++) {
-    const cell = walk[Math.min(walk.length - 1, k * stride)];
-    if (cell === void 0) continue;
-    out.push({ template: k < hounds ? 1 : 0, cell });
+  const base = plan.hounds + plan.rabbits;
+  if (base > 0) {
+    const stride = Math.max(1, Math.floor(walk.length / base));
+    for (let k = 0; k < base; k++) {
+      const cell = walk[Math.min(walk.length - 1, k * stride)];
+      if (cell === void 0) continue;
+      out.push({ template: k < plan.hounds ? 1 : 0, cell });
+    }
+  }
+  if (plan.scavengers > 0) {
+    const taken = new Set(out.map((s) => s.cell));
+    const free = walk.filter((c) => !taken.has(c));
+    const n = Math.min(plan.scavengers, free.length);
+    for (let j = 0; j < n; j++) {
+      const cell = free[Math.floor((j + 0.5) * free.length / n)];
+      if (cell === void 0) continue;
+      out.push({ template: 2, cell });
+    }
   }
   return out;
 }
+function isDemoBystander(kind) {
+  return kind === "scavenger";
+}
 var DEMO_PREY_RESPAWN = {
-  everyTicks: 90,
+  // ★ 批167 从 90 改成 75。不是"为了过判据凑数"，而是那个世界本来就在临界：
+  //   老世界里"地图上最少的兔子数"恰好是 **1**，多一只不参加战斗的旁观者就掉到 0
+  //   （实测：1800 拍里 123 拍空着）。3 秒 → 2.5 秒让"补 >= 吃"有一点余量，
+  //   观感上仍是"打光之后慢慢回满"，不是割草机。
+  everyTicks: 75,
   kind: "rabbit",
   template: "rabbit",
   max: 10,
@@ -30501,6 +30545,9 @@ var DEMO_FRAMES = [
   //   两边写错一个字的症状是「生物在走但看不见」，而渲染模块只会 warn。
   { name: "rabbit", file: "rabbit.png" },
   { name: "hound", file: "hound.png" },
+  // 批167：拾荒者。★ 帧名必须与 `DEMO_MOB_TEMPLATES` 的 `frame` 一致 ——
+  //   写错一个字的症状是「它在走但看不见」，而渲染模块只会 warn（同上面两只）。
+  { name: "scavenger", file: "scavenger.png" },
   // 批108：八向帧。★ 名字必须与 `dir-frames.ts` 的字母表逐字一致，
   //   写错一个的症状是「某个方向永远显示默认帧」—— 而且只在朝那个方向时才看得见。
   ...DIRECTION_FRAMES.map((letter) => ({
@@ -30510,6 +30557,11 @@ var DEMO_FRAMES = [
   ...DIRECTION_FRAMES.map((letter) => ({
     name: `hound_${letter}`,
     file: `hound_${letter}.png`
+  })),
+  // 批167：拾荒者的八向帧
+  ...DIRECTION_FRAMES.map((letter) => ({
+    name: `scavenger_${letter}`,
+    file: `scavenger_${letter}.png`
   })),
   // 批112：CC0 八向 + 动画素材（OpenGameArt，作者 Raphael Gonçalves / @rgs_dev）。
   //   ★ 每个方向 4 帧待机；名字 `hero_<方向>_<帧>` 由 `tools/import-8dir-pack.mjs` 定，
@@ -31008,6 +31060,7 @@ async function buildDemoGame(env) {
     const live = [];
     if (mobs !== null) {
       for (const id of mobs.nodeIds) {
+        if (isDemoBystander(mobs.templateOf(id))) continue;
         const n = scene.find(id);
         if (n === void 0) continue;
         const c = grid.cellAt(n.worldPosition.x, n.worldPosition.y);
@@ -31086,7 +31139,11 @@ async function buildDemoGame(env) {
       if (g === null || player === null) {
         return err(engineError("MOBS.NO_WORLD", "\u5BFC\u822A\u7F51\u683C\u6216\u73A9\u5BB6\u8FD8\u6CA1\u5EFA\u597D\uFF0C\u751F\u7269\u65E0\u5904\u843D\u811A"));
       }
-      const spots = pickDemoMobSpots(g, DEMO_HOUNDS, DEMO_RABBITS, player.cell);
+      const spots = pickDemoMobSpots(
+        g,
+        { hounds: DEMO_HOUNDS, rabbits: DEMO_RABBITS, scavengers: DEMO_SCAVENGERS },
+        player.cell
+      );
       if (spots.length === 0) {
         return err(engineError("MOBS.NO_SPOT", "\u4E16\u754C\u91CC\u627E\u4E0D\u5230\u53EF\u8D70\u7684\u51FA\u751F\u70B9\uFF08\u5730\u5F62\u5168\u662F\u6C34/\u5D16\uFF1F\uFF09"));
       }
@@ -31123,7 +31180,11 @@ async function buildDemoGame(env) {
         },
         // 批156：树库。不给的话 `mobs.ai` 组件被**无视**（每只都跑内置树）——
         // 而世界看起来完全正常，只有 `ai n/m` 那一格能分辨。
-        library: trees.library
+        library: trees.library,
+        // 批167：食物表。不传的话，拾荒者**会捡但永远不吃**（`foodKind` 恒 undefined）
+        // —— 饱食度一路掉到 0 然后饿死，而它捡东西的样子一直正常。
+        // ★ 与玩家按 E 吃的是**同一张已归一化的表**：两处各归一化一遍就变成两个答案。
+        food: FOOD_TABLE
       });
       const r = h.init(ctx);
       if (r !== void 0 && !r.ok) return r;

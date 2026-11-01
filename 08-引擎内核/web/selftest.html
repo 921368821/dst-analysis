@@ -146,7 +146,21 @@ row("图集来自真实资产（fetch → 导入 → 解码 → 合成 全走完
 row("图集里关键帧都在（含一张 JPEG 的 photo 与两张生物的帧）", (e) => {
   const n = e.renderMod && e.renderMod.atlasFrameCount;
   if (typeof n !== "number") return [false, "渲染模块没有暴露帧数"];
-  const want = ["ground", "terrain", "ruler", "tree", "rock", "berry", "player", "photo", "rabbit", "hound"];
+  const want = [
+    "ground",
+    "terrain",
+    "ruler",
+    "tree",
+    "rock",
+    "berry",
+    "player",
+    "photo",
+    "rabbit",
+    "hound",
+    // 批167：拾荒者。★ 加在这一张表里才有意义 —— 它验的是「这一帧真的在图集里」，
+    //   而缺帧的症状是"它在走但看不见"（渲染模块只 warn）。
+    "scavenger",
+  ];
   // ★ 用 `atlasFrame(name)` 逐个点名，而不是只数数量：数量对了也可能"缺的是 rabbit、
   //   多的是别的"，而那种情况画面上就是"兔子不见了"。
   if (typeof e.renderMod.atlasFrame !== "function") return [false, "渲染模块没有暴露 atlasFrame"];
@@ -833,7 +847,7 @@ row("★★ 世界里真有会动的活物：生物模块起来了，至少两�
   return mobReadyDone;
 });
 
-row("★★ 每只生物都挂着可见精灵，帧名在 rabbit/hound 契约内（不是空帧）", (e) => {
+row("★★ 每只生物都挂着可见精灵，帧名在物种契约内（不是空帧）", (e) => {
   if (mobSpriteDone !== null) return mobSpriteDone;
   // ★ 这一条抓的是"生物在走但看不见"：spawnMob 不校验帧名（它不认识图集），
   //   而渲染模块遇到缺帧只会 warn + 跳过 —— 统计全对，画面上什么都没有。
@@ -846,8 +860,11 @@ row("★★ 每只生物都挂着可见精灵，帧名在 rabbit/hound 契约内
   for (const o of m.list) {
     const sp = e.scene.find(o.id) && e.scene.find(o.id).get("render.sprite");
     if (!sp) bad.push(`#${o.id} 没有精灵`);
-    // 批108 起帧名带方向后缀（rabbit_e / hound_ne…），所以判的是**契约形状**而不是两个固定串。
-    else if (!/^(rabbit|hound)(_(e|se|s|sw|w|nw|n|ne))?$/.test(sp.frame)) bad.push(`#${o.id} 帧=${sp.frame}`);
+    // 批108 起帧名带方向后缀（rabbit_e / hound_ne…），所以判的是**契约形状**而不是固定串。
+    // ★ 批167 加 scavenger 时这条红了 —— 它正是"新物种进了世界，而白名单没跟上"的守卫：
+    //   如果它没红，症状是那只怪**永远不被检查**（契约外的帧名一律算通过）。
+    else if (!/^(rabbit|hound|scavenger)(_(e|se|s|sw|w|nw|n|ne))?$/.test(sp.frame))
+      bad.push(`#${o.id} 帧=${sp.frame}`);
   }
   mobSpriteDone = [bad.length === 0, bad.length ? bad.slice(0, 3).join("；") : `${m.list.length} 只全部有精灵`];
   return mobSpriteDone;

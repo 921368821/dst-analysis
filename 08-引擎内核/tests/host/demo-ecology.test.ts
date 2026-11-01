@@ -36,15 +36,18 @@ import { registerFacingComponent } from "../../src/extensions/motion/facing.ts";
 import { registerDirSpriteComponent } from "../../src/extensions/render/dir-sprite.ts";
 import { Sprite } from "../../src/extensions/render/sprite.ts";
 import { registerInventoryComponents } from "../../src/extensions/inventory/inventory.ts";
+import { registerHungerComponent } from "../../src/extensions/survival/hunger.ts";
 import { registerLootComponent } from "../../src/extensions/combat/loot.ts";
 import { SpatialHashWorld, makeSceneAccessor } from "../../src/extensions/physics/physics.ts";
 import { createMobWorldModule, type MobWorldHandle } from "../../src/extensions/mobs/mob-world.ts";
 import {
   DEMO_HOUNDS,
+  DEMO_SCAVENGERS,
   DEMO_MOB_TEMPLATES,
   DEMO_PREY_RESPAWN,
   DEMO_RABBITS,
   createDemoFactions,
+  isDemoBystander,
   pickDemoMobSpots,
 } from "../../src/host/demo-mobs.ts";
 import { pickPreyCellAround } from "../../src/host/prey-respawn.ts";
@@ -63,6 +66,9 @@ function mkScene(): Scene {
   registerFacingComponent(reg);
   registerDirSpriteComponent(reg);
   registerInventoryComponents(reg);
+  // 批167：拾荒者带饱食组件 —— 不注册的话 `spawnMob` 直接失败，
+  // 而症状是「世界初始化不了」，不是「它不会饿」。
+  registerHungerComponent(reg);
   registerLootComponent(reg);
   if (!reg.has("render.sprite")) reg.register(new Sprite().schema, () => new Sprite());
   return new Scene("eco", reg);
@@ -126,8 +132,20 @@ function buildWorld(useRespawn: boolean): Run {
   assert.ok(playerCell >= 0, "世界里要有中心附近的可走格");
 
   const physics = mkPhysics(scene);
-  const spots = pickDemoMobSpots(grid, DEMO_HOUNDS, DEMO_RABBITS, playerCell);
-  assert.equal(spots.length, DEMO_HOUNDS + DEMO_RABBITS, "出生点要够");
+  // ★ 拾荒者也在这一局里（与演示页同一份配表、同一次抽样）。它们是**不打架**的，
+  //   所以捕食链的统计数字不该变 —— 那正是下面 `kills === DEMO_RABBITS` 要钉住的东西：
+  //   "世界里多了两种行为"与"老的生态被改了"必须能分开看见。
+  const spots = pickDemoMobSpots(
+    grid,
+    { hounds: DEMO_HOUNDS, rabbits: DEMO_RABBITS, scavengers: DEMO_SCAVENGERS },
+    playerCell,
+  );
+  assert.equal(spots.length, DEMO_HOUNDS + DEMO_RABBITS + DEMO_SCAVENGERS, "出生点要够");
+  assert.equal(
+    spots.filter((s) => s.template === 2).length,
+    DEMO_SCAVENGERS,
+    "抽样必须真的给拾荒者留了位置（不然「世界里没有它们」和「它们不动」看起来一样）",
+  );
 
   const cfg = {
     minCells: DEMO_PREY_RESPAWN.minCells,
@@ -160,6 +178,9 @@ function buildWorld(useRespawn: boolean): Run {
               if (m === null) return -1;
               const live: number[] = [];
               for (const id of m.nodeIds) {
+                // 与宿主同一个判断（`isDemoBystander`）：旁观者不占重生格 ——
+                // 两处各写一份 `kind === "scavenger"` 的那一份必然漂移。
+                if (isDemoBystander(m.templateOf(id))) continue;
                 const n = scene.find(id);
                 if (n === undefined) continue;
                 const c = grid.cellAt(n.worldPosition.x, n.worldPosition.y);
