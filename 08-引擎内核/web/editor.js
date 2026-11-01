@@ -14041,6 +14041,10 @@ var K = {
   visibleNode: "visible.0.node",
   visibleCell: "visible.0.cell",
   wanderCell: "wander.cell",
+  hungry: "hunger.hungry",
+  foodHas: "food.has",
+  forageCell: "forage.cell",
+  forageNode: "forage.node",
   lastVerdict: "last.verdict",
   lastTarget: "last.target",
   outKind: "out.kind",
@@ -14051,7 +14055,9 @@ var K = {
 var LAST = { none: 0, ok: 1, retry: 2, fatal: 3 };
 var OUT_HUNT = 1;
 var OUT_WANDER = 2;
-var WHY = { grudge: 1, sight: 2, wander: 3 };
+var OUT_FORAGE = 3;
+var OUT_EAT = 4;
+var WHY = { grudge: 1, sight: 2, wander: 3, forage: 4, eat: 5 };
 function atLeast(ctx, key, min) {
   return ctx.board.get(key) >= min ? "success" : "failure";
 }
@@ -14073,6 +14079,14 @@ var MOB_OPS = {
   "mob.huntGrudge": (ctx) => emit(ctx, OUT_HUNT, K.grudgeNode, K.grudgeCell, WHY.grudge),
   "mob.huntNearest": (ctx) => emit(ctx, OUT_HUNT, K.visibleNode, K.visibleCell, WHY.sight),
   "mob.wander": (ctx) => emit(ctx, OUT_WANDER, null, K.wanderCell, WHY.wander),
+  // ---- 批166：吃与捡。两个 check 各自只读一个键，两个 do 各自只写输出槽
+  "mob.isHungry": (ctx) => atLeast(ctx, K.hungry, 1),
+  "mob.hasFood": (ctx) => atLeast(ctx, K.foodHas, 1),
+  "mob.hasForage": (ctx) => atLeast(ctx, K.forageCell, 0),
+  // ★ 吃的目标格是**自己站的格**：`move` 拿到一个到得了的目标，于是它不会一边吃一边走。
+  //   `selfCell < 0` 时 `emit` 自己会拒绝（根上的 check 已经挡住了，这里只是同一道闸）
+  "mob.eat": (ctx) => emit(ctx, OUT_EAT, null, K.selfCell, WHY.eat),
+  "mob.forage": (ctx) => emit(ctx, OUT_FORAGE, K.forageNode, K.forageCell, WHY.forage),
   // 上一拍那个动作**没做成**（retry 或 fatal）。默认树不挂它 —— 挂上去就等于
   // "打不到就换目标"，那是玩法决定，不该由这一批替策划做（见 mob-brain ⑦）。
   "mob.lastFailed": (ctx) => atLeast(ctx, K.lastVerdict, LAST.retry)
@@ -14082,6 +14096,8 @@ var MOB_TREE = bt.sequence(
   bt.check("mob.sane", "mob.canDecide"),
   bt.selector(
     "mob.body",
+    // 批166：饿了先吃（见 `mob-facts.ts` 的 `chooseFromFacts` ①：饿着会掉血）
+    bt.sequence("mob.feed", bt.check("mob.c0", "mob.isHungry"), bt.check("mob.c4", "mob.hasFood"), bt.do("mob.d4", "mob.eat")),
     bt.sequence(
       "mob.hostile",
       bt.check("mob.angry", "mob.isAggressive"),
@@ -14091,6 +14107,8 @@ var MOB_TREE = bt.sequence(
         bt.sequence("mob.sight", bt.check("mob.c2", "mob.seesFoe"), bt.do("mob.d2", "mob.huntNearest"))
       )
     ),
+    // 批166：没仇人、没目标 ⇒ 地上有东西就捡
+    bt.sequence("mob.gather", bt.check("mob.c5", "mob.hasForage"), bt.do("mob.d5", "mob.forage")),
     bt.sequence("mob.roam", bt.check("mob.c3", "mob.hasWander"), bt.do("mob.d3", "mob.wander"))
   )
 );

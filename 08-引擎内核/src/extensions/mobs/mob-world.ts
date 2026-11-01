@@ -38,6 +38,10 @@
  *    而扫掠在这条路上是**硬停**：`move` 的 `clampToContact` 夹到接触点、游标回退，
  *    症状是"顶着树抖"；软推会带一点切向分量，怪自己就滑过去了。
  *
+ * ⑦ **捡与吃不是第三、第四个模块，是 `update` 里的一趟遍历**（批166，见 `mob-forage.ts`）。
+ *    它们不改"每拍持续推进"的状态，只是一次尝试；给它们各建一个模块，就要各自
+ *    维护一份"哪些 id 是我的生物"的名单 —— 而那份名单已经有两份了。
+ *
  * ⑥ **障碍必须同时进导航**（`NavGrid.blockCells`，批124）。只放物理体是不够的：
  *    树摆在格中心、路点也是格中心，两者落在同一个点阵上 —— 导航若认为那格可走，
  *    怪就会**正对着树心**走，推力与走的方向正好相反、净位移 0。
@@ -60,6 +64,8 @@ import { type MobHandle, spawnMob } from "./spawn-mob.ts";
 import { type MobTemplate, validateTemplate } from "./mob-template.ts";
 import { type MobBrain, type MobExplain, createMobBrain } from "./mob-brain.ts";
 import type { TreeLibrary } from "./tree-library.ts";
+import type { FoodTable } from "../survival/food.ts";
+import { EMPTY_FORAGE, runForagePass, type ForageReport } from "./mob-forage.ts";
 
 export const MOB_WORLD_BAD_MODULE = "MOB_WORLD.BAD_MODULE";
 
@@ -150,6 +156,16 @@ export interface MobWorldOptions {
    *   这条"不给就与以前一样"不是保守，而是让既有世界的判据继续验它们本来验的东西。
    */
   readonly library?: TreeLibrary;
+  /**
+   * 食物表（批166）。给了**并且**模板写了 `hunger` 的怪才会「饿了就吃」。
+   *
+   * ★ 这张表要**已归一化**（`normalizeFoodTable` 的产物），与执行器要的是同一张。
+   */
+  readonly food?: FoodTable;
+  /** 饱食度低于百分之几算饿（默认 50，见 `MobBrainOptions.hungryBelowPercent`）。 */
+  readonly hungryBelowPercent?: number;
+  /** 找吃的东西时看多远（世界单位，默认 6，见 `MobBrainOptions.forageRadius`）。 */
+  readonly forageRadius?: number;
   readonly id?: string;
 }
 
@@ -191,6 +207,20 @@ export interface MobWorldStats {
   readonly wandering: number;
   /** 这一 tick 什么都不做的。 */
   readonly idle: number;
+  /** 这一 tick 决定去捡东西的（批166；没有背包的生物恒 0）。 */
+  readonly foraging: number;
+  /** 这一 tick 决定吃东西的（批166）。 */
+  readonly eating: number;
+  /** 累计：拾取成功的次数（堆数，见 `ForageReport.foraged`；不含战利品与进食）。 */
+  readonly foraged: number;
+  /** 累计：吃了几次。 */
+  readonly ate: number;
+  /** 累计：因为背包满而"下次再来"的次数。 */
+  readonly forageRetried: number;
+  /** 累计：其它失败次数（目标没了 / 没食物表 / 没有背包）。 */
+  readonly forageFailed: number;
+  /** 最近一次捡/吃失败的原因（正常时为空串）。 */
+  readonly lastForageError: string;
   readonly kills: number;
   /** 真的进了击杀者背包的件数。 */
   readonly lootGranted: number;
@@ -304,6 +334,10 @@ export function createMobWorldModule(options: MobWorldOptions): MobWorldHandle {
   let hunting = 0;
   let wandering = 0;
   let idle = 0;
+  let foraging = 0;
+  let eating = 0;
+  /** 捡/吃的累计（批166）。`EMPTY_FORAGE` 是零值，判据拿它当初始态比对。 */
+  let forage: ForageReport = EMPTY_FORAGE;
   let lootGranted = 0;
   let lootLost = 0;
   let lootNoRecipient = 0;
@@ -433,6 +467,13 @@ export function createMobWorldModule(options: MobWorldOptions): MobWorldHandle {
         hunting,
         wandering,
         idle,
+        foraging,
+        eating,
+        foraged: forage.foraged,
+        ate: forage.ate,
+        forageRetried: forage.retried,
+        forageFailed: forage.failed,
+        lastForageError: forage.lastError,
         kills: combatMod?.stats.kills ?? 0,
         lootGranted,
         lootLost,
@@ -519,6 +560,9 @@ export function createMobWorldModule(options: MobWorldOptions): MobWorldHandle {
         ...(options.wanderEvery === undefined ? {} : { wanderEvery: options.wanderEvery }),
         ...(options.leashCells === undefined ? {} : { leashCells: options.leashCells }),
         ...(options.aggroCells === undefined ? {} : { aggroCells: options.aggroCells }),
+        ...(options.food === undefined ? {} : { food: options.food }),
+        ...(options.hungryBelowPercent === undefined ? {} : { hungryBelowPercent: options.hungryBelowPercent }),
+        ...(options.forageRadius === undefined ? {} : { forageRadius: options.forageRadius }),
         ...(threat === null ? {} : { threat }),
         ...(options.library === undefined ? {} : { library: options.library }),
       });
@@ -653,15 +697,41 @@ export function createMobWorldModule(options: MobWorldOptions): MobWorldHandle {
       let h = 0;
       let w = 0;
       let i0 = 0;
+      let fg = 0;
+      let et = 0;
       for (const id of ids) {
         const d = b.decide(s, id, tick, options.grid);
         if (d === null) i0++;
         else if (d.kind === "hunt") h++;
-        else w++;
+        else if (d.kind === "wander") w++;
+        else if (d.kind === "forage") fg++;
+        else et++;
       }
       hunting = h;
       wandering = w;
       idle = i0;
+      foraging = fg;
+      eating = et;
+
+      // ---- 批166：捡与吃（见文件头 ⑦）。放在 move/combat 之前：
+      //   站到东西上那一拍就捡走，而不是"先走一步、下一拍才发现脚下有东西"
+      const pass = runForagePass({
+        scene: s,
+        ids,
+        decide: (agentId, tk) => b.decide(s, agentId, tk, options.grid),
+        tick,
+        ...(options.food === undefined ? {} : { food: options.food }),
+      });
+      if (pass.foraged + pass.retried + pass.failed + pass.ate > 0) {
+        // 累加而不是覆盖：`retried` / `failed` 是**计数**，覆盖只会留下最后一趟
+        forage = {
+          foraged: forage.foraged + pass.foraged,
+          ate: forage.ate + pass.ate,
+          retried: forage.retried + pass.retried,
+          failed: forage.failed + pass.failed,
+          lastError: pass.lastError === "" ? forage.lastError : pass.lastError,
+        };
+      }
 
       moveMod.update(tick, dt);
       combatMod.update(tick, dt);
@@ -681,7 +751,8 @@ export function createMobWorldModule(options: MobWorldOptions): MobWorldHandle {
       // 不清 `ids`：这个模块被 stop 之后再 start 时，名单还在（世界没变）
     },
     describe(): string {
-      return `生物：${String(mobs)} 只（追 ${String(hunting)} / 游 ${String(wandering)}），击杀 ${String(
+      const extra = foraging + eating > 0 ? ` / 捡 ${String(foraging)} / 吃 ${String(eating)}` : "";
+      return `生物：${String(mobs)} 只（追 ${String(hunting)} / 游 ${String(wandering)}${extra}），击杀 ${String(
         combatMod?.stats.kills ?? 0,
       )}`;
     },

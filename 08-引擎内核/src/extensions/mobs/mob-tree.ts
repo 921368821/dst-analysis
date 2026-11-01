@@ -27,6 +27,12 @@
  *    （`mob-tree.test.ts` 第 1 条）。这条不是重复：没有对照，就分不清
  *    「树被改坏」与「规范被改坏」，而两者都只表现为「怪的行为有点怪」。
  *
+ * ⑤ **树是「读板 → 写输出槽」，而「吃哪一个」不在板上**（批166）。
+ *    板只放数字（见 ①），可食物是 `kind` 字符串。做法是：板上只记「包里有能吃的吗」
+ *    （`food.has`），真的要吃哪种由 `boardToDecision(board, facts)` 从事实里取 ——
+ *    于是板的形状没变，而"吃哪个"仍然只有一个来源（`MobFacts.foodKind`）。
+ *    ★ 忘传 facts 时 `eat` 决定**返回 `null`**（发不出"吃空气"的命令），不是猜一个。
+ *
  * ★ 为什么不把 op 做成通用原语（`num.gt` / `copy`）：
  *    那样树会长到二十个节点、且「记仇优先」这种语义消失在键名里。
  *    op 名是**玩法词汇**（`mob.hasGrudge`），树才读得懂 —— 这是行为树相对
@@ -53,6 +59,10 @@ export const K = {
   visibleNode: "visible.0.node",
   visibleCell: "visible.0.cell",
   wanderCell: "wander.cell",
+  hungry: "hunger.hungry",
+  foodHas: "food.has",
+  forageCell: "forage.cell",
+  forageNode: "forage.node",
   lastVerdict: "last.verdict",
   lastTarget: "last.target",
   outKind: "out.kind",
@@ -73,12 +83,19 @@ export const LAST = { none: 0, ok: 1, retry: 2, fatal: 3 } as const;
 export const OUT_NONE = 0;
 export const OUT_HUNT = 1;
 export const OUT_WANDER = 2;
+/** 去捡地上的东西（批166）。 */
+export const OUT_FORAGE = 3;
+/** 原地吃掉背包里一个（批166）。 */
+export const OUT_EAT = 4;
 
-/** 输出槽的 reason 码（与 `DecisionReason` 一一对应，见 `WHY_NAME`）。 */
-export const WHY = { grudge: 1, sight: 2, wander: 3 } as const;
+/**
+ * 输出槽的 reason 码（与 `DecisionReason` 一一对应，见 `WHY_NAME`）。
+ * ★ 新增项一律**追加**在末尾：码是存进黑板/进日志的，改旧码等于改历史。
+ */
+export const WHY = { grudge: 1, sight: 2, wander: 3, forage: 4, eat: 5 } as const;
 
 /** 码 → 名字。顺序即码减一。 */
-const WHY_NAME: readonly DecisionReason[] = ["grudge", "sight", "wander"];
+const WHY_NAME: readonly DecisionReason[] = ["grudge", "sight", "wander", "forage", "eat"];
 
 /**
  * 把一份事实写进黑板（**先清空**，见文件头 ②）。
@@ -97,6 +114,12 @@ export function writeFacts(board: Board, f: MobFacts): Board {
   board.set(K.visibleNode, first?.nodeId ?? -1);
   board.set(K.visibleCell, first?.cell ?? -1);
   board.set(K.wanderCell, f.wanderCell);
+  // 见文件头 ⑤ 与 `mob-facts.ts` ⑤：缺省必须是"不饿 / 没吃的 / 没得捡"，
+  // 否则老世界（没有背包与饱食的生物）会突然开始捡东西、或者原地发呆
+  board.set(K.hungry, f.hungry === true ? 1 : 0);
+  board.set(K.foodHas, f.foodKind !== undefined && f.foodKind !== "" ? 1 : 0);
+  board.set(K.forageCell, f.forageCell ?? -1);
+  board.set(K.forageNode, f.forageNode ?? -1);
   board.set(K.lastVerdict, LAST[f.lastVerdict ?? "none"]);
   board.set(K.lastTarget, f.lastTarget ?? -1);
   // 输出槽也每拍归零：一棵不含漫游分支的自定义树跑完之后，不能让上一拍的
@@ -109,7 +132,13 @@ export function writeFacts(board: Board, f: MobFacts): Board {
 }
 
 /** 板上读决定（`null` = 这一拍什么都不用做）。 */
-export function boardToDecision(board: Board): Decision | null {
+/**
+ * 板上读决定（`null` = 这一拍什么都不用做）。
+ *
+ * @param facts 只为一件事存在：`eat` 要带上是**哪一种**食物（见文件头 ⑤）。
+ *              忘传时 `eat` 返回 `null` —— 那比 emit 一条"吃空气"的命令安全。
+ */
+export function boardToDecision(board: Board, facts?: MobFacts): Decision | null {
   const kind = board.get(K.outKind);
   if (kind === OUT_HUNT) {
     return {
@@ -121,6 +150,14 @@ export function boardToDecision(board: Board): Decision | null {
   }
   if (kind === OUT_WANDER) {
     return { kind: "wander", targetNodeId: -1, cell: board.get(K.outCell), reason: "wander" };
+  }
+  if (kind === OUT_FORAGE) {
+    return { kind: "forage", targetNodeId: board.get(K.outTarget), cell: board.get(K.outCell), reason: "forage" };
+  }
+  if (kind === OUT_EAT) {
+    const item = facts?.foodKind ?? "";
+    if (item === "") return null;
+    return { kind: "eat", targetNodeId: -1, cell: board.get(K.outCell), reason: "eat", item };
   }
   return null;
 }
@@ -161,6 +198,14 @@ export const MOB_OPS: AiOps = {
   "mob.huntGrudge": (ctx) => emit(ctx, OUT_HUNT, K.grudgeNode, K.grudgeCell, WHY.grudge),
   "mob.huntNearest": (ctx) => emit(ctx, OUT_HUNT, K.visibleNode, K.visibleCell, WHY.sight),
   "mob.wander": (ctx) => emit(ctx, OUT_WANDER, null, K.wanderCell, WHY.wander),
+  // ---- 批166：吃与捡。两个 check 各自只读一个键，两个 do 各自只写输出槽
+  "mob.isHungry": (ctx) => atLeast(ctx, K.hungry, 1),
+  "mob.hasFood": (ctx) => atLeast(ctx, K.foodHas, 1),
+  "mob.hasForage": (ctx) => atLeast(ctx, K.forageCell, 0),
+  // ★ 吃的目标格是**自己站的格**：`move` 拿到一个到得了的目标，于是它不会一边吃一边走。
+  //   `selfCell < 0` 时 `emit` 自己会拒绝（根上的 check 已经挡住了，这里只是同一道闸）
+  "mob.eat": (ctx) => emit(ctx, OUT_EAT, null, K.selfCell, WHY.eat),
+  "mob.forage": (ctx) => emit(ctx, OUT_FORAGE, K.forageNode, K.forageCell, WHY.forage),
   // 上一拍那个动作**没做成**（retry 或 fatal）。默认树不挂它 —— 挂上去就等于
   // "打不到就换目标"，那是玩法决定，不该由这一批替策划做（见 mob-brain ⑦）。
   "mob.lastFailed": (ctx) => atLeast(ctx, K.lastVerdict, LAST.retry),
@@ -173,15 +218,23 @@ export const MOB_OPS: AiOps = {
  * sequence 根
  *   check   能找到自己（selfCell >= 0）—— 否则整棵树失败 ⇒ 没有决定
  *   selector 主体
+ *     sequence 进食          ← 批166：饿了 ∧ 包里有能吃的（优先级最高，见下面 ★）
+ *       check 饿不饿 → check 包里有吗 → do 吃
  *     sequence 敌对          ← 只有「有攻击组件」的生物才追（文件头见 mob-brain ①）
  *       check 凶不凶
  *       selector 挑目标
  *         sequence 记仇 → check 有仇人 → do 追仇人
  *         sequence 看见 → check 看得见 → do 追最近的
+ *     sequence 拾取          ← 批166：地上有东西就去捡
+ *       check 有可拾格 → do 去捡
  *     sequence 漫游
  *       check 有漫游格（-1 = 孤岛 / 界外）
  *       do 漫游
  * ```
+ *
+ * ★ 为什么「吃」在最前、「捡」在「追」之后：饿到 0 会掉血，是致死的一档状态；
+ *   而捡东西是"没事干的时候干的事"。反过来的话，会打架的生物会放着眼前的敌人
+ *   去捡一丛草 —— 画面上像 bug，而不是像策略。
  *
  * `sequence` 当「与」、`selector` 当「或」、`check` 当条件、`do` 当动作 ——
  * 四个 kind 全用到，没有为这棵树新增任何原语。
@@ -191,6 +244,8 @@ export const MOB_TREE: AiNode = bt.sequence(
   bt.check("mob.sane", "mob.canDecide"),
   bt.selector(
     "mob.body",
+    // 批166：饿了先吃（见 `mob-facts.ts` 的 `chooseFromFacts` ①：饿着会掉血）
+    bt.sequence("mob.feed", bt.check("mob.c0", "mob.isHungry"), bt.check("mob.c4", "mob.hasFood"), bt.do("mob.d4", "mob.eat")),
     bt.sequence(
       "mob.hostile",
       bt.check("mob.angry", "mob.isAggressive"),
@@ -200,6 +255,8 @@ export const MOB_TREE: AiNode = bt.sequence(
         bt.sequence("mob.sight", bt.check("mob.c2", "mob.seesFoe"), bt.do("mob.d2", "mob.huntNearest")),
       ),
     ),
+    // 批166：没仇人、没目标 ⇒ 地上有东西就捡
+    bt.sequence("mob.gather", bt.check("mob.c5", "mob.hasForage"), bt.do("mob.d5", "mob.forage")),
     bt.sequence("mob.roam", bt.check("mob.c3", "mob.hasWander"), bt.do("mob.d3", "mob.wander")),
   ),
 );
@@ -240,7 +297,7 @@ export function createMobTree(options: MobTreeOptions = {}): MobTree {
     decide(facts: MobFacts): Decision | null {
       writeFacts(board, facts);
       agent.step({ tick: facts.tick, board });
-      return boardToDecision(board);
+      return boardToDecision(board, facts);
     },
     memorySize: (): number => agent.memorySize(),
     boardSnapshot: (): Record<string, number> => board.snapshot(),

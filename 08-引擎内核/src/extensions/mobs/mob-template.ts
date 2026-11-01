@@ -61,6 +61,23 @@ export interface MobTemplate {
    */
   readonly tree: string;
   readonly loot: LootTable;
+  /**
+   * 背包（批166）。`null` = 不挂背包 —— **猎狗就是这一类**。
+   *
+   * ★★ 为什么它是模板字段而不是"所有生物都有"：`mob-world.ts` ② 那条语义
+   *   （猎狗打死兔子 ⇒ `LOOT.NO_OWNER` ⇒ 计入 `lootNoRecipient`）依赖"击杀者没有背包"。
+   *   给所有生物都挂背包会把它悄悄改掉：战利品开始进猎狗的包，
+   *   `lootNoRecipient` 归零，而所有计数都自洽 —— 只有那条判据会红。
+   *   于是"有没有背包"必须由**模板明说**，而不是被一个默认值接管。
+   */
+  readonly carry: { readonly stacks: number; readonly stack: number } | null;
+  /**
+   * 饱食上限（批166）。`0` = 不挂饱食组件（永远不饿）。
+   *
+   * ★ 与 `carry` 分开：会饿不代表会捡（一个只在原地挨饿的怪），
+   *   会捡也不代表会饿（一口箱子）。合成一个开关，就再也表达不了这两种。
+   */
+  readonly hunger: number;
 }
 
 function bad(field: string, message: string): Result<MobTemplate, EngineError> {
@@ -123,6 +140,33 @@ export function validateTemplate(raw: unknown): Result<MobTemplate, EngineError>
     return bad("team", `「${t.kind}」的 team 是纯空白 —— 空串表示中立，纯空白是一个看不见的阵营名`);
   }
 
+  // ---- 批166：背包与饱食。两个都可选，缺省 = 老行为（不挂组件）
+  // ★ **已校验过的模板会再过一遍这里**（`mob-world.respawnPrey` 把 `respawnTpl`
+  //   直接交给 `spawnMob`）。那两个字段在产物里是 `null` / `0`，所以"缺省"有两种写法，
+  //   只认 `undefined` 会让再生出来的每一只都报 BAD_TEMPLATE —— 而出生那一批全绿。
+  //   判据 `[模板] 已校验的模板再过一遍不变` 钉住这条往返。
+  let carry: { readonly stacks: number; readonly stack: number } | null = null;
+  if (t.carry !== undefined && t.carry !== null) {
+    const c = t.carry as { stacks?: unknown; stack?: unknown } | null;
+    if (typeof c !== "object" || c === null || Array.isArray(c)) {
+      return bad("carry", `「${t.kind}」的 carry 必须是 {stacks, stack} 对象，收到 ${Array.isArray(c) ? "数组" : typeof c}`);
+    }
+    if (!isPosInt(c.stacks)) {
+      return bad("carry", `「${t.kind}」的 carry.stacks 必须是正整数，收到 ${String(c.stacks)}`);
+    }
+    if (!isPosInt(c.stack)) {
+      return bad("carry", `「${t.kind}」的 carry.stack 必须是正整数，收到 ${String(c.stack)}`);
+    }
+    carry = { stacks: c.stacks, stack: c.stack };
+  }
+  let hunger = 0;
+  if (t.hunger !== undefined && t.hunger !== 0) {
+    if (!isPosInt(t.hunger)) {
+      return bad("hunger", `「${t.kind}」的 hunger 必须是正整数（省略 = 不挂饱食组件），收到 ${String(t.hunger)}`);
+    }
+    hunger = t.hunger;
+  }
+
   // 见文件头 ③
   const loot = normalizeLoot(t.loot ?? []);
   if (!loot.ok) return bad("loot", `「${t.kind}」的战利品表不合法：${loot.error.message}`);
@@ -141,5 +185,7 @@ export function validateTemplate(raw: unknown): Result<MobTemplate, EngineError>
     team: t.team,
     tree: t.tree ?? "",
     loot: loot.value as readonly LootEntry[],
+    carry,
+    hunger,
   });
 }

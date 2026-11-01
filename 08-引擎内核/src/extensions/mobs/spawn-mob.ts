@@ -41,6 +41,10 @@
  *      （`MOB.SPAWN_FAILED` 里点名类型）。这是对的：配了树却没人能承载它，
  *      静默退化等于"配了不生效"，那是最难查的一类。
  *
+ * ⑦ **背包与饱食只在模板明说时挂**（批166，见 `MobTemplate.carry` 的 ★★）。
+ *    没写的生物一个组件都不多 —— 猎狗仍然没有背包，`mob-world.ts` ② 那条
+ *    「猎狗打死兔子 ⇒ `LOOT.NO_OWNER` ⇒ `lootNoRecipient`」也就仍然成立。
+ *
  * ⑤ **方向帧（`render.dirSprite`）也在这里挂**，前缀直接取 `tpl.frame`。
  *    没有它，`motion.facing` 与图集里的 `rabbit_e` 之间就没有任何代码连接 ——
  *    生物会一直显示默认那一张，而所有判据（朝向、帧名契约）各自都是绿的。
@@ -57,6 +61,8 @@ import { MOVER_TYPE, Mover } from "../ai/move.ts";
 import { FACING_TYPE, Facing } from "../motion/facing.ts";
 import { DIR_SPRITE_TYPE, DirSprite } from "../render/dir-sprite.ts";
 import { AI_CONFIG_TYPE, AIConfig } from "./ai-config.ts";
+import { INVENTORY_TYPE, Inventory } from "../inventory/inventory.ts";
+import { HUNGER_TYPE, Hunger } from "../survival/hunger.ts";
 import { SPRITE_TYPE, type Sprite, makeSprite } from "../render/sprite.ts";
 import { type MobTemplate, validateTemplate } from "./mob-template.ts";
 
@@ -89,6 +95,10 @@ export interface MobHandle {
   readonly dirSprite: DirSprite;
   /** 决策树配置（见文件头 ⑥）。`null` = 模板没写 `tree`，用内置树。 */
   readonly aiConfig: AIConfig | null;
+  /** 背包（见文件头 ⑦）。`null` = 模板没写 `carry` —— 它捡不了东西、战利品也不会进它包里。 */
+  readonly inventory: Inventory | null;
+  /** 饱食组件（见文件头 ⑦）。`null` = 模板没写 `hunger` —— 它永远不会饿。 */
+  readonly hunger: Hunger | null;
 }
 
 export interface SpawnMobOptions {
@@ -146,6 +156,17 @@ export function spawnMob(
   // 见文件头 ⑥：只有模板明确写了树才挂
   const aiConfig = new AIConfig();
   aiConfig.tree = tpl.tree;
+  // 见文件头 ⑦
+  const inventory = new Inventory();
+  if (tpl.carry !== null) {
+    inventory.maxStacks = tpl.carry.stacks;
+    inventory.maxStack = tpl.carry.stack;
+  }
+  const hunger = new Hunger();
+  if (tpl.hunger > 0) {
+    hunger.max = tpl.hunger;
+    hunger.value = tpl.hunger;
+  }
 
   const attached: Array<[ComponentSchema["type"], Component]> = [
     [SPRITE_TYPE, sprite],
@@ -161,6 +182,9 @@ export function spawnMob(
   if (tpl.loot.length > 0) attached.push([LOOT_TYPE, loot]);
   // 见文件头 ⑥
   if (tpl.tree !== "") attached.push([AI_CONFIG_TYPE, aiConfig]);
+  // 见文件头 ⑦
+  if (tpl.carry !== null) attached.push([INVENTORY_TYPE, inventory]);
+  if (tpl.hunger > 0) attached.push([HUNGER_TYPE, hunger]);
   for (const [type, c] of attached) {
     const a = scene.attach(nodeId, () => c);
     if (!a.ok) {
@@ -206,6 +230,8 @@ export function spawnMob(
     facing,
     dirSprite,
     aiConfig: tpl.tree === "" ? null : aiConfig,
+    inventory: tpl.carry === null ? null : inventory,
+    hunger: tpl.hunger > 0 ? hunger : null,
   });
 }
 

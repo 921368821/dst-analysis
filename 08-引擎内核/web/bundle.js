@@ -27983,6 +27983,27 @@ function validateTemplate(raw) {
   if (t.team.length > 0 && t.team.trim().length === 0) {
     return bad3("team", `\u300C${t.kind}\u300D\u7684 team \u662F\u7EAF\u7A7A\u767D \u2014\u2014 \u7A7A\u4E32\u8868\u793A\u4E2D\u7ACB\uFF0C\u7EAF\u7A7A\u767D\u662F\u4E00\u4E2A\u770B\u4E0D\u89C1\u7684\u9635\u8425\u540D`);
   }
+  let carry = null;
+  if (t.carry !== void 0 && t.carry !== null) {
+    const c = t.carry;
+    if (typeof c !== "object" || c === null || Array.isArray(c)) {
+      return bad3("carry", `\u300C${t.kind}\u300D\u7684 carry \u5FC5\u987B\u662F {stacks, stack} \u5BF9\u8C61\uFF0C\u6536\u5230 ${Array.isArray(c) ? "\u6570\u7EC4" : typeof c}`);
+    }
+    if (!isPosInt(c.stacks)) {
+      return bad3("carry", `\u300C${t.kind}\u300D\u7684 carry.stacks \u5FC5\u987B\u662F\u6B63\u6574\u6570\uFF0C\u6536\u5230 ${String(c.stacks)}`);
+    }
+    if (!isPosInt(c.stack)) {
+      return bad3("carry", `\u300C${t.kind}\u300D\u7684 carry.stack \u5FC5\u987B\u662F\u6B63\u6574\u6570\uFF0C\u6536\u5230 ${String(c.stack)}`);
+    }
+    carry = { stacks: c.stacks, stack: c.stack };
+  }
+  let hunger = 0;
+  if (t.hunger !== void 0 && t.hunger !== 0) {
+    if (!isPosInt(t.hunger)) {
+      return bad3("hunger", `\u300C${t.kind}\u300D\u7684 hunger \u5FC5\u987B\u662F\u6B63\u6574\u6570\uFF08\u7701\u7565 = \u4E0D\u6302\u9971\u98DF\u7EC4\u4EF6\uFF09\uFF0C\u6536\u5230 ${String(t.hunger)}`);
+    }
+    hunger = t.hunger;
+  }
   const loot = normalizeLoot(t.loot ?? []);
   if (!loot.ok) return bad3("loot", `\u300C${t.kind}\u300D\u7684\u6218\u5229\u54C1\u8868\u4E0D\u5408\u6CD5\uFF1A${loot.error.message}`);
   return ok({
@@ -27998,7 +28019,9 @@ function validateTemplate(raw) {
     speed: t.speed,
     team: t.team,
     tree: t.tree ?? "",
-    loot: loot.value
+    loot: loot.value,
+    carry,
+    hunger
   });
 }
 
@@ -28032,6 +28055,16 @@ function spawnMob(scene, template, x, z, opts = {}) {
   loot.items = encodeItems(tpl.loot);
   const aiConfig = new AIConfig();
   aiConfig.tree = tpl.tree;
+  const inventory = new Inventory();
+  if (tpl.carry !== null) {
+    inventory.maxStacks = tpl.carry.stacks;
+    inventory.maxStack = tpl.carry.stack;
+  }
+  const hunger = new Hunger();
+  if (tpl.hunger > 0) {
+    hunger.max = tpl.hunger;
+    hunger.value = tpl.hunger;
+  }
   const attached = [
     [SPRITE_TYPE, sprite],
     [HEALTH_TYPE, health],
@@ -28043,6 +28076,8 @@ function spawnMob(scene, template, x, z, opts = {}) {
   if (tpl.damage > 0) attached.push([ATTACKER_TYPE, attacker]);
   if (tpl.loot.length > 0) attached.push([LOOT_TYPE, loot]);
   if (tpl.tree !== "") attached.push([AI_CONFIG_TYPE, aiConfig]);
+  if (tpl.carry !== null) attached.push([INVENTORY_TYPE, inventory]);
+  if (tpl.hunger > 0) attached.push([HUNGER_TYPE, hunger]);
   for (const [type, c] of attached) {
     const a = scene.attach(nodeId, () => c);
     if (!a.ok) {
@@ -28083,7 +28118,9 @@ function spawnMob(scene, template, x, z, opts = {}) {
     mover,
     facing,
     dirSprite,
-    aiConfig: tpl.tree === "" ? null : aiConfig
+    aiConfig: tpl.tree === "" ? null : aiConfig,
+    inventory: tpl.carry === null ? null : inventory,
+    hunger: tpl.hunger > 0 ? hunger : null
   });
 }
 
@@ -28453,6 +28490,10 @@ var K = {
   visibleNode: "visible.0.node",
   visibleCell: "visible.0.cell",
   wanderCell: "wander.cell",
+  hungry: "hunger.hungry",
+  foodHas: "food.has",
+  forageCell: "forage.cell",
+  forageNode: "forage.node",
   lastVerdict: "last.verdict",
   lastTarget: "last.target",
   outKind: "out.kind",
@@ -28464,8 +28505,10 @@ var LAST = { none: 0, ok: 1, retry: 2, fatal: 3 };
 var OUT_NONE = 0;
 var OUT_HUNT = 1;
 var OUT_WANDER = 2;
-var WHY = { grudge: 1, sight: 2, wander: 3 };
-var WHY_NAME = ["grudge", "sight", "wander"];
+var OUT_FORAGE = 3;
+var OUT_EAT = 4;
+var WHY = { grudge: 1, sight: 2, wander: 3, forage: 4, eat: 5 };
+var WHY_NAME = ["grudge", "sight", "wander", "forage", "eat"];
 function writeFacts(board, f) {
   board.clear();
   board.set(K.selfCell, f.selfCell);
@@ -28478,6 +28521,10 @@ function writeFacts(board, f) {
   board.set(K.visibleNode, first?.nodeId ?? -1);
   board.set(K.visibleCell, first?.cell ?? -1);
   board.set(K.wanderCell, f.wanderCell);
+  board.set(K.hungry, f.hungry === true ? 1 : 0);
+  board.set(K.foodHas, f.foodKind !== void 0 && f.foodKind !== "" ? 1 : 0);
+  board.set(K.forageCell, f.forageCell ?? -1);
+  board.set(K.forageNode, f.forageNode ?? -1);
   board.set(K.lastVerdict, LAST[f.lastVerdict ?? "none"]);
   board.set(K.lastTarget, f.lastTarget ?? -1);
   board.set(K.outKind, OUT_NONE);
@@ -28486,7 +28533,7 @@ function writeFacts(board, f) {
   board.set(K.outReason, 0);
   return board;
 }
-function boardToDecision(board) {
+function boardToDecision(board, facts) {
   const kind = board.get(K.outKind);
   if (kind === OUT_HUNT) {
     return {
@@ -28498,6 +28545,14 @@ function boardToDecision(board) {
   }
   if (kind === OUT_WANDER) {
     return { kind: "wander", targetNodeId: -1, cell: board.get(K.outCell), reason: "wander" };
+  }
+  if (kind === OUT_FORAGE) {
+    return { kind: "forage", targetNodeId: board.get(K.outTarget), cell: board.get(K.outCell), reason: "forage" };
+  }
+  if (kind === OUT_EAT) {
+    const item = facts?.foodKind ?? "";
+    if (item === "") return null;
+    return { kind: "eat", targetNodeId: -1, cell: board.get(K.outCell), reason: "eat", item };
   }
   return null;
 }
@@ -28522,6 +28577,14 @@ var MOB_OPS = {
   "mob.huntGrudge": (ctx) => emit(ctx, OUT_HUNT, K.grudgeNode, K.grudgeCell, WHY.grudge),
   "mob.huntNearest": (ctx) => emit(ctx, OUT_HUNT, K.visibleNode, K.visibleCell, WHY.sight),
   "mob.wander": (ctx) => emit(ctx, OUT_WANDER, null, K.wanderCell, WHY.wander),
+  // ---- 批166：吃与捡。两个 check 各自只读一个键，两个 do 各自只写输出槽
+  "mob.isHungry": (ctx) => atLeast(ctx, K.hungry, 1),
+  "mob.hasFood": (ctx) => atLeast(ctx, K.foodHas, 1),
+  "mob.hasForage": (ctx) => atLeast(ctx, K.forageCell, 0),
+  // ★ 吃的目标格是**自己站的格**：`move` 拿到一个到得了的目标，于是它不会一边吃一边走。
+  //   `selfCell < 0` 时 `emit` 自己会拒绝（根上的 check 已经挡住了，这里只是同一道闸）
+  "mob.eat": (ctx) => emit(ctx, OUT_EAT, null, K.selfCell, WHY.eat),
+  "mob.forage": (ctx) => emit(ctx, OUT_FORAGE, K.forageNode, K.forageCell, WHY.forage),
   // 上一拍那个动作**没做成**（retry 或 fatal）。默认树不挂它 —— 挂上去就等于
   // "打不到就换目标"，那是玩法决定，不该由这一批替策划做（见 mob-brain ⑦）。
   "mob.lastFailed": (ctx) => atLeast(ctx, K.lastVerdict, LAST.retry)
@@ -28531,6 +28594,8 @@ var MOB_TREE = bt.sequence(
   bt.check("mob.sane", "mob.canDecide"),
   bt.selector(
     "mob.body",
+    // 批166：饿了先吃（见 `mob-facts.ts` 的 `chooseFromFacts` ①：饿着会掉血）
+    bt.sequence("mob.feed", bt.check("mob.c0", "mob.isHungry"), bt.check("mob.c4", "mob.hasFood"), bt.do("mob.d4", "mob.eat")),
     bt.sequence(
       "mob.hostile",
       bt.check("mob.angry", "mob.isAggressive"),
@@ -28540,6 +28605,8 @@ var MOB_TREE = bt.sequence(
         bt.sequence("mob.sight", bt.check("mob.c2", "mob.seesFoe"), bt.do("mob.d2", "mob.huntNearest"))
       )
     ),
+    // 批166：没仇人、没目标 ⇒ 地上有东西就捡
+    bt.sequence("mob.gather", bt.check("mob.c5", "mob.hasForage"), bt.do("mob.d5", "mob.forage")),
     bt.sequence("mob.roam", bt.check("mob.c3", "mob.hasWander"), bt.do("mob.d3", "mob.wander"))
   )
 );
@@ -28556,7 +28623,7 @@ function createMobTree(options = {}) {
     decide(facts) {
       writeFacts(board, facts);
       agent.step({ tick: facts.tick, board });
-      return boardToDecision(board);
+      return boardToDecision(board, facts);
     },
     memorySize: () => agent.memorySize(),
     boardSnapshot: () => board.snapshot()
@@ -28758,6 +28825,8 @@ var MobBrain = class {
   library;
   /** 建树用的 op 表（`createMobTree` 要用同一份）。 */
   ops;
+  /** 食物表（见 `MobBrainOptions.food`）。`null` = 不吃东西。 */
+  food;
   /**
    * `树 id → 编译好的实例`（见文件头 ⑥）。
    * ★ 键是**树**不是实体：同种怪共享一份树与一块板（板每拍 `clear`，见 `mob-tree.ts` ②）。
@@ -28813,6 +28882,14 @@ var MobBrain = class {
     if (!Number.isInteger(aggro) || aggro < 0) {
       throw new RangeError(`${MOB_BAD_BRAIN}: aggroCells \u5FC5\u987B\u662F >= 0 \u7684\u6574\u6570\uFF0C\u5F97\u5230 ${String(aggro)}`);
     }
+    const hb = options.hungryBelowPercent ?? 50;
+    if (!Number.isInteger(hb) || hb < 0 || hb > 100) {
+      throw new RangeError(`${MOB_BAD_BRAIN}: hungryBelowPercent \u5FC5\u987B\u662F 0..100 \u7684\u6574\u6570\uFF0C\u5F97\u5230 ${String(hb)}`);
+    }
+    const fr = options.forageRadius ?? 6;
+    if (!(fr > 0) || !Number.isFinite(fr)) {
+      throw new RangeError(`${MOB_BAD_BRAIN}: forageRadius \u5FC5\u987B\u662F > 0 \u7684\u6709\u9650\u6570\uFF0C\u5F97\u5230 ${String(fr)}`);
+    }
     this.o = {
       factions: options.factions,
       range: options.range,
@@ -28822,8 +28899,11 @@ var MobBrain = class {
       aggroCells: aggro,
       threat: options.threat ?? null,
       watch: options.watch ?? [HEALTH_TYPE],
-      seed: options.seed ?? 1
+      seed: options.seed ?? 1,
+      hungryBelowPercent: hb,
+      forageRadius: fr
     };
+    this.food = options.food ?? null;
     if (options.library !== void 0 && options.tree !== void 0) {
       throw new RangeError(
         `${MOB_BAD_BRAIN}: \u540C\u65F6\u7ED9\u4E86 library \u4E0E tree \u2014\u2014 \u7F3A\u7701\u6811\u6709\u4E24\u4E2A\u6765\u6E90\uFF08\u89C1 MobBrainOptions.library \u7684 \u2605\uFF09`
@@ -28992,6 +29072,25 @@ var MobBrain = class {
     }) : -1;
     const prev = this.lastOutcome.get(agentId);
     const fresh = prev !== void 0 && prev.tick + 1 === tick;
+    const hunger = self2.get(HUNGER_TYPE);
+    const carry = self2.get(INVENTORY_TYPE) !== void 0;
+    const extra = {};
+    if (hunger !== void 0) {
+      const pct = hunger.max > 0 ? Math.floor(hunger.value * 100 / hunger.max) : 0;
+      extra.hungerPct = pct;
+      extra.hungry = pct < this.o.hungryBelowPercent;
+      if (extra.hungry && carry) {
+        const kind = this.pickFood(scene, agentId);
+        if (kind !== void 0) extra.foodKind = kind;
+      }
+    }
+    if (carry) {
+      const spot = this.nearestForage(scene, self2.worldPosition.x, self2.worldPosition.y, grid);
+      if (spot !== null) {
+        extra.forageCell = spot.cell;
+        extra.forageNode = spot.nodeId;
+      }
+    }
     return {
       agentId,
       tick,
@@ -29001,8 +29100,64 @@ var MobBrain = class {
       visible,
       wanderCell,
       lastVerdict: fresh ? prev.verdict : "none",
-      lastTarget: fresh ? prev.target : -1
+      lastTarget: fresh ? prev.target : -1,
+      ...extra
     };
+  }
+  /**
+   * 包里**最该吃**的那一种（批166）。
+   *
+   * ★ 挑**营养最低**的：包里同时有草和熟肉时，先啃草 —— 熟肉是"花了功夫做的"，
+   *   被 AI 当零食吃掉，玩家会觉得这个 AI 在糟蹋东西。
+   * ★ 平局按 `kind` 升序：同一份事实必须喂出同一个决定（否则回放对不上）。
+   */
+  pickFood(scene, agentId) {
+    const table = this.food;
+    if (table === null) return void 0;
+    let best;
+    let bestN = 0;
+    for (const s of stacksOf(scene, agentId)) {
+      if (s.count <= 0) continue;
+      const e = table[s.kind];
+      if (e === void 0) continue;
+      if (best === void 0 || e.nutrition < bestN || e.nutrition === bestN && s.kind < best) {
+        best = s.kind;
+        bestN = e.nutrition;
+      }
+    }
+    return best;
+  }
+  /**
+   * 最近的、**走得过去**的可拾格（批166）。`null` = 半径内没有。
+   *
+   * ★ 先按 `(dist2, nodeId)` 排序再挑第一个：只挑"最近的"而不定平局规则的话，
+   *   同格的几丛草谁先被捡取决于 `componentsOf` 的顺序，而那个顺序是注册顺序。
+   * ★ 排序在这里重算，**不复用** `pickupNearby` 的排序 —— 那个函数在拾取时还要
+   *   用同一套规则再排一次，两处都对才叫"走过去的那个就是捡到的那个"。
+   */
+  nearestForage(scene, x, z, grid) {
+    const r2 = this.o.forageRadius * this.o.forageRadius;
+    let bestId = -1;
+    let bestCell = -1;
+    let bestD2 = Number.POSITIVE_INFINITY;
+    for (const m of scene.componentsOf(RESOURCE_TYPE)) {
+      const node = m.node;
+      if (node === null || !node.activeInHierarchy) continue;
+      const p = node.worldPosition;
+      const dx = p.x - x;
+      const dz = p.y - z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 > r2) continue;
+      const cell = grid.cellAt(p.x, p.y);
+      if (cell < 0) continue;
+      if (!grid.isWalkable(grid.cellX(cell), grid.cellZ(cell))) continue;
+      if (d2 < bestD2 || d2 === bestD2 && node.id < bestId) {
+        bestD2 = d2;
+        bestId = node.id;
+        bestCell = cell;
+      }
+    }
+    return bestId < 0 ? null : { nodeId: bestId, cell: bestCell };
   }
   /**
    * 记下「这一只这一拍做过的动作结果」（由 `combat-module` 的 `onAttempt` 回调）。
@@ -29075,6 +29230,57 @@ function createMobBrain(options) {
   return new MobBrain(options);
 }
 
+// src/extensions/mobs/mob-forage.ts
+var EMPTY_FORAGE = { foraged: 0, ate: 0, retried: 0, failed: 0, lastError: "" };
+var DEFAULT_FORAGE_PICKUP_RADIUS = 1.2;
+function forageIntentOf(d, actor, tick, radius) {
+  if (d.kind === "forage") {
+    return { kind: "pickup", actor, tick, origin: "ai", radius };
+  }
+  if (d.kind === "eat") {
+    const item = d.item;
+    if (item === void 0 || item === "") return null;
+    return { kind: "use", actor, tick, origin: "ai", item };
+  }
+  return null;
+}
+function runForagePass(o) {
+  const radius = o.radius ?? DEFAULT_FORAGE_PICKUP_RADIUS;
+  let foraged = 0;
+  let ate = 0;
+  let retried = 0;
+  let failed = 0;
+  let lastError = "";
+  for (const id of o.ids) {
+    const d = o.decide(id, o.tick);
+    if (d === null) continue;
+    const it = forageIntentOf(d, id, o.tick, radius);
+    if (it === null) continue;
+    const out = executeIntent(
+      {
+        scene: o.scene,
+        ...o.food === void 0 ? {} : { food: o.food }
+      },
+      it
+    );
+    if (it.kind === "use") {
+      if (out.ok) ate++;
+      else {
+        failed++;
+        lastError = out.code;
+      }
+      continue;
+    }
+    if (out.ok && out.applied > 0) foraged += out.applied;
+    else if (out.verdict === "retry" || out.code === INVENTORY_FULL) retried++;
+    else {
+      failed++;
+      lastError = out.ok ? "FORAGE.NOTHING" : out.code;
+    }
+  }
+  return { foraged, ate, retried, failed, lastError };
+}
+
 // src/extensions/mobs/mob-world.ts
 var MOB_WORLD_BAD_MODULE = "MOB_WORLD.BAD_MODULE";
 function createMobWorldModule(options) {
@@ -29092,6 +29298,9 @@ function createMobWorldModule(options) {
   let hunting = 0;
   let wandering = 0;
   let idle = 0;
+  let foraging = 0;
+  let eating = 0;
+  let forage = EMPTY_FORAGE;
   let lootGranted = 0;
   let lootLost = 0;
   let lootNoRecipient = 0;
@@ -29182,6 +29391,13 @@ function createMobWorldModule(options) {
         hunting,
         wandering,
         idle,
+        foraging,
+        eating,
+        foraged: forage.foraged,
+        ate: forage.ate,
+        forageRetried: forage.retried,
+        forageFailed: forage.failed,
+        lastForageError: forage.lastError,
         kills: combatMod?.stats.kills ?? 0,
         lootGranted,
         lootLost,
@@ -29263,6 +29479,9 @@ function createMobWorldModule(options) {
         ...options.wanderEvery === void 0 ? {} : { wanderEvery: options.wanderEvery },
         ...options.leashCells === void 0 ? {} : { leashCells: options.leashCells },
         ...options.aggroCells === void 0 ? {} : { aggroCells: options.aggroCells },
+        ...options.food === void 0 ? {} : { food: options.food },
+        ...options.hungryBelowPercent === void 0 ? {} : { hungryBelowPercent: options.hungryBelowPercent },
+        ...options.forageRadius === void 0 ? {} : { forageRadius: options.forageRadius },
         ...threat === null ? {} : { threat },
         ...options.library === void 0 ? {} : { library: options.library }
       });
@@ -29375,15 +29594,37 @@ function createMobWorldModule(options) {
       let h = 0;
       let w = 0;
       let i0 = 0;
+      let fg = 0;
+      let et = 0;
       for (const id of ids) {
         const d = b.decide(s, id, tick, options.grid);
         if (d === null) i0++;
         else if (d.kind === "hunt") h++;
-        else w++;
+        else if (d.kind === "wander") w++;
+        else if (d.kind === "forage") fg++;
+        else et++;
       }
       hunting = h;
       wandering = w;
       idle = i0;
+      foraging = fg;
+      eating = et;
+      const pass = runForagePass({
+        scene: s,
+        ids,
+        decide: (agentId, tk) => b.decide(s, agentId, tk, options.grid),
+        tick,
+        ...options.food === void 0 ? {} : { food: options.food }
+      });
+      if (pass.foraged + pass.retried + pass.failed + pass.ate > 0) {
+        forage = {
+          foraged: forage.foraged + pass.foraged,
+          ate: forage.ate + pass.ate,
+          retried: forage.retried + pass.retried,
+          failed: forage.failed + pass.failed,
+          lastError: pass.lastError === "" ? forage.lastError : pass.lastError
+        };
+      }
       moveMod.update(tick, dt);
       combatMod.update(tick, dt);
       prune();
@@ -29395,7 +29636,8 @@ function createMobWorldModule(options) {
       combatMod?.stop?.();
     },
     describe() {
-      return `\u751F\u7269\uFF1A${String(mobs)} \u53EA\uFF08\u8FFD ${String(hunting)} / \u6E38 ${String(wandering)}\uFF09\uFF0C\u51FB\u6740 ${String(
+      const extra = foraging + eating > 0 ? ` / \u6361 ${String(foraging)} / \u5403 ${String(eating)}` : "";
+      return `\u751F\u7269\uFF1A${String(mobs)} \u53EA\uFF08\u8FFD ${String(hunting)} / \u6E38 ${String(wandering)}${extra}\uFF09\uFF0C\u51FB\u6740 ${String(
         combatMod?.stats.kills ?? 0
       )}`;
     }

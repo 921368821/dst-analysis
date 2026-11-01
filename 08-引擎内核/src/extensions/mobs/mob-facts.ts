@@ -22,10 +22,26 @@
  * ④ **`reason` 是给人和机器各看一半的**：人看 HUD（「它在追你，因为记你的仇」），
  *    机器看判据（三条分支各一条断言）。只有 `kind` 时，「看见才追」与「记仇才追」
  *    在终态上完全一样 —— 而这两件事的修法完全不同。
+ *
+ * ⑤ **新增的两组事实（批166）一律可选，缺省 = 老世界的行为逐字节不变**。
+ *    「我饿了」「附近有可拾的东西 / 包里有能吃的东西」这两组只有挂了背包/饱食的
+ *    生物才有值；没挂的生物读到 `undefined`，于是 `chooseFromFacts` 走的还是
+ *    「记仇 > 看见 > 漫游」—— 猎狗仍然没有背包，`mob-world.ts` ② 那条语义不受影响。
+ *    ★ 必填字段会逼着每一处手写夹具都补一遍，而**漏补的那一处不报错**，
+ *      只是那组事实永远为假（`lastVerdict` 在批158 已经踩过一次）。
  */
 
 /** 为什么这么决定（给 HUD 与判据各看一半，见文件头 ④）。 */
-export type DecisionReason = "grudge" | "sight" | "wander";
+export type DecisionReason = "grudge" | "sight" | "wander" | "forage" | "eat";
+
+/**
+ * 决定的种类。`hunt` = 追/打；`wander` = 漫游；`forage` = 去捡地上的东西；
+ * `eat` = 原地吃掉背包里的一个（批166）。
+ *
+ * ★ `forage` 与 `eat` 是**动作**，不是移动：`cell` 对 `eat` 是"自己站的格"
+ *   （于是 `move` 模块拿到的是一个到得了的目标，不会带它走开）。
+ */
+export type DecisionKind = "hunt" | "wander" | "forage" | "eat";
 
 /**
  * 上一拍动作的结果（批158）。
@@ -36,14 +52,22 @@ export type DecisionReason = "grudge" | "sight" | "wander";
 export type LastVerdict = "none" | "ok" | "retry" | "fatal";
 
 export interface Decision {
-  /** `hunt` = 有目标；`wander` = 闲逛。 */
-  readonly kind: "hunt" | "wander";
-  /** 要打 / 要追的节点；`wander` 时是 `-1`。 */
+  /** 见 `DecisionKind`。 */
+  readonly kind: DecisionKind;
+  /** 要打 / 要追 / 要捡的节点；`wander` 与 `eat` 时是 `-1`。 */
   readonly targetNodeId: number;
-  /** 移动目标格（`move` 模块直接用这个）。 */
+  /** 移动目标格（`move` 模块直接用这个）。`eat` 时 = 自己站的格。 */
   readonly cell: number;
-  /** 这一条决定来自哪条分支（记仇 / 看见 / 漫游）。 */
+  /** 这一条决定来自哪条分支（记仇 / 看见 / 漫游 / 捡 / 吃）。 */
   readonly reason: DecisionReason;
+  /**
+   * `eat` 要吃哪一种（`foodKind` 原样带过来）。
+   *
+   * ★ 为什么它必须在决定里而不是留给执行者去猜：包里可能同时有草和熟肉，
+   *   「吃哪个」是决策，不是执行细节。让执行者自己挑的话，同一份事实会喂出
+   *   两种行为，而"它刚才为什么吃了熟肉"在日志里查不到。
+   */
+  readonly item?: string;
 }
 
 /** 网格的最小接口（世界里的 `NavGrid` 与判据里的假网格都满足它）。 */
@@ -97,6 +121,21 @@ export interface MobFacts {
   readonly lastVerdict?: LastVerdict;
   /** 上一拍那个动作打的是谁；`-1` = 无。 */
   readonly lastTarget?: number;
+  /**
+   * 饿不饿（见文件头 ⑤）。`undefined` = 这只生物没有饱食组件（老世界）。
+   *
+   * ★ 阈值在**感知层**求值，不放进树：树是纯数据、op 不带参数，
+   *   把「低于百分之几算饿」编进树里就再也改不动了。
+   */
+  readonly hungry?: boolean;
+  /** 当前饱食百分比（0..100 的整数，面板显示用；`undefined` = 没有饱食组件）。 */
+  readonly hungerPct?: number;
+  /** 包里最该吃的那一种（`undefined` = 没吃的 / 不饿 / 没有背包）。 */
+  readonly foodKind?: string;
+  /** 最近一个够得着、走得过去的可拾格；`-1` / `undefined` = 没有。 */
+  readonly forageCell?: number;
+  /** 那一格上的资源节点 id（日志与"捡到了什么"用；`-1` = 没有）。 */
+  readonly forageNode?: number;
 }
 
 /** 漫游参数（纯函数需要的全部外部量）。 */
@@ -155,6 +194,15 @@ export function wanderTarget(grid: MobGrid, selfCell: number, agentId: number, t
  */
 export function chooseFromFacts(f: MobFacts): Decision | null {
   if (f.selfCell < 0) return null;
+  // ---- ① 吃（批166）：饿了 + 包里有能吃的 ⇒ 原地吃。**排在追人之前**：
+  //      饿着会掉血（`survival-module`），那是会致死的一档状态，比"再追一格"更急。
+  //      而它只在两个条件同时成立时才触发，所以不会把追击反复打断成"边打边啃"。
+  if (f.hungry === true) {
+    const food = f.foodKind;
+    if (food !== undefined && food !== "") {
+      return { kind: "eat", targetNodeId: -1, cell: f.selfCell, reason: "eat", item: food };
+    }
+  }
   if (f.aggressive) {
     if (f.grudge !== null) {
       return { kind: "hunt", targetNodeId: f.grudge.nodeId, cell: f.grudge.cell, reason: "grudge" };
@@ -163,6 +211,12 @@ export function chooseFromFacts(f: MobFacts): Decision | null {
     if (first !== undefined) {
       return { kind: "hunt", targetNodeId: first.nodeId, cell: first.cell, reason: "sight" };
     }
+  }
+  // ---- ② 捡（批166）：没事干才去捡。排在追击之后 —— 拾荒者不打架，
+  //      而会打架的生物"放着眼前的敌人不管去捡草"是明显的坏手感。
+  const forage = f.forageCell ?? -1;
+  if (forage >= 0) {
+    return { kind: "forage", targetNodeId: f.forageNode ?? -1, cell: forage, reason: "forage" };
   }
   if (f.wanderCell < 0) return null;
   return { kind: "wander", targetNodeId: -1, cell: f.wanderCell, reason: "wander" };

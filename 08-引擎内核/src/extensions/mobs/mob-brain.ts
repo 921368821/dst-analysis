@@ -35,6 +35,13 @@
  *    （缓存按树 id，不按实体：同种怪共享一份树与一块板，而板每拍先 `clear`）。
  *    ★ 缺 id **不抛**：一只怪的树被删了不该让整局崩，但必须被数出来（`treeMissing()`）
  *      并在面板上标 `missing` —— 降级路径要有面板 + 计数 + 判据三件套。
+ *
+ * ⑦ **「我饿了」「有东西可捡」在感知层算成布尔，阈值留在这里当参数**（批166）。
+ *    树是纯数据、op 不带参数，所以「低于百分之几算饿」放进树就再也改不动了。
+ *    ★ 三件事都只看**有没有那个组件**：没背包的生物不去找东西捡（猎狗仍然
+ *      `lootNoRecipient`），没饱食组件的生物永远不饿 —— 老世界的行为逐字节不变。
+ *    ★ 「捡哪个」= 最近且**走得过去**的那一格。不过滤可走性的话，长在崖下的
+ *      一丛草会让一只怪永远朝那个格走（`move` 每次都给"到不了"，而它每拍重算同一个目标）。
  */
 
 import type { Scene } from "../../core/scene/scene.ts";
@@ -45,6 +52,10 @@ import { HEALTH_TYPE } from "../combat/health.ts";
 import { Perception } from "../ai/perception.ts";
 import { isDead, type Health } from "../combat/health.ts";
 import type { ThreatTable } from "../combat/threat.ts";
+import { HUNGER_TYPE, type Hunger } from "../survival/hunger.ts";
+import { INVENTORY_TYPE, stacksOf } from "../inventory/inventory.ts";
+import type { FoodTable } from "../survival/food.ts";
+import { RESOURCE_TYPE, type ResourceMarker } from "../worldgen/task-module.ts";
 import {
   wanderTarget,
   type Decision,
@@ -99,6 +110,22 @@ export interface MobBrainOptions {
    *   想「换缺省树」→ 把树 `put` 进库并用它的 id 配组件；想「整根脑子换一棵」→ 只给 `tree`。
    */
   readonly library?: TreeLibrary;
+  /**
+   * 食物表（批166）。给了**才**会「饿了就吃」；不给 ⇒ `foodKind` 永远是 `undefined`。
+   *
+   * ★ 与 `use` 执行器要的是**同一张已归一化的表**（`normalizeFoodTable` 的产物）。
+   *   两处各归一化一遍的话，"能吃的东西"会有两个答案。
+   */
+  readonly food?: FoodTable;
+  /**
+   * 饱食度低于百分之几算饿（默认 50）。0 = 永不饿（等于关掉），100 = 只要不满就吃。
+   *
+   * ★ 这是**玩法参数**：定得太高，拾荒者会把捡到的每一颗都立刻吃掉（存不下东西）；
+   *   定得太低，它会在饿得掉血之后才开始找吃的。
+   */
+  readonly hungryBelowPercent?: number;
+  /** 找吃的东西时看多远（世界单位，默认 6）。与 `pickup` 的半径是同一套坐标。 */
+  readonly forageRadius?: number;
 }
 
 /**
@@ -129,7 +156,7 @@ export interface MobExplain {
 }
 
 export class MobBrain {
-  private readonly o: Required<Omit<MobBrainOptions, "watch" | "threat" | "tree" | "ops" | "library">> & {
+  private readonly o: Required<Omit<MobBrainOptions, "watch" | "threat" | "tree" | "ops" | "library" | "food">> & {
     watch: readonly string[];
     threat: ThreatTable | null;
   };
@@ -138,6 +165,8 @@ export class MobBrain {
   private readonly library: TreeLibrary;
   /** 建树用的 op 表（`createMobTree` 要用同一份）。 */
   private readonly ops: AiOps;
+  /** 食物表（见 `MobBrainOptions.food`）。`null` = 不吃东西。 */
+  private readonly food: FoodTable | null;
   /**
    * `树 id → 编译好的实例`（见文件头 ⑥）。
    * ★ 键是**树**不是实体：同种怪共享一份树与一块板（板每拍 `clear`，见 `mob-tree.ts` ②）。
@@ -194,6 +223,15 @@ export class MobBrain {
     if (!Number.isInteger(aggro) || aggro < 0) {
       throw new RangeError(`${MOB_BAD_BRAIN}: aggroCells 必须是 >= 0 的整数，得到 ${String(aggro)}`);
     }
+    // ---- 批166：两个阈值都在这里校验（配上"饿到 150%"这种值时不该等第 500 拍）
+    const hb = options.hungryBelowPercent ?? 50;
+    if (!Number.isInteger(hb) || hb < 0 || hb > 100) {
+      throw new RangeError(`${MOB_BAD_BRAIN}: hungryBelowPercent 必须是 0..100 的整数，得到 ${String(hb)}`);
+    }
+    const fr = options.forageRadius ?? 6;
+    if (!(fr > 0) || !Number.isFinite(fr)) {
+      throw new RangeError(`${MOB_BAD_BRAIN}: forageRadius 必须是 > 0 的有限数，得到 ${String(fr)}`);
+    }
     this.o = {
       factions: options.factions,
       range: options.range,
@@ -204,7 +242,10 @@ export class MobBrain {
       threat: options.threat ?? null,
       watch: options.watch ?? [HEALTH_TYPE],
       seed: options.seed ?? 1,
+      hungryBelowPercent: hb,
+      forageRadius: fr,
     };
+    this.food = options.food ?? null;
     if (options.library !== undefined && options.tree !== undefined) {
       throw new RangeError(
         `${MOB_BAD_BRAIN}: 同时给了 library 与 tree —— 缺省树有两个来源（见 MobBrainOptions.library 的 ★）`,
@@ -403,6 +444,34 @@ export class MobBrain {
     const prev = this.lastOutcome.get(agentId);
     const fresh = prev !== undefined && prev.tick + 1 === tick;
 
+    // ---- 批166：两组新事实。**都从组件是否在**出发（见文件头 ⑦）
+    const hunger = self.get<Hunger>(HUNGER_TYPE);
+    const carry = self.get(INVENTORY_TYPE) !== undefined;
+    const extra: {
+      hungry?: boolean;
+      hungerPct?: number;
+      foodKind?: string;
+      forageCell?: number;
+      forageNode?: number;
+    } = {};
+    if (hunger !== undefined) {
+      // 整数百分比：浮点会让"到底饿没饿"取决于上一次除法，而那是每拍都发生的事
+      const pct = hunger.max > 0 ? Math.floor((hunger.value * 100) / hunger.max) : 0;
+      extra.hungerPct = pct;
+      extra.hungry = pct < this.o.hungryBelowPercent;
+      if (extra.hungry && carry) {
+        const kind = this.pickFood(scene, agentId);
+        if (kind !== undefined) extra.foodKind = kind;
+      }
+    }
+    if (carry) {
+      const spot = this.nearestForage(scene, self.worldPosition.x, self.worldPosition.y, grid);
+      if (spot !== null) {
+        extra.forageCell = spot.cell;
+        extra.forageNode = spot.nodeId;
+      }
+    }
+
     return {
       agentId,
       tick,
@@ -413,7 +482,71 @@ export class MobBrain {
       wanderCell,
       lastVerdict: fresh ? prev.verdict : "none",
       lastTarget: fresh ? prev.target : -1,
+      ...extra,
     };
+  }
+
+  /**
+   * 包里**最该吃**的那一种（批166）。
+   *
+   * ★ 挑**营养最低**的：包里同时有草和熟肉时，先啃草 —— 熟肉是"花了功夫做的"，
+   *   被 AI 当零食吃掉，玩家会觉得这个 AI 在糟蹋东西。
+   * ★ 平局按 `kind` 升序：同一份事实必须喂出同一个决定（否则回放对不上）。
+   */
+  private pickFood(scene: Scene, agentId: number): string | undefined {
+    const table = this.food;
+    if (table === null) return undefined;
+    let best: string | undefined;
+    let bestN = 0;
+    for (const s of stacksOf(scene, agentId)) {
+      if (s.count <= 0) continue;
+      const e = table[s.kind];
+      if (e === undefined) continue;
+      if (best === undefined || e.nutrition < bestN || (e.nutrition === bestN && s.kind < best)) {
+        best = s.kind;
+        bestN = e.nutrition;
+      }
+    }
+    return best;
+  }
+
+  /**
+   * 最近的、**走得过去**的可拾格（批166）。`null` = 半径内没有。
+   *
+   * ★ 先按 `(dist2, nodeId)` 排序再挑第一个：只挑"最近的"而不定平局规则的话，
+   *   同格的几丛草谁先被捡取决于 `componentsOf` 的顺序，而那个顺序是注册顺序。
+   * ★ 排序在这里重算，**不复用** `pickupNearby` 的排序 —— 那个函数在拾取时还要
+   *   用同一套规则再排一次，两处都对才叫"走过去的那个就是捡到的那个"。
+   */
+  private nearestForage(
+    scene: Scene,
+    x: number,
+    z: number,
+    grid: MobGrid,
+  ): { readonly nodeId: number; readonly cell: number } | null {
+    const r2 = this.o.forageRadius * this.o.forageRadius;
+    let bestId = -1;
+    let bestCell = -1;
+    let bestD2 = Number.POSITIVE_INFINITY;
+    for (const m of scene.componentsOf<ResourceMarker>(RESOURCE_TYPE)) {
+      const node = m.node;
+      if (node === null || !node.activeInHierarchy) continue;
+      const p = node.worldPosition;
+      const dx = p.x - x;
+      const dz = p.y - z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 > r2) continue;
+      const cell = grid.cellAt(p.x, p.y);
+      if (cell < 0) continue;
+      // 见文件头 ⑦：走得过去才算"可拾"，否则它会对着一丛够不着的草走一辈子
+      if (!grid.isWalkable(grid.cellX(cell), grid.cellZ(cell))) continue;
+      if (d2 < bestD2 || (d2 === bestD2 && node.id < bestId)) {
+        bestD2 = d2;
+        bestId = node.id;
+        bestCell = cell;
+      }
+    }
+    return bestId < 0 ? null : { nodeId: bestId, cell: bestCell };
   }
 
   /**

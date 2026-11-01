@@ -10329,7 +10329,183 @@ MUTANTS = [
         ],
         "test": "tests/host/net-handshake.test.ts",
     },
-]
+
+    {
+        "name": "M1083 饿的判据从「<」放宽成「<=」（差一个百分点就开吃）",
+        "file": "src/extensions/mobs/mob-brain.ts",
+        "pairs": [
+            (
+                "      extra.hungry = pct < this.o.hungryBelowPercent;",
+                "      extra.hungry = pct <= this.o.hungryBelowPercent;",
+            ),
+        ],
+        "test": "tests/extensions/mob-forage.test.ts",
+    },
+    {
+        "name": "M1084 没背包的生物也去找东西捡（猎狗开始盯上地上的肉）",
+        "file": "src/extensions/mobs/mob-brain.ts",
+        "pairs": [
+            (
+                "    if (carry) {",
+                "    if (carry || true) {",
+            ),
+        ],
+        "test": "tests/extensions/mob-forage.test.ts",
+    },
+    {
+        "name": "M1085 可拾候选不看可走性（崖下那丛草会让它朝崖下走一辈子）",
+        "file": "src/extensions/mobs/mob-brain.ts",
+        "pairs": [
+            (
+                "      if (!grid.isWalkable(grid.cellX(cell), grid.cellZ(cell))) continue;",
+                "      if (false) continue;",
+            ),
+        ],
+        "test": "tests/extensions/mob-forage.test.ts",
+    },
+    {
+        "name": "M1086 可拾候选总是覆盖（挑到的是最后遍历到的那一丛，不是最近的）",
+        "file": "src/extensions/mobs/mob-brain.ts",
+        "pairs": [
+            (
+                "      if (d2 < bestD2 || (d2 === bestD2 && node.id < bestId)) {",
+                "      if (d2 <= bestD2 || true) {",
+            ),
+        ],
+        "test": "tests/extensions/mob-forage.test.ts",
+    },
+    {
+        "name": "M1087 先吃营养最高的（AI 把熟肉当零食吃掉）",
+        "file": "src/extensions/mobs/mob-brain.ts",
+        "pairs": [
+            (
+                "      if (best === undefined || e.nutrition < bestN || (e.nutrition === bestN && s.kind < best)) {",
+                "      if (best === undefined || e.nutrition > bestN || (e.nutrition === bestN && s.kind < best)) {",
+            ),
+        ],
+        "test": "tests/extensions/mob-forage.test.ts",
+    },
+    {
+        "name": "M1088 food.has 恒为真（包里没吃的也走进食分支）",
+        "file": "src/extensions/mobs/mob-tree.ts",
+        "pairs": [
+            (
+                "  board.set(K.foodHas, f.foodKind !== undefined && f.foodKind !== \"\" ? 1 : 0);",
+                "  board.set(K.foodHas, 1);",
+            ),
+        ],
+        "test": "tests/extensions/mob-forage.test.ts",
+    },
+    {
+        "name": "M1089 mob.isHungry 的阈值从 1 降到 0（永远算饿）",
+        "file": "src/extensions/mobs/mob-tree.ts",
+        "pairs": [
+            (
+                "  \"mob.isHungry\": (ctx) => atLeast(ctx, K.hungry, 1),",
+                "  \"mob.isHungry\": (ctx) => atLeast(ctx, K.hungry, 0),",
+            ),
+        ],
+        "test": "tests/extensions/mob-forage.test.ts",
+    },
+    {
+        "name": "M1090 吃的目标格写成漫游格（它会一边吃一边走开）",
+        "file": "src/extensions/mobs/mob-tree.ts",
+        "pairs": [
+            (
+                "  \"mob.eat\": (ctx) => emit(ctx, OUT_EAT, null, K.selfCell, WHY.eat),",
+                "  \"mob.eat\": (ctx) => emit(ctx, OUT_EAT, null, K.wanderCell, WHY.eat),",
+            ),
+        ],
+        "test": "tests/extensions/mob-forage.test.ts",
+    },
+    {
+        "name": "M1091 去捡的目标格写成自己站的格（决定说去捡，却站在原地）",
+        "file": "src/extensions/mobs/mob-tree.ts",
+        "pairs": [
+            (
+                "  \"mob.forage\": (ctx) => emit(ctx, OUT_FORAGE, K.forageNode, K.forageCell, WHY.forage),",
+                "  \"mob.forage\": (ctx) => emit(ctx, OUT_FORAGE, K.forageNode, K.selfCell, WHY.forage),",
+            ),
+        ],
+        "test": "tests/extensions/mob-forage.test.ts",
+    },
+    {
+        "name": "M1092 eat 缺 item 时也拼出一条 use（配置错误伪装成「捡不到东西」）",
+        "file": "src/extensions/mobs/mob-forage.ts",
+        "pairs": [
+            (
+                "    if (item === undefined || item === \"\") return null;",
+                "    if (item === undefined || item === \"\") return { kind: \"use\", actor, tick, origin: \"ai\", item: item ?? \"\" };",
+            ),
+        ],
+        "test": "tests/extensions/mob-forage.test.ts",
+    },
+    {
+        "name": "M1093 背包满与真失败合并计（「它一直在捡却捡不起来」看不出来了）",
+        "file": "src/extensions/mobs/mob-forage.ts",
+        "pairs": [
+            (
+                "    else if (out.verdict === \"retry\" || out.code === INVENTORY_FULL) retried++;",
+                "    else if (false) retried++;",
+            ),
+        ],
+        "test": "tests/extensions/mob-forage.test.ts",
+    },
+    {
+        "name": "M1094 模板写了 carry 也不挂背包（拾荒者捡不了东西、战利品仍然没人收）",
+        "file": "src/extensions/mobs/spawn-mob.ts",
+        "pairs": [
+            (
+                "  if (tpl.carry !== null) attached.push([INVENTORY_TYPE, inventory]);",
+                "  if (false) attached.push([INVENTORY_TYPE, inventory]);",
+            ),
+        ],
+        "test": "tests/extensions/mob-forage.test.ts",
+    },
+    {
+        "name": "M1095 所有生物都挂背包（猎狗的 lootNoRecipient 语义被默认值接管）",
+        "file": "src/extensions/mobs/spawn-mob.ts",
+        "pairs": [
+            (
+                "  if (tpl.carry !== null) attached.push([INVENTORY_TYPE, inventory]);",
+                "  attached.push([INVENTORY_TYPE, inventory]);",
+            ),
+        ],
+        "test": "tests/extensions/mob-forage.test.ts",
+    },
+    {
+        "name": "M1096 已校验的模板不再接受（respawnPrey 交回来的每只都报 BAD_TEMPLATE）",
+        "file": "src/extensions/mobs/mob-template.ts",
+        "pairs": [
+            (
+                "  if (t.carry !== undefined && t.carry !== null) {",
+                "  if (t.carry !== undefined) {",
+            ),
+        ],
+        "test": "tests/extensions/mob-forage.test.ts",
+    },
+    {
+        "name": "M1097 拾取插到追击之前（放着眼前的敌人去捡草）",
+        "file": "src/extensions/mobs/mob-facts.ts",
+        "pairs": [
+            (
+                "  if (f.aggressive) {",
+                "  if (f.aggressive && (f.forageCell ?? -1) < 0) {",
+            ),
+        ],
+        "test": "tests/extensions/mob-forage.test.ts",
+    },
+    {
+        "name": "M1098 world 每拍都问一遍、但决定恒为 null（模块内部全绿，世界里什么都不发生）",
+        "file": "src/extensions/mobs/mob-world.ts",
+        "pairs": [
+            (
+                "        decide: (agentId, tk) => b.decide(s, agentId, tk, options.grid),",
+                "        decide: () => null,",
+            ),
+        ],
+        "test": "tests/extensions/mob-forage.test.ts",
+    },]
 
 def run(m: dict) -> tuple[int, str]:
     """
